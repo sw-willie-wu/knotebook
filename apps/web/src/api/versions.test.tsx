@@ -43,7 +43,11 @@ function listBody(over: Partial<VersionListDto> = {}): VersionListDto {
 /** "AQID" ＝ bytes [1,2,3] */
 const SNAP = (id: string) => ({ id, seq: 1, ydoc: "AQID" });
 
-function setup(handler: (url: string, init?: RequestInit) => Response) {
+/** 預設 harness 關 retry；要守 hook 自己的 `retry: false` 的案傳 `new QueryClient()`（不關 retry）進來。 */
+function setup(
+  handler: (url: string, init?: RequestInit) => Response,
+  queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+) {
   const calls: string[] = [];
   vi.stubGlobal(
     "fetch",
@@ -53,7 +57,6 @@ function setup(handler: (url: string, init?: RequestInit) => Response) {
       return Promise.resolve(handler(url, init));
     }),
   );
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   );
@@ -118,6 +121,18 @@ describe("api/versions", () => {
     expect(snap.result.current.error).toBeInstanceOf(VersionSnapshotMismatch);
     expect(snap.result.current.data).toBeUndefined();
     await waitFor(() => expect(calls.filter((c) => c.includes("?limit=50")).length).toBe(listCalls + 1));
+  });
+
+  it("快照失敗（404）→ error，不重試：快照端點恰打一次（QueryClient 不關 retry，守 hook 自己的 retry: false）", async () => {
+    // 刻意用**不關 retry** 的 QueryClient：拿掉 hook 的 `retry: false` 的話 query-core 預設重試 3 次
+    //（退避約 7 秒，塞得進全域等待上限），isError 出現時已打 4 次 → 計次紅。
+    const { calls, wrapper } = setup((url) => {
+      if (url === `/api/notes/${NOTE}/versions/1`) return fakeResponse(404, { error: { code: "not_found", message: "x" } });
+      throw new Error(`unexpected fetch: ${url}`);
+    }, new QueryClient());
+    const snap = renderHook(() => useVersionSnapshot(NOTE, { seq: 1, id: V1, name: null }), { wrapper });
+    await waitFor(() => expect(snap.result.current.isError).toBe(true));
+    expect(calls.filter((c) => c === `GET /api/notes/${NOTE}/versions/1`)).toHaveLength(1);
   });
 
   it("清單游標：before 與 limit 照實帶上；第二頁用上一頁的 nextBefore", async () => {

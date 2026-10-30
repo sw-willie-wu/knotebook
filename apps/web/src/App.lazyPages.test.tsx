@@ -153,8 +153,8 @@ describe("App route tree — 整頁 lazy route 的 ErrorBoundary 接線（#201�
     sessionStorage.setItem(ADMIN_FLAG, "1");
     renderAt("/admin/users");
 
-    const dialog = await screen.findByRole("dialog", { name: "Site admin" }, { timeout: 3_000 });
-    await waitFor(() => expect(within(dialog).getByText(CHUNK_ERROR_TEXT)).toBeInTheDocument(), { timeout: 3_000 });
+    const dialog = await screen.findByRole("dialog", { name: "Site admin" });
+    await waitFor(() => expect(within(dialog).getByText(CHUNK_ERROR_TEXT)).toBeInTheDocument());
     expect(within(dialog).getByRole("button", { name: "Try again" })).toBeInTheDocument();
     expect(within(dialog).getByRole("navigation", { name: "Site admin" })).toBeInTheDocument();
     expect(screen.queryByText("Something went wrong")).not.toBeInTheDocument();
@@ -167,7 +167,7 @@ describe("App route tree — 整頁 lazy route 的 ErrorBoundary 接線（#201�
     mockPages.admin = "ok";
     renderAt("/admin/users");
 
-    await waitFor(() => expect(screen.getByText("adminsections-mock-ok")).toBeInTheDocument(), { timeout: 3_000 });
+    await waitFor(() => expect(screen.getByText("adminsections-mock-ok")).toBeInTheDocument());
     expect(sessionStorage.getItem(ADMIN_FLAG)).toBeNull();
   });
 
@@ -177,7 +177,7 @@ describe("App route tree — 整頁 lazy route 的 ErrorBoundary 接線（#201�
     sessionStorage.setItem(REGISTER_FLAG, "1");
     renderAt("/register");
 
-    await waitFor(() => expect(screen.getByText(CHUNK_ERROR_TEXT)).toBeInTheDocument(), { timeout: 3_000 });
+    await waitFor(() => expect(screen.getByText(CHUNK_ERROR_TEXT)).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
     expect(reload).not.toHaveBeenCalled();
     expect(sessionStorage.getItem(REGISTER_FLAG)).toBe("1");
@@ -188,7 +188,7 @@ describe("App route tree — 整頁 lazy route 的 ErrorBoundary 接線（#201�
     mockPages.register = "ok";
     renderAt("/register");
 
-    await waitFor(() => expect(screen.getByText("registerpage-mock-ok")).toBeInTheDocument(), { timeout: 3_000 });
+    await waitFor(() => expect(screen.getByText("registerpage-mock-ok")).toBeInTheDocument());
     expect(sessionStorage.getItem(REGISTER_FLAG)).toBeNull();
   });
 
@@ -196,13 +196,13 @@ describe("App route tree — 整頁 lazy route 的 ErrorBoundary 接線（#201�
     sessionStorage.setItem(REGISTER_FLAG, "1");
     sessionStorage.setItem(LINK_ACCOUNT_FLAG, "1");
     renderAt("/register");
-    await waitFor(() => expect(screen.getByText(CHUNK_ERROR_TEXT)).toBeInTheDocument(), { timeout: 3_000 });
+    await waitFor(() => expect(screen.getByText(CHUNK_ERROR_TEXT)).toBeInTheDocument());
 
     act(() => navigateFn?.("/link-account"));
 
     // 同一個 boundary 實例被兩條 route 共用的話，error 態會留著（resetKey 不變→不動作），
     // link-account 頁永遠出不來。
-    await waitFor(() => expect(screen.getByText("linkaccountpage-mock-ok")).toBeInTheDocument(), { timeout: 3_000 });
+    await waitFor(() => expect(screen.getByText("linkaccountpage-mock-ok")).toBeInTheDocument());
     expect(screen.queryByText(CHUNK_ERROR_TEXT)).not.toBeInTheDocument();
     expect(reload).not.toHaveBeenCalled();
     // link-account 成功掛載只清自己的額度，不碰 register 的

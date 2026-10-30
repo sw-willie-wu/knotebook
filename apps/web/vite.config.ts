@@ -48,7 +48,8 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
     css: true,
-    // 單案上限要遠大於 test/setup.ts 的 asyncUtilTimeout（3s），否則一案內兩次等待就會先撞 vitest 逾時
-    testTimeout: 15_000,
+    // 單案上限要遠大於 test/setup.ts 的 asyncUtilTimeout（10s；放寬理由與實測數字見該檔），
+    // 否則一案內兩次慢等待就會先撞 vitest 逾時、看不到是哪個查詢等不到
+    testTimeout: 30_000,
   },
 });

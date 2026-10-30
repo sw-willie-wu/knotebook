@@ -43,8 +43,8 @@ function LocationProbe() {
   return <div data-testid="loc">{`${location.pathname}${location.search}`}</div>;
 }
 
-function renderAt(path: string): QueryClient {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+/** 預設 harness 關 retry；要守頁面自己的 `retry: false` 的案傳 `new QueryClient()`（不關 retry）進來。 */
+function renderAt(path: string, queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })): QueryClient {
   render(
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
@@ -180,10 +180,13 @@ describe("LinkAccountPage（#187 §9.4 /link-account）", () => {
     expect(await screen.findByText(/This email is already in use/)).toBeInTheDocument();
   });
 
-  it("沒有可用證明方式（409 oidc_link_no_proof_method）→ 只顯示說明與「回登入頁」", async () => {
-    mockFetch({ "GET /api/auth/oidc/pending": () => err(409, "oidc_link_no_proof_method") });
-    renderAt("/link-account");
+  it("沒有可用證明方式（409 oidc_link_no_proof_method）→ 只顯示說明與「回登入頁」；pending 不重試（恰打一次）", async () => {
+    const calls = mockFetch({ "GET /api/auth/oidc/pending": () => err(409, "oidc_link_no_proof_method") });
+    // 這一案刻意用**不關 retry** 的 QueryClient：守的是頁面 `["oidc-pending"]` 查詢自己的 `retry: false`。
+    // 拿掉它的話 query-core 預設重試 3 次（退避約 7 秒，塞得進全域等待上限），錯誤畫面出現時已打 4 次 → 計次紅。
+    renderAt("/link-account", new QueryClient());
     expect(await screen.findByText(/has no other way to confirm it's you/)).toBeInTheDocument();
+    expect(calls.filter((c) => c.method === "GET" && c.url === "/api/auth/oidc/pending")).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Back to sign in" })).toBeInTheDocument();
     expect(expectCardControls44()).toBeGreaterThan(0);
     expect(screen.queryByLabelText("Password for this account")).not.toBeInTheDocument();

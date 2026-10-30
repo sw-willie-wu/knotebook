@@ -302,18 +302,16 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
 
     renderAt(["/notes/my-note"], fetchMock);
 
-    // timeout 3s：這裡等的是**真實** NotePage lazy import（整條 BlockNote 相依鏈）
-    // ——全 suite 唯一用 waitFor 等真動態 import 的地方，預設 1s 在冷啟高負載下
-    // 餘裕太薄，會間歇性紅（#69 審查實測；#66 那輪首跑的一次紅疑同源）。
-    await waitFor(() => expect(screen.getByTestId("note-editor")).toBeInTheDocument(), { timeout: 3_000 });
+    // 這裡等的是**真實** NotePage lazy import（整條 BlockNote 相依鏈），RTL 預設 1s 在冷啟
+    // 高負載下餘裕太薄，會間歇性紅（#69 審查實測；#66 那輪首跑的一次紅疑同源）——等待上限
+    // 用 test/setup.ts 的全域 asyncUtilTimeout（曾單案設 3s，全域放寬後已低於全域，移除）。
+    await waitFor(() => expect(screen.getByTestId("note-editor")).toBeInTheDocument());
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 
     openUserMenu("Plain");
     fireEvent.click(screen.getByText("Settings"));
 
-    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Account info" })).toBeInTheDocument(), {
-      timeout: 3_000,
-    });
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Account info" })).toBeInTheDocument());
     // 背景頁（NotePage 的替身編輯器）仍在 DOM 裡——兩者共存，不是背景被卸載換成 modal。
     expect(screen.getByTestId("note-editor")).toBeInTheDocument();
 
@@ -341,29 +339,23 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
 
     renderAt(["/notes/my-note"], fetchMock);
 
-    // 同前案：等真實 lazy import，3s（見上）
-    await waitFor(() => expect(screen.getByTestId("note-editor")).toBeInTheDocument(), { timeout: 3_000 });
+    // 同前案：等真實 lazy import（等待上限見上）
+    await waitFor(() => expect(screen.getByTestId("note-editor")).toBeInTheDocument());
 
     openUserMenu("Plain");
     fireEvent.click(screen.getByText("Settings"));
 
-    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Account info" })).toBeInTheDocument(), {
-      timeout: 3_000,
-    });
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Account info" })).toBeInTheDocument());
 
     fireEvent.click(within(screen.getByRole("navigation", { name: "Settings" })).getByText("Storage"));
-    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Storage" })).toBeInTheDocument(), {
-      timeout: 3_000,
-    });
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Storage" })).toBeInTheDocument());
 
     fireEvent.click(within(screen.getByRole("navigation", { name: "Settings" })).getByText("Groups"));
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Groups" })).toBeInTheDocument(), {
-      timeout: 3_000,
-    });
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Groups" })).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
 
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument(), { timeout: 3_000 });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     // 落在這篇筆記（背景已收斂成 /n/tester/my-note，見上一案），不是被錯誤地帶回 /：`AppShell`（HomePage 也用同一個殼）
     // 一律有「New note」按鈕，不能拿來分辨兩者，這裡改斷言 `NotePage` 特有的內容——
     // 編輯器替身仍在，且標題輸入框帶著這篇筆記的標題（HomePage 沒有這個欄位；
@@ -648,7 +640,7 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
     try {
       renderAt(["/settings/authorization"], fetchMock);
 
-      const dialog = await screen.findByRole("dialog", {}, { timeout: 3_000 });
+      const dialog = await screen.findByRole("dialog");
       await waitFor(
         () =>
           expect(
@@ -656,7 +648,6 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
               "Couldn't load this page — check your connection, or a new version may have been deployed.",
             ),
           ).toBeInTheDocument(),
-        { timeout: 3_000 },
       );
       expect(within(dialog).getByRole("button", { name: "Try again" })).toBeInTheDocument();
       // 外框與導覽仍在：boundary 在 modal 內容區，不是包整個 modal
@@ -740,7 +731,7 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
   it("#179（正式 AppRoutes 接線）：改名後舊 slug 被新筆記 B 拿走 → 以 PUSH 導到舊網址會落到 B（主樹的 useNavigationType 恆為 POP，要用真實的）", async () => {
     const { fetchMock, override } = renameableFetch();
     renderAt(["/n/tester/my-note"], fetchMock);
-    await waitFor(() => expect(screen.getByTestId("note-editor")).toBeInTheDocument(), { timeout: 3_000 });
+    await waitFor(() => expect(screen.getByTestId("note-editor")).toBeInTheDocument());
 
     const title = screen.getByLabelText("Note title");
     fireEvent.change(title, { target: { value: "Renamed Note" } });
@@ -767,14 +758,12 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
     // resolvedFor.key（已跟到新網址）也不是現行 canonical——要靠「這一篇走過的網址」記錄認得它。
     const { fetchMock } = renameableFetch();
     renderAt(["/n/tester/my-note"], fetchMock);
-    await waitFor(() => expect(screen.getByTestId("note-editor")).toBeInTheDocument(), { timeout: 3_000 });
+    await waitFor(() => expect(screen.getByTestId("note-editor")).toBeInTheDocument());
     const editor = screen.getByTestId("note-editor");
 
     openUserMenu("Plain");
     fireEvent.click(screen.getByText("Settings"));
-    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Account info" })).toBeInTheDocument(), {
-      timeout: 3_000,
-    });
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Account info" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/n\/tester\/my-note$/));
@@ -810,7 +799,7 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
   it("#179：改標題（網址換成新 slug）→ 開設定 → 關閉 → 網址是新 slug，不退回舊網址；共編不拆線、編輯器不重掛", async () => {
     const { fetchMock } = renameableFetch();
     renderAt(["/n/tester/my-note"], fetchMock);
-    await waitFor(() => expect(screen.getByTestId("note-editor")).toBeInTheDocument(), { timeout: 3_000 });
+    await waitFor(() => expect(screen.getByTestId("note-editor")).toBeInTheDocument());
     const editor = screen.getByTestId("note-editor");
     collab.noteIds.length = 0;
 
@@ -821,9 +810,7 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
 
     openUserMenu("Plain");
     fireEvent.click(screen.getByText("Settings"));
-    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Account info" })).toBeInTheDocument(), {
-      timeout: 3_000,
-    });
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Account info" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 
@@ -839,14 +826,12 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
   it("#179：設定 modal 開著時這篇被改名（重抓帶回新 slug）→ modal 不被關、真實網址不動；關閉後回到新 slug", async () => {
     const { fetchMock, rename } = renameableFetch();
     const queryClient = renderAt(["/n/tester/my-note"], fetchMock);
-    await waitFor(() => expect(screen.getByTestId("note-editor")).toBeInTheDocument(), { timeout: 3_000 });
+    await waitFor(() => expect(screen.getByTestId("note-editor")).toBeInTheDocument());
     const editor = screen.getByTestId("note-editor");
 
     openUserMenu("Plain");
     fireEvent.click(screen.getByText("Settings"));
-    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Account info" })).toBeInTheDocument(), {
-      timeout: 3_000,
-    });
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Account info" })).toBeInTheDocument());
     collab.noteIds.length = 0;
 
     rename("renamed-elsewhere");
@@ -875,14 +860,12 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
     // 舊網址，背景 params 與已跟上新網址的 resolvedFor.key 對不上 → 重解析。
     const { fetchMock, rename } = renameableFetch();
     const queryClient = renderAt(["/n/tester/my-note"], fetchMock);
-    await waitFor(() => expect(screen.getByTestId("note-editor")).toBeInTheDocument(), { timeout: 3_000 });
+    await waitFor(() => expect(screen.getByTestId("note-editor")).toBeInTheDocument());
     const editor = screen.getByTestId("note-editor");
 
     openUserMenu("Plain");
     fireEvent.click(screen.getByText("Settings"));
-    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Account info" })).toBeInTheDocument(), {
-      timeout: 3_000,
-    });
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Account info" })).toBeInTheDocument());
     fireEvent.click(within(screen.getByRole("navigation")).getByText("Groups"));
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/settings\/groups$/));
     collab.noteIds.length = 0;

@@ -157,7 +157,7 @@ describe("公開頁 × 簡報（spec §8、F1）", () => {
     const calls = vi.mocked(renderDeck).mock.calls.length;
     server.body = { title: "Public Note", ydoc: ydocBase64(V2) };
     await act(async () => queryClient.invalidateQueries());
-    await waitFor(() => expect(vi.mocked(renderDeck).mock.calls.length).toBe(calls + 1), { timeout: 2500 });
+    await waitFor(() => expect(vi.mocked(renderDeck).mock.calls.length).toBe(calls + 1));
     await waitFor(() => expect(deck.slide).toHaveBeenLastCalledWith(3, 0));
     expect(screen.getByTestId("loc").textContent).toBe(`/p/${TOKEN}?present#/b`);
   });
