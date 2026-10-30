@@ -18,10 +18,12 @@ import { showTrashedToast } from "@/lib/trash-undo";
 import { Button } from "@/components/ui/button";
 import { Copy, FolderInput, Trash } from "@/components/ui/icons";
 import { toast } from "@/components/ui/toast";
+import type { DestSpace, DestTarget } from "./destination-level";
 import { DestinationPickerDialog } from "./DestinationPickerDialog";
 import { CopyConfirmDialog, MoveConfirmDialog } from "./select-dialogs";
 import {
   buildDestinationTree,
+  destinationLabel,
   partitionEligible,
   SELECT_ACTIONS,
   selectedTabNotes,
@@ -69,6 +71,12 @@ function errorMessage(t: Translate, err: unknown): string {
  */
 const ACTION_TEXT_BUTTON = "min-w-0 flex-1 gap-1.5 px-1.5";
 const ACTION_ICON = "hidden h-4 w-4 shrink-0 @min-[14.5rem]:block";
+
+/** PR-2c 的根層目的地 → T5 的 DestTarget（我的筆記根層／群組根層；T6b 換成逐層目的地後刪）。 */
+function rootTarget(destination: Destination): DestTarget {
+  const space: DestSpace = destination.kind === "group" ? { kind: "group", groupId: destination.groupId, name: destination.name } : { kind: "personal" };
+  return { kind: "place", space, folder: null };
+}
 
 interface Snapshot {
   action: "move" | "copy";
@@ -173,16 +181,33 @@ export function SelectActionBar() {
           },
         });
       } else if (action === "move" && destination?.kind === "group") {
-        outcome = await moveNotesInOrder(items, destination.groupId, { queryClient, onProgress });
+        outcome = await moveNotesInOrder(items, { groupId: destination.groupId }, { queryClient, onProgress });
       } else if (action === "copy" && destination !== null) {
-        outcome = await copyNotesInOrder(items, destination, { queryClient, onProgress });
+        outcome = await copyNotesInOrder(items, rootTarget(destination), { queryClient, onProgress });
       } else {
         return;
       }
 
       const { stopped } = outcome;
       const done = outcome.done.length;
-      const title = selectionResultTitle({ action, done, skipped: preSkipped + outcome.skipped, destination }, t);
+      const title = selectionResultTitle(
+        {
+          action,
+          tab,
+          notesDone: done,
+          foldersDone: 0,
+          trashedViaFolders: 0,
+          notesSkipped: preSkipped + outcome.skipped,
+          foldersSkipped: 0,
+          foldersBlocked: 0,
+          foldersGone: 0,
+          destinationName: destination === null ? null : destinationLabel(destination, t),
+          sameSpace: false,
+          destination: destination === null ? null : rootTarget(destination),
+          copySource: null,
+        },
+        t,
+      );
       const stoppedTitle = stopped ? errorMessage(t, stopped.cause) : null;
       const stoppedDescription = stopped ? t("select.stoppedAfter", { count: done }) : undefined;
       if (action === "delete") {
