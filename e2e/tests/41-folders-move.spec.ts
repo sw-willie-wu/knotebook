@@ -154,8 +154,18 @@ test("41-2 子選單鍵盤：ArrowRight 開子選單與進層（Back 聚焦）�
   await page.keyboard.press("Enter");
   const moveTo = page.getByRole("menuitem", { name: "Move to…", exact: true });
   await expect(moveTo).toBeVisible();
-  for (let i = 0; i < 10 && !(await moveTo.evaluate((el) => el === document.activeElement)); i++) {
+  // Radix 的方向鍵是在 keydown 之後用 setTimeout 才搬焦點，按完鍵立刻讀 activeElement 會讀到舊值。
+  // 所以每按一下都等焦點真的落到下一項再按下一次，不然會多按，停在「Copy to…」。
+  const mainItems = page.getByRole("menu").locator('[role="menuitem"]:not([data-disabled])');
+  await expect(mainItems.first()).toBeFocused();
+  const moveToIndex = await moveTo.evaluate((el) => {
+    const menu = el.closest('[role="menu"]');
+    return menu === null ? -1 : Array.from(menu.querySelectorAll('[role="menuitem"]:not([data-disabled])')).indexOf(el);
+  });
+  expect(moveToIndex).toBeGreaterThan(0);
+  for (let i = 1; i <= moveToIndex; i++) {
     await page.keyboard.press("ArrowDown");
+    await expect(mainItems.nth(i)).toBeFocused();
   }
   await expect(moveTo).toBeFocused();
 
