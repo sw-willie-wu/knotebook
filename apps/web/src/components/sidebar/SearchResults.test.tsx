@@ -130,7 +130,7 @@ describe("SearchResults", () => {
     ]);
     expect(items.map((li) => li.querySelector("div:nth-child(2)")?.textContent)).toEqual([
       "My notes",
-      "Workspace › Workshop A",
+      "Groups › Workshop A",
       "Shared with me · Editor",
     ]);
     expect(screen.getByRole("status")).toHaveTextContent("3 results");
@@ -198,7 +198,7 @@ describe("SearchResults", () => {
     expect(screen.queryAllByRole("button", { name: /^Note actions for/ })).toHaveLength(0);
     expect(rowLink("Alpha Plan")).toHaveAttribute("href", canonicalNotePath(ALPHA_PLAN));
     expect(rowLink("Alpha Group")).toHaveAttribute("href", canonicalNotePath(ALPHA_GROUP));
-    expect(screen.getByRole("link", { name: "Alpha Group Workspace › Workshop A" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Alpha Group Groups › Workshop A" })).toBeInTheDocument();
 
     await waitFor(() => expect(rowLink("Alpha Plan")).toHaveAttribute("aria-current", "page"));
     expect(rowLink("Alpha Group")).not.toHaveAttribute("aria-current");

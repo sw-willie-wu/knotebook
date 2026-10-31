@@ -74,10 +74,10 @@ describe("DestinationPickerDialog", () => {
   });
 
   // ── PR-2c 既有案（DP1–DP5），依一次一層的新 props 改寫（T6a）
-  it("DP1 copy（PR-2c 形）：My notes、Team 依序，沒有「Workspace」小標；圖示 user／users；按 Team → onPick 群組根層", () => {
+  it("DP1 copy（PR-2c 形）：My notes、Team 依序，沒有「Groups」小標；圖示 user／users；按 Team → onPick 群組根層", () => {
     const { onPick } = renderPicker({ mode: "copy", level: level(flat("copy"), [], EMPTY_FOLDER_INDEX) });
     expect(within(dialog()).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["My notes", "Team"]);
-    expect(within(dialog()).queryByText("Workspace")).toBeNull();
+    expect(within(dialog()).queryByText("Groups")).toBeNull();
     expect(item("My notes").querySelector('svg[data-icon="user"]')).not.toBeNull();
     expect(item("Team").querySelector('svg[data-icon="users"]')).not.toBeNull();
     fireEvent.click(item("Team"));
@@ -90,10 +90,10 @@ describe("DestinationPickerDialog", () => {
     expect(onPick).toHaveBeenCalledWith({ kind: "place", space: PERSONAL, folder: null });
   });
 
-  it("DP2 move（PR-2c 形）：沒有 My notes，只有 Team；沒有「Workspace」小標", () => {
+  it("DP2 move（PR-2c 形）：沒有 My notes，只有 Team；沒有「Groups」小標", () => {
     renderPicker({ mode: "move" });
     expect(within(dialog()).queryByRole("button", { name: "My notes" })).toBeNull();
-    expect(within(dialog()).queryByText("Workspace")).toBeNull();
+    expect(within(dialog()).queryByText("Groups")).toBeNull();
     expect(rows()).toEqual(["Team"]);
   });
 
@@ -118,13 +118,13 @@ describe("DestinationPickerDialog", () => {
     expect(screen.getByRole("dialog", { name: "Copy to" })).toHaveAccessibleDescription("Choose where the note goes.");
   });
 
-  it("DP4 zh-TW：標題複製到、根我的筆記；沒有「工作坊」小標", async () => {
+  it("DP4 zh-TW：標題複製到、根我的筆記；沒有「群組」小標", async () => {
     await i18n.changeLanguage("zh-TW");
     try {
       renderPicker({ mode: "copy", level: level(flat("copy"), [], EMPTY_FOLDER_INDEX) });
       const zh = screen.getByRole("dialog", { name: "複製到" });
       expect(within(zh).getByRole("button", { name: "我的筆記" })).toBeInTheDocument();
-      expect(within(zh).queryByText("工作坊")).toBeNull();
+      expect(within(zh).queryByText("群組")).toBeNull();
     } finally {
       await i18n.changeLanguage("en");
     }
@@ -248,7 +248,7 @@ describe("DestinationPickerDialog", () => {
   });
 
   it("DPf4 hasFolders → 描述「Choose where the 2 items go.」；沒有 → 「Choose where the 2 notes go.」", () => {
-    // 只有上半部（工作坊／與我共享 tab）：沒有 crossSpace 項，描述只有這一句。
+    // 只有上半部（群組／與我共享 tab）：沒有 crossSpace 項，描述只有這一句。
     const view = renderPicker({ count: 2, hasFolders: true, level: level({ ...mine("move", [FB]), others: [] }) });
     expect(screen.getByRole("dialog", { name: "Move to" })).toHaveAccessibleDescription("Choose where the 2 items go.");
     view.rerender({ count: 2, hasFolders: false, level: level(mine("move")) });

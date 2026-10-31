@@ -171,7 +171,7 @@ function HeaderActionButton({
   /** `currentTarget` 給開框的呼叫端當還焦點的對象。 */
   onClick: (event: MouseEvent<HTMLButtonElement>) => void;
   disabled?: boolean;
-  /** 工作坊標題列「＋」用：讓新增群組對話框關閉時把焦點還回來（P17）。 */
+  /** 群組標題列「＋」用：讓新增群組對話框關閉時把焦點還回來（P17）。 */
   buttonRef?: RefObject<HTMLButtonElement | null>;
   reveal?: RevealScope;
   /** 預設「＋」；「新增資料夾」傳 `FolderPlus`。 */
@@ -211,7 +211,7 @@ interface NodeContext {
 }
 
 /**
- * 工作坊 tab 的群組節點：像檔案樹的一個資料夾列（折疊主鈕見 `GroupRowButton`）。筆記掛在導引線下，線對齊圖示槽中心
+ * 群組 tab 的群組節點：像檔案樹的一個資料夾列（折疊主鈕見 `GroupRowButton`）。筆記掛在導引線下，線對齊圖示槽中心
  * （px-2 8＋槽寬 14 / 2 ＝ 15px）。折疊狀態是 `sidebar/collapse.ts` 的共用 store（靜態卡、抽屜、選取樹同步）。
  */
 function GroupNode({ node, ctx }: { node: Extract<SidebarNode, { kind: "group" }>; ctx: NodeContext }) {
@@ -354,7 +354,7 @@ const MESSAGE_CLASS = "p-2 text-sm text-muted-foreground";
  * 側欄「目前 tab 的面板」：標題列（名稱＋該 tab 宣告的動作）＋清單（遞迴節點樹）。tabpanel 外框由
  * `AppShell` 提供（本元件假設自己在它裡面，是 flex-col 的子層）。
  * `GET /api/notes` 的 pending／error 在清單內顯示；`GET /api/groups` 的 pending／error 只影響
- * 工作坊 tab（與「零筆記時要等群組才知道是不是全空」），群組筆記在那期間依兜底列落與我共享、
+ * 群組 tab（與「零筆記時要等群組才知道是不是全空」），群組筆記在那期間依兜底列落與我共享、
  * 資料到了再歸位。搜尋由 `sidebar/SearchResults` 負責。
  * tabpanel 的 `tabIndex={0}` 在 `AppShell`（WAI-ARIA APG：面板第一個有內容的元素不可聚焦時，Tab 要能停在面板上）。
  *
@@ -383,7 +383,7 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
   const groups = groupsQuery.data ?? EMPTY_GROUPS;
   // memo（plan gate r1 I2）：不 memo 的話每次勾選都換 `nodes`／`groupIds`，選取樹的 `onToggle` 隨之換、所有列重繪。
   const groupIds = useMemo<ReadonlySet<string>>(() => new Set((groupsQuery.data ?? EMPTY_GROUPS).map((group) => group.id)), [groupsQuery.data]);
-  // 讀碼發現 3：我的筆記／工作坊／與我共享等 `["folders"]`（不先平鋪再跳）；失敗且沒有舊資料 → 空索引（筆記落根層）＋錯誤列。最近 tab 不等。
+  // 讀碼發現 3：我的筆記／群組／與我共享等 `["folders"]`（不先平鋪再跳）；失敗且沒有舊資料 → 空索引（筆記落根層）＋錯誤列。最近 tab 不等。
   const waitFolders = tab !== "recent" && tab !== "trash";
   const folderIndex = useMemo(() => indexFolders(foldersQuery.data ?? EMPTY_FOLDERS), [foldersQuery.data]);
   const location = useMemo<LocationContext>(() => ({ groupIds, folders: folderIndex }), [groupIds, folderIndex]);
@@ -474,7 +474,7 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
     }
 
     if (foldersPending) return <p className={MESSAGE_CLASS}>{t("app.loading")}</p>;
-    // 上面已處理 pending／error（工作坊另含群組、資料夾），到這裡 `nodes` 一定有值。
+    // 上面已處理 pending／error（群組 tab 另含群組、資料夾），到這裡 `nodes` 一定有值。
     if (nodes === null) return null;
     if (nodes.length === 0) {
       if (tab === "recent") return emptyState;

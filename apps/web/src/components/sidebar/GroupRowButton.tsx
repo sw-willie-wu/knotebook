@@ -2,7 +2,7 @@ import { ChevronRight, Users } from "@/components/ui/icons";
 import { cn } from "@/lib/utils";
 
 /**
- * 工作坊 tab 群組列的折疊主鈕（`aria-expanded`、前導槽 Users／chevron、名稱 truncate）。NoteList 與選取樹共用，外觀逐字同 PR-1。
+ * 群組 tab 群組列的折疊主鈕（`aria-expanded`、前導槽 Users／chevron、名稱 truncate）。NoteList 與選取樹共用，外觀逐字同 PR-1。
  * 前導圖示槽平常是 `Users`，列 hover／列內有 `:focus-visible`（鍵盤焦點；滑鼠點完留下的焦點不算）時換成 chevron；觸控裝置
  * （`hover: none`）一律 chevron。兩個圖示都 `aria-hidden`，button 的名稱只有群組名。外層列要帶 `group/grouprow`。
  */

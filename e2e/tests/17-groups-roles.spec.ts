@@ -32,7 +32,7 @@ test("群組角色：新增自訂角色 → 改成員角色即時變唯讀 → �
     // ── 2. A 建群組、在群組建筆記、改標題（同 15）──────────────────────────
     const groupName = `E2E Roles ${Date.now()}`;
     const sidebar = adminPage.getByRole("complementary");
-    await showSidebarTab(adminPage, "Workspace");
+    await showSidebarTab(adminPage, "Groups");
     await sidebar.getByRole("button", { name: "New group", exact: true }).click();
     const groupDialog = adminPage.getByRole("dialog", { name: "New group" });
     await groupDialog.getByLabel("Group name").fill(groupName);
@@ -61,13 +61,13 @@ test("群組角色：新增自訂角色 → 改成員角色即時變唯讀 → �
     await adminPage.getByRole("button", { name: "Add", exact: true }).click();
     await expect(adminPage.getByRole("button", { name: `Remove ${secondEmail}` })).toBeVisible();
 
-    // ── 4. B：登入 → 側欄 Workspace 開那篇 → 徽章 Editor、可編輯 ──────────
+    // ── 4. B：登入 → 側欄 Groups 開那篇 → 徽章 Editor、可編輯 ──────────
     const userPage = await userContext.newPage();
     await loginAs(userPage, secondEmail, password);
     await expect(userPage).toHaveURL(/\/$/);
 
     const userSidebar = userPage.getByRole("complementary");
-    const userWorkspace = await showSidebarTab(userPage, "Workspace", userSidebar);
+    const userWorkspace = await showSidebarTab(userPage, "Groups", userSidebar);
     await expect(userWorkspace.getByRole("button", { name: groupName, exact: true })).toBeVisible({ timeout: 15_000 });
     await userWorkspace.getByRole("link", { name: title }).click();
     await expect(userPage).toHaveURL(noteUrl);

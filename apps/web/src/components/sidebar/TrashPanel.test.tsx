@@ -277,29 +277,29 @@ describe("TrashPanel（平常）", () => {
     renderPanel();
     await waitFor(() => expect(row("w1")).not.toBeNull());
     const headings = within(panel()).getAllByRole("heading", { level: 3 });
-    expect(headings.map((h) => h.textContent)).toEqual(["My notes", "Workspace"]);
+    expect(headings.map((h) => h.textContent)).toEqual(["My notes", "Groups"]);
     const personal = within(panel()).getByRole("list", { name: "My notes" });
     expect([...personal.querySelectorAll("li[data-node-id]")].map((li) => li.getAttribute("data-node-id"))).toEqual(["p1", "p2"]);
-    const workspace = within(panel()).getByRole("list", { name: "Workspace" });
+    const workspace = within(panel()).getByRole("list", { name: "Groups" });
     expect([...workspace.querySelectorAll("li[data-node-id]")].map((li) => li.getAttribute("data-node-id"))).toEqual(["w1"]);
   });
 
-  it("TP2 只有個人項目 → 沒有 Workspace 區標", async () => {
+  it("TP2 只有個人項目 → 沒有 Groups 區標", async () => {
     stubServer({ items: [P1, P2] });
     renderPanel();
     await waitFor(() => expect(row("p2")).not.toBeNull());
     expect(within(panel()).getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(["My notes"]);
   });
 
-  it("TP2 只有工作坊項目 → 沒有 My notes 區標；清空框也沒有 My notes 列", async () => {
+  it("TP2 只有群組項目 → 沒有 My notes 區標；清空框也沒有 My notes 列", async () => {
     stubServer({ items: [W1] });
     renderPanel();
     await waitFor(() => expect(row("w1")).not.toBeNull());
-    expect(within(panel()).getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(["Workspace"]);
+    expect(within(panel()).getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(["Groups"]);
     fireEvent.click(within(header()).getByRole("button", { name: "Empty" }));
     const dialog = await screen.findByRole("dialog", { name: "Empty the trash?" });
     expect(within(dialog).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
-      "Workspace: 1 note (including some deleted by other members)",
+      "Groups: 1 note (including some deleted by other members)",
     ]);
   });
 
@@ -522,7 +522,7 @@ describe("TrashPanel（平常）", () => {
     let dialog = await screen.findByRole("dialog", { name: "Empty the trash?" });
     expect(within(dialog).getByText("3 notes and their attachments will be permanently deleted. This can't be undone.", { exact: true })).toBeInTheDocument();
     const lines = within(dialog).getAllByRole("listitem").map((li) => li.textContent);
-    expect(lines).toEqual(["My notes: 2 notes", "Workspace: 1 note (including some deleted by other members)"]);
+    expect(lines).toEqual(["My notes: 2 notes", "Groups: 1 note (including some deleted by other members)"]);
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(server.posts("/api/trash/purge")).toEqual([]);
@@ -583,7 +583,7 @@ describe("TrashPanel（平常）", () => {
     expect(screen.getByRole("dialog", { name: "Empty the trash?" })).toBe(dialog);
   });
 
-  it("TP7 250 篇（全個人、我刪的）：分兩批 200＋50；框內沒有 Workspace 列", async () => {
+  it("TP7 250 篇（全個人、我刪的）：分兩批 200＋50；框內沒有 Groups 列", async () => {
     const many = Array.from({ length: 250 }, (_, i) => trashItem({ id: `n${String(i).padStart(3, "0")}`, title: `n${i}` }));
     const server = stubServer({ items: many });
     renderPanel();
@@ -673,7 +673,7 @@ describe("TrashPanel（平常）", () => {
     expect(within(list()).queryByText("Only the 1,000 most recently deleted notes are listed.")).toBeNull();
   });
 
-  it("TP10 zh-TW：標題、工作坊第二行、清空鈕與清空框的分區行", async () => {
+  it("TP10 zh-TW：標題、群組第二行、清空鈕與清空框的分區行", async () => {
     await i18n.changeLanguage("zh-TW");
     try {
       stubServer({ items: [P1, P2, W1] });
@@ -683,7 +683,7 @@ describe("TrashPanel（平常）", () => {
       const empty = within(header()).getByRole("button", { name: "清空" });
       fireEvent.click(empty);
       const dialog = await screen.findByRole("dialog", { name: "清空垃圾桶？" });
-      expect(within(dialog).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["我的筆記 2 篇", "工作坊 1 篇（含其他成員刪除的）"]);
+      expect(within(dialog).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["我的筆記 2 篇", "群組 1 篇（含其他成員刪除的）"]);
     } finally {
       await i18n.changeLanguage("en");
     }
@@ -695,7 +695,7 @@ describe("TrashPanel（平常）", () => {
       stubServer({ items: [P1, W1] });
       renderPanel();
       await waitFor(() => expect(row("w1")).not.toBeNull());
-      expect(within(panel()).getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(["我的筆記", "工作坊"]);
+      expect(within(panel()).getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(["我的筆記", "群組"]);
       expect(within(panel()).getByRole("list", { name: "我的筆記" })).toBeInTheDocument();
     } finally {
       await i18n.changeLanguage("en");
@@ -760,7 +760,7 @@ const checkbox = (id: string) => row(id).querySelector('input[type="checkbox"]')
 const rowLabel = (id: string) => row(id).querySelector("label") as HTMLLabelElement;
 const checkedIds = () => ["p1", "p2", "w1", "w2"].filter((id) => checkbox(id).checked);
 
-/** 個人 p1、p2，工作坊 w1、w2；等清單到了按「選取」。 */
+/** 個人 p1、p2，群組 w1、w2；等清單到了按「選取」。 */
 async function renderSelecting() {
   const server = stubServer({ items: [P1, P2, W1, W2] });
   const rendered = renderPanel();

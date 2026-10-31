@@ -30,7 +30,7 @@ describe("SidebarTabList", () => {
     expect(tabs.map((tab) => tab.getAttribute("aria-label"))).toEqual([
       "Recent",
       "My notes",
-      "Workspace",
+      "Groups",
       "Shared with me",
       "Trash",
     ]);
@@ -54,9 +54,9 @@ describe("SidebarTabList", () => {
 
   it("TL3 點擊：切選中、tabIndex、並寫進 localStorage", () => {
     renderList();
-    fireEvent.click(screen.getByRole("tab", { name: "Workspace" }));
-    expect(screen.getByRole("tab", { name: "Workspace" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("tab", { name: "Workspace" }).tabIndex).toBe(0);
+    fireEvent.click(screen.getByRole("tab", { name: "Groups" }));
+    expect(screen.getByRole("tab", { name: "Groups" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Groups" }).tabIndex).toBe(0);
     expect(screen.getByRole("tab", { name: "My notes" })).toHaveAttribute("aria-selected", "false");
     expect(screen.getByRole("tab", { name: "My notes" }).tabIndex).toBe(-1);
     expect(localStorage.getItem("sidebar.tab")).toBe("workspace");
@@ -69,10 +69,10 @@ describe("SidebarTabList", () => {
 
     tab("My notes").focus();
     expect(fireEvent.keyDown(tab("My notes"), { key: "ArrowRight" })).toBe(false);
-    expect(selected()).toBe(tab("Workspace"));
-    expect(tab("Workspace")).toHaveFocus();
+    expect(selected()).toBe(tab("Groups"));
+    expect(tab("Groups")).toHaveFocus();
 
-    expect(fireEvent.keyDown(tab("Workspace"), { key: "ArrowLeft" })).toBe(false);
+    expect(fireEvent.keyDown(tab("Groups"), { key: "ArrowLeft" })).toBe(false);
     expect(fireEvent.keyDown(tab("My notes"), { key: "ArrowLeft" })).toBe(false);
     expect(selected()).toBe(tab("Recent"));
     expect(tab("Recent")).toHaveFocus();
@@ -105,7 +105,7 @@ describe("SidebarTabList", () => {
   it("TL6 class：選中／未選的配色與共用的高度、焦點環", () => {
     renderList();
     expect(screen.getByRole("tab", { name: "My notes" })).toHaveClass("border-brand", "text-brand-on-soft");
-    for (const name of ["Recent", "Workspace", "Shared with me", "Trash"]) {
+    for (const name of ["Recent", "Groups", "Shared with me", "Trash"]) {
       expect(screen.getByRole("tab", { name })).toHaveClass("border-transparent", "text-muted-foreground");
     }
     for (const tab of screen.getAllByRole("tab")) {
@@ -120,7 +120,7 @@ describe("SidebarTabList", () => {
     expect(screen.getAllByRole("tab").map((tab) => tab.getAttribute("aria-label"))).toEqual([
       "最近",
       "我的筆記",
-      "工作坊",
+      "群組",
       "與我共享",
       "垃圾桶",
     ]);

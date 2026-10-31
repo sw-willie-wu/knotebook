@@ -185,8 +185,8 @@ describe("AppShell — new note", () => {
       </QueryClientProvider>,
     );
 
-    // 群組列在「工作坊」tab（預設 tab 是「我的筆記」）。
-    fireEvent.click(await screen.findByRole("tab", { name: "Workspace" }));
+    // 群組列在「群組」tab（預設 tab 是「我的筆記」）。
+    fireEvent.click(await screen.findByRole("tab", { name: "Groups" }));
     fireEvent.click(await screen.findByRole("button", { name: "New note in Workshop A" }));
 
     await waitFor(() => expect(postBody).toEqual({ groupId: group.id }));
@@ -459,8 +459,8 @@ describe("AppShell — search box & Ctrl/Cmd+K", () => {
     stubFetchWithNotes([ALPHA_NOTE, BETA_NOTE]);
     renderShell();
     const input = await screen.findByRole("textbox", { name: "Search notes" });
-    fireEvent.click(await screen.findByRole("tab", { name: "Workspace" }));
-    expect(screen.getByRole("tab", { name: "Workspace" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(await screen.findByRole("tab", { name: "Groups" }));
+    expect(screen.getByRole("tab", { name: "Groups" })).toHaveAttribute("aria-selected", "true");
 
     fireEvent.change(input, { target: { value: "Alpha" } });
     await screen.findByTestId("sidebar-search");
@@ -470,7 +470,7 @@ describe("AppShell — search box & Ctrl/Cmd+K", () => {
     fireEvent.keyDown(input, { key: "Escape" });
     expect(await screen.findByRole("tablist")).toBeInTheDocument();
     expect(screen.queryByTestId("sidebar-search")).toBeNull();
-    expect(screen.getByRole("tab", { name: "Workspace" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Groups" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("AS-S2：清除鈕——空字串時沒有、有 Ctrl K 徽章；有字時換成清除鈕；點了清空、焦點留在輸入框、tablist 回來", async () => {
@@ -479,7 +479,7 @@ describe("AppShell — search box & Ctrl/Cmd+K", () => {
     const input = await screen.findByRole("textbox", { name: "Search notes" });
     expect(screen.queryByRole("button", { name: "Clear search" })).toBeNull();
     expect(screen.getByText("Ctrl K")).toBeInTheDocument();
-    fireEvent.click(await screen.findByRole("tab", { name: "Workspace" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Groups" }));
 
     fireEvent.change(input, { target: { value: "Alpha" } });
     const clear = await screen.findByRole("button", { name: "Clear search" });
@@ -490,7 +490,7 @@ describe("AppShell — search box & Ctrl/Cmd+K", () => {
     expect(input).toHaveFocus();
     expect(await screen.findByRole("tablist")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Clear search" })).toBeNull();
-    expect(screen.getByRole("tab", { name: "Workspace" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Groups" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("只有空白也算搜尋中（現行行為）：換成搜尋視圖、出現清除鈕", async () => {
@@ -836,7 +836,7 @@ describe("AppShell — 在資料夾建立筆記", () => {
     const created: NoteDto = { ...CREATED, ownerId: null, ownerHandle: null, role: "editor", groupId: "G", group: { id: "G", name: "G" } };
     const bodies = stubCreate(() => json(created, 201));
     renderShell();
-    fireEvent.click(await screen.findByRole("tab", { name: "Workspace" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Groups" }));
     fireEvent.click(await screen.findByRole("button", { name: "New note in GF" }));
     await waitFor(() => expect(bodies).toEqual([{ groupId: "G", folderId: "GF" }]));
     await waitFor(() => expect(screen.getByTestId("group-note-route")).toHaveTextContent(`G/${CREATED.slug}`));

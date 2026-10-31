@@ -377,7 +377,7 @@ describe("NoteList 拖曳", () => {
     expect(screen.getByTestId("drag-active")).toHaveTextContent("false");
   });
 
-  it("ND11 工作坊：g2 拖到 H 群組列 → 不處理、H 無標示；拖到清單最下方空白 → G 標示；drop → body {folderId:null}", async () => {
+  it("ND11 群組 tab：g2 拖到 H 群組列 → 不處理、H 無標示；拖到清單最下方空白 → G 標示；drop → body {folderId:null}", async () => {
     const server = stubServer();
     renderNoteList({ tab: "workspace" });
     await waitForTree("G");
@@ -395,7 +395,7 @@ describe("NoteList 拖曳", () => {
     await server.respond();
   });
 
-  it("ND12 工作坊：唯讀的 gr → dragStart 不接手", async () => {
+  it("ND12 群組 tab：唯讀的 gr → dragStart 不接手", async () => {
     stubServer();
     renderNoteList({ tab: "workspace" });
     await waitForTree("G");
@@ -693,7 +693,7 @@ describe("NoteList 疊資料夾（PR-3c T5）", () => {
     expect(nodeOf("note", "N2")).not.toBeNull();
   });
 
-  it("NS-C2 停留期間重抓、B 變成唯讀（工作坊 g2 失去編輯權）→ 不出預覽", async () => {
+  it("NS-C2 停留期間重抓、B 變成唯讀（群組 g2 失去編輯權）→ 不出預覽", async () => {
     const server = stubServer();
     const { queryClient } = renderNoteList({ tab: "workspace" });
     await waitForTree("G");
@@ -751,7 +751,7 @@ describe("NoteList 疊資料夾（PR-3c T5）", () => {
     expect(within(previewOf()!).getByText("New folder 2", { exact: true })).toBeInTheDocument();
   });
 
-  it("NS7 B 不可放置 → 停滿後沒有預覽、放開照區域規則（原處，不送任何請求）：工作坊 g1 → 唯讀 gr", async () => {
+  it("NS7 B 不可放置 → 停滿後沒有預覽、放開照區域規則（原處，不送任何請求）：群組 g1 → 唯讀 gr", async () => {
     const server = stubServer();
     renderNoteList({ tab: "workspace" });
     await waitForTree("G");

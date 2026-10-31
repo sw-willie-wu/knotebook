@@ -18,7 +18,7 @@ import { EmptyTrashDialog, PurgeConfirmDialog, toastTrashFailure, toastTrashResu
 /**
  * 垃圾桶 tab 的面板（spec 2026-10-21 §6.10.1、§6.10.3）：`AppShell` 在 tab 為 `trash` 時放進 tabpanel，取代 `NoteList`。
  * - 列**不是連結**：垃圾桶裡的筆記不能開（非目標「預覽」，§2.2）；只有 hover 浮出的「還原」與 ⋮（還原／永久刪除）。
- * - 兩區「個人」「工作坊」（某區 0 篇整區不渲染），區內照 server 的順序（`deleted_at DESC`）。
+ * - 兩區「個人」「群組」（某區 0 篇整區不渲染），區內照 server 的順序（`deleted_at DESC`）。
  * - 標題列動作照 `tabSpec("trash").actions` 渲染（spec §9-3）。
  * - 清空＝把**清單上**的 id 全部送 purge（spec §6.3.4-5）：之後才移入的不受影響；超過 200 由 `purgeTrashIds` 分批。
  * - 確認框成敗都關，結果走 toast（`trash-dialogs.tsx`）。動作完成後焦點回清單容器（被處理的列會卸載）。

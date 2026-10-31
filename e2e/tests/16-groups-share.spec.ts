@@ -103,9 +103,9 @@ test("移入群組（踢逐人分享、關公開連結、舊網址轉址）→ �
     await createUser(adminPage, memberEmail, "E2E Group Member");
     await createUser(adminPage, guestEmail, guestName);
 
-    // ── A：建群組（側欄工作坊「＋」）→ 群組面板 → 以 email 加 B（同 15）────────────────
+    // ── A：建群組（側欄群組「＋」）→ 群組面板 → 以 email 加 B（同 15）────────────────
     const sidebar = adminPage.getByRole("complementary");
-    await showSidebarTab(adminPage, "Workspace");
+    await showSidebarTab(adminPage, "Groups");
     await sidebar.getByRole("button", { name: "New group", exact: true }).click();
     const groupDialog = adminPage.getByRole("dialog", { name: "New group" });
     await groupDialog.getByLabel("Group name").fill(groupName);

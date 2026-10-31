@@ -196,7 +196,7 @@ describe("一般 tab 的選取模式（PR-2c T4）", () => {
       expect(selectButton()).toBeEnabled();
     });
 
-    it("工作坊 Select、New group", async () => {
+    it("群組 Select、New group", async () => {
       stubFetch({ notes: ALL_NOTES });
       renderPanel({ tab: "workspace" });
       await within(panel()).findByRole("button", { name: "G1" });
@@ -310,7 +310,7 @@ describe("一般 tab 的選取模式（PR-2c T4）", () => {
     expect(checkedIds()).toEqual(["p1", "p3"]);
   });
 
-  it("NS5 工作坊：群組列是 button[aria-expanded]、沒有勾選框；只有三篇有勾選框；沒有群組的「＋」與 ⋮", async () => {
+  it("NS5 群組 tab：群組列是 button[aria-expanded]、沒有勾選框；只有三篇有勾選框；沒有群組的「＋」與 ⋮", async () => {
     await renderSelecting({ tab: "workspace" });
     for (const name of ["G1", "G2"]) {
       const row = within(panel()).getByRole("button", { name });
@@ -563,7 +563,7 @@ describe("一般 tab 的選取模式（PR-2c T4）", () => {
     await renderSelecting({ tab: "recent" });
     const label = checkbox("g1a").closest("label") as HTMLElement;
     expect(label).toHaveTextContent("g1a");
-    expect(label).toHaveTextContent("Workspace › G1");
+    expect(label).toHaveTextContent("Groups › G1");
     expect(checkbox("p1").closest("label")).toHaveTextContent("My notes");
   });
 
@@ -585,7 +585,7 @@ describe("一般 tab 的選取模式（PR-2c T4）", () => {
     expect(checkbox("p2")).toBeNull();
   });
 
-  it("NS15 選取中清單重抓後沒有可勾的篇（工作坊只剩空群組）：仍是選取標題列與勾選樹，群組列沒有「＋」與 ⋮（T4 review Nit-3）", async () => {
+  it("NS15 選取中清單重抓後沒有可勾的篇（群組 tab 只剩空群組）：仍是選取標題列與勾選樹，群組列沒有「＋」與 ⋮（T4 review Nit-3）", async () => {
     const { queryClient, box } = await renderSelecting({ tab: "workspace" });
     fireEvent.click(checkbox("g1a"));
     expect(within(header()).getByText("1 selected")).toBeInTheDocument();
@@ -794,7 +794,7 @@ describe("選取模式 × 資料夾可勾（PR-3b-2 T6a）", () => {
     expect(checkedIds()).toEqual(["q1", "q2", "folder:B"]);
   });
 
-  it("NSf5 工作坊：群組列不可勾；群組下的資料夾 GF 可勾", async () => {
+  it("NSf5 群組 tab：群組列不可勾；群組下的資料夾 GF 可勾", async () => {
     const GF = groupFolder({ id: "GF", name: "GF", groupId: G1.id });
     const inGF = groupNote({ id: "g1f", title: "g1f", group: G1, folderId: "GF" });
     await renderSelecting({ tab: "workspace", notes: [inGF, G1B, G2A], folders: [GF] });

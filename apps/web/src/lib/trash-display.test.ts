@@ -71,19 +71,19 @@ describe("trashDetailLine", () => {
     expect(line(item({ id: "p", purgeAt: null }))).toBe(`Deleted ${deletedDate}`);
   });
 
-  it("TD2 工作坊：群組名 · 刪除者 · 剩餘", () => {
+  it("TD2 群組：群組名 · 刪除者 · 剩餘", () => {
     expect(line(item({ id: "w", group: GROUP, deletedBy: AMY }))).toBe("R&D · Deleted by Amy · 3 days left");
   });
 
-  it("TD2 工作坊：刪除者帳號已刪", () => {
+  it("TD2 群組：刪除者帳號已刪", () => {
     expect(line(item({ id: "w", group: GROUP, deletedBy: null }))).toBe("R&D · Deleted by a deleted account · 3 days left");
   });
 
-  it("TD2 工作坊＋NULL 保留天數：時間段只放日期", () => {
+  it("TD2 群組＋NULL 保留天數：時間段只放日期", () => {
     expect(line(item({ id: "w", group: GROUP, deletedBy: AMY, purgeAt: null }))).toBe(`R&D · Deleted by Amy · ${deletedDate}`);
   });
 
-  it("TD2 zh-TW 工作坊", async () => {
+  it("TD2 zh-TW 群組", async () => {
     await i18n.changeLanguage("zh-TW");
     expect(line(item({ id: "w", group: GROUP, deletedBy: AMY }), "zh-TW")).toBe("R&D · Amy 刪除 · 剩 3 天");
   });

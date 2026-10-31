@@ -172,7 +172,7 @@ export async function builtinRoleId(db: DbOrTx, groupId: string, builtin: Builti
 
 /**
  * `GET /api/groups`：我所屬的群組，先依我在群組的角色（內建管理員 → 內建一般成員 → 自訂角色，與 `listRolesQuery` 同一個 CASE），
- * 同角色內依 name 再依 id（只組不執行——路由與 EXPLAIN 測試共用同一個形）。側欄工作坊 tab 照這個順序列群組。
+ * 同角色內依 name 再依 id（只組不執行——路由與 EXPLAIN 測試共用同一個形）。側欄群組 tab 照這個順序列群組。
  */
 export function listMyGroupsQuery(db: DbOrTx, userId: string) {
   return db

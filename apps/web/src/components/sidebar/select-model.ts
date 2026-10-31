@@ -18,7 +18,7 @@ export type SelectableTab = "recent" | "myNotes" | "workspace" | "shared";
 export type SelectActionId = "move" | "copy" | "delete";
 
 /**
- * spec §6.11 的表（D-M3、D-W6）＋資料夾 spec §6.10：工作坊、與我共享加 "move"（資料夾目的地）；最近不給（F10）。
+ * spec §6.11 的表（D-M3、D-W6）＋資料夾 spec §6.10：群組 tab、與我共享加 "move"（資料夾目的地）；最近不給（F10）。
  * 與我共享的 "delete" 只在選取（去重後）非空且全是資料夾時渲染（移除資料夾；共享筆記本身不能刪，D-M3）。
  */
 export const SELECT_ACTIONS: Readonly<Record<SelectableTab, readonly SelectActionId[]>> = {
@@ -83,7 +83,7 @@ export interface Eligibility {
   foldersBlocked: number;
 }
 
-/** move 的筆記判準依 tab（spec §6.10）：我的筆記＝自己的個人筆記；工作坊＝`edit`（§5.6 放置權）；與我共享＝全部；最近（沒有「移動到」）照 PR-2c。 */
+/** move 的筆記判準依 tab（spec §6.10）：我的筆記＝自己的個人筆記；群組 tab＝`edit`（§5.6 放置權）；與我共享＝全部；最近（沒有「移動到」）照 PR-2c。 */
 function canMoveNote(tab: SelectableTab, note: NoteDto): boolean {
   if (tab === "workspace") return note.permissions.edit;
   if (tab === "shared") return true;
@@ -136,7 +136,7 @@ export function partitionTargets(
 const PERSONAL_SPACE: DestSpace = { kind: "personal" };
 const SHARED_SPACE: DestSpace = { kind: "shared" };
 
-/** 選取項所在的群組（工作坊）：筆記看 `noteBucket`、資料夾看 `space.groupId`；不在群組的回 null。 */
+/** 選取項所在的群組（群組 tab）：筆記看 `noteBucket`、資料夾看 `space.groupId`；不在群組的回 null。 */
 function targetGroupId(target: SelectionTarget, groupIds: ReadonlySet<string>): string | null {
   if (target.kind === "folder") return target.folder.space.kind === "group" ? target.folder.space.groupId : null;
   const bucket = noteBucket(target.note, groupIds);

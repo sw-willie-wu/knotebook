@@ -15,7 +15,7 @@ import { noteLocationLabel, type LocationContext, type SidebarNode } from "./tre
 /**
  * 一般 tab 選取模式的勾選樹（#181 PR-2c，spec §6.11、§6.10.2；資料夾 spec §6.10）：取代 NoteList 的清單內容（捲動容器不換）。
  * 筆記列整列是 `<label>`＋勾選框，不是連結、沒有 ⋮。資料夾列＝折疊 chevron 鈕＋`<label>`（勾選框、資料夾圖示、名稱）：
- * `<button>` 不放進 `<label>`（無效 HTML，spec 缺陷 S2），沒有「＋」與 ⋮。工作坊的群組列只有折疊主鈕、不可勾。
+ * `<button>` 不放進 `<label>`（無效 HTML，spec 缺陷 S2），沒有「＋」與 ⋮。群組 tab 的群組列只有折疊主鈕、不可勾。
  * 折疊與 NoteList 共用 `collapse.ts` 的同一把鍵。只准經 `SelectLazy` 引用。
  */
 
