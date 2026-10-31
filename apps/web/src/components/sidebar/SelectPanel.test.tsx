@@ -781,6 +781,16 @@ describe("選取模式 × 資料夾可勾（PR-3b-2 T6a）", () => {
     expect(within(header()).getByRole("button", { name: "Select all" })).toBeInTheDocument();
   });
 
+  it("ST1 選取列的勾選框是自繪的（筆記列與資料夾列）：appearance-none、不含 accent-brand", async () => {
+    await renderSelecting(MINE);
+    const boxes = [checkbox("q2"), folderBox("B")!];
+    for (const box of boxes) {
+      expect(box).not.toBeNull();
+      expect(box).toHaveClass("appearance-none");
+      expect(box).not.toHaveClass("accent-brand");
+    }
+  });
+
   it("NSf4 Shift 範圍含資料夾列：q2 → Shift q3 ＝ q2、B、q3；Shift＋點資料夾名稱（label 自己切換）也走範圍", async () => {
     await renderSelecting(MINE);
     fireEvent.click(checkbox("q2"));

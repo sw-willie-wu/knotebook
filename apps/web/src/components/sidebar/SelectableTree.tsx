@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import type { FolderDto, NoteDto } from "@knotebook/shared";
 import { RoleBadge } from "@/components/NoteList";
 import { ChevronRight, Folder } from "@/components/ui/icons";
+import { SelectionCheckbox } from "@/components/ui/selection-checkbox";
 import { selectionKey } from "@/lib/sidebar-selection";
 import { useSidebarTabActions, useSidebarTabState } from "@/lib/sidebar-tab";
 import { cn } from "@/lib/utils";
@@ -63,13 +64,12 @@ const SelectableNoteRow = memo(function SelectableNoteRow({
         )}
         onClick={(event) => onLabelClick(event, key, onToggle)}
       >
-        <input
-          type="checkbox"
+        <SelectionCheckbox
           checked={checked}
           data-selection-key={key}
           // Shift＝範圍；Ctrl／⌘＋點與一般點選相同（單列切換）。macOS 的 Ctrl＋點是右鍵、不產生 click，用 ⌘。
           onChange={(event) => onToggle(key, (event.nativeEvent as MouseEvent).shiftKey)}
-          className={cn("h-4 w-4 shrink-0 accent-brand", variant === "recent" && "mt-0.5")}
+          className={variant === "recent" ? "mt-0.5" : undefined}
         />
         {variant === "recent" ? (
           <span className="min-w-0 flex-1">
@@ -115,12 +115,10 @@ const SelectableFolderLabel = memo(function SelectableFolderLabel({
       )}
       onClick={(event) => onLabelClick(event, key, onToggle)}
     >
-      <input
-        type="checkbox"
+      <SelectionCheckbox
         checked={checked}
         data-selection-key={key}
         onChange={(event) => onToggle(key, (event.nativeEvent as MouseEvent).shiftKey)}
-        className="h-4 w-4 shrink-0 accent-brand"
       />
       <Folder aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-muted-foreground group-hover/folderrow:text-brand-on-soft" />
       <span className="truncate" title={folder.name}>

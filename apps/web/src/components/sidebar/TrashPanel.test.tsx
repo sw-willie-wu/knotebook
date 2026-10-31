@@ -790,7 +790,7 @@ describe("TrashPanel（選取模式）", () => {
     const boxes = within(panel()).getAllByRole("checkbox");
     expect(boxes).toHaveLength(4);
     for (const box of boxes) expect(box).not.toBeChecked();
-    expect(checkbox("p1")).toHaveClass("accent-brand");
+    expect(checkbox("p1")).toHaveClass("appearance-none");
     expect(within(panel()).queryByRole("button", { name: "Restore p1" })).toBeNull();
     expect(within(panel()).queryByRole("button", { name: "Actions for p1" })).toBeNull();
     expect(done).toHaveFocus();
@@ -824,6 +824,12 @@ describe("TrashPanel（選取模式）", () => {
     expect(checkbox("p1")).not.toBeChecked();
     expect(within(header()).getByText("0 selected", { exact: true })).toBeInTheDocument();
     expect(rowLabel("p1")).not.toHaveClass("bg-brand-soft");
+  });
+
+  it("TP-C1 垃圾桶選取列的勾選框是自繪的：appearance-none、不含 accent-brand", async () => {
+    await renderSelecting();
+    expect(checkbox("p1")).toHaveClass("appearance-none");
+    expect(checkbox("p1")).not.toHaveClass("accent-brand");
   });
 
   it("SM3 Shift 跨區：p1 → Shift 點 w1 → p1、p2、w1 勾，w2 未勾", async () => {

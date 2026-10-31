@@ -1,11 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { EMPTY_SELECTION, reduceSelection, selectionKey, SIDEBAR_SELECT_BUTTON, type SelectionOp, type SidebarSelection } from "./sidebar-selection";
+import { EMPTY_SELECTION, reduceSelection, selectAllState, selectionKey, SIDEBAR_SELECT_BUTTON, type SelectionOp, type SidebarSelection } from "./sidebar-selection";
 
 const ORDER = ["a", "b", "c", "d", "e"] as const;
 
 function run(ops: SelectionOp[], from: SidebarSelection = EMPTY_SELECTION): SidebarSelection {
   return ops.reduce(reduceSelection, from);
 }
+
+describe("selectAllState", () => {
+  it("SS-A1 只看可見列：空→none；全在→all；部分→some；只在收合子樹→none", () => {
+    expect(selectAllState([], new Set(["a"]))).toBe("none");
+    expect(selectAllState(["a", "b"], new Set(["a", "b"]))).toBe("all");
+    expect(selectAllState(["a", "b"], new Set(["a"]))).toBe("some");
+    expect(selectAllState(["a", "b"], new Set(["c"]))).toBe("none");
+  });
+});
 
 const keysOf = (state: SidebarSelection) => [...state.keys].sort();
 

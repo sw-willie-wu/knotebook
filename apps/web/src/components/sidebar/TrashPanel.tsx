@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { EllipsisVertical, RotateCcw, SquareCheck, Trash } from "@/components/ui/icons";
 import { hoverReveal } from "@/components/ui/reveal";
+import { SelectionCheckbox } from "@/components/ui/selection-checkbox";
 import { cn } from "@/lib/utils";
 import { tabSpec, type HeaderActionId } from "@/components/sidebar/tab-specs";
 import { EmptyTrashDialog, PurgeConfirmDialog, toastTrashFailure, toastTrashResult } from "@/components/sidebar/trash-dialogs";
@@ -146,12 +147,11 @@ const SelectableTrashRow = memo(function SelectableTrashRow({
           onToggle(selectionKey({ kind: "note", id: item.id }), event.shiftKey);
         }}
       >
-        <input
-          type="checkbox"
+        <SelectionCheckbox
           checked={checked}
           // Shift＝範圍；Ctrl／⌘＋點與一般點選相同（單列切換）。macOS 的 Ctrl＋點是右鍵、不產生 click，用 ⌘。
           onChange={(event) => onToggle(selectionKey({ kind: "note", id: item.id }), (event.nativeEvent as MouseEvent).shiftKey)}
-          className="mt-0.5 h-4 w-4 shrink-0 accent-brand"
+          className="mt-0.5"
         />
         <span className="min-w-0 flex-1">
           <span className="block truncate">{item.title}</span>
