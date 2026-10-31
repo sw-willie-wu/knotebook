@@ -23,20 +23,20 @@ test("sidebar tabs: roles, persistence, keyboard, search view, narrow drawer", a
   const tablist = sidebar.getByRole("tablist", { name: "Sidebar sections" });
   const tabs = tablist.getByRole("tab");
   await expect(tabs).toHaveCount(5);
-  const names = ["Recent", "My notes", "Workspace", "Shared with me", "Trash"];
+  const names = ["Recent", "My notes", "Groups", "Shared with me", "Trash"];
   for (const [i, name] of names.entries()) await expect(tabs.nth(i)).toHaveAttribute("aria-label", name);
   await expect(tablist.getByRole("tab", { name: "My notes", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(sidebar.getByRole("tabpanel").getByRole("link", { name: new RegExp("^" + reEscape(title)) })).toBeVisible();
 
   // ── A1-1：選擇重整後仍在 ──────────────────────────────────────────────────
-  await showSidebarTab(page, "Workspace");
+  await showSidebarTab(page, "Groups");
   await page.reload();
   // 等 lazy NotePage 掛上：fallback 自帶的 AppShell 會被換掉（drawerOpen／搜尋字串跟著重設）。
   await expect(page.getByRole("textbox", { name: "Note title" })).toBeVisible();
-  await expect(tablist.getByRole("tab", { name: "Workspace", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(tablist.getByRole("tab", { name: "Groups", exact: true })).toHaveAttribute("aria-selected", "true");
 
   // ── A1-5：方向鍵（循環、同時切換並移焦點）與 Home ─────────────────────────
-  const workspaceTab = tablist.getByRole("tab", { name: "Workspace", exact: true });
+  const workspaceTab = tablist.getByRole("tab", { name: "Groups", exact: true });
   const sharedTab = tablist.getByRole("tab", { name: "Shared with me", exact: true });
   const recentTab = tablist.getByRole("tab", { name: "Recent", exact: true });
   const trashTab = tablist.getByRole("tab", { name: "Trash", exact: true });
@@ -55,7 +55,7 @@ test("sidebar tabs: roles, persistence, keyboard, search view, narrow drawer", a
   await page.keyboard.press("End");
   await expect(trashTab).toHaveAttribute("aria-selected", "true");
   await expect(trashTab).toBeFocused();
-  await showSidebarTab(page, "Workspace");
+  await showSidebarTab(page, "Groups");
 
   // ── A1-4：搜尋視圖 ────────────────────────────────────────────────────────
   const search = sidebar.getByRole("textbox", { name: "Search notes" });
@@ -95,8 +95,8 @@ test("sidebar tabs: roles, persistence, keyboard, search view, narrow drawer", a
   await expect(drawer).toBeVisible();
   const drawerTabs = drawer.getByRole("tablist", { name: "Sidebar sections" }).getByRole("tab");
   await expect(drawerTabs).toHaveCount(5);
-  // 與靜態卡一致：Workspace 仍選中（tab 存在 localStorage、兩份實例共用）
-  await expect(drawer.getByRole("tab", { name: "Workspace", exact: true })).toHaveAttribute("aria-selected", "true");
+  // 與靜態卡一致：Groups 仍選中（tab 存在 localStorage、兩份實例共用）
+  await expect(drawer.getByRole("tab", { name: "Groups", exact: true })).toHaveAttribute("aria-selected", "true");
   for (let i = 0; i < 5; i++) {
     const box = await drawerTabs.nth(i).boundingBox();
     expect(box).not.toBeNull();

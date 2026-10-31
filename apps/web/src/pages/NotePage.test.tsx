@@ -255,7 +255,7 @@ function mockFetch(
     const url = String(input);
     const method = (init?.method ?? "GET").toUpperCase();
     // #103：側欄（AppShell → NoteList）的 `useGroups()`——沒有這支，mock 的 throw 會
-    // 變成 rejected query，工作坊段多出一個 `role="alert"`，撞上本檔的單數 alert 查詢。
+    // 變成 rejected query，群組段多出一個 `role="alert"`，撞上本檔的單數 alert 查詢。
     if (url === "/api/groups" && method === "GET") {
       return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
     }

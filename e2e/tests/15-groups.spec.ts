@@ -4,7 +4,7 @@ import { ADMIN, createNote, createUserViaInvite, editorLocator, loginAs, openGro
 /**
  * #175 群組 v2（spec §12.3 第 15 條，PR1 改寫自 #103 版）：A 建群組 → A 在群組建筆記（群組持有、
  * 網址 `/g/<group_id>/<slug>`）→ 分享面板是群組版（無 radio、只說明＋連到群組設定）→ A 從側欄群組 ⋮ →
- *『成員與設定』（群組面板）以 email 加 B（內建一般成員）→ B 側欄看得到（B 自建的群組排在前：工作坊依角色排）、能編輯（共編互見）、也有分享鈕 → A 移除 B → B 連線
+ *『成員與設定』（群組面板）以 email 加 B（內建一般成員）→ B 側欄看得到（B 自建的群組排在前：群組依角色排）、能編輯（共編互見）、也有分享鈕 → A 移除 B → B 連線
  * 被踢、該篇從 B 的側欄消失 → A 開刪除群組對話框：兩模式、預設「轉移給管理員」→ Cancel → 群組與該篇仍在
  * （PR4 起非空群組也刪得掉，真的刪除由 18-groups-delete 測）。
  * 斷言形沿用 03-share-revoke（兩個 context、邀請建第二使用者、10 秒 SLA、exact toast）。
@@ -23,10 +23,10 @@ test("群組：建立 → 群組建筆記（/g/ 網址）→ 設定加人 → �
     const password = "e2e-second-user-pw";
     await createUserViaInvite(adminPage, { email: secondEmail, password, displayName: "E2E Group Member" });
 
-    // ── A：側欄工作坊「＋」建群組 ─────────────────────────────────────
+    // ── A：側欄群組「＋」建群組 ─────────────────────────────────────
     const groupName = `E2E Group ${Date.now()}`;
     const sidebar = adminPage.getByRole("complementary");
-    await showSidebarTab(adminPage, "Workspace");
+    await showSidebarTab(adminPage, "Groups");
     await sidebar.getByRole("button", { name: "New group", exact: true }).click();
     const groupDialog = adminPage.getByRole("dialog", { name: "New group" });
     await groupDialog.getByLabel("Group name").fill(groupName);
@@ -73,16 +73,16 @@ test("群組：建立 → 群組建筆記（/g/ 網址）→ 設定加人 → �
     await expect(adminPage).toHaveURL(noteUrl);
     await expect(adminPage.getByRole("button", { name: `Remove ${secondEmail}` })).toHaveCount(0);
 
-    // ── B：登入 → 側欄工作坊看得到那篇 → 開啟、可編輯、共編互見 ──────────
+    // ── B：登入 → 側欄群組看得到那篇 → 開啟、可編輯、共編互見 ──────────
     const userPage = await userContext.newPage();
     await loginAs(userPage, secondEmail, password);
     await expect(userPage).toHaveURL(/\/$/);
 
     const userSidebar = userPage.getByRole("complementary");
-    const userWorkspace = await showSidebarTab(userPage, "Workspace", userSidebar);
+    const userWorkspace = await showSidebarTab(userPage, "Groups", userSidebar);
     await expect(userWorkspace.getByRole("button", { name: groupName, exact: true })).toBeVisible({ timeout: 15_000 });
 
-    // ── B：自己建一個名稱排在後面的群組 → 工作坊依我的角色排：我是管理員的在前、一般成員的在後（不依名稱）──
+    // ── B：自己建一個名稱排在後面的群組 → 群組依我的角色排：我是管理員的在前、一般成員的在後（不依名稱）──
     const ownGroupName = `Zz E2E own group ${Date.now()}`;
     await userSidebar.getByRole("button", { name: "New group", exact: true }).click();
     const ownGroupDialog = userPage.getByRole("dialog", { name: "New group" });
@@ -118,14 +118,14 @@ test("群組：建立 → 群組建筆記（/g/ 網址）→ 設定加人 → �
     await expect(userPage).toHaveURL(/\/$/, { timeout: 10_000 });
     await showSidebarTab(userPage, "Recent", userSidebar);
     await expect(userSidebar.getByRole("link", { name: title })).toHaveCount(0, { timeout: 10_000 });
-    await showSidebarTab(userPage, "Workspace", userSidebar);
+    await showSidebarTab(userPage, "Groups", userSidebar);
     await expect(userSidebar.getByRole("button", { name: groupName, exact: true })).toHaveCount(0, { timeout: 10_000 });
 
     // ── A：關群組面板 → 側欄群組 ⋮ → 刪除群組 → 對話框預設「轉移給管理員」→ Cancel → 群組與該篇仍在 ──
     await adminPage.keyboard.press("Escape");
     // #179：backgroundLocation 就是 canonical（改名換網址走 router navigate），關群組面板直接回到它。
     await expect(adminPage).toHaveURL(noteUrl);
-    await showSidebarTab(adminPage, "Workspace");
+    await showSidebarTab(adminPage, "Groups");
     await sidebar.getByRole("button", { name: `Group actions for ${groupName}` }).click();
     await adminPage.getByRole("menuitem", { name: "Delete group" }).click();
     const deleteDialog = adminPage.getByRole("dialog", { name: "Delete group?" });
@@ -164,7 +164,7 @@ test("建議：同群組的人打幾個字就能選；陌生人不出現", async
     // ── A 建群組、以完整 email 加 B ──
     const groupName = `E2E Suggest ${Date.now()}`;
     const sidebar = adminPage.getByRole("complementary");
-    await showSidebarTab(adminPage, "Workspace");
+    await showSidebarTab(adminPage, "Groups");
     await sidebar.getByRole("button", { name: "New group", exact: true }).click();
     const groupDialog = adminPage.getByRole("dialog", { name: "New group" });
     await groupDialog.getByLabel("Group name").fill(groupName);

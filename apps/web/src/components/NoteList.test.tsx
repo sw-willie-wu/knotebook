@@ -428,11 +428,11 @@ describe("NoteList", () => {
       expect(within(header()).getAllByRole("button")[0]).toHaveAccessibleName("Select");
     });
 
-    it("工作坊：標題＋「Select」＋「New group」鈕（常駐）", async () => {
+    it("群組：標題＋「Select」＋「New group」鈕（常駐）", async () => {
       stubNotesFetch([OWNER_NOTE], [GROUP_A]);
       renderNoteList({}, { tab: "workspace" });
       await within(panel()).findByRole("button", { name: "Workshop A" });
-      expect(within(header()).getByText("Workspace")).toBeInTheDocument();
+      expect(within(header()).getByText("Groups")).toBeInTheDocument();
       const plus = within(header()).getByRole("button", { name: "New group" });
       expect(plus).not.toHaveClass("opacity-0");
       expect(within(header()).getAllByRole("button")).toHaveLength(2);
@@ -476,7 +476,7 @@ describe("NoteList", () => {
     });
   });
 
-  // ── 我的筆記／與我共享／工作坊 ──
+  // ── 我的筆記／與我共享／群組 ──
 
   it("NL2 我的筆記：只列個人筆記、順序同 server、每列 pl-2、每列有 ⋮；不含群組與共享筆記", async () => {
     stubNotesFetch([THIRD_OWNER_NOTE, MY_GROUP_NOTE, SHARED_NOTE, OWNER_NOTE], [GROUP_A]);
@@ -512,7 +512,7 @@ describe("NoteList", () => {
     expect(within(panel()).queryByRole("link", { name: "Mine In A" })).toBeNull();
   });
 
-  describe("NL4 工作坊", () => {
+  describe("NL4 群組", () => {
     it("群組節點依 groups 順序；群組列不標角色；#175 §8.2：我的角色在群組內的筆記落群組", async () => {
       stubNotesFetch([OWNER_NOTE, MY_GROUP_NOTE, OTHERS_GROUP_NOTE, SHARED_NOTE, ORPHAN_GROUP_NOTE], [GROUP_B, GROUP_A]);
       renderNoteList({}, { tab: "workspace" });
@@ -530,7 +530,7 @@ describe("NoteList", () => {
       // #182：群組列不標角色——角色看筆記頁頂端的徽章。
       expect(within(groupA).queryByText("Editor")).not.toBeInTheDocument();
       expect(within(groupA).queryByText("Viewer")).not.toBeInTheDocument();
-      // 個人、共享、孤兒都不在工作坊 tab。
+      // 個人、共享、孤兒都不在群組 tab。
       expect(within(panel()).queryByRole("link", { name: "Has A Slug" })).toBeNull();
       expect(within(panel()).queryByRole("link", { name: "No Slug Note" })).toBeNull();
       expect(within(panel()).queryByRole("link", { name: "Orphan" })).toBeNull();
@@ -564,7 +564,7 @@ describe("NoteList", () => {
       try {
         stubNotesFetch([MY_GROUP_NOTE], [GROUP_A]);
         renderNoteList();
-        selectTab("Workspace"); // 寫不進 storage，state 照換
+        selectTab("Groups"); // 寫不進 storage，state 照換
         const button = await within(panel()).findByRole("button", { name: "Workshop A", expanded: true });
         fireEvent.click(button);
         expect(within(panel()).getByRole("button", { name: "Workshop A" })).toHaveAttribute("aria-expanded", "false");
@@ -693,7 +693,7 @@ describe("NoteList", () => {
       const groupPlus = await within(panel()).findByRole("button", { name: "New note in My notes" });
       fireEvent.click(groupPlus);
       expect(onCreateNote).toHaveBeenLastCalledWith(lookalike.id);
-      // 標題列在工作坊 tab 只有「New group」
+      // 標題列在群組 tab 只有「New group」
       expect(within(header()).queryByRole("button", { name: "New personal note" })).toBeNull();
     });
 
@@ -745,12 +745,12 @@ describe("NoteList", () => {
       expect(within(panel()).queryByRole("button", { name: "New note in No Role" })).toBeNull();
     });
 
-    it("useGroups pending：notes 已到、groups 未到 → 工作坊面板顯示 Loading…（不閃空狀態句）；群組筆記暫依兜底列落與我共享", async () => {
+    it("useGroups pending：notes 已到、groups 未到 → 群組面板顯示 Loading…（不閃空狀態句）；群組筆記暫依兜底列落與我共享", async () => {
       stubGroupsPending([OTHERS_GROUP_NOTE]);
       renderNoteList({}, { tab: "shared" });
       // 先等到兜底列：證明 notes 已到而 groups 仍 pending，才是要測的那個狀態。
       expect(await within(panel()).findByRole("link", { name: "Theirs In A" })).toBeInTheDocument();
-      selectTab("Workspace");
+      selectTab("Groups");
       expect(within(list()).getByText("Loading…")).toBeInTheDocument();
       expect(within(list()).queryByText("You're not in any group yet.")).toBeNull();
     });
@@ -788,7 +788,7 @@ describe("NoteList", () => {
       await waitFor(() => expect(within(list()).getByRole("alert")).toHaveTextContent("Something went wrong. Please try again."));
       selectTab("My notes");
       expect(await within(panel()).findByRole("link", { name: "Has A Slug" })).toBeInTheDocument();
-      // groups 的錯誤句只屬於工作坊 tab，不跟到我的筆記。
+      // groups 的錯誤句只屬於群組 tab，不跟到我的筆記。
       expect(within(list()).queryByRole("alert")).toBeNull();
     });
 
@@ -881,7 +881,7 @@ describe("NoteList", () => {
       expect(titles).toEqual(["Note 3", ...Array.from({ length: 19 }, (_, i) => `Note ${24 - i}`)]);
     });
 
-    it("第二行依序是 My notes／Workspace › 群組名／Shared with me · 角色；群組列可及名稱＝標題＋位置；沒有 RoleBadge；每列有 ⋮", async () => {
+    it("第二行依序是 My notes／Groups › 群組名／Shared with me · 角色；群組列可及名稱＝標題＋位置；沒有 RoleBadge；每列有 ⋮", async () => {
       const mine = { ...OWNER_NOTE, updatedAt: "2026-03-03T00:00:00.000Z" };
       const group = { ...MY_GROUP_NOTE, updatedAt: "2026-03-02T00:00:00.000Z" };
       const shared = { ...SHARED_NOTE, updatedAt: "2026-03-01T00:00:00.000Z" };
@@ -889,14 +889,14 @@ describe("NoteList", () => {
       renderNoteList({}, { tab: "recent" });
 
       const groupLink = await within(panel()).findByRole("link", { name: startsWith("Mine In A") });
-      await waitFor(() => expect(groupLink).toHaveAccessibleName("Mine In A Workspace › Workshop A"));
+      await waitFor(() => expect(groupLink).toHaveAccessibleName("Mine In A Groups › Workshop A"));
       const lines = Array.from(panel().querySelectorAll('[data-node-kind="note"]')).map((row) => ({
         title: row.querySelector("a div:nth-child(1)")?.textContent,
         place: row.querySelector("a div:nth-child(2)")?.textContent,
       }));
       expect(lines).toEqual([
         { title: "Has A Slug", place: "My notes" },
-        { title: "Mine In A", place: "Workspace › Workshop A" },
+        { title: "Mine In A", place: "Groups › Workshop A" },
         { title: "No Slug Note", place: "Shared with me · Editor" },
       ]);
       // 角色在位置行；沒有獨立的 RoleBadge 小字。
@@ -920,7 +920,7 @@ describe("NoteList", () => {
       expect(link.contains(menu)).toBe(false);
     });
 
-    it("#182：群組筆記在最近 tab 也不標角色（位置行只有 Workspace › 群組）", async () => {
+    it("#182：群組筆記在最近 tab 也不標角色（位置行只有 Groups › 群組）", async () => {
       stubNotesFetch([MY_GROUP_NOTE, OTHERS_GROUP_NOTE], [GROUP_A]);
       renderNoteList({}, { tab: "recent" });
       await within(panel()).findByRole("link", { name: startsWith("Mine In A") });
@@ -1001,7 +1001,7 @@ describe("NoteList", () => {
     expect(noteRow(OWNER_NOTE.id)).not.toBeNull();
     expect(noteRow(OWNER_NOTE.id)).toHaveAttribute("data-node-kind", "note");
 
-    selectTab("Workspace");
+    selectTab("Groups");
     await within(panel()).findByRole("button", { name: "Workshop A" });
     expect(groupNode(GROUP_A.id)).toHaveAttribute("data-node-kind", "group");
     expect(groupNode(GROUP_A.id)).toHaveAttribute("data-node-id", GROUP_A.id);
@@ -1013,7 +1013,7 @@ describe("NoteList", () => {
     renderNoteList();
     await within(panel()).findByRole("link", { name: "Has A Slug" });
     const before = list();
-    selectTab("Workspace");
+    selectTab("Groups");
     expect(list()).not.toBe(before);
     expect(before.isConnected).toBe(false);
   });
@@ -1028,7 +1028,7 @@ describe("NoteList", () => {
   });
 
   describe("NL10 aria-current", () => {
-    it("active＝群組筆記：在工作坊 tab 該列 aria-current=page，整份 DOM 恰一個", async () => {
+    it("active＝群組筆記：在群組 tab 該列 aria-current=page，整份 DOM 恰一個", async () => {
       stubNotesFetch([MY_GROUP_NOTE, OWNER_NOTE], [GROUP_A]);
       renderNoteList({}, { tab: "workspace", activeId: MY_GROUP_NOTE.id });
       await within(panel()).findByRole("button", { name: "Workshop A" });
@@ -1418,7 +1418,7 @@ describe("NoteList × 資料夾", () => {
     expect(folderRow("A")!.firstElementChild).toHaveClass("h-11", "md:h-7");
   });
 
-  it("FR2 工作坊：G 下 GF、GF2（資料夾）與 g2；GF 下 g1；導引線 class 逐字", async () => {
+  it("FR2 群組 tab：G 下 GF、GF2（資料夾）與 g2；GF 下 g1；導引線 class 逐字", async () => {
     stubTree();
     renderNoteList({}, { tab: "workspace" });
     await waitFor(() => expect(folderRow("GF")).not.toBeNull());
@@ -1499,7 +1499,7 @@ describe("NoteList × 資料夾", () => {
     fireEvent.click(add);
     expect(onCreateNote).toHaveBeenLastCalledWith(undefined, "A");
 
-    selectTab("Workspace");
+    selectTab("Groups");
     await waitFor(() => expect(folderRow("GF")).not.toBeNull());
     fireEvent.click(within(folderRow("GF")!.firstElementChild as HTMLElement).getByRole("button", { name: "New note in GF" }));
     expect(onCreateNote).toHaveBeenLastCalledWith("G", "GF");
@@ -1510,7 +1510,7 @@ describe("NoteList × 資料夾", () => {
     expect(within(folderRow("SF")!.firstElementChild as HTMLElement).queryByRole("button", { name: "New note in SF" })).toBeNull();
   });
 
-  it("FR7 等資料夾：pending 時我的筆記、工作坊、與我共享都顯示 Loading…；最近 tab 照常；放行後樹出現", async () => {
+  it("FR7 等資料夾：pending 時我的筆記、群組、與我共享都顯示 Loading…；最近 tab 照常；放行後樹出現", async () => {
     let release: (list: FolderDto[]) => void = () => {};
     stubTree({ folders: new Promise<FolderDto[]>((resolve) => (release = resolve)) });
     const { queryClient } = renderNoteList();
@@ -1519,7 +1519,7 @@ describe("NoteList × 資料夾", () => {
     await waitFor(() => expect(queryClient.getQueryData(GROUPS_QUERY_KEY)).toBeDefined());
     expect(within(list()).getByText("Loading…")).toBeInTheDocument();
     expect(noteRow("p1")).toBeNull();
-    selectTab("Workspace");
+    selectTab("Groups");
     // 群組已到也不平鋪：群組根層的 g2 不出現
     expect(within(list()).getByText("Loading…")).toBeInTheDocument();
     expect(noteRow("g2")).toBeNull();
@@ -1631,7 +1631,7 @@ describe("NoteList × 新增資料夾", () => {
     vi.unstubAllGlobals();
   });
 
-  it("FR12 我的筆記標題列依序 Select、New folder、New personal note；New folder 帶 folder-plus 圖示、24px；與我共享 Select、New folder（PR-3b-2 T7）；工作坊 Select、New group", async () => {
+  it("FR12 我的筆記標題列依序 Select、New folder、New personal note；New folder 帶 folder-plus 圖示、24px；與我共享 Select、New folder（PR-3b-2 T7）；群組 Select、New group", async () => {
     stubCreate();
     renderNoteList();
     await within(panel()).findByRole("link", { name: OWNER_NOTE.title });
@@ -1641,7 +1641,7 @@ describe("NoteList × 新增資料夾", () => {
     expect(newFolder).toHaveClass("h-6", "w-6");
     selectTab("Shared with me");
     expect(headerNames()).toEqual(["Select", "New folder"]);
-    selectTab("Workspace");
+    selectTab("Groups");
     expect(headerNames()).toEqual(["Select", "New group"]);
   });
 

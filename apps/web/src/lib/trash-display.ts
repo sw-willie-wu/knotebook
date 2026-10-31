@@ -36,7 +36,7 @@ function formatDate(iso: string, kind: keyof typeof DATE_FORMATS, locale: string
 }
 
 /**
- * 列的第二行：個人「剩 N 天」（在資料夾裡「A › B · 剩 N 天」，無「我的筆記」前綴）；工作坊「群組名 › A · X 刪除 · 剩 N 天」（資料夾 spec §6.9）。
+ * 列的第二行：個人「剩 N 天」（在資料夾裡「A › B · 剩 N 天」，無「我的筆記」前綴）；群組「群組名 › A · X 刪除 · 剩 N 天」（資料夾 spec §6.9）。
  * 位置段是一段（以「 › 」串），之後才以「 · 」接。保留天數 NULL 時時間段改成刪除日期（用到才格式化）。
  */
 export function trashDetailLine(item: TrashItemDto, ctx: { now: number; t: Translate; locale: string }): string {

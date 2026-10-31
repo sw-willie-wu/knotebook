@@ -18,7 +18,7 @@ import {
 
 /**
  * 資料夾 PR-3b-2（spec §6.18 e2e 列中本 PR 的部分；A3-3、A3-6、A3-12、A3-18、§6.14）：⋮「Move to…／Copy to…」逐層子選單、
- * 選取模式的批次移動、與我共享的私人資料夾、工作坊跨群組、刪群組的資料夾說明。
+ * 選取模式的批次移動、與我共享的私人資料夾、群組 tab 跨群組、刪群組的資料夾說明。
  * 每個 test 以 `createUserViaInvite` 開自己的使用者並登入它（資料夾排在根層筆記前、預設展開，留在共用的 ADMIN 帳號會改變其他 spec
  * 的可見列）；ADMIN 只發邀請。資料以 API 建（建筆記不帶 content 不吃寫入節流；本檔只複製 2 篇），建完 `goto("/")` 讓側欄重抓——
  * 只有 41-3 的群組資料夾照 brief 用群組列「New folder in」建。負向斷言前先等正向錨點；toast 斷言錨定全字。
@@ -214,7 +214,7 @@ test("41-3 ⋮ 複製：Make a copy 落在同一資料夾；Copy to… 群組資
   await page.goto("/");
 
   // ── 群組列「New folder in G」建 GF ───────────────────────────────────────────────
-  const workspace = await showSidebarTab(page, "Workspace");
+  const workspace = await showSidebarTab(page, "Groups");
   await createFolder(page, workspace.getByRole("button", { name: `New folder in ${G}`, exact: true }), GF);
 
   // ── N（在 F）⋮ → Copy to… → Make a copy → 確認 → F 底下兩篇同名 ───────────────────────
@@ -228,7 +228,7 @@ test("41-3 ⋮ 複製：Make a copy 落在同一資料夾；Copy to… 群組資
   await expect(toastWithTitle(page, "Copied to your notes")).toBeVisible({ timeout: 15_000 });
   await expect(noteLink(folderRow(panel, F), N)).toHaveCount(2, { timeout: 15_000 });
 
-  // ── Copy to… →「G, open」→「GF」→ 確認框說明含「G › GF」→ 確認 → 工作坊 G › GF 底下有副本 ─────────
+  // ── Copy to… →「G, open」→「GF」→ 確認框說明含「G › GF」→ 確認 → 群組 G › GF 底下有副本 ─────────
   await openNoteActions(page, panel, N);
   await pickNoteMenuDestination(page, "Copy to…", [`${G}, open`, GF]);
   const copyInto = page.getByRole("dialog", { name: "Copy into group" });
@@ -236,7 +236,7 @@ test("41-3 ⋮ 複製：Make a copy 落在同一資料夾；Copy to… 群組資
   await expect(copyInto).toContainText(`This creates a copy in "${G} › ${GF}"; the original stays as it is.`);
   await copyInto.getByRole("button", { name: "Copy into group", exact: true }).click();
   await expect(toastWithTitle(page, `Copied into "${G}"`)).toBeVisible({ timeout: 15_000 });
-  const workspaceAgain = await showSidebarTab(page, "Workspace");
+  const workspaceAgain = await showSidebarTab(page, "Groups");
   await expect(noteLink(folderRow(workspaceAgain, GF), N)).toBeVisible({ timeout: 15_000 });
   // 原篇仍在 F（兩篇：原篇＋同資料夾副本）
   panel = await showSidebarTab(page, "My notes");
@@ -273,7 +273,7 @@ test("41-4 ⋮ 個人筆記移入群組資料夾：確認框帶完整路徑、�
   // ── 網址變 /g/<G>/…，且畫面已換成那篇 ────────────────────────────────────────────
   await expect(page).toHaveURL(new RegExp(`/g/${groupId}/[^/]+$`), { timeout: 15_000 });
   await expect(titleInput).toHaveValue(N, { timeout: 15_000 });
-  const workspace = await showSidebarTab(page, "Workspace");
+  const workspace = await showSidebarTab(page, "Groups");
   await expect(noteLink(folderRow(workspace, GF), N)).toBeVisible({ timeout: 15_000 });
 });
 
@@ -410,7 +410,7 @@ test("41-7 與我共享：B 建共享資料夾 SF、把 A 分享的那篇移進�
   }
 });
 
-test("41-8 工作坊跨群組：勾 G、H 各一篇 → Move to 停用、title 說明不同群組不能一起移", async ({ page }) => {
+test("41-8 群組 tab 跨群組：勾 G、H 各一篇 → Move to 停用、title 說明不同群組不能一起移", async ({ page }) => {
   test.setTimeout(120_000);
   const G = `E2E Mv G8 ${RUN}`;
   const H = `E2E Mv H8 ${RUN}`;
@@ -422,7 +422,7 @@ test("41-8 工作坊跨群組：勾 G、H 各一篇 → Move to 停用、title �
   await apiCreateNote(page, inH, { groupId: hId });
   await page.goto("/");
 
-  const workspace = await showSidebarTab(page, "Workspace");
+  const workspace = await showSidebarTab(page, "Groups");
   for (const title of [inG, inH]) await expect(noteLink(workspace, title)).toBeVisible({ timeout: 15_000 });
   const panel = await startSidebarSelection(page);
   await toggleSelectedNote(panel, inG);
@@ -445,7 +445,7 @@ test("41-9 刪群組說明：有資料夾的群組 ⋮ → Delete group → 轉�
   await apiCreateFolder(page, GF, { space: { kind: "group", groupId } });
   await page.goto("/");
 
-  const workspace = await showSidebarTab(page, "Workspace");
+  const workspace = await showSidebarTab(page, "Groups");
   await expect(folderRow(workspace, GF)).toBeVisible({ timeout: 15_000 });
   await page.getByRole("complementary").getByRole("button", { name: `Group actions for ${G}` }).click();
   await page.getByRole("menuitem", { name: "Delete group" }).click();

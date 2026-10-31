@@ -364,7 +364,7 @@ describe("SelectActionBar（PR-2c T5）", () => {
       expect(del).toHaveClass("w-9", "shrink-0");
     });
 
-    // PR-3b-2 改寫（SAf1）：工作坊、與我共享加 Move to；與我共享的刪除鈕只在選取全是資料夾時才有（0 項時沒有）。
+    // PR-3b-2 改寫（SAf1）：群組、與我共享加 Move to；與我共享的刪除鈕只在選取全是資料夾時才有（0 項時沒有）。
     it.each([
       ["recent" as const, ["Copy to", "Delete 0 selected items"]],
       ["workspace" as const, ["Move to", "Copy to", "Delete 0 selected items"]],
@@ -480,7 +480,7 @@ describe("SelectActionBar（PR-2c T5）", () => {
     await waitFor(() => expect(selecting()).toBe(false));
   });
 
-  // PR-3b-2 改寫：工作坊單一群組 A 的「複製到」上半部是 A 自己（建立副本），下半部不再列 A → 改從我的筆記複製到 A（同一組確認字與 body）。
+  // PR-3b-2 改寫：群組 tab 單一群組 A 的「複製到」上半部是 A 自己（建立副本），下半部不再列 A → 改從我的筆記複製到 A（同一組確認字與 body）。
   it("SA5 複製到群組：body {groupId}、toast", async () => {
     const server = stubServer();
     renderShells();
@@ -1242,7 +1242,7 @@ describe("SelectActionBar（PR-3b-2 T6b：資料夾）", () => {
     expect(within(picker).getByRole("button", { name: "G" })).toBeDisabled();
   });
 
-  it("SAf7 工作坊跨群組：Move to disabled＋title／可及描述「…different groups…」；Copy to 可按、第一層沒有 Make a copy", async () => {
+  it("SAf7 群組 tab 跨群組：Move to disabled＋title／可及描述「…different groups…」；Copy to 可按、第一層沒有 Make a copy", async () => {
     const g1 = groupNote({ id: "g1", title: "g1", group: FG });
     const h1 = groupNote({ id: "h1", title: "h1", group: FH });
     stubServer({ notes: [g1, h1], groups: [FG, FH], folders: [GF] });
@@ -1259,7 +1259,7 @@ describe("SelectActionBar（PR-3b-2 T6b：資料夾）", () => {
     expect(levelNames(picker)[0]).toBe("My notes");
   });
 
-  it("SAf8 工作坊單群組：g2（在 GF2）→ 第一層只有 G 的根目錄與資料夾、無分隔線 → GF → PUT {folderId:GF}", async () => {
+  it("SAf8 群組 tab 單群組：g2（在 GF2）→ 第一層只有 G 的根目錄與資料夾、無分隔線 → GF → PUT {folderId:GF}", async () => {
     const g2 = groupNote({ id: "g2", title: "g2", group: FG, folderId: "GF2" });
     const server = stubServer({ notes: [g2], groups: [FG, FH], folders: [GF, GF2] });
     renderShells({ tab: "workspace" });

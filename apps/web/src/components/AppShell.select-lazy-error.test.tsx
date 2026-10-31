@@ -158,19 +158,19 @@ describe("AppShell — 一般 tab 選取 chunk 載入失敗", () => {
     expect(screen.getByTestId("page-body")).toBeInTheDocument();
   });
 
-  it("AL3 錯誤態沒有 Esc 與 Done：點 Workspace 離開選取，工作坊是平常的列", async () => {
+  it("AL3 錯誤態沒有 Esc 與 Done：點 Groups 離開選取，群組是平常的列", async () => {
     sessionStorage.setItem(SELECT_FLAG, "1");
     stubFetch();
     renderApp();
     await startSelecting();
     await within(list()).findByRole("alert");
 
-    fireEvent.click(within(aside()).getByRole("tab", { name: "Workspace" }));
+    fireEvent.click(within(aside()).getByRole("tab", { name: "Groups" }));
     expect(await within(list()).findByRole("link", { name: "w1" })).toBeInTheDocument();
     expect(within(list()).getByRole("button", { name: "R&D" })).toHaveAttribute("aria-expanded", "true");
     expect(within(header()).getByRole("button", { name: "Select" })).toBeEnabled();
     expect(within(aside()).queryAllByRole("checkbox")).toHaveLength(0);
     expect(within(aside()).queryByRole("alert")).toBeNull();
-    expect(within(aside()).queryByRole("button", { name: "New note" })).toBeNull(); // 工作區 tab 沒有個人的新增鈕
+    expect(within(aside()).queryByRole("button", { name: "New note" })).toBeNull(); // 群組 tab 沒有個人的新增鈕
   });
 });

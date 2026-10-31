@@ -170,7 +170,7 @@ describe("evaluateDragOver：我的筆記", () => {
   });
 });
 
-describe("evaluateDragOver：工作坊", () => {
+describe("evaluateDragOver：群組", () => {
   it("DZ8 本群組列／根層筆記／空白處 → 群組根目錄；別群組任何列 → 不是落點", () => {
     expect(over("workspace", "g2", group("G"))).toEqual(["place", null, "group:G", null, null]);
     expect(over("workspace", "g1", group("G"))).toEqual(NONE);
@@ -285,7 +285,7 @@ describe("buildDropLookup", () => {
     expect(LOOKUP.myNotes.folders.get("Z")).toEqual({ space: "personal", depth: 2 });
   });
 
-  it("DZ16 工作坊只收 groupIds 裡的群組", () => {
+  it("DZ16 群組 tab 只收 groupIds 裡的群組", () => {
     const lookup = buildDropLookup(buildTabNodes("workspace", NOTES, GROUPS, INDEX), "workspace", new Set(["G"]));
     expect(lookup.notes.has("g1")).toBe(true);
     expect(lookup.notes.has("h1")).toBe(false);
@@ -296,7 +296,7 @@ describe("buildDropLookup", () => {
 describe("isDragEnabled", () => {
   const ok = { finePointer: true, tab: "myNotes", selectionActive: false, creating: false, nodesReady: true } as const;
 
-  it("DZ17 五項全可 → true；任一項不可 → false；工作坊、與我共享也可", () => {
+  it("DZ17 五項全可 → true；任一項不可 → false；群組、與我共享也可", () => {
     expect(isDragEnabled(ok)).toBe(true);
     expect(isDragEnabled({ ...ok, tab: "workspace" })).toBe(true);
     expect(isDragEnabled({ ...ok, tab: "shared" })).toBe(true);

@@ -14,7 +14,7 @@ import {
 /**
  * #181 垃圾桶 PR-2c：一般 tab 的選取模式（spec 2026-10-21 §6.11；plan 2026-10-25-trash-pr2c 的 A2c-2～A2c-8、A2-12 多選面）。
  * 1. 我的筆記 Shift 範圍選三篇 → 移動到群組（確認框焦點在框內、送出後焦點回「Select」）。
- * 2. 工作坊勾一篇群組筆記 → 有「Move to」（群組沒有資料夾、筆記在根層 → 停用）；複製到「My notes」（先確認）。
+ * 2. 群組 tab 勾一篇群組筆記 → 有「Move to」（群組沒有資料夾、筆記在根層 → 停用）；複製到「My notes」（先確認）。
  * 3. 勾兩篇刪除（不確認）→ toast「Undo」整批復原。
  * 4. 一般成員（沒有刪除權）：刪除鈕 disabled、「Copy to」可按。
  * 5. 「能刪不能編輯」的角色勾兩篇刪除 → toast 沒有「Undo」、帶說明句。
@@ -155,8 +155,8 @@ test("A2c-3：我的筆記 Shift 範圍選三篇 → 移動到群組；確認框
   await expect(panel.locator("button[data-sidebar-select]")).toBeFocused();
   await expectSelectionEnded(panel);
 
-  // 工作坊：三篇都在該群組下。
-  const workspace = await showSidebarTab(page, "Workspace");
+  // 群組：三篇都在該群組下。
+  const workspace = await showSidebarTab(page, "Groups");
   const groupNode = workspace.locator(`li[data-node-kind="group"][data-node-id="${groupId}"]`);
   for (const title of [m1, m2, m3]) await expect(noteLink(groupNode, title)).toBeVisible({ timeout: 15_000 });
   // 我的筆記：先等正向錨點（keep）再斷三篇不在。
@@ -165,7 +165,7 @@ test("A2c-3：我的筆記 Shift 範圍選三篇 → 移動到群組；確認框
   for (const title of [m1, m2, m3]) await expect(noteLink(myNotes, title)).toHaveCount(0);
 });
 
-test("A2c-4：工作坊勾一篇群組筆記 → 有「Move to」；複製到「My notes」（目的地叫 My notes、先確認）", async ({ page }) => {
+test("A2c-4：群組 tab 勾一篇群組筆記 → 有「Move to」；複製到「My notes」（目的地叫 My notes、先確認）", async ({ page }) => {
   test.setTimeout(120_000);
   const groupName = `E2E Sel C ${RUN}`;
   const title = `E2E Sel C1 ${RUN}`;
@@ -176,7 +176,7 @@ test("A2c-4：工作坊勾一篇群組筆記 → 有「Move to」；複製到「
 
   // 群組列「New note in …」建群組筆記（同 36 A2-12）：網址先換、畫面稍後才換，等新筆記的標題框（Untitled）再改標題。
   const sidebar = page.getByRole("complementary");
-  await showSidebarTab(page, "Workspace");
+  await showSidebarTab(page, "Groups");
   await sidebar.getByRole("button", { name: `New note in ${groupName}`, exact: true }).click();
   await page.waitForURL(/\/g\/[0-9a-f-]{36}\/untitled-[0-9a-f]{8}$/, { timeout: 15_000 });
   const titleInput = page.getByRole("textbox", NOTE_TITLE);
@@ -188,14 +188,14 @@ test("A2c-4：工作坊勾一篇群組筆記 → 有「Move to」；複製到「
     { timeout: 15_000 },
   );
 
-  const workspace = await showSidebarTab(page, "Workspace");
+  const workspace = await showSidebarTab(page, "Groups");
   await expect(noteLink(workspace, title)).toBeVisible({ timeout: 15_000 });
   const panel = await startSidebarSelection(page);
   await toggleSelectedNote(panel, title);
   await expect(panel.getByText("1 selected", { exact: true })).toBeVisible();
   const copyTo = actionBar(page).getByRole("button", { name: "Copy to", exact: true });
   await expect(copyTo).toBeEnabled();
-  // 資料夾 PR-3b-2：工作坊有「移動到」（只在本群組的資料夾間移動）。這個群組沒有資料夾、筆記在根層 → 第一層是空的 → 停用。
+  // 資料夾 PR-3b-2：群組有「移動到」（只在本群組的資料夾間移動）。這個群組沒有資料夾、筆記在根層 → 第一層是空的 → 停用。
   await expect(actionBar(page).getByRole("button", { name: "Move to", exact: true })).toBeDisabled();
 
   await copyTo.click();
@@ -219,7 +219,7 @@ test("A2c-4：工作坊勾一篇群組筆記 → 有「Move to」；複製到「
   // 我的筆記多一篇同標題的副本；原篇仍在群組下。
   const myNotes = await showSidebarTab(page, "My notes");
   await expect(noteLink(myNotes, title)).toHaveCount(1, { timeout: 15_000 });
-  const workspaceAgain = await showSidebarTab(page, "Workspace");
+  const workspaceAgain = await showSidebarTab(page, "Groups");
   await expect(noteLink(workspaceAgain, title)).toHaveCount(1);
 });
 
@@ -268,7 +268,7 @@ test("A2c-6：群組一般成員（沒有刪除權）勾群組筆記 → 刪除�
 
     const user = await userSession(browser, member.email);
     contexts.push(user.context);
-    const workspace = await showSidebarTab(user.page, "Workspace");
+    const workspace = await showSidebarTab(user.page, "Groups");
     await expect(noteLink(workspace, title)).toBeVisible({ timeout: 15_000 });
     const panel = await startSidebarSelection(user.page);
     await toggleSelectedNote(panel, title);
@@ -298,7 +298,7 @@ test("A2-12（多選）：「能刪不能編輯」的角色勾兩篇群組筆記
 
     const user = await userSession(browser, deleter.email);
     contexts.push(user.context);
-    const workspace = await showSidebarTab(user.page, "Workspace");
+    const workspace = await showSidebarTab(user.page, "Groups");
     for (const title of [x1, x2]) await expect(noteLink(workspace, title)).toBeVisible({ timeout: 15_000 });
     const panel = await startSidebarSelection(user.page);
     await toggleSelectedNote(panel, x1);

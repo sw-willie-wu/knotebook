@@ -40,7 +40,7 @@ export function canDragNote(note: NoteDto, space: FolderSpaceKey): boolean {
   return note.permissions.edit;
 }
 
-/** 從 `buildTabNodes` 的結果建 lookup。工作坊只收 `groupIds` 裡（我是成員）的群組。 */
+/** 從 `buildTabNodes` 的結果建 lookup。群組 tab 只收 `groupIds` 裡（我是成員）的群組。 */
 export function buildDropLookup(nodes: readonly SidebarNode[], tab: DragTab, groupIds: ReadonlySet<string>): DropLookup {
   const notes = new Map<string, NoteEntry>();
   const folders = new Map<string, FolderEntry>();
@@ -120,7 +120,7 @@ function placeAt(source: DragSource, folderId: string | null, scope: DropScope):
   return folderId === source.folderId ? null : { kind: "place", folderId, scope };
 }
 
-/** 空間的根目錄：我的筆記／與我共享＝整份清單；工作坊＝該群組。 */
+/** 空間的根目錄：我的筆記／與我共享＝整份清單；群組 tab＝該群組。 */
 function rootScope(tab: DragTab, space: FolderSpaceKey): DropScope | null {
   if (tab !== "workspace") return { kind: "list" };
   const groupId = groupIdOf(space);

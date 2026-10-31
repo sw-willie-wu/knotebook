@@ -52,8 +52,8 @@ async function openTrash(page: Page, scope?: Locator): Promise<Locator> {
   return panel;
 }
 
-/** 垃圾桶列（`<li>`，不是連結）；給 `section` 就限定在「My notes」／「Workspace」那一區。 */
-function trashRow(panel: Locator, title: string, section?: "My notes" | "Workspace"): Locator {
+/** 垃圾桶列（`<li>`，不是連結）；給 `section` 就限定在「My notes」／「Groups」那一區。 */
+function trashRow(panel: Locator, title: string, section?: "My notes" | "Groups"): Locator {
   const root = section ? panel.getByRole("list", { name: section, exact: true }) : panel;
   return root.getByRole("listitem").filter({ hasText: title });
 }
@@ -360,7 +360,7 @@ test("A2-12：「只能刪」成員移入群組筆記 → 沒有 Undo、看不�
 
     // ── admin：建群組、在群組建筆記（同 17）────────────────────────────────────
     const sidebar = adminPage.getByRole("complementary");
-    await showSidebarTab(adminPage, "Workspace");
+    await showSidebarTab(adminPage, "Groups");
     await sidebar.getByRole("button", { name: "New group", exact: true }).click();
     const groupDialog = adminPage.getByRole("dialog", { name: "New group" });
     await groupDialog.getByLabel("Group name").fill(groupName);
@@ -406,13 +406,13 @@ test("A2-12：「只能刪」成員移入群組筆記 → 沒有 Undo、看不�
     }
     await adminPage.keyboard.press("Escape");
 
-    // ── C（DeleteOnly）：工作坊 tab ⋮ 移入 → toast 沒有 Undo、有說明句 ───────────────
+    // ── C（DeleteOnly）：群組 tab ⋮ 移入 → toast 沒有 Undo、有說明句 ───────────────
     const deleterContext = await browser.newContext();
     contexts.push(deleterContext);
     const deleterPage = await deleterContext.newPage();
     await loginAs(deleterPage, deleter.email, PASSWORD);
     await expect(deleterPage).toHaveURL(/\/$/);
-    const deleterWorkspace = await showSidebarTab(deleterPage, "Workspace");
+    const deleterWorkspace = await showSidebarTab(deleterPage, "Groups");
     await expect(noteLink(deleterWorkspace, noteTitle)).toBeVisible({ timeout: 15_000 });
     const noUndoToast = await moveNoteToTrashFromSidebar(deleterPage, noteTitle);
     await expect(noUndoToast.getByText(NO_UNDO_HINT, { exact: true })).toBeVisible();
@@ -425,14 +425,14 @@ test("A2-12：「只能刪」成員移入群組筆記 → 沒有 Undo、看不�
     await deleterPage.goto(noteUrl);
     await expect(deleterPage.getByText(LINK_INVALID, { exact: true })).toBeVisible({ timeout: LINK_INVALID_TIMEOUT });
 
-    // ── B（EditDelete）：垃圾桶工作坊區有它、刪除者是 C → 開原網址是「在垃圾桶裡」卡片 → 還原 ─────
+    // ── B（EditDelete）：垃圾桶群組區有它、刪除者是 C → 開原網址是「在垃圾桶裡」卡片 → 還原 ─────
     const restorerContext = await browser.newContext();
     contexts.push(restorerContext);
     const restorerPage = await restorerContext.newPage();
     await loginAs(restorerPage, restorer.email, PASSWORD);
     await expect(restorerPage).toHaveURL(/\/$/);
     const restorerTrash = await openTrash(restorerPage);
-    const row = trashRow(restorerTrash, noteTitle, "Workspace");
+    const row = trashRow(restorerTrash, noteTitle, "Groups");
     await expect(row).toBeVisible();
     await expect(
       row.getByText(new RegExp(`^${reEscape(groupName)} · Deleted by ${reEscape(deleter.displayName)} · \\d+ days? left$`)),
@@ -443,9 +443,9 @@ test("A2-12：「只能刪」成員移入群組筆記 → 沒有 Undo、看不�
     await restorerPage.getByRole("button", { name: "Restore", exact: true }).click();
     await expect(restorerPage.getByRole("textbox", NOTE_TITLE)).toHaveValue(noteTitle, { timeout: 15_000 });
 
-    // ── C 重整 → 工作坊 tab 又看得到 ───────────────────────────────────────────
+    // ── C 重整 → 群組 tab 又看得到 ───────────────────────────────────────────
     await deleterPage.reload();
-    const deleterWorkspaceAgain = await showSidebarTab(deleterPage, "Workspace");
+    const deleterWorkspaceAgain = await showSidebarTab(deleterPage, "Groups");
     await expect(noteLink(deleterWorkspaceAgain, noteTitle)).toBeVisible({ timeout: 15_000 });
   } finally {
     for (const context of contexts) await context.close();

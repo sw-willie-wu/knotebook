@@ -93,7 +93,7 @@ export function scheduleTerminalReconcile(queryClient: QueryClient, noteId: stri
   const deadline = Date.now() + TERMINAL_RECONCILE_TIMEOUT_MS;
 
   // #103：被移出群組（或群組被刪）的終態，除了那篇筆記，**群組本身**也可能已經不屬於
-  // 我——側欄的工作坊段是 `useGroups()` 決定的，不失效就會留著一個空群組段。群組清單
+  // 我——側欄的群組段是 `useGroups()` 決定的，不失效就會留著一個空群組段。群組清單
   // 沒有「commit 晚於踢線」的競態（移人是先 commit 再踢），一發即可，不跟著輪詢。
   void queryClient.invalidateQueries({ queryKey: ["groups"], refetchType: "all" });
 

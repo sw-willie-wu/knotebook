@@ -141,10 +141,10 @@ describe("AppShell — 側欄 tab 接線", () => {
     const panel = within(aside()).getByRole("tabpanel");
     expect(panel).toHaveAttribute("aria-labelledby", within(aside()).getByRole("tab", { name: "My notes" }).id);
 
-    fireEvent.click(within(aside()).getByRole("tab", { name: "Workspace" }));
+    fireEvent.click(within(aside()).getByRole("tab", { name: "Groups" }));
     expect(within(aside()).getByRole("tabpanel")).toHaveAttribute(
       "aria-labelledby",
-      within(aside()).getByRole("tab", { name: "Workspace" }).id,
+      within(aside()).getByRole("tab", { name: "Groups" }).id,
     );
   });
 
@@ -154,18 +154,18 @@ describe("AppShell — 側欄 tab 接線", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Open navigation" }));
     const drawer = await screen.findByRole("dialog", { name: "Navigation" });
-    fireEvent.click(within(drawer).getByRole("tab", { name: "Workspace" }));
+    fireEvent.click(within(drawer).getByRole("tab", { name: "Groups" }));
 
-    expect(within(drawer).getByRole("tab", { name: "Workspace" })).toHaveAttribute("aria-selected", "true");
+    expect(within(drawer).getByRole("tab", { name: "Groups" })).toHaveAttribute("aria-selected", "true");
     // 抽屜開著時 Radix 把背景標 aria-hidden，靜態卡要 hidden:true 才查得到。
-    expect(within(aside()).getByRole("tab", { name: "Workspace", hidden: true })).toHaveAttribute(
+    expect(within(aside()).getByRole("tab", { name: "Groups", hidden: true })).toHaveAttribute(
       "aria-selected",
       "true",
     );
 
     fireEvent.keyDown(drawer, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Navigation" })).not.toBeInTheDocument());
-    expect(within(aside()).getByRole("tab", { name: "Workspace" })).toHaveAttribute("aria-selected", "true");
+    expect(within(aside()).getByRole("tab", { name: "Groups" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("AS3 useId 不撞：兩份實例的 aria-controls 不同、各落在自己的容器、整份 DOM 的 id 唯一", async () => {
@@ -202,7 +202,7 @@ describe("AppShell — 側欄 tab 接線", () => {
     const baseline = renders;
     expect(baseline).toBeGreaterThan(0);
 
-    for (const name of ["Workspace", "Shared with me", "Recent"]) {
+    for (const name of ["Groups", "Shared with me", "Recent"]) {
       fireEvent.click(within(aside()).getByRole("tab", { name }));
     }
     // 搜尋輸入這兩行守的是 plan 讀碼發現 3：抽屜 context 每次 render 換新物件時，`showTab` 不可依賴 drawer（依賴它就會讓 actions 捛物件、Counter 重跑）。
@@ -745,14 +745,14 @@ describe("AppShell — 一般 tab 選取模式（PR-2c T6）", () => {
     expect(select).toHaveFocus();
   });
 
-  it("AS-S4 選取中切 tab 離開：點 Workspace → 平常標題列、底部動作列消失（工作區 tab 沒有 New note）", async () => {
+  it("AS-S4 選取中切 tab 離開：點 Groups → 平常標題列、底部動作列消失（群組 tab 沒有 New note）", async () => {
     stubFetchWithNotes(notes);
     renderShell();
     await startSelecting(aside());
     fireEvent.click(noteBox(aside(), "p1")!);
     expect(within(aside()).queryByRole("button", { name: "New note" })).toBeNull();
 
-    fireEvent.click(within(aside()).getByRole("tab", { name: "Workspace" }));
+    fireEvent.click(within(aside()).getByRole("tab", { name: "Groups" }));
     expect(within(header(aside())).getByRole("button", { name: "Select" })).toBeInTheDocument();
     expect(within(header(aside())).queryByRole("button", { name: "Done" })).toBeNull();
     expect(within(header(aside())).queryByText(/selected/)).toBeNull();

@@ -16,7 +16,7 @@ import {
 
 /**
  * 資料夾 PR-3c（spec §6.18 e2e 列中本 PR 的一支；A3-7 的 Chromium 可自動化部分；§6.13【推-2】）：側欄原生拖曳——放進資料夾、拖回根目錄、
- * 彈簧資料夾、A 疊 B 建資料夾（改名框關閉後才出 toast）與復原、預覽後移開不建、工作坊跨群組不給落點、拖進編輯器。
+ * 彈簧資料夾、A 疊 B 建資料夾（改名框關閉後才出 toast）與復原、預覽後移開不建、群組 tab 跨群組不給落點、拖進編輯器。
  * 每個 test 以 `createUserViaInvite` 開自己的使用者並登入它（同 40／41：資料夾會改變共用帳號的可見列）；資料以 API 建後 `goto("/")`。
  * 拖曳一律 `dragTo`／`dragMoveTo`（page.mouse，Chromium）：等待只用斷言（落點標示 `data-drop-scope`、預覽 `data-node-kind="preview"`），
  * 不寫 waitForTimeout。停留 0.5 秒的觸發（彈簧、預覽）都以「等它出現」斷言，不量時間。負向斷言前先等正向錨點；toast 斷言錨定全字。
@@ -338,7 +338,7 @@ test("42-5 預覽後移開：N1 停在 N2 上出預覽 → 移到 R 列預覽收
   expect(folderPosts).toBe(0);
 });
 
-test("42-6 工作坊跨群組：G 的 g1 拖到 H 群組列 → H 不標示為落點；放開 → g1 仍在 G", async ({ page }) => {
+test("42-6 群組 tab 跨群組：G 的 g1 拖到 H 群組列 → H 不標示為落點；放開 → g1 仍在 G", async ({ page }) => {
   test.setTimeout(150_000);
   const G = `E2E Drag G ${RUN}`;
   const H = `E2E Drag H ${RUN}`;
@@ -353,7 +353,7 @@ test("42-6 工作坊跨群組：G 的 g1 拖到 H 群組列 → H 不標示為�
   const g1Id = await apiCreateNote(page, g1, { groupId: gId });
   await apiCreateNote(page, h1, { groupId: hId });
   await page.goto("/");
-  const workspace = await showSidebarTab(page, "Workspace");
+  const workspace = await showSidebarTab(page, "Groups");
   const gNode = workspace.locator(`li[data-node-kind="group"][data-node-id="${gId}"]`);
   const hNode = workspace.locator(`li[data-node-kind="group"][data-node-id="${hId}"]`);
   await expect(noteLink(gNode, g1)).toBeVisible({ timeout: 15_000 });

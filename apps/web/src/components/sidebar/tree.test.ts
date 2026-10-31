@@ -164,7 +164,7 @@ describe("buildTabNodes", () => {
     expect(where("workspace")).toBe(false);
   });
 
-  it("TR5：trash → []（垃圾桶不從 notes 組樹；不落入工作坊兜底）", () => {
+  it("TR5：trash → []（垃圾桶不從 notes 組樹；不落入群組兜底）", () => {
     expect(groups.length).toBeGreaterThan(0);
     expect(buildTabNodes("trash", notes, groups, EMPTY_FOLDER_INDEX)).toEqual([]);
   });
@@ -181,7 +181,7 @@ describe("noteLocationLabel", () => {
 
   it("en：個人／群組／共享（editor、viewer）／孤兒群組", () => {
     expect(label(OWNER_NOTE)).toBe("My notes");
-    expect(label(MY_GROUP_NOTE)).toBe("Workspace › Workshop A");
+    expect(label(MY_GROUP_NOTE)).toBe("Groups › Workshop A");
     expect(label(SHARED_NOTE)).toBe("Shared with me · Editor");
     expect(label(VIEWER_SHARED_NOTE)).toBe("Shared with me · Viewer");
     expect(label(ORPHAN_GROUP_NOTE)).toBe("Shared with me · Editor");
@@ -190,7 +190,7 @@ describe("noteLocationLabel", () => {
   it("zh-TW", async () => {
     await i18n.changeLanguage("zh-TW");
     try {
-      expect(label(MY_GROUP_NOTE)).toBe("工作坊 › Workshop A");
+      expect(label(MY_GROUP_NOTE)).toBe("群組 › Workshop A");
       expect(label(SHARED_NOTE)).toBe("與我共享 · 可編輯");
     } finally {
       await i18n.changeLanguage("en");
@@ -267,7 +267,7 @@ describe("buildTabNodes × 資料夾（spec §6.2）", () => {
     expect(shape(buildTabNodes("myNotes", notes, [], folders, recent))).toEqual([{ "F:A@1": ["a3", "a2", "a1"] }, { "F:B@1": [] }, "n2", "n1"]);
   });
 
-  it("FT2 工作坊：群組 → [根層資料夾…, 根層筆記…]，子資料夾 depth 正確", () => {
+  it("FT2 群組 tab：群組 → [根層資料夾…, 根層筆記…]，子資料夾 depth 正確", () => {
     const folders = indexFolders([
       groupFolder({ id: "gWeekly", name: "Weekly", groupId: GROUP_A.id, parentId: "gReports" }),
       groupFolder({ id: "gReports", name: "Reports", groupId: GROUP_A.id }),
@@ -408,11 +408,11 @@ describe("noteLocationLabel × 資料夾（spec §6.9）", () => {
 
   it("FT7 en：個人 A › B、群組 G › A、共享無放置／有放置、根層照舊", () => {
     expect(label(inB)).toBe("My notes › A › B");
-    expect(label(inGroupA)).toBe("Workspace › Workshop A › A");
+    expect(label(inGroupA)).toBe("Groups › Workshop A › A");
     expect(label(VIEWER_SHARED_NOTE)).toBe("Shared with me · Viewer");
     expect(label(placedViewer)).toBe("Shared with me › X · Viewer");
     expect(label(OWNER_NOTE)).toBe("My notes");
-    expect(label(MY_GROUP_NOTE)).toBe("Workspace › Workshop A");
+    expect(label(MY_GROUP_NOTE)).toBe("Groups › Workshop A");
     // 快取錯亂：個人筆記指向群組資料夾 → 不帶路徑
     expect(label(note("cross", { folderId: "gA" }))).toBe("My notes");
   });

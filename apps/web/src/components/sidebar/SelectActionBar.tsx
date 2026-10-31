@@ -58,12 +58,12 @@ import { buildTabNodes, noteSpaceKey } from "./tree";
 
 /**
  * 一般 tab 選取模式的動作列（#181 PR-2c，spec §6.11；資料夾 spec §6.10）。只准經 `SelectLazy` 引用。
- * - 動作表（`SELECT_ACTIONS`）：我的筆記、工作坊、與我共享「移動到／複製到／刪除」，最近「複製到／刪除」；與我共享的刪除鈕＝「移除選取的資料夾」，
+ * - 動作表（`SELECT_ACTIONS`）：我的筆記、群組 tab、與我共享「移動到／複製到／刪除」，最近「複製到／刪除」；與我共享的刪除鈕＝「移除選取的資料夾」，
  *   只在選取（去重後）非空且全是資料夾時才渲染。
  * - 選取（資料夾與筆記同列）：`selectedTargets` → `dedupeByAncestor`（祖先也被選的不送、不算略過）→ 依動作 `partitionTargets` 預先排除
  *   （排除的不送、算進結果句的略過）。一項都做不了就 disabled；不出「0 項」toast。
  * - 移動到：目的地框一次一層（`buildDestinationLevel`；path 本元件持有、開框重設；換層一律從 `livePath` 接，不看 path.length）。
- *   工作坊選取分屬多個群組、或第一層為空（`isEmptyDestination`）→ disabled。選定後：同空間（`isSameSpace`）不確認、`placeTargetsInOrder`、
+ *   群組 tab 選取分屬多個群組、或第一層為空（`isEmptyDestination`）→ disabled。選定後：同空間（`isSameSpace`）不確認、`placeTargetsInOrder`、
  *   結果 toast 帶「復原」（`undoPlacements`，依序送回原處；停下報已移回幾項）、目標資料夾展開；跨空間（只會是我的筆記 → 群組）先
  *   `MoveConfirmDialog`（完整路徑）→ `moveNotesInOrder`，沒有復原。
  * - 複製到：選了資料夾 → disabled（D14）；選定後一律先 `CopyConfirmDialog` → `copyNotesInOrder`。

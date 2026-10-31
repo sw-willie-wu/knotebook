@@ -43,7 +43,7 @@ afterEach(() => {
   __resetFolderSortForTests();
 });
 
-describe("SMf1 SELECT_ACTIONS（資料夾 spec §6.10：工作坊、與我共享加 move）", () => {
+describe("SMf1 SELECT_ACTIONS（資料夾 spec §6.10：群組、與我共享加 move）", () => {
   it("四個 tab", () => {
     expect(SELECT_ACTIONS).toEqual({
       recent: ["copy", "delete"],

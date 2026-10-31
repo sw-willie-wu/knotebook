@@ -86,7 +86,7 @@ export async function createUserViaInvite(
  * `createNote`；所有走 `createNote` 的 page（流程 1／2／3 的 adminPage／4）都由這裡涵蓋。）
  */
 export async function createNote(page: Page, title: string): Promise<void> {
-  // 頁尾「New note」只在 My notes／Recent／搜尋中顯示；呼叫端可能停在 Workspace／Shared with me，先切回 My notes。
+  // 頁尾「New note」只在 My notes／Recent／搜尋中顯示；呼叫端可能停在 Groups／Shared with me，先切回 My notes。
   if (!(await page.getByRole("button", { name: "New note", exact: true }).isVisible())) {
     await showSidebarTab(page, "My notes");
   }
@@ -228,7 +228,7 @@ export async function adminNav(page: Page, item: "Users" | "Groups" | "Sign-in" 
   await expect(page).toHaveURL(urls[item]);
 }
 
-export type SidebarTabName = "Recent" | "My notes" | "Workspace" | "Shared with me" | "Trash";
+export type SidebarTabName = "Recent" | "My notes" | "Groups" | "Shared with me" | "Trash";
 
 /**
  * 點側欄某個 tab、等它 aria-selected，回傳同一範圍內的 tabpanel。`scope` 預設靜態側欄（complementary）；窄螢幕傳抽屜。
@@ -244,7 +244,7 @@ export async function showSidebarTab(page: Page, name: SidebarTabName, scope?: L
 }
 
 /**
- * #181 PR-2c：一般 tab（我的筆記／工作坊／與我共享／最近）標題列的「Select」→ 等選取標題列的「0 selected」（lazy 的 SelectLazy chunk 到了；
+ * #181 PR-2c：一般 tab（我的筆記／群組／與我共享／最近）標題列的「Select」→ 等選取標題列的「0 selected」（lazy 的 SelectLazy chunk 到了；
  * 進入時已選一律清空）。`scope` 預設靜態側欄；窄螢幕傳抽屜。回傳 tabpanel（勾選框在裡面；動作列在 tabpanel 外、側欄底部）。
  * 垃圾桶 tab 的選取是另一套（36）。
  */
@@ -297,7 +297,7 @@ export async function moveNoteToTrashFromSidebar(page: Page, title: string, scop
 
 /** #247：群組 modal。側欄群組列 ⋮ →「Members & settings」→ `/groups/<id>`；回傳 group id。 */
 export async function openGroupPanel(page: Page, groupName: string): Promise<string> {
-  await showSidebarTab(page, "Workspace");
+  await showSidebarTab(page, "Groups");
   await page.getByRole("complementary").getByRole("button", { name: `Group actions for ${groupName}` }).click();
   await page.getByRole("menuitem", { name: "Members & settings" }).click();
   await expect(page).toHaveURL(/\/groups\/[0-9a-f-]{36}$/);

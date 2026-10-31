@@ -223,7 +223,7 @@ test("40-4 群組資料夾：群組列建資料夾、在裡面建筆記；一般
 
     // ── A 建群組 G（同 15／17）─────────────────────────────────────────────────
     const sidebar = aPage.getByRole("complementary");
-    let workspace = await showSidebarTab(aPage, "Workspace");
+    let workspace = await showSidebarTab(aPage, "Groups");
     await sidebar.getByRole("button", { name: "New group", exact: true }).click();
     const groupDialog = aPage.getByRole("dialog", { name: "New group" });
     await groupDialog.getByLabel("Group name").fill(groupName);
@@ -235,7 +235,7 @@ test("40-4 群組資料夾：群組列建資料夾、在裡面建筆記；一般
     await createFolder(aPage, workspace.getByRole("button", { name: `New folder in ${groupName}`, exact: true }), GF);
     await folderMenuItem(aPage, workspace, GF, "New note");
     await titleNewNote(aPage, title, "g");
-    workspace = await showSidebarTab(aPage, "Workspace");
+    workspace = await showSidebarTab(aPage, "Groups");
     await expect(noteLink(folderRow(workspace, GF), title)).toBeVisible({ timeout: 15_000 });
 
     // ── A 把 B 加進群組（預設內建一般成員 Member：能編輯、不能刪除）───────────────────
@@ -248,7 +248,7 @@ test("40-4 群組資料夾：群組列建資料夾、在裡面建筆記；一般
     const bPage = await bContext.newPage();
     await loginAs(bPage, bEmail, PASSWORD);
     await expect(bPage).toHaveURL(/\/$/);
-    const bWorkspace = await showSidebarTab(bPage, "Workspace");
+    const bWorkspace = await showSidebarTab(bPage, "Groups");
     await expect(noteLink(folderRow(bWorkspace, GF), title)).toBeVisible({ timeout: 15_000 });
     const trigger = folderMenuButton(bWorkspace, GF);
     await trigger.hover();

@@ -3,7 +3,7 @@ import type { SidebarTab } from "@/lib/sidebar-tab";
 import { FOLDER_COLLATOR, folderPath, spaceKeyOf, type FolderIndex, type FolderSpaceKey } from "./folder-index";
 import { folderSortOf, type FolderSort } from "./folder-sort";
 
-/** 面板節點樹：群組節點（工作坊 tab）、資料夾節點或筆記節點。 */
+/** 面板節點樹：群組節點（群組 tab）、資料夾節點或筆記節點。 */
 export type SidebarNode =
   | { kind: "group"; id: string; group: GroupDto; children: SidebarNode[] }
   /** depth：根層資料夾＝1。 */
@@ -36,7 +36,7 @@ export function noteSpaceKey(note: NoteDto, groupIds: ReadonlySet<string>): Fold
 export interface SidebarPartition {
   myNotes: NoteDto[];
   shared: NoteDto[];
-  /** 依 `groups` 的順序，每個群組一個桶（空桶也在，工作坊 tab 要渲染空群組）。 */
+  /** 依 `groups` 的順序，每個群組一個桶（空桶也在，群組 tab 要渲染空群組）。 */
   byGroup: Map<string, NoteDto[]>;
 }
 
@@ -133,7 +133,7 @@ export function buildTabNodes(
   folders: FolderIndex,
   sortOf: (folderId: string) => FolderSort = folderSortOf,
 ): SidebarNode[] {
-  // 垃圾桶不從 ["notes"] 組樹；先攔，否則會落進最後一支（其餘一律當工作坊）列出全部群組。
+  // 垃圾桶不從 ["notes"] 組樹；先攔，否則會落進最後一支（其餘一律當群組 tab）列出全部群組。
   if (tab === "trash") return [];
   if (tab === "recent") return recentNotes(notes).map(noteNode);
   const parts = partitionNotes(notes, groups);
@@ -177,7 +177,7 @@ export function noteLocationSegments(note: { group: { name: string } | null }, p
 
 /**
  * 筆記的位置標籤（資料夾 spec §6.9）：搜尋結果與最近 tab 的第二行都只經這一支。
- * 個人「My notes › A › B」；群組「Workspace › G › A」；共享無放置「Shared with me · Viewer」、有放置「Shared with me › X · Viewer」。
+ * 個人「My notes › A › B」；群組「Groups › G › A」；共享無放置「Shared with me · Viewer」、有放置「Shared with me › X · Viewer」。
  */
 export function noteLocationLabel(note: NoteDto, ctx: LocationContext, t: Translate): string {
   const bucket = noteBucket(note, ctx.groupIds);
