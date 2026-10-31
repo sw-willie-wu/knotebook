@@ -11,6 +11,7 @@ import { NoteMenu, SidebarNoteMenu } from "./NoteMenu";
 import { EDITOR_PERMS, OWNER_PERMS } from "@/test/fixtures";
 import { NARROW_QUERY, useVersionsController, VersionsProvider } from "@/lib/versions-context";
 import { FOLDER_LIST_EMPTY, folderDto } from "@/test/folder-fixtures";
+import { mockWidePointer } from "@/test/wide-pointer";
 
 // ⋮ 選單（spec D.4）：複製連結（任何角色）＋移到垃圾桶（#181：不確認、成功 toast＋復原；#175 起看 `permissions.delete`，含 M11 的
 // leavingRef 時序：刪除失敗且已進終態時，`NoteMenu` 必須自己補一套「同文案同
@@ -750,6 +751,8 @@ describe("NoteMenu × 逐層子選單（PR-3b-2 T4）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
+    // 這組案走 flyout（寬）；jsdom 預設落在窄（就地展開），所以明確注入寬。
+    mockWidePointer(true);
   });
   afterEach(() => {
     cleanup();

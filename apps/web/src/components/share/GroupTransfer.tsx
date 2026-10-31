@@ -21,6 +21,7 @@ import {
   type DestTarget,
   type Translate,
 } from "@/components/sidebar/destination-level";
+import { useWidePointer } from "@/lib/wide-pointer";
 import { destinationItemIcon } from "@/components/sidebar/destination-icon";
 import { indexFolders, type FolderIndex } from "@/components/sidebar/folder-index";
 import { Button } from "@/components/ui/button";
@@ -129,7 +130,7 @@ interface LevelNav {
   items: DestItem[];
   /** NoteMenuCore 持有的 path（物件同一性＝沒換層）。 */
   path: readonly DestPathStep[];
-  /** 第二層起（「‹ 返回」恆第一項）；不看 path.length（見 `livePath`）。 */
+  /** 第二層起（「返回」恆第一項）；不看 path.length（見 `livePath`）。 */
   nested: boolean;
   drill: (step: DestPathStep) => void;
   back: () => void;
@@ -140,10 +141,10 @@ interface LevelNav {
 /**
  * 層內容（spec §6.11.1、§6.11.4、§6.16）：每個 `DestItem` 一個選單項，分隔線＝`DropdownMenuSeparator`。
  * 只在 flyout 的 `SubContent` 開著、或就地展開形展開時掛載，期間持續存在（**不以 path 當 key**）；換層後（掛載後 path 改變）
- * 把焦點交給新層第一個未停用的項目（第二層起即「‹ 返回」）、flyout 另把 `SubContent` 捲回頂端（總管裁定 2026-10-29 m1、m1-1、M3）。
+ * 把焦點交給新層第一個未停用的項目（第二層起即「返回」）、flyout 另把 `SubContent` 捲回頂端（總管裁定 2026-10-29 m1、m1-1、M3）。
  * `active` 為假（flyout 子選單正在關：Radix `Presence` 在 open 變假的那次 commit 仍掛著內容，path 同時被重設）時不搬焦點，
  * 否則焦點會被搶進即將卸載的子選單、Esc 後回不到觸發項。
- * 「‹ 」是 `aria-hidden` 的字：畫面是「‹ 返回」、可及名稱是「返回」；帶 `>` 的項目可及名稱＝「{{name}}，開啟下一層」。
+ * 返回項前導 `ChevronLeft` 圖示（`aria-hidden`）、可及名稱是「返回」；帶 `>` 的項目可及名稱＝「{{name}}，開啟下一層」。
  */
 function DestinationLevelItems({
   level,
@@ -206,10 +207,7 @@ function DestinationLevelItems({
             }}
           >
             {Icon !== null && <Icon aria-hidden="true" className="mr-2 h-4 w-4 shrink-0" />}
-            <span className="truncate">
-              {item.kind === "back" && <span aria-hidden="true">‹ </span>}
-              {item.label}
-            </span>
+            <span className="truncate">{item.label}</span>
             {drill !== null && <ChevronRight aria-hidden="true" className="ml-auto h-4 w-4 shrink-0" />}
           </DropdownMenuItem>
         );
@@ -218,38 +216,13 @@ function DestinationLevelItems({
   );
 }
 
-/**
- * 群組清單的展開形（Willie 2026-10-08）：**窄視窗或觸控** -> 就地向下展開（手風琴，項目縮排在觸發項下方，同一個選單內，
- * 不會被抽屜／視窗邊緣裁切）；**寬且可 hover** -> 右側 flyout（Radix Sub）。
- * 判準沿用 repo 既有的兩個界線：窄＝`(width < 48rem)`（`lib/sidebar-drawer.ts` 的 `NARROW_QUERY`、`max-md:`）；觸控＝`(hover: none)`
- * （`ui/reveal.ts`、`NoteList` 的觸控常駐判準）。兩者任一成立即就地展開。jsdom 預設 matchMedia 恆 false -> flyout 形。
- */
-export const INLINE_GROUP_LIST_QUERY = "(width < 48rem), (hover: none)";
-
-export function useInlineGroupList(): boolean {
-  const read = () =>
-    typeof window !== "undefined" &&
-    typeof window.matchMedia === "function" &&
-    window.matchMedia(INLINE_GROUP_LIST_QUERY).matches;
-  const [inline, setInline] = useState(read);
-  useEffect(() => {
-    if (typeof window.matchMedia !== "function") return;
-    const mql = window.matchMedia(INLINE_GROUP_LIST_QUERY);
-    const onChange = () => setInline(mql.matches);
-    mql.addEventListener("change", onChange);
-    onChange();
-    return () => mql.removeEventListener("change", onChange);
-  }, []);
-  return inline;
-}
-
 /** 觸發項前的圖示：與 `NoteMenu` 其他項同一組 class（`mr-2 h-4 w-4`），兩種形態共用。 */
 function TransferIcon({ kind }: { kind: GroupTransferKind }) {
   return kind === "move" ? <FolderInput className="mr-2 h-4 w-4" /> : <Copy className="mr-2 h-4 w-4" />;
 }
 
 /** 就地展開形的一組：觸發項（Enter／Space／右鍵展開或收合，左鍵收合）＋縮排的目前這一層（同一個 menu 的一般項，上下鍵照常漫遊）。
- * 點 `>` 項＝原地換成下一層（觸發項不動、「‹ 返回」成為第一個縮排項）；第二層起 ArrowLeft 回上一層、第一層 ArrowLeft 收合。
+ * 點 `>` 項＝原地換成下一層（觸發項不動、「返回」成為第一個縮排項）；第二層起 ArrowLeft 回上一層、第一層 ArrowLeft 收合。
  * 收合（再點觸發項、第一層 ArrowLeft）時呼叫端一併重設 path；Esc 的收合由 `NoteMenu` 的 `onEscapeKeyDown` 接（見 `GroupTransferMenuItems`）。 */
 function GroupInline({
   kind,
@@ -380,7 +353,8 @@ export function GroupTransferMenuItems({
   const foldersQuery = useFolders();
   const groups = groupsQuery.data ?? NO_GROUPS;
   const index = useMemo(() => indexFolders(foldersQuery.data ?? NO_FOLDERS), [foldersQuery.data]);
-  const inline = useInlineGroupList();
+  // 窄視窗或觸控 -> 就地向下展開（手風琴）；寬且可 hover -> 右側 flyout（Willie 2026-10-08；判準見 `lib/wide-pointer.ts`）。
+  const inline = !useWidePointer();
   const triggers = useRef<Partial<Record<GroupTransferKind, HTMLDivElement | null>>>({});
   const prevExpanded = useRef<GroupTransferKind | null>(null);
   // 收合（尤其 Esc）後焦點原本在被卸載的縮排項上 -> 還給觸發項，鍵盤不掉出選單。

@@ -25,7 +25,7 @@ function stubMatchMedia(matches: boolean) {
   vi.stubGlobal(
     "matchMedia",
     vi.fn().mockImplementation((query: string) => ({
-      matches,
+      matches: query === NARROW_QUERY ? matches : false,
       media: query,
       addEventListener: () => {},
       removeEventListener: () => {},

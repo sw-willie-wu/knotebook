@@ -7,6 +7,7 @@ import * as Y from "yjs";
 import type { NoteDto, UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ActiveNoteProvider } from "@/lib/active-note";
+import { NARROW_QUERY } from "@/lib/sidebar-drawer";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import type { CollabState } from "@/collab/connection";
@@ -259,7 +260,7 @@ describe("NotePage × 簡報（spec §6.1、§6.5、§13.2）", () => {
     const search = screen.getAllByLabelText("Search notes")[0];
     fireEvent.keyDown(window, { key: "k", ctrlKey: true });
     expect(document.activeElement).not.toBe(search);
-    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true, addEventListener() {}, removeEventListener() {} })));
+    vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === NARROW_QUERY, addEventListener() {}, removeEventListener() {} })));
     fireEvent.keyDown(window, { key: "k", ctrlKey: true });
     expect(document.querySelector("[data-sidebar-drawer]")).toBeNull();
   });

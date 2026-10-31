@@ -46,7 +46,7 @@ import type { SidebarNode } from "./tree";
 /** 落點範圍提示：比 `bg-brand-soft` 更淡的主色底＋主色外框（spec §6.13、§6.14；T4 Step 6 量過六色 × 淺深）。 */
 export const DROP_SCOPE_CLASS = "bg-brand/8 ring-1 ring-inset ring-brand";
 
-/** `(hover: hover) and (pointer: fine)`；訂閱 change（比照 GroupTransfer 的 useInlineGroupList）。 */
+/** `(hover: hover) and (pointer: fine)`；訂閱 change（比照 lib/wide-pointer 的 useWidePointer）。 */
 export function useFinePointer(): boolean {
   const read = () => typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia(DRAG_POINTER_QUERY).matches;
   const [fine, setFine] = useState(read);

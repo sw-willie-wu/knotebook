@@ -8,12 +8,12 @@ import i18n from "@/i18n";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { groupDto, memberRole, OWNER_PERMS, EDITOR_PERMS, VIEWER_PERMS } from "@/test/fixtures";
 import { folderDto, groupFolder, sharedFolder } from "@/test/folder-fixtures";
+import { mockWidePointer } from "@/test/wide-pointer";
 import { NoteMenu } from "@/components/NoteMenu";
 import type { DestSpace } from "@/components/sidebar/destination-level";
 import { indexFolders } from "@/components/sidebar/folder-index";
 import {
   GroupTransferDialog,
-  INLINE_GROUP_LIST_QUERY,
   isSameSpaceMove,
   type DestinationPick,
   type GroupTransferPick,
@@ -21,7 +21,7 @@ import {
 } from "./GroupTransfer";
 
 // #216：⋮ 選單的「移動到群組」「複製到群組」（原 MoveToGroupSection 的測試搬來）。
-// 寬螢幕＝右側 flyout（Radix Sub）；窄／觸控（matchMedia 命中 INLINE_GROUP_LIST_QUERY）＝就地向下展開。
+// 寬螢幕＝右側 flyout（Radix Sub）；窄／觸控（matchMedia 不命中 WIDE_POINTER_QUERY）＝就地向下展開。
 // PR-3b-2 T4 起子選單是逐層清單（destination-level）：這組案的群組都沒有資料夾、筆記在根層、`GET /api/folders` 回空，
 // 第一層與 #216 的平清單同項同序（上下半部之間的分隔線不是 menuitem），斷言照舊不放寬。資料夾層的案在檔尾「逐層子選單」。
 
@@ -139,18 +139,9 @@ function stub(init: Partial<Server> = {}) {
   };
 }
 
-/** 讓 matchMedia 對 INLINE_GROUP_LIST_QUERY 回報命中（窄／觸控）。 */
+/** 就地展開形（窄／觸控）＝寬判準不成立；`on=false` 即寬（flyout）。jsdom 預設落在窄，所以 flyout 案一律要明確注入寬。 */
 function stubInlineMode(on: boolean): void {
-  vi.stubGlobal("matchMedia", (query: string) => ({
-    matches: on && query === INLINE_GROUP_LIST_QUERY,
-    media: query,
-    onchange: null,
-    addListener: () => {},
-    removeListener: () => {},
-    addEventListener: () => {},
-    removeEventListener: () => {},
-    dispatchEvent: () => false,
-  }));
+  mockWidePointer(!on);
 }
 
 function renderMenu(note: NoteDto = NOTE) {
@@ -877,7 +868,7 @@ describe("⋮ 逐層子選單（PR-3b-2 T4）", () => {
   /** 個人 A ⊃ A1、B；群組 G、H 沒有資料夾（NM-D1 的形）。 */
   const BASE_SERVER = { groups: [G, H], folders: [A, A1, B] };
 
-  /** 可及名稱：aria-label 優先，否則去掉 aria-hidden 的字（「‹ 」）。 */
+  /** 可及名稱：aria-label 優先，否則去掉 aria-hidden 的子元素。 */
   function accessibleName(el: Element): string {
     const label = el.getAttribute("aria-label");
     if (label !== null) return label;
@@ -924,7 +915,7 @@ describe("⋮ 逐層子選單（PR-3b-2 T4）", () => {
     expect(within(sub).getByRole("menuitem", { name: "B" }).querySelector('svg[data-icon="folder"]')).not.toBeNull();
   });
 
-  it("NM-D2 點「A, open」→ 選單與子選單仍開、換成 [Back, Move here, A1]、焦點在 Back（「‹ 」aria-hidden）、子選單捲回頂端", async () => {
+  it("NM-D2 點「A, open」→ 選單與子選單仍開、換成 [Back, Move here, A1]、焦點在 Back（chevron-left aria-hidden）、子選單捲回頂端", async () => {
     stub(BASE_SERVER);
     renderMenu();
     const sub = await openMoveSub(["A, open", "B", "G", "H"]);
@@ -938,8 +929,8 @@ describe("⋮ 逐層子選單（PR-3b-2 T4）", () => {
     expect(screen.getByTestId("note-menu-move-to")).toBeInTheDocument();
     const back = within(sub).getByRole("menuitem", { name: "Back" });
     expect(document.activeElement).toBe(back);
-    expect(back).toHaveTextContent("‹ Back");
-    expect(back.querySelector('[aria-hidden="true"]')).toHaveTextContent("‹");
+    expect(back.textContent).toBe("Back");
+    expect(back.querySelector('svg[data-icon="chevron-left"][aria-hidden="true"]')).not.toBeNull();
   });
 
   it("NM-D3 第二層 ArrowLeft → 回第一層、子選單仍開；第一層 ArrowLeft → 子選單關（交 Radix）", async () => {
@@ -1094,7 +1085,7 @@ describe("⋮ 逐層子選單（PR-3b-2 T4）", () => {
     }
     fireEvent.click(within(sub).getByRole("menuitem", { name: "A, open" }));
     await waitFor(() => expect(names(sub)).toEqual(["Back", "Move here", "A1"]));
-    expect(leadIcons(sub)).toEqual({ Back: null, "Move here": null, A1: "folder" });
+    expect(leadIcons(sub)).toEqual({ Back: "chevron-left", "Move here": null, A1: "folder" });
   });
 
   it("NM-D20 flyout Copy to…：建立副本 copy、群組筆記的「我的筆記」user、群組 users；Top level 沒有", async () => {
@@ -1220,14 +1211,31 @@ describe("⋮ 逐層子選單（PR-3b-2 T4）", () => {
       expect(screen.getAllByRole("menu")).toHaveLength(1);
     });
 
-    it("NM-I5 就地展開形目的地項目前導圖示：資料夾 folder、群組 users；Back、Move here 沒有", async () => {
+    it("BK1 窄形（就地展開）第二層的 Back：文字恰為「Back」（無「‹」）、前導 chevron-left（aria-hidden、與 chevron-right 同尺寸 class）", async () => {
+      stub(BASE_SERVER);
+      renderMenu();
+      const { group } = await expandMove(["A, open", "B", "G", "H"]);
+      const chevronRightClass = within(group).getByRole("menuitem", { name: "A, open" }).querySelector('svg[data-icon="chevron-right"]')?.getAttribute("class");
+      fireEvent.click(within(group).getByRole("menuitem", { name: "A, open" }));
+      await waitFor(() => expect(names(screen.getByRole("group", { name: "Move to…" }))).toEqual(["Back", "Move here", "A1"]));
+      const back = screen.getByRole("menuitem", { name: "Back" });
+      expect(back.textContent).toBe("Back");
+      const icon = back.querySelector('svg[data-icon="chevron-left"]');
+      expect(icon).not.toBeNull();
+      expect(icon).toHaveAttribute("aria-hidden", "true");
+      expect(icon).toHaveClass("h-4", "w-4");
+      expect(chevronRightClass).toContain("h-4");
+      expect(chevronRightClass).toContain("w-4");
+    });
+
+    it("NM-I5 就地展開形目的地項目前導圖示：資料夾 folder、群組 users；Back 為 chevron-left、Move here 沒有", async () => {
       stub(BASE_SERVER);
       renderMenu();
       const { group } = await expandMove(["A, open", "B", "G", "H"]);
       expect(leadIcons(group)).toEqual({ "A, open": "folder", B: "folder", G: "users", H: "users" });
       fireEvent.click(within(group).getByRole("menuitem", { name: "A, open" }));
       await waitFor(() => expect(names(screen.getByRole("group", { name: "Move to…" }))).toEqual(["Back", "Move here", "A1"]));
-      expect(leadIcons(screen.getByRole("group", { name: "Move to…" }))).toEqual({ Back: null, "Move here": null, A1: "folder" });
+      expect(leadIcons(screen.getByRole("group", { name: "Move to…" }))).toEqual({ Back: "chevron-left", "Move here": null, A1: "folder" });
     });
 
     it("NM-I2 第二層 ArrowLeft → 回第一層（仍展開）；第一層 ArrowLeft → 收合", async () => {
