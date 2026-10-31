@@ -334,6 +334,49 @@ describe("buildNoteEditorOptions", () => {
     expect(takeDropPoint()).toBeNull();
   });
 
+  // #352 DL10：最外層的 `withSiteLinkDrop` 啟用時（可編輯、env 在、沒有 dragging）仍回傳內層結果；它的判斷拋錯也不擋內層。
+  // 上面三案的 env 是 null、view 是 null 或只有 posAtCoords，hook 不啟用——這裡另組一個 env 非 null 的 builder。
+  const buildWithSiteLinks = () =>
+    buildNoteEditorOptions({
+      doc,
+      provider: { awareness: null } as never,
+      user: { id: "user-1", name: "Ann" },
+      language: "en",
+      translate,
+      editorRef: { current: null },
+      noteId: "note-1",
+      siteLinks: { current: { origin: "http://localhost", notes: () => [], schedule: () => {} } },
+    });
+  const flushMicrotasks = async () => {
+    for (let i = 0; i < 6; i++) await Promise.resolve();
+  };
+
+  it("DL10a：站內連結 drop hook 啟用時，媒體阻擋仍回 true、落點照記（#352）", async () => {
+    const view = { editable: true, dragging: null, posAtCoords: vi.fn(() => ({ pos: 9, inside: -1 })) };
+    const event = Object.assign(dragEvent(transfer({ files: [file("a.pdf", "application/pdf")], types: ["Files"] })), { clientX: 3, clientY: 4 });
+    expect(buildWithSiteLinks()._tiptapOptions.editorProps.handleDOMEvents.drop(view as never, event)).toBe(true);
+    expect(toastMock).toHaveBeenCalledWith({ title: "t:note.transferNonImage" });
+    expect(takeDropPoint()).toBe(9);
+    await flushMicrotasks();
+  });
+
+  it("DL10b：drop hook 的判斷拋錯（editable getter 拋錯）→ 不拋出、內層照跑（#352）", async () => {
+    const view = { dragging: null, posAtCoords: vi.fn(() => ({ pos: 9, inside: -1 })) };
+    Object.defineProperty(view, "editable", {
+      get() {
+        throw new Error("boom");
+      },
+    });
+    const event = Object.assign(dragEvent(transfer({ files: [file("a.pdf", "application/pdf")], types: ["Files"] })), { clientX: 3, clientY: 4 });
+    let result: boolean | undefined;
+    expect(() => {
+      result = buildWithSiteLinks()._tiptapOptions.editorProps.handleDOMEvents.drop(view as never, event);
+    }).not.toThrow();
+    expect(result).toBe(true);
+    expect(toastMock).toHaveBeenCalledWith({ title: "t:note.transferNonImage" });
+    await flushMicrotasks();
+  });
+
   it("攔截掛在 editorProps.handleDOMEvents，**不是** handlePaste/handleDrop", () => {
     const editorProps = build()._tiptapOptions.editorProps;
 

@@ -211,15 +211,15 @@ describe("#269 W4 AddMarkStep 外掛", () => {
     expect(inline(editor).map((n) => [n.type, n.href])).toEqual([["link", "/n/alice/alpha"]]);
   });
 
-  it("拖放（uiEvent=drop）進來的純文字網址：paste rule 加了 link mark，但不轉、不排後備（§1.3、§17-4）", () => {
+  it("外掛單獨掛著時不收拖放（drop 歸 drop hook `withSiteLinkDrop`）：paste rule 加了 link mark，但不轉、不排後備", () => {
     const e = env();
     ({ editor, container } = mount(e));
     const view = editor._tiptapEditor.view;
     editor.setTextCursorPosition(editor.document[0]!.id, "end");
     const at = view.state.selection.from;
     view.dispatch(view.state.tr.insertText(`${ORIGIN}/n/alice/alpha ${ORIGIN}/n/bob/secret`, at).setMeta("uiEvent", "drop"));
-    // tiptap 的 paste rule 對外部 drop 也跑，兩個網址真的都成了 link（命中與未命中各一），而且都沒轉成 wikilink——
-    // 一次斷言整列 `[type, href]`：轉錯時紅燈訊息直接看得到 wikilink，不會與「paste rule 沒加 link」混淆。
+    // tiptap 的 paste rule 對外部 drop 也跑，兩個網址真的都成了 link（命中與未命中各一），而且外掛沒轉、沒排後備——
+    // 一次拖放只歸 drop hook（#352，`site-link-drop.test.tsx`），這裡沒有掛它。一次斷言整列 `[type, href]`：轉錯時紅燈訊息直接看得到 wikilink，不會與「paste rule 沒加 link」混淆。
     expect(inline(editor).map((n) => [n.type, n.href])).toEqual([
       ["link", `${ORIGIN}/n/alice/alpha`],
       ["text", undefined],

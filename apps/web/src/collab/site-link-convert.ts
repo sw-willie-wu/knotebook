@@ -2,8 +2,10 @@
  * #269 §8.4／§6.5：client 寫入路徑的站內連結轉換。
  * - `createSiteLinkConvertExtension`：tiptap extension，`appendTransaction` 收本地 transaction 的 link `AddMarkStep`（autolink、
  *   連結對話框的 `createLink`、link toolbar 改網址）——掛在 `NoteEditor` 的 `_tiptapOptions.extensions`。貼上（含選取上貼網址、
- *   裸網址的 paste rule）不歸它：一次貼上只由貼上 hook 處理（見 `isForeign`、`pastingRefs`）。
+ *   裸網址的 paste rule）不歸它：一次貼上只由貼上 hook 處理（見 `isForeign`、`pastingRefs`）；拖放也不歸它（#352，見下）。
  * - `createSiteLinkPasteHook`：`createMarkdownPasteHandler` 的掛點——貼上的出口返回後，對前後文件的 diff 範圍呼叫 `convertSiteLinksInRange`。
+ * - `withSiteLinkDrop`（#352）：`handleDOMEvents.drop` 的最外層——從編輯器外拖進來的放下，在 microtask 裡對放下範圍呼叫
+ *   `convertSiteLinksInRange`。範圍由上面那個外掛在拖放期間記錄（`droppingRefs`、`recordDropRange`）；外掛本身仍不轉拖放的 link。
  * - 非同步後備：快取解析不到的站內網址問 server（A6：每次動作 ≤20 個相異 href、單發 5 s），成功後一筆 transaction 套用。
  * 所有轉換 transaction 帶 meta `knotebook:siteLinkConvert`；外掛看到它或 `y-sync$`（遠端、撤銷／重做）一律跳過。
  */
@@ -11,6 +13,7 @@ import { Extension } from "@tiptap/core";
 import type { BlockNoteEditor } from "@blocknote/core";
 import type { SiteLinkCandidate, SiteLinkTarget, SiteNoteHref } from "@knotebook/shared";
 import { FALLBACK_MAX_HREFS, resolveFromCache, resolveViaServer } from "@/lib/site-link-resolve";
+import type { EditorRef } from "@/components/wikilink/menu";
 import type { PasteConversionHook } from "./paste";
 import { createPmPlugin } from "./pm-plugin";
 import { addedLinkRanges, blockRanges, collectSiteLinks, replaceSiteLinks, SITE_LINK_CONVERT_META, Y_SYNC_META, type SiteLinkRange } from "./site-link-pm";
@@ -56,10 +59,11 @@ function convertLinks(tr: Any, links: readonly SiteLinkRange[], env: SiteLinkEnv
 }
 
 /**
- * 不當成本地動作處理的 tr（§8.4、§1.3／§17-4）：
+ * 不當成本地動作處理的 tr（§8.4）：
  * - `y-sync$`（遠端更新、y-undo 撤銷／重做）、`knotebook:siteLinkConvert`（轉換本身）；
  * - 拖放（drop）：prosemirror-view 的 drop handler 對那筆 tr 設 `uiEvent: "drop"`；外部拖進的純文字網址由 tiptap 的 paste rule
- *   （`pasteRulesPlugin` 對 drop 也跑）在**另一筆附加的** tr 加 link mark。
+ *   （`pasteRulesPlugin` 對 drop 也跑）在**另一筆附加的** tr 加 link mark。一次拖放只歸 drop hook（`withSiteLinkDrop`，#352）——
+ *   外掛也收的話，快取未命中時同一個連結會排兩次後備。
  * - 貼上（`uiEvent: "paste"`，prosemirror-view 的 `doPaste`）：一次貼上只歸一個擁有者——由 `createSiteLinkPasteHook` 對前後 diff
  *   範圍轉換；外掛若也收 paste rule 附加的 link，快取未命中時同一個連結會排兩次後備（A6 上限翻倍、§7.6 撤銷後可能被晚到的第二發轉回）。
  */
@@ -72,7 +76,8 @@ function isForeign(tr: Any): boolean {
  * 別的外掛 `appendTransaction` 附加的 tr，其根 tr 掛在 PM 的 `appendedTransaction` meta 上（每一筆附加 tr 都指向同一個根）。
  * 外掛順序是確定的：BlockNote 把 `_tiptapOptions.extensions` 放在 extension 清單最後，tiptap 先反轉再依 priority 穩定排序，
  * 所以本外掛排在 BlockNote Link 的 paste rule／autolink **之前**——它們附加的 link tr 會在下一輪**單獨**送到本外掛。
- * 因此根 tr 也要看：根是遠端更新（y-sync$，autolink 不跳過它）／轉換本身／拖放／貼上時，附加上的 link mark 一樣不轉。
+ * 因此根 tr 也要看：根是遠端更新（y-sync$，autolink 不跳過它）／轉換本身時，附加上的 link mark 一樣不轉；根是拖放／貼上時
+ * 也不由外掛轉——那次動作歸 drop hook／貼上 hook。
  */
 function excluded(tr: Any): boolean {
   const root = tr.getMeta("appendedTransaction");
@@ -96,13 +101,43 @@ export function appendSiteLinkConversion(trs: readonly Any[], state: Any, env: S
  */
 const pastingRefs = new WeakSet<SiteLinkEnvRef>();
 
+type DropRange = { from: number; to: number };
+
+/**
+ * 拖放進行中（`withSiteLinkDrop` 的 before → after）的放下範圍；null＝還沒看到 drop tr、或不轉。
+ * 不放 plugin state：plugin state 沒有重設點，下一次沒有 drop tr 的放下（媒體阻擋、Files、只有 uri-list）會讀到上一次的範圍。
+ * before 覆寫成 null、after（與 before 的 catch）刪除，兩道互為備援。
+ */
+const droppingRefs = new WeakMap<SiteLinkEnvRef, DropRange | null>();
+
+/** 外掛 `appendTransaction` 先呼叫：拖放期間記下 drop tr 插入的範圍，並映射過其後的每一筆 tr（paste rule、UniqueID、fixTables…）。 */
+function recordDropRange(trs: readonly Any[], envRef: SiteLinkEnvRef): void {
+  if (!droppingRefs.has(envRef)) return;
+  let r = droppingRefs.get(envRef) ?? null;
+  for (const tr of trs) {
+    if (tr.getMeta("uiEvent") === "drop") {
+      // 同 prosemirror-view handleDrop 算 `end` 的方式：最後一個 step 的 StepMap。不是恰好一段就不轉（往不轉的方向錯）。
+      const maps = tr.mapping.maps as readonly Any[];
+      const segments: DropRange[] = [];
+      maps[maps.length - 1]?.forEach((_oldStart: number, _oldEnd: number, newStart: number, newEnd: number) => segments.push({ from: newStart, to: newEnd }));
+      r = segments.length === 1 ? segments[0]! : null;
+    } else if (r) {
+      r = { from: tr.mapping.map(r.from, -1), to: tr.mapping.map(r.to, 1) };
+    }
+  }
+  droppingRefs.set(envRef, r);
+}
+
 export function createSiteLinkConvertExtension({ envRef }: { envRef: SiteLinkEnvRef }): Extension {
   return Extension.create({
     name: "knotebookSiteLinkConvert",
     addProseMirrorPlugins() {
       return [
         createPmPlugin({
-          appendTransaction: (trs, _old, state) => (pastingRefs.has(envRef) ? null : appendSiteLinkConversion(trs, state, envRef.current)),
+          appendTransaction: (trs, _old, state) => {
+            recordDropRange(trs, envRef);
+            return pastingRefs.has(envRef) ? null : appendSiteLinkConversion(trs, state, envRef.current);
+          },
         }) as never,
       ];
     },
@@ -193,6 +228,49 @@ export function createSiteLinkPasteHook(envRef: SiteLinkEnvRef): PasteConversion
       const to = Math.max(start, endB);
       if (from === to) return;
       convertSiteLinksInRange(ed, from, to, env);
+    },
+  };
+}
+
+function afterDrop(envRef: SiteLinkEnvRef, editorRef: EditorRef): void {
+  let range: DropRange | null | undefined;
+  try {
+    range = droppingRefs.get(envRef);
+  } finally {
+    droppingRefs.delete(envRef);
+  }
+  // 沒看到 drop tr（null）不轉；映射後成為空範圍也不轉——`collectSiteLinks` 的點範圍含端點，會把緊鄰的既有連結收進來。
+  if (!range || range.from >= range.to) return;
+  try {
+    const env = envRef.current;
+    const editor = editorRef.current;
+    // 同 `runFallbackConversion`：編輯器已 unmount 時 `view` 是 stub，靠 `headless` 判斷。
+    if (env && editor && !editor.headless) convertSiteLinksInRange(editor, range.from, range.to, env);
+  } catch (err) {
+    console.warn("[site-link] drop conversion failed", err);
+  }
+}
+
+/**
+ * #352：`handleDOMEvents.drop` 的最外層。從編輯器外拖進來（可編輯、env 在、`view.dragging` 為 null）時，同步啟用記錄
+ * （設成 null）並排一個 microtask；PM 的 drop tr 與各外掛附加的 tr 都在這個 listener 內同步跑完，microtask 才讀範圍、轉換。
+ * 前提：兩次放下之間一定有 microtask checkpoint（每個 listener 回呼結束都會清）。內部拖曳（有 `dragging`）不轉。
+ * 一律回傳內層的結果；自己的判斷拋錯不擋內層。
+ */
+export function withSiteLinkDrop<T extends { drop: (view: unknown, event: DragEvent) => boolean }>(envRef: SiteLinkEnvRef, editorRef: EditorRef, inner: T): T {
+  return {
+    ...inner,
+    drop: (view: unknown, event: DragEvent) => {
+      try {
+        const v = view as { editable?: unknown; dragging?: unknown } | null;
+        if (v?.editable && envRef.current && v.dragging == null) {
+          droppingRefs.set(envRef, null);
+          queueMicrotask(() => afterDrop(envRef, editorRef));
+        }
+      } catch {
+        droppingRefs.delete(envRef);
+      }
+      return inner.drop(view, event);
     },
   };
 }
