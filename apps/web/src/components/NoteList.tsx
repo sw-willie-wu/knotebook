@@ -1,8 +1,9 @@
-import { lazy, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { lazy, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactElement, type ReactNode, type RefObject, type SVGProps } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
-import { canonicalNotePath, type GroupDto, type NoteDto } from "@knotebook/shared";
+import { canonicalNotePath, type FolderDto, type FolderSpaceDto, type GroupDto, type NoteDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
+import { folderErrorMessage, useFolders } from "@/api/folders";
 import { useGroups } from "@/api/groups";
 import { GroupMenu } from "@/components/groups/GroupMenu";
 import { GroupNameDialog } from "@/components/groups/GroupNameDialog";
@@ -12,20 +13,46 @@ import { useActiveNote } from "@/lib/active-note";
 import { useSidebarTabActions, useSidebarTabState } from "@/lib/sidebar-tab";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { hoverReveal } from "@/components/ui/reveal";
-import { Plus, SquareCheck } from "@/components/ui/icons";
+import { hoverReveal, type RevealScope } from "@/components/ui/reveal";
+import { FolderPlus, Plus, SquareCheck } from "@/components/ui/icons";
 import { EmptyState } from "@/components/EmptyState";
 import { useCollapsed } from "@/components/sidebar/collapse";
+import { indexFolders, liveNotesUnder } from "@/components/sidebar/folder-index";
+import { FolderMenu } from "@/components/sidebar/FolderMenu";
+import { useFolderSortOf } from "@/components/sidebar/folder-sort";
+import { FolderRowButton } from "@/components/sidebar/FolderRowButton";
 import { GroupRowButton } from "@/components/sidebar/GroupRowButton";
 import { SidebarLazyBoundary } from "@/components/sidebar/SidebarLazyBoundary";
+import type { StackPreviewState } from "@/components/sidebar/drag-session";
+import { StackPreview } from "@/components/sidebar/StackPreview";
 import { tabSpec, type HeaderActionId } from "@/components/sidebar/tab-specs";
-import { buildTabNodes, hasNoteNodes, noteLocationLabel, type SidebarNode } from "@/components/sidebar/tree";
+import { DROP_SCOPE_CLASS, useSidebarDrag } from "@/components/sidebar/useSidebarDrag";
+import { buildTabNodes, hasSelectableNodes, noteLocationLabel, noteSpaceKey, type LocationContext, type SidebarNode } from "@/components/sidebar/tree";
 
 // 一般 tab 選取模式（PR-2c）：只准經 SelectLazy 這個 lazy 入口（首包上限）。兩個掛點共用同一個 chunk。
 const SelectHeader = lazy(() => import("@/components/sidebar/SelectLazy").then((m) => ({ default: m.SelectHeader })));
 const SelectableTree = lazy(() => import("@/components/sidebar/SelectLazy").then((m) => ({ default: m.SelectableTree })));
+// 資料夾對話框（新增／改名／刪除）：只准經 FolderLazy 這個 lazy 入口（首包上限）。
+const FolderDialogs = lazy(() => import("@/components/sidebar/FolderLazy").then((m) => ({ default: m.FolderDialogs })));
+
+/**
+ * 疊資料夾建好後的改名框（資料夾 spec §6.6、§6.13 第 6 步）：`onClosed` 在關閉時以最後的名字呼叫恰一次（送出＝送出的名字、取消＝原名）；
+ * `focusTarget` 在關閉當下才解析（新資料夾列是重抓後才出現的）。
+ */
+export interface StackRenameHooks {
+  onClosed: (finalName: string) => void;
+  focusTarget: () => HTMLElement | null;
+}
+
+/** 資料夾對話框的請求（host 在每份 NoteList 實例各一份；T4 的資料夾 ⋮ 也經 `NodeContext.openFolderDialog` 開框）。 */
+export type FolderDialogRequest =
+  | { kind: "create"; parent: { folderId: string } | { space: FolderSpaceDto } }
+  | { kind: "rename"; folder: FolderDto; stack?: StackRenameHooks }
+  | { kind: "delete"; folder: FolderDto };
 
 const EMPTY_GROUPS: GroupDto[] = [];
+const EMPTY_FOLDERS: FolderDto[] = [];
+const EMPTY_NOTES: NoteDto[] = [];
 const EMPTY_NODES: SidebarNode[] = [];
 
 /** ApiFail → errors.<code>；其餘（網路失敗等）→ errors.fallback。與 LoginPage
@@ -56,12 +83,12 @@ type RowVariant = "plain" | "group" | "recent";
 interface NoteRowProps {
   note: NoteDto;
   variant: RowVariant;
-  groupIds: ReadonlySet<string>;
+  location: LocationContext;
 }
 
 /** 一列筆記：標題、徽章、⋮（`SidebarNoteMenu`，hover 浮出靠 `<li>` 的 `group/noterow`）。
  * 靜態卡與抽屜各一份 NoteList，所以一篇筆記的 ⋮ 最多兩份 DOM——測試一律 `within(...)` 鎖定面板。 */
-function NoteRow({ note, variant, groupIds }: NoteRowProps) {
+function NoteRow({ note, variant, location }: NoteRowProps) {
   const { t } = useTranslation();
   const { activeNoteId, setActiveNoteId } = useActiveNote();
   // #122：active 判準改吃 context 的 note.id（單一真相，理由見 lib/active-note.tsx
@@ -108,7 +135,7 @@ function NoteRow({ note, variant, groupIds }: NoteRowProps) {
           // 兩行一律 <div>：可及名稱靠 UA 預設 block 之間補空白（jsdom 不載 Tailwind，span 會黏成「標題位置」）。
           <>
             <div className="truncate text-[13px]">{note.title}</div>
-            <div className="mt-0.5 truncate text-[11px] text-muted-foreground">{noteLocationLabel(note, groupIds, t)}</div>
+            <LocationLine label={noteLocationLabel(note, location, t)} />
           </>
         ) : (
           note.title
@@ -117,6 +144,15 @@ function NoteRow({ note, variant, groupIds }: NoteRowProps) {
       {variant !== "recent" && <RoleBadge role={note.role} group={note.group} />}
       <SidebarNoteMenu note={note} />
     </li>
+  );
+}
+
+/** 最近 tab 的第二行：太長時 CSS truncate，`title` 給完整路徑（資料夾 spec §6.9）。 */
+function LocationLine({ label }: { label: string }) {
+  return (
+    <div className="mt-0.5 truncate text-[11px] text-muted-foreground" title={label}>
+      {label}
+    </div>
   );
 }
 
@@ -129,13 +165,17 @@ function HeaderActionButton({
   disabled = false,
   buttonRef,
   reveal,
+  icon: Icon = Plus,
 }: {
   label: string;
-  onClick: () => void;
+  /** `currentTarget` 給開框的呼叫端當還焦點的對象。 */
+  onClick: (event: MouseEvent<HTMLButtonElement>) => void;
   disabled?: boolean;
-  /** 工作坊標題列「＋」用：讓新增群組對話框關閉時把焦點還回來（P17）。 */
+  /** 群組標題列「＋」用：讓新增群組對話框關閉時把焦點還回來（P17）。 */
   buttonRef?: RefObject<HTMLButtonElement | null>;
-  reveal?: "grouprow";
+  reveal?: RevealScope;
+  /** 預設「＋」；「新增資料夾」傳 `FolderPlus`。 */
+  icon?: (props: SVGProps<SVGSVGElement>) => ReactElement;
 }) {
   return (
     <Button
@@ -150,30 +190,53 @@ function HeaderActionButton({
       // 24px（spec §8.1；P21）。hover 浮出與觸控（`hover: none`）常駐見 `ui/reveal.ts`。
       className={cn("h-6 w-6 shrink-0", reveal && hoverReveal(reveal))}
     >
-      <Plus aria-hidden="true" className="h-3.5 w-3.5" />
+      <Icon aria-hidden="true" className="h-3.5 w-3.5" />
     </Button>
   );
 }
 
 interface NodeContext {
   tab: ReturnType<typeof useSidebarTabState>["tab"];
-  groupIds: ReadonlySet<string>;
-  onCreateNote?: (groupId?: string) => void;
+  location: LocationContext;
+  onCreateNote?: (groupId?: string, folderId?: string) => void;
   createNotePending: boolean;
+  /** 開資料夾對話框；`opener` 是關框時還焦點的對象。 */
+  openFolderDialog: (request: FolderDialogRequest, opener: HTMLElement | null) => void;
+  /** 快取裡的筆記：資料夾 ⋮ 開啟時判斷子樹有沒有活筆記（刪除擋下）。 */
+  notes: readonly NoteDto[];
+  /** 拖曳的落點範圍提示鍵（`dropScopeKey`："list"｜"group:<id>"｜"folder:<id>"）；null＝不標示。 */
+  dropScope: string | null;
+  /** 疊資料夾預覽或「建立中」：取代 `anchorNoteId` 那一列（`creating` 優先）。 */
+  stack: { state: StackPreviewState; creating: boolean } | null;
 }
 
 /**
- * 工作坊 tab 的群組節點：像檔案樹的一個資料夾列（折疊主鈕見 `GroupRowButton`）。筆記掛在導引線下，線對齊圖示槽中心
+ * 群組 tab 的群組節點：像檔案樹的一個資料夾列（折疊主鈕見 `GroupRowButton`）。筆記掛在導引線下，線對齊圖示槽中心
  * （px-2 8＋槽寬 14 / 2 ＝ 15px）。折疊狀態是 `sidebar/collapse.ts` 的共用 store（靜態卡、抽屜、選取樹同步）。
  */
 function GroupNode({ node, ctx }: { node: Extract<SidebarNode, { kind: "group" }>; ctx: NodeContext }) {
   const { t } = useTranslation();
   const { group } = node;
   const [open, toggle] = useCollapsed(`group:${group.id}`);
+  const dropScoped = ctx.dropScope === `group:${group.id}`;
   return (
-    <li data-node-kind="group" data-node-id={group.id} className="flex flex-col gap-0.5">
+    <li
+      data-node-kind="group"
+      data-node-id={group.id}
+      data-drop-scope={dropScoped ? "" : undefined}
+      className={cn("flex flex-col gap-0.5", dropScoped && DROP_SCOPE_CLASS)}
+    >
       <div className="group/grouprow flex h-7 items-center gap-0.5 rounded-md hover:bg-brand-soft active:bg-brand-soft-strong">
         <GroupRowButton name={group.name} open={open} onToggle={toggle} />
+        {/* 資料夾 spec §6.3、N7：能編輯群組筆記才能建資料夾；排在「＋」之前（稿 `Workshop`，讀碼發現 19）。 */}
+        {group.myRole?.permissions.edit && (
+          <HeaderActionButton
+            reveal="grouprow"
+            icon={FolderPlus}
+            label={t("sidebar.newFolderIn", { group: group.name })}
+            onClick={(event) => ctx.openFolderDialog({ kind: "create", parent: { space: { kind: "group", groupId: group.id } } }, event.currentTarget)}
+          />
+        )}
         {/* #175 §8.2＋PR3：「＋」只在我的角色能在這個群組建立**且能編輯**筆記時渲染——能建不能改的人建出來的是
             自己也改不了的空白筆記（spec 疑點 11；他仍可經移入／複製把筆記放進群組，PR2）；`myRole` null＝防禦，不渲染。 */}
         {group.myRole?.permissions.create && group.myRole.permissions.edit && (
@@ -195,6 +258,59 @@ function GroupNode({ node, ctx }: { node: Extract<SidebarNode, { kind: "group" }
   );
 }
 
+/** 群組資料夾的 groupId（建立筆記時要同時帶，讀碼發現 1-①）；個人／共享資料夾 → undefined。 */
+function groupIdOf(folder: FolderDto): string | undefined {
+  return folder.space.kind === "group" ? folder.space.groupId : undefined;
+}
+
+/**
+ * 資料夾節點（資料夾 spec §6.3）：折疊主鈕見 `FolderRowButton`，子節點掛導引線（同 `GroupNode`）。折疊鍵 `folder:<id>`
+ * 是 `sidebar/collapse.ts` 的共用 store。「沒有筆記」只在沒有任何子節點時出現（只有子資料夾時不說）。⋮ 在 T4。
+ */
+function FolderNode({ node, ctx }: { node: Extract<SidebarNode, { kind: "folder" }>; ctx: NodeContext }) {
+  const { t } = useTranslation();
+  const { folder } = node;
+  const [open, toggle] = useCollapsed(`folder:${folder.id}`);
+  const dropScoped = ctx.dropScope === `folder:${folder.id}`;
+  return (
+    <li
+      data-node-kind="folder"
+      data-node-id={folder.id}
+      data-drop-scope={dropScoped ? "" : undefined}
+      className={cn("flex flex-col gap-0.5", dropScoped && DROP_SCOPE_CLASS)}
+    >
+      <div className="group/folderrow flex h-11 items-center gap-0.5 rounded-md hover:bg-brand-soft active:bg-brand-soft-strong md:h-7">
+        <FolderRowButton name={folder.name} open={open} onToggle={toggle} />
+        {folder.permissions.createNote && (
+          <HeaderActionButton
+            reveal="folderrow"
+            label={t("sidebar.newNoteIn", { name: folder.name })}
+            onClick={() => ctx.onCreateNote?.(groupIdOf(folder), folder.id)}
+            disabled={ctx.createNotePending}
+          />
+        )}
+        <FolderMenu
+          folder={folder}
+          depth={node.depth}
+          hasLiveNotes={() => liveNotesUnder(ctx.location.folders, folder.id, ctx.notes, (note) => noteSpaceKey(note, ctx.location.groupIds)).length > 0}
+          onCreateNote={() => ctx.onCreateNote?.(groupIdOf(folder), folder.id)}
+          createNotePending={ctx.createNotePending}
+          onRequest={ctx.openFolderDialog}
+        />
+      </div>
+      {open && (
+        <div className="ml-[15px] border-l border-muted-foreground/35 pl-2">
+          {node.children.length === 0 ? (
+            <p className="flex h-11 items-center pl-3 text-[11px] text-muted-foreground md:h-7">{t("sidebar.folderEmpty")}</p>
+          ) : (
+            <SidebarNodeList nodes={node.children} ctx={ctx} inGroup />
+          )}
+        </div>
+      )}
+    </li>
+  );
+}
+
 function SidebarNodeList({ nodes, ctx, inGroup = false }: { nodes: SidebarNode[]; ctx: NodeContext; inGroup?: boolean }) {
   if (nodes.length === 0) return null;
   return (
@@ -202,12 +318,23 @@ function SidebarNodeList({ nodes, ctx, inGroup = false }: { nodes: SidebarNode[]
       {nodes.map((node) =>
         node.kind === "group" ? (
           <GroupNode key={node.id} node={node} ctx={ctx} />
+        ) : node.kind === "folder" ? (
+          <FolderNode key={node.id} node={node} ctx={ctx} />
+        ) : ctx.stack !== null && ctx.stack.state.anchorNoteId === node.id ? (
+          <StackPreview
+            key={node.id}
+            name={ctx.stack.state.name}
+            anchorTitle={node.note.title}
+            sourceTitle={ctx.stack.state.sourceTitle}
+            creating={ctx.stack.creating}
+            variant={inGroup ? "group" : "plain"}
+          />
         ) : (
           <NoteRow
             key={node.id}
             note={node.note}
             variant={inGroup ? "group" : ctx.tab === "recent" ? "recent" : "plain"}
-            groupIds={ctx.groupIds}
+            location={ctx.location}
           />
         ),
       )}
@@ -216,8 +343,8 @@ function SidebarNodeList({ nodes, ctx, inGroup = false }: { nodes: SidebarNode[]
 }
 
 export interface NoteListProps {
-  /** 標題列／群組列的「＋」：`groupId` 給群組列、不給＝個人筆記。state 與導向都在 `AppShell.handleNewNote`。 */
-  onCreateNote?: (groupId?: string) => void;
+  /** 標題列／群組列／資料夾列的「＋」：`groupId` 給群組（含群組資料夾）、`folderId` 給資料夾、都不給＝個人根層。state 與導向都在 `AppShell.handleNewNote`。 */
+  onCreateNote?: (groupId?: string, folderId?: string) => void;
   createNotePending?: boolean;
 }
 
@@ -227,7 +354,7 @@ const MESSAGE_CLASS = "p-2 text-sm text-muted-foreground";
  * 側欄「目前 tab 的面板」：標題列（名稱＋該 tab 宣告的動作）＋清單（遞迴節點樹）。tabpanel 外框由
  * `AppShell` 提供（本元件假設自己在它裡面，是 flex-col 的子層）。
  * `GET /api/notes` 的 pending／error 在清單內顯示；`GET /api/groups` 的 pending／error 只影響
- * 工作坊 tab（與「零筆記時要等群組才知道是不是全空」），群組筆記在那期間依兜底列落與我共享、
+ * 群組 tab（與「零筆記時要等群組才知道是不是全空」），群組筆記在那期間依兜底列落與我共享、
  * 資料到了再歸位。搜尋由 `sidebar/SearchResults` 負責。
  * tabpanel 的 `tabIndex={0}` 在 `AppShell`（WAI-ARIA APG：面板第一個有內容的元素不可聚焦時，Tab 要能停在面板上）。
  *
@@ -242,8 +369,12 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
   const { updateSelection } = useSidebarTabActions();
   const notesQuery = useNotes();
   const groupsQuery = useGroups();
+  const foldersQuery = useFolders();
+  const sortOf = useFolderSortOf();
   const [createOpen, setCreateOpen] = useState(false);
   const addGroupRef = useRef<HTMLButtonElement>(null);
+  const [folderRequest, setFolderRequest] = useState<FolderDialogRequest | null>(null);
+  const folderOpenerRef = useRef<HTMLElement | null>(null);
   const selectButtonRef = useRef<HTMLButtonElement>(null);
   /** 進出選取模式後要聚焦的鈕：只有發起的這一份實例會設（靜態卡與抽屜同時在 DOM，另一份不搶焦點）。 */
   const focusAfterRef = useRef<"done" | "select" | null>(null);
@@ -252,15 +383,37 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
   const groups = groupsQuery.data ?? EMPTY_GROUPS;
   // memo（plan gate r1 I2）：不 memo 的話每次勾選都換 `nodes`／`groupIds`，選取樹的 `onToggle` 隨之換、所有列重繪。
   const groupIds = useMemo<ReadonlySet<string>>(() => new Set((groupsQuery.data ?? EMPTY_GROUPS).map((group) => group.id)), [groupsQuery.data]);
+  // 讀碼發現 3：我的筆記／群組／與我共享等 `["folders"]`（不先平鋪再跳）；失敗且沒有舊資料 → 空索引（筆記落根層）＋錯誤列。最近 tab 不等。
+  const waitFolders = tab !== "recent" && tab !== "trash";
+  const folderIndex = useMemo(() => indexFolders(foldersQuery.data ?? EMPTY_FOLDERS), [foldersQuery.data]);
+  const location = useMemo<LocationContext>(() => ({ groupIds, folders: folderIndex }), [groupIds, folderIndex]);
+  const foldersPending = waitFolders && foldersQuery.isPending;
   const nodes = useMemo(
     () =>
-      notesQuery.isSuccess && (tab !== "workspace" || groupsQuery.data !== undefined)
-        ? buildTabNodes(tab, notesQuery.data, groupsQuery.data ?? EMPTY_GROUPS)
+      notesQuery.isSuccess && (tab !== "workspace" || groupsQuery.data !== undefined) && !foldersPending
+        ? buildTabNodes(tab, notesQuery.data, groupsQuery.data ?? EMPTY_GROUPS, folderIndex, sortOf)
         : null,
-    [tab, notesQuery.isSuccess, notesQuery.data, groupsQuery.data],
+    [tab, notesQuery.isSuccess, notesQuery.data, groupsQuery.data, foldersPending, folderIndex, sortOf],
   );
-  const selectable = nodes !== null && hasNoteNodes(nodes);
-  const ctx: NodeContext = { tab, groupIds, onCreateNote, createNotePending };
+  const selectable = nodes !== null && hasSelectableNodes(nodes);
+  const openFolderDialog = (request: FolderDialogRequest, opener: HTMLElement | null) => {
+    folderOpenerRef.current = opener;
+    setFolderRequest(request);
+  };
+  // 拖曳（資料夾 spec §6.13）：容器事件委派；兩份實例共用 drag-session 的狀態，只有發起的那一份驅動。
+  const drag = useSidebarDrag({ tab, nodes, groupIds, folderIndex, openFolderDialog });
+  const listDropScoped = drag.view.scope === "list";
+  const stackState = drag.view.creating ?? drag.view.preview;
+  const ctx: NodeContext = {
+    tab,
+    location,
+    onCreateNote,
+    createNotePending,
+    openFolderDialog,
+    notes: notesQuery.data ?? EMPTY_NOTES,
+    dropScope: drag.view.scope,
+    stack: stackState === null ? null : { state: stackState, creating: drag.view.creating !== null },
+  };
 
   useEffect(() => {
     if (selection.active) return;
@@ -274,8 +427,26 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
       {errorMessage(t, groupsQuery.error)}
     </p>
   ) : null;
+  const foldersAlert =
+    waitFolders && foldersQuery.isError && foldersQuery.data === undefined ? (
+      <p role="alert" className="p-2 text-sm text-destructive">
+        {folderErrorMessage(t, foldersQuery.error)}
+      </p>
+    ) : null;
 
   function renderBody(): ReactNode {
+    const body = renderList();
+    // 筆記清單本身載入失敗時只顯示那一則錯誤，不疊資料夾的。
+    if (foldersAlert === null || body === null || !notesQuery.isSuccess) return body;
+    return (
+      <>
+        {foldersAlert}
+        {body}
+      </>
+    );
+  }
+
+  function renderList(): ReactNode {
     if (notesQuery.isPending) return <p className={MESSAGE_CLASS}>{t("app.loading")}</p>;
     if (notesQuery.isError) {
       return (
@@ -302,7 +473,8 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
       }
     }
 
-    // 上面已處理 pending／error（工作坊另含群組），到這裡 `nodes` 一定有值。
+    if (foldersPending) return <p className={MESSAGE_CLASS}>{t("app.loading")}</p>;
+    // 上面已處理 pending／error（群組 tab 另含群組、資料夾），到這裡 `nodes` 一定有值。
     if (nodes === null) return null;
     if (nodes.length === 0) {
       if (tab === "recent") return emptyState;
@@ -331,6 +503,18 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
             label={t("sidebar.newPersonalNote")}
             onClick={() => onCreateNote?.(undefined)}
             disabled={createNotePending}
+          />
+        );
+      case "newFolder":
+        // 我的筆記與與我共享宣告這個動作（資料夾 spec §6.1）：建在該 tab 的空間根層。
+        return (
+          <HeaderActionButton
+            key={action}
+            icon={FolderPlus}
+            label={t("sidebar.newFolder")}
+            onClick={(event) =>
+              openFolderDialog({ kind: "create", parent: { space: { kind: tab === "shared" ? "shared" : "personal" } } }, event.currentTarget)
+            }
           />
         );
       case "newGroup":
@@ -411,19 +595,32 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
         )}
       </div>
       {/* `key={tab}`：切 tab 換新元素，捲動位置回頂端（spec §5.3）。進出選取模式不換（捲動位置不跳）。 */}
-      <div key={tab} data-sidebar-list="" className="min-h-0 flex-1 overflow-y-auto px-2">
-        {selection.active && nodes !== null && nodes.length > 0 && tab !== "trash" ? (
-          // chunk 還沒到：照常顯示平常的列，到了才換勾選框。選取中清單重抓後變得沒有可勾的篇（只剩空群組）也留在勾選樹：
-          // 群組列不帶「＋」與 ⋮，與選取標題列一致；完全沒有節點時是平常的空狀態句（沒有動作鈕）。
-          <SidebarLazyBoundary chunk="select" fallback={<SidebarNodeList nodes={nodes} ctx={ctx} />} errorClassName="p-2">
-            <SelectableTree nodes={nodes} tab={tab} groupIds={groupIds} />
-          </SidebarLazyBoundary>
-        ) : (
-          renderBody()
-        )}
+      {/* 安全網（讀碼發現 10）：橫向裁切放在內層包層——放在清單本身會因另一軸是 `overflow-y-auto` 算成 `hidden`，仍可被捲動橫移。 */}
+      {/* 拖曳的 dragstart／dragover／drop／dragend 都委派在這個容器（spec §6.13）；包層 `min-h-full`：清單下方空白也算根目錄的標示範圍。 */}
+      <div key={tab} data-sidebar-list="" className="min-h-0 flex-1 overflow-y-auto" {...drag.containerProps}>
+        <div
+          data-drop-scope={listDropScoped ? "" : undefined}
+          className={cn("min-h-full overflow-x-clip px-2", listDropScoped && DROP_SCOPE_CLASS)}
+        >
+          {selection.active && nodes !== null && nodes.length > 0 && tab !== "trash" ? (
+            // chunk 還沒到：照常顯示平常的列，到了才換勾選框。選取中清單重抓後變得沒有可勾的篇（只剩空群組）也留在勾選樹：
+            // 群組列不帶「＋」與 ⋮，與選取標題列一致；完全沒有節點時是平常的空狀態句（沒有動作鈕）。
+            <SidebarLazyBoundary chunk="select" fallback={<SidebarNodeList nodes={nodes} ctx={ctx} />} errorClassName="p-2">
+              <SelectableTree nodes={nodes} tab={tab} location={location} />
+            </SidebarLazyBoundary>
+          ) : (
+            renderBody()
+          )}
+        </div>
       </div>
       {/* 對話框只在開啟時掛載，關閉時焦點還給標題列「＋」（`returnFocusRef`）。 */}
       {createOpen && <GroupNameDialog mode="create" open onOpenChange={setCreateOpen} returnFocusRef={addGroupRef} />}
+      {/* 資料夾對話框：只在開啟時掛載；chunk 載入失敗時顯示 inline 錯誤（不藏起來，否則是一排沒反應的鈕）。 */}
+      {folderRequest && (
+        <SidebarLazyBoundary chunk="folder" fallback={null} errorClassName="p-2">
+          <FolderDialogs request={folderRequest} returnFocusRef={folderOpenerRef} onClose={() => setFolderRequest(null)} />
+        </SidebarLazyBoundary>
+      )}
     </>
   );
 }

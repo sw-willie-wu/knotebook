@@ -7,12 +7,14 @@ import * as Y from "yjs";
 import type { NoteDto, UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ActiveNoteProvider } from "@/lib/active-note";
+import { NARROW_QUERY } from "@/lib/sidebar-drawer";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import type { CollabState } from "@/collab/connection";
 import { OWNER_PERMS } from "@/test/fixtures";
 import { installFakeFullscreen, type FakeFullscreen } from "@/test/fake-fullscreen";
 import { enterPresentationFullscreen } from "@/present/fullscreen";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 vi.mock("@/components/NoteEditor", () => ({
   NoteEditor: ({ editable, headerSlot, footerSlot }: { editable: boolean; headerSlot?: ReactNode; footerSlot?: ReactNode }) => (
@@ -134,6 +136,7 @@ function stubFetch({ note = NOTE as NoteDto | { status: number; code: string; no
     const method = (init?.method ?? "GET").toUpperCase();
     if (url === "/api/groups") return Promise.resolve(respond(200, []));
     if (url === "/api/auth/me") return Promise.resolve(respond(200, USER));
+    if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
     if (url === "/api/notes" && method === "GET") return Promise.resolve(respond(200, list));
     if (url.endsWith("/backlinks")) return Promise.resolve(respond(200, { backlinks: [] }));
     if (url.endsWith("/links") && method === "POST") return Promise.resolve(respond(204, null));
@@ -257,7 +260,7 @@ describe("NotePage × 簡報（spec §6.1、§6.5、§13.2）", () => {
     const search = screen.getAllByLabelText("Search notes")[0];
     fireEvent.keyDown(window, { key: "k", ctrlKey: true });
     expect(document.activeElement).not.toBe(search);
-    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true, addEventListener() {}, removeEventListener() {} })));
+    vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === NARROW_QUERY, addEventListener() {}, removeEventListener() {} })));
     fireEvent.keyDown(window, { key: "k", ctrlKey: true });
     expect(document.querySelector("[data-sidebar-drawer]")).toBeNull();
   });

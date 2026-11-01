@@ -314,7 +314,7 @@
         "copy": "Copy",
         "copied": "Copied.",
         "copyFailed": "Couldn't copy automatically — select it by hand.",
-        "scopes": "Read: list_notes, search_notes, read_note_outline, read_note_section, read_note_image, list_trash and create_transfer_token (download). Edit adds edit_note, create_note, copy_note (into your own notes) and create_transfer_token uploads. Move is needed for move_note_to_group and copying into a group (moving into a group can't be undone, so it is a separate permission). Delete is needed for delete_note and restore_note, which move notes to the trash and back; no tool here deletes a note permanently, but a note left in the trash can still be deleted permanently later, by the site's trash setting or by someone in the web app."
+        "scopes": "Read: list_notes, search_notes, read_note_outline, read_note_section, read_note_image, list_trash, list_folders and create_transfer_token (download). Edit adds edit_note, create_note, copy_note (into your own notes), create_folder, rename_folder, move_folder, move_note_to_folder and create_transfer_token uploads. Move is needed for move_note_to_group and copying into a group (moving into a group can't be undone, so it is a separate permission). Delete is needed for delete_note and restore_note, which move notes to the trash and back, and for delete_folder, which can move the notes in a folder to the trash; no tool here deletes a note permanently, but a note left in the trash can still be deleted permanently later, by the site's trash setting or by someone in the web app."
       },
       "tokens": {
         "name": "Name",

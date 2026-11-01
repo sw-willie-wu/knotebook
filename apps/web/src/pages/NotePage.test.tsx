@@ -35,6 +35,7 @@ import { invalidateNoteQueries } from "@/api/notes";
 import { Awareness } from "y-protocols/awareness";
 import { resetLocalPresenceFieldForTest } from "@/components/presence/local-field";
 import { setRemote, userState } from "@/components/presence/test-awareness";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 // BlockNote 需要一整套 jsdom 沒有的 DOM/Range API，掛進單元測試只會測到環境；
 // 這裡只驗證「頁面有沒有把正確的 props 交給編輯器」，編輯器本身留給手動驗證。
@@ -254,13 +255,14 @@ function mockFetch(
     const url = String(input);
     const method = (init?.method ?? "GET").toUpperCase();
     // #103：側欄（AppShell → NoteList）的 `useGroups()`——沒有這支，mock 的 throw 會
-    // 變成 rejected query，工作坊段多出一個 `role="alert"`，撞上本檔的單數 alert 查詢。
+    // 變成 rejected query，群組段多出一個 `role="alert"`，撞上本檔的單數 alert 查詢。
     if (url === "/api/groups" && method === "GET") {
       return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
     }
     if (url === "/api/auth/me") {
       return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(USER) }));
     }
+    if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
     if (url === "/api/notes" && method === "GET") {
       return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
     }
@@ -796,6 +798,7 @@ describe("NotePage", () => {
       if (url === "/api/auth/me") {
         return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(USER) });
       }
+      if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
       if (url === "/api/notes" && method === "GET") {
         return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) });
       }
@@ -1707,6 +1710,7 @@ describe("NotePage × /g/ 群組筆記（#175 §8.1）", () => {
         if (url === "/api/auth/me") {
           return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(USER) }));
         }
+        if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
         if (url === "/api/notes" && method === "GET") {
           return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
         }
@@ -2016,6 +2020,7 @@ function withEditsAndList(inner: ReturnType<typeof mockFetch>, notes: () => Note
     if (url.endsWith("/edits") && method === "GET") {
       return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ edits: [] }) }));
     }
+    if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
     if (url === "/api/notes" && method === "GET") {
       return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(notes()) }));
     }
@@ -2302,6 +2307,7 @@ describe("NotePage × 在垃圾桶裡（spec §6.10.5）", () => {
         if (url === "/api/auth/me") {
           return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(USER) }));
         }
+        if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
         if (url === "/api/notes" && method === "GET") {
           return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
         }
@@ -3022,6 +3028,7 @@ describe("NotePage × 最近 tab 跟上開著那篇（spec §5.2）", () => {
     const fn = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = (init?.method ?? "GET").toUpperCase();
+      if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
       if (url === "/api/notes" && method === "GET") {
         listCalls += 1;
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([noteB, noteA]) }));
@@ -3069,6 +3076,7 @@ describe("NotePage × 最近 tab 跟上開著那篇（spec §5.2）", () => {
     const fn = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = (init?.method ?? "GET").toUpperCase();
+      if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
       if (url === "/api/notes" && method === "GET") {
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([aNew, noteB]) }));
       }

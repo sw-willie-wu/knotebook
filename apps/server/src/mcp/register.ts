@@ -13,7 +13,7 @@
  * `{list_notes, read_note_outline, read_note_section, search_notes}`）、PR2 起
  * `mcp-tools-list.test.ts`（P13：`{edit_note, create_note}`）；#200 起 P13 的集合是
  * `{create_note, create_transfer_token, edit_note}`；#180 起加 `copy_note`、`move_note_to_group`，#200 §9.3 M7 再加 `read_note_image`，集合是
- * `{copy_note, create_note, create_transfer_token, edit_note, move_note_to_group, read_note_image}`；#181 PR-2d 加 `list_trash`、`delete_note`、`restore_note`。
+ * `{copy_note, create_note, create_transfer_token, edit_note, move_note_to_group, read_note_image}`；#181 PR-2d 加 `list_trash`、`delete_note`、`restore_note`；資料夾 PR-3d 加 `list_folders`、`create_folder`、`rename_folder`、`move_folder`、`move_note_to_folder`、`delete_folder`。
  * **新增工具時要一併把它加進其中一個名字集合，否則等於沒有守衛。**
  *
  * ⚠ 新增工具一律 `z.object(<shape>).strict()` 註冊；`test/unit/mcp-register.test.ts`（U-F1，覆蓋 authKind × scope × 有無 collab 的十二種組合）的名字常數也要補——它會紅。
@@ -88,6 +88,17 @@ import {
 import { LIST_TRASH_DESCRIPTION, listTrash, listTrashInput, listTrashOutput } from "./tools/list-trash.js";
 import { DELETE_NOTE_DESCRIPTION, deleteNoteInput, deleteNoteOutput, deleteNoteTool } from "./tools/delete-note.js";
 import { RESTORE_NOTE_DESCRIPTION, restoreNoteInput, restoreNoteOutput, restoreNoteTool } from "./tools/restore-note.js";
+import { LIST_FOLDERS_DESCRIPTION, listFolders, listFoldersInput, listFoldersOutput } from "./tools/list-folders.js";
+import { CREATE_FOLDER_DESCRIPTION, createFolderInput, createFolderTool, folderReplyOutput } from "./tools/create-folder.js";
+import { RENAME_FOLDER_DESCRIPTION, renameFolderInput, renameFolderTool } from "./tools/rename-folder.js";
+import { MOVE_FOLDER_DESCRIPTION, moveFolderInput, moveFolderTool } from "./tools/move-folder.js";
+import {
+  MOVE_NOTE_TO_FOLDER_DESCRIPTION,
+  moveNoteToFolderInput,
+  moveNoteToFolderOutput,
+  moveNoteToFolderTool,
+} from "./tools/move-note-to-folder.js";
+import { DELETE_FOLDER_DESCRIPTION, deleteFolderInput, deleteFolderOutput, deleteFolderTool } from "./tools/delete-folder.js";
 import { canDeleteNotes, canMoveNotes, canWriteNotes } from "./write-scope.js";
 
 export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
@@ -103,7 +114,7 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
   // #239：移入／複製進群組要 `notes:move`（session 恆真；token 要 write 且 move）。只管 move_note_to_group 的註冊與
   // copy_note 的說明二選一；create_note／edit_note 不看它（W9）。
   const canMove = canMoveNotes(ctx);
-  // #181 D-W1：移到垃圾桶／還原要 `notes:delete`（session 恆真；token 要 write 且 delete，與 move 互相獨立）。只管兩支垃圾桶寫入工具的註冊。
+  // #181 D-W1：移到垃圾桶／還原要 `notes:delete`（session 恆真；token 要 write 且 delete，與 move 互相獨立）。只管 delete_note／restore_note／delete_folder（資料夾 PR-3d T8）三支的註冊。
   const canDelete = canDeleteNotes(ctx);
   // #93：讀 live doc 的工具在不在，決定 search_notes 的 description 與 sectionId 說明的變體（spec §8.2 I5）。
   // 與下面讀取工具的閘門是**同一個判準、同一個時間點**（註冊時）。
@@ -234,7 +245,7 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
     }
   }
 
-  // #181：讀取類，所有閘門外、任何憑證都註冊（只查 DB）；不帶 annotations（同其他讀取工具）。
+  // #181：讀取類，所有閘門外、任何憑證都註冊（只查 DB）；不帶 annotations（同其他讀取工具；list_folders 是 spec 指定的例外，見下）。
   // 守衛：集合＝`mcp-tools-list`、`unit/mcp-register`（U-F1）；runTool＝P13。
   server.registerTool(
     "list_trash",
@@ -267,6 +278,86 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
         annotations: { destructiveHint: false },
       },
       async args => runTool("restore_note", ctx, () => restoreNoteTool(args, ctx))
+    );
+  }
+
+  // 資料夾 PR-3d：list_folders 只查 DB，所有閘門外、任何憑證都註冊（同 list_trash）；`.strict()`。
+  // annotations `{ readOnlyHint: true }` 是 spec §5.12 n8 指定的例外——其他讀取工具都不帶 annotations（見 list_trash 那段）。
+  // 守衛：集合＝`mcp-tools-list`、`unit/mcp-register`（U-F1）；annotations＝`mcp-tools-list` V11；runTool＝P13。
+  server.registerTool(
+    "list_folders",
+    {
+      description: LIST_FOLDERS_DESCRIPTION,
+      inputSchema: z.object(listFoldersInput).strict(),
+      outputSchema: listFoldersOutput,
+      annotations: { readOnlyHint: true },
+    },
+    async args => runTool("list_folders", ctx, () => listFolders(args, ctx))
+  );
+
+  // 資料夾 PR-3d：四支資料夾寫入工具（create／rename／move_folder，T7 起加 move_note_to_folder）只在 notes:write 時註冊（collab 閘門外：
+  // 只碰 DB）；`.strict()`；第一個動作是 requireWriteScope。
+  // annotations（spec n8）：create_folder `{ destructiveHint: false }`；rename／move_folder／move_note_to_folder 另加 `idempotentHint: true`
+  // （同一參數再呼叫一次結果相同）。
+  // 守衛：集合＝`mcp-tools-list`、`unit/mcp-register`（U-F1）；annotations＝`mcp-tools-list` V11；runTool＝P13。
+  if (canWrite) {
+    server.registerTool(
+      "create_folder",
+      {
+        description: CREATE_FOLDER_DESCRIPTION,
+        inputSchema: z.object(createFolderInput).strict(),
+        outputSchema: folderReplyOutput,
+        annotations: { destructiveHint: false },
+      },
+      async args => runTool("create_folder", ctx, () => createFolderTool(args, ctx))
+    );
+    server.registerTool(
+      "rename_folder",
+      {
+        description: RENAME_FOLDER_DESCRIPTION,
+        inputSchema: z.object(renameFolderInput).strict(),
+        outputSchema: folderReplyOutput,
+        annotations: { destructiveHint: false, idempotentHint: true },
+      },
+      async args => runTool("rename_folder", ctx, () => renameFolderTool(args, ctx))
+    );
+    server.registerTool(
+      "move_folder",
+      {
+        description: MOVE_FOLDER_DESCRIPTION,
+        inputSchema: z.object(moveFolderInput).strict(),
+        outputSchema: folderReplyOutput,
+        annotations: { destructiveHint: false, idempotentHint: true },
+      },
+      async args => runTool("move_folder", ctx, () => moveFolderTool(args, ctx))
+    );
+    // T7：move_note_to_folder 同一個 canWrite 區塊（放置只要 notes:write；不移入群組，所以不看 canMove），annotations 同 rename／move。
+    server.registerTool(
+      "move_note_to_folder",
+      {
+        description: MOVE_NOTE_TO_FOLDER_DESCRIPTION,
+        inputSchema: z.object(moveNoteToFolderInput).strict(),
+        outputSchema: moveNoteToFolderOutput,
+        annotations: { destructiveHint: false, idempotentHint: true },
+      },
+      async args => runTool("move_note_to_folder", ctx, () => moveNoteToFolderTool(args, ctx))
+    );
+  }
+
+  // 資料夾 PR-3d T8：delete_folder 把子樹的筆記移到垃圾桶，所以同 delete_note 只在 notes:delete 時註冊（collab 閘門外：只碰 DB，
+  // 踢線與收門經 collabHooks）；`.strict()`；第一個動作是 requireDeleteScope。輸入只有 folder_id。annotations 只標
+  // `destructiveHint: true`、不寫 idempotentHint（第二次呼叫回 not_found）。MCP 沒有永久刪除與清空（AG3）。
+  // 守衛：集合＝`mcp-tools-list`、`unit/mcp-register`（U-F1）、`mcp-trash-tools` SC1、`mcp-folders` SC；annotations＝`mcp-tools-list` V11；runTool＝P13。
+  if (canDelete) {
+    server.registerTool(
+      "delete_folder",
+      {
+        description: DELETE_FOLDER_DESCRIPTION,
+        inputSchema: z.object(deleteFolderInput).strict(),
+        outputSchema: deleteFolderOutput,
+        annotations: { destructiveHint: true },
+      },
+      async args => runTool("delete_folder", ctx, () => deleteFolderTool(args, ctx))
     );
   }
 

@@ -183,7 +183,7 @@ describe("#108 read_note_outline", () => {
     const call = await callTool(s.ctx.app, s.token, "read_note_outline", { note_id: s.noteId });
     const out = payloadOf<OutlinePayload>(call);
     expect(Object.keys(out).sort()).toEqual(
-      ["lastEdited", "nextSectionOffset", "note", "sections", "totalChars", "truncated"].sort()
+      ["folder", "lastEdited", "nextSectionOffset", "note", "sections", "totalChars", "truncated"].sort()
     );
     expect(Object.keys(out.note).sort()).toEqual(["id", "owner", "role", "title"].sort());
     for (const entry of out.sections) {

@@ -101,7 +101,7 @@ describe("#103／#175 POST／GET /api/groups", () => {
     expect(plainList[0]!.myRole!.permissions.manageGroup).toBe(false);
   });
 
-  it("GET /api/groups 排序：內建管理員的群組在前、再內建一般成員、再自訂角色；同一類依 name 再依 id（一般成員的 Delta 在字母上排在自訂角色的 Beta／Gamma 之後；兩個同名 Beta 靠 id 定序；側欄工作坊 tab 的順序）", async () => {
+  it("GET /api/groups 排序：內建管理員的群組在前、再內建一般成員、再自訂角色；同一類依 name 再依 id（一般成員的 Delta 在字母上排在自訂角色的 Beta／Gamma 之後；兩個同名 Beta 靠 id 定序；側欄群組 tab 的順序）", async () => {
     const { app, db } = await buildTestApp({ collabHooks: spyCollabHooks() });
     const me = await seedUser(db);
     const other = await seedUser(db);

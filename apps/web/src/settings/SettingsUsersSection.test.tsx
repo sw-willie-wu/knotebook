@@ -10,6 +10,7 @@ import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { AppRoutes } from "@/App";
 import type { AdminUserDto } from "@/api/admin";
 import { copyText } from "@/lib/clipboard";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 vi.mock("@/lib/clipboard", () => ({ copyText: vi.fn(async () => true) }));
 
@@ -112,6 +113,7 @@ function baseFetchHandlers(): (url: string, method: string) => Response | null {
     if (url === "/api/auth/me" && method === "GET") {
       return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(ADMIN_USER) });
     }
+    if (url === "/api/folders") return new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } });
     if (url === "/api/notes" && method === "GET") {
       return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) });
     }

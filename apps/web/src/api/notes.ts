@@ -162,7 +162,7 @@ export function useBacklinks(noteId: string | undefined): UseQueryResult<Backlin
 export function useCreateNote() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (body?: { title?: string; groupId?: string }) =>
+    mutationFn: (body?: { title?: string; groupId?: string; folderId?: string }) =>
       api<NoteDto>("/api/notes", {
         method: "POST",
         body: JSON.stringify(body ?? {}),

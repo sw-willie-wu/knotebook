@@ -6,6 +6,7 @@
  * - `buildCollabTestApp` ＝生產形態（collab ＋ editing 都在）→ 讀寫搬移憑證上十一支工具全在（#180 起含 copy_note、move_note_to_group；#200 起含 read_note_image；
  *   #181 起含 list_trash）；#239 起讀寫（無 notes:move）憑證少一支——`move_note_to_group` 只在 `notes:move` 時註冊。
  *   #181 PR-2d：`delete_note`／`restore_note` 只在 `notes:delete`（且有 write）時註冊——讀寫搬移刪除憑證十三支、讀寫刪除與 session 十二支。
+ *   資料夾 PR-3d（T6 起另有三支資料夾寫入工具，notes:write 時註冊）起每種憑證各多一支 `list_folders`（任何憑證、任何部署形態都註冊）：上面的支數各加一（讀寫搬移十二、讀寫搬移刪除十四、讀寫刪除與 session 十三）；T6 再加三支資料夾寫入工具（讀寫搬移十五、讀寫搬移刪除十七、讀寫刪除與 session 十六）；T7 再加 `move_note_to_folder`（讀寫搬移十六、讀寫搬移刪除十八、讀寫刪除與 session 十七）；T8 再加 `delete_folder`（notes:delete 時註冊：讀寫搬移刪除十九、讀寫刪除與 session 十八，讀寫搬移不變）。
  * - `buildTestApp` ＝無 collab → 只有查得動 DB 的工具（讀寫憑證上多 `create_note`，D-M；token 路徑上另有
  *   `create_transfer_token`，#200）。
  *
@@ -34,19 +35,22 @@ const RWM = "notes:read notes:write notes:move" as const;
 /** #181：含 notes:delete 的兩形——清單上才有 delete_note／restore_note。 */
 const RWD = "notes:read notes:write notes:delete" as const;
 const RWMD = "notes:read notes:write notes:move notes:delete" as const;
-/** #181：只在 notes:delete 時註冊的兩支。 */
-const DELETE_TOOLS = ["delete_note", "restore_note"];
+/** #181：只在 notes:delete 時註冊的兩支；資料夾 PR-3d T8 加 delete_folder。 */
+const DELETE_TOOLS = ["delete_note", "restore_note", "delete_folder"];
 const sessionCookie = async (userId: string) => (await cookieOf(userId))[SESSION_COOKIE]!;
 
-/** 只查 DB（read_note_image 另讀磁碟）的四支——任何部署形態、任何憑證都在（#200 §7.1；#181 list_trash）。 */
-const DB_ONLY_TOOLS = ["list_notes", "list_trash", "read_note_image", "search_notes"];
+/** 只查 DB（read_note_image 另讀磁碟）的五支——任何部署形態、任何憑證都在（#200 §7.1；#181 list_trash；資料夾 PR-3d list_folders）。 */
+const DB_ONLY_TOOLS = ["list_folders", "list_notes", "list_trash", "read_note_image", "search_notes"];
 /** 讀 live doc 的兩支——只在 `collab && editing` 都在時才宣告（D-A）。 */
 const LIVE_DOC_TOOLS = ["read_note_outline", "read_note_section"];
 /** #200：只在 token 路徑註冊（session 沒有），在部署形態閘門外。 */
 const TOKEN_ONLY_TOOLS = ["create_transfer_token"];
+/** 資料夾 PR-3d：三支資料夾寫入工具（T6）與 move_note_to_folder（T7）——notes:write 時註冊，collab 閘門外。 */
+const FOLDER_WRITE_TOOLS = ["create_folder", "rename_folder", "move_folder", "move_note_to_folder"];
 /** `register.ts` 的**註冊順序**（M11）：list_notes → search_notes → 兩支讀取 → edit_note →
  *  （閘門外）create_note → move_note_to_group → copy_note（#180）→（閘門外、token 限定）create_transfer_token →（閘門外、全憑證）list_trash（#181）
- *  →（閘門外、notes:delete）delete_note → restore_note（#181）→ read_note_image。案 9b 逐字釘住這個順序，不排序。
+ *  →（閘門外、notes:delete）delete_note → restore_note（#181）→（閘門外、全憑證）list_folders（資料夾 PR-3d）
+ *  →（閘門外、notes:write）create_folder → rename_folder → move_folder（資料夾 PR-3d T6）→ move_note_to_folder（T7）→（閘門外、notes:delete）delete_folder（T8）→ read_note_image。案 9b 逐字釘住這個順序，不排序。
  *  #239：`move_note_to_group` 只在 `notes:move` 時註冊（讀寫搬移憑證與 session）；#181：兩支垃圾桶寫入工具只在 `notes:delete` 時；
  *  其餘的相對順序不變。 */
 const RWMD_TOOLS_IN_ORDER = [
@@ -62,6 +66,12 @@ const RWMD_TOOLS_IN_ORDER = [
   "list_trash",
   "delete_note",
   "restore_note",
+  "list_folders",
+  "create_folder",
+  "rename_folder",
+  "move_folder",
+  "move_note_to_folder",
+  "delete_folder",
   "read_note_image",
 ];
 const RWM_TOOLS_IN_ORDER = RWMD_TOOLS_IN_ORDER.filter(n => !DELETE_TOOLS.includes(n));
@@ -109,7 +119,7 @@ describe("#108 tools/list", () => {
   // 一支不多一支不少、改名也會紅），那是形狀斷言。
   // ⚠ **不要為了「看起來重複」把它與下面那條 D-A 案合併**：兩案的被測對象是**兩種部署形態**，
   //   合併必然丟掉一邊——MUT-1（拿掉閘門）只讓 D-A 紅、案 8 綠，就是它們互不涵蓋的證明。
-  it("唯讀憑證的 tools/list ＝恰好七支（六支讀取＋create_transfer_token），不含 edit_note／create_note（案 8）", async () => {
+  it("唯讀憑證的 tools/list ＝恰好八支（七支讀取＋create_transfer_token），不含 edit_note／create_note（案 8）", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
     const { token } = await seedTokenForUser(ctx.db, owner.id, "notes:read");
@@ -136,24 +146,25 @@ describe("#108 tools/list", () => {
   //   `create_note` 不進這道閘門（D-M），所以集合裡它（與 `copy_note`、`create_transfer_token`）必須在，`edit_note` 必須不在。
   //   #239：讀寫（無 notes:move）憑證看不到 `move_note_to_group`（它只在 `notes:move` 時註冊），所以比讀寫搬移少一支；
   //   憑證刻意維持讀寫——換成讀寫搬移會讓這案同時改測「搬移權」與「部署形態」兩件事。
-  it("無 collab 的 app ＋讀寫憑證：只宣告查得動 DB 的四支（含 read_note_image、list_trash）、create_note、copy_note 與 create_transfer_token（D-M 不進閘門，D-A）", async () => {
+  it("無 collab 的 app ＋讀寫憑證：只宣告查得動 DB 的五支（含 read_note_image、list_trash、list_folders）、create_note、copy_note、四支資料夾寫入工具（含 move_note_to_folder）與 create_transfer_token（D-M 不進閘門，D-A）", async () => {
     const { app, db } = await buildTestApp();
     const userId = await seedUser(db);
     const { token } = await seedTokenForUser(db, userId, "notes:read notes:write");
 
-    expect(await toolNames(app, token)).toEqual(["copy_note", "create_note", ...DB_ONLY_TOOLS, ...TOKEN_ONLY_TOOLS].sort());
+    expect(await toolNames(app, token)).toEqual(["copy_note", "create_note", ...FOLDER_WRITE_TOOLS, ...DB_ONLY_TOOLS, ...TOKEN_ONLY_TOOLS].sort());
   });
 
   // 案 9：讀寫憑證的 `tools/list` ＝十支（生產形態）。與案 9b 的差異：這裡走 `.sort()`，
   // 守的是**集合**，不重疊案 9b 的順序斷言。#239 起被測改讀寫搬移憑證（十支的前提），期望值不動；讀寫九支見下方 #239 案。
   // #181 PR-2d：多 list_trash（DB_ONLY_TOOLS），十一支；讀寫十支。被測改讀寫搬移刪除（十三支，最大集合）；讀寫搬移十一支照舊另案。
-  it("讀寫搬移刪除憑證的 tools/list 含十三支工具；讀寫搬移十一支（案 9）", async () => {
+  // 資料夾 PR-3d：再多 list_folders（DB_ONLY_TOOLS）——讀寫搬移刪除十四支、讀寫搬移十二支；T6 再加三支資料夾寫入工具（FOLDER_WRITE_TOOLS）——十七支、十五支；T7 再加 move_note_to_folder（同一常數）——十八支、十六支；T8 再加 delete_folder（DELETE_TOOLS）——十九支、十六支。
+  it("讀寫搬移刪除憑證的 tools/list 含十九支工具；讀寫搬移十六支（案 9）", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
     const { token } = await seedTokenForUser(ctx.db, owner.id, RWMD);
     const { token: rwm } = await seedTokenForUser(ctx.db, owner.id, RWM);
 
-    const rwmSet = [...DB_ONLY_TOOLS, ...LIVE_DOC_TOOLS, "edit_note", "create_note", "move_note_to_group", "copy_note", ...TOKEN_ONLY_TOOLS];
+    const rwmSet = [...DB_ONLY_TOOLS, ...LIVE_DOC_TOOLS, "edit_note", "create_note", "move_note_to_group", "copy_note", ...TOKEN_ONLY_TOOLS, ...FOLDER_WRITE_TOOLS];
     expect(await toolNames(ctx.app, token)).toEqual([...rwmSet, ...DELETE_TOOLS].sort());
     expect(await toolNames(ctx.app, rwm)).toEqual(rwmSet.sort());
   });
@@ -167,7 +178,7 @@ describe("#108 tools/list", () => {
   //   …(4)] to deeply equal ['list_notes','search_notes',…(4)]`），案 9（走 `.sort()`）
   //   維持綠——這就是兩案不重疊的證明：一個守集合，一個守順序。
   // #239 起被測改讀寫搬移憑證（十元清單的前提），期望值不動。#181 PR-2d 起被測改讀寫搬移刪除（最大集合）。
-  it("讀寫搬移刪除憑證的 tools/list 名字陣列逐字等於寫死的十三元清單，含順序（案 9b／M11）", async () => {
+  it("讀寫搬移刪除憑證的 tools/list 名字陣列逐字等於寫死的十九元清單，含順序（案 9b／M11）", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
     const { token } = await seedTokenForUser(ctx.db, owner.id, RWMD);
@@ -368,11 +379,19 @@ describe("#108 tools/list", () => {
     expect(res.body).not.toContain("cut at 200 characters.");
 
     const groupOwner = '"name":{"type":"string","maxLength":200},"nameTruncated":{"type":"boolean","const":true}';
-    const withOwner = [...outputs].filter(([, schema]) => schema.includes('"const":"group"')).map(([name]) => name).sort();
+    // 資料夾 PR-3d（plan 讀碼發現 25）：只認 owner 聯合——同時含群組判別與 `handle`；list_folders 的 `space` 也有 `"const":"group"`，但沒有 handle。
+    const withOwner = [...outputs]
+      .filter(([, schema]) => schema.includes('"const":"group"') && schema.includes('"handle"'))
+      .map(([name]) => name)
+      .sort();
     // #239：讀寫憑證的清單上沒有 move_note_to_group，本案因此不再檢查它的 owner 形——它與 copy_note 共用
     // `noteSummarySchema`（`mcp/dto.ts`），spec §11.2 M1 接受這個取捨。
-    expect(withOwner).toEqual(["copy_note", "create_note", "list_notes", "read_note_outline", "search_notes"]);
+    // T7：move_note_to_folder 回 noteSummarySchema（notes:write 即註冊），也帶群組 owner 形。
+    expect(withOwner).toEqual(["copy_note", "create_note", "list_notes", "move_note_to_folder", "read_note_outline", "search_notes"]);
     for (const name of withOwner) expect(outputs.get(name), name).toContain(groupOwner);
+    // 資料夾工具的 `space` 群組形：群組名同樣有上限與 `groupNameTruncated`。
+    const groupSpace = '"groupName":{"type":"string","maxLength":200},"groupNameTruncated":{"type":"boolean","const":true}';
+    for (const name of ["list_folders", "create_folder", "rename_folder", "move_folder"]) expect(outputs.get(name), name).toContain(groupSpace);
   });
 
   // 案 10：唯讀憑證**跳過** `tools/list`，直接 `tools/call` `edit_note`——scope 過濾只在
@@ -409,7 +428,7 @@ describe("#108 tools/list", () => {
   // `mcp-content.test.ts` 只打兩支讀取工具，兩者對這幾支寫入／傳輸／讀圖工具都**恆綠**（不在它們的名字
   // 集合裡）；沒有這一案，這些後加的工具就沒有 D31／M15 的 try/catch 守衛。
   // #239：讀寫搬移憑證（move_note_to_group 只在 notes:move 時註冊），期望值不動。#181：改讀寫搬移刪除（delete_note／restore_note 才在清單上）。
-  it("P13：runTool() 涵蓋率——beforeTool 看到的名字集合逐字等於 {copy_note, create_note, create_transfer_token, delete_note, edit_note, list_trash, move_note_to_group, read_note_image, restore_note}", async () => {
+  it("P13：runTool() 涵蓋率——beforeTool 看到的名字集合逐字等於 {copy_note, create_folder, create_note, create_transfer_token, delete_folder, delete_note, edit_note, list_folders, list_trash, move_folder, move_note_to_folder, move_note_to_group, read_note_image, rename_folder, restore_note}", async () => {
     const seen: string[] = [];
     const ctx = await buildCollabTestApp({ mcpTestHooks: { beforeTool: name => void seen.push(name) } });
     const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
@@ -429,23 +448,35 @@ describe("#108 tools/list", () => {
     await mcpPost(ctx.app, rpc("tools/call", { name: "list_trash", arguments: {} }), { token });
     await mcpPost(ctx.app, rpc("tools/call", { name: "delete_note", arguments: { note_id: randomUUID() } }), { token });
     await mcpPost(ctx.app, rpc("tools/call", { name: "restore_note", arguments: { note_id: randomUUID() } }), { token });
+    await mcpPost(ctx.app, rpc("tools/call", { name: "list_folders", arguments: {} }), { token });
+    await mcpPost(ctx.app, rpc("tools/call", { name: "create_folder", arguments: { name: "p13" } }), { token });
+    await mcpPost(ctx.app, rpc("tools/call", { name: "rename_folder", arguments: { folder_id: randomUUID(), name: "x" } }), { token });
+    await mcpPost(ctx.app, rpc("tools/call", { name: "move_folder", arguments: { folder_id: randomUUID(), parent_id: null } }), { token });
+    await mcpPost(ctx.app, rpc("tools/call", { name: "move_note_to_folder", arguments: { note_id: randomUUID(), folder_id: null } }), { token });
+    await mcpPost(ctx.app, rpc("tools/call", { name: "delete_folder", arguments: { folder_id: randomUUID() } }), { token });
 
     expect([...new Set(seen)].sort()).toEqual([
       "copy_note",
+      "create_folder",
       "create_note",
       "create_transfer_token",
+      "delete_folder",
       "delete_note",
       "edit_note",
+      "list_folders",
       "list_trash",
+      "move_folder",
+      "move_note_to_folder",
       "move_note_to_group",
       "read_note_image",
+      "rename_folder",
       "restore_note",
     ]);
   });
 
   // #180 V11：annotations 只出現在 move_note_to_group（destructiveHint true、idempotentHint false）與 copy_note（destructiveHint false），其餘工具（含 read_note_image）一律沒有這把鍵。
   // #181：delete_note 逐字 {destructiveHint:true}、restore_note 逐字 {destructiveHint:false}——兩支都不寫 idempotentHint（第二次呼叫回 not_found）。
-  it("#180 V11：move_note_to_group.annotations 逐字 {destructiveHint:true, idempotentHint:false}；copy_note.annotations 逐字 {destructiveHint:false}；delete_note {destructiveHint:true}、restore_note {destructiveHint:false}；其餘工具無 annotations 鍵", async () => {
+  it("#180 V11：move_note_to_group.annotations 逐字 {destructiveHint:true, idempotentHint:false}；copy_note.annotations 逐字 {destructiveHint:false}；delete_note {destructiveHint:true}、restore_note {destructiveHint:false}；list_folders {readOnlyHint:true}；create_folder {destructiveHint:false}、rename／move_folder／move_note_to_folder {destructiveHint:false, idempotentHint:true}；delete_folder {destructiveHint:true}；其餘工具無 annotations 鍵", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
     const { token } = await seedTokenForUser(ctx.db, owner.id, RWMD); // #239／#181：清單上才有 move_note_to_group 與兩支垃圾桶寫入工具
@@ -454,12 +485,18 @@ describe("#108 tools/list", () => {
     expect(tools.find(t => t.name === "copy_note")!.annotations).toEqual({ destructiveHint: false });
     expect(tools.find(t => t.name === "delete_note")!.annotations).toEqual({ destructiveHint: true });
     expect(tools.find(t => t.name === "restore_note")!.annotations).toEqual({ destructiveHint: false });
-    const annotated = ["copy_note", "move_note_to_group", ...DELETE_TOOLS];
+    expect(tools.find(t => t.name === "list_folders")!.annotations).toEqual({ readOnlyHint: true }); // 資料夾 PR-3d：spec n8 指定的例外
+    expect(tools.find(t => t.name === "create_folder")!.annotations).toEqual({ destructiveHint: false });
+    expect(tools.find(t => t.name === "rename_folder")!.annotations).toEqual({ destructiveHint: false, idempotentHint: true });
+    expect(tools.find(t => t.name === "move_folder")!.annotations).toEqual({ destructiveHint: false, idempotentHint: true });
+    expect(tools.find(t => t.name === "move_note_to_folder")!.annotations).toEqual({ destructiveHint: false, idempotentHint: true });
+    expect(tools.find(t => t.name === "delete_folder")!.annotations).toEqual({ destructiveHint: true }); // T8：不寫 idempotentHint（第二次呼叫回 not_found）
+    const annotated = ["copy_note", "move_note_to_group", ...DELETE_TOOLS, "list_folders", ...FOLDER_WRITE_TOOLS];
     expect(tools.filter(t => !annotated.includes(t.name) && "annotations" in t).map(t => t.name)).toEqual([]);
   });
 
   // #239：`move_note_to_group` 依 `canMove` 註冊。突變「`register.ts` 的 `if (canMove)` 改回 `if (canWrite)`」→ 本案紅。
-  it("#239：讀寫無搬移憑證 → 十支，不含 move_note_to_group（註冊順序不變）", async () => {
+  it("#239：讀寫無搬移憑證 → 十五支，不含 move_note_to_group（註冊順序不變）", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
     const { token } = await seedTokenForUser(ctx.db, owner.id, "notes:read notes:write");
@@ -467,14 +504,14 @@ describe("#108 tools/list", () => {
   });
 
   // #181：與 move 互相獨立——讀寫刪除有兩支垃圾桶寫入工具、沒有 move_note_to_group。
-  it("#181：讀寫刪除憑證 → 十二支，不含 move_note_to_group、含 delete_note／restore_note（註冊順序不變）", async () => {
+  it("#181：讀寫刪除憑證 → 十八支，不含 move_note_to_group、含 delete_note／restore_note（資料夾 PR-3d T8 起含 delete_folder；註冊順序不變）", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
     const { token } = await seedTokenForUser(ctx.db, owner.id, RWD);
     expect(await toolNames(ctx.app, token, { sort: false })).toEqual(RWMD_TOOLS_IN_ORDER.filter(n => n !== "move_note_to_group"));
   });
 
-  it("#239：session → 十二支（無 create_transfer_token，有 move_note_to_group；#181 起有 delete_note／restore_note）", async () => {
+  it("#239：session → 十八支（無 create_transfer_token，有 move_note_to_group；#181 起有 delete_note／restore_note；資料夾 PR-3d 起有 list_folders、四支資料夾寫入工具與 delete_folder）", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
     const res = await mcpPost(ctx.app, rpc("tools/list"), { cookie: await sessionCookie(owner.id) });

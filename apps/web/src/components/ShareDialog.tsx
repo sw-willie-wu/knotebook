@@ -979,7 +979,7 @@ export function ShareDialog({ note }: ShareDialogProps) {
         </DialogHeader>
         {/* 內部自訂網址（原「連結」區塊：CopyLinkButton／SlugField）已下架
             （Willie 2026-09-17 產品決定）——要連到某篇筆記用 `[[標題]]` wikilink（#269 起貼站內網址也會自動變成 wikilink）；要連到某一段，用拖曳把手選單的「複製段落連結」或標題旁的「#」，
-            協作者本來就會在自己的工作區看到那篇筆記，不需要傳連結。
+            協作者本來就會在自己的側欄（與我共享或群組 tab）看到那篇筆記，不需要傳連結。
             #175：個人與群組筆記各自一個面板；個人筆記只有存取權區塊；「移動／複製到群組」自 #216 起
             改放 ⋮ 選單（`NoteMenu` + `share/GroupTransfer.tsx`）。面板開著時個人↔群組可能互換（PR4 轉移等）；
             兩個分支是不同元件型別，互換即重掛。個人分支以 `note.id` 為 key：不同筆記不共用 `AccessSection` 的

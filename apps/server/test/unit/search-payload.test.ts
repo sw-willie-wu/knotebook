@@ -8,7 +8,7 @@ import { assembleSearchPayload, searchNotes, type SearchMatchForModel } from "..
 
 const note = (id: string) => ({
   id, title: id, owner: { kind: "user" as const, handle: "h" }, slug: id, url: `/n/h/${id}`, role: "owner",
-  updatedAt: "2026-01-01T00:00:00.000Z", lastEdited: null, matchedOn: "body" as const, matches: [] as SearchMatchForModel[],
+  updatedAt: "2026-01-01T00:00:00.000Z", lastEdited: null, folder: null, matchedOn: "body" as const, matches: [] as SearchMatchForModel[],
 });
 const m = (n: number): SearchMatchForModel => ({ sectionId: "s", heading: "", snippet: "x".repeat(n) });
 

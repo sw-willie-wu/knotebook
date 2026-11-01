@@ -9,6 +9,7 @@ import { ThemeProvider } from "@/theme";
 import { __resetCollapseForTests } from "@/components/sidebar/collapse";
 import { personalNote } from "@/test/select-fixtures";
 import { AppShell } from "./AppShell";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 // 一般 tab 選取模式的 lazy chunk（SelectLazy）還沒到時，AppShell 裡清單與底部的佔位（#181 PR-2c T6 AL1）：讓 SelectLazy 的
 // 載入卡在手動放行的 promise 上（照 AppShell.trash-lazy.test.tsx）。
@@ -60,6 +61,7 @@ function stubFetch() {
       const method = (init?.method ?? "GET").toUpperCase();
       if (url === "/api/groups" && method === "GET") return Promise.resolve(fakeResponse([]));
       if (url === "/api/auth/me") return Promise.resolve(fakeResponse(USER));
+      if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
       if (url === "/api/notes" && method === "GET") return Promise.resolve(fakeResponse(NOTES));
       throw new Error(`unexpected fetch: ${method} ${url}`);
     }),

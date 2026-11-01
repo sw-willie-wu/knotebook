@@ -6,11 +6,15 @@ import { MemoryRouter, Route, Routes, useParams } from "react-router";
 import { canonicalNotePath, type GroupDto, type NoteDto, type UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ActiveNoteProvider } from "@/lib/active-note";
+import { NARROW_QUERY } from "@/lib/sidebar-drawer";
 import { NotePageControlsContext } from "@/lib/note-page-controls";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { AppShell, SidebarDrawerButton } from "./AppShell";
 import { adminRole, groupDto, OWNER_PERMS } from "@/test/fixtures";
+import { FOLDER_LIST_EMPTY, folderDto, groupFolder } from "@/test/folder-fixtures";
+import { __resetCollapseForTests, isCollapsed, setCollapsed } from "@/components/sidebar/collapse";
+import { __resetFolderSortForTests } from "@/components/sidebar/folder-sort";
 
 // `sidebar.tab` 的 localStorage 往外洩：一個案切了 tab，同檔後面找個人筆記的案會在錯的 tab 找不到。
 afterEach(() => localStorage.removeItem("sidebar.tab"));
@@ -95,6 +99,7 @@ describe("AppShell — new note", () => {
         if (url === "/api/notes" && method === "POST") {
           return Promise.resolve(fakeResponse({ ok: true, status: 201, json: () => Promise.resolve(CREATED) }));
         }
+        if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
         if (url === "/api/notes" && method === "GET") {
           return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
         }
@@ -157,6 +162,7 @@ describe("AppShell — new note", () => {
           postBody = JSON.parse(String(init?.body));
           return Promise.resolve(fakeResponse({ ok: true, status: 201, json: () => Promise.resolve(created) }));
         }
+        if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
         if (url === "/api/notes" && method === "GET") {
           return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([CREATED]) }));
         }
@@ -180,8 +186,8 @@ describe("AppShell — new note", () => {
       </QueryClientProvider>,
     );
 
-    // 群組列在「工作坊」tab（預設 tab 是「我的筆記」）。
-    fireEvent.click(await screen.findByRole("tab", { name: "Workspace" }));
+    // 群組列在「群組」tab（預設 tab 是「我的筆記」）。
+    fireEvent.click(await screen.findByRole("tab", { name: "Groups" }));
     fireEvent.click(await screen.findByRole("button", { name: "New note in Workshop A" }));
 
     await waitFor(() => expect(postBody).toEqual({ groupId: group.id }));
@@ -212,6 +218,7 @@ describe("AppShell — new note", () => {
         if (url === "/api/auth/me") {
           return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(USER) }));
         }
+        if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
       }),
     );
@@ -291,6 +298,7 @@ describe("AppShell — search box & Ctrl/Cmd+K", () => {
         if (url === "/api/auth/me") {
           return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(USER) }));
         }
+        if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
         if (url === "/api/notes" && method === "GET") {
           return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(notes) }));
         }
@@ -452,8 +460,8 @@ describe("AppShell — search box & Ctrl/Cmd+K", () => {
     stubFetchWithNotes([ALPHA_NOTE, BETA_NOTE]);
     renderShell();
     const input = await screen.findByRole("textbox", { name: "Search notes" });
-    fireEvent.click(await screen.findByRole("tab", { name: "Workspace" }));
-    expect(screen.getByRole("tab", { name: "Workspace" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(await screen.findByRole("tab", { name: "Groups" }));
+    expect(screen.getByRole("tab", { name: "Groups" })).toHaveAttribute("aria-selected", "true");
 
     fireEvent.change(input, { target: { value: "Alpha" } });
     await screen.findByTestId("sidebar-search");
@@ -463,7 +471,7 @@ describe("AppShell — search box & Ctrl/Cmd+K", () => {
     fireEvent.keyDown(input, { key: "Escape" });
     expect(await screen.findByRole("tablist")).toBeInTheDocument();
     expect(screen.queryByTestId("sidebar-search")).toBeNull();
-    expect(screen.getByRole("tab", { name: "Workspace" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Groups" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("AS-S2：清除鈕——空字串時沒有、有 Ctrl K 徽章；有字時換成清除鈕；點了清空、焦點留在輸入框、tablist 回來", async () => {
@@ -472,7 +480,7 @@ describe("AppShell — search box & Ctrl/Cmd+K", () => {
     const input = await screen.findByRole("textbox", { name: "Search notes" });
     expect(screen.queryByRole("button", { name: "Clear search" })).toBeNull();
     expect(screen.getByText("Ctrl K")).toBeInTheDocument();
-    fireEvent.click(await screen.findByRole("tab", { name: "Workspace" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Groups" }));
 
     fireEvent.change(input, { target: { value: "Alpha" } });
     const clear = await screen.findByRole("button", { name: "Clear search" });
@@ -483,7 +491,7 @@ describe("AppShell — search box & Ctrl/Cmd+K", () => {
     expect(input).toHaveFocus();
     expect(await screen.findByRole("tablist")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Clear search" })).toBeNull();
-    expect(screen.getByRole("tab", { name: "Workspace" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Groups" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("只有空白也算搜尋中（現行行為）：換成搜尋視圖、出現清除鈕", async () => {
@@ -586,6 +594,7 @@ describe("AppShell — #115 側欄抽屜", () => {
         if (url === "/api/auth/me") {
           return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(USER) }));
         }
+        if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
         if (url === "/api/notes" && method === "GET") {
           return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(notes) }));
         }
@@ -608,7 +617,8 @@ describe("AppShell — #115 側欄抽屜", () => {
       removeListener: () => {},
       dispatchEvent: () => false,
     };
-    vi.stubGlobal("matchMedia", vi.fn(() => mql));
+    // 只有 NARROW_QUERY 回 mql；其餘 query（例如 WIDE_POINTER_QUERY）一律不成立、不註冊監聽。
+    vi.stubGlobal("matchMedia", vi.fn((query: string) => (query === NARROW_QUERY ? mql : { ...mql, matches: false, addEventListener: () => {}, removeEventListener: () => {} })));
     return {
       dispatchChange(matches: boolean) {
         mql.matches = matches;
@@ -745,5 +755,110 @@ describe("AppShell — #115 側欄抽屜", () => {
 
     expect(openEdits).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(document.querySelector("[data-sidebar-drawer]")).toBeNull());
+  });
+});
+
+// ── 在資料夾建立筆記（資料夾 PR-3b-1 T2；spec §6.4、§6.8）
+describe("AppShell — 在資料夾建立筆記", () => {
+  const G: GroupDto = groupDto({ id: "G", name: "G" }, adminRole());
+  const FOLDERS = [folderDto({ id: "A", name: "A" }), groupFolder({ id: "GF", name: "GF", groupId: "G" })];
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    localStorage.clear();
+    __resetCollapseForTests();
+    __resetFolderSortForTests();
+  });
+
+  function json(body: unknown, status = 200): Response {
+    return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+  }
+
+  /** `post`：POST /api/notes 的回應；每次 POST 的 body 記進回傳的陣列。 */
+  function stubCreate(post: () => Response) {
+    const bodies: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (url === "/api/notes" && method === "POST") {
+          bodies.push(JSON.parse(String(init?.body)));
+          return Promise.resolve(post());
+        }
+        if (url === "/api/folders") return Promise.resolve(json({ folders: FOLDERS }));
+        if (url === "/api/notes" && method === "GET") return Promise.resolve(json([]));
+        if (url === "/api/groups" && method === "GET") return Promise.resolve(json([G]));
+        if (url === "/api/auth/me") return Promise.resolve(json(USER));
+        throw new Error(`unexpected fetch: ${method} ${url}`);
+      }),
+    );
+    return bodies;
+  }
+
+  function renderShell() {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <MemoryRouter initialEntries={["/"]}>
+            <ActiveNoteProvider>
+              <Routes>
+                <Route path="/" element={<AppShell>home</AppShell>} />
+                <Route path="/n/:handle/:slug" element={<NoteRouteProbe />} />
+                <Route path="/g/:groupId/:slug" element={<GroupNoteRouteProbe />} />
+              </Routes>
+            </ActiveNoteProvider>
+          </MemoryRouter>
+          <Toaster />
+        </ThemeProvider>
+      </QueryClientProvider>,
+    );
+    return queryClient;
+  }
+
+  const fail = (status: number, code: string) => () => json({ error: { code, message: "x" } }, status);
+
+  it("AS-F1 個人資料夾「＋」→ body {folderId}、導到新筆記、資料夾寫成展開", async () => {
+    setCollapsed("folder:A", true);
+    const bodies = stubCreate(() => json(CREATED, 201));
+    renderShell();
+    fireEvent.click(await screen.findByRole("button", { name: "New note in A" }));
+    await waitFor(() => expect(screen.getByTestId("note-route")).toHaveTextContent("tester/untitled-33333333"));
+    expect(bodies).toEqual([{ folderId: "A" }]);
+    expect(isCollapsed("folder:A")).toBe(false);
+  });
+
+  it("AS-F1 群組資料夾「＋」→ body {groupId, folderId}", async () => {
+    const created: NoteDto = { ...CREATED, ownerId: null, ownerHandle: null, role: "editor", groupId: "G", group: { id: "G", name: "G" } };
+    const bodies = stubCreate(() => json(created, 201));
+    renderShell();
+    fireEvent.click(await screen.findByRole("tab", { name: "Groups" }));
+    fireEvent.click(await screen.findByRole("button", { name: "New note in GF" }));
+    await waitFor(() => expect(bodies).toEqual([{ groupId: "G", folderId: "GF" }]));
+    await waitFor(() => expect(screen.getByTestId("group-note-route")).toHaveTextContent(`G/${CREATED.slug}`));
+  });
+
+  it("AS-F2 404 folder_not_found → toast「Folder not found.」、失效 ['folders']、不導頁", async () => {
+    stubCreate(fail(404, "folder_not_found"));
+    const queryClient = renderShell();
+    const spy = vi.spyOn(queryClient, "invalidateQueries");
+    fireEvent.click(await screen.findByRole("button", { name: "New note in A" }));
+    await waitFor(() => expect(screen.getByText("Folder not found.")).toBeInTheDocument());
+    expect(spy).toHaveBeenCalledWith({ queryKey: ["folders"] });
+    expect(screen.getByText("home")).toBeInTheDocument();
+  });
+
+  it("AS-F3 409 folder_too_deep → toast 帶入上限、不含 {{max}}", async () => {
+    stubCreate(fail(409, "folder_too_deep"));
+    renderShell();
+    fireEvent.click(await screen.findByRole("button", { name: "New note in A" }));
+    await waitFor(() => expect(screen.getByText("Folders can be at most 5 levels deep.")).toBeInTheDocument());
+    expect(screen.queryByText(/\{\{max\}\}/)).toBeNull();
   });
 });

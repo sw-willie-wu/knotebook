@@ -8,6 +8,7 @@ import { ActiveNoteProvider } from "@/lib/active-note";
 import { ThemeProvider } from "@/theme";
 import { AppErrorBoundary } from "./ErrorBoundary";
 import { AppShell } from "./AppShell";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 // 垃圾桶 tab 的 lazy chunk（TrashLazy）載入失敗（T9 fix r2 I-1）：只有垃圾桶那塊出錯，側欄其餘與頁面照常，不冒到 AppErrorBoundary。
 // 錯誤訊息照 Chromium 的裸動態 import 失敗措辭（ErrorBoundary.tsx 的 CHUNK_ERROR_PATTERNS）；vitest 把 factory 的 reject 包成
@@ -43,6 +44,7 @@ function stubFetch() {
       const method = (init?.method ?? "GET").toUpperCase();
       if (url === "/api/groups" && method === "GET") return Promise.resolve(fakeResponse([]));
       if (url === "/api/auth/me") return Promise.resolve(fakeResponse(USER));
+      if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
       if (url === "/api/notes" && method === "GET") return Promise.resolve(fakeResponse([]));
       throw new Error(`unexpected fetch: ${method} ${url}`);
     }),

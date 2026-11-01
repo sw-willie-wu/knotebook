@@ -8,6 +8,7 @@ import { ActiveNoteProvider } from "@/lib/active-note";
 import { ThemeProvider } from "@/theme";
 import { AppShell } from "./AppShell";
 import { trashList } from "@/test/trash-fixtures";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 // 垃圾桶 tab 的 lazy chunk（TrashLazy）還沒到時的兩個 Suspense 佔位（T9 fix r2 N-1）：jsdom 下 import 幾乎即到、量不到佔位，
 // 所以讓 TrashLazy 的載入卡在手動放行的 promise 上。
@@ -52,6 +53,7 @@ function stubFetch() {
       const method = (init?.method ?? "GET").toUpperCase();
       if (url === "/api/groups" && method === "GET") return Promise.resolve(fakeResponse([]));
       if (url === "/api/auth/me") return Promise.resolve(fakeResponse(USER));
+      if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
       if (url === "/api/notes" && method === "GET") return Promise.resolve(fakeResponse([]));
       if (url === "/api/trash" && method === "GET") return Promise.resolve(fakeResponse(trashList([], { retentionDays: 7 })));
       throw new Error(`unexpected fetch: ${method} ${url}`);

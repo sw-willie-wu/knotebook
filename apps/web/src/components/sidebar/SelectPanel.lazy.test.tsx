@@ -9,6 +9,7 @@ import { SidebarTabProvider } from "@/lib/sidebar-tab";
 import { NoteList } from "@/components/NoteList";
 import { __resetCollapseForTests } from "@/components/sidebar/collapse";
 import { personalNote } from "@/test/select-fixtures";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 // 一般 tab 選取模式的 lazy chunk（SelectLazy）還沒到時的佔位（PR-2c T4 NS12）：jsdom 下 import 幾乎即到、量不到佔位，
 // 所以讓 SelectLazy 的載入卡在手動放行的 promise 上（照 AppShell.trash-lazy.test.tsx）。
@@ -54,6 +55,7 @@ function stubFetch() {
     vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = (init?.method ?? "GET").toUpperCase();
+      if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
       if (url === "/api/notes" && method === "GET") return Promise.resolve(fakeResponse(NOTES));
       if (url === "/api/groups" && method === "GET") return Promise.resolve(fakeResponse([]));
       if (url === "/api/auth/me" && method === "GET") return Promise.resolve(fakeResponse(ME));

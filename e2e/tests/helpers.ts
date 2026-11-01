@@ -86,7 +86,7 @@ export async function createUserViaInvite(
  * `createNote`；所有走 `createNote` 的 page（流程 1／2／3 的 adminPage／4）都由這裡涵蓋。）
  */
 export async function createNote(page: Page, title: string): Promise<void> {
-  // 頁尾「New note」只在 My notes／Recent／搜尋中顯示；呼叫端可能停在 Workspace／Shared with me，先切回 My notes。
+  // 頁尾「New note」只在 My notes／Recent／搜尋中顯示；呼叫端可能停在 Groups／Shared with me，先切回 My notes。
   if (!(await page.getByRole("button", { name: "New note", exact: true }).isVisible())) {
     await showSidebarTab(page, "My notes");
   }
@@ -228,7 +228,7 @@ export async function adminNav(page: Page, item: "Users" | "Groups" | "Sign-in" 
   await expect(page).toHaveURL(urls[item]);
 }
 
-export type SidebarTabName = "Recent" | "My notes" | "Workspace" | "Shared with me" | "Trash";
+export type SidebarTabName = "Recent" | "My notes" | "Groups" | "Shared with me" | "Trash";
 
 /**
  * 點側欄某個 tab、等它 aria-selected，回傳同一範圍內的 tabpanel。`scope` 預設靜態側欄（complementary）；窄螢幕傳抽屜。
@@ -244,8 +244,9 @@ export async function showSidebarTab(page: Page, name: SidebarTabName, scope?: L
 }
 
 /**
- * #181 PR-2c：一般 tab（我的筆記／工作坊／與我共享／最近）標題列的「Select」→ 等選取標題列的「0 selected」（lazy 的 SelectLazy chunk 到了；
- * 進入時已選一律清空）。`scope` 預設靜態側欄；窄螢幕傳抽屜。回傳 tabpanel（勾選框在裡面；動作列在 tabpanel 外、側欄底部）。
+ * #181 PR-2c：一般 tab（我的筆記／群組／與我共享／最近）標題列的「Select」→ 等選取標題列的「0 selected」（lazy 的 SelectLazy chunk 到了；
+ * 進入時已選一律清空）。`scope` 預設靜態側欄；窄螢幕傳抽屜。回傳 tabpanel（勾選框在裡面；動作列窄形在 tabpanel 外、側欄底部，
+ * 寬形〔PR-3b-3〕在 tabpanel 內的標題列 `[data-sidebar-header]`——兩形都是 `[data-select-action-bar]`、鈕的可及名稱相同）。
  * 垃圾桶 tab 的選取是另一套（36）。
  */
 export async function startSidebarSelection(page: Page, scope?: Locator): Promise<Locator> {
@@ -297,7 +298,7 @@ export async function moveNoteToTrashFromSidebar(page: Page, title: string, scop
 
 /** #247：群組 modal。側欄群組列 ⋮ →「Members & settings」→ `/groups/<id>`；回傳 group id。 */
 export async function openGroupPanel(page: Page, groupName: string): Promise<string> {
-  await showSidebarTab(page, "Workspace");
+  await showSidebarTab(page, "Groups");
   await page.getByRole("complementary").getByRole("button", { name: `Group actions for ${groupName}` }).click();
   await page.getByRole("menuitem", { name: "Members & settings" }).click();
   await expect(page).toHaveURL(/\/groups\/[0-9a-f-]{36}$/);
@@ -305,6 +306,188 @@ export async function openGroupPanel(page: Page, groupName: string): Promise<str
   await expect(dialog).toBeVisible();
   await expect(dialog.locator('nav a[aria-current="page"]')).toHaveCount(1);
   return new URL(page.url()).pathname.split("/")[2]!;
+}
+
+/**
+ * 資料夾 PR-3b：目前 tab 的資料夾列（`li[data-node-kind="folder"]`）。以主鈕名稱 exact 找，再取最近的資料夾 `<li>` 祖先——
+ * 不能用 `filter({ has })`：外層資料夾的 `<li>` 也「含」子資料夾的主鈕。
+ */
+export function folderRow(scope: Locator, name: string): Locator {
+  return scope.getByRole("button", { name, exact: true }).locator("xpath=ancestor::li[@data-node-kind='folder'][1]");
+}
+
+/**
+ * 資料夾 PR-3b：按 `opener`（標題列「New folder」、群組列「New folder in G」或 ⋮ 的「New subfolder」已開出的框都可）→ 等 lazy 的
+ * 新增對話框 → 輸入名稱 → Create → 等框關閉、資料夾主鈕出現（取看得見的那份：窄螢幕時靜態卡藏著）。
+ */
+export async function createFolder(page: Page, opener: Locator, name: string): Promise<void> {
+  await opener.hover();
+  await opener.click();
+  await submitFolderName(page, "New folder", name);
+}
+
+/** 新增／改名對話框：等輸入框得焦點 → 填名稱 → 送出 → 等框關閉、該名稱的資料夾主鈕可見。 */
+export async function submitFolderName(page: Page, title: "New folder" | "Rename folder", name: string): Promise<void> {
+  const dialog = page.getByRole("dialog", { name: title, exact: true });
+  const input = dialog.getByRole("textbox", { name: "Folder name", exact: true });
+  await expect(input).toBeFocused({ timeout: 15_000 });
+  await input.fill(name);
+  await dialog.getByRole("button", { name: title === "New folder" ? "Create" : "Save", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(page.getByRole("button", { name, exact: true }).locator("visible=true").first()).toBeVisible({ timeout: 15_000 });
+}
+
+/** 資料夾 PR-3b：資料夾 ⋮（hover 浮出，先 hover）。 */
+export function folderMenuButton(scope: Locator, folder: string): Locator {
+  return scope.getByRole("button", { name: `Folder menu for ${folder}`, exact: true });
+}
+
+/** 資料夾 PR-3b：資料夾 ⋮ → 選一項（Radix 選單，等 menuitem 可見再點）。 */
+export async function folderMenuItem(page: Page, scope: Locator, folder: string, item: string): Promise<void> {
+  const trigger = folderMenuButton(scope, folder);
+  await trigger.hover();
+  await trigger.click();
+  const menuItem = page.getByRole("menu").getByRole("menuitem", { name: item, exact: true });
+  await expect(menuItem).toBeVisible();
+  await menuItem.click();
+}
+
+/**
+ * 資料夾 PR-3b-3：寬窄判準的字面（`apps/web/src/lib/wide-pointer.ts` 的 `WIDE_POINTER_QUERY`；e2e 不能依賴 web 套件，兩處須同步）。
+ * 寬＝⋮「Move to…／Copy to…」往旁層疊、選取工具列在標題列；窄＝逐層就地展開、動作列在底部。
+ */
+const WIDE_POINTER_QUERY = "(width >= 48rem) and (hover: hover) and (pointer: fine)";
+
+/**
+ * 資料夾 PR-3b-3：斷言頁面目前落在寬（`true`）／窄（`false`）判準。寬形案與 390 案開頭各呼叫一次，防「預設視窗是寬」這個假設失效時
+ * 紅在不相干的地方；`setViewportSize` 之後呼叫也等於等 matchMedia 跟上新尺寸。Playwright 改不了 hover／pointer，跨判準只能靠寬度。
+ */
+export async function expectWidePointer(page: Page, wide: boolean): Promise<void> {
+  await expect
+    .poll(() => page.evaluate((query) => window.matchMedia(query).matches, WIDE_POINTER_QUERY), {
+      message: `matchMedia("${WIDE_POINTER_QUERY}") 應為 ${wide}`,
+    })
+    .toBe(wide);
+}
+
+/**
+ * 資料夾 PR-3b-2：選單開著時點一個選單項（子選單裡的也可）。寬螢幕的「Move to…／Copy to…」子選單是 Radix flyout：滑鼠要分段移過去
+ * 再點——一步瞬移離開觸發項時 Radix 判定「沒往子選單走」、把子選單關掉（理由詳見 16 的 `pickFromSubmenu`）。窄螢幕的就地展開形
+ * 分段移動也無害。子選單有 `max-h`（20rem）會捲動：先捲進視野再量位置。
+ * `scope`（PR-3b-3）：層疊各層同時開著，「Move here」等同名項可能在好幾層都有——傳 `openedSubmenu` 回傳的那一層限定範圍。
+ */
+export async function clickMenuItemByPointer(page: Page, name: string, scope?: Locator): Promise<void> {
+  const target = (scope ?? page).getByRole("menuitem", { name, exact: true });
+  await expect(target).toBeVisible();
+  await target.scrollIntoViewIfNeeded();
+  const box = await target.boundingBox();
+  expect(box, `menuitem「${name}」量不到位置`).not.toBeNull();
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2, { steps: 10 });
+  await target.click();
+}
+
+/**
+ * 資料夾 PR-3b-3：寬形層疊的 SubTrigger（`trigger`）打開後的那一層 menu。等它 `aria-expanded="true"`，再以它的 `aria-controls`
+ * （Radix 只在打開時設，值＝該層 SubContent 的 id）找那一層——各層 SubContent 都是 portal、互不包含，所以這一層的範圍不含更深的層。
+ */
+export async function openedSubmenu(page: Page, trigger: Locator): Promise<Locator> {
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  const id = await trigger.getAttribute("aria-controls");
+  expect(id, "SubTrigger 已打開卻沒有 aria-controls").not.toBeNull();
+  const menu = page.locator(`[role="menu"][id="${id}"]`);
+  await expect(menu).toBeVisible();
+  return menu;
+}
+
+/** 窄形逐層換層項的可及名稱尾綴（`folders.dest.openLevel`「{{name}}, open」）；寬形層疊的 SubTrigger 不帶（總管裁定 ③）。 */
+const OPEN_LEVEL_SUFFIX = ", open";
+
+/**
+ * 資料夾 PR-3b-2／3b-3：⋮ 開著時點「Move to…」／「Copy to…」，再依序點 `steps`（可及名稱 exact；換層項照窄形寫成「X, open」）。
+ * 形態看觸發項：
+ * - 寬且可 hover（`aria-haspopup="menu"`）＝往旁層疊：觸發項是 Radix `SubTrigger`，每一步以 `clickMenuItemByPointer` 分段移過去、限定在
+ *   目前這一層；寬形的 SubTrigger 不帶「, open」（總管裁定 ③），所以把尾綴去掉再找，點了等它 `aria-expanded="true"`、下一步改在它打開的
+ *   那一層找（沒有「Back」可等）。
+ * - 窄或觸控＝就地展開逐層：直接點縮排項（同一個 menu）。「X, open」點了等新的一層換上來才點下一步——錨點是「剛點的那項不見了」
+ *   （舊層整層換掉；只看「Back」從第二層起就是空等，舊層本來就有 Back），再確認新層有「Back」（第二層起恆第一項；返回的圖示是
+ *   aria-hidden，可及名稱只有「Back」）。
+ * `steps` 空＝只打開子選單（呼叫端要先斷言第一層；寬形用 `openedSubmenu` 取那一層）。
+ */
+export async function pickNoteMenuDestination(page: Page, trigger: "Move to…" | "Copy to…", steps: readonly string[]): Promise<void> {
+  const item = page.getByRole("menuitem", { name: trigger, exact: true });
+  await expect(item).toBeVisible();
+  const cascade = (await item.getAttribute("aria-haspopup")) === "menu";
+  await item.click();
+  if (!cascade) {
+    for (const step of steps) {
+      await page.getByRole("menuitem", { name: step, exact: true }).click();
+      if (step.endsWith(OPEN_LEVEL_SUFFIX)) {
+        await expect(page.getByRole("menuitem", { name: step, exact: true })).toBeHidden();
+        await expect(page.getByRole("menuitem", { name: "Back", exact: true })).toBeVisible();
+      }
+    }
+    return;
+  }
+  let level = await openedSubmenu(page, item);
+  for (const step of steps) {
+    const opensLevel = step.endsWith(OPEN_LEVEL_SUFFIX);
+    const name = opensLevel ? step.slice(0, -OPEN_LEVEL_SUFFIX.length) : step;
+    await clickMenuItemByPointer(page, name, level);
+    if (opensLevel) level = await openedSubmenu(page, level.getByRole("menuitem", { name, exact: true }));
+  }
+}
+
+/** 資料夾 PR-3b-2：選取模式的目的地框（「Move to」／「Copy to」）依序點 `steps`（每項一顆按鈕，可及名稱 exact；換層的等待同上：剛點的那顆不見、再見到「Back」）。 */
+export async function pickDestination(dialog: Locator, steps: readonly string[]): Promise<void> {
+  for (const step of steps) {
+    await dialog.getByRole("button", { name: step, exact: true }).click();
+    if (step.endsWith(", open")) {
+      await expect(dialog.getByRole("button", { name: step, exact: true })).toBeHidden();
+      await expect(dialog.getByRole("button", { name: "Back", exact: true })).toBeVisible();
+    }
+  }
+}
+
+/** 原生拖曳的落點：`position` 是相對 target 左上角的座標（同 `Locator.dragTo` 的 `targetPosition`）；省略＝中心。 */
+async function dragPoint(target: Locator, position?: { x: number; y: number }): Promise<{ x: number; y: number }> {
+  const box = await target.boundingBox();
+  expect(box, "拖曳目標量不到位置（不可見？）").not.toBeNull();
+  return position ? { x: box!.x + position.x, y: box!.y + position.y } : { x: box!.x + box!.width / 2, y: box!.y + box!.height / 2 };
+}
+
+/**
+ * 資料夾 PR-3c：拖曳進行中（滑鼠已按下）把指標分段移到 `target` → 等 `waitFor`（若有）→ 再移 1 步（spec M-8：讓可放狀態更新）。
+ * 不放開；呼叫端接著再移或 `page.mouse.up()`。target 在移動當下才量（拖曳中清單可能變形，例如彈簧資料夾展開）。
+ * `waitFor` 是斷言回呼（例如預覽可見），不寫 waitForTimeout。
+ */
+export async function dragMoveTo(
+  page: Page,
+  target: Locator,
+  opts: { position?: { x: number; y: number }; waitFor?: () => Promise<void> } = {},
+): Promise<void> {
+  const to = await dragPoint(target, opts.position);
+  await page.mouse.move(to.x, to.y, { steps: 10 });
+  if (opts.waitFor) await opts.waitFor();
+  await page.mouse.move(to.x + 1, to.y);
+}
+
+/**
+ * 資料夾 PR-3c：以 page.mouse 做原生拖曳（Chromium；Playwright 攔下瀏覽器產生的拖曳資料、逐發送 dragenter／dragover／drop）。
+ * 在 source 中心 down → 在 source 內橫移一小段讓拖曳開始（dragstart）→ `dragMoveTo` 分段移到 target（預設中心，`position` 同上）、
+ * 等 `waitFor`、再移 1 步 → up。`drop: false`＝停在最後一步不放開，呼叫端自行接著移動並 `page.mouse.up()`。
+ */
+export async function dragTo(
+  page: Page,
+  source: Locator,
+  target: Locator,
+  opts: { waitFor?: () => Promise<void>; drop?: boolean; position?: { x: number; y: number } } = {},
+): Promise<void> {
+  const from = await dragPoint(source);
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(from.x + 8, from.y, { steps: 4 });
+  await dragMoveTo(page, target, { position: opts.position, waitFor: opts.waitFor });
+  if (opts.drop !== false) await page.mouse.up();
 }
 
 /** #263：框選 AI 框（`role="region"`、`data-testid="selection-ai-box"`）。 */

@@ -8,6 +8,7 @@ import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
 import HomePage from "@/pages/HomePage";
 import { NotePageFallback } from "./NotePageFallback";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 /**
  * #115：NarrowTopBar（`md:hidden` 的漢堡＋K logo 列）消費端守衛。
@@ -40,6 +41,7 @@ function stubFetch() {
     vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/auth/me") return Promise.resolve(fakeResponse(USER));
+      if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
       if (url === "/api/notes") return Promise.resolve(fakeResponse([]));
       throw new Error(`unexpected fetch: ${url}`);
     }),

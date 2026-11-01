@@ -10,6 +10,7 @@ import {
   splitTrashSections,
   trashDetailLine,
   trashItemTitle,
+  trashLocationLine,
   trashResultMessage,
 } from "./trash-display";
 
@@ -70,21 +71,52 @@ describe("trashDetailLine", () => {
     expect(line(item({ id: "p", purgeAt: null }))).toBe(`Deleted ${deletedDate}`);
   });
 
-  it("TD2 工作坊：群組名 · 刪除者 · 剩餘", () => {
+  it("TD2 群組：群組名 · 刪除者 · 剩餘", () => {
     expect(line(item({ id: "w", group: GROUP, deletedBy: AMY }))).toBe("R&D · Deleted by Amy · 3 days left");
   });
 
-  it("TD2 工作坊：刪除者帳號已刪", () => {
+  it("TD2 群組：刪除者帳號已刪", () => {
     expect(line(item({ id: "w", group: GROUP, deletedBy: null }))).toBe("R&D · Deleted by a deleted account · 3 days left");
   });
 
-  it("TD2 工作坊＋NULL 保留天數：時間段只放日期", () => {
+  it("TD2 群組＋NULL 保留天數：時間段只放日期", () => {
     expect(line(item({ id: "w", group: GROUP, deletedBy: AMY, purgeAt: null }))).toBe(`R&D · Deleted by Amy · ${deletedDate}`);
   });
 
-  it("TD2 zh-TW 工作坊", async () => {
+  it("TD2 zh-TW 群組", async () => {
     await i18n.changeLanguage("zh-TW");
     expect(line(item({ id: "w", group: GROUP, deletedBy: AMY }), "zh-TW")).toBe("R&D · Amy 刪除 · 剩 3 天");
+  });
+});
+
+describe("trashDetailLine × 資料夾路徑（資料夾 spec §6.9）", () => {
+  const line = (i: TrashItemDto, locale = "en") => trashDetailLine(i, { now: NOW, t, locale });
+  const RD = { id: "g2", name: "研發組" };
+
+  it("TD-F1 個人 [A, B]、剩 3 天 → A › B · 3 days left（無「我的筆記」前綴）", () => {
+    expect(line(item({ id: "p", folderPath: ["A", "B"] }))).toBe("A › B · 3 days left");
+  });
+
+  it("TD-F2 群組 [團隊週報]：en 由既有鍵組；zh 研發組 › 團隊週報 · Amy 刪除 · 剩 3 天", async () => {
+    const w = item({ id: "w", group: RD, deletedBy: AMY, folderPath: ["團隊週報"] });
+    expect(line(w)).toBe("研發組 › 團隊週報 · Deleted by Amy · 3 days left");
+    await i18n.changeLanguage("zh-TW");
+    expect(line(w, "zh-TW")).toBe("研發組 › 團隊週報 · Amy 刪除 · 剩 3 天");
+  });
+});
+
+describe("trashLocationLine（第二行的 title，資料夾 spec §6.9「太長：title 給完整路徑」）", () => {
+  it("TP-F1 個人 [A, B] → A › B（無「我的筆記」前綴、不含時間段）", () => {
+    expect(trashLocationLine(item({ id: "p", folderPath: ["A", "B"] }))).toBe("A › B");
+  });
+
+  it("TP-F2 群組 [團隊週報] → 研發組 › 團隊週報", () => {
+    expect(trashLocationLine(item({ id: "w", group: { id: "g2", name: "研發組" }, deletedBy: AMY, folderPath: ["團隊週報"] }))).toBe("研發組 › 團隊週報");
+  });
+
+  it("TP-F3 個人根層 → 空字串；群組根層 → 群組名", () => {
+    expect(trashLocationLine(item({ id: "r" }))).toBe("");
+    expect(trashLocationLine(item({ id: "g", group: GROUP }))).toBe("R&D");
   });
 });
 

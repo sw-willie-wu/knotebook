@@ -1,11 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { EMPTY_SELECTION, reduceSelection, selectionKey, SIDEBAR_SELECT_BUTTON, type SelectionOp, type SidebarSelection } from "./sidebar-selection";
+import { EMPTY_SELECTION, reduceSelection, selectAllState, selectionKey, SIDEBAR_SELECT_BUTTON, type SelectionOp, type SidebarSelection } from "./sidebar-selection";
 
 const ORDER = ["a", "b", "c", "d", "e"] as const;
 
 function run(ops: SelectionOp[], from: SidebarSelection = EMPTY_SELECTION): SidebarSelection {
   return ops.reduce(reduceSelection, from);
 }
+
+describe("selectAllState", () => {
+  it("SS-A1 只看可見列：空→none；全在→all；部分→some；只在收合子樹→none", () => {
+    expect(selectAllState([], new Set(["a"]))).toBe("none");
+    expect(selectAllState(["a", "b"], new Set(["a", "b"]))).toBe("all");
+    expect(selectAllState(["a", "b"], new Set(["a"]))).toBe("some");
+    expect(selectAllState(["a", "b"], new Set(["c"]))).toBe("none");
+  });
+});
 
 const keysOf = (state: SidebarSelection) => [...state.keys].sort();
 
@@ -80,5 +89,14 @@ describe("reduceSelection", () => {
 
   it("SL8 SIDEBAR_SELECT_BUTTON：標題列裡帶 data-sidebar-select 的鈕", () => {
     expect(SIDEBAR_SELECT_BUTTON).toBe("[data-sidebar-header] button[data-sidebar-select]");
+  });
+});
+
+describe("資料夾鍵", () => {
+  it("SS-F1 folder:a 與 note:a 是兩個鍵、toggle 互不影響", () => {
+    expect(selectionKey({ kind: "folder", id: "a" })).toBe("folder:a");
+    const state = run([{ type: "start" }, { type: "toggle", key: selectionKey({ kind: "folder", id: "a" }) }, { type: "toggle", key: selectionKey({ kind: "note", id: "a" }) }]);
+    expect(keysOf(state)).toEqual(["folder:a", "note:a"]);
+    expect(keysOf(run([{ type: "toggle", key: "folder:a" }], state))).toEqual(["note:a"]);
   });
 });

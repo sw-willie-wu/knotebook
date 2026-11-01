@@ -6,7 +6,7 @@ import { dismissAllToasts } from "@/components/ui/toast";
 import { ADMIN_ROLE, GROUP_ADMIN, GROUP_CO_ADMIN, GROUP_MEMBER, ME, MEMBER_ROLE, ROLES, callsTo, fail, fakeResponse, groupFetch, member, ok, renderGroupRoute } from "./group-test-utils";
 
 // 群組 modal「成員」（`/groups/:id`，#247 §6.2）：案子逐案搬自 main 版 `settings/SettingsGroupDetailSection.test.tsx`
-// （#103 spec §8.4；#175 spec §8.5）。背景側欄的工作坊分段吃同一份 `useGroups()` 快取會渲染同樣的群組名字——
+// （#103 spec §8.4；#175 spec §8.5）。背景側欄的群組分段吃同一份 `useGroups()` 快取會渲染同樣的群組名字——
 // 一律 `within(dialog)` 才不誤命中背景層。
 
 /** 角色下拉的選項（value、顯示文字）。 */

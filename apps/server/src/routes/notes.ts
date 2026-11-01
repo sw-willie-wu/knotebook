@@ -76,6 +76,7 @@ import type { FixedWindowLimiter } from "../http/rate-limit.js";
 import { isForeignKeyViolation, isNoteFolderSpaceViolation, isRetryableTxError, uniqueViolationConstraint } from "../db/pg-errors.js";
 import { FOLDER_NOT_FOUND_MESSAGE, NOTE_FOLDER_CROSS_SPACE_MESSAGE, NOTE_FOLDER_ROLE_FORBIDDEN_MESSAGE } from "../folders/messages.js";
 import { resolveFolderAccess, type FolderAccess } from "../folders/queries.js";
+import { newNoteFolderConsistent } from "../folders/space.js";
 import { StorageQuotaExceeded } from "../storage/tx/quota.js";
 import { precheckDetail, quotaErrorDetail } from "../storage/usage.js";
 
@@ -191,9 +192,10 @@ export interface NotesRouteDeps {
    * 候選），語意與上面 `slugUpdateTestHook` 對稱（測試搶插同 owner 同 slug 的佔位列，讓
    * INSERT 真的撞 `(owner_id, slug)` 唯一索引，藉以驅動「重試 ≤`MAX_AUTO_SLUG_RETRIES`
    * 後退 untitled-<uuid8>」的競態路徑）。生產不注入＝零成本。透傳自
-   * `AppDeps.noteCreateHooks`。⚠ **只接在 `POST /api/notes` 與複製（`POST /api/notes/:id/copy`，交易內模式）兩處**：
-   * MCP 的 `create_note` 與 `createWithContent` 走同一支 `insertNoteWithAutoSlug` 的預設模式，競態迴圈只需要一個觀測點；
-   * 交易內模式（savepoint 重試，§6.9）是另一個迴圈，由複製那一處觀測。
+   * `AppDeps.noteCreateHooks`。⚠ **接在三處**：`POST /api/notes` 不帶 content 的建列、複製（`POST /api/notes/:id/copy`
+   * 與 MCP `copy_note`，交易內模式）、MCP `create_note` 不帶 content 的分支（#folders PR-3d：`server_busy` 映射的觀測點，
+   * `mcp-folders` 的 BZ-N）。帶 content 的兩條路（`createWithContent`）不接——它與前者走同一支 `insertNoteWithAutoSlug`
+   * 的預設模式，競態迴圈由 `POST /api/notes` 那一處觀測；交易內模式（savepoint 重試，§6.9）是另一個迴圈，由複製那一處觀測。
    */
   noteCreateHooks?: NoteCreateHooks;
   /** #103：交錯點測試注入縫（`groups/test-hook.ts`），透傳自 `AppDeps.groupTestHook`。 */
@@ -252,9 +254,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
         if (folder === null) return sendError(reply, 404, "folder_not_found", FOLDER_NOT_FOUND_MESSAGE);
         const space = folder.space;
         // 共享私人樹不能建筆記；群組資料夾要給同一個 `groupId`；個人資料夾不能帶 `groupId`（不靜默挑一個）。
-        const consistent = space.kind === "group"
-          ? groupId !== undefined && groupId.toLowerCase() === space.groupId
-          : space.kind === "personal" && groupId === undefined;
+        const consistent = newNoteFolderConsistent(space, groupId);
         if (!consistent) return sendError(reply, 400, "folder_cross_space", NOTE_FOLDER_CROSS_SPACE_MESSAGE);
       }
       const folderId = folder === null ? null : folder.folder.id;

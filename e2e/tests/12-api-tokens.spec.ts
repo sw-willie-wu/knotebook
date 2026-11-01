@@ -89,23 +89,30 @@ test("PAT：設定頁建立 → 無 cookie 的 Bearer 請求可用 → PATCH 改
     expect(before).not.toContain("move_note_to_group");
     expect(before).not.toContain("delete_note");
     expect(before).not.toContain("restore_note");
+    // 資料夾 PR-3d：`list_folders` 任何憑證都有；`delete_folder` 同 delete_note 要 notes:delete。
+    expect(before).toContain("list_folders");
+    expect(before).not.toContain("delete_folder");
     await setScope("notes:read notes:write notes:move");
     const withMove = await toolNames();
     expect(withMove).toContain("move_note_to_group");
     expect(withMove).not.toContain("delete_note");
-    // #181：讀寫刪除——兩支垃圾桶寫入工具出現，搬移不在（move 與 delete 互相獨立）。
+    expect(withMove).not.toContain("delete_folder");
+    // #181：讀寫刪除——要 notes:delete 的三支（delete_note、restore_note，資料夾 PR-3d 起加 delete_folder）出現，搬移不在（move 與 delete 互相獨立）。
     await setScope("notes:read notes:write notes:delete");
     const withDelete = await toolNames();
     expect(withDelete).toContain("delete_note");
     expect(withDelete).toContain("restore_note");
     expect(withDelete).toContain("list_trash");
+    expect(withDelete).toContain("delete_folder");
     expect(withDelete).not.toContain("move_note_to_group");
     await setScope("notes:read notes:write");
     const after = await toolNames();
     expect(after).not.toContain("move_note_to_group");
     expect(after).not.toContain("delete_note");
     expect(after).not.toContain("restore_note");
+    expect(after).not.toContain("delete_folder");
     expect(after).toContain("list_trash");
+    expect(after).toContain("list_folders");
 
     // 撤銷——鎖定這一輪建的那一列（名稱已隨機化，前一輪殘留不會同名）。#247：token 是表格列，
     // 撤銷是列尾紅垃圾桶 icon 鈕（aria-label「Revoke」）。

@@ -138,7 +138,7 @@ describe("useMoveNoteToGroup", () => {
     const setSpy = vi.spyOn(client, "setQueryData");
     const invSpy = vi.spyOn(client, "invalidateQueries");
 
-    await result.current.mutateAsync(GID);
+    await result.current.mutateAsync({ groupId: GID });
 
     const post = f.calls.find(c => c.method === "POST");
     expect(post).toMatchObject({ url: `${NOTE_URL}/move` });
@@ -160,7 +160,7 @@ describe("useMoveNoteToGroup", () => {
     setupFetch({ [`POST ${NOTE_URL}/move`]: () => fakeResponse(200, moved) });
     const client = makeClient();
     const { result } = renderHook(() => useMoveNoteToGroup(ID), { wrapper: wrapperFor(client) });
-    await result.current.mutateAsync(GID);
+    await result.current.mutateAsync({ groupId: GID });
     expect(client.getQueryData(["public-link", ID])).toBeUndefined();
   });
 
@@ -186,7 +186,7 @@ describe("useMoveNoteToGroup", () => {
     f.arm();
 
     let rejected = false;
-    const p = result.current.mutateAsync(GID).catch(() => {
+    const p = result.current.mutateAsync({ groupId: GID }).catch(() => {
       rejected = true;
     });
     // 重抓真的被掛起（兩支都已發出第二次 GET、尚未放行）
@@ -269,7 +269,7 @@ describe("useCopyNote", () => {
     const invSpy = vi.spyOn(client, "invalidateQueries");
     const { result } = renderHook(() => useCopyNote(ID), { wrapper: wrapperFor(client) });
 
-    const got = await result.current.mutateAsync(undefined);
+    const got = await result.current.mutateAsync({});
 
     expect(got).toEqual(copy);
     expect(f.calls[0]).toMatchObject({ method: "POST", url: `${NOTE_URL}/copy` });
@@ -284,7 +284,7 @@ describe("useCopyNote", () => {
     const f = setupFetch({ [`POST ${NOTE_URL}/copy`]: () => fakeResponse(201, copy) });
     const client = makeClient();
     const { result } = renderHook(() => useCopyNote(ID), { wrapper: wrapperFor(client) });
-    await result.current.mutateAsync(GID);
+    await result.current.mutateAsync({ groupId: GID });
     expect(JSON.parse(f.calls[0]!.body!)).toEqual({ groupId: GID });
   });
 });
@@ -379,5 +379,42 @@ describe("useConfirmNoteStillPersonal", () => {
     for (const k of ["notes", "note-by-path", "note-by-group-path", "groups"]) {
       expect(keys).toContainEqual([k]);
     }
+  });
+});
+
+describe("T1 移動／複製帶資料夾", () => {
+  it("NMv1 移動 body 只放有值的鍵（folderId 未給＝沒有這個鍵）", async () => {
+    const f = setupFetch({ [`POST ${NOTE_URL}/move`]: () => fakeResponse(200, noteDto({ groupId: GID })) });
+    const client = makeClient();
+    const { result } = renderHook(() => useMoveNoteToGroup(ID), { wrapper: wrapperFor(client) });
+    await result.current.mutateAsync({ groupId: "G" });
+    expect(Object.keys(JSON.parse(f.calls[0]!.body!))).toEqual(["groupId"]);
+    await result.current.mutateAsync({ groupId: "G", folderId: "GF" });
+    expect(JSON.parse(f.calls[1]!.body!)).toEqual({ groupId: "G", folderId: "GF" });
+  });
+
+  it("NMv2 複製 body：{} 無鍵；{ folderId } 只有 folderId", async () => {
+    const f = setupFetch({ [`POST ${NOTE_URL}/copy`]: () => fakeResponse(201, noteDto({ id: "44444444-4444-4444-4444-444444444444" })) });
+    const client = makeClient();
+    const { result } = renderHook(() => useCopyNote(ID), { wrapper: wrapperFor(client) });
+    await result.current.mutateAsync({});
+    expect(Object.keys(JSON.parse(f.calls[0]!.body!))).toHaveLength(0);
+    await result.current.mutateAsync({ folderId: "A" });
+    expect(JSON.parse(f.calls[1]!.body!)).toEqual({ folderId: "A" });
+  });
+
+  it.each([
+    ["move 成功", "move", 200],
+    ["move 失敗", "move", 409],
+    ["copy 成功", "copy", 201],
+    ["copy 失敗", "copy", 409],
+  ] as const)("NMv3 %s 後失效 ['folders']", async (_name, kind, status) => {
+    const body = status < 400 ? noteDto({ id: "44444444-4444-4444-4444-444444444444", groupId: GID }) : { error: { code: "x", message: "x" } };
+    setupFetch({ ...baseHandlers, [`POST ${NOTE_URL}/${kind}`]: () => fakeResponse(status, body) });
+    const client = makeClient();
+    const invSpy = vi.spyOn(client, "invalidateQueries");
+    const { result } = renderHook(() => ({ move: useMoveNoteToGroup(ID), copy: useCopyNote(ID) }), { wrapper: wrapperFor(client) });
+    await (kind === "move" ? result.current.move.mutateAsync({ groupId: GID }) : result.current.copy.mutateAsync({ groupId: GID })).catch(() => undefined);
+    await waitFor(() => expect(keysOf(invSpy)).toContainEqual(["folders"]));
   });
 });

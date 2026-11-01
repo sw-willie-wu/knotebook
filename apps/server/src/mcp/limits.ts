@@ -26,6 +26,30 @@ export const MCP_SNIPPET_MAX = 160;
  */
 export const MCP_SEARCH_WIRE_BUDGET = 240_000;
 
+/*
+ * 資料夾 PR-3d（spec docs/superpowers/specs/2026-10-22-folders-design.md §5.12「回應大小」）。每項最壞 wire（鏡像兩份＋每項兩個逗號），
+ * 2026-10-30 以 `test/mcp-size.test.ts` 實測定稿（`[案 11c 每項]` 那幾行 log，delete_folder 例外：取 `[案 11c]` 行的整個回應 wire；
+ * 與 plan `2026-10-28-folders-pr3d.md` 讀碼發現 1–3 的探針值逐位相同，delete_folder 除外，見該項）。群組名最壞是 67 個 `"`＋13 個 U+0001（80 code point）：
+ *   - 路徑最壞：5 段、原長 [33, 40, 40, 40, 41] 個 `"`（末段截成 40，成本恰 400）→ 增量 1 286（案 (vii) 的 `folderPath`）。
+ *     6 層 × 80 個 `"` 截後只留 4 段（1 080）是探針值，未實測。
+ *   - `list_notes` 一篇 2 895，預算 240 000 的第一頁 82 篇（案 (viii)①）；`list_trash` 一項 3 761、第一頁 63 項（案 (vii) 群組名 67＋13 那發）；
+ *     `list_folders` 一項 2 563（案 (viii)③；240 000 ÷ 2 563 ≈ 93 項是算的，一頁只有 50）；`read_note_outline` 的 `folder` 增量 1 378
+ *     （對「沒有這個鍵」；對 `folder: null` 是 1 348，案 (viii)⑥）；`delete_folder` 回應（100 個 id、`deletedFolderCount` 兩位數）整個回應 wire 8 376
+ *     （案 (viii)⑤ 的 `[案 11c]` 行，含 JSON-RPC 信封；`[案 11c 每項]` 印的 payload 鏡像兩份是 8 284；探針 8 380 是四位數的 `deletedFolderCount`）。
+ */
+
+/** spec §5.12：回給模型的資料夾名（`folder.name`、`list_folders` 的 `name`、路徑的每一段）——JSON 逃脫後 code unit，`truncateText` 計法。
+ *  80 code point 以內、不需逃脫的字（含中文）都不截；`"`／`\`／emoji 這類每字成本 ≥ 2 的才可能被截。 */
+export const MCP_FOLDER_NAME_MAX = 80;
+/** 路徑的成本＝陣列 JSON 去掉兩端方括號的長度（Σ(段的逃脫後長度＋2)＋段數−1）；超過時從根端整段省略、至少留 1 段。 */
+export const MCP_FOLDER_PATH_MAX = 400;
+/** 清單類（list_notes／list_trash／list_folders）一次回應的生產端目標值（wire）；與 MCP_SEARCH_WIRE_BUDGET 同值、同理由。 */
+export const MCP_LIST_WIRE_BUDGET = 240_000;
+/** list_folders 每頁上限（每項最壞約 2 563 wire（實測 `mcp-size` (viii)③），240 000 可放約 93 項，取 50 留餘裕；預算兜底）。 */
+export const MCP_FOLDER_PAGE_MAX = 50;
+/** delete_folder 回應最多列幾個筆記 id（依 id；100 個時整個回應約 8 400 wire）。 */
+export const MCP_DELETE_FOLDER_IDS_MAX = 100;
+
 /**
  * 一個 UTF-16 code unit 被 `JSON.stringify` 寫成幾個 code unit（不含引號）。與 ES2019 起的
  * well-formed `JSON.stringify` 逐位相同（`test/unit/mcp-limits.test.ts` 對 0x0000–0xFFFF 全掃）：

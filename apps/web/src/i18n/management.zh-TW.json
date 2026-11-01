@@ -314,7 +314,7 @@
         "copy": "複製",
         "copied": "已複製。",
         "copyFailed": "無法自動複製——請手動選取。",
-        "scopes": "讀取：可用 list_notes、search_notes、read_note_outline、read_note_section、read_note_image、list_trash、create_transfer_token（下載）。編輯：另開 edit_note、create_note、copy_note（複製到個人）與 create_transfer_token 的上傳。搬移：才能用 move_note_to_group 與複製到群組（移入群組不可逆，所以獨立成一個權限）。刪除：才能用 delete_note 與 restore_note（移到垃圾桶與還原；這裡沒有工具會永久刪除筆記，但留在垃圾桶的筆記之後仍可能被永久刪除——依站台的垃圾桶設定，或有人在網頁上刪除）。"
+        "scopes": "讀取：可用 list_notes、search_notes、read_note_outline、read_note_section、read_note_image、list_trash、list_folders、create_transfer_token（下載）。編輯：另開 edit_note、create_note、copy_note（複製到個人）、create_folder、rename_folder、move_folder、move_note_to_folder 與 create_transfer_token 的上傳。搬移：才能用 move_note_to_group 與複製到群組（移入群組不可逆，所以獨立成一個權限）。刪除：才能用 delete_note、restore_note 與 delete_folder（移到垃圾桶與還原；delete_folder 可能把資料夾裡的筆記移到垃圾桶；這裡沒有工具會永久刪除筆記，但留在垃圾桶的筆記之後仍可能被永久刪除——依站台的垃圾桶設定，或有人在網頁上刪除）。"
       },
       "tokens": {
         "name": "名稱",

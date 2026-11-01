@@ -41,7 +41,10 @@ export const versionReadFailed = pkg.failed;
  * 只描述**這個憑證真的用得到的東西**。英文——與 `docs/` 及工具 `.describe()` 同語言；
  * 它進的是模型脈絡不是 UI，不走 i18n。
  *
- * ⚠ **兩支尾巴是二選一，不是相加**（#108 D-Q）。讀寫那支實測 **975** 字元，餘裕 **25**；唯讀那支實測 **976**，餘裕 **24**
+ * ⚠ **兩支尾巴是二選一，不是相加**（#108 D-Q）。讀寫那支實測 **996** 字元，餘裕 **4**；唯讀那支實測 **997**，餘裕 **3**
+ * （#folders PR-3d：刪 outline 上限句 −37、BASE 尾端補資料夾句（含換行）+58；之前 975／976。刪掉的上限仍在 `read_note_outline`
+ * 的 description（`At most ${MCP_PAGE_MAX} sections per call`）。資料夾句只提 `list_folders`——它任何憑證都註冊，所以兩版共用、
+ * 不依 canWrite 分版；資料夾寫入工具一個都不提）
  * （#181：縮 `there is no tool that returns` −14 與 `(id, heading, length)` −22 共換出 36 字元，BASE 尾端補垃圾桶一句
  * `Only list_trash lists notes in the trash.`（含換行）+42；之前讀寫 969、唯讀 970。這句只講「列出」：`restore_note`
  * 與 `delete_note` 的回應都不是列出，也沒宣稱所有垃圾桶筆記都在 list_trash——兩版共用，不依 notes:delete 分版）
@@ -64,11 +67,12 @@ const BASE_INSTRUCTIONS = `Knotebook notes over MCP. Reading is always sectioned
 note. Call read_note_outline first to see a note's sections, then
 read_note_section for one section's text, 4000 characters per call — page with \`offset\`
 until \`truncated\` is false. list_notes returns at most 100 notes per call, search_notes at most
-50, and an outline at most 100 sections.
+50.
 Headings and titles are cut at 200 characters as written in JSON. What is capped is a single response,
 not the total you can read. Notes you can see include ones shared with you and your groups' notes: each
 result carries \`owner\` and \`role\` so you can tell whose content you are reading.
-Only list_trash lists notes in the trash.`;
+Only list_trash lists notes in the trash.
+Notes can sit in folders; list_folders shows their paths.`;
 
 /**
  * 讀寫憑證的尾段。

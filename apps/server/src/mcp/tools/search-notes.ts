@@ -18,9 +18,10 @@ import { noNul } from "../../notes/schemas.js";
 import { groupMatchesByNote, searchNotesForUser } from "../../notes/search-query.js";
 import { SEARCH_MATCHES_PER_NOTE, type NoteSearchRow, type SearchMatchRow } from "../../notes/search-sql.js";
 import { buildSnippet } from "../../notes/search-snippet.js";
-import { noteSummarySchema, toNoteSummary, type NoteSummaryForModel } from "../dto.js";
+import { noteSummariesForModel, noteSummarySchema, type NoteSummaryForModel } from "../dto.js";
 import { MCP_SEARCH_WIRE_BUDGET, MCP_SNIPPET_MAX, MCP_TEXT_MAX, escapedLength, truncateText } from "../limits.js";
 import { toolError, toolResult } from "../tool-result.js";
+import { wireCost } from "../wire-budget.js";
 import type { McpToolCtx } from "../context.js";
 
 const DEFAULT_LIMIT = 20;
@@ -105,12 +106,6 @@ export interface SearchMatchForModel {
 type MatchedOn = "title" | "body" | "both";
 type SearchHitForModel = NoteSummaryForModel & { matchedOn: MatchedOn; matches: SearchMatchForModel[] };
 
-/** 一個值在 wire 上的成本：structuredContent 一份＋鏡像 text 一份（再被逃脫一次，`mcp/tool-result.ts`）。 */
-const wireCost = (v: unknown): number => {
-  const j = JSON.stringify(v);
-  return j.length + JSON.stringify(j).length;
-};
-
 export function assembleSearchPayload(
   notes: SearchHitForModel[],
   candidates: SearchMatchForModel[][],
@@ -158,7 +153,9 @@ export async function searchNotes(args: SearchNotesArgs, ctx: McpToolCtx): Promi
   const page = truncated ? rows.slice(0, limit) : rows;
   const byNote = groupMatchesByNote(matches);
   const qlen = Array.from(args.query).length;
-  const notes: SearchHitForModel[] = page.map(row => ({ ...toNoteSummary(row, row.role), matchedOn: matchedOnOf(row), matches: [] }));
+  // 先建含 `folder` 的摘要再進 assembleSearchPayload：預算從 wireCost({ notes, truncated }) 起算，`folder` 自動算進去。
+  const summaries = await noteSummariesForModel(ctx.db, page);
+  const notes: SearchHitForModel[] = page.map((row, i) => ({ ...summaries[i]!, matchedOn: matchedOnOf(row), matches: [] }));
   const candidates = page.map(row => (row.bodyHit ? (byNote.get(row.id) ?? []).map(m => toMatch(m, qlen)) : []));
   return toolResult(assembleSearchPayload(notes, candidates, truncated));
 }

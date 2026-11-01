@@ -38,29 +38,41 @@ export async function refetchAfterFailure(queryClient: QueryClient, noteId: stri
 
 export function useMoveNoteToGroup(noteId: string) {
   const queryClient = useQueryClient();
-  return useMutation<NoteDto, Error, string>({
-    mutationFn: (groupId: string) =>
-      api<NoteDto>(`/api/notes/${encodeURIComponent(noteId)}/move`, { method: "POST", body: JSON.stringify({ groupId }) }),
+  return useMutation<NoteDto, Error, { groupId: string; folderId?: string }>({
+    mutationFn: (input: { groupId: string; folderId?: string }) =>
+      api<NoteDto>(`/api/notes/${encodeURIComponent(noteId)}/move`, {
+        method: "POST",
+        body: JSON.stringify(input.folderId === undefined ? { groupId: input.groupId } : { groupId: input.groupId, folderId: input.folderId }),
+      }),
     onSuccess: note => {
       applyMovedNote(queryClient, noteId, note);
     },
     onError: () => {
       void refetchAfterFailure(queryClient, noteId);
     },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["folders"] });
+    },
   });
 }
 
 export function useCopyNote(noteId: string) {
   const queryClient = useQueryClient();
-  return useMutation<NoteDto, Error, string | undefined>({
-    mutationFn: (groupId: string | undefined) =>
+  return useMutation<NoteDto, Error, { groupId?: string; folderId?: string }>({
+    mutationFn: (input: { groupId?: string; folderId?: string }) =>
       api<NoteDto>(`/api/notes/${encodeURIComponent(noteId)}/copy`, {
         method: "POST",
-        body: JSON.stringify(groupId === undefined ? {} : { groupId }),
+        body: JSON.stringify({
+          ...(input.groupId === undefined ? {} : { groupId: input.groupId }),
+          ...(input.folderId === undefined ? {} : { folderId: input.folderId }),
+        }),
       }),
     onSuccess: copy => {
       queryClient.setQueryData(["note", copy.id], copy);
       void queryClient.invalidateQueries({ queryKey: ["notes"] });
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["folders"] });
     },
   });
 }

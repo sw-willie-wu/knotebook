@@ -8,6 +8,7 @@ import { AppRoutes } from "@/App";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { SignInMethodsSection } from "./SignInMethodsSection";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 function fakeResponse(status: number, body?: unknown): Response {
   return { ok: status >= 200 && status < 300, status, json: body === undefined ? () => Promise.reject(new Error("no body")) : () => Promise.resolve(body) } as unknown as Response;
@@ -265,6 +266,7 @@ describe("回程落點：以 AppRoutes 渲染 /settings/login（#247 §9.9、§1
       const method = (init?.method ?? "GET").toUpperCase();
       if (method === "GET" && url === "/api/auth/me") return fakeResponse(200, USER);
       if (method === "GET" && url === "/api/auth/identities") return fakeResponse(200, BASE);
+      if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
       if (method === "GET" && (url === "/api/groups" || url === "/api/notes")) return fakeResponse(200, []);
       throw new Error(`unexpected fetch: ${method} ${url}`);
     }));

@@ -14,6 +14,7 @@ import {
   NoteRouteErrorBoundary,
 } from "./ErrorBoundary";
 import { NotePageFallback } from "./NotePageFallback";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 /**
  * Issue #66：NoteRouteErrorBoundary／AppErrorBoundary／ChunkLoadBeacon 的行為判準
@@ -86,6 +87,7 @@ function stubFetch() {
       if (url === "/api/auth/me") {
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(ADMIN_USER) }));
       }
+      if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
       if (url === "/api/notes") {
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
       }

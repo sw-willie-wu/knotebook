@@ -1,12 +1,14 @@
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 import { canonicalNotePath } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
+import { useFolders } from "@/api/folders";
 import { useGroups } from "@/api/groups";
 import { useNotes } from "@/api/notes";
 import { useActiveNote } from "@/lib/active-note";
 import { cn } from "@/lib/utils";
+import { indexFolders } from "@/components/sidebar/folder-index";
 import { noteLocationLabel } from "@/components/sidebar/tree";
 
 /**
@@ -34,6 +36,8 @@ export function SearchResults({ query }: { query: string }) {
   const { t } = useTranslation();
   const notesQuery = useNotes();
   const groupsQuery = useGroups();
+  const foldersQuery = useFolders();
+  const folderIndex = useMemo(() => indexFolders(foldersQuery.data ?? []), [foldersQuery.data]);
   const { activeNoteId, setActiveNoteId } = useActiveNote();
 
   // 三種狀態共用同一個 flex-1 容器（下方按鈕不跳位）；`role="status"` 在 pending／loaded 間不重生（空內容時先掛著）。
@@ -56,6 +60,8 @@ export function SearchResults({ query }: { query: string }) {
   const lowerQuery = query.toLowerCase();
   const results = notesQuery.data.filter((note) => note.title.toLowerCase().includes(lowerQuery));
   const groupIds = new Set((groupsQuery.data ?? []).map((group) => group.id));
+  // 不等 ["folders"]：沒到時路徑行只缺資料夾段（讀碼發現 3）。
+  const location = { groupIds, folders: folderIndex };
 
   return (
     <div data-testid="sidebar-search" className="flex min-h-0 flex-1 flex-col">
@@ -69,6 +75,7 @@ export function SearchResults({ query }: { query: string }) {
           <ul className="space-y-0.5">
             {results.map((note) => {
               const active = activeNoteId === note.id;
+              const label = noteLocationLabel(note, location, t);
               return (
                 <li key={note.id} data-node-kind="note" data-node-id={note.id}>
                   <Link
@@ -87,7 +94,9 @@ export function SearchResults({ query }: { query: string }) {
                   >
                     {/* 兩行一律 <div>：可及名稱靠 UA 預設 block 之間補空白（jsdom 不載 Tailwind，span 會黏成「標題位置」）。 */}
                     <div className={cn("truncate text-[13px]", active && "font-medium")}>{highlightTitle(note.title, lowerQuery)}</div>
-                    <div className="mt-0.5 truncate text-[11px] text-muted-foreground">{noteLocationLabel(note, groupIds, t)}</div>
+                    <div className="mt-0.5 truncate text-[11px] text-muted-foreground" title={label}>
+                      {label}
+                    </div>
                   </Link>
                 </li>
               );

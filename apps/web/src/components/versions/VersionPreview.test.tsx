@@ -20,6 +20,7 @@ import { VersionsProvider, useVersions, useVersionsController } from "@/lib/vers
 import { diffBlocks, renderDiff, type DiffBlock } from "@/lib/version-diff";
 import { DiffEditor, VersionPreview } from "./VersionPreview";
 import { PreviewBanner } from "./PreviewBanner";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 vi.mock("@/lib/use-container-width", () => ({ useContainerWidth: () => widthRef.current }));
 const widthRef = vi.hoisted(() => ({ current: 600 }));
@@ -805,6 +806,7 @@ describe("VersionPreview（spec §8.4）", () => {
     const notes = [{ id: ID, title: "Live Title", ownerHandle: "ann", groupId: null, slug: "live-title" }];
     stub({
       "/api/notes": notes,
+      "/api/folders": FOLDER_LIST_EMPTY,
       [`/api/notes/${NOTE}/versions?limit=50`]: list([ver(2), ver(1)]),
       [`/api/notes/${NOTE}/versions/2`]: { id: vid(2), seq: 2, ydoc: b64(W2) },
       [`/api/notes/${NOTE}/versions/1`]: { id: vid(1), seq: 1, ydoc: b64(W1) },

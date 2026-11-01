@@ -8,6 +8,7 @@ import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { AppRoutes } from "@/App";
 import { expectCardControls44 } from "@/test/card-controls";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 // 同 SettingsUsersSection.test.tsx 的約定：mock 全域 fetch，走真正的 `AppRoutes`
 // （App.tsx 的唯一真相樹），不 mock ChangePasswordPage 本身——驗證的是「有沒有接對」
@@ -56,6 +57,7 @@ function baseFetchHandlers(getLoggedInAs: () => UserDto | null) {
         json: () => Promise.resolve({ error: { code: "unauthorized", message: "nope" } }),
       });
     }
+    if (url === "/api/folders") return new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } });
     if (url === "/api/notes" && method === "GET") {
       return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) });
     }

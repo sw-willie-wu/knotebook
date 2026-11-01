@@ -5,6 +5,7 @@ import type { NoteDto, UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import App from "./App";
 import { OWNER_PERMS } from "@/test/fixtures";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 /**
  * #122 接線案：釘預設匯出的 App() **真的**把 ActiveNoteProvider 包在 AppRoutes 外
@@ -71,6 +72,7 @@ describe("App — ActiveNoteProvider 接線（#122）", () => {
         if (url === "/api/auth/me") {
           return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(USER) }));
         }
+        if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
         if (url === "/api/notes") {
           // ⚠ 必須回**非空**清單：NoteRow 才會 render、useActiveNote 才會被呼叫——
           // 空清單下有沒有 provider 都綠，這支測試就空轉了。

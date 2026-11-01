@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
 import type { GroupDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
+import { useFolders } from "@/api/folders";
 import { groupMembersKey, useDeleteGroup, useGroupMembers } from "@/api/groups";
 import { useNotes } from "@/api/notes";
 import { useTrash } from "@/api/trash";
@@ -50,6 +51,8 @@ function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string
  *   ②清單 `truncated`（上限 `TRASH_LIST_LIMIT`，會少算）；另外還沒載到或載入失敗也一樣。任一篇數不可信時說明句改用不含數字的版本，
  *   不顯示「0 篇」的假話；「這個群組沒有筆記」只在兩者都可信且為 0 時說。
  * - 轉移模式另起一句說明垃圾桶裡的群組筆記去向（進接收者的個人垃圾桶）；垃圾桶篇數可信且為 0 時省略。
+ * - 轉移模式、`GET /api/folders` 成功且有這個群組的資料夾時，再起一句說明資料夾去向（資料夾 spec §6.16、§6.12 D5）；
+ *   還沒載到或載入失敗不說。
  * - 按鈕變體：確認鈕 `destructive`（一個畫面一顆實心鈕，取消是 `outline`；見 `ui/button.tsx`）。
  *
  * 失敗一律 toast 並**留著對話框**（409 `not_admin`、409 `server_busy`、404…）；`not_admin` 另外重抓成員名單，
@@ -72,6 +75,7 @@ export function DeleteGroupDialog({
   const membersQuery = useGroupMembers(group.id);
   const notesQuery = useNotes();
   const trashQuery = useTrash();
+  const foldersQuery = useFolders();
   const [mode, setMode] = useState<Mode>("transfer");
   const [pickedAdmin, setPickedAdmin] = useState<string | null>(null);
   const [acknowledged, setAcknowledged] = useState(false);
@@ -89,6 +93,8 @@ export function DeleteGroupDialog({
       : null;
   const total = liveCount !== null && trashCount !== null ? liveCount + trashCount : null;
   const name = selected?.displayName ?? "";
+  const hasGroupFolders =
+    foldersQuery.isSuccess && foldersQuery.data.some((folder) => folder.space.kind === "group" && folder.space.groupId === group.id);
 
   function describe(kind: "transfer" | "delete"): string {
     if (liveCount === 0 && trashCount === 0) return t("groups.delete.emptyDescription");
@@ -187,6 +193,7 @@ export function DeleteGroupDialog({
             )}
             <DialogDescription>{describe("transfer")}</DialogDescription>
             {trashCount !== 0 && <p className="text-sm text-muted-foreground">{t("groups.delete.transferTrashNote", { name })}</p>}
+            {hasGroupFolders && <p className="text-sm text-muted-foreground">{t("groups.delete.transferFoldersNote", { name })}</p>}
           </div>
         ) : (
           <div className="space-y-3">

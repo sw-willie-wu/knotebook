@@ -138,8 +138,8 @@ const REGISTRY: Record<string, Disposition> = {
   "routes/users.ts": { excludes: 1 },
   "storage/tx/quota.ts": { includes: 1, why: "容量照算（D-W4）" },
   "storage/usage.ts": { includes: 4, why: "容量照算（D-W4）" },
-  // trashOnly：清單兩支、loadTrashedMeta（delete_note 移入後的重讀）。
-  "trash/list.ts": { trashOnly: 3 },
+  // trashOnly：清單兩支、loadTrashedMeta（delete_note 移入後的重讀）、loadTrashedPurgeAt（delete_folder 移入後的重讀，資料夾 PR-3d T8）。
+  "trash/list.ts": { trashOnly: 4 },
   // 還原的預讀空間（資料夾 T7，spec 2026-10-22 §5.8-1）。
   "trash/service.ts": { trashOnly: 1 },
   "uploads/tx/insert-upload.ts": { excludes: 1 },

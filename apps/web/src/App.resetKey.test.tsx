@@ -9,6 +9,7 @@ import { ThemeProvider } from "@/theme";
 import { Toaster } from "@/components/ui/toast";
 import { AppRoutes } from "./App";
 import { OWNER_PERMS } from "@/test/fixtures";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 /**
  * Issue #68：NoteRouteErrorBoundary 的 resetKey 選型（`useParams().ref` 而非
@@ -130,6 +131,7 @@ function stubFetch(notes: NoteDto[] = [NOTE, OTHER_NOTE]) {
       if (url === "/api/auth/me" && method === "GET") {
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(PLAIN_USER) }));
       }
+      if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
       if (url === "/api/notes" && method === "GET") {
         // 第三案要從側欄點另一篇：清單給兩篇
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(notes) }));

@@ -7,6 +7,7 @@ import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
 import { AppRoutes } from "@/App";
 import { adminRole, customRole, groupDto, memberRole } from "@/test/fixtures";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 /**
  * #247 §4.8、§11.1：三個管理面板的右卡內不出現實心鈕（brandDeep／brandSolid／default）。渲染期掃描——
@@ -113,6 +114,7 @@ export function panelFetch(user: UserDto) {
     if (url === "/api/auth/tokens") return Promise.resolve(json({ tokens: [TOKEN] }));
     if (url === "/api/storage") return Promise.resolve(json(STORAGE));
     if (url === "/api/groups") return Promise.resolve(json(GROUPS));
+    if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
     if (url === "/api/notes") return Promise.resolve(json([]));
     if (url in PANEL3_GETS) return Promise.resolve(json(PANEL3_GETS[url]));
     return reject();

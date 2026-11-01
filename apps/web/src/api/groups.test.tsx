@@ -270,7 +270,7 @@ describe("api/groups", () => {
     expect(calls[1].body).toEqual({});
   });
 
-  it("#175 PR3 useCreateRole：POST /roles、body 恰為 {name, permissions}；只失效 ['groups']、['notes']、['trash']，不碰單篇筆記 key", async () => {
+  it("#175 PR3 useCreateRole：POST /roles、body 恰為 {name, permissions}；只失效 ['groups']、['notes']、['trash']、['folders']，不碰單篇筆記 key", async () => {
     const role = customRole({ id: "r-new", name: "Editor" });
     const calls = stubFetch({ [`POST /api/groups/${GROUP.id}/roles`]: () => fakeResponse(201, role) });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -279,10 +279,10 @@ describe("api/groups", () => {
     await expect(result.current.mutateAsync({ name: "Editor", permissions: FLAGS })).resolves.toEqual(role);
     expect(calls).toEqual([{ method: "POST", url: `/api/groups/${GROUP.id}/roles`, body: { name: "Editor", permissions: FLAGS } }]);
     const keys = invalidate.mock.calls.map(([arg]) => JSON.stringify(arg?.queryKey));
-    expect([...keys].sort()).toEqual(['["groups"]', '["notes"]', '["trash"]']);
+    expect([...keys].sort()).toEqual(['["folders"]', '["groups"]', '["notes"]', '["trash"]']);
   });
 
-  it("#175 PR3 useUpdateRole：PATCH /roles/:roleId、只給 permissions 時 body 恰為 {permissions}；失效六把 key（含 ['trash']）", async () => {
+  it("#175 PR3 useUpdateRole：PATCH /roles/:roleId、只給 permissions 時 body 恰為 {permissions}；失效七把 key（含 ['trash']、['folders']）", async () => {
     const role = customRole({ id: "r-new", permissions: { ...customRole().permissions, edit: true } });
     const calls = stubFetch({ [`PATCH /api/groups/${GROUP.id}/roles/r-new`]: () => fakeResponse(200, role) });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -296,7 +296,7 @@ describe("api/groups", () => {
     expect(Object.keys(calls[0].body as object)).toEqual(["permissions"]);
     expect(calls[0].body).toEqual({ permissions: { ...FLAGS, edit: true } });
     const keys = invalidate.mock.calls.map(([arg]) => JSON.stringify(arg?.queryKey));
-    expect([...keys].sort()).toEqual(['["groups"]', '["note"]', '["note-by-group-path"]', '["note-by-path"]', '["notes"]', '["trash"]']);
+    expect([...keys].sort()).toEqual(['["folders"]', '["groups"]', '["note"]', '["note-by-group-path"]', '["note-by-path"]', '["notes"]', '["trash"]']);
   });
 
   it("#175 PR3 useDeleteRole：DELETE /roles/:roleId、無 body；失效同 useUpdateRole", async () => {
@@ -307,6 +307,34 @@ describe("api/groups", () => {
     await expect(result.current.mutateAsync("r-new")).resolves.toBeUndefined();
     expect(calls).toEqual([{ method: "DELETE", url: `/api/groups/${GROUP.id}/roles/r-new`, body: undefined }]);
     const keys = invalidate.mock.calls.map(([arg]) => JSON.stringify(arg?.queryKey));
-    expect([...keys].sort()).toEqual(['["groups"]', '["note"]', '["note-by-group-path"]', '["note-by-path"]', '["notes"]', '["trash"]']);
+    expect([...keys].sort()).toEqual(['["folders"]', '["groups"]', '["note"]', '["note-by-group-path"]', '["note-by-path"]', '["notes"]', '["trash"]']);
+  });
+
+  it("資料夾 spec §6.15：useDeleteGroup／useRemoveMember／useUpdateRole 成功後各失效 ['folders']", async () => {
+    stubFetch({
+      [`DELETE /api/groups/${GROUP.id}`]: () => fakeResponse(204),
+      [`DELETE /api/groups/${GROUP.id}/members/${MEMBER.userId}`]: () => fakeResponse(204),
+      [`PATCH /api/groups/${GROUP.id}/roles/r-new`]: () => fakeResponse(200, customRole({ id: "r-new" })),
+    });
+    const foldersCalls = (spy: { mock: { calls: unknown[][] } }) =>
+      spy.mock.calls.filter(([arg]) => JSON.stringify((arg as { queryKey?: unknown } | undefined)?.queryKey) === '["folders"]').length;
+
+    const qcDelete = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const spyDelete = vi.spyOn(qcDelete, "invalidateQueries");
+    const del = renderHook(() => useDeleteGroup(), { wrapper: wrapper(qcDelete) });
+    await del.result.current.mutateAsync({ id: GROUP.id, body: { mode: "delete" } });
+    expect(foldersCalls(spyDelete)).toBe(1);
+
+    const qcRemove = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const spyRemove = vi.spyOn(qcRemove, "invalidateQueries");
+    const remove = renderHook(() => useRemoveMember(GROUP.id), { wrapper: wrapper(qcRemove) });
+    await remove.result.current.mutateAsync(MEMBER.userId);
+    expect(foldersCalls(spyRemove)).toBe(1);
+
+    const qcRole = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const spyRole = vi.spyOn(qcRole, "invalidateQueries");
+    const update = renderHook(() => useUpdateRole(GROUP.id), { wrapper: wrapper(qcRole) });
+    await update.result.current.mutateAsync({ roleId: "r-new", permissions: FLAGS });
+    expect(foldersCalls(spyRole)).toBe(1);
   });
 });

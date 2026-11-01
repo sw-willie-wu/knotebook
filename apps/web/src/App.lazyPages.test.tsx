@@ -6,6 +6,7 @@ import type { UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
 import { AppRoutes } from "./App";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 /**
  * #201 接線案：釘 App.tsx 的 `LazyPageRoute` **真的**把整頁 lazy route 包進
@@ -103,6 +104,7 @@ function stubFetch() {
     vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/auth/me") return Promise.resolve(fakeResponse(true, 200, ADMIN_USER));
+      if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
       if (url === "/api/groups" || url === "/api/notes") return Promise.resolve(fakeResponse(true, 200, []));
       return Promise.resolve(fakeResponse(false, 404));
     }),

@@ -36,6 +36,13 @@ export function sameFolderSpace(a: FolderSpace, b: FolderSpace): boolean {
   return folderSpaceLockKey(a) === folderSpaceLockKey(b);
 }
 
+/** 建立／複製帶資料夾的空間一致性（spec §5.7.6 第 2 步）：群組資料夾要給同一個 groupId（比較前轉小寫）；個人資料夾不能帶 groupId；shared 一律不行。 */
+export function newNoteFolderConsistent(space: FolderSpace, groupId: string | undefined): boolean {
+  return space.kind === "group"
+    ? groupId !== undefined && groupId.toLowerCase() === space.groupId
+    : space.kind === "personal" && groupId === undefined;
+}
+
 /** 對外的空間形：personal／shared 不輸出 ownerId（只有本人看得到）。 */
 export function toFolderSpaceDto(space: FolderSpace): FolderSpaceDto {
   return space.kind === "group" ? { kind: "group", groupId: space.groupId } : { kind: space.kind };

@@ -17,8 +17,17 @@ import { z } from "zod";
 import { createBodySchema, editBodySchema, FP, GROUP_ID, MD, NOTE_ID, NUL, SEC, TITLE, updateBodyObject } from "../../src/notes/schemas.js";
 import { editNoteInput, mcpEditBodySchema } from "../../src/mcp/tools/edit-note.js";
 import { createNoteInput } from "../../src/mcp/tools/create-note.js";
-import { COPY_GROUP_ID_DESCRIBE_NO_MOVE, copyNoteInput, copyNoteInputNoMove } from "../../src/mcp/tools/copy-note.js";
+import {
+  COPY_FOLDER_ID_DESCRIBE,
+  COPY_FOLDER_ID_DESCRIBE_NO_MOVE,
+  COPY_GROUP_ID_DESCRIBE_NO_MOVE,
+  copyNoteInput,
+  copyNoteInputNoMove,
+} from "../../src/mcp/tools/copy-note.js";
 import { moveNoteToGroupInput } from "../../src/mcp/tools/move-note-to-group.js";
+import { moveNoteToFolderInput } from "../../src/mcp/tools/move-note-to-folder.js";
+import { deleteFolderInput } from "../../src/mcp/tools/delete-folder.js";
+import { FOLDER_ID } from "../../src/mcp/folder-fields.js";
 import { readNoteSectionOutput } from "../../src/mcp/tools/read-note-section.js";
 
 /** 寫死一份（不是從實作導出來的）——否則兩邊一起改就一起綠。 */
@@ -205,5 +214,27 @@ describe("#180 U2-d：move_note_to_group 的輸入與 notes/schemas.ts 同源", 
     expectSameSchema(moveNoteToGroupInput.note_id, NOTE_ID);
     expectSameSchema(moveNoteToGroupInput.group_id, GROUP_ID);
     expect(moveNoteToGroupInput.group_id).not.toBeInstanceOf(z.ZodOptional);
+  });
+});
+
+describe("資料夾 PR-3d T7：四支工具的 folder_id 與 FOLDER_ID 同源", () => {
+  it("create_note／copy_note（兩版）／move_note_to_group 的 folder_id（optional）、move_note_to_folder 的 folder_id（nullable，必給）↔ FOLDER_ID；copy 兩版說明各自", () => {
+    for (const field of [createNoteInput.folder_id, copyNoteInput.folder_id, copyNoteInputNoMove.folder_id, moveNoteToGroupInput.folder_id]) {
+      expect(field).toBeInstanceOf(z.ZodOptional);
+      expectSameSchema(field, FOLDER_ID);
+    }
+    expect(moveNoteToFolderInput.folder_id).toBeInstanceOf(z.ZodNullable);
+    expect(moveNoteToFolderInput.folder_id._def.innerType).toBe(FOLDER_ID);
+    expectSameSchema(moveNoteToFolderInput.note_id, NOTE_ID);
+    expect(copyNoteInput.folder_id.description).toBe(COPY_FOLDER_ID_DESCRIBE);
+    expect(copyNoteInputNoMove.folder_id.description).toBe(COPY_FOLDER_ID_DESCRIBE_NO_MOVE);
+  });
+});
+
+describe("資料夾 PR-3d T8：delete_folder 的輸入", () => {
+  it("輸入鍵恰好只有 folder_id（MCP 不提供「只刪空資料夾」之類的選項），且必填、與 FOLDER_ID 同源", () => {
+    expect(Object.keys(deleteFolderInput)).toEqual(["folder_id"]);
+    expect(deleteFolderInput.folder_id).not.toBeInstanceOf(z.ZodOptional);
+    expectSameSchema(deleteFolderInput.folder_id, FOLDER_ID);
   });
 });

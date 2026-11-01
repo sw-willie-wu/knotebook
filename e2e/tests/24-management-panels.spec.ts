@@ -15,7 +15,7 @@ async function shot(page: Page, name: string): Promise<void> {
 }
 
 async function createGroup(page: Page, name: string): Promise<void> {
-  await showSidebarTab(page, "Workspace");
+  await showSidebarTab(page, "Groups");
   await page.getByRole("complementary").getByRole("button", { name: "New group", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "New group" });
   await dialog.getByLabel("Group name").fill(name);

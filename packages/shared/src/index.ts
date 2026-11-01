@@ -529,6 +529,7 @@ export const ERROR_CODES = [
   // `folder_name_taken`＝409，同層不分大小寫撞名；`folder_too_deep`＝409，超過 FOLDER_DEPTH_MAX 層；`folder_cycle`＝409，搬進自己的子樹；
   // `folder_limit`＝409，該空間資料夾數已達 FOLDERS_PER_SPACE_MAX；`folder_cross_space`＝400，資料夾或筆記跨空間；
   // `folder_delete_blocked`＝403，子樹有呼叫者不能刪除的活筆記。
+  // `folder_not_empty`＝409，只由 `DELETE /api/folders/:id { onlyIfEmpty: true }` 發出：資料夾裡還有子資料夾、活筆記或（共享私人）放置。
   "folder_not_found",
   "folder_name_taken",
   "folder_too_deep",
@@ -536,6 +537,7 @@ export const ERROR_CODES = [
   "folder_limit",
   "folder_cross_space",
   "folder_delete_blocked",
+  "folder_not_empty",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 

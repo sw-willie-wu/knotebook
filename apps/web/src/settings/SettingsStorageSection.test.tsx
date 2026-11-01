@@ -7,6 +7,7 @@ import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { AppRoutes } from "@/App";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 // W4（spec §11.5）：/admin/storage。走真的 AppRoutes（站台管理 modal＋AdminSections lazy chunk）。
 
@@ -34,6 +35,7 @@ function renderStorage(extra: Handler = () => null, client = new QueryClient({ d
     const custom = extra(url, method, init);
     if (custom) return Promise.resolve(custom);
     if (url === "/api/auth/me") return Promise.resolve(res(200, ADMIN));
+    if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
     if (url === "/api/groups" || url === "/api/notes") return Promise.resolve(res(200, []));
     if (url === "/api/admin/storage-plans" && method === "GET") return Promise.resolve(res(200, LIST));
     if (url === "/api/admin/versions/settings" && method === "GET") return Promise.resolve(res(200, { keepAllDays: 7, dailyUntilDays: 30, autoVersionsEnabled: true, autoWaitMinutes: 5 }));

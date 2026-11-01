@@ -13,6 +13,7 @@ import type { CursorScroller } from "@/collab/cursor-scroll";
 import { ThemeProvider } from "@/theme";
 import { setRemote } from "@/components/presence/test-awareness";
 import { NoteEditor } from "./NoteEditor";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 // #293 §9.4：`NoteEditor` 的 `onCursorScroller` 接線。掛真 `<NoteEditor>`（Host 照 `NoteEditor.layout.test.tsx`）。
 
@@ -30,6 +31,7 @@ function stubFetch() {
       const url = String(input);
       const method = (init?.method ?? "GET").toUpperCase();
       if (url === "/api/ai/actions" && method === "GET") return Promise.resolve(fakeResponse({ actions: [] }));
+      if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
       if (url === "/api/notes" && method === "GET") return Promise.resolve(fakeResponse([]));
       throw new Error(`unexpected fetch: ${method} ${url}`);
     }),

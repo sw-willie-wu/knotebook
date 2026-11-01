@@ -29,7 +29,7 @@
     "searchLabel": "Search notes",
     "searchPlaceholder": "Search…",
     "noMatch": "No notes match your search.",
-    "workspace": "Workspace",
+    "workspace": "Groups",
     "newGroup": "New group",
     "newNoteIn": "New note in {{name}}",
     "newPersonalNote": "New personal note",
@@ -40,8 +40,12 @@
     "emptyMyNotes": "No personal notes yet.",
     "emptyWorkspace": "You're not in any group yet.",
     "emptyShared": "Nothing has been shared with you yet.",
-    "locationGroup": "Workspace › {{group}}",
+    "locationGroup": "Groups › {{group}}",
     "locationShared": "Shared with me · {{role}}",
+    "locationSharedIn": "Shared with me › {{path}} · {{role}}",
+    "folderEmpty": "No notes",
+    "newFolder": "New folder",
+    "newFolderIn": "New folder in {{group}}",
     "trash": "Trash"
   },
   "roles": {
@@ -132,6 +136,7 @@
       "movedToGroup": "Moved into \"{{group}}\"",
       "copiedToGroup": "Copied into \"{{group}}\"",
       "copiedToPersonal": "Copied to your notes",
+      "copiedAtTopLevel": "Copy created at the top level (the original folder is gone)",
       "openCopy": "Open copy",
       "openCopyAlt": "You can also open the copy from the sidebar.",
       "changedElsewhere": "This note was changed elsewhere, so nothing was moved."
@@ -381,6 +386,32 @@
     "rose": "Rose",
     "gold": "Gold"
   },
+  "folders": {
+    "menu": {
+      "label": "Folder menu for {{name}}",
+      "newNote": "New note",
+      "newSubfolder": "New subfolder",
+      "rename": "Rename",
+      "sortBy": "Sort by",
+      "sortName": "Name",
+      "sortRecent": "Last modified",
+      "sortSize": "Size",
+      "delete": "Delete folder",
+      "remove": "Remove folder",
+      "depthLimit": "Folders can be nested up to {{max}} levels",
+      "deleteBlocked": "This folder has notes you can't delete"
+    },
+    "dest": {
+      "topLevel": "Top level",
+      "back": "Back",
+      "moveHere": "Move here",
+      "copyHere": "Copy here",
+      "openLevel": "{{name}}, open"
+    },
+    "movedTo": "Moved to “{{name}}”",
+    "stackName": "New folder",
+    "stackNameN": "New folder {{n}}"
+  },
   "groups": {
     "autoVersions": {
       "title": "Automatic versions",
@@ -432,6 +463,7 @@
       "transferDescription_other": "{{count}} notes will become {{name}}'s personal notes. Their addresses change to /n/…, and the old addresses forward to them for a month. Everyone else in the group loses access, and any public links on them are turned off.",
       "transferDescriptionNoCount": "The group's notes will become {{name}}'s personal notes. Their addresses change to /n/…, and the old addresses forward to them for a month. Everyone else in the group loses access, and any public links on them are turned off.",
       "transferTrashNote": "Group notes in the trash go to {{name}}'s personal trash, and their retention period still counts from when they were deleted; their public links are turned off too.",
+      "transferFoldersNote": "The group's folders move into {{name}}'s notes, under a folder named after the group.",
       "deleteLabel": "Delete everything",
       "deleteDescription_one": "{{count}} note, its attachments and its edit history are permanently deleted — it doesn't go to the trash. This can't be undone.",
       "deleteDescription_other": "{{count}} notes, their attachments and their edit history are permanently deleted — they don't go to the trash. This can't be undone.",
@@ -758,7 +790,7 @@
   "trash": {
     "header_one": "Trash · {{count}} note",
     "header_other": "Trash · {{count}} notes",
-    "sectionWorkspace": "Workspace",
+    "sectionWorkspace": "Groups",
     "daysLeft_one": "{{count}} day left",
     "daysLeft_other": "{{count}} days left",
     "deletedByName": "Deleted by {{name}}",
@@ -780,6 +812,7 @@
     "selectAll": "Select all",
     "deselectAll": "Deselect all",
     "done": "Done",
+    "exitSelect": "Exit selection",
     "selected_one": "{{count}} selected",
     "selected_other": "{{count}} selected",
     "purgeTitle_one": "Permanently delete {{count}} note?",
@@ -790,8 +823,8 @@
     "emptyDescription_other": "{{count}} notes and their attachments will be permanently deleted. This can't be undone.",
     "emptyPersonal_one": "My notes: {{count}} note",
     "emptyPersonal_other": "My notes: {{count}} notes",
-    "emptyWorkspace_one": "Workspace: {{count}} note",
-    "emptyWorkspace_other": "Workspace: {{count}} notes",
+    "emptyWorkspace_one": "Groups: {{count}} note",
+    "emptyWorkspace_other": "Groups: {{count}} notes",
     "includesOthers": " (including some deleted by other members)",
     "moved": "Moved to the trash",
     "undo": "Undo",
@@ -908,6 +941,7 @@
     "folder_limit": "You've reached the maximum number of folders.",
     "folder_cross_space": "Folders can't be moved to another space.",
     "folder_delete_blocked": "This folder has notes you can't delete.",
+    "folder_not_empty": "The folder still has other items, so it wasn't deleted.",
     "password_not_set": "This account signs in only through a sign-in service and has no password to reset.",
     "user_disabled": "This account is disabled. Enable it before resetting its password.",
     "empty_result": "The AI returned an empty result.",

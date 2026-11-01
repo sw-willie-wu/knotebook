@@ -34,9 +34,12 @@ import type { Db } from "../../db/index.js";
 import { groups, notes, users } from "../../db/schema.js";
 import { outlineOf } from "../../notes/editing/fingerprint.js";
 import { loadLastEdited, loadNoteDoc } from "../../notes/editing/read.js";
+import { viewerFolderIdFor } from "../../notes/note-dto.js";
 import { NOTE_ID } from "../../notes/schemas.js";
+import type { DbOrTx } from "../../db/tx.js";
 import { noteSummarySchema, ownerForModel } from "../dto.js";
-import { MCP_PAGE_MAX, truncateText } from "../limits.js";
+import { loadFolderPath, truncateFolderPath } from "../folder-fields.js";
+import { MCP_FOLDER_NAME_MAX, MCP_PAGE_MAX, truncateText } from "../limits.js";
 import { NOTE_NOT_FOUND_MESSAGE, authorizeNoteRead } from "../note-read.js";
 import { buildOutlinePage, outlineEntrySchema } from "../outline-page.js";
 import { toolError, toolResult } from "../tool-result.js";
@@ -48,6 +51,11 @@ export const READ_NOTE_OUTLINE_DESCRIPTION =
   "read_note_section. Call this first: there is no tool that returns a whole note. " +
   `At most ${MCP_PAGE_MAX} sections per call; page with \`section_offset\` while \`truncated\` is true. ` +
   "To list every section, finish listing all pages before you start editing; editing while you page will skip sections.";
+
+/** RO-F（資料夾 PR-3d；逐字照 plan「待確認字串」）。 */
+export const RO_FOLDER_DESCRIBE =
+  "Where this note is filed for you, with the folder names from the top level down, or null at the top level; " +
+  "for a note shared with you, where you filed it, not where its owner did. Long paths are cut from the top, with `pathTruncated`.";
 
 export const readNoteOutlineInput = {
   note_id: NOTE_ID.describe("The note's id, as returned by list_notes or search_notes."),
@@ -74,6 +82,10 @@ const noteHeaderSchema = noteSummarySchema.pick({
 
 export const readNoteOutlineOutput = {
   note: noteHeaderSchema.describe("Which note this outline belongs to, and your role on it."),
+  folder: z
+    .object({ id: z.string(), path: z.array(z.string().max(MCP_FOLDER_NAME_MAX)), pathTruncated: z.literal(true).optional() })
+    .nullable()
+    .describe(RO_FOLDER_DESCRIBE),
   totalChars: z.number().describe("Characters in the whole note — not just this page of sections."),
   sections: z.array(outlineEntrySchema).describe("This page of sections, in document order."),
   truncated: z.boolean().describe("True when more sections follow this page."),
@@ -83,6 +95,23 @@ export const readNoteOutlineOutput = {
     .describe("Pass this back as `section_offset` for the next page; `null` means this was the last page."),
   lastEdited: noteSummarySchema.shape.lastEdited.describe("Who last changed this note, and when."),
 };
+
+/**
+ * 資料夾 PR-3d：呼叫者視角的所在資料夾（AG-F1；`viewerFolderIdFor`：群組筆記與 owner 取 `notes.folder_id`，被分享者取自己的放置）
+ * ＋完整路徑（根 → 葉，`truncateFolderPath`）。根層 → null；兩句之間資料夾被刪（`loadFolderPath` 落空）→ null。
+ */
+export async function outlineFolderFor(
+  db: DbOrTx,
+  note: { id: string; ownerId: string | null; groupId: string | null; folderId: string | null },
+  userId: string,
+): Promise<{ id: string; path: string[]; pathTruncated?: true } | null> {
+  const folderId = await viewerFolderIdFor(db, note, userId);
+  if (folderId === null) return null;
+  const names = await loadFolderPath(db, folderId);
+  if (names === null) return null;
+  const path = truncateFolderPath(names);
+  return { id: folderId, path: path.path, ...(path.truncated ? { pathTruncated: true as const } : {}) };
+}
 
 export interface ReadNoteOutlineArgs {
   note_id: string;
@@ -95,9 +124,20 @@ export interface ReadNoteOutlineArgs {
 async function loadNoteHeader(
   db: Db,
   noteId: string
-): Promise<{ title: string; ownerHandle: string | null; groupId: string | null; groupName: string | null } | undefined> {
+): Promise<
+  | { id: string; title: string; ownerHandle: string | null; ownerId: string | null; groupId: string | null; groupName: string | null; folderId: string | null }
+  | undefined
+> {
   const [row] = await db
-    .select({ title: notes.title, ownerHandle: users.handle, groupId: notes.groupId, groupName: groups.name })
+    .select({
+      id: notes.id,
+      title: notes.title,
+      ownerHandle: users.handle,
+      ownerId: notes.ownerId,
+      groupId: notes.groupId,
+      groupName: groups.name,
+      folderId: notes.folderId,
+    })
     .from(notes)
     .leftJoin(users, eq(users.id, notes.ownerId))
     .leftJoin(groups, eq(groups.id, notes.groupId))
@@ -128,6 +168,7 @@ export async function readNoteOutline(args: ReadNoteOutlineArgs, ctx: McpToolCtx
       owner: ownerForModel(header),
       role: access.role,
     },
+    folder: await outlineFolderFor(ctx.db, header, ctx.userId),
     // 整篇字數，**不是這一頁的**：模型靠它判斷這篇值不值得逐段讀完（§8.3）。
     totalChars: outline.reduce((n, entry) => n + entry.chars, 0),
     ...page,
