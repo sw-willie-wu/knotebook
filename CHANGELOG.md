@@ -46,6 +46,7 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ### Fixed
 
+- The **Restore** icon in **Trash** is now a full counter-clockwise arrow; at small sizes it used to look like a plain circle.
 - Rewriting part of a note over MCP (`edit_note`), the REST API (`POST /api/notes/:id/edits`) or with the in-app AI no longer resets the widths of the images and table columns in it: they now read as HTML that carries the widths, and writing that back unchanged keeps them. See [Sizes](docs/ai-editing.md#sizes) (#305).
 - Rewriting a section that holds side-by-side columns over MCP (`edit_note`) or the REST API (`POST /api/notes/:id/edits`), sending back what was read, no longer turns the row into ordinary blocks: rows now read with their column tags, and writing that back unchanged keeps the row. See [AI editing](docs/ai-editing.md#columns).
 - Writing over MCP, the REST API or with the in-app AI now saves an image, or another media block, whose address is a full address of one of this site's uploads (`https://<your site>/api/uploads/<id>`) with the relative address `/api/uploads/<id>`. An image inside a toggle heading or a toggle list item, written as HTML, used to be saved with the full address, and copying the note then didn't give the copy its own copy of that image. An image already saved that way keeps its full address until it is written again.
