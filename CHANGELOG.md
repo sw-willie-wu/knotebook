@@ -7,6 +7,10 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.14.0] - 2026-11-01
+
 ### Upgrade notes
 
 - **Notes with side-by-side columns read differently** over MCP and the REST API: a row now reads as `<div data-kb-columns …>` and `<div data-kb-column …>` lines with Markdown inside each column. Before, a row read as its columns' blocks one after another, without the column tags (or, when a block in the row had a color, as one block of HTML). Writing back that flattened text read from an earlier version still turns the row into ordinary blocks. See [AI editing](docs/ai-editing.md#columns).
