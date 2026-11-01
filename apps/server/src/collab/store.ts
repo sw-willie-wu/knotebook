@@ -140,7 +140,8 @@ export interface NoteStoreDeps {
   afterPersistForTest?: (noteId: string, doc: Y.Doc) => Promise<void>;
 }
 
-export type NoteStoreSearchHooks = Pick<NoteStoreDeps, "indexer" | "bumper" | "extract" | "afterPersistForTest">;
+// `now` 是測試用時鐘縫（讓整合測試固定落在某個 15 分桶內），生產不注入。
+export type NoteStoreSearchHooks = Pick<NoteStoreDeps, "indexer" | "bumper" | "extract" | "afterPersistForTest" | "now">;
 
 export interface NoteStore {
   /**

@@ -88,7 +88,8 @@ describe("Task 7：onLoadDocument/onStoreDocument + 樂觀鎖 + 分桶備份", (
   });
 
   it("同一個 15 分桶內兩次編輯 → 恰 1 筆 backup（第二次落地不重複備份）", async () => {
-    const ctx = await buildCollabTestApp();
+    // 時鐘固定在 [10:00,10:15) 桶中段：兩次落地確定性同桶，不受真實牆鐘跨桶影響。
+    const ctx = await buildCollabTestApp({ storeSearchHooks: { now: () => new Date("2026-01-05T10:07:30Z") } });
     const owner = await ctx.createUser({ email: "owner-store3@example.com", password: PASSWORD });
     const note = await ctx.createNote(owner.id);
     const session = await ctx.loginAs("owner-store3@example.com", PASSWORD);
@@ -106,8 +107,8 @@ describe("Task 7：onLoadDocument/onStoreDocument + 樂觀鎖 + 分桶備份", (
       return r?.version === 2;
     });
 
-    // 兩次落地都發生在同一個真實時鐘的 15 分桶內（兩次相隔僅數秒）——第一次因
-    // lastBackupAt=null 必寫一筆；第二次未跨桶，必須被跳過。
+    // 注入的固定時鐘讓兩次落地都在同一個 15 分桶——第一次因 lastBackupAt=null
+    // 必寫一筆；第二次未跨桶，必須被跳過。
     const backups = await ctx.db.select().from(noteStateBackups).where(eq(noteStateBackups.noteId, note.id));
     expect(backups.length).toBe(1);
   });

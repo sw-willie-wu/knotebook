@@ -81,7 +81,8 @@ function MemberWikilink({ inlineContent, contentRef, editor, updateInlineContent
     if (!toolbar.consumeClick(e)) click(e, target);
   };
   // 可編輯時 `draggable={false}`：tiptap 的 NodeView.stopEvent 把不可選取節點的 dragstart 留給瀏覽器，原生 `<a>` 會被拖成
-  // text/html 連結，放回編輯器就多出一個一般連結（拖放進來的不轉換）。唯讀不設，讀者照常可把連結拖到分頁列／書籤。
+  // text/html 連結，放回編輯器就多出一份連結（`view.dragging` 為 null，#352 起會被當成外部拖入、轉成 wikilink 複本）。
+  // 唯讀不設，讀者照常可把連結拖到分頁列／書籤。
   const anchorEl = broken ? (
     <span ref={setRefs} className={BROKEN_CLASS} onClick={onClick} {...toolbar.anchorHandlers}>
       {text}
