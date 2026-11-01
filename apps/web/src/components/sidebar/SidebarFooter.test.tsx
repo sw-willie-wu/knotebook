@@ -828,6 +828,9 @@ describe("SidebarFooter — 垃圾桶寬螢幕選取工具列", () => {
     await enterWide("w2");
     fireEvent.click(shellBox(1, "p1"));
     fireEvent.click(headerButton(1, "Restore"));
+    await waitFor(() => {
+      expect(shellHeader(1).querySelector("[data-select-action-bar]")).toHaveAttribute("aria-busy", "true");
+    });
     fireEvent.click(exitButton(1) as HTMLElement);
     fireEvent.click(selectButton(1) as HTMLElement);
     expect(within(shellHeader(1)).getByText("0 selected", { exact: true })).toBeInTheDocument();

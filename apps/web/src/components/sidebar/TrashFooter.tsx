@@ -45,6 +45,8 @@ function TrashFooterNote() {
 export function useTrashSelectionActions(): {
   selectedIds: string[];
   disabled: boolean;
+  /** 送出中（還原或永久刪除的請求在途）。 */
+  busy: boolean;
   onRestore: (event: MouseEvent<HTMLButtonElement>) => void;
   onPurge: (event: MouseEvent<HTMLButtonElement>) => void;
   purgeDialog: ReactNode;
@@ -72,7 +74,8 @@ export function useTrashSelectionActions(): {
   }, []);
 
   const selectedIds = selectedTrashIds(trash.data?.items ?? [], selection.keys);
-  const disabled = selectedIds.length === 0 || restore.isPending || purge.isPending;
+  const busy = restore.isPending || purge.isPending;
+  const disabled = selectedIds.length === 0 || busy;
   const end = () => updateSelection({ type: "end" });
 
   async function exclusive(run: () => Promise<void>): Promise<void> {
@@ -153,7 +156,7 @@ export function useTrashSelectionActions(): {
     />
   );
 
-  return { selectedIds, disabled, onRestore, onPurge, purgeDialog };
+  return { selectedIds, disabled, busy, onRestore, onPurge, purgeDialog };
 }
 
 /** 窄形：底部動作列「還原」（主色，總管裁定 ⑩）「永久刪除」（紅字），各帶圖示。 */
@@ -208,10 +211,10 @@ function TrashActionBar() {
  */
 export function TrashWideToolbar() {
   const { t } = useTranslation();
-  const { disabled, onRestore, onPurge, purgeDialog } = useTrashSelectionActions();
+  const { disabled, busy, onRestore, onPurge, purgeDialog } = useTrashSelectionActions();
   return (
     <>
-      <div className="flex shrink-0 items-center gap-0.5" data-select-action-bar="">
+      <div className="flex shrink-0 items-center gap-0.5" data-select-action-bar="" aria-busy={busy}>
         <Button
           type="button"
           variant="ghost"
