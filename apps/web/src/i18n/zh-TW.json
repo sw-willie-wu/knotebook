@@ -812,6 +812,7 @@
     "selectAll": "全選",
     "deselectAll": "取消全選",
     "done": "完成",
+    "exitSelect": "結束選取",
     "selected_one": "已選 {{count}} 篇",
     "selected_other": "已選 {{count}} 篇",
     "purgeTitle_one": "永久刪除 {{count}} 篇筆記？",

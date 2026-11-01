@@ -63,8 +63,9 @@ export function SelectAllCheckbox({
   label: string;
   title: string;
 }) {
+  // 外層 24px 也帶同字 title：14px 的框旁邊（這一格裡）滑過也有提示（T4 review m6）。
   return (
-    <span className="flex h-6 w-6 shrink-0 items-center justify-center">
+    <span className="flex h-6 w-6 shrink-0 items-center justify-center" title={title}>
       <SelectionCheckbox
         checked={state === "all"}
         indeterminate={state === "some"}

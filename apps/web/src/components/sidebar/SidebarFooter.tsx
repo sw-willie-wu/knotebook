@@ -1,6 +1,7 @@
 import { lazy } from "react";
 import { useTranslation } from "react-i18next";
 import { useSidebarTabState } from "@/lib/sidebar-tab";
+import { useWidePointer } from "@/lib/wide-pointer";
 import { Button } from "@/components/ui/button";
 import { Plus } from "@/components/ui/icons";
 import { SidebarLazyBoundary } from "@/components/sidebar/SidebarLazyBoundary";
@@ -12,7 +13,8 @@ const SelectActionBar = lazy(() => import("@/components/sidebar/SelectLazy").the
 
 /**
  * 側欄底部（tab 列與 UserMenu 之間）：「我的筆記」「最近」tab 是「新增筆記」（永遠建個人筆記，所以「群組」「與我共享」tab 不顯示）；垃圾桶 tab 換成保留天數說明（spec §6.10.1），
- * 垃圾桶選取模式換成動作列（spec §6.10.2），兩者在 `TrashFooter.tsx`；一般 tab 的選取模式換成 `SelectActionBar`（spec §6.11，PR-2c）。
+ * 垃圾桶選取模式換成動作列（spec §6.10.2），兩者在 `TrashFooter.tsx`；一般 tab 的選取模式換成 `SelectActionBar`（spec §6.11，PR-2c；
+ * 寬螢幕不顯示，動作列在標題列，PR-3b-3）。
  * 搜尋中一律「新增筆記」（搜尋視圖不是任何 tab 的清單）。
  * ⚠ 本體不呼叫 `useTrash()`／`useNotes()`（讀碼發現 28）：只有對應狀態才渲染的子元件呼叫，其他 tab 不多打 `GET /api/trash`。
  */
@@ -27,6 +29,7 @@ export function SidebarFooter({
 }) {
   const { t } = useTranslation();
   const { tab, selection } = useSidebarTabState();
+  const wide = useWidePointer();
   const newNote = (
     <div className="m-2">
       <Button variant="brand" className="w-full" onClick={() => onCreateNote()} disabled={newNotePending}>
@@ -37,6 +40,10 @@ export function SidebarFooter({
   );
   if (searching) return newNote;
   if (tab !== "trash" && selection.active) {
+    // 寬螢幕（PR-3b-3，資料夾 spec F26）：動作列在標題列（`SelectHeader` 的工具列），底部什麼都不顯示。
+    // 清單可視高度因此多約一列：捲在最底附近時進入選取會位移約一列（總管裁定接受，不留同高空白）。
+    // 跨判準時兩處各自依判準掛／卸，同一份實例同時只有一個 `SelectActionBar`。
+    if (wide) return null;
     // 佔位與動作列同高；chunk 失敗時錯誤＋重試由清單那份（同一個 chunk）顯示，這裡隱藏。
     return (
       <SidebarLazyBoundary chunk="select" fallback={<div className="m-2 h-8" />} errorClassName="hidden">

@@ -16,6 +16,7 @@ import { SidebarTabList } from "./SidebarTabList";
 import { SidebarFooter } from "./SidebarFooter";
 import { TrashPanel } from "./TrashPanel";
 import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
+import { mockWidePointer } from "@/test/wide-pointer";
 
 // 側欄底部（plan T4）：新增筆記／垃圾桶保留天數說明；`useTrash()` 只在垃圾桶 tab 才掛（讀碼發現 28）。
 // 垃圾桶選取模式的動作列（plan T5 SM8–SM10、SM15、SM17）。
@@ -187,7 +188,9 @@ describe("SidebarFooter — 一般 tab 選取模式", () => {
         <MemoryRouter>
           <SidebarTabProvider>
             <SelectionProbe />
-            <SidebarFooter searching={props.searching ?? false} onCreateNote={() => {}} newNotePending={false} />
+            <div data-testid="footer">
+              <SidebarFooter searching={props.searching ?? false} onCreateNote={() => {}} newNotePending={false} />
+            </div>
           </SidebarTabProvider>
         </MemoryRouter>
       </QueryClientProvider>,
@@ -221,6 +224,28 @@ describe("SidebarFooter — 一般 tab 選取模式", () => {
     });
     expect(screen.getByRole("button", { name: "New note" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Copy to" })).toBeNull();
+  });
+
+  // PR-3b-3 T4（資料夾 spec F26）：寬螢幕的動作列在標題列（SelectHeader），底部不顯示。
+  it("SF-W1 寬＋一般 tab 選取中 → 底部不渲染任何東西；未選取與結束選取後是 New note", async () => {
+    mockWidePointer(true);
+    renderSelectFooter();
+    expect(screen.getByRole("button", { name: "New note" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "probe-start" }));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(screen.getByTestId("footer")).toBeEmptyDOMElement();
+    fireEvent.click(screen.getByRole("button", { name: "probe-end" }));
+    expect(await screen.findByRole("button", { name: "New note" })).toBeInTheDocument();
+  });
+
+  it("SF-W1 窄＋一般 tab 選取中 → 照現行掛動作列", async () => {
+    mockWidePointer(false);
+    renderSelectFooter();
+    fireEvent.click(screen.getByRole("button", { name: "probe-start" }));
+    expect(await screen.findByRole("button", { name: "Copy to" })).toBeInTheDocument();
+    expect(screen.getByTestId("footer").querySelector("[data-select-action-bar]")).not.toBeNull();
   });
 });
 

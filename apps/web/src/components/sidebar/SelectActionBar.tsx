@@ -80,6 +80,12 @@ import { buildTabNodes, noteSpaceKey } from "./tree";
  *   NotePage 的 `leavingRef`；成功導回首頁、「復原」導回它；失敗非終態撥回、終態導回首頁（不補單篇路徑的 `note.deleted` toast：批次只出一則）。
  *   與我共享的移除不設、不離場（讀碼發現 10：筆記只是回最上層）。
  * - §6.10.7：整批都能自己還原才帶「復原」（`showTrashedToast`；資料夾帶走的篇併進 `undoIds`），否則帶說明句。
+ * - 兩種形（PR-3b-3，資料夾 spec F25、F26）：`bar`＝窄螢幕底部列（`SidebarFooter` 掛；進度句在列上；「移動到」與「複製到」同為 outline 文字鈕）；
+ *   `toolbar`＝寬螢幕標題列裡的三顆 24px 圖示鈕（`SelectHeader` 掛；進度由它顯示在數量位）。兩形都包在 `data-select-action-bar` 容器裡，
+ *   目的地框、確認框、`runBatch`、各鈕出現與停用的判斷完全共用。
+ * - 反灰原因（讀碼發現 6、總管裁定 ⑤）：跨群組的「移動到」、選了資料夾的「複製到」不設 `disabled`（`disabled:pointer-events-none` 會讓
+ *   hover 提示出不來），改 `aria-disabled`＋`title`＝原因＋`aria-describedby`，點了不執行；`bar` 形另出同字 toast（觸控看不到 hover）。
+ *   優先序（gate r1 m5）：執行中（`disabled`）＞反灰原因（`aria-disabled`）＞沒有可處理的項目／第一層為空（`disabled`）。
  */
 
 type Translate = (key: string, options?: Record<string, unknown>) => string;
@@ -91,9 +97,16 @@ type Stopped = BatchOutcome<unknown>["stopped"];
  * `px-1.5 gap-1.5` 省寬、字 `truncate`（DOM 裡仍是全文，可及名稱不受影響；`title` 給看得到截字的人）。不加的話刪除鈕會被擠出卡片、
  * 落到側欄寬度把手底下（T5 review r1 I1，真 Chromium 量測）。按鈕列是 `@container`：列寬不到 14.5rem（字級 16 時側欄約 250px 以下）時拿掉
  * 兩顆的圖示，把位置讓給字（實測帶圖示時 en 要列寬 ≥ 14rem 才不截字，字級 16、20 皆同；多留 0.5rem）。
+ * `aria-disabled:` 開頭的是反灰原因的樣子（看起來停用、hover／按下不變色）：兩顆恆帶、不依條件加（兩顆的 className 相同，e2e 41-12 依此斷言）。
  */
-const ACTION_TEXT_BUTTON = "min-w-0 flex-1 gap-1.5 px-1.5";
+const ACTION_TEXT_BUTTON =
+  "min-w-0 flex-1 gap-1.5 px-1.5 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:border-input aria-disabled:hover:bg-transparent aria-disabled:hover:text-inherit aria-disabled:active:[background:transparent]";
 const ACTION_ICON = "hidden h-4 w-4 shrink-0 @min-[14.5rem]:block";
+/** 寬螢幕標題列的「移動到」「複製到」圖示鈕（同標題列其他 24px 鈕）；`aria-disabled:` 同上，兩顆恆帶。 */
+const TOOLBAR_ICON_BUTTON =
+  "h-6 w-6 shrink-0 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:bg-transparent aria-disabled:hover:text-inherit";
+const TOOLBAR_DELETE_BUTTON = "h-6 w-6 shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive";
+const TOOLBAR_ICON = "h-3.5 w-3.5";
 
 const NO_SKIPS: Eligibility = { eligible: [], notesSkipped: 0, foldersSkipped: 0, foldersBlocked: 0 };
 
@@ -144,7 +157,10 @@ interface RunResult {
   afterSelection?: () => void;
 }
 
-export function SelectActionBar() {
+/**
+ * @param layout `bar`＝窄形底部列（預設）；`toolbar`＝寬形標題列裡的圖示鈕（不渲染進度句，由 `SelectHeader` 顯示）。
+ */
+export function SelectActionBar({ layout = "bar" }: { layout?: "bar" | "toolbar" }) {
   const { t } = useTranslation();
   const { tab: currentTab, selection } = useSidebarTabState();
   const actions = useSidebarTabActions();
@@ -525,14 +541,17 @@ export function SelectActionBar() {
   }
 
   // ── 鈕 ──
-  const acrossGroups = moveSource === "mixedGroups";
+  // 反灰原因（檔頭）：有原因且不在執行中 → aria-disabled（不設 disabled）；執行中一律真的 disabled（優先序 gate r1 m5）。
+  const moveReason = moveSource === "mixedGroups" ? t("select.acrossGroups") : null;
+  const copyReason = targets.some(isFolder) ? t("select.foldersCantCopy") : null;
+  const moveSoftDisabled = !busy && moveReason !== null;
+  const copySoftDisabled = !busy && copyReason !== null;
   const moveDisabled =
     busy ||
-    moveElig.eligible.length === 0 ||
-    moveSource === "mixedGroups" ||
-    (levelReady("move") && isEmptyDestination(moveSource, folderIndex, t));
-  const anyFolder = targets.some(isFolder);
-  const copyDisabled = busy || anyFolder || copyElig.eligible.length === 0;
+    (!moveSoftDisabled &&
+      (moveElig.eligible.length === 0 ||
+        (moveSource !== "mixedGroups" && levelReady("move") && isEmptyDestination(moveSource, folderIndex, t))));
+  const copyDisabled = busy || (!copySoftDisabled && copyElig.eligible.length === 0);
   // 與我共享：只有「移除選取的資料夾」，選取（去重後）非空且全是資料夾才渲染（D-M3）。
   const showDelete = available.includes("delete") && (tab !== "shared" || (deduped.length > 0 && deduped.every(isFolder)));
   const deleteLabel =
@@ -540,8 +559,70 @@ export function SelectActionBar() {
       ? t("select.removeSelectedFolders", { count: targets.filter(isFolder).length })
       : t("select.deleteSelected", { count: targets.length });
 
-  return (
+  /** 點了反灰原因的鈕：不執行；寬形靠 hover 提示（title），窄形（多半是觸控）出同字 toast（總管裁定 ⑤）。 */
+  function showReason(reason: string | null): void {
+    if (reason !== null && layout === "bar") toast({ title: reason });
+  }
+
+  // 兩形共用的屬性（可及名稱、class、圖示由各形自己給）。
+  const moveProps = {
+    title: moveReason ?? t("select.moveTo"),
+    "aria-describedby": moveReason !== null ? acrossGroupsId : undefined,
+    "aria-disabled": moveSoftDisabled || undefined,
+    disabled: moveDisabled,
+    onClick: (event: MouseEvent<HTMLButtonElement>) => (moveSoftDisabled ? showReason(moveReason) : openPicker("move", event)),
+  };
+  const copyProps = {
+    title: copyReason ?? t("select.copyTo"),
+    "aria-describedby": copyReason !== null ? cantCopyId : undefined,
+    "aria-disabled": copySoftDisabled || undefined,
+    disabled: copyDisabled,
+    onClick: (event: MouseEvent<HTMLButtonElement>) => (copySoftDisabled ? showReason(copyReason) : openPicker("copy", event)),
+  };
+  const deleteProps = {
+    "aria-label": deleteLabel,
+    title: deleteLabel,
+    disabled: busy || deleteElig.eligible.length === 0,
+    onClick: startDelete,
+  };
+  // aria-describedby 讓螢幕閱讀器唸原因（title 不一定唸）：原因另放一份 sr-only 同字。
+  const reasonTexts = (
     <>
+      {moveReason !== null && available.includes("move") && (
+        <span id={acrossGroupsId} className="sr-only">
+          {moveReason}
+        </span>
+      )}
+      {copyReason !== null && available.includes("copy") && (
+        <span id={cantCopyId} className="sr-only">
+          {copyReason}
+        </span>
+      )}
+    </>
+  );
+
+  const buttons =
+    layout === "toolbar" ? (
+      // 寬形：標題列裡一列圖示鈕（進度在 SelectHeader 的數量位）。
+      <div className="flex shrink-0 items-center gap-0.5" data-select-action-bar="" aria-busy={busy}>
+        {available.includes("move") && (
+          <Button type="button" variant="ghost" size="icon" className={TOOLBAR_ICON_BUTTON} aria-label={t("select.moveTo")} {...moveProps}>
+            <FolderInput aria-hidden="true" className={TOOLBAR_ICON} />
+          </Button>
+        )}
+        {available.includes("copy") && (
+          <Button type="button" variant="ghost" size="icon" className={TOOLBAR_ICON_BUTTON} aria-label={t("select.copyTo")} {...copyProps}>
+            <Copy aria-hidden="true" className={TOOLBAR_ICON} />
+          </Button>
+        )}
+        {showDelete && (
+          <Button type="button" variant="ghost" size="icon" className={TOOLBAR_DELETE_BUTTON} {...deleteProps}>
+            <Trash aria-hidden="true" className={TOOLBAR_ICON} />
+          </Button>
+        )}
+        {reasonTexts}
+      </div>
+    ) : (
       <div className="m-2 flex flex-col gap-1" data-select-action-bar="" aria-busy={busy}>
         {run !== null && (
           <p role="status" className="px-1 text-center text-[11px] text-muted-foreground">
@@ -549,30 +630,15 @@ export function SelectActionBar() {
           </p>
         )}
         <div className="@container flex gap-1">
+          {/* 「移動到」與「複製到」同為 outline（F25：選取模式沒有唯一主角，不用主色）。 */}
           {available.includes("move") && (
-            <Button
-              type="button"
-              variant="brand"
-              className={ACTION_TEXT_BUTTON}
-              title={acrossGroups ? t("select.acrossGroups") : t("select.moveTo")}
-              aria-describedby={acrossGroups ? acrossGroupsId : undefined}
-              disabled={moveDisabled}
-              onClick={(event) => openPicker("move", event)}
-            >
+            <Button type="button" variant="outline" className={ACTION_TEXT_BUTTON} {...moveProps}>
               <FolderInput aria-hidden="true" className={ACTION_ICON} />
               <span className="truncate">{t("select.moveTo")}</span>
             </Button>
           )}
           {available.includes("copy") && (
-            <Button
-              type="button"
-              variant="outline"
-              className={ACTION_TEXT_BUTTON}
-              title={anyFolder ? t("select.foldersCantCopy") : t("select.copyTo")}
-              aria-describedby={anyFolder ? cantCopyId : undefined}
-              disabled={copyDisabled}
-              onClick={(event) => openPicker("copy", event)}
-            >
+            <Button type="button" variant="outline" className={ACTION_TEXT_BUTTON} {...copyProps}>
               <Copy aria-hidden="true" className={ACTION_ICON} />
               <span className="truncate">{t("select.copyTo")}</span>
             </Button>
@@ -584,27 +650,19 @@ export function SelectActionBar() {
               variant="ghost"
               size="icon"
               className="w-9 shrink-0 border border-input text-destructive hover:bg-destructive/10 hover:text-destructive"
-              aria-label={deleteLabel}
-              title={deleteLabel}
-              disabled={busy || deleteElig.eligible.length === 0}
-              onClick={startDelete}
+              {...deleteProps}
             >
               <Trash aria-hidden="true" className="h-4 w-4" />
             </Button>
           )}
         </div>
-        {/* disabled 鈕的 title 螢幕閱讀器讀不到：原因另放一份 sr-only 同字，經 aria-describedby 唸。 */}
-        {acrossGroups && available.includes("move") && (
-          <span id={acrossGroupsId} className="sr-only">
-            {t("select.acrossGroups")}
-          </span>
-        )}
-        {anyFolder && available.includes("copy") && (
-          <span id={cantCopyId} className="sr-only">
-            {t("select.foldersCantCopy")}
-          </span>
-        )}
+        {reasonTexts}
       </div>
+    );
+
+  return (
+    <>
+      {buttons}
       {/* 對話框放在動作列的 div 外（只是版面；Esc 由 SelectHeader 的 document 監聽處理，對話框開著時它不動作）。 */}
       <DestinationPickerDialog
         mode={pickerMode ?? "copy"}

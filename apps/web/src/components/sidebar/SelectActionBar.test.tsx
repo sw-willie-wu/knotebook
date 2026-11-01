@@ -19,6 +19,7 @@ import { groupNote, personalNote, sharedNote } from "@/test/select-fixtures";
 import { FOLDER_LIST_EMPTY, folderDto, groupFolder, sharedFolder } from "@/test/folder-fixtures";
 import type { FolderDto } from "@knotebook/shared";
 import { __resetFolderSortForTests } from "@/components/sidebar/folder-sort";
+import { mockWidePointer } from "@/test/wide-pointer";
 
 // 一般 tab 選取模式的動作列、目的地框、確認框與三種流程（#181 PR-2c T5，SA1–SA24b；PR-3b-2 T6b 改寫部分案並加資料夾 SAf1–SAf16）。
 // 兩份外殼（同 AppShell 的靜態卡與抽屜）共用同一份選取；動作一律從第二份（shell 1）發起，找錯外殼焦點就會落到第一份。
@@ -1084,6 +1085,8 @@ const levelNames = (picker: HTMLElement) =>
   );
 const barNames = () => within(bar()).getAllByRole("button", { hidden: true }).map((b) => b.getAttribute("aria-label") ?? b.textContent);
 const openToasts = () => document.querySelectorAll('li[data-swipe-direction][data-state="open"]');
+/** aria-describedby 指到的元素的字（`toHaveAccessibleDescription` 在描述元素不存在時會退回 title，守不住 sr-only 那份；T4 review m3）。 */
+const describedText = (el: HTMLElement) => document.getElementById(el.getAttribute("aria-describedby") ?? "")?.textContent ?? null;
 
 async function waitFolders(...ids: string[]): Promise<void> {
   await waitFor(() => {
@@ -1242,7 +1245,8 @@ describe("SelectActionBar（PR-3b-2 T6b：資料夾）", () => {
     expect(within(picker).getByRole("button", { name: "G" })).toBeDisabled();
   });
 
-  it("SAf7 群組 tab 跨群組：Move to disabled＋title／可及描述「…different groups…」；Copy to 可按、第一層沒有 Make a copy", async () => {
+  // PR-3b-3 T4 改寫：反灰原因改 aria-disabled（不是 disabled，hover 提示才出得來；讀碼發現 6）。
+  it("SAf7 群組 tab 跨群組：Move to aria-disabled＋title／可及描述「…different groups…」；Copy to 可按、第一層沒有 Make a copy", async () => {
     const g1 = groupNote({ id: "g1", title: "g1", group: FG });
     const h1 = groupNote({ id: "h1", title: "h1", group: FH });
     stubServer({ notes: [g1, h1], groups: [FG, FH], folders: [GF] });
@@ -1250,9 +1254,10 @@ describe("SelectActionBar（PR-3b-2 T6b：資料夾）", () => {
     await enterSelecting();
     tick("g1", "h1");
     const move = barButton("Move to");
-    expect(move).toBeDisabled();
+    expect(move).toHaveAttribute("aria-disabled", "true");
+    expect(move).not.toHaveAttribute("disabled");
     expect(move).toHaveAttribute("title", "The selected notes are in different groups and can't be moved together");
-    expect(move).toHaveAccessibleDescription("The selected notes are in different groups and can't be moved together");
+    expect(describedText(move)).toBe("The selected notes are in different groups and can't be moved together");
     expect(barButton("Copy to")).toBeEnabled();
     const picker = await openPicker("Copy to");
     expect(levelNames(picker)).not.toContain("Make a copy");
@@ -1384,16 +1389,18 @@ describe("SelectActionBar（PR-3b-2 T6b：資料夾）", () => {
     expect(server.keys()).toEqual(["DELETE /api/folders/B", "DELETE /api/notes/p3"]);
   });
 
-  it("SAf13 複製：勾資料夾 → Copy to disabled＋「Folders can't be copied」；只勾 p1（在 A）→ Make a copy → copyLeadMakeCopy → body {folderId:A}", async () => {
+  // PR-3b-3 T4 改寫：同 SAf7，反灰原因改 aria-disabled。
+  it("SAf13 複製：勾資料夾 → Copy to aria-disabled＋「Folders can't be copied」；只勾 p1（在 A）→ Make a copy → copyLeadMakeCopy → body {folderId:A}", async () => {
     const server = stubServer(MY);
     renderShells();
     await enterSelecting();
     await waitFolders("A");
     tickFolder("A");
     const copy = barButton("Copy to");
-    expect(copy).toBeDisabled();
+    expect(copy).toHaveAttribute("aria-disabled", "true");
+    expect(copy).not.toHaveAttribute("disabled");
     expect(copy).toHaveAttribute("title", "Folders can't be copied");
-    expect(copy).toHaveAccessibleDescription("Folders can't be copied");
+    expect(describedText(copy)).toBe("Folders can't be copied");
     tickFolder("A");
     tick("p1");
     const picker = await openPicker("Copy to");
@@ -1525,5 +1532,426 @@ describe("SelectActionBar（PR-3b-2 T6b：資料夾）", () => {
       const confirm = await screen.findByRole("dialog", { name: "刪除 1 個資料夾？" });
       expect(within(confirm).getByRole("button", { name: "刪除" })).toBeInTheDocument();
     });
+  });
+});
+
+// ── PR-3b-3 T4：寬螢幕一列工具列、窄形「移動到」outline、反灰原因（資料夾 spec F25、F26、§6.10；SB1–SB10） ──
+// 元件測試預設是窄（jsdom 的 matchMedia 恆 false）；寬形一律 `mockWidePointer(true)`。動作一律從 shell 1 發起。
+
+const exitButton = (index = 1) => within(shellHeader(index)).queryByRole("button", { name: "Exit selection", hidden: true });
+const selectAllBox = (index = 1) => within(shellHeader(index)).getByRole("checkbox", { name: "Select all", hidden: true }) as HTMLInputElement;
+/** 勾選樹裡已勾的鍵（不含標題列的全選框；DOM 序）。 */
+const selectedKeys = (index = 1) =>
+  Array.from(shell(index).querySelectorAll<HTMLInputElement>('input[type="checkbox"][data-selection-key]'))
+    .filter((input) => input.checked)
+    .map((input) => input.dataset.selectionKey);
+const barsOf = (index: number) => Array.from(shell(index).querySelectorAll("[data-select-action-bar]"));
+const follows = (a: Node, b: Node) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+const folderToggle = (name: string, index = 1) =>
+  within(shell(index).querySelector("[data-sidebar-list]") as HTMLElement).getByRole("button", { name });
+const allState = (index = 1) => {
+  const all = selectAllBox(index);
+  return all.indeterminate ? "some" : all.checked ? "all" : "none";
+};
+
+/** 寬形：等「選取」可按 → 按 → 等 ✕、勾選樹與標題列裡的動作列（批次中數量位是進度，不能等「0 selected」）。 */
+async function enterWide(index = 1): Promise<void> {
+  await waitFor(() => expect(selectButton(index)).toBeEnabled());
+  fireEvent.click(selectButton(index) as HTMLElement);
+  await waitFor(() => expect(exitButton(index)).not.toBeNull());
+  await waitFor(() => expect(shell(index).querySelector('input[type="checkbox"][data-selection-key]')).not.toBeNull());
+  await waitFor(() => expect(bar(index)).not.toBeNull());
+}
+
+const enterForm = (form: "narrow" | "wide") => (form === "wide" ? enterWide() : enterSelecting());
+
+describe("寬螢幕一列工具列（PR-3b-3）", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    act(() => dismissAllToasts());
+    __resetFolderSortForTests();
+  });
+
+  it("SB1 寬：標題列依序 ✕、全選框、0 selected、三顆圖示鈕；每份實例恰一個動作列且在標題列裡；沒有 Done、Select all 文字鈕、New note", async () => {
+    mockWidePointer(true);
+    stubServer();
+    renderShells();
+    await enterWide();
+    const header = shellHeader(1);
+    const exit = exitButton() as HTMLElement;
+    expect(exit).toHaveAttribute("title", "Exit selection");
+    expect(exit).toHaveClass("h-6", "w-6");
+    expect(exit.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+    const all = selectAllBox();
+    const count = within(header).getByText("0 selected");
+    const actionBar = bar();
+    expect(follows(exit, all)).toBe(true);
+    expect(follows(all, count)).toBe(true);
+    expect(follows(count, actionBar)).toBe(true);
+    expect(within(actionBar).getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual(["Move to", "Copy to", "Delete 0 selected items"]);
+    for (const [name, icon] of [
+      ["Move to", "folder-input"],
+      ["Copy to", "copy"],
+      ["Delete 0 selected items", "trash"],
+    ] as const) {
+      const button = barButton(name);
+      expect(button).toHaveAttribute("title", name);
+      expect(button).toHaveClass("h-6", "w-6");
+      expect(button).toHaveTextContent(/^$/);
+      expect(button.querySelector(`svg[data-icon="${icon}"]`)).toHaveAttribute("aria-hidden", "true");
+      expect(button).toBeDisabled();
+    }
+    expect(within(header).queryByRole("button", { name: "Done", hidden: true })).toBeNull();
+    expect(within(header).queryByRole("button", { name: "Select all", hidden: true })).toBeNull();
+    for (const index of [0, 1]) {
+      const bars = barsOf(index);
+      expect(bars).toHaveLength(1);
+      expect(bars[0]!.closest("[data-sidebar-header]")).toBe(shellHeader(index));
+    }
+    expect(within(shell(1)).queryByRole("button", { name: "New note", hidden: true })).toBeNull();
+  });
+
+  it("SB1 窄（預設）：標題列 0 selected＋Select all＋Done 文字鈕、沒有 ✕ 與全選框；每份實例恰一個動作列且在標題列外", async () => {
+    stubServer();
+    renderShells();
+    await enterSelecting();
+    expect(exitButton()).toBeNull();
+    expect(within(shellHeader(1)).queryByRole("checkbox", { hidden: true })).toBeNull();
+    expect(within(shellHeader(1)).getByRole("button", { name: "Select all" })).toBeInTheDocument();
+    expect(doneButton()).toBeInTheDocument();
+    for (const index of [0, 1]) {
+      const bars = barsOf(index);
+      expect(bars).toHaveLength(1);
+      expect(bars[0]!.closest("[data-sidebar-header]")).toBeNull();
+    }
+  });
+
+  it("SB2 寬：按 Select → 焦點在 ✕；按 ✕ → 選取結束、焦點在同一份的 Select", async () => {
+    mockWidePointer(true);
+    stubServer();
+    renderShells();
+    await enterWide();
+    await waitFor(() => expect(exitButton()).toHaveFocus());
+    fireEvent.click(exitButton() as HTMLElement);
+    await waitFor(() => expect(exitButton()).toBeNull());
+    expect(bar()).toBeNull();
+    expect(selectButton(1)).toHaveFocus();
+  });
+
+  it("SB3 寬：選取中在 body 上按 Esc → 結束、焦點在 Select", async () => {
+    mockWidePointer(true);
+    stubServer();
+    renderShells();
+    await enterWide();
+    tick("p1");
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(exitButton()).toBeNull());
+    // document 層的 Esc 由先掛上的那一份處理（它 preventDefault 後另一份讓路），焦點回那一份的 Select。
+    expect(document.activeElement).toHaveAttribute("data-sidebar-select");
+  });
+
+  it("SB3 寬：焦點在 ✕、對 ✕ 按 Esc → 結束、焦點在同一份的 Select；批次執行中（數量位是進度）同樣成立", async () => {
+    mockWidePointer(true);
+    const server = stubServer(MY);
+    const release = server.hold("PUT /api/notes/p3/folder");
+    renderShells();
+    await enterWide();
+    let exit = exitButton() as HTMLElement;
+    exit.focus();
+    fireEvent.keyDown(exit, { key: "Escape" });
+    await waitFor(() => expect(exitButton()).toBeNull());
+    expect(selectButton(1)).toHaveFocus();
+
+    await enterWide();
+    await waitFolders("B");
+    tick("p3");
+    fireEvent.click(within(await openPicker("Move to")).getByRole("button", { name: "B" }));
+    await waitFor(() => expect(within(shellHeader(1)).getByRole("status")).toHaveTextContent("Working… 0 of 1"));
+    exit = exitButton() as HTMLElement;
+    exit.focus();
+    fireEvent.keyDown(exit, { key: "Escape" });
+    await waitFor(() => expect(exitButton()).toBeNull());
+    expect(selectButton(1)).toHaveFocus();
+    await release();
+    expect(await screen.findByText("Moved 1 item to “B”", { exact: true })).toBeInTheDocument();
+  });
+
+  it("SB4 寬：三態全選框只看可見列；空／半勾點下去全選可見列，全勾點下去清空全部；收合子樹裡勾的保留", async () => {
+    mockWidePointer(true);
+    stubServer({ notes: [FP1, FP3], groups: [FG], folders: [FA] });
+    renderShells();
+    await enterWide();
+    await waitFolders("A");
+    await waitFor(() => expect(box("p1")).not.toBeNull());
+    expect(allState()).toBe("none");
+    expect(selectAllBox()).toHaveAttribute("title", "Select all");
+    // 外層 24px 那格也帶同字 title（框旁滑過也有提示；T4 review m6）。
+    expect(selectAllBox().parentElement?.parentElement).toHaveAttribute("title", "Select all");
+    tick("p3");
+    expect(allState()).toBe("some");
+    fireEvent.click(selectAllBox());
+    expect(selectedKeys()).toEqual(["folder:A", "note:p1", "note:p3"]);
+    expect(allState()).toBe("all");
+    expect(selectAllBox()).toHaveAttribute("title", "Deselect all");
+    expect(within(shellHeader(1)).getByText("3 selected")).toBeInTheDocument();
+    fireEvent.click(selectAllBox());
+    expect(selectedKeys()).toEqual([]);
+    expect(allState()).toBe("none");
+
+    // 先展開勾 p1 再收合 A：可見列（A、p3）都沒勾 → 空框；點下去全選可見列、p1 仍勾。
+    tick("p1");
+    fireEvent.click(folderToggle("A"));
+    expect(box("p1")).toBeNull();
+    expect(allState()).toBe("none");
+    expect(within(shellHeader(1)).getByText("1 selected")).toBeInTheDocument();
+    fireEvent.click(selectAllBox());
+    expect(within(shellHeader(1)).getByText("3 selected")).toBeInTheDocument();
+    expect(allState()).toBe("all");
+    fireEvent.click(folderToggle("A"));
+    expect(selectedKeys()).toEqual(["folder:A", "note:p1", "note:p3"]);
+  });
+
+  it("SB4 寬：群組 tab 群組全收合（沒有可見列）→ 全選框 disabled；展開後可按（T4 review m2）", async () => {
+    mockWidePointer(true);
+    stubServer({ notes: [groupNote({ id: "g1", title: "g1", group: FG })], groups: [FG], folders: [] });
+    renderShells({ tab: "workspace" });
+    await enterWide();
+    await waitFor(() => expect(box("g1")).not.toBeNull());
+    expect(selectAllBox()).toBeEnabled();
+    fireEvent.click(folderToggle("G"));
+    expect(box("g1")).toBeNull();
+    expect(selectAllBox()).toBeDisabled();
+    fireEvent.click(folderToggle("G"));
+    expect(selectAllBox()).toBeEnabled();
+  });
+
+  it("SB5 寬：批次中按 ✕ 再開新選取 → 放行前數量位仍是進度、三顆鈕 disabled；放行後 0 selected、仍在選取、結果 toast 恰一則", async () => {
+    mockWidePointer(true);
+    const server = stubServer(MY);
+    const release = server.hold("PATCH /api/folders/A1");
+    renderShells();
+    await enterWide();
+    await waitFolders("A1", "B");
+    tickFolder("A1");
+    tick("p3");
+    fireEvent.click(within(await openPicker("Move to")).getByRole("button", { name: "B" }));
+    const status = await within(shellHeader(1)).findByRole("status");
+    expect(status).toHaveTextContent("Working… 0 of 2");
+    expect(status).toHaveAttribute("title", "Working… 0 of 2");
+    expect(within(shellHeader(1)).queryByText("2 selected")).toBeNull();
+    expect(within(shellHeader(1)).getAllByRole("status", { hidden: true })).toHaveLength(1);
+    expect(bar()).toHaveAttribute("aria-busy", "true");
+
+    fireEvent.click(exitButton() as HTMLElement);
+    await waitFor(() => expect(exitButton()).toBeNull());
+    fireEvent.click(selectButton(1) as HTMLElement);
+    await waitFor(() => expect(exitButton()).not.toBeNull());
+    await waitFor(() => expect(bar()).not.toBeNull());
+    // select-run 以 actions 為鍵：舊那輪還在跑，新選取的數量位仍是進度（gate r2 I-a）。
+    expect(within(shellHeader(1)).getByRole("status")).toHaveTextContent("Working… 0 of 2");
+    for (const name of ["Move to", "Copy to", "Delete 0 selected items"]) expect(barButton(name)).toBeDisabled();
+
+    await release();
+    expect(await screen.findByText("Moved 2 items to “B”", { exact: true })).toBeInTheDocument();
+    await waitFor(() => expect(within(shellHeader(1)).queryByRole("status")).toBeNull());
+    expect(within(shellHeader(1)).getByText("0 selected")).toBeInTheDocument();
+    expect(exitButton()).not.toBeNull();
+    await settleTimers();
+    expect(openToasts()).toHaveLength(1);
+  });
+
+  it("SB6 選取中寬→窄：標題列換回 1 selected＋Select all＋Done、底部出現動作列、勾選保留、開著的目的地框關掉", async () => {
+    const mq = mockWidePointer(true);
+    stubServer();
+    renderShells();
+    await enterWide();
+    tick("p1");
+    fireEvent.click(barButton("Move to"));
+    await screen.findByRole("dialog", { name: "Move to" });
+    act(() => mq.setWide(false));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(exitButton()).toBeNull();
+    expect(within(shellHeader(1)).getByText("1 selected")).toBeInTheDocument();
+    expect(within(shellHeader(1)).getByRole("button", { name: "Select all" })).toBeInTheDocument();
+    expect(doneButton()).toBeInTheDocument();
+    await waitFor(() => expect(bar()).not.toBeNull());
+    for (const index of [0, 1]) {
+      const bars = barsOf(index);
+      expect(bars).toHaveLength(1);
+      expect(bars[0]!.closest("[data-sidebar-header]")).toBeNull();
+    }
+    expect(selectedKeys()).toEqual(["note:p1"]);
+  });
+
+  it("SB6b 選取中跨判準、焦點在標題列的鈕上：✕ → 翻窄 → 焦點在「完成」；完成 → 翻寬 → 焦點在 ✕（不掉到 body；T4 review m1）", async () => {
+    const mq = mockWidePointer(true);
+    stubServer();
+    renderShells();
+    await enterWide();
+    await waitFor(() => expect(exitButton()).toHaveFocus());
+    act(() => mq.setWide(false));
+    expect(doneButton()).toHaveFocus();
+    act(() => mq.setWide(true));
+    expect(exitButton()).toHaveFocus();
+  });
+
+  it("SB6c 選取中跨判準、翻轉前焦點已在 body（不在標題列）→ 不搶焦點、仍在 body", async () => {
+    const mq = mockWidePointer(true);
+    stubServer();
+    renderShells();
+    await enterWide();
+    await waitFor(() => expect(exitButton()).toHaveFocus());
+    (exitButton() as HTMLElement).blur();
+    expect(document.activeElement).toBe(document.body);
+    act(() => mq.setWide(false));
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it("SB7 寬：點 Move to 圖示 → 目的地框；取消 → 焦點回圖示鈕", async () => {
+    mockWidePointer(true);
+    stubServer();
+    renderShells();
+    await enterWide();
+    tick("p1");
+    fireEvent.click(barButton("Move to"));
+    const picker = await screen.findByRole("dialog", { name: "Move to" });
+    fireEvent.click(within(picker).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await settleTimers();
+    expect(barButton("Move to")).toHaveFocus();
+    expect(shellHeader(1).contains(document.activeElement)).toBe(true);
+  });
+
+  it("SB8 窄：Move to 不是主色（沒有 bg-brand*）、class 與 Copy to 相同（F25）", async () => {
+    stubServer();
+    renderShells();
+    await enterSelecting();
+    tick("p1");
+    const move = barButton("Move to");
+    expect([...move.classList].filter((name) => name.startsWith("bg-brand"))).toEqual([]);
+    expect(move.className).toBe(barButton("Copy to").className);
+  });
+
+  const ACROSS = "The selected notes are in different groups and can't be moved together";
+  const NO_FOLDER_COPY = "Folders can't be copied";
+
+  it.each(["narrow", "wide"] as const)(
+    "SB9 %s：群組 tab 跨群組 → Move to aria-disabled（沒有 disabled）＋title／描述；點了不開框；窄出 toast、寬沒有；兩顆鈕 class 相同",
+    async (form) => {
+      mockWidePointer(form === "wide");
+      const g1 = groupNote({ id: "g1", title: "g1", group: FG });
+      const h1 = groupNote({ id: "h1", title: "h1", group: FH });
+      const server = stubServer({ notes: [g1, h1], groups: [FG, FH], folders: [GF] });
+      renderShells({ tab: "workspace" });
+      await enterForm(form);
+      tick("g1", "h1");
+      const move = barButton("Move to");
+      expect(move).toHaveAttribute("aria-disabled", "true");
+      expect(move).not.toHaveAttribute("disabled");
+      expect(move).toHaveAttribute("title", ACROSS);
+      expect(describedText(move)).toBe(ACROSS);
+      expect(move).toHaveClass("aria-disabled:cursor-not-allowed", "aria-disabled:opacity-50");
+      const copy = barButton("Copy to");
+      expect(copy).toBeEnabled();
+      expect(copy).not.toHaveAttribute("aria-disabled");
+      expect(move.className).toBe(copy.className);
+      fireEvent.click(move);
+      await settleTimers();
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(server.keys()).toEqual([]);
+      expect(openToasts()).toHaveLength(form === "narrow" ? 1 : 0);
+      if (form === "narrow") expect(openToasts()[0]).toHaveTextContent(ACROSS);
+    },
+  );
+
+  it.each(["narrow", "wide"] as const)(
+    "SB9 %s：勾資料夾 → Copy to aria-disabled（沒有 disabled）＋「Folders can't be copied」；點了不開框；窄出 toast、寬沒有",
+    async (form) => {
+      mockWidePointer(form === "wide");
+      const server = stubServer(MY);
+      renderShells();
+      await enterForm(form);
+      await waitFolders("A");
+      tickFolder("A");
+      const copy = barButton("Copy to");
+      expect(copy).toHaveAttribute("aria-disabled", "true");
+      expect(copy).not.toHaveAttribute("disabled");
+      expect(copy).toHaveAttribute("title", NO_FOLDER_COPY);
+      expect(describedText(copy)).toBe(NO_FOLDER_COPY);
+      expect(copy.className).toBe(barButton("Move to").className);
+      fireEvent.click(copy);
+      await settleTimers();
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(server.keys()).toEqual([]);
+      expect(openToasts()).toHaveLength(form === "narrow" ? 1 : 0);
+      if (form === "narrow") expect(openToasts()[0]).toHaveTextContent(NO_FOLDER_COPY);
+    },
+  );
+
+  it.each(["narrow", "wide"] as const)("SB10 %s：0 項時三顆鈕、最近 tab 只勾不能刪的篇時的刪除 → 真的 disabled、沒有 aria-disabled、點了沒有 toast", async (form) => {
+    mockWidePointer(form === "wide");
+    stubServer();
+    renderShells({ tab: "recent" });
+    await enterForm(form);
+    for (const name of ["Copy to", "Delete 0 selected items"]) {
+      expect(barButton(name)).toBeDisabled();
+      expect(barButton(name)).not.toHaveAttribute("aria-disabled");
+    }
+    tick("s1");
+    const del = barButton("Delete 1 selected item");
+    expect(del).toBeDisabled();
+    expect(del).not.toHaveAttribute("aria-disabled");
+    expect(barButton("Copy to")).toBeEnabled();
+    fireEvent.click(del);
+    await settleTimers();
+    expect(openToasts()).toHaveLength(0);
+  });
+
+  it.each(["narrow", "wide"] as const)("SB10 %s：批次執行中三顆鈕真的 disabled、沒有 aria-disabled、點了沒有 toast", async (form) => {
+    mockWidePointer(form === "wide");
+    const server = stubServer();
+    const releaseP1 = server.hold("DELETE /api/notes/p1");
+    renderShells();
+    await enterForm(form);
+    tick("p1", "p2");
+    fireEvent.click(barButton("Delete 2 selected items"));
+    await waitFor(() => expect(bar()).toHaveAttribute("aria-busy", "true"));
+    for (const name of ["Move to", "Copy to", "Delete 2 selected items"]) {
+      expect(barButton(name)).toBeDisabled();
+      expect(barButton(name)).not.toHaveAttribute("aria-disabled");
+      fireEvent.click(barButton(name));
+    }
+    await settleTimers();
+    expect(openToasts()).toHaveLength(0);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await releaseP1();
+    expect(await screen.findByText("Moved 2 notes to the trash", { exact: true })).toBeInTheDocument();
+  });
+
+  it.each(["narrow", "wide"] as const)("SB10 %s：優先序——選了資料夾又在跑批次（busy 與反灰原因同時成立）→ Copy to 真的 disabled、沒有 aria-disabled、點了沒有 toast", async (form) => {
+    mockWidePointer(form === "wide");
+    const server = stubServer(MY);
+    const release = server.hold("PATCH /api/folders/A1");
+    renderShells();
+    await enterForm(form);
+    await waitFolders("A1", "B");
+    tickFolder("A1");
+    tick("p3");
+    expect(barButton("Copy to")).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(within(await openPicker("Move to")).getByRole("button", { name: "B" }));
+    await waitFor(() => expect(bar()).toHaveAttribute("aria-busy", "true"));
+    const copy = barButton("Copy to");
+    expect(copy).toBeDisabled();
+    expect(copy).not.toHaveAttribute("aria-disabled");
+    fireEvent.click(copy);
+    await settleTimers();
+    expect(openToasts()).toHaveLength(0);
+    await release();
+    expect(await screen.findByText("Moved 2 items to “B”", { exact: true })).toBeInTheDocument();
   });
 });
