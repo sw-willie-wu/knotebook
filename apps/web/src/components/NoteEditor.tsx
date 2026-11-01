@@ -30,7 +30,7 @@ import { createColumnsPasteExtension, withColumnsDropPoint } from "@/collab/colu
 import { buildCollabEditorBase } from "@/collab/editor-options";
 import { createMarkdownLinkExtension } from "@/collab/markdown-link";
 import { createMarkdownPasteHandler } from "@/collab/paste";
-import { createSiteLinkConvertExtension, createSiteLinkEnv, createSiteLinkPasteHook, type SiteLinkEnvRef } from "@/collab/site-link-convert";
+import { createSiteLinkConvertExtension, createSiteLinkEnv, createSiteLinkPasteHook, withSiteLinkDrop, type SiteLinkEnvRef } from "@/collab/site-link-convert";
 import { useCollabUndoLifeline } from "@/collab/undo";
 import { buildSlashMenuItems } from "@/components/slash-menu";
 import { LinkDialog } from "@/components/LinkDialog";
@@ -72,12 +72,14 @@ const BLOCKED_TRANSFER_TOAST_KEYS: Record<BlockedTransferReason, string> = {
  * 媒體 data URL／非圖片檔案阻擋（spec §12.4）的 tiptap `editorProps.handleDOMEvents`。
  *
  * ⚠ **必須是 `handleDOMEvents`，不能用 `handlePaste`/`handleDrop`**（瀏覽器實測踩過，
- * 用後者等於完全沒有防線）：BlockNote 自己註冊了 `handleDOMEvents.paste` 的外掛，
+ * 用後者，貼上等於完全沒有防線，只帶檔案的拖放也一樣）：BlockNote 自己註冊了 `handleDOMEvents.paste` 的外掛，
  * 而且**進來就無條件 `event.preventDefault()` 並自行處理**（`pasteExtension.ts`）；
- * drop 同理由 `fileDropExtension.ts` 接走。ProseMirror 的 DOM 事件流程是
+ * drop 則由 `fileDropExtension.ts` 依 `acceptedMIMETypes` 的順序取第一個命中的型別，只在那是 `Files`（沒有 text/html、
+ * text/plain 等排在前面的型別）或沒有已知型別時接走，其餘交給 PM。ProseMirror 的 DOM 事件流程是
  * 「先 `someProp('handleDOMEvents')`，那一層沒人認領才輪到內建的 editHandlers」，
  * 而 `handlePaste`/`handleDrop` 是在**內建 editHandlers 裡面**才被查詢的——換句話說
- * BlockNote 的外掛永遠先攔走，那兩個 prop 一次都不會被呼叫。
+ * 貼上時 `handlePaste` 一次都不會被呼叫；drop 只帶 `Files`（沒有 text/html、text/plain 等排在前面的型別）時
+ * （非圖片檔案阻擋要攔的正是這種）`handleDrop` 也不會被呼叫。
  * 反過來 `handleDOMEvents` 這一層，`someProp` 是**先看直接傳入的 editorProps、
  * 再看外掛**，所以我們的 handler 跑得比 BlockNote 的外掛早。
  *
@@ -185,8 +187,8 @@ export function buildNoteEditorOptions({
         createColumnsPasteExtension(),
       ],
       editorProps: {
-        // drop 先記落點（給上面那條貼上規則判斷位置），再走媒體阻擋。
-        handleDOMEvents: withColumnsDropPoint(createMediaBlockingDOMEvents(translate)),
+        // drop：最外層先由 `withSiteLinkDrop` 判斷要不要轉站內連結（#352），再記落點（給上面那條貼上規則判斷位置），再走媒體阻擋。
+        handleDOMEvents: withSiteLinkDrop(siteLinks, editorRef, withColumnsDropPoint(createMediaBlockingDOMEvents(translate))),
         // `[[` 觸發偵測（Task 3 §12.2 recipe）。這裡刻意**不**倚賴 `SuggestionMenu`
         // extension 自己對多字元 trigger 的內建偵測：它算的是
         // `textBetween(from - trigger.length, from) + text` 再與 trigger 嚴格相等，

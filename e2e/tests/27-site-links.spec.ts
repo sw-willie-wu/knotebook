@@ -1,10 +1,10 @@
 import { writeFileSync } from "node:fs";
 import { expect, test, type Browser, type BrowserContext, type Frame, type Locator, type Page } from "@playwright/test";
-import { ADMIN, createNote, createUserViaInvite, editorLocator, loginAs, noteIdFromUrl, randomEmail, reEscape, waitForEditorSelection } from "./helpers.js";
+import { ADMIN, createNote, createUserViaInvite, editorLocator, loginAs, noteIdFromUrl, randomEmail, reEscape, showSidebarTab, waitForEditorSelection } from "./helpers.js";
 
 /**
  * #269 站內連結（spec §15.3）：E1 點擊語意（讀者／編輯者都同分頁跳轉、修飾鍵新分頁、編輯者 hover 出工具列）、E2 段落錨點、E3 複製入口、
- * E4 三條寫入路徑轉 wikilink＋反向連結、E5 公開頁。E6 在 22-presentation.spec.ts。
+ * E4 三條寫入路徑轉 wikilink＋反向連結、E5 公開頁。E6（#352）是拖放進編輯器的站內連結；#269 spec 的 E6 在 22-presentation.spec.ts。
  * C1–C3 是前面 task 留給真瀏覽器確認的項目（選取含 wikilink 的複製／拖曳、A 工具列開著時 hover 到 B、過期分頁）；
  * C4 是 rev 7 的觸控（wikilink 與一般連結：長按出工具列、短按跳轉）。
  *
@@ -706,6 +706,66 @@ test("C1：選取含 wikilink 的文字——複製貼回保留 wikilink（label
     expect(await wikilinkAttrs(page)).toEqual([expected, expected]);
   } finally {
     await context.close();
+  }
+});
+
+test("E6（#352）：從側欄拖一篇筆記進編輯器 → 成為連到它的 wikilink（label 空）、沒有一般連結、網址不變；停頓後 Ctrl+Z 一次整個拿掉", async ({ browser }) => {
+  test.setTimeout(180_000);
+  const adminContext = await browser.newContext();
+  let user: { context: BrowserContext; page: Page; email: string } | undefined;
+  try {
+    const admin = await adminContext.newPage();
+    await loginAs(admin, ADMIN.email, ADMIN.password);
+    // 新使用者：側欄只有這個測試的筆記
+    user = await createViewer(browser, admin);
+    const page = user.page;
+    const stamp = String(Date.now());
+    const titleN = `E2E sl e6 source ${stamp}`;
+
+    await createNote(page, titleN);
+    const nId = await noteIdFromUrl(page);
+    await createNote(page, `E2E sl e6 host ${stamp}`);
+    const editor = editorLocator(page);
+    await editor.click();
+    await page.keyboard.type(`drop target ${stamp}`);
+    const dropInline = editor.locator(".bn-inline-content", { hasText: /^drop target / });
+    await expect(dropInline).toHaveText(`drop target ${stamp}`);
+
+    // 來源：側欄「My notes」裡 N 的連結
+    const panel = await showSidebarTab(page, "My notes");
+    const link = panel.getByRole("link", { name: titleN, exact: true });
+    const nPath = (await link.getAttribute("href"))!;
+    expect(nPath).toMatch(/^\/n\//);
+    const urlBefore = page.url();
+
+    // 手寫滑鼠（同 C1：放在目標列右段，拖曳中側邊選單按鈕疊在段首文字上）。不用 dragTo／dragAndDrop。
+    const from = (await link.boundingBox())!;
+    const dropOuter = editor.locator(".bn-block-outer").filter({ has: page.locator(".bn-inline-content", { hasText: /^drop target / }) }).last();
+    const to = (await dropOuter.boundingBox())!;
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(from.x + from.width / 2 + 30, from.y + from.height / 2, { steps: 5 });
+    await page.mouse.move(to.x + to.width * 0.8, to.y + to.height / 2, { steps: 10 });
+    await page.mouse.move(to.x + to.width * 0.8 + 2, to.y + to.height / 2);
+    // 放下前停頓至少 600 ms（語意上的停頓：讓撤銷歷史把放下與前面的輸入分開，不是等待條件）
+    await page.waitForTimeout(600);
+    await page.mouse.up();
+
+    // 1. 恰一個 wikilink，連到 N、label 空
+    await expect(dropInline.locator(WIKILINK)).toHaveCount(1, { timeout: 10_000 });
+    expect(await wikilinkAttrs(page)).toEqual([{ targetNoteId: nId, label: "", anchorBlockId: "" }]);
+    // 2. 沒有連到 N 的一般連結（排除 wikilink 本身的 href）
+    await expect(editor.locator(`a[href$="${nPath}"]:not(${WIKILINK} a)`)).toHaveCount(0);
+    // 3. 網址不變（沒有被當成導航）
+    expect(page.url()).toBe(urlBefore);
+    // 4. 一次 Ctrl+Z 整個拿掉：沒有 wikilink、文字回到放下前、沒有任何連結
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(editor.locator(WIKILINK)).toHaveCount(0);
+    await expect(dropInline).toHaveText(`drop target ${stamp}`);
+    await expect(editor.locator("a[href]")).toHaveCount(0);
+  } finally {
+    await user?.context.close();
+    await adminContext.close();
   }
 });
 
