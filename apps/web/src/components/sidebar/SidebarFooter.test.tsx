@@ -459,6 +459,22 @@ describe("SidebarFooter — 垃圾桶選取模式的動作列", () => {
     await waitFor(() => expect(barButton(1, "Delete permanently")).toHaveFocus());
   });
 
+  it("SM9d 窄：確認框內按 Esc → 只關框、仍在選取、焦點回開框鈕（TPW4 的窄形版）", async () => {
+    const server = stubTrashServer([P1, P2, W1, W2]);
+    renderShells();
+    await enterSelecting();
+    fireEvent.click(shellBox(1, "w1"));
+    fireEvent.click(barButton(1, "Delete permanently"));
+    const dialog = await screen.findByRole("dialog", { name: "Permanently delete 1 note?" });
+    fireEvent.keyDown(within(dialog).getByRole("button", { name: "Cancel" }), { key: "Escape" });
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(server.posts("/api/trash/purge")).toEqual([]);
+    expect(within(shellHeader(1)).getByText("1 selected", { exact: true })).toBeInTheDocument();
+    expect(shellBox(1, "w1")).toBeChecked();
+    await waitFor(() => expect(barButton(1, "Delete permanently")).toHaveFocus());
+  });
+
   it("SM10 還原失敗（500）：錯誤 toast、仍在選取模式、選取不變", async () => {
     const server = stubTrashServer([P1, P2, W1, W2], { restoreStatus: 500 });
     renderShells();
@@ -616,5 +632,254 @@ describe("SidebarFooter — 垃圾桶選取模式的動作列", () => {
     // 換成 outline 時 twMerge 會讓 hover:bg-destructive/10 蓋掉 hover:bg-brand-deep，但按下態（active:…brand-deep…）與
     // hover:border-transparent 會留下：只看上一條抓不到。
     expect(purge.className).not.toMatch(/brand-deep|hover:border-transparent/);
+  });
+});
+
+/**
+ * PR-3b-3 T5（tabs-and-trash spec §6.10.2 rev 4.3）：寬螢幕的垃圾桶選取工具列在標題列一列（✕＋三態全選框＋已選 N 篇＋兩顆圖示鈕），
+ * 選取中底部不顯示（保留天數說明也不出現）。骨架同上（兩份外殼，動作一律從 `shell(1)` 發起）。
+ */
+describe("SidebarFooter — 垃圾桶寬螢幕選取工具列", () => {
+  let pointer: ReturnType<typeof mockWidePointer>;
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+    pointer = mockWidePointer(true);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    act(() => dismissAllToasts());
+  });
+
+  const exitButton = (index: number) => within(shellHeader(index)).queryByRole("button", { name: "Exit selection", hidden: true });
+  const selectAllBox = (index: number) => within(shellHeader(index)).getByRole("checkbox", { name: "Select all", hidden: true }) as HTMLInputElement;
+  const headerButton = (index: number, name: string) => within(shellHeader(index)).getByRole("button", { name, hidden: true });
+
+  async function enterWide(lastId: string) {
+    await waitFor(() => expect(shell(1).querySelector(`li[data-node-id="${lastId}"]`)).not.toBeNull());
+    fireEvent.click(selectButton(1) as HTMLElement);
+  }
+
+  it("TPW1 寬：進入 → 標題列 ✕（焦點）、Select all 框、0 selected、Restore／Delete permanently 圖示鈕（0 篇 disabled）；底部沒有說明與動作列", async () => {
+    stubTrashServer([P1, P2, W1, W2]);
+    renderShells();
+    await waitFor(() => expect(within(shell(1)).getByTestId("trash-footer")).toBeInTheDocument());
+    await enterWide("w2");
+
+    const exit = exitButton(1) as HTMLElement;
+    expect(exit).toHaveAttribute("title", "Exit selection");
+    expect(exit).toHaveFocus();
+    expect(within(shellHeader(1)).queryByRole("button", { name: "Done", hidden: true })).toBeNull();
+    const box = selectAllBox(1);
+    expect(box).not.toBeChecked();
+    expect(box.indeterminate).toBe(false);
+    expect(within(shellHeader(1)).getByText("0 selected", { exact: true })).toBeInTheDocument();
+
+    const restore = headerButton(1, "Restore");
+    const purge = headerButton(1, "Delete permanently");
+    expect(restore).toHaveAttribute("title", "Restore");
+    expect(purge).toHaveAttribute("title", "Delete permanently");
+    expect(restore).toBeDisabled();
+    expect(purge).toBeDisabled();
+    expect(restore.querySelector('svg[data-icon="restore"]')).not.toBeNull();
+    expect(purge.querySelector('svg[data-icon="trash"]')).not.toBeNull();
+    expect(restore).toHaveClass("h-6", "w-6");
+    expect(restore).not.toHaveClass("bg-brand-soft");
+    expect(purge).toHaveClass("h-6", "w-6", "text-destructive");
+    // 一列的順序：✕、全選框、（數量）、還原、永久刪除。
+    expect([...shellHeader(1).querySelectorAll("button, input")]).toEqual([exit, box, restore, purge]);
+
+    // 每份實例恰一個動作列、都在標題列裡；底部沒有保留天數說明、沒有第二組鈕。
+    for (const index of [0, 1]) {
+      const bars = shell(index).querySelectorAll("[data-select-action-bar]");
+      expect(bars).toHaveLength(1);
+      expect(shellHeader(index).contains(bars[0] as Node)).toBe(true);
+      expect(within(shell(index)).getAllByRole("button", { name: "Restore", hidden: true })).toHaveLength(1);
+      expect(within(shell(index)).queryByTestId("trash-footer")).toBeNull();
+    }
+
+    fireEvent.click(shellBox(1, "p1"));
+    expect(headerButton(1, "Restore")).toBeEnabled();
+    expect(headerButton(1, "Delete permanently")).toBeEnabled();
+  });
+
+  it("TPW2 寬：勾一篇（共兩篇）→ 全選框半勾；點框 → 兩篇都勾、框打勾；再點 → 全空", async () => {
+    stubTrashServer([P1, P2]);
+    renderShells();
+    await enterWide("p2");
+    fireEvent.click(shellBox(1, "p1"));
+    expect(selectAllBox(1).indeterminate).toBe(true);
+    expect(selectAllBox(1)).not.toBeChecked();
+    expect(selectAllBox(1)).toHaveAttribute("title", "Select all");
+
+    fireEvent.click(selectAllBox(1));
+    expect(shellBox(1, "p1")).toBeChecked();
+    expect(shellBox(1, "p2")).toBeChecked();
+    expect(selectAllBox(1)).toBeChecked();
+    expect(selectAllBox(1).indeterminate).toBe(false);
+    expect(selectAllBox(1)).toHaveAttribute("title", "Deselect all");
+    expect(within(shellHeader(1)).getByText("2 selected", { exact: true })).toBeInTheDocument();
+
+    fireEvent.click(selectAllBox(1));
+    expect(shellBox(1, "p1")).not.toBeChecked();
+    expect(shellBox(1, "p2")).not.toBeChecked();
+    expect(selectAllBox(1)).not.toBeChecked();
+    expect(selectAllBox(1).indeterminate).toBe(false);
+    expect(within(shellHeader(1)).getByText("0 selected", { exact: true })).toBeInTheDocument();
+  });
+
+  it("TPW2b 寬：選取中清單被重抓成 0 篇 → 全選框 disabled", async () => {
+    const server = stubTrashServer([P1, P2]);
+    const { queryClient } = renderShells();
+    await enterWide("p2");
+    expect(selectAllBox(1)).toBeEnabled();
+    server.setItems([]);
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["trash"] });
+    });
+    expect(await within(shell(1)).findByText("The trash is empty.", { exact: true })).toBeInTheDocument();
+    expect(selectAllBox(1)).toBeDisabled();
+  });
+
+  it("TPW3 寬：勾兩篇 → Restore → 送清單順序、toast、離開選取、焦點回同一份的 Select", async () => {
+    const server = stubTrashServer([P1, P2, W1, W2]);
+    renderShells();
+    await enterWide("w2");
+    fireEvent.click(shellBox(1, "w1"));
+    fireEvent.click(shellBox(1, "p1"));
+    fireEvent.click(headerButton(1, "Restore"));
+
+    expect(await screen.findByText("Restored 2 notes", { exact: true })).toBeInTheDocument();
+    expect(server.posts("/api/trash/restore")).toEqual([{ ids: ["p1", "w1"] }]);
+    expect(await within(shell(1)).findByTestId("trash-footer")).toBeInTheDocument();
+    expect(exitButton(1)).toBeNull();
+    expect(selectButton(1)).toHaveFocus();
+  });
+
+  it("TPW4 寬：確認框內 Esc（框內元素、document 各一次）只關框、仍在選取、焦點回圖示鈕；再開框確認 → purge、離開選取", async () => {
+    const server = stubTrashServer([P1, P2, W1, W2]);
+    renderShells();
+    await enterWide("w2");
+    fireEvent.click(shellBox(1, "w1"));
+
+    for (const target of ["inside", "document"] as const) {
+      fireEvent.click(headerButton(1, "Delete permanently"));
+      const dialog = await screen.findByRole("dialog", { name: "Permanently delete 1 note?" });
+      fireEvent.keyDown(target === "inside" ? within(dialog).getByRole("button", { name: "Cancel" }) : document, { key: "Escape" });
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      expect(within(shellHeader(1)).getByText("1 selected", { exact: true })).toBeInTheDocument();
+      expect(shellBox(1, "w1")).toBeChecked();
+      await waitFor(() => expect(headerButton(1, "Delete permanently")).toHaveFocus());
+    }
+    expect(server.posts("/api/trash/purge")).toEqual([]);
+
+    fireEvent.click(headerButton(1, "Delete permanently"));
+    const dialog = await screen.findByRole("dialog", { name: "Permanently delete 1 note?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete permanently" }));
+    expect(await screen.findByText("Permanently deleted 1 note", { exact: true })).toBeInTheDocument();
+    expect(server.posts("/api/trash/purge")).toEqual([{ ids: ["w1"] }]);
+    expect(await within(shell(1)).findByTestId("trash-footer")).toBeInTheDocument();
+    expect(selectButton(1)).toHaveFocus();
+  });
+
+  it("TPW5 寬：✕ → 離開選取、焦點回同一份的 Select；靜態卡內 Esc → 同", async () => {
+    stubTrashServer([P1, P2, W1, W2]);
+    renderShells();
+    await enterWide("w2");
+    fireEvent.click(shellBox(1, "p1"));
+    fireEvent.click(exitButton(1) as HTMLElement);
+    expect(exitButton(1)).toBeNull();
+    expect(shell(1).querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
+    expect(selectButton(1)).toHaveFocus();
+    expect(within(shell(1)).getByTestId("trash-footer")).toBeInTheDocument();
+
+    fireEvent.click(selectButton(1) as HTMLElement);
+    expect(exitButton(1)).toHaveFocus();
+    fireEvent.click(shellBox(1, "p1"));
+    fireEvent.keyDown(shellBox(1, "p1"), { key: "Escape" });
+    expect(exitButton(1)).toBeNull();
+    expect(shell(1).querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
+    expect(selectButton(1)).toHaveFocus();
+  });
+
+  it("TPW6 窄：照現行（未選取有保留天數說明；選取中 Done、底部 Restore 主色文字鈕、標題列沒有圖示鈕）", async () => {
+    mockWidePointer(false);
+    stubTrashServer([P1, P2, W1, W2]);
+    renderShells();
+    expect(await within(shell(1)).findByTestId("trash-footer")).toBeInTheDocument();
+    await enterWide("w2");
+    expect(within(shellHeader(1)).getByRole("button", { name: "Done" })).toHaveFocus();
+    expect(exitButton(1)).toBeNull();
+    expect(within(shellHeader(1)).getByRole("button", { name: "Select all" })).toBeInTheDocument();
+    expect(within(shellHeader(1)).queryByRole("button", { name: "Restore" })).toBeNull();
+    expect(shell(1).querySelectorAll("[data-select-action-bar]")).toHaveLength(0);
+    const restore = barButton(1, "Restore");
+    expect(restore).toHaveTextContent("Restore");
+    expect(restore).toHaveClass("bg-brand-soft", "text-brand-on-soft");
+    expect(within(shell(1)).queryByTestId("trash-footer")).toBeNull();
+  });
+
+  it("TPW7 寬：還原送出中按 ✕、立刻再按 Select → 放行後仍在新的一輪（0 selected）、焦點不被搬到 Select", async () => {
+    const hold = deferred();
+    stubTrashServer([P1, P2, W1, W2], { hold: hold.promise });
+    renderShells();
+    await enterWide("w2");
+    fireEvent.click(shellBox(1, "p1"));
+    fireEvent.click(headerButton(1, "Restore"));
+    fireEvent.click(exitButton(1) as HTMLElement);
+    fireEvent.click(selectButton(1) as HTMLElement);
+    expect(within(shellHeader(1)).getByText("0 selected", { exact: true })).toBeInTheDocument();
+    expect(exitButton(1)).toHaveFocus();
+
+    await act(async () => {
+      hold.resolve();
+    });
+    expect(await screen.findByText("Restored 1 note", { exact: true })).toBeInTheDocument();
+    await act(async () => {});
+    expect(within(shellHeader(1)).getByText("0 selected", { exact: true })).toBeInTheDocument();
+    expect(within(shell(1)).queryByTestId("trash-footer")).toBeNull();
+    expect(selectButton(1)).toBeNull();
+    expect(exitButton(1)).toHaveFocus();
+  });
+
+  it("TPW8 選取中跨寬窄判準：選取與已勾保留、工具列換形；焦點在 ✕ → 換到 Done → 換回 ✕；開著的確認框隨寬形工具列關掉", async () => {
+    stubTrashServer([P1, P2, W1, W2]);
+    renderShells();
+    await enterWide("w2");
+    fireEvent.click(shellBox(1, "p1"));
+    (exitButton(1) as HTMLElement).focus();
+
+    act(() => pointer.setWide(false));
+    expect(within(shellHeader(1)).getByText("1 selected", { exact: true })).toBeInTheDocument();
+    expect(shellBox(1, "p1")).toBeChecked();
+    expect(exitButton(1)).toBeNull();
+    expect(within(shellHeader(1)).getByRole("button", { name: "Done" })).toHaveFocus();
+    expect(within(shellHeader(1)).queryByRole("button", { name: "Restore" })).toBeNull();
+    expect(await within(shell(1)).findByRole("button", { name: "Restore" })).toHaveTextContent("Restore");
+
+    act(() => pointer.setWide(true));
+    expect(exitButton(1)).toHaveFocus();
+    expect(within(shell(1)).getAllByRole("button", { name: "Restore" })).toHaveLength(1);
+    expect(shellHeader(1).contains(within(shell(1)).getByRole("button", { name: "Restore" }))).toBe(true);
+
+    fireEvent.click(headerButton(1, "Delete permanently"));
+    await screen.findByRole("dialog", { name: "Permanently delete 1 note?" });
+    act(() => pointer.setWide(false));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(within(shellHeader(1)).getByText("1 selected", { exact: true })).toBeInTheDocument();
+  });
+
+  it("TPW8b 翻轉前焦點已在 body（不在標題列）：跨判準不搶焦點", async () => {
+    stubTrashServer([P1, P2, W1, W2]);
+    renderShells();
+    await enterWide("w2");
+    (exitButton(1) as HTMLElement).blur();
+    expect(document.body).toHaveFocus();
+    act(() => pointer.setWide(false));
+    expect(document.body).toHaveFocus();
+    act(() => pointer.setWide(true));
+    expect(document.body).toHaveFocus();
   });
 });
