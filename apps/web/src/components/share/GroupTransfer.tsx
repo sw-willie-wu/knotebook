@@ -21,6 +21,7 @@ import {
   type DestTarget,
   type Translate,
 } from "@/components/sidebar/destination-level";
+import { useWidePointer } from "@/lib/wide-pointer";
 import { destinationItemIcon } from "@/components/sidebar/destination-icon";
 import { indexFolders, type FolderIndex } from "@/components/sidebar/folder-index";
 import { Button } from "@/components/ui/button";
@@ -124,40 +125,33 @@ export function transferTargetOf(note: NoteDto, pick: DestinationPick, t: Transl
   return folder === undefined ? { type: "group", group } : { type: "group", group, folder };
 }
 
-/** 一個子選單（移動或複製）目前這一層與它的換層動作；兩種形態共用。 */
+/** 就地展開形（窄／觸控）一組（移動或複製）目前這一層與它的換層動作。寬形（層疊）不用 path，見 `CascadeRoot`。 */
 interface LevelNav {
   items: DestItem[];
   /** NoteMenuCore 持有的 path（物件同一性＝沒換層）。 */
   path: readonly DestPathStep[];
-  /** 第二層起（「‹ 返回」恆第一項）；不看 path.length（見 `livePath`）。 */
+  /** 第二層起（「返回」恆第一項）；不看 path.length（見 `livePath`）。 */
   nested: boolean;
   drill: (step: DestPathStep) => void;
   back: () => void;
-  reset: () => void;
   pick: (target: DestTarget) => void;
 }
 
 /**
- * 層內容（spec §6.11.1、§6.11.4、§6.16）：每個 `DestItem` 一個選單項，分隔線＝`DropdownMenuSeparator`。
- * 只在 flyout 的 `SubContent` 開著、或就地展開形展開時掛載，期間持續存在（**不以 path 當 key**）；換層後（掛載後 path 改變）
- * 把焦點交給新層第一個未停用的項目（第二層起即「‹ 返回」）、flyout 另把 `SubContent` 捲回頂端（總管裁定 2026-10-29 m1、m1-1、M3）。
- * `active` 為假（flyout 子選單正在關：Radix `Presence` 在 open 變假的那次 commit 仍掛著內容，path 同時被重設）時不搬焦點，
- * 否則焦點會被搶進即將卸載的子選單、Esc 後回不到觸發項。
- * 「‹ 」是 `aria-hidden` 的字：畫面是「‹ 返回」、可及名稱是「返回」；帶 `>` 的項目可及名稱＝「{{name}}，開啟下一層」。
+ * 就地展開形的層內容（spec §6.11.1、§6.11.4、§6.16）：每個 `DestItem` 一個選單項，分隔線＝`DropdownMenuSeparator`。
+ * 只在展開時掛載，期間持續存在（**不以 path 當 key**）；換層後（掛載後 path 改變）把焦點交給新層第一個未停用的項目
+ * （第二層起即「返回」；總管裁定 2026-10-29 m1、m1-1、M3）。
+ * 返回項前導 `ChevronLeft` 圖示（`aria-hidden`）、可及名稱是「返回」；帶 `>` 的項目可及名稱＝「{{name}}，開啟下一層」。
  */
 function DestinationLevelItems({
   level,
-  active,
   itemClassName,
-  scrollRef,
   onLeft,
 }: {
   level: LevelNav;
-  active: boolean;
   itemClassName?: string;
-  scrollRef?: RefObject<HTMLDivElement | null>;
-  /** 就地展開形：項目上的 ArrowLeft（第二層起回上一層、第一層收合）。flyout 由 `SubContent` 的 onKeyDown 接。 */
-  onLeft?: () => void;
+  /** 項目上的 ArrowLeft（第二層起回上一層、第一層收合）。 */
+  onLeft: () => void;
 }) {
   const { items, path } = level;
   const firstRef = useRef<HTMLDivElement>(null);
@@ -165,10 +159,8 @@ function DestinationLevelItems({
   useLayoutEffect(() => {
     if (prevPath.current === path) return;
     prevPath.current = path;
-    if (!active) return;
-    if (scrollRef?.current) scrollRef.current.scrollTop = 0;
     firstRef.current?.focus();
-  }, [path, active, scrollRef]);
+  }, [path]);
   const firstEnabled = items.findIndex((item) => item.kind === "back" || (item.kind !== "separator" && item.disabled === null));
   return (
     <>
@@ -199,17 +191,14 @@ function DestinationLevelItems({
               if (event.key === "ArrowRight" && drill !== null) {
                 event.preventDefault();
                 level.drill(drill);
-              } else if (event.key === "ArrowLeft" && onLeft !== undefined) {
+              } else if (event.key === "ArrowLeft") {
                 event.preventDefault();
                 onLeft();
               }
             }}
           >
             {Icon !== null && <Icon aria-hidden="true" className="mr-2 h-4 w-4 shrink-0" />}
-            <span className="truncate">
-              {item.kind === "back" && <span aria-hidden="true">‹ </span>}
-              {item.label}
-            </span>
+            <span className="truncate">{item.label}</span>
             {drill !== null && <ChevronRight aria-hidden="true" className="ml-auto h-4 w-4 shrink-0" />}
           </DropdownMenuItem>
         );
@@ -218,38 +207,13 @@ function DestinationLevelItems({
   );
 }
 
-/**
- * 群組清單的展開形（Willie 2026-10-08）：**窄視窗或觸控** -> 就地向下展開（手風琴，項目縮排在觸發項下方，同一個選單內，
- * 不會被抽屜／視窗邊緣裁切）；**寬且可 hover** -> 右側 flyout（Radix Sub）。
- * 判準沿用 repo 既有的兩個界線：窄＝`(width < 48rem)`（`lib/sidebar-drawer.ts` 的 `NARROW_QUERY`、`max-md:`）；觸控＝`(hover: none)`
- * （`ui/reveal.ts`、`NoteList` 的觸控常駐判準）。兩者任一成立即就地展開。jsdom 預設 matchMedia 恆 false -> flyout 形。
- */
-export const INLINE_GROUP_LIST_QUERY = "(width < 48rem), (hover: none)";
-
-export function useInlineGroupList(): boolean {
-  const read = () =>
-    typeof window !== "undefined" &&
-    typeof window.matchMedia === "function" &&
-    window.matchMedia(INLINE_GROUP_LIST_QUERY).matches;
-  const [inline, setInline] = useState(read);
-  useEffect(() => {
-    if (typeof window.matchMedia !== "function") return;
-    const mql = window.matchMedia(INLINE_GROUP_LIST_QUERY);
-    const onChange = () => setInline(mql.matches);
-    mql.addEventListener("change", onChange);
-    onChange();
-    return () => mql.removeEventListener("change", onChange);
-  }, []);
-  return inline;
-}
-
 /** 觸發項前的圖示：與 `NoteMenu` 其他項同一組 class（`mr-2 h-4 w-4`），兩種形態共用。 */
 function TransferIcon({ kind }: { kind: GroupTransferKind }) {
   return kind === "move" ? <FolderInput className="mr-2 h-4 w-4" /> : <Copy className="mr-2 h-4 w-4" />;
 }
 
 /** 就地展開形的一組：觸發項（Enter／Space／右鍵展開或收合，左鍵收合）＋縮排的目前這一層（同一個 menu 的一般項，上下鍵照常漫遊）。
- * 點 `>` 項＝原地換成下一層（觸發項不動、「‹ 返回」成為第一個縮排項）；第二層起 ArrowLeft 回上一層、第一層 ArrowLeft 收合。
+ * 點 `>` 項＝原地換成下一層（觸發項不動、「返回」成為第一個縮排項）；第二層起 ArrowLeft 回上一層、第一層 ArrowLeft 收合。
  * 收合（再點觸發項、第一層 ArrowLeft）時呼叫端一併重設 path；Esc 的收合由 `NoteMenu` 的 `onEscapeKeyDown` 接（見 `GroupTransferMenuItems`）。 */
 function GroupInline({
   kind,
@@ -296,7 +260,6 @@ function GroupInline({
         <DropdownMenuGroup aria-label={label}>
           <DestinationLevelItems
             level={level}
-            active
             itemClassName="pl-6"
             onLeft={() => (level.nested ? level.back() : onOpenChange(false))}
           />
@@ -306,24 +269,46 @@ function GroupInline({
   );
 }
 
+/** 層疊每一層 `SubContent` 的 class（高度跟著 Radix 量到的可用高度、窄視窗不貼邊）。 */
+const CASCADE_CONTENT_CLASS =
+  "max-h-[min(20rem,var(--radix-dropdown-menu-content-available-height))] max-w-[min(18rem,calc(100vw-2rem))] overflow-y-auto";
+
+/** 層疊形各層共用：來源、資料夾索引、選定（非 `>` 項）回報。 */
+interface CascadeProps {
+  source: DestSource;
+  index: FolderIndex;
+  onPick: (target: DestTarget) => void;
+}
+
+/** 有下一層的資料夾／空間項（`drill` 非 null）＝層疊的 SubTrigger。 */
+type DrillItem = Extract<DestItem, { kind: "folder" | "space" }> & { drill: DestPathStep };
+
 /**
- * flyout 形（寬且可 hover）：`SubContent` 顯示目前這一層，換層在同一個 `SubContent` 內（spec §6.11.4）。
- * - 受控：Radix 的 SubContent 對 Esc 呼叫的是 root 的 onClose（整個選單關掉，實測），不是「返回上一層」。所以自己接 Esc——
- *   不論在第幾層都只關子選單、焦點回子選單觸發項。
- * - ArrowLeft：第二層起在 `SubContent` 的 onKeyDown 先 `preventDefault()`（Radix 的 `MenuSubContent` 以 composeEventHandlers
- *   接在我們之後，見到 defaultPrevented 就不關，讀碼發現 4）並回上一層；第一層照 Radix 關子選單。
- * - 子選單關閉（Esc、ArrowLeft、指標離開）時重設這一組的 path，下次打開回第一層。
+ * 層疊形（寬且可 hover，spec F23、§6.11.4）的「移動到…／複製到…」那一層：受控 Radix `Sub`，內容是第一層（`CascadeItems`）。
+ * - Esc：Radix 的 SubContent 對 Esc 呼叫的是 root 的 onClose（整個選單關掉，實測），所以自己接——`preventDefault`、只收這一層、
+ *   焦點回觸發項（總管裁定 ②；各層的 `CascadeSub` 同法）。
+ * - ArrowLeft 不攔：Radix 內建在 `SubContent` 上收起該層、焦點回觸發項。
+ * - `SubContent` 走 Portal（見 `ui/dropdown-menu.tsx`），不被父層 `overflow-hidden` 裁掉，貼近視窗邊緣時 Radix 自動翻邊。
  */
-function GroupSub({ kind, label, level, testId }: { kind: GroupTransferKind; label: string; level: LevelNav; testId: string }) {
+function CascadeRoot({
+  kind,
+  label,
+  testId,
+  source,
+  index,
+  onPick,
+}: CascadeProps & { kind: GroupTransferKind; label: string; testId: string }) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
-  const changeOpen = (next: boolean) => {
-    setOpen(next);
-    if (!next) level.reset();
-  };
+  // 焦點所在的項目被卸載（資料夾晚到時一般項換成 SubTrigger、資料夾被刪連子選單一起消失）時焦點會掉到 body，鍵盤就出不了選單：
+  // 每次 render 後檢查，掉了就交給這一層的內容（Radix 再交給第一個可聚焦項）。必須是 useEffect：useLayoutEffect 時 Radix 的
+  // collection 還留著剛卸載的項目，focusFirst 會在 null 上呼叫 focus（審查三引擎實測）。子層 `CascadeSub` 同法，子層的 effect 先跑。
+  useEffect(() => {
+    if (open && document.activeElement === document.body) contentRef.current?.focus();
+  });
   return (
-    <DropdownMenuSub open={open} onOpenChange={changeOpen}>
+    <DropdownMenuSub open={open} onOpenChange={setOpen}>
       <DropdownMenuSubTrigger ref={triggerRef} data-testid={testId}>
         <TransferIcon kind={kind} />
         {label}
@@ -332,18 +317,73 @@ function GroupSub({ kind, label, level, testId }: { kind: GroupTransferKind; lab
         ref={contentRef}
         onEscapeKeyDown={(event) => {
           event.preventDefault();
-          changeOpen(false);
+          setOpen(false);
           triggerRef.current?.focus();
         }}
-        onKeyDown={(event) => {
-          if (event.key === "ArrowLeft" && level.nested) {
-            event.preventDefault();
-            level.back();
-          }
-        }}
-        className="max-h-[min(20rem,var(--radix-dropdown-menu-content-available-height))] max-w-[min(18rem,calc(100vw-2rem))] overflow-y-auto"
+        className={CASCADE_CONTENT_CLASS}
       >
-        <DestinationLevelItems level={level} active={open} scrollRef={contentRef} />
+        <CascadeItems source={source} path={NO_STEPS} index={index} onPick={onPick} />
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
+  );
+}
+
+/**
+ * 層疊的一層：`buildDestinationLevel` 去掉「返回」（spec §6.11.1：寬形沒有返回，往旁層疊本身就是回上一層的路）。
+ * 有下一層的項目＝`CascadeSub`；其餘＝一般項（前導圖示、反灰、選定即回報）。
+ */
+function CascadeItems({ source, path, index, onPick }: CascadeProps & { path: readonly DestPathStep[] }) {
+  const { t } = useTranslation();
+  const items = buildDestinationLevel({ source, path, index, t }).filter((item) => item.kind !== "back");
+  return (
+    <>
+      {items.map((item) => {
+        if (item.kind === "separator") return <DropdownMenuSeparator key={item.key} />;
+        if ((item.kind === "folder" || item.kind === "space") && item.drill !== null) {
+          return <CascadeSub key={item.key} item={{ ...item, drill: item.drill }} source={source} path={path} index={index} onPick={onPick} />;
+        }
+        const Icon = destinationItemIcon(item);
+        return (
+          <DropdownMenuItem key={item.key} disabled={item.disabled !== null} textValue={item.label} onSelect={() => onPick(item.target)}>
+            {Icon !== null && <Icon aria-hidden="true" className="mr-2 h-4 w-4 shrink-0" />}
+            <span className="truncate">{item.label}</span>
+          </DropdownMenuItem>
+        );
+      })}
+    </>
+  );
+}
+
+/**
+ * 層疊的下一層：受控 Radix `Sub`。觸發項不設 `aria-label`——可及名稱＝項目文字（資料夾或空間名），有子選單由 Radix 的
+ * `aria-haspopup`／`aria-expanded` 表達（總管裁定 ③；窄形逐層的「，開啟下一層」不用在這裡）；右側箭頭是 `DropdownMenuSubTrigger`
+ * 自帶的那一顆。Esc 同 `CascadeRoot`（只收這一層、焦點回這個觸發項）。內容只在打開時掛載（Radix `Presence`），遞迴不會預先展開整棵樹。
+ */
+function CascadeSub({ item, source, path, index, onPick }: CascadeProps & { item: DrillItem; path: readonly DestPathStep[] }) {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  // 焦點掉到 body 時交還給這一層（見 `CascadeRoot`；必須 useEffect）。
+  useEffect(() => {
+    if (open && document.activeElement === document.body) contentRef.current?.focus();
+  });
+  const Icon = destinationItemIcon(item);
+  return (
+    <DropdownMenuSub open={open} onOpenChange={setOpen}>
+      <DropdownMenuSubTrigger ref={triggerRef} textValue={item.label}>
+        {Icon !== null && <Icon aria-hidden="true" className="mr-2 h-4 w-4 shrink-0" />}
+        <span className="truncate">{item.label}</span>
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent
+        ref={contentRef}
+        onEscapeKeyDown={(event) => {
+          event.preventDefault();
+          setOpen(false);
+          triggerRef.current?.focus();
+        }}
+        className={CASCADE_CONTENT_CLASS}
+      >
+        <CascadeItems source={source} path={[...path, item.drill]} index={index} onPick={onPick} />
       </DropdownMenuSubContent>
     </DropdownMenuSub>
   );
@@ -353,8 +393,8 @@ function GroupSub({ kind, label, level, testId }: { kind: GroupTransferKind; lab
  * ⋮ 選單的「移動到…」「複製到…」兩個子選單項（#216；資料夾 spec §6.11）。內容是逐層目的地清單（`buildDestinationLevel`，
  * 規則全在 `components/sidebar/destination-level.ts`），群組＝`useGroups()`、資料夾＝`useFolders()`：還沒到時先列不需要資料夾的項目
  * （群組不帶 `>`），到了再補。第一層為空（`isEmptyDestination`）的那一組整項不渲染（I2）。
- * 子選單用 Radix `Sub`：滑鼠 hover、觸控／點擊、方向鍵右進左出、Esc 例外，見 `GroupSub`；`SubContent` 走 Portal
- * （見 `ui/dropdown-menu.tsx`），不被父層 `overflow-hidden` 裁掉，貼近視窗邊緣時 Radix 自動翻邊。
+ * 兩種形態（判準 `lib/wide-pointer.ts`）：寬且可 hover＝往旁層疊的 Radix 巢狀子選單（`CascadeRoot`）；窄或觸控＝就地展開逐層（`GroupInline`）。
+ * 選單開著時跨過判準 → `onModeChange`，呼叫端關掉整個選單（spec §6.11.4；總管裁定 ④）。
  * 選定非 `>` 項只回報（`onPick`）：同空間移動或確認框由呼叫端決定（`transferTargetOf`）。
  */
 export function GroupTransferMenuItems({
@@ -364,23 +404,35 @@ export function GroupTransferMenuItems({
   onExpandedChange,
   paths,
   onPathChange,
+  onModeChange,
 }: {
   note: NoteDto;
   onPick: (pick: DestinationPick) => void;
   /** 就地展開形（窄／觸控）目前展開的是哪一組；狀態由 `NoteMenu` 持有，因為 Esc 要在 `DropdownMenuContent` 的
-   * `onEscapeKeyDown` 裡先收合、不關整個選單（Radix 的 Esc 監聽在 document，從項目的 onKeyDown 擋不住）。flyout 形不用它。 */
+   * `onEscapeKeyDown` 裡先收合、不關整個選單（Radix 的 Esc 監聽在 document，從項目的 onKeyDown 擋不住）。層疊形不用它。 */
   expanded: GroupTransferKind | null;
   onExpandedChange: (kind: GroupTransferKind | null) => void;
-  /** 兩組各自的所在層（`NoteMenuCore` 持有，選單關閉時重設）。 */
+  /** 就地展開形兩組各自的所在層（`NoteMenuCore` 持有，選單關閉時重設）。層疊形不用它。 */
   paths: DestPaths;
   onPathChange: (kind: GroupTransferKind, path: readonly DestPathStep[]) => void;
+  /** 掛載後寬窄判準翻轉時呼叫一次（spec §6.11.4「選單開著時跨過判準」）；NoteMenuCore 收到就關整個選單並重設 expanded／paths。 */
+  onModeChange: () => void;
 }) {
   const { t } = useTranslation();
   const groupsQuery = useGroups();
   const foldersQuery = useFolders();
   const groups = groupsQuery.data ?? NO_GROUPS;
   const index = useMemo(() => indexFolders(foldersQuery.data ?? NO_FOLDERS), [foldersQuery.data]);
-  const inline = useInlineGroupList();
+  // 窄視窗或觸控 -> 就地向下展開（手風琴）；寬且可 hover -> 往旁層疊（Willie 2026-10-08、2026-10-31；判準見 `lib/wide-pointer.ts`）。
+  const wide = useWidePointer();
+  const inline = !wide;
+  // 掛載後判準翻轉（拖視窗寬度、外接滑鼠、平板轉向）-> 通知呼叫端關整個選單；掛載當下不呼叫。
+  const prevWide = useRef(wide);
+  useEffect(() => {
+    if (prevWide.current === wide) return;
+    prevWide.current = wide;
+    onModeChange();
+  }, [wide, onModeChange]);
   const triggers = useRef<Partial<Record<GroupTransferKind, HTMLDivElement | null>>>({});
   const prevExpanded = useRef<GroupTransferKind | null>(null);
   // 收合（尤其 Esc）後焦點原本在被卸載的縮排項上 -> 還給觸發項，鍵盤不掉出選單。
@@ -408,7 +460,6 @@ export function GroupTransferMenuItems({
       nested: items[0]?.kind === "back",
       drill: (step) => onPathChange(kind, [...livePath(source, path, index, t), step]),
       back: () => onPathChange(kind, livePath(source, path, index, t).slice(0, -1)),
-      reset: () => onPathChange(kind, NO_STEPS),
       pick: (target) => onPick({ kind, target, groups, index }),
     };
   };
@@ -434,7 +485,15 @@ export function GroupTransferMenuItems({
             }}
           />
         ) : (
-          <GroupSub key={kind} kind={kind} label={label} testId={testId} level={levelOf(kind, source)} />
+          <CascadeRoot
+            key={kind}
+            kind={kind}
+            label={label}
+            testId={testId}
+            source={source}
+            index={index}
+            onPick={(target) => onPick({ kind, target, groups, index })}
+          />
         ),
       )}
     </>

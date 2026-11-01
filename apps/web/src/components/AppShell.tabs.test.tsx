@@ -6,6 +6,7 @@ import { MemoryRouter, Route, Routes, useParams } from "react-router";
 import type { NoteDto, TrashItemDto, UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ActiveNoteProvider } from "@/lib/active-note";
+import { NARROW_QUERY } from "@/lib/sidebar-drawer";
 import { useSidebarTabActions, useSidebarTabState, type SidebarTabActions } from "@/lib/sidebar-tab";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts } from "@/components/ui/toast";
@@ -81,7 +82,7 @@ function stubFetchWithNotes(notes: NoteDto[], trash: TrashItemDto[] = []) {
   );
 }
 
-/** 可控 matchMedia stub（同 AppShell.test.tsx）。 */
+/** 可控 matchMedia stub（同 AppShell.test.tsx）：只有 `NARROW_QUERY` 回 `initialMatches`，其餘 query（例如 `WIDE_POINTER_QUERY`）一律不成立。 */
 function stubControllableMatchMedia(initialMatches: boolean) {
   const mql = {
     matches: initialMatches,
@@ -95,7 +96,7 @@ function stubControllableMatchMedia(initialMatches: boolean) {
   };
   vi.stubGlobal(
     "matchMedia",
-    vi.fn(() => mql),
+    vi.fn((query: string) => (query === NARROW_QUERY ? mql : { ...mql, matches: false })),
   );
 }
 

@@ -245,7 +245,8 @@ export async function showSidebarTab(page: Page, name: SidebarTabName, scope?: L
 
 /**
  * #181 PR-2c：一般 tab（我的筆記／群組／與我共享／最近）標題列的「Select」→ 等選取標題列的「0 selected」（lazy 的 SelectLazy chunk 到了；
- * 進入時已選一律清空）。`scope` 預設靜態側欄；窄螢幕傳抽屜。回傳 tabpanel（勾選框在裡面；動作列在 tabpanel 外、側欄底部）。
+ * 進入時已選一律清空）。`scope` 預設靜態側欄；窄螢幕傳抽屜。回傳 tabpanel（勾選框在裡面；動作列窄形在 tabpanel 外、側欄底部，
+ * 寬形〔PR-3b-3〕在 tabpanel 內的標題列 `[data-sidebar-header]`——兩形都是 `[data-select-action-bar]`、鈕的可及名稱相同）。
  * 垃圾桶 tab 的選取是另一套（36）。
  */
 export async function startSidebarSelection(page: Page, scope?: Locator): Promise<Locator> {
@@ -352,12 +353,31 @@ export async function folderMenuItem(page: Page, scope: Locator, folder: string,
 }
 
 /**
+ * 資料夾 PR-3b-3：寬窄判準的字面（`apps/web/src/lib/wide-pointer.ts` 的 `WIDE_POINTER_QUERY`；e2e 不能依賴 web 套件，兩處須同步）。
+ * 寬＝⋮「Move to…／Copy to…」往旁層疊、選取工具列在標題列；窄＝逐層就地展開、動作列在底部。
+ */
+const WIDE_POINTER_QUERY = "(width >= 48rem) and (hover: hover) and (pointer: fine)";
+
+/**
+ * 資料夾 PR-3b-3：斷言頁面目前落在寬（`true`）／窄（`false`）判準。寬形案與 390 案開頭各呼叫一次，防「預設視窗是寬」這個假設失效時
+ * 紅在不相干的地方；`setViewportSize` 之後呼叫也等於等 matchMedia 跟上新尺寸。Playwright 改不了 hover／pointer，跨判準只能靠寬度。
+ */
+export async function expectWidePointer(page: Page, wide: boolean): Promise<void> {
+  await expect
+    .poll(() => page.evaluate((query) => window.matchMedia(query).matches, WIDE_POINTER_QUERY), {
+      message: `matchMedia("${WIDE_POINTER_QUERY}") 應為 ${wide}`,
+    })
+    .toBe(wide);
+}
+
+/**
  * 資料夾 PR-3b-2：選單開著時點一個選單項（子選單裡的也可）。寬螢幕的「Move to…／Copy to…」子選單是 Radix flyout：滑鼠要分段移過去
  * 再點——一步瞬移離開觸發項時 Radix 判定「沒往子選單走」、把子選單關掉（理由詳見 16 的 `pickFromSubmenu`）。窄螢幕的就地展開形
  * 分段移動也無害。子選單有 `max-h`（20rem）會捲動：先捲進視野再量位置。
+ * `scope`（PR-3b-3）：層疊各層同時開著，「Move here」等同名項可能在好幾層都有——傳 `openedSubmenu` 回傳的那一層限定範圍。
  */
-export async function clickMenuItemByPointer(page: Page, name: string): Promise<void> {
-  const target = page.getByRole("menuitem", { name, exact: true });
+export async function clickMenuItemByPointer(page: Page, name: string, scope?: Locator): Promise<void> {
+  const target = (scope ?? page).getByRole("menuitem", { name, exact: true });
   await expect(target).toBeVisible();
   await target.scrollIntoViewIfNeeded();
   const box = await target.boundingBox();
@@ -367,24 +387,53 @@ export async function clickMenuItemByPointer(page: Page, name: string): Promise<
 }
 
 /**
- * 資料夾 PR-3b-2：⋮ 開著時點子選單觸發項（「Move to…」／「Copy to…」），再依序點 `steps`（可及名稱 exact）。名稱以「, open」結尾的是
- * 換層項（`folders.dest.openLevel`）：點了等新的一層換上來才點下一步——錨點是「剛點的那項不見了」（舊層整層換掉；只看「Back」
- * 從第二層起就是空等，舊層本來就有 Back），再確認新層有「Back」（第二層起恆第一項，可及名稱不含 aria-hidden 的「‹ 」）。
- * 形態看觸發項：寬且可 hover 是 Radix `SubTrigger`（`aria-haspopup="menu"`）→ 分段滑鼠移動（`clickMenuItemByPointer`）；
- * 窄或觸控是就地展開的一般項 → 直接點縮排項（同一個 menu）。`steps` 空＝只打開子選單（呼叫端要先斷言第一層）。
+ * 資料夾 PR-3b-3：寬形層疊的 SubTrigger（`trigger`）打開後的那一層 menu。等它 `aria-expanded="true"`，再以它的 `aria-controls`
+ * （Radix 只在打開時設，值＝該層 SubContent 的 id）找那一層——各層 SubContent 都是 portal、互不包含，所以這一層的範圍不含更深的層。
+ */
+export async function openedSubmenu(page: Page, trigger: Locator): Promise<Locator> {
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  const id = await trigger.getAttribute("aria-controls");
+  expect(id, "SubTrigger 已打開卻沒有 aria-controls").not.toBeNull();
+  const menu = page.locator(`[role="menu"][id="${id}"]`);
+  await expect(menu).toBeVisible();
+  return menu;
+}
+
+/** 窄形逐層換層項的可及名稱尾綴（`folders.dest.openLevel`「{{name}}, open」）；寬形層疊的 SubTrigger 不帶（總管裁定 ③）。 */
+const OPEN_LEVEL_SUFFIX = ", open";
+
+/**
+ * 資料夾 PR-3b-2／3b-3：⋮ 開著時點「Move to…」／「Copy to…」，再依序點 `steps`（可及名稱 exact；換層項照窄形寫成「X, open」）。
+ * 形態看觸發項：
+ * - 寬且可 hover（`aria-haspopup="menu"`）＝往旁層疊：觸發項是 Radix `SubTrigger`，每一步以 `clickMenuItemByPointer` 分段移過去、限定在
+ *   目前這一層；寬形的 SubTrigger 不帶「, open」（總管裁定 ③），所以把尾綴去掉再找，點了等它 `aria-expanded="true"`、下一步改在它打開的
+ *   那一層找（沒有「Back」可等）。
+ * - 窄或觸控＝就地展開逐層：直接點縮排項（同一個 menu）。「X, open」點了等新的一層換上來才點下一步——錨點是「剛點的那項不見了」
+ *   （舊層整層換掉；只看「Back」從第二層起就是空等，舊層本來就有 Back），再確認新層有「Back」（第二層起恆第一項；返回的圖示是
+ *   aria-hidden，可及名稱只有「Back」）。
+ * `steps` 空＝只打開子選單（呼叫端要先斷言第一層；寬形用 `openedSubmenu` 取那一層）。
  */
 export async function pickNoteMenuDestination(page: Page, trigger: "Move to…" | "Copy to…", steps: readonly string[]): Promise<void> {
   const item = page.getByRole("menuitem", { name: trigger, exact: true });
   await expect(item).toBeVisible();
-  const flyout = (await item.getAttribute("aria-haspopup")) === "menu";
+  const cascade = (await item.getAttribute("aria-haspopup")) === "menu";
   await item.click();
-  for (const step of steps) {
-    if (flyout) await clickMenuItemByPointer(page, step);
-    else await page.getByRole("menuitem", { name: step, exact: true }).click();
-    if (step.endsWith(", open")) {
-      await expect(page.getByRole("menuitem", { name: step, exact: true })).toBeHidden();
-      await expect(page.getByRole("menuitem", { name: "Back", exact: true })).toBeVisible();
+  if (!cascade) {
+    for (const step of steps) {
+      await page.getByRole("menuitem", { name: step, exact: true }).click();
+      if (step.endsWith(OPEN_LEVEL_SUFFIX)) {
+        await expect(page.getByRole("menuitem", { name: step, exact: true })).toBeHidden();
+        await expect(page.getByRole("menuitem", { name: "Back", exact: true })).toBeVisible();
+      }
     }
+    return;
+  }
+  let level = await openedSubmenu(page, item);
+  for (const step of steps) {
+    const opensLevel = step.endsWith(OPEN_LEVEL_SUFFIX);
+    const name = opensLevel ? step.slice(0, -OPEN_LEVEL_SUFFIX.length) : step;
+    await clickMenuItemByPointer(page, name, level);
+    if (opensLevel) level = await openedSubmenu(page, level.getByRole("menuitem", { name, exact: true }));
   }
 }
 

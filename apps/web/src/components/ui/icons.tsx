@@ -29,6 +29,22 @@ export function ChevronRight(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function ChevronLeft(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg data-icon="chevron-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="m15 18-6-6 6-6" />
+    </svg>
+  );
+}
+
+export function Minus(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg data-icon="minus" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M5 12h14" />
+    </svg>
+  );
+}
+
 export function ChevronDown(props: SVGProps<SVGSVGElement>) {
   return (
     <svg data-icon="chevron-down" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>

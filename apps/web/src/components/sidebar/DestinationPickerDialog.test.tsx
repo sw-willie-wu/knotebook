@@ -175,16 +175,15 @@ describe("DestinationPickerDialog", () => {
     expect(item("Shared with me").querySelector('svg[data-icon="share"]')).not.toBeNull();
   });
 
-  it("DPf2 以新 levelKey 渲染第二層 → 第一顆是 Back（‹ aria-hidden）且取得焦點、清單捲回頂端；點 Back → onBack", () => {
+  it("DPf2 以新 levelKey 渲染第二層 → 第一顆是 Back（chevron-left aria-hidden）且取得焦點、清單捲回頂端；點 Back → onBack", () => {
     const view = renderPicker({ level: level(mine("move")) });
     list().scrollTop = 80;
     const path: DestPathStep[] = [{ kind: "folder", folderId: "A" }];
     view.rerender({ level: level(mine("move"), path), levelKey: JSON.stringify(path) });
     expect(rows()).toEqual(["Back", "Move here", "A1"]);
     const back = item("Back");
-    expect(back).toHaveTextContent("‹ Back");
-    expect(back.querySelector('[aria-hidden="true"]')).toHaveTextContent("‹");
-    expect(back.querySelector("svg")).toBeNull();
+    expect(back.textContent).toBe("Back");
+    expect(back.querySelector('svg[data-icon="chevron-left"][aria-hidden="true"]')).not.toBeNull();
     expect(item("Move here").querySelector("svg")).toBeNull();
     expect(back).toHaveFocus();
     expect(list().scrollTop).toBe(0);
@@ -255,7 +254,7 @@ describe("DestinationPickerDialog", () => {
     expect(screen.getByRole("dialog", { name: "Move to" })).toHaveAccessibleDescription("Choose where the 2 notes go.");
   });
 
-  it("DPf5 zh-TW：描述「選擇 2 項要放到哪裡。」、跨空間說明行；第二層「‹ 返回」（可及名稱返回）取得焦點、移動到這裡", async () => {
+  it("DPf5 zh-TW：描述「選擇 2 項要放到哪裡。」、跨空間說明行；第二層「返回」（前導 chevron-left，可及名稱返回）取得焦點、移動到這裡", async () => {
     await i18n.changeLanguage("zh-TW");
     try {
       const path: DestPathStep[] = [{ kind: "folder", folderId: "A" }];
@@ -267,7 +266,9 @@ describe("DestinationPickerDialog", () => {
       expect(within(zh).getByRole("button", { name: "A，開啟下一層" })).toBeEnabled();
       view.rerender({ level: level(mine("move", [FB]), path), levelKey: JSON.stringify(path) });
       expect(rows()).toEqual(["返回", "移動到這裡", "A1"]);
-      expect(within(zh).getByRole("button", { name: "返回" })).toHaveTextContent("‹ 返回");
+      const zhBack = within(zh).getByRole("button", { name: "返回" });
+      expect(zhBack.textContent).toBe("返回");
+      expect(zhBack.querySelector('svg[data-icon="chevron-left"][aria-hidden="true"]')).not.toBeNull();
       expect(within(zh).getByRole("button", { name: "返回" })).toHaveFocus();
     } finally {
       await i18n.changeLanguage("en");

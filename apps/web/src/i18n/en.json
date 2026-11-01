@@ -812,6 +812,7 @@
     "selectAll": "Select all",
     "deselectAll": "Deselect all",
     "done": "Done",
+    "exitSelect": "Exit selection",
     "selected_one": "{{count}} selected",
     "selected_other": "{{count}} selected",
     "purgeTitle_one": "Permanently delete {{count}} note?",

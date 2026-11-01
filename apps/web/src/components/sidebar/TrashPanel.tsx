@@ -1,19 +1,22 @@
-import { memo, useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { TrashItemDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
 import { usePurgeTrash, useRestoreTrash, useTrash } from "@/api/trash";
 import { useSession } from "@/auth/useSession";
-import { selectionKey } from "@/lib/sidebar-selection";
+import { selectAllState, selectionKey } from "@/lib/sidebar-selection";
 import { useSidebarTabActions, useSidebarTabState } from "@/lib/sidebar-tab";
 import { selectedTrashIds, splitTrashSections, trashDetailLine, trashItemTitle, trashLocationLine } from "@/lib/trash-display";
+import { useWidePointer } from "@/lib/wide-pointer";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { EllipsisVertical, RotateCcw, SquareCheck, Trash } from "@/components/ui/icons";
+import { EllipsisVertical, RotateCcw, SquareCheck, Trash, X } from "@/components/ui/icons";
 import { hoverReveal } from "@/components/ui/reveal";
+import { SelectAllCheckbox, SelectionCheckbox } from "@/components/ui/selection-checkbox";
 import { cn } from "@/lib/utils";
 import { tabSpec, type HeaderActionId } from "@/components/sidebar/tab-specs";
 import { EmptyTrashDialog, PurgeConfirmDialog, toastTrashFailure, toastTrashResult } from "@/components/sidebar/trash-dialogs";
+import { TrashWideToolbar } from "@/components/sidebar/TrashFooter";
 
 /**
  * 垃圾桶 tab 的面板（spec 2026-10-21 §6.10.1、§6.10.3）：`AppShell` 在 tab 為 `trash` 時放進 tabpanel，取代 `NoteList`。
@@ -22,8 +25,10 @@ import { EmptyTrashDialog, PurgeConfirmDialog, toastTrashFailure, toastTrashResu
  * - 標題列動作照 `tabSpec("trash").actions` 渲染（spec §9-3）。
  * - 清空＝把**清單上**的 id 全部送 purge（spec §6.3.4-5）：之後才移入的不受影響；超過 200 由 `purgeTrashIds` 分批。
  * - 確認框成敗都關，結果走 toast（`trash-dialogs.tsx`）。動作完成後焦點回清單容器（被處理的列會卸載）。
- * - 選取模式（spec §6.10.2）：狀態在 `SidebarTabProvider`（靜態卡與抽屜兩份共用）；標題列換成「已選 N 篇」＋全選＋完成，
- *   列換成整列 `<label>`＋勾選框、不渲染「還原」與 ⋮。還原／永久刪除的動作列在 `TrashFooter.tsx` 的 `TrashActionBar`。
+ * - 選取模式（spec §6.10.2）：狀態在 `SidebarTabProvider`（靜態卡與抽屜兩份共用）；列換成整列 `<label>`＋勾選框、不渲染「還原」與 ⋮。
+ *   標題列分兩形（`useWidePointer`，PR-3b-3，rev 4.3）：窄＝「已選 N 篇」＋全選＋完成，還原／永久刪除的動作列在底部
+ *   （`TrashFooter.tsx` 的 `TrashActionBar`）；寬＝一列 ✕（結束選取，「完成」的角色）＋三態全選框＋「已選 N 篇」＋`TrashWideToolbar`
+ *   （兩顆圖示鈕與永久刪除確認框，只在選取中掛載），底部不顯示。
  *   焦點只由發起的那一份實例移動（`focusAfterRef`）。
  */
 
@@ -146,12 +151,11 @@ const SelectableTrashRow = memo(function SelectableTrashRow({
           onToggle(selectionKey({ kind: "note", id: item.id }), event.shiftKey);
         }}
       >
-        <input
-          type="checkbox"
+        <SelectionCheckbox
           checked={checked}
           // Shift＝範圍；Ctrl／⌘＋點與一般點選相同（單列切換）。macOS 的 Ctrl＋點是右鍵、不產生 click，用 ⌘。
           onChange={(event) => onToggle(selectionKey({ kind: "note", id: item.id }), (event.nativeEvent as MouseEvent).shiftKey)}
-          className="mt-0.5 h-4 w-4 shrink-0 accent-brand"
+          className="mt-0.5"
         />
         <span className="min-w-0 flex-1">
           <span className="block truncate">{item.title}</span>
@@ -186,7 +190,9 @@ export function TrashPanel() {
   const purge = usePurgeTrash();
   const { selection } = useSidebarTabState();
   const { updateSelection, endSelectionIfActive } = useSidebarTabActions();
+  const wide = useWidePointer();
   const rootRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const emptyButtonRef = useRef<HTMLButtonElement>(null);
   const selectButtonRef = useRef<HTMLButtonElement>(null);
@@ -218,7 +224,22 @@ export function TrashPanel() {
     (target === "done" ? doneButtonRef : selectButtonRef).current?.focus();
   }, [selection.active]);
 
+  // 選取中跨過寬窄判準（Review Focus 1；比照 SelectHeader）：標題列換形，焦點所在的鈕（完成、✕、圖示鈕…）卸載，焦點會掉到 body。
+  // render 時（舊 DOM 還在）記下焦點是否在本實例的標題列裡；換形後焦點落在 body 就交給新形的 doneButtonRef（寬＝✕、窄＝完成）。
+  const focusInHeaderRef = useRef(false);
+  focusInHeaderRef.current = headerRef.current?.contains(document.activeElement) ?? false;
+  const prevWideRef = useRef(wide);
+  useLayoutEffect(() => {
+    if (prevWideRef.current === wide) return;
+    prevWideRef.current = wide;
+    const active = document.activeElement;
+    if (focusInHeaderRef.current && (active === null || active === document.body)) doneButtonRef.current?.focus();
+  }, [wide]);
+
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
+    // 從 portal（寬形 TrashWideToolbar 的永久刪除確認框）經 React 樹冒泡上來的按鍵不處理：確認框內的 Esc 只關框、不結束選取
+    // （plan gate r1 I2 ①）。
+    if (!event.currentTarget.contains(event.target as Node)) return;
     // 靜態卡的 Esc。抽屜裡的 Esc 由 AppShell 的 onEscapeKeyDown（document capture）結束選取並交焦點；真瀏覽器在那之後、
     // React 的 onKeyDown 之前就 commit，勾選框已卸載，這裡收不到。
     if (event.key !== "Escape" || !selection.active) return;
@@ -387,6 +408,45 @@ export function TrashPanel() {
         </>
       );
     }
+    const endSelecting = () => {
+      focusAfterRef.current = "select";
+      updateSelection({ type: "end" });
+    };
+    if (wide) {
+      const { order } = splitTrashSections(items);
+      const allState = selectAllState(order, selection.keys);
+      const countText = t("trash.selected", { count: selectedIds.length });
+      return (
+        <>
+          <Button
+            ref={doneButtonRef}
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label={t("trash.exitSelect")}
+            title={t("trash.exitSelect")}
+            onClick={endSelecting}
+            className="h-6 w-6 shrink-0"
+          >
+            <X aria-hidden="true" className="h-3.5 w-3.5" />
+          </Button>
+          <SelectAllCheckbox
+            state={allState}
+            // 選取中清單被重抓成 0 篇（別處清掉）：沒有可選的。
+            disabled={items.length === 0}
+            onToggle={() => updateSelection(allState === "all" ? { type: "clear" } : { type: "setAll", keys: order })}
+            label={t("trash.selectAll")}
+            title={allState === "all" ? t("trash.deselectAll") : t("trash.selectAll")}
+          />
+          <span className="flex h-6 min-w-0 flex-1 items-center px-1 text-[11px] font-semibold tracking-wide text-brand-on-soft">
+            <span className="truncate" title={countText}>
+              {countText}
+            </span>
+          </span>
+          <TrashWideToolbar />
+        </>
+      );
+    }
     return (
       <>
         <span className="flex h-6 min-w-0 flex-1 items-center px-2 text-[11px] font-semibold tracking-wide text-brand-on-soft">
@@ -408,10 +468,7 @@ export function TrashPanel() {
           type="button"
           variant="outline"
           size="sm"
-          onClick={() => {
-            focusAfterRef.current = "select";
-            updateSelection({ type: "end" });
-          }}
+          onClick={endSelecting}
           className="h-6 px-2 text-xs"
         >
           {t("trash.done")}
@@ -422,7 +479,7 @@ export function TrashPanel() {
 
   return (
     <div ref={rootRef} className="flex min-h-0 flex-1 flex-col" onKeyDown={handleKeyDown}>
-      <div data-sidebar-header="" className="flex items-center gap-0.5 px-2 pt-3 pb-1">
+      <div ref={headerRef} data-sidebar-header="" className="flex items-center gap-0.5 px-2 pt-3 pb-1">
         {renderHeader()}
       </div>
       <div data-sidebar-list="" tabIndex={-1} ref={listRef} className="min-h-0 flex-1 overflow-y-auto px-2 focus-visible:outline-none">

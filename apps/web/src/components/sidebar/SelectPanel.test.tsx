@@ -7,6 +7,7 @@ import { MemoryRouter } from "react-router";
 import type { FolderDto, GroupDto, NoteDto, UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ActiveNoteProvider } from "@/lib/active-note";
+import { NARROW_QUERY } from "@/lib/sidebar-drawer";
 import { SidebarTabProvider, type SidebarTab } from "@/lib/sidebar-tab";
 import { NoteList } from "@/components/NoteList";
 import { dismissAllToasts, toast, Toaster } from "@/components/ui/toast";
@@ -83,9 +84,10 @@ function stubMatchMedia(narrow: boolean) {
     removeListener: () => {},
     dispatchEvent: () => false,
   };
+  // 只有 NARROW_QUERY 回 mql；其餘 query（例如 WIDE_POINTER_QUERY）一律不成立。
   vi.stubGlobal(
     "matchMedia",
-    vi.fn(() => mql),
+    vi.fn((query: string) => (query === NARROW_QUERY ? mql : { ...mql, matches: false })),
   );
   return mql;
 }
@@ -777,6 +779,16 @@ describe("選取模式 × 資料夾可勾（PR-3b-2 T6a）", () => {
     expect(checkbox("q2")).not.toBeChecked();
     expect(within(header()).getByText("3 selected")).toBeInTheDocument();
     expect(within(header()).getByRole("button", { name: "Select all" })).toBeInTheDocument();
+  });
+
+  it("ST1 選取列的勾選框是自繪的（筆記列與資料夾列）：appearance-none、不含 accent-brand", async () => {
+    await renderSelecting(MINE);
+    const boxes = [checkbox("q2"), folderBox("B")!];
+    for (const box of boxes) {
+      expect(box).not.toBeNull();
+      expect(box).toHaveClass("appearance-none");
+      expect(box).not.toHaveClass("accent-brand");
+    }
   });
 
   it("NSf4 Shift 範圍含資料夾列：q2 → Shift q3 ＝ q2、B、q3；Shift＋點資料夾名稱（label 自己切換）也走範圍", async () => {

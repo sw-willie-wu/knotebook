@@ -6,6 +6,7 @@ import { MemoryRouter, Route, Routes, useParams } from "react-router";
 import { canonicalNotePath, type GroupDto, type NoteDto, type UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ActiveNoteProvider } from "@/lib/active-note";
+import { NARROW_QUERY } from "@/lib/sidebar-drawer";
 import { NotePageControlsContext } from "@/lib/note-page-controls";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
@@ -616,7 +617,8 @@ describe("AppShell — #115 側欄抽屜", () => {
       removeListener: () => {},
       dispatchEvent: () => false,
     };
-    vi.stubGlobal("matchMedia", vi.fn(() => mql));
+    // 只有 NARROW_QUERY 回 mql；其餘 query（例如 WIDE_POINTER_QUERY）一律不成立、不註冊監聽。
+    vi.stubGlobal("matchMedia", vi.fn((query: string) => (query === NARROW_QUERY ? mql : { ...mql, matches: false, addEventListener: () => {}, removeEventListener: () => {} })));
     return {
       dispatchChange(matches: boolean) {
         mql.matches = matches;

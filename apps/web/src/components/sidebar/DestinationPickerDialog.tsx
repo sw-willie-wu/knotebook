@@ -20,7 +20,7 @@ function errorMessage(t: Translate, err: unknown): string {
  * 選取模式「移動到」「複製到」的目的地選擇框（資料夾 spec §6.10「批次的目的地」F16；沿用 PR-2c 的框）。
  * 一次只顯示**一層**：項目由 `buildDestinationLevel`（§6.11.1，與筆記 ⋮ 的逐層子選單共用）產生，path 由呼叫端持有，
  * 傳進來的是這一層的 `level` 與它的識別 `levelKey`。每項一顆按鈕（不做 tree 方向鍵，鍵盤用 Tab 走）：
- * 帶 `>` 的項目＝`onDrill`（框內換成下一層）、「‹ 返回」＝`onBack`、其他＝`onPick`（選定目的地）。
+ * 帶 `>` 的項目＝`onDrill`（框內換成下一層）、「返回」＝`onBack`、其他＝`onPick`（選定目的地）。
  * 只有 `levelKey` 變了（換層）才把清單捲回頂端、焦點給新層第一個未停用的項目（整層都反灰時給 footer 的 Cancel）；同一層重繪（資料夾重抓）不搬
  *（總管裁定 2026-10-29 M2、M3）。
  * 選了就呼叫 `onPick`，關框與焦點交接由呼叫端決定（選了交給確認框、取消才還給開框鈕）。只准經 `SelectLazy` 引用。
@@ -95,8 +95,8 @@ export function DestinationPickerDialog({
 
 /**
  * 一層的清單。掛在對話框內容裡（關框即卸載），掛上那次不搬焦點（交給 Radix 開框的自動聚焦）；之後 `levelKey` 每變一次，
- * 清單捲回頂端、焦點給第一個未停用的項目（第二層起即「‹ 返回」）；整層都反灰時給 `fallbackRef`（footer 的 Cancel），
- * 不讓焦點跟著被換掉的按鈕掉到 body。「‹ 」是 `aria-hidden` 的字：畫面「‹ 返回」、可及名稱「返回」。
+ * 清單捲回頂端、焦點給第一個未停用的項目（第二層起即「返回」）；整層都反灰時給 `fallbackRef`（footer 的 Cancel），
+ * 不讓焦點跟著被換掉的按鈕掉到 body。返回項前導 `ChevronLeft` 圖示（`aria-hidden`）、可及名稱「返回」。
  */
 function DestinationLevelList({
   level,
@@ -149,10 +149,7 @@ function DestinationLevelList({
               }}
             >
               {Icon !== null && <Icon aria-hidden="true" className="h-4 w-4 shrink-0" />}
-              <span className="truncate">
-                {item.kind === "back" && <span aria-hidden="true">‹ </span>}
-                {item.label}
-              </span>
+              <span className="truncate">{item.label}</span>
               {drill !== null && <ChevronRight aria-hidden="true" className="ml-auto h-4 w-4 shrink-0" />}
             </Button>
           </li>

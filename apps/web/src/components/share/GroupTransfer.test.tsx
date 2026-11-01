@@ -7,13 +7,13 @@ import type { FolderDto, GroupDto, NoteDto, ShareDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { groupDto, memberRole, OWNER_PERMS, EDITOR_PERMS, VIEWER_PERMS } from "@/test/fixtures";
-import { folderDto, groupFolder, sharedFolder } from "@/test/folder-fixtures";
+import { folderChain, folderDto, groupFolder, sharedFolder } from "@/test/folder-fixtures";
+import { mockWidePointer } from "@/test/wide-pointer";
 import { NoteMenu } from "@/components/NoteMenu";
 import type { DestSpace } from "@/components/sidebar/destination-level";
 import { indexFolders } from "@/components/sidebar/folder-index";
 import {
   GroupTransferDialog,
-  INLINE_GROUP_LIST_QUERY,
   isSameSpaceMove,
   type DestinationPick,
   type GroupTransferPick,
@@ -21,9 +21,9 @@ import {
 } from "./GroupTransfer";
 
 // #216：⋮ 選單的「移動到群組」「複製到群組」（原 MoveToGroupSection 的測試搬來）。
-// 寬螢幕＝右側 flyout（Radix Sub）；窄／觸控（matchMedia 命中 INLINE_GROUP_LIST_QUERY）＝就地向下展開。
+// 寬螢幕＝右側 flyout（Radix Sub；PR-3b-3 起各層往旁層疊）；窄／觸控（matchMedia 不命中 WIDE_POINTER_QUERY）＝就地向下展開。
 // PR-3b-2 T4 起子選單是逐層清單（destination-level）：這組案的群組都沒有資料夾、筆記在根層、`GET /api/folders` 回空，
-// 第一層與 #216 的平清單同項同序（上下半部之間的分隔線不是 menuitem），斷言照舊不放寬。資料夾層的案在檔尾「逐層子選單」。
+// 第一層與 #216 的平清單同項同序（上下半部之間的分隔線不是 menuitem），斷言照舊不放寬。資料夾層的案在檔尾「逐層子選單」與「寬螢幕層疊」。
 
 function fakeResponse({ ok, status, json }: { ok: boolean; status: number; json?: () => Promise<unknown> }): Response {
   return { ok, status, json: json ?? (() => Promise.reject(new Error("no body"))) } as unknown as Response;
@@ -139,18 +139,9 @@ function stub(init: Partial<Server> = {}) {
   };
 }
 
-/** 讓 matchMedia 對 INLINE_GROUP_LIST_QUERY 回報命中（窄／觸控）。 */
+/** 就地展開形（窄／觸控）＝寬判準不成立；`on=false` 即寬（flyout）。jsdom 預設落在窄，所以 flyout 案一律要明確注入寬。 */
 function stubInlineMode(on: boolean): void {
-  vi.stubGlobal("matchMedia", (query: string) => ({
-    matches: on && query === INLINE_GROUP_LIST_QUERY,
-    media: query,
-    onchange: null,
-    addListener: () => {},
-    removeListener: () => {},
-    addEventListener: () => {},
-    removeEventListener: () => {},
-    dispatchEvent: () => false,
-  }));
+  mockWidePointer(!on);
 }
 
 function renderMenu(note: NoteDto = NOTE) {
@@ -877,7 +868,7 @@ describe("⋮ 逐層子選單（PR-3b-2 T4）", () => {
   /** 個人 A ⊃ A1、B；群組 G、H 沒有資料夾（NM-D1 的形）。 */
   const BASE_SERVER = { groups: [G, H], folders: [A, A1, B] };
 
-  /** 可及名稱：aria-label 優先，否則去掉 aria-hidden 的字（「‹ 」）。 */
+  /** 可及名稱：aria-label 優先，否則去掉 aria-hidden 的子元素。 */
   function accessibleName(el: Element): string {
     const label = el.getAttribute("aria-label");
     if (label !== null) return label;
@@ -894,7 +885,7 @@ describe("⋮ 逐層子選單（PR-3b-2 T4）", () => {
   const placeBodies = (s: ReturnType<typeof stub>) => s.calls.filter((c) => c.method === "PUT" && c.url === URLS.place).map((c) => c.body);
   const subMenu = (name = "Move to…") => screen.queryByRole("menu", { name });
 
-  /** 開 ⋮ → 鍵盤開 Move to… 的 flyout，等第一層有 expected 這些項。 */
+  /** 開 ⋮ → 鍵盤開 Move to… 的子選單（寬形層疊的第一層），等它有 expected 這些項。 */
   async function openMoveSub(expected: string[]): Promise<HTMLElement> {
     const sub = await openFlyout(await openMenuReady("note-menu-move-to"));
     await waitFor(() => expect(names(sub)).toEqual(expected));
@@ -912,106 +903,28 @@ describe("⋮ 逐層子選單（PR-3b-2 T4）", () => {
     vi.unstubAllGlobals();
   });
 
-  it("NM-D1 個人筆記在根、A ⊃ A1：Move to… 第一層＝[A, open, B, G, H]，分隔線在 B 與 G 之間、A 尾端有 aria-hidden 的 >", async () => {
-    stub(BASE_SERVER);
-    renderMenu();
-    const sub = await openMoveSub(["A, open", "B", "G", "H"]);
-    expect(entries(sub)).toEqual(["A, open", "B", "—", "G", "H"]);
-    const a = within(sub).getByRole("menuitem", { name: "A, open" });
-    const chevron = a.querySelector('svg[data-icon="chevron-right"]');
-    expect(chevron).not.toBeNull();
-    expect(chevron).toHaveAttribute("aria-hidden", "true");
-    expect(within(sub).getByRole("menuitem", { name: "B" }).querySelector('svg[data-icon="folder"]')).not.toBeNull();
-  });
+  /** 項目的第一個子元素若是 svg，回它的 data-icon；否則 null（返回項第一個子元素是 span）。 */
+  const leadIcons = (container: HTMLElement) =>
+    Object.fromEntries(
+      within(container)
+        .queryAllByRole("menuitem")
+        .map((el) => [accessibleName(el), el.firstElementChild instanceof SVGElement ? el.firstElementChild.getAttribute("data-icon") : null]),
+    );
 
-  it("NM-D2 點「A, open」→ 選單與子選單仍開、換成 [Back, Move here, A1]、焦點在 Back（「‹ 」aria-hidden）、子選單捲回頂端", async () => {
-    stub(BASE_SERVER);
-    renderMenu();
-    const sub = await openMoveSub(["A, open", "B", "G", "H"]);
-    // jsdom 沒有版面：用可寫的 scrollTop 記下程式有沒有把子選單捲回頂端。
-    let scrollTop = 40;
-    Object.defineProperty(sub, "scrollTop", { configurable: true, get: () => scrollTop, set: (value: number) => (scrollTop = value) });
-    fireEvent.click(within(sub).getByRole("menuitem", { name: "A, open" }));
-    await waitFor(() => expect(scrollTop).toBe(0));
-    await waitFor(() => expect(names(sub)).toEqual(["Back", "Move here", "A1"]));
-    expect(subMenu()).toBe(sub);
-    expect(screen.getByTestId("note-menu-move-to")).toBeInTheDocument();
-    const back = within(sub).getByRole("menuitem", { name: "Back" });
-    expect(document.activeElement).toBe(back);
-    expect(back).toHaveTextContent("‹ Back");
-    expect(back.querySelector('[aria-hidden="true"]')).toHaveTextContent("‹");
-  });
+  /** 層疊形：在 parent 這一層名為 name 的 SubTrigger 上按 →，回傳它開出的子選單（Radix 以觸發項當子選單的名稱）。 */
+  async function openCascade(parent: HTMLElement, name: string): Promise<HTMLElement> {
+    const trigger = within(parent).getByRole("menuitem", { name });
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: "ArrowRight" });
+    return screen.findByRole("menu", { name });
+  }
 
-  it("NM-D3 第二層 ArrowLeft → 回第一層、子選單仍開；第一層 ArrowLeft → 子選單關（交 Radix）", async () => {
-    stub(BASE_SERVER);
-    renderMenu();
-    const sub = await openMoveSub(["A, open", "B", "G", "H"]);
-    fireEvent.click(within(sub).getByRole("menuitem", { name: "A, open" }));
-    await waitFor(() => expect(names(sub)).toEqual(["Back", "Move here", "A1"]));
-    fireEvent.keyDown(within(sub).getByRole("menuitem", { name: "A1" }), { key: "ArrowLeft" });
-    await waitFor(() => expect(names(sub)).toEqual(["A, open", "B", "G", "H"]));
-    expect(subMenu()).toBe(sub);
-    const first = within(sub).getByRole("menuitem", { name: "A, open" });
-    expect(document.activeElement).toBe(first);
-    fireEvent.keyDown(first, { key: "ArrowLeft" });
-    await waitFor(() => expect(subMenu()).toBeNull());
-    expect(screen.getByTestId("note-menu-move-to")).toBeInTheDocument();
-  });
-
-  it("NM-D4 在 A1（有子資料夾）上 ArrowRight → 進下一層 [Back, Move here, A2]、焦點在 Back", async () => {
-    stub({ ...BASE_SERVER, folders: [A, A1, A2, B] });
-    renderMenu();
-    const sub = await openMoveSub(["A, open", "B", "G", "H"]);
-    fireEvent.click(within(sub).getByRole("menuitem", { name: "A, open" }));
-    const a1 = await within(sub).findByRole("menuitem", { name: "A1, open" });
-    a1.focus();
-    fireEvent.keyDown(a1, { key: "ArrowRight" });
-    await waitFor(() => expect(names(sub)).toEqual(["Back", "Move here", "A2"]));
-    expect(document.activeElement).toBe(within(sub).getByRole("menuitem", { name: "Back" }));
-    expect(subMenu()).toBe(sub);
-  });
-
-  it("NM-D5 第二層按 Esc → 只關子選單、主選單仍開、焦點回 Move to…；再開子選單 → 第一層", async () => {
-    stub(BASE_SERVER);
-    renderMenu();
-    const sub = await openMoveSub(["A, open", "B", "G", "H"]);
-    fireEvent.click(within(sub).getByRole("menuitem", { name: "A, open" }));
-    const back = await within(sub).findByRole("menuitem", { name: "Back" });
-    fireEvent.keyDown(back, { key: "Escape" });
-    await waitFor(() => expect(subMenu()).toBeNull());
-    const trigger = screen.getByTestId("note-menu-move-to");
-    expect(trigger).toHaveFocus();
-    expect(screen.getByRole("menu")).toBeInTheDocument();
-    const again = await openFlyout(trigger);
-    expect(names(again)).toEqual(["A, open", "B", "G", "H"]);
-  });
-
-  it("NM-D6 第二層時關掉整個選單（點選單外）再開 → 子選單回第一層", async () => {
-    stub(BASE_SERVER);
-    renderMenu();
-    const sub = await openMoveSub(["A, open", "B", "G", "H"]);
-    fireEvent.click(within(sub).getByRole("menuitem", { name: "A, open" }));
-    await waitFor(() => expect(names(sub)).toEqual(["Back", "Move here", "A1"]));
-    fireEvent.pointerDown(document.body);
-    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
-    const again = await openFlyout(await openMenuReady("note-menu-move-to"));
-    expect(names(again)).toEqual(["A, open", "B", "G", "H"]);
-  });
-
-  it("NM-D7 GET /api/folders 還沒回 → 子選單只有群組項、沒有「, open」；回了才補上 A、B", async () => {
-    const s = stub({ ...BASE_SERVER, hold: new Set([URLS.folders]) });
-    renderMenu();
-    const sub = await openFlyout(await openMenuReady("note-menu-move-to"));
-    await waitFor(() => expect(names(sub)).toEqual(["G", "H"]));
-    expect(names(sub).some((name) => name.endsWith(", open"))).toBe(false);
-    await act(async () => s.release(URLS.folders, okJson({ folders: [A, A1, B] })));
-    await waitFor(() => expect(names(sub)).toEqual(["A, open", "B", "G", "H"]));
-  });
-
+  // PR-3b-3 T3：寬形改成層疊（Radix 巢狀子選單，下方「寬螢幕層疊」describe 的 WC 案）；原本這裡的 flyout 逐層案（NM-D1–D7、D9、D13–D17）
+  // 已刪或改寫成 WC 案／窄形案。這裡留與形態無關、在寬形照綠的案（同空間移動、反灰、確認框、前導圖示）；寬形 SubTrigger 不帶「, open」（總管裁定 ③）。
   it("NM-D8 點「B」（沒有子資料夾）→ 選單關、不開確認框、PUT {folderId:B}、toast「Moved to “B”」", async () => {
     const s = stub(BASE_SERVER);
     renderMenu();
-    const sub = await openMoveSub(["A, open", "B", "G", "H"]);
+    const sub = await openMoveSub(["A", "B", "G", "H"]);
     fireEvent.click(within(sub).getByRole("menuitem", { name: "B" }));
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
     expect(await screen.findByText("Moved to “B”")).toBeInTheDocument();
@@ -1020,24 +933,11 @@ describe("⋮ 逐層子選單（PR-3b-2 T4）", () => {
     expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument();
   });
 
-  it("NM-D9 點「G, open」→ [Back, Top level, GF]；選 GF → 選單關、移入確認框說明含 G › GF、不送 PUT", async () => {
-    const s = stub({ ...BASE_SERVER, folders: [A, A1, B, GF] });
-    renderMenu();
-    const sub = await openMoveSub(["A, open", "B", "G, open", "H"]);
-    fireEvent.click(within(sub).getByRole("menuitem", { name: "G, open" }));
-    await waitFor(() => expect(names(sub)).toEqual(["Back", "Top level", "GF"]));
-    fireEvent.click(within(sub).getByRole("menuitem", { name: "GF" }));
-    const dialog = await screen.findByRole("dialog");
-    expect(dialog).toHaveTextContent('Move this note into "G › GF"?');
-    expect(screen.queryByRole("menu")).toBeNull();
-    expect(placeBodies(s)).toEqual([]);
-  });
-
   it("NM-D10 Copy to… 第一層選「Make a copy」→ CopyDialog 標題 Make a copy", async () => {
     stub(BASE_SERVER);
     renderMenu();
     const sub = await openFlyout(await openMenuReady("note-menu-copy-to"));
-    await waitFor(() => expect(names(sub)).toEqual(["Make a copy", "A, open", "B", "G", "H"]));
+    await waitFor(() => expect(names(sub)).toEqual(["Make a copy", "A", "B", "G", "H"]));
     fireEvent.click(within(sub).getByRole("menuitem", { name: "Make a copy" }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByRole("heading", { name: "Make a copy" })).toBeInTheDocument();
@@ -1046,7 +946,7 @@ describe("⋮ 逐層子選單（PR-3b-2 T4）", () => {
   it("NM-D11 筆記在 B（沒有子資料夾）→ 第一層有 Top level、B 那一項 aria-disabled", async () => {
     stub(BASE_SERVER);
     renderMenu({ ...NOTE, folderId: "B" });
-    const sub = await openMoveSub(["Top level", "A, open", "B", "G", "H"]);
+    const sub = await openMoveSub(["Top level", "A", "B", "G", "H"]);
     expect(within(sub).getByRole("menuitem", { name: "B" })).toHaveAttribute("aria-disabled", "true");
     expect(within(sub).getByRole("menuitem", { name: "Top level" })).not.toHaveAttribute("aria-disabled");
   });
@@ -1074,115 +974,35 @@ describe("⋮ 逐層子選單（PR-3b-2 T4）", () => {
     await openMoveSub(["SF"]);
   });
 
-  /** 項目的第一個子元素若是 svg，回它的 data-icon；否則 null（返回項第一個子元素是 span）。 */
-  const leadIcons = (container: HTMLElement) =>
-    Object.fromEntries(
-      within(container)
-        .queryAllByRole("menuitem")
-        .map((el) => [accessibleName(el), el.firstElementChild instanceof SVGElement ? el.firstElementChild.getAttribute("data-icon") : null]),
-    );
-
-  it("NM-D19 flyout 目的地項目前導圖示：資料夾 folder、群組 users；返回、移到這裡沒有；圖示 aria-hidden、mr-2 h-4 w-4", async () => {
+  it("NM-D19 層疊目的地項目前導圖示：資料夾 folder、群組 users；A 的子選單裡 Move here 沒有、A1 folder；圖示 aria-hidden、mr-2 h-4 w-4", async () => {
     stub(BASE_SERVER);
     renderMenu();
-    const sub = await openMoveSub(["A, open", "B", "G", "H"]);
-    expect(leadIcons(sub)).toEqual({ "A, open": "folder", B: "folder", G: "users", H: "users" });
-    for (const name of ["B", "G"]) {
+    const sub = await openMoveSub(["A", "B", "G", "H"]);
+    expect(leadIcons(sub)).toEqual({ A: "folder", B: "folder", G: "users", H: "users" });
+    for (const name of ["A", "B", "G"]) {
       const icon = within(sub).getByRole("menuitem", { name }).querySelector("svg");
       expect(icon).toHaveAttribute("aria-hidden", "true");
       expect(icon).toHaveClass("mr-2", "h-4", "w-4", "shrink-0");
     }
-    fireEvent.click(within(sub).getByRole("menuitem", { name: "A, open" }));
-    await waitFor(() => expect(names(sub)).toEqual(["Back", "Move here", "A1"]));
-    expect(leadIcons(sub)).toEqual({ Back: null, "Move here": null, A1: "folder" });
+    const a = await openCascade(sub, "A");
+    await waitFor(() => expect(names(a)).toEqual(["Move here", "A1"]));
+    expect(leadIcons(a)).toEqual({ "Move here": null, A1: "folder" });
   });
 
-  it("NM-D20 flyout Copy to…：建立副本 copy、群組筆記的「我的筆記」user、群組 users；Top level 沒有", async () => {
+  it("NM-D20 層疊 Copy to…：建立副本 copy、群組筆記的「我的筆記」user、群組 users；Top level 沒有", async () => {
     const IN_G: NoteDto = { ...MOVED, groupId: GG, group: { id: GG, name: "G" }, folderId: "GF" };
     stub({ groups: [G, H], folders: [A, GF, HF, SF] });
     renderMenu(IN_G);
     const sub = await openFlyout(await openMenuReady("note-menu-copy-to"));
     await waitFor(() => expect(names(sub).length).toBeGreaterThan(1));
-    expect(names(sub)).toEqual(["Make a copy", "Top level", "GF", "My notes, open", "H, open"]);
-    expect(leadIcons(sub)).toEqual({ "Make a copy": "copy", "Top level": null, GF: "folder", "My notes, open": "user", "H, open": "users" });
-  });
-
-  it("NM-D13 zh：「A，開啟下一層」→「返回」「移動到這裡」", async () => {
-    await i18n.changeLanguage("zh-TW");
-    stub(BASE_SERVER);
-    renderMenu();
-    fireEvent.pointerDown(screen.getByRole("button", { name: "更多" }), { button: 0 });
-    const sub = await openFlyout(await screen.findByTestId("note-menu-move-to"));
-    await waitFor(() => expect(names(sub)).toEqual(["A，開啟下一層", "B", "G", "H"]));
-    fireEvent.click(within(sub).getByRole("menuitem", { name: "A，開啟下一層" }));
-    await waitFor(() => expect(names(sub)).toEqual(["返回", "移動到這裡", "A1"]));
-  });
-
-  // 以下 NM-D14–D18、NM-I4 是 implementer 自補（brief 沒列）：所在層失效（T2 交接：不看 path.length）、選定後與收合時回第一層、復原送回原處。
-  it("NM-D14 在 A › A1 時 A1 被刪（folders 重抓）→ 顯示 A 那層；按「返回」恰退一層到第一層", async () => {
-    const s = stub({ ...BASE_SERVER, folders: [A, A1, A2, B] });
-    const qc = renderMenu();
-    const sub = await openMoveSub(["A, open", "B", "G", "H"]);
-    fireEvent.click(within(sub).getByRole("menuitem", { name: "A, open" }));
-    fireEvent.click(await within(sub).findByRole("menuitem", { name: "A1, open" }));
-    await waitFor(() => expect(names(sub)).toEqual(["Back", "Move here", "A2"]));
-    s.server.folders = [A, B];
-    await act(async () => {
-      await qc.invalidateQueries({ queryKey: ["folders"] });
-    });
-    await waitFor(() => expect(names(sub)).toEqual(["Back", "Move here"]));
-    fireEvent.click(within(sub).getByRole("menuitem", { name: "Back" }));
-    await waitFor(() => expect(names(sub)).toEqual(["A", "B", "G", "H"]));
-  });
-
-  it("NM-D15 在 A 那層時 A 被刪 → 顯示第一層；第一層 ArrowLeft 照 Radix 關子選單（不是回「上一層」）", async () => {
-    const s = stub(BASE_SERVER);
-    const qc = renderMenu();
-    const sub = await openMoveSub(["A, open", "B", "G", "H"]);
-    fireEvent.click(within(sub).getByRole("menuitem", { name: "A, open" }));
-    await waitFor(() => expect(names(sub)).toEqual(["Back", "Move here", "A1"]));
-    s.server.folders = [B];
-    await act(async () => {
-      await qc.invalidateQueries({ queryKey: ["folders"] });
-    });
-    await waitFor(() => expect(names(sub)).toEqual(["B", "G", "H"]));
-    fireEvent.keyDown(within(sub).getByRole("menuitem", { name: "B" }), { key: "ArrowLeft" });
-    await waitFor(() => expect(subMenu()).toBeNull());
-  });
-
-  it("NM-D16 在 A 那層時 A 被刪 → 第一層點「B, open」→ 進 B 那層（不接在失效的 A 後面）", async () => {
-    const B1 = folderDto({ id: "B1", name: "B1", parentId: "B" });
-    const s = stub({ ...BASE_SERVER, folders: [A, A1, B, B1] });
-    const qc = renderMenu();
-    const sub = await openMoveSub(["A, open", "B, open", "G", "H"]);
-    fireEvent.click(within(sub).getByRole("menuitem", { name: "A, open" }));
-    await waitFor(() => expect(names(sub)).toEqual(["Back", "Move here", "A1"]));
-    s.server.folders = [B, B1];
-    await act(async () => {
-      await qc.invalidateQueries({ queryKey: ["folders"] });
-    });
-    await waitFor(() => expect(names(sub)).toEqual(["B, open", "G", "H"]));
-    fireEvent.click(within(sub).getByRole("menuitem", { name: "B, open" }));
-    await waitFor(() => expect(names(sub)).toEqual(["Back", "Move here", "B1"]));
-  });
-
-  it("NM-D17 在第二層選定（開確認框、選單由程式關閉）→ 取消後再開 ⋮ → 子選單回第一層", async () => {
-    stub({ ...BASE_SERVER, folders: [A, A1, B, GF] });
-    renderMenu();
-    const sub = await openMoveSub(["A, open", "B", "G, open", "H"]);
-    fireEvent.click(within(sub).getByRole("menuitem", { name: "G, open" }));
-    fireEvent.click(await within(sub).findByRole("menuitem", { name: "GF" }));
-    const dialog = await screen.findByRole("dialog");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    const again = await openFlyout(await openMenuReady("note-menu-move-to"));
-    expect(names(again)).toEqual(["A, open", "B", "G, open", "H"]);
+    expect(names(sub)).toEqual(["Make a copy", "Top level", "GF", "My notes", "H"]);
+    expect(leadIcons(sub)).toEqual({ "Make a copy": "copy", "Top level": null, GF: "folder", "My notes": "user", H: "users" });
   });
 
   it("NM-D18 筆記在 A1：移到 B → toast 用短名「B」；按 Undo → PUT 回 {folderId:A1}", async () => {
     const s = stub(BASE_SERVER);
     renderMenu({ ...NOTE, folderId: "A1" });
-    const sub = await openMoveSub(["Top level", "A, open", "B", "G", "H"]);
+    const sub = await openMoveSub(["Top level", "A", "B", "G", "H"]);
     fireEvent.click(within(sub).getByRole("menuitem", { name: "B" }));
     expect(await screen.findByText("Moved to “B”")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Undo" }));
@@ -1220,14 +1040,31 @@ describe("⋮ 逐層子選單（PR-3b-2 T4）", () => {
       expect(screen.getAllByRole("menu")).toHaveLength(1);
     });
 
-    it("NM-I5 就地展開形目的地項目前導圖示：資料夾 folder、群組 users；Back、Move here 沒有", async () => {
+    it("BK1 窄形（就地展開）第二層的 Back：文字恰為「Back」（無「‹」）、前導 chevron-left（aria-hidden、與 chevron-right 同尺寸 class）", async () => {
+      stub(BASE_SERVER);
+      renderMenu();
+      const { group } = await expandMove(["A, open", "B", "G", "H"]);
+      const chevronRightClass = within(group).getByRole("menuitem", { name: "A, open" }).querySelector('svg[data-icon="chevron-right"]')?.getAttribute("class");
+      fireEvent.click(within(group).getByRole("menuitem", { name: "A, open" }));
+      await waitFor(() => expect(names(screen.getByRole("group", { name: "Move to…" }))).toEqual(["Back", "Move here", "A1"]));
+      const back = screen.getByRole("menuitem", { name: "Back" });
+      expect(back.textContent).toBe("Back");
+      const icon = back.querySelector('svg[data-icon="chevron-left"]');
+      expect(icon).not.toBeNull();
+      expect(icon).toHaveAttribute("aria-hidden", "true");
+      expect(icon).toHaveClass("h-4", "w-4");
+      expect(chevronRightClass).toContain("h-4");
+      expect(chevronRightClass).toContain("w-4");
+    });
+
+    it("NM-I5 就地展開形目的地項目前導圖示：資料夾 folder、群組 users；Back 為 chevron-left、Move here 沒有", async () => {
       stub(BASE_SERVER);
       renderMenu();
       const { group } = await expandMove(["A, open", "B", "G", "H"]);
       expect(leadIcons(group)).toEqual({ "A, open": "folder", B: "folder", G: "users", H: "users" });
       fireEvent.click(within(group).getByRole("menuitem", { name: "A, open" }));
       await waitFor(() => expect(names(screen.getByRole("group", { name: "Move to…" }))).toEqual(["Back", "Move here", "A1"]));
-      expect(leadIcons(screen.getByRole("group", { name: "Move to…" }))).toEqual({ Back: null, "Move here": null, A1: "folder" });
+      expect(leadIcons(screen.getByRole("group", { name: "Move to…" }))).toEqual({ Back: "chevron-left", "Move here": null, A1: "folder" });
     });
 
     it("NM-I2 第二層 ArrowLeft → 回第一層（仍展開）；第一層 ArrowLeft → 收合", async () => {
@@ -1303,6 +1140,400 @@ describe("⋮ 逐層子選單（PR-3b-2 T4）", () => {
       await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
       fireEvent.click(await openMenuReady("note-menu-move-to"));
       expect(names(screen.getByRole("group", { name: "Move to…" }))).toEqual(["A, open", "B", "G, open", "H"]);
+    });
+
+    it("NM-D12（窄形）群組筆記（edit）→ Move to… 只列本群組資料夾；只讀 → 沒有 Move to…；共享筆記 → 只列共享資料夾", async () => {
+      const IN_G: NoteDto = { ...MOVED, groupId: GG, group: { id: GG, name: "G" } };
+      stub({ groups: [G, H], folders: [A, GF, HF, SF] });
+      renderMenu(IN_G);
+      await expandMove(["GF"]);
+      cleanup();
+      vi.unstubAllGlobals();
+      stubInlineMode(true);
+
+      stub({ groups: [G, H], folders: [A, GF, HF, SF] });
+      renderMenu({ ...IN_G, role: "viewer", permissions: { ...EDITOR_PERMS, edit: false } });
+      await openMenuReady("note-menu-copy-to");
+      await act(async () => {});
+      expect(screen.queryByTestId("note-menu-move-to")).toBeNull();
+      cleanup();
+      vi.unstubAllGlobals();
+      stubInlineMode(true);
+
+      stub({ groups: [G, H], folders: [A, GF, HF, SF] });
+      renderMenu({ ...NOTE, role: "editor", ownerId: "someone", ownerHandle: "someone", permissions: { ...EDITOR_PERMS, moveToGroup: false } });
+      await expandMove(["SF"]);
+    });
+
+    // NM-I7–I9：原 NM-D14–D16（flyout 形）的窄形版——所在層 path 只剩窄形在用（T2 交接：不看 path.length，見 `livePath`）。
+    const moveGroup = () => screen.getByRole("group", { name: "Move to…" });
+
+    it("NM-I7（原 NM-D14）在 A › A1 時 A1 被刪（folders 重抓）→ 顯示 A 那層；按「Back」恰退一層到第一層", async () => {
+      const s = stub({ ...BASE_SERVER, folders: [A, A1, A2, B] });
+      const qc = renderMenu();
+      await expandMove(["A, open", "B", "G", "H"]);
+      fireEvent.click(screen.getByRole("menuitem", { name: "A, open" }));
+      fireEvent.click(await screen.findByRole("menuitem", { name: "A1, open" }));
+      await waitFor(() => expect(names(moveGroup())).toEqual(["Back", "Move here", "A2"]));
+      s.server.folders = [A, B];
+      await act(async () => {
+        await qc.invalidateQueries({ queryKey: ["folders"] });
+      });
+      await waitFor(() => expect(names(moveGroup())).toEqual(["Back", "Move here"]));
+      fireEvent.click(screen.getByRole("menuitem", { name: "Back" }));
+      await waitFor(() => expect(names(moveGroup())).toEqual(["A", "B", "G", "H"]));
+    });
+
+    it("NM-I8（原 NM-D15）在 A 那層時 A 被刪 → 顯示第一層；第一層 ArrowLeft 收合（不是回「上一層」）", async () => {
+      const s = stub(BASE_SERVER);
+      const qc = renderMenu();
+      const { trigger } = await expandMove(["A, open", "B", "G", "H"]);
+      fireEvent.click(screen.getByRole("menuitem", { name: "A, open" }));
+      await waitFor(() => expect(names(moveGroup())).toEqual(["Back", "Move here", "A1"]));
+      s.server.folders = [B];
+      await act(async () => {
+        await qc.invalidateQueries({ queryKey: ["folders"] });
+      });
+      await waitFor(() => expect(names(moveGroup())).toEqual(["B", "G", "H"]));
+      fireEvent.keyDown(screen.getByRole("menuitem", { name: "B" }), { key: "ArrowLeft" });
+      await waitFor(() => expect(trigger).toHaveAttribute("aria-expanded", "false"));
+      expect(screen.getByRole("menu")).toBeInTheDocument();
+    });
+
+    it("NM-I9（原 NM-D16）在 A 那層時 A 被刪 → 第一層點「B, open」→ 進 B 那層（不接在失效的 A 後面）", async () => {
+      const B1 = folderDto({ id: "B1", name: "B1", parentId: "B" });
+      const s = stub({ ...BASE_SERVER, folders: [A, A1, B, B1] });
+      const qc = renderMenu();
+      await expandMove(["A, open", "B, open", "G", "H"]);
+      fireEvent.click(screen.getByRole("menuitem", { name: "A, open" }));
+      await waitFor(() => expect(names(moveGroup())).toEqual(["Back", "Move here", "A1"]));
+      s.server.folders = [B, B1];
+      await act(async () => {
+        await qc.invalidateQueries({ queryKey: ["folders"] });
+      });
+      await waitFor(() => expect(names(moveGroup())).toEqual(["B, open", "G", "H"]));
+      fireEvent.click(screen.getByRole("menuitem", { name: "B, open" }));
+      await waitFor(() => expect(names(moveGroup())).toEqual(["Back", "Move here", "B1"]));
+    });
+  });
+
+  // PR-3b-3 T3（資料夾 spec F23、§6.11.1、§6.11.4、§6.14）：寬螢幕（≥48rem 且可 hover）＝往旁層疊的 Radix 巢狀子選單。
+  // 有子資料夾的項目＝SubTrigger（可及名稱＝項目文字，不帶「, open」：總管裁定 ③），展開後第一項「Move here／Copy here」、群組第一項「Top level」；
+  // 沒有「Back」；層數照實際樹（總管裁定 ①）；Esc 只收一層（②）；選單開著時跨過寬窄判準 → 整個選單關（④）。
+  describe("寬螢幕層疊（PR-3b-3）", () => {
+    const GF1 = groupFolder({ id: "GF1", name: "GF1", groupId: GG, parentId: "GF" });
+    /** 個人 A ⊃ A1、B；群組 G 有 GF ⊃ GF1；H 沒有資料夾。 */
+    const WIDE_SERVER = { groups: [G, H], folders: [A, A1, B, GF, GF1] };
+    const haspopup = (el: Element) => el.getAttribute("aria-haspopup") === "menu";
+
+    beforeEach(() => {
+      mockWidePointer(true);
+    });
+
+    it("WC1 個人筆記在根：Move to… 第一層＝[A, B, G, H]（分隔線在 B 與 G 之間）；A、G 是 SubTrigger、B、H 不是；沒有「, open」、沒有 Back；每個 SubTrigger 恰一個 aria-hidden 的 chevron", async () => {
+      stub(WIDE_SERVER);
+      renderMenu();
+      const sub = await openMoveSub(["A", "B", "G", "H"]);
+      expect(entries(sub)).toEqual(["A", "B", "—", "G", "H"]);
+      expect(Object.fromEntries(within(sub).getAllByRole("menuitem").map((el) => [accessibleName(el), haspopup(el)]))).toEqual({
+        A: true,
+        B: false,
+        G: true,
+        H: false,
+      });
+      expect(screen.getAllByRole("menuitem").map(accessibleName).filter((name) => name.endsWith(", open"))).toEqual([]);
+      expect(screen.queryByRole("menuitem", { name: "Back" })).toBeNull();
+      const triggers = Array.from(document.querySelectorAll('[role="menuitem"][aria-haspopup="menu"]'));
+      expect(triggers.map(accessibleName)).toEqual(["Move to…", "Copy to…", "A", "G"]);
+      for (const trigger of triggers) {
+        const chevrons = trigger.querySelectorAll('svg[data-icon="chevron-right"]');
+        expect(chevrons).toHaveLength(1);
+        expect(chevrons[0]).toHaveAttribute("aria-hidden", "true");
+      }
+    });
+
+    it("WC2 在「A」上 → → 開出新的子選單 [Move here, A1]、焦點在 Move here；Move to… 子選單仍在", async () => {
+      stub(WIDE_SERVER);
+      renderMenu();
+      const sub = await openMoveSub(["A", "B", "G", "H"]);
+      const a = await openCascade(sub, "A");
+      expect(a).not.toBe(sub);
+      await waitFor(() => expect(names(a)).toEqual(["Move here", "A1"]));
+      await waitFor(() => expect(within(a).getByRole("menuitem", { name: "Move here" })).toHaveFocus());
+      expect(subMenu()).toBe(sub);
+      expect(screen.getAllByRole("menu")).toHaveLength(3);
+      // 每層 SubContent 限高、限寬、可捲（只斷 class 存在；版面以真瀏覽器手測為準）。
+      for (const level of [sub, a]) {
+        expect(level.className).toMatch(/(^| )max-h-\[/);
+        expect(level.className).toMatch(/(^| )max-w-\[/);
+        expect(level).toHaveClass("overflow-y-auto");
+      }
+    });
+
+    it("WC3 筆記在 A：A 觸發項不反灰、A 的子選單「Move here」aria-disabled；筆記在 A1：A 的子選單裡「A1」aria-disabled", async () => {
+      stub(WIDE_SERVER);
+      renderMenu({ ...NOTE, folderId: "A" });
+      let sub = await openMoveSub(["Top level", "A", "B", "G", "H"]);
+      expect(within(sub).getByRole("menuitem", { name: "A" })).not.toHaveAttribute("aria-disabled");
+      let a = await openCascade(sub, "A");
+      await waitFor(() => expect(names(a)).toEqual(["Move here", "A1"]));
+      expect(within(a).getByRole("menuitem", { name: "Move here" })).toHaveAttribute("aria-disabled", "true");
+      expect(within(a).getByRole("menuitem", { name: "A1" })).not.toHaveAttribute("aria-disabled");
+      cleanup();
+      vi.unstubAllGlobals();
+      mockWidePointer(true);
+
+      stub(WIDE_SERVER);
+      renderMenu({ ...NOTE, folderId: "A1" });
+      sub = await openMoveSub(["Top level", "A", "B", "G", "H"]);
+      a = await openCascade(sub, "A");
+      await waitFor(() => expect(names(a)).toEqual(["Move here", "A1"]));
+      expect(within(a).getByRole("menuitem", { name: "A1" })).toHaveAttribute("aria-disabled", "true");
+      expect(within(a).getByRole("menuitem", { name: "Move here" })).not.toHaveAttribute("aria-disabled");
+    });
+
+    it("WC4 開「G」→ [Top level, GF]（GF 是 SubTrigger）；點 Top level → 選單關、移入確認框說明 G；再開到 GF → [Move here, GF1]、選 GF1 → 說明含 G › GF › GF1、不送 PUT", async () => {
+      const s = stub(WIDE_SERVER);
+      renderMenu();
+      let sub = await openMoveSub(["A", "B", "G", "H"]);
+      let g = await openCascade(sub, "G");
+      await waitFor(() => expect(names(g)).toEqual(["Top level", "GF"]));
+      expect(haspopup(within(g).getByRole("menuitem", { name: "GF" }))).toBe(true);
+      fireEvent.click(within(g).getByRole("menuitem", { name: "Top level" }));
+      let dialog = await screen.findByRole("dialog");
+      expect(dialog).toHaveTextContent('Move this note into "G"?');
+      expect(screen.queryByRole("menu")).toBeNull();
+      fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+      sub = await openMoveSub(["A", "B", "G", "H"]);
+      g = await openCascade(sub, "G");
+      const gf = await openCascade(g, "GF");
+      await waitFor(() => expect(names(gf)).toEqual(["Move here", "GF1"]));
+      fireEvent.click(within(gf).getByRole("menuitem", { name: "GF1" }));
+      dialog = await screen.findByRole("dialog");
+      expect(dialog).toHaveTextContent('Move this note into "G › GF › GF1"?');
+      expect(screen.queryByRole("menu")).toBeNull();
+      expect(placeBodies(s)).toEqual([]);
+    });
+
+    it("WC5 5 層鏈每層都能展開，第 4 層的子選單有一般項 D5；6 層鏈（轉移產生的更深樹）照實際樹展開到 E6", async () => {
+      stub({ groups: [G, H], folders: folderChain("D", 5) });
+      renderMenu();
+      let level = await openMoveSub(["D1", "G", "H"]);
+      for (const name of ["D1", "D2", "D3", "D4"]) level = await openCascade(level, name);
+      await waitFor(() => expect(names(level)).toEqual(["Move here", "D5"]));
+      expect(haspopup(within(level).getByRole("menuitem", { name: "D5" }))).toBe(false);
+      cleanup();
+      vi.unstubAllGlobals();
+      mockWidePointer(true);
+
+      stub({ groups: [G, H], folders: folderChain("E", 6) });
+      renderMenu();
+      level = await openMoveSub(["E1", "G", "H"]);
+      for (const name of ["E1", "E2", "E3", "E4", "E5"]) level = await openCascade(level, name);
+      await waitFor(() => expect(names(level)).toEqual(["Move here", "E6"]));
+      expect(screen.getAllByRole("menu")).toHaveLength(7);
+    });
+
+    it("WC6 第二層（A 的子選單）按 Esc → 只收 A 的子選單、焦點回「A」、Move to… 仍開；再按 Esc → Move to… 收起、主選單仍開、焦點回 Move to…", async () => {
+      stub(WIDE_SERVER);
+      renderMenu();
+      const sub = await openMoveSub(["A", "B", "G", "H"]);
+      const a = await openCascade(sub, "A");
+      const a1 = await within(a).findByRole("menuitem", { name: "A1" });
+      a1.focus();
+      fireEvent.keyDown(a1, { key: "Escape" });
+      await waitFor(() => expect(screen.queryByRole("menu", { name: "A" })).toBeNull());
+      expect(subMenu()).toBe(sub);
+      const aTrigger = within(sub).getByRole("menuitem", { name: "A" });
+      expect(aTrigger).toHaveFocus();
+      fireEvent.keyDown(aTrigger, { key: "Escape" });
+      await waitFor(() => expect(subMenu()).toBeNull());
+      expect(screen.getByRole("menu")).toBeInTheDocument();
+      expect(screen.getByTestId("note-menu-move-to")).toHaveFocus();
+    });
+
+    it("WC7 第二層 ← → A 的子選單收起、焦點回「A」、Move to… 仍開（Radix 內建、沒有被攔）", async () => {
+      stub(WIDE_SERVER);
+      renderMenu();
+      const sub = await openMoveSub(["A", "B", "G", "H"]);
+      const a = await openCascade(sub, "A");
+      const a1 = await within(a).findByRole("menuitem", { name: "A1" });
+      a1.focus();
+      fireEvent.keyDown(a1, { key: "ArrowLeft" });
+      await waitFor(() => expect(screen.queryByRole("menu", { name: "A" })).toBeNull());
+      expect(subMenu()).toBe(sub);
+      expect(within(sub).getByRole("menuitem", { name: "A" })).toHaveFocus();
+    });
+
+    it("WC8 開 A → 點「A1」（葉子）→ 選單關、PUT {folderId:A1}、toast「Moved to “A1”」、沒有確認框", async () => {
+      const s = stub(WIDE_SERVER);
+      renderMenu();
+      const sub = await openMoveSub(["A", "B", "G", "H"]);
+      const a = await openCascade(sub, "A");
+      fireEvent.click(await within(a).findByRole("menuitem", { name: "A1" }));
+      await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+      expect(await screen.findByText("Moved to “A1”")).toBeInTheDocument();
+      expect(placeBodies(s)).toEqual([{ folderId: "A1" }]);
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
+
+    it("WC9 Copy to…：第一層 [Make a copy, A, B, G, H]、G 的子選單第一項 Top level；筆記在 A → A 的子選單「Copy here」不反灰；群組筆記的 My notes（有個人資料夾）是 SubTrigger", async () => {
+      stub(WIDE_SERVER);
+      renderMenu();
+      let sub = await openFlyout(await openMenuReady("note-menu-copy-to"));
+      await waitFor(() => expect(names(sub)).toEqual(["Make a copy", "A", "B", "G", "H"]));
+      const g = await openCascade(sub, "G");
+      await waitFor(() => expect(names(g)).toEqual(["Top level", "GF"]));
+      cleanup();
+      vi.unstubAllGlobals();
+      mockWidePointer(true);
+
+      stub(WIDE_SERVER);
+      renderMenu({ ...NOTE, folderId: "A" });
+      sub = await openFlyout(await openMenuReady("note-menu-copy-to"));
+      await waitFor(() => expect(names(sub)).toEqual(["Make a copy", "Top level", "A", "B", "G", "H"]));
+      const a = await openCascade(sub, "A");
+      await waitFor(() => expect(names(a)).toEqual(["Copy here", "A1"]));
+      expect(within(a).getByRole("menuitem", { name: "Copy here" })).not.toHaveAttribute("aria-disabled");
+      cleanup();
+      vi.unstubAllGlobals();
+      mockWidePointer(true);
+
+      stub(WIDE_SERVER);
+      renderMenu({ ...MOVED, groupId: GG, group: { id: GG, name: "G" } });
+      sub = await openFlyout(await openMenuReady("note-menu-copy-to"));
+      await waitFor(() => expect(names(sub)).toEqual(["Make a copy", "GF", "My notes", "H"]));
+      expect(haspopup(within(sub).getByRole("menuitem", { name: "My notes" }))).toBe(true);
+    });
+
+    it("WC10 GET /api/folders 掛著 → 第一層沒有 SubTrigger（G 也是一般項）；放行後 A、G 變成 SubTrigger", async () => {
+      const s = stub({ ...WIDE_SERVER, hold: new Set([URLS.folders]) });
+      renderMenu();
+      const sub = await openFlyout(await openMenuReady("note-menu-move-to"));
+      await waitFor(() => expect(names(sub)).toEqual(["G", "H"]));
+      expect(within(sub).getAllByRole("menuitem").filter(haspopup)).toEqual([]);
+      await act(async () => s.release(URLS.folders, okJson({ folders: WIDE_SERVER.folders })));
+      await waitFor(() => expect(names(sub)).toEqual(["A", "B", "G", "H"]));
+      expect(within(sub).getAllByRole("menuitem").filter(haspopup).map(accessibleName)).toEqual(["A", "G"]);
+      // 焦點原本在一般項「G」，換成 SubTrigger 時元件重掛：不得掉到 body，交還給這一層（真瀏覽器落點見 H8）。
+      await waitFor(() => expect(document.activeElement).not.toBe(document.body));
+      expect(sub.contains(document.activeElement)).toBe(true);
+    });
+
+    it("WC11 開著 A 的子選單時 A 被刪（folders 重抓）→ A 觸發項與它的子選單都消失、Move to… 仍開、不 throw", async () => {
+      const s = stub(WIDE_SERVER);
+      const qc = renderMenu();
+      const sub = await openMoveSub(["A", "B", "G", "H"]);
+      const a = await openCascade(sub, "A");
+      await waitFor(() => expect(names(a)).toEqual(["Move here", "A1"]));
+      s.server.folders = [B, GF, GF1];
+      await act(async () => {
+        await qc.invalidateQueries({ queryKey: ["folders"] });
+      });
+      await waitFor(() => expect(names(sub)).toEqual(["B", "G", "H"]));
+      expect(screen.queryByRole("menu", { name: "A" })).toBeNull();
+      expect(screen.queryByRole("menuitem", { name: "Move here" })).toBeNull();
+      expect(subMenu()).toBe(sub);
+      // 焦點原本在 A 子選單的「Move here」，跟著卸載：不得掉到 body，交還給 Move to… 這一層。
+      await waitFor(() => expect(document.activeElement).not.toBe(document.body));
+      expect(sub.contains(document.activeElement)).toBe(true);
+    });
+
+    it("WC11b 在 A › A1 的子選單裡時 A1 被刪 → A1 的子選單消失、焦點交還給 A 的子選單（不是更外層、不掉到 body）", async () => {
+      // A 另有子資料夾 AX：A1 被刪後 A 仍是 SubTrigger、A 的子選單仍開。
+      const AX = folderDto({ id: "AX", name: "AX", parentId: "A" });
+      const s = stub({ ...WIDE_SERVER, folders: [A, A1, A2, AX, B, GF, GF1] });
+      const qc = renderMenu();
+      const sub = await openMoveSub(["A", "B", "G", "H"]);
+      const a = await openCascade(sub, "A");
+      const a1 = await openCascade(a, "A1");
+      await waitFor(() => expect(within(a1).getByRole("menuitem", { name: "Move here" })).toHaveFocus());
+      s.server.folders = [A, AX, B, GF, GF1];
+      await act(async () => {
+        await qc.invalidateQueries({ queryKey: ["folders"] });
+      });
+      await waitFor(() => expect(names(a)).toEqual(["Move here", "AX"]));
+      expect(screen.getByRole("menu", { name: "A" })).toBe(a);
+      expect(screen.queryByRole("menu", { name: "A1" })).toBeNull();
+      await waitFor(() => expect(document.activeElement).not.toBe(document.body));
+      expect(a.contains(document.activeElement)).toBe(true);
+    });
+
+    it("WC15 A 的子選單開著時資料夾重抓、但不影響 A（B 改名）→ A 的子選單仍開、焦點不動", async () => {
+      const s = stub(WIDE_SERVER);
+      const qc = renderMenu();
+      const sub = await openMoveSub(["A", "B", "G", "H"]);
+      const a = await openCascade(sub, "A");
+      const a1 = await within(a).findByRole("menuitem", { name: "A1" });
+      a1.focus();
+      s.server.folders = [A, A1, folderDto({ id: "B", name: "B2" }), GF, GF1];
+      await act(async () => {
+        await qc.invalidateQueries({ queryKey: ["folders"] });
+      });
+      await waitFor(() => expect(names(sub)).toEqual(["A", "B2", "G", "H"]));
+      expect(screen.getByRole("menu", { name: "A" })).toBe(a);
+      expect(a1).toHaveFocus();
+    });
+
+    it("WC12 選單開著時跨過寬窄判準 → 整個選單關；再開是新形的第一層（寬→窄、窄→寬）", async () => {
+      const mq = mockWidePointer(true);
+      stub(WIDE_SERVER);
+      renderMenu();
+      const sub = await openMoveSub(["A", "B", "G", "H"]);
+      await openCascade(sub, "A");
+      act(() => mq.setWide(false));
+      await waitFor(() => expect(screen.queryAllByRole("menu")).toEqual([]));
+      const narrowTrigger = await openMenuReady("note-menu-move-to");
+      expect(narrowTrigger).toHaveAttribute("aria-expanded", "false");
+      expect(narrowTrigger).not.toHaveAttribute("aria-haspopup");
+      fireEvent.click(narrowTrigger);
+      await waitFor(() => expect(names(screen.getByRole("group", { name: "Move to…" }))).toEqual(["A, open", "B", "G, open", "H"]));
+
+      fireEvent.click(screen.getByRole("menuitem", { name: "A, open" }));
+      await screen.findByRole("menuitem", { name: "Back" });
+      act(() => mq.setWide(true));
+      await waitFor(() => expect(screen.queryAllByRole("menu")).toEqual([]));
+      const wideTrigger = await openMenuReady("note-menu-move-to");
+      expect(haspopup(wideTrigger)).toBe(true);
+      const again = await openFlyout(wideTrigger);
+      await waitFor(() => expect(names(again)).toEqual(["A", "B", "G", "H"]));
+    });
+
+    it("WC13 zh：SubTrigger 可及名稱恰為「A」（窄形同一份資料仍是「A，開啟下一層」）；子選單第一項「移動到這裡」；群組子選單第一項「根目錄」", async () => {
+      await i18n.changeLanguage("zh-TW");
+      stub(WIDE_SERVER);
+      renderMenu();
+      fireEvent.pointerDown(screen.getByRole("button", { name: "更多" }), { button: 0 });
+      const sub = await openFlyout(await screen.findByTestId("note-menu-move-to"));
+      await waitFor(() => expect(names(sub)).toEqual(["A", "B", "G", "H"]));
+      const a = await openCascade(sub, "A");
+      await waitFor(() => expect(names(a)).toEqual(["移動到這裡", "A1"]));
+      fireEvent.keyDown(within(a).getByRole("menuitem", { name: "移動到這裡" }), { key: "Escape" });
+      await waitFor(() => expect(screen.queryByRole("menu", { name: "A" })).toBeNull());
+      const g = await openCascade(sub, "G");
+      await waitFor(() => expect(names(g)).toEqual(["根目錄", "GF"]));
+      cleanup();
+      vi.unstubAllGlobals();
+      mockWidePointer(false);
+
+      stub(WIDE_SERVER);
+      renderMenu();
+      fireEvent.pointerDown(screen.getByRole("button", { name: "更多" }), { button: 0 });
+      fireEvent.click(await screen.findByTestId("note-menu-move-to"));
+      await waitFor(() => expect(names(screen.getByRole("group", { name: "移動到…" }))).toEqual(["A，開啟下一層", "B", "G，開啟下一層", "H"]));
+    });
+
+    it("WC14 名稱很長的資料夾：SubTrigger 的名稱放在有 truncate class 的 span", async () => {
+      const LONG = "L".repeat(80);
+      stub({ groups: [G, H], folders: [folderDto({ id: "LONG", name: LONG }), folderDto({ id: "LC", name: "LC", parentId: "LONG" })] });
+      renderMenu();
+      const sub = await openMoveSub([LONG, "G", "H"]);
+      const trigger = within(sub).getByRole("menuitem", { name: LONG });
+      expect(haspopup(trigger)).toBe(true);
+      const label = Array.from(trigger.querySelectorAll("span")).find((el) => el.textContent === LONG);
+      expect(label).toHaveClass("truncate");
     });
   });
 });

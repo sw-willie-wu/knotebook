@@ -229,7 +229,7 @@ export function buildDestinationLevel(input: {
   const { source, path, index, t } = input;
   const at = resolvePath(source, path, index);
   if (at === null) return firstLevel(source, index, t);
-  // 第二層起：「‹ 返回」恆第一項、不加分隔線。
+  // 第二層起：「返回」恆第一項、不加分隔線。
   if (at.kind === "space") {
     return [
       backItem(t),
@@ -255,7 +255,7 @@ export function buildDestinationLevel(input: {
 /**
  * path 裡仍有效的前綴。`buildDestinationLevel` 遇到失效的步（資料夾被刪、群組不見）會**靜默截斷**到最後一個有效的前綴，
  * 所以「目前在第幾層」不能看 `path.length`（T2 交接）：「返回」「點進」一律從這個前綴接，「返回」才恰好退一個看得到的層。
- * 判法：第 k 層建出來的「‹ 返回」下一項（空間層＝根目錄、資料夾層＝移動到這裡／複製到這裡）就是第 k 步本身。
+ * 判法：第 k 層建出來的「返回」下一項（空間層＝根目錄、資料夾層＝移動到這裡／複製到這裡）就是第 k 步本身。
  * ⋮ 的逐層子選單（`GroupTransfer`）與選取模式的目的地框（`SelectActionBar`）共用。
  */
 export function livePath(source: DestSource, path: readonly DestPathStep[], index: FolderIndex, t: Translate): readonly DestPathStep[] {

@@ -70,3 +70,14 @@ export function reduceSelection(state: SidebarSelection, op: SelectionOp): Sideb
     }
   }
 }
+
+export type SelectAllState = "all" | "some" | "none";
+
+/** 三態全選框的狀態（只看畫面上可見的列，不看收合子樹裡勾的）：visible 空 → none；全在 keys → all；任一在 → some；否則 none。 */
+export function selectAllState(visible: readonly string[], keys: ReadonlySet<string>): SelectAllState {
+  if (visible.length === 0) return "none";
+  let hit = 0;
+  for (const key of visible) if (keys.has(key)) hit += 1;
+  if (hit === 0) return "none";
+  return hit === visible.length ? "all" : "some";
+}
