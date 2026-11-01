@@ -5,10 +5,12 @@ import {
   ArrowDown,
   ArrowUp,
   Columns2,
+  CornerDownRight,
   FilePlus,
   Folder,
   FolderPlus,
   History,
+  House,
   ImageIcon,
   KeyRound,
   ListFilter,
@@ -52,6 +54,9 @@ describe("icons", () => {
     ["folder-plus", FolderPlus],
     ["file-plus", FilePlus],
     ["log-out", LogOut],
+    // 目的地項目的根目錄與「放進這裡」
+    ["house", House],
+    ["corner-down-right", CornerDownRight],
   ] as const)("圖示 %s：帶 data-icon、預設 aria-hidden、吃 className", (name, Icon) => {
     const { container } = render(<Icon className="h-4 w-4" />);
     const svg = container.querySelector("svg");

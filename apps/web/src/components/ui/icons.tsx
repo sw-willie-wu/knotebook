@@ -73,12 +73,12 @@ export function Trash(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-/** 垃圾桶的「還原」（#181 PR-2b，逆時針箭頭）。 */
+/** 垃圾桶的「還原」（#181 PR-2b，逆時針箭頭）。路徑取自 lucide `rotate-ccw`（ISC），手刻同風格。 */
 export function RotateCcw(props: SVGProps<SVGSVGElement>) {
   return (
     <svg data-icon="restore" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
-      <path d="M3 7v6h6" />
-      <path d="M3 13a9 9 0 1 0 3-7.7L3 8" />
+      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+      <path d="M3 3v5h5" />
     </svg>
   );
 }
@@ -528,6 +528,26 @@ export function NoteWidthIcon({ width, ...props }: { width: NoteWidth } & SVGPro
   return (
     <svg data-icon={`note-width-${width}`} aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
       <path d={NOTE_WIDTH_PATH[width]} />
+    </svg>
+  );
+}
+
+/** 目的地的「根目錄」（Top level）。路徑取自 lucide `house`（ISC），手刻同風格。 */
+export function House(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg data-icon="house" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" />
+      <path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+    </svg>
+  );
+}
+
+/** 目的地的「移動到這裡／複製到這裡」。路徑取自 lucide `corner-down-right`（ISC），手刻同風格。 */
+export function CornerDownRight(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg data-icon="corner-down-right" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <polyline points="15 10 20 15 15 20" />
+      <path d="M4 4v7a4 4 0 0 0 4 4h12" />
     </svg>
   );
 }

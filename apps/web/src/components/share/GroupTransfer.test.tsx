@@ -903,7 +903,7 @@ describe("⋮ 逐層子選單（PR-3b-2 T4）", () => {
     vi.unstubAllGlobals();
   });
 
-  /** 項目的第一個子元素若是 svg，回它的 data-icon；否則 null（返回項第一個子元素是 span）。 */
+  /** 項目的第一個子元素若是 svg，回它的 data-icon；否則 null。 */
   const leadIcons = (container: HTMLElement) =>
     Object.fromEntries(
       within(container)
@@ -974,7 +974,7 @@ describe("⋮ 逐層子選單（PR-3b-2 T4）", () => {
     await openMoveSub(["SF"]);
   });
 
-  it("NM-D19 層疊目的地項目前導圖示：資料夾 folder、群組 users；A 的子選單裡 Move here 沒有、A1 folder；圖示 aria-hidden、mr-2 h-4 w-4", async () => {
+  it("NM-D19 層疊目的地項目前導圖示：資料夾 folder、群組 users；A 的子選單裡 Move here 為 corner-down-right、A1 folder；圖示 aria-hidden、mr-2 h-4 w-4", async () => {
     stub(BASE_SERVER);
     renderMenu();
     const sub = await openMoveSub(["A", "B", "G", "H"]);
@@ -986,17 +986,17 @@ describe("⋮ 逐層子選單（PR-3b-2 T4）", () => {
     }
     const a = await openCascade(sub, "A");
     await waitFor(() => expect(names(a)).toEqual(["Move here", "A1"]));
-    expect(leadIcons(a)).toEqual({ "Move here": null, A1: "folder" });
+    expect(leadIcons(a)).toEqual({ "Move here": "corner-down-right", A1: "folder" });
   });
 
-  it("NM-D20 層疊 Copy to…：建立副本 copy、群組筆記的「我的筆記」user、群組 users；Top level 沒有", async () => {
+  it("NM-D20 層疊 Copy to…：建立副本 copy、群組筆記的「我的筆記」user、群組 users；Top level 為 house", async () => {
     const IN_G: NoteDto = { ...MOVED, groupId: GG, group: { id: GG, name: "G" }, folderId: "GF" };
     stub({ groups: [G, H], folders: [A, GF, HF, SF] });
     renderMenu(IN_G);
     const sub = await openFlyout(await openMenuReady("note-menu-copy-to"));
     await waitFor(() => expect(names(sub).length).toBeGreaterThan(1));
     expect(names(sub)).toEqual(["Make a copy", "Top level", "GF", "My notes", "H"]);
-    expect(leadIcons(sub)).toEqual({ "Make a copy": "copy", "Top level": null, GF: "folder", "My notes": "user", H: "users" });
+    expect(leadIcons(sub)).toEqual({ "Make a copy": "copy", "Top level": "house", GF: "folder", "My notes": "user", H: "users" });
   });
 
   it("NM-D18 筆記在 A1：移到 B → toast 用短名「B」；按 Undo → PUT 回 {folderId:A1}", async () => {
@@ -1057,14 +1057,14 @@ describe("⋮ 逐層子選單（PR-3b-2 T4）", () => {
       expect(chevronRightClass).toContain("w-4");
     });
 
-    it("NM-I5 就地展開形目的地項目前導圖示：資料夾 folder、群組 users；Back 為 chevron-left、Move here 沒有", async () => {
+    it("NM-I5 就地展開形目的地項目前導圖示：資料夾 folder、群組 users；Back 為 chevron-left、Move here 為 corner-down-right", async () => {
       stub(BASE_SERVER);
       renderMenu();
       const { group } = await expandMove(["A, open", "B", "G", "H"]);
       expect(leadIcons(group)).toEqual({ "A, open": "folder", B: "folder", G: "users", H: "users" });
       fireEvent.click(within(group).getByRole("menuitem", { name: "A, open" }));
       await waitFor(() => expect(names(screen.getByRole("group", { name: "Move to…" }))).toEqual(["Back", "Move here", "A1"]));
-      expect(leadIcons(screen.getByRole("group", { name: "Move to…" }))).toEqual({ Back: "chevron-left", "Move here": null, A1: "folder" });
+      expect(leadIcons(screen.getByRole("group", { name: "Move to…" }))).toEqual({ Back: "chevron-left", "Move here": "corner-down-right", A1: "folder" });
     });
 
     it("NM-I2 第二層 ArrowLeft → 回第一層（仍展開）；第一層 ArrowLeft → 收合", async () => {
