@@ -28,6 +28,8 @@ test.use({ viewport: { width: 1280, height: 720 } });
 
 const RUN = Date.now();
 const PASSWORD = "e2e-folders-drag-pw";
+/** wikilink 的外層（BlockNote 對 inline content 加的屬性；同 27-site-links）。 */
+const WIKILINK = '[data-inline-content-type="wikilink"]';
 type FolderParent = { parentId: string } | { space: { kind: "personal" } | { kind: "group"; groupId: string } };
 
 /** ADMIN 發邀請建一個新使用者，在 `page` 以它登入（落在 `/`）。 */
@@ -380,7 +382,7 @@ test("42-6 群組 tab 跨群組：G 的 g1 拖到 H 群組列 → H 不標示為
   expect(await placementOf(page, g1Id)).toEqual({ folderId: null, groupId: gId });
 });
 
-test("42-7 拖進編輯器（【推-2】）：側欄 N 拖進 P 的編輯器放下 → 網址不變、側欄沒有落點與預覽、P 多一個指向 N 的連結", async ({ page }) => {
+test("42-7 拖進編輯器（【推-2】）：側欄 N 拖進 P 的編輯器放下 → 網址不變、側欄沒有落點與預覽、P 多一個指向 N 的 wikilink", async ({ page }) => {
   test.setTimeout(150_000);
   const P = `E2E Drag Page ${RUN}`;
   const N = `E2E Drag Linked ${RUN}`;
@@ -415,10 +417,12 @@ test("42-7 拖進編輯器（【推-2】）：側欄 N 拖進 P 的編輯器放�
   expect(box, "放下目標段量不到位置").not.toBeNull();
   await dragTo(page, noteLink(panel, N), dropOuter, { position: { x: box!.width * 0.8, y: box!.height / 2 } });
 
-  // 正向錨點：P 的編輯器多出一個指向 N 的連結。選擇器對一般連結與 wikilink 都成立——
-  // 一般連結（現行，#269「拖放進來的不轉換」）是 link mark 的 <a href="<origin>/n/…">；wikilink 的編輯頁渲染（MemberWikilink 命中態）
-  // 是 <a href={canonicalNotePath(note)}>。兩者的 href 都以 N 的 canonical 路徑結尾。不斷言連結文字、絕對／相對與是否為 wikilink。
-  await expect(editor.locator(`a[href$="${nPath}"]`)).toHaveCount(1, { timeout: 15_000 });
+  // 正向錨點：放下的那段多出恰一個指向 N 的 wikilink（#352：從編輯器外拖進來的站內連結在放下範圍內轉成 wikilink，
+  // collab/site-link-convert.ts `withSiteLinkDrop`）。編輯頁的 wikilink 命中態（MemberWikilink）是 <a href={canonicalNotePath(note)}>、
+  // 文字是 label 或現行標題（拖進來的 label 空，見 27 的 E6）。另斷言沒有指向 N 的一般連結（link mark 的 <a href="<origin>/n/…">）。
+  await expect(dropOuter.locator(WIKILINK)).toHaveCount(1, { timeout: 15_000 });
+  await expect(dropOuter.locator(`${WIKILINK} a[href$="${nPath}"]`)).toHaveText(N, { timeout: 15_000 });
+  await expect(editor.locator(`a[href$="${nPath}"]:not(${WIKILINK} a)`)).toHaveCount(0);
   await expect(page).toHaveURL(urlBefore);
   await expect(noteLink(panel, N)).toBeVisible();
   await expect(page.locator("[data-drop-scope]")).toHaveCount(0);
