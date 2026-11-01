@@ -4,8 +4,10 @@ import {
   clickMenuItemByPointer,
   createFolder,
   createUserViaInvite,
+  expectWidePointer,
   folderRow,
   loginAs,
+  openedSubmenu,
   pickDestination,
   pickNoteMenuDestination,
   randomEmail,
@@ -22,7 +24,11 @@ import {
  * 每個 test 以 `createUserViaInvite` 開自己的使用者並登入它（資料夾排在根層筆記前、預設展開，留在共用的 ADMIN 帳號會改變其他 spec
  * 的可見列）；ADMIN 只發邀請。資料以 API 建（建筆記不帶 content 不吃寫入節流；本檔只複製 2 篇），建完 `goto("/")` 讓側欄重抓——
  * 只有 41-3 的群組資料夾照 brief 用群組列「New folder in」建。負向斷言前先等正向錨點；toast 斷言錨定全字。
- * 不斷言子選單換層後的焦點（M7），只有 41-2 照 A3-18 斷「Back」聚焦。
+ * 不斷言子選單換層後的焦點（M7），只有 41-2 照 A3-18 斷鍵盤進層後的聚焦。
+ *
+ * PR-3b-3（spec §6.18 rev 5.4 句、A3-19；寬窄判準見 helpers 的 `expectWidePointer`）：e2e 預設視窗 1280 落在寬——⋮ 的「Move to…／
+ * Copy to…」是往旁層疊的 Radix 巢狀子選單（SubTrigger 不帶「, open」、沒有「Back」）、選取工具列在標題列；41-6、41-12 用 390 走窄形。
+ * 41-10～41-13 是本 PR 新增。點 `aria-disabled` 的鈕一律 `click({ force: true })`（Playwright 的 click 會等 enabled，aria-disabled 算停用）。
  */
 
 const RUN = Date.now();
@@ -84,17 +90,23 @@ async function openNoteActions(page: Page, scope: Locator, title: string): Promi
   await expect(page.getByRole("menu")).toBeVisible();
 }
 
-/** 子選單（第二層起，含「Back」的那個 menu）。 */
-function nestedSubmenu(page: Page): Locator {
-  return page.getByRole("menu").filter({ has: page.getByRole("menuitem", { name: "Back", exact: true }) });
-}
-
-/** 側欄底部的選取動作列（在 tabpanel 外）。`scope` 預設靜態側欄。 */
+/** 選取動作列（窄形在側欄底部、tabpanel 外；寬形在標題列）。`scope` 預設靜態側欄。 */
 function actionBar(page: Page, scope?: Locator): Locator {
   return (scope ?? page.getByRole("complementary")).locator("[data-select-action-bar]");
 }
 
-test("41-1 ⋮ 移動與復原（1280 寬）：第一層沒有 Top level → 換層後子選單仍開、第二層是 Back／Move here／F1 → toast → Undo 回根層", async ({ page }) => {
+/** 選取模式的勾選框（整列是 `<label>`，可及名稱以標題／資料夾名開頭；同 `toggleSelectedNote` 的找法）。 */
+function selectionBox(panel: Locator, title: string): Locator {
+  return panel.getByRole("checkbox", { name: new RegExp("^" + reEscape(title)) });
+}
+
+/** ⋮ 開著、寬形：打開「Move to…」子選單，回傳它的第一層（層疊）。 */
+async function openMoveCascade(page: Page): Promise<Locator> {
+  await pickNoteMenuDestination(page, "Move to…", []);
+  return openedSubmenu(page, page.getByRole("menuitem", { name: "Move to…", exact: true }));
+}
+
+test("41-1 ⋮ 寬形層疊移動與復原（1280）：第一層沒有 Top level、F 是 SubTrigger（不帶「, open」）→ 第二層 Move here／F1、沒有 Back → toast → Undo 回根層", async ({ page }) => {
   test.setTimeout(150_000);
   const F = `F ${RUN}`;
   const F1 = `F1 ${RUN}`;
@@ -104,25 +116,29 @@ test("41-1 ⋮ 移動與復原（1280 寬）：第一層沒有 Top level → 換
   await apiCreateFolder(page, F1, { parentId: fId });
   const noteId = await apiCreateNote(page, N);
   await page.goto("/");
+  await expectWidePointer(page, true);
   const panel = await showSidebarTab(page, "My notes");
   await expect(folderRow(folderRow(panel, F), F1)).toBeVisible({ timeout: 15_000 });
   await expect(noteLink(panel, N)).toBeVisible();
 
-  // ── 第一層：N 在根層 → 沒有「Top level」；F 有子資料夾 → 換層項「F, open」──────────────
+  // ── 第一層：N 在根層 → 沒有「Top level」；F 有子資料夾 → SubTrigger（aria-haspopup），名稱就是「F」──────────
   await openNoteActions(page, panel, N);
-  await pickNoteMenuDestination(page, "Move to…", []);
-  await expect(page.getByRole("menuitem", { name: `${F}, open`, exact: true })).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: "Top level", exact: true })).toHaveCount(0);
+  const first = await openMoveCascade(page);
+  const fTrigger = first.getByRole("menuitem", { name: F, exact: true });
+  await expect(fTrigger).toHaveAttribute("aria-haspopup", "menu");
+  await expect(first.getByRole("menuitem", { name: "Top level", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("menuitem", { name: /, open$/ })).toHaveCount(0);
 
-  // ── 換層：子選單仍開，第二層恰是 Back、Move here、F1（F1 沒有子資料夾 → 不帶「, open」）────────
-  await clickMenuItemByPointer(page, `${F}, open`);
-  const second = nestedSubmenu(page);
-  await expect(second).toBeVisible();
-  await expect(second.getByRole("menuitem")).toHaveCount(3);
-  for (const name of ["Back", "Move here", F1]) await expect(second.getByRole("menuitem", { name, exact: true })).toBeVisible();
+  // ── 移到 F → 往旁再疊一層（第一層仍開）：恰是 Move here、F1（F1 沒有子資料夾 → 一般項）；沒有「Back」────────
+  await clickMenuItemByPointer(page, F, first);
+  const second = await openedSubmenu(page, fTrigger);
+  await expect(second.getByRole("menuitem")).toHaveCount(2);
+  for (const name of ["Move here", F1]) await expect(second.getByRole("menuitem", { name, exact: true })).toBeVisible();
+  await expect(first).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Back", exact: true })).toHaveCount(0);
 
   // ── 選 F1 → 同空間移動不確認 → toast「Moved to “F1”」、N 在 F1 底下 → Undo → 回根層 ─────────
-  await clickMenuItemByPointer(page, F1);
+  await clickMenuItemByPointer(page, F1, second);
   const moved = toastWithTitle(page, `Moved to “${F1}”`);
   await expect(moved).toBeVisible({ timeout: 15_000 });
   // 指標停在 toast 上：Radix 的 5 秒計時暫停，側欄斷言與 Undo 之間 toast 不會自己收掉。
@@ -135,7 +151,7 @@ test("41-1 ⋮ 移動與復原（1280 寬）：第一層沒有 Top level → 換
   await expect(noteLink(folderRow(panel, F), N)).toHaveCount(0, { timeout: 15_000 });
 });
 
-test("41-2 子選單鍵盤：ArrowRight 開子選單與進層（Back 聚焦）、ArrowLeft 回第一層、第二層 Esc 只關子選單、重開是第一層", async ({ page }) => {
+test("41-2 寬形層疊鍵盤：ArrowRight 開子選單與下一層（Move here 聚焦）、ArrowLeft 收一層、Esc 每次只收一層、第三下才關選單", async ({ page }) => {
   test.setTimeout(150_000);
   const F = `F ${RUN}`;
   const F1 = `F1 ${RUN}`;
@@ -145,6 +161,7 @@ test("41-2 子選單鍵盤：ArrowRight 開子選單與進層（Back 聚焦）�
   await apiCreateFolder(page, F1, { parentId: fId });
   await apiCreateNote(page, N);
   await page.goto("/");
+  await expectWidePointer(page, true);
   const panel = await showSidebarTab(page, "My notes");
   await expect(folderRow(folderRow(panel, F), F1)).toBeVisible({ timeout: 15_000 });
 
@@ -169,34 +186,33 @@ test("41-2 子選單鍵盤：ArrowRight 開子選單與進層（Back 聚焦）�
   }
   await expect(moveTo).toBeFocused();
 
-  // ── ArrowRight 開子選單（第一層）→ 在「F, open」上 ArrowRight 進層 →「Back」聚焦 ───────────────
-  const fItem = page.getByRole("menuitem", { name: `${F}, open`, exact: true });
-  const back = page.getByRole("menuitem", { name: "Back", exact: true });
+  // ── ArrowRight 開「Move to…」子選單（焦點進第一項 F）→ 在 F（SubTrigger）上 ArrowRight 再疊一層 →「Move here」聚焦 ────
+  // 鍵盤開子選單時 Radix 把焦點交給新層的第一個可用項（滑鼠 hover 開則不會）。
+  const fItem = page.getByRole("menuitem", { name: F, exact: true });
+  const moveHere = page.getByRole("menuitem", { name: "Move here", exact: true });
   await page.keyboard.press("ArrowRight");
   await expect(fItem).toBeFocused();
+  await expect(fItem).toHaveAttribute("aria-haspopup", "menu");
   await page.keyboard.press("ArrowRight");
-  await expect(back).toBeFocused();
-  await expect(page.getByRole("menuitem", { name: "Move here", exact: true })).toBeVisible();
+  await expect(moveHere).toBeFocused();
+  await expect(page.getByRole("menuitem", { name: F1, exact: true })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Back", exact: true })).toHaveCount(0);
 
-  // ── ArrowLeft 回第一層、子選單仍開 ─────────────────────────────────────────────
+  // ── ArrowLeft：只收 F 那一層、焦點回 F，「Move to…」的子選單仍開 ──────────────────────────────
   await page.keyboard.press("ArrowLeft");
-  await expect(fItem).toBeVisible();
-  await expect(back).toHaveCount(0);
-
-  // ── 再進第二層 → Esc 只關子選單：主選單的「Move to…」仍在、還能用 ArrowRight 重開 ─────────────
   await expect(fItem).toBeFocused();
-  await page.keyboard.press("ArrowRight");
-  await expect(back).toBeFocused();
-  await page.keyboard.press("Escape");
-  await expect(back).toHaveCount(0);
-  await expect(moveTo).toBeVisible();
-  await expect(moveTo).toBeFocused();
+  await expect(moveHere).toHaveCount(0);
 
-  // ── 重開子選單是第一層（沒有「Back」）────────────────────────────────────────────
+  // ── 再進 F 那一層 → Esc 只收 F 那一層（總管裁定 ②）→ 再 Esc 收「Move to…」、主選單仍開 → 第三下才關整個選單 ────
   await page.keyboard.press("ArrowRight");
-  await expect(fItem).toBeVisible();
-  await expect(back).toHaveCount(0);
+  await expect(moveHere).toBeFocused();
   await page.keyboard.press("Escape");
+  await expect(moveHere).toHaveCount(0);
+  await expect(fItem).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(fItem).toHaveCount(0);
+  await expect(moveTo).toBeFocused();
+  await expect(page.getByRole("menu")).toHaveCount(1);
   await page.keyboard.press("Escape");
   await expect(page.getByRole("menu")).toHaveCount(0);
 });
@@ -337,6 +353,7 @@ test("41-6 390 抽屜：⋮ Move to… 就地展開、點「F, open」縮排區�
   await apiCreateNote(page, M);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
+  await expectWidePointer(page, false);
   await page.getByRole("button", { name: "Open navigation" }).click();
   const drawer = page.getByRole("dialog", { name: "Navigation" });
   await expect(drawer).toBeVisible();
@@ -457,4 +474,205 @@ test("41-9 刪群組說明：有資料夾的群組 ⋮ → Delete group → 轉�
   ).toBeVisible({ timeout: 15_000 });
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(dialog).not.toBeVisible();
+});
+
+test("41-10 寬形層疊的反灰與群組根目錄：N 在 F1 → F1 那一層 Move here 反灰、F2 可按；群組 G 那一層第一項 Top level、第二項 GF", async ({ page }) => {
+  test.setTimeout(150_000);
+  const F = `F ${RUN}`;
+  const F1 = `F1 ${RUN}`;
+  const F2 = `F2 ${RUN}`;
+  const G = `E2E Mv G10 ${RUN}`;
+  const GF = `GF ${RUN}`;
+  const N = `E2E Mv Cascade ${RUN}`;
+  await asNewUser(page, "E2E Move Cascade");
+  const fId = await apiCreateFolder(page, F, { space: { kind: "personal" } });
+  const f1Id = await apiCreateFolder(page, F1, { parentId: fId });
+  await apiCreateFolder(page, F2, { parentId: f1Id });
+  await apiCreateNote(page, N, { folderId: f1Id });
+  const groupId = await apiCreateGroup(page, G);
+  await apiCreateFolder(page, GF, { space: { kind: "group", groupId } });
+  await page.goto("/");
+  await expectWidePointer(page, true);
+  const panel = await showSidebarTab(page, "My notes");
+  await expect(noteLink(folderRow(panel, F1), N)).toBeVisible({ timeout: 15_000 });
+
+  // ── Move to… → F：「Move here」可按（N 不在 F 本身）、F1 是 SubTrigger 且可按（A 本身仍可展開）────────────
+  await openNoteActions(page, panel, N);
+  const first = await openMoveCascade(page);
+  const fTrigger = first.getByRole("menuitem", { name: F, exact: true });
+  await clickMenuItemByPointer(page, F, first);
+  const fLevel = await openedSubmenu(page, fTrigger);
+  await expect(fLevel.getByRole("menuitem", { name: "Move here", exact: true })).toBeEnabled();
+  const f1Trigger = fLevel.getByRole("menuitem", { name: F1, exact: true });
+  await expect(f1Trigger).toHaveAttribute("aria-haspopup", "menu");
+  await expect(f1Trigger).toBeEnabled();
+
+  // ── F1（N 所在）那一層：「Move here」反灰（Radix disabled＝aria-disabled）、F2 可按 ─────────────────────
+  await clickMenuItemByPointer(page, F1, fLevel);
+  const f1Level = await openedSubmenu(page, f1Trigger);
+  await expect(f1Level.getByRole("menuitem", { name: F2, exact: true })).toBeEnabled();
+  await expect(f1Level.getByRole("menuitem", { name: "Move here", exact: true })).toBeDisabled();
+
+  // ── Esc 兩下回到第一層（每下只收一層）──────────────────────────────────────────
+  await page.keyboard.press("Escape");
+  await expect(f1Level).toHaveCount(0);
+  await expect(fLevel).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(fLevel).toHaveCount(0);
+  await expect(first).toBeVisible();
+
+  // ── 群組 G（有資料夾 GF → SubTrigger）那一層：第一項「Top level」、第二項 GF ────────────────────────
+  const gTrigger = first.getByRole("menuitem", { name: G, exact: true });
+  await expect(gTrigger).toHaveAttribute("aria-haspopup", "menu");
+  await clickMenuItemByPointer(page, G, first);
+  const gLevel = await openedSubmenu(page, gTrigger);
+  const gItems = gLevel.getByRole("menuitem");
+  await expect(gItems.nth(0)).toHaveAccessibleName("Top level");
+  await expect(gItems.nth(1)).toHaveAccessibleName(GF);
+});
+
+test("41-11 寬形選取工具列（1280）：✕ 聚焦、三態全選框、底部沒有 New note；標題列 Move to 批次移動 → 焦點回 Select；✕ 上按 Esc 結束", async ({ page }) => {
+  test.setTimeout(150_000);
+  const F = `F ${RUN}`;
+  const F1 = `F1 ${RUN}`;
+  const [n1, n2] = [`E2E Mv Tb N1 ${RUN}`, `E2E Mv Tb N2 ${RUN}`];
+  await asNewUser(page, "E2E Move Toolbar");
+  const fId = await apiCreateFolder(page, F, { space: { kind: "personal" } });
+  await apiCreateFolder(page, F1, { parentId: fId });
+  await apiCreateNote(page, n1);
+  await apiCreateNote(page, n2);
+  await page.goto("/");
+  await expectWidePointer(page, true);
+  const sidebar = page.getByRole("complementary");
+  const newNote = sidebar.getByRole("button", { name: "New note", exact: true });
+  const myNotes = await showSidebarTab(page, "My notes");
+  await expect(folderRow(folderRow(myNotes, F), F1)).toBeVisible({ timeout: 15_000 });
+  for (const title of [n1, n2]) await expect(noteLink(myNotes, title)).toBeVisible();
+  await expect(newNote).toBeVisible();
+
+  // ── Select → 焦點在 ✕（沒有「Done」）、全選框未勾、底部不顯示（沒有 New note）→ 焦點在 ✕ 上按 Esc → 結束、焦點回 Select ─────
+  let panel = await startSidebarSelection(page);
+  const exit = panel.getByRole("button", { name: "Exit selection", exact: true });
+  const selectButton = panel.locator("button[data-sidebar-select]");
+  const selectAll = panel.getByRole("checkbox", { name: "Select all", exact: true });
+  await expect(exit).toBeFocused();
+  await expect(panel.getByRole("button", { name: "Done", exact: true })).toHaveCount(0);
+  await expect(selectAll).not.toBeChecked();
+  await expect(selectAll).toHaveJSProperty("indeterminate", false);
+  await expect(newNote).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(selectButton).toBeFocused();
+  await expect(selectAll).toHaveCount(0);
+  await expect(newNote).toBeVisible();
+
+  // ── 再 Select → 勾 N1 → 全選框半勾 → 點它：可見列（F、F1、N1、N2）全勾 → 再點：全不勾 ──────────────────
+  panel = await startSidebarSelection(page);
+  await expect(exit).toBeFocused();
+  await toggleSelectedNote(panel, n1);
+  await expect(selectAll).toBeChecked({ indeterminate: true });
+  await selectAll.click();
+  for (const name of [F, F1, n1, n2]) await expect(selectionBox(panel, name)).toBeChecked();
+  await expect(selectAll).toBeChecked();
+  await expect(panel.getByText("4 selected", { exact: true })).toBeVisible();
+  await selectAll.click();
+  await expect(panel.getByText("0 selected", { exact: true })).toBeVisible();
+  for (const name of [F, F1, n1, n2]) await expect(selectionBox(panel, name)).not.toBeChecked();
+  await expect(selectAll).not.toBeChecked();
+  await expect(selectAll).toHaveJSProperty("indeterminate", false);
+
+  // ── 勾 N1、N2 → 標題列工具列的「Move to」→ 目的地框 F → Move here → toast → 焦點回 Select、New note 回來 ───────────
+  await toggleSelectedNote(panel, n1);
+  await toggleSelectedNote(panel, n2);
+  await expect(panel.getByText("2 selected", { exact: true })).toBeVisible();
+  const toolbar = panel.locator("[data-sidebar-header] [data-select-action-bar]");
+  await toolbar.getByRole("button", { name: "Move to", exact: true }).click();
+  const picker = page.getByRole("dialog", { name: "Move to" });
+  await expect(picker).toBeVisible();
+  await pickDestination(picker, [`${F}, open`, "Move here"]);
+  await expect(toastWithTitle(page, `Moved 2 items to “${F}”`)).toBeVisible({ timeout: 15_000 });
+  await expect(selectButton).toBeFocused();
+  await expect(newNote).toBeVisible();
+  for (const title of [n1, n2]) await expect(noteLink(folderRow(myNotes, F), title)).toBeVisible({ timeout: 15_000 });
+});
+
+test("41-12 390 窄形：勾資料夾 → 底部 Copy to 反灰（aria-disabled、title 說明）、點了出同字 toast、不開目的地框；Move to 與 Copy to 同為外框鈕", async ({ page }) => {
+  test.setTimeout(150_000);
+  const F = `F ${RUN}`;
+  const N = `E2E Mv Soft ${RUN}`;
+  const reason = "Folders can't be copied";
+  await asNewUser(page, "E2E Move Soft");
+  await apiCreateFolder(page, F, { space: { kind: "personal" } });
+  await apiCreateNote(page, N);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  await expectWidePointer(page, false);
+  await page.getByRole("button", { name: "Open navigation" }).click();
+  const drawer = page.getByRole("dialog", { name: "Navigation" });
+  await expect(drawer).toBeVisible();
+  const drawerPanel = await showSidebarTab(page, "My notes", drawer);
+  await expect(folderRow(drawerPanel, F)).toBeVisible({ timeout: 15_000 });
+
+  const panel = await startSidebarSelection(page, drawer);
+  await expect(panel.getByRole("button", { name: "Done", exact: true })).toBeVisible();
+  await toggleSelectedNote(panel, F);
+  await expect(panel.getByText("1 selected", { exact: true })).toBeVisible();
+  const bar = actionBar(page, drawer);
+  const copyTo = bar.getByRole("button", { name: "Copy to", exact: true });
+  const moveTo = bar.getByRole("button", { name: "Move to", exact: true });
+  await expect(moveTo).toBeVisible();
+  await expect(copyTo).toBeDisabled();
+  await expect(copyTo).toHaveAttribute("aria-disabled", "true");
+  await expect(copyTo).toHaveAttribute("title", reason);
+
+  // ── 點反灰的 Copy to（aria-disabled：force）→ 出同字 toast、不開目的地框、選取保留 ─────────────────────
+  await copyTo.click({ force: true });
+  await expect(toastWithTitle(page, reason)).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Copy to" })).toHaveCount(0);
+  await expect(drawer).toBeVisible();
+  await expect(panel.getByText("1 selected", { exact: true })).toBeVisible();
+
+  // ── 兩顆同為外框鈕：不斷言顏色，只斷言 class 字面相同（反灰的樣子是 aria-disabled: 變體，兩顆恆帶）─────────────
+  expect(await moveTo.getAttribute("class")).toBe(await copyTo.getAttribute("class"));
+});
+
+test("41-13 跨寬窄判準：⋮ 層疊開著時縮到 700 → 選單全關；選取中縮到 390 → 抽屜裡是窄形（1 selected、Done、底部動作列）", async ({ page }) => {
+  test.setTimeout(150_000);
+  const F = `F ${RUN}`;
+  const N = `E2E Mv Flip ${RUN}`;
+  await asNewUser(page, "E2E Move Flip");
+  await apiCreateFolder(page, F, { space: { kind: "personal" } });
+  await apiCreateNote(page, N);
+  await page.goto("/");
+  await expectWidePointer(page, true);
+  const panel = await showSidebarTab(page, "My notes");
+  await expect(noteLink(panel, N)).toBeVisible({ timeout: 15_000 });
+  await expect(folderRow(panel, F)).toBeVisible();
+
+  // ── ⋮ → Move to… 層疊開著 → 寬度縮到 700（< 48rem）→ 整個選單關掉 ─────────────────────────────────
+  await openNoteActions(page, panel, N);
+  const first = await openMoveCascade(page);
+  await expect(first.getByRole("menuitem", { name: F, exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 700, height: 720 });
+  await expectWidePointer(page, false);
+  await expect(page.getByRole("menu")).toHaveCount(0);
+
+  // ── 回 1280 → Select → 勾 N → 縮到 390 → 開抽屜：選取與已勾保留、標題列是窄形、底部動作列在 ─────────────────
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await expectWidePointer(page, true);
+  const selecting = await startSidebarSelection(page);
+  await toggleSelectedNote(selecting, N);
+  await expect(selecting.getByText("1 selected", { exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expectWidePointer(page, false);
+  await page.getByRole("button", { name: "Open navigation" }).click();
+  const drawer = page.getByRole("dialog", { name: "Navigation" });
+  await expect(drawer).toBeVisible();
+  const drawerPanel = drawer.getByRole("tabpanel");
+  await expect(drawerPanel.getByText("1 selected", { exact: true })).toBeVisible();
+  await expect(drawerPanel.getByRole("button", { name: "Done", exact: true })).toBeVisible();
+  await expect(drawerPanel.getByRole("button", { name: "Exit selection", exact: true })).toHaveCount(0);
+  await expect(selectionBox(drawerPanel, N)).toBeChecked();
+  const bar = actionBar(page, drawer);
+  await expect(bar.getByRole("button", { name: "Move to", exact: true })).toBeVisible();
+  await expect(drawerPanel.locator("[data-sidebar-header] [data-select-action-bar]")).toHaveCount(0);
 });

@@ -2,6 +2,7 @@ import { expect, test, type Browser, type BrowserContext, type Locator, type Pag
 import {
   ADMIN,
   createUserViaInvite,
+  expectWidePointer,
   loginAs,
   randomEmail,
   reEscape,
@@ -20,7 +21,9 @@ import {
  * 5. 「能刪不能編輯」的角色勾兩篇刪除 → toast 沒有「Undo」、帶說明句。
  * 6. 最近 tab 沒有「Move to」；與我共享 tab 有「Copy to」與「Move to」（沒有共享資料夾 → 停用）、沒有刪除鈕。
  * 7. 390 寬抽屜：動作列排得進抽屜；Esc 只結束選取、抽屜不關、焦點回抽屜內的「Select」。
- * 8. 進入選取不改清單的捲動位置。
+ * 8. 進入選取不改清單的捲動位置：寬形（底部不顯示）捲在中段；窄形抽屜（底部換成同高的動作列）捲到底。
+ * 資料夾 PR-3b-3：e2e 預設視窗 1280 落在寬形——動作列（`[data-select-action-bar]`）在標題列、鈕的可及名稱不變，所以 1–6、9 照舊；
+ * 7 與 8 的窄形版是 390。
  * 9. Esc 的範圍：焦點在 body（滑鼠點過勾選框再點主內容區）時結束選取；在標題框裡不結束；開著 toast 時第一下只關 toast。
  *
  * 每個 test 自建所需資料（Playwright 失敗後換 worker、`RUN` 會變；`--grep` 也可能單跑一案）。資料以 API 建（建筆記不帶 content 不吃寫入節流；
@@ -44,7 +47,7 @@ function noteCheckbox(panel: Locator, title: string): Locator {
   return panel.getByRole("checkbox", { name: new RegExp("^" + reEscape(title)) });
 }
 
-/** 側欄底部的選取動作列（在 tabpanel 外）。`scope` 預設靜態側欄。 */
+/** 選取動作列（窄形在側欄底部、tabpanel 外；寬形在標題列）。`scope` 預設靜態側欄。 */
 function actionBar(page: Page, scope?: Locator): Locator {
   return (scope ?? page.getByRole("complementary")).locator("[data-select-action-bar]");
 }
@@ -397,20 +400,55 @@ test("A2c-7：390 寬抽屜——動作列排得進抽屜；Esc 只結束選取�
   await page.setViewportSize({ width: 1280, height: 800 });
 });
 
-test("A2c-8：進入選取模式不改清單的捲動位置", async ({ page }) => {
+test("A2c-8（寬形 1280）：清單捲在中段時進入選取模式，捲動位置不變", async ({ page }) => {
   test.setTimeout(120_000);
-  const titles = Array.from({ length: 20 }, (_, i) => `E2E Sel L${String(i + 1).padStart(2, "0")} ${RUN}`);
+  const titles = Array.from({ length: 30 }, (_, i) => `E2E Sel L${String(i + 1).padStart(2, "0")} ${RUN}`);
   await loginAs(page, ADMIN.email, ADMIN.password);
   await expect(page).toHaveURL(/\/$/);
   for (const title of titles) await apiCreateNote(page, title);
-  // 矮一點的視窗：單跑本案（admin 只有這 20 篇）時清單也一定可捲。
+  // 矮一點的視窗：單跑本案（admin 只有這 30 篇）時清單也一定可捲。
   await page.setViewportSize({ width: 1280, height: 600 });
   await page.goto("/");
+  await expectWidePointer(page, true);
 
   const sidebar = page.getByRole("complementary");
   const myNotes = await showSidebarTab(page, "My notes");
   await expect(noteLink(myNotes, titles[0]!)).toBeVisible({ timeout: 15_000 });
   const list = sidebar.locator("[data-sidebar-list]");
+  // 寬形進入選取時底部（New note）不顯示、清單可視高度多約一列，可捲範圍隨之縮小：捲在最底會被瀏覽器夾回（總管裁定接受，
+  // Review Focus 8），所以寬形驗「捲在中段」。可捲範圍要遠大於一列，中段才不會落進被縮掉的那一段。
+  await expect.poll(() => list.evaluate((el) => el.scrollHeight - el.clientHeight)).toBeGreaterThan(200);
+  await list.evaluate((el) => {
+    el.scrollTop = Math.round((el.scrollHeight - el.clientHeight) / 2);
+  });
+  const before = await list.evaluate((el) => el.scrollTop);
+  expect(before).toBeGreaterThan(100);
+
+  await startSidebarSelection(page);
+  await expect(list.getByRole("checkbox").first()).toBeAttached(); // 勾選樹已換上（chunk 到了；限定清單，不算標題列的全選框）
+  await expect(sidebar.getByRole("button", { name: "New note", exact: true })).toHaveCount(0); // 本案驗的情境：底部已不顯示
+  await expect(async () => {
+    expect(await list.evaluate((el) => el.scrollTop)).toBe(before);
+  }).toPass({ timeout: 5_000 });
+});
+
+test("A2c-8（窄形 390 抽屜）：清單捲到底時進入選取模式，捲動位置不變（底部換成同高的動作列）", async ({ page }) => {
+  test.setTimeout(120_000);
+  const titles = Array.from({ length: 30 }, (_, i) => `E2E Sel B${String(i + 1).padStart(2, "0")} ${RUN}`);
+  await loginAs(page, ADMIN.email, ADMIN.password);
+  await expect(page).toHaveURL(/\/$/);
+  for (const title of titles) await apiCreateNote(page, title);
+  // 矮的窄視窗：單跑本案（admin 只有這 30 篇）時抽屜清單也一定可捲。
+  await page.setViewportSize({ width: 390, height: 600 });
+  await page.goto("/");
+  await expectWidePointer(page, false);
+  await page.getByRole("button", { name: "Open navigation" }).click();
+  const drawer = page.getByRole("dialog", { name: "Navigation" });
+  await expect(drawer).toBeVisible();
+  const myNotes = await showSidebarTab(page, "My notes", drawer);
+  await expect(noteLink(myNotes, titles[0]!)).toBeVisible({ timeout: 15_000 });
+  // 限定抽屜那一份（靜態卡在窄螢幕藏著、仍掛在 DOM）。
+  const list = page.locator("[data-sidebar-drawer] [data-sidebar-list]");
   await expect.poll(() => list.evaluate((el) => el.scrollHeight - el.clientHeight)).toBeGreaterThan(100);
   await list.evaluate((el) => {
     el.scrollTop = el.scrollHeight;
@@ -418,8 +456,9 @@ test("A2c-8：進入選取模式不改清單的捲動位置", async ({ page }) =
   const before = await list.evaluate((el) => el.scrollTop);
   expect(before).toBeGreaterThan(100);
 
-  const panel = await startSidebarSelection(page);
-  await expect(panel.getByRole("checkbox").first()).toBeAttached(); // 勾選樹已換上（chunk 到了）
+  await startSidebarSelection(page, drawer);
+  await expect(list.getByRole("checkbox").first()).toBeAttached(); // 勾選樹已換上（chunk 到了）
+  await expect(actionBar(page, drawer)).toBeVisible(); // 底部動作列已換上（同一個 chunk；之前是同高的佔位）
   await expect(async () => {
     expect(await list.evaluate((el) => el.scrollTop)).toBe(before);
   }).toPass({ timeout: 5_000 });
