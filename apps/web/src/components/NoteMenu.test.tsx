@@ -664,6 +664,8 @@ describe("NoteMenu × 版本歷史（spec §8.5）", () => {
     expect(within(menu).queryByRole("menuitem", { name: "Save current version" })).not.toBeInTheDocument();
   });
 
+  // 替身只翻 `NARROW_QUERY`（`WIDE_POINTER_QUERY` 恆不成立）：描述的是觸控裝置（寬判準不翻）跨寬度的路徑，選單保持開著、項目就地增減。
+  // 有滑鼠的裝置跨寬度時寬判準也會翻，整個選單會先關（PR-3b-3；由 GroupTransfer.test 的 WC12 與本檔 NM-W1 守）。
   it("視窗跨斷點：選單開著時窄→寬項目消失、寬→窄項目出現", async () => {
     const setNarrow = installMatchMedia(true);
     renderVersionsMenu("enabled");
@@ -739,20 +741,19 @@ describe("NoteMenu × 逐層子選單（PR-3b-2 T4）", () => {
     return { fetchSpy, calls };
   }
 
-  async function openMoveFlyout(): Promise<HTMLElement> {
+  /** 寬形（層疊）：鍵盤開 Move to… 的子選單（第一層），等「A」（SubTrigger，不帶「, open」）出現。 */
+  async function openMoveCascade(): Promise<HTMLElement> {
     const trigger = await screen.findByTestId("note-menu-move-to");
     trigger.focus();
     fireEvent.keyDown(trigger, { key: "ArrowRight" });
     const sub = await screen.findByRole("menu", { name: "Move to…" });
-    await within(sub).findByRole("menuitem", { name: "A, open" });
+    await within(sub).findByRole("menuitem", { name: "A" });
     return sub;
   }
 
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
-    // 這組案走 flyout（寬）；jsdom 預設落在窄（就地展開），所以明確注入寬。
-    mockWidePointer(true);
   });
   afterEach(() => {
     cleanup();
@@ -760,23 +761,64 @@ describe("NoteMenu × 逐層子選單（PR-3b-2 T4）", () => {
     vi.unstubAllGlobals();
   });
 
-  it.each(["header", "sidebar"] as const)("NM-H1 %s ⋮：Move to… 是逐層子選單，點「A, open」→ 換成 Back、Move here、A1", async (shell) => {
+  // PR-3b-3 T3：寬形＝往旁層疊（Radix 巢狀子選單），窄形（jsdom 預設）＝就地展開逐層；頁首與側欄 ⋮ 同一套。
+  it.each([
+    ["header", "wide"],
+    ["sidebar", "wide"],
+    ["header", "narrow"],
+    ["sidebar", "narrow"],
+  ] as const)("NM-H1 %s ⋮（%s）：寬形是層疊（開 A → Move here、A1，沒有 Back）；窄形是就地展開逐層（點「A, open」→ Back、Move here）", async (shell, form) => {
+    mockWidePointer(form === "wide");
     const { fetchSpy } = folderFetch(OWNER_NOTE);
     renderCopyMenu(shell, OWNER_NOTE, fetchSpy as unknown as typeof fetch);
     openAnyMenu(shell);
-    const sub = await openMoveFlyout();
-    fireEvent.click(within(sub).getByRole("menuitem", { name: "A, open" }));
-    expect(await within(sub).findByRole("menuitem", { name: "Back" })).toBeInTheDocument();
-    expect(within(sub).getByRole("menuitem", { name: "Move here" })).toBeInTheDocument();
-    expect(within(sub).getByRole("menuitem", { name: "A1" })).toBeInTheDocument();
+    if (form === "wide") {
+      const sub = await openMoveCascade();
+      const a = within(sub).getByRole("menuitem", { name: "A" });
+      expect(a).toHaveAttribute("aria-haspopup", "menu");
+      a.focus();
+      fireEvent.keyDown(a, { key: "ArrowRight" });
+      const level = await screen.findByRole("menu", { name: "A" });
+      await waitFor(() => expect(within(level).getAllByRole("menuitem").map((el) => el.textContent)).toEqual(["Move here", "A1"]));
+      expect(screen.queryByRole("menuitem", { name: "Back" })).toBeNull();
+    } else {
+      const trigger = await screen.findByTestId("note-menu-move-to");
+      expect(trigger).not.toHaveAttribute("aria-haspopup");
+      fireEvent.click(trigger);
+      fireEvent.click(await screen.findByRole("menuitem", { name: "A, open" }));
+      expect(await screen.findByRole("menuitem", { name: "Back" })).toBeInTheDocument();
+      expect(screen.getByRole("menuitem", { name: "Move here" })).toBeInTheDocument();
+      expect(screen.getAllByRole("menu")).toHaveLength(1);
+    }
+  });
+
+  it("NM-W1 就地展開到第二層時跨判準（窄→寬）→ 選單關；回到窄再開 ⋮ → Move to… 是收合態、展開是第一層（groupExpanded／paths 已重設）", async () => {
+    const mq = mockWidePointer(false);
+    const { fetchSpy } = folderFetch(OWNER_NOTE);
+    renderCopyMenu("header", OWNER_NOTE, fetchSpy as unknown as typeof fetch);
+    openAnyMenu("header");
+    fireEvent.click(await screen.findByTestId("note-menu-move-to"));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "A, open" }));
+    await screen.findByRole("menuitem", { name: "Back" });
+    act(() => mq.setWide(true));
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    act(() => mq.setWide(false));
+    openAnyMenu("header");
+    const trigger = await screen.findByTestId("note-menu-move-to");
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("group", { name: "Move to…" })).toBeNull();
+    fireEvent.click(trigger);
+    const group = screen.getByRole("group", { name: "Move to…" });
+    expect(within(group).getAllByRole("menuitem").map((el) => el.getAttribute("aria-label") ?? el.textContent)).toEqual(["A, open", "B"]);
   });
 
   it("NM-H2 同空間移動開著的那篇 → PUT 一次、toast，不設 leavingRef、不導頁", async () => {
+    mockWidePointer(true);
     const leavingRef = { current: false };
     const { fetchSpy, calls } = folderFetch(OWNER_NOTE);
     renderRoutedMenu(OWNER_NOTE, leavingRef, fetchSpy);
     openMenu();
-    const sub = await openMoveFlyout();
+    const sub = await openMoveCascade();
     fireEvent.click(within(sub).getByRole("menuitem", { name: "B" }));
     expect(await screen.findByText("Moved to “B”")).toBeInTheDocument();
     expect(calls.filter((c) => c.method === "PUT")).toEqual([

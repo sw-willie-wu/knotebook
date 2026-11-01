@@ -200,9 +200,9 @@ function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef:
   const enteringPresentationRef = useRef(false);
   /** #216：選定的「移動／複製到群組」目標；非 null 時掛確認框（選單已關）。 */
   const [transfer, setTransfer] = useState<GroupTransferPick | null>(null);
-  /** 窄／觸控的就地展開形展開的是哪一組（flyout 形不用）；Esc 先收合再關選單，見 `onEscapeKeyDown`。 */
+  /** 窄／觸控的就地展開形展開的是哪一組（寬螢幕層疊形不用）；Esc 先收合再關選單，見 `onEscapeKeyDown`。 */
   const [groupExpanded, setGroupExpanded] = useState<GroupTransferKind | null>(null);
-  /** 移動、複製各自的子選單所在層（資料夾 spec §6.11.4）；選單關閉、就地展開形收合時回第一層。 */
+  /** 就地展開形移動、複製各自的所在層（資料夾 spec §6.11.4）；選單關閉、收合、跨過寬窄判準時回第一層。 */
   const [paths, setPaths] = useState<DestPaths>(EMPTY_DEST_PATHS);
   const [manualCopyUrl, setManualCopyUrl] = useState<string | null>(null);
 
@@ -375,8 +375,9 @@ function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef:
             <MessageCircle className="mr-2 h-4 w-4" />
             {t("note.menu.aiEdits")}
           </DropdownMenuItem>
-          {/* #216＋資料夾 spec §6.11：移動到…／複製到…的逐層子選單。寬螢幕是 Radix Sub（hover／點擊／方向鍵進出；Esc 由 GroupSub 自接，只關子選單），
-              窄／觸控是就地展開；點 `>` 項換層、選單不關。選定目的地 → handlePick。第一層為空的那一組整項不渲染。 */}
+          {/* #216＋資料夾 spec §6.11：移動到…／複製到…。寬螢幕是往旁層疊的 Radix 巢狀子選單（hover／點擊／方向鍵進出；Esc 各層自接，只收一層），
+              窄／觸控是就地展開逐層（點 `>` 項換層、選單不關）。選定目的地 → handlePick。第一層為空的那一組整項不渲染。
+              選單開著時跨過寬窄判準 → 關整個選單、回收合態與第一層（spec §6.11.4）。 */}
           <GroupTransferMenuItems
             note={note}
             expanded={groupExpanded}
@@ -384,6 +385,11 @@ function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef:
             paths={paths}
             onPathChange={(kind, path) => setPaths((prev) => (prev[kind] === path ? prev : { ...prev, [kind]: path }))}
             onPick={handlePick}
+            onModeChange={() => {
+              setMenuOpen(false);
+              setGroupExpanded(null);
+              setPaths(EMPTY_DEST_PATHS);
+            }}
           />
           {/* #175 §8.3：刪除看 `permissions.delete`（群組筆記的 role 從不是 owner，但角色有
               `can_delete` 的成員要能刪；個人筆記只有 owner 為真）。#181：點下即移到垃圾桶、不確認；刪除中 disabled 不重送。 */}
