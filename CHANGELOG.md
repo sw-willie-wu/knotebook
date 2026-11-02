@@ -7,7 +7,9 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
-_Nothing yet._
+### Changed
+
+- **Notes with Mermaid diagrams open faster.** A diagram is drawn only when it comes near the visible part of the note, one at a time with a pause between them so typing and scrolling stay responsive, and shows **Rendering diagram…** until it is drawn. A diagram already drawn in this tab (same source, same theme) appears at once when you come back to the note or open the presentation. Switching the theme redraws diagrams far from view only when you scroll to them.
 
 ## [0.14.0] - 2026-11-01
 

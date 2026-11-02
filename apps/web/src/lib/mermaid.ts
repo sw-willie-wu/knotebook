@@ -20,6 +20,20 @@
  * mermaid 本體在 jsdom 跑不起來（`render()` 會往 `document.body` 插隱藏 div 做文字量測，
  * 而 jsdom 沒有 layout、沒有 `getBBox`），所以單元測試把整個模組 mock 掉、只驗本檔的行為，
  * 真正的渲染由 e2e 覆蓋。
+ *
+ * ──────────────────────────────────────────────────────────────────────────
+ * 效能（issue #344）：少畫、晚畫、不重畫
+ * ──────────────────────────────────────────────────────────────────────────
+ * `render()` 幾乎是一整段同步的 long task（150 節點約 500 ms），而且要用活的 DOM 量文字，
+ * 丟不進 Web Worker。所以這一層做的不是讓單張變快，而是：
+ * - **自己的序列化佇列**（`enqueue`）：一次只畫一張，每張之前先讓出主執行緒（等一個 frame 再
+ *   `setTimeout(0)`，見 `yieldToMain`），使用者的輸入才插得進兩張圖之間、畫好的圖先上螢幕；
+ *   被 `AbortSignal` 取消的項目輪到時直接跳過、不畫。
+ *   （mermaid 自己也有一條全域 `executionQueue`，但它在兩張之間只走 microtask，整頁的圖會連成
+ *   一大段不讓出的工作，期間連一個 frame 都畫不出來。）
+ * - **結果快取**（`svgCache`）：同一主題＋同一原始碼第二次出現（切走筆記再回來、進出簡報模式）
+ *   直接拿 SVG，不再跑 render。
+ * - 「只畫視窗附近的圖」與載入中佔位在呼叫端（`MermaidView`）。
  */
 
 /** `renderMermaid` 的結果。錯誤**不外拋**——語法錯是使用者日常會遇到的狀態，不是例外。 */
@@ -47,9 +61,149 @@ export function nextMermaidId(): string {
 /** 已經以哪個主題 initialize 過。`null` ＝ 還沒初始化。 */
 let initializedTheme: MermaidTheme | null = null;
 
-/** 測試用：把模組層級的初始化狀態歸零（模組層級狀態在測試之間會殘留）。 */
+/** 測試用：把模組層級的狀態（初始化主題、快取、佇列）歸零（模組層級狀態在測試之間會殘留）。 */
 export function resetMermaidForTests(): void {
   initializedTheme = null;
+  svgCache.clear();
+  queueTail = Promise.resolve();
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// 結果快取（#344 B）
+// ──────────────────────────────────────────────────────────────────────────
+
+/** 快取上限。一張 SVG 約 80–300 KB，30 張是「一份長筆記＋切走再回來」夠用、記憶體又不失控的量。 */
+export const MERMAID_CACHE_LIMIT = 30;
+
+/**
+ * `(theme, code)` → 成功的 SVG 與畫它時用的 id。`Map` 保留插入順序，命中時刪掉重插＝移到最新，
+ * 超過上限從最舊的開始丟——就是 LRU。
+ *
+ * **只快取成功的結果**：失敗多半是語法錯（重算只走到 parse，幾 ms），或 chunk 載入失敗這類
+ * 暫時性錯誤——後者快取起來，網路恢復之後圖也永遠畫不出來。
+ */
+const svgCache = new Map<string, { svg: string; id: string }>();
+
+function cacheKey(code: string, theme: MermaidTheme): string {
+  return `${theme}\n${code}`;
+}
+
+/**
+ * 把 SVG 裡的 id 前綴從 `oldId` 換成 `newId`。
+ *
+ * mermaid 的輸出到處引用這個 id：根 `<svg id>`、`<style>` 裡的 `#mermaid-3 .node…`、marker 的
+ * `id="mermaid-3_flowchart-v2-pointEnd"` 與 `marker-end="url(#mermaid-3_…)"`、`aria-labelledby` 等。
+ * 同一頁兩張原始碼相同的圖若共用同一份字串，id 就重複——樣式與箭頭會指到另一張圖去。
+ *
+ * ⚠ 比對**不得吃到後續數字**：`mermaid-1` 不可命中 `mermaid-12`（lookahead `(?![0-9])`）。
+ * 前面也要求不是英數字，避免 `xmermaid-1` 這類巧合——用捕獲群組 `(^|[^A-Za-z0-9])` 而**不是**
+ * lookbehind `(?<!…)`：後者 Safari 16.4 才支援，而 Vite 的預設 target 含 safari16，寫在 `new RegExp`
+ * 字串裡也不會被轉譯，舊 Safari 會在快取命中時丟 SyntaxError、元件直接崩掉。
+ *
+ * 殘留（審查實測 22 種圖）：
+ * - 圖的**文字**裡若剛好寫著同一個 id（例如 label 叫 `mermaid-3`），那段字也會被換掉——只影響顯示文字。
+ * - 有幾種圖另有 mermaid **全域計數器**產生、不帶 `mermaid-N` 前綴的 id：sankey 的 `node-N`／
+ *   `linearGradient-N`、sequence 的 `actorN`／`root-N`、architecture 的 `IconifyId…`。這些不改寫，
+ *   所以「同一頁兩張原始碼相同」時它們會重複（各自獨立 render 時本來每次都不同），副本裡的
+ *   `url(#linearGradient-N)` 會解析到頁面上第一個同名元素。兩張內容完全相同，畫面看不出差別；
+ *   原圖改了原始碼重畫時會拿到新的計數，舊 id 只剩副本自己的那份。沒有做「收集 SVG 內所有 id 一起
+ *   換前綴」：這些 id 是短的通用字（`node-0`、`actor1`），要改寫就得認得每種圖所有引用它們的寫法
+ *   （`url()`、`href`、aria 清單、CSS 選擇器……），沒有逐圖種實測就無法確定不會誤換文字或漏換引用。
+ */
+export function rewriteMermaidId(svg: string, oldId: string, newId: string): string {
+  if (oldId === newId) return svg;
+  const escaped = oldId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return svg.replace(new RegExp(`(^|[^A-Za-z0-9])${escaped}(?![0-9])`, "g"), `$1${newId}`);
+}
+
+/**
+ * 同步查快取。命中時回傳**已換成新 id** 的 SVG（每次呼叫都是新 id，可以放心同時顯示多份），
+ * 並把它移到 LRU 的最新端；沒命中回 `null`。空原始碼不查。
+ *
+ * `MermaidView` 用它在掛載當下就拿到圖（切回筆記時不閃佔位），`renderMermaid` 也先走它。
+ */
+export function cachedMermaid(code: string, theme: MermaidTheme): string | null {
+  if (code.trim().length === 0) return null;
+  const key = cacheKey(code, theme);
+  const entry = svgCache.get(key);
+  if (entry === undefined) return null;
+  svgCache.delete(key);
+  svgCache.set(key, entry);
+  return rewriteMermaidId(entry.svg, entry.id, nextMermaidId());
+}
+
+function storeInCache(code: string, theme: MermaidTheme, svg: string, id: string): void {
+  const key = cacheKey(code, theme);
+  svgCache.delete(key);
+  svgCache.set(key, { svg, id });
+  while (svgCache.size > MERMAID_CACHE_LIMIT) {
+    const oldest = svgCache.keys().next().value as string;
+    svgCache.delete(oldest);
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// 序列化佇列（#344 C）
+// ──────────────────────────────────────────────────────────────────────────
+
+/** 佇列尾端。每個新項目接在它後面；它永遠 resolve（項目的失敗只回給該項目的呼叫端）。 */
+let queueTail: Promise<void> = Promise.resolve();
+
+function abortError(): DOMException {
+  return new DOMException("mermaid render aborted", "AbortError");
+}
+
+/**
+ * 讓出主執行緒一次：先等下一個 frame、再排一個 macrotask。
+ *
+ * 為什麼不只是 `setTimeout(0)`：e2e 疊上量測（#344，3 次裡 2 次）只用 `setTimeout(0)` 時，瀏覽器在
+ * 兩張 long task 之間常常**不畫 frame**——視窗內的圖早就畫好了，卻要等後面預先範圍裡的幾張也畫完
+ * 才一起出現在螢幕上；IntersectionObserver 的回報也要等 frame，捲出視窗的項目來不及被取消。
+ * 等一個 frame 讓「畫好的先上螢幕、捲走的先取消」，之後的 `setTimeout(0)` 讓等著的輸入事件先跑。
+ *
+ * 分頁在背景（`requestAnimationFrame` 不跑）或沒有 rAF 的環境只走 `setTimeout(0)`，佇列不會卡住；
+ * 100 ms 的保底同理（分頁在等待途中被切到背景）。
+ */
+function yieldToMain(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof requestAnimationFrame !== "function" || document.visibilityState === "hidden") {
+      setTimeout(resolve, 0);
+      return;
+    }
+    const fallback = setTimeout(resolve, 100);
+    requestAnimationFrame(() => {
+      clearTimeout(fallback);
+      setTimeout(resolve, 0);
+    });
+  });
+}
+
+/**
+ * 把一次渲染排進佇列：前一項做完 → 已被取消就直接跳過（不付讓出的那一個 frame）→ 讓出主執行緒 → 執行。
+ * 讓出放在**執行之前**而不是之後，結果做完就交回呼叫端，不必多等一個 tick。
+ * 讓出期間被取消的，由 `task` 自己在載入 mermaid 之後、render 之前那道檢查擋下（見 `renderMermaid`）。
+ */
+function enqueue<T>(task: () => Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  const run = queueTail.then(async () => {
+    if (signal?.aborted) throw abortError();
+    await yieldToMain();
+    return task();
+  });
+  queueTail = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+/**
+ * 預先下載並執行 mermaid 主 chunk（#344 E），**不渲染**。`MermaidView` 一掛上就呼叫——
+ * 即使那張圖還在視窗外——第一張圖捲進來時就不必從下載開始等。失敗吞掉：真正要畫時
+ * `renderMermaid` 會再 import 一次並把錯誤交給錯誤態。仍是動態 import，不會把 mermaid
+ * 併進 NotePage chunk。
+ */
+export function preloadMermaid(): void {
+  void import("mermaid").catch(() => undefined);
 }
 
 /**
@@ -113,6 +267,7 @@ const LOCKED_CONFIG_KEYS = [
  * 遠端圖片**——同一個能力用圖片 block 三秒就做得到，只對 mermaid 立更嚴的規矩既擋不到
  * 攻擊者，還讓 `click X href` 的圖畫不出來、合法的多行 label 被誤擋。要加回來之前，
  * 先確認產品政策真的改了（而且改在 app 層，不是 block 層）。
+ * （現在檔中的序列化佇列是 #344 的**效能**手段，與那套已拆掉的安全機制無關，也不擋任何請求。）
  */
 function mermaidConfig(theme: MermaidTheme) {
   return {
@@ -122,6 +277,9 @@ function mermaidConfig(theme: MermaidTheme) {
     theme: theme === "dark" ? ("dark" as const) : ("default" as const),
     htmlLabels: false, // mermaid 11 的新位置
     flowchart: { htmlLabels: false }, // 舊位置，保留相容
+    // 語法錯時 `render()` 直接 throw、不畫「Syntax error in text」錯誤圖、並清掉它在 body 插的
+    // 暫時容器（見 `renderMermaid`）。已在 `LOCKED_CONFIG_KEYS`，圖裡的 directive 改不掉。
+    suppressErrorRendering: true,
   };
 }
 
@@ -131,36 +289,71 @@ function mermaidConfig(theme: MermaidTheme) {
  * @param code  mermaid 原始碼。空白／純空白直接回 `ok:false`，不載入 mermaid——
  *              新建的空 block 是常態，不該為它拉進一整包相依。
  * @param theme `resolvedTheme`（`"light" | "dark"`）。換主題會重新 initialize。
+ * @param options.signal 取消。輪到它時、或讓出主執行緒／載入 mermaid 的期間若已取消，
+ *              就不畫、promise 以 `AbortError` reject；**已經開始的 `render()` 停不下來**，
+ *              它畫完的結果照樣進快取。例外：輪到時佇列裡的快取已命中（前面排的同一張圖剛畫完），
+ *              即使已取消也照常 resolve 出 `ok:true`——不花成本，呼叫端本來就會丟掉作廢的結果。
+ *              沒給 signal 的呼叫（簡報模式）永遠不會 reject。
+ *
+ * 快取命中直接回傳、不排隊；沒命中才進序列化佇列。
  */
-export async function renderMermaid(code: string, theme: MermaidTheme): Promise<MermaidRenderResult> {
+export async function renderMermaid(
+  code: string,
+  theme: MermaidTheme,
+  options: { signal?: AbortSignal } = {},
+): Promise<MermaidRenderResult> {
   if (code.trim().length === 0) {
     return { ok: false, message: "" }; // 空 block：呼叫端顯示提示而非錯誤
   }
 
-  try {
-    const { default: mermaid } = await import("mermaid");
+  const cached = cachedMermaid(code, theme);
+  if (cached !== null) return { ok: true, svg: cached };
 
-    // 同一主題只 initialize 一次；換主題才重來（initialize 是全域設定，重複呼叫無害但沒必要）。
-    if (initializedTheme !== theme) {
-      mermaid.initialize(mermaidConfig(theme));
-      initializedTheme = theme;
+  const { signal } = options;
+  return enqueue(async () => {
+    // 排在前面的同一張圖可能剛畫完（同頁兩張相同原始碼）：輪到自己時再查一次快取。
+    const cachedNow = cachedMermaid(code, theme);
+    if (cachedNow !== null) return { ok: true, svg: cachedNow } as const;
+
+    let mermaid: Awaited<typeof import("mermaid")>["default"];
+    try {
+      ({ default: mermaid } = await import("mermaid"));
+    } catch (err) {
+      return failure(err); // chunk 載入失敗（離線、部署換版）：錯誤態，下次重畫再試
     }
+    // 唯一的「開始之後」取消檢查：讓出主執行緒那一個 frame、第一次下載 mermaid 都可能很久，
+    // 這段期間被取消（捲走、卸載、原始碼又改了）就不畫。過了這裡 render 就停不下來了。
+    if (signal?.aborted) throw abortError();
 
-    // ⚠ **必須先 parse 再 render，順序不可調換。**
-    // `render()` 在語法錯誤時會把一張「Syntax error in text」的炸彈圖**直接注入
-    // `document.body`**（它會在 body 插一個暫時容器做文字量測，拋錯路徑不清理），
-    // 那張圖因此逃出元件邊界、掛在整個頁面底部，重繪一次就多一張。
-    // `parse()` 是純語法驗證、**完全不碰 DOM**，無效時 throw 並帶訊息——先過這一關，
-    // 錯誤就由我們自己的錯誤態呈現（訊息 ＋ 可編輯的原始碼），不讓 mermaid 自己畫。
-    //
-    // 這個 bug 單元測試抓不到（mermaid 在測試中被 mock 掉，副作用不會發生），
-    // 是 2026-08-27 用瀏覽器實際看畫面才發現的。改動這段前請以 headed 瀏覽器複驗。
-    await mermaid.parse(code);
+    try {
+      // 同一主題只 initialize 一次；換主題才重來（initialize 是全域設定，重複呼叫無害但沒必要）。
+      // 佇列一次只跑一項，所以 initialize 與緊接著的 render 之間不會插進別的主題。
+      if (initializedTheme !== theme) {
+        mermaid.initialize(mermaidConfig(theme));
+        initializedTheme = theme;
+      }
 
-    // 回傳值裡的 `bindFunctions` 刻意不解構、不呼叫——見 `mermaidConfig` 的說明。
-    const { svg } = await mermaid.render(nextMermaidId(), code);
-    return { ok: true, svg };
-  } catch (err) {
-    return { ok: false, message: err instanceof Error ? err.message : String(err) };
-  }
+      // ⚠ **不必（也不再）先 `parse()`**——靠的是 `mermaidConfig` 的 `suppressErrorRendering: true`。
+      // 預設（false）時 `render()` 語法錯會把一張「Syntax error in text」的錯誤圖**留在
+      // `document.body`**，逃出元件邊界、掛在頁面底部，重繪一次多一張（2026-08-27 在瀏覽器上
+      // 才看到；當時的修法是先 `parse()` 擋掉）。開了 `suppressErrorRendering` 之後，mermaid
+      // 11.17 在 parse 失敗與 draw 失敗兩條路徑上都先移除它插在 body 的暫時容器再 throw，
+      // 錯誤由我們自己的錯誤態呈現（訊息 ＋ 原始碼）。`render()` 內部本來就會 parse 一次，
+      // 先 `parse()` 等於每張圖 parse 兩次（#344 實測佔 5–8%）。
+      // 這件事單元測試抓不到（mermaid 被 mock 掉），由 e2e `06-mermaid.spec.ts` 在真瀏覽器
+      // 檢查 body 沒有殘留；改動這段或升級 mermaid 時以那條複驗。
+      //
+      // 回傳值裡的 `bindFunctions` 刻意不解構、不呼叫——見 `mermaidConfig` 的說明。
+      const id = nextMermaidId();
+      const { svg } = await mermaid.render(id, code);
+      storeInCache(code, theme, svg, id);
+      return { ok: true, svg } as const;
+    } catch (err) {
+      return failure(err);
+    }
+  }, signal);
+}
+
+function failure(err: unknown): MermaidRenderResult {
+  return { ok: false, message: err instanceof Error ? err.message : String(err) };
 }
