@@ -6,7 +6,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { FOLDER_I18N_MARKER, MANAGEMENT_I18N_MARKERS, MAX_ENTRY_BYTES, SELECT_I18N_MARKER, SHORTCUTS_I18N_MARKER, VERSIONS_MARKERS, checkBundleSize } from './check-bundle-size.mjs';
+import { BODY_SEARCH_MARKER, FOLDER_I18N_MARKER, MANAGEMENT_I18N_MARKERS, MAX_ENTRY_BYTES, SELECT_I18N_MARKER, SHORTCUTS_I18N_MARKER, VERSIONS_MARKERS, checkBundleSize } from './check-bundle-size.mjs';
 
 // 守 Willie 2026-10-26 裁定的數字（下面兩案明傳 700 * 1024 測判斷本身，與預設值無關）。
 test('BS0 首包上限是 750 KiB', () => {
@@ -21,6 +21,7 @@ const MARKER_BASE = {
   'index-Abc123.js': 100, 'mermaid.core-Ghi789.js': 10, 'shiki-Jkl012.js': 10, 'AdminSections-Mno345.js': 10,
   'PresentationOverlay-Pqr678.js': 10, 'TrashLazy-Ttt000.js': 10, 'SelectLazy-Sss000.js': 10, 'FolderLazy-Fff000.js': 10,
   'ShortcutsLazy-Kkk000.js': 10,
+  'BodySearchLazy-Bbb000.js': 10,
 };
 
 function fakeAssets(files) {
@@ -46,6 +47,7 @@ test('entry 在上限內且 NotePage chunk 存在 → 通過並回報摘要', ()
     'SelectLazy-Sss000.js': 20_000,
     'FolderLazy-Fff000.js': 15_000,
     'ShortcutsLazy-Kkk000.js': 10_000,
+    'BodySearchLazy-Bbb000.js': 8_000,
     ...MGMT_PACK,
     'index-Abc123.css': 50_000, // css 不是 entry chunk，pattern 只認 .js
   });
@@ -63,6 +65,7 @@ test('entry 在上限內且 NotePage chunk 存在 → 通過並回報摘要', ()
     assert.deepEqual(result.selectChunks, ['SelectLazy-Sss000.js']);
     assert.deepEqual(result.folderChunks, ['FolderLazy-Fff000.js']);
     assert.deepEqual(result.shortcutsChunks, ['ShortcutsLazy-Kkk000.js']);
+    assert.deepEqual(result.bodySearchChunks, ['BodySearchLazy-Bbb000.js']);
   } finally {
     cleanup();
   }
@@ -275,6 +278,48 @@ test('BS-F3 鍵名只在 FolderLazy 裡 → 通過、回傳 folderChunks', () =>
   }
 });
 
+// #93 PR2：側欄搜尋的內文區必須是自己的 lazy chunk（BodySearchLazy 是唯一入口，D18）
+test('BS-B1 BodySearchLazy chunk 不存在（被靜態 import、整組併回 entry）→ throw', () => {
+  const files = { ...MARKER_BASE, 'NotePage-Def456.js': 'x', 'VersionsLazy-Vvv000.js': 'x' };
+  delete files['BodySearchLazy-Bbb000.js'];
+  const { assets, cleanup } = fakeAssets(files);
+  try {
+    assert.throws(() => checkBundleSize(assets), /BodySearchLazy[\s\S]*#93/);
+  } finally {
+    cleanup();
+  }
+});
+
+test('BS-B2 entry 含內文區的 marker（sidebar-body-search）→ throw', () => {
+  const { assets, cleanup } = fakeAssets({
+    ...MARKER_BASE, 'index-Abc123.js': `e("section",{"data-testid":"${BODY_SEARCH_MARKER}"})`, 'NotePage-Def456.js': 'x', 'VersionsLazy-Vvv000.js': 'x',
+  });
+  try {
+    assert.throws(() => checkBundleSize(assets), /index-Abc123\.js[\s\S]*sidebar-body-search[\s\S]*#93/);
+  } finally {
+    cleanup();
+  }
+});
+
+test('BS-B3 marker 只在 BodySearchLazy 裡 → 通過、回傳 bodySearchChunks', () => {
+  const { assets, cleanup } = fakeAssets({
+    ...MARKER_BASE, 'BodySearchLazy-Bbb000.js': `e("section",{"data-testid":"${BODY_SEARCH_MARKER}"})`, 'NotePage-Def456.js': 'x', 'VersionsLazy-Vvv000.js': 'x',
+  });
+  try {
+    assert.deepEqual(checkBundleSize(assets).bodySearchChunks, ['BodySearchLazy-Bbb000.js']);
+  } finally {
+    cleanup();
+  }
+});
+
+test('BS-B4 BODY_SEARCH_MARKER 只出現在 BodySearchResults.tsx（首包的 SearchResults／gate／fallback 不得用這個字）', () => {
+  const src = fileURLToPath(new URL('../apps/web/src/components/sidebar/', import.meta.url));
+  assert.ok(readFileSync(join(src, 'BodySearchResults.tsx'), 'utf8').includes(`"${BODY_SEARCH_MARKER}"`));
+  for (const name of ['SearchResults.tsx', 'body-search-gate.ts', 'SidebarLazyBoundary.tsx', 'BodySearchLazy.tsx']) {
+    assert.ok(!readFileSync(join(src, name), 'utf8').includes(BODY_SEARCH_MARKER), `${name} 不得含 ${BODY_SEARCH_MARKER}`);
+  }
+});
+
 // marker 改名即靜默失效——綁回 folders.en.json（比照 BS4）。
 test('BS-F4 FOLDER_I18N_MARKER 是 folders.en.json 裡 folderDialogs.* 的鍵', () => {
   const bundle = JSON.parse(readFileSync(fileURLToPath(new URL('../apps/web/src/i18n/folders.en.json', import.meta.url)), 'utf8'));
@@ -370,7 +415,7 @@ test('entry CSS 含 .reveal-viewport（reveal.css 進了首包）→ throw；laz
   const base = {
     'index-Abc123.js': 100, 'NotePage-Def456.js': 10, 'mermaid.core-Ghi789.js': 10, 'shiki-Jkl012.js': 10,
     'AdminSections-Mno345.js': 10, 'VersionsLazy-Vvv000.js': 10, 'PresentationOverlay-Pqr678.js': 10, 'TrashLazy-Ttt000.js': 10,
-    'SelectLazy-Sss000.js': 10, 'FolderLazy-Fff000.js': 10, 'ShortcutsLazy-Kkk000.js': 10, ...MGMT_PACK,
+    'SelectLazy-Sss000.js': 10, 'FolderLazy-Fff000.js': 10, 'ShortcutsLazy-Kkk000.js': 10, 'BodySearchLazy-Bbb000.js': 10, ...MGMT_PACK,
   };
   const bad = fakeAssets({ ...base, 'index-Css111.css': '.x{}.reveal-viewport{color:#000}' });
   try {
@@ -389,7 +434,7 @@ test('entry CSS 含 .reveal-viewport（reveal.css 進了首包）→ throw；laz
 test('reveal-viewport 字串只准在 PresentationOverlay-*.js：在 overlay 裡通過、在 NotePage 裡 throw（reveal.js 被靜態 import 進 NotePage）', () => {
   const base = {
     'index-Abc123.js': 100, 'mermaid.core-Ghi789.js': 10, 'shiki-Jkl012.js': 10, 'AdminSections-Mno345.js': 10, 'VersionsLazy-Vvv000.js': 10,
-    'TrashLazy-Ttt000.js': 10, 'SelectLazy-Sss000.js': 10, 'FolderLazy-Fff000.js': 10, 'ShortcutsLazy-Kkk000.js': 10, ...MGMT_PACK,
+    'TrashLazy-Ttt000.js': 10, 'SelectLazy-Sss000.js': 10, 'FolderLazy-Fff000.js': 10, 'ShortcutsLazy-Kkk000.js': 10, 'BodySearchLazy-Bbb000.js': 10, ...MGMT_PACK,
   };
   const ok = fakeAssets({ ...base, 'NotePage-Def456.js': 'x', 'PresentationOverlay-Pqr678.js': 'e.classList.add("reveal-viewport")' });
   try {
@@ -409,7 +454,7 @@ test('Q1：簡報 chunk 的靜態 import 閉包（含間接）碰到 shiki → t
   const base = {
     'index-Abc123.js': 100, 'NotePage-Def456.js': 10, 'mermaid.core-Ghi789.js': 10, 'AdminSections-Mno345.js': 10, 'VersionsLazy-Vvv000.js': 10,
     'shiki-Jkl012.js': 'export const s=1', 'bundle-full-Zz9.js': 'export const b=1', 'TrashLazy-Ttt000.js': 10,
-    'SelectLazy-Sss000.js': 10, 'FolderLazy-Fff000.js': 10, 'ShortcutsLazy-Kkk000.js': 10, ...MGMT_PACK,
+    'SelectLazy-Sss000.js': 10, 'FolderLazy-Fff000.js': 10, 'ShortcutsLazy-Kkk000.js': 10, 'BodySearchLazy-Bbb000.js': 10, ...MGMT_PACK,
   };
   const indirect = fakeAssets({ ...base, 'PresentationOverlay-Pqr678.js': 'import{a}from"./mid-Q1.js";', 'mid-Q1.js': 'import{b}from"./bundle-full-Zz9.js";export const a=1' });
   try {

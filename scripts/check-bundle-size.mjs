@@ -13,6 +13,7 @@
 //      一般 tab 選取模式（#181 PR-2c）也是：SelectLazy chunk 必須存在，且 entry 不得含選取字串包的鍵名（SELECT_I18N_MARKER）。
 //      資料夾對話框（資料夾 PR-3b）同理：FolderLazy chunk 必須存在，且 entry 不得含資料夾字串包的鍵名（FOLDER_I18N_MARKER）。
 //      快捷鍵介紹（PR-B）同理：ShortcutsLazy chunk 必須存在，且 entry 不得含 SHORTCUTS_I18N_MARKER。
+//      側欄搜尋的內文區（#93 PR2）同理：BodySearchLazy chunk 必須存在，且 entry 不得含內文區的 marker（BODY_SEARCH_MARKER）。
 //      站台管理／設定的字串包（management-strings，首包瘦身）同理：entry 不得含 MANAGEMENT_I18N_MARKERS，且 management-strings chunk 必須存在並帶著它們。
 //
 // 全程 fail-closed：dist 不存在、找不到 entry、找到多個 entry，一律 throw 而非放行
@@ -90,6 +91,13 @@ export const SHORTCUTSLAZY_RE = /^ShortcutsLazy-[A-Za-z0-9_-]+\.js$/;
 // shortcuts.*.json 只能進 ShortcutsLazy 鏈：這把鍵名（`shortcutsGuide.items.columnBackspace`，清單 id）出現在 entry＝字串包或清單被首包靜態 import。
 // 選它而不選 heading／wikilink 這類 id：那些字在 entry 本來就有（block 名稱）。check-bundle-size.test.mjs 的 BS-K4 驗它是 shortcuts.en.json 的鍵、不在主 en.json。
 export const SHORTCUTS_I18N_MARKER = 'columnBackspace';
+// #93 PR2（D18）：側欄搜尋的「內文符合」區（BodySearchResults、查詢 hook、片段與點擊處理）必須是自己的 lazy chunk；
+// `components/sidebar/BodySearchLazy.tsx` 是唯一入口（SearchResults 的 `lazy(() => import("@/components/sidebar/BodySearchLazy"))`）。
+// ⚠ 同 SELECTLAZY_RE：存在性只擋「整組被併回 entry」或 chunk 改名；SearchResults 是唯一呼叫端，改成靜態 import 時整組併回 entry、chunk 消失。
+// 另一道是 BODY_SEARCH_MARKER：內文區根元素的 data-testid，只寫在 BodySearchResults.tsx（首包的 SearchResults、gate、fallback 都不得用這個字；
+// check-bundle-size.test.mjs 的 BS-B4 釘住）——entry 含它＝內文區元件被首包靜態 import。
+export const BODYSEARCHLAZY_RE = /^BodySearchLazy-[A-Za-z0-9_-]+\.js$/;
+export const BODY_SEARCH_MARKER = 'sidebar-body-search';
 // 站台管理（admin.*）與設定（settings.*）的字串包（management.*.json，經 `@/i18n/management-strings` 註冊）也只能進 lazy 鏈：
 // 首包只留 AdminModal／SettingsModal／UserMenu 用到的 15 個鍵。兩個 marker 各取一個只在被搬走子樹裡的鍵名
 // （admin.auth.edit.autoCreateConfirmKeep、settings.ai.actionBuiltinBadge），entry 含任一個＝字串包被首包靜態 import（含「某個首包檔 import 了它」）。
@@ -302,6 +310,22 @@ export function checkBundleSize(assetsDir, { maxEntryBytes = MAX_ENTRY_BYTES } =
     );
   }
 
+  const bodySearchChunks = names.filter(name => BODYSEARCHLAZY_RE.test(name));
+  if (bodySearchChunks.length === 0) {
+    throw new Error(
+      `找不到側欄內文搜尋區的 lazy chunk（BodySearchLazy-<hash>.js）——最可能的原因是內文搜尋區被 ` +
+        `\`lazy(() => import("@/components/sidebar/BodySearchLazy"))\` 以外的地方靜態 import、整組併回 entry（#93 PR2）；` +
+        `若是 rollup 改了 chunk 命名慣例，請更新本檢查的 pattern，不要刪檢查`
+    );
+  }
+  // 只掃 entry：BodySearchLazy 以外的 lazy chunk 帶這個字不影響首包。
+  if (readFileSync(join(assetsDir, entryName), 'utf8').includes(BODY_SEARCH_MARKER)) {
+    throw new Error(
+      `entry chunk ${entryName} 含內文搜尋區的 marker ${BODY_SEARCH_MARKER}——BodySearchResults（或 import 它的模組）` +
+        `被首包靜態 import；內文搜尋區只能經 BodySearchLazy 載入（#93 PR2）`
+    );
+  }
+
   for (const name of names.filter(n => n.endsWith('.js') && !PRESENTATION_RE.test(n))) {
     if (readFileSync(join(assetsDir, name), 'utf8').includes(REVEAL_MARKER)) {
       throw new Error(
@@ -338,7 +362,7 @@ export function checkBundleSize(assetsDir, { maxEntryBytes = MAX_ENTRY_BYTES } =
     }
   }
 
-  return { entryName, entryBytes, notePageChunks, mermaidChunks, shikiChunks, adminSectionsChunks, versionsChunks, presentationChunks, trashChunks, selectChunks, folderChunks, shortcutsChunks, managementChunks };
+  return { entryName, entryBytes, notePageChunks, mermaidChunks, shikiChunks, adminSectionsChunks, versionsChunks, presentationChunks, trashChunks, selectChunks, folderChunks, shortcutsChunks, managementChunks, bodySearchChunks };
 }
 
 // 直接執行（非被 import）時跑真的 dist。
@@ -353,7 +377,8 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
         `${result.selectChunks.join(', ')}（entry 不含 ${SELECT_I18N_MARKER}）、` +
         `${result.folderChunks.join(', ')}（entry 不含 ${FOLDER_I18N_MARKER}）、` +
         `${result.shortcutsChunks.join(', ')}（entry 不含 ${SHORTCUTS_I18N_MARKER}）、` +
-        `${result.managementChunks.join(', ')}（entry 不含 ${MANAGEMENT_I18N_MARKERS.join('、')}）`
+        `${result.managementChunks.join(', ')}（entry 不含 ${MANAGEMENT_I18N_MARKERS.join('、')}）、` +
+        `${result.bodySearchChunks.join(', ')}（entry 不含 ${BODY_SEARCH_MARKER}）`
     );
   } catch (err) {
     console.error(String(err instanceof Error ? err.message : err));

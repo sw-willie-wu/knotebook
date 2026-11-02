@@ -147,6 +147,8 @@ function stubFetch({ note = NOTE as NoteDto | { status: number; code: string; no
           : respond(200, note),
       );
     }
+    // #93 PR2：搜尋字 ≥ 2 個字時側欄內文區會打 /api/search（回空）。
+    if (url.startsWith("/api/search?")) return Promise.resolve(new Response(JSON.stringify({ hits: [], nextCursor: null }), { status: 200, headers: { "Content-Type": "application/json" } }));
     throw new Error(`unexpected fetch: ${method} ${url}`);
   });
   vi.stubGlobal("fetch", fn);

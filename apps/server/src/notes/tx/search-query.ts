@@ -7,12 +7,16 @@
  * 第二句只在 id 清單非空時發出；id 清單取自第一句的前 `limit` 列（第 `limit + 1` 列只用來判 truncated）。
  */
 import type { Tx } from "../../db/tx.js";
-import { buildNoteSearchQuery, buildSearchMatchesQuery, type NoteSearchRow, type SearchMatchRow } from "../search-sql.js";
+import { buildNoteSearchQuery, buildSearchMatchesQuery, type NoteSearchRow, type SearchMatchRow, type SearchPageKey } from "../search-sql.js";
 
 export interface NoteSearchInput {
   userId: string;
   query: string;
   limit: number;
+  /** #93 PR2 D3：只要內文命中（REST `match=body`）。MCP 不帶。 */
+  bodyOnly?: boolean;
+  /** #93 PR2 D12：keyset 分頁（REST）。MCP 不帶。 */
+  page?: { after: SearchPageKey | null };
 }
 
 export interface NoteSearchResult {

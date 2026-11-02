@@ -11,6 +11,12 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 - **Keyboard shortcuts**: press Ctrl+/ (⌘/ on a Mac), or choose **Keyboard shortcuts** in the user menu at the bottom of the sidebar, to see the common keyboard shortcuts and typing triggers. It looks like the settings: the groups (General, Typing triggers, Markdown shortcuts and so on) are listed on the left and the shortcuts of the chosen group are on the right, one group at a time; on a narrow screen the two take turns. It lists only what your site can use: the AI group isn't shown when no AI action is set up, and the line about sending an instruction isn't shown when there is no Instruct action. Press the shortcut again or Esc to close it. It doesn't open while another dialog or menu is open, during a presentation, or on pages without the sidebar (sign-in, public notes). See [Known limitations](docs/known-limitations.md#keyboard-shortcuts).
 - **Ctrl+, (⌘, on a Mac) opens your settings**, the same as **Settings** in the user menu, which now shows the shortcut next to it. It works on pages that have the sidebar (not sign-in or public notes) and does nothing while another dialog or menu is open, including the settings themselves.
+- **The sidebar's search also finds notes by their text.** Below the notes whose title matches, a second list shows the notes whose body text matches, each with up to three excerpts, each under the heading of its section when it has one, 20 notes at a time with **Load more**. Clicking an excerpt opens the note at that section and highlights it for two seconds (in the note already open, it scrolls there without reloading the page; an excerpt from before the note's first heading opens the note at the top); on a narrow screen it also closes the navigation drawer. Body text is searched from the second character typed, and these searches count against the same limit of 60 a minute per person as MCP's `search_notes`. See [Known limitations](docs/known-limitations.md).
+- **`GET /api/search`**: search the titles and body text of the notes you can see, with excerpts, `match=body` for body matches only, and pages of up to 50 (`cursor`/`nextCursor`). Takes a session or a token with `notes:read`. See [API](docs/api.md).
+
+### Changed
+
+- **The sidebar's search count now says “N title matches”** (in Chinese, “標題符合 · N 篇”) instead of “N results”, since the notes that match in their text are counted separately below them.
 
 ## [0.14.1] - 2026-11-02
 
