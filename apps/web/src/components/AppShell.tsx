@@ -1,4 +1,4 @@
-import { lazy, useEffect, useId, useRef, useState, type ReactNode, type RefObject } from "react";
+import { lazy, useEffect, useId, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router";
@@ -16,6 +16,9 @@ import { cardSurface } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { NARROW_QUERY, SidebarDrawerContext, useSidebarDrawer } from "@/lib/sidebar-drawer";
 import { canonicalizedFrom } from "@/lib/real-location";
+import { isMacPlatform } from "@/lib/platform";
+import { ShortcutsDialogContext, type ShortcutsDialogApi } from "@/lib/shortcuts-dialog";
+import { isOverlayOpen } from "@/lib/versions-context";
 import { SIDEBAR_SELECT_BUTTON } from "@/lib/sidebar-selection";
 import { SidebarTabProvider, useSidebarTabActions, useSidebarTabState, type SidebarTabActions } from "@/lib/sidebar-tab";
 import { NoteList } from "@/components/NoteList";
@@ -24,6 +27,7 @@ import { SidebarFooter } from "@/components/sidebar/SidebarFooter";
 import { SidebarTabList, sidebarPanelId, sidebarTabId } from "@/components/sidebar/SidebarTabList";
 import { SidebarLazyBoundary } from "@/components/sidebar/SidebarLazyBoundary";
 import { UserMenu } from "@/components/UserMenu";
+import { ShortcutsDialog } from "@/components/shortcuts/ShortcutsDialog";
 import {
   SIDEBAR_WIDTH_DEFAULT,
   SIDEBAR_WIDTH_MAX,
@@ -296,6 +300,47 @@ export function AppShell({ children, inert }: AppShellProps) {
   drawerOpenRef.current = drawerOpen;
   const tabActionsRef = useRef<SidebarTabActions | null>(null);
 
+  // 快捷鍵介紹頁（Ctrl/Cmd+/ 或使用者選單）的開關：state 在這裡（K1），內容 lazy（`ShortcutsDialog`）。
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const shortcutsOpenRef = useRef(shortcutsOpen);
+  shortcutsOpenRef.current = shortcutsOpen;
+  /** 關閉時要還焦點的元素：鍵盤開的＝開啟當下的焦點元素；選單開的＝UserMenu 觸發鈕（`open(returnFocusTo)`）。 */
+  const shortcutsReturnFocusRef = useRef<HTMLElement | null>(null);
+  const shortcutsApi = useMemo<ShortcutsDialogApi>(
+    () => ({
+      open: (returnFocusTo) => {
+        shortcutsReturnFocusRef.current = returnFocusTo ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+        setShortcutsOpen(true);
+      },
+    }),
+    [],
+  );
+
+  // Ctrl/Cmd+/ 開關快捷鍵介紹頁（與下面的 Ctrl+K 是兩支獨立的 effect，互不改動）。判準與讓路（plan K3／K4）：
+  // - `(ctrl || meta) && !alt && key === "/"`，不看 shift（德文等配置的 `/` 本身要按 Shift，排除會讓那些鍵盤打不開）；`!alt` 比照 NotePage 的 Ctrl+S。
+  // - `repeat` 不理；`defaultPrevented` 不理（別人已處理，比照下面 Ctrl+K）。
+  // - 快捷鍵頁已開 → preventDefault＋關（切換）。
+  // - 其他對話框（側欄抽屜除外）或選單開著 → 放棄、不 preventDefault：比照 NotePage 的 Ctrl+S 連選單也讓路，
+  //   因 Radix 選單與 Dialog 共用 FocusScope 會搶焦點（與 Ctrl+K 的「menu 照觸發」刻意不同）。
+  // deps 留空：handler 只讀 ref 與當下的 DOM。
+  useEffect(() => {
+    function handleShortcutsKey(event: KeyboardEvent): void {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.key !== "/") return;
+      if (event.repeat || event.defaultPrevented) return;
+      if (shortcutsOpenRef.current) {
+        event.preventDefault();
+        setShortcutsOpen(false);
+        return;
+      }
+      if (isOverlayOpen()) return;
+      event.preventDefault();
+      shortcutsReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      setShortcutsOpen(true);
+    }
+    window.addEventListener("keydown", handleShortcutsKey);
+    return () => window.removeEventListener("keydown", handleShortcutsKey);
+  }, []);
+
   // Ctrl/Cmd+K。deps 刻意留空——handler 只讀 ref（穩定物件）與當下的
   // matchMedia/DOM，不需要隨 state 重新掛聽。
   useEffect(() => {
@@ -376,12 +421,8 @@ export function AppShell({ children, inert }: AppShellProps) {
     }
   }
 
-  // `navigator.platform` 已棄用但仍是目前偵測平台最簡單可靠的方式，這裡只用來
-  // 決定快捷鍵徽章的顯示文字（⌘K vs Ctrl K），不影響任何行為判斷。`?? ""`
-  // 防呆：某些環境（如部分測試/嵌入式 WebView）這個欄位可能是空字串以外的
-  // falsy 值，讓 `.toLowerCase()` 不會炸在 undefined 上。
-  const platform = typeof navigator !== "undefined" ? (navigator.platform ?? "") : "";
-  const shortcutBadge = platform.toLowerCase().includes("mac") ? "⌘K" : "Ctrl K";
+  // 平台偵測（只決定徽章顯示文字，不影響行為）見 lib/platform.ts。
+  const shortcutBadge = isMacPlatform() ? "⌘K" : "Ctrl K";
 
   const sidebarProps = {
     query,
@@ -401,6 +442,7 @@ export function AppShell({ children, inert }: AppShellProps) {
     // `min-h-0 min-w-0 flex-1 flex flex-col` 撐開版面（`min-w-0` 顯式宣告——
     // `main` 沒有 overflow、少了隱含的自我裁切途徑，寬度鏈全靠它）。
     <SidebarDrawerContext.Provider value={{ setOpen: setDrawerOpen }}>
+      <ShortcutsDialogContext.Provider value={shortcutsApi}>
       <SidebarTabProvider actionsRef={tabActionsRef}>
         <div inert={inert} className="flex h-screen gap-3 overflow-hidden bg-background p-3">
           {/* data-sidebar-instance：SidebarContent 回 fragment、沒有自己的根；垃圾桶動作列靠它找回同一份的「選取」鈕。 */}
@@ -479,7 +521,10 @@ export function AppShell({ children, inert }: AppShellProps) {
 
           <main className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</main>
         </div>
+        {/* 放在 inert 的 div 外面：portal 本來就在 body，放外面是讓閱讀者不必推理 inert。 */}
+        <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} returnFocusRef={shortcutsReturnFocusRef} />
       </SidebarTabProvider>
+      </ShortcutsDialogContext.Provider>
     </SidebarDrawerContext.Provider>
   );
 }

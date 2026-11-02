@@ -349,3 +349,7 @@ See [Version history](./versions.md) for how versions work.
 - **When a deleted group's notes are given to an admin and the group's name is nothing but control characters, the new folder is named 群組 when the browser's preferred language is Chinese and Group otherwise** — the browser's own language setting, not the language picked in Knotebook's menu.
 - **Folder names in the same place are unique ignoring letter case; for letters outside ASCII, what counts as the same letter depends on the database's locale.**
 - **In a narrow sidebar, deeply nested folders and notes can lose their names to the indentation, have their right-hand side cut off by the sidebar's edge, and show a folder row's icons on top of its buttons.** On a wide screen, widening the sidebar fixes it; the sidebar on a narrow screen has a fixed width.
+
+## Keyboard shortcuts
+
+- **On a keyboard where `/` needs Shift, Ctrl+/ may not open the shortcuts page while the cursor is in a note.** A German layout, for example, types `/` with Shift+7, so Ctrl+/ reaches the editor as Ctrl+Shift+7, which the editor takes as "turn this paragraph into a numbered list": the paragraph with the cursor becomes a numbered list item and the page doesn't open. Outside the text of a note, and from **Keyboard shortcuts** in the user menu, it works as usual. This was seen in Chromium with the key sent the way such a layout sends it; it hasn't been tried on a real German keyboard.

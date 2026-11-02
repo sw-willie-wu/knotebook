@@ -5,7 +5,7 @@ import { cardSurface } from "./card";
 /**
  * 來源層守衛（#81）：`cardSurface` 是卡片外觀 class 字面量的**唯一出處**——
  * 呼叫端（AppShell／NoteEditor／NotePage／HomePage／NotePageFallback／ErrorBoundary／
- * ManagementShell／VersionsPanel／VersionsLazyBoundary）一律寫成
+ * ManagementShell／ShortcutsDialog／VersionsPanel／VersionsLazyBoundary）一律寫成
  * `cn(cardSurface, "<其餘 class>")`。有 rendered-class 斷言守著的只是其中幾處
  * （例：`NoteEditor.layout.test.tsx` 守 NoteEditor 的內文卡，`NotePage.test.tsx`
  * 守 NotePage 的佔位卡——用兩個不同狀態各斷言一次，不是兩個不同呼叫端）；

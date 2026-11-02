@@ -7,7 +7,9 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added
+
+- **Keyboard shortcuts**: press Ctrl+/ (⌘/ on a Mac), or choose **Keyboard shortcuts** in the user menu at the bottom of the sidebar, to see the common keyboard shortcuts and typing triggers, grouped by what they do. It lists only what your site can use: the AI group isn't shown when no AI action is set up, and the line about sending an instruction isn't shown when there is no Instruct action. Press the shortcut again or Esc to close it. It doesn't open while another dialog or menu is open, during a presentation, or on pages without the sidebar (sign-in, public notes). See [Known limitations](docs/known-limitations.md#keyboard-shortcuts).
 
 ## [0.14.0] - 2026-11-01
 

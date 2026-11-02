@@ -361,7 +361,12 @@
     "theme": "Theme",
     "accent": "Accent color",
     "logout": "Log out",
-    "siteAdmin": "Site admin"
+    "siteAdmin": "Site admin",
+    "shortcuts": "Keyboard shortcuts"
+  },
+  "shortcuts": {
+    "title": "Keyboard shortcuts",
+    "description": "Common keyboard shortcuts and typing triggers"
   },
   "admin": {
     "nav": {

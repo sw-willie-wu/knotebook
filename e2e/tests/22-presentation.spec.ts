@@ -117,7 +117,7 @@ async function adminPageWithNote(browser: Browser, title: string, markdown: stri
   return { context, page };
 }
 
-test("E1：⋮ 進入、換頁寫 hash 不增 history、O 總覽／Esc 只關總覽、兩段 Esc 回筆記、編輯器未重掛", async ({ browser }) => {
+test("E1：⋮ 進入、換頁寫 hash 不增 history、O 總覽／Esc 只關總覽、兩段 Esc 回筆記、編輯器未重掛 [sc:presentOverview] [sc:presentExit]", async ({ browser }) => {
   test.setTimeout(120_000);
   const title = `E2E present ${Date.now()}`;
   const { context, page } = await adminPageWithNote(browser, title, DECK);

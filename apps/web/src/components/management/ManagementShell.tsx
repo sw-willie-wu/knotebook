@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { cardSurface } from "@/components/ui/card";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { ArrowLeft, X } from "@/components/ui/icons";
+import { managementTray } from "@/components/management/tray";
 import { cn } from "@/lib/utils";
 
 /**
@@ -138,7 +139,7 @@ export function ManagementShell({ title, subtitle, description, items, onOpenCha
       {/* 點外面不關：內容區的 inline 表單（改密碼、改名…）有未存輸入；Esc／✕ 照常關閉。 */}
       <DialogContent size="panel" dismissOnOutside={false}>
         {/* 托盤（§4.3）：頁底色 45%＋毛玻璃，陰影只在這一層；卡本身不投影。 */}
-        <div className="flex h-full min-h-0 w-full min-w-0 gap-2 rounded-2xl bg-background/45 p-2 shadow-[0_20px_60px_rgba(0,0,0,.35)] backdrop-blur-md md:gap-3 md:p-3">
+        <div className={managementTray}>
           <div
             data-management-card="items"
             className={cn(
