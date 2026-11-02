@@ -253,6 +253,13 @@
       "when": 1792957405186,
       "tag": "0035_notes-delete-scope",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1793637620736,
+      "tag": "0036_bulk-transfer",
+      "breakpoints": true
     }
   ]
 }

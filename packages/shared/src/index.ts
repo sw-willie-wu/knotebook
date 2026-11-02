@@ -429,6 +429,8 @@ export const ERROR_CODES = [
   "empty_section",
   "too_many_blocks",
   "content_too_large",
+  // bulk transfer（spec 2026-11-02 §6.6-2、§12.2、§21 D8）：`too_many_notes`＝413，整包下載的範圍內超過 3 000 篇（串流開始前回）。
+  "too_many_notes",
   // #106 撤回端（`POST /api/notes/:id/edits/:editId/revert`，#137）：
   // `already_reverted`＝409，這筆修改已經撤回過（或它本身就是一筆撤回列——撤回列永不可撤回）；
   // `stale`＝409，撤回的落點已經不是當初那樣了：AI 寫進去的 block 被人改過／刪掉、`delete_section`

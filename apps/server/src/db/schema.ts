@@ -4,6 +4,7 @@ import { sql } from "drizzle-orm";
 import type { NoteWidth } from "@knotebook/shared";
 import type { EncryptedApiKey } from "../ai/crypto.js";
 import type { EncryptedSecret } from "../lib/sealed-secret.js";
+import type { BulkRange } from "../auth/transfer-token.js";
 const bytea = customType<{ data: Buffer }>({ dataType: () => "bytea" });
 
 /**
@@ -631,6 +632,9 @@ export const noteLinks = pgTable("note_links", {
  *   ⇔ 有 anchor），單向版會靜默放行半截列；
  * - `fingerprint_chk` 保證「有 after block 就一定有指紋」，撤回的前置條件因此可以只看
  *   `after_fingerprint is not null`。
+ * - bulk transfer（migration 0036，spec 2026-11-02 §13 D5）：`op` 加 `file_sync`（檔案寫回，每區一列）；
+ *   `anchor_chk` 改成依 op 分支——`delete_section` 必帶 anchor、`file_sync` 列「有 anchor ⇔ 刪除區（沒有 after
+ *   block）」、其他 op 不帶。
  *
  * `revert_of` 的 CASCADE 是刻意的：原始列被裁切掉之後，指向它的撤回列已無意義。
  * `token_id` 是 SET NULL（token 撤銷不該連帶抹掉稽核紀錄），`before_blocks` 存整份 block
@@ -655,10 +659,13 @@ export const noteAiEdits = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   t => [
-    check("note_ai_edits_op_chk", sql`${t.op} in ('replace_all','replace_section','insert_after','append','delete_section','revert')`),
+    check("note_ai_edits_op_chk", sql`${t.op} in ('replace_all','replace_section','insert_after','append','delete_section','revert','file_sync')`),
     check("note_ai_edits_revert_chk", sql`(${t.op} = 'revert') = (${t.revertOf} is not null)`),
     check("note_ai_edits_fingerprint_chk", sql`(cardinality(${t.afterBlockIds}) = 0) = (${t.afterFingerprint} is null)`),
-    check("note_ai_edits_anchor_chk", sql`(${t.op} = 'delete_section') = (${t.anchor} is not null)`),
+    check(
+      "note_ai_edits_anchor_chk",
+      sql`case when ${t.op} = 'delete_section' then ${t.anchor} is not null when ${t.op} = 'file_sync' then (${t.anchor} is not null) = (cardinality(${t.afterBlockIds}) = 0) else ${t.anchor} is null end`
+    ),
     index("note_ai_edits_note_created_idx").on(t.noteId, t.createdAt.desc()),
   ]
 );
@@ -923,6 +930,9 @@ export const oauthCodes = pgTable(
  * - `consumed_chk`：只有 upload 會被「消費」（單次）；download 在 TTL 內多次使用（spec §4.4）。
  * - 三個索引：兩條 FK 的支撐（撤銷母憑證／刪筆記時 cascade 掃這張表；parent 那支也服務簽發時的未消費計數），
  *   `expires_at` 給清理（`auth/transfer-cleanup.ts`）。
+ * - #bulk（migration 0036，spec 2026-11-02 §5.1）：`purpose='bulk'` 沒有 `note_id`、有 `access`（`read`／`write`）與
+ *   `range`（`BulkRange`）；三條 `bulk_*_chk` 是雙向蘊含（bulk ⇔ 沒有 note、有 access、有 range），非 bulk 列三欄
+ *   照舊（note 必有、另兩欄必空）。
  */
 export const transferTokens = pgTable(
   "transfer_tokens",
@@ -932,21 +942,94 @@ export const transferTokens = pgTable(
     parentTokenId: uuid("parent_token_id")
       .notNull()
       .references(() => apiTokens.id, { onDelete: "cascade" }),
-    noteId: uuid("note_id")
-      .notNull()
-      .references(() => notes.id, { onDelete: "cascade" }),
+    noteId: uuid("note_id").references(() => notes.id, { onDelete: "cascade" }),
     purpose: text().notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     consumedAt: timestamp("consumed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    access: text(),
+    range: jsonb().$type<BulkRange>(),
   },
   t => [
-    check("transfer_tokens_purpose_chk", sql`${t.purpose} in ('upload','download')`),
+    check("transfer_tokens_purpose_chk", sql`${t.purpose} in ('upload','download','bulk')`),
     check("transfer_tokens_consumed_chk", sql`${t.purpose} = 'upload' or ${t.consumedAt} is null`),
     check("transfer_tokens_expiry_chk", sql`${t.expiresAt} > ${t.createdAt}`),
+    check("transfer_tokens_bulk_note_chk", sql`(${t.purpose} = 'bulk') = (${t.noteId} is null)`),
+    check("transfer_tokens_bulk_access_chk", sql`(${t.purpose} = 'bulk') = (${t.access} is not null)`),
+    check("transfer_tokens_bulk_range_chk", sql`(${t.purpose} = 'bulk') = (${t.range} is not null)`),
+    check("transfer_tokens_access_chk", sql`${t.access} in ('read','write')`),
     index("transfer_tokens_parent_idx").on(t.parentTokenId),
     index("transfer_tokens_note_idx").on(t.noteId),
     index("transfer_tokens_expires_idx").on(t.expiresAt),
+  ]
+);
+
+/**
+ * bulk transfer spec 2026-11-02 §8.2：基底的一段——一般 1 個 id；局部合段（§6.4-3）才多個。`start`／`count` 是整篇匯出
+ * 正規化後的行範圍（0 行段 `count: 0`）。定義在這裡（不在 `transfer/`）：schema 只依型別，免得循環。
+ */
+export type TransferSegment = { ids: string[]; fps: string[]; start: number; count: number };
+
+/**
+ * bulk transfer spec 2026-11-02 §8.2：每次下載一篇存一列「加鹽 HMAC 行雜湊＋段表」的基底，供寫回（PR-2）三方合併。
+ *
+ * - 只存雜湊（§21 D2）：`H(x) = HMAC-SHA256(K, salt ‖ x)`，`K` 由 `APP_SECRET` 導出（`transfer/base-hash.ts`）；
+ *   `key_id` 是算這列時的衍生金鑰指紋，換了 `APP_SECRET` 就比不上（寫回回 409 `base_unavailable`）。
+ * - `segments` NULL＝這篇下載時段表對不上（§6.4-5，不可用檔案寫回）。
+ * - 三支 index：(user, note, created desc) 給寫回查基底與「每篇留 10 列」、`last_used_at` 給 30 天清理、
+ *   `note_id` 給刪筆記／清垃圾桶的 FK cascade（前兩支都不以 `note_id` 開頭；plan §0.2 S2）。
+ */
+export const transferBases = pgTable(
+  "transfer_bases",
+  {
+    key: text().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    noteId: uuid("note_id")
+      .notNull()
+      .references(() => notes.id, { onDelete: "cascade" }),
+    salt: bytea().notNull(),
+    keyId: text("key_id").notNull(),
+    bodySha: bytea("body_sha").notNull(),
+    titleSha: bytea("title_sha").notNull(),
+    lineHashes: bytea("line_hashes").notNull(),
+    lineKinds: bytea("line_kinds").notNull(),
+    segments: jsonb().$type<TransferSegment[] | null>(),
+    appliedBodySha: bytea("applied_body_sha"),
+    appliedTitleSha: bytea("applied_title_sha"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  t => [
+    index("transfer_bases_user_note_created_idx").on(t.userId, t.noteId, t.createdAt.desc()),
+    index("transfer_bases_last_used_idx").on(t.lastUsedAt),
+    index("transfer_bases_note_idx").on(t.noteId),
+  ]
+);
+
+/**
+ * bulk transfer spec 2026-11-02 §10：檔案寫回「新增筆記」的去重（同一使用者、同一份正規化後檔案在權杖 TTL 內只建一篇）。
+ * `file_sha = HMAC-SHA256(K, user_id ‖ 正規化後整個檔)`；`key_id` 不符目前金鑰的列當作不存在。PK `(user_id, file_sha)`
+ * 讓同時送到的兩發只建一篇（upsert）。`note_id` index 給刪筆記的 FK cascade、`created_at` 給清理。
+ */
+export const transferCreates = pgTable(
+  "transfer_creates",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    fileSha: bytea("file_sha").notNull(),
+    noteId: uuid("note_id")
+      .notNull()
+      .references(() => notes.id, { onDelete: "cascade" }),
+    keyId: text("key_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  t => [
+    primaryKey({ columns: [t.userId, t.fileSha] }),
+    index("transfer_creates_created_idx").on(t.createdAt),
+    index("transfer_creates_note_idx").on(t.noteId),
   ]
 );
 

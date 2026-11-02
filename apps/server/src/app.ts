@@ -41,6 +41,8 @@ import { accountRoutes } from "./routes/account.js";
 import { passwordResetRoutes } from "./routes/password-reset.js";
 import { aiRoutes } from "./routes/ai.js";
 import { uploadsRoutes } from "./routes/uploads.js";
+import { transferRoutes, type TransferTestHooks } from "./routes/transfer.js";
+import type { BulkAccess, BulkRange } from "./auth/transfer-token.js";
 import { publicRoutes, redactPublicTokens } from "./routes/public.js";
 import { oidcRoutes } from "./routes/oidc.js";
 import { oidcPendingRoutes } from "./routes/oidc-pending.js";
@@ -53,7 +55,7 @@ import { sendError } from "./http/errors.js";
 // #108：`stripDefaultPort` 搬到 `http/origin.ts`（與 `mcpOriginAllowed` 同一個葉節點模組，
 // 兩種比較語意的差別寫在該檔檔頭）。
 import { stripDefaultPort } from "./http/origin.js";
-import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, EDIT_LIMIT, FixedWindowLimiter, FOLDER_LIMIT, OIDC_LIMIT, ONE_TIME_LINK_ATTEMPT_LIMIT, ONE_TIME_LINK_MISS_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, PUBLIC_WIDTH_LIMIT, REGISTER_LIMIT, SEARCH_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_RENAME_LIMIT, TOKEN_WRITE_LIMIT, UPLOAD_LIMIT, USER_SUGGEST_LIMIT } from "./http/rate-limit.js";
+import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, EDIT_LIMIT, FixedWindowLimiter, FOLDER_LIMIT, OIDC_LIMIT, ONE_TIME_LINK_ATTEMPT_LIMIT, ONE_TIME_LINK_MISS_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, PUBLIC_WIDTH_LIMIT, REGISTER_LIMIT, SEARCH_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_RENAME_LIMIT, TOKEN_WRITE_LIMIT, TRANSFER_EXPORT_LIMIT, UPLOAD_LIMIT, USER_SUGGEST_LIMIT } from "./http/rate-limit.js";
 import { FORM_EXEMPT_ROUTES, isOauthScopedPath, sendOauthError } from "./http/oauth-errors.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { oauthMetadataRoutes } from "./routes/oauth-metadata.js";
@@ -105,6 +107,8 @@ declare module "fastify" {
     tokenId?: string;
     /** #200：transfer 路徑才有（`auth/transfer-auth.ts`）。`noteId` 是 DB 的小寫正規形。 */
     transfer?: { id: string; noteId: string; purpose: "upload" | "download"; parentTokenId: string };
+    /** bulk transfer：`/api/transfer/*` 才有（`transferAuth.requireBulk`）。`range` 的 id 一律小寫。 */
+    bulkTransfer?: { id: string; parentTokenId: string; access: BulkAccess; range: BulkRange };
   }
 }
 
@@ -170,6 +174,8 @@ export interface AppDeps {
     contentRead: FixedWindowLimiter;
     /** #93：全文搜尋（key=userId，見 `SEARCH_LIMIT`）。 */
     search: FixedWindowLimiter;
+    /** bulk §12.1：整包匯出（key=userId，見 TRANSFER_EXPORT_LIMIT）。 */
+    transferExport: FixedWindowLimiter;
     /** `GET /api/users/suggest`（key=userId，見 `USER_SUGGEST_LIMIT`）。 */
     userSuggest: FixedWindowLimiter;
     /** #106 寫入端：`POST /api/notes/:id/edits`、`POST /api/notes` 帶 `content`（key=userId，見 `EDIT_LIMIT`）。 */
@@ -195,6 +201,8 @@ export interface AppDeps {
    * **選配**，生產不注入＝零成本。透傳進 `McpRouteDeps.testHooks`。
    */
   mcpTestHooks?: McpTestHooks;
+  /** bulk transfer：`/api/transfer/*` 的測試縫（生產不注入）。透傳進 `TransferRouteDeps.testHooks`。 */
+  transferTestHooks?: TransferTestHooks;
   /**
    * #106（#137）：per-note 寫入佇列的等待上限（毫秒）。**選配**，未傳時用 `NoteWriteQueue`
    * 自己的預設（10 s）。整合測試把它壓到 50 ms 才驗得出「佇列被占住 → 503 server_busy」，
@@ -667,6 +675,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       tokenEndpoint: new FixedWindowLimiter(TOKEN_ENDPOINT_LIMIT),
       contentRead: new FixedWindowLimiter(CONTENT_READ_LIMIT),
       search: new FixedWindowLimiter(SEARCH_LIMIT),
+      transferExport: new FixedWindowLimiter(TRANSFER_EXPORT_LIMIT),
       userSuggest: new FixedWindowLimiter(USER_SUGGEST_LIMIT),
       edit: new FixedWindowLimiter(EDIT_LIMIT),
       folder: new FixedWindowLimiter(FOLDER_LIMIT),
@@ -915,6 +924,22 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       searchIndexHooks: deps.searchIndexHooks,
     })
   );
+
+  // bulk transfer spec 2026-11-02 §15：`/api/transfer/*` 只在有 collab＋editing 時掛（匯出要 live doc 與 mount，同 MCP 讀取工具的閘門）。
+  // `bearerMiss` 與 authenticateAny 同一個實例；`contentRead` 與 MCP／REST 讀取同一個實例。
+  if (deps.collab && editing) {
+    void app.register(
+      transferRoutes({
+        db: deps.db,
+        config: deps.config,
+        gate: deps.gate,
+        collab: deps.collab,
+        editing,
+        limiters: { bearerMiss: limiters.bearerMiss, contentRead: limiters.contentRead, transferExport: limiters.transferExport },
+        testHooks: deps.transferTestHooks,
+      })
+    );
+  }
 
   // #132：兩個 RFC 形 plugin 各自帶 prefix（root notFound 由 spa.ts 獨佔）。
   void app.register(

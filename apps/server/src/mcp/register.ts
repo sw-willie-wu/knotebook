@@ -13,7 +13,7 @@
  * `{list_notes, read_note_outline, read_note_section, search_notes}`）、PR2 起
  * `mcp-tools-list.test.ts`（P13：`{edit_note, create_note}`）；#200 起 P13 的集合是
  * `{create_note, create_transfer_token, edit_note}`；#180 起加 `copy_note`、`move_note_to_group`，#200 §9.3 M7 再加 `read_note_image`，集合是
- * `{copy_note, create_note, create_transfer_token, edit_note, move_note_to_group, read_note_image}`；#181 PR-2d 加 `list_trash`、`delete_note`、`restore_note`；資料夾 PR-3d 加 `list_folders`、`create_folder`、`rename_folder`、`move_folder`、`move_note_to_folder`、`delete_folder`。
+ * `{copy_note, create_note, create_transfer_token, edit_note, move_note_to_group, read_note_image}`；#181 PR-2d 加 `list_trash`、`delete_note`、`restore_note`；資料夾 PR-3d 加 `list_folders`、`create_folder`、`rename_folder`、`move_folder`、`move_note_to_folder`、`delete_folder`；bulk transfer PR-1 加 `create_bulk_transfer_token`。
  * **新增工具時要一併把它加進其中一個名字集合，否則等於沒有守衛。**
  *
  * ⚠ 新增工具一律 `z.object(<shape>).strict()` 註冊；`test/unit/mcp-register.test.ts`（U-F1，覆蓋 authKind × scope × 有無 collab 的十二種組合）的名字常數也要補——它會紅。
@@ -28,7 +28,7 @@
  * 也不要掛一支只會回半套答案的工具（照抄 `routes/notes.ts` 對內容端點的既有判準）。判準存在
  * `canRead` 變數，#93 起 search_notes 的變體（description 與 `sectionId` 的說明）也看它。
  * `list_notes`／`search_notes` 只查 DB，永遠註冊；`read_note_image`（#200）只讀 DB 與磁碟，同樣在閘門外、任何憑證都註冊；
- * `list_trash`（#181）只查 DB，同上。
+ * `list_trash`（#181）只查 DB，同上。`create_bulk_transfer_token`（bulk transfer）在閘門**內**：它簽的權杖拿去匯出要 mount（判準：要不要讀 live doc）。
  * **這道閘門由兩案守**（都是無 collab 的 app，斷名字集合）：`test/mcp-tools-list.test.ts` 的 D-A 案（讀寫憑證；標題含「D-M 不進閘門，D-A」）、
  * `test/mcp-create-note.test.ts` 的 D-M 案（讀寫搬移憑證，比 D-A 多 `move_note_to_group`；標題含「（D-M）」）。`create_note`／`copy_note`／
  * `move_note_to_group` 都在閘門外（D-M）；`delete_note`／`restore_note`（#181）同樣在閘門外。
@@ -54,6 +54,12 @@ import {
   readNoteSectionOutput,
 } from "./tools/read-note-section.js";
 import { searchNotes, searchNotesDescription, searchNotesInput, searchNotesOutputFor } from "./tools/search-notes.js";
+import {
+  CREATE_BULK_TRANSFER_TOKEN_DESCRIPTION_RO,
+  createBulkTransferToken,
+  createBulkTransferTokenInput,
+  createBulkTransferTokenOutputRo,
+} from "./tools/create-bulk-transfer-token.js";
 import { EDIT_NOTE_DESCRIPTION, editNote, editNoteInput, editNoteOutput } from "./tools/edit-note.js";
 import { CREATE_NOTE_DESCRIPTION, createNote, createNoteInput, createNoteOutput } from "./tools/create-note.js";
 import {
@@ -243,6 +249,17 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
         async args => runTool("create_transfer_token", ctx, () => createTransferToken(args, ctx))
       );
     }
+  }
+
+  // bulk transfer spec §5.2-1、§14.1：`create_bulk_transfer_token` 只在 token 路徑（要綁母憑證）、且 collab＋editing 都在（canRead；
+  // 匯出要 mount）時註冊——閘門內。PR-1 對所有憑證一律唯讀描述與唯讀輸出（plan §0.1-1；PR-2 依 canWrite 二選一）。
+  // 守衛：集合＝`mcp-tools-list`、`unit/mcp-register`（U-F1）；runTool＝P13；描述＝`mcp-bulk-transfer-token.test.ts` B7。
+  if (ctx.authKind === "token" && canRead) {
+    server.registerTool(
+      "create_bulk_transfer_token",
+      { description: CREATE_BULK_TRANSFER_TOKEN_DESCRIPTION_RO, inputSchema: z.object(createBulkTransferTokenInput).strict(), outputSchema: createBulkTransferTokenOutputRo },
+      async args => runTool("create_bulk_transfer_token", ctx, () => createBulkTransferToken(args, ctx))
+    );
   }
 
   // #181：讀取類，所有閘門外、任何憑證都註冊（只查 DB）；不帶 annotations（同其他讀取工具；list_folders 是 spec 指定的例外，見下）。

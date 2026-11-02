@@ -16,7 +16,7 @@ import { loadConfig, type AppConfig } from "../src/config.js";
 import { buildApp, type AppDeps, type BuildAppOptions } from "../src/app.js";
 import { signSession, UserGate } from "../src/auth/session.js";
 import { LoginThrottle } from "../src/auth/rate-limit.js";
-import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, EDIT_LIMIT, FixedWindowLimiter, FOLDER_LIMIT, OIDC_LIMIT, ONE_TIME_LINK_ATTEMPT_LIMIT, ONE_TIME_LINK_MISS_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, PUBLIC_WIDTH_LIMIT, REGISTER_LIMIT, SEARCH_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_RENAME_LIMIT, TOKEN_WRITE_LIMIT, UPLOAD_LIMIT, USER_SUGGEST_LIMIT } from "../src/http/rate-limit.js";
+import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, EDIT_LIMIT, FixedWindowLimiter, FOLDER_LIMIT, OIDC_LIMIT, ONE_TIME_LINK_ATTEMPT_LIMIT, ONE_TIME_LINK_MISS_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, PUBLIC_WIDTH_LIMIT, REGISTER_LIMIT, SEARCH_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_RENAME_LIMIT, TOKEN_WRITE_LIMIT, TRANSFER_EXPORT_LIMIT, UPLOAD_LIMIT, USER_SUGGEST_LIMIT } from "../src/http/rate-limit.js";
 import { hashPassword } from "../src/auth/password.js";
 import { noopCollabHooks, type CollabHooks } from "../src/collab/hooks.js";
 import type { CollabHooksLogger } from "../src/collab/hooks-impl.js";
@@ -309,6 +309,7 @@ export function freshLimiters(
     tokenEndpoint: new FixedWindowLimiter(TOKEN_ENDPOINT_LIMIT),
     contentRead: new FixedWindowLimiter(CONTENT_READ_LIMIT),
     search: new FixedWindowLimiter(SEARCH_LIMIT),
+    transferExport: new FixedWindowLimiter(TRANSFER_EXPORT_LIMIT),
     userSuggest: new FixedWindowLimiter(USER_SUGGEST_LIMIT),
     edit: new FixedWindowLimiter(EDIT_LIMIT),
     folder: new FixedWindowLimiter(FOLDER_LIMIT),
@@ -427,6 +428,8 @@ export interface CollabTestCtx {
    * 所以一律在測試的最後一步才呼叫。
    */
   breakGate(err: Error): void;
+  /** bulk transfer：app 用的同一個 `UserGate`（停權後要 `invalidate` 才即時生效，同生產的停權路徑）。 */
+  gate: UserGate;
   db: Db;
   /** #180：實際掛進 app 的 uploadsDir（磁碟斷言用）。 */
   uploadsDir: string;
@@ -477,6 +480,10 @@ export async function buildCollabTestApp(
     config?: AppConfig;
     /** #267：「最後活動」節流表的測試縫（時鐘），語意見 `CollabDeps.lastActiveOptions`。 */
     lastActiveOptions?: CollabDeps["lastActiveOptions"];
+    /** bulk transfer：`/api/transfer/*` 的測試縫，語意見 `AppDeps.transferTestHooks`。 */
+    transferTestHooks?: AppDeps["transferTestHooks"];
+    /** bulk transfer plan H5：log 測試用（預設 `false`）；傳 `{ level, stream }` 收 pino 原文。 */
+    logger?: BuildAppOptions["logger"];
   } = {}
 ): Promise<CollabTestCtx> {
   const { db } = await freshDb();
@@ -513,6 +520,7 @@ export async function buildCollabTestApp(
     limiters: freshLimiters(opts.limiters),
     editingTestHooks: opts.editingTestHooks,
     mcpTestHooks: opts.mcpTestHooks,
+    transferTestHooks: opts.transferTestHooks,
     groupTestHook: opts.groupTestHook,
     slugUpdateTestHook: opts.slugUpdateTestHook,
     noteCreateHooks: opts.noteCreateHooks,
@@ -523,7 +531,7 @@ export async function buildCollabTestApp(
     uploadsDir,
     ai: createAiRuntime(),
   };
-  const app = buildApp(deps, { logger: false });
+  const app = buildApp(deps, { logger: opts.logger ?? false });
 
   await app.listen({ port: 0, host: "127.0.0.1" });
   const address = app.server.address();
@@ -696,7 +704,7 @@ export async function buildCollabTestApp(
     return session;
   }
 
-  return { baseUrl, app, collab, collabLogs, breakGate, db, uploadsDir, createUser, createNote, share, loginAs, destroy };
+  return { baseUrl, app, collab, collabLogs, breakGate, gate, db, uploadsDir, createUser, createNote, share, loginAs, destroy };
 }
 
 /**

@@ -370,33 +370,33 @@ describe("#108 tools/list 的脈絡成本（案 11b）", () => {
 
     const roRes = await mcpPost(ctx.app, rpc("tools/list"), { token: o.token });
     expect(roRes.statusCode).toBe(200);
-    expect((roRes.json().result.tools as unknown[]).length).toBe(8);
+    expect((roRes.json().result.tools as unknown[]).length).toBe(9);
     const roWire = roRes.body.length;
 
     const rwRes = await mcpPost(ctx.app, rpc("tools/list"), { token: rwToken });
     expect(rwRes.statusCode).toBe(200);
-    expect((rwRes.json().result.tools as unknown[]).length).toBe(15);
+    expect((rwRes.json().result.tools as unknown[]).length).toBe(16);
     const rwWire = rwRes.body.length;
 
     const rwmRes = await mcpPost(ctx.app, rpc("tools/list"), { token: rwmToken });
     expect(rwmRes.statusCode).toBe(200);
-    expect((rwmRes.json().result.tools as unknown[]).length).toBe(16);
+    expect((rwmRes.json().result.tools as unknown[]).length).toBe(17);
     const rwmWire = rwmRes.body.length;
 
     const rwdRes = await mcpPost(ctx.app, rpc("tools/list"), { token: rwdToken });
     expect(rwdRes.statusCode).toBe(200);
-    expect((rwdRes.json().result.tools as unknown[]).length).toBe(18);
+    expect((rwdRes.json().result.tools as unknown[]).length).toBe(19);
     const rwdWire = rwdRes.body.length;
 
     const rwmdRes = await mcpPost(ctx.app, rpc("tools/list"), { token: rwmdToken });
     expect(rwmdRes.statusCode).toBe(200);
-    expect((rwmdRes.json().result.tools as unknown[]).length).toBe(19);
+    expect((rwmdRes.json().result.tools as unknown[]).length).toBe(20);
     const rwmdWire = rwmdRes.body.length;
 
     console.log(
-      `[案 11b] tools/list  唯讀憑證（八支，對照）wire=${roWire}  讀寫憑證（十五支，對照）wire=${rwWire}  ` +
-        `讀寫搬移憑證（十六支，對照）wire=${rwmWire}  讀寫刪除憑證（十八支，對照）wire=${rwdWire}  ` +
-        `讀寫搬移刪除憑證（十九支，被測）wire=${rwmdWire}  門檻=${N_LIST_MAX}  用掉 ${((rwmdWire / N_LIST_MAX) * 100).toFixed(1)}%`
+      `[案 11b] tools/list  唯讀憑證（九支，對照）wire=${roWire}  讀寫憑證（十六支，對照）wire=${rwWire}  ` +
+        `讀寫搬移憑證（十七支，對照）wire=${rwmWire}  讀寫刪除憑證（十九支，對照）wire=${rwdWire}  ` +
+        `讀寫搬移刪除憑證（二十支，被測）wire=${rwmdWire}  門檻=${N_LIST_MAX}  用掉 ${((rwmdWire / N_LIST_MAX) * 100).toFixed(1)}%`
     );
     expect(rwmdWire).toBeLessThanOrEqual(N_LIST_MAX);
   });
@@ -441,6 +441,8 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
     await callWire(ctx.app, rwToken, "(i) create_note", "create_note", { title: hugeTitle });
     await callWire(ctx.app, rwToken, "(i) create_transfer_token upload", "create_transfer_token", { note_id: note.id, purpose: "upload" });
     await callWire(ctx.app, rwToken, "(i) create_transfer_token download", "create_transfer_token", { note_id: note.id, purpose: "download" });
+    // bulk transfer PR-1：回應不帶標題或內容（權杖、三組 curl、固定的 `next`），量的是「它也在 N 以內」。
+    await callWire(ctx.app, rwToken, "(i) create_bulk_transfer_token", "create_bulk_transfer_token", {});
     // #180 §9-6：copy_note 的最壞形＝副本 title 截斷＋titleTruncated（同 create_note）；來源就是這篇 260 000 字元標題的筆記。
     await callWire(ctx.app, rwToken, "(i) copy_note", "copy_note", { note_id: note.id });
     // #180 §9-6：move_note_to_group 的最壞形＝搬後 title 截斷＋群組 owner。先建一個群組，把這篇病態筆記搬進去。

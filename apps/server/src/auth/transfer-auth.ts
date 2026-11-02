@@ -5,16 +5,22 @@ import type { Db } from "../db/index.js";
 import { apiTokens, transferTokens } from "../db/schema.js";
 import { drainWithCap } from "../http/drain.js";
 import { sendError } from "../http/errors.js";
-import type { FixedWindowLimiter } from "../http/rate-limit.js";
+import { retryAfterSeconds, type FixedWindowLimiter } from "../http/rate-limit.js";
 import { hashToken, isAccessTokenShape, parseAuthorizationHeader } from "./api-token.js";
 import { buildTransferChallenge } from "./challenge.js";
 import type { UserGate } from "./session.js";
-import { isTransferTokenShape, type TransferPurpose } from "./transfer-token.js";
+import { isTransferTokenShape, type BulkAccess, type BulkRange, type TransferPurpose } from "./transfer-token.js";
 
 /** 查無、過期、母憑證已撤銷或過期、已消費、使用者停權／需改密碼——同形同字（spec §12.2 時序側通道）。 */
 export const TRANSFER_INVALID_MESSAGE = "transfer token 無效、已過期或已使用";
 /** spec §4.5 第 1 步、Q1（M4）：有效形的 `knb_` PAT／OAuth access 打這兩支端點時的專屬訊息。 */
 export const TRANSFER_PAT_MESSAGE = "這個端點不收 API token；請透過 MCP 的 create_transfer_token 取得 transfer token";
+/** bulk transfer plan §0.1-10：bulk 端點的一般 PAT 401 另立一句（上一句指名 create_transfer_token，用在這裡會指錯工具）。 */
+export const BULK_TRANSFER_PAT_MESSAGE = "這個端點不收 API token；請透過 MCP 的 create_bulk_transfer_token 取得 transfer token";
+/** bulk transfer：沒帶 `Authorization` 的 401（bulk 端點不回退 cookie）。 */
+export const BULK_TRANSFER_REQUIRED_MESSAGE = "需要 transfer token";
+/** 用途不符（upload／download 打 bulk 端點、bulk 打 upload／download 端點）的 403，兩邊同字。 */
+export const TRANSFER_PURPOSE_MESSAGE = "此 transfer token 不能用在這個動作";
 
 export interface TransferAuthDeps {
   db: Db;
@@ -35,11 +41,13 @@ export interface TransferAuthDeps {
  * - **帶了 header 的每一個 401 都吃 per-IP `bearerMiss`**，桶滿改回 429 且不帶 `WWW-Authenticate`；沒帶 header 的
  *   401 由 `app.authenticate` 回、不吃；403 不吃。header 一律在 `sendError` 之前設（`auth/bearer.ts:75-83` 的理由）。
  * - 通過時 `request.tokenId` 設成**母憑證** id（`app.ts` 的錯誤 log 記得到是哪支）；不更新母憑證的 `last_used_at`。
+ * - bulk transfer plan §0.1-11：bearerMiss 桶滿改回的 429 **一律帶 `Retry-After`**（`require()` 與 `requireBulk()` 共用 `reject401`）。
  */
 export function createTransferAuth(deps: TransferAuthDeps) {
   function reject401(request: FastifyRequest, reply: FastifyReply, withError: boolean, message: string): void {
     drainWithCap(request);
     if (!deps.limiters.bearerMiss.consume(request.ip)) {
+      reply.header("retry-after", String(retryAfterSeconds(deps.limiters.bearerMiss.retryAfterMs(request.ip))));
       sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
       return;
     }
@@ -91,7 +99,7 @@ export function createTransferAuth(deps: TransferAuthDeps) {
 
       if (row.purpose !== purpose) {
         drainWithCap(request);
-        sendError(reply, 403, "forbidden", "此 transfer token 不能用在這個動作");
+        sendError(reply, 403, "forbidden", TRANSFER_PURPOSE_MESSAGE);
         return;
       }
 
@@ -109,10 +117,78 @@ export function createTransferAuth(deps: TransferAuthDeps) {
 
       request.user = gateResult.user;
       request.authKind = "transfer";
-      request.transfer = { id: row.id, noteId: row.noteId, purpose, parentTokenId: row.parentId };
+      // `transfer_tokens_bulk_note_chk`：purpose ≠ bulk ⇒ note_id 非 NULL；bulk 列已在上面的用途比對回 403。
+      // 結構上不可達，不加執行期分支（測不到）。
+      request.transfer = { id: row.id, noteId: row.noteId!, purpose, parentTokenId: row.parentId };
       request.tokenId = row.parentId;
     };
   }
 
-  return { require, rejectInvalid };
+  /**
+   * bulk transfer spec 2026-11-02 §5.3：`/api/transfer/*` 的認證（只有 `read`；`write` 在 PR-2）。**不與 `require()` 共用流程**：
+   * 沒帶 `Authorization` 一律 401（不回退 cookie、不吃 bearerMiss）；有 header 的 401 吃 bearerMiss（桶滿 429＋`Retry-After`）；
+   * `purpose ≠ 'bulk'` → 403；停權／需改密碼 → 同形 401；讀取要母憑證當下有 `notes:read`。
+   */
+  function requireBulk(op: "read") {
+    // PR-1 只有讀；PR-2 加 "write"（另需 `access = 'write'` 與母憑證當下 notes:write）。
+    const needed = op === "read" ? "notes:read" : "notes:write";
+    return async function bulkPreHandler(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+      const raw = typeof request.headers.authorization === "string" ? request.headers.authorization : undefined;
+      const parsed = parseAuthorizationHeader(raw);
+      if (parsed.kind === "none") {
+        drainWithCap(request);
+        reply.header("www-authenticate", buildTransferChallenge());
+        sendError(reply, 401, "unauthorized", BULK_TRANSFER_REQUIRED_MESSAGE);
+        return;
+      }
+      if (parsed.kind === "other-scheme") return reject401(request, reply, false, "未登入");
+      if (isAccessTokenShape(parsed.token)) return reject401(request, reply, true, BULK_TRANSFER_PAT_MESSAGE);
+      if (!isTransferTokenShape(parsed.token)) return rejectInvalid(request, reply);
+
+      const [row] = await deps.db
+        .select({
+          id: transferTokens.id,
+          purpose: transferTokens.purpose,
+          access: transferTokens.access,
+          range: transferTokens.range,
+          parentId: apiTokens.id,
+          userId: apiTokens.userId,
+          scope: apiTokens.scope,
+        })
+        .from(transferTokens)
+        .innerJoin(apiTokens, eq(apiTokens.id, transferTokens.parentTokenId))
+        .where(
+          and(
+            eq(transferTokens.tokenHash, hashToken(parsed.token)),
+            sql`${transferTokens.expiresAt} > now()`,
+            sql`(${apiTokens.accessExpiresAt} is null or ${apiTokens.accessExpiresAt} > now())`
+          )
+        )
+        .limit(1);
+      if (row === undefined) return rejectInvalid(request, reply);
+      if (row.purpose !== "bulk") {
+        drainWithCap(request);
+        sendError(reply, 403, "forbidden", TRANSFER_PURPOSE_MESSAGE);
+        return;
+      }
+
+      const gateResult = await deps.gate.checkUser(row.userId);
+      if (gateResult.status !== "ok" || gateResult.user.mustChangePassword) return rejectInvalid(request, reply);
+
+      // 實務上不可達（五種 scope 都含 notes:read）；保留與 `require()` 同形。
+      if (!hasScope(row.scope as TokenScope, needed)) {
+        drainWithCap(request);
+        sendError(reply, 403, "insufficient_scope", "此 token 沒有執行這個操作的權限");
+        return;
+      }
+
+      request.user = gateResult.user;
+      request.authKind = "transfer";
+      // `transfer_tokens_bulk_access_chk`／`_bulk_range_chk`：bulk 列兩欄必非 NULL。
+      request.bulkTransfer = { id: row.id, parentTokenId: row.parentId, access: row.access as BulkAccess, range: row.range as BulkRange };
+      request.tokenId = row.parentId;
+    };
+  }
+
+  return { require, requireBulk, rejectInvalid };
 }
