@@ -1,6 +1,6 @@
 /**
  * 資料夾 PR-3d（folders spec §5.12、§5.7.5）`move_note_to_folder`：把一篇筆記放進同空間的資料夾，或 `folder_id: null` 回根層。
- * 服務層（`folders/service.ts` 的 `placeNote`）負責入口順序（筆記先判，再資料夾可見性、空間）、扣 `edit` 桶、縫與交易內重判；
+ * 服務層（`folders/service.ts` 的 `placeNote`）負責入口順序（筆記先判，再資料夾可見性、空間）、扣 `folder` 桶、縫與交易內重判；
  * 這裡只做 scope、錯誤映射與回應組裝。被分享者的放置只寫自己的 `note_placements`，擁有者的 `notes.folder_id` 不動（AG-F1）。
  */
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";

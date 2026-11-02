@@ -1,6 +1,6 @@
 /**
  * 資料夾 PR-3d（folders spec §5.12、§5.7.1）`create_folder`。服務層（`folders/service.ts` 的 `createFolder`）負責入口順序、
- * 扣 `edit` 桶、縫、交易與重判；這裡只做 scope、名稱的英文預判、位置參數、錯誤映射與回應組裝。
+ * 扣 `folder` 桶、縫、交易與重判；這裡只做 scope、名稱的英文預判、位置參數、錯誤映射與回應組裝。
  * 服務層 deps 與「成功後以 list_folders 的形重讀」在 `mcp/folder-service.ts`；本檔另 export 三支資料夾寫入工具共用的輸出 schema。
  */
 import { z } from "zod";

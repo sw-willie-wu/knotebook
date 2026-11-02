@@ -51,6 +51,8 @@ export interface McpToolCtx {
     search: FixedWindowLimiter;
     /** #180：`copy_note` 依「會被複製的附件數」扣——與上傳端點、REST 複製**同一實例**（spec §3.5、F40）。 */
     upload: FixedWindowLimiter;
+    /** 資料夾工具（create／rename／move_folder、move_note_to_folder、delete_folder）經 `folders/service.ts` 扣——與 `foldersRoutes` **同一實例**，不與 `edit` 共桶（見 `FOLDER_LIMIT`）。 */
+    folder: FixedWindowLimiter;
   };
   log: FastifyBaseLogger;
   /** 呼叫者本人（`request.user!.id`）——L3 的可見性一律以它為準。 */

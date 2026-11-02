@@ -1,6 +1,6 @@
 /**
  * 資料夾 REST（spec docs/superpowers/specs/2026-10-22-folders-design.md §5.11）。讀取收 `authenticateAny("notes:read")`
- * （同 `GET /api/notes`）；寫入一律 cookie-only（`app.authenticate`；外部程式走 MCP），扣 `edit` 桶（在服務層）。
+ * （同 `GET /api/notes`）；寫入一律 cookie-only（`app.authenticate`；外部程式走 MCP），扣 `folder` 桶（在服務層；不與內容寫入的 `edit` 共桶，見 `FOLDER_LIMIT`）。
  * body 裡的 id（`parentId`、`space.groupId`、`folderId`）在這裡轉小寫後交服務層；UUID 形由服務層驗（非 UUID 與不存在同形）。
  * 本檔沒有交易（S14 不登記）；交易都在 `folders/service.ts`。
  */
