@@ -30,6 +30,7 @@ import {
   upload,
 } from "./transfer-helpers.js";
 import { giveGroupQuota, giveUserQuota, quotaBody, seedAttachment, usedOf } from "./storage-helpers.js";
+import { issueBulkDirect } from "./bulk-transfer-helpers.js";
 
 const NOT_AN_IMAGE = Buffer.from("plain text, not an image", "utf-8");
 
@@ -279,6 +280,8 @@ describe("POST /api/notes/:id/uploads × transfer token（spec §5.2）", () => 
     const second = await upload(app, o.noteId, fileBody(PNG_BYTES), { token: "knbt_nope" });
     expect(second.statusCode).toBe(429);
     expect(second.headers["www-authenticate"]).toBeUndefined();
+    // bulk transfer plan §0.1-11：共用的 reject401 讓 #200 的 bearerMiss 429 也帶 Retry-After（≥ 1 的整數秒）。
+    expect(String(second.headers["retry-after"])).toMatch(/^[1-9]\d*$/);
   });
 
   it("T19b：bearerMiss 桶滿時取代 401 的 429 也不消費 token——等視窗過、原因排除後同一支 token 照樣 201（upload `next`「A 403 or 429 doesn't use the token up」）", async () => {
@@ -786,5 +789,21 @@ describe("T8：母憑證消失 → 子 token 一起死（spec §3.2）", () => {
     const rotated = await exchange(app, { grant_type: "refresh_token", refresh_token: g.refresh, client_id: g.c.clientId });
     expect(rotated.statusCode).toBe(200);
     expect((await upload(app, g.noteId, fileBody(PNG_BYTES), { token: t.token })).statusCode).toBe(201);
+  });
+});
+
+describe("D10：bulk 權杖打 #200 的上傳／下載端點 → 403（bulk transfer plan T9；`require()` 的用途比對）", () => {
+  it("GET /api/uploads/:id 與 POST /api/notes/:id/uploads 都 403 forbidden、零寫入", async () => {
+    const { app, db, uploadsDir } = await buildTestApp();
+    const o = await ownerWithPat(db);
+    const bulk = await issueBulkDirect(db, o.patId);
+    const g = await download(app, randomUUID(), { token: bulk.token });
+    expect(g.statusCode).toBe(403);
+    expect(g.json()).toMatchObject({ error: { code: "forbidden" } });
+    const before = readdirSync(uploadsDir).length;
+    const p = await upload(app, o.noteId, fileBody(PNG_BYTES), { token: bulk.token });
+    expect(p.statusCode).toBe(403);
+    expect(p.json()).toMatchObject({ error: { code: "forbidden" } });
+    expect(readdirSync(uploadsDir).length).toBe(before);
   });
 });

@@ -428,6 +428,8 @@ export interface CollabTestCtx {
    * 所以一律在測試的最後一步才呼叫。
    */
   breakGate(err: Error): void;
+  /** bulk transfer：app 用的同一個 `UserGate`（停權後要 `invalidate` 才即時生效，同生產的停權路徑）。 */
+  gate: UserGate;
   db: Db;
   /** #180：實際掛進 app 的 uploadsDir（磁碟斷言用）。 */
   uploadsDir: string;
@@ -478,6 +480,10 @@ export async function buildCollabTestApp(
     config?: AppConfig;
     /** #267：「最後活動」節流表的測試縫（時鐘），語意見 `CollabDeps.lastActiveOptions`。 */
     lastActiveOptions?: CollabDeps["lastActiveOptions"];
+    /** bulk transfer：`/api/transfer/*` 的測試縫，語意見 `AppDeps.transferTestHooks`。 */
+    transferTestHooks?: AppDeps["transferTestHooks"];
+    /** bulk transfer plan H5：log 測試用（預設 `false`）；傳 `{ level, stream }` 收 pino 原文。 */
+    logger?: BuildAppOptions["logger"];
   } = {}
 ): Promise<CollabTestCtx> {
   const { db } = await freshDb();
@@ -514,6 +520,7 @@ export async function buildCollabTestApp(
     limiters: freshLimiters(opts.limiters),
     editingTestHooks: opts.editingTestHooks,
     mcpTestHooks: opts.mcpTestHooks,
+    transferTestHooks: opts.transferTestHooks,
     groupTestHook: opts.groupTestHook,
     slugUpdateTestHook: opts.slugUpdateTestHook,
     noteCreateHooks: opts.noteCreateHooks,
@@ -524,7 +531,7 @@ export async function buildCollabTestApp(
     uploadsDir,
     ai: createAiRuntime(),
   };
-  const app = buildApp(deps, { logger: false });
+  const app = buildApp(deps, { logger: opts.logger ?? false });
 
   await app.listen({ port: 0, host: "127.0.0.1" });
   const address = app.server.address();
@@ -697,7 +704,7 @@ export async function buildCollabTestApp(
     return session;
   }
 
-  return { baseUrl, app, collab, collabLogs, breakGate, db, uploadsDir, createUser, createNote, share, loginAs, destroy };
+  return { baseUrl, app, collab, collabLogs, breakGate, gate, db, uploadsDir, createUser, createNote, share, loginAs, destroy };
 }
 
 /**

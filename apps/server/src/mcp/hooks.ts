@@ -2,6 +2,7 @@
  * #108：`/api/mcp` 的測試注入縫（形狀比照 `notes/editing/apply.ts` 的 `EditingTestHooks`）。
  * 未注入時三個 hook 都是 `?.()`，生產零成本。
  */
+import type { IssueBulkTransferTokenSeam } from "../auth/tx/issue-bulk-transfer-token.js";
 import type { IssueTransferTokenSeam } from "../auth/tx/issue-transfer-token.js";
 
 export interface McpTestHooks {
@@ -22,4 +23,6 @@ export interface McpTestHooks {
    * `ctx.hooks?.issueTransferToken`）。`beforeLock`／`afterCount` 的語意見該型別。
    */
   issueTransferToken?: IssueTransferTokenSeam;
+  /** bulk transfer spec §5.2-4：`issueBulkTransferTokenInTx` 的測試縫（S14 ⑤：以屬性存取傳入）。 */
+  issueBulkTransferToken?: IssueBulkTransferTokenSeam;
 }

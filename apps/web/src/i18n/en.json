@@ -895,6 +895,7 @@
     "empty_section": "That section has no content to remove.",
     "too_many_blocks": "That content has too many blocks.",
     "content_too_large": "That content is too large.",
+    "too_many_notes": "Too many notes to download at once.",
     "already_reverted": "That change has already been reverted.",
     "stale": "The note has changed since that edit, so it can no longer be reverted. Reload and try again.",
     "last_admin": "A group needs at least one admin. Make someone else an admin first.",

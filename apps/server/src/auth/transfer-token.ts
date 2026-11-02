@@ -22,6 +22,15 @@ export const MAX_PENDING_UPLOAD_TOKENS = 5;
 export type TransferPurpose = "upload" | "download";
 
 /**
+ * bulk transfer spec 2026-11-02 §5.2-4：每支母憑證同時在外的**未過期** bulk 權杖上限（upload／download 不佔）。
+ * `TOO_MANY_BULK_TOKENS_MESSAGE` 的「3」是寫死的字面值，對齊由 `bulk-transfer-strings.test.ts` S3 守。
+ */
+export const MAX_ACTIVE_BULK_TOKENS = 3;
+
+/** bulk transfer spec §5.1、§21 D3：bulk 權杖的壽命上限（另不超過母憑證到期）。 */
+export const BULK_TRANSFER_TTL_MINUTES = 30;
+
+/**
  * bulk transfer spec 2026-11-02 §5.1：`purpose='bulk'` 列的 `access`——簽發當下母憑證有 `notes:write` → `write`。
  */
 export type BulkAccess = "read" | "write";

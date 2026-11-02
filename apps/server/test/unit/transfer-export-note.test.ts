@@ -1,3 +1,5 @@
+import { stat } from "node:fs";
+import { createServer, connect, type Socket } from "node:net";
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import { YDOC_FRAGMENT, topLevelContainers } from "@knotebook/shared";
@@ -117,7 +119,7 @@ describe("exportNoteForTransfer：其他", () => {
     expect(ex.body).toBe(mcp.markdown);
   });
 
-  it("X6 一篇之內讓出（計數）：120 顆、每 50 顆 → 2 次；讓出時仍持 lease（inFlight 1）；結束後歸零", async () => {
+  it("X6 一篇之內讓出（計數）：mount 後、整篇匯出後各 1 次＋120 顆每 50 顆 2 次＝4 次；讓出時仍持 lease（inFlight 1）；結束後歸零", async () => {
     const doc = await docWith(paras(120));
     const seen: number[] = [];
     const ex = await exportNoteForTransfer(rt, doc, new Map(), {
@@ -127,21 +129,21 @@ describe("exportNoteForTransfer：其他", () => {
         seen.push(rt.inFlight);
       },
     });
-    expect(ex.stats.yields).toBe(2);
-    expect(seen).toEqual([1, 1]);
+    expect(ex.stats.yields).toBe(4);
+    expect(seen).toEqual([1, 1, 1, 1]);
     expect(rt.inFlight).toBe(0);
     expect(ex.segments).toHaveLength(120);
   }, 60_000);
 
-  it("X6b 一篇之內讓出（時間）：yieldAfterMs 0 → 每顆都讓出", async () => {
+  it("X6b 一篇之內讓出（時間）：yieldAfterMs 0 → 每顆都讓出（另加 mount 後、整篇匯出後各 1 次）", async () => {
     const doc = await docWith(paras(120));
     let n = 0;
     const ex = await exportNoteForTransfer(rt, doc, new Map(), { yieldEveryBlocks: Infinity, yieldAfterMs: 0, yieldFn: async () => void n++ });
-    expect(ex.stats.yields).toBeGreaterThanOrEqual(120);
+    expect(ex.stats.yields).toBeGreaterThanOrEqual(122);
     expect(n).toBe(ex.stats.yields);
   }, 60_000);
 
-  it("預設讓出函式是 setImmediate（真的讓出事件迴圈）", async () => {
+  it("預設讓出函式是 setImmediate（真的讓出事件迴圈）；60 顆＝mount 後＋整篇後＋第 50 顆＝3 次", async () => {
     const doc = await docWith(paras(60));
     let ticked = false;
     setImmediate(() => {
@@ -150,7 +152,7 @@ describe("exportNoteForTransfer：其他", () => {
     const before = ticked;
     const ex = await exportNoteForTransfer(rt, doc, new Map(), { yieldEveryBlocks: 50, yieldAfterMs: Infinity });
     expect(before).toBe(false);
-    expect(ex.stats.yields).toBe(1);
+    expect(ex.stats.yields).toBe(3);
     expect(ticked).toBe(true);
   }, 60_000);
 
@@ -193,4 +195,75 @@ describe("exportNoteForTransfer：其他", () => {
     expect(ex.types).toEqual(["heading", "bulletListItem", "heading"]);
     expect(ex.lines).toEqual(ex.body.replace(/\n+$/, "").split("\n"));
   });
+});
+
+/** 接著在 poll 階段（I/O 回呼裡 resolve 的 microtask）跑——生產上 mount 前一步是 `linkTitlesFor` 的 DB 查詢，同此。 */
+const fromIoCallback = () => new Promise<void>(r => stat(".", () => r()));
+const busy = (ms: number) => {
+  const t = performance.now();
+  while (performance.now() - t < ms) {
+    /* 讓 timer 到期／讓 I/O 抵達 */
+  }
+};
+/** 第一次查 titles＝整篇匯出開始的那一刻（wikilink 無 label → `titles.get`）。 */
+function probeTitles(onFirstGet: () => void): ReadonlyMap<string, string> {
+  let first = true;
+  return new (class extends Map<string, string> {
+    override get(k: string) {
+      if (first) {
+        first = false;
+        onFirstGet();
+      }
+      return super.get(k);
+    }
+  })(SHAPE_TITLES);
+}
+
+describe("預設讓出真的跨過 timers＋poll（m3 的兩次 setImmediate）", () => {
+  it("Y1 從 I/O 回呼接著跑：mount 後第一次讓出期間，事先到期的 setTimeout(0) 先跑（在整篇匯出之前）", async () => {
+    const doc = await docWith(byName("wikilink in para + bullet").blocks);
+    let fired = false;
+    let firedBeforeFull: boolean | undefined;
+    const titles = probeTitles(() => {
+      firedBeforeFull = fired;
+    });
+    await fromIoCallback();
+    setTimeout(() => {
+      fired = true;
+    }, 0);
+    busy(5);
+    await exportNoteForTransfer(rt, doc, titles, { yieldEveryBlocks: Infinity, yieldAfterMs: Infinity });
+    expect(firedBeforeFull).toBe(true);
+  }, 60_000);
+
+  it("Y2 從 I/O 回呼接著跑：mount 後第一次讓出期間，已抵達的 socket 資料先處理（在整篇匯出之前）", async () => {
+    const doc = await docWith(byName("wikilink in para + bullet").blocks);
+    let peer: Socket | undefined;
+    const srv = createServer(s => {
+      peer = s;
+    });
+    await new Promise<void>(r => srv.listen(0, "127.0.0.1", () => r()));
+    const cli = connect((srv.address() as { port: number }).port, "127.0.0.1");
+    try {
+      await new Promise<void>(r => cli.once("connect", () => r()));
+      while (peer === undefined) await new Promise(r => setTimeout(r, 1));
+      let got = false;
+      let gotBeforeFull: boolean | undefined;
+      peer.on("data", () => {
+        got = true;
+      });
+      const titles = probeTitles(() => {
+        gotBeforeFull = got;
+      });
+      await fromIoCallback();
+      cli.write("x");
+      busy(20);
+      await exportNoteForTransfer(rt, doc, titles, { yieldEveryBlocks: Infinity, yieldAfterMs: Infinity });
+      expect(gotBeforeFull).toBe(true);
+    } finally {
+      cli.destroy();
+      peer?.destroy();
+      srv.close();
+    }
+  }, 60_000);
 });
