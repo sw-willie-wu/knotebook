@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { LoginThrottle } from "../../src/auth/rate-limit.js";
-import { AI_LIMIT, FixedWindowLimiter, ONE_TIME_LINK_ATTEMPT_LIMIT, ONE_TIME_LINK_MISS_LIMIT } from "../../src/http/rate-limit.js";
+import { AI_LIMIT, FixedWindowLimiter, FOLDER_LIMIT, ONE_TIME_LINK_ATTEMPT_LIMIT, ONE_TIME_LINK_MISS_LIMIT } from "../../src/http/rate-limit.js";
 
 describe("LoginThrottle key 上限（issue #15）", () => {
   /** 每次用不同帳號，讓斷言只反映 IP 那一軌。 */
@@ -521,6 +521,13 @@ describe("ONE_TIME_LINK_MISS_LIMIT／ONE_TIME_LINK_ATTEMPT_LIMIT", () => {
 
   it("嘗試桶：每小時 10 次（key=link:id）", () => {
     expect(ONE_TIME_LINK_ATTEMPT_LIMIT).toEqual({ limit: 10, windowMs: 3_600_000 });
+  });
+});
+
+// 資料夾寫入桶（folders/service.ts 四支＋MCP 五支資料夾工具）：鎖住「每分鐘 600 次」——docs 與 CHANGELOG 寫死這個數字。
+describe("FOLDER_LIMIT", () => {
+  it("形狀：limit=600、windowMs=60_000（每分鐘 600 次）", () => {
+    expect(FOLDER_LIMIT).toEqual({ limit: 600, windowMs: 60_000 });
   });
 });
 

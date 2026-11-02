@@ -1,7 +1,7 @@
 /**
  * 資料夾 PR-3d（folders spec §5.12、§5.7.4）`delete_folder`：刪資料夾與其下全部資料夾，子樹的活筆記一起移到垃圾桶（全有全無，F8）；
  * 共享私人樹只刪資料夾、筆記不動（F7）。入口順序、閘門與交易都在服務層 `deleteFolder`，本檔只呼叫它、不得出現 deleted_at 字面（守衛二）。
- * 流程順序是契約：`requireDeleteScope`（第一個動作）→ `readTrashRetentionDays`（只當存在性守衛，排在服務層扣 edit 桶與任何寫入之前，
+ * 流程順序是契約：`requireDeleteScope`（第一個動作）→ `readTrashRetentionDays`（只當存在性守衛，排在服務層扣 folder 桶與任何寫入之前，
  * 同 delete_note）→ `deleteFolder`（失敗以 `folderFailureToToolError` 映射）→ ids 依 id 排序取前 `MCP_DELETE_FOLDER_IDS_MAX` 個
  * → `loadTrashedPurgeAt`（commit 後一讀）。MCP 沒有「只刪空資料夾」的選項，也沒有永久刪除（spec D8、PR-2d AG3）。
  */
@@ -53,7 +53,7 @@ export async function deleteFolderTool(args: { folder_id: string }, ctx: McpTool
   const denied = requireDeleteScope(ctx);
   if (denied !== null) return denied;
 
-  // 存在性守衛：列不在是部署壞掉，丟給 runTool 收成 internal——在服務層扣 edit 桶與移入之前，什麼都沒做。值本身不用
+  // 存在性守衛：列不在是部署壞掉，丟給 runTool 收成 internal——在服務層扣 folder 桶與移入之前，什麼都沒做。值本身不用
   // （回應的 purgeAt 取 commit 後那一刻的設定，見 loadTrashedPurgeAt）。
   if ((await readTrashRetentionDays(ctx.db)) === undefined) throw new Error(SITE_SETTINGS_MISSING_MESSAGE);
 

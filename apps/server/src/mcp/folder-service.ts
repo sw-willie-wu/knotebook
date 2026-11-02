@@ -17,7 +17,7 @@ export function folderServiceDeps(ctx: McpToolCtx): FolderServiceDeps {
     collabHooks: ctx.collabHooks,
     storageLockTimeoutMs: ctx.storageLockTimeoutMs,
     groupTestHook: ctx.groupTestHook,
-    limiters: { edit: ctx.limiters.edit },
+    limiters: { folder: ctx.limiters.folder },
   };
 }
 

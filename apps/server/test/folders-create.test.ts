@@ -287,8 +287,8 @@ describe("POST /api/folders", () => {
     expect((await post(app, null, { name: "C", space: { kind: "personal" } })).statusCode).toBe(401);
   });
 
-  it("FC-10 節流：edit 桶上限 1——授權失敗的請求不扣；第二次成功前 429；另一位使用者不受影響", async () => {
-    const { app, db } = await buildTestApp({ limiters: freshLimiters({ edit: new FixedWindowLimiter({ limit: 1, windowMs: 60_000 }) }) });
+  it("FC-10 節流：folder 桶上限 1——授權失敗的請求不扣；第二次成功前 429；另一位使用者不受影響", async () => {
+    const { app, db } = await buildTestApp({ limiters: freshLimiters({ folder: new FixedWindowLimiter({ limit: 1, windowMs: 60_000 }) }) });
     const u = await seedUser(db);
     const other = await seedUser(db);
     failed(await post(app, u.id, { name: "A", parentId: RANDOM_UUID }), 404, "folder_not_found");

@@ -6,7 +6,6 @@
 import { FOLDER_DEPTH_MAX, FOLDER_NAME_MAX, FOLDERS_PER_SPACE_MAX, type ErrorCode } from "@knotebook/shared";
 import { NOTE_NOT_FOUND_MESSAGE } from "./note-read.js";
 import { toolError, type ToolErrorResult } from "./tool-result.js";
-import { WRITE_RATE_LIMITED_MESSAGE } from "./write-messages.js";
 
 /** FM1：每支工具同一句（AG-F3：看不到＝不存在）。 */
 export const FOLDER_NOT_FOUND_MESSAGE =
@@ -62,6 +61,11 @@ export const FOLDER_CONTENT_CHANGED_MESSAGE = "The folder's contents changed whi
 export const FOLDER_POSITION_AMBIGUOUS_MESSAGE = "Pass at most one of `parent_id`, `group_id` and `shared: true`, so nothing was created.";
 /** `create_note` 建列遇到可重試錯誤（與 REST 的 409 `server_busy` 對齊）。FM21＝`keyset-cursor.ts` 的 `BAD_CURSOR_MESSAGE`。 */
 export const CREATE_BUSY_MESSAGE = "The server was busy, so no note was created. Try again in a moment.";
+/**
+ * FM22（節流）：服務層 `folder` 桶（`FOLDER_LIMIT`，不是內容寫入的 `edit` 桶）擋下。扣桶排在任何寫入之前，所以「沒有改到任何東西」
+ * 在五支工具上都成立；不寫數字（額度是 server 常數，模型不該依賴它）。
+ */
+export const FOLDER_RATE_LIMITED_MESSAGE = "Too many folder changes right now, so nothing was changed. Try again in a moment.";
 
 export type FolderTool = "create_folder" | "rename_folder" | "move_folder" | "move_note_to_folder" | "delete_folder";
 
@@ -108,7 +112,7 @@ export function folderFailureToToolError(tool: FolderTool, f: { code: ErrorCode 
     case "not_found":
       return toolError("not_found", NOTE_NOT_FOUND_MESSAGE);
     case "too_many_requests":
-      return toolError("too_many_requests", WRITE_RATE_LIMITED_MESSAGE);
+      return toolError("too_many_requests", FOLDER_RATE_LIMITED_MESSAGE);
     case "server_busy":
       return toolError("server_busy", FOLDER_BUSY_MESSAGE);
   }

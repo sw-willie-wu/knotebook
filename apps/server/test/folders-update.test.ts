@@ -351,8 +351,8 @@ describe("PATCH /api/folders/:id", () => {
     expect(await nameOf(pool, f.id)).toBe("Upper");
   });
 
-  it("FU-10 節流：edit 桶上限 1——名稱不合、看不到、無管理權、跨空間的請求不扣；第二次成功前 429；另一位使用者不受影響", async () => {
-    const { app, db } = await buildTestApp({ limiters: freshLimiters({ edit: new FixedWindowLimiter({ limit: 1, windowMs: 60_000 }) }) });
+  it("FU-10 節流：folder 桶上限 1——名稱不合、看不到、無管理權、跨空間的請求不扣；第二次成功前 429；另一位使用者不受影響", async () => {
+    const { app, db } = await buildTestApp({ limiters: freshLimiters({ folder: new FixedWindowLimiter({ limit: 1, windowMs: 60_000 }) }) });
     const s = await sixRoleScene(db);
     const u = s.readOnly;
     const other = await seedUser(db);

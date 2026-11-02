@@ -521,7 +521,7 @@ describe("DELETE /api/folders/:id", () => {
   });
 
   it("FD-6 雜項：Bearer 401；節流 429（404／403 不扣桶）；非 UUID 404；同一資料夾刪兩次第二次 404", async () => {
-    const { app, db } = await buildTestApp({ limiters: freshLimiters({ edit: new FixedWindowLimiter({ limit: 1, windowMs: 60_000 }) }) });
+    const { app, db } = await buildTestApp({ limiters: freshLimiters({ folder: new FixedWindowLimiter({ limit: 1, windowMs: 60_000 }) }) });
     const pool = db.$client;
     const s = await sixRoleScene(db);
     const u = s.readOnly;
@@ -616,7 +616,7 @@ describe("DELETE /api/folders/:id { onlyIfEmpty }", () => {
     const spies = gateSpies();
     const { app, db } = await buildTestApp({
       collabHooks: spies.hooks,
-      limiters: freshLimiters({ edit: new FixedWindowLimiter({ limit: 1, windowMs: 60_000 }) }),
+      limiters: freshLimiters({ folder: new FixedWindowLimiter({ limit: 1, windowMs: 60_000 }) }),
     });
     const pool = db.$client;
     const u = await seedUser(db);

@@ -248,6 +248,23 @@ export const SEARCH_LIMIT = { limit: 60, windowMs: 60_000 } as const;
 export const EDIT_LIMIT = { limit: 30, windowMs: 60_000 } as const;
 
 /**
+ * 資料夾寫入（`folders/service.ts` 四支：`POST /api/folders`、`PATCH /api/folders/:id`、`DELETE /api/folders/:id`、
+ * `PUT /api/notes/:id/folder`，與共用同一服務層的 MCP `create_folder`／`rename_folder`／`move_folder`／`delete_folder`／
+ * `move_note_to_folder`；key=userId）。**入口檢查（名稱、可見性、權限、空間）都過了才扣**，同 `EDIT_LIMIT` 的理由。
+ *
+ * **不與 `edit` 共桶**：這幾支只改中繼資料（資料夾列、`notes.folder_id`／`note_placements`），不 fork、不 mount BlockNote、
+ * 不碰 Yjs 內文；`EDIT_LIMIT` 的 30/min 是照內容寫入的成本訂的。共桶時，側欄選取模式一次移動 31 篇以上就在第 31 篇
+ * 429（網頁批次是一篇一個請求、依序送），而且會把同一分鐘 AI 編輯（REST／MCP）的額度一起吃光——OIDC issue #16 那族
+ * 「共桶讓額度互相餓死」的變形。
+ *
+ * 600/min：側欄一次搬約 300 項以內、同一分鐘內再按「復原」（復原也是逐項送回、同樣扣這桶）都還在額度內；更大的選取在該視窗第 601 次
+ * 扣桶時停下（同一分鐘內先做過別的資料夾操作會更早；停下那項起仍勾選、可再試），仍擋得住失控迴圈。每支都是一個短交易；
+ * 比它重的 `DELETE /api/notes/:id`（關門、踢線、flush）在 session 路徑上根本不節流。`DELETE /api/folders/:id` 不論移入垃圾桶
+ * 幾篇都只扣一次。MCP 經 token 呼叫時另先扣 `TOKEN_WRITE_LIMIT`（60／10 分鐘），實際先撞到的是那一顆。
+ */
+export const FOLDER_LIMIT = { limit: 600, windowMs: 60_000 } as const;
+
+/**
  * `GET /api/users/suggest`（成員／分享對話框的「認識的人」建議，key=userId）。數值比照 `SEARCH_LIMIT`：同樣是使用者
  * 邊打字邊查（web 端 200 ms debounce、≥ 2 字才發），一般輸入一個 email 只會發十來次。**不與 `search` 共用**——共用會讓
  * 側欄搜尋與加成員對話框互相餓死（同 `SEARCH_LIMIT` 不與 `CONTENT_READ_LIMIT` 共用的理由）。q 驗證失敗的 400 不扣。
