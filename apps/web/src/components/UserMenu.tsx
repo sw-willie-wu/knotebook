@@ -8,6 +8,7 @@ import { SIDEBAR_ROW_HEIGHT } from "@/components/ui/rows";
 import { cn } from "@/lib/utils";
 import { isMacPlatform } from "@/lib/platform";
 import { useShortcutsDialog } from "@/lib/shortcuts-dialog";
+import { openSettings } from "@/lib/open-settings";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -174,10 +175,18 @@ export function UserMenu() {
         </DropdownMenuRadioGroup>
 
         <DropdownMenuSeparator />
+        {/* Ctrl+, 的提示只在 AppShell 底下才標（context 非 null）：那支監聽器在 AppShell，單獨渲染本元件時按了不會有反應。
+            提示字 aria-hidden：不進選單項的可及名稱（e2e 以名稱找項）。開法與 AppShell 的 Ctrl+, 同一條路（`openSettings`）。 */}
         <DropdownMenuItem
-          onSelect={() => navigate("/settings/account", { state: { backgroundLocation: location } })}
+          aria-keyshortcuts={shortcuts ? (mac ? "Meta+," : "Control+,") : undefined}
+          onSelect={() => openSettings(navigate, location)}
         >
           {t("settings.entry")}
+          {shortcuts && (
+            <span aria-hidden="true" className="ml-auto pl-4 text-xs text-muted-foreground">
+              {mac ? "⌘," : "Ctrl+,"}
+            </span>
+          )}
         </DropdownMenuItem>
         {/* 快捷鍵介紹（Ctrl+/）：不在 AppShell 底下（context 為 null，例如單獨渲染本元件的測試）就不渲染，免得出現點了沒反應的死項。
             三步形照 NoteMenu 的 focus trap 規矩：preventDefault → 手動關選單 → 開對話框，並把觸發鈕交給對話框當關閉時的還焦點目標。

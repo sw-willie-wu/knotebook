@@ -45,6 +45,10 @@
         "name": "Save current version",
         "desc": "On a note you can edit, saves the current content as a version. You can give it a name."
       },
+      "openSettings": {
+        "name": "Open settings",
+        "desc": "Opens your settings. It does nothing while another dialog or menu is open."
+      },
       "openShortcuts": {
         "name": "Open this page",
         "desc": "Press it again to close."

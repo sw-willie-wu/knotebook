@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation, useNavigate } from "react-router";
 import type { UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ActiveNoteProvider } from "@/lib/active-note";
@@ -272,5 +272,118 @@ describe("AppShell — 從使用者選單開快捷鍵介紹", () => {
     await waitFor(() => expect(dialog()).toBeNull());
     expect(await screen.findByRole("dialog", { name: "Navigation" })).toBeInTheDocument();
     await waitFor(() => expect(drawerTrigger).toHaveFocus());
+  });
+});
+
+/** Ctrl/Cmd+, 打開設定：走 `lib/open-settings.ts`（與使用者選單的「設定」項同一條路）。 */
+function LocationProbe() {
+  const location = useLocation();
+  const bg = (location.state as { backgroundLocation?: { pathname: string } } | null)?.backgroundLocation;
+  return (
+    <div data-testid="location" data-bg={bg?.pathname ?? ""}>
+      {location.pathname}
+    </div>
+  );
+}
+
+describe("AppShell — Ctrl/Cmd+, 打開設定", () => {
+  const where = () => screen.getByTestId("location");
+
+  it("G1 Ctrl+, 被 preventDefault，導到 /settings/account 並帶 backgroundLocation（原本的頁）", async () => {
+    renderShell(<LocationProbe />);
+    await screen.findByTestId("location");
+    const notCanceled = press({ key: ",", ctrlKey: true });
+    expect(notCanceled).toBe(false);
+    await waitFor(() => expect(where()).toHaveTextContent("/settings/account"));
+    expect(where().getAttribute("data-bg")).toBe("/");
+  });
+
+  it("G2 Cmd+,（metaKey）也開", async () => {
+    renderShell(<LocationProbe />);
+    await screen.findByTestId("location");
+    press({ key: ",", metaKey: true });
+    await waitFor(() => expect(where()).toHaveTextContent("/settings/account"));
+  });
+
+  it.each([
+    ["Alt", { altKey: true }],
+    ["Shift", { shiftKey: true }],
+    ["repeat", { repeat: true }],
+  ])("G3 Ctrl+, 加 %s → 不動作、不 preventDefault", async (_name, extra) => {
+    renderShell(<LocationProbe />);
+    await screen.findByTestId("location");
+    const notCanceled = press({ key: ",", ctrlKey: true, ...extra });
+    expect(notCanceled).toBe(true);
+    expect(where()).toHaveTextContent("/");
+    expect(where().getAttribute("data-bg")).toBe("");
+  });
+
+  it("G4 事件已被別人 preventDefault → 讓路", async () => {
+    renderShell(<LocationProbe />);
+    await screen.findByTestId("location");
+    const event = new KeyboardEvent("keydown", { key: ",", ctrlKey: true, bubbles: true, cancelable: true });
+    event.preventDefault();
+    act(() => {
+      window.dispatchEvent(event);
+    });
+    expect(where().getAttribute("data-bg")).toBe("");
+  });
+
+  it("G5 其他對話框開著（含設定本身）→ 不動作、不 preventDefault", async () => {
+    renderShell(<LocationProbe />);
+    await screen.findByTestId("location");
+    addToBody('<div role="dialog" aria-label="settings-like"></div>');
+    const notCanceled = press({ key: ",", ctrlKey: true });
+    expect(notCanceled).toBe(true);
+    expect(where().getAttribute("data-bg")).toBe("");
+  });
+
+  it("G6 選單開著 → 不動作、不 preventDefault", async () => {
+    renderShell(<LocationProbe />);
+    await screen.findByTestId("location");
+    addToBody('<div role="menu"></div>');
+    const notCanceled = press({ key: ",", ctrlKey: true });
+    expect(notCanceled).toBe(true);
+    expect(where().getAttribute("data-bg")).toBe("");
+  });
+
+  it("G7 只有側欄抽屜（role=dialog 且 data-sidebar-drawer）→ 照開", async () => {
+    renderShell(<LocationProbe />);
+    await screen.findByTestId("location");
+    addToBody('<div role="dialog" data-sidebar-drawer="" aria-label="drawer"></div>');
+    press({ key: ",", ctrlKey: true });
+    await waitFor(() => expect(where()).toHaveTextContent("/settings/account"));
+  });
+
+  it("G9 先換到另一頁再按 Ctrl+,：backgroundLocation 是當下那頁（handler 讀的是最新的 location，不是掛上時的）", async () => {
+    function GoElsewhere() {
+      const navigate = useNavigate();
+      return (
+        <button type="button" onClick={() => navigate("/other")}>
+          go elsewhere
+        </button>
+      );
+    }
+    renderShell(
+      <>
+        <LocationProbe />
+        <GoElsewhere />
+      </>,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "go elsewhere" }));
+    await waitFor(() => expect(where()).toHaveTextContent("/other"));
+    press({ key: ",", ctrlKey: true });
+    await waitFor(() => expect(where()).toHaveTextContent("/settings/account"));
+    expect(where().getAttribute("data-bg")).toBe("/other");
+  });
+
+  it("G8 快捷鍵頁開著時 Ctrl+, 不動作（它是 role=dialog）", async () => {
+    renderShell(<LocationProbe />);
+    await screen.findByTestId("location");
+    press({ key: "/", ctrlKey: true });
+    await screen.findByRole("dialog", { name: "Keyboard shortcuts" });
+    const notCanceled = press({ key: ",", ctrlKey: true });
+    expect(notCanceled).toBe(true);
+    expect(where().getAttribute("data-bg")).toBe("");
   });
 });

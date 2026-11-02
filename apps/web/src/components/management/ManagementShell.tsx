@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { cardSurface } from "@/components/ui/card";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { ArrowLeft, X } from "@/components/ui/icons";
-import { managementTray } from "@/components/management/tray";
+import { managementNavItemClass, managementTray } from "@/components/management/tray";
 import { cn } from "@/lib/utils";
 
 /**
@@ -84,13 +84,7 @@ export function ManagementNavItem({
       end={end}
       state={backgroundLocation ? { backgroundLocation } : undefined}
       onClick={onSelect}
-      className={({ isActive }) =>
-        cn(
-          "flex h-9 items-center gap-2 rounded-lg px-3 text-sm transition-colors " +
-            "hover:bg-brand-soft hover:text-brand-on-soft active:bg-brand-soft-strong",
-          isActive && "bg-brand-soft font-medium text-brand-on-soft hover:bg-brand-soft-strong",
-        )
-      }
+      className={({ isActive }) => managementNavItemClass(isActive)}
     >
       <span className="min-w-0 truncate">{label}</span>
       {/* aria-hidden：計數只是視覺輔助，連結的可及名稱維持項次名（e2e 以名稱找項次）。 */}

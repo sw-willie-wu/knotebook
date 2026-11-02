@@ -12,6 +12,8 @@ import { SHORTCUTS } from "./shortcut-list";
  * ④掃到的檔數 ≥ 40（防路徑寫錯而空真）；⑤沒有 `.skip(`、`.fixme(`、`.only(`（擋 `test.describe.skip` 包住、body 內 `test.skip()`）。
  *
  * 守的是「有一支被標記、會跑的 e2e」。**不守**那支 e2e 真的斷言了說明裡的每個字——那由 t1-facts 的「說明子句 → 斷言」對照與 reviewer 逐句核。
+ * 也**看不到條件式註冊**：寫在 `if (...) test("… [sc:x]")` 或迴圈裡的 test 照樣被算進去，但環境不符時它根本不會跑；
+ * 這個守衛只做靜態文字核對，那一形要靠 review（現在 e2e 目錄沒有這種寫法）。
  * 標籤只認 `test("…")` 的第一個字串引數（純字串字面）；借用既有 spec 的條目就在那些 test 名稱尾端補標籤。
  */
 

@@ -365,3 +365,73 @@ describe("UserMenu「快捷鍵介紹」項（plan 2026-11-02-shortcuts-modal T7�
     expect(screen.getByRole("menuitem", { name: "Settings" })).toBeInTheDocument();
   });
 });
+
+describe("UserMenu「設定」項的 Ctrl+, 提示（與 AppShell 的 Ctrl+, 同一條路）", () => {
+  let lastLocation: Location | null = null;
+  function Probe() {
+    lastLocation = useLocation();
+    return <div data-testid="location">{lastLocation.pathname}</div>;
+  }
+
+  function renderWithProbe(shortcuts: ShortcutsDialogApi | null) {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <MemoryRouter initialEntries={["/n/tester/some-note"]}>
+            <ShortcutsDialogContext.Provider value={shortcuts}>
+              <UserMenu />
+            </ShortcutsDialogContext.Provider>
+            <Probe />
+          </MemoryRouter>
+        </ThemeProvider>
+      </QueryClientProvider>,
+    );
+  }
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    lastLocation = null;
+    stubFetch(USER);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("U6 在 AppShell 底下：Settings 項可及名稱仍是 Settings，旁邊標 Ctrl+,（aria-hidden），aria-keyshortcuts 是 Control+,", async () => {
+    renderWithProbe({ open: vi.fn() });
+    await openMenu();
+    const item = screen.getByRole("menuitem", { name: "Settings" });
+    expect(item).toHaveTextContent("Ctrl+,");
+    expect(item).toHaveAttribute("aria-keyshortcuts", "Control+,");
+    const hint = Array.from(item.querySelectorAll("span")).find((el) => el.textContent === "Ctrl+,");
+    expect(hint?.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  it("U6 MacIntel：⌘, 與 Meta+,", async () => {
+    vi.stubGlobal("navigator", { ...navigator, platform: "MacIntel" });
+    renderWithProbe({ open: vi.fn() });
+    await openMenu();
+    const item = screen.getByRole("menuitem", { name: "Settings" });
+    expect(item).toHaveTextContent("⌘,");
+    expect(item).toHaveAttribute("aria-keyshortcuts", "Meta+,");
+  });
+
+  it("U7 不在 AppShell 底下（沒有 context）：Settings 項沒有提示字、也沒有 aria-keyshortcuts（那個快捷鍵在這裡不作用）", async () => {
+    renderWithProbe(null);
+    await openMenu();
+    const item = screen.getByRole("menuitem", { name: "Settings" });
+    expect(item).not.toHaveTextContent("Ctrl+,");
+    expect(item).not.toHaveAttribute("aria-keyshortcuts");
+  });
+
+  it("U8 點 Settings：導 /settings/account，state 帶 backgroundLocation（與 Ctrl+, 同一條路）", async () => {
+    renderWithProbe({ open: vi.fn() });
+    await openMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/settings/account"));
+    const state = lastLocation?.state as { backgroundLocation?: { pathname: string } } | null;
+    expect(state?.backgroundLocation?.pathname).toBe("/n/tester/some-note");
+  });
+});

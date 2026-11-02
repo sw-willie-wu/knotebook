@@ -19,6 +19,7 @@ import { canonicalizedFrom } from "@/lib/real-location";
 import { isMacPlatform } from "@/lib/platform";
 import { ShortcutsDialogContext, type ShortcutsDialogApi } from "@/lib/shortcuts-dialog";
 import { isOverlayOpen } from "@/lib/versions-context";
+import { openSettings } from "@/lib/open-settings";
 import { SIDEBAR_SELECT_BUTTON } from "@/lib/sidebar-selection";
 import { SidebarTabProvider, useSidebarTabActions, useSidebarTabState, type SidebarTabActions } from "@/lib/sidebar-tab";
 import { NoteList } from "@/components/NoteList";
@@ -341,6 +342,25 @@ export function AppShell({ children, inert }: AppShellProps) {
     return () => window.removeEventListener("keydown", handleShortcutsKey);
   }, []);
 
+  // Ctrl/Cmd+, 打開設定（與使用者選單的「設定」項走同一條路：`openSettings`，帶 backgroundLocation）。規則同上面的 Ctrl+/：
+  // `(ctrl || meta) && !alt && !shift && key === ","`、不理 repeat／defaultPrevented；其他對話框（側欄抽屜除外）或選單開著——
+  // 含設定 modal 本身、快捷鍵頁、簡報層——就放棄、不 preventDefault（設定已開著時什麼都不做）。
+  // 查證（2026-11-02）：BlockNote 0.52／tiptap 3／prosemirror 的 dist 都沒有綁任何標點鍵（`Mod-,` 不存在），Chromium 不保留 Ctrl+,；
+  // Mac 的 ⌘, 在 Safari 是原生的偏好設定、頁面可能攔不到；Mac Chrome、Firefox 也一樣未驗（⌘／ 同）——全部列入手測，Willie 測後再定。handler 讀 ref（navigate／location 每次 render 都換）。
+  const settingsRouteRef = useRef({ navigate, location });
+  settingsRouteRef.current = { navigate, location };
+  useEffect(() => {
+    function handleSettingsKey(event: KeyboardEvent): void {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.key !== ",") return;
+      if (event.repeat || event.defaultPrevented) return;
+      if (isOverlayOpen()) return;
+      event.preventDefault();
+      openSettings(settingsRouteRef.current.navigate, settingsRouteRef.current.location);
+    }
+    window.addEventListener("keydown", handleSettingsKey);
+    return () => window.removeEventListener("keydown", handleSettingsKey);
+  }, []);
+
   // Ctrl/Cmd+K。deps 刻意留空——handler 只讀 ref（穩定物件）與當下的
   // matchMedia/DOM，不需要隨 state 重新掛聽。
   useEffect(() => {
@@ -443,87 +463,87 @@ export function AppShell({ children, inert }: AppShellProps) {
     // `main` 沒有 overflow、少了隱含的自我裁切途徑，寬度鏈全靠它）。
     <SidebarDrawerContext.Provider value={{ setOpen: setDrawerOpen }}>
       <ShortcutsDialogContext.Provider value={shortcutsApi}>
-      <SidebarTabProvider actionsRef={tabActionsRef}>
-        <div inert={inert} className="flex h-screen gap-3 overflow-hidden bg-background p-3">
-          {/* data-sidebar-instance：SidebarContent 回 fragment、沒有自己的根；垃圾桶動作列靠它找回同一份的「選取」鈕。 */}
-          <aside
-            data-sidebar-instance=""
-            className={cn(cardSurface, "relative hidden shrink-0 md:flex md:flex-col")}
-            style={{ width: sidebarWidth }}
-          >
-            <SidebarContent {...sidebarProps} searchRef={searchInputRef} />
-            <PaneResizeHandle
-              width={sidebarWidth}
-              onChange={handleSidebarWidth}
-              min={SIDEBAR_WIDTH_MIN}
-              max={SIDEBAR_WIDTH_MAX}
-              defaultWidth={SIDEBAR_WIDTH_DEFAULT}
-              step={SIDEBAR_WIDTH_STEP}
-              edge="right"
-              label={t("sidebar.resize")}
-              placementClassName="left-full"
-            />
-          </aside>
+        <SidebarTabProvider actionsRef={tabActionsRef}>
+          <div inert={inert} className="flex h-screen gap-3 overflow-hidden bg-background p-3">
+            {/* data-sidebar-instance：SidebarContent 回 fragment、沒有自己的根；垃圾桶動作列靠它找回同一份的「選取」鈕。 */}
+            <aside
+              data-sidebar-instance=""
+              className={cn(cardSurface, "relative hidden shrink-0 md:flex md:flex-col")}
+              style={{ width: sidebarWidth }}
+            >
+              <SidebarContent {...sidebarProps} searchRef={searchInputRef} />
+              <PaneResizeHandle
+                width={sidebarWidth}
+                onChange={handleSidebarWidth}
+                min={SIDEBAR_WIDTH_MIN}
+                max={SIDEBAR_WIDTH_MAX}
+                defaultWidth={SIDEBAR_WIDTH_DEFAULT}
+                step={SIDEBAR_WIDTH_STEP}
+                edge="right"
+                label={t("sidebar.resize")}
+                placementClassName="left-full"
+              />
+            </aside>
 
-          <DialogPrimitive.Root open={drawerOpen} onOpenChange={setDrawerOpen}>
-            <DialogPrimitive.Portal>
-              <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/50" />
-              <DialogPrimitive.Content
-                ref={drawerContentRef}
-                data-sidebar-drawer=""
-                data-sidebar-instance=""
-                // 底色與 flex 脈絡缺一不可：沒底色透出 overlay 的黑、沒 flex-col 則
-                // SidebarContent 的 min-h-0 flex-1 清單失去約束（spec §3a）。貼齊
-                // 左緣故意不用 cardSurface 的圓角——抽屜不是卡片。
-                className="fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-border bg-card"
-                // Radix 在 document capture 先處理 Esc：選取中先結束選取、抽屜不關。真瀏覽器在這個 listener 與 React 的
-                // onKeyDown 之間會跑 microtask，選取的結束先 commit、勾選框／動作列卸載，React 那層的 handler 不會再跑——
-                // 焦點要在這裡交給抽屜裡的「選取」鈕（flushSync 讓它在同一個 task 內出現）。
-                onEscapeKeyDown={(event) => {
-                  let ended = false;
-                  flushSync(() => {
-                    ended = tabActionsRef.current?.endSelectionIfActive() ?? false;
-                  });
-                  if (!ended) return;
-                  event.preventDefault();
-                  drawerContentRef.current?.querySelector<HTMLButtonElement>(SIDEBAR_SELECT_BUTTON)?.focus();
-                }}
-                onOpenAutoFocus={(event) => {
-                  event.preventDefault();
-                  if (openedByShortcutRef.current && drawerSearchRef.current) {
-                    drawerSearchRef.current.focus();
-                    openedByShortcutRef.current = false;
-                  } else {
-                    openedByShortcutRef.current = false;
-                    // 漢堡開：不聚焦搜尋框（觸控裝置會彈鍵盤；Radix 預設聚焦第一個
-                    // 可聚焦元素恰好就是它，必須 preventDefault 擋掉），但焦點必須
-                    // 落進抽屜本身——Radix 的 focus trap 要焦點先進容器才武裝
-                    // （lastFocusedElement 為 null 時 handleFocusIn 拉不回焦點、Tab
-                    // 攔截掛在容器 onKeyDown 也不會觸發），只 preventDefault 不補
-                    // 聚焦＝trap 沒建立、Tab 逃進 aria-hidden 的背景。
-                    drawerContentRef.current?.focus();
-                  }
-                }}
-              >
-                {/* Radix 的 aria-labelledby 只在 Title 存在時輸出——不放＝一個無
-                    可及名稱的 dialog（釘住的 radix-ui 1.6.7 已不再 console 警告，
-                    沒有訊號提醒你）。 */}
-                <DialogPrimitive.Title className="sr-only">{t("sidebar.drawerTitle")}</DialogPrimitive.Title>
-                <SidebarContent {...sidebarProps} searchRef={drawerSearchRef} />
-                {/* 抽屜開著時 toast viewport 搬進這裡（`toastViewportHostRef`）：抽屜外的東西此刻都被 Radix 標成 aria-hidden、
-                    焦點也鎖在抽屜裡，toast 留在原處就讀不到、按不到。viewport 是 fixed 定位，所以抽屜內容不可加
-                    transform／filter（否則 toast 會改以抽屜為準定位）。搬進來後 toast 位在抽屜的 z-50 堆疊脈絡裡，
-                    從抽屜 portal 出去的 z-50 層（⋮ 選單、確認框與它的 overlay）可能蓋住 toast——modal 開著時這樣可接受。 */}
-                <div ref={toastViewportHostRef} />
-              </DialogPrimitive.Content>
-            </DialogPrimitive.Portal>
-          </DialogPrimitive.Root>
+            <DialogPrimitive.Root open={drawerOpen} onOpenChange={setDrawerOpen}>
+              <DialogPrimitive.Portal>
+                <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/50" />
+                <DialogPrimitive.Content
+                  ref={drawerContentRef}
+                  data-sidebar-drawer=""
+                  data-sidebar-instance=""
+                  // 底色與 flex 脈絡缺一不可：沒底色透出 overlay 的黑、沒 flex-col 則
+                  // SidebarContent 的 min-h-0 flex-1 清單失去約束（spec §3a）。貼齊
+                  // 左緣故意不用 cardSurface 的圓角——抽屜不是卡片。
+                  className="fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-border bg-card"
+                  // Radix 在 document capture 先處理 Esc：選取中先結束選取、抽屜不關。真瀏覽器在這個 listener 與 React 的
+                  // onKeyDown 之間會跑 microtask，選取的結束先 commit、勾選框／動作列卸載，React 那層的 handler 不會再跑——
+                  // 焦點要在這裡交給抽屜裡的「選取」鈕（flushSync 讓它在同一個 task 內出現）。
+                  onEscapeKeyDown={(event) => {
+                    let ended = false;
+                    flushSync(() => {
+                      ended = tabActionsRef.current?.endSelectionIfActive() ?? false;
+                    });
+                    if (!ended) return;
+                    event.preventDefault();
+                    drawerContentRef.current?.querySelector<HTMLButtonElement>(SIDEBAR_SELECT_BUTTON)?.focus();
+                  }}
+                  onOpenAutoFocus={(event) => {
+                    event.preventDefault();
+                    if (openedByShortcutRef.current && drawerSearchRef.current) {
+                      drawerSearchRef.current.focus();
+                      openedByShortcutRef.current = false;
+                    } else {
+                      openedByShortcutRef.current = false;
+                      // 漢堡開：不聚焦搜尋框（觸控裝置會彈鍵盤；Radix 預設聚焦第一個
+                      // 可聚焦元素恰好就是它，必須 preventDefault 擋掉），但焦點必須
+                      // 落進抽屜本身——Radix 的 focus trap 要焦點先進容器才武裝
+                      // （lastFocusedElement 為 null 時 handleFocusIn 拉不回焦點、Tab
+                      // 攔截掛在容器 onKeyDown 也不會觸發），只 preventDefault 不補
+                      // 聚焦＝trap 沒建立、Tab 逃進 aria-hidden 的背景。
+                      drawerContentRef.current?.focus();
+                    }
+                  }}
+                >
+                  {/* Radix 的 aria-labelledby 只在 Title 存在時輸出——不放＝一個無
+                      可及名稱的 dialog（釘住的 radix-ui 1.6.7 已不再 console 警告，
+                      沒有訊號提醒你）。 */}
+                  <DialogPrimitive.Title className="sr-only">{t("sidebar.drawerTitle")}</DialogPrimitive.Title>
+                  <SidebarContent {...sidebarProps} searchRef={drawerSearchRef} />
+                  {/* 抽屜開著時 toast viewport 搬進這裡（`toastViewportHostRef`）：抽屜外的東西此刻都被 Radix 標成 aria-hidden、
+                      焦點也鎖在抽屜裡，toast 留在原處就讀不到、按不到。viewport 是 fixed 定位，所以抽屜內容不可加
+                      transform／filter（否則 toast 會改以抽屜為準定位）。搬進來後 toast 位在抽屜的 z-50 堆疊脈絡裡，
+                      從抽屜 portal 出去的 z-50 層（⋮ 選單、確認框與它的 overlay）可能蓋住 toast——modal 開著時這樣可接受。 */}
+                  <div ref={toastViewportHostRef} />
+                </DialogPrimitive.Content>
+              </DialogPrimitive.Portal>
+            </DialogPrimitive.Root>
 
-          <main className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</main>
-        </div>
-        {/* 放在 inert 的 div 外面：portal 本來就在 body，放外面是讓閱讀者不必推理 inert。 */}
-        <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} returnFocusRef={shortcutsReturnFocusRef} />
-      </SidebarTabProvider>
+            <main className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</main>
+          </div>
+          {/* 放在 inert 的 div 外面：portal 本來就在 body，放外面是讓閱讀者不必推理 inert。 */}
+          <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} returnFocusRef={shortcutsReturnFocusRef} />
+        </SidebarTabProvider>
       </ShortcutsDialogContext.Provider>
     </SidebarDrawerContext.Provider>
   );

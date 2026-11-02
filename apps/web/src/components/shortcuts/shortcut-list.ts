@@ -57,6 +57,7 @@ export const SHORTCUTS: readonly ShortcutEntry[] = [
   { id: "search", category: "global", keys: [combo("Mod", "K")] },
   { id: "searchClear", category: "global", keys: [combo("Esc")] },
   { id: "saveVersion", category: "global", keys: [combo("Mod", "S")] },
+  { id: "openSettings", category: "global", keys: [combo("Mod", ",")] },
   { id: "openShortcuts", category: "global", keys: [combo("Mod", "/")] },
   // 打字觸發
   { id: "slashMenu", category: "typing", keys: [typed("/")] },

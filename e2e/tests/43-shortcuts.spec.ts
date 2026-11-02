@@ -756,25 +756,40 @@ test.describe("shortcuts dialog", () => {
     await page.keyboard.press("ControlOrMeta+/");
     const dialog = shortcutsDialog(page);
     await expect(dialog).toBeVisible();
+    // 預設停在「通用」：左欄 aria-current、右卡 region 名稱與標題都是 General
+    await expect(dialog.getByRole("button", { name: "General" })).toHaveAttribute("aria-current", "true");
+    await expect(dialog.getByRole("region", { name: "General" })).toBeVisible();
     await expect(dialog.getByRole("heading", { level: 3, name: "General" })).toBeVisible();
     await expect(editor).toContainText("abc");
     expect(await blockTexts(page)).toEqual(["abc"]); // 沒有多一個 /
     await expect(page.locator(".bn-suggestion-menu")).toHaveCount(0);
 
-    // 開啟後焦點就在內容捲動容器：直接按 PageDown 就能捲
+    // 開啟後焦點就在右卡內容區；Tab 到 ✕（內容區是最後一個可聚焦元素）、Shift+Tab 回來
     const content = dialog.locator("[data-shortcuts-content]");
     await expect(content).toBeFocused();
-    await page.keyboard.press("PageDown");
-    await expect.poll(() => content.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
-
-    // Tab 到 ✕、Shift+Tab 回容器
     await page.keyboard.press("Tab");
     await expect(dialog.getByRole("button", { name: "Close" })).toBeFocused();
     await page.keyboard.press("Shift+Tab");
     await expect(content).toBeFocused();
 
+    // 選分類（寬螢幕）：焦點留在被點的項次、右卡換成那一類；「Text formatting」夠長，點進內容區後 PageDown 能捲
+    const formatting = dialog.getByRole("button", { name: "Text formatting" });
+    await formatting.click();
+    await expect(formatting).toHaveAttribute("aria-current", "true");
+    await expect(dialog.getByRole("button", { name: "General" })).not.toHaveAttribute("aria-current", "true");
+    await expect(formatting).toBeFocused();
+    await expect(dialog.getByRole("region", { name: "Text formatting" })).toBeVisible();
+    await expect(dialog.locator('[data-shortcut-id="search"]')).toHaveCount(0);
+    await expect(dialog.locator('[data-shortcut-id="bold"]')).toHaveCount(1);
+    await content.click({ position: { x: 4, y: 4 } });
+    await expect(content).toBeFocused();
+    await page.keyboard.press("PageDown");
+    await expect.poll(() => content.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
+    // Radix 卸載後才排 setTimeout(0) 還焦點：先等焦點真的回到編輯器再打字，否則「d」可能搶在還焦點之前（偶發紅的來源）
+    await expect(editor).toBeFocused();
     await page.keyboard.type("d");
     await expect.poll(() => blockTexts(page)).toEqual(["abcd"]); // 焦點與游標回到原處
   });
@@ -824,8 +839,13 @@ test.describe("shortcuts dialog", () => {
     const { actions } = (await res.json()) as { actions: Array<{ kind: string }> };
     await page.keyboard.press("ControlOrMeta+/");
     const dialog = shortcutsDialog(page);
-    await expect(dialog.getByRole("heading", { level: 3, name: "General" })).toBeVisible();
-    await expect(dialog.getByRole("heading", { level: 3, name: "AI", exact: true })).toHaveCount(actions.length > 0 ? 1 : 0);
+    await expect(dialog.getByRole("region", { name: "General" })).toBeVisible();
+    const aiNav = dialog.getByRole("button", { name: "AI", exact: true });
+    await expect(aiNav).toHaveCount(actions.length > 0 ? 1 : 0); // 站台沒有 AI 時整個分類不出現
+    if (actions.length > 0) {
+      await aiNav.click();
+      await expect(dialog.getByRole("region", { name: "AI" })).toBeVisible();
+    }
     await expect(dialog.locator('[data-shortcut-id="aiSend"]')).toHaveCount(actions.some((a) => a.kind === "instruct") ? 1 : 0);
     test.info().annotations.push({ type: "e5-site", description: `actions=${actions.length} instruct=${actions.some((a) => a.kind === "instruct")}` });
   });
@@ -858,14 +878,66 @@ test.describe("shortcuts dialog", () => {
     expect(box.y).toBeGreaterThanOrEqual(0);
     expect(box.x + box.width).toBeLessThanOrEqual(viewport.width + 1);
     expect(box.y + box.height).toBeLessThanOrEqual(viewport.height + 1);
+    // 窄螢幕一次只顯示一塊：打開先看到右卡（通用）；左卡（分類＋提示句）在「返回」之後
+    await expect(dialog.getByRole("region", { name: "General" })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Text formatting" })).toBeHidden();
+    await dialog.getByRole("button", { name: "Back to sections" }).click();
     const footer = dialog.locator("[data-shortcuts-footer]");
     await footer.scrollIntoViewIfNeeded();
     await expect(footer).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "General" })).toBeFocused(); // 焦點回到目前項次
+    await dialog.getByRole("button", { name: "Mouse" }).click();
+    const mouseRegion = dialog.getByRole("region", { name: "Mouse" });
+    await expect(mouseRegion).toBeVisible();
+    await expect(mouseRegion).toBeFocused(); // 窄螢幕選分類後焦點進內容區
+    await expect(dialog.getByRole("button", { name: "General" })).toBeHidden();
 
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
     await expect(drawer).toBeVisible();
     await expect(trigger).toBeFocused();
+  });
+
+  test("E9 左欄每個分類都點得進去，右卡只顯示所選分類（標題＝region 名稱＝aria-current 那一項）", async ({ page }) => {
+    test.setTimeout(90_000);
+    await startNote(page, "dlg-cats");
+    await page.keyboard.press("ControlOrMeta+/");
+    const dialog = shortcutsDialog(page);
+    await expect(dialog).toBeVisible();
+    await expect(dialog.locator("[data-shortcuts-category]").first()).toBeVisible(); // 內容 chunk 到了
+    const names = await dialog.locator("[data-shortcuts-category]").allTextContents();
+    expect(names.slice(0, 3)).toEqual(["General", "Typing triggers", "Markdown shortcuts"]);
+    for (const name of names) {
+      await dialog.getByRole("button", { name, exact: true }).click();
+      await expect(dialog.getByRole("button", { name, exact: true })).toHaveAttribute("aria-current", "true");
+      await expect(dialog.getByRole("region", { name, exact: true })).toBeVisible();
+      await expect(dialog.getByRole("heading", { level: 3, name, exact: true })).toBeVisible();
+      await expect(dialog.locator("[data-shortcut-id]").first()).toBeVisible();
+    }
+  });
+
+  test("E10 Ctrl+, 打開設定（內文裡也行）；設定開著時再按不動作；關閉回到原筆記頁 [sc:openSettings]", async ({ page }) => {
+    test.setTimeout(90_000);
+    const editor = await startNote(page, "dlg-settings");
+    await page.keyboard.type("abc");
+    await waitForEditorSelection(page);
+    const noteUrl = page.url();
+    await page.keyboard.press("ControlOrMeta+,");
+    await expect(page).toHaveURL(/\/settings\/account$/);
+    await expect(page.getByRole("dialog")).toHaveCount(1);
+    // 設定開著：再按不動作。網址與對話框數量不變不夠（背景頁的 location 沒變，重導一次結果一樣）——另看 history 沒有多一筆
+    const historyBefore = await page.evaluate(() => history.length);
+    await page.keyboard.press("ControlOrMeta+,");
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(0)))));
+    expect(await page.evaluate(() => history.length)).toBe(historyBefore);
+    await expect(page).toHaveURL(/\/settings\/account$/);
+    await expect(page.getByRole("dialog")).toHaveCount(1);
+    // 帶了 backgroundLocation：關閉回到原本那篇，內文還在
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(page).toHaveURL(noteUrl);
+    await expect(editor).toContainText("abc");
+    expect(await blockTexts(page)).toEqual(["abc"]); // 編輯器沒對 Ctrl+, 做任何事（內文還是 abc）
   });
 
   test("E7 簡報模式中 Ctrl+/ 不開快捷鍵頁 [sc:openShortcuts]", async ({ page }) => {
@@ -912,7 +984,7 @@ test.describe("shortcuts dialog", () => {
     await main.click({ position: { x: 24, y: mainBox.height - 24 } });
     expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
     await send();
-    await page.waitForTimeout(500);
+    await expect(shortcutsDialog(page)).toHaveCount(1); // 正向：內文外照常開（重試式斷言，不靠固定等待）
     const onBody = { dialog: await shortcutsDialog(page).count() };
     test.info().annotations.push({ type: "e8-on-body", description: JSON.stringify(onBody) });
     // 實測（2026-11-02，Chromium、CDP 模擬）：內文裡那段被轉成編號清單、沒有開快捷鍵頁；內文外照常開。docs/known-limitations.md 據此寫。

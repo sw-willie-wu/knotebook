@@ -1,10 +1,15 @@
 import "@/i18n/shortcuts-strings";
-import { Fragment, useId, type ReactNode } from "react";
+import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { fetchAiActions } from "@/api/ai";
+import { Button } from "@/components/ui/button";
+import { cardSurface } from "@/components/ui/card";
+import { ArrowLeft } from "@/components/ui/icons";
+import { managementNavItemClass } from "@/components/management/tray";
+import { cn } from "@/lib/utils";
 import { isMacPlatform } from "@/lib/platform";
-import { visibleShortcuts, type KeyToken, type ShortcutEntry, type ShortcutKeys } from "./shortcut-list";
+import { visibleShortcuts, type KeyToken, type ShortcutCategory, type ShortcutEntry, type ShortcutKeys } from "./shortcut-list";
 
 /**
  * 快捷鍵介紹頁的內容（lazy chunk，第一次打開才下載；外殼見 `ShortcutsDialog`）。
@@ -16,7 +21,14 @@ import { visibleShortcuts, type KeyToken, type ShortcutEntry, type ShortcutKeys 
  * 組合鍵之間的「+」與多種按法之間的「／」也 `aria-hidden`，旁邊的 sr-only 依條目的 `sep` 讀「或」（同一件事的不同按法）
  * 或「、」（各是不同動作）。
  *
- * PR-A 的「重看導覽」鈕加在最下面 `<div data-shortcuts-footer>` 裡、提示句的右側（本 PR 不放，D8）。
+ * 版面（Willie 2026-11-02 改版，推翻 spec §4.1「單卡」）：跟設定同一套兩塊 panel——左卡列分類、右卡**只顯示所選分類**；窄螢幕（< md）
+ * 一次只顯示一塊（左＝分類層、右＝內容層，右卡的返回鈕回左）。不走 route（K2），所以左欄是 state 驅動的按鈕（`aria-current`），
+ * 不是 `ManagementShell` 的 NavLink；托盤、卡面、項次 class 與設定共用（`management/tray.ts`、`ui/card.ts`）。
+ *
+ * 焦點（比照設定 §4.7）：開啟落在右卡內容區（可聚焦的捲動容器，PageDown 立刻能捲）；寬螢幕選分類後焦點留在被點的項次
+ * （`aria-current` 與右卡的 region 名稱＝分類名，報讀器據此知道內容換了）；窄螢幕選分類後焦點移進內容區、返回後回到目前項次。
+ *
+ * PR-A 的「重看導覽」鈕加在左卡底部 `<div data-shortcuts-footer>` 裡、提示句的右側（本 PR 不放，D8）。
  */
 
 type TFn = (key: string) => string;
@@ -143,6 +155,13 @@ function EntryKeys({ entry, mac, t }: { entry: ShortcutEntry; mac: boolean; t: T
   );
 }
 
+type Layer = "items" | "content";
+
+/** `md` 斷點（768px，同 ManagementShell）。matches === false ＝ 窄視窗，才做焦點搬移。 */
+function isNarrowViewport(): boolean {
+  return !window.matchMedia("(min-width: 768px)").matches;
+}
+
 export function ShortcutsContent() {
   const { t } = useTranslation();
   const mac = isMacPlatform();
@@ -152,17 +171,115 @@ export function ShortcutsContent() {
   const groups = visibleShortcuts({ aiAvailable: actions.length > 0, aiInstruct: actions.some((a) => a.kind === "instruct") });
   const tt: TFn = (key) => t(key);
 
+  // 預設停在「通用」；所選分類若消失（例如 AI 查詢回來才知道站台沒有 AI）就退回第一個。
+  const [selected, setSelected] = useState<ShortcutCategory>("global");
+  const active = groups.find((g) => g.category === selected) ?? groups[0]!;
+  // 初值 "content"：窄螢幕打開就直接看到內容（同設定：深連結在手機上直接看到那一頁）。
+  const [layer, setLayer] = useState<Layer>("content");
+  const [focusRequest, setFocusRequest] = useState<{ target: Layer; seq: number } | null>(null);
+  const seqRef = useRef(0);
+  const navRef = useRef<HTMLElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const contentId = `${uid}-content`;
+  const headingId = `${uid}-heading`;
+
+  function switchTo(target: Layer): void {
+    setLayer(target);
+    if (!isNarrowViewport()) return; // md 以上維持原生焦點行為（焦點留在被點的項次）
+    seqRef.current += 1;
+    setFocusRequest({ target, seq: seqRef.current });
+  }
+
+  // 目標元素要等 setLayer commit 後才脫離 display:none，在 click handler 裡同步 focus() 真瀏覽器會靜默失敗（同 ManagementShell）。
+  useLayoutEffect(() => {
+    if (focusRequest === null) return;
+    if (focusRequest.target === "content") contentRef.current?.focus();
+    else navRef.current?.querySelector<HTMLElement>('[aria-current="true"]')?.focus();
+    setFocusRequest(null);
+  }, [focusRequest]);
+
+  // 開啟：chunk 比 Dialog 晚到時，外殼的 onOpenAutoFocus 當下找不到內容區、只能先把焦點放在對話框本身——這裡接手。
+  useEffect(() => {
+    const focused = document.activeElement;
+    if (!focused || focused === document.body || focused.getAttribute("role") === "dialog") contentRef.current?.focus();
+  }, []);
+
   return (
-    <div className="flex flex-col gap-6 pb-2 pt-1">
-      {groups.map(({ category, entries }) => {
-        const headingId = `${uid}-${category}`;
-        return (
-          <section key={category} aria-labelledby={headingId} data-shortcut-category={category}>
-            <h3 id={headingId} className="mb-1 text-[11px] font-semibold tracking-wide text-muted-foreground">
-              {t(`shortcutsGuide.categories.${category}`)}
+    <>
+      <div
+        data-shortcuts-card="items"
+        className={cn(cardSurface, "w-full shrink-0 flex-col overflow-hidden p-4 md:w-64", layer === "items" ? "flex" : "hidden", "md:flex")}
+      >
+        {/* 對話框的名稱在外殼的 sr-only DialogTitle；這裡的字只是視覺標題。 */}
+        <div className="mb-3 flex h-10 items-center gap-2 px-3">
+          <p aria-hidden="true" className="truncate text-[15px] font-semibold leading-tight tracking-normal">
+            {t("shortcuts.title")}
+          </p>
+        </div>
+        <nav ref={navRef} aria-label={t("shortcuts.title")} className="flex flex-col gap-1">
+          {groups.map(({ category }) => (
+            <button
+              key={category}
+              type="button"
+              data-shortcuts-category={category}
+              aria-current={category === active.category ? "true" : undefined}
+              aria-controls={contentId}
+              onClick={() => {
+                setSelected(category);
+                switchTo("content");
+              }}
+              className={cn(managementNavItemClass(category === active.category), "w-full text-left")}
+            >
+              <span className="min-w-0 truncate">{t(`shortcutsGuide.categories.${category}`)}</span>
+            </button>
+          ))}
+        </nav>
+        {/* PR-A 的「重看導覽」鈕加在這個 div 裡、提示句的右側（variant="outline"）。 */}
+        <div data-shortcuts-footer className="mt-auto flex flex-wrap items-center gap-2 border-t border-border px-1 pt-3 text-xs text-muted-foreground">
+          <p>
+            <Trans
+              i18nKey="shortcutsGuide.footer"
+              components={{
+                keys: (
+                  <span className="inline-flex items-center gap-1 align-middle">
+                    <Combo keys={["Mod", "/"]} mac={mac} t={tt} />
+                  </span>
+                ),
+              }}
+            />
+          </p>
+        </div>
+      </div>
+      <div
+        data-shortcuts-card="content"
+        className={cn(cardSurface, "relative min-w-0 flex-1 flex-col overflow-hidden", layer === "content" ? "flex" : "hidden", "md:flex")}
+      >
+        {/* 子節點順序承重：返回鈕（窄）→ 內容容器（✕ 在外殼、DOM 上更前面）。 */}
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="absolute left-2 top-2 z-10 h-7 w-7 bg-card md:hidden"
+          aria-label={t("management.back")}
+          onClick={() => switchTo("items")}
+        >
+          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+        </Button>
+        <div
+          ref={contentRef}
+          id={contentId}
+          data-shortcuts-content=""
+          role="region"
+          aria-labelledby={headingId}
+          tabIndex={0}
+          className="min-h-0 flex-1 overflow-y-auto p-4 pt-12 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring md:p-8"
+        >
+          <section data-shortcut-category={active.category}>
+            <h3 id={headingId} className="mb-1 text-base font-semibold">
+              {t(`shortcutsGuide.categories.${active.category}`)}
             </h3>
             <ul className="divide-y divide-border">
-              {entries.map((entry) => (
+              {active.entries.map((entry) => (
                 <li key={entry.id} data-shortcut-id={entry.id} className="flex flex-col gap-1.5 py-2.5 sm:flex-row sm:gap-4">
                   <div className="flex shrink-0 flex-wrap items-center gap-1 sm:w-56">
                     <EntryKeys entry={entry} mac={mac} t={tt} />
@@ -175,23 +292,8 @@ export function ShortcutsContent() {
               ))}
             </ul>
           </section>
-        );
-      })}
-      {/* PR-A 的「重看導覽」鈕加在這個 div 裡、提示句的右側（variant="outline"）。 */}
-      <div data-shortcuts-footer className="flex flex-wrap items-center gap-3 border-t border-border pt-4 text-sm text-muted-foreground">
-        <p>
-          <Trans
-            i18nKey="shortcutsGuide.footer"
-            components={{
-              keys: (
-                <span className="inline-flex items-center gap-1 align-middle">
-                  <Combo keys={["Mod", "/"]} mac={mac} t={tt} />
-                </span>
-              ),
-            }}
-          />
-        </p>
+        </div>
       </div>
-    </div>
+    </>
   );
 }

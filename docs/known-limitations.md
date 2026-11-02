@@ -353,3 +353,4 @@ See [Version history](./versions.md) for how versions work.
 ## Keyboard shortcuts
 
 - **On a keyboard where `/` needs Shift, Ctrl+/ may not open the shortcuts page while the cursor is in a note.** A German layout, for example, types `/` with Shift+7, so Ctrl+/ reaches the editor as Ctrl+Shift+7, which the editor takes as "turn this paragraph into a numbered list": the paragraph with the cursor becomes a numbered list item and the page doesn't open. Outside the text of a note, and from **Keyboard shortcuts** in the user menu, it works as usual. This was seen in Chromium with the key sent the way such a layout sends it; it hasn't been tried on a real German keyboard.
+- **Whether ⌘/ and ⌘, reach Knotebook in Safari, Chrome and Firefox on a Mac hasn't been checked.** The shortcuts were tried only in Chromium on Linux (with Ctrl). If a browser keeps one of them for itself, it won't open the shortcuts page or the settings there; the user menu items still work.
