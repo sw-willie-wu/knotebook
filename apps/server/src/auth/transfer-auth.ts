@@ -109,7 +109,9 @@ export function createTransferAuth(deps: TransferAuthDeps) {
 
       request.user = gateResult.user;
       request.authKind = "transfer";
-      request.transfer = { id: row.id, noteId: row.noteId, purpose, parentTokenId: row.parentId };
+      // `transfer_tokens_bulk_note_chk`：purpose ≠ bulk ⇒ note_id 非 NULL；bulk 列已在上面的用途比對回 403。
+      // 結構上不可達，不加執行期分支（測不到）。
+      request.transfer = { id: row.id, noteId: row.noteId!, purpose, parentTokenId: row.parentId };
       request.tokenId = row.parentId;
     };
   }

@@ -21,6 +21,21 @@ export const MAX_PENDING_UPLOAD_TOKENS = 5;
 
 export type TransferPurpose = "upload" | "download";
 
+/**
+ * bulk transfer spec 2026-11-02 §5.1：`purpose='bulk'` 列的 `access`——簽發當下母憑證有 `notes:write` → `write`。
+ */
+export type BulkAccess = "read" | "write";
+
+/**
+ * bulk transfer spec 2026-11-02 §5.1：`purpose='bulk'` 列的 `range`（jsonb）。id 一律小寫；範圍在每次使用時重算（§5.5）。
+ */
+export type BulkRange =
+  | { kind: "all" }
+  | { kind: "personal" }
+  | { kind: "shared" }
+  | { kind: "group"; groupId: string }
+  | { kind: "folder"; folderId: string };
+
 /** 32 bytes＝256 bit 熵，base64url 43 字元，加前綴共 48。 */
 export function generateTransferToken(): string {
   return TRANSFER_TOKEN_PREFIX + randomBytes(32).toString("base64url");

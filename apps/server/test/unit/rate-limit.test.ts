@@ -1,6 +1,14 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { LoginThrottle } from "../../src/auth/rate-limit.js";
-import { AI_LIMIT, FixedWindowLimiter, FOLDER_LIMIT, ONE_TIME_LINK_ATTEMPT_LIMIT, ONE_TIME_LINK_MISS_LIMIT } from "../../src/http/rate-limit.js";
+import {
+  AI_LIMIT,
+  FixedWindowLimiter,
+  FOLDER_LIMIT,
+  ONE_TIME_LINK_ATTEMPT_LIMIT,
+  ONE_TIME_LINK_MISS_LIMIT,
+  TRANSFER_EXPORT_LIMIT,
+  retryAfterSeconds,
+} from "../../src/http/rate-limit.js";
 
 describe("LoginThrottle key 上限（issue #15）", () => {
   /** 每次用不同帳號，讓斷言只反映 IP 那一軌。 */
@@ -559,5 +567,71 @@ describe("FixedWindowLimiter.isBlocked（#72：不計數的預檢）", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("FixedWindowLimiter 函式額度與 retryAfterMs（bulk transfer spec §12.3）", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("L1 limit 傳函式：每次 consume 現讀（不是建構時快照）", () => {
+    let cap = 2;
+    const l = new FixedWindowLimiter({ limit: () => cap, windowMs: 60_000 });
+    expect(l.consume("u")).toBe(true);
+    expect(l.consume("u")).toBe(true);
+    expect(l.consume("u")).toBe(false);
+    cap = 5; // 同一視窗內調高：第 4 次（計數 4 ≤ 5）放行
+    expect(l.consume("u")).toBe(true);
+  });
+
+  it("L2a isBlocked 也吃函式現值", () => {
+    let cap = 1;
+    const l = new FixedWindowLimiter({ limit: () => cap, windowMs: 60_000 });
+    expect(l.consume("u")).toBe(true);
+    expect(l.isBlocked("u")).toBe(true);
+    cap = 3;
+    expect(l.isBlocked("u")).toBe(false);
+  });
+
+  it("L2b consumeMany 也吃函式現值（含 n > limit 的夾住）", () => {
+    let cap = 2;
+    const l = new FixedWindowLimiter({ limit: () => cap, windowMs: 60_000 });
+    expect(l.consumeMany("u", 2)).toBe(true);
+    expect(l.consumeMany("u", 1)).toBe(false);
+    cap = 4;
+    expect(l.consumeMany("u", 2)).toBe(true);
+    expect(l.consumeMany("u", 1)).toBe(false);
+  });
+
+  it("L3 數字額度照舊（既有呼叫點不變）", () => {
+    const l = new FixedWindowLimiter({ limit: 2, windowMs: 60_000 });
+    expect([l.consume("u"), l.consume("u"), l.consume("u")]).toEqual([true, true, false]);
+    expect(l.isBlocked("u")).toBe(true);
+  });
+
+  it("L4 retryAfterMs：無視窗 0；開窗後 t+10 s 剩 50 000；過期 0；不計數不開窗", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-03T00:00:00Z"));
+    const l = new FixedWindowLimiter({ limit: 1, windowMs: 60_000 });
+    expect(l.retryAfterMs("u")).toBe(0);
+    expect(l.consume("u")).toBe(true); // retryAfterMs 沒開窗：這發仍是第一發
+    vi.setSystemTime(new Date("2026-11-03T00:00:10Z"));
+    expect(l.retryAfterMs("u")).toBe(50_000);
+    expect(l.retryAfterMs("u")).toBe(50_000);
+    expect(l.isBlocked("u")).toBe(true); // retryAfterMs 不計數：計數仍是 1
+    vi.setSystemTime(new Date("2026-11-03T00:01:00Z"));
+    expect(l.retryAfterMs("u")).toBe(0);
+    vi.setSystemTime(new Date("2026-11-03T00:01:01Z")); // 過期之後也是 0，不是負數
+    expect(l.retryAfterMs("u")).toBe(0);
+    expect(l.retryAfterMs("other")).toBe(0);
+  });
+
+  it("L5 retryAfterSeconds：向上取整、至少 1（Retry-After 不送 0）", () => {
+    expect([1, 1000, 1001, 0, 59_999, 60_000].map(retryAfterSeconds)).toEqual([1, 1, 2, 1, 60, 60]);
+  });
+
+  it("TRANSFER_EXPORT_LIMIT：每小時 10 次", () => {
+    expect(TRANSFER_EXPORT_LIMIT).toEqual({ limit: 10, windowMs: 3_600_000 });
   });
 });

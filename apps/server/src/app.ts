@@ -53,7 +53,7 @@ import { sendError } from "./http/errors.js";
 // #108：`stripDefaultPort` 搬到 `http/origin.ts`（與 `mcpOriginAllowed` 同一個葉節點模組，
 // 兩種比較語意的差別寫在該檔檔頭）。
 import { stripDefaultPort } from "./http/origin.js";
-import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, EDIT_LIMIT, FixedWindowLimiter, FOLDER_LIMIT, OIDC_LIMIT, ONE_TIME_LINK_ATTEMPT_LIMIT, ONE_TIME_LINK_MISS_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, PUBLIC_WIDTH_LIMIT, REGISTER_LIMIT, SEARCH_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_RENAME_LIMIT, TOKEN_WRITE_LIMIT, UPLOAD_LIMIT, USER_SUGGEST_LIMIT } from "./http/rate-limit.js";
+import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, EDIT_LIMIT, FixedWindowLimiter, FOLDER_LIMIT, OIDC_LIMIT, ONE_TIME_LINK_ATTEMPT_LIMIT, ONE_TIME_LINK_MISS_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, PUBLIC_WIDTH_LIMIT, REGISTER_LIMIT, SEARCH_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_RENAME_LIMIT, TOKEN_WRITE_LIMIT, TRANSFER_EXPORT_LIMIT, UPLOAD_LIMIT, USER_SUGGEST_LIMIT } from "./http/rate-limit.js";
 import { FORM_EXEMPT_ROUTES, isOauthScopedPath, sendOauthError } from "./http/oauth-errors.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { oauthMetadataRoutes } from "./routes/oauth-metadata.js";
@@ -170,6 +170,8 @@ export interface AppDeps {
     contentRead: FixedWindowLimiter;
     /** #93：全文搜尋（key=userId，見 `SEARCH_LIMIT`）。 */
     search: FixedWindowLimiter;
+    /** bulk §12.1：整包匯出（key=userId，見 TRANSFER_EXPORT_LIMIT）。 */
+    transferExport: FixedWindowLimiter;
     /** `GET /api/users/suggest`（key=userId，見 `USER_SUGGEST_LIMIT`）。 */
     userSuggest: FixedWindowLimiter;
     /** #106 寫入端：`POST /api/notes/:id/edits`、`POST /api/notes` 帶 `content`（key=userId，見 `EDIT_LIMIT`）。 */
@@ -667,6 +669,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       tokenEndpoint: new FixedWindowLimiter(TOKEN_ENDPOINT_LIMIT),
       contentRead: new FixedWindowLimiter(CONTENT_READ_LIMIT),
       search: new FixedWindowLimiter(SEARCH_LIMIT),
+      transferExport: new FixedWindowLimiter(TRANSFER_EXPORT_LIMIT),
       userSuggest: new FixedWindowLimiter(USER_SUGGEST_LIMIT),
       edit: new FixedWindowLimiter(EDIT_LIMIT),
       folder: new FixedWindowLimiter(FOLDER_LIMIT),
