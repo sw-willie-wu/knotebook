@@ -92,7 +92,7 @@ function previews(scope: Locator): Locator {
   return scope.locator('[data-node-kind="preview"]');
 }
 
-test("42-1 拖進資料夾：根層 N 拖到 F 列放開 → N 在 F 底下、toast「Moved to “F”」→ Undo 回根層", async ({ page }) => {
+test("42-1 拖進資料夾：根層 N 拖到 F 列放開 → N 在 F 底下、toast「Moved to “F”」→ Undo 回根層 [sc:dragNoteToFolder]", async ({ page }) => {
   test.setTimeout(150_000);
   const F = `F ${RUN}`;
   const N = `E2E Drag Into ${RUN}`;
@@ -246,7 +246,7 @@ test("42-3b 彈簧不收回：收合的 F 列上停到展開 → 移到側欄外
   await expect(f1Button).toBeVisible();
 });
 
-test("42-4 A 疊 B：N1 停在 N2 上出預覽 → 放開 → 改名框（New folder）→ 關框前沒有 toast → 存成 Stack → toast → Undo 兩篇回根層、資料夾消失", async ({
+test("42-4 A 疊 B：N1 停在 N2 上出預覽 → 放開 → 改名框（New folder）→ 關框前沒有 toast → 存成 Stack → toast → Undo 兩篇回根層、資料夾消失 [sc:dragNoteToFolder]", async ({
   page,
 }) => {
   test.setTimeout(150_000);
@@ -382,7 +382,7 @@ test("42-6 群組 tab 跨群組：G 的 g1 拖到 H 群組列 → H 不標示為
   expect(await placementOf(page, g1Id)).toEqual({ folderId: null, groupId: gId });
 });
 
-test("42-7 拖進編輯器（【推-2】）：側欄 N 拖進 P 的編輯器放下 → 網址不變、側欄沒有落點與預覽、P 多一個指向 N 的 wikilink", async ({ page }) => {
+test("42-7 拖進編輯器（【推-2】）：側欄 N 拖進 P 的編輯器放下 → 網址不變、側欄沒有落點與預覽、P 多一個指向 N 的 wikilink [sc:dragNoteToEditor]", async ({ page }) => {
   test.setTimeout(150_000);
   const P = `E2E Drag Page ${RUN}`;
   const N = `E2E Drag Linked ${RUN}`;

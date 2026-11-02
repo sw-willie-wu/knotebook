@@ -1,0 +1,214 @@
+{
+  "shortcutsGuide": {
+    "categories": {
+      "global": "General",
+      "typing": "Typing triggers",
+      "markdown": "Markdown shortcuts",
+      "formatting": "Text formatting",
+      "columns": "Columns",
+      "sidebar": "Sidebar",
+      "presentation": "Presentation",
+      "ai": "AI",
+      "mouse": "Mouse"
+    },
+    "keys": {
+      "space": "Space",
+      "enter": "Enter",
+      "esc": "Esc",
+      "tab": "Tab",
+      "backspace": "Backspace",
+      "delete": "Delete",
+      "click": "Click"
+    },
+    "srKeys": {
+      "command": "Command",
+      "shift": "Shift",
+      "option": "Option",
+      "up": "Up arrow",
+      "down": "Down arrow",
+      "left": "Left arrow",
+      "right": "Right arrow",
+      "or": "or",
+      "pair": ", "
+    },
+    "footer": "Press <keys/> to open this page.",
+    "items": {
+      "search": {
+        "name": "Search notes",
+        "desc": "Moves the cursor to the search box in the sidebar. On a narrow screen it opens the sidebar first."
+      },
+      "searchClear": {
+        "name": "Clear the search",
+        "desc": "In the search box, clears what you typed and brings back the sidebar sections."
+      },
+      "saveVersion": {
+        "name": "Save current version",
+        "desc": "On a note you can edit, saves the current content as a version. You can give it a name."
+      },
+      "openSettings": {
+        "name": "Open settings",
+        "desc": "Opens your settings. It does nothing while another dialog or menu is open."
+      },
+      "openShortcuts": {
+        "name": "Open this page",
+        "desc": "Press it again to close."
+      },
+      "slashMenu": {
+        "name": "Insert menu",
+        "desc": "Type it to pick what to insert: headings, lists, tables, images, diagrams, columns and more."
+      },
+      "wikilink": {
+        "name": "Link to another note",
+        "desc": "Type it, then part of the title, and press Enter to pick the note. The other note gets a backlink."
+      },
+      "markdownLink": {
+        "name": "Link to a web address",
+        "desc": "Write [text](https://…). It turns into a link as soon as you type the closing parenthesis."
+      },
+      "heading": {
+        "name": "Headings",
+        "desc": "At the start of an empty paragraph, # is heading 1, ## is heading 2 and ### is heading 3. It goes up to ###### for heading 6. Add a space after the marks."
+      },
+      "bullet": {
+        "name": "Bulleted list",
+        "desc": "At the start of an empty paragraph, type -, * or + and a space."
+      },
+      "numbered": {
+        "name": "Numbered list",
+        "desc": "At the start of an empty paragraph, type 1. and a space."
+      },
+      "checklist": {
+        "name": "To-do list",
+        "desc": "At the start of an empty paragraph, [] and a space makes an unchecked to-do. [x] and a space makes a checked one."
+      },
+      "quote": {
+        "name": "Quote",
+        "desc": "At the start of an empty paragraph, type > and a space."
+      },
+      "codeBlock": {
+        "name": "Code block",
+        "desc": "Type three backticks and a space. To pick a language, write it before the space, for example ```ts."
+      },
+      "divider": {
+        "name": "Divider",
+        "desc": "Type three dashes in an empty paragraph."
+      },
+      "inlineCode": {
+        "name": "Inline code",
+        "desc": "Put the text between backticks. The backticks disappear when you close them."
+      },
+      "inlineMarks": {
+        "name": "Bold, italic, strikethrough",
+        "desc": "**bold** makes bold text, *italic* makes italic text and ~~strikethrough~~ strikes it out. The marks disappear when you close them."
+      },
+      "bold": {
+        "name": "Bold",
+        "desc": "Applies to the selected text."
+      },
+      "italic": {
+        "name": "Italic",
+        "desc": "Applies to the selected text."
+      },
+      "underline": {
+        "name": "Underline",
+        "desc": "Applies to the selected text."
+      },
+      "strike": {
+        "name": "Strikethrough",
+        "desc": "Applies to the selected text."
+      },
+      "codeMark": {
+        "name": "Mark as code",
+        "desc": "Applies to the selected text."
+      },
+      "link": {
+        "name": "Add a link",
+        "desc": "With text selected, opens a box for the web address. It does not jump to search."
+      },
+      "undo": {
+        "name": "Undo",
+        "desc": "Takes back your last change."
+      },
+      "redo": {
+        "name": "Redo",
+        "desc": "Brings back what you undid."
+      },
+      "indent": {
+        "name": "Indent",
+        "desc": "Tab indents a list item or a paragraph. Shift Tab takes the indent back."
+      },
+      "lineBreak": {
+        "name": "Line break",
+        "desc": "Starts a new line inside the same paragraph."
+      },
+      "moveBlock": {
+        "name": "Move a paragraph up or down",
+        "desc": "The up arrow moves the paragraph with the cursor up one place. The down arrow moves it down one place."
+      },
+      "columnsInsert": {
+        "name": "Insert columns",
+        "desc": "Type it and pick 2, 3 or 4 columns. The menu does not offer columns while the cursor is already inside a column."
+      },
+      "columnBackspace": {
+        "name": "Backspace at the start of a column",
+        "desc": "Moves that paragraph into the previous column. In an empty column it deletes the column. When one column is left, the columns turn back into plain paragraphs."
+      },
+      "columnDelete": {
+        "name": "Delete at the end of a column",
+        "desc": "Brings the first paragraph of the next column up here. If the next column is empty, it deletes that column. When one column is left, the columns turn back into plain paragraphs."
+      },
+      "columnUngroup": {
+        "name": "Ungroup columns",
+        "desc": "In the ⋮⋮ menu next to a paragraph, choose “Ungroup columns” to put the columns back in a stack."
+      },
+      "selectEsc": {
+        "name": "Leave select mode",
+        "desc": "Works when the focus is in the sidebar or nowhere in particular. It does nothing while you are typing in a note or another text box."
+      },
+      "selectRange": {
+        "name": "Select a range",
+        "desc": "In select mode, click one note, then hold Shift and click another to select everything between them."
+      },
+      "presentNav": {
+        "name": "Move through slides",
+        "desc": "The right arrow goes to the next chapter and the left arrow to the previous one. The down arrow goes to the next section and the up arrow to the previous one."
+      },
+      "presentOverview": {
+        "name": "Overview",
+        "desc": "Shows all the slides. Press Esc to close the overview."
+      },
+      "presentFullscreen": {
+        "name": "Full screen",
+        "desc": "Switches full screen on or off. Presenting from the menu starts in full screen, so the first press leaves it."
+      },
+      "presentExit": {
+        "name": "Leave the presentation",
+        "desc": "Goes back to the note."
+      },
+      "aiSelect": {
+        "name": "Run an AI action",
+        "desc": "In a note you can edit, select some text and click the AI button on the toolbar to run an AI action your site has set up."
+      },
+      "aiSend": {
+        "name": "Send an instruction",
+        "desc": "In “AI on selection”, Enter sends your instruction and Shift Enter starts a new line."
+      },
+      "aiClose": {
+        "name": "Close AI on selection",
+        "desc": "Closes the box."
+      },
+      "dragBlock": {
+        "name": "Drag a paragraph",
+        "desc": "Drag the ⋮⋮ handle next to a paragraph to move it somewhere else."
+      },
+      "dragNoteToEditor": {
+        "name": "Link by dragging",
+        "desc": "Drag a note from the sidebar into the text to insert a link to it."
+      },
+      "dragNoteToFolder": {
+        "name": "Move into a folder",
+        "desc": "Drag a note onto a folder. Hold it over another note to see a new folder holding both. Let go, name the folder, and it is created."
+      }
+    }
+  }
+}

@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router";
 import { useSession } from "@/auth/useSession";
@@ -6,6 +6,9 @@ import { useTheme, ACCENTS, type Accent, type Theme } from "@/theme";
 import { Check, Settings } from "@/components/ui/icons";
 import { SIDEBAR_ROW_HEIGHT } from "@/components/ui/rows";
 import { cn } from "@/lib/utils";
+import { isMacPlatform } from "@/lib/platform";
+import { useShortcutsDialog } from "@/lib/shortcuts-dialog";
+import { openSettings } from "@/lib/open-settings";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -48,6 +51,11 @@ export function UserMenu() {
   const { user, logout } = useSession();
   const { theme, setTheme, accent, setAccent } = useTheme();
   const accentLabelId = useId();
+  // 快捷鍵介紹項（plan T7）：這幾個 hook 必須在 `if (!user) return null` 之前。
+  const shortcuts = useShortcutsDialog();
+  const mac = isMacPlatform();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   if (!user) return null;
 
@@ -66,9 +74,10 @@ export function UserMenu() {
   }
 
   return (
-    <DropdownMenu>
+    <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
       <DropdownMenuTrigger asChild>
         <button
+          ref={triggerRef}
           type="button"
           aria-label={user.displayName}
           className={cn(
@@ -166,11 +175,38 @@ export function UserMenu() {
         </DropdownMenuRadioGroup>
 
         <DropdownMenuSeparator />
+        {/* Ctrl+, 的提示只在 AppShell 底下才標（context 非 null）：那支監聽器在 AppShell，單獨渲染本元件時按了不會有反應。
+            提示字 aria-hidden：不進選單項的可及名稱（e2e 以名稱找項）。開法與 AppShell 的 Ctrl+, 同一條路（`openSettings`）。 */}
         <DropdownMenuItem
-          onSelect={() => navigate("/settings/account", { state: { backgroundLocation: location } })}
+          aria-keyshortcuts={shortcuts ? (mac ? "Meta+," : "Control+,") : undefined}
+          onSelect={() => openSettings(navigate, location)}
         >
           {t("settings.entry")}
+          {shortcuts && (
+            <span aria-hidden="true" className="ml-auto pl-4 text-xs text-muted-foreground">
+              {mac ? "⌘," : "Ctrl+,"}
+            </span>
+          )}
         </DropdownMenuItem>
+        {/* 快捷鍵介紹（Ctrl+/）：不在 AppShell 底下（context 為 null，例如單獨渲染本元件的測試）就不渲染，免得出現點了沒反應的死項。
+            三步形照 NoteMenu 的 focus trap 規矩：preventDefault → 手動關選單 → 開對話框，並把觸發鈕交給對話框當關閉時的還焦點目標。
+            ⚠ 少了 preventDefault 選單一樣會關，單元測試守不到這一步（跟 NoteMenu 同理）；焦點回歸由 AppShell.shortcuts.test 的 S14 與 e2e 守。 */}
+        {shortcuts && (
+          <DropdownMenuItem
+            aria-keyshortcuts={mac ? "Meta+/" : "Control+/"}
+            onSelect={(event) => {
+              event.preventDefault();
+              setMenuOpen(false);
+              shortcuts.open(triggerRef.current);
+            }}
+          >
+            {t("userMenu.shortcuts")}
+            {/* 提示字 aria-hidden：不進選單項的可及名稱（e2e 以名稱找項）。 */}
+            <span aria-hidden="true" className="ml-auto pl-4 text-xs text-muted-foreground">
+              {mac ? "⌘/" : "Ctrl+/"}
+            </span>
+          </DropdownMenuItem>
+        )}
         {/* 站台管理是 modal（#247）：帶 backgroundLocation，關閉時回到原頁。非 admin 不渲染；/admin 的 RequireAdmin 才是防線。 */}
         {user.isAdmin && (
           <DropdownMenuItem onSelect={() => navigate("/admin/users", { state: { backgroundLocation: location } })}>{t("userMenu.siteAdmin")}</DropdownMenuItem>

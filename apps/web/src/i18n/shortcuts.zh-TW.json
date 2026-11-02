@@ -1,0 +1,214 @@
+{
+  "shortcutsGuide": {
+    "categories": {
+      "global": "通用",
+      "typing": "打字觸發",
+      "markdown": "Markdown 速記",
+      "formatting": "文字格式",
+      "columns": "並排",
+      "sidebar": "側欄",
+      "presentation": "簡報模式",
+      "ai": "AI",
+      "mouse": "滑鼠操作"
+    },
+    "keys": {
+      "space": "空白鍵",
+      "enter": "Enter",
+      "esc": "Esc",
+      "tab": "Tab",
+      "backspace": "Backspace",
+      "delete": "Delete",
+      "click": "點擊"
+    },
+    "srKeys": {
+      "command": "Command",
+      "shift": "Shift",
+      "option": "Option",
+      "up": "向上鍵",
+      "down": "向下鍵",
+      "left": "向左鍵",
+      "right": "向右鍵",
+      "or": "或",
+      "pair": "、"
+    },
+    "footer": "按 <keys/> 打開這頁。",
+    "items": {
+      "search": {
+        "name": "搜尋筆記",
+        "desc": "把游標移到側欄的搜尋框；窄螢幕會先打開側欄。"
+      },
+      "searchClear": {
+        "name": "清除搜尋",
+        "desc": "在搜尋框裡清空打的字，並回到側欄分類。"
+      },
+      "saveVersion": {
+        "name": "儲存當前版本",
+        "desc": "在可編輯的筆記頁，把目前內容儲存成一個版本，可以幫它取名。"
+      },
+      "openSettings": {
+        "name": "打開設定",
+        "desc": "打開個人設定。其他對話框或選單開著時不作用。"
+      },
+      "openShortcuts": {
+        "name": "打開這頁",
+        "desc": "再按一次就關閉。"
+      },
+      "slashMenu": {
+        "name": "插入選單",
+        "desc": "打出來後可以挑要插入的東西：標題、清單、表格、圖片、流程圖、並排等。"
+      },
+      "wikilink": {
+        "name": "連到別篇筆記",
+        "desc": "打出來後接著打標題的一部分，按 Enter 選那篇筆記。對方筆記會多一筆反向連結。"
+      },
+      "markdownLink": {
+        "name": "連到網址",
+        "desc": "寫成 [文字](https://…)，打完右括號就會變成連結。"
+      },
+      "heading": {
+        "name": "標題",
+        "desc": "在空段落打 # 是標題 1、## 是標題 2、### 是標題 3，最多到 ###### 的標題 6。符號後面要接一個空白。"
+      },
+      "bullet": {
+        "name": "項目清單",
+        "desc": "在空段落打 -、* 或 + 再接一個空白。"
+      },
+      "numbered": {
+        "name": "編號清單",
+        "desc": "在空段落打 1. 再接一個空白。"
+      },
+      "checklist": {
+        "name": "待辦清單",
+        "desc": "在空段落打 [] 加空白是還沒勾的待辦，[x] 加空白是已經勾好的待辦。"
+      },
+      "quote": {
+        "name": "引言",
+        "desc": "在空段落打 > 再接一個空白。"
+      },
+      "codeBlock": {
+        "name": "程式碼區塊",
+        "desc": "打三個反引號再接一個空白。要指定語言，就把語言寫在空白之前，例如 ```ts。"
+      },
+      "divider": {
+        "name": "分隔線",
+        "desc": "在空段落裡打三個減號。"
+      },
+      "inlineCode": {
+        "name": "行內程式碼",
+        "desc": "在文字前後各加一個反引號，打完後面那個反引號，標記就會消失。"
+      },
+      "inlineMarks": {
+        "name": "粗體、斜體、刪除線",
+        "desc": "**粗體** 變粗體，*斜體* 變斜體，~~刪除線~~ 加上刪除線。打完結尾的標記，符號就會消失。"
+      },
+      "bold": {
+        "name": "粗體",
+        "desc": "作用在選取的文字上。"
+      },
+      "italic": {
+        "name": "斜體",
+        "desc": "作用在選取的文字上。"
+      },
+      "underline": {
+        "name": "底線",
+        "desc": "作用在選取的文字上。"
+      },
+      "strike": {
+        "name": "刪除線",
+        "desc": "作用在選取的文字上。"
+      },
+      "codeMark": {
+        "name": "標成程式碼",
+        "desc": "作用在選取的文字上。"
+      },
+      "link": {
+        "name": "加連結",
+        "desc": "先選取文字，再按這組鍵會開出輸入網址的框，不會跳去搜尋。"
+      },
+      "undo": {
+        "name": "復原",
+        "desc": "取消上一個變更。"
+      },
+      "redo": {
+        "name": "重做",
+        "desc": "把剛才復原的變更做回來。"
+      },
+      "indent": {
+        "name": "縮排",
+        "desc": "Tab 讓清單項目或段落縮排，Shift Tab 取消縮排。"
+      },
+      "lineBreak": {
+        "name": "段內換行",
+        "desc": "在同一個段落裡換到下一行。"
+      },
+      "moveBlock": {
+        "name": "上下搬動段落",
+        "desc": "向上鍵把游標所在的段落往上搬一格，向下鍵往下搬一格。"
+      },
+      "columnsInsert": {
+        "name": "插入並排",
+        "desc": "打出來後選 2、3 或 4 欄。游標已經在欄裡時，選單不提供並排。"
+      },
+      "columnBackspace": {
+        "name": "欄首按 Backspace",
+        "desc": "把這段搬到前一欄；在空欄裡則刪掉那一欄。只剩一欄時，並排會變回一般的上下段落。"
+      },
+      "columnDelete": {
+        "name": "欄尾按 Delete",
+        "desc": "把下一欄的第一段搬上來；下一欄是空的就刪掉它。只剩一欄時，並排會變回一般的上下段落。"
+      },
+      "columnUngroup": {
+        "name": "取消並排",
+        "desc": "在段落旁的 ⋮⋮ 選單裡選「取消並排」，各欄就會拆回上下排。"
+      },
+      "selectEsc": {
+        "name": "結束選取模式",
+        "desc": "焦點在側欄裡、或焦點不在任何輸入處時有效；游標在筆記內文或其他輸入框時不作用。"
+      },
+      "selectRange": {
+        "name": "連續選一段",
+        "desc": "在選取模式裡先點一篇，再按住 Shift 點另一篇，中間的筆記會一起選起來。"
+      },
+      "presentNav": {
+        "name": "切換投影片",
+        "desc": "向右鍵到下一章，向左鍵回上一章；向下鍵到下一節，向上鍵回上一節。"
+      },
+      "presentOverview": {
+        "name": "總覽",
+        "desc": "顯示所有投影片，按 Esc 收起總覽。"
+      },
+      "presentFullscreen": {
+        "name": "全螢幕",
+        "desc": "開關全螢幕。從選單進入簡報時已經是全螢幕，所以第一次按會先退出全螢幕。"
+      },
+      "presentExit": {
+        "name": "離開簡報",
+        "desc": "回到筆記。"
+      },
+      "aiSelect": {
+        "name": "執行 AI 動作",
+        "desc": "在可編輯的筆記裡選取文字，點工具列上的 AI 按鈕，就能執行站台設定好的 AI 動作。"
+      },
+      "aiSend": {
+        "name": "送出指令",
+        "desc": "在「框選 AI」裡，Enter 送出指令，Shift Enter 換行。"
+      },
+      "aiClose": {
+        "name": "關閉框選 AI",
+        "desc": "關閉這個框。"
+      },
+      "dragBlock": {
+        "name": "拖曳段落",
+        "desc": "拖段落旁邊的 ⋮⋮ 把手，就能把它搬到別的地方。"
+      },
+      "dragNoteToEditor": {
+        "name": "拖進內文變連結",
+        "desc": "從側欄把一篇筆記拖進內文，就會插入連到它的連結。"
+      },
+      "dragNoteToFolder": {
+        "name": "移進資料夾",
+        "desc": "把筆記拖到資料夾上就會移進去。停在另一篇筆記上不放，會出現兩篇疊成的新資料夾預覽；放開後取名，資料夾就建立了。"
+      }
+    }
+  }
+}
