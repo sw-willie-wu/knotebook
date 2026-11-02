@@ -12,6 +12,8 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 - **Keyboard shortcuts**: press Ctrl+/ (⌘/ on a Mac), or choose **Keyboard shortcuts** in the user menu at the bottom of the sidebar, to see the common keyboard shortcuts and typing triggers. It looks like the settings: the groups (General, Typing triggers, Markdown shortcuts and so on) are listed on the left and the shortcuts of the chosen group are on the right, one group at a time; on a narrow screen the two take turns. It lists only what your site can use: the AI group isn't shown when no AI action is set up, and the line about sending an instruction isn't shown when there is no Instruct action. Press the shortcut again or Esc to close it. It doesn't open while another dialog or menu is open, during a presentation, or on pages without the sidebar (sign-in, public notes). See [Known limitations](docs/known-limitations.md#keyboard-shortcuts).
 - **Ctrl+, (⌘, on a Mac) opens your settings**, the same as **Settings** in the user menu, which now shows the shortcut next to it. It works on pages that have the sidebar (not sign-in or public notes) and does nothing while another dialog or menu is open, including the settings themselves.
 
+## [0.14.1] - 2026-11-02
+
 ### Changed
 
 - **Notes with Mermaid diagrams open faster.** A diagram is drawn only when it comes near the visible part of the note, one at a time with a pause between them so typing and scrolling stay responsive, and shows **Rendering diagram…** until it is drawn. A diagram already drawn in this tab (same source, same theme) appears at once when you come back to the note or open the presentation. Switching the theme redraws diagrams far from view only when you scroll to them.
