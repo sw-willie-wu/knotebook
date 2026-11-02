@@ -1,6 +1,6 @@
 /**
  * 資料夾的服務層（spec docs/superpowers/specs/2026-10-22-folders-design.md §5.5、§5.7、§5.11）：REST 與 PR-3d 的 MCP 共用的唯一入口。
- * 每支的形一律是「名稱 → 交易外快速判（§5.5 I2 入口順序）→ 扣 `edit` 桶 → 縫 → 交易（`folders/tx/*`，S14：callback 整段一個
+ * 每支的形一律是「名稱 → 交易外快速判（§5.5 I2 入口順序）→ 扣 `folder` 桶 → 縫 → 交易（`folders/tx/*`，S14：callback 整段一個
  * `xInTx`）→ catch 映射」。失敗一律回 HTTP 對應的錯誤形（REST 直接送；MCP 之後以 code 映射）。HTTP 層訊息中文（附錄 C）。
  * 含 `.transaction(` ⇒ 在 S14 的 `ROUTE_FILES`（④ 計數）。
  */
@@ -52,7 +52,7 @@ export interface FolderServiceDeps {
   collabHooks: CollabHooks;
   storageLockTimeoutMs: number;
   groupTestHook?: GroupTestHook;
-  limiters: { edit: FixedWindowLimiter };
+  limiters: { folder: FixedWindowLimiter };
 }
 
 /** 一律回 HTTP 對應的錯誤形（REST 直接送，PR-3d 的 MCP 以 code 映射）。 */
@@ -66,7 +66,7 @@ export async function listFolders(db: Db, userId: string): Promise<FolderDto[]> 
 
 /**
  * 建立（§5.7.1）。id（`parent.folderId`、`space.groupId`）由呼叫端轉小寫；這裡只驗 UUID 形。
- * 順序（§5.5 I2）：名稱 → 位置的可見性（404）→ 管理權（403）→ 扣 `edit` 桶 → `folder-authorized` 縫 → 交易（重判全部）。
+ * 順序（§5.5 I2）：名稱 → 位置的可見性（404）→ 管理權（403）→ 扣 `folder` 桶 → `folder-authorized` 縫 → 交易（重判全部）。
  */
 export async function createFolder(
   deps: FolderServiceDeps,
@@ -103,7 +103,7 @@ export async function createFolder(
     hookCtx = space.kind === "group" ? { groupId: space.groupId } : {};
   }
 
-  if (!deps.limiters.edit.consume(input.by)) return fail(429, "too_many_requests", TOO_MANY_REQUESTS_MESSAGE);
+  if (!deps.limiters.folder.consume(input.by)) return fail(429, "too_many_requests", TOO_MANY_REQUESTS_MESSAGE);
   await deps.groupTestHook?.("folder-authorized", hookCtx);
 
   const txInput: CreateFolderInput = { by: input.by, name: name.name, lockTimeoutMs: deps.storageLockTimeoutMs, target };
@@ -124,7 +124,7 @@ export async function createFolder(
 /**
  * 改名／搬移（§5.7.2、§5.7.3；只限同空間）。`folderId` 由 app 層 `lowercaseUuidParams`、`parentId` 由路由轉小寫；這裡只驗 UUID 形。
  * 順序（§5.7.3、§5.5 I2）：名稱 → 自己的可見性（404）→ 新父層的可見性（非 UUID 或看不到 → 404）→ 同空間（400）→ 管理權（403）
- * → 扣 `edit` 桶 → `folder-authorized` 縫 → 交易（重判全部，再成環、深度、撞名）。
+ * → 扣 `folder` 桶 → `folder-authorized` 縫 → 交易（重判全部，再成環、深度、撞名）。
  */
 export async function updateFolder(
   deps: FolderServiceDeps,
@@ -149,7 +149,7 @@ export async function updateFolder(
   }
   if (!access.permissions.manage) return fail(403, "forbidden", FOLDER_FORBIDDEN_MESSAGE);
 
-  if (!deps.limiters.edit.consume(input.by)) return fail(429, "too_many_requests", TOO_MANY_REQUESTS_MESSAGE);
+  if (!deps.limiters.folder.consume(input.by)) return fail(429, "too_many_requests", TOO_MANY_REQUESTS_MESSAGE);
   const folderId = access.folder.id;
   await deps.groupTestHook?.("folder-authorized", { folderId, ...(access.space.kind === "group" ? { groupId: access.space.groupId } : {}) });
 
@@ -178,7 +178,7 @@ export async function updateFolder(
 /**
  * 刪資料夾（§5.7.4）。`folderId` 由 app 層 `lowercaseUuidParams` 轉小寫；這裡只驗 UUID 形。
  * 順序：可見性（404）→ 管理權（403）→（個人／群組）預讀子樹活筆記（述詞，M15），非空且無刪除權 → 403 `folder_delete_blocked`
- * → 扣 `edit` 桶 → `folder-authorized` 縫 → 對預讀到的每篇開共編閘門 → `folder-delete-gated` 縫 → 交易 →
+ * → 扣 `folder` 桶 → `folder-authorized` 縫 → 對預讀到的每篇開共編閘門 → `folder-delete-gated` 縫 → 交易 →
  * **不論成功或失敗**全部 `release()`（M1：預讀後才搬出子樹的不收門會擋新連線到 TTL；`releaseDeletingGate` 只收活筆記）。
  * 共享私人：筆記不動（放置 CASCADE），不預讀、不開閘門（F7）。
  * `onlyIfEmpty`（§5.7.4「只刪空資料夾」）：預讀到活筆記 → 409 `folder_not_empty`（排在 `folder_delete_blocked` 之前，不扣桶、
@@ -206,7 +206,7 @@ export async function deleteFolder(
     if (liveIds.length > 0 && !access.permissions.deleteNotes) return fail(403, "folder_delete_blocked", FOLDER_DELETE_BLOCKED_MESSAGE);
   }
 
-  if (!deps.limiters.edit.consume(input.by)) return fail(429, "too_many_requests", TOO_MANY_REQUESTS_MESSAGE);
+  if (!deps.limiters.folder.consume(input.by)) return fail(429, "too_many_requests", TOO_MANY_REQUESTS_MESSAGE);
   const hookCtx: GroupHookCtx = { folderId, ...(access.space.kind === "group" ? { groupId: access.space.groupId } : {}) };
   await deps.groupTestHook?.("folder-authorized", hookCtx);
 
@@ -243,7 +243,7 @@ export async function deleteFolder(
 /**
  * 把筆記放進／移出資料夾（§5.7.5）。`noteId` 由 app 層 `lowercaseUuidParams`、`folderId` 由路由轉小寫；這裡只驗 UUID 形。
  * 順序（§5.5：筆記授權排在資料夾之前）：筆記授權（404／群組筆記無編輯權 403）→ 模式 → 資料夾可見性（404）→ 空間（400）
- * → 扣 `edit` 桶 → `note-folder-authorized` 縫 → 交易（重判全部）→ 回呼叫者視角的 `NoteDto`。
+ * → 扣 `folder` 桶 → `note-folder-authorized` 縫 → 交易（重判全部）→ 回呼叫者視角的 `NoteDto`。
  */
 export async function placeNote(
   deps: FolderServiceDeps,
@@ -268,7 +268,7 @@ export async function placeNote(
     folderId = folder.folder.id;
   }
 
-  if (!deps.limiters.edit.consume(by)) return fail(429, "too_many_requests", TOO_MANY_REQUESTS_MESSAGE);
+  if (!deps.limiters.folder.consume(by)) return fail(429, "too_many_requests", TOO_MANY_REQUESTS_MESSAGE);
   await deps.groupTestHook?.("note-folder-authorized", { noteId, ...(folderId !== null ? { folderId } : {}) });
 
   const txInput: PlaceNoteInput = { by, noteId, folderId, mode };

@@ -72,9 +72,10 @@ export interface McpRouteDeps {
   collab?: CollabServer;
   editing?: EditingRuntime;
   /**
-   * 逐鍵挑（不整包轉傳）：MCP 只該看得到自己會用的五顆桶。`contentRead` 給兩支讀取工具，
+   * 逐鍵挑（不整包轉傳）：MCP 只該看得到自己會用的六顆桶。`contentRead` 給兩支讀取工具，
    * `edit`／`tokenWrite` 給 PR2 的兩支寫入工具（前者在角色檢查之後扣，後者在 scope 檢查
-   * 那一步扣，順序與 REST 對齊），`search` 給 `search_notes`（#93），`upload` 給 `copy_note`（#180）。
+   * 那一步扣，順序與 REST 對齊），`search` 給 `search_notes`（#93），`upload` 給 `copy_note`（#180），
+   * `folder` 給資料夾工具（經 `folders/service.ts` 扣，與 `foldersRoutes` 同一實例，見 `FOLDER_LIMIT`）。
    */
   limiters: {
     contentRead: FixedWindowLimiter;
@@ -82,6 +83,7 @@ export interface McpRouteDeps {
     tokenWrite: FixedWindowLimiter;
     search: FixedWindowLimiter;
     upload: FixedWindowLimiter;
+    folder: FixedWindowLimiter;
   };
   presence?: PresenceRegistry;
   /**

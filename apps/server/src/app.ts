@@ -53,7 +53,7 @@ import { sendError } from "./http/errors.js";
 // #108：`stripDefaultPort` 搬到 `http/origin.ts`（與 `mcpOriginAllowed` 同一個葉節點模組，
 // 兩種比較語意的差別寫在該檔檔頭）。
 import { stripDefaultPort } from "./http/origin.js";
-import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, EDIT_LIMIT, FixedWindowLimiter, OIDC_LIMIT, ONE_TIME_LINK_ATTEMPT_LIMIT, ONE_TIME_LINK_MISS_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, PUBLIC_WIDTH_LIMIT, REGISTER_LIMIT, SEARCH_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_RENAME_LIMIT, TOKEN_WRITE_LIMIT, UPLOAD_LIMIT, USER_SUGGEST_LIMIT } from "./http/rate-limit.js";
+import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, EDIT_LIMIT, FixedWindowLimiter, FOLDER_LIMIT, OIDC_LIMIT, ONE_TIME_LINK_ATTEMPT_LIMIT, ONE_TIME_LINK_MISS_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, PUBLIC_WIDTH_LIMIT, REGISTER_LIMIT, SEARCH_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_RENAME_LIMIT, TOKEN_WRITE_LIMIT, UPLOAD_LIMIT, USER_SUGGEST_LIMIT } from "./http/rate-limit.js";
 import { FORM_EXEMPT_ROUTES, isOauthScopedPath, sendOauthError } from "./http/oauth-errors.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { oauthMetadataRoutes } from "./routes/oauth-metadata.js";
@@ -174,6 +174,8 @@ export interface AppDeps {
     userSuggest: FixedWindowLimiter;
     /** #106 寫入端：`POST /api/notes/:id/edits`、`POST /api/notes` 帶 `content`（key=userId，見 `EDIT_LIMIT`）。 */
     edit: FixedWindowLimiter;
+    /** 資料夾寫入（`folders/service.ts` 四支，REST 與 MCP 共用；key=userId，見 `FOLDER_LIMIT`——不與 `edit` 共桶）。 */
+    folder: FixedWindowLimiter;
     /** #187 §9.1：帳密註冊（key=ip）。 */
     register: FixedWindowLimiter;
     /** #286／#285：重設連結與邀請的 inspect／完成（四個無登入端點、跨 kind 共用）的無效 token（key=ip；失敗才扣，見 `ONE_TIME_LINK_MISS_LIMIT`）。 */
@@ -667,6 +669,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       search: new FixedWindowLimiter(SEARCH_LIMIT),
       userSuggest: new FixedWindowLimiter(USER_SUGGEST_LIMIT),
       edit: new FixedWindowLimiter(EDIT_LIMIT),
+      folder: new FixedWindowLimiter(FOLDER_LIMIT),
       register: new FixedWindowLimiter(REGISTER_LIMIT),
       oneTimeLinkMiss: new FixedWindowLimiter(ONE_TIME_LINK_MISS_LIMIT),
       oneTimeLinkAttempt: new FixedWindowLimiter(ONE_TIME_LINK_ATTEMPT_LIMIT),
@@ -823,7 +826,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   // #181：垃圾桶清單／還原／永久刪除（cookie-only，見 routes/trash.ts 檔頭）。
   void app.register(trashRoutes({ db: deps.db, collabHooks: deps.collabHooks, uploadsDir: deps.uploadsDir, storageLockTimeoutMs, groupTestHook: deps.groupTestHook }));
   // 資料夾（spec 2026-10-22 §5.11）：讀取收 Bearer notes:read、寫入 cookie-only（見 routes/folders.ts 檔頭）。
-  void app.register(foldersRoutes({ db: deps.db, collabHooks: deps.collabHooks, storageLockTimeoutMs, groupTestHook: deps.groupTestHook, limiters: { edit: limiters.edit } }));
+  void app.register(foldersRoutes({ db: deps.db, collabHooks: deps.collabHooks, storageLockTimeoutMs, groupTestHook: deps.groupTestHook, limiters: { folder: limiters.folder } }));
   // #103：群組管理（session-only，見 routes/groups.ts 檔頭）。
   void app.register(groupsRoutes({ db: deps.db, collabHooks: deps.collabHooks, groupTestHook: deps.groupTestHook, uploadsDir: deps.uploadsDir, storageLockTimeoutMs, versions }));
   // 加成員／分享對話框的「認識的人」建議（session-only，見 routes/users.ts 檔頭）。
@@ -896,8 +899,9 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       config: deps.config,
       collab: deps.collab,
       editing,
-      // 逐鍵挑，不整包轉傳——MCP 只該看得到它自己會用的五顆桶（#180：`upload` 給 copy_note，與 uploadsRoutes／notesRoutes 同一實例）。
-      limiters: { contentRead: limiters.contentRead, edit: limiters.edit, tokenWrite: limiters.tokenWrite, search: limiters.search, upload: limiters.upload },
+      // 逐鍵挑，不整包轉傳——MCP 只該看得到它自己會用的六顆桶（#180：`upload` 給 copy_note，與 uploadsRoutes／notesRoutes 同一實例；
+      // `folder` 給資料夾工具，與 foldersRoutes 同一實例）。
+      limiters: { contentRead: limiters.contentRead, edit: limiters.edit, tokenWrite: limiters.tokenWrite, search: limiters.search, upload: limiters.upload, folder: limiters.folder },
       presence,
       writes,
       testHooks: deps.mcpTestHooks,

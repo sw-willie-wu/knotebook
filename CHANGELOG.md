@@ -11,6 +11,10 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 - **Notes with Mermaid diagrams open faster.** A diagram is drawn only when it comes near the visible part of the note, one at a time with a pause between them so typing and scrolling stay responsive, and shows **Rendering diagram…** until it is drawn. A diagram already drawn in this tab (same source, same theme) appears at once when you come back to the note or open the presentation. Switching the theme redraws diagrams far from view only when you scroll to them.
 
+### Fixed
+
+- **Moving many notes into a folder at once no longer stops after 30.** Creating, renaming, moving and deleting folders and filing notes in them — in the web app and with MCP's folder tools — now count against their own limit of 600 a minute per person instead of the 30-writes-a-minute limit that edits, copies and versions use, so doing so no longer uses up the budget for AI edits. Moving a selection in the sidebar now stops with "Too many requests" after about 600 in a minute (sooner if you've made other changes to folders in that minute) rather than after 30; its **Undo** counts against the same limit, so it can still stop partway when the move and the **Undo** together pass it. See [Known limitations](docs/known-limitations.md#folders).
+
 ## [0.14.0] - 2026-11-01
 
 ### Upgrade notes

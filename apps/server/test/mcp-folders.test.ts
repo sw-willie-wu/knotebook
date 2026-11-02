@@ -383,7 +383,7 @@ const FM11 = "The server was busy, so nothing was changed. Try again in a moment
 const FM17 =
   "A folder can only move within its own space — among your personal folders, within one group, or among your folders for notes shared with you — so nothing was changed. Pass `parent_id: null` to move it to the top level of its space.";
 const FM20 = "Pass at most one of `parent_id`, `group_id` and `shared: true`, so nothing was created.";
-const RATE = "Too many note writes right now. Wait a moment before writing again.";
+const RATE = "Too many folder changes right now, so nothing was changed. Try again in a moment.";
 
 const folderCount = async (db: Db): Promise<number> => (await db.$client.query<{ n: number }>(`select count(*)::int n from folders`)).rows[0]!.n;
 const folderOf = async (db: Db, id: string) =>
@@ -437,10 +437,10 @@ describe("CF1 create_folder 的四種位置", () => {
     expect([g3.space.kind, g3.parentId]).toEqual(["group", null]);
   });
 
-  it("位置參數兩個以上 → invalid_body＋FM20、名稱不合法 → FM6；DB 無新列；tokenWrite 已扣（scope 在兩者之前）而 edit 桶未扣", async () => {
+  it("位置參數兩個以上 → invalid_body＋FM20、名稱不合法 → FM6；DB 無新列；tokenWrite 已扣（scope 在兩者之前）而 folder 桶未扣", async () => {
     const tokenWrite = new FixedWindowLimiter({ limit: 50, windowMs: 600_000 });
-    const edit = new FixedWindowLimiter({ limit: 50, windowMs: 600_000 });
-    const ctx = await buildCollabTestApp({ limiters: { tokenWrite, edit } });
+    const folder = new FixedWindowLimiter({ limit: 50, windowMs: 600_000 });
+    const ctx = await buildCollabTestApp({ limiters: { tokenWrite, folder } });
     const me = await seedUser(ctx.db);
     const g = await seedGroup(ctx.db, "CF1b", [{ userId: me.id, role: "member" }]);
     const f = await seedFolder(ctx.db, { personal: me.id }, { name: "P" });
@@ -456,7 +456,7 @@ describe("CF1 create_folder 的四種位置", () => {
     expect(await folderCount(ctx.db)).toBe(before);
     expect((await folderOf(ctx.db, f.id))!.name).toBe("P");
     expect(remaining(tokenWrite, `token:${me.id}`)).toBe(45);
-    expect(remaining(edit, me.id)).toBe(50);
+    expect(remaining(folder, me.id)).toBe(50);
   });
 });
 
@@ -633,8 +633,8 @@ describe("BZ-W 可重試錯誤", () => {
 });
 
 describe("ED-W 桶", () => {
-  it("edit 桶 0 → too_many_requests、DB 不變；同設定下看不到的資料夾 → not_found（授權在扣桶之前）", async () => {
-    const ctx = await buildCollabTestApp({ limiters: { edit: new FixedWindowLimiter({ limit: 0, windowMs: 600_000 }) } });
+  it("folder 桶 0 → too_many_requests、DB 不變；同設定下看不到的資料夾 → not_found（授權在扣桶之前）", async () => {
+    const ctx = await buildCollabTestApp({ limiters: { folder: new FixedWindowLimiter({ limit: 0, windowMs: 600_000 }) } });
     const me = await seedUser(ctx.db);
     const f = await seedFolder(ctx.db, { personal: me.id }, { name: "F" });
     const auth = await tokenOf(ctx.db, me.id, RW);
@@ -1515,8 +1515,8 @@ describe("DF6 共編閘門（真 hooks）", () => {
 });
 
 describe("DF7 桶與設定", () => {
-  it("edit 桶 0 → too_many_requests、什麼都沒刪；同設定下看不到的資料夾 → not_found（授權在扣桶之前）", async () => {
-    const ctx = await buildCollabTestApp({ limiters: { edit: new FixedWindowLimiter({ limit: 0, windowMs: 600_000 }) } });
+  it("folder 桶 0 → too_many_requests、什麼都沒刪；同設定下看不到的資料夾 → not_found（授權在扣桶之前）", async () => {
+    const ctx = await buildCollabTestApp({ limiters: { folder: new FixedWindowLimiter({ limit: 0, windowMs: 600_000 }) } });
     const me = await seedUser(ctx.db);
     const [R, X] = await seedFolderChain(ctx.db, { personal: me.id }, ["R", "X"]);
     const n = await noteInFolder(ctx.db, { ownerId: me.id }, X!);
@@ -1526,9 +1526,9 @@ describe("DF7 桶與設定", () => {
     await expectKept(ctx.db, [[n, X!]], [R!, X!]);
   });
 
-  it("site_settings 列不在 → internal、什麼都沒刪、edit 桶沒被扣", async () => {
-    const edit = new FixedWindowLimiter({ limit: 5, windowMs: 600_000 });
-    const ctx = await buildCollabTestApp({ limiters: { edit } });
+  it("site_settings 列不在 → internal、什麼都沒刪、folder 桶沒被扣", async () => {
+    const folder = new FixedWindowLimiter({ limit: 5, windowMs: 600_000 });
+    const ctx = await buildCollabTestApp({ limiters: { folder } });
     const me = await seedUser(ctx.db);
     const [R, X] = await seedFolderChain(ctx.db, { personal: me.id }, ["R", "X"]);
     const n = await noteInFolder(ctx.db, { ownerId: me.id }, X!);
@@ -1536,7 +1536,7 @@ describe("DF7 桶與設定", () => {
     const r = await callTool(ctx.app, await tokenOf(ctx.db, me.id, RWD), "delete_folder", { folder_id: R! });
     expect([r.isError, r.structuredContent?.code]).toEqual([true, "internal"]);
     await expectKept(ctx.db, [[n, X!]], [R!, X!]);
-    expect(remaining(edit, me.id)).toBe(5);
+    expect(remaining(folder, me.id)).toBe(5);
   });
 
   it("tokenWrite 0（RWD 憑證）→ too_many_requests、什麼都沒刪；session 不吃 token 桶，照常成功", async () => {

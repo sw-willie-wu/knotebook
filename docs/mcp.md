@@ -361,7 +361,7 @@ Links in `content` are saved the same way as in `edit_note` (see [Links to notes
 
 - **Your personal folders and your folders for notes shared with you** are yours alone, and only you can see them. **A group's folders** are seen by every member whose role can read the group's notes, names included; changing them — creating, renaming, moving, deleting them, and filing the group's notes in them — needs a role that can edit notes, and a member who can see them but whose role can't edit notes gets `forbidden`.
 - A token or app credential needs `notes:write` for the first four and `notes:delete` for `delete_folder`; one without it isn't offered the tool.
-- **Two budgets apply** to each call: with a token, one token write (60 per 10 minutes), spent before anything is looked up; and one write from the 30-writes-per-minute budget, spent once the checks before the change itself have passed — for `delete_folder`, one however many notes it moves to the trash. Once spent, they stay spent even when the call then fails without changing anything.
+- **Two budgets apply** to each call: with a token, one token write (60 per 10 minutes), spent before anything is looked up; and one from the folder budget (600 per minute per user, shared with the web app's folder changes and separate from the 30-writes-per-minute budget), spent once the checks before the change itself have passed — for `delete_folder`, one however many notes it moves to the trash. Once spent, they stay spent even when the call then fails without changing anything.
 - `server_busy` means a lock or serialization conflict: nothing was changed — try again in a moment.
 - None of them is recorded in a note's history; after `delete_folder`, `restore_note` is how to bring the notes back.
 
@@ -463,7 +463,8 @@ After a successful `edit_note` you do not have to go back to step 2: the reply a
 | Blocks after parsing | 2000, counting nested blocks | `edit_note`, `create_note` with `content` | tool error `too_many_blocks` |
 | Content reads | 120 per minute per user | `read_note_outline`, `read_note_section`, `read_note_image`, `create_transfer_token` with `download` | tool error `too_many_requests` |
 | Searches | 60 per minute per user | `search_notes` | tool error `too_many_requests` |
-| Writes | 30 per minute per user | `edit_note` (except `rename`), `create_note` **with `content`**, `copy_note`, `delete_note`, `restore_note`, `create_folder`, `rename_folder`, `move_folder`, `move_note_to_folder`, `delete_folder` | tool error `too_many_requests` |
+| Writes | 30 per minute per user | `edit_note` (except `rename`), `create_note` **with `content`**, `copy_note`, `delete_note`, `restore_note` | tool error `too_many_requests` |
+| Folder changes | 600 per minute per user, shared with the web app's folder changes | `create_folder`, `rename_folder`, `move_folder`, `move_note_to_folder`, `delete_folder` (one however many notes it moves to the trash) | tool error `too_many_requests` |
 | Uploads | 120 files per 10 minutes per user | `copy_note` (one per attached image the copy will include, counted before copying), shared with uploads | tool error `too_many_requests` |
 | Token writes | 60 per 10 minutes per user | `edit_note`, `create_note` **with or without `content`**, `move_note_to_group`, `copy_note` (except one refused for its `folder_id` or for lack of `notes:move`, which spends nothing), `delete_note`, `restore_note`, `create_folder`, `rename_folder`, `move_folder`, `move_note_to_folder`, `delete_folder`, and `create_transfer_token` with `upload`, made with a token | tool error `too_many_requests` |
 | Concurrent writes to one note | serialised, 10 s wait | `edit_note` (except `rename`) | tool error `server_busy` |

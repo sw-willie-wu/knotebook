@@ -23,6 +23,7 @@ import {
   FOLDER_NEEDS_EDIT_MESSAGE,
   FOLDER_NOT_FOUND_MESSAGE,
   FOLDER_POSITION_AMBIGUOUS_MESSAGE,
+  FOLDER_RATE_LIMITED_MESSAGE,
   FOLDER_TOO_DEEP_MESSAGE,
   MOVE_TO_GROUP_FOLDER_CROSS_SPACE_MESSAGE,
   NEW_NOTE_FOLDER_CROSS_SPACE_MESSAGE,
@@ -38,7 +39,6 @@ import { NOTE_NOT_FOUND_MESSAGE } from "../../src/mcp/note-read.js";
 import { LIST_BASE_COST } from "../../src/mcp/tools/list-notes.js";
 import { TRASH_BASE_COST } from "../../src/mcp/tools/list-trash.js";
 import { PAGE_CUT_RESERVE, countWithinWireBudget, wireCost } from "../../src/mcp/wire-budget.js";
-import { WRITE_RATE_LIMITED_MESSAGE } from "../../src/mcp/write-messages.js";
 
 const Q = '"';
 const EMOJI = String.fromCodePoint(0x1f600);
@@ -287,6 +287,7 @@ describe("FM 英文句與 FolderFailure 對照表", () => {
       `That space already has the most folders it can hold (${FOLDERS_PER_SPACE_MAX}), so the folder was not created.`,
     );
     expect(FOLDER_BUSY_MESSAGE).toBe("The server was busy, so nothing was changed. Try again in a moment.");
+    expect(FOLDER_RATE_LIMITED_MESSAGE).toBe("Too many folder changes right now, so nothing was changed. Try again in a moment.");
     expect(NOTE_FILE_FORBIDDEN_MESSAGE).toBe(
       "Your access to this note doesn't allow filing it, so nothing was changed. Filing a group's notes into folders needs a role in that group that can edit notes.",
     );
@@ -334,7 +335,7 @@ describe("FM 英文句與 FolderFailure 對照表", () => {
       expect(map(tool, "folder_limit")).toEqual({ code: "conflict", message: FOLDER_LIMIT_MESSAGE });
       expect(map(tool, "conflict")).toEqual({ code: "conflict", message: FOLDER_CONTENT_CHANGED_MESSAGE });
       expect(map(tool, "not_found")).toEqual({ code: "not_found", message: NOTE_NOT_FOUND_MESSAGE });
-      expect(map(tool, "too_many_requests")).toEqual({ code: "too_many_requests", message: WRITE_RATE_LIMITED_MESSAGE });
+      expect(map(tool, "too_many_requests")).toEqual({ code: "too_many_requests", message: FOLDER_RATE_LIMITED_MESSAGE });
       expect(map(tool, "server_busy")).toEqual({ code: "server_busy", message: FOLDER_BUSY_MESSAGE });
     }
   });

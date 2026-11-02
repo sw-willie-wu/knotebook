@@ -427,7 +427,7 @@ describe("PUT /api/notes/:id/folder", () => {
   });
 
   it("FP-9 雜項：Bearer／未登入 401；節流 429；body strict（缺 folderId、未知鍵 400）；大寫 :id 與大寫 folderId 200", async () => {
-    const { app, db } = await buildTestApp({ limiters: freshLimiters({ edit: new FixedWindowLimiter({ limit: 1, windowMs: 60_000 }) }) });
+    const { app, db } = await buildTestApp({ limiters: freshLimiters({ folder: new FixedWindowLimiter({ limit: 1, windowMs: 60_000 }) }) });
     const pool = db.$client;
     const u = await seedUser(db);
     const F = (await seedFolder(db, { personal: u.id })).id;
