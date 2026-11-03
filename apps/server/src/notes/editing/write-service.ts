@@ -351,7 +351,8 @@ export class NoteWriteService {
    * （F14）；進佇列前只預取候選集合與 agentLabel（同 `applyToNote`）。順序（plan T8「syncFile」1–11）：
    * ① 查基底（key＋user＋note）→ 查無或 `key_id` 不符 → `base_unavailable` ② 狀態表（§9.2-6）③ 規劃：fork → 頂層快照 →
    * 行雜湊（基底的鹽）→ diff → `planSync`；零區（含全是 same）→ 單句寫 `applied_body_sha`、視為內容沒變 ④ 內容沒變 → 改名判斷；
-   * 都沒寫 → `tokenRead`（本請求已扣過 `transferWrite` 就不再扣）⑤ 有區、本請求還沒扣 → `transferWrite`（至多一次，gate r1 I1）
+   * 都沒寫 → `tokenRead`（本請求已扣過 `transferWrite` 就不再扣）④b 有區定位點全消失（`plan.anchorsGone`）→ 409 `base_unavailable`、
+   * 什麼都不寫（Willie 2026-11-04）⑤ 有區、本請求還沒扣 → `transferWrite`（至多一次，gate r1 I1）
    * ⑥ 有 conflict、還沒存過版 → 存版（不持 lease；F18 樣板）⑦ `applySync` → `beforeMerge` → 多期望 `mergeDiff`；不符 → 從 ③
    * 重來（重跑 `planSync`），最多 3 次 ⑧ 紀錄交易（`recordFileSyncInTx`，交易外 `redactDbError`）⑨ `updateNoteLinks`
    * ⑩ 改名（T9）⑪ presence。帶內容參數的 DB 呼叫（紀錄、存版、改名）錯誤一律經 `redactDbError`（plan 不變量 9）。
@@ -435,6 +436,11 @@ export class NoteWriteService {
           zeroRegion = true;
           break;
         }
+        // Willie 2026-11-04：有一區要寫、卻在現況裡找不到任何定位點（倖存者、P、N 全不見——例如 edit_note 把整段換了）→
+        // 整篇 409 `base_unavailable`，照既有 409 出口：在扣桶、存版、紀錄、改名之前，什麼都不寫（`decide.ts` 的 `anchorsGone`）。
+        // 重試路徑的邊緣（接受、不修）：第一輪撞指紋、第二輪重新規劃才判成全消失時，第一輪已扣的桶與已存的版本不退回——與三次都撞指紋
+        // 回 503 的情形一致。
+        if (p.anchorsGone.length > 0) return { ok: false, kind: "base_unavailable" };
         if (!charged) {
           if (!input.limiters.transferWrite.consume(input.userId)) return { ok: false, kind: "rate_limited", retryAfterMs: input.limiters.transferWrite.retryAfterMs(input.userId) };
           charged = true;

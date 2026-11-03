@@ -7,7 +7,9 @@
  *   插入——預解析整串是 `P`..`N` 之間外來 block 的一段連續子序列（`contiguous`，plan §0.1-16）→ `same`；否則 `applied`。
  * - 錨點 `P`／`N`：往前（後）最近一個 agent 沒改、仍有 block 在頂層的段，取其最後（第一）顆還在的；**0 行段不當錨點**；
  *   `P` 在 `N` 之後 → `P` 不可用。外來＝`cur.ids` 減去**基底全部段**的 id（gate r2 m-7）。
- * - 放置：改寫有倖存者 → 第一個倖存者之前；否則（改寫倖存者全不見、插入）→ `P` 之後、無則 `N` 之前、都無則文件開頭。
+ * - 放置：改寫有倖存者 → 第一個倖存者之前；否則（改寫倖存者全不見、插入）→ `P` 之後、無則 `N` 之前、都無則文件開頭——
+ *   但以下兩形整篇改回 409（`anchorsGone`，Willie 2026-11-04）：改寫區倖存者全不見、且 `P`、`N` 都沒有；插入區 `P`、`N` 都沒有、
+ *   而且基底有可錨的段。文件開頭只剩「基底沒有可錨段的插入」與「現況 0 顆頂層」兩形。
  *   `stripStart`＝插入點前一顆是 numbered 且預解析第一顆是 numbered（§9.4-2，E18）。
  * - 刪除區的錨點（rev 4 m-8，守 spec §9.4-4）：候選依序 `P` after、`N` before、現況裡倖存者的實際鄰居（往外掃，外來也可），全部
  *   排除「本次要移除的 block」（所有非 `same` 改寫區與刪除區的倖存者）。找不到：其餘區都是 `same`／刪除、且現況頂層全部要移除
@@ -201,4 +203,25 @@ export function decide(
     d.anchor = anchor ?? (writing === 0 && allRemoved ? "replaceWithEmpty" : "deferred");
   });
   return out;
+}
+
+/**
+ * 定位點全消失（Willie 2026-11-04 裁示）：會寫入內容的區（非 `same` 的改寫區與插入區）在現況裡找不到任何定位點——
+ * 改寫區的倖存者全不見、`P`、`N` 都沒有；插入區 `P`、`N` 都沒有、而基底裡**本來有**可當錨點的段（agent 沒改、非 0 行）——
+ * 回這些區的序號。呼叫端整篇拒絕（409 `base_unavailable`），不再照 §9.4-2 退到文件開頭（那會讓檔案的字與別人的改寫並存）。
+ * 不算的：現況 0 顆頂層（`applySync` 換掉正規化空段落的那條路，AP8／AP8b）；`same` 區（不寫）；刪除區（有倖存者就有東西
+ * 可刪、位置用倖存者；沒有倖存者就是 `same`）；基底沒有可錨的段的插入區（空筆記、只剩 0 行段）；有 `P` 或 `N` 的區（含基底
+ * 開頭的插入：本來就沒有 `P`，`N` 還在）。
+ */
+export function anchorsGone(segments: TransferSegment[], regions: Region[], decisions: Decision[], cur: { ids: string[] }): number[] {
+  if (cur.ids.length === 0) return [];
+  const inRegion = new Set<number>(regions.flatMap(r => r.segIdx));
+  const anchorable = segments.some((s, k) => !inRegion.has(k) && s.count > 0);
+  const gone: number[] = [];
+  decisions.forEach((d, ri) => {
+    if (d.mark === "same" || d.kind === "delete") return;
+    if (d.P !== null || d.N !== null) return;
+    if (d.kind === "rewrite" ? d.survivors.length === 0 : anchorable) gone.push(ri);
+  });
+  return gone;
 }

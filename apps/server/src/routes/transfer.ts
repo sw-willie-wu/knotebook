@@ -58,7 +58,7 @@ export interface WriteTestHooks {
 export type TransferTestHooks = ExportTestHooks & WriteTestHooks;
 
 /** spec §12.2：HTTP 層中文（PR-3 T3 定稿；字面見 `test/unit/bulk-transfer-http-messages.test.ts`）。 */
-export const BASE_UNAVAILABLE_MESSAGE = "無法以這份副本合併：已送回過不同的內容、不屬於這篇，或已過期；請重新下載再改";
+export const BASE_UNAVAILABLE_MESSAGE = "無法以這份副本合併：已送回過不同的內容、不屬於這篇、已過期，或你改的某一處在筆記裡已經找不到該放的位置（例如它前後的內容被 edit_note 換掉）；請重新下載再改";
 export const NOT_MERGEABLE_MESSAGE = "這篇筆記不能用檔案寫回，請改用 edit_note";
 
 export interface TransferRouteDeps {

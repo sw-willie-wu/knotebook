@@ -56,7 +56,7 @@ describe("bulk transfer 的 HTTP 層中文句（字面）", () => {
     expect(EXPORT_BUSY_MESSAGE).toBe("已有一個匯出正在進行，請稍後再試");
     expect(TOO_MANY_NOTES_MESSAGE).toBe("範圍內的筆記超過 3000 篇，請縮小範圍");
     expect(INVALID_UTF8_MESSAGE).toBe("檔案不是 UTF-8");
-    expect(BASE_UNAVAILABLE_MESSAGE).toBe("無法以這份副本合併：已送回過不同的內容、不屬於這篇，或已過期；請重新下載再改");
+    expect(BASE_UNAVAILABLE_MESSAGE).toBe("無法以這份副本合併：已送回過不同的內容、不屬於這篇、已過期，或你改的某一處在筆記裡已經找不到該放的位置（例如它前後的內容被 edit_note 換掉）；請重新下載再改");
     expect(NOT_MERGEABLE_MESSAGE).toBe("這篇筆記不能用檔案寫回，請改用 edit_note");
   });
 
