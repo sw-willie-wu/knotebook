@@ -290,12 +290,12 @@ test('BS-B1 BodySearchLazy chunk 不存在（被靜態 import、整組併回 ent
   }
 });
 
-test('BS-B2 entry 含內文區的 marker（sidebar-body-search）→ throw', () => {
+test('BS-B2 entry 含內文區的 marker（body-match）→ throw', () => {
   const { assets, cleanup } = fakeAssets({
     ...MARKER_BASE, 'index-Abc123.js': `e("section",{"data-testid":"${BODY_SEARCH_MARKER}"})`, 'NotePage-Def456.js': 'x', 'VersionsLazy-Vvv000.js': 'x',
   });
   try {
-    assert.throws(() => checkBundleSize(assets), /index-Abc123\.js[\s\S]*sidebar-body-search[\s\S]*#93/);
+    assert.throws(() => checkBundleSize(assets), /index-Abc123\.js[\s\S]*body-match[\s\S]*#93/);
   } finally {
     cleanup();
   }

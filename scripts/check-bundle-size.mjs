@@ -94,10 +94,12 @@ export const SHORTCUTS_I18N_MARKER = 'columnBackspace';
 // #93 PR2（D18）：側欄搜尋的「內文符合」區（BodySearchResults、查詢 hook、片段與點擊處理）必須是自己的 lazy chunk；
 // `components/sidebar/BodySearchLazy.tsx` 是唯一入口（SearchResults 的 `lazy(() => import("@/components/sidebar/BodySearchLazy"))`）。
 // ⚠ 同 SELECTLAZY_RE：存在性只擋「整組被併回 entry」或 chunk 改名；SearchResults 是唯一呼叫端，改成靜態 import 時整組併回 entry、chunk 消失。
-// 另一道是 BODY_SEARCH_MARKER：內文區根元素的 data-testid，只寫在 BodySearchResults.tsx（首包的 SearchResults、gate、fallback 都不得用這個字；
+// 另一道是 BODY_SEARCH_MARKER：內文片段列的 data-testid（"body-match"），只寫在 BodySearchResults.tsx（首包的 SearchResults、gate、fallback 都不得用這個字；
 // check-bundle-size.test.mjs 的 BS-B4 釘住）——entry 含它＝內文區元件被首包靜態 import。
+// 為什麼挑它：不是 i18n 文案（改文案不會讓它消失），而是 e2e 依賴的 testid 契約；不在任何 i18n json，build 後以字面量留在 chunk 裡。
+// 先前用的根元素 testid 在合併列表重寫後改成與首包共用的 sidebar-search-results，所以換成這個。
 export const BODYSEARCHLAZY_RE = /^BodySearchLazy-[A-Za-z0-9_-]+\.js$/;
-export const BODY_SEARCH_MARKER = 'sidebar-body-search';
+export const BODY_SEARCH_MARKER = 'body-match';
 // 站台管理（admin.*）與設定（settings.*）的字串包（management.*.json，經 `@/i18n/management-strings` 註冊）也只能進 lazy 鏈：
 // 首包只留 AdminModal／SettingsModal／UserMenu 用到的 15 個鍵。兩個 marker 各取一個只在被搬走子樹裡的鍵名
 // （admin.auth.edit.autoCreateConfirmKeep、settings.ai.actionBuiltinBadge），entry 含任一個＝字串包被首包靜態 import（含「某個首包檔 import 了它」）。
