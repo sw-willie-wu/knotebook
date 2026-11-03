@@ -201,7 +201,7 @@ describe("S14 結構性守衛（#175 §4.4）", () => {
       { f: "routes/admin-trash.ts", all: 1, inTx: 1 }, // #181 垃圾桶保留天數（updateTrashSettingsInTx）
       { f: "trash/purge.ts", all: 1, inTx: 1 }, // #181 保留期清理一批（purgeExpiredBatchInTx）
       { f: "folders/service.ts", all: 4, inTx: 4 }, // 資料夾 T5 建立（createFolderInTx）、T6 改名／搬移（updateFolderInTx）、T8 刪除（deleteFolderInTx）、T9 放置（placeNoteInTx）
-      { f: "notes/editing/write-service.ts", all: 0, inTx: 0 }, // bulk transfer PR-2：syncFile 的紀錄交易（recordFileSyncInTx）由 T8 接上後改 1
+      { f: "notes/editing/write-service.ts", all: 1, inTx: 1 }, // bulk transfer PR-2：syncFile 的紀錄交易（recordFileSyncInTx）
     ]);
   });
 

@@ -35,6 +35,12 @@ export interface EditingTestHooks {
   beforeRevertRecord?: () => Promise<void>;
   /** 套用版本的 `beforeDisconnect` 第一步；測試以 throw 模擬基底寫回失敗。 */
   beforeVersionBase?: () => Promise<void>;
+  /** bulk transfer plan H5：檔案寫回呼叫 `cutIfDirty` 前一刻（不持 lease；M9 在這裡斷言 `inFlight === 0`）。 */
+  beforeCut?: () => Promise<void>;
+  /** bulk transfer plan H5：回 `"skipped"`／`null` 就不真的切版、照該結果走（M5）；回 undefined＝照常。 */
+  cutOverride?: () => "skipped" | null | undefined;
+  /** bulk transfer plan T10 CR13：檔案新增扣桶之後、建列之前一刻（測試在這裡刪掉目標資料夾）。 */
+  beforeCreateFromFile?: () => Promise<void>;
 }
 // ⚠ `log` 兩個方法都要：`updateNoteLinks` 用 `warn`、`recordableAfter` 用 `error`。少宣告 `error`
 // 就是 typecheck 紅。

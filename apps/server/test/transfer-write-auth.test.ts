@@ -104,14 +104,13 @@ describe("body 外殼：415／Origin／413／UTF-8", () => {
     expect((await basesOf(s.ctx.db)).length).toBe(before);
   });
 
-  it("W-A7 text/markdown＋Origin: https://evil.example → 403「Origin 驗證失敗」；同一請求不帶 Origin → 通過 onRequest（後續 400 佔位）", async () => {
+  it("W-A7 text/markdown＋Origin: https://evil.example → 403「Origin 驗證失敗」；同一請求不帶 Origin → 通過 onRequest（T10 起是新增 → 201）", async () => {
     const s = await scene();
     const bad = await bulkPut(s.ctx.app, s.bulk.token, FILE, { origin: "https://evil.example" });
     expect(bad.statusCode).toBe(403);
     expect(errOf(bad)).toEqual({ code: "forbidden", message: "Origin 驗證失敗" });
     const good = await bulkPut(s.ctx.app, s.bulk.token, FILE);
-    expect(good.statusCode).toBe(400);
-    expect(errOf(good).code).toBe("invalid_body");
+    expect(good.statusCode).toBe(201);
   });
 
   it("W-A8 body 1 MiB＋1 byte → 413 content_too_large；恰 1 MiB → 不是 413", async () => {

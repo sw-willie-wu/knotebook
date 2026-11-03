@@ -17,7 +17,8 @@ import type { TransferSegment } from "../db/schema.js";
 import type { Region } from "./regions.js";
 
 export type Mark = "applied" | "same" | "conflict";
-export type Anchor = { block_id: string; position: "before" | "after" };
+/** `placeholder`：刪光時補的那顆空段落（只由 `applySync` 的 toEmpty 設；總管追加 T11-1）。 */
+export type Anchor = { block_id: string; position: "before" | "after"; placeholder?: boolean };
 export type Place = { ref: string; where: "before" | "after" } | { start: true } | { replaceSurvivors: true };
 export type SameMode = "equal" | "contiguous";
 

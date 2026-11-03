@@ -4,7 +4,7 @@
 // ⚠ `revert_of` 是 ON DELETE CASCADE，與裁切（RETENTION）交互：撤回**最舊那一筆**時，插入撤回列後
 // 原列剛好被裁掉，撤回列跟著 CASCADE 消失（總數 99 不是 100）；同一個機制也讓一次普通寫入的裁切
 // 連帶刪掉一列還在窗口內的撤回紀錄（原列被裁 → 撤回列 CASCADE）。所以「保留 100 筆」實為「最多 100 筆」。
-import { and, desc, eq, notInArray, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, ne, notInArray, sql } from "drizzle-orm";
 import type { Block, PartialBlock } from "@blocknote/core";
 import * as Y from "yjs";
 import { YDOC_FRAGMENT, sectionize, topLevelContainers, type NoteEditDto } from "@knotebook/shared";
@@ -17,7 +17,17 @@ import { fingerprintForIds } from "./fingerprint.js";
 import { loadNoteDoc } from "./read.js";
 import { EditorSession, type DirectCtx } from "./session.js";
 
-type Anchor = { block_id: string; position: "before" | "after" };
+/** `placeholder`：bulk transfer 刪光時補的那顆空段落（`sync-apply.ts` 的 toEmpty；總管追加 T11-1）。 */
+type Anchor = { block_id: string; position: "before" | "after"; placeholder?: boolean };
+
+/**
+ * 「是不是刪除形」的**唯一一支**（bulk transfer plan §0.1-14、gate r1 I2）：`delete_section`，或 `file_sync` 且有 anchor（刪除區）。
+ * 四處共用：`editRevertable` 的分支、`listEdits` 的 `before_blocks` id 投影（SQL `case` 是同一條件的 SQL 版）、`revertEdit` 的
+ * `isDelete`（決定 `editRevertable` 的 `beforeIds` 與 `mergeDiff` 的 `anchorId`）、`prepareRevert` 的分派。
+ */
+export function isDeleteShape(row: { op: string; anchor: unknown }): boolean {
+  return row.op === "delete_section" || (row.op === "file_sync" && row.anchor !== null && row.anchor !== undefined);
+}
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 泛型三元組，走 repo 慣例（同 apply.ts／session.ts）
 type AnyBlock = Block<any, any, any>;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 同上
@@ -63,7 +73,7 @@ type RevertableRow = {
  * 等於「這次刪除已經被還原」，判成不可撤回是對的。
  */
 const editRevertable = (row: RevertableRow, fragment: Y.XmlFragment, topIds: readonly (string | null)[]): boolean =>
-  row.op === "delete_section"
+  isDeleteShape({ op: row.op, anchor: row.anchorId })
     ? row.anchorId !== null && topIds.includes(row.anchorId) && !row.beforeIds.some(id => topIds.includes(id))
     : row.afterBlockIds.length > 0 && fingerprintForIds(fragment, row.afterBlockIds) === row.afterFingerprint;
 
@@ -88,7 +98,8 @@ export async function listEdits(deps: { db: Db; collab?: CollabServer }, noteId:
     // 在 SQL 端就抽成 `text[]`，回應線上只走 id：既拿得到判準要的東西，又不違反上面那條
     // 「不要整欄撈 before_blocks」。`case` 讓非 delete_section 的列連 detoast 都不做（pg 的
     // CASE 是惰性求值），所以最壞情況只有 delete_section 那幾列付這個成本。
-    beforeBlockIds: sql<string[]>`case when ${noteAiEdits.op} = 'delete_section' then coalesce((select array_agg(b->>'id') from jsonb_array_elements(${noteAiEdits.beforeBlocks}) as b), '{}'::text[]) else '{}'::text[] end`,
+    // 條件＝`isDeleteShape` 的 SQL 版（delete_section，或 file_sync 且有 anchor）。
+    beforeBlockIds: sql<string[]>`case when ${noteAiEdits.op} = 'delete_section' or (${noteAiEdits.op} = 'file_sync' and ${noteAiEdits.anchor} is not null) then coalesce((select array_agg(b->>'id') from jsonb_array_elements(${noteAiEdits.beforeBlocks}) as b), '{}'::text[]) else '{}'::text[] end`,
   })
     .from(noteAiEdits).innerJoin(users, eq(users.id, noteAiEdits.userId)).leftJoin(apiTokens, eq(apiTokens.id, noteAiEdits.tokenId))
     .where(eq(noteAiEdits.noteId, noteId)).orderBy(desc(noteAiEdits.createdAt), desc(noteAiEdits.id));
@@ -120,7 +131,7 @@ export async function revertEdit(deps: ApplyDeps, input: { noteId: string; editI
   const sv = Y.encodeStateVector(fork);
   const fragment = fork.getXmlFragment(YDOC_FRAGMENT);
   const anchor = row.anchor as Anchor | null;
-  const isDelete = row.op === "delete_section";
+  const isDelete = isDeleteShape({ op: row.op, anchor });
   // 與 `listEdits` **同一顆述詞**（`editRevertable`，兩個分支都在裡面）：清單顯示什麼，這裡就放行什麼。
   // `delete_section` 第 2 條（`before_blocks` 已經在頂層＝這次刪除已被還原）就是撤回端點的冪等守衛，
   // 見該函式的註解。`beforeIds` 只有 delete 分支會讀，其他 op 餵空陣列——與 `listEdits` 的 SQL
@@ -134,7 +145,18 @@ export async function revertEdit(deps: ApplyDeps, input: { noteId: string; editI
   );
   if (staleNow) return { ok: false, code: "stale" };
 
-  const prepared = await prepareRevert(deps, row, fork, sv, anchor);
+  // 總管追加 T11-2：file_sync 刪除形的佔位空段落，只有在「同一篇沒有其他未撤回的列也用它當 anchor」時才刪——在取 lease 之前查好。
+  const othersShareAnchor =
+    row.op === "file_sync" && anchor?.placeholder === true
+      ? (
+          await deps.db
+            .select({ id: noteAiEdits.id })
+            .from(noteAiEdits)
+            .where(and(eq(noteAiEdits.noteId, input.noteId), ne(noteAiEdits.id, row.id), isNull(noteAiEdits.revertedAt), sql`${noteAiEdits.anchor}->>'block_id' = ${anchor.block_id}`))
+            .limit(1)
+        ).length > 0
+      : false;
+  const prepared = await prepareRevert(deps, row, fork, sv, anchor, othersShareAnchor);
   const { diff, reinsertedIds, removedSnapshot } = prepared;
 
   const ctx: DirectCtx = { source: "ai-edit", userId: input.userId, tokenId: input.tokenId, agentLabel: input.agentLabel, applied: false };
@@ -174,7 +196,8 @@ async function prepareRevert(
   row: typeof noteAiEdits.$inferSelect,
   fork: Y.Doc,
   sv: Uint8Array,
-  anchor: Anchor | null
+  anchor: Anchor | null,
+  othersShareAnchor = false,
 ): Promise<{ diff: Uint8Array; reinsertedIds: string[]; removedSnapshot: AnyBlock[] }> {
   const s = await EditorSession.open(deps.editing, fork);
   try {
@@ -183,25 +206,34 @@ async function prepareRevert(
     const removedSnapshot: AnyBlock[] = row.afterBlockIds.map(id => ed.getBlock(id)).filter((b): b is AnyBlock => b !== undefined); // 移除前先快照
     let reinsertedIds: string[] = [];
     const wouldBeEmpty = (removing: string[]) => ed.document.every(b => removing.includes(b.id));
+    // 三種列形的撤回（`file_sync` 依列形共用這三支，plan T11）：
+    const revertReplace = () => {
+      if (before.length === 0 && wouldBeEmpty(row.afterBlockIds)) ed.replaceBlocks(row.afterBlockIds, [{ type: "paragraph" }]); // 永不為空；id 不記
+      else reinsertedIds = ed.replaceBlocks(row.afterBlockIds, before).insertedBlocks.map(b => b.id);
+    };
+    const revertInsert = () => {
+      // ⚠ 存活突變：把這裡改成無條件 `ed.removeBlocks(row.afterBlockIds)`（拿掉「會變空就補一顆
+      // 空 paragraph」），**沒有測試會因此變紅**——因為編輯器的正規化會自己補一顆回來，
+      // 只能靠審查看程式碼，這裡誠實記下。保留的理由：「頂層永不為空」是這條路徑自己要守的
+      // 不變量，寄託在正規化回寫上是這個 repo 踩過的雷（#100 的正規化回寫被當成新編輯）。
+      if (wouldBeEmpty(row.afterBlockIds)) ed.replaceBlocks(row.afterBlockIds, [{ type: "paragraph" }]); else ed.removeBlocks(row.afterBlockIds);
+    };
+    const revertDelete = (removeAnchor: (isEmptyParagraph: boolean) => boolean) => {
+      reinsertedIds = ed.insertBlocks(before, anchor!.block_id, anchor!.position).map(b => b.id);
+      const a = ed.getBlock(anchor!.block_id);
+      const isEmptyParagraph = a !== undefined && a.type === "paragraph" && (!Array.isArray(a.content) || a.content.length === 0) && (!Array.isArray(a.children) || a.children.length === 0);
+      if (removeAnchor(isEmptyParagraph)) ed.removeBlocks([anchor!.block_id]); // 規則③
+    };
     switch (row.op) {
-      case "replace_all": case "replace_section": {
-        if (before.length === 0 && wouldBeEmpty(row.afterBlockIds)) ed.replaceBlocks(row.afterBlockIds, [{ type: "paragraph" }]); // 永不為空；id 不記
-        else reinsertedIds = ed.replaceBlocks(row.afterBlockIds, before).insertedBlocks.map(b => b.id);
-        break;
-      }
-      case "insert_after": case "append": {
-        // ⚠ 存活突變：把這裡改成無條件 `ed.removeBlocks(row.afterBlockIds)`（拿掉「會變空就補一顆
-        // 空 paragraph」），**沒有測試會因此變紅**——因為編輯器的正規化會自己補一顆回來，
-        // 只能靠審查看程式碼，這裡誠實記下。保留的理由：「頂層永不為空」是這條路徑自己要守的
-        // 不變量，寄託在正規化回寫上是這個 repo 踩過的雷（#100 的正規化回寫被當成新編輯）。
-        if (wouldBeEmpty(row.afterBlockIds)) ed.replaceBlocks(row.afterBlockIds, [{ type: "paragraph" }]); else ed.removeBlocks(row.afterBlockIds);
-        break;
-      }
-      case "delete_section": {
-        reinsertedIds = ed.insertBlocks(before, anchor!.block_id, anchor!.position).map(b => b.id);
-        const a = ed.getBlock(anchor!.block_id);
-        const isEmptyParagraph = a !== undefined && a.type === "paragraph" && (!Array.isArray(a.content) || a.content.length === 0) && (!Array.isArray(a.children) || a.children.length === 0);
-        if (anchor!.position === "before" && isEmptyParagraph) ed.removeBlocks([anchor!.block_id]); // 規則③
+      case "replace_all": case "replace_section": revertReplace(); break;
+      case "insert_after": case "append": revertInsert(); break;
+      case "delete_section": revertDelete(isEmpty => anchor!.position === "before" && isEmpty); break;
+      case "file_sync": {
+        // 刪除形：規則③ 三條件同時成立才刪 anchor（總管追加 T11-2）——是佔位、仍是空段落、沒有其他未撤回的列共用它。
+        // 不是佔位的 anchor 一律不刪（PR3b：使用者自己寫的空段落被當成 N anchor）。
+        if (isDeleteShape({ op: row.op, anchor })) revertDelete(isEmpty => anchor!.placeholder === true && isEmpty && !othersShareAnchor);
+        else if (before.length > 0) revertReplace();
+        else revertInsert();
         break;
       }
     }

@@ -87,7 +87,7 @@ describe("AP3 刪除區 anchor", () => {
     const top = topOf(live);
     expect(top).toHaveLength(1);
     expect(top[0]).toMatchObject({ type: "paragraph", text: "" });
-    expect(r.applied.perRegion[0]!.anchor).toEqual({ block_id: top[0]!.id, position: "before" });
+    expect(r.applied.perRegion[0]!.anchor).toEqual({ block_id: top[0]!.id, position: "before", placeholder: true });
   });
   it("P、N 都不可用、只剩外來段 F → anchor＝F（紀錄列 anchor 非空、after 為空：過 anchor_chk）", async () => {
     const { b, live } = await scene([P("A"), P("B"), P("C")], (ed, ids) => {
@@ -114,7 +114,11 @@ describe("AP3 刪除區 anchor", () => {
     const top = topOf(live);
     expect(top).toHaveLength(1);
     expect(top[0]).toMatchObject({ type: "paragraph", text: "" });
-    for (const pr of r.applied.perRegion) expect(pr.anchor).toEqual({ block_id: top[0]!.id, position: "before" });
+    // 總管追加 T11-1：佔位；第一個區的倖存者在它之前（before）、其餘在它之後（after）
+    expect(r.applied.perRegion.map(pr => pr.anchor)).toEqual([
+      { block_id: top[0]!.id, position: "before", placeholder: true },
+      { block_id: top[0]!.id, position: "after", placeholder: true },
+    ]);
     expect(r.applied.perRegion.map(pr => pr.beforeBlocks.map(x => x.id))).toEqual([[b.ids[0]], [b.ids[2]]]);
   });
 });

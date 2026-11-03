@@ -8,9 +8,9 @@
  * 倖存者的後一顆（before）——本次插入的 block 可當鄰居、排除本次要移除的 block（rev 4 m-8）；找不到、或 `replaceWithEmpty`
  * → 收集起來，最後一次移除改成換成一顆空段落，這些區都以它為 anchor（before）③ `diffSince` → close。
  * 每區之後按時間預算讓出。找鄰居在 `diffSince`／合併之前，所以不會出現「內容已寫、紀錄撞 `anchor_chk` 才 500」。
- * **空筆記**（gate r1 I5：`cur` 零顆頂層**且**基底零段零行）：mount 會正規化出一顆空 paragraph——比照 `prepareEdit` 的
- * `replace_all`：`replaceBlocks(mounted 頂層全部, parsed)`，`beforeBlocks: []`、紀錄形＝插入列，那顆空段落不留。**現況 0 顆但基底
- * 不空**（人把整篇清空）不走這支：正規化出的空段落只換掉一次，其餘區依序接在前一區後面（審查 Important 2）。
+ * **現況 0 顆頂層**（空筆記〔gate r1 I5〕，或人把整篇清空〔審查 Important 2〕）：mount 會正規化出一顆空 paragraph——①的第一個
+ * 「文件開頭」插入把它換掉（只換一次），其餘區依序接在前一區後面；空筆記只有一個插入區，結果等於 `replace_all`：`beforeBlocks: []`、
+ * 紀錄形＝插入列，那顆空段落不留。（T8–T11 審查 M18：原本的空筆記特例分支與這條一般路徑結果相同，已刪。）
  * 寫入前防守：每個非 same、非刪除區插入的 block 都必須在頂層，否則在 `diffSince` 之前 throw（什麼都沒合併）。
  * `survivorsExpect`＝每個非 `same` 區的倖存者在 `cur` 的指紋，加上判 `same` 所依據的外來 block（gate r2 m-12）；
  * `anchorIds`＝用到的、合併前就存在的錨點（`place` 的 ref、刪除區的錨點；本次插入的不算）。
@@ -119,20 +119,9 @@ export async function applySync(
       }
     };
 
-    if (cur.ids.length === 0 && plan.baseEmpty) {
-      // 空筆記（plan I5：零顆頂層、**且**基底零段零行）：agent 的內容是一個插入區；比照 `replace_all` 取代 mount 正規化出的那顆空段落。
-      for (let ri = 0; ri < regions.length; ri++) {
-        if (decisions[ri]!.mark === "same" || parsed[ri]!.length === 0) continue;
-        perRegion[ri]!.afterIds = ed.replaceBlocks(ed.document.map(b => b.id), parsed[ri]!).insertedBlocks.map(b => b.id);
-        await budget();
-      }
-      assertTopLevel();
-      return { diff: s.diffSince(sv), perRegion, survivorsExpect: [], anchorIds: [] };
-    }
-
     // ① 插入與改寫。同一個接點（同一顆 `P` 之後、或文件開頭）有多區時，後一區接在前一區最後一顆之後，保住文件順序
-    // （不接的話後一區會插到前一區前面）。現況 0 顆、但基底不空（審查 Important 2）：mount 正規化出的那顆空段落只換掉一次，
-    // 之後各區照這條接續規則接在前一區後面。
+    // （不接的話後一區會插到前一區前面）。現況 0 顆（空筆記，或人把整篇清空；審查 Important 2、gate r1 I5）：mount 正規化出的
+    // 那顆空段落只換掉一次（`normalized`），之後各區照這條接續規則接在前一區後面——空筆記只有一個插入區，所以就是「整個換掉」。
     let normalized: string | null = cur.ids.length === 0 ? (ed.document[0]?.id ?? null) : null;
     const chain = new Map<string, string>();
     for (let ri = 0; ri < regions.length; ri++) {
@@ -206,9 +195,13 @@ export async function applySync(
     }
     if (toEmpty.length > 0) {
       // 最後一次移除換成一顆空段落（結果頂層永不為空，`apply.ts` delete_section 的形）；這些區都以它為 anchor（before）。
+      // 總管追加 T11-1：記成佔位（`placeholder: true`）。空段落落在第一個被換掉的 block 的位置：文件順序第一個區的倖存者在它
+      // 「之前」（before），其餘區在它「之後」（after）——撤回時才插得回原順序（3 區以上亂序撤回只近似，known-limitations）。
       const ids = toEmpty.flatMap(ri => decisions[ri]!.survivors);
       const empty = ed.replaceBlocks(ids, [{ type: "paragraph" }]).insertedBlocks[0]!;
-      for (const ri of toEmpty) perRegion[ri]!.anchor = { block_id: empty.id, position: "before" };
+      toEmpty.forEach((ri, i) => {
+        perRegion[ri]!.anchor = { block_id: empty.id, position: i === 0 ? "before" : "after", placeholder: true };
+      });
     }
     assertTopLevel();
     return { diff: s.diffSince(sv), perRegion, survivorsExpect: [...expect].map(([id, fp]) => ({ id, fp })), anchorIds: [...anchorIds] };

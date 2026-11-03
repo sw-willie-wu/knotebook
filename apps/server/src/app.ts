@@ -833,6 +833,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     queueWaitMs: deps.editingQueueWaitMs,
     testHooks: deps.editingTestHooks,
     versions,
+    renameHook: deps.slugUpdateTestHook,
   });
 
   // #269 §12.1：必用同一個 `writes`（共用佇列，與 MCP 寫入、套用版本、手動存版串行）。只建、不啟動——`index.ts` listen 之後才 start()，
@@ -972,7 +973,8 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
         gate: deps.gate,
         collab: deps.collab,
         editing,
-        limiters: { bearerMiss: limiters.bearerMiss, contentRead: limiters.contentRead, transferExport: limiters.transferExport },
+        limiters: { bearerMiss: limiters.bearerMiss, contentRead: limiters.contentRead, transferExport: limiters.transferExport, transferWrite: limiters.transferWrite, tokenRead: limiters.tokenRead },
+        writes,
         testHooks: deps.transferTestHooks,
       })
     );

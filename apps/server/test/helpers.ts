@@ -485,9 +485,15 @@ export async function buildCollabTestApp(
     transferTestHooks?: AppDeps["transferTestHooks"];
     /** bulk transfer plan H5：log 測試用（預設 `false`）；傳 `{ level, stream }` 收 pino 原文。 */
     logger?: BuildAppOptions["logger"];
+    /**
+     * bulk transfer plan H5（gate r1 I7）：共用 DB——給了就不 `freshDb()`（DB 的清理照舊由建它的那次 `freshDb()` 的
+     * `onTestFinished` 負責），collab server 各自建。⚠ 收尾順序：**先 `destroy()` 第一個 app 再建第二個**，避免兩個 collab
+     * server 同時持有同一篇 live doc。
+     */
+    db?: Db;
   } = {}
 ): Promise<CollabTestCtx> {
-  const { db } = await freshDb();
+  const { db } = opts.db ? { db: opts.db } : await freshDb();
   const gate = new UserGate(db);
   // 測試注入縫：見 `CollabTestCtx.breakGate`。包在 harness 裡（而不是每個測試各自 monkey-patch）
   // 是為了讓「怎麼弄壞 gate」只有一份定義。

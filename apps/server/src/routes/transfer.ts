@@ -20,6 +20,14 @@ import { sendError } from "../http/errors.js";
 import { retryAfterSeconds, type FixedWindowLimiter } from "../http/rate-limit.js";
 import type { EditingRuntime } from "../notes/editing/runtime.js";
 import { resolveNoteAccess } from "../notes/service.js";
+import type { ErrorCode } from "@knotebook/shared";
+import { FOLDER_NOT_FOUND_MESSAGE } from "../folders/messages.js";
+import type { NoteWriteService, SyncFileOk } from "../notes/editing/write-service.js";
+import { fileShaOf, resolveCreateDest } from "../transfer/create-file.js";
+import { readNoteFile } from "../transfer/frontmatter.js";
+import { normalizeBody } from "../transfer/normalize.js";
+import { UNCLOSED_FENCE_MESSAGE } from "../transfer/regions.js";
+import { parseErrorMessage } from "./notes.js";
 import { deriveTransferKey, transferKeyId } from "../transfer/base-hash.js";
 import { insertBases, pruneBases } from "../transfer/bases.js";
 import { buildNoteFile } from "../transfer/note-file.js";
@@ -39,8 +47,19 @@ export const TOO_MANY_NOTES_MESSAGE = `範圍內的筆記超過 ${TRANSFER_EXPOR
 /** §9.1：寫回的 body 不是 UTF-8（fatal 解碼失敗）。 */
 export const INVALID_UTF8_MESSAGE = "檔案不是 UTF-8";
 
-/** 單篇與整包共用的測試縫（`forceUnmergeable` 兩邊都看；其餘只有整包用）。 */
-export type TransferTestHooks = ExportTestHooks;
+/** 寫回（PUT）的測試縫（plan H5）。生產不注入。 */
+export interface WriteTestHooks {
+  /** PUT 的 `reply.raw` close handler 第一行呼叫。 */
+  onWriteClientClose?(): void;
+  /** PUT handler 第一行 await（在掛 close 監聽之前；D5 用）。 */
+  beforeWriteHandler?(): Promise<void>;
+}
+/** 單篇與整包共用的測試縫（`forceUnmergeable` 兩邊都看；其餘只有整包用）＋寫回的縫。 */
+export type TransferTestHooks = ExportTestHooks & WriteTestHooks;
+
+/** plan §0.1-13：HTTP 層中文（PR-3 一起審）。 */
+export const BASE_UNAVAILABLE_MESSAGE = "無法以這份副本合併：已送回過不同的內容、不屬於這篇，或已過期；請重新下載再改";
+export const NOT_MERGEABLE_MESSAGE = "這篇筆記不能用檔案寫回，請改用 edit_note";
 
 export interface TransferRouteDeps {
   db: Db;
@@ -49,7 +68,17 @@ export interface TransferRouteDeps {
   collab: CollabServer;
   editing: EditingRuntime;
   /** 與 app 其他路由同一個實例（`bearerMiss` 與 `authenticateAny` 共用一本帳）。 */
-  limiters: { bearerMiss: FixedWindowLimiter; contentRead: FixedWindowLimiter; transferExport: FixedWindowLimiter };
+  limiters: {
+    bearerMiss: FixedWindowLimiter;
+    contentRead: FixedWindowLimiter;
+    transferExport: FixedWindowLimiter;
+    /** 寫回：只在佇列內扣（plan 不變量 13）；這裡只做不計數的 isBlocked 預檢。 */
+    transferWrite: FixedWindowLimiter;
+    /** 與 MCP／REST 的 Bearer 讀取同一顆（key `token:${userId}`）：零區、同檔重送、去重命中扣這顆。 */
+    tokenRead: FixedWindowLimiter;
+  };
+  /** 寫入 service（全樹唯一的佇列；寫回與 edit_note 串行）。 */
+  writes: NoteWriteService;
   testHooks?: TransferTestHooks;
 }
 
@@ -174,16 +203,113 @@ export function transferRoutes(deps: TransferRouteDeps) {
      * 只回 Buffer；1 MiB 上限 → 413 `content_too_large`（§21 D11）。解碼在這裡：`fatal: true`，非 UTF-8 → 400 `invalid_body`。
      */
     app.put("/api/transfer/notes", { preHandler: requireBulkWrite, bodyLimit: TRANSFER_WRITE_BODY_LIMIT }, async (request: FastifyRequest, reply: FastifyReply) => {
-      const raw = request.body;
-      let text: string;
+      await deps.testHooks?.beforeWriteHandler?.();
+      const started = Date.now();
+      // S14 斷線守衛（plan §0.1-11）：只掛 `reply.raw` 的 close（T1 探針：PUT 上 `request.raw` 的 close 在 body 讀完時就觸發）；
+      // 掛上之後立刻補查一次 `destroyed`（handler 開始之前就斷線的請求，gate r1 m14）。斷線**不改變任何流程**，只記 `clientClosed`。
+      let clientClosed = false;
+      const onClose = () => {
+        deps.testHooks?.onWriteClientClose?.();
+        if (!reply.raw.writableFinished) clientClosed = true;
+      };
+      reply.raw.once("close", onClose);
+      if (reply.raw.destroyed) onClose();
+      const userId = request.user!.id;
+      const bt = request.bulkTransfer!;
+      let noteId: string | null = null;
+      /** §13 寫回 log＋plan §0.1-10：規定鍵 13 個；錯誤出口沒算到的 diff 鍵給 null（rev 4）。不記標題、本文、frontmatter 值。 */
+      const logLine = (result: string, d?: Partial<Pick<SyncFileOk, "applied" | "same" | "conflicts" | "diffOverflow" | "anchored" | "degradedLines">> & { versionId?: string | null }) =>
+        request.log.info(
+          {
+            userId, tokenId: bt.parentTokenId, noteId, result,
+            applied: d?.applied ?? null, same: d?.same ?? null, conflicts: d?.conflicts ?? null, versionId: d?.versionId ?? null,
+            ms: Date.now() - started, diffOverflow: d?.diffOverflow ?? null, anchored: d?.anchored ?? null, degradedLines: d?.degradedLines ?? null, clientClosed,
+          },
+          "bulk transfer write",
+        );
+      const fail = (status: number, code: ErrorCode, message: string) => {
+        logLine(code);
+        return sendError(reply, status, code, message);
+      };
+      const tooMany = (retryAfterMs: number) => {
+        reply.header("retry-after", String(retryAfterSeconds(retryAfterMs)));
+        return fail(429, "too_many_requests", TRANSFER_RATE_LIMITED_MESSAGE);
+      };
+      // 審查 m1：未預期的例外（全域 handler 回 500）也要記這一行——鍵同 ⑪ 的 13 個、diff 鍵 null、`result: "internal"`；
+      // 例外本身照舊往外丟（不吞、不改回應）。帶內容的 DB 錯誤在 service 已經 `redactDbError` 過。
       try {
-        text = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.isBuffer(raw) ? raw : new Uint8Array(0));
-      } catch {
-        return sendError(reply, 400, "invalid_body", INVALID_UTF8_MESSAGE);
+        const raw = request.body;
+        let text: string;
+        try {
+          text = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.isBuffer(raw) ? raw : new Uint8Array(0));
+        } catch {
+          return fail(400, "invalid_body", INVALID_UTF8_MESSAGE);
+        }
+        const file = readNoteFile(text);
+        if (file.kind === "error") return fail(400, "invalid_body", file.message);
+        const limiters = { transferWrite: deps.limiters.transferWrite, tokenRead: deps.limiters.tokenRead };
+        const tree = await visibleTree(deps.db, userId);
+
+        if (file.kind === "new") {
+          // §10：新增（T10）。
+          if (await rangeGone(deps.db, userId, bt.range, tree)) return fail(403, "forbidden", RANGE_GONE_MESSAGE);
+          const dest = await resolveCreateDest(deps.db, userId, bt.range, file.folderId, tree);
+          if (!dest.ok) return fail(dest.status, dest.code, dest.message);
+          if (deps.limiters.transferWrite.isBlocked(userId)) return tooMany(deps.limiters.transferWrite.retryAfterMs(userId));
+          const out = await deps.writes.createFromFile(request.log, {
+            userId, userHandle: request.user!.handle, tokenId: bt.parentTokenId, fileSha: fileShaOf(key, userId, normalizeBody(text)), keyId: fileDeps.keyId,
+            title: file.title, body: file.body, dest: { scope: dest.scope, folderId: dest.folderId }, limiters,
+          });
+          if (!out.ok) {
+            if (out.kind === "parse") return fail(400, out.code, parseErrorMessage(out.code, "無法解析內容"));
+            if (out.kind === "rate_limited") return tooMany(out.retryAfterMs);
+            if (out.kind === "folder_gone") return fail(404, "folder_not_found", FOLDER_NOT_FOUND_MESSAGE);
+            if (out.kind === "busy") return fail(503, "server_busy", "伺服器忙碌中，請稍後再試");
+            return fail(500, "internal", "無法建立筆記");
+          }
+          noteId = out.noteId;
+          logLine(out.created ? "created" : "unchanged");
+          return out.created
+            ? reply.code(201).send({ id: out.noteId, created: true, result: "created", base: null, unboundWikilinks: out.unboundWikilinks })
+            : reply.code(200).send({ id: out.noteId, created: false, result: "unchanged", base: null });
+        }
+
+        // §9.2 寫回既有筆記（T8／T9）。順序是契約：可見 → 範圍物件 → 範圍 → 角色 → isBlocked 預檢 → syncFile。
+        noteId = file.id;
+        const access = await resolveNoteAccess(deps.db, userId, file.id);
+        if (access.role === "none") return fail(404, "not_found", TRANSFER_NOTE_NOT_FOUND_MESSAGE);
+        if (await rangeGone(deps.db, userId, bt.range, tree)) return fail(403, "forbidden", RANGE_GONE_MESSAGE);
+        const rows = await visibleNotes(deps.db, userId, { ids: [file.id] });
+        const row = rows[0];
+        if (row === undefined || !inRangeIds(rows, tree, bt.range).has(row.id)) return fail(403, "forbidden", NOT_IN_RANGE_MESSAGE);
+        if (!access.permissions.edit) return fail(403, "forbidden", "沒有編輯權限");
+        if (deps.limiters.transferWrite.isBlocked(userId)) return tooMany(deps.limiters.transferWrite.retryAfterMs(userId));
+        const out = await deps.writes.syncFile(request.log, {
+          noteId: file.id, userId, userHandle: request.user!.handle, tokenId: bt.parentTokenId, access, baseKey: file.base, title: file.title,
+          body: file.body, key, keyId: fileDeps.keyId, limiters,
+        });
+        if (!out.ok) {
+          if (out.kind === "base_unavailable") return fail(409, "base_unavailable", BASE_UNAVAILABLE_MESSAGE);
+          if (out.kind === "not_mergeable") return fail(409, "not_mergeable", NOT_MERGEABLE_MESSAGE);
+          if (out.kind === "busy") return fail(503, "server_busy", "伺服器忙碌中，請稍後再試");
+          if (out.kind === "gone") return fail(404, "not_found", TRANSFER_NOTE_NOT_FOUND_MESSAGE);
+          if (out.kind === "rate_limited") return tooMany(out.retryAfterMs);
+          if (out.kind === "parse") {
+            if (out.code === "unclosed_fence") return fail(400, "invalid_body", UNCLOSED_FENCE_MESSAGE);
+            return fail(400, out.code, parseErrorMessage(out.code, "無法套用檔案"));
+          }
+          return fail(500, "internal", "無法寫回");
+        }
+        logLine(out.result, { ...out, versionId: out.version?.id ?? null });
+        return reply.code(200).send({
+          id: file.id, created: false, result: out.result, applied: out.applied, same: out.same, conflicts: out.conflicts,
+          ...(out.version ? { version: out.version } : {}), editIds: out.editIds, renamed: out.renamed,
+          ...(out.renameFailed ? { renameFailed: out.renameFailed } : {}), unboundWikilinks: out.unboundWikilinks, base: null,
+        });
+      } catch (err) {
+        logLine("internal");
+        throw err;
       }
-      void text;
-      // 佔位：T8 起換成 frontmatter 讀入（`readNoteFile`）與寫回（`NoteWriteService.syncFile`）／新增（T10）。
-      return sendError(reply, 400, "invalid_body", "檔案寫回尚未開放");
     });
   };
 }

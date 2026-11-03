@@ -36,8 +36,6 @@ export interface SyncPlan {
   /** 所有非刪除區 parse 的 unbound wikilink 數加總。 */
   unbound: number;
   boundaryChecks: number;
-  /** 基底零段零行（空筆記下載的檔；plan I5 的「空筆記取代」只在這時成立）。 */
-  baseEmpty: boolean;
 }
 
 export interface PlanSyncInput {
@@ -155,5 +153,5 @@ export async function planSync(runtime: EditingRuntime, input: PlanSyncInput): P
     return seq === null ? -1 : foreignContains(pre[ri]!, seq, mode);
   };
   const decisions = decide(input.segments, regions, input.cur, same, { firstTypes, prevTypes, preLengths: pre.map(p => p.length) });
-  return { ok: true, plan: { regions, decisions, parsed, unbound, boundaryChecks, baseEmpty: input.segments.length === 0 && input.baseLineCount === 0 } };
+  return { ok: true, plan: { regions, decisions, parsed, unbound, boundaryChecks } };
 }

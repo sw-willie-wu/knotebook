@@ -210,7 +210,8 @@ export const AI_EDITS_RETENTION = 100;
  * `before_blocks` 又出現在頂層——撤回端沒有 `if_match`，這是它的冪等守衛，見 revert.ts）。 */
 export interface NoteEditDto {
   id: string;
-  op: EditOp | "revert";
+  /** `file_sync`＝bulk transfer 檔案寫回（每區一列；spec 2026-11-02 §13）。web 原樣顯示字面值（F17，不翻譯）。 */
+  op: EditOp | "revert" | "file_sync";
   sectionId: string | null;
   heading: string;
   byHandle: string;
