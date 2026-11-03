@@ -48,6 +48,8 @@ async function run(blocks: unknown[], edit: (body: string) => string, human: ((e
   const agent = edit(b.body);
   const planned = await planInMemory(rt, b, agent, forkOf(live), opts);
   if (!planned.ok) return { error: planned.code, final: null, eqAgent: false, kept: [], marks: [], top: topOf(live), baseIds: b.ids };
+  // 同 `syncFileInQueue`：定位點全消失 → 整篇 409 `base_unavailable`、不套用（Willie 2026-11-04）。
+  if (planned.plan.anchorsGone.length > 0) return { error: "base_unavailable", final: null, eqAgent: false, kept: [], marks: planned.plan.decisions.map(d => `${d.kind}:${d.mark}`), top: topOf(live), baseIds: b.ids };
   const r = await applyInMemory(rt, b, agent, live, opts);
   const final = (await exportNoteForTransfer(rt, live, new Map())).body;
   const top = topOf(live);

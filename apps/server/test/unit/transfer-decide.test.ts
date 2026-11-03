@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TransferSegment } from "../../src/db/schema.js";
-import { anchors, decide, foreignContains, foreignInRange, type SameMode } from "../../src/transfer/decide.js";
+import { anchors, anchorsGone, decide, foreignContains, foreignInRange, type SameMode } from "../../src/transfer/decide.js";
 import type { Region } from "../../src/transfer/regions.js";
 
 /** bulk transfer spec §9.4；plan PR-2 §0.1-16、T6（K1–K7、FC1–FC5）。`same` 回呼一律用真的 `foreignContains`＋假 canonical 表（gate r2 I-2）。 */
@@ -276,5 +276,49 @@ describe("K7 刪除區錨點（gate r2 m-8；rev 4）", () => {
     const ds = decide(S, [region(S, "rewrite", [0], -1, 1), region(S, "delete", [2], 1, -1)], curOf(["A", "B"]), sameWith([["c:A"]]));
     expect(ds[0]!.mark).toBe("same");
     expect(ds[1]!.anchor).toEqual({ block_id: "A", position: "after" });
+  });
+});
+
+describe("AG 定位點全消失（Willie 2026-11-04：整篇 409，不退到文件開頭）", () => {
+  const S = segsOf("A", "B", "C");
+  const gone = (segs: TransferSegment[], regions: Region[], cur: ReturnType<typeof curOf>, pre: string[][] = []) => anchorsGone(segs, regions, decide(segs, regions, cur, sameWith(pre)), cur);
+  it("AG1 改寫 B：B、A、C 都換了新 id（edit_note 改寫整段）→ [0]", () => {
+    expect(gone(S, [region(S, "rewrite", [1], 0, 2)], curOf(["X", "Y", "Z"]))).toEqual([0]);
+  });
+  it("AG2 改寫 B：B 不見但 A 還在 → []（放 A 之後）；B 還在 → []", () => {
+    expect(gone(S, [region(S, "rewrite", [1], 0, 2)], curOf(["A", "Z"]))).toEqual([]);
+    expect(gone(S, [region(S, "rewrite", [1], 0, 2)], curOf(["X", "B", "Z"]))).toEqual([]);
+  });
+  it("AG3 插入在 C 之後（尾端，本來就沒有 N）：A、B、C 都不見 → [0]；C 在 → []", () => {
+    expect(gone(S, [region(S, "insert", [], 2, -1)], curOf(["X"]))).toEqual([0]);
+    expect(gone(S, [region(S, "insert", [], 2, -1)], curOf(["X", "C"]))).toEqual([]);
+  });
+  it("AG4 基底開頭插入（本來就沒有 P）：N（A）還在 → []；A、B、C 都不見 → [0]", () => {
+    expect(gone(S, [region(S, "insert", [], -1, 0)], curOf(["A", "B", "C"]))).toEqual([]);
+    expect(gone(S, [region(S, "insert", [], -1, 0)], curOf(["X"]))).toEqual([0]);
+  });
+  it("AG5 空基底（0 段）插入、或基底只剩 0 行段 → []（沒有可錨的段，文件開頭照舊）", () => {
+    const E: TransferSegment[] = [];
+    expect(gone(E, [region(E, "insert", [], -1, -1)], curOf(["X"]))).toEqual([]);
+    const Z = segsOf("~e");
+    expect(gone(Z, [region(Z, "insert", [], 0, -1)], curOf(["X"]))).toEqual([]);
+  });
+  it("AG6 現況 0 顆頂層（AP8／AP8b 那條路）→ []（區本身是會寫入的 conflict，不是 same）", () => {
+    const regions = [region(S, "rewrite", [1], 0, 2)];
+    const cur = curOf([]);
+    const ds = decide(S, regions, cur, sameWith([["c:B2"]]));
+    expect(ds[0]).toMatchObject({ mark: "conflict", P: null, N: null, survivors: [] });
+    expect(anchorsGone(S, regions, ds, cur)).toEqual([]);
+  });
+  it("AG8 刪除區不算：B 還在、A、C 換了新 id（P、N 都沒有）→ []（有倖存者可刪）", () => {
+    expect(gone(S, [region(S, "delete", [1], 0, 2)], curOf(["X", "B", "Z"]))).toEqual([]);
+  });
+  it("AG7 不算的區：same（倖存者全不見、外來相同）、刪除區 → []；多區裡只要一區全消失就回那一區", () => {
+    // 改寫 B、外來 X 與預解析相同 → same
+    expect(gone(S, [region(S, "rewrite", [1], 0, 2)], curOf(["X"]), [["c:X"]])).toEqual([]);
+    expect(gone(S, [region(S, "delete", [1], 0, 2)], curOf(["X"]))).toEqual([]);
+    const S5 = segsOf("A", "B", "C", "D", "E");
+    // 區 0 改 A（A 還在）、區 1 插在 E 之後（B..E 全不見；A 在區內不能當錨）→ [1]
+    expect(gone(S5, [region(S5, "rewrite", [0], -1, 1), region(S5, "insert", [], 4, -1)], curOf(["A", "X"]))).toEqual([1]);
   });
 });

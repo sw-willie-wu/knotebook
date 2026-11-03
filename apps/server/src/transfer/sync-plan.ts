@@ -19,7 +19,7 @@ import type { VisibleNoteTarget } from "../notes/editing/candidates.js";
 import { parseMarkdownForNote, type ParseError } from "../notes/editing/markdown.js";
 import type { EditingRuntime } from "../notes/editing/runtime.js";
 import { EditorSession } from "../notes/editing/session.js";
-import { chainKeyOf, decide, foreignContains, anchors as anchorsOf, placeFor, shouldStripStart, type Decision } from "./decide.js";
+import { anchorsGone, chainKeyOf, decide, foreignContains, anchors as anchorsOf, placeFor, shouldStripStart, type Decision } from "./decide.js";
 import type { LineDiff } from "./line-diff.js";
 import { findRegions, makeBoundaryCheck, type Region } from "./regions.js";
 import { indexTopLevel, sameCanonicalSeqIn } from "./same-canonical.js";
@@ -36,6 +36,8 @@ export interface SyncPlan {
   /** 所有非刪除區 parse 的 unbound wikilink 數加總。 */
   unbound: number;
   boundaryChecks: number;
+  /** 定位點全消失的區（`decide.ts` 的 `anchorsGone`）；非空 → 呼叫端整篇回 409 `base_unavailable`、什麼都不寫。 */
+  anchorsGone: number[];
 }
 
 export interface PlanSyncInput {
@@ -153,5 +155,5 @@ export async function planSync(runtime: EditingRuntime, input: PlanSyncInput): P
     return seq === null ? -1 : foreignContains(pre[ri]!, seq, mode);
   };
   const decisions = decide(input.segments, regions, input.cur, same, { firstTypes, prevTypes, preLengths: pre.map(p => p.length) });
-  return { ok: true, plan: { regions, decisions, parsed, unbound, boundaryChecks } };
+  return { ok: true, plan: { regions, decisions, parsed, unbound, boundaryChecks, anchorsGone: anchorsGone(input.segments, regions, decisions, input.cur) } };
 }

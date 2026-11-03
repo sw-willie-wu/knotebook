@@ -228,13 +228,15 @@ describe("R19 判 same 的區把接續鏈尾設成吸收到的外來 block 末�
 });
 
 describe("AP2b／AP2c 同一接點的多區保住文件順序", () => {
-  it("AP2b 都插在文件開頭（人刪光基底、只剩外來 F）：agent 改 A、C → [A2, C2, F]", async () => {
+  it("AP2b 都插在文件開頭（人刪光基底、只剩外來 F）：agent 改 A、C → [A2, C2, F]（正式路徑 409，本案只測 applySync 的分支）", async () => {
     const { b, live } = await scene([P("A"), P("B"), P("C")], (ed, ids) => {
       ed.insertBlocks([{ type: "paragraph", content: "F" }], ids[2]!, "after");
       ed.removeBlocks([ids[0]!, ids[1]!, ids[2]!]);
     });
     const r = await applyInMemory(rt, b, "A2\n\nB\n\nC2", live);
     expect(marks(r)).toEqual(["rewrite:conflict", "rewrite:conflict"]);
+    // 兩區的倖存者與 P、N 都不在：正式路徑（`syncFileInQueue`）在這裡就回 409，不會走到 applySync
+    expect(r.plan.anchorsGone).toEqual([0, 1]);
     expect(texts(live)).toEqual(["A2", "C2", "F"]);
   });
   it("AP2c 兩區的 P 是同一顆（人刪了 A、U、C）：agent 改 A、C → [X, A2, C2]", async () => {

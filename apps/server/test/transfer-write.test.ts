@@ -4,15 +4,17 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { eq, sql } from "drizzle-orm";
-import { noteAiEdits, notes, transferBases } from "../src/db/schema.js";
+import * as Y from "yjs";
+import { noteAiEdits, noteStates, notes, noteVersions, transferBases } from "../src/db/schema.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
 import { BASE_UNAVAILABLE_MESSAGE, NOT_MERGEABLE_MESSAGE, TRANSFER_NOTE_NOT_FOUND_MESSAGE, TRANSFER_RATE_LIMITED_MESSAGE } from "../src/routes/transfer.js";
 import { UNCLOSED_FENCE_MESSAGE } from "../src/transfer/regions.js";
 import { buildCollabTestApp, testConfig, type CollabTestCtx } from "./helpers.js";
-import { seedTokenForUser } from "./editing-helpers.js";
+import { bearer, getContent, seedTokenForUser } from "./editing-helpers.js";
+import { seedDoc } from "./copy-helpers.js";
 import { seedFolder } from "./folder-helpers.js";
 import { cookieOf, seedNote, seedShare, seedUser } from "./group-helpers.js";
-import { basesOf, bulkPut, downloadNote, editBody, humanEdit, issueBulkDirect, liveBlocks, liveMarkdown, seedBlocks, seedMd, topIdsOf } from "./bulk-transfer-helpers.js";
+import { basesOf, bulkPut, downloadNote, editBody, humanEdit, issueBulkDirect, liveBlocks, liveMarkdown, renameIn, seedBlocks, seedMd, topIdsOf } from "./bulk-transfer-helpers.js";
 
 type Opts = Parameters<typeof buildCollabTestApp>[0];
 const PARAS = (n: number, p = "Para") => Array.from({ length: n }, (_, i) => `${p} ${i}`).join("\n\n");
@@ -528,5 +530,111 @@ describe("W18 寫回與新增在回覆之前已經建好全文索引（PR-3 合�
     expect(hits.map(h => h.note.id)).toEqual([id]);
     expect(hits[0]!.matchedOn).toBe("body");
     expect(hits[0]!.matches.some(m => m.snippet.includes(mark))).toBe(true);
+  });
+});
+
+describe("Z 定位點全消失 → 409（Willie 2026-11-04；8000 實測：只有一個 H1 的筆記被 replace_section 整段換掉後送舊副本）", () => {
+  /** REST `replace_section`（PAT）：把 outline[1]（第一個 heading 那段）整段換成 markdown → 所有 block 換新 id。 */
+  async function replaceSection(s: Awaited<ReturnType<typeof scene>>, markdown: string) {
+    const c = (await getContent(s.ctx.app, s.note.id, s.pat.token)).json() as { outline: Array<{ sectionId: string; fingerprint: string }> };
+    const sec = c.outline[1]!;
+    const r = await s.ctx.app.inject({ method: "POST", url: `/api/notes/${s.note.id}/edits`, headers: bearer(s.pat.token), payload: { op: "replace_section", section_id: sec.sectionId, markdown, if_match: sec.fingerprint } });
+    expect(r.statusCode).toBe(201);
+  }
+  const versions = (ctx: CollabTestCtx, noteId: string) => ctx.db.select().from(noteVersions).where(eq(noteVersions.noteId, noteId));
+
+  it("Z1 下載 → replace_section 換掉整段 → 送舊副本（改一段＋改標題）→ 409 base_unavailable；內容逐字不變、沒有新版本或紀錄列、沒改名、沒扣 transferWrite、log 一行", async () => {
+    const chunks: string[] = [];
+    const s = await scene({ limiters: { transferWrite: new FixedWindowLimiter({ limit: 1, windowMs: 60_000 }) }, logger: { level: "info", stream: { write: (x: string) => void chunks.push(x) } } }, "# H\n\nFirst para\n\nSecond para");
+    const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
+    await replaceSection(s, "# H\n\nFirst para\n\nSecond para edited by edit_note");
+    const md0 = await liveMarkdown(s.ctx, s.note.id);
+    const v0 = (await versions(s.ctx, s.note.id)).length;
+    const e0 = (await edits(s.ctx, s.note.id)).length;
+    chunks.length = 0;
+    const r = await bulkPut(s.ctx.app, s.bulk.token, renameIn(editBody(d.text, b => b.replace("Second para", "Second para from the file")), "Renamed by file"));
+    expect(r.statusCode).toBe(409);
+    expect(errOf(r)).toEqual({ code: "base_unavailable", message: BASE_UNAVAILABLE_MESSAGE });
+    expect(await liveMarkdown(s.ctx, s.note.id)).toBe(md0);
+    expect(md0).not.toContain("from the file");
+    expect((await versions(s.ctx, s.note.id)).length).toBe(v0);
+    expect((await edits(s.ctx, s.note.id)).length).toBe(e0);
+    expect((await s.ctx.db.select({ title: notes.title }).from(notes).where(eq(notes.id, s.note.id)))[0]!.title).toBe("Title");
+    expect((await baseRow(s.ctx, d.fm.base!)).appliedBodySha).toBeNull();
+    const lines = chunks.flatMap(c => c.split("\n")).filter(Boolean).map(l => JSON.parse(l) as Record<string, unknown>).filter(o => o.msg === "bulk transfer write");
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ result: "base_unavailable", noteId: s.note.id, applied: null, conflicts: null, versionId: null });
+    // transferWrite（limit 1）沒被扣：重新下載後照常寫回
+    const d2 = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
+    const r2 = await bulkPut(s.ctx.app, s.bulk.token, editBody(d2.text, b => b.replace("Second para edited by edit_note", "Second para redone")));
+    expect(r2.statusCode).toBe(200);
+  });
+
+  it("Z2 多區檔案裡只要一區定位點全消失（A 有改、還在；在 C 之後插 X，但 B、C 都被換成新 id）→ 整篇 409、A 也沒寫", async () => {
+    const s = await scene({}, "A\n\nB\n\nC");
+    const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
+    await humanEdit(s.ctx, s.note.id, ed => {
+      const [, b, c] = ed.document;
+      ed.replaceBlocks([b!.id, c!.id], [{ type: "paragraph", content: "B" }, { type: "paragraph", content: "C" }]);
+    });
+    const md0 = await liveMarkdown(s.ctx, s.note.id);
+    const r = await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, b => b.replace(/^A$/m, "A changed").replace(/\n*$/, "\n\nX\n")));
+    expect(r.statusCode).toBe(409);
+    expect(errOf(r).code).toBe("base_unavailable");
+    expect(await liveMarkdown(s.ctx, s.note.id)).toBe(md0);
+    expect(await edits(s.ctx, s.note.id)).toHaveLength(0);
+  });
+
+  it("Z3a 不誤擋：基底是空筆記、之後別人寫了內容 → 插在開頭照舊寫入", async () => {
+    const s = await scene({}, "");
+    const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
+    await humanEdit(s.ctx, s.note.id, ed => ed.replaceBlocks(ed.document.map(b => b.id), [{ type: "paragraph", content: "Human para" }]));
+    const r = await bulkPut(s.ctx.app, s.bulk.token, `${d.text}Agent para`);
+    expect(r.statusCode).toBe(200);
+    expect((await liveBlocks(s.ctx, s.note.id)).map(b => b.text)).toEqual(["Agent para", "Human para"]);
+  });
+
+  it("Z3b 不誤擋：在基底最開頭插入（本來就沒有 P，N 還在）→ 照舊寫入", async () => {
+    const s = await scene();
+    const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
+    const r = await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, b => `New first\n\n${b}`));
+    expect(r.statusCode).toBe(200);
+    expect((await liveBlocks(s.ctx, s.note.id)).map(b => b.text)).toEqual(["New first", "Para 0", "Para 1", "Para 2", "Para 3"]);
+  });
+
+  it("Z3c 不誤擋：現況 0 顆頂層（note_states 換成空文件）→ 照舊寫入（AP8 那條路：換掉正規化出的空段落）", async () => {
+    const s = await scene({}, PARAS(3));
+    const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
+    await s.ctx.db.delete(noteStates).where(eq(noteStates.noteId, s.note.id));
+    await seedDoc(s.ctx.db, s.note.id, new Y.Doc());
+    expect(await topIdsOf(s.ctx, s.note.id)).toHaveLength(0);
+    const r = await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, b => `${b.replace(/\n+$/, "")}\n\nPara 3 new`));
+    expect(r.statusCode).toBe(200);
+    expect((await liveBlocks(s.ctx, s.note.id)).map(b => b.text)).toEqual(["Para 3 new"]);
+  });
+
+  it("Z3d 不誤擋：只改標題（筆記已被 replace_section 整段換掉）→ 200 renamed", async () => {
+    const s = await scene({}, "# H\n\nFirst para");
+    const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
+    await replaceSection(s, "# H\n\nFirst para edited");
+    const r = await bulkPut(s.ctx.app, s.bulk.token, renameIn(d.text, "Only title"));
+    expect(r.statusCode).toBe(200);
+    expect(r.json()).toMatchObject({ result: "renamed", renamed: true });
+  });
+});
+
+describe("Z4 不誤擋：刪除區（審查 Minor 1）", () => {
+  it("Z4 基底 [A, B, C]；A、C 被換成新 id（內容相同）；agent 刪 B → 200、B 被刪", async () => {
+    const s = await scene({}, "A\n\nB\n\nC");
+    const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
+    await humanEdit(s.ctx, s.note.id, ed => {
+      const [a, , c] = ed.document;
+      ed.replaceBlocks([a!.id], [{ type: "paragraph", content: "A" }]);
+      ed.replaceBlocks([c!.id], [{ type: "paragraph", content: "C" }]);
+    });
+    const r = await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, b => b.replace("B\n\n", "")));
+    expect(r.statusCode).toBe(200);
+    expect(r.json()).toMatchObject({ result: "applied", applied: 1 });
+    expect((await liveBlocks(s.ctx, s.note.id)).map(b => b.text)).toEqual(["A", "C"]);
   });
 });
