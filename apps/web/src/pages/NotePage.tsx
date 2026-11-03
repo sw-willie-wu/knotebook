@@ -441,6 +441,7 @@ export default function NotePage() {
     if (vPreview === null) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented || isOverlayOpen()) return;
+      event.preventDefault(); // 這一下 Esc 只關預覽這一層（搜尋標記的 Esc 監聽看到 defaultPrevented 就讓路）
       stopPreview();
     };
     window.addEventListener("keydown", onKey);

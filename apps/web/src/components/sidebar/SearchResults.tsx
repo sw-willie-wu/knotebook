@@ -35,6 +35,9 @@ export function highlightTitle(title: string, lowerQuery: string): ReactNode {
   ];
 }
 
+/** 搜尋結果每項的「筆記標題」與「位置」兩行共用的樣式（Willie 2026-11-03：第一行與第二行同一個 style，灰色小字）。 */
+export const SEARCH_META_LINE_CLASS = "truncate text-[11px] text-muted-foreground";
+
 /**
  * 一列搜尋結果的「標題＋位置」（連結）。標題列與合併列（`BodySearchResults`）共用。兩行一律 <div>：可及名稱靠 UA 預設 block 之間補空白
  * （jsdom 不載 Tailwind，span 會黏成「標題位置」）。
@@ -62,8 +65,8 @@ export function SearchRow({
         active && "bg-brand-soft text-brand-on-soft hover:bg-brand-soft-strong",
       )}
     >
-      <div className={cn("truncate text-[13px]", active && "font-medium")}>{highlightTitle(note.title, lowerQuery)}</div>
-      <div className="mt-0.5 truncate text-[11px] text-muted-foreground" title={label}>
+      <div className={SEARCH_META_LINE_CLASS}>{highlightTitle(note.title, lowerQuery)}</div>
+      <div className={cn("mt-0.5", SEARCH_META_LINE_CLASS)} title={label}>
         {label}
       </div>
     </Link>

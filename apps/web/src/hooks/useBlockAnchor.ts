@@ -2,9 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router";
 import { BLOCK_ANCHOR_RE, TOP_SECTION_ID } from "@knotebook/shared";
 import type { BlockAnchorApi } from "./block-anchor-context";
-import { isOverlayOpen } from "@/lib/versions-context";
 import { findMatchBlock, topUnits } from "./block-find";
-import { onSearchMarkClear } from "./search-mark";
+import { onSearchMarkClear, watchSearchEscape } from "./search-mark";
 
 /**
  * #93 PR2：側欄搜尋點片段時，router navigation state 帶的查詢字（`navigate(href, { state: { kbFind } })`）。不進網址，免得複製出去的連結被污染。
@@ -25,6 +24,10 @@ export const ANCHOR_FLASH_CLASS = "kn-anchor-flash";
 export const ANCHOR_FLASH_ATTR = "data-anchor-flash";
 /** 搜尋跳轉的常駐標記：同一個浮層加上這個 class（動畫改成閃兩下後停在亮的；index.css）。 */
 export const ANCHOR_MARK_CLASS = "kn-anchor-mark";
+/** 搜尋標記在捲動穩定之前的狀態（透明、不動畫）；穩定後換成 ANCHOR_MARK_CLASS，動畫才開始（index.css）。 */
+export const ANCHOR_PENDING_CLASS = "kn-anchor-pending";
+/** 等捲動穩定的上限：超過就不等了直接開始閃（不讓標記永遠不出現）。 */
+export const ANCHOR_SETTLE_MAX_MS = 1_000;
 
 /** 只認 `#b-<id>`（`<id>` 合 BLOCK_ANCHOR_RE）；簡報的 `#/…` 與其他 fragment 一律 null。 */
 export function blockIdFromHash(hash: string): string | null {
@@ -65,9 +68,9 @@ function placeOverlay(overlay: HTMLElement, el: HTMLElement): void {
  * 浮層可能短暫對不準——接受的取捨（高亮只是提示，不值得為它掛 ResizeObserver／MutationObserver）。常駐標記（搜尋跳轉）不能這樣，
  * 它會自己重新對位，見 `runScroll` 的 `startMark`。
  */
-function mountFlashOverlay(root: HTMLElement, el: HTMLElement, blockId: string): HTMLElement {
+function mountFlashOverlay(root: HTMLElement, el: HTMLElement, blockId: string, pending: boolean): HTMLElement {
   const overlay = document.createElement("div");
-  overlay.className = ANCHOR_FLASH_CLASS;
+  overlay.className = pending ? `${ANCHOR_FLASH_CLASS} ${ANCHOR_PENDING_CLASS}` : ANCHOR_FLASH_CLASS;
   overlay.setAttribute(ANCHOR_FLASH_ATTR, blockId);
   overlay.setAttribute("aria-hidden", "true");
   overlay.style.position = "absolute";
@@ -95,7 +98,7 @@ function scrollPlan(root: HTMLElement, el: HTMLElement, align: ScrollLogicalPosi
 /** 要捲到哪：`block` ＝目標 block（高亮它）；`top` ＝捲回頂端（`_top` 段落找不到命中字）；null ＝還沒好，繼續等。 */
 type Resolved = { kind: "block"; el: HTMLElement } | { kind: "top" } | null;
 
-function runScroll(root: HTMLElement, resolve: () => Resolved, align: ScrollLogicalPosition, persist: boolean): () => void {
+function runScroll(root: HTMLElement, resolve: () => Resolved, align: ScrollLogicalPosition, persist: boolean, scrollOnly = false): () => void {
   let observer: MutationObserver | null = null;
   let waitTimer: ReturnType<typeof setTimeout> | undefined;
   let flashTimer: ReturnType<typeof setTimeout> | undefined;
@@ -125,10 +128,45 @@ function runScroll(root: HTMLElement, resolve: () => Resolved, align: ScrollLogi
    * 重找 block（節點被換掉也找得回）；block 被刪掉就移除標記、不再找。
    */
   const startMark = (host: HTMLElement, blockId: string) => {
-    host.classList.add(ANCHOR_MARK_CLASS);
     const ac = new AbortController();
     let frame: number | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // 閃爍等捲動穩定才開始：目標 block 的視窗座標連續兩個 frame 不變（`scrollIntoView` 可能是平滑捲動、筆記剛載入版面還在動；
+    // 動畫在捲動途中就播完，使用者看到的就只剩恆亮）。上限 ANCHOR_SETTLE_MAX_MS，不支援 rAF 時用 16 ms 計時器。
+    // 開始時只換 class（pending → mark），不重建浮層；之後重新對位只改位置，動畫不會重播或中斷。
+    let settleFrame: number | undefined;
+    let settleTimer: ReturnType<typeof setTimeout> | undefined;
+    let settleCap: ReturnType<typeof setTimeout> | undefined;
+    const startFlashing = () => {
+      if (settleFrame !== undefined && typeof cancelAnimationFrame === "function") cancelAnimationFrame(settleFrame);
+      if (settleTimer !== undefined) clearTimeout(settleTimer);
+      if (settleCap !== undefined) clearTimeout(settleCap);
+      settleFrame = settleTimer = settleCap = undefined;
+      host.classList.remove(ANCHOR_PENDING_CLASS);
+      host.classList.add(ANCHOR_MARK_CLASS);
+    };
+    const pos = () => {
+      const cur = root.querySelector<HTMLElement>(`.bn-block-outer[data-id="${blockId}"]`);
+      const r = cur?.getBoundingClientRect();
+      return r ? `${Math.round(r.top)}:${Math.round(r.left)}` : "";
+    };
+    let last = pos();
+    let same = 0;
+    const sample = () => {
+      settleFrame = settleTimer = undefined;
+      const now = pos();
+      same = now === last ? same + 1 : 0;
+      last = now;
+      if (same >= 2) {
+        startFlashing();
+        return;
+      }
+      if (typeof requestAnimationFrame === "function") settleFrame = requestAnimationFrame(sample);
+      else settleTimer = setTimeout(sample, 16);
+    };
+    if (typeof requestAnimationFrame === "function") settleFrame = requestAnimationFrame(sample);
+    else settleTimer = setTimeout(sample, 16);
+    settleCap = setTimeout(startFlashing, ANCHOR_SETTLE_MAX_MS);
     const place = () => {
       frame = undefined;
       timer = undefined;
@@ -151,20 +189,14 @@ function runScroll(root: HTMLElement, resolve: () => Resolved, align: ScrollLogi
     const editor = root.querySelector(".ProseMirror");
     if (editor) ro?.observe(editor);
     window.addEventListener("resize", schedule, { signal: ac.signal });
-    // Esc：別人的 Esc 不搶、也不被別人的 Esc 清掉。已經有人處理（`defaultPrevented`：Radix 對話框／選單、選取模式、ProseMirror 的選單、AI 框）
-    // 或有浮層開著時讓路。判斷延到所有監聽都跑完之後（setTimeout 0）：不依賴監聽的註冊順序，後註冊的人才 preventDefault 也看得到。
-    window.addEventListener(
-      "keydown",
-      (event) => {
-        if (event.key !== "Escape" || event.isComposing || isOverlayOpen()) return;
-        setTimeout(() => {
-          if (!event.defaultPrevented) cancel();
-        }, 0);
-      },
-      { signal: ac.signal },
-    );
+    // Esc：讓路條件與 BlockNote blur 的例外都在 `watchSearchEscape`。
+    const offEsc = watchSearchEscape(() => cancel());
     stopMark = () => {
+      if (settleFrame !== undefined && typeof cancelAnimationFrame === "function") cancelAnimationFrame(settleFrame);
+      if (settleTimer !== undefined) clearTimeout(settleTimer);
+      if (settleCap !== undefined) clearTimeout(settleCap);
       ac.abort();
+      offEsc();
       mo.disconnect();
       ro?.disconnect();
       if (frame !== undefined && typeof cancelAnimationFrame === "function") cancelAnimationFrame(frame);
@@ -182,9 +214,11 @@ function runScroll(root: HTMLElement, resolve: () => Resolved, align: ScrollLogi
     const el = target.el;
     const plan = scrollPlan(root, el, align);
     plan.target.scrollIntoView({ block: plan.block });
+    if (scrollOnly) return; // 等待期間搜尋已被關閉／Esc：照樣捲過去，但不留標記
     const blockId = el.getAttribute("data-id") ?? "";
-    overlay = mountFlashOverlay(root, el, blockId);
-    if (persist && blockId !== "") {
+    const mark = persist && blockId !== "";
+    overlay = mountFlashOverlay(root, el, blockId, mark);
+    if (mark) {
       startMark(overlay, blockId);
       return;
     }
@@ -218,24 +252,24 @@ function runScroll(root: HTMLElement, resolve: () => Resolved, align: ScrollLogi
  * 比對規則與片段標亮同一支）並高亮它；範圍內找不到 ⇒ 照舊停在段落標題。`blockId` 是 `_top`（筆記開頭、沒有標題）時，編輯器掛上後找；
  * 找不到 ⇒ 捲回頂端。
  */
-export function scrollToBlock(root: HTMLElement, blockId: string, findText?: string): () => void {
+export function scrollToBlock(root: HTMLElement, blockId: string, findText?: string, scrollOnly = false): () => void {
   // 搜尋跳轉（帶 findText）捲到畫面中間；一般 `#b-` 錨點、wikilink、複製出去的段落連結維持捲到最上面。
   const align: ScrollLogicalPosition = findText === undefined ? "start" : "center";
-  const persist = findText !== undefined; // 只有搜尋跳轉留常駐標記
+  const persist = findText !== undefined && !scrollOnly; // 只有搜尋跳轉留常駐標記
   const selector = `.bn-block-outer[data-id="${blockId}"]`;
   if (blockId === TOP_SECTION_ID) {
     return runScroll(root, () => {
       if (topUnits(root) === null) return null; // 編輯器還沒掛上
       const m = findText === undefined ? null : findMatchBlock(root, TOP_SECTION_ID, findText);
       return m ? { kind: "block", el: m } : { kind: "top" };
-    }, align, persist);
+    }, align, persist, scrollOnly);
   }
   return runScroll(root, () => {
     const heading = root.querySelector<HTMLElement>(selector);
     if (!heading) return null;
     const m = findText === undefined ? null : findMatchBlock(root, blockId, findText);
     return { kind: "block", el: m ?? heading };
-  }, align, persist);
+  }, align, persist, scrollOnly);
 }
 
 /**
@@ -327,6 +361,21 @@ export function useBlockAnchor(opts: UseBlockAnchorOptions): BlockAnchorApi {
     },
     [opts.noteKey],
   );
+  // 搜尋跳轉等筆記就緒（collab 同步）的期間也要聽「關閉搜尋」與 Esc：此時還沒有標記可清，記下來，就緒後照樣捲過去、但不留標記。
+  const abandonedRef = useRef(false);
+  useEffect(() => {
+    if (pending === null || pending.findText === undefined) return;
+    abandonedRef.current = false;
+    const abandon = () => {
+      abandonedRef.current = true;
+    };
+    const offBus = onSearchMarkClear(abandon);
+    const offEsc = watchSearchEscape(abandon);
+    return () => {
+      offBus();
+      offEsc();
+    };
+  }, [pending]);
   useEffect(() => {
     if (pending === null || opts.noteKey === undefined || pending.noteKey !== opts.noteKey || !opts.ready || opts.root === null) return;
     if (pending.findText === undefined) {
@@ -335,7 +384,8 @@ export function useBlockAnchor(opts: UseBlockAnchorOptions): BlockAnchorApi {
     } else {
       // 再點另一個搜尋結果：舊標記移除、換到新的位置。
       markRef.current?.();
-      markRef.current = scrollToBlock(opts.root, pending.blockId, pending.findText);
+      markRef.current = scrollToBlock(opts.root, pending.blockId, pending.findText, abandonedRef.current);
+      abandonedRef.current = false;
     }
     setPending(null);
   }, [pending, opts.noteKey, opts.ready, opts.root]);

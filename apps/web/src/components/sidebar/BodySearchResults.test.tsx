@@ -128,6 +128,39 @@ describe("BodySearchView 合併列表（T5）", () => {
     expect(region().querySelectorAll("[aria-expanded]")).toHaveLength(0);
   });
 
+  it("B1d 第一行（筆記標題）與第二行（位置）同一個樣式：className 完全相同（灰色小字），標題命中字的 mark 保留", () => {
+    const first = renderView(readyState([hit(N1, [m("_top", "", "a needle here")])]), { titleNotes: [] });
+    const lines = within(region()).getAllByTestId("body-match")[0]!.querySelectorAll(":scope > div");
+    const strip = (el: Element) => el.className.split(/\s+/).filter((c) => c !== "mt-0.5").sort().join(" ");
+    expect(strip(lines[0]!)).toBe(strip(lines[1]!));
+    expect(lines[0]!.className).toContain("text-muted-foreground");
+    expect(lines[0]!.className).toContain("text-[11px]");
+    expect(lines[0]!.className).not.toMatch(/font-medium|text-\[1[23]px\]/);
+    // 只有標題命中的項（兩行）也一樣
+    first.unmount();
+    renderView(readyState([]), { titleNotes: [N2] });
+    const row = within(region()).getAllByTestId("search-hit").at(-1)!.querySelectorAll("a > div");
+    expect(strip(row[0]!)).toBe(strip(row[1]!));
+  });
+
+  it("B1e 同一篇有多項（目前開著的那篇）：只有第一項帶 aria-current=page，其餘項不帶", () => {
+    function Open({ id }: { id: string }) {
+      const { setActiveNoteId } = useActiveNote();
+      useEffect(() => setActiveNoteId(id), [id, setActiveNoteId]);
+      return null;
+    }
+    renderView(readyState([hit(N2, [m("_top", "", "needle a"), m("h1", "", "needle b"), m("h2", "", "needle c")]), hit(N1, [m("_top", "", "needle d")])]), {
+      wrap: (n) => (
+        <>
+          <Open id={N2.id} />
+          {n}
+        </>
+      ),
+    });
+    const links = within(region()).getAllByTestId("body-match");
+    expect(links.map((a) => a.getAttribute("aria-current"))).toEqual(["page", null, null, null]);
+  });
+
   it("B1c 標題標亮：第一行的 mark 是標題命中的字（用 titleLowerQuery）", () => {
     const hot = note("n3", "Needle Notes");
     renderView(readyState([hit(hot, [m("_top", "", "needle in body")])]), { notes: [hot] });

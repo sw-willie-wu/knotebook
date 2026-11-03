@@ -244,7 +244,7 @@ export function TrashPanel() {
     // React 的 onKeyDown 之前就 commit，勾選框已卸載，這裡收不到。
     if (event.key !== "Escape" || !selection.active) return;
     focusAfterRef.current = "select";
-    endSelectionIfActive();
+    if (endSelectionIfActive()) event.preventDefault(); // 這一下 Esc 只結束選取（搜尋標記的 Esc 監聽看到 defaultPrevented 就讓路）
   }
 
   // 穩定（清單重抓才換）：選取列 memo 靠它（final review M-1）。

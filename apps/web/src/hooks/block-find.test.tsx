@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { foldedIndexOf } from "@/lib/search-match";
-import { ANCHOR_FLASH_ATTR, ANCHOR_MARK_CLASS, findTextFromState, scrollToBlock, useBlockAnchor } from "./useBlockAnchor";
+import indexCssRaw from "../index.css?raw";
+import { ANCHOR_FLASH_ATTR, ANCHOR_MARK_CLASS, ANCHOR_PENDING_CLASS, ANCHOR_SETTLE_MAX_MS, findTextFromState, scrollToBlock, useBlockAnchor } from "./useBlockAnchor";
 import { clearSearchMark } from "./search-mark";
 import { findMatchBlock, sectionUnits } from "./block-find";
 
@@ -360,6 +361,88 @@ describe("搜尋跳轉的常駐標記", () => {
     expect(overlays()[0]!.getAttribute(ANCHOR_FLASH_ATTR)).toBe("b");
   });
 
+  it("K1b 閃爍等捲動穩定才開始：跳轉當下是 pending（沒有 mark class）；目標位置還在動就一直 pending；連續兩個 frame 不動 → 換成 mark", () => {
+    vi.useFakeTimers();
+    const r = fresh();
+    let top = 500;
+    vi.spyOn(r.querySelector<HTMLElement>('[data-id="b"]')!, "getBoundingClientRect").mockImplementation(
+      () => ({ top, left: 0, width: 100, height: 20, right: 100, bottom: top + 20, x: 0, y: top, toJSON: () => ({}) }),
+    );
+    scrollToBlock(r, "h1", "needle");
+    const ov = overlays()[0]!;
+    expect(ov.classList.contains(ANCHOR_PENDING_CLASS)).toBe(true);
+    expect(ov.classList.contains(ANCHOR_MARK_CLASS)).toBe(false);
+    for (let i = 0; i < 10; i++) {
+      top -= 40; // 捲動中：每個 frame 位置都變
+      vi.advanceTimersByTime(16);
+    }
+    expect(ov.classList.contains(ANCHOR_MARK_CLASS)).toBe(false);
+    vi.advanceTimersByTime(100); // 停下來
+    expect(ov.classList.contains(ANCHOR_MARK_CLASS)).toBe(true);
+    expect(ov.classList.contains(ANCHOR_PENDING_CLASS)).toBe(false);
+  });
+
+  it("K1c 捲動一直不穩定也不能永遠不閃：ANCHOR_SETTLE_MAX_MS 後強制開始", () => {
+    vi.useFakeTimers();
+    const r = fresh();
+    let top = 0;
+    vi.spyOn(r.querySelector<HTMLElement>('[data-id="b"]')!, "getBoundingClientRect").mockImplementation(
+      () => ({ top: (top += 7), left: 0, width: 1, height: 1, right: 1, bottom: 1, x: 0, y: 0, toJSON: () => ({}) }),
+    );
+    scrollToBlock(r, "h1", "needle");
+    vi.advanceTimersByTime(ANCHOR_SETTLE_MAX_MS - 50);
+    expect(overlays()[0]!.classList.contains(ANCHOR_MARK_CLASS)).toBe(false);
+    vi.advanceTimersByTime(100);
+    expect(overlays()[0]!.classList.contains(ANCHOR_MARK_CLASS)).toBe(true);
+  });
+
+  it("K1d 開始閃之後重新對位只改位置：同一個元素、class 不變、不重建（動畫不會重播）", async () => {
+    vi.useFakeTimers();
+    const r = fresh();
+    scrollToBlock(r, "h1", "needle");
+    vi.advanceTimersByTime(200);
+    const ov = overlays()[0]!;
+    expect(ov.classList.contains(ANCHOR_MARK_CLASS)).toBe(true);
+    const classBefore = ov.className;
+    const records: MutationRecord[] = [];
+    const mo = new MutationObserver((recs) => records.push(...recs));
+    mo.observe(document.body, { childList: true, subtree: true });
+    // 內容變動 → MutationObserver → 下一個 frame 重新對位
+    r.querySelector('[data-id="a"] .bn-inline-content')!.textContent = "changed";
+    await vi.advanceTimersByTimeAsync(100);
+    expect(overlays()).toHaveLength(1);
+    expect(overlays()[0]).toBe(ov);
+    expect(ov.className).toBe(classBefore);
+    // 浮層沒有被移除／重新加入（只有 style 變）
+    records.push(...mo.takeRecords());
+    const touched = records.filter((rec) => rec.type === "childList" && [...rec.addedNodes, ...rec.removedNodes].includes(ov));
+    expect(touched).toHaveLength(0);
+    mo.disconnect();
+  });
+
+  it("K1e prefers-reduced-motion: reduce 下搜尋標記照樣進入閃爍（JS 不看這個設定，CSS 也不關 .kn-anchor-mark 的動畫）", () => {
+    vi.useFakeTimers();
+    const mm = vi.fn().mockImplementation((q: string) => ({
+      matches: q.includes("reduce"), media: q, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {}, onchange: null, dispatchEvent: () => false,
+    }));
+    vi.stubGlobal("matchMedia", mm);
+    try {
+      scrollToBlock(fresh(), "h1", "needle");
+      vi.advanceTimersByTime(200);
+      expect(overlays()[0]!.classList.contains(ANCHOR_MARK_CLASS)).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    // CSS：reduced-motion 區塊裡關動畫的規則必須排除 .kn-anchor-mark（不能選到它），且 mark 規則本身有 animation
+    const css = indexCssRaw.replace(/\r\n/g, "\n");
+    const start = css.indexOf("@media (prefers-reduced-motion: reduce) {\n  .kn-anchor-flash");
+    expect(start).toBeGreaterThan(-1);
+    const rmBlock = css.slice(start, css.indexOf("\n}\n", start) + 3);
+    expect(rmBlock).toContain(":not(.kn-anchor-mark)");
+    expect(rmBlock).not.toMatch(/\.kn-anchor-flash\.kn-anchor-mark/);
+    expect(css).toMatch(/\.kn-anchor-flash\.kn-anchor-mark \{[^}]*animation: kn-anchor-mark/);
+  });
+
   it("K2 一般錨點（不帶 findText）仍是 2 s 後消失，而且沒有常駐 class", () => {
     vi.useFakeTimers();
     scrollToBlock(fresh(), "h1");
@@ -536,5 +619,138 @@ describe("useBlockAnchor 讀 navigation state（別篇／整頁載入）", () =>
     expect(findTextFromState({ kbFind: "" })).toBeNull();
     expect(findTextFromState({ kbFind: 3 })).toBeNull();
     expect(findTextFromState(null)).toBeNull();
+  });
+});
+
+describe("搜尋標記的取消：等就緒期間（I1）與 Esc 的例外（I2、M3）", () => {
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+  afterEach(() => {
+    clearSearchMark();
+    vi.useRealTimers();
+    document.querySelectorAll("li[data-swipe-direction], .ProseMirror").forEach((n) => n.remove());
+  });
+  const ovs = () => Array.from(document.querySelectorAll<HTMLElement>(`[${ANCHOR_FLASH_ATTR}]`));
+  function RHost({ root: r, ready, onApi }: { root: HTMLElement; ready: boolean; onApi: (api: ReturnType<typeof useBlockAnchor>) => void }) {
+    const api = useBlockAnchor({ noteKey: "n1", ready, root: r, currentNoteId: "n1" });
+    onApi(api);
+    return null;
+  }
+  const ui = (r: HTMLElement, ready: boolean, onApi: (api: ReturnType<typeof useBlockAnchor>) => void) => (
+    <MemoryRouter initialEntries={["/n"]}>
+      <RHost root={r} ready={ready} onApi={onApi} />
+    </MemoryRouter>
+  );
+  const pendingSetup = () => {
+    const r = buildRoot([H("h1", 1, "One"), P("a", "the needle")]);
+    root = r;
+    let api!: ReturnType<typeof useBlockAnchor>;
+    const view = render(ui(r, false, (x) => (api = x)));
+    act(() => api.requestAnchor("h1", "needle"));
+    expect(ovs()).toHaveLength(0);
+    return { r, view, setApi: (x: ReturnType<typeof useBlockAnchor>) => (api = x) };
+  };
+
+  it("PA 還沒就緒（pending）時關閉搜尋 → 就緒後照樣捲過去，但不留標記", () => {
+    const { r, view, setApi } = pendingSetup();
+    clearSearchMark();
+    view.rerender(ui(r, true, setApi));
+    expect(ovs()).toHaveLength(0);
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
+  });
+
+  it("PB 還沒就緒時按 Esc → 就緒後照樣捲過去，但不留標記", async () => {
+    const { r, view, setApi } = pendingSetup();
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    await new Promise((res) => setTimeout(res, 10));
+    view.rerender(ui(r, true, setApi));
+    expect(ovs()).toHaveLength(0);
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
+  });
+
+  it("PD 沒人取消：就緒後照常留標記（對照組）；下一次跳轉不繼承上一次的取消", () => {
+    const { r, view, setApi } = pendingSetup();
+    clearSearchMark();
+    view.rerender(ui(r, true, setApi));
+    expect(ovs()).toHaveLength(0);
+    let api2!: ReturnType<typeof useBlockAnchor>;
+    view.rerender(ui(r, true, (x) => (api2 = x)));
+    act(() => api2.requestAnchor("h1", "needle"));
+    expect(ovs()).toHaveLength(1);
+  });
+
+  /** 模擬 BlockNote 的 OverrideEscape：焦點在編輯器按 Esc → 先 blur()，再讓 ProseMirror preventDefault。 */
+  function editor(onKey: (e: KeyboardEvent, pm: HTMLElement) => void): HTMLElement {
+    const pm = document.createElement("div");
+    pm.className = "ProseMirror";
+    pm.tabIndex = 0;
+    pm.addEventListener("keydown", (e) => onKey(e, pm));
+    document.body.appendChild(pm);
+    pm.focus();
+    return pm;
+  }
+  const mark = () => {
+    vi.useFakeTimers();
+    root = buildRoot([H("h1", 1, "One"), P("a", "the needle")]);
+    scrollToBlock(root, "h1", "needle");
+    vi.advanceTimersByTime(200);
+    expect(ovs()).toHaveLength(1);
+  };
+  const escOn = (el: Element) => el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+
+  it("PC 焦點在編輯器按 Esc：BlockNote blur 後 preventDefault → 這一下就清掉標記（不用按兩次）", () => {
+    const pm = editor((e, el) => {
+      el.blur();
+      e.preventDefault();
+    });
+    mark();
+    escOn(pm);
+    vi.advanceTimersByTime(10);
+    expect(ovs()).toHaveLength(0);
+  });
+
+  it("PC2 slash menu 的 Esc（preventDefault、焦點留在編輯器）→ 標記留著", () => {
+    const pm = editor((e) => e.preventDefault());
+    mark();
+    escOn(pm);
+    vi.advanceTimersByTime(10);
+    expect(ovs()).toHaveLength(1);
+  });
+
+  it("PC3 AI 框／mermaid 的 Esc（stopPropagation，window 收不到）→ 標記留著", () => {
+    const pm = editor((e, el) => {
+      el.blur();
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    mark();
+    escOn(pm);
+    vi.advanceTimersByTime(10);
+    expect(ovs()).toHaveLength(1);
+  });
+
+  it("PC4 編輯器外別處 preventDefault 的 Esc（焦點在 body）→ 標記留著", () => {
+    mark();
+    const e = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    window.addEventListener("keydown", (ev) => ev.preventDefault(), { once: true });
+    document.body.dispatchEvent(e);
+    vi.advanceTimersByTime(10);
+    expect(ovs()).toHaveLength(1);
+  });
+
+  it("M3 按下當下有開著的 toast：這一下 Esc 只關 toast（Radix 不 preventDefault），標記留著；toast 關後的下一下才清", () => {
+    mark();
+    const toast = document.createElement("li");
+    toast.setAttribute("data-swipe-direction", "right");
+    toast.setAttribute("data-state", "open");
+    document.body.appendChild(toast);
+    escOn(document.body);
+    toast.setAttribute("data-state", "closed"); // 真瀏覽器：到 bubble 時 toast 可能已關
+    vi.advanceTimersByTime(10);
+    expect(ovs()).toHaveLength(1);
+    escOn(document.body);
+    vi.advanceTimersByTime(10);
+    expect(ovs()).toHaveLength(0);
   });
 });

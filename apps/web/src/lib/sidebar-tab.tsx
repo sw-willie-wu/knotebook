@@ -100,7 +100,7 @@ export function SidebarTabProvider({
     writeSidebarTab(next);
     if (next !== tabRef.current) {
       dispatchSelection({ type: "end" });
-      clearSearchMark(); // 切到別的 tab ＝離開搜尋：清掉搜尋跳轉留在筆記裡的標記
+      clearSearchMark(); // 搜尋框已空時切到別的 tab ＝離開搜尋：清掉搜尋跳轉留在筆記裡的標記
     }
     if (window.matchMedia(NARROW_QUERY).matches) drawerRef.current?.setOpen(true);
   }, []);

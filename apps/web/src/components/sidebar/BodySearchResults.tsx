@@ -8,7 +8,7 @@ import { useCloseSidebarDrawer } from "@/lib/sidebar-drawer";
 import { cn } from "@/lib/utils";
 import { displaySnippet } from "./body-snippet";
 import { flattenRows, mergeSearchRows } from "./search-merge";
-import { highlightTitle, SearchRow } from "./SearchResults";
+import { highlightTitle, SEARCH_META_LINE_CLASS, SearchRow } from "./SearchResults";
 import { noteLocationLabel, type LocationContext } from "./tree";
 
 /**
@@ -73,6 +73,7 @@ export function BodySearchView({
   // stale（防抖中或新字還在路上）時內文結果是舊字的：不回報，篇數行只顯示標題命中的篇數，不把舊查詢的內文命中算進「N 筆結果」。
   const reportable = ready && !state.stale;
 
+  const currentSeen = new Set<string>();
   const count = items.length;
   useEffect(() => {
     onStatus?.(reportable ? { count, more } : null);
@@ -116,6 +117,9 @@ export function BodySearchView({
           {items.map((item) => {
             const label = noteLocationLabel(item.note, location, t);
             const active = activeNoteId === item.note.id;
+            // 同一篇有多項時，只有第一項帶 aria-current="page"（其餘只有視覺上的底色）：讀屏不要唸好幾個「目前頁面」。
+            const current = active && !currentSeen.has(item.note.id);
+            if (active) currentSeen.add(item.note.id);
             return item.kind === "title" ? (
               <TitleOnlyItem
                 key={`${item.note.id}:title`}
@@ -134,6 +138,7 @@ export function BodySearchView({
                 titleLowerQuery={titleLowerQuery}
                 lowerQuery={lowerQuery}
                 active={active}
+                current={current}
                 onMatchClick={onMatchClick}
               />
             );
@@ -192,6 +197,7 @@ function MatchItem({
   titleLowerQuery,
   lowerQuery,
   active,
+  current,
   onMatchClick,
 }: {
   note: NoteDto;
@@ -200,6 +206,8 @@ function MatchItem({
   titleLowerQuery: string;
   lowerQuery: string;
   active: boolean;
+  /** 這一項帶 `aria-current="page"`（同一篇多項時只有第一項）。 */
+  current: boolean;
   onMatchClick: (note: NoteDto, match: NoteSearchMatchDto, href: string) => (event: MouseEvent<HTMLAnchorElement>) => void;
 }) {
   const path = canonicalNotePath(note);
@@ -211,14 +219,14 @@ function MatchItem({
         data-testid="body-match"
         data-section-id={match.sectionId}
         onClick={onMatchClick(note, match, href)}
-        aria-current={active ? "page" : undefined}
+        aria-current={current ? "page" : undefined}
         className={cn(
           "block min-w-0 rounded-md px-2 py-1.5 hover:bg-brand-soft hover:text-brand-on-soft active:bg-brand-soft-strong",
           active && "bg-brand-soft text-brand-on-soft hover:bg-brand-soft-strong",
         )}
       >
-        <div className="truncate text-[12px] font-medium">{highlightTitle(note.title, titleLowerQuery)}</div>
-        <div className="mt-0.5 truncate text-[11px] text-muted-foreground" title={label}>
+        <div className={SEARCH_META_LINE_CLASS}>{highlightTitle(note.title, titleLowerQuery)}</div>
+        <div className={cn("mt-0.5", SEARCH_META_LINE_CLASS)} title={label}>
           {label}
         </div>
         <div className="mt-0.5 line-clamp-2 text-[12px] break-words">{highlightTitle(displaySnippet(match.snippet, lowerQuery), lowerQuery)}</div>

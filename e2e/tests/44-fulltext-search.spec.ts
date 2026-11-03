@@ -541,17 +541,110 @@ test("E11 常駐標記：閃兩下後恆亮（3 s 後還在）→ Esc 消失；�
   await expectAnchorFlash(page, hitId);
   expect(await mark.evaluate((el) => getComputedStyle(el).backgroundColor)).not.toMatch(/rgba\(0, 0, 0, 0\)|transparent/);
 
-  // Esc 消失（搜尋結果還開著，不影響下一步）
+  // 首頁進來的第一次跳轉換了殼（首頁 AppShell → 筆記頁 AppShell），搜尋字不重設（#369 I3：query 住在 App 層）
+  await expect(sidebar.getByRole("textbox", { name: "Search notes" })).toHaveValue(kk);
+
+  // 焦點在編輯器裡按 Esc（真的 BlockNote：OverrideEscape 先 blur、再 preventDefault）：一下就消失，不用按兩次（#369 I2）
+  await page.locator(".bn-editor").first().click();
   await page.keyboard.press("Escape");
   await expect(mark).toHaveCount(0);
 
-  // 再跳一次 → 清空搜尋字後消失（首頁進來的第一次跳轉換了殼，搜尋字已重設，這裡重新搜）
-  await sidebar.getByRole("textbox", { name: "Search notes" }).fill(kk);
+  // 再跳一次（搜尋結果還開著、搜尋字還在）→ 清空搜尋字後消失
   await expect(snippet).toBeVisible({ timeout: 15_000 });
   await snippet.click();
   await expect(mark).toBeAttached({ timeout: 15_000 });
   await page.waitForTimeout(2_500);
   await expect(mark).toBeAttached();
   await sidebar.getByRole("button", { name: "Clear search" }).click();
+  await expect(mark).toHaveCount(0);
+});
+
+
+for (const motion of ["no-preference", "reduce"] as const) {
+  test(`E11b 標記明顯閃兩下（prefers-reduced-motion: ${motion}）：動畫期間取樣底色，至少兩次「淡→亮」，最後停在亮、且與恆亮同一個強度`, async ({ page }) => {
+    test.setTimeout(120_000);
+    await page.emulateMedia({ reducedMotion: motion });
+    await asNewUser(page, `E2E Fulltext E11b ${motion}`);
+    const stamp = Date.now();
+    const kk = `kb${stamp}`;
+    const md = `## Alpha\n\n${filler("alpha", 25)}\n\n## Beta\n\nthe ${kk} is here\n\n${filler("beta", 40)}\n`;
+    const a = await createNoteViaApi(page, `E2E ft KB ${stamp}`, md);
+    const hit = await waitIndexed(page, kk, a.id);
+
+    await page.goto("/");
+    const sidebar = page.getByRole("complementary");
+    await sidebar.getByRole("textbox", { name: "Search notes" }).fill(kk);
+    const snippet = snippetOf(sidebar, `${pathOf(a)}#b-${hit.sectionId}`);
+    await expect(snippet).toBeVisible({ timeout: 15_000 });
+    // 點之前裝好取樣器（每 30 ms 讀一次浮層的 computed 底色 alpha 與 class）；浮層出現前記 null
+    await page.evaluate(() => {
+      // computed 值可能是 oklab()／oklch()／rgba()／transparent
+      const alphaOf = (c: string): number => {
+        if (c === "transparent") return 0;
+        const m = /\/\s*([\d.]+)\s*\)/.exec(c);
+        return m ? Number(m[1]) : 1;
+      };
+      const log: Array<{ t: number; a: number | null; mark: boolean }> = [];
+      (window as unknown as { __markLog: typeof log }).__markLog = log;
+      const t0 = performance.now();
+      setInterval(() => {
+        const o = document.querySelector<HTMLElement>(".kn-anchor-flash");
+        log.push({ t: Math.round(performance.now() - t0), a: o ? alphaOf(getComputedStyle(o).backgroundColor) : null, mark: o?.classList.contains("kn-anchor-mark") ?? false });
+      }, 30);
+    });
+    await snippet.click();
+    await expect(titleBox(page)).toHaveValue(a.title, { timeout: 15_000 });
+    await page.waitForTimeout(4_000);
+    const log = await page.evaluate(() => (window as unknown as { __markLog: Array<{ t: number; a: number | null; mark: boolean }> }).__markLog);
+
+    // 動畫是在 mark class 之後才開始的（等捲動穩定）：只取 mark=true 之後的樣本
+    const firstMark = log.findIndex((s) => s.mark);
+    expect(firstMark, "應該出現過 .kn-anchor-mark").toBeGreaterThanOrEqual(0);
+    const seq = log.slice(firstMark).map((s) => s.a ?? 0);
+    const DARK = 0.12;
+    const LIGHT = 0.3;
+    let rises = 0;
+    let dark = false;
+    for (const v of seq) {
+      if (v < DARK) dark = true;
+      else if (v > LIGHT && dark) {
+        rises++;
+        dark = false;
+      }
+    }
+    expect(rises, `應該有至少兩次 淡→亮（取樣：${seq.map((v) => v.toFixed(2)).join(" ")}）`).toBeGreaterThanOrEqual(2);
+    // 最後停在亮，且是目標強度（brand 38%）
+    const last = seq.at(-1)!;
+    expect(last).toBeGreaterThan(0.33);
+    expect(last).toBeLessThan(0.43);
+    // 閃的總長大約 1.2–1.6 s：第一個 mark 樣本到最後一次變化之間
+    const settledAt = log.slice(firstMark).findIndex((_, i, arr) => arr.slice(i).every((s) => Math.abs((s.a ?? 0) - last) < 0.005));
+    const dur = log[firstMark + settledAt]!.t - log[firstMark]!.t;
+    expect(dur).toBeGreaterThan(1_100);
+    expect(dur).toBeLessThan(2_000);
+  });
+}
+
+test("E11c 首頁搜尋 → 點結果（換殼）→ 在筆記頁清空搜尋字 → 標記消失；搜尋字在換殼後還在", async ({ page }) => {
+  test.setTimeout(120_000);
+  await asNewUser(page, "E2E Fulltext E11c");
+  const stamp = Date.now();
+  const kk = `kc${stamp}`;
+  const md = `## Alpha\n\n${filler("alpha", 25)}\n\n## Beta\n\nthe ${kk} is here\n\n${filler("beta", 40)}\n`;
+  const a = await createNoteViaApi(page, `E2E ft KC ${stamp}`, md);
+  const hit = await waitIndexed(page, kk, a.id);
+
+  await page.goto("/");
+  const sidebar = page.getByRole("complementary");
+  const search = sidebar.getByRole("textbox", { name: "Search notes" });
+  await search.fill(kk);
+  await snippetOf(sidebar, `${pathOf(a)}#b-${hit.sectionId}`).click();
+  await expect(titleBox(page)).toHaveValue(a.title, { timeout: 15_000 });
+  const hitId = await matchBlockId(page, kk);
+  const mark = page.locator(`.kn-anchor-flash.kn-anchor-mark[data-anchor-flash="${hitId}"]`);
+  await expect(mark).toBeAttached({ timeout: 15_000 });
+  await expect(search).toHaveValue(kk);
+  await sidebar.getByRole("button", { name: "Clear search" }).click();
+  await expect(search).toHaveValue("");
   await expect(mark).toHaveCount(0);
 });

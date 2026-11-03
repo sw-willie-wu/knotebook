@@ -16,7 +16,7 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ### Changed
 
-- **The sidebar's search count** now says “N title matches” (in Chinese, “標題符合 · N 篇”) while only titles are searched, instead of “N results”; once the body-text results have arrived it says “N results” (“N 筆結果”), counting the entries in the list, and “N results loaded, more available” when there is a next page.
+- **The sidebar's search count** now says “N title matches” (in Chinese, “標題符合 · N 篇”) until the body-text results have arrived, instead of “N results”; once the body-text results have arrived it says “N results” (“N 筆結果”), counting the entries in the list, and “N results loaded, more available” when there is a next page.
 
 ## [0.14.1] - 2026-11-02
 
