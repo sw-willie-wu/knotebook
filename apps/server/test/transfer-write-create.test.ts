@@ -175,6 +175,29 @@ describe("新增（§10）", () => {
     expect(await noteRow(sAll.ctx, (rG.json() as { id: string }).id)).toMatchObject({ ownerId: null, groupId: g.id, folderId: null });
   });
 
+  it("CR8b（PR-3 T7 實機回補）front matter 只有 title＋folder_id、沒有 knotebook:／id: 行 → 不算 front matter：Untitled、建在權杖範圍最上層、那幾行進了內文；加上 knotebook: 行的同一份 → 照 title／folder_id", async () => {
+    const s = await scene();
+    const top = await seedFolder(s.ctx.db, { personal: s.u.id });
+    const sub = await seedFolder(s.ctx.db, { personal: s.u.id }, { parentId: top.id });
+    const pat = await seedTokenForUser(s.ctx.db, s.u.id, "notes:read notes:write");
+    const fb = await issueBulkDirect(s.ctx.db, pat.tokenId, { access: "write", range: { kind: "folder", folderId: top.id } });
+    const bare = `---\ntitle: "Ignored title"\nfolder_id: ${sub.id}\n---\nBody of bare file\n`;
+    const r = await bulkPut(s.ctx.app, fb.token, bare);
+    expect(r.statusCode).toBe(201);
+    const id = (r.json() as { id: string }).id;
+    expect(await noteRow(s.ctx, id)).toMatchObject({ title: "Untitled", folderId: top.id });
+    const md = await liveMarkdown(s.ctx, id);
+    expect(md).toContain('title: "Ignored title"');
+    expect(md).toContain("Body of bare file");
+    // 對照：同一份加上 knotebook: 行
+    const withLine = bare.replace("---\n", "---\nknotebook: 1\n");
+    const r2 = await bulkPut(s.ctx.app, fb.token, withLine);
+    expect(r2.statusCode).toBe(201);
+    const id2 = (r2.json() as { id: string }).id;
+    expect(await noteRow(s.ctx, id2)).toMatchObject({ title: "Ignored title", folderId: sub.id });
+    expect(norm(await liveMarkdown(s.ctx, id2))).toBe("Body of bare file");
+  });
+
   it("CR9 拒絕形（各帶自己的常數訊息）：shared 範圍 403 CREATE_IN_SHARED_FORBIDDEN_MESSAGE；folder_id 看不到 404 FOLDER_NOT_FOUND_MESSAGE；shared 空間資料夾 403 SHARED_FOLDER_CREATE_FORBIDDEN_MESSAGE；範圍外資料夾 403 DEST_NOT_IN_RANGE_MESSAGE；create-only 角色：群組最上層 201、群組資料夾 403 NOTE_FOLDER_ROLE_FORBIDDEN_MESSAGE；唯讀角色：群組最上層 403 GROUP_CREATE_FORBIDDEN_MESSAGE", async () => {
     const s = await scene({}, { kind: "shared" });
     const r1 = await bulkPut(s.ctx.app, s.bulk.token, fileOf({ title: "S" }, "s"));

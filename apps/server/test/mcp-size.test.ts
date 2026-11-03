@@ -134,8 +134,8 @@ export const MCP_MAX_WIRE = 262_144;
  * **bulk transfer PR-1／PR-2／PR-3（2026-11-03，feat/bulk-transfer；PR-2 T12 量、PR-3 T4 在 feat/bulk-transfer-pr3〔基 78df5d0、T3 定稿之後〕複量同值）：
  * 讀寫搬移刪除憑證二十支 wire ＝ 62 353**（門檻 78 600 的 79.3%）；對照組：讀寫刪除十九支 58 940、讀寫搬移十七支 55 263、讀寫十六支 51 850、
  * 唯讀九支 26 346。PR-1 加 `create_bulk_transfer_token`（有 collab 的 token 路徑每一組多一支），PR-2 讓它的 description 與輸出依 `notes:write`
- * 二選一；PR-3 改的 RW `next` 503 句（只在工具回應裡）與 `instructions` 第一句（`initialize` 的回應）都不在 `tools/list`，W 不變——
- * `create_bulk_transfer_token` 的回應 wire 8 846 → 8 850（案 11c）。未破 78 600，門檻不動（照配方重推會是 62 464 × 1.3 ＝ 81 203.2 → 81 300，
+ * 二選一；PR-3 改的 RW `next`（503 句、T7 回補的新增檔 front matter 一句與「usually」；只在工具回應裡）與 `instructions` 第一句
+ * （`initialize` 的回應）都不在 `tools/list`，W 不變——`create_bulk_transfer_token` 的回應 wire 8 846 → 9 202（案 11c，餘裕 ×28.5）。未破 78 600，門檻不動（照配方重推會是 62 464 × 1.3 ＝ 81 203.2 → 81 300，
  * 但規則是破了才重訂）。現在要撞牆得加長 `N_LIST_MAX − W + 100` ＝ 16 347（上方各段的舊差額不得沿用）。
  *
  * 最近一次依原配方重訂：2026-10-30（#folders PR-3d 與 feat/folders 合流後定稿，見上；之前 2026-10-30 PR-3d 定稿 77 300、2026-10-29 PR-3d T6、2026-10-26 #181 PR-2d）；下次逼近時同樣回頭重訂連同推導，不是逕自調大。
