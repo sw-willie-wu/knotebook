@@ -294,6 +294,32 @@ describe("T11 撤回 file_sync", () => {
     });
   }
 
+  // 總管追加 T11-4／審查 M-4：3 區共用同一顆佔位（第一區 before、其餘 after）時亂序撤回的實際結果（照實斷言）。
+  const ORDERS3 = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]] as const;
+  // 實測（known-limitation）：第一區（A，before）永遠回到最前；其餘區（after）每撤一個都插在佔位正後方，所以 C、E 回來的順序與
+  // 撤回順序相反——先撤 C 再撤 E 得 [A, E, C]；先撤 E 再撤 C 才是原順序。
+  const EXPECT3: Record<string, string> = { "012": "A\n\nE\n\nC", "021": "A\n\nC\n\nE", "102": "A\n\nE\n\nC", "120": "A\n\nE\n\nC", "201": "A\n\nC\n\nE", "210": "A\n\nC\n\nE" };
+  for (const order of ORDERS3) {
+    it(`3 區共用佔位（人刪 B、D；agent 刪 A、C、E）撤回順序 ${order.map(i => "ACE"[i]).join("→")} → 全部 201、結果見斷言`, async () => {
+      const s = await writeScene("A\n\nB\n\nC\n\nD\n\nE");
+      const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
+      await humanEdit(s.ctx, s.note.id, ed => ed.removeBlocks([ed.document[1]!.id, ed.document[3]!.id]));
+      expect((await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, () => "B\n\nD"))).statusCode).toBe(200);
+      expect(await s.top()).toHaveLength(1);
+      const edits = await s.list(); // 新到舊
+      expect(edits).toHaveLength(3);
+      const byRegion = [...edits].reverse(); // 文件順序：A、C、E
+      const rows = new Map((await s.ctx.db.select().from(noteAiEdits).where(eq(noteAiEdits.noteId, s.note.id))).map(r => [r.id, r]));
+      expect(byRegion.map(e => (rows.get(e.id)!.anchor as { position: string; placeholder?: boolean }))).toEqual([
+        expect.objectContaining({ position: "before", placeholder: true }),
+        expect.objectContaining({ position: "after", placeholder: true }),
+        expect.objectContaining({ position: "after", placeholder: true }),
+      ]);
+      for (const i of order) expect((await s.revert(byRegion[i]!.id)).statusCode, "ACE"[i]).toBe(201);
+      expect(await s.md()).toBe(EXPECT3[order.join("")]);
+    });
+  }
+
   it("PR3b 形：anchor 是使用者自己寫的空段落（非佔位）→ 撤回後那顆空段落仍在", async () => {
     // 人刪 C、在 A、B 之間插一顆空段落 E；agent 刪 A、B → 結果恰 [E]、anchor＝E before（不是佔位）
     const s = await writeScene("A\n\nB\n\nC");

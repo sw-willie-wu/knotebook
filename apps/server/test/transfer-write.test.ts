@@ -9,7 +9,7 @@ import { buildCollabTestApp, testConfig, type CollabTestCtx } from "./helpers.js
 import { seedTokenForUser } from "./editing-helpers.js";
 import { seedFolder } from "./folder-helpers.js";
 import { seedNote, seedShare, seedUser } from "./group-helpers.js";
-import { basesOf, bulkPut, downloadNote, editBody, humanEdit, issueBulkDirect, liveMarkdown, seedMd, topIdsOf } from "./bulk-transfer-helpers.js";
+import { basesOf, bulkPut, downloadNote, editBody, humanEdit, issueBulkDirect, liveBlocks, liveMarkdown, seedBlocks, seedMd, topIdsOf } from "./bulk-transfer-helpers.js";
 
 type Opts = Parameters<typeof buildCollabTestApp>[0];
 const PARAS = (n: number, p = "Para") => Array.from({ length: n }, (_, i) => `${p} ${i}`).join("\n\n");
@@ -355,6 +355,19 @@ describe("W14 空筆記（gate r1 I5）", () => {
     const [row] = await edits(s.ctx, s.note.id);
     expect(row).toMatchObject({ op: "file_sync", anchor: null, beforeBlocks: [] });
     expect(row!.afterBlockIds).toHaveLength(2);
+  });
+
+  it("W14b（審查 m4，known-limitation）只剩一顆空段落的筆記不算「空筆記」：寫兩段 → 那顆空段落留在結尾（§9.4-2，結尾 0 行段永遠最後）", async () => {
+    const s = await scene({}, "");
+    await seedBlocks(s.ctx.db, s.note.id, [{ type: "paragraph" }]);
+    const [emptyId] = await topIdsOf(s.ctx, s.note.id);
+    const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
+    expect(d.body.trim()).toBe("");
+    const r = await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, () => "First para\n\nSecond para"));
+    expect(r.statusCode).toBe(200);
+    const blocks = await liveBlocks(s.ctx, s.note.id);
+    expect(blocks.map(b => b.text)).toEqual(["First para", "Second para", ""]);
+    expect(blocks[2]!.id).toBe(emptyId);
   });
 });
 

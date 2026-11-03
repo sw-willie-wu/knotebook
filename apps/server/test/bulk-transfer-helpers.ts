@@ -59,6 +59,18 @@ export async function seedMd(db: Db, noteId: string, markdown: string): Promise<
   await seedDoc(db, noteId, await mdDoc(markdown));
 }
 
+/** PR-2 T13：block JSON 直接寫 note_states（markdown 寫不出的形：toggle、有色清單、帶段落子的 bullet）。 */
+export async function seedBlocks(db: Db, noteId: string, blocks: unknown[]): Promise<void> {
+  const doc = new Y.Doc();
+  const s = await EditorSession.open(testEditingRuntime, doc);
+  try {
+    s.editor.replaceBlocks(s.editor.document, blocks as never);
+  } finally {
+    s.close();
+  }
+  await seedDoc(db, noteId, doc);
+}
+
 export function bulkGet(app: FastifyInstance, url: string, token?: string, opts: { cookies?: Record<string, string> } = {}) {
   return app.inject({
     method: "GET",
@@ -132,6 +144,19 @@ export async function humanEdit(ctx: { db: Db; collab: CollabServer }, noteId: s
 export async function topIdsOf(ctx: { db: Db; collab: CollabServer }, noteId: string): Promise<string[]> {
   const { doc } = await loadNoteDoc({ db: ctx.db, collab: ctx.collab }, noteId);
   return topLevelContainers(doc.getXmlFragment(YDOC_FRAGMENT)).map(c => c.getAttribute("id") as string);
+}
+
+/** PR-2 T13：現況頂層 block 的 id、型別、純文字（行內內容串起來）與子 block 數（fork 上開一次 session 讀；不寫回）。 */
+export async function liveBlocks(ctx: { db: Db; collab: CollabServer }, noteId: string): Promise<Array<{ id: string; type: string; text: string; children: number }>> {
+  const { doc } = await loadNoteDoc({ db: ctx.db, collab: ctx.collab }, noteId);
+  const s = await EditorSession.open(testEditingRuntime, doc);
+  try {
+    const textOf = (content: unknown): string =>
+      Array.isArray(content) ? content.map(c => (typeof c === "object" && c !== null && "text" in c ? String((c as { text: unknown }).text) : textOf((c as { content?: unknown }).content))).join("") : "";
+    return s.editor.document.map(b => ({ id: b.id, type: b.type, text: textOf(b.content), children: b.children.length }));
+  } finally {
+    s.close();
+  }
 }
 
 /** PR-2 H5：MCP 讀出的整篇 markdown（比對寫回結果用；不 touch presence）。 */

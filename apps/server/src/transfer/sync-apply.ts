@@ -2,7 +2,7 @@
  * bulk transfer spec 2026-11-02 §9.4-4、§9.5 第 6 步：mount fork **一次**、照決策套用、取 diff（plan PR-2 T7）。
  * **持 fork lease、零 DB**；與 scratch 規劃（`sync-plan.ts`）先後、不巢狀。
  *
- * 順序：mount → 無條件讓出一次（同 PR-1）→ ① 所有非 `same` 的插入與改寫（文件順序）：改寫在第一個倖存者之前
+ * 順序：讓出一次（T14：mount 是一整段同步，不接在規劃尾段後面）→ mount → 無條件讓出一次（同 PR-1）→ ① 所有非 `same` 的插入與改寫（文件順序）：改寫在第一個倖存者之前
  * `insertBlocks(parsed)` 再 `removeBlocks(倖存者)`；倖存者全不見與插入區照 `place`（`P` 之後、`N` 之前、文件開頭）
  * ② 刪除區：`decide` 已定的錨點直接用；`deferred` 在**此刻**的 mounted doc 裡找第一個倖存者的前一顆（after）或最後一個
  * 倖存者的後一顆（before）——本次插入的 block 可當鄰居、排除本次要移除的 block（rev 4 m-8）；找不到、或 `replaceWithEmpty`
@@ -95,6 +95,9 @@ export async function applySync(
     for (const id of list) expect.set(id, curFp.get(id)!);
   }
 
+  // T14（總管裁示 3）：mount 之前先讓出一次——fork 的 mount 是一整段同步（2 vCPU 參考環境 2 000 顆約 230–380 ms，切不開），
+  // 不讓出的話它會接在規劃的尾段（scratch unmount、decide）後面成一段更長的停頓。mount 之後那次讓出照舊。
+  await yieldFn();
   const s = await EditorSession.open(runtime, fork);
   try {
     await yieldFn();

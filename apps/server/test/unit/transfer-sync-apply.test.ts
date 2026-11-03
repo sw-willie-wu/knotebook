@@ -303,24 +303,24 @@ describe("AP4／AP6／AP7", () => {
 });
 
 describe("AP5／AP9 讓出", () => {
-  it("AP5 3 區 → mount 之後一次＋區與區之間各一次", async () => {
+  it("AP5 3 區 → mount 之前一次、之後一次＋區與區之間各一次", async () => {
     const { b, live } = await scene([P("A"), P("B"), P("C"), P("D"), P("E")]);
     let yields = 0;
     const r = await applyInMemory(rt, b, "A2\n\nB\n\nC2\n\nD\n\nE2", live, { now: clock(25), applyYieldFn: async () => void yields++ });
     expect(r.plan.regions).toHaveLength(3);
-    expect(yields).toBe(1 + 3);
+    expect(yields).toBe(2 + 3);
   });
   it("AP5b 刪除區之間也各讓一次；空筆記的取代分支同樣讓出", async () => {
     const { b, live } = await scene([P("A"), P("B"), P("C"), P("D"), P("E")]);
     let yields = 0;
     const r = await applyInMemory(rt, b, "A\n\nC\n\nE", live, { now: clock(25), applyYieldFn: async () => void yields++ });
     expect(marks(r)).toEqual(["delete:applied", "delete:applied"]);
-    expect(yields).toBe(1 + 2);
+    expect(yields).toBe(2 + 2);
     const empty = new Y.Doc();
     const be = await makeBaseInMemory(rt, empty);
     let ey = 0;
     await applyInMemory(rt, be, "P1", forkOf(empty), { now: clock(25), applyYieldFn: async () => void ey++ });
-    expect(ey).toBe(1 + 1);
+    expect(ey).toBe(2 + 1);
   });
   it("AP9 不傳 yieldFn → yieldToLoop 被呼叫 ≥ 1 次", async () => {
     const { b, live } = await scene([P("A"), P("B")]);
@@ -335,6 +335,19 @@ describe("AP5／AP9 讓出", () => {
     spy.mockClear();
     await applySync(rt, fork, sv, planned.plan, planned.cur);
     expect(spy.mock.calls.length).toBeGreaterThanOrEqual(1);
+  });
+  it("AP9b（T14）mount fork 之前先讓出一次、mount 之後再一次：讓出時記下的 mounts 依序是「mount 前」「mount 後」", async () => {
+    const { b, live } = await scene([P("A"), P("B")]);
+    const fork = forkOf(live);
+    const { planInMemory } = await import("./fixtures/transfer-sync.js");
+    const { applySync } = await import("../../src/transfer/sync-apply.js");
+    const sv = Y.encodeStateVector(fork);
+    const planned = await planInMemory(rt, b, "A\n\nB2", fork, { yieldFn: async () => {} });
+    if (!planned.ok) throw new Error("plan failed");
+    const m0 = rt.mounts;
+    const seen: number[] = [];
+    await applySync(rt, fork, sv, planned.plan, planned.cur, { yieldFn: async () => void seen.push(rt.mounts - m0) });
+    expect(seen.slice(0, 2)).toEqual([0, 1]);
   });
 });
 
