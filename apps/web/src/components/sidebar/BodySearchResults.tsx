@@ -8,7 +8,7 @@ import { useCloseSidebarDrawer } from "@/lib/sidebar-drawer";
 import { cn } from "@/lib/utils";
 import { displaySnippet } from "./body-snippet";
 import { flattenRows, mergeSearchRows } from "./search-merge";
-import { highlightTitle, SEARCH_META_LINE_CLASS, SearchRow } from "./SearchResults";
+import { highlightTitle, searchMetaLineClass, SearchRow } from "./SearchResults";
 import { noteLocationLabel, type LocationContext } from "./tree";
 
 /**
@@ -221,12 +221,12 @@ function MatchItem({
         onClick={onMatchClick(note, match, href)}
         aria-current={current ? "page" : undefined}
         className={cn(
-          "block min-w-0 rounded-md px-2 py-1.5 hover:bg-brand-soft hover:text-brand-on-soft active:bg-brand-soft-strong",
+          "group block min-w-0 rounded-md px-2 py-1.5 hover:bg-brand-soft hover:text-brand-on-soft active:bg-brand-soft-strong",
           active && "bg-brand-soft text-brand-on-soft hover:bg-brand-soft-strong",
         )}
       >
-        <div className={SEARCH_META_LINE_CLASS}>{highlightTitle(note.title, titleLowerQuery)}</div>
-        <div className={cn("mt-0.5", SEARCH_META_LINE_CLASS)} title={label}>
+        <div className={searchMetaLineClass(active)}>{highlightTitle(note.title, titleLowerQuery)}</div>
+        <div className={cn("mt-0.5", searchMetaLineClass(active))} title={label}>
           {label}
         </div>
         <div className="mt-0.5 line-clamp-2 text-[12px] break-words">{highlightTitle(displaySnippet(match.snippet, lowerQuery), lowerQuery)}</div>

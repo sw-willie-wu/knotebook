@@ -30,4 +30,21 @@ describe("SidebarQueryProvider（#369 I3）", () => {
     solo.unmount();
     expect(render(<Probe tag="d" />).getByTestId("d").textContent).toBe("");
   });
+
+  it("claim：同一個擁有者不清、換人才清；release（登出）清掉並放掉擁有者", () => {
+    const view = render(
+      <SidebarQueryProvider>
+        <Probe tag="a" />
+      </SidebarQueryProvider>,
+    );
+    act(() => api.claim("u1"));
+    act(() => api.setQuery("needle"));
+    act(() => api.claim("u1"));
+    expect(view.getByTestId("a").textContent).toBe("needle");
+    act(() => api.claim("u2"));
+    expect(view.getByTestId("a").textContent).toBe("");
+    act(() => api.setQuery("again"));
+    act(() => api.release());
+    expect(view.getByTestId("a").textContent).toBe("");
+  });
 });

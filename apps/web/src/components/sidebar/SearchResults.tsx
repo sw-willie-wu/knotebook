@@ -35,8 +35,14 @@ export function highlightTitle(title: string, lowerQuery: string): ReactNode {
   ];
 }
 
-/** 搜尋結果每項的「筆記標題」與「位置」兩行共用的樣式（Willie 2026-11-03：第一行與第二行同一個 style，灰色小字）。 */
-export const SEARCH_META_LINE_CLASS = "truncate text-[11px] text-muted-foreground";
+/**
+ * 搜尋結果每項的「筆記標題」與「位置」兩行共用的樣式（Willie 2026-11-03：第一行與第二行同一個 style，灰色小字）。
+ * 目前開著的那一項（底色 `bg-brand-soft`）與 hover 時改用 `text-brand-on-soft`：灰字疊在 brand-soft 上只有 4.17:1（hover 的 strong 底 3.94:1），
+ * 達不到 AA 的 4.5:1；on-soft 在亮色 6.3–6.6:1、暗色 6.9–8.0:1。所在的 `<a>`／Link 要帶 `group`。
+ */
+export function searchMetaLineClass(active: boolean): string {
+  return cn("truncate text-[11px]", active ? "text-brand-on-soft" : "text-muted-foreground group-hover:text-brand-on-soft");
+}
 
 /**
  * 一列搜尋結果的「標題＋位置」（連結）。標題列與合併列（`BodySearchResults`）共用。兩行一律 <div>：可及名稱靠 UA 預設 block 之間補空白
@@ -61,12 +67,12 @@ export function SearchRow({
       onClick={onClick}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "block min-w-0 rounded-md px-2 py-1.5 hover:bg-brand-soft hover:text-brand-on-soft active:bg-brand-soft-strong",
+        "group block min-w-0 rounded-md px-2 py-1.5 hover:bg-brand-soft hover:text-brand-on-soft active:bg-brand-soft-strong",
         active && "bg-brand-soft text-brand-on-soft hover:bg-brand-soft-strong",
       )}
     >
-      <div className={SEARCH_META_LINE_CLASS}>{highlightTitle(note.title, lowerQuery)}</div>
-      <div className={cn("mt-0.5", SEARCH_META_LINE_CLASS)} title={label}>
+      <div className={searchMetaLineClass(active)}>{highlightTitle(note.title, lowerQuery)}</div>
+      <div className={cn("mt-0.5", searchMetaLineClass(active))} title={label}>
         {label}
       </div>
     </Link>

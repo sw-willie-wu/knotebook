@@ -21,6 +21,7 @@ import { ShortcutsDialogContext, type ShortcutsDialogApi } from "@/lib/shortcuts
 import { isOverlayOpen } from "@/lib/versions-context";
 import { openSettings } from "@/lib/open-settings";
 import { SIDEBAR_SELECT_BUTTON } from "@/lib/sidebar-selection";
+import { useSession } from "@/auth/useSession";
 import { useSidebarQuery } from "@/lib/sidebar-query";
 import { SidebarTabProvider, useSidebarTabActions, useSidebarTabState, type SidebarTabActions } from "@/lib/sidebar-tab";
 import { NoteList } from "@/components/NoteList";
@@ -283,7 +284,13 @@ export function AppShell({ children, inert }: AppShellProps) {
   const location = useLocation();
   const createNote = useCreateNote();
   const queryClient = useQueryClient();
-  const { query, setQuery } = useSidebarQuery(); // 住在 App 層：換殼（首頁 → 筆記頁、NotePage 的 Suspense fallback）時搜尋字不重設
+  const { query, setQuery, claim } = useSidebarQuery();
+  const { user: sessionUser } = useSession();
+  const sessionUserId = sessionUser?.id;
+  useEffect(() => {
+    if (sessionUserId !== undefined) claim(sessionUserId); // 換人登入：清掉上一個人的搜尋字
+  }, [sessionUserId, claim]);
+  // 住在 App 層：換殼 // 住在 App 層：換殼（首頁 → 筆記頁、NotePage 的 Suspense fallback）時搜尋字不重設
   // 關閉搜尋（搜尋字從非空變空：清空鈕、Esc、手動刪光）＝清掉搜尋跳轉留在筆記裡的常駐標記。只看「非空 → 空」的轉變，不看「現在是空」：
   // 重掛時 ref 以當下的字起算，不該清掉什麼。窄螢幕點結果會關抽屜，但 query 在這裡、
   // 不跟著抽屜卸載，所以不算關閉搜尋。

@@ -161,6 +161,29 @@ describe("BodySearchView 合併列表（T5）", () => {
     expect(links.map((a) => a.getAttribute("aria-current"))).toEqual(["page", null, null, null]);
   });
 
+  it("B1f 目前開著的那篇：兩行 meta 改用 text-brand-on-soft（灰字疊在 brand-soft 上不到 AA 4.5:1），其餘項仍是灰字", () => {
+    function Open({ id }: { id: string }) {
+      const { setActiveNoteId } = useActiveNote();
+      useEffect(() => setActiveNoteId(id), [id, setActiveNoteId]);
+      return null;
+    }
+    renderView(readyState([hit(N2, [m("_top", "", "needle a")]), hit(N1, [m("_top", "", "needle d")])]), {
+      wrap: (n) => (
+        <>
+          <Open id={N2.id} />
+          {n}
+        </>
+      ),
+    });
+    const [open, other] = within(region()).getAllByTestId("body-match");
+    for (const line of Array.from(open!.querySelectorAll(":scope > div")).slice(0, 2)) {
+      expect(line.className).toContain("text-brand-on-soft");
+      expect(line.className).not.toContain("text-muted-foreground");
+    }
+    for (const line of Array.from(other!.querySelectorAll(":scope > div")).slice(0, 2)) expect(line.className).toContain("text-muted-foreground");
+    expect(open!.className).toContain("group");
+  });
+
   it("B1c 標題標亮：第一行的 mark 是標題命中的字（用 titleLowerQuery）", () => {
     const hot = note("n3", "Needle Notes");
     renderView(readyState([hit(hot, [m("_top", "", "needle in body")])]), { notes: [hot] });

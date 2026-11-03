@@ -433,6 +433,7 @@ describe("搜尋跳轉的常駐標記", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+    // 注意：這一段只是字串層的輔助；主守衛是 e2e 44 的 E11b（reduce 那一輪）在真瀏覽器裡取樣底色。
     // CSS：reduced-motion 區塊裡關動畫的規則必須排除 .kn-anchor-mark（不能選到它），且 mark 規則本身有 animation
     const css = indexCssRaw.replace(/\r\n/g, "\n");
     const start = css.indexOf("@media (prefers-reduced-motion: reduce) {\n  .kn-anchor-flash");
