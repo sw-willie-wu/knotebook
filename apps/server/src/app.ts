@@ -55,7 +55,7 @@ import { sendError } from "./http/errors.js";
 // #108：`stripDefaultPort` 搬到 `http/origin.ts`（與 `mcpOriginAllowed` 同一個葉節點模組，
 // 兩種比較語意的差別寫在該檔檔頭）。
 import { stripDefaultPort } from "./http/origin.js";
-import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, EDIT_LIMIT, FixedWindowLimiter, FOLDER_LIMIT, OIDC_LIMIT, ONE_TIME_LINK_ATTEMPT_LIMIT, ONE_TIME_LINK_MISS_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, PUBLIC_WIDTH_LIMIT, REGISTER_LIMIT, SEARCH_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_RENAME_LIMIT, TOKEN_WRITE_LIMIT, TRANSFER_EXPORT_LIMIT, UPLOAD_LIMIT, USER_SUGGEST_LIMIT } from "./http/rate-limit.js";
+import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, EDIT_LIMIT, FixedWindowLimiter, FOLDER_LIMIT, OIDC_LIMIT, ONE_TIME_LINK_ATTEMPT_LIMIT, ONE_TIME_LINK_MISS_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, PUBLIC_WIDTH_LIMIT, REGISTER_LIMIT, SEARCH_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_RENAME_LIMIT, TOKEN_WRITE_LIMIT, TRANSFER_EXPORT_LIMIT, TRANSFER_WRITE_LIMIT, UPLOAD_LIMIT, USER_SUGGEST_LIMIT } from "./http/rate-limit.js";
 import { FORM_EXEMPT_ROUTES, isOauthScopedPath, sendOauthError } from "./http/oauth-errors.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { oauthMetadataRoutes } from "./routes/oauth-metadata.js";
@@ -176,6 +176,8 @@ export interface AppDeps {
     search: FixedWindowLimiter;
     /** bulk §12.1：整包匯出（key=userId，見 TRANSFER_EXPORT_LIMIT）。 */
     transferExport: FixedWindowLimiter;
+    /** bulk §12.1：檔案寫回（key=userId，見 TRANSFER_WRITE_LIMIT；在佇列內扣）。 */
+    transferWrite: FixedWindowLimiter;
     /** `GET /api/users/suggest`（key=userId，見 `USER_SUGGEST_LIMIT`）。 */
     userSuggest: FixedWindowLimiter;
     /** #106 寫入端：`POST /api/notes/:id/edits`、`POST /api/notes` 帶 `content`（key=userId，見 `EDIT_LIMIT`）。 */
@@ -359,6 +361,19 @@ function isMultipartExemptRoute(request: FastifyRequest): boolean {
   return MULTIPART_EXEMPT_ROUTES.has(`${request.method} ${url}`);
 }
 
+// bulk transfer spec 2026-11-02 §9.1、§15：檔案寫回收 `text/markdown`（整個檔案就是 body）。同 multipart 豁免的形：
+// essence 必須 `text/markdown`（否則 415）＋Origin 不符 403；兩條早退都先 `drainWithCap`。parser 註冊在頂層（見下方
+// `addContentTypeParser` 的註解），所以「其他路由帶 text/markdown 仍 415」靠的是這張白名單（W-A10）。
+const TEXT_BODY_EXEMPT_ROUTES = new Set(["PUT /api/transfer/notes"]);
+
+/** 同 `isMultipartExemptRoute`：先擋 `is404`（404 請求的 `routeOptions.url` 是 undefined）。 */
+function isTextBodyExemptRoute(request: FastifyRequest): boolean {
+  if (request.is404) return false;
+  const url = request.routeOptions.url;
+  if (url === undefined) return false;
+  return TEXT_BODY_EXEMPT_ROUTES.has(`${request.method} ${url}`);
+}
+
 /**
  * multipart 豁免路由的 CSRF 防線：Origin 驗證（spec §12.4）。比較對象是
  * `new URL(origin).host` 與 **`request.host`**——不是 `hostname`：後者剝除 port，會讓
@@ -526,6 +541,13 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   // 頂層 app——放進封裝 plugin 內 parser 不會外溢，守衛測試的鑑別力會靜默消失。
   void app.register(fastifyFormbody);
 
+  // bulk transfer spec 2026-11-02 §9.1：`PUT /api/transfer/notes` 的 `text/markdown` body。同 multipart／formbody 註冊在
+  // **頂層 app**（`transferRoutes` 是非 fastify-plugin 的子情境，註冊在裡面不外溢）——「parser 全域可用、只有
+  // `TEXT_BODY_EXEMPT_ROUTES` 的判定擋得下其他路由」才是 W-A10 的鑑別力前提。parser 只回 Buffer，**解碼在路由**（fatal UTF-8）。
+  app.addContentTypeParser("text/markdown", { parseAs: "buffer" }, (_request, body, done) => {
+    done(null, body);
+  });
+
   // issue #101：`nosniff` 掛在**每一個**回應上。CSP 只對 HTML 文件有意義（掛在
   // `http/spa.ts` 回 index.html 那條路徑），但這個標頭是逐回應的便宜防線，JSON 錯誤
   // 與 `/assets/*.js` 也該有——擋掉「瀏覽器猜錯 content-type 就把回應當成別的型別執行」
@@ -594,6 +616,19 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
         return sendError(reply, 403, "forbidden", "Origin 驗證失敗");
       }
       // Origin 相符，或無 Origin header（spec 明文放行）——落到 preHandler/handler。
+      return;
+    }
+
+    if (isTextBodyExemptRoute(request)) {
+      if (essence !== "text/markdown") {
+        drainWithCap(request);
+        return sendError(reply, 415, "unsupported_media_type", "此請求需要 text/markdown");
+      }
+      const origin = request.headers.origin;
+      if (origin !== undefined && !isOriginAllowed(origin, request.host)) {
+        drainWithCap(request);
+        return sendError(reply, 403, "forbidden", "Origin 驗證失敗");
+      }
       return;
     }
 
@@ -676,6 +711,8 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       contentRead: new FixedWindowLimiter(CONTENT_READ_LIMIT),
       search: new FixedWindowLimiter(SEARCH_LIMIT),
       transferExport: new FixedWindowLimiter(TRANSFER_EXPORT_LIMIT),
+      // §12.3 的接點：limit 以函式建，每次現讀（站台管理調整額度的 UI 在 PR-3 之後）。
+      transferWrite: new FixedWindowLimiter({ limit: () => TRANSFER_WRITE_LIMIT.limit, windowMs: TRANSFER_WRITE_LIMIT.windowMs }),
       userSuggest: new FixedWindowLimiter(USER_SUGGEST_LIMIT),
       edit: new FixedWindowLimiter(EDIT_LIMIT),
       folder: new FixedWindowLimiter(FOLDER_LIMIT),
@@ -796,6 +833,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     queueWaitMs: deps.editingQueueWaitMs,
     testHooks: deps.editingTestHooks,
     versions,
+    renameHook: deps.slugUpdateTestHook,
   });
 
   // #269 §12.1：必用同一個 `writes`（共用佇列，與 MCP 寫入、套用版本、手動存版串行）。只建、不啟動——`index.ts` listen 之後才 start()，
@@ -935,7 +973,8 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
         gate: deps.gate,
         collab: deps.collab,
         editing,
-        limiters: { bearerMiss: limiters.bearerMiss, contentRead: limiters.contentRead, transferExport: limiters.transferExport },
+        limiters: { bearerMiss: limiters.bearerMiss, contentRead: limiters.contentRead, transferExport: limiters.transferExport, transferWrite: limiters.transferWrite, tokenRead: limiters.tokenRead },
+        writes,
         testHooks: deps.transferTestHooks,
       })
     );

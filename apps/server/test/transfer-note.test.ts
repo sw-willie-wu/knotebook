@@ -221,16 +221,17 @@ describe("單篇下載", () => {
     expect(a!.lineHashes.equals(c!.lineHashes)).toBe(false);
   });
 
-  it("N12 本 PR 沒有寫回：PUT /api/transfer/notes 不帶 body → 404、帶 text/markdown → 415；基底沒變", async () => {
+  it("N12 PR-2 起有寫回路由：PUT /api/transfer/notes 不帶 body → 不是 404（回 400）、帶 text/markdown → 不是 415；基底沒變", async () => {
     const ctx = await buildCollabTestApp();
     const u = await seedUser(ctx.db);
     const pat = await seedTokenForUser(ctx.db, u.id, "notes:read notes:write");
     const b = await issueBulkDirect(ctx.db, pat.tokenId, { access: "write" });
     const before = (await basesOf(ctx.db)).length;
     const r1 = await ctx.app.inject({ method: "PUT", url: "/api/transfer/notes", headers: { authorization: `Bearer ${b.token}` } });
-    expect(r1.statusCode).toBe(404);
+    expect(r1.statusCode).not.toBe(404);
+    expect(r1.statusCode).toBe(400);
     const r2 = await ctx.app.inject({ method: "PUT", url: "/api/transfer/notes", headers: { authorization: `Bearer ${b.token}`, "content-type": "text/markdown; charset=utf-8" }, payload: "---\nid: x\n---\nhi" });
-    expect(r2.statusCode).toBe(415);
+    expect(r2.statusCode).not.toBe(415);
     expect((await basesOf(ctx.db)).length).toBe(before);
   });
 

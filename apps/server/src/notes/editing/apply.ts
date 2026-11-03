@@ -10,7 +10,7 @@ import { noteAiEdits } from "../../db/schema.js";
 import { syncLinksFromDoc } from "../links.js";
 import { versionFingerprint } from "../version-fingerprint.js";
 import type { VisibleNoteTarget } from "./candidates.js";
-import { fingerprintForIds, outlineOf, type OutlineEntry } from "./fingerprint.js";
+import { checkExpectations, fingerprintForIds, fingerprintsOfGroups, outlineOf, type OutlineEntry } from "./fingerprint.js";
 import { parseMarkdownForNote, siteOriginOf, type ParseError } from "./markdown.js";
 import { loadNoteDoc } from "./read.js";
 import type { EditingRuntime } from "./runtime.js";
@@ -35,6 +35,12 @@ export interface EditingTestHooks {
   beforeRevertRecord?: () => Promise<void>;
   /** 套用版本的 `beforeDisconnect` 第一步；測試以 throw 模擬基底寫回失敗。 */
   beforeVersionBase?: () => Promise<void>;
+  /** bulk transfer plan H5：檔案寫回呼叫 `cutIfDirty` 前一刻（不持 lease；M9 在這裡斷言 `inFlight === 0`）。 */
+  beforeCut?: () => Promise<void>;
+  /** bulk transfer plan H5：回 `"skipped"`／`null` 就不真的切版、照該結果走（M5）；回 undefined＝照常。 */
+  cutOverride?: () => "skipped" | null | undefined;
+  /** bulk transfer plan T10 CR13：檔案新增扣桶之後、建列之前一刻（測試在這裡刪掉目標資料夾）。 */
+  beforeCreateFromFile?: () => Promise<void>;
 }
 // ⚠ `log` 兩個方法都要：`updateNoteLinks` 用 `warn`、`recordableAfter` 用 `error`。少宣告 `error`
 // 就是 typecheck 紅。
@@ -86,8 +92,17 @@ export type ApplyResult =
 export const RETENTION = AI_EDITS_RETENTION; // #272 D11：數字搬到 shared（web 的說明句用同一個），行為不變
 export class FingerprintMismatch extends Error {}
 
-export interface MergeInput { targetIds: string[] | null; expectFingerprint: string | null; anchorId: string | null; diff: Uint8Array; afterIds: string[] }
-export interface MergeOutput { afterFingerprint: string | null; fingerprint: string; outline: NoteOutlineEntry[]; clock: number; afterSectionIndex: number | null; versionFingerprint: string | null }
+/**
+ * bulk transfer plan PR-2 §0.1-5：多期望（選配）。`expectEach`／`anchorIds`／`afterGroups` 任一給了就走「一次走完頂層、逐一查表」
+ * 的多期望檢查（`checkExpectations`：每個倖存者各自比指紋、**不比順序**；錨點都在），此時 `expectFingerprint` 與 `targetIds` 必須是
+ * null（兩者都給 → throw，接線錯）；`applyUpdate` 之後同一次走完算每組 `afterGroups` 的指紋（`afterFingerprints`）。
+ * 三者都不給＝行為逐位元組不變（`edit_note`／撤回／套用版本）。
+ */
+export interface MergeInput {
+  targetIds: string[] | null; expectFingerprint: string | null; anchorId: string | null; diff: Uint8Array; afterIds: string[];
+  expectEach?: Array<{ id: string; fp: string }>; anchorIds?: string[]; afterGroups?: string[][];
+}
+export interface MergeOutput { afterFingerprint: string | null; fingerprint: string; outline: NoteOutlineEntry[]; clock: number; afterSectionIndex: number | null; versionFingerprint: string | null; afterFingerprints?: (string | null)[] }
 
 const stripIds = (o: { outline: Array<NoteOutlineEntry & { blockIds: string[] }> }): NoteOutlineEntry[] =>
   o.outline.map(({ blockIds: _b, ...e }) => e);
@@ -102,7 +117,11 @@ export async function mergeDiff(
 ): Promise<MergeOutput> {
   return withDirectConnection(directTarget(deps.collab, deps.db), noteId, ctx, doc => {
     const fragment = doc.getXmlFragment(YDOC_FRAGMENT);
-    if (input.expectFingerprint !== null) {
+    const multi = input.expectEach !== undefined || input.anchorIds !== undefined || input.afterGroups !== undefined;
+    if (multi) {
+      if (input.expectFingerprint !== null || input.targetIds !== null) throw new Error("mergeDiff：多期望與單期望互斥（接線錯）");
+      if (!checkExpectations(fragment, input.expectEach ?? [], input.anchorIds ?? [])) throw new FingerprintMismatch();
+    } else if (input.expectFingerprint !== null) {
       const live = input.targetIds === null ? outlineOf(fragment).whole : fingerprintForIds(fragment, input.targetIds);
       if (live === null || live !== input.expectFingerprint) throw new FingerprintMismatch(); // null＝id 缺或順序變，不退回整篇
     }
@@ -131,7 +150,7 @@ export async function mergeDiff(
     //   但**證不出它不可達**——所以退成 `null`（呼叫端 `?? 0` 回第 0 頁）。**不要寫成「不可能」。**
     const firstAfter = input.afterIds[0];
     const afterIndex = firstAfter === undefined ? -1 : merged.outline.findIndex(s => s.blockIds.includes(firstAfter));
-    return {
+    const out: MergeOutput = {
       afterFingerprint,
       fingerprint: merged.whole,
       outline: stripIds(merged),
@@ -139,6 +158,8 @@ export async function mergeDiff(
       afterSectionIndex: afterIndex === -1 ? null : afterIndex,
       versionFingerprint: versionFp,
     };
+    if (input.afterGroups !== undefined) out.afterFingerprints = fingerprintsOfGroups(fragment, input.afterGroups);
+    return out;
   }, opts);
 }
 

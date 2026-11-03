@@ -896,6 +896,8 @@
     "too_many_blocks": "內容的區塊數量超過上限。",
     "content_too_large": "內容過大。",
     "too_many_notes": "筆記太多，無法一次下載。",
+    "not_mergeable": "這篇筆記不能用檔案寫回。",
+    "base_unavailable": "無法以這份副本合併，請重新下載。",
     "already_reverted": "這筆修改已經撤回過了。",
     "stale": "這筆修改之後筆記又被改過，已無法撤回。請重新讀取後再試。",
     "last_admin": "群組至少要有一位管理員。請先指定另一位管理員。",

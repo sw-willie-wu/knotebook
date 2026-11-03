@@ -56,9 +56,11 @@ import {
 import { searchNotes, searchNotesDescription, searchNotesInput, searchNotesOutputFor } from "./tools/search-notes.js";
 import {
   CREATE_BULK_TRANSFER_TOKEN_DESCRIPTION_RO,
+  CREATE_BULK_TRANSFER_TOKEN_DESCRIPTION_RW,
   createBulkTransferToken,
   createBulkTransferTokenInput,
   createBulkTransferTokenOutputRo,
+  createBulkTransferTokenOutputRw,
 } from "./tools/create-bulk-transfer-token.js";
 import { EDIT_NOTE_DESCRIPTION, editNote, editNoteInput, editNoteOutput } from "./tools/edit-note.js";
 import { CREATE_NOTE_DESCRIPTION, createNote, createNoteInput, createNoteOutput } from "./tools/create-note.js";
@@ -252,12 +254,16 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
   }
 
   // bulk transfer spec §5.2-1、§14.1：`create_bulk_transfer_token` 只在 token 路徑（要綁母憑證）、且 collab＋editing 都在（canRead；
-  // 匯出要 mount）時註冊——閘門內。PR-1 對所有憑證一律唯讀描述與唯讀輸出（plan §0.1-1；PR-2 依 canWrite 二選一）。
-  // 守衛：集合＝`mcp-tools-list`、`unit/mcp-register`（U-F1）；runTool＝P13；描述＝`mcp-bulk-transfer-token.test.ts` B7。
+  // 匯出要 mount）時註冊——閘門內。描述與輸出依 `canWrite` 二選一（PR-2 T12；與 handler 算 `access` 同一支 `canWriteNotes`）。
+  // 守衛：集合＝`mcp-tools-list`、`unit/mcp-register`（U-F1）；runTool＝P13；描述與輸出鍵＝`mcp-bulk-transfer-token.test.ts` B7(c)。
   if (ctx.authKind === "token" && canRead) {
     server.registerTool(
       "create_bulk_transfer_token",
-      { description: CREATE_BULK_TRANSFER_TOKEN_DESCRIPTION_RO, inputSchema: z.object(createBulkTransferTokenInput).strict(), outputSchema: createBulkTransferTokenOutputRo },
+      {
+        description: canWrite ? CREATE_BULK_TRANSFER_TOKEN_DESCRIPTION_RW : CREATE_BULK_TRANSFER_TOKEN_DESCRIPTION_RO,
+        inputSchema: z.object(createBulkTransferTokenInput).strict(),
+        outputSchema: canWrite ? createBulkTransferTokenOutputRw : createBulkTransferTokenOutputRo,
+      },
       async args => runTool("create_bulk_transfer_token", ctx, () => createBulkTransferToken(args, ctx))
     );
   }

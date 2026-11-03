@@ -16,7 +16,7 @@ import { loadConfig, type AppConfig } from "../src/config.js";
 import { buildApp, type AppDeps, type BuildAppOptions } from "../src/app.js";
 import { signSession, UserGate } from "../src/auth/session.js";
 import { LoginThrottle } from "../src/auth/rate-limit.js";
-import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, EDIT_LIMIT, FixedWindowLimiter, FOLDER_LIMIT, OIDC_LIMIT, ONE_TIME_LINK_ATTEMPT_LIMIT, ONE_TIME_LINK_MISS_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, PUBLIC_WIDTH_LIMIT, REGISTER_LIMIT, SEARCH_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_RENAME_LIMIT, TOKEN_WRITE_LIMIT, TRANSFER_EXPORT_LIMIT, UPLOAD_LIMIT, USER_SUGGEST_LIMIT } from "../src/http/rate-limit.js";
+import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, EDIT_LIMIT, FixedWindowLimiter, FOLDER_LIMIT, OIDC_LIMIT, ONE_TIME_LINK_ATTEMPT_LIMIT, ONE_TIME_LINK_MISS_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, PUBLIC_WIDTH_LIMIT, REGISTER_LIMIT, SEARCH_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_RENAME_LIMIT, TOKEN_WRITE_LIMIT, TRANSFER_EXPORT_LIMIT, TRANSFER_WRITE_LIMIT, UPLOAD_LIMIT, USER_SUGGEST_LIMIT } from "../src/http/rate-limit.js";
 import { hashPassword } from "../src/auth/password.js";
 import { noopCollabHooks, type CollabHooks } from "../src/collab/hooks.js";
 import type { CollabHooksLogger } from "../src/collab/hooks-impl.js";
@@ -310,6 +310,7 @@ export function freshLimiters(
     contentRead: new FixedWindowLimiter(CONTENT_READ_LIMIT),
     search: new FixedWindowLimiter(SEARCH_LIMIT),
     transferExport: new FixedWindowLimiter(TRANSFER_EXPORT_LIMIT),
+    transferWrite: new FixedWindowLimiter(TRANSFER_WRITE_LIMIT),
     userSuggest: new FixedWindowLimiter(USER_SUGGEST_LIMIT),
     edit: new FixedWindowLimiter(EDIT_LIMIT),
     folder: new FixedWindowLimiter(FOLDER_LIMIT),
@@ -484,9 +485,15 @@ export async function buildCollabTestApp(
     transferTestHooks?: AppDeps["transferTestHooks"];
     /** bulk transfer plan H5：log 測試用（預設 `false`）；傳 `{ level, stream }` 收 pino 原文。 */
     logger?: BuildAppOptions["logger"];
+    /**
+     * bulk transfer plan H5（gate r1 I7）：共用 DB——給了就不 `freshDb()`（DB 的清理照舊由建它的那次 `freshDb()` 的
+     * `onTestFinished` 負責），collab server 各自建。⚠ 收尾順序：**先 `destroy()` 第一個 app 再建第二個**，避免兩個 collab
+     * server 同時持有同一篇 live doc。
+     */
+    db?: Db;
   } = {}
 ): Promise<CollabTestCtx> {
-  const { db } = await freshDb();
+  const { db } = opts.db ? { db: opts.db } : await freshDb();
   const gate = new UserGate(db);
   // 測試注入縫：見 `CollabTestCtx.breakGate`。包在 harness 裡（而不是每個測試各自 monkey-patch）
   // 是為了讓「怎麼弄壞 gate」只有一份定義。

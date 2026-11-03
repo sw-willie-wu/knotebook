@@ -129,7 +129,7 @@ const UNSUPPORTED_COLUMNS_MESSAGE =
 const UNSUPPORTED_SIZE_MESSAGE =
   "圖片寬度或表格欄寬的格式不符，沒有寫入任何內容。請照讀出的格式寫：寬度為 32 到 4000 的整數像素；圖片寫在表格之外的 `<figure>` 內的 `<img width>`，`<img>` 只帶 `alt`（可省）、`src`、`width` 且依此順序，表格欄寬寫在第一列格子的 `colwidth`，合併的格子每一欄一個值、以逗號分隔，沒設寬的欄留空。";
 /** 解析／套用失敗的 400 訊息：有專屬說明的碼回專屬句，其餘回呼叫端的 `fallback`。 */
-function parseErrorMessage(code: ErrorCode, fallback: string): string {
+export function parseErrorMessage(code: ErrorCode, fallback: string): string {
   if (code === "unsupported_color") return UNSUPPORTED_COLOR_MESSAGE;
   if (code === "unsupported_columns") return UNSUPPORTED_COLUMNS_MESSAGE;
   if (code === "unsupported_size") return UNSUPPORTED_SIZE_MESSAGE;

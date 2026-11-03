@@ -9,8 +9,9 @@
  * presence touch），**不收授權與限流**：那兩者在 REST 與 MCP 上的答案形不同（HTTP 狀態碼
  * vs 工具錯誤），收進來就得在這裡分支「我是誰的呼叫端」，比重複更糟。
  *
- * ⚠ **presence 目標只能取自 `presenceTargetForWrite(op, afterBlockIds)`**——#106 三棒各在
- * 這裡錯過一次（請求帶的 `section_id` 是 heading 的 block id，寫完就已經不存在了）。
+ * ⚠ **`EditOp` 寫入路徑的 presence 目標只能取自 `presenceTargetForWrite(op, afterBlockIds)`**——#106 三棒各在
+ * 這裡錯過一次（請求帶的 `section_id` 是 heading 的 block id，寫完就已經不存在了）。`syncFile`（`file_sync`）在本檔內以
+ * 各區編輯後的 `afterIds` 組（bulk transfer plan §0.1-15），理由同：不吃請求帶的 id。
  * ⚠ **帶 content 建立筆記的佇列逾時答案是 `500 internal` 不是 `503`**（`docs/ai-editing.md`
  * 逐字），所以 `createWithContent` 的 catch **刻意不分辨例外型別**，`QueueBusyError` 一併吃掉。
  * 這條逾時在真實路徑上不可達（plan 誠實缺口 13）；catch 不分辨型別是為了讓 REST 與 MCP
@@ -29,27 +30,39 @@
  *     `note-presence.test.ts` 與 `mcp-content.test.ts` 兩條逐字斷言在守——本檔 `touch()` 與
  *     `mcp/note-read.ts` 都只是呼叫端，沒有各自的第二道守衛。
  */
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { FastifyBaseLogger } from "fastify";
 import * as Y from "yjs";
-import type { EditOp } from "@knotebook/shared";
+import { YDOC_FRAGMENT, type EditOp } from "@knotebook/shared";
 import { currentAgentLabel } from "../../auth/agent-label.js";
 import type { CollabServer } from "../../collab/server.js";
 import type { VersionService } from "../../collab/versions.js";
 import type { Db } from "../../db/index.js";
-import { notes } from "../../db/schema.js";
+import { notes, transferBases, transferCreates } from "../../db/schema.js";
+import { isForeignKeyViolation, isNoteFolderSpaceViolation, isRetryableTxError, pgErrorSummary } from "../../db/pg-errors.js";
+import type { FixedWindowLimiter } from "../../http/rate-limit.js";
+import { redactDbError } from "../../lib/redact-db-error.js";
+import { hmacOf } from "../../transfer/base-hash.js";
+import { diffLines, hashAgentLines } from "../../transfer/line-diff.js";
+import { bodyLines } from "../../transfer/normalize.js";
+import { applySync, fileSyncRows, type Applied } from "../../transfer/sync-apply.js";
+import { planSync, type PlanSyncError, type SyncPlan } from "../../transfer/sync-plan.js";
+import { recordFileSyncInTx } from "../../transfer/tx/record-file-sync.js";
 import { insertNoteWithAutoSlug } from "../create.js";
+import { renameNoteTitle, type RenameOutcome } from "../rename-note.js";
+import { resolveNoteAccess, type NoteAccess } from "../service.js";
 import type { SlugScope } from "../slug.js";
 import type { NoteVersionRow } from "../tx/versions.js";
-import { applyEdit, type ApplyDeps, type ApplyResult, type EditingTestHooks } from "./apply.js";
+import { applyEdit, FingerprintMismatch, forkAndCheck, mergeDiff, recordableAfter, updateNoteLinks, type ApplyDeps, type ApplyResult, type EditingTestHooks, type MergeOutput } from "./apply.js";
 import { applyVersionEdit, type ApplyVersionFailureCode, type ApplyVersionInput } from "./apply-version.js";
-import { visibleNoteTargets } from "./candidates.js";
-import { parseMarkdownForNote, siteOriginOf, type ParseError } from "./markdown.js";
+import { visibleNoteTargets, type VisibleNoteTarget } from "./candidates.js";
+import { topLevelSnapshot } from "./fingerprint.js";
+import { parseMarkdownForNote, siteOriginOf, type ParsedMarkdown, type ParseError } from "./markdown.js";
 import { presenceIdentity, presenceTargetForWrite, type PresenceRegistry, type PresenceTarget } from "./presence.js";
 import { NoteWriteQueue, QueueBusyError } from "./queue.js";
 import { revertEdit, type RevertResult } from "./revert.js";
 import type { EditingRuntime } from "./runtime.js";
-import { EditorSession, NoteGoneError } from "./session.js";
+import { EditorSession, NoteGoneError, type DirectCtx } from "./session.js";
 
 export type ApplyOk = Extract<ApplyResult, { ok: true }>;
 export type ApplyFailureCode = Extract<ApplyResult, { ok: false }>["code"];
@@ -73,12 +86,76 @@ export type WriteOutcome<T, C> =
  * （REST 回 `NoteDto`、MCP 回 `NoteSummaryForModel`）要的 DTO 不同，重讀不可能有共用形，
  * 但「重讀落空時退回這一列」的退路可以共用一份資料。
  */
+/** `prepareContent` 的成功形：解析結果＋預取的候選集合與 agentLabel（`createWithContent` 的第三個參數）。 */
+export type PreparedContent = { ok: true; candidates: readonly VisibleNoteTarget[]; agentLabel: string | null; prepared: ParsedMarkdown };
+
 export type CreateWithContentResult =
-  | { ok: true; noteId: string; inserted: typeof notes.$inferSelect }
+  | { ok: true; noteId: string; inserted: typeof notes.$inferSelect; unbound: number }
   | { ok: false; kind: "parse"; code: ParseError }
   | { ok: false; kind: "internal" };
 
 export type SaveVersionOutcome = { ok: true; row: NoteVersionRow; upgraded: boolean } | { ok: false; kind: "busy" | "note-deleted" };
+
+/** bulk transfer §9.5-5：檔案寫回前存版的名稱（spec §14.4、F18）。 */
+export const SYNC_VERSION_NAME = "本機檔案同步前";
+/** §9.5-7：合併指紋不符時從規劃重來，最多 3 次。 */
+export const SYNC_MERGE_ATTEMPTS = 3;
+
+export interface SyncFileInput {
+  noteId: string;
+  userId: string;
+  userHandle: string;
+  /** 母憑證 id（presence、紀錄列的 token_id）。 */
+  tokenId: string | null;
+  access: NoteAccess;
+  baseKey: string;
+  /** frontmatter 的 `title`；沒有 `title` 行＝undefined（不改名）。 */
+  title: string | undefined;
+  /** 已 `normalizeBody` 的本文。 */
+  body: string;
+  key: Buffer;
+  keyId: string;
+  limiters: { transferWrite: FixedWindowLimiter; tokenRead: FixedWindowLimiter };
+}
+export interface SyncFileOk {
+  ok: true;
+  result: "unchanged" | "applied" | "merged" | "renamed";
+  applied: number;
+  same: number;
+  conflicts: number;
+  version: { id: string; name: string } | null;
+  editIds: string[];
+  unboundWikilinks: number;
+  renamed: boolean;
+  renameFailed?: "gone" | "ownership_changed";
+  diffOverflow: boolean;
+  anchored: number;
+  degradedLines: number;
+}
+/** §10：去重視窗（＝權杖 TTL）。 */
+export const CREATE_DEDUPE_MINUTES = 30;
+export interface CreateFromFileInput {
+  userId: string;
+  userHandle: string;
+  tokenId: string | null;
+  fileSha: Buffer;
+  keyId: string;
+  title: string | undefined;
+  body: string;
+  dest: { scope: SlugScope; folderId: string | null };
+  limiters: { transferWrite: FixedWindowLimiter; tokenRead: FixedWindowLimiter };
+}
+export type CreateFromFileOutcome =
+  | { ok: true; created: boolean; noteId: string; unboundWikilinks: number }
+  | { ok: false; kind: "parse"; code: ParseError }
+  | { ok: false; kind: "rate_limited"; retryAfterMs: number }
+  | { ok: false; kind: "folder_gone" | "busy" | "internal" };
+
+export type SyncFileOutcome =
+  | SyncFileOk
+  | { ok: false; kind: "base_unavailable" | "not_mergeable" | "busy" | "gone" }
+  | { ok: false; kind: "rate_limited"; retryAfterMs: number }
+  | { ok: false; kind: "parse"; code: PlanSyncError };
 
 export interface NoteWriteServiceDeps {
   db: Db;
@@ -93,6 +170,8 @@ export interface NoteWriteServiceDeps {
   testHooks?: EditingTestHooks;
   /** 版本歷史：套用、手動儲存（`app.ts` 傳 collab 那份或未綁定的那份）。選配（既有測試直接 new 本 service；沒有它時套用與手動儲存會丟錯）。#272 起 AI／直寫不再切版。 */
   versions?: VersionService;
+  /** bulk transfer plan H5：檔案寫回改名的 slug 候選縫（原樣傳給 `renameNoteTitle` 的第三個參數；`buildApp` 由 `slugUpdateTestHook` 透傳）。 */
+  renameHook?: (candidate: string) => void | Promise<void>;
 }
 
 export class NoteWriteService {
@@ -268,6 +347,280 @@ export class NoteWriteService {
   }
 
   /**
+   * bulk transfer spec 2026-11-02 §9.2、§9.5（plan PR-2 T8／T9）：檔案寫回一篇既有筆記。**全在一次 `queue.run(noteId)` 內**
+   * （F14）；進佇列前只預取候選集合與 agentLabel（同 `applyToNote`）。順序（plan T8「syncFile」1–11）：
+   * ① 查基底（key＋user＋note）→ 查無或 `key_id` 不符 → `base_unavailable` ② 狀態表（§9.2-6）③ 規劃：fork → 頂層快照 →
+   * 行雜湊（基底的鹽）→ diff → `planSync`；零區（含全是 same）→ 單句寫 `applied_body_sha`、視為內容沒變 ④ 內容沒變 → 改名判斷；
+   * 都沒寫 → `tokenRead`（本請求已扣過 `transferWrite` 就不再扣）⑤ 有區、本請求還沒扣 → `transferWrite`（至多一次，gate r1 I1）
+   * ⑥ 有 conflict、還沒存過版 → 存版（不持 lease；F18 樣板）⑦ `applySync` → `beforeMerge` → 多期望 `mergeDiff`；不符 → 從 ③
+   * 重來（重跑 `planSync`），最多 3 次 ⑧ 紀錄交易（`recordFileSyncInTx`，交易外 `redactDbError`）⑨ `updateNoteLinks`
+   * ⑩ 改名（T9）⑪ presence。帶內容參數的 DB 呼叫（紀錄、存版、改名）錯誤一律經 `redactDbError`（plan 不變量 9）。
+   */
+  async syncFile(log: FastifyBaseLogger, input: SyncFileInput): Promise<SyncFileOutcome> {
+    const candidates = await visibleNoteTargets(this.deps.db, input.userId);
+    const agentLabel = input.tokenId ? await currentAgentLabel(this.deps.db, input.tokenId) : null;
+    const applyDeps = this.applyDeps(log);
+    try {
+      return await this.queue.run(input.noteId, () => this.syncFileInQueue(log, applyDeps, input, candidates, agentLabel), this.deps.queueWaitMs);
+    } catch (err) {
+      if (err instanceof QueueBusyError) return { ok: false, kind: "busy" };
+      if (err instanceof NoteGoneError) return { ok: false, kind: "gone" };
+      throw err;
+    }
+  }
+
+  private async syncFileInQueue(
+    log: FastifyBaseLogger,
+    applyDeps: ApplyDeps,
+    input: SyncFileInput,
+    candidates: readonly VisibleNoteTarget[],
+    agentLabel: string | null,
+  ): Promise<SyncFileOutcome> {
+    const db = this.deps.db;
+    const hooks = this.deps.testHooks;
+    const [base] = await db
+      .select()
+      .from(transferBases)
+      .where(and(eq(transferBases.key, input.baseKey), eq(transferBases.userId, input.userId), eq(transferBases.noteId, input.noteId)))
+      .limit(1);
+    if (!base || base.keyId !== input.keyId) return { ok: false, kind: "base_unavailable" };
+    const salt = Buffer.from(base.salt);
+    const bodySha = hmacOf(input.key, salt, input.body);
+    const applied = base.appliedBodySha === null ? null : Buffer.from(base.appliedBodySha);
+    let contentNoop: boolean;
+    if (applied === null) contentNoop = bodySha.equals(Buffer.from(base.bodySha));
+    else if (bodySha.equals(applied)) contentNoop = true;
+    else return { ok: false, kind: "base_unavailable" };
+    if (!contentNoop && base.segments === null) return { ok: false, kind: "not_mergeable" };
+
+    const out: SyncFileOk = {
+      ok: true, result: "unchanged", applied: 0, same: 0, conflicts: 0, version: null, editIds: [], unboundWikilinks: 0, renamed: false,
+      diffOverflow: false, anchored: 0, degradedLines: 0,
+    };
+    let charged = false;
+    let firstWritten: string | null = null;
+    let contentWritten = false;
+
+    if (!contentNoop) {
+      const editing = applyDeps.editing;
+      const agentLines = bodyLines(input.body);
+      const agent = await hashAgentLines(input.key, salt, agentLines);
+      const diff = await diffLines({ hashes: Buffer.from(base.lineHashes), kinds: Buffer.from(base.lineKinds) }, agent);
+      out.diffOverflow = diff.overflow;
+      out.anchored = diff.anchored;
+      out.degradedLines = diff.degradedLines;
+      const segments = base.segments!;
+      const baseLineCount = base.lineKinds.length;
+      let versionCut = false;
+      let merged: MergeOutput | null = null;
+      let plan: SyncPlan | null = null;
+      let fork: Y.Doc | null = null;
+      let appliedRegions: Applied | null = null;
+      let zeroRegion = false;
+      for (let attempt = 0; attempt < SYNC_MERGE_ATTEMPTS && merged === null && !zeroRegion; attempt++) {
+        const f = await forkAndCheck(applyDeps, input.noteId);
+        const curFragment = f.fork.getXmlFragment(YDOC_FRAGMENT);
+        const cur = topLevelSnapshot(curFragment);
+        const planned = await planSync(editing, { segments, baseLineCount, agentLines, diff, cur, curFragment, candidates, siteOrigin: siteOriginOf(editing.baseUrl) });
+        if (!planned.ok) return { ok: false, kind: "parse", code: planned.code };
+        const p = planned.plan;
+        if (p.decisions.every(d => d.mark === "same")) {
+          // 零區（含全是 same）→ 寫 applied_body_sha、視為內容沒變（§9.2-6，gate r3 m6）。參數只有 HMAC 與 key（不帶內容）。
+          try {
+            await db.update(transferBases).set({ appliedBodySha: bodySha, lastUsedAt: sql`now()` }).where(eq(transferBases.key, base.key));
+          } catch (err) {
+            throw redactDbError(log, err, "寫入檔案同步基底");
+          }
+          out.same = p.decisions.length;
+          zeroRegion = true;
+          break;
+        }
+        if (!charged) {
+          if (!input.limiters.transferWrite.consume(input.userId)) return { ok: false, kind: "rate_limited", retryAfterMs: input.limiters.transferWrite.retryAfterMs(input.userId) };
+          charged = true;
+        }
+        if (!versionCut && p.decisions.some(d => d.mark === "conflict")) {
+          const cut = await this.cutBeforeSync(log, input.noteId);
+          if (cut.kind !== "ok") return { ok: false, kind: cut.kind };
+          versionCut = true;
+          out.version = cut.version;
+        }
+        const a = await applySync(editing, f.fork, f.sv, p, cur);
+        if (hooks?.beforeMerge) await hooks.beforeMerge();
+        const ctx: DirectCtx = { source: "ai-edit", userId: input.userId, tokenId: input.tokenId, agentLabel, applied: false };
+        try {
+          merged = await mergeDiff(applyDeps, input.noteId, ctx, {
+            targetIds: null, expectFingerprint: null, anchorId: null, diff: a.diff, afterIds: [],
+            expectEach: a.survivorsExpect, anchorIds: a.anchorIds, afterGroups: a.perRegion.map(pr => pr.afterIds),
+          });
+        } catch (err) {
+          if (err instanceof FingerprintMismatch) continue;
+          throw err;
+        }
+        plan = p;
+        fork = f.fork;
+        appliedRegions = a;
+      }
+      if (!zeroRegion && merged === null) return { ok: false, kind: "busy" }; // 三次都撞指紋（§9.5-7）
+      if (plan !== null && merged !== null && fork !== null && appliedRegions !== null) {
+        if (hooks?.beforeRecord) await hooks.beforeRecord();
+        const { rows } = fileSyncRows({
+          noteId: input.noteId, userId: input.userId, tokenId: input.tokenId, agentLabel,
+          decisions: plan.decisions, perRegion: appliedRegions.perRegion, afterFingerprints: merged.afterFingerprints ?? [],
+          recordable: (ids, fp) => recordableAfter(applyDeps, input.noteId, ids, fp),
+        });
+        const recordInput = { noteId: input.noteId, baseKey: base.key, appliedBodySha: bodySha, rows };
+        try {
+          out.editIds = await db.transaction(tx => recordFileSyncInTx(tx, recordInput));
+        } catch (err) {
+          throw redactDbError(log, err, "寫入檔案同步紀錄");
+        }
+        if (hooks?.afterRecord) await hooks.afterRecord();
+        await updateNoteLinks(applyDeps, { sourceNoteId: input.noteId, userId: input.userId, forkDoc: fork, clock: merged.clock });
+        out.applied = plan.decisions.filter(d => d.mark === "applied").length;
+        out.conflicts = plan.decisions.filter(d => d.mark === "conflict").length;
+        out.same = plan.decisions.filter(d => d.mark === "same").length;
+        out.unboundWikilinks = plan.unbound;
+        out.result = out.conflicts > 0 ? "merged" : "applied";
+        contentWritten = true;
+        const firstIdx = plan.decisions.findIndex(d => d.mark !== "same" && d.kind !== "delete");
+        firstWritten = firstIdx === -1 ? null : (appliedRegions.perRegion[firstIdx]!.afterIds[0] ?? null);
+      }
+    }
+
+    // ⑩ 改名（T9；§9.2-8、§9.7）。「目前已套用的標題」＝applied_title_sha ?? title_sha。
+    if (input.title !== undefined) {
+      const current = Buffer.from(base.appliedTitleSha ?? base.titleSha);
+      const titleSha = hmacOf(input.key, salt, input.title);
+      if (!titleSha.equals(current)) {
+        if (!contentWritten && !charged) {
+          if (!input.limiters.transferWrite.consume(input.userId)) return { ok: false, kind: "rate_limited", retryAfterMs: input.limiters.transferWrite.retryAfterMs(input.userId) };
+          charged = true;
+        }
+        let r: RenameOutcome;
+        try {
+          r = await renameNoteTitle(db, { noteId: input.noteId, access: input.access, title: input.title }, this.deps.renameHook);
+        } catch (err) {
+          throw redactDbError(log, err, "檔案寫回改名");
+        }
+        if (r.kind === "renamed") {
+          try {
+            await db.update(transferBases).set({ appliedTitleSha: titleSha, lastUsedAt: sql`now()` }).where(eq(transferBases.key, base.key));
+          } catch (err) {
+            throw redactDbError(log, err, "寫入檔案同步基底");
+          }
+          out.renamed = true;
+          if (!contentWritten) out.result = "renamed";
+        } else if (r.kind === "gone" && !contentWritten) {
+          return { ok: false, kind: "gone" };
+        } else {
+          out.renameFailed = r.kind;
+        }
+      }
+    }
+
+    if (!contentWritten && !out.renamed) {
+      // 都沒寫：扣 tokenRead（本請求已扣過 transferWrite 就不再扣，gate r2 m-6）。
+      if (!charged && !input.limiters.tokenRead.consume(`token:${input.userId}`)) {
+        return { ok: false, kind: "rate_limited", retryAfterMs: input.limiters.tokenRead.retryAfterMs(`token:${input.userId}`) };
+      }
+      return out;
+    }
+    // ⑪ presence（§0.1-15）：寫入的第一顆 block；只有刪除區 → 文件開頭；只改名不 touch（§9.2-9）。
+    if (contentWritten) this.touch(input.noteId, input.tokenId, input.userHandle, agentLabel, firstWritten === null ? { kind: "doc-start" } : { kind: "block", blockId: firstWritten });
+    return out;
+  }
+
+  /**
+   * bulk transfer spec §10（plan PR-2 T10）：沒有 `id` 的檔＝新增筆記。串行鍵 `create:${userId}:${fileSha}`（新筆記還沒有 id，
+   * gate r3 m7）；佇列內：去重命中（同使用者、同檔、同 `key_id`、30 分內、該筆記仍看得到）→ 扣 `tokenRead`、回原 id；否則先解析
+   * （`prepareContent`；失敗 → parse，不扣桶、不留筆記、不寫去重列）→ 扣 `transferWrite` → `createWithContent`（帶解析結果）→ upsert `transfer_creates`（TTL 外的舊列、原筆記進垃圾桶
+   * 都會撞 PK）→ fire-and-forget TTL 清理。建列失敗照 `mcp/tools/create-note.ts` 的 `mapCreateInsertFailure` 分流（gate r1 m5）。
+   */
+  async createFromFile(log: FastifyBaseLogger, input: CreateFromFileInput): Promise<CreateFromFileOutcome> {
+    const key = `create:${input.userId}:${input.fileSha.toString("hex")}`;
+    try {
+      return await this.queue.run(key, () => this.createFromFileInQueue(log, input), this.deps.queueWaitMs);
+    } catch (err) {
+      if (err instanceof QueueBusyError) return { ok: false, kind: "busy" };
+      throw err;
+    }
+  }
+
+  private async createFromFileInQueue(log: FastifyBaseLogger, input: CreateFromFileInput): Promise<CreateFromFileOutcome> {
+    const db = this.deps.db;
+    const [hit] = await db
+      .select({ noteId: transferCreates.noteId })
+      .from(transferCreates)
+      .where(and(eq(transferCreates.userId, input.userId), eq(transferCreates.fileSha, input.fileSha), eq(transferCreates.keyId, input.keyId), sql`${transferCreates.createdAt} > now() - make_interval(mins => ${CREATE_DEDUPE_MINUTES}::int)`))
+      .limit(1);
+    if (hit && (await resolveNoteAccess(db, input.userId, hit.noteId)).role !== "none") {
+      const k = `token:${input.userId}`;
+      if (!input.limiters.tokenRead.consume(k)) return { ok: false, kind: "rate_limited", retryAfterMs: input.limiters.tokenRead.retryAfterMs(k) };
+      return { ok: true, created: false, noteId: hit.noteId, unboundWikilinks: 0 };
+    }
+    // 解析在扣桶之前（總管 m2）：解析失敗不扣 `transferWrite`、不留筆記、不寫去重列——與寫回（`syncFile` 的 parse 出口在扣桶前）一致。
+    const pre = await this.prepareContent(log, { userId: input.userId, tokenId: input.tokenId, content: input.body });
+    if (!pre.ok) return { ok: false, kind: "parse", code: pre.code };
+    if (!input.limiters.transferWrite.consume(input.userId)) return { ok: false, kind: "rate_limited", retryAfterMs: input.limiters.transferWrite.retryAfterMs(input.userId) };
+    if (this.deps.testHooks?.beforeCreateFromFile) await this.deps.testHooks.beforeCreateFromFile();
+    let r: CreateWithContentResult;
+    try {
+      r = await this.createWithContent(log, { userId: input.userId, userHandle: input.userHandle, tokenId: input.tokenId, title: input.title, content: input.body, scope: input.dest.scope, folderId: input.dest.folderId }, pre);
+    } catch (err) {
+      // 建列（insertNoteWithAutoSlug）在 createWithContent 的 try 之外、原樣拋出：同 `mapCreateInsertFailure` 的判準。
+      if (isRetryableTxError(err)) return { ok: false, kind: "busy" };
+      if (input.dest.folderId !== null && (isNoteFolderSpaceViolation(err) || isForeignKeyViolation(err))) return { ok: false, kind: "folder_gone" };
+      if ("groupId" in input.dest.scope && isForeignKeyViolation(err)) return { ok: false, kind: "folder_gone" };
+      throw redactDbError(log, err, "檔案新增建列");
+    }
+    if (!r.ok) return r.kind === "parse" ? { ok: false, kind: "parse", code: r.code } : { ok: false, kind: "internal" };
+    try {
+      await db
+        .insert(transferCreates)
+        .values({ userId: input.userId, fileSha: input.fileSha, noteId: r.noteId, keyId: input.keyId })
+        .onConflictDoUpdate({ target: [transferCreates.userId, transferCreates.fileSha], set: { noteId: r.noteId, keyId: input.keyId, createdAt: sql`now()` } });
+    } catch (err) {
+      throw redactDbError(log, err, "寫入新增去重");
+    }
+    // plan §0.1-8：TTL 清理（fire-and-forget；失敗只 warn code／constraint）。
+    void db
+      .execute(sql`delete from ${transferCreates} where ${transferCreates.createdAt} < now() - make_interval(mins => ${CREATE_DEDUPE_MINUTES}::int)`)
+      .catch((err: unknown) => log.warn({ ...pgErrorSummary(err) }, "清理 transfer_creates 失敗"));
+    return { ok: true, created: true, noteId: r.noteId, unboundWikilinks: r.unbound };
+  }
+
+  /**
+   * §9.5-5 的存版（F18 樣板；**不持 lease**）：`versions.docFor` → `cutIfDirty(kind manual、名稱「本機檔案同步前」、keepExistingName、
+   * transient)`；兩次 null → busy；skipped note-deleted → gone、其他 skipped → busy。`cutIfDirty` 的 DB 錯誤帶整份筆記的 Yjs 更新
+   * （`collab/versions.ts` 的 capture），一律經 `redactDbError`（plan 不變量 9 ②）。
+   */
+  private async cutBeforeSync(log: FastifyBaseLogger, noteId: string): Promise<{ kind: "ok"; version: { id: string; name: string } | null } | { kind: "busy" | "gone" }> {
+    const versions = this.deps.versions;
+    if (!versions) throw new Error("NoteWriteService：沒有版本服務");
+    const hooks = this.deps.testHooks;
+    if (hooks?.beforeCut) await hooks.beforeCut();
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const forced = hooks?.cutOverride?.();
+      let r: Awaited<ReturnType<VersionService["cutIfDirty"]>>;
+      if (forced === "skipped") r = { skipped: "uninitialized" } as Awaited<ReturnType<VersionService["cutIfDirty"]>>;
+      else if (forced === null) r = null;
+      else {
+        try {
+          const { doc, transient } = await versions.docFor(noteId);
+          r = await versions.cutIfDirty(noteId, doc, { kind: "manual", name: SYNC_VERSION_NAME, keepExistingName: true, extraEditors: [], transient });
+        } catch (err) {
+          throw redactDbError(log, err, "檔案寫回前存版");
+        }
+      }
+      if (r === null) continue;
+      if ("skipped" in r) return r.skipped === "note-deleted" ? { kind: "gone" } : { kind: "busy" };
+      return { kind: "ok", version: { id: r.row.id, name: r.row.name ?? SYNC_VERSION_NAME } };
+    }
+    return { kind: "busy" };
+  }
+
+  /**
    * 帶 content 建立筆記的完整管線（spec §5 逐字）：**先在空 scratch Y.Doc ＋ mounted 編輯器上
    * 解析驗證 → 建列 → 把解析出的 block JSON 套到真 fork**。解析在建列**之前**是契約，所以壞
    * content 一列都不會建；套用時傳 `blocks` 而非 `markdown`，同一份內容不會被 parse 與
@@ -279,28 +632,42 @@ export class NoteWriteService {
    *
    * 不帶 content 的建立**不走這裡**（呼叫端自己呼叫 `insertNoteWithAutoSlug`，不吃 `edit` 桶）。
    */
+  /**
+   * `createWithContent` 的解析段（建列之前；不碰 DB 以外的狀態、不扣任何桶）。bulk transfer 的新增（`createFromFile`）先呼叫它、
+   * 解析失敗就不扣 `transferWrite`（與寫回一致：解析失敗不扣，總管 m2），成功再把結果傳給 `createWithContent` 省掉第二次解析。
+   */
+  async prepareContent(log: FastifyBaseLogger, input: { userId: string; tokenId: string | null; content: string }): Promise<PreparedContent | { ok: false; kind: "parse"; code: ParseError }> {
+    // #269 §8.5（A9）：lease **之前**預取寫入者可見清單（含 slug／群組／handle）；之後的解析在記憶體內完成、lease 期間零 DB。
+    const candidates = await visibleNoteTargets(this.deps.db, input.userId);
+    const agentLabel = input.tokenId ? await currentAgentLabel(this.deps.db, input.tokenId) : null;
+    const editing = this.applyDeps(log).editing;
+    // ⚠ `try { … } finally { s.close() }`（lease 不變量）；且**離開這個區塊之前不得再取得
+    // 第二個 lease**——`applyEdit` 自己會再開一次，所以它必須排在 close 之後。
+    const scratch = await EditorSession.open(editing, new Y.Doc());
+    let prepared: ReturnType<typeof parseMarkdownForNote>;
+    try {
+      prepared = parseMarkdownForNote(scratch.editor, input.content, candidates, siteOriginOf(editing.baseUrl));
+    } finally {
+      scratch.close();
+    }
+    if ("error" in prepared) return { ok: false, kind: "parse", code: prepared.error };
+    return { ok: true, candidates, agentLabel, prepared };
+  }
+
   async createWithContent(
     log: FastifyBaseLogger,
     input: {
       userId: string; userHandle: string; tokenId: string | null; title: string | undefined; content: string; scope: SlugScope;
       /** 資料夾 PR-3a：呼叫端已驗過的資料夾（spec §5.7.6）；缺省＝根層（MCP `create_note` 在 PR-3a 不送）。 */
       folderId?: string | null;
-    }
+    },
+    /** 呼叫端已經 `prepareContent` 過（bulk transfer 新增）就傳進來，不再解析一次；缺省＝這裡解析。 */
+    pre?: PreparedContent,
   ): Promise<CreateWithContentResult> {
-    // #269 §8.5（A9）：lease **之前**預取寫入者可見清單（含 slug／群組／handle）；之後的解析在記憶體內完成、lease 期間零 DB。
-    const candidates = await visibleNoteTargets(this.deps.db, input.userId);
-    const agentLabel = input.tokenId ? await currentAgentLabel(this.deps.db, input.tokenId) : null;
+    const p = pre ?? (await this.prepareContent(log, input));
+    if (!p.ok) return p;
+    const { candidates, agentLabel, prepared } = p;
     const applyDeps = this.applyDeps(log);
-    // ⚠ `try { … } finally { s.close() }`（lease 不變量）；且**離開這個區塊之前不得再取得
-    // 第二個 lease**——`applyEdit` 自己會再開一次，所以它必須排在 close 之後。
-    const scratch = await EditorSession.open(applyDeps.editing, new Y.Doc());
-    let prepared: ReturnType<typeof parseMarkdownForNote>;
-    try {
-      prepared = parseMarkdownForNote(scratch.editor, input.content, candidates, siteOriginOf(applyDeps.editing.baseUrl));
-    } finally {
-      scratch.close();
-    }
-    if ("error" in prepared) return { ok: false, kind: "parse", code: prepared.error };
     // #145：建列（含帶 title 時的 auto slug 派生）收在 `notes/create.ts`。⚠ **它仍必須排在
     // 解析之後**（「解析在建列之前」是契約），而派生的 DB round-trip 也因此不會發生在持有
     // jsdom lease 期間（上面那個 `finally { scratch.close() }` 已經放掉了）。
@@ -339,6 +706,6 @@ export class NoteWriteService {
       }
       return { ok: false, kind: "internal" };
     }
-    return { ok: true, noteId: note.id, inserted: note };
+    return { ok: true, noteId: note.id, inserted: note, unbound: prepared.unbound };
   }
 }

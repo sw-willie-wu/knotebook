@@ -210,7 +210,8 @@ export const AI_EDITS_RETENTION = 100;
  * `before_blocks` 又出現在頂層——撤回端沒有 `if_match`，這是它的冪等守衛，見 revert.ts）。 */
 export interface NoteEditDto {
   id: string;
-  op: EditOp | "revert";
+  /** `file_sync`＝bulk transfer 檔案寫回（每區一列；spec 2026-11-02 §13）。web 原樣顯示字面值（F17，不翻譯）。 */
+  op: EditOp | "revert" | "file_sync";
   sectionId: string | null;
   heading: string;
   byHandle: string;
@@ -431,6 +432,10 @@ export const ERROR_CODES = [
   "content_too_large",
   // bulk transfer（spec 2026-11-02 §6.6-2、§12.2、§21 D8）：`too_many_notes`＝413，整包下載的範圍內超過 3 000 篇（串流開始前回）。
   "too_many_notes",
+  // bulk transfer 寫回（spec 2026-11-02 §9.2-6、§12.2）：`not_mergeable`＝409，這篇的段表對不上（下載時 `segments` 為 NULL），不能用檔案寫回；
+  // `base_unavailable`＝409，基底查無、不屬於這篇、`key_id` 不符、或已用不同內容送回過——重新下載再改。
+  "not_mergeable",
+  "base_unavailable",
   // #106 撤回端（`POST /api/notes/:id/edits/:editId/revert`，#137）：
   // `already_reverted`＝409，這筆修改已經撤回過（或它本身就是一筆撤回列——撤回列永不可撤回）；
   // `stale`＝409，撤回的落點已經不是當初那樣了：AI 寫進去的 block 被人改過／刪掉、`delete_section`

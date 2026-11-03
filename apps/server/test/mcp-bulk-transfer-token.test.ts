@@ -1,5 +1,5 @@
 /**
- * bulk transfer spec 2026-11-02 §5.1、§5.2、§14：`create_bulk_transfer_token`（plan T8 B1–B12）。
+ * bulk transfer spec 2026-11-02 §5.1、§5.2、§14：`create_bulk_transfer_token`（PR-1 plan T8 B1–B12；PR-2 plan T12 改 B7、B10，加 B13）。
  */
 import { randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
@@ -12,8 +12,10 @@ import { apiTokens, transferTokens } from "../src/db/schema.js";
 import { FOLDER_GROUP_NOT_FOUND_MESSAGE, FOLDER_NOT_FOUND_MESSAGE } from "../src/mcp/folder-messages.js";
 import {
   BULK_NEXT_RO,
+  BULK_NEXT_RW,
   BULK_RANGE_AMBIGUOUS_MESSAGE,
   CREATE_BULK_TRANSFER_TOKEN_DESCRIPTION_RO,
+  CREATE_BULK_TRANSFER_TOKEN_DESCRIPTION_RW,
   TOO_MANY_BULK_TOKENS_MESSAGE,
   bulkCurls,
 } from "../src/mcp/tools/create-bulk-transfer-token.js";
@@ -24,7 +26,8 @@ import { cookieOf, seedGroup, seedNote, seedRole, seedUser, setMemberRole, waitF
 import { seedFolder } from "./folder-helpers.js";
 import { mcpPost, rpc } from "./mcp-helpers.js";
 import { expireToken, issueDirect } from "./transfer-helpers.js";
-import { callTool, issueBulkDirect } from "./bulk-transfer-helpers.js";
+import { callTool, exportRaw, issueBulkDirect, liveMarkdown, seedMd } from "./bulk-transfer-helpers.js";
+import { readTarGz } from "./tar-read.js";
 
 const ORIGIN = "https://kb.example.test:8443";
 const config = loadConfig({ DATABASE_URL: "postgres://u:p@localhost:5432/test", APP_SECRET: "a".repeat(64), PUBLIC_URL: `${ORIGIN}/` });
@@ -47,7 +50,9 @@ async function bulkCount(db: Parameters<typeof seedUser>[0], parentId: string): 
 async function toolList(app: Parameters<typeof mcpPost>[0], opts: { token?: string; cookie?: string }) {
   const res = await mcpPost(app, rpc("tools/list"), opts);
   expect(res.statusCode).toBe(200);
-  return res.json().result.tools as Array<{ name: string; description: string; inputSchema: { properties?: Record<string, unknown>; additionalProperties?: unknown } }>;
+  return res.json().result.tools as Array<{
+    name: string; description: string; inputSchema: { properties?: Record<string, unknown>; additionalProperties?: unknown }; outputSchema?: { properties?: Record<string, unknown> };
+  }>;
 }
 
 describe("B1：五種範圍與 access 落庫（spec §5.1）", () => {
@@ -192,17 +197,23 @@ describe("B6：TTL（spec §21 D3）", () => {
   });
 });
 
-describe("B7：註冊（spec §5.2-1、§14.1；PR-1 一律唯讀描述）", () => {
-  it("(a) session 沒有 (b) 無 collab＋讀寫 token 沒有 (c) 唯讀／讀寫 token 有、description 都是 RO (d) properties 恰三鍵、additionalProperties false", async () => {
+describe("B7：註冊（spec §5.2-1、§14.1；PR-2 依 canWrite 二選一）", () => {
+  it("(a) session 沒有 (b) 無 collab＋讀寫 token 沒有 (c) 唯讀 → RO description、讀寫／讀寫搬移刪除 → RW description；outputSchema 的 properties RW 多 `write` (d) properties 恰三鍵、additionalProperties false", async () => {
     const ctx = await buildCollabTestApp({ config });
     const u = await seedUser(ctx.db);
     const cookie = (await cookieOf(u.id))[SESSION_COOKIE]!;
     expect((await toolList(ctx.app, { cookie })).map(t => t.name)).not.toContain(TOOL);
-    for (const scope of [RO, RW, RWMD]) {
+    const OUT_RO = ["access", "expiresAt", "export", "next", "note", "revoke", "token"];
+    for (const [scope, desc, out] of [
+      [RO, CREATE_BULK_TRANSFER_TOKEN_DESCRIPTION_RO, OUT_RO],
+      [RW, CREATE_BULK_TRANSFER_TOKEN_DESCRIPTION_RW, [...OUT_RO, "write"].sort()],
+      [RWMD, CREATE_BULK_TRANSFER_TOKEN_DESCRIPTION_RW, [...OUT_RO, "write"].sort()],
+    ] as const) {
       const { token } = await seedTokenForUser(ctx.db, u.id, scope);
       const tool = (await toolList(ctx.app, { token })).find(t => t.name === TOOL);
       expect(tool, scope).toBeDefined();
-      expect(tool!.description, scope).toBe(CREATE_BULK_TRANSFER_TOKEN_DESCRIPTION_RO);
+      expect(tool!.description, scope).toBe(desc);
+      expect(Object.keys(tool!.outputSchema?.properties ?? {}).sort(), scope).toEqual(out);
       expect(Object.keys(tool!.inputSchema.properties ?? {}).sort(), scope).toEqual(["folder_id", "group_id", "space"]);
       expect(tool!.inputSchema.additionalProperties, scope).toBe(false);
     }
@@ -255,25 +266,67 @@ describe("B9：同一母憑證並發簽發——① 鎖母列序列化計數", (
 });
 
 describe("B10：輸出形與 curl（spec §14.2、§14.3）", () => {
-  it("鍵恰 {token, expiresAt, access, export, note, revoke, next}；curl 只指 publicOrigin、權杖只在 Authorization header；next＝RO", async () => {
-    const ctx = await buildCollabTestApp({ config });
-    const u = await seedUser(ctx.db);
-    const { token } = await seedTokenForUser(ctx.db, u.id, RW);
-    const sc = (await callTool(ctx.app, token, TOOL, {})).structuredContent;
-    expect(Object.keys(sc).sort()).toEqual(["access", "expiresAt", "export", "next", "note", "revoke", "token"]);
+  const checkCurls = (sc: Record<string, unknown>, keys: readonly ("export" | "note" | "write" | "revoke")[]) => {
     const t = sc.token as string;
     expect(t.startsWith("knbt_")).toBe(true);
     const curls = bulkCurls(ORIGIN, t);
-    expect(sc.export).toEqual(curls.export);
-    expect(sc.note).toEqual(curls.note);
-    expect(sc.revoke).toEqual(curls.revoke);
-    for (const k of ["export", "note", "revoke"] as const) {
+    for (const k of keys) {
+      expect(sc[k], k).toEqual(curls[k]);
       const c = (sc[k] as { url: string; curl: string }).curl;
       expect(c.split(t).length - 1, k).toBe(1);
       expect(c, k).toContain(`-H "Authorization: Bearer ${t}"`);
       for (const m of c.matchAll(/https?:\/\/[^"/]+/g)) expect(m[0], k).toBe(ORIGIN);
     }
+  };
+  it("RO：鍵恰 {token, expiresAt, access, export, note, revoke, next}（沒有 write）；三組 curl；access read；next＝RO", async () => {
+    const ctx = await buildCollabTestApp({ config });
+    const u = await seedUser(ctx.db);
+    const { token } = await seedTokenForUser(ctx.db, u.id, RO);
+    const sc = (await callTool(ctx.app, token, TOOL, {})).structuredContent;
+    expect(Object.keys(sc).sort()).toEqual(["access", "expiresAt", "export", "next", "note", "revoke", "token"]);
+    expect(sc.access).toBe("read");
+    checkCurls(sc, ["export", "note", "revoke"]);
     expect(sc.next).toBe(BULK_NEXT_RO);
+  });
+  it("RW（讀寫、讀寫搬移刪除）：鍵多 write（八鍵）；四組 curl 只指 publicOrigin、權杖只在 Authorization header；access write；next＝RW", async () => {
+    const ctx = await buildCollabTestApp({ config });
+    const u = await seedUser(ctx.db);
+    for (const scope of [RW, RWMD]) {
+      const { token } = await seedTokenForUser(ctx.db, u.id, scope);
+      const sc = (await callTool(ctx.app, token, TOOL, {})).structuredContent;
+      expect(Object.keys(sc).sort(), scope).toEqual(["access", "expiresAt", "export", "next", "note", "revoke", "token", "write"]);
+      expect(sc.access, scope).toBe("write");
+      checkCurls(sc, ["export", "note", "write", "revoke"]);
+      expect(sc.next, scope).toBe(BULK_NEXT_RW);
+    }
+  });
+});
+
+describe("B13：RW 權杖端到端（簽發 → export → 改一篇 → write → 200）", () => {
+  it("export.curl 的 URL 拿到 tar.gz、改其中一篇的本文、以 write.curl 的 URL／標頭 PUT → 200 applied、筆記內容換成改後的", async () => {
+    const ctx = await buildCollabTestApp({ config });
+    const u = await seedUser(ctx.db);
+    const n = await seedNote(ctx.db, { ownerId: u.id }, { title: "E2E" });
+    await seedMd(ctx.db, n.id, "First para\n\nSecond para");
+    const { token } = await seedTokenForUser(ctx.db, u.id, RW);
+    const sc = (await callTool(ctx.app, token, TOOL, {})).structuredContent as Record<string, { url: string; curl: string }> & { token: string };
+    const ex = await exportRaw(ctx.baseUrl, sc.token, new URL(sc.export.url).pathname);
+    expect(ex.status).toBe(200);
+    const file = readTarGz(ex.body).find(e => e.type === "file" && e.data.toString("utf8").includes(n.id))!;
+    expect(file).toBeDefined();
+    const text = file.data.toString("utf8").replace("Second para", "Second para changed by agent");
+    // write.curl 的方法、標頭與 URL（以 curl 字串本身取，不另抄）
+    expect(sc.write.curl).toContain("-X PUT");
+    expect(sc.write.curl).toContain('-H "Content-Type: text/markdown; charset=utf-8"');
+    const r = await ctx.app.inject({
+      method: "PUT",
+      url: new URL(sc.write.url).pathname,
+      headers: { authorization: `Bearer ${sc.token}`, "content-type": "text/markdown; charset=utf-8" },
+      payload: text,
+    });
+    expect(r.statusCode).toBe(200);
+    expect(r.json()).toMatchObject({ id: n.id, result: "applied", applied: 1 });
+    expect((await liveMarkdown(ctx, n.id)).replace(/\n+$/, "")).toBe("First para\n\nSecond para changed by agent");
   });
 });
 

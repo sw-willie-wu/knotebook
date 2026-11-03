@@ -9,3 +9,6 @@
 
 /** `POST /api/notes/:id/edits` 與 `POST /api/mcp` 共用的 body 上限（**bytes**）。不明寫就是 fastify 預設的 1 MiB。 */
 export const WRITE_BODY_LIMIT = 262_144;
+
+/** bulk transfer spec §9.1、§21 D11：`PUT /api/transfer/notes` 的 body 上限（**bytes**，1 MiB）→ 413 `content_too_large`。 */
+export const TRANSFER_WRITE_BODY_LIMIT = 1_048_576;
