@@ -126,7 +126,8 @@ test("刪群組：轉移給管理員（成員被踢、舊網址轉址、公開�
     await expect(userPage).toHaveURL(groupUrlX);
     const userBadge = userPage.getByRole("status").filter({ hasText: /^Connected/ });
     await expect(userBadge).toBeVisible({ timeout: 15_000 });
-    await expect(userBadge.getByText("Editor", { exact: true })).toBeVisible();
+    await expect(userBadge).toHaveText("Connected"); // #335：能編輯者徽章只寫「Connected」
+    await expect(userPage.locator('[data-testid="note-editor"] [contenteditable="true"]')).toHaveCount(1, { timeout: 15_000 });
 
     // ── 4. A：G1 ⋮ → Delete group → 預設轉移、接手者是 A → 確認 ──────────────────
     const deleteG1 = await openDeleteGroupDialog(adminPage, g1);
@@ -168,7 +169,7 @@ test("刪群組：轉移給管理員（成員被踢、舊網址轉址、公開�
       timeout: 15_000,
     });
 
-    // ── 8. 全刪段：A 建 G2、在 G2 建 Y、加 B；B 開 Y（徽章 Editor）──────────────────
+    // ── 8. 全刪段：A 建 G2、在 G2 建 Y、加 B；B 開 Y（徽章「Connected」＝能編輯）──────────────────
     const g2 = `E2E Purge ${Date.now()}`;
     await createGroup(adminPage, g2);
     const titleY = `E2E purge note ${Date.now()}`;
@@ -178,7 +179,8 @@ test("刪群組：轉移給管理員（成員被踢、舊網址轉址、公開�
     await userPage.goto(groupUrlY);
     await expect(userPage).toHaveURL(groupUrlY);
     await expect(userBadge).toBeVisible({ timeout: 15_000 });
-    await expect(userBadge.getByText("Editor", { exact: true })).toBeVisible();
+    await expect(userBadge).toHaveText("Connected"); // #335：能編輯者徽章只寫「Connected」
+    await expect(userPage.locator('[data-testid="note-editor"] [contenteditable="true"]')).toHaveCount(1, { timeout: 15_000 });
 
     // ── 9. A：G2 ⋮ → Delete group → Delete everything → 勾選前確認鈕 disabled → 勾 → 按 ──
     const deleteG2 = await openDeleteGroupDialog(adminPage, g2);

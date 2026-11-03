@@ -118,20 +118,62 @@ describe("ConnectionBadge（issue #48：離線可見性）", () => {
     expect(screen.queryByText(/offline/i)).not.toBeInTheDocument();
   });
 
-  it("connected 且 viewer → 顯示角色與唯讀標記（既有行為不被離線邏輯影響）", () => {
-    renderBadge({ phase: "connected", role: "viewer" }, true);
-    expect(screen.getByText("Connected")).toBeInTheDocument();
-    expect(screen.getByText("Read-only")).toBeInTheDocument();
+  it.each(["owner", "editor"] as const)("#335 connected＋synced 的 %s：整個徽章只有「Connected」，不帶角色、不帶唯讀", (role) => {
+    renderBadge({ phase: "connected", role }, true);
+    expect(screen.getByRole("status")).toHaveTextContent(/^Connected$/);
+    expect(screen.queryByText(/Owner|Editor|Viewer|Read-only/)).not.toBeInTheDocument();
   });
 
-  it("#115：三個文字 span 皆 max-md:sr-only（窄視窗只留色點，但 aria-live 仍讀得到）", () => {
+  it("#335 connected＋synced 的 viewer：整個徽章只有「Read-only」，不寫「Connected」「Viewer」，點仍是綠的", () => {
     renderBadge({ phase: "connected", role: "viewer" }, true, false);
+    expect(screen.getByRole("status")).toHaveTextContent(/^Read-only$/);
+    expect(screen.queryByText(/Connected|Viewer/)).not.toBeInTheDocument();
+    const dot = screen.getByRole("status").querySelector('[aria-hidden="true"]') as HTMLElement;
+    expect(dot.className).not.toContain("bg-destructive");
+    expect(dot.style.backgroundColor).toBe("oklch(0.8 0.17 152)");
+    act(() => vi.advanceTimersByTime(OFFLINE_WARN_MS * 2));
+    expect(screen.getByRole("status")).toHaveTextContent(/^Read-only$/);
+  });
+
+  it("#335 viewer 斷線警示照舊：離線 → 「Offline」（紅點），沒有「Read-only」", () => {
+    renderBadge({ phase: "reconnecting-once" }, true, false);
+    act(() => vi.advanceTimersByTime(OFFLINE_WARN_MS));
+    expect(screen.getByRole("status")).toHaveTextContent(/^Offline$/);
+    expect(screen.queryByText("Read-only")).not.toBeInTheDocument();
+  });
+
+  it("#335 viewer connected 但未 synced：直接顯示「Read-only」；過門檻升級成「尚未載入」", () => {
+    renderBadge({ phase: "connected", role: "viewer" }, false, false);
+    expect(screen.getByRole("status")).toHaveTextContent(/^Read-only$/);
+    act(() => vi.advanceTimersByTime(OFFLINE_WARN_MS));
+    expect(screen.getByRole("status")).toHaveTextContent(/^Not loaded — offline$/);
+  });
+
+  it("#335 其餘文案照舊：connecting／reconnecting／kicked／deleted／outdated", () => {
+    const cases: Array<[CollabState, string]> = [
+      [{ phase: "connecting" }, "Connecting…"],
+      [{ phase: "reconnecting-once" }, "Reconnecting…"],
+      [{ phase: "kicked" }, "Access revoked"],
+      [{ phase: "deleted" }, "Note deleted"],
+      [{ phase: "outdated" }, "Reload required"],
+    ];
+    for (const [state, text] of cases) {
+      const { unmount } = renderBadge(state, true);
+      expect(screen.getByRole("status")).toHaveTextContent(new RegExp(`^${text}$`));
+      unmount();
+    }
+  });
+
+  it("#115：文字 span 為 max-md:sr-only（窄視窗只留色點，但 aria-live 仍讀得到）；viewer 的「Read-only」也是", () => {
     // 用 sr-only 而不是 hidden：容器是 role=status aria-live=polite，display:none
     // 會讓窄視窗的螢幕閱讀器收不到撤權/降級/離線通知（spec §3a）。
-    for (const text of ["Connected", "Viewer", "Read-only"]) {
-      expect(screen.getByText(text)).toHaveClass("max-md:sr-only");
-      expect(screen.getByText(text).className).not.toContain("max-md:hidden");
-    }
+    const owner = renderBadge({ phase: "connected", role: "owner" }, true);
+    expect(screen.getByText("Connected")).toHaveClass("max-md:sr-only");
+    expect(screen.getByText("Connected").className).not.toContain("max-md:hidden");
+    owner.unmount();
+    renderBadge({ phase: "connected", role: "viewer" }, true, false);
+    expect(screen.getByText("Read-only")).toHaveClass("max-md:sr-only");
+    expect(screen.getByText("Read-only").className).not.toContain("max-md:hidden");
   });
 
   it("#269 outdated：中性「Reload required」、超過門檻也不升級成離線警示", () => {

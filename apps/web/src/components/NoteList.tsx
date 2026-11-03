@@ -67,7 +67,7 @@ function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string
 /** 分享角色徽章——只給非 owner（editor/viewer）的筆記顯示；owner 自己的筆記不需要
  * 徽章（列表本身已隱含「這是你的」），'none' 理論上不會出現在 GET /api/notes 的
  * 結果裡（server 只回傳使用者有權限看的筆記）。PR2：側欄改小字化，不再是 pill。
- * #182（Willie 2026-10-02）：群組筆記（`group` 非 null）一律不標——角色看筆記頁頂端徽章；
+ * #182（Willie 2026-10-02）：群組筆記（`group` 非 null）一律不標——角色看群組面板的成員表（筆記頁頁首徽章不再顯示角色，#335）；
  * 只有逐人分享給我的個人筆記保留。 */
 export function RoleBadge({ role, group }: { role: NoteDto["role"]; group: NoteDto["group"] }) {
   const { t } = useTranslation();
