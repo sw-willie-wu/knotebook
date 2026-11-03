@@ -1,6 +1,7 @@
 /**
  * bulk transfer spec 2026-11-02 §9（寫回既有筆記）；plan PR-2 T8（W1–W17）。流程：`downloadNote` → `editBody` → `bulkPut`。
  */
+import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { eq, sql } from "drizzle-orm";
 import { noteAiEdits, notes, transferBases } from "../src/db/schema.js";
@@ -10,7 +11,7 @@ import { UNCLOSED_FENCE_MESSAGE } from "../src/transfer/regions.js";
 import { buildCollabTestApp, testConfig, type CollabTestCtx } from "./helpers.js";
 import { seedTokenForUser } from "./editing-helpers.js";
 import { seedFolder } from "./folder-helpers.js";
-import { seedNote, seedShare, seedUser } from "./group-helpers.js";
+import { cookieOf, seedNote, seedShare, seedUser } from "./group-helpers.js";
 import { basesOf, bulkPut, downloadNote, editBody, humanEdit, issueBulkDirect, liveBlocks, liveMarkdown, seedBlocks, seedMd, topIdsOf } from "./bulk-transfer-helpers.js";
 
 type Opts = Parameters<typeof buildCollabTestApp>[0];
@@ -492,5 +493,40 @@ describe("W17 紀錄交易失敗後重送不重複（gate r1 m11）", () => {
     expect(md.split("InsertedTwo").length - 1).toBe(1);
     expect((await baseRow(s.ctx, d.fm.base!)).appliedBodySha).not.toBeNull();
     expect((await bulkPut(s.ctx.app, s.bulk.token, text)).json()).toMatchObject({ result: "unchanged" });
+  });
+});
+
+describe("W18 寫回與新增在回覆之前已經建好全文索引（PR-3 合流 #369：known-limitations「A write … is indexed before its reply comes back」對 bulk 也成立）", () => {
+  type SearchHit = { note: { id: string }; matchedOn: "title" | "body" | "both"; matches: Array<{ snippet: string }> };
+  const search = async (ctx: CollabTestCtx, userId: string, q: string) => {
+    const r = await ctx.app.inject({ method: "GET", url: `/api/search?q=${encodeURIComponent(q)}`, cookies: await cookieOf(userId) });
+    expect(r.statusCode).toBe(200);
+    return (r.json() as { hits: SearchHit[] }).hits;
+  };
+  const uniq = (tag: string) => `kbidx${tag}${randomUUID().replace(/-/g, "").slice(0, 12)}`;
+
+  it("寫回既有筆記：200 回來後立刻 GET /api/search 搜得到這篇、命中在內文（之前搜不到）", async () => {
+    const s = await scene();
+    const mark = uniq("w");
+    expect(await search(s.ctx, s.u.id, mark)).toEqual([]);
+    const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
+    const r = await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, b => b.replace("Para 2", `Para 2 ${mark}`)));
+    expect(r.statusCode).toBe(200);
+    const hits = await search(s.ctx, s.u.id, mark);
+    expect(hits.map(h => h.note.id)).toEqual([s.note.id]);
+    expect(hits[0]!.matchedOn).toBe("body");
+    expect(hits[0]!.matches.some(m => m.snippet.includes(mark))).toBe(true);
+  });
+
+  it("新增筆記：201 回來後立刻 GET /api/search 搜得到新筆記、命中在內文", async () => {
+    const s = await scene();
+    const mark = uniq("c");
+    const r = await bulkPut(s.ctx.app, s.bulk.token, `---\nknotebook: 1\ntitle: "Indexed new"\n---\nFirst para\n\nSecond para ${mark}\n`);
+    expect(r.statusCode).toBe(201);
+    const id = (r.json() as { id: string }).id;
+    const hits = await search(s.ctx, s.u.id, mark);
+    expect(hits.map(h => h.note.id)).toEqual([id]);
+    expect(hits[0]!.matchedOn).toBe("body");
+    expect(hits[0]!.matches.some(m => m.snippet.includes(mark))).toBe(true);
   });
 });
