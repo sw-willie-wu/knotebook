@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 import { eq, sql } from "drizzle-orm";
 import { noteAiEdits, notes, transferBases } from "../src/db/schema.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
+import { BASE_UNAVAILABLE_MESSAGE, NOT_MERGEABLE_MESSAGE, TRANSFER_NOTE_NOT_FOUND_MESSAGE, TRANSFER_RATE_LIMITED_MESSAGE } from "../src/routes/transfer.js";
+import { UNCLOSED_FENCE_MESSAGE } from "../src/transfer/regions.js";
 import { buildCollabTestApp, testConfig, type CollabTestCtx } from "./helpers.js";
 import { seedTokenForUser } from "./editing-helpers.js";
 import { seedFolder } from "./folder-helpers.js";
@@ -79,7 +81,7 @@ describe("W1–W7 狀態表", () => {
     const after = await liveMarkdown(s.ctx, s.note.id);
     const w4 = await bulkPut(s.ctx.app, s.bulk.token, editBody(text, b => b.replace("Para 2", "Para 2 other")));
     expect(w4.statusCode).toBe(409);
-    expect(errOf(w4).code).toBe("base_unavailable");
+    expect(errOf(w4)).toEqual({ code: "base_unavailable", message: BASE_UNAVAILABLE_MESSAGE });
     expect(await liveMarkdown(s.ctx, s.note.id)).toBe(after);
     // 重送與 409 都沒扣 → limit 2 還剩 1：再寫一篇仍 200
     const n2 = await seedNote(s.ctx.db, { ownerId: s.u.id }, { title: "N2" });
@@ -88,7 +90,7 @@ describe("W1–W7 狀態表", () => {
     expect((await bulkPut(s.ctx.app, s.bulk.token, editBody(d2.text, () => "Changed para"))).statusCode).toBe(200);
   });
 
-  it("W5 409 三形：別人的 base、別篇的 base、不存在的 16 hex", async () => {
+  it("W5 409 三形：別人的 base、別篇的 base、不存在的 16 hex（各帶 BASE_UNAVAILABLE_MESSAGE）", async () => {
     const s = await scene();
     const other = await seedNote(s.ctx.db, { ownerId: s.u.id }, { title: "Other" });
     await seedMd(s.ctx.db, other.id, "Other para");
@@ -103,7 +105,7 @@ describe("W1–W7 狀態表", () => {
     for (const [label, base] of [["別人的", vd.fm.base!], ["別篇的", od.fm.base!], ["不存在", "ffffffffffffffff"]] as const) {
       const r = await bulkPut(s.ctx.app, s.bulk.token, changed(base));
       expect(r.statusCode, label).toBe(409);
-      expect(errOf(r).code, label).toBe("base_unavailable");
+      expect(errOf(r), label).toEqual({ code: "base_unavailable", message: BASE_UNAVAILABLE_MESSAGE });
     }
   });
 
@@ -120,12 +122,12 @@ describe("W1–W7 狀態表", () => {
     expect(await edits(ctx2, s.note.id)).toHaveLength(0);
   });
 
-  it("W6 not_mergeable：改內容 → 409；原樣重送 → unchanged", async () => {
+  it("W6 not_mergeable：改內容 → 409＋NOT_MERGEABLE_MESSAGE；原樣重送 → unchanged", async () => {
     const s = await scene({ transferTestHooks: { forceUnmergeable: () => true } });
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
     const r = await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, b => b.replace("Para 1", "x")));
     expect(r.statusCode).toBe(409);
-    expect(errOf(r).code).toBe("not_mergeable");
+    expect(errOf(r)).toEqual({ code: "not_mergeable", message: NOT_MERGEABLE_MESSAGE });
     const r2 = await bulkPut(s.ctx.app, s.bulk.token, d.text);
     expect(r2.statusCode).toBe(200);
     expect(r2.json()).toMatchObject({ result: "unchanged" });
@@ -192,8 +194,7 @@ describe("W8 400 整篇不寫（拿掉守衛會落到 500 那幾條：NUL／落�
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
     const r = await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, b => b.replace("B", "```\nB")));
     expect(r.statusCode).toBe(400);
-    expect(errOf(r).code).toBe("invalid_body");
-    expect(errOf(r).message).toContain("```");
+    expect(errOf(r)).toEqual({ code: "invalid_body", message: UNCLOSED_FENCE_MESSAGE });
   });
 });
 
@@ -207,7 +208,7 @@ describe("W9–W12 權限、範圍、額度、佇列", () => {
     const sd = await downloadNote(s.ctx.app, s.bulk.token, shared.id);
     const viewer = await bulkPut(s.ctx.app, s.bulk.token, editBody(sd.text, () => "x"));
     expect(viewer.statusCode).toBe(403);
-    expect(errOf(viewer).message).toBe("沒有編輯權限");
+    expect(errOf(viewer)).toEqual({ code: "forbidden", message: "沒有編輯權限" });
     // 範圍外：folder 範圍的權杖、筆記不在那個資料夾
     const f = (await seedFolder(s.ctx.db, { personal: s.u.id }, { name: "F" })).id;
     const fbulk = await issueBulkDirect(s.ctx.db, s.pat.tokenId, { access: "write", range: { kind: "folder", folderId: f } });
@@ -222,10 +223,14 @@ describe("W9–W12 權限、範圍、額度、佇列", () => {
     expect(errOf(gone).message).toBe("此 transfer token 的範圍已看不到");
     // access=read
     const rbulk = await issueBulkDirect(s.ctx.db, s.pat.tokenId, { access: "read" });
-    expect((await bulkPut(s.ctx.app, rbulk.token, editBody(d.text, b => b.replace("Para 1", "x")))).statusCode).toBe(403);
+    const ro = await bulkPut(s.ctx.app, rbulk.token, editBody(d.text, b => b.replace("Para 1", "x")));
+    expect(ro.statusCode).toBe(403);
+    expect(errOf(ro)).toEqual({ code: "insufficient_scope", message: "此 token 沒有執行這個操作的權限" });
     // 垃圾桶
     await s.ctx.db.update(notes).set({ deletedAt: new Date() }).where(eq(notes.id, s.note.id));
-    expect((await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, b => b.replace("Para 1", "x")))).statusCode).toBe(404);
+    const trashed = await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, b => b.replace("Para 1", "x")));
+    expect(trashed.statusCode).toBe(404);
+    expect(errOf(trashed)).toEqual({ code: "not_found", message: TRANSFER_NOTE_NOT_FOUND_MESSAGE });
   });
 
   it("W10 transferWrite limit 1 → 第二篇的寫回 429＋Retry-After ≥ 1、筆記未變", async () => {
@@ -239,6 +244,7 @@ describe("W9–W12 權限、範圍、額度、佇列", () => {
     const before = await liveMarkdown(s.ctx, n2.id);
     const r = await bulkPut(s.ctx.app, s.bulk.token, editBody(d2.text, () => "changed"));
     expect(r.statusCode).toBe(429);
+    expect(errOf(r)).toEqual({ code: "too_many_requests", message: TRANSFER_RATE_LIMITED_MESSAGE });
     expect(String(r.headers["retry-after"])).toMatch(/^[1-9]\d*$/);
     expect(await liveMarkdown(s.ctx, n2.id)).toBe(before);
   });
@@ -276,7 +282,7 @@ describe("W9–W12 權限、範圍、額度、佇列", () => {
     await inMerge;
     const r2 = await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, b => b.replace("Para 2", "second")));
     expect(r2.statusCode).toBe(503);
-    expect(errOf(r2).code).toBe("server_busy");
+    expect(errOf(r2)).toEqual({ code: "server_busy", message: "伺服器忙碌中，請稍後再試" });
     release();
     expect((await p1).statusCode).toBe(200);
     expect(await liveMarkdown(s.ctx, s.note.id)).not.toContain("second");

@@ -8,7 +8,7 @@ import { eq, sql } from "drizzle-orm";
 import { ERROR_CODES } from "@knotebook/shared";
 import { groupMembers, notes, transferBases, users } from "../src/db/schema.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
-import { EXPORT_BUSY_MESSAGE, RANGE_GONE_MESSAGE } from "../src/routes/transfer.js";
+import { EXPORT_BUSY_MESSAGE, RANGE_GONE_MESSAGE, TOO_MANY_NOTES_MESSAGE } from "../src/routes/transfer.js";
 import { EXPORT_BUSY_RETRY_AFTER_S, TRANSFER_EXPORT_MAX_NOTES, type ExportOutcome, type ExportTestHooks } from "../src/transfer/export-stream.js";
 import { presenceClientId } from "../src/notes/editing/presence.js";
 import { buildCollabTestApp, testConfig } from "./helpers.js";
@@ -184,14 +184,14 @@ describe("E1–E4：包的形", () => {
 });
 
 describe("E5–E7b、E18：413、全站 1 個、桶", () => {
-  it("E5 413：範圍內 3 001 篇 → 413 JSON too_many_notes、未 hijack；之後同一 app 的小範圍權杖立刻 200（slot 已放）", async () => {
+  it("E5 413：範圍內 3 001 篇 → 413 JSON too_many_notes＋TOO_MANY_NOTES_MESSAGE、未 hijack；之後同一 app 的小範圍權杖立刻 200（slot 已放）", async () => {
     const ctx = await buildCollabTestApp();
     const { u, b } = await userWithBulk(ctx);
     await manyOwned(ctx, u.id, TRANSFER_EXPORT_MAX_NOTES + 1);
     const r = await exportRaw(ctx.baseUrl, b.token);
     expect(r.status).toBe(413);
     expect(r.headers["content-type"]).toMatch(/^application\/json/);
-    expect(JSON.parse(r.body.toString("utf8")).error.code).toBe("too_many_notes");
+    expect(JSON.parse(r.body.toString("utf8")).error).toEqual({ code: "too_many_notes", message: TOO_MANY_NOTES_MESSAGE });
     const small = await seedFolder(ctx.db, { personal: u.id }, { name: "small" });
     const ok = await exportRaw(ctx.baseUrl, await tokenFor(ctx, u.id, { kind: "folder", folderId: small.id }));
     expect(ok.status).toBe(200);

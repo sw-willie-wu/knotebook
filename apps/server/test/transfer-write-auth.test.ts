@@ -4,7 +4,8 @@
  */
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
-import { BULK_TRANSFER_PAT_MESSAGE, TRANSFER_INVALID_MESSAGE, TRANSFER_PURPOSE_MESSAGE } from "../src/auth/transfer-auth.js";
+import { BULK_TRANSFER_INVALID_MESSAGE, BULK_TRANSFER_PAT_MESSAGE, BULK_TRANSFER_REQUIRED_MESSAGE, TRANSFER_PURPOSE_MESSAGE } from "../src/auth/transfer-auth.js";
+import { INVALID_UTF8_MESSAGE } from "../src/routes/transfer.js";
 import type { TokenScope } from "@knotebook/shared";
 import { apiTokens } from "../src/db/schema.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
@@ -34,7 +35,7 @@ describe("requireBulk(\"write\")：W-A 矩陣", () => {
     for (let i = 0; i < 3; i++) {
       const r = await bulkPut(s.ctx.app, undefined, FILE, { cookies });
       expect(r.statusCode, `#${i}`).toBe(401);
-      expect(errOf(r).code).toBe("unauthorized");
+      expect(errOf(r), `#${i}`).toEqual({ code: "unauthorized", message: BULK_TRANSFER_REQUIRED_MESSAGE });
     }
     expect((await bulkPut(s.ctx.app, "knbt_nope", FILE)).statusCode).toBe(401);
   });
@@ -68,11 +69,11 @@ describe("requireBulk(\"write\")：W-A 矩陣", () => {
     expect(r.statusCode).toBe(200);
   });
 
-  it("W-A3b access='read' 的 bulk＋使用者已停權 → 401 同形（閘門排在 access 檢查之前）", async () => {
+  it("W-A3b access='read' 的 bulk＋使用者已停權 → 401＋BULK_TRANSFER_INVALID_MESSAGE（閘門排在 access 檢查之前）", async () => {
     const s = await scene({ parentScope: "notes:read", access: "read", disabled: true });
     const r = await bulkPut(s.ctx.app, s.bulk.token, FILE);
     expect(r.statusCode).toBe(401);
-    expect(errOf(r)).toEqual({ code: "unauthorized", message: TRANSFER_INVALID_MESSAGE });
+    expect(errOf(r)).toEqual({ code: "unauthorized", message: BULK_TRANSFER_INVALID_MESSAGE });
   });
 
   it("W-A4 access='write'，但母憑證之後被改成唯讀 scope → 403 insufficient_scope", async () => {
@@ -123,12 +124,11 @@ describe("body 外殼：415／Origin／413／UTF-8", () => {
     expect(exact.statusCode).not.toBe(413);
   });
 
-  it("W-A9 body 非 UTF-8 → 400 invalid_body、訊息含「UTF-8」", async () => {
+  it("W-A9 body 非 UTF-8 → 400 invalid_body＋INVALID_UTF8_MESSAGE", async () => {
     const s = await scene();
     const r = await bulkPut(s.ctx.app, s.bulk.token, Buffer.from([0xff, 0xfe, 0x00]));
     expect(r.statusCode).toBe(400);
-    expect(errOf(r).code).toBe("invalid_body");
-    expect(errOf(r).message).toContain("UTF-8");
+    expect(errOf(r)).toEqual({ code: "invalid_body", message: INVALID_UTF8_MESSAGE });
   });
 
   it("W-A10 其他路由（POST /api/notes）帶 text/markdown → 仍 415「此請求需要 application/json」", async () => {

@@ -131,7 +131,7 @@ describe("B3：group_id 要 can_read（spec §5.2-3）", () => {
   });
 });
 
-describe("B4：folder_id 看不到 → not_found（plan §0.1-12，暫定）", () => {
+describe("B4：folder_id 看不到 → not_found（spec §5.2-3 定案）", () => {
   it("別人的個人資料夾、隨機 uuid → not_found＋FOLDER_NOT_FOUND_MESSAGE，與 rename_folder 同一個 uuid 的錯誤逐位元組相同；自己的 shared 資料夾、可讀群組的資料夾 → 成功", async () => {
     const ctx = await buildCollabTestApp({ config });
     const u = await seedUser(ctx.db);

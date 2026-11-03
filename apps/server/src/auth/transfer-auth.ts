@@ -19,6 +19,12 @@ export const TRANSFER_PAT_MESSAGE = "這個端點不收 API token；請透過 MC
 export const BULK_TRANSFER_PAT_MESSAGE = "這個端點不收 API token；請透過 MCP 的 create_bulk_transfer_token 取得 transfer token";
 /** bulk transfer：沒帶 `Authorization` 的 401（bulk 端點不回退 cookie）。 */
 export const BULK_TRANSFER_REQUIRED_MESSAGE = "需要 transfer token";
+/**
+ * bulk transfer spec §5.3、§12.2（rev 10，W11）：`requireBulk` 的三個無效出口（形狀不對、查無或過期〔含母憑證到期〕、
+ * 使用者閘門不過〔停權、必須改密碼〕）同形同字。**不含「已使用」**：bulk 權杖到期前可重用（spec §5.4）；#200 的
+ * `TRANSFER_INVALID_MESSAGE` 不動（`require()` 與 `routes/uploads.ts` 的已消費分支仍用它）。
+ */
+export const BULK_TRANSFER_INVALID_MESSAGE = "transfer token 無效、已過期或已撤銷；請透過 MCP 的 create_bulk_transfer_token 重新取得";
 /** 用途不符（upload／download 打 bulk 端點、bulk 打 upload／download 端點）的 403，兩邊同字。 */
 export const TRANSFER_PURPOSE_MESSAGE = "此 transfer token 不能用在這個動作";
 
@@ -57,6 +63,11 @@ export function createTransferAuth(deps: TransferAuthDeps) {
 
   function rejectInvalid(request: FastifyRequest, reply: FastifyReply): void {
     reject401(request, reply, true, TRANSFER_INVALID_MESSAGE);
+  }
+
+  /** `requireBulk` 專用（W11）：與 `rejectInvalid` 同形，只換訊息。 */
+  function rejectInvalidBulk(request: FastifyRequest, reply: FastifyReply): void {
+    reject401(request, reply, true, BULK_TRANSFER_INVALID_MESSAGE);
   }
 
   function require(purpose: TransferPurpose) {
@@ -127,7 +138,7 @@ export function createTransferAuth(deps: TransferAuthDeps) {
   /**
    * bulk transfer spec 2026-11-02 §5.3：`/api/transfer/*` 的認證。**不與 `require()` 共用流程**：
    * 沒帶 `Authorization` 一律 401（不回退 cookie、不吃 bearerMiss）；有 header 的 401 吃 bearerMiss（桶滿 429＋`Retry-After`）；
-   * `purpose ≠ 'bulk'` → 403；停權／需改密碼 → 同形 401；讀取要母憑證當下有 `notes:read`。
+   * `purpose ≠ 'bulk'` → 403；無效、過期、停權／需改密碼 → 同形 401（`BULK_TRANSFER_INVALID_MESSAGE`）；讀取要母憑證當下有 `notes:read`。
    * `write`（PR-2）：read 的全部＋`access = 'write'`＋母憑證**當下**有 `notes:write`，缺一 → 403 `insufficient_scope`
    * （既有慣例：`require()` 與 `bearer.ts` 的 scope 不足都回這碼這句；`forbidden` 只用在用途不符）。兩者都排在使用者閘門之後
    * （停權的唯讀權杖 → 401，不是 403；plan W-A3b）。不帶 `WWW-Authenticate`（同 `require()` 的理由）。
@@ -145,7 +156,7 @@ export function createTransferAuth(deps: TransferAuthDeps) {
       }
       if (parsed.kind === "other-scheme") return reject401(request, reply, false, "未登入");
       if (isAccessTokenShape(parsed.token)) return reject401(request, reply, true, BULK_TRANSFER_PAT_MESSAGE);
-      if (!isTransferTokenShape(parsed.token)) return rejectInvalid(request, reply);
+      if (!isTransferTokenShape(parsed.token)) return rejectInvalidBulk(request, reply);
 
       const [row] = await deps.db
         .select({
@@ -167,7 +178,7 @@ export function createTransferAuth(deps: TransferAuthDeps) {
           )
         )
         .limit(1);
-      if (row === undefined) return rejectInvalid(request, reply);
+      if (row === undefined) return rejectInvalidBulk(request, reply);
       if (row.purpose !== "bulk") {
         drainWithCap(request);
         sendError(reply, 403, "forbidden", TRANSFER_PURPOSE_MESSAGE);
@@ -175,7 +186,7 @@ export function createTransferAuth(deps: TransferAuthDeps) {
       }
 
       const gateResult = await deps.gate.checkUser(row.userId);
-      if (gateResult.status !== "ok" || gateResult.user.mustChangePassword) return rejectInvalid(request, reply);
+      if (gateResult.status !== "ok" || gateResult.user.mustChangePassword) return rejectInvalidBulk(request, reply);
 
       // read：實務上不可達（五種 scope 都含 notes:read）；保留與 `require()` 同形。write：母憑證可經 PATCH 原地降權（#239），可達（W-A4）。
       // write 另要權杖本身 `access = 'write'`（W-A3：唯讀母憑證簽的權杖）。
