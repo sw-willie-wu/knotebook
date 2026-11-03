@@ -41,7 +41,8 @@ import { NarrowTopBar } from "./NarrowTopBar";
  * （起草裁定 23）。`trash` 同形（#181）：AppShell 的 tabpanel 與 SidebarFooter 兩個掛載點都 `import()` `TrashLazy`、
  * 各包 `SidebarLazyBoundary chunk="trash"`。一般 tab 選取模式的 `select` 同形（#181 PR-2c）：NoteList 的標題列與清單、SidebarFooter
  * 三個掛載點都 `import()` `SelectLazy`、各包 `SidebarLazyBoundary chunk="select"`。快捷鍵介紹頁的 `shortcuts` 是單一掛載點（`ShortcutsDialog` 一處 `import()`
- * `ShortcutsLazy`，不是巢狀），一個別名一份額度。測試刻意寫字面 key（釘住 key 名不被改），這裡不匯出常數。
+ * `ShortcutsLazy`，不是巢狀），一個別名一份額度。側欄搜尋內文區的 `bodySearch`（#93 PR2）與 `trash` 同形：靜態卡與抽屜兩份 `SearchResults` 都
+ * `import()` `BodySearchLazy`、各包 `SidebarLazyBoundary chunk="bodySearch"`。測試刻意寫字面 key（釘住 key 名不被改），這裡不匯出常數。
  */
 const DEFAULT_CHUNK = "notepage";
 

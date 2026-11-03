@@ -2,6 +2,7 @@ import { memo, useRef, useState, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import { NARROW_QUERY, SidebarDrawerContext } from "@/lib/sidebar-drawer";
+import { onSearchMarkClear } from "@/hooks/search-mark";
 import { EMPTY_SELECTION } from "./sidebar-selection";
 import {
   DEFAULT_SIDEBAR_TAB,
@@ -438,5 +439,28 @@ describe("選取狀態（spec §6.10.2）", () => {
     fireEvent.click(screen.getByRole("button", { name: "start" }));
     expect(session()).toBe((n as number) + 1);
     expect(renderHook(() => useSidebarTabActions()).result.current.getSelectionSession()).toBeNull();
+  });
+});
+
+describe("搜尋跳轉的常駐標記：切到別的 tab ＝離開搜尋 → 清", () => {
+  it("showTab 切到不同的 tab → 清一次；切到同一個 tab → 不清", () => {
+    stubMatchMedia(false);
+    const cleared = vi.fn();
+    const off = onSearchMarkClear(cleared);
+    try {
+      render(
+        <SidebarTabProvider>
+          <Probe />
+        </SidebarTabProvider>,
+      );
+      const current = screen.getByTestId("tab").textContent as SidebarTab;
+      fireEvent.click(screen.getByText(`go-${current}`));
+      expect(cleared).not.toHaveBeenCalled();
+      const other = SIDEBAR_TABS.find((t) => t !== current)!;
+      fireEvent.click(screen.getByText(`go-${other}`));
+      expect(cleared).toHaveBeenCalledTimes(1);
+    } finally {
+      off();
+    }
   });
 });

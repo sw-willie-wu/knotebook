@@ -996,8 +996,34 @@ input[name="share-access"] {
   pointer-events: none;
   animation: kn-anchor-flash 2s ease-out;
 }
+/* 搜尋跳轉的常駐標記（useBlockAnchor 的 startMark）：浮層先帶 .kn-anchor-pending（透明、不動畫），等捲動穩定才換成 .kn-anchor-mark
+   開始閃——明顯的兩次「亮→暗」（5 段 × 320 ms ＝ 1.6 s），最後停在亮的。亮色（brand 38%）在閃爍與恆亮是同一個主色、同一個強度。
+   取消靠 Esc／關閉搜尋／下一次搜尋跳轉／離開這篇（浮層被移除），不靠動畫結束。 */
+@keyframes kn-anchor-mark {
+  0%,
+  40%,
+  80%,
+  100% {
+    background-color: color-mix(in oklch, var(--color-brand) 38%, transparent);
+  }
+  20%,
+  60% {
+    background-color: transparent;
+  }
+}
+.kn-anchor-flash.kn-anchor-pending {
+  animation: none;
+  background-color: transparent;
+}
+.kn-anchor-flash.kn-anchor-mark {
+  background-color: color-mix(in oklch, var(--color-brand) 38%, transparent);
+  animation: kn-anchor-mark 1.6s linear;
+}
+/* 一般錨點的 2 s 高亮在 reduced-motion 下不動畫、靜態底色。搜尋標記（.kn-anchor-mark）刻意不在這裡關動畫：它是「你要找的字在這裡」的
+   定位提示，只閃 2 次、頻率遠低於每秒 3 次（WCAG 2.3.1 閃光門檻），而且最後停在亮的；關掉動畫就只剩一個恆亮的底色，使用者看不出
+   是跳轉的結果（Willie 2026-11-03 在系統關閉動畫的機器上回報「沒有閃兩下、是恆亮」）。 */
 @media (prefers-reduced-motion: reduce) {
-  .kn-anchor-flash {
+  .kn-anchor-flash:not(.kn-anchor-mark):not(.kn-anchor-pending) {
     animation: none;
     background-color: color-mix(in oklch, var(--color-brand) 15%, transparent);
   }

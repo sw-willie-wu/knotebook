@@ -7,6 +7,7 @@ import { Check, Settings } from "@/components/ui/icons";
 import { SIDEBAR_ROW_HEIGHT } from "@/components/ui/rows";
 import { cn } from "@/lib/utils";
 import { isMacPlatform } from "@/lib/platform";
+import { useSidebarQuery } from "@/lib/sidebar-query";
 import { useShortcutsDialog } from "@/lib/shortcuts-dialog";
 import { openSettings } from "@/lib/open-settings";
 import {
@@ -49,6 +50,7 @@ export function UserMenu() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useSession();
+  const { release } = useSidebarQuery();
   const { theme, setTheme, accent, setAccent } = useTheme();
   const accentLabelId = useId();
   // 快捷鍵介紹項（plan T7）：這幾個 hook 必須在 `if (!user) return null` 之前。
@@ -61,6 +63,7 @@ export function UserMenu() {
 
   async function handleLogout(): Promise<void> {
     await logout();
+    release(); // 搜尋字屬於登出的這個人：清掉（#369）
     // #131：登出**刻意不帶** `?next=`——登出的語意是「我要離開」，不是「我暫時被擋下
     // 來」。同理 `ChangePasswordPage` 改密後登出、`NotePage` 的 session 過期也都導裸的
     // `/login`（對照 `auth/guards.tsx` 的 `useSessionGate`，那條才是「被擋下來」）。

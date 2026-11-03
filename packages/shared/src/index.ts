@@ -310,6 +310,34 @@ export const USER_SUGGEST_MIN_QUERY = 2;
 export const USER_SUGGEST_MAX_QUERY = 100;
 export const USER_SUGGEST_MAX_RESULTS = 8;
 
+/**
+ * #93 PR2：`GET /api/search` 的查詢長度上限（trim 後，UTF-16 code unit——zod `.max` 數的就是這個）、預設與最大篇數。
+ * web 的側欄用同一組數字決定要不要發請求。
+ */
+export const SEARCH_QUERY_MAX = 200;
+export const SEARCH_LIMIT_DEFAULT = 20;
+export const SEARCH_LIMIT_MAX = 50;
+
+/** 一個命中的段落：`sectionId` 接在筆記網址後成 `#b-<sectionId>`（`_top` 除外）；`heading` 對 `_top` 是空字串。 */
+export interface NoteSearchMatchDto {
+  sectionId: string;
+  heading: string;
+  snippet: string;
+}
+
+/** `note` 與 `GET /api/notes` 的同一篇同形，但沒有 `sizeBytes`。`matches` 在 `matchedOn: "title"` 時是 `[]`，內文命中也可能是 `[]`。 */
+export interface NoteSearchHitDto {
+  note: NoteDto;
+  matchedOn: "title" | "body" | "both";
+  matches: NoteSearchMatchDto[];
+}
+
+/** `nextCursor` 非 null＝還有下一頁；原樣帶回 `cursor` 參數（同一個 q 與 match）。 */
+export interface NoteSearchResultDto {
+  hits: NoteSearchHitDto[];
+  nextCursor: string | null;
+}
+
 /** 反向連結清單項目（Plan 3）：連到目前筆記的來源筆記摘要，供 backlinks 面板渲染。 */
 export interface BacklinkDto {
   id: string;

@@ -77,6 +77,8 @@ function stubFetchWithNotes(notes: NoteDto[], trash: TrashItemDto[] = []) {
       if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
       if (url === "/api/notes" && method === "GET") return Promise.resolve(fakeResponse(notes));
       if (url === "/api/trash" && method === "GET") return Promise.resolve(fakeResponse(trashList(trash)));
+      // #93 PR2：搜尋字 ≥ 2 個字時側欄內文區會打 /api/search（回空）。
+      if (url.startsWith("/api/search?")) return Promise.resolve(new Response(JSON.stringify({ hits: [], nextCursor: null }), { status: 200, headers: { "Content-Type": "application/json" } }));
       throw new Error(`unexpected fetch: ${method} ${url}`);
     }),
   );
