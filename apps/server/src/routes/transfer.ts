@@ -1,6 +1,7 @@
 /**
- * bulk transfer spec 2026-11-02 §5–§8、§15：`/api/transfer/*`（PR-1 讀側）。只收 `knbt_` bulk 權杖（`transferAuth.requireBulk`），
- * 不回退 cookie。三支：`GET /api/transfer/notes/:id`（單篇）、`DELETE /api/transfer/token`（自行撤銷）、`GET /api/transfer/export`（整包）。
+ * bulk transfer spec 2026-11-02 §5–§9、§15：`/api/transfer/*`。只收 `knbt_` bulk 權杖（`transferAuth.requireBulk`），
+ * 不回退 cookie。讀側三支：`GET /api/transfer/notes/:id`（單篇）、`DELETE /api/transfer/token`（自行撤銷）、`GET /api/transfer/export`
+ * （整包）；寫側（PR-2）：`PUT /api/transfer/notes`（寫回一篇／新增）。
  * 讀取零副作用（plan §1-1）：只走 `loadNoteDoc`，不開直連、不 touch presence、不動 `notes.*`；唯一的寫入是 `transfer_bases`
  * 與撤銷。HTTP 層訊息中文（`sendError`）。log 不記內容、標題、檔名、權杖。
  */
@@ -14,6 +15,7 @@ import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
 import { transferTokens } from "../db/schema.js";
 import { pgErrorSummary } from "../db/pg-errors.js";
+import { TRANSFER_WRITE_BODY_LIMIT } from "../http/body-limits.js";
 import { sendError } from "../http/errors.js";
 import { retryAfterSeconds, type FixedWindowLimiter } from "../http/rate-limit.js";
 import type { EditingRuntime } from "../notes/editing/runtime.js";
@@ -34,6 +36,8 @@ export const TRANSFER_RATE_LIMITED_MESSAGE = "請求過於頻繁，請稍後再�
 /** plan §0.1-13：全站已有一個匯出在跑。 */
 export const EXPORT_BUSY_MESSAGE = "已有一個匯出正在進行，請稍後再試";
 export const TOO_MANY_NOTES_MESSAGE = `範圍內的筆記超過 ${TRANSFER_EXPORT_MAX_NOTES} 篇，請縮小範圍`;
+/** §9.1：寫回的 body 不是 UTF-8（fatal 解碼失敗）。 */
+export const INVALID_UTF8_MESSAGE = "檔案不是 UTF-8";
 
 /** 單篇與整包共用的測試縫（`forceUnmergeable` 兩邊都看；其餘只有整包用）。 */
 export type TransferTestHooks = ExportTestHooks;
@@ -58,6 +62,7 @@ export function transferRoutes(deps: TransferRouteDeps) {
   return async function register(app: FastifyInstance): Promise<void> {
     const auth = createTransferAuth({ db: deps.db, gate: deps.gate, authenticate: app.authenticate, limiters: { bearerMiss: deps.limiters.bearerMiss } });
     const requireBulkRead = auth.requireBulk("read");
+    const requireBulkWrite = auth.requireBulk("write");
     const key = deriveTransferKey(deps.config.appSecret);
     const fileDeps = { db: deps.db, collab: deps.collab, editing: deps.editing, key, keyId: transferKeyId(key) };
     const slot = new ExportSlot();
@@ -162,6 +167,23 @@ export function transferRoutes(deps: TransferRouteDeps) {
         .header("content-disposition", `attachment; filename*=UTF-8''${encodeRfc5987(sanitizeTitle(row.title) + ".md")}`)
         .header("cache-control", "no-store")
         .send(nf.file);
+    });
+
+    /**
+     * 寫回一篇（spec §9；PR-2）。`text/markdown` 的 415／Origin 403 在全域 onRequest（`TEXT_BODY_EXEMPT_ROUTES`），parser 在頂層
+     * 只回 Buffer；1 MiB 上限 → 413 `content_too_large`（§21 D11）。解碼在這裡：`fatal: true`，非 UTF-8 → 400 `invalid_body`。
+     */
+    app.put("/api/transfer/notes", { preHandler: requireBulkWrite, bodyLimit: TRANSFER_WRITE_BODY_LIMIT }, async (request: FastifyRequest, reply: FastifyReply) => {
+      const raw = request.body;
+      let text: string;
+      try {
+        text = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.isBuffer(raw) ? raw : new Uint8Array(0));
+      } catch {
+        return sendError(reply, 400, "invalid_body", INVALID_UTF8_MESSAGE);
+      }
+      void text;
+      // 佔位：T8 起換成 frontmatter 讀入（`readNoteFile`）與寫回（`NoteWriteService.syncFile`）／新增（T10）。
+      return sendError(reply, 400, "invalid_body", "檔案寫回尚未開放");
     });
   };
 }

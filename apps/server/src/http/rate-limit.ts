@@ -269,6 +269,13 @@ export const SEARCH_LIMIT = { limit: 60, windowMs: 60_000 } as const;
 export const TRANSFER_EXPORT_LIMIT = { limit: 10, windowMs: 3_600_000 } as const;
 
 /**
+ * bulk transfer spec §12.1、§12.3：檔案寫回 `PUT /api/transfer/notes`（key=userId）。只在「有區要套用」「只改名」「要新建」時扣
+ * 一個單位，**在佇列內扣**；進佇列前只做不計數的 `isBlocked` 預檢；零區、同檔重送、新增去重命中不扣這顆、改扣 `tokenRead`
+ * （plan PR-2 不變量 13）。數字待 D17 寫回量測複核（plan T14）。生產預設以函式建（每次現讀，§12.3 的接點）。
+ */
+export const TRANSFER_WRITE_LIMIT = { limit: 30, windowMs: 60_000 } as const;
+
+/**
  * #106 寫入端（`POST /api/notes/:id/edits`、`POST …/edits/:editId/revert`、
  * `POST /api/notes` 帶 `content`；key=userId）。**角色檢查之後才消耗**（同
  * `CONTENT_READ_LIMIT` 的理由）。比讀取緊得多：每一次寫入都要 fork、mount 一次

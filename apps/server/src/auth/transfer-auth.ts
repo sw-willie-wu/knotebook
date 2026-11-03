@@ -125,12 +125,14 @@ export function createTransferAuth(deps: TransferAuthDeps) {
   }
 
   /**
-   * bulk transfer spec 2026-11-02 §5.3：`/api/transfer/*` 的認證（只有 `read`；`write` 在 PR-2）。**不與 `require()` 共用流程**：
+   * bulk transfer spec 2026-11-02 §5.3：`/api/transfer/*` 的認證。**不與 `require()` 共用流程**：
    * 沒帶 `Authorization` 一律 401（不回退 cookie、不吃 bearerMiss）；有 header 的 401 吃 bearerMiss（桶滿 429＋`Retry-After`）；
    * `purpose ≠ 'bulk'` → 403；停權／需改密碼 → 同形 401；讀取要母憑證當下有 `notes:read`。
+   * `write`（PR-2）：read 的全部＋`access = 'write'`＋母憑證**當下**有 `notes:write`，缺一 → 403 `insufficient_scope`
+   * （既有慣例：`require()` 與 `bearer.ts` 的 scope 不足都回這碼這句；`forbidden` 只用在用途不符）。兩者都排在使用者閘門之後
+   * （停權的唯讀權杖 → 401，不是 403；plan W-A3b）。不帶 `WWW-Authenticate`（同 `require()` 的理由）。
    */
-  function requireBulk(op: "read") {
-    // PR-1 只有讀；PR-2 加 "write"（另需 `access = 'write'` 與母憑證當下 notes:write）。
+  function requireBulk(op: "read" | "write") {
     const needed = op === "read" ? "notes:read" : "notes:write";
     return async function bulkPreHandler(request: FastifyRequest, reply: FastifyReply): Promise<void> {
       const raw = typeof request.headers.authorization === "string" ? request.headers.authorization : undefined;
@@ -175,8 +177,9 @@ export function createTransferAuth(deps: TransferAuthDeps) {
       const gateResult = await deps.gate.checkUser(row.userId);
       if (gateResult.status !== "ok" || gateResult.user.mustChangePassword) return rejectInvalid(request, reply);
 
-      // 實務上不可達（五種 scope 都含 notes:read）；保留與 `require()` 同形。
-      if (!hasScope(row.scope as TokenScope, needed)) {
+      // read：實務上不可達（五種 scope 都含 notes:read）；保留與 `require()` 同形。write：母憑證可經 PATCH 原地降權（#239），可達（W-A4）。
+      // write 另要權杖本身 `access = 'write'`（W-A3：唯讀母憑證簽的權杖）。
+      if ((op === "write" && row.access !== "write") || !hasScope(row.scope as TokenScope, needed)) {
         drainWithCap(request);
         sendError(reply, 403, "insufficient_scope", "此 token 沒有執行這個操作的權限");
         return;

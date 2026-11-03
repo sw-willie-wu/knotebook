@@ -65,6 +65,26 @@ export function bulkGet(app: FastifyInstance, url: string, token?: string, opts:
   });
 }
 
+/** PR-2 H5：`PUT /api/transfer/notes`（預設 `text/markdown; charset=utf-8`）。 */
+export function bulkPut(
+  app: FastifyInstance,
+  token: string | undefined,
+  body: string | Buffer,
+  opts: { contentType?: string; origin?: string; cookies?: Record<string, string> } = {},
+) {
+  return app.inject({
+    method: "PUT",
+    url: "/api/transfer/notes",
+    headers: {
+      ...(token !== undefined ? { authorization: `Bearer ${token}` } : {}),
+      "content-type": opts.contentType ?? "text/markdown; charset=utf-8",
+      ...(opts.origin !== undefined ? { origin: opts.origin } : {}),
+    },
+    payload: body,
+    ...(opts.cookies !== undefined ? { cookies: opts.cookies } : {}),
+  });
+}
+
 export function bulkDelete(app: FastifyInstance, token?: string) {
   return app.inject({ method: "DELETE", url: "/api/transfer/token", headers: token !== undefined ? { authorization: `Bearer ${token}` } : {} });
 }

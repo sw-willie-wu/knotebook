@@ -7,6 +7,7 @@ import {
   ONE_TIME_LINK_ATTEMPT_LIMIT,
   ONE_TIME_LINK_MISS_LIMIT,
   TRANSFER_EXPORT_LIMIT,
+  TRANSFER_WRITE_LIMIT,
   retryAfterSeconds,
 } from "../../src/http/rate-limit.js";
 
@@ -633,5 +634,9 @@ describe("FixedWindowLimiter 函式額度與 retryAfterMs（bulk transfer spec �
 
   it("TRANSFER_EXPORT_LIMIT：每小時 10 次", () => {
     expect(TRANSFER_EXPORT_LIMIT).toEqual({ limit: 10, windowMs: 3_600_000 });
+  });
+
+  it("L6 TRANSFER_WRITE_LIMIT：每分鐘 30 次（bulk transfer PR-2 T1；數字的複核在 T14，implementer 不改）", () => {
+    expect(TRANSFER_WRITE_LIMIT).toEqual({ limit: 30, windowMs: 60_000 });
   });
 });
