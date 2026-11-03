@@ -6,8 +6,11 @@ import { createContext } from "react";
  */
 export interface BlockAnchorApi {
   currentNoteId: string | null;
-  /** 同篇錨點點擊：把待處理錨點設成這個區塊（同一個錨點再點也會再捲）。 */
-  requestAnchor(blockId: string): void;
+  /**
+   * 同篇錨點點擊：把待處理錨點設成這個區塊（同一個錨點再點也會再捲）。`findText`（#93 PR2，側欄搜尋）：改捲到該段落範圍內
+   * 第一個含這串字的 block；`blockId` 可為 `_top`。
+   */
+  requestAnchor(blockId: string, findText?: string): void;
   /** 同篇、無錨點的點擊：捲回頂端。 */
   scrollToTop(): void;
 }

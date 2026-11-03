@@ -176,7 +176,10 @@ function TrashActionBar() {
     flushSync(() => {
       ended = endSelectionIfActive();
     });
-    if (ended) shell?.querySelector<HTMLButtonElement>(SIDEBAR_SELECT_BUTTON)?.focus();
+    if (ended) {
+      event.preventDefault(); // 這一下 Esc 只結束選取（搜尋標記的 Esc 監聽看到 defaultPrevented 就讓路）
+      shell?.querySelector<HTMLButtonElement>(SIDEBAR_SELECT_BUTTON)?.focus();
+    }
   }
 
   return (

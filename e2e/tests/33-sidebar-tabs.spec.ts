@@ -31,7 +31,7 @@ test("sidebar tabs: roles, persistence, keyboard, search view, narrow drawer", a
   // ── A1-1：選擇重整後仍在 ──────────────────────────────────────────────────
   await showSidebarTab(page, "Groups");
   await page.reload();
-  // 等 lazy NotePage 掛上：fallback 自帶的 AppShell 會被換掉（drawerOpen／搜尋字串跟著重設）。
+  // 等 lazy NotePage 掛上：fallback 自帶的 AppShell 會被換掉（drawerOpen 跟著重設；搜尋字串 #369 起住在 App 層、不重設）。
   await expect(page.getByRole("textbox", { name: "Note title" })).toBeVisible();
   await expect(tablist.getByRole("tab", { name: "Groups", exact: true })).toHaveAttribute("aria-selected", "true");
 
@@ -62,7 +62,7 @@ test("sidebar tabs: roles, persistence, keyboard, search view, narrow drawer", a
   await search.fill(String(RUN));
   await expect(tablist).toHaveCount(0);
   // 限定在側欄：筆記頁的 ConnectionBadge 也是 role="status"。
-  await expect(sidebar.getByRole("status")).toHaveText("1 result");
+  await expect(sidebar.getByRole("status")).toHaveText(/^1 (title match|result)$/);
   // 結果連結的可及名稱是「標題 位置」。
   const hit = sidebar.getByRole("link", { name: new RegExp("^" + reEscape(title)) });
   await expect(hit).toHaveCount(1);
@@ -88,7 +88,7 @@ test("sidebar tabs: roles, persistence, keyboard, search view, narrow drawer", a
   // ── A1-6：390 寬抽屜 ─────────────────────────────────────────────────────
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(noteUrl);
-  // 等 lazy NotePage 掛上：fallback 自帶的 AppShell 會被換掉（drawerOpen／搜尋字串跟著重設）。
+  // 等 lazy NotePage 掛上：fallback 自帶的 AppShell 會被換掉（drawerOpen 跟著重設；搜尋字串 #369 起住在 App 層、不重設）。
   await expect(page.getByRole("textbox", { name: "Note title" })).toBeVisible();
   await page.getByRole("button", { name: "Open navigation" }).click();
   const drawer = page.getByRole("dialog", { name: "Navigation" });

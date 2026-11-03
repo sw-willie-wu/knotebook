@@ -2934,7 +2934,8 @@ describe("NotePage × 版本歷史（spec §8.1、§8.4、§8.5、A9）", () => 
     renderNotePage(NOTE.id);
     fireEvent.click(await screen.findByText("mock-start-preview"));
     await screen.findByTestId("mock-preview-slot");
-    fireEvent.keyDown(window, { key: "Escape" });
+    // M1：這一下 Esc 只關預覽這一層——preventDefault（fireEvent 回 false），搜尋標記的 Esc 監聽看到 defaultPrevented 就讓路
+    expect(fireEvent.keyDown(window, { key: "Escape" })).toBe(false);
     await waitFor(() => expect(screen.queryByTestId("mock-preview-slot")).not.toBeInTheDocument());
   });
 

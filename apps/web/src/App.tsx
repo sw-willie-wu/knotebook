@@ -10,6 +10,7 @@ import {
   type Location,
 } from "react-router";
 import { ActiveNoteProvider } from "./lib/active-note";
+import { SidebarQueryProvider } from "./lib/sidebar-query";
 import { RealLocationContext } from "./lib/real-location";
 import { ThemeProvider } from "./theme";
 import { Toaster } from "./components/ui/toast";
@@ -389,7 +390,9 @@ export default function App() {
               設定 modal 的第二棵樹也在內，關 modal 回到筆記頁時高亮狀態不掉。
               公開頁（/p/…）在樹內但不消費不 set（明文，見 lib/active-note.tsx）。 */}
           <ActiveNoteProvider>
-            <AppRoutes />
+            <SidebarQueryProvider>
+              <AppRoutes />
+            </SidebarQueryProvider>
           </ActiveNoteProvider>
         </BrowserRouter>
         <Toaster />
