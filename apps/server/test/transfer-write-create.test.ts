@@ -6,6 +6,13 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { folders, notes, transferCreates } from "../src/db/schema.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
 import type { BulkRange } from "../src/auth/transfer-token.js";
+import { FOLDER_NOT_FOUND_MESSAGE, NOTE_FOLDER_ROLE_FORBIDDEN_MESSAGE } from "../src/folders/messages.js";
+import {
+  CREATE_IN_SHARED_FORBIDDEN_MESSAGE,
+  DEST_NOT_IN_RANGE_MESSAGE,
+  GROUP_CREATE_FORBIDDEN_MESSAGE,
+  SHARED_FOLDER_CREATE_FORBIDDEN_MESSAGE,
+} from "../src/transfer/create-file.js";
 import { buildCollabTestApp, testConfig, type CollabTestCtx } from "./helpers.js";
 import { seedTokenForUser } from "./editing-helpers.js";
 import { seedFolder } from "./folder-helpers.js";
@@ -168,11 +175,11 @@ describe("新增（§10）", () => {
     expect(await noteRow(sAll.ctx, (rG.json() as { id: string }).id)).toMatchObject({ ownerId: null, groupId: g.id, folderId: null });
   });
 
-  it("CR9 拒絕形：shared 範圍 403；folder_id 看不到 404；shared 空間資料夾 403；範圍外資料夾 403；create-only 角色：群組最上層 201、群組資料夾 403", async () => {
+  it("CR9 拒絕形（各帶自己的常數訊息）：shared 範圍 403 CREATE_IN_SHARED_FORBIDDEN_MESSAGE；folder_id 看不到 404 FOLDER_NOT_FOUND_MESSAGE；shared 空間資料夾 403 SHARED_FOLDER_CREATE_FORBIDDEN_MESSAGE；範圍外資料夾 403 DEST_NOT_IN_RANGE_MESSAGE；create-only 角色：群組最上層 201、群組資料夾 403 NOTE_FOLDER_ROLE_FORBIDDEN_MESSAGE；唯讀角色：群組最上層 403 GROUP_CREATE_FORBIDDEN_MESSAGE", async () => {
     const s = await scene({}, { kind: "shared" });
     const r1 = await bulkPut(s.ctx.app, s.bulk.token, fileOf({ title: "S" }, "s"));
     expect(r1.statusCode).toBe(403);
-    expect(errOf(r1).code).toBe("forbidden");
+    expect(errOf(r1)).toEqual({ code: "forbidden", message: CREATE_IN_SHARED_FORBIDDEN_MESSAGE });
 
     const pat = await seedTokenForUser(s.ctx.db, s.u.id, "notes:read notes:write");
     const all = await issueBulkDirect(s.ctx.db, pat.tokenId, { access: "write" });
@@ -180,7 +187,7 @@ describe("新增（§10）", () => {
     const hidden = await seedFolder(s.ctx.db, { personal: stranger.id });
     const r2 = await bulkPut(s.ctx.app, all.token, fileOf({ title: "H", folder_id: hidden.id }, "h"));
     expect(r2.statusCode).toBe(404);
-    expect(errOf(r2).code).toBe("folder_not_found");
+    expect(errOf(r2)).toEqual({ code: "folder_not_found", message: FOLDER_NOT_FOUND_MESSAGE });
 
     // 分享給我的空間裡的資料夾（我把別人分享的筆記收進自己的 shared 空間資料夾）
     const sharedFolder = await seedFolder(s.ctx.db, { shared: s.u.id });
@@ -188,6 +195,7 @@ describe("新增（§10）", () => {
     await seedShare(s.ctx.db, sn.id, s.u.id, "editor");
     const r3 = await bulkPut(s.ctx.app, all.token, fileOf({ title: "SF", folder_id: sharedFolder.id }, "sf"));
     expect(r3.statusCode).toBe(403);
+    expect(errOf(r3)).toEqual({ code: "forbidden", message: SHARED_FOLDER_CREATE_FORBIDDEN_MESSAGE });
 
     // 範圍外：folder 範圍、folder_id 指到範圍外的個人資料夾
     const inF = await seedFolder(s.ctx.db, { personal: s.u.id });
@@ -196,12 +204,15 @@ describe("新增（§10）", () => {
     const fb = await issueBulkDirect(s.ctx.db, pat2.tokenId, { access: "write", range: { kind: "folder", folderId: inF.id } });
     const r4 = await bulkPut(s.ctx.app, fb.token, fileOf({ title: "O", folder_id: outF.id }, "o"));
     expect(r4.statusCode).toBe(403);
+    expect(errOf(r4)).toEqual({ code: "forbidden", message: DEST_NOT_IN_RANGE_MESSAGE });
     // personal 範圍、folder_id 指到群組資料夾 → 範圍外
     const g = await seedGroup(s.ctx.db, "G", [{ userId: s.u.id, role: "member" }]);
     const gf = await seedFolder(s.ctx.db, { group: g.id });
     const pat3 = await seedTokenForUser(s.ctx.db, s.u.id, "notes:read notes:write");
     const pb = await issueBulkDirect(s.ctx.db, pat3.tokenId, { access: "write", range: { kind: "personal" } });
-    expect((await bulkPut(s.ctx.app, pb.token, fileOf({ title: "PG", folder_id: gf.id }, "pg"))).statusCode).toBe(403);
+    const r5 = await bulkPut(s.ctx.app, pb.token, fileOf({ title: "PG", folder_id: gf.id }, "pg"));
+    expect(r5.statusCode).toBe(403);
+    expect(errOf(r5)).toEqual({ code: "forbidden", message: DEST_NOT_IN_RANGE_MESSAGE });
 
     // create-only 角色
     const co = await seedRole(s.ctx.db, g.id, "create-only", { canRead: true, canCreate: true });
@@ -209,7 +220,17 @@ describe("新增（§10）", () => {
     const pat4 = await seedTokenForUser(s.ctx.db, s.u.id, "notes:read notes:write");
     const gb = await issueBulkDirect(s.ctx.db, pat4.tokenId, { access: "write", range: { kind: "group", groupId: g.id } });
     expect((await bulkPut(s.ctx.app, gb.token, fileOf({ title: "CO" }, "co"))).statusCode).toBe(201);
-    expect((await bulkPut(s.ctx.app, gb.token, fileOf({ title: "COF", folder_id: gf.id }, "cof"))).statusCode).toBe(403);
+    const r6 = await bulkPut(s.ctx.app, gb.token, fileOf({ title: "COF", folder_id: gf.id }, "cof"));
+    expect(r6.statusCode).toBe(403);
+    expect(errOf(r6)).toEqual({ code: "forbidden", message: NOTE_FOLDER_ROLE_FORBIDDEN_MESSAGE });
+    // 唯讀角色（PR-3 T3 補）：群組範圍、不給 folder_id → 群組最上層不能建立
+    const g2 = await seedGroup(s.ctx.db, "G2", [{ userId: s.u.id, role: "member" }]);
+    await setMemberRole(s.ctx.db, g2.id, s.u.id, await seedRole(s.ctx.db, g2.id, "read-only", { canRead: true }));
+    const pat5 = await seedTokenForUser(s.ctx.db, s.u.id, "notes:read notes:write");
+    const g2b = await issueBulkDirect(s.ctx.db, pat5.tokenId, { access: "write", range: { kind: "group", groupId: g2.id } });
+    const r7 = await bulkPut(s.ctx.app, g2b.token, fileOf({ title: "RO" }, "ro"));
+    expect(r7.statusCode).toBe(403);
+    expect(errOf(r7)).toEqual({ code: "forbidden", message: GROUP_CREATE_FORBIDDEN_MESSAGE });
     expect(await createsOf(s.ctx)).toHaveLength(1);
   });
 

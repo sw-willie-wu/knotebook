@@ -36,7 +36,7 @@ import { ExportSlot } from "../transfer/export-slot.js";
 import { EXPORT_BUSY_RETRY_AFTER_S, TRANSFER_EXPORT_MAX_NOTES, streamExport, type ExportTestHooks } from "../transfer/export-stream.js";
 import { inRangeIds, layoutOf, rangeGone, visibleNotes, visibleTree } from "../transfer/range.js";
 
-/** plan §0.1-3（暫定，待 Willie 確認）：範圍物件（群組、資料夾）使用時已看不到。 */
+/** spec §5.5（定案，Willie 2026-11-03）：範圍物件（群組、資料夾）使用時已看不到。 */
 export const RANGE_GONE_MESSAGE = "此 transfer token 的範圍已看不到";
 export const NOT_IN_RANGE_MESSAGE = "這篇筆記不在此 transfer token 的範圍內";
 export const TRANSFER_NOTE_NOT_FOUND_MESSAGE = "找不到此筆記";
@@ -57,7 +57,7 @@ export interface WriteTestHooks {
 /** 單篇與整包共用的測試縫（`forceUnmergeable` 兩邊都看；其餘只有整包用）＋寫回的縫。 */
 export type TransferTestHooks = ExportTestHooks & WriteTestHooks;
 
-/** plan §0.1-13：HTTP 層中文（PR-3 一起審）。 */
+/** spec §12.2：HTTP 層中文（PR-3 T3 定稿；字面見 `test/unit/bulk-transfer-http-messages.test.ts`）。 */
 export const BASE_UNAVAILABLE_MESSAGE = "無法以這份副本合併：已送回過不同的內容、不屬於這篇，或已過期；請重新下載再改";
 export const NOT_MERGEABLE_MESSAGE = "這篇筆記不能用檔案寫回，請改用 edit_note";
 

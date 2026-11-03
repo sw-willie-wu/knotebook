@@ -41,7 +41,10 @@ export const versionReadFailed = pkg.failed;
  * 只描述**這個憑證真的用得到的東西**。英文——與 `docs/` 及工具 `.describe()` 同語言；
  * 它進的是模型脈絡不是 UI，不走 i18n。
  *
- * ⚠ **兩支尾巴是二選一，不是相加**（#108 D-Q）。讀寫那支實測 **996** 字元，餘裕 **4**；唯讀那支實測 **997**，餘裕 **3**
+ * ⚠ **兩支尾巴是二選一，不是相加**（#108 D-Q）。讀寫那支實測 **994** 字元，餘裕 **6**；唯讀那支實測 **995**，餘裕 **5**
+ * （bulk transfer PR-3 T4：第一句「Reading is always sectioned: no tool returns a whole note.」改成「Tools read notes in sections: none
+ * returns a whole note.」−2——token＋collab 部署有 `create_bulk_transfer_token`，模型照它的 curl 拿得到整篇檔，所以「讀取一律分段」對
+ * 「讀筆記」這件事不再是全稱；新句只講工具，三種部署形〔token＋collab、session、無 collab〕都成立。之前 996／997）
  * （#folders PR-3d：刪 outline 上限句 −37、BASE 尾端補資料夾句（含換行）+58；之前 975／976。刪掉的上限仍在 `read_note_outline`
  * 的 description（`At most ${MCP_PAGE_MAX} sections per call`）。資料夾句只提 `list_folders`——它任何憑證都註冊，所以兩版共用、
  * 不依 canWrite 分版；資料夾寫入工具一個都不提）
@@ -63,7 +66,7 @@ export const versionReadFailed = pkg.failed;
  * 是 D7 的意圖唯一到得了模型的落點**。守衛＝`mcp-edit-note.test.ts` 的 S3 ＋ 本檔的單元案。
  * ⚠ **改了一個字就要重量**（兩支各自都有 ≤ 1000 的斷言，且各自都要過禁令詞正則）。
  */
-const BASE_INSTRUCTIONS = `Knotebook notes over MCP. Reading is always sectioned: no tool returns a whole
+const BASE_INSTRUCTIONS = `Knotebook notes over MCP. Tools read notes in sections: none returns a whole
 note. Call read_note_outline first to see a note's sections, then
 read_note_section for one section's text, 4000 characters per call — page with \`offset\`
 until \`truncated\` is false. list_notes returns at most 100 notes per call, search_notes at most

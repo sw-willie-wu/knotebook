@@ -10,7 +10,7 @@ import { FixedWindowLimiter } from "../src/http/rate-limit.js";
 import { TOO_MANY_BULK_TOKENS_MESSAGE } from "../src/mcp/tools/create-bulk-transfer-token.js";
 import { readNoteContent } from "../src/notes/editing/read.js";
 import { presenceClientId } from "../src/notes/editing/presence.js";
-import { NOT_IN_RANGE_MESSAGE, RANGE_GONE_MESSAGE } from "../src/routes/transfer.js";
+import { NOT_IN_RANGE_MESSAGE, RANGE_GONE_MESSAGE, TRANSFER_NOTE_NOT_FOUND_MESSAGE } from "../src/routes/transfer.js";
 import { deriveTransferKey, transferKeyId } from "../src/transfer/base-hash.js";
 import { sanitizeTitle } from "../src/transfer/paths.js";
 import { buildCollabTestApp, testConfig, testEditingRuntime } from "./helpers.js";
@@ -58,7 +58,7 @@ describe("單篇下載", () => {
     expect(base!.appliedTitleSha).toBeNull();
   });
 
-  it("N2 404 同字：不存在的 uuid、看不到的、垃圾桶、非 uuid、%00", async () => {
+  it("N2 404 同字（TRANSFER_NOTE_NOT_FOUND_MESSAGE）：不存在的 uuid、看不到的、垃圾桶、非 uuid、%00", async () => {
     const ctx = await buildCollabTestApp();
     const u = await seedUser(ctx.db);
     const other = await seedUser(ctx.db);
@@ -74,7 +74,7 @@ describe("單篇下載", () => {
       bodies.push(r.body);
     }
     for (const x of bodies) expect(x).toBe(bodies[0]);
-    expect(errOf({ json: () => JSON.parse(bodies[0]!) }).code).toBe("not_found");
+    expect(errOf({ json: () => JSON.parse(bodies[0]!) })).toEqual({ code: "not_found", message: TRANSFER_NOTE_NOT_FOUND_MESSAGE });
   });
 
   it("N3 403 不在範圍：personal 權杖讀群組筆記；folder 權杖讀資料夾外；group 權杖讀別群組", async () => {

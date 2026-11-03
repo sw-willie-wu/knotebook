@@ -4,7 +4,7 @@
  *
  * 呼叫約定（T1–T6 審查 I1；plan 檔末「總管追加」）：`buildLayout` 一律吃讀者可見的**完整集合**，命名在完整集合上算、
  * 輸出依範圍篩——範圍縮小時路徑不變。範圍內的篇數＝`layout.files.size`。
- * 範圍物件（群組、資料夾）使用時已看不到 → `gone`，呼叫端回 403（plan §0.1-3，暫定）；必須在 `buildLayout` 之前判。
+ * 範圍物件（群組、資料夾）使用時已看不到 → `gone`，呼叫端回 403（spec §5.5 定案）；必須在 `buildLayout` 之前判。
  */
 import { inArray, type SQL } from "drizzle-orm";
 import { unionAll } from "drizzle-orm/pg-core";

@@ -3,7 +3,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { eq, sql } from "drizzle-orm";
-import { BULK_TRANSFER_PAT_MESSAGE, TRANSFER_INVALID_MESSAGE } from "../src/auth/transfer-auth.js";
+import { BULK_TRANSFER_INVALID_MESSAGE, BULK_TRANSFER_PAT_MESSAGE, BULK_TRANSFER_REQUIRED_MESSAGE } from "../src/auth/transfer-auth.js";
 import { apiTokens, users } from "../src/db/schema.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
 import { buildCollabTestApp } from "./helpers.js";
@@ -29,33 +29,42 @@ describe("requireBulk：A 矩陣（GET /api/transfer/notes/:id）", () => {
     expect((await bulkGet(s.ctx.app, s.url, s.bulk.token)).statusCode).toBe(200);
   });
 
-  it("A1 無 header、帶有效 session cookie → 401（不回退 cookie）、不吃 bearerMiss", async () => {
+  it("A1 無 header、帶有效 session cookie → 401（不回退 cookie）、challenge 是 realm 形（不帶 error、不帶 resource_metadata）、不吃 bearerMiss", async () => {
     const s = await scene({ bearerMiss: new FixedWindowLimiter({ limit: 1, windowMs: 60_000 }) });
     const cookies = await cookieOf(s.u.id);
     for (let i = 0; i < 3; i++) {
       const r = await bulkGet(s.ctx.app, s.url, undefined, { cookies });
       expect(r.statusCode, `#${i}`).toBe(401);
-      expect(errOf(r).code).toBe("unauthorized");
+      expect(errOf(r), `#${i}`).toEqual({ code: "unauthorized", message: BULK_TRANSFER_REQUIRED_MESSAGE });
+      // docs/api.md：bulk 端點沒帶 Authorization 也回 challenge（PR-3 審查 m5）
+      const ch = String(r.headers["www-authenticate"] ?? "");
+      expect(ch, `#${i}`).toContain('realm="knotebook-transfer"');
+      expect(ch, `#${i}`).not.toContain("error=");
+      expect(ch, `#${i}`).not.toContain("resource_metadata");
     }
     // 桶沒被吃：第一發無效 token 仍是 401 不是 429
     expect((await bulkGet(s.ctx.app, s.url, "knbt_nope")).statusCode).toBe(401);
   });
 
-  it("A2 Basic → 401、吃 bearerMiss", async () => {
+  it("A2 Basic → 401「未登入」、challenge 不帶 error、吃 bearerMiss", async () => {
     const s = await scene({ bearerMiss: new FixedWindowLimiter({ limit: 1, windowMs: 60_000 }) });
     const basic = () => s.ctx.app.inject({ method: "GET", url: s.url, headers: { authorization: "Basic eHg6eXk=" } });
-    expect((await basic()).statusCode).toBe(401);
+    const first = await basic();
+    expect(first.statusCode).toBe(401);
+    expect(errOf(first)).toEqual({ code: "unauthorized", message: "未登入" });
+    expect(String(first.headers["www-authenticate"] ?? "")).toContain('realm="knotebook-transfer"');
+    expect(String(first.headers["www-authenticate"] ?? "")).not.toContain("error");
     expect((await basic()).statusCode).toBe(429);
   });
 
-  it("A3 有效的 knb_ PAT → 401＋BULK_TRANSFER_PAT_MESSAGE；A4 knbt_ 亂碼 → 401＋TRANSFER_INVALID_MESSAGE、challenge 含 invalid_token；A11 body 是 JSON", async () => {
+  it("A3 有效的 knb_ PAT → 401＋BULK_TRANSFER_PAT_MESSAGE；A4 knbt_ 亂碼 → 401＋BULK_TRANSFER_INVALID_MESSAGE（PR-3 W11：不是 #200 的 TRANSFER_INVALID_MESSAGE）、challenge 含 invalid_token；A11 body 是 JSON", async () => {
     const s = await scene();
     const a3 = await bulkGet(s.ctx.app, s.url, s.pat.token);
     expect(a3.statusCode).toBe(401);
     expect(errOf(a3)).toEqual({ code: "unauthorized", message: BULK_TRANSFER_PAT_MESSAGE });
     const a4 = await bulkGet(s.ctx.app, s.url, "knbt_nope");
     expect(a4.statusCode).toBe(401);
-    expect(errOf(a4)).toEqual({ code: "unauthorized", message: TRANSFER_INVALID_MESSAGE });
+    expect(errOf(a4)).toEqual({ code: "unauthorized", message: BULK_TRANSFER_INVALID_MESSAGE });
     expect(a4.headers["www-authenticate"]).toContain("invalid_token");
     expect(a4.headers["content-type"]).toMatch(/^application\/json/);
   });
@@ -78,7 +87,7 @@ describe("requireBulk：A 矩陣（GET /api/transfer/notes/:id）", () => {
     const r6 = await bulkGet(s.ctx.app, s.url, s.bulk.token);
     expect(r6.statusCode).toBe(401);
     msgs.push(errOf(r6));
-    for (const m of msgs) expect(m).toEqual({ code: "unauthorized", message: TRANSFER_INVALID_MESSAGE });
+    for (const m of msgs) expect(m).toEqual({ code: "unauthorized", message: BULK_TRANSFER_INVALID_MESSAGE });
   });
 
   it("A8 使用者停權／需改密碼 → 401 同形", async () => {
@@ -88,7 +97,7 @@ describe("requireBulk：A 矩陣（GET /api/transfer/notes/:id）", () => {
     const vb = await issueBulkDirect(s.ctx.db, vp.tokenId);
     const r1 = await bulkGet(s.ctx.app, s.url, vb.token);
     expect(r1.statusCode).toBe(401);
-    expect(errOf(r1)).toEqual({ code: "unauthorized", message: TRANSFER_INVALID_MESSAGE });
+    expect(errOf(r1)).toEqual({ code: "unauthorized", message: BULK_TRANSFER_INVALID_MESSAGE });
     const w = await seedUser(s.ctx.db);
     await s.ctx.db.update(users).set({ mustChangePassword: true }).where(eq(users.id, w.id));
     const wp = await seedTokenForUser(s.ctx.db, w.id, "notes:read");
@@ -113,6 +122,7 @@ describe("requireBulk：A 矩陣（GET /api/transfer/notes/:id）", () => {
     expect((await bulkGet(s.ctx.app, s.url, "knbt_nope")).statusCode).toBe(401);
     const r = await bulkGet(s.ctx.app, s.url, "knbt_nope");
     expect(r.statusCode).toBe(429);
+    expect(errOf(r)).toEqual({ code: "too_many_requests", message: "請求過於頻繁，請稍後再試" });
     expect(String(r.headers["retry-after"])).toMatch(/^[1-9]\d*$/);
     expect(r.headers["www-authenticate"]).toBeUndefined();
   });
