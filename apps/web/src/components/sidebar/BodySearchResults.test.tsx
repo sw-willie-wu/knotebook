@@ -128,19 +128,22 @@ describe("BodySearchView 合併列表（T5）", () => {
     expect(region().querySelectorAll("[aria-expanded]")).toHaveLength(0);
   });
 
-  it("B1d 第一行（筆記標題）與第二行（位置）同一個樣式：className 完全相同（灰色小字），標題命中字的 mark 保留", () => {
-    const first = renderView(readyState([hit(N1, [m("_top", "", "a needle here")])]), { titleNotes: [] });
-    const lines = within(region()).getAllByTestId("body-match")[0]!.querySelectorAll(":scope > div");
+  it("B1d 標題行（第一行）與位置行（第二行）：同樣的灰色小字，只差標題行是粗體（內文命中項 MatchItem 與只命中標題的 SearchRow 都一樣）；mark 保留", () => {
     const strip = (el: Element) => el.className.split(/\s+/).filter((c) => c !== "mt-0.5").sort().join(" ");
-    expect(strip(lines[0]!)).toBe(strip(lines[1]!));
-    expect(lines[0]!.className).toContain("text-muted-foreground");
-    expect(lines[0]!.className).toContain("text-[11px]");
-    expect(lines[0]!.className).not.toMatch(/font-medium|text-\[1[23]px\]/);
-    // 只有標題命中的項（兩行）也一樣
+    const noBold = (el: Element) => strip(el).split(" ").filter((c) => c !== "font-semibold").join(" ");
+    const check = (lines: ArrayLike<Element>) => {
+      expect(lines[0]!.className).toContain("font-semibold");
+      expect(lines[1]!.className).not.toContain("font-semibold");
+      expect(noBold(lines[0]!)).toBe(strip(lines[1]!)); // 除了粗體，其餘 class 完全相同
+      expect(lines[0]!.className).toContain("text-muted-foreground");
+      expect(lines[0]!.className).toContain("text-[11px]");
+      expect(lines[0]!.className).not.toMatch(/font-medium|text-\[1[23]px\]/);
+    };
+    const first = renderView(readyState([hit(N1, [m("_top", "", "a needle here")])]), { titleNotes: [] });
+    check(within(region()).getAllByTestId("body-match")[0]!.querySelectorAll(":scope > div"));
     first.unmount();
     renderView(readyState([]), { titleNotes: [N2] });
-    const row = within(region()).getAllByTestId("search-hit").at(-1)!.querySelectorAll("a > div");
-    expect(strip(row[0]!)).toBe(strip(row[1]!));
+    check(within(region()).getAllByTestId("search-hit").at(-1)!.querySelectorAll("a > div"));
   });
 
   it("B1e 同一篇有多項（目前開著的那篇）：只有第一項帶 aria-current=page，其餘項不帶", () => {

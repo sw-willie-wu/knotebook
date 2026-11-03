@@ -44,6 +44,11 @@ export function searchMetaLineClass(active: boolean): string {
   return cn("truncate text-[11px]", active ? "text-brand-on-soft" : "text-muted-foreground group-hover:text-brand-on-soft");
 }
 
+/** 標題行＝meta 行加粗（Willie 2026-11-03：所有搜尋結果項的標題行粗體；位置行不粗，其餘 class 與位置行相同）。 */
+export function searchTitleLineClass(active: boolean): string {
+  return cn(searchMetaLineClass(active), "font-semibold");
+}
+
 /**
  * 一列搜尋結果的「標題＋位置」（連結）。標題列與合併列（`BodySearchResults`）共用。兩行一律 <div>：可及名稱靠 UA 預設 block 之間補空白
  * （jsdom 不載 Tailwind，span 會黏成「標題位置」）。
@@ -71,7 +76,7 @@ export function SearchRow({
         active && "bg-brand-soft text-brand-on-soft hover:bg-brand-soft-strong",
       )}
     >
-      <div className={searchMetaLineClass(active)}>{highlightTitle(note.title, lowerQuery)}</div>
+      <div className={searchTitleLineClass(active)}>{highlightTitle(note.title, lowerQuery)}</div>
       <div className={cn("mt-0.5", searchMetaLineClass(active))} title={label}>
         {label}
       </div>

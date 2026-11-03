@@ -8,7 +8,7 @@ import { useCloseSidebarDrawer } from "@/lib/sidebar-drawer";
 import { cn } from "@/lib/utils";
 import { displaySnippet } from "./body-snippet";
 import { flattenRows, mergeSearchRows } from "./search-merge";
-import { highlightTitle, searchMetaLineClass, SearchRow } from "./SearchResults";
+import { highlightTitle, searchMetaLineClass, searchTitleLineClass, SearchRow } from "./SearchResults";
 import { noteLocationLabel, type LocationContext } from "./tree";
 
 /**
@@ -225,7 +225,7 @@ function MatchItem({
           active && "bg-brand-soft text-brand-on-soft hover:bg-brand-soft-strong",
         )}
       >
-        <div className={searchMetaLineClass(active)}>{highlightTitle(note.title, titleLowerQuery)}</div>
+        <div className={searchTitleLineClass(active)}>{highlightTitle(note.title, titleLowerQuery)}</div>
         <div className={cn("mt-0.5", searchMetaLineClass(active))} title={label}>
           {label}
         </div>
