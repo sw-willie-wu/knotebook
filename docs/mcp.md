@@ -1,6 +1,6 @@
 # MCP
 
-Knotebook speaks [MCP](https://modelcontextprotocol.io) at `POST /api/mcp`, so an AI client — Claude Code, Claude Desktop, or anything else that speaks the protocol — can read and write your notes **as you**, through nineteen tools. This page is the reference for that surface: how to connect, what each tool takes and answers, what the limits are, and where the edges are.
+Knotebook speaks [MCP](https://modelcontextprotocol.io) at `POST /api/mcp`, so an AI client — Claude Code, Claude Desktop, or anything else that speaks the protocol — can read and write your notes **as you**, through up to twenty tools. This page is the reference for that surface: how to connect, what each tool takes and answers, what the limits are, and where the edges are.
 
 The credential is an ordinary Knotebook credential. How one is issued, listed and revoked — a Personal API token, or one an app obtains for itself over OAuth — is in [API tokens](./api-tokens.md). What a write actually does to a note — what a section is, what fingerprints mean, the five operations, how a change is undone — is in [AI editing](./ai-editing.md). This page does not repeat either; it covers what is different about reaching them over MCP.
 
@@ -12,7 +12,7 @@ The credential is an ordinary Knotebook credential. How one is issued, listed an
 | Transport | Streamable HTTP, stateless, JSON responses — no SSE stream, no session id |
 | Methods | `POST` only. `GET` and `DELETE` are authenticated and Origin-checked first, then answered with `405` and `Allow: POST`. |
 | Capabilities | `tools` only — no resources, no prompts, no sampling. `tools.listChanged` is `false`. |
-| Scope | `notes:read` gets you in; `edit_note`, `create_note`, `move_note_to_group`, `copy_note`, `create_folder`, `rename_folder`, `move_folder` and `move_note_to_folder` additionally need `notes:write`, and so does `create_transfer_token` when you ask it for an upload token. `move_note_to_group`, and `copy_note` with `group_id`, also need `notes:move`, which only comes together with `notes:write`. `delete_note`, `restore_note` and `delete_folder` need `notes:delete`, which also only comes together with `notes:write`. |
+| Scope | `notes:read` gets you in; `edit_note`, `create_note`, `move_note_to_group`, `copy_note`, `create_folder`, `rename_folder`, `move_folder` and `move_note_to_folder` additionally need `notes:write`, and so does `create_transfer_token` when you ask it for an upload token. A token from `create_bulk_transfer_token` can send files back only if the credential had `notes:write` when it asked for the token and still has it. `move_note_to_group`, and `copy_note` with `group_id`, also need `notes:move`, which only comes together with `notes:write`. `delete_note`, `restore_note` and `delete_folder` need `notes:delete`, which also only comes together with `notes:write`. |
 
 Authentication happens before the MCP transport sees the request, so a request with no credential gets `401` with a `WWW-Authenticate` challenge advertising `scope="notes:read notes:write notes:move notes:delete"` — that challenge is what an OAuth client follows to find the authorization server. A few things are refused by the HTTP layer earlier still, before any credential is looked at: a `Content-Type` that is not `application/json`, a body over the size limit, and a body that is not valid JSON. Those answer without a challenge — see [Errors](#errors).
 
@@ -101,6 +101,7 @@ On a plain `http://` deployment, add `"--allow-http"` at the end of `args`. On W
 | `move_note_to_group` | `notes:move` (with `notes:write`) | Move one of your personal notes into one of your groups |
 | `copy_note` | `notes:write`; with `group_id`, `notes:move` as well | Copy a note you can read into a new note, yours or a group's |
 | `create_transfer_token` | `notes:read` (`download`), `notes:write` (`upload`) | A short-lived token that lets a shell command upload an image to a note, or download its images |
+| `create_bulk_transfer_token` | `notes:read`; sending files back needs `notes:write` | A short-lived token that lets shell commands download many notes as markdown files, and send changed files back |
 | `list_trash` | `notes:read` | List the notes in your trash |
 | `delete_note` | `notes:delete` (with `notes:write`) | Move a note to the trash |
 | `restore_note` | `notes:delete` (with `notes:write`) | Bring a note back from the trash |
@@ -116,17 +117,17 @@ The permission summary under **Settings → Authorization → Connect Claude wit
 
 Five things decide how many of these a client actually sees, and all five are settled when the request is served rather than when the tool is called:
 
-- **A read-only credential never sees `edit_note`, `create_note`, `move_note_to_group`, `copy_note`, `delete_note`, `restore_note`, `create_folder`, `rename_folder`, `move_folder`, `move_note_to_folder` or `delete_folder`.** They are not registered for that request at all, so — on a deployment with the collaboration component — `tools/list` returns eight tools (only six on one without it; see below), and calling `create_note` anyway gets the SDK's own "Tool create_note not found" (an `isError` result, HTTP `200`) rather than a permission error. There is no scope error to handle here, because there is no tool to call. A read-only credential does see `create_transfer_token`, but it can only ask for a `download` token. To get the writing tools and upload tokens, turn on **Edit** (*Create and edit notes*, `notes:write`) for the credential on its row in **Settings → Authorization → API tokens** (the pencil), then reconnect — the client only picks up the new tools on a fresh connection.
-- **A credential without `notes:move` never sees `move_note_to_group`.** A `notes:write` token or app credential with neither `notes:move` nor `notes:delete` gets fifteen tools on a deployment with the collaboration component (twelve without), and one more in either case once it has `notes:move` as well. It still sees `copy_note`, whose description then says that copying into a group needs `notes:move`, and a call with `group_id` answers `insufficient_scope` without copying anything — unless it also carries a `folder_id` that is refused first (see [`copy_note`](#copy_note)). To get `move_note_to_group`, turn on **Move** (*Move or copy notes into groups*) for the credential the same way, then reconnect; `copy_note` with `group_id` works from the credential's next request without reconnecting, though its description keeps saying that it needs `notes:move` until the client reconnects. A connection made with the web app's own sign-in session isn't limited by scope; it gets eighteen tools (fifteen), because it has no `create_transfer_token` (see the last point).
-- **A credential without `notes:delete` never sees `delete_note`, `restore_note` or `delete_folder`.** A `notes:write` token or app credential that has `notes:delete` but not `notes:move` gets eighteen tools on a deployment with the collaboration component (fifteen without), and all nineteen (sixteen) with `notes:move` as well — the two scopes are independent of each other, and both need `notes:write`. `list_trash` and `list_folders` don't depend on any of this: every credential sees them, a read-only one included. To get `delete_note`, `restore_note` and `delete_folder`, turn on **Delete** (*Move notes to the trash and restore them*) for the credential the same way, then reconnect.
-- **`read_note_outline`, `read_note_section` and `edit_note` need the collaboration component.** A deployment running without it never registers those three; a `notes:write` credential still sees `create_note`, but a call to it carrying `content` answers `invalid_body` and tells you to create the note without it — unless the call also carries a `folder_id` or a `group_id` that is refused first (`not_found`, `invalid_body`, `group_not_found` or `forbidden`). A read-only credential on such a deployment sees only `list_notes`, `search_notes`, `create_transfer_token`, `list_trash`, `list_folders` and `read_note_image` — `create_note` needs `notes:write` regardless of the deployment. `move_note_to_group`, `copy_note`, `list_trash`, `delete_note`, `restore_note`, `read_note_image` and the six folder tools — `list_folders`, `create_folder`, `rename_folder`, `move_folder`, `move_note_to_folder` and `delete_folder` — don't need the collaboration component.
-- **`create_transfer_token` is only offered to a token or app credential.** A request made with the web app's own sign-in session never sees it — the browser can already upload and fetch images itself.
+- **A read-only credential never sees `edit_note`, `create_note`, `move_note_to_group`, `copy_note`, `delete_note`, `restore_note`, `create_folder`, `rename_folder`, `move_folder`, `move_note_to_folder` or `delete_folder`.** They are not registered for that request at all, so — on a deployment with the collaboration component — `tools/list` returns nine tools (only six on one without it; see below), and calling `create_note` anyway gets the SDK's own "Tool create_note not found" (an `isError` result, HTTP `200`) rather than a permission error. There is no scope error to handle here, because there is no tool to call. A read-only credential does see `create_transfer_token`, but it can only ask for a `download` token; and it sees `create_bulk_transfer_token`, but the tokens it gets can't send files back. To get the writing tools and upload tokens, turn on **Edit** (*Create and edit notes*, `notes:write`) for the credential on its row in **Settings → Authorization → API tokens** (the pencil), then reconnect — the client only picks up the new tools on a fresh connection.
+- **A credential without `notes:move` never sees `move_note_to_group`.** A `notes:write` token or app credential with neither `notes:move` nor `notes:delete` gets sixteen tools on a deployment with the collaboration component (twelve without), and one more in either case once it has `notes:move` as well. It still sees `copy_note`, whose description then says that copying into a group needs `notes:move`, and a call with `group_id` answers `insufficient_scope` without copying anything — unless it also carries a `folder_id` that is refused first (see [`copy_note`](#copy_note)). To get `move_note_to_group`, turn on **Move** (*Move or copy notes into groups*) for the credential the same way, then reconnect; `copy_note` with `group_id` works from the credential's next request without reconnecting, though its description keeps saying that it needs `notes:move` until the client reconnects. A connection made with the web app's own sign-in session isn't limited by scope; it gets eighteen tools (fifteen), because it has no `create_transfer_token` and no `create_bulk_transfer_token` (see the last point).
+- **A credential without `notes:delete` never sees `delete_note`, `restore_note` or `delete_folder`.** A `notes:write` token or app credential that has `notes:delete` but not `notes:move` gets nineteen tools on a deployment with the collaboration component (fifteen without), and all twenty (sixteen) with `notes:move` as well — the two scopes are independent of each other, and both need `notes:write`. `list_trash` and `list_folders` don't depend on any of this: every credential sees them, a read-only one included. To get `delete_note`, `restore_note` and `delete_folder`, turn on **Delete** (*Move notes to the trash and restore them*) for the credential the same way, then reconnect.
+- **`read_note_outline`, `read_note_section`, `edit_note` and `create_bulk_transfer_token` need the collaboration component.** A deployment running without it never registers those four, and doesn't have the `/api/transfer/*` endpoints that `create_bulk_transfer_token`'s commands call; a `notes:write` credential still sees `create_note`, but a call to it carrying `content` answers `invalid_body` and tells you to create the note without it — unless the call also carries a `folder_id` or a `group_id` that is refused first (`not_found`, `invalid_body`, `group_not_found` or `forbidden`). A read-only credential on such a deployment sees only `list_notes`, `search_notes`, `create_transfer_token`, `list_trash`, `list_folders` and `read_note_image` — `create_note` needs `notes:write` regardless of the deployment. `move_note_to_group`, `copy_note`, `list_trash`, `delete_note`, `restore_note`, `read_note_image` and the six folder tools — `list_folders`, `create_folder`, `rename_folder`, `move_folder`, `move_note_to_folder` and `delete_folder` — don't need the collaboration component.
+- **`create_transfer_token` and `create_bulk_transfer_token` are only offered to a token or app credential.** A request made with the web app's own sign-in session sees neither: the tokens they issue belong to the credential that asked for them, and the browser can already upload and fetch images itself.
 
 A result Knotebook itself produces — success or one of its own errors — comes back twice, identically: as `structuredContent` and, as a JSON string, in `content[0].text`. Read whichever your client prefers. (An error the MCP SDK produces itself, rather than a tool, is the exception — see [Errors](#errors).)
 
 Every tool that takes a `note_id` — `read_note_outline`, `read_note_section`, `edit_note`, `move_note_to_group`, `copy_note`, `create_transfer_token`, `delete_note`, `restore_note`, `move_note_to_folder` and `read_note_image` — answers a note you cannot see and a note that does not exist with the **same** `not_found`, byte for byte, so they cannot be used to find out which note ids exist.
 
-The same goes for folders: every tool that takes a `folder_id` or `parent_id` — `create_note`, `move_note_to_group`, `copy_note`, `create_folder`, `rename_folder`, `move_folder`, `move_note_to_folder` and `delete_folder` — answers a folder you cannot see and a folder that does not exist with the same `not_found`, byte for byte. A folder id that is not a uuid fails the tool's input check (see [Errors](#errors) — that answer carries no `code`). MCP takes a folder only by its id, never by a path or a name: to find a folder by its name, look it up with [`list_folders`](#list_folders).
+The same goes for folders: every tool that takes a `folder_id` or `parent_id` — `create_note`, `move_note_to_group`, `copy_note`, `create_bulk_transfer_token`, `create_folder`, `rename_folder`, `move_folder`, `move_note_to_folder` and `delete_folder` — answers a folder you cannot see and a folder that does not exist with the same `not_found`, byte for byte. A folder id that is not a uuid fails the tool's input check (see [Errors](#errors) — that answer carries no `code`). MCP takes a folder only by its id, never by a path or a name: to find a folder by its name, look it up with [`list_folders`](#list_folders).
 
 Tool inputs are snake_case (`note_id`, `group_id`); replies use camelCase. Every tool rejects an argument it doesn't know instead of ignoring it — `ifMatch` for `if_match`, for example, fails the tool's input check (see [Errors](#errors) — that answer carries no `code`).
 
@@ -268,6 +269,104 @@ Links in `content` are saved the same way as in `edit_note` (see [Links to notes
 - A browser session connected to `/api/mcp` doesn't get this tool.
 
 **Errors** `not_found` (a note you can't see and one that doesn't exist answer the same), `forbidden` (`upload` on a note you can only read), `storage_quota_exceeded` (`upload` on a note whose storage space is already full — no token is issued; someone who can see that space's usage also gets `usedBytes` and `quotaBytes`), `too_many_requests` (the token-writes budget for `upload`, the content-reads budget for `download`, or 5 unused upload tokens already out), `unauthorized` (the credential was revoked or expired while the request was being handled).
+
+### `create_bulk_transfer_token`
+
+Use it to read or change many notes at once: it hands shell commands a token to download notes as markdown files, whole, and — with `notes:write` — to send changed files back, one file per request. Only a token or app credential gets this tool, and only on a deployment with the collaboration component (see [The tools](#the-tools)).
+
+**Takes** at most one of `space`, `group_id` and `folder_id`; pass none of them for every note you can see outside the trash.
+
+- `space` — `personal` for only your own notes, or `shared` for only notes others shared with you.
+- `group_id` — only one group's notes, the same id `create_note` takes. A group you aren't in, one where your role can't read notes, and one that doesn't exist all answer the same `group_not_found`.
+- `folder_id` — only one folder and the folders inside it, from `list_folders`. A folder you can't see answers `not_found`, the same as one that doesn't exist.
+- Passing more than one of them answers `invalid_body`, and no token is created.
+
+**Answers** `token`, `expiresAt`, `access`, `export`, `note`, `revoke` and `next`, and also `write` when `access` is `write`. `export`, `note`, `write` and `revoke` are each `{url, curl}`, built from the server's `PUBLIC_URL` with the token already in the `curl` command.
+
+- `token` — starts with `knbt_`; send it only as `Authorization: Bearer <token>` to the four addresses in the reply. It is not accepted anywhere else, and an ordinary API token is not accepted at those addresses.
+- `expiresAt` — when the token stops working: 30 minutes after it was issued, or earlier if the credential that asked for it expires first. Until then it can be used any number of times.
+- `access` — `write` when the credential had `notes:write` when it asked, otherwise `read`. A `read` token can't send files back.
+- `next` — what to do with the reply and what its status codes mean, written for the assistant.
+
+- **A credential can hold at most 3 bulk transfer tokens that haven't expired.** A fourth request answers `too_many_requests`: wait for one to expire, or run the `revoke.curl` of one you no longer need. Upload and download tokens from `create_transfer_token` don't count.
+- **Each use is checked again**: your account, the credential's scope at that moment, and which notes you can see and where they are at that moment, not when the token was issued. Revoking the credential ends every token it issued.
+- **If the token's group or folder can no longer be seen** — you left the group, or the folder was deleted or is no longer visible to you — downloading and sending files back answer `403`.
+- It draws on none of the per-tool budgets in [Limits](#limits); a token request to `/api/mcp` still counts against the 300-reads-per-minute token budget, as every request does. The commands draw on their own budgets (see [Limits](#limits)).
+
+**Errors** `invalid_body` (more than one of `space`, `group_id` and `folder_id`), `group_not_found`, `not_found` (`folder_id`), `too_many_requests` (the credential already has 3 bulk transfer tokens that haven't expired — this is not a rate limit), `unauthorized` (the credential was revoked or expired while the request was being handled).
+
+#### The commands
+
+```sh
+# export: every note in the token's range, as a .tar.gz unpacked into ./knotebook
+curl -sS --fail-with-body -H "Authorization: Bearer <token>" -o knotebook.tar.gz "<origin>/api/transfer/export" && mkdir -p knotebook && tar -xzf knotebook.tar.gz -C knotebook
+# note: the latest copy of one note
+curl -sS --fail-with-body -H "Authorization: Bearer <token>" "<origin>/api/transfer/notes/<note_id>" > "<output-file>"
+# write: send one file back (only when access is write)
+curl -sS --fail-with-body -X PUT -H "Authorization: Bearer <token>" -H "Content-Type: text/markdown; charset=utf-8" --data-binary @- "<origin>/api/transfer/notes" < "<file>"
+# revoke: end this token now
+curl -sS --fail-with-body -X DELETE -H "Authorization: Bearer <token>" "<origin>/api/transfer/token"
+```
+
+`<origin>` is the origin of `PUBLIC_URL`; `<note_id>`, `<output-file>` and `<file>` are for you to fill in.
+
+- **They are POSIX shell commands** (`&&`, `mkdir -p`, `<`, `>`). On Windows, run them in Git Bash or WSL. Don't unpack the download with Windows' own `C:\Windows\System32\tar.exe`: it skips files whose names have characters the system's code page can't represent — on a system using code page 950 (Traditional Chinese), for example emoji, simplified Chinese characters, Korean and Japanese kana — and exits with an error. The `tar` in Git Bash and in WSL unpacks them. `.knotebook/manifest.json` lists every file, so you can check that none is missing.
+- **The shell opens the files, not `curl`**: `note` writes with `> "<output-file>"` and `write` reads with `< "<file>"`. The `curl` that came with Git Bash when this was tested (8.14.1) can't handle such file names itself: with `-o "<file>"` it writes to a file with `_` in their place, and `--data-binary "@<file>"` can't read the file. Keep the commands as they are.
+- **Every command has `--fail-with-body`**: when the server answers with an error, `curl` exits with an error, so `&&` stops, and the server's JSON reply is in the output file (`export`, `note`) or printed (`write`, `revoke`). The shell empties `<output-file>` before `curl` runs, so a failed `note` leaves the error in that file: don't point it at a copy you still need.
+- **If a download stops partway** — for example because the token was revoked or your account was disabled while it ran — the server closes the connection without finishing the response, so `curl` exits with an error and `tar` doesn't run. Run `export` again. A token that expires while a download runs doesn't stop it.
+
+#### The download
+
+`export` answers with a `.tar.gz` file (`application/gzip`, named `knotebook-<yyyyMMdd-HHmmss>.tar.gz` with the time in UTC), written while the notes are read. The folders in it follow the sidebar:
+
+```
+My notes/<folder path>/<title>.md
+Groups/<group name>/<folder path>/<title>.md
+Shared with me/<your folder path>/<title>.md
+.knotebook/manifest.json
+```
+
+- A note shared with you is under `Shared with me/`, in the folder you filed it in yourself, or directly in `Shared with me/`. The three top-level names are always in English. Notes in the trash are not in it; notes you can only read are, with `role: viewer`. A token with a smaller range gives each note the same path as a token for everything.
+- File and folder names are cleaned up: characters such as `< > : " / \ | ? *` and control characters become `_`, each name is cut to 64 characters, a note with no usable title is `Untitled.md`, and names that would clash in one folder — including names that differ only in letter case — get ` (2)`, ` (3)` and so on. Nothing limits the length of a whole path, so a path can be longer than Windows' default limit of 260 characters. The name is only for you: a file goes back to the note named by the `id` in it.
+- Each file is the note's markdown, in the form `read_note_section` gives, after a front matter block:
+
+  ```
+  ---
+  knotebook: 1
+  id: 3f2c0e1a-6b7d-4e1f-9a2b-5c8d7e6f4a3b
+  title: "Meeting notes"
+  role: editor
+  base: 7d41c0b2e9a85f13
+  url: /n/alice/meeting-notes
+  ---
+  ```
+
+  `knotebook` is the file format's version. `id` is the note's id: it decides which note the file goes back to. `title` is the note's title as a JSON string: change it to rename the note. `role` is your role on the note when it was read: `owner`, `editor` or `viewer`. `base` names this downloaded copy, which the server compares a file sent back with. `url` is the note's site-relative path, the same as `list_notes`' `url`. When a file is sent back, the server reads only `id`, `base`, `title` and `folder_id` from its front matter and ignores every other line there.
+- `.knotebook/manifest.json` comes last. Its `folders` lists every folder in the download with its `path`, `id` and `space` (the three top-level folders and each group's folder have `id: null`), and its `notes` lists every file with its `path`, `id` and `role`, plus `mergeable: false` on a note that can't be written back as a file (see below). It also has `knotebook`, `exportedAt`, `site` and `range`, and `skipped`: the notes left out because they were moved to the trash, out of the range or out of your sight while the download ran (`reason: "gone"`), or because reading them failed (`"failed"`).
+- Attachments are not in it: images and files stay links in the markdown; fetch an image with `create_transfer_token`.
+- **The download is not a snapshot.** Each note is read when its turn comes, live — including what people are typing — so notes in one download can be from different moments.
+- **A range with more than 3 000 notes** answers `413 too_many_notes` before anything is sent: ask for a token with `space`, `group_id` or `folder_id`.
+- **One download at a time runs on the whole site**: while one runs, another answers `429` with `Retry-After: 30`, and that doesn't count against your downloads. Each person can start 10 downloads an hour.
+
+#### Fetching one note
+
+`note` answers with the same file for one note, read live at that moment, as `text/markdown; charset=utf-8`, with a `base` of its own. A note you can't see, one that doesn't exist and one in the trash answer the same `404`; a note you can see that is outside the token's range answers `403`. A fetch that gets past those checks counts as one content read (120 per minute per user).
+
+#### Sending a file back
+
+`write` sends one file — the whole file, front matter included, at most 1 048 576 bytes — to the note its `id` names. It needs a token whose `access` is `write`, and a role on the note that can edit it.
+
+- **Only what the file changed is written.** The server compares the file with the copy its `base` names and changes the note only in the blocks where the file differs from that copy. Blocks others added to the note since the download stay, except ones nested inside a block the file changed. Where a block the file changed had also been changed or removed in the note since the download, the file's text is used, and the note is first saved as a version named `本機檔案同步前` (if the note's base version already holds that content, that version is made a manual one and keeps any name it has) — at most one version per request (see [Version history](./versions.md#when-versions-are-saved)). The rules, and the cases where a block is replaced although the file didn't change it, are in [AI editing](./ai-editing.md#sending-a-file-back).
+- **Leaving a file out, or deleting it, deletes nothing**, and moving or renaming a file doesn't move, rename or delete its note. To rename the note, change `title` in the file's front matter.
+- **A file with no `id`** — or with no front matter at all — creates a new note: in the folder given as `folder_id` in its front matter, or else at the top of the token's folder or group, or of your own notes. The folder must be in the token's range, and a group's folder needs a role there that can both create and edit notes. A token for only notes shared with you (`space: "shared"`) can't create notes. A file with no `title` line creates a note called "Untitled". To change the new note again, fetch it with `note` and the reply's `id`.
+- **Sending the same file again** returns `unchanged` once everything in it has been applied, and changes nothing. For a new note, an identical file sent again within 30 minutes returns the note it created, as long as you can still see it, instead of creating another.
+- **Once a file's content has been written, that copy can't carry more content changes**: sending it again with other changes to the text answers `409 base_unavailable`. Fetch the note again with `note` and change the new copy.
+- **HTML comments are dropped**, and text after one, on its line and on the lines right below it, becomes plain text that can run on into the text after a later comment; leave a blank line after each comment, with nothing after it on its line, to keep the lines below it as markdown. `edit_note` parses markdown the same way.
+- **A note that can't be written back as a file** is marked `mergeable: false` in the manifest; a file that changes its content answers `409 not_mergeable` — change it with `edit_note`. Sending its file back unchanged, or with only a new `title`, still works.
+- **Each changed place is one row** in the note's AI edit history, with `op: "file_sync"`, and can be reverted from there under the same rules as other recorded writes (see [AI editing](./ai-editing.md#revert)). Renaming is not recorded.
+- **The reply** to a file sent back to a note is `200` with `id`, `created: false`, `result`, `applied`, `same`, `conflicts`, `editIds`, `renamed`, `unboundWikilinks` and `base: null`, plus `version` when a version was saved, or an existing one kept (see [Version history](./versions.md#when-versions-are-saved)), and `renameFailed` when the title couldn't be changed. `result` is `unchanged`, `renamed` (only the title changed), `applied`, or `merged` when there were conflicts. `applied`, `same` and `conflicts` count the places the file changed, not blocks — `same` the ones the note already had the same way, `conflicts` the ones where the version was saved first; `editIds` lists the AI edit history rows of this request that the note still keeps. `unboundWikilinks` means the same as for `edit_note`. A new note answers `201` with `id`, `created: true`, `result: "created"`, `base: null` and `unboundWikilinks`; an identical file sent again answers `200` with `id`, `created: false`, `result: "unchanged"` and `base: null`.
+
+The four commands call REST endpoints, so a failure there is an HTTP status with the usual `{"error": {"code", "message"}}` body, not a tool error. `400` means nothing was written, not even the title; every `429` carries `Retry-After`. The statuses and codes are listed under **Bulk transfer** in the [API contract summary](./api.md).
 
 ### `move_note_to_group`
 
@@ -433,7 +532,7 @@ In a note's markdown, an uploaded image is a reference to its upload, `/api/uplo
 
 ## The read-write loop
 
-Over the REST API the loop is "read the whole note, pick a section, write it back". Over MCP it is not, for two reasons: no tool returns a whole note, and an outline carries no fingerprints. The loop is:
+Over the REST API the loop is "read the whole note, pick a section, write it back". Over MCP it is not, for two reasons: tools read notes in sections, and none returns a whole note — `create_bulk_transfer_token` instead hands shell commands a token to download notes as files — and an outline carries no fingerprints. The loop is:
 
 1. `list_notes` or `search_notes` → a note `id`. When `search_notes` already gave you the `sectionId` you want, go straight to step 3 with it.
 2. `read_note_outline` → the section ids, headings and lengths.
@@ -442,7 +541,7 @@ Over the REST API the loop is "read the whole note, pick a section, write it bac
 
 After a successful `edit_note` you do not have to go back to step 2: the reply already carries the note's new whole-note `fingerprint` and a page of per-section fingerprints. The exception is a note with more than 100 sections, where the next section you want can fall outside the page that reply returned — read it back with `read_note_outline`, then `read_note_section`.
 
-**Reading is always sectioned, and what that caps is a single response, not a total.** One call returns at most 4000 characters of body text, at most 100 sections, at most 100 notes; headings and titles are cut at 200 characters as written in JSON. Nothing caps the total — only the rate at which a client can ask; see the reading-budget entry in [Known limitations](#known-limitations).
+**Tools read notes in sections, and what that caps is a single response, not a total.** One call returns at most 4000 characters of body text, at most 100 sections, at most 100 notes; headings and titles are cut at 200 characters as written in JSON. Nothing caps the total — only the rate at which a client can ask; see the reading-budget entry in [Known limitations](#known-limitations). To read or change many notes at once, use [`create_bulk_transfer_token`](#create_bulk_transfer_token): its commands download whole notes as files, up to 3 000 at a time, and send changed files back.
 
 **Writing does not require reading first.** `if_match` is a concurrency check: it refuses a write built on a stale read. It is not a record of what this agent has read, and an `append` sent without `if_match` skips the check by design. What actually bounds an agent is the credential's scope, the sharing on each note (for a group note, your role in its group), and the fact that most writes that put content into a note are recorded in that note's **AI edit history**, where such a write can be undone — while it is still one of the note's 100 most recent recorded writes and nothing has changed those blocks since. A `create_note` with no `content` records nothing, so there is nothing to undo; what keeps a recorded write undoable, and what takes that away, is in [AI editing](./ai-editing.md#revert). Some writes aren't in that history, for example a `rename` (rename it back instead), `move_note_to_group` (a single note can't be moved back out, and the shares, public link and version history it loses don't come back), `copy_note` (the copy starts with no history) and `delete_note` (`restore_note` brings the note back, while it is still in the trash and only for someone who can restore it).
 
@@ -469,13 +568,20 @@ After a successful `edit_note` you do not have to go back to step 2: the reply a
 | Token writes | 60 per 10 minutes per user | `edit_note`, `create_note` **with or without `content`**, `move_note_to_group`, `copy_note` (except one refused for its `folder_id` or for lack of `notes:move`, which spends nothing), `delete_note`, `restore_note`, `create_folder`, `rename_folder`, `move_folder`, `move_note_to_folder`, `delete_folder`, and `create_transfer_token` with `upload`, made with a token | tool error `too_many_requests` |
 | Concurrent writes to one note | serialised, 10 s wait | `edit_note` (except `rename`) | tool error `server_busy` |
 | Concurrent writes to one note | serialised | `create_note` with `content` | not observable in practice — a note this call just created has no other writer to contend with, so the 10 s wait never fires |
-| Token reads | 300 per minute per user | every `POST /api/mcp` made with a token, and each image download made with a transfer token | **HTTP `429`** |
+| Token reads | 300 per minute per user | every `POST /api/mcp` made with a token, each image download made with a transfer token, and each file sent back with a bulk transfer token that changes nothing | **HTTP `429`** |
 | Request body | 262 144 bytes | the whole `POST /api/mcp` request, however many tool calls it carries | **HTTP `413 content_too_large`** |
 | Transfer token lifetime | 10 minutes, or less when the credential that asked for it expires sooner | `create_transfer_token` | the token answers `401` once expired |
+| Bulk transfer token lifetime | 30 minutes, or less when the credential that asked for it expires sooner | `create_bulk_transfer_token` | the token answers `401` once expired |
+| Bulk transfer tokens | 3 per credential that haven't expired | `create_bulk_transfer_token` | tool error `too_many_requests` |
+| Notes per download | 3 000 in the token's range | `export` from `create_bulk_transfer_token` | **HTTP `413 too_many_notes`** |
+| Downloads | 10 per hour per user, and one at a time on the whole site | `export` from `create_bulk_transfer_token` | **HTTP `429`**, with `Retry-After` |
+| Single-note fetches | the 120-per-minute content-read budget above | `note` from `create_bulk_transfer_token` | **HTTP `429`**, with `Retry-After` |
+| Files sent back | 30 per minute per user, separate from the writes and token writes above; a file that changes nothing counts against the token reads above instead | `write` from `create_bulk_transfer_token` | **HTTP `429`**, with `Retry-After` |
+| File size | 1 048 576 bytes | `write` from `create_bulk_transfer_token` | **HTTP `413 content_too_large`** |
 | Unused upload tokens | 5 per credential | `create_transfer_token` with `upload` | tool error `too_many_requests` |
 | Image size | 5 242 880 bytes | `read_note_image` | tool error `file_too_large` |
 
-The rate limits above are counted **per tool call, not per request** — one `POST /api/mcp` can carry several calls — with one exception: the 300-reads-per-minute budget is spent once per request, because the endpoint always declares `notes:read` whatever tools the request goes on to call. Apart from the search budget, which only `search_notes` draws on, these are the same per-user budgets the REST endpoints draw on, and a credential pays both its own and the tighter one; the full accounting is in [API tokens](./api-tokens.md#errors-and-rate-limits) and [AI editing](./ai-editing.md#limits).
+The rate limits above are counted **per tool call, not per request** — one `POST /api/mcp` can carry several calls — with one exception: the 300-reads-per-minute budget is spent once per request, because the endpoint always declares `notes:read` whatever tools the request goes on to call. Apart from the search budget, which only `search_notes` draws on, these are the same per-user budgets the REST endpoints draw on, and a credential pays both its own and the tighter one; the full accounting is in [API tokens](./api-tokens.md#errors-and-rate-limits) and [AI editing](./ai-editing.md#limits). The rows for the commands of `create_bulk_transfer_token` count requests to the `/api/transfer/*` endpoints instead.
 
 Two limits are deliberately **not** in the table above:
 
@@ -496,6 +602,8 @@ Three layers answer differently, and a client has to handle all three.
 - `429 too_many_requests` — the 300-reads-per-minute token budget, or the per-IP limit on invalid Bearer attempts (30 per minute).
 - `415 unsupported_media_type` — the request had a body, and its `Content-Type` was either missing or not `application/json`.
 - `400 bad_request` — the body was not valid JSON.
+
+The `/api/transfer/*` endpoints that `create_bulk_transfer_token`'s commands call are REST endpoints with statuses of their own, listed under **Bulk transfer** in the [API contract summary](./api.md).
 
 **We answer `405` ourselves** on `GET` and `DELETE` (with `Allow: POST`) — those two methods are rejected before the request ever reaches the MCP transport, and the body is not the error shape above but the same JSON-RPC error envelope the transport uses. **The MCP transport itself** answers `406` as a JSON-RPC error envelope with an HTTP status of its own, when `Accept` is missing either media type.
 
@@ -534,12 +642,13 @@ These are the MCP-specific entries in the shared [Known limitations](./known-lim
 - [`delete_note` and `restore_note` can use up their budgets without changing anything](./known-limitations.md)
 - [`read_note_image` shows an image only if you can read the note it was uploaded to](./known-limitations.md)
 - [An image uploaded but never written into a note is still an attachment](./known-limitations.md)
-- [The `curl` command `create_transfer_token` returns is built from `PUBLIC_URL`](./known-limitations.md)
+- [The `curl` commands `create_transfer_token` and `create_bulk_transfer_token` return are built from `PUBLIC_URL`](./known-limitations.md)
 - [On a plain-http `PUBLIC_URL` (for example a LAN deployment), transfer tokens cross the network unencrypted](./known-limitations.md)
-- [An MCP connection made with the browser's sign-in session has no `create_transfer_token`](./known-limitations.md)
+- [An MCP connection made with the browser's sign-in session has no `create_transfer_token` or `create_bulk_transfer_token`](./known-limitations.md)
 - [Only the editor's ten built-in colors can be written, and a list or table with block or cell colors reads back as HTML as a whole](./known-limitations.md)
 - [Some image widths don't travel over the API and MCP, and sizes not written in the form reading gives are refused](./known-limitations.md)
 - [A pasted row keeps all of its columns, even more than four](./known-limitations.md)
+- [Sending notes back as files (MCP bulk transfer)](./known-limitations.md#sending-notes-back-as-files-mcp-bulk-transfer) — the limitations of `create_bulk_transfer_token`, collected in a section of their own
 
 ## See also
 
