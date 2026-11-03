@@ -27,3 +27,23 @@ export function mergeSearchRows(titleNotes: NoteDto[], hits: NoteSearchHitDto[],
   }
   return Array.from(rows.values());
 }
+
+/**
+ * 側欄實際列出的一項（沒有「筆記一層」）：`match` ＝一個含查詢字的段落（server 每個段落只取第一個命中，所以一個段落裡出現好幾次還是一項，
+ * 點了跳到第一個；每篇最多 3 個段落）。三行：標題、位置標籤、片段；
+ * `title` ＝這篇只有標題命中（兩行：標題、路徑；點了開筆記、不帶查詢字）。
+ */
+export type ResultItem =
+  | { kind: "match"; note: NoteDto; match: NoteSearchMatchDto }
+  | { kind: "title"; note: NoteDto };
+
+/**
+ * 把 `mergeSearchRows` 的一篇一列攤平：有內文片段的篇，每個片段（＝一個段落）一項（同篇連在一起、照 server 回來的 matches 順序）；
+ * 沒有片段的（只有標題命中）一項 `title`。同一篇標題與內文都命中時只列內文各項，不另外再列一項「只有標題」。
+ * 篇與篇之間的順序照 `mergeSearchRows`（標題命中的篇在前，其餘照 server 順序）。
+ */
+export function flattenRows(rows: MergedRow[]): ResultItem[] {
+  return rows.flatMap((row): ResultItem[] =>
+    row.matches.length === 0 ? [{ kind: "title", note: row.note }] : row.matches.map((match) => ({ kind: "match", note: row.note, match })),
+  );
+}

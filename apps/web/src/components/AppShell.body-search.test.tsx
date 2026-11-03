@@ -6,6 +6,7 @@ import { MemoryRouter } from "react-router";
 import { canonicalNotePath, type NoteDto, type NoteSearchResultDto, type UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { BlockAnchorContext } from "@/hooks/block-anchor-context";
+import { onSearchMarkClear } from "@/hooks/search-mark";
 import { ActiveNoteProvider } from "@/lib/active-note";
 import { NARROW_QUERY } from "@/lib/sidebar-drawer";
 import { ThemeProvider } from "@/theme";
@@ -92,12 +93,58 @@ describe("W2 窄視窗抽屜：點內文片段 → 抽屜關", () => {
     expect(requestAnchor).toHaveBeenCalledWith("h1", "needle");
   });
 
-  it("目前這一篇（網址帶 #b-）的標題列 → 抽屜同樣關（pathname 不變，只靠點擊時主動關；審查 m1）", async () => {
+  it("目前這一篇（網址帶 #b-）的命中項 → 抽屜同樣關（pathname 不變，只靠點擊時主動關；審查 m1。每處命中一項、整項是一個 link）", async () => {
     renderShell((s) => s, `${canonicalNotePath(NOTE)}#b-h1`);
     const match = await openDrawerAndSearch();
-    const titleRow = within(match.closest('[data-testid="search-hit"]') as HTMLElement).getAllByRole("link")[0]!;
-    expect(titleRow).toHaveAttribute("href", canonicalNotePath(NOTE));
-    fireEvent.click(titleRow);
+    expect(within(match.closest('[data-testid="search-hit"]') as HTMLElement).getAllByRole("link")).toHaveLength(1);
+    expect(match).toHaveAttribute("href", `${canonicalNotePath(NOTE)}#b-h1`);
+    fireEvent.click(match);
     await drawerGone();
+  });
+});
+
+describe("W3 搜尋跳轉的常駐標記：只有「關閉搜尋」會清", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+    stubNarrow();
+    stubFetch();
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("窄螢幕：點結果自動關抽屜 → 不清標記（query 還在 AppShell）；重開抽屜按搜尋框的清除鈕才清，且只清一次", async () => {
+    const cleared = vi.fn();
+    const off = onSearchMarkClear(cleared);
+    try {
+      renderShell();
+      fireEvent.click(await openDrawerAndSearch());
+      await drawerGone();
+      expect(cleared).not.toHaveBeenCalled();
+      fireEvent.click(await screen.findByRole("button", { name: "Open navigation" }));
+      const drawer = await screen.findByRole("dialog", { name: "Navigation" });
+      expect(within(drawer).getByRole("textbox", { name: "Search notes" })).toHaveValue("needle");
+      fireEvent.click(within(drawer).getByRole("button", { name: "Clear search" }));
+      expect(cleared).toHaveBeenCalledTimes(1);
+    } finally {
+      off();
+    }
+  });
+
+  it("手動把搜尋字刪光 → 清；只改字（非空→非空）、一開始就是空 → 不清", async () => {
+    const cleared = vi.fn();
+    const off = onSearchMarkClear(cleared);
+    try {
+      renderShell();
+      expect(cleared).not.toHaveBeenCalled();
+      fireEvent.click(await screen.findByRole("button", { name: "Open navigation" }));
+      const box = within(await screen.findByRole("dialog", { name: "Navigation" })).getByRole("textbox", { name: "Search notes" });
+      fireEvent.change(box, { target: { value: "ne" } });
+      fireEvent.change(box, { target: { value: "nee" } });
+      expect(cleared).not.toHaveBeenCalled();
+      fireEvent.change(box, { target: { value: "" } });
+      expect(cleared).toHaveBeenCalledTimes(1);
+    } finally {
+      off();
+    }
   });
 });

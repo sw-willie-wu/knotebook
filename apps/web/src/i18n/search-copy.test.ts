@@ -11,13 +11,10 @@ const SPEC_COPY: Record<string, string> = {
   "sidebar.titleMatches_one": "標題符合 · {{count}} 篇",
   "sidebar.titleMatches_other": "標題符合 · {{count}} 篇",
   "sidebar.resultsRegion": "搜尋結果",
-  "sidebar.matchesCount_one": "找到 {{count}} 篇",
-  "sidebar.matchesCount_other": "找到 {{count}} 篇",
-  "sidebar.matchesCountMore_one": "已載入 {{count}} 篇，還有更多",
-  "sidebar.matchesCountMore_other": "已載入 {{count}} 篇，還有更多",
-  "sidebar.moreSnippets_one": "顯示另外 {{count}} 處",
-  "sidebar.moreSnippets_other": "顯示另外 {{count}} 處",
-  "sidebar.lessSnippets": "收起",
+  "sidebar.matchesCount_one": "{{count}} 筆結果",
+  "sidebar.matchesCount_other": "{{count}} 筆結果",
+  "sidebar.matchesCountMore_one": "已載入 {{count}} 筆，還有更多",
+  "sidebar.matchesCountMore_other": "已載入 {{count}} 筆，還有更多",
   "sidebar.bodySearching": "正在搜尋內文…",
   "sidebar.bodySearchFailed": "無法搜尋內文。",
   "sidebar.bodySearchRateLimited": "搜尋太頻繁，請稍等一下再試。",
@@ -48,9 +45,18 @@ describe("SC3 en 有同一組新 key，且文案不暗示總命中數", () => {
   for (const key of Object.keys(SPEC_COPY)) {
     it(key, () => expect(typeof get(en, key)).toBe("string"));
   }
-  it("moreSnippets 是動作句（顯示另外 N 處），不是「共 N 處」", () => {
-    expect(i18n.t("sidebar.moreSnippets", { count: 2, lng: "en" })).toBe("Show 2 more");
-    expect(i18n.t("sidebar.moreSnippets", { count: 2, lng: "zh-TW" })).toBe("顯示另外 2 處");
+  it("matchesCount 數的是列出的項數（每處命中一項），不是篇數；有下一頁時寫「已載入」", () => {
+    expect(i18n.t("sidebar.matchesCount", { count: 1, lng: "en" })).toBe("1 result");
+    expect(i18n.t("sidebar.matchesCount", { count: 5, lng: "en" })).toBe("5 results");
+    expect(i18n.t("sidebar.matchesCount", { count: 5, lng: "zh-TW" })).toBe("5 筆結果");
+    expect(i18n.t("sidebar.matchesCountMore", { count: 5, lng: "en" })).toBe("5 results loaded, more available");
+    expect(i18n.t("sidebar.matchesCountMore", { count: 5, lng: "zh-TW" })).toBe("已載入 5 筆，還有更多");
+  });
+  it("「顯示另外 N 處／收起」整組已移除", () => {
+    for (const key of ["sidebar.moreSnippets_one", "sidebar.moreSnippets_other", "sidebar.lessSnippets"]) {
+      expect(get(en, key)).toBeUndefined();
+      expect(get(zhTW, key)).toBeUndefined();
+    }
   });
 });
 

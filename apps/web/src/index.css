@@ -996,9 +996,30 @@ input[name="share-access"] {
   pointer-events: none;
   animation: kn-anchor-flash 2s ease-out;
 }
+/* 搜尋跳轉的常駐標記（useBlockAnchor 的 startMark，同一個浮層加 .kn-anchor-mark）：亮兩次、暗兩次，之後停在亮的——停下來的底色與閃爍
+   開頭是同一個主色、同一個強度（22%），不調淡。取消靠 Esc／關閉搜尋／下一次搜尋跳轉／離開這篇（浮層被移除），不靠動畫結束。 */
+@keyframes kn-anchor-mark {
+  0%,
+  50%,
+  100% {
+    background-color: color-mix(in oklch, var(--color-brand) 22%, transparent);
+  }
+  25%,
+  75% {
+    background-color: transparent;
+  }
+}
+.kn-anchor-flash.kn-anchor-mark {
+  background-color: color-mix(in oklch, var(--color-brand) 22%, transparent);
+  animation: kn-anchor-mark 2s ease-in-out;
+}
 @media (prefers-reduced-motion: reduce) {
   .kn-anchor-flash {
     animation: none;
     background-color: color-mix(in oklch, var(--color-brand) 15%, transparent);
+  }
+  .kn-anchor-flash.kn-anchor-mark {
+    animation: none;
+    background-color: color-mix(in oklch, var(--color-brand) 22%, transparent);
   }
 }

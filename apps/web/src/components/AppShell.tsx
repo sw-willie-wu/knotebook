@@ -24,6 +24,7 @@ import { SIDEBAR_SELECT_BUTTON } from "@/lib/sidebar-selection";
 import { SidebarTabProvider, useSidebarTabActions, useSidebarTabState, type SidebarTabActions } from "@/lib/sidebar-tab";
 import { NoteList } from "@/components/NoteList";
 import { SearchResults } from "@/components/sidebar/SearchResults";
+import { clearSearchMark } from "@/hooks/search-mark";
 import { SidebarFooter } from "@/components/sidebar/SidebarFooter";
 import { SidebarTabList, sidebarPanelId, sidebarTabId } from "@/components/sidebar/SidebarTabList";
 import { SidebarLazyBoundary } from "@/components/sidebar/SidebarLazyBoundary";
@@ -282,6 +283,14 @@ export function AppShell({ children, inert }: AppShellProps) {
   const createNote = useCreateNote();
   const queryClient = useQueryClient();
   const [query, setQuery] = useState("");
+  // 關閉搜尋（搜尋字從非空變空：清空鈕、Esc、手動刪光）＝清掉搜尋跳轉留在筆記裡的常駐標記。只看「非空 → 空」的轉變，不看「現在是空」：
+  // AppShell 換殼（NotePage 的 Suspense fallback）重掛時 query 從 "" 起算，不該清掉什麼。窄螢幕點結果會關抽屜，但 query 在這裡、
+  // 不跟著抽屜卸載，所以不算關閉搜尋。
+  const prevQueryRef = useRef(query);
+  useEffect(() => {
+    if (prevQueryRef.current !== "" && query === "") clearSearchMark();
+    prevQueryRef.current = query;
+  }, [query]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth);
   const handleSidebarWidth = (px: number, commit: boolean) => {

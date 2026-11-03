@@ -362,7 +362,7 @@ describe("SearchResults × 內文符合（#93 PR2 T5）", () => {
     expect(noMatch()).toHaveLength(0);
   });
 
-  it("S4 合併去重：標題與內文都中的筆記只出現一列（帶片段）；只中標題的一列、沒有片段；計數是合併後的篇數", async () => {
+  it("S4 合併去重：標題與內文都中的筆記只出現一列（帶片段）；只中標題的一列、沒有片段；計數是列出的項數", async () => {
     stubFetch(FIXTURE);
     searchHandler = () => searchBody([bodyHit(ALPHA_PLAN, "both"), bodyHit(ALPHA_SHARED, "title")]);
     renderResults("alpha");
@@ -375,7 +375,27 @@ describe("SearchResults × 內文符合（#93 PR2 T5）", () => {
     const sharedRow = rows.find((r) => within(r).queryByRole("link", { name: /^alpha shared/ }))!;
     expect(within(planRow).getAllByTestId("body-match")).toHaveLength(1);
     expect(within(sharedRow).queryByTestId("body-match")).toBeNull();
-    expect(screen.getByRole("status")).toHaveTextContent("3 notes found");
+    expect(screen.getByRole("status")).toHaveTextContent("3 results");
+  });
+
+  it("S4c 一篇多處命中：每處一項，篇數行數的是項數（3 篇只中標題＋1 篇 3 處命中＝6 筆結果），不是篇數（4）", async () => {
+    stubFetch(FIXTURE);
+    const multi: NoteSearchHitDto = {
+      note: BETA,
+      matchedOn: "body",
+      matches: [
+        { sectionId: "s1", heading: "", snippet: "alpha one" },
+        { sectionId: "s2", heading: "", snippet: "alpha two" },
+        { sectionId: "s3", heading: "", snippet: "alpha three" },
+      ],
+    };
+    searchHandler = () => searchBody([multi]);
+    renderResults("alpha");
+    await waitFor(() => expect(within(region()).getAllByTestId("body-match")).toHaveLength(3));
+    const titleOnly = 3; // Alpha Plan、Alpha Group、alpha shared 只有標題命中
+    expect(within(region()).getAllByTestId("search-hit")).toHaveLength(titleOnly + 3);
+    expect(screen.getByRole("status")).toHaveTextContent(`${titleOnly + 3} results`);
+    expect(screen.getByRole("status")).not.toHaveTextContent("4 results");
   });
 
   it("S4b 只中內文的排在標題命中之後（標題命中照清單順序、其餘照 server 順序）", async () => {
@@ -418,7 +438,7 @@ describe("SearchResults × 內文符合（#93 PR2 T5）", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const r = renderControlled("abcd");
     await waitFor(() => expect(searchUrls.map(qOf)).toEqual(["abcd"]));
-    await screen.findByText("0 notes found");
+    await screen.findByText("0 results");
     r.setQuery("a");
     expect(screen.queryByTestId("sidebar-search-results")).not.toBeInTheDocument();
     await act(async () => vi.advanceTimersByTime(50));

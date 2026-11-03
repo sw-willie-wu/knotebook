@@ -1,7 +1,7 @@
 import { useEffect, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { MemoryRouter, useLocation } from "react-router";
+import { MemoryRouter, useLocation, useNavigationType } from "react-router";
 import { canonicalNotePath, type NoteDto, type NoteSearchHitDto, type NoteSearchMatchDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import type { BodySearchState } from "@/api/search";
@@ -34,10 +34,13 @@ function readyState(hits: NoteSearchHitDto[], over: Partial<Extract<BodySearchSt
 }
 
 let lastLocation: { pathname: string; hash: string; state: unknown } = { pathname: "", hash: "", state: null };
+let lastNavType = "";
 function LocationProbe() {
   const loc = useLocation();
+  const navType = useNavigationType();
   useEffect(() => {
     lastLocation = { pathname: loc.pathname, hash: loc.hash, state: loc.state };
+    lastNavType = navType;
   });
   return null;
 }
@@ -85,68 +88,84 @@ describe("BodySearchView 合併列表（T5）", () => {
     await i18n.changeLanguage("zh-TW");
   });
 
-  it("B1 ready：每篇一列只顯示第一個片段；mark、段落標題（空不渲染）、位置行含資料夾路徑、遠命中以 … 開頭", () => {
+  it("B1 ready：每處內文命中各一項、三行（標題標亮／資料夾路徑／片段標亮），不顯示段落標題；遠命中片段以 … 開頭", () => {
     renderView(readyState([
       hit(N1, [m("_top", "", "a needle here")]),
       hit(N2, [m("h1", "Intro", "needle one"), m("h2", "", "two needle"), m("h3", "Third", FAR)]),
     ]));
-    const r = region();
-    const items = within(r).getAllByTestId("search-hit");
-    expect(items).toHaveLength(2);
-    expect(within(items[0]!).getAllByTestId("body-match")).toHaveLength(1);
-    expect(within(items[1]!).getAllByTestId("body-match")).toHaveLength(1); // 另外兩個收著
-    const firstMatch = within(items[0]!).getByTestId("body-match");
-    expect(firstMatch.querySelector("mark")).toHaveTextContent("needle");
-    expect(firstMatch.querySelectorAll("div")).toHaveLength(1); // _top：沒有段落標題行
-    expect(within(items[1]!).getByTestId("body-match").querySelector("div")!.textContent).toBe("Intro");
-    expect(within(items[0]!).getByTitle("我的筆記 › A › A1")).toBeInTheDocument();
-    // 遠命中：展開後第三個片段
-    fireEvent.click(within(items[1]!).getByTestId("body-more"));
-    const [, m2, m3] = within(items[1]!).getAllByTestId("body-match");
-    expect(m2!.querySelectorAll("div")).toHaveLength(1);
-    expect(m3!.querySelectorAll("div")[1]!.textContent).toBe("…0123456789abNeedle tail");
-    expect(m3!.querySelector("mark")).toHaveTextContent("Needle");
-  });
-
-  it("B1b 「另 N 處」：N＝剩餘片段數（≤2）；點了展開、aria-expanded 跟著變、再點收起；只有 1 個片段就沒有這顆鈕", () => {
-    renderView(readyState([
-      hit(N1, [m("_top", "", "needle only")]),
-      hit(N2, [m("h1", "Intro", "needle one"), m("h2", "B", "two needle"), m("h3", "C", "three needle")]),
-    ]));
     const items = within(region()).getAllByTestId("search-hit");
-    expect(within(items[0]!).queryByTestId("body-more")).toBeNull();
-    const more = within(items[1]!).getByTestId("body-more");
-    expect(more).toHaveTextContent("顯示另外 2 處");
-    expect(more).toHaveAttribute("aria-expanded", "false");
-    expect(more).toHaveAttribute("aria-controls", within(items[1]!).getAllByRole("list")[0]!.id);
-    fireEvent.click(more);
-    expect(more).toHaveAttribute("aria-expanded", "true");
-    expect(more).toHaveTextContent("收起");
-    expect(within(items[1]!).getAllByTestId("body-match")).toHaveLength(3);
-    fireEvent.click(more);
-    expect(more).toHaveAttribute("aria-expanded", "false");
-    expect(within(items[1]!).getAllByTestId("body-match")).toHaveLength(1);
+    expect(items).toHaveLength(4); // 1 + 3，一篇 3 處命中就 3 項
+    const matches = within(region()).getAllByTestId("body-match");
+    expect(matches).toHaveLength(4);
+    // 第一項（N1 / A1）：三行
+    const first = matches[0]!;
+    const lines = first.querySelectorAll(":scope > div");
+    expect(lines).toHaveLength(3);
+    expect(lines[0]!.textContent).toBe("First");
+    expect(lines[1]!.textContent).toBe("我的筆記 › A › A1");
+    expect(lines[1]).toHaveAttribute("title", "我的筆記 › A › A1");
+    expect(lines[2]!.textContent).toBe("a needle here");
+    expect(lines[2]!.querySelector("mark")).toHaveTextContent("needle");
+    // 段落標題不顯示（Intro／Third 都不出現）
+    expect(screen.queryByText("Intro")).toBeNull();
+    expect(screen.queryByText("Third")).toBeNull();
+    // 同一篇的三項各自重複標題與路徑，片段不同
+    for (const [i, snippet] of [[1, "needle one"], [2, "two needle"], [3, "…0123456789abNeedle tail"]] as const) {
+      const ls = matches[i]!.querySelectorAll(":scope > div");
+      expect(ls).toHaveLength(3);
+      expect(ls[0]!.textContent).toBe("Second");
+      expect(ls[1]!.textContent).toBe("我的筆記");
+      expect(ls[2]!.textContent).toBe(snippet);
+    }
+    expect(matches[3]!.querySelector("div:nth-child(3) mark")).toHaveTextContent("Needle");
   });
 
-  it("B1c 合併去重：標題命中與內文命中是同一篇 → 一列（帶片段）；只中標題的 → 一列、沒有片段；標題命中的排前面", () => {
-    renderView(
-      readyState([hit(N2, [m("h1", "Intro", "needle one")]), hit(N1, [m("_top", "", "needle first")])]),
-      { titleNotes: [N1] },
-    );
-    const items = within(region()).getAllByTestId("search-hit");
-    expect(items).toHaveLength(2);
-    expect(within(items[0]!).getAllByRole("link")[0]!.querySelector("div")!.textContent).toBe("First");
-    expect(within(items[0]!).getAllByTestId("body-match")).toHaveLength(1); // N1 既是標題命中、也有片段：同一列
-    expect(within(items[1]!).getAllByRole("link")[0]!.querySelector("div")!.textContent).toBe("Second");
-    expect(screen.getAllByRole("link", { name: /^First/ })).toHaveLength(1);
+  it("B1b 沒有「另 N 處」：不論幾處命中都全列，沒有展開鈕", () => {
+    renderView(readyState([hit(N2, [m("h1", "Intro", "needle one"), m("h2", "B", "two needle"), m("h3", "C", "three needle")])]));
+    expect(within(region()).getAllByTestId("body-match")).toHaveLength(3);
+    expect(screen.queryByTestId("body-more")).toBeNull();
+    expect(within(region()).queryByRole("button", { name: /另外|收起/ })).toBeNull();
+    expect(region().querySelectorAll("[aria-expanded]")).toHaveLength(0);
   });
 
-  it("B1d 只有標題命中（沒有內文片段）→ 只顯示標題與位置", () => {
+  it("B1c 標題標亮：第一行的 mark 是標題命中的字（用 titleLowerQuery）", () => {
+    const hot = note("n3", "Needle Notes");
+    renderView(readyState([hit(hot, [m("_top", "", "needle in body")])]), { notes: [hot] });
+    const match = within(region()).getByTestId("body-match");
+    expect(match.querySelector(":scope > div:nth-child(1) mark")).toHaveTextContent("Needle");
+    expect(match.querySelector(":scope > div:nth-child(3) mark")).toHaveTextContent("needle");
+  });
+
+  it("B1d 只有標題命中（沒有內文片段）→ 兩行（標題＋路徑），不是 body-match，點了不帶 kbFind", () => {
     renderView(readyState([]), { titleNotes: [N1] });
     const item = within(region()).getByTestId("search-hit");
     expect(within(item).getAllByRole("link")).toHaveLength(1);
-    expect(item.querySelector("ul")).toBeNull();
-    expect(within(item).queryByTestId("body-more")).toBeNull();
+    expect(within(item).queryByTestId("body-match")).toBeNull();
+    const link = within(item).getByRole("link");
+    expect(link.querySelectorAll(":scope > div")).toHaveLength(2);
+    expect(link.querySelectorAll(":scope > div")[1]!.textContent).toBe("我的筆記 › A › A1");
+    expect(link).toHaveAttribute("href", canonicalNotePath(N1));
+    fireEvent.click(link);
+    expect(lastLocation).toMatchObject({ pathname: canonicalNotePath(N1), hash: "", state: null });
+  });
+
+  it("B1e 排序與攤平：標題命中的篇在前；同篇多處命中連在一起、照 server 順序；標題＋內文都中的篇不另列「只有標題」", () => {
+    // titleNotes: [N1, N3]（N1 也有內文命中）；server：N2(2 處)、N1(2 處)
+    const N3 = note("n3", "Third needle");
+    renderView(
+      readyState([
+        hit(N2, [m("a", "", "needle a"), m("b", "", "needle b")]),
+        hit(N1, [m("c", "", "needle c"), m("d", "", "needle d")]),
+      ]),
+      { titleNotes: [N1, N3], notes: [N1, N2, N3] },
+    );
+    const items = within(region()).getAllByTestId("search-hit");
+    const seq = items.map((li) => {
+      const link = within(li).getByRole("link");
+      return `${link.querySelector("div")!.textContent}|${link.getAttribute("href")!.split("#b-")[1] ?? "-"}`;
+    });
+    expect(seq).toEqual(["First|c", "First|d", "Third needle|-", "Second|a", "Second|b"]);
+    expect(within(region()).getAllByTestId("body-match")).toHaveLength(4); // N3 只有標題命中：不是 body-match
   });
 
   it("B2 pending／error／rateLimited 各一句；標題命中的列照顯示；載入更多鈕、載入中 disabled、moreError 清單還在", () => {
@@ -182,14 +201,14 @@ describe("BodySearchView 合併列表（T5）", () => {
     }
   });
 
-  it("B3b onStatus：ready 回報合併後的篇數與 more；pending／unmount 回 null", () => {
+  it("B3b onStatus：ready 回報列出的項數（每處命中一項）與 more；pending／unmount 回 null", () => {
     const onStatus = vi.fn();
     const a = renderView({ kind: "pending" }, { onStatus });
     expect(onStatus).toHaveBeenLastCalledWith(null);
     a.unmount();
     onStatus.mockClear();
-    const b = renderView(readyState([hit(N2, [m("_top", "", "needle")])], { hasMore: true }), { titleNotes: [N1], onStatus });
-    expect(onStatus).toHaveBeenLastCalledWith({ count: 2, more: true });
+    const b = renderView(readyState([hit(N2, [m("_top", "", "needle"), m("h1", "", "needle 2")])], { hasMore: true }), { titleNotes: [N1], onStatus });
+    expect(onStatus).toHaveBeenLastCalledWith({ count: 3, more: true }); // 標題 1 項＋N2 兩處命中 2 項
     b.unmount();
     expect(onStatus).toHaveBeenLastCalledWith(null);
   });
@@ -216,10 +235,10 @@ describe("BodySearchView 合併列表（T5）", () => {
     expect(screen.queryByText("Gone")).not.toBeInTheDocument();
   });
 
-  it("B5 matches: [] 的 body hit → 只有標題列、沒有片段清單", () => {
+  it("B5 matches: [] 的 body hit → 只有標題列、沒有片段", () => {
     renderView(readyState([hit(N1, [])]));
     const item = within(region()).getByTestId("search-hit");
-    expect(item.querySelector("ul")).toBeNull();
+    expect(within(item).queryByTestId("body-match")).toBeNull();
     expect(within(item).getAllByRole("link")).toHaveLength(1);
   });
 
@@ -233,9 +252,9 @@ describe("BodySearchView 合併列表（T5）", () => {
   it("B7 forQuery：state 的 forQuery 是 abc（當下的字已是 abcd）→ 照 abc 裁前文並標亮", () => {
     const s = `${"x".repeat(18)}0123456789ababc tail`;
     renderView(readyState([hit(N1, [m("_top", "", s)])], { forQuery: "abc", stale: true }));
-    const match = within(region()).getByTestId("body-match");
-    expect(match.textContent).toBe("…0123456789ababc tail");
-    expect(match.querySelector("mark")).toHaveTextContent("abc");
+    const snippet = within(region()).getByTestId("body-match").querySelector(":scope > div:nth-child(3)")!;
+    expect(snippet.textContent).toBe("…0123456789ababc tail");
+    expect(snippet.querySelector("mark")).toHaveTextContent("abc");
   });
 
   it("B8 ready、stale、hasMore false → 沒有載入更多；清單照顯示", () => {
@@ -301,6 +320,9 @@ describe("BodySearchView 點擊（T6）", () => {
     fireEvent.click(matchLink());
     expect(same.requestAnchor).toHaveBeenCalledWith("_top", "needle");
     expect(same.scrollToTop).not.toHaveBeenCalled();
+    // m1：同篇 `_top` 也把查詢字寫進目前這筆 history 的 state（replace，不多一筆），重整才跳得回去
+    expect(lastLocation).toEqual({ pathname: "/start", hash: "", state: { kbFind: "needle" } });
+    expect(lastNavType).toBe("REPLACE"); // 不多一筆 history
   });
 
   it("C4 Ctrl＋點擊 → 不 preventDefault、網址不變、requestAnchor 沒被叫", () => {
@@ -320,5 +342,25 @@ describe("BodySearchView 點擊（T6）", () => {
     renderView(readyState([hit(N1, [m("h1", "Intro", "needle")])]));
     fireEvent.click(within(within(region()).getByTestId("search-hit")).getAllByRole("link")[0]!);
     expect(activeId).toBe(N1.id);
+  });
+  it("C6 一篇多處命中：每一項點下去都帶對的 sectionId 與 kbFind（別篇 navigate／同篇 requestAnchor）", () => {
+    const hits = [hit(N2, [m("h1", "A", "needle one"), m("h2", "B", "needle two"), m("_top", "", "needle top")])];
+    const expected = [
+      { hash: "#b-h1", id: "h1" },
+      { hash: "#b-h2", id: "h2" },
+      { hash: "", id: "_top" },
+    ];
+    for (const [i, e] of expected.entries()) {
+      const other = renderView(readyState(hits), { anchors: { currentNoteId: null, requestAnchor: vi.fn(), scrollToTop: vi.fn() } });
+      fireEvent.click(matchLink(i));
+      expect(lastLocation).toEqual({ pathname: canonicalNotePath(N2), hash: e.hash, state: { kbFind: "needle" } });
+      other.unmount();
+      const anchors = { currentNoteId: N2.id, requestAnchor: vi.fn(), scrollToTop: vi.fn() };
+      const same = renderView(readyState(hits), { anchors });
+      fireEvent.click(matchLink(i));
+      expect(anchors.requestAnchor).toHaveBeenCalledTimes(1);
+      expect(anchors.requestAnchor).toHaveBeenCalledWith(e.id, "needle");
+      same.unmount();
+    }
   });
 });

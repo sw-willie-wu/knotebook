@@ -62,7 +62,7 @@ test("sidebar tabs: roles, persistence, keyboard, search view, narrow drawer", a
   await search.fill(String(RUN));
   await expect(tablist).toHaveCount(0);
   // 限定在側欄：筆記頁的 ConnectionBadge 也是 role="status"。
-  await expect(sidebar.getByRole("status")).toHaveText(/^1 (title match|note found)$/);
+  await expect(sidebar.getByRole("status")).toHaveText(/^1 (title match|result)$/);
   // 結果連結的可及名稱是「標題 位置」。
   const hit = sidebar.getByRole("link", { name: new RegExp("^" + reEscape(title)) });
   await expect(hit).toHaveCount(1);

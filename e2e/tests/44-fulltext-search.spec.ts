@@ -2,10 +2,11 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { ADMIN, createUserViaInvite, loginAs, randomEmail } from "./helpers.js";
 
 /**
- * #93 PR2：側欄搜尋的合併結果列表（真瀏覽器；標題命中與內文命中一個列表、一篇一列，每列第一個片段）。點片段 → 開筆記、捲到該段落範圍內
- * **第一個含查詢字的 block** 並高亮（閃的是那個 block，不是段落標題；2026-11-03 Willie 回饋）。E1 寬螢幕從首頁 Ctrl+K 搜、點片段；
+ * #93 PR2：側欄搜尋的合併結果列表（真瀏覽器；標題命中與內文命中一個列表，**每處內文命中各一項**、三行：標題／資料夾路徑／片段）。
+ * 點該項 → 開筆記、捲到該段落範圍內**第一個含查詢字的 block**、捲到畫面**中間**並高亮（閃的是那個 block，不是段落標題；2026-11-03 Willie 回饋）。E1 寬螢幕從首頁 Ctrl+K 搜、點片段；
  * E1b 巢狀標題（片段的段落標題是 `#` Top，但閃的是 `##` Sub 底下含字的那一行）；E2 同篇只捲動、不重載、上一頁回得去；E3／E4 窄螢幕抽屜
- * （別篇／同篇）點片段都關抽屜；E5 版面（共用捲動容器）與「載入更多」；E6 別篇、命中在長段落深處。
+ * （別篇／同篇）點片段都關抽屜；E5 版面（共用捲動容器）與「載入更多」；E6 別篇、命中在長段落深處；E9 一篇多處命中列多項、點第 2 項跳到第 2 處
+ * 並落在視窗中段；E10 block 比視窗高時對準它自己那一行；E11 常駐標記（恆亮、Esc 與清空搜尋字取消）。
  *
  * - e2e package 不 import `@knotebook/shared`，網址自組（同 27-site-links 檔頭）。
  * - 每個 test 用自己的新使用者：search 桶每人每分 60 次，與 UI 共用（plan gate M12）；ADMIN 只發邀請。
@@ -68,6 +69,23 @@ async function expectAnchorFlash(page: Page, blockId: string): Promise<void> {
 }
 
 const block = (page: Page, id: string) => page.locator(`.bn-block-outer[data-id="${id}"]`);
+/**
+ * 搜尋跳轉捲到畫面中間：判定＝block 中心點落在視窗高度的 25%–75%。命中處下方要有足夠內容才捲得到中間（測試資料各自保證）。
+ * 用 poll：捲動後版面可能還在穩定。
+ */
+async function expectBlockCentered(page: Page, id: string): Promise<void> {
+  const ratio = () =>
+    block(page, id).evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return (r.top + r.height / 2) / window.innerHeight;
+    });
+  await expect
+    .poll(async () => {
+      const r = await ratio();
+      return r >= 0.25 && r <= 0.75;
+    }, { timeout: 10_000, message: `block ${id} 的中心點應在視窗高度的 25%–75%` })
+    .toBe(true);
+}
 /** 頁面上「自己的文字含 kw」的最內層 block 的 id（等它出現）。命中 block 的 id 由 DOM 讀，不靠 server（server 只記到段落）。 */
 async function matchBlockId(page: Page, kw: string): Promise<string> {
   const handle = await page.waitForFunction(
@@ -97,7 +115,7 @@ test("E1＋E2：寬螢幕從首頁 Ctrl+K 搜 → 點片段捲到 Gamma 並高�
   await asNewUser(page, "E2E Fulltext E1");
   const stamp = Date.now();
   const kw = `kw${stamp}`;
-  const md = `## Alpha\n\n${filler("alpha", 20)}\n\n## Beta\n\n${filler("beta", 20)}\n\n## Gamma\n\nthe ${kw} lives here\n\n${filler("gamma", 10)}\n`;
+  const md = `## Alpha\n\n${filler("alpha", 20)}\n\n## Beta\n\n${filler("beta", 20)}\n\n## Gamma\n\nthe ${kw} lives here\n\n${filler("gamma", 40)}\n`;
   const a = await createNoteViaApi(page, `E2E ft A ${stamp}`, md);
   const hit = await waitIndexed(page, kw, a.id);
   expect(hit.heading).toBe("Gamma");
@@ -120,6 +138,7 @@ test("E1＋E2：寬螢幕從首頁 Ctrl+K 搜 → 點片段捲到 Gamma 並高�
   await expectAnchorFlash(page, hitId);
   await expect(page.locator(`.kn-anchor-flash[data-anchor-flash="${gammaId}"]`)).toHaveCount(0);
   await expect(block(page, hitId)).toBeInViewport();
+  await expectBlockCentered(page, hitId);
 
   // E2：同篇——先回到沒有 hash 的網址（頁首），再從側欄點同一個片段
   await page.goto(pathOf(a));
@@ -158,7 +177,10 @@ test("E1b 巢狀標題：# Top 底下都是 ##——片段的段落標題是 Top
   await sidebar.getByRole("textbox", { name: "Search notes" }).fill(kx);
   const snippet = snippetOf(sidebar, `${pathOf(c)}#b-${topId}`);
   await expect(snippet).toBeVisible({ timeout: 15_000 });
-  await expect(snippet.locator("div").first()).toHaveText("Top");
+  // 每處命中一項、三行（標題／路徑／片段）；段落標題（Top）不顯示。
+  await expect(snippet.locator(":scope > div")).toHaveCount(3);
+  await expect(snippet.locator(":scope > div").nth(1)).toContainText("My notes");
+  await expect(snippet.locator(":scope > div").nth(2)).toContainText(kx);
   await snippet.click();
   await page.waitForURL((u) => u.pathname === pathOf(c) && u.hash === `#b-${topId}`, { timeout: 15_000 });
   await expect(titleBox(page)).toHaveValue(c.title, { timeout: 15_000 });
@@ -238,8 +260,8 @@ test("E5 版面與載入更多：22 篇標題命中在上；捲到底：22＋20 
   const results = sidebar.getByTestId("sidebar-search");
   const region = bodyRegion(sidebar);
   const hits = region.getByTestId("search-hit");
-  // 合併列表：22 篇標題命中在前，加第一頁 20 篇只中內文的；篇數是合併後的（已載入）篇數。
-  await expect(results.getByRole("status")).toHaveText("42 notes loaded, more available", { timeout: 15_000 });
+  // 合併列表：22 篇標題命中在前，加第一頁 20 篇只中內文的；項數是列出的（已載入）項數。
+  await expect(results.getByRole("status")).toHaveText("42 results loaded, more available", { timeout: 15_000 });
   await expect(hits).toHaveCount(42, { timeout: 15_000 });
   // 整個列表一個捲動容器：捲到底，「載入更多」看得到、按得到。
   await region.evaluate((el) => el.closest(".overflow-y-auto")!.scrollTo({ top: 1e6 }));
@@ -247,7 +269,7 @@ test("E5 版面與載入更多：22 篇標題命中在上；捲到底：22＋20 
   await expect(more).toBeInViewport();
   await more.click();
   await expect(hits).toHaveCount(44, { timeout: 15_000 });
-  await expect(results.getByRole("status")).toHaveText("44 notes found");
+  await expect(results.getByRole("status")).toHaveText("44 results");
   await expect(more).toHaveCount(0);
   const last = hits.last().getByTestId("body-match");
   await last.scrollIntoViewIfNeeded();
@@ -287,6 +309,7 @@ test("E6 別篇、命中在長段落深處：點片段 → 含字的 block 進�
   await expectAnchorFlash(page, hitId);
   await expect(block(page, hitId)).toBeInViewport();
   await expect(block(page, hit.sectionId)).not.toBeInViewport();
+  await expectBlockCentered(page, hitId);
   await expect(page.locator(`.kn-anchor-flash[data-anchor-flash="${hit.sectionId}"]`)).toHaveCount(0);
 
   // 重新整理：navigation state 留在 history entry 裡 → 與 `#b-` 一樣會再跳一次（known-limitations 的句子以此為準）
@@ -375,4 +398,160 @@ last paragraph
   await expectAnchorFlash(page, toggleId!);
   await expect(block(page, toggleId!)).toBeInViewport();
   await expect(page.locator(".bn-block-outer", { hasText: `child ${kg}` }).last()).toBeHidden();
+});
+
+test("E9 一篇多處命中列多項：三處命中三項（各三行）；點第 2 項 → 跳到第 2 處命中的 block、落在視窗中段；一般 #b- 連結仍捲到最上面", async ({ page }) => {
+  test.setTimeout(120_000);
+  await asNewUser(page, "E2E Fulltext E9");
+  const stamp = Date.now();
+  const km = `km${stamp}`;
+  // 三個段落各一處命中；每處上面、下面都有 ≥ 25 個段落，才捲得到畫面中間。
+  const sec = (n: number) => `## Sec ${n}
+
+${filler(`s${n}a`, 25)}
+
+the ${km} hit ${n}
+
+${filler(`s${n}b`, 25)}
+`;
+  const md = `${sec(1)}
+${sec(2)}
+${sec(3)}`;
+  const a = await createNoteViaApi(page, `E2E ft M9 ${stamp}`, md);
+  let sections: string[] = [];
+  await expect
+    .poll(
+      async () => {
+        const res = await page.request.get(`/api/search?q=${encodeURIComponent(km)}&match=body`);
+        if (res.status() !== 200) return 0;
+        const h = ((await res.json()) as { hits: SearchHit[] }).hits.find((x) => x.note.id === a.id);
+        sections = h?.matches.map((m) => m.sectionId) ?? [];
+        return sections.length;
+      },
+      { intervals: [500, 1000], timeout: 20_000 },
+    )
+    .toBe(3);
+
+  await page.goto("/");
+  const sidebar = page.getByRole("complementary");
+  await sidebar.getByRole("textbox", { name: "Search notes" }).fill(km);
+  const items = bodyRegion(sidebar).getByTestId("body-match");
+  await expect(items).toHaveCount(3, { timeout: 15_000 });
+  await expect(bodyRegion(sidebar).getByTestId("search-hit")).toHaveCount(3);
+  await expect(sidebar.getByTestId("sidebar-search").getByRole("status")).toHaveText("3 results");
+  for (let i = 0; i < 3; i += 1) {
+    const item = items.nth(i);
+    await expect(item).toHaveAttribute("href", `${pathOf(a)}#b-${sections[i]}`);
+    await expect(item.locator(":scope > div")).toHaveCount(3);
+    await expect(item.locator(":scope > div").nth(0)).toHaveText(a.title);
+    await expect(item.locator(":scope > div").nth(1)).toContainText("My notes");
+    await expect(item.locator(":scope > div").nth(2)).toContainText(`hit ${i + 1}`);
+    await expect(item).not.toContainText(`Sec ${i + 1}`); // 段落標題不顯示
+  }
+
+  // 點第 2 項：跳到第 2 處命中的 block（不是第 1 處、也不是標題），並落在視窗中段
+  await items.nth(1).click();
+  await page.waitForURL((u) => u.pathname === pathOf(a) && u.hash === `#b-${sections[1]}`, { timeout: 15_000 });
+  await expect(titleBox(page)).toHaveValue(a.title, { timeout: 15_000 });
+  const secondId = await matchBlockId(page, `${km} hit 2`);
+  expect(secondId).not.toBe(sections[1]);
+  await expectAnchorFlash(page, secondId);
+  await expect(block(page, secondId)).toContainText(`hit 2`);
+  await expectBlockCentered(page, secondId);
+
+  // 對照：沒有 kbFind 的一般 #b- 連結（複製出去的段落連結）仍把標題捲到最上面（落在視窗上段，不在中間）
+  await page.goto("/"); // 先離開：同一頁只差 hash 的 goto 是同文件導覽，不會重新載入、也不會再捲
+  await page.goto(`${pathOf(a)}#b-${sections[1]}`);
+  await expect(titleBox(page)).toHaveValue(a.title, { timeout: 15_000 });
+  await expectAnchorFlash(page, sections[1]!);
+  await expect
+    .poll(async () => block(page, sections[1]!).evaluate((el) => el.getBoundingClientRect().top / window.innerHeight), { timeout: 10_000 })
+    .toBeLessThan(0.25);
+});
+
+test("E10 block 比視窗高（清單父項包著很多子項）：置中對準父項自己那一行，命中那一行在視窗內且在中段", async ({ page }) => {
+  test.setTimeout(120_000);
+  await asNewUser(page, "E2E Fulltext E10");
+  const stamp = Date.now();
+  const kq = `kq${stamp}`;
+  const children = Array.from({ length: 60 }, (_, i) => `  - child ${i + 1} text`).join(String.fromCharCode(10));
+  const md = `## Sec
+
+${filler("pre", 25)}
+
+- parent ${kq} line
+${children}
+
+${filler("post", 25)}
+`;
+  const a = await createNoteViaApi(page, `E2E ft P10 ${stamp}`, md);
+  const hit = await waitIndexed(page, kq, a.id);
+
+  await page.goto("/");
+  const sidebar = page.getByRole("complementary");
+  await sidebar.getByRole("textbox", { name: "Search notes" }).fill(kq);
+  const snippet = snippetOf(sidebar, `${pathOf(a)}#b-${hit.sectionId}`);
+  await expect(snippet).toBeVisible({ timeout: 15_000 });
+  await snippet.click();
+  await expect(titleBox(page)).toHaveValue(a.title, { timeout: 15_000 });
+  const parentId = await matchBlockId(page, kq);
+  await expectAnchorFlash(page, parentId);
+  // 前提：整個父項 block（連子項）比視窗高，否則這案測不到東西
+  const outerHeight = await block(page, parentId).evaluate((el) => el.getBoundingClientRect().height);
+  expect(outerHeight, "父項 block 要比視窗高").toBeGreaterThan(page.viewportSize()!.height);
+  // 命中的那一行（父項自己的 content）在視窗內、在中段
+  const line = block(page, parentId).locator(":scope > .bn-block > .bn-block-content");
+  await expect(line).toContainText(kq);
+  await expect(line).toBeInViewport({ ratio: 1 });
+  await expect
+    .poll(async () =>
+      line.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const c = (r.top + r.height / 2) / window.innerHeight;
+        return c >= 0.25 && c <= 0.75;
+      }), { timeout: 10_000, message: "命中那一行的中心應在視窗高度的 25%–75%" })
+    .toBe(true);
+});
+
+test("E11 常駐標記：閃兩下後恆亮（3 s 後還在）→ Esc 消失；再跳一次 → 清空搜尋字後消失", async ({ page }) => {
+  test.setTimeout(120_000);
+  await asNewUser(page, "E2E Fulltext E11");
+  const stamp = Date.now();
+  const kk = `kk${stamp}`;
+  const md = `## Alpha\n\n${filler("alpha", 25)}\n\n## Beta\n\nthe ${kk} is here\n\n${filler("beta", 40)}\n`;
+  const a = await createNoteViaApi(page, `E2E ft K ${stamp}`, md);
+  const hit = await waitIndexed(page, kk, a.id);
+
+  await page.goto("/");
+  const sidebar = page.getByRole("complementary");
+  const search = sidebar.getByRole("textbox", { name: "Search notes" });
+  await search.fill(kk);
+  const snippet = snippetOf(sidebar, `${pathOf(a)}#b-${hit.sectionId}`);
+  await expect(snippet).toBeVisible({ timeout: 15_000 });
+  await snippet.click();
+  await expect(titleBox(page)).toHaveValue(a.title, { timeout: 15_000 });
+  const hitId = await matchBlockId(page, kk);
+  await expectAnchorFlash(page, hitId);
+  const mark = page.locator(`.kn-anchor-flash.kn-anchor-mark[data-anchor-flash="${hitId}"]`);
+  await expect(mark).toBeAttached();
+
+  // 恆亮：等過閃爍時間（2 s）再多一秒，標記還在、還對在那個 block 上、底色是亮的（不是動畫結束後的透明）
+  await page.waitForTimeout(3_000);
+  await expect(mark).toBeAttached();
+  await expectAnchorFlash(page, hitId);
+  expect(await mark.evaluate((el) => getComputedStyle(el).backgroundColor)).not.toMatch(/rgba\(0, 0, 0, 0\)|transparent/);
+
+  // Esc 消失（搜尋結果還開著，不影響下一步）
+  await page.keyboard.press("Escape");
+  await expect(mark).toHaveCount(0);
+
+  // 再跳一次 → 清空搜尋字後消失（首頁進來的第一次跳轉換了殼，搜尋字已重設，這裡重新搜）
+  await sidebar.getByRole("textbox", { name: "Search notes" }).fill(kk);
+  await expect(snippet).toBeVisible({ timeout: 15_000 });
+  await snippet.click();
+  await expect(mark).toBeAttached({ timeout: 15_000 });
+  await page.waitForTimeout(2_500);
+  await expect(mark).toBeAttached();
+  await sidebar.getByRole("button", { name: "Clear search" }).click();
+  await expect(mark).toHaveCount(0);
 });

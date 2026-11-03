@@ -106,11 +106,12 @@ function TitleRows({
   );
 }
 
-/** 搜尋視圖：標題小寫子字串、跨所有 tab 的扁平清單（server 順序），每列兩行（標題＋位置）。
+/** 搜尋視圖：標題小寫子字串、跨所有 tab 的扁平清單（server 順序），標題命中的列兩行（標題＋位置）。
  * 比對一律字面子字串（不經正規式）。
  *
- * #93 PR2：gate 是 search 時，整個清單交給 lazy 的 `BodySearchLazy`（標題命中與內文命中合成一個列表、一篇一列）；chunk 載入中先顯示
- * 標題命中的列。計數那行（`role="status"`）留在容器外，合併後的篇數由內文區 `onStatus` 回報。
+ * #93 PR2：gate 是 search 時，整個清單交給 lazy 的 `BodySearchLazy`（標題命中與內文命中合成一個列表，每個含查詢字的段落一項，
+ * 每項三行：標題、位置、片段）；chunk 載入中先顯示標題命中的列。計數那行（`role="status"`）留在容器外：內文結果回來且不是 stale 時是列出的
+ * 項數（「N results」），其餘（pending、stale、error、chunk 載入中）是標題命中的篇數（「N title matches」）；項數由內文區 `onStatus` 回報。
  * 防抖與 gate 在這裡（首包）：本元件在搜尋字從空變非空時才掛載，那時通常只有 1 個字（tooShort，不發）；lazy 元件之後掛掛卸卸
  * 都只吃 `debounced` 這個 prop，不會一掛載就用當下的字發請求（plan gate r2 I2）。要不要掛 lazy 看**當下**的字，發不發看 `debounced`
  * ——chunk 下載與防抖同時進行。已知例外：整段字一次貼進空的搜尋框，掛載時 `debounced` 就是那段字，立刻發一次。
@@ -126,7 +127,7 @@ export function SearchResults({ query }: { query: string }) {
   const trimmed = query.trim();
   const debounced = useDebounced(trimmed, BODY_SEARCH_DEBOUNCE_MS);
   const gate = bodySearchGate(query);
-  // 合併後的篇數由內文區（lazy）回報；它沒好（pending／error／還在載入）時 null ＝ 只顯示標題命中的篇數。
+  // 列出的項數由內文區（lazy）回報；它沒好（pending／error／stale／還在載入）時 null ＝ 只顯示標題命中的篇數。
   const [bodyStatus, setBodyStatus] = useState<{ count: number; more: boolean } | null>(null);
 
   // 三種狀態共用同一個 flex-1 容器（下方按鈕不跳位）；`role="status"` 在 pending／loaded 間不重生（空內容時先掛著）。

@@ -50,6 +50,9 @@ export function useWikilinkActivate() {
           );
         } else if (target.findText !== undefined) {
           anchors.requestAnchor(TOP_SECTION_ID, target.findText);
+          // 同篇 `_top` 沒有 hash 可換：也把查詢字寫進目前這筆 history 的 state（replace，不多一筆），重新整理才會跳回去、
+          // 而且不會沿用上一次搜尋留在 state 裡的舊查詢字。
+          void navigate({ search: location.search, hash: "" }, { replace: true, state: { [FIND_STATE_KEY]: target.findText } });
         } else {
           anchors.scrollToTop();
         }

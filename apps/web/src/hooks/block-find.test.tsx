@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render } from "@testing-library/react";
+import { act, render, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { foldedIndexOf } from "@/lib/search-match";
-import { ANCHOR_FLASH_ATTR, findTextFromState, scrollToBlock, useBlockAnchor } from "./useBlockAnchor";
+import { ANCHOR_FLASH_ATTR, ANCHOR_MARK_CLASS, findTextFromState, scrollToBlock, useBlockAnchor } from "./useBlockAnchor";
+import { clearSearchMark } from "./search-mark";
 import { findMatchBlock, sectionUnits } from "./block-find";
 
 /**
@@ -204,6 +205,288 @@ describe("scrollToBlock + findText", () => {
     scrollToBlock(root, "_top", "needle")();
     expect(root.scrollTo).toHaveBeenCalledWith({ top: 0 });
     expect(root.querySelector(`[${ANCHOR_FLASH_ATTR}]`)).toBeNull();
+  });
+});
+
+describe("捲動位置：搜尋跳轉捲到中間，一般錨點捲到最上面", () => {
+  let spy: ReturnType<typeof vi.fn>;
+  beforeEach(() => {
+    spy = vi.fn();
+    Element.prototype.scrollIntoView = spy as unknown as typeof Element.prototype.scrollIntoView;
+  });
+  const blocks = () => spy.mock.calls.map((c) => c[0]);
+
+  it("P1 帶 findText 且命中 → center", () => {
+    root = buildRoot([H("h1", 1, "One"), P("b", "the needle")]);
+    scrollToBlock(root, "h1", "needle")();
+    expect(blocks()).toEqual([{ block: "center" }]);
+  });
+
+  it("P2 帶 findText 但範圍內找不到、退回段落標題 → 也是 center", () => {
+    root = buildRoot([H("h1", 1, "One"), P("a", "nothing")]);
+    scrollToBlock(root, "h1", "needle")();
+    expect(blocks()).toEqual([{ block: "center" }]);
+  });
+
+  it("P3 _top 有命中 → center；_top 沒命中 → 捲到頂（不呼叫 scrollIntoView）", () => {
+    root = buildRoot([P("t1", "a needle"), H("h1", 1, "One")]);
+    scrollToBlock(root, "_top", "needle")();
+    expect(blocks()).toEqual([{ block: "center" }]);
+    root.remove();
+    spy.mockClear();
+    root = buildRoot([P("t1", "plain"), H("h1", 1, "One")]);
+    root.scrollTo = vi.fn() as unknown as typeof root.scrollTo;
+    scrollToBlock(root, "_top", "needle")();
+    expect(spy).not.toHaveBeenCalled();
+    expect(root.scrollTo).toHaveBeenCalledWith({ top: 0 });
+  });
+
+  it("P4 一般 #b- 錨點（不帶 findText）→ start", () => {
+    root = buildRoot([H("h1", 1, "One"), P("b", "the needle")]);
+    scrollToBlock(root, "h1")();
+    expect(blocks()).toEqual([{ block: "start" }]);
+  });
+
+  it("P5 浮層蓋在命中的 block 上（不是標題）；置中時捲動對準該 block 自己那一行（.bn-block-content），不是整個 outer", () => {
+    root = buildRoot([H("h1", 1, "One"), P("b", "the needle")]);
+    const cancel = scrollToBlock(root, "h1", "needle");
+    expect(root.querySelector(`[${ANCHOR_FLASH_ATTR}]`)?.getAttribute(ANCHOR_FLASH_ATTR)).toBe("b");
+    const outer = root.querySelector<HTMLElement>('[data-id="b"]')!;
+    expect(spy.mock.contexts[0]).toBe(outer.querySelector(":scope > .bn-block > .bn-block-content"));
+    expect(spy.mock.contexts[0]).not.toBe(outer);
+    cancel();
+  });
+
+  it("P7 父項包著很多子項：置中對準父項自己那一行，不是含全部子項的 outer；子項自己的那一行不會被選到", () => {
+    root = buildRoot([H("h1", 1, "One"), P("parent", "the needle", [P("c1", "child 1"), P("c2", "child 2")])]);
+    scrollToBlock(root, "h1", "needle")();
+    const ctx = spy.mock.contexts[0] as HTMLElement;
+    expect(ctx.closest(".bn-block-outer")!.getAttribute("data-id")).toBe("parent");
+    expect(ctx.classList.contains("bn-block-content")).toBe(true);
+    expect(blocks()).toEqual([{ block: "center" }]);
+  });
+
+  it("P8 那一行本身比捲動容器高 → 退回 start（仍對準那一行）；剛好不高於容器 → center", () => {
+    root = buildRoot([H("h1", 1, "One"), P("b", "the needle")]);
+    Object.defineProperty(root, "clientHeight", { configurable: true, value: 500 });
+    const line = root.querySelector<HTMLElement>('[data-id="b"] > .bn-block > .bn-block-content')!;
+    line.getBoundingClientRect = () => ({ height: 501 }) as DOMRect;
+    scrollToBlock(root, "h1", "needle")();
+    expect(blocks()).toEqual([{ block: "start" }]);
+    expect(spy.mock.contexts[0]).toBe(line);
+    spy.mockClear();
+    line.getBoundingClientRect = () => ({ height: 500 }) as DOMRect;
+    scrollToBlock(root, "h1", "needle")();
+    expect(blocks()).toEqual([{ block: "center" }]);
+  });
+
+  it("P9 一般錨點（start）對準 outer 本身，不是 content line", () => {
+    root = buildRoot([H("h1", 1, "One"), P("b", "x")]);
+    scrollToBlock(root, "b")();
+    expect(spy.mock.contexts[0]).toBe(root.querySelector('[data-id="b"]'));
+  });
+
+  function Host({ root: r, onApi }: { root: HTMLElement; onApi?: (api: ReturnType<typeof useBlockAnchor>) => void }) {
+    const api = useBlockAnchor({ noteKey: "n1", ready: true, root: r, currentNoteId: "n1" });
+    onApi?.(api);
+    return null;
+  }
+  it("M7 requestAnchor(id, findText) 把 findText 傳進 scrollToBlock：閃並捲到命中的 block（center），不是標題；不帶 findText 才是標題（start）", () => {
+    root = buildRoot([H("h1", 1, "One"), P("a", "nothing"), P("b", "the needle")]);
+    let api!: ReturnType<typeof useBlockAnchor>;
+    render(
+      <MemoryRouter initialEntries={["/n"]}>
+        <Host root={root} onApi={(x) => (api = x)} />
+      </MemoryRouter>,
+    );
+    const rootEl = root;
+    const flashed = () => rootEl.querySelector(`[${ANCHOR_FLASH_ATTR}]`)?.getAttribute(ANCHOR_FLASH_ATTR) ?? null;
+    act(() => api.requestAnchor("h1", "needle"));
+    expect(flashed()).toBe("b");
+    expect(blocks()).toEqual([{ block: "center" }]);
+    rootEl.querySelector(`[${ANCHOR_FLASH_ATTR}]`)?.remove();
+    spy.mockClear();
+    act(() => api.requestAnchor("h1"));
+    expect(flashed()).toBe("h1");
+    expect(blocks()).toEqual([{ block: "start" }]);
+  });
+
+  it("P6 經 useBlockAnchor：只有 #b- hash（複製出去的段落連結）→ start；hash＋state.kbFind（搜尋跳轉）→ center", () => {
+    root = buildRoot([H("h1", 1, "One"), P("b", "needle")]);
+    const a = render(
+      <MemoryRouter initialEntries={[{ pathname: "/n", hash: "#b-h1" }]}>
+        <Host root={root} />
+      </MemoryRouter>,
+    );
+    expect(blocks()).toEqual([{ block: "start" }]);
+    a.unmount();
+    spy.mockClear();
+    render(
+      <MemoryRouter initialEntries={[{ pathname: "/n", hash: "#b-h1", state: { kbFind: "needle" } }]}>
+        <Host root={root} />
+      </MemoryRouter>,
+    );
+    expect(blocks()).toEqual([{ block: "center" }]);
+  });
+});
+
+describe("搜尋跳轉的常駐標記", () => {
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+  afterEach(() => {
+    clearSearchMark();
+    vi.useRealTimers();
+  });
+  const overlays = () => Array.from(document.querySelectorAll<HTMLElement>(`[${ANCHOR_FLASH_ATTR}]`));
+  const esc = (init: KeyboardEventInit = {}, after?: (e: KeyboardEvent) => void) => {
+    const e = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true, ...init });
+    if (after) window.addEventListener("keydown", after, { once: true });
+    window.dispatchEvent(e);
+    return e;
+  };
+  const fresh = () => {
+    root = buildRoot([H("h1", 1, "One"), P("a", "nothing"), P("b", "the needle")]);
+    return root;
+  };
+
+  it("K1 閃兩下之後還在：帶 findText 的跳轉過了 2 s、10 s 浮層仍在，且是 .kn-anchor-mark（常駐）", () => {
+    vi.useFakeTimers();
+    scrollToBlock(fresh(), "h1", "needle");
+    expect(overlays()).toHaveLength(1);
+    vi.advanceTimersByTime(10_000);
+    expect(overlays()).toHaveLength(1);
+    expect(overlays()[0]!.classList.contains(ANCHOR_MARK_CLASS)).toBe(true);
+    expect(overlays()[0]!.getAttribute(ANCHOR_FLASH_ATTR)).toBe("b");
+  });
+
+  it("K2 一般錨點（不帶 findText）仍是 2 s 後消失，而且沒有常駐 class", () => {
+    vi.useFakeTimers();
+    scrollToBlock(fresh(), "h1");
+    expect(overlays()).toHaveLength(1);
+    expect(overlays()[0]!.classList.contains(ANCHOR_MARK_CLASS)).toBe(false);
+    vi.advanceTimersByTime(2_100);
+    expect(overlays()).toHaveLength(0);
+  });
+
+  it("K3 Esc 清掉；別的鍵不清", () => {
+    vi.useFakeTimers();
+    scrollToBlock(fresh(), "h1", "needle");
+    esc({ key: "a" });
+    vi.advanceTimersByTime(10);
+    expect(overlays()).toHaveLength(1);
+    esc();
+    vi.advanceTimersByTime(10);
+    expect(overlays()).toHaveLength(0);
+  });
+
+  it("K4 別人的 Esc 不被搶：已經 preventDefault（後註冊的監聽才 preventDefault 也算）、輸入法組字中、有對話框開著 → 標記留著", () => {
+    vi.useFakeTimers();
+    scrollToBlock(fresh(), "h1", "needle");
+    esc({}, (e) => e.preventDefault());
+    vi.advanceTimersByTime(10);
+    expect(overlays()).toHaveLength(1);
+    esc({ isComposing: true });
+    vi.advanceTimersByTime(10);
+    expect(overlays()).toHaveLength(1);
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    document.body.appendChild(dialog);
+    esc();
+    vi.advanceTimersByTime(10);
+    expect(overlays()).toHaveLength(1);
+    dialog.remove();
+    esc();
+    vi.advanceTimersByTime(10);
+    expect(overlays()).toHaveLength(0);
+  });
+
+  it("K5 clearSearchMark()（關閉搜尋）清掉；之後再呼叫是空操作", () => {
+    scrollToBlock(fresh(), "h1", "needle");
+    expect(overlays()).toHaveLength(1);
+    clearSearchMark();
+    expect(overlays()).toHaveLength(0);
+    clearSearchMark();
+  });
+
+  it("K6 還在等 block 出現時就關閉搜尋 → block 出現後不會才冒出標記", async () => {
+    root = buildRoot([P("t1", "x")]);
+    scrollToBlock(root, "nope", "needle");
+    clearSearchMark();
+    const late = document.createElement("div");
+    late.className = "bn-block-outer";
+    late.setAttribute("data-id", "nope");
+    late.innerHTML = '<div class="bn-block"><div class="bn-block-content"><p class="bn-inline-content">needle</p></div></div>';
+    root.appendChild(late);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(overlays()).toHaveLength(0);
+  });
+
+  it("K7 區塊被重繪（元素換掉、同一個 data-id）→ 標記還在並重新對位；區塊被刪掉 → 標記移除、不再找", async () => {
+    const r = fresh();
+    scrollToBlock(r, "h1", "needle");
+    const old = r.querySelector<HTMLElement>('[data-id="b"]')!;
+    const next = old.cloneNode(true) as HTMLElement;
+    next.getBoundingClientRect = () => ({ top: 123, left: 7, width: 200, height: 30 }) as DOMRect;
+    old.replaceWith(next);
+    await waitFor(() => expect(overlays()[0]!.style.top).toBe("123px"));
+    expect(overlays()).toHaveLength(1);
+    next.remove();
+    await waitFor(() => expect(overlays()).toHaveLength(0));
+  });
+
+  it("K8 找不到命中字、停在 _top：沒有浮層就沒有標記（捲回頂端）", () => {
+    root = buildRoot([P("t1", "plain"), H("h1", 1, "One")]);
+    root.scrollTo = vi.fn() as unknown as typeof root.scrollTo;
+    scrollToBlock(root, "_top", "needle");
+    expect(overlays()).toHaveLength(0);
+    expect(root.scrollTo).toHaveBeenCalledWith({ top: 0 });
+  });
+
+  function Host({ root: r, noteKey, onApi }: { root: HTMLElement; noteKey: string; onApi?: (api: ReturnType<typeof useBlockAnchor>) => void }) {
+    const api = useBlockAnchor({ noteKey, ready: true, root: r, currentNoteId: noteKey });
+    onApi?.(api);
+    return null;
+  }
+  const hostUi = (r: HTMLElement, k: string, onApi: (api: ReturnType<typeof useBlockAnchor>) => void) => (
+    <MemoryRouter initialEntries={["/n"]}>
+      <Host root={r} noteKey={k} onApi={onApi} />
+    </MemoryRouter>
+  );
+
+  it("K9 再點另一個搜尋結果：舊標記移除、換到新的位置（畫面上只有一個）", () => {
+    const r = buildRoot([H("h1", 1, "One"), P("a", "alpha"), H("h2", 1, "Two"), P("b", "beta")]);
+    root = r;
+    let api!: ReturnType<typeof useBlockAnchor>;
+    render(hostUi(r, "n1", (x) => (api = x)));
+    act(() => api.requestAnchor("h1", "alpha"));
+    expect(overlays().map((o) => o.getAttribute(ANCHOR_FLASH_ATTR))).toEqual(["a"]);
+    act(() => api.requestAnchor("h2", "beta"));
+    expect(overlays().map((o) => o.getAttribute(ANCHOR_FLASH_ATTR))).toEqual(["b"]);
+  });
+
+  it("K10 筆記內的一般錨點（wikilink／#b-）不清掉搜尋標記；它自己 2 s 後消失、標記還在", () => {
+    vi.useFakeTimers();
+    const r = buildRoot([H("h1", 1, "One"), P("a", "alpha"), H("h2", 1, "Two"), P("b", "beta")]);
+    root = r;
+    let api!: ReturnType<typeof useBlockAnchor>;
+    render(hostUi(r, "n1", (x) => (api = x)));
+    act(() => api.requestAnchor("h1", "alpha"));
+    act(() => api.requestAnchor("h2"));
+    expect(overlays().map((o) => o.getAttribute(ANCHOR_FLASH_ATTR)).sort()).toEqual(["a", "h2"]);
+    act(() => void vi.advanceTimersByTime(2_100));
+    expect(overlays().map((o) => o.getAttribute(ANCHOR_FLASH_ATTR))).toEqual(["a"]);
+  });
+
+  it("K11 離開這篇（noteKey 改變）→ 標記消失，不留在別篇", () => {
+    const r = buildRoot([H("h1", 1, "One"), P("a", "alpha")]);
+    root = r;
+    let api!: ReturnType<typeof useBlockAnchor>;
+    const view = render(hostUi(r, "n1", (x) => (api = x)));
+    act(() => api.requestAnchor("h1", "alpha"));
+    expect(overlays()).toHaveLength(1);
+    view.rerender(hostUi(r, "n2", (x) => (api = x)));
+    expect(overlays()).toHaveLength(0);
   });
 });
 
