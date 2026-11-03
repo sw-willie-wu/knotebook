@@ -297,13 +297,13 @@ describe("SearchResults × 內文符合（#93 PR2 T5）", () => {
   }
   const qOf = (url: string) => new URL(url, "http://x").searchParams.get("q");
   const noMatch = () => screen.queryAllByText("No notes match your search.");
-  const region = () => screen.getByRole("region", { name: "In note text" });
+  const region = () => screen.getByRole("region", { name: "Search results" });
 
   /** lazy 是模組級單例：先用真計時器掛一次，讓後面的 fake timers 案不必等 chunk。 */
   async function warmLazy() {
     stubFetch(FIXTURE);
     const r = renderResults("warmup");
-    await screen.findByRole("region", { name: "In note text" });
+    await screen.findByRole("region", { name: "Search results" });
     r.unmount();
     searchUrls = [];
   }
@@ -358,28 +358,42 @@ describe("SearchResults × 內文符合（#93 PR2 T5）", () => {
     stubFetch(FIXTURE);
     searchHandler = () => searchBody([bodyHit(BETA), bodyHit(ALPHA_PLAN)]);
     renderResults("zzz");
-    await waitFor(() => expect(within(region()).getAllByTestId("body-hit")).toHaveLength(2));
+    await waitFor(() => expect(within(region()).getAllByTestId("search-hit")).toHaveLength(2));
     expect(noMatch()).toHaveLength(0);
   });
 
-  it("S4 both 的筆記在兩區各一次；只中標題的不在內文區", async () => {
+  it("S4 合併去重：標題與內文都中的筆記只出現一列（帶片段）；只中標題的一列、沒有片段；計數是合併後的篇數", async () => {
     stubFetch(FIXTURE);
     searchHandler = () => searchBody([bodyHit(ALPHA_PLAN, "both"), bodyHit(ALPHA_SHARED, "title")]);
     renderResults("alpha");
-    await waitFor(() => expect(within(region()).getAllByTestId("body-hit")).toHaveLength(1));
-    expect(screen.getAllByRole("link", { name: /^Alpha Plan/ })).toHaveLength(2);
+    await waitFor(() => expect(within(region()).getAllByTestId("body-match")).toHaveLength(1));
+    const rows = within(region()).getAllByTestId("search-hit");
+    expect(rows).toHaveLength(3); // 標題命中：Alpha Plan、Alpha Group、alpha shared
+    expect(screen.getAllByRole("link", { name: /^Alpha Plan/ })).toHaveLength(1);
     expect(screen.getAllByRole("link", { name: /^alpha shared/ })).toHaveLength(1);
-    expect(within(region()).queryByRole("link", { name: /^alpha shared/ })).not.toBeInTheDocument();
+    const planRow = rows.find((r) => within(r).queryByRole("link", { name: /^Alpha Plan/ }))!;
+    const sharedRow = rows.find((r) => within(r).queryByRole("link", { name: /^alpha shared/ }))!;
+    expect(within(planRow).getAllByTestId("body-match")).toHaveLength(1);
+    expect(within(sharedRow).queryByTestId("body-match")).toBeNull();
+    expect(screen.getByRole("status")).toHaveTextContent("3 notes found");
+  });
+
+  it("S4b 只中內文的排在標題命中之後（標題命中照清單順序、其餘照 server 順序）", async () => {
+    stubFetch(FIXTURE);
+    searchHandler = () => searchBody([bodyHit(BETA), bodyHit(ALPHA_PLAN, "both")]);
+    renderResults("alpha");
+    await screen.findByRole("link", { name: /^Beta/ });
+    const titles = within(region()).getAllByTestId("search-hit").map((r) => within(r).getAllByRole("link")[0]!.querySelector("div")!.textContent);
+    expect(titles.at(-1)).toBe("Beta");
   });
 
   it("S6 版面：內文區最近的 overflow-y-auto 祖先＝標題清單所在的容器；status 不在裡面；側欄恰一個 status", async () => {
     stubFetch(FIXTURE);
     renderResults("alpha");
-    const body = await screen.findByTestId("sidebar-body-search");
-    const titleList = screen.getAllByRole("link", { name: /^Alpha Plan/ })[0]!.closest("ul")!;
-    const scroller = body.parentElement!.closest(".overflow-y-auto");
+    const body = await screen.findByTestId("sidebar-search-results");
+    const scroller = body.closest(".overflow-y-auto");
     expect(scroller).not.toBeNull();
-    expect(scroller).toBe(titleList.closest(".overflow-y-auto"));
+    expect(scroller!.contains(screen.getAllByRole("link", { name: /^Alpha Plan/ })[0]!)).toBe(true);
     expect(scroller!.contains(screen.getByRole("status"))).toBe(false);
     expect(within(screen.getByTestId("sidebar-search")).getAllByRole("status")).toHaveLength(1);
   });
@@ -404,9 +418,9 @@ describe("SearchResults × 內文符合（#93 PR2 T5）", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const r = renderControlled("abcd");
     await waitFor(() => expect(searchUrls.map(qOf)).toEqual(["abcd"]));
-    await screen.findByText("0 notes");
+    await screen.findByText("0 notes found");
     r.setQuery("a");
-    expect(screen.queryByTestId("sidebar-body-search")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("sidebar-search-results")).not.toBeInTheDocument();
     await act(async () => vi.advanceTimersByTime(50));
     r.setQuery("ab");
     await act(async () => vi.advanceTimersByTime(50));

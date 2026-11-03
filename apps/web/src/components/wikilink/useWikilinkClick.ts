@@ -2,7 +2,9 @@ import { useCallback, useContext, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router";
 import { toast } from "@/components/ui/toast";
+import { TOP_SECTION_ID } from "@knotebook/shared";
 import { BlockAnchorContext } from "@/hooks/block-anchor-context";
+import { FIND_STATE_KEY } from "@/hooks/useBlockAnchor";
 
 export interface WikilinkClickTarget {
   /** 一般點擊要去的地方（member 命中＝canonical＋錨點；清單未到＝/notes/<id>[#b-…]；公開＝/p/…[#b-…]；公開同篇＝#b-…）。 */
@@ -11,6 +13,11 @@ export interface WikilinkClickTarget {
   targetNoteId: string | null;
   anchorBlockId: string;
   broken: boolean;
+  /**
+   * #93 PR2（側欄搜尋點片段）：要在段落範圍內找的字（`forQuery`）。同篇走 `requestAnchor(…, findText)`；別篇放進 navigation state
+   * （`FIND_STATE_KEY`），不進網址。省略＝一般錨點行為。
+   */
+  findText?: string;
 }
 
 /** 一般左鍵、無修飾鍵。其餘（Ctrl／Cmd／Shift／Alt、非左鍵）一律交給瀏覽器原生行為（新分頁／新視窗）。 */
@@ -35,14 +42,20 @@ export function useWikilinkActivate() {
         (anchors.currentNoteId !== null && target.targetNoteId.toLowerCase() === anchors.currentNoteId.toLowerCase());
       if (samePage) {
         if (target.anchorBlockId !== "") {
-          anchors.requestAnchor(target.anchorBlockId);
-          void navigate({ search: location.search, hash: `#b-${target.anchorBlockId}` }, { replace: false });
+          if (target.findText === undefined) anchors.requestAnchor(target.anchorBlockId);
+          else anchors.requestAnchor(target.anchorBlockId, target.findText);
+          void navigate(
+            { search: location.search, hash: `#b-${target.anchorBlockId}` },
+            { replace: false, ...(target.findText === undefined ? {} : { state: { [FIND_STATE_KEY]: target.findText } }) },
+          );
+        } else if (target.findText !== undefined) {
+          anchors.requestAnchor(TOP_SECTION_ID, target.findText);
         } else {
           anchors.scrollToTop();
         }
         return;
       }
-      void navigate(target.href);
+      void navigate(target.href, target.findText === undefined ? undefined : { state: { [FIND_STATE_KEY]: target.findText } });
     },
     [anchors, location.search, navigate, t],
   );

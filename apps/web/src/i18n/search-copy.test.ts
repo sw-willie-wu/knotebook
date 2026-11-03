@@ -10,9 +10,14 @@ import en from "./en.json";
 const SPEC_COPY: Record<string, string> = {
   "sidebar.titleMatches_one": "標題符合 · {{count}} 篇",
   "sidebar.titleMatches_other": "標題符合 · {{count}} 篇",
-  "sidebar.bodyMatchesHeading": "內文符合",
-  "sidebar.bodyMatchesCount_one": "{{count}} 篇",
-  "sidebar.bodyMatchesCount_other": "{{count}} 篇",
+  "sidebar.resultsRegion": "搜尋結果",
+  "sidebar.matchesCount_one": "找到 {{count}} 篇",
+  "sidebar.matchesCount_other": "找到 {{count}} 篇",
+  "sidebar.matchesCountMore_one": "已載入 {{count}} 篇，還有更多",
+  "sidebar.matchesCountMore_other": "已載入 {{count}} 篇，還有更多",
+  "sidebar.moreSnippets_one": "顯示另外 {{count}} 處",
+  "sidebar.moreSnippets_other": "顯示另外 {{count}} 處",
+  "sidebar.lessSnippets": "收起",
   "sidebar.bodySearching": "正在搜尋內文…",
   "sidebar.bodySearchFailed": "無法搜尋內文。",
   "sidebar.bodySearchRateLimited": "搜尋太頻繁，請稍等一下再試。",
@@ -39,8 +44,18 @@ describe("SC1 側欄搜尋文案＝字串表（zh-TW）", () => {
   });
 });
 
+describe("SC3 en 有同一組新 key，且文案不暗示總命中數", () => {
+  for (const key of Object.keys(SPEC_COPY)) {
+    it(key, () => expect(typeof get(en, key)).toBe("string"));
+  }
+  it("moreSnippets 是動作句（顯示另外 N 處），不是「共 N 處」", () => {
+    expect(i18n.t("sidebar.moreSnippets", { count: 2, lng: "en" })).toBe("Show 2 more");
+    expect(i18n.t("sidebar.moreSnippets", { count: 2, lng: "zh-TW" })).toBe("顯示另外 2 處");
+  });
+});
+
 describe("SC2 舊的 searchResults 已移除（D2：改叫「標題符合」）", () => {
-  for (const key of ["sidebar.searchResults_one", "sidebar.searchResults_other"]) {
+  for (const key of ["sidebar.searchResults_one", "sidebar.searchResults_other", "sidebar.bodyMatchesHeading", "sidebar.bodyMatchesCount_one", "sidebar.bodyMatchesCount_other"]) {
     it(key, () => {
       expect(get(en, key)).toBeUndefined();
       expect(get(zhTW, key)).toBeUndefined();

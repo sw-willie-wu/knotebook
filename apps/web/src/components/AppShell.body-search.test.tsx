@@ -89,13 +89,13 @@ describe("W2 窄視窗抽屜：點內文片段 → 抽屜關", () => {
     ));
     fireEvent.click(await openDrawerAndSearch());
     await drawerGone();
-    expect(requestAnchor).toHaveBeenCalledWith("h1");
+    expect(requestAnchor).toHaveBeenCalledWith("h1", "needle");
   });
 
   it("目前這一篇（網址帶 #b-）的標題列 → 抽屜同樣關（pathname 不變，只靠點擊時主動關；審查 m1）", async () => {
     renderShell((s) => s, `${canonicalNotePath(NOTE)}#b-h1`);
     const match = await openDrawerAndSearch();
-    const titleRow = within(match.closest('[data-testid="body-hit"]') as HTMLElement).getAllByRole("link")[0]!;
+    const titleRow = within(match.closest('[data-testid="search-hit"]') as HTMLElement).getAllByRole("link")[0]!;
     expect(titleRow).toHaveAttribute("href", canonicalNotePath(NOTE));
     fireEvent.click(titleRow);
     await drawerGone();

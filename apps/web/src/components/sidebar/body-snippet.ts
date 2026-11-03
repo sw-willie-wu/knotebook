@@ -1,3 +1,5 @@
+import { foldedIndexOf } from "@/lib/search-match";
+
 /** D5：命中前最多保留幾個 code point（側欄預設寬一行約 18 個中文字；server 的前文最多約 50 字，命中常被截到看不見）。 */
 export const SNIPPET_LEAD_MAX = 12;
 
@@ -9,9 +11,7 @@ export const SNIPPET_LEAD_MAX = 12;
  */
 export function displaySnippet(snippet: string, lowerQuery: string, leadMax: number = SNIPPET_LEAD_MAX): string {
   if (lowerQuery === "") return snippet;
-  const lower = snippet.toLowerCase();
-  if (lower.length !== snippet.length) return snippet;
-  const index = lower.indexOf(lowerQuery);
+  const index = foldedIndexOf(snippet, lowerQuery);
   if (index < 0) return snippet;
   const before = Array.from(snippet.slice(0, index));
   if (before.length <= leadMax) return snippet;

@@ -1,7 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router";
-import { BLOCK_ANCHOR_RE } from "@knotebook/shared";
+import { BLOCK_ANCHOR_RE, TOP_SECTION_ID } from "@knotebook/shared";
 import type { BlockAnchorApi } from "./block-anchor-context";
+import { findMatchBlock, topUnits } from "./block-find";
+
+/**
+ * #93 PR2：側欄搜尋點片段時，router navigation state 帶的查詢字（`navigate(href, { state: { kbFind } })`）。不進網址，免得複製出去的連結被污染。
+ * 注意 state 存在 `history.state`：重新整理後瀏覽器仍帶著它，所以重整會再跳一次（與 `#b-` 重整會再捲一次同形）。
+ */
+export const FIND_STATE_KEY = "kbFind";
+export function findTextFromState(state: unknown): string | null {
+  if (typeof state !== "object" || state === null) return null;
+  const v = (state as Record<string, unknown>)[FIND_STATE_KEY];
+  return typeof v === "string" && v !== "" ? v : null;
+}
 
 /** §10.2：找不到區塊時 MutationObserver 等的上限；高亮的時間。 */
 export const ANCHOR_WAIT_MS = 2_000;
@@ -55,14 +67,10 @@ function mountFlashOverlay(root: HTMLElement, el: HTMLElement, blockId: string):
   return overlay;
 }
 
-/**
- * 在 root 內（任何深度——RF4）找 `.bn-block-outer[data-id="<id>"]`（重複 id 取第一個）；找到就 `scrollIntoView({ block: "start" })`
- * ＋高亮 2 s（ProseMirror 管轄外的浮層，見 `overlayHost`；動畫結束或 2 s 後移除——`prefers-reduced-motion` 沒有動畫，靠計時器）；
- * 找不到用 MutationObserver 等最多 2 s，仍無 ⇒ 不捲、不報錯（停頂端）。id 已過 BLOCK_ANCHOR_RE，不需要 CSS.escape。
- * 回傳取消（清 observer 與計時器、移除浮層）；同一篇再要求錨點時呼叫端先取消上一個，所以畫面上最多一個浮層。
- */
-export function scrollToBlock(root: HTMLElement, blockId: string): () => void {
-  const selector = `.bn-block-outer[data-id="${blockId}"]`;
+/** 要捲到哪：`block` ＝目標 block（高亮它）；`top` ＝捲回頂端（`_top` 段落找不到命中字）；null ＝還沒好，繼續等。 */
+type Resolved = { kind: "block"; el: HTMLElement } | { kind: "top" } | null;
+
+function runScroll(root: HTMLElement, resolve: () => Resolved): () => void {
   let observer: MutationObserver | null = null;
   let waitTimer: ReturnType<typeof setTimeout> | undefined;
   let flashTimer: ReturnType<typeof setTimeout> | undefined;
@@ -79,20 +87,24 @@ export function scrollToBlock(root: HTMLElement, blockId: string): () => void {
     overlay?.remove();
     overlay = null;
   };
-  const hit = (el: HTMLElement) => {
+  const hit = (target: Resolved) => {
+    if (target === null) return;
     stopWaiting();
+    if (target.kind === "top") {
+      if (typeof root.scrollTo === "function") root.scrollTo({ top: 0 });
+      else root.scrollTop = 0;
+      return;
+    }
+    const el = target.el;
     el.scrollIntoView({ block: "start" });
-    overlay = mountFlashOverlay(root, el, blockId);
+    overlay = mountFlashOverlay(root, el, el.getAttribute("data-id") ?? "");
     overlay.addEventListener("animationend", removeOverlay, { once: true });
     flashTimer = setTimeout(removeOverlay, ANCHOR_FLASH_MS);
   };
-  const found = root.querySelector<HTMLElement>(selector);
+  const found = resolve();
   if (found) hit(found);
   else {
-    observer = new MutationObserver(() => {
-      const el = root.querySelector<HTMLElement>(selector);
-      if (el) hit(el);
-    });
+    observer = new MutationObserver(() => hit(resolve()));
     observer.observe(root, { childList: true, subtree: true });
     waitTimer = setTimeout(stopWaiting, ANCHOR_WAIT_MS);
   }
@@ -100,6 +112,33 @@ export function scrollToBlock(root: HTMLElement, blockId: string): () => void {
     stopWaiting();
     removeOverlay();
   };
+}
+
+/**
+ * 在 root 內（任何深度——RF4）找 `.bn-block-outer[data-id="<id>"]`（重複 id 取第一個）；找到就 `scrollIntoView({ block: "start" })`
+ * ＋高亮 2 s（ProseMirror 管轄外的浮層，見 `overlayHost`；動畫結束或 2 s 後移除——`prefers-reduced-motion` 沒有動畫，靠計時器）；
+ * 找不到用 MutationObserver 等最多 2 s，仍無 ⇒ 不捲、不報錯（停頂端）。id 已過 BLOCK_ANCHOR_RE，不需要 CSS.escape。
+ * 回傳取消（清 observer 與計時器、移除浮層）；同一篇再要求錨點時呼叫端先取消上一個，所以畫面上最多一個浮層。
+ *
+ * `findText`（#93 PR2，側欄搜尋點片段）：段落標題 `blockId` 就緒後，改捲到**該段落範圍內第一個含 `findText` 的 block**（`findMatchBlock`，
+ * 比對規則與片段標亮同一支）並高亮它；範圍內找不到 ⇒ 照舊停在段落標題。`blockId` 是 `_top`（筆記開頭、沒有標題）時，編輯器掛上後找；
+ * 找不到 ⇒ 捲回頂端。
+ */
+export function scrollToBlock(root: HTMLElement, blockId: string, findText?: string): () => void {
+  const selector = `.bn-block-outer[data-id="${blockId}"]`;
+  if (blockId === TOP_SECTION_ID) {
+    return runScroll(root, () => {
+      if (topUnits(root) === null) return null; // 編輯器還沒掛上
+      const m = findText === undefined ? null : findMatchBlock(root, TOP_SECTION_ID, findText);
+      return m ? { kind: "block", el: m } : { kind: "top" };
+    });
+  }
+  return runScroll(root, () => {
+    const heading = root.querySelector<HTMLElement>(selector);
+    if (!heading) return null;
+    const m = findText === undefined ? null : findMatchBlock(root, blockId, findText);
+    return { kind: "block", el: m ?? heading };
+  });
 }
 
 /**
@@ -157,15 +196,19 @@ export function useBlockAnchor(opts: UseBlockAnchorOptions): BlockAnchorApi {
   ignoreRef.current = opts.ignore ?? false;
   const noteKeyRef = useRef(opts.noteKey);
   noteKeyRef.current = opts.noteKey;
-  const [pending, setPending] = useState<{ noteKey: string; blockId: string } | null>(null);
+  const stateRef = useRef(location.state);
+  stateRef.current = location.state;
+  const [pending, setPending] = useState<{ noteKey: string; blockId: string; findText?: string } | null>(null);
 
   const lastKeyRef = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (opts.noteKey === undefined) return; // 解析中：不設定、不消耗
     if (lastKeyRef.current === opts.noteKey) return;
     lastKeyRef.current = opts.noteKey;
-    const id = ignoreRef.current ? null : blockIdFromHash(hashRef.current);
-    setPending(id === null ? null : { noteKey: opts.noteKey, blockId: id });
+    const findText = ignoreRef.current ? null : findTextFromState(stateRef.current);
+    // 搜尋點到 `_top` 片段的別篇導覽沒有 hash，只有 state：段落＝`_top`。
+    const id = ignoreRef.current ? null : (blockIdFromHash(hashRef.current) ?? (findText === null ? null : TOP_SECTION_ID));
+    setPending(id === null ? null : { noteKey: opts.noteKey, blockId: id, ...(findText === null ? {} : { findText }) });
   }, [opts.noteKey]);
 
   const jobRef = useRef<(() => void) | null>(null);
@@ -173,14 +216,14 @@ export function useBlockAnchor(opts: UseBlockAnchorOptions): BlockAnchorApi {
   useEffect(() => {
     if (pending === null || opts.noteKey === undefined || pending.noteKey !== opts.noteKey || !opts.ready || opts.root === null) return;
     jobRef.current?.();
-    jobRef.current = scrollToBlock(opts.root, pending.blockId);
+    jobRef.current = scrollToBlock(opts.root, pending.blockId, pending.findText);
     setPending(null);
   }, [pending, opts.noteKey, opts.ready, opts.root]);
 
-  const requestAnchor = useCallback((blockId: string) => {
+  const requestAnchor = useCallback((blockId: string, findText?: string) => {
     const key = noteKeyRef.current;
     if (key === undefined || !BLOCK_ANCHOR_RE.test(blockId)) return;
-    setPending({ noteKey: key, blockId });
+    setPending({ noteKey: key, blockId, ...(findText === undefined || findText === "" ? {} : { findText }) });
   }, []);
 
   const rootRef = useRef(opts.root);

@@ -2,9 +2,10 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { ADMIN, createUserViaInvite, loginAs, randomEmail } from "./helpers.js";
 
 /**
- * #93 PR2：側欄搜尋的「內文符合」區（真瀏覽器）。E1 寬螢幕從首頁 Ctrl+K 搜、點片段 → 開筆記並捲到該段、高亮；E1b 巢狀標題（D17：
- * 捲到包住命中的那一段的開頭標題——`#` 下面都是 `##` 時就是那個 `#`）；E2 同篇只捲動、不重載、上一頁回得去；E3／E4 窄螢幕抽屜
- * （別篇／同篇）點片段都關抽屜；E5 版面（兩區共用捲動容器）與「載入更多」。
+ * #93 PR2：側欄搜尋的合併結果列表（真瀏覽器；標題命中與內文命中一個列表、一篇一列，每列第一個片段）。點片段 → 開筆記、捲到該段落範圍內
+ * **第一個含查詢字的 block** 並高亮（閃的是那個 block，不是段落標題；2026-11-03 Willie 回饋）。E1 寬螢幕從首頁 Ctrl+K 搜、點片段；
+ * E1b 巢狀標題（片段的段落標題是 `#` Top，但閃的是 `##` Sub 底下含字的那一行）；E2 同篇只捲動、不重載、上一頁回得去；E3／E4 窄螢幕抽屜
+ * （別篇／同篇）點片段都關抽屜；E5 版面（共用捲動容器）與「載入更多」；E6 別篇、命中在長段落深處。
  *
  * - e2e package 不 import `@knotebook/shared`，網址自組（同 27-site-links 檔頭）。
  * - 每個 test 用自己的新使用者：search 桶每人每分 60 次，與 UI 共用（plan gate M12）；ADMIN 只發邀請。
@@ -67,8 +68,22 @@ async function expectAnchorFlash(page: Page, blockId: string): Promise<void> {
 }
 
 const block = (page: Page, id: string) => page.locator(`.bn-block-outer[data-id="${id}"]`);
+/** 頁面上「自己的文字含 kw」的最內層 block 的 id（等它出現）。命中 block 的 id 由 DOM 讀，不靠 server（server 只記到段落）。 */
+async function matchBlockId(page: Page, kw: string): Promise<string> {
+  const handle = await page.waitForFunction(
+    (k) => {
+      const hit = Array.from(document.querySelectorAll<HTMLElement>(".bn-block-outer[data-id]")).find((o) =>
+        (o.querySelector(":scope > .bn-block > .bn-block-content")?.textContent ?? "").includes(k),
+      );
+      return hit?.getAttribute("data-id") ?? null;
+    },
+    kw,
+    { timeout: 15_000 },
+  );
+  return (await handle.jsonValue()) as string;
+}
 const titleBox = (page: Page) => page.getByRole("textbox", { name: "Note title" });
-const bodyRegion = (scope: Page | Locator) => scope.getByRole("region", { name: "In note text" });
+const bodyRegion = (scope: Page | Locator) => scope.getByRole("region", { name: "Search results" });
 /** 內文區裡某篇的第一個片段連結。 */
 function snippetOf(scope: Page | Locator, href: string): Locator {
   return bodyRegion(scope).locator(`a[href="${href}"]`);
@@ -100,13 +115,16 @@ test("E1＋E2：寬螢幕從首頁 Ctrl+K 搜 → 點片段捲到 Gamma 並高�
   await snippet.click();
   await page.waitForURL((u) => u.pathname === pathOf(a) && u.hash === `#b-${gammaId}`, { timeout: 15_000 });
   await expect(titleBox(page)).toHaveValue(a.title, { timeout: 15_000 });
-  await expectAnchorFlash(page, gammaId);
-  await expect(block(page, gammaId)).toBeInViewport();
+  const hitId = await matchBlockId(page, kw);
+  expect(hitId, "閃的是含字的 block，不是段落標題").not.toBe(gammaId);
+  await expectAnchorFlash(page, hitId);
+  await expect(page.locator(`.kn-anchor-flash[data-anchor-flash="${gammaId}"]`)).toHaveCount(0);
+  await expect(block(page, hitId)).toBeInViewport();
 
   // E2：同篇——先回到沒有 hash 的網址（頁首），再從側欄點同一個片段
   await page.goto(pathOf(a));
   await expect(titleBox(page)).toHaveValue(a.title, { timeout: 15_000 });
-  await expect(block(page, gammaId)).not.toBeInViewport();
+  await expect(block(page, hitId)).not.toBeInViewport();
   await page.evaluate(() => {
     (window as unknown as { __kbMarker?: number }).__kbMarker = 1;
   });
@@ -116,15 +134,15 @@ test("E1＋E2：寬螢幕從首頁 Ctrl+K 搜 → 點片段捲到 Gamma 並高�
   await expect(same).toBeVisible({ timeout: 15_000 });
   await same.click();
   await page.waitForURL((u) => u.pathname === pathOf(a) && u.hash === `#b-${gammaId}`, { timeout: 10_000 });
-  await expect(block(page, gammaId)).toBeInViewport({ timeout: 5_000 });
-  await expectAnchorFlash(page, gammaId);
+  await expect(block(page, hitId)).toBeInViewport({ timeout: 5_000 });
+  await expectAnchorFlash(page, hitId);
   expect(await page.evaluate(() => (window as unknown as { __kbMarker?: number }).__kbMarker)).toBe(1);
   await page.goBack();
   await page.waitForURL((u) => u.pathname === pathOf(a) && u.hash === "", { timeout: 10_000 });
   expect(await page.evaluate(() => (window as unknown as { __kbMarker?: number }).__kbMarker)).toBe(1);
 });
 
-test("E1b 巢狀標題（D17）：# Top 底下都是 ##——片段的段落標題是 Top、點了捲到 Top", async ({ page }) => {
+test("E1b 巢狀標題：# Top 底下都是 ##——片段的段落標題是 Top，但點了閃的是 ## Sub 底下含字的那一行", async ({ page }) => {
   test.setTimeout(120_000);
   await asNewUser(page, "E2E Fulltext E1b");
   const stamp = Date.now();
@@ -144,12 +162,15 @@ test("E1b 巢狀標題（D17）：# Top 底下都是 ##——片段的段落標�
   await snippet.click();
   await page.waitForURL((u) => u.pathname === pathOf(c) && u.hash === `#b-${topId}`, { timeout: 15_000 });
   await expect(titleBox(page)).toHaveValue(c.title, { timeout: 15_000 });
-  await expectAnchorFlash(page, topId);
-  await expect(block(page, topId)).toContainText("Top");
-  await expect(block(page, topId)).toBeInViewport();
+  const hitId = await matchBlockId(page, kx);
+  expect(hitId).not.toBe(topId);
+  await expectAnchorFlash(page, hitId);
+  await expect(block(page, hitId)).toContainText(kx);
+  await expect(block(page, hitId)).toBeInViewport();
+  await expect(page.locator(`.kn-anchor-flash[data-anchor-flash="${topId}"]`)).toHaveCount(0);
 });
 
-test("E3＋E4 窄螢幕抽屜：別篇與同篇的片段點了都關抽屜、捲到 Gamma", async ({ page }) => {
+test("E3＋E4 窄螢幕抽屜：別篇與同篇的片段點了都關抽屜、捲到含字的 block", async ({ page }) => {
   test.setTimeout(120_000);
   await page.setViewportSize({ width: 390, height: 844 });
   await asNewUser(page, "E2E Fulltext E3");
@@ -177,18 +198,22 @@ test("E3＋E4 窄螢幕抽屜：別篇與同篇的片段點了都關抽屜、捲
   await expect(page.getByRole("dialog", { name: "Navigation" })).toHaveCount(0);
   await page.waitForURL((u) => u.pathname === pathOf(a) && u.hash === `#b-${gammaId}`, { timeout: 15_000 });
   await expect(titleBox(page)).toHaveValue(a.title, { timeout: 15_000 });
-  await expect(block(page, gammaId)).toBeInViewport({ timeout: 15_000 });
+  const hitId = await matchBlockId(page, kw);
+  expect(hitId).not.toBe(gammaId);
+  await expect(block(page, hitId)).toBeInViewport({ timeout: 15_000 });
+  await expectAnchorFlash(page, hitId);
 
   // E4：在 A 頁面（頁首），點 A 自己的片段——pathname 不變，抽屜照樣關
   await page.goto(pathOf(a));
   await expect(titleBox(page)).toHaveValue(a.title, { timeout: 15_000 });
-  await expect(block(page, gammaId)).not.toBeInViewport();
+  await expect(block(page, hitId)).not.toBeInViewport();
   await (await searchInDrawer()).click();
   await expect(page.getByRole("dialog", { name: "Navigation" })).toHaveCount(0);
-  await expect(block(page, gammaId)).toBeInViewport({ timeout: 15_000 });
+  await expect(block(page, hitId)).toBeInViewport({ timeout: 15_000 });
+  await expectAnchorFlash(page, hitId);
 });
 
-test("E5 版面與載入更多：22 篇標題命中在上；捲到底內文區 20 篇＋載入更多 → 22 篇、鈕消失；點最後一篇的片段導過去", async ({ page }) => {
+test("E5 版面與載入更多：22 篇標題命中在上；捲到底：22＋20 列＋載入更多 → 44 列、鈕消失；點最後一篇的片段導過去", async ({ page }) => {
   test.setTimeout(180_000);
   await asNewUser(page, "E2E Fulltext E5");
   const stamp = Date.now();
@@ -211,16 +236,18 @@ test("E5 版面與載入更多：22 篇標題命中在上；捲到底內文區 2
   const sidebar = page.getByRole("complementary");
   await sidebar.getByRole("textbox", { name: "Search notes" }).fill(ky);
   const results = sidebar.getByTestId("sidebar-search");
-  await expect(results.getByRole("status")).toHaveText("22 title matches", { timeout: 15_000 });
   const region = bodyRegion(sidebar);
-  const hits = region.getByTestId("body-hit");
-  await expect(hits).toHaveCount(20, { timeout: 15_000 });
-  // 兩區共用一個捲動容器：捲到底，內文區看得到、按得到。
+  const hits = region.getByTestId("search-hit");
+  // 合併列表：22 篇標題命中在前，加第一頁 20 篇只中內文的；篇數是合併後的（已載入）篇數。
+  await expect(results.getByRole("status")).toHaveText("42 notes loaded, more available", { timeout: 15_000 });
+  await expect(hits).toHaveCount(42, { timeout: 15_000 });
+  // 整個列表一個捲動容器：捲到底，「載入更多」看得到、按得到。
   await region.evaluate((el) => el.closest(".overflow-y-auto")!.scrollTo({ top: 1e6 }));
   const more = region.getByRole("button", { name: "Load more" });
   await expect(more).toBeInViewport();
   await more.click();
-  await expect(hits).toHaveCount(22, { timeout: 15_000 });
+  await expect(hits).toHaveCount(44, { timeout: 15_000 });
+  await expect(results.getByRole("status")).toHaveText("44 notes found");
   await expect(more).toHaveCount(0);
   const last = hits.last().getByTestId("body-match");
   await last.scrollIntoViewIfNeeded();
@@ -231,4 +258,121 @@ test("E5 版面與載入更多：22 篇標題命中在上；捲到底內文區 2
   await last.click();
   await page.waitForURL((u) => u.pathname === pathOf(lastNote!), { timeout: 15_000 });
   await expect(titleBox(page)).toHaveValue(lastNote!.title, { timeout: 15_000 });
+});
+
+test("E6 別篇、命中在長段落深處：點片段 → 含字的 block 進視窗並閃、段落標題不閃", async ({ page }) => {
+  test.setTimeout(120_000);
+  await asNewUser(page, "E2E Fulltext E6");
+  const stamp = Date.now();
+  const kz = `kz${stamp}`;
+  const md = `## Long\n\n${filler("long", 60)}\n\ndeep inside ${kz} here\n\n${filler("tail", 40)}\n`;
+  const a = await createNoteViaApi(page, `E2E ft L ${stamp}`, md);
+  const b = await createNoteViaApi(page, `E2E ft M ${stamp}`);
+  const hit = await waitIndexed(page, kz, a.id);
+  expect(hit.heading).toBe("Long");
+
+  // 別篇：開著 B，從側欄點 A 的片段（navigate＋state，不帶查詢字進網址）
+  await page.goto(pathOf(b));
+  await expect(titleBox(page)).toHaveValue(b.title, { timeout: 15_000 });
+  const sidebar = page.getByRole("complementary");
+  await sidebar.getByRole("textbox", { name: "Search notes" }).fill(kz);
+  const snippet = snippetOf(sidebar, `${pathOf(a)}#b-${hit.sectionId}`);
+  await expect(snippet).toBeVisible({ timeout: 15_000 });
+  await snippet.click();
+  await page.waitForURL((u) => u.pathname === pathOf(a) && u.hash === `#b-${hit.sectionId}`, { timeout: 15_000 });
+  expect(page.url()).not.toContain(kz);
+  await expect(titleBox(page)).toHaveValue(a.title, { timeout: 15_000 });
+  const hitId = await matchBlockId(page, kz);
+  expect(hitId).not.toBe(hit.sectionId);
+  await expectAnchorFlash(page, hitId);
+  await expect(block(page, hitId)).toBeInViewport();
+  await expect(block(page, hit.sectionId)).not.toBeInViewport();
+  await expect(page.locator(`.kn-anchor-flash[data-anchor-flash="${hit.sectionId}"]`)).toHaveCount(0);
+
+  // 重新整理：navigation state 留在 history entry 裡 → 與 `#b-` 一樣會再跳一次（known-limitations 的句子以此為準）
+  await page.reload();
+  await expect(titleBox(page)).toBeVisible({ timeout: 15_000 });
+  await expect(titleBox(page)).toHaveValue(a.title, { timeout: 15_000 });
+  await expectAnchorFlash(page, hitId);
+});
+
+test("E7 表格格子：命中回表格那顆 block 並閃（格子是 <td><p>，沒有 .bn-inline-content）", async ({ page }) => {
+  test.setTimeout(120_000);
+  await asNewUser(page, "E2E Fulltext E7");
+  const stamp = Date.now();
+  const kt = `kt${stamp}`;
+  const md = `## Sec
+
+${filler("sec", 20)}
+
+| col a | col b |
+| --- | --- |
+| plain | ${kt} |
+
+${filler("mid", 20)}
+`;
+  const a = await createNoteViaApi(page, `E2E ft T ${stamp}`, md);
+  const hit = await waitIndexed(page, kt, a.id);
+  const idOfType = async (type: string) =>
+    page.locator(`.bn-block-outer:has(> .bn-block > .bn-block-content[data-content-type="${type}"])`).first().getAttribute("data-id");
+
+  await page.goto("/");
+  const sidebar = page.getByRole("complementary");
+  const search = sidebar.getByRole("textbox", { name: "Search notes" });
+  await search.fill(kt);
+  const snippet = snippetOf(sidebar, `${pathOf(a)}#b-${hit.sectionId}`);
+  await expect(snippet).toBeVisible({ timeout: 15_000 });
+  await snippet.click();
+  await expect(titleBox(page)).toHaveValue(a.title, { timeout: 15_000 });
+  const tableId = await idOfType("table");
+  expect(tableId).not.toBeNull();
+  await expectAnchorFlash(page, tableId!);
+  await expect(block(page, tableId!)).toBeInViewport();
+});
+
+test("E8 命中在收合的 toggle 子項：閃的是 toggle 那顆（子項被藏起來），而且在視窗內", async ({ page }) => {
+  test.setTimeout(120_000);
+  await asNewUser(page, "E2E Fulltext E8");
+  const stamp = Date.now();
+  const kg = `kg${stamp}`;
+  const a = await createNoteViaApi(page, `E2E ft G ${stamp}`, `## Sec
+
+${filler("sec", 25)}
+
+last paragraph
+`);
+  await page.goto(pathOf(a));
+  await expect(titleBox(page)).toHaveValue(a.title, { timeout: 15_000 });
+  // 在最後一段後面用 UI 打一個 toggle 加一個子項（"> " 輸入規則）
+  await page.getByText("last paragraph").click();
+  await page.keyboard.press("End");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("/toggle list");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("toggle parent");
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Tab");
+  await page.keyboard.type(`child ${kg}`);
+  const hit = await waitIndexed(page, kg, a.id);
+
+  await page.goto("/");
+  await page.goto(pathOf(a));
+  await expect(titleBox(page)).toHaveValue(a.title, { timeout: 15_000 });
+  // 父 toggle（輸入子項時它展開）：按它的箭頭收合，子項被藏起來。
+  const parent = page.locator(".bn-block-outer:has(> .bn-block > .bn-block-content .bn-toggle-wrapper)").first();
+  const toggleId = await parent.getAttribute("data-id");
+  expect(toggleId).not.toBeNull();
+  await parent.locator("> .bn-block > .bn-block-content .bn-toggle-button").click();
+  await expect(parent.locator('> .bn-block > .bn-block-content .bn-toggle-wrapper')).toHaveAttribute("data-show-children", "false");
+  await expect(page.locator(".bn-block-outer", { hasText: `child ${kg}` }).last()).toBeHidden();
+  await page.evaluate(() => document.querySelector(".overflow-y-auto")?.scrollTo({ top: 0 }));
+
+  const sidebar = page.getByRole("complementary");
+  await sidebar.getByRole("textbox", { name: "Search notes" }).fill(kg);
+  const snippet = snippetOf(sidebar, `${pathOf(a)}#b-${hit.sectionId}`);
+  await expect(snippet).toBeVisible({ timeout: 15_000 });
+  await snippet.click();
+  await expectAnchorFlash(page, toggleId!);
+  await expect(block(page, toggleId!)).toBeInViewport();
+  await expect(page.locator(".bn-block-outer", { hasText: `child ${kg}` }).last()).toBeHidden();
 });
