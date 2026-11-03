@@ -515,7 +515,8 @@ describe("SidebarFooter — 垃圾桶選取模式的動作列", () => {
     fireEvent.click(shellBox(1, "p1"));
     const restore = barButton(1, "Restore");
     restore.focus();
-    fireEvent.keyDown(restore, { key: "Escape" });
+    // M2：這一下 Esc 只結束選取——preventDefault（fireEvent 回 false），搜尋標記的 Esc 監聽看到 defaultPrevented 就讓路
+    expect(fireEvent.keyDown(restore, { key: "Escape" })).toBe(false);
 
     expect(within(shell(1)).queryByRole("button", { name: "Restore" })).toBeNull();
     expect(within(shell(1)).getByTestId("trash-footer")).toBeInTheDocument();

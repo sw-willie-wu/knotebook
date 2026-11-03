@@ -103,6 +103,8 @@ describe("AppShell — new note", () => {
         if (url === "/api/notes" && method === "GET") {
           return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
         }
+        // #93 PR2：搜尋字 ≥ 2 個字時側欄內文區會打 /api/search（回空）。
+        if (url.startsWith("/api/search?")) return Promise.resolve(new Response(JSON.stringify({ hits: [], nextCursor: null }), { status: 200, headers: { "Content-Type": "application/json" } }));
         throw new Error(`unexpected fetch: ${method} ${url}`);
       }),
     );
@@ -166,6 +168,8 @@ describe("AppShell — new note", () => {
         if (url === "/api/notes" && method === "GET") {
           return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([CREATED]) }));
         }
+        // #93 PR2：搜尋字 ≥ 2 個字時側欄內文區會打 /api/search（回空）。
+        if (url.startsWith("/api/search?")) return Promise.resolve(new Response(JSON.stringify({ hits: [], nextCursor: null }), { status: 200, headers: { "Content-Type": "application/json" } }));
         throw new Error(`unexpected fetch: ${method} ${url}`);
       }),
     );
@@ -302,6 +306,8 @@ describe("AppShell — search box & Ctrl/Cmd+K", () => {
         if (url === "/api/notes" && method === "GET") {
           return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(notes) }));
         }
+        // #93 PR2：搜尋字 ≥ 2 個字時側欄內文區會打 /api/search（回空）。
+        if (url.startsWith("/api/search?")) return Promise.resolve(new Response(JSON.stringify({ hits: [], nextCursor: null }), { status: 200, headers: { "Content-Type": "application/json" } }));
         throw new Error(`unexpected fetch: ${method} ${url}`);
       }),
     );
@@ -598,6 +604,8 @@ describe("AppShell — #115 側欄抽屜", () => {
         if (url === "/api/notes" && method === "GET") {
           return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(notes) }));
         }
+        // #93 PR2：搜尋字 ≥ 2 個字時側欄內文區會打 /api/search（回空）。
+        if (url.startsWith("/api/search?")) return Promise.resolve(new Response(JSON.stringify({ hits: [], nextCursor: null }), { status: 200, headers: { "Content-Type": "application/json" } }));
         throw new Error(`unexpected fetch: ${method} ${url}`);
       }),
     );
@@ -795,6 +803,8 @@ describe("AppShell — 在資料夾建立筆記", () => {
         if (url === "/api/notes" && method === "GET") return Promise.resolve(json([]));
         if (url === "/api/groups" && method === "GET") return Promise.resolve(json([G]));
         if (url === "/api/auth/me") return Promise.resolve(json(USER));
+        // #93 PR2：搜尋字 ≥ 2 個字時側欄內文區會打 /api/search（回空）。
+        if (url.startsWith("/api/search?")) return Promise.resolve(new Response(JSON.stringify({ hits: [], nextCursor: null }), { status: 200, headers: { "Content-Type": "application/json" } }));
         throw new Error(`unexpected fetch: ${method} ${url}`);
       }),
     );

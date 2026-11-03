@@ -24,6 +24,7 @@ import { noteVersionsRoutes } from "./routes/note-versions.js";
 import { trashRoutes } from "./routes/trash.js";
 import { foldersRoutes } from "./routes/folders.js";
 import { groupsRoutes } from "./routes/groups.js";
+import { searchRoutes } from "./routes/search.js";
 import { usersRoutes } from "./routes/users.js";
 import type { WriteNoteLinksHooks } from "./notes/links.js";
 import type { SlugPatchTestHook } from "./notes/tx/patch-slug.js";
@@ -878,6 +879,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   void app.register(groupsRoutes({ db: deps.db, collabHooks: deps.collabHooks, groupTestHook: deps.groupTestHook, uploadsDir: deps.uploadsDir, storageLockTimeoutMs, versions }));
   // 加成員／分享對話框的「認識的人」建議（session-only，見 routes/users.ts 檔頭）。
   void app.register(usersRoutes({ db: deps.db, limiters: { userSuggest: limiters.userSuggest } }));
+  void app.register(searchRoutes({ db: deps.db, limiters: { search: limiters.search } }));
   void app.register(adminUsersRoutes({ db: deps.db, gate: deps.gate, collabHooks: deps.collabHooks, adminTestHook: deps.adminTestHook }));
   // #286：管理員替使用者產生／取消一次性重設密碼連結（spec §4.2）。
   void app.register(adminPasswordResetRoutes({ db: deps.db, config: deps.config }));

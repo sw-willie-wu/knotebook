@@ -251,3 +251,191 @@ describe("回填前只中標題（description 的 after-an-upgrade 句的守衛�
     expect(r.rows[0]!.bodyHit).toBe(true);
   });
 });
+
+// ─── #93 PR2 T1：bodyOnly（D3）與 keyset 分頁（D12） ───────────────────────────────────────────────
+
+/** 微秒精度直設 updated_at（`at()` 走 JS Date，只有毫秒）。 */
+const atUs = (db: Db, id: string, iso: string) => db.execute(sql`update notes set updated_at = ${iso}::timestamptz where id = ${id}::uuid`);
+type PageKey = { rank: number; updatedAtKey: string; id: string };
+const keyOf = (row: { rank: number; updatedAtKey?: string; id: string }): PageKey => {
+  if (row.updatedAtKey === undefined) throw new Error("page 模式的列沒有 updatedAtKey");
+  return { rank: row.rank, updatedAtKey: row.updatedAtKey, id: row.id };
+};
+/** 一頁：回這頁的 id 與下一個 key（沒有下一頁＝null）。 */
+async function onePage(db: Db, userId: string, query: string, limit: number, after: PageKey | null, bodyOnly?: boolean) {
+  const r = await searchNotesForUser(db, { userId, query, limit, ...(bodyOnly !== undefined ? { bodyOnly } : {}), page: { after } });
+  const page = r.rows.slice(0, limit);
+  return { ids: page.map(x => x.id), next: r.rows.length > limit ? keyOf(page.at(-1)!) : null };
+}
+/** 從 after 一路翻到底（每頁取第 limit 列做下一個 key）。 */
+async function pageAll(db: Db, userId: string, query: string, limit: number, bodyOnly?: boolean, after: PageKey | null = null): Promise<string[]> {
+  const out: string[] = [];
+  for (let i = 0; i < 100; i += 1) {
+    const p = await onePage(db, userId, query, limit, after, bodyOnly);
+    out.push(...p.ids);
+    if (p.next === null) return out;
+    after = p.next;
+  }
+  throw new Error("pageAll：翻超過 100 頁");
+}
+const P = [{ id: "p", text: "nothing here" }];
+
+describe("Q bodyOnly 與 keyset 分頁（#93 PR2）", () => {
+  it("Q1 bodyOnly：只中標題／兩者／只中內文 → 回後兩篇、both 在前；不帶 → 三篇", async () => {
+    const { db } = await freshDb();
+    const u = await seedUser(db);
+    const t = await seedIndexedNote(db, { ownerId: u.id }, "zq1 title", P);
+    const both = await seedIndexedNote(db, { ownerId: u.id }, "zq1 both", [{ id: "p", text: "has zq1" }]);
+    const body = await seedIndexedNote(db, { ownerId: u.id }, "plain", [{ id: "p", text: "has zq1" }]);
+    const r = await searchNotesForUser(db, { userId: u.id, query: "zq1", limit: 20, bodyOnly: true });
+    expect(idsOf(r)).toEqual([both.id, body.id]);
+    expect(new Set(idsOf(await search(db, u.id, "zq1")))).toEqual(new Set([t.id, both.id, body.id]));
+  });
+
+  it("Q2 擠出問題：25 篇只中標題＋1 篇只中內文、limit 20、bodyOnly → 回那 1 篇", async () => {
+    const { db } = await freshDb();
+    const u = await seedUser(db);
+    for (let i = 0; i < 25; i += 1) await seedIndexedNote(db, { ownerId: u.id }, `zq2 t${i}`, P);
+    const body = await seedIndexedNote(db, { ownerId: u.id }, "plain", [{ id: "p", text: "zq2 inside" }]);
+    const r = await searchNotesForUser(db, { userId: u.id, query: "zq2", limit: 20, bodyOnly: true });
+    expect(idsOf(r)).toEqual([body.id]);
+  });
+
+  it("Q3 翻頁不重複不漏：3 篇同 rank 同微秒（id 決勝）＋較小 rank＋較大 rank", async () => {
+    const { db } = await freshDb();
+    const u = await seedUser(db);
+    await seedIndexedNote(db, { ownerId: u.id }, "zq3", P); // rank 0
+    const ties = [];
+    for (let i = 0; i < 3; i += 1) ties.push(await seedIndexedNote(db, { ownerId: u.id }, `a zq3 ${i}`, P)); // rank 2
+    await seedIndexedNote(db, { ownerId: u.id }, "plain", [{ id: "p", text: "zq3" }]); // rank 3
+    for (const n of ties) await atUs(db, n.id, "2026-01-01T00:00:00.123456Z");
+    const all = await pageAll(db, u.id, "zq3", 50);
+    expect(all.length).toBe(5);
+    const paged = await pageAll(db, u.id, "zq3", 1);
+    expect(paged).toEqual(all);
+    expect(new Set(paged).size).toBe(5);
+  });
+
+  it("Q4 同毫秒不同微秒：兩頁各一篇、都拿得到", async () => {
+    const { db } = await freshDb();
+    const u = await seedUser(db);
+    const a = await seedIndexedNote(db, { ownerId: u.id }, "plain a", [{ id: "p", text: "zq4" }]);
+    const b = await seedIndexedNote(db, { ownerId: u.id }, "plain b", [{ id: "p", text: "zq4" }]);
+    await atUs(db, a.id, "2026-01-01T00:00:00.123456Z");
+    await atUs(db, b.id, "2026-01-01T00:00:00.123455Z");
+    const first = await onePage(db, u.id, "zq4", 1, null);
+    expect(first.ids).toEqual([a.id]);
+    expect(first.next?.updatedAtKey).toBe("2026-01-01T00:00:00.123456Z");
+    expect(await pageAll(db, u.id, "zq4", 1)).toEqual([a.id, b.id]);
+  });
+
+  it("Q5 跨 rank 邊界（bodyOnly）：2 篇 both＋2 篇只中內文、limit 1 翻 4 頁 → 順序同一次取", async () => {
+    const { db } = await freshDb();
+    const u = await seedUser(db);
+    await seedIndexedNote(db, { ownerId: u.id }, "zq5", [{ id: "p", text: "zq5" }]); // rank 0
+    await seedIndexedNote(db, { ownerId: u.id }, "x zq5", [{ id: "p", text: "zq5" }]); // rank 2
+    await seedIndexedNote(db, { ownerId: u.id }, "plain 1", [{ id: "p", text: "zq5" }]);
+    await seedIndexedNote(db, { ownerId: u.id }, "plain 2", [{ id: "p", text: "zq5" }]);
+    await seedIndexedNote(db, { ownerId: u.id }, "zq5 title only", P); // bodyOnly 下不出現
+    const all = await pageAll(db, u.id, "zq5", 50, true);
+    expect(all.length).toBe(4);
+    expect(await pageAll(db, u.id, "zq5", 1, true)).toEqual(all);
+  });
+
+  it("Q6 與可見性交互：A 的游標給 B；翻頁間撤銷分享；owned／shared／grouped 同 updated_at 各一頁", async () => {
+    const { db } = await freshDb();
+    const [a, b] = await Promise.all([seedUser(db), seedUser(db)]);
+    const body = [{ id: "p", text: "zq6" }];
+    const aOwn = await seedIndexedNote(db, { ownerId: a.id }, "a own", body);
+    const shared = await seedIndexedNote(db, { ownerId: a.id }, "shared", body);
+    const bOld = await seedIndexedNote(db, { ownerId: b.id }, "b old", body);
+    await seedShare(db, shared.id, b.id, "viewer");
+    await atUs(db, aOwn.id, "2026-03-01T00:00:00.000003Z");
+    await atUs(db, shared.id, "2026-03-01T00:00:00.000002Z");
+    await atUs(db, bOld.id, "2026-03-01T00:00:00.000001Z");
+    // A 的第一頁游標拿給 B：只回 B 看得到、排在 key 之後的列，沒有錯誤。
+    const aFirst = await onePage(db, a.id, "zq6", 1, null);
+    expect(aFirst.ids).toEqual([aOwn.id]);
+    expect(await pageAll(db, b.id, "zq6", 1, undefined, aFirst.next)).toEqual([shared.id, bOld.id]);
+
+    // B 自己翻：第一頁後撤銷還沒拿到的那篇的分享 → 後續頁不含它、其餘照常。
+    const bNew = await seedIndexedNote(db, { ownerId: b.id }, "b new", body);
+    await atUs(db, bNew.id, "2026-03-01T00:00:00.000009Z");
+    const bFirst = await onePage(db, b.id, "zq6", 1, null);
+    expect(bFirst.ids).toEqual([bNew.id]);
+    await db.delete(noteShares).where(and(eq(noteShares.noteId, shared.id), eq(noteShares.userId, b.id)));
+    expect(await pageAll(db, b.id, "zq6", 1, undefined, bFirst.next)).toEqual([bOld.id]);
+
+    // owned／shared／grouped 三支各一篇、updated_at 相同 → 三頁各一篇、無重複。
+    const { db: db2 } = await freshDb();
+    const [x, y] = await Promise.all([seedUser(db2), seedUser(db2)]);
+    const g = await seedGroup(db2, "G", [{ userId: x.id, role: "admin" }, { userId: y.id, role: "member" }]);
+    const own = await seedIndexedNote(db2, { ownerId: y.id }, "own", body);
+    const sh = await seedIndexedNote(db2, { ownerId: x.id }, "sh", body);
+    await seedShare(db2, sh.id, y.id, "editor");
+    const gr = await seedIndexedNote(db2, { groupId: g.id }, "gr", body);
+    for (const n of [own, sh, gr]) await atUs(db2, n.id, "2026-04-01T00:00:00.000500Z");
+    const paged = await pageAll(db2, y.id, "zq6", 1);
+    expect(paged).toEqual(await pageAll(db2, y.id, "zq6", 50));
+    expect(new Set(paged)).toEqual(new Set([own.id, sh.id, gr.id]));
+    expect(paged.length).toBe(3);
+  });
+
+  it("Q8 旁觀者：沒命中的最舊筆記從不出現；bodyOnly 下同 rank、較舊的只中標題筆記也不出現", async () => {
+    const { db } = await freshDb();
+    const u = await seedUser(db);
+    const both = await seedIndexedNote(db, { ownerId: u.id }, "x zq8 y", [{ id: "p", text: "zq8" }]); // rank 2
+    const titleOnly = await seedIndexedNote(db, { ownerId: u.id }, "a zq8 b", P); // rank 2
+    const bodyN = await seedIndexedNote(db, { ownerId: u.id }, "plain", [{ id: "p", text: "zq8" }]); // rank 3
+    const none = await seedIndexedNote(db, { ownerId: u.id }, "nothing", P); // 沒命中（CASE 落到 3）
+    await atUs(db, both.id, "2026-05-01T00:00:00.000005Z");
+    await atUs(db, titleOnly.id, "2026-05-01T00:00:00.000004Z");
+    await atUs(db, bodyN.id, "2026-05-01T00:00:00.000003Z");
+    await atUs(db, none.id, "2026-05-01T00:00:00.000001Z");
+    expect(await pageAll(db, u.id, "zq8", 1)).toEqual([both.id, titleOnly.id, bodyN.id]);
+    expect(await pageAll(db, u.id, "zq8", 1, true)).toEqual([both.id, bodyN.id]);
+  });
+
+  it("Q7 游標的錨點消失或變動：錨點進垃圾桶仍接得上；未拿到的被推到最新 → 漏；已拿到的改名變大 rank → 再出現一次", async () => {
+    const body = [{ id: "p", text: "zq7" }];
+    // 錨點進垃圾桶：keyset 只看值。
+    const { db } = await freshDb();
+    const u = await seedUser(db);
+    const n3 = await seedIndexedNote(db, { ownerId: u.id }, "p3", body);
+    const n2 = await seedIndexedNote(db, { ownerId: u.id }, "p2", body);
+    const n1 = await seedIndexedNote(db, { ownerId: u.id }, "p1", body);
+    await atUs(db, n3.id, "2026-06-01T00:00:00.000003Z");
+    await atUs(db, n2.id, "2026-06-01T00:00:00.000002Z");
+    await atUs(db, n1.id, "2026-06-01T00:00:00.000001Z");
+    const first = await onePage(db, u.id, "zq7", 1, null);
+    expect(first.ids).toEqual([n3.id]);
+    await db.execute(sql`update notes set deleted_at = now() where id = ${n3.id}::uuid`);
+    expect(await pageAll(db, u.id, "zq7", 1, undefined, first.next)).toEqual([n2.id, n1.id]);
+
+    // 還沒拿到的被推到最新 → 後續頁不會出現（已知會漏，文件寫明；web 不補）。
+    const { db: db2 } = await freshDb();
+    const v = await seedUser(db2);
+    const m3 = await seedIndexedNote(db2, { ownerId: v.id }, "m3", body);
+    const m2 = await seedIndexedNote(db2, { ownerId: v.id }, "m2", body);
+    const m1 = await seedIndexedNote(db2, { ownerId: v.id }, "m1", body);
+    await atUs(db2, m3.id, "2026-06-01T00:00:00.000003Z");
+    await atUs(db2, m2.id, "2026-06-01T00:00:00.000002Z");
+    await atUs(db2, m1.id, "2026-06-01T00:00:00.000001Z");
+    const f2 = await onePage(db2, v.id, "zq7", 1, null);
+    expect(f2.ids).toEqual([m3.id]);
+    await atUs(db2, m1.id, "2026-06-02T00:00:00.000000Z");
+    expect(await pageAll(db2, v.id, "zq7", 1, undefined, f2.next)).toEqual([m2.id]);
+
+    // 已拿到的改名、rank 變大（0 → 3）→ 在後續頁再出現一次（web 端以 id 去重）。
+    const { db: db3 } = await freshDb();
+    const w = await seedUser(db3);
+    const exact = await seedIndexedNote(db3, { ownerId: w.id }, "zq7", body); // rank 0
+    const other = await seedIndexedNote(db3, { ownerId: w.id }, "plain", body); // rank 3
+    await atUs(db3, exact.id, "2026-06-01T00:00:00.000002Z");
+    await atUs(db3, other.id, "2026-06-01T00:00:00.000001Z");
+    const f3 = await onePage(db3, w.id, "zq7", 1, null);
+    expect(f3.ids).toEqual([exact.id]);
+    await db3.update(notes).set({ title: "renamed" }).where(eq(notes.id, exact.id));
+    expect(await pageAll(db3, w.id, "zq7", 1, undefined, f3.next)).toEqual([exact.id, other.id]);
+  });
+});

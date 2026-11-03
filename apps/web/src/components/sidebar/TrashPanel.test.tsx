@@ -872,7 +872,8 @@ describe("TrashPanel（選取模式）", () => {
   it("SM6 Esc：回平常標題列、勾選框消失、焦點在 Select", async () => {
     await renderSelecting();
     fireEvent.click(checkbox("p1"));
-    fireEvent.keyDown(checkbox("p1"), { key: "Escape" });
+    // M2：這一下 Esc 只結束選取——preventDefault（fireEvent 回 false），搜尋標記的 Esc 監聽看到 defaultPrevented 就讓路
+    expect(fireEvent.keyDown(checkbox("p1"), { key: "Escape" })).toBe(false);
     const select = within(header()).getByRole("button", { name: "Select" });
     expect(select).toHaveFocus();
     expect(within(panel()).queryAllByRole("checkbox")).toHaveLength(0);
