@@ -7,7 +7,7 @@
  * - matrix：擬真混合筆記（同 `transfer-export.bench.ts` 的 `mixed`）20／200／1 000／2 000 顆 × 1／5／20 區 × 冷／熱 × 有無衝突；
  *   每格 RUNS 次。一次＝下載（不計時）→（有衝突時先由「人」改掉第一區的那顆）→ 計時 `PUT /api/transfer/notes`（`app.inject`：
  *   含路由、讀檔、可見性查詢、log，不含網路）。`transferWrite`／`tokenRead`／`contentRead` 換成不限流的實例（量耗時，不是量桶；
- *   不改任何常數）。分段時間用既有的 `editingTestHooks`（`beforeCut`／`beforeMerge`／`beforeRecord`／`afterRecord`）打點，
+ *   不改任何常數）。分段時間用既有的 `editingTestHooks`（`beforeMerge`／`beforeRecord`／`afterRecord`）打點（第三輪：寫回不再存版，`beforeCut` 已刪；「有衝突」那幾格現在量的是 409 note_changed 的路徑），
  *   不改 src。
  * - http：規則格（1 000 顆、5 區、熱、有衝突）走真 HTTP（`node:http`）。
  * - sustained：同一使用者每 2 s 一發、連續 180 s 寫回 1 000 顆、5 區、熱、有衝突的筆記，`transferWrite` 用預設值（30／60 s）；
@@ -106,15 +106,13 @@ async function measured<T>(fn: () => Promise<T>) {
   return { r, t0, t1, ms: t1 - t0, maxGap, maxGapEnd, p99: h.percentile(99) / 1e6, elu };
 }
 
-/** 停頓結束時刻落在哪一段（請求開始 → beforeCut → beforeMerge → beforeRecord → afterRecord → 回應）。 */
+/** 停頓結束時刻落在哪一段（請求開始 → beforeMerge → beforeRecord → afterRecord → 回應）。 */
 function phaseOf(t: number, t0: number, t1: number): string {
   const pts = [{ name: "start", t: t0 }, ...marks, { name: "end", t: t1 }];
   for (let i = 0; i < pts.length - 1; i++) if (t >= pts[i]!.t && t <= pts[i + 1]!.t) return `${pts[i]!.name}→${pts[i + 1]!.name}`;
   return "outside";
 }
 const PHASE_LABEL: Record<string, string> = {
-  "start→beforeCut": "查基底＋規劃（含 scratch mount）",
-  "beforeCut→beforeMerge": "存版＋mount fork＋套用",
   "start→beforeMerge": "查基底＋規劃＋mount fork＋套用",
   "beforeMerge→beforeRecord": "合併（mergeDiff）",
   "beforeRecord→afterRecord": "紀錄交易",
@@ -131,7 +129,7 @@ interface Scene {
 async function makeScene(opts: Parameters<typeof buildCollabTestApp>[0]): Promise<Scene> {
   const ctx = await buildCollabTestApp({
     ...opts,
-    editingTestHooks: { beforeCut: mark("beforeCut"), beforeMerge: mark("beforeMerge"), beforeRecord: mark("beforeRecord"), afterRecord: mark("afterRecord") },
+    editingTestHooks: { beforeMerge: mark("beforeMerge"), beforeRecord: mark("beforeRecord"), afterRecord: mark("afterRecord") },
   });
   const email = `bench-${Math.random().toString(36).slice(2)}@example.com`;
   const u = await ctx.createUser({ email, password: "correct-horse-battery" });

@@ -62,6 +62,24 @@ describe("sanitizeSegment 規則 1：非法字元 → _", () => {
   ])("%j → %j", (raw, want) => {
     expect(sanitizeSegment(raw)).toBe(want);
   });
+  it("N1（8000 探索測試）shell 在雙引號內仍會展開的 `$`、反引號、`!` → _；標題與資料夾名都是", () => {
+    const shell = ["$", "`", "!"];
+    for (const raw of ["$(touch x)", "`id`", "$HOME", "a!b", "${PATH}", "$(echo PWNED>>pwned.txt)"]) {
+      for (const out of [sanitizeSegment(raw), sanitizeTitle(raw)]) for (const c of shell) expect(out, `${raw} → ${out}`).not.toContain(c);
+    }
+    expect(sanitizeTitle("$(touch x)")).toBe("_(touch x)");
+    expect(sanitizeTitle("`id`")).toBe("_id_");
+    expect(sanitizeTitle("$HOME")).toBe("_HOME");
+    expect(sanitizeTitle("a!b")).toBe("a_b");
+    // 整條匯出路徑（標題＋資料夾名）也不含這三個字元
+    const f = folder("$(echo x)");
+    const n1 = note("$(touch x)", { folderId: f.id });
+    const n2 = note("`id`");
+    const n3 = note("a!b $HOME");
+    const { files, dirs } = buildLayout({ notes: [n1, n2, n3], folders: [f], groups: [], range: ALL });
+    for (const p of [...files.values(), ...dirs.map(d => d.path)]) for (const c of shell) expect(p, p).not.toContain(c);
+    expect(files.get(n1.id)).toBe("My notes/_(echo x)/_(touch x).md");
+  });
   it("四個區間的外側鄰字不換（U+2029、U+202F、U+2065、U+206A、U+200A、U+2010、U+0080）", () => {
     expect(sanitizeSegment("a\u2029b\u202fb\u2065b\u206ab\u200ab\u2010b\u0080b~")).toBe("a\u2029b\u202fb\u2065b\u206ab\u200ab\u2010b\u0080b~");
   });
@@ -89,6 +107,16 @@ describe("sanitizeSegment 規則 2–6", () => {
   it("P4 規則 4：開頭 . → _（只換第一個）", () => {
     expect(sanitizeSegment(".git")).toBe("_git");
     expect(sanitizeSegment(".")).toBe("_");
+    // N9（8000 探索測試，docs/mcp.md 照這幾形寫）：`..` → `_`（第一個點換掉、尾端的點去掉）；`.knotebook` → `_knotebook`；
+    // 標題 `.`、`..`、`...` 清洗後只剩 `_` → Untitled
+    expect(sanitizeSegment("..")).toBe("_");
+    expect(sanitizeSegment(".knotebook")).toBe("_knotebook");
+    for (const t of [".", "..", "..."]) expect(sanitizeTitle(t), t).toBe("Untitled");
+    // 同一層的 `.` 與 `..` 資料夾都清成 `_`，後建的那個拿 ` (2)`
+    const a = folder(".", { createdAt: at(0) });
+    const b = folder("..", { createdAt: at(1) });
+    const { dirs } = buildLayout({ notes: [], folders: [a, b], groups: [], range: ALL });
+    expect(dirs.filter(d => d.id === a.id || d.id === b.id).map(d => d.path)).toEqual(["My notes/_", "My notes/_ (2)"]);
   });
   it("P5 規則 5：NFC", () => {
     const out = sanitizeSegment("e\u0301");

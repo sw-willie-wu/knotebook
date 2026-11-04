@@ -58,12 +58,15 @@ describe("bulk transfer 的 HTTP 層中文句（字面）", () => {
     expect(TOO_MANY_NOTES_MESSAGE).toBe("範圍內的筆記超過 3000 篇，請縮小範圍");
     expect(INVALID_UTF8_MESSAGE).toBe("檔案不是 UTF-8");
     expect(BASE_UNAVAILABLE_MESSAGES).toEqual({
-      already_sent: "無法以這份副本合併：這份副本已用其他內容送回過；請重新下載再改",
-      other_note: "無法以這份副本合併：這份副本的 base 屬於別篇筆記或別人；請重新下載再改",
-      expired: "無法以這份副本合併：伺服器已沒有這份副本的基底（太舊或已失效）；請重新下載再改",
-      anchors_gone: "無法以這份副本合併：你改的某一處在筆記裡已經找不到該放的位置（例如那一段或它前後的內容被 edit_note 換掉）；請重新下載再改",
-      reverted: "無法以這份副本合併：這份副本寫回的修改已被撤回；請重新下載再改",
+      already_sent: "無法用這份副本寫回：這份副本已用其他內容送回過；請重新下載再改",
+      other_note: "無法用這份副本寫回：這份副本的 base 屬於別篇筆記或別人；請重新下載再改",
+      expired: "無法用這份副本寫回：伺服器已沒有這份副本的基底（太舊或已失效）；請重新下載再改",
+      note_changed: "無法用這份副本寫回：這篇筆記在你下載之後被改過（標題或內文）；請重新下載這一篇（note 指令），把你的修改重做一次再送",
+      reverted: "無法用這份副本寫回：這份副本寫回的修改已被撤回；請重新下載再改",
     });
+    // 第三輪不再合併：任何一句都不得再說「合併」，也不得留下舊成因 anchors_gone。
+    for (const m of Object.values(BASE_UNAVAILABLE_MESSAGES)) expect(m).not.toContain("合併");
+    expect(Object.keys(BASE_UNAVAILABLE_MESSAGES)).not.toContain("anchors_gone");
     expect(NOT_MERGEABLE_MESSAGE).toBe("這篇筆記不能用檔案寫回，請改用 edit_note");
   });
 

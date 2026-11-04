@@ -13,6 +13,7 @@ import { ADMIN, createUserViaInvite, editorLocator, loginAs, randomEmail, waitFo
  *   撤掉自己的權杖（一支 PAT 同時最多 3 張）。整檔只有 E5 打整包。標記字串一律隨機（重跑、髒疊不撞名）。
  *
  * 每案的順序寫死（gate r2 N1）：① bulk 權杖單篇下載一次（拿 `base`）② A 在瀏覽器改 ③ 輪詢到 server 已有 A 的字 ④ `PUT`（E5 是整包）。
+ * Willie 2026-11-04 第三輪（筆記動過就 409 note_changed）：E1–E3 的 ④ 改成預期 409；E1、E2 之後重新下載一次再寫回；E4 改成 ②③ 在 ① 之前。
  * ⚠ ③ **不准用 `GET /api/transfer/notes/:id`**：那支每呼叫一次就寫一列基底（每 (user, note) 只留 10 列，會把 ① 的基底擠掉）。
  *   改用 A 的 cookie 打 `GET /api/notes/:id/content`——`loadNoteDoc` 有 live doc 就 fork live（不讀落盤的 `note_states`）、不寫基底、
  *   cookie 讀者不 touch presence；吃 `contentRead`，所以間隔 400 ms。
@@ -25,8 +26,6 @@ import { ADMIN, createUserViaInvite, editorLocator, loginAs, randomEmail, waitFo
  *   插在它寫的那一段裡，`getByText(…, { exact: true })` 會因此找不到那一段（本機首跑實測）。
  */
 
-/** server `notes/editing/write-service.ts` 的 `SYNC_VERSION_NAME`（e2e 不能依賴 server 套件，字面寫在這裡）。 */
-const SYNC_VERSION_NAME = "本機檔案同步前";
 const POLL = { intervals: [400], timeout: 15_000 };
 
 let userCtx: BrowserContext;
@@ -84,6 +83,8 @@ async function openNote(url: string): Promise<void> {
 
 interface Case {
   noteId: string;
+  /** 筆記頁的網址（`/n/<owner>/<slug>`）。 */
+  url: string;
   paras: string[];
   token: string;
   bulk: APIRequestContext;
@@ -94,17 +95,21 @@ interface Case {
  * 一案的前置：個人空間根層建資料夾 → 在裡面建一篇 `n` 段的筆記（A 的 cookie）→ A 打開它 → 用 PAT 簽 bulk 權杖（帶 `folder_id`）。
  * 段落文字 `${label}-p${i}-${r}` 彼此不互為子字串（1–9 段）。
  */
-async function setupCase(label: string, n: number): Promise<Case> {
+async function setupCase(label: string, n: number, opts: { extra?: string; open?: boolean } = {}): Promise<Case> {
   const r = rand();
   const folder = await page.request.post("/api/folders", { data: { name: `bulk ${label} ${r}`, space: { kind: "personal" } } });
   expect(folder.status(), await folder.text()).toBe(201);
   const folderId = ((await folder.json()) as { id: string }).id;
   const paras = Array.from({ length: n }, (_, i) => `${label}-p${i + 1}-${r}`);
-  const note = await page.request.post("/api/notes", { data: { title: `E2E bulk ${label} ${r}`, content: paras.join("\n\n"), folderId } });
+  const content = opts.extra === undefined ? paras.join("\n\n") : `${paras.join("\n\n")}\n\n${opts.extra}`;
+  const note = await page.request.post("/api/notes", { data: { title: `E2E bulk ${label} ${r}`, content, folderId } });
   expect(note.status(), await note.text()).toBe(201);
   const dto = (await note.json()) as { id: string; slug: string; ownerHandle: string };
-  await openNote(`/n/${dto.ownerHandle}/${dto.slug}`);
-  await expect(editorLocator(page)).toContainText(paras[n - 1]!);
+  const url = `/n/${dto.ownerHandle}/${dto.slug}`;
+  if (opts.open !== false) {
+    await openNote(url);
+    await expect(editorLocator(page)).toContainText(paras[n - 1]!);
+  }
 
   const res = await anon.request.post(`${origin}/api/mcp`, {
     headers: { Authorization: `Bearer ${pat}`, Accept: "application/json, text/event-stream", "Content-Type": "application/json" },
@@ -116,7 +121,7 @@ async function setupCase(label: string, n: number): Promise<Case> {
   const sc = rpc.result!.structuredContent!;
   expect(sc.token).toMatch(/^knbt_/);
   expect(sc.access).toBe("write");
-  return { noteId: dto.id, paras, token: sc.token, bulk: anon.request, auth: { Authorization: `Bearer ${sc.token}` } };
+  return { noteId: dto.id, url, paras, token: sc.token, bulk: anon.request, auth: { Authorization: `Bearer ${sc.token}` } };
 }
 
 /** 每案 finally：撤掉這一案的 bulk 權杖（204）。清理失敗不得蓋掉原本的錯誤。 */
@@ -130,7 +135,7 @@ async function revokeBulk(c: Case | undefined): Promise<void> {
   }
 }
 
-/** ① 單篇下載（寫一列基底）。每案只呼叫一次。 */
+/** ① 單篇下載（寫一列基底）。每案至多兩次（E1、E2 被拒後重新下載）。 */
 async function download(c: Case): Promise<string> {
   const res = await c.bulk.get(`${origin}/api/transfer/notes/${c.noteId}`, { headers: c.auth });
   expect(res.status(), await res.text()).toBe(200);
@@ -209,99 +214,83 @@ async function typeAtEndOf(para: string, text: string, newParagraph = false): Pr
   await page.keyboard.type(text);
 }
 
-test("E1 A 在第 2 段打字、agent 寫回改第 5 段：A 不重整就看到第 5 段，第 2 段 A 打的字都在", async () => {
+/** ④' 寫回、預期被拒：409 base_unavailable、reason note_changed（Willie 2026-11-04 第三輪：筆記動過就拒）。 */
+async function writeBackRefused(c: Case, file: string): Promise<void> {
+  const res = await c.bulk.put(`${origin}/api/transfer/notes`, {
+    headers: { ...c.auth, "Content-Type": "text/markdown; charset=utf-8" },
+    data: Buffer.from(file, "utf8"),
+  });
+  const text = await res.text();
+  expect(res.status(), text).toBe(409);
+  expect((JSON.parse(text) as { error: { code: string; reason: string } }).error).toMatchObject({ code: "base_unavailable", reason: "note_changed" });
+}
+
+test("E1 A 在第 2 段打字後，agent 拿舊副本寫回 → 409、什麼都沒寫；重新下載後改第 5 段 → A 不重整就看到，第 2 段 A 打的字都在", async () => {
   test.setTimeout(120_000);
   let c: Case | undefined;
   try {
     c = await setupCase("e1", 6);
-    const [, p2, , , p5] = c.paras as [string, string, string, string, string, string];
-    const file = await download(c); // ①
+    const [p1, p2, p3, p4, p5, p6] = c.paras as [string, string, string, string, string, string];
+    const stale = await download(c); // ①
     const aMark = `a-${rand()}`;
     await typeAtEndOf(p2, ` ${aMark}`); // ②
     await pollServer(c.noteId, [`${p2} ${aMark}`]); // ③
     const agentMark = `agent-${rand()}`;
-    const out = await writeBack(c, replaceLine(file, p5, `${p5} ${agentMark}`)); // ④
+    await writeBackRefused(c, replaceLine(stale, p5, `${p5} ${agentMark}`)); // ④ 舊副本 → 409
+    await pollServer(c.noteId, [`${p1}\n\n${p2} ${aMark}\n\n${p3}\n\n${p4}\n\n${p5}\n\n${p6}`]);
 
-    const [p1, , p3, p4, , p6] = c.paras as [string, string, string, string, string, string];
+    const file = await download(c); // ①' 重新下載（含 A 打的字）
+    const out = await writeBack(c, replaceLine(file, p5, `${p5} ${agentMark}`)); // ④'
+    expect(out).toMatchObject({ result: "applied", applied: 1, base: null });
     await expectEditorBlocks([p1, `${p2} ${aMark}`, p3, p4, `${p5} ${agentMark}`, p6], "A 不重整：第 5 段是 agent 的、第 2 段 A 打的字都在");
-    expect(out).toMatchObject({ result: "applied", applied: 1, conflicts: 0, base: null });
-    // server 端也兩者並存（A 的字沒被 agent 那份不含它的檔蓋掉）。
     await pollServer(c.noteId, [`${p1}\n\n${p2} ${aMark}\n\n${p3}\n\n${p4}\n\n${p5} ${agentMark}\n\n${p6}`]);
   } finally {
     await revokeBulk(c);
   }
 });
 
-test("E2 A 在第 3 段前插一段、agent 寫回改第 3 段：插的段在、conflicts 0、沒有存版", async () => {
+test("E2 A 在第 3 段前插一段後，agent 拿舊副本改第 3 段 → 409；重新下載再改 → 插的段在、沒有存版", async () => {
   test.setTimeout(120_000);
   let c: Case | undefined;
   try {
     c = await setupCase("e2", 5);
-    const [, p2, p3] = c.paras as [string, string, string];
-    const file = await download(c); // ①
+    const [p1, p2, p3, p4, p5] = c.paras as [string, string, string, string, string];
+    const stale = await download(c); // ①
     const inserted = `a-inserted-${rand()}`;
     await typeAtEndOf(p2, inserted, true); // ② 第 2 段尾 Enter＝新段落落在第 3 段之前
     await pollServer(c.noteId, [`${p2}\n\n${inserted}\n\n${p3}`]); // ③ 確認是獨立一段、在第 3 段前
     const agentMark = `agent-${rand()}`;
-    const out = await writeBack(c, replaceLine(file, p3, `${p3} ${agentMark}`)); // ④
-
-    const [p1, , , p4, p5] = c.paras as [string, string, string, string, string];
-    await expectEditorBlocks([p1, p2, inserted, `${p3} ${agentMark}`, p4, p5], "A 不重整：A 插的段在、第 3 段是 agent 的");
-    expect(out).toMatchObject({ result: "applied", applied: 1, conflicts: 0 });
+    await writeBackRefused(c, replaceLine(stale, p3, `${p3} ${agentMark}`)); // ④ 舊副本 → 409
+    const file = await download(c);
+    const out = await writeBack(c, replaceLine(file, p3, `${p3} ${agentMark}`));
+    expect(out).toMatchObject({ result: "applied", applied: 1 });
     expect(out).not.toHaveProperty("version");
-    // 順序：A 插的段仍在第 2 段與 agent 改過的第 3 段之間。
+    expect(out).not.toHaveProperty("conflicts");
+    await expectEditorBlocks([p1, p2, inserted, `${p3} ${agentMark}`, p4, p5], "A 不重整：A 插的段在、第 3 段是 agent 的");
     await pollServer(c.noteId, [`${p2}\n\n${inserted}\n\n${p3} ${agentMark}`]);
   } finally {
     await revokeBulk(c);
   }
 });
 
-test("E3 同一段兩邊都改：A 看到 agent 的；回應 version.name＝本機檔案同步前；版本面板那一版是 A 的、套用救回", async () => {
-  test.setTimeout(150_000);
+test("E3 同一段兩邊都改：agent 的舊副本 → 409；A 的字留著、畫面不變、沒有存版", async () => {
+  test.setTimeout(120_000);
   let c: Case | undefined;
   try {
     c = await setupCase("e3", 5);
-    const [, , p3] = c.paras as [string, string, string];
-    // M8：升格時保留既有名稱——本案開始前不得有任何版本，回應的名稱才會是本機檔案同步前。
-    const before = await page.request.get(`/api/notes/${c.noteId}/versions?limit=100`);
-    expect(before.status()).toBe(200);
-    expect(((await before.json()) as { versions: unknown[] }).versions).toHaveLength(0);
-
+    const [p1, p2, p3, p4, p5] = c.paras as [string, string, string, string, string];
     const file = await download(c); // ①
     const aMark = `a-${rand()}`;
     await typeAtEndOf(p3, ` ${aMark}`); // ②
     await pollServer(c.noteId, [`${p3} ${aMark}`]); // ③
     const agentMark = `agent-${rand()}`;
-    const out = await writeBack(c, replaceLine(file, p3, `${p3} ${agentMark}`)); // ④
-
-    const [p1, p2, , p4, p5] = c.paras as [string, string, string, string, string];
-    await expectEditorBlocks([p1, p2, `${p3} ${agentMark}`, p4, p5], "A 不重整：同一段用 agent 的字");
-    expect(out).toMatchObject({ result: "merged", conflicts: 1 });
-    const version = out.version as { id: string; name: string } | undefined;
-    expect(version?.name).toBe(SYNC_VERSION_NAME);
+    await writeBackRefused(c, replaceLine(file, p3, `${p3} ${agentMark}`)); // ④
+    await expectEditorBlocks([p1, p2, `${p3} ${aMark}`, p4, p5], "A 的字留著、agent 的沒寫進來");
+    const md = await pollServer(c.noteId, [`${p3} ${aMark}`]);
+    expect(md).not.toContain(agentMark);
     const listed = await page.request.get(`/api/notes/${c.noteId}/versions?limit=100`);
-    const versions = ((await listed.json()) as { versions: Array<{ id: string; name: string | null }> }).versions;
-    expect(versions.map(v => [v.id, v.name])).toEqual([[version!.id, SYNC_VERSION_NAME]]);
-
-    // 版本面板：有那一版；預覽並排的左欄（那一版）是 A 的字、不是 agent 的。
-    await page.getByTestId("versions-bubble").click();
-    const panel = page.getByTestId("versions-panel");
-    await expect(panel).toBeVisible();
-    const row = panel.getByRole("button", { name: new RegExp(`^${SYNC_VERSION_NAME} \\(`) });
-    await expect(row).toBeVisible({ timeout: 10_000 });
-    await row.click();
-    await expect(page.getByTestId("preview-banner")).toContainText(new RegExp(`Previewing ${SYNC_VERSION_NAME} \\([0-9a-f]{7}\\)`));
-    const left = page.getByTestId("diff-split").locator(":scope > section").first();
-    await expect(left).toContainText(`${p3} ${aMark}`);
-    await expect(left).not.toContainText(agentMark);
-
-    // 套用那一版（目前狀態與它不同 → 三選一「不儲存，直接套用」）→ A 的字回來。
-    await page.getByTestId("versions-footer").getByRole("button", { name: new RegExp(`^Apply ${SYNC_VERSION_NAME} \\(`) }).click();
-    const applyDialog = page.getByRole("dialog", { name: new RegExp(`^Apply ${SYNC_VERSION_NAME} \\(`) });
-    await expect(applyDialog).toBeVisible();
-    await applyDialog.getByRole("button", { name: "Apply without saving" }).click();
-    await expect(page.getByText(new RegExp(`^Applied ${SYNC_VERSION_NAME} \\([0-9a-f]{7}\\)$`))).toBeVisible();
-    await expectEditorBlocks([p1, p2, `${p3} ${aMark}`, p4, p5], "套用那一版之後 A 的字回來");
+    expect(listed.status()).toBe(200);
+    expect(((await listed.json()) as { versions: unknown[] }).versions).toHaveLength(0);
   } finally {
     await revokeBulk(c);
   }
@@ -313,14 +302,14 @@ test("E4 寫回改兩區：AI 修改紀錄列出兩列 file_sync；撤回其中�
   try {
     c = await setupCase("e4", 6);
     const [p1, p2, , , p5] = c.paras as [string, string, string, string, string];
-    const file = await download(c); // ①
     const aMark = `a-${rand()}`;
-    await typeAtEndOf(p1, ` ${aMark}`); // ② A 改的是第 1 段（不在 agent 的兩區裡）
+    await typeAtEndOf(p1, ` ${aMark}`); // ② A 改的是第 1 段（不在 agent 的兩區裡）——第三輪：A 先改、agent 後下載（否則 409）
     await pollServer(c.noteId, [`${p1} ${aMark}`]); // ③
+    const file = await download(c); // ① 含 A 打的字
     const m2 = `agent2-${rand()}`;
     const m5 = `agent5-${rand()}`;
     const out = await writeBack(c, replaceLine(replaceLine(file, p2, `${p2} ${m2}`), p5, `${p5} ${m5}`)); // ④ 兩區（中間隔著沒改的 3、4 段）
-    expect(out).toMatchObject({ result: "applied", applied: 2, conflicts: 0 });
+    expect(out).toMatchObject({ result: "applied", applied: 2 });
     const editIds = out.editIds as string[];
     expect(editIds).toHaveLength(2);
 
@@ -347,6 +336,40 @@ test("E4 寫回改兩區：AI 修改紀錄列出兩列 file_sync；撤回其中�
     await expect(rowA.getByText("Already reverted", { exact: true })).toBeVisible();
     await expect(rowB.getByRole("button", { name: "Revert", exact: true })).toBeVisible();
     await pollServer(c.noteId, [`${p1} ${aMark}\n\n${p2}\n\n${p3}\n\n${p4}\n\n${p5} ${m5}\n\n${p6}`]);
+  } finally {
+    await revokeBulk(c);
+  }
+});
+
+/** E6 的豐富內容（表格、巢狀清單、checklist、code block、圖片、並排）：瀏覽器第一次打開時若有正規化寫入 Yjs，寫回會被判 note_changed。 */
+const RICH = (r: string): string =>
+  [
+    `| h1-${r} | h2 |\n| --- | --- |\n| a | b |\n| c | d |`,
+    `* outer-${r}\n  * inner\n    * deepest\n* outer two`,
+    `- [ ] todo-${r}\n- [x] done`,
+    "```js\nconst x = 1;\n```",
+    "![alt](https://example.com/e6.png)",
+    `<div data-kb-columns style="display:flex;gap:16px">\n<div data-kb-column style="flex:1">\n\nleft-${r}\n\n</div>\n<div data-kb-column style="flex:1">\n\nright-${r}\n\n</div>\n</div>`,
+    `tail-${r}`,
+  ].join("\n\n");
+
+test("E6 下載後才第一次在瀏覽器打開、不打字，再寫回改一段 → 200 applied、內容正確（打開筆記不算動過）", async () => {
+  test.setTimeout(120_000);
+  let c: Case | undefined;
+  try {
+    const r = rand();
+    c = await setupCase("e6", 3, { extra: RICH(r), open: false });
+    const [p1, p2, p3] = c.paras as [string, string, string];
+    const file = await download(c); // ① 還沒有人在瀏覽器打開過
+    await openNote(c.url); // ② 第一次打開（等標題框、連線、編輯器）
+    await expect(editorLocator(page)).toContainText(`tail-${r}`);
+    await page.waitForTimeout(2_000); // 不打字，讓打開時可能有的寫入先到 server
+    const agentMark = `agent-${rand()}`;
+    const out = await writeBack(c, replaceLine(file, p2, `${p2} ${agentMark}`)); // ④ 預期不是 409
+    expect(out).toMatchObject({ result: "applied", applied: 1 });
+    const md = await pollServer(c.noteId, [`${p1}\n\n${p2} ${agentMark}\n\n${p3}`]);
+    for (const part of [`h1-${r}`, `outer-${r}`, "deepest", `todo-${r}`, "const x = 1;", "e6.png", `left-${r}`, `right-${r}`, `tail-${r}`]) expect(md, part).toContain(part);
+    await expect(editorLocator(page)).toContainText(`${p2} ${agentMark}`);
   } finally {
     await revokeBulk(c);
   }

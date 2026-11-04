@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
+import { YDOC_FRAGMENT } from "@knotebook/shared";
+import { topLevelSnapshot } from "../../src/notes/editing/fingerprint.js";
 import { EditingRuntime } from "../../src/notes/editing/runtime.js";
+import { matchesBase } from "../../src/transfer/decide.js";
 import { exportNoteForTransfer } from "../../src/transfer/export-note.js";
 import { bodyLines, normalizeBody } from "../../src/transfer/normalize.js";
 import { applyInMemory, docWith, forkOf, makeBaseInMemory, planInMemory, topOf, withEditor } from "./fixtures/transfer-sync.js";
@@ -46,10 +49,10 @@ async function run(blocks: unknown[], edit: (body: string) => string, human: ((e
   const live = forkOf(doc);
   if (human) await withEditor(rt, live, human);
   const agent = edit(b.body);
+  // 同 `syncFileInQueue` ⑦：現況與基底段表逐顆不符 → 整篇 409 `note_changed`、不規劃也不套用（Willie 2026-11-04 第三輪）。
+  if (!matchesBase(b.base.segments, topLevelSnapshot(live.getXmlFragment(YDOC_FRAGMENT)))) return { error: "note_changed", final: null, eqAgent: false, kept: [], marks: [], top: topOf(live), baseIds: b.ids };
   const planned = await planInMemory(rt, b, agent, forkOf(live), opts);
   if (!planned.ok) return { error: planned.code, final: null, eqAgent: false, kept: [], marks: [], top: topOf(live), baseIds: b.ids };
-  // 同 `syncFileInQueue`：定位點全消失 → 整篇 409 `base_unavailable`、不套用（Willie 2026-11-04）。
-  if (planned.plan.anchorsGone.length > 0) return { error: "base_unavailable", final: null, eqAgent: false, kept: [], marks: planned.plan.decisions.map(d => `${d.kind}:${d.mark}`), top: topOf(live), baseIds: b.ids };
   const r = await applyInMemory(rt, b, agent, live, opts);
   const final = (await exportNoteForTransfer(rt, live, new Map())).body;
   const top = topOf(live);
@@ -186,65 +189,28 @@ describe("§25.3 子 block（6 案）", () => {
   });
 });
 
-describe("§25.3 並行（9 案）", () => {
-  it("C22 人改第 5 段、agent 改第 2 段 → 兩邊都在", async () => {
+describe("動過就 409（Willie 2026-11-04 第三輪；取代 §25.3 並行 9 案的合併）", () => {
+  // 記憶體版只驗結構判準（`matchesBase`）；整篇匯出判準與合併時的整篇指紋在 `transfer-write-reread.test.ts`（整合）。
+  it("C22 形：人改第 5 段、agent 改第 2 段 → note_changed、現況不動", async () => {
     const o = await run(PS, w => w.replace("p1", "p1-agent"), ed => ed.updateBlock(ed.document[4]!.id, { content: "p4-human" }));
-    expect(o).toMatchObject({ marks: ["rewrite:applied"], kept: [0, 2, 3, 4, 5] });
-    expect(o.top.map(x => x.text)).toEqual(["p0", "p1-agent", "p2", "p3", "p4-human", "p5"]);
+    expect(o.error).toBe("note_changed");
+    expect(o.top.map(x => x.text)).toEqual(["p0", "p1", "p2", "p3", "p4-human", "p5"]);
   });
-  it("C23 人在第 2 段前插段、agent 改第 2 段 → 插的在、無衝突", async () => {
+  it("C23 形：人在第 2 段前插段 → note_changed", async () => {
     const o = await run(PS, w => w.replace("p1", "p1-agent"), ed => ed.insertBlocks([P("human-new")], ed.document[1]!.id, "before"));
-    expect(o.marks).toEqual(["rewrite:applied"]);
-    expect(o.top.map(x => x.text)).toEqual(["p0", "human-new", "p1-agent", "p2", "p3", "p4", "p5"]);
+    expect(o.error).toBe("note_changed");
   });
-  it("C24 同一段兩邊都改 → conflict、取 agent", async () => {
-    const o = await run(PS, w => w.replace("p1", "p1-agent"), ed => ed.updateBlock(ed.document[1]!.id, { content: "p1-human" }));
-    expect(o.marks).toEqual(["rewrite:conflict"]);
-    expect(o.top.map(x => x.text)).toEqual(["p0", "p1-agent", "p2", "p3", "p4", "p5"]);
-  });
-  it("C25 人刪了 agent 改的段 → 409 base_unavailable（Willie 2026-11-04 第二輪；原本是 conflict、插在 P 後）、現況不動", async () => {
-    const o = await run(PS, w => w.replace("p2", "p2-agent"), ed => ed.removeBlocks([ed.document[2]!.id]));
-    expect(o.error).toBe("base_unavailable");
-    expect(o.marks).toEqual(["rewrite:conflict"]);
-    expect(o.top.map(x => x.text)).toEqual(["p0", "p1", "p3", "p4", "p5"]);
-  });
-  it("C26 人改了 agent 刪的段 → conflict、照刪", async () => {
-    const o = await run(PS, w => w.replace("p2\n\n", ""), ed => ed.updateBlock(ed.document[2]!.id, { content: "p2-human" }));
-    expect(o.marks).toEqual(["delete:conflict"]);
-    expect(o.top.map(x => x.text)).toEqual(["p0", "p1", "p3", "p4", "p5"]);
-  });
-  it("C27 人也刪了 agent 刪的段 → same", async () => {
+  it("C27 形：人也刪了 agent 刪的段 → note_changed（不再判 same）", async () => {
     const o = await run(PS, w => w.replace("p2\n\n", ""), ed => ed.removeBlocks([ed.document[2]!.id]));
-    expect(o.marks).toEqual(["delete:same"]);
-    expect(o.top.map(x => x.text)).toEqual(["p0", "p1", "p3", "p4", "p5"]);
+    expect(o.error).toBe("note_changed");
   });
-  it("C28 人在 agent 改的清單項底下加子項 → conflict、子項隨倖存者移除", async () => {
-    const o = await run([B("a"), B("b")], w => w.replace("* a", "* a2"), ed => ed.updateBlock(ed.document[0]!.id, { children: [{ type: "bulletListItem", content: "human-child" }] }));
-    expect(o.marks).toEqual(["rewrite:conflict"]);
-    expect(o.final).not.toContain("human-child");
-    expect(o.top.map(x => x.text)).toEqual(["a2", "b"]);
-  });
-  it("C29 人把倖存者順序拖亂（a、b 一區）→ applied：倖存者照現況順序整區換掉（plan Q5：不比順序）", async () => {
-    const o = await run([P("a"), P("b"), P("c")], w => w.replace("a\n\nb", "a\nb"), ed => {
+  it("C30 形：人把一段換成內容相同的新 block（id 換了）→ note_changed（匯出相同、結構不同）", async () => {
+    const o = await run(PS, w => w.replace("p3", "p3-agent"), ed => {
       const d = ed.document;
-      ed.removeBlocks([d[0]!.id]);
-      ed.insertBlocks([{ id: d[0]!.id, type: "paragraph", content: "a" }], d[1]!.id, "after");
-    });
-    expect(o.marks).toEqual(["rewrite:applied"]);
-    expect(o.kept).toEqual([2]);
-    // agent 的軟換行寫回後是硬換行，下次匯出成 `a\` ＋ ` b`（多一個開頭空白；§25.3 另觀察，外觀差、無資料遺失）
-    expect(o.top).toHaveLength(2);
-    expect(o.top[1]!.text).toBe("c");
-    expect(linesTrim(o.final!)).toBe("a\\\n b\n\nc");
-  });
-  it("C30 合併已落盤、紀錄失敗後同檔重送（倖存者全不見、外來 block 相同）→ same", async () => {
-    const o = await run(PS, w => w.replace("p1", "p1-agent"), ed => {
-      const d = ed.document;
-      ed.insertBlocks([P("p1-agent")], d[1]!.id, "before");
+      ed.insertBlocks([P("p1")], d[1]!.id, "before");
       ed.removeBlocks([d[1]!.id]);
     });
-    expect(o.marks).toEqual(["rewrite:same"]);
-    expect(o.top.map(x => x.text)).toEqual(["p0", "p1-agent", "p2", "p3", "p4", "p5"]);
+    expect(o.error).toBe("note_changed");
   });
 });
 
@@ -282,73 +248,8 @@ describe("§25.3 其他（7 案）", () => {
   });
 });
 
-describe("溢位與重送（O1–O5、O3b）", () => {
+describe("溢位與重複段（O2b、O2c、O5b；O1–O5、O3b 的「別人也改了」形已隨合併刪除）", () => {
   const PARAS = (n: number, f: (i: number) => string = i => `Para ${i}`) => many(n, i => P(f(i)));
-  it("O1 溢位（maxD 10）：別人改過、agent 沒動的段不被改回舊文字", async () => {
-    const o = await run(
-      PARAS(60),
-      w => w.split("\n\n").map((p, i) => (i < 15 || i >= 45 ? `${p} agent` : p)).join("\n\n"),
-      ed => ed.updateBlock(ed.document[30]!.id, { content: "Para 30 human" }),
-      { maxD: 10 },
-    );
-    expect(o.top[30]!.text).toBe("Para 30 human");
-    expect(o.top.filter(x => x.text.endsWith(" agent"))).toHaveLength(30);
-  });
-  it("O2（known-limitation 殘留例外 (i)）溢位時，agent 沒動、但只由重複行組成的段（三顆 `dup`、無唯一行可當錨點）退化進改寫區；別人改了其中一顆 → 那區 conflict、取 agent 的（人的修改只在存版裡）", async () => {
-    const blocks = [...PARAS(12, i => `A${i}`), P("dup"), P("dup"), P("dup"), ...PARAS(12, i => `B${i}`)];
-    const agentOf = (w: string) => w.replace(/\n+$/, "").split("\n\n").map(p => (p === "dup" ? p : `${p}x`)).join("\n\n");
-    const o = await run(blocks, agentOf, ed => ed.updateBlock(ed.document[13]!.id, { content: "dup human" }), { maxD: 10 });
-    expect(o.marks).toContain("rewrite:conflict");
-    expect(o.final).not.toContain("dup human");
-    expect(o.top.filter(x => x.text === "dup")).toHaveLength(3);
-  });
-  it("O3 紀錄失敗重送（記憶體版）：先套用一次、不寫紀錄、再以同一份 agent 檔規劃 → 三種區全判 same", async () => {
-    const doc = await docWith(rt, PARAS(8));
-    const b = await makeBaseInMemory(rt, doc);
-    const live = forkOf(doc);
-    const agent = b.body.replace("Para 1", "Para 1 changed").replace("Para 3\n\n", "").replace("Para 5", "Para 5\n\nInserted");
-    const first = await applyInMemory(rt, b, agent, live);
-    expect(first.plan.decisions.map(d => d.kind).sort()).toEqual(["delete", "insert", "rewrite"]);
-    const again = await planInMemory(rt, b, agent, forkOf(live));
-    expect(again.ok).toBe(true);
-    if (!again.ok) return;
-    expect(again.plan.decisions.map(d => `${d.kind}:${d.mark}`).sort()).toEqual(["delete:same", "insert:same", "rewrite:same"]);
-  });
-  it("O3b 同 O3，但重送前人在插入的內容旁邊多插一顆外來 block → 重送仍判 same（contiguous 子序列）", async () => {
-    const doc = await docWith(rt, PARAS(8));
-    const b = await makeBaseInMemory(rt, doc);
-    const live = forkOf(doc);
-    const agent = b.body.replace("Para 5", "Para 5\n\nInserted");
-    await applyInMemory(rt, b, agent, live);
-    await withEditor(rt, live, ed => {
-      const ins = ed.document.find(x => JSON.stringify(x.content).includes("Inserted"))!;
-      ed.insertBlocks([P("Human beside")], ins.id, "after");
-    });
-    const again = await planInMemory(rt, b, agent, forkOf(live));
-    expect(again.ok).toBe(true);
-    if (!again.ok) return;
-    expect(again.plan.decisions.map(d => `${d.kind}:${d.mark}`)).toEqual(["insert:same"]);
-  });
-  it("O4（known-limitation 殘留例外 (iii) 搬移）agent 把 40 段的 X 移到 3 段的 U 之後、別人同時改了 U → U 所在區 conflict", async () => {
-    const blocks = [...PARAS(40, i => `X${i}`), ...PARAS(3, i => `U${i}`)];
-    const o = await run(
-      blocks,
-      w => {
-        const ps = w.replace(/\n+$/, "").split("\n\n");
-        return [...ps.slice(40), ...ps.slice(0, 40)].join("\n\n");
-      },
-      ed => ed.updateBlock(ed.document[41]!.id, { content: "U1 human" }),
-    );
-    expect(o.marks).toContain("delete:conflict");
-    // 較小的一邊（U）以「刪掉再插回 agent 的版本」寫回：人的修改不在結果裡（真實流程會先存版）
-    expect(o.top.map(x => x.text)).toEqual([...many(3, i => `U${i}`), ...many(40, i => `X${i}`)]);
-  });
-  it("O5（known-limitation 殘留例外 (ii) ⑫）基底 a、x、a，別人改了第二顆 a、agent 只留 a → 第二顆 a 那區 conflict、人改的那顆被刪", async () => {
-    const o = await run([P("a"), P("x"), P("a")], () => "a", ed => ed.updateBlock(ed.document[2]!.id, { content: "a human" }));
-    expect(o.marks).toContain("delete:conflict");
-    expect(o.top.map(x => x.text)).toEqual(["a"]);
-    expect(o.kept).toEqual([0]); // 兩顆之間的內容（x）也被刪 → 留第一顆
-  });
   it("O5b（known-limitations：重複段）兩顆相鄰、檔案只留一顆 → 留第一顆；C31 是反例（中間的段還在時留的是第二顆）", async () => {
     const o = await run([P("x"), P("dup"), P("dup"), P("y")], w => w.replace("dup\n\ndup", "dup"));
     expect(o.kept).toEqual([0, 1, 3]);

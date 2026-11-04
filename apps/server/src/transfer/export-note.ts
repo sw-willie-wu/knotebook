@@ -13,7 +13,7 @@
  * 持 lease 期間零 DB I/O；`titles` 由呼叫端在 mount 前查好（`linkTitlesFor`）。
  */
 import type * as Y from "yjs";
-import { YDOC_FRAGMENT } from "@knotebook/shared";
+import { YDOC_FRAGMENT, topLevelContainers } from "@knotebook/shared";
 import type { TransferSegment } from "../db/schema.js";
 import { topLevelFingerprints } from "../notes/editing/fingerprint.js";
 import { toNoteMarkdown } from "../notes/editing/read.js";
@@ -46,6 +46,21 @@ export interface ExportNoteOptions {
   yieldFn?: () => Promise<void>;
   /** 測試縫：段表強制 null（生產不傳）。 */
   forceUnmergeable?: boolean;
+}
+
+/**
+ * 寫回時判「筆記自下載後動過沒」用（Willie 2026-11-04 第三輪）：只出整篇本文，與 `exportNoteForTransfer` 的 `body` 同一條組字——
+ * 頂層零顆 → `""`、不 mount；否則 mount 一次、`toNoteMarkdown` 整篇（`transfer-write-reread.test.ts` E0 釘逐位元組相同）。
+ * 持 lease 期間零 DB；`titles` 由呼叫端在 mount 前查好。
+ */
+export async function exportNoteBody(runtime: EditingRuntime, doc: Y.Doc, titles: ReadonlyMap<string, string>): Promise<string> {
+  if (topLevelContainers(doc.getXmlFragment(YDOC_FRAGMENT)).length === 0) return "";
+  const s = await EditorSession.open(runtime, doc);
+  try {
+    return toNoteMarkdown(s.editor, s.editor.document, titles);
+  } finally {
+    s.close();
+  }
 }
 
 const DEFAULT_YIELD_EVERY_BLOCKS = 50;

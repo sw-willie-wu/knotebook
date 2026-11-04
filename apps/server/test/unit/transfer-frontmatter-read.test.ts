@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FRONTMATTER_SCAN_LINES, UNCLOSED_FRONT_MATTER_MESSAGE, parseScalar, readNoteFile, writeNoteFile } from "../../src/transfer/frontmatter.js";
+import { BASE_WITHOUT_ID_MESSAGE, FRONTMATTER_SCAN_LINES, UNCLOSED_FRONT_MATTER_MESSAGE, parseScalar, readNoteFile, writeNoteFile } from "../../src/transfer/frontmatter.js";
 import { normalizeBody } from "../../src/transfer/normalize.js";
 
 /** bulk transfer spec §9.1（frontmatter 讀入、格式守衛、`title` 往返）；plan T2（F1–F8）。 */
@@ -88,8 +88,25 @@ describe("F4 必要鍵", () => {
   it("大寫 uuid 的 id → 接受並轉小寫", () => {
     expect(readNoteFile(file([`id: ${ID.toUpperCase()}`, `base: ${BASE}`]))).toMatchObject({ kind: "existing", id: ID });
   });
-  it("沒 id 有 base → new（base 忽略）", () => {
-    expect(readNoteFile(file(["knotebook: 1", `base: ${BASE}`])).kind).toBe("new");
+  it("N7（8000 探索測試）沒 id 有 base → error（不再當新檔、多建一篇）；只有 base 行也認得是 front matter", () => {
+    expect(errOf(readNoteFile(file(["knotebook: 1", `base: ${BASE}`])))).toBe(BASE_WITHOUT_ID_MESSAGE);
+    expect(errOf(readNoteFile(file([`base: ${BASE}`, 'title: "T"'])))).toBe(BASE_WITHOUT_ID_MESSAGE);
+    // id 行認不出來（鍵名打錯）也一樣
+    expect(errOf(readNoteFile(file(["knotebook: 1", `ld: ${ID}`, `base: ${BASE}`])))).toBe(BASE_WITHOUT_ID_MESSAGE);
+    expect(BASE_WITHOUT_ID_MESSAGE).toBe("front matter 有 base 卻沒有 id：這是下載來的檔，請保留原本的 id 行再送");
+  });
+  it("N7（8000 探索測試）冒號前有空白或 tab：`id :`、`base :`、`title\\t:` 照常讀成既有筆記", () => {
+    expect(readNoteFile(file(["knotebook: 1", `id : ${ID}`, `base : ${BASE}`, 'title\t: "T"']))).toEqual({ kind: "existing", id: ID, base: BASE, title: "T", body: "x" });
+    // 只有 `id :` 能辨識的 front matter（沒有 knotebook 行）也認得
+    expect(readNoteFile(file([`id  : ${ID}`, `base: ${BASE}`])).kind).toBe("existing");
+    // 沒有收尾的 `id :` 也照 B 擋
+    expect(errOf(readNoteFile(`---\nid : ${ID}\nbody`))).toBe(UNCLOSED_FRONT_MATTER_MESSAGE);
+    expect(errOf(readNoteFile(`---\nbase: ${BASE}\nbody`))).toBe(UNCLOSED_FRONT_MATTER_MESSAGE);
+    // 審查 M5：訊息照實寫出觸發條件（字面）
+    expect(UNCLOSED_FRONT_MATTER_MESSAGE).toBe(
+      "front matter 沒有結尾的 `---`：檔案開頭有 `---`，前 200 行內有 `knotebook:`、`id:` 或 `base:` 行（冒號前可以有空白），卻找不到收尾的 `---`",
+    );
+    expect(FRONTMATTER_SCAN_LINES).toBe(200);
   });
 });
 
