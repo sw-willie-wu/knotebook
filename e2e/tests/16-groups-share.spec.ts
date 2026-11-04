@@ -169,7 +169,7 @@ test("移入群組（踢逐人分享、關公開連結、舊網址轉址）→ �
     closers.push(guest.close);
     await guest.page.goto(personalUrl);
     await expect(guest.page.getByRole("heading", { name: title, level: 1 })).toBeVisible({ timeout: 15_000 });
-    await expect(guest.page.getByRole("status").filter({ hasText: /^Connected/ })).toBeVisible({ timeout: 15_000 });
+    await expect(guest.page.getByRole("status").filter({ hasText: /^Read-only/ })).toBeVisible({ timeout: 15_000 });
 
     // ── A：⋮ → Move to…（第二層選單，桌面 hover／點開）→ 選群組 → 確認框 → Move into group ──
     await adminPage.getByRole("button", { name: "More", exact: true }).click();
