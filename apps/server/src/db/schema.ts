@@ -967,8 +967,10 @@ export const transferTokens = pgTable(
 /**
  * bulk transfer spec 2026-11-02 §8.2：基底的一段——一般 1 個 id；局部合段（§6.4-3）才多個。`start`／`count` 是整篇匯出
  * 正規化後的行範圍（0 行段 `count: 0`）。定義在這裡（不在 `transfer/`）：schema 只依型別，免得循環。
+ * `links`（F1，可省略）：這段裡沒有自訂文字的 wikilink 下載時匯出的文字的雜湊（`transfer/link-texts.ts` 的 `linkTextHash`，去重）；
+ * 沒有這種連結、或這版之前下載的基底就沒有這個鍵。jsonb 欄位，不需 migration。
  */
-export type TransferSegment = { ids: string[]; fps: string[]; start: number; count: number };
+export type TransferSegment = { ids: string[]; fps: string[]; start: number; count: number; links?: string[] };
 
 /**
  * bulk transfer spec 2026-11-02 §8.2：每次下載一篇存一列「加鹽 HMAC 行雜湊＋段表」的基底，供寫回（PR-2）三方合併。

@@ -5,7 +5,8 @@
  * 流程（一個 scratch session，`try/finally close`）：① `EditorSession.open(runtime, new Y.Doc())` → 無條件讓出一次
  * ② `findRegions`，邊界回呼＝在這個 scratch editor 上 `parseMarkdownForNote`（`makeBoundaryCheck`：去 id、忽略 start、取
  * parse(k) 顆數、parse 失敗 → false）③ `anchors`／`placeFor`（要 `cur.types` 判插入點前一顆是不是 numbered）④ 每個非刪除區
- * `parseMarkdownForNote`：失敗 → 整篇 400（含「拿掉閉合註解後還有字、但 parse 成 `empty_content`」，§9.3-6）；`stripStart` 的區
+ * `parseMarkdownForNote`：失敗 → 整篇 400（含「拿掉閉合註解後還有字、但 parse 成 `empty_content`」，§9.3-6）；有
+ * `exportedLinkText` 時 parse 出的 wikilink 過一次 `keepLabelFree`（F1：文字仍是下載時匯出的那個 → 不存成自訂文字）；`stripStart` 的區
  * 拿掉第一顆 numbered 的 `props.start` ⑤ 預解析 block `insertBlocks` 進 scratch doc、記每區插入的 id ⑥ close ⑦ 在未 mount 的
  * scratch 結構與 `curFragment` 上以 `sameCanonicalSeq` 算序列 ⑧ `decide`（改寫區的預解析與基底那幾顆逐顆比，`same`）。
  * 前提同 `decide.ts`：呼叫端已確認筆記自下載後沒有被動過（現況頂層與基底段表逐顆相同）。
@@ -22,6 +23,7 @@ import type { EditingRuntime } from "../notes/editing/runtime.js";
 import { EditorSession } from "../notes/editing/session.js";
 import { chainKeyOf, decide, anchors as anchorsOf, placeFor, shouldStripStart, type Decision } from "./decide.js";
 import type { LineDiff } from "./line-diff.js";
+import { keepLabelFree } from "./link-texts.js";
 import { findRegions, makeBoundaryCheck, type Region } from "./regions.js";
 import { indexTopLevel, sameCanonicalSeqIn } from "./same-canonical.js";
 import { YIELD_AFTER_MS, yieldToLoop } from "./yield.js";
@@ -50,6 +52,11 @@ export interface PlanSyncInput {
   curFragment: Y.XmlFragment;
   candidates: readonly VisibleNoteTarget[];
   siteOrigin: string;
+  /**
+   * F1：`(目標 id, 文字)` 是不是下載時某個沒有自訂文字的 wikilink 匯出的文字（呼叫端由基底段表的 `links` 組）。是 → parse 出的
+   * 那個 wikilink 照「沒有自訂文字」存（`keepLabelFree`）。不給＝舊規則（只認目標現在的標題）。
+   */
+  exportedLinkText?: (targetId: string, text: string) => boolean;
   yieldFn?: () => Promise<void>;
   /** 測試縫：時鐘（預設 `performance.now`）。 */
   now?: () => number;
@@ -79,6 +86,12 @@ export async function planSync(runtime: EditingRuntime, input: PlanSyncInput): P
   const prevTypes: Array<string | null> = [];
   const insertedIds: string[][] = [];
   let unbound = 0;
+  const exported = input.exportedLinkText;
+  let titles: Map<string, string> | null = null;
+  const titleOf = (id: string): string | undefined => {
+    titles ??= new Map(input.candidates.map(c => [c.id.toLowerCase(), c.title]));
+    return titles.get(id.toLowerCase());
+  };
   try {
     await yieldFn();
     last = now();
@@ -111,7 +124,7 @@ export async function planSync(runtime: EditingRuntime, input: PlanSyncInput): P
       const p = parseMarkdownForNote(s.editor, r.text, input.candidates, input.siteOrigin);
       if ("error" in p) return { ok: false, code: p.error, ...(p.detail ? { detail: p.detail } : {}) };
       unbound += p.unbound;
-      const blocks = p.blocks;
+      const blocks = exported === undefined ? p.blocks : keepLabelFree(p.blocks, exported, titleOf)[0];
       const firstType = blocks[0]?.type as string | undefined;
       firstTypes.push(firstType);
       const { place, prevType: placePrev } = placeFor(r, input.cur, anc[ri]!, { idx: curIdx });

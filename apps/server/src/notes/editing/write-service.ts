@@ -46,6 +46,7 @@ import { hmacOf } from "../../transfer/base-hash.js";
 import { isLoneEmptyParagraph, matchesBase } from "../../transfer/decide.js";
 import { exportNoteBody } from "../../transfer/export-note.js";
 import { diffLines, hashAgentLines } from "../../transfer/line-diff.js";
+import { exportedLinkTextOf } from "../../transfer/link-texts.js";
 import { bodyLines, normalizeBody } from "../../transfer/normalize.js";
 import { applySync, fileSyncRows, type Applied } from "../../transfer/sync-apply.js";
 import { planSync, type PlanSyncError, type SyncPlan } from "../../transfer/sync-plan.js";
@@ -369,7 +370,7 @@ export class NoteWriteService {
    *    段表非 null → 頂層 id 與單顆指紋（整個 block 子樹的文字與屬性）要與基底段表逐顆相等（`matchesBase`；審查 I2：不再整篇匯出比，
    *    連到的筆記改名或變不可見不算動過）——例外：基底 0 顆、現況恰一顆空段落（瀏覽器打開會正規化出來，審查 M1）當沒動過，套用時把它換掉；
    *    段表 null（只會是只改標題）→ 整篇匯出（`exportNoteBody`，與下載同一條組字）→ `normalizeBody` → HMAC ≠ `body_sha` → `note_changed`
-   * ⑦ 本文有改 → 行雜湊 → diff → `planSync`（parse 失敗 → 400）；
+   * ⑦ 本文有改 → 行雜湊 → diff → `planSync`（parse 失敗 → 400；基底段表的 `links` 給它判「連結文字仍是下載時匯出的那個」，F1）；
    *    零區（全是 `same`）→ 當 `unchanged`、什麼都不寫；否則扣 `transferWrite`（至多一次）→ `applySync` → `beforeMerge` → `mergeDiff`
    *    （期望＝fork 頂層每一顆的指紋＋整篇指紋，與 `applyUpdate` 同一個 transact：⑥ 之後瀏覽器或任何寫入改了筆記就不合併）；不符 → 從 ⑥
    *    重來（重新 fork、重新判），最多 3 次 ⑧ 紀錄交易（`recordFileSyncInTx`，交易外 `redactDbError`）→ `updateNoteLinks`
@@ -495,7 +496,10 @@ export class NoteWriteService {
           bodyChecked = true;
           break;
         }
-        const planned = await planSync(editing, { segments, baseLineCount: base.lineKinds.length, agentLines: diffIn.agentLines, diff: diffIn.diff, cur, curFragment, candidates, siteOrigin: siteOriginOf(editing.baseUrl) });
+        const planned = await planSync(editing, {
+          segments, baseLineCount: base.lineKinds.length, agentLines: diffIn.agentLines, diff: diffIn.diff, cur, curFragment, candidates, siteOrigin: siteOriginOf(editing.baseUrl),
+          exportedLinkText: exportedLinkTextOf(segments, input.key, salt),
+        });
         if (!planned.ok) return { ok: false, kind: "parse", code: planned.code, ...(planned.detail ? { detail: planned.detail } : {}), ...(planned.fence ? { fence: planned.fence } : {}) };
         const p = planned.plan;
         if (p.decisions.every(d => d.mark === "same")) {

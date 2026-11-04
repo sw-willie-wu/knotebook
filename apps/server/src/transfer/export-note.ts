@@ -20,6 +20,7 @@ import { toNoteMarkdown } from "../notes/editing/read.js";
 import type { EditingRuntime } from "../notes/editing/runtime.js";
 import { EditorSession } from "../notes/editing/session.js";
 import { alignSegments, lineKindsOf, type AlignStats } from "./align.js";
+import { labelFreeLinkTexts } from "./link-texts.js";
 import { bodyLines, normalizeBody } from "./normalize.js";
 import { YIELD_AFTER_MS, yieldToLoop } from "./yield.js";
 
@@ -46,6 +47,11 @@ export interface ExportNoteOptions {
   yieldFn?: () => Promise<void>;
   /** 測試縫：段表強制 null（生產不傳）。 */
   forceUnmergeable?: boolean;
+  /**
+   * F1：給了就在每段記 `links`——段裡每個沒有自訂文字的 wikilink 匯出時用的文字，經這支算成雜湊（`linkTextHash` 綁好金鑰與鹽），
+   * 去重；沒有這種連結的段不帶 `links`。不給（例如只要本文的呼叫端）就不記。
+   */
+  linkHash?: (targetId: string, text: string) => string;
 }
 
 /**
@@ -112,7 +118,15 @@ export async function exportNoteForTransfer(
 
     const { segs, stats } = alignSegments(lines, per, types, (i, j) => bodyLines(normalizeBody(toNoteMarkdown(s.editor, top.slice(i, j + 1), titles))));
     const aligned = opts.forceUnmergeable ? null : segs;
-    const segments = aligned === null ? null : aligned.map(sg => ({ ids: sg.idx.map(k => ids[k]!), fps: sg.idx.map(k => fps[k]!), start: sg.start, count: sg.count }));
+    const linkHash = opts.linkHash;
+    const segments: TransferSegment[] | null = aligned === null ? null : aligned.map(sg => {
+      const seg: TransferSegment = { ids: sg.idx.map(k => ids[k]!), fps: sg.idx.map(k => fps[k]!), start: sg.start, count: sg.count };
+      if (linkHash) {
+        const links = [...new Set(labelFreeLinkTexts(sg.idx.map(k => top[k]!), titles).map(([id, text]) => linkHash(id, text)))];
+        if (links.length > 0) seg.links = links;
+      }
+      return seg;
+    });
     return { body, lines, ids, fps, types, segments, lineKinds: lineKindsOf(aligned, types, lines.length), stats: { ...stats, yields } };
   } finally {
     s.close();
