@@ -48,8 +48,10 @@ describe("S14 斷線語意", () => {
     let holding = true;
     let handlers = 0;
     const s = await scene({
+      // 占位的第一發停在 afterRecord（已合併、紀錄已寫、仍在佇列內）：第二份副本在這時才下載（含第一發的修改），所以它排在
+      // 佇列裡、之後真的寫入（審查 M7；第三輪規則下，在第一發寫入之前下載的副本會被判 note_changed）。
       editingTestHooks: {
-        beforeMerge: async () => {
+        afterRecord: async () => {
           if (!holding) return;
           holding = false;
           entered.open();
@@ -64,9 +66,10 @@ describe("S14 斷線語意", () => {
       },
     });
     const d1 = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
-    const d2 = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
     const p1 = bulkPut(s.ctx.app, s.bulk.token, editBody(d1.text, b => b.replace("Para 1", "Occupier")));
     await entered.wait;
+    const d2 = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
+    expect(d2.body).toContain("Occupier");
     const destroy = gate();
     const text2 = editBody(d2.text, b => b.replace("Para 3", "D2 change"));
     const p2 = putRaw(s.ctx.baseUrl, s.bulk.token, text2, { destroyAfter: destroy.wait });
@@ -79,9 +82,9 @@ describe("S14 斷線語意", () => {
     expect(await p2).toBeNull();
     await waitFor("第二發的 log", 10_000, () => s.writeLines().length === 2);
     const second = s.writeLines()[1]!;
-    expect(second).toMatchObject({ clientClosed: true });
-    expect(["applied", "merged"]).toContain(second.result);
+    expect(second).toMatchObject({ clientClosed: true, result: "applied" });
     const md = await liveMarkdown(s.ctx, s.note.id);
+    expect(md).toContain("Occupier");
     expect(md.split("D2 change").length - 1).toBe(1);
     expect((await s.ctx.db.select().from(transferBases).where(eq(transferBases.key, d2.fm.base!)))[0]!.appliedBodySha).not.toBeNull();
     expect(s.errorLines()).toEqual([]);

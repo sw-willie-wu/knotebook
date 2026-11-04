@@ -30,7 +30,7 @@
  *     `note-presence.test.ts` 與 `mcp-content.test.ts` 兩條逐字斷言在守——本檔 `touch()` 與
  *     `mcp/note-read.ts` 都只是呼叫端，沒有各自的第二道守衛。
  */
-import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import type { FastifyBaseLogger } from "fastify";
 import * as Y from "yjs";
 import { YDOC_FRAGMENT, type EditOp } from "@knotebook/shared";
@@ -43,13 +43,15 @@ import { isForeignKeyViolation, isNoteFolderSpaceViolation, isRetryableTxError, 
 import type { FixedWindowLimiter } from "../../http/rate-limit.js";
 import { redactDbError } from "../../lib/redact-db-error.js";
 import { hmacOf } from "../../transfer/base-hash.js";
-import { blankBaseSegments, diffLines, hashAgentLines } from "../../transfer/line-diff.js";
-import { bodyLines } from "../../transfer/normalize.js";
+import { isLoneEmptyParagraph, matchesBase } from "../../transfer/decide.js";
+import { exportNoteBody } from "../../transfer/export-note.js";
+import { diffLines, hashAgentLines } from "../../transfer/line-diff.js";
+import { bodyLines, normalizeBody } from "../../transfer/normalize.js";
 import { applySync, fileSyncRows, type Applied } from "../../transfer/sync-apply.js";
 import { planSync, type PlanSyncError, type SyncPlan } from "../../transfer/sync-plan.js";
 import { recordFileSyncInTx } from "../../transfer/tx/record-file-sync.js";
 import { insertNoteWithAutoSlug } from "../create.js";
-import { renameNoteTitle, type RenameOutcome } from "../rename-note.js";
+import { renameNoteTitle, type ConditionalRenameOutcome } from "../rename-note.js";
 import { resolveNoteAccess, type NoteAccess } from "../service.js";
 import type { SlugScope } from "../slug.js";
 import type { NoteVersionRow } from "../tx/versions.js";
@@ -57,6 +59,7 @@ import { applyEdit, FingerprintMismatch, forkAndCheck, mergeDiff, recordableAfte
 import { applyVersionEdit, type ApplyVersionFailureCode, type ApplyVersionInput } from "./apply-version.js";
 import { visibleNoteTargets, type VisibleNoteTarget } from "./candidates.js";
 import { topLevelSnapshot } from "./fingerprint.js";
+import { linkTitlesFor } from "./read.js";
 import { parseMarkdownForNote, siteOriginOf, type ParseDetail, type ParsedMarkdown, type ParseError } from "./markdown.js";
 import { presenceIdentity, presenceTargetForWrite, type PresenceRegistry, type PresenceTarget } from "./presence.js";
 import { NoteWriteQueue, QueueBusyError } from "./queue.js";
@@ -96,9 +99,7 @@ export type CreateWithContentResult =
 
 export type SaveVersionOutcome = { ok: true; row: NoteVersionRow; upgraded: boolean } | { ok: false; kind: "busy" | "note-deleted" };
 
-/** bulk transfer §9.5-5：檔案寫回前存版的名稱（spec §14.4、F18）。 */
-export const SYNC_VERSION_NAME = "本機檔案同步前";
-/** §9.5-7：合併指紋不符時從規劃重來，最多 3 次。 */
+/** §9.5-7：合併指紋不符時從頭重來（重新 fork、重新判「筆記動過沒」），最多 3 次。 */
 export const SYNC_MERGE_ATTEMPTS = 3;
 
 export interface SyncFileInput {
@@ -119,15 +120,14 @@ export interface SyncFileInput {
 }
 export interface SyncFileOk {
   ok: true;
-  result: "unchanged" | "applied" | "merged" | "renamed";
+  result: "unchanged" | "applied" | "renamed";
   applied: number;
   same: number;
-  conflicts: number;
-  version: { id: string; name: string } | null;
   editIds: string[];
   unboundWikilinks: number;
   renamed: boolean;
-  renameFailed?: "gone" | "ownership_changed";
+  /** `title_changed`：內容已寫入，但改名前標題剛被別人改掉（改名與「標題沒變」的檢查是同一句 UPDATE）。 */
+  renameFailed?: "gone" | "ownership_changed" | "title_changed";
   diffOverflow: boolean;
   anchored: number;
   degradedLines: number;
@@ -153,10 +153,10 @@ export type CreateFromFileOutcome =
 
 /**
  * 409 `base_unavailable` 的成因（回應的 `error.reason`；8000 探索測試 D，Willie 2026-11-04）：`already_sent`＝這份副本已用其他內容
- * 送回過；`other_note`＝`base` 屬於別篇或別人；`expired`＝伺服器已沒有這份基底（裁掉、過期）或金鑰換過；`anchors_gone`＝改的某一處
- * 找不到該放的位置（`decide.ts` 的 `anchorsGone`）；`reverted`＝這份檔寫回的紀錄已被撤回（`applied_edit_ids`）。
+ * 送回過；`other_note`＝`base` 屬於別篇或別人；`expired`＝伺服器已沒有這份基底（裁掉、過期）或金鑰換過；`note_changed`＝這篇筆記在下載
+ * 之後被改過（標題或內文，Willie 2026-11-04 第三輪：不再三方合併）；`reverted`＝這份檔寫回的紀錄已被撤回（`applied_edit_ids`）。
  */
-export type BaseUnavailableReason = "already_sent" | "other_note" | "expired" | "anchors_gone" | "reverted";
+export type BaseUnavailableReason = "already_sent" | "other_note" | "expired" | "note_changed" | "reverted";
 
 export type SyncFileOutcome =
   | SyncFileOk
@@ -355,15 +355,28 @@ export class NoteWriteService {
   }
 
   /**
-   * bulk transfer spec 2026-11-02 §9.2、§9.5（plan PR-2 T8／T9）：檔案寫回一篇既有筆記。**全在一次 `queue.run(noteId)` 內**
-   * （F14）；進佇列前只預取候選集合與 agentLabel（同 `applyToNote`）。順序（plan T8「syncFile」1–11）：
-   * ① 查基底（key＋user＋note）→ 查無或 `key_id` 不符 → `base_unavailable` ② 狀態表（§9.2-6）③ 規劃：fork → 頂層快照 →
-   * 行雜湊（基底的鹽）→ diff → `planSync`；零區（含全是 same）→ 單句寫 `applied_body_sha`、視為內容沒變 ④ 內容沒變 → 改名判斷；
-   * 都沒寫 → `tokenRead`（本請求已扣過 `transferWrite` 就不再扣）④b 有區定位點全消失（`plan.anchorsGone`）→ 409 `base_unavailable`、
-   * 什麼都不寫（Willie 2026-11-04）⑤ 有區、本請求還沒扣 → `transferWrite`（至多一次，gate r1 I1）
-   * ⑥ 有 conflict、還沒存過版 → 存版（不持 lease；F18 樣板）⑦ `applySync` → `beforeMerge` → 多期望 `mergeDiff`；不符 → 從 ③
-   * 重來（重跑 `planSync`），最多 3 次 ⑧ 紀錄交易（`recordFileSyncInTx`，交易外 `redactDbError`）⑨ `updateNoteLinks`
-   * ⑩ 改名（T9）⑪ presence。帶內容參數的 DB 呼叫（紀錄、存版、改名）錯誤一律經 `redactDbError`（plan 不變量 9）。
+   * bulk transfer spec 2026-11-02 §9.2、§9.5（plan PR-2 T8／T9）：檔案寫回一篇既有筆記。Willie 2026-11-04 第三輪：**筆記自下載後只要
+   * 被動過（標題或內文），一律 409 `note_changed`，不再三方合併**。全在一次 `queue.run(noteId)` 內（F14；與 edit_note、撤回、套用版本
+   * 串行）；進佇列前只預取候選集合與 agentLabel（同 `applyToNote`）。順序：
+   * ① 查基底（key＋user＋note）→ 查無 → `other_note`／`expired`；`key_id` 不符 → `expired`
+   * ② 這份副本寫回過本文（`applied_body_sha`）：檔案本文與寫回的那份不同 → `already_sent`；相同 → 那次的紀錄有撤回過 → `reverted`；
+   *    標題又有改 → `already_sent`（審查 I1：寫回過的副本不再收任何修改，連只改標題也不收——寫回之後別人改了什麼，這份副本判不出來）；
+   *    否則當沒改（這幾個成因先於 `note_changed`：筆記是被這份副本自己改的）
+   * ③ 檔案與這份副本相同（本文：下載時的 `body_sha`，或②寫回的那份；標題：`applied_title_sha ?? title_sha`）→ `unchanged`、扣
+   *    `tokenRead`——不管筆記有沒有被別人動過 ④ 本文有改、筆記不可寫回（段表 null）→ `not_mergeable`
+   * ⑤ 寫回額度 `transferWrite` 只在真的要寫時才扣（不足 → 429）：沒改的檔、零區的檔不受影響（8000 探索測試 N5、審查 M1）
+   * ⑥ 筆記動過沒（內容比對，不看 `updated_at`）：現行標題的 HMAC ≠ 這份副本的標題 → `note_changed`；再 fork（live 文件就 fork 它）比內文：
+   *    段表非 null → 頂層 id 與單顆指紋（整個 block 子樹的文字與屬性）要與基底段表逐顆相等（`matchesBase`；審查 I2：不再整篇匯出比，
+   *    連到的筆記改名或變不可見不算動過）——例外：基底 0 顆、現況恰一顆空段落（瀏覽器打開會正規化出來，審查 M1）當沒動過，套用時把它換掉；
+   *    段表 null（只會是只改標題）→ 整篇匯出（`exportNoteBody`，與下載同一條組字）→ `normalizeBody` → HMAC ≠ `body_sha` → `note_changed`
+   * ⑦ 本文有改 → 行雜湊 → diff → `planSync`（parse 失敗 → 400）；
+   *    零區（全是 `same`）→ 當 `unchanged`、什麼都不寫；否則扣 `transferWrite`（至多一次）→ `applySync` → `beforeMerge` → `mergeDiff`
+   *    （期望＝fork 頂層每一顆的指紋＋整篇指紋，與 `applyUpdate` 同一個 transact：⑥ 之後瀏覽器或任何寫入改了筆記就不合併）；不符 → 從 ⑥
+   *    重來（重新 fork、重新判），最多 3 次 ⑧ 紀錄交易（`recordFileSyncInTx`，交易外 `redactDbError`）→ `updateNoteLinks`
+   * ⑨ 改名（T9）：`renameNoteTitle` 帶 `expectTitle`＝⑥ 讀到的現行標題（檢查與改名同一句 UPDATE）⑩ presence。
+   * 帶內容參數的 DB 呼叫（紀錄、改名）錯誤一律經 `redactDbError`（plan 不變量 9）。
+   * 已知縫（不修，總管 2026-11-04 接受）：① 只改標題時，⑥ 的內文判斷與 ⑨ 的改名不在同一個交易（內文在 Yjs、標題在 DB），中間瀏覽器
+   * 打的字不擋改名 ② 寫回本文期間（⑥ 讀完標題之後、合併之前）別人改了標題，而檔案沒改標題：本文照寫，偵測不到這次改名（審查 M2）。
    */
   async syncFile(log: FastifyBaseLogger, input: SyncFileInput): Promise<SyncFileOutcome> {
     const candidates = await visibleNoteTargets(this.deps.db, input.userId);
@@ -401,8 +414,12 @@ export class NoteWriteService {
     const salt = Buffer.from(base.salt);
     const bodySha = hmacOf(input.key, salt, input.body);
     const applied = base.appliedBodySha === null ? null : Buffer.from(base.appliedBodySha);
-    let contentNoop: boolean;
-    if (applied === null) contentNoop = bodySha.equals(Buffer.from(base.bodySha));
+    // 「這份副本目前的標題」＝applied_title_sha ?? title_sha（改名寫回過就是寫回的那個）。
+    const copyTitle = Buffer.from(base.appliedTitleSha ?? base.titleSha);
+    const fileTitleSha = input.title === undefined ? null : hmacOf(input.key, salt, input.title);
+    const titleChanged = fileTitleSha !== null && !fileTitleSha.equals(copyTitle);
+    let bodyChanged: boolean;
+    if (applied === null) bodyChanged = !bodySha.equals(Buffer.from(base.bodySha));
     else if (bodySha.equals(applied)) {
       // 同檔重送：這份檔寫回的紀錄若有任一列已撤回，內容已不是「都套用了」→ 409 reverted（8000 探索測試 C）。
       const ids = base.appliedEditIds ?? [];
@@ -410,75 +427,95 @@ export class NoteWriteService {
         const [rev] = await db.select({ id: noteAiEdits.id }).from(noteAiEdits).where(and(inArray(noteAiEdits.id, ids), isNotNull(noteAiEdits.revertedAt))).limit(1);
         if (rev) return { ok: false, kind: "base_unavailable", reason: "reverted" };
       }
-      contentNoop = true;
+      // 審查 I1：寫回過本文的副本又帶標題修改 → already_sent、不改名（寫回之後別人的修改，這份副本的基底已判不出來）。
+      if (titleChanged) return { ok: false, kind: "base_unavailable", reason: "already_sent" };
+      bodyChanged = false;
     } else return { ok: false, kind: "base_unavailable", reason: "already_sent" };
-    if (!contentNoop && base.segments === null) return { ok: false, kind: "not_mergeable" };
 
     const out: SyncFileOk = {
-      ok: true, result: "unchanged", applied: 0, same: 0, conflicts: 0, version: null, editIds: [], unboundWikilinks: 0, renamed: false,
-      diffOverflow: false, anchored: 0, degradedLines: 0,
+      ok: true, result: "unchanged", applied: 0, same: 0, editIds: [], unboundWikilinks: 0, renamed: false, diffOverflow: false, anchored: 0, degradedLines: 0,
     };
+    const tokenReadKey = `token:${input.userId}`;
+    if (!bodyChanged && !titleChanged) {
+      if (!input.limiters.tokenRead.consume(tokenReadKey)) return { ok: false, kind: "rate_limited", retryAfterMs: input.limiters.tokenRead.retryAfterMs(tokenReadKey) };
+      return out;
+    }
+    if (bodyChanged && base.segments === null) return { ok: false, kind: "not_mergeable" };
+    // 寫回額度（`transferWrite`）只在真的要寫時才看與扣（下面兩處 `consume`）：沒改的檔、零區的檔（審查 M1）不受影響（8000 探索測試 N5）。
+
+    const noteChanged: SyncFileOutcome = { ok: false, kind: "base_unavailable", reason: "note_changed" };
+    const [row] = await db.select({ title: notes.title }).from(notes).where(and(eq(notes.id, input.noteId), isNull(notes.deletedAt))).limit(1);
+    if (!row) return { ok: false, kind: "gone" };
+    if (!hmacOf(input.key, salt, row.title).equals(copyTitle)) return noteChanged;
+    const currentTitle = row.title;
+
     let charged = false;
     let firstWritten: string | null = null;
     let contentWritten = false;
 
-    if (!contentNoop) {
+    if (applied === null) {
       const editing = applyDeps.editing;
-      const agentLines = bodyLines(input.body);
-      const agent = await hashAgentLines(input.key, salt, agentLines);
-      const diff = await diffLines({ hashes: Buffer.from(base.lineHashes), kinds: Buffer.from(base.lineKinds) }, agent);
-      out.diffOverflow = diff.overflow;
-      out.anchored = diff.anchored;
-      out.degradedLines = diff.degradedLines;
-      const segments = base.segments!;
-      const blankSegs = blankBaseSegments(input.key, salt, Buffer.from(base.lineHashes), segments);
-      const baseLineCount = base.lineKinds.length;
-      let versionCut = false;
+      const baseBodySha = Buffer.from(base.bodySha);
+      let diffIn: { agentLines: string[]; diff: Awaited<ReturnType<typeof diffLines>> } | null = null;
+      if (bodyChanged) {
+        const agentLines = bodyLines(input.body);
+        const agent = await hashAgentLines(input.key, salt, agentLines);
+        const diff = await diffLines({ hashes: Buffer.from(base.lineHashes), kinds: Buffer.from(base.lineKinds) }, agent);
+        out.diffOverflow = diff.overflow;
+        out.anchored = diff.anchored;
+        out.degradedLines = diff.degradedLines;
+        diffIn = { agentLines, diff };
+      }
       let merged: MergeOutput | null = null;
       let plan: SyncPlan | null = null;
       let fork: Y.Doc | null = null;
       let appliedRegions: Applied | null = null;
       let zeroRegion = false;
-      for (let attempt = 0; attempt < SYNC_MERGE_ATTEMPTS && merged === null && !zeroRegion; attempt++) {
+      let bodyChecked = false;
+      for (let attempt = 0; attempt < SYNC_MERGE_ATTEMPTS && merged === null && !zeroRegion && !bodyChecked; attempt++) {
         const f = await forkAndCheck(applyDeps, input.noteId);
         const curFragment = f.fork.getXmlFragment(YDOC_FRAGMENT);
         const cur = topLevelSnapshot(curFragment);
-        const planned = await planSync(editing, { segments, blankSegs, baseLineCount, agentLines, diff, cur, curFragment, candidates, siteOrigin: siteOriginOf(editing.baseUrl) });
+        const segments = base.segments;
+        // ⑥ 內文：段表非 null → 結構比對（不 mount、不匯出）；最小編輯也靠基底的 block id 定位。
+        let loneEmpty = false;
+        if (segments !== null) {
+          loneEmpty = segments.length === 0 && isLoneEmptyParagraph(curFragment);
+          if (!loneEmpty && !matchesBase(segments, cur)) return noteChanged;
+        } else {
+          // 段表 null（本文有改已在上面回 not_mergeable，這裡只會是只改標題）：沒有逐顆指紋可比，退回整篇匯出比對。fork 的副本上
+          // 匯出（mount 不碰 f.fork）；titles 在 mount 前查（持 lease 期間零 DB）。
+          const titles = await linkTitlesFor(db, input.userId, f.fork);
+          const copy = new Y.Doc();
+          Y.applyUpdate(copy, Y.encodeStateAsUpdate(f.fork));
+          const nowBody = normalizeBody(await exportNoteBody(editing, copy, titles));
+          if (!hmacOf(input.key, salt, nowBody).equals(baseBodySha)) return noteChanged;
+        }
+        if (diffIn === null || segments === null) {
+          bodyChecked = true;
+          break;
+        }
+        const planned = await planSync(editing, { segments, baseLineCount: base.lineKinds.length, agentLines: diffIn.agentLines, diff: diffIn.diff, cur, curFragment, candidates, siteOrigin: siteOriginOf(editing.baseUrl) });
         if (!planned.ok) return { ok: false, kind: "parse", code: planned.code, ...(planned.detail ? { detail: planned.detail } : {}), ...(planned.fence ? { fence: planned.fence } : {}) };
         const p = planned.plan;
         if (p.decisions.every(d => d.mark === "same")) {
-          // 零區（含全是 same）→ 寫 applied_body_sha、視為內容沒變（§9.2-6，gate r3 m6）。參數只有 HMAC 與 key（不帶內容）。
-          try {
-            await db.update(transferBases).set({ appliedBodySha: bodySha, appliedEditIds: [], lastUsedAt: sql`now()` }).where(eq(transferBases.key, base.key));
-          } catch (err) {
-            throw redactDbError(log, err, "寫入檔案同步基底");
-          }
+          // 零區（含全是 same，例如只加空行）→ 當 `unchanged`（審查 M1）：不扣寫回額度、不寫 `applied_body_sha`（這份副本之後只改標題
+          // 仍照一般改名處理，不會被當成「已寫回過」而回 already_sent）。
           out.same = p.decisions.length;
           zeroRegion = true;
           break;
         }
-        // Willie 2026-11-04：有一區要寫、卻在現況裡找不到任何定位點（倖存者、P、N 全不見——例如 edit_note 把整段換了）→
-        // 整篇 409 `base_unavailable`，照既有 409 出口：在扣桶、存版、紀錄、改名之前，什麼都不寫（`decide.ts` 的 `anchorsGone`）。
-        // 重試路徑的邊緣（接受、不修）：第一輪撞指紋、第二輪重新規劃才判成全消失時，第一輪已扣的桶與已存的版本不退回——與三次都撞指紋
-        // 回 503 的情形一致。
-        if (p.anchorsGone.length > 0) return { ok: false, kind: "base_unavailable", reason: "anchors_gone" };
         if (!charged) {
           if (!input.limiters.transferWrite.consume(input.userId)) return { ok: false, kind: "rate_limited", retryAfterMs: input.limiters.transferWrite.retryAfterMs(input.userId) };
           charged = true;
         }
-        if (!versionCut && p.decisions.some(d => d.mark === "conflict")) {
-          const cut = await this.cutBeforeSync(log, input.noteId);
-          if (cut.kind !== "ok") return { ok: false, kind: cut.kind };
-          versionCut = true;
-          out.version = cut.version;
-        }
-        const a = await applySync(editing, f.fork, f.sv, p, cur);
+        const a = await applySync(editing, f.fork, f.sv, p, cur, loneEmpty ? { normalizedId: cur.ids[0]! } : {});
         if (hooks?.beforeMerge) await hooks.beforeMerge();
         const ctx: DirectCtx = { source: "ai-edit", userId: input.userId, tokenId: input.tokenId, agentLabel, applied: false };
         try {
           merged = await mergeDiff(applyDeps, input.noteId, ctx, {
-            targetIds: null, expectFingerprint: null, anchorId: null, diff: a.diff, afterIds: [],
-            expectEach: a.survivorsExpect, anchorIds: a.anchorIds, afterGroups: a.perRegion.map(pr => pr.afterIds),
+            targetIds: null, expectFingerprint: f.whole, anchorId: null, diff: a.diff, afterIds: [],
+            expectEach: cur.ids.map((id, i) => ({ id, fp: cur.fps[i]! })), afterGroups: a.perRegion.map(pr => pr.afterIds),
           });
         } catch (err) {
           if (err instanceof FingerprintMismatch) continue;
@@ -488,7 +525,7 @@ export class NoteWriteService {
         fork = f.fork;
         appliedRegions = a;
       }
-      if (!zeroRegion && merged === null) return { ok: false, kind: "busy" }; // 三次都撞指紋（§9.5-7）
+      if (!bodyChecked && !zeroRegion && merged === null) return { ok: false, kind: "busy" }; // 三次都撞指紋（§9.5-7）
       if (plan !== null && merged !== null && fork !== null && appliedRegions !== null) {
         if (hooks?.beforeRecord) await hooks.beforeRecord();
         const { rows } = fileSyncRows({
@@ -505,55 +542,52 @@ export class NoteWriteService {
         if (hooks?.afterRecord) await hooks.afterRecord();
         await updateNoteLinks(applyDeps, { sourceNoteId: input.noteId, userId: input.userId, forkDoc: fork, clock: merged.clock });
         out.applied = plan.decisions.filter(d => d.mark === "applied").length;
-        out.conflicts = plan.decisions.filter(d => d.mark === "conflict").length;
         out.same = plan.decisions.filter(d => d.mark === "same").length;
         out.unboundWikilinks = plan.unbound;
-        out.result = out.conflicts > 0 ? "merged" : "applied";
+        out.result = "applied";
         contentWritten = true;
         const firstIdx = plan.decisions.findIndex(d => d.mark !== "same" && d.kind !== "delete");
         firstWritten = firstIdx === -1 ? null : (appliedRegions.perRegion[firstIdx]!.afterIds[0] ?? null);
       }
     }
 
-    // ⑩ 改名（T9；§9.2-8、§9.7）。「目前已套用的標題」＝applied_title_sha ?? title_sha。
-    if (input.title !== undefined) {
-      const current = Buffer.from(base.appliedTitleSha ?? base.titleSha);
-      const titleSha = hmacOf(input.key, salt, input.title);
-      if (!titleSha.equals(current)) {
-        if (!contentWritten && !charged) {
-          if (!input.limiters.transferWrite.consume(input.userId)) return { ok: false, kind: "rate_limited", retryAfterMs: input.limiters.transferWrite.retryAfterMs(input.userId) };
-          charged = true;
-        }
-        let r: RenameOutcome;
+    // ⑨ 改名（T9；§9.2-8、§9.7）：只在現行標題仍是 ⑥ 讀到的那個時才改（同一句 UPDATE）。
+    if (titleChanged) {
+      if (!contentWritten && !charged) {
+        if (!input.limiters.transferWrite.consume(input.userId)) return { ok: false, kind: "rate_limited", retryAfterMs: input.limiters.transferWrite.retryAfterMs(input.userId) };
+        charged = true;
+      }
+      let r: ConditionalRenameOutcome;
+      try {
+        r = await renameNoteTitle(db, { noteId: input.noteId, access: input.access, title: input.title!, expectTitle: currentTitle }, this.deps.renameHook);
+      } catch (err) {
+        throw redactDbError(log, err, "檔案寫回改名");
+      }
+      if (r.kind === "renamed") {
         try {
-          r = await renameNoteTitle(db, { noteId: input.noteId, access: input.access, title: input.title }, this.deps.renameHook);
+          await db.update(transferBases).set({ appliedTitleSha: fileTitleSha, lastUsedAt: sql`now()` }).where(eq(transferBases.key, base.key));
         } catch (err) {
-          throw redactDbError(log, err, "檔案寫回改名");
+          throw redactDbError(log, err, "寫入檔案同步基底");
         }
-        if (r.kind === "renamed") {
-          try {
-            await db.update(transferBases).set({ appliedTitleSha: titleSha, lastUsedAt: sql`now()` }).where(eq(transferBases.key, base.key));
-          } catch (err) {
-            throw redactDbError(log, err, "寫入檔案同步基底");
-          }
-          out.renamed = true;
-          if (!contentWritten) out.result = "renamed";
-        } else if (r.kind === "gone" && !contentWritten) {
-          return { ok: false, kind: "gone" };
-        } else {
-          out.renameFailed = r.kind;
-        }
+        out.renamed = true;
+        if (!contentWritten) out.result = "renamed";
+      } else if (!contentWritten && r.kind === "gone") {
+        return { ok: false, kind: "gone" };
+      } else if (!contentWritten && r.kind === "title_changed") {
+        return noteChanged;
+      } else {
+        out.renameFailed = r.kind;
       }
     }
 
     if (!contentWritten && !out.renamed) {
       // 都沒寫：扣 tokenRead（本請求已扣過 transferWrite 就不再扣，gate r2 m-6）。
-      if (!charged && !input.limiters.tokenRead.consume(`token:${input.userId}`)) {
-        return { ok: false, kind: "rate_limited", retryAfterMs: input.limiters.tokenRead.retryAfterMs(`token:${input.userId}`) };
+      if (!charged && !input.limiters.tokenRead.consume(tokenReadKey)) {
+        return { ok: false, kind: "rate_limited", retryAfterMs: input.limiters.tokenRead.retryAfterMs(tokenReadKey) };
       }
       return out;
     }
-    // ⑪ presence（§0.1-15）：寫入的第一顆 block；只有刪除區 → 文件開頭；只改名不 touch（§9.2-9）。
+    // ⑩ presence（§0.1-15）：寫入的第一顆 block；只有刪除區 → 文件開頭；只改名不 touch（§9.2-9）。
     if (contentWritten) this.touch(input.noteId, input.tokenId, input.userHandle, agentLabel, firstWritten === null ? { kind: "doc-start" } : { kind: "block", blockId: firstWritten });
     return out;
   }
@@ -586,6 +620,8 @@ export class NoteWriteService {
       if (!input.limiters.tokenRead.consume(k)) return { ok: false, kind: "rate_limited", retryAfterMs: input.limiters.tokenRead.retryAfterMs(k) };
       return { ok: true, created: false, noteId: hit.noteId, unboundWikilinks: 0 };
     }
+    // 審查 M2：去重沒命中＝真的要建 → 寫回額度已滿就直接 429，不先解析（只看不扣；扣在解析成功之後）。
+    if (input.limiters.transferWrite.isBlocked(input.userId)) return { ok: false, kind: "rate_limited", retryAfterMs: input.limiters.transferWrite.retryAfterMs(input.userId) };
     // 解析在扣桶之前（總管 m2）：解析失敗不扣 `transferWrite`、不留筆記、不寫去重列——與寫回（`syncFile` 的 parse 出口在扣桶前）一致。
     const pre = await this.prepareContent(log, { userId: input.userId, tokenId: input.tokenId, content: input.body });
     if (!pre.ok) return { ok: false, kind: "parse", code: pre.code, ...(pre.detail ? { detail: pre.detail } : {}) };
@@ -615,36 +651,6 @@ export class NoteWriteService {
       .execute(sql`delete from ${transferCreates} where ${transferCreates.createdAt} < now() - make_interval(mins => ${CREATE_DEDUPE_MINUTES}::int)`)
       .catch((err: unknown) => log.warn({ ...pgErrorSummary(err) }, "清理 transfer_creates 失敗"));
     return { ok: true, created: true, noteId: r.noteId, unboundWikilinks: r.unbound };
-  }
-
-  /**
-   * §9.5-5 的存版（F18 樣板；**不持 lease**）：`versions.docFor` → `cutIfDirty(kind manual、名稱「本機檔案同步前」、keepExistingName、
-   * transient)`；兩次 null → busy；skipped note-deleted → gone、其他 skipped → busy。`cutIfDirty` 的 DB 錯誤帶整份筆記的 Yjs 更新
-   * （`collab/versions.ts` 的 capture），一律經 `redactDbError`（plan 不變量 9 ②）。
-   */
-  private async cutBeforeSync(log: FastifyBaseLogger, noteId: string): Promise<{ kind: "ok"; version: { id: string; name: string } | null } | { kind: "busy" | "gone" }> {
-    const versions = this.deps.versions;
-    if (!versions) throw new Error("NoteWriteService：沒有版本服務");
-    const hooks = this.deps.testHooks;
-    if (hooks?.beforeCut) await hooks.beforeCut();
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      const forced = hooks?.cutOverride?.();
-      let r: Awaited<ReturnType<VersionService["cutIfDirty"]>>;
-      if (forced === "skipped") r = { skipped: "uninitialized" } as Awaited<ReturnType<VersionService["cutIfDirty"]>>;
-      else if (forced === null) r = null;
-      else {
-        try {
-          const { doc, transient } = await versions.docFor(noteId);
-          r = await versions.cutIfDirty(noteId, doc, { kind: "manual", name: SYNC_VERSION_NAME, keepExistingName: true, extraEditors: [], transient });
-        } catch (err) {
-          throw redactDbError(log, err, "檔案寫回前存版");
-        }
-      }
-      if (r === null) continue;
-      if ("skipped" in r) return r.skipped === "note-deleted" ? { kind: "gone" } : { kind: "busy" };
-      return { kind: "ok", version: { id: r.row.id, name: r.row.name ?? SYNC_VERSION_NAME } };
-    }
-    return { kind: "busy" };
   }
 
   /**

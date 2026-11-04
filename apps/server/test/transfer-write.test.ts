@@ -60,8 +60,9 @@ describe("W1–W7 狀態表", () => {
     const r = await bulkPut(s.ctx.app, s.bulk.token, text);
     expect(r.statusCode).toBe(200);
     const body = r.json() as Record<string, unknown>;
-    expect(body).toMatchObject({ result: "applied", applied: 1, same: 0, conflicts: 0, renamed: false, base: null, created: false });
+    expect(body).toMatchObject({ result: "applied", applied: 1, same: 0, renamed: false, base: null, created: false });
     expect(body).not.toHaveProperty("version");
+    expect(body).not.toHaveProperty("conflicts");
     expect((body.editIds as string[]).length).toBe(1);
     expect(norm(await liveMarkdown(s.ctx, s.note.id))).toBe(norm(editBody(d.text, b => b.replace("Para 1", "Para 1 new")).split("\n").slice(8).join("\n")));
     const ids1 = await topIdsOf(s.ctx, s.note.id);
@@ -137,14 +138,14 @@ describe("W1–W7 狀態表", () => {
     expect(r2.json()).toMatchObject({ result: "unchanged" });
   });
 
-  it("W7 只插空行 → unchanged、applied_body_sha 已寫、不扣 transferWrite", async () => {
+  it("W7 只插空行 → unchanged、applied_body_sha 不寫（審查 M1）、不扣 transferWrite", async () => {
     const transferWrite = new FixedWindowLimiter({ limit: 1, windowMs: 60_000 });
     const s = await scene({ limiters: { transferWrite } });
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
     const r = await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, b => b.replace("Para 1\n", "Para 1\n\n\n")));
     expect(r.statusCode).toBe(200);
     expect(r.json()).toMatchObject({ result: "unchanged" });
-    expect((await baseRow(s.ctx, d.fm.base!)).appliedBodySha).not.toBeNull();
+    expect((await baseRow(s.ctx, d.fm.base!)).appliedBodySha).toBeNull();
     // transferWrite 沒扣：另一篇的真寫入仍可（limit 1）
     const n2 = await seedNote(s.ctx.db, { ownerId: s.u.id }, { title: "N2" });
     await seedMd(s.ctx.db, n2.id, "Only para");
@@ -253,13 +254,16 @@ describe("W9–W12 權限、範圍、額度、佇列", () => {
     expect(await liveMarkdown(s.ctx, n2.id)).toBe(before);
   });
 
-  it("W10b（T8-M8）isBlocked 預檢在佇列之前（§9.2-4）：桶滿時連「同檔重送」也 429（不進佇列、不規劃），沒有預檢會回 200 unchanged", async () => {
+  it("W10b（8000 探索測試 N5，取代 T8-M8 的預檢）桶滿時「同檔重送」仍 200 unchanged（寫回額度只看有改的檔）；同一份副本改別的內容 → 409 already_sent", async () => {
     const transferWrite = new FixedWindowLimiter({ limit: 1, windowMs: 60_000 });
     const s = await scene({ limiters: { transferWrite } });
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
     const text = editBody(d.text, b => b.replace("Para 1", "x"));
     expect((await bulkPut(s.ctx.app, s.bulk.token, text)).statusCode).toBe(200);
-    expect((await bulkPut(s.ctx.app, s.bulk.token, text)).statusCode).toBe(429);
+    const again = await bulkPut(s.ctx.app, s.bulk.token, text);
+    expect(again.statusCode).toBe(200);
+    expect(again.json()).toMatchObject({ result: "unchanged" });
+    expect((await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, b => b.replace("Para 2", "y")))).statusCode).toBe(409);
   });
 
   it("W11 佇列被占（queueWaitMs 50）→ 503 server_busy、筆記未變", async () => {
@@ -303,8 +307,8 @@ describe("W9–W12 權限、範圍、額度、佇列", () => {
   });
 });
 
-describe("W13 log 鍵集合（§13＋plan §0.1-10：13 鍵；錯誤出口 diff 鍵 null）", () => {
-  it("applied／409／400 各恰一行 info、鍵恰 13 個；log 不含標題、本文、檔內標記、knbt_", async () => {
+describe("W13 log 鍵集合（§13＋plan §0.1-10：11 鍵——第三輪拿掉 conflicts、versionId；錯誤出口 diff 鍵 null）", () => {
+  it("applied／409／400 各恰一行 info、鍵恰 11 個；log 不含標題、本文、檔內標記、knbt_", async () => {
     const chunks: string[] = [];
     const s = await scene({ logger: { level: "info", stream: { write: (x: string) => void chunks.push(x) } } }, PARAS(3, "SecretBodyMarker"));
     await s.ctx.db.update(notes).set({ title: "SecretTitleMarker" }).where(eq(notes.id, s.note.id));
@@ -315,17 +319,17 @@ describe("W13 log 鍵集合（§13＋plan §0.1-10：13 鍵；錯誤出口 diff 
     expect((await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, b => b.replace("SecretBodyMarker 2", "SecretBodyMarker other")))).statusCode).toBe(409);
     const lines = chunks.flatMap(c => c.split("\n")).filter(Boolean).map(l => JSON.parse(l) as Record<string, unknown>).filter(o => o.msg === "bulk transfer write");
     expect(lines).toHaveLength(3);
-    const KEYS = ["userId", "tokenId", "noteId", "result", "applied", "same", "conflicts", "versionId", "ms", "diffOverflow", "anchored", "degradedLines", "clientClosed"];
+    const KEYS = ["userId", "tokenId", "noteId", "result", "applied", "same", "ms", "diffOverflow", "anchored", "degradedLines", "clientClosed"];
     const PINO = new Set(["level", "time", "pid", "hostname", "reqId", "msg"]);
     for (const l of lines) expect(Object.keys(l).filter(k => !PINO.has(k)).sort()).toEqual([...KEYS].sort());
     expect(lines.map(l => l.result)).toEqual(["empty_content", "applied", "base_unavailable"]);
-    for (const l of [lines[0]!, lines[2]!]) for (const k of ["applied", "same", "conflicts", "versionId", "diffOverflow", "anchored", "degradedLines"]) expect(l[k], `${l.result}.${k}`).toBeNull();
-    expect(lines[1]).toMatchObject({ applied: 1, same: 0, conflicts: 0, diffOverflow: false, clientClosed: false });
+    for (const l of [lines[0]!, lines[2]!]) for (const k of ["applied", "same", "diffOverflow", "anchored", "degradedLines"]) expect(l[k], `${l.result}.${k}`).toBeNull();
+    expect(lines[1]).toMatchObject({ applied: 1, same: 0, diffOverflow: false, clientClosed: false });
     const all = chunks.join("");
     for (const m of ["SecretBodyMarker", "SecretTitleMarker", "knbt_"]) expect(all).not.toContain(m);
   });
 
-  it("W13b（審查 m1）未預期的例外（紀錄交易 trigger 失敗）→ 500、`bulk transfer write` 恰一行、result internal、13 鍵且 diff 鍵 null；log 不含本文與 Failed query", async () => {
+  it("W13b（審查 m1）未預期的例外（紀錄交易 trigger 失敗）→ 500、`bulk transfer write` 恰一行、result internal、11 鍵且 diff 鍵 null；log 不含本文與 Failed query", async () => {
     const chunks: string[] = [];
     const s = await scene({ logger: { level: "info", stream: { write: (x: string) => void chunks.push(x) } } }, PARAS(3, "SecretBodyMarker"));
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
@@ -342,11 +346,11 @@ describe("W13 log 鍵集合（§13＋plan §0.1-10：13 鍵；錯誤出口 diff 
     expect(status).toBe(500);
     const lines = chunks.flatMap(c => c.split("\n")).filter(Boolean).map(l => JSON.parse(l) as Record<string, unknown>).filter(o => o.msg === "bulk transfer write");
     expect(lines).toHaveLength(1);
-    const KEYS = ["userId", "tokenId", "noteId", "result", "applied", "same", "conflicts", "versionId", "ms", "diffOverflow", "anchored", "degradedLines", "clientClosed"];
+    const KEYS = ["userId", "tokenId", "noteId", "result", "applied", "same", "ms", "diffOverflow", "anchored", "degradedLines", "clientClosed"];
     const PINO = new Set(["level", "time", "pid", "hostname", "reqId", "msg"]);
     expect(Object.keys(lines[0]!).filter(k => !PINO.has(k)).sort()).toEqual([...KEYS].sort());
     expect(lines[0]).toMatchObject({ result: "internal", noteId: s.note.id, clientClosed: false });
-    for (const k of ["applied", "same", "conflicts", "versionId", "diffOverflow", "anchored", "degradedLines"]) expect(lines[0]![k], k).toBeNull();
+    for (const k of ["applied", "same", "diffOverflow", "anchored", "degradedLines"]) expect(lines[0]![k], k).toBeNull();
     const all = chunks.join("");
     for (const m of ["SecretBodyMarker", "Failed query", "W13bTriggerMarker"]) expect(all, m).not.toContain(m);
   });
@@ -409,18 +413,6 @@ describe("W15 帶內容的 DB 失敗不洩內容（gate r1 I4、r2 I-3）", () =
     expect(r.statusCode).toBe(500);
     assertClean(c.chunks, "W15BodyMarkerA");
   });
-  it("(b) 存版失敗（衝突 → cutIfDirty）→ 500、筆記未變、log 不含本文標記", async () => {
-    const c = capture();
-    const s = await scene({ logger: c.logger });
-    const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
-    await humanEdit(s.ctx, s.note.id, ed => ed.updateBlock(ed.document[1]!.id, { content: "W15HumanMarkerB" }));
-    const before = await liveMarkdown(s.ctx, s.note.id);
-    const r = await withTrigger(s.ctx, "note_versions", "before insert", () => bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, b => b.replace("Para 1", "W15BodyMarkerB"))));
-    expect(r.statusCode).toBe(500);
-    expect(await liveMarkdown(s.ctx, s.note.id)).toBe(before);
-    assertClean(c.chunks, "W15HumanMarkerB");
-    expect(c.chunks.join("")).not.toContain("W15BodyMarkerB");
-  });
   it("(c) 改名失敗 → 500、標題未變、log 不含標題標記", async () => {
     const c = capture();
     const s = await scene({ logger: c.logger });
@@ -438,14 +430,37 @@ describe("W15 帶內容的 DB 失敗不洩內容（gate r1 I4、r2 I-3）", () =
     expect((await s.ctx.db.select({ title: notes.title }).from(notes).where(eq(notes.id, s.note.id)))[0]!.title).toBe("Title");
     assertClean(c.chunks, "W15TitleMarkerC");
   });
+  it("(d)（審查 M4，docs/api.md 的 internal 列）內文已寫入並記錄、之後改名失敗 → 500；同檔重送 → 409 already_sent、內文不重複", async () => {
+    const c = capture();
+    const s = await scene({ logger: c.logger });
+    const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
+    await s.ctx.db.execute(sql.raw(`create function kn_w15() returns trigger language plpgsql as $$ begin if new.id = '${s.note.id}' and new.title <> old.title then raise exception 'W15TriggerMarker'; end if; return new; end $$`));
+    await s.ctx.db.execute(sql.raw(`create trigger kn_w15 before update on notes for each row execute function kn_w15()`));
+    const text = renameIn(editBody(d.text, b => b.replace("Para 1", "Para 1 W15D")), "W15TitleMarkerD");
+    let r;
+    try {
+      r = await bulkPut(s.ctx.app, s.bulk.token, text);
+    } finally {
+      await s.ctx.db.execute(sql.raw(`drop trigger if exists kn_w15 on notes`));
+      await s.ctx.db.execute(sql.raw(`drop function if exists kn_w15()`));
+    }
+    expect(r.statusCode).toBe(500);
+    expect(await liveMarkdown(s.ctx, s.note.id)).toContain("Para 1 W15D");
+    expect(await edits(s.ctx, s.note.id)).toHaveLength(1);
+    const again = await bulkPut(s.ctx.app, s.bulk.token, text);
+    expect(again.statusCode).toBe(409);
+    expect(errOf(again).reason).toBe("already_sent");
+    expect((await liveMarkdown(s.ctx, s.note.id)).split("Para 1 W15D").length - 1).toBe(1);
+    expect((await s.ctx.db.select({ title: notes.title }).from(notes).where(eq(notes.id, s.note.id)))[0]!.title).toBe("Title");
+  });
 });
 
-describe("W16 溢位不改回別人的修改（gate r1 I6，真上限）", () => {
-  it("2 500 段；人改第 1 200 段；agent 改 0–599 與 1 900–2 499 → 第 1 200 段仍是人的、沒存版、log diffOverflow／anchored／degradedLines", async () => {
+describe("W16 溢位（gate r1 I6，真上限；第三輪：「人改了中間那段」的形改回 409，見 transfer-write-reread NC1）", () => {
+  it("2 500 段；agent 改 0–599 與 1 900–2 499 → 中間那段沒被動到、id 不變、log diffOverflow／anchored／degradedLines", async () => {
     const chunks: string[] = [];
     const s = await scene({ logger: { level: "info", stream: { write: (x: string) => void chunks.push(x) } } }, PARAS(2500, "Unique line"));
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
-    await humanEdit(s.ctx, s.note.id, ed => ed.updateBlock(ed.document[1200]!.id, { content: "Human changed 1200" }));
+    const id1200 = (await topIdsOf(s.ctx, s.note.id))[1200]!;
     const text = editBody(d.text, b =>
       b
         .replace(/\n+$/, "")
@@ -455,10 +470,12 @@ describe("W16 溢位不改回別人的修改（gate r1 I6，真上限）", () =>
     );
     const r = await bulkPut(s.ctx.app, s.bulk.token, text);
     expect(r.statusCode).toBe(200);
-    expect(r.json()).toMatchObject({ result: "applied", conflicts: 0 });
+    expect(r.json()).toMatchObject({ result: "applied" });
     expect(r.json()).not.toHaveProperty("version");
     const md = await liveMarkdown(s.ctx, s.note.id);
-    expect(md).toContain("Human changed 1200");
+    expect(md).toContain("Unique line 1200\n");
+    expect(md).not.toContain("Unique line 1200 agent");
+    expect((await topIdsOf(s.ctx, s.note.id))[1200]).toBe(id1200);
     expect(md).toContain("Unique line 0 agent");
     expect(md).toContain("Unique line 2499 agent");
     const line = chunks.flatMap(c => c.split("\n")).filter(Boolean).map(l => JSON.parse(l) as Record<string, unknown>).find(o => o.msg === "bulk transfer write")!;
@@ -468,8 +485,8 @@ describe("W16 溢位不改回別人的修改（gate r1 I6，真上限）", () =>
   }, 180_000);
 });
 
-describe("W17 紀錄交易失敗後重送不重複（gate r1 m11）", () => {
-  it("改寫、刪除、插入兩段 → 紀錄失敗 500 → 同檔重送 → unchanged；內容不重複、頂層 id 唯一、沒有新版本", async () => {
+describe("W17 紀錄交易失敗後重送不重複（gate r1 m11；第三輪：重送回 409 note_changed，不再判 same）", () => {
+  it("改寫、刪除、插入兩段 → 紀錄失敗 500（內容已合併）→ 同檔重送 → 409 note_changed；內容不重複、頂層 id 唯一", async () => {
     const s = await scene({}, PARAS(5));
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
     const text = editBody(d.text, b => b.replace("Para 0", "Para 0 rewritten").replace("Para 2\n\n", "").replace("Para 4", "Para 4\n\nInsertedOne\n\nInsertedTwo"));
@@ -485,17 +502,15 @@ describe("W17 紀錄交易失敗後重送不重複（gate r1 m11）", () => {
     expect(r1.statusCode).toBe(500);
     const idsAfterMerge = await topIdsOf(s.ctx, s.note.id);
     const r2 = await bulkPut(s.ctx.app, s.bulk.token, text);
-    expect(r2.statusCode).toBe(200);
-    expect(r2.json()).toMatchObject({ result: "unchanged" });
-    expect(r2.json()).not.toHaveProperty("version");
+    expect(r2.statusCode).toBe(409);
+    expect(errOf(r2).reason).toBe("note_changed");
     const ids = await topIdsOf(s.ctx, s.note.id);
-    expect(ids).toHaveLength(idsAfterMerge.length);
+    expect(ids).toEqual(idsAfterMerge);
     expect(new Set(ids).size).toBe(ids.length);
     const md = await liveMarkdown(s.ctx, s.note.id);
     expect(md.split("InsertedOne").length - 1).toBe(1);
     expect(md.split("InsertedTwo").length - 1).toBe(1);
-    expect((await baseRow(s.ctx, d.fm.base!)).appliedBodySha).not.toBeNull();
-    expect((await bulkPut(s.ctx.app, s.bulk.token, text)).json()).toMatchObject({ result: "unchanged" });
+    expect((await baseRow(s.ctx, d.fm.base!)).appliedBodySha).toBeNull();
   });
 });
 
@@ -534,7 +549,7 @@ describe("W18 寫回與新增在回覆之前已經建好全文索引（PR-3 合�
   });
 });
 
-describe("Z 定位點全消失 → 409（Willie 2026-11-04；8000 實測：只有一個 H1 的筆記被 replace_section 整段換掉後送舊副本）", () => {
+describe("Z 下載後筆記被換過 → 409 note_changed（Willie 2026-11-04 第三輪：取代 anchors_gone，動過就拒）", () => {
   /** REST `replace_section`（PAT）：把 outline[1]（第一個 heading 那段）整段換成 markdown → 所有 block 換新 id。 */
   async function replaceSection(s: Awaited<ReturnType<typeof scene>>, markdown: string) {
     const c = (await getContent(s.ctx.app, s.note.id, s.pat.token)).json() as { outline: Array<{ sectionId: string; fingerprint: string }> };
@@ -543,8 +558,15 @@ describe("Z 定位點全消失 → 409（Willie 2026-11-04；8000 實測：只�
     expect(r.statusCode).toBe(201);
   }
   const versions = (ctx: CollabTestCtx, noteId: string) => ctx.db.select().from(noteVersions).where(eq(noteVersions.noteId, noteId));
+  const refused = async (s: Awaited<ReturnType<typeof scene>>, text: string) => {
+    const md0 = await liveMarkdown(s.ctx, s.note.id);
+    const r = await bulkPut(s.ctx.app, s.bulk.token, text);
+    expect(r.statusCode).toBe(409);
+    expect(errOf(r)).toEqual({ code: "base_unavailable", message: BASE_UNAVAILABLE_MESSAGES.note_changed, reason: "note_changed" });
+    expect(await liveMarkdown(s.ctx, s.note.id)).toBe(md0);
+  };
 
-  it("Z1 下載 → replace_section 換掉整段 → 送舊副本（改一段＋改標題）→ 409 base_unavailable；內容逐字不變、沒有新版本或紀錄列、沒改名、沒扣 transferWrite、log 一行", async () => {
+  it("Z1 下載 → replace_section 換掉整段 → 送舊副本（改一段＋改標題）→ 409 note_changed；內容逐字不變、沒有新版本或紀錄列、沒改名、沒扣 transferWrite、log 一行", async () => {
     const chunks: string[] = [];
     const s = await scene({ limiters: { transferWrite: new FixedWindowLimiter({ limit: 1, windowMs: 60_000 }) }, logger: { level: "info", stream: { write: (x: string) => void chunks.push(x) } } }, "# H\n\nFirst para\n\nSecond para");
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
@@ -555,7 +577,7 @@ describe("Z 定位點全消失 → 409（Willie 2026-11-04；8000 實測：只�
     chunks.length = 0;
     const r = await bulkPut(s.ctx.app, s.bulk.token, renameIn(editBody(d.text, b => b.replace("Second para", "Second para from the file")), "Renamed by file"));
     expect(r.statusCode).toBe(409);
-    expect(errOf(r)).toEqual({ code: "base_unavailable", message: BASE_UNAVAILABLE_MESSAGES.anchors_gone, reason: "anchors_gone" });
+    expect(errOf(r)).toEqual({ code: "base_unavailable", message: BASE_UNAVAILABLE_MESSAGES.note_changed, reason: "note_changed" });
     expect(await liveMarkdown(s.ctx, s.note.id)).toBe(md0);
     expect(md0).not.toContain("from the file");
     expect((await versions(s.ctx, s.note.id)).length).toBe(v0);
@@ -564,38 +586,32 @@ describe("Z 定位點全消失 → 409（Willie 2026-11-04；8000 實測：只�
     expect((await baseRow(s.ctx, d.fm.base!)).appliedBodySha).toBeNull();
     const lines = chunks.flatMap(c => c.split("\n")).filter(Boolean).map(l => JSON.parse(l) as Record<string, unknown>).filter(o => o.msg === "bulk transfer write");
     expect(lines).toHaveLength(1);
-    expect(lines[0]).toMatchObject({ result: "base_unavailable", noteId: s.note.id, applied: null, conflicts: null, versionId: null });
+    expect(lines[0]).toMatchObject({ result: "base_unavailable", noteId: s.note.id, applied: null });
     // transferWrite（limit 1）沒被扣：重新下載後照常寫回
     const d2 = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
     const r2 = await bulkPut(s.ctx.app, s.bulk.token, editBody(d2.text, b => b.replace("Second para edited by edit_note", "Second para redone")));
     expect(r2.statusCode).toBe(200);
   });
 
-  it("Z2 多區檔案裡只要一區定位點全消失（A 有改、還在；在 C 之後插 X，但 B、C 都被換成新 id）→ 整篇 409、A 也沒寫", async () => {
+  it("Z2 多區檔案（A 有改、在 C 之後插 X），B、C 被換成內容相同的新 id → 整篇 409、A 也沒寫", async () => {
     const s = await scene({}, "A\n\nB\n\nC");
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
     await humanEdit(s.ctx, s.note.id, ed => {
       const [, b, c] = ed.document;
       ed.replaceBlocks([b!.id, c!.id], [{ type: "paragraph", content: "B" }, { type: "paragraph", content: "C" }]);
     });
-    const md0 = await liveMarkdown(s.ctx, s.note.id);
-    const r = await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, b => b.replace(/^A$/m, "A changed").replace(/\n*$/, "\n\nX\n")));
-    expect(r.statusCode).toBe(409);
-    expect(errOf(r).code).toBe("base_unavailable");
-    expect(await liveMarkdown(s.ctx, s.note.id)).toBe(md0);
+    await refused(s, editBody(d.text, b => b.replace(/^A$/m, "A changed").replace(/\n*$/, "\n\nX\n")));
     expect(await edits(s.ctx, s.note.id)).toHaveLength(0);
   });
 
-  it("Z3a 不誤擋：基底是空筆記、之後別人寫了內容 → 插在開頭照舊寫入", async () => {
+  it("Z3a 基底是空筆記、之後別人寫了內容 → 409（不再插在開頭）", async () => {
     const s = await scene({}, "");
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
     await humanEdit(s.ctx, s.note.id, ed => ed.replaceBlocks(ed.document.map(b => b.id), [{ type: "paragraph", content: "Human para" }]));
-    const r = await bulkPut(s.ctx.app, s.bulk.token, `${d.text}Agent para`);
-    expect(r.statusCode).toBe(200);
-    expect((await liveBlocks(s.ctx, s.note.id)).map(b => b.text)).toEqual(["Agent para", "Human para"]);
+    await refused(s, `${d.text}Agent para`);
   });
 
-  it("Z3b 不誤擋：在基底最開頭插入（本來就沒有 P，N 還在）→ 照舊寫入", async () => {
+  it("Z3b 在基底最開頭插入（筆記沒動）→ 照舊寫入", async () => {
     const s = await scene();
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
     const r = await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, b => `New first\n\n${b}`));
@@ -603,29 +619,24 @@ describe("Z 定位點全消失 → 409（Willie 2026-11-04；8000 實測：只�
     expect((await liveBlocks(s.ctx, s.note.id)).map(b => b.text)).toEqual(["New first", "Para 0", "Para 1", "Para 2", "Para 3"]);
   });
 
-  it("Z3c 不誤擋：現況 0 顆頂層（note_states 換成空文件）→ 照舊寫入（AP8 那條路：換掉正規化出的空段落）", async () => {
+  it("Z3c 現況被清成 0 顆頂層（note_states 換成空文件）→ 409", async () => {
     const s = await scene({}, PARAS(3));
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
     await s.ctx.db.delete(noteStates).where(eq(noteStates.noteId, s.note.id));
     await seedDoc(s.ctx.db, s.note.id, new Y.Doc());
     expect(await topIdsOf(s.ctx, s.note.id)).toHaveLength(0);
-    const r = await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, b => `${b.replace(/\n+$/, "")}\n\nPara 3 new`));
-    expect(r.statusCode).toBe(200);
-    expect((await liveBlocks(s.ctx, s.note.id)).map(b => b.text)).toEqual(["Para 3 new"]);
+    await refused(s, editBody(d.text, b => `${b.replace(/\n+$/, "")}\n\nPara 3 new`));
   });
 
-  it("Z3d 不誤擋：只改標題（筆記已被 replace_section 整段換掉）→ 200 renamed", async () => {
+  it("Z3d 只改標題、但筆記內文已被 replace_section 換過 → 409、標題不變", async () => {
     const s = await scene({}, "# H\n\nFirst para");
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
     await replaceSection(s, "# H\n\nFirst para edited");
-    const r = await bulkPut(s.ctx.app, s.bulk.token, renameIn(d.text, "Only title"));
-    expect(r.statusCode).toBe(200);
-    expect(r.json()).toMatchObject({ result: "renamed", renamed: true });
+    await refused(s, renameIn(d.text, "Only title"));
+    expect((await s.ctx.db.select({ title: notes.title }).from(notes).where(eq(notes.id, s.note.id)))[0]!.title).toBe("Title");
   });
-});
 
-describe("Z4 不誤擋：刪除區（審查 Minor 1）", () => {
-  it("Z4 基底 [A, B, C]；A、C 被換成新 id（內容相同）；agent 刪 B → 200、B 被刪", async () => {
+  it("Z4 基底 [A, B, C]；A、C 被換成新 id（內容相同）；agent 刪 B → 409、B 還在", async () => {
     const s = await scene({}, "A\n\nB\n\nC");
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
     await humanEdit(s.ctx, s.note.id, ed => {
@@ -633,14 +644,12 @@ describe("Z4 不誤擋：刪除區（審查 Minor 1）", () => {
       ed.replaceBlocks([a!.id], [{ type: "paragraph", content: "A" }]);
       ed.replaceBlocks([c!.id], [{ type: "paragraph", content: "C" }]);
     });
-    const r = await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, b => b.replace("B\n\n", "")));
-    expect(r.statusCode).toBe(200);
-    expect(r.json()).toMatchObject({ result: "applied", applied: 1 });
-    expect((await liveBlocks(s.ctx, s.note.id)).map(b => b.text)).toEqual(["A", "C"]);
+    await refused(s, editBody(d.text, b => b.replace("B\n\n", "")));
+    expect((await liveBlocks(s.ctx, s.note.id)).map(b => b.text)).toEqual(["A", "B", "C"]);
   });
 });
 
-describe("X8000 探索測試 A–E（Willie 2026-11-04 第二輪）", () => {
+describe("X8000 探索測試 A–E（Willie 2026-11-04 第二輪；A 組第三輪改成 note_changed）", () => {
   const CH = "# 第一章\n\n段落 A1\n\n## 1.1 小節\n\n段落 B1\n\n# 第二章\n\n段落 C1\n\n* 清單一\n* 清單二\n\n# 第三章\n\n段落 D1";
   const versions = (ctx: CollabTestCtx, noteId: string) => ctx.db.select().from(noteVersions).where(eq(noteVersions.noteId, noteId));
   /** REST edit_note 的 replace_section／delete_section（PAT），以 heading 找那一段。 */
@@ -651,27 +660,27 @@ describe("X8000 探索測試 A–E（Willie 2026-11-04 第二輪）", () => {
     const r = await s.ctx.app.inject({ method: "POST", url: `/api/notes/${s.note.id}/edits`, headers: bearer(s.pat.token), payload });
     expect(r.statusCode).toBe(201);
   }
-  /** 送檔 → 409 anchors_gone，內容逐字不變、不存版、不寫紀錄。 */
+  /** 送檔 → 409 note_changed，內容逐字不變、不存版、不寫紀錄。 */
   async function expectRefused(s: Awaited<ReturnType<typeof scene>>, token: string, text: string) {
     const md0 = await liveMarkdown(s.ctx, s.note.id);
     const v0 = (await versions(s.ctx, s.note.id)).length;
     const e0 = (await edits(s.ctx, s.note.id)).length;
     const r = await bulkPut(s.ctx.app, token, text);
     expect(r.statusCode).toBe(409);
-    expect(errOf(r)).toEqual({ code: "base_unavailable", message: BASE_UNAVAILABLE_MESSAGES.anchors_gone, reason: "anchors_gone" });
+    expect(errOf(r)).toEqual({ code: "base_unavailable", message: BASE_UNAVAILABLE_MESSAGES.note_changed, reason: "note_changed" });
     expect(await liveMarkdown(s.ctx, s.note.id)).toBe(md0);
     expect((await versions(s.ctx, s.note.id)).length).toBe(v0);
     expect((await edits(s.ctx, s.note.id)).length).toBe(e0);
   }
   const REPLACED = "# 第二章\n\n段落 C1 AI 改過\n\n* 清單一\n* 清單二";
 
-  it("A-b replace_section 換掉第二章 → 送舊副本改同一段 C1 → 409（不再插到第一章尾端、兩份並存）", async () => {
+  it("A-b replace_section 換掉第二章 → 送舊副本改同一段 C1 → 409", async () => {
     const s = await scene({}, CH);
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
     await sectionEdit(s, "第二章", "replace_section", REPLACED);
     await expectRefused(s, s.bulk.token, editBody(d.text, b => b.replace("段落 C1", "段落 C1 檔案改")));
   });
-  it("A-h replace_section 改成與檔案相同 → 409（id 都換了，判不出是同一顆）", async () => {
+  it("A-h replace_section 改成與檔案相同 → 409", async () => {
     const s = await scene({}, CH);
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
     await sectionEdit(s, "第二章", "replace_section", "# 第二章\n\n段落 C1 一樣\n\n* 清單一\n* 清單二");
@@ -683,49 +692,36 @@ describe("X8000 探索測試 A–E（Willie 2026-11-04 第二輪）", () => {
     await sectionEdit(s, "第二章", "replace_section", REPLACED);
     await expectRefused(s, s.bulk.token, editBody(d.text, b => b.replace("* 清單二", "* 清單二（檔案改）")));
   });
-  it("A-m replace_section 改 C1 後、檔案改同章的標題 → 409（不再多出一個標題）", async () => {
+  it("A-m replace_section 改 C1 後、檔案改同章的標題 → 409", async () => {
     const s = await scene({}, CH);
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
     await sectionEdit(s, "第二章", "replace_section", REPLACED);
     await expectRefused(s, s.bulk.token, editBody(d.text, b => b.replace("# 第二章", "# 第二章（檔案改名）")));
   });
-  it("A-e delete_section 刪了第三章、檔案改 D1 → 409（不再把 D1 掛到第二章底下）", async () => {
+  it("A-e delete_section 刪了第三章、檔案改 D1 → 409", async () => {
     const s = await scene({}, CH);
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
     await sectionEdit(s, "第三章", "delete_section");
     await expectRefused(s, s.bulk.token, editBody(d.text, b => b.replace("段落 D1", "段落 D1 檔案改")));
   });
-  it("A-兩個權杖：A 先寫回改 Z（Z 換新 id）→ B 從舊副本也改 Z → 409；B 的別段也沒寫", async () => {
+  it("A-兩個權杖：A 先寫回改 Z → B 從舊副本改 X（與 Z 不相鄰）→ 409；B 的修改都沒寫", async () => {
     const s = await scene({}, "段落 X\n\n段落 Y\n\n段落 Z");
     const pat2 = await seedTokenForUser(s.ctx.db, s.u.id, "notes:read notes:write");
     const b2 = await issueBulkDirect(s.ctx.db, pat2.tokenId, { access: "write" });
     const da = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
     const db = await downloadNote(s.ctx.app, b2.token, s.note.id);
     expect((await bulkPut(s.ctx.app, s.bulk.token, editBody(da.text, b => b.replace("段落 Z", "段落 Z：A 改")))).json()).toMatchObject({ result: "applied" });
-    // X 那區（與 Z 不相鄰、各成一區）本身沒問題，但 Z 那區倖存者全不見 → 整篇拒絕、X 也沒寫
-    await expectRefused(s, b2.token, editBody(db.text, b => b.replace("段落 Z", "段落 Z：B 改").replace("段落 X", "段落 X：B 改")));
+    await expectRefused(s, b2.token, editBody(db.text, b => b.replace("段落 X", "段落 X：B 改")));
   });
-  it("A-部分倖存：B 的舊副本改 Y 與 Z（同一區），Z 已被 A 換新 id、Y 還在 → 照舊合併（merged、conflicts 1）", async () => {
-    const s = await scene({}, "段落 X\n\n段落 Y\n\n段落 Z");
-    const pat2 = await seedTokenForUser(s.ctx.db, s.u.id, "notes:read notes:write");
-    const b2 = await issueBulkDirect(s.ctx.db, pat2.tokenId, { access: "write" });
-    const da = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
-    const db = await downloadNote(s.ctx.app, b2.token, s.note.id);
-    expect((await bulkPut(s.ctx.app, s.bulk.token, editBody(da.text, b => b.replace("段落 Z", "段落 Z：A 改")))).json()).toMatchObject({ result: "applied" });
-    const r = await bulkPut(s.ctx.app, b2.token, editBody(db.text, b => b.replace("段落 Z", "段落 Z：B 改").replace("段落 Y", "段落 Y：B 改")));
-    expect(r.json()).toMatchObject({ result: "merged", conflicts: 1 });
-  });
-
-  it("A-瀏覽器原地打字（block id 不變）的衝突照舊合併：merged＋conflicts 1、存版", async () => {
+  it("A-瀏覽器原地打字（block id 不變）後送舊副本改同一段 → 409、不存版", async () => {
     const s = await scene({}, CH);
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
     await humanEdit(s.ctx, s.note.id, ed => {
       const c1 = ed.document.find(b => JSON.stringify(b.content).includes("段落 C1"))!;
       ed.updateBlock(c1.id, { content: "段落 C1 人在瀏覽器改" });
     });
-    const r = await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, b => b.replace("段落 C1", "段落 C1 檔案改")));
-    expect(r.json()).toMatchObject({ result: "merged", conflicts: 1 });
-    expect((await versions(s.ctx, s.note.id)).length).toBe(1);
+    await expectRefused(s, s.bulk.token, editBody(d.text, b => b.replace("段落 C1", "段落 C1 檔案改")));
+    expect(await versions(s.ctx, s.note.id)).toHaveLength(0);
   });
 
   it("B front matter 開頭有 knotebook:／id:、卻沒有收尾的 --- → 400 invalid_body；新增與寫回兩條路都擋、什麼都沒建", async () => {
@@ -795,21 +791,6 @@ describe("X8000 探索測試 A–E（Willie 2026-11-04 第二輪）", () => {
       expect(errOf(r), label).toEqual({ code, message });
     }
     expect(norm(await liveMarkdown(s.ctx, s.note.id))).toBe(PARAS(4));
-  });
-
-  it("R1（審查 I1）A、空段落、B：agent 把中間改成 new，人同時刪了那顆空段落 → 200、A／new／B（不是 409）", async () => {
-    const s = await scene({}, "A");
-    await humanEdit(s.ctx, s.note.id, ed => ed.replaceBlocks(ed.document, [{ type: "paragraph", content: "A" }, { type: "paragraph" }, { type: "paragraph", content: "B" }]));
-    const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
-    expect(d.text).toContain("A\n\n\n\nB");
-    await humanEdit(s.ctx, s.note.id, ed => ed.removeBlocks([ed.document[1]!.id]));
-    const r = await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, b => b.replace("A\n\n\n\nB", "A\n\nnew\n\nB")));
-    expect(r.statusCode).toBe(200);
-    // 審查 F1：當插入看——applied、conflicts 0、沒有存版
-    expect(r.json()).toMatchObject({ result: "applied", applied: 1, conflicts: 0 });
-    expect(r.json()).not.toHaveProperty("version");
-    expect(await versions(s.ctx, s.note.id)).toHaveLength(0);
-    expect((await liveBlocks(s.ctx, s.note.id)).map(b => b.text)).toEqual(["A", "new", "B"]);
   });
 
   it("script 裁示：含複雜內容（標題、巢狀清單、表格、引用、code 裡的 <script>／<iframe>、行內碼的 <style>、mermaid、並排、圖片）的筆記下載後原樣寫回 → unchanged；改一段 → applied、其餘逐字不變", async () => {

@@ -1,47 +1,36 @@
 /**
- * bulk transfer spec 2026-11-02 §9.4：對現況判定每一區（純函式；只用 id、指紋與 `same` 回呼，不 mount）。plan PR-2 T6。
+ * bulk transfer spec 2026-11-02 §9.4：判定每一區（純函式；只用 id 與 `same` 回呼，不 mount）。plan PR-2 T6。
  *
- * - 每區：`S`＝基底 id、倖存者＝`S` 中還在頂層的（依現況順序）、被改＝倖存者中各自指紋 ≠ 基底那顆的、不見＝`S` − 倖存者。
- * - 決策表（§9.4-2）：改寫——預解析＝倖存者（`same`，`equal`）→ `same`；被改、不見皆空 → `applied`；其他 → `conflict`。倖存者全不見
- *   時改比錨點 `P`..`N` 之間的外來 block（`equal`，§9.4-3 末條）。刪除——倖存者全不見 → `same`；被改空 → `applied`；否則 `conflict`。
- *   插入——預解析整串是 `P`..`N` 之間外來 block 的一段連續子序列（`contiguous`，plan §0.1-16）→ `same`；否則 `applied`。
- * - 錨點 `P`／`N`：往前（後）最近一個 agent 沒改、仍有 block 在頂層的段，取其最後（第一）顆還在的；**0 行段不當錨點**；
- *   `P` 在 `N` 之後 → `P` 不可用。外來＝`cur.ids` 減去**基底全部段**的 id（gate r2 m-7）。
- * - 放置：改寫有倖存者 → 第一個倖存者之前；否則（改寫倖存者全不見、插入）→ `P` 之後、無則 `N` 之前、都無則文件開頭——
- *   但以下兩形整篇改回 409（`anchorsGone`，Willie 2026-11-04）：改寫區倖存者全不見（不論 `P`、`N`；同日第二輪放寬；基底只有讀出來是空行的 block 的改寫區除外，照插入區判）；插入區
- *   `P`、`N` 都沒有、而且基底有可錨的段。所以「改寫倖存者全不見 → 放到 P 之後」只剩現況 0 顆頂層與 `same` 會走到。文件開頭只剩「基底沒有可錨段的插入」與「現況 0 顆頂層」兩形。
+ * **前提**（呼叫端 `NoteWriteService.syncFile` 先驗，Willie 2026-11-04 第三輪：不再三方合併）：筆記自下載後沒有被動過——
+ * 現況頂層與基底段表逐顆相同（id、單顆指紋、順序）。動過就整篇 409 `note_changed`，走不到這裡。所以每區的基底 block 都在、
+ * 都沒被改，現況也沒有基底以外的 block。唯一例外（審查 M1）：基底 0 顆、現況恰一顆空段落（`isLoneEmptyParagraph`）——只有一個插入區、
+ * 放在文件開頭，`applySync` 把那顆當正規化出的空段落換掉。
+ *
+ * - 決策：改寫——預解析＝基底那幾顆（`same`，canonical 逐顆相等）→ `same`（不寫、id 不換）；否則 `applied`。刪除、插入 → `applied`。
+ * - 錨點 `P`／`N`：往前（後）最近一個 agent 沒改的段，取其最後（第一）顆；**0 行段不當錨點**。
+ * - 放置：改寫 → 第一顆基底 block 之前（套用時插入新的、再移除基底那幾顆）；插入 → `P` 之後、無則 `N` 之前、都無則文件開頭。
  *   `stripStart`＝插入點前一顆是 numbered 且預解析第一顆是 numbered（§9.4-2，E18）。
- * - 刪除區的錨點（rev 4 m-8，守 spec §9.4-4）：候選依序 `P` after、`N` before、現況裡倖存者的實際鄰居（往外掃，外來也可），全部
- *   排除「本次要移除的 block」（所有非 `same` 改寫區與刪除區的倖存者）。找不到：其餘區都是 `same`／刪除、且現況頂層全部要移除
- *   （結果真的會變空）→ `replaceWithEmpty`；否則 `deferred`（`applySync` 在插入與改寫之後、合併之前找實際鄰居）。
+ * - 刪除區的錨點（守 spec §9.4-4）：`P` after、無則 `N` before（`P`、`N` 都不在任何區裡，不會被這次移除）；都沒有 → 往外掃現況
+ *   鄰居，排除「本次要移除的 block」（所有非 `same` 改寫區與刪除區的基底 block）。找不到：其餘區都是 `same`／刪除、且現況頂層
+ *   全部要移除（結果真的會變空）→ `replaceWithEmpty`；否則 `deferred`（`applySync` 在插入與改寫之後、合併之前找實際鄰居）。
  */
+import * as Y from "yjs";
+import { topLevelContainers } from "@knotebook/shared";
 import type { TransferSegment } from "../db/schema.js";
 import type { Region } from "./regions.js";
 
-export type Mark = "applied" | "same" | "conflict";
+export type Mark = "applied" | "same";
 /** `placeholder`：刪光時補的那顆空段落（只由 `applySync` 的 toEmpty 設；總管追加 T11-1）。 */
 export type Anchor = { block_id: string; position: "before" | "after"; placeholder?: boolean };
 export type Place = { ref: string; where: "before" | "after" } | { start: true } | { replaceSurvivors: true };
-export type SameMode = "equal" | "contiguous";
 
 export interface Decision {
   kind: Region["kind"];
   mark: Mark;
-  /** 依現況順序。 */
+  /** 區內的基底 block（＝現況裡的那幾顆，文件順序）；插入區空。 */
   survivors: string[];
-  changed: string[];
-  missing: string[];
   place: Place;
   stripStart: boolean;
-  /** `same` 是比外來 block 判的（倖存者全不見的改寫區、插入區）。 */
-  preferForeignSame: boolean;
-  /** 判 `same` 所依據的外來 block（`P`..`N` 之間的全部外來；併進 `mergeDiff` 的 `expectEach`，gate r2 m-12）。 */
-  sameForeign: string[];
-  /**
-   * 比外來 block 判 `same` 時，比中那一段的最後一顆（R19，複審 F1）：`applySync` 把同一接點的接續鏈尾設成它，
-   * 後一區才會接在被吸收的內容之後、不會排到它前面。其他情形 null。
-   */
-  sameTail: string | null;
   /** 刪除區（非 `same`）才有。 */
   anchor?: Anchor | "deferred" | "replaceWithEmpty";
   P: string | null;
@@ -49,59 +38,48 @@ export interface Decision {
 }
 
 /**
- * 匯出的純函式（gate r2 I-2）：`equal`＝逐項相等；`contiguous`＝`preparsed` 非空且是 `foreign` 的一段連續子序列。
- * 回比中那一段在 `foreign` 的起點（`equal` 比中恆為 0），沒比中 → -1（複審 F1：`decide` 要知道比中的是哪一段）。
+ * 上面那條前提的判準：現況頂層的 id 與單顆指紋，依序逐顆等於基底段表攤平後的 id 與指紋（段表涵蓋每一顆頂層 block，`align.ts`）。
+ * 不等 → 呼叫端回 409 `note_changed`。
  */
-export function foreignContains(preparsed: readonly string[], foreign: readonly string[], mode: SameMode): number {
-  if (mode === "equal") return preparsed.length === foreign.length && preparsed.every((x, i) => x === foreign[i]) ? 0 : -1;
-  const n = preparsed.length;
-  if (n === 0 || n > foreign.length) return -1;
-  for (let s = 0; s + n <= foreign.length; s++) {
-    let ok = true;
-    for (let t = 0; ok && t < n; t++) ok = foreign[s + t] === preparsed[t];
-    if (ok) return s;
+export function matchesBase(segments: readonly TransferSegment[], cur: { ids: readonly string[]; fps: readonly string[] }): boolean {
+  let k = 0;
+  for (const s of segments) {
+    for (let j = 0; j < s.ids.length; j++, k++) if (cur.ids[k] !== s.ids[j] || cur.fps[k] !== s.fps[j]) return false;
   }
-  return -1;
+  return k === cur.ids.length;
 }
 
-const indexOf = (cur: { ids: string[] }): Map<string, number> => new Map(cur.ids.map((id, i) => [id, i]));
+/**
+ * 審查 M1：頂層恰一顆、沒有子層的空段落（沒有字；打過字又刪光留下的空文字節點也算空）。基底 0 顆（從未開過的筆記）而現況是這形，
+ * 是瀏覽器打開時正規化出來的，呼叫端當「沒動過」。段落的屬性（顏色、對齊）不看。
+ */
+export function isLoneEmptyParagraph(fragment: Y.XmlFragment): boolean {
+  const top = topLevelContainers(fragment);
+  if (top.length !== 1) return false;
+  const c = top[0]!;
+  if (c.length !== 1) return false;
+  const p = c.get(0);
+  if (!(p instanceof Y.XmlElement) || p.nodeName !== "paragraph") return false;
+  for (let i = 0; i < p.length; i++) {
+    const t = p.get(i);
+    if (!(t instanceof Y.XmlText) || t.length !== 0) return false;
+  }
+  return true;
+}
 
-/** 每區的錨點 `P`／`N`（§9.4-2）。 */
-export function anchors(segments: TransferSegment[], regions: Region[], cur: { ids: string[] }): Array<{ P: string | null; N: string | null }> {
-  const idx = indexOf(cur);
+/** 每區的錨點 `P`／`N`（§9.4-2）：前（後）最近一個不在任何區裡、非 0 行的段的最後（第一）顆。 */
+export function anchors(segments: TransferSegment[], regions: Region[]): Array<{ P: string | null; N: string | null }> {
   const inRegion = new Set<number>(regions.flatMap(r => r.segIdx));
   const usable = (k: number) => !inRegion.has(k) && segments[k]!.count > 0;
-  const lastPresent = (k: number) => [...segments[k]!.ids].reverse().find(id => idx.has(id)) ?? null;
-  const firstPresent = (k: number) => segments[k]!.ids.find(id => idx.has(id)) ?? null;
   return regions.map(r => {
     const before = r.prevSeg === -1 ? (r.segIdx.length > 0 ? r.segIdx[0]! - 1 : -1) : r.prevSeg;
     const after = r.nextSeg === -1 ? (r.segIdx.length > 0 ? r.segIdx[r.segIdx.length - 1]! + 1 : segments.length) : r.nextSeg;
     let P: string | null = null;
-    for (let k = before; k >= 0 && P === null; k--) if (usable(k)) P = lastPresent(k);
+    for (let k = before; k >= 0 && P === null; k--) if (usable(k)) P = segments[k]!.ids[segments[k]!.ids.length - 1]!;
     let N: string | null = null;
-    for (let k = after; k < segments.length && N === null; k++) if (usable(k)) N = firstPresent(k);
-    if (P !== null && N !== null && idx.get(P)! > idx.get(N)!) P = null;
+    for (let k = after; k < segments.length && N === null; k++) if (usable(k)) N = segments[k]!.ids[0]!;
     return { P, N };
   });
-}
-
-/** 外來 block 與比對範圍（gate r2 m-7；plan §0.1-16）：外來＝`cur.ids` − 基底全部段的 id；範圍照錨點規則。 */
-export function foreignInRange(
-  segments: TransferSegment[],
-  cur: { ids: string[] },
-  P: string | null,
-  N: string | null,
-  pre: { idx?: Map<string, number>; baseIds?: Set<string> } = {},
-): string[] {
-  const baseIds = pre.baseIds ?? new Set(segments.flatMap(s => s.ids));
-  const idx = pre.idx ?? indexOf(cur);
-  let lo = 0;
-  let hi = cur.ids.length;
-  const pi = P === null ? undefined : idx.get(P);
-  const ni = N === null ? undefined : idx.get(N);
-  if (pi !== undefined && (ni === undefined || pi < ni)) lo = pi + 1;
-  if (ni !== undefined) hi = ni;
-  return cur.ids.slice(lo, hi).filter(id => !baseIds.has(id));
 }
 
 /** `applySync` 的接續鏈 key：同一顆 `P` 之後、文件開頭有多區時，後一區接在前一區之後（`before` 天然保序，不需要鏈）。 */
@@ -116,8 +94,8 @@ export function shouldStripStart(prevType: string | null, firstType: string | un
 }
 
 /**
- * 預解析要放的位置（決策之前就定得出來：只看倖存者與錨點），以及插入點前一顆的型別（`stripStart` 用）。
- * 改寫有倖存者 → 第一個倖存者之前；否則 `P` 之後、無則 `N` 之前、都無則文件開頭。
+ * 預解析要放的位置（決策之前就定得出來：只看基底 block 與錨點），以及插入點前一顆的型別（`stripStart` 用）。
+ * 改寫 → 第一顆基底 block 之前；否則 `P` 之後、無則 `N` 之前、都無則文件開頭。
  */
 export function placeFor(
   r: Region,
@@ -125,123 +103,58 @@ export function placeFor(
   a: { P: string | null; N: string | null },
   pre: { idx?: Map<string, number> } = {},
 ): { place: Place; prevType: string | null } {
-  const idx = pre.idx ?? indexOf(cur);
+  const idx = pre.idx ?? new Map(cur.ids.map((id, i) => [id, i]));
   const prevTypeOf = (i: number) => (i > 0 ? cur.types[i - 1]! : null);
   if (r.kind === "rewrite") {
-    const firstSurvivor = r.baseIds.map(id => idx.get(id)).filter((i): i is number => i !== undefined).sort((x, y) => x - y)[0];
-    if (firstSurvivor !== undefined) return { place: { ref: cur.ids[firstSurvivor]!, where: "before" }, prevType: prevTypeOf(firstSurvivor) };
+    const first = r.baseIds.length > 0 ? idx.get(r.baseIds[0]!) : undefined;
+    if (first !== undefined) return { place: { ref: cur.ids[first]!, where: "before" }, prevType: prevTypeOf(first) };
   }
   if (a.P !== null) return { place: { ref: a.P, where: "after" }, prevType: cur.types[idx.get(a.P)!]! };
   if (a.N !== null) return { place: { ref: a.N, where: "before" }, prevType: prevTypeOf(idx.get(a.N)!) };
   return { place: { start: true }, prevType: null };
 }
 
-/**
- * 審查 I1／F3：區內基底段是否全是「讀出來是空行的 block」——0 行段，或 `blankSegs`（`line-diff.ts` 的 `blankBaseSegments`）標
- * true 的段：空的或只有空白的段落、只有換行的段落、沒有網址的 image／file／video／audio。這種改寫區等同在 `P`、`N` 之間插入。
- */
-export function blankOnlyRegion(segments: TransferSegment[], r: Region, blankSegs: readonly boolean[] = []): boolean {
-  return r.segIdx.every(k => segments[k]!.count === 0 || blankSegs[k] === true);
-}
-
 export function decide(
   segments: TransferSegment[],
   regions: Region[],
-  cur: { ids: string[]; fps: string[]; types: string[] },
-  /** 回比中那一段在 `against` 的起點，沒比中 → -1（`foreignContains` 的語意）。 */
-  same: (ri: number, against: string[], mode: SameMode) => number,
-  opts: { firstTypes?: ReadonlyArray<string | undefined>; prevTypes?: ReadonlyArray<string | null>; preLengths?: ReadonlyArray<number>; blankSegs?: readonly boolean[] } = {},
+  cur: { ids: string[]; types: string[] },
+  /** 改寫區 `ri` 的預解析是否與 `against`（基底那幾顆）canonical 逐顆相等。 */
+  same: (ri: number, against: string[]) => boolean,
+  opts: { firstTypes?: ReadonlyArray<string | undefined>; prevTypes?: ReadonlyArray<string | null> } = {},
 ): Decision[] {
-  // 審查 Important 1：索引與基底 id 集合只建一次，傳給 placeFor／foreignInRange（逐區重建是 O(區數×頂層數)）。
-  const idx = indexOf(cur);
-  const baseIds = new Set(segments.flatMap(s => s.ids));
-  const anc = anchors(segments, regions, cur);
+  const idx = new Map(cur.ids.map((id, i) => [id, i]));
+  const anc = anchors(segments, regions);
   const out: Decision[] = regions.map((r, ri) => {
-    const baseFp = new Map(r.baseIds.map((id, i) => [id, r.baseFps[i]!]));
-    const survivors = r.baseIds.filter(id => idx.has(id)).sort((x, y) => idx.get(x)! - idx.get(y)!);
-    const changed = survivors.filter(id => cur.fps[idx.get(id)!] !== baseFp.get(id));
-    const missing = r.baseIds.filter(id => !idx.has(id));
+    const survivors = r.baseIds;
     const { P, N } = anc[ri]!;
     const placed = placeFor(r, cur, anc[ri]!, { idx });
-    const place = placed.place;
     // `sync-plan.ts` 依接續鏈算出的實際前一顆型別優先（同一接點的後一區接在前一區之後）。
     const prevType = opts.prevTypes?.[ri] !== undefined ? opts.prevTypes[ri]! : placed.prevType;
-    const firstType = opts.firstTypes?.[ri];
-    const stripStart = r.kind !== "delete" && shouldStripStart(prevType, firstType);
-    const base = { kind: r.kind, survivors, changed, missing, stripStart, P, N };
-    if (r.kind === "delete") {
-      if (survivors.length === 0) return { ...base, mark: "same", place: { replaceSurvivors: true }, preferForeignSame: false, sameForeign: [], sameTail: null };
-      return { ...base, mark: changed.length === 0 ? "applied" : "conflict", place: { replaceSurvivors: true }, preferForeignSame: false, sameForeign: [], sameTail: null };
-    }
-    if (r.kind === "insert") {
-      const foreign = foreignInRange(segments, cur, P, N, { idx, baseIds });
-      const at = same(ri, foreign, "contiguous");
-      if (at >= 0) return { ...base, mark: "same", place, preferForeignSame: true, sameForeign: foreign, sameTail: foreign[at + Math.max(1, opts.preLengths?.[ri] ?? 1) - 1] ?? null };
-      return { ...base, mark: "applied", place, preferForeignSame: false, sameForeign: [], sameTail: null };
-    }
-    if (survivors.length > 0) {
-      if (same(ri, survivors, "equal") >= 0) return { ...base, mark: "same", place: { replaceSurvivors: true }, preferForeignSame: false, sameForeign: [], sameTail: null };
-    } else {
-      const foreign = foreignInRange(segments, cur, P, N, { idx, baseIds });
-      if (same(ri, foreign, "equal") >= 0) return { ...base, mark: "same", place, preferForeignSame: true, sameForeign: foreign, sameTail: foreign[foreign.length - 1] ?? null };
-      // 審查 F1：基底只有讀出來是空行的 block、而它們都不見了 → 當插入看，`applied`（不存版、不算衝突）。現況 0 顆頂層（AG6）照舊 conflict。
-      if (cur.ids.length > 0 && blankOnlyRegion(segments, r, opts.blankSegs)) return { ...base, mark: "applied", place, preferForeignSame: false, sameForeign: [], sameTail: null };
-    }
-    return { ...base, mark: changed.length === 0 && missing.length === 0 ? "applied" : "conflict", place, preferForeignSame: false, sameForeign: [], sameTail: null };
+    const stripStart = r.kind !== "delete" && shouldStripStart(prevType, opts.firstTypes?.[ri]);
+    const base = { kind: r.kind, survivors, stripStart, P, N };
+    if (r.kind === "delete") return { ...base, mark: "applied", place: { replaceSurvivors: true } };
+    if (r.kind === "rewrite" && survivors.length > 0 && same(ri, survivors)) return { ...base, mark: "same", place: { replaceSurvivors: true } };
+    return { ...base, mark: "applied", place: placed.place };
   });
 
-  // 刪除區的錨點（rev 4 m-8）：候選排除本次要移除的 block。
+  // 刪除區的錨點：`P`、`N` 不在任何區裡（不會被移除）；都沒有才往外掃，候選排除本次要移除的 block。
   const removing = new Set<string>();
   for (const d of out) if (d.mark !== "same" && (d.kind === "rewrite" || d.kind === "delete")) for (const id of d.survivors) removing.add(id);
-  // 「本次會寫入內容的區」（非 same 的改寫與插入）有幾個——刪除區自己不算在內，所以只看總數是否為 0（O(1)，不逐區重掃）。
+  // 「本次會寫入內容的區」（非 same 的改寫與插入）有幾個——刪除區自己不算在內，所以只看總數是否為 0。
   const writing = out.filter(d => d.mark !== "same" && d.kind !== "delete").length;
   const allRemoved = cur.ids.every(id => removing.has(id));
   out.forEach(d => {
-    if (d.kind !== "delete" || d.mark === "same") return;
+    if (d.kind !== "delete") return;
     let anchor: Anchor | null = null;
-    if (d.P !== null && !removing.has(d.P)) anchor = { block_id: d.P, position: "after" };
-    else if (d.N !== null && !removing.has(d.N)) anchor = { block_id: d.N, position: "before" };
+    if (d.P !== null) anchor = { block_id: d.P, position: "after" };
+    else if (d.N !== null) anchor = { block_id: d.N, position: "before" };
     else {
       const first = idx.get(d.survivors[0]!)!;
       const last = idx.get(d.survivors[d.survivors.length - 1]!)!;
       for (let i = first - 1; i >= 0 && anchor === null; i--) if (!removing.has(cur.ids[i]!)) anchor = { block_id: cur.ids[i]!, position: "after" };
       for (let i = last + 1; i < cur.ids.length && anchor === null; i++) if (!removing.has(cur.ids[i]!)) anchor = { block_id: cur.ids[i]!, position: "before" };
-      // 審查 m1：往外掃不到 → 倖存者區間內、不在移除之列的 block（例：人在 A、B 之間插了 F，agent 刪 A、B → anchor＝F）。
-      // 不這樣找，會落到 replaceWithEmpty／deferred 而多出一顆空段落（§9.4-4）。位置取 before：撤回時插回 F 之前。
-      for (let i = first + 1; i < last && anchor === null; i++) if (!removing.has(cur.ids[i]!)) anchor = { block_id: cur.ids[i]!, position: "before" };
     }
     d.anchor = anchor ?? (writing === 0 && allRemoved ? "replaceWithEmpty" : "deferred");
   });
   return out;
-}
-
-/**
- * 定位點全消失（Willie 2026-11-04 裁示，同日第二輪放寬改寫區）：會寫入內容的區（非 `same` 的改寫區與插入區）裡——
- * 改寫區的倖存者全不見（不論 `P`、`N` 在不在；但基底只有讀出來是空行的 block 的改寫區照插入區判，審查 I1／F3）；插入區 `P`、`N` 都沒有、而基底裡
- * **本來有**可當錨點的段（agent 沒改、非 0 行）——回這些區的序號。呼叫端整篇拒絕（409 `base_unavailable`），不再照 §9.4-2 退到文件開頭（那會讓檔案的字與別人的改寫並存）。
- * 不算的：現況 0 顆頂層（`applySync` 換掉正規化空段落的那條路，AP8／AP8b）；`same` 區（不寫）；刪除區（有倖存者就有東西
- * 可刪、位置用倖存者；沒有倖存者就是 `same`）；基底沒有可錨的段的插入區（空筆記、只剩 0 行段）；有 `P` 或 `N` 的區（含基底
- * 開頭的插入：本來就沒有 `P`，`N` 還在）。
- */
-export function anchorsGone(segments: TransferSegment[], regions: Region[], decisions: Decision[], cur: { ids: string[] }, blankSegs: readonly boolean[] = []): number[] {
-  if (cur.ids.length === 0) return [];
-  const inRegion = new Set<number>(regions.flatMap(r => r.segIdx));
-  const anchorable = segments.some((s, k) => !inRegion.has(k) && s.count > 0);
-  const gone: number[] = [];
-  decisions.forEach((d, ri) => {
-    if (d.mark === "same" || d.kind === "delete") return;
-    // 改寫區（Willie 2026-11-04 第二輪，8000 探索測試）：倖存者全不見就拒絕，不論 P、N 在不在——edit_note 的
-    // replace_section／delete_section、或另一份檔先寫回，都會讓那段換成新 id；放回 P 之後會與換過的內容並存或落到別章。
-    // 例外（審查 I1）：基底只有讀出來是空行的 block 的改寫區（`blankOnlyRegion`），等同在 P、N 之間插入——那些 block 被人刪掉
-    // 不算定位點不見，改走插入區的規則（例：A、空段落、B，agent 把中間改成 new、人刪了空段落 → A、new、B，不是 409）。
-    if (d.kind === "rewrite") {
-      if (d.survivors.length > 0) return;
-      if (!blankOnlyRegion(segments, regions[ri]!, blankSegs)) {
-        gone.push(ri);
-        return;
-      }
-    }
-    if (d.P === null && d.N === null && anchorable) gone.push(ri);
-  });
-  return gone;
 }

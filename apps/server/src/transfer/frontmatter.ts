@@ -40,8 +40,13 @@ const BASE_RE = /^[0-9a-f]{16}$/;
 const UNSTORABLE = /[\0]|\p{Surrogate}/u;
 
 const bad = (message: string): ReadFile => ({ kind: "error", message });
-/** 8000 探索測試 B（HTTP 層，中文）。 */
-export const UNCLOSED_FRONT_MATTER_MESSAGE = "front matter 沒有結尾的 `---`：檔案開頭有 `---` 與 `knotebook:` 或 `id:`，卻找不到收尾的 `---`";
+/** 認得 front matter 的行（8000 探索測試 N7：冒號前可以有空白或 tab，`id :` 也算；`base:` 也算，好讓「有 base 沒 id」能被擋下）。 */
+const MARKER_LINE = /^(?:knotebook|id|base)[ \t]*:/;
+/** 8000 探索測試 N7：有 `base` 卻沒有（認得出的）`id`——當成新檔會多建一篇，改回 400。 */
+export const BASE_WITHOUT_ID_MESSAGE = "front matter 有 base 卻沒有 id：這是下載來的檔，請保留原本的 id 行再送";
+/** 8000 探索測試 B（HTTP 層，中文）；審查 M5：觸發條件含 `base:` 與冒號前的空白（`MARKER_LINE`）。 */
+export const UNCLOSED_FRONT_MATTER_MESSAGE =
+  "front matter 沒有結尾的 `---`：檔案開頭有 `---`，前 200 行內有 `knotebook:`、`id:` 或 `base:` 行（冒號前可以有空白），卻找不到收尾的 `---`";
 
 /**
  * §9.1：讀入一篇檔（`text`＝已 UTF-8 解碼的整個 body）。全部是純計算、在任何 DB 查詢之前；錯誤訊息不帶任何值。
@@ -62,10 +67,10 @@ export function readNoteFile(text: string): ReadFile {
         break;
       }
     }
-    if (end !== -1 && !lines.slice(1, end).some(l => l.startsWith("knotebook:") || l.startsWith("id:"))) end = -1;
+    if (end !== -1 && !lines.slice(1, end).some(l => MARKER_LINE.test(l))) end = -1;
     // 8000 探索測試 B：開頭 `---`、前 FRONTMATTER_SCAN_LINES 行內有 `knotebook:`／`id:`、卻找不到收尾的 `---` → 400（不再把整檔當內文、
     // 誤建一篇新筆記，或把 front matter 寫進既有筆記）。
-    else if (end === -1 && lines.slice(1, limit).some(l => l.startsWith("knotebook:") || l.startsWith("id:"))) return bad(UNCLOSED_FRONT_MATTER_MESSAGE);
+    else if (end === -1 && lines.slice(1, limit).some(l => MARKER_LINE.test(l))) return bad(UNCLOSED_FRONT_MATTER_MESSAGE);
   }
   if (end === -1) return { kind: "new", title: undefined, folderId: undefined, body: normalizeBody(s) };
 
@@ -73,7 +78,7 @@ export function readNoteFile(text: string): ReadFile {
   for (const l of lines.slice(1, end)) {
     const c = l.indexOf(":");
     if (c === -1) continue;
-    const k = l.slice(0, c);
+    const k = l.slice(0, c).trimEnd();
     if (!(READ_KEYS as readonly string[]).includes(k)) continue;
     const key = k as ReadKey;
     if (vals.has(key)) return bad(`front matter 的 \`${key}\` 重複`);
@@ -93,6 +98,7 @@ export function readNoteFile(text: string): ReadFile {
     if (!BASE_RE.test(base)) return bad("front matter 的 `base` 格式不對");
     return { kind: "existing", id: lid, base, title, body };
   }
+  if (vals.has("base")) return bad(BASE_WITHOUT_ID_MESSAGE);
   const folder = vals.get("folder_id");
   let folderId: string | undefined;
   if (folder !== undefined) {

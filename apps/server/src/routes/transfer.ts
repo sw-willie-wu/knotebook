@@ -79,13 +79,13 @@ export function transferParseMessage(code: ErrorCode, detail?: ParseDetail, fenc
   return parseErrorMessage(code, "無法套用檔案");
 }
 
-/** 409 `base_unavailable` 的訊息，依 `error.reason`（8000 探索測試 D）。 */
+/** 409 `base_unavailable` 的訊息，依 `error.reason`（8000 探索測試 D；Willie 2026-11-04 第三輪：不再合併，`note_changed` 取代 `anchors_gone`）。 */
 export const BASE_UNAVAILABLE_MESSAGES: Record<BaseUnavailableReason, string> = {
-  already_sent: "無法以這份副本合併：這份副本已用其他內容送回過；請重新下載再改",
-  other_note: "無法以這份副本合併：這份副本的 base 屬於別篇筆記或別人；請重新下載再改",
-  expired: "無法以這份副本合併：伺服器已沒有這份副本的基底（太舊或已失效）；請重新下載再改",
-  anchors_gone: "無法以這份副本合併：你改的某一處在筆記裡已經找不到該放的位置（例如那一段或它前後的內容被 edit_note 換掉）；請重新下載再改",
-  reverted: "無法以這份副本合併：這份副本寫回的修改已被撤回；請重新下載再改",
+  already_sent: "無法用這份副本寫回：這份副本已用其他內容送回過；請重新下載再改",
+  other_note: "無法用這份副本寫回：這份副本的 base 屬於別篇筆記或別人；請重新下載再改",
+  expired: "無法用這份副本寫回：伺服器已沒有這份副本的基底（太舊或已失效）；請重新下載再改",
+  note_changed: "無法用這份副本寫回：這篇筆記在你下載之後被改過（標題或內文）；請重新下載這一篇（note 指令），把你的修改重做一次再送",
+  reverted: "無法用這份副本寫回：這份副本寫回的修改已被撤回；請重新下載再改",
 };
 export const NOT_MERGEABLE_MESSAGE = "這篇筆記不能用檔案寫回，請改用 edit_note";
 
@@ -100,7 +100,7 @@ export interface TransferRouteDeps {
     bearerMiss: FixedWindowLimiter;
     contentRead: FixedWindowLimiter;
     transferExport: FixedWindowLimiter;
-    /** 寫回：只在佇列內扣（plan 不變量 13）；這裡只做不計數的 isBlocked 預檢。 */
+    /** 寫回：只在佇列內、判定檔案有改之後才看與扣（plan 不變量 13；8000 探索測試 N5：沒改的檔不受寫回額度影響）。 */
     transferWrite: FixedWindowLimiter;
     /** 與 MCP／REST 的 Bearer 讀取同一顆（key `token:${userId}`）：零區、同檔重送、去重命中扣這顆。 */
     tokenRead: FixedWindowLimiter;
@@ -245,12 +245,12 @@ export function transferRoutes(deps: TransferRouteDeps) {
       const userId = request.user!.id;
       const bt = request.bulkTransfer!;
       let noteId: string | null = null;
-      /** §13 寫回 log＋plan §0.1-10：規定鍵 13 個；錯誤出口沒算到的 diff 鍵給 null（rev 4）。不記標題、本文、frontmatter 值。 */
-      const logLine = (result: string, d?: Partial<Pick<SyncFileOk, "applied" | "same" | "conflicts" | "diffOverflow" | "anchored" | "degradedLines">> & { versionId?: string | null }) =>
+      /** §13 寫回 log＋plan §0.1-10：規定鍵 11 個（第三輪拿掉 conflicts、versionId）；錯誤出口沒算到的 diff 鍵給 null（rev 4）。不記標題、本文、frontmatter 值。 */
+      const logLine = (result: string, d?: Partial<Pick<SyncFileOk, "applied" | "same" | "diffOverflow" | "anchored" | "degradedLines">>) =>
         request.log.info(
           {
             userId, tokenId: bt.parentTokenId, noteId, result,
-            applied: d?.applied ?? null, same: d?.same ?? null, conflicts: d?.conflicts ?? null, versionId: d?.versionId ?? null,
+            applied: d?.applied ?? null, same: d?.same ?? null,
             ms: Date.now() - started, diffOverflow: d?.diffOverflow ?? null, anchored: d?.anchored ?? null, degradedLines: d?.degradedLines ?? null, clientClosed,
           },
           "bulk transfer write",
@@ -263,7 +263,7 @@ export function transferRoutes(deps: TransferRouteDeps) {
         reply.header("retry-after", String(retryAfterSeconds(retryAfterMs)));
         return fail(429, "too_many_requests", TRANSFER_RATE_LIMITED_MESSAGE);
       };
-      // 審查 m1：未預期的例外（全域 handler 回 500）也要記這一行——鍵同 ⑪ 的 13 個、diff 鍵 null、`result: "internal"`；
+      // 審查 m1：未預期的例外（全域 handler 回 500）也要記這一行——鍵同 ⑪ 的 11 個、diff 鍵 null、`result: "internal"`；
       // 例外本身照舊往外丟（不吞、不改回應）。帶內容的 DB 錯誤在 service 已經 `redactDbError` 過。
       try {
         const raw = request.body;
@@ -283,7 +283,6 @@ export function transferRoutes(deps: TransferRouteDeps) {
           if (await rangeGone(deps.db, userId, bt.range, tree)) return fail(403, "forbidden", RANGE_GONE_MESSAGE);
           const dest = await resolveCreateDest(deps.db, userId, bt.range, file.folderId, tree);
           if (!dest.ok) return fail(dest.status, dest.code, dest.message);
-          if (deps.limiters.transferWrite.isBlocked(userId)) return tooMany(deps.limiters.transferWrite.retryAfterMs(userId));
           const out = await deps.writes.createFromFile(request.log, {
             userId, userHandle: request.user!.handle, tokenId: bt.parentTokenId, fileSha: fileShaOf(key, userId, normalizeBody(text)), keyId: fileDeps.keyId,
             title: file.title, body: file.body, dest: { scope: dest.scope, folderId: dest.folderId }, limiters,
@@ -302,7 +301,7 @@ export function transferRoutes(deps: TransferRouteDeps) {
             : reply.code(200).send({ id: out.noteId, created: false, result: "unchanged", base: null });
         }
 
-        // §9.2 寫回既有筆記（T8／T9）。順序是契約：可見 → 範圍物件 → 範圍 → 角色 → isBlocked 預檢 → syncFile。
+        // §9.2 寫回既有筆記（T8／T9）。順序是契約：可見 → 範圍物件 → 範圍 → 角色 → syncFile（寫回額度在 syncFile 內、判定檔案有改之後才看）。
         noteId = file.id;
         const access = await resolveNoteAccess(deps.db, userId, file.id);
         if (access.role === "none") return fail(404, "not_found", TRANSFER_NOTE_NOT_FOUND_MESSAGE);
@@ -311,7 +310,6 @@ export function transferRoutes(deps: TransferRouteDeps) {
         const row = rows[0];
         if (row === undefined || !inRangeIds(rows, tree, bt.range).has(row.id)) return fail(403, "forbidden", NOT_IN_RANGE_MESSAGE);
         if (!access.permissions.edit) return fail(403, "forbidden", "沒有編輯權限");
-        if (deps.limiters.transferWrite.isBlocked(userId)) return tooMany(deps.limiters.transferWrite.retryAfterMs(userId));
         const out = await deps.writes.syncFile(request.log, {
           noteId: file.id, userId, userHandle: request.user!.handle, tokenId: bt.parentTokenId, access, baseKey: file.base, title: file.title,
           body: file.body, key, keyId: fileDeps.keyId, limiters,
@@ -332,10 +330,9 @@ export function transferRoutes(deps: TransferRouteDeps) {
           }
           return fail(500, "internal", "無法寫回");
         }
-        logLine(out.result, { ...out, versionId: out.version?.id ?? null });
+        logLine(out.result, out);
         return reply.code(200).send({
-          id: file.id, created: false, result: out.result, applied: out.applied, same: out.same, conflicts: out.conflicts,
-          ...(out.version ? { version: out.version } : {}), editIds: out.editIds, renamed: out.renamed,
+          id: file.id, created: false, result: out.result, applied: out.applied, same: out.same, editIds: out.editIds, renamed: out.renamed,
           ...(out.renameFailed ? { renameFailed: out.renameFailed } : {}), unboundWikilinks: out.unboundWikilinks, base: null,
         });
       } catch (err) {

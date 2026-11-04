@@ -35,10 +35,6 @@ export interface EditingTestHooks {
   beforeRevertRecord?: () => Promise<void>;
   /** 套用版本的 `beforeDisconnect` 第一步；測試以 throw 模擬基底寫回失敗。 */
   beforeVersionBase?: () => Promise<void>;
-  /** bulk transfer plan H5：檔案寫回呼叫 `cutIfDirty` 前一刻（不持 lease；M9 在這裡斷言 `inFlight === 0`）。 */
-  beforeCut?: () => Promise<void>;
-  /** bulk transfer plan H5：回 `"skipped"`／`null` 就不真的切版、照該結果走（M5）；回 undefined＝照常。 */
-  cutOverride?: () => "skipped" | null | undefined;
   /** bulk transfer plan T10 CR13：檔案新增扣桶之後、建列之前一刻（測試在這裡刪掉目標資料夾）。 */
   beforeCreateFromFile?: () => Promise<void>;
 }
@@ -94,8 +90,9 @@ export class FingerprintMismatch extends Error {}
 
 /**
  * bulk transfer plan PR-2 §0.1-5：多期望（選配）。`expectEach`／`anchorIds`／`afterGroups` 任一給了就走「一次走完頂層、逐一查表」
- * 的多期望檢查（`checkExpectations`：每個倖存者各自比指紋、**不比順序**；錨點都在），此時 `expectFingerprint` 與 `targetIds` 必須是
- * null（兩者都給 → throw，接線錯）；`applyUpdate` 之後同一次走完算每組 `afterGroups` 的指紋（`afterFingerprints`）。
+ * 的多期望檢查（`checkExpectations`：每顆各自比指紋、**不比順序**；錨點都在），此時 `targetIds` 必須是 null（給了 → throw，接線錯）；
+ * `expectFingerprint` 非 null 時另比整篇指紋（`outlineOf(...).whole`，檔案寫回用：現況整篇沒變才合併）；`applyUpdate` 之後同一次走完
+ * 算每組 `afterGroups` 的指紋（`afterFingerprints`）。
  * 三者都不給＝行為逐位元組不變（`edit_note`／撤回／套用版本）。
  */
 export interface MergeInput {
@@ -119,8 +116,10 @@ export async function mergeDiff(
     const fragment = doc.getXmlFragment(YDOC_FRAGMENT);
     const multi = input.expectEach !== undefined || input.anchorIds !== undefined || input.afterGroups !== undefined;
     if (multi) {
-      if (input.expectFingerprint !== null || input.targetIds !== null) throw new Error("mergeDiff：多期望與單期望互斥（接線錯）");
+      if (input.targetIds !== null) throw new Error("mergeDiff：多期望不收 targetIds（接線錯）");
       if (!checkExpectations(fragment, input.expectEach ?? [], input.anchorIds ?? [])) throw new FingerprintMismatch();
+      // 檔案寫回（Willie 2026-11-04 第三輪）：多期望再加整篇指紋——現況與規劃時的 fork 整篇相同才合併（`expectEach` 不管多出來的 block）。
+      if (input.expectFingerprint !== null && outlineOf(fragment).whole !== input.expectFingerprint) throw new FingerprintMismatch();
     } else if (input.expectFingerprint !== null) {
       const live = input.targetIds === null ? outlineOf(fragment).whole : fingerprintForIds(fragment, input.targetIds);
       if (live === null || live !== input.expectFingerprint) throw new FingerprintMismatch(); // null＝id 缺或順序變，不退回整篇

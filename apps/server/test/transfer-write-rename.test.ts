@@ -25,7 +25,7 @@ const baseOf = async (ctx: CollabTestCtx, key: string) => (await ctx.db.select()
 const one = () => new FixedWindowLimiter({ limit: 1, windowMs: 60_000 });
 
 describe("改名（§9.7）", () => {
-  it("RN1 只改 title → 200 renamed、不 mount、transferWrite 扣 1、applied_title_sha 寫入；RN2 同檔再送 → unchanged、不扣", async () => {
+  it("RN1 只改 title → 200 renamed、不 mount（判內文動過沒用結構比對，審查 I2）、transferWrite 扣 1、applied_title_sha 寫入；RN2 同檔再送 → unchanged、不扣", async () => {
     const transferWrite = new FixedWindowLimiter({ limit: 2, windowMs: 60_000 });
     const s = await scene({ limiters: { transferWrite } });
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
@@ -118,7 +118,7 @@ describe("改名（§9.7）", () => {
     expect(await titleOf(s.ctx, s.note.id)).toBe("Title");
   });
 
-  it("RN10（T9-M7）重試後只改名不再多扣：內容規劃扣過 1、重試變零區＋改名 → 只扣 1（limit 1 下仍 200）", async () => {
+  it("RN10（第三輪改）合併前別人做了同樣的內文修改 → 不合併、重來時判 note_changed → 409、沒改名（原 T9-M7「重試變零區＋改名」已不存在）", async () => {
     const ref = {} as { ctx: CollabTestCtx };
     let noteRef = "";
     let n = 0;
@@ -136,8 +136,9 @@ describe("改名（§9.7）", () => {
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
     noteRef = s.note.id;
     const r = await bulkPut(s.ctx.app, s.bulk.token, renameIn(editBody(d.text, b => b.replace("Para 1", "Same")), "After retry"));
-    expect(r.statusCode).toBe(200);
-    expect(r.json()).toMatchObject({ result: "renamed", renamed: true });
+    expect(r.statusCode).toBe(409);
+    expect((r.json() as { error: { reason: string } }).error.reason).toBe("note_changed");
+    expect(await titleOf(s.ctx, s.note.id)).toBe("Title");
   });
 
   it("RN11（T9-M5）同檔同時兩發只改名 → 只改一次：一發 renamed、一發 unchanged", async () => {

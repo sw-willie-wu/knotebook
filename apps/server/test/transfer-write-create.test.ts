@@ -285,6 +285,20 @@ describe("新增（§10）", () => {
     expect(await liveNotes(s.ctx)).toHaveLength(1);
   });
 
+  it("CR11b（審查 M2）額度用完時，去重沒命中的新檔直接 429、不先解析：解析會失敗的檔也回 429（不是 400）；去重命中的重送仍 200", async () => {
+    const s = await scene({ limiters: { transferWrite: new FixedWindowLimiter({ limit: 1, windowMs: 60_000 }) } });
+    const first = fileOf({ title: "1" }, "one");
+    expect((await bulkPut(s.ctx.app, s.bulk.token, first)).statusCode).toBe(201);
+    const bad = await bulkPut(s.ctx.app, s.bulk.token, fileOf({ title: "Bad" }, 'x <span style="color:#ff6600">orange-ish</span>'));
+    expect(bad.statusCode).toBe(429);
+    expect(errOf(bad).code).toBe("too_many_requests");
+    expect(bad.headers["retry-after"]).toBeDefined();
+    const again = await bulkPut(s.ctx.app, s.bulk.token, first);
+    expect(again.statusCode).toBe(200);
+    expect(again.json()).toMatchObject({ created: false, result: "unchanged" });
+    expect(await liveNotes(s.ctx)).toHaveLength(1);
+  });
+
   it("CR12 TTL 清理：31 分前的列被刪、別的使用者的新列留著（旁觀者）", async () => {
     const s = await scene();
     const other = await seedUser(s.ctx.db);

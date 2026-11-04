@@ -7,7 +7,8 @@
  * parse(k) 顆數、parse 失敗 → false）③ `anchors`／`placeFor`（要 `cur.types` 判插入點前一顆是不是 numbered）④ 每個非刪除區
  * `parseMarkdownForNote`：失敗 → 整篇 400（含「拿掉閉合註解後還有字、但 parse 成 `empty_content`」，§9.3-6）；`stripStart` 的區
  * 拿掉第一顆 numbered 的 `props.start` ⑤ 預解析 block `insertBlocks` 進 scratch doc、記每區插入的 id ⑥ close ⑦ 在未 mount 的
- * scratch 結構與 `curFragment` 上以 `sameCanonicalSeq` 算序列 ⑧ `decide`（比外來 block 的只有一支 `foreignContains`）。
+ * scratch 結構與 `curFragment` 上以 `sameCanonicalSeq` 算序列 ⑧ `decide`（改寫區的預解析與基底那幾顆逐顆比，`same`）。
+ * 前提同 `decide.ts`：呼叫端已確認筆記自下載後沒有被動過（現況頂層與基底段表逐顆相同）。
  * 讓出按時間預算（同一個計時器）：每次邊界 parse、每區 parse 之間、寫進 scratch 之後。
  * 重試（gate r1 m8）：`SyncPlan` 不保留 scratch doc；合併指紋不符時呼叫端直接重跑 `planSync`（新 fork、新 `cur`）。
  */
@@ -19,7 +20,7 @@ import type { VisibleNoteTarget } from "../notes/editing/candidates.js";
 import { parseMarkdownForNote, type ParseDetail, type ParseError } from "../notes/editing/markdown.js";
 import type { EditingRuntime } from "../notes/editing/runtime.js";
 import { EditorSession } from "../notes/editing/session.js";
-import { anchorsGone, chainKeyOf, decide, foreignContains, anchors as anchorsOf, placeFor, shouldStripStart, type Decision } from "./decide.js";
+import { chainKeyOf, decide, anchors as anchorsOf, placeFor, shouldStripStart, type Decision } from "./decide.js";
 import type { LineDiff } from "./line-diff.js";
 import { findRegions, makeBoundaryCheck, type Region } from "./regions.js";
 import { indexTopLevel, sameCanonicalSeqIn } from "./same-canonical.js";
@@ -36,14 +37,10 @@ export interface SyncPlan {
   /** 所有非刪除區 parse 的 unbound wikilink 數加總。 */
   unbound: number;
   boundaryChecks: number;
-  /** 定位點全消失的區（`decide.ts` 的 `anchorsGone`）；非空 → 呼叫端整篇回 409 `base_unavailable`、什麼都不寫。 */
-  anchorsGone: number[];
 }
 
 export interface PlanSyncInput {
   segments: TransferSegment[];
-  /** 每段的基底行是否全是空行（`blankBaseSegments`；`decide`／`anchorsGone` 判「基底只有讀出來是空行的 block 的改寫區」用，審查 I1／F1）。不給＝只認 0 行段。 */
-  blankSegs?: readonly boolean[];
   baseLineCount: number;
   agentLines: string[];
   diff: LineDiff;
@@ -98,11 +95,10 @@ export async function planSync(runtime: EditingRuntime, input: PlanSyncInput): P
     if (!rr.ok) return rr.code === "unclosed_fence" ? { ok: false, code: rr.code, fence: rr.fence } : { ok: false, code: rr.code };
     regions = rr.regions;
     boundaryChecks = rr.boundaryChecks;
-    const anc = anchorsOf(input.segments, regions, input.cur);
+    const anc = anchorsOf(input.segments, regions);
     const curIdx = new Map(input.cur.ids.map((id, i) => [id, i]));
     // 審查 m（stripStart 的前一顆）：同一個接點（`P` 之後、文件開頭）有多區時，`applySync` 把後一區接在前一區最後一顆之後，所以
-    // 後一區真正的「前一顆」是前一區的最後一顆——用同一把鏈的 key 記住它的型別。前一區若判 same（沒寫入），`applySync` 把鏈尾設成
-    // 它吸收到的外來 block 末顆（`sameTail`，R19 已修）；那一段與預解析 sameCanonical 相等，末顆型別相同，所以這裡記的型別仍精確。
+    // 後一區真正的「前一顆」是前一區的最後一顆——用同一把鏈的 key 記住它的型別（判 same 的只有改寫區，改寫區放在基底 block 之前、不用鏈）。
     const lastTypeByKey = new Map<string, string>();
     for (let ri = 0; ri < regions.length; ri++) {
       const r = regions[ri]!;
@@ -151,13 +147,13 @@ export async function planSync(runtime: EditingRuntime, input: PlanSyncInput): P
   const scratchIdx = indexTopLevel(scratch.getXmlFragment(YDOC_FRAGMENT));
   const curIdxSame = indexTopLevel(input.curFragment);
   const pre = insertedIds.map(ids => sameCanonicalSeqIn(scratchIdx, ids) ?? []);
-  const same = (ri: number, against: string[], mode: "equal" | "contiguous"): number => {
-    // 先比長度（不必 canonicalize 就知道不等）：equal 長度不同、contiguous 預解析為空或比外來長 → false（審查 m，快取）。
-    const n = pre[ri]!.length;
-    if (mode === "equal" ? against.length !== n : n === 0 || n > against.length) return -1;
+  const same = (ri: number, against: string[]): boolean => {
+    // 先比長度（不必 canonicalize 就知道不等，審查 m）。
+    const p = pre[ri]!;
+    if (against.length !== p.length) return false;
     const seq = sameCanonicalSeqIn(curIdxSame, against);
-    return seq === null ? -1 : foreignContains(pre[ri]!, seq, mode);
+    return seq !== null && seq.every((x, i) => x === p[i]);
   };
-  const decisions = decide(input.segments, regions, input.cur, same, { firstTypes, prevTypes, preLengths: pre.map(p => p.length), ...(input.blankSegs ? { blankSegs: input.blankSegs } : {}) });
-  return { ok: true, plan: { regions, decisions, parsed, unbound, boundaryChecks, anchorsGone: anchorsGone(input.segments, regions, decisions, input.cur, input.blankSegs) } };
+  const decisions = decide(input.segments, regions, input.cur, same, { firstTypes, prevTypes });
+  return { ok: true, plan: { regions, decisions, parsed, unbound, boundaryChecks } };
 }

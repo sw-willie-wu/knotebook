@@ -1,7 +1,7 @@
 import { stat } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { LINE_HASH_BYTES, baseHashes, deriveTransferKey, newSalt } from "../../src/transfer/base-hash.js";
-import { DIFF_DEPTH_MAX, DIFF_MAX_D, DIFF_WORK_MAX_FACTOR, blankBaseSegments, diffLines, hashAgentLines, type DiffOptions, type LineDiff } from "../../src/transfer/line-diff.js";
+import { DIFF_DEPTH_MAX, DIFF_MAX_D, DIFF_WORK_MAX_FACTOR, diffLines, hashAgentLines, type DiffOptions, type LineDiff } from "../../src/transfer/line-diff.js";
 import { bodyLines } from "../../src/transfer/normalize.js";
 import { yieldToLoop } from "../../src/transfer/yield.js";
 
@@ -365,14 +365,5 @@ describe("常數", () => {
     expect(DIFF_WORK_MAX_FACTOR).toBe(4);
     expect(DIFF_DEPTH_MAX).toBe(32);
     expect(bodyLines("a\nb")).toEqual(["a", "b"]);
-  });
-});
-
-describe("blankBaseSegments（審查 I1）", () => {
-  it("段的基底行全是空行（含只有空白的行、0 行段）→ true；有字 → false", () => {
-    const lines = ["A", "", "", "  ", "B", "", "C"];
-    const { lineHashes } = baseHashes(KEY, SALT, { body: lines.join("\n"), title: "t", lines, kinds: lines.map(() => 0) });
-    const segs = [{ start: 0, count: 1 }, { start: 2, count: 2 }, { start: 4, count: 1 }, { start: 5, count: 0 }, { start: 5, count: 2 }];
-    expect(blankBaseSegments(KEY, SALT, lineHashes, segs)).toEqual([false, true, false, true, false]);
   });
 });

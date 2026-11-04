@@ -1,18 +1,15 @@
 import { stat } from "node:fs";
 import { describe, expect, it } from "vitest";
-import * as Y from "yjs";
-import { YDOC_FRAGMENT, topLevelContainers } from "@knotebook/shared";
 import { EditingRuntime } from "../../src/notes/editing/runtime.js";
 import { normalizeBody } from "../../src/transfer/normalize.js";
 import { yieldToLoop } from "../../src/transfer/yield.js";
-import { SHAPE_LINK_TARGET, SHAPE_TITLES } from "./fixtures/transfer-shapes.js";
-import { docWith, forkOf, makeBaseInMemory, planInMemory, withEditor } from "./fixtures/transfer-sync.js";
+import { docWith, forkOf, makeBaseInMemory, planInMemory } from "./fixtures/transfer-sync.js";
 
 /** bulk transfer spec §9.3-6、§9.4、§9.5 第 1–4 步；plan PR-2 T6（P1–P7）。 */
 
 const rt = new EditingRuntime({ baseUrl: "http://localhost/" });
 rt.installGlobals();
-const CANDIDATES = [{ id: SHAPE_LINK_TARGET, title: "Other note", slug: "other-note", groupId: null, ownerHandle: "owner" }];
+type Candidates = Array<{ id: string; title: string; slug: string; groupId: string | null; ownerHandle: string }>;
 const P = (t: string) => ({ type: "paragraph", content: t });
 const NL = (t: string) => ({ type: "numberedListItem", content: t });
 const clock = (step: number) => {
@@ -73,51 +70,7 @@ describe("P3b 檔案層級未閉合的 code fence → 整篇不寫（審查 m3�
   });
 });
 
-describe("P4 same 判準（§25.2 的 4 案＋倖存者全不見）", () => {
-  /** 基底 → fork 上「人」做了修改 → agent 的檔做同樣修改（＝把人改完那顆的匯出寫進 agent 的檔）。 */
-  async function scene(blocks: unknown[], idx: number, edit: (ed: Parameters<Parameters<typeof withEditor>[2]>[0], id: string) => void, opts: { browser?: boolean } = {}) {
-    const doc = await docWith(rt, blocks);
-    if (opts.browser) {
-      doc.transact(() => {
-        for (const c of topLevelContainers(doc.getXmlFragment(YDOC_FRAGMENT))) {
-          const content = c.get(0);
-          if (content instanceof Y.XmlElement && content.nodeName === "numberedListItem") content.removeAttribute("start");
-        }
-      });
-    }
-    const b = await makeBaseInMemory(rt, doc, SHAPE_TITLES);
-    const live = forkOf(doc);
-    const id = b.ids[idx]!;
-    await withEditor(rt, live, ed => edit(ed, id));
-    const after = await makeBaseInMemory(rt, forkOf(live), SHAPE_TITLES);
-    return { b, live, agentBody: normalizeBody(after.body) };
-  }
-  const WL = (tail: string) => [{ type: "wikilink", props: { targetNoteId: SHAPE_LINK_TARGET, snapshotTitle: "Other" } }, { type: "text", text: tail, styles: {} }];
-  it.each([
-    ["numbered 中間項（server 建）", () => scene([NL("a"), NL("b"), NL("c")], 1, (ed, id) => ed.updateBlock(id, { content: "b2" }))],
-    ["numbered 中間項（瀏覽器形）", () => scene([NL("a"), NL("b"), NL("c")], 1, (ed, id) => ed.updateBlock(id, { content: "b2" }), { browser: true })],
-    ["帶 wikilink 的 bullet", () => scene([P("x"), { type: "bulletListItem", content: WL(" tail") }], 1, (ed, id) => ed.updateBlock(id, { content: WL(" tail2") } as never))],
-    ["image 改說明", () => scene([P("x"), { type: "image", props: { url: "/api/uploads/u1", caption: "cap" } }], 1, (ed, id) => ed.updateBlock(id, { props: { caption: "cap2" } } as never))],
-  ])("%s → same（id 不換、不存版）", async (_n, make) => {
-    const { b, live, agentBody } = await make();
-    const r = ok(await planInMemory(rt, b, agentBody, live, { candidates: CANDIDATES }));
-    expect(marks(r)).toEqual(["rewrite:same"]);
-  });
-  it("倖存者全不見＋錨點間外來 block 相同 → same（合併已落盤、紀錄失敗後同檔重送的形）", async () => {
-    const doc = await docWith(rt, [P("A"), P("B"), P("C")]);
-    const b = await makeBaseInMemory(rt, doc);
-    const live = forkOf(doc);
-    await withEditor(rt, live, ed => ed.replaceBlocks([b.ids[1]!], [{ type: "paragraph", content: "B2" }]));
-    const r = ok(await planInMemory(rt, b, "A\n\nB2\n\nC", live));
-    expect(r.plan.decisions[0]).toMatchObject({ kind: "rewrite", mark: "same", preferForeignSame: true });
-  });
-  it("對照：倖存者全不見、外來 block 不同 → conflict", async () => {
-    const doc = await docWith(rt, [P("A"), P("B"), P("C")]);
-    const b = await makeBaseInMemory(rt, doc);
-    const live = forkOf(doc);
-    await withEditor(rt, live, ed => ed.replaceBlocks([b.ids[1]!], [{ type: "paragraph", content: "human" }]));
-    expect(marks(ok(await planInMemory(rt, b, "A\n\nB2\n\nC", live)))).toEqual(["rewrite:conflict"]);
-  });
+describe("P4 same 判準（第三輪：「人先改過、檔案做同樣修改」與「倖存者全不見」的形已隨合併刪除，現況＝基底才會規劃）", () => {
   it("沒有人改、agent 只換寫法（`*` → `-`）→ same（非衝突的區也先判 same，id 不換）", async () => {
     const doc = await docWith(rt, [P("A"), { type: "bulletListItem", content: "item" }, P("C")]);
     const b = await makeBaseInMemory(rt, doc);
@@ -180,7 +133,7 @@ describe("P6／P7 讓出", () => {
     const b = await makeBaseInMemory(rt, doc);
     let fired = false;
     let firedAtFirstRead: boolean | undefined;
-    const candidates = new Proxy([] as typeof CANDIDATES, {
+    const candidates = new Proxy([] as Candidates, {
       get(t, k, r) {
         firedAtFirstRead ??= fired;
         return Reflect.get(t, k, r);

@@ -10,7 +10,7 @@ import { recordFileSyncInTx } from "../src/transfer/tx/record-file-sync.js";
 import { buildCollabTestApp, freshDb } from "./helpers.js";
 import { bearer, seedTokenForUser } from "./editing-helpers.js";
 import { seedNote, seedUser } from "./group-helpers.js";
-import { bulkPut, downloadNote, editBody, humanEdit, issueBulkDirect, liveMarkdown, seedMd, topIdsOf } from "./bulk-transfer-helpers.js";
+import { bulkPut, downloadNote, editBody, humanEdit, issueBulkDirect, liveMarkdown, seedBlocks, seedMd, topIdsOf } from "./bulk-transfer-helpers.js";
 
 const SHA = Buffer.alloc(32, 9);
 async function scene() {
@@ -257,6 +257,28 @@ describe("T11 撤回 file_sync", () => {
     expect((await s.md()).split("Para 3").length - 1).toBe(1);
   });
 
+  it("PR3b（審查 M3，純基底形）：基底 [B, 空段落, A, C]、檔案刪 A → anchor＝使用者自己的空段落（after，非佔位）→ 撤回後 A 回到它後面、空段落仍在", async () => {
+    const s = await writeScene("");
+    await seedBlocks(s.ctx.db, s.note.id, [{ type: "paragraph", content: "B" }, { type: "paragraph" }, { type: "paragraph", content: "A" }, { type: "paragraph", content: "C" }]);
+    const [, userEmpty] = await s.top();
+    const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
+    expect(d.body).toContain("B\n\n\n\nA\n\nC");
+    const w = await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, b => b.replace("A\n\nC", "C")));
+    expect(w.statusCode).toBe(200);
+    expect(w.json()).toMatchObject({ result: "applied", applied: 1 });
+    const t1 = await s.top();
+    expect(t1).toHaveLength(3);
+    expect(t1[1]).toBe(userEmpty);
+    const [e] = await s.list();
+    const row = (await s.ctx.db.select().from(noteAiEdits).where(eq(noteAiEdits.id, e!.id)))[0]!;
+    expect(row.anchor).toEqual({ block_id: userEmpty, position: "after" });
+    expect((await s.revert(e!.id)).statusCode).toBe(201);
+    const t2 = await s.top();
+    expect(t2).toHaveLength(4);
+    expect(t2[1]).toBe(userEmpty);
+    expect(await s.md()).toMatch(/^B\n\n\n\nA\n\nC$/);
+  });
+
   it("R7c 刪除列正常撤回後再打 → already_reverted、頂層 id 唯一", async () => {
     const s = await writeScene(PARAS5);
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
@@ -267,78 +289,5 @@ describe("T11 撤回 file_sync", () => {
     const t = await s.top();
     expect(new Set(t).size).toBe(t.length);
     expect(await s.md()).toBe(PARAS5);
-  });
-
-  for (const order of ["r1→r2", "r2→r1"] as const) {
-    it(`反例二（人刪 B、agent 刪 A 與 C → 一顆佔位空段落、兩列共用）撤回 ${order} → 都 200 系、結果 [A, C]、不殘留空段落`, async () => {
-      const s = await writeScene("A\n\nB\n\nC");
-      const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
-      await humanEdit(s.ctx, s.note.id, ed => ed.removeBlocks([ed.document[1]!.id]));
-      const w = await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, () => "B"));
-      expect(w.statusCode).toBe(200);
-      expect(await s.top()).toHaveLength(1);
-      expect(await s.md()).toBe("");
-      const edits = await s.list();
-      expect(edits).toHaveLength(2);
-      const [r2, r1] = edits; // 新到舊：r1＝A 那區（before 佔位）、r2＝C 那區（after 佔位）
-      const rows = new Map((await s.ctx.db.select().from(noteAiEdits).where(eq(noteAiEdits.noteId, s.note.id))).map(r => [r.id, r]));
-      expect(rows.get(r1!.id)!.anchor).toMatchObject({ position: "before", placeholder: true });
-      expect(rows.get(r2!.id)!.anchor).toMatchObject({ position: "after", placeholder: true });
-      const seq = order === "r1→r2" ? [r1!, r2!] : [r2!, r1!];
-      const first = await s.revert(seq[0]!.id);
-      expect(first.statusCode).toBe(201);
-      const second = await s.revert(seq[1]!.id);
-      expect(second.statusCode).toBe(201);
-      expect(await s.md()).toBe("A\n\nC");
-      expect(await s.top()).toHaveLength(2);
-    });
-  }
-
-  // 總管追加 T11-4／審查 M-4：3 區共用同一顆佔位（第一區 before、其餘 after）時亂序撤回的實際結果（照實斷言）。
-  const ORDERS3 = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]] as const;
-  // 實測（known-limitation）：第一區（A，before）永遠回到最前；其餘區（after）每撤一個都插在佔位正後方，所以 C、E 回來的順序與
-  // 撤回順序相反——先撤 C 再撤 E 得 [A, E, C]；先撤 E 再撤 C 才是原順序。
-  const EXPECT3: Record<string, string> = { "012": "A\n\nE\n\nC", "021": "A\n\nC\n\nE", "102": "A\n\nE\n\nC", "120": "A\n\nE\n\nC", "201": "A\n\nC\n\nE", "210": "A\n\nC\n\nE" };
-  for (const order of ORDERS3) {
-    it(`3 區共用佔位（人刪 B、D；agent 刪 A、C、E）撤回順序 ${order.map(i => "ACE"[i]).join("→")} → 全部 201、結果見斷言`, async () => {
-      const s = await writeScene("A\n\nB\n\nC\n\nD\n\nE");
-      const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
-      await humanEdit(s.ctx, s.note.id, ed => ed.removeBlocks([ed.document[1]!.id, ed.document[3]!.id]));
-      expect((await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, () => "B\n\nD"))).statusCode).toBe(200);
-      expect(await s.top()).toHaveLength(1);
-      const edits = await s.list(); // 新到舊
-      expect(edits).toHaveLength(3);
-      const byRegion = [...edits].reverse(); // 文件順序：A、C、E
-      const rows = new Map((await s.ctx.db.select().from(noteAiEdits).where(eq(noteAiEdits.noteId, s.note.id))).map(r => [r.id, r]));
-      expect(byRegion.map(e => (rows.get(e.id)!.anchor as { position: string; placeholder?: boolean }))).toEqual([
-        expect.objectContaining({ position: "before", placeholder: true }),
-        expect.objectContaining({ position: "after", placeholder: true }),
-        expect.objectContaining({ position: "after", placeholder: true }),
-      ]);
-      for (const i of order) expect((await s.revert(byRegion[i]!.id)).statusCode, "ACE"[i]).toBe(201);
-      expect(await s.md()).toBe(EXPECT3[order.join("")]);
-    });
-  }
-
-  it("PR3b 形：anchor 是使用者自己寫的空段落（非佔位）→ 撤回後那顆空段落仍在", async () => {
-    // 人刪 C、在 A、B 之間插一顆空段落 E；agent 刪 A、B → 結果恰 [E]、anchor＝E before（不是佔位）
-    const s = await writeScene("A\n\nB\n\nC");
-    const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
-    await humanEdit(s.ctx, s.note.id, ed => {
-      ed.insertBlocks([{ type: "paragraph" }], ed.document[0]!.id, "after");
-      ed.removeBlocks([ed.document[3]!.id]);
-    });
-    const userEmpty = (await s.top())[1]!;
-    const w = await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, () => "C"));
-    expect(w.statusCode).toBe(200);
-    expect(await s.top()).toEqual([userEmpty]);
-    const [e] = await s.list();
-    const row = (await s.ctx.db.select().from(noteAiEdits).where(eq(noteAiEdits.id, e!.id)))[0]!;
-    expect(row.anchor).toEqual({ block_id: userEmpty, position: "before" });
-    expect((await s.revert(e!.id)).statusCode).toBe(201);
-    const t = await s.top();
-    expect(t).toHaveLength(3);
-    expect(t[2]).toBe(userEmpty);
-    expect(await s.md()).toMatch(/^A\n\nB/);
   });
 });
