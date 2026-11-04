@@ -12,6 +12,7 @@ import { baseHashes, deriveTransferKey, transferKeyId } from "../../../src/trans
 import { exportNoteForTransfer } from "../../../src/transfer/export-note.js";
 import { writeNoteFile } from "../../../src/transfer/frontmatter.js";
 import { diffLines, hashAgentLines, type DiffOptions, type LineDiff } from "../../../src/transfer/line-diff.js";
+import { exportedLinkTextOf, linkTextHash } from "../../../src/transfer/link-texts.js";
 import { bodyLines, normalizeBody } from "../../../src/transfer/normalize.js";
 import { findRegions, makeBoundaryCheck, type CheckBoundary, type RegionsResult } from "../../../src/transfer/regions.js";
 import type { TransferSegment } from "../../../src/db/schema.js";
@@ -69,7 +70,7 @@ export interface InMemoryBase {
 
 /** PR-1 的 `exportNoteForTransfer`＋`baseHashes`（固定測試金鑰與鹽）。 */
 export async function makeBaseInMemory(rt: EditingRuntime, doc: Y.Doc, titles: ReadonlyMap<string, string> = new Map(), title = "T"): Promise<InMemoryBase> {
-  const ex = await exportNoteForTransfer(rt, doc, titles);
+  const ex = await exportNoteForTransfer(rt, doc, titles, { linkHash: (id, text) => linkTextHash(TEST_KEY, TEST_SALT, id, text) });
   const h = baseHashes(TEST_KEY, TEST_SALT, { body: normalizeBody(ex.body), title, lines: ex.lines, kinds: ex.lineKinds });
   return {
     fileText: writeNoteFile({ id: "00000000-0000-4000-8000-000000000000", title, role: "owner", base: "0123456789abcdef", url: "/n/x" }, ex.body),
@@ -102,6 +103,7 @@ export async function planInMemory(
   const { agentLines, diff } = await diffAgainst(b, agentBody, opts);
   const curFragment = liveDoc.getXmlFragment(YDOC_FRAGMENT);
   const cur = topLevelSnapshot(curFragment);
+  const exported = exportedLinkTextOf(b.base.segments!, TEST_KEY, b.base.salt);
   const r = await planSync(rt, {
     segments: b.base.segments!,
     baseLineCount: b.lines.length,
@@ -111,6 +113,7 @@ export async function planInMemory(
     curFragment,
     candidates: opts.candidates ?? [],
     siteOrigin: TEST_SITE,
+    ...(exported ? { exportedLinkText: exported } : {}),
     ...(opts.yieldFn ? { yieldFn: opts.yieldFn } : {}),
     ...(opts.now ? { now: opts.now } : {}),
   });
