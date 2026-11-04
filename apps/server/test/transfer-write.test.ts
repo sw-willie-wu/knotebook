@@ -762,6 +762,21 @@ describe("X8000 探索測試 A–E（Willie 2026-11-04 第二輪）", () => {
     expect(norm(await liveMarkdown(s.ctx, s.note.id))).toBe(PARAS(4));
   });
 
+  it("C-旁觀者（審查 F5）：別篇筆記的紀錄列撤回，不影響這份副本——同檔重送仍 unchanged", async () => {
+    const s = await scene();
+    const n2 = await seedNote(s.ctx.db, { ownerId: s.u.id }, { title: "Other" });
+    await seedMd(s.ctx.db, n2.id, PARAS(3, "Q"));
+    const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
+    const d2 = await downloadNote(s.ctx.app, s.bulk.token, n2.id);
+    const text = editBody(d.text, b => b.replace("Para 1", "Para 1 new"));
+    expect((await bulkPut(s.ctx.app, s.bulk.token, text)).json()).toMatchObject({ result: "applied" });
+    const w2 = await bulkPut(s.ctx.app, s.bulk.token, editBody(d2.text, b => b.replace("Q 1", "Q 1 new")));
+    const [otherEdit] = (w2.json() as { editIds: string[] }).editIds;
+    const rv = await s.ctx.app.inject({ method: "POST", url: `/api/notes/${n2.id}/edits/${otherEdit}/revert`, headers: bearer(s.pat.token) });
+    expect(rv.statusCode).toBe(201);
+    expect((await bulkPut(s.ctx.app, s.bulk.token, text)).json()).toMatchObject({ result: "unchanged" });
+  });
+
   it("E 400 訊息照成因：事件屬性、<script>（整段或混在內文）、未閉合 <!--、block 上限、未閉合 ~~~", async () => {
     const s = await scene();
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
@@ -790,6 +805,10 @@ describe("X8000 探索測試 A–E（Willie 2026-11-04 第二輪）", () => {
     await humanEdit(s.ctx, s.note.id, ed => ed.removeBlocks([ed.document[1]!.id]));
     const r = await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, b => b.replace("A\n\n\n\nB", "A\n\nnew\n\nB")));
     expect(r.statusCode).toBe(200);
+    // 審查 F1：當插入看——applied、conflicts 0、沒有存版
+    expect(r.json()).toMatchObject({ result: "applied", applied: 1, conflicts: 0 });
+    expect(r.json()).not.toHaveProperty("version");
+    expect(await versions(s.ctx, s.note.id)).toHaveLength(0);
     expect((await liveBlocks(s.ctx, s.note.id)).map(b => b.text)).toEqual(["A", "new", "B"]);
   });
 

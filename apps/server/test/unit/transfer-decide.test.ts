@@ -323,6 +323,23 @@ describe("AG 定位點全消失（Willie 2026-11-04：整篇 409，不退到文�
     expect(anchorsGone(E, rs, ds, cur, [false, true, false])).toEqual([]);
     expect(anchorsGone(E, rs, ds, cur)).toEqual([0]);
   });
+  it("AG9b（審查 F1）同形的判定是 applied（不存版、不算衝突）；沒標 blank → conflict；現況 0 顆頂層 → 照舊 conflict", () => {
+    const E = segsOf("A", "E", "B");
+    const rs = [region(E, "rewrite", [1], 0, 2)];
+    const blankSegs = [false, true, false];
+    expect(decide(E, rs, curOf(["A", "B"]), sameWith([["c:new"]]), { blankSegs })[0]).toMatchObject({ mark: "applied", survivors: [], missing: ["E"] });
+    expect(decide(E, rs, curOf(["A", "B"]), sameWith([["c:new"]]))[0]!.mark).toBe("conflict");
+    expect(decide(E, rs, curOf([]), sameWith([["c:new"]]), { blankSegs })[0]!.mark).toBe("conflict");
+  });
+  it("AG9c（審查 F4）改寫區 [E, B] 只有 E 是空行、兩顆都不見 → [0]（409；全是空行才放行）", () => {
+    const S4 = segsOf("A", "E", "B", "C");
+    const rs = [region(S4, "rewrite", [1, 2], 0, 3)];
+    const cur = curOf(["A", "C"]);
+    const blankSegs = [false, true, false, false];
+    const ds = decide(S4, rs, cur, sameWith([["c:new"]]), { blankSegs });
+    expect(ds[0]!.mark).toBe("conflict");
+    expect(anchorsGone(S4, rs, ds, cur, blankSegs)).toEqual([0]);
+  });
   it("AG8 刪除區不算：B 還在、A、C 換了新 id（P、N 都沒有）→ []（有倖存者可刪）", () => {
     expect(gone(S, [region(S, "delete", [1], 0, 2)], curOf(["X", "B", "Z"]))).toEqual([]);
   });

@@ -87,7 +87,7 @@ describe("H3 檔案寫回的 400 訊息依成因（8000 探索測試 E）", () =
   it("unsupported_block 三種成因、empty_content 兩種、too_many_blocks 帶上限、未閉合 fence 照實際記號", () => {
     expect(transferParseMessage("unsupported_block", "event_attr")).toBe("檔案裡有帶事件屬性（例如 onerror、onclick）的 HTML，不能存進筆記，沒有寫入任何內容");
     expect(transferParseMessage("unsupported_block", "editor_internal")).toBe("檔案裡有編輯器內部用的 HTML（例如帶 data-content-type 的元素），不能存進筆記，沒有寫入任何內容");
-    expect(transferParseMessage("unsupported_block", "dropped_element")).toBe("檔案裡有編輯器會整個丟掉的元素（<script>、<style>、<iframe> 或 <object>），不能存進筆記，沒有寫入任何內容");
+    expect(transferParseMessage("unsupported_block", "dropped_element")).toBe("檔案裡有編輯器會連內容整個丟掉的元素（例如 <script>、<style>、<iframe>），不能存進筆記，沒有寫入任何內容");
     expect(transferParseMessage("unsupported_block", "unknown_block")).toBe("檔案裡有編輯器不支援的元素，不能存進筆記，沒有寫入任何內容");
     expect(transferParseMessage("empty_content", "unclosed_comment")).toBe("有一個 `<!--` 沒有收尾的 `-->`，後面的內容都被當成註解、沒有可存的內容；請補上 `-->` 再送，沒有寫入任何內容");
     expect(transferParseMessage("empty_content")).toBe("檔案裡這一處解析後沒有內容（例如只剩 HTML 註解或空白），沒有寫入任何內容");

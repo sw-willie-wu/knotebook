@@ -42,7 +42,7 @@ export interface SyncPlan {
 
 export interface PlanSyncInput {
   segments: TransferSegment[];
-  /** 每段的基底行是否全是空行（`blankBaseSegments`；`anchorsGone` 判「基底只有空段落的改寫區」用，審查 I1）。不給＝只認 0 行段。 */
+  /** 每段的基底行是否全是空行（`blankBaseSegments`；`decide`／`anchorsGone` 判「基底只有讀出來是空行的 block 的改寫區」用，審查 I1／F1）。不給＝只認 0 行段。 */
   blankSegs?: readonly boolean[];
   baseLineCount: number;
   agentLines: string[];
@@ -158,6 +158,6 @@ export async function planSync(runtime: EditingRuntime, input: PlanSyncInput): P
     const seq = sameCanonicalSeqIn(curIdxSame, against);
     return seq === null ? -1 : foreignContains(pre[ri]!, seq, mode);
   };
-  const decisions = decide(input.segments, regions, input.cur, same, { firstTypes, prevTypes, preLengths: pre.map(p => p.length) });
+  const decisions = decide(input.segments, regions, input.cur, same, { firstTypes, prevTypes, preLengths: pre.map(p => p.length), ...(input.blankSegs ? { blankSegs: input.blankSegs } : {}) });
   return { ok: true, plan: { regions, decisions, parsed, unbound, boundaryChecks, anchorsGone: anchorsGone(input.segments, regions, decisions, input.cur, input.blankSegs) } };
 }

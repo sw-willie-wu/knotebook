@@ -67,7 +67,7 @@ export function transferParseMessage(code: ErrorCode, detail?: ParseDetail, fenc
   if (code === "unsupported_block") {
     if (detail === "event_attr") return "檔案裡有帶事件屬性（例如 onerror、onclick）的 HTML，不能存進筆記，沒有寫入任何內容";
     if (detail === "editor_internal") return "檔案裡有編輯器內部用的 HTML（例如帶 data-content-type 的元素），不能存進筆記，沒有寫入任何內容";
-    if (detail === "dropped_element") return "檔案裡有編輯器會整個丟掉的元素（<script>、<style>、<iframe> 或 <object>），不能存進筆記，沒有寫入任何內容";
+    if (detail === "dropped_element") return "檔案裡有編輯器會連內容整個丟掉的元素（例如 <script>、<style>、<iframe>），不能存進筆記，沒有寫入任何內容";
     return "檔案裡有編輯器不支援的元素，不能存進筆記，沒有寫入任何內容";
   }
   if (code === "empty_content") {
