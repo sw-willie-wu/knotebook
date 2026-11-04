@@ -202,10 +202,11 @@ describe("§25.3 並行（9 案）", () => {
     expect(o.marks).toEqual(["rewrite:conflict"]);
     expect(o.top.map(x => x.text)).toEqual(["p0", "p1-agent", "p2", "p3", "p4", "p5"]);
   });
-  it("C25 人刪了 agent 改的段 → conflict、插在 P 後", async () => {
+  it("C25 人刪了 agent 改的段 → 409 base_unavailable（Willie 2026-11-04 第二輪；原本是 conflict、插在 P 後）、現況不動", async () => {
     const o = await run(PS, w => w.replace("p2", "p2-agent"), ed => ed.removeBlocks([ed.document[2]!.id]));
+    expect(o.error).toBe("base_unavailable");
     expect(o.marks).toEqual(["rewrite:conflict"]);
-    expect(o.top.map(x => x.text)).toEqual(["p0", "p1", "p2-agent", "p3", "p4", "p5"]);
+    expect(o.top.map(x => x.text)).toEqual(["p0", "p1", "p3", "p4", "p5"]);
   });
   it("C26 人改了 agent 刪的段 → conflict、照刪", async () => {
     const o = await run(PS, w => w.replace("p2\n\n", ""), ed => ed.updateBlock(ed.document[2]!.id, { content: "p2-human" }));

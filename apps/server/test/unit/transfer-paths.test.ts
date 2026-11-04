@@ -405,3 +405,9 @@ describe("buildLayout 範圍縮小：命名在完整集合上算、再依範圍�
     expect(a.dirs.find(d => d.space?.kind === "group" && d.space.groupId === w.gA.id && d.id === null)!.path).toBe("Groups/Team");
   });
 });
+
+describe("檔名開頭的空白（known-limitations；8000 探索測試 I）", () => {
+  it("開頭的空白保留、結尾的空白去掉", () => {
+    expect(sanitizeTitle("  前後空白  ")).toBe("  前後空白");
+  });
+});

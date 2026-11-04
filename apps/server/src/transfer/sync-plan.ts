@@ -16,7 +16,7 @@ import * as Y from "yjs";
 import { YDOC_FRAGMENT } from "@knotebook/shared";
 import type { TransferSegment } from "../db/schema.js";
 import type { VisibleNoteTarget } from "../notes/editing/candidates.js";
-import { parseMarkdownForNote, type ParseError } from "../notes/editing/markdown.js";
+import { parseMarkdownForNote, type ParseDetail, type ParseError } from "../notes/editing/markdown.js";
 import type { EditingRuntime } from "../notes/editing/runtime.js";
 import { EditorSession } from "../notes/editing/session.js";
 import { anchorsGone, chainKeyOf, decide, foreignContains, anchors as anchorsOf, placeFor, shouldStripStart, type Decision } from "./decide.js";
@@ -42,6 +42,8 @@ export interface SyncPlan {
 
 export interface PlanSyncInput {
   segments: TransferSegment[];
+  /** 每段的基底行是否全是空行（`blankBaseSegments`；`anchorsGone` 判「基底只有空段落的改寫區」用，審查 I1）。不給＝只認 0 行段。 */
+  blankSegs?: readonly boolean[];
   baseLineCount: number;
   agentLines: string[];
   diff: LineDiff;
@@ -58,8 +60,10 @@ export interface PlanSyncInput {
 
 /** `unclosed_fence`：檔案層級有未閉合的 code fence（審查 m3，`regions.ts` 的 `UNCLOSED_FENCE_MESSAGE`）；其餘是 parse 的錯誤碼。 */
 export type PlanSyncError = ParseError | "unclosed_fence";
+/** 失敗形：`detail`＝parse 成因（`ParseDetail`）；`fence`＝未閉合的 fence 記號。只給 HTTP 層挑訊息（8000 探索測試 E）。 */
+export type PlanSyncFailure = { ok: false; code: PlanSyncError; detail?: ParseDetail; fence?: string };
 
-export async function planSync(runtime: EditingRuntime, input: PlanSyncInput): Promise<{ ok: true; plan: SyncPlan } | { ok: false; code: PlanSyncError }> {
+export async function planSync(runtime: EditingRuntime, input: PlanSyncInput): Promise<{ ok: true; plan: SyncPlan } | PlanSyncFailure> {
   const yieldFn = input.yieldFn ?? yieldToLoop;
   const now = input.now ?? (() => performance.now());
   let last = now();
@@ -91,7 +95,7 @@ export async function planSync(runtime: EditingRuntime, input: PlanSyncInput): P
       return r;
     });
     const rr = await findRegions(input.segments, input.baseLineCount, input.agentLines, input.diff, check, { yieldFn, now });
-    if (!rr.ok) return { ok: false, code: rr.code };
+    if (!rr.ok) return rr.code === "unclosed_fence" ? { ok: false, code: rr.code, fence: rr.fence } : { ok: false, code: rr.code };
     regions = rr.regions;
     boundaryChecks = rr.boundaryChecks;
     const anc = anchorsOf(input.segments, regions, input.cur);
@@ -109,7 +113,7 @@ export async function planSync(runtime: EditingRuntime, input: PlanSyncInput): P
         continue;
       }
       const p = parseMarkdownForNote(s.editor, r.text, input.candidates, input.siteOrigin);
-      if ("error" in p) return { ok: false, code: p.error };
+      if ("error" in p) return { ok: false, code: p.error, ...(p.detail ? { detail: p.detail } : {}) };
       unbound += p.unbound;
       const blocks = p.blocks;
       const firstType = blocks[0]?.type as string | undefined;
@@ -155,5 +159,5 @@ export async function planSync(runtime: EditingRuntime, input: PlanSyncInput): P
     return seq === null ? -1 : foreignContains(pre[ri]!, seq, mode);
   };
   const decisions = decide(input.segments, regions, input.cur, same, { firstTypes, prevTypes, preLengths: pre.map(p => p.length) });
-  return { ok: true, plan: { regions, decisions, parsed, unbound, boundaryChecks, anchorsGone: anchorsGone(input.segments, regions, decisions, input.cur) } };
+  return { ok: true, plan: { regions, decisions, parsed, unbound, boundaryChecks, anchorsGone: anchorsGone(input.segments, regions, decisions, input.cur, input.blankSegs) } };
 }

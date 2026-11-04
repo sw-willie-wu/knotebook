@@ -7,8 +7,9 @@ import { eq, sql } from "drizzle-orm";
 import * as Y from "yjs";
 import { noteAiEdits, noteStates, notes, noteVersions, transferBases } from "../src/db/schema.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
-import { BASE_UNAVAILABLE_MESSAGE, NOT_MERGEABLE_MESSAGE, TRANSFER_NOTE_NOT_FOUND_MESSAGE, TRANSFER_RATE_LIMITED_MESSAGE } from "../src/routes/transfer.js";
-import { UNCLOSED_FENCE_MESSAGE } from "../src/transfer/regions.js";
+import { BASE_UNAVAILABLE_MESSAGES, NOT_MERGEABLE_MESSAGE, TRANSFER_NOTE_NOT_FOUND_MESSAGE, TRANSFER_RATE_LIMITED_MESSAGE, transferParseMessage } from "../src/routes/transfer.js";
+import { UNCLOSED_FENCE_MESSAGE, unclosedFenceMessage } from "../src/transfer/regions.js";
+import { UNCLOSED_FRONT_MATTER_MESSAGE } from "../src/transfer/frontmatter.js";
 import { buildCollabTestApp, testConfig, type CollabTestCtx } from "./helpers.js";
 import { bearer, getContent, seedTokenForUser } from "./editing-helpers.js";
 import { seedDoc } from "./copy-helpers.js";
@@ -28,7 +29,7 @@ async function scene(opts: Opts = {}, md = PARAS(4)) {
   if (md !== "") await seedMd(ctx.db, note.id, md);
   return { ctx, u, pat, bulk, note };
 }
-const errOf = (r: { json(): unknown }) => (r.json() as { error: { code: string; message: string } }).error;
+const errOf = (r: { json(): unknown }) => (r.json() as { error: { code: string; message: string; reason?: string } }).error;
 const edits = (ctx: CollabTestCtx, noteId: string) => ctx.db.select().from(noteAiEdits).where(eq(noteAiEdits.noteId, noteId));
 const baseRow = async (ctx: CollabTestCtx, key: string) => (await ctx.db.select().from(transferBases).where(eq(transferBases.key, key)))[0]!;
 const norm = (s: string) => s.replace(/\n+$/, "");
@@ -84,7 +85,7 @@ describe("W1–W7 狀態表", () => {
     const after = await liveMarkdown(s.ctx, s.note.id);
     const w4 = await bulkPut(s.ctx.app, s.bulk.token, editBody(text, b => b.replace("Para 2", "Para 2 other")));
     expect(w4.statusCode).toBe(409);
-    expect(errOf(w4)).toEqual({ code: "base_unavailable", message: BASE_UNAVAILABLE_MESSAGE });
+    expect(errOf(w4)).toEqual({ code: "base_unavailable", message: BASE_UNAVAILABLE_MESSAGES.already_sent, reason: "already_sent" });
     expect(await liveMarkdown(s.ctx, s.note.id)).toBe(after);
     // 重送與 409 都沒扣 → limit 2 還剩 1：再寫一篇仍 200
     const n2 = await seedNote(s.ctx.db, { ownerId: s.u.id }, { title: "N2" });
@@ -93,7 +94,7 @@ describe("W1–W7 狀態表", () => {
     expect((await bulkPut(s.ctx.app, s.bulk.token, editBody(d2.text, () => "Changed para"))).statusCode).toBe(200);
   });
 
-  it("W5 409 三形：別人的 base、別篇的 base、不存在的 16 hex（各帶 BASE_UNAVAILABLE_MESSAGE）", async () => {
+  it("W5 409 三形：別人的 base、別篇的 base → reason other_note；不存在的 16 hex → expired（各帶對應訊息）", async () => {
     const s = await scene();
     const other = await seedNote(s.ctx.db, { ownerId: s.u.id }, { title: "Other" });
     await seedMd(s.ctx.db, other.id, "Other para");
@@ -105,10 +106,10 @@ describe("W1–W7 狀態表", () => {
     const vbulk = await issueBulkDirect(s.ctx.db, vpat.tokenId, { access: "write" });
     const vd = await downloadNote(s.ctx.app, vbulk.token, s.note.id);
     const changed = (base: string) => editBody(d.text.replace(/^base: .*$/m, `base: ${base}`), b => b.replace("Para 1", "x"));
-    for (const [label, base] of [["別人的", vd.fm.base!], ["別篇的", od.fm.base!], ["不存在", "ffffffffffffffff"]] as const) {
+    for (const [label, base, reason] of [["別人的", vd.fm.base!, "other_note"], ["別篇的", od.fm.base!, "other_note"], ["不存在", "ffffffffffffffff", "expired"]] as const) {
       const r = await bulkPut(s.ctx.app, s.bulk.token, changed(base));
       expect(r.statusCode, label).toBe(409);
-      expect(errOf(r), label).toEqual({ code: "base_unavailable", message: BASE_UNAVAILABLE_MESSAGE });
+      expect(errOf(r), label).toEqual({ code: "base_unavailable", message: BASE_UNAVAILABLE_MESSAGES[reason], reason });
     }
   });
 
@@ -120,7 +121,7 @@ describe("W1–W7 狀態表", () => {
     const ctx2 = await buildCollabTestApp({ db: s.ctx.db, config: { ...testConfig, appSecret: `${testConfig.appSecret}-rotated` } });
     const r = await bulkPut(ctx2.app, s.bulk.token, editBody(d.text, b => b.replace("Para 1", "Para 1 new")));
     expect(r.statusCode).toBe(409);
-    expect(errOf(r).code).toBe("base_unavailable");
+    expect(errOf(r)).toMatchObject({ code: "base_unavailable", reason: "expired" });
     expect(await liveMarkdown(ctx2, s.note.id)).toBe(before);
     expect(await edits(ctx2, s.note.id)).toHaveLength(0);
   });
@@ -554,7 +555,7 @@ describe("Z 定位點全消失 → 409（Willie 2026-11-04；8000 實測：只�
     chunks.length = 0;
     const r = await bulkPut(s.ctx.app, s.bulk.token, renameIn(editBody(d.text, b => b.replace("Second para", "Second para from the file")), "Renamed by file"));
     expect(r.statusCode).toBe(409);
-    expect(errOf(r)).toEqual({ code: "base_unavailable", message: BASE_UNAVAILABLE_MESSAGE });
+    expect(errOf(r)).toEqual({ code: "base_unavailable", message: BASE_UNAVAILABLE_MESSAGES.anchors_gone, reason: "anchors_gone" });
     expect(await liveMarkdown(s.ctx, s.note.id)).toBe(md0);
     expect(md0).not.toContain("from the file");
     expect((await versions(s.ctx, s.note.id)).length).toBe(v0);
@@ -636,5 +637,198 @@ describe("Z4 不誤擋：刪除區（審查 Minor 1）", () => {
     expect(r.statusCode).toBe(200);
     expect(r.json()).toMatchObject({ result: "applied", applied: 1 });
     expect((await liveBlocks(s.ctx, s.note.id)).map(b => b.text)).toEqual(["A", "C"]);
+  });
+});
+
+describe("X8000 探索測試 A–E（Willie 2026-11-04 第二輪）", () => {
+  const CH = "# 第一章\n\n段落 A1\n\n## 1.1 小節\n\n段落 B1\n\n# 第二章\n\n段落 C1\n\n* 清單一\n* 清單二\n\n# 第三章\n\n段落 D1";
+  const versions = (ctx: CollabTestCtx, noteId: string) => ctx.db.select().from(noteVersions).where(eq(noteVersions.noteId, noteId));
+  /** REST edit_note 的 replace_section／delete_section（PAT），以 heading 找那一段。 */
+  async function sectionEdit(s: Awaited<ReturnType<typeof scene>>, heading: string, op: "replace_section" | "delete_section", markdown?: string) {
+    const c = (await getContent(s.ctx.app, s.note.id, s.pat.token)).json() as { outline: Array<{ sectionId: string; heading: string; fingerprint: string }> };
+    const sec = c.outline.find(o => o.heading === heading)!;
+    const payload = op === "replace_section" ? { op, section_id: sec.sectionId, markdown, if_match: sec.fingerprint } : { op, section_id: sec.sectionId, if_match: sec.fingerprint };
+    const r = await s.ctx.app.inject({ method: "POST", url: `/api/notes/${s.note.id}/edits`, headers: bearer(s.pat.token), payload });
+    expect(r.statusCode).toBe(201);
+  }
+  /** 送檔 → 409 anchors_gone，內容逐字不變、不存版、不寫紀錄。 */
+  async function expectRefused(s: Awaited<ReturnType<typeof scene>>, token: string, text: string) {
+    const md0 = await liveMarkdown(s.ctx, s.note.id);
+    const v0 = (await versions(s.ctx, s.note.id)).length;
+    const e0 = (await edits(s.ctx, s.note.id)).length;
+    const r = await bulkPut(s.ctx.app, token, text);
+    expect(r.statusCode).toBe(409);
+    expect(errOf(r)).toEqual({ code: "base_unavailable", message: BASE_UNAVAILABLE_MESSAGES.anchors_gone, reason: "anchors_gone" });
+    expect(await liveMarkdown(s.ctx, s.note.id)).toBe(md0);
+    expect((await versions(s.ctx, s.note.id)).length).toBe(v0);
+    expect((await edits(s.ctx, s.note.id)).length).toBe(e0);
+  }
+  const REPLACED = "# 第二章\n\n段落 C1 AI 改過\n\n* 清單一\n* 清單二";
+
+  it("A-b replace_section 換掉第二章 → 送舊副本改同一段 C1 → 409（不再插到第一章尾端、兩份並存）", async () => {
+    const s = await scene({}, CH);
+    const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
+    await sectionEdit(s, "第二章", "replace_section", REPLACED);
+    await expectRefused(s, s.bulk.token, editBody(d.text, b => b.replace("段落 C1", "段落 C1 檔案改")));
+  });
+  it("A-h replace_section 改成與檔案相同 → 409（id 都換了，判不出是同一顆）", async () => {
+    const s = await scene({}, CH);
+    const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
+    await sectionEdit(s, "第二章", "replace_section", "# 第二章\n\n段落 C1 一樣\n\n* 清單一\n* 清單二");
+    await expectRefused(s, s.bulk.token, editBody(d.text, b => b.replace("段落 C1", "段落 C1 一樣")));
+  });
+  it("A-k replace_section 改 C1 後、檔案改同章的清單項 → 409", async () => {
+    const s = await scene({}, CH);
+    const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
+    await sectionEdit(s, "第二章", "replace_section", REPLACED);
+    await expectRefused(s, s.bulk.token, editBody(d.text, b => b.replace("* 清單二", "* 清單二（檔案改）")));
+  });
+  it("A-m replace_section 改 C1 後、檔案改同章的標題 → 409（不再多出一個標題）", async () => {
+    const s = await scene({}, CH);
+    const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
+    await sectionEdit(s, "第二章", "replace_section", REPLACED);
+    await expectRefused(s, s.bulk.token, editBody(d.text, b => b.replace("# 第二章", "# 第二章（檔案改名）")));
+  });
+  it("A-e delete_section 刪了第三章、檔案改 D1 → 409（不再把 D1 掛到第二章底下）", async () => {
+    const s = await scene({}, CH);
+    const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
+    await sectionEdit(s, "第三章", "delete_section");
+    await expectRefused(s, s.bulk.token, editBody(d.text, b => b.replace("段落 D1", "段落 D1 檔案改")));
+  });
+  it("A-兩個權杖：A 先寫回改 Z（Z 換新 id）→ B 從舊副本也改 Z → 409；B 的別段也沒寫", async () => {
+    const s = await scene({}, "段落 X\n\n段落 Y\n\n段落 Z");
+    const pat2 = await seedTokenForUser(s.ctx.db, s.u.id, "notes:read notes:write");
+    const b2 = await issueBulkDirect(s.ctx.db, pat2.tokenId, { access: "write" });
+    const da = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
+    const db = await downloadNote(s.ctx.app, b2.token, s.note.id);
+    expect((await bulkPut(s.ctx.app, s.bulk.token, editBody(da.text, b => b.replace("段落 Z", "段落 Z：A 改")))).json()).toMatchObject({ result: "applied" });
+    // X 那區（與 Z 不相鄰、各成一區）本身沒問題，但 Z 那區倖存者全不見 → 整篇拒絕、X 也沒寫
+    await expectRefused(s, b2.token, editBody(db.text, b => b.replace("段落 Z", "段落 Z：B 改").replace("段落 X", "段落 X：B 改")));
+  });
+  it("A-部分倖存：B 的舊副本改 Y 與 Z（同一區），Z 已被 A 換新 id、Y 還在 → 照舊合併（merged、conflicts 1）", async () => {
+    const s = await scene({}, "段落 X\n\n段落 Y\n\n段落 Z");
+    const pat2 = await seedTokenForUser(s.ctx.db, s.u.id, "notes:read notes:write");
+    const b2 = await issueBulkDirect(s.ctx.db, pat2.tokenId, { access: "write" });
+    const da = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
+    const db = await downloadNote(s.ctx.app, b2.token, s.note.id);
+    expect((await bulkPut(s.ctx.app, s.bulk.token, editBody(da.text, b => b.replace("段落 Z", "段落 Z：A 改")))).json()).toMatchObject({ result: "applied" });
+    const r = await bulkPut(s.ctx.app, b2.token, editBody(db.text, b => b.replace("段落 Z", "段落 Z：B 改").replace("段落 Y", "段落 Y：B 改")));
+    expect(r.json()).toMatchObject({ result: "merged", conflicts: 1 });
+  });
+
+  it("A-瀏覽器原地打字（block id 不變）的衝突照舊合併：merged＋conflicts 1、存版", async () => {
+    const s = await scene({}, CH);
+    const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
+    await humanEdit(s.ctx, s.note.id, ed => {
+      const c1 = ed.document.find(b => JSON.stringify(b.content).includes("段落 C1"))!;
+      ed.updateBlock(c1.id, { content: "段落 C1 人在瀏覽器改" });
+    });
+    const r = await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, b => b.replace("段落 C1", "段落 C1 檔案改")));
+    expect(r.json()).toMatchObject({ result: "merged", conflicts: 1 });
+    expect((await versions(s.ctx, s.note.id)).length).toBe(1);
+  });
+
+  it("B front matter 開頭有 knotebook:／id:、卻沒有收尾的 --- → 400 invalid_body；新增與寫回兩條路都擋、什麼都沒建", async () => {
+    const s = await scene();
+    const n0 = (await s.ctx.db.select().from(notes)).length;
+    const r1 = await bulkPut(s.ctx.app, s.bulk.token, "---\nknotebook: 1\ntitle: \"T\"\nbody text");
+    expect(r1.statusCode).toBe(400);
+    expect(errOf(r1)).toEqual({ code: "invalid_body", message: UNCLOSED_FRONT_MATTER_MESSAGE });
+    const r2 = await bulkPut(s.ctx.app, s.bulk.token, `---\nid: ${s.note.id}\nbase: 0123456789abcdef\nbody text`);
+    expect(r2.statusCode).toBe(400);
+    expect(errOf(r2)).toEqual({ code: "invalid_body", message: UNCLOSED_FRONT_MATTER_MESSAGE });
+    expect((await s.ctx.db.select().from(notes)).length).toBe(n0);
+    // 開頭不是 --- 的照舊當內文
+    expect((await bulkPut(s.ctx.app, s.bulk.token, "body\n---\nknotebook: 1")).statusCode).toBe(201);
+  });
+
+  it("C 寫回 → 那列在 AI 修改紀錄撤回 → 同檔重送 → 409 reason reverted（不再回 unchanged）", async () => {
+    const s = await scene();
+    const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
+    const text = editBody(d.text, b => b.replace("Para 1", "Para 1 new"));
+    const w = await bulkPut(s.ctx.app, s.bulk.token, text);
+    const [editId] = (w.json() as { editIds: string[] }).editIds;
+    expect((await bulkPut(s.ctx.app, s.bulk.token, text)).json()).toMatchObject({ result: "unchanged" });
+    const rv = await s.ctx.app.inject({ method: "POST", url: `/api/notes/${s.note.id}/edits/${editId}/revert`, headers: bearer(s.pat.token) });
+    expect(rv.statusCode).toBe(201);
+    const r = await bulkPut(s.ctx.app, s.bulk.token, text);
+    expect(r.statusCode).toBe(409);
+    expect(errOf(r)).toEqual({ code: "base_unavailable", message: BASE_UNAVAILABLE_MESSAGES.reverted, reason: "reverted" });
+    // 審查 m5（文件寫明）：撤回後這份副本整份不收，連只改標題也一樣
+    const rn = await bulkPut(s.ctx.app, s.bulk.token, renameIn(text, "New title"));
+    expect(rn.statusCode).toBe(409);
+    expect(errOf(rn).reason).toBe("reverted");
+    expect((await s.ctx.db.select({ title: notes.title }).from(notes).where(eq(notes.id, s.note.id)))[0]!.title).toBe("Title");
+    expect(norm(await liveMarkdown(s.ctx, s.note.id))).toBe(PARAS(4));
+  });
+
+  it("E 400 訊息照成因：事件屬性、<script>（整段或混在內文）、未閉合 <!--、block 上限、未閉合 ~~~", async () => {
+    const s = await scene();
+    const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
+    const put = (f: (b: string) => string) => bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, f));
+    const cases: Array<[string, (b: string) => string, string, string]> = [
+      ["onerror", b => b.replace("Para 1", "<img src=x onerror=alert(1)>"), "unsupported_block", transferParseMessage("unsupported_block", "event_attr")],
+      ["<script>", b => b.replace("Para 1", "<script>alert(1)</script>"), "unsupported_block", transferParseMessage("unsupported_block", "dropped_element")],
+      ["混在內文的 <style>", b => b.replace("Para 1", "Para 1 改 <style>p{}</style>").replace("Para 3", "Para 3 改"), "unsupported_block", transferParseMessage("unsupported_block", "dropped_element")],
+      ["未閉合 <!--", b => b.replace("Para 1", "<!-- open"), "empty_content", transferParseMessage("empty_content", "unclosed_comment")],
+      ["2500 段", b => b.replace("Para 1", Array.from({ length: 2500 }, (_, i) => `p${i}`).join("\n\n")), "too_many_blocks", transferParseMessage("too_many_blocks")],
+      ["未閉合 ~~~", b => b.replace("Para 3", "Para 3\n\n~~~\ncode"), "invalid_body", unclosedFenceMessage("~~~")],
+    ];
+    for (const [label, f, code, message] of cases) {
+      const r = await put(f);
+      expect(r.statusCode, label).toBe(400);
+      expect(errOf(r), label).toEqual({ code, message });
+    }
+    expect(norm(await liveMarkdown(s.ctx, s.note.id))).toBe(PARAS(4));
+  });
+
+  it("R1（審查 I1）A、空段落、B：agent 把中間改成 new，人同時刪了那顆空段落 → 200、A／new／B（不是 409）", async () => {
+    const s = await scene({}, "A");
+    await humanEdit(s.ctx, s.note.id, ed => ed.replaceBlocks(ed.document, [{ type: "paragraph", content: "A" }, { type: "paragraph" }, { type: "paragraph", content: "B" }]));
+    const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
+    expect(d.text).toContain("A\n\n\n\nB");
+    await humanEdit(s.ctx, s.note.id, ed => ed.removeBlocks([ed.document[1]!.id]));
+    const r = await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, b => b.replace("A\n\n\n\nB", "A\n\nnew\n\nB")));
+    expect(r.statusCode).toBe(200);
+    expect((await liveBlocks(s.ctx, s.note.id)).map(b => b.text)).toEqual(["A", "new", "B"]);
+  });
+
+  it("script 裁示：含複雜內容（標題、巢狀清單、表格、引用、code 裡的 <script>／<iframe>、行內碼的 <style>、mermaid、並排、圖片）的筆記下載後原樣寫回 → unchanged；改一段 → applied、其餘逐字不變", async () => {
+    const fence = "```";
+    const md = [
+      "# 標題一",
+      "段落含 **粗體**、*斜體*、`<style>行內碼</style>` 與[連結](https://example.com)。",
+      "## 小節",
+      "* 項目一\n  * 子項目\n* 項目二",
+      "1. 第一\n2. 第二",
+      "> 引用",
+      "| 欄一 | 欄二 |\n| --- | --- |\n| a | b |",
+      `${fence}html\n<script>alert(1)</script>\n<iframe src="x"></iframe>\n<object data="y"></object>\n${fence}`,
+      `${fence}mermaid\ngraph TD; A-->B;\n${fence}`,
+      '<div data-kb-columns style="display:flex;gap:16px">\n<div data-kb-column style="flex:1">\n\n左欄\n\n</div>\n<div data-kb-column style="flex:1">\n\n右欄\n\n</div>\n</div>',
+      "![圖](https://example.com/a.png)",
+      "段落 P",
+    ].join("\n\n");
+    const s = await scene({}, md);
+    const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
+    for (const tag of ["<script>", "<iframe", "<object", "<style>", "mermaid", "data-kb-columns"]) expect(d.text, tag).toContain(tag);
+    expect((await bulkPut(s.ctx.app, s.bulk.token, d.text)).json()).toMatchObject({ result: "unchanged" });
+    const text = editBody(d.text, b => b.replace("段落 P", "段落 P 改"));
+    expect((await bulkPut(s.ctx.app, s.bulk.token, text)).json()).toMatchObject({ result: "applied", applied: 1 });
+    expect(norm(await liveMarkdown(s.ctx, s.note.id))).toBe(norm(text.split("\n").slice(8).join("\n")));
+  });
+
+  it("script 裁示的邊界：段落文字本身是 <script>x</script>（瀏覽器打的字，匯出不跳脫）→ 原樣重送、改別段照舊；改那一段才 400 dropped_element", async () => {
+    const s = await scene({}, "");
+    await seedBlocks(s.ctx.db, s.note.id, [{ type: "paragraph", content: "<script>x</script>" }, { type: "paragraph", content: "Para A" }, { type: "paragraph", content: "Para B" }]);
+    const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
+    expect(d.text).toContain("<script>x</script>\n\nPara A");
+    expect((await bulkPut(s.ctx.app, s.bulk.token, d.text)).json()).toMatchObject({ result: "unchanged" });
+    expect((await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, b => b.replace("Para B", "Para B 改")))).json()).toMatchObject({ result: "applied" });
+    expect((await liveBlocks(s.ctx, s.note.id)).map(b => b.text)).toEqual(["<script>x</script>", "Para A", "Para B 改"]);
+    const d2 = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
+    const r = await bulkPut(s.ctx.app, s.bulk.token, editBody(d2.text, b => b.replace("<script>x</script>", "<script>x</script> 改")));
+    expect(r.statusCode).toBe(400);
+    expect(errOf(r)).toEqual({ code: "unsupported_block", message: transferParseMessage("unsupported_block", "dropped_element") });
   });
 });

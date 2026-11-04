@@ -440,6 +440,24 @@ describe("#108 edit_note：錯誤側（案 20）", () => {
     expect(after.markdown).not.toContain("不該寫進去");
     s.disconnect();
   });
+  it("混在內文裡的 <script>／<style>／<iframe>／<object> → unsupported_block 整筆拒絕（以前悄悄拿掉其餘照寫）；內容不變、零紀錄列", async () => {
+    const s = await scene(THREE_SECTIONS);
+    const before = await restOutline(s.ctx.app, s.noteId, s.token);
+    const last = before.outline[before.outline.length - 1]!;
+    const cases: Array<Record<string, unknown>> = [
+      { op: "append", markdown: "新段落\n\n<script>alert(1)</script>" },
+      { op: "replace_section", section_id: last.sectionId, if_match: last.fingerprint, markdown: "# C\n\n<style>p{color:red}</style>改過" },
+      { op: "replace_all", if_match: before.fingerprint, markdown: '# 全換\n\n文字 <iframe src="https://example.com"></iframe> 文字' },
+      { op: "append", markdown: '- 清單 <object data="x"></object>' },
+    ];
+    for (const c of cases) {
+      const err = errorOf(await editNote(s.ctx.app, s.token, { note_id: s.noteId, ...c }));
+      expect(err.code, JSON.stringify(c)).toBe("unsupported_block");
+    }
+    expect((await restOutline(s.ctx.app, s.noteId, s.token)).markdown).toBe(before.markdown);
+    expect(await s.ctx.db.select().from(noteAiEdits).where(eq(noteAiEdits.noteId, s.noteId))).toHaveLength(0);
+    s.disconnect();
+  });
 });
 
 describe("#108 edit_note：紀錄、撤回與 presence（案 23／23b）", () => {

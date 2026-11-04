@@ -40,6 +40,7 @@ export async function recordFileSyncInTx(tx: Tx, input: RecordFileSyncInput): Pr
     await tx.delete(noteAiEdits).where(and(eq(noteAiEdits.noteId, input.noteId), notInArray(noteAiEdits.id, [...kept])));
     ids = ids.filter(id => kept.has(id));
   }
-  await tx.update(transferBases).set({ appliedBodySha: input.appliedBodySha, lastUsedAt: sql`now()` }).where(eq(transferBases.key, input.baseKey));
+  // ④ `applied_edit_ids`：同檔重送時查這些列有沒有被撤回（8000 探索測試 C）。
+  await tx.update(transferBases).set({ appliedBodySha: input.appliedBodySha, appliedEditIds: ids, lastUsedAt: sql`now()` }).where(eq(transferBases.key, input.baseKey));
   return ids;
 }

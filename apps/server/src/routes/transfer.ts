@@ -22,11 +22,12 @@ import type { EditingRuntime } from "../notes/editing/runtime.js";
 import { resolveNoteAccess } from "../notes/service.js";
 import type { ErrorCode } from "@knotebook/shared";
 import { FOLDER_NOT_FOUND_MESSAGE } from "../folders/messages.js";
-import type { NoteWriteService, SyncFileOk } from "../notes/editing/write-service.js";
+import type { BaseUnavailableReason, NoteWriteService, SyncFileOk } from "../notes/editing/write-service.js";
 import { fileShaOf, resolveCreateDest } from "../transfer/create-file.js";
 import { readNoteFile } from "../transfer/frontmatter.js";
 import { normalizeBody } from "../transfer/normalize.js";
-import { UNCLOSED_FENCE_MESSAGE } from "../transfer/regions.js";
+import { unclosedFenceMessage } from "../transfer/regions.js";
+import { MAX_BLOCKS, type ParseDetail } from "../notes/editing/markdown.js";
 import { parseErrorMessage } from "./notes.js";
 import { deriveTransferKey, transferKeyId } from "../transfer/base-hash.js";
 import { insertBases, pruneBases } from "../transfer/bases.js";
@@ -58,7 +59,34 @@ export interface WriteTestHooks {
 export type TransferTestHooks = ExportTestHooks & WriteTestHooks;
 
 /** spec §12.2：HTTP 層中文（PR-3 T3 定稿；字面見 `test/unit/bulk-transfer-http-messages.test.ts`）。 */
-export const BASE_UNAVAILABLE_MESSAGE = "無法以這份副本合併：已送回過不同的內容、不屬於這篇、已過期，或你改的某一處在筆記裡已經找不到該放的位置（例如它前後的內容被 edit_note 換掉）；請重新下載再改";
+/**
+ * 檔案寫回／新增的 400 訊息（HTTP 層中文；8000 探索測試 E）：依錯誤碼與成因（`detail`、未閉合的 `fence`）說清楚是哪一種。
+ * 色值、並排、尺寸三碼沿用 REST 的既有訊息（`parseErrorMessage`）。
+ */
+export function transferParseMessage(code: ErrorCode, detail?: ParseDetail, fence?: string): string {
+  if (code === "unsupported_block") {
+    if (detail === "event_attr") return "檔案裡有帶事件屬性（例如 onerror、onclick）的 HTML，不能存進筆記，沒有寫入任何內容";
+    if (detail === "editor_internal") return "檔案裡有編輯器內部用的 HTML（例如帶 data-content-type 的元素），不能存進筆記，沒有寫入任何內容";
+    if (detail === "dropped_element") return "檔案裡有編輯器會整個丟掉的元素（<script>、<style>、<iframe> 或 <object>），不能存進筆記，沒有寫入任何內容";
+    return "檔案裡有編輯器不支援的元素，不能存進筆記，沒有寫入任何內容";
+  }
+  if (code === "empty_content") {
+    if (detail === "unclosed_comment") return "有一個 `<!--` 沒有收尾的 `-->`，後面的內容都被當成註解、沒有可存的內容；請補上 `-->` 再送，沒有寫入任何內容";
+    return "檔案裡這一處解析後沒有內容（例如只剩 HTML 註解或空白），沒有寫入任何內容";
+  }
+  if (code === "too_many_blocks") return `內容超過一篇筆記的上限 ${MAX_BLOCKS} 個 block（巢狀的也算），沒有寫入任何內容`;
+  if (code === "invalid_body" && fence !== undefined) return unclosedFenceMessage(fence);
+  return parseErrorMessage(code, "無法套用檔案");
+}
+
+/** 409 `base_unavailable` 的訊息，依 `error.reason`（8000 探索測試 D）。 */
+export const BASE_UNAVAILABLE_MESSAGES: Record<BaseUnavailableReason, string> = {
+  already_sent: "無法以這份副本合併：這份副本已用其他內容送回過；請重新下載再改",
+  other_note: "無法以這份副本合併：這份副本的 base 屬於別篇筆記或別人；請重新下載再改",
+  expired: "無法以這份副本合併：伺服器已沒有這份副本的基底（太舊或已失效）；請重新下載再改",
+  anchors_gone: "無法以這份副本合併：你改的某一處在筆記裡已經找不到該放的位置（例如那一段或它前後的內容被 edit_note 換掉）；請重新下載再改",
+  reverted: "無法以這份副本合併：這份副本寫回的修改已被撤回；請重新下載再改",
+};
 export const NOT_MERGEABLE_MESSAGE = "這篇筆記不能用檔案寫回，請改用 edit_note";
 
 export interface TransferRouteDeps {
@@ -261,7 +289,7 @@ export function transferRoutes(deps: TransferRouteDeps) {
             title: file.title, body: file.body, dest: { scope: dest.scope, folderId: dest.folderId }, limiters,
           });
           if (!out.ok) {
-            if (out.kind === "parse") return fail(400, out.code, parseErrorMessage(out.code, "無法解析內容"));
+            if (out.kind === "parse") return fail(400, out.code, transferParseMessage(out.code, out.detail));
             if (out.kind === "rate_limited") return tooMany(out.retryAfterMs);
             if (out.kind === "folder_gone") return fail(404, "folder_not_found", FOLDER_NOT_FOUND_MESSAGE);
             if (out.kind === "busy") return fail(503, "server_busy", "伺服器忙碌中，請稍後再試");
@@ -289,14 +317,18 @@ export function transferRoutes(deps: TransferRouteDeps) {
           body: file.body, key, keyId: fileDeps.keyId, limiters,
         });
         if (!out.ok) {
-          if (out.kind === "base_unavailable") return fail(409, "base_unavailable", BASE_UNAVAILABLE_MESSAGE);
+          if (out.kind === "base_unavailable") {
+            // 8000 探索測試 D：409 多帶 `error.reason`（成因；值見 `BaseUnavailableReason`），訊息依成因。log 照 ⑪ 不加鍵。
+            logLine("base_unavailable");
+            return reply.code(409).send({ error: { code: "base_unavailable", message: BASE_UNAVAILABLE_MESSAGES[out.reason], reason: out.reason } });
+          }
           if (out.kind === "not_mergeable") return fail(409, "not_mergeable", NOT_MERGEABLE_MESSAGE);
           if (out.kind === "busy") return fail(503, "server_busy", "伺服器忙碌中，請稍後再試");
           if (out.kind === "gone") return fail(404, "not_found", TRANSFER_NOTE_NOT_FOUND_MESSAGE);
           if (out.kind === "rate_limited") return tooMany(out.retryAfterMs);
           if (out.kind === "parse") {
-            if (out.code === "unclosed_fence") return fail(400, "invalid_body", UNCLOSED_FENCE_MESSAGE);
-            return fail(400, out.code, parseErrorMessage(out.code, "無法套用檔案"));
+            if (out.code === "unclosed_fence") return fail(400, "invalid_body", transferParseMessage("invalid_body", undefined, out.fence ?? "```"));
+            return fail(400, out.code, transferParseMessage(out.code, out.detail));
           }
           return fail(500, "internal", "無法寫回");
         }

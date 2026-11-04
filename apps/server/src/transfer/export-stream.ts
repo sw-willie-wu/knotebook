@@ -19,6 +19,7 @@ import type { BulkRange } from "../auth/transfer-token.js";
 import type { Db } from "../db/index.js";
 import { transferTokens } from "../db/schema.js";
 import { pgErrorSummary } from "../db/pg-errors.js";
+import { TRANSFER_WRITE_BODY_LIMIT } from "../http/body-limits.js";
 import { insertBases, pruneBases, type TransferBaseInsert } from "./bases.js";
 import { buildNoteFile, type NoteFile, type NoteFileDeps } from "./note-file.js";
 import type { Layout, LayoutFolder, LayoutGroup } from "./paths.js";
@@ -102,7 +103,7 @@ export async function streamExport(p: StreamExportParams): Promise<void> {
   };
 
   const order = [...p.layout.files.entries()].sort((a, b) => (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0));
-  const manifestNotes: Array<{ path: string; id: string; role: string; mergeable?: false }> = [];
+  const manifestNotes: Array<{ path: string; id: string; role: string; mergeable?: false; tooLargeToSend?: true }> = [];
   const skipped: Array<{ id: string; reason: "gone" | "failed" }> = [];
   let notMergeable = 0;
   let written = 0;
@@ -145,7 +146,12 @@ export async function streamExport(p: StreamExportParams): Promise<void> {
         written++;
         bases.push(nf.base);
         if (!nf.mergeable) notMergeable++;
-        manifestNotes.push({ path, id, role: row.role, ...(nf.mergeable ? {} : { mergeable: false as const }) });
+        // 8000 探索測試 H：檔案比寫回上限（`TRANSFER_WRITE_BODY_LIMIT`，1 MiB）還大 → `tooLargeToSend: true`（照 `mergeable: false` 只在例外時帶鍵）。
+        manifestNotes.push({
+          path, id, role: row.role,
+          ...(nf.mergeable ? {} : { mergeable: false as const }),
+          ...(nf.file.length > TRANSFER_WRITE_BODY_LIMIT ? { tooLargeToSend: true as const } : {}),
+        });
         await p.hooks?.afterNote?.(id);
         await setImmediateP();
       }
