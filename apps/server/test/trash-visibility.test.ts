@@ -112,7 +112,7 @@ describe("V3 單篇讀取三形", () => {
     for (const [url, userId, who, trashId] of views) {
       const res = await inject(app, "GET", url, userId);
       expect(res.statusCode, `${who} ${url}`).toBe(404);
-      if (trashId) expect(res.json(), `${who} ${url}`).toEqual({ error: { code: "in_trash", message: "這篇筆記在垃圾桶裡" }, noteId: trashId });
+      if (trashId) expect(res.json(), `${who} ${url}`).toEqual({ error: { code: "in_trash", message: "This note is in the trash." }, noteId: trashId });
       else expect(res.body, `${who} ${url}`).toBe(missing.body);
     }
     await markRestored(pool(db), n.id);
@@ -169,7 +169,7 @@ describe("V5 GET /api/uploads/:id", () => {
     expect((await inject(app, "GET", url, owner.id)).statusCode).toBe(200);
     const strangerRes = await inject(app, "GET", url, stranger.id);
     expect(strangerRes.statusCode).toBe(403);
-    expect(strangerRes.json()).toEqual({ error: { code: "forbidden", message: "無權存取此檔案" } });
+    expect(strangerRes.json()).toEqual({ error: { code: "forbidden", message: "You don't have access to this file." } });
 
     await markTrashed(pool(db), n.id, owner.id);
     const res = await inject(app, "GET", url, owner.id);
@@ -299,7 +299,7 @@ describe("V9 站內連結解析", () => {
     // REST 照同一查找序解到垃圾桶裡的 A（不是 B）：admin 有垃圾桶權 → in_trash 帶 A 的 id；一般成員 → not_found。
     const res = await inject(app, "GET", `/api/notes/by-group-path/${g.id}/v9-shared`, admin.id);
     expect(res.statusCode).toBe(404);
-    expect(res.json()).toEqual({ error: { code: "in_trash", message: "這篇筆記在垃圾桶裡" }, noteId: a.id });
+    expect(res.json()).toEqual({ error: { code: "in_trash", message: "This note is in the trash." }, noteId: a.id });
     const missing = await inject(app, "GET", `/api/notes/${randomUUID()}`, member.id);
     const byMember = await inject(app, "GET", `/api/notes/by-group-path/${g.id}/v9-shared`, member.id);
     expect(byMember.statusCode).toBe(404);

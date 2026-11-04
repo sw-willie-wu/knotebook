@@ -154,7 +154,7 @@ describe("api()", () => {
   it("storage_quota_exceeded：保留頂層 storage（三數）", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(fakeResponse({
       ok: false, status: 409,
-      json: () => Promise.resolve({ error: { code: "storage_quota_exceeded", message: "儲存空間已滿" }, storage: { incomingBytes: 10, usedBytes: 600, quotaBytes: 1000 } }),
+      json: () => Promise.resolve({ error: { code: "storage_quota_exceeded", message: "This space's storage quota is full." }, storage: { incomingBytes: 10, usedBytes: 600, quotaBytes: 1000 } }),
     })));
     const err = await api("/x", { method: "POST", body: "{}" }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ApiFail);

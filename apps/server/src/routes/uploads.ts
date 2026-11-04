@@ -94,7 +94,7 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
       // DB 存小寫正規形、`UUID_RE` 收大寫（M1），所以比對前 toLowerCase。
       if (transfer !== undefined && transfer.noteId !== noteId.toLowerCase()) {
         drainWithCap(request);
-        sendError(reply, 403, "forbidden", "此 transfer token 不適用於這篇筆記");
+        sendError(reply, 403, "forbidden", "This transfer token is for a different note.");
         return;
       }
 
@@ -102,19 +102,19 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
       const access = await resolveNoteAccess(deps.db, userId, noteId);
       if (access.role === "none") {
         drainWithCap(request);
-        sendError(reply, 404, "not_found", "找不到此筆記");
+        sendError(reply, 404, "not_found", "No note with that id.");
         return;
       }
       if (access.role === "viewer") {
         drainWithCap(request);
-        sendError(reply, 403, "forbidden", "沒有編輯權限");
+        sendError(reply, 403, "forbidden", "You don't have edit access to this note.");
         return;
       }
 
       // 第 4 步：排在消費 token 之前——被 429 擋下時 token 不被燒掉。
       if (!deps.limiters.upload.consume(userId)) {
         drainWithCap(request);
-        sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
+        sendError(reply, 429, "too_many_requests", "Too many requests. Wait a moment and try again.");
         return;
       }
 
@@ -195,7 +195,7 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
         // `content_too_large`，也一樣不是本路由該回的碼——multipart 的大小超限由下面
         // 的 `truncated` 分支自己回 413 `file_too_large`）。
         request.log.warn({ err }, "multipart 解析失敗");
-        return sendError(reply, 400, "invalid_body", "上傳格式錯誤");
+        return sendError(reply, 400, "invalid_body", "The upload isn't valid multipart/form-data.");
       }
 
       if (!sawFile || fileBuf === undefined) {
@@ -204,11 +204,11 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
         // `drainWithCap` 本身冪等（見該 helper 說明），且不依賴「迴圈一定跑到底」
         // 這個前提在未來重構後繼續成立（防禦性，同 413/415 分支）。
         drainWithCap(request);
-        return sendError(reply, 400, "invalid_body", "缺少上傳檔案");
+        return sendError(reply, 400, "invalid_body", "The upload has no file.");
       }
       if (truncated) {
         drainWithCap(request);
-        return sendError(reply, 413, "file_too_large", "檔案超過大小上限");
+        return sendError(reply, 413, "file_too_large", "The file is over the size limit.");
       }
 
       // 只信任 magic bytes，不採信任何請求端聲稱的 Content-Type／副檔名（見
@@ -217,7 +217,7 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
       const mime = detectImageMimeType(fileBuf);
       if (mime === null) {
         drainWithCap(request);
-        return sendError(reply, 415, "unsupported_media_type", "不支援的圖片格式");
+        return sendError(reply, 415, "unsupported_media_type", "Unsupported image format. Upload a PNG, JPEG, GIF or WebP image.");
       }
 
       const id = randomUUID();
@@ -244,9 +244,9 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
         // 筆記在處理途中被刪：交易內 KEY SHARE 讀到 0 列 → TxAbort 404（同本檔 authAndAuthorize 的 none 分支），不是 500。
         if (err instanceof TxAbort) return sendError(reply, err.status, err.errCode, err.message);
         // 防禦縱深：交易已持筆記 KEY SHARE，INSERT 不會撞 FK；撞到也回同一條 404（同既有語意）。
-        if (isForeignKeyViolation(err)) return sendError(reply, 404, "not_found", "找不到此筆記");
+        if (isForeignKeyViolation(err)) return sendError(reply, 404, "not_found", "No note with that id.");
         // §6.9：空間鎖逾時（55P03）／死結（40P01）／序列化失敗（40001）→ 409 server_busy（字面同 routes/groups.ts）。
-        if (isRetryableTxError(err)) return sendError(reply, 409, "server_busy", "伺服器忙碌，請稍後再試");
+        if (isRetryableTxError(err)) return sendError(reply, 409, "server_busy", "The server is busy. Try again in a moment.");
         throw err;
       }
 
@@ -267,28 +267,28 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
       const transfer = request.transfer;
 
       if (!UUID_RE.test(id)) {
-        return sendError(reply, 404, "not_found", "找不到此檔案");
+        return sendError(reply, 404, "not_found", "No file with that id.");
       }
 
       const [row] = await deps.db.select().from(uploads).where(eq(uploads.id, id)).limit(1);
       if (!row) {
-        return sendError(reply, 404, "not_found", "找不到此檔案");
+        return sendError(reply, 404, "not_found", "No file with that id.");
       }
 
       // #200 spec §5.3：transfer token 只綁一篇筆記——上傳不屬於那一篇 → 403（與下面「看不到的上傳回 403」同碼，
       // 上方 JSDoc 的理由同樣成立）。兩邊都是 DB 的小寫正規形，不必再 toLowerCase。
       if (transfer !== undefined && row.noteId !== transfer.noteId) {
-        return sendError(reply, 403, "forbidden", "此 transfer token 不適用於這個檔案");
+        return sendError(reply, 403, "forbidden", "This transfer token is for a different file.");
       }
 
       const role = await resolveRole(deps.db, userId, row.noteId);
       if (role === "none") {
-        return sendError(reply, 403, "forbidden", "無權存取此檔案");
+        return sendError(reply, 403, "forbidden", "You don't have access to this file.");
       }
 
       // #200：transfer GET 扣 token 讀取桶（key 與 `auth/bearer.ts` 同形 `token:${userId}`、同一實例＝同一本帳）。
       if (transfer !== undefined && !deps.limiters.tokenRead.consume(`token:${userId}`)) {
-        return sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
+        return sendError(reply, 429, "too_many_requests", "Too many requests. Wait a moment and try again.");
       }
 
       const filePath = uploadFilePath(deps.uploadsDir, row.id);
@@ -299,7 +299,7 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
         // 維運排查（例如 volume 被清過、手動誤刪），對呼叫端仍回統一的 404，不洩漏
         // 內部路徑等細節。
         request.log.error({ uploadId: row.id }, "DB 有上傳紀錄但磁碟找不到對應檔案");
-        return sendError(reply, 404, "not_found", "找不到此檔案");
+        return sendError(reply, 404, "not_found", "No file with that id.");
       }
 
       reply.header("x-content-type-options", "nosniff");

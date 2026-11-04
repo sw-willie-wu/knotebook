@@ -574,7 +574,7 @@ function inviteLimiters(over: { miss?: number; attempt?: number }): Pick<AppDeps
 
 function expectTooMany(res: { statusCode: number; json(): unknown }) {
   expect(res.statusCode).toBe(429);
-  expect(res.json()).toMatchObject({ error: { code: "too_many_requests", message: "請求太頻繁，請稍後再試" } });
+  expect(res.json()).toMatchObject({ error: { code: "too_many_requests", message: "Too many requests. Wait a moment and try again." } });
 }
 
 describe("速率桶：miss 桶（key=ip，只在查無有效邀請時扣）", () => {

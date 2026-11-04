@@ -63,9 +63,9 @@ export async function moveNoteToGroupInTx(tx: Tx, input: MoveNoteInput, hook?: G
     .where(and(eq(notes.id, input.noteId), isNull(notes.deletedAt)))
     .for("update");
   // #181 §6.2-11：授權之後被移入垃圾桶＝列消失，同一條 404。
-  if (!row) throw new TxAbort(404, "not_found", "找不到此筆記");
+  if (!row) throw new TxAbort(404, "not_found", "No note with that id.");
   // owner 是呼叫者 ⇒ 是個人筆記（`notes_owner_xor_group_chk`，S6）——不必另看 group_id。
-  if (row.ownerId !== input.userId) throw new TxAbort(409, "conflict", "筆記的歸屬已變更，請重新整理後再試");
+  if (row.ownerId !== input.userId) throw new TxAbort(409, "conflict", "The note's owner or group changed. Reload and try again.");
 
   const [target] = await tx.select({ id: groups.id }).from(groups).where(eq(groups.id, input.groupId)).for("key share");
   const [member] = await tx
@@ -75,7 +75,7 @@ export async function moveNoteToGroupInTx(tx: Tx, input: MoveNoteInput, hook?: G
     .where(and(eq(groupMembers.groupId, input.groupId), eq(groupMembers.userId, input.userId)))
     .limit(1);
   if (!target && input.folderId !== null) throw new TxAbort(404, "folder_not_found", FOLDER_NOT_FOUND_MESSAGE);
-  if (!target || !member || !member.canCreate) throw new TxAbort(404, "group_not_found", "找不到此群組");
+  if (!target || !member || !member.canCreate) throw new TxAbort(404, "group_not_found", "No group with that id.");
   // (1f) 資料夾：can_edit → 資料夾 KS，都在 `note-move-locked` 縫之前。
   if (input.folderId !== null) {
     if (!member.canEdit) throw new TxAbort(403, "forbidden", NOTE_FOLDER_ROLE_FORBIDDEN_MESSAGE);

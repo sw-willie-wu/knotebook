@@ -10,7 +10,7 @@
  *   ⑤ 白名單檔裡 `assertSpaceRoomInTx(` 早於同函式的 `writeSlugInTx(`／`insertNoteWithAutoSlug(`（Q-S7 的字面守衛）
  *   ⑥ quota.ts、白名單四檔與其路由檔不出現 isolationLevel／setTransaction／set transaction（限定範圍：#93 的
  *      search-query.ts 合法使用 setTransaction——跨 spec I-1，所以不掃整個 src/）
- *   ⑦ HTTP 409 的中文訊息「儲存空間已滿」只在 storage/space.ts（STORAGE_QUOTA_EXCEEDED_MESSAGE）——errors.ts 的 helper 與
+ *   ⑦ HTTP 409 的訊息字面只在 storage/space.ts（STORAGE_QUOTA_EXCEEDED_MESSAGE）——errors.ts 的 helper 與
  *      StorageQuotaExceeded 都引用它；字面散在兩處時，改一處另一處就漂（PR1 review 擱置項）
  *   ⑧ `update(uploads)` 只在 notes/tx/move.ts、恰一次，且在 moveNoteToGroupInTx 內 `writeSlugInTx(…)` 整個呼叫結束之後、
  *      `recordRedirectsInTx(` 之前（#247 §9.2 rev 10：不在會隨撞 slug 重試重跑的 callback 裡；Part 4 Review Focus 1）
@@ -134,8 +134,8 @@ describe("儲存配額結構性守衛（spec §11.3）", () => {
     expect(bad).toEqual([]);
   });
 
-  it("⑦ 「儲存空間已滿」字面只在 storage/space.ts（errors.ts 與 quota.ts 都引用常數）", () => {
-    const hits = files.filter(p => code(p).includes("儲存空間已滿")).map(rel).sort();
+  it("⑦ 配額訊息字面只在 storage/space.ts（errors.ts 與 quota.ts 都引用常數）", () => {
+    const hits = files.filter(p => code(p).includes("This space's storage quota is full.")).map(rel).sort();
     expect(hits).toEqual(["storage/space.ts"]);
     expect(at("http/errors.ts")).toContain("STORAGE_QUOTA_EXCEEDED_MESSAGE");
   });

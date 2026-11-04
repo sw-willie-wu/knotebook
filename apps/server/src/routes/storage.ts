@@ -17,7 +17,7 @@ export function storageRoutes(deps: { db: Db }) {
     app.get("/api/storage", { preHandler: app.authenticate }, async (request, reply) => {
       const space: StorageSpace = { kind: "user", id: request.user!.id };
       const usage = await readSpaceUsage(deps.db, space);
-      if (!usage) return sendError(reply, 404, "not_found", "找不到此使用者");
+      if (!usage) return sendError(reply, 404, "not_found", "Your account no longer exists.");
       const byKind = await readSpaceUsageByKind(deps.db, space);
       const dto: StorageUsageDto = { usedBytes: usage.usedBytes, quotaBytes: usage.quotaBytes, planName: usage.planName, byKind };
       return dto;

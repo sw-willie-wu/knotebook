@@ -67,7 +67,7 @@ describe("#103／#175 成員異動：授權矩陣", () => {
       if (res.statusCode === 200) expect(await roleOf(db, g.id, other.id)).toBe("admin");
     }
     expect(new Set(notFoundBodies).size).toBe(1);
-    expect(JSON.parse(notFoundBodies[0]!)).toEqual({ error: { code: "not_found", message: "找不到此群組" } });
+    expect(JSON.parse(notFoundBodies[0]!)).toEqual({ error: { code: "not_found", message: "No group with that id." } });
   });
 
   it("DELETE …/members/:userId（刪別人）", async () => {
@@ -93,7 +93,7 @@ describe("#103／#175 成員異動：授權矩陣", () => {
     ];
     for (const res of bodies) expect(res.statusCode).toBe(404);
     expect(new Set(bodies.map(r => r.body)).size).toBe(1);
-    expect(bodies[0]!.json()).toEqual({ error: { code: "not_found", message: "找不到此群組" } });
+    expect(bodies[0]!.json()).toEqual({ error: { code: "not_found", message: "No group with that id." } });
   });
 });
 
@@ -118,12 +118,12 @@ describe("#103／#175 PUT …/members", () => {
     expect(await roleOf(db, g.id, disabled.id)).toBe("admin");
     const missing = await app.inject({ method: "PUT", url: `/api/groups/${g.id}/members`, cookies, payload: { email: "nobody@example.com" } });
     expect(missing.statusCode).toBe(404);
-    expect(missing.json().error.code).toBe("user_not_found");
+    expect(missing.json().error).toEqual({ code: "user_not_found", message: "No user with that email." });
 
     for (const roleId of ["nope", other.memberRoleId]) {
       const res = await app.inject({ method: "PUT", url: `/api/groups/${g.id}/members`, cookies, payload: { email: third.email, roleId } });
       expect(res.statusCode, roleId).toBe(404);
-      expect(res.json()).toEqual({ error: { code: "role_not_found", message: "找不到此角色" } });
+      expect(res.json()).toEqual({ error: { code: "role_not_found", message: "No role with that id." } });
     }
     expect(await roleOf(db, g.id, third.id)).toBeUndefined();
     const legacy = await app.inject({ method: "PUT", url: `/api/groups/${g.id}/members`, cookies, payload: { email: third.email, role: "admin" } });

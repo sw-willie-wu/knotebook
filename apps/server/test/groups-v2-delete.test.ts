@@ -47,8 +47,8 @@ const get = async (app: FastifyInstance, url: string, userId: string) => app.inj
 const sorted = (xs: readonly string[]): string[] => [...xs].sort();
 
 const NOT_ADMIN_BODY = { error: { code: "not_admin", message: NOT_ADMIN_MESSAGE } };
-const SERVER_BUSY_BODY = { error: { code: "server_busy", message: "伺服器忙碌，請稍後再試" } };
-const GROUP_NOT_FOUND_BODY = { error: { code: "not_found", message: "找不到此群組" } };
+const SERVER_BUSY_BODY = { error: { code: "server_busy", message: "The server is busy. Try again in a moment." } };
+const GROUP_NOT_FOUND_BODY = { error: { code: "not_found", message: "No group with that id." } };
 
 describe("#175 PR4 DELETE /api/groups/:id：授權與 body", () => {
   it("授權矩陣・delete 模式（payload {mode:'delete'}）：member 403、admin／站台 admin 204；非成員／非 UUID／不存在 404 逐位元組相同", async () => {

@@ -179,7 +179,7 @@ describe("#108 /api/mcp 傳輸層形狀", () => {
     // 殺「只比 Origin 對 request.host」的寫法——那種寫法在這一發會放行（兩者相等）。
     const res = await mcpPost(app, INITIALIZE, { token, origin: "http://evil.example", host: "evil.example" });
     expect(res.statusCode).toBe(403);
-    expect(res.json()).toEqual({ error: { code: "forbidden", message: expect.any(String) } });
+    expect(res.json()).toEqual({ error: { code: "forbidden", message: "Origin check failed: the request's Origin and Host must both match this site's address (PUBLIC_URL)." } });
   });
 
   it("案 7b：Origin ＝ PUBLIC_URL host、Host ＝ evil.example → 403", async () => {

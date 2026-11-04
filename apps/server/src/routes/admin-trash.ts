@@ -31,7 +31,7 @@ export function adminTrashRoutes(deps: { db: Db }) {
         .limit(1);
       if (!row) {
         request.log.error({ table: "site_settings" }, SITE_SETTINGS_MISSING_MESSAGE);
-        return sendError(reply, 500, "internal", "伺服器內部錯誤");
+        return sendError(reply, 500, "internal", "Internal server error.");
       }
       return reply.send(row satisfies TrashSettingsDto);
     });

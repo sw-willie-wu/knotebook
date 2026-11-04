@@ -112,22 +112,22 @@ const contentQuerySchema = z.object({ section: SEC.optional() }).strict();
  * 與刪群組「全部刪除」（持群組 FU、CASCADE 刪資料夾）成環 → 409 `server_busy`（`folders-race-ops` 的 RG-CN 綁）。
  */
 function sendCreateInsertFailure(reply: FastifyReply, err: unknown, withFolder: boolean): FastifyReply | null {
-  if (isRetryableTxError(err)) return sendError(reply, 409, "server_busy", "伺服器忙碌，請稍後再試");
+  if (isRetryableTxError(err)) return sendError(reply, 409, "server_busy", "The server is busy. Try again in a moment.");
   if (withFolder && (isNoteFolderSpaceViolation(err) || isForeignKeyViolation(err))) return sendError(reply, 404, "folder_not_found", FOLDER_NOT_FOUND_MESSAGE);
-  if (isForeignKeyViolation(err)) return sendError(reply, 404, "group_not_found", "找不到此群組");
+  if (isForeignKeyViolation(err)) return sendError(reply, 404, "group_not_found", "No group with that id.");
   return null;
 }
 
 /** #222：`unsupported_color` 的 400 訊息列出可用色名（`POST /api/notes` 帶 content 與 `POST …/edits` 共用）。 */
-const UNSUPPORTED_COLOR_MESSAGE = `顏色只接受編輯器內建的色名：${PALETTE_COLORS.join("、")}`;
+const UNSUPPORTED_COLOR_MESSAGE = `That markdown uses a color this editor cannot show, so nothing was written. Colors must be one of: ${PALETTE_COLORS.join(", ")}.`;
 /**
  * 並排 PR-2（spec §11.3）：`unsupported_columns`／`unsupported_size` 的 400 訊息（兩條寫入路徑共用）。與 MCP 的
  * `writeFailureMessage` 同一套觸發條件：columns 也涵蓋 display:flex／grid 的 div 與 data-node-type；size 不邀請寫格子圖片（Q3）。
  */
 const UNSUPPORTED_COLUMNS_MESSAGE =
-  "版面或編輯器內部用的 HTML 格式不符，沒有寫入任何內容。並排請照讀出的格式寫：外層 `<div data-kb-columns style=\"display:flex;gap:16px\">`、2–4 個 `<div data-kb-column style=\"flex:N\">`（N 為 0.1 到 10、最多兩位小數），每欄開標籤之後與 `</div>` 之前各空一行，放在最外層、不放在清單、引言或其他任何區塊裡；其他 `<div>` 不得用 `display:flex` 或 `display:grid`，任何元素都不得帶 `data-node-type`。";
+  "That markdown has layout or editor-internal HTML this editor cannot store, so nothing was written. Write side-by-side columns exactly as GET /api/notes/:id/content returns them: <div data-kb-columns style=\"display:flex;gap:16px\"> holding 2 to 4 <div data-kb-column style=\"flex:N\"> columns, N from 0.1 to 10 with at most two decimal places, with a blank line after each column's opening tag and another before its </div>, at the top level of the markdown, not nested inside a list, a quote or anything else. Other <div> elements cannot use display:flex or display:grid, and no element can carry data-node-type.";
 const UNSUPPORTED_SIZE_MESSAGE =
-  "圖片寬度或表格欄寬的格式不符，沒有寫入任何內容。請照讀出的格式寫：寬度為 32 到 4000 的整數像素；圖片寫在表格之外的 `<figure>` 內的 `<img width>`，`<img>` 只帶 `alt`（可省）、`src`、`width` 且依此順序，表格欄寬寫在第一列格子的 `colwidth`，合併的格子每一欄一個值、以逗號分隔，沒設寬的欄留空。";
+  "An image width or table column width in that markdown is not in a form this editor can store, so nothing was written. Write sizes exactly as GET /api/notes/:id/content returns them, as whole numbers of pixels from 32 to 4000: an image's width on the <img> inside a <figure> that is outside any table, the <img> carrying only alt (optional), src and width, in that order, and a table's column widths as colwidth on its first row's cells, one comma-separated value for each column a cell spans, left empty for a column with no width.";
 /** 解析／套用失敗的 400 訊息：有專屬說明的碼回專屬句，其餘回呼叫端的 `fallback`。 */
 function parseErrorMessage(code: ErrorCode, fallback: string): string {
   if (code === "unsupported_color") return UNSUPPORTED_COLOR_MESSAGE;
@@ -238,7 +238,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
     app.post("/api/notes", { preHandler: app.authenticateAny("notes:write") }, async (request, reply) => {
       const parsed = createBodySchema.safeParse(request.body ?? {});
       if (!parsed.success) {
-        return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+        return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "Invalid request body.");
       }
       const userId = request.user!.id;
 
@@ -261,9 +261,9 @@ export function notesRoutes(deps: NotesRouteDeps) {
       if (groupId !== undefined) {
         const m = await loadCreateTarget(deps.db, userId, groupId);
         // 非成員與「不存在」同一條 404——非成員的站台 admin 無豁免（筆記旗標只看角色，§5.5）。
-        if (!m) return sendError(reply, 404, "group_not_found", "找不到此群組");
+        if (!m) return sendError(reply, 404, "group_not_found", "No group with that id.");
         // 是成員但角色沒有新建旗標 → 403（gate r4 N-2：對成員而言群組存在不是秘密）。
-        if (!m.canCreate) return sendError(reply, 403, "forbidden", "你在這個群組的角色不能建立筆記");
+        if (!m.canCreate) return sendError(reply, 403, "forbidden", "Your role in this group can't create notes.");
         if (folderId !== null && !m.canEdit) return sendError(reply, 403, "forbidden", NOTE_FOLDER_ROLE_FORBIDDEN_MESSAGE);
         await deps.groupTestHook?.("membership-checked", { groupId });
         // role／permissions 照旗標推、不假設 editor：0013 起「新建 ⇒ 編輯」蘊含拿掉，create-only 角色會得到 viewer（plan 規格落差 17）。
@@ -278,9 +278,9 @@ export function notesRoutes(deps: NotesRouteDeps) {
       // 錯誤碼 → HTTP 的映射，以及回應組裝。
       if (parsed.data.content !== undefined) {
         // 沒有協作元件就沒有「內容」這回事（同內容端點的註冊閘門）——回 400，不建列。
-        if (!deps.writes.available) return sendError(reply, 400, "invalid_body", "此部署不支援帶內容建立筆記");
+        if (!deps.writes.available) return sendError(reply, 400, "invalid_body", "This deployment cannot create a note with content. Send the request again without content.");
         // 節流排在 schema 驗證之後、**任何 mount 之前**。
-        if (!deps.limiters.edit.consume(userId)) return sendError(reply, 429, "too_many_requests", "寫入過於頻繁");
+        if (!deps.limiters.edit.consume(userId)) return sendError(reply, 429, "too_many_requests", "Too many writes. Wait a moment and try again.");
         let out;
         try {
           out = await deps.writes.createWithContent(request.log, {
@@ -299,10 +299,10 @@ export function notesRoutes(deps: NotesRouteDeps) {
           throw err;
         }
         if (!out.ok) {
-          if (out.kind === "parse") return sendError(reply, 400, out.code, parseErrorMessage(out.code, "無法解析內容"));
+          if (out.kind === "parse") return sendError(reply, 400, out.code, parseErrorMessage(out.code, "Couldn't parse the content."));
           // 套用失敗（**含佇列逾時**）：service 已經 best-effort 刪掉剛建的列。這條路徑的
           // 逾時答案刻意是 500 而不是 503（`docs/ai-editing.md` 逐字）。
-          return sendError(reply, 500, "internal", "建立筆記失敗");
+          return sendError(reply, 500, "internal", "Couldn't create the note.");
         }
         const note = out.inserted;
         // Task 3：**重讀**這一列。`note` 是 insert 的 returning，四欄在那一刻還是 null，而
@@ -390,7 +390,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
       return loadNoteFields(deps.db, noteId, viewerId);
     }
 
-    const noteNotFound = (reply: FastifyReply): FastifyReply => sendError(reply, 404, "not_found", "找不到此筆記");
+    const noteNotFound = (reply: FastifyReply): FastifyReply => sendError(reply, 404, "not_found", "No note with that id.");
 
     /**
      * #181 §6.7：單篇讀取三形（`:ref`、by-path、by-group-path）授權得 none 時的出口——目標在垃圾桶且呼叫者有垃圾桶權 → 404
@@ -406,7 +406,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
      */
     const ownershipChanged = async (reply: FastifyReply, noteId: string): Promise<FastifyReply> => {
       const [row] = await deps.db.select({ id: notes.id }).from(notes).where(and(eq(notes.id, noteId), isNull(notes.deletedAt))).limit(1);
-      return row ? sendError(reply, 409, "conflict", "筆記的歸屬已變更，請重新整理後再試") : noteNotFound(reply);
+      return row ? sendError(reply, 409, "conflict", "The note's owner or group changed. Reload and try again.") : noteNotFound(reply);
     };
 
     /**
@@ -535,13 +535,13 @@ export function notesRoutes(deps: NotesRouteDeps) {
         // 防禦縱深：`resolveRole` 內部也有同一道 guard（見 `notes/service.ts` UUID_RE 註解），
         // 所以刪掉這行行為不變、沒有測試會紅——留著是為了不把「非法 uuid 不進 SQL」這個本路由
         // 的前提，寄託在另一個模組的私有選擇上。
-        if (!UUID_RE.test(id)) return sendError(reply, 404, "not_found", "找不到此筆記");
+        if (!UUID_RE.test(id)) return sendError(reply, 404, "not_found", "No note with that id.");
         const q = contentQuerySchema.safeParse(request.query ?? {});
-        if (!q.success) return sendError(reply, 400, "invalid_body", "查詢參數格式錯誤");
+        if (!q.success) return sendError(reply, 400, "invalid_body", "Invalid query parameters.");
         const userId = request.user!.id;
         const role = await resolveRole(deps.db, userId, id);
-        if (role === "none") return sendError(reply, 404, "not_found", "找不到此筆記");
-        if (!deps.limiters.contentRead.consume(userId)) return sendError(reply, 429, "too_many_requests", "讀取過於頻繁");
+        if (role === "none") return sendError(reply, 404, "not_found", "No note with that id.");
+        if (!deps.limiters.contentRead.consume(userId)) return sendError(reply, 429, "too_many_requests", "Too many reads. Wait a moment and try again.");
         // #138 presence（spec §9）：只有帶 token 的讀者才現身——cookie 讀取（`request.tokenId`
         // 缺席）是使用者本人在用瀏覽器，spec §12.2 明講不設 presence。`touch` 內部只對已載入
         // 的文件動作，所以沒人在線時它是 no-op，讀路徑「零副作用」的不變量仍成立。
@@ -556,7 +556,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
           }
         }
         const result = await readNoteContent({ db: deps.db, collab }, editing, id, request.user!.id, q.data.section);
-        if (result === "section_not_found") return sendError(reply, 404, "section_not_found", "找不到此段落");
+        if (result === "section_not_found") return sendError(reply, 404, "section_not_found", "No section with that id.");
         // #137 起 `lastEdited` 是真值（整篇形與段落形都回，`note-content.test.ts` 兩行釘住）。
         // `loadLastEdited` 是純 SELECT，不開直連——讀路徑零副作用的不變量照舊成立。
         // `reply.send` 本身不做型別檢查——`satisfies` 把 `read.ts` 的回傳形狀釘回 shared 的 DTO，
@@ -580,14 +580,14 @@ export function notesRoutes(deps: NotesRouteDeps) {
        */
       app.post("/api/notes/:id/edits", { preHandler: app.authenticateAny("notes:write"), bodyLimit: WRITE_BODY_LIMIT }, async (request, reply) => {
         const { id } = request.params as { id: string };
-        if (!UUID_RE.test(id)) return sendError(reply, 404, "not_found", "找不到此筆記");
+        if (!UUID_RE.test(id)) return sendError(reply, 404, "not_found", "No note with that id.");
         const parsed = editBodySchema.safeParse(request.body ?? {});
-        if (!parsed.success) return sendError(reply, 400, "invalid_body", "請求格式錯誤");
+        if (!parsed.success) return sendError(reply, 400, "invalid_body", "Invalid request body.");
         const userId = request.user!.id;
         const role = await resolveRole(deps.db, userId, id);
-        if (role === "none") return sendError(reply, 404, "not_found", "找不到此筆記");
-        if (role === "viewer") return sendError(reply, 403, "forbidden", "沒有編輯權限");
-        if (!deps.limiters.edit.consume(userId)) return sendError(reply, 429, "too_many_requests", "寫入過於頻繁");
+        if (role === "none") return sendError(reply, 404, "not_found", "No note with that id.");
+        if (role === "viewer") return sendError(reply, 403, "forbidden", "You don't have edit access to this note.");
+        if (!deps.limiters.edit.consume(userId)) return sendError(reply, 429, "too_many_requests", "Too many writes. Wait a moment and try again.");
         // 外圍順序（候選集合 → agentLabel → per-note 佇列 → applyEdit → presence）收在
         // `NoteWriteService`（#108 §10.1 D22）；本路由只留授權、限流與錯誤碼 → HTTP 的映射。
         const out = await deps.writes.applyToNote(request.log, {
@@ -601,9 +601,9 @@ export function notesRoutes(deps: NotesRouteDeps) {
           ifMatch: "if_match" in parsed.data ? parsed.data.if_match : undefined,
         });
         if (!out.ok) {
-          if (out.kind === "busy") return sendError(reply, 503, "server_busy", "筆記正在被寫入，請稍後再試");
+          if (out.kind === "busy") return sendError(reply, 503, "server_busy", "The note is being written right now. Try again in a moment.");
           // #181 §6.2-11：授權之後被移入垃圾桶（或正被移入）→ 同授權 none 的 404。
-          if (out.kind === "gone") return sendError(reply, 404, "not_found", "找不到此筆記");
+          if (out.kind === "gone") return sendError(reply, 404, "not_found", "No note with that id.");
           if (out.code === "fingerprint_mismatch") {
             // 不在 transact 內、直連已 disconnect 之後（spec §5）。不帶 section → 不可能是
             // "section_not_found"，但那個哨兵在回傳型別的 union 裡，不收窄的話 spread 一個字串
@@ -611,9 +611,9 @@ export function notesRoutes(deps: NotesRouteDeps) {
             const current = await readNoteContent({ db: deps.db, collab }, editing, id, request.user!.id);
             if (current === "section_not_found") throw new Error("readNoteContent 未帶 section 卻回哨兵值");
             const body = { ...current, lastEdited: await loadLastEdited(deps.db, id) } satisfies NoteContentDto | NoteSectionDto;
-            return reply.code(409).send({ error: { code: "fingerprint_mismatch", message: "內容已被修改" }, current: body });
+            return reply.code(409).send({ error: { code: "fingerprint_mismatch", message: "The content changed since you read it, so nothing was written. The response's current field has the content as it is now." }, current: body });
           }
-          return sendError(reply, out.code === "section_not_found" ? 404 : 400, out.code, parseErrorMessage(out.code, "無法套用修改"));
+          return sendError(reply, out.code === "section_not_found" ? 404 : 400, out.code, parseErrorMessage(out.code, "Couldn't apply the edit."));
         }
         const result = out.result;
         return reply.code(201).send({ editId: result.editId, fingerprint: result.fingerprint, outline: result.outline, unboundWikilinks: result.unboundWikilinks } satisfies NoteEditResultDto);
@@ -630,11 +630,11 @@ export function notesRoutes(deps: NotesRouteDeps) {
       app.get("/api/notes/:id/edits", { preHandler: app.authenticateAny("notes:read") }, async (request, reply) => {
         const { id } = request.params as { id: string };
         // 同 `/content`：防禦縱深，不把「非法 uuid 不進 SQL」寄託在 `resolveRole` 的私有選擇上。
-        if (!UUID_RE.test(id)) return sendError(reply, 404, "not_found", "找不到此筆記");
+        if (!UUID_RE.test(id)) return sendError(reply, 404, "not_found", "No note with that id.");
         const userId = request.user!.id;
         const role = await resolveRole(deps.db, userId, id);
-        if (role === "none") return sendError(reply, 404, "not_found", "找不到此筆記");
-        if (!deps.limiters.contentRead.consume(userId)) return sendError(reply, 429, "too_many_requests", "讀取過於頻繁");
+        if (role === "none") return sendError(reply, 404, "not_found", "No note with that id.");
+        if (!deps.limiters.contentRead.consume(userId)) return sendError(reply, 429, "too_many_requests", "Too many reads. Wait a moment and try again.");
         // #138：這裡**刻意不 touch** presence——spec §5 明講看修改紀錄不刷新 AI 的在場狀態
         // （守衛＝`note-presence.test.ts` 第 2 案的 clock 斷言）。同檔另外三條都 touch。
         const edits = await listEdits({ db: deps.db, collab }, id) satisfies NoteEditDto[];
@@ -655,20 +655,20 @@ export function notesRoutes(deps: NotesRouteDeps) {
        */
       app.post("/api/notes/:id/edits/:editId/revert", { preHandler: app.authenticateAny("notes:write") }, async (request, reply) => {
         const { id, editId } = request.params as { id: string; editId: string };
-        if (!UUID_RE.test(id)) return sendError(reply, 404, "not_found", "找不到此筆記");
-        if (!UUID_RE.test(editId)) return sendError(reply, 404, "not_found", "找不到此修改紀錄");
+        if (!UUID_RE.test(id)) return sendError(reply, 404, "not_found", "No note with that id.");
+        if (!UUID_RE.test(editId)) return sendError(reply, 404, "not_found", "No edit with that id.");
         const userId = request.user!.id;
         const role = await resolveRole(deps.db, userId, id);
-        if (role === "none") return sendError(reply, 404, "not_found", "找不到此筆記");
-        if (role === "viewer") return sendError(reply, 403, "forbidden", "沒有編輯權限");
-        if (!deps.limiters.edit.consume(userId)) return sendError(reply, 429, "too_many_requests", "寫入過於頻繁");
+        if (role === "none") return sendError(reply, 404, "not_found", "No note with that id.");
+        if (role === "viewer") return sendError(reply, 403, "forbidden", "You don't have edit access to this note.");
+        if (!deps.limiters.edit.consume(userId)) return sendError(reply, 429, "too_many_requests", "Too many writes. Wait a moment and try again.");
         // 外圍順序（agentLabel → **同一顆**佇列 → revertEdit → presence）在 `NoteWriteService`；
         // 本路由只留授權、限流與錯誤碼 → HTTP 的映射（同 `/edits`）。
         const out = await deps.writes.revert(request.log, { noteId: id, editId, userId, userHandle: request.user!.handle, tokenId: request.tokenId ?? null });
         if (!out.ok) {
-          if (out.kind === "busy") return sendError(reply, 503, "server_busy", "筆記正在被寫入，請稍後再試");
+          if (out.kind === "busy") return sendError(reply, 503, "server_busy", "The note is being written right now. Try again in a moment.");
           // #181 §6.2-11：授權之後被移入垃圾桶（或正被移入）→ 同授權 none 的 404。
-          if (out.kind === "gone") return sendError(reply, 404, "not_found", "找不到此筆記");
+          if (out.kind === "gone") return sendError(reply, 404, "not_found", "No note with that id.");
           if (out.code === "stale") {
             // 不在 transact 內、直連已 disconnect 之後（同 `/edits` 的 409 形）。不帶 section →
             // 不可能是 "section_not_found"，但那個哨兵在回傳型別的 union 裡，不收窄的話 spread
@@ -676,10 +676,10 @@ export function notesRoutes(deps: NotesRouteDeps) {
             const current = await readNoteContent({ db: deps.db, collab }, editing, id, request.user!.id);
             if (current === "section_not_found") throw new Error("readNoteContent 未帶 section 卻回哨兵值");
             const body = { ...current, lastEdited: await loadLastEdited(deps.db, id) } satisfies NoteContentDto | NoteSectionDto;
-            return reply.code(409).send({ error: { code: "stale", message: "這筆修改之後筆記又被改過，已無法撤回" }, current: body });
+            return reply.code(409).send({ error: { code: "stale", message: "The note changed after this edit, so it can't be reverted. The response's current field has the content as it is now." }, current: body });
           }
-          if (out.code === "already_reverted") return sendError(reply, 409, "already_reverted", "這筆修改已經撤回過了");
-          return sendError(reply, 404, "not_found", "找不到此修改紀錄");
+          if (out.code === "already_reverted") return sendError(reply, 409, "already_reverted", "This edit has already been reverted.");
+          return sendError(reply, 404, "not_found", "No edit with that id.");
         }
         const result = out.result;
         return reply.code(201).send({ editId: result.editId, fingerprint: result.fingerprint, outline: result.outline });
@@ -791,16 +791,16 @@ export function notesRoutes(deps: NotesRouteDeps) {
 
       const parsed = updateBodySchema.safeParse(request.body);
       if (!parsed.success) {
-        return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+        return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "Invalid request body.");
       }
       const { title, slug } = parsed.data;
       const hasSlug = slug !== undefined;
 
       const access = await resolveNoteAccess(deps.db, userId, id);
       if (access.role === "none") return noteNotFound(reply);
-      if (hasSlug && !access.permissions.changeSlug) return sendError(reply, 403, "forbidden", "沒有變更網址代稱的權限");
+      if (hasSlug && !access.permissions.changeSlug) return sendError(reply, 403, "forbidden", "You don't have permission to change this note's URL slug.");
       // #186：body 帶 title 一律要 edit（不論有沒有帶 slug）——只有 changeSlug（群組角色的 can_manage_public_link）的人不能借 slug 的門順手改標題。
-      if (title !== undefined && !access.permissions.edit) return sendError(reply, 403, "forbidden", "沒有編輯權限");
+      if (title !== undefined && !access.permissions.edit) return sendError(reply, 403, "forbidden", "You don't have edit access to this note.");
 
       // #175：slug 的去重範圍與 T1 的 scope 條件都取自**授權當下**的歸屬（§4.3，gate r5 M-2）。
       // role !== "none" 時：groupId 非 null ＝群組筆記；否則是個人筆記，`resolveNoteAccess` 回的 ownerId 必非 null。
@@ -816,7 +816,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
 
       // 格 1：顯式自訂 slug。
       if (hasSlug && slug !== null) {
-        if (!deps.limiters.slugPatch.consume(userId)) return sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
+        if (!deps.limiters.slugPatch.consume(userId)) return sendError(reply, 429, "too_many_requests", "Too many requests. Wait a moment and try again.");
         const result = prepareSlugForPatch(slug);
         if (!result.ok) return sendError(reply, 400, "invalid_body", result.message);
         await deps.slugPatchTestHook?.("authorized", { noteId: id });
@@ -825,7 +825,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
           updated = await runT1({ ...(title !== undefined ? { title } : {}), slug: result.value, slugIsCustom: true });
         } catch (err) {
           // constraint 名分流（PR1 M4-2 契約）：兩把 slug 唯一索引撞名＝409，其他 23505 rethrow——不認識的 23505 不該被猜成 409。
-          if (isSlugUniqueViolation(err)) return sendError(reply, 409, "slug_taken", "此網址代稱已被使用");
+          if (isSlugUniqueViolation(err)) return sendError(reply, 409, "slug_taken", "That URL slug is already in use.");
           throw err;
         }
         // I2＋C15：scope 條件命中 0 列＝授權之後被刪（404）或歸屬變了（409 conflict）。
@@ -837,12 +837,12 @@ export function notesRoutes(deps: NotesRouteDeps) {
       if (!hasSlug) {
         const out = await renameNoteTitle(deps.db, { noteId: id, access, title: title! }, deps.slugUpdateTestHook);
         if (out.kind === "gone") return noteNotFound(reply);
-        if (out.kind === "ownership_changed") return sendError(reply, 409, "conflict", "筆記的歸屬已變更，請重新整理後再試");
+        if (out.kind === "ownership_changed") return sendError(reply, 409, "conflict", "The note's owner or group changed. Reload and try again.");
         return respondPatched(out.row, access, userId);
       }
 
       // 格 3／4：auto 路徑（body 帶 slug:null）。
-      if (!deps.limiters.slugPatch.consume(userId)) return sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
+      if (!deps.limiters.slugPatch.consume(userId)) return sendError(reply, 429, "too_many_requests", "Too many requests. Wait a moment and try again.");
 
       // pre-read（特赦界線見上）只在格 4 發：要現行 title；格 3 的 title 已在請求裡（必走 auto）——不多發一次查詢。
       let effectiveTitle = title ?? "";
@@ -904,25 +904,25 @@ export function notesRoutes(deps: NotesRouteDeps) {
 
       const parsed = linksBodySchema.safeParse(request.body);
       if (!parsed.success) {
-        return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+        return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "Invalid request body.");
       }
 
       const role = await resolveRole(deps.db, userId, id);
       if (role === "none") {
-        return sendError(reply, 404, "not_found", "找不到此筆記");
+        return sendError(reply, 404, "not_found", "No note with that id.");
       }
       if (role === "viewer") {
-        return sendError(reply, 403, "forbidden", "沒有編輯權限");
+        return sendError(reply, 403, "forbidden", "You don't have edit access to this note.");
       }
 
       const normalized = normalizeLinkTargets(id, parsed.data.link_target_ids);
       if (!normalized.ok) {
-        return sendError(reply, 400, "invalid_body", "連結目標數量超過上限");
+        return sendError(reply, 400, "invalid_body", "Too many link targets.");
       }
 
       const gate = deps.collabHooks.linkSyncGate(id, userId);
       if (!gate.ok) {
-        return sendError(reply, 409, "not_loaded", "筆記尚未就緒，請稍後再試");
+        return sendError(reply, 409, "not_loaded", "Link updates need the note open in the editor: it isn't loaded on the server, or you have no open editor connection to it. Open the note and try again.");
       }
 
       try {
@@ -932,11 +932,11 @@ export function notesRoutes(deps: NotesRouteDeps) {
           deps.linkSyncTestHooks
         );
         if (outcome === "busy") {
-          return sendError(reply, 409, "server_busy", "伺服器忙碌，請稍後再試");
+          return sendError(reply, 409, "server_busy", "The server is busy. Try again in a moment.");
         }
       } catch (err) {
         request.log.error(err);
-        return sendError(reply, 500, "internal", "伺服器內部錯誤");
+        return sendError(reply, 500, "internal", "Internal server error.");
       }
 
       return reply.code(204).send();
@@ -959,7 +959,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
 
       const role = await resolveRole(deps.db, userId, id);
       if (role === "none") {
-        return sendError(reply, 404, "not_found", "找不到此筆記");
+        return sendError(reply, 404, "not_found", "No note with that id.");
       }
 
       const backlinks: BacklinkDto[] = await fetchBacklinks(deps.db, id, userId);
@@ -979,7 +979,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
       const { id } = request.params as { id: string };
       const userId = request.user!.id;
       const parsed = moveBodySchema.safeParse(request.body ?? {});
-      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "Invalid request body.");
 
       // #180 spec §3.2：本體在 `notes/move-note.ts`（MCP `move_note_to_group` 共用；commit 後的 relocated 與踢線也在裡面）。
       const out = await moveNoteToGroup(
@@ -993,15 +993,15 @@ export function notesRoutes(deps: NotesRouteDeps) {
         case "not_found":
           return noteNotFound(reply);
         case "forbidden":
-          return sendError(reply, 403, "forbidden", "只有筆記擁有者可以把筆記移進群組");
+          return sendError(reply, 403, "forbidden", "Only the note's owner can move it into a group.");
         case "group_not_found":
-          return sendError(reply, 404, "group_not_found", "找不到此群組");
+          return sendError(reply, 404, "group_not_found", "No group with that id.");
         case "aborted":
           // 先判子類（StorageQuotaExceeded extends TxAbort）：反序會失去數字。數字可見性在交易外判（儲存配額 §8.1）。
           if (out.err instanceof StorageQuotaExceeded) return sendStorageQuotaExceeded(reply, await quotaErrorDetail(deps.db, request.user!, out.err));
           return sendError(reply, out.err.status, out.err.errCode, out.err.message);
         case "busy":
-          return sendError(reply, 409, "server_busy", "伺服器忙碌，請稍後再試");
+          return sendError(reply, 409, "server_busy", "The server is busy. Try again in a moment.");
         case "moved": {
           const fresh = await loadNoteWithOwner(id, userId);
           if (!fresh) return noteNotFound(reply);
@@ -1024,7 +1024,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
       const { id } = request.params as { id: string };
       const userId = request.user!.id;
       const parsed = copyBodySchema.safeParse(request.body ?? {});
-      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "Invalid request body.");
       // #180 spec §3.3：本體在 `notes/copy-note.ts`（MCP `copy_note` 共用）。這裡只做結果 → 回應形，逐位元組同今天。
       const out = await copyNote(
         {
@@ -1042,19 +1042,19 @@ export function notesRoutes(deps: NotesRouteDeps) {
         case "fk_personal":
           return noteNotFound(reply);
         case "group_not_found":
-          return sendError(reply, 404, "group_not_found", "找不到此群組");
+          return sendError(reply, 404, "group_not_found", "No group with that id.");
         case "edit_rate_limited":
-          return sendError(reply, 429, "too_many_requests", "寫入過於頻繁");
+          return sendError(reply, 429, "too_many_requests", "Too many writes. Wait a moment and try again.");
         case "space_full":
           return sendStorageQuotaExceeded(reply, await precheckDetail(deps.db, request.user!, out.space, out.usage));
         case "upload_rate_limited":
-          return sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
+          return sendError(reply, 429, "too_many_requests", "Too many requests. Wait a moment and try again.");
         case "aborted":
           // 先判子類（StorageQuotaExceeded extends TxAbort）：反序會失去數字。
           if (out.err instanceof StorageQuotaExceeded) return sendStorageQuotaExceeded(reply, await quotaErrorDetail(deps.db, request.user!, out.err));
           return sendError(reply, out.err.status, out.err.errCode, out.err.message);
         case "busy":
-          return sendError(reply, 409, "server_busy", "伺服器忙碌，請稍後再試");
+          return sendError(reply, 409, "server_busy", "The server is busy. Try again in a moment.");
         case "copied": {
           // role／permissions 取 (g) 交易內、持 groups KEY SHARE 時讀到的值（與 `lockGroup` 互斥，讀到即 commit 時的值）；
           // 群組名不受此保證：改名走單句 UPDATE、不與 KEY SHARE 衝突，回應可能是舊名。
@@ -1074,10 +1074,10 @@ export function notesRoutes(deps: NotesRouteDeps) {
       // #175 §6.2 row 15：個人＝owner；群組＝角色的刪除旗標。
       const access = await resolveNoteAccess(deps.db, userId, id);
       if (access.role === "none") {
-        return sendError(reply, 404, "not_found", "找不到此筆記");
+        return sendError(reply, 404, "not_found", "No note with that id.");
       }
       if (!access.permissions.delete) {
-        return sendError(reply, 403, "forbidden", "沒有刪除這篇筆記的權限");
+        return sendError(reply, 403, "forbidden", "You don't have permission to delete this note.");
       }
 
       // #181 §6.3.2：移到垃圾桶（語意改變；回應碼與錯誤形不變）。閘門（`beforeNoteDeleted`：關門、踢線、flush、等 unload）、
@@ -1086,8 +1086,8 @@ export function notesRoutes(deps: NotesRouteDeps) {
         { db: deps.db, collabHooks: deps.collabHooks, uploadsDir: deps.uploadsDir, storageLockTimeoutMs: deps.storageLockTimeoutMs, groupTestHook: deps.groupTestHook },
         { noteId: id, by: userId },
       );
-      if (out === "forbidden") return sendError(reply, 403, "forbidden", "沒有刪除這篇筆記的權限");
-      if (out === "not_found") return sendError(reply, 404, "not_found", "找不到此筆記");
+      if (out === "forbidden") return sendError(reply, 403, "forbidden", "You don't have permission to delete this note.");
+      if (out === "not_found") return sendError(reply, 404, "not_found", "No note with that id.");
 
       return reply.code(204).send();
     });
@@ -1142,7 +1142,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
       const userId = request.user!.id;
 
       if (!deps.limiters.collabToken.consume(userId)) {
-        return sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
+        return sendError(reply, 429, "too_many_requests", "Too many requests. Wait a moment and try again.");
       }
 
       const role = await resolveRole(deps.db, userId, id);
@@ -1168,10 +1168,10 @@ export function notesRoutes(deps: NotesRouteDeps) {
 
       const access = await resolveNoteAccess(deps.db, userId, id);
       if (access.role === "none") {
-        return sendError(reply, 404, "not_found", "找不到此筆記");
+        return sendError(reply, 404, "not_found", "No note with that id.");
       }
       if (!access.permissions.manageShares) {
-        return sendError(reply, 403, "forbidden", "只有擁有者可以查看分享名單");
+        return sendError(reply, 403, "forbidden", "Only the note's owner can see who it's shared with.");
       }
 
       // orderBy(users.email)：回應順序確定性，比照 GET /api/notes 清單的次要排序鍵慣例
@@ -1192,15 +1192,15 @@ export function notesRoutes(deps: NotesRouteDeps) {
 
       const parsed = putShareBodySchema.safeParse(request.body);
       if (!parsed.success) {
-        return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+        return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "Invalid request body.");
       }
 
       const access = await resolveNoteAccess(deps.db, userId, id);
       if (access.role === "none") {
-        return sendError(reply, 404, "not_found", "找不到此筆記");
+        return sendError(reply, 404, "not_found", "No note with that id.");
       }
       if (!access.permissions.manageShares) {
-        return sendError(reply, 403, "forbidden", "只有擁有者可以管理分享");
+        return sendError(reply, 403, "forbidden", "Only the note's owner can manage sharing.");
       }
 
       // lower() 讀取端比對（spec §14.3 三處對稱）＋多列命中防護（同 routes/auth.ts login
@@ -1212,10 +1212,10 @@ export function notesRoutes(deps: NotesRouteDeps) {
         .orderBy(users.createdAt, users.id)
         .limit(1);
       if (!target) {
-        return sendError(reply, 404, "user_not_found", "找不到此使用者");
+        return sendError(reply, 404, "user_not_found", "No user with that email.");
       }
       if (target.id === userId) {
-        return sendError(reply, 400, "cannot_share_with_self", "不能分享給自己");
+        return sendError(reply, 400, "cannot_share_with_self", "You can't share a note with yourself.");
       }
 
       // #175 S14（T2）：交易本體在 `notes/tx/shares.ts`（S5 的 `FOR SHARE` 讀 `group_id` 也在那裡）。引數只放
@@ -1234,7 +1234,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
         // 消失，避免對 owner 洩漏「到底是哪一邊被刪除」的細節。#103：catch 在交易**外**
         // （交易內撞錯會進 aborted 狀態）。
         if (isForeignKeyViolation(err)) {
-          return sendError(reply, 404, "not_found", "找不到此筆記");
+          return sendError(reply, 404, "not_found", "No note with that id.");
         }
         throw err;
       }
@@ -1258,10 +1258,10 @@ export function notesRoutes(deps: NotesRouteDeps) {
 
       const access = await resolveNoteAccess(deps.db, userId, id);
       if (access.role === "none") {
-        return sendError(reply, 404, "not_found", "找不到此筆記");
+        return sendError(reply, 404, "not_found", "No note with that id.");
       }
       if (!access.permissions.manageShares) {
-        return sendError(reply, 403, "forbidden", "只有擁有者可以管理分享");
+        return sendError(reply, 403, "forbidden", "Only the note's owner can manage sharing.");
       }
 
       // 與 resolveRole 內部對 noteId 的處理同理：`:userId` 路徑參數格式不可信任，先用
@@ -1269,7 +1269,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
       // input syntax for type uuid"，被全域錯誤 handler 歸類成 500）。效果上等同「這個
       // userId 沒有對應的分享列」，回同一個 404 share_not_found，不特別區分。
       if (!UUID_RE.test(targetUserId)) {
-        return sendError(reply, 404, "share_not_found", "找不到此分享");
+        return sendError(reply, 404, "share_not_found", "This note isn't shared with that user.");
       }
 
       const [deleted] = await deps.db
@@ -1277,7 +1277,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
         .where(and(eq(noteShares.noteId, id), eq(noteShares.userId, targetUserId)))
         .returning();
       if (!deleted) {
-        return sendError(reply, 404, "share_not_found", "找不到此分享");
+        return sendError(reply, 404, "share_not_found", "This note isn't shared with that user.");
       }
 
       deps.collabHooks.onShareChanged(id, targetUserId);
@@ -1317,11 +1317,11 @@ export function notesRoutes(deps: NotesRouteDeps) {
     const resolvePublicLinkAccess = async (reply: FastifyReply, userId: string, noteId: string): Promise<NoteAccess | null> => {
       const access = await resolveNoteAccess(deps.db, userId, noteId);
       if (access.role === "none") {
-        sendError(reply, 404, "not_found", "找不到此筆記");
+        sendError(reply, 404, "not_found", "No note with that id.");
         return null;
       }
       if (!access.permissions.managePublicLink) {
-        sendError(reply, 403, "forbidden", "沒有管理公開連結的權限");
+        sendError(reply, 403, "forbidden", "You don't have permission to manage this note's public link.");
         return null;
       }
       return access;
@@ -1337,7 +1337,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
         .from(notes)
         .where(eq(notes.id, id))
         .limit(1);
-      if (!row) return sendError(reply, 404, "not_found", "找不到此筆記");
+      if (!row) return sendError(reply, 404, "not_found", "No note with that id.");
       return { token: row.publicToken, slug: row.publicSlug, width: row.publicWidth };
     });
 
@@ -1345,7 +1345,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
       const { id } = request.params as { id: string };
       const userId = request.user!.id;
       if (!deps.limiters.publicLink.consume(userId)) {
-        return sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
+        return sendError(reply, 429, "too_many_requests", "Too many requests. Wait a moment and try again.");
       }
       const access = await resolvePublicLinkAccess(reply, userId, id);
       if (!access) return reply;
@@ -1370,7 +1370,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
       const { id } = request.params as { id: string };
       const userId = request.user!.id;
       if (!deps.limiters.publicLink.consume(userId)) {
-        return sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
+        return sendError(reply, 429, "too_many_requests", "Too many requests. Wait a moment and try again.");
       }
       if (!(await resolvePublicLinkAccess(reply, userId, id))) return reply;
       // I2 慣例：同 PUT——**note 本身**落空才回 404；token 已是 null 不算落空，
@@ -1384,7 +1384,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
         .set({ publicToken: null, publicSlug: null })
         .where(and(eq(notes.id, id), isNull(notes.deletedAt)))
         .returning({ id: notes.id });
-      if (cleared.length === 0) return sendError(reply, 404, "not_found", "找不到此筆記");
+      if (cleared.length === 0) return sendError(reply, 404, "not_found", "No note with that id.");
       return reply.code(204).send();
     });
 
@@ -1393,11 +1393,11 @@ export function notesRoutes(deps: NotesRouteDeps) {
       const { id } = request.params as { id: string };
       const userId = request.user!.id;
       const parsed = publicWidthBodySchema.safeParse(request.body ?? {});
-      if (!parsed.success) return sendError(reply, 400, "invalid_body", "請求格式錯誤：只接受 width（standard、wide 或 full）");
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", "Invalid request body: send only width, set to standard, wide or full.");
       const access = await resolvePublicLinkAccess(reply, userId, id);
       if (!access) return reply;
       if (!deps.limiters.publicWidth.consume(userId)) {
-        return sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
+        return sendError(reply, 429, "too_many_requests", "Too many requests. Wait a moment and try again.");
       }
       await deps.groupTestHook?.("public-link-authorized", { noteId: id });
       const updated = await deps.db
@@ -1424,11 +1424,11 @@ export function notesRoutes(deps: NotesRouteDeps) {
       const userId = request.user!.id;
       if (!(await resolvePublicLinkAccess(reply, userId, id))) return reply;
       if (!deps.limiters.slugPatch.consume(userId)) {
-        return sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
+        return sendError(reply, 429, "too_many_requests", "Too many requests. Wait a moment and try again.");
       }
       const body = request.body as { slug?: unknown } | null;
       if (!body || typeof body.slug !== "string") {
-        return sendError(reply, 400, "invalid_body", "slug 必須是字串");
+        return sendError(reply, 400, "invalid_body", "slug must be a string.");
       }
       const result = prepareSlugForPatch(body.slug);
       if (!result.ok) {
@@ -1454,12 +1454,12 @@ export function notesRoutes(deps: NotesRouteDeps) {
       } catch (err) {
         // constraint 名分流（比照 slug_taken）：只認 per-user 別名唯一索引，其他 23505 rethrow。
         if (uniqueViolationConstraint(err) === "notes_owner_public_slug_idx") {
-          return sendError(reply, 409, "public_slug_taken", "此公開網址已被你的另一篇筆記使用");
+          return sendError(reply, 409, "public_slug_taken", "Another of your notes already uses that public URL.");
         }
         throw err;
       }
       if (updated.length === 0) {
-        return sendError(reply, 400, "invalid_body", "筆記尚未開啟公開分享、它是群組筆記，或在你送出後換了歸屬，無法設定公開網址");
+        return sendError(reply, 400, "invalid_body", "Can't set a public URL: the note has no public link, is a group note, or changed owner after you sent this.");
       }
       return { token: updated[0].publicToken, slug: updated[0].publicSlug, width: updated[0].publicWidth };
     });
@@ -1469,7 +1469,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
       const userId = request.user!.id;
       if (!(await resolvePublicLinkAccess(reply, userId, id))) return reply;
       if (!deps.limiters.slugPatch.consume(userId)) {
-        return sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
+        return sendError(reply, 429, "too_many_requests", "Too many requests. Wait a moment and try again.");
       }
       // 冪等 DELETE：本無別名也 204；rowcount 0（resolveRole 後筆記被刪）**同收 204**
       // ——DELETE 語意本就 vacuous。⚠ 兩支的 rowcount-0 政策不同（此支 204、姊妹

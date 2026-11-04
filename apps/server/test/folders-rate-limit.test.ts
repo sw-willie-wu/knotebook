@@ -73,7 +73,7 @@ describe("FRL 資料夾桶與 edit 桶分開", () => {
     expect(rows[0]!.n).toBe(0);
   });
 
-  it("FRL-3 folder 桶上限 4：四支各一次後第五次 429 寫入過於頻繁、不寫；edit 桶沒被扣", async () => {
+  it("FRL-3 folder 桶上限 4：四支各一次後第五次 429 too_many_requests、不寫；edit 桶沒被扣", async () => {
     const edit = new FixedWindowLimiter(EDIT_LIMIT);
     const folder = new FixedWindowLimiter({ limit: 4, windowMs: 60_000 });
     const { app, db } = await buildTestApp({ limiters: freshLimiters({ edit, folder }) });
@@ -89,7 +89,7 @@ describe("FRL 資料夾桶與 edit 桶分開", () => {
 
     const limited = await place(app, u.id, n, null);
     status(limited, 429);
-    expect(limited.json()).toEqual({ error: { code: "too_many_requests", message: "寫入過於頻繁" } });
+    expect(limited.json()).toEqual({ error: { code: "too_many_requests", message: "Too many writes. Wait a moment and try again." } });
     expect((await noteFolderCols(db.$client, n))?.folder_id).toBe(keep);
     status(await inject(app, "POST", "/api/folders", u.id, { name: "D", space: { kind: "personal" } }), 429);
     status(await inject(app, "PATCH", `/api/folders/${keep}`, u.id, { name: "keep3" }), 429);

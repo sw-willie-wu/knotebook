@@ -23,7 +23,7 @@ import { filesIn, giveGroupQuota, seedAttachment, upload } from "./storage-helpe
 import { inject, markTrashed, sixRoleScene, trashCols } from "./trash-helpers.js";
 
 type Res = LightMyRequestResponse;
-const NOT_FOUND = { error: { code: "not_found", message: "找不到此筆記" } };
+const NOT_FOUND = { error: { code: "not_found", message: "No note with that id." } };
 const silent = pino({ level: "silent" }) as unknown as FastifyBaseLogger;
 
 const del = (app: FastifyInstance, id: string, by: string) => inject(app, "DELETE", `/api/notes/${id}`, by);
@@ -473,7 +473,7 @@ describe("RC-DL 的防禦縱深：還原／永久刪除的交易被併發犧牲 
         const r = op === "purge" ? await purge(app, owner.id, [n.id]) : await restore(app, owner.id, [n.id]);
 
         expect(r.statusCode, r.body).toBe(409);
-        expect(r.json()).toEqual({ error: { code: "server_busy", message: "伺服器忙碌，請稍後再試" } });
+        expect(r.json()).toEqual({ error: { code: "server_busy", message: "The server is busy. Try again in a moment." } });
         expect(await trashCols(pool, n.id)).toEqual({ deleted_at: expect.any(String), deleted_by: owner.id });
         expect((await db.select({ id: uploads.id }).from(uploads).where(eq(uploads.noteId, n.id))).map(u => u.id)).toEqual([up]);
         expect(await filesIn(uploadsDir)).toEqual([up]);

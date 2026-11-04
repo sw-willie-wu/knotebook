@@ -11,6 +11,7 @@ import type { UserGate } from "../auth/session.js";
 import { generateAccessToken, generateRefreshToken, hashToken, REFRESH_TOKEN_PREFIX } from "../auth/api-token.js";
 import { countBillableGrants, TOKEN_LIMIT_PER_USER } from "../auth/grant-quota.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
+import { BODY_TOO_LARGE_MESSAGE } from "../http/errors.js";
 import { sendOauthError } from "../http/oauth-errors.js";
 import { isLoopbackRedirectUri, matchesLoopbackRedirect } from "../oauth/redirect.js";
 import { canonicalResource, isCanonicalResource } from "../oauth/resource.js";
@@ -38,15 +39,15 @@ export function registerRfcErrorHandlers(app: FastifyInstance): void {
     const status = error.statusCode ?? 500;
     if (status >= 500) {
       request.log.error({ err: error, authKind: request.authKind }, "oauth endpoint error");
-      return sendOauthError(reply, 500, "server_error", "伺服器內部錯誤");
+      return sendOauthError(reply, 500, "server_error", "Internal server error.");
     }
     // §5.0 的映射表只列 415／400／404／405，都歸 invalid_request；今天沒有路由會丟
     // 401／403／429（那些是 handler 直送），有的話這裡要先補碼再改。
-    return sendOauthError(reply, status, "invalid_request", error.message || "請求錯誤");
+    return sendOauthError(reply, status, "invalid_request", status === 413 ? BODY_TOO_LARGE_MESSAGE : error.message || "Bad request.");
   });
 
   // RFC 沒有 not_found 碼，用 invalid_request 加說明。
-  app.setNotFoundHandler(async (_request, reply) => sendOauthError(reply, 404, "invalid_request", "unknown endpoint"));
+  app.setNotFoundHandler(async (_request, reply) => sendOauthError(reply, 404, "invalid_request", "Unknown endpoint."));
 }
 
 /**
@@ -168,7 +169,7 @@ export function oauthRoutes(deps: OauthRouteDeps) {
 
     app.post("/register", async (request, reply) => {
       if (!deps.limiters.dcr.consume(request.ip)) {
-        return sendOauthError(reply, 429, "invalid_request", "註冊次數過多，請稍後再試");
+        return sendOauthError(reply, 429, "invalid_request", "Too many client registrations. Wait a moment and try again.");
       }
 
       const parsed = registerBodySchema.safeParse(request.body ?? {});
@@ -178,7 +179,7 @@ export function oauthRoutes(deps: OauthRouteDeps) {
           reply,
           400,
           aboutRedirect ? "invalid_redirect_uri" : "invalid_client_metadata",
-          aboutRedirect ? "redirect_uris 格式不正確" : "client metadata 格式不正確"
+          aboutRedirect ? "redirect_uris is malformed." : "The client metadata is malformed."
         );
       }
       const body = parsed.data;
@@ -189,24 +190,24 @@ export function oauthRoutes(deps: OauthRouteDeps) {
           reply,
           400,
           "invalid_redirect_uri",
-          "redirect_uri 必須是 loopback 位址，且不含 query、fragment 或帳密"
+          "redirect_uri must be a loopback address with no query, fragment or credentials."
         );
       }
       if (body.token_endpoint_auth_method !== undefined && body.token_endpoint_auth_method !== "none") {
-        return sendOauthError(reply, 400, "invalid_client_metadata", "只支援 token_endpoint_auth_method=none");
+        return sendOauthError(reply, 400, "invalid_client_metadata", "Only token_endpoint_auth_method=none is supported.");
       }
       if (
         body.grant_types !== undefined &&
         !body.grant_types.every(grant => (SUPPORTED_GRANT_TYPES as readonly string[]).includes(grant))
       ) {
-        return sendOauthError(reply, 400, "invalid_client_metadata", "不支援的 grant_types");
+        return sendOauthError(reply, 400, "invalid_client_metadata", "Unsupported grant_types.");
       }
       if (body.response_types !== undefined && (body.response_types.length !== 1 || body.response_types[0] !== "code")) {
-        return sendOauthError(reply, 400, "invalid_client_metadata", "只支援 response_types=[code]");
+        return sendOauthError(reply, 400, "invalid_client_metadata", "Only response_types=[code] is supported.");
       }
       const clientName = body.client_name ?? DEFAULT_CLIENT_NAME;
       if (hasUnsafeClientNameChar(clientName)) {
-        return sendOauthError(reply, 400, "invalid_client_metadata", "client_name 含不允許的控制字元");
+        return sendOauthError(reply, 400, "invalid_client_metadata", "client_name contains control characters.");
       }
 
       await runOauthCleanup(deps.db);
@@ -273,34 +274,34 @@ export function oauthRoutes(deps: OauthRouteDeps) {
         redirectWithError(reply, redirectUri, issuer, error, description, state);
 
       if (queryString(query.response_type) !== "code") {
-        return fail("unsupported_response_type", "only response_type=code is supported");
+        return fail("unsupported_response_type", "Only response_type=code is supported.");
       }
       const codeChallenge = queryString(query.code_challenge);
       if (codeChallenge === undefined || !CODE_CHALLENGE_RE.test(codeChallenge)) {
-        return fail("invalid_request", "code_challenge must be 43-128 base64url characters");
+        return fail("invalid_request", "code_challenge must be 43 to 128 base64url characters.");
       }
       if (queryString(query.code_challenge_method) !== "S256") {
-        return fail("invalid_request", "only code_challenge_method=S256 is supported");
+        return fail("invalid_request", "Only code_challenge_method=S256 is supported.");
       }
       if (rawState !== undefined && rawState.length > MAX_STATE) {
-        return fail("invalid_request", "state is too long");
+        return fail("invalid_request", "state is too long.");
       }
       // 其餘落庫欄位各有守衛（code_challenge 有正規式、scope 過 normalizeScope、
       // redirect_uri 過 matchesLoopbackRedirect），state 是最後一個裸的。
       if (rawState !== undefined && hasUnstorableChar(rawState)) {
-        return fail("invalid_request", "state contains characters that cannot be stored");
+        return fail("invalid_request", "state contains characters that can't be stored.");
       }
       const rawScope = queryString(query.scope);
       if (rawScope !== undefined && rawScope.length > MAX_SCOPE) {
-        return fail("invalid_request", "scope is too long");
+        return fail("invalid_request", "scope is too long.");
       }
       const resource = queryString(query.resource);
       if (resource !== undefined && resource.length > MAX_RESOURCE) {
-        return fail("invalid_request", "resource is too long");
+        return fail("invalid_request", "resource is too long.");
       }
       // RFC 8707 §2.1：缺席與無效都是 invalid_target。
       if (!isCanonicalResource(resource, issuer)) {
-        return fail("invalid_target", `resource must be ${canonicalResource(issuer)}`);
+        return fail("invalid_target", `resource must be ${canonicalResource(issuer)}.`);
       }
 
       const id = randomBytes(16).toString("base64url");
@@ -331,20 +332,20 @@ export function oauthRoutes(deps: OauthRouteDeps) {
       // 之前（`sendOauthError` 自己也會設 cache-control，重複設同值無害）。
       reply.header("cache-control", "no-store").header("pragma", "no-cache");
       if (!deps.limiters.tokenEndpoint.consume(request.ip)) {
-        return sendOauthError(reply, 429, "invalid_request", "換發請求太頻繁，請稍後再試");
+        return sendOauthError(reply, 429, "invalid_request", "Too many token requests. Wait a moment and try again.");
       }
 
       for (const [name, { min, max }] of Object.entries(TOKEN_FIELD_LIMITS)) {
         const value = formField(request.body, name);
         if (value === undefined) continue;
         if (value.length > max || value.length < min) {
-          return sendOauthError(reply, 400, "invalid_request", `${name} has an invalid length`);
+          return sendOauthError(reply, 400, "invalid_request", `${name} has an invalid length.`);
         }
       }
       const issuer = publicUrlIssuer(deps.config.publicUrl);
       const grantType = formField(request.body, "grant_type");
       if (grantType === undefined) {
-        return sendOauthError(reply, 400, "invalid_request", "missing grant_type");
+        return sendOauthError(reply, 400, "invalid_request", "Missing grant_type.");
       }
 
       if (grantType === "authorization_code") {
@@ -354,20 +355,20 @@ export function oauthRoutes(deps: OauthRouteDeps) {
         const redirectUri = formField(request.body, "redirect_uri");
         const resource = formField(request.body, "resource");
         if (code === undefined || verifier === undefined || clientId === undefined || redirectUri === undefined) {
-          return sendOauthError(reply, 400, "invalid_request", "missing required parameter");
+          return sendOauthError(reply, 400, "invalid_request", "A required parameter is missing.");
         }
         if (!CODE_VERIFIER_RE.test(verifier)) {
-          return sendOauthError(reply, 400, "invalid_request", "code_verifier has invalid characters");
+          return sendOauthError(reply, 400, "invalid_request", "code_verifier has invalid characters.");
         }
         // 缺席與無效都是 invalid_target（RFC 8707 §2.1）——用 invalid_grant 會讓 client
         // 誤判 code 壞掉而重跑整輪授權。
         if (!isCanonicalResource(resource, issuer)) {
-          return sendOauthError(reply, 400, "invalid_target", `resource must be ${canonicalResource(issuer)}`);
+          return sendOauthError(reply, 400, "invalid_target", `resource must be ${canonicalResource(issuer)}.`);
         }
 
         // 顯式註記型別（不是多餘的）：TS 只有在變數帶 `=> never` 註記時才把呼叫
         // 當成終止控制流，日後開 `noUncheckedIndexedAccess` 才不會整段紅。
-        const invalidGrant: (description?: string) => never = (description = "authorization code is invalid") => {
+        const invalidGrant: (description?: string) => never = (description = "The authorization code is invalid.") => {
           throw new OauthGrantError("invalid_grant", description);
         };
 
@@ -403,7 +404,7 @@ export function oauthRoutes(deps: OauthRouteDeps) {
             // ⚠ 這一條 throw 是承重的：它讓上面那筆 I7 的 DELETE 一起 ROLLBACK。改成
             // 回傳值就會提交刪除卻不發 token，把使用者既有的授權吞掉。
             if ((await countBillableGrants(tx, consumed.userId)) >= TOKEN_LIMIT_PER_USER) {
-              throw new OauthGrantError("invalid_grant", "token limit reached");
+              throw new OauthGrantError("invalid_grant", `Token limit reached: you already have ${TOKEN_LIMIT_PER_USER} active tokens. Revoke one first.`);
             }
 
             const [client] = await tx.select().from(oauthClients).where(eq(oauthClients.clientId, consumed.clientId));
@@ -446,7 +447,7 @@ export function oauthRoutes(deps: OauthRouteDeps) {
           }
           // 並發兌換：兩張 code 各自「先刪後插」，由 partial unique index 裁決。
           if (uniqueViolationConstraint(err) === OAUTH_USER_CLIENT_UIDX) {
-            return sendOauthError(reply, 400, "invalid_grant", "authorization code is invalid");
+            return sendOauthError(reply, 400, "invalid_grant", "The authorization code is invalid.");
           }
           throw err; // 其餘 DB 錯誤照舊走 scoped error handler → 500 server_error
         }
@@ -457,14 +458,14 @@ export function oauthRoutes(deps: OauthRouteDeps) {
         const clientId = formField(request.body, "client_id");
         const resource = formField(request.body, "resource");
         if (refreshToken === undefined || clientId === undefined) {
-          return sendOauthError(reply, 400, "invalid_request", "missing required parameter");
+          return sendOauthError(reply, 400, "invalid_request", "A required parameter is missing.");
         }
         if (resource !== undefined && !isCanonicalResource(resource, issuer)) {
-          return sendOauthError(reply, 400, "invalid_target", `resource must be ${canonicalResource(issuer)}`);
+          return sendOauthError(reply, 400, "invalid_target", `resource must be ${canonicalResource(issuer)}.`);
         }
         // 前綴不合（含把 access token 當 refresh 送）：不進 DB。
         if (!refreshToken.startsWith(REFRESH_TOKEN_PREFIX)) {
-          return sendOauthError(reply, 400, "invalid_grant", "refresh token is invalid");
+          return sendOauthError(reply, 400, "invalid_grant", "The refresh token is invalid.");
         }
 
         const [existing] = await deps.db
@@ -473,11 +474,11 @@ export function oauthRoutes(deps: OauthRouteDeps) {
           .where(eq(apiTokens.refreshTokenHash, hashToken(refreshToken)));
         // client_id 在 JS 端比對（不進 SQL 述詞）。
         if (existing === undefined || existing.clientId !== clientId) {
-          return sendOauthError(reply, 400, "invalid_grant", "refresh token is invalid");
+          return sendOauthError(reply, 400, "invalid_grant", "The refresh token is invalid.");
         }
         const gateResult = await deps.gate.checkUser(existing.userId);
         if (gateResult.status !== "ok") {
-          return sendOauthError(reply, 400, "invalid_grant", "refresh token is invalid");
+          return sendOauthError(reply, 400, "invalid_grant", "The refresh token is invalid.");
         }
 
         // I4：輪替。0 列＝這一支已被另一發輪替掉。
@@ -493,7 +494,7 @@ export function oauthRoutes(deps: OauthRouteDeps) {
           .where(eq(apiTokens.refreshTokenHash, hashToken(refreshToken)))
           .returning();
         if (rotated.length === 0) {
-          return sendOauthError(reply, 400, "invalid_grant", "refresh token is invalid");
+          return sendOauthError(reply, 400, "invalid_grant", "The refresh token is invalid.");
         }
         await deps.db.update(oauthClients).set({ lastUsedAt: new Date() }).where(eq(oauthClients.clientId, existing.clientId));
         void runOauthCleanup(deps.db).catch((err: unknown) => {
@@ -509,7 +510,7 @@ export function oauthRoutes(deps: OauthRouteDeps) {
         });
       }
 
-      return sendOauthError(reply, 400, "unsupported_grant_type", "unsupported grant_type");
+      return sendOauthError(reply, 400, "unsupported_grant_type", "Unsupported grant_type.");
     });
   };
 }

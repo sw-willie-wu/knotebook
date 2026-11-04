@@ -269,4 +269,18 @@ describe("POST /oauth/register（§5.2）", () => {
       await close();
     }
   });
+
+  it("#372：body 超過上限 → 413 RFC 形，error_description 是與 REST 同一句的固定英文句", async () => {
+    const { app, close } = await buildTestApp();
+    try {
+      const res = await register(app, { ...OK_BODY, pad: "x".repeat(1_100_000) });
+      expect(res.statusCode).toBe(413);
+      expect(res.json()).toEqual({
+        error: "invalid_request",
+        error_description: "The request body is over this endpoint's size limit. Send a smaller request.",
+      });
+    } finally {
+      await close();
+    }
+  });
 });

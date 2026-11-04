@@ -42,9 +42,9 @@ vi.mock("../src/storage/tx/quota.js", async () => ({
 
 const RANDOM_UUID = "7d0c6a4e-1f2b-4c3d-9e8f-0a1b2c3d4e5f";
 const TXN_CONTROL = /^(begin|commit|rollback)\b/i;
-const BLOCKED = "資料夾裡有你不能刪除的筆記";
-const CHANGED = "資料夾內容剛變動，請再試一次";
-const NOT_MANAGER = "沒有管理這個資料夾的權限";
+const BLOCKED = "The folder contains notes you can't delete.";
+const CHANGED = "The folder's contents just changed. Try again.";
+const NOT_MANAGER = "You don't have permission to manage this folder.";
 
 const del = (app: FastifyInstance, userId: string | null, id: string) => inject(app, "DELETE", `/api/folders/${id}`, userId);
 
@@ -540,7 +540,7 @@ describe("DELETE /api/folders/:id", () => {
     ok(await del(app, u.id, f1));
     const limited = await del(app, u.id, f2);
     failed(limited, 429, "too_many_requests");
-    expect(messageOf(limited)).toBe("寫入過於頻繁");
+    expect(messageOf(limited)).toBe("Too many writes. Wait a moment and try again.");
     expect(await folderRow(pool, f2)).toBeDefined();
     failed(await del(app, u.id, f1), 404, "folder_not_found");
   });
@@ -560,7 +560,7 @@ describe("DELETE /api/folders/:id", () => {
       const res = await del(app, u.id, R);
       const ms = Date.now() - t0;
       failed(res, 409, "server_busy");
-      expect(messageOf(res)).toBe("伺服器忙碌，請稍後再試");
+      expect(messageOf(res)).toBe("The server is busy. Try again in a moment.");
       expect(ms).toBeLessThan(INJECTED_LOCK_TIMEOUT_BOUND_MS);
     } finally {
       try {
@@ -577,7 +577,7 @@ describe("DELETE /api/folders/:id", () => {
 
 /** 資料夾 PR-3c T1：只刪空資料夾（spec §5.7.4「只刪空資料夾」、§5.11、§6.18）。 */
 describe("DELETE /api/folders/:id { onlyIfEmpty }", () => {
-  const NOT_EMPTY = "資料夾裡還有其他內容，沒有刪除";
+  const NOT_EMPTY = "The folder isn't empty, so it wasn't deleted.";
   const ONLY = { onlyIfEmpty: true } as const;
   const delE = (app: FastifyInstance, userId: string | null, id: string, body?: unknown) =>
     inject(app, "DELETE", `/api/folders/${id}`, userId, body);

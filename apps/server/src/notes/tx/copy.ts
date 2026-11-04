@@ -106,7 +106,7 @@ export async function copyNoteInTx(tx: Tx, input: CopyNoteInput, hook?: GroupTes
       .where(and(eq(groupMembers.groupId, groupId), eq(groupMembers.userId, input.userId)))
       .limit(1);
     if (!g && input.folderId !== null) throw new TxAbort(404, "folder_not_found", FOLDER_NOT_FOUND_MESSAGE);
-    if (!g || !member || !member.canCreate) throw new TxAbort(404, "group_not_found", "找不到此群組");
+    if (!g || !member || !member.canCreate) throw new TxAbort(404, "group_not_found", "No group with that id.");
     if (input.folderId !== null && !member.canEdit) throw new TxAbort(403, "forbidden", NOTE_FOLDER_ROLE_FORBIDDEN_MESSAGE);
     target = { name: g.name, canRead: member.canRead, canEdit: member.canEdit, canDelete: member.canDelete, canManagePublicLink: member.canManagePublicLink };
     await hook?.("note-copy-target-locked", { noteId: input.sourceId, groupId });
@@ -124,7 +124,7 @@ export async function copyNoteInTx(tx: Tx, input: CopyNoteInput, hook?: GroupTes
 
   // #181 §6.2-11：來源在垃圾桶＝列消失，404（與移入的 `FOR UPDATE` 序列化，同上傳）。
   const [src] = await tx.select({ id: notes.id, title: notes.title }).from(notes).where(and(eq(notes.id, input.sourceId), isNull(notes.deletedAt))).for("key share");
-  if (!src) throw new TxAbort(404, "not_found", "找不到此筆記");
+  if (!src) throw new TxAbort(404, "not_found", "No note with that id.");
   await hook?.("note-copy-locked", { noteId: input.sourceId });
 
   const wanted = [...input.copy.uploadNodes.keys()];

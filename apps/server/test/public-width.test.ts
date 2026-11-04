@@ -24,7 +24,7 @@ const move = async (app: FastifyInstance, noteId: string, userId: string, groupI
 const transfer = async (app: FastifyInstance, groupId: string, userId: string, transferTo: string) =>
   app.inject({ method: "DELETE", url: `/api/groups/${groupId}`, cookies: await cookieOf(userId), payload: { mode: "transfer", transferTo } });
 
-const CONFLICT_BODY = { error: { code: "conflict", message: "筆記的歸屬已變更，請重新整理後再試" } };
+const CONFLICT_BODY = { error: { code: "conflict", message: "The note's owner or group changed. Reload and try again." } };
 
 describe("#297 PUT /api/notes/:id/public-width", () => {
   it("W1 owner 個人筆記（未公開）→ 200 { width }、落地；token 仍 null、updated_at 不動", async () => {

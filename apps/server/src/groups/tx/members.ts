@@ -11,8 +11,8 @@ import { GROUP_NOT_FOUND_MESSAGE, builtinRoleId, countAdmins, groupNoteIdsQuery,
 import type { GroupTestHook } from "../test-hook.js";
 
 const notFound = (): TxAbort => new TxAbort(404, "not_found", GROUP_NOT_FOUND_MESSAGE);
-const roleNotFound = (): TxAbort => new TxAbort(404, "role_not_found", "找不到此角色");
-const lastAdmin = (): TxAbort => new TxAbort(409, "last_admin", "群組至少要有一位管理員");
+const roleNotFound = (): TxAbort => new TxAbort(404, "role_not_found", "No role with that id.");
+const lastAdmin = (): TxAbort => new TxAbort(409, "last_admin", "The group needs at least one admin.");
 
 /** T9：只新增（已是成員 → 409 `already_member`，**不動**既有角色）。`roleId` null＝內建一般成員。回實際掛上的角色。 */
 export async function addMemberInTx(
@@ -32,7 +32,7 @@ export async function addMemberInTx(
     .values({ groupId: input.groupId, userId: input.targetUserId, roleId: role.id })
     .onConflictDoNothing()
     .returning({ userId: groupMembers.userId });
-  if (inserted.length === 0) throw new TxAbort(409, "already_member", "此人已經是群組成員");
+  if (inserted.length === 0) throw new TxAbort(409, "already_member", "That user is already a member of this group.");
   return { roleId: role.id, builtin: role.builtin };
 }
 

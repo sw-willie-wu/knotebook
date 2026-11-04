@@ -3,6 +3,12 @@ import type { ErrorCode, StorageQuotaErrorDetail } from "@knotebook/shared";
 import { STORAGE_QUOTA_EXCEEDED_MESSAGE } from "../storage/space.js";
 
 /**
+ * #372：413 的固定訊息——REST（`app.ts` 的全域 errorHandler，`content_too_large`）與 OAuth 兩個 RFC 形 plugin
+ * （`routes/oauth.ts` 的 `registerRfcErrorHandlers`，`invalid_request`）共用。各路由的 `bodyLimit` 不同，不寫數字。
+ */
+export const BODY_TOO_LARGE_MESSAGE = "The request body is over this endpoint's size limit. Send a smaller request.";
+
+/**
  * 統一錯誤回應格式 `{ error: { code, message } }` 的唯一定義處。app.ts（全域錯誤
  * handler、404、認證 decorator）與各路由模組（setup.ts、auth.ts、…）一律從這裡
  * import，不要各自重複宣告——這個模組不依賴 app.ts、也不依賴任何路由模組，
@@ -18,7 +24,7 @@ export function sendError(reply: FastifyReply, statusCode: number, code: ErrorCo
  */
 export function sendLoginThrottled(reply: FastifyReply, retryAfterMs: number): FastifyReply {
   return reply.code(429).send({
-    error: { code: "too_many_attempts", message: "登入嘗試次數過多，請稍後再試" },
+    error: { code: "too_many_attempts", message: "Too many sign-in attempts. Wait a moment and try again." },
     retryAfterMs,
   });
 }
@@ -35,5 +41,5 @@ export function sendStorageQuotaExceeded(reply: FastifyReply, detail: StorageQuo
 
 /** #181 §6.7：404 in_trash——頂層第三個額外欄位出口（先例 sendLoginThrottled／sendStorageQuotaExceeded）。只給有垃圾桶權的人。 */
 export function sendInTrash(reply: FastifyReply, noteId: string): FastifyReply {
-  return reply.code(404).send({ error: { code: "in_trash", message: "這篇筆記在垃圾桶裡" }, noteId });
+  return reply.code(404).send({ error: { code: "in_trash", message: "This note is in the trash." }, noteId });
 }
