@@ -73,7 +73,7 @@ test("群組角色：新增自訂角色 → 改成員角色即時變唯讀 → �
     await expect(userPage).toHaveURL(noteUrl);
     const userBadge = userPage.getByRole("status").filter({ hasText: /^Connected/ });
     await expect(userBadge).toBeVisible({ timeout: 15_000 });
-    await expect(userBadge.getByText("Editor", { exact: true })).toBeVisible();
+    await expect(userBadge).toHaveText("Connected"); // #335：能編輯者徽章只寫「Connected」
     const userEditable = userPage.locator('[data-testid="note-editor"] [contenteditable="true"]');
     await expect(userEditable).toHaveCount(1, { timeout: 15_000 });
     if (shotDir) {
@@ -106,8 +106,8 @@ test("群組角色：新增自訂角色 → 改成員角色即時變唯讀 → �
     await roleSelect.selectOption({ label: "Reader" });
 
     // ── 7. B：10 秒內變唯讀 ────────────────────────────────────────────
-    // 有效斷言是這兩條：徽章 Viewer、編輯器沒有 `contenteditable="true"`。
-    await expect(userBadge.getByText("Viewer", { exact: true })).toBeVisible({ timeout: 10_000 });
+    // 有效斷言是這兩條：徽章變「Read-only」（#335：viewer 不再寫 Connected／角色）、編輯器沒有 `contenteditable="true"`。
+    await expect(userPage.getByRole("status").filter({ hasText: /^Read-only/ })).toBeVisible({ timeout: 10_000 });
     await expect(userEditable).toHaveCount(0, { timeout: 10_000 });
     // spec 字面的「⋮ 沒有刪除」（#181 起選單項是 Delete）：**這條沒有鑑別力**——內建一般成員本來就沒有刪除旗標，第 4 步 B 的 ⋮ 裡
     // 就已經沒有 Delete；Reader 前後都一樣。Willie 2026-10-01 裁決照 spec 保留（主檔 spec 疑點 8）。
@@ -130,7 +130,7 @@ test("群組角色：新增自訂角色 → 改成員角色即時變唯讀 → �
     await roleSelect.selectOption({ label: "Member" });
 
     // ── 9. B：10 秒內恢復可編輯；B 打字 A 看得到 ────────────────────────
-    await expect(userBadge.getByText("Editor", { exact: true })).toBeVisible({ timeout: 10_000 });
+    await expect(userBadge).toHaveText("Connected", { timeout: 10_000 }); // #335：改回能編輯 → 徽章回到只寫「Connected」
     await expect(userEditable).toHaveCount(1, { timeout: 10_000 });
     const sentence = `typed by restored member ${Date.now()}`;
     await editorLocator(userPage).click();

@@ -269,6 +269,24 @@ describe("PresenceAvatars", () => {
     expect(wide).toHaveAttribute("aria-expanded", "true");
   });
 
+  it("#335 頭像尺寸：頁首每顆頭像與 +N 都是 24px，點擊區 ::before 桌面 32×32、窄視窗 36×44（x 伸出量 ≤ 疊放的 6px，不蓋鄰居中心）", () => {
+    const aw = newAwareness();
+    six(aw);
+    mount(aw);
+    for (const b of personButtons()) {
+      const circle = b.firstElementChild as HTMLElement;
+      expect(circle.style.width).toBe("24px");
+      expect(circle.style.height).toBe("24px");
+      expect(b).toHaveClass("before:-inset-x-1", "before:-inset-y-1", "max-md:before:-inset-x-1.5", "max-md:before:-inset-y-2.5");
+    }
+    for (const name of ["2 more, show everyone", "5 more, show everyone"]) {
+      const more = screen.getByRole("button", { name });
+      expect(more).toHaveClass("h-6", "w-6");
+      expect(more).not.toHaveClass("h-7");
+      expect(more).toHaveClass("before:-inset-x-1", "before:-inset-y-1", "max-md:before:-inset-x-1.5", "max-md:before:-inset-y-2.5");
+    }
+  });
+
   it("PA6 容量：5 位 → 5 顆、只有窄 +4；2 位 → 都不藏、沒有 +N", () => {
     const aw = newAwareness();
     for (const [i, id] of ["u-a", "u-b", "u-c", "u-d", "u-e"].entries()) setRemote(aw, 10 + i, userState(id, id));

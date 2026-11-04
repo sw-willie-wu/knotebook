@@ -97,7 +97,7 @@ test("群組：建立 → 群組建筆記（/g/ 網址）→ 設定加人 → �
     await expect(userPage).toHaveURL(noteUrl);
     const userBadge = userPage.getByRole("status").filter({ hasText: /^Connected/ });
     await expect(userBadge).toBeVisible({ timeout: 15_000 });
-    await expect(userBadge.getByText("Editor", { exact: true })).toBeVisible(); // 內建一般成員 → editor
+    await expect(userBadge).toHaveText("Connected"); // 內建一般成員 → editor：#335 起徽章只寫「Connected」，不帶角色
     // Q14：群組筆記的讀者也有分享鈕（群組版面板只說明＋連到群組設定）
     await expect(userPage.getByRole("button", { name: "Share", exact: true })).toBeVisible();
 
