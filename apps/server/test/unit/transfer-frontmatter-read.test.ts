@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FRONTMATTER_SCAN_LINES, parseScalar, readNoteFile, writeNoteFile } from "../../src/transfer/frontmatter.js";
+import { FRONTMATTER_SCAN_LINES, UNCLOSED_FRONT_MATTER_MESSAGE, parseScalar, readNoteFile, writeNoteFile } from "../../src/transfer/frontmatter.js";
 import { normalizeBody } from "../../src/transfer/normalize.js";
 
 /** bulk transfer spec §9.1（frontmatter 讀入、格式守衛、`title` 往返）；plan T2（F1–F8）。 */
@@ -51,13 +51,21 @@ describe("F3 辨識", () => {
     const text = "---\ntitle: x\n---\nbody";
     expect(readNoteFile(text)).toEqual({ kind: "new", title: undefined, folderId: undefined, body: normalizeBody(text) });
   });
-  it(`第 ${FRONTMATTER_SCAN_LINES} 行的 --- 算 frontmatter；第 ${FRONTMATTER_SCAN_LINES + 1} 行才出現 → 整檔是本文`, () => {
+  it(`第 ${FRONTMATTER_SCAN_LINES} 行的 --- 算 frontmatter；第 ${FRONTMATTER_SCAN_LINES + 1} 行才出現 → 掃描範圍內沒有收尾 → 400（8000 探索測試 B）`, () => {
     const filler = (n: number) => Array.from({ length: n }, (_, i) => `x${i}: y`);
     // 1 起算：第 1 行 `---`、第 2 行 id、第 3 行 base、filler、第 N 行 `---`
     const at = (n: number) => ["---", `id: ${ID}`, `base: ${BASE}`, ...filler(n - 4), "---", "body"].join("\n");
     expect(readNoteFile(at(FRONTMATTER_SCAN_LINES)).kind).toBe("existing");
     const late = at(FRONTMATTER_SCAN_LINES + 1);
-    expect(readNoteFile(late)).toEqual({ kind: "new", title: undefined, folderId: undefined, body: normalizeBody(late) });
+    expect(errOf(readNoteFile(late))).toBe(UNCLOSED_FRONT_MATTER_MESSAGE);
+  });
+  it("F3b（8000 探索測試 B）開頭 --- 與 knotebook:／id: 卻沒有收尾 → error；開頭 --- 但沒有 knotebook:／id:、也沒收尾 → 整檔是本文；開頭不是 --- → 本文", () => {
+    expect(errOf(readNoteFile("---\nknotebook: 1\ntitle: T\nbody line"))).toBe(UNCLOSED_FRONT_MATTER_MESSAGE);
+    expect(errOf(readNoteFile(`---\nid: ${ID}\nbase: ${BASE}\nbody`))).toBe(UNCLOSED_FRONT_MATTER_MESSAGE);
+    const hr = "---\nplain text after a rule";
+    expect(readNoteFile(hr)).toEqual({ kind: "new", title: undefined, folderId: undefined, body: normalizeBody(hr) });
+    const notFirst = "text\n---\nknotebook: 1";
+    expect(readNoteFile(notFirst)).toEqual({ kind: "new", title: undefined, folderId: undefined, body: normalizeBody(notFirst) });
   });
   it("tags 清單夾在中間照常讀", () => {
     const r = readNoteFile(file([`id: ${ID}`, "tags:", "  - a", "  - b", `base: ${BASE}`, 'title: "T"']));

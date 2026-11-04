@@ -30,7 +30,7 @@
  *     `note-presence.test.ts` 與 `mcp-content.test.ts` 兩條逐字斷言在守——本檔 `touch()` 與
  *     `mcp/note-read.ts` 都只是呼叫端，沒有各自的第二道守衛。
  */
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import type { FastifyBaseLogger } from "fastify";
 import * as Y from "yjs";
 import { YDOC_FRAGMENT, type EditOp } from "@knotebook/shared";
@@ -38,12 +38,12 @@ import { currentAgentLabel } from "../../auth/agent-label.js";
 import type { CollabServer } from "../../collab/server.js";
 import type { VersionService } from "../../collab/versions.js";
 import type { Db } from "../../db/index.js";
-import { notes, transferBases, transferCreates } from "../../db/schema.js";
+import { noteAiEdits, notes, transferBases, transferCreates } from "../../db/schema.js";
 import { isForeignKeyViolation, isNoteFolderSpaceViolation, isRetryableTxError, pgErrorSummary } from "../../db/pg-errors.js";
 import type { FixedWindowLimiter } from "../../http/rate-limit.js";
 import { redactDbError } from "../../lib/redact-db-error.js";
 import { hmacOf } from "../../transfer/base-hash.js";
-import { diffLines, hashAgentLines } from "../../transfer/line-diff.js";
+import { blankBaseSegments, diffLines, hashAgentLines } from "../../transfer/line-diff.js";
 import { bodyLines } from "../../transfer/normalize.js";
 import { applySync, fileSyncRows, type Applied } from "../../transfer/sync-apply.js";
 import { planSync, type PlanSyncError, type SyncPlan } from "../../transfer/sync-plan.js";
@@ -57,7 +57,7 @@ import { applyEdit, FingerprintMismatch, forkAndCheck, mergeDiff, recordableAfte
 import { applyVersionEdit, type ApplyVersionFailureCode, type ApplyVersionInput } from "./apply-version.js";
 import { visibleNoteTargets, type VisibleNoteTarget } from "./candidates.js";
 import { topLevelSnapshot } from "./fingerprint.js";
-import { parseMarkdownForNote, siteOriginOf, type ParsedMarkdown, type ParseError } from "./markdown.js";
+import { parseMarkdownForNote, siteOriginOf, type ParseDetail, type ParsedMarkdown, type ParseError } from "./markdown.js";
 import { presenceIdentity, presenceTargetForWrite, type PresenceRegistry, type PresenceTarget } from "./presence.js";
 import { NoteWriteQueue, QueueBusyError } from "./queue.js";
 import { revertEdit, type RevertResult } from "./revert.js";
@@ -147,15 +147,23 @@ export interface CreateFromFileInput {
 }
 export type CreateFromFileOutcome =
   | { ok: true; created: boolean; noteId: string; unboundWikilinks: number }
-  | { ok: false; kind: "parse"; code: ParseError }
+  | { ok: false; kind: "parse"; code: ParseError; detail?: ParseDetail }
   | { ok: false; kind: "rate_limited"; retryAfterMs: number }
   | { ok: false; kind: "folder_gone" | "busy" | "internal" };
 
+/**
+ * 409 `base_unavailable` 的成因（回應的 `error.reason`；8000 探索測試 D，Willie 2026-11-04）：`already_sent`＝這份副本已用其他內容
+ * 送回過；`other_note`＝`base` 屬於別篇或別人；`expired`＝伺服器已沒有這份基底（裁掉、過期）或金鑰換過；`anchors_gone`＝改的某一處
+ * 找不到該放的位置（`decide.ts` 的 `anchorsGone`）；`reverted`＝這份檔寫回的紀錄已被撤回（`applied_edit_ids`）。
+ */
+export type BaseUnavailableReason = "already_sent" | "other_note" | "expired" | "anchors_gone" | "reverted";
+
 export type SyncFileOutcome =
   | SyncFileOk
-  | { ok: false; kind: "base_unavailable" | "not_mergeable" | "busy" | "gone" }
+  | { ok: false; kind: "base_unavailable"; reason: BaseUnavailableReason }
+  | { ok: false; kind: "not_mergeable" | "busy" | "gone" }
   | { ok: false; kind: "rate_limited"; retryAfterMs: number }
-  | { ok: false; kind: "parse"; code: PlanSyncError };
+  | { ok: false; kind: "parse"; code: PlanSyncError; detail?: ParseDetail; fence?: string };
 
 export interface NoteWriteServiceDeps {
   db: Db;
@@ -384,14 +392,26 @@ export class NoteWriteService {
       .from(transferBases)
       .where(and(eq(transferBases.key, input.baseKey), eq(transferBases.userId, input.userId), eq(transferBases.noteId, input.noteId)))
       .limit(1);
-    if (!base || base.keyId !== input.keyId) return { ok: false, kind: "base_unavailable" };
+    if (!base) {
+      // 只為了回 reason 再查一次（只比 key；不回列的內容）：列在、但不是這篇或這個人 → other_note；不在 → expired（裁掉／過期）。
+      const [other] = await db.select({ key: transferBases.key }).from(transferBases).where(eq(transferBases.key, input.baseKey)).limit(1);
+      return { ok: false, kind: "base_unavailable", reason: other ? "other_note" : "expired" };
+    }
+    if (base.keyId !== input.keyId) return { ok: false, kind: "base_unavailable", reason: "expired" };
     const salt = Buffer.from(base.salt);
     const bodySha = hmacOf(input.key, salt, input.body);
     const applied = base.appliedBodySha === null ? null : Buffer.from(base.appliedBodySha);
     let contentNoop: boolean;
     if (applied === null) contentNoop = bodySha.equals(Buffer.from(base.bodySha));
-    else if (bodySha.equals(applied)) contentNoop = true;
-    else return { ok: false, kind: "base_unavailable" };
+    else if (bodySha.equals(applied)) {
+      // 同檔重送：這份檔寫回的紀錄若有任一列已撤回，內容已不是「都套用了」→ 409 reverted（8000 探索測試 C）。
+      const ids = base.appliedEditIds ?? [];
+      if (ids.length > 0) {
+        const [rev] = await db.select({ id: noteAiEdits.id }).from(noteAiEdits).where(and(inArray(noteAiEdits.id, ids), isNotNull(noteAiEdits.revertedAt))).limit(1);
+        if (rev) return { ok: false, kind: "base_unavailable", reason: "reverted" };
+      }
+      contentNoop = true;
+    } else return { ok: false, kind: "base_unavailable", reason: "already_sent" };
     if (!contentNoop && base.segments === null) return { ok: false, kind: "not_mergeable" };
 
     const out: SyncFileOk = {
@@ -411,6 +431,7 @@ export class NoteWriteService {
       out.anchored = diff.anchored;
       out.degradedLines = diff.degradedLines;
       const segments = base.segments!;
+      const blankSegs = blankBaseSegments(input.key, salt, Buffer.from(base.lineHashes), segments);
       const baseLineCount = base.lineKinds.length;
       let versionCut = false;
       let merged: MergeOutput | null = null;
@@ -422,13 +443,13 @@ export class NoteWriteService {
         const f = await forkAndCheck(applyDeps, input.noteId);
         const curFragment = f.fork.getXmlFragment(YDOC_FRAGMENT);
         const cur = topLevelSnapshot(curFragment);
-        const planned = await planSync(editing, { segments, baseLineCount, agentLines, diff, cur, curFragment, candidates, siteOrigin: siteOriginOf(editing.baseUrl) });
-        if (!planned.ok) return { ok: false, kind: "parse", code: planned.code };
+        const planned = await planSync(editing, { segments, blankSegs, baseLineCount, agentLines, diff, cur, curFragment, candidates, siteOrigin: siteOriginOf(editing.baseUrl) });
+        if (!planned.ok) return { ok: false, kind: "parse", code: planned.code, ...(planned.detail ? { detail: planned.detail } : {}), ...(planned.fence ? { fence: planned.fence } : {}) };
         const p = planned.plan;
         if (p.decisions.every(d => d.mark === "same")) {
           // 零區（含全是 same）→ 寫 applied_body_sha、視為內容沒變（§9.2-6，gate r3 m6）。參數只有 HMAC 與 key（不帶內容）。
           try {
-            await db.update(transferBases).set({ appliedBodySha: bodySha, lastUsedAt: sql`now()` }).where(eq(transferBases.key, base.key));
+            await db.update(transferBases).set({ appliedBodySha: bodySha, appliedEditIds: [], lastUsedAt: sql`now()` }).where(eq(transferBases.key, base.key));
           } catch (err) {
             throw redactDbError(log, err, "寫入檔案同步基底");
           }
@@ -440,7 +461,7 @@ export class NoteWriteService {
         // 整篇 409 `base_unavailable`，照既有 409 出口：在扣桶、存版、紀錄、改名之前，什麼都不寫（`decide.ts` 的 `anchorsGone`）。
         // 重試路徑的邊緣（接受、不修）：第一輪撞指紋、第二輪重新規劃才判成全消失時，第一輪已扣的桶與已存的版本不退回——與三次都撞指紋
         // 回 503 的情形一致。
-        if (p.anchorsGone.length > 0) return { ok: false, kind: "base_unavailable" };
+        if (p.anchorsGone.length > 0) return { ok: false, kind: "base_unavailable", reason: "anchors_gone" };
         if (!charged) {
           if (!input.limiters.transferWrite.consume(input.userId)) return { ok: false, kind: "rate_limited", retryAfterMs: input.limiters.transferWrite.retryAfterMs(input.userId) };
           charged = true;
@@ -567,7 +588,7 @@ export class NoteWriteService {
     }
     // 解析在扣桶之前（總管 m2）：解析失敗不扣 `transferWrite`、不留筆記、不寫去重列——與寫回（`syncFile` 的 parse 出口在扣桶前）一致。
     const pre = await this.prepareContent(log, { userId: input.userId, tokenId: input.tokenId, content: input.body });
-    if (!pre.ok) return { ok: false, kind: "parse", code: pre.code };
+    if (!pre.ok) return { ok: false, kind: "parse", code: pre.code, ...(pre.detail ? { detail: pre.detail } : {}) };
     if (!input.limiters.transferWrite.consume(input.userId)) return { ok: false, kind: "rate_limited", retryAfterMs: input.limiters.transferWrite.retryAfterMs(input.userId) };
     if (this.deps.testHooks?.beforeCreateFromFile) await this.deps.testHooks.beforeCreateFromFile();
     let r: CreateWithContentResult;
@@ -642,7 +663,7 @@ export class NoteWriteService {
    * `createWithContent` 的解析段（建列之前；不碰 DB 以外的狀態、不扣任何桶）。bulk transfer 的新增（`createFromFile`）先呼叫它、
    * 解析失敗就不扣 `transferWrite`（與寫回一致：解析失敗不扣，總管 m2），成功再把結果傳給 `createWithContent` 省掉第二次解析。
    */
-  async prepareContent(log: FastifyBaseLogger, input: { userId: string; tokenId: string | null; content: string }): Promise<PreparedContent | { ok: false; kind: "parse"; code: ParseError }> {
+  async prepareContent(log: FastifyBaseLogger, input: { userId: string; tokenId: string | null; content: string }): Promise<PreparedContent | { ok: false; kind: "parse"; code: ParseError; detail?: ParseDetail }> {
     // #269 §8.5（A9）：lease **之前**預取寫入者可見清單（含 slug／群組／handle）；之後的解析在記憶體內完成、lease 期間零 DB。
     const candidates = await visibleNoteTargets(this.deps.db, input.userId);
     const agentLabel = input.tokenId ? await currentAgentLabel(this.deps.db, input.tokenId) : null;
@@ -656,7 +677,7 @@ export class NoteWriteService {
     } finally {
       scratch.close();
     }
-    if ("error" in prepared) return { ok: false, kind: "parse", code: prepared.error };
+    if ("error" in prepared) return { ok: false, kind: "parse", code: prepared.error, ...(prepared.detail ? { detail: prepared.detail } : {}) };
     return { ok: true, candidates, agentLabel, prepared };
   }
 

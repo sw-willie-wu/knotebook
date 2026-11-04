@@ -92,6 +92,18 @@ export async function hashAgentLines(
   return { raw, num };
 }
 
+/**
+ * 每段的基底行是否全是空行（0 行段也算；審查 I1／F3：讀出來是空行的 block——空的或只有空白（含 NBSP、U+3000）的段落、只有換行的段落、沒有網址的 image／file／video／audio）。基底沒有原文，所以拿同一把 key、鹽算
+ * 空行的雜湊逐行比（空行的編號正規化鍵與原文鍵相同，`kinds` 不必看）。給 `decide.ts` 的 `anchorsGone` 判「基底只有讀出來是空行的 block 的改寫區」。
+ */
+export function blankBaseSegments(key: Buffer, salt: Buffer, hashes: Buffer, segments: readonly { start: number; count: number }[]): boolean[] {
+  const blank = h8(hmacOf(key, salt, lineKey("")));
+  return segments.map(s => {
+    for (let i = s.start; i < s.start + s.count; i++) if (hashes.toString("latin1", i * LINE_HASH_BYTES, (i + 1) * LINE_HASH_BYTES) !== blank) return false;
+    return true;
+  });
+}
+
 interface Ctx {
   baseId: Int32Array;
   baseKind: Uint8Array;

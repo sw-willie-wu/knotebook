@@ -260,6 +260,13 @@
       "when": 1793637620736,
       "tag": "0036_bulk-transfer",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1793756066893,
+      "tag": "0037_bulk-transfer-applied-edits",
+      "breakpoints": true
     }
   ]
 }

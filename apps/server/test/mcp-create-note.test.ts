@@ -120,6 +120,14 @@ describe("#108 create_note", () => {
     expect(err.message).toBeTruthy();
     expect(await countNotes(s.ctx.db, s.ownerId)).toBe(0);
   });
+  it("content 混有 <style>／<script> → unsupported_block 整筆拒絕（以前悄悄拿掉、照建），notes 表零新增列", async () => {
+    const s = await scene();
+    for (const content of ["# 標題\n\n<style>p{color:red}</style>\n\n內文", "內文 <script>alert(1)</script> 後文"]) {
+      const err = errorOf(await createNote(s.ctx.app, s.token, { title: "T", content }));
+      expect(err.code, content).toBe("unsupported_block");
+    }
+    expect(await countNotes(s.ctx.db, s.ownerId)).toBe(0);
+  });
 
   // 案 21a：不帶 `content` ＝ REST 的 201 等價（DB 的 default 標題、`lastEdited` 恆 null）。
   // `title` 未帶時**整把鍵都不放進 values**（`notes/create.ts` 的 `insertNoteWithAutoSlug`），

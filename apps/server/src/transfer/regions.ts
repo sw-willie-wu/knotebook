@@ -32,7 +32,8 @@ export interface Region {
   prevSeg: number;
   nextSeg: number;
 }
-export type RegionsResult = { ok: true; regions: Region[]; boundaryChecks: number } | { ok: false; code: "empty_content" | "unclosed_fence" };
+/** `fence`：未閉合的那一行用的 fence 記號（``` 或 ~~~，原樣幾個字元），給訊息用（8000 探索測試 E）。 */
+export type RegionsResult = { ok: true; regions: Region[]; boundaryChecks: number } | { ok: false; code: "empty_content" } | { ok: false; code: "unclosed_fence"; fence: string };
 
 /**
  * 總管裁示（審查 m3，複審改裁）：agent **新增或改過**的一行開了 code fence、而且一路延伸到檔尾沒有收尾 → 整篇 400、什麼都不寫
@@ -41,8 +42,10 @@ export type RegionsResult = { ok: true; regions: Region[]; boundaryChecks: numbe
  * 一行（E6），原檔重送或只改別段都不能因此被拒。判斷以 repo 實際的 parser 為準（`markdownToHTML`，即 `parseMarkdownForNote`
  * 的第一步），不手寫 fence 規則：見 `trailingOpenFenceLine`。路由映 400 `invalid_body` 並帶這句（HTTP 層中文，T8 接）。
  */
-export const UNCLOSED_FENCE_MESSAGE =
-  "你新增或改過的一行 ``` 開了程式碼區塊卻沒有收尾：從那一行起到檔尾都會被當成程式碼。請補上結尾的 ```（或改用行內 `code`）再送";
+/** 8000 探索測試 E：訊息照實際用的 fence 記號寫（``` 或 ~~~），不一律寫 ```。 */
+export const unclosedFenceMessage = (fence: string): string =>
+  `你新增或改過的一行 ${fence} 開了程式碼區塊卻沒有收尾：從那一行起到檔尾都會被當成程式碼。請補上結尾的 ${fence}（或改用行內 \`code\`）再送`;
+export const UNCLOSED_FENCE_MESSAGE = unclosedFenceMessage("```");
 
 const FENCE_SENTINEL = "kn-fence-sentinel-3f9c2a7e";
 /** `trailingOpenFenceLine` 認得的開頭行形（它回的那一行必定符合；預篩用同一條，所以預篩是精確的）。 */
@@ -219,7 +222,7 @@ export async function findRegions(
       await yieldFn();
       last = now();
     }
-    if (open !== null && inUnchanged[open] === 0) return { ok: false, code: "unclosed_fence" };
+    if (open !== null && inUnchanged[open] === 0) return { ok: false, code: "unclosed_fence", fence: FENCE_LIKE.exec(agentLines[open]!)![1]! };
   }
 
   // ⑤–⑧ 合成區

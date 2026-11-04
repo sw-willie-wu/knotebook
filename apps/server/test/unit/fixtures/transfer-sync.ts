@@ -11,7 +11,7 @@ import { EditorSession } from "../../../src/notes/editing/session.js";
 import { baseHashes, deriveTransferKey, transferKeyId } from "../../../src/transfer/base-hash.js";
 import { exportNoteForTransfer } from "../../../src/transfer/export-note.js";
 import { writeNoteFile } from "../../../src/transfer/frontmatter.js";
-import { diffLines, hashAgentLines, type DiffOptions, type LineDiff } from "../../../src/transfer/line-diff.js";
+import { blankBaseSegments, diffLines, hashAgentLines, type DiffOptions, type LineDiff } from "../../../src/transfer/line-diff.js";
 import { bodyLines, normalizeBody } from "../../../src/transfer/normalize.js";
 import { findRegions, makeBoundaryCheck, type CheckBoundary, type RegionsResult } from "../../../src/transfer/regions.js";
 import type { TransferSegment } from "../../../src/db/schema.js";
@@ -104,6 +104,7 @@ export async function planInMemory(
   const cur = topLevelSnapshot(curFragment);
   const r = await planSync(rt, {
     segments: b.base.segments!,
+    blankSegs: blankBaseSegments(TEST_KEY, b.base.salt, b.base.lineHashes, b.base.segments!),
     baseLineCount: b.lines.length,
     agentLines,
     diff,

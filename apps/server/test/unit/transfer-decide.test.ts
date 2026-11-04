@@ -285,8 +285,9 @@ describe("AG 定位點全消失（Willie 2026-11-04：整篇 409，不退到文�
   it("AG1 改寫 B：B、A、C 都換了新 id（edit_note 改寫整段）→ [0]", () => {
     expect(gone(S, [region(S, "rewrite", [1], 0, 2)], curOf(["X", "Y", "Z"]))).toEqual([0]);
   });
-  it("AG2 改寫 B：B 不見但 A 還在 → []（放 A 之後）；B 還在 → []", () => {
-    expect(gone(S, [region(S, "rewrite", [1], 0, 2)], curOf(["A", "Z"]))).toEqual([]);
+  it("AG2 改寫 B：B 不見、A 還在 → [0]（第二輪：改寫區倖存者全不見一律拒絕，不論 P、N）；B 還在 → []", () => {
+    expect(gone(S, [region(S, "rewrite", [1], 0, 2)], curOf(["A", "Z"]))).toEqual([0]);
+    expect(gone(S, [region(S, "rewrite", [1], 0, 2)], curOf(["A", "C"]), [["c:B2"]])).toEqual([0]);
     expect(gone(S, [region(S, "rewrite", [1], 0, 2)], curOf(["X", "B", "Z"]))).toEqual([]);
   });
   it("AG3 插入在 C 之後（尾端，本來就沒有 N）：A、B、C 都不見 → [0]；C 在 → []", () => {
@@ -309,6 +310,35 @@ describe("AG 定位點全消失（Willie 2026-11-04：整篇 409，不退到文�
     const ds = decide(S, regions, cur, sameWith([["c:B2"]]));
     expect(ds[0]).toMatchObject({ mark: "conflict", P: null, N: null, survivors: [] });
     expect(anchorsGone(S, regions, ds, cur)).toEqual([]);
+  });
+  it("AG9（審查 I1）基底只有 0 行段（空段落）的改寫區照插入區判：空段落被刪、A、B 還在 → []；A、B 也不見 → [0]", () => {
+    const E3 = segsOf("A", "~e", "B");
+    expect(gone(E3, [region(E3, "rewrite", [1], 0, 2)], curOf(["A", "B"]), [["c:new"]])).toEqual([]);
+    expect(gone(E3, [region(E3, "rewrite", [1], 0, 2)], curOf(["X", "Y"]), [["c:new"]])).toEqual([0]);
+    // 實際匯出：空段落是一行空行（count 1）→ 靠 blankSegs 認；沒標 blank 的同形 → [0]（倖存者規則）
+    const E = segsOf("A", "E", "B");
+    const rs = [region(E, "rewrite", [1], 0, 2)];
+    const cur = curOf(["A", "B"]);
+    const ds = decide(E, rs, cur, sameWith([["c:new"]]));
+    expect(anchorsGone(E, rs, ds, cur, [false, true, false])).toEqual([]);
+    expect(anchorsGone(E, rs, ds, cur)).toEqual([0]);
+  });
+  it("AG9b（審查 F1）同形的判定是 applied（不存版、不算衝突）；沒標 blank → conflict；現況 0 顆頂層 → 照舊 conflict", () => {
+    const E = segsOf("A", "E", "B");
+    const rs = [region(E, "rewrite", [1], 0, 2)];
+    const blankSegs = [false, true, false];
+    expect(decide(E, rs, curOf(["A", "B"]), sameWith([["c:new"]]), { blankSegs })[0]).toMatchObject({ mark: "applied", survivors: [], missing: ["E"] });
+    expect(decide(E, rs, curOf(["A", "B"]), sameWith([["c:new"]]))[0]!.mark).toBe("conflict");
+    expect(decide(E, rs, curOf([]), sameWith([["c:new"]]), { blankSegs })[0]!.mark).toBe("conflict");
+  });
+  it("AG9c（審查 F4）改寫區 [E, B] 只有 E 是空行、兩顆都不見 → [0]（409；全是空行才放行）", () => {
+    const S4 = segsOf("A", "E", "B", "C");
+    const rs = [region(S4, "rewrite", [1, 2], 0, 3)];
+    const cur = curOf(["A", "C"]);
+    const blankSegs = [false, true, false, false];
+    const ds = decide(S4, rs, cur, sameWith([["c:new"]]), { blankSegs });
+    expect(ds[0]!.mark).toBe("conflict");
+    expect(anchorsGone(S4, rs, ds, cur, blankSegs)).toEqual([0]);
   });
   it("AG8 刪除區不算：B 還在、A、C 換了新 id（P、N 都沒有）→ []（有倖存者可刪）", () => {
     expect(gone(S, [region(S, "delete", [1], 0, 2)], curOf(["X", "B", "Z"]))).toEqual([]);

@@ -997,6 +997,12 @@ export const transferBases = pgTable(
     lineKinds: bytea("line_kinds").notNull(),
     segments: jsonb().$type<TransferSegment[] | null>(),
     appliedBodySha: bytea("applied_body_sha"),
+    /**
+     * 寫回這份檔時記下的 `note_ai_edits`（file_sync）列 id（裁切後仍存活的；零區＝空陣列）。同檔重送時，其中任一列已撤回
+     * （`reverted_at` 非 null）→ 409 `base_unavailable`、reason `reverted`，不再回 unchanged（8000 探索測試 C，Willie 2026-11-04）。
+     * 不設 FK：列被裁切或刪掉時 id 只是查不到，照「沒撤回」處理。
+     */
+    appliedEditIds: uuid("applied_edit_ids").array(),
     appliedTitleSha: bytea("applied_title_sha"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }).notNull().defaultNow(),

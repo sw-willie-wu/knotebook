@@ -517,6 +517,20 @@ describe("E14–E17：not mergeable、標頭、presence、live", () => {
     expect(b2!.segments).not.toBeNull();
   });
 
+  it("E14b（8000 探索測試 H）檔案超過寫回上限（1 MiB）→ manifest 該項 tooLargeToSend:true；一般檔沒有這個鍵", async () => {
+    const ctx = await buildCollabTestApp();
+    const { u, b } = await userWithBulk(ctx);
+    const big = await seedNote(ctx.db, { ownerId: u.id }, { title: "big" });
+    const small = await seedNote(ctx.db, { ownerId: u.id }, { title: "small" });
+    await seedMd(ctx.db, big.id, Array.from({ length: 300 }, (_, i) => `p${i} ${"x".repeat(4000)}`).join("\n\n"));
+    await seedMd(ctx.db, small.id, "small body");
+    const entries = readTarGz((await exportRaw(ctx.baseUrl, b.token)).body);
+    const m = manifestOf(entries);
+    expect(filesOf(entries).find(e => e.path === "My notes/big.md")!.data.length).toBeGreaterThan(1_048_576);
+    expect(m.notes).toContainEqual({ path: "My notes/big.md", id: big.id, role: "owner", tooLargeToSend: true });
+    expect(m.notes).toContainEqual({ path: "My notes/small.md", id: small.id, role: "owner" });
+  });
+
   it("E15 標頭：application/gzip、content-disposition、nosniff", async () => {
     const ctx = await buildCollabTestApp();
     const { b } = await userWithBulk(ctx);

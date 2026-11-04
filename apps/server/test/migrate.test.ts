@@ -12,7 +12,7 @@ import { apiTokens, authProviders, folders, groupMembers, groupRoles, groups, no
 const drizzleDirForTest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
 /** drizzle 對 `schema.ts` 的序列化；宣告漂移守衛拿最新一支當比對基準（Task 14 rebase 後改成實際檔名）。 */
-const SNAPSHOT_FILE = "meta/0036_snapshot.json";
+const SNAPSHOT_FILE = "meta/0037_snapshot.json";
 const snapshotLatest = JSON.parse(readFileSync(path.join(drizzleDirForTest, SNAPSHOT_FILE), "utf8")) as {
   tables: Record<string, {
     checkConstraints?: Record<string, { name: string; value: string }>;
@@ -1461,7 +1461,7 @@ describe("0009_api-tokens", () => {
       transfer_tokens: ["id", "token_hash", "parent_token_id", "note_id", "purpose", "expires_at", "consumed_at", "created_at", "access", "range"],
       transfer_bases: [
         "key", "user_id", "note_id", "salt", "key_id", "body_sha", "title_sha", "line_hashes", "line_kinds", "segments",
-        "applied_body_sha", "applied_title_sha", "created_at", "last_used_at",
+        "applied_body_sha", "applied_edit_ids", "applied_title_sha", "created_at", "last_used_at",
       ],
       transfer_creates: ["user_id", "file_sha", "note_id", "key_id", "created_at"],
       notes: [

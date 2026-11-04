@@ -40,6 +40,8 @@ const BASE_RE = /^[0-9a-f]{16}$/;
 const UNSTORABLE = /[\0]|\p{Surrogate}/u;
 
 const bad = (message: string): ReadFile => ({ kind: "error", message });
+/** 8000 探索測試 B（HTTP 層，中文）。 */
+export const UNCLOSED_FRONT_MATTER_MESSAGE = "front matter 沒有結尾的 `---`：檔案開頭有 `---` 與 `knotebook:` 或 `id:`，卻找不到收尾的 `---`";
 
 /**
  * §9.1：讀入一篇檔（`text`＝已 UTF-8 解碼的整個 body）。全部是純計算、在任何 DB 查詢之前；錯誤訊息不帶任何值。
@@ -61,6 +63,9 @@ export function readNoteFile(text: string): ReadFile {
       }
     }
     if (end !== -1 && !lines.slice(1, end).some(l => l.startsWith("knotebook:") || l.startsWith("id:"))) end = -1;
+    // 8000 探索測試 B：開頭 `---`、前 FRONTMATTER_SCAN_LINES 行內有 `knotebook:`／`id:`、卻找不到收尾的 `---` → 400（不再把整檔當內文、
+    // 誤建一篇新筆記，或把 front matter 寫進既有筆記）。
+    else if (end === -1 && lines.slice(1, limit).some(l => l.startsWith("knotebook:") || l.startsWith("id:"))) return bad(UNCLOSED_FRONT_MATTER_MESSAGE);
   }
   if (end === -1) return { kind: "new", title: undefined, folderId: undefined, body: normalizeBody(s) };
 

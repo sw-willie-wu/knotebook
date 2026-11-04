@@ -77,7 +77,7 @@ describe("parseMarkdownForNote", () => {
       // 全集＋mermaid／codeBlock（見 shared 的 createHeadlessNoteSchema），markdown/HTML parser 產得
       // 出來的 type 一定在裡面——所以**整合層只造得出 parse 丟例外那一種**（見下面 GM-THROW 與 mcp-write-guards GW5），那邊的清單要誠實寫明不驗，別硬塞。
       const narrowed = { ...ed, schema: { blockSchema: { paragraph: ed.schema.blockSchema.paragraph } }, tryParseHTMLToBlocks: ed.tryParseHTMLToBlocks.bind(ed) } as unknown as typeof ed;
-      expect(parseMarkdownForNote(narrowed, "# heading", notes, ORIGIN)).toEqual({ error: "unsupported_block" });
+      expect(parseMarkdownForNote(narrowed, "# heading", notes, ORIGIN)).toEqual({ error: "unsupported_block", detail: "unknown_block" });
       expect("error" in r ? r.error : "ok").not.toBe("unsupported_block"); // 真 schema 下純 HTML 不會炸成 500
     });
   });
@@ -245,12 +245,12 @@ describe("parseMarkdownForNote", () => {
   });
   it("GM-THROW：core parse 丟例外的輸入（編輯器內部形 data-content-type）→ unsupported_block，不往外拋", async () => {
     await withSession(ed => {
-      expect(parseMarkdownForNote(ed, '<div data-content-type="paragraph">x</div>', notes, ORIGIN)).toEqual({ error: "unsupported_block" });
+      expect(parseMarkdownForNote(ed, '<div data-content-type="paragraph">x</div>', notes, ORIGIN)).toEqual({ error: "unsupported_block", detail: "editor_internal" });
       const spy = vi.spyOn(ed, "tryParseHTMLToBlocks").mockImplementation(() => {
         throw new Error("boom");
       });
       try {
-        expect(parseMarkdownForNote(ed, "x", notes, ORIGIN)).toEqual({ error: "unsupported_block" });
+        expect(parseMarkdownForNote(ed, "x", notes, ORIGIN)).toEqual({ error: "unsupported_block", detail: "editor_internal" });
       } finally {
         spy.mockRestore();
       }
@@ -265,7 +265,7 @@ describe("parseMarkdownForNote", () => {
           '<details><summary>s</summary><img src="x" onerror="alert(1)"></details>\n',
           '<figure><img alt="a" src="/api/uploads/00000000-0000-4000-8000-000000000001" width="300" onerror="alert(1)"></figure>\n',
         ]) {
-          expect(parseMarkdownForNote(ed, md, notes, ORIGIN)).toEqual({ error: "unsupported_block" });
+          expect(parseMarkdownForNote(ed, md, notes, ORIGIN)).toEqual({ error: "unsupported_block", detail: "event_attr" });
         }
         expect(parse).not.toHaveBeenCalled();
         // 對照：拿掉 onerror 就照收
@@ -286,7 +286,7 @@ describe("parseMarkdownForNote", () => {
         throw boom;
       });
       try {
-        expect(parseMarkdownForNote(ed, "SECRET-NOTE-TEXT", notes, ORIGIN)).toEqual({ error: "unsupported_block" });
+        expect(parseMarkdownForNote(ed, "SECRET-NOTE-TEXT", notes, ORIGIN)).toEqual({ error: "unsupported_block", detail: "editor_internal" });
         expect(warn).toHaveBeenCalledTimes(1);
         const logged = JSON.stringify(warn.mock.calls[0]);
         expect(logged).toContain("unsupported_block");
@@ -297,7 +297,7 @@ describe("parseMarkdownForNote", () => {
         expect(logged).not.toContain("SECRET-IN-MESSAGE");
         expect(logged).not.toContain("SECRET-NOTE-TEXT");
         // 真輸入（core 真的丟）同樣 warn、同樣不帶內容
-        expect(parseMarkdownForNote(ed, '<div data-content-type="paragraph">SECRET-NOTE-TEXT</div>', notes, ORIGIN)).toEqual({ error: "unsupported_block" });
+        expect(parseMarkdownForNote(ed, '<div data-content-type="paragraph">SECRET-NOTE-TEXT</div>', notes, ORIGIN)).toEqual({ error: "unsupported_block", detail: "editor_internal" });
         expect(warn).toHaveBeenCalledTimes(2);
         expect(JSON.stringify(warn.mock.calls[1])).not.toContain("SECRET-NOTE-TEXT");
         // cleanup r2 Nit 2：多行 message 裡以「    at 」開頭的行不得被當成呼叫框記下
@@ -305,7 +305,7 @@ describe("parseMarkdownForNote", () => {
         parse.mockImplementationOnce(() => {
           throw tricky;
         });
-        expect(parseMarkdownForNote(ed, "y", notes, ORIGIN)).toEqual({ error: "unsupported_block" });
+        expect(parseMarkdownForNote(ed, "y", notes, ORIGIN)).toEqual({ error: "unsupported_block", detail: "editor_internal" });
         expect(warn).toHaveBeenCalledTimes(3);
         expect(JSON.stringify(warn.mock.calls[2])).not.toContain("SECRET-LINE");
         expect((warn.mock.calls[2]![1] as { frames: string[] }).frames.length).toBeGreaterThan(0);

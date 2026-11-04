@@ -393,6 +393,7 @@ describe("拒絕案假綠守衛", () => {
       [{ op: "append", markdown: '<img src="/x" width="300">' }, 400, "unsupported_size"],
       [{ op: "append", markdown: '<div data-content-type="paragraph">x</div>' }, 400, "unsupported_block"],
       [{ op: "append", markdown: '<details><summary>s</summary><img src="x" onerror="alert(1)"></details>' }, 400, "unsupported_block"],
+      [{ op: "append", markdown: "段落\n\n<script>alert(1)</script>" }, 400, "unsupported_block"],
       [{ op: "append", markdown: "x" + NUL }, 400, "invalid_body"],
       [{ op: "append", markdown: "x", extra: 1 }, 400, "invalid_body"],
       [{ op: "replace_section", section_id: "a" + NUL, markdown: "x", if_match: "0000000000000000" }, 400, "invalid_body"],
