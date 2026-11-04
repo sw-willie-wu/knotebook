@@ -21,7 +21,8 @@ const scrollTopOf = (page: Page) => scrollerOf(page).evaluate((el) => el.scrollT
 async function waitConnectedOnNote(page: Page, title: string): Promise<void> {
   // viewer 的標題是 h1（memory knotebook-notepage-fallback-appshell-swap：等標題再碰側欄／頁首）
   await expect(page.getByRole("heading", { name: title, level: 1 })).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByRole("status").filter({ hasText: /^Connected/ })).toBeVisible({ timeout: 15_000 });
+  // #335：viewer 連上後徽章只寫「Read-only」（能編輯者才是「Connected」）；本檔只有 viewer 等這道屏障
+  await expect(page.getByRole("status").filter({ hasText: /^Read-only/ })).toBeVisible({ timeout: 15_000 });
 }
 
 test("頁首頭像列：A 看 B（無游標）、B 看 A（外框色、點了捲到游標）、多分頁一顆、兩支 AI、窄螢幕完整名單、鍵盤、關掉後消失", async ({

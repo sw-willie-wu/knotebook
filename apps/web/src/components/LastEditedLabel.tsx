@@ -15,8 +15,8 @@ import type { NoteDto } from "@knotebook/shared";
  * 一致——`<md` 收成螢幕閱讀器讀得到、視覺隱藏，不是 `display:none` 整個從無障礙樹消失。
  * `sm:inline`/`hidden` 那組不同斷點是這裡原本的雷：窄視窗使用者連文字帶按鈕一起看不到。
  *
- * 分隔線：標籤前面多一條 `aria-hidden` 的 1px 直線，與 `ConnectionBadge`（「已連線 · 擁有者」）
- * 隔開，免得頁首讀成「擁有者 <who>」。放在這裡（而不是 NotePage）是為了與標籤共用同一個
+ * 分隔線：標籤前面多一條 `aria-hidden` 的 1px 直線，與 `ConnectionBadge`（「已連線」／「唯讀」）
+ * 隔開，免得頁首把狀態字與「<who>」連讀成一句。放在這裡（而不是 NotePage）是為了與標籤共用同一個
  * null 條件；`<md` 標籤收成 sr-only、badge 只剩狀態點，線也一起 `max-md:hidden`。
  *
  * 標籤是頁首收縮順序裡最後才縮、且能縮到 0 的那一個（`min-w-0 truncate`）；標題（`TitleInput`）

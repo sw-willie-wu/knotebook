@@ -522,6 +522,7 @@ describe("NotePage", () => {
     vi.stubGlobal("fetch", mockFetch({ ...NOTE, role: "viewer" }));
     collab.state = { phase: "connected", role: "viewer" };
 
+    collab.provider.synced = true; // #335：viewer 在 connected＋synced 時徽章才改寫「Read-only」
     renderNotePage("my-note");
 
     await waitFor(() => expect(screen.getByTestId("note-editor")).toHaveAttribute("data-editable", "false"));
@@ -534,6 +535,7 @@ describe("NotePage", () => {
     expect(within(header!).getByRole("heading", { name: "My Note" })).toBeInTheDocument();
     expect(within(header!).queryByRole("textbox")).not.toBeInTheDocument();
     expect(screen.getByText("Read-only")).toBeInTheDocument();
+    expect(screen.queryByText("Connected")).not.toBeInTheDocument();
   });
 
   // #115：頁首回滿卡寬（置左置右）——單層 header 自己就是內容列，標題貼左、

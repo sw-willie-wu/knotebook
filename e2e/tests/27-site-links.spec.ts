@@ -286,7 +286,7 @@ test("E1：讀者一般點擊同分頁導航；Ctrl+Click 與中鍵開新分頁�
     // 讀者：清單到了 ⇒ <a href=canonical>
     const vp = viewer.page;
     await vp.goto(sourceUrl);
-    await expect(vp.getByRole("status").filter({ hasText: /^Connected/ })).toBeVisible({ timeout: 15_000 });
+    await expect(vp.getByRole("status").filter({ hasText: /^Read-only/ })).toBeVisible({ timeout: 15_000 });
     const link = vp.locator(`[data-testid="note-editor"] ${WIKILINK} a`, { hasText: targetTitle });
     await expect(link).toHaveAttribute("href", targetPath, { timeout: 10_000 });
 
@@ -432,7 +432,7 @@ test("E3：拖曳把手「Copy link to block」與標題「#」寫入剪貼簿�
     const vp = viewer.page;
     await grantClipboard(vp);
     await vp.goto(noteUrl);
-    await expect(vp.getByRole("status").filter({ hasText: /^Connected/ })).toBeVisible({ timeout: 15_000 });
+    await expect(vp.getByRole("status").filter({ hasText: /^Read-only/ })).toBeVisible({ timeout: 15_000 });
     const viewerEditor = vp.getByTestId("note-editor");
     await blockOuterIn(viewerEditor, "Copy heading").hover();
     await vp.getByRole("button", { name: "Copy link to this section" }).click();
