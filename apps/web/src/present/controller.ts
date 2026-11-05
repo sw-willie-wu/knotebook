@@ -293,8 +293,8 @@ export function startDeck(host: HTMLElement, env: () => DeckEnv, hashWriter: Has
           instance.slide(0, 0);
         }
         swipe.refreshAll();
-        // 並排堆疊（columns-layout spec §11.8）：reveal 到 initialize() 才讓 present 與鄰近幾張顯示，之前量到的寬度一律是 0；
-        // 量不到的張不動，換到時由 onSlideChanged 補量。只在渲染時量，不跟視窗縮放重算。
+        // 並排堆疊（columns-layout spec §11.8）：reveal 到 initialize() 才讓 present 與鄰近幾張（viewDistance 內）顯示，之前量到的寬度一律是 0；
+        // 這裡只有 present 那張與鄰近幾張量得到；其餘量不到的張不動，換到時由 onSlideChanged 補量。只在渲染時量，不跟視窗縮放重算。
         for (const els of dom.els.values()) restackSlideBody(els.body);
         runMermaid(mermaidJobsIn(dom.slidesEl));
         unsubscribeSource = subscribeSource();

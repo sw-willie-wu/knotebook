@@ -25,6 +25,10 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 - **What you typed in the sidebar search box is kept** when you go between the home page and a note (for example after clicking a result), so clearing the box afterwards still removes the mark in the note. It is cleared when you sign out or another person signs in.
 - **Error messages from the HTTP API are now in English** ([#372](https://github.com/sw-willie-wu/knotebook/issues/372)). The `message` in every `{ "error": { "code", "message" } }` response, the `message` of the AI stream's `error` event, and the `error_description` of the OAuth endpoints were mostly in Chinese (a few were already in English); they are now all in English, written as full sentences that say what went wrong and, where it helps, what to do. The `code` values are unchanged, and the web app, which shows its own text for each `code`, looks the same. A request over an endpoint's size limit (`413 content_too_large`) now gets a message in the same style instead of the server framework's own. **If you have scripts that match the Chinese `message` text, change them to check `code` instead.**
 
+### Fixed
+
+- **Presentation overview (O) now shows the content of the slides around the current one**, not just the current one: the others were hidden by the app's base styles, so the overview showed empty frames. The current slide in the overview now has its highlighted outline, and moving between slides in a presentation is an instant switch. See [Known limitations](docs/known-limitations.md) ([#390](https://github.com/sw-willie-wu/knotebook/issues/390)).
+
 ## [0.14.1] - 2026-11-02
 
 ### Changed

@@ -11,6 +11,7 @@ describe("buildRevealConfig（A3 逐鍵）", () => {
       postMessage: false, postMessageEvents: false, previewLinks: false, view: null, parallaxBackgroundImage: "",
       autoSlide: 0, pause: false, help: false, jumpToSlide: false, focusBodyOnPageVisibilityChange: false,
       controls: true, progress: true, overview: true,
+      display: "block !important", transition: "none",
     });
     expect(Object.keys(config.keyboard as object).sort()).toEqual(["27", "70", "79"]);
     expect((config.keyboard as Record<number, unknown>)[27]).toBe(handlers.onEsc);
