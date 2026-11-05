@@ -1,6 +1,6 @@
 // 讀取零副作用：live doc 有就 fork 一份來讀，沒有就解 `note_states` 的快照——**絕不開直連**
 // （`withDirectConnection` 的 `disconnect()` 就是落盤點，會 store／backup／unload，讀一下筆記
-// 不該改到任何 server 狀態）。`hocuspocus.documents.get` 到 `Y.encodeStateAsUpdate` 之間
+// 不該改到任何 server 狀態；#387 的行程內記憶體記錄 `ReadDeps.shownLinks` 除外——不落 DB、不動文件）。`hocuspocus.documents.get` 到 `Y.encodeStateAsUpdate` 之間
 // **不得有 `await`**：unload 是 `documents.delete` 後緊接 `document.destroy()`（@hocuspocus/server
 // 4.5.0 `hocuspocus-server.cjs` 的 `unloadDocument` → `actualUnloadingLogic`，:1611-1613），
 // 讓出一次 microtask 就可能拿到已 destroy 的文件。反向的競態不存在：`documents.set` 只發生在
@@ -16,10 +16,13 @@ import { visibleTitlesByIds } from "./candidates.js";
 import { outlineOf } from "./fingerprint.js";
 import type { EditingRuntime } from "./runtime.js";
 import { EditorSession, forkFrom } from "./session.js";
+import { shownLinkTextsOf, type ShownLinks, type ShownLinkTexts } from "./shown-link-texts.js";
 
 export interface ReadDeps {
   db: Db;
   collab?: CollabServer;
+  /** #387：給了就記下讀者在這次讀出裡看到的連結文字（`readNoteContent`；寫入端據以不凍結成自訂文字）。 */
+  shownLinks?: ShownLinkTexts;
 }
 
 /** `loaded`＝這份內容來自記憶體中的 live doc（有人在線）；false＝來自 DB 快照。 */
@@ -74,15 +77,21 @@ export function toNoteMarkdown(editor: EditorSession["editor"], blocks: EditorSe
 }
 
 /** mount 只為匯出 markdown；`ids` 為 undefined＝整篇。呼叫端已保證至少有一個 block（見下）。
- * #269 §9.1：持 lease 期間**零 DB**（組字見 `toNoteMarkdown`）。 */
-async function exportMarkdown(runtime: EditingRuntime, doc: Y.Doc, ids: Set<string> | undefined, titles: ReadonlyMap<string, string>): Promise<string> {
+ * #269 §9.1：持 lease 期間**零 DB**（組字見 `toNoteMarkdown`）。`onShown`（#387）：匯出的這些 block 裡的連結文字——lease 內只收集
+ * （純計算），`close()` 之後才交給呼叫端（審查 m3）。 */
+async function exportMarkdown(runtime: EditingRuntime, doc: Y.Doc, ids: Set<string> | undefined, titles: ReadonlyMap<string, string>, onShown?: (shown: ShownLinks) => void): Promise<string> {
   const s = await EditorSession.open(runtime, doc);
+  let shown: ShownLinks | undefined;
+  let markdown: string;
   try {
     const blocks = ids ? s.editor.document.filter(b => ids.has(b.id)) : s.editor.document;
-    return toNoteMarkdown(s.editor, blocks, titles);
+    if (onShown) shown = shownLinkTextsOf(blocks, titles);
+    markdown = toNoteMarkdown(s.editor, blocks, titles);
   } finally {
     s.close();
   }
+  if (shown) onShown!(shown);
+  return markdown;
 }
 
 /**
@@ -94,7 +103,8 @@ export async function readNoteContentFromDoc(
   runtime: EditingRuntime,
   doc: Y.Doc,
   section?: string,
-  titles: ReadonlyMap<string, string> = new Map()
+  titles: ReadonlyMap<string, string> = new Map(),
+  onShown?: (shown: ShownLinks) => void
 ): Promise<Omit<NoteContentDto, "lastEdited"> | Omit<NoteSectionDto, "lastEdited"> | "section_not_found"> {
   const { outline, whole } = outlineOf(doc.getXmlFragment(YDOC_FRAGMENT)); // 先算（未 mount）
   const target = section === undefined ? undefined : outline.find(o => o.sectionId === section);
@@ -103,7 +113,7 @@ export async function readNoteContentFromDoc(
   // 這一支**不 mount**——mount 會把真空文件正規化出一個空 paragraph，匯出就成了 "\n"；順帶讓
   // 最常見的冷讀路徑完全不碰 jsdom。零 block 的 `_top` 段（文件以 heading 開頭）同理。
   const blockIds = target ? target.blockIds : outline.flatMap(o => o.blockIds);
-  const markdown = blockIds.length === 0 ? "" : await exportMarkdown(runtime, doc, target && new Set(blockIds), titles);
+  const markdown = blockIds.length === 0 ? "" : await exportMarkdown(runtime, doc, target && new Set(blockIds), titles, onShown);
   if (target) {
     const { blockIds: _ignored, sectionId, ...entry } = target;
     return { section: { id: sectionId, ...entry, markdown } }; // spec §5：段落形的鍵是 id
@@ -112,9 +122,10 @@ export async function readNoteContentFromDoc(
   return { markdown, fingerprint: whole, outline: outline.map(({ blockIds: _b, ...e }) => e) };
 }
 
-/** `viewerId`（#269 §9.1）＝讀者——現行標題只對他看得到的目標露出。 */
+/** `viewerId`（#269 §9.1）＝讀者——現行標題只對他看得到的目標露出；`deps.shownLinks` 給了就記在他名下（#387）。 */
 export async function readNoteContent(deps: ReadDeps, runtime: EditingRuntime, noteId: string, viewerId: string, section?: string) {
   const { doc } = await loadNoteDoc(deps, noteId);
   const titles = await linkTitlesFor(deps.db, viewerId, doc);
-  return readNoteContentFromDoc(runtime, doc, section, titles);
+  const memo = deps.shownLinks;
+  return readNoteContentFromDoc(runtime, doc, section, titles, memo && (shown => memo.record(viewerId, shown)));
 }

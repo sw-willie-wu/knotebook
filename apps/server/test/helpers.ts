@@ -465,6 +465,8 @@ export async function buildCollabTestApp(
     storageLockTimeoutMs?: number;
     /** #106（#137）寫入路徑的注入縫，語意見 `AppDeps.editingTestHooks`。 */
     editingTestHooks?: AppDeps["editingTestHooks"];
+    /** #387：連結文字表的注入縫，語意見 `AppDeps.shownLinks`。 */
+    shownLinks?: AppDeps["shownLinks"];
     /** #108 `/api/mcp` 的注入縫，語意見 `AppDeps.mcpTestHooks`。 */
     mcpTestHooks?: AppDeps["mcpTestHooks"];
     /** #175 PR5：群組測試注入縫（`"membership-checked"` 等），語意見 `AppDeps.groupTestHook`；帶 content 的 MCP `create_note {groupId}` 要 collab app 才寫得出。 */
@@ -526,6 +528,7 @@ export async function buildCollabTestApp(
     editing: testEditingRuntime,
     limiters: freshLimiters(opts.limiters),
     editingTestHooks: opts.editingTestHooks,
+    shownLinks: opts.shownLinks,
     mcpTestHooks: opts.mcpTestHooks,
     transferTestHooks: opts.transferTestHooks,
     groupTestHook: opts.groupTestHook,

@@ -71,7 +71,7 @@ export async function authorizeNoteRead(
   }
   // cookie session（`tokenId` 為 null）不現身：那是使用者本人在用瀏覽器，規格 §12.2 明講
   // 不設 presence。`touch` 內部只對已載入的文件動作，沒人在線時是 no-op，讀路徑「零副作用」
-  // 的不變量仍成立。
+  // 的不變量仍成立（#387 的行程內記憶體記錄除外：讀到的連結文字記在 `NoteWriteService.shownLinks`，不落 DB、不動文件）。
   if (ctx.tokenId !== null) {
     const label = await currentAgentLabel(ctx.db, ctx.tokenId);
     if (label !== null) {

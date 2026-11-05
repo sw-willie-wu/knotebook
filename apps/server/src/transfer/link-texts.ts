@@ -53,8 +53,14 @@ export function exportedLinkTextOf(segments: readonly TransferSegment[], key: Bu
  * 寫回時（`planSync` 每區 parse 之後）：parse 出的 wikilink 若帶 label、而 `(目標, label)` 是下載時某個沒有自訂文字的連結匯出的
  * 文字（`exported`）→ 清掉 label（＝沒有自訂文字、跟著目標的標題），`snapshotTitle` 換成目標現在的標題（`titleOf` 查得到時；同
  * 「文字＝現行標題」那條規則存的值）。label 原本就空的不動。回傳新陣列（copy-on-write）與清掉的個數。
+ * `onCleared`（#387，選配）：每清掉一個就回報 `(小寫目標 id, 原本的文字)`；批次寫回（`planSync`）不給。
  */
-export function keepLabelFree<B>(blocks: B[], exported: (targetId: string, text: string) => boolean, titleOf: (id: string) => string | undefined): [B[], number] {
+export function keepLabelFree<B>(
+  blocks: B[],
+  exported: (targetId: string, text: string) => boolean,
+  titleOf: (id: string) => string | undefined,
+  onCleared?: (targetId: string, text: string) => void,
+): [B[], number] {
   let cleared = 0;
   const out = mapInlineArrays(blocks, inline => {
     let changed = false;
@@ -67,6 +73,7 @@ export function keepLabelFree<B>(blocks: B[], exported: (targetId: string, text:
       if (label === "" || !exported(id, label)) return node;
       changed = true;
       cleared++;
+      onCleared?.(id.toLowerCase(), label);
       return { ...n, props: { ...props, label: "", snapshotTitle: titleOf(id) ?? props.snapshotTitle ?? label } };
     });
     return changed ? next : inline;
