@@ -18,11 +18,11 @@ import { hmacOf } from "./base-hash.js";
 import type { LayoutFolder, LayoutGroup } from "./paths.js";
 import { consistentTree } from "./range.js";
 
-export const CREATE_IN_SHARED_FORBIDDEN_MESSAGE = "只含分享給你的筆記的 transfer token 不能新增筆記";
-export const DEST_NOT_IN_RANGE_MESSAGE = "新筆記的位置不在此 transfer token 的範圍內";
-export const SHARED_FOLDER_CREATE_FORBIDDEN_MESSAGE = "分享給你的資料夾不能放新筆記";
+export const CREATE_IN_SHARED_FORBIDDEN_MESSAGE = "A transfer token for only notes shared with you can't create notes.";
+export const DEST_NOT_IN_RANGE_MESSAGE = "The new note's location isn't in this transfer token's range.";
+export const SHARED_FOLDER_CREATE_FORBIDDEN_MESSAGE = "New notes can't go in your folders for notes shared with you.";
 /** 同 REST `POST /api/notes` 的群組新建判準句。 */
-export const GROUP_CREATE_FORBIDDEN_MESSAGE = "你在這個群組的角色不能建立筆記";
+export const GROUP_CREATE_FORBIDDEN_MESSAGE = "Your role in this group can't create notes.";
 
 /** §10、§21 D13：`HMAC-SHA256(K, user_id ‖ 正規化後整個檔)`。正規化＝`normalizeBody(整個檔)`（呼叫端做）。 */
 export function fileShaOf(key: Buffer, userId: string, normalizedFile: string): Buffer {

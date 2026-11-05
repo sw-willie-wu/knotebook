@@ -16,15 +16,15 @@ export const TRANSFER_INVALID_MESSAGE = "The transfer token is invalid, expired 
 /** spec §4.5 第 1 步、Q1（M4）：有效形的 `knb_` PAT／OAuth access 打這兩支端點時的專屬訊息。 */
 export const TRANSFER_PAT_MESSAGE = "This endpoint doesn't accept API tokens. Get a transfer token from the MCP tool create_transfer_token.";
 /** bulk transfer plan §0.1-10：bulk 端點的一般 PAT 401 另立一句（上一句指名 create_transfer_token，用在這裡會指錯工具）。 */
-export const BULK_TRANSFER_PAT_MESSAGE = "這個端點不收 API token；請透過 MCP 的 create_bulk_transfer_token 取得 transfer token";
+export const BULK_TRANSFER_PAT_MESSAGE = "This endpoint doesn't accept API tokens. Get a transfer token from the MCP tool create_bulk_transfer_token.";
 /** bulk transfer：沒帶 `Authorization` 的 401（bulk 端點不回退 cookie）。 */
-export const BULK_TRANSFER_REQUIRED_MESSAGE = "需要 transfer token";
+export const BULK_TRANSFER_REQUIRED_MESSAGE = "A transfer token is required.";
 /**
  * bulk transfer spec §5.3、§12.2（rev 10，W11）：`requireBulk` 的三個無效出口（形狀不對、查無或過期〔含母憑證到期〕、
  * 使用者閘門不過〔停權、必須改密碼〕）同形同字。**不含「已使用」**：bulk 權杖到期前可重用（spec §5.4）；#200 的
  * `TRANSFER_INVALID_MESSAGE` 不動（`require()` 與 `routes/uploads.ts` 的已消費分支仍用它）。
  */
-export const BULK_TRANSFER_INVALID_MESSAGE = "transfer token 無效、已過期或已撤銷；請透過 MCP 的 create_bulk_transfer_token 重新取得";
+export const BULK_TRANSFER_INVALID_MESSAGE = "The transfer token is invalid, expired or revoked. Get a new one from the MCP tool create_bulk_transfer_token.";
 /** 用途不符（upload／download 打 bulk 端點、bulk 打 upload／download 端點）的 403，兩邊同字。 */
 export const TRANSFER_PURPOSE_MESSAGE = "This transfer token can't be used for this action.";
 
@@ -154,7 +154,7 @@ export function createTransferAuth(deps: TransferAuthDeps) {
         sendError(reply, 401, "unauthorized", BULK_TRANSFER_REQUIRED_MESSAGE);
         return;
       }
-      if (parsed.kind === "other-scheme") return reject401(request, reply, false, "未登入");
+      if (parsed.kind === "other-scheme") return reject401(request, reply, false, "Not signed in.");
       if (isAccessTokenShape(parsed.token)) return reject401(request, reply, true, BULK_TRANSFER_PAT_MESSAGE);
       if (!isTransferTokenShape(parsed.token)) return rejectInvalidBulk(request, reply);
 
@@ -192,7 +192,7 @@ export function createTransferAuth(deps: TransferAuthDeps) {
       // write 另要權杖本身 `access = 'write'`（W-A3：唯讀母憑證簽的權杖）。
       if ((op === "write" && row.access !== "write") || !hasScope(row.scope as TokenScope, needed)) {
         drainWithCap(request);
-        sendError(reply, 403, "insufficient_scope", "此 token 沒有執行這個操作的權限");
+        sendError(reply, 403, "insufficient_scope", "This token's scope doesn't allow this action.");
         return;
       }
 

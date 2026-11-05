@@ -40,11 +40,11 @@ export type RegionsResult = { ok: true; regions: Region[]; boundaryChecks: numbe
  * （比照未閉合 `<!--`，§9.3-6）。整檔 parse 時它會吞掉到檔尾的內容，但區偵測是逐區、一輪、按文字觸發的，寫回的結果會與 agent 檔
  * 「整份讀起來」的樣子不一致。**開頭那一行落在沒改的段裡就放行**：PR-1 的匯出器不跳脫，段落文字本身是 ``` 的筆記會照字匯出成
  * 一行（E6），原檔重送或只改別段都不能因此被拒。判斷以 repo 實際的 parser 為準（`markdownToHTML`，即 `parseMarkdownForNote`
- * 的第一步），不手寫 fence 規則：見 `trailingOpenFenceLine`。路由映 400 `invalid_body` 並帶這句（HTTP 層中文，T8 接）。
+ * 的第一步），不手寫 fence 規則：見 `trailingOpenFenceLine`。路由映 400 `invalid_body` 並帶這句（HTTP 層，#372 起英文，T8 接）。
  */
 /** 8000 探索測試 E：訊息照實際用的 fence 記號寫（``` 或 ~~~），不一律寫 ```。 */
 export const unclosedFenceMessage = (fence: string): string =>
-  `你新增或改過的一行 ${fence} 開了程式碼區塊卻沒有收尾：從那一行起到檔尾都會被當成程式碼。請補上結尾的 ${fence}（或改用行內 \`code\`）再送`;
+  `A line you added or changed opens a code block with ${fence} that is never closed, so everything from that line to the end of the file counts as code. Add a closing ${fence} (or use inline \`code\`) and send the file again.`;
 export const UNCLOSED_FENCE_MESSAGE = unclosedFenceMessage("```");
 
 const FENCE_SENTINEL = "kn-fence-sentinel-3f9c2a7e";

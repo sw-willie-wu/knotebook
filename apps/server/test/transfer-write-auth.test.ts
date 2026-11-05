@@ -51,7 +51,7 @@ describe("requireBulk(\"write\")：W-A 矩陣", () => {
     const s = await scene({ parentScope: "notes:read", access: "read" });
     const r = await bulkPut(s.ctx.app, s.bulk.token, FILE);
     expect(r.statusCode).toBe(403);
-    expect(errOf(r)).toEqual({ code: "insufficient_scope", message: "此 token 沒有執行這個操作的權限" });
+    expect(errOf(r)).toEqual({ code: "insufficient_scope", message: "This token's scope doesn't allow this action." });
     expect(r.headers["www-authenticate"]).toBeUndefined();
   });
 
@@ -60,7 +60,7 @@ describe("requireBulk(\"write\")：W-A 矩陣", () => {
     const s = await scene({ parentScope: "notes:read notes:write", access: "read" });
     const r = await bulkPut(s.ctx.app, s.bulk.token, FILE);
     expect(r.statusCode).toBe(403);
-    expect(errOf(r)).toEqual({ code: "insufficient_scope", message: "此 token 沒有執行這個操作的權限" });
+    expect(errOf(r)).toEqual({ code: "insufficient_scope", message: "This token's scope doesn't allow this action." });
   });
 
   it("W-A3 對照：同一支唯讀權杖讀取照常 200（只擋寫）", async () => {
@@ -81,10 +81,10 @@ describe("requireBulk(\"write\")：W-A 矩陣", () => {
     await s.ctx.db.update(apiTokens).set({ scope: "notes:read" }).where(eq(apiTokens.id, s.pat.tokenId));
     const r = await bulkPut(s.ctx.app, s.bulk.token, FILE);
     expect(r.statusCode).toBe(403);
-    expect(errOf(r)).toEqual({ code: "insufficient_scope", message: "此 token 沒有執行這個操作的權限" });
+    expect(errOf(r)).toEqual({ code: "insufficient_scope", message: "This token's scope doesn't allow this action." });
   });
 
-  it("W-A5 upload／download 權杖 → 403「此 transfer token 不能用在這個動作」", async () => {
+  it("W-A5 upload／download 權杖 → 403「This transfer token can't be used for this action.」", async () => {
     const s = await scene();
     for (const purpose of ["upload", "download"] as const) {
       const t = await issueDirect(s.ctx.db, s.pat.tokenId, s.note.id, purpose);
@@ -96,20 +96,20 @@ describe("requireBulk(\"write\")：W-A 矩陣", () => {
 });
 
 describe("body 外殼：415／Origin／413／UTF-8", () => {
-  it("W-A6 Content-Type: application/json（帶 body）→ 415「此請求需要 text/markdown」、基底未變", async () => {
+  it("W-A6 Content-Type: application/json（帶 body）→ 415「This request needs Content-Type text/markdown.」、基底未變", async () => {
     const s = await scene();
     const before = (await basesOf(s.ctx.db)).length;
     const r = await bulkPut(s.ctx.app, s.bulk.token, JSON.stringify({ a: 1 }), { contentType: "application/json" });
     expect(r.statusCode).toBe(415);
-    expect(errOf(r)).toEqual({ code: "unsupported_media_type", message: "此請求需要 text/markdown" });
+    expect(errOf(r)).toEqual({ code: "unsupported_media_type", message: "This request needs Content-Type text/markdown." });
     expect((await basesOf(s.ctx.db)).length).toBe(before);
   });
 
-  it("W-A7 text/markdown＋Origin: https://evil.example → 403「Origin 驗證失敗」；同一請求不帶 Origin → 通過 onRequest（T10 起是新增 → 201）", async () => {
+  it("W-A7 text/markdown＋Origin: https://evil.example → 403「Origin check failed」；同一請求不帶 Origin → 通過 onRequest（T10 起是新增 → 201）", async () => {
     const s = await scene();
     const bad = await bulkPut(s.ctx.app, s.bulk.token, FILE, { origin: "https://evil.example" });
     expect(bad.statusCode).toBe(403);
-    expect(errOf(bad)).toEqual({ code: "forbidden", message: "Origin 驗證失敗" });
+    expect(errOf(bad)).toEqual({ code: "forbidden", message: "Origin check failed: the request's Origin doesn't match its Host." });
     const good = await bulkPut(s.ctx.app, s.bulk.token, FILE);
     expect(good.statusCode).toBe(201);
   });

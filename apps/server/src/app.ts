@@ -627,12 +627,12 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     if (isTextBodyExemptRoute(request)) {
       if (essence !== "text/markdown") {
         drainWithCap(request);
-        return sendError(reply, 415, "unsupported_media_type", "此請求需要 text/markdown");
+        return sendError(reply, 415, "unsupported_media_type", "This request needs Content-Type text/markdown.");
       }
       const origin = request.headers.origin;
       if (origin !== undefined && !isOriginAllowed(origin, request.host)) {
         drainWithCap(request);
-        return sendError(reply, 403, "forbidden", "Origin 驗證失敗");
+        return sendError(reply, 403, "forbidden", "Origin check failed: the request's Origin doesn't match its Host.");
       }
       return;
     }
