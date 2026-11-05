@@ -24,7 +24,7 @@ import {
 import type { GroupTestHook } from "../test-hook.js";
 
 const notFound = (): TxAbort => new TxAbort(404, "not_found", GROUP_NOT_FOUND_MESSAGE);
-const roleNotFound = (): TxAbort => new TxAbort(404, "role_not_found", "找不到此角色");
+const roleNotFound = (): TxAbort => new TxAbort(404, "role_not_found", "No role with that id.");
 
 /** commit 後的踢線名單（§7）：群組所有筆記 × 受影響的成員。 */
 export interface RoleKick {
@@ -44,8 +44,8 @@ export async function updateRoleInTx(
   if (!(await lockGroup(tx, input.groupId))) throw notFound();
   const [before] = await roleByIdQuery(tx, input.groupId, input.roleId);
   if (!before) throw roleNotFound();
-  if (before.builtin === "admin") throw new TxAbort(409, "builtin_role", "內建管理員角色不能修改");
-  if (before.builtin === "member" && input.name !== undefined) throw new TxAbort(409, "builtin_role", "內建一般成員角色不能改名");
+  if (before.builtin === "admin") throw new TxAbort(409, "builtin_role", "The built-in Admin role can't be changed.");
+  if (before.builtin === "member" && input.name !== undefined) throw new TxAbort(409, "builtin_role", "The built-in Member role can't be renamed.");
   await hook?.("group-roles-checked", { groupId: input.groupId });
   await tx
     .update(groupRoles)
@@ -77,7 +77,7 @@ export async function deleteRoleInTx(
   if (!(await lockGroup(tx, input.groupId))) throw notFound();
   const [role] = await roleByIdQuery(tx, input.groupId, input.roleId);
   if (!role) throw roleNotFound();
-  if (role.builtin !== null) throw new TxAbort(409, "builtin_role", "內建角色不能刪除");
+  if (role.builtin !== null) throw new TxAbort(409, "builtin_role", "Built-in roles can't be deleted.");
   await hook?.("group-roles-checked", { groupId: input.groupId });
   const memberRoleId = await builtinRoleId(tx, input.groupId, "member");
   const moved = await tx

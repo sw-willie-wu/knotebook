@@ -4,7 +4,7 @@
  * ⚠ **D-M 那一案走 `buildTestApp`（無 collab），其餘走 `buildCollabTestApp`**——`create_note`
  * 是唯一**不**進部署形態閘門的工具：不帶 `content` 時它只 insert 一列，完全不碰 live doc，
  * 而 REST 的 `POST /api/notes` 本來就無條件註冊、帶 content 而沒有 collab 時回 400
- * （`routes/notes.ts` 逐字「此部署不支援帶內容建立筆記」）。MCP 照抄它就是 D18 的對等。
+ * （`routes/notes.ts`：「This deployment cannot create a note with content. …」）。MCP 照抄它就是 D18 的對等（#372 起兩邊同一句開頭）。
  * ⚠ **每一案都用讀寫憑證**：唯讀憑證在**註冊時**就被過濾掉 `create_note`，用它寫這一族會得到
  * 一個與被測對象無關的綠（唯讀側的斷言是 `mcp-tools-list.test.ts` 案 8 的事）。
  *

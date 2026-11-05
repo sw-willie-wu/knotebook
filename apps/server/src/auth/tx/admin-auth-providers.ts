@@ -93,7 +93,7 @@ export async function updateAuthProviderInTx(tx: Tx, input: UpdateAuthProviderIn
     .from(authProviders)
     .where(eq(authProviders.id, input.id))
     .limit(1);
-  if (!before) throw new TxAbort(404, "not_found", "找不到此登入服務");
+  if (!before) throw new TxAbort(404, "not_found", "No sign-in service with that id.");
 
   const newIssuer = () => sql`coalesce(${input.issuerUrl ?? null}::text, ${authProviders.issuerUrl})`;
   const newClientId = () => sql`coalesce(${input.clientId ?? null}::text, ${authProviders.clientId})`;
@@ -130,7 +130,7 @@ export async function updateAuthProviderInTx(tx: Tx, input: UpdateAuthProviderIn
 
   const [row] = await tx.update(authProviders).set(set).where(eq(authProviders.id, input.id)).returning(adminProviderColumns());
   // 讀到之後、UPDATE 之前被刪（別的管理員 DELETE）→ 0 列。
-  if (!row) throw new TxAbort(404, "not_found", "找不到此登入服務");
+  if (!row) throw new TxAbort(404, "not_found", "No sign-in service with that id.");
   // B19：DB 值為關時，任何使 enabled 由 true 變 false 的形（含 §5.2 改 issuer 的隱含停用）都在寫入後狀態上驗 P1／P2；違反 → throw、整筆回滾。
   if (!settings.passwordLoginEnabled && before.enabled && !row.enabled) await assertSsoOnlyGuardInTx(tx, input.actorUserId);
   return { row, previousIssuerUrl: before.issuerUrl, previousAutoCreateEnabled: before.autoCreateEnabled };
@@ -149,6 +149,6 @@ export async function deleteAuthProviderInTx(tx: Tx, input: { id: string }): Pro
     .returning({ id: authProviders.id });
   if (deleted.length === 1) return;
   const [still] = await tx.select({ enabled: authProviders.enabled }).from(authProviders).where(eq(authProviders.id, input.id)).limit(1);
-  if (still) throw new TxAbort(409, "provider_enabled", "這個登入服務仍在啟用中，請先停用再刪除");
-  throw new TxAbort(404, "not_found", "找不到此登入服務");
+  if (still) throw new TxAbort(409, "provider_enabled", "This sign-in service is still enabled. Disable it before deleting it.");
+  throw new TxAbort(404, "not_found", "No sign-in service with that id.");
 }

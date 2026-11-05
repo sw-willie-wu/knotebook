@@ -13,7 +13,7 @@ import { recordRedirectsInTx } from "../src/notes/tx/redirects.js";
 import { buildTestApp } from "./helpers.js";
 import { cookieOf, seedGroup, seedNote, seedRedirect, seedRole, seedShare, seedUser, setMemberRole } from "./group-helpers.js";
 
-const NOT_FOUND = { error: { code: "not_found", message: "找不到此筆記" } };
+const NOT_FOUND = { error: { code: "not_found", message: "No note with that id." } };
 /** 內建一般成員（can_read＋can_edit）在群組筆記上的旗標（§5.2）。 */
 const MEMBER_PERMS = { read: true, edit: true, delete: false, manageShares: false, managePublicLink: false, changeSlug: false, moveToGroup: false };
 /** 只讀自訂角色（can_read）。 */

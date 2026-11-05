@@ -110,8 +110,8 @@ const REGISTRY: Record<string, Disposition> = {
   // 讀的是本請求剛建的列，無洩漏。
   "notes/note-dto.ts": { excludes: 1 },
   "notes/public-links.ts": { excludes: 1 },
-  // excludes：pre-read、0 列後的存在查詢、帶 expectTitle 時 0 列後的標題查詢（三句都帶 deleted_at IS NULL）；write：UPDATE。
-  "notes/rename-note.ts": { excludes: 3, write: 1 },
+  // excludes：pre-read、0 列後的存在＋標題查詢（#381 起 expectTitle／expectTitleFingerprint 共用這一句；兩句都帶 deleted_at IS NULL）；write：UPDATE。
+  "notes/rename-note.ts": { excludes: 2, write: 1 },
   // excludes：accessQuery、noteIsLive；trashOnly：trashedAccessQuery；includes：loadNoteAudience。
   "notes/service.ts": { excludes: 2, trashOnly: 1, includes: 1, why: "移入前抓名單（§6.2-4）" },
   "notes/site-link-resolver.ts": { excludes: 2 },

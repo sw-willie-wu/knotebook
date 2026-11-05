@@ -261,7 +261,7 @@ describe("CSRF hook：multipart 上傳路由豁免 + Origin 驗證（Task 10a，
         headers: { origin: "https://evil.example.com", host: "localhost:3000" },
       });
       expect(res.statusCode).toBe(403);
-      expect(res.json().error.code).toBe("forbidden");
+      expect(res.json().error).toEqual({ code: "forbidden", message: "Origin check failed: the request's Origin doesn't match its Host." });
     });
 
     it("同 host 不同 port（都非 80/443）→ 403（LAN 形狀下 port 差異不可被忽略）", async () => {

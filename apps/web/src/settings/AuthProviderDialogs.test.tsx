@@ -186,7 +186,7 @@ describe("新增登入服務 dialog（#187 §9.4）", () => {
     let reject = true;
     server.on((method, url) => {
       if (method !== "POST" || url !== "/api/admin/auth/providers") return null;
-      if (reject) return fakeResponse(400, { error: { code: "invalid_body", message: "issuer 網址必須以小寫 http:// 或 https:// 開頭" } });
+      if (reject) return fakeResponse(400, { error: { code: "invalid_body", message: "The issuer URL must start with lowercase http:// or https://." } });
       return fakeResponse(201, { ...LIVE, enabled: false });
     });
     renderSection(server.fetchMock);

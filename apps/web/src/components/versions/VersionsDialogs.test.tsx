@@ -213,7 +213,7 @@ describe("VersionsDialogs＋useApplyFlow（spec §8.5）", () => {
   it("直接套用收到 409 version_unsaved_changes → 改跳三選一", async () => {
     stub((url) => {
       if (url === CUR) return { status: 200, body: listBody(cur({ dirty: false })) };
-      if (url === APPLY1) return { status: 409, body: { error: { code: "version_unsaved_changes", message: "目前有未儲存的修改" } } };
+      if (url === APPLY1) return { status: 409, body: { error: { code: "version_unsaved_changes", message: "The note has changes that aren't in any saved version." } } };
       return undefined;
     });
     renderDialogs();

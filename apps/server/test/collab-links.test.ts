@@ -9,6 +9,10 @@ import { notes, noteLinks } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
 import { buildCollabTestApp, COLLAB_TOKEN_INIT, type CollabTestCtx, type HttpSession, type TestClient } from "./helpers.js";
 
+/** #372：409 not_loaded 的訊息（兩種成因同一句）。 */
+const NOT_LOADED_MESSAGE =
+  "Link updates need the note open in the editor: it isn't loaded on the server, or you have no open editor connection to it. Open the note and try again.";
+
 const PASSWORD = "correct-horse-battery";
 
 /**
@@ -270,7 +274,7 @@ describe("Task 8：links 共編整合——真 Hocuspocus gate、真 provider", 
 
     const res = await postLinks(editorSession, note.id, [target.id]);
     expect(res.status).toBe(409);
-    expect(await res.json()).toMatchObject({ error: { code: "not_loaded" } });
+    expect(await res.json()).toMatchObject({ error: { code: "not_loaded", message: NOT_LOADED_MESSAGE } });
     expect(await linkedTargets(ctx.db, note.id)).toEqual([]);
 
     ownerClient.disconnect();
@@ -289,7 +293,7 @@ describe("Task 8：links 共編整合——真 Hocuspocus gate、真 provider", 
 
     const res = await postLinks(session, note.id, [target.id]);
     expect(res.status).toBe(409);
-    expect(await res.json()).toMatchObject({ error: { code: "not_loaded" } });
+    expect(await res.json()).toMatchObject({ error: { code: "not_loaded", message: NOT_LOADED_MESSAGE } });
     expect(await linkedTargets(ctx.db, note.id)).toEqual([]);
   });
 

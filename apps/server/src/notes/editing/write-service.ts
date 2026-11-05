@@ -52,7 +52,7 @@ import { applySync, fileSyncRows, type Applied } from "../../transfer/sync-apply
 import { planSync, type PlanSyncError, type SyncPlan } from "../../transfer/sync-plan.js";
 import { recordFileSyncInTx } from "../../transfer/tx/record-file-sync.js";
 import { insertNoteWithAutoSlug } from "../create.js";
-import { renameNoteTitle, type ConditionalRenameOutcome } from "../rename-note.js";
+import { renameNoteTitle, type RenameOutcome } from "../rename-note.js";
 import { resolveNoteAccess, type NoteAccess } from "../service.js";
 import type { SlugScope } from "../slug.js";
 import type { NoteVersionRow } from "../tx/versions.js";
@@ -574,7 +574,7 @@ export class NoteWriteService {
         if (!input.limiters.transferWrite.consume(input.userId)) return { ok: false, kind: "rate_limited", retryAfterMs: input.limiters.transferWrite.retryAfterMs(input.userId) };
         charged = true;
       }
-      let r: ConditionalRenameOutcome;
+      let r: RenameOutcome;
       try {
         r = await renameNoteTitle(db, { noteId: input.noteId, access: input.access, title: input.title!, expectTitle: currentTitle }, this.deps.renameHook);
       } catch (err) {

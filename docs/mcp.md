@@ -166,14 +166,15 @@ There is **no next page**: when `truncated` is true the answer is a narrower que
 
 **Takes** `note_id`, and `section_offset` — counted in **sections**, not characters.
 
-**Answers** `note`, `folder`, `totalChars`, `sections`, `truncated`, `nextSectionOffset` and `lastEdited`.
+**Answers** `note`, `folder`, `totalChars`, `sections`, `truncated`, `nextSectionOffset`, `lastEdited` and `titleFingerprint`.
 
 - `note` here is an **object**: `{id, title, titleTruncated?, owner, role}`.
 - `folder` is where the note is filed for you — the same folder as `list_notes`' `folder`, so for a note shared with you it is where you filed it — as `{id, path, pathTruncated?}`, with `path` the folder names from the top level down, ending with that folder's own; or `null` at the top level. A long path is cut from the top (see [Limits](#limits)). Like the tool itself, it exists only on a deployment with the collaboration component; elsewhere, `list_folders` gives a folder's path.
 - `totalChars` is the whole note, not this page.
 - `sections` holds at most 100 entries in document order, each `{sectionId, level, heading, headingTruncated?, chars}`. The first section of every note is `_top` — whatever comes before the first heading — and its `level` is `0`.
 - Any `sectionId` other than `_top` is also the id of that heading's block, so `/notes/<note id>#b-<sectionId>` links to that heading: opening it in the web app scrolls to the heading. Use it as the URL of a link you write (see [Links to notes](#links-to-notes)).
-- **There are no fingerprints here**, neither per section nor for the note. An outline tells you what a note contains and what to read next; the fingerprint a write needs comes from `read_note_section` (on the page that finishes a section) or from a previous `edit_note` reply.
+- **There are no content fingerprints here**, neither per section nor for the note. An outline tells you what a note contains and what to read next; the fingerprint a content write needs comes from `read_note_section` (on the page that finishes a section) or from a previous `edit_note` reply.
+- `titleFingerprint` is the fingerprint of the note's whole title — even when `note.title` is cut — and is what [`rename`](#rename) needs as `if_match`. It covers only the title: changing the content doesn't change it, and changing the title doesn't change any content fingerprint.
 
 **Errors** `not_found`, `too_many_requests`.
 
@@ -202,7 +203,7 @@ There is **no next page**: when `truncated` is true the answer is a narrower que
 |---|---|
 | `section_id` | `replace_section`, `insert_after`, `delete_section` |
 | `markdown` | every operation except `delete_section` and `rename` |
-| `if_match` | every operation except `append` and `rename` |
+| `if_match` | every operation except `append` (for `rename`, the title's `titleFingerprint`) |
 | `title` | `rename` only |
 
 Fields that do not belong to the operation you asked for are rejected rather than ignored. What each operation does to a note — including the fact that replacing a section replaces its heading, and that section ids are block ids — is in [AI editing](./ai-editing.md#the-five-operations).
@@ -226,13 +227,13 @@ These stay ordinary links: a note you can't see, a URL that only reaches the not
 
 #### `rename`
 
-`rename` changes a note's title and takes `title` and nothing else — no `if_match`, because a title has no fingerprint: the last title written wins, the same as renaming the note in the browser. It needs the same access as changing the title in the web app — a `role` of `owner` or `editor` on the note; otherwise `forbidden`.
+`rename` changes a note's title and takes `title` and `if_match` and nothing else. `if_match` is the `titleFingerprint` of the title you are replacing — from [`read_note_outline`](#read_note_outline), or from a previous rename's reply — so a rename never overwrites a title you haven't seen: if someone changed the title after you got that fingerprint, the rename is refused with `fingerprint_mismatch` and the title stays as they left it. The check and the write are one step, so a change that lands between them is caught too. Renaming the note in the web app takes no fingerprint and still overwrites whatever title is there. `rename` needs the same access as changing the title in the web app — a `role` of `owner` or `editor` on the note; otherwise `forbidden`.
 
 - **It is not recorded** in the note's AI edit history and has no `editId`. To undo it, rename the note back — its URL may not come back as it was, because the old name may already have been taken by another note (see [Known limitations](./known-limitations.md)).
 - **Unless the note has a custom URL, its URL follows the new title**, derived and de-duplicated the same way as `create_note`'s, and the old URL usually stops working: no redirect is left behind, and the old address can later lead to a different note that takes that name. A custom URL stays as it is.
-- **It answers `title` and `url`** instead of `editId`, `fingerprint`, `outline` and `unboundWikilinks`. `title` is cut like any other title, with `titleTruncated: true`; `url` is the same site-relative path `list_notes` gives.
+- **It answers `title`, `titleFingerprint` and `url`** instead of `editId`, `fingerprint`, `outline` and `unboundWikilinks`. `title` is cut like any other title, with `titleTruncated: true`; `titleFingerprint` is the new title's (of the whole title), to pass as `if_match` to a following rename; `url` is the same site-relative path `list_notes` gives.
 - It doesn't count against the 30-writes-per-minute budget — only against the token-writes one, when it is made with a token — and it doesn't show you as present in the note.
-- **Errors** `not_found`, `forbidden`, `invalid_body` (a field other than `title` with `rename`, or `title` with another operation), `conflict` (the note was moved into a group, or its group was deleted, between the access check and the write — nothing changed; try again), `too_many_requests` (token writes).
+- **Errors** `not_found`, `forbidden`, `invalid_body` (`rename` without `if_match`, a field other than `title` and `if_match` with `rename`, or `title` with another operation), `fingerprint_mismatch` (`if_match` isn't the current title's fingerprint — usually because the title changed after you got it; nothing changed, and unlike the content operations' it carries no `outline`: call `read_note_outline` for the current title and its `titleFingerprint`), `conflict` (the note was moved into a group, or its group was deleted, between the access check and the write — nothing changed; try again), `too_many_requests` (token writes).
 
 ### `create_note`
 
@@ -535,14 +536,16 @@ In a note's markdown, an uploaded image is a reference to its upload, `/api/uplo
 
 ## The read-write loop
 
-Over the REST API the loop is "read the whole note, pick a section, write it back". Over MCP it is not, for two reasons: tools read notes in sections, and none returns a whole note — `create_bulk_transfer_token` instead hands shell commands a token to download notes as files — and an outline carries no fingerprints. The loop is:
+Over the REST API the loop is "read the whole note, pick a section, write it back". Over MCP it is not, for two reasons: tools read notes in sections, and none returns a whole note — `create_bulk_transfer_token` instead hands shell commands a token to download notes as files — and an outline carries no content fingerprints. The loop is:
 
 1. `list_notes` or `search_notes` → a note `id`. When `search_notes` already gave you the `sectionId` you want, go straight to step 3 with it.
 2. `read_note_outline` → the section ids, headings and lengths.
 3. `read_note_section` on the section you mean, paging with `offset` until `truncated` is false. **The last page is where the `fingerprint` arrives.**
 4. `edit_note` with that fingerprint as `if_match`.
 
-After a successful `edit_note` you do not have to go back to step 2: the reply already carries the note's new whole-note `fingerprint` and a page of per-section fingerprints. The exception is a note with more than 100 sections, where the next section you want can fall outside the page that reply returned — read it back with `read_note_outline`, then `read_note_section`.
+To rename a note, stop after step 2: pass the outline's `titleFingerprint` to `edit_note`'s `rename` as `if_match`.
+
+After a successful `edit_note` you do not have to go back to step 2: the reply already carries the note's new whole-note `fingerprint` and a page of per-section fingerprints (a rename's reply, the new `titleFingerprint`). The exception is a note with more than 100 sections, where the next section you want can fall outside the page that reply returned — read it back with `read_note_outline`, then `read_note_section`.
 
 **Tools read notes in sections, and what that caps is a single response, not a total.** One call returns at most 4000 characters of body text, at most 100 sections, at most 100 notes; headings and titles are cut at 200 characters as written in JSON. Nothing caps the total — only the rate at which a client can ask; see the reading-budget entry in [Known limitations](#known-limitations). To read or change many notes at once, use [`create_bulk_transfer_token`](#create_bulk_transfer_token): its commands download whole notes as files, up to 3 000 at a time, and send changed files back.
 

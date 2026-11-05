@@ -68,7 +68,7 @@ async function findActiveResetLink(
   return { id: row.id, targetUserId: row.targetUserId, email: row.email, expiresAt: row.expiresAt };
 }
 
-const TOO_MANY_REQUESTS_MESSAGE = "請求太頻繁，請稍後再試";
+const TOO_MANY_REQUESTS_MESSAGE = "Too many requests. Wait a moment and try again.";
 
 export function passwordResetRoutes(deps: PasswordResetRouteDeps) {
   /** 交易外查無有效連結：扣 miss 桶（key=ip），超限 429，否則 410。 */
@@ -80,7 +80,7 @@ export function passwordResetRoutes(deps: PasswordResetRouteDeps) {
   return async function register(app: FastifyInstance): Promise<void> {
     app.post("/api/auth/password-reset/inspect", async (request, reply) => {
       const parsed = inspectBodySchema.safeParse(request.body);
-      if (!parsed.success) return sendError(reply, 400, "invalid_body", "請求格式錯誤");
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", "Invalid request body.");
       const link = await findActiveResetLink(deps.db, parsed.data.token, request.log);
       if (!link) return sendInvalidLink(reply, request.ip);
       if (!(await isPasswordLoginAccepted(deps.db, deps.config, request.log))) {
@@ -92,7 +92,7 @@ export function passwordResetRoutes(deps: PasswordResetRouteDeps) {
     // 順序（spec §4.3）：body → 連結 → 帳密有效值 → 嘗試桶 → 長度 → argon2 → 交易。argon2 之前能判的都先判（A-13）。
     app.post("/api/auth/password-reset", async (request, reply) => {
       const parsed = completeBodySchema.safeParse(request.body);
-      if (!parsed.success) return sendError(reply, 400, "invalid_body", "請求格式錯誤");
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", "Invalid request body.");
       const { token, newPassword } = parsed.data;
       const link = await findActiveResetLink(deps.db, token, request.log);
       if (!link) return sendInvalidLink(reply, request.ip);
@@ -104,13 +104,13 @@ export function passwordResetRoutes(deps: PasswordResetRouteDeps) {
         return sendError(reply, 429, "too_many_requests", TOO_MANY_REQUESTS_MESSAGE);
       }
       if (newPassword.length < MIN_PASSWORD_LENGTH) {
-        return sendError(reply, 400, "password_too_short", `密碼至少需要 ${MIN_PASSWORD_LENGTH} 字元`);
+        return sendError(reply, 400, "password_too_short", `The password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
       }
       let passwordHash: string;
       try {
         passwordHash = await hashPassword(newPassword);
       } catch (err) {
-        if (err instanceof HashBusyError) return sendError(reply, 429, "server_busy", "伺服器忙碌，請稍後再試");
+        if (err instanceof HashBusyError) return sendError(reply, 429, "server_busy", "The server is busy. Try again in a moment.");
         throw err;
       }
       const input = { linkId: link.id, targetUserId: link.targetUserId, passwordHash };

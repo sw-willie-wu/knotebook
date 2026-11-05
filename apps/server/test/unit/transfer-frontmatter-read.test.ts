@@ -31,7 +31,7 @@ describe("F2 三種讀法", () => {
     expect(r.kind === "existing" && r.title).toBe(want);
   });
   it("未閉合的 JSON 字串 → error", () => {
-    expect(errOf(readNoteFile(file([`id: ${ID}`, `base: ${BASE}`, 'title: "unterminated'])))).toBe("front matter 的 `title` 格式不對");
+    expect(errOf(readNoteFile(file([`id: ${ID}`, `base: ${BASE}`, 'title: "unterminated'])))).toBe("The front matter's `title` is malformed.");
   });
   it("parseScalar 直接測", () => {
     expect(parseScalar("'a''b'")).toEqual({ ok: true, value: "a'b" });
@@ -75,13 +75,13 @@ describe("F3 辨識", () => {
 
 describe("F4 必要鍵", () => {
   it("有 id 無 base → error", () => {
-    expect(errOf(readNoteFile(file([`id: ${ID}`])))).toBe("有 id 的檔案必須有 base");
+    expect(errOf(readNoteFile(file([`id: ${ID}`])))).toBe("A file with an id must also have a base.");
   });
   it.each([
-    ["id 非 uuid", ["id: not-a-uuid", `base: ${BASE}`], "front matter 的 `id` 格式不對"],
-    ["base 15 hex", [`id: ${ID}`, "base: 0123456789abcde"], "front matter 的 `base` 格式不對"],
-    ["base 17 hex", [`id: ${ID}`, "base: 0123456789abcdef0"], "front matter 的 `base` 格式不對"],
-    ["base 大寫 hex", [`id: ${ID}`, "base: 0123456789ABCDEF"], "front matter 的 `base` 格式不對"],
+    ["id 非 uuid", ["id: not-a-uuid", `base: ${BASE}`], "The front matter's `id` is malformed."],
+    ["base 15 hex", [`id: ${ID}`, "base: 0123456789abcde"], "The front matter's `base` is malformed."],
+    ["base 17 hex", [`id: ${ID}`, "base: 0123456789abcdef0"], "The front matter's `base` is malformed."],
+    ["base 大寫 hex", [`id: ${ID}`, "base: 0123456789ABCDEF"], "The front matter's `base` is malformed."],
   ])("%s", (_n, fm, msg) => {
     expect(errOf(readNoteFile(file(fm)))).toBe(msg);
   });
@@ -93,7 +93,7 @@ describe("F4 必要鍵", () => {
     expect(errOf(readNoteFile(file([`base: ${BASE}`, 'title: "T"'])))).toBe(BASE_WITHOUT_ID_MESSAGE);
     // id 行認不出來（鍵名打錯）也一樣
     expect(errOf(readNoteFile(file(["knotebook: 1", `ld: ${ID}`, `base: ${BASE}`])))).toBe(BASE_WITHOUT_ID_MESSAGE);
-    expect(BASE_WITHOUT_ID_MESSAGE).toBe("front matter 有 base 卻沒有 id：這是下載來的檔，請保留原本的 id 行再送");
+    expect(BASE_WITHOUT_ID_MESSAGE).toBe("The front matter has a base but no id. This is a downloaded file: keep its original id line and send it again.");
   });
   it("N7（8000 探索測試）冒號前有空白或 tab：`id :`、`base :`、`title\\t:` 照常讀成既有筆記", () => {
     expect(readNoteFile(file(["knotebook: 1", `id : ${ID}`, `base : ${BASE}`, 'title\t: "T"']))).toEqual({ kind: "existing", id: ID, base: BASE, title: "T", body: "x" });
@@ -104,7 +104,7 @@ describe("F4 必要鍵", () => {
     expect(errOf(readNoteFile(`---\nbase: ${BASE}\nbody`))).toBe(UNCLOSED_FRONT_MATTER_MESSAGE);
     // 審查 M5：訊息照實寫出觸發條件（字面）
     expect(UNCLOSED_FRONT_MATTER_MESSAGE).toBe(
-      "front matter 沒有結尾的 `---`：檔案開頭有 `---`，前 200 行內有 `knotebook:`、`id:` 或 `base:` 行（冒號前可以有空白），卻找不到收尾的 `---`",
+      "The front matter has no closing `---`: the file starts with `---` and has a `knotebook:`, `id:` or `base:` line (spaces allowed before the colon) in its first 200 lines, but no `---` line closes it.",
     );
     expect(FRONTMATTER_SCAN_LINES).toBe(200);
   });
@@ -112,19 +112,19 @@ describe("F4 必要鍵", () => {
 
 describe("F5 格式守衛（NUL、落單代理）", () => {
   it("本文含 NUL → error", () => {
-    expect(errOf(readNoteFile(file([`id: ${ID}`, `base: ${BASE}`], `a${NUL}b`)))).toBe("檔案含 NUL 字元");
+    expect(errOf(readNoteFile(file([`id: ${ID}`, `base: ${BASE}`], `a${NUL}b`)))).toBe("The file contains a NUL character.");
   });
   it.each([
     ["title JSON 逸出成 NUL", 'title: "\\u0000"', "title"],
     ["title JSON 逸出成落單代理", 'title: "\\ud800"', "title"],
   ])("%s → error", (_n, line, key) => {
-    expect(errOf(readNoteFile(file([`id: ${ID}`, `base: ${BASE}`, line])))).toBe(`front matter 的 \`${key}\` 格式不對`);
+    expect(errOf(readNoteFile(file([`id: ${ID}`, `base: ${BASE}`, line])))).toBe(`The front matter's \`${key}\` is malformed.`);
   });
   it("base 的 JSON 值含 NUL → error", () => {
-    expect(errOf(readNoteFile(file([`id: ${ID}`, 'base: "0123456789abcde\\u0000"'])))).toBe("front matter 的 `base` 格式不對");
+    expect(errOf(readNoteFile(file([`id: ${ID}`, 'base: "0123456789abcde\\u0000"'])))).toBe("The front matter's `base` is malformed.");
   });
   it("folder_id 非 uuid → error", () => {
-    expect(errOf(readNoteFile(file(["knotebook: 1", "folder_id: not-a-uuid"])))).toBe("front matter 的 `folder_id` 格式不對");
+    expect(errOf(readNoteFile(file(["knotebook: 1", "folder_id: not-a-uuid"])))).toBe("The front matter's `folder_id` is malformed.");
   });
   it("成對代理（emoji）不誤擋", () => {
     expect(readNoteFile(file([`id: ${ID}`, `base: ${BASE}`, 'title: "\\ud83d\\ude00"']))).toMatchObject({ title: "😀" });
@@ -139,7 +139,7 @@ describe("F6 title", () => {
     ['title: ""', 'title: ""'],
     ["title:（空 plain）", "title:"],
   ])("%s → error", (_n, line) => {
-    expect(errOf(readNoteFile(file([`id: ${ID}`, `base: ${BASE}`, line])))).toBe("title 不能是空的");
+    expect(errOf(readNoteFile(file([`id: ${ID}`, `base: ${BASE}`, line])))).toBe("The front matter's `title` can't be empty.");
   });
 });
 
@@ -155,7 +155,7 @@ describe("F8 重複鍵與大小寫", () => {
     ["兩行 title", [`id: ${ID}`, `base: ${BASE}`, 'title: "a"', 'title: "b"'], "title"],
     ["兩行 id", [`id: ${ID}`, `id: ${ID}`, `base: ${BASE}`], "id"],
   ])("%s → error", (_n, fm, key) => {
-    expect(errOf(readNoteFile(file(fm)))).toBe(`front matter 的 \`${key}\` 重複`);
+    expect(errOf(readNoteFile(file(fm)))).toBe(`The front matter has \`${key}\` more than once.`);
   });
   it("tags 重複 → 照常", () => {
     expect(readNoteFile(file([`id: ${ID}`, "tags: a", "tags: b", `base: ${BASE}`])).kind).toBe("existing");

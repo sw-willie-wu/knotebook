@@ -4,7 +4,7 @@ import { userIdentities, users } from "../../db/schema.js";
 import { TxAbort } from "../../http/tx-abort.js";
 import type { OidcTestHook } from "../oidc-test-hook.js";
 
-export const LINK_EXPIRED_MESSAGE = "這個連結請求已過期，請重新登入";
+export const LINK_EXPIRED_MESSAGE = "This link request has expired. Sign in again.";
 
 export type LinkProof = { kind: "password"; passwordHash: string } | { kind: "sso"; issuer: string; sub: string };
 
@@ -65,7 +65,7 @@ export async function linkPendingIdentityInTx(tx: Tx, input: LinkPendingInput, h
 
   if (input.proof.kind === "password") {
     if (row.passwordHash === null || row.passwordHash !== input.proof.passwordHash) {
-      throw new TxAbort(401, "invalid_credentials", "帳號或密碼錯誤");
+      throw new TxAbort(401, "invalid_credentials", "Wrong email or password.");
     }
   } else {
     const [owner] = await tx
@@ -73,10 +73,10 @@ export async function linkPendingIdentityInTx(tx: Tx, input: LinkPendingInput, h
       .from(userIdentities)
       .where(and(eq(userIdentities.issuer, input.proof.issuer), eq(userIdentities.sub, input.proof.sub)))
       .limit(1);
-    if (owner?.userId !== input.targetUserId) throw new TxAbort(409, "oidc_link_proof_mismatch", "你登入的不是這個帳號已連結的那個身分");
+    if (owner?.userId !== input.targetUserId) throw new TxAbort(409, "oidc_link_proof_mismatch", "You signed in with a different identity from the one this account is linked to.");
   }
 
-  if (row.disabledAt !== null) throw new TxAbort(403, "account_disabled", "此帳號已被停用");
+  if (row.disabledAt !== null) throw new TxAbort(403, "account_disabled", "This account is disabled.");
 
   // B2 用精確 `eq(issuer)`，不用決策／pending GET 的寬鬆 `issuerKey`（`auth/issuer.ts`）：`user_identities.issuer` 與 pending 的
   // issuer 都是 callback 取自 IdP 的 `serverMetadata().issuer` 原字串（`routes/oidc.ts` 組 claims 處；§10.3 補登的舊欄也是舊版
@@ -87,7 +87,7 @@ export async function linkPendingIdentityInTx(tx: Tx, input: LinkPendingInput, h
     .from(userIdentities)
     .where(and(eq(userIdentities.userId, input.targetUserId), eq(userIdentities.issuer, input.issuer), ne(userIdentities.sub, input.sub)))
     .limit(1);
-  if (sameIssuer !== undefined) throw new TxAbort(409, "identity_already_linked", "這個帳號已連結同一個登入服務的另一個身分");
+  if (sameIssuer !== undefined) throw new TxAbort(409, "identity_already_linked", "This account is already linked to another identity on the same sign-in service.");
 
   const inserted = await tx
     .insert(userIdentities)
@@ -101,7 +101,7 @@ export async function linkPendingIdentityInTx(tx: Tx, input: LinkPendingInput, h
       .from(userIdentities)
       .where(and(eq(userIdentities.issuer, input.issuer), eq(userIdentities.sub, input.sub)))
       .limit(1);
-    if (owner?.userId !== input.targetUserId) throw new TxAbort(409, "identity_taken", "這個登入身分已連結到其他帳號");
+    if (owner?.userId !== input.targetUserId) throw new TxAbort(409, "identity_taken", "This sign-in identity is already linked to another account.");
   }
 
   if (input.proof.kind === "sso") {
@@ -133,8 +133,8 @@ export async function linkPendingIdentityInTx(tx: Tx, input: LinkPendingInput, h
  */
 export async function linkIdentityToUserInTx(tx: Tx, input: { userId: string; issuer: string; sub: string }): Promise<void> {
   const [row] = await tx.select({ disabledAt: users.disabledAt }).from(users).where(eq(users.id, input.userId)).for("no key update");
-  if (row === undefined) throw new TxAbort(409, "oidc_link_session_mismatch", "發起連結的帳號已不存在");
-  if (row.disabledAt !== null) throw new TxAbort(403, "account_disabled", "此帳號已被停用");
+  if (row === undefined) throw new TxAbort(409, "oidc_link_session_mismatch", "The account that started this link no longer exists.");
+  if (row.disabledAt !== null) throw new TxAbort(403, "account_disabled", "This account is disabled.");
 
   const ownerOf = async () =>
     (
@@ -147,7 +147,7 @@ export async function linkIdentityToUserInTx(tx: Tx, input: { userId: string; is
   const owner = await ownerOf();
   if (owner !== undefined) {
     if (owner.userId === input.userId) return;
-    throw new TxAbort(409, "identity_taken", "這個登入身分已連結到其他帳號");
+    throw new TxAbort(409, "identity_taken", "This sign-in identity is already linked to another account.");
   }
 
   const [sameIssuer] = await tx
@@ -155,7 +155,7 @@ export async function linkIdentityToUserInTx(tx: Tx, input: { userId: string; is
     .from(userIdentities)
     .where(and(eq(userIdentities.userId, input.userId), eq(userIdentities.issuer, input.issuer), ne(userIdentities.sub, input.sub)))
     .limit(1);
-  if (sameIssuer !== undefined) throw new TxAbort(409, "identity_already_linked", "這個帳號已連結同一個登入服務的另一個身分");
+  if (sameIssuer !== undefined) throw new TxAbort(409, "identity_already_linked", "This account is already linked to another identity on the same sign-in service.");
 
   const inserted = await tx
     .insert(userIdentities)
@@ -164,6 +164,6 @@ export async function linkIdentityToUserInTx(tx: Tx, input: { userId: string; is
     .returning({ id: userIdentities.id });
   if (inserted.length === 0) {
     const winner = await ownerOf();
-    if (winner?.userId !== input.userId) throw new TxAbort(409, "identity_taken", "這個登入身分已連結到其他帳號");
+    if (winner?.userId !== input.userId) throw new TxAbort(409, "identity_taken", "This sign-in identity is already linked to another account.");
   }
 }

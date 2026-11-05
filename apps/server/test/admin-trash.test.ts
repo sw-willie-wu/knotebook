@@ -77,7 +77,7 @@ describe("AS4 讀不到 site_settings 列", () => {
     await b.db.$client.query(`delete from site_settings`);
     const res = await get(b);
     expect(res.statusCode).toBe(500);
-    expect(res.json()).toEqual({ error: { code: "internal", message: "伺服器內部錯誤" } });
+    expect(res.json()).toEqual({ error: { code: "internal", message: "Internal server error." } });
     expect(logs.lines.find(l => l.msg === SITE_SETTINGS_MISSING_MESSAGE)?.obj).toEqual({ table: "site_settings" });
   });
 });

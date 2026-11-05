@@ -4,7 +4,7 @@
  * 授權碼（§6.7）：`:id`／`:userId` 先過 `UUID_RE`；不合法、群組不存在、呼叫者不是成員（且不是站台 admin）→
  * 同一條 404 `not_found`（`GROUP_NOT_FOUND_MESSAGE`，逐位元組相同，S4）；是成員但缺那一支要的管理旗標 → 403 `forbidden`。
  * 兩個管理旗標＝角色旗標 **OR 站台 admin（不論是否成員）**（§5.5）。**授權判定先於 body 驗證**。
- * body 的 `roleId`（`PUT`／`PATCH …/members`）非 UUID 或不屬於此群組 → 404 `role_not_found`（「找不到此角色」，不是上面
+ * body 的 `roleId`（`PUT`／`PATCH …/members`）非 UUID 或不屬於此群組 → 404 `role_not_found`（"No role with that id."，不是上面
  * 那條 `not_found`）；它的 UUID 檢查在 403 與 body 形狀驗證**之後**，「不屬於此群組」在交易內判定。
  * 每個交易的本體都在 `groups/tx/*`（S14）：路由只做 `db.transaction(tx => xxxInTx(tx, …))` 與 commit 後的踢線。
  * 角色端點（PR3）：`POST …/roles` 是單句 INSERT；`PATCH`／`DELETE …/roles/:roleId` 的本體是 `groups/tx/roles.ts`（T12、T13）；
@@ -46,7 +46,7 @@ const nameBodySchema = z.object({ name: z.string() }).strict();
 const groupPatchBodySchema = z
   .object({ name: z.string().optional(), autoVersions: z.boolean().optional() })
   .strict()
-  .refine(b => b.name !== undefined || b.autoVersions !== undefined, { message: "請求格式錯誤：至少需要一個欄位" });
+  .refine(b => b.name !== undefined || b.autoVersions !== undefined, { message: "Invalid request body: send at least one field." });
 const addMemberBodySchema = z.object({ email: z.string().email(), roleId: z.string().optional() }).strict();
 const memberRoleBodySchema = z.object({ roleId: z.string() }).strict();
 // 六個可設旗標（鍵取自 shared 的 `GROUP_ROLE_FLAGS`，與 web 角色頁同一份），全必填；沒有 `read`（閱讀恆真）——
@@ -59,7 +59,7 @@ const createRoleBodySchema = z.object({ name: z.string(), permissions: roleFlags
 const patchRoleBodySchema = z
   .object({ name: z.string().optional(), permissions: roleFlagsSchema.optional() })
   .strict()
-  .refine(b => b.name !== undefined || b.permissions !== undefined, { message: "至少要改名稱或權限其中一項" });
+  .refine(b => b.name !== undefined || b.permissions !== undefined, { message: "Invalid request body: send at least one of name and permissions." });
 // #175 PR4（§6.8）：刪群組必填模式（shared `DeleteGroupBody` 的兩支）。`.strict()`：多餘鍵 400，不默默忽略（例如 delete 帶 transferTo）。
 const deleteGroupBodySchema = z.discriminatedUnion("mode", [
   z.object({ mode: z.literal("transfer"), transferTo: z.string() }).strict(),
@@ -86,18 +86,18 @@ function toMemberDto(row: { userId: string; email: string; displayName: string; 
 export function groupsRoutes(deps: GroupsRouteDeps) {
   return async function register(app: FastifyInstance): Promise<void> {
     const notFound = (reply: FastifyReply): FastifyReply => sendError(reply, 404, "not_found", GROUP_NOT_FOUND_MESSAGE);
-    const forbidden = (reply: FastifyReply): FastifyReply => sendError(reply, 403, "forbidden", "你在這個群組的角色不能進行此操作");
-    const roleNotFound = (reply: FastifyReply): FastifyReply => sendError(reply, 404, "role_not_found", "找不到此角色");
-    const invalidName = (reply: FastifyReply): FastifyReply => sendError(reply, 400, "invalid_name", "群組名稱須為 1–80 個字元");
+    const forbidden = (reply: FastifyReply): FastifyReply => sendError(reply, 403, "forbidden", "Your role in this group can't do this.");
+    const roleNotFound = (reply: FastifyReply): FastifyReply => sendError(reply, 404, "role_not_found", "No role with that id.");
+    const invalidName = (reply: FastifyReply): FastifyReply => sendError(reply, 400, "invalid_name", "Group names must be 1 to 80 characters.");
     const replyTxAbort = (reply: FastifyReply, err: unknown): FastifyReply | null =>
       err instanceof TxAbort ? sendError(reply, err.status, err.errCode, err.message) : null;
-    const invalidRoleName = (reply: FastifyReply): FastifyReply => sendError(reply, 400, "invalid_name", "角色名稱須為 1–40 個字元");
-    const roleNameTaken = (reply: FastifyReply): FastifyReply => sendError(reply, 409, "role_name_taken", "這個群組已有同名的角色，或該名稱保留給內建角色");
+    const invalidRoleName = (reply: FastifyReply): FastifyReply => sendError(reply, 400, "invalid_name", "Role names must be 1 to 40 characters.");
+    const roleNameTaken = (reply: FastifyReply): FastifyReply => sendError(reply, 409, "role_name_taken", "This group already has a role with that name, or the name is reserved for a built-in role.");
     // 與 `transferGroupInTx` 的 TxAbort 共用同一個常數：非 UUID 與「不是內建管理員」逐位元組相同（spec 疑點 Q2）。
     const notAdmin = (reply: FastifyReply): FastifyReply => sendError(reply, 409, "not_admin", NOT_ADMIN_MESSAGE);
     // 字面比照 `routes/notes.ts` 的 links busy 映射：40P01 是 PG 的死結偵測，重試即可。
-    const serverBusy = (reply: FastifyReply): FastifyReply => sendError(reply, 409, "server_busy", "伺服器忙碌，請稍後再試");
-    const groupNotEmpty = (reply: FastifyReply): FastifyReply => sendError(reply, 409, "group_not_empty", "群組內還有筆記，無法刪除");
+    const serverBusy = (reply: FastifyReply): FastifyReply => sendError(reply, 409, "server_busy", "The server is busy. Try again in a moment.");
+    const groupNotEmpty = (reply: FastifyReply): FastifyReply => sendError(reply, 409, "group_not_empty", "The group still has notes, so it can't be deleted.");
 
     app.get("/api/groups", { preHandler: app.authenticate }, async request => {
       const rows = await listMyGroupsQuery(deps.db, request.user!.id);
@@ -107,7 +107,7 @@ export function groupsRoutes(deps: GroupsRouteDeps) {
     // S2：建立者在同一個交易裡成為內建管理員；兩個內建角色同交易建（T8）。
     app.post("/api/groups", { preHandler: app.authenticate }, async (request, reply) => {
       const parsed = nameBodySchema.safeParse(request.body);
-      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "Invalid request body.");
       const name = validateGroupName(parsed.data.name);
       if (name === null) return invalidName(reply);
       const userId = request.user!.id;
@@ -120,7 +120,7 @@ export function groupsRoutes(deps: GroupsRouteDeps) {
         // §4.2：site_settings 沒有列 → 23502；同接受邀請先記錯（物件開頭）再 500。
         if (notNullViolationColumn(err) === "storage_plan_id") {
           request.log.error({ table: "site_settings" }, SITE_SETTINGS_MISSING_MESSAGE);
-          return sendError(reply, 500, "internal", "伺服器內部錯誤");
+          return sendError(reply, 500, "internal", "Internal server error.");
         }
         throw err;
       }
@@ -165,7 +165,7 @@ export function groupsRoutes(deps: GroupsRouteDeps) {
       if (!access) return notFound(reply);
       if (!access.manageGroup) return forbidden(reply);
       const parsed = deleteGroupBodySchema.safeParse(request.body);
-      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "Invalid request body.");
       // `groupAccess` 已過 UUID_RE（不分大小寫）；轉小寫讓交易輸入與 hook ctx 跟 DB 回來的 id 同形。
       const groupId = id.toLowerCase();
 
@@ -252,7 +252,7 @@ export function groupsRoutes(deps: GroupsRouteDeps) {
       if (!access) return notFound(reply);
       if (!access.manageGroup) return forbidden(reply);
       const parsed = createRoleBodySchema.safeParse(request.body);
-      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "Invalid request body.");
       const name = validateRoleName(parsed.data.name);
       if (name === null) return invalidRoleName(reply);
       if (isReservedRoleName(name)) return roleNameTaken(reply);
@@ -288,7 +288,7 @@ export function groupsRoutes(deps: GroupsRouteDeps) {
       if (!access.manageGroup) return forbidden(reply);
       if (!UUID_RE.test(roleId)) return roleNotFound(reply);
       const parsed = patchRoleBodySchema.safeParse(request.body);
-      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "Invalid request body.");
       const permissions = parsed.data.permissions;
       let name: string | undefined;
       if (parsed.data.name !== undefined) {
@@ -352,7 +352,7 @@ export function groupsRoutes(deps: GroupsRouteDeps) {
       if (!access) return notFound(reply);
       if (!access.manageMembers) return forbidden(reply);
       const parsed = addMemberBodySchema.safeParse(request.body);
-      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "Invalid request body.");
       const roleId = parsed.data.roleId ?? null;
       if (roleId !== null && !UUID_RE.test(roleId)) return roleNotFound(reply);
       // lower() 讀取端比對＋多列命中防護（同 shares 的 PUT）。
@@ -362,7 +362,7 @@ export function groupsRoutes(deps: GroupsRouteDeps) {
         .where(sql`lower(${users.email}) = ${normalizeEmail(parsed.data.email)}`)
         .orderBy(users.createdAt, users.id)
         .limit(1);
-      if (!target) return sendError(reply, 404, "user_not_found", "找不到此使用者");
+      if (!target) return sendError(reply, 404, "user_not_found", "No user with that email.");
       let role;
       try {
         role = await deps.db.transaction(tx => addMemberInTx(tx, { groupId: id, targetUserId: target.id, roleId }, deps.groupTestHook));
@@ -382,7 +382,7 @@ export function groupsRoutes(deps: GroupsRouteDeps) {
       if (!UUID_RE.test(targetId)) return notFound(reply);
       if (!access.manageMembers) return forbidden(reply);
       const parsed = memberRoleBodySchema.safeParse(request.body);
-      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "Invalid request body.");
       if (!UUID_RE.test(parsed.data.roleId)) return roleNotFound(reply);
       let out;
       try {

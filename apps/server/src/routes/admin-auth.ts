@@ -39,10 +39,10 @@ export interface AdminAuthRouteDeps {
 
 const INSECURE_ISSUER_LOG = "登入服務的 issuer 是明文 http（§5.3）";
 const ISSUER_AUDIT_LOG = "登入服務的 issuer 被寫入";
-const NOT_FOUND_MESSAGE = "找不到此登入服務";
-const DISCOVERY_FAILED_MESSAGE = "無法從這個 issuer 讀到可用的 OIDC 設定";
-const ICON_TOO_LARGE_MESSAGE = "圖檔不得超過 256 KB";
-const ICON_TYPE_MESSAGE = "只接受 PNG、JPEG、WebP";
+const NOT_FOUND_MESSAGE = "No sign-in service with that id.";
+const DISCOVERY_FAILED_MESSAGE = "Couldn't read a usable OIDC configuration from this issuer.";
+const ICON_TOO_LARGE_MESSAGE = "The image can be at most 256 KB.";
+const ICON_TYPE_MESSAGE = "Only PNG, JPEG and WebP images are accepted.";
 
 /** 路徑參數：過 UUID_RE 再轉小寫（RF4）；不合法回 null（呼叫端 404）。 */
 function providerIdParam(request: FastifyRequest): string | null {
@@ -74,7 +74,7 @@ function toAdminProviderDto(row: AdminProviderRow, config: AppConfig): AdminAuth
 }
 
 /**
- * #187 PR2：站台管理的登入服務 API（spec §9.2）；PR3 加 `/api/admin/auth/settings`（§9.5）。全部 `requireAdmin`；HTTP 層訊息中文。
+ * #187 PR2：站台管理的登入服務 API（spec §9.2）；PR3 加 `/api/admin/auth/settings`（§9.5）。全部 `requireAdmin`；HTTP 層訊息英文（#372）。
  * 停用、刪除都不撤 session（Q5）。
  */
 export function adminAuthRoutes(deps: AdminAuthRouteDeps) {
@@ -82,7 +82,7 @@ export function adminAuthRoutes(deps: AdminAuthRouteDeps) {
     const settingsBodySchema = z
       .object({ registrationEnabled: z.boolean().optional(), passwordLoginEnabled: z.boolean().optional() })
       .strict()
-      .refine(body => Object.keys(body).length > 0, "請求格式錯誤：至少需要一個欄位");
+      .refine(body => Object.keys(body).length > 0, "Invalid request body: send at least one field.");
 
     /** GET 與 PATCH 回同一形。讀不到列：註冊視同關、帳密視同開（§4.3 兩條）＋log.error；GET 不回 500（PATCH 會）。 */
     async function settingsDto(request: FastifyRequest): Promise<AdminAuthSettingsDto> {
@@ -187,10 +187,10 @@ export function adminAuthRoutes(deps: AdminAuthRouteDeps) {
           return sendError(reply, err.status, err.errCode, err.message);
         }
         if (checkViolationConstraint(err) === "auth_providers_enabled_secret_chk") {
-          return sendError(reply, 409, "provider_secret_missing", "這個登入服務沒有 client secret，不能啟用");
+          return sendError(reply, 409, "provider_secret_missing", "This sign-in service has no client secret, so it can't be enabled.");
         }
         if (checkViolationConstraint(err) === "auth_providers_enabled_client_id_chk") {
-          return sendError(reply, 409, "provider_client_id_missing", "這個登入服務沒有 client ID，不能啟用");
+          return sendError(reply, 409, "provider_client_id_missing", "This sign-in service has no client ID, so it can't be enabled.");
         }
         // 非預期錯誤不得原樣進 log：這一句可能寫密文欄（DrizzleQueryError 的 message 帶 params）。
         throw redactDbError(request.log, err, "修改登入服務");
@@ -252,11 +252,11 @@ export function adminAuthRoutes(deps: AdminAuthRouteDeps) {
       } catch (err) {
         drainWithCap(request);
         request.log.warn({ err }, "multipart 解析失敗");
-        return sendError(reply, 400, "invalid_body", "上傳格式錯誤");
+        return sendError(reply, 400, "invalid_body", "The upload isn't valid multipart/form-data.");
       }
       if (fileBuf === undefined) {
         drainWithCap(request);
-        return sendError(reply, 400, "invalid_body", "缺少上傳檔案");
+        return sendError(reply, 400, "invalid_body", "The upload has no file.");
       }
       if (truncated) {
         drainWithCap(request);

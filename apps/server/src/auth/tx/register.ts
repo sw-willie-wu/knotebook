@@ -55,7 +55,7 @@ export async function registerUserInTx(tx: Tx, input: RegisterUserInput): Promis
  */
 export async function insertPasswordUserInTx(tx: Tx, input: PasswordUserInput): Promise<RegisteredUser> {
   const [taken] = await tx.select({ id: users.id }).from(users).where(sql`lower(${users.email}) = ${input.email}`).limit(1);
-  if (taken !== undefined) throw new TxAbort(409, "email_taken", "此 email 已被使用");
+  if (taken !== undefined) throw new TxAbort(409, "email_taken", "That email is already in use.");
 
   const handle = input.useFallbackHandle ? `user-${input.id.slice(0, 8)}` : await deriveHandle(tx, [input.email.split("@")[0]], input.id);
   await tx.insert(handles).values({ handle, userId: input.id, state: "live" });

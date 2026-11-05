@@ -66,16 +66,16 @@ describe("POST /api/auth/register（#187 §9.1、B9）", () => {
     const bad = await register(app, { email: "bob@x.example", password: PW, displayName: `Bo${NUL}b` });
     expect(bad.statusCode).toBe(400);
     expect(bad.json().error.code).toBe("invalid_body");
-    expect(bad.json().error.message).toMatch(/[一-鿿]/);
+    expect(bad.json().error.message).toBe("The display name contains characters that can't be stored.");
     expect(await db.select().from(users).where(eq(users.email, "bob@x.example"))).toEqual([]);
   });
 
-  it("疑點 4 上限（總管裁定）：email 255 字元 → 400（中文訊息）、254 → 201；顯示名 101 個 code point → 400、100 個 → 201", async () => {
+  it("疑點 4 上限（總管裁定）：email 255 字元 → 400（英文訊息）、254 → 201；顯示名 101 個 code point → 400、100 個 → 201", async () => {
     const { app, db } = await buildTestApp();
     const emailOf = (n: number) => `${"a".repeat(n - "@example.com".length)}@example.com`;
     const long = await register(app, { email: emailOf(255), password: PW });
     expect(long.statusCode).toBe(400);
-    expect(long.json().error.message).toBe("email 不得超過 254 個字元");
+    expect(long.json().error.message).toBe("The email can be at most 254 characters.");
     const longLocal = await register(app, { email: emailOf(254), password: PW });
     expect(longLocal.statusCode).toBe(201);
     // R1（I1）：不帶顯示名時預設值＝local-part（242 字元）截到前 100 個 code point。
@@ -83,7 +83,7 @@ describe("POST /api/auth/register（#187 §9.1、B9）", () => {
     const [longRow] = await db.select().from(users).where(eq(users.id, longLocal.json().id));
     expect(longRow!.displayName).toBe("a".repeat(100));
     const tooLongName = await register(app, { email: "n1@example.com", password: PW, displayName: "😀".repeat(101) });
-    expect(tooLongName.json().error).toEqual({ code: "invalid_body", message: "顯示名稱不得超過 100 個字" });
+    expect(tooLongName.json().error).toEqual({ code: "invalid_body", message: "The display name can be at most 100 characters." });
     expect((await register(app, { email: "n2@example.com", password: PW, displayName: "😀".repeat(100) })).statusCode).toBe(201);
   });
 
@@ -97,11 +97,11 @@ describe("POST /api/auth/register（#187 §9.1、B9）", () => {
     expect(res.json().error.code).toBe("email_taken");
   });
 
-  it("密碼太短 → 400 password_too_short；body 不合 → 400 invalid_body（中文訊息）", async () => {
+  it("密碼太短 → 400 password_too_short；body 不合 → 400 invalid_body（英文訊息）", async () => {
     const { app } = await buildTestApp();
     expect((await register(app, { email: "a@example.com", password: "short" })).json().error.code).toBe("password_too_short");
     const bad = await register(app, { email: "not-an-email", password: PW });
-    expect(bad.json().error).toEqual({ code: "invalid_body", message: "請求格式錯誤" });
+    expect(bad.json().error).toEqual({ code: "invalid_body", message: "Invalid request body." });
     expect((await register(app, { email: "a@example.com", password: PW, isAdmin: true })).statusCode).toBe(400);
   });
 

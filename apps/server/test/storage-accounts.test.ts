@@ -120,7 +120,7 @@ describe("site_settings 沒有列（§4.2 契約變更）", () => {
     const missing = () => logs.lines.filter(l => l.level === "error" && l.msg === SITE_SETTINGS_MISSING_MESSAGE).length;
     const r = await acceptInvite(b, invite.token, "x@example.com");
     expect(r.statusCode).toBe(500);
-    expect(r.json()).toEqual({ error: { code: "internal", message: "伺服器內部錯誤" } });
+    expect(r.json()).toEqual({ error: { code: "internal", message: "Internal server error." } });
     expect(missing()).toBe(1);
     expect(logText(logs.lines).includes("$argon2"), "log 帶了密碼雜湊").toBe(false);
     expect((await b.app.inject({ method: "POST", url: "/api/groups", cookies: b.cookies, payload: { name: "G" } })).statusCode).toBe(500);
@@ -151,7 +151,7 @@ describe("建帳／建群組撞已刪的預設方案 → 409 server_busy（§10 
       create trigger t_users_fk before insert on users for each row execute function pg_temp_raise_users_fk();`);
     const r = await createUser(b, "y@example.com");
     expect(r.statusCode).toBe(409);
-    expect(r.json()).toEqual({ error: { code: "server_busy", message: "伺服器忙碌，請稍後再試" } });
+    expect(r.json()).toEqual({ error: { code: "server_busy", message: "The server is busy. Try again in a moment." } });
     await b.db.$client.query(`
       create or replace function pg_temp_raise_users_fk() returns trigger language plpgsql as $$
       begin raise exception using errcode = '23503', constraint = 'something_else_fk', message = 'constructed'; end $$;`);

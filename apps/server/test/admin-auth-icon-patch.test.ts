@@ -83,14 +83,14 @@ describe("PATCH /api/admin/auth/providers/:id 的 iconKind（spec §4.3、§8.1 
     }
   });
 
-  it("S5：iconKind 'upload'／未知值／null → 400 invalid_body「請求格式錯誤」；DB 不變", async () => {
+  it("S5：iconKind 'upload'／未知值／null → 400 invalid_body「Invalid request body.」；DB 不變", async () => {
     const { app, db, cookies } = await adminApp();
     const p = await seedUploaded(db);
     const before = await providerRow(db, p.id);
     for (const iconKind of ["upload", "svg", null, 1]) {
       const res = await patch(app, cookies, p.id, { iconKind });
       expect(res.statusCode, String(iconKind)).toBe(400);
-      expect(res.json().error, String(iconKind)).toEqual({ code: "invalid_body", message: "請求格式錯誤" });
+      expect(res.json().error, String(iconKind)).toEqual({ code: "invalid_body", message: "Invalid request body." });
     }
     expect(await providerRow(db, p.id)).toEqual(before);
   });

@@ -62,7 +62,7 @@ describe("PATCH /api/auth/profile — displayName（#247 §9.3）", () => {
     for (const displayName of ["", "   ", "　　", EMOJI.repeat(101), "x".repeat(101), `a${NUL}b`, "a\uD800b", 5, null]) {
       const r = await call(app, "PATCH", "/api/auth/profile", u.id, { displayName });
       expect(r.statusCode, JSON.stringify(displayName)).toBe(400);
-      expect(r.json().error, JSON.stringify(displayName)).toEqual({ code: "invalid_body", message: "請求格式錯誤" });
+      expect(r.json().error, JSON.stringify(displayName)).toEqual({ code: "invalid_body", message: "Invalid request body." });
     }
     const [row] = await db.select({ d: users.displayName }).from(users).where(eq(users.id, u.id));
     expect(row!.d).toBe("Stay");

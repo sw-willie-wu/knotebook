@@ -157,7 +157,7 @@ describe("#175 PR3 PATCH …/roles/:roleId（T12）", () => {
     const self = await patch(reader.id, { name: "READER" });
     expect(self.statusCode, self.body).toBe(200);
     expect(self.json().name).toBe("READER");
-    const TAKEN = { error: { code: "role_name_taken", message: "這個群組已有同名的角色，或該名稱保留給內建角色" } };
+    const TAKEN = { error: { code: "role_name_taken", message: "This group already has a role with that name, or the name is reserved for a built-in role." } };
     const clash = await patch(writer.id, { name: "reader" });
     expect(clash.statusCode).toBe(409);
     expect(clash.json()).toEqual(TAKEN);
@@ -174,7 +174,7 @@ describe("#175 PR3 PATCH …/roles/:roleId（T12）", () => {
     for (const payload of [{ permissions: ALL }, { name: "Boss" }, { permissions: NONE }]) {
       const res = await patch(g.adminRoleId, payload);
       expect(res.statusCode, JSON.stringify(payload)).toBe(409);
-      expect(res.json()).toEqual({ error: { code: "builtin_role", message: "內建管理員角色不能修改" } });
+      expect(res.json()).toEqual({ error: { code: "builtin_role", message: "The built-in Admin role can't be changed." } });
     }
     expect((await roles()).find(r => r.id === g.adminRoleId)).toEqual(before);
   });
@@ -187,7 +187,7 @@ describe("#175 PR3 PATCH …/roles/:roleId（T12）", () => {
     for (const payload of [{ name: "Staff" }, { name: "Staff", permissions: MEMBER_FLAGS }]) {
       const renamed = await patch(g.memberRoleId, payload);
       expect(renamed.statusCode, JSON.stringify(payload)).toBe(409);
-      expect(renamed.json()).toEqual({ error: { code: "builtin_role", message: "內建一般成員角色不能改名" } });
+      expect(renamed.json()).toEqual({ error: { code: "builtin_role", message: "The built-in Member role can't be renamed." } });
     }
     expect((await roles()).find(r => r.id === g.memberRoleId)).toEqual(res.json());
   });
@@ -200,7 +200,7 @@ describe("#175 PR3 PATCH …/roles/:roleId（T12）", () => {
     for (const roleId of ["not-a-uuid", otherRole, other.memberRoleId]) {
       const res = await patch(roleId, { name: "X" });
       expect(res.statusCode, roleId).toBe(404);
-      expect(res.json()).toEqual({ error: { code: "role_not_found", message: "找不到此角色" } });
+      expect(res.json()).toEqual({ error: { code: "role_not_found", message: "No role with that id." } });
     }
     // 順序：非 UUID 的 404 先於 body 的 400
     const badBoth = await patch("not-a-uuid", {});
@@ -214,7 +214,7 @@ describe("#175 PR3 PATCH …/roles/:roleId（T12）", () => {
     }
     const empty = await patch(role.id, { name: "" });
     expect(empty.statusCode).toBe(400);
-    expect(empty.json()).toEqual({ error: { code: "invalid_name", message: "角色名稱須為 1–40 個字元" } });
+    expect(empty.json()).toEqual({ error: { code: "invalid_name", message: "Role names must be 1 to 40 characters." } });
     expect((await roles()).find(r => r.id === role.id)).toEqual(role);
     const elsewhere = await app.inject({ method: "GET", url: `/api/groups/${other.id}/roles`, cookies: await cookieOf(a.id) });
     expect((elsewhere.json() as GroupRoleDto[]).find(r => r.id === otherRole)?.name).toBe("Elsewhere");
@@ -225,7 +225,7 @@ describe("#175 PR3 PATCH …/roles/:roleId（T12）", () => {
     const before = await roles();
     const other = await seedGroup(db, "Other", [{ userId: a.id, role: "admin" }]);
     const otherRole = await seedRole(db, other.id, "Elsewhere", { canRead: true });
-    const TAKEN = { error: { code: "role_name_taken", message: "這個群組已有同名的角色，或該名稱保留給內建角色" } };
+    const TAKEN = { error: { code: "role_name_taken", message: "This group already has a role with that name, or the name is reserved for a built-in role." } };
     for (const [roleId, name] of [
       [g.memberRoleId, "Admin"],
       [g.adminRoleId, "Member"],
@@ -316,7 +316,7 @@ describe("#175 PR3 DELETE …/roles/:roleId（T13）", () => {
     for (const roleId of [g.adminRoleId, g.memberRoleId]) {
       const res = await del(roleId);
       expect(res.statusCode, roleId).toBe(409);
-      expect(res.json()).toEqual({ error: { code: "builtin_role", message: "內建角色不能刪除" } });
+      expect(res.json()).toEqual({ error: { code: "builtin_role", message: "Built-in roles can't be deleted." } });
     }
     expect(await roles()).toEqual(before);
   });
@@ -328,7 +328,7 @@ describe("#175 PR3 DELETE …/roles/:roleId（T13）", () => {
     for (const roleId of ["not-a-uuid", otherRole]) {
       const res = await del(roleId);
       expect(res.statusCode, roleId).toBe(404);
-      expect(res.json()).toEqual({ error: { code: "role_not_found", message: "找不到此角色" } });
+      expect(res.json()).toEqual({ error: { code: "role_not_found", message: "No role with that id." } });
     }
     const list = await app.inject({ method: "GET", url: `/api/groups/${other.id}/roles`, cookies: await cookieOf(a.id) });
     expect((list.json() as GroupRoleDto[]).map(r => r.id)).toContain(otherRole);

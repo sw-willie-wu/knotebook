@@ -213,24 +213,24 @@ describe("W9–W12 權限、範圍、額度、佇列", () => {
     const sd = await downloadNote(s.ctx.app, s.bulk.token, shared.id);
     const viewer = await bulkPut(s.ctx.app, s.bulk.token, editBody(sd.text, () => "x"));
     expect(viewer.statusCode).toBe(403);
-    expect(errOf(viewer)).toEqual({ code: "forbidden", message: "沒有編輯權限" });
+    expect(errOf(viewer)).toEqual({ code: "forbidden", message: "You don't have edit access to this note." });
     // 範圍外：folder 範圍的權杖、筆記不在那個資料夾
     const f = (await seedFolder(s.ctx.db, { personal: s.u.id }, { name: "F" })).id;
     const fbulk = await issueBulkDirect(s.ctx.db, s.pat.tokenId, { access: "write", range: { kind: "folder", folderId: f } });
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
     const out = await bulkPut(s.ctx.app, fbulk.token, editBody(d.text, b => b.replace("Para 1", "x")));
     expect(out.statusCode).toBe(403);
-    expect(errOf(out).message).toBe("這篇筆記不在此 transfer token 的範圍內");
+    expect(errOf(out).message).toBe("This note isn't in this transfer token's range.");
     // 範圍物件看不到：刪掉資料夾
     await s.ctx.db.execute(sql`delete from folders where id = ${f}`);
     const gone = await bulkPut(s.ctx.app, fbulk.token, editBody(d.text, b => b.replace("Para 1", "x")));
     expect(gone.statusCode).toBe(403);
-    expect(errOf(gone).message).toBe("此 transfer token 的範圍已看不到");
+    expect(errOf(gone).message).toBe("The group or folder this transfer token covers is no longer visible to you.");
     // access=read
     const rbulk = await issueBulkDirect(s.ctx.db, s.pat.tokenId, { access: "read" });
     const ro = await bulkPut(s.ctx.app, rbulk.token, editBody(d.text, b => b.replace("Para 1", "x")));
     expect(ro.statusCode).toBe(403);
-    expect(errOf(ro)).toEqual({ code: "insufficient_scope", message: "此 token 沒有執行這個操作的權限" });
+    expect(errOf(ro)).toEqual({ code: "insufficient_scope", message: "This token's scope doesn't allow this action." });
     // 垃圾桶
     await s.ctx.db.update(notes).set({ deletedAt: new Date() }).where(eq(notes.id, s.note.id));
     const trashed = await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, b => b.replace("Para 1", "x")));
@@ -290,7 +290,7 @@ describe("W9–W12 權限、範圍、額度、佇列", () => {
     await inMerge;
     const r2 = await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, b => b.replace("Para 2", "second")));
     expect(r2.statusCode).toBe(503);
-    expect(errOf(r2)).toEqual({ code: "server_busy", message: "伺服器忙碌中，請稍後再試" });
+    expect(errOf(r2)).toEqual({ code: "server_busy", message: "The server is busy. Try again in a moment." });
     release();
     expect((await p1).statusCode).toBe(200);
     expect(await liveMarkdown(s.ctx, s.note.id)).not.toContain("second");

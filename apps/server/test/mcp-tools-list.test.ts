@@ -251,18 +251,26 @@ describe("#108 tools/list", () => {
     const DESC =
       "Change one note. Six operations: `replace_all` rewrites the whole note, `replace_section` and `delete_section` act on one section, " +
       "`insert_after` puts new markdown after a section, `append` adds to the end, and `rename` changes its title. Every operation except " +
-      "`append` and `rename` needs `if_match`, the fingerprint of what you are replacing — a section's from read_note_section (once you have " +
-      "read to its end) or from a previous edit_note reply; the whole note's from a previous edit_note reply. A change to the content is " +
-      "recorded in the note's history, where anyone who can edit the note can usually undo it. A rename is not recorded: the last title " +
-      "written wins, and to undo it, rename the note back. Unless the note has a custom URL, its URL follows the new title and the old URL " +
-      "usually stops working. A rename's reply has `title` and `url` instead of `editId`, `fingerprint`, `outline` and `unboundWikilinks`.";
-    const OP = "What to do. `replace_section`, `insert_after` and `delete_section` need `section_id`; `append` may omit `if_match`; `rename` takes `title` and nothing else.";
+      "`append` needs `if_match`, the fingerprint of what you are replacing — a section's from read_note_section (once you have " +
+      "read to its end) or from a previous edit_note reply; the whole note's from a previous edit_note reply; the title's (`titleFingerprint`) " +
+      "from read_note_outline or a previous rename's reply. A change to the content is " +
+      "recorded in the note's history, where anyone who can edit the note can usually undo it. A rename is not recorded: " +
+      "to undo it, rename the note back. Unless the note has a custom URL, its URL follows the new title and the old URL " +
+      "usually stops working. A rename's reply has `title`, `titleFingerprint` and `url` instead of `editId`, `fingerprint`, `outline` and `unboundWikilinks`.";
+    const OP = "What to do. `replace_section`, `insert_after` and `delete_section` need `section_id`; `append` may omit `if_match`; `rename` takes `title` and `if_match` and nothing else.";
     const MD_HEAD = "The new markdown. Required for every operation except delete_section and rename. Colors are HTML, as read_note_section returns them:";
-    const IF_MATCH = "The fingerprint of what you are replacing. Required for every operation except append and rename; the write fails if the note changed since you read it.";
+    const IF_MATCH =
+      "The fingerprint of what you are replacing. Required for every operation except append; the write fails if what you are replacing " +
+      "changed since you got that fingerprint. For rename it is the title's `titleFingerprint`, from read_note_outline or a previous " +
+      "rename's reply. A title change does not change the content's fingerprints, and a content change does not change `titleFingerprint`.";
     const TITLE_IN = "The note's new title. Only rename takes it.";
     const TITLE_OUT = "After a rename, the note's new title.";
+    const TITLE_FP_OUT = "After a rename, the fingerprint of the new title. Pass it as `if_match` to a following rename.";
     const URL_OUT = "After a rename, the note's page as a site-relative path, as in list_notes.";
     const CREATE_TITLE_TAIL = "Pass a title if you know it; edit_note's `rename` can change it later when the reply's `role` is `owner` or `editor`.";
+    // #381：read_note_outline 的標題指紋（不點名 edit_note——唯讀憑證也看得到這支）。
+    const OUTLINE_TITLE_FP = "The fingerprint of the note's whole title, even when `note.title` is cut. Renaming the note needs it as `if_match`.";
+    const outline = tools.find(t => t.name === "read_note_outline")!;
 
     expect(edit.description).toBe(DESC);
     expect(edit.inputSchema.properties.op!.description).toBe(OP);
@@ -270,15 +278,28 @@ describe("#108 tools/list", () => {
     expect(edit.inputSchema.properties.if_match!.description).toBe(IF_MATCH);
     expect(edit.inputSchema.properties.title!.description).toBe(TITLE_IN);
     expect(edit.outputSchema.properties.title!.description).toBe(TITLE_OUT);
+    expect(edit.outputSchema.properties.titleFingerprint!.description).toBe(TITLE_FP_OUT);
     expect(edit.outputSchema.properties.url!.description).toBe(URL_OUT);
+    expect(outline.outputSchema.properties.titleFingerprint!.description).toBe(OUTLINE_TITLE_FP);
     expect(create.inputSchema.properties.title!.description!.endsWith(CREATE_TITLE_TAIL)).toBe(true);
-    for (const s of [DESC, OP, MD_HEAD, IF_MATCH, TITLE_IN, TITLE_OUT, URL_OUT, CREATE_TITLE_TAIL]) expect(res.body).toContain(JSON.stringify(s).slice(1, -1));
+    for (const s of [DESC, OP, MD_HEAD, IF_MATCH, TITLE_IN, TITLE_OUT, TITLE_FP_OUT, URL_OUT, CREATE_TITLE_TAIL, OUTLINE_TITLE_FP]) {
+      expect(res.body).toContain(JSON.stringify(s).slice(1, -1));
+    }
     for (const gone of [
       "Five operations",
       "only `append` may omit `if_match`",
       "Required for every operation except delete_section.",
-      "Required for every operation except append;",
+      // #381：原本釘的是前綴「Required for every operation except append;」——#381 之後新句又以它開頭（rename 不再豁免），
+      //   所以改釘 #180 之前那整句的後半（下面「the write fails if the note changed since you read it」），不是刪案。
       "No tool here renames a note afterwards",
+      // #381：rename 不再豁免 if_match、也不再「last title written wins」。
+      "except `append` and `rename` needs `if_match`",
+      "Required for every operation except append and rename",
+      "`rename` takes `title` and nothing else",
+      "the last title written wins",
+      "the write fails if the note changed since you read it",
+      // #381：回應欄位是 camelCase 的 titleFingerprint，snake_case 形一處都不得出現。
+      "title_fingerprint",
     ]) {
       expect(res.body, gone).not.toContain(JSON.stringify(gone).slice(1, -1));
     }

@@ -33,6 +33,12 @@ export function buildRevealConfig(handlers: RevealKeyHandlers): RevealConfig {
     controls: true,
     progress: true,
     overview: true,
+    // #390：reveal 給非目前張加 `hidden`、要顯示的張只寫 inline `display`；Tailwind preflight 的 `[hidden]{display:none !important}`
+    // 會壓過非 important 的 inline 值，總覽裡就只剩目前那張有內容。reveal 6.0.2 對含 `!important` 的值改走 setProperty(..., 'important')
+    // （slidecontent.js load()），inline important 贏過 @layer base 的 important。
+    display: "block !important",
+    // 修正後鄰近張是 block，reveal 預設 transition: slide 會真的跑 0.8 秒滑動（修正前瞬間切換）；維持瞬間切換。沒用到背景，backgroundTransition 不影響。
+    transition: "none",
     keyboard: { 27: handlers.onEsc, 70: handlers.onF, 79: handlers.onO },
     keyboardCondition: (event: KeyboardEvent) => !(event.altKey || event.ctrlKey || event.metaKey),
   };
@@ -41,7 +47,7 @@ export function buildRevealConfig(handlers: RevealKeyHandlers): RevealConfig {
 export const LOCKED_CONFIG_KEYS = [
   "embedded", "disableLayout", "hash", "history", "respondToHashChanges", "postMessage", "postMessageEvents",
   "previewLinks", "view", "parallaxBackgroundImage", "autoSlide", "pause", "help", "jumpToSlide",
-  "focusBodyOnPageVisibilityChange", "controls", "progress", "overview", "keyboard", "keyboardCondition",
+  "focusBodyOnPageVisibilityChange", "controls", "progress", "overview", "display", "transition", "keyboard", "keyboardCondition",
 ] as const;
 
 export function configMatches(actual: object, expected: object): boolean {

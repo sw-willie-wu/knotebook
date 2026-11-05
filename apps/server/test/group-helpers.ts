@@ -247,7 +247,7 @@ export async function runGroupAuthMatrix(app: FastifyInstance, db: Db, endpoint:
     if (actor === "nonMember" || actor === "badId" || actor === "missing") notFoundBodies.push(res.body);
   }
   expect(new Set(notFoundBodies).size, "非成員／非 UUID／不存在的 404 必須逐位元組相同").toBe(1);
-  expect(JSON.parse(notFoundBodies[0]!)).toEqual({ error: { code: "not_found", message: "找不到此群組" } });
+  expect(JSON.parse(notFoundBodies[0]!)).toEqual({ error: { code: "not_found", message: "No group with that id." } });
 }
 
 export function sleep(ms: number): Promise<void> {

@@ -120,7 +120,7 @@ describe("#175 C4：刪群組 × 同時建立", () => {
     const put = await state.second!;
     expect(del.statusCode).toBe(204);
     expect(put.statusCode).toBe(404);
-    expect(put.json()).toEqual({ error: { code: "not_found", message: "找不到此群組" } });
+    expect(put.json()).toEqual({ error: { code: "not_found", message: "No group with that id." } });
     expect(state.interleave).toBe("blocked");
     expect(await built.db.select().from(groupMembers).where(eq(groupMembers.userId, newcomer.id))).toEqual([]);
   });

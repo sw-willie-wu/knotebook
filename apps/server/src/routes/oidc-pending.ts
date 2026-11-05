@@ -22,8 +22,8 @@ import type { OidcTestHook } from "../auth/oidc-test-hook.js";
 import { LINK_EXPIRED_MESSAGE, linkPendingIdentityInTx, type LinkedUser } from "../auth/tx/link-identity.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
 
-const NO_PENDING_MESSAGE = "沒有待連結的登入，請重新登入";
-const NO_PROOF_MESSAGE = "這個 email 已有帳號，但它沒有其他方式可以證明是你本人——沒有密碼，也沒有其他能在這裡使用的登入服務。請聯絡站長。";
+const NO_PENDING_MESSAGE = "There's no pending sign-in to link. Sign in again.";
+const NO_PROOF_MESSAGE = "An account with this email already exists, but there's no way to prove it's yours: it has no password and no other sign-in service usable here. Contact the site admin.";
 
 const confirmBodySchema = z.object({ password: z.string(), pendingId: z.string() }).strict();
 const proveBodySchema = z.object({ pendingId: z.string() }).strict();
@@ -82,7 +82,7 @@ export function oidcPendingRoutes(deps: OidcPendingRouteDeps) {
       const pending = readPendingLink(request, deps.config.appSecret);
       if (pending === null) return sendError(reply, 401, "unauthorized", NO_PENDING_MESSAGE);
       const parsed = confirmBodySchema.safeParse(request.body);
-      if (!parsed.success) return sendError(reply, 400, "invalid_body", "請求格式錯誤");
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", "Invalid request body.");
       // 1. C18：另一分頁覆蓋了 pending。
       if (parsed.data.pendingId !== pending.pendingId) return sendError(reply, 409, "oidc_link_expired", LINK_EXPIRED_MESSAGE);
       // 2. 單一漏斗：checkAllowed／recordFailure／recordSuccess 三處同一個值（r2-N9；與 /api/auth/login 共用帳號軌與 IP 軌）。
@@ -105,12 +105,12 @@ export function oidcPendingRoutes(deps: OidcPendingRouteDeps) {
           verified = false;
         }
       } catch (err) {
-        if (err instanceof HashBusyError) return sendError(reply, 429, "server_busy", "伺服器忙碌，請稍後再試");
+        if (err instanceof HashBusyError) return sendError(reply, 429, "server_busy", "The server is busy. Try again in a moment.");
         throw err;
       }
       if (!verified) {
         deps.throttle.recordFailure(throttleKey, request.ip);
-        return sendError(reply, 401, "invalid_credentials", "帳號或密碼錯誤");
+        return sendError(reply, 401, "invalid_credentials", "Wrong email or password.");
       }
       await deps.oidcTestHook?.("pending-confirm-verified", { userId: pending.userId });
 
@@ -149,16 +149,16 @@ export function oidcPendingRoutes(deps: OidcPendingRouteDeps) {
       const pending = readPendingLink(request, deps.config.appSecret);
       if (pending === null) return sendError(reply, 401, "unauthorized", NO_PENDING_MESSAGE);
       const parsed = proveBodySchema.safeParse(request.body);
-      if (!parsed.success) return sendError(reply, 400, "invalid_body", "請求格式錯誤");
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", "Invalid request body.");
       if (parsed.data.pendingId !== pending.pendingId) return sendError(reply, 409, "oidc_link_expired", LINK_EXPIRED_MESSAGE);
-      if (!deps.limiters.oidcLogin.consume(request.ip)) return sendError(reply, 429, "too_many_requests", "請求太頻繁，請稍後再試");
+      if (!deps.limiters.oidcLogin.consume(request.ip)) return sendError(reply, 429, "too_many_requests", "Too many requests. Wait a moment and try again.");
       const raw = request.params.providerId;
       const providerId = UUID_RE.test(raw) ? raw.toLowerCase() : null;
       // 必須在**當下重算**的 methods.providers 裡（啟用中、本帳號有 issuer＝其 effective issuer 的身分，且 B14 排除與待連結身分
       // 同 issuer 者——與 GET pending、決策同一個 `excludeSameIssuerProviders`）；不區分原因。
       const usable = excludeSameIssuerProviders(await linkedEnabledProvidersWithIssuer(deps.db, pending.userId), pending.issuer);
       const provider = providerId !== null && usable.some(p => p.id === providerId) ? await loadEnabledProvider(deps.db, providerId) : null;
-      if (provider === null) return sendError(reply, 404, "provider_not_found", "找不到這個登入服務，或它目前未啟用");
+      if (provider === null) return sendError(reply, 404, "provider_not_found", "No enabled sign-in service with that id.");
       let url: URL;
       try {
         const configuration = await providerConfiguration({ db: deps.db, registry: deps.registry, appSecret: deps.config.appSecret, log: request.log }, provider);
@@ -167,7 +167,7 @@ export function oidcPendingRoutes(deps: OidcPendingRouteDeps) {
         url = started.url;
       } catch (err) {
         request.log.warn({ ...oidcErrorLogFields(err), providerId: provider.id }, "SSO 證明起點：discovery 不可用");
-        return sendError(reply, 503, "oidc_unavailable", "登入服務目前無法使用，請稍後再試");
+        return sendError(reply, 503, "oidc_unavailable", "The sign-in service is unavailable right now. Try again later.");
       }
       const body: OidcRedirectDto = { url: url.href };
       return reply.send(body);

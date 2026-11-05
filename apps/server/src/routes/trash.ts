@@ -19,9 +19,9 @@ import { purgeTrashed, restoreTrashed, type TrashBatchResult, type TrashServiceD
 
 /** 上限算**原始個數**（去重之前；gate r1 M6）。 */
 const idsBodySchema = z.object({ ids: z.array(z.string()).min(1).max(TRASH_BATCH_MAX) }).strict();
-const IDS_INVALID_MESSAGE = `請求格式錯誤：ids 須為 1 到 ${TRASH_BATCH_MAX} 個筆記 id`;
+const IDS_INVALID_MESSAGE = `Invalid request body: ids must be 1 to ${TRASH_BATCH_MAX} note ids.`;
 /** 還原／永久刪除的交易被併發犧牲（40001／40P01／55P03，整個交易回滾、什麼都沒做）→ 409 server_busy，比照刪群組等路由。 */
-const SERVER_BUSY_MESSAGE = "伺服器忙碌，請稍後再試";
+const SERVER_BUSY_MESSAGE = "The server is busy. Try again in a moment.";
 
 /** 驗證後轉小寫、去重（保留首見順序）；任一不合（含 zod 失敗、非 UUID）→ null。 */
 function parseIds(body: unknown): string[] | null {
@@ -36,7 +36,7 @@ export function trashRoutes(deps: TrashServiceDeps) {
       const row = await readTrashRetentionDays(deps.db);
       if (!row) {
         request.log.error({ table: "site_settings" }, SITE_SETTINGS_MISSING_MESSAGE);
-        return sendError(reply, 500, "internal", "伺服器內部錯誤");
+        return sendError(reply, 500, "internal", "Internal server error.");
       }
       return reply.send(await listTrash(deps.db, request.user!.id, row.retentionDays));
     });

@@ -11,7 +11,7 @@ import { authProviders, siteSettings } from "../db/schema.js";
 // 每個需要它的請求直讀 DB、不快取（B17）；讀不到列視同**開啟**＋log.error（與註冊的「視同關閉」相反——關閉帳密是組織政策，
 // 不是對攻擊者的安全邊界，fail-open 避免全站鎖死）。
 
-export const PASSWORD_LOGIN_DISABLED_MESSAGE = "本站目前只允許透過登入服務登入";
+export const PASSWORD_LOGIN_DISABLED_MESSAGE = "This site only allows signing in through a sign-in service.";
 export const PASSWORD_LOGIN_SETTINGS_MISSING_LOG = "site_settings 讀不到列：帳密登入視同開啟（#187 §4.3 B17）";
 
 export const PASSWORD_LOGIN_FORCED_LOG =
