@@ -130,11 +130,31 @@ export function syntaxCheckRoot(html: string): Element {
   return root;
 }
 
+/** `<pre …>…</pre>`（不分大小寫、不貪婪；沒收尾就到結尾）：split 用帶捕獲組的形，切出來的段落保留 pre 本身。 */
+const PRE_SPLIT = /(<pre\b[\s\S]*?(?:<\/pre\s*>|$))/i;
+const PRE_WHOLE = /^<pre\b/i;
 /**
- * 通過時回 `html`＝`markdownToHTML(markdown)`（未標記的原文），呼叫端拿它 `tryParseHTMLToBlocks`。
+ * #386：BlockNote 的 `markdownToHTML` 每個段落內換行（軟換行、`\` 換行、行尾兩空白三種寫法）都吐 `<br>\n`，而
+ * `tryParseHTMLToBlocks` 以 preserveWhitespace 剖析行內內容，把 `<br>` 後那個排版用的 `\n` 換成一個空白——下一行開頭就多一格。
+ * 這裡只拿掉緊接在 `<br>` 後的**那一個** `\n`，空白一律不動：markdown 續行開頭的空白 parser 已經剝掉了，`<br>` 之後還在的空白
+ * 一定是原文寫的（行內 `L1<br> L2`；讀出端遇到行首空白就寫成這個形，見 note-markdown-read.ts）。HTML 裡 `<br>` 後的換行本來就不顯示，
+ * 拿掉不改語意。程式碼區塊裡的 `<br>` 已被跳脫成文字，不會命中；原文手寫的 `<pre>…</pre>` 裡換行有意義，整段跳過（審查 M3）。
+ */
+function dropNewlineAfterBreaks(html: string): string {
+  return html
+    .split(PRE_SPLIT)
+    .map(seg => (PRE_WHOLE.test(seg) ? seg : seg.replace(/(<br\b[^>]*>)\n/gi, "$1")))
+    .join("");
+}
+
+/**
+ * 通過時回 `html`＝`markdownToHTML(markdown)`（未標記的原文）再過 {@link dropNewlineAfterBreaks}，呼叫端拿它 `tryParseHTMLToBlocks`。
  * 順序：事件處理屬性（`unsupported_block`）→ 並排（S10、S1–S7）→ 尺寸（S8、S9）。
  */
-export function checkNoteMarkdownSyntax(markdown: string, placement: MarkdownPlacement): { ok: true; html: string } | { ok: false; error: MarkdownSyntaxError } {
+export function checkNoteMarkdownSyntax(input: string, placement: MarkdownPlacement): { ok: true; html: string } | { ok: false; error: MarkdownSyntaxError } {
+  // 行尾一律 LF（審查 M4）：BlockNote 的 markdown → HTML 不正規化 CRLF，`\r` 留在文字裡、剖析時變空白（`L1\r\nL2` 存成「L1 」＋換行＋L2、
+  // `p\r\n\r\n` 存成「p 」）。網頁貼上早就在呼叫前正規化（collab/paste.ts）；這裡是所有 markdown 寫入共用的入口。
+  const markdown = input.replace(/\r\n?/g, "\n");
   // 標記屬性名避開原文裡出現過的字串（不分大小寫：HTML 屬性名不分大小寫），模型偽造不出來
   const lower = markdown.toLowerCase();
   let mark = "data-kb-line";
@@ -156,7 +176,7 @@ export function checkNoteMarkdownSyntax(markdown: string, placement: MarkdownPla
   if (placement === "nested" && els.some(el => isRowEl(el) || isColEl(el))) return { ok: false, error: "unsupported_columns" };
   if (COLUMNS_CHECKS.some(check => check(els, root, mark))) return { ok: false, error: "unsupported_columns" };
   if (SIZE_CHECKS.some(check => check(els, root, mark))) return { ok: false, error: "unsupported_size" };
-  return { ok: true, html: markdownToHTML(markdown) };
+  return { ok: true, html: dropNewlineAfterBreaks(markdownToHTML(markdown)) };
 }
 
 type Rec = Record<string, unknown>;

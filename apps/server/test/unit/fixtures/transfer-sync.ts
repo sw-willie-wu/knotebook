@@ -69,8 +69,16 @@ export interface InMemoryBase {
 }
 
 /** PR-1 的 `exportNoteForTransfer`＋`baseHashes`（固定測試金鑰與鹽）。 */
-export async function makeBaseInMemory(rt: EditingRuntime, doc: Y.Doc, titles: ReadonlyMap<string, string> = new Map(), title = "T"): Promise<InMemoryBase> {
-  const ex = await exportNoteForTransfer(rt, doc, titles, { linkHash: (id, text) => linkTextHash(TEST_KEY, TEST_SALT, id, text) });
+export async function makeBaseInMemory(
+  rt: EditingRuntime,
+  doc: Y.Doc,
+  titles: ReadonlyMap<string, string> = new Map(),
+  title = "T",
+  /** 逐行改寫匯出結果再算基底：模擬舊版匯出器下載的檔（例：#386 之前文字裡的 ``` 不跳脫）。 */
+  mapLine?: (line: string) => string,
+): Promise<InMemoryBase> {
+  const raw = await exportNoteForTransfer(rt, doc, titles, { linkHash: (id, text) => linkTextHash(TEST_KEY, TEST_SALT, id, text) });
+  const ex = mapLine === undefined ? raw : { ...raw, lines: raw.lines.map(mapLine), body: raw.body.split("\n").map(mapLine).join("\n") };
   const h = baseHashes(TEST_KEY, TEST_SALT, { body: normalizeBody(ex.body), title, lines: ex.lines, kinds: ex.lineKinds });
   return {
     fileText: writeNoteFile({ id: "00000000-0000-4000-8000-000000000000", title, role: "owner", base: "0123456789abcdef", url: "/n/x" }, ex.body),

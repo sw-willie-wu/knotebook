@@ -66,8 +66,8 @@ export async function linkTitlesFor(db: Db, viewerId: string, doc: Y.Doc): Promi
  * MCP 讀出與檔案匯出（bulk transfer spec §6.4「本文＝MCP 讀出逐位元組相同」）共用的**唯一**組字點：在已 mount 的
  * editor 上把 `blocks` 匯出成 markdown。#269 §9.1：wikilink 在匯出用的 JSON 副本上改寫成 `[文字](/notes/<id>[#b-…])`
  * 的 link 節點（`wikilinksToLinks`：label 優先，否則 `titles` 裡的現行標題，否則 snapshotTitle）；`titles` 鍵一律小寫。
- * #222：有顏色的頂層節點輸出成寫入端認得的 HTML；沒有顏色、也沒有需要跳脫的站內連結文字（#269 RF1）時
- * 與 blocksToMarkdownLossy 位元組相同（shared note-markdown-read.ts）。純同步、零 DB（呼叫端持 lease）。
+ * #222：有顏色的頂層節點輸出成寫入端認得的 HTML。沒有顏色，也沒有任何要跳脫的字元（含站內連結文字，#269 RF1）、要改寫成行內
+ * `<br>` 的換行、樣式邊緣空白（#386）時，與 blocksToMarkdownLossy 位元組相同（shared note-markdown-read.ts）。純同步、零 DB（呼叫端持 lease）。
  */
 export function toNoteMarkdown(editor: EditorSession["editor"], blocks: EditorSession["editor"]["document"], titles: ReadonlyMap<string, string>): string {
   return blocksToNoteMarkdown(editor, wikilinksToLinks(blocks, id => titles.get(id.toLowerCase())));
