@@ -973,7 +973,10 @@ export const transferTokens = pgTable(
 export type TransferSegment = { ids: string[]; fps: string[]; start: number; count: number; links?: string[] };
 
 /**
- * bulk transfer spec 2026-11-02 §8.2：每次下載一篇存一列「加鹽 HMAC 行雜湊＋段表」的基底，供寫回（PR-2）三方合併。
+ * bulk transfer spec 2026-11-02 §8.2：每次下載一篇存一列「加鹽 HMAC 行雜湊＋段表」的基底，供寫回（PR-2）用。
+ * Willie 2026-11-04 第三輪起**不再三方合併**：筆記自下載後被動過（標題 HMAC ≠ 這份副本的標題；段表非 null → 頂層 id 與單顆指紋要與
+ * `segments` 逐顆相等，段表 null → 整篇匯出的 HMAC 要等於 `body_sha`）→ 409 `base_unavailable`、reason `note_changed`，要重新下載；
+ * 沒被動過才用行雜湊 diff 出這份副本改了哪幾段、只寫那幾段（`NoteWriteService.syncFile` 的 ⑥⑦）。
  *
  * - 只存雜湊（§21 D2）：`H(x) = HMAC-SHA256(K, salt ‖ x)`，`K` 由 `APP_SECRET` 導出（`transfer/base-hash.ts`）；
  *   `key_id` 是算這列時的衍生金鑰指紋，換了 `APP_SECRET` 就比不上（寫回回 409 `base_unavailable`）。
