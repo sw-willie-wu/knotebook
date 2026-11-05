@@ -67,6 +67,7 @@ import { NoteWriteQueue, QueueBusyError } from "./queue.js";
 import { revertEdit, type RevertResult } from "./revert.js";
 import type { EditingRuntime } from "./runtime.js";
 import { EditorSession, NoteGoneError, type DirectCtx } from "./session.js";
+import { ShownLinkTexts, shownLinkTextsOf } from "./shown-link-texts.js";
 
 export type ApplyOk = Extract<ApplyResult, { ok: true }>;
 export type ApplyFailureCode = Extract<ApplyResult, { ok: false }>["code"];
@@ -181,6 +182,8 @@ export interface NoteWriteServiceDeps {
   versions?: VersionService;
   /** bulk transfer plan H5：檔案寫回改名的 slug 候選縫（原樣傳給 `renameNoteTitle` 的第三個參數；`buildApp` 由 `slugUpdateTestHook` 透傳）。 */
   renameHook?: (candidate: string) => void | Promise<void>;
+  /** #387：讀者讀到過、寫入者寫過的連結文字（測試注入用；未傳＝本 service 自建一份）。 */
+  shownLinks?: ShownLinkTexts;
 }
 
 export class NoteWriteService {
@@ -190,7 +193,17 @@ export class NoteWriteService {
    */
   private readonly queue = new NoteWriteQueue();
 
-  constructor(private readonly deps: NoteWriteServiceDeps) {}
+  /**
+   * #387：讀者讀到過的「沒有自訂文字」的連結文字（process-local，同佇列）。讀路徑（MCP `read_note_section`、REST `/content`、`/edits` 與撤回
+   * 409 的 `current`）把它傳給 `readNoteContent` 記下；`applyEdit`（`edit_note`、REST `/edits`）與帶 content 建立
+   * （`create_note`、REST `POST /api/notes`）寫入時查它，寫入成功後也把寫下去的連結記進去（審查 I1）。檔案寫回／檔案新增不查也不記
+   * （#385 有自己的基底）。
+   */
+  readonly shownLinks: ShownLinkTexts;
+
+  constructor(private readonly deps: NoteWriteServiceDeps) {
+    this.shownLinks = deps.shownLinks ?? new ShownLinkTexts();
+  }
 
   /** collab ＋ editing 都在＝這個部署寫得動內容（同 `routes/notes.ts` 的既有註冊閘門判準）。 */
   get available(): boolean {
@@ -205,7 +218,7 @@ export class NoteWriteService {
   private applyDeps(log: FastifyBaseLogger): ApplyDeps {
     const { collab, editing } = this.deps;
     if (!collab || !editing) throw new Error("NoteWriteService：此部署沒有 collab／editing，呼叫端必須先檢查 available");
-    return { db: this.deps.db, collab, editing, log, testHooks: this.deps.testHooks, versions: this.deps.versions };
+    return { db: this.deps.db, collab, editing, log, testHooks: this.deps.testHooks, versions: this.deps.versions, shownLinks: this.shownLinks };
   }
 
   /**
@@ -704,6 +717,8 @@ export class NoteWriteService {
     const p = pre ?? (await this.prepareContent(log, input));
     if (!p.ok) return p;
     const { candidates, agentLabel, prepared } = p;
+    // #387：`create_note`／`POST /api/notes`（自己解析的這條）照 `edit_note` 的規則保住讀到過的連結文字；檔案新增（帶 `pre`）不查——批次的行為不變。
+    const [blocks, cleared] = pre ? [prepared.blocks, [] as Array<[string, string]>] : this.shownLinks.keepLabelFree(prepared.blocks, input.userId, candidates);
     const applyDeps = this.applyDeps(log);
     // #145：建列（含帶 title 時的 auto slug 派生）收在 `notes/create.ts`。⚠ **它仍必須排在
     // 解析之後**（「解析在建列之前」是契約），而派生的 DB round-trip 也因此不會發生在持有
@@ -723,12 +738,18 @@ export class NoteWriteService {
             markdown: undefined,
             ifMatch: undefined,
             candidates,
-            blocks: prepared.blocks,
+            blocks,
             unbound: prepared.unbound,
           }),
         this.deps.queueWaitMs
       );
       if (!result.ok) throw new Error(`帶 content 建立筆記時套用失敗：${result.code}`);
+      // #387 審查 I1：寫下去的連結記在寫入者名下（同 `applyEdit` 的解析分支；檔案新增不記，批次的行為不變）。
+      if (!pre) {
+        const written = shownLinkTextsOf(blocks, new Map());
+        written.free.push(...cleared); // 被清掉的原文字也記（審查 m-b，同 `prepareEdit`）
+        this.shownLinks.record(input.userId, written);
+      }
       // #138：這條路徑**刻意不 touch** presence。筆記是這一發剛建出來的，不可能有人正開著它，
       // `touch` 內部的 `documents.get` 一定落空＝必然 no-op。另外三條寫入路徑都 touch，
       // 只有它不 touch 是刻意的——不要當成漏接補上去。

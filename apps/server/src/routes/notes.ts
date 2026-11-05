@@ -522,6 +522,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
        * `GET /api/notes/:id/content`（spec §5）——**唯讀，零副作用**：`read.ts` 的
        * `loadNoteDoc` 只 fork live doc 或解 DB 快照，絕不開直連，所以連讀 N 次都不會
        * 動到 `note_states`／backup／`documents`（`note-content.test.ts` 的假綠守衛釘住）。
+       * （#387 的行程內記憶體記錄除外：讀到的連結文字記在 `NoteWriteService.shownLinks`，不落 DB、不動文件）。
        *
        * ⚠ 授權在這一層做完（`resolveRole`）：AI 寫入路徑（#137）用的
        * `openDirectConnection` 會繞過 collab 的 `onAuthenticate`，讀路徑雖然不開直連，
@@ -544,7 +545,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
         if (!deps.limiters.contentRead.consume(userId)) return sendError(reply, 429, "too_many_requests", "讀取過於頻繁");
         // #138 presence（spec §9）：只有帶 token 的讀者才現身——cookie 讀取（`request.tokenId`
         // 缺席）是使用者本人在用瀏覽器，spec §12.2 明講不設 presence。`touch` 內部只對已載入
-        // 的文件動作，所以沒人在線時它是 no-op，讀路徑「零副作用」的不變量仍成立。
+        // 的文件動作，所以沒人在線時它是 no-op，讀路徑「零副作用」的不變量仍成立（#387 的行程內記憶體記錄除外：讀到的連結文字記在 `NoteWriteService.shownLinks`，不落 DB、不動文件）。
         // ⚠ 同 `POST /:id/edits`：拿掉這道 `request.tokenId` 守衛**不會有任何測試變紅**（touch
         // 的 tokenId 一變，clientId 就不同，clock 斷言看不到），擋住它的是 `tsc` 的 TS2345。
         // 規則的**結果面**（cookie 讀者不會多冒出一個 presence）由整合測試
@@ -555,10 +556,10 @@ export function notesRoutes(deps: NotesRouteDeps) {
             deps.presence?.touch(id, request.tokenId, presenceIdentity(request.user!.handle, label), presenceTargetForRead(q.data.section));
           }
         }
-        const result = await readNoteContent({ db: deps.db, collab }, editing, id, request.user!.id, q.data.section);
+        const result = await readNoteContent({ db: deps.db, collab, shownLinks: deps.writes.shownLinks }, editing, id, request.user!.id, q.data.section);
         if (result === "section_not_found") return sendError(reply, 404, "section_not_found", "找不到此段落");
         // #137 起 `lastEdited` 是真值（整篇形與段落形都回，`note-content.test.ts` 兩行釘住）。
-        // `loadLastEdited` 是純 SELECT，不開直連——讀路徑零副作用的不變量照舊成立。
+        // `loadLastEdited` 是純 SELECT，不開直連——讀路徑零副作用的不變量照舊成立（#387 的行程內記憶體記錄除外：讀到的連結文字記在 `NoteWriteService.shownLinks`，不落 DB、不動文件）。
         // `reply.send` 本身不做型別檢查——`satisfies` 把 `read.ts` 的回傳形狀釘回 shared 的 DTO，
         // 形狀漂移（少一欄、多一欄）在編譯期就會炸，不必等到執行期才被測試發現（m-5）。
         const body = { ...result, lastEdited: await loadLastEdited(deps.db, id) } satisfies NoteContentDto | NoteSectionDto;
@@ -608,7 +609,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
             // 不在 transact 內、直連已 disconnect 之後（spec §5）。不帶 section → 不可能是
             // "section_not_found"，但那個哨兵在回傳型別的 union 裡，不收窄的話 spread 一個字串
             // 會靜默送出 {0:"s",1:"e",…}。
-            const current = await readNoteContent({ db: deps.db, collab }, editing, id, request.user!.id);
+            const current = await readNoteContent({ db: deps.db, collab, shownLinks: deps.writes.shownLinks }, editing, id, request.user!.id);
             if (current === "section_not_found") throw new Error("readNoteContent 未帶 section 卻回哨兵值");
             const body = { ...current, lastEdited: await loadLastEdited(deps.db, id) } satisfies NoteContentDto | NoteSectionDto;
             return reply.code(409).send({ error: { code: "fingerprint_mismatch", message: "內容已被修改" }, current: body });
@@ -673,7 +674,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
             // 不在 transact 內、直連已 disconnect 之後（同 `/edits` 的 409 形）。不帶 section →
             // 不可能是 "section_not_found"，但那個哨兵在回傳型別的 union 裡，不收窄的話 spread
             // 一個字串會靜默送出 {0:"s",1:"e",…}。
-            const current = await readNoteContent({ db: deps.db, collab }, editing, id, request.user!.id);
+            const current = await readNoteContent({ db: deps.db, collab, shownLinks: deps.writes.shownLinks }, editing, id, request.user!.id);
             if (current === "section_not_found") throw new Error("readNoteContent 未帶 section 卻回哨兵值");
             const body = { ...current, lastEdited: await loadLastEdited(deps.db, id) } satisfies NoteContentDto | NoteSectionDto;
             return reply.code(409).send({ error: { code: "stale", message: "這筆修改之後筆記又被改過，已無法撤回" }, current: body });
