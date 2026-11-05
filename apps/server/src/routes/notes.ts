@@ -833,11 +833,13 @@ export function notesRoutes(deps: NotesRouteDeps) {
         return respondPatched(updated, access, userId);
       }
 
-      // 格 2（title-only）：#180 spec §3.1 抽成 `notes/rename-note.ts`（MCP `edit_note` 的 rename 共用）。行為逐位元組不變。
+      // 格 2（title-only）：#180 spec §3.1 抽成 `notes/rename-note.ts`（MCP `edit_note` 的 rename 共用）。回應不變；#381 起 UPDATE 對這裡（不傳 `expectTitleFingerprint`）仍同形，0 列後的補查多讀 `title`、這裡不用它。
       if (!hasSlug) {
         const out = await renameNoteTitle(deps.db, { noteId: id, access, title: title! }, deps.slugUpdateTestHook);
         if (out.kind === "gone") return noteNotFound(reply);
         if (out.kind === "ownership_changed") return sendError(reply, 409, "conflict", "The note's owner or group changed. Reload and try again.");
+        // #381：`title_changed` 只在傳了 `expectTitleFingerprint` 時出現；PATCH 不傳（網頁改標題照舊 last-write-wins），結構上到不了。
+        if (out.kind === "title_changed") throw new Error("PATCH title：renameNoteTitle 回 title_changed（PATCH 不該傳 expectTitleFingerprint）");
         return respondPatched(out.row, access, userId);
       }
 

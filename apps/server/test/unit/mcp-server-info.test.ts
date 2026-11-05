@@ -96,9 +96,11 @@ describe("#108 MCP server-info", () => {
 });
 
 describe("#180 U5：讀寫版 instructions 改為 six ops", () => {
-  it("含「six ops; all but append and rename need」、不含「five ops」；唯讀版不動", () => {
+  // #381：rename 也要 `if_match` 了——句子改成「all but append need」，舊句「append and rename」釘不在。
+  it("含「six ops; all but append need `if_match`」、不含「five ops」與「all but append and rename」；唯讀版不動", () => {
     const rw = mcpInstructions(true);
-    expect(rw).toContain("six ops; all but append and rename need");
+    expect(rw).toContain("six ops; all but append need `if_match`, the fingerprint of what you replace");
+    expect(rw).not.toContain("all but append and rename");
     expect(rw).not.toContain("five ops");
     expect(mcpInstructions(false)).not.toContain("rename");
   });

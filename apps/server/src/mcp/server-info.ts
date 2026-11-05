@@ -41,7 +41,7 @@ export const versionReadFailed = pkg.failed;
  * 只描述**這個憑證真的用得到的東西**。英文——與 `docs/` 及工具 `.describe()` 同語言；
  * 它進的是模型脈絡不是 UI，不走 i18n。
  *
- * ⚠ **兩支尾巴是二選一，不是相加**（#108 D-Q）。讀寫那支實測 **996** 字元，餘裕 **4**；唯讀那支實測 **997**，餘裕 **3**
+ * ⚠ **兩支尾巴是二選一，不是相加**（#108 D-Q）。讀寫那支實測 **985** 字元，餘裕 **15**（#381：刪 ` and rename` −11，之前 996）；唯讀那支實測 **997**，餘裕 **3**
  * （#folders PR-3d：刪 outline 上限句 −37、BASE 尾端補資料夾句（含換行）+58；之前 975／976。刪掉的上限仍在 `read_note_outline`
  * 的 description（`At most ${MCP_PAGE_MAX} sections per call`）。資料夾句只提 `list_folders`——它任何憑證都註冊，所以兩版共用、
  * 不依 canWrite 分版；資料夾寫入工具一個都不提）
@@ -91,11 +91,13 @@ Notes can sit in folders; list_folders shows their paths.`;
  *     沒被動過，而 `apply.ts` 的 `RETENTION = 100` 每篇只留最近 100 列。**條件的全文放在
  *     `edit-note.ts` 的 `editId` `.describe()`**（那裡沒有長度預算），這裡只給不說謊的短版。
  *
+ * #381：rename 也要 `if_match`（標題指紋）——「all but append and rename」→「all but append」；「the fingerprint of what you replace」
+ * 對 rename 也成立（它換掉的是標題，給的是標題的指紋）。
  * #180：five → six ops（rename 不要 `if_match`）；末句不改——rename／move 不改內容，copy 把內容寫進一篇**新**筆記且不留紀錄，
  * 由 `COPY_NOTE_DESCRIPTION` 明說（spec §4.5）。
  */
 const WRITE_INSTRUCTIONS =
-  "Writing needs the notes:write scope. edit_note changes one note (six ops; all but append and rename " +
+  "Writing needs the notes:write scope. edit_note changes one note (six ops; all but append " +
   "need `if_match`, the fingerprint of what you replace) and create_note makes a new one. " +
   "A successful write that changes a note's content is recorded, and can usually be undone.";
 
