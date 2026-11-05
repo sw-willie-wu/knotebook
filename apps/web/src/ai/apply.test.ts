@@ -175,6 +175,15 @@ describe("AI 套用鏈（spec §13.3）", () => {
     expect(JSON.stringify(editor.document)).toBe(before);
   });
 
+  // #386：AI 結果裡的段落內換行（三種寫法）存成換行，下一行開頭不多一個空白（與 MCP 同一支 `checkNoteMarkdownSyntax` 的 html）。
+  it.each(["L1\nL2", "L1\\\nL2", "L1  \nL2"])("段落內換行 %j → 一段、文字 L1⏎L2（不多空白）", (md) => {
+    const editor = mountedEditor([{ type: "paragraph", content: "x" }]);
+    const p = prepareAiResult(editor, md, { notes: [], placement: "top" });
+    if (!("blocks" in p)) throw new Error(JSON.stringify(p));
+    expect(p.blocks.map((b) => b.type)).toEqual(["paragraph"]);
+    expect(p.blocks[0]!.content).toEqual([{ type: "text", text: "L1\nL2", styles: {} }]);
+  });
+
   // 並排 PR-2（spec §11.6 第 1 點、§11.3、Q6）：AI 結果走與 MCP 相同的語法＋結構檢查；目標不在頂層（"nested"）時不收任何並排。
   const ROW2 = golden("G1-cols-spec");
   it("GA1：正規形兩欄、placement top → PreparedResult，一列兩欄、欄寬 [1, 1.5]", () => {

@@ -758,8 +758,8 @@ describe("AiSession 狀態機（#263 spec §5.2）", () => {
     startAction(REWRITE.id);
     const sent = ai.calls[0]!.body.text;
     expect(sent).toContain(`a [\\[Draft\\] Plan \\*v2\\*](/notes/${id}) b [a\\]b\\\\](/notes/${id}) end`);
-    // 只跳脫 `/notes/` 連結（shared `note-markdown-read.ts` 的 `escapeNoteLinkText`）：一般外部連結的文字照 `blocksToMarkdownLossy` 原樣送出。
-    expect(sent).toContain("[k*z](https://example.com/x)");
+    // `/notes/` 連結的文字走 `escapeNoteLinkText`；#386 起一般文字（含外部連結的文字）也跳脫標記字元（`escapeTextNodes`），各只跳一次。
+    expect(sent).toContain("[k\\*z](https://example.com/x)");
     await finishStream(ai.calls[0]!, sent.replace(" end", " END"));
     const s = session.state;
     if (s.phase !== "done" || !s.applied) throw new Error("預期已自動套用");

@@ -17,6 +17,8 @@ const BL = (t: string, extra: Record<string, unknown> = {}) => ({ type: "bulletL
 const NL = (t: string, props: Record<string, unknown> = {}) => ({ type: "numberedListItem", content: t, props });
 const base = async (blocks: unknown[]) => makeBaseInMemory(rt, await docWith(rt, blocks));
 const exportOf = async (block: unknown) => normalizeBody((await base([block])).body);
+/** E6：#386 之前下載的檔——一段文字 ``` 的那一行沒跳脫（基底照那份檔算）。 */
+const legacyFenceBase = async () => makeBaseInMemory(rt, await docWith(rt, [P("A"), P("```"), P("B")]), new Map(), "T", l => (l === "\\`\\`\\`" ? "```" : l));
 /** 區的摘要：kind、基底 id 在文件中的索引、文字。 */
 const summary = (b: InMemoryBase, regions: Region[]) => regions.map(r => ({ kind: r.kind, idx: r.baseIds.map(id => b.ids.indexOf(id)), text: r.text }));
 const ok = <T extends { ok: boolean }>(r: T): Extract<T, { ok: true }> => {
@@ -146,8 +148,14 @@ describe("未閉合的 code fence（總管裁示，審查 m3）", () => {
     expect(await regionsOf(rt, b, "A\n\n```\ncode\n~~~\n\nB")).toMatchObject({ ok: false, code: "unclosed_fence" });
     expect((await regionsOf(rt, b, "A\n\n<!-- ``` -->\n\nB")).ok).toBe(true);
   });
-  it("E6：基底有一段文字就是 ```（匯出器不跳脫）→ 原檔重送 ok（零區）、只改 B ok（開頭那一行落在沒改的段裡）", async () => {
+  // #386 起匯出器跳脫文字裡的反引號（一段文字 ``` 讀出 \`\`\`，不再是 fence）；E6 留給這之前下載的檔：基底那一行是沒跳脫的 ```。
+  it("#386 之後：一段文字就是 ``` → 讀出跳脫成 \\`\\`\\`，不是未閉合的 fence", async () => {
     const b = await base([P("A"), P("```"), P("B")]);
+    expect(b.lines).toEqual(["A", "", "\\`\\`\\`", "", "B"]);
+    expect(trailingOpenFenceLine(b.lines)).toBeNull();
+  });
+  it("E6：基底有一段文字就是 ```（#386 之前的匯出器不跳脫）→ 原檔重送 ok（零區）、只改 B ok（開頭那一行落在沒改的段裡）", async () => {
+    const b = await legacyFenceBase();
     expect(b.lines).toEqual(["A", "", "```", "", "B"]);
     expect(trailingOpenFenceLine(b.lines)).toBe(2); // 前提：parser 確實把它當成延伸到檔尾的 code
     expect(ok(await regionsOf(rt, b, normalizeBody(b.body))).regions).toEqual([]);
@@ -156,13 +164,13 @@ describe("未閉合的 code fence（總管裁示，審查 m3）", () => {
   // 預篩之後，上一案（E6）根本不會 parse；這案讓「改過的行像 fence」通過預篩、但未閉合的開頭仍在沒改的段裡（~~~x 在 ``` 的 code 裡
   // 不收尾）→ 走到「開頭那一行在不在沒改的段」那一條判斷（MF1 的守衛）。
   it("E6＋改過的行像 fence 但不改變未閉合狀態（B → ~~~x）→ 有 parse、放行（開頭仍在沒改的段）", async () => {
-    const b = await base([P("A"), P("```"), P("B")]);
+    const b = await legacyFenceBase();
     fenceParseStats.calls = 0;
     expect(summary(b, ok(await regionsOf(rt, b, "A\n\n```\n\n~~~x")).regions)).toEqual([{ kind: "rewrite", idx: [2], text: "~~~x" }]);
     expect(fenceParseStats.calls).toBe(1);
   });
   it("F4 E6 變形：A\\n\\n```\\nX\\n\\nB（在 ``` 那段下面不空行接 X → 那段併入區）→ unclosed_fence", async () => {
-    const b = await base([P("A"), P("```"), P("B")]);
+    const b = await legacyFenceBase();
     expect(await regionsOf(rt, b, "A\n\n```\nX\n\nB")).toMatchObject({ ok: false, code: "unclosed_fence" });
   });
   it("F3 精確預篩：一般寫回（改過的行沒有像 fence 的）不呼叫 parser；E6 原檔重送（``` 在沒改的段裡）也不呼叫；改過的行含 ``` 才呼叫", async () => {
@@ -170,7 +178,7 @@ describe("未閉合的 code fence（總管裁示，審查 m3）", () => {
     fenceParseStats.calls = 0;
     expect(ok(await regionsOf(rt, b, "A\n\nB2")).regions).toHaveLength(1);
     expect(fenceParseStats.calls).toBe(0);
-    const e6 = await base([P("A"), P("```"), P("B")]);
+    const e6 = await legacyFenceBase();
     expect(ok(await regionsOf(rt, e6, "A\n\n```\n\nB2")).regions).toHaveLength(1);
     expect(fenceParseStats.calls).toBe(0);
     expect(ok(await regionsOf(rt, b, "A\n\n```js\nx\n```\n\nB")).regions).toHaveLength(1);
