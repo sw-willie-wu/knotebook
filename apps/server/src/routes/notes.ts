@@ -839,7 +839,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
         if (out.kind === "gone") return noteNotFound(reply);
         if (out.kind === "ownership_changed") return sendError(reply, 409, "conflict", "The note's owner or group changed. Reload and try again.");
         // #381：`title_changed` 只在傳了 `expectTitleFingerprint` 時出現；PATCH 不傳（網頁改標題照舊 last-write-wins），結構上到不了。
-        if (out.kind === "title_changed") throw new Error("PATCH title：renameNoteTitle 回 title_changed（PATCH 不該傳 expectTitleFingerprint）");
+        if (out.kind === "title_changed") throw new Error("PATCH title: renameNoteTitle returned title_changed (PATCH must not pass expectTitleFingerprint)");
         return respondPatched(out.row, access, userId);
       }
 
