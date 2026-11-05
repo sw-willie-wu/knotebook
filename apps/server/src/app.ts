@@ -72,6 +72,7 @@ import { createEditingRuntime, type EditingRuntime } from "./notes/editing/runti
 import type { EditingTestHooks } from "./notes/editing/apply.js";
 import { PresenceRegistry, type PresenceOptions } from "./notes/editing/presence.js";
 import { NoteWriteService } from "./notes/editing/write-service.js";
+import type { ShownLinkTexts } from "./notes/editing/shown-link-texts.js";
 import { createLinkConversion, errorSummary, NOOP_LINK_CONVERSION, type LinkConversion } from "./notes/link-conversion.js";
 import { TRASH_PURGE_FIRST_DELAY_MS, TRASH_PURGE_INTERVAL_MS, createTrashPurger } from "./trash/purge.js";
 import type { NoteCreateHooks } from "./notes/create.js";
@@ -198,6 +199,8 @@ export interface AppDeps {
    * 被呼叫。**選配**，生產不注入＝零成本。#108 起透傳進 `NoteWriteService`（`buildApp` 建的那一個）。
    */
   editingTestHooks?: EditingTestHooks;
+  /** #387：讀到過／寫過的連結文字表的測試縫（整合測試注入假時鐘）；未傳＝`NoteWriteService` 自建一份。生產不注入。 */
+  shownLinks?: ShownLinkTexts;
   /**
    * #108：`/api/mcp` 的測試注入縫（比照 `editingTestHooks`）——`afterClose`／`beforeReply`／
    * `beforeTool` 分別在「關掉 server 之後」「搬回 reply 之前」「工具 handler 進入時」被呼叫。
@@ -835,6 +838,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     testHooks: deps.editingTestHooks,
     versions,
     renameHook: deps.slugUpdateTestHook,
+    shownLinks: deps.shownLinks,
   });
 
   // #269 §12.1：必用同一個 `writes`（共用佇列，與 MCP 寫入、套用版本、手動存版串行）。只建、不啟動——`index.ts` listen 之後才 start()，

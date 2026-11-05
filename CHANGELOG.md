@@ -31,6 +31,10 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 - **What you typed in the sidebar search box is kept** when you go between the home page and a note (for example after clicking a result), so clearing the box afterwards still removes the mark in the note. It is cleared when you sign out or another person signs in.
 - **The `429` that `POST /api/notes/:id/uploads` and `GET /api/uploads/:id` answer once invalid Bearer attempts from an address are used up now carries `Retry-After`.** See [API tokens](docs/api-tokens.md#errors-and-rate-limits).
 
+### Fixed
+
+- **Writing back a link to a note over MCP or the API no longer freezes it to the title the note had when you read it.** A link with no text of its own reads as the linked note's title. If that note was renamed before you wrote that text back unchanged — with `edit_note`, `create_note`, `POST /api/notes/:id/edits` or `POST /api/notes` — the old title used to be saved as the link's own text, so the link stopped following the note's title. The server now remembers, for each account, the text reading showed for such links and the text of such links the account wrote, for up to 24 hours (at most the latest 10 000 for each account) and until it restarts, and that text stays no text of its own; text you changed is still kept as the link's own text. Files sent back with bulk transfer already worked this way and are unchanged. See [MCP](docs/mcp.md#links-to-notes) and [Known limitations](docs/known-limitations.md).
+
 ## [0.14.1] - 2026-11-02
 
 ### Changed

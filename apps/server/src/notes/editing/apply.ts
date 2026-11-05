@@ -15,6 +15,7 @@ import { parseMarkdownForNote, siteOriginOf, type ParseError } from "./markdown.
 import { loadNoteDoc } from "./read.js";
 import type { EditingRuntime } from "./runtime.js";
 import { EditorSession, directTarget, withDirectConnection, type DirectConnectionCtx, type DirectCtx } from "./session.js";
+import { shownLinkTextsOf, type ShownLinks, type ShownLinkTexts } from "./shown-link-texts.js";
 
 // 順序（spec §6.1）：讀路徑 fork → 指紋比對 → parse/驗證 → 單一編輯器呼叫 → diff → **關掉編輯器**
 // → mergeDiff＝withDirectConnection 內一個同步 transact（live doc 重算目標段指紋／anchor → docClock（applyUpdate
@@ -48,6 +49,9 @@ export interface ApplyDeps {
   testHooks?: EditingTestHooks;
   /** 版本歷史：套用（`apply-version.ts`）用。#272 D2：AI／直寫前後不再切版。測試不注入＝no-op。 */
   versions?: VersionService;
+  /** #387：寫入者讀到過的連結文字（`NoteWriteService` 那一份）。`prepareEdit` 解析 markdown 後據以不把它凍結成自訂文字，`applyEdit`
+   *  合併成功後把寫下去的連結也記進去（審查 I1）；不給＝舊規則。 */
+  shownLinks?: ShownLinkTexts;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 泛型三元組，走 repo 慣例（同 session.ts）
@@ -224,7 +228,7 @@ export async function prepareEdit(
   fork: Y.Doc,
   sv: Uint8Array,
   plan: { op: EditOp; isEmptyDoc: boolean; section: OutlineEntry | undefined } // OutlineEntry ＝ fingerprint.ts 的 SectionInfo + fingerprint（含 blockIds）
-): Promise<{ diff: Uint8Array; beforeBlocks: AnyBlock[]; afterIds: string[]; anchor: Anchor | null; unbound: number } | { error: ParseError }> {
+): Promise<{ diff: Uint8Array; beforeBlocks: AnyBlock[]; afterIds: string[]; anchor: Anchor | null; unbound: number; written?: ShownLinks } | { error: ParseError }> {
   const s = await EditorSession.open(deps.editing, fork);
   try {
     const { op, isEmptyDoc, section } = plan;
@@ -232,6 +236,7 @@ export async function prepareEdit(
     const top = ed.document;
     let blocks: AnyPartialBlock[] = [];
     let unbound = 0;
+    let written: ShownLinks | undefined;
     if (op !== "delete_section") {
       if (input.blocks !== undefined) {
         // 建筆記路徑（spec §5）：`content` 已經在空 scratch doc 上解析驗證過了，這裡直接套用
@@ -242,7 +247,16 @@ export async function prepareEdit(
       } else {
         const parsed = parseMarkdownForNote(ed, input.markdown ?? "", input.candidates, siteOriginOf(deps.editing.baseUrl));
         if ("error" in parsed) return { error: parsed.error }; // `finally` 仍會 close()
-        blocks = parsed.blocks; unbound = parsed.unbound;
+        // #387：連結文字是寫入者讀到過的「沒有自訂文字」的那段 → 照舊沒有自訂文字（目標在讀出之後改了名也一樣）。
+        const [kept, cleared] = deps.shownLinks ? deps.shownLinks.keepLabelFree(parsed.blocks, input.userId, input.candidates) : [parsed.blocks, []];
+        blocks = kept;
+        unbound = parsed.unbound;
+        // 審查 I1：寫下去的連結也要記在寫入者名下（agent 用回覆的指紋把自己寫的連結原樣寫回）——lease 內只收集，合併成功後才記（m3）。
+        // 被清掉的原文字也要記（m-b）：存下的 snapshotTitle 已換成現行標題，不記的話那段文字的期限不會因這次寫入延長。
+        if (deps.shownLinks) {
+          written = shownLinkTextsOf(blocks, new Map());
+          written.free.push(...cleared);
+        }
       }
     }
     const snapshot = (idList: string[]): AnyBlock[] => idList.map(id => ed.getBlock(id)).filter((b): b is AnyBlock => b !== undefined);
@@ -285,7 +299,7 @@ export async function prepareEdit(
         break;
       }
     }
-    return { diff: s.diffSince(sv), beforeBlocks, afterIds, anchor, unbound };
+    return { diff: s.diffSince(sv), beforeBlocks, afterIds, anchor, unbound, ...(written ? { written } : {}) };
   } finally {
     s.close(); // ← 編輯器到此為止。下面的 hook／直連／DB 交易都**不持有 lease**。
   }
@@ -315,6 +329,8 @@ export async function applyEdit(deps: ApplyDeps, input: ApplyInput): Promise<App
     if (err instanceof FingerprintMismatch) return { ok: false, code: "fingerprint_mismatch" };
     throw err;
   }
+  // #387 審查 I1：內容已落進文件，寫下去的連結記在寫入者名下（之後照原樣寫回也不凍結）。
+  if (prepared.written) deps.shownLinks?.record(input.userId, prepared.written);
   if (deps.testHooks?.beforeRecord) await deps.testHooks.beforeRecord();
   const editId = await insertEditRecord(deps.db, {
     noteId: input.noteId, userId: input.userId, tokenId: input.tokenId, agentLabel: input.agentLabel, op: input.op,
