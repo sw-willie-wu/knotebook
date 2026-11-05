@@ -822,6 +822,8 @@ export interface CollabTokenClaims {
   userId: string;
   role: Role;
   tv: number;
+  /** #388：換這張 token 的那個 session 的 `sessions.id`。collab server 握手與重驗時確認那一列還在（登出那台裝置的連線因此被關）。 */
+  sid: string;
   /** #269：client 取 token 時送的 note schema 版本（缺席或非整數＝0）。`onAuthenticate` 以 `!==` 比對 `NOTE_SCHEMA_VERSION`。 */
   sv: number;
 }

@@ -2,12 +2,11 @@ import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import * as Y from "yjs";
 import { SESSION_COOKIE, YDOC_FRAGMENT, topLevelContainers } from "@knotebook/shared";
-import { signSession } from "../src/auth/session.js";
 import { apiTokens, noteAiEdits } from "../src/db/schema.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
 import type { EditingTestHooks } from "../src/notes/editing/apply.js";
 import { EditorSession } from "../src/notes/editing/session.js";
-import { buildCollabTestApp, testConfig, testEditingRuntime } from "./helpers.js";
+import { buildCollabTestApp, testEditingRuntime, signTestSession } from "./helpers.js";
 import { bearer, docText, getContent, seedContent, seedTokenForUser, waitFor } from "./editing-helpers.js";
 
 const PASSWORD = "correct-horse-battery";
@@ -38,7 +37,7 @@ const ids = (doc: Y.Doc) => topLevelContainers(doc.getXmlFragment(YDOC_FRAGMENT)
 /** 直接讀原始 Y 的頂層（不經 shared 的 topLevelContainers，被測函式壞掉時 oracle 不跟著壞）。 */
 const rawTop = (doc: Y.Doc) =>
   (doc.getXmlFragment(YDOC_FRAGMENT).get(0) as Y.XmlElement).toArray().map(n => `${(n as Y.XmlElement).nodeName}:${(n as Y.XmlElement).getAttribute("id")}`);
-const cookieFor = async (userId: string) => `${SESSION_COOKIE}=${await signSession(testConfig.appSecret, { userId, tv: 0 })}`;
+const cookieFor = async (userId: string) => `${SESSION_COOKIE}=${await signTestSession({ userId, tv: 0 })}`;
 /** server 上那份 live doc 的文字（斷言併發時**一律看這個**，不看 client.doc——client 的改動要經 WS 才到 server）。 */
 const serverText = (s: Setup) => docText(s.ctx.collab.hocuspocus.documents.get(s.note.id)!);
 /** 模擬人在瀏覽器編輯。`try { … } finally { close() }` 是硬性的——testEditingRuntime 是模組層單例，

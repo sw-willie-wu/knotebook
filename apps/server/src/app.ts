@@ -11,7 +11,7 @@ import fastifyFormbody from "@fastify/formbody";
 import { MAX_UPLOAD_BYTES, type ErrorCode, type RequiredScope, type TokenScope } from "@knotebook/shared";
 import { publicUrlIssuer, type AppConfig } from "./config.js";
 import type { Db } from "./db/index.js";
-import { resolveSessionUser as resolveSessionUserFromCookies, type GateUser, type UserGate } from "./auth/session.js";
+import { resolveSessionUser as resolveSessionUserFromCookies, type GateUser, type ResolvedSession, type UserGate } from "./auth/session.js";
 import { LastActiveTracker } from "./auth/last-active.js";
 import { createAuthenticateAny } from "./auth/bearer.js";
 import type { LoginThrottle } from "./auth/rate-limit.js";
@@ -100,6 +100,11 @@ declare module "fastify" {
      * 的回傳形狀）本身不帶 tv，故另開這個欄位，不擴充 `GateUser` 型別本身。
      */
     sessionTv?: number;
+    /**
+     * #388：當次 session JWT 的 `sid`（`sessions.id`），與 `sessionTv` 同時設定。唯一的消費者是 `POST /api/notes/:id/collab-token`：
+     * 簽進 collab token，collab server 的 gate 檢查點據此確認這台裝置的 session 列還在。
+     */
+    sessionId?: string;
     /** #107：這一發是 cookie session、API token 還是 #200 的 transfer token 認證的。錯誤 log 只印這個與 tokenId。 */
     authKind?: "session" | "token" | "transfer";
     /** #107：token 路徑才有——落庫的正規化 scope 集合。 */
@@ -269,6 +274,8 @@ export interface AppDeps {
   startTrashPurge?: boolean;
   trashPurgeFirstDelayMs?: number;
   trashPurgeIntervalMs?: number;
+  /** #388：同帳號重登後延遲重驗舊 session 共編連線的等待（毫秒）。未設＝`RELOGIN_REVERIFY_DELAY_MS`（10 s）；只給測試縮短。 */
+  reloginReverifyDelayMs?: number;
   /** #272 §7.4／§7.5：自動切版掃描間隔（毫秒）。未設＝`VERSION_AUTO_SCAN_INTERVAL_MS`（30 s）；e2e 測試縫開著時 `index.ts` 傳 1000。 */
   versionAutoScanIntervalMs?: number;
   /**
@@ -653,7 +660,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
    * 有共編就用它那份（共編連線與變更也在那裡記），同一行程共用一張節流表；沒有共編（buildTestApp）另建一份。
    */
   const lastActive = deps.collab?.lastActive ?? new LastActiveTracker(deps.db, app.log);
-  async function resolveSessionUser(request: FastifyRequest): Promise<{ user: GateUser; tv: number } | null> {
+  async function resolveSessionUser(request: FastifyRequest): Promise<ResolvedSession | null> {
     const resolved = await resolveSessionUserFromCookies(request.cookies, deps.config.appSecret, deps.gate);
     if (resolved) await lastActive.touch(resolved.user.id);
     return resolved;
@@ -669,10 +676,11 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       sendError(reply, 401, "unauthorized", "未登入");
       return;
     }
-    // ⚠ `sessionTv` 不得漏：`POST /api/notes/:id/collab-token` 是它全 repo 唯一的
-    // 消費者，漏了會讓簽出的 collab token 帶 undefined tv。
+    // ⚠ `sessionTv`／`sessionId` 不得漏：`POST /api/notes/:id/collab-token` 把兩者簽進
+    // collab token，漏了會讓簽出的 token 帶 undefined。
     request.user = resolved.user;
     request.sessionTv = resolved.tv;
+    request.sessionId = resolved.sid;
   });
 
   app.decorate("requireAdmin", async function requireAdmin(request: FastifyRequest, reply: FastifyReply): Promise<void> {
@@ -787,7 +795,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   app.addHook("preValidation", lowercaseUuidParams);
 
   void app.register(
-    authRoutes({ db: deps.db, config: deps.config, gate: deps.gate, throttle: deps.throttle, collabHooks: deps.collabHooks })
+    authRoutes({ db: deps.db, config: deps.config, gate: deps.gate, throttle: deps.throttle, collabHooks: deps.collabHooks, reloginReverifyDelayMs: deps.reloginReverifyDelayMs })
   );
   // #107：PAT 管理端點——cookie 專用（token 不能簽發或撤銷 token），見 routes/api-tokens.ts 檔頭。
   void app.register(
@@ -799,11 +807,11 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   // #187：registry 是 per-app 實例（嚴禁 module 單例，同 limiters）。callback 需要 db（帳號解析交易）與 gate（建帳後 invalidate）。
   const oidcRegistry = deps.oidcRegistry ?? createOidcRuntimeRegistry();
   void app.register(
-    oidcRoutes({ config: deps.config, db: deps.db, gate: deps.gate, registry: oidcRegistry, limiters: { oidcLogin: limiters.oidcLogin, oidcCallback: limiters.oidcCallback }, oidcTestHook: deps.oidcTestHook }),
+    oidcRoutes({ config: deps.config, db: deps.db, gate: deps.gate, collabHooks: deps.collabHooks, reloginReverifyDelayMs: deps.reloginReverifyDelayMs, registry: oidcRegistry, limiters: { oidcLogin: limiters.oidcLogin, oidcCallback: limiters.oidcCallback }, oidcTestHook: deps.oidcTestHook }),
   );
   // #187 §7.5：`/link-account` 頁的 API（GET／confirm／cancel；Task 11 加 prove 起點）。密碼證明與登入共用 `deps.throttle`。
   void app.register(
-    oidcPendingRoutes({ config: deps.config, db: deps.db, gate: deps.gate, throttle: deps.throttle, registry: oidcRegistry, limiters: { oidcLogin: limiters.oidcLogin }, oidcTestHook: deps.oidcTestHook }),
+    oidcPendingRoutes({ config: deps.config, db: deps.db, gate: deps.gate, collabHooks: deps.collabHooks, reloginReverifyDelayMs: deps.reloginReverifyDelayMs, throttle: deps.throttle, registry: oidcRegistry, limiters: { oidcLogin: limiters.oidcLogin }, oidcTestHook: deps.oidcTestHook }),
   );
   // #187 §7.6：設定頁的手動連結起點（callback 在 oidcRoutes 的 intent: "link" 分支）。
   void app.register(oidcLinkRoutes({ db: deps.db, config: deps.config, registry: oidcRegistry, limiters: { oidcLogin: limiters.oidcLogin } }));
@@ -905,6 +913,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       config: deps.config,
       gate: deps.gate,
       collabHooks: deps.collabHooks,
+      reloginReverifyDelayMs: deps.reloginReverifyDelayMs,
       limiters: { register: limiters.register, oneTimeLinkMiss: limiters.oneTimeLinkMiss, oneTimeLinkAttempt: limiters.oneTimeLinkAttempt },
     }),
   );

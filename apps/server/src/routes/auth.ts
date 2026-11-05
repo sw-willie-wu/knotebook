@@ -9,8 +9,9 @@ import { authProviders, handleRenames, handles, siteSettings, users } from "../d
 import { UUID_RE } from "../notes/service.js";
 import { uniqueViolationConstraint } from "../db/pg-errors.js";
 import { verifyPassword, hashPassword, HashBusyError, DUMMY_HASH } from "../auth/password.js";
-import { signSession, type UserGate } from "../auth/session.js";
-import { setSessionCookie } from "../auth/cookies.js";
+import type { UserGate } from "../auth/session.js";
+import { deleteSessionFromCookie, setSessionCookieFor, startSession } from "../auth/sessions.js";
+import { changePasswordInTx } from "../auth/tx/change-password.js";
 import { touchLastLogin } from "../auth/last-login.js";
 import type { LoginThrottle } from "../auth/rate-limit.js";
 import type { CollabHooks } from "../collab/hooks.js";
@@ -43,6 +44,8 @@ export interface AuthRouteDeps {
   gate: UserGate;
   throttle: LoginThrottle;
   collabHooks: CollabHooks;
+  /** #388：同帳號重登後延遲重驗舊 session 共編連線的等待（`auth/sessions.ts` 的 `RELOGIN_REVERIFY_DELAY_MS`），只給測試縮短。 */
+  reloginReverifyDelayMs?: number;
 }
 
 /**
@@ -163,8 +166,7 @@ export function authRoutes(deps: AuthRouteDeps) {
 
       deps.throttle.recordSuccess(email, request.ip);
       await touchLastLogin(deps.db, user!.id, request.log); // #247 §9.5 寫入點 1：帳密登入
-      const token = await signSession(deps.config.appSecret, { userId: user!.id, tv: user!.tokenVersion });
-      setSessionCookie(reply, deps.config, token);
+      await startSession(deps, request, reply, { userId: user!.id, tv: user!.tokenVersion });
 
       // 標上 shared 的 DTO 型別：形狀漂移（少欄位、型別改了）在 server 端就編譯失敗，
       // 不必等 web 端 build 才發現——那時錯的其實已經是這裡（#21）。
@@ -182,7 +184,18 @@ export function authRoutes(deps: AuthRouteDeps) {
       return reply.send(dto);
     });
 
-    app.post("/api/auth/logout", async (_request, reply) => {
+    /**
+     * #388：只登出這台裝置——刪掉 cookie 那張 JWT 的 session 列、清 gate 的 session 快取（`deleteSessionFromCookie`）、
+     * 重驗這台裝置開著的共編連線（`onSessionRevoked`），再清 cookie。同帳號其他裝置的 session 不受影響。
+     *
+     * 冪等：沒帶 cookie、簽章壞、沒有 `sid` 的舊 JWT、列早已不在，一律照樣 204＋清 cookie（不必登入也能登出）。
+     * 刪列撞到 DB 錯誤也一樣 204＋清 cookie（`deleteSessionFromCookie` 只記 error log，也不重驗）：回 500 的話 web 的登出流程停在半路
+     *（`useSession.logout` 拋錯、選單不導頁），使用者以為還登入著，而清 cookie 不需要 DB。代價是那一列留到過期——
+     * 這台瀏覽器的 cookie 已清，只有被複製走的副本還能用到過期。
+     */
+    app.post("/api/auth/logout", async (request, reply) => {
+      const ended = await deleteSessionFromCookie(deps, request);
+      if (ended) deps.collabHooks.onSessionRevoked(ended.userId, ended.sid);
       reply.clearCookie(SESSION_COOKIE, { path: "/" });
       return reply.code(204).send();
     });
@@ -355,27 +368,26 @@ export function authRoutes(deps: AuthRouteDeps) {
       // 不是先在應用層算出 `row.tokenVersion + 1` 再寫回——後者在兩個並發改密碼請求
       // 之間有 read-modify-write 競態（例如帳號被撤銷/改密碼的同時，另一個並發請求
       // 用同一份舊快照 +1 寫回，會把先前那次的遞增結果覆蓋掉，等於撤銷被回捲）。
-      // 單一 UPDATE 陳述式本身已是原子操作，不需要額外包 `db.transaction`。
+      // tv 本身的原子性靠單一 UPDATE 就夠；#388 起整段包在交易裡，是為了讓 bump 與換 session 列在同一把 users 列鎖下
+      //（見 `auth/tx/change-password.ts`）。
       // 成功改密碼一併清 mustChangePassword（spec rev 5.7）：不論這次改密碼前是 true 或
       // false，改完後一律 false——這是「自己主動改過密碼」這件事本身帶來的效果，不需要
       // 額外判斷原本的值。
-      const [updated] = await deps.db
-        .update(users)
-        .set({ passwordHash: newPasswordHash, tokenVersion: sql`${users.tokenVersion} + 1`, mustChangePassword: false })
-        .where(eq(users.id, userId))
-        .returning();
+      // #388：同一交易裡刪光這個使用者的 session 列（其他裝置）、為本機建新的一列——「保留這台、踢掉其他台」。
+      const input = { userId, passwordHash: newPasswordHash };
+      const updated = await deps.db.transaction(tx => changePasswordInTx(tx, input));
+      if (updated === null) return sendError(reply, 401, "unauthorized", "Not signed in"); // 帳號在請求途中被刪
 
       // 踢掉所有舊 session（含改密碼前簽發、當下可能正被其他裝置使用的那些）——
-      // gate.invalidate 讓下一次 `authenticate` 立刻反映新 tokenVersion，
+      // 它們的 session 列上面已刪；gate.invalidate 讓下一次 `authenticate` 立刻反映新 tokenVersion，
       // collabHooks.onUserRevoked 是 Plan 2 即時協作連線的接縫（Plan 1 為 noop）。
       deps.gate.invalidate(userId);
       deps.collabHooks.onUserRevoked(userId);
 
       // 重簽自己這個 request 的 cookie（帶 DB 端算出的新 tokenVersion，而非應用層快照
-      // +1 的值——兩者在並發情境下可能不同，必須用 UPDATE ... RETURNING 拿到的真值），
-      // 確保改密碼的本人不會被自己剛剛觸發的 tokenVersion bump 給登出。
-      const newToken = await signSession(deps.config.appSecret, { userId, tv: updated.tokenVersion });
-      setSessionCookie(reply, deps.config, newToken);
+      // +1 的值——兩者在並發情境下可能不同，必須用 UPDATE ... RETURNING 拿到的真值，
+      // 與上面新建的 session 列），確保改密碼的本人不會被自己剛剛觸發的 tokenVersion bump 給登出。
+      await setSessionCookieFor(reply, deps.config, { userId, tv: updated.tokenVersion, sid: updated.sessionId });
 
       return reply.code(204).send();
     });

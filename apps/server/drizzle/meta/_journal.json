@@ -267,6 +267,13 @@
       "when": 1793756066893,
       "tag": "0037_bulk-transfer-applied-edits",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1793845638266,
+      "tag": "0038_sessions",
+      "breakpoints": true
     }
   ]
 }

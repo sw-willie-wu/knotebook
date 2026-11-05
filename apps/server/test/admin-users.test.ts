@@ -2,12 +2,11 @@ import { describe, it, expect, vi } from "vitest";
 import type { LightMyRequestResponse } from "fastify";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { SESSION_COOKIE } from "@knotebook/shared";
-import { buildTestApp, testConfig } from "./helpers.js";
+import { buildTestApp, signTestSession } from "./helpers.js";
 import { cookieOf, seedUser, waitForBlockedOrSettled, waitForLockWaiters } from "./group-helpers.js";
 import { oneTimeLinks, users } from "../src/db/schema.js";
 import { captureLogs } from "./helpers/admin-auth.js";
 import type { Db } from "../src/db/index.js";
-import { signSession } from "../src/auth/session.js";
 import type { CollabHooks } from "../src/collab/hooks.js";
 import type { AdminTestHook } from "../src/auth/admin-test-hook.js";
 import { hashPassword } from "../src/auth/password.js";
@@ -42,13 +41,14 @@ async function insertUser(
 }
 
 async function cookieFor(userId: string, tv = 0): Promise<string> {
-  return signSession(testConfig.appSecret, { userId, tv });
+  return signTestSession({ userId, tv });
 }
 
 function spyCollabHooks(): CollabHooks {
   return {
     onShareChanged: vi.fn(),
     onUserRevoked: vi.fn(),
+    onSessionRevoked: vi.fn(),
     onGroupAccessChanged: vi.fn(),
     beforeNoteDeleted: vi.fn(async () => ({ release: () => {} })),
     onNotesRestored: vi.fn(),

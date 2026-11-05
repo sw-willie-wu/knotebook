@@ -3,7 +3,7 @@ import type { FastifyBaseLogger } from "fastify";
 import type { Db } from "../db/index.js";
 
 /**
- * #247 §9.5：記一次登入（`users.last_login_at = now()`）。在每個「新簽一張登入 session」的地方、`signSession` 之前呼叫：
+ * #247 §9.5：記一次登入（`users.last_login_at = now()`）。在每個「新簽一張登入 session」的地方、發 session（`auth/sessions.ts`）之前呼叫：
  * 帳密登入、OIDC 登入與首登建帳、SSO 證明連結、密碼證明連結、註冊、以重設連結設定新密碼（#286）、接受邀請（#285）。改密碼／加上密碼後的重簽是同一次登入換 token，不呼叫；
  * 已登入時連結第二個身分不簽 session，也不呼叫。
  * 交易外的獨立單句（OIDC 登入交易刻意不寫 users，C24）。**永不等鎖的 best-effort**：子查詢 `FOR NO KEY UPDATE SKIP LOCKED`

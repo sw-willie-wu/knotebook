@@ -63,6 +63,7 @@ function fakeHandle(noteId: string, userId: string): ConnectionHandle {
     socketId: "s1",
     noteId,
     userId,
+    sessionId: undefined,
     requestToken: () => {},
     close: () => {},
     setReadOnly: () => {},

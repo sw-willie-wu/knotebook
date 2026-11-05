@@ -3,8 +3,7 @@ import { Client } from "pg";
 import { eq, sql } from "drizzle-orm";
 import { SESSION_COOKIE } from "@knotebook/shared";
 import { siteSettings, users } from "../src/db/schema.js";
-import { signSession } from "../src/auth/session.js";
-import { buildTestApp, insertPasswordUser, testConfig, type TestApp } from "./helpers.js";
+import { buildTestApp, insertPasswordUser, testConfig, type TestApp, signTestSession } from "./helpers.js";
 import { cookieOf, seedUser, spyCollabHooks, waitForBlockedOrSettled } from "./group-helpers.js";
 import { seedAuthProvider } from "./helpers/oidc-provider.js";
 import { bearer, seedTokenForUser } from "./editing-helpers.js";
@@ -146,7 +145,7 @@ describe("POST /api/auth/password/set（#187 §8.4、B12）", () => {
     try {
       await holder.query("begin");
       await holder.query("update users set password_hash = $1, token_version = token_version + 1 where id = $2 and password_hash is null", [await hashPassword(NEW_PW), u.id]);
-      const pending = app.inject({ method: "DELETE", url: `/api/auth/identities/${ident!.id}`, cookies: { [SESSION_COOKIE]: await signSession(testConfig.appSecret, { userId: u.id, tv: 0 }) } });
+      const pending = app.inject({ method: "DELETE", url: `/api/auth/identities/${ident!.id}`, cookies: { [SESSION_COOKIE]: await signTestSession({ userId: u.id, tv: 0 }) } });
       expect(await waitForBlockedOrSettled(db.$client, pending)).toBe("blocked");
       await holder.query("commit");
       expect((await pending).statusCode).toBe(204);

@@ -11,12 +11,11 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import * as Y from "yjs";
-import { signSession } from "../src/auth/session.js";
 import { noteStateBackups, notes, noteStates } from "../src/db/schema.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
 import { PRESENCE_COLOR, presenceClientId } from "../src/notes/editing/presence.js";
 import { MCP_PAGE_MAX, MCP_SECTION_CHARS, MCP_TEXT_MAX } from "../src/mcp/limits.js";
-import { buildCollabTestApp, testConfig, type CollabTestCtx } from "./helpers.js";
+import { buildCollabTestApp, type CollabTestCtx, signTestSession } from "./helpers.js";
 import { bearer, docText, getContent, seedContent, seedTokenForUser, tick, waitFor } from "./editing-helpers.js";
 import { mcpPost, rpc } from "./mcp-helpers.js";
 import { loadDoc, xmlOf } from "./copy-helpers.js";
@@ -580,7 +579,7 @@ describe("#108 兩支內容工具的共同接線", () => {
 
     // cookie 讀者先跑：MCP 的 session 路徑 `tokenId` 為 null，不得 touch。
     // ⚠ `mcpPost` 的 `cookie` 收的是**值**（helper 自己組 `SESSION_COOKIE=`），不是整條 header。
-    const cookie = await signSession(testConfig.appSecret, { userId: s.ownerId, tv: 0 });
+    const cookie = await signTestSession({ userId: s.ownerId, tv: 0 });
     const viaCookie = await mcpPost(
       s.ctx.app,
       rpc("tools/call", { name: "read_note_outline", arguments: { note_id: s.noteId } }),

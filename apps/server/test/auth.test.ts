@@ -1,12 +1,11 @@
 import { vi, describe, it, expect, afterEach } from "vitest";
 import { eq } from "drizzle-orm";
 import { SESSION_COOKIE } from "@knotebook/shared";
-import { buildTestApp, testConfig } from "./helpers.js";
+import { buildTestApp, testConfig, signTestSession } from "./helpers.js";
 import { users, siteSettings } from "../src/db/schema.js";
 import { seedAuthProvider } from "./helpers/oidc-provider.js";
 import { GENERIC } from "./helpers/provider-icon.js";
 import type { Db } from "../src/db/index.js";
-import { signSession } from "../src/auth/session.js";
 import type { CollabHooks } from "../src/collab/hooks.js";
 
 // verifyPassword／hashPassword 被包成 vi.fn(actual)：預設行為與真實實作一致，只有
@@ -552,6 +551,7 @@ describe("POST /api/auth/password", () => {
     const collabHooks: CollabHooks = {
       onShareChanged: vi.fn(),
       onUserRevoked,
+      onSessionRevoked: vi.fn(),
       onGroupAccessChanged: vi.fn(),
       beforeNoteDeleted: vi.fn(async () => ({ release: () => {} })),
       onNotesRestored: vi.fn(),
@@ -577,7 +577,7 @@ describe("POST /api/auth/password", () => {
     const { app, db } = await buildTestApp();
     const u = await insertUser(db, { email: "mia@example.com", password: null });
     // OIDC-only 使用者無法透過密碼登入拿 cookie，直接簽一把合法 session 模擬其已登入狀態。
-    const cookie = await signSession(testConfig.appSecret, { userId: u.id, tv: u.tokenVersion });
+    const cookie = await signTestSession({ userId: u.id, tv: u.tokenVersion });
 
     const res = await app.inject({
       method: "POST",

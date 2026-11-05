@@ -3,6 +3,7 @@ import type { Tx } from "../../db/tx.js";
 import { oneTimeLinks, users } from "../../db/schema.js";
 import { TxAbort } from "../../http/tx-abort.js";
 import { activeOneTimeLink, pendingPasswordResetsOf } from "../one-time-link.js";
+import { replaceUserSessionsInTx } from "./sessions.js";
 
 /** 410 `reset_link_invalid` 的訊息：無登入端點與完成交易共用，不區分原因（spec §4.3）。 */
 export const RESET_LINK_INVALID_MESSAGE = "重設密碼連結無效、已使用或已過期";
@@ -100,5 +101,6 @@ export async function completePasswordResetInTx(
       tokenVersion: users.tokenVersion,
     });
   await tx.update(oneTimeLinks).set({ usedAt: sql`now()` }).where(eq(oneTimeLinks.id, input.linkId));
-  return updated!;
+  // #388：同一交易裡刪光這個使用者的 session 列（其他瀏覽器）、為這台裝置建新的一列；`sessionId` 簽進回應的 cookie。
+  return { ...updated!, sessionId: await replaceUserSessionsInTx(tx, input.targetUserId) };
 }

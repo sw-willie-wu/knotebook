@@ -7,12 +7,12 @@ import { MAX_PROVIDER_ICON_BYTES, autoSlugFromTitle, validateHandle, validateSlu
 import { applyMigrationsThrough, freshDb, freshEmptyDb, idxOfTag, journalEntries } from "./helpers.js";
 import { runMigrations } from "../src/db/migrate.js";
 import { PgDialect, getTableConfig } from "drizzle-orm/pg-core";
-import { apiTokens, authProviders, folders, groupMembers, groupRoles, groups, notePlacements, noteRedirects, notes, oauthClients, oauthCodes, noteSearchSections, noteSearchState, noteLinkConversion, noteVersions, handleRenames, oauthRequests, oneTimeLinks, siteSettings, storagePlans, transferBases, transferCreates, transferTokens, userIdentities, users } from "../src/db/schema.js";
+import { apiTokens, authProviders, folders, groupMembers, groupRoles, groups, notePlacements, noteRedirects, notes, oauthClients, oauthCodes, noteSearchSections, noteSearchState, noteLinkConversion, noteVersions, handleRenames, oauthRequests, oneTimeLinks, sessions, siteSettings, storagePlans, transferBases, transferCreates, transferTokens, userIdentities, users } from "../src/db/schema.js";
 
 const drizzleDirForTest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
 /** drizzle 對 `schema.ts` 的序列化；宣告漂移守衛拿最新一支當比對基準（Task 14 rebase 後改成實際檔名）。 */
-const SNAPSHOT_FILE = "meta/0037_snapshot.json";
+const SNAPSHOT_FILE = "meta/0038_snapshot.json";
 const snapshotLatest = JSON.parse(readFileSync(path.join(drizzleDirForTest, SNAPSHOT_FILE), "utf8")) as {
   tables: Record<string, {
     checkConstraints?: Record<string, { name: string; value: string }>;
@@ -23,12 +23,12 @@ const snapshotLatest = JSON.parse(readFileSync(path.join(drizzleDirForTest, SNAP
 const pgDialect = new PgDialect();
 
 describe("runMigrations", () => {
-  it("migrate 兩次 idempotent 且 36 張表存在", async () => {
+  it("migrate 兩次 idempotent 且 37 張表存在", async () => {
     const { db, pool } = await freshDb();
     await runMigrations(db); // freshDb 已跑過一次——此為第二次
     const r = await pool.query(`select table_name from information_schema.tables where table_schema='public'`);
     const tableNames = r.rows.map(x => x.table_name);
-    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles", "api_tokens", "oauth_clients", "oauth_requests", "oauth_codes", "note_ai_edits", "groups", "group_members", "group_roles", "note_redirects", "auth_providers", "user_identities", "site_settings", "note_search_sections", "note_search_state", "transfer_tokens", "storage_plans", "note_versions", "note_link_conversion", "handle_renames", "one_time_links", "folders", "note_placements", "transfer_bases", "transfer_creates"])
+    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles", "api_tokens", "oauth_clients", "oauth_requests", "oauth_codes", "note_ai_edits", "groups", "group_members", "group_roles", "note_redirects", "auth_providers", "user_identities", "site_settings", "note_search_sections", "note_search_state", "transfer_tokens", "storage_plans", "note_versions", "note_link_conversion", "handle_renames", "one_time_links", "folders", "note_placements", "transfer_bases", "transfer_creates", "sessions"])
       expect(tableNames).toContain(t);
   });
 
@@ -1483,6 +1483,7 @@ describe("0009_api-tokens", () => {
       note_link_conversion: ["note_id", "status", "attempts", "converted", "unresolved", "updated_at"],
       handle_renames: ["id", "user_id", "renamed_at"],
       one_time_links: ["id", "kind", "token_hash", "target_user_id", "created_by_id", "expires_at", "used_at", "revoked_at", "created_at", "label", "used_by_id"],
+      sessions: ["id", "user_id", "created_at", "expires_at"],
     };
 
     for (const [table, decl] of [
@@ -1511,6 +1512,7 @@ describe("0009_api-tokens", () => {
       ["one_time_links", oneTimeLinks],
       ["folders", folders],
       ["note_placements", notePlacements],
+      ["sessions", sessions],
     ] as const) {
       const cfg = getTableConfig(decl);
       // 宣告的欄名 = DB 的欄名 = 這裡寫死的期望（三方對齊，任一邊漂移就紅）
@@ -3363,6 +3365,24 @@ describe("bulk transfer（0036，bulk transfer spec 2026-11-02 §16）", () => {
     );
     expect(rows.map((r: { indexname: string }) => r.indexname)).toEqual(["transfer_bases_note_idx", "transfer_creates_note_idx"]);
     for (const r of rows as Array<{ indexname: string; indexdef: string }>) expect(r.indexdef, r.indexname).toMatch(/USING btree \(note_id\)$/);
+  });
+
+  it("#388 0038 sessions：刪使用者串刪；索引在；SQL 檔無 CONCURRENTLY／行首 COMMIT", async () => {
+    const { pool } = await freshEmptyDb();
+    await applyMigrationsThrough(pool, idxOfTag("0038_sessions"));
+    const u = (await pool.query(`insert into users (email, display_name) values ('s388@example.com', 'S') returning id`)).rows[0].id as string;
+    const other = (await pool.query(`insert into users (email, display_name) values ('s388b@example.com', 'T') returning id`)).rows[0].id as string;
+    await pool.query(`insert into sessions (user_id, expires_at) values ($1, now() + interval '1 day'), ($1, now() + interval '1 day'), ($2, now() + interval '1 day')`, [u, other]);
+    const ids = (await pool.query(`select id::text from sessions`)).rows.map((r: { id: string }) => r.id);
+    for (const id of ids) expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/); // gen_random_uuid＝v4
+    await pool.query(`delete from users where id = $1`, [u]);
+    const left = (await pool.query(`select user_id from sessions`)).rows.map((r: { user_id: string }) => r.user_id);
+    expect(left).toEqual([other]);
+    const { rows } = await pool.query(`select indexname from pg_indexes where tablename = 'sessions' order by indexname`);
+    expect(rows.map((r: { indexname: string }) => r.indexname)).toEqual(["sessions_expires_idx", "sessions_pkey", "sessions_user_idx"]);
+    const sqlText = readFileSync(path.join(drizzleDirForTest, "0038_sessions.sql"), "utf8");
+    expect(sqlText).not.toMatch(/CONCURRENTLY/i);
+    expect(sqlText).not.toMatch(/^\s*COMMIT/im);
   });
 
   it("M5 bulk-transfer 的 SQL 檔無 CONCURRENTLY／行首 COMMIT（單一 tx 前提的輔助 grep）", () => {

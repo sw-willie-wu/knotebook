@@ -1081,3 +1081,28 @@ export const oneTimeLinks = pgTable(
     index("one_time_links_kind_created_idx").on(t.kind, t.createdAt),
   ],
 );
+
+/**
+ * #388：網頁登入的伺服器端 session。每次發登入 cookie（密碼登入、註冊、接受邀請、OIDC、連結證明、重設密碼、改密碼／加密碼後重發）
+ * 記一列，session JWT 的 `sid` claim 就是這列的 `id`（`auth/sessions.ts`）。
+ *
+ * - 驗證＝簽章＋`tv`＋這列存在、屬於該使用者、`expires_at` 未過（`UserGate.check`）。登出刪這一列＝只有這台裝置失效。
+ * - `id` 是 `gen_random_uuid()`（隨機 v4）；JWT 本身有簽章，光知道 id 也偽造不出 cookie。
+ * - `expires_at` 與 JWT 的 `exp` 同值（`SESSION_TTL_SECONDS`），不滑動。過期列由 `deleteExpiredSessions` 機會性清掉（發 session 後
+ *   fire-and-forget，比照 `transfer-cleanup.ts`）。
+ * - 刪使用者串刪；停用帳號在同一交易刪光（`disable-user.ts`）；改密碼／加密碼／重設密碼在 bump tv 的同一交易刪光再建新的一列
+ *   （`auth/tx/sessions.ts` 的 `replaceUserSessionsInTx`，經 `change-password.ts`／`password-reset.ts`）。
+ * - API token（`api_tokens`）與 transfer token 與這張表零關聯：登出、改密碼都不動它們。
+ */
+export const sessions = pgTable(
+  "sessions",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  t => [index("sessions_user_idx").on(t.userId), index("sessions_expires_idx").on(t.expiresAt)],
+);

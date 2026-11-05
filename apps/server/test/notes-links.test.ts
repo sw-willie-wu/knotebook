@@ -2,10 +2,9 @@ import { randomUUID } from "node:crypto";
 import { describe, it, expect } from "vitest";
 import { eq } from "drizzle-orm";
 import { MAX_BACKLINKS, MAX_LINK_TARGETS, SESSION_COOKIE } from "@knotebook/shared";
-import { buildTestApp, testConfig } from "./helpers.js";
+import { buildTestApp, signTestSession } from "./helpers.js";
 import { notes, noteLinks, noteShares, users } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
-import { signSession } from "../src/auth/session.js";
 import { noopCollabHooks, type CollabHooks } from "../src/collab/hooks.js";
 import type { WriteNoteLinksHooks } from "../src/notes/links.js";
 
@@ -21,7 +20,7 @@ async function insertUser(db: Db, overrides: Partial<{ email: string; displayNam
 }
 
 async function cookieFor(userId: string): Promise<string> {
-  return signSession(testConfig.appSecret, { userId, tv: 0 });
+  return signTestSession({ userId, tv: 0 });
 }
 
 /**

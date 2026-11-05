@@ -3,10 +3,9 @@ import path from "node:path";
 import { describe, it, expect, vi } from "vitest";
 import { eq, or } from "drizzle-orm";
 import { SESSION_COOKIE } from "@knotebook/shared";
-import { buildTestApp, testConfig } from "./helpers.js";
+import { buildTestApp, signTestSession } from "./helpers.js";
 import { notes, noteLinks, noteShares, noteStateBackups, noteStates, uploads, users } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
-import { signSession } from "../src/auth/session.js";
 import { resolveRole } from "../src/notes/service.js";
 import type { CollabHooks } from "../src/collab/hooks.js";
 
@@ -24,7 +23,7 @@ async function insertUser(db: Db, overrides: Partial<{ email: string; displayNam
 // 測試裡的 session 一律直接簽發（不走 /api/auth/login），tokenVersion 一律用 DB 預設值
 // 0（insertUser 不改它），與 UserGate.check 比對的 tv 一致。
 async function cookieFor(userId: string): Promise<string> {
-  return signSession(testConfig.appSecret, { userId, tv: 0 });
+  return signTestSession({ userId, tv: 0 });
 }
 
 describe("resolveRole", () => {
@@ -343,6 +342,7 @@ describe("DELETE /api/notes/:id", () => {
     const collabHooks: CollabHooks = {
       onShareChanged: vi.fn(),
       onUserRevoked: vi.fn(),
+      onSessionRevoked: vi.fn(),
       onGroupAccessChanged: vi.fn(),
       beforeNoteDeleted,
       onNotesRestored: vi.fn(),
@@ -369,6 +369,7 @@ describe("DELETE /api/notes/:id", () => {
     const collabHooks: CollabHooks = {
       onShareChanged: vi.fn(),
       onUserRevoked: vi.fn(),
+      onSessionRevoked: vi.fn(),
       onGroupAccessChanged: vi.fn(),
       beforeNoteDeleted,
       onNotesRestored: vi.fn(),
@@ -440,6 +441,7 @@ describe("DELETE /api/notes/:id", () => {
     const collabHooks: CollabHooks = {
       onShareChanged: vi.fn(),
       onUserRevoked: vi.fn(),
+      onSessionRevoked: vi.fn(),
       onGroupAccessChanged: vi.fn(),
       beforeNoteDeleted,
       onNotesRestored: vi.fn(),
@@ -465,6 +467,7 @@ describe("DELETE /api/notes/:id", () => {
     const collabHooks: CollabHooks = {
       onShareChanged: vi.fn(),
       onUserRevoked: vi.fn(),
+      onSessionRevoked: vi.fn(),
       onGroupAccessChanged: vi.fn(),
       beforeNoteDeleted: vi.fn(async (): Promise<never> => {
         throw new Error("collab teardown failed");
