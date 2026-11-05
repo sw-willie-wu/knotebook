@@ -49,7 +49,7 @@ describe("#175 PR2 移動的交錯（C1／C5／C6）", () => {
     expect(first.statusCode).toBe(200);
     expect(first.json().groupId).toBe(g1.id);
     expect(second.statusCode).toBe(409);
-    expect(second.json()).toEqual({ error: { code: "conflict", message: "筆記的歸屬已變更，請重新整理後再試" } });
+    expect(second.json()).toEqual({ error: { code: "conflict", message: "The note's owner or group changed. Reload and try again." } });
     expect(await noteState(db.$client, n.id)).toMatchObject({ owner_id: null, group_id: g1.id, slug: "plan" });
     expect(await db.select({ oldPath: noteRedirects.oldPath }).from(noteRedirects)).toEqual([{ oldPath: `/n/${owner.handle}/plan` }]);
   });
@@ -73,7 +73,7 @@ describe("#175 PR2 移動的交錯（C1／C5／C6）", () => {
     expect(state.interleave).toBe("blocked");
     expect(del.statusCode).toBe(204);
     expect(moved.statusCode).toBe(404);
-    expect(moved.json()).toEqual({ error: { code: "group_not_found", message: "找不到此群組" } });
+    expect(moved.json()).toEqual({ error: { code: "group_not_found", message: "No group with that id." } });
     expect(await noteState(db.$client, n.id)).toEqual(before);
     expect(await sharesOf(db, n.id)).toEqual([{ userId: c.id, role: "editor" }]);
     expect(await db.select().from(noteRedirects)).toEqual([]);
@@ -174,7 +174,7 @@ describe("#175 PR2 移動 × 成員異動（C18a／C18b／C18c）", () => {
     expect(state.interleave).toBe("blocked");
     expect(removed.statusCode).toBe(204);
     expect(moved.statusCode).toBe(404);
-    expect(moved.json()).toEqual({ error: { code: "group_not_found", message: "找不到此群組" } });
+    expect(moved.json()).toEqual({ error: { code: "group_not_found", message: "No group with that id." } });
     expect(await noteState(db.$client, n.id)).toEqual(before);
     expect(before).toMatchObject({ owner_id: owner.id, group_id: null });
     expect(await sharesOf(db, n.id)).toEqual([{ userId: c.id, role: "editor" }]);
@@ -202,7 +202,7 @@ describe("#175 PR2 移動 × 成員異動（C18a／C18b／C18c）", () => {
     expect(state.interleave).toBe("blocked");
     expect(demoted.statusCode).toBe(200);
     expect(moved.statusCode).toBe(404);
-    expect(moved.json()).toEqual({ error: { code: "group_not_found", message: "找不到此群組" } });
+    expect(moved.json()).toEqual({ error: { code: "group_not_found", message: "No group with that id." } });
     expect(await noteState(db.$client, n.id)).toEqual(before);
     expect(before).toMatchObject({ owner_id: owner.id, group_id: null });
     expect(await db.select().from(noteRedirects)).toEqual([]);

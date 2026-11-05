@@ -92,7 +92,7 @@ export const filesIn = async (dir: string): Promise<string[]> => (await readdir(
 
 /** 409 storage_quota_exceeded 的完整形（toMatchObject 用）。 */
 export const quotaBody = (storage: Record<string, unknown>) => ({
-  error: { code: "storage_quota_exceeded", message: "儲存空間已滿" },
+  error: { code: "storage_quota_exceeded", message: "This space's storage quota is full." },
   storage,
 });
 

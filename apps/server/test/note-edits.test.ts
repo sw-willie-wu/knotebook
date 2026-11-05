@@ -228,6 +228,8 @@ describe("if_match 與併發", () => {
     const stale = await post({ op: "replace_all", markdown: "x", if_match: "0000000000000000" });
     expect(stale.statusCode).toBe(409);
     expect(stale.json().error.code).toBe("fingerprint_mismatch");
+    // #372：訊息逐字（英文、指向 current）。
+    expect(stale.json().error.message).toBe("The content changed since you read it, so nothing was written. The response's current field has the content as it is now.");
     expect(stale.json().current.fingerprint).toBe(c.fingerprint);
     const a = c.outline[1];
     expect((await post({ op: "replace_section", section_id: a.sectionId, markdown: "# A\n\nx", if_match: "0000000000000000" })).statusCode).toBe(409);

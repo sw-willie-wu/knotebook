@@ -67,7 +67,7 @@ describe("ADMIN_EMAIL/ADMIN_PASSWORD env bootstrap admin（spec rev 5.7 / §14.2
     expect(setupRows).toHaveLength(1);
   });
 
-  it("env 管理員登入後不被「請先修改密碼」擋：POST /api/auth/tokens → 201（旗標帳號會拿 403）", async () => {
+  it("env 管理員登入後不被「必須先改密碼」的 403 擋：POST /api/auth/tokens → 201（旗標帳號會拿 403）", async () => {
     const { app } = await buildAppWithEnvAdmin(ENV_ADMIN);
     const loginRes = await app.inject({
       method: "POST",

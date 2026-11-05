@@ -342,7 +342,7 @@ describe("資料夾與垃圾桶：還原", () => {
       const res = await inject(app, "POST", "/api/trash/restore", o.id, { ids: [n.id] });
       const ms = Date.now() - t0;
       expect(res.statusCode, res.body).toBe(409);
-      expect(res.json()).toEqual({ error: { code: "server_busy", message: "伺服器忙碌，請稍後再試" } });
+      expect(res.json()).toEqual({ error: { code: "server_busy", message: "The server is busy. Try again in a moment." } });
       expect(ms).toBeLessThan(INJECTED_LOCK_TIMEOUT_BOUND_MS);
     } finally {
       try {

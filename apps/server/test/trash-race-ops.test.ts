@@ -28,8 +28,8 @@ import { inject, trashCols } from "./trash-helpers.js";
 import { paraDoc } from "./version-helpers.js";
 
 type Res = LightMyRequestResponse;
-const NOT_FOUND = { error: { code: "not_found", message: "找不到此筆記" } };
-const FORBIDDEN = { error: { code: "forbidden", message: "沒有刪除這篇筆記的權限" } };
+const NOT_FOUND = { error: { code: "not_found", message: "No note with that id." } };
+const FORBIDDEN = { error: { code: "forbidden", message: "You don't have permission to delete this note." } };
 const del = (app: FastifyInstance, id: string, by: string) => inject(app, "DELETE", `/api/notes/${id}`, by);
 
 /** 一次性測試縫：`on` 登記的處理第一次觸發時拿掉並執行，其餘觸發直接放行。 */

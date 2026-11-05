@@ -64,7 +64,7 @@ describe("GET／POST／PATCH／DELETE /api/admin/storage-plans（S10）", () => 
     for (const q of [-1, 1.5, 1125899906842625, "1", undefined]) {
       const r = await req(b, "POST", "/api/admin/storage-plans", { name: `q${String(q)}`, ...(q === undefined ? {} : { quotaBytes: q }) });
       expect(r.statusCode, String(q)).toBe(400);
-      expect(r.json().error, String(q)).toEqual({ code: "invalid_body", message: "請求格式錯誤" });
+      expect(r.json().error, String(q)).toEqual({ code: "invalid_body", message: "Invalid request body." });
     }
     expect((await req(b, "POST", "/api/admin/storage-plans", { name: "zero", quotaBytes: 0 })).statusCode).toBe(201);
     expect((await req(b, "POST", "/api/admin/storage-plans", { name: "unl", quotaBytes: null })).json()).toMatchObject({ quotaBytes: null });
@@ -78,7 +78,7 @@ describe("GET／POST／PATCH／DELETE /api/admin/storage-plans（S10）", () => 
     for (const name of [emoji.repeat(41), "   ", "\u3000", `a${NUL}b`, "a\uD800b", "x".repeat(41)]) {
       const r = await req(b, "POST", "/api/admin/storage-plans", { name, quotaBytes: 1 });
       expect(r.statusCode, JSON.stringify(name)).toBe(400);
-      expect(r.json().error, JSON.stringify(name)).toEqual({ code: "invalid_name", message: "方案名稱須為 1–40 個字元" });
+      expect(r.json().error, JSON.stringify(name)).toEqual({ code: "invalid_name", message: "Plan names must be 1 to 40 characters." });
     }
   });
 
@@ -155,7 +155,7 @@ describe("GET／POST／PATCH／DELETE /api/admin/storage-plans（S10）", () => 
     await raise("site_settings_default_user_plan_fk");
     await b.db.$client.query("create trigger t_plan_delete_fk before delete on storage_plans for each row execute function raise_plan_delete_fk()");
     const del = async () => req(b, "DELETE", `/api/admin/storage-plans/${await seedPlan(b.db, `F-${Math.random().toString(36).slice(2, 8)}`, 1)}`);
-    expect((await del()).json()).toEqual({ error: { code: "storage_plan_is_default", message: "這個方案是預設方案，請先改選其他預設" } });
+    expect((await del()).json()).toEqual({ error: { code: "storage_plan_is_default", message: "This is the default plan. Make another plan the default first." } });
     await raise("site_settings_default_group_plan_fk");
     expect((await del()).json().error.code).toBe("storage_plan_is_default");
     await raise("something_else_fk");
@@ -258,7 +258,7 @@ describe("用量檢視（S12）", () => {
     const bodies = [await get(outsider.id), await get(gAdmin.id, "nope"), await get(gAdmin.id, "00000000-0000-4000-8000-000000000000")];
     for (const r of bodies) expect(r.statusCode).toBe(404);
     expect(new Set(bodies.map(r => r.body)).size).toBe(1);
-    expect(bodies[0]!.json()).toEqual({ error: { code: "not_found", message: "找不到此群組" } });
+    expect(bodies[0]!.json()).toEqual({ error: { code: "not_found", message: "No group with that id." } });
   });
 
   it("GET /api/groups/:id/storage：群組授權矩陣（anon 401／nonMember 404／member 200／admin 200／siteAdmin 200／badId 404／missing 404）", async () => {

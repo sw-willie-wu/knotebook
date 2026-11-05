@@ -85,7 +85,7 @@ describe("GET /api/admin/auth/providers/:id/impact（#187 §9.3；PR3 起「無�
     const built = await adminApp();
     const a = await seedAuthProvider(built.db, { issuerUrl: IA });
     expect((await impact(built, a.id.toUpperCase())).status).toBe(200);
-    expect(await impact(built, "00000000-0000-4000-8000-000000000000")).toEqual({ status: 404, body: { error: { code: "not_found", message: "找不到此登入服務" } } });
+    expect(await impact(built, "00000000-0000-4000-8000-000000000000")).toEqual({ status: 404, body: { error: { code: "not_found", message: "No sign-in service with that id." } } });
     expect((await impact(built, "zzz")).status).toBe(404);
   });
 

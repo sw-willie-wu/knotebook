@@ -150,7 +150,7 @@ describe("PATCH /api/admin/auth/providers/:id（#187 §5.2）", () => {
     expect((await patch(app, cookies, p.id, {})).statusCode).toBe(400);
     const missing = await patch(app, cookies, "00000000-0000-4000-8000-000000000000", { displayName: "x" });
     expect(missing.statusCode).toBe(404);
-    expect(missing.json()).toEqual({ error: { code: "not_found", message: "找不到此登入服務" } });
+    expect(missing.json()).toEqual({ error: { code: "not_found", message: "No sign-in service with that id." } });
     expect((await patch(app, cookies, "not-a-uuid", { displayName: "x" })).statusCode).toBe(404);
     expect(await providerRow(db, p.id)).toMatchObject({ configVersion: 3 });
   });
@@ -403,7 +403,7 @@ describe("寫 client secret 時遇非預期 DB 錯誤：回 500、log 不帶密�
           ? await app.inject({ method: "DELETE", url: `/api/admin/auth/providers/${p.id}`, cookies })
           : await app.inject({ method: "POST", url: "/api/admin/auth/providers", cookies, payload: { template: "oidc", displayName: "X", issuerUrl: ISS, clientId: "c", clientSecret: "leak-me-not" } });
     expect(res.statusCode).toBe(500);
-    expect(res.json()).toEqual({ error: { code: "internal", message: "伺服器內部錯誤" } });
+    expect(res.json()).toEqual({ error: { code: "internal", message: "Internal server error." } });
 
     // 遮蔽那一行：code／constraint（trigger 的 raise 沒有 constraint → null，但鍵要在）／context；pg 錯誤不記 name。
     const line = redactLine(out, CONTEXT[method]);
@@ -429,7 +429,7 @@ describe("寫 client secret 時遇非預期 DB 錯誤：回 500、log 不帶密�
     expect(spy).toHaveBeenCalledTimes(1);
     spy.mockRestore();
     expect(res.statusCode).toBe(500);
-    expect(res.json()).toEqual({ error: { code: "internal", message: "伺服器內部錯誤" } });
+    expect(res.json()).toEqual({ error: { code: "internal", message: "Internal server error." } });
 
     const line = redactLine(out, CONTEXT.PATCH);
     expect(line).toMatchObject({ level: 50, code: null, constraint: null, name: "Error", context: CONTEXT.PATCH });

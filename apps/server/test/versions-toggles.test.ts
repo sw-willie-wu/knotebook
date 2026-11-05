@@ -52,7 +52,7 @@ describe("站台設定 /api/admin/versions/settings（§6.7）", () => {
     expect((await app.inject({ method: "GET", url: "/api/auth/config" })).json().autoVersionsEnabled).toBe(false);
   });
 
-  it("#272 案 25：autoWaitMinutes——GET 預設 5；PATCH 1、60 成功；0、61 → 400 範圍句；1.5、\"5\" → 400 請求格式錯誤；都不存；DB 直寫 0 → 23514", async () => {
+  it("#272 案 25：autoWaitMinutes——GET 預設 5；PATCH 1、60 成功；0、61 → 400 範圍句；1.5、\"5\" → 400「Invalid request body.」；都不存；DB 直寫 0 → 23514", async () => {
     const { app, db } = await buildTestApp();
     const admin = await seedUser(db, { isAdmin: true });
     const url = "/api/admin/versions/settings";
@@ -62,12 +62,12 @@ describe("站台設定 /api/admin/versions/settings（§6.7）", () => {
       expect(r.statusCode).toBe(200);
       expect(r.json()).toEqual({ keepAllDays: 7, dailyUntilDays: 30, autoVersionsEnabled: true, autoWaitMinutes: m });
     }
-    const RANGE = "自動存版等待須為 1 到 60 的整數（分鐘）";
+    const RANGE = "The auto-save wait must be a whole number of minutes from 1 to 60.";
     for (const [body, message] of [
       [{ autoWaitMinutes: 0 }, RANGE],
       [{ autoWaitMinutes: 61 }, RANGE],
-      [{ autoWaitMinutes: 1.5 }, "請求格式錯誤"],
-      [{ autoWaitMinutes: "5" }, "請求格式錯誤"],
+      [{ autoWaitMinutes: 1.5 }, "Invalid request body."],
+      [{ autoWaitMinutes: "5" }, "Invalid request body."],
     ] as const) {
       const r = await call(app, "PATCH", url, admin.id, body);
       expect(r.statusCode, JSON.stringify(body)).toBe(400);

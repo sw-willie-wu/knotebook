@@ -4,7 +4,7 @@ import { users } from "../../db/schema.js";
 import { TxAbort } from "../../http/tx-abort.js";
 import type { AdminTestHook } from "../admin-test-hook.js";
 
-export const LAST_SITE_ADMIN_MESSAGE = "站台至少要保留一位啟用中的管理員";
+export const LAST_SITE_ADMIN_MESSAGE = "The site needs at least one active admin.";
 
 /**
  * #247 §9.4：把站台管理員降為一般使用者。自降由路由先擋（400，不進交易）。
@@ -23,7 +23,7 @@ export async function demoteSiteAdminInTx(tx: Tx, input: { targetId: string }, h
     .for("no key update");
   if (!admins.some(a => a.id === input.targetId)) {
     const [exists] = await tx.select({ id: users.id }).from(users).where(eq(users.id, input.targetId)).limit(1);
-    if (exists === undefined) throw new TxAbort(404, "user_not_found", "找不到此使用者");
+    if (exists === undefined) throw new TxAbort(404, "user_not_found", "No user with that id.");
     return;
   }
   const othersEnabled = admins.filter(a => a.id !== input.targetId && a.disabledAt === null).length;

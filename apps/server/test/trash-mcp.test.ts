@@ -62,7 +62,8 @@ function perNoteCalls(noteId: string, uploadId: string, groupId: string): Array<
     ["read_note_section", { note_id: noteId, section_id: "_top" }],
     ["read_note_image", { note_id: noteId, upload_id: uploadId }],
     ["edit_note", { note_id: noteId, op: "append", markdown: "MC1 append" }],
-    ["edit_note:rename", { note_id: noteId, op: "rename", title: "MC1 rename" }], // rename 支另有一處單篇授權
+    // rename 支另有一處單篇授權。#381：if_match 必帶；授權（垃圾桶＝not_found）排在指紋比對之前，所以任一合格式值都行。
+    ["edit_note:rename", { note_id: noteId, op: "rename", title: "MC1 rename", if_match: "0123456789abcdef" }],
     ["move_note_to_group", { note_id: noteId, group_id: groupId }],
     ["copy_note", { note_id: noteId }],
     ["create_transfer_token", { note_id: noteId, purpose: "download" }],

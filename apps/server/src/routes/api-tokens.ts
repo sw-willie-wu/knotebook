@@ -75,22 +75,22 @@ export function apiTokensRoutes(deps: ApiTokensRouteDeps) {
     app.post("/api/auth/tokens", { preHandler: app.authenticate }, async (request, reply) => {
       const parsed = createBodySchema.safeParse(request.body ?? {});
       if (!parsed.success) {
-        return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+        return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "Invalid request body.");
       }
       // 強制改密碼的使用者不得簽發憑證。**擋在限流之前**——被擋下的請求不該吃掉
       // 使用者自己的額度（比照 #132 decision 端點「mustChangePassword 在消費之前」）。
       if (request.user!.mustChangePassword) {
-        return sendError(reply, 403, "forbidden", "請先修改密碼");
+        return sendError(reply, 403, "forbidden", "Change your password before doing this.");
       }
       const userId = request.user!.id;
       if (!deps.limiters.patCreate.consume(userId)) {
-        return sendError(reply, 429, "too_many_requests", "建立次數過多，請稍後再試");
+        return sendError(reply, 429, "too_many_requests", "Too many tokens created. Wait a moment and try again.");
       }
 
       // I5：建 PAT 是六個清理時機之一（五條 DELETE 的說明見 oauth/cleanup.ts）。
       await runOauthCleanup(deps.db);
       if ((await countBillableGrants(deps.db, userId)) >= TOKEN_LIMIT_PER_USER) {
-        return sendError(reply, 409, "token_limit", `有效 token 已達 ${TOKEN_LIMIT_PER_USER} 個上限，請先撤銷一個`);
+        return sendError(reply, 409, "token_limit", `You already have the maximum of ${TOKEN_LIMIT_PER_USER} active tokens. Revoke one first.`);
       }
 
       const plaintext = generateAccessToken();
@@ -134,19 +134,19 @@ export function apiTokensRoutes(deps: ApiTokensRouteDeps) {
     app.patch("/api/auth/tokens/:id", { preHandler: app.authenticate }, async (request, reply) => {
       const { id } = request.params as { id: string };
       // 同 DELETE：非 uuid 直接 404——丟給 pg 會是 22P02，經全域 error handler 冒成 500。
-      if (!UUID_RE.test(id)) return sendError(reply, 404, "token_not_found", "找不到此 token");
+      if (!UUID_RE.test(id)) return sendError(reply, 404, "token_not_found", "No API token with that id.");
       const parsed = patchBodySchema.safeParse(request.body ?? {});
       if (!parsed.success) {
         const field = parsed.error.issues[0]?.path[0];
-        const message = field === "agentLabel" ? "agentLabel 格式錯誤" : field === "scope" ? "scope 格式錯誤" : "請求格式錯誤";
+        const message = field === "agentLabel" ? "Invalid agentLabel." : field === "scope" ? "Invalid scope." : "Invalid request body.";
         return sendError(reply, 400, "invalid_body", message);
       }
       // 擋在節流之前（比照 POST）：被擋下的請求不吃額度。
       if (parsed.data.scope !== undefined && request.user!.mustChangePassword) {
-        return sendError(reply, 403, "forbidden", "請先修改密碼");
+        return sendError(reply, 403, "forbidden", "Change your password before doing this.");
       }
       if (!deps.limiters.tokenRename.consume(request.user!.id)) {
-        return sendError(reply, 429, "too_many_requests", "修改過於頻繁");
+        return sendError(reply, 429, "too_many_requests", "Too many changes. Wait a moment and try again.");
       }
       const set: Partial<typeof apiTokens.$inferInsert> = {};
       if (parsed.data.agentLabel !== undefined) set.agentLabel = parsed.data.agentLabel;
@@ -156,20 +156,20 @@ export function apiTokensRoutes(deps: ApiTokensRouteDeps) {
         .set(set)
         .where(and(eq(apiTokens.id, id), eq(apiTokens.userId, request.user!.id)))
         .returning();
-      if (!row) return sendError(reply, 404, "token_not_found", "找不到此 token");
+      if (!row) return sendError(reply, 404, "token_not_found", "No API token with that id.");
       return reply.send(toDto(row));
     });
 
     app.delete("/api/auth/tokens/:id", { preHandler: app.authenticate }, async (request, reply) => {
       const { id } = request.params as { id: string };
       // 非 uuid 直接 404——丟給 pg 會是 22P02，經全域 error handler 冒成 500。
-      if (!UUID_RE.test(id)) return sendError(reply, 404, "token_not_found", "找不到此 token");
+      if (!UUID_RE.test(id)) return sendError(reply, 404, "token_not_found", "No API token with that id.");
       // D9：撤銷＝硬刪列。`AND user_id=$me` 讓「別人的 token」與「不存在」同形 404。
       const deleted = await deps.db
         .delete(apiTokens)
         .where(and(eq(apiTokens.id, id), eq(apiTokens.userId, request.user!.id)))
         .returning({ id: apiTokens.id });
-      if (deleted.length === 0) return sendError(reply, 404, "token_not_found", "找不到此 token");
+      if (deleted.length === 0) return sendError(reply, 404, "token_not_found", "No API token with that id.");
       return reply.code(204).send();
     });
   };

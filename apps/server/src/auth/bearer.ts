@@ -83,14 +83,14 @@ export function createAuthenticateAny(deps: BearerDeps) {
     if (!deps.limiters.bearerMiss.consume(request.ip)) {
       // 429 不帶 challenge：RFC 6750 的 challenge 只定義在 400／401／403，掛在 429 上
       // 可能讓 client 在被限流時去重跑一輪授權，反而再吃 #132 的 DCR／authorize 桶。
-      sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
+      sendError(reply, 429, "too_many_requests", "Too many requests. Wait a moment and try again.");
       return;
     }
     reply.header(
       "www-authenticate",
       buildBearerChallenge({ issuer: deps.issuer, scope: challenge, error: invalidToken ? "invalid_token" : undefined })
     );
-    sendError(reply, 401, "unauthorized", invalidToken ? "token 無效或已過期" : "未登入");
+    sendError(reply, 401, "unauthorized", invalidToken ? "The token is invalid or expired." : "Not signed in.");
   }
 
   return function authenticateAny(required: RequiredScope, challenge: string = required) {
@@ -105,7 +105,7 @@ export function createAuthenticateAny(deps: BearerDeps) {
           // 請求依定義沒有 Authorization header，challenge 是它發現授權伺服器的入口。
           // RFC 6750 §3：沒帶憑證時 SHOULD NOT 含 error code。
           reply.header("www-authenticate", buildBearerChallenge({ issuer: deps.issuer, scope: challenge }));
-          sendError(reply, 401, "unauthorized", "未登入");
+          sendError(reply, 401, "unauthorized", "Not signed in.");
           return;
         }
         request.user = resolved.user;
@@ -146,7 +146,7 @@ export function createAuthenticateAny(deps: BearerDeps) {
           "www-authenticate",
           buildBearerChallenge({ issuer: deps.issuer, scope: challenge, error: "insufficient_scope" })
         );
-        sendError(reply, 403, "insufficient_scope", "此 token 沒有執行這個操作的權限");
+        sendError(reply, 403, "insufficient_scope", "This token's scope doesn't allow this action.");
         return;
       }
 
@@ -160,7 +160,7 @@ export function createAuthenticateAny(deps: BearerDeps) {
       // `notes:write`），唯獨 `/api/mcp` 那條路由有這道二階段扣桶。
       const bucket = required === "notes:write" ? deps.limiters.tokenWrite : deps.limiters.tokenRead;
       if (!bucket.consume(`token:${row.userId}`)) {
-        sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
+        sendError(reply, 429, "too_many_requests", "Too many requests. Wait a moment and try again.");
         return;
       }
 

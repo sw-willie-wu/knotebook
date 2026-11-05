@@ -27,7 +27,7 @@ const E_ACUTE = String.fromCharCode(0xe9);
 const CAP_E_ACUTE = String.fromCharCode(0xc9);
 const RANDOM_UUID = "7d0c6a4e-1f2b-4c3d-9e8f-0a1b2c3d4e5f";
 const FOLDER_KEYS = ["createdAt", "id", "name", "parentId", "permissions", "space"];
-const NOT_MANAGER = "沒有管理這個資料夾的權限";
+const NOT_MANAGER = "You don't have permission to manage this folder.";
 
 const patch = (app: FastifyInstance, userId: string | null, id: string, payload?: unknown) =>
   inject(app, "PATCH", `/api/folders/${id}`, userId, payload);
@@ -89,12 +89,12 @@ describe("PATCH /api/folders/:id", () => {
 
     const taken = await patch(app, u.id, f.id, { name: "other" });
     failed(taken, 409, "folder_name_taken");
-    expect(messageOf(taken)).toBe("這裡已經有同名資料夾");
+    expect(messageOf(taken)).toBe("A folder with that name already exists here.");
     const bad: Array<[string, string]> = [
-      [`A${NUL}B`, "資料夾名稱含有無法儲存的字元"],
-      ["A\nB", "名稱不能包含換行或控制字元"],
-      ["a".repeat(81), "資料夾名稱須為 1 到 80 個字"],
-      ["   ", "資料夾名稱須為 1 到 80 個字"],
+      [`A${NUL}B`, "The folder name contains characters that can't be stored."],
+      ["A\nB", "The folder name can't contain line breaks or control characters."],
+      ["a".repeat(81), "Folder names must be 1 to 80 characters."],
+      ["   ", "Folder names must be 1 to 80 characters."],
     ];
     for (const [name, message] of bad) {
       const res = await patch(app, u.id, f.id, { name });
@@ -131,7 +131,7 @@ describe("PATCH /api/folders/:id", () => {
     const dup = await seedFolder(db, { personal: u.id }, { name: "Dup" });
     const taken = await patch(app, u.id, dup.id, { parentId: b.id });
     failed(taken, 409, "folder_name_taken");
-    expect(messageOf(taken)).toBe("這裡已經有同名資料夾");
+    expect(messageOf(taken)).toBe("A folder with that name already exists here.");
     expect(await parentOf(pool, dup.id)).toBeNull();
 
     const both = ok(await patch(app, u.id, dup.id, { parentId: b.id, name: "Dup2" }));
@@ -148,7 +148,7 @@ describe("PATCH /api/folders/:id", () => {
     for (const target of [x!, y!, z!]) {
       const res = await patch(app, u.id, x!, { parentId: target });
       failed(res, 409, "folder_cycle");
-      expect(messageOf(res)).toBe("不能把資料夾移到它自己裡面");
+      expect(messageOf(res)).toBe("A folder can't be moved into itself or one of its subfolders.");
     }
     failed(await patch(app, u.id, y!, { parentId: z! }), 409, "folder_cycle");
     expect(await parentOf(pool, x!)).toBeNull();
@@ -165,7 +165,7 @@ describe("PATCH /api/folders/:id", () => {
     const [s1, s2] = await seedFolderChain(db, space, ["S1", "S2"]);
     const res = await patch(app, u.id, s1!, { parentId: d[3]! });
     failed(res, 409, "folder_too_deep");
-    expect(messageOf(res)).toBe(`資料夾最多 ${FOLDER_DEPTH_MAX} 層`);
+    expect(messageOf(res)).toBe(`Folders can be nested at most ${FOLDER_DEPTH_MAX} levels deep.`);
     expect(await parentOf(pool, s1!)).toBeNull();
     expect(ok(await patch(app, u.id, s1!, { parentId: d[2]! })).parentId).toBe(d[2]);
     expect(await parentOf(pool, s2!)).toBe(s1);
@@ -193,7 +193,7 @@ describe("PATCH /api/folders/:id", () => {
     for (const [self, target] of [[p1.id, sh.id], [p1.id, g.id], [g.id, p1.id], [sh.id, p1.id]] as const) {
       const res = await patch(app, u.id, self, { parentId: target });
       failed(res, 400, "folder_cross_space");
-      expect(messageOf(res)).toBe("資料夾不能移到其他空間");
+      expect(messageOf(res)).toBe("A folder can't be moved to another space.");
     }
     const bodies = [
       failed(await patch(app, u.id, p1.id, { parentId: hidden.id }), 404, "folder_not_found"),
@@ -204,7 +204,7 @@ describe("PATCH /api/folders/:id", () => {
       failed(await patch(app, u.id, hidden.id, { name: "A" }), 404, "folder_not_found"),
     ];
     expect(new Set(bodies).size).toBe(1);
-    expect(bodies[0]).toContain("找不到此資料夾");
+    expect(bodies[0]).toContain("No folder with that id.");
     for (const id of [p1.id, sh.id, g.id, hidden.id]) expect(await parentOf(pool, id)).toBeNull();
   });
 
@@ -234,7 +234,7 @@ describe("PATCH /api/folders/:id", () => {
       const own = await seedFolder(db, { personal: u.id });
       const cross = await patch(app, u.id, c.id, { parentId: own.id });
       failed(cross, 400, "folder_cross_space");
-      expect(messageOf(cross)).toBe("資料夾不能移到其他空間");
+      expect(messageOf(cross)).toBe("A folder can't be moved to another space.");
       failed(await patch(app, u.id, c.id, { parentId: RANDOM_UUID }), 404, "folder_not_found");
     }
     const bodies = [
@@ -326,7 +326,7 @@ describe("PATCH /api/folders/:id", () => {
     const dest = await seedFolder(db, { personal: u.id }, { name: "Dest" });
     const empty = await patch(app, u.id, f.id, {});
     failed(empty, 400, "invalid_body");
-    expect(messageOf(empty)).toBe("請求格式錯誤：至少需要一個欄位");
+    expect(messageOf(empty)).toBe("Invalid request body: send at least one field.");
     failed(await patch(app, u.id, f.id), 400, "invalid_body");
     for (const payload of [{ name: "A", x: 1 }, { name: 1 }, { parentId: 1 }, { name: null }, { parentId: dest.id, extra: true }]) {
       failed(await patch(app, u.id, f.id, payload), 400, "invalid_body");
@@ -368,7 +368,7 @@ describe("PATCH /api/folders/:id", () => {
     ok(await patch(app, u.id, f.id, { name: "first" }));
     const res = await patch(app, u.id, f.id, { name: "second" });
     failed(res, 429, "too_many_requests");
-    expect(messageOf(res)).toBe("寫入過於頻繁");
+    expect(messageOf(res)).toBe("Too many writes. Wait a moment and try again.");
     ok(await patch(app, other.id, g.id, { name: "first" }));
     expect(await nameOf(db.$client, f.id)).toBe("first");
   });
@@ -467,7 +467,7 @@ describe("PATCH /api/folders/:id", () => {
       const res = await patch(app, u.id, f.id, { name: "busy2" });
       const ms = Date.now() - t0;
       failed(res, 409, "server_busy");
-      expect(messageOf(res)).toBe("伺服器忙碌，請稍後再試");
+      expect(messageOf(res)).toBe("The server is busy. Try again in a moment.");
       expect(ms).toBeLessThan(INJECTED_LOCK_TIMEOUT_BOUND_MS);
     } finally {
       try {

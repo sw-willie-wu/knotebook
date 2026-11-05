@@ -103,7 +103,7 @@ describe("POST /oauth/token — authorization_code（§5.4）", () => {
       expect((await exchange(app, codeGrant(c))).statusCode).toBe(200);
       const replay = await exchange(app, codeGrant(c));
       expect(replay.statusCode).toBe(400);
-      expect(replay.json().error).toBe("invalid_grant");
+      expect(replay.json()).toEqual({ error: "invalid_grant", error_description: "The authorization code is invalid." });
       // 重放不撤銷已簽的 grant（§5.5 刻意不做）
       expect(await db.select().from(apiTokens)).toHaveLength(1);
     } finally {
@@ -221,7 +221,7 @@ describe("POST /oauth/token — authorization_code（§5.4）", () => {
       const rejected = await exchange(app, codeGrant({ ...first, ...second }));
       expect(rejected.statusCode).toBe(400);
       expect(rejected.json().error).toBe("invalid_grant");
-      expect(rejected.json().error_description).toContain("limit");
+      expect(rejected.json().error_description).toMatch(/^Token limit reached: you already have \d+ active tokens\. Revoke one first\.$/);
       // 關鍵：舊 grant 還在，舊 access 仍可用，code 也還在
       const survivors = await db.select().from(apiTokens).where(sql`${apiTokens.clientId} = ${first.clientId}`);
       expect(survivors).toHaveLength(1);

@@ -43,10 +43,10 @@ describe("bulk transfer 的 HTTP 層中文句（字面）", () => {
     expect(BULK_TRANSFER_INVALID_MESSAGE).not.toContain("已使用");
     expect(BULK_TRANSFER_REQUIRED_MESSAGE).toBe("需要 transfer token");
     expect(BULK_TRANSFER_PAT_MESSAGE).toBe("這個端點不收 API token；請透過 MCP 的 create_bulk_transfer_token 取得 transfer token");
-    expect(TRANSFER_PURPOSE_MESSAGE).toBe("此 transfer token 不能用在這個動作");
-    // #200 的兩句：本 PR 不動（W11）
-    expect(TRANSFER_INVALID_MESSAGE).toBe("transfer token 無效、已過期或已使用");
-    expect(TRANSFER_PAT_MESSAGE).toBe("這個端點不收 API token；請透過 MCP 的 create_transfer_token 取得 transfer token");
+    expect(TRANSFER_PURPOSE_MESSAGE).toBe("This transfer token can't be used for this action.");
+    // #200 的兩句：本 PR 不動（W11）；#372 改英文
+    expect(TRANSFER_INVALID_MESSAGE).toBe("The transfer token is invalid, expired or already used.");
+    expect(TRANSFER_PAT_MESSAGE).toBe("This endpoint doesn't accept API tokens. Get a transfer token from the MCP tool create_transfer_token.");
   });
 
   it("H2 路由層（routes/transfer.ts）", () => {
@@ -75,8 +75,8 @@ describe("bulk transfer 的 HTTP 層中文句（字面）", () => {
     expect(DEST_NOT_IN_RANGE_MESSAGE).toBe("新筆記的位置不在此 transfer token 的範圍內");
     expect(SHARED_FOLDER_CREATE_FORBIDDEN_MESSAGE).toBe("分享給你的資料夾不能放新筆記");
     expect(GROUP_CREATE_FORBIDDEN_MESSAGE).toBe("你在這個群組的角色不能建立筆記");
-    expect(FOLDER_NOT_FOUND_MESSAGE).toBe("找不到此資料夾");
-    expect(NOTE_FOLDER_ROLE_FORBIDDEN_MESSAGE).toBe("你在這個群組的角色不能把筆記放進資料夾");
+    expect(FOLDER_NOT_FOUND_MESSAGE).toBe("No folder with that id.");
+    expect(NOTE_FOLDER_ROLE_FORBIDDEN_MESSAGE).toBe("Your role in this group can't put notes in folders.");
   });
 
   it("H4 未閉合 code fence（transfer/regions.ts）", () => {

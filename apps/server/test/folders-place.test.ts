@@ -19,9 +19,9 @@ import { inject, markTrashed, sixRoleScene } from "./trash-helpers.js";
 
 const RANDOM_UUID = "7d0c6a4e-1f2b-4c3d-9e8f-0a1b2c3d4e5f";
 const TXN_CONTROL = /^(begin|commit|rollback)\b/i;
-const CROSS_SPACE = "筆記不能放進其他空間的資料夾";
-const NO_ORGANIZE = "沒有整理這篇筆記的權限";
-const NOTE_NOT_FOUND = "找不到此筆記";
+const CROSS_SPACE = "A note can't go into a folder in another space.";
+const NO_ORGANIZE = "You don't have permission to organize this note.";
+const NOTE_NOT_FOUND = "No note with that id.";
 
 const put = (app: FastifyInstance, userId: string | null, noteId: string, body: unknown) =>
   inject(app, "PUT", `/api/notes/${noteId}/folder`, userId, body);
@@ -449,7 +449,7 @@ describe("PUT /api/notes/:id/folder", () => {
 
     const limited = await put(app, u.id, n, { folderId: null });
     failed(limited, 429, "too_many_requests");
-    expect(messageOf(limited)).toBe("寫入過於頻繁");
+    expect(messageOf(limited)).toBe("Too many writes. Wait a moment and try again.");
     expect((await noteFolderCols(pool, n))?.folder_id).toBe(F);
   });
 });

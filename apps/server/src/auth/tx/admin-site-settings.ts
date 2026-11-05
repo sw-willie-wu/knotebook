@@ -5,7 +5,7 @@ import { authProviders, siteSettings } from "../../db/schema.js";
 import { TxAbort } from "../../http/tx-abort.js";
 import { hasUsableSso } from "../sign-in-methods.js";
 
-export const SITE_SETTINGS_MISSING_MESSAGE = "站台設定遺失（site_settings 沒有列）";
+export const SITE_SETTINGS_MISSING_MESSAGE = "Site settings are missing (site_settings has no row).";
 
 /**
  * #187 B27：站台設定寫入的序列化點＝`site_settings` 列。settings PATCH 與所有 provider PATCH／DELETE 的交易**第一句**都取它
@@ -30,9 +30,9 @@ export async function lockSiteSettingsInTx(tx: Tx): Promise<{ registrationEnable
  */
 export async function assertSsoOnlyGuardInTx(tx: Tx, actorUserId: string): Promise<void> {
   const [anyEnabled] = await tx.select({ one: sql<number>`1` }).from(authProviders).where(eq(authProviders.enabled, true)).limit(1);
-  if (anyEnabled === undefined) throw new TxAbort(409, "sso_provider_required", "關閉帳號密碼登入前，請先啟用至少一個登入服務");
+  if (anyEnabled === undefined) throw new TxAbort(409, "sso_provider_required", "Enable at least one sign-in service before turning off password sign-in.");
   if (!(await hasUsableSso(tx, actorUserId))) {
-    throw new TxAbort(409, "admin_sso_link_required", "關閉帳號密碼登入前，請先在個人設定連結一個啟用中的登入服務");
+    throw new TxAbort(409, "admin_sso_link_required", "Link an enabled sign-in service to your own account in Settings before turning off password sign-in.");
   }
 }
 
@@ -64,9 +64,9 @@ export async function updateSiteSettingsInTx(tx: Tx, input: UpdateSiteSettingsIn
   return { previousPasswordLoginEnabled: before.passwordLoginEnabled, passwordLoginEnabled };
 }
 
-export const VERSION_DAYS_RANGE_MESSAGE = "保留天數須符合 1 ≤ 全部保留天數 ≤ 每日一版天數 ≤ 3650";
+export const VERSION_DAYS_RANGE_MESSAGE = "Retention days must satisfy 1 ≤ keepAllDays ≤ dailyUntilDays ≤ 3650.";
 /** #272 §8：PATCH 的 `autoWaitMinutes` 超出 1–60（路由 schema 的 refine 用；DB CHECK `site_settings_version_auto_wait_chk` 是最後防線）。 */
-export const VERSION_AUTO_WAIT_RANGE_MESSAGE = "自動存版等待須為 1 到 60 的整數（分鐘）";
+export const VERSION_AUTO_WAIT_RANGE_MESSAGE = "The auto-save wait must be a whole number of minutes from 1 to 60.";
 
 export interface UpdateVersionSettingsInput {
   keepAllDays?: number;
@@ -114,7 +114,7 @@ export async function updateVersionSettingsInTx(tx: Tx, input: UpdateVersionSett
   return next;
 }
 
-export const TRASH_RETENTION_RANGE_MESSAGE = "保留天數須為 1 到 3650 的整數，或 null（不自動刪除）";
+export const TRASH_RETENTION_RANGE_MESSAGE = "Retention days must be a whole number from 1 to 3650, or null to never delete automatically.";
 
 /**
  * #181 §6.9：垃圾桶保留天數。照 `updateVersionSettingsInTx` 的形：先取 B27 鎖（與其他站台設定寫入序列化）再 UPDATE。

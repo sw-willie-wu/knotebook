@@ -109,7 +109,7 @@ describe("streamAiAction（手寫 SSE client）", () => {
         fakeResponse({
           ok: true,
           status: 200,
-          body: sseBody(['event: error\ndata: {"code":"upstream_error","message":"upstream request failed"}\n\n']),
+          body: sseBody(['event: error\ndata: {"code":"upstream_error","message":"The request to the AI provider failed."}\n\n']),
         }),
       ),
     );
@@ -118,7 +118,7 @@ describe("streamAiAction（手寫 SSE client）", () => {
     const onDelta = vi.fn();
     await expect(
       streamAiAction({ actionId: "a1", noteId: "n1", text: "hi", signal: new AbortController().signal, onDelta }),
-    ).rejects.toMatchObject(new ApiFail(200, "upstream_error", "upstream request failed"));
+    ).rejects.toMatchObject(new ApiFail(200, "upstream_error", "The request to the AI provider failed."));
     expect(onDelta).not.toHaveBeenCalled();
   });
 
@@ -128,7 +128,7 @@ describe("streamAiAction（手寫 SSE client）", () => {
         fakeResponse({
           ok: false,
           status: 503,
-          json: () => Promise.resolve({ error: { code: "ai_not_configured", message: "AI 尚未設定，請聯絡管理員" } }),
+          json: () => Promise.resolve({ error: { code: "ai_not_configured", message: "AI isn't set up on this site. Contact the site admin." } }),
         }),
       ),
     );
@@ -142,7 +142,7 @@ describe("streamAiAction（手寫 SSE client）", () => {
         signal: new AbortController().signal,
         onDelta: vi.fn(),
       }),
-    ).rejects.toMatchObject(new ApiFail(503, "ai_not_configured", "AI 尚未設定，請聯絡管理員"));
+    ).rejects.toMatchObject(new ApiFail(503, "ai_not_configured", "AI isn't set up on this site. Contact the site admin."));
   });
 
   it("abort：傳入的 AbortSignal 原封不動轉交給 fetch", async () => {

@@ -150,7 +150,7 @@ describe("#103／#175 PATCH /api/groups/:id 與 GET …/members", () => {
     expect(ok.json()).toMatchObject({ id: g.id, name: "New", canManageMembers: true, canManageGroup: true, myRole: { id: g.adminRoleId, builtin: "admin" } });
     const forbidden = await app.inject({ method: "PATCH", url: `/api/groups/${g.id}`, cookies: await cookieOf(member.id), payload: {} });
     expect(forbidden.statusCode).toBe(403);
-    expect(forbidden.json()).toEqual({ error: { code: "forbidden", message: "你在這個群組的角色不能進行此操作" } });
+    expect(forbidden.json()).toEqual({ error: { code: "forbidden", message: "Your role in this group can't do this." } });
     const bad = await app.inject({ method: "PATCH", url: `/api/groups/${g.id}`, cookies: await cookieOf(admin.id), payload: { name: " " } });
     expect(bad.statusCode).toBe(400);
     expect(bad.json().error.code).toBe("invalid_name");

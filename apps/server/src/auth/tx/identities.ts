@@ -4,7 +4,7 @@ import { siteSettings, userIdentities, users } from "../../db/schema.js";
 import { TxAbort } from "../../http/tx-abort.js";
 import { canUnlinkIdentity, enabledProvidersWithIssuer, usableIdentityIds } from "../sign-in-methods.js";
 
-export const IDENTITY_NOT_FOUND_MESSAGE = "找不到這個登入方式";
+export const IDENTITY_NOT_FOUND_MESSAGE = "No sign-in method with that id.";
 
 /**
  * #187 交易表 P2（spec §8.2）。鎖序（B16、C28）：①users `FOR NO KEY UPDATE`（序列化同一人的並發解除與加密碼，C10）②**之後**
@@ -33,7 +33,7 @@ export async function unlinkIdentityInTx(tx: Tx, input: { userId: string; identi
 
   const usable = usableIdentityIds(mine, await enabledProvidersWithIssuer(tx));
   if (!canUnlinkIdentity(target.id, { hasPassword: me.passwordHash !== null, passwordLoginDbValue, usableIdentityIds: usable })) {
-    throw new TxAbort(409, "last_login_method", "這是這個帳號唯一的登入方式，不能解除");
+    throw new TxAbort(409, "last_login_method", "This is the account's only sign-in method, so it can't be unlinked.");
   }
 
   await tx.delete(userIdentities).where(and(eq(userIdentities.id, target.id), eq(userIdentities.userId, input.userId)));

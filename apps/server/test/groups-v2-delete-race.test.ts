@@ -57,11 +57,11 @@ const notesOfGroup = async (pool: Pool, groupId: string): Promise<string[]> =>
 const noteCount = async (pool: Pool): Promise<number> => (await pool.query<{ n: number }>("select count(*)::int as n from notes")).rows[0]!.n;
 
 const NOT_ADMIN_BODY = { error: { code: "not_admin", message: NOT_ADMIN_MESSAGE } };
-const GROUP_NOT_FOUND_BODY = { error: { code: "not_found", message: "找不到此群組" } };
-const CREATE_GROUP_NOT_FOUND_BODY = { error: { code: "group_not_found", message: "找不到此群組" } };
-const CONFLICT_BODY = { error: { code: "conflict", message: "筆記的歸屬已變更，請重新整理後再試" } };
+const GROUP_NOT_FOUND_BODY = { error: { code: "not_found", message: "No group with that id." } };
+const CREATE_GROUP_NOT_FOUND_BODY = { error: { code: "group_not_found", message: "No group with that id." } };
+const CONFLICT_BODY = { error: { code: "conflict", message: "The note's owner or group changed. Reload and try again." } };
 const ALIAS_REJECTED_BODY = {
-  error: { code: "invalid_body", message: "筆記尚未開啟公開分享、它是群組筆記，或在你送出後換了歸屬，無法設定公開網址" },
+  error: { code: "invalid_body", message: "Can't set a public URL: the note has no public link, is a group note, or changed owner after you sent this." },
 };
 
 type RaceState = { fire?: () => Promise<LightMyRequestResponse>; second?: Promise<LightMyRequestResponse>; interleave?: string };

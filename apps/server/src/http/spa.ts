@@ -88,6 +88,6 @@ export function registerSpaFallback(app: FastifyInstance, webDist: string | unde
         }
       }
     }
-    sendError(reply, 404, "not_found", "找不到此路由");
+    sendError(reply, 404, "not_found", "No endpoint matches this method and path.");
   });
 }

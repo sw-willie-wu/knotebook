@@ -18,7 +18,7 @@ Every write goes through the same real-time document the browser edits, so a cha
 
 `:id` is always a note **uuid** here — the slug forms (`/n/<username>/<slug>`, and `/g/<group id>/<slug>` for a group note) are not accepted by these endpoints. A note you cannot read at all answers `404 not_found` (the same body whether it does not exist, is not shared with you, or belongs to a group you aren't in); on the two writing endpoints, a note you can read but only as a viewer answers `403 forbidden`.
 
-The normal loop is: `GET …/content` → pick a section from `outline` → `POST …/edits` with that section's `fingerprint` as `if_match`. The `201` already carries the new whole-note `fingerprint` and `outline`, so a program making several edits in a row does not have to re-read between them. Over MCP the loop is different — there is no whole-note read there, and an outline carries no fingerprints — see [MCP](./mcp.md#the-read-write-loop).
+The normal loop is: `GET …/content` → pick a section from `outline` → `POST …/edits` with that section's `fingerprint` as `if_match`. The `201` already carries the new whole-note `fingerprint` and `outline`, so a program making several edits in a row does not have to re-read between them. Over MCP the loop is different — there is no whole-note read there, and an outline carries no content fingerprints — see [MCP](./mcp.md#the-read-write-loop).
 
 ```sh
 # read

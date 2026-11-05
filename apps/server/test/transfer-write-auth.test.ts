@@ -131,10 +131,10 @@ describe("body 外殼：415／Origin／413／UTF-8", () => {
     expect(errOf(r)).toEqual({ code: "invalid_body", message: INVALID_UTF8_MESSAGE });
   });
 
-  it("W-A10 其他路由（POST /api/notes）帶 text/markdown → 仍 415「此請求需要 application/json」", async () => {
+  it("W-A10 其他路由（POST /api/notes）帶 text/markdown → 仍 415「This request needs Content-Type application/json.」", async () => {
     const s = await scene();
     const r = await s.ctx.app.inject({ method: "POST", url: "/api/notes", headers: { "content-type": "text/markdown", authorization: `Bearer ${s.pat.token}` }, payload: "# hi" });
     expect(r.statusCode).toBe(415);
-    expect(errOf(r)).toEqual({ code: "unsupported_media_type", message: "此請求需要 application/json" });
+    expect(errOf(r)).toEqual({ code: "unsupported_media_type", message: "This request needs Content-Type application/json." });
   });
 });

@@ -366,7 +366,7 @@ describe("刪群組：結構鎖等太久 → 409 server_busy", () => {
     const r = await res;
     const ms = Date.now() - t0;
     expect(r.statusCode, r.body).toBe(409);
-    expect(r.json()).toEqual({ error: { code: "server_busy", message: "伺服器忙碌，請稍後再試" } });
+    expect(r.json()).toEqual({ error: { code: "server_busy", message: "The server is busy. Try again in a moment." } });
     expect(ms).toBeLessThan(INJECTED_LOCK_TIMEOUT_BOUND_MS); // 注入值（300 ms）有生效，不是本檔預設 60 s
   }
   const groupExists = async (pool: Pool, id: string) => (await pool.query("select 1 from groups where id = $1", [id])).rowCount === 1;
