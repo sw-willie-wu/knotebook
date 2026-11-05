@@ -18,8 +18,8 @@ export async function upsertShareInTx(
 ): Promise<void> {
   // #181 §6.2-11：授權之後被移入垃圾桶＝列消失，同一條 404。
   const [locked] = await tx.select({ groupId: notes.groupId }).from(notes).where(and(eq(notes.id, input.noteId), isNull(notes.deletedAt))).for("share");
-  if (!locked) throw new TxAbort(404, "not_found", "找不到此筆記");
-  if (locked.groupId !== null) throw new TxAbort(409, "note_in_group", "群組筆記不能逐人分享，請將對方加入群組");
+  if (!locked) throw new TxAbort(404, "not_found", "No note with that id.");
+  if (locked.groupId !== null) throw new TxAbort(409, "note_in_group", "Group notes can't be shared with individual people. Add the person to the group instead.");
   await hook?.("share-group-checked", { noteId: input.noteId });
   await tx
     .insert(noteShares)

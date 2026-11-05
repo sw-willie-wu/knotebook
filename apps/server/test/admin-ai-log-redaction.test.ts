@@ -207,7 +207,7 @@ describe("admin AI 寫入遇非預期 DB 錯誤：回 500 internal，log 不含 
     const req = await c.request(db);
     const res = await app.inject({ ...req, cookies });
     expect(res.statusCode).toBe(500);
-    expect(res.json()).toEqual({ error: { code: "internal", message: "伺服器內部錯誤" } });
+    expect(res.json()).toEqual({ error: { code: "internal", message: "Internal server error." } });
 
     const lines = parseLines(out);
     const hits = lines.filter(l => l.msg === `${c.context}${REDACTED_SUFFIX}`);
@@ -422,7 +422,7 @@ describe("OIDC discovery 失敗：issuer 帶 user:pass@ 時錯誤訊息與 log �
     const p = await seedAuthProvider(db, { issuerUrl: ISSUER });
     const res = await app.inject({ method: "POST", url: `/api/auth/oidc/link/${p.id}`, cookies, payload: {} });
     expect(res.statusCode).toBe(503);
-    expect(res.json()).toEqual({ error: { code: "oidc_unavailable", message: "登入服務目前無法使用，請稍後再試" } });
+    expect(res.json()).toEqual({ error: { code: "oidc_unavailable", message: "The sign-in service is unavailable right now. Try again later." } });
 
     const hits = parseLines(out).filter(l => l.msg === "手動連結起點：discovery 不可用");
     expect(hits).toHaveLength(1);

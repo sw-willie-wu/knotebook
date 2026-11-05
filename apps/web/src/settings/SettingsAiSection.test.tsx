@@ -464,7 +464,7 @@ describe("SettingsAiSection（spec §13.4：provider／model／action 三層 CRU
           fakeResponse({
             ok: false,
             status: 409,
-            json: () => Promise.resolve({ error: { code: "model_taken", message: "此 provider 已有相同 model" } }),
+            json: () => Promise.resolve({ error: { code: "model_taken", message: "This provider already has that model." } }),
           }),
         );
       }
@@ -576,7 +576,7 @@ describe("SettingsAiSection（spec §13.4：provider／model／action 三層 CRU
           fakeResponse({
             ok: false,
             status: 400,
-            json: () => Promise.resolve({ error: { code: "invalid_body", message: "userTemplate 必須包含 {{text}} 佔位符" } }),
+            json: () => Promise.resolve({ error: { code: "invalid_body", message: "userTemplate must contain the {{text}} placeholder." } }),
           }),
         );
       }

@@ -26,9 +26,9 @@ import { inject, sixRoleScene } from "./trash-helpers.js";
 const RANDOM_UUID = "7d0c6a4e-1f2b-4c3d-9e8f-0a1b2c3d4e5f";
 const TXN_CONTROL = /^(begin|commit|rollback)\b/i;
 const ROW_LOCK = /for (update|key share)$/;
-const CROSS_SPACE = "筆記不能放進其他空間的資料夾";
-const ROLE_FORBIDDEN = "你在這個群組的角色不能把筆記放進資料夾";
-const FOLDER_NOT_FOUND = "找不到此資料夾";
+const CROSS_SPACE = "A note can't go into a folder in another space.";
+const ROLE_FORBIDDEN = "Your role in this group can't put notes in folders.";
+const FOLDER_NOT_FOUND = "No folder with that id.";
 
 const post = (app: FastifyInstance, userId: string, body: unknown) => inject(app, "POST", "/api/notes", userId, body);
 const copy = (app: FastifyInstance, userId: string, noteId: string, body: unknown) => inject(app, "POST", `/api/notes/${noteId}/copy`, userId, body);
@@ -213,7 +213,7 @@ describe("POST /api/notes 帶 folderId", () => {
     // 能編不能建（editOnly）：既有判準先擋 → 既有 403 句
     const eo = await post(app, s.editOnly.id, { groupId: G, folderId: GF });
     failed(eo, 403, "forbidden");
-    expect(messageOf(eo)).toBe("你在這個群組的角色不能建立筆記");
+    expect(messageOf(eo)).toBe("Your role in this group can't create notes.");
   });
 
   it("FN-3 消失與非 UUID：縫裡轉移群組 → 404 folder_not_found；資料夾已換空間（KF001，M5）→ 404；個人資料夾在 INSERT 前被刪 → 404；\"x\" 與隨機 uuid 逐位元組相同", async () => {

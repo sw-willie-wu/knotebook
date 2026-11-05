@@ -19,7 +19,7 @@ export function isStorableText(s: string): boolean {
   return !UNSTORABLE.test(s);
 }
 const storable = isStorableText;
-const UNSTORABLE_MESSAGE = "含有無法儲存的字元";
+const UNSTORABLE_MESSAGE = "contains characters that can't be stored.";
 
 export const MAX_DISPLAY_NAME_LENGTH = 40;
 export const MAX_CLIENT_ID_LENGTH = 512;
@@ -29,15 +29,15 @@ export const MAX_CLIENT_SECRET_LENGTH = 4096;
 const displayName = z
   .string()
   .trim()
-  .refine(storable, `顯示名稱${UNSTORABLE_MESSAGE}`)
-  .refine(s => codePoints(s) >= 1 && codePoints(s) <= MAX_DISPLAY_NAME_LENGTH, `顯示名稱須為 1 到 ${MAX_DISPLAY_NAME_LENGTH} 個字`);
+  .refine(storable, `The display name ${UNSTORABLE_MESSAGE}`)
+  .refine(s => codePoints(s) >= 1 && codePoints(s) <= MAX_DISPLAY_NAME_LENGTH, `The display name must be 1 to ${MAX_DISPLAY_NAME_LENGTH} characters.`);
 
 export const issuerUrlSchema = z
   .string()
   .trim()
-  .refine(storable, `issuer 網址${UNSTORABLE_MESSAGE}`)
-  .refine(s => ISSUER_SCHEME.test(s), "issuer 網址必須以小寫 http:// 或 https:// 開頭")
-  .refine(s => s.length <= MAX_ISSUER_LENGTH, `issuer 網址不得超過 ${MAX_ISSUER_LENGTH} 個字元`)
+  .refine(storable, `The issuer URL ${UNSTORABLE_MESSAGE}`)
+  .refine(s => ISSUER_SCHEME.test(s), "The issuer URL must start with lowercase http:// or https://.")
+  .refine(s => s.length <= MAX_ISSUER_LENGTH, `The issuer URL can be at most ${MAX_ISSUER_LENGTH} characters.`)
   .refine(s => {
     try {
       new URL(s);
@@ -45,7 +45,7 @@ export const issuerUrlSchema = z
     } catch {
       return false;
     }
-  }, "issuer 不是合法網址")
+  }, "The issuer is not a valid URL.")
   // 不得帶帳密（`https://user:pass@host`／`user@host`）：issuer 是明文欄位（DB 明文、GET 原樣回傳、進 log），
   // 且 fetch 本來就拒絕這種網址。zod 的 refine 鏈不會短路，所以解析失敗要放行（交給上面那條報「不是合法網址」）。
   .refine(s => {
@@ -55,20 +55,20 @@ export const issuerUrlSchema = z
     } catch {
       return true;
     }
-  }, "issuer 網址不能包含帳號密碼");
+  }, "The issuer URL can't contain a username or password.");
 
 const clientId = z
   .string()
   .trim()
-  .refine(storable, `client ID ${UNSTORABLE_MESSAGE}`)
-  .refine(s => codePoints(s) >= 1 && codePoints(s) <= MAX_CLIENT_ID_LENGTH, `client ID 須為 1 到 ${MAX_CLIENT_ID_LENGTH} 個字`);
+  .refine(storable, `The client ID ${UNSTORABLE_MESSAGE}`)
+  .refine(s => codePoints(s) >= 1 && codePoints(s) <= MAX_CLIENT_ID_LENGTH, `The client ID must be 1 to ${MAX_CLIENT_ID_LENGTH} characters.`);
 
 /** secret 不 trim（原樣送給 IdP）；只擋「全空白」與超長。 */
 const clientSecret = z
   .string()
-  .refine(storable, `client secret ${UNSTORABLE_MESSAGE}`)
-  .refine(s => s.trim().length > 0, "client secret 不得為空（不提供清除 secret 的 API）")
-  .refine(s => s.length <= MAX_CLIENT_SECRET_LENGTH, `client secret 不得超過 ${MAX_CLIENT_SECRET_LENGTH} 個字元`);
+  .refine(storable, `The client secret ${UNSTORABLE_MESSAGE}`)
+  .refine(s => s.trim().length > 0, "The client secret can't be empty (there's no API to clear it).")
+  .refine(s => s.length <= MAX_CLIENT_SECRET_LENGTH, `The client secret can be at most ${MAX_CLIENT_SECRET_LENGTH} characters.`);
 
 // U3：不收 autoCreateEnabled（strict → 帶了就 400；新服務一律 false）。
 export const createProviderSchema = z
@@ -95,15 +95,15 @@ export const patchProviderSchema = z
     iconKind: z.enum(["template", "gitlab", "google", "none"]).optional(),
   })
   .strict()
-  .refine(body => Object.keys(body).length > 0, "請求格式錯誤：至少需要一個欄位");
+  .refine(body => Object.keys(body).length > 0, "Invalid request body: send at least one field.");
 
 export const discoverSchema = z.object({ issuerUrl: issuerUrlSchema }).strict();
 
 /**
- * 400 `invalid_body`。HTTP 層訊息一律中文：取第一個自訂（refine）issue 的中文訊息；zod 內建的（型別、必填、多餘欄位）是
- * 英文，一律換成固定的「請求格式錯誤」。
+ * 400 `invalid_body`。取第一個自訂（refine）issue 的訊息；zod 內建的（型別、必填、多餘欄位）訊息太技術，
+ * 一律換成固定的 "Invalid request body."（#372：HTTP 層訊息一律英文）。
  */
 export function sendInvalidBody(reply: FastifyReply, error: z.ZodError): FastifyReply {
   const custom = error.issues.find(issue => issue.code === "custom");
-  return sendError(reply, 400, "invalid_body", custom?.message ?? "請求格式錯誤");
+  return sendError(reply, 400, "invalid_body", custom?.message ?? "Invalid request body.");
 }

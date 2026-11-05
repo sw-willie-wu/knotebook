@@ -26,7 +26,7 @@ import { filesIn, upload } from "./storage-helpers.js";
 import { markRestored, trashCols } from "./trash-helpers.js";
 import { NO_PENDING, fakeHost, paraDoc, pendingOf, seedOldNote, versionsOf } from "./version-helpers.js";
 
-const NOT_FOUND = { error: { code: "not_found", message: "找不到此筆記" } };
+const NOT_FOUND = { error: { code: "not_found", message: "No note with that id." } };
 
 /** 縫的狀態：`target` 有值時，縫第一次觸發就把那篇移入垃圾桶（新交易，commit 後才放行操作）。 */
 interface Seam {
@@ -272,7 +272,7 @@ describe("#181 T5 交易內存活重讀（下）：改標題、公開連結、�
     expect(await noteState(db.$client, n.id)).toEqual(before);
   });
 
-  const SLUG_400 = { error: { code: "invalid_body", message: "筆記尚未開啟公開分享、它是群組筆記，或在你送出後換了歸屬，無法設定公開網址" } };
+  const SLUG_400 = { error: { code: "invalid_body", message: "Can't set a public URL: the note has no public link, is a group note, or changed owner after you sent this." } };
   type Pub = Awaited<ReturnType<typeof publicCols>>;
   const plCases: Array<{
     id: string; what: string; method: "PUT" | "DELETE"; path: string; body?: unknown;

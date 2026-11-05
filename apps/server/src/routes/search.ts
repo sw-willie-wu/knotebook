@@ -11,7 +11,7 @@
  *   的 sha256 前 16 hex），**不帶任何授權資訊**——拿別人的游標只會得到自己看得到、排在那個位置之後的列。翻頁之間被改過的筆記
  *   可能漏掉（被推到前面）或重複一次（rank 變大）；web 端以 id 去重（`notes/search-sql.ts` 與 `test/search-query.test.ts` Q7）。
  * - 順序：所有驗證（含游標）失敗 → 400 `invalid_body`，**不扣桶** → `search` 桶（與 MCP 共用，每人每分 60 次）→ 429。
- * - 錯誤訊息是 HTTP 層，中文（`sendError`）。
+ * - 錯誤訊息是 HTTP 層，英文（`sendError`；#372）。
  */
 import { createHash } from "node:crypto";
 import type { FastifyInstance } from "fastify";
@@ -36,10 +36,10 @@ import { UUID_RE } from "../notes/service.js";
 export const REST_SNIPPET_MAX = 160;
 export const REST_HEADING_MAX = 200;
 
-const INVALID_QUERY = "搜尋字串須為 1 到 200 字，且不能含無法處理的字元";
-const INVALID_LIMIT = `limit 須為 1 到 ${SEARCH_LIMIT_MAX} 的整數`;
-const INVALID_CURSOR = "游標無效，請從第一頁重新搜尋";
-const RATE_LIMITED = "搜尋過於頻繁，請稍後再試";
+const INVALID_QUERY = "The search text must be 1 to 200 characters and can't contain characters that can't be processed.";
+const INVALID_LIMIT = `limit must be a whole number from 1 to ${SEARCH_LIMIT_MAX}.`;
+const INVALID_CURSOR = "The cursor is invalid. Search again from the first page.";
+const RATE_LIMITED = "Too many searches. Wait a moment and try again.";
 
 const searchQuerySchema = z
   .object({
@@ -107,7 +107,7 @@ export function searchRoutes(deps: SearchRouteDeps) {
   return async function register(app: FastifyInstance): Promise<void> {
     app.get("/api/search", { preHandler: app.authenticateAny("notes:read") }, async (request, reply) => {
       const parsed = searchQuerySchema.safeParse(request.query ?? {});
-      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "Invalid request body.");
       const { q } = parsed.data;
       const limit = parsed.data.limit ?? SEARCH_LIMIT_DEFAULT;
       const match: Match = parsed.data.match ?? "all";

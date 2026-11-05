@@ -1,7 +1,7 @@
 /**
  * 資料夾的服務層（spec docs/superpowers/specs/2026-10-22-folders-design.md §5.5、§5.7、§5.11）：REST 與 PR-3d 的 MCP 共用的唯一入口。
  * 每支的形一律是「名稱 → 交易外快速判（§5.5 I2 入口順序）→ 扣 `folder` 桶 → 縫 → 交易（`folders/tx/*`，S14：callback 整段一個
- * `xInTx`）→ catch 映射」。失敗一律回 HTTP 對應的錯誤形（REST 直接送；MCP 之後以 code 映射）。HTTP 層訊息中文（附錄 C）。
+ * `xInTx`）→ catch 映射」。失敗一律回 HTTP 對應的錯誤形（REST 直接送；MCP 之後以 code 映射）。HTTP 層訊息英文（#372）。
  * 含 `.transaction(` ⇒ 在 S14 的 `ROUTE_FILES`（④ 計數）。
  */
 import { and, asc, isNull, sql } from "drizzle-orm";
@@ -39,13 +39,13 @@ import { placeNoteInTx, placeTargetSpace, type PlaceMode, type PlaceNoteInput } 
 import { updateFolderInTx, type UpdateFolderInput } from "./tx/update-folder.js";
 
 const NAME_MESSAGES: Record<Extract<FolderNameResult, { ok: false }>["reason"], string> = {
-  unstorable: "資料夾名稱含有無法儲存的字元",
-  control: "名稱不能包含換行或控制字元",
-  length: "資料夾名稱須為 1 到 80 個字",
+  unstorable: "The folder name contains characters that can't be stored.",
+  control: "The folder name can't contain line breaks or control characters.",
+  length: "Folder names must be 1 to 80 characters.",
 };
-const FOLDER_NAME_TAKEN_MESSAGE = "這裡已經有同名資料夾";
-const TOO_MANY_REQUESTS_MESSAGE = "寫入過於頻繁";
-const SERVER_BUSY_MESSAGE = "伺服器忙碌，請稍後再試";
+const FOLDER_NAME_TAKEN_MESSAGE = "A folder with that name already exists here.";
+const TOO_MANY_REQUESTS_MESSAGE = "Too many writes. Wait a moment and try again.";
+const SERVER_BUSY_MESSAGE = "The server is busy. Try again in a moment.";
 
 export interface FolderServiceDeps {
   db: Db;

@@ -60,7 +60,7 @@ export function oauthApiRoutes(deps: OauthApiRouteDeps) {
     app.get("/api/oauth/request", { preHandler: app.authenticate }, async (request, reply) => {
       const req = (request.query as { req?: unknown }).req;
       if (typeof req !== "string" || !REQUEST_ID_RE.test(req)) {
-        return sendError(reply, 410, "oauth_request_invalid", "授權請求已使用或已過期");
+        return sendError(reply, 410, "oauth_request_invalid", "This authorization request has been used or has expired.");
       }
       const [row] = await deps.db
         .select({
@@ -74,11 +74,11 @@ export function oauthApiRoutes(deps: OauthApiRouteDeps) {
         .innerJoin(oauthClients, eq(oauthRequests.clientId, oauthClients.clientId))
         .where(and(eq(oauthRequests.id, req), sql`${oauthRequests.expiresAt} > now()`));
       if (row === undefined) {
-        return sendError(reply, 410, "oauth_request_invalid", "授權請求已使用或已過期");
+        return sendError(reply, 410, "oauth_request_invalid", "This authorization request has been used or has expired.");
       }
       // stored 值含 ephemeral port，**不可用字串成員判定**。
       if (!row.redirectUris.some(uri => matchesLoopbackRedirect(uri, row.redirectUri))) {
-        return sendError(reply, 404, "not_found", "找不到此授權請求");
+        return sendError(reply, 404, "not_found", "No authorization request with that id.");
       }
 
       // #239：existingScope 是載入當下的快照，只給同意頁當預設勾選；decision 不重查，server 不依賴它（spec §5.4）。
@@ -104,14 +104,14 @@ export function oauthApiRoutes(deps: OauthApiRouteDeps) {
     app.post("/api/oauth/decision", { preHandler: app.authenticate }, async (request, reply) => {
       const parsed = decisionBodySchema.safeParse(request.body ?? {});
       if (!parsed.success) {
-        return sendError(reply, 400, "invalid_body", "請求格式錯誤");
+        return sendError(reply, 400, "invalid_body", "Invalid request body.");
       }
       // 擋在消費之前——被擋下的請求不該白吃掉一個 pending request。
       if (request.user!.mustChangePassword) {
-        return sendError(reply, 403, "forbidden", "請先修改密碼");
+        return sendError(reply, 403, "forbidden", "Change your password before doing this.");
       }
       if (!REQUEST_ID_RE.test(parsed.data.req)) {
-        return sendError(reply, 410, "oauth_request_invalid", "這個授權請求已使用或已過期");
+        return sendError(reply, 410, "oauth_request_invalid", "This authorization request has been used or has expired.");
       }
 
       // ⚠ I5 要早於下面的消費與 client 查表（誤序只在跨 24h 邊界時可觀察，無自動化守衛）。
@@ -124,12 +124,12 @@ export function oauthApiRoutes(deps: OauthApiRouteDeps) {
         .where(and(eq(oauthRequests.id, parsed.data.req), sql`${oauthRequests.expiresAt} > now()`))
         .returning();
       if (pending === undefined) {
-        return sendError(reply, 410, "oauth_request_invalid", "這個授權請求已使用或已過期");
+        return sendError(reply, 410, "oauth_request_invalid", "This authorization request has been used or has expired.");
       }
 
       const [client] = await deps.db.select().from(oauthClients).where(eq(oauthClients.clientId, pending.clientId));
       if (client === undefined || !client.redirectUris.some(uri => matchesLoopbackRedirect(uri, pending.redirectUri))) {
-        return sendError(reply, 404, "not_found", "找不到此授權請求");
+        return sendError(reply, 404, "not_found", "No authorization request with that id.");
       }
 
       if (parsed.data.decision === "deny") {
@@ -138,7 +138,7 @@ export function oauthApiRoutes(deps: OauthApiRouteDeps) {
 
       const userId = request.user!.id;
       if ((await countBillableGrants(deps.db, userId, pending.clientId)) >= TOKEN_LIMIT_PER_USER) {
-        return sendError(reply, 409, "token_limit", `有效 token 已達 ${TOKEN_LIMIT_PER_USER} 個上限，請先撤銷一個`);
+        return sendError(reply, 409, "token_limit", `You already have the maximum of ${TOKEN_LIMIT_PER_USER} active tokens. Revoke one first.`);
       }
 
       // #239：授予值＝要求 ∩ 勾選。超出 pending 的 body 被夾回、不報錯。

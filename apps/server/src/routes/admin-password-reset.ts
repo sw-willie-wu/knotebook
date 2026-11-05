@@ -30,10 +30,10 @@ export function adminPasswordResetRoutes(deps: AdminPasswordResetRouteDeps) {
     // 判斷順序（spec §4.2 N-5）：UUID → body → 帳密有效值 → 交易（404／409）。帳密關閉時打不存在的 id → 403。
     app.post("/api/admin/users/:id/password-reset", { preHandler: app.requireAdmin }, async (request, reply) => {
       const { id: rawId } = request.params as { id: string };
-      if (!UUID_RE.test(rawId)) return sendError(reply, 404, "user_not_found", "找不到此使用者");
+      if (!UUID_RE.test(rawId)) return sendError(reply, 404, "user_not_found", "No user with that id.");
       const id = rawId.toLowerCase();
       const parsed = issueBodySchema.safeParse(request.body);
-      if (!parsed.success) return sendError(reply, 400, "invalid_body", "請求格式錯誤");
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", "Invalid request body.");
       if (!(await isPasswordLoginAccepted(deps.db, deps.config, request.log))) {
         return sendError(reply, 403, "password_login_disabled", PASSWORD_LOGIN_DISABLED_MESSAGE);
       }
@@ -57,7 +57,7 @@ export function adminPasswordResetRoutes(deps: AdminPasswordResetRouteDeps) {
     // 取消永遠允許：不看帳密開關、不看停用（spec §4.2）。本來就沒有也是 204。
     app.delete("/api/admin/users/:id/password-reset", { preHandler: app.requireAdmin }, async (request, reply) => {
       const { id: rawId } = request.params as { id: string };
-      if (!UUID_RE.test(rawId)) return sendError(reply, 404, "user_not_found", "找不到此使用者");
+      if (!UUID_RE.test(rawId)) return sendError(reply, 404, "user_not_found", "No user with that id.");
       const input = { targetUserId: rawId.toLowerCase() };
       let revoked: number;
       try {

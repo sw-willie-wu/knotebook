@@ -13,15 +13,15 @@ import { notes } from "../db/schema.js";
 function slugErrorMessage(reason: NonNullable<ReturnType<typeof validateSlug>>): string {
   switch (reason) {
     case "length":
-      return "網址代稱長度需為 1–100 字元";
+      return "The URL slug must be 1 to 100 characters.";
     case "charset":
-      return "網址代稱只能包含文字、數字與連字號（-）";
+      return "The URL slug can only contain letters, digits and hyphens (-).";
     case "dash":
-      return "網址代稱不可以連字號開頭/結尾，也不可連續出現";
+      return "The URL slug can't start or end with a hyphen or have two hyphens in a row.";
     case "reserved":
-      return "此網址代稱為系統保留字，不可使用";
+      return "That URL slug is reserved by the system.";
     case "uuid_like":
-      return "網址代稱不可為 UUID 格式（會與系統內部識別碼混淆）";
+      return "The URL slug can't look like a UUID, because it would be confused with note ids.";
   }
 }
 

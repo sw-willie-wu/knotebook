@@ -50,7 +50,7 @@ import { mcpRoutes } from "./routes/mcp.js";
 import type { McpTestHooks } from "./mcp/hooks.js";
 import { apiTokensRoutes } from "./routes/api-tokens.js";
 import { drainWithCap } from "./http/drain.js";
-import { sendError } from "./http/errors.js";
+import { BODY_TOO_LARGE_MESSAGE, sendError } from "./http/errors.js";
 // #108：`stripDefaultPort` 搬到 `http/origin.ts`（與 `mcpOriginAllowed` 同一個葉節點模組，
 // 兩種比較語意的差別寫在該檔檔頭）。
 import { stripDefaultPort } from "./http/origin.js";
@@ -398,6 +398,7 @@ function clientErrorCode(statusCode: number): ErrorCode {
   return "bad_request";
 }
 
+
 /**
  * Fastify app 工廠：掛好 cookie 解析、統一錯誤格式（含 404/415/4xx/500）、認證/授權
  * decorator（`authenticate`/`requireAdmin`）與 `/healthz`。路由本身由後續 task
@@ -571,7 +572,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       const wantsForm = !request.is404 && FORM_EXEMPT_ROUTES.has(`${request.method} ${request.routeOptions.url}`);
       const expected = wantsForm ? "application/x-www-form-urlencoded" : "application/json";
       if (essence !== expected) {
-        return sendOauthError(reply, 415, "invalid_request", `此請求需要 ${expected}`);
+        return sendOauthError(reply, 415, "invalid_request", `This request needs Content-Type ${expected}.`);
       }
       return;
     }
@@ -579,19 +580,19 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     if (isMultipartExemptRoute(request)) {
       if (essence !== "multipart/form-data") {
         drainWithCap(request);
-        return sendError(reply, 415, "unsupported_media_type", "此請求需要 multipart/form-data");
+        return sendError(reply, 415, "unsupported_media_type", "This request needs Content-Type multipart/form-data.");
       }
       const origin = request.headers.origin;
       if (origin !== undefined && !isOriginAllowed(origin, request.host)) {
         drainWithCap(request);
-        return sendError(reply, 403, "forbidden", "Origin 驗證失敗");
+        return sendError(reply, 403, "forbidden", "Origin check failed: the request's Origin doesn't match its Host.");
       }
       // Origin 相符，或無 Origin header（spec 明文放行）——落到 preHandler/handler。
       return;
     }
 
     if (essence !== "application/json") {
-      return sendError(reply, 415, "unsupported_media_type", "此請求需要 application/json");
+      return sendError(reply, 415, "unsupported_media_type", "This request needs Content-Type application/json.");
     }
   });
 
@@ -623,7 +624,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   app.decorate("authenticate", async function authenticate(request: FastifyRequest, reply: FastifyReply): Promise<void> {
     const resolved = await resolveSessionUser(request);
     if (!resolved) {
-      sendError(reply, 401, "unauthorized", "未登入");
+      sendError(reply, 401, "unauthorized", "Not signed in.");
       return;
     }
     // ⚠ `sessionTv` 不得漏：`POST /api/notes/:id/collab-token` 是它全 repo 唯一的
@@ -636,7 +637,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     await app.authenticate(request, reply);
     if (reply.sent) return;
     if (!request.user?.isAdmin) {
-      sendError(reply, 403, "forbidden", "需要管理員權限");
+      sendError(reply, 403, "forbidden", "Only site admins can do this.");
     }
   });
 
@@ -948,9 +949,11 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       // #107 §7：錯誤 log 若要記身分，**只記 authKind 與 tokenId**——不記 token 明文，
       // 也不記 Authorization header（`serializers.req` 本來就不印 headers）。
       request.log.error({ err: error, authKind: request.authKind, tokenId: request.tokenId }, "unhandled error");
-      return sendError(reply, 500, "internal", "伺服器內部錯誤");
+      return sendError(reply, 500, "internal", "Internal server error.");
     }
-    return sendError(reply, status, clientErrorCode(status), error.message || "請求錯誤");
+    // #372：413 不回 fastify 原生句（"Request body is too large"），改成與其他錯誤同口吻的固定句。
+    const message = status === 413 ? BODY_TOO_LARGE_MESSAGE : error.message || "Bad request.";
+    return sendError(reply, status, clientErrorCode(status), message);
   });
 
   return app;

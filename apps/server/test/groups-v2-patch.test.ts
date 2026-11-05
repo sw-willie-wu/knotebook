@@ -203,7 +203,7 @@ describe("#175 T1：寫 prev 時刪同路徑轉址（B4、C15）", () => {
 });
 
 describe("#175 PR2：PATCH 格 2（只改標題）授權後被真的移進呼叫者不在的群組（PR1 Task 6 review M-1；Q-C）", () => {
-  const NOT_FOUND = { error: { code: "not_found", message: "找不到此筆記" } };
+  const NOT_FOUND = { error: { code: "not_found", message: "No note with that id." } };
 
   it("逐人分享 editor 改標題；slugUpdateTestHook（格 2 UPDATE 之前）裡 owner 以 POST …/move 把筆記移進別的群組 → 409 conflict、標題未寫、回應不含群組名", async () => {
     const holder: { app?: FastifyInstance; fire?: () => Promise<void> } = {};

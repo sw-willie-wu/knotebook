@@ -22,8 +22,8 @@ import { captureLogs } from "./helpers/admin-auth.js";
 import { giveUserQuota, seedAttachment } from "./storage-helpers.js";
 import { inject, sixRoleScene, trashCols, type SixRoleScene } from "./trash-helpers.js";
 
-const INVALID = { error: { code: "invalid_body", message: "請求格式錯誤：ids 須為 1 到 200 個筆記 id" } };
-const inTrash = (noteId: string) => ({ error: { code: "in_trash", message: "這篇筆記在垃圾桶裡" }, noteId });
+const INVALID = { error: { code: "invalid_body", message: "Invalid request body: ids must be 1 to 200 note ids." } };
+const inTrash = (noteId: string) => ({ error: { code: "in_trash", message: "This note is in the trash." }, noteId });
 const DAY_MS = 86_400_000;
 const token = () => randomBytes(32).toString("base64url");
 
@@ -189,7 +189,7 @@ describe("TR-L6 讀不到 site_settings 列", () => {
     await db.$client.query(`delete from site_settings`);
 
     const res = await inject(app, "GET", "/api/trash", owner.id);
-    expect([res.statusCode, res.json()]).toEqual([500, { error: { code: "internal", message: "伺服器內部錯誤" } }]);
+    expect([res.statusCode, res.json()]).toEqual([500, { error: { code: "internal", message: "Internal server error." } }]);
     const line = logs.lines.find(l => l.msg === SITE_SETTINGS_MISSING_MESSAGE);
     expect(line?.obj).toEqual({ table: "site_settings" });
   });

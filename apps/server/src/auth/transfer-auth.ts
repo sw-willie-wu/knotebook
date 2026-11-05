@@ -12,9 +12,9 @@ import type { UserGate } from "./session.js";
 import { isTransferTokenShape, type TransferPurpose } from "./transfer-token.js";
 
 /** 查無、過期、母憑證已撤銷或過期、已消費、使用者停權／需改密碼——同形同字（spec §12.2 時序側通道）。 */
-export const TRANSFER_INVALID_MESSAGE = "transfer token 無效、已過期或已使用";
+export const TRANSFER_INVALID_MESSAGE = "The transfer token is invalid, expired or already used.";
 /** spec §4.5 第 1 步、Q1（M4）：有效形的 `knb_` PAT／OAuth access 打這兩支端點時的專屬訊息。 */
-export const TRANSFER_PAT_MESSAGE = "這個端點不收 API token；請透過 MCP 的 create_transfer_token 取得 transfer token";
+export const TRANSFER_PAT_MESSAGE = "This endpoint doesn't accept API tokens. Get a transfer token from the MCP tool create_transfer_token.";
 
 export interface TransferAuthDeps {
   db: Db;
@@ -40,7 +40,7 @@ export function createTransferAuth(deps: TransferAuthDeps) {
   function reject401(request: FastifyRequest, reply: FastifyReply, withError: boolean, message: string): void {
     drainWithCap(request);
     if (!deps.limiters.bearerMiss.consume(request.ip)) {
-      sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
+      sendError(reply, 429, "too_many_requests", "Too many requests. Wait a moment and try again.");
       return;
     }
     reply.header("www-authenticate", buildTransferChallenge(withError ? "invalid_token" : undefined));
@@ -61,7 +61,7 @@ export function createTransferAuth(deps: TransferAuthDeps) {
         if (!reply.sent) request.authKind = "session";
         return;
       }
-      if (parsed.kind === "other-scheme") return reject401(request, reply, false, "未登入");
+      if (parsed.kind === "other-scheme") return reject401(request, reply, false, "Not signed in.");
       if (isAccessTokenShape(parsed.token)) return reject401(request, reply, true, TRANSFER_PAT_MESSAGE);
       if (!isTransferTokenShape(parsed.token)) return rejectInvalid(request, reply);
 
@@ -91,7 +91,7 @@ export function createTransferAuth(deps: TransferAuthDeps) {
 
       if (row.purpose !== purpose) {
         drainWithCap(request);
-        sendError(reply, 403, "forbidden", "此 transfer token 不能用在這個動作");
+        sendError(reply, 403, "forbidden", "This transfer token can't be used for this action.");
         return;
       }
 
@@ -103,7 +103,7 @@ export function createTransferAuth(deps: TransferAuthDeps) {
       // 行為不改（spec §8）。守衛：`transfer-tokens.test.ts` 的 #239 T1。
       if (!hasScope(row.scope as TokenScope, purpose === "upload" ? "notes:write" : "notes:read")) {
         drainWithCap(request);
-        sendError(reply, 403, "insufficient_scope", "此 token 沒有執行這個操作的權限");
+        sendError(reply, 403, "insufficient_scope", "This token's scope doesn't allow this action.");
         return;
       }
 

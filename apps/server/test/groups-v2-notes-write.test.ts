@@ -64,7 +64,7 @@ describe("#175 POST /api/notes {groupId}（§6.2，gate r1 I3、r4 N-2）", () =
     expect(res.statusCode).toBe(400);
     expect(res.json().error.code).toBe("invalid_body");
     // 訊息是部署閘門那一句，不是 schema 的互斥訊息——互斥若還在，這裡會是「content 與 groupId 不可同時出現」。
-    expect(res.json().error.message).toBe("此部署不支援帶內容建立筆記");
+    expect(res.json().error.message).toBe("This deployment cannot create a note with content. Send the request again without content.");
     // 帶 collab 的完整形在 note-create-content.test.ts 補一案（Step 7）
   });
 

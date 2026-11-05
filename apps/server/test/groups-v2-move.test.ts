@@ -169,7 +169,7 @@ describe("#175 PR2 POST /api/notes/:id/move（T3）", () => {
     }
     const strangerRes = await move(app, n.id, stranger.id, { groupId: g.id });
     expect(strangerRes.statusCode).toBe(404);
-    expect(strangerRes.json()).toEqual({ error: { code: "not_found", message: "找不到此筆記" } });
+    expect(strangerRes.json()).toEqual({ error: { code: "not_found", message: "No note with that id." } });
     for (const who of [admin, member]) {
       const res = await move(app, gn.id, who.id, { groupId: g.id });
       expect(res.statusCode).toBe(403);
@@ -203,7 +203,7 @@ describe("#175 PR2 POST /api/notes/:id/move（T3）", () => {
       bodies.push(res.body);
     }
     expect(new Set(bodies).size).toBe(1);
-    expect(JSON.parse(bodies[0]!)).toEqual({ error: { code: "group_not_found", message: "找不到此群組" } });
+    expect(JSON.parse(bodies[0]!)).toEqual({ error: { code: "group_not_found", message: "No group with that id." } });
     expect(await noteState(db.$client, n.id)).toEqual(before);
     expect(await sharesOf(db, n.id)).toEqual([{ userId: c.id, role: "viewer" }]);
     expect(await db.select().from(noteRedirects)).toEqual([]);

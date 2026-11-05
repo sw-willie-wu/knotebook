@@ -25,9 +25,9 @@ import { seedAttachment } from "./storage-helpers.js";
 import { inject, markTrashed, sixRoleScene, trashCols } from "./trash-helpers.js";
 import { paraDoc, seedOldNote } from "./version-helpers.js";
 
-const NOT_FOUND = { error: { code: "not_found", message: "找不到此筆記" } };
-const FORBIDDEN = { error: { code: "forbidden", message: "沒有刪除這篇筆記的權限" } };
-const inTrash = (noteId: string) => ({ error: { code: "in_trash", message: "這篇筆記在垃圾桶裡" }, noteId });
+const NOT_FOUND = { error: { code: "not_found", message: "No note with that id." } };
+const FORBIDDEN = { error: { code: "forbidden", message: "You don't have permission to delete this note." } };
+const inTrash = (noteId: string) => ({ error: { code: "in_trash", message: "This note is in the trash." }, noteId });
 const del = (app: FastifyInstance, noteId: string, userId: string | null) => inject(app, "DELETE", `/api/notes/${noteId}`, userId);
 
 /** `spyCollabHooks` 把 `beforeNoteDeleted` 換成回 `release` spy 的版本（原本回的 release 不是 spy）。 */

@@ -57,7 +57,7 @@ describe("assertSpaceRoomInTx（spec §5.3）", () => {
     await db.transaction(tx => assertSpaceRoomInTx(tx, { kind: "user", id: u.id }, 400, opts));
     const err = await db.transaction(tx => assertSpaceRoomInTx(tx, { kind: "user", id: u.id }, 401, opts)).catch(e => e);
     expect(err).toBeInstanceOf(StorageQuotaExceeded);
-    expect(err).toMatchObject({ status: 409, errCode: "storage_quota_exceeded", message: "儲存空間已滿", usedBytes: 600, quotaBytes: 1000, incomingBytes: 401, space: { kind: "user", id: u.id } });
+    expect(err).toMatchObject({ status: 409, errCode: "storage_quota_exceeded", message: "This space's storage quota is full.", usedBytes: 600, quotaBytes: 1000, incomingBytes: 401, space: { kind: "user", id: u.id } });
     for (const k of ["usedBytes", "quotaBytes", "incomingBytes"] as const) expect(typeof err[k], k).toBe("number");
   });
 

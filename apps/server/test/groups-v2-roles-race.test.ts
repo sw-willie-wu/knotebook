@@ -71,7 +71,7 @@ describe("#175 PR3 RF2：刪自訂角色 vs 把人掛上該角色（同一把 gr
     const second = await state.second!;
     expect(first.statusCode, first.body).toBe(204);
     expect(second.statusCode, second.body).toBe(404);
-    expect(second.json()).toEqual({ error: { code: "role_not_found", message: "找不到此角色" } });
+    expect(second.json()).toEqual({ error: { code: "role_not_found", message: "No role with that id." } });
     expect((await membersOf(app, g.id, cookies)).find(m => m.userId === b.id)).toMatchObject({ roleId: g.memberRoleId, builtin: "member" });
     expect(await roleIdsOf(app, g.id, cookies)).not.toContain(x);
     expect(state.interleave).toBe("blocked");
@@ -84,7 +84,7 @@ describe("#175 PR3 RF2：刪自訂角色 vs 把人掛上該角色（同一把 gr
     const second = await state.second!;
     expect(first.statusCode, first.body).toBe(204);
     expect(second.statusCode, second.body).toBe(404);
-    expect(second.json()).toEqual({ error: { code: "role_not_found", message: "找不到此角色" } });
+    expect(second.json()).toEqual({ error: { code: "role_not_found", message: "No role with that id." } });
     expect((await membersOf(app, g.id, cookies)).map(m => m.userId)).not.toContain(d.id);
     expect(state.interleave).toBe("blocked");
   });

@@ -496,7 +496,7 @@ describe("POST /api/admin/users/:id/demote（#247 §9.4）", () => {
     for (const id of [a.id, a.id.toUpperCase()]) {
       const r = await demote(app, id, await cookieOf(a.id));
       expect(r.statusCode, id).toBe(400);
-      expect(r.json().error, id).toEqual({ code: "cannot_demote_self", message: "無法移除自己的管理員身分" });
+      expect(r.json().error, id).toEqual({ code: "cannot_demote_self", message: "You can't remove your own admin role." });
     }
     expect(await enabledAdminsAmong(db, [a.id])).toBe(1);
   });
@@ -525,7 +525,7 @@ describe("POST /api/admin/users/:id/demote（#247 §9.4）", () => {
     await db.update(users).set({ isAdmin: false }).where(eq(users.id, a.id)); // 繞過端點、不 invalidate：a 的快取仍是 admin
     const r = await demote(app, b.id, aCookies);
     expect(r.statusCode).toBe(409);
-    expect(r.json().error).toEqual({ code: "last_site_admin", message: "站台至少要保留一位啟用中的管理員" });
+    expect(r.json().error).toEqual({ code: "last_site_admin", message: "The site needs at least one active admin." });
     expect(await enabledAdminsAmong(db, [a.id, b.id])).toBe(1);
   });
 
@@ -607,7 +607,7 @@ describe("POST /api/admin/users/:id/disable：最後一位啟用中的 admin（#
     await db.update(users).set({ disabledAt: new Date() }).where(eq(users.id, a.id)); // 繞過端點、不 invalidate
     const r = await disableUser(app, b.id, aCookies);
     expect(r.statusCode).toBe(409);
-    expect(r.json().error).toEqual({ code: "last_site_admin", message: "站台至少要保留一位啟用中的管理員" });
+    expect(r.json().error).toEqual({ code: "last_site_admin", message: "The site needs at least one active admin." });
     const [row] = await db.select({ disabledAt: users.disabledAt, tokenVersion: users.tokenVersion }).from(users).where(eq(users.id, b.id));
     expect(row).toEqual({ disabledAt: null, tokenVersion: 0 });
     const [link] = await db.select().from(oneTimeLinks).where(eq(oneTimeLinks.targetUserId, b.id));

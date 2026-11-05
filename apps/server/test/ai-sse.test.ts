@@ -466,7 +466,7 @@ describe("POST /api/ai — 正常串流", () => {
 
     expect(res.statusCode).toBe(200); // hijack 之後一律 200 + SSE，錯誤走事件而非 HTTP 狀態碼
     expect(eventSequence(res.body)).toEqual(["error"]);
-    expect(res.body).toContain("upstream request failed");
+    expect(res.body).toContain("The request to the AI provider failed.");
     expect(res.body).not.toContain(sentinel);
   });
 
@@ -615,7 +615,7 @@ describe("POST /api/ai — 正常串流", () => {
       // IDLE_TIMEOUT_MS 60 s）就要等滿 60 s → 紅。界線 20 s 離兩邊都遠（與 ./lock-timeout-bound.ts 同一種設計）。
       expect(Date.now() - idleStart).toBeLessThan(20_000);
       expect(eventSequence(body)).toEqual(["delta", "error"]);
-      expect(body).toContain("upstream request failed");
+      expect(body).toContain("The request to the AI provider failed.");
     }
   );
 });

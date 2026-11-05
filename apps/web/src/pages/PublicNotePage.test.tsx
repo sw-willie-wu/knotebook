@@ -175,7 +175,7 @@ describe("PublicNotePage（#72 /p/:token＋#122 PR3 /p/:handle/:slug 免登入�
   it("404（撤銷／token 錯）→ 失效卡，不掛編輯器；恰打一次（頁面 retry: false 承重——404 是常見合法結果，重試只啃節流額度）", async () => {
     const { fn, calls } = mockFetch((url) =>
       url === `/api/public/notes/${TOKEN}`
-        ? { status: 404, body: { error: { code: "not_found", message: "連結不存在或已失效" } } }
+        ? { status: 404, body: { error: { code: "not_found", message: "This link doesn't exist or no longer works." } } }
         : null,
     );
     vi.stubGlobal("fetch", fn);
@@ -249,7 +249,7 @@ describe("PublicNotePage（#72 /p/:token＋#122 PR3 /p/:handle/:slug 免登入�
     const queryClient = renderPage();
     await screen.findByTestId("public-note-editor");
 
-    respond = { status: 404, body: { error: { code: "not_found", message: "連結不存在或已失效" } } };
+    respond = { status: 404, body: { error: { code: "not_found", message: "This link doesn't exist or no longer works." } } };
     await act(async () => {
       await queryClient.refetchQueries();
     });

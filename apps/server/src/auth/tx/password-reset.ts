@@ -5,7 +5,7 @@ import { TxAbort } from "../../http/tx-abort.js";
 import { activeOneTimeLink, pendingPasswordResetsOf } from "../one-time-link.js";
 
 /** 410 `reset_link_invalid` 的訊息：無登入端點與完成交易共用，不區分原因（spec §4.3）。 */
-export const RESET_LINK_INVALID_MESSAGE = "重設密碼連結無效、已使用或已過期";
+export const RESET_LINK_INVALID_MESSAGE = "This password reset link is invalid, already used or expired.";
 
 /**
  * #286 重設密碼連結的交易本體（spec §4.2）。
@@ -31,7 +31,7 @@ async function lockTargetUser(tx: Tx, targetUserId: string): Promise<{ disabledA
     .from(users)
     .where(eq(users.id, targetUserId))
     .for("no key update");
-  if (!row) throw new TxAbort(404, "user_not_found", "找不到此使用者");
+  if (!row) throw new TxAbort(404, "user_not_found", "No user with that id.");
   return row;
 }
 
@@ -41,8 +41,8 @@ export async function issuePasswordResetInTx(
   input: { targetUserId: string; createdById: string; tokenHash: string; expiresInHours: number },
 ): Promise<{ linkId: string; expiresAt: Date; replaced: number }> {
   const target = await lockTargetUser(tx, input.targetUserId);
-  if (target.disabledAt !== null) throw new TxAbort(409, "user_disabled", "這個帳號已停用");
-  if (!target.hasPassword) throw new TxAbort(409, "password_not_set", "這個帳號沒有密碼");
+  if (target.disabledAt !== null) throw new TxAbort(409, "user_disabled", "That user's account is disabled.");
+  if (!target.hasPassword) throw new TxAbort(409, "password_not_set", "That user has no password to reset.");
   const replaced = await revokePendingPasswordResetsInTx(tx, input.targetUserId);
   const [row] = await tx
     .insert(oneTimeLinks)

@@ -7,7 +7,7 @@ import { notes, uploads } from "../db/schema.js";
 
 export type StorageSpace = { kind: "user"; id: string } | { kind: "group"; id: string };
 
-export const STORAGE_QUOTA_EXCEEDED_MESSAGE = "儲存空間已滿";
+export const STORAGE_QUOTA_EXCEEDED_MESSAGE = "This space's storage quota is full.";
 
 /** 筆記的空間：`notes_owner_xor_group_chk` 保證恰一個非 NULL。 */
 export function spaceOfNote(n: { ownerId: string | null; groupId: string | null }): StorageSpace {

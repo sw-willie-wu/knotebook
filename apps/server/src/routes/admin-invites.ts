@@ -99,7 +99,7 @@ export function adminInvitesRoutes(deps: AdminInvitesRouteDeps) {
     app.post("/api/admin/invites", { preHandler: app.requireAdmin }, async (request, reply) => {
       const parsed = issueBodySchema.safeParse(request.body);
       const label = parsed.success ? normalizeInviteLabel(parsed.data.label) : "invalid";
-      if (!parsed.success || label === "invalid") return sendError(reply, 400, "invalid_body", "請求格式錯誤");
+      if (!parsed.success || label === "invalid") return sendError(reply, 400, "invalid_body", "Invalid request body.");
       if (!(await isPasswordLoginAccepted(deps.db, deps.config, request.log))) {
         return sendError(reply, 403, "password_login_disabled", PASSWORD_LOGIN_DISABLED_MESSAGE);
       }
@@ -147,7 +147,7 @@ export function adminInvitesRoutes(deps: AdminInvitesRouteDeps) {
     // 撤銷永遠允許：不看帳密開關（spec §5.7）。已撤銷或已過期的再撤也是 204，不改列。
     app.delete("/api/admin/invites/:id", { preHandler: app.requireAdmin }, async (request, reply) => {
       const { id: rawId } = request.params as { id: string };
-      if (!UUID_RE.test(rawId)) return sendError(reply, 404, "invite_not_found", "找不到這個邀請");
+      if (!UUID_RE.test(rawId)) return sendError(reply, 404, "invite_not_found", "No invite with that id.");
       const id = rawId.toLowerCase();
       let hit: Array<{ id: string }>;
       let existing: { usedAt: Date | null } | undefined;
@@ -171,8 +171,8 @@ export function adminInvitesRoutes(deps: AdminInvitesRouteDeps) {
         request.log.info({ userId: request.user!.id, linkId: id }, "撤銷邀請");
         return reply.code(204).send();
       }
-      if (!existing) return sendError(reply, 404, "invite_not_found", "找不到這個邀請");
-      if (existing.usedAt !== null) return sendError(reply, 409, "invite_used", "這個邀請已經被使用");
+      if (!existing) return sendError(reply, 404, "invite_not_found", "No invite with that id.");
+      if (existing.usedAt !== null) return sendError(reply, 409, "invite_used", "This invite has already been used.");
       return reply.code(204).send();
     });
   };

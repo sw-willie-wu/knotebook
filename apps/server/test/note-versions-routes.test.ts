@@ -18,7 +18,6 @@ type Who = string | null;
 async function call(app: FastifyInstance, method: "GET" | "POST" | "PATCH" | "DELETE", url: string, who: Who, payload?: unknown) {
   return app.inject({ method, url, ...(who ? { cookies: await cookieOf(who) } : {}), ...(payload !== undefined ? { payload: payload as object } : {}) });
 }
-const hasCjk = (s: string) => /[一-鿿]/.test(s);
 
 async function restSetup(over: Parameters<typeof buildTestApp>[0] = {}) {
   const built = await buildTestApp(over);
@@ -53,7 +52,7 @@ describe("權限矩陣（§6 開頭、§9）", () => {
     for (const [method, url, body] of [["GET", s.base, undefined], ["GET", `${s.base}/1`, undefined], ["POST", s.base, {}], ["PATCH", `${s.base}/1`, { name: "x" }], ["DELETE", `${s.base}/1`, undefined]] as const) {
       const v = await call(s.app, method, url, viewer.id, body);
       expect(v.statusCode, `${method} ${url} viewer`).toBe(403);
-      expect(v.json().error).toEqual({ code: "forbidden", message: "沒有編輯權限" });
+      expect(v.json().error).toEqual({ code: "forbidden", message: "You don't have edit access to this note." });
       expect((await call(s.app, method, url, stranger.id, body)).statusCode, `${method} ${url} none`).toBe(404);
       expect((await call(s.app, method, url, null, body)).statusCode, `${method} ${url} anon`).toBe(401);
     }
@@ -101,7 +100,7 @@ describe("參數驗證（不變量 S）", () => {
       const r = await call(s.app, "GET", `${s.base}?${q}`, s.owner.id);
       expect(r.statusCode, q).toBe(400);
       expect(r.json().error.code).toBe("invalid_body");
-      expect(hasCjk(r.json().error.message)).toBe(true);
+      expect(r.json().error.message).toBe("Invalid request body.");
     }
     expect((await call(s.app, "GET", `${s.base}?limit=100&before=2147483647`, s.owner.id)).statusCode).toBe(200);
   });
@@ -268,7 +267,7 @@ describe("POST 手動儲存（§6.3）", () => {
         const r = await call(s.app, method, url, s.owner.id, { name: bad });
         expect(r.statusCode, `${method} ${JSON.stringify(bad).slice(0, 20)}`).toBe(400);
         expect(r.json().error.code).toBe("invalid_body");
-        expect(hasCjk(r.json().error.message)).toBe(true);
+        expect(r.json().error.message).toBe("Version names can be at most 120 characters and can't contain characters that can't be stored.");
       }
     }
     for (const body of [{ name: 5 }, { foo: 1 }, []]) expect((await call(s.app, "POST", s.base, s.owner.id, body)).statusCode).toBe(400);
@@ -302,14 +301,14 @@ describe("PATCH／DELETE（§6.5、§6.6）", () => {
     expect((await call(s.app, "PATCH", `${s.base}/7`, s.owner.id, { name: "x" })).statusCode).toBe(404);
   });
 
-  it("DELETE：基底 → 409 version_is_base（中文訊息）；不存在 → 404；非基底 → 204", async () => {
+  it("DELETE：基底 → 409 version_is_base（英文訊息）；不存在 → 404；非基底 → 204", async () => {
     const s = await restSetup();
     expect((await call(s.app, "POST", s.base, s.owner.id, {})).statusCode).toBe(201);
     await s.setContent("第二版");
     expect((await call(s.app, "POST", s.base, s.owner.id, {})).statusCode).toBe(201);
     const base = await call(s.app, "DELETE", `${s.base}/2`, s.owner.id);
     expect(base.statusCode).toBe(409);
-    expect(base.json().error).toEqual({ code: "version_is_base", message: "這是目前內容的基底版本，不能刪除" });
+    expect(base.json().error).toEqual({ code: "version_is_base", message: "This version is the base of the current content, so it can't be deleted." });
     expect((await call(s.app, "DELETE", `${s.base}/9`, s.owner.id)).statusCode).toBe(404);
     expect((await call(s.app, "DELETE", `${s.base}/1`, s.owner.id)).statusCode).toBe(204);
     expect((await versionsOf(s.db, s.note.id)).map(v => v.seq)).toEqual([2]);
@@ -341,19 +340,19 @@ describe("POST apply（§6.4）× 真 collab", () => {
     expect(await ok.json()).toEqual({ current: { baseSeq: 1, base: { id: s.v1.id, name: null, deleted: false }, dirty: false, nextSeq: 3, autoEnabled: true } });
     const mm = await s.post(`${s.base}/2/apply`, { versionId: s.v1.id, discardUnsaved: false });
     expect(mm.status).toBe(409);
-    expect((await mm.json()).error).toEqual({ code: "version_mismatch", message: "這一版已經不存在或已被取代，請重新整理" });
+    expect((await mm.json()).error).toEqual({ code: "version_mismatch", message: "That version no longer exists or has been replaced. Reload and try again." });
     expect((await s.post(`${s.base}/9/apply`, { versionId: s.v1.id, discardUnsaved: false })).status).toBe(404);
     for (const body of [{ versionId: s.v1.id }, { versionId: "x", discardUnsaved: true }, { versionId: s.v1.id, discardUnsaved: "no" }, { versionId: s.v1.id, discardUnsaved: true, x: 1 }]) {
       expect((await s.post(`${s.base}/1/apply`, body)).status, JSON.stringify(body)).toBe(400);
     }
   });
 
-  it("dirty 且 discardUnsaved=false → 409 version_unsaved_changes（中文）；true → 200", async () => {
+  it("dirty 且 discardUnsaved=false → 409 version_unsaved_changes（英文訊息）；true → 200", async () => {
     const s = await collabSetup();
     await s.setContent("沒存的第三版");
     const r = await s.post(`${s.base}/1/apply`, { versionId: s.v1.id, discardUnsaved: false });
     expect(r.status).toBe(409);
-    expect((await r.json()).error).toEqual({ code: "version_unsaved_changes", message: "目前有未儲存的修改" });
+    expect((await r.json()).error).toEqual({ code: "version_unsaved_changes", message: "The note has changes that aren't in any saved version." });
     expect((await s.post(`${s.base}/1/apply`, { versionId: s.v1.id, discardUnsaved: true })).status).toBe(200);
   });
 
@@ -400,7 +399,7 @@ describe("POST apply（§6.4）× 真 collab", () => {
     const vs = await s.ctx.loginAs("v@example.com", "correct-horse-battery");
     const v = await vs.fetch(`${s.base}/1/apply`, { method: "POST", body: JSON.stringify(body) });
     expect(v.status).toBe(403);
-    expect((await v.json()).error).toEqual({ code: "forbidden", message: "沒有編輯權限" });
+    expect((await v.json()).error).toEqual({ code: "forbidden", message: "You don't have edit access to this note." });
     const xs = await s.ctx.loginAs("x@example.com", "correct-horse-battery");
     expect((await xs.fetch(`${s.base}/1/apply`, { method: "POST", body: JSON.stringify(body) })).status).toBe(404);
     expect(await noteBase(s.ctx.db, s.note.id)).toEqual(before);
@@ -419,7 +418,7 @@ describe("POST apply（§6.4）× 真 collab", () => {
     }
   });
 
-  it("m1：佇列被套用佔住、等待逾時 → 手動儲存 503 server_busy（中文）；放行後套用 200", async () => {
+  it("m1：佇列被套用佔住、等待逾時 → 手動儲存 503 server_busy（英文訊息）；放行後套用 200", async () => {
     let entered: (() => void) | null = null;
     let release: (() => void) | null = null;
     const gate = new Promise<void>(r => { release = r; });
@@ -433,7 +432,7 @@ describe("POST apply（§6.4）× 真 collab", () => {
     expect(busy.status).toBe(503);
     const err = (await busy.json()).error;
     expect(err.code).toBe("server_busy");
-    expect(hasCjk(err.message)).toBe(true);
+    expect(err.message).toBe("The note is being written right now. Try again in a moment.");
     armed = false;
     release!();
     expect((await applying).status).toBe(200);

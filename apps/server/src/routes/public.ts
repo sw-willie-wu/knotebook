@@ -90,7 +90,7 @@ export interface PublicRoutesDeps {
 
 /** 三情境共用的同形 404（body 逐位元組一致由測試釘住）。 */
 function sendLinkNotFound(reply: FastifyReply): FastifyReply {
-  return sendError(reply, 404, "not_found", "連結不存在或已失效");
+  return sendError(reply, 404, "not_found", "This link doesn't exist or no longer works.");
 }
 
 /** 反查命中的列（lookup 與 resolvePublicNote 共用）。 */
@@ -130,7 +130,7 @@ export function publicRoutes(deps: PublicRoutesDeps) {
     const ip = request.ip;
     // ② 不計數預檢：對命中與未命中一視同仁。
     if (deps.limiters.publicMiss.isBlocked(ip)) {
-      sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
+      sendError(reply, 429, "too_many_requests", "Too many requests. Wait a moment and try again.");
       return null;
     }
     // ③ 反查後分桶計數（兩形共用 miss 桶）。
@@ -142,7 +142,7 @@ export function publicRoutes(deps: PublicRoutesDeps) {
     }
     // ④ hit 桶（key 形見檔頭）。
     if (!hitBucket.consume(spec.hitKey(q, ip, note.id))) {
-      sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
+      sendError(reply, 429, "too_many_requests", "Too many requests. Wait a moment and try again.");
       return null;
     }
     return note;
@@ -211,11 +211,11 @@ export function publicRoutes(deps: PublicRoutesDeps) {
       // 的檔案 404——**跨筆記 uploadId 也是 404**（公開授權只及自己那篇的 blob；
       // A 筆記的圖貼進 B、B 公開後那張圖破圖，記 docs/known-limitations.md）。
       if (!UUID_RE.test(uploadId)) {
-        return sendError(reply, 404, "not_found", "找不到此檔案");
+        return sendError(reply, 404, "not_found", "No file with that id.");
       }
       const [row] = await deps.db.select().from(uploads).where(eq(uploads.id, uploadId)).limit(1);
       if (!row || row.noteId !== note.id) {
-        return sendError(reply, 404, "not_found", "找不到此檔案");
+        return sendError(reply, 404, "not_found", "No file with that id.");
       }
 
       const filePath = uploadFilePath(deps.uploadsDir, row.id);
@@ -223,7 +223,7 @@ export function publicRoutes(deps: PublicRoutesDeps) {
         await stat(filePath);
       } catch {
         request.log.error({ uploadId: row.id }, "DB 有上傳紀錄但磁碟找不到對應檔案");
-        return sendError(reply, 404, "not_found", "找不到此檔案");
+        return sendError(reply, 404, "not_found", "No file with that id.");
       }
 
       reply.header("x-content-type-options", "nosniff");

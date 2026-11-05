@@ -6,7 +6,7 @@ import { activeOneTimeLink } from "../one-time-link.js";
 import { insertPasswordUserInTx, type PasswordUserInput, type RegisteredUser } from "./register.js";
 
 /** 410 `invite_invalid` 的訊息：無登入端點與兌換交易共用，不區分原因（#285 spec §5.3）。 */
-export const INVITE_INVALID_MESSAGE = "邀請無效、已使用、已撤銷或已過期";
+export const INVITE_INVALID_MESSAGE = "This invite is invalid, already used, revoked or expired.";
 
 /**
  * #285 接受邀請的交易本體（spec §5.4）：邀請列 `FOR UPDATE` 以單一述詞重判有效 → 建帳（`insertPasswordUserInTx`）→ 標用掉。

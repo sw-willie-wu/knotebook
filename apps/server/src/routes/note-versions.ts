@@ -1,6 +1,6 @@
 /**
  * 筆記版本歷史 REST（spec 2026-10-09-note-versions-design.md §6）。全部 cookie（`app.authenticate`）；PAT／MCP 不在本 spec（§14-2）。
- * 判準六支一致：`:id` 先 `UUID_RE` → `resolveRole`：none → 404 `not_found`、viewer → 403 `forbidden`「沒有編輯權限」（D5）。
+ * 判準六支一致：`:id` 先 `UUID_RE` → `resolveRole`：none → 404 `not_found`、viewer → 403 `forbidden`（"You don't have edit access to this note."）（D5）。
  * 寫入四支（存、套用、改名、刪除）吃既有 `edit` 桶，排在角色檢查之後。apply 只在 `writes.available` 時註冊（與 `/edits` 同閘門）。
  * 參數（不變量 S）：`:seq` 走 `/^[1-9]\d{0,9}$/` 且 ≤ 2147483647，否則 404；`before` 同規則、`limit` 1..100、`kind` 只收 manual／auto，否則 400。
  */
@@ -28,10 +28,10 @@ export interface NoteVersionsRouteDeps {
   limiters: { edit: FixedWindowLimiter };
 }
 
-const NOTE_NOT_FOUND = "找不到此筆記";
-const VERSION_NOT_FOUND = "找不到此版本";
-const INVALID_BODY = "請求格式錯誤";
-const INVALID_NAME = "版本名稱須在 120 字以內，且不能含無法儲存的字元";
+const NOTE_NOT_FOUND = "No note with that id.";
+const VERSION_NOT_FOUND = "No version with that number.";
+const INVALID_BODY = "Invalid request body.";
+const INVALID_NAME = "Version names can be at most 120 characters and can't contain characters that can't be stored.";
 const INT4_MAX = 2147483647;
 const SEQ_RE = /^[1-9]\d{0,9}$/;
 const LIMIT_RE = /^[1-9]\d{0,2}$/;
@@ -116,13 +116,13 @@ export function noteVersionsRoutes(deps: NoteVersionsRouteDeps) {
         return false;
       }
       if (role === "viewer") {
-        sendError(reply, 403, "forbidden", "沒有編輯權限");
+        sendError(reply, 403, "forbidden", "You don't have edit access to this note.");
         return false;
       }
       return true;
     }
     const noteIdOf = (raw: string): string | null => (UUID_RE.test(raw) ? raw.toLowerCase() : null);
-    const tooMany = (reply: FastifyReply) => sendError(reply, 429, "too_many_requests", "寫入過於頻繁");
+    const tooMany = (reply: FastifyReply) => sendError(reply, 429, "too_many_requests", "Too many writes. Wait a moment and try again.");
 
     app.get("/api/notes/:id/versions", { preHandler: app.authenticate }, async (request, reply) => {
       const id = noteIdOf((request.params as { id: string }).id);
@@ -183,7 +183,7 @@ export function noteVersionsRoutes(deps: NoteVersionsRouteDeps) {
       if (!out.ok) {
         return out.kind === "note-deleted"
           ? sendError(reply, 404, "not_found", NOTE_NOT_FOUND)
-          : sendError(reply, 503, "server_busy", "筆記正在被寫入，請稍後再試");
+          : sendError(reply, 503, "server_busy", "The note is being written right now. Try again in a moment.");
       }
       const [dto] = await toVersionDtos(deps.db, id, [out.row]);
       return reply.code(201).send({ ...dto!, upgraded: out.upgraded } satisfies SavedVersionDto);
@@ -205,12 +205,12 @@ export function noteVersionsRoutes(deps: NoteVersionsRouteDeps) {
           noteId: id, seq, versionId: parsed.data.versionId.toLowerCase(), userId, discardUnsaved: parsed.data.discardUnsaved,
         });
         if (!out.ok) {
-          if (out.kind === "busy") return sendError(reply, 503, "server_busy", "筆記正在被寫入，請稍後再試");
+          if (out.kind === "busy") return sendError(reply, 503, "server_busy", "The note is being written right now. Try again in a moment.");
           // #181 §6.2-11：授權之後被移入垃圾桶（或正被移入）→ 同授權 none 的 404。
           if (out.kind === "gone") return sendError(reply, 404, "not_found", NOTE_NOT_FOUND);
           if (out.code === "not_found") return sendError(reply, 404, "not_found", VERSION_NOT_FOUND);
-          if (out.code === "version_mismatch") return sendError(reply, 409, "version_mismatch", "這一版已經不存在或已被取代，請重新整理");
-          return sendError(reply, 409, "version_unsaved_changes", "目前有未儲存的修改");
+          if (out.code === "version_mismatch") return sendError(reply, 409, "version_mismatch", "That version no longer exists or has been replaced. Reload and try again.");
+          return sendError(reply, 409, "version_unsaved_changes", "The note has changes that aren't in any saved version.");
         }
         // 起草裁定 12：回「套用全部完成後的實際 current」——沒有 WS 連線時 disconnect 內已卸載（#272 起卸載不切版）。
         const current = await deps.versions.currentOf(id);
@@ -269,7 +269,7 @@ export function noteVersionsRoutes(deps: NoteVersionsRouteDeps) {
         .where(and(eq(noteVersions.noteId, id), eq(noteVersions.seq, seq)))
         .limit(1);
       return still
-        ? sendError(reply, 409, "version_is_base", "這是目前內容的基底版本，不能刪除")
+        ? sendError(reply, 409, "version_is_base", "This version is the base of the current content, so it can't be deleted.")
         : sendError(reply, 404, "not_found", VERSION_NOT_FOUND);
     });
   };
