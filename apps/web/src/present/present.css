@@ -10,6 +10,8 @@
   font-family: var(--font-sans);
 }
 .kn-present .reveal {
+  /* 總覽中目前那張的外框色（reveal.css：outline: 10px solid var(--r-link-color)）；不載 reveal 主題所以沒人定義它 */
+  --r-link-color: var(--color-brand);
   width: 100%;
   height: 100%;
 }
