@@ -28,6 +28,7 @@ import {
   MCP_LIST_WIRE_BUDGET,
   MCP_PAGE_MAX,
 } from "../src/mcp/limits.js";
+import { fingerprintOf } from "../src/notes/editing/fingerprint.js";
 import { writeSearchIndex } from "../src/notes/search-index.js";
 import { SEARCH_EXTRACTOR_VERSION } from "../src/notes/search-text.js";
 import { buildCollabTestApp, type CollabTestCtx } from "./helpers.js";
@@ -450,7 +451,13 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
     await callWire(ctx.app, rwmToken, "(i) move_note_to_group", "move_note_to_group", { note_id: note.id, group_id: mg.id });
     // #180 §9-6／R9：rename 的最壞形＝回應 `title` 被截到逃脫後 200 ＋ titleTruncated（鏡像兩份），標題同樣 260 000 字元。
     // 擺在 (i) 最後：它會真的改標題（後面的量測若接在它之後，請排在它前面——copy／move 已排在這行之前）。
-    await callWire(ctx.app, rwToken, "(i) edit_note rename", "edit_note", { note_id: note.id, op: "rename", title: `R${"i".repeat(259_999)}` });
+    // #381：rename 必帶 if_match＝目前標題（hugeTitle，copy／move 都不改來源標題）的指紋。
+    await callWire(ctx.app, rwToken, "(i) edit_note rename", "edit_note", {
+      note_id: note.id,
+      op: "rename",
+      title: `R${"i".repeat(259_999)}`,
+      if_match: fingerprintOf(hugeTitle),
+    });
     client.disconnect();
   });
 

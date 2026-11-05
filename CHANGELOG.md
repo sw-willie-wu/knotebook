@@ -7,6 +7,10 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
+### Upgrade notes
+
+- **Breaking for MCP clients: `edit_note`'s `rename` now needs `if_match`**, the fingerprint of the title it replaces, which `read_note_outline` now returns as `titleFingerprint` (a successful rename returns the new title's). A rename without `if_match` — until now the only form accepted — is refused with `invalid_body`; one whose `if_match` isn't the current title's fingerprint, because someone changed the title after the client read it, is refused with `fingerprint_mismatch` and leaves that title as it is. Before, an assistant's rename silently overwrote a title someone else had just changed. The content operations' `if_match` is unaffected: a title change doesn't change any content fingerprint. Renaming a note in the web app works as before. See [MCP](docs/mcp.md#rename) (#381).
+
 ### Added
 
 - **Keyboard shortcuts**: press Ctrl+/ (⌘/ on a Mac), or choose **Keyboard shortcuts** in the user menu at the bottom of the sidebar, to see the common keyboard shortcuts and typing triggers. It looks like the settings: the groups (General, Typing triggers, Markdown shortcuts and so on) are listed on the left and the shortcuts of the chosen group are on the right, one group at a time; on a narrow screen the two take turns. It lists only what your site can use: the AI group isn't shown when no AI action is set up, and the line about sending an instruction isn't shown when there is no Instruct action. Press the shortcut again or Esc to close it. It doesn't open while another dialog or menu is open, during a presentation, or on pages without the sidebar (sign-in, public notes). See [Known limitations](docs/known-limitations.md#keyboard-shortcuts).
