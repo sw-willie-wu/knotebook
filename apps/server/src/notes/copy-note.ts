@@ -13,6 +13,7 @@
  * 含 `.transaction(` ⇒ 在 S14 的 `ROUTE_FILES`（④ `{all:1, inTx:1}`、⑤ 引數只有識別字／屬性存取）。
  */
 import { and, eq, inArray, sql } from "drizzle-orm";
+import * as Y from "yjs";
 import type { FastifyBaseLogger } from "fastify";
 import type { CollabServer } from "../collab/server.js";
 import { docClock } from "../collab/store.js";
@@ -33,6 +34,7 @@ import type { NoteCreateHooks } from "./create.js";
 import { loadCreateTarget } from "./create-target.js";
 import { loadNoteDoc } from "./editing/read.js";
 import { syncLinksFromDoc } from "./links.js";
+import { growsPastCap } from "./note-size.js";
 import { extractForIndex } from "./search-index.js";
 import { resolveNoteAccess, UUID_RE } from "./service.js";
 import type { SlugScope } from "./slug.js";
@@ -47,6 +49,8 @@ export interface CopyNoteDeps {
   storageLockTimeoutMs: number;
   /** 與上傳端點、REST 複製**同一實例**（F40）。 */
   limiters: { edit: FixedWindowLimiter; upload: FixedWindowLimiter };
+  /** 筆記大小上限（`config.noteMaxBytes`）；不給＝不擋。 */
+  noteMaxBytes?: number;
   groupTestHook?: GroupTestHook;
   noteCreateHooks?: NoteCreateHooks;
   searchIndexHooks?: SearchIndexHooks;
@@ -64,7 +68,9 @@ export type CopyOutcome =
   | { kind: "aborted"; err: TxAbort }
   /** 個人目標的 23503（理論路徑：複製者帳號在交易中被硬刪，`src/` 沒有這條路徑）。 */
   | { kind: "fk_personal" }
-  | { kind: "busy" };
+  | { kind: "busy" }
+  /** 副本會超過筆記大小上限（`notes/note-size.ts`；副本是新筆記，修改前＝0）。什麼都沒建。 */
+  | { kind: "too_large"; limitBytes: number };
 
 export async function copyNote(
   deps: CopyNoteDeps,
@@ -102,10 +108,21 @@ export async function copyNote(
     if (groupFolder && !m.canEdit) return { kind: "aborted", err: new TxAbort(403, "forbidden", NOTE_FOLDER_ROLE_FORBIDDEN_MESSAGE) };
     scope = { groupId };
   }
-  if (!deps.limiters.edit.consume(userId)) return { kind: "edit_rate_limited" };
+  // `edit` 桶先扣（額度用完的不必載入筆記），被筆記大小上限擋下就退回（審查 r4 M7：413 的複製不吃額度）。
+  const editTicket = deps.limiters.edit.consumeTicket(userId);
+  if (editTicket === null) return { kind: "edit_rate_limited" };
 
   const { doc: snapshot } = await loadNoteDoc({ db: deps.db, collab: deps.collab }, sourceId);
   const copy = cloneForCopy(snapshot);
+  // 筆記大小上限（`config.noteMaxBytes`）：副本是新筆記，比 0 大又超過上限就不建。附件網址在交易內改寫，大小差可忽略。
+  const cap = deps.noteMaxBytes;
+  if (cap !== undefined) {
+    const size = Y.encodeStateAsUpdate(copy.doc).byteLength;
+    if (growsPastCap(0, size, cap)) {
+      deps.limiters.edit.refund(userId, editTicket);
+      return { kind: "too_large", limitBytes: cap };
+    }
+  }
   const searchExtract = extractForIndex(copy.doc); // #93 §5.4：交易前抽（純資料）
   // #175 T4 M-1（Willie 裁決）：複製會多存一份附件檔，依「會被複製的附件數」扣 upload 桶（與上傳端點同桶、同 429 形；
   // 單位＝檔案數，同上傳端點一次一檔）。數法與 `copyNoteInTx` (3) 同一個述詞（文件引用到、且 `note_id`＝來源）；交易前

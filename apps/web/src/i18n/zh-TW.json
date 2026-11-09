@@ -163,6 +163,8 @@
   },
   "note": {
     "titleLabel": "筆記標題",
+    "sizeLimitBlocked": "加進去會超過這篇筆記的大小上限（{{size}}），內容沒有加進去。",
+    "overSizeLimit": "這篇筆記超過大小上限，編輯可能變慢。刪掉一些內容可以讓它變小。",
     "titlePlaceholder": "無標題",
     "readOnly": "唯讀",
     "menu": {
@@ -963,6 +965,8 @@
     "folder_cross_space": "資料夾不能移到其他空間。",
     "folder_delete_blocked": "資料夾裡有你不能刪除的筆記。",
     "folder_not_empty": "資料夾裡還有其他內容，沒有刪除。",
+    "too_complex": "這篇筆記太大或太複雜，伺服器無法在限制內讀出。",
+    "note_too_large": "這次修改會讓筆記超過大小上限，所以沒有存下來。",
     "password_not_set": "這個帳號只透過登入服務登入，沒有可重設的密碼。",
     "user_disabled": "這個帳號已停用，請先啟用再重設密碼。",
     "empty_result": "AI 回傳了空結果。",

@@ -15,7 +15,7 @@ import {
 import type { VersionCurrentCore, VersionService } from "../collab/versions.js";
 import type { Db } from "../db/index.js";
 import { noteVersions, notes, users } from "../db/schema.js";
-import { sendError } from "../http/errors.js";
+import { sendError, sendNoteTooLarge } from "../http/errors.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
 import type { NoteWriteService } from "../notes/editing/write-service.js";
 import { resolveRole, UUID_RE } from "../notes/service.js";
@@ -208,6 +208,8 @@ export function noteVersionsRoutes(deps: NoteVersionsRouteDeps) {
           if (out.kind === "busy") return sendError(reply, 503, "server_busy", "The note is being written right now. Try again in a moment.");
           // #181 §6.2-11：授權之後被移入垃圾桶（或正被移入）→ 同授權 none 的 404。
           if (out.kind === "gone") return sendError(reply, 404, "not_found", NOTE_NOT_FOUND);
+          // 套回的版本比現況大、而且超過筆記大小上限（`notes/note-size.ts`）。
+          if (out.kind === "too_large") return sendNoteTooLarge(reply, out.limitBytes);
           if (out.code === "not_found") return sendError(reply, 404, "not_found", VERSION_NOT_FOUND);
           if (out.code === "version_mismatch") return sendError(reply, 409, "version_mismatch", "That version no longer exists or has been replaced. Reload and try again.");
           return sendError(reply, 409, "version_unsaved_changes", "The note has changes that aren't in any saved version.");

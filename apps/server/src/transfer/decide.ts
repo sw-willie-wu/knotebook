@@ -60,8 +60,8 @@ export function isLoneEmptyParagraph(fragment: Y.XmlFragment): boolean {
   if (c.length !== 1) return false;
   const p = c.get(0);
   if (!(p instanceof Y.XmlElement) || p.nodeName !== "paragraph") return false;
-  for (let i = 0; i < p.length; i++) {
-    const t = p.get(i);
+  // #398 審查 C1：Y 型別的 `get(i)` 每次從頭走（O(i)），索引迴圈是平方——`x<br>`×4.9 萬的段落有約 10 萬個子節點；一律 `toArray()` 一次走完。
+  for (const t of p.toArray()) {
     if (!(t instanceof Y.XmlText) || t.length !== 0) return false;
   }
   return true;

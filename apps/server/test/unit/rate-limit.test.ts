@@ -640,3 +640,45 @@ describe("FixedWindowLimiter 函式額度與 retryAfterMs（bulk transfer spec �
     expect(TRANSFER_WRITE_LIMIT).toEqual({ limit: 30, windowMs: 60_000 });
   });
 });
+
+describe("FixedWindowLimiter.consumeTicket／refund（全分支審查 I2：寫回解析前扣、零區退回；複審 Minor 2：退回要對到同一個視窗）", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("R1 退回目前視窗的一次：limit 1 扣滿 → refund(那次的 ticket) → 再扣一次放行", () => {
+    const l = new FixedWindowLimiter({ limit: 1, windowMs: 60_000 });
+    const ticket = l.consumeTicket("u");
+    expect(ticket).not.toBeNull();
+    expect(l.isBlocked("u")).toBe(true);
+    l.refund("u", ticket!);
+    expect(l.isBlocked("u")).toBe(false);
+    expect(l.consume("u")).toBe(true);
+    expect(l.consume("u")).toBe(false);
+  });
+
+  it("R2 被拒回 null（照樣計數）；沒有視窗、計數 0 → refund 什麼都不做（計數不變負、不開窗）", () => {
+    vi.useFakeTimers();
+    const l = new FixedWindowLimiter({ limit: 1, windowMs: 1_000 });
+    l.refund("u", Date.now()); // 沒有視窗
+    expect(l.retryAfterMs("u")).toBe(0);
+    const t1 = l.consumeTicket("u");
+    expect(t1).toBe(Date.now());
+    expect(l.consumeTicket("u")).toBeNull(); // 被拒也計數（count 2）
+    l.refund("u", t1!);
+    l.refund("u", t1!);
+    l.refund("u", t1!); // 計數已是 0：不變負
+    expect(l.consume("u")).toBe(true);
+    expect(l.consume("u")).toBe(false);
+  });
+
+  it("R3 扣完之後視窗過期、又開了新窗：拿舊 ticket 退回不會減到新窗上", () => {
+    vi.useFakeTimers();
+    const l = new FixedWindowLimiter({ limit: 1, windowMs: 1_000 });
+    const old = l.consumeTicket("u");
+    expect(old).not.toBeNull();
+    vi.advanceTimersByTime(1_000);
+    expect(l.consume("u")).toBe(true); // 新窗，扣滿
+    l.refund("u", old!); // 舊窗的 ticket：不動新窗
+    expect(l.isBlocked("u")).toBe(true);
+    expect(l.consume("u")).toBe(false);
+  });
+});

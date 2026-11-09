@@ -33,7 +33,13 @@ export interface Region {
   nextSeg: number;
 }
 /** `fence`：未閉合的那一行用的 fence 記號（``` 或 ~~~，原樣幾個字元），給訊息用（8000 探索測試 E）。 */
-export type RegionsResult = { ok: true; regions: Region[]; boundaryChecks: number } | { ok: false; code: "empty_content" } | { ok: false; code: "unclosed_fence"; fence: string };
+export type RegionsResult = { ok: true; regions: Region[]; boundaryChecks: number } | { ok: false; code: "empty_content" } | { ok: false; code: "unclosed_fence"; fence: string } | { ok: false; code: "too_complex" };
+/**
+ * #398：未閉合 fence 的判斷（{@link trailingOpenFenceLine}）由呼叫端給——生產上在 parse worker 裡跑（`runtime.parser.openFenceLine`）：
+ * 它把整檔丟給 `markdownToHTML`，對 `*a ` 重複這類輸入是平方級（256 KiB 約 64 秒，實測），不能在主執行緒做。`"too_complex"`＝worker
+ * 逾時或用完記憶體。
+ */
+export type OpenFenceLine = (lines: readonly string[]) => Promise<number | null | "too_complex">;
 
 /**
  * 總管裁示（審查 m3，複審改裁）：agent **新增或改過**的一行開了 code fence、而且一路延伸到檔尾沒有收尾 → 整篇 400、什麼都不寫
@@ -76,7 +82,20 @@ export function trailingOpenFenceLine(lines: readonly string[]): number | null {
 
 /** 拿掉所有**閉合**的 `<!--…-->`（純文字處理，不懂 markdown）；未閉合的 `<!--` 原樣留著。 */
 export function stripClosedComments(s: string): string {
-  return s.replace(/<!--[\s\S]*?-->/g, "");
+  // #398 審查 I1：原本是 `s.replace(/<!--[\s\S]*?-->/g, "")`——沒收尾的 `<!--` 每個都往後掃到檔尾才失敗，`<!--`×6.5 萬（260 KB）
+  // 主執行緒停 4 秒。改成 indexOf 一路往前（線性），結果相同：每個 `<!--` 配它之後（不重疊）的第一個 `-->`；某個 `<!--` 之後已經
+  // 沒有 `-->`，之後的 `<!--` 也一定沒有，就此停。
+  let out = "";
+  let i = 0;
+  for (;;) {
+    const a = s.indexOf("<!--", i);
+    if (a === -1) break;
+    const b = s.indexOf("-->", a + 4);
+    if (b === -1) break;
+    out += s.slice(i, a);
+    i = b + 3;
+  }
+  return i === 0 ? s : out + s.slice(i);
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 泛型三元組，走 repo 慣例（同 session.ts）
@@ -119,6 +138,8 @@ export function makeBoundaryCheck(parse: (markdown: string) => AnyPartialBlock[]
 }
 
 const blank = (l: string | undefined): boolean => l === undefined || lineKey(l) === "";
+/** #398 審查 C2：邊界檢查相接的那串超過這麼多字元（UTF-16）就不解析、直接當那段改過。 */
+export const BOUNDARY_ADJ_MAX_CHARS = 4 * 1024;
 
 export async function findRegions(
   segments: TransferSegment[],
@@ -126,6 +147,7 @@ export async function findRegions(
   agentLines: string[],
   diff: LineDiff,
   checkBoundary: CheckBoundary,
+  openFenceLine: OpenFenceLine,
   opts: { yieldFn?: () => Promise<void>; now?: () => number } = {},
 ): Promise<RegionsResult> {
   const joined = agentLines.join("\n");
@@ -161,16 +183,22 @@ export async function findRegions(
   // ④ 邊界驗證（一輪；用 ② 的結果，不迭代）
   const unchanged = matched.slice();
   let boundaryChecks = 0;
-  const adjUp = (from: number): string => {
-    let p = from;
-    while (p - 1 >= 0 && !blank(agentLines[p - 1])) p--;
-    return agentLines.slice(p, from + 1).join("\n");
-  };
-  const adjDown = (from: number): string => {
-    let q = from;
-    while (q + 1 < M && !blank(agentLines[q + 1])) q++;
-    return agentLines.slice(from, q + 1).join("\n");
-  };
+  // #398 審查 C2：相接的那串（連續非空行）一次算好起訖與長度（線性；原本每段各往上／往下掃一次，段多、串長時是平方），
+  // 而且太長（> `BOUNDARY_ADJ_MAX_CHARS`）就不解析、直接當「改過」——否則每段都把整串丟去解析一次，一個檔可以花掉幾小時的 worker 時間。
+  // 當成改過的後果只是那段會被重寫（id 換新），內容照檔案。
+  const isBlank = new Uint8Array(M);
+  for (let j = 0; j < M; j++) isBlank[j] = blank(agentLines[j]) ? 1 : 0;
+  const runStart = new Int32Array(M);
+  const runEnd = new Int32Array(M);
+  const offset = new Float64Array(M + 1); // offset[j]＝第 j 行在 `agentLines.join("\n")` 裡的起點
+  for (let j = 0; j < M; j++) {
+    offset[j + 1] = offset[j]! + agentLines[j]!.length + 1;
+    runStart[j] = isBlank[j] ? -1 : j > 0 && !isBlank[j - 1] ? runStart[j - 1]! : j;
+  }
+  for (let j = M - 1; j >= 0; j--) runEnd[j] = isBlank[j] ? -1 : j + 1 < M && !isBlank[j + 1] ? runEnd[j + 1]! : j;
+  const chars = (p: number, q: number) => offset[q + 1]! - offset[p]! - 1;
+  const adjUp = (from: number): string | null => (chars(runStart[from]!, from) > BOUNDARY_ADJ_MAX_CHARS ? null : agentLines.slice(runStart[from]!, from + 1).join("\n"));
+  const adjDown = (from: number): string | null => (chars(from, runEnd[from]!) > BOUNDARY_ADJ_MAX_CHARS ? null : agentLines.slice(from, runEnd[from]! + 1).join("\n"));
   for (let k = 0; k < S; k++) {
     if (!matched[k] || emptyPara[k]) continue;
     const s = segments[k]!;
@@ -180,7 +208,8 @@ export async function findRegions(
     let ok = true;
     if (a0 - 1 >= 0 && !blank(agentLines[a0 - 1]) && !(s.start - 1 >= 0 && pair[s.start - 1] === a0 - 1)) {
       boundaryChecks++;
-      ok = await checkBoundary(kText, adjUp(a0 - 1), "before");
+      const adj = adjUp(a0 - 1);
+      ok = adj !== null && (await checkBoundary(kText, adj, "before"));
       if (now() - last >= YIELD_AFTER_MS) {
         await yieldFn();
         last = now();
@@ -188,7 +217,8 @@ export async function findRegions(
     }
     if (ok && a1 + 1 < M && !blank(agentLines[a1 + 1]) && !(s.start + s.count < baseLineCount && pair[s.start + s.count] === a1 + 1)) {
       boundaryChecks++;
-      ok = await checkBoundary(kText, adjDown(a1 + 1), "after");
+      const adj = adjDown(a1 + 1);
+      ok = adj !== null && (await checkBoundary(kText, adj, "after"));
       if (now() - last >= YIELD_AFTER_MS) {
         await yieldFn();
         last = now();
@@ -217,7 +247,8 @@ export async function findRegions(
     for (let j = span[k]!.a0; j <= span[k]!.a1; j++) inUnchanged[j] = 1;
   }
   if (agentLines.some((l, j) => inUnchanged[j] === 0 && FENCE_LIKE.test(l))) {
-    const open = trailingOpenFenceLine(agentLines);
+    const open = await openFenceLine(agentLines);
+    if (open === "too_complex") return { ok: false, code: "too_complex" };
     if (now() - last >= YIELD_AFTER_MS) {
       await yieldFn();
       last = now();

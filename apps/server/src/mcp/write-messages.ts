@@ -8,7 +8,13 @@
  * 模型看得到的字串一律英文（同 `docs/`；不是 UI 文案，不走 i18n）。
  */
 import { PALETTE_COLORS } from "@knotebook/shared";
-import type { ParseError } from "../notes/editing/markdown.js";
+import type { ParseDetail, ParseError } from "../notes/editing/markdown.js";
+
+/** #398：解析的 worker 全忙、排隊超過上限（`server_busy`）——`edit_note` 與 `create_note` 帶 content 共用。 */
+export const PARSER_BUSY_TOOL_MESSAGE = "The server is busy processing other writes, so nothing was written. Try again in a moment.";
+
+/** 寫進既有筆記的轉換逾時或用完記憶體（`too_complex`）：是筆記本身太大或太複雜。 */
+export const NOTE_WRITE_TOO_COMPLEX_TOOL_MESSAGE = "This note is too large or too complex for the server to change within its time and memory limits, so nothing was written. Retrying won't help.";
 
 /** `edit` 桶（`docs/ai-editing.md` 的 Writes 那一列）擋下來時模型看到的字。 */
 export const WRITE_RATE_LIMITED_MESSAGE = "Too many note writes right now. Wait a moment before writing again.";
@@ -17,9 +23,11 @@ export const WRITE_RATE_LIMITED_MESSAGE = "Too many note writes right now. Wait 
  * 解析／套用失敗的逐碼說明。`empty_section` 只有 `edit_note` 產得出來（`create_note` 的失敗
  * 形只有 {@link ParseError} 那六個），但它與另外六個是同一張表，分開就會變成兩份。
  */
-export function writeFailureMessage(code: ParseError | "empty_section"): string {
+export function writeFailureMessage(code: ParseError | "empty_section", detail?: ParseDetail): string {
   switch (code) {
     case "unsupported_block":
+      // #398：解析超過時限、或用完 worker 的記憶體或堆疊——不是「有不支援的東西」，換一句。
+      if (detail === "too_complex") return "That markdown is too complex to process within the server's time and memory limits, so nothing was written. Split it into smaller writes or simplify its formatting.";
       return "That markdown contains something this editor cannot store. Plain markdown — headings, text, lists, code, tables — works.";
     case "unsupported_color":
       // #222：色名清單取自 `PALETTE_COLORS`（單一真相），不手抄。

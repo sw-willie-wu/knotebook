@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { EditingRuntime } from "../../src/notes/editing/runtime.js";
 import { normalizeBody } from "../../src/transfer/normalize.js";
-import { fenceParseStats, stripClosedComments, trailingOpenFenceLine, type Region } from "../../src/transfer/regions.js";
+import { BOUNDARY_ADJ_MAX_CHARS, fenceParseStats, stripClosedComments, trailingOpenFenceLine, type Region } from "../../src/transfer/regions.js";
 import { TRANSFER_SHAPES } from "./fixtures/transfer-shapes.js";
 import { docWith, makeBaseInMemory, realBoundaryCheck, regionsOf, type InMemoryBase } from "./fixtures/transfer-sync.js";
+import { expectLinear } from "../perf-helpers.js";
 
 /** bulk transfer spec §9.3-2～-8、§18.1「區偵測」；plan PR-2 §0.1-2、-3、T4（R1–R10）。 */
 
@@ -351,4 +352,34 @@ describe("R10 只匯出空行的型別（gate r1 m22）", () => {
     }
     expect(seen).toBeGreaterThan(0);
   }, 120_000);
+});
+
+describe("#398 審查 C2／I1：邊界檢查的上限、註解剝除線性", () => {
+  it("相接那串超過 4 096 字（BOUNDARY_ADJ_MAX_CHARS）→ 不解析、那段當改過；剛好 4 096 字 → 照常解析", async () => {
+    expect(BOUNDARY_ADJ_MAX_CHARS).toBe(4 * 1024);
+    const b = await base([P("A"), P("B")]);
+    const calls: string[] = [];
+    const spy = async (k: string, adj: string, side: "before" | "after") => {
+      calls.push(adj);
+      return check(k, adj, side);
+    };
+    const long = "y".repeat(4 * 1024 + 1);
+    const r1 = ok(await regionsOf(rt, b, `A\n\n${long}\nB`, { check: spy }));
+    expect(calls).toHaveLength(0);
+    expect(summary(b, r1.regions)).toEqual([{ kind: "rewrite", idx: [1], text: `${long}\nB` }]);
+    const fit = "y".repeat(4 * 1024);
+    await regionsOf(rt, b, `A\n\n${fit}\nB`, { check: spy });
+    expect(calls).toEqual([fit]);
+  });
+  it("stripClosedComments 與原本的 regex 結果相同（含沒收尾、重疊、相鄰），且 `<!--`×6.5 萬是線性的", async () => {
+    const ref = (s: string) => s.replace(/<!--[\s\S]*?-->/g, "");
+    for (const s of ["", "a", "<!---->", "<!-->x-->y", "a<!--b-->c<!--d", "<!--<!--x-->-->", "x<!--a-->-->y<!--", "<!--a--><!--b-->c", "<!-- a --\n> b -->c"]) {
+      expect(stripClosedComments(s), JSON.stringify(s)).toBe(ref(s));
+    }
+    await expectLinear("stripClosedComments", n => {
+      const t = performance.now();
+      expect(stripClosedComments("<!--".repeat(n))).toBe("<!--".repeat(n));
+      return performance.now() - t;
+    }, 64_000);
+  });
 });

@@ -9,7 +9,7 @@ import { INVALID_UTF8_MESSAGE } from "../src/routes/transfer.js";
 import type { TokenScope } from "@knotebook/shared";
 import { apiTokens } from "../src/db/schema.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
-import { TRANSFER_WRITE_BODY_LIMIT } from "../src/http/body-limits.js";
+import { TRANSFER_WRITE_BODY_LIMIT, WRITE_BODY_LIMIT } from "../src/http/body-limits.js";
 import { buildCollabTestApp } from "./helpers.js";
 import { seedTokenForUser } from "./editing-helpers.js";
 import { cookieOf, seedNote, seedUser } from "./group-helpers.js";
@@ -114,14 +114,15 @@ describe("body 外殼：415／Origin／413／UTF-8", () => {
     expect(good.statusCode).toBe(201);
   });
 
-  it("W-A8 body 1 MiB＋1 byte → 413 content_too_large；恰 1 MiB → 不是 413", async () => {
+  it("W-A8（全分支審查 I2(c) 起 256 KiB，同 WRITE_BODY_LIMIT）body 256 KiB＋1 byte → 413 content_too_large；恰 256 KiB → 201 寫入", async () => {
     const s = await scene();
-    expect(TRANSFER_WRITE_BODY_LIMIT).toBe(1_048_576);
+    expect(TRANSFER_WRITE_BODY_LIMIT).toBe(262_144);
+    expect(TRANSFER_WRITE_BODY_LIMIT).toBe(WRITE_BODY_LIMIT);
     const over = await bulkPut(s.ctx.app, s.bulk.token, Buffer.alloc(TRANSFER_WRITE_BODY_LIMIT + 1, 0x61));
     expect(over.statusCode).toBe(413);
     expect(errOf(over).code).toBe("content_too_large");
     const exact = await bulkPut(s.ctx.app, s.bulk.token, Buffer.alloc(TRANSFER_WRITE_BODY_LIMIT, 0x61));
-    expect(exact.statusCode).not.toBe(413);
+    expect(exact.statusCode).toBe(201);
   });
 
   it("W-A9 body 非 UTF-8 → 400 invalid_body＋INVALID_UTF8_MESSAGE", async () => {

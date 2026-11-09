@@ -93,6 +93,8 @@ export interface AiHostProps {
   noteId?: string;
   editable?: boolean;
   onAutoClose?: () => void;
+  /** 筆記大小上限的前端檢查（`AiSessionProvider` 的 `sizeGuard`）。 */
+  sizeGuard?: (incomingBytes: number) => boolean;
   children?: ReactNode;
 }
 
@@ -106,7 +108,7 @@ export function renderAiHost(props: AiHostProps) {
     <MemoryRouter>
       <ThemeProvider>
         <QueryClientProvider client={queryClient}>
-          <AiSessionProvider editor={p.editor} noteId={p.noteId ?? "note-1"} editable={p.editable ?? true} onAutoClose={p.onAutoClose}>
+          <AiSessionProvider editor={p.editor} noteId={p.noteId ?? "note-1"} editable={p.editable ?? true} onAutoClose={p.onAutoClose} sizeGuard={p.sizeGuard}>
             <NoteEditorView
               editor={p.editor}
               editable={p.editable ?? true}

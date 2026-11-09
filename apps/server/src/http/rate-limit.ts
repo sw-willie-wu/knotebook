@@ -104,6 +104,14 @@ export class FixedWindowLimiter {
   }
 
   consume(key: string): boolean {
+    return this.consumeTicket(key) !== null;
+  }
+
+  /**
+   * 同 `consume`（照樣「必計數」），但放行時回這次落在的視窗的起點（`refund` 的憑據），被拒回 `null`。
+   * 全分支審查複審 Minor 2：退回時要知道扣的是哪個視窗——扣完之後視窗過期、又開了新窗，退回不能減到新窗上。
+   */
+  consumeTicket(key: string): number | null {
     const now = Date.now();
     let window = this.windows.get(key);
     if (!window || now - window.windowStart >= this.windowMs) {
@@ -113,7 +121,7 @@ export class FixedWindowLimiter {
       this.windows.set(key, window);
     }
     window.count += 1;
-    return window.count <= this.limitOf();
+    return window.count <= this.limitOf() ? window.windowStart : null;
   }
 
   /**
@@ -152,6 +160,17 @@ export class FixedWindowLimiter {
     const window = this.windows.get(key);
     if (!window || Date.now() - window.windowStart >= this.windowMs) return false;
     return window.count >= this.limitOf();
+  }
+
+  /**
+   * 退回一次 `consumeTicket`（全分支審查 I2：檔案寫回在解析之前就扣，解析完才知道是零區、什麼都不寫時退回）。`ticket` 是那次
+   * `consumeTicket` 回的視窗起點：只在這個 key 目前的視窗**就是那一個**、計數 > 0 時減一；視窗已換（過期後又開了新窗）、
+   * 不存在就什麼都不做——不開新窗、不讓計數變負、不減到別的視窗上。
+   */
+  refund(key: string, ticket: number): void {
+    const window = this.windows.get(key);
+    if (!window || window.windowStart !== ticket || window.count === 0) return;
+    window.count -= 1;
   }
 
   /**

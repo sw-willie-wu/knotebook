@@ -74,6 +74,11 @@ export interface AuthConfigDto {
   passwordLogin: { enabled: boolean };
   /** 版本歷史 §6.8：站台自動儲存總開關（`site_settings.auto_versions_enabled`）——個人與群組開關在它關閉時顯示 disabled。 */
   autoVersionsEnabled: boolean;
+  /**
+   * 筆記大小上限（server `NOTE_MAX_BYTES`，Yjs 狀態的位元組數）。網頁編輯器在貼上、拖放、站內 AI 套用之前據此自己擋（瀏覽器的協作更新
+   * 不在 server 檢查），已超過的筆記顯示提示。server 一律回傳；選填只是讓沒有這個欄位的回應（測試替身、舊 server）照常可用＝不檢查。
+   */
+  noteMaxBytes?: number;
 }
 
 /** #187：一個啟用中的單一登入服務（登入頁按鈕、連結頁的證明方式）。只曝光 id、顯示名與圖示——issuer／client id 不出線。 */
@@ -573,6 +578,10 @@ export const ERROR_CODES = [
   "folder_cross_space",
   "folder_delete_blocked",
   "folder_not_empty",
+  // `too_complex`＝500（MCP 工具錯誤同名）：讀出一篇筆記的轉換在 parse worker 裡逾時或用完記憶體（筆記太大或太複雜；重試無用）。
+  "too_complex",
+  // `note_too_large`＝413（MCP 工具錯誤同名）：這次修改會讓筆記的大小（Yjs 狀態的位元組數）超過 `NOTE_MAX_BYTES`，而且比修改前大；details 帶 `limitBytes`。
+  "note_too_large",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
@@ -1302,6 +1311,7 @@ export * from "./note-colors.js";
 export * from "./note-markdown-read.js";
 export * from "./note-sizes.js";
 export * from "./note-markdown-write.js";
+export * from "./note-markdown-guards.js";
 export * from "./site-link.js";
 export * from "./note-schema-version.js";
 export * from "./group-roles.js";

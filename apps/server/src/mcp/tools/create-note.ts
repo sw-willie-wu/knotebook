@@ -41,8 +41,9 @@ import {
 import { WRITE_NOTE_LINK_SENTENCE } from "../note-link-strings.js";
 import { insertedRow, rereadVisibleNote } from "../note-rows.js";
 import { toolError, toolResult } from "../tool-result.js";
-import { WRITE_RATE_LIMITED_MESSAGE, writeFailureMessage } from "../write-messages.js";
+import { PARSER_BUSY_TOOL_MESSAGE, WRITE_RATE_LIMITED_MESSAGE, writeFailureMessage } from "../write-messages.js";
 import { requireWriteScope } from "../write-scope.js";
+import { noteTooLargeMessage } from "../../notes/note-size.js";
 import type { McpToolCtx } from "../context.js";
 
 /** 模型看得到的字串一律英文（同 `docs/`；不是 UI 文案，不走 i18n）。 */
@@ -228,7 +229,11 @@ export async function createNote(args: CreateNoteArgs, ctx: McpToolCtx): Promise
     if (!out.ok) {
       // 解析失敗＝一列都沒建（「解析在建列之前」是契約）；`internal` ＝套用失敗，service 已經
       // best-effort 刪掉剛建的列。**佇列逾時走的是後者**，不是 `server_busy`。
-      if (out.kind === "parse") return toolError(out.code, writeFailureMessage(out.code));
+      if (out.kind === "parse") return toolError(out.code, writeFailureMessage(out.code, out.detail));
+      // #398：解析的 worker 全忙——建列之前，一列都沒建。
+      if (out.kind === "parser_busy") return toolError("server_busy", PARSER_BUSY_TOOL_MESSAGE);
+      // 內容會讓新筆記超過大小上限——service 已刪掉剛建的列。
+      if (out.kind === "too_large") return toolError("note_too_large", noteTooLargeMessage(out.limitBytes), { limitBytes: out.limitBytes });
       return toolError("internal", CREATE_FAILED_MESSAGE);
     }
     const fresh = await rereadVisibleNote(ctx, out.noteId, target.scope);

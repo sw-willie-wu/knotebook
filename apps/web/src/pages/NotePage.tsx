@@ -36,6 +36,8 @@ import { NoteEditor } from "@/components/NoteEditor";
 import { NoteMenu } from "@/components/NoteMenu";
 import { NoteWidthMenu } from "@/components/NoteWidthMenu";
 import { OutdatedClientBanner } from "@/components/OutdatedClientBanner";
+import { useAuthConfig } from "@/api/authConfig";
+import { useNoteOverLimit } from "@/hooks/useNoteOverLimit";
 import { useLocalPresenceField } from "@/components/presence/local-field";
 import { PresenceAvatars } from "@/components/presence/PresenceAvatars";
 import { ShareDialog } from "@/components/ShareDialog";
@@ -368,6 +370,10 @@ export default function NotePage() {
     onUnauthorized: handleUnauthorized,
     onDocUpdate,
   });
+  // 筆記大小上限（server `NOTE_MAX_BYTES`）：編輯器在貼上、拖放、站內 AI 套用之前自己擋（`lib/note-size-guard.ts`）；已經超過的筆記
+  // 給一個不擋編輯的提示（同步後算一次，之後節流重算）。
+  const noteMaxBytes = useAuthConfig().data?.noteMaxBytes;
+  const overLimit = useNoteOverLimit(doc, noteMaxBytes, noteId !== undefined && syncedFor === noteId);
 
   // #293 §9.4：scroller 存 ref（函式不能進 setState；頭像列只在點擊當下讀，讀碼發現 9）。
   const cursorScrollerRef = useRef<CursorScroller | null>(null);
@@ -783,12 +789,18 @@ export default function NotePage() {
             onScrollRoot={setAnchorRoot}
             onCursorScroller={handleCursorScroller}
             notePath={canonicalNotePath(note)}
+            noteMaxBytes={noteMaxBytes}
             headerSlot={
               // #115：頁首滿卡寬（置左置右）——單層 header 自己就是內容列，標題貼左、
               // 控制項貼右；`px-5`（20px）與 `<md` 的內文左緣共線。#88 的文章欄對齊
               // 已刻意拆除（見 ui/article-column.ts 檔頭）。
               <>
                 {state.phase === "outdated" && <OutdatedClientBanner />}
+                {overLimit && (
+                  <p role="status" className="border-b border-border bg-muted px-5 py-2 text-sm">
+                    {t("note.overSizeLimit")}
+                  </p>
+                )}
                 <header ref={noteHeaderRef} className="@container flex items-center gap-3 border-b border-border px-5 py-3">
                   {/* #115：窄視窗的抽屜入口（md:hidden）——筆記載入成功態不掛
                       NarrowTopBar（頁首自己有這顆）；載入中/錯誤的佔位卡沒有頁首，

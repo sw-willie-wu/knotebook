@@ -3,6 +3,8 @@ import { BlockNoteEditor } from "@blocknote/core";
 import * as shared from "@knotebook/shared";
 import { EditingRuntime } from "../../src/notes/editing/runtime.js";
 import { sameCanonicalStats } from "../../src/transfer/same-canonical.js";
+// 呼叫次數的案子不量牆鐘，但照樣真的讓出事件迴圈：整段規劃（上千區）同步跑完會佔住 vitest worker（onTaskUpdate 60 秒逾時，PR #400 的 CI）。
+import { yieldToLoop } from "../../src/transfer/yield.js";
 import { docWith, forkOf, makeBaseInMemory, planInMemory, withEditor } from "./fixtures/transfer-sync.js";
 
 // 不靠時間的守衛：數 `topLevelContainers` 被呼叫幾次（同 sameCanonical 的頂層索引入口；包一層計數、內部仍呼叫原函式）。
@@ -61,7 +63,7 @@ describe("規劃尾段", () => {
     for (const n of [20, 200]) {
       const { b, live, body } = await scene(n);
       spy.mockClear();
-      const r = await planInMemory(rt, b, body, live, { yieldFn: async () => {} });
+      const r = await planInMemory(rt, b, body, live, { yieldFn: yieldToLoop });
       if (!r.ok) throw new Error(r.code);
       counts.push(spy.mock.calls.length);
     }
@@ -77,7 +79,7 @@ describe("規劃尾段", () => {
       for (const n of [20, 200]) {
         const { b, live, body } = await scene(n);
         spy.mockClear();
-        const r = await planInMemory(rt, b, body, live, { yieldFn: async () => {} });
+        const r = await planInMemory(rt, b, body, live, { yieldFn: yieldToLoop });
         if (!r.ok) throw new Error(r.code);
         counts.push(spy.mock.calls.length);
       }
@@ -101,13 +103,13 @@ describe("規劃尾段", () => {
   it("canonicalize 次數（不靠牆鐘）：插入區 1 000 個 × 外來 2 000 顆 → 每顆至多一次（快取）；改寫區長度不同 → 不 canonicalize 外來（先比長度）", async () => {
     const ins = await foreignScene("insert");
     sameCanonicalStats.canonicalized = 0;
-    const ri = await planInMemory(rt, ins.b, ins.body, ins.live, { yieldFn: async () => {} });
+    const ri = await planInMemory(rt, ins.b, ins.body, ins.live, { yieldFn: yieldToLoop });
     if (!ri.ok) throw new Error(ri.code);
     expect(ri.plan.regions.filter(r => r.kind === "insert")).toHaveLength(1000);
     const insCount = sameCanonicalStats.canonicalized;
     const rw = await foreignScene("rewrite");
     sameCanonicalStats.canonicalized = 0;
-    const rr = await planInMemory(rt, rw.b, rw.body, rw.live, { yieldFn: async () => {} });
+    const rr = await planInMemory(rt, rw.b, rw.body, rw.live, { yieldFn: yieldToLoop });
     if (!rr.ok) throw new Error(rr.code);
     expect(rr.plan.regions).toHaveLength(500);
     const rwCount = sameCanonicalStats.canonicalized;

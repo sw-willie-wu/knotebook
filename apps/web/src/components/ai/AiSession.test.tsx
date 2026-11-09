@@ -21,6 +21,8 @@ import {
 import { IMG, P, integrity, row, shape, withChildren } from "@/test/columns-fixtures";
 import { replaceBlocksKeepColumns } from "@/collab/columns/keep-columns";
 import { activeAnchorOf, useAiSession, type AiSessionValue } from "./AiSession";
+import * as Y from "yjs";
+import { createNoteSizeGuard, estimateBlocksBytes } from "@/lib/note-size-guard";
 import { SelectionAiController } from "./SelectionAiController";
 
 // 包一層照呼叫原實作的 spy（斷言自動套用寫入的陣列身分）；不用 automock——那會讓套用變成什麼都不做。
@@ -60,10 +62,10 @@ const highlighted = () => editor.getExtension(ShowSelectionExtension)!.store.sta
 const docText = () => JSON.stringify(editor.document);
 const phase = () => session.state.phase;
 
-async function mount(opts: { actions?: AiActionDto[]; doc?: unknown[]; onAutoClose?: () => void } = {}) {
+async function mount(opts: { actions?: AiActionDto[]; doc?: unknown[]; onAutoClose?: () => void; sizeGuard?: (incomingBytes: number) => boolean } = {}) {
   editor = createTestEditor(opts.doc ?? DOC);
   const ai = stubAiFetch({ actions: opts.actions ?? ACTIONS });
-  const host = renderAiHost({ editor, onAutoClose: opts.onAutoClose, children: <Probe /> });
+  const host = renderAiHost({ editor, onAutoClose: opts.onAutoClose, sizeGuard: opts.sizeGuard, children: <Probe /> });
   await waitFor(() => expect(session.actions).toHaveLength((opts.actions ?? ACTIONS).length));
   return { ai, host };
 }
@@ -449,6 +451,54 @@ describe("AiSession 狀態機（#263 spec §5.2）", () => {
     });
     expect(retried).toBe(false);
     expect(ai.calls).toHaveLength(1);
+  });
+
+  /** 真的檢查函式（`createNoteSizeGuard`）：筆記現在約 `size` 位元組（另一份 Y.Doc 代表），上限＝現在的大小＋`headroom`。 */
+  function realGuard(headroom: number) {
+    const doc = new Y.Doc();
+    doc.getText("t").insert(0, "x".repeat(20_000));
+    const limit = Y.encodeStateAsUpdate(doc).byteLength + headroom;
+    const notified: number[] = [];
+    const calls: number[] = [];
+    const guard = createNoteSizeGuard(() => doc, () => limit, l => notified.push(l));
+    return { notified, calls, guard: (g: number) => (calls.push(g), guard(g)) };
+  }
+
+  it("筆記大小上限（真的檢查）：AI 回一張大表格、會超過上限 → direct 不自動套用（停在 done、文件不動，不另跳「原文已變更」）；手動套用也回 false", async () => {
+    const g = realGuard(2_000);
+    const { ai } = await mount({ sizeGuard: g.guard });
+    openOn("p1", 0, 5);
+    startAction(REWRITE.id);
+    const table = "| a | b | c | d | e |\n|---|---|---|---|---|\n" + Array.from({ length: 30 }, (_, r) => `| ${r} | b | c | d | e |`).join("\n");
+    await finishStream(ai.calls[0]!, table);
+    const s = session.state;
+    if (s.phase !== "done") throw new Error(`預期 done，實得 ${s.phase}`);
+    expect(g.calls[0]).toBe(estimateBlocksBytes(s.prepared.blocks) - estimateBlocksBytes([editor.getBlock("p1")]));
+    expect(g.calls[0]!).toBeGreaterThan(2_000);
+    expect(s.applied).toBeNull();
+    expect(g.notified).toHaveLength(1);
+    expect(docText()).toContain("alpha beta gamma");
+    expect(vi.mocked(toast)).not.toHaveBeenCalledWith({ title: i18n.t("ai.box.applyGuardFailed") });
+    let applied = true;
+    act(() => {
+      applied = session.apply(true);
+    });
+    expect(applied).toBe(false);
+    expect(phase()).toBe("done");
+    expect(docText()).toContain("alpha beta gamma");
+    expect(g.notified).toHaveLength(2);
+  });
+
+  it("筆記大小上限（真的檢查）：同樣只剩一點空間，AI 改寫成較短的字（扣掉被取代的原文 → 成長 < 0）→ 照常自動套用", async () => {
+    const g = realGuard(10);
+    const { ai } = await mount({ sizeGuard: g.guard });
+    openOn("p1", 0, 5);
+    startAction(REWRITE.id);
+    await finishStream(ai.calls[0]!, "ALPHA");
+    expect(g.calls[0]!).toBeLessThan(0);
+    expect(g.notified).toEqual([]);
+    expect(docText()).toContain("ALPHA");
+    expect(docText()).not.toContain("alpha beta gamma");
   });
 
   it("手動套用成功 → 回 idle（S1）、文件換字、關標亮", async () => {

@@ -377,16 +377,17 @@ describe("buildNoteEditorOptions", () => {
     await flushMicrotasks();
   });
 
-  it("攔截掛在 editorProps.handleDOMEvents，**不是** handlePaste/handleDrop", () => {
+  it("媒體攔截掛在 editorProps.handleDOMEvents，**不是** handlePaste/handleDrop", () => {
     const editorProps = build()._tiptapOptions.editorProps;
 
-    // 這條是 BlockNote 0.52 實測結論的護欄：BlockNote 自己的 handleDOMEvents.paste
-    // 外掛一律先 preventDefault 並接管，handlePaste/handleDrop 永遠不會被呼叫到。
-    // 有人「順手」改回那兩個 prop，這裡就會紅。
-    expect(editorProps).not.toHaveProperty("handlePaste");
-    expect(editorProps).not.toHaveProperty("handleDrop");
+    // 這條是 BlockNote 0.52 實測結論的護欄：BlockNote 自己的 handleDOMEvents.paste 外掛一律先 preventDefault 並接管（之後才經
+    // `view.pasteHTML`／`pasteText` 解析成 slice），只帶檔案的拖放也不會走到 handleDrop——data URL／非圖片檔案的攔截必須在原始
+    // DataTransfer 那層（handleDOMEvents）。handlePaste／handleDrop 只拿來做筆記大小上限的檢查（解析好的 slice；真的接得到，見
+    // `NoteEditor.size-guard.test.tsx`），不能把媒體攔截搬過去。
     expect(typeof editorProps.handleDOMEvents.paste).toBe("function");
     expect(typeof editorProps.handleDOMEvents.drop).toBe("function");
+    const blocked = clipboardEvent(transfer({ html: '<img src="data:image/png;base64,AAAA">', types: ["text/html"] }));
+    expect(editorProps.handleDOMEvents.paste(null, blocked)).toBe(true);
   });
 
   // spec 點名的假綠高危案例：早前這裡只驗過「有檔案就一律擋」，跟 §12.4 現行語意（純

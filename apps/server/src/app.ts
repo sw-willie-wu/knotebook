@@ -816,7 +816,14 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   // 會立刻 `installGlobals()` 掛 window/document，只跑 REST 的 app 不該付這個代價，也不該讓
   // 瀏覽器嗅探在那些 process 裡失守）。有 collab 就一定有 runtime，兩者同生同滅＝路由要嘛
   // 兩個依賴都在、要嘛整條不註冊（見 `notesRoutes` 內的註冊閘門）。
-  const editing = deps.collab ? (deps.editing ?? createEditingRuntime(deps.config)) : undefined;
+  const ownEditing = deps.collab !== undefined && deps.editing === undefined;
+  const editing = deps.collab ? (deps.editing ?? createEditingRuntime(deps.config, app.log)) : undefined;
+  // #398：自己建的 runtime 帶著解析的 worker pool，關 app 時一併終止（注入的那份由注入者管——整合測試的共用 runtime 跨多個 app）。
+  if (ownEditing && editing) {
+    app.addHook("onClose", async () => {
+      await editing.close();
+    });
+  }
 
   // #138：AI presence。沒有 collab 時建的是全 no-op 空殼（每個方法都會在 `hocuspocus`
   // 為 undefined 時立刻 return），所以這裡不必再分支。
@@ -840,6 +847,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     versions,
     renameHook: deps.slugUpdateTestHook,
     shownLinks: deps.shownLinks,
+    noteMaxBytes: deps.config.noteMaxBytes,
   });
 
   // #269 §12.1：必用同一個 `writes`（共用佇列，與 MCP 寫入、套用版本、手動存版串行）。只建、不啟動——`index.ts` listen 之後才 start()，

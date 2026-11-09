@@ -8,19 +8,25 @@ import { docClock } from "../../collab/store.js";
 import type { Db } from "../../db/index.js";
 import { noteAiEdits } from "../../db/schema.js";
 import { syncLinksFromDoc } from "../links.js";
+import { capBlocks, NoteTooLargeError } from "../note-size.js";
 import { versionFingerprint } from "../version-fingerprint.js";
 import type { VisibleNoteTarget } from "./candidates.js";
 import { checkExpectations, fingerprintForIds, fingerprintsOfGroups, outlineOf, type OutlineEntry } from "./fingerprint.js";
-import { parseMarkdownForNote, siteOriginOf, type ParseError } from "./markdown.js";
-import { loadNoteDoc } from "./read.js";
+import { siteOriginOf, type ParseDetail, type ParseError } from "./markdown.js";
+import { DOC_TOO_COMPLEX, editOnFork, stateEquals, type DocPost } from "./doc-jobs.js";
+import type { LiveWatch } from "./live-watch.js";
+import { ParserBusyError, type ParseOutcome } from "./parse-core.js";
+import { loadNoteDoc, loadNoteState } from "./read.js";
 import type { EditingRuntime } from "./runtime.js";
-import { EditorSession, directTarget, withDirectConnection, type DirectConnectionCtx, type DirectCtx } from "./session.js";
+import { directTarget, withDirectConnection, type DirectConnectionCtx, type DirectCtx } from "./session.js";
 import { shownLinkTextsOf, type ShownLinks, type ShownLinkTexts } from "./shown-link-texts.js";
 
-// 順序（spec §6.1）：讀路徑 fork → 指紋比對 → parse/驗證 → 單一編輯器呼叫 → diff → **關掉編輯器**
-// → mergeDiff＝withDirectConnection 內一個同步 transact（live doc 重算目標段指紋／anchor → docClock（applyUpdate
-// 前，links CAS 用）→ applyUpdate → ctx.applied → 同 transact 算 after_fingerprint／回覆指紋大綱）→ finally disconnect（落盤）
+// 順序（spec §6.1；轉換搬出主執行緒後）：parse/驗證（parse worker）→ 文件狀態（活文件編碼，或 `note_states` 的位元組）→ worker 裡
+// 指紋比對 → 單一編輯器呼叫 → diff ＋合併後的值（`doc-jobs.ts`）→ mergeAtBase＝withDirectConnection 內一個同步 transact（活文件之後的
+// 改動沒碰到這次寫入在意的 block 才 applyUpdate → ctx.applied，`live-watch.ts`；碰到了 → 從頭重來，至多 DOC_MERGE_ATTEMPTS 次，再不行 503）
+// → finally disconnect（落盤）
 // → note_ai_edits 交易（含裁切 100）→ note_links（writeNoteLinks 自己的交易，CAS 對更晚的瀏覽器寫入 no-op）。
+// 套用版本與連結轉換仍走舊的 `mergeDiff`（主執行緒在活文件上重算指紋；見 known-limitations）。
 // 沒有任何 DB 交易橫跨合併；先合併落盤、後記錄（記錄失敗＝內容在、紀錄沒有）；before_blocks 無上限。
 // ⚠ 「fork→merge 窗口理論為零」只對**目標段非空**成立：零 block 的段（heading 開頭筆記的 `_top`、
 // 真空文件）指紋恆為 `EMPTY_SECTION_FINGERPRINT`（常數），重算必等於 `if_match`；`append` 不帶
@@ -34,6 +40,8 @@ export interface EditingTestHooks {
   /** 紀錄已寫入、`updateNoteLinks` 尚未執行（守「先紀錄後連結」）。 */
   afterRecord?: () => Promise<void>;
   beforeRevertRecord?: () => Promise<void>;
+  /** `mergeAtBase` 開了直連之後、transact 之前（測試在這裡改活文件，守 transact 內的比對）。 */
+  afterOpenDirect?: () => Promise<void>;
   /** 套用版本的 `beforeDisconnect` 第一步；測試以 throw 模擬基底寫回失敗。 */
   beforeVersionBase?: () => Promise<void>;
   /** bulk transfer plan T10 CR13：檔案新增扣桶之後、建列之前一刻（測試在這裡刪掉目標資料夾）。 */
@@ -52,6 +60,8 @@ export interface ApplyDeps {
   /** #387：寫入者讀到過的連結文字（`NoteWriteService` 那一份）。`prepareEdit` 解析 markdown 後據以不把它凍結成自訂文字，`applyEdit`
    *  合併成功後把寫下去的連結也記進去（審查 I1）；不給＝舊規則。 */
   shownLinks?: ShownLinkTexts;
+  /** 筆記大小上限（`config.noteMaxBytes`）；不給＝不擋（直接組 deps 的測試）。`mergeAtBase` 在合併之前比（`notes/note-size.ts`）。 */
+  noteMaxBytes?: number;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 泛型三元組，走 repo 慣例（同 session.ts）
@@ -66,6 +76,13 @@ export interface ApplyInput {
   noteId: string; userId: string; tokenId: string | null; agentLabel: string | null; op: EditOp;
   sectionId?: string; markdown?: string; ifMatch?: string; candidates: readonly VisibleNoteTarget[];
   blocks?: AnyPartialBlock[]; unbound?: number;
+  /** 帶 `blocks` 時原 markdown 的長度（決定轉換在不在主執行緒跑，`EditingRuntime.runDoc`）；不給就量 block JSON 的長度。 */
+  contentLength?: number;
+  /**
+   * #398 審查 M1：呼叫端已經在佇列外解析好的結果（`NoteWriteService.applyToNote` 在進每篇筆記的佇列之前先解析，不讓解析佔著佇列）。
+   * 給了就不再解析；錯誤照樣在段落／指紋檢查之後才回（錯誤碼的先後不變）。
+   */
+  preparsed?: ParseOutcome;
 }
 // ⚠ `ApplyResult` 是**內部**型別：`afterBlockIds` 只餵 presence，`NoteEditResultDto` 與 201
 // 回應的欄位一個都不動。
@@ -87,7 +104,7 @@ export type ApplyResult =
        */
       afterSectionIndex: number | null;
     }
-  | { ok: false; code: "section_not_found" | "fingerprint_mismatch" | ParseError | "empty_section" };
+  | { ok: false; code: "section_not_found" | "fingerprint_mismatch" | ParseError | "empty_section" | "too_complex"; detail?: ParseDetail };
 
 export const RETENTION = AI_EDITS_RETENTION; // #272 D11：數字搬到 shared（web 的說明句用同一個），行為不變
 export class FingerprintMismatch extends Error {}
@@ -166,6 +183,66 @@ export async function mergeDiff(
   }, opts);
 }
 
+/** 活文件已不是 worker 當基底的那一份（別人在這中間改了）：從頭重來。 */
+export class StaleBase extends Error {
+  override name = "StaleBase";
+}
+/** 套用（`edit_note`／`/edits`／建立、撤回、批次寫回）遇到 {@link StaleBase} 最多重來幾次；用完 → `ParserBusyError`（503 `server_busy`＋`Retry-After`）。 */
+export const DOC_MERGE_ATTEMPTS = 3;
+
+/** worker 算好的合併後的值 → 舊 `mergeDiff` 的回傳形。 */
+export function mergeOutputOf(post: DocPost): MergeOutput {
+  const out: MergeOutput = {
+    afterFingerprint: post.afterFingerprint, fingerprint: post.fingerprint, outline: post.outline, clock: post.clock,
+    afterSectionIndex: post.afterSectionIndex, versionFingerprint: post.versionFingerprint,
+  };
+  if (post.afterFingerprints !== undefined) out.afterFingerprints = post.afterFingerprints;
+  return out;
+}
+
+/**
+ * 把 worker 算好的 diff 合併進活文件。合併的條件（審查 r4 I1）：
+ * - 取狀態時文件在記憶體裡（有 `watch`，`live-watch.ts`）：活文件之後的改動沒碰到這次寫入在意的 block（`post.guard`）就合併——別段有人在打字
+ *   照樣合併，Yjs 的合併本身是 CRDT 安全的；碰到了 → {@link StaleBase}（呼叫端從頭重來，worker 在新狀態上重比 if_match）。判斷只看守衛裡的
+ *   幾個 id，不與筆記大小成正比。
+ * - 沒有 `watch`（取狀態時文件不在記憶體，用的是 `note_states` 的位元組），或文件在這期間被卸載又載回（不是同一個物件）：比快照
+ *   （state vector＋刪除集），相等才合併——這條路徑本來就要把整篇從 DB 載進來。
+ * 文件在記憶體裡就先在開直連之前判一次（不行就不開——開了再關會把沒改的文件落盤一次）；transact 內再判一次（之間有 goneNow 與開直連的 await）。
+ * 合併後回的指紋與大綱是 worker 算的（不含別人在這期間打的字；下一次 if_match 不符就讓呼叫端重讀）；`clock` 取合併前活文件的（links 的 CAS）。
+ */
+export async function mergeAtBase(
+  deps: ApplyDeps,
+  noteId: string,
+  ctx: DirectConnectionCtx,
+  post: DocPost,
+  watch: LiveWatch | undefined,
+  opts?: { beforeDisconnect?: (out: MergeOutput) => Promise<void> }
+): Promise<MergeOutput> {
+  // 筆記大小上限：worker 算好「基底＋這次寫入」的前後狀態大小與還在的內容量（`capBlocks`，依結果判斷：長過上限、比原本大，而且還在的內容
+  // 變多或狀態一次長超過 SLACK 才擋）。
+  // 合併時別人在這期間（瀏覽器協作）造成的成長沒算進來（審查 r5 m3）：協作更新不在 server 檢查，網頁編輯器在貼上、拖放、站內 AI 套用之前自己擋。
+  if (deps.noteMaxBytes !== undefined && capBlocks(post.size, deps.noteMaxBytes)) throw new NoteTooLargeError(deps.noteMaxBytes, post.size.stateAfter);
+  // 撤回刪段（守衛帶 `absent`）：被刪的那幾顆在這期間又回到頂層（例如瀏覽器按了 Ctrl+Z，id 相同）→ 不合併，免得頂層出現兩顆同 id 的
+  // block（審查 r5 m5；成本與頂層 block 數成正比，只有這一種撤回會走）。
+  const absent = post.guard.kind === "blocks" ? (post.guard.absent ?? []) : [];
+  const stillAbsent = (doc: Y.Doc): boolean => {
+    if (absent.length === 0) return true;
+    const top = new Set(topLevelContainers(doc.getXmlFragment(YDOC_FRAGMENT)).map(c => c.getAttribute("id")));
+    return !absent.some(id => top.has(id));
+  };
+  const mergeable = (doc: Y.Doc): boolean => stillAbsent(doc) && (watch !== undefined && watch.doc === doc ? !watch.conflicts(post.guard) : stateEquals(doc, post.baseSnapshot));
+  const live = deps.collab.hocuspocus.documents.get(noteId);
+  if (live && !mergeable(live)) throw new StaleBase();
+  const afterOpen = deps.testHooks?.afterOpenDirect;
+  return withDirectConnection(directTarget(deps.collab, deps.db), noteId, ctx, doc => {
+    if (!mergeable(doc)) throw new StaleBase();
+    const clock = docClock(doc);
+    Y.applyUpdate(doc, post.diff);
+    ctx.applied = true;
+    return { ...mergeOutputOf(post), clock };
+  }, { ...opts, ...(afterOpen ? { afterOpen } : {}) });
+}
+
 /**
  * `note_ai_edits_fingerprint_chk` 的防護：`(cardinality(after_block_ids) = 0) = (after_fingerprint is null)`。
  * `mergeDiff` 是在 `applyUpdate` 之後、**同一個 transact 內**算 `after_fingerprint` 的，此時剛插入的
@@ -192,8 +269,9 @@ export async function insertEditRecord(db: Db, row: typeof noteAiEdits.$inferIns
 }
 
 /** 本體（含「濾自連結排在 slice 之前」「例外降級為 warn」的理由）在 `notes/links.ts` 的 `syncLinksFromDoc`（#175 PR2：複製共用）。 */
-export async function updateNoteLinks(deps: ApplyDeps, p: { sourceNoteId: string; userId: string; forkDoc: Y.Doc; clock: number }): Promise<void> {
-  return syncLinksFromDoc(deps, { sourceNoteId: p.sourceNoteId, userId: p.userId, doc: p.forkDoc, clock: p.clock });
+export async function updateNoteLinks(deps: ApplyDeps, p: { sourceNoteId: string; userId: string; clock: number } & ({ forkDoc: Y.Doc } | { targets: string[] })): Promise<void> {
+  const from = "targets" in p ? { targets: p.targets } : { doc: p.forkDoc };
+  return syncLinksFromDoc(deps, { sourceNoteId: p.sourceNoteId, userId: p.userId, clock: p.clock, ...from });
 }
 
 /** `applyEdit`／`applyVersionEdit` 共用的第一段：fork（活文件在記憶體就 fork 它，否則讀 note_states）＋整篇大綱與指紋。
@@ -214,6 +292,33 @@ export async function forkAndCheck(deps: ApplyDeps, noteId: string): Promise<For
 }
 
 /**
+ * 要寫進去的 block（主執行緒；`delete_section` 為空）：建筆記路徑直接用解析好的；否則在 parse worker 裡解析 markdown（或用呼叫端在佇列外
+ * 解析好的 `preparsed`），再依 #387 把寫入者讀到過的連結文字照舊存成沒有自訂文字。解析失敗回錯誤（呼叫端在段落與指紋檢查之後才回）。
+ */
+async function prepareBlocks(
+  deps: ApplyDeps,
+  input: ApplyInput
+): Promise<{ blocks: AnyPartialBlock[]; unbound: number; written?: ShownLinks } | { error: ParseError; detail?: ParseDetail }> {
+  if (input.op === "delete_section") return { blocks: [], unbound: 0 };
+  // 建筆記路徑（spec §5）：`content` 已經解析驗證過了，這裡直接套用解析出來的 block JSON。再 parse 一次會把
+  // markdown → blocks → wikilink 重綁整條做兩遍。
+  // ⚠ 存活突變：把這裡改回「一律重新解析 markdown」，行為等價、測試照樣全綠——
+  // **沒有測試會因為改回重新解析而變紅**，只能靠審查看程式碼，這裡誠實記下。
+  if (input.blocks !== undefined) return { blocks: input.blocks, unbound: input.unbound ?? 0 };
+  // #398：在 parse worker 裡解析，**開編輯器之前**（不持 lease 等 worker）；失敗＝什麼都沒開、沒寫。
+  const parsed = input.preparsed ?? (await deps.editing.parser.parse({ owner: input.userId, markdown: input.markdown ?? "", candidates: input.candidates, siteOrigin: siteOriginOf(deps.editing.baseUrl) }));
+  if ("error" in parsed) return { error: parsed.error, ...(parsed.detail ? { detail: parsed.detail } : {}) };
+  // #387：連結文字是寫入者讀到過的「沒有自訂文字」的那段 → 照舊沒有自訂文字（目標在讀出之後改了名也一樣）。
+  const [kept, cleared] = deps.shownLinks ? deps.shownLinks.keepLabelFree(parsed.blocks, input.userId, input.candidates) : [parsed.blocks, []];
+  if (!deps.shownLinks) return { blocks: kept, unbound: parsed.unbound };
+  // 審查 I1：寫下去的連結也要記在寫入者名下（agent 用回覆的指紋把自己寫的連結原樣寫回）——這裡只收集，合併成功後才記（m3）。
+  // 被清掉的原文字也要記（m-b）：存下的 snapshotTitle 已換成現行標題，不記的話那段文字的期限不會因這次寫入延長。
+  const written = shownLinkTextsOf(kept, new Map());
+  written.free.push(...cleared);
+  return { blocks: kept, unbound: parsed.unbound, written };
+}
+
+/**
  * 編輯器的生命只到「取出 diff」為止：mount → 單一編輯器呼叫 → `diffSince` → `close()`，
  * 全部關在這個函式內。**不變量：持有 lease 期間絕不再取得 lease**（`runtime.acquire()` 的
  * 等待迴圈只在 in-flight 歸零時才放行；外層抱著 lease 等內層＝死鎖，見 Global Constraints）。
@@ -228,119 +333,69 @@ export async function prepareEdit(
   fork: Y.Doc,
   sv: Uint8Array,
   plan: { op: EditOp; isEmptyDoc: boolean; section: OutlineEntry | undefined } // OutlineEntry ＝ fingerprint.ts 的 SectionInfo + fingerprint（含 blockIds）
-): Promise<{ diff: Uint8Array; beforeBlocks: AnyBlock[]; afterIds: string[]; anchor: Anchor | null; unbound: number; written?: ShownLinks } | { error: ParseError }> {
-  const s = await EditorSession.open(deps.editing, fork);
-  try {
-    const { op, isEmptyDoc, section } = plan;
-    const ed = s.editor;
-    const top = ed.document;
-    let blocks: AnyPartialBlock[] = [];
-    let unbound = 0;
-    let written: ShownLinks | undefined;
-    if (op !== "delete_section") {
-      if (input.blocks !== undefined) {
-        // 建筆記路徑（spec §5）：`content` 已經在空 scratch doc 上解析驗證過了，這裡直接套用
-        // 解析出來的 block JSON。再 parse 一次會把 markdown → blocks → wikilink 重綁整條做兩遍。
-        // ⚠ 存活突變：把這裡改回「一律重新解析 markdown」，行為等價、測試照樣全綠——
-        // **沒有測試會因為改回重新解析而變紅**，只能靠審查看程式碼，這裡誠實記下。
-        blocks = input.blocks; unbound = input.unbound ?? 0;
-      } else {
-        const parsed = parseMarkdownForNote(ed, input.markdown ?? "", input.candidates, siteOriginOf(deps.editing.baseUrl));
-        if ("error" in parsed) return { error: parsed.error }; // `finally` 仍會 close()
-        // #387：連結文字是寫入者讀到過的「沒有自訂文字」的那段 → 照舊沒有自訂文字（目標在讀出之後改了名也一樣）。
-        const [kept, cleared] = deps.shownLinks ? deps.shownLinks.keepLabelFree(parsed.blocks, input.userId, input.candidates) : [parsed.blocks, []];
-        blocks = kept;
-        unbound = parsed.unbound;
-        // 審查 I1：寫下去的連結也要記在寫入者名下（agent 用回覆的指紋把自己寫的連結原樣寫回）——lease 內只收集，合併成功後才記（m3）。
-        // 被清掉的原文字也要記（m-b）：存下的 snapshotTitle 已換成現行標題，不記的話那段文字的期限不會因這次寫入延長。
-        if (deps.shownLinks) {
-          written = shownLinkTextsOf(blocks, new Map());
-          written.free.push(...cleared);
-        }
-      }
-    }
-    const snapshot = (idList: string[]): AnyBlock[] => idList.map(id => ed.getBlock(id)).filter((b): b is AnyBlock => b !== undefined);
-    let beforeBlocks: AnyBlock[] = [];
-    let afterIds: string[] = [];
-    let anchor: Anchor | null = null;
-    switch (op) {
-      case "replace_all": {
-        beforeBlocks = isEmptyDoc ? [] : top;
-        afterIds = ed.replaceBlocks(top.map(b => b.id), blocks).insertedBlocks.map(b => b.id);
-        break;
-      }
-      case "replace_section": {
-        const sectionIds = section!.blockIds;
-        if (sectionIds.length === 0) afterIds = ed.insertBlocks(blocks, top[0]!.id, "before").map(b => b.id); // 零 block _top：插在第一個 heading 之前
-        else { beforeBlocks = snapshot(sectionIds); afterIds = ed.replaceBlocks(sectionIds, blocks).insertedBlocks.map(b => b.id); }
-        break;
-      }
-      case "insert_after": {
-        const sectionIds = section!.blockIds;
-        afterIds = (sectionIds.length === 0 ? ed.insertBlocks(blocks, top[0]!.id, "before") : ed.insertBlocks(blocks, sectionIds[sectionIds.length - 1]!, "after")).map(b => b.id);
-        break;
-      }
-      case "append": {
-        afterIds = ed.insertBlocks(blocks, top[top.length - 1]!.id, "after").map(b => b.id);
-        break;
-      }
-      case "delete_section": {
-        const sectionIds = section!.blockIds;
-        beforeBlocks = snapshot(sectionIds);
-        const idx = top.findIndex(b => b.id === sectionIds[0]);
-        const prev = top[idx - 1]; const next = top[idx + sectionIds.length];
-        if (sectionIds.length === top.length) { // 段落涵蓋整篇：永不為空 → 空 paragraph 收尾，id 不記
-          const inserted = ed.replaceBlocks(sectionIds, [{ type: "paragraph" }]).insertedBlocks;
-          anchor = { block_id: inserted[0]!.id, position: "before" };
-        } else {
-          ed.replaceBlocks(sectionIds, []);
-          anchor = prev ? { block_id: prev.id, position: "after" } : { block_id: next!.id, position: "before" };
-        }
-        break;
-      }
-    }
-    return { diff: s.diffSince(sv), beforeBlocks, afterIds, anchor, unbound, ...(written ? { written } : {}) };
-  } finally {
-    s.close(); // ← 編輯器到此為止。下面的 hook／直連／DB 交易都**不持有 lease**。
-  }
+): Promise<{ diff: Uint8Array; beforeBlocks: AnyBlock[]; afterIds: string[]; anchor: Anchor | null; unbound: number; written?: ShownLinks } | { error: ParseError; detail?: ParseDetail }> {
+  const { op, isEmptyDoc, section } = plan;
+  const b = await prepareBlocks(deps, input);
+  if ("error" in b) return b;
+  const { blocks, unbound, written } = b;
+  const r = await editOnFork(deps.editing, fork, sv, { op, isEmptyDoc, section }, blocks);
+  return { ...r, unbound, ...(written ? { written } : {}) };
 }
 
 export async function applyEdit(deps: ApplyDeps, input: ApplyInput): Promise<ApplyResult> {
-  const { fork, sv, outline, whole, isEmptyDoc } = await forkAndCheck(deps, input.noteId);
-  const section = input.sectionId === undefined ? undefined : outline.find(o => o.sectionId === input.sectionId);
-  if (input.sectionId !== undefined && !section) return { ok: false, code: "section_not_found" };
-  const expect = input.ifMatch ?? null;
-  const targetIds = input.op === "replace_all" || input.op === "append" ? null : section!.blockIds;
-  if (expect !== null && (targetIds === null ? whole : section!.fingerprint) !== expect) return { ok: false, code: "fingerprint_mismatch" };
-  if (input.op === "delete_section" && (isEmptyDoc || section!.blockIds.length === 0)) return { ok: false, code: "empty_section" };
-
-  // 真空文件：三 op 等同 replace_all（正規化殘留 paragraph 被 replace 掉）
-  const op: EditOp = isEmptyDoc ? "replace_all" : input.op;
-  const prepared = await prepareEdit(deps, input, fork, sv, { op, isEmptyDoc, section });
-  if ("error" in prepared) return { ok: false, code: prepared.error };
-  const { diff, beforeBlocks, afterIds, anchor, unbound } = prepared;
-
-  if (deps.testHooks?.beforeMerge) await deps.testHooks.beforeMerge();
-  const ctx: DirectCtx = { source: "ai-edit", userId: input.userId, tokenId: input.tokenId, agentLabel: input.agentLabel, applied: false };
-  let merged: MergeOutput;
-  try {
-    merged = await mergeDiff(deps, input.noteId, ctx, { targetIds, expectFingerprint: expect, anchorId: null, diff, afterIds });
-  } catch (err) {
-    if (err instanceof FingerprintMismatch) return { ok: false, code: "fingerprint_mismatch" };
-    throw err;
+  // 解析在主執行緒排進 parse worker（`prepareBlocks`）；失敗的錯誤交給 worker 在段落與指紋檢查之後才回（錯誤碼的先後不變）。
+  const b = await prepareBlocks(deps, input);
+  const parseError = "error" in b ? { error: b.error, ...(b.detail ? { detail: b.detail } : {}) } : undefined;
+  const blocks = "error" in b ? undefined : b.blocks;
+  for (let attempt = 0; attempt < DOC_MERGE_ATTEMPTS; attempt++) {
+    // 取狀態的同一個 tick 開始記活文件被改了哪些 block（`live-watch.ts`；文件不在記憶體就沒有 watch）。合併完（或放棄）就停。
+    const { state, watch } = await loadNoteState(deps, input.noteId, { watch: true });
+    let r: Exclude<Awaited<ReturnType<typeof deps.editing.runDoc<"edit">>>, typeof DOC_TOO_COMPLEX>;
+    let merged: MergeOutput;
+    try {
+      const out = await deps.editing.runDoc(
+        input.userId,
+        {
+          kind: "edit", state, op: input.op,
+          ...(input.sectionId !== undefined ? { sectionId: input.sectionId } : {}),
+          ...(input.ifMatch !== undefined ? { ifMatch: input.ifMatch } : {}),
+          ...(blocks !== undefined && input.op !== "delete_section" ? { blocks } : {}),
+          ...(parseError ? { parseError } : {}),
+        },
+        { extraWeight: input.markdown?.length ?? input.contentLength ?? (blocks ? JSON.stringify(blocks).length : 0) }
+      );
+      // 套用的轉換逾時或用完記憶體：建立路徑（新筆記）是內容的問題；寫進既有筆記是筆記本身太大或太複雜（審查 r4 M4）。
+      if (out === DOC_TOO_COMPLEX) return input.blocks !== undefined ? { ok: false, code: "unsupported_block", detail: "too_complex" } : { ok: false, code: "too_complex" };
+      if (!out.ok) return out;
+      r = out;
+      if (deps.testHooks?.beforeMerge) await deps.testHooks.beforeMerge();
+      const ctx: DirectCtx = { source: "ai-edit", userId: input.userId, tokenId: input.tokenId, agentLabel: input.agentLabel, applied: false };
+      try {
+        merged = await mergeAtBase(deps, input.noteId, ctx, r.post, watch);
+      } catch (err) {
+        if (err instanceof StaleBase) continue; // 別人改到這次寫入在意的 block：對新的狀態從頭重來（指紋照樣重比）
+        throw err;
+      }
+    } finally {
+      watch?.stop();
+    }
+    const { beforeBlocks, afterIds, anchor } = r;
+    const unbound = "error" in b ? 0 : b.unbound;
+    // #387 審查 I1：內容已落進文件，寫下去的連結記在寫入者名下（之後照原樣寫回也不凍結）。
+    if (!("error" in b) && b.written) deps.shownLinks?.record(input.userId, b.written);
+    if (deps.testHooks?.beforeRecord) await deps.testHooks.beforeRecord();
+    const editId = await insertEditRecord(deps.db, {
+      noteId: input.noteId, userId: input.userId, tokenId: input.tokenId, agentLabel: input.agentLabel, op: input.op,
+      sectionId: input.sectionId ?? null, beforeBlocks, anchor,
+      ...recordableAfter(deps, input.noteId, afterIds, merged.afterFingerprint),
+    });
+    if (deps.testHooks?.afterRecord) await deps.testHooks.afterRecord();
+    await updateNoteLinks(deps, { sourceNoteId: input.noteId, userId: input.userId, targets: r.post.linkTargets, clock: merged.clock });
+    // ⚠ `afterBlockIds` 用 worker 回的**原始** `afterIds`，不是 `recordableAfter(...)` 那份
+    // ——後者在退化情形（after_fingerprint 為 null）會把陣列清空，那是給 DB 紀錄用的語意。
+    // 兩者只在那條「理論上到不了」的路徑上不同，**沒有任何測試守得到這個誤用**，誠實記在這裡。
+    return { ok: true, editId, fingerprint: merged.fingerprint, outline: merged.outline, unboundWikilinks: unbound, afterBlockIds: afterIds, afterSectionIndex: merged.afterSectionIndex };
   }
-  // #387 審查 I1：內容已落進文件，寫下去的連結記在寫入者名下（之後照原樣寫回也不凍結）。
-  if (prepared.written) deps.shownLinks?.record(input.userId, prepared.written);
-  if (deps.testHooks?.beforeRecord) await deps.testHooks.beforeRecord();
-  const editId = await insertEditRecord(deps.db, {
-    noteId: input.noteId, userId: input.userId, tokenId: input.tokenId, agentLabel: input.agentLabel, op: input.op,
-    sectionId: input.sectionId ?? null, beforeBlocks, anchor,
-    ...recordableAfter(deps, input.noteId, afterIds, merged.afterFingerprint),
-  });
-  if (deps.testHooks?.afterRecord) await deps.testHooks.afterRecord();
-  await updateNoteLinks(deps, { sourceNoteId: input.noteId, userId: input.userId, forkDoc: fork, clock: merged.clock });
-  // ⚠ `afterBlockIds` 用 `prepareEdit` 回的**原始** `afterIds`，不是 `recordableAfter(...)` 那份
-  // ——後者在退化情形（after_fingerprint 為 null）會把陣列清空，那是給 DB 紀錄用的語意。
-  // 兩者只在那條「理論上到不了」的路徑上不同，**沒有任何測試守得到這個誤用**，誠實記在這裡。
-  return { ok: true, editId, fingerprint: merged.fingerprint, outline: merged.outline, unboundWikilinks: unbound, afterBlockIds: afterIds, afterSectionIndex: merged.afterSectionIndex };
+  // 三次都在合併前被別人改掉（一直有人在打字）：什麼都沒寫，回 503 讓呼叫端稍後重試。
+  throw new ParserBusyError();
 }
