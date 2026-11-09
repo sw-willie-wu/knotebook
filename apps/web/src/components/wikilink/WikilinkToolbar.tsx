@@ -77,7 +77,7 @@ export function WikilinkToolbar(p: WikilinkToolbarProps) {
           role="dialog"
           aria-label={t("note.wikilink.toolbar.label")}
           sideOffset={4}
-          className="z-50 rounded-md border border-border bg-popover p-1 text-sm text-popover-foreground shadow-md"
+          className="z-50 rounded-md border border-border bg-popover p-1 text-sm text-popover-foreground shadow-md outline-none"
           {...p.contentHandlers}
           onOpenAutoFocus={(e) => e.preventDefault()}
           onCloseAutoFocus={(e) => {

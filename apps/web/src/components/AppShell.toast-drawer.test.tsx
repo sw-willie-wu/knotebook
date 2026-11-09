@@ -205,3 +205,21 @@ describe("AppShell — 抽屜開著時的 toast（鍵盤與螢幕閱讀器碰得
     expect(within(region).getByRole("button", { name: "Undo" })).toBeInTheDocument();
   });
 });
+
+describe("AppShell — 抽屜容器不畫焦點環", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    stubFetch();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("漢堡開抽屜時焦點落在 Content 本身，Content 有 outline-none", async () => {
+    renderApp();
+    const drawer = await openDrawer();
+    expect(drawer).toHaveClass("outline-none");
+    expect(document.activeElement).toBe(drawer);
+  });
+});

@@ -47,7 +47,6 @@ export function ShortcutsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         size="panel"
-        className="outline-none"
         data-shortcuts-dialog=""
         onOpenAutoFocus={(event) => {
           event.preventDefault();

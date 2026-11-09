@@ -512,7 +512,7 @@ export function AppShell({ children, inert }: AppShellProps) {
                   // 底色與 flex 脈絡缺一不可：沒底色透出 overlay 的黑、沒 flex-col 則
                   // SidebarContent 的 min-h-0 flex-1 清單失去約束（spec §3a）。貼齊
                   // 左緣故意不用 cardSurface 的圓角——抽屜不是卡片。
-                  className="fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-border bg-card"
+                  className="fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-border bg-card outline-none"
                   // Radix 在 document capture 先處理 Esc：選取中先結束選取、抽屜不關。真瀏覽器在這個 listener 與 React 的
                   // onKeyDown 之間會跑 microtask，選取的結束先 commit、勾選框／動作列卸載，React 那層的 handler 不會再跑——
                   // 焦點要在這裡交給抽屜裡的「選取」鈕（flushSync 讓它在同一個 task 內出現）。
