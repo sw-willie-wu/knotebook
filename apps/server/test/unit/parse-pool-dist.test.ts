@@ -4,7 +4,8 @@
  * 載入編出來的 `createEditingRuntime`、解析一筆、印出結果。正式 image 只有 `dist/`（`pnpm deploy --prod`，沒有 tsx）。
  * 子程序跑的是一個 `.mjs` 檔，不用 `node -e`：worker 預設繼承主程序的 `execArgv`，`-e` 會讓 worker 也去跑那段字串。
  */
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
+import { promisify } from "node:util";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -19,10 +20,14 @@ const outDir = (() => {
 })();
 afterAll(() => rmSync(outDir, { recursive: true, force: true }));
 
+// 子程序一律非同步跑（tsc 編整個 server 在 CI 上要十幾秒）：execFileSync 會同步佔住 vitest worker，整段期間 RPC（onTaskUpdate，60 秒逾時）
+// 都卡著（PR #400 的 CI）。
+const run = promisify(execFile);
+
 describe("正式 build 走 worker", () => {
-  it("編出 dist/notes/editing/parse-worker.js；不帶 loader 的 node 用 createEditingRuntime 解析成功、pool 開過 worker", () => {
+  it("編出 dist/notes/editing/parse-worker.js；不帶 loader 的 node 用 createEditingRuntime 解析成功、pool 開過 worker", async () => {
     const tsc = createRequire(import.meta.url).resolve("typescript/bin/tsc");
-    execFileSync(process.execPath, [tsc, "-p", path.join(serverDir, "tsconfig.json"), "--outDir", outDir], { stdio: "pipe" });
+    await run(process.execPath, [tsc, "-p", path.join(serverDir, "tsconfig.json"), "--outDir", outDir], { maxBuffer: 64 * 1024 * 1024 });
     expect(existsSync(path.join(outDir, "notes/editing/parse-worker.js"))).toBe(true);
     const url = (p: string) => JSON.stringify(pathToFileURL(path.join(outDir, p)).href);
     const script = `
@@ -36,7 +41,7 @@ describe("正式 build 走 worker", () => {
     `;
     const file = path.join(outDir, "run-check.mjs");
     writeFileSync(file, script, "utf8");
-    const out = execFileSync(process.execPath, [file], { cwd: serverDir, encoding: "utf8", env: { ...process.env, NODE_OPTIONS: "" } });
+    const { stdout: out } = await run(process.execPath, [file], { cwd: serverDir, encoding: "utf8", env: { ...process.env, NODE_OPTIONS: "" } });
     expect(JSON.parse(out.trim().split("\n").pop()!)).toEqual({ pool: "ParsePool", spawned: 1, types: ["heading", "paragraph"] });
   }, 180_000);
 });

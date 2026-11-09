@@ -537,7 +537,9 @@ describe("讀出的轉換逾時", () => {
     const rt = await runtimeWith({ PARSE_WORKERS: "1", PARSE_TIMEOUT_MS: "60000" });
     const s = await transferScene(rt);
     const big = await seedNote(s.ctx.db, { ownerId: s.u.id }, { title: "Big" });
-    await seedMd(s.ctx.db, big.id, "x<br>".repeat(30_000)); // 讀出約 3 秒（WSL）
+    // 讀出約 1.5 秒（WSL），遠超過下面的 300 ms 時限。不再加大：seedMd 在測試的執行緒裡同步建這篇，3 萬個時約 4 秒，慢的 CI 上會加倍——
+    // 每段同步工作都要控制在幾秒內，否則會佔住 vitest worker（onTaskUpdate 60 秒逾時，PR #400 的 CI）。
+    await seedMd(s.ctx.db, big.id, "x<br>".repeat(15_000));
     s.note = big;
     const pool = rt.parser as ParsePool;
     pool.configure({ timeoutMs: 100 }); // 讀出時限＝3 × 100 ms

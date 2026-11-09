@@ -17,7 +17,7 @@ import { sameCanonicalOf } from "../../src/transfer/same-canonical.js";
 import { isLoneEmptyParagraph } from "../../src/transfer/decide.js";
 import { patchJsdomForLargeTrees } from "../../src/notes/editing/jsdom-perf.js";
 import { normalizeBody } from "../../src/transfer/normalize.js";
-import { expectLinear } from "../perf-helpers.js";
+import { expectLinear, yieldToLoop } from "../perf-helpers.js";
 
 const rt = new EditingRuntime({ baseUrl: "http://localhost/" });
 rt.installGlobals();
@@ -26,12 +26,16 @@ const timed = <T,>(f: () => T): [T, number] => {
   const v = f();
   return [v, performance.now() - t];
 };
+// 建大文件的每一步之前都讓出事件迴圈（`yieldToLoop`）：這裡的解析與套用都是同步的大工作，連著做會同步佔住 vitest worker
+// （onTaskUpdate 60 秒逾時，PR #400 的 CI）。
 const parse = async (md: string) => {
+  await yieldToLoop();
   const r = await rt.parser.parse({ owner: "u", markdown: md, candidates: [], siteOrigin: "http://localhost" });
   if ("error" in r) throw new Error(JSON.stringify(r));
   return r.blocks;
 };
 async function docOfBlocks(blocks: unknown[]): Promise<Y.Doc> {
+  await yieldToLoop();
   const doc = new Y.Doc();
   const s = await EditorSession.open(rt, doc);
   try {
@@ -190,9 +194,31 @@ describe("replaceBlocksFresh（審查 C1：先插後刪）", () => {
       expect(rb.document).toEqual(ra.document);
     }
   }, 60_000);
-  it("`x<br>`×6 000／4.8 萬的段落換成 `**b** _i_`×3 000／2.4 萬：線性（replaceBlocks 在同一個交易裡逐段套格式，平方：4.9 萬約 12 秒）", async () => {
+  // 被換掉的段落固定 `x<br>`×2 000，換入的 `**b** _i_`×n 直接組成 block JSON（同解析的結果，見下面的 `formatted`），不經 markdown 解析：
+  // 原本兩者都靠解析建（被換掉的隨規模 ×2n，最大 4.8 萬），光建輸入就是幾段 3–5 秒以上的同步工作，慢的 CI 上會佔住 vitest worker 超過
+  // 60 秒（onTaskUpdate 逾時，PR #400 的 CI）。平方出在「同一個交易裡逐段套格式」的換入內容，換掉的部分只是線性的刪除；固定下來讓比例只量
+  // 平方的那一項，規模也就能加大到 4.8 萬（平方的寫法在這裡約 8 秒、比例遠超過 24）。
+  it("`x<br>`×2 000 的段落換成 `**b** _i_`×6 000／4.8 萬：線性（replaceBlocks 在同一個交易裡逐段套格式，平方：4.9 萬約 12 秒）", async () => {
+    // 解析 `"**b** _i_ ".repeat(n)` 得到的那一段：粗體 b、空白、斜體 i、空白……（最後的空白去掉）
+    const formatted = (n: number) => [
+      {
+        type: "paragraph",
+        props: { backgroundColor: "default", textColor: "default", textAlignment: "left" },
+        content: Array.from({ length: n }, () => [
+          { type: "text", text: "b", styles: { bold: true } },
+          { type: "text", text: " ", styles: {} },
+          { type: "text", text: "i", styles: { italic: true } },
+          { type: "text", text: " ", styles: {} },
+        ])
+          .flat()
+          .slice(0, -1),
+        children: [],
+      },
+    ];
+    expect(formatted(3)).toEqual((await parse("**b** _i_ ".repeat(3))).map(({ id: _id, ...b }: { id?: string }) => b));
     const inputs = new Map<number, { state: Uint8Array; blocks: unknown[] }>();
-    for (const n of [24_000 / 8, 24_000]) inputs.set(n, { state: Y.encodeStateAsUpdate(await docOf("x<br>".repeat(2 * n))), blocks: await parse("**b** _i_ ".repeat(n)) });
+    const base = Y.encodeStateAsUpdate(await docOf("x<br>".repeat(2_000)));
+    for (const n of [48_000 / 8, 48_000]) inputs.set(n, { state: base, blocks: formatted(n) });
     await expectLinear("#398 replaceBlocksFresh", async n => {
       const { state, blocks } = inputs.get(n)!;
       const doc = new Y.Doc();
@@ -203,7 +229,7 @@ describe("replaceBlocksFresh（審查 C1：先插後刪）", () => {
       } finally {
         s.close();
       }
-    }, 24_000);
+    }, 48_000);
   }, 360_000);
 });
 
