@@ -1,7 +1,7 @@
 name: Release
 
 # 發版的唯一入口：發版 PR（`pnpm release:prepare X.Y.Z` 改好的版號與 CHANGELOG，見 docs/releasing.md）
-# merge 進 main，main 上「那個 commit」的 CI workflow（ci 與 e2e 兩個 job）全綠後，由 workflow_run 觸發：
+# merge 進 main，main 上「那個 commit」的 CI workflow（build-unit、integration、ci、e2e 四個 job）全綠後，由 workflow_run 觸發：
 #   resolve：只有該 commit 本身改了 apps/server/package.json 的版號（相對第一個父 commit）、且
 #            tag vX.Y.Z 還不存在才發；確認 CHANGELOG 有該版段落（fail-closed），並先產生、驗證 Release
 #            附件（docker-compose.yml、env.example）。任何一項不過，什麼都不推。
