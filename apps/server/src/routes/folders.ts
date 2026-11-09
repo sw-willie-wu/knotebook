@@ -24,7 +24,7 @@ const createBodySchema = z.union([
 const updateBodySchema = z
   .object({ name: z.string().optional(), parentId: z.string().nullable().optional() })
   .strict()
-  .refine(b => b.name !== undefined || b.parentId !== undefined, "請求格式錯誤：至少需要一個欄位");
+  .refine(b => b.name !== undefined || b.parentId !== undefined, "Invalid request body: send at least one field.");
 /** `folderId: null`＝根層（必填；非 UUID 與不存在同形，由服務層判）。 */
 const placeBodySchema = z.object({ folderId: z.string().nullable() }).strict();
 /** 可省（沒有 body＝現行行為）；`onlyIfEmpty: true`＝只刪空資料夾（§5.7.4）。 */
@@ -38,7 +38,7 @@ export function foldersRoutes(deps: FolderServiceDeps) {
 
     app.post("/api/folders", { preHandler: app.authenticate }, async (request, reply) => {
       const parsed = createBodySchema.safeParse(request.body ?? {});
-      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "Invalid request body.");
       const body = parsed.data;
       let parent: { folderId: string } | { space: FolderSpaceDto };
       if ("parentId" in body) parent = { folderId: body.parentId.toLowerCase() };
@@ -52,7 +52,7 @@ export function foldersRoutes(deps: FolderServiceDeps) {
     app.patch("/api/folders/:id", { preHandler: app.authenticate }, async (request, reply) => {
       const { id } = request.params as { id: string };
       const parsed = updateBodySchema.safeParse(request.body ?? {});
-      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "Invalid request body.");
       const { name, parentId } = parsed.data;
       const out = await updateFolder(deps, {
         by: request.user!.id,
@@ -67,7 +67,7 @@ export function foldersRoutes(deps: FolderServiceDeps) {
     app.delete("/api/folders/:id", { preHandler: app.authenticate }, async (request, reply) => {
       const { id } = request.params as { id: string };
       const parsed = deleteBodySchema.safeParse(request.body ?? {});
-      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "Invalid request body.");
       const out = await deleteFolder(deps, { by: request.user!.id, folderId: id, onlyIfEmpty: parsed.data.onlyIfEmpty === true });
       if (out.kind === "error") return sendError(reply, out.status, out.code, out.message);
       return out.result satisfies FolderDeleteResultDto;
@@ -77,7 +77,7 @@ export function foldersRoutes(deps: FolderServiceDeps) {
     app.put("/api/notes/:id/folder", { preHandler: app.authenticate }, async (request, reply) => {
       const { id } = request.params as { id: string };
       const parsed = placeBodySchema.safeParse(request.body ?? {});
-      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "Invalid request body.");
       const { folderId } = parsed.data;
       const out = await placeNote(deps, { by: request.user!.id, noteId: id, folderId: folderId === null ? null : folderId.toLowerCase() });
       if (out.kind === "error") return sendError(reply, out.status, out.code, out.message);

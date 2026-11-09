@@ -43,10 +43,10 @@ const bad = (message: string): ReadFile => ({ kind: "error", message });
 /** 認得 front matter 的行（8000 探索測試 N7：冒號前可以有空白或 tab，`id :` 也算；`base:` 也算，好讓「有 base 沒 id」能被擋下）。 */
 const MARKER_LINE = /^(?:knotebook|id|base)[ \t]*:/;
 /** 8000 探索測試 N7：有 `base` 卻沒有（認得出的）`id`——當成新檔會多建一篇，改回 400。 */
-export const BASE_WITHOUT_ID_MESSAGE = "front matter 有 base 卻沒有 id：這是下載來的檔，請保留原本的 id 行再送";
-/** 8000 探索測試 B（HTTP 層，中文）；審查 M5：觸發條件含 `base:` 與冒號前的空白（`MARKER_LINE`）。 */
+export const BASE_WITHOUT_ID_MESSAGE = "The front matter has a base but no id. This is a downloaded file: keep its original id line and send it again.";
+/** 8000 探索測試 B（HTTP 層，#372 起英文）；審查 M5：觸發條件含 `base:` 與冒號前的空白（`MARKER_LINE`）。 */
 export const UNCLOSED_FRONT_MATTER_MESSAGE =
-  "front matter 沒有結尾的 `---`：檔案開頭有 `---`，前 200 行內有 `knotebook:`、`id:` 或 `base:` 行（冒號前可以有空白），卻找不到收尾的 `---`";
+  "The front matter has no closing `---`: the file starts with `---` and has a `knotebook:`, `id:` or `base:` line (spaces allowed before the colon) in its first 200 lines, but no `---` line closes it.";
 
 /**
  * §9.1：讀入一篇檔（`text`＝已 UTF-8 解碼的整個 body）。全部是純計算、在任何 DB 查詢之前；錯誤訊息不帶任何值。
@@ -56,7 +56,7 @@ export const UNCLOSED_FRONT_MATTER_MESSAGE =
  */
 export function readNoteFile(text: string): ReadFile {
   const s = text.replace(/^\ufeff/, "").replace(/\r\n/g, "\n");
-  if (s.includes("\0")) return bad("檔案含 NUL 字元");
+  if (s.includes("\0")) return bad("The file contains a NUL character.");
   const lines = s.split("\n");
   let end = -1;
   if (s.startsWith("---\n")) {
@@ -81,21 +81,21 @@ export function readNoteFile(text: string): ReadFile {
     const k = l.slice(0, c).trimEnd();
     if (!(READ_KEYS as readonly string[]).includes(k)) continue;
     const key = k as ReadKey;
-    if (vals.has(key)) return bad(`front matter 的 \`${key}\` 重複`);
+    if (vals.has(key)) return bad(`The front matter has \`${key}\` more than once.`);
     const p = parseScalar(l.slice(c + 1).trim());
-    if (!p.ok || UNSTORABLE.test(p.value)) return bad(`front matter 的 \`${key}\` 格式不對`);
+    if (!p.ok || UNSTORABLE.test(p.value)) return bad(`The front matter's \`${key}\` is malformed.`);
     vals.set(key, p.value);
   }
   const title = vals.get("title");
-  if (title === "") return bad("title 不能是空的");
+  if (title === "") return bad("The front matter's `title` can't be empty.");
   const body = normalizeBody(lines.slice(end + 1).join("\n"));
   const id = vals.get("id");
   if (id !== undefined) {
     const lid = id.toLowerCase();
-    if (!UUID_RE.test(lid)) return bad("front matter 的 `id` 格式不對");
+    if (!UUID_RE.test(lid)) return bad("The front matter's `id` is malformed.");
     const base = vals.get("base");
-    if (base === undefined) return bad("有 id 的檔案必須有 base");
-    if (!BASE_RE.test(base)) return bad("front matter 的 `base` 格式不對");
+    if (base === undefined) return bad("A file with an id must also have a base.");
+    if (!BASE_RE.test(base)) return bad("The front matter's `base` is malformed.");
     return { kind: "existing", id: lid, base, title, body };
   }
   if (vals.has("base")) return bad(BASE_WITHOUT_ID_MESSAGE);
@@ -103,7 +103,7 @@ export function readNoteFile(text: string): ReadFile {
   let folderId: string | undefined;
   if (folder !== undefined) {
     folderId = folder.toLowerCase();
-    if (!UUID_RE.test(folderId)) return bad("front matter 的 `folder_id` 格式不對");
+    if (!UUID_RE.test(folderId)) return bad("The front matter's `folder_id` is malformed.");
   }
   return { kind: "new", title, folderId, body };
 }

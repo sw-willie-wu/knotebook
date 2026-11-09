@@ -588,7 +588,7 @@ describe("POST /api/notes/:id/uploads × transfer token × 儲存配額（配額
     const t = await issueDirect(db, o.patId, o.noteId, "upload");
     const res = await upload(app, o.noteId, fileBody(PNG_BYTES), { token: t.token });
     expect(res.statusCode).toBe(409);
-    expect(res.json()).toEqual({ error: { code: "server_busy", message: "伺服器忙碌，請稍後再試" } });
+    expect(res.json()).toEqual({ error: { code: "server_busy", message: "The server is busy. Try again in a moment." } });
     expect((await tokenRow(db, t.id))!.consumedAt).not.toBeNull();
     expect(readdirSync(uploadsDir)).toHaveLength(0);
 

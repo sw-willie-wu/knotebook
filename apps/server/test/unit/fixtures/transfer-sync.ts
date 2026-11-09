@@ -69,8 +69,16 @@ export interface InMemoryBase {
 }
 
 /** PR-1 的 `exportNoteForTransfer`＋`baseHashes`（固定測試金鑰與鹽）。 */
-export async function makeBaseInMemory(rt: EditingRuntime, doc: Y.Doc, titles: ReadonlyMap<string, string> = new Map(), title = "T"): Promise<InMemoryBase> {
-  const ex = await exportNoteForTransfer(rt, doc, titles, { linkHash: (id, text) => linkTextHash(TEST_KEY, TEST_SALT, id, text) });
+export async function makeBaseInMemory(
+  rt: EditingRuntime,
+  doc: Y.Doc,
+  titles: ReadonlyMap<string, string> = new Map(),
+  title = "T",
+  /** 逐行改寫匯出結果再算基底：模擬舊版匯出器下載的檔（例：#386 之前文字裡的 ``` 不跳脫）。 */
+  mapLine?: (line: string) => string,
+): Promise<InMemoryBase> {
+  const raw = await exportNoteForTransfer(rt, doc, titles, { linkHash: (id, text) => linkTextHash(TEST_KEY, TEST_SALT, id, text) });
+  const ex = mapLine === undefined ? raw : { ...raw, lines: raw.lines.map(mapLine), body: raw.body.split("\n").map(mapLine).join("\n") };
   const h = baseHashes(TEST_KEY, TEST_SALT, { body: normalizeBody(ex.body), title, lines: ex.lines, kinds: ex.lineKinds });
   return {
     fileText: writeNoteFile({ id: "00000000-0000-4000-8000-000000000000", title, role: "owner", base: "0123456789abcdef", url: "/n/x" }, ex.body),
@@ -105,6 +113,7 @@ export async function planInMemory(
   const cur = topLevelSnapshot(curFragment);
   const exported = exportedLinkTextOf(b.base.segments!, TEST_KEY, b.base.salt);
   const r = await planSync(rt, {
+    owner: "test-user",
     segments: b.base.segments!,
     baseLineCount: b.lines.length,
     agentLines,
@@ -173,6 +182,6 @@ export async function withEditor<T>(rt: EditingRuntime, doc: Y.Doc, f: (ed: Edit
 
 export async function regionsOf(rt: EditingRuntime, b: InMemoryBase, agentBody: string, opts: { maxD?: number; check?: CheckBoundary } = {}): Promise<RegionsResult & { diff: LineDiff }> {
   const { agentLines, diff } = await diffAgainst(b, agentBody, opts);
-  const r = await findRegions(b.base.segments!, b.lines.length, agentLines, diff, opts.check ?? realBoundaryCheck(rt));
+  const r = await findRegions(b.base.segments!, b.lines.length, agentLines, diff, opts.check ?? realBoundaryCheck(rt), lines => rt.parser.openFenceLine("test-user", lines));
   return { ...r, diff };
 }

@@ -296,7 +296,7 @@ describe("createUploadFile", () => {
   function quota409(storage: unknown) {
     return fakeResponse({
       ok: false, status: 409,
-      json: () => Promise.resolve({ error: { code: "storage_quota_exceeded", message: "儲存空間已滿" }, storage }),
+      json: () => Promise.resolve({ error: { code: "storage_quota_exceeded", message: "This space's storage quota is full." }, storage }),
     });
   }
 

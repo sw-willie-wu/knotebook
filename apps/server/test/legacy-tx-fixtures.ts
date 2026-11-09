@@ -38,8 +38,8 @@ export async function legacyMoveNoteToGroupInTx(tx: Tx, input: LegacyMoveNoteInp
     .from(notes)
     .where(and(eq(notes.id, input.noteId), isNull(notes.deletedAt)))
     .for("update");
-  if (!row) throw new TxAbort(404, "not_found", "找不到此筆記");
-  if (row.ownerId !== input.userId) throw new TxAbort(409, "conflict", "筆記的歸屬已變更，請重新整理後再試");
+  if (!row) throw new TxAbort(404, "not_found", "No note with that id.");
+  if (row.ownerId !== input.userId) throw new TxAbort(409, "conflict", "The note's owner or group changed. Reload and try again.");
 
   const [target] = await tx.select({ id: groups.id }).from(groups).where(eq(groups.id, input.groupId)).for("key share");
   const [member] = await tx
@@ -48,7 +48,7 @@ export async function legacyMoveNoteToGroupInTx(tx: Tx, input: LegacyMoveNoteInp
     .innerJoin(groupRoles, eq(groupRoles.id, groupMembers.roleId))
     .where(and(eq(groupMembers.groupId, input.groupId), eq(groupMembers.userId, input.userId)))
     .limit(1);
-  if (!target || !member || !member.canCreate) throw new TxAbort(404, "group_not_found", "找不到此群組");
+  if (!target || !member || !member.canCreate) throw new TxAbort(404, "group_not_found", "No group with that id.");
   await hook?.("note-move-locked", { noteId: input.noteId, groupId: input.groupId });
 
   const [sized] = await tx.select({ incoming: sumUploadSizeSql() }).from(uploads).where(eq(uploads.noteId, input.noteId));

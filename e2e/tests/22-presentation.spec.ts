@@ -174,6 +174,37 @@ test("E1：⋮ 進入、換頁寫 hash 不增 history、O 總覽／Esc 只關總
   }
 });
 
+test("E1b：總覽（O）連距離 ≥3 的遠張也有內容；離開總覽後遠張又是 display:none (#390)", async ({ browser }) => {
+  test.setTimeout(120_000);
+  const title = `E2E overview ${Date.now()}`;
+  // 封面＋6 章：最後一章離封面 ≥ 4，超出一般模式的 viewDistance（3），總覽的 viewDistance 是 10
+  const deck = [1, 2, 3, 4, 5, 6].flatMap((n) => [`## Chapter ${n}`, "", `text ${n}`, ""]).join("\n");
+  const { context, page } = await adminPageWithNote(browser, title, deck);
+  try {
+    await expect(editorLocator(page).getByText("text 6")).toBeVisible({ timeout: 15_000 });
+    await presentFromHeaderMenu(page, title);
+    const far = page.locator(".reveal .slides section[data-kn-slide-id]").last();
+    const farState = () => far.evaluate((s) => {
+      const r = s.getBoundingClientRect();
+      return { display: getComputedStyle(s).display, sized: r.width > 0 && r.height > 0 };
+    });
+    // 一般模式：遠張被 reveal 的 unload 蓋回 display:none（也驗到 inline important 蓋得掉）
+    await expect.poll(async () => (await farState()).display).toBe("none");
+
+    await page.keyboard.press("o");
+    await expect(page.locator(".reveal.overview")).toBeVisible();
+    // 總覽：遠張 display 不是 none 且有尺寸（Tailwind preflight 的 [hidden] important 曾壓掉 reveal 的 inline display）
+    await expect.poll(async () => { const st = await farState(); return st.display !== "none" && st.sized; }).toBe(true);
+
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".reveal.overview")).toHaveCount(0);
+    await expect.poll(async () => (await farState()).display).toBe("none");
+    await expect(page.getByRole("dialog", { name: `${title} — presentation` })).toBeVisible();
+  } finally {
+    await context.close();
+  }
+});
+
 test("E2：A 播放中、B 編輯——A 3 s 內看到變動且停在同一張；B 刪掉 A 目前那張的起始標題 → A 到前一張", async ({ browser }) => {
   test.setTimeout(150_000);
   const title = `E2E present live ${Date.now()}`;

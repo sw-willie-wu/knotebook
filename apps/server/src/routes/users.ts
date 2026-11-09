@@ -32,7 +32,7 @@ const suggestQuerySchema = z
     q: z
       .string()
       .transform(s => s.trim())
-      .pipe(z.string().min(USER_SUGGEST_MIN_QUERY, "查詢字串太短").max(USER_SUGGEST_MAX_QUERY, "查詢字串太長")),
+      .pipe(z.string().min(USER_SUGGEST_MIN_QUERY, "The query is too short.").max(USER_SUGGEST_MAX_QUERY, "The query is too long.")),
   })
   .strict();
 
@@ -50,9 +50,9 @@ export function usersRoutes(deps: UsersRouteDeps) {
   return async function register(app: FastifyInstance): Promise<void> {
     app.get("/api/users/suggest", { preHandler: app.authenticate }, async (request, reply) => {
       const parsed = suggestQuerySchema.safeParse(request.query ?? {});
-      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "Invalid request body.");
       const me = request.user!.id;
-      if (!deps.limiters.userSuggest.consume(me)) return sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
+      if (!deps.limiters.userSuggest.consume(me)) return sendError(reply, 429, "too_many_requests", "Too many requests. Wait a moment and try again.");
 
       const escaped = escapeLike(parsed.data.q);
       const contains = `%${escaped}%`;

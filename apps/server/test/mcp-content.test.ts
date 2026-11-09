@@ -13,6 +13,7 @@ import { eq } from "drizzle-orm";
 import * as Y from "yjs";
 import { noteStateBackups, notes, noteStates } from "../src/db/schema.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
+import { fingerprintOf } from "../src/notes/editing/fingerprint.js";
 import { PRESENCE_COLOR, presenceClientId } from "../src/notes/editing/presence.js";
 import { MCP_PAGE_MAX, MCP_SECTION_CHARS, MCP_TEXT_MAX } from "../src/mcp/limits.js";
 import { buildCollabTestApp, type CollabTestCtx, signTestSession } from "./helpers.js";
@@ -181,9 +182,11 @@ describe("#108 read_note_outline", () => {
     const s = await scene(TWO_SECTIONS);
     const call = await callTool(s.ctx.app, s.token, "read_note_outline", { note_id: s.noteId });
     const out = payloadOf<OutlinePayload>(call);
+    // #381：唯一的指紋是標題的 `titleFingerprint`（rename 的 if_match）；內文的整篇／逐段指紋照舊一個都沒有（下面兩道）。
     expect(Object.keys(out).sort()).toEqual(
-      ["folder", "lastEdited", "nextSectionOffset", "note", "sections", "totalChars", "truncated"].sort()
+      ["folder", "lastEdited", "nextSectionOffset", "note", "sections", "titleFingerprint", "totalChars", "truncated"].sort()
     );
+    expect(out.titleFingerprint).toBe(fingerprintOf(out.note.title));
     expect(Object.keys(out.note).sort()).toEqual(["id", "owner", "role", "title"].sort());
     for (const entry of out.sections) {
       expect(Object.keys(entry).sort()).toEqual(["chars", "heading", "level", "sectionId"].sort());

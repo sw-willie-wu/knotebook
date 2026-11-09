@@ -213,24 +213,24 @@ describe("W9–W12 權限、範圍、額度、佇列", () => {
     const sd = await downloadNote(s.ctx.app, s.bulk.token, shared.id);
     const viewer = await bulkPut(s.ctx.app, s.bulk.token, editBody(sd.text, () => "x"));
     expect(viewer.statusCode).toBe(403);
-    expect(errOf(viewer)).toEqual({ code: "forbidden", message: "沒有編輯權限" });
+    expect(errOf(viewer)).toEqual({ code: "forbidden", message: "You don't have edit access to this note." });
     // 範圍外：folder 範圍的權杖、筆記不在那個資料夾
     const f = (await seedFolder(s.ctx.db, { personal: s.u.id }, { name: "F" })).id;
     const fbulk = await issueBulkDirect(s.ctx.db, s.pat.tokenId, { access: "write", range: { kind: "folder", folderId: f } });
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
     const out = await bulkPut(s.ctx.app, fbulk.token, editBody(d.text, b => b.replace("Para 1", "x")));
     expect(out.statusCode).toBe(403);
-    expect(errOf(out).message).toBe("這篇筆記不在此 transfer token 的範圍內");
+    expect(errOf(out).message).toBe("This note isn't in this transfer token's range.");
     // 範圍物件看不到：刪掉資料夾
     await s.ctx.db.execute(sql`delete from folders where id = ${f}`);
     const gone = await bulkPut(s.ctx.app, fbulk.token, editBody(d.text, b => b.replace("Para 1", "x")));
     expect(gone.statusCode).toBe(403);
-    expect(errOf(gone).message).toBe("此 transfer token 的範圍已看不到");
+    expect(errOf(gone).message).toBe("The group or folder this transfer token covers is no longer visible to you.");
     // access=read
     const rbulk = await issueBulkDirect(s.ctx.db, s.pat.tokenId, { access: "read" });
     const ro = await bulkPut(s.ctx.app, rbulk.token, editBody(d.text, b => b.replace("Para 1", "x")));
     expect(ro.statusCode).toBe(403);
-    expect(errOf(ro)).toEqual({ code: "insufficient_scope", message: "此 token 沒有執行這個操作的權限" });
+    expect(errOf(ro)).toEqual({ code: "insufficient_scope", message: "This token's scope doesn't allow this action." });
     // 垃圾桶
     await s.ctx.db.update(notes).set({ deletedAt: new Date() }).where(eq(notes.id, s.note.id));
     const trashed = await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, b => b.replace("Para 1", "x")));
@@ -266,6 +266,38 @@ describe("W9–W12 權限、範圍、額度、佇列", () => {
     expect((await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, b => b.replace("Para 2", "y")))).statusCode).toBe(409);
   });
 
+  it("W10c（全分支審查 I2）寫回額度在解析之前扣：解析失敗的寫回 400 也算一次 → 另一篇的真寫入 429、筆記未變", async () => {
+    const transferWrite = new FixedWindowLimiter({ limit: 1, windowMs: 60_000 });
+    const s = await scene({ limiters: { transferWrite } });
+    const n2 = await seedNote(s.ctx.db, { ownerId: s.u.id }, { title: "N2" });
+    await seedMd(s.ctx.db, n2.id, "Second note para");
+    const d1 = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
+    const d2 = await downloadNote(s.ctx.app, s.bulk.token, n2.id);
+    const bad = await bulkPut(s.ctx.app, s.bulk.token, editBody(d1.text, b => b.replace("Para 1", 'x <span style="color:#ff6600">orange-ish</span>')));
+    expect(bad.statusCode).toBe(400);
+    expect(errOf(bad).code).toBe("unsupported_color");
+    expect(transferWrite.isBlocked(s.u.id)).toBe(true);
+    const before = await liveMarkdown(s.ctx, n2.id);
+    const r = await bulkPut(s.ctx.app, s.bulk.token, editBody(d2.text, () => "changed"));
+    expect(r.statusCode).toBe(429);
+    expect(await liveMarkdown(s.ctx, n2.id)).toBe(before);
+  });
+
+  it("W10d（全分支審查 I2）額度用完時，本文位元組有改的檔一律 429——連只插空行（零區）的也是（判零區要先解析）；位元組相同的重送仍 200 unchanged", async () => {
+    const transferWrite = new FixedWindowLimiter({ limit: 1, windowMs: 60_000 });
+    const s = await scene({ limiters: { transferWrite } });
+    const n2 = await seedNote(s.ctx.db, { ownerId: s.u.id }, { title: "N2" });
+    await seedMd(s.ctx.db, n2.id, "Second note para");
+    const d1 = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
+    const d2 = await downloadNote(s.ctx.app, s.bulk.token, n2.id);
+    expect((await bulkPut(s.ctx.app, s.bulk.token, editBody(d2.text, () => "changed"))).statusCode).toBe(200);
+    const zero = await bulkPut(s.ctx.app, s.bulk.token, editBody(d1.text, b => b.replace("Para 1\n", "Para 1\n\n\n")));
+    expect(zero.statusCode).toBe(429);
+    const same = await bulkPut(s.ctx.app, s.bulk.token, d1.text);
+    expect(same.statusCode).toBe(200);
+    expect(same.json()).toMatchObject({ result: "unchanged" });
+  });
+
   it("W11 佇列被占（queueWaitMs 50）→ 503 server_busy、筆記未變", async () => {
     let release!: () => void;
     let entered!: () => void;
@@ -290,7 +322,7 @@ describe("W9–W12 權限、範圍、額度、佇列", () => {
     await inMerge;
     const r2 = await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, b => b.replace("Para 2", "second")));
     expect(r2.statusCode).toBe(503);
-    expect(errOf(r2)).toEqual({ code: "server_busy", message: "伺服器忙碌中，請稍後再試" });
+    expect(errOf(r2)).toEqual({ code: "server_busy", message: "The server is busy. Try again in a moment." });
     release();
     expect((await p1).statusCode).toBe(200);
     expect(await liveMarkdown(s.ctx, s.note.id)).not.toContain("second");

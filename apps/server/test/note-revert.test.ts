@@ -124,6 +124,8 @@ describe("撤回", () => {
     expect(orphaned.heading).toBe("");
     const rv = await s.revert(del!.id);
     expect(rv.statusCode).toBe(409); expect(rv.json().error.code).toBe("stale"); expect(rv.json().current).toBeDefined();
+    // #372：訊息逐字（英文、指向 current）。
+    expect(rv.json().error.message).toBe("The note changed after this edit, so it can't be reverted. The response's current field has the content as it is now.");
     const t = await setup();
     const ct = await t.content(); const a = ct.outline[1];
     expect((await t.post({ op: "replace_section", section_id: a.sectionId, markdown: "# A\n\nAI 版", if_match: a.fingerprint })).statusCode).toBe(201);

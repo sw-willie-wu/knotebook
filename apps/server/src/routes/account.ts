@@ -54,23 +54,23 @@ export interface AccountRouteDeps {
   reloginReverifyDelayMs?: number;
 }
 
-const TOO_MANY_REQUESTS_MESSAGE = "請求太頻繁，請稍後再試";
+const TOO_MANY_REQUESTS_MESSAGE = "Too many requests. Wait a moment and try again.";
 
 const MAX_DERIVE_ATTEMPTS = 3;
 
 // 上限（總管裁定疑點 4）：email 對齊 SSO 那條的 254（`routes/oidc.ts` 的 `MAX_EMAIL_CLAIM_LENGTH`），以 JS `.length` 計；
-// 顯示名 100 個 code point。以 refine 給中文訊息（`sendInvalidBody` 只取自訂 issue 的訊息）。註冊與接受邀請共用（#285 spec §5.3）。
+// 顯示名 100 個 code point。以 refine 給自訂訊息（`sendInvalidBody` 只取自訂 issue 的訊息）。註冊與接受邀請共用（#285 spec §5.3）。
 const emailField = z
   .string()
   .trim()
   .email()
-  .refine(s => s.length <= MAX_REGISTER_EMAIL_LENGTH, `email 不得超過 ${MAX_REGISTER_EMAIL_LENGTH} 個字元`);
+  .refine(s => s.length <= MAX_REGISTER_EMAIL_LENGTH, `The email can be at most ${MAX_REGISTER_EMAIL_LENGTH} characters.`);
 const displayNameField = z
   .string()
   .trim()
-  .refine(isStorableText, "顯示名稱含有無法儲存的字元")
-  .refine(s => s.length > 0, "顯示名稱不得為空")
-  .refine(s => [...s].length <= MAX_REGISTER_DISPLAY_NAME_LENGTH, `顯示名稱不得超過 ${MAX_REGISTER_DISPLAY_NAME_LENGTH} 個字`)
+  .refine(isStorableText, "The display name contains characters that can't be stored.")
+  .refine(s => s.length > 0, "The display name can't be empty.")
+  .refine(s => [...s].length <= MAX_REGISTER_DISPLAY_NAME_LENGTH, `The display name can be at most ${MAX_REGISTER_DISPLAY_NAME_LENGTH} characters.`)
   .optional();
 
 const registerBodySchema = z.object({ email: emailField, password: z.string(), displayName: displayNameField }).strict();
@@ -105,7 +105,7 @@ async function findActiveInvite(db: Db, token: string, log: FastifyBaseLogger): 
  * #187 PR3：自己帳號的路由——帳密註冊（§9.1）、登入方式（§8.2／§8.3，Task 5）、加上密碼（§8.4，Task 6）。
  * #285：無登入的邀請 inspect 與接受邀請（spec §5.3）——無效一律 410 `invite_invalid`、不區分原因；不看「允許用帳號密碼自行註冊」、
  * 不扣 `REGISTER_LIMIT`（E2、E5——邀請本身就是授權，有效 token 的接受不該被同 IP 的註冊額度擋住）；帳密開關只在交易外判；
- * log 與回應絕不含 token 明文或 `token_hash`。HTTP 層訊息中文。
+ * log 與回應絕不含 token 明文或 `token_hash`。HTTP 層訊息英文（#372）。
  * 兩顆桶與 `routes/password-reset.ts` 共用同一組實例：miss 桶（key=ip）只在交易外查無有效邀請時扣、有效 token 不預檢（不擋有效 token），
  * 帳密 403 與交易內 410 都不扣；嘗試桶（key=`link:${id}`）只在 accept、帳密有效值為開之後才扣，inspect 不扣。
  */
@@ -119,7 +119,7 @@ export function accountRoutes(deps: AccountRouteDeps) {
   return async function register(app: FastifyInstance): Promise<void> {
     app.post("/api/auth/register", async (request, reply) => {
       // §9.1 第 1 步：per-IP 限流，每個請求都扣（無 userId）。
-      if (!deps.limiters.register.consume(request.ip)) return sendError(reply, 429, "too_many_requests", "註冊太頻繁，請稍後再試");
+      if (!deps.limiters.register.consume(request.ip)) return sendError(reply, 429, "too_many_requests", "Too many sign-ups. Wait a moment and try again.");
       // 第 2、2a 步（快速路徑；權威判斷在交易內 FOR SHARE）。讀不到列：註冊視同關（§4.3）。
       const registrationEnabled = await readRegistrationEnabled(deps.db);
       if (registrationEnabled === null) request.log.error("site_settings 讀不到列：註冊視同關閉（#187 §4.3）");
@@ -132,14 +132,14 @@ export function accountRoutes(deps: AccountRouteDeps) {
       const email = normalizeEmail(parsed.data.email);
       const displayName = parsed.data.displayName ?? defaultDisplayName(email);
       if (parsed.data.password.length < MIN_PASSWORD_LENGTH) {
-        return sendError(reply, 400, "password_too_short", `密碼至少需要 ${MIN_PASSWORD_LENGTH} 字元`);
+        return sendError(reply, 400, "password_too_short", `The password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
       }
       // 第 4 步：先 hash 再碰 DB（交易外，S14）。
       let passwordHash: string;
       try {
         passwordHash = await hashPassword(parsed.data.password);
       } catch (err) {
-        if (err instanceof HashBusyError) return sendError(reply, 429, "server_busy", "伺服器忙碌，請稍後再試");
+        if (err instanceof HashBusyError) return sendError(reply, 429, "server_busy", "The server is busy. Try again in a moment.");
         throw err;
       }
 
@@ -160,7 +160,7 @@ export function accountRoutes(deps: AccountRouteDeps) {
           if (err instanceof TxAbort) return sendError(reply, err.status, err.errCode, err.message);
           const constraint = uniqueViolationConstraint(err);
           // 第 6 步：並發形的最後防線。
-          if (constraint === "users_email_unique") return sendError(reply, 409, "email_taken", "此 email 已被使用");
+          if (constraint === "users_email_unique") return sendError(reply, 409, "email_taken", "That email is already in use.");
           if ((constraint === "handles_pkey" || constraint === "users_handle_unique") && attempt <= MAX_DERIVE_ATTEMPTS) continue;
           // INSERT 帶 password hash，非預期 DB 錯誤不得讓 params 進 log（spec §5.6）。
           throw redactDbError(request.log, err, "註冊");
@@ -188,7 +188,7 @@ export function accountRoutes(deps: AccountRouteDeps) {
     // #285 spec §5.3：檢查邀請（不消耗）。順序：body → 邀請（無效扣 miss 桶）→ 帳密有效值（403 不扣桶）。
     app.post("/api/auth/invite/inspect", async (request, reply) => {
       const parsed = inspectInviteBodySchema.safeParse(request.body);
-      if (!parsed.success) return sendError(reply, 400, "invalid_body", "請求格式錯誤");
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", "Invalid request body.");
       const invite = await findActiveInvite(deps.db, parsed.data.token, request.log);
       if (!invite) return sendInvalidInvite(reply, request.ip);
       if (!(await isPasswordLoginAccepted(deps.db, deps.config, request.log))) {
@@ -212,18 +212,18 @@ export function accountRoutes(deps: AccountRouteDeps) {
         return sendError(reply, 429, "too_many_requests", TOO_MANY_REQUESTS_MESSAGE);
       }
       if (parsed.data.password.length < MIN_PASSWORD_LENGTH) {
-        return sendError(reply, 400, "password_too_short", `密碼至少需要 ${MIN_PASSWORD_LENGTH} 字元`);
+        return sendError(reply, 400, "password_too_short", `The password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
       }
       const email = normalizeEmail(parsed.data.email);
       const displayName = parsed.data.displayName ?? defaultDisplayName(email);
       // 預期內的 409 不燒 argon2、不消耗邀請（交易外、不鎖；交易內 `insertPasswordUserInTx` 再判一次，並發形靠唯一鍵）。
       const [taken] = await deps.db.select({ id: users.id }).from(users).where(sql`lower(${users.email}) = ${email}`).limit(1);
-      if (taken !== undefined) return sendError(reply, 409, "email_taken", "此 email 已被使用");
+      if (taken !== undefined) return sendError(reply, 409, "email_taken", "That email is already in use.");
       let passwordHash: string;
       try {
         passwordHash = await hashPassword(parsed.data.password);
       } catch (err) {
-        if (err instanceof HashBusyError) return sendError(reply, 429, "server_busy", "伺服器忙碌，請稍後再試");
+        if (err instanceof HashBusyError) return sendError(reply, 429, "server_busy", "The server is busy. Try again in a moment.");
         throw err;
       }
 
@@ -244,14 +244,14 @@ export function accountRoutes(deps: AccountRouteDeps) {
           // 交易內的 410 是並發造成（這發已以有效 token 通過上面的查詢），不經 sendInvalidInvite（spec N-4）。
           if (err instanceof TxAbort) return sendError(reply, err.status, err.errCode, err.message);
           const constraint = uniqueViolationConstraint(err);
-          if (constraint === "users_email_unique") return sendError(reply, 409, "email_taken", "此 email 已被使用");
+          if (constraint === "users_email_unique") return sendError(reply, 409, "email_taken", "That email is already in use.");
           if ((constraint === "handles_pkey" || constraint === "users_handle_unique") && attempt <= MAX_DERIVE_ATTEMPTS) continue;
           // 儲存配額 §10（m9）：預設方案被刪的競態 → 23503。
-          if (foreignKeyViolationConstraint(err) === "users_storage_plan_fk") return sendError(reply, 409, "server_busy", "伺服器忙碌，請稍後再試");
+          if (foreignKeyViolationConstraint(err) === "users_storage_plan_fk") return sendError(reply, 409, "server_busy", "The server is busy. Try again in a moment.");
           // site_settings 沒有列 → DEFAULT 函式回 NULL → 23502。
           if (notNullViolationColumn(err) === "storage_plan_id") {
             request.log.error({ table: "site_settings" }, SITE_SETTINGS_MISSING_MESSAGE);
-            return sendError(reply, 500, "internal", "伺服器內部錯誤");
+            return sendError(reply, 500, "internal", "Internal server error.");
           }
           // INSERT 帶 password hash，非預期 DB 錯誤不得讓 params 進 log（spec §5.6）。
           throw redactDbError(request.log, err, "接受邀請");
@@ -334,12 +334,12 @@ export function accountRoutes(deps: AccountRouteDeps) {
         return sendError(reply, 403, "password_login_disabled", PASSWORD_LOGIN_DISABLED_MESSAGE);
       }
       const { newPassword } = parsed.data;
-      if (newPassword.length < MIN_PASSWORD_LENGTH) return sendError(reply, 400, "password_too_short", `密碼至少需要 ${MIN_PASSWORD_LENGTH} 字元`);
+      if (newPassword.length < MIN_PASSWORD_LENGTH) return sendError(reply, 400, "password_too_short", `The password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
       let passwordHash: string;
       try {
         passwordHash = await hashPassword(newPassword);
       } catch (err) {
-        if (err instanceof HashBusyError) return sendError(reply, 429, "server_busy", "伺服器忙碌，請稍後再試");
+        if (err instanceof HashBusyError) return sendError(reply, 429, "server_busy", "The server is busy. Try again in a moment.");
         throw err;
       }
       const userId = request.user!.id;
@@ -347,7 +347,7 @@ export function accountRoutes(deps: AccountRouteDeps) {
       // #388：命中才在同一交易裡換 session 列（刪光、本機換新的一列；同改密碼，見 `auth/tx/change-password.ts`）。
       const input = { userId, passwordHash };
       const updated = await deps.db.transaction(tx => setPasswordInTx(tx, input));
-      if (updated === null) return sendError(reply, 409, "password_already_set", "這個帳號已經有密碼，請改用修改密碼");
+      if (updated === null) return sendError(reply, 409, "password_already_set", "This account already has a password. Change it instead.");
       // 同改密碼：讓其他裝置的舊 session 失效、重簽本人。
       deps.gate.invalidate(userId);
       deps.collabHooks.onUserRevoked(userId);

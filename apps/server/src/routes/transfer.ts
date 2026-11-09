@@ -3,7 +3,7 @@
  * 不回退 cookie。讀側三支：`GET /api/transfer/notes/:id`（單篇）、`DELETE /api/transfer/token`（自行撤銷）、`GET /api/transfer/export`
  * （整包）；寫側（PR-2）：`PUT /api/transfer/notes`（寫回一篇／新增）。
  * 讀取零副作用（plan §1-1）：只走 `loadNoteDoc`，不開直連、不 touch presence、不動 `notes.*`；唯一的寫入是 `transfer_bases`
- * 與撤銷。HTTP 層訊息中文（`sendError`）。log 不記內容、標題、檔名、權杖。
+ * 與撤銷。HTTP 層訊息英文（`sendError`；#372）。log 不記內容、標題、檔名、權杖。
  */
 import { eq } from "drizzle-orm";
 import { publicUrlIssuer } from "../config.js";
@@ -16,7 +16,8 @@ import type { Db } from "../db/index.js";
 import { transferTokens } from "../db/schema.js";
 import { pgErrorSummary } from "../db/pg-errors.js";
 import { TRANSFER_WRITE_BODY_LIMIT } from "../http/body-limits.js";
-import { sendError } from "../http/errors.js";
+import { sendError, sendNoteTooLarge } from "../http/errors.js";
+import { NOTE_WRITE_TOO_COMPLEX_MESSAGE, sendDocReadError, sendParserBusy } from "../http/parse-errors.js";
 import { retryAfterSeconds, type FixedWindowLimiter } from "../http/rate-limit.js";
 import type { EditingRuntime } from "../notes/editing/runtime.js";
 import { resolveNoteAccess } from "../notes/service.js";
@@ -27,7 +28,7 @@ import { fileShaOf, resolveCreateDest } from "../transfer/create-file.js";
 import { readNoteFile } from "../transfer/frontmatter.js";
 import { normalizeBody } from "../transfer/normalize.js";
 import { unclosedFenceMessage } from "../transfer/regions.js";
-import { MAX_BLOCKS, type ParseDetail } from "../notes/editing/markdown.js";
+import { MAX_BLOCKS, MAX_HTML_DEPTH, type ParseDetail } from "../notes/editing/markdown.js";
 import { parseErrorMessage } from "./notes.js";
 import { deriveTransferKey, transferKeyId } from "../transfer/base-hash.js";
 import { insertBases, pruneBases } from "../transfer/bases.js";
@@ -38,15 +39,15 @@ import { EXPORT_BUSY_RETRY_AFTER_S, TRANSFER_EXPORT_MAX_NOTES, streamExport, typ
 import { inRangeIds, layoutOf, rangeGone, visibleNotes, visibleTree } from "../transfer/range.js";
 
 /** spec §5.5（定案，Willie 2026-11-03）：範圍物件（群組、資料夾）使用時已看不到。 */
-export const RANGE_GONE_MESSAGE = "此 transfer token 的範圍已看不到";
-export const NOT_IN_RANGE_MESSAGE = "這篇筆記不在此 transfer token 的範圍內";
-export const TRANSFER_NOTE_NOT_FOUND_MESSAGE = "找不到此筆記";
-export const TRANSFER_RATE_LIMITED_MESSAGE = "請求過於頻繁，請稍後再試";
+export const RANGE_GONE_MESSAGE = "The group or folder this transfer token covers is no longer visible to you.";
+export const NOT_IN_RANGE_MESSAGE = "This note isn't in this transfer token's range.";
+export const TRANSFER_NOTE_NOT_FOUND_MESSAGE = "No note with that id.";
+export const TRANSFER_RATE_LIMITED_MESSAGE = "Too many requests. Wait a moment and try again.";
 /** plan §0.1-13：全站已有一個匯出在跑。 */
-export const EXPORT_BUSY_MESSAGE = "已有一個匯出正在進行，請稍後再試";
-export const TOO_MANY_NOTES_MESSAGE = `範圍內的筆記超過 ${TRANSFER_EXPORT_MAX_NOTES} 篇，請縮小範圍`;
+export const EXPORT_BUSY_MESSAGE = "Another export is already running. Try again in a moment.";
+export const TOO_MANY_NOTES_MESSAGE = `The range has more than ${TRANSFER_EXPORT_MAX_NOTES} notes. Ask for a token with a smaller range.`;
 /** §9.1：寫回的 body 不是 UTF-8（fatal 解碼失敗）。 */
-export const INVALID_UTF8_MESSAGE = "檔案不是 UTF-8";
+export const INVALID_UTF8_MESSAGE = "The file isn't valid UTF-8.";
 
 /** 寫回（PUT）的測試縫（plan H5）。生產不注入。 */
 export interface WriteTestHooks {
@@ -58,36 +59,39 @@ export interface WriteTestHooks {
 /** 單篇與整包共用的測試縫（`forceUnmergeable` 兩邊都看；其餘只有整包用）＋寫回的縫。 */
 export type TransferTestHooks = ExportTestHooks & WriteTestHooks;
 
-/** spec §12.2：HTTP 層中文（PR-3 T3 定稿；字面見 `test/unit/bulk-transfer-http-messages.test.ts`）。 */
+/** spec §12.2：HTTP 層訊息（PR-3 T3 定稿；#372 起英文；字面見 `test/unit/bulk-transfer-http-messages.test.ts`）。 */
 /**
- * 檔案寫回／新增的 400 訊息（HTTP 層中文；8000 探索測試 E）：依錯誤碼與成因（`detail`、未閉合的 `fence`）說清楚是哪一種。
+ * 檔案寫回／新增的 400 訊息（HTTP 層，#372 起英文；8000 探索測試 E）：依錯誤碼與成因（`detail`、未閉合的 `fence`）說清楚是哪一種。
  * 色值、並排、尺寸三碼沿用 REST 的既有訊息（`parseErrorMessage`）。
  */
 export function transferParseMessage(code: ErrorCode, detail?: ParseDetail, fence?: string): string {
   if (code === "unsupported_block") {
-    if (detail === "event_attr") return "檔案裡有帶事件屬性（例如 onerror、onclick）的 HTML，不能存進筆記，沒有寫入任何內容";
-    if (detail === "editor_internal") return "檔案裡有編輯器內部用的 HTML（例如帶 data-content-type 的元素），不能存進筆記，沒有寫入任何內容";
-    if (detail === "dropped_element") return "檔案裡有編輯器會連內容整個丟掉的元素（例如 <script>、<style>、<iframe>），不能存進筆記，沒有寫入任何內容";
-    return "檔案裡有編輯器不支援的元素，不能存進筆記，沒有寫入任何內容";
+    if (detail === "event_attr") return "The file has HTML with an event attribute (such as onerror or onclick), which can't be stored in a note, so nothing was written.";
+    if (detail === "editor_internal") return "The file has HTML the editor uses internally (such as an element with data-content-type), which can't be stored in a note, so nothing was written.";
+    if (detail === "dropped_element") return "The file has an element the editor drops along with its content (such as <script>, <style> or <iframe>), which can't be stored in a note, so nothing was written.";
+    if (detail === "nested_paragraph") return "The file has a paragraph inside another paragraph (HTML such as a <p> inside a <button>, <marquee>, <svg> or <math> that is itself in a <p>), which can't be stored in a note, so nothing was written.";
+    if (detail === "too_deep") return `The file is nested more than ${MAX_HTML_DEPTH} HTML elements deep, counting the paragraph inside (quotes nested 128 levels deep or lists nested 64 levels deep), which can't be stored in a note, so nothing was written.`;
+    if (detail === "too_complex") return "The file is too complex to process within the server's time and memory limits, so nothing was written. Split it into smaller files or simplify its formatting.";
+    return "The file has an element the editor doesn't support, which can't be stored in a note, so nothing was written.";
   }
   if (code === "empty_content") {
-    if (detail === "unclosed_comment") return "有一個 `<!--` 沒有收尾的 `-->`，後面的內容都被當成註解、沒有可存的內容；請補上 `-->` 再送，沒有寫入任何內容";
-    return "檔案裡這一處解析後沒有內容（例如只剩 HTML 註解或空白），沒有寫入任何內容";
+    if (detail === "unclosed_comment") return "A `<!--` has no closing `-->`, so everything after it counts as a comment and there is nothing to store. Add the `-->` and send the file again. Nothing was written.";
+    return "A part of the file has no content once parsed (for example, only HTML comments or blank space), so nothing was written.";
   }
-  if (code === "too_many_blocks") return `內容超過一篇筆記的上限 ${MAX_BLOCKS} 個 block（巢狀的也算），沒有寫入任何內容`;
+  if (code === "too_many_blocks") return `The content is over a note's limit of ${MAX_BLOCKS} blocks (nested blocks count too), so nothing was written.`;
   if (code === "invalid_body" && fence !== undefined) return unclosedFenceMessage(fence);
-  return parseErrorMessage(code, "無法套用檔案");
+  return parseErrorMessage(code, "Couldn't apply the file.");
 }
 
 /** 409 `base_unavailable` 的訊息，依 `error.reason`（8000 探索測試 D；Willie 2026-11-04 第三輪：不再合併，`note_changed` 取代 `anchors_gone`）。 */
 export const BASE_UNAVAILABLE_MESSAGES: Record<BaseUnavailableReason, string> = {
-  already_sent: "無法用這份副本寫回：這份副本已用其他內容送回過；請重新下載再改",
-  other_note: "無法用這份副本寫回：這份副本的 base 屬於別篇筆記或別人；請重新下載再改",
-  expired: "無法用這份副本寫回：伺服器已沒有這份副本的基底（太舊或已失效）；請重新下載再改",
-  note_changed: "無法用這份副本寫回：這篇筆記在你下載之後被改過（標題或內文）；請重新下載這一篇（note 指令），把你的修改重做一次再送",
-  reverted: "無法用這份副本寫回：這份副本寫回的修改已被撤回；請重新下載再改",
+  already_sent: "Can't write back with this copy: it has already been sent back with different content. Download the note again and make your changes there.",
+  other_note: "Can't write back with this copy: its base belongs to another note or another user. Download the note again and make your changes there.",
+  expired: "Can't write back with this copy: the server no longer has its base (it is too old or no longer valid). Download the note again and make your changes there.",
+  note_changed: "Can't write back with this copy: the note has changed (its title or text) since you downloaded it. Download this note again (the note command), redo your changes in the new copy and send that.",
+  reverted: "Can't write back with this copy: the changes it wrote back have been reverted. Download the note again and make your changes there.",
 };
-export const NOT_MERGEABLE_MESSAGE = "這篇筆記不能用檔案寫回，請改用 edit_note";
+export const NOT_MERGEABLE_MESSAGE = "This note can't be written back from a file. Change it with edit_note instead.";
 
 export interface TransferRouteDeps {
   db: Db;
@@ -100,7 +104,7 @@ export interface TransferRouteDeps {
     bearerMiss: FixedWindowLimiter;
     contentRead: FixedWindowLimiter;
     transferExport: FixedWindowLimiter;
-    /** 寫回：只在佇列內、判定檔案有改之後才看與扣（plan 不變量 13；8000 探索測試 N5：沒改的檔不受寫回額度影響）。 */
+    /** 寫回：只在佇列內、判定檔案有改之後才扣（plan 不變量 13；8000 探索測試 N5：沒改的檔不受寫回額度影響），解析之前扣（全分支審查 I2）。 */
     transferWrite: FixedWindowLimiter;
     /** 與 MCP／REST 的 Bearer 讀取同一顆（key `token:${userId}`）：零區、同檔重送、去重命中扣這顆。 */
     tokenRead: FixedWindowLimiter;
@@ -215,7 +219,14 @@ export function transferRoutes(deps: TransferRouteDeps) {
         reply.header("retry-after", String(retryAfterSeconds(deps.limiters.contentRead.retryAfterMs(userId))));
         return sendError(reply, 429, "too_many_requests", TRANSFER_RATE_LIMITED_MESSAGE);
       }
-      const nf = await buildNoteFile(fileDeps, userId, row, { forceUnmergeable: deps.testHooks?.forceUnmergeable?.(row.id) === true });
+      let nf: Awaited<ReturnType<typeof buildNoteFile>>;
+      try {
+        nf = await buildNoteFile(fileDeps, userId, row, { forceUnmergeable: deps.testHooks?.forceUnmergeable?.(row.id) === true });
+      } catch (err) {
+        const sent = sendDocReadError(reply, err); // 匯出的轉換在 parse worker 裡：全忙 503、太大 500 `too_complex`
+        if (sent) return sent;
+        throw err;
+      }
       await insertBases(deps.db, request.log, [nf.base]);
       pruneBases(deps.db, request.log, userId, [row.id]);
       return reply
@@ -228,7 +239,7 @@ export function transferRoutes(deps: TransferRouteDeps) {
 
     /**
      * 寫回一篇（spec §9；PR-2）。`text/markdown` 的 415／Origin 403 在全域 onRequest（`TEXT_BODY_EXEMPT_ROUTES`），parser 在頂層
-     * 只回 Buffer；1 MiB 上限 → 413 `content_too_large`（§21 D11）。解碼在這裡：`fatal: true`，非 UTF-8 → 400 `invalid_body`。
+     * 只回 Buffer；`TRANSFER_WRITE_BODY_LIMIT`（256 KiB，同 `WRITE_BODY_LIMIT`）上限 → 413 `content_too_large`（§21 D11）。解碼在這裡：`fatal: true`，非 UTF-8 → 400 `invalid_body`。
      */
     app.put("/api/transfer/notes", { preHandler: requireBulkWrite, bodyLimit: TRANSFER_WRITE_BODY_LIMIT }, async (request: FastifyRequest, reply: FastifyReply) => {
       await deps.testHooks?.beforeWriteHandler?.();
@@ -263,6 +274,16 @@ export function transferRoutes(deps: TransferRouteDeps) {
         reply.header("retry-after", String(retryAfterSeconds(retryAfterMs)));
         return fail(429, "too_many_requests", TRANSFER_RATE_LIMITED_MESSAGE);
       };
+      // #398：解析的 worker 全忙、排隊超過上限（同 REST 的 503 形）。
+      const parserBusy = () => {
+        logLine("server_busy");
+        return sendParserBusy(reply);
+      };
+      // 筆記大小上限（`notes/note-size.ts`）：同 REST 的 413 形。
+      const tooLarge = (limitBytes: number) => {
+        logLine("note_too_large");
+        return sendNoteTooLarge(reply, limitBytes);
+      };
       // 審查 m1：未預期的例外（全域 handler 回 500）也要記這一行——鍵同 ⑪ 的 11 個、diff 鍵 null、`result: "internal"`；
       // 例外本身照舊往外丟（不吞、不改回應）。帶內容的 DB 錯誤在 service 已經 `redactDbError` 過。
       try {
@@ -289,10 +310,12 @@ export function transferRoutes(deps: TransferRouteDeps) {
           });
           if (!out.ok) {
             if (out.kind === "parse") return fail(400, out.code, transferParseMessage(out.code, out.detail));
+            if (out.kind === "parser_busy") return parserBusy();
+            if (out.kind === "too_large") return tooLarge(out.limitBytes);
             if (out.kind === "rate_limited") return tooMany(out.retryAfterMs);
             if (out.kind === "folder_gone") return fail(404, "folder_not_found", FOLDER_NOT_FOUND_MESSAGE);
-            if (out.kind === "busy") return fail(503, "server_busy", "伺服器忙碌中，請稍後再試");
-            return fail(500, "internal", "無法建立筆記");
+            if (out.kind === "busy") return fail(503, "server_busy", "The server is busy. Try again in a moment.");
+            return fail(500, "internal", "Couldn't create the note.");
           }
           noteId = out.noteId;
           logLine(out.created ? "created" : "unchanged");
@@ -301,7 +324,7 @@ export function transferRoutes(deps: TransferRouteDeps) {
             : reply.code(200).send({ id: out.noteId, created: false, result: "unchanged", base: null });
         }
 
-        // §9.2 寫回既有筆記（T8／T9）。順序是契約：可見 → 範圍物件 → 範圍 → 角色 → syncFile（寫回額度在 syncFile 內、判定檔案有改之後才看）。
+        // §9.2 寫回既有筆記（T8／T9）。順序是契約：可見 → 範圍物件 → 範圍 → 角色 → syncFile（寫回額度在 syncFile 內、判定檔案有改之後、解析之前扣）。
         noteId = file.id;
         const access = await resolveNoteAccess(deps.db, userId, file.id);
         if (access.role === "none") return fail(404, "not_found", TRANSFER_NOTE_NOT_FOUND_MESSAGE);
@@ -309,7 +332,7 @@ export function transferRoutes(deps: TransferRouteDeps) {
         const rows = await visibleNotes(deps.db, userId, { ids: [file.id] });
         const row = rows[0];
         if (row === undefined || !inRangeIds(rows, tree, bt.range).has(row.id)) return fail(403, "forbidden", NOT_IN_RANGE_MESSAGE);
-        if (!access.permissions.edit) return fail(403, "forbidden", "沒有編輯權限");
+        if (!access.permissions.edit) return fail(403, "forbidden", "You don't have edit access to this note.");
         const out = await deps.writes.syncFile(request.log, {
           noteId: file.id, userId, userHandle: request.user!.handle, tokenId: bt.parentTokenId, access, baseKey: file.base, title: file.title,
           body: file.body, key, keyId: fileDeps.keyId, limiters,
@@ -321,14 +344,17 @@ export function transferRoutes(deps: TransferRouteDeps) {
             return reply.code(409).send({ error: { code: "base_unavailable", message: BASE_UNAVAILABLE_MESSAGES[out.reason], reason: out.reason } });
           }
           if (out.kind === "not_mergeable") return fail(409, "not_mergeable", NOT_MERGEABLE_MESSAGE);
-          if (out.kind === "busy") return fail(503, "server_busy", "伺服器忙碌中，請稍後再試");
+          if (out.kind === "parser_busy") return parserBusy();
+          if (out.kind === "too_large") return tooLarge(out.limitBytes);
+          if (out.kind === "note_too_complex") return fail(500, "too_complex", NOTE_WRITE_TOO_COMPLEX_MESSAGE);
+          if (out.kind === "busy") return fail(503, "server_busy", "The server is busy. Try again in a moment.");
           if (out.kind === "gone") return fail(404, "not_found", TRANSFER_NOTE_NOT_FOUND_MESSAGE);
           if (out.kind === "rate_limited") return tooMany(out.retryAfterMs);
           if (out.kind === "parse") {
             if (out.code === "unclosed_fence") return fail(400, "invalid_body", transferParseMessage("invalid_body", undefined, out.fence ?? "```"));
             return fail(400, out.code, transferParseMessage(out.code, out.detail));
           }
-          return fail(500, "internal", "無法寫回");
+          return fail(500, "internal", "Couldn't write the file back.");
         }
         logLine(out.result, out);
         return reply.code(200).send({

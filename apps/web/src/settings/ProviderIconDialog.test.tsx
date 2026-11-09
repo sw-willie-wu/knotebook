@@ -181,7 +181,7 @@ describe("ProviderIconDialog（spec §6.3、§8.2 W2）", () => {
   });
 
   it("失敗 → 對話框內 role=alert 顯示 errors.<code>、保持開著、可再按", async () => {
-    setup(BASE, () => fakeResponse(400, { error: { code: "invalid_body", message: "請求格式錯誤" } }));
+    setup(BASE, () => fakeResponse(400, { error: { code: "invalid_body", message: "Invalid request body." } }));
     const dialog = await openDialog();
     fireEvent.click(radio(dialog, "Google logo"));
     fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));

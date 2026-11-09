@@ -23,7 +23,7 @@ import { NOTE_ID, SEC } from "../../notes/schemas.js";
 import { noteSummarySchema } from "../dto.js";
 import { MCP_SECTION_CHARS, truncateCodeUnits } from "../limits.js";
 import { READ_NOTE_LINK_SENTENCE } from "../note-link-strings.js";
-import { authorizeNoteRead, SECTION_NOT_FOUND_MESSAGE } from "../note-read.js";
+import { authorizeNoteRead, docReadToolError, SECTION_NOT_FOUND_MESSAGE } from "../note-read.js";
 import { toolError, toolResult } from "../tool-result.js";
 import type { McpToolCtx } from "../context.js";
 
@@ -107,7 +107,15 @@ export async function readNoteSection(args: ReadNoteSectionArgs, ctx: McpToolCtx
   // ⚠ 誠實記下：**本棒沒造這個場景**（工具刻意設計成可單獨呼叫，單元探針測得到），不是測不到。
   if (ctx.editing === undefined) throw new Error("read_note_section：editing runtime 缺席（不該被註冊）");
 
-  const result = await readNoteContent({ db: ctx.db, collab: ctx.collab }, ctx.editing, args.note_id, ctx.userId, args.section_id);
+  let result: Awaited<ReturnType<typeof readNoteContent>>;
+  try {
+    result = await readNoteContent({ db: ctx.db, collab: ctx.collab, shownLinks: ctx.writes.shownLinks }, ctx.editing, args.note_id, ctx.userId, args.section_id);
+  } catch (err) {
+    // 轉換在 parse worker 裡（`readNoteContent`）：全忙 → server_busy；逾時或用完記憶體 → too_complex。
+    const error = docReadToolError(err);
+    if (error) return error;
+    throw err;
+  }
   if (result === "section_not_found") return toolError("section_not_found", SECTION_NOT_FOUND_MESSAGE);
   // 帶了 section 就不可能拿到整篇形；不收窄的話 spread 一個字串會靜默送出 {0:"…"}。
   if (!("section" in result)) throw new Error("readNoteContent 帶了 section 卻回整篇形");

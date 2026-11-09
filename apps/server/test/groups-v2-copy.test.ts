@@ -139,7 +139,7 @@ describe("#175 PR2 POST /api/notes/:id/copy（T4）", () => {
 
     const missing = await copy(app, "00000000-0000-4000-8000-000000000000", stranger.id);
     expect(missing.statusCode).toBe(404);
-    expect(missing.json()).toEqual({ error: { code: "not_found", message: "找不到此筆記" } });
+    expect(missing.json()).toEqual({ error: { code: "not_found", message: "No note with that id." } });
     for (const noteId of [personal.id, grouped.id, "not-a-uuid"]) {
       const res = await copy(app, noteId, stranger.id);
       expect(res.statusCode, noteId).toBe(404);
@@ -167,7 +167,7 @@ describe("#175 PR2 POST /api/notes/:id/copy（T4）", () => {
       bodies.push(res.body);
     }
     expect(new Set(bodies).size).toBe(1);
-    expect(JSON.parse(bodies[0]!)).toEqual({ error: { code: "group_not_found", message: "找不到此群組" } });
+    expect(JSON.parse(bodies[0]!)).toEqual({ error: { code: "group_not_found", message: "No group with that id." } });
     expect(await noteCount(db)).toBe(notesBefore);
     expect(await uploadCount(db)).toBe(uploadsBefore);
     expect(await filesIn(uploadsDir)).toEqual(filesBefore);
@@ -429,7 +429,7 @@ describe("#175 PR2 POST /api/notes/:id/copy（T4）", () => {
 
     const second = await copy(app, src.id, owner.id); // 要 2、剩 1
     expect(second.statusCode).toBe(429);
-    expect(second.json()).toEqual({ error: { code: "too_many_requests", message: "請求過於頻繁，請稍後再試" } });
+    expect(second.json()).toEqual({ error: { code: "too_many_requests", message: "Too many requests. Wait a moment and try again." } });
     expect(await noteCount(db)).toBe(notesBefore);
     expect(await uploadCount(db)).toBe(uploadsBefore);
     expect(await filesIn(uploadsDir)).toEqual(filesBefore);
@@ -454,7 +454,7 @@ describe("#175 PR2 POST /api/notes/:id/copy（T4）", () => {
 
     const second = await copy(app, src.id, owner.id);
     expect(second.statusCode).toBe(429);
-    expect(second.json()).toEqual({ error: { code: "too_many_requests", message: "請求過於頻繁，請稍後再試" } });
+    expect(second.json()).toEqual({ error: { code: "too_many_requests", message: "Too many requests. Wait a moment and try again." } });
     expect(await noteCount(db)).toBe(notesBefore);
     expect(upload.consume(owner.id)).toBe(false); // 第一發已扣滿整窗
   });
@@ -565,7 +565,7 @@ describe("#175 PR2 複製 × 群組鎖（C19a／C19b／C19c，review r1 I-1）",
     expect(holder.interleave).toBe("blocked");
     expect(removed.statusCode).toBe(204);
     expect(copied.statusCode).toBe(404);
-    expect(copied.json()).toEqual({ error: { code: "group_not_found", message: "找不到此群組" } });
+    expect(copied.json()).toEqual({ error: { code: "group_not_found", message: "No group with that id." } });
     expect(await noteCount(db)).toBe(notesBefore);
     expect(await notesInGroup(db, g.id)).toEqual([]);
     expect(await filesIn(uploadsDir)).toEqual(filesBefore);

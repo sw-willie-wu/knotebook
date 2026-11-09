@@ -23,7 +23,7 @@ import type { CollabHooksLogger } from "../src/collab/hooks-impl.js";
 import { COLLAB_PATH, createCollabServer, type CollabDeps, type CollabServer } from "../src/collab/server.js";
 import { notes, noteShares, users } from "../src/db/schema.js";
 import { createAiRuntime } from "../src/ai/runtime.js";
-import { createEditingRuntime } from "../src/notes/editing/runtime.js";
+import { createEditingRuntime, type EditingRuntime } from "../src/notes/editing/runtime.js";
 
 export interface FreshDb {
   db: Db;
@@ -499,6 +499,8 @@ export async function buildCollabTestApp(
     storageLockTimeoutMs?: number;
     /** #106（#137）寫入路徑的注入縫，語意見 `AppDeps.editingTestHooks`。 */
     editingTestHooks?: AppDeps["editingTestHooks"];
+    /** #387：連結文字表的注入縫，語意見 `AppDeps.shownLinks`。 */
+    shownLinks?: AppDeps["shownLinks"];
     /** #108 `/api/mcp` 的注入縫，語意見 `AppDeps.mcpTestHooks`。 */
     mcpTestHooks?: AppDeps["mcpTestHooks"];
     /** #175 PR5：群組測試注入縫（`"membership-checked"` 等），語意見 `AppDeps.groupTestHook`；帶 content 的 MCP `create_note {groupId}` 要 collab app 才寫得出。 */
@@ -527,6 +529,8 @@ export async function buildCollabTestApp(
      * server 同時持有同一篇 live doc。
      */
     db?: Db;
+    /** #398：換掉共用的 `testEditingRuntime`（例：小時限、小排隊上限的 parse pool）。由呼叫端自己 `close()`。 */
+    editing?: EditingRuntime;
   } = {}
 ): Promise<CollabTestCtx> {
   const { db } = opts.db ? { db: opts.db } : await freshDb();
@@ -559,9 +563,10 @@ export async function buildCollabTestApp(
     throttle: new LoginThrottle(),
     collabHooks: opts.collabHooks ? opts.collabHooks(collab, collabLog) : noopCollabHooks,
     collab,
-    editing: testEditingRuntime,
+    editing: opts.editing ?? testEditingRuntime,
     limiters: freshLimiters(opts.limiters),
     editingTestHooks: opts.editingTestHooks,
+    shownLinks: opts.shownLinks,
     mcpTestHooks: opts.mcpTestHooks,
     transferTestHooks: opts.transferTestHooks,
     groupTestHook: opts.groupTestHook,

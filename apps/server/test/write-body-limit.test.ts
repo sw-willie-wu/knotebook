@@ -63,7 +63,8 @@ describe("#108 寫入端點的 bodyLimit 邊界（WRITE_BODY_LIMIT）", () => {
     const s = await setup();
     const res = await s.postEdits(padTo(md => ({ op: "append", markdown: md }), WRITE_BODY_LIMIT + 1));
     expect(res.statusCode).toBe(413);
-    expect(res.json().error.code).toBe("content_too_large");
+    // #372：不是 fastify 原生句，而是與其他錯誤同形的英文句。
+    expect(res.json()).toEqual({ error: { code: "content_too_large", message: "The request body is over this endpoint's size limit. Send a smaller request." } });
   });
 
   it("第 2 發 POST /:id/edits：恰好上限 ＋ 一把未宣告的鍵 → 400 invalid_body（不是 413），且零落盤", async () => {
@@ -84,7 +85,7 @@ describe("#108 寫入端點的 bodyLimit 邊界（WRITE_BODY_LIMIT）", () => {
     const s = await setup();
     const res = await mcpPost(s.ctx.app, undefined, { token: s.token, raw: padTo(mcpEnvelope, WRITE_BODY_LIMIT + 1) });
     expect(res.statusCode).toBe(413);
-    expect(res.json().error.code).toBe("content_too_large");
+    expect(res.json()).toEqual({ error: { code: "content_too_large", message: "The request body is over this endpoint's size limit. Send a smaller request." } });
   });
 
   it("第 4 發 POST /api/mcp：恰好上限 → 不是 413（帶一坨 padding 照樣 200）", async () => {

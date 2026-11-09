@@ -17,7 +17,7 @@ import { buildCollabTestApp, type CollabTestCtx } from "./helpers.js";
 import { inject, markTrashed, sixRoleScene, trashCols } from "./trash-helpers.js";
 
 type Res = LightMyRequestResponse;
-const CHANGED = "資料夾內容剛變動，請再試一次";
+const CHANGED = "The folder's contents just changed. Try again.";
 
 const delFolder = (app: FastifyInstance, by: string, id: string) => inject(app, "DELETE", `/api/folders/${id}`, by);
 const place = (app: FastifyInstance, by: string, noteId: string, folderId: string | null) => inject(app, "PUT", `/api/notes/${noteId}/folder`, by, { folderId });

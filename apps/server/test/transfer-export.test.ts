@@ -11,6 +11,7 @@ import { FixedWindowLimiter } from "../src/http/rate-limit.js";
 import { EXPORT_BUSY_MESSAGE, RANGE_GONE_MESSAGE, TOO_MANY_NOTES_MESSAGE } from "../src/routes/transfer.js";
 import { EXPORT_BUSY_RETRY_AFTER_S, TRANSFER_EXPORT_MAX_NOTES, type ExportOutcome, type ExportTestHooks } from "../src/transfer/export-stream.js";
 import { presenceClientId } from "../src/notes/editing/presence.js";
+import { TRANSFER_WRITE_BODY_LIMIT } from "../src/http/body-limits.js";
 import { buildCollabTestApp, testConfig } from "./helpers.js";
 import { seedContent, seedTokenForUser } from "./editing-helpers.js";
 import { seedGroup, seedNote, seedRole, seedShare, seedUser, setMemberRole } from "./group-helpers.js";
@@ -517,17 +518,24 @@ describe("E14–E17：not mergeable、標頭、presence、live", () => {
     expect(b2!.segments).not.toBeNull();
   });
 
-  it("E14b（8000 探索測試 H）檔案超過寫回上限（1 MiB）→ manifest 該項 tooLargeToSend:true；一般檔沒有這個鍵", async () => {
+  it("E14b（8000 探索測試 H；全分支審查 I2(c) 起門檻 256 KiB）檔案超過寫回上限 → manifest 該項 tooLargeToSend:true；剛好在上限內的與一般檔沒有這個鍵", async () => {
     const ctx = await buildCollabTestApp();
     const { u, b } = await userWithBulk(ctx);
     const big = await seedNote(ctx.db, { ownerId: u.id }, { title: "big" });
+    const near = await seedNote(ctx.db, { ownerId: u.id }, { title: "near" });
     const small = await seedNote(ctx.db, { ownerId: u.id }, { title: "small" });
-    await seedMd(ctx.db, big.id, Array.from({ length: 300 }, (_, i) => `p${i} ${"x".repeat(4000)}`).join("\n\n"));
+    // big ≈ 280 KB（超過 256 KiB、遠低於舊的 1 MiB）；near ≈ 240 KB（在 256 KiB 內）
+    await seedMd(ctx.db, big.id, Array.from({ length: 70 }, (_, i) => `p${i} ${"x".repeat(4000)}`).join("\n\n"));
+    await seedMd(ctx.db, near.id, Array.from({ length: 60 }, (_, i) => `p${i} ${"x".repeat(4000)}`).join("\n\n"));
     await seedMd(ctx.db, small.id, "small body");
     const entries = readTarGz((await exportRaw(ctx.baseUrl, b.token)).body);
     const m = manifestOf(entries);
-    expect(filesOf(entries).find(e => e.path === "My notes/big.md")!.data.length).toBeGreaterThan(1_048_576);
+    const sizeOf = (p: string) => filesOf(entries).find(e => e.path === p)!.data.length;
+    expect(sizeOf("My notes/big.md")).toBeGreaterThan(TRANSFER_WRITE_BODY_LIMIT);
+    expect(sizeOf("My notes/big.md")).toBeLessThan(1_048_576);
+    expect(sizeOf("My notes/near.md")).toBeLessThanOrEqual(TRANSFER_WRITE_BODY_LIMIT);
     expect(m.notes).toContainEqual({ path: "My notes/big.md", id: big.id, role: "owner", tooLargeToSend: true });
+    expect(m.notes).toContainEqual({ path: "My notes/near.md", id: near.id, role: "owner" });
     expect(m.notes).toContainEqual({ path: "My notes/small.md", id: small.id, role: "owner" });
   });
 

@@ -21,8 +21,8 @@ import { readRegistrationEnabled } from "../auth/site-settings.js";
 import { isPasswordLoginAccepted, PASSWORD_LOGIN_DISABLED_MESSAGE } from "../auth/password-login.js";
 import { isStorableText } from "../auth/admin-provider-input.js";
 
-const INVALID_CREDENTIALS_MESSAGE = "帳號或密碼錯誤";
-const ICON_NOT_FOUND_MESSAGE = "找不到此圖示";
+const INVALID_CREDENTIALS_MESSAGE = "Wrong email or password.";
+const ICON_NOT_FOUND_MESSAGE = "No sign-in service icon with that id.";
 
 // 只驗結構，內容一律讓 DB 查詢/密碼驗證自然決定結果——login 對外只有一種失敗訊息
 // （invalid_credentials），不該讓 email 格式檢查變成一個額外的、可被用來區分
@@ -75,6 +75,8 @@ export function authRoutes(deps: AuthRouteDeps) {
         registration: { enabled: registrationEnabled ?? false, providerIds: registrationEnabled === null ? [] : autoCreateProviderIds },
         passwordLogin: { enabled: passwordLoginEnabled },
         autoVersionsEnabled: versionsRow?.v ?? true,
+        // 網頁編輯器的筆記大小上限檢查（貼上、拖放、站內 AI 套用之前；協作更新不在 server 檢查）。
+        noteMaxBytes: deps.config.noteMaxBytes,
       };
     });
 
@@ -105,7 +107,7 @@ export function authRoutes(deps: AuthRouteDeps) {
     app.post("/api/auth/login", async (request, reply) => {
       const parsed = loginBodySchema.safeParse(request.body);
       if (!parsed.success) {
-        return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+        return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "Invalid request body.");
       }
       // #187 B20：帳密登入的有效值為關 → 403。排在讀帳號與 throttle **之前**：回應與帳號完全無關（同碼、同訊息、不讀 users），
       // 本身不是存在性 oracle，所以不需要 dummy-hash 等時化；不跑 argon2 也拿掉一個 CPU 放大面。關閉期間這條路徑不吃任何節流
@@ -148,7 +150,7 @@ export function authRoutes(deps: AuthRouteDeps) {
         }
       } catch (err) {
         if (err instanceof HashBusyError) {
-          return sendError(reply, 429, "server_busy", "伺服器忙碌，請稍後再試");
+          return sendError(reply, 429, "server_busy", "The server is busy. Try again in a moment.");
         }
         throw err;
       }
@@ -161,7 +163,7 @@ export function authRoutes(deps: AuthRouteDeps) {
       // 密碼已驗證正確——只有此時才檢查 disabled，避免密碼錯誤時洩漏帳號存在與否
       // 之外的額外資訊（是否被停用），也避免被用來當帳號存在 oracle。
       if (user!.disabledAt !== null) {
-        return sendError(reply, 403, "account_disabled", "此帳號已被停用");
+        return sendError(reply, 403, "account_disabled", "This account is disabled.");
       }
 
       deps.throttle.recordSuccess(email, request.ip);
@@ -210,12 +212,12 @@ export function authRoutes(deps: AuthRouteDeps) {
         displayName: z
           .string()
           .trim()
-          .refine(isStorableText, "顯示名稱含有無法儲存的字元")
-          .refine(s => s.length > 0, "顯示名稱不得為空")
-          .refine(s => [...s].length <= MAX_REGISTER_DISPLAY_NAME_LENGTH, `顯示名稱不得超過 ${MAX_REGISTER_DISPLAY_NAME_LENGTH} 個字`)
+          .refine(isStorableText, "The display name contains characters that can't be stored.")
+          .refine(s => s.length > 0, "The display name can't be empty.")
+          .refine(s => [...s].length <= MAX_REGISTER_DISPLAY_NAME_LENGTH, `The display name can be at most ${MAX_REGISTER_DISPLAY_NAME_LENGTH} characters.`)
           .optional(),
       })
-      .refine(b => b.handle !== undefined || b.autoVersions !== undefined || b.displayName !== undefined, { message: "請求格式錯誤：至少需要一個欄位" });
+      .refine(b => b.handle !== undefined || b.autoVersions !== undefined || b.displayName !== undefined, { message: "Invalid request body: send at least one field." });
     /** 回應形：寫入後的值（交易內 RETURNING）——現行 `{ ...request.user, handle }` 是 gate 的 60 s 快取，不能沿用（r7 M-4）。 */
     const profileReturning = () => ({
       id: users.id, email: users.email, handle: users.handle, displayName: users.displayName, isAdmin: users.isAdmin,
@@ -239,7 +241,7 @@ export function authRoutes(deps: AuthRouteDeps) {
      */
     app.patch("/api/auth/profile", { preHandler: app.authenticate }, async (request, reply) => {
       const parsed = profileBodySchema.safeParse(request.body);
-      if (!parsed.success) return sendError(reply, 400, "invalid_body", "請求格式錯誤");
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", "Invalid request body.");
       const userId = request.user!.id;
       const { autoVersions, displayName } = parsed.data;
       // 不在 handle 之列的欄位：純 UPDATE 分支整組寫、改名交易的 UPDATE 同一句帶上。
@@ -251,7 +253,7 @@ export function authRoutes(deps: AuthRouteDeps) {
       if (parsed.data.handle !== undefined) {
         normalized = normalizeHandle(parsed.data.handle);
         if (validateHandle(normalized) !== null) {
-          return sendError(reply, 400, "invalid_body", "使用者名格式不合法（1–32 字元、小寫英數與連字號，不可頭尾/連續連字號）");
+          return sendError(reply, 400, "invalid_body", "Invalid username: use 1 to 32 lowercase letters, digits and hyphens, with no hyphen at the start or end and no two in a row.");
         }
       }
       let dto: UserDto | undefined;
@@ -298,17 +300,17 @@ export function authRoutes(deps: AuthRouteDeps) {
           });
         } catch (err) {
           if (err === QUOTA_EXCEEDED) {
-            return sendError(reply, 429, "too_many_requests", "改名太頻繁（24 小時內最多改名 5 次）");
+            return sendError(reply, 429, "too_many_requests", "Too many username changes: at most 5 in 24 hours. Try again later.");
           }
-          if (err === HANDLE_TAKEN) return sendError(reply, 409, "handle_taken", "此使用者名已被使用");
+          if (err === HANDLE_TAKEN) return sendError(reply, 409, "handle_taken", "That username is taken.");
           const constraint = uniqueViolationConstraint(err);
           if (constraint === "handles_pkey" || constraint === "users_handle_unique") {
-            return sendError(reply, 409, "handle_taken", "此使用者名已被使用");
+            return sendError(reply, 409, "handle_taken", "That username is taken.");
           }
           throw err;
         }
       }
-      if (dto === undefined) return sendError(reply, 401, "unauthorized", "未登入"); // 帳號在請求途中被刪
+      if (dto === undefined) return sendError(reply, 401, "unauthorized", "Not signed in."); // 帳號在請求途中被刪
       // 比照改密碼的既有慣例：invalidate 讓下一次 authenticate 立刻反映（60s 快取不等 TTL）
       deps.gate.invalidate(userId);
       return reply.send(dto);
@@ -317,7 +319,7 @@ export function authRoutes(deps: AuthRouteDeps) {
     app.post("/api/auth/password", { preHandler: app.authenticate }, async (request, reply) => {
       const parsed = passwordBodySchema.safeParse(request.body);
       if (!parsed.success) {
-        return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+        return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "Invalid request body.");
       }
       const { currentPassword, newPassword } = parsed.data;
       const userId = request.user!.id;
@@ -341,7 +343,7 @@ export function authRoutes(deps: AuthRouteDeps) {
         }
       } catch (err) {
         if (err instanceof HashBusyError) {
-          return sendError(reply, 429, "server_busy", "伺服器忙碌，請稍後再試");
+          return sendError(reply, 429, "server_busy", "The server is busy. Try again in a moment.");
         }
         throw err;
       }
@@ -351,7 +353,7 @@ export function authRoutes(deps: AuthRouteDeps) {
       }
 
       if (newPassword.length < MIN_PASSWORD_LENGTH) {
-        return sendError(reply, 400, "password_too_short", `密碼至少需要 ${MIN_PASSWORD_LENGTH} 字元`);
+        return sendError(reply, 400, "password_too_short", `The password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
       }
 
       let newPasswordHash: string;
@@ -359,7 +361,7 @@ export function authRoutes(deps: AuthRouteDeps) {
         newPasswordHash = await hashPassword(newPassword);
       } catch (err) {
         if (err instanceof HashBusyError) {
-          return sendError(reply, 429, "server_busy", "伺服器忙碌，請稍後再試");
+          return sendError(reply, 429, "server_busy", "The server is busy. Try again in a moment.");
         }
         throw err;
       }
@@ -376,7 +378,7 @@ export function authRoutes(deps: AuthRouteDeps) {
       // #388：同一交易裡刪光這個使用者的 session 列（其他裝置）、為本機建新的一列——「保留這台、踢掉其他台」。
       const input = { userId, passwordHash: newPasswordHash };
       const updated = await deps.db.transaction(tx => changePasswordInTx(tx, input));
-      if (updated === null) return sendError(reply, 401, "unauthorized", "Not signed in"); // 帳號在請求途中被刪
+      if (updated === null) return sendError(reply, 401, "unauthorized", "Not signed in."); // 帳號在請求途中被刪
 
       // 踢掉所有舊 session（含改密碼前簽發、當下可能正被其他裝置使用的那些）——
       // 它們的 session 列上面已刪；gate.invalidate 讓下一次 `authenticate` 立刻反映新 tokenVersion，

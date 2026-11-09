@@ -18,6 +18,7 @@ vi.mock("../src/auth/password.js", async () => {
 });
 
 import { verifyPassword, hashPassword, HashBusyError, DUMMY_HASH } from "../src/auth/password.js";
+import { DEFAULT_NOTE_MAX_BYTES } from "../src/notes/note-size.js";
 
 // mockClear 只清呼叫紀錄（不清 mockRejectedValueOnce 以外的實作，那些本來就是
 // vi.fn(actual...) 包出來的預設轉發），確保每個測試看到的呼叫次數只計自己那份。
@@ -67,7 +68,7 @@ describe("GET /api/auth/config", () => {
     const { app } = await buildTestApp();
     const res = await app.inject({ method: "GET", url: "/api/auth/config" });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ providers: [], registration: { enabled: true, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true });
+    expect(res.json()).toEqual({ providers: [], registration: { enabled: true, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true, noteMaxBytes: DEFAULT_NOTE_MAX_BYTES });
   });
 
   it("只列啟用中的 provider、依 sort_order 排；不含 issuer／client id／secret（§14.1 第 18 條）", async () => {
@@ -76,15 +77,21 @@ describe("GET /api/auth/config", () => {
     const a = await seedAuthProvider(db, { issuerUrl: "https://a.example", displayName: "A", sortOrder: 1 });
     await seedAuthProvider(db, { issuerUrl: "https://off.example", displayName: "Off", enabled: false });
     const res = await app.inject({ method: "GET", url: "/api/auth/config" });
-    expect(res.json()).toEqual({ providers: [{ id: a.id, displayName: "A", icon: GENERIC }, { id: b.id, displayName: "B", icon: GENERIC }], registration: { enabled: true, providerIds: [a.id, b.id] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true });
+    expect(res.json()).toEqual({ providers: [{ id: a.id, displayName: "A", icon: GENERIC }, { id: b.id, displayName: "B", icon: GENERIC }], registration: { enabled: true, providerIds: [a.id, b.id] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true, noteMaxBytes: DEFAULT_NOTE_MAX_BYTES });
     expect(res.body).not.toMatch(/a\.example|test-client|"ct"/);
+  });
+
+  it("noteMaxBytes＝設定的 NOTE_MAX_BYTES（網頁編輯器的筆記大小上限檢查用）", async () => {
+    const { app } = await buildTestApp({ config: { ...testConfig, noteMaxBytes: 123_456 } });
+    const res = await app.inject({ method: "GET", url: "/api/auth/config" });
+    expect(res.json().noteMaxBytes).toBe(123_456);
   });
 
   it("registration_enabled=false → registration.enabled false", async () => {
     const { app, db } = await buildTestApp();
     await db.update(siteSettings).set({ registrationEnabled: false });
     const res = await app.inject({ method: "GET", url: "/api/auth/config" });
-    expect(res.json()).toEqual({ providers: [], registration: { enabled: false, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true });
+    expect(res.json()).toEqual({ providers: [], registration: { enabled: false, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true, noteMaxBytes: DEFAULT_NOTE_MAX_BYTES });
   });
 
   it("site_settings 讀不到列 → registration.enabled false＋error log（§4.3 r1-M5）", async () => {
@@ -105,7 +112,7 @@ describe("GET /api/auth/config", () => {
     );
     await db.delete(siteSettings);
     const res = await app.inject({ method: "GET", url: "/api/auth/config" });
-    expect(res.json()).toEqual({ providers: [], registration: { enabled: false, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true });
+    expect(res.json()).toEqual({ providers: [], registration: { enabled: false, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true, noteMaxBytes: DEFAULT_NOTE_MAX_BYTES });
     expect(logged.some((a) => a.some((x) => typeof x === "string" && x.includes("site_settings")))).toBe(true);
     expect(logged.some((a) => a.some((x) => typeof x === "string" && x.includes("帳密登入視同開啟")))).toBe(true);
   });

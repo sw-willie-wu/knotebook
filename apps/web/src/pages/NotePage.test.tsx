@@ -59,7 +59,9 @@ const VERSION_1 = vi.hoisted(() => ({
   createdAt: "2026-01-01T00:00:00.000Z",
 }));
 // #293：替身交給 NotePage 的 scroller（`onCursorScroller`）；預設 null＝同真編輯器尚未交出。
-const editorMock = vi.hoisted(() => ({ scroller: null as null | ((c: unknown) => boolean) }));
+const editorMock = vi.hoisted(() => ({ scroller: null as null | ((c: unknown) => boolean), noteMaxBytes: undefined as number | undefined }));
+/** `GET /api/auth/config` 回的 `noteMaxBytes`（筆記大小上限）；undefined＝回應不帶這個欄位。 */
+const siteConfig = vi.hoisted(() => ({ noteMaxBytes: undefined as number | undefined }));
 // #297：`mock-column` 用真的 `useNoteWidth(noteId)`，P3 靠它驗 NotePage 交給頁首選單與編輯器的是同一個 id。
 vi.mock("@/components/NoteEditor", async () => {
   const React = await import("react");
@@ -72,6 +74,7 @@ vi.mock("@/components/NoteEditor", async () => {
     footerSlot,
     previewSlot,
     onCursorScroller,
+    noteMaxBytes,
   }: {
     editable: boolean;
     noteId: string;
@@ -79,7 +82,9 @@ vi.mock("@/components/NoteEditor", async () => {
     footerSlot?: ReactNode;
     previewSlot?: ReactNode;
     onCursorScroller?: (s: unknown) => void;
+    noteMaxBytes?: number;
   }) {
+    editorMock.noteMaxBytes = noteMaxBytes;
     const versions = useVersions();
     const [width] = useNoteWidth(noteId);
     React.useEffect(() => {
@@ -262,6 +267,10 @@ function mockFetch(
     if (url === "/api/auth/me") {
       return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(USER) }));
     }
+    if (url === "/api/auth/config") {
+      const body = { providers: [], registration: { enabled: true, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true, ...(siteConfig.noteMaxBytes === undefined ? {} : { noteMaxBytes: siteConfig.noteMaxBytes }) };
+      return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(body) }));
+    }
     if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
     if (url === "/api/notes" && method === "GET") {
       return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
@@ -410,6 +419,8 @@ describe("NotePage", () => {
     collab.provider = createStubProvider();
     // 上一案 NotePage 的回呼會殘留在 hoisted 物件上——不清的話「等到回呼出現」會立刻拿到舊頁的那支。
     collab.onUnauthorized = undefined;
+    siteConfig.noteMaxBytes = undefined;
+    editorMock.noteMaxBytes = undefined;
     window.history.replaceState(null, "", "/");
     // toast store 是模組層級的，不歸零的話上一個測試的 toast 會留在畫面上。
     dismissAllToasts();
@@ -449,6 +460,62 @@ describe("NotePage", () => {
     // ⚠ 但標題**仍可編輯**（issue #48 審查）：標題走 REST 的 last-write-wins、不走 Yjs，
     // 連不上共編但 REST 正常時改標題完全安全。跟著 synced 一起鎖死是功能倒退。
     expect(screen.getByLabelText("Note title")).toBeInTheDocument();
+  });
+
+  describe("筆記大小上限（前端檢查）", () => {
+    afterEach(() => {
+      siteConfig.noteMaxBytes = undefined;
+    });
+    it("設定的 noteMaxBytes（GET /api/auth/config）交給編輯器（貼上、拖放、站內 AI 套用的檢查用）", async () => {
+      siteConfig.noteMaxBytes = 123_456;
+      vi.stubGlobal("fetch", mockFetch());
+      collab.provider.synced = true;
+      renderNotePage("my-note");
+      await waitFor(() => expect(editorMock.noteMaxBytes).toBe(123_456));
+    });
+
+    it("超過上限的筆記：開啟（同步後）就顯示不擋編輯的提示；刪掉內容、節流時間過後消失；再長過上限又出現", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        collab.doc.getText("t").insert(0, "x".repeat(2_000));
+        siteConfig.noteMaxBytes = Y.encodeStateAsUpdate(collab.doc).byteLength - 100;
+        vi.stubGlobal("fetch", mockFetch());
+        collab.provider.synced = true;
+        renderNotePage("my-note");
+        const notice = "This note is over the size limit; editing may be slow. Delete content to shrink it.";
+        expect(await screen.findByText(notice)).toBeInTheDocument();
+        await waitFor(() => expect(screen.getByTestId("note-editor")).toHaveAttribute("data-editable", "true")); // 不擋編輯
+        act(() => collab.doc.getText("t").delete(0, 1_500));
+        expect(screen.getByText(notice), "節流：還沒重算").toBeInTheDocument();
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(3_100);
+        });
+        expect(screen.queryByText(notice)).toBeNull();
+        act(() => collab.doc.getText("t").insert(0, "y".repeat(3_000)));
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(3_100);
+        });
+        expect(screen.getByText(notice)).toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("上限內、或設定沒帶上限、或還沒同步：不顯示", async () => {
+      collab.doc.getText("t").insert(0, "x".repeat(2_000));
+      siteConfig.noteMaxBytes = Y.encodeStateAsUpdate(collab.doc).byteLength + 1_000;
+      vi.stubGlobal("fetch", mockFetch());
+      collab.provider.synced = true;
+      const first = renderNotePage("my-note");
+      await waitFor(() => expect(editorMock.noteMaxBytes).toBe(siteConfig.noteMaxBytes));
+      expect(screen.queryByText(/over the size limit/)).toBeNull();
+      first.unmount();
+      siteConfig.noteMaxBytes = 10;
+      collab.provider.synced = false;
+      renderNotePage("my-note");
+      await waitFor(() => expect(editorMock.noteMaxBytes).toBe(10));
+      expect(screen.queryByText(/over the size limit/), "還沒同步").toBeNull();
+    });
   });
 
   it("issue #48：同步過一次之後就可編輯（owner）", async () => {

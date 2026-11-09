@@ -104,5 +104,5 @@ export const updateBodyObject = z.object({
   slug: z.string().nullable().optional(),
 });
 export const updateBodySchema = updateBodyObject.refine(b => b.title !== undefined || b.slug !== undefined, {
-  message: "title 與 slug 至少需帶一項",
+  message: "Invalid request body: send at least one of title and slug.",
 });

@@ -1,6 +1,6 @@
 /**
  * 資料夾 PR-3d（spec §5.12 錯誤形、M10）：資料夾相關的模型面英文句，與 `FolderFailure`（folders/service.ts）→ MCP 錯誤結果的映射。
- * 服務層的訊息是中文、同一碼可能有多句，所以這裡依「工具＋碼」映射，不比對中文字面（plan 讀碼發現 11）。
+ * 服務層的訊息是給 REST 的、同一碼可能有多句，所以這裡依「工具＋碼」映射，不比對服務層字面（plan 讀碼發現 11）。
  * 字面逐字照 plan「待確認字串」；改字前讀 memory g:model-facing-string-claims。
  */
 import { FOLDER_DEPTH_MAX, FOLDER_NAME_MAX, FOLDERS_PER_SPACE_MAX, type ErrorCode } from "@knotebook/shared";

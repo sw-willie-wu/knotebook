@@ -9,7 +9,7 @@ import { INVALID_UTF8_MESSAGE } from "../src/routes/transfer.js";
 import type { TokenScope } from "@knotebook/shared";
 import { apiTokens } from "../src/db/schema.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
-import { TRANSFER_WRITE_BODY_LIMIT } from "../src/http/body-limits.js";
+import { TRANSFER_WRITE_BODY_LIMIT, WRITE_BODY_LIMIT } from "../src/http/body-limits.js";
 import { buildCollabTestApp } from "./helpers.js";
 import { seedTokenForUser } from "./editing-helpers.js";
 import { cookieOf, seedNote, seedUser } from "./group-helpers.js";
@@ -51,7 +51,7 @@ describe("requireBulk(\"write\")：W-A 矩陣", () => {
     const s = await scene({ parentScope: "notes:read", access: "read" });
     const r = await bulkPut(s.ctx.app, s.bulk.token, FILE);
     expect(r.statusCode).toBe(403);
-    expect(errOf(r)).toEqual({ code: "insufficient_scope", message: "此 token 沒有執行這個操作的權限" });
+    expect(errOf(r)).toEqual({ code: "insufficient_scope", message: "This token's scope doesn't allow this action." });
     expect(r.headers["www-authenticate"]).toBeUndefined();
   });
 
@@ -60,7 +60,7 @@ describe("requireBulk(\"write\")：W-A 矩陣", () => {
     const s = await scene({ parentScope: "notes:read notes:write", access: "read" });
     const r = await bulkPut(s.ctx.app, s.bulk.token, FILE);
     expect(r.statusCode).toBe(403);
-    expect(errOf(r)).toEqual({ code: "insufficient_scope", message: "此 token 沒有執行這個操作的權限" });
+    expect(errOf(r)).toEqual({ code: "insufficient_scope", message: "This token's scope doesn't allow this action." });
   });
 
   it("W-A3 對照：同一支唯讀權杖讀取照常 200（只擋寫）", async () => {
@@ -81,10 +81,10 @@ describe("requireBulk(\"write\")：W-A 矩陣", () => {
     await s.ctx.db.update(apiTokens).set({ scope: "notes:read" }).where(eq(apiTokens.id, s.pat.tokenId));
     const r = await bulkPut(s.ctx.app, s.bulk.token, FILE);
     expect(r.statusCode).toBe(403);
-    expect(errOf(r)).toEqual({ code: "insufficient_scope", message: "此 token 沒有執行這個操作的權限" });
+    expect(errOf(r)).toEqual({ code: "insufficient_scope", message: "This token's scope doesn't allow this action." });
   });
 
-  it("W-A5 upload／download 權杖 → 403「此 transfer token 不能用在這個動作」", async () => {
+  it("W-A5 upload／download 權杖 → 403「This transfer token can't be used for this action.」", async () => {
     const s = await scene();
     for (const purpose of ["upload", "download"] as const) {
       const t = await issueDirect(s.ctx.db, s.pat.tokenId, s.note.id, purpose);
@@ -96,32 +96,33 @@ describe("requireBulk(\"write\")：W-A 矩陣", () => {
 });
 
 describe("body 外殼：415／Origin／413／UTF-8", () => {
-  it("W-A6 Content-Type: application/json（帶 body）→ 415「此請求需要 text/markdown」、基底未變", async () => {
+  it("W-A6 Content-Type: application/json（帶 body）→ 415「This request needs Content-Type text/markdown.」、基底未變", async () => {
     const s = await scene();
     const before = (await basesOf(s.ctx.db)).length;
     const r = await bulkPut(s.ctx.app, s.bulk.token, JSON.stringify({ a: 1 }), { contentType: "application/json" });
     expect(r.statusCode).toBe(415);
-    expect(errOf(r)).toEqual({ code: "unsupported_media_type", message: "此請求需要 text/markdown" });
+    expect(errOf(r)).toEqual({ code: "unsupported_media_type", message: "This request needs Content-Type text/markdown." });
     expect((await basesOf(s.ctx.db)).length).toBe(before);
   });
 
-  it("W-A7 text/markdown＋Origin: https://evil.example → 403「Origin 驗證失敗」；同一請求不帶 Origin → 通過 onRequest（T10 起是新增 → 201）", async () => {
+  it("W-A7 text/markdown＋Origin: https://evil.example → 403「Origin check failed」；同一請求不帶 Origin → 通過 onRequest（T10 起是新增 → 201）", async () => {
     const s = await scene();
     const bad = await bulkPut(s.ctx.app, s.bulk.token, FILE, { origin: "https://evil.example" });
     expect(bad.statusCode).toBe(403);
-    expect(errOf(bad)).toEqual({ code: "forbidden", message: "Origin 驗證失敗" });
+    expect(errOf(bad)).toEqual({ code: "forbidden", message: "Origin check failed: the request's Origin doesn't match its Host." });
     const good = await bulkPut(s.ctx.app, s.bulk.token, FILE);
     expect(good.statusCode).toBe(201);
   });
 
-  it("W-A8 body 1 MiB＋1 byte → 413 content_too_large；恰 1 MiB → 不是 413", async () => {
+  it("W-A8（全分支審查 I2(c) 起 256 KiB，同 WRITE_BODY_LIMIT）body 256 KiB＋1 byte → 413 content_too_large；恰 256 KiB → 201 寫入", async () => {
     const s = await scene();
-    expect(TRANSFER_WRITE_BODY_LIMIT).toBe(1_048_576);
+    expect(TRANSFER_WRITE_BODY_LIMIT).toBe(262_144);
+    expect(TRANSFER_WRITE_BODY_LIMIT).toBe(WRITE_BODY_LIMIT);
     const over = await bulkPut(s.ctx.app, s.bulk.token, Buffer.alloc(TRANSFER_WRITE_BODY_LIMIT + 1, 0x61));
     expect(over.statusCode).toBe(413);
     expect(errOf(over).code).toBe("content_too_large");
     const exact = await bulkPut(s.ctx.app, s.bulk.token, Buffer.alloc(TRANSFER_WRITE_BODY_LIMIT, 0x61));
-    expect(exact.statusCode).not.toBe(413);
+    expect(exact.statusCode).toBe(201);
   });
 
   it("W-A9 body 非 UTF-8 → 400 invalid_body＋INVALID_UTF8_MESSAGE", async () => {
@@ -131,10 +132,10 @@ describe("body 外殼：415／Origin／413／UTF-8", () => {
     expect(errOf(r)).toEqual({ code: "invalid_body", message: INVALID_UTF8_MESSAGE });
   });
 
-  it("W-A10 其他路由（POST /api/notes）帶 text/markdown → 仍 415「此請求需要 application/json」", async () => {
+  it("W-A10 其他路由（POST /api/notes）帶 text/markdown → 仍 415「This request needs Content-Type application/json.」", async () => {
     const s = await scene();
     const r = await s.ctx.app.inject({ method: "POST", url: "/api/notes", headers: { "content-type": "text/markdown", authorization: `Bearer ${s.pat.token}` }, payload: "# hi" });
     expect(r.statusCode).toBe(415);
-    expect(errOf(r)).toEqual({ code: "unsupported_media_type", message: "此請求需要 application/json" });
+    expect(errOf(r)).toEqual({ code: "unsupported_media_type", message: "This request needs Content-Type application/json." });
   });
 });

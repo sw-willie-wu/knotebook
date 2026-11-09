@@ -113,7 +113,7 @@ describe("#175 PR3 POST /api/groups/:id/roles", () => {
     for (const name of ["reader", "Café", "admin", "MEMBER", "管理員", "一般成員"]) {
       const res = await post({ name, permissions: NONE });
       expect(res.statusCode, name).toBe(409);
-      expect(res.json()).toEqual({ error: { code: "role_name_taken", message: "這個群組已有同名的角色，或該名稱保留給內建角色" } });
+      expect(res.json()).toEqual({ error: { code: "role_name_taken", message: "This group already has a role with that name, or the name is reserved for a built-in role." } });
     }
     expect((await post({ name: "Admins", permissions: NONE })).statusCode).toBe(201);
     expect((await roles()).map(r => r.builtin ?? r.name)).toEqual(["admin", "member", "Admins", "Café", "Reader"]);
@@ -124,7 +124,7 @@ describe("#175 PR3 POST /api/groups/:id/roles", () => {
     for (const name of ["", "   ", "a".repeat(41), `a${NUL}b`, "\uD800"]) {
       const res = await post({ name, permissions: NONE });
       expect(res.statusCode, JSON.stringify(name)).toBe(400);
-      expect(res.json()).toEqual({ error: { code: "invalid_name", message: "角色名稱須為 1–40 個字元" } });
+      expect(res.json()).toEqual({ error: { code: "invalid_name", message: "Role names must be 1 to 40 characters." } });
     }
     expect(await roles()).toHaveLength(2);
     const emoji = await post({ name: "\u{1F600}".repeat(40), permissions: NONE });

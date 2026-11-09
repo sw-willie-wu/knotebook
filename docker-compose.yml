@@ -21,6 +21,14 @@ services:
       options:
         max-size: 50m
         max-file: "5"
+    # 選配：限制 app 能用的 CPU 與記憶體（#398）。設了之後，沒設 PARSE_WORKERS 時 server 會照這裡的上限
+    # （容器的 cgroup）推算解析 worker 數：min(CPU − 1，最多 4；floor(記憶體 × 0.5 ÷ PARSE_WORKER_MEMORY_MB))，至少 1。
+    # 不設就照主機的 CPU 與記憶體算。怎麼挑數字見 docs/self-hosting.md「Parse workers」。
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: "2"
+    #       memory: 4g
     # 預設只綁 loopback：public 拓撲（docs/self-hosting.md「Deployment prerequisites」）的假設是
     # app 只透過反代對外曝露；若直接 "3000:3000"（等同 0.0.0.0:3000），docker 會
     # 直接在 iptables 開洞，繞過 host 防火牆規則，讓區網/公網能不經反代直接打到

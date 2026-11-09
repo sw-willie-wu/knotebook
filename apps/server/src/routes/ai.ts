@@ -48,7 +48,7 @@ const postAiBodySchema = z.object({
   focus: z.string().optional(),
 });
 
-const AI_UNAVAILABLE_MESSAGE = "此 AI 服務目前無法使用，請聯絡管理員";
+const AI_UNAVAILABLE_MESSAGE = "This AI service is unavailable right now. Contact the site admin.";
 /** SSE 收流後的 idle 逾時（無 delta）生產預設值——`AiRouteDeps.idleTimeoutMs` 未傳時採用。
  * 導出（非 module-private）：`test/unit` 有一條形狀測試釘住這個預設值，防止未來改動時
  * 悄悄把預設值改壞卻沒有任何測試示警（見該測試檔說明）。 */
@@ -101,7 +101,7 @@ export function aiRoutes(deps: AiRouteDeps) {
     app.post("/api/ai", { preHandler: app.authenticate }, async (request, reply) => {
       const parsed = postAiBodySchema.safeParse(request.body);
       if (!parsed.success) {
-        return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+        return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "Invalid request body.");
       }
       const { text, instruction, focus } = parsed.data;
       // #263 §4.3：先小寫化（與 #240 路徑參數同語意）——之後的 UUID 檢查、DB 查詢、常數比對都用小寫值。
@@ -116,21 +116,21 @@ export function aiRoutes(deps: AiRouteDeps) {
       // guard，但這裡刻意提前擋掉，避免「格式不合法」與「無權限/找不到」在同一個 404 分支
       // 裡混淆，且 action_id 若非 uuid，後面 aiActions 查詢會直接讓 pg 丟裸例外）。
       if (!UUID_RE.test(actionId) || !UUID_RE.test(noteId)) {
-        return sendError(reply, 400, "invalid_body", "action_id/note_id 格式錯誤");
+        return sendError(reply, 400, "invalid_body", "action_id and note_id must be UUIDs.");
       }
 
       const userId = request.user!.id;
 
       const role = await resolveRole(deps.db, userId, noteId);
-      if (role === "none") return sendError(reply, 404, "not_found", "找不到此筆記");
-      if (role === "viewer") return sendError(reply, 403, "forbidden", "沒有編輯權限");
+      if (role === "none") return sendError(reply, 404, "not_found", "No note with that id.");
+      if (role === "viewer") return sendError(reply, 403, "forbidden", "You don't have edit access to this note.");
 
       if (!deps.limiters.ai.consume(userId)) {
-        return sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
+        return sendError(reply, 429, "too_many_requests", "Too many requests. Wait a moment and try again.");
       }
 
       const [action] = await deps.db.select().from(aiActions).where(eq(aiActions.id, actionId)).limit(1);
-      if (!action || !action.enabled) return sendError(reply, 404, "not_found", "找不到此動作");
+      if (!action || !action.enabled) return sendError(reply, 404, "not_found", "No AI action with that id.");
 
       // 與 GET /api/ai/actions 共用同一支 loadAiSnapshot/resolveActionModel（spec §13.2 單一
       // 真相）：GET 清單「有出現」與這裡「解析得出」必然一致，不會出現清單有但打不通、或
@@ -138,7 +138,7 @@ export function aiRoutes(deps: AiRouteDeps) {
       const snapshot = await loadAiSnapshot(deps.db);
       const resolved = resolveActionModel({ modelId: action.modelId }, snapshot);
       if (resolved === null) {
-        return sendError(reply, 503, "ai_not_configured", "AI 尚未設定，請聯絡管理員");
+        return sendError(reply, 503, "ai_not_configured", "AI isn't set up on this site. Contact the site admin.");
       }
 
       // anthropic 且無 key：**獨立檢查**（不透過 degraded 集合）——NULL key 是「尚未設定」的
@@ -294,7 +294,7 @@ export function aiRoutes(deps: AiRouteDeps) {
         if (missingKeyAuthFailure) {
           send(AI_SSE_EVENTS.error, { code: "provider_unavailable", message: AI_UNAVAILABLE_MESSAGE });
         } else {
-          send(AI_SSE_EVENTS.error, { code: "upstream_error", message: "upstream request failed" });
+          send(AI_SSE_EVENTS.error, { code: "upstream_error", message: "The request to the AI provider failed." });
         }
       } finally {
         handle?.abort(); // I-2：無論收尾路徑為何，一律確保 upstream 連線被要求關閉，不留給對方單方面決定

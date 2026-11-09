@@ -175,6 +175,15 @@ describe("AI 套用鏈（spec §13.3）", () => {
     expect(JSON.stringify(editor.document)).toBe(before);
   });
 
+  // #386：AI 結果裡的段落內換行（三種寫法）存成換行，下一行開頭不多一個空白（與 MCP 同一支 `checkNoteMarkdownSyntax` 的 html）。
+  it.each(["L1\nL2", "L1\\\nL2", "L1  \nL2"])("段落內換行 %j → 一段、文字 L1⏎L2（不多空白）", (md) => {
+    const editor = mountedEditor([{ type: "paragraph", content: "x" }]);
+    const p = prepareAiResult(editor, md, { notes: [], placement: "top" });
+    if (!("blocks" in p)) throw new Error(JSON.stringify(p));
+    expect(p.blocks.map((b) => b.type)).toEqual(["paragraph"]);
+    expect(p.blocks[0]!.content).toEqual([{ type: "text", text: "L1\nL2", styles: {} }]);
+  });
+
   // 並排 PR-2（spec §11.6 第 1 點、§11.3、Q6）：AI 結果走與 MCP 相同的語法＋結構檢查；目標不在頂層（"nested"）時不收任何並排。
   const ROW2 = golden("G1-cols-spec");
   it("GA1：正規形兩欄、placement top → PreparedResult，一列兩欄、欄寬 [1, 1.5]", () => {
@@ -230,6 +239,30 @@ describe("AI 套用鏈（spec §13.3）", () => {
     const before = JSON.stringify(editor.document);
     expect(prepareAiResult(editor, md, { notes: [], placement: "top" })).toEqual({ invalid: "unsupported_block" });
     expect(JSON.stringify(editor.document)).toBe(before);
+  });
+
+  // #398：解析前的保護與 server 同一套（shared 的 `findParseGuardFailure`／`premergedHtml`）。
+  it("GP1：段落裡又有段落（<p> 裡的 <button> 裡的 <p>）→ { invalid: unsupported_block }，core parse 沒被呼叫", () => {
+    const editor = mountedEditor([{ type: "paragraph", content: "別動我" }]);
+    const parse = vi.spyOn(editor, "tryParseHTMLToBlocks");
+    expect(prepareAiResult(editor, "<p>a<button><p>b</p><p>c</p></button></p>", { notes: [], placement: "top" })).toEqual({ invalid: "unsupported_block" });
+    expect(parse).not.toHaveBeenCalled();
+  });
+  it("GP2：巢狀深度超過 MAX_HTML_DEPTH（129 層）→ { invalid: unsupported_block }；128 層照收", () => {
+    const editor = mountedEditor([{ type: "paragraph", content: "x" }]);
+    const bq = (d: number) => "<blockquote><p>a</p>".repeat(d) + "</blockquote>".repeat(d);
+    expect(prepareAiResult(editor, bq(128), { notes: [], placement: "top" })).toEqual({ invalid: "unsupported_block" });
+    expect(prepareAiResult(editor, bq(127), { notes: [], placement: "top" })).not.toHaveProperty("invalid");
+  });
+  it("GP3：引言裡的多段落先併好再交給 core（core 只看到一個 <p>），結果與不併相同", () => {
+    const editor = mountedEditor([{ type: "paragraph", content: "x" }]);
+    const md = "> a\n>\n> **b**\n>\n> c";
+    const expected = editor.tryParseHTMLToBlocks(markdownToHTML(md));
+    const parse = vi.spyOn(editor, "tryParseHTMLToBlocks");
+    const out = prep(editor, md);
+    expect((parse.mock.calls[0]![0] as string).match(/<p>/g)).toHaveLength(1);
+    const strip = (x: unknown) => JSON.stringify(x, (k, v) => (k === "id" ? undefined : v));
+    expect(strip(out.blocks)).toBe(strip(expected));
   });
 
   // final review Nit 1：core 剖析 <details> 時把子節點 clone 進活文件，瀏覽器裡 <img onerror> 會觸發——語法檢查先擋，不進 core parse

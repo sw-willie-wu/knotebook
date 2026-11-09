@@ -113,33 +113,33 @@ describe("GET／POST /api/admin/auth/providers（#187 §9.2）", () => {
 
   // RF1：與 0014 的 CHECK 逐條對齊——zod 放行、CHECK 拒絕的形會變成 500。
   it.each([
-    ["大寫 scheme（CHECK 大小寫敏感）", { issuerUrl: "HTTPS://idp.example.com" }, "issuer 網址必須以小寫 http:// 或 https:// 開頭"],
-    ["issuer 513 字", { issuerUrl: `https://idp.example.com/${"a".repeat(489)}` }, "issuer 網址不得超過 512 個字元"],
-    ["issuer 不是網址", { issuerUrl: "https://" }, "issuer 不是合法網址"],
-    ["issuer 格式錯又帶帳密（refine 不得 throw 成 500）", { issuerUrl: "https://user:pass@ho st/v1" }, "issuer 不是合法網址"],
-    ["issuer 帶帳密 user:pass@", { issuerUrl: "https://user:pass@idp.example.com" }, "issuer 網址不能包含帳號密碼"],
-    ["issuer 只帶 user@", { issuerUrl: "https://user@idp.example.com" }, "issuer 網址不能包含帳號密碼"],
-    ["顯示名 41 個 code point（emoji，UTF-16 長度 82）", { displayName: "😀".repeat(41) }, "顯示名稱須為 1 到 40 個字"],
-    ["顯示名只有空白", { displayName: "   " }, "顯示名稱須為 1 到 40 個字"],
-    ["顯示名含 NUL", { displayName: `a${NUL}b` }, "含有無法儲存的字元"],
-    ["client id 513 字", { clientId: "c".repeat(513) }, "client ID 須為 1 到 512 個字"],
+    ["大寫 scheme（CHECK 大小寫敏感）", { issuerUrl: "HTTPS://idp.example.com" }, "The issuer URL must start with lowercase http:// or https://."],
+    ["issuer 513 字", { issuerUrl: `https://idp.example.com/${"a".repeat(489)}` }, "The issuer URL can be at most 512 characters."],
+    ["issuer 不是網址", { issuerUrl: "https://" }, "The issuer is not a valid URL."],
+    ["issuer 格式錯又帶帳密（refine 不得 throw 成 500）", { issuerUrl: "https://user:pass@ho st/v1" }, "The issuer is not a valid URL."],
+    ["issuer 帶帳密 user:pass@", { issuerUrl: "https://user:pass@idp.example.com" }, "The issuer URL can't contain a username or password."],
+    ["issuer 只帶 user@", { issuerUrl: "https://user@idp.example.com" }, "The issuer URL can't contain a username or password."],
+    ["顯示名 41 個 code point（emoji，UTF-16 長度 82）", { displayName: "😀".repeat(41) }, "The display name must be 1 to 40 characters."],
+    ["顯示名只有空白", { displayName: "   " }, "The display name must be 1 to 40 characters."],
+    ["顯示名含 NUL", { displayName: `a${NUL}b` }, "contains characters that can't be stored."],
+    ["client id 513 字", { clientId: "c".repeat(513) }, "The client ID must be 1 to 512 characters."],
     // #299 驗收 2：clientId 可不帶，但帶了空字串／全空白仍是 400（不當成「沒填」），null 不收。
-    ["client id 空字串", { clientId: "" }, "client ID 須為 1 到 512 個字"],
-    ["client id 只有空白", { clientId: "   " }, "client ID 須為 1 到 512 個字"],
-    ["client id 為 null", { clientId: null }, "請求格式錯誤"],
-    ["clientSecret 空字串", { clientSecret: "" }, "client secret 不得為空"],
-    ["clientSecret 只有空白", { clientSecret: "   " }, "client secret 不得為空"],
+    ["client id 空字串", { clientId: "" }, "The client ID must be 1 to 512 characters."],
+    ["client id 只有空白", { clientId: "   " }, "The client ID must be 1 to 512 characters."],
+    ["client id 為 null", { clientId: null }, "Invalid request body."],
+    ["clientSecret 空字串", { clientSecret: "" }, "The client secret can't be empty"],
+    ["clientSecret 只有空白", { clientSecret: "   " }, "The client secret can't be empty"],
     // Task 3 審查 minor（Task 4 補）：secret 上限、三個字串欄的 NUL／落單代理。
-    ["clientSecret 4097 字", { clientSecret: "s".repeat(4097) }, "client secret 不得超過 4096 個字元"],
-    ["clientSecret 含 NUL", { clientSecret: `s${NUL}s` }, "client secret 含有無法儲存的字元"],
-    ["clientSecret 含落單代理", { clientSecret: `s${LONE}s` }, "client secret 含有無法儲存的字元"],
-    ["client id 含 NUL", { clientId: `c${NUL}c` }, "client ID 含有無法儲存的字元"],
-    ["client id 含落單代理", { clientId: `c${LONE}c` }, "client ID 含有無法儲存的字元"],
-    ["issuer 含 NUL", { issuerUrl: `https://idp.example.com/${NUL}` }, "issuer 網址含有無法儲存的字元"],
-    ["issuer 含落單代理", { issuerUrl: `https://idp.example.com/${LONE}` }, "issuer 網址含有無法儲存的字元"],
-    ["不認得的範本", { template: "github" }, "請求格式錯誤"],
-    ["多一個欄位（strict）", { enabled: true }, "請求格式錯誤"],
-  ])("RF1 POST 不合法輸入 → 400 invalid_body＋中文訊息、DB 沒有新列：%s", async (_name, patch, message) => {
+    ["clientSecret 4097 字", { clientSecret: "s".repeat(4097) }, "The client secret can be at most 4096 characters."],
+    ["clientSecret 含 NUL", { clientSecret: `s${NUL}s` }, "The client secret contains characters that can't be stored."],
+    ["clientSecret 含落單代理", { clientSecret: `s${LONE}s` }, "The client secret contains characters that can't be stored."],
+    ["client id 含 NUL", { clientId: `c${NUL}c` }, "The client ID contains characters that can't be stored."],
+    ["client id 含落單代理", { clientId: `c${LONE}c` }, "The client ID contains characters that can't be stored."],
+    ["issuer 含 NUL", { issuerUrl: `https://idp.example.com/${NUL}` }, "The issuer URL contains characters that can't be stored."],
+    ["issuer 含落單代理", { issuerUrl: `https://idp.example.com/${LONE}` }, "The issuer URL contains characters that can't be stored."],
+    ["不認得的範本", { template: "github" }, "Invalid request body."],
+    ["多一個欄位（strict）", { enabled: true }, "Invalid request body."],
+  ])("RF1 POST 不合法輸入 → 400 invalid_body＋英文訊息、DB 沒有新列：%s", async (_name, patch, message) => {
     const { app, db, cookies } = await adminApp();
     const res = await app.inject({ method: "POST", url: "/api/admin/auth/providers", cookies, payload: { ...base, ...patch } });
     expect(res.statusCode).toBe(400);

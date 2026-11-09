@@ -5,12 +5,15 @@ import {
   checkNoteMarkdownSyntax,
   convertSiteLinks,
   findDisallowedColor,
+  findParseGuardFailure,
   findStructureError,
   isBlankParseResult,
   normalizeTableWidths,
+  premergedHtml,
   rebindWikilinks,
   relativizeSiteUploads,
   restoreMermaidBlocks,
+  syntaxCheckRoot,
   targetFromList,
   type MarkdownPlacement,
   type MarkdownSyntaxError,
@@ -47,7 +50,8 @@ function hasColumnBlock(blocks: readonly { type?: string; children?: readonly an
 }
 
 /**
- * 語法檢查（並排 PR-2，與 MCP 同一套 S1–S10）→ parse → mermaid 還原 → 欄寬正規化 → 站內上傳網址還原相對形 → 結構檢查
+ * 語法檢查（並排 PR-2，與 MCP 同一套 S1–S10）→ 解析前的保護（#398，與 server 同一套：巢狀深度、段落裡的段落 → `unsupported_block`；
+ * 引言／標題／summary 的多段落先併）→ parse → mermaid 還原 → 欄寬正規化 → 站內上傳網址還原相對形 → 結構檢查
  * → 色值（#222）→ 空結果判定（同 server 的順序）→ 重綁 wikilink（#263 從 `applyAiResult` 抽出的純函式，不碰文件）。兩道檢查不過、或 parse 丟例外，回 `{ invalid: 碼 }`。空字串／純空白回 `{ empty: true }`：
  * parse `""` 回單一空段落而不是 `[]`（`@knotebook/shared` 的 `isBlankParseResult` 實測註記），
  * 不擋的話套用會把原文換成空段落。
@@ -59,9 +63,12 @@ export function prepareAiResult(
 ): PreparedResult | { empty: true } | { invalid: MarkdownSyntaxError | "unsupported_color" } {
   const syntax = checkNoteMarkdownSyntax(markdown, deps.placement);
   if (!syntax.ok) return { invalid: syntax.error };
+  // #398：shared 的保護（server 的 `parseMarkdownForNote` 同一套）。站內 AI 沒有 block 上限，所以不做 block 數預判。
+  const root = syntaxCheckRoot(syntax.html);
+  if (findParseGuardFailure(root) !== null) return { invalid: "unsupported_block" };
   let raw: AnyBlock[];
   try {
-    raw = editor.tryParseHTMLToBlocks(syntax.html);
+    raw = editor.tryParseHTMLToBlocks(premergedHtml(syntax.html, root));
   } catch {
     // core 對部分編輯器內部形會丟例外（例：`<div data-content-type="paragraph">`）：同 server，當成存不了的內容；不接的話例外丟在串流續體裡、框停在串流中
     return { invalid: "unsupported_block" };

@@ -528,9 +528,9 @@ const FIGURE_IMG = '<figure><img alt="p" src="/api/uploads/u9" width="300"></fig
 const BARE_IMG = '<img alt="p" src="/api/uploads/u9" width="300">';
 /** REST 400 的訊息（spec §11.3 草稿；`unsupported_size` 依 Q3 不提格子；T10 改成每個觸發條件都成立的版本）——逐字。 */
 const REST_COLUMNS_MESSAGE =
-  "版面或編輯器內部用的 HTML 格式不符，沒有寫入任何內容。並排請照讀出的格式寫：外層 `<div data-kb-columns style=\"display:flex;gap:16px\">`、2–4 個 `<div data-kb-column style=\"flex:N\">`（N 為 0.1 到 10、最多兩位小數），每欄開標籤之後與 `</div>` 之前各空一行，放在最外層、不放在清單、引言或其他任何區塊裡；其他 `<div>` 不得用 `display:flex` 或 `display:grid`，任何元素都不得帶 `data-node-type`。";
+  "That markdown has layout or editor-internal HTML this editor cannot store, so nothing was written. Write side-by-side columns exactly as GET /api/notes/:id/content returns them: <div data-kb-columns style=\"display:flex;gap:16px\"> holding 2 to 4 <div data-kb-column style=\"flex:N\"> columns, N from 0.1 to 10 with at most two decimal places, with a blank line after each column's opening tag and another before its </div>, at the top level of the markdown, not nested inside a list, a quote or anything else. Other <div> elements cannot use display:flex or display:grid, and no element can carry data-node-type.";
 const REST_SIZE_MESSAGE =
-  "圖片寬度或表格欄寬的格式不符，沒有寫入任何內容。請照讀出的格式寫：寬度為 32 到 4000 的整數像素；圖片寫在表格之外的 `<figure>` 內的 `<img width>`，`<img>` 只帶 `alt`（可省）、`src`、`width` 且依此順序，表格欄寬寫在第一列格子的 `colwidth`，合併的格子每一欄一個值、以逗號分隔，沒設寬的欄留空。";
+  "An image width or table column width in that markdown is not in a form this editor can store, so nothing was written. Write sizes exactly as GET /api/notes/:id/content returns them, as whole numbers of pixels from 32 to 4000: an image's width on the <img> inside a <figure> that is outside any table, the <img> carrying only alt (optional), src and width, in that order, and a table's column widths as colwidth on its first row's cells, one comma-separated value for each column a cell spans, left empty for a column with no width.";
 
 describe("並排與尺寸：寫入面拒絕不合格的形", () => {
   const stateOf = async (s: Scene) => {
@@ -570,7 +570,6 @@ describe("並排與尺寸：寫入面拒絕不合格的形", () => {
     expect(res.statusCode).toBe(400);
     expect(res.json().error.code).toBe("unsupported_columns");
     expect(res.json().error.message).toBe(REST_COLUMNS_MESSAGE);
-    expect(res.json().error.message).not.toContain("並排區塊的格式不符"); // 舊句：S10 的非並排元素也回這碼，主詞不能是並排
     expect(await countNotes(s.ctx, s.ownerId)).toBe(before);
     s.disconnect();
   });
@@ -585,8 +584,6 @@ describe("並排與尺寸：寫入面拒絕不合格的形", () => {
     expect(res.statusCode).toBe(400);
     expect(res.json().error.code).toBe("unsupported_size");
     expect(res.json().error.message).toBe(REST_SIZE_MESSAGE);
-    expect(res.json().error.message).not.toContain("表格格子");
-    expect(res.json().error.message).not.toContain("圖片寫在 `<figure>` 內"); // 舊句：格子裡的 figure 照樣被拒，不能叫人照寫
 
     await expectNoSideEffects(s.ctx, s.noteId, before);
     expect(await stateOf(s)).toBe(stateBefore);

@@ -150,7 +150,7 @@ export function VersionsSheet({ doc, lastEdited, returnFocusRef }: { doc: Y.Doc;
     <DialogPrimitive.Root open onOpenChange={(open) => !open && shut()}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Content
-          className="fixed inset-0 z-50 flex flex-col bg-card"
+          className="fixed inset-0 z-50 flex flex-col bg-card outline-none"
           aria-describedby={undefined}
           onCloseAutoFocus={(event) => {
             const target = returnFocus?.isConnected ? returnFocus : returnFocusRef?.current;

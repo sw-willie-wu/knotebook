@@ -52,7 +52,7 @@ import { mcpRoutes } from "./routes/mcp.js";
 import type { McpTestHooks } from "./mcp/hooks.js";
 import { apiTokensRoutes } from "./routes/api-tokens.js";
 import { drainWithCap } from "./http/drain.js";
-import { sendError } from "./http/errors.js";
+import { BODY_TOO_LARGE_MESSAGE, sendError } from "./http/errors.js";
 // #108：`stripDefaultPort` 搬到 `http/origin.ts`（與 `mcpOriginAllowed` 同一個葉節點模組，
 // 兩種比較語意的差別寫在該檔檔頭）。
 import { stripDefaultPort } from "./http/origin.js";
@@ -72,6 +72,7 @@ import { createEditingRuntime, type EditingRuntime } from "./notes/editing/runti
 import type { EditingTestHooks } from "./notes/editing/apply.js";
 import { PresenceRegistry, type PresenceOptions } from "./notes/editing/presence.js";
 import { NoteWriteService } from "./notes/editing/write-service.js";
+import type { ShownLinkTexts } from "./notes/editing/shown-link-texts.js";
 import { createLinkConversion, errorSummary, NOOP_LINK_CONVERSION, type LinkConversion } from "./notes/link-conversion.js";
 import { TRASH_PURGE_FIRST_DELAY_MS, TRASH_PURGE_INTERVAL_MS, createTrashPurger } from "./trash/purge.js";
 import type { NoteCreateHooks } from "./notes/create.js";
@@ -203,6 +204,8 @@ export interface AppDeps {
    * 被呼叫。**選配**，生產不注入＝零成本。#108 起透傳進 `NoteWriteService`（`buildApp` 建的那一個）。
    */
   editingTestHooks?: EditingTestHooks;
+  /** #387：讀到過／寫過的連結文字表的測試縫（整合測試注入假時鐘）；未傳＝`NoteWriteService` 自建一份。生產不注入。 */
+  shownLinks?: ShownLinkTexts;
   /**
    * #108：`/api/mcp` 的測試注入縫（比照 `editingTestHooks`）——`afterClose`／`beforeReply`／
    * `beforeTool` 分別在「關掉 server 之後」「搬回 reply 之前」「工具 handler 進入時」被呼叫。
@@ -428,6 +431,7 @@ function clientErrorCode(statusCode: number): ErrorCode {
   return "bad_request";
 }
 
+
 /**
  * Fastify app 工廠：掛好 cookie 解析、統一錯誤格式（含 404/415/4xx/500）、認證/授權
  * decorator（`authenticate`/`requireAdmin`）與 `/healthz`。路由本身由後續 task
@@ -608,7 +612,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       const wantsForm = !request.is404 && FORM_EXEMPT_ROUTES.has(`${request.method} ${request.routeOptions.url}`);
       const expected = wantsForm ? "application/x-www-form-urlencoded" : "application/json";
       if (essence !== expected) {
-        return sendOauthError(reply, 415, "invalid_request", `此請求需要 ${expected}`);
+        return sendOauthError(reply, 415, "invalid_request", `This request needs Content-Type ${expected}.`);
       }
       return;
     }
@@ -616,12 +620,12 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     if (isMultipartExemptRoute(request)) {
       if (essence !== "multipart/form-data") {
         drainWithCap(request);
-        return sendError(reply, 415, "unsupported_media_type", "此請求需要 multipart/form-data");
+        return sendError(reply, 415, "unsupported_media_type", "This request needs Content-Type multipart/form-data.");
       }
       const origin = request.headers.origin;
       if (origin !== undefined && !isOriginAllowed(origin, request.host)) {
         drainWithCap(request);
-        return sendError(reply, 403, "forbidden", "Origin 驗證失敗");
+        return sendError(reply, 403, "forbidden", "Origin check failed: the request's Origin doesn't match its Host.");
       }
       // Origin 相符，或無 Origin header（spec 明文放行）——落到 preHandler/handler。
       return;
@@ -630,18 +634,18 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     if (isTextBodyExemptRoute(request)) {
       if (essence !== "text/markdown") {
         drainWithCap(request);
-        return sendError(reply, 415, "unsupported_media_type", "此請求需要 text/markdown");
+        return sendError(reply, 415, "unsupported_media_type", "This request needs Content-Type text/markdown.");
       }
       const origin = request.headers.origin;
       if (origin !== undefined && !isOriginAllowed(origin, request.host)) {
         drainWithCap(request);
-        return sendError(reply, 403, "forbidden", "Origin 驗證失敗");
+        return sendError(reply, 403, "forbidden", "Origin check failed: the request's Origin doesn't match its Host.");
       }
       return;
     }
 
     if (essence !== "application/json") {
-      return sendError(reply, 415, "unsupported_media_type", "此請求需要 application/json");
+      return sendError(reply, 415, "unsupported_media_type", "This request needs Content-Type application/json.");
     }
   });
 
@@ -673,7 +677,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   app.decorate("authenticate", async function authenticate(request: FastifyRequest, reply: FastifyReply): Promise<void> {
     const resolved = await resolveSessionUser(request);
     if (!resolved) {
-      sendError(reply, 401, "unauthorized", "未登入");
+      sendError(reply, 401, "unauthorized", "Not signed in.");
       return;
     }
     // ⚠ `sessionTv`／`sessionId` 不得漏：`POST /api/notes/:id/collab-token` 把兩者簽進
@@ -687,7 +691,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     await app.authenticate(request, reply);
     if (reply.sent) return;
     if (!request.user?.isAdmin) {
-      sendError(reply, 403, "forbidden", "需要管理員權限");
+      sendError(reply, 403, "forbidden", "Only site admins can do this.");
     }
   });
 
@@ -820,7 +824,14 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   // 會立刻 `installGlobals()` 掛 window/document，只跑 REST 的 app 不該付這個代價，也不該讓
   // 瀏覽器嗅探在那些 process 裡失守）。有 collab 就一定有 runtime，兩者同生同滅＝路由要嘛
   // 兩個依賴都在、要嘛整條不註冊（見 `notesRoutes` 內的註冊閘門）。
-  const editing = deps.collab ? (deps.editing ?? createEditingRuntime(deps.config)) : undefined;
+  const ownEditing = deps.collab !== undefined && deps.editing === undefined;
+  const editing = deps.collab ? (deps.editing ?? createEditingRuntime(deps.config, app.log)) : undefined;
+  // #398：自己建的 runtime 帶著解析的 worker pool，關 app 時一併終止（注入的那份由注入者管——整合測試的共用 runtime 跨多個 app）。
+  if (ownEditing && editing) {
+    app.addHook("onClose", async () => {
+      await editing.close();
+    });
+  }
 
   // #138：AI presence。沒有 collab 時建的是全 no-op 空殼（每個方法都會在 `hocuspocus`
   // 為 undefined 時立刻 return），所以這裡不必再分支。
@@ -843,6 +854,8 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     testHooks: deps.editingTestHooks,
     versions,
     renameHook: deps.slugUpdateTestHook,
+    shownLinks: deps.shownLinks,
+    noteMaxBytes: deps.config.noteMaxBytes,
   });
 
   // #269 §12.1：必用同一個 `writes`（共用佇列，與 MCP 寫入、套用版本、手動存版串行）。只建、不啟動——`index.ts` listen 之後才 start()，
@@ -1021,9 +1034,11 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       // #107 §7：錯誤 log 若要記身分，**只記 authKind 與 tokenId**——不記 token 明文，
       // 也不記 Authorization header（`serializers.req` 本來就不印 headers）。
       request.log.error({ err: error, authKind: request.authKind, tokenId: request.tokenId }, "unhandled error");
-      return sendError(reply, 500, "internal", "伺服器內部錯誤");
+      return sendError(reply, 500, "internal", "Internal server error.");
     }
-    return sendError(reply, status, clientErrorCode(status), error.message || "請求錯誤");
+    // #372：413 不回 fastify 原生句（"Request body is too large"），改成與其他錯誤同口吻的固定句。
+    const message = status === 413 ? BODY_TOO_LARGE_MESSAGE : error.message || "Bad request.";
+    return sendError(reply, status, clientErrorCode(status), message);
   });
 
   return app;

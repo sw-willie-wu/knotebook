@@ -588,7 +588,7 @@ describe("#181 PR-2d scope（notes:delete）", () => {
     for (const scope of ["notes:write", "notes:read notes:delete"]) {
       const bad = await patch(app, cookie, id, { scope });
       expect(bad.statusCode, scope).toBe(400);
-      expect(bad.json().error.message, scope).toBe("scope 格式錯誤");
+      expect(bad.json().error.message, scope).toBe("Invalid scope.");
     }
   });
 });
@@ -618,7 +618,7 @@ describe("#239 PATCH scope", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ kind: "oauth", scope: RWM });
   });
-  it("{} → 400；未知鍵 → 400；scope 非落庫形 → 400 且訊息是 scope 格式錯誤", async () => {
+  it("{} → 400；未知鍵 → 400；scope 非落庫形 → 400 且訊息是「Invalid scope.」", async () => {
     const { app, cookie } = await signedInApp();
     const id = (await create(app, cookie, READ_FOREVER)).json().id as string;
     expect((await patch(app, cookie, id, {})).statusCode).toBe(400);
@@ -627,11 +627,11 @@ describe("#239 PATCH scope", () => {
     for (const scope of ["notes:move", "notes:write", "notes:read notes:move", "notes:write notes:read"]) {
       const bad = await patch(app, cookie, id, { scope });
       expect(bad.statusCode, scope).toBe(400);
-      expect(bad.json().error.message, scope).toBe("scope 格式錯誤");
+      expect(bad.json().error.message, scope).toBe("Invalid scope.");
     }
-    // 其餘兩類訊息（spec §6.2）：agentLabel 不合 → agentLabel 格式錯誤；空物件 → 請求格式錯誤。
-    expect((await patch(app, cookie, id, { agentLabel: "bad label!" })).json().error.message).toBe("agentLabel 格式錯誤");
-    expect((await patch(app, cookie, id, {})).json().error.message).toBe("請求格式錯誤");
+    // 其餘兩類訊息（spec §6.2）：agentLabel 不合 → "Invalid agentLabel."；空物件 → "Invalid request body."。
+    expect((await patch(app, cookie, id, { agentLabel: "bad label!" })).json().error.message).toBe("Invalid agentLabel.");
+    expect((await patch(app, cookie, id, {})).json().error.message).toBe("Invalid request body.");
   });
   it("mustChangePassword：帶 scope → 403 且列不變；純 agentLabel → 200（現狀不退）", async () => {
     const { app, db, cookie, userId } = await signedInApp({ mustChangePassword: true });

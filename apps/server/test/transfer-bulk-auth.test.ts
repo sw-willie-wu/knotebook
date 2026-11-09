@@ -51,7 +51,7 @@ describe("requireBulk：A 矩陣（GET /api/transfer/notes/:id）", () => {
     const basic = () => s.ctx.app.inject({ method: "GET", url: s.url, headers: { authorization: "Basic eHg6eXk=" } });
     const first = await basic();
     expect(first.statusCode).toBe(401);
-    expect(errOf(first)).toEqual({ code: "unauthorized", message: "未登入" });
+    expect(errOf(first)).toEqual({ code: "unauthorized", message: "Not signed in." });
     expect(String(first.headers["www-authenticate"] ?? "")).toContain('realm="knotebook-transfer"');
     expect(String(first.headers["www-authenticate"] ?? "")).not.toContain("error");
     expect((await basic()).statusCode).toBe(429);
@@ -122,7 +122,7 @@ describe("requireBulk：A 矩陣（GET /api/transfer/notes/:id）", () => {
     expect((await bulkGet(s.ctx.app, s.url, "knbt_nope")).statusCode).toBe(401);
     const r = await bulkGet(s.ctx.app, s.url, "knbt_nope");
     expect(r.statusCode).toBe(429);
-    expect(errOf(r)).toEqual({ code: "too_many_requests", message: "請求過於頻繁，請稍後再試" });
+    expect(errOf(r)).toEqual({ code: "too_many_requests", message: "Too many requests. Wait a moment and try again." });
     expect(String(r.headers["retry-after"])).toMatch(/^[1-9]\d*$/);
     expect(r.headers["www-authenticate"]).toBeUndefined();
   });

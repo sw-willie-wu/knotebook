@@ -183,7 +183,7 @@ describe("上傳：busy 映射與真逾時（S14 上傳形、S15(a)）", () => {
       const before = await filesIn(uploadsDir);
       const r = await upload(app, n.id, u.id, 100);
       expect(r.statusCode).toBe(409);
-      expect(r.json()).toEqual({ error: { code: "server_busy", message: "伺服器忙碌，請稍後再試" } });
+      expect(r.json()).toEqual({ error: { code: "server_busy", message: "The server is busy. Try again in a moment." } });
       expect(await filesIn(uploadsDir)).toEqual(before);
       expect(await rowsOf(db, n.id)).toEqual([]);
     });

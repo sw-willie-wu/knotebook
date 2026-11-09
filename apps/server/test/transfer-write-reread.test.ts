@@ -98,6 +98,13 @@ async function mcpSectionEdit(s: Scene, heading: string, op: "replace_section" |
   const r = await callTool(s.ctx.app, s.pat.token, "edit_note", args);
   expect(r.isError, JSON.stringify(r.structuredContent)).toBeUndefined();
 }
+/** MCP rename（#381 起要帶 `if_match`＝`read_note_outline` 的 `titleFingerprint`，照模型的真實流程先讀）。 */
+async function mcpRename(s: Scene, title: string) {
+  const o = await callTool(s.ctx.app, s.pat.token, "read_note_outline", { note_id: s.note.id });
+  expect(o.isError, JSON.stringify(o.structuredContent)).toBeUndefined();
+  const r = await callTool(s.ctx.app, s.pat.token, "edit_note", { note_id: s.note.id, op: "rename", title, if_match: o.structuredContent.titleFingerprint });
+  expect(r.isError, JSON.stringify(r.structuredContent)).toBeUndefined();
+}
 /** 送檔 → 409 note_changed；內容、標題、紀錄列、版本、基底都沒動。 */
 async function expectNoteChanged(s: Scene, token: string, text: string, base: string) {
   const md0 = await liveMarkdown(s.ctx, s.note.id);
@@ -139,8 +146,7 @@ describe("NC 下載後筆記動過 → 409 note_changed（Willie 2026-11-04 第�
   it("NC2 下載後別人只改了標題（edit_note rename）→ 送回改內文 409；送回只改標題也 409；標題、內文都不變", async () => {
     const s = await scene();
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
-    const rn = await callTool(s.ctx.app, s.pat.token, "edit_note", { note_id: s.note.id, op: "rename", title: "Renamed by edit_note" });
-    expect(rn.isError).toBeUndefined();
+    await mcpRename(s, "Renamed by edit_note");
     await expectNoteChanged(s, s.bulk.token, editBody(d.text, b => b.replace("段落 A1", "段落 A1 檔案改")), d.fm.base!);
     await expectNoteChanged(s, s.bulk.token, renameIn(d.text, "Renamed by file"), d.fm.base!);
     expect(await titleOf(s.ctx, s.note.id)).toBe("Renamed by edit_note");
@@ -197,7 +203,7 @@ describe("NC 下載後筆記動過 → 409 note_changed（Willie 2026-11-04 第�
     const s = await scene();
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
     await mcpSectionEdit(s, "第三章", "replace_section", "# 第三章\n\n段落 D1 被改");
-    await callTool(s.ctx.app, s.pat.token, "edit_note", { note_id: s.note.id, op: "rename", title: "Other title" });
+    await mcpRename(s, "Other title");
     const md0 = await liveMarkdown(s.ctx, s.note.id);
     const r = await bulkPut(s.ctx.app, s.bulk.token, d.text);
     expect(r.statusCode).toBe(200);
@@ -449,17 +455,21 @@ describe("NC11 寫回額度只看有改的檔（8000 探索測試 N5）", () => 
 });
 
 describe("NC20 零區（位元組有變、決策全是 same）＝unchanged（審查 M1）", () => {
-  it("寫回額度用完時只加空行 → 200 unchanged（不是 429）、applied_body_sha 不寫", async () => {
+  it("（全分支審查 I2 起）只加空行 → 200 unchanged、applied_body_sha 不寫、寫回額度退回；額度用完時同一個檔 → 429（判零區要先解析，解析前就扣）", async () => {
     const transferWrite = new FixedWindowLimiter({ limit: 1, windowMs: 60_000 });
     const s = await scene({ limiters: { transferWrite } }, "Para 0\n\nPara 1");
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
-    expect((await bulkPut(s.ctx.app, s.bulk.token, "---\nknotebook: 1\ntitle: \"Fresh\"\n---\nFresh body")).statusCode).toBe(201);
-    expect(transferWrite.isBlocked(s.u.id)).toBe(true);
-    const r = await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, b => b.replace("Para 0\n", "Para 0\n\n\n")));
+    const blank = editBody(d.text, b => b.replace("Para 0\n", "Para 0\n\n\n"));
+    const r = await bulkPut(s.ctx.app, s.bulk.token, blank);
     expect(r.statusCode).toBe(200);
     expect(r.json()).toMatchObject({ result: "unchanged", applied: 0 });
     const [row] = await s.ctx.db.select().from(transferBases).where(eq(transferBases.key, d.fm.base!));
     expect(row!.appliedBodySha).toBeNull();
+    expect(transferWrite.isBlocked(s.u.id)).toBe(false);
+    expect((await bulkPut(s.ctx.app, s.bulk.token, "---\nknotebook: 1\ntitle: \"Fresh\"\n---\nFresh body")).statusCode).toBe(201);
+    expect(transferWrite.isBlocked(s.u.id)).toBe(true);
+    const again = await bulkPut(s.ctx.app, s.bulk.token, blank);
+    expect(again.statusCode).toBe(429);
   });
   it("零區之後同一份副本只改標題 → renamed（不是 already_sent）", async () => {
     const s = await scene({}, "Para 0\n\nPara 1");

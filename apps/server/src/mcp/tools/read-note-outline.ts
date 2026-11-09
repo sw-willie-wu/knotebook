@@ -1,7 +1,9 @@
 /**
  * #108 §8.3 `read_note_outline`：一篇筆記有哪些段落、各多長。模型每次都要打的第一發。
  *
- * ⚠ **輸出裡沒有任何 `fingerprint`**——整篇的沒有，逐段的也沒有。兩個理由（§8.10，rev 3
+ * ⚠ **輸出裡沒有任何內文的 `fingerprint`**——整篇的沒有，逐段的也沒有。唯一的例外是 #381 的 `titleFingerprint`（標題指紋，
+ * `edit_note` rename 的 `if_match`）：標題本來就整個在 `note.title` 裡讀得到（除非超過 200 被截），讀 outline 就是「讀過標題」，
+ * 下面 (b) 的「無痕變有痕」對標題不適用。它與內文指紋**互不涵蓋**（`outlineOf` 的 whole 只由逐段指紋組成）。兩個理由（§8.10，rev 3
  * 換掉了 rev 2 那個被推翻的「這是一道防線」）：
  * (a) **回應更小**：一篇 40 段的筆記就是 40 個模型看不懂也用不到的 16 字元十六進位串。
  * (b) **移除「一次呼叫就繞過」的路徑**：在**已有內容的**筆記上，要零讀取拿到比對值，現在
@@ -29,18 +31,17 @@
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { YDOC_FRAGMENT } from "@knotebook/shared";
 import type { Db } from "../../db/index.js";
 import { groups, notes, users } from "../../db/schema.js";
-import { outlineOf } from "../../notes/editing/fingerprint.js";
-import { loadLastEdited, loadNoteDoc } from "../../notes/editing/read.js";
+import { fingerprintOf } from "../../notes/editing/fingerprint.js";
+import { loadLastEdited } from "../../notes/editing/read.js";
 import { viewerFolderIdFor } from "../../notes/note-dto.js";
 import { NOTE_ID } from "../../notes/schemas.js";
 import type { DbOrTx } from "../../db/tx.js";
 import { noteSummarySchema, ownerForModel } from "../dto.js";
 import { loadFolderPath, truncateFolderPath } from "../folder-fields.js";
 import { MCP_FOLDER_NAME_MAX, MCP_PAGE_MAX, truncateText } from "../limits.js";
-import { NOTE_NOT_FOUND_MESSAGE, authorizeNoteRead } from "../note-read.js";
+import { NOTE_NOT_FOUND_MESSAGE, authorizeNoteRead, readOutlineForTool } from "../note-read.js";
 import { buildOutlinePage, outlineEntrySchema } from "../outline-page.js";
 import { toolError, toolResult } from "../tool-result.js";
 import type { McpToolCtx } from "../context.js";
@@ -94,6 +95,10 @@ export const readNoteOutlineOutput = {
     .nullable()
     .describe("Pass this back as `section_offset` for the next page; `null` means this was the last page."),
   lastEdited: noteSummarySchema.shape.lastEdited.describe("Who last changed this note, and when."),
+  // #381：回應欄位一律 camelCase；算標題**全文**（`note.title` 可能被截）。不點名 edit_note——唯讀憑證也看得到這支工具。
+  titleFingerprint: z
+    .string()
+    .describe("The fingerprint of the note's whole title, even when `note.title` is cut. Renaming the note needs it as `if_match`."),
 };
 
 /**
@@ -154,10 +159,12 @@ export async function readNoteOutline(args: ReadNoteOutlineArgs, ctx: McpToolCtx
   // wire 上必須無法區分（案 17）。
   if (header === undefined) return toolError("not_found", NOTE_NOT_FOUND_MESSAGE);
 
-  const { doc } = await loadNoteDoc({ db: ctx.db, collab: ctx.collab }, args.note_id);
+  // 大綱在 parse worker 裡算（很小的筆記在主執行緒；`readNoteOutline`）。worker 全忙 → server_busy；太大 → too_complex。
   // ⚠ 只取 `outline`：`whole`（整篇指紋）在這裡就被丟掉，逐段的 `fingerprint`／`blockIds`
   //   由 `buildOutlinePage` 丟掉（M12(1)）。
-  const { outline } = outlineOf(doc.getXmlFragment(YDOC_FRAGMENT));
+  const read = await readOutlineForTool(ctx, args.note_id);
+  if ("error" in read) return read.error;
+  const { outline } = read;
   const title = truncateText(header.title);
   const page = buildOutlinePage(outline, args.section_offset ?? 0);
   return toolResult({
@@ -173,5 +180,6 @@ export async function readNoteOutline(args: ReadNoteOutlineArgs, ctx: McpToolCtx
     totalChars: outline.reduce((n, entry) => n + entry.chars, 0),
     ...page,
     lastEdited: await loadLastEdited(ctx.db, args.note_id),
+    titleFingerprint: fingerprintOf(header.title),
   });
 }

@@ -299,7 +299,7 @@ describe("PUT /api/notes/:id/shares", () => {
       payload: { email: "nobody-ps6@example.com", role: "viewer" },
     });
     expect(res.statusCode).toBe(404);
-    expect(res.json()).toMatchObject({ error: { code: "user_not_found" } });
+    expect(res.json()).toMatchObject({ error: { code: "user_not_found", message: "No user with that email." } });
   });
 
   it("未登入 → 401", async () => {

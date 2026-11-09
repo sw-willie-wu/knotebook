@@ -1,7 +1,7 @@
 /**
  * 儲存配額的站台管理端點（spec 2026-10-08 §7.1、§7.2 群組那兩支）。全部 `app.requireAdmin`、全部單句（不開交易——
- * s14 ⑥：本檔 `.transaction(` 恆 0；要改用交易必須先抽 `*InTx` 並列進 ROUTE_FILES）。錯誤訊息中文；body 一律 strict zod，
- * 形狀錯回固定的「請求格式錯誤」（不吐 zod 英文）。id 一律 UUID_RE＋toLowerCase，非 UUID 走該端點的 404 碼。
+ * s14 ⑥：本檔 `.transaction(` 恆 0；要改用交易必須先抽 `*InTx` 並列進 ROUTE_FILES）。錯誤訊息英文（#372）；body 一律 strict zod，
+ * 形狀錯回固定的 "Invalid request body."（不吐 zod 內建句）。id 一律 UUID_RE＋toLowerCase，非 UUID 走該端點的 404 碼。
  */
 import type { FastifyBaseLogger, FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
@@ -91,14 +91,14 @@ async function readDefaults(db: Db): Promise<{ userPlanId: string; groupPlanId: 
 
 export function adminStorageRoutes(deps: AdminStorageRouteDeps) {
   return async function register(app: FastifyInstance): Promise<void> {
-    const invalidBody = (reply: FastifyReply) => sendError(reply, 400, "invalid_body", "請求格式錯誤");
-    const invalidName = (reply: FastifyReply) => sendError(reply, 400, "invalid_name", "方案名稱須為 1–40 個字元");
-    const planNotFound = (reply: FastifyReply) => sendError(reply, 404, "storage_plan_not_found", "找不到這個方案");
-    const nameTaken = (reply: FastifyReply) => sendError(reply, 409, "storage_plan_name_taken", "已有同名的方案");
-    const groupNotFound = (reply: FastifyReply) => sendError(reply, 404, "group_not_found", "找不到此群組");
+    const invalidBody = (reply: FastifyReply) => sendError(reply, 400, "invalid_body", "Invalid request body.");
+    const invalidName = (reply: FastifyReply) => sendError(reply, 400, "invalid_name", "Plan names must be 1 to 40 characters.");
+    const planNotFound = (reply: FastifyReply) => sendError(reply, 404, "storage_plan_not_found", "No storage plan with that id.");
+    const nameTaken = (reply: FastifyReply) => sendError(reply, 409, "storage_plan_name_taken", "A plan with that name already exists.");
+    const groupNotFound = (reply: FastifyReply) => sendError(reply, 404, "group_not_found", "No group with that id.");
     const settingsMissing = (reply: FastifyReply, log: FastifyBaseLogger) => {
       log.error({ table: "site_settings" }, SITE_SETTINGS_MISSING_MESSAGE); // 物件開頭（captureLogs 只收這形；先例 routes/admin-auth.ts:114）
-      return sendError(reply, 500, "internal", "伺服器內部錯誤");
+      return sendError(reply, 500, "internal", "Internal server error.");
     };
     const onePlan = async (id: string): Promise<StoragePlanDto | null> => {
       const defaults = await readDefaults(deps.db);
@@ -184,7 +184,7 @@ export function adminStorageRoutes(deps: AdminStorageRouteDeps) {
       const { id: rawId } = request.params as { id: string };
       if (!UUID_RE.test(rawId)) return planNotFound(reply);
       const id = rawId.toLowerCase();
-      const isDefault = () => sendError(reply, 409, "storage_plan_is_default", "這個方案是預設方案，請先改選其他預設");
+      const isDefault = () => sendError(reply, 409, "storage_plan_is_default", "This is the default plan. Make another plan the default first.");
       let deleted: number;
       try {
         // spec §7.1（I2）：條件式排除預設先於 FK 觸發——「既是預設又使用中」一律 is_default；使用中由 FK RESTRICT 在 DB 端裁決。
@@ -196,7 +196,7 @@ export function adminStorageRoutes(deps: AdminStorageRouteDeps) {
         deleted = res.rows.length;
       } catch (err) {
         const c = foreignKeyViolationConstraint(err);
-        if (c === "users_storage_plan_fk" || c === "groups_storage_plan_fk") return sendError(reply, 409, "storage_plan_in_use", "這個方案仍有使用者或群組在用，請先改指派其他方案");
+        if (c === "users_storage_plan_fk" || c === "groups_storage_plan_fk") return sendError(reply, 409, "storage_plan_in_use", "Users or groups still use this plan. Assign them another plan first.");
         // 與「改預設」並發：子查詢讀快照，改預設在其後 commit 使它成為預設 → site_settings 的 FK 擋下（§7.1、R11）。
         if (c === "site_settings_default_user_plan_fk" || c === "site_settings_default_group_plan_fk") return isDefault();
         throw err;

@@ -134,7 +134,7 @@ export function mcpRoutes(deps: McpRouteDeps) {
       if (!mcpOriginAllowed(origin, request.host, publicHost)) {
         // 早退形比照 `auth/bearer.ts` 的 preHandler：`sendError` 之後直接 return，
         // 不把 reply 當回傳值（那會讓 async hook 的語意多一層）。
-        sendError(reply, 403, "forbidden", "Origin 驗證失敗");
+        sendError(reply, 403, "forbidden", "Origin check failed: the request's Origin and Host must both match this site's address (PUBLIC_URL).");
         return;
       }
     };

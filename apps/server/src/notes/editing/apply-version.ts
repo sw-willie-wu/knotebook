@@ -12,6 +12,8 @@ import * as Y from "yjs";
 import { YDOC_FRAGMENT, createHeadlessNoteSchema } from "@knotebook/shared";
 import { clearVersionBase, setVersionBase, type VersionService } from "../../collab/versions.js";
 import { noteVersions } from "../../db/schema.js";
+import { capBlocks, NoteTooLargeError } from "../note-size.js";
+import { DOC_TOO_COMPLEX } from "./doc-jobs.js";
 import { FingerprintMismatch, forkAndCheck, mergeDiff, prepareEdit, updateNoteLinks, type ApplyDeps, type MergeOutput } from "./apply.js";
 import type { DirectCtx } from "./session.js";
 
@@ -76,6 +78,7 @@ export async function applyVersionEdit(deps: ApplyVersionDeps, input: ApplyVersi
     if (!input.discardUnsaved && (await deps.versions.isDirty(input.noteId, f.fork, f.fork))) return { ok: false, code: "version_unsaved_changes" };
     deps.versions.beginApply(input.noteId);
     try {
+      const baseState = deps.noteMaxBytes === undefined ? null : Y.encodeStateAsUpdate(f.fork);
       const prepared = await prepareEdit(
         deps,
         { noteId: input.noteId, userId: input.userId, tokenId: null, agentLabel: null, op: "replace_all", candidates: [], blocks, unbound: 0 },
@@ -84,6 +87,17 @@ export async function applyVersionEdit(deps: ApplyVersionDeps, input: ApplyVersi
         { op: "replace_all", isEmptyDoc: f.isEmptyDoc, section: undefined },
       );
       if ("error" in prepared) throw new Error(`套用版本時 prepare 失敗：${prepared.error}`);
+      // 筆記大小上限：套回的版本比現況大、而且超過上限 → 不套（`notes/note-size.ts`）。套用後的大小算在新文件上（在新文件上套用，編輯器的
+      // 復原紀錄不會讓被刪的內容留著），在 parse worker 裡量（`sizeTrial`，審查 r10 m3：不在主執行緒做整份的套用與量測）。量不出來（逾時、
+      // worker 用完記憶體）時退回保守的上界：基底＋2 × diff＋64 仍在上限內才套。
+      if (deps.noteMaxBytes !== undefined && baseState !== null) {
+        const baseBytes = baseState.byteLength; // pool 會 transfer 這塊 buffer：先記下長度
+        const diffBytes = prepared.diff.byteLength;
+        const m = await deps.editing.runDoc(input.userId, { kind: "sizeTrial", state: baseState, update: prepared.diff.slice() });
+        if (m === DOC_TOO_COMPLEX) {
+          if (baseBytes + 2 * diffBytes + 64 > deps.noteMaxBytes) throw new NoteTooLargeError(deps.noteMaxBytes, baseBytes + diffBytes);
+        } else if (capBlocks(m, deps.noteMaxBytes)) throw new NoteTooLargeError(deps.noteMaxBytes, m.stateAfter);
+      }
       if (deps.testHooks?.beforeMerge) await deps.testHooks.beforeMerge();
       const ctx: DirectCtx = { source: "version-apply", userId: input.userId, tokenId: null, agentLabel: null, applied: false };
       const merged = await mergeDiff(

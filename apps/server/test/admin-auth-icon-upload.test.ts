@@ -27,13 +27,13 @@ describe("PUT /api/admin/auth/providers/:id/icon（spec §4.2、§8.1 S1–S4）
     expect(await providerRow(db, p.id)).toEqual(before);
   });
 
-  it("S2：262145 位元組 → 413 file_too_large「圖檔不得超過 256 KB」、DB 不變；262144 位元組 → 200、kind upload、version +1、存的是原樣位元組", async () => {
+  it("S2：262145 位元組 → 413 file_too_large「The image can be at most 256 KB.」、DB 不變；262144 位元組 → 200、kind upload、version +1、存的是原樣位元組", async () => {
     const { app, db, cookies } = await adminApp();
     const p = await seedAuthProvider(db, { issuerUrl: "https://a.example" });
     const before = await providerRow(db, p.id);
     const tooBig = await putIcon(app, p.id, one(pngBytes(262145)), { cookies });
     expect(tooBig.statusCode).toBe(413);
-    expect(tooBig.json().error).toEqual({ code: "file_too_large", message: "圖檔不得超過 256 KB" });
+    expect(tooBig.json().error).toEqual({ code: "file_too_large", message: "The image can be at most 256 KB." });
     expect(await providerRow(db, p.id)).toEqual(before);
 
     const exact = pngBytes(262144);
@@ -51,14 +51,14 @@ describe("PUT /api/admin/auth/providers/:id/icon（spec §4.2、§8.1 S1–S4）
     expect(await providerRow(db, p.id)).toMatchObject({ iconMime: "image/jpeg", iconVersion: 2 });
   });
 
-  it("S3：以檔頭為準——宣稱 .png／image/png 的 GIF 與純文字 → 415「只接受 PNG、JPEG、WebP」；宣稱 .gif／image/gif 的 JPEG → 200 image/jpeg；WebP → 200", async () => {
+  it("S3：以檔頭為準——宣稱 .png／image/png 的 GIF 與純文字 → 415「Only PNG, JPEG and WebP images are accepted.」；宣稱 .gif／image/gif 的 JPEG → 200 image/jpeg；WebP → 200", async () => {
     const { app, db, cookies } = await adminApp();
     const p = await seedAuthProvider(db, { issuerUrl: "https://a.example" });
     const before = await providerRow(db, p.id);
     for (const [label, data] of [["gif", GIF_BYTES], ["text", TEXT_BYTES]] as const) {
       const res = await putIcon(app, p.id, one(data, { filename: "x.png", contentType: "image/png" }), { cookies });
       expect(res.statusCode, label).toBe(415);
-      expect(res.json().error, label).toEqual({ code: "unsupported_media_type", message: "只接受 PNG、JPEG、WebP" });
+      expect(res.json().error, label).toEqual({ code: "unsupported_media_type", message: "Only PNG, JPEG and WebP images are accepted." });
     }
     expect(await providerRow(db, p.id)).toEqual(before);
     const jpeg = await putIcon(app, p.id, one(JPEG_BYTES, { filename: "x.gif", contentType: "image/gif" }), { cookies });
@@ -69,7 +69,7 @@ describe("PUT /api/admin/auth/providers/:id/icon（spec §4.2、§8.1 S1–S4）
     expect((await providerRow(db, p.id))!.iconMime).toBe("image/webp");
   });
 
-  it("S4：application/json → 415；跨源 Origin → 403「Origin 驗證失敗」；同源 Origin 放行；沒有 file part → 400「缺少上傳檔案」；壞 multipart → 400「上傳格式錯誤」；非 UUID／不存在 → 404", async () => {
+  it("S4：application/json → 415；跨源 Origin → 403（Origin 與 Host 不符）；同源 Origin 放行；沒有 file part → 400「The upload has no file.」；壞 multipart → 400「The upload isn't valid multipart/form-data.」；非 UUID／不存在 → 404", async () => {
     const { app, db, cookies } = await adminApp();
     const p = await seedAuthProvider(db, { issuerUrl: "https://a.example" });
     const json = await app.inject({ method: "PUT", url: `/api/admin/auth/providers/${p.id}/icon`, cookies, payload: { file: "x" } });
@@ -77,11 +77,11 @@ describe("PUT /api/admin/auth/providers/:id/icon（spec §4.2、§8.1 S1–S4）
     expect(json.json().error.code).toBe("unsupported_media_type");
     const cross = await putIcon(app, p.id, one(pngBytes()), { cookies, headers: { origin: "https://evil.example" } });
     expect(cross.statusCode).toBe(403);
-    expect(cross.json().error).toEqual({ code: "forbidden", message: "Origin 驗證失敗" });
+    expect(cross.json().error).toEqual({ code: "forbidden", message: "Origin check failed: the request's Origin doesn't match its Host." });
     expect((await putIcon(app, p.id, one(pngBytes()), { cookies, headers: { origin: "http://localhost:80" } })).statusCode).toBe(200);
     const noFile = await putIcon(app, p.id, multipartBody([{ name: "note", data: "x" }]), { cookies });
     expect(noFile.statusCode).toBe(400);
-    expect(noFile.json().error).toEqual({ code: "invalid_body", message: "缺少上傳檔案" });
+    expect(noFile.json().error).toEqual({ code: "invalid_body", message: "The upload has no file." });
     const broken = await app.inject({
       method: "PUT",
       url: `/api/admin/auth/providers/${p.id}/icon`,
@@ -90,11 +90,11 @@ describe("PUT /api/admin/auth/providers/:id/icon（spec §4.2、§8.1 S1–S4）
       headers: { "content-type": "multipart/form-data" },
     });
     expect(broken.statusCode).toBe(400);
-    expect(broken.json().error).toEqual({ code: "invalid_body", message: "上傳格式錯誤" });
+    expect(broken.json().error).toEqual({ code: "invalid_body", message: "The upload isn't valid multipart/form-data." });
     for (const id of ["not-a-uuid", "99999999-9999-4999-8999-999999999999"]) {
       const res = await putIcon(app, id, one(pngBytes()), { cookies });
       expect(res.statusCode, id).toBe(404);
-      expect(res.json().error, id).toEqual({ code: "not_found", message: "找不到此登入服務" });
+      expect(res.json().error, id).toEqual({ code: "not_found", message: "No sign-in service with that id." });
     }
   });
 

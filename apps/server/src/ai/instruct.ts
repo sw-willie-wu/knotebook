@@ -58,22 +58,22 @@ export type InstructFieldCheck = { ok: true; instruct: InstructFields | null } |
 
 /**
  * `POST /api/ai` 對 `instruction`／`focus` 的 400 矩陣（§4.3）。`isInstruct` 由呼叫端以**小寫化後的** `action_id` 對常數判
- * （不查 DB、在角色檢查與節流之前）。長度一律以 code point 計；instruction 先 trim 再量。訊息是 HTTP 層，中文。
+ * （不查 DB、在角色檢查與節流之前）。長度一律以 code point 計；instruction 先 trim 再量。訊息是 HTTP 層，英文（#372）。
  */
 export function checkInstructFields(isInstruct: boolean, instruction: string | undefined, focus: string | undefined): InstructFieldCheck {
   if (!isInstruct) {
     if (instruction !== undefined || focus !== undefined) {
-      return { ok: false, message: "instruction／focus 只用於 Instruct 動作" };
+      return { ok: false, message: "instruction and focus are only accepted by Instruct actions." };
     }
     return { ok: true, instruct: null };
   }
   const trimmed = (instruction ?? "").trim();
-  if (trimmed === "") return { ok: false, message: "Instruct 動作必須帶 instruction" };
+  if (trimmed === "") return { ok: false, message: "Instruct actions need an instruction." };
   if (codePointLength(trimmed) > INSTRUCTION_MAX_CODE_POINTS) {
-    return { ok: false, message: `instruction 不得超過 ${INSTRUCTION_MAX_CODE_POINTS} 字` };
+    return { ok: false, message: `instruction can be at most ${INSTRUCTION_MAX_CODE_POINTS} characters.` };
   }
   if (focus !== undefined && codePointLength(focus) > FOCUS_MAX_CODE_POINTS) {
-    return { ok: false, message: `focus 不得超過 ${FOCUS_MAX_CODE_POINTS} 字` };
+    return { ok: false, message: `focus can be at most ${FOCUS_MAX_CODE_POINTS} characters.` };
   }
   return { ok: true, instruct: focus === undefined ? { instruction: trimmed } : { instruction: trimmed, focus } };
 }

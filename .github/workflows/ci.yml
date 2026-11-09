@@ -17,7 +17,12 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  ci:
+  # 測試拆成兩個平行的 job（原本一個 job 跑 `pnpm test`，依 runner 快慢會撞到 30 分鐘上限）：
+  #   build-unit：build、型別、lint、授權等檢查，加上 shared、web 與 server 的 unit 測試（test/unit/**）
+  #   integration：server 的整合測試（test/*.test.ts，testcontainers 起 PostgreSQL）
+  # 兩邊合起來＝`pnpm test` 跑的同一組測試檔（server：vitest.config.ts 收到的檔＝vitest.unit.config.ts ∪ test/*.test.ts）。
+  # main ruleset 要求的 status check 是 `ci`：保留同名 job，兩個 job 都成功它才成功。
+  build-unit:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -70,8 +75,59 @@ jobs:
       - name: Test scripts (check-licenses, check-bundle-size)
         run: pnpm test:scripts
 
-      - name: Test (unit + integration)
-        run: pnpm test
+      - name: Test shared
+        run: pnpm --filter @knotebook/shared test
+
+      - name: Test web
+        run: pnpm --filter @knotebook/web test
+
+      - name: Test server (unit)
+        run: pnpm --filter @knotebook/server test:unit
+
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Update corepack
+        run: npm i -g corepack@latest
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Prepare pnpm (align with packageManager)
+        run: corepack prepare pnpm@10.14.0 --activate
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # 整合測試只需要 shared 編好（test:integration 自己會先 build shared）；testcontainers 用 runner 內建的 docker。
+      - name: Test server (integration)
+        run: pnpm --filter @knotebook/server test:integration
+
+  # main ruleset 的 required status check（context `ci`）。`always()`：前面的 job 失敗或取消時也要跑，
+  # 才會回報失敗（否則它被 skip，而 skipped 的 required check 會被當成通過）。
+  ci:
+    needs: [build-unit, integration]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: All test jobs succeeded
+        env:
+          BUILD_UNIT: ${{ needs.build-unit.result }}
+          INTEGRATION: ${{ needs.integration.result }}
+        run: |
+          echo "build-unit: $BUILD_UNIT, integration: $INTEGRATION"
+          test "$BUILD_UNIT" = success && test "$INTEGRATION" = success
 
   # 此 job 在 PR 上恆 skipped——絕不可加入 main ruleset 的 required checks（加了每個 PR 永遠等不到綠）
   # 觸發＝push main 或手動 dispatch
