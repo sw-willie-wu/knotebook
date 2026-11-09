@@ -1,6 +1,6 @@
 import { deflateSync } from "node:zlib";
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { ADMIN, createNote, editorLocator, loginAs, waitForEditorSelection } from "./helpers.js";
+import { ADMIN, clickEndOfParagraph, createNote, editorLocator, loginAs, waitForEditorSelection } from "./helpers.js";
 
 /**
  * #229 簡報模式（spec §13.4）：E1 入口與導覽、E2 即時更新保位、E3 公開連結、E4 CSP、E5 改名不斷簡報、
@@ -332,9 +332,9 @@ test("E3：匿名開公開連結簡報——wikilink 純文字、圖片載得出
     await anon.keyboard.press("ArrowRight");
     await anon.keyboard.press("ArrowRight");
     await expect.poll(() => currentSlideId(anon)).toBe(twoId);
-    await editorLocator(owner).getByText("one text").click();
-    await owner.keyboard.press("End");
-    await waitForEditorSelection(owner);
+    // 編輯器此時沒焦點（Share 對話框 Escape 後焦點在 Share 鈕）：點擊的 focus 會排 PM 的 20 ms selectionToDOM，可能把 End 拉回點擊處
+    // （CI run 42676630643 兩次都打成 "one updated text"）——clickEndOfParagraph 確認游標真的在這段的尾端，見 helpers.ts。
+    await clickEndOfParagraph(owner, editorLocator(owner).getByText("one text"));
     await owner.keyboard.type(" updated");
     await expect(async () => {
       await anon.evaluate(() => window.dispatchEvent(new Event("visibilitychange")));
