@@ -260,18 +260,19 @@ describe("if_match 與併發", () => {
     expect(res.statusCode).toBe(409);
     expect(res.json().error.code).toBe("fingerprint_mismatch");
     expect(res.json().current.markdown).toContain("併發");
+    expect(await s.rows()).toHaveLength(0);
+    // 轉換搬進 worker 之後：活文件已不是 worker 的基底 → 合併前就重來（不開直連，`mergeAtBase` 的預先比對），重來時 worker 在新狀態上
+    // 比指紋 → 409。這條路徑不開直連、不落盤；併發編輯照協作的一般落盤寫進 DB——用戶端斷線、落盤完成後再看。
+    s.client.disconnect();
+    await settled(s.ctx);
+    expect(s.ctx.collab.hocuspocus.documents.size).toBe(0);
     const persisted = new Y.Doc();
     Y.applyUpdate(persisted, await s.stateBytes());
     expect(docText(persisted)).toContain("併發");
     expect(docText(persisted)).not.toContain("AI 版");
     const svAfter = new Set(Y.decodeStateVector(Y.encodeStateVector(persisted)).keys());
     for (const k of svAfter) expect(svBefore.has(k) || k === s.client.doc.clientID).toBe(true);
-    expect(await s.rows()).toHaveLength(0);
-    s.client.disconnect();
-    await settled(s.ctx);
-    expect(s.ctx.collab.hocuspocus.documents.size).toBe(0);
-    // #137 spec §12.2 的 (b)：拒絕路徑的 `disconnect()` **也會 store**，`ctx.applied === false`
-    // 是唯一擋住 AI 落款的閘。拿掉 `onStoreDocument` 的 applied 閘 → 這一行紅。
+    // #137 spec §12.2 的 (b)：AI 沒寫進去，落款就不是 AI 的。
     expect(await s.lastEdited()).toMatchObject({ tokenId: null, label: null });
   });
 
@@ -395,6 +396,7 @@ describe("拒絕案假綠守衛", () => {
       [{ op: "append", markdown: '<img src="/x" width="300">' }, 400, "unsupported_size"],
       [{ op: "append", markdown: '<div data-content-type="paragraph">x</div>' }, 400, "unsupported_block"],
       [{ op: "append", markdown: '<details><summary>s</summary><img src="x" onerror="alert(1)"></details>' }, 400, "unsupported_block"],
+      [{ op: "append", markdown: "段落\n\n<script>alert(1)</script>" }, 400, "unsupported_block"],
       [{ op: "append", markdown: "x" + NUL }, 400, "invalid_body"],
       [{ op: "append", markdown: "x", extra: 1 }, 400, "invalid_body"],
       [{ op: "replace_section", section_id: "a" + NUL, markdown: "x", if_match: "0000000000000000" }, 400, "invalid_body"],

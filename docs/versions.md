@@ -20,6 +20,8 @@ A version is saved automatically only when the content has actually changed: ope
 
 **The one-time link conversion.** The first start of 0.11 turns ordinary links to notes on this site, in the notes that existed then, into links to those notes, in the background (see [Self-hosting](./self-hosting.md#upgrading-and-rolling-back)). Before changing a note, it saves the note's content as a manual version named `連結轉換前` — or, if that content is already the note's base version, turns that version into a manual one, keeping its name if it has one. The conversion doesn't save a version by itself; the converted content is saved by automatic versions like any other edit.
 
+**Files sent back over MCP.** Sending a note back as a file with a bulk transfer token (see [AI editing](./ai-editing.md#sending-a-file-back)) doesn't save a version first: a file that changes the note is refused when the note has changed since the file was downloaded. What it writes is saved by automatic versions like any other edit.
+
 ## The version list
 
 Each row shows the version's name and code, who took part, when it was saved and — for a version saved while its base was not the newest version (after an older version was applied, with a newer one still there) — **based on** that version's name and code; if that version has been deleted since, it shows its made-up name and code followed by **(deleted)**, even if it had a name of its own. In a few cases it shows just **a deleted version** instead (see [Known limitations](./known-limitations.md#version-history)). A version saved automatically also carries a grey **Auto-saved** tag next to its name; versions saved by hand have no tag. Renaming an automatic version turns it into a manual one, and the tag goes away.

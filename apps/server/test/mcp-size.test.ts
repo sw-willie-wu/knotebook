@@ -132,6 +132,13 @@ export const MCP_MAX_WIRE = 262_144;
  * 與資料夾的字串互不重疊（上面 PR-3d T6、定稿兩段是在還沒有並排字串的分支上量的）。PR-3d 定稿本來就是照最終 W 重推，所以合流後照同一配方重推：
  * 59 795 向上取整到 1024 的倍數＝60 416（越過了上段的 59 392）→ ×1.3 ＝ 78 540.8 → 進位 **78 600**。
  *
+ * **bulk transfer PR-1／PR-2／PR-3（2026-11-03，feat/bulk-transfer；PR-2 T12 量、PR-3 T4 在 feat/bulk-transfer-pr3〔基 78df5d0、T3 定稿之後〕複量同值）：
+ * 讀寫搬移刪除憑證二十支 wire ＝ 62 353**（門檻 78 600 的 79.3%）；對照組：讀寫刪除十九支 58 940、讀寫搬移十七支 55 263、讀寫十六支 51 850、
+ * 唯讀九支 26 346。PR-1 加 `create_bulk_transfer_token`（有 collab 的 token 路徑每一組多一支），PR-2 讓它的 description 與輸出依 `notes:write`
+ * 二選一；PR-3 改的 RW `next`（503 句、T7 回補的新增檔 front matter 一句與「usually」；只在工具回應裡）與 `instructions` 第一句
+ * （`initialize` 的回應）都不在 `tools/list`，W 不變——`create_bulk_transfer_token` 的回應 wire 8 846 → 9 202（案 11c，餘裕 ×28.5）。未破 78 600，門檻不動（照配方重推會是 62 464 × 1.3 ＝ 81 203.2 → 81 300，
+ * 但規則是破了才重訂）。現在要撞牆得加長 `N_LIST_MAX − W + 100` ＝ 16 347（上方各段的舊差額不得沿用）。
+ *
  * 最近一次依原配方重訂：2026-10-30（#folders PR-3d 與 feat/folders 合流後定稿，見上；之前 2026-10-30 PR-3d 定稿 77 300、2026-10-29 PR-3d T6、2026-10-26 #181 PR-2d）；下次逼近時同樣回頭重訂連同推導，不是逕自調大。
  *
  * **什麼樣的迴歸會撞牆**（**突變實跑，2026-09-09**）：把 `edit_note` 的 `if_match`
@@ -371,33 +378,33 @@ describe("#108 tools/list 的脈絡成本（案 11b）", () => {
 
     const roRes = await mcpPost(ctx.app, rpc("tools/list"), { token: o.token });
     expect(roRes.statusCode).toBe(200);
-    expect((roRes.json().result.tools as unknown[]).length).toBe(8);
+    expect((roRes.json().result.tools as unknown[]).length).toBe(9);
     const roWire = roRes.body.length;
 
     const rwRes = await mcpPost(ctx.app, rpc("tools/list"), { token: rwToken });
     expect(rwRes.statusCode).toBe(200);
-    expect((rwRes.json().result.tools as unknown[]).length).toBe(15);
+    expect((rwRes.json().result.tools as unknown[]).length).toBe(16);
     const rwWire = rwRes.body.length;
 
     const rwmRes = await mcpPost(ctx.app, rpc("tools/list"), { token: rwmToken });
     expect(rwmRes.statusCode).toBe(200);
-    expect((rwmRes.json().result.tools as unknown[]).length).toBe(16);
+    expect((rwmRes.json().result.tools as unknown[]).length).toBe(17);
     const rwmWire = rwmRes.body.length;
 
     const rwdRes = await mcpPost(ctx.app, rpc("tools/list"), { token: rwdToken });
     expect(rwdRes.statusCode).toBe(200);
-    expect((rwdRes.json().result.tools as unknown[]).length).toBe(18);
+    expect((rwdRes.json().result.tools as unknown[]).length).toBe(19);
     const rwdWire = rwdRes.body.length;
 
     const rwmdRes = await mcpPost(ctx.app, rpc("tools/list"), { token: rwmdToken });
     expect(rwmdRes.statusCode).toBe(200);
-    expect((rwmdRes.json().result.tools as unknown[]).length).toBe(19);
+    expect((rwmdRes.json().result.tools as unknown[]).length).toBe(20);
     const rwmdWire = rwmdRes.body.length;
 
     console.log(
-      `[案 11b] tools/list  唯讀憑證（八支，對照）wire=${roWire}  讀寫憑證（十五支，對照）wire=${rwWire}  ` +
-        `讀寫搬移憑證（十六支，對照）wire=${rwmWire}  讀寫刪除憑證（十八支，對照）wire=${rwdWire}  ` +
-        `讀寫搬移刪除憑證（十九支，被測）wire=${rwmdWire}  門檻=${N_LIST_MAX}  用掉 ${((rwmdWire / N_LIST_MAX) * 100).toFixed(1)}%`
+      `[案 11b] tools/list  唯讀憑證（九支，對照）wire=${roWire}  讀寫憑證（十六支，對照）wire=${rwWire}  ` +
+        `讀寫搬移憑證（十七支，對照）wire=${rwmWire}  讀寫刪除憑證（十九支，對照）wire=${rwdWire}  ` +
+        `讀寫搬移刪除憑證（二十支，被測）wire=${rwmdWire}  門檻=${N_LIST_MAX}  用掉 ${((rwmdWire / N_LIST_MAX) * 100).toFixed(1)}%`
     );
     expect(rwmdWire).toBeLessThanOrEqual(N_LIST_MAX);
   });
@@ -442,6 +449,8 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
     await callWire(ctx.app, rwToken, "(i) create_note", "create_note", { title: hugeTitle });
     await callWire(ctx.app, rwToken, "(i) create_transfer_token upload", "create_transfer_token", { note_id: note.id, purpose: "upload" });
     await callWire(ctx.app, rwToken, "(i) create_transfer_token download", "create_transfer_token", { note_id: note.id, purpose: "download" });
+    // bulk transfer PR-1：回應不帶標題或內容（權杖、三組 curl、固定的 `next`），量的是「它也在 N 以內」。
+    await callWire(ctx.app, rwToken, "(i) create_bulk_transfer_token", "create_bulk_transfer_token", {});
     // #180 §9-6：copy_note 的最壞形＝副本 title 截斷＋titleTruncated（同 create_note）；來源就是這篇 260 000 字元標題的筆記。
     await callWire(ctx.app, rwToken, "(i) copy_note", "copy_note", { note_id: note.id });
     // #180 §9-6：move_note_to_group 的最壞形＝搬後 title 截斷＋群組 owner。先建一個群組，把這篇病態筆記搬進去。

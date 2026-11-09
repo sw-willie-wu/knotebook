@@ -100,7 +100,8 @@ const REGISTRY: Record<string, Disposition> = {
   "mcp/tools/read-note-outline.ts": { excludes: 1 },
   "notes/editing/candidates.ts": { excludes: 3 },
   "notes/editing/read.ts": { excludes: 1 },
-  "notes/editing/write-service.ts": { includes: 1, why: "帶 content 建立失敗清掉剛建的列" },
+  // excludes：檔案寫回讀現行標題（判 note_changed，帶 deleted_at IS NULL）。
+  "notes/editing/write-service.ts": { excludes: 1, includes: 1, why: "帶 content 建立失敗清掉剛建的列" },
   // excludes：存活 meta；includes：backfill 群組分支。
   "notes/link-conversion.ts": { excludes: 1, includes: 1, why: "目標在垃圾桶照記（§6.2-4；總管裁定 M10）" },
   "notes/links.ts": { excludes: 3 },
@@ -109,6 +110,7 @@ const REGISTRY: Record<string, Disposition> = {
   // 讀的是本請求剛建的列，無洩漏。
   "notes/note-dto.ts": { excludes: 1 },
   "notes/public-links.ts": { excludes: 1 },
+  // excludes：pre-read、0 列後的存在＋標題查詢（#381 起 expectTitle／expectTitleFingerprint 共用這一句；兩句都帶 deleted_at IS NULL）；write：UPDATE。
   "notes/rename-note.ts": { excludes: 2, write: 1 },
   // excludes：accessQuery、noteIsLive；trashOnly：trashedAccessQuery；includes：loadNoteAudience。
   "notes/service.ts": { excludes: 2, trashOnly: 1, includes: 1, why: "移入前抓名單（§6.2-4）" },

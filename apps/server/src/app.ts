@@ -42,6 +42,8 @@ import { accountRoutes } from "./routes/account.js";
 import { passwordResetRoutes } from "./routes/password-reset.js";
 import { aiRoutes } from "./routes/ai.js";
 import { uploadsRoutes } from "./routes/uploads.js";
+import { transferRoutes, type TransferTestHooks } from "./routes/transfer.js";
+import type { BulkAccess, BulkRange } from "./auth/transfer-token.js";
 import { publicRoutes, redactPublicTokens } from "./routes/public.js";
 import { oidcRoutes } from "./routes/oidc.js";
 import { oidcPendingRoutes } from "./routes/oidc-pending.js";
@@ -54,7 +56,7 @@ import { BODY_TOO_LARGE_MESSAGE, sendError } from "./http/errors.js";
 // #108：`stripDefaultPort` 搬到 `http/origin.ts`（與 `mcpOriginAllowed` 同一個葉節點模組，
 // 兩種比較語意的差別寫在該檔檔頭）。
 import { stripDefaultPort } from "./http/origin.js";
-import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, EDIT_LIMIT, FixedWindowLimiter, FOLDER_LIMIT, OIDC_LIMIT, ONE_TIME_LINK_ATTEMPT_LIMIT, ONE_TIME_LINK_MISS_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, PUBLIC_WIDTH_LIMIT, REGISTER_LIMIT, SEARCH_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_RENAME_LIMIT, TOKEN_WRITE_LIMIT, UPLOAD_LIMIT, USER_SUGGEST_LIMIT } from "./http/rate-limit.js";
+import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, EDIT_LIMIT, FixedWindowLimiter, FOLDER_LIMIT, OIDC_LIMIT, ONE_TIME_LINK_ATTEMPT_LIMIT, ONE_TIME_LINK_MISS_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, PUBLIC_WIDTH_LIMIT, REGISTER_LIMIT, SEARCH_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_RENAME_LIMIT, TOKEN_WRITE_LIMIT, TRANSFER_EXPORT_LIMIT, TRANSFER_WRITE_LIMIT, UPLOAD_LIMIT, USER_SUGGEST_LIMIT } from "./http/rate-limit.js";
 import { FORM_EXEMPT_ROUTES, isOauthScopedPath, sendOauthError } from "./http/oauth-errors.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { oauthMetadataRoutes } from "./routes/oauth-metadata.js";
@@ -70,6 +72,7 @@ import { createEditingRuntime, type EditingRuntime } from "./notes/editing/runti
 import type { EditingTestHooks } from "./notes/editing/apply.js";
 import { PresenceRegistry, type PresenceOptions } from "./notes/editing/presence.js";
 import { NoteWriteService } from "./notes/editing/write-service.js";
+import type { ShownLinkTexts } from "./notes/editing/shown-link-texts.js";
 import { createLinkConversion, errorSummary, NOOP_LINK_CONVERSION, type LinkConversion } from "./notes/link-conversion.js";
 import { TRASH_PURGE_FIRST_DELAY_MS, TRASH_PURGE_INTERVAL_MS, createTrashPurger } from "./trash/purge.js";
 import type { NoteCreateHooks } from "./notes/create.js";
@@ -106,6 +109,8 @@ declare module "fastify" {
     tokenId?: string;
     /** #200：transfer 路徑才有（`auth/transfer-auth.ts`）。`noteId` 是 DB 的小寫正規形。 */
     transfer?: { id: string; noteId: string; purpose: "upload" | "download"; parentTokenId: string };
+    /** bulk transfer：`/api/transfer/*` 才有（`transferAuth.requireBulk`）。`range` 的 id 一律小寫。 */
+    bulkTransfer?: { id: string; parentTokenId: string; access: BulkAccess; range: BulkRange };
   }
 }
 
@@ -171,6 +176,10 @@ export interface AppDeps {
     contentRead: FixedWindowLimiter;
     /** #93：全文搜尋（key=userId，見 `SEARCH_LIMIT`）。 */
     search: FixedWindowLimiter;
+    /** bulk §12.1：整包匯出（key=userId，見 TRANSFER_EXPORT_LIMIT）。 */
+    transferExport: FixedWindowLimiter;
+    /** bulk §12.1：檔案寫回（key=userId，見 TRANSFER_WRITE_LIMIT；在佇列內扣）。 */
+    transferWrite: FixedWindowLimiter;
     /** `GET /api/users/suggest`（key=userId，見 `USER_SUGGEST_LIMIT`）。 */
     userSuggest: FixedWindowLimiter;
     /** #106 寫入端：`POST /api/notes/:id/edits`、`POST /api/notes` 帶 `content`（key=userId，見 `EDIT_LIMIT`）。 */
@@ -190,12 +199,16 @@ export interface AppDeps {
    * 被呼叫。**選配**，生產不注入＝零成本。#108 起透傳進 `NoteWriteService`（`buildApp` 建的那一個）。
    */
   editingTestHooks?: EditingTestHooks;
+  /** #387：讀到過／寫過的連結文字表的測試縫（整合測試注入假時鐘）；未傳＝`NoteWriteService` 自建一份。生產不注入。 */
+  shownLinks?: ShownLinkTexts;
   /**
    * #108：`/api/mcp` 的測試注入縫（比照 `editingTestHooks`）——`afterClose`／`beforeReply`／
    * `beforeTool` 分別在「關掉 server 之後」「搬回 reply 之前」「工具 handler 進入時」被呼叫。
    * **選配**，生產不注入＝零成本。透傳進 `McpRouteDeps.testHooks`。
    */
   mcpTestHooks?: McpTestHooks;
+  /** bulk transfer：`/api/transfer/*` 的測試縫（生產不注入）。透傳進 `TransferRouteDeps.testHooks`。 */
+  transferTestHooks?: TransferTestHooks;
   /**
    * #106（#137）：per-note 寫入佇列的等待上限（毫秒）。**選配**，未傳時用 `NoteWriteQueue`
    * 自己的預設（10 s）。整合測試把它壓到 50 ms 才驗得出「佇列被占住 → 503 server_busy」，
@@ -350,6 +363,19 @@ function isMultipartExemptRoute(request: FastifyRequest): boolean {
   const url = request.routeOptions.url;
   if (url === undefined) return false;
   return MULTIPART_EXEMPT_ROUTES.has(`${request.method} ${url}`);
+}
+
+// bulk transfer spec 2026-11-02 §9.1、§15：檔案寫回收 `text/markdown`（整個檔案就是 body）。同 multipart 豁免的形：
+// essence 必須 `text/markdown`（否則 415）＋Origin 不符 403；兩條早退都先 `drainWithCap`。parser 註冊在頂層（見下方
+// `addContentTypeParser` 的註解），所以「其他路由帶 text/markdown 仍 415」靠的是這張白名單（W-A10）。
+const TEXT_BODY_EXEMPT_ROUTES = new Set(["PUT /api/transfer/notes"]);
+
+/** 同 `isMultipartExemptRoute`：先擋 `is404`（404 請求的 `routeOptions.url` 是 undefined）。 */
+function isTextBodyExemptRoute(request: FastifyRequest): boolean {
+  if (request.is404) return false;
+  const url = request.routeOptions.url;
+  if (url === undefined) return false;
+  return TEXT_BODY_EXEMPT_ROUTES.has(`${request.method} ${url}`);
 }
 
 /**
@@ -520,6 +546,13 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   // 頂層 app——放進封裝 plugin 內 parser 不會外溢，守衛測試的鑑別力會靜默消失。
   void app.register(fastifyFormbody);
 
+  // bulk transfer spec 2026-11-02 §9.1：`PUT /api/transfer/notes` 的 `text/markdown` body。同 multipart／formbody 註冊在
+  // **頂層 app**（`transferRoutes` 是非 fastify-plugin 的子情境，註冊在裡面不外溢）——「parser 全域可用、只有
+  // `TEXT_BODY_EXEMPT_ROUTES` 的判定擋得下其他路由」才是 W-A10 的鑑別力前提。parser 只回 Buffer，**解碼在路由**（fatal UTF-8）。
+  app.addContentTypeParser("text/markdown", { parseAs: "buffer" }, (_request, body, done) => {
+    done(null, body);
+  });
+
   // issue #101：`nosniff` 掛在**每一個**回應上。CSP 只對 HTML 文件有意義（掛在
   // `http/spa.ts` 回 index.html 那條路徑），但這個標頭是逐回應的便宜防線，JSON 錯誤
   // 與 `/assets/*.js` 也該有——擋掉「瀏覽器猜錯 content-type 就把回應當成別的型別執行」
@@ -588,6 +621,19 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
         return sendError(reply, 403, "forbidden", "Origin check failed: the request's Origin doesn't match its Host.");
       }
       // Origin 相符，或無 Origin header（spec 明文放行）——落到 preHandler/handler。
+      return;
+    }
+
+    if (isTextBodyExemptRoute(request)) {
+      if (essence !== "text/markdown") {
+        drainWithCap(request);
+        return sendError(reply, 415, "unsupported_media_type", "This request needs Content-Type text/markdown.");
+      }
+      const origin = request.headers.origin;
+      if (origin !== undefined && !isOriginAllowed(origin, request.host)) {
+        drainWithCap(request);
+        return sendError(reply, 403, "forbidden", "Origin check failed: the request's Origin doesn't match its Host.");
+      }
       return;
     }
 
@@ -669,6 +715,9 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       tokenEndpoint: new FixedWindowLimiter(TOKEN_ENDPOINT_LIMIT),
       contentRead: new FixedWindowLimiter(CONTENT_READ_LIMIT),
       search: new FixedWindowLimiter(SEARCH_LIMIT),
+      transferExport: new FixedWindowLimiter(TRANSFER_EXPORT_LIMIT),
+      // §12.3 的接點：limit 以函式建，每次現讀（站台管理調整額度的 UI 在 PR-3 之後）。
+      transferWrite: new FixedWindowLimiter({ limit: () => TRANSFER_WRITE_LIMIT.limit, windowMs: TRANSFER_WRITE_LIMIT.windowMs }),
       userSuggest: new FixedWindowLimiter(USER_SUGGEST_LIMIT),
       edit: new FixedWindowLimiter(EDIT_LIMIT),
       folder: new FixedWindowLimiter(FOLDER_LIMIT),
@@ -767,7 +816,14 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   // 會立刻 `installGlobals()` 掛 window/document，只跑 REST 的 app 不該付這個代價，也不該讓
   // 瀏覽器嗅探在那些 process 裡失守）。有 collab 就一定有 runtime，兩者同生同滅＝路由要嘛
   // 兩個依賴都在、要嘛整條不註冊（見 `notesRoutes` 內的註冊閘門）。
-  const editing = deps.collab ? (deps.editing ?? createEditingRuntime(deps.config)) : undefined;
+  const ownEditing = deps.collab !== undefined && deps.editing === undefined;
+  const editing = deps.collab ? (deps.editing ?? createEditingRuntime(deps.config, app.log)) : undefined;
+  // #398：自己建的 runtime 帶著解析的 worker pool，關 app 時一併終止（注入的那份由注入者管——整合測試的共用 runtime 跨多個 app）。
+  if (ownEditing && editing) {
+    app.addHook("onClose", async () => {
+      await editing.close();
+    });
+  }
 
   // #138：AI presence。沒有 collab 時建的是全 no-op 空殼（每個方法都會在 `hocuspocus`
   // 為 undefined 時立刻 return），所以這裡不必再分支。
@@ -789,6 +845,9 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     queueWaitMs: deps.editingQueueWaitMs,
     testHooks: deps.editingTestHooks,
     versions,
+    renameHook: deps.slugUpdateTestHook,
+    shownLinks: deps.shownLinks,
+    noteMaxBytes: deps.config.noteMaxBytes,
   });
 
   // #269 §12.1：必用同一個 `writes`（共用佇列，與 MCP 寫入、套用版本、手動存版串行）。只建、不啟動——`index.ts` listen 之後才 start()，
@@ -918,6 +977,23 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       searchIndexHooks: deps.searchIndexHooks,
     })
   );
+
+  // bulk transfer spec 2026-11-02 §15：`/api/transfer/*` 只在有 collab＋editing 時掛（匯出要 live doc 與 mount，同 MCP 讀取工具的閘門）。
+  // `bearerMiss` 與 authenticateAny 同一個實例；`contentRead` 與 MCP／REST 讀取同一個實例。
+  if (deps.collab && editing) {
+    void app.register(
+      transferRoutes({
+        db: deps.db,
+        config: deps.config,
+        gate: deps.gate,
+        collab: deps.collab,
+        editing,
+        limiters: { bearerMiss: limiters.bearerMiss, contentRead: limiters.contentRead, transferExport: limiters.transferExport, transferWrite: limiters.transferWrite, tokenRead: limiters.tokenRead },
+        writes,
+        testHooks: deps.transferTestHooks,
+      })
+    );
+  }
 
   // #132：兩個 RFC 形 plugin 各自帶 prefix（root notFound 由 spa.ts 獨佔）。
   void app.register(

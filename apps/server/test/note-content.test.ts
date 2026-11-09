@@ -37,22 +37,26 @@ const cookieFor = async (userId: string) => `${SESSION_COOKIE}=${await signSessi
 // 守衛邊界：這只擋兩個 marker 之間出現 `await` 這個字面。把 await 挪到 `documents.get`
 // 之前（例如 `const live = await Promise.resolve(...documents.get(noteId));`），或改用
 // `.then()`／`queueMicrotask` 讓出而不寫 `await` 這個字，這裡都抓不到。
-describe("read.ts 原始碼守衛：documents.get 到 forkFrom(live) 之間不得有 await", () => {
-  it("字面文字不含 await", () => {
+describe("read.ts 原始碼守衛：documents.get 到 forkFrom(live)／encodeStateAsUpdate(live) 之間不得有 await", () => {
+  it("字面文字不含 await（loadNoteDoc 與 loadNoteState 兩處）", () => {
     const src = readFileSync(new URL("../src/notes/editing/read.ts", import.meta.url), "utf8");
-    const start = src.indexOf("documents.get(noteId)");
-    const end = src.indexOf("forkFrom(live)");
-    expect(start).toBeGreaterThanOrEqual(0);
-    expect(end).toBeGreaterThan(start);
-    // 檔頭與行內註解本身就會提到「await」這個字（在講這條不變量），先濾掉整行都是 `//`
-    // 註解的行，才不會被註解自己的文字誤判成「含 await」；真的插進來的 `await` 程式碼
-    // 不是註解行，濾不掉。
-    const between = src
-      .slice(start, end)
-      .split("\n")
-      .filter(line => !line.trim().startsWith("//"))
-      .join("\n");
-    expect(between).not.toContain("await");
+    const starts: number[] = [];
+    for (let i = src.indexOf("documents.get(noteId)"); i !== -1; i = src.indexOf("documents.get(noteId)", i + 1)) starts.push(i);
+    expect(starts).toHaveLength(2);
+    for (const start of starts) {
+      const ends = ["forkFrom(live)", "encodeStateAsUpdate(live)"].map(t => src.indexOf(t, start)).filter(i => i !== -1);
+      const end = Math.min(...ends);
+      expect(end).toBeGreaterThan(start);
+      // 檔頭與行內註解本身就會提到「await」這個字（在講這條不變量），先濾掉整行都是 `//`
+      // 註解的行，才不會被註解自己的文字誤判成「含 await」；真的插進來的 `await` 程式碼
+      // 不是註解行，濾不掉。
+      const between = src
+        .slice(start, end)
+        .split("\n")
+        .filter(line => !line.trim().startsWith("//"))
+        .join("\n");
+      expect(between).not.toContain("await");
+    }
   });
 });
 

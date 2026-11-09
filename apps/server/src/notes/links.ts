@@ -93,12 +93,13 @@ export async function writeNoteLinks(db: Db, params: WriteNoteLinksParams, hooks
  */
 export async function syncLinksFromDoc(
   deps: { db: Db; log: { warn(o: object, m: string): void } },
-  p: { sourceNoteId: string; userId: string; doc: Y.Doc; clock: number },
+  p: { sourceNoteId: string; userId: string; clock: number } & ({ doc: Y.Doc } | { targets: string[] }),
 ): Promise<void> {
   // 這裡的濾自連結與 slice 分大小寫：目標超過 MAX_LINK_TARGETS 且含大小寫變體時，變體可能先佔名額
   // （spec §5.5 接受）；最終集合由 `normalizeLinkTargets` 轉小寫後收斂。
   // 濾自連結排在 slice 之前，所以與 sourceNoteId 同形的 self-link 不會佔掉名額。
-  const deduped = extractLinkTargets(p.doc).filter(t => t !== p.sourceNoteId);
+  // `targets`：worker 已在編輯後的文件上抽好（`doc-jobs.ts` 的 `DocPost.linkTargets`，同一支 `extractLinkTargets`）。
+  const deduped = ("targets" in p ? p.targets : extractLinkTargets(p.doc)).filter(t => t !== p.sourceNoteId);
   const trimmed = deduped.slice(0, MAX_LINK_TARGETS);
   if (trimmed.length < deduped.length) deps.log.warn({ noteId: p.sourceNoteId, kept: trimmed.length, dropped: deduped.length - trimmed.length }, "wikilink 目標超過 MAX_LINK_TARGETS，已截斷");
   const norm = normalizeLinkTargets(p.sourceNoteId, trimmed);

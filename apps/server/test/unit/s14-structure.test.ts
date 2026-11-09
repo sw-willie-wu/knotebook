@@ -111,7 +111,7 @@ const ARG_BANNED: Array<[string, RegExp]> = [
   ["閉包 function", /\bfunction\b/],
   ...HELPERS,
 ];
-const ROUTE_FILES = ["routes/notes.ts", "routes/groups.ts", "notes/links.ts", "routes/oidc.ts", "routes/oidc-pending.ts", "routes/admin-auth.ts", "routes/account.ts", "notes/search-index.ts", "notes/search-query.ts", "mcp/tools/create-transfer-token.ts", "routes/uploads.ts", "collab/versions.ts", "routes/admin-versions.ts", "notes/copy-note.ts", "notes/move-note.ts", "routes/admin-password-reset.ts", "routes/password-reset.ts", "trash/service.ts", "routes/admin-trash.ts", "trash/purge.ts", "folders/service.ts"];
+const ROUTE_FILES = ["routes/notes.ts", "routes/groups.ts", "notes/links.ts", "routes/oidc.ts", "routes/oidc-pending.ts", "routes/admin-auth.ts", "routes/account.ts", "notes/search-index.ts", "notes/search-query.ts", "mcp/tools/create-transfer-token.ts", "mcp/tools/create-bulk-transfer-token.ts", "routes/uploads.ts", "collab/versions.ts", "routes/admin-versions.ts", "notes/copy-note.ts", "notes/move-note.ts", "routes/admin-password-reset.ts", "routes/password-reset.ts", "trash/service.ts", "routes/admin-trash.ts", "trash/purge.ts", "folders/service.ts", "notes/editing/write-service.ts"];
 
 describe("S14 結構性守衛（#175 §4.4）", () => {
   const files = walk(SRC);
@@ -136,12 +136,14 @@ describe("S14 結構性守衛（#175 §4.4）", () => {
         "auth/tx/identities.ts",
         "auth/tx/admin-site-settings.ts",
         "auth/tx/issue-transfer-token.ts",
+        "auth/tx/issue-bulk-transfer-token.ts",
         "auth/tx/admin-demote.ts",
         "auth/tx/password-reset.ts",
         "auth/tx/disable-user.ts",
         "auth/tx/accept-invite.ts",
         "uploads/tx/insert-upload.ts",
         "storage/tx/quota.ts",
+        "transfer/tx/record-file-sync.ts",
       ]),
     );
   });
@@ -187,6 +189,7 @@ describe("S14 結構性守衛（#175 §4.4）", () => {
       { f: "notes/search-index.ts", all: 1, inTx: 1 }, // 全文索引寫入（#93 §5.2）
       { f: "notes/search-query.ts", all: 1, inTx: 1 }, // 搜尋快照讀取（#93 §7.3）
       { f: "mcp/tools/create-transfer-token.ts", all: 1, inTx: 1 }, // #200 簽發（spec §4.2）
+      { f: "mcp/tools/create-bulk-transfer-token.ts", all: 1, inTx: 1 }, // bulk transfer 簽發（spec 2026-11-02 §5.2-4）
       { f: "routes/uploads.ts", all: 1, inTx: 1 }, // 儲存配額 U-tx（insertUploadInTx）
       { f: "collab/versions.ts", all: 1, inTx: 1 }, // 版本歷史：切版（cutVersionInTx）
       { f: "routes/admin-versions.ts", all: 1, inTx: 1 }, // 版本歷史：站台清除設定（updateVersionSettingsInTx）
@@ -198,6 +201,7 @@ describe("S14 結構性守衛（#175 §4.4）", () => {
       { f: "routes/admin-trash.ts", all: 1, inTx: 1 }, // #181 垃圾桶保留天數（updateTrashSettingsInTx）
       { f: "trash/purge.ts", all: 1, inTx: 1 }, // #181 保留期清理一批（purgeExpiredBatchInTx）
       { f: "folders/service.ts", all: 4, inTx: 4 }, // 資料夾 T5 建立（createFolderInTx）、T6 改名／搬移（updateFolderInTx）、T8 刪除（deleteFolderInTx）、T9 放置（placeNoteInTx）
+      { f: "notes/editing/write-service.ts", all: 1, inTx: 1 }, // bulk transfer PR-2：syncFile 的紀錄交易（recordFileSyncInTx）
     ]);
   });
 

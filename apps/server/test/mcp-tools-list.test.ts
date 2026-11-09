@@ -45,10 +45,12 @@ const DB_ONLY_TOOLS = ["list_folders", "list_notes", "list_trash", "read_note_im
 const LIVE_DOC_TOOLS = ["read_note_outline", "read_note_section"];
 /** #200：只在 token 路徑註冊（session 沒有），在部署形態閘門外。 */
 const TOKEN_ONLY_TOOLS = ["create_transfer_token"];
+/** bulk transfer PR-1：也只在 token 路徑，但在部署形態閘門**內**（簽的權杖拿去匯出要 mount；判準同 LIVE_DOC_TOOLS）。 */
+const BULK_TOOLS = ["create_bulk_transfer_token"];
 /** 資料夾 PR-3d：三支資料夾寫入工具（T6）與 move_note_to_folder（T7）——notes:write 時註冊，collab 閘門外。 */
 const FOLDER_WRITE_TOOLS = ["create_folder", "rename_folder", "move_folder", "move_note_to_folder"];
 /** `register.ts` 的**註冊順序**（M11）：list_notes → search_notes → 兩支讀取 → edit_note →
- *  （閘門外）create_note → move_note_to_group → copy_note（#180）→（閘門外、token 限定）create_transfer_token →（閘門外、全憑證）list_trash（#181）
+ *  （閘門外）create_note → move_note_to_group → copy_note（#180）→（閘門外、token 限定）create_transfer_token →（閘門內、token 限定）create_bulk_transfer_token（bulk transfer）→（閘門外、全憑證）list_trash（#181）
  *  →（閘門外、notes:delete）delete_note → restore_note（#181）→（閘門外、全憑證）list_folders（資料夾 PR-3d）
  *  →（閘門外、notes:write）create_folder → rename_folder → move_folder（資料夾 PR-3d T6）→ move_note_to_folder（T7）→（閘門外、notes:delete）delete_folder（T8）→ read_note_image。案 9b 逐字釘住這個順序，不排序。
  *  #239：`move_note_to_group` 只在 `notes:move` 時註冊（讀寫搬移憑證與 session）；#181：兩支垃圾桶寫入工具只在 `notes:delete` 時；
@@ -63,6 +65,7 @@ const RWMD_TOOLS_IN_ORDER = [
   "move_note_to_group",
   "copy_note",
   "create_transfer_token",
+  "create_bulk_transfer_token",
   "list_trash",
   "delete_note",
   "restore_note",
@@ -119,13 +122,13 @@ describe("#108 tools/list", () => {
   // 一支不多一支不少、改名也會紅），那是形狀斷言。
   // ⚠ **不要為了「看起來重複」把它與下面那條 D-A 案合併**：兩案的被測對象是**兩種部署形態**，
   //   合併必然丟掉一邊——MUT-1（拿掉閘門）只讓 D-A 紅、案 8 綠，就是它們互不涵蓋的證明。
-  it("唯讀憑證的 tools/list ＝恰好八支（七支讀取＋create_transfer_token），不含 edit_note／create_note（案 8）", async () => {
+  it("唯讀憑證的 tools/list ＝恰好九支（七支讀取＋create_transfer_token＋create_bulk_transfer_token），不含 edit_note／create_note（案 8）", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
     const { token } = await seedTokenForUser(ctx.db, owner.id, "notes:read");
 
     const names = await toolNames(ctx.app, token);
-    expect(names).toEqual([...DB_ONLY_TOOLS, ...LIVE_DOC_TOOLS, ...TOKEN_ONLY_TOOLS].sort());
+    expect(names).toEqual([...DB_ONLY_TOOLS, ...LIVE_DOC_TOOLS, ...TOKEN_ONLY_TOOLS, ...BULK_TOOLS].sort());
     expect(names).not.toContain("edit_note");
     expect(names).not.toContain("create_note");
   });
@@ -158,13 +161,13 @@ describe("#108 tools/list", () => {
   // 守的是**集合**，不重疊案 9b 的順序斷言。#239 起被測改讀寫搬移憑證（十支的前提），期望值不動；讀寫九支見下方 #239 案。
   // #181 PR-2d：多 list_trash（DB_ONLY_TOOLS），十一支；讀寫十支。被測改讀寫搬移刪除（十三支，最大集合）；讀寫搬移十一支照舊另案。
   // 資料夾 PR-3d：再多 list_folders（DB_ONLY_TOOLS）——讀寫搬移刪除十四支、讀寫搬移十二支；T6 再加三支資料夾寫入工具（FOLDER_WRITE_TOOLS）——十七支、十五支；T7 再加 move_note_to_folder（同一常數）——十八支、十六支；T8 再加 delete_folder（DELETE_TOOLS）——十九支、十六支。
-  it("讀寫搬移刪除憑證的 tools/list 含十九支工具；讀寫搬移十六支（案 9）", async () => {
+  it("讀寫搬移刪除憑證的 tools/list 含二十支工具；讀寫搬移十七支（案 9；bulk transfer 起各多 create_bulk_transfer_token）", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
     const { token } = await seedTokenForUser(ctx.db, owner.id, RWMD);
     const { token: rwm } = await seedTokenForUser(ctx.db, owner.id, RWM);
 
-    const rwmSet = [...DB_ONLY_TOOLS, ...LIVE_DOC_TOOLS, "edit_note", "create_note", "move_note_to_group", "copy_note", ...TOKEN_ONLY_TOOLS, ...FOLDER_WRITE_TOOLS];
+    const rwmSet = [...DB_ONLY_TOOLS, ...LIVE_DOC_TOOLS, "edit_note", "create_note", "move_note_to_group", "copy_note", ...TOKEN_ONLY_TOOLS, ...BULK_TOOLS, ...FOLDER_WRITE_TOOLS];
     expect(await toolNames(ctx.app, token)).toEqual([...rwmSet, ...DELETE_TOOLS].sort());
     expect(await toolNames(ctx.app, rwm)).toEqual(rwmSet.sort());
   });
@@ -178,7 +181,7 @@ describe("#108 tools/list", () => {
   //   …(4)] to deeply equal ['list_notes','search_notes',…(4)]`），案 9（走 `.sort()`）
   //   維持綠——這就是兩案不重疊的證明：一個守集合，一個守順序。
   // #239 起被測改讀寫搬移憑證（十元清單的前提），期望值不動。#181 PR-2d 起被測改讀寫搬移刪除（最大集合）。
-  it("讀寫搬移刪除憑證的 tools/list 名字陣列逐字等於寫死的十九元清單，含順序（案 9b／M11）", async () => {
+  it("讀寫搬移刪除憑證的 tools/list 名字陣列逐字等於寫死的二十元清單，含順序（案 9b／M11）", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
     const { token } = await seedTokenForUser(ctx.db, owner.id, RWMD);
@@ -449,7 +452,7 @@ describe("#108 tools/list", () => {
   // `mcp-content.test.ts` 只打兩支讀取工具，兩者對這幾支寫入／傳輸／讀圖工具都**恆綠**（不在它們的名字
   // 集合裡）；沒有這一案，這些後加的工具就沒有 D31／M15 的 try/catch 守衛。
   // #239：讀寫搬移憑證（move_note_to_group 只在 notes:move 時註冊），期望值不動。#181：改讀寫搬移刪除（delete_note／restore_note 才在清單上）。
-  it("P13：runTool() 涵蓋率——beforeTool 看到的名字集合逐字等於 {copy_note, create_folder, create_note, create_transfer_token, delete_folder, delete_note, edit_note, list_folders, list_trash, move_folder, move_note_to_folder, move_note_to_group, read_note_image, rename_folder, restore_note}", async () => {
+  it("P13：runTool() 涵蓋率——beforeTool 看到的名字集合逐字等於 {copy_note, create_bulk_transfer_token, create_folder, create_note, create_transfer_token, delete_folder, delete_note, edit_note, list_folders, list_trash, move_folder, move_note_to_folder, move_note_to_group, read_note_image, rename_folder, restore_note}", async () => {
     const seen: string[] = [];
     const ctx = await buildCollabTestApp({ mcpTestHooks: { beforeTool: name => void seen.push(name) } });
     const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
@@ -464,6 +467,7 @@ describe("#108 tools/list", () => {
     await mcpPost(ctx.app, rpc("tools/call", { name: "create_transfer_token", arguments: { note_id: note.id, purpose: "download" } }), {
       token,
     });
+    await mcpPost(ctx.app, rpc("tools/call", { name: "create_bulk_transfer_token", arguments: {} }), { token });
     await mcpPost(ctx.app, rpc("tools/call", { name: "move_note_to_group", arguments: { note_id: randomUUID(), group_id: randomUUID() } }), { token });
     await mcpPost(ctx.app, rpc("tools/call", { name: "read_note_image", arguments: { note_id: note.id, upload_id: randomUUID() } }), { token });
     await mcpPost(ctx.app, rpc("tools/call", { name: "list_trash", arguments: {} }), { token });
@@ -478,6 +482,7 @@ describe("#108 tools/list", () => {
 
     expect([...new Set(seen)].sort()).toEqual([
       "copy_note",
+      "create_bulk_transfer_token",
       "create_folder",
       "create_note",
       "create_transfer_token",
@@ -517,7 +522,7 @@ describe("#108 tools/list", () => {
   });
 
   // #239：`move_note_to_group` 依 `canMove` 註冊。突變「`register.ts` 的 `if (canMove)` 改回 `if (canWrite)`」→ 本案紅。
-  it("#239：讀寫無搬移憑證 → 十五支，不含 move_note_to_group（註冊順序不變）", async () => {
+  it("#239：讀寫無搬移憑證 → 十六支，不含 move_note_to_group（註冊順序不變；bulk transfer 起含 create_bulk_transfer_token）", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
     const { token } = await seedTokenForUser(ctx.db, owner.id, "notes:read notes:write");
@@ -525,19 +530,19 @@ describe("#108 tools/list", () => {
   });
 
   // #181：與 move 互相獨立——讀寫刪除有兩支垃圾桶寫入工具、沒有 move_note_to_group。
-  it("#181：讀寫刪除憑證 → 十八支，不含 move_note_to_group、含 delete_note／restore_note（資料夾 PR-3d T8 起含 delete_folder；註冊順序不變）", async () => {
+  it("#181：讀寫刪除憑證 → 十九支，不含 move_note_to_group、含 delete_note／restore_note（資料夾 PR-3d T8 起含 delete_folder；註冊順序不變）", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
     const { token } = await seedTokenForUser(ctx.db, owner.id, RWD);
     expect(await toolNames(ctx.app, token, { sort: false })).toEqual(RWMD_TOOLS_IN_ORDER.filter(n => n !== "move_note_to_group"));
   });
 
-  it("#239：session → 十八支（無 create_transfer_token，有 move_note_to_group；#181 起有 delete_note／restore_note；資料夾 PR-3d 起有 list_folders、四支資料夾寫入工具與 delete_folder）", async () => {
+  it("#239：session → 十八支（無 create_transfer_token／create_bulk_transfer_token，有 move_note_to_group；#181 起有 delete_note／restore_note；資料夾 PR-3d 起有 list_folders、四支資料夾寫入工具與 delete_folder）", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
     const res = await mcpPost(ctx.app, rpc("tools/list"), { cookie: await sessionCookie(owner.id) });
     const names = (res.json().result.tools as { name: string }[]).map(t => t.name);
-    expect(names).toEqual(RWMD_TOOLS_IN_ORDER.filter(n => n !== "create_transfer_token"));
+    expect(names).toEqual(RWMD_TOOLS_IN_ORDER.filter(n => n !== "create_transfer_token" && n !== "create_bulk_transfer_token"));
   });
 
   // 突變「`register.ts` 把 copy 的兩版對調」→ 本案紅。

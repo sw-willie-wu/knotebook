@@ -16,14 +16,14 @@ import { loadConfig, type AppConfig } from "../src/config.js";
 import { buildApp, type AppDeps, type BuildAppOptions } from "../src/app.js";
 import { signSession, UserGate } from "../src/auth/session.js";
 import { LoginThrottle } from "../src/auth/rate-limit.js";
-import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, EDIT_LIMIT, FixedWindowLimiter, FOLDER_LIMIT, OIDC_LIMIT, ONE_TIME_LINK_ATTEMPT_LIMIT, ONE_TIME_LINK_MISS_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, PUBLIC_WIDTH_LIMIT, REGISTER_LIMIT, SEARCH_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_RENAME_LIMIT, TOKEN_WRITE_LIMIT, UPLOAD_LIMIT, USER_SUGGEST_LIMIT } from "../src/http/rate-limit.js";
+import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, EDIT_LIMIT, FixedWindowLimiter, FOLDER_LIMIT, OIDC_LIMIT, ONE_TIME_LINK_ATTEMPT_LIMIT, ONE_TIME_LINK_MISS_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, PUBLIC_WIDTH_LIMIT, REGISTER_LIMIT, SEARCH_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_RENAME_LIMIT, TOKEN_WRITE_LIMIT, TRANSFER_EXPORT_LIMIT, TRANSFER_WRITE_LIMIT, UPLOAD_LIMIT, USER_SUGGEST_LIMIT } from "../src/http/rate-limit.js";
 import { hashPassword } from "../src/auth/password.js";
 import { noopCollabHooks, type CollabHooks } from "../src/collab/hooks.js";
 import type { CollabHooksLogger } from "../src/collab/hooks-impl.js";
 import { COLLAB_PATH, createCollabServer, type CollabDeps, type CollabServer } from "../src/collab/server.js";
 import { notes, noteShares, users } from "../src/db/schema.js";
 import { createAiRuntime } from "../src/ai/runtime.js";
-import { createEditingRuntime } from "../src/notes/editing/runtime.js";
+import { createEditingRuntime, type EditingRuntime } from "../src/notes/editing/runtime.js";
 
 export interface FreshDb {
   db: Db;
@@ -309,6 +309,8 @@ export function freshLimiters(
     tokenEndpoint: new FixedWindowLimiter(TOKEN_ENDPOINT_LIMIT),
     contentRead: new FixedWindowLimiter(CONTENT_READ_LIMIT),
     search: new FixedWindowLimiter(SEARCH_LIMIT),
+    transferExport: new FixedWindowLimiter(TRANSFER_EXPORT_LIMIT),
+    transferWrite: new FixedWindowLimiter(TRANSFER_WRITE_LIMIT),
     userSuggest: new FixedWindowLimiter(USER_SUGGEST_LIMIT),
     edit: new FixedWindowLimiter(EDIT_LIMIT),
     folder: new FixedWindowLimiter(FOLDER_LIMIT),
@@ -427,6 +429,8 @@ export interface CollabTestCtx {
    * 所以一律在測試的最後一步才呼叫。
    */
   breakGate(err: Error): void;
+  /** bulk transfer：app 用的同一個 `UserGate`（停權後要 `invalidate` 才即時生效，同生產的停權路徑）。 */
+  gate: UserGate;
   db: Db;
   /** #180：實際掛進 app 的 uploadsDir（磁碟斷言用）。 */
   uploadsDir: string;
@@ -461,6 +465,8 @@ export async function buildCollabTestApp(
     storageLockTimeoutMs?: number;
     /** #106（#137）寫入路徑的注入縫，語意見 `AppDeps.editingTestHooks`。 */
     editingTestHooks?: AppDeps["editingTestHooks"];
+    /** #387：連結文字表的注入縫，語意見 `AppDeps.shownLinks`。 */
+    shownLinks?: AppDeps["shownLinks"];
     /** #108 `/api/mcp` 的注入縫，語意見 `AppDeps.mcpTestHooks`。 */
     mcpTestHooks?: AppDeps["mcpTestHooks"];
     /** #175 PR5：群組測試注入縫（`"membership-checked"` 等），語意見 `AppDeps.groupTestHook`；帶 content 的 MCP `create_note {groupId}` 要 collab app 才寫得出。 */
@@ -477,9 +483,21 @@ export async function buildCollabTestApp(
     config?: AppConfig;
     /** #267：「最後活動」節流表的測試縫（時鐘），語意見 `CollabDeps.lastActiveOptions`。 */
     lastActiveOptions?: CollabDeps["lastActiveOptions"];
+    /** bulk transfer：`/api/transfer/*` 的測試縫，語意見 `AppDeps.transferTestHooks`。 */
+    transferTestHooks?: AppDeps["transferTestHooks"];
+    /** bulk transfer plan H5：log 測試用（預設 `false`）；傳 `{ level, stream }` 收 pino 原文。 */
+    logger?: BuildAppOptions["logger"];
+    /**
+     * bulk transfer plan H5（gate r1 I7）：共用 DB——給了就不 `freshDb()`（DB 的清理照舊由建它的那次 `freshDb()` 的
+     * `onTestFinished` 負責），collab server 各自建。⚠ 收尾順序：**先 `destroy()` 第一個 app 再建第二個**，避免兩個 collab
+     * server 同時持有同一篇 live doc。
+     */
+    db?: Db;
+    /** #398：換掉共用的 `testEditingRuntime`（例：小時限、小排隊上限的 parse pool）。由呼叫端自己 `close()`。 */
+    editing?: EditingRuntime;
   } = {}
 ): Promise<CollabTestCtx> {
-  const { db } = await freshDb();
+  const { db } = opts.db ? { db: opts.db } : await freshDb();
   const gate = new UserGate(db);
   // 測試注入縫：見 `CollabTestCtx.breakGate`。包在 harness 裡（而不是每個測試各自 monkey-patch）
   // 是為了讓「怎麼弄壞 gate」只有一份定義。
@@ -509,10 +527,12 @@ export async function buildCollabTestApp(
     throttle: new LoginThrottle(),
     collabHooks: opts.collabHooks ? opts.collabHooks(collab, collabLog) : noopCollabHooks,
     collab,
-    editing: testEditingRuntime,
+    editing: opts.editing ?? testEditingRuntime,
     limiters: freshLimiters(opts.limiters),
     editingTestHooks: opts.editingTestHooks,
+    shownLinks: opts.shownLinks,
     mcpTestHooks: opts.mcpTestHooks,
+    transferTestHooks: opts.transferTestHooks,
     groupTestHook: opts.groupTestHook,
     slugUpdateTestHook: opts.slugUpdateTestHook,
     noteCreateHooks: opts.noteCreateHooks,
@@ -523,7 +543,7 @@ export async function buildCollabTestApp(
     uploadsDir,
     ai: createAiRuntime(),
   };
-  const app = buildApp(deps, { logger: false });
+  const app = buildApp(deps, { logger: opts.logger ?? false });
 
   await app.listen({ port: 0, host: "127.0.0.1" });
   const address = app.server.address();
@@ -696,7 +716,7 @@ export async function buildCollabTestApp(
     return session;
   }
 
-  return { baseUrl, app, collab, collabLogs, breakGate, db, uploadsDir, createUser, createNote, share, loginAs, destroy };
+  return { baseUrl, app, collab, collabLogs, breakGate, gate, db, uploadsDir, createUser, createNote, share, loginAs, destroy };
 }
 
 /**

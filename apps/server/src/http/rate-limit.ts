@@ -6,6 +6,10 @@
  * **生產預設值唯一真相來源**：`buildApp`（未收到 `AppDeps.limiters` 時的內建預設）與
  * `test/helpers.ts`（`buildTestApp`/`buildCollabTestApp` 注入的每次全新實例）都從這裡
  * 匯出的 `COLLAB_TOKEN_LIMIT`/`SLUG_PATCH_LIMIT` 取值，不各自重複寫一份數字字面量。
+ *
+ * 站台管理調整額度的接點（bulk transfer spec §12.3）：`limit` 傳函式就每次現讀（`consume`／`consumeMany`／
+ * `isBlocked` 每次呼叫都重讀）；既有呼叫點傳數字不變。`retryAfterMs` 回「這個 key 的視窗還剩幾毫秒」，給
+ * `Retry-After` 用（`retryAfterSeconds` 換成秒）。
  */
 import { BoundedMap, DEFAULT_MAX_KEYS } from "../lib/bounded-map.js";
 
@@ -63,7 +67,8 @@ export const PUBLIC_NOTE_LIMIT = { limit: 60, windowMs: 60_000 } as const;
 export const PUBLIC_UPLOAD_LIMIT = { limit: 300, windowMs: 60_000 } as const;
 
 export interface FixedWindowLimiterOptions {
-  limit: number;
+  /** 每個視窗的額度。傳函式＝每次呼叫現讀（bulk transfer spec §12.3 的可調額度接點）。 */
+  limit: number | (() => number);
   windowMs: number;
   /** 視窗登記表的 key 上限，插入序淘汰最舊。預設 `DEFAULT_MAX_KEYS`。 */
   maxKeys?: number;
@@ -87,17 +92,26 @@ interface Window {
  * 用的是同一個型別（issue #15）。
  */
 export class FixedWindowLimiter {
-  private readonly limit: number;
+  private readonly limitOf: () => number;
   private readonly windowMs: number;
   private readonly windows: BoundedMap<Window>;
 
   constructor(opts: FixedWindowLimiterOptions) {
-    this.limit = opts.limit;
+    const limit = opts.limit;
+    this.limitOf = typeof limit === "function" ? limit : () => limit;
     this.windowMs = opts.windowMs;
     this.windows = new BoundedMap<Window>(opts.maxKeys ?? DEFAULT_MAX_KEYS);
   }
 
   consume(key: string): boolean {
+    return this.consumeTicket(key) !== null;
+  }
+
+  /**
+   * 同 `consume`（照樣「必計數」），但放行時回這次落在的視窗的起點（`refund` 的憑據），被拒回 `null`。
+   * 全分支審查複審 Minor 2：退回時要知道扣的是哪個視窗——扣完之後視窗過期、又開了新窗，退回不能減到新窗上。
+   */
+  consumeTicket(key: string): number | null {
     const now = Date.now();
     let window = this.windows.get(key);
     if (!window || now - window.windowStart >= this.windowMs) {
@@ -107,7 +121,7 @@ export class FixedWindowLimiter {
       this.windows.set(key, window);
     }
     window.count += 1;
-    return window.count <= this.limit;
+    return window.count <= this.limitOf() ? window.windowStart : null;
   }
 
   /**
@@ -130,8 +144,9 @@ export class FixedWindowLimiter {
       window = { windowStart: now, count: 0 };
       this.windows.set(key, window);
     }
-    const need = Math.min(n, this.limit);
-    if (window.count + need > this.limit) return false;
+    const limit = this.limitOf();
+    const need = Math.min(n, limit);
+    if (window.count + need > limit) return false;
     window.count += need;
     return true;
   }
@@ -144,8 +159,35 @@ export class FixedWindowLimiter {
   isBlocked(key: string): boolean {
     const window = this.windows.get(key);
     if (!window || Date.now() - window.windowStart >= this.windowMs) return false;
-    return window.count >= this.limit;
+    return window.count >= this.limitOf();
   }
+
+  /**
+   * 退回一次 `consumeTicket`（全分支審查 I2：檔案寫回在解析之前就扣，解析完才知道是零區、什麼都不寫時退回）。`ticket` 是那次
+   * `consumeTicket` 回的視窗起點：只在這個 key 目前的視窗**就是那一個**、計數 > 0 時減一；視窗已換（過期後又開了新窗）、
+   * 不存在就什麼都不做——不開新窗、不讓計數變負、不減到別的視窗上。
+   */
+  refund(key: string, ticket: number): void {
+    const window = this.windows.get(key);
+    if (!window || window.windowStart !== ticket || window.count === 0) return;
+    window.count -= 1;
+  }
+
+  /**
+   * bulk transfer spec §12.2 末句：這個 key 目前的視窗還剩幾毫秒（給 `Retry-After`）。沒有視窗或已過期 → 0。
+   * 不計數、不開窗（同 `isBlocked`）。
+   */
+  retryAfterMs(key: string): number {
+    const window = this.windows.get(key);
+    if (!window) return 0;
+    const left = window.windowStart + this.windowMs - Date.now();
+    return left > 0 ? left : 0;
+  }
+}
+
+/** `Retry-After` 的秒數：毫秒向上取整、至少 1（不送 `Retry-After: 0`）。 */
+export function retryAfterSeconds(ms: number): number {
+  return Math.max(1, Math.ceil(ms / 1000));
 }
 
 /**
@@ -238,6 +280,19 @@ export const CONTENT_READ_LIMIT = { limit: 120, windowMs: 60_000 } as const;
  * 與側欄打字互相餓死（spec §8.6，Q1 總管裁示）。
  */
 export const SEARCH_LIMIT = { limit: 60, windowMs: 60_000 } as const;
+
+/**
+ * bulk transfer spec §12.1：整包匯出 `GET /api/transfer/export`（key=userId）。整包認證後才扣（plan §0.1-14：拿到
+ * 全站 slot 才扣）；另有全站同時 1 個（`transfer/export-slot.ts`）；`Retry-After` 由 `retryAfterMs` 算。
+ */
+export const TRANSFER_EXPORT_LIMIT = { limit: 10, windowMs: 3_600_000 } as const;
+
+/**
+ * bulk transfer spec §12.1、§12.3：檔案寫回 `PUT /api/transfer/notes`（key=userId）。只在「有區要套用」「只改名」「要新建」時扣
+ * 一個單位，**在佇列內扣**；進佇列前只做不計數的 `isBlocked` 預檢；零區、同檔重送、新增去重命中不扣這顆、改扣 `tokenRead`
+ * （plan PR-2 不變量 13）。數字待 D17 寫回量測複核（plan T14）。生產預設以函式建（每次現讀，§12.3 的接點）。
+ */
+export const TRANSFER_WRITE_LIMIT = { limit: 30, windowMs: 60_000 } as const;
 
 /**
  * #106 寫入端（`POST /api/notes/:id/edits`、`POST …/edits/:editId/revert`、

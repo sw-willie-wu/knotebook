@@ -74,6 +74,11 @@ export interface AuthConfigDto {
   passwordLogin: { enabled: boolean };
   /** 版本歷史 §6.8：站台自動儲存總開關（`site_settings.auto_versions_enabled`）——個人與群組開關在它關閉時顯示 disabled。 */
   autoVersionsEnabled: boolean;
+  /**
+   * 筆記大小上限（server `NOTE_MAX_BYTES`，Yjs 狀態的位元組數）。網頁編輯器在貼上、拖放、站內 AI 套用之前據此自己擋（瀏覽器的協作更新
+   * 不在 server 檢查），已超過的筆記顯示提示。server 一律回傳；選填只是讓沒有這個欄位的回應（測試替身、舊 server）照常可用＝不檢查。
+   */
+  noteMaxBytes?: number;
 }
 
 /** #187：一個啟用中的單一登入服務（登入頁按鈕、連結頁的證明方式）。只曝光 id、顯示名與圖示——issuer／client id 不出線。 */
@@ -210,7 +215,8 @@ export const AI_EDITS_RETENTION = 100;
  * `before_blocks` 又出現在頂層——撤回端沒有 `if_match`，這是它的冪等守衛，見 revert.ts）。 */
 export interface NoteEditDto {
   id: string;
-  op: EditOp | "revert";
+  /** `file_sync`＝bulk transfer 檔案寫回（每區一列；spec 2026-11-02 §13）。web 原樣顯示字面值（F17，不翻譯）。 */
+  op: EditOp | "revert" | "file_sync";
   sectionId: string | null;
   heading: string;
   byHandle: string;
@@ -457,6 +463,12 @@ export const ERROR_CODES = [
   "empty_section",
   "too_many_blocks",
   "content_too_large",
+  // bulk transfer（spec 2026-11-02 §6.6-2、§12.2、§21 D8）：`too_many_notes`＝413，整包下載的範圍內超過 3 000 篇（串流開始前回）。
+  "too_many_notes",
+  // bulk transfer 寫回（spec 2026-11-02 §9.2-6、§12.2）：`not_mergeable`＝409，這篇的段表對不上（下載時 `segments` 為 NULL），不能用檔案寫回；
+  // `base_unavailable`＝409，基底查無、不屬於這篇、`key_id` 不符、或已用不同內容送回過——重新下載再改。
+  "not_mergeable",
+  "base_unavailable",
   // #106 撤回端（`POST /api/notes/:id/edits/:editId/revert`，#137）：
   // `already_reverted`＝409，這筆修改已經撤回過（或它本身就是一筆撤回列——撤回列永不可撤回）；
   // `stale`＝409，撤回的落點已經不是當初那樣了：AI 寫進去的 block 被人改過／刪掉、`delete_section`
@@ -566,6 +578,10 @@ export const ERROR_CODES = [
   "folder_cross_space",
   "folder_delete_blocked",
   "folder_not_empty",
+  // `too_complex`＝500（MCP 工具錯誤同名）：讀出一篇筆記的轉換在 parse worker 裡逾時或用完記憶體（筆記太大或太複雜；重試無用）。
+  "too_complex",
+  // `note_too_large`＝413（MCP 工具錯誤同名）：這次修改會讓筆記的大小（Yjs 狀態的位元組數）超過 `NOTE_MAX_BYTES`，而且比修改前大；details 帶 `limitBytes`。
+  "note_too_large",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
@@ -1295,6 +1311,7 @@ export * from "./note-colors.js";
 export * from "./note-markdown-read.js";
 export * from "./note-sizes.js";
 export * from "./note-markdown-write.js";
+export * from "./note-markdown-guards.js";
 export * from "./site-link.js";
 export * from "./note-schema-version.js";
 export * from "./group-roles.js";

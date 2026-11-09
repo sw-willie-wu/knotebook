@@ -7,12 +7,12 @@ import { MAX_PROVIDER_ICON_BYTES, autoSlugFromTitle, validateHandle, validateSlu
 import { applyMigrationsThrough, freshDb, freshEmptyDb, idxOfTag, journalEntries } from "./helpers.js";
 import { runMigrations } from "../src/db/migrate.js";
 import { PgDialect, getTableConfig } from "drizzle-orm/pg-core";
-import { apiTokens, authProviders, folders, groupMembers, groupRoles, groups, notePlacements, noteRedirects, notes, oauthClients, oauthCodes, noteSearchSections, noteSearchState, noteLinkConversion, noteVersions, handleRenames, oauthRequests, oneTimeLinks, siteSettings, storagePlans, transferTokens, userIdentities, users } from "../src/db/schema.js";
+import { apiTokens, authProviders, folders, groupMembers, groupRoles, groups, notePlacements, noteRedirects, notes, oauthClients, oauthCodes, noteSearchSections, noteSearchState, noteLinkConversion, noteVersions, handleRenames, oauthRequests, oneTimeLinks, siteSettings, storagePlans, transferBases, transferCreates, transferTokens, userIdentities, users } from "../src/db/schema.js";
 
 const drizzleDirForTest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
 /** drizzle 對 `schema.ts` 的序列化；宣告漂移守衛拿最新一支當比對基準（Task 14 rebase 後改成實際檔名）。 */
-const SNAPSHOT_FILE = "meta/0035_snapshot.json";
+const SNAPSHOT_FILE = "meta/0037_snapshot.json";
 const snapshotLatest = JSON.parse(readFileSync(path.join(drizzleDirForTest, SNAPSHOT_FILE), "utf8")) as {
   tables: Record<string, {
     checkConstraints?: Record<string, { name: string; value: string }>;
@@ -23,12 +23,12 @@ const snapshotLatest = JSON.parse(readFileSync(path.join(drizzleDirForTest, SNAP
 const pgDialect = new PgDialect();
 
 describe("runMigrations", () => {
-  it("migrate 兩次 idempotent 且 34 張表存在", async () => {
+  it("migrate 兩次 idempotent 且 36 張表存在", async () => {
     const { db, pool } = await freshDb();
     await runMigrations(db); // freshDb 已跑過一次——此為第二次
     const r = await pool.query(`select table_name from information_schema.tables where table_schema='public'`);
     const tableNames = r.rows.map(x => x.table_name);
-    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles", "api_tokens", "oauth_clients", "oauth_requests", "oauth_codes", "note_ai_edits", "groups", "group_members", "group_roles", "note_redirects", "auth_providers", "user_identities", "site_settings", "note_search_sections", "note_search_state", "transfer_tokens", "storage_plans", "note_versions", "note_link_conversion", "handle_renames", "one_time_links", "folders", "note_placements"])
+    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles", "api_tokens", "oauth_clients", "oauth_requests", "oauth_codes", "note_ai_edits", "groups", "group_members", "group_roles", "note_redirects", "auth_providers", "user_identities", "site_settings", "note_search_sections", "note_search_state", "transfer_tokens", "storage_plans", "note_versions", "note_link_conversion", "handle_renames", "one_time_links", "folders", "note_placements", "transfer_bases", "transfer_creates"])
       expect(tableNames).toContain(t);
   });
 
@@ -1408,7 +1408,7 @@ describe("0009_api-tokens", () => {
       expect(names, i).toContain(i);
   });
 
-  it("schema.ts 的二十三個宣告沒有靜默漂移（四個 OAuth／token 宣告零 import；#103／#175 的四張表的 CHECK 也在這裡逐字比對、#187 的三張表、#93 的兩張表、#200 的一張表、容量上限的 users／storage_plans、版本歷史的 note_versions、#269 的 note_link_conversion、#291 的 handle_renames、#286 的 one_time_links（#285 擴充）、資料夾的 folders／note_placements）", async () => {
+  it("schema.ts 的二十五個宣告沒有靜默漂移（四個 OAuth／token 宣告零 import；#103／#175 的四張表的 CHECK 也在這裡逐字比對、#187 的三張表、#93 的兩張表、#200 的一張表、容量上限的 users／storage_plans、版本歷史的 note_versions、#269 的 note_link_conversion、#291 的 handle_renames、#286 的 one_time_links（#285 擴充）、資料夾的 folders／note_placements、bulk transfer 的 transfer_bases／transfer_creates）", async () => {
     // 比照 0008 的同族守衛：把 schema.ts 的宣告與 migration 造出來的 DB 對起來。
     // 沒有這一案的話，把 schema.ts 的四段 pgTable 整個刪掉，全套測試照樣綠——
     // 只有下一次 db:generate 會產出 DROP TABLE。
@@ -1458,7 +1458,12 @@ describe("0009_api-tokens", () => {
       ],
       note_search_sections: ["id", "note_id", "source_kind", "source_id", "section_id", "ord", "heading", "body"],
       note_search_state: ["note_id", "extractor_version", "source_version", "content_hash", "indexed_units", "capped", "indexed_at"],
-      transfer_tokens: ["id", "token_hash", "parent_token_id", "note_id", "purpose", "expires_at", "consumed_at", "created_at"],
+      transfer_tokens: ["id", "token_hash", "parent_token_id", "note_id", "purpose", "expires_at", "consumed_at", "created_at", "access", "range"],
+      transfer_bases: [
+        "key", "user_id", "note_id", "salt", "key_id", "body_sha", "title_sha", "line_hashes", "line_kinds", "segments",
+        "applied_body_sha", "applied_edit_ids", "applied_title_sha", "created_at", "last_used_at",
+      ],
+      transfer_creates: ["user_id", "file_sha", "note_id", "key_id", "created_at"],
       notes: [
         "id", "owner_id", "title", "slug", "slug_is_custom", "prev_slug", "legacy_slug", "public_token", "public_slug", "public_width",
         "links_clock", "created_at", "updated_at", "last_edited_at", "last_edited_by", "last_edited_token_id",
@@ -1496,6 +1501,8 @@ describe("0009_api-tokens", () => {
       ["note_search_sections", noteSearchSections],
       ["note_search_state", noteSearchState],
       ["transfer_tokens", transferTokens],
+      ["transfer_bases", transferBases],
+      ["transfer_creates", transferCreates],
       ["users", users],
       ["storage_plans", storagePlans],
       ["note_versions", noteVersions],
@@ -3217,5 +3224,153 @@ describe("0035_notes-delete-scope（#181 spec §6.8.2）", () => {
     await runMigrations(db);
     expect(await scopes(pool)).toEqual(OLD);
     expect(await constraintDefs(pool)).toEqual(defs);
+  });
+});
+
+describe("bulk transfer（0036，bulk transfer spec 2026-11-02 §16）", () => {
+  /** user＋個人筆記＋PAT 一支，回三個 id。 */
+  async function seedParent(pool: import("pg").Pool): Promise<{ userId: string; noteId: string; tokenId: string }> {
+    const u = await pool.query(`insert into users (email, display_name) values ($1, 'B') returning id`, [`bt-${randomUUID()}@example.com`]);
+    const userId = u.rows[0].id as string;
+    const n = await pool.query(`insert into notes (owner_id) values ($1) returning id`, [userId]);
+    const t = await pool.query(
+      `insert into api_tokens (user_id, kind, name, scope, access_token_hash) values ($1, 'pat', 'n', 'notes:read notes:write', $2) returning id`,
+      [userId, `h-${randomUUID()}`],
+    );
+    return { userId, noteId: n.rows[0].id as string, tokenId: t.rows[0].id as string };
+  }
+  const insertTok =
+    `insert into transfer_tokens (token_hash, parent_token_id, note_id, purpose, expires_at, consumed_at, access, range)
+     values ($1, $2, $3, $4, now() + ($5::text)::interval, $6, $7, $8::jsonb) returning id`;
+  const ALL = '{"kind":"all"}';
+  const insertBase = (pool: import("pg").Pool, key: string, userId: string, noteId: string) =>
+    pool.query(
+      `insert into transfer_bases (key, user_id, note_id, salt, key_id, body_sha, title_sha, line_hashes, line_kinds)
+       values ($1, $2, $3, $4, 'abcd1234', $4, $4, $4, $4)`,
+      [key, userId, noteId, Buffer.alloc(16, 1)],
+    );
+  const insertCreate = (pool: import("pg").Pool, userId: string, fileSha: Buffer, noteId: string) =>
+    pool.query(`insert into transfer_creates (user_id, file_sha, note_id, key_id) values ($1, $2, $3, 'abcd1234')`, [userId, fileSha, noteId]);
+
+  it("M1 transfer_tokens 的 CHECK 矩陣：每一形恰違反一條（含既有 purpose／consumed），合法 bulk 形放行", async () => {
+    const { pool } = await freshDb();
+    const p = await seedParent(pool);
+    const h = () => `bt-${randomUUID()}`;
+    const cases: Array<[unknown[], string]> = [
+      [[h(), p.tokenId, p.noteId, "bulk", "10 minutes", null, "read", ALL], "transfer_tokens_bulk_note_chk"],
+      [[h(), p.tokenId, null, "download", "10 minutes", null, null, null], "transfer_tokens_bulk_note_chk"],
+      [[h(), p.tokenId, null, "bulk", "10 minutes", null, null, ALL], "transfer_tokens_bulk_access_chk"],
+      [[h(), p.tokenId, p.noteId, "upload", "10 minutes", null, "read", null], "transfer_tokens_bulk_access_chk"],
+      [[h(), p.tokenId, null, "bulk", "10 minutes", null, "read", null], "transfer_tokens_bulk_range_chk"],
+      [[h(), p.tokenId, p.noteId, "download", "10 minutes", null, null, ALL], "transfer_tokens_bulk_range_chk"],
+      [[h(), p.tokenId, null, "bulk", "10 minutes", null, "admin", ALL], "transfer_tokens_access_chk"],
+      [[h(), p.tokenId, p.noteId, "other", "10 minutes", null, null, null], "transfer_tokens_purpose_chk"],
+      [[h(), p.tokenId, null, "bulk", "10 minutes", new Date(), "read", ALL], "transfer_tokens_consumed_chk"],
+    ];
+    for (const [params, constraint] of cases) {
+      await expect(pool.query(insertTok, params), `${String(params[3])}/${String(params[6])} → ${constraint}`).rejects.toMatchObject({ code: "23514", constraint });
+    }
+    await pool.query(insertTok, [h(), p.tokenId, null, "bulk", "10 minutes", null, "write", ALL]);
+    await pool.query(insertTok, [h(), p.tokenId, null, "bulk", "10 minutes", null, "read", '{"kind":"folder","folderId":"0b6f1a52-6a4b-4c1e-9d0e-6f1f2a3b4c5d"}']);
+    // 既有兩種用途照舊合法（note 有、access／range 空）
+    await pool.query(insertTok, [h(), p.tokenId, p.noteId, "download", "10 minutes", null, null, null]);
+    const { rows } = await pool.query(`select purpose, note_id, access, range from transfer_tokens order by purpose, access nulls first`);
+    expect(rows).toEqual([
+      { purpose: "bulk", note_id: null, access: "read", range: { kind: "folder", folderId: "0b6f1a52-6a4b-4c1e-9d0e-6f1f2a3b4c5d" } },
+      { purpose: "bulk", note_id: null, access: "write", range: { kind: "all" } },
+      { purpose: "download", note_id: p.noteId, access: null, range: null },
+    ]);
+  });
+
+  it("M2a 刪母憑證帶走 bulk 列；別的母憑證的 bulk 列（旁觀者）留著", async () => {
+    const { pool } = await freshDb();
+    const a = await seedParent(pool);
+    const b = await seedParent(pool);
+    await pool.query(insertTok, [`ba-${randomUUID()}`, a.tokenId, null, "bulk", "10 minutes", null, "read", ALL]);
+    await pool.query(insertTok, [`bb-${randomUUID()}`, b.tokenId, null, "bulk", "10 minutes", null, "read", ALL]);
+    await pool.query(`delete from api_tokens where id = $1`, [a.tokenId]);
+    const { rows } = await pool.query(`select parent_token_id from transfer_tokens`);
+    expect(rows).toEqual([{ parent_token_id: b.tokenId }]);
+  });
+
+  it("M2b transfer_bases：刪筆記、刪使用者各只帶走自己的列（旁觀者列留著）", async () => {
+    const { pool } = await freshDb();
+    const a = await seedParent(pool);
+    // c 不擁有筆記（notes.owner_id 是 restrict），刪 c 只經 transfer_bases.user_id 的 cascade 帶走它的列
+    const c = (await pool.query(`insert into users (email, display_name) values ($1, 'C') returning id`, [`bt-${randomUUID()}@example.com`])).rows[0].id as string;
+    const n2 = (await pool.query(`insert into notes (owner_id) values ($1) returning id`, [a.userId])).rows[0].id as string;
+    await insertBase(pool, "k-a-n1", a.userId, a.noteId);
+    await insertBase(pool, "k-c-n1", c, a.noteId);
+    await insertBase(pool, "k-a-n2", a.userId, n2);
+    await insertBase(pool, "k-c-n2", c, n2);
+    const keys = async () => (await pool.query(`select key from transfer_bases order by key`)).rows.map((r: { key: string }) => r.key);
+    await pool.query(`delete from notes where id = $1`, [a.noteId]);
+    expect(await keys()).toEqual(["k-a-n2", "k-c-n2"]);
+    await pool.query(`delete from users where id = $1`, [c]);
+    expect(await keys()).toEqual(["k-a-n2"]);
+  });
+
+  it("M2c transfer_creates：刪筆記、刪使用者各只帶走自己的列；同 (user_id, file_sha) 第二列撞 PK", async () => {
+    const { pool } = await freshDb();
+    const a = await seedParent(pool);
+    const c = (await pool.query(`insert into users (email, display_name) values ($1, 'C') returning id`, [`bt-${randomUUID()}@example.com`])).rows[0].id as string;
+    const n2 = (await pool.query(`insert into notes (owner_id) values ($1) returning id`, [a.userId])).rows[0].id as string;
+    const sha = (k: number) => Buffer.alloc(32, k);
+    await insertCreate(pool, a.userId, sha(1), a.noteId);
+    await insertCreate(pool, a.userId, sha(2), n2);
+    await insertCreate(pool, c, sha(1), n2);
+    await expect(insertCreate(pool, a.userId, sha(1), n2)).rejects.toMatchObject({ code: "23505", constraint: "transfer_creates_user_id_file_sha_pk" });
+    const rowsOf = async () =>
+      (await pool.query(`select user_id, file_sha from transfer_creates`)).rows
+        .map((r: { user_id: string; file_sha: Buffer }) => `${r.user_id === a.userId ? "a" : "c"}:${r.file_sha[0]}`)
+        .sort();
+    await pool.query(`delete from notes where id = $1`, [a.noteId]);
+    expect(await rowsOf()).toEqual(["a:2", "c:1"]);
+    await pool.query(`delete from users where id = $1`, [c]);
+    expect(await rowsOf()).toEqual(["a:2"]);
+  });
+
+  it("M3 note_ai_edits：file_sync 的 anchor ⇔ 沒有 after block；既有 op 的 anchor 規則與 op 枚舉照舊", async () => {
+    const { pool } = await freshDb();
+    const p = await seedParent(pool);
+    const ins = (op: string, anchor: string | null, after: string, fp: string | null) =>
+      pool.query(
+        `insert into note_ai_edits (note_id, user_id, op, anchor, after_block_ids, after_fingerprint) values ($1, $2, $3, $4::jsonb, $5::text[], $6)`,
+        [p.noteId, p.userId, op, anchor, after, fp],
+      );
+    const ANCHOR = '{"after":"x"}';
+    await ins("file_sync", ANCHOR, "{}", null); // 刪除區
+    await ins("file_sync", null, "{a}", "0000000000000000"); // 改寫／插入區
+    await expect(ins("file_sync", ANCHOR, "{a}", "0000000000000000"), "file_sync＋anchor＋after").rejects.toMatchObject({ code: "23514", constraint: "note_ai_edits_anchor_chk" });
+    await expect(ins("file_sync", null, "{}", null), "file_sync 無 anchor 無 after").rejects.toMatchObject({ code: "23514", constraint: "note_ai_edits_anchor_chk" });
+    await expect(ins("delete_section", null, "{}", null), "delete_section 無 anchor").rejects.toMatchObject({ code: "23514", constraint: "note_ai_edits_anchor_chk" });
+    await expect(ins("replace_all", ANCHOR, "{a}", "0000000000000000"), "replace_all 帶 anchor").rejects.toMatchObject({ code: "23514", constraint: "note_ai_edits_anchor_chk" });
+    await expect(ins("bogus", null, "{a}", "0000000000000000"), "op bogus").rejects.toMatchObject({ code: "23514", constraint: "note_ai_edits_op_chk" });
+    await ins("delete_section", ANCHOR, "{}", null);
+    await ins("replace_all", null, "{a}", "0000000000000000");
+    const { rows } = await pool.query(`select op, count(*)::int as n from note_ai_edits group by op order by op`);
+    expect(rows).toEqual([
+      { op: "delete_section", n: 1 },
+      { op: "file_sync", n: 2 },
+      { op: "replace_all", n: 1 },
+    ]);
+  });
+
+  it("M4 transfer_bases／transfer_creates 的 note_id 索引存在且以 note_id 開頭（FK cascade 支撐，plan §0.2 S2）", async () => {
+    const { pool } = await freshDb();
+    const { rows } = await pool.query(
+      `select indexname, indexdef from pg_indexes where indexname in ('transfer_bases_note_idx', 'transfer_creates_note_idx') order by indexname`,
+    );
+    expect(rows.map((r: { indexname: string }) => r.indexname)).toEqual(["transfer_bases_note_idx", "transfer_creates_note_idx"]);
+    for (const r of rows as Array<{ indexname: string; indexdef: string }>) expect(r.indexdef, r.indexname).toMatch(/USING btree \(note_id\)$/);
+  });
+
+  it("M5 bulk-transfer 的 SQL 檔無 CONCURRENTLY／行首 COMMIT（單一 tx 前提的輔助 grep）", () => {
+    // 以 tag 後綴找檔：整合分支合流時編號可能重產。
+    const entries = journalEntries().filter(e => e.tag.endsWith("_bulk-transfer"));
+    expect(entries, "journal 裡要恰有一支 *_bulk-transfer").toHaveLength(1);
+    const sqlText = readFileSync(path.join(drizzleDirForTest, `${entries[0]!.tag}.sql`), "utf8");
+    expect(sqlText).not.toMatch(/CONCURRENTLY/i);
+    expect(sqlText).not.toMatch(/^\s*COMMIT/im);
   });
 });

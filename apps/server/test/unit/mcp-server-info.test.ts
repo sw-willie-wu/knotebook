@@ -124,6 +124,17 @@ describe("#181：instructions 的垃圾桶句", () => {
 
 // 資料夾 PR-3d（plan Q2）：資料夾句進兩版共用的 BASE（list_folders 任何憑證都註冊）；換預算刪掉的 outline 上限句一起釘「不在」
 // （上限仍在 read_note_outline 的 description）。資料夾寫入工具可能不存在（唯讀、沒 notes:delete），所以兩版都不得提它們的名字。
+describe("bulk transfer PR-3 T4：instructions 第一句只講工具", () => {
+  it.each([
+    ["讀寫", true],
+    ["唯讀", false],
+  ])("%s版以「Tools read notes in sections: none returns a whole note.」開頭；不含舊句「Reading is always sectioned」", (_label, canWrite) => {
+    const text = mcpInstructions(canWrite as boolean).replace(/\s+/g, " ");
+    expect(text.startsWith("Knotebook notes over MCP. Tools read notes in sections: none returns a whole note. ")).toBe(true);
+    expect(text).not.toContain("Reading is always sectioned");
+  });
+});
+
 describe("資料夾 PR-3d：instructions 的資料夾句", () => {
   it.each([
     ["讀寫", true],

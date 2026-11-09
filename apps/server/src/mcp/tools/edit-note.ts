@@ -31,19 +31,19 @@
 import { z } from "zod";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { eq } from "drizzle-orm";
-import { canonicalNotePath, PALETTE_COLORS, YDOC_FRAGMENT } from "@knotebook/shared";
+import { canonicalNotePath, PALETTE_COLORS } from "@knotebook/shared";
 import { users } from "../../db/schema.js";
-import { fingerprintOf, outlineOf } from "../../notes/editing/fingerprint.js";
-import { loadNoteDoc } from "../../notes/editing/read.js";
+import { fingerprintOf } from "../../notes/editing/fingerprint.js";
+import { noteTooLargeMessage } from "../../notes/note-size.js";
 import { renameNoteTitle } from "../../notes/rename-note.js";
 import { editBodySchema, FP, MD, NOTE_ID, SEC, TITLE } from "../../notes/schemas.js";
 import { resolveNoteAccess, resolveRole } from "../../notes/service.js";
 import { MCP_PAGE_MAX, MCP_TEXT_MAX, truncateText } from "../limits.js";
 import { WRITE_NOTE_LINK_SENTENCE } from "../note-link-strings.js";
-import { NOTE_NOT_FOUND_MESSAGE, SECTION_NOT_FOUND_MESSAGE } from "../note-read.js";
+import { NOTE_NOT_FOUND_MESSAGE, SECTION_NOT_FOUND_MESSAGE, readOutlineForTool } from "../note-read.js";
 import { buildOutlinePage, outlineEntryWithFingerprintSchema } from "../outline-page.js";
 import { toolError, toolResult } from "../tool-result.js";
-import { WRITE_RATE_LIMITED_MESSAGE, writeFailureMessage } from "../write-messages.js";
+import { NOTE_WRITE_TOO_COMPLEX_TOOL_MESSAGE, PARSER_BUSY_TOOL_MESSAGE, WRITE_RATE_LIMITED_MESSAGE, writeFailureMessage } from "../write-messages.js";
 import { requireWriteScope } from "../write-scope.js";
 import type { McpToolCtx } from "../context.js";
 
@@ -138,7 +138,14 @@ export const editNoteOutput = {
         "next to, and stops being undoable once the blocks it removed are back in the note — which is what a person " +
         "pressing undo in the browser does. The exact rule is in docs/ai-editing.md, under Revert."
     ),
-  fingerprint: z.string().optional().describe("The whole note's new fingerprint. Pass it as `if_match` to a following replace_all."),
+  fingerprint: z
+    .string()
+    .optional()
+    .describe(
+      "The whole note's fingerprint as your write left it. It does not include changes other people made to other parts of the note while " +
+        "your write was being applied, so when someone is editing the note, passing it as `if_match` to a following replace_all can answer " +
+        "fingerprint_mismatch: read the note again then."
+    ),
   outline: z
     .object({
       sections: z.array(outlineEntryWithFingerprintSchema).describe("One page of the note's sections, in document order."),
@@ -268,12 +275,16 @@ export async function editNote(args: EditNoteArgs, ctx: McpToolCtx): Promise<Cal
 
   if (!out.ok) {
     if (out.kind === "busy") return toolError("server_busy", "Another write to this note is in progress. Try again in a moment.");
+    if (out.kind === "parser_busy") return toolError("server_busy", PARSER_BUSY_TOOL_MESSAGE);
+    if (out.kind === "too_large") return toolError("note_too_large", noteTooLargeMessage(out.limitBytes), { limitBytes: out.limitBytes });
     // #181：授權之後被移入垃圾桶（或正被移入）——與不存在同一句（AG2）。
     if (out.kind === "gone") return toolError("not_found", NOTE_NOT_FOUND_MESSAGE);
     if (out.code === "fingerprint_mismatch") return mismatchError(ctx, args);
     // `section_not_found` **不帶 outline**——取頁規則對它沒有定義，不發明第二條。
     if (out.code === "section_not_found") return toolError("section_not_found", SECTION_NOT_FOUND_MESSAGE);
-    return toolError(out.code, writeFailureMessage(out.code));
+    // 筆記本身太大或太複雜（不是你寫的內容）：重試沒用（審查 r4 M4）。
+    if (out.code === "too_complex") return toolError("too_complex", NOTE_WRITE_TOO_COMPLEX_TOOL_MESSAGE);
+    return toolError(out.code, writeFailureMessage(out.code, out.detail));
   }
 
   // D-J 的取頁規則：section-scoped 的三個 op 從落點那一段起算，`replace_all`／`append` 從 0。
@@ -294,8 +305,9 @@ export async function editNote(args: EditNoteArgs, ctx: McpToolCtx): Promise<Cal
  * → 第 0 頁（不發明第二條規則）。
  */
 async function mismatchError(ctx: McpToolCtx, args: EditNoteArgs): Promise<CallToolResult> {
-  const { doc } = await loadNoteDoc({ db: ctx.db, collab: ctx.collab }, args.note_id);
-  const { outline } = outlineOf(doc.getXmlFragment(YDOC_FRAGMENT));
+  const read = await readOutlineForTool(ctx, args.note_id);
+  if ("error" in read) return read.error;
+  const { outline } = read;
   const at = args.section_id === undefined ? -1 : outline.findIndex(s => s.sectionId === args.section_id);
   const offset = SECTION_SCOPED.has(args.op) && at !== -1 ? at : 0;
   const page = buildOutlinePage(outline, offset);

@@ -72,6 +72,8 @@ export function authRoutes(deps: AuthRouteDeps) {
         registration: { enabled: registrationEnabled ?? false, providerIds: registrationEnabled === null ? [] : autoCreateProviderIds },
         passwordLogin: { enabled: passwordLoginEnabled },
         autoVersionsEnabled: versionsRow?.v ?? true,
+        // 網頁編輯器的筆記大小上限檢查（貼上、拖放、站內 AI 套用之前；協作更新不在 server 檢查）。
+        noteMaxBytes: deps.config.noteMaxBytes,
       };
     });
 

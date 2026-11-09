@@ -163,6 +163,8 @@
   },
   "note": {
     "titleLabel": "Note title",
+    "sizeLimitBlocked": "Adding this would exceed the note's size limit ({{size}}). The content wasn't added.",
+    "overSizeLimit": "This note is over the size limit; editing may be slow. Delete content to shrink it.",
     "titlePlaceholder": "Untitled",
     "readOnly": "Read-only",
     "menu": {
@@ -907,6 +909,9 @@
     "empty_section": "That section has no content to remove.",
     "too_many_blocks": "That content has too many blocks.",
     "content_too_large": "That content is too large.",
+    "too_many_notes": "Too many notes to download at once.",
+    "not_mergeable": "This note can't be updated from a file.",
+    "base_unavailable": "This copy can no longer be sent back. Download the note again and redo the change.",
     "already_reverted": "That change has already been reverted.",
     "stale": "The note has changed since that edit, so it can no longer be reverted. Reload and try again.",
     "last_admin": "A group needs at least one admin. Make someone else an admin first.",
@@ -960,6 +965,8 @@
     "folder_cross_space": "Folders can't be moved to another space.",
     "folder_delete_blocked": "This folder has notes you can't delete.",
     "folder_not_empty": "The folder still has other items, so it wasn't deleted.",
+    "too_complex": "This note is too large or too complex to read within the server's limits.",
+    "note_too_large": "This change would make the note larger than its size limit, so it wasn't saved.",
     "password_not_set": "This account signs in only through a sign-in service and has no password to reset.",
     "user_disabled": "This account is disabled. Enable it before resetting its password.",
     "empty_result": "The AI returned an empty result.",

@@ -62,6 +62,8 @@ describe("POST /api/notes 帶 content", () => {
       [{ title: "T", content: "   \n" }, "empty_content"],
       [{ title: "T", content: "a".repeat(262_145) }, "invalid_body"],
       [{ title: "T", content: "x" + NUL }, "invalid_body"],
+      // 會被丟掉的元素混在內文裡也整筆拒絕（審查裁示；以前悄悄拿掉、照建）
+      [{ title: "T", content: '內文\n\n<iframe src="https://example.com"></iframe>' }, "unsupported_block"],
       // Minor-1：含 NUL 的 title。少了 schema 那道 `.refine(noNul)`，這一格是 500 不是 400
       // （pg 對 text 欄位的 0x00 直接拒收，錯誤逃到全域 errorHandler）。
       [{ title: "T" + NUL }, "invalid_body"],

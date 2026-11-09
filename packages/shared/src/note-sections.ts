@@ -19,8 +19,8 @@ export function topLevelContainers(fragment: Y.XmlFragment): Y.XmlElement[] {
   const group = fragment.get(0);
   if (!(group instanceof Y.XmlElement) || group.nodeName !== "blockGroup") return [];
   const out: Y.XmlElement[] = [];
-  for (let i = 0; i < group.length; i += 1) {
-    const child = group.get(i);
+  // #398 審查 C1：Y 型別的 `get(i)` 每次從頭走（O(i)），索引迴圈是平方——`x<br>`×4.9 萬的段落有約 10 萬個子節點；一律 `toArray()` 一次走完。
+  for (const child of group.toArray()) {
     if (child instanceof Y.XmlElement && (child.nodeName === "blockContainer" || child.nodeName === "columnList")) out.push(child);
   }
   return out;
@@ -98,8 +98,7 @@ function canonicalizeNode(node: Y.XmlElement | Y.XmlText): string {
   const attrs = node.getAttributes() as Record<string, unknown>;
   const kept = Object.keys(attrs).filter(k => k !== "id").sort().map(k => `${k}=${stable(attrs[k])}`);
   const children: string[] = [];
-  for (let i = 0; i < node.length; i += 1) {
-    const c = node.get(i);
+  for (const c of node.toArray()) {
     if (c instanceof Y.XmlElement || c instanceof Y.XmlText) children.push(canonicalizeNode(c));
   }
   return `E${node.nodeName}(${kept.join(";")})[${children.join("|")}]`;

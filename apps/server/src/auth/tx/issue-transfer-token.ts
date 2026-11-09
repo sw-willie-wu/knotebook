@@ -79,5 +79,6 @@ export async function issueTransferTokenInTx(
       expiresAt: sql`least(now() + interval '10 minutes', coalesce((select ${apiTokens.accessExpiresAt} from ${apiTokens} where ${apiTokens.id} = ${input.parentTokenId}), 'infinity'::timestamptz))`,
     })
     .returning({ id: transferTokens.id, noteId: transferTokens.noteId, expiresAt: transferTokens.expiresAt });
-  return { kind: "issued", id: row!.id, noteId: row!.noteId, expiresAt: row!.expiresAt };
+  // 這支只簽 upload／download（都帶 `note_id`）；`transfer_tokens_bulk_note_chk` 保證非 bulk 列 note_id 非 NULL。
+  return { kind: "issued", id: row!.id, noteId: row!.noteId!, expiresAt: row!.expiresAt };
 }

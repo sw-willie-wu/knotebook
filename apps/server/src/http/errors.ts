@@ -1,5 +1,6 @@
 import type { FastifyReply } from "fastify";
 import type { ErrorCode, StorageQuotaErrorDetail } from "@knotebook/shared";
+import { noteTooLargeMessage } from "../notes/note-size.js";
 import { STORAGE_QUOTA_EXCEEDED_MESSAGE } from "../storage/space.js";
 
 /**
@@ -16,6 +17,13 @@ export const BODY_TOO_LARGE_MESSAGE = "The request body is over this endpoint's 
  */
 export function sendError(reply: FastifyReply, statusCode: number, code: ErrorCode, message: string): FastifyReply {
   return reply.code(statusCode).send({ error: { code, message } });
+}
+
+/**
+ * 筆記大小上限 413（`notes/note-size.ts`）：`{ error: { code: "note_too_large", message, limitBytes } }`——`limitBytes`＝上限（位元組）。
+ */
+export function sendNoteTooLarge(reply: FastifyReply, limitBytes: number): FastifyReply {
+  return reply.code(413).send({ error: { code: "note_too_large", message: noteTooLargeMessage(limitBytes), limitBytes } });
 }
 
 /**
