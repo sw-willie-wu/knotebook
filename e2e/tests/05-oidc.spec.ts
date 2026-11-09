@@ -3,8 +3,8 @@ import { test, expect } from "@playwright/test";
 import { ADMIN, createUserViaInvite, loginAs, randomEmail } from "./helpers.js";
 
 /**
- * §14.5 流程 5（#187 改寫）：SSO 兩情境（fake-idp）。e2e 疊仍設 OIDC_* 三變數——新版第一次啟動把它們匯入成名為「SSO」的
- * legacy provider（舊回呼網址 /api/auth/oidc/callback），所以按鈕是「Sign in with SSO」。這同時是 env 匯入與舊回呼網址的 e2e 面。
+ * §14.5 流程 5（#187 改寫）：SSO 兩情境（fake-idp）。e2e 疊的 `global-setup.ts` 以管理 API 建一個名為「SSO」的登入服務（指向 fake-idp 根 issuer、已啟用、
+ * 開自動建帳），所以按鈕是「Sign in with SSO」。舊回呼網址（legacy_callback）管理 API 建不出來，只由 server 整合測試涵蓋。
  *
  * control endpoint 走 `http://localhost:9400/control/next-login`（`request` fixture 不吃瀏覽器的 host-resolver-rules）。
  * 識別值一律隨機化（sub、email）：腳本失敗時不 down 疊，重跑會吃到髒資料（[[knotebook-local-workflow]]）。

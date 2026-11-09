@@ -20,12 +20,6 @@ const schema = z.object({
   // 空字串會直接留在第一分支變成值為 "" 的已設欄位，不會被當成「未設」處理。
   ADMIN_EMAIL: z.string().min(1).optional().or(z.literal("").transform(() => undefined)),
   ADMIN_PASSWORD: z.string().min(1).optional().or(z.literal("").transform(() => undefined)),
-  // Plan 5 §5：OIDC 三件組（issuer/clientId/clientSecret）比照 ADMIN_EMAIL 的
-  // 「空字串轉 undefined」模式——同樣的理由（環境變數在某些部署方式下會被設成空字串
-  // 而非完全不存在，不能讓空字串被當成「已設」）。
-  OIDC_ISSUER_URL: z.string().min(1).optional().or(z.literal("").transform(() => undefined)),
-  OIDC_CLIENT_ID: z.string().min(1).optional().or(z.literal("").transform(() => undefined)),
-  OIDC_CLIENT_SECRET: z.string().min(1).optional().or(z.literal("").transform(() => undefined)),
   // issue #13：反向代理信任設定。比照上面幾組「空字串視同未設」的模式；值本身的
   // 語法交給 `parseTrustProxy` 手動驗證（錯誤訊息要能指出是哪一段不合法）。
   TRUST_PROXY: z.string().min(1).optional().or(z.literal("").transform(() => undefined)),
@@ -142,12 +136,6 @@ export interface AppConfig {
    * `initializeInstance`（見 `auth/bootstrap.ts`）——loadConfig 本身不碰 DB。 */
   adminEmail?: string;
   adminPassword?: string;
-  /**
-   * #187 §10.2：舊 `OIDC_*` 三變數。只在**新版第一次啟動**時被 `importLegacyOidcEnv` 匯入成一個「自訂 OIDC」provider
-   * （沿用舊回呼網址），之後一律忽略並警告。三件齊全且合法才有值；不齊或不合法改成 `legacyOidcEnvProblem`，**不擋啟動**。
-   */
-  legacyOidcEnv?: { issuerUrl: string; clientId: string; clientSecret: string };
-  legacyOidcEnvProblem?: "partial" | "invalid";
   /** #187 B18：env 強制開啟帳密登入（救援）。有效值＝DB 值 OR 這個（`auth/password-login.ts` 的 `effectivePasswordLogin`）。 */
   passwordLoginForceEnable: boolean;
   /**
@@ -203,35 +191,6 @@ export function loadConfig(env: NodeJS.ProcessEnv, cpuProbe?: CpuProbe): AppConf
     }
   }
 
-  const urlHasCredentials = (raw: string): boolean => {
-    try {
-      const u = new URL(raw);
-      return u.username !== "" || u.password !== "";
-    } catch {
-      return false;
-    }
-  };
-  // #187 §10.2：OIDC_* 不再是設定來源，只在首次啟動被匯入。半套／不合法只警告（index.ts 經 importLegacyOidcEnv 印），不擋啟動。
-  const oidcIssuerUrl = r.data.OIDC_ISSUER_URL;
-  const oidcClientId = r.data.OIDC_CLIENT_ID;
-  const oidcClientSecret = r.data.OIDC_CLIENT_SECRET;
-  const oidcValuesSet = [oidcIssuerUrl, oidcClientId, oidcClientSecret].filter(v => v !== undefined).length;
-  let legacyOidcEnv: AppConfig["legacyOidcEnv"];
-  let legacyOidcEnvProblem: AppConfig["legacyOidcEnvProblem"];
-  if (oidcValuesSet !== 0 && oidcValuesSet !== 3) {
-    legacyOidcEnvProblem = "partial";
-  } else if (oidcIssuerUrl !== undefined && oidcClientId !== undefined && oidcClientSecret !== undefined) {
-    // 合法條件照抄 0014 的 CHECK：`issuer_url ~ '^https?://'`（區分大小寫、不 trim）且 ≤512、client id ≤512——
-    // 不用 `new URL().protocol`：它認得 `HTTPS://x`、`http:x`、`https:/x`、` https://x`，CHECK 卻拒收，INSERT 會讓開機失敗（fix r1 I1）。
-    // 長度用 JS `.length`（UTF-16 code unit），對非 BMP 字元比 pg `char_length` 大，只會更嚴、不會放過 CHECK 拒收的值。
-    // client id 的下限 1 由上面 zod 的 `.min(1)` 保證。不合法 → 不匯入、只警告，不擋啟動（spec §10.2）。
-    // 帶帳密的 issuer（`user:pass@host`）同樣判 invalid：與站台管理的 `issuerUrlSchema` 一致，且匯入後會以明文存進 DB。
-    if (/^https?:\/\//.test(oidcIssuerUrl) && oidcIssuerUrl.length <= 512 && oidcClientId.length <= 512 && !urlHasCredentials(oidcIssuerUrl)) {
-      legacyOidcEnv = { issuerUrl: oidcIssuerUrl, clientId: oidcClientId, clientSecret: oidcClientSecret };
-    } else {
-      legacyOidcEnvProblem = "invalid";
-    }
-  }
   // max：Node 計時器上限 2^31-1 ms，超過會被截成 1 ms（連線啟動即逾時、錯誤訊息不指向此設定），故逾時欄位設上限。
   const positiveInt = (name: string, raw: string | undefined, fallback: number, max = Infinity): number => {
     if (raw === undefined) return fallback;
@@ -256,7 +215,7 @@ export function loadConfig(env: NodeJS.ProcessEnv, cpuProbe?: CpuProbe): AppConf
            trustProxy: parseTrustProxy(r.data.TRUST_PROXY),
            passwordLoginForceEnable: parsePasswordLoginForceEnable(r.data.PASSWORD_LOGIN_FORCE_ENABLE),
            databasePoolMax, databasePoolConnectionTimeoutMs,
-           adminEmail, adminPassword, legacyOidcEnv, legacyOidcEnvProblem, testHooks, testHooksIgnored, parse, noteMaxBytes };
+           adminEmail, adminPassword, testHooks, testHooksIgnored, parse, noteMaxBytes };
 }
 
 /**

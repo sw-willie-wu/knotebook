@@ -2,6 +2,7 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./tests",
+  globalSetup: "./global-setup.ts", // 建名為「SSO」的登入服務（指向 fake-idp）；以前由 OIDC_* env 匯入
   workers: 1, // §14.5：單 worker 序列、共用一座疊
   timeout: 60_000,
   use: {

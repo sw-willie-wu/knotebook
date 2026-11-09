@@ -110,41 +110,14 @@ describe("loadConfig", () => {
     });
   });
 
-  describe("OIDC_*（#187：只剩首次啟動匯入用，§10.2）", () => {
-    const three = { OIDC_ISSUER_URL: "https://idp.example.com", OIDC_CLIENT_ID: "abc", OIDC_CLIENT_SECRET: "s" };
-    it("三件齊 → legacyOidcEnv 填入、沒有 problem", () => {
-      const c = loadConfig({ ...valid, ...three });
-      expect(c.legacyOidcEnv).toEqual({ issuerUrl: "https://idp.example.com", clientId: "abc", clientSecret: "s" });
-      expect(c.legacyOidcEnvProblem).toBeUndefined();
-    });
-    it("只設其中一個 → 不再 throw，legacyOidcEnvProblem='partial'", () => {
-      const c = loadConfig({ ...valid, OIDC_ISSUER_URL: "https://idp.example.com" });
-      expect(c.legacyOidcEnv).toBeUndefined();
-      expect(c.legacyOidcEnvProblem).toBe("partial");
-    });
-    it("issuer 非 http/https、超過 512 字、或 client id 超過 512 字 → 'invalid'（不擋啟動）", () => {
-      for (const over of [
-        { OIDC_ISSUER_URL: "ftp://idp.example.com" },
-        { OIDC_ISSUER_URL: "https://" + "i".repeat(505) },
-        { OIDC_CLIENT_ID: "c".repeat(513) },
-        // fix r1 I1：`new URL()` 認得、但 0014 的 CHECK（區分大小寫的 `^https?://`）拒收的形——必須在 config 就判 invalid。
-        { OIDC_ISSUER_URL: "HTTPS://idp.example" },
-        { OIDC_ISSUER_URL: "http:idp.example" },
-        { OIDC_ISSUER_URL: "https:/idp.example" },
-        { OIDC_ISSUER_URL: " https://idp.example" },
-        // 帶帳密的 issuer 不匯入（明文存 DB），只警告。
-        { OIDC_ISSUER_URL: "https://user:pass@idp.example" },
-        { OIDC_ISSUER_URL: "https://user@idp.example" },
-      ]) {
-        const c = loadConfig({ ...valid, ...three, ...over });
-        expect(c.legacyOidcEnv).toBeUndefined();
-        expect(c.legacyOidcEnvProblem).toBe("invalid");
+  describe("殘留的舊 OIDC_*（匯入機制已移除）", () => {
+    it("三件齊或半套的 OIDC_ISSUER_URL／CLIENT_ID／CLIENT_SECRET 都被忽略：不 throw、config 不帶任何 OIDC 欄位", () => {
+      const three = { OIDC_ISSUER_URL: "https://idp.example.com", OIDC_CLIENT_ID: "abc", OIDC_CLIENT_SECRET: "s" };
+      for (const extra of [three, { OIDC_ISSUER_URL: "ftp://bad" }, {}]) {
+        const c = loadConfig({ ...valid, ...extra });
+        expect(Object.keys(c).filter(k => /oidc/i.test(k))).toEqual([]);
+        expect(c.publicUrl.href).toBe(loadConfig(valid).publicUrl.href);
       }
-    });
-    it("全未設 → 兩欄皆 undefined", () => {
-      const c = loadConfig(valid);
-      expect(c.legacyOidcEnv).toBeUndefined();
-      expect(c.legacyOidcEnvProblem).toBeUndefined();
     });
   });
 });
@@ -312,16 +285,14 @@ describe("D12：OAuth issuer 取 origin、PUBLIC_URL 帶其他成分只警告", 
     expect(callAt, "警告要在 listen 之前印出來").toBeLessThan(listenAt);
   });
 
-  it("結構守衛（#187 §10.2／§10.3）：index.ts 的 env 匯入與補登呼叫在 initializeInstance 之後、listen 之前，且匯入先於補登", () => {
+  it("結構守衛（#187 §10.3）：index.ts 的舊欄補登呼叫在 initializeInstance 之後、listen 之前", () => {
     const src = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../src/index.ts"), "utf8");
     // 錨定呼叫點字面（含引數開頭），不是函式名——只找名字會先命中檔頭 import。
     const initAt = src.indexOf("await initializeInstance(");
-    const importAt = src.indexOf("await importLegacyOidcEnv(db");
     const backfillAt = src.indexOf("await backfillLegacyOidcIdentities(db");
     const listenAt = src.indexOf(".listen(");
     expect(initAt).toBeGreaterThan(-1);
-    expect(importAt, "index.ts 必須呼叫 importLegacyOidcEnv(db…").toBeGreaterThan(initAt);
-    expect(backfillAt, "補登必須在匯入之後").toBeGreaterThan(importAt);
+    expect(backfillAt, "index.ts 必須呼叫 backfillLegacyOidcIdentities(db…").toBeGreaterThan(initAt);
     expect(backfillAt, "補登必須在 listen 之前").toBeLessThan(listenAt);
   });
 });

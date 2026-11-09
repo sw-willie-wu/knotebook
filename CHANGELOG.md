@@ -7,7 +7,13 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
-_Nothing yet._
+### Upgrade notes
+
+- **The `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET` variables are no longer imported.** A site that goes straight from v0.5 or earlier to this version gets no "SSO" sign-in service from them: upgrade to 0.15.x first so they are imported (all three must be set on that first start and valid: an issuer starting with lowercase `http://` or `https://`, without a username or password, and an issuer and client ID of at most 512 characters each, as the 0.15 documentation describes; otherwise nothing is imported and they are never read again), or set the identity provider up in Site admin → Sign-in after upgrading. The three lines in `.env` can be deleted; if they are left there they are ignored and the server starts as usual. Sign-in services that were already imported are not touched, and keep their old callback URL.
+
+### Removed
+
+- The import of `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET` on first start, a stopgap left over from the sign-in providers of v0.6 (#187).
 
 ## [0.15.0] - 2026-11-10
 
