@@ -48,7 +48,12 @@ export function parseColumnFlex(style: string | null): number {
   return m ? clampColumnWidth(Number(m[1])) : COLUMN_WIDTH_DEFAULT;
 }
 
-const countChildren = (el: Element, selector: string) => Array.from(el.children).filter((c) => c.matches(selector)).length;
+// #398 順手：走兄弟（`firstElementChild`／`nextElementSibling`）——server 端 DOM（jsdom）的 `children` 每讀一次是 O(子數)。
+const countChildren = (el: Element, selector: string) => {
+  let n = 0;
+  for (let c = el.firstElementChild; c !== null; c = c.nextElementSibling) if (c.matches(selector)) n++;
+  return n;
+};
 const hasEnoughColumns = (el: HTMLElement) =>
   countChildren(el, "div[data-node-type=column],div[data-kb-column]") >= COLUMNS_MIN ? {} : false;
 const inExternalRow = (el: HTMLElement) => {

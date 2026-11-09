@@ -20,6 +20,7 @@ import type { Db } from "../db/index.js";
 import { transferTokens } from "../db/schema.js";
 import { pgErrorSummary } from "../db/pg-errors.js";
 import { TRANSFER_WRITE_BODY_LIMIT } from "../http/body-limits.js";
+import { ParserBusyError } from "../notes/editing/parse-core.js";
 import { insertBases, pruneBases, type TransferBaseInsert } from "./bases.js";
 import { buildNoteFile, type NoteFile, type NoteFileDeps } from "./note-file.js";
 import type { Layout, LayoutFolder, LayoutGroup } from "./paths.js";
@@ -104,7 +105,7 @@ export async function streamExport(p: StreamExportParams): Promise<void> {
 
   const order = [...p.layout.files.entries()].sort((a, b) => (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0));
   const manifestNotes: Array<{ path: string; id: string; role: string; mergeable?: false; tooLargeToSend?: true }> = [];
-  const skipped: Array<{ id: string; reason: "gone" | "failed" }> = [];
+  const skipped: Array<{ id: string; reason: "gone" | "failed" | "busy" }> = [];
   let notMergeable = 0;
   let written = 0;
   try {
@@ -137,16 +138,17 @@ export async function streamExport(p: StreamExportParams): Promise<void> {
           const failWith = p.hooks?.forceFailNote?.(id);
           if (failWith !== undefined) throw new Error(`${row.title} ${failWith}`);
           nf = await buildNoteFile(p.fileDeps, p.userId, row, { forceUnmergeable: p.hooks?.forceUnmergeable?.(id) === true });
-        } catch {
-          // 只記計數（info 行的 skipped），不記錯誤原文：訊息可能帶標題或內容（plan §1-8）。
-          skipped.push({ id, reason: "failed" });
+        } catch (err) {
+          // 只記計數（info 行的 skipped），不記錯誤原文：訊息可能帶標題或內容（plan §1-8）。worker 全忙（排隊逾時）記成 `busy`
+          // （審查 r4 M4：與真的讀不出來分開，呼叫端知道稍後單篇重抓就好）。
+          skipped.push({ id, reason: err instanceof ParserBusyError ? "busy" : "failed" });
           continue;
         }
         await writer.addFile(path, nf.file);
         written++;
         bases.push(nf.base);
         if (!nf.mergeable) notMergeable++;
-        // 8000 探索測試 H：檔案比寫回上限（`TRANSFER_WRITE_BODY_LIMIT`，1 MiB）還大 → `tooLargeToSend: true`（照 `mergeable: false` 只在例外時帶鍵）。
+        // 8000 探索測試 H：檔案比寫回上限（`TRANSFER_WRITE_BODY_LIMIT`，256 KiB）還大 → `tooLargeToSend: true`（照 `mergeable: false` 只在例外時帶鍵）。
         manifestNotes.push({
           path, id, role: row.role,
           ...(nf.mergeable ? {} : { mergeable: false as const }),

@@ -17,6 +17,7 @@ import { SCAN_STOP_GRACE_MS } from "./collab/versions.js";
 import { buildApp } from "./app.js";
 import { createAiRuntime, selfCheckAiKeys } from "./ai/runtime.js";
 import { backfillSearchIndex } from "./notes/search-index.js";
+import { logNotesOverCap } from "./notes/note-size-startup.js";
 
 // 獨立的 pino instance：`initializeInstance` 與 migration 皆在 `buildApp()` 之前就要跑
 // （見下方 main() 的呼叫順序），此時還沒有 Fastify app、也就還沒有 `app.log` 可用——
@@ -51,6 +52,13 @@ async function main(): Promise<void> {
   // 這道啟動期檢查刻意**不依賴請求裡有沒有轉發 header**：nginx 預設不送
   // `X-Forwarded-For`，只靠請求期那道警告會漏掉最需要被提醒的那群人。
   logger.info({ trustProxy: config.trustProxy }, "trustProxy setting in effect");
+  // #398：markdown 解析 worker 的生效值（各值來自環境變數或預設；worker 數的預設依 CPU 與記憶體推算取小，
+  // `workersSource` 說是哪一個：env／cpu／memory），連同偵測到的 CPU 數、記憶體（MiB）與各自的來源（cgroup-v2／cgroup-v1／os）。
+  {
+    const { workers, workersSource, workerMemoryMb, timeoutMs, queueWaitMs, from, cpus, cpuSource, memoryBytes, memorySource } = config.parse;
+    const memoryMb = Math.round(memoryBytes / 2 ** 20);
+    logger.info({ workers, workersSource, workerMemoryMb, timeoutMs, queueWaitMs, from, cpus, cpuSource, memoryMb, memorySource }, "parse worker settings in effect");
+  }
 
   if (!config.trustProxy && config.publicUrl.protocol === "https:") {
     logger.warn(
@@ -139,6 +147,8 @@ async function main(): Promise<void> {
   // **必須在 `app.listen` 之前**——否則補登與首個改名請求可交錯（spec §2a；
   // handle.test.ts 的結構守衛釘住這個順序）。
   await backfillHandleRegistry(db, logger);
+  // 筆記大小上限（`NOTE_MAX_BYTES`）：記下已經超過的筆記（篇數與 id，不記標題）。
+  await logNotesOverCap(db, config.noteMaxBytes, logger);
 
   const gate = new UserGate(db);
   const throttle = new LoginThrottle();

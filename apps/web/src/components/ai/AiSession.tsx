@@ -20,6 +20,7 @@ import { useNotes } from "@/api/notes";
 import { sameNoteId } from "@/lib/note-id";
 import { anchorPlacement, applyAiResult, expandAnchorForColumns, hasNonTextBlock, prepareAiResult, revertAiResult, type PreparedResult } from "@/ai/apply";
 import { captureAnchor, verifyAnchor, type AiAnchor } from "@/ai/anchor";
+import { estimateBlocksBytes } from "@/lib/note-size-guard";
 import { aiMarkdownOf } from "@/ai/note-markdown";
 import { buildPreview, isNoChange, stripTextWrapper, type AiPreview } from "@/ai/preview";
 import { selectionFocus, selectionInsideAnchor, toolbarWouldShow } from "@/ai/selection";
@@ -106,6 +107,15 @@ type GuardedApply =
   | { ok: true; insertedAnchor: AiAnchor; replacedSnapshot: AnyBlock[] }
   | { ok: false; reason: "missing" | "changed" | "noteMismatch" };
 
+/**
+ * 套用這份結果大約讓筆記長多少（筆記大小上限的前端檢查用，`lib/note-size-guard.ts`）：新內容（`prepared.blocks`）的估計減去被取代的
+ * 原文（錨點區塊，同樣估法）。錨點區塊找不到的略過（守門會擋）。
+ */
+function aiGrowthBytes(editor: AnyEditor, anchor: AiAnchor, prepared: PreparedResult): number {
+  const replaced = anchor.blockIds.map(id => editor.getBlock(id)).filter((b): b is NonNullable<typeof b> => b !== undefined);
+  return estimateBlocksBytes(prepared.blocks) - estimateBlocksBytes(replaced);
+}
+
 /** 守門 1 的「同一筆記」半條＋`applyAiResult`＋成功後立刻以 insertedIds 重新 `captureAnchor`——自動套用與手動 `apply()` 共用。 */
 function runGuardedApply(editor: AnyEditor, noteId: string, anchor: AiAnchor, prepared: PreparedResult): GuardedApply {
   if (anchor.noteId !== noteId) return { ok: false, reason: "noteMismatch" };
@@ -134,8 +144,12 @@ export function AiSessionProvider(props: {
   children: ReactNode;
   /** **測試專用**（生產不傳）：D12 自動關閉時呼叫（§7：手動套用那一半以白箱斷言，`close` 本身不能當掛點）。 */
   onAutoClose?: () => void;
+  /** 筆記大小上限的前端檢查（`NoteEditor` 給）：套用前問一次，回傳 true＝放進來會超過上限（已提示），這次不套用。省略＝不檢查。 */
+  sizeGuard?: (incomingBytes: number) => boolean;
 }): JSX.Element {
-  const { editor, noteId, editable, children, onAutoClose } = props;
+  const { editor, noteId, editable, children, onAutoClose, sizeGuard } = props;
+  const sizeGuardRef = useRef(sizeGuard);
+  sizeGuardRef.current = sizeGuard;
   const { t } = useTranslation();
 
   const actionsQuery = useQuery({ queryKey: ["ai-actions"], queryFn: fetchAiActions });
@@ -200,7 +214,9 @@ export function AiSessionProvider(props: {
       request.applyMode === "direct" &&
       !hasNonTextBlock(ed, target.anchor.blockIds) &&
       !preview.noChange;
-    if (autoApply) {
+    // 筆記大小上限（前端檢查）：放進來會超過上限 → 不自動套用（guard 已提示；框照樣進 done，預覽與手動套用還在，手動套用會再擋一次）。
+    const sizeBlocked = autoApply && sizeGuardRef.current?.(aiGrowthBytes(ed, target.anchor, prepared)) === true;
+    if (autoApply && !sizeBlocked) {
       // 讀 noteIdRef（不是 target.anchor.noteId）：串流期間筆記若換手，守門 1 的 noteMismatch 才是活的判斷。
       const outcome = withSelfWrite(selfWriteRef, () => runGuardedApply(ed, noteIdRef.current, target.anchor, prepared));
       if (outcome.ok) {
@@ -314,6 +330,7 @@ export function AiSessionProvider(props: {
     // previewReady 由框推導（`readyFor === state.preview`，§5.4），狀態機不持有預覽子元件的生命週期，所以以參數傳入。
     if (!previewReady || current.phase !== "done" || current.applied !== null || current.preview.noChange) return false;
     const ed = editorRef.current;
+    if (sizeGuardRef.current?.(aiGrowthBytes(ed, current.target.anchor, current.prepared)) === true) return false; // 會超過筆記大小上限（guard 已提示）
     const outcome = withSelfWrite(selfWriteRef, () => runGuardedApply(ed, noteIdRef.current, current.target.anchor, current.prepared));
     if (!outcome.ok) {
       toast({ title: tRef.current("ai.box.applyGuardFailed") });

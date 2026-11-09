@@ -37,8 +37,8 @@ function canon(node: Y.XmlElement | Y.XmlText): string {
     .sort()
     .map(k => `${k}=${stable(attrs[k])}`);
   const children: string[] = [];
-  for (let i = 0; i < node.length; i += 1) {
-    const c = node.get(i);
+  // #398 審查 C1：Y 型別的 `get(i)` 每次從頭走（O(i)），索引迴圈是平方——`x<br>`×4.9 萬的段落有約 10 萬個子節點；一律 `toArray()` 一次走完。
+  for (const c of node.toArray()) {
     if (c instanceof Y.XmlElement || c instanceof Y.XmlText) children.push(canon(c));
   }
   return `E${node.nodeName}(${kept.join(";")})[${children.join("|")}]`;

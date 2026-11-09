@@ -266,16 +266,28 @@ function hoistEmphasisWhitespace(root: ParentNode): boolean {
   for (const el of Array.from(root.querySelectorAll("strong,b,em,i,s,del"))) {
     for (const first of [true, false]) {
       const t = edgeText(el, first);
-      const m = t === null ? null : (first ? /^[ \t]+/ : /[ \t]+$/).exec(t.data);
-      if (t === null || m === null) continue;
-      t.data = first ? t.data.slice(m[0].length) : t.data.slice(0, t.data.length - m[0].length);
-      const ws = document.createTextNode(m[0]);
+      // #398 審查 I1：尾端用 `/[ \t]+$/` 是平方（每個空白位置都往後掃完整段空白再失敗；10 萬個空白接一個字 2.7 秒，讀出在主執行緒）——
+      // 兩端都改成數字元（線性）。
+      const ws0 = t === null ? 0 : edgeBlankLength(t.data, first);
+      if (t === null || ws0 === 0) continue;
+      const wsText = first ? t.data.slice(0, ws0) : t.data.slice(t.data.length - ws0);
+      t.data = first ? t.data.slice(ws0) : t.data.slice(0, t.data.length - ws0);
+      const ws = document.createTextNode(wsText);
       if (first) el.before(ws);
       else el.after(ws);
       changed = true;
     }
   }
   return changed;
+}
+
+/** `s` 開頭（`first`）或結尾連續的空格與 tab 有幾個（線性）。 */
+function edgeBlankLength(s: string, first: boolean): number {
+  const blank = (c: number) => c === 32 || c === 9;
+  let n = 0;
+  if (first) while (n < s.length && blank(s.charCodeAt(n))) n++;
+  else while (n < s.length && blank(s.charCodeAt(s.length - 1 - n))) n++;
+  return n;
 }
 
 /**
@@ -486,7 +498,15 @@ function serializeNodes(nodes: Node[], ctx: Ctx): string {
     run.push(n);
   });
   flush();
-  return parts.map(p => p.replace(/\n+$/, "")).filter(p => p !== "").join("\n\n");
+  // #398 審查 I1：不用 `/\n+$/`（沒錨定開頭，code block 裡 10 萬個換行接一個字就 2.9 秒）——從尾端數。
+  return parts
+    .map(p => {
+      let end = p.length;
+      while (end > 0 && p.charCodeAt(end - 1) === 10) end--;
+      return p.slice(0, end);
+    })
+    .filter(p => p !== "")
+    .join("\n\n");
 }
 
 /** spec §11.1 規則 1–7：外層行、每欄「開標籤、空行、欄內容、空行、`</div>`」（空欄沒有內容那兩行）、`</div>`。 */

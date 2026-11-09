@@ -12,6 +12,7 @@ import { UPLOAD_LIMIT } from "../../http/rate-limit.js";
 import { resolveFolderAccess } from "../../folders/queries.js";
 import { newNoteFolderConsistent } from "../../folders/space.js";
 import { copyNote } from "../../notes/copy-note.js";
+import { noteTooLargeMessage } from "../../notes/note-size.js";
 import { GROUP_ID, NOTE_ID } from "../../notes/schemas.js";
 import { roleFromGroupFlags } from "../../notes/service.js";
 import type { StorageSpace } from "../../storage/space.js";
@@ -138,7 +139,7 @@ export async function copyNoteTool(args: CopyNoteArgs, ctx: McpToolCtx): Promise
   const out = await copyNote(
     {
       db: ctx.db, collab: ctx.collab, log: ctx.log, uploadsDir: ctx.uploadsDir, storageLockTimeoutMs: ctx.storageLockTimeoutMs,
-      limiters: { edit: ctx.limiters.edit, upload: ctx.limiters.upload },
+      limiters: { edit: ctx.limiters.edit, upload: ctx.limiters.upload }, noteMaxBytes: ctx.writes.noteMaxBytes,
       groupTestHook: ctx.groupTestHook, noteCreateHooks: ctx.noteCreateHooks, searchIndexHooks: ctx.searchIndexHooks,
     },
     {
@@ -173,6 +174,8 @@ export async function copyNoteTool(args: CopyNoteArgs, ctx: McpToolCtx): Promise
     }
     case "busy":
       return toolError("server_busy", COPY_BUSY_MESSAGE);
+    case "too_large":
+      return toolError("note_too_large", noteTooLargeMessage(out.limitBytes), { limitBytes: out.limitBytes });
     case "copied": {
       const personal = out.target === null;
       const row = insertedRow(out.note, { ownerHandle: personal ? ctx.userHandle : null, groupName: out.target?.name ?? null });

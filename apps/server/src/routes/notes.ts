@@ -20,7 +20,9 @@ import {
   type ShareDto,
 } from "@knotebook/shared";
 import { WRITE_BODY_LIMIT } from "../http/body-limits.js";
-import { sendError, sendInTrash, sendStorageQuotaExceeded } from "../http/errors.js";
+import { sendError, sendInTrash, sendNoteTooLarge, sendStorageQuotaExceeded } from "../http/errors.js";
+import { NOTE_WRITE_TOO_COMPLEX_MESSAGE, sendDocReadError, sendParserBusy, TOO_COMPLEX_MESSAGE } from "../http/parse-errors.js";
+import type { ParseDetail } from "../notes/editing/markdown.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
 import { groups, notePlacements, noteShares, notes, users } from "../db/schema.js";
@@ -128,8 +130,9 @@ const UNSUPPORTED_COLUMNS_MESSAGE =
   "That markdown has layout or editor-internal HTML this editor cannot store, so nothing was written. Write side-by-side columns exactly as GET /api/notes/:id/content returns them: <div data-kb-columns style=\"display:flex;gap:16px\"> holding 2 to 4 <div data-kb-column style=\"flex:N\"> columns, N from 0.1 to 10 with at most two decimal places, with a blank line after each column's opening tag and another before its </div>, at the top level of the markdown, not nested inside a list, a quote or anything else. Other <div> elements cannot use display:flex or display:grid, and no element can carry data-node-type.";
 const UNSUPPORTED_SIZE_MESSAGE =
   "An image width or table column width in that markdown is not in a form this editor can store, so nothing was written. Write sizes exactly as GET /api/notes/:id/content returns them, as whole numbers of pixels from 32 to 4000: an image's width on the <img> inside a <figure> that is outside any table, the <img> carrying only alt (optional), src and width, in that order, and a table's column widths as colwidth on its first row's cells, one comma-separated value for each column a cell spans, left empty for a column with no width.";
-/** 解析／套用失敗的 400 訊息：有專屬說明的碼回專屬句，其餘回呼叫端的 `fallback`。 */
-export function parseErrorMessage(code: ErrorCode, fallback: string): string {
+/** 解析／套用失敗的 400 訊息：有專屬說明的碼（與 #398 的成因 `too_complex`）回專屬句，其餘回呼叫端的 `fallback`。 */
+export function parseErrorMessage(code: ErrorCode, fallback: string, detail?: ParseDetail): string {
+  if (code === "unsupported_block" && detail === "too_complex") return TOO_COMPLEX_MESSAGE;
   if (code === "unsupported_color") return UNSUPPORTED_COLOR_MESSAGE;
   if (code === "unsupported_columns") return UNSUPPORTED_COLUMNS_MESSAGE;
   if (code === "unsupported_size") return UNSUPPORTED_SIZE_MESSAGE;
@@ -299,7 +302,10 @@ export function notesRoutes(deps: NotesRouteDeps) {
           throw err;
         }
         if (!out.ok) {
-          if (out.kind === "parse") return sendError(reply, 400, out.code, parseErrorMessage(out.code, "Couldn't parse the content."));
+          if (out.kind === "parse") return sendError(reply, 400, out.code, parseErrorMessage(out.code, "Couldn't parse the content.", out.detail));
+          // #398：解析的 worker 全忙（建列之前，一列都沒建）。
+          if (out.kind === "parser_busy") return sendParserBusy(reply);
+          if (out.kind === "too_large") return sendNoteTooLarge(reply, out.limitBytes); // service 已刪掉剛建的列
           // 套用失敗（**含佇列逾時**）：service 已經 best-effort 刪掉剛建的列。這條路徑的
           // 逾時答案刻意是 500 而不是 503（`docs/ai-editing.md` 逐字）。
           return sendError(reply, 500, "internal", "Couldn't create the note.");
@@ -556,7 +562,14 @@ export function notesRoutes(deps: NotesRouteDeps) {
             deps.presence?.touch(id, request.tokenId, presenceIdentity(request.user!.handle, label), presenceTargetForRead(q.data.section));
           }
         }
-        const result = await readNoteContent({ db: deps.db, collab, shownLinks: deps.writes.shownLinks }, editing, id, request.user!.id, q.data.section);
+        let result: Awaited<ReturnType<typeof readNoteContent>>;
+        try {
+          result = await readNoteContent({ db: deps.db, collab, shownLinks: deps.writes.shownLinks }, editing, id, request.user!.id, q.data.section);
+        } catch (err) {
+          const sent = sendDocReadError(reply, err); // 轉換在 parse worker 裡：全忙 503、太大 500 `too_complex`
+          if (sent) return sent;
+          throw err;
+        }
         if (result === "section_not_found") return sendError(reply, 404, "section_not_found", "No section with that id.");
         // #137 起 `lastEdited` 是真值（整篇形與段落形都回，`note-content.test.ts` 兩行釘住）。
         // `loadLastEdited` 是純 SELECT，不開直連——讀路徑零副作用的不變量照舊成立（#387 的行程內記憶體記錄除外：讀到的連結文字記在 `NoteWriteService.shownLinks`，不落 DB、不動文件）。
@@ -603,18 +616,28 @@ export function notesRoutes(deps: NotesRouteDeps) {
         });
         if (!out.ok) {
           if (out.kind === "busy") return sendError(reply, 503, "server_busy", "The note is being written right now. Try again in a moment.");
+          if (out.kind === "parser_busy") return sendParserBusy(reply);
+          if (out.kind === "too_large") return sendNoteTooLarge(reply, out.limitBytes);
           // #181 §6.2-11：授權之後被移入垃圾桶（或正被移入）→ 同授權 none 的 404。
           if (out.kind === "gone") return sendError(reply, 404, "not_found", "No note with that id.");
           if (out.code === "fingerprint_mismatch") {
             // 不在 transact 內、直連已 disconnect 之後（spec §5）。不帶 section → 不可能是
             // "section_not_found"，但那個哨兵在回傳型別的 union 裡，不收窄的話 spread 一個字串
             // 會靜默送出 {0:"s",1:"e",…}。
-            const current = await readNoteContent({ db: deps.db, collab, shownLinks: deps.writes.shownLinks }, editing, id, request.user!.id);
+            let current: Awaited<ReturnType<typeof readNoteContent>>;
+            try {
+              current = await readNoteContent({ db: deps.db, collab, shownLinks: deps.writes.shownLinks }, editing, id, request.user!.id);
+            } catch (err) {
+              const sent = sendDocReadError(reply, err); // 讀不出 `current`：回讀出的錯誤（什麼都沒寫）
+              if (sent) return sent;
+              throw err;
+            }
             if (current === "section_not_found") throw new Error("readNoteContent 未帶 section 卻回哨兵值");
             const body = { ...current, lastEdited: await loadLastEdited(deps.db, id) } satisfies NoteContentDto | NoteSectionDto;
             return reply.code(409).send({ error: { code: "fingerprint_mismatch", message: "The content changed since you read it, so nothing was written. The response's current field has the content as it is now." }, current: body });
           }
-          return sendError(reply, out.code === "section_not_found" ? 404 : 400, out.code, parseErrorMessage(out.code, "Couldn't apply the edit."));
+          if (out.code === "too_complex") return sendError(reply, 500, "too_complex", NOTE_WRITE_TOO_COMPLEX_MESSAGE);
+          return sendError(reply, out.code === "section_not_found" ? 404 : 400, out.code, parseErrorMessage(out.code, "Couldn't apply the edit.", out.detail));
         }
         const result = out.result;
         return reply.code(201).send({ editId: result.editId, fingerprint: result.fingerprint, outline: result.outline, unboundWikilinks: result.unboundWikilinks } satisfies NoteEditResultDto);
@@ -668,18 +691,28 @@ export function notesRoutes(deps: NotesRouteDeps) {
         const out = await deps.writes.revert(request.log, { noteId: id, editId, userId, userHandle: request.user!.handle, tokenId: request.tokenId ?? null });
         if (!out.ok) {
           if (out.kind === "busy") return sendError(reply, 503, "server_busy", "The note is being written right now. Try again in a moment.");
+          if (out.kind === "parser_busy") return sendParserBusy(reply);
+          if (out.kind === "too_large") return sendNoteTooLarge(reply, out.limitBytes);
           // #181 §6.2-11：授權之後被移入垃圾桶（或正被移入）→ 同授權 none 的 404。
           if (out.kind === "gone") return sendError(reply, 404, "not_found", "No note with that id.");
           if (out.code === "stale") {
             // 不在 transact 內、直連已 disconnect 之後（同 `/edits` 的 409 形）。不帶 section →
             // 不可能是 "section_not_found"，但那個哨兵在回傳型別的 union 裡，不收窄的話 spread
             // 一個字串會靜默送出 {0:"s",1:"e",…}。
-            const current = await readNoteContent({ db: deps.db, collab, shownLinks: deps.writes.shownLinks }, editing, id, request.user!.id);
+            let current: Awaited<ReturnType<typeof readNoteContent>>;
+            try {
+              current = await readNoteContent({ db: deps.db, collab, shownLinks: deps.writes.shownLinks }, editing, id, request.user!.id);
+            } catch (err) {
+              const sent = sendDocReadError(reply, err); // 讀不出 `current`：回讀出的錯誤（什麼都沒寫）
+              if (sent) return sent;
+              throw err;
+            }
             if (current === "section_not_found") throw new Error("readNoteContent 未帶 section 卻回哨兵值");
             const body = { ...current, lastEdited: await loadLastEdited(deps.db, id) } satisfies NoteContentDto | NoteSectionDto;
             return reply.code(409).send({ error: { code: "stale", message: "The note changed after this edit, so it can't be reverted. The response's current field has the content as it is now." }, current: body });
           }
           if (out.code === "already_reverted") return sendError(reply, 409, "already_reverted", "This edit has already been reverted.");
+          if (out.code === "too_complex") return sendError(reply, 500, "too_complex", NOTE_WRITE_TOO_COMPLEX_MESSAGE);
           return sendError(reply, 404, "not_found", "No edit with that id.");
         }
         const result = out.result;
@@ -1032,7 +1065,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
       const out = await copyNote(
         {
           db: deps.db, collab: deps.collab, log: request.log, uploadsDir: deps.uploadsDir, storageLockTimeoutMs: deps.storageLockTimeoutMs,
-          limiters: { edit: deps.limiters.edit, upload: deps.limiters.upload },
+          limiters: { edit: deps.limiters.edit, upload: deps.limiters.upload }, noteMaxBytes: deps.config.noteMaxBytes,
           groupTestHook: deps.groupTestHook, noteCreateHooks: deps.noteCreateHooks, searchIndexHooks: deps.searchIndexHooks,
         },
         {
@@ -1058,6 +1091,8 @@ export function notesRoutes(deps: NotesRouteDeps) {
           return sendError(reply, out.err.status, out.err.errCode, out.err.message);
         case "busy":
           return sendError(reply, 409, "server_busy", "The server is busy. Try again in a moment.");
+        case "too_large":
+          return sendNoteTooLarge(reply, out.limitBytes);
         case "copied": {
           // role／permissions 取 (g) 交易內、持 groups KEY SHARE 時讀到的值（與 `lockGroup` 互斥，讀到即 commit 時的值）；
           // 群組名不受此保證：改名走單句 UPDATE、不與 KEY SHARE 衝突，回應可能是舊名。

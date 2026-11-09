@@ -266,6 +266,38 @@ describe("W9–W12 權限、範圍、額度、佇列", () => {
     expect((await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, b => b.replace("Para 2", "y")))).statusCode).toBe(409);
   });
 
+  it("W10c（全分支審查 I2）寫回額度在解析之前扣：解析失敗的寫回 400 也算一次 → 另一篇的真寫入 429、筆記未變", async () => {
+    const transferWrite = new FixedWindowLimiter({ limit: 1, windowMs: 60_000 });
+    const s = await scene({ limiters: { transferWrite } });
+    const n2 = await seedNote(s.ctx.db, { ownerId: s.u.id }, { title: "N2" });
+    await seedMd(s.ctx.db, n2.id, "Second note para");
+    const d1 = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
+    const d2 = await downloadNote(s.ctx.app, s.bulk.token, n2.id);
+    const bad = await bulkPut(s.ctx.app, s.bulk.token, editBody(d1.text, b => b.replace("Para 1", 'x <span style="color:#ff6600">orange-ish</span>')));
+    expect(bad.statusCode).toBe(400);
+    expect(errOf(bad).code).toBe("unsupported_color");
+    expect(transferWrite.isBlocked(s.u.id)).toBe(true);
+    const before = await liveMarkdown(s.ctx, n2.id);
+    const r = await bulkPut(s.ctx.app, s.bulk.token, editBody(d2.text, () => "changed"));
+    expect(r.statusCode).toBe(429);
+    expect(await liveMarkdown(s.ctx, n2.id)).toBe(before);
+  });
+
+  it("W10d（全分支審查 I2）額度用完時，本文位元組有改的檔一律 429——連只插空行（零區）的也是（判零區要先解析）；位元組相同的重送仍 200 unchanged", async () => {
+    const transferWrite = new FixedWindowLimiter({ limit: 1, windowMs: 60_000 });
+    const s = await scene({ limiters: { transferWrite } });
+    const n2 = await seedNote(s.ctx.db, { ownerId: s.u.id }, { title: "N2" });
+    await seedMd(s.ctx.db, n2.id, "Second note para");
+    const d1 = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
+    const d2 = await downloadNote(s.ctx.app, s.bulk.token, n2.id);
+    expect((await bulkPut(s.ctx.app, s.bulk.token, editBody(d2.text, () => "changed"))).statusCode).toBe(200);
+    const zero = await bulkPut(s.ctx.app, s.bulk.token, editBody(d1.text, b => b.replace("Para 1\n", "Para 1\n\n\n")));
+    expect(zero.statusCode).toBe(429);
+    const same = await bulkPut(s.ctx.app, s.bulk.token, d1.text);
+    expect(same.statusCode).toBe(200);
+    expect(same.json()).toMatchObject({ result: "unchanged" });
+  });
+
   it("W11 佇列被占（queueWaitMs 50）→ 503 server_busy、筆記未變", async () => {
     let release!: () => void;
     let entered!: () => void;

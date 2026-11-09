@@ -455,17 +455,21 @@ describe("NC11 寫回額度只看有改的檔（8000 探索測試 N5）", () => 
 });
 
 describe("NC20 零區（位元組有變、決策全是 same）＝unchanged（審查 M1）", () => {
-  it("寫回額度用完時只加空行 → 200 unchanged（不是 429）、applied_body_sha 不寫", async () => {
+  it("（全分支審查 I2 起）只加空行 → 200 unchanged、applied_body_sha 不寫、寫回額度退回；額度用完時同一個檔 → 429（判零區要先解析，解析前就扣）", async () => {
     const transferWrite = new FixedWindowLimiter({ limit: 1, windowMs: 60_000 });
     const s = await scene({ limiters: { transferWrite } }, "Para 0\n\nPara 1");
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
-    expect((await bulkPut(s.ctx.app, s.bulk.token, "---\nknotebook: 1\ntitle: \"Fresh\"\n---\nFresh body")).statusCode).toBe(201);
-    expect(transferWrite.isBlocked(s.u.id)).toBe(true);
-    const r = await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, b => b.replace("Para 0\n", "Para 0\n\n\n")));
+    const blank = editBody(d.text, b => b.replace("Para 0\n", "Para 0\n\n\n"));
+    const r = await bulkPut(s.ctx.app, s.bulk.token, blank);
     expect(r.statusCode).toBe(200);
     expect(r.json()).toMatchObject({ result: "unchanged", applied: 0 });
     const [row] = await s.ctx.db.select().from(transferBases).where(eq(transferBases.key, d.fm.base!));
     expect(row!.appliedBodySha).toBeNull();
+    expect(transferWrite.isBlocked(s.u.id)).toBe(false);
+    expect((await bulkPut(s.ctx.app, s.bulk.token, "---\nknotebook: 1\ntitle: \"Fresh\"\n---\nFresh body")).statusCode).toBe(201);
+    expect(transferWrite.isBlocked(s.u.id)).toBe(true);
+    const again = await bulkPut(s.ctx.app, s.bulk.token, blank);
+    expect(again.statusCode).toBe(429);
   });
   it("零區之後同一份副本只改標題 → renamed（不是 already_sent）", async () => {
     const s = await scene({}, "Para 0\n\nPara 1");

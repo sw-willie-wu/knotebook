@@ -21,9 +21,12 @@
  *   `${byHandle} (${agentLabel})`——那兩處是**修改紀錄的顯示**，不是 presence，故意不共用這支。
  *   「它組得對不對」的唯一守衛仍是 `mcp-content.test.ts` 的 presence 那一案。
  */
-import type { Role } from "@knotebook/shared";
+import { YDOC_FRAGMENT, type Role } from "@knotebook/shared";
 import { currentAgentLabel } from "../auth/agent-label.js";
+import { outlineOf, type OutlineEntry } from "../notes/editing/fingerprint.js";
+import { ParserBusyError } from "../notes/editing/parse-core.js";
 import { presenceIdentity, presenceTargetForRead } from "../notes/editing/presence.js";
+import { NoteReadTooComplexError, loadNoteDoc, readNoteOutline } from "../notes/editing/read.js";
 import { resolveRole } from "../notes/service.js";
 import { toolError, type ToolErrorResult } from "./tool-result.js";
 import type { McpToolCtx } from "./context.js";
@@ -52,6 +55,35 @@ export const SECTION_NOT_FOUND_MESSAGE =
 
 /** 讀取桶（contentRead）的 429 訊息——`create_transfer_token`（download）也扣這顆桶，共用同一句。 */
 export const READ_RATE_LIMITED_MESSAGE = "Too many note reads right now. Wait a moment before reading more.";
+/** 讀出的轉換排不進 parse worker（全忙、排太久）時模型看到的字（`server_busy`）。 */
+export const READ_BUSY_MESSAGE = "The server is busy processing other requests. Try reading again in a moment.";
+/** 讀出的轉換逾時或用完 worker 的記憶體（`too_complex`）時模型看到的字。 */
+export const READ_TOO_COMPLEX_MESSAGE = "This note is too large or too complex to read within the server's time and memory limits.";
+
+/** 讀出轉換的兩種失敗 → 工具錯誤；其他例外回 null（呼叫端照舊丟出）。 */
+export function docReadToolError(err: unknown): ToolErrorResult | null {
+  if (err instanceof ParserBusyError) return toolError("server_busy", READ_BUSY_MESSAGE);
+  if (err instanceof NoteReadTooComplexError) return toolError("too_complex", READ_TOO_COMPLEX_MESSAGE);
+  return null;
+}
+
+/**
+ * 整篇大綱（`read_note_outline`、`edit_note` 指紋不符時）：在 parse worker 裡算（`readNoteOutline`）。沒有 editing runtime 的 app
+ * （測試用的無協作 app）退回主執行緒走結構。
+ */
+export async function readOutlineForTool(ctx: McpToolCtx, noteId: string): Promise<{ outline: OutlineEntry[] } | { error: ToolErrorResult }> {
+  if (ctx.editing === undefined) {
+    const { doc } = await loadNoteDoc({ db: ctx.db, collab: ctx.collab }, noteId);
+    return { outline: outlineOf(doc.getXmlFragment(YDOC_FRAGMENT)).outline };
+  }
+  try {
+    return { outline: (await readNoteOutline({ db: ctx.db, collab: ctx.collab }, ctx.editing, noteId, ctx.userId)).outline };
+  } catch (err) {
+    const error = docReadToolError(err);
+    if (error) return { error };
+    throw err;
+  }
+}
 
 export type NoteReadAccess = { ok: true; role: Role } | { ok: false; error: ToolErrorResult };
 

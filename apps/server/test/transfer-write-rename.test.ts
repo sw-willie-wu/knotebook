@@ -5,10 +5,12 @@ import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { notes, transferBases } from "../src/db/schema.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
-import { buildCollabTestApp, testEditingRuntime, type CollabTestCtx } from "./helpers.js";
+import { deriveTransferKey, hmacOf } from "../src/transfer/base-hash.js";
+import { normalizeBody } from "../src/transfer/normalize.js";
+import { buildCollabTestApp, testConfig, testEditingRuntime, type CollabTestCtx } from "./helpers.js";
 import { seedTokenForUser } from "./editing-helpers.js";
 import { seedGroup, seedNote, seedUser } from "./group-helpers.js";
-import { bulkPut, downloadNote, editBody, issueBulkDirect, renameIn, seedMd } from "./bulk-transfer-helpers.js";
+import { bulkPut, downloadNote, editBody, issueBulkDirect, renameIn, seedBlocks, seedMd } from "./bulk-transfer-helpers.js";
 
 type Opts = Parameters<typeof buildCollabTestApp>[0];
 async function scene(opts: Opts = {}, title = "Title") {
@@ -108,6 +110,25 @@ describe("改名（§9.7）", () => {
     const s = await scene({ transferTestHooks: { forceUnmergeable: () => true } });
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
     expect((await bulkPut(s.ctx.app, s.bulk.token, renameIn(d.text, "Renamed unmergeable"))).json()).toMatchObject({ result: "renamed" });
+  });
+
+  it("RN8b（全分支審查 M5）#393 之前下載、mergeable:false 的筆記只改標題 → 409 note_changed、沒改名（讀出格式變了，整篇匯出比對不再相等）", async () => {
+    const s = await scene({ transferTestHooks: { forceUnmergeable: () => true } });
+    const note = await seedNote(s.ctx.db, { ownerId: s.u.id }, { title: "Title" });
+    await seedBlocks(s.ctx.db, note.id, [{ type: "paragraph", content: "2*3*4 and 5*6" }]);
+    const d = await downloadNote(s.ctx.app, s.bulk.token, note.id);
+    // 造「舊格式匯出」的副本：#393 起讀出會跳脫 `*`；舊版匯出不跳脫。基底的 body_sha 換成舊版本文的雜湊（＝那時下載留下的基底），
+    // 檔案本文也是舊版本文（使用者手上的檔）。
+    const oldBody = d.body.split("\\*").join("*");
+    expect(oldBody, "前提：現行匯出有跳脫").not.toBe(d.body);
+    const row = await baseOf(s.ctx, d.fm.base!);
+    expect(row.segments, "前提：mergeable:false").toBeNull();
+    const key = deriveTransferKey(testConfig.appSecret);
+    await s.ctx.db.update(transferBases).set({ bodySha: hmacOf(key, Buffer.from(row.salt), normalizeBody(oldBody)) }).where(eq(transferBases.key, row.key));
+    const r = await bulkPut(s.ctx.app, s.bulk.token, renameIn(editBody(d.text, () => oldBody), "Renamed old copy"));
+    expect(r.statusCode).toBe(409);
+    expect((r.json() as { error: { reason: string } }).error.reason).toBe("note_changed");
+    expect(await titleOf(s.ctx, note.id)).toBe("Title");
   });
 
   it("RN9 transferWrite 滿時只改名 → 429、標題未變", async () => {

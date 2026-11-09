@@ -45,6 +45,7 @@ import { safeMediaUrl } from "@/lib/media-url";
 import { createUploadFile, type Translate } from "@/uploads/upload-file";
 import { createFilePanel } from "@/components/FilePanel";
 import { AiSessionProvider } from "@/components/ai/AiSession";
+import { createNoteSizeGuard, createNoteSizePasteHandlers, formatNoteLimit } from "@/lib/note-size-guard";
 import { CornerStack } from "@/components/CornerStack";
 import { useVersions } from "@/lib/versions-context";
 import { VERSIONS_ERROR_FRAME, VersionsLazyBoundary } from "@/components/versions/VersionsLazyBoundary";
@@ -125,6 +126,11 @@ export interface NoteEditorOptionsInput {
   siteLinks: SiteLinkEnvRef;
   /** #293 T6b：本分頁此刻可否送游標（late-bound：editor 不隨 editable 重建）。省略＝一律可送。 */
   canSendCursor?: () => boolean;
+  /**
+   * 筆記大小上限的前端檢查（`lib/note-size-guard.ts`）：貼上、拖放在解析好、插入之前，帶著估計的成長（位元組）問一次，回傳 true＝會超過
+   * 上限（已提示），這次不放。late-bound（上限設定在編輯器建立之後才載入）。省略＝不檢查。
+   */
+  sizeGuard?: (incomingBytes: number) => boolean;
 }
 
 /**
@@ -144,6 +150,7 @@ export function buildNoteEditorOptions({
   noteId,
   siteLinks,
   canSendCursor,
+  sizeGuard,
 }: NoteEditorOptionsInput) {
   return withCollaboration({
     // schema／字典／collaboration（fragment 名、provider 形狀）抽在共用底層——公開
@@ -189,6 +196,9 @@ export function buildNoteEditorOptions({
       editorProps: {
         // drop：最外層先由 `withSiteLinkDrop` 判斷要不要轉站內連結（#352），再記落點（給上面那條貼上規則判斷位置），再走媒體阻擋。
         handleDOMEvents: withSiteLinkDrop(siteLinks, editorRef, withColumnsDropPoint(createMediaBlockingDOMEvents(translate))),
+        // 筆記大小上限的前端檢查：貼上、拖放在解析好（slice）、插入之前估成長，超過上限就不放（`lib/note-size-guard.ts`）。直接傳入的
+        // editorProps 比外掛先被問到；回傳 false 照常往下（BlockNote、並排的貼上規則）。
+        ...createNoteSizePasteHandlers(sizeGuard ?? (() => false)),
         // `[[` 觸發偵測（Task 3 §12.2 recipe）。這裡刻意**不**倚賴 `SuggestionMenu`
         // extension 自己對多字元 trigger 的內建偵測：它算的是
         // `textBetween(from - trigger.length, from) + text` 再與 trigger 嚴格相等，
@@ -356,6 +366,8 @@ export interface NoteEditorProps {
   onCursorScroller?: (scroller: CursorScroller | null) => void;
   /** #269 §10.3(a)：canonical 路徑（`canonicalNotePath(note)`），複製段落連結用。 */
   notePath?: string;
+  /** 筆記大小上限（server `NOTE_MAX_BYTES`，`GET /api/auth/config`）：貼上、拖放、站內 AI 套用之前的檢查。還沒載入＝不檢查。 */
+  noteMaxBytes?: number;
 }
 
 /**
@@ -388,6 +400,7 @@ export function NoteEditor({
   onScrollRoot,
   onCursorScroller,
   notePath,
+  noteMaxBytes,
 }: NoteEditorProps) {
   const { t, i18n } = useTranslation();
   const [columnEl, setColumnEl] = useState<HTMLElement | null>(null);
@@ -421,6 +434,20 @@ export function NoteEditor({
   const translateRef = useRef<Translate>(t);
   translateRef.current = t;
 
+  // 筆記大小上限的前端檢查（軟性，`lib/note-size-guard.ts`）：貼上、拖放、站內 AI 套用之前，現在的大小＋估計的成長超過上限 → 不放、提示。
+  // 上限與文件都經 ref 讀當下的值（編輯器建立時就固定的閉包）。
+  const noteMaxBytesRef = useRef(noteMaxBytes);
+  noteMaxBytesRef.current = noteMaxBytes;
+  const docRef = useRef(doc);
+  docRef.current = doc;
+  const [sizeGuard] = useState(() =>
+    createNoteSizeGuard(
+      () => docRef.current,
+      () => noteMaxBytesRef.current,
+      limit => toast({ title: translateRef.current("note.sizeLimitBlocked", { size: formatNoteLimit(limit) }) }),
+    ),
+  );
+
   // Task 3：`[[` 觸發（`handleTextInput`）與「建立並連結」的 item handler 都要在
   // 使用者真的互動的當下讀取 editor，而 `buildNoteEditorOptions` 在 editor 存在之前
   // 就會被呼叫——用這個 late-bound ref 打通（見 `buildNoteEditorOptions` 內註解、
@@ -447,6 +474,7 @@ export function NoteEditor({
       noteId,
       siteLinks: siteLinksRef,
       canSendCursor: () => editableRef.current,
+      sizeGuard,
     }),
     // 語言不進 deps：字典只在建立時讀一次，換語言要重開頁面才生效（換成
     // 「重建 editor」的代價是共編綁定重掛，不值得）。noteId 同理不進 deps——`useCollab`
@@ -522,7 +550,7 @@ export function NoteEditor({
   // 改版搬家——e2e 的 `[data-testid="note-editor"] [contenteditable]` 與
   // `NoteEditor.layout.test.tsx` 的節點鏈都吊在這裡。
   return (
-    <AiSessionProvider editor={editor} noteId={noteId} editable={editable}>
+    <AiSessionProvider editor={editor} noteId={noteId} editable={editable} sizeGuard={sizeGuard}>
       <div className="flex h-full min-h-0 min-w-0 flex-1 gap-3" style={panelWidth.style}>
         <div className={cn(cardSurface, "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden")}>
           {headerSlot}

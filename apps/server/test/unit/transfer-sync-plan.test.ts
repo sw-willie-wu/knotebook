@@ -23,7 +23,8 @@ const ok = <T extends { ok: boolean }>(r: T): Extract<T, { ok: true }> => {
 const marks = (r: { plan: { decisions: Array<{ kind: string; mark: string }> } }) => r.plan.decisions.map(d => `${d.kind}:${d.mark}`);
 
 describe("P1 一次 scratch session、持 lease 期間零 DB", () => {
-  it("mounts 差 1（含邊界 parse）、結束後 inFlight 0、讓出時 inFlight 1", async () => {
+  // #398：解析（含邊界 parse）在 lease 之外做（生產上在 parse worker 裡），scratch session 只在寫進預解析 block 時開——讓出時 inFlight 0（解析中）或 1（寫進 scratch 時）。
+  it("mounts 差 1（含邊界 parse）、結束後 inFlight 0、解析時不持 lease", async () => {
     const doc = await docWith(rt, [P("A"), P("B"), P("C")]);
     const b = await makeBaseInMemory(rt, doc);
     const live = forkOf(doc);
@@ -41,7 +42,8 @@ describe("P1 一次 scratch session、持 lease 期間零 DB", () => {
     expect(rt.mounts - m0).toBe(1);
     expect(rt.inFlight).toBe(0);
     expect(inFlightAtYield.length).toBeGreaterThan(0);
-    expect(inFlightAtYield.every(n => n === 1)).toBe(true);
+    expect(inFlightAtYield.some(n => n === 0)).toBe(true);
+    expect(inFlightAtYield.every(n => n <= 1)).toBe(true);
     expect(r.plan.boundaryChecks).toBe(1);
     expect(marks(r)).toEqual(["rewrite:applied"]);
   });
@@ -150,5 +152,54 @@ describe("P6／P7 讓出", () => {
     ok(await planInMemory(rt, b, "A\n\nB2", forkOf(doc), { candidates }));
     expect(firedAtFirstRead).toBe(true);
     void yieldToLoop;
+  });
+});
+
+describe("#398：未閉合 fence 的判斷也經 runtime.parser（生產＝parse worker），不在主執行緒自己剖析", () => {
+  it("改過的行像 fence → 呼叫 parser.openFenceLine 一次（帶寫入者）；它說太複雜 → 整篇 unsupported_block／too_complex", async () => {
+    const calls: Array<[string, number]> = [];
+    const inline = new EditingRuntime({ baseUrl: "http://localhost/" });
+    const spyRt = new EditingRuntime({
+      baseUrl: "http://localhost/",
+      parser: {
+        parse: req => inline.parser.parse(req),
+        openFenceLine: async (owner, lines) => {
+          calls.push([owner, lines.length]);
+          return "too_complex";
+        },
+        fileBudget: () => inline.parser.fileBudget(),
+        timeoutMs: () => inline.parser.timeoutMs(),
+        close: async () => {},
+      },
+    });
+    const doc = await docWith(rt, [P("A"), P("B")]);
+    const b = await makeBaseInMemory(rt, doc);
+    expect(await planInMemory(spyRt, b, "A\n\n```\n\nB", forkOf(doc))).toMatchObject({ ok: false, code: "unsupported_block", detail: "too_complex" });
+    expect(calls).toEqual([["test-user", 5]]);
+  });
+});
+
+describe("#398 審查 C2：邊界檢查的解析回太複雜 → 整檔太複雜（不把它當「邊界不成立」繼續解析下一段）", () => {
+  it("10 段黏在一行下面、每次解析都回 too_complex → planSync 回 unsupported_block／too_complex，解析只做了 1 次", async () => {
+    let calls = 0;
+    const inline = new EditingRuntime({ baseUrl: "http://localhost/" });
+    const spyRt = new EditingRuntime({
+      baseUrl: "http://localhost/",
+      parser: {
+        parse: async () => {
+          calls++;
+          return { error: "unsupported_block", detail: "too_complex" };
+        },
+        openFenceLine: async () => null,
+        fileBudget: () => inline.parser.fileBudget(),
+        timeoutMs: () => inline.parser.timeoutMs(),
+        close: async () => {},
+      },
+    });
+    const paras = Array.from({ length: 10 }, (_, k) => `Para ${k}`);
+    const doc = await docWith(rt, paras.map(P));
+    const b = await makeBaseInMemory(rt, doc);
+    expect(await planInMemory(spyRt, b, "X\n" + paras.join("\n"), forkOf(doc))).toMatchObject({ ok: false, code: "unsupported_block", detail: "too_complex" });
+    expect(calls).toBe(1);
   });
 });

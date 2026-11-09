@@ -241,6 +241,30 @@ describe("AI 套用鏈（spec §13.3）", () => {
     expect(JSON.stringify(editor.document)).toBe(before);
   });
 
+  // #398：解析前的保護與 server 同一套（shared 的 `findParseGuardFailure`／`premergedHtml`）。
+  it("GP1：段落裡又有段落（<p> 裡的 <button> 裡的 <p>）→ { invalid: unsupported_block }，core parse 沒被呼叫", () => {
+    const editor = mountedEditor([{ type: "paragraph", content: "別動我" }]);
+    const parse = vi.spyOn(editor, "tryParseHTMLToBlocks");
+    expect(prepareAiResult(editor, "<p>a<button><p>b</p><p>c</p></button></p>", { notes: [], placement: "top" })).toEqual({ invalid: "unsupported_block" });
+    expect(parse).not.toHaveBeenCalled();
+  });
+  it("GP2：巢狀深度超過 MAX_HTML_DEPTH（129 層）→ { invalid: unsupported_block }；128 層照收", () => {
+    const editor = mountedEditor([{ type: "paragraph", content: "x" }]);
+    const bq = (d: number) => "<blockquote><p>a</p>".repeat(d) + "</blockquote>".repeat(d);
+    expect(prepareAiResult(editor, bq(128), { notes: [], placement: "top" })).toEqual({ invalid: "unsupported_block" });
+    expect(prepareAiResult(editor, bq(127), { notes: [], placement: "top" })).not.toHaveProperty("invalid");
+  });
+  it("GP3：引言裡的多段落先併好再交給 core（core 只看到一個 <p>），結果與不併相同", () => {
+    const editor = mountedEditor([{ type: "paragraph", content: "x" }]);
+    const md = "> a\n>\n> **b**\n>\n> c";
+    const expected = editor.tryParseHTMLToBlocks(markdownToHTML(md));
+    const parse = vi.spyOn(editor, "tryParseHTMLToBlocks");
+    const out = prep(editor, md);
+    expect((parse.mock.calls[0]![0] as string).match(/<p>/g)).toHaveLength(1);
+    const strip = (x: unknown) => JSON.stringify(x, (k, v) => (k === "id" ? undefined : v));
+    expect(strip(out.blocks)).toBe(strip(expected));
+  });
+
   // final review Nit 1：core 剖析 <details> 時把子節點 clone 進活文件，瀏覽器裡 <img onerror> 會觸發——語法檢查先擋，不進 core parse
   it("GA10：<details> 內、figure 內的 <img onerror> → { invalid: unsupported_block }，core parse 沒被呼叫；top 與 nested 同", () => {
     const editor = mountedEditor([{ type: "paragraph", content: "別動我" }]);

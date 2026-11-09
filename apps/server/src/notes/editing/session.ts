@@ -21,6 +21,23 @@ import type { DbOrTx } from "../../db/tx.js";
 import { noteIsLive } from "../service.js";
 import type { EditingRuntime, SessionLease } from "./runtime.js";
 
+/**
+ * #398 審查 C1：`replaceBlocks(ids, blocks)` 的等價寫法——新 block 先插在舊的**最後一顆**後面、再刪掉舊的。結果的文件與插入的 block 相同。
+ * 為什麼不直接 `replaceBlocks`：同一個交易裡換掉舊內容時，y-prosemirror 把新的段落「對上」舊的同型段落、在舊的 Y 文字上逐段套格式，
+ * Yjs 每切一段都 `splice` 整個結構陣列——`x<br>`×4.9 萬的段落換成 `**b** _i_`×2.45 萬，主執行緒 12 秒；分兩步（先插、後刪）
+ * y-prosemirror 兩次都只在兩端比對得上，0.85 秒。`blocks` 空＝只刪。
+ * 為什麼插在最後一顆後面、不是第一顆前面（審查 r5 I3）：新內容的 Yjs 插入點（origin）落在舊段**裡面**。插在第一顆前面時，左鄰是上一段的
+ * 最後一顆——瀏覽器同時在上一段末尾（目標段標題正前方）打的段落與它同一個插入點，合併後由 client id 決定先後，可能被排到新內容後面、
+ * 悄悄搬進目標段。插在最後一顆後面，兩者插入點不同，使用者那段留在上一段；而有人在目標段最後一顆後面插東西，合併守衛
+ * （`live-watch.ts` 的 insertedAfter）本來就算衝突。
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 編輯器泛型三元組（同下）
+export function replaceBlocksFresh(editor: BlockNoteEditor<any, any, any>, ids: string[], blocks: Parameters<BlockNoteEditor<any, any, any>["insertBlocks"]>[0]): { id: string }[] {
+  const inserted = blocks.length === 0 ? [] : editor.insertBlocks(blocks, ids[ids.length - 1]!, "after");
+  editor.removeBlocks(ids);
+  return inserted;
+}
+
 export function forkFrom(source: Y.Doc | Uint8Array): { fork: Y.Doc; sv: Uint8Array } {
   const fork = new Y.Doc();
   Y.applyUpdate(fork, source instanceof Y.Doc ? Y.encodeStateAsUpdate(source) : source);
@@ -136,7 +153,7 @@ export async function withDirectConnection<T>(
   noteId: string,
   ctx: DirectConnectionCtx,
   fn: (doc: Document) => T,
-  opts?: { beforeDisconnect?: (result: T) => Promise<void> }
+  opts?: { beforeDisconnect?: (result: T) => Promise<void>; afterOpen?: () => Promise<void> }
 ): Promise<T> {
   if (await goneNow(target, noteId)) throw new NoteGoneError();
   // Hocuspocus 的 context 型別是 CollabContext（`{ userId }`）；`LinkConvertCtx` 刻意沒有 userId（見上）。context 對 Hocuspocus 是不透明的。
@@ -152,6 +169,15 @@ export async function withDirectConnection<T>(
     // Hocuspocus 4.5 的 `disconnect()` 沒有不落盤的選項：這裡會把未改的文件存一次（無害，同 `fn` 拒絕路徑）。
     await disconnectQuietly(direct);
     throw new NoteGoneError();
+  }
+  // 測試縫（`EditingTestHooks.afterOpenDirect`）：開了直連、重確認過、transact 之前——在這裡改文件的測試守 transact 內的那道比對。
+  if (opts?.afterOpen) {
+    try {
+      await opts.afterOpen();
+    } catch (err) {
+      await disconnectQuietly(direct);
+      throw err;
+    }
   }
   let result!: T;
   let fnFailed = false;

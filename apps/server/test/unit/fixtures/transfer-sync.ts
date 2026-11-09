@@ -113,6 +113,7 @@ export async function planInMemory(
   const cur = topLevelSnapshot(curFragment);
   const exported = exportedLinkTextOf(b.base.segments!, TEST_KEY, b.base.salt);
   const r = await planSync(rt, {
+    owner: "test-user",
     segments: b.base.segments!,
     baseLineCount: b.lines.length,
     agentLines,
@@ -181,6 +182,6 @@ export async function withEditor<T>(rt: EditingRuntime, doc: Y.Doc, f: (ed: Edit
 
 export async function regionsOf(rt: EditingRuntime, b: InMemoryBase, agentBody: string, opts: { maxD?: number; check?: CheckBoundary } = {}): Promise<RegionsResult & { diff: LineDiff }> {
   const { agentLines, diff } = await diffAgainst(b, agentBody, opts);
-  const r = await findRegions(b.base.segments!, b.lines.length, agentLines, diff, opts.check ?? realBoundaryCheck(rt));
+  const r = await findRegions(b.base.segments!, b.lines.length, agentLines, diff, opts.check ?? realBoundaryCheck(rt), lines => rt.parser.openFenceLine("test-user", lines));
   return { ...r, diff };
 }

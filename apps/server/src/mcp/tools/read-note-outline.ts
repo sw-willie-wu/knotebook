@@ -31,18 +31,17 @@
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { YDOC_FRAGMENT } from "@knotebook/shared";
 import type { Db } from "../../db/index.js";
 import { groups, notes, users } from "../../db/schema.js";
-import { fingerprintOf, outlineOf } from "../../notes/editing/fingerprint.js";
-import { loadLastEdited, loadNoteDoc } from "../../notes/editing/read.js";
+import { fingerprintOf } from "../../notes/editing/fingerprint.js";
+import { loadLastEdited } from "../../notes/editing/read.js";
 import { viewerFolderIdFor } from "../../notes/note-dto.js";
 import { NOTE_ID } from "../../notes/schemas.js";
 import type { DbOrTx } from "../../db/tx.js";
 import { noteSummarySchema, ownerForModel } from "../dto.js";
 import { loadFolderPath, truncateFolderPath } from "../folder-fields.js";
 import { MCP_FOLDER_NAME_MAX, MCP_PAGE_MAX, truncateText } from "../limits.js";
-import { NOTE_NOT_FOUND_MESSAGE, authorizeNoteRead } from "../note-read.js";
+import { NOTE_NOT_FOUND_MESSAGE, authorizeNoteRead, readOutlineForTool } from "../note-read.js";
 import { buildOutlinePage, outlineEntrySchema } from "../outline-page.js";
 import { toolError, toolResult } from "../tool-result.js";
 import type { McpToolCtx } from "../context.js";
@@ -160,10 +159,12 @@ export async function readNoteOutline(args: ReadNoteOutlineArgs, ctx: McpToolCtx
   // wire 上必須無法區分（案 17）。
   if (header === undefined) return toolError("not_found", NOTE_NOT_FOUND_MESSAGE);
 
-  const { doc } = await loadNoteDoc({ db: ctx.db, collab: ctx.collab }, args.note_id);
+  // 大綱在 parse worker 裡算（很小的筆記在主執行緒；`readNoteOutline`）。worker 全忙 → server_busy；太大 → too_complex。
   // ⚠ 只取 `outline`：`whole`（整篇指紋）在這裡就被丟掉，逐段的 `fingerprint`／`blockIds`
   //   由 `buildOutlinePage` 丟掉（M12(1)）。
-  const { outline } = outlineOf(doc.getXmlFragment(YDOC_FRAGMENT));
+  const read = await readOutlineForTool(ctx, args.note_id);
+  if ("error" in read) return read.error;
+  const { outline } = read;
   const title = truncateText(header.title);
   const page = buildOutlinePage(outline, args.section_offset ?? 0);
   return toolResult({
