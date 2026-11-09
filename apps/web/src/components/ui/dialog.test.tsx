@@ -119,3 +119,17 @@ describe("DialogContent size（#247 §4.1）", () => {
     expect(dialog).not.toHaveClass("w-full");
   });
 });
+
+describe("DialogContent 容器不畫焦點環", () => {
+  // Radix 把焦點放在 Content 本身（程式聚焦或沒有可 tab 元素的後備）時，Chrome 預設 :focus-visible outline 會圈住整個面板；
+  // 統一在共用基底擋掉，各 size 都要有。
+  it.each(["default", "panel"] as const)("size=%s：Content 有 outline-none", (size) => {
+    render(<Harness size={size} />);
+    expect(screen.getByRole("dialog")).toHaveClass("outline-none");
+  });
+
+  it("未傳 size（預設）：Content 有 outline-none", () => {
+    render(<Harness />);
+    expect(screen.getByRole("dialog")).toHaveClass("outline-none");
+  });
+});

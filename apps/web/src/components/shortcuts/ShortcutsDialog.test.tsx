@@ -123,4 +123,11 @@ describe("ShortcutsDialog", () => {
     fireEvent.keyDown(close, { key: "Tab", shiftKey: true });
     expect(region).toHaveFocus();
   });
+
+  it("D8 對話框本身 outline-none：首開時焦點先落在 Content（chunk 未到），不能畫出瀏覽器預設的 focus-visible 外框（白框閃爍）", async () => {
+    render(ui(true, () => {}));
+    const dialog = await screen.findByRole("dialog", { name: "Keyboard shortcuts" });
+    expect(dialog).toHaveAttribute("data-shortcuts-dialog");
+    expect(dialog).toHaveClass("outline-none");
+  });
 });
