@@ -201,6 +201,59 @@ export async function waitForEditorSelection(page: Page, timeout = 2_000): Promi
 }
 
 /**
+ * 點 `target`（編輯器內某個單行段落）再按 End，並確認游標真的停在**那一段**的尾端（PM state 與 DOM 都是）；沒有就整組重來。
+ * 只用在單行、純文字的段落（End 是「視覺行尾」；比對用 textContent，段內有 wikilink 等 inline atom 時兩邊的字可能不同）。
+ *
+ * 為什麼 `click → End → waitForEditorSelection` 不夠：編輯器**原本沒焦點**時（例如對話框 Escape 後焦點回到觸發鈕），點擊觸發
+ * prosemirror-view 的 `handlers.focus`，它排一個 20 ms 的 `setTimeout`：若當下 DOM selection 跟 PM 上次讀到的
+ * （`domObserver.currentSelection`）不同，就 `selectionToDOM`——把 PM state 的選取寫回 DOM。End 若在計時器觸發前按下、PM 還沒讀到
+ * End 的 selectionchange，DOM 游標就被拉回 PM 手上的舊位置（點擊處；點擊的 selectionchange 也還沒讀到時，是失焦前的位置）；之後
+ * PM 與 DOM 都停在那裡，`waitForEditorSelection` 的「對齊」照樣成立，打字就插錯地方。所以這裡同時斷「在段尾」與「是這一段」。
+ * CI run 42676630643 的 22 E3 兩次都是這樣（"one updated text"）；本機以 CDP 降速 4× 的探針，main（21b32e5）20 次錯 4 次，
+ * 錯的都是這個計時器把 DOM 游標從段尾拉回點擊處（DOM offset 8 → 4）。
+ * 計時器每次「失焦 → 得焦」只排一次；斷言成立時 PM 已讀到段尾（currentSelection＝DOM），之後它就算才觸發也是 no-op。
+ */
+export async function clickEndOfParagraph(page: Page, target: Locator, timeout = 10_000): Promise<void> {
+  const expected = (await target.textContent()) ?? "";
+  await expect(async () => {
+    await target.click();
+    await page.keyboard.press("End");
+    await expect
+      .poll(
+        () =>
+          editorLocator(page).evaluate((el, expected) => {
+            type View = {
+              state: {
+                selection: {
+                  empty: boolean;
+                  head: number;
+                  $head: { parentOffset: number; parent: { textContent: string; content: { size: number } } };
+                };
+              };
+              posAtDOM(node: Node, offset: number): number;
+            };
+            const view = (el as Element & { editor?: { view?: View } }).editor?.view;
+            if (!view) return "no-editor";
+            const sel = window.getSelection();
+            if (!sel?.focusNode || !el.contains(sel.focusNode) || !el.contains(document.activeElement)) return "focus-outside";
+            const { empty, head, $head } = view.state.selection;
+            let dom: number | string;
+            try {
+              dom = view.posAtDOM(sel.focusNode, sel.focusOffset);
+            } catch (err) {
+              dom = `posAtDOM threw: ${String(err)}`;
+            }
+            const parentText = $head.parent.textContent;
+            if (empty && dom === head && $head.parentOffset === $head.parent.content.size && parentText === expected) return "at-end";
+            return { pm: head, dom, parentOffset: $head.parentOffset, parentSize: $head.parent.content.size, parentText: parentText.slice(0, 40) };
+          }, expected),
+        { timeout: 1_000, message: "游標要停在目標段尾端且 PM 與 DOM 對齊（值：no-editor／focus-outside／{pm, dom, parentOffset, parentSize, parentText}）" },
+      )
+      .toBe("at-end");
+  }).toPass({ timeout });
+}
+
+/**
  * #247：站台管理是 modal。UserMenu（觸發鈕名＝displayName「admin」）→「Site admin」→ `/admin/users`，回傳該 dialog。
  * 關閉用 Esc（或 dialog 的 ✕），回到開啟前的頁面；站台管理已沒有「回筆記」連結。
  */
