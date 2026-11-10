@@ -79,6 +79,7 @@ import type { NoteCreateHooks } from "./notes/create.js";
 import type { GroupTestHook } from "./groups/test-hook.js";
 import type { SearchIndexHooks } from "./notes/tx/search-index.js";
 import { DEFAULT_STORAGE_LOCK_TIMEOUT_MS } from "./storage/tx/quota.js";
+import type { SiteLimits } from "./site-limits/store.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -122,6 +123,12 @@ declare module "fastify" {
 export interface AppDeps {
   config: AppConfig;
   db: Db;
+  /**
+   * #397 §6.1：站台限制的生效值（env＞`site_limits` 的列＞預設／自動）。**必填**，讓編譯器列出所有組 `AppDeps` 的地方。
+   * `index.ts` 在 migration 之後用 `SiteLimits.load(db, { limitEnv: config.limitEnv, … })` 建；必須綁同一個 `db`、同一份
+   * `config.limitEnv`（鎖定狀態唯一來源）。直接呼叫 `buildApp` 的測試用 `SiteLimits.defaults(…)`。
+   */
+  siteLimits: SiteLimits;
   gate: UserGate;
   throttle: LoginThrottle;
   collabHooks: CollabHooks;

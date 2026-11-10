@@ -18,6 +18,8 @@ import { buildApp } from "./app.js";
 import { createAiRuntime, selfCheckAiKeys } from "./ai/runtime.js";
 import { backfillSearchIndex } from "./notes/search-index.js";
 import { logNotesOverCap } from "./notes/note-size-startup.js";
+import { SiteLimits } from "./site-limits/store.js";
+import { parseSettingsLogFields } from "./site-limits/boot-log.js";
 
 // 獨立的 pino instance：`initializeInstance` 與 migration 皆在 `buildApp()` 之前就要跑
 // （見下方 main() 的呼叫順序），此時還沒有 Fastify app、也就還沒有 `app.log` 可用——
@@ -52,13 +54,6 @@ async function main(): Promise<void> {
   // 這道啟動期檢查刻意**不依賴請求裡有沒有轉發 header**：nginx 預設不送
   // `X-Forwarded-For`，只靠請求期那道警告會漏掉最需要被提醒的那群人。
   logger.info({ trustProxy: config.trustProxy }, "trustProxy setting in effect");
-  // #398：markdown 解析 worker 的生效值（各值來自環境變數或預設；worker 數的預設依 CPU 與記憶體推算取小，
-  // `workersSource` 說是哪一個：env／cpu／memory），連同偵測到的 CPU 數、記憶體（MiB）與各自的來源（cgroup-v2／cgroup-v1／os）。
-  {
-    const { workers, workersSource, workerMemoryMb, timeoutMs, queueWaitMs, from, cpus, cpuSource, memoryBytes, memorySource } = config.parse;
-    const memoryMb = Math.round(memoryBytes / 2 ** 20);
-    logger.info({ workers, workersSource, workerMemoryMb, timeoutMs, queueWaitMs, from, cpus, cpuSource, memoryMb, memorySource }, "parse worker settings in effect");
-  }
 
   if (!config.trustProxy && config.publicUrl.protocol === "https:") {
     logger.warn(
@@ -113,6 +108,20 @@ async function main(): Promise<void> {
     );
     process.exit(1);
   }
+
+  // #397 §6.1：站台限制（env＞管理頁存的值＞預設／自動）。migration 之後、`buildApp` 之前載入，經 `AppDeps.siteLimits` 傳入；
+  // 讀不到 DB → 開機失敗（同 migration）。`limitEnv` 必須就是 `config.limitEnv`（鎖定狀態唯一來源）。
+  let siteLimits: SiteLimits;
+  try {
+    siteLimits = await SiteLimits.load(db, { limitEnv: config.limitEnv, machine: config.machine, log: logger });
+  } catch (err) {
+    logger.error({ err }, "site limits load failed — check DATABASE_URL and that migration 0039 (site_limits) ran");
+    process.exit(1);
+  }
+  // #398／#397 §6.3：markdown 解析 worker 的生效值（各值的 `from`：env／admin（管理頁）／default／auto；worker 數自動時依 CPU 與記憶體
+  // 推算取小，`workersSource` 說是哪一個：env／admin／cpu／memory），連同偵測到的 CPU 數、記憶體（MiB）與各自的來源（cgroup-v2／cgroup-v1／os）。
+  // 欄位的組法在 `site-limits/boot-log.ts`（單元測試：test/unit/site-limits-boot-log.test.ts）。
+  logger.info(parseSettingsLogFields(siteLimits), "parse worker settings in effect");
 
   // spec §14.2：setup token 流程已退役，實例初始化唯一路徑是 `initializeInstance`
   // （env-only）。`config.ts` 的 loadConfig 已保證 ADMIN_EMAIL/ADMIN_PASSWORD 兩者
@@ -182,6 +191,7 @@ async function main(): Promise<void> {
     {
       config,
       db,
+      siteLimits,
       gate,
       throttle,
       collabHooks: createCollabHooks(collab, logger),

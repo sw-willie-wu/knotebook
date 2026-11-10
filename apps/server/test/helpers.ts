@@ -24,6 +24,7 @@ import { COLLAB_PATH, createCollabServer, type CollabDeps, type CollabServer } f
 import { notes, noteShares, users } from "../src/db/schema.js";
 import { createAiRuntime } from "../src/ai/runtime.js";
 import { createEditingRuntime, type EditingRuntime } from "../src/notes/editing/runtime.js";
+import { SiteLimits, type SiteLimitsLog } from "../src/site-limits/store.js";
 
 export interface FreshDb {
   db: Db;
@@ -283,9 +284,17 @@ export interface TestApp {
   db: Db;
   /** 實際掛進 app 的 uploadsDir（Task 10b）——測試用它直接檢查磁碟狀態（例如 413 不落檔、GET 磁碟無檔 404 的 fixture）。 */
   uploadsDir: string;
-  /** 手動關閉底層 pool（非測試情境用）。在 test 內呼叫 buildTestApp() 不必自己叫這個——已用 onTestFinished 自動掛好（見 freshDb）。 */
+  /** #397：app 實際在用的 `SiteLimits`（綁這個 app 的 `db` 與 `config.limitEnv`，見 `buildTestApp`）。 */
+  siteLimits: SiteLimits;
+  /**
+   * 手動關閉底層 pool（非測試情境用）。在 test 內呼叫 buildTestApp() 不必自己叫這個——已用 onTestFinished 自動掛好（見 freshDb）。
+   * 覆寫了 `db` 時 harness 不建 DB，這支是 no-op（覆寫的 DB 由建它的呼叫端自己關）。
+   */
   close: () => Promise<void>;
 }
+
+/** #397：harness `SiteLimits.load` 用的 logger（不合格的列只 warn，測試輸出降噪）。 */
+const silentLog: SiteLimitsLog = { warn: () => {}, error: () => {} };
 
 /**
  * 掛幾條只給測試用的探針路由，供需要驗證 `authenticate`/`requireAdmin` decorator
@@ -374,25 +383,33 @@ export const testEditingRuntime = createEditingRuntime(testConfig);
  *
  * logger 預設關閉（測試輸出降噪），可用 `options.logger` 覆寫回開（例如要除錯某個
  * 測試的實際請求日誌時）。
+ *
+ * #397 §13.4：先決定 app 實際用的 `config`、`db`，再用這兩樣 `SiteLimits.load` 一份（`overrides.siteLimits` 有給就照用）；
+ * 這三樣在其餘 `overrides` 之後才放，不會再被蓋掉——鎖定狀態（`config.limitEnv`）與 DB 都只有一個來源。
  */
 export async function buildTestApp(overrides: Partial<AppDeps> = {}, options: BuildAppOptions = {}): Promise<TestApp> {
-  const { db, close } = await freshDb();
+  const { config: configOverride, db: dbOverride, siteLimits: siteLimitsOverride, ...rest } = overrides;
+  const config = configOverride ?? testConfig;
+  const fresh = dbOverride ? null : await freshDb();
+  const db = dbOverride ?? fresh!.db;
+  const close = fresh?.close ?? (async () => {});
+  const siteLimits = siteLimitsOverride ?? (await SiteLimits.load(db, { limitEnv: config.limitEnv, machine: config.machine, log: silentLog }));
   const deps: AppDeps = {
-    config: testConfig,
-    db,
     gate: new UserGate(db),
     throttle: new LoginThrottle(),
     collabHooks: noopCollabHooks,
     limiters: freshLimiters(),
     uploadsDir: freshUploadsDir(),
     ai: createAiRuntime(),
-    ...overrides,
+    ...rest,
+    config,
+    db,
+    siteLimits,
   };
   const app = buildApp(deps, { logger: false, ...options });
-  // 回傳 deps.db／deps.uploadsDir（而非上面本地變數）——若呼叫方透過 overrides
-  // 換掉了它們，回傳值必須與 app 實際在用的一致，否則呼叫方用回傳值操作會跟 app
-  // 內部狀態不同步。
-  return { app, db: deps.db, uploadsDir: deps.uploadsDir, close };
+  // 回傳 deps.uploadsDir（而非預設值）——若呼叫方透過 overrides 換掉了它，回傳值必須與 app 實際在用的一致，
+  // 否則呼叫方用回傳值操作會跟 app 內部狀態不同步。`db`／`siteLimits` 上面已決定、就是 app 在用的那份。
+  return { app, db, uploadsDir: deps.uploadsDir, siteLimits, close };
 }
 
 // ───────────────────────────── 共編（Hocuspocus）測試 harness ─────────────────────────────
@@ -466,6 +483,8 @@ export interface CollabTestCtx {
   /** bulk transfer：app 用的同一個 `UserGate`（停權後要 `invalidate` 才即時生效，同生產的停權路徑）。 */
   gate: UserGate;
   db: Db;
+  /** #397：app 實際在用的 `SiteLimits`（綁這個 app 的 `db` 與 `config.limitEnv`）。共用 DB 的兩個 app 各自一份（spec §6.1）。 */
+  siteLimits: SiteLimits;
   /** #180：實際掛進 app 的 uploadsDir（磁碟斷言用）。 */
   uploadsDir: string;
   createUser(opts: { email: string; password: string; isAdmin?: boolean }): Promise<{ id: string }>;
@@ -531,9 +550,14 @@ export async function buildCollabTestApp(
     db?: Db;
     /** #398：換掉共用的 `testEditingRuntime`（例：小時限、小排隊上限的 parse pool）。由呼叫端自己 `close()`。 */
     editing?: EditingRuntime;
+    /** #397：換掉 harness 自己 `load` 的那份（預設用本 app 的 `config`／`db` 載入，見 `buildTestApp`）。 */
+    siteLimits?: SiteLimits;
   } = {}
 ): Promise<CollabTestCtx> {
+  // #397 §13.4：先決定 app 實際用的 `config`、`db`，再用這兩樣 `load`（同 `buildTestApp`）。
+  const config = opts.config ?? testConfig;
   const { db } = opts.db ? { db: opts.db } : await freshDb();
+  const siteLimits = opts.siteLimits ?? (await SiteLimits.load(db, { limitEnv: config.limitEnv, machine: config.machine, log: silentLog }));
   const gate = new UserGate(db);
   // 測試注入縫：見 `CollabTestCtx.breakGate`。包在 harness 裡（而不是每個測試各自 monkey-patch）
   // 是為了讓「怎麼弄壞 gate」只有一份定義。
@@ -553,12 +577,13 @@ export async function buildCollabTestApp(
     warn: (obj: object, msg: string) => collabLogs.push({ level: "warn", obj: { ...obj }, msg }),
     error: (obj: object, msg: string) => collabLogs.push({ level: "error", obj: { ...obj }, msg }),
   };
-  const collab = createCollabServer({ db, config: opts.config ?? testConfig, gate, log: collabLog, storeSearchHooks: opts.storeSearchHooks, versionAutoWaitMs: opts.versionAutoWaitMs, lastActiveOptions: opts.lastActiveOptions });
+  const collab = createCollabServer({ db, config, gate, log: collabLog, storeSearchHooks: opts.storeSearchHooks, versionAutoWaitMs: opts.versionAutoWaitMs, lastActiveOptions: opts.lastActiveOptions });
 
   const uploadsDir = freshUploadsDir();
   const deps: AppDeps = {
-    config: opts.config ?? testConfig,
+    config,
     db,
+    siteLimits,
     gate,
     throttle: new LoginThrottle(),
     collabHooks: opts.collabHooks ? opts.collabHooks(collab, collabLog) : noopCollabHooks,
@@ -753,7 +778,7 @@ export async function buildCollabTestApp(
     return session;
   }
 
-  return { baseUrl, app, collab, collabLogs, breakGate, gate, db, uploadsDir, createUser, createNote, share, loginAs, destroy };
+  return { baseUrl, app, collab, collabLogs, breakGate, gate, db, siteLimits, uploadsDir, createUser, createNote, share, loginAs, destroy };
 }
 
 /**

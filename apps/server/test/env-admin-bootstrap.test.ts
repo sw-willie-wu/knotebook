@@ -10,6 +10,7 @@ import { initializeInstance } from "../src/auth/bootstrap.js";
 import { instanceSetup, users } from "../src/db/schema.js";
 import { hashPassword } from "../src/auth/password.js";
 import { createAiRuntime } from "../src/ai/runtime.js";
+import { SiteLimits } from "../src/site-limits/store.js";
 
 /**
  * `ADMIN_EMAIL`/`ADMIN_PASSWORD` env bootstrap（spec rev 5.7 / §14.2：setup token 已
@@ -28,6 +29,8 @@ async function buildAppWithEnvAdmin(envAdmin?: { email: string; password: string
     {
       config: testConfig,
       db,
+      // #397 §13.4：直接呼叫 `buildApp` 的唯一一處——不碰 DB 的唯讀那份。
+      siteLimits: SiteLimits.defaults({ machine: testConfig.machine }),
       gate,
       throttle: new LoginThrottle(),
       collabHooks: noopCollabHooks,
