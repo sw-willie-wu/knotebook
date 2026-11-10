@@ -88,6 +88,30 @@ describe("寫入：parseMarkdownForNote 只收內建色名與色碼", () => {
     });
   });
 
+  // 同一張寫法表的色碼列：每種元素各一個 `#ff6600` 的 data-*（與上一案同組元素），收下後存成 "#ff6600"。
+  it.each([
+    ["p", `<p data-text-color="#ff6600">x</p>`, "paragraph", "textColor"],
+    ["h3", `<h3 data-text-color="#ff6600">x</h3>`, "heading", "textColor"],
+    ["ul > li", `<ul><li data-background-color="#ff6600">x</li></ul>`, "bulletListItem", "backgroundColor"],
+    ["ol > li", `<ol><li data-text-color="#ff6600">x</li></ol>`, "numberedListItem", "textColor"],
+    ["blockquote", `<blockquote data-text-color="#ff6600">x</blockquote>`, "quote", "textColor"],
+  ])("寫法表的色碼列：%s 上的 data-* #ff6600 收成 \"#ff6600\"", async (_name, md, type, prop) => {
+    await withSession(ed => {
+      const blocks = parse(ed, md);
+      expect(blocks[0]!.type).toBe(type);
+      expect((blocks[0]!.props as Record<string, unknown>)[prop]).toBe("#ff6600");
+    });
+  });
+
+  it.each([
+    ["td", `<table><tr><td data-background-color="#ff6600">c</td></tr></table>`],
+    ["th", `<table><tr><th data-background-color="#ff6600">t</th></tr><tr><td>d</td></tr></table>`],
+  ])("寫法表的色碼列：表格 %s 上的 data-* #ff6600 收成 \"#ff6600\"", async (_name, md) => {
+    await withSession(ed => {
+      expect(shape(parse(ed, md))).toContain(`"backgroundColor":"#ff6600"`);
+    });
+  });
+
   it("default 也收（data-* 寫 default ＝ 沒有顏色）", async () => {
     await withSession(ed => {
       expect(() => parse(ed, `<p data-background-color="default" data-text-color="default">x</p>`)).not.toThrow();
