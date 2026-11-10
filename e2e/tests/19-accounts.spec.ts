@@ -193,7 +193,7 @@ test.describe.serial("19 帳號與登入服務（#187）", () => {
 
   test("19-6：關閉自行註冊 → 登入頁沒有註冊鈕、/register 導回登入頁、API 403；再關所有服務的自動建帳 → 新 email SSO 首登被拒；最後逐一還原", async ({ browser, request }) => {
     const { context, page } = await adminOnSignInPage(browser);
-    type ProviderRow = { id: string; displayName: string; legacyCallback: boolean; autoCreateEnabled: boolean };
+    type ProviderRow = { id: string; displayName: string; autoCreateEnabled: boolean };
     const listProviders = async (): Promise<ProviderRow[]> => {
       const res = await page.request.get("/api/admin/auth/providers");
       expect(res.ok()).toBe(true);
@@ -269,7 +269,7 @@ test.describe.serial("19 帳號與登入服務（#187）", () => {
           // 原值沒抓到（開頭就掛）：退回「自助註冊開、第二服務與 SSO 會建帳」——05、19-4、19-6a、26 依賴它們。
           const results = [];
           for (const row of await listProviders()) {
-            if (row.displayName !== SECOND_NAME && !row.legacyCallback) continue;
+            if (row.displayName !== SECOND_NAME && row.displayName !== "SSO") continue;
             results.push(await page.request.patch(`/api/admin/auth/providers/${row.id}`, { data: { autoCreateEnabled: true } }));
           }
           results.push(await page.request.patch("/api/admin/auth/settings", { data: { registrationEnabled: true } }));

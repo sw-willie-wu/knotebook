@@ -4,7 +4,7 @@ import { test, expect } from "@playwright/test";
 import { ADMIN, loginAs } from "./helpers.js";
 
 /**
- * 登入服務圖示 E1（spec 2026-10-07-provider-icon §8.3）：管理員在 /admin/login（站台管理 → Sign-in）以 UI 對 e2e 疊既有的「SSO」（OIDC_* 匯入的 legacy）上傳 PNG →
+ * 登入服務圖示 E1（spec 2026-10-07-provider-icon §8.3）：管理員在 /admin/login（站台管理 → Sign-in）以 UI 對 e2e 疊既有的「SSO」（global-setup 建的）上傳 PNG →
  * 未登入的登入頁「Sign in with SSO」內有 <img>，src 帶 ?v=，而且是真瀏覽器 canvas 縮過的結果（256×128 → 128×64）。
  * 不新增服務（05 等以名稱定位 SSO 鈕）。測前斷言 iconKind === "template"（不是就失敗，不猜怎麼還原——PATCH 不收 upload）；finally 一律還原成 template。
  *
@@ -55,10 +55,10 @@ test("20-1：管理員上傳「SSO」的圖示 → 登入頁 SSO 鈕出現縮成
     await loginAs(page, ADMIN.email, ADMIN.password);
     await expect(page).toHaveURL(/\/$/);
     const list = (await (await page.request.get("/api/admin/auth/providers")).json()) as {
-      providers: Array<{ id: string; displayName: string; legacyCallback: boolean; iconKind: string }>;
+      providers: Array<{ id: string; displayName: string; iconKind: string }>;
     };
-    const sso = list.providers.find(p => p.legacyCallback);
-    expect(sso, "e2e 疊應有 OIDC_* 匯入的 SSO").toBeDefined();
+    const sso = list.providers.find(p => p.displayName === "SSO");
+    expect(sso, "e2e 疊應有 global-setup 建的 SSO").toBeDefined();
     // 還原目標固定是 template：前置若不是 template，finally 的還原會把原狀改壞，所以不是就直接失敗（也不嘗試還原——PATCH 不收 upload，spec §8.3）。
     // 若某次執行在上傳後、還原前被中斷，髒疊會一直卡在這個前置檢查紅；救法是 stack:down（帶 -v 清 volume）再重起。adminContext 仍由外層 finally 關閉。
     expect(sso!.iconKind).toBe("template");

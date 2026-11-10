@@ -6,7 +6,7 @@ import { createDb } from "./db/index.js";
 import { createPool } from "./db/pool.js";
 import { runMigrations } from "./db/migrate.js";
 import { initializeInstance } from "./auth/bootstrap.js";
-import { backfillLegacyOidcIdentities, importLegacyOidcEnv } from "./auth/legacy-oidc-env.js";
+import { backfillLegacyOidcIdentities } from "./auth/legacy-identities.js";
 import { warnPasswordLoginAtBoot } from "./auth/password-login.js";
 import { backfillHandleRegistry } from "./auth/handle.js";
 import { UserGate } from "./auth/session.js";
@@ -131,14 +131,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // #187 §10.2：舊 OIDC_* 三變數只在新版第一次啟動時匯入成一個 provider（之後忽略並警告）；§10.3：舊欄冪等補登。
-  // **都在 listen 之前**——補登要比任何登入請求先跑完（結構守衛：test/unit/config.test.ts）。
-  try {
-    await importLegacyOidcEnv(db, config, logger);
-  } catch (err) {
-    logger.error({ err }, "OIDC_* import transaction failed (see err) — refusing to start");
-    process.exit(1);
-  }
+  // #187 §10.3：舊欄冪等補登。**在 listen 之前**——補登要比任何登入請求先跑完（結構守衛：test/unit/config.test.ts）。
   await backfillLegacyOidcIdentities(db, logger);
   // #187 §10.4：帳密登入開關的開機提醒（env 救援仍開著、或「關閉＋零個啟用 provider」）。只寫 log、不擋啟動；在 listen 之前。
   await warnPasswordLoginAtBoot(db, config, logger);

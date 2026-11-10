@@ -48,9 +48,9 @@ export async function isPasswordLoginAccepted(
 }
 
 /**
- * spec §10.4 開機檢查（env 匯入與 §10.3 補登之後、listen 之前；結構守衛在 `test/unit/config.test.ts`）。**不擋啟動**，只寫 log：
+ * spec §10.4 開機檢查（§10.3 補登之後、listen 之前；結構守衛在 `test/unit/config.test.ts`）。**不擋啟動**，只寫 log：
  * ① env 強制 → warn（DB 值為真時措辭改為「has no effect」）；② 有效值為關且零個啟用 provider（只可能是手改 DB，INV-8）→ error。
- * 讀不到列在此之前已由 env 匯入擋下（§10.2）；這裡讀不到就當開啟、不另印。
+ * site_settings 讀不到列 → 印 `PASSWORD_LOGIN_SETTINGS_MISSING_LOG`（error）、帳密視同開啟；不擋啟動。
  */
 export async function warnPasswordLoginAtBoot(
   db: Db,
@@ -58,6 +58,7 @@ export async function warnPasswordLoginAtBoot(
   logger: { warn(msg: string): void; error(msg: string): void },
 ): Promise<void> {
   const dbValue = await readPasswordLoginSetting(db);
+  if (dbValue === null) logger.error(PASSWORD_LOGIN_SETTINGS_MISSING_LOG);
   if (config.passwordLoginForceEnable) {
     logger.warn(dbValue === false ? PASSWORD_LOGIN_FORCED_LOG : PASSWORD_LOGIN_FORCED_NOOP_LOG);
     return;

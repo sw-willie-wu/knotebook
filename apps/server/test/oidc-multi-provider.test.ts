@@ -10,7 +10,7 @@ import { createOidcRuntimeRegistry } from "../src/auth/oidc-client.js";
 import { authProviders, siteSettings, userIdentities, users } from "../src/db/schema.js";
 import { OIDC_PENDING_COOKIE, unsealPendingLink } from "../src/auth/oidc-pending.js";
 import { sealCookieJson } from "../src/auth/sealed-cookie.js";
-import { backfillLegacyOidcIdentities, importLegacyOidcEnv } from "../src/auth/legacy-oidc-env.js";
+import { backfillLegacyOidcIdentities } from "../src/auth/legacy-identities.js";
 import pino from "pino";
 
 const A = "https://idp-a.example";
@@ -234,14 +234,14 @@ describe("多 provider 的 login／callback（#187 §7.1–§7.4）", () => {
     expect(i!.issuer).toBe("https://gitlab.example");
   });
 
-  it("§14.1-15／16：env 匯入的 legacy provider＋舊回呼網址，接上 0014 搬過來的身分與補登的身分 → 同帳號登入", async () => {
+  it("§14.1-15／16：舊回呼網址的 legacy provider，接上 0014 搬過來的身分與補登的身分 → 同帳號登入", async () => {
     const idp = createFakeIdp(A);
     const { app, db } = await buildTestApp({ oidcRegistry: createOidcRuntimeRegistry({ fetch: idp.fetch }) });
     const [u] = await db.insert(users).values({ email: "legacy@x.example", displayName: "Legacy" }).returning();
     const [v] = await db.insert(users).values({ email: "rolled@x.example", displayName: "Rolled" }).returning();
     await db.insert(userIdentities).values({ userId: u!.id, issuer: A, sub: "migrated" });
     await db.$client.query(`update users set oidc_issuer = $1, oidc_sub = 'rolled-back' where id = $2`, [A, v!.id]);
-    await importLegacyOidcEnv(db, { appSecret: testConfig.appSecret, legacyOidcEnv: { issuerUrl: `${A}/`, clientId: "test-client", clientSecret: "test-secret" } }, silent);
+    await seedAuthProvider(db, { issuerUrl: `${A}/`, legacyCallback: true, displayName: "SSO" });
     await backfillLegacyOidcIdentities(db, silent);
     for (const [sub, email, userId] of [["migrated", "legacy@x.example", u!.id], ["rolled-back", "rolled@x.example", v!.id]] as const) {
       const r = await ssoRoundTrip(app, idp, { loginUrl: "/api/auth/oidc/login", claims: { sub, email } });

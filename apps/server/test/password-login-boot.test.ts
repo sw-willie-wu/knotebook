@@ -4,6 +4,7 @@ import {
   PASSWORD_LOGIN_FORCED_LOG,
   PASSWORD_LOGIN_FORCED_NOOP_LOG,
   PASSWORD_LOGIN_LOCKOUT_LOG,
+  PASSWORD_LOGIN_SETTINGS_MISSING_LOG,
   warnPasswordLoginAtBoot,
 } from "../src/auth/password-login.js";
 import { buildTestApp } from "./helpers.js";
@@ -56,6 +57,15 @@ describe("warnPasswordLoginAtBoot（#187 §10.4：不擋啟動，只寫 log）",
     const logger = fakeLogger();
     await warnPasswordLoginAtBoot(db, { passwordLoginForceEnable: false }, logger);
     expect(logger.error.mock.calls).toEqual([[PASSWORD_LOGIN_LOCKOUT_LOG]]);
+  });
+
+  it("site_settings 讀不到列 → error 印 SETTINGS_MISSING（帳密視同開啟，不再多印）", async () => {
+    const { db } = await buildTestApp();
+    await db.delete(siteSettings);
+    const logger = fakeLogger();
+    await warnPasswordLoginAtBoot(db, { passwordLoginForceEnable: false }, logger);
+    expect(logger.error.mock.calls).toEqual([[PASSWORD_LOGIN_SETTINGS_MISSING_LOG]]);
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 
   it("env 強制時即使 DB 關＋零 provider 也不印 error（有效值是開）", async () => {
