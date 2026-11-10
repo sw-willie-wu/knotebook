@@ -160,15 +160,15 @@ describe("#175 create_note {group_id}", () => {
     const g = await seedGroup(db, "Team", [{ userId: me.id, role: "member" }]);
     await seedNote(db, { groupId: g.id }, { title: "Plan", slug: "plan" });
     await seedNote(db, { ownerId: me.id }, { title: "Plan", slug: "plan" });
-    await seedNote(db, { ownerId: me.id }, { title: "Roadmap 2", slug: "roadmap-2" });
+    await seedNote(db, { ownerId: me.id }, { title: "Plan 2", slug: "plan-2" });
     const { token } = await seedTokenForUser(db, me.id, RW);
 
     const inGroup = await createdNote(app, token, { title: "Plan", group_id: g.id });
     const [row] = await db.select().from(notes).where(eq(notes.id, inGroup.id));
     expect(row!.groupId).toBe(g.id);
     expect(row!.ownerId).toBeNull();
-    expect(inGroup.slug).toBe("roadmap-2");
-    expect(inGroup.url).toBe(`/g/${g.id}/roadmap-2`);
+    expect(inGroup.slug).toBe("plan-2");
+    expect(inGroup.url).toBe(`/g/${g.id}/plan-2`);
     expect(inGroup.role).toBe("editor");
     expect(inGroup.owner).toEqual({ kind: "group", id: g.id, name: "Team" });
 
