@@ -36,6 +36,7 @@ import { storageRoutes } from "./routes/storage.js";
 import { adminAiRoutes } from "./routes/admin-ai.js";
 import { adminAuthRoutes } from "./routes/admin-auth.js";
 import { adminVersionsRoutes } from "./routes/admin-versions.js";
+import { adminLimitsRoutes } from "./routes/admin-limits.js";
 import { adminTrashRoutes } from "./routes/admin-trash.js";
 import { testHookRoutes } from "./routes/test-hooks.js";
 import { accountRoutes } from "./routes/account.js";
@@ -923,6 +924,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   void app.register(adminVersionsRoutes({ db: deps.db }));
   // #181 §6.9：垃圾桶保留天數。
   void app.register(adminTrashRoutes({ db: deps.db }));
+  void app.register(adminLimitsRoutes({ db: deps.db, siteLimits: deps.siteLimits }));
   // #272 §7.5：e2e 測試縫（只在 KNOTEBOOK_E2E_TEST_HOOKS=1 且 PUBLIC_URL 是 loopback 時；見 config.ts 的 `testHooks`）。
   if (deps.config.testHooks) void app.register(testHookRoutes({ versions }));
   // #187 PR3：註冊、個人設定的登入方式與加上密碼（spec §8、§9.1）。
