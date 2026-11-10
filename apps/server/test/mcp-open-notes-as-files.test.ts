@@ -1,5 +1,5 @@
 /**
- * bulk transfer：`create_bulk_transfer_token`（B7、B10、B13）。
+ * bulk transfer：`open_notes_as_files`（B7、B10、B13）。
  */
 import { randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
@@ -14,24 +14,24 @@ import {
   BULK_NEXT_RO,
   BULK_NEXT_RW,
   BULK_RANGE_AMBIGUOUS_MESSAGE,
-  CREATE_BULK_TRANSFER_TOKEN_DESCRIPTION_RO,
-  CREATE_BULK_TRANSFER_TOKEN_DESCRIPTION_RW,
+  OPEN_NOTES_AS_FILES_DESCRIPTION_RO,
+  OPEN_NOTES_AS_FILES_DESCRIPTION_RW,
   TOO_MANY_BULK_TOKENS_MESSAGE,
   bulkCurls,
-} from "../src/mcp/tools/create-bulk-transfer-token.js";
+} from "../src/mcp/tools/open-notes-as-files.js";
 import { REVOKED_MESSAGE } from "../src/mcp/tools/create-transfer-token.js";
 import { buildCollabTestApp, buildTestApp } from "./helpers.js";
 import { seedTokenForUser } from "./editing-helpers.js";
 import { cookieOf, seedGroup, seedNote, seedRole, seedUser, setMemberRole, waitForBlockedOrSettled } from "./group-helpers.js";
 import { seedFolder } from "./folder-helpers.js";
-import { mcpPost, rpc } from "./mcp-helpers.js";
+import { INITIALIZE, mcpPost, rpc } from "./mcp-helpers.js";
 import { expireToken, issueDirect } from "./transfer-helpers.js";
 import { callTool, exportRaw, issueBulkDirect, liveMarkdown, seedMd } from "./bulk-transfer-helpers.js";
 import { readTarGz } from "./tar-read.js";
 
 const ORIGIN = "https://kb.example.test:8443";
 const config = loadConfig({ DATABASE_URL: "postgres://u:p@localhost:5432/test", APP_SECRET: "a".repeat(64), PUBLIC_URL: `${ORIGIN}/` });
-const TOOL = "create_bulk_transfer_token";
+const TOOL = "open_notes_as_files";
 const RO = "notes:read" as const;
 const RW = "notes:read notes:write" as const;
 const RWMD = "notes:read notes:write notes:move notes:delete" as const;
@@ -205,9 +205,9 @@ describe("B7：註冊（依 canWrite 二選一）", () => {
     expect((await toolList(ctx.app, { cookie })).map(t => t.name)).not.toContain(TOOL);
     const OUT_RO = ["access", "expiresAt", "export", "next", "note", "revoke", "token"];
     for (const [scope, desc, out] of [
-      [RO, CREATE_BULK_TRANSFER_TOKEN_DESCRIPTION_RO, OUT_RO],
-      [RW, CREATE_BULK_TRANSFER_TOKEN_DESCRIPTION_RW, [...OUT_RO, "write"].sort()],
-      [RWMD, CREATE_BULK_TRANSFER_TOKEN_DESCRIPTION_RW, [...OUT_RO, "write"].sort()],
+      [RO, OPEN_NOTES_AS_FILES_DESCRIPTION_RO, OUT_RO],
+      [RW, OPEN_NOTES_AS_FILES_DESCRIPTION_RW, [...OUT_RO, "write"].sort()],
+      [RWMD, OPEN_NOTES_AS_FILES_DESCRIPTION_RW, [...OUT_RO, "write"].sort()],
     ] as const) {
       const { token } = await seedTokenForUser(ctx.db, u.id, scope);
       const tool = (await toolList(ctx.app, { token })).find(t => t.name === TOOL);
@@ -221,6 +221,45 @@ describe("B7：註冊（依 canWrite 二選一）", () => {
     const v = await seedUser(plain.db);
     const { token } = await seedTokenForUser(plain.db, v.id, RW);
     expect((await toolList(plain.app, { token })).map(t => t.name)).not.toContain(TOOL);
+  });
+});
+
+describe("#417：instructions 只在清單上有 open_notes_as_files 時提它，讀寫／唯讀各一句", () => {
+  const HINT_RW = "If you have a shell, use open_notes_as_files to change much of a note, or many notes.";
+  const HINT_RO = "If you have a shell, use open_notes_as_files to read many or whole notes.";
+  async function instructionsOf(app: Parameters<typeof mcpPost>[0], opts: { token?: string; cookie?: string }): Promise<string> {
+    const res = await mcpPost(app, INITIALIZE, opts);
+    expect(res.statusCode).toBe(200);
+    return res.json().result.instructions as string;
+  }
+
+  it("collab：唯讀 token → 讀的那句；讀寫／讀寫搬移刪除 token → 改的那句；session → 都沒有；無 collab 的讀寫／唯讀 token → 都沒有；四形 ≤ 1000", async () => {
+    const ctx = await buildCollabTestApp({ config });
+    const u = await seedUser(ctx.db);
+    for (const [scope, hint, other] of [
+      [RO, HINT_RO, HINT_RW],
+      [RW, HINT_RW, HINT_RO],
+      [RWMD, HINT_RW, HINT_RO],
+    ] as const) {
+      const { token } = await seedTokenForUser(ctx.db, u.id, scope);
+      // 前提：清單上真的有它。
+      expect((await toolList(ctx.app, { token })).map(t => t.name), scope).toContain(TOOL);
+      const text = await instructionsOf(ctx.app, { token });
+      expect(text, scope).toContain(hint);
+      expect(text, scope).not.toContain(other);
+      expect(text.length, scope).toBeLessThanOrEqual(1000);
+    }
+    const cookie = (await cookieOf(u.id))[SESSION_COOKIE]!;
+    expect((await toolList(ctx.app, { cookie })).map(t => t.name)).not.toContain(TOOL);
+    expect(await instructionsOf(ctx.app, { cookie })).not.toContain(TOOL);
+
+    const plain = await buildTestApp();
+    const v = await seedUser(plain.db);
+    for (const scope of [RO, RW] as const) {
+      const { token } = await seedTokenForUser(plain.db, v.id, scope);
+      expect((await toolList(plain.app, { token })).map(t => t.name), scope).not.toContain(TOOL);
+      expect(await instructionsOf(plain.app, { token }), scope).not.toContain(TOOL);
+    }
   });
 });
 

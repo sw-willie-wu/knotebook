@@ -17,7 +17,7 @@ import type { CollabHooks } from "../collab/hooks.js";
 import type { VersionService } from "../collab/versions.js";
 import type { NoteCreateHooks } from "../notes/create.js";
 import type { SearchIndexHooks } from "../notes/tx/search-index.js";
-import { registerMcpTools } from "../mcp/register.js";
+import { hasOpenNotesAsFiles, registerMcpTools } from "../mcp/register.js";
 import { mcpInstructions, MCP_SERVER_NAME, MCP_SERVER_VERSION, versionReadFailed } from "../mcp/server-info.js";
 import { canWriteNotes } from "../mcp/write-scope.js";
 import { sendWebResponse, toWebRequest } from "../mcp/transport.js";
@@ -158,13 +158,14 @@ export function mcpRoutes(deps: McpRouteDeps) {
       // #239：`canMoveNotes` 不影響 instructions（仍二選一）——讀寫版首句只講 notes:write 這個必要條件，
       // 有沒有 notes:move 都為真；搬移權只決定註冊（`register.ts`）。
       // #181：`canDeleteNotes` 同樣不影響 instructions——刪除權只決定 delete_note／restore_note 的註冊。
-      const canWrite = canWriteNotes({
-        authKind: request.authKind === "session" ? "session" : "token",
-        tokenScope: request.tokenScope ?? null,
-      });
+      // #417：`open_notes_as_files` 在不在清單上，也決定 instructions 要不要接「什麼時候用它」那一句——
+      // 與 `registerMcpTools` 用同一支 `hasOpenNotesAsFiles`，清單上沒有它時 instructions 就不提它。
+      const authKind = request.authKind === "session" ? "session" : "token";
+      const canWrite = canWriteNotes({ authKind, tokenScope: request.tokenScope ?? null });
+      const filesTool = hasOpenNotesAsFiles({ authKind, collab: deps.collab, editing: deps.editing });
       const server = new McpServer(
         { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
-        { instructions: mcpInstructions(canWrite) }
+        { instructions: mcpInstructions(canWrite, filesTool) }
       );
       // 身分綁進工具閉包：每支工具是可以單獨呼叫的 `(args, ctx) => result`，不從
       // `request` 撈東西。註冊必須排在 `registerCapabilities` **之前**。

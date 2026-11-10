@@ -40,10 +40,10 @@ import { UNCLOSED_FENCE_MESSAGE, unclosedFenceMessage } from "../../src/transfer
  */
 describe("bulk transfer 的 HTTP 層訊息（字面）", () => {
   it("H1 auth 層：bulk 專用句與 #200 句分開", () => {
-    expect(BULK_TRANSFER_INVALID_MESSAGE).toBe("The transfer token is invalid, expired or revoked. Get a new one from the MCP tool create_bulk_transfer_token.");
+    expect(BULK_TRANSFER_INVALID_MESSAGE).toBe("The transfer token is invalid, expired or revoked. Get a new one from the MCP tool open_notes_as_files.");
     expect(BULK_TRANSFER_INVALID_MESSAGE).not.toContain("used");
     expect(BULK_TRANSFER_REQUIRED_MESSAGE).toBe("A transfer token is required.");
-    expect(BULK_TRANSFER_PAT_MESSAGE).toBe("This endpoint doesn't accept API tokens. Get a transfer token from the MCP tool create_bulk_transfer_token.");
+    expect(BULK_TRANSFER_PAT_MESSAGE).toBe("This endpoint doesn't accept API tokens. Get a transfer token from the MCP tool open_notes_as_files.");
     expect(TRANSFER_PURPOSE_MESSAGE).toBe("This transfer token can't be used for this action.");
     // #200 的兩句：本 PR 不動；#372 改英文
     expect(TRANSFER_INVALID_MESSAGE).toBe("The transfer token is invalid, expired or already used.");
