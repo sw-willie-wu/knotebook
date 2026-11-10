@@ -314,9 +314,19 @@ test("C9 API 用 token 以 style 寫入色碼：網頁不重整就顯示，且�
     });
     expect(res.status()).toBe(201);
 
-    const colored = editor.locator('[data-style-type="textColor"]').filter({ hasText: /^c9$/ }).first();
+    // 寫入後 token 的遠端游標落在這次寫下的第一個字前面。ProseMirror 把 widget 包進「後面那個字」的
+    // mark 裡，所以游標（含名牌文字）會畫在色彩 span 裡面，span 的 textContent 不會剛好是 "c9"。
+    // 這裡用子字串找 span，再扣掉 widget 比對 span 自己的文字：整段 "c9" 都被上色，不是只有一部分。
+    const colored = editor.locator('[data-style-type="textColor"]').filter({ hasText: "c9" }).first();
     await expect(colored).toHaveCSS("color", RGB_CUSTOM, { timeout: 10_000 });
     await expect(colored).toHaveAttribute("data-value", CUSTOM);
+    const ownText = () =>
+      colored.evaluate((el) => {
+        const copy = el.cloneNode(true) as Element;
+        copy.querySelectorAll(".ProseMirror-widget").forEach((w) => w.remove());
+        return copy.textContent;
+      });
+    await expect.poll(ownText).toBe("c9");
   } finally {
     try {
       if (tokenId) await page.request.delete(`/api/auth/tokens/${tokenId}`);
