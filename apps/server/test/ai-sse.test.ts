@@ -4,10 +4,9 @@ import http from "node:http";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { eq } from "drizzle-orm";
 import { BUILTIN_ACTION_IDS, INSTRUCT_ACTION_ID, REWRITE_ACTION_ID, SESSION_COOKIE } from "@knotebook/shared";
-import { buildTestApp, freshLimiters, testConfig } from "./helpers.js";
+import { buildTestApp, freshLimiters, testConfig, signTestSession } from "./helpers.js";
 import { aiActions, aiModels, aiProviders, notes, noteShares, users } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
-import { signSession } from "../src/auth/session.js";
 import { hashPassword } from "../src/auth/password.js";
 import { encryptApiKey } from "../src/ai/crypto.js";
 import { createAiRuntime } from "../src/ai/runtime.js";
@@ -26,7 +25,7 @@ async function insertUser(db: Db) {
 }
 
 async function cookieFor(userId: string): Promise<string> {
-  return signSession(testConfig.appSecret, { userId, tv: 0 });
+  return signTestSession({ userId, tv: 0 });
 }
 
 async function insertProvider(db: Db, overrides: Partial<typeof aiProviders.$inferInsert> = {}) {

@@ -1,10 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { SESSION_COOKIE } from "@knotebook/shared";
-import { buildTestApp, testConfig } from "./helpers.js";
+import { buildTestApp, signTestSession } from "./helpers.js";
 import { noteShares, users } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
-import { signSession } from "../src/auth/session.js";
 import type { CollabHooks } from "../src/collab/hooks.js";
 
 async function insertUser(db: Db, overrides: Partial<{ email: string; displayName: string }> = {}) {
@@ -19,13 +18,14 @@ async function insertUser(db: Db, overrides: Partial<{ email: string; displayNam
 }
 
 async function cookieFor(userId: string): Promise<string> {
-  return signSession(testConfig.appSecret, { userId, tv: 0 });
+  return signTestSession({ userId, tv: 0 });
 }
 
 function spyCollabHooks(): CollabHooks {
   return {
     onShareChanged: vi.fn(),
     onUserRevoked: vi.fn(),
+    onSessionRevoked: vi.fn(),
     onGroupAccessChanged: vi.fn(),
     beforeNoteDeleted: vi.fn(async () => ({ release: () => {} })),
     onNotesRestored: vi.fn(),

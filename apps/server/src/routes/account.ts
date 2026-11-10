@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyBaseLogger, FastifyInstance, FastifyReply } from "fastify";
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   MAX_REGISTER_DISPLAY_NAME_LENGTH,
@@ -25,8 +25,9 @@ import { MIN_PASSWORD_LENGTH } from "../auth/constants.js";
 import { hashToken } from "../auth/api-token.js";
 import { activeOneTimeLink, isOneTimeTokenShape } from "../auth/one-time-link.js";
 import { HashBusyError, hashPassword } from "../auth/password.js";
-import { signSession, type UserGate } from "../auth/session.js";
-import { setSessionCookie } from "../auth/cookies.js";
+import type { UserGate } from "../auth/session.js";
+import { setSessionCookieFor, startSession } from "../auth/sessions.js";
+import { setPasswordInTx } from "../auth/tx/change-password.js";
 import { touchLastLogin } from "../auth/last-login.js";
 import { isStorableText, sendInvalidBody } from "../auth/admin-provider-input.js";
 import {
@@ -49,6 +50,8 @@ export interface AccountRouteDeps {
   gate: UserGate;
   collabHooks: CollabHooks;
   limiters: { register: FixedWindowLimiter; oneTimeLinkMiss: FixedWindowLimiter; oneTimeLinkAttempt: FixedWindowLimiter };
+  /** #388：同帳號重登後延遲重驗舊 session 共編連線的等待（`auth/sessions.ts` 的 `RELOGIN_REVERIFY_DELAY_MS`），只給測試縮短。 */
+  reloginReverifyDelayMs?: number;
 }
 
 const TOO_MANY_REQUESTS_MESSAGE = "Too many requests. Wait a moment and try again.";
@@ -167,8 +170,7 @@ export function accountRoutes(deps: AccountRouteDeps) {
 
       // 第 7 步：成功即登入（B9）。
       await touchLastLogin(deps.db, created.id, request.log); // #247 §9.5 寫入點 5：註冊（建帳即自動登入）
-      const token = await signSession(deps.config.appSecret, { userId: created.id, tv: created.tokenVersion });
-      setSessionCookie(reply, deps.config, token);
+      await startSession(deps, request, reply, { userId: created.id, tv: created.tokenVersion });
       const dto: UserDto = {
         id: created.id,
         email: created.email,
@@ -259,8 +261,7 @@ export function accountRoutes(deps: AccountRouteDeps) {
 
       request.log.info({ linkId: invite.id, userId: created.id }, "邀請已使用");
       await touchLastLogin(deps.db, created.id, request.log); // #247 §9.5 寫入點 7：接受邀請
-      const token = await signSession(deps.config.appSecret, { userId: created.id, tv: created.tokenVersion });
-      setSessionCookie(reply, deps.config, token);
+      await startSession(deps, request, reply, { userId: created.id, tv: created.tokenVersion });
       const dto: UserDto = {
         id: created.id,
         email: created.email,
@@ -343,17 +344,14 @@ export function accountRoutes(deps: AccountRouteDeps) {
       }
       const userId = request.user!.id;
       // 單句條件 UPDATE（C14：雙送出第二次 0 列）；token_version 在 SQL 端 +1（同改密碼的理由）。與解除連結以 users 列鎖序列化（C10）。
-      const [updated] = await deps.db
-        .update(users)
-        .set({ passwordHash, tokenVersion: sql`${users.tokenVersion} + 1` })
-        .where(and(eq(users.id, userId), isNull(users.passwordHash)))
-        .returning({ tokenVersion: users.tokenVersion });
-      if (updated === undefined) return sendError(reply, 409, "password_already_set", "This account already has a password. Change it instead.");
+      // #388：命中才在同一交易裡換 session 列（刪光、本機換新的一列；同改密碼，見 `auth/tx/change-password.ts`）。
+      const input = { userId, passwordHash };
+      const updated = await deps.db.transaction(tx => setPasswordInTx(tx, input));
+      if (updated === null) return sendError(reply, 409, "password_already_set", "This account already has a password. Change it instead.");
       // 同改密碼：讓其他裝置的舊 session 失效、重簽本人。
       deps.gate.invalidate(userId);
       deps.collabHooks.onUserRevoked(userId);
-      const token = await signSession(deps.config.appSecret, { userId, tv: updated.tokenVersion });
-      setSessionCookie(reply, deps.config, token);
+      await setSessionCookieFor(reply, deps.config, { userId, tv: updated.tokenVersion, sid: updated.sessionId });
       return reply.code(204).send();
     });
   };

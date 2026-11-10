@@ -5,11 +5,11 @@ import { describe, it, expect } from "vitest";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { SESSION_COOKIE, validateSlug } from "@knotebook/shared";
-import { buildTestApp, freshDb, testConfig } from "./helpers.js";
+import { buildTestApp, freshDb, signTestSession } from "./helpers.js";
 import { noteShares, notes, users } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
 import { NO_PERMISSIONS, OWNER_PERMISSIONS, resolveNoteAccess, sharePermissions } from "../src/notes/service.js";
-import { UserGate, signSession } from "../src/auth/session.js";
+import { UserGate } from "../src/auth/session.js";
 
 async function insertUser(db: Db, overrides: Partial<{ email: string; displayName: string }> = {}) {
   const [u] = await db
@@ -23,7 +23,7 @@ async function insertUser(db: Db, overrides: Partial<{ email: string; displayNam
 }
 
 async function cookieFor(userId: string): Promise<string> {
-  return signSession(testConfig.appSecret, { userId, tv: 0 });
+  return signTestSession({ userId, tv: 0 });
 }
 
 describe("PATCH /api/notes/:id — slug", () => {

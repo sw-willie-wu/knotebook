@@ -1189,6 +1189,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
         userId,
         role,
         tv: request.sessionTv!,
+        sid: request.sessionId!,
         // #269 §5.1：client 送的 note schema 版本簽進 `sv`；缺席＝0（閘門前的舊分頁），由 onAuthenticate 拒。
         sv: schemaVersionFromBody(request.body),
       });

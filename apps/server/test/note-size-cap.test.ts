@@ -7,12 +7,11 @@ import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import * as Y from "yjs";
 import { SESSION_COOKIE } from "@knotebook/shared";
-import { signSession } from "../src/auth/session.js";
 import { loadConfig } from "../src/config.js";
 import { noteAiEdits, noteStates, notes } from "../src/db/schema.js";
 import { logNotesOverCap } from "../src/notes/note-size-startup.js";
 import { EditorSession } from "../src/notes/editing/session.js";
-import { buildCollabTestApp, testConfig, testEditingRuntime } from "./helpers.js";
+import { buildCollabTestApp, signTestSession, testConfig, testEditingRuntime } from "./helpers.js";
 import { bearer, docText, getContent, seedTokenForUser, waitFor } from "./editing-helpers.js";
 import { seedNote, seedUser } from "./group-helpers.js";
 import { bulkGet, bulkPut, callTool, downloadNote, editBody, issueBulkDirect, seedMd } from "./bulk-transfer-helpers.js";
@@ -114,7 +113,7 @@ describe("API／MCP 寫入：長過上限就拒絕，什麼都沒寫", () => {
   it("複製一篇已經超過上限的筆記 → 413（副本是新筆記：比 0 大又超過）；上限內的照常複製", async () => {
     const s = await scene();
     await seedMd(s.ctx.db, s.note.id, BIG);
-    const cookie = `${SESSION_COOKIE}=${await signSession(testConfig.appSecret, { userId: s.u.id, tv: 0 })}`;
+    const cookie = `${SESSION_COOKIE}=${await signTestSession({ userId: s.u.id, tv: 0 })}`;
     const res = await s.ctx.app.inject({ method: "POST", url: `/api/notes/${s.note.id}/copy`, headers: { cookie, "content-type": "application/json", origin: "http://localhost:3000" }, payload: {} });
     expect413(res);
     const r = await callTool(s.ctx.app, s.pat.token, "copy_note", { note_id: s.note.id });
@@ -129,7 +128,7 @@ describe("API／MCP 寫入：長過上限就拒絕，什麼都沒寫", () => {
   it("套用（還原）一個比現況大、而且超過上限的版本 → 413；現況不動", async () => {
     const s = await scene();
     await seedMd(s.ctx.db, s.note.id, BIG); // 已超過上限（上限之前就存在的筆記）
-    const cookie = `${SESSION_COOKIE}=${await signSession(testConfig.appSecret, { userId: s.u.id, tv: 0 })}`;
+    const cookie = `${SESSION_COOKIE}=${await signTestSession({ userId: s.u.id, tv: 0 })}`;
     const headers = { cookie, "content-type": "application/json", origin: "http://localhost:3000" };
     const saved = await s.ctx.app.inject({ method: "POST", url: `/api/notes/${s.note.id}/versions`, headers, payload: {} });
     expect(saved.statusCode, saved.body).toBe(201);
@@ -212,7 +211,7 @@ describe("刪減與等量改寫一律接受（依結果判斷：還在的內容�
     await seedMd(s.ctx.db, s.note.id, BIG);
     const small = await seedNote(s.ctx.db, { ownerId: s.u.id }, { title: "S" });
     await seedMd(s.ctx.db, small.id, SMALL);
-    const cookie = `${SESSION_COOKIE}=${await signSession(testConfig.appSecret, { userId: s.u.id, tv: 0 })}`;
+    const cookie = `${SESSION_COOKIE}=${await signTestSession({ userId: s.u.id, tv: 0 })}`;
     const headers = { cookie, "content-type": "application/json", origin: "http://localhost:3000" };
     for (let i = 0; i < 35; i++) expect413(await s.ctx.app.inject({ method: "POST", url: `/api/notes/${s.note.id}/copy`, headers, payload: {} }));
     const ok = await s.ctx.app.inject({ method: "POST", url: `/api/notes/${small.id}/copy`, headers, payload: {} });

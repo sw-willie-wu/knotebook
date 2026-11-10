@@ -9,8 +9,9 @@ import { sendError, sendLoginThrottled } from "../http/errors.js";
 import { TxAbort } from "../http/tx-abort.js";
 import { DUMMY_HASH, HashBusyError, verifyPassword } from "../auth/password.js";
 import type { LoginThrottle } from "../auth/rate-limit.js";
-import { signSession, type UserGate } from "../auth/session.js";
-import { setSessionCookie } from "../auth/cookies.js";
+import type { UserGate } from "../auth/session.js";
+import { startSession } from "../auth/sessions.js";
+import type { CollabHooks } from "../collab/hooks.js";
 import { touchLastLogin } from "../auth/last-login.js";
 import { oidcErrorLogFields, type OidcRuntimeRegistry } from "../auth/oidc-client.js";
 import { linkedEnabledProvidersWithIssuer, loadEnabledProvider, providerConfiguration } from "../auth/oidc-providers.js";
@@ -32,6 +33,9 @@ export interface OidcPendingRouteDeps {
   config: AppConfig;
   db: Db;
   gate: UserGate;
+  /** #388：同帳號重登後延遲重驗舊 session 的共編連線（`startSession`）。 */
+  collabHooks: CollabHooks;
+  reloginReverifyDelayMs?: number;
   throttle: LoginThrottle;
   /** SSO 證明起點（§7.5.3）取 discovery 結果用。 */
   registry: OidcRuntimeRegistry;
@@ -136,8 +140,7 @@ export function oidcPendingRoutes(deps: OidcPendingRouteDeps) {
       clearPendingCookie(reply, deps.config);
       deps.gate.invalidate(linked.id);
       await touchLastLogin(deps.db, linked.id, request.log); // #247 §9.5 寫入點 4：密碼證明連結
-      const token = await signSession(deps.config.appSecret, { userId: linked.id, tv: linked.tokenVersion });
-      setSessionCookie(reply, deps.config, token);
+      await startSession(deps, request, reply, { userId: linked.id, tv: linked.tokenVersion });
       // next 由 server 從 pending 解出、再過 safeNextPath；web 只用這個值（r2-M2）。
       const next = (pending.next !== undefined ? safeNextPath(pending.next) : null) ?? "/";
       const body: PendingLinkConfirmDto = { user: toUserDto(linked), next };

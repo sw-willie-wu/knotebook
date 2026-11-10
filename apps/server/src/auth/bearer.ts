@@ -8,7 +8,7 @@ import type { FixedWindowLimiter } from "../http/rate-limit.js";
 import { BoundedMap, DEFAULT_MAX_KEYS } from "../lib/bounded-map.js";
 import { buildBearerChallenge } from "./challenge.js";
 import { hashToken, isAccessTokenShape, parseAuthorizationHeader } from "./api-token.js";
-import type { GateUser, UserGate } from "./session.js";
+import type { ResolvedSession, UserGate } from "./session.js";
 
 export interface BearerDeps {
   db: Db;
@@ -16,7 +16,7 @@ export interface BearerDeps {
   /** `publicUrlIssuer(config.publicUrl)`＝origin，無尾斜線（D12）。 */
   issuer: string;
   /** cookie session 的解析（`app.ts` 的區域函式）——無 `Authorization` header 時的回退。 */
-  resolveSessionUser: (request: FastifyRequest) => Promise<{ user: GateUser; tv: number } | null>;
+  resolveSessionUser: (request: FastifyRequest) => Promise<ResolvedSession | null>;
   limiters: {
     bearerMiss: FixedWindowLimiter;
     tokenRead: FixedWindowLimiter;
@@ -110,6 +110,7 @@ export function createAuthenticateAny(deps: BearerDeps) {
         }
         request.user = resolved.user;
         request.sessionTv = resolved.tv;
+        request.sessionId = resolved.sid;
         request.authKind = "session";
         return; // session 是完整身分：不檢查 scope、不吃 token 桶
       }

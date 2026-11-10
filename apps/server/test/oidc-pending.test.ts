@@ -1,13 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { eq, sql } from "drizzle-orm";
 import { SESSION_COOKIE } from "@knotebook/shared";
-import { insertPasswordUser, testConfig } from "./helpers.js";
+import { insertPasswordUser, testConfig, signTestSession } from "./helpers.js";
 import { buildOidcApp, identitiesOf, ssoRoundTrip, type OidcTestApp } from "./helpers/oidc-provider.js";
 import { expectedIcon, expectNoIconBytes, GENERIC, seedIconMatrix } from "./helpers/provider-icon.js";
 import { authProviders, userIdentities, users } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
 import { OIDC_PENDING_COOKIE, sealPendingLink, unsealPendingLink } from "../src/auth/oidc-pending.js";
-import { signSession } from "../src/auth/session.js";
 import { hashPassword } from "../src/auth/password.js";
 import type { OidcTestHook } from "../src/auth/oidc-test-hook.js";
 
@@ -315,7 +314,7 @@ describe("POST /api/auth/oidc/pending/confirm（#187 §7.5.2–§7.5.4）", () =
   it("RF4：瀏覽器已登入另一個帳號 V → 完成連結後回應的 session 是目標帳號；V 的舊 session 不受影響", async () => {
     const t = await twoProviders();
     const v = await insertPasswordUser(t.db, { email: "v@x.example" });
-    const vCookie = await signSession(testConfig.appSecret, { userId: v.id, tv: 0 });
+    const vCookie = await signTestSession({ userId: v.id, tv: 0 });
     const { user, cookie, pendingId } = await toPending(t);
     const res = await confirm(t, cookie, { password: PW, pendingId }, { [SESSION_COOKIE]: vCookie });
     const newSession = res.cookies.find(c => c.name === SESSION_COOKIE)!.value;

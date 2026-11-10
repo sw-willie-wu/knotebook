@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import { SESSION_COOKIE } from "@knotebook/shared";
-import { signSession } from "../src/auth/session.js";
 import { presenceClientId } from "../src/notes/editing/presence.js";
 import { EditorSession } from "../src/notes/editing/session.js";
-import { buildCollabTestApp, testConfig, testEditingRuntime } from "./helpers.js";
+import { buildCollabTestApp, testEditingRuntime, signTestSession } from "./helpers.js";
 import { bearer, docText, getContent, seedContent, seedTokenForUser, tick, waitFor } from "./editing-helpers.js";
 
 const PASSWORD = "correct-horse-battery";
@@ -75,7 +74,7 @@ describe("presence", () => {
 
   it("cookie **寫入**與 cookie 讀取都不設 presence；GET /edits 不刷新（用 clock 判斷，不用 sleep）", async () => {
     const s = await scene();
-    const cookie = `${SESSION_COOKIE}=${await signSession(testConfig.appSecret, { userId: s.u.id, tv: 0 })}`;
+    const cookie = `${SESSION_COOKIE}=${await signTestSession({ userId: s.u.id, tv: 0 })}`;
     // 三個「不該 touch」的動作依序先跑，之後才跑「該 touch」的那一發。awareness 更新走同一條 socket
     // 依序抵達，所以等到最後那發到了，前三發若偷偷 touch 過就一定已經反映在 clock 上。
     //

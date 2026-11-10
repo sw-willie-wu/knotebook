@@ -30,6 +30,12 @@ export interface CollabHooks {
    */
   onUserRevoked(userId: string): void;
   /**
+   * #388：某台裝置登出（`sessions` 那一列刪了）——只重驗該使用者「由這個 session 換得 token」的連線（`ConnectionHandle.sessionId`）。
+   * 比照 `onShareChanged` 的 N1：同一個人其他裝置的連線不受影響、不必重新出示 token。重驗時 `gate.check` 查不到那一列 → 關閉。
+   * 實作不得同步 throw（fire-and-forget；throw 會使 API 在 DB commit 後回 500）。
+   */
+  onSessionRevoked(userId: string, sessionId: string): void;
+  /**
    * #103 §7：群組來源或筆記歸屬造成的權限變動時，對 (noteIds × userIds) 的既有連線重驗（升級也要：
    * `onTokenSync` 會解除唯讀）。重驗結果由 `resolveRole` 決定——只靠群組取得存取的人被關、owner 或
    * 另有來源的人續留或降為唯讀。一律在交易 commit 之後呼叫。
@@ -63,6 +69,7 @@ export interface CollabHooks {
 export const noopCollabHooks: CollabHooks = {
   onShareChanged: () => {},
   onUserRevoked: () => {},
+  onSessionRevoked: () => {},
   onGroupAccessChanged: () => {},
   beforeNoteDeleted: async () => ({ release: () => {} }),
   onNotesRestored: () => {},

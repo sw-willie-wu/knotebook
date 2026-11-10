@@ -6,10 +6,9 @@ import path from "node:path";
 import { describe, it, expect } from "vitest";
 import { eq } from "drizzle-orm";
 import { SESSION_COOKIE, MAX_UPLOAD_BYTES } from "@knotebook/shared";
-import { buildTestApp, freshLimiters, testConfig } from "./helpers.js";
+import { buildTestApp, freshLimiters, signTestSession } from "./helpers.js";
 import { notes, noteShares, uploads, users } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
-import { signSession } from "../src/auth/session.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
 
 // ───────────────────────────── 共用 fixture helpers（比照 notes-links.test.ts／shares.test.ts 慣例）─────────────────────────────
@@ -26,7 +25,7 @@ async function insertUser(db: Db, overrides: Partial<{ email: string; displayNam
 }
 
 async function cookieFor(userId: string): Promise<string> {
-  return signSession(testConfig.appSecret, { userId, tv: 0 });
+  return signTestSession({ userId, tv: 0 });
 }
 
 async function createNote(db: Db, ownerId: string, title?: string): Promise<{ id: string }> {

@@ -9,11 +9,10 @@ import type { Pool } from "pg";
 import { and, eq, sql } from "drizzle-orm";
 import { expect, vi } from "vitest";
 import { SESSION_COOKIE, type NoteWidth } from "@knotebook/shared";
-import { signSession } from "../src/auth/session.js";
 import type { CollabHooks } from "../src/collab/hooks.js";
 import type { Db } from "../src/db/index.js";
 import { groupMembers, groupRoles, groups, noteRedirects, noteShares, notes, users } from "../src/db/schema.js";
-import { testConfig } from "./helpers.js";
+import { signTestSession } from "./helpers.js";
 
 export interface SeededUser {
   id: string;
@@ -41,7 +40,7 @@ export async function seedUser(
 
 /** `app.inject({ cookies })` 用的 session cookie（直接簽，tv=0——與 insert 預設的 token_version 一致）。 */
 export async function cookieOf(userId: string): Promise<Record<string, string>> {
-  return { [SESSION_COOKIE]: await signSession(testConfig.appSecret, { userId, tv: 0 }) };
+  return { [SESSION_COOKIE]: await signTestSession({ userId, tv: 0 }) };
 }
 
 /** 建群組＋兩個內建角色（與 0012 步驟 2、`createGroupInTx` 同旗標）＋成員。回兩個內建角色的 id。 */
@@ -171,11 +170,12 @@ export async function seedPlannerData(pool: Pool): Promise<{ userId: string; not
   return { userId: "00000000-0000-4000-8000-000000000001", noteId: rows[0].id as string };
 }
 
-/** 六個成員是 spy 的 `CollabHooks`（`linkSyncGate` 恆拒，比照既有測試的 stub）。 */
+/** 七個成員是 spy 的 `CollabHooks`（`linkSyncGate` 恆拒，比照既有測試的 stub）。 */
 export function spyCollabHooks() {
   return {
     onShareChanged: vi.fn<(noteId: string, userId: string) => void>(),
     onUserRevoked: vi.fn<(userId: string) => void>(),
+    onSessionRevoked: vi.fn<(userId: string, sessionId: string) => void>(),
     onGroupAccessChanged: vi.fn<(noteIds: readonly string[], userIds: readonly string[]) => void>(),
     beforeNoteDeleted: vi.fn(async () => ({ release: () => {} })),
     onNotesRestored: vi.fn<(noteIds: readonly string[]) => void>(),

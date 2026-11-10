@@ -10,7 +10,7 @@ import {
   COLLAB_REJECT_SERVER_ERROR,
 } from "../src/collab/server.js";
 import { notes } from "../src/db/schema.js";
-import { buildCollabTestApp, COLLAB_TOKEN_INIT, testConfig } from "./helpers.js";
+import { buildCollabTestApp, COLLAB_TOKEN_INIT, testConfig, testSessionId } from "./helpers.js";
 
 const PASSWORD = "correct-horse-battery";
 
@@ -73,7 +73,7 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
     const note = await ctx.createNote(owner.id);
     const session = await ctx.loginAs("owner-auth2@example.com", PASSWORD);
 
-    const forged = await signCollabToken("f".repeat(64), { noteId: note.id, userId: owner.id, role: "owner", tv: 0, sv: NOTE_SCHEMA_VERSION });
+    const forged = await signCollabToken("f".repeat(64), { noteId: note.id, userId: owner.id, role: "owner", tv: 0, sid: testSessionId(owner.id), sv: NOTE_SCHEMA_VERSION });
 
     await expect(session.connect(note.id, { tokenOverride: forged })).rejects.toThrow(COLLAB_REJECT_INVALID_TOKEN);
   });
@@ -92,6 +92,7 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
       userId: stranger.id,
       role: "owner",
       tv: 0,
+      sid: testSessionId(stranger.id),
       sv: NOTE_SCHEMA_VERSION,
     });
 
@@ -134,6 +135,7 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
       userId: owner.id,
       role: "owner",
       tv: 0,
+      sid: testSessionId(owner.id),
       sv: NOTE_SCHEMA_VERSION,
     });
 
@@ -179,7 +181,7 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
 
     await ctx.collab.markDeleting(note.id);
 
-    const forged = await signCollabToken("f".repeat(64), { noteId: note.id, userId: owner.id, role: "owner", tv: 0, sv: NOTE_SCHEMA_VERSION });
+    const forged = await signCollabToken("f".repeat(64), { noteId: note.id, userId: owner.id, role: "owner", tv: 0, sid: testSessionId(owner.id), sv: NOTE_SCHEMA_VERSION });
     await expect(session.connect(note.id, { tokenOverride: forged })).rejects.toThrow(COLLAB_REJECT_INVALID_TOKEN);
     // 合法 token 才拿得到真正的理由。
     await expect(session.connect(note.id)).rejects.toThrow(COLLAB_REJECT_NOTE_DELETING);
@@ -293,6 +295,7 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
       userId: stranger.id,
       role: "owner",
       tv: 0,
+      sid: testSessionId(stranger.id),
       sv: NOTE_SCHEMA_VERSION,
     });
     await expect(session.connect(note.id, { tokenOverride: forgedRole })).rejects.toThrow(COLLAB_REJECT_FORBIDDEN);
@@ -312,7 +315,7 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
 
     // 而 `bad-token` **不得**進 info：/collab 的 upgrade 不需要 session，Hocuspocus 對認證
     // 失敗又不關 socket——一則空 token 訊息換一行 info 日誌等於把日誌量交給匿名對端決定。
-    const forged = await signCollabToken("f".repeat(64), { noteId: note.id, userId: stranger.id, role: "owner", tv: 0, sv: NOTE_SCHEMA_VERSION });
+    const forged = await signCollabToken("f".repeat(64), { noteId: note.id, userId: stranger.id, role: "owner", tv: 0, sid: testSessionId(stranger.id), sv: NOTE_SCHEMA_VERSION });
     await expect(session.connect(note.id, { tokenOverride: forged })).rejects.toThrow(COLLAB_REJECT_INVALID_TOKEN);
     const badToken = ctx.collabLogs.find(one => one.obj.cause === "bad-token");
     expect(badToken?.level).toBe("debug");
@@ -358,6 +361,7 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
       userId: target.id,
       role: "owner",
       tv: 0,
+      sid: testSessionId(target.id),
       sv: NOTE_SCHEMA_VERSION,
     });
     expect((await adminSession.fetch(`/api/admin/users/${target.id}/disable`, { method: "POST" })).status).toBe(204);
@@ -413,7 +417,7 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
         if (revoked) {
           // 撤權後仍簽一個聲稱 role:'owner' 的合法簽章 token——驗證 onTokenSync 重跑
           // resolveRole 而非信任 token 內的 role（N2 同樣適用於重驗路徑）。
-          return signCollabToken(testConfig.appSecret, { noteId: note.id, userId: editorUser.id, role: "owner", tv: 0, sv: NOTE_SCHEMA_VERSION });
+          return signCollabToken(testConfig.appSecret, { noteId: note.id, userId: editorUser.id, role: "owner", tv: 0, sid: testSessionId(editorUser.id), sv: NOTE_SCHEMA_VERSION });
         }
         const res = await editorSession.fetch(`/api/notes/${note.id}/collab-token`, COLLAB_TOKEN_INIT);
         if (!res.ok) throw new Error(`取得 collab token 失敗（${res.status}）：${await res.text()}`);
@@ -451,6 +455,7 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
             userId: owner.id,
             role: "owner",
             tv: 0,
+            sid: testSessionId(owner.id),
             sv: NOTE_SCHEMA_VERSION,
           });
         }
@@ -498,6 +503,7 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
       userId: target.id,
       role: "owner",
       tv: 0,
+      sid: testSessionId(target.id),
       sv: NOTE_SCHEMA_VERSION,
     });
 
@@ -528,6 +534,7 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
       userId: target.id,
       role: "owner",
       tv: 0,
+      sid: testSessionId(target.id),
       sv: NOTE_SCHEMA_VERSION,
     });
 
@@ -566,6 +573,7 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
             userId: editorUser.id,
             role: "editor",
             tv: 0,
+            sid: testSessionId(editorUser.id),
             sv: NOTE_SCHEMA_VERSION,
           });
         }

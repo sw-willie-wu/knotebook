@@ -4,16 +4,15 @@ import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import * as Y from "yjs";
 import { SESSION_COOKIE, YDOC_FRAGMENT } from "@knotebook/shared";
-import { signSession } from "../src/auth/session.js";
 import { noteStateBackups, notes, noteStates } from "../src/db/schema.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
 import { loadNoteDoc } from "../src/notes/editing/read.js";
-import { buildCollabTestApp, buildTestApp, testConfig } from "./helpers.js";
+import { buildCollabTestApp, buildTestApp, signTestSession } from "./helpers.js";
 import { bearer, docText, getContent, seedContent, seedTokenForUser, waitFor } from "./editing-helpers.js";
 import { loadDoc, xmlOf } from "./copy-helpers.js";
 
 const PASSWORD = "correct-horse-battery";
-const cookieFor = async (userId: string) => `${SESSION_COOKIE}=${await signSession(testConfig.appSecret, { userId, tv: 0 })}`;
+const cookieFor = async (userId: string) => `${SESSION_COOKIE}=${await signTestSession({ userId, tv: 0 })}`;
 
 // m-2：`read.ts` 檔頭與 `loadNoteDoc` 內的註解都宣稱「`documents.get` 到 `forkFrom(live)`
 // 之間不得插入 `await`」，但那只是**註解在守**——沒有任何行為測試釘著這條不變量。

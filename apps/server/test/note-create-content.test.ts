@@ -1,9 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { SESSION_COOKIE } from "@knotebook/shared";
-import { signSession } from "../src/auth/session.js";
 import { noteAiEdits, notes, users } from "../src/db/schema.js";
-import { buildCollabTestApp, buildTestApp, testConfig } from "./helpers.js";
+import { buildCollabTestApp, buildTestApp, signTestSession } from "./helpers.js";
 import { seedGroup } from "./group-helpers.js";
 import { bearer, getContent, seedTokenForUser } from "./editing-helpers.js";
 
@@ -28,7 +27,7 @@ describe("POST /api/notes 帶 content", () => {
     expect(rows[0]!.op).toBe("replace_all");
     // ⚠ `/backlinks` 是 **cookie-only**（`app.authenticate`，不在 #107 D2 的 Bearer 允許清單上）
     // ——用 Bearer 會拿到 401、`body.backlinks` 是 undefined。這裡改用 session cookie。
-    const cookie = `${SESSION_COOKIE}=${await signSession(testConfig.appSecret, { userId: u.id, tv: 0 })}`;
+    const cookie = `${SESSION_COOKIE}=${await signTestSession({ userId: u.id, tv: 0 })}`;
     const back = await ctx.app.inject({ method: "GET", url: `/api/notes/${target.id}/backlinks`, headers: { cookie } });
     expect(back.json().backlinks.map((b: { id: string }) => b.id)).toContain(id);
   });

@@ -119,7 +119,41 @@ export async function freshEmptyDb(): Promise<FreshDb> {
 export async function freshDb(): Promise<FreshDb> {
   const fresh = await freshEmptyDb();
   await runMigrations(fresh.db);
+  await installTestDefaultSessions(fresh.pool);
   return fresh;
+}
+
+/**
+ * #388：session JWT 現在要對得上 `sessions` 的一列。既有測試大量「不經登入、直接簽一張 cookie」
+ * （各檔的 `cookieFor`／`cookieOf`、`signTestSession`），為了不把幾百個呼叫點都改成要帶 db，`freshDb()`
+ * 裝一支**測試專用**的 trigger：每新增一個使用者就自動有一列「測試預設 session」，id＝`testSessionId(userId)`
+ * （`md5(user_id::text)::uuid`，Node 端同一個算式），到期在 100 年後。`signTestSession` 簽的就是這一列。
+ *
+ * ⚠ 只有 `freshDb()` 有（`freshEmptyDb()`／migration harness 沒有）；正式 migration 沒有這支 trigger。
+ * 名字一律帶 `public.`：有測試在 search_path 不含 public 的連線上插使用者（`migrate.test.ts` 的儲存配額 DEFAULT 案）。
+ * 要測 session 列本身的行為（登出、改密碼換列、過期）一律走真的登入（`POST /api/auth/login`）或
+ * `insertSession`——那些列的 id 是隨機的，跟這一列無關；數列數的斷言記得這一列也在。
+ */
+async function installTestDefaultSessions(pool: Pool): Promise<void> {
+  await pool.query(`
+    create function public.test_default_session() returns trigger language plpgsql as $$
+    begin
+      insert into public.sessions (id, user_id, expires_at) values (md5(new.id::text)::uuid, new.id, now() + interval '100 years');
+      return null;
+    end $$;
+    create trigger test_default_session after insert on public.users for each row execute function public.test_default_session();
+  `);
+}
+
+/** #388：`freshDb()` 的 trigger 替每個使用者建的「測試預設 session」的 id（見 `installTestDefaultSessions`）。 */
+export function testSessionId(userId: string): string {
+  const h = createHash("md5").update(userId.toLowerCase()).digest("hex");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
+/** #388：簽一張綁「測試預設 session」的 session JWT（cookie 值）——取代以前各測試檔的 `signSession(testConfig.appSecret, { userId, tv })`。 */
+export function signTestSession(payload: { userId: string; tv: number }): Promise<string> {
+  return signSession(testConfig.appSecret, { ...payload, sid: testSessionId(payload.userId) });
 }
 
 const drizzleDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
@@ -481,6 +515,8 @@ export async function buildCollabTestApp(
     versionAutoWaitMs?: number;
     /** #272 §7.5：換掉 `testConfig`（例：開 e2e 測試縫）。 */
     config?: AppConfig;
+    /** #388：同帳號重登後延遲重驗的等待（毫秒），語意見 `AppDeps.reloginReverifyDelayMs`。 */
+    reloginReverifyDelayMs?: number;
     /** #267：「最後活動」節流表的測試縫（時鐘），語意見 `CollabDeps.lastActiveOptions`。 */
     lastActiveOptions?: CollabDeps["lastActiveOptions"];
     /** bulk transfer：`/api/transfer/*` 的測試縫，語意見 `AppDeps.transferTestHooks`。 */
@@ -503,9 +539,9 @@ export async function buildCollabTestApp(
   // 是為了讓「怎麼弄壞 gate」只有一份定義。
   let gateError: Error | null = null;
   const realCheck = gate.check.bind(gate);
-  gate.check = async (userId: string, tv: number) => {
+  gate.check = async (userId: string, tv: number, sessionId: string) => {
     if (gateError) throw gateError;
-    return realCheck(userId, tv);
+    return realCheck(userId, tv, sessionId);
   };
   const breakGate = (err: Error): void => {
     gateError = err;
@@ -537,6 +573,7 @@ export async function buildCollabTestApp(
     slugUpdateTestHook: opts.slugUpdateTestHook,
     noteCreateHooks: opts.noteCreateHooks,
     searchIndexHooks: opts.searchIndexHooks,
+    ...(opts.reloginReverifyDelayMs === undefined ? {} : { reloginReverifyDelayMs: opts.reloginReverifyDelayMs }),
     ...(opts.storageLockTimeoutMs === undefined ? {} : { storageLockTimeoutMs: opts.storageLockTimeoutMs }),
     editingQueueWaitMs: opts.editingQueueWaitMs,
     presenceOptions: opts.presence,
@@ -721,7 +758,7 @@ export async function buildCollabTestApp(
 
 /**
  * 建一個**能用密碼登入**的使用者。各測試檔既有的 `cookieFor` 慣例是自己
- * `signSession(testConfig.appSecret, { userId, tv: 0 })`——那對「只要一個能過
+ * `signTestSession({ userId, tv: 0 })`——那對「只要一個能過
  * authenticate 的 cookie」很夠用；這支補的是另一半：需要真的跑一次
  * `POST /api/auth/login` 或 `POST /api/auth/password` 的情境（例如驗「改密碼之後
  * API token 仍然有效」）。
@@ -754,6 +791,6 @@ export async function createUserAndLogin(
   over: { mustChangePassword?: boolean } = {}
 ): Promise<{ userId: string; cookie: string }> {
   const user = await insertPasswordUser(db, { mustChangePassword: over.mustChangePassword ?? false });
-  const jwt = await signSession(testConfig.appSecret, { userId: user.id, tv: 0 });
+  const jwt = await signTestSession({ userId: user.id, tv: 0 });
   return { userId: user.id, cookie: `${SESSION_COOKIE}=${jwt}` };
 }

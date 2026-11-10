@@ -2,13 +2,12 @@ import { describe, expect, it } from "vitest";
 import { eq, sql } from "drizzle-orm"; // `sql` 只給 note_links 故障那案的觸發器用（一律樣板，不串字串）
 import * as Y from "yjs";
 import { SESSION_COOKIE, YDOC_FRAGMENT, topLevelContainers } from "@knotebook/shared";
-import { signSession } from "../src/auth/session.js";
 import { docClock } from "../src/collab/store.js";
 import { noteAiEdits, noteLinks, noteStates, notes } from "../src/db/schema.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
 import type { EditingTestHooks } from "../src/notes/editing/apply.js";
 import { EditorSession } from "../src/notes/editing/session.js";
-import { buildCollabTestApp, testConfig, testEditingRuntime } from "./helpers.js";
+import { buildCollabTestApp, testEditingRuntime, signTestSession } from "./helpers.js";
 import { bearer, docText, getContent, seedContent, seedTokenForUser, waitFor } from "./editing-helpers.js";
 
 const PASSWORD = "correct-horse-battery";
@@ -37,7 +36,7 @@ async function setup(md: string | null = "# A\n\n第一段\n\n# B\n\n第二段",
   return { ctx, u, note, session, client, token, tokenId, content, post, rows, stateBytes, lastEdited };
 }
 const ids = (doc: Y.Doc) => topLevelContainers(doc.getXmlFragment(YDOC_FRAGMENT)).map(c => c.getAttribute("id"));
-const cookieFor = async (userId: string) => `${SESSION_COOKIE}=${await signSession(testConfig.appSecret, { userId, tv: 0 })}`;
+const cookieFor = async (userId: string) => `${SESSION_COOKIE}=${await signTestSession({ userId, tv: 0 })}`;
 /**
  * provider 側用 server 的 EditorSession 對 client.doc 做一次編輯（模擬人在瀏覽器打字），
  * **並等到 server 的 live doc 真的收到才回傳**。

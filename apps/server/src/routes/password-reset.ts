@@ -8,7 +8,7 @@
  * - 帳密開關（有效值）只在交易外判斷，交易內不重讀（spec §4.3 末【推】）：關閉時 403，連結不動、不扣任何桶。
  * - 兩顆桶（spec §3.6）：miss 桶（key=ip）只在交易外查無時扣，有效 token 不做預檢、不被擋；
  *   嘗試桶（key=`link:${id}`）只在完成端點、帳密有效值為開之後扣，inspect 不扣。
- * - 登出手段與改密碼相同（`token_version + 1`＋`gate.invalidate`＋`onUserRevoked`），PAT／OAuth 不受影響（spec §4.4）。
+ * - 登出手段與改密碼相同（`token_version + 1`＋#388 刪光 session 列＋`gate.invalidate`＋`onUserRevoked`），PAT／OAuth 不受影響（spec §4.4）。
  */
 import type { FastifyBaseLogger, FastifyInstance, FastifyReply } from "fastify";
 import { and, eq } from "drizzle-orm";
@@ -18,13 +18,13 @@ import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
 import { oneTimeLinks, users } from "../db/schema.js";
 import { hashToken } from "../auth/api-token.js";
-import { setSessionCookie } from "../auth/cookies.js";
 import { MIN_PASSWORD_LENGTH } from "../auth/constants.js";
 import { touchLastLogin } from "../auth/last-login.js";
 import { activeOneTimeLink, isOneTimeTokenShape } from "../auth/one-time-link.js";
 import { hashPassword, HashBusyError } from "../auth/password.js";
 import { isPasswordLoginAccepted, PASSWORD_LOGIN_DISABLED_MESSAGE } from "../auth/password-login.js";
-import { signSession, type UserGate } from "../auth/session.js";
+import type { UserGate } from "../auth/session.js";
+import { setSessionCookieFor } from "../auth/sessions.js";
 import { completePasswordResetInTx, RESET_LINK_INVALID_MESSAGE } from "../auth/tx/password-reset.js";
 import type { CollabHooks } from "../collab/hooks.js";
 import { sendError } from "../http/errors.js";
@@ -128,8 +128,7 @@ export function passwordResetRoutes(deps: PasswordResetRouteDeps) {
       deps.collabHooks.onUserRevoked(updated.id);
       request.log.info({ targetUserId: updated.id, linkId: link.id }, "重設密碼連結已使用");
       await touchLastLogin(deps.db, updated.id, request.log); // #247 §9.5 寫入點 6：重設密碼連結
-      const session = await signSession(deps.config.appSecret, { userId: updated.id, tv: updated.tokenVersion });
-      setSessionCookie(reply, deps.config, session);
+      await setSessionCookieFor(reply, deps.config, { userId: updated.id, tv: updated.tokenVersion, sid: updated.sessionId });
       const dto: UserDto = {
         id: updated.id,
         email: updated.email,

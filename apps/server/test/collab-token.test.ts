@@ -2,10 +2,9 @@ import { describe, it, expect } from "vitest";
 import { eq } from "drizzle-orm";
 import type { Role } from "@knotebook/shared";
 import { NOTE_SCHEMA_VERSION, SESSION_COOKIE } from "@knotebook/shared";
-import { buildTestApp, testConfig } from "./helpers.js";
+import { buildTestApp, testConfig, signTestSession, testSessionId } from "./helpers.js";
 import { noteShares, notes, users } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
-import { signSession } from "../src/auth/session.js";
 import { verifyCollabToken } from "../src/collab/token.js";
 
 async function insertUser(db: Db, overrides: Partial<{ email: string; displayName: string; tokenVersion: number }> = {}) {
@@ -21,7 +20,7 @@ async function insertUser(db: Db, overrides: Partial<{ email: string; displayNam
 }
 
 async function cookieFor(userId: string, tv = 0): Promise<string> {
-  return signSession(testConfig.appSecret, { userId, tv });
+  return signTestSession({ userId, tv });
 }
 
 describe("POST /api/notes/:id/collab-token", () => {
@@ -57,7 +56,7 @@ describe("POST /api/notes/:id/collab-token", () => {
       expect(typeof body.token).toBe("string");
 
       const claims = await verifyCollabToken(testConfig.appSecret, body.token);
-      expect(claims).toEqual({ noteId: note.id, userId: user.id, role, tv: 0, sv: 0 });
+      expect(claims).toEqual({ noteId: note.id, userId: user.id, role, tv: 0, sid: testSessionId(user.id), sv: 0 });
     }
   });
 

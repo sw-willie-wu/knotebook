@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { EMPTY_YDOC_UPDATE_B64, SESSION_COOKIE } from "@knotebook/shared";
-import { buildTestApp, freshDb, freshLimiters, testConfig } from "./helpers.js";
+import { buildTestApp, freshDb, freshLimiters, signTestSession } from "./helpers.js";
 import { noteShares, noteStates, notes, uploads, users } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
-import { UserGate, signSession } from "../src/auth/session.js";
+import { UserGate } from "../src/auth/session.js";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { eq, sql } from "drizzle-orm";
 import type pino from "pino";
@@ -35,7 +35,7 @@ async function insertUser(db: Db, email: string, handle?: string) {
 }
 
 async function cookieFor(userId: string): Promise<string> {
-  return signSession(testConfig.appSecret, { userId, tv: 0 });
+  return signTestSession({ userId, tv: 0 });
 }
 
 async function createNote(app: Awaited<ReturnType<typeof buildTestApp>>["app"], cookie: string): Promise<string> {

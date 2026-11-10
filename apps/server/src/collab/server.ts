@@ -161,7 +161,7 @@ const REJECT_WIRE_REASON = {
   "note-deleting": COLLAB_REJECT_NOTE_DELETING,
   /** token 缺席／簽章不符／過期／綁的 noteId 不是這一篇。**唯一在驗證 token 之前就會發生的**。 */
   "bad-token": COLLAB_REJECT_INVALID_TOKEN,
-  /** `gate.check` 不通過：帳號停用、或 token 的 tokenVersion 已被 bump。 */
+  /** `gate.check` 不通過：帳號停用、token 的 tokenVersion 已被 bump、或 #388 token 的 session 已登出／過期。 */
   "session-revoked": COLLAB_REJECT_INVALID_TOKEN,
   /** token 有效，但這個人對這篇筆記沒有任何角色——唯一真正的「授權被拒」。 */
   "no-role": COLLAB_REJECT_FORBIDDEN,
@@ -303,6 +303,11 @@ const DESTROY_UNLOAD_TIMEOUT_MS = 2_000;
 /** 每條連線經 `onAuthenticate` 後掛在 Hocuspocus `context` 上的內容。 */
 export interface CollabContext {
   userId: string;
+  /**
+   * #388：換得這條連線 collab token 的 session（`sessions.id`）。WebSocket 連線一定有（`onAuthenticate` 放的）；
+   * AI／API 的直連 ctx（`notes/editing/session.ts` 的 `DirectCtx`）沒有。
+   */
+  sessionId?: string;
 }
 
 export interface CollabDeps {
@@ -329,6 +334,11 @@ export interface ConnectionHandle {
   socketId: string;
   noteId: string;
   userId: string;
+  /**
+   * #388：這條連線**最近一次通過驗證**的 token 帶的 `sid`——握手時取自 context，每次重驗通過就換成新 token 的 `sid`
+   * （改密碼會換 session，同一台裝置的連線接著用新的 sid 續留）。登出時 `onSessionRevoked` 靠它找出這台裝置的連線。
+   */
+  sessionId: string | undefined;
   /** 要求 client 重送目前的 token（fire-and-forget，無內建 timeout）。 */
   requestToken(): void;
   /** 以指定 reason 關閉「這一條」連線（非 `closeConnections` 的全文件廣播）。 */
@@ -711,9 +721,9 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
         if (role === "none") {
           rejectAuth("no-role", { noteId: documentName, userId: claims.userId });
         }
-        const gateResult = await deps.gate.check(claims.userId, claims.tv);
+        const gateResult = await deps.gate.check(claims.userId, claims.tv, claims.sid);
         if (gateResult.status !== "ok") {
-          // 帳號停用或 tokenVersion 已被 bump——**不是**「對這篇筆記沒有權限」。client 據此
+          // 帳號停用、tokenVersion 已被 bump、或 #388 這台裝置已登出（session 列不在）——**不是**「對這篇筆記沒有權限」。client 據此
           // 重取一次 token，那一發會拿到 401（session 也失效了）並走登出流程（issue #35）。
           rejectAuth("session-revoked", { noteId: documentName, userId: claims.userId });
         }
@@ -725,7 +735,7 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
           connectionConfig.readOnly = true;
         }
 
-        return { userId: claims.userId };
+        return { userId: claims.userId, sessionId: claims.sid };
       } catch (err) {
         if (err instanceof CollabAuthError) throw err;
         // 未預期例外（`resolveRole`／`gate.check` 撞到 DB 抖動…）。不接的話 Hocuspocus 會
@@ -766,6 +776,7 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
         socketId,
         noteId: documentName,
         userId: context.userId,
+        sessionId: context.sessionId,
         requestToken: () => connection.requestToken(),
         close: (reason: string) => connection.close({ code: APP_CLOSE_CODE, reason }),
         setReadOnly: (v: boolean) => {
@@ -845,12 +856,14 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
           return;
         }
 
-        const gateResult = await deps.gate.check(claims.userId, claims.tv);
+        const gateResult = await deps.gate.check(claims.userId, claims.tv, claims.sid);
         if (gateResult.status !== "ok") {
           closeWith("session-revoked", COLLAB_CLOSE_REVOKED);
           return;
         }
 
+        // #388：之後的登出以這個 sid 找這條連線（見 ConnectionHandle.sessionId）。
+        handle.sessionId = claims.sid;
         handle.setReadOnly(role === "viewer");
       } finally {
         for (const cb of callbacks ?? []) {

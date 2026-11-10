@@ -4,16 +4,15 @@
 import { describe, expect, it } from "vitest";
 import { eq, sql } from "drizzle-orm";
 import { SESSION_COOKIE, YDOC_FRAGMENT } from "@knotebook/shared";
-import { signSession } from "../src/auth/session.js";
 import { notes } from "../src/db/schema.js";
 import type { EditingTestHooks } from "../src/notes/editing/apply.js";
 import { EditorSession } from "../src/notes/editing/session.js";
-import { buildCollabTestApp, testConfig, testEditingRuntime } from "./helpers.js";
+import { buildCollabTestApp, testEditingRuntime, signTestSession } from "./helpers.js";
 import { bearer, docText, getContent, seedContent, seedTokenForUser, waitFor } from "./editing-helpers.js";
 
 const PASSWORD = "correct-horse-battery";
 type Ctx = Awaited<ReturnType<typeof buildCollabTestApp>>;
-const cookieFor = async (userId: string) => `${SESSION_COOKIE}=${await signSession(testConfig.appSecret, { userId, tv: 0 })}`;
+const cookieFor = async (userId: string) => `${SESSION_COOKIE}=${await signTestSession({ userId, tv: 0 })}`;
 const row = (ctx: Ctx, id: string) => ctx.db.select().from(notes).where(eq(notes.id, id)).then(r => r[0]!);
 /** disconnect 之後的唯一等法：size 歸零＝onStoreDocument（含 last_edited UPDATE）已 await 完。 */
 const settled = (ctx: Ctx) => waitFor("落盤並卸載", 10_000, () => ctx.collab.hocuspocus.documents.size === 0);

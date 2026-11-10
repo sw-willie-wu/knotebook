@@ -13,7 +13,6 @@ import { afterAll, describe, expect, it } from "vitest";
 import type * as Y from "yjs";
 import { eq } from "drizzle-orm";
 import { SESSION_COOKIE } from "@knotebook/shared";
-import { signSession } from "../src/auth/session.js";
 import { loadConfig } from "../src/config.js";
 import { noteAiEdits, notes } from "../src/db/schema.js";
 import { PARSER_BUSY_MESSAGE, PARSER_BUSY_RETRY_AFTER_S, READ_TOO_COMPLEX_MESSAGE, TOO_COMPLEX_MESSAGE } from "../src/http/parse-errors.js";
@@ -23,7 +22,7 @@ import { ParsePool } from "../src/notes/editing/parse-pool.js";
 import type { ParseLimits } from "../src/notes/editing/parse-settings.js";
 import { createEditingRuntime, type EditingRuntime } from "../src/notes/editing/runtime.js";
 import { transferParseMessage } from "../src/routes/transfer.js";
-import { buildCollabTestApp, testConfig, testEditingRuntime, type TestClient } from "./helpers.js";
+import { buildCollabTestApp, signTestSession, testConfig, testEditingRuntime, type TestClient } from "./helpers.js";
 import { bearer, docText, getContent, seedContent, seedTokenForUser, waitFor } from "./editing-helpers.js";
 import { seedNote, seedUser } from "./group-helpers.js";
 import { bulkGet, bulkPut, callTool, downloadNote, editBody, issueBulkDirect, liveMarkdown, seedMd } from "./bulk-transfer-helpers.js";
@@ -71,7 +70,7 @@ async function setup(editing: EditingRuntime) {
   const session = await ctx.loginAs("a@example.com", PASSWORD);
   const client = await seedContent(ctx, session, note.id, "# A\n\n原文");
   const { token } = await seedTokenForUser(ctx.db, u.id, "notes:read notes:write", "Claude Code (knotebook)");
-  const cookie = `${SESSION_COOKIE}=${await signSession(testConfig.appSecret, { userId: u.id, tv: 0 })}`;
+  const cookie = `${SESSION_COOKIE}=${await signTestSession({ userId: u.id, tv: 0 })}`;
   return { ctx, u, note, client, token, cookie };
 }
 

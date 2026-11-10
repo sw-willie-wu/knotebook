@@ -15,8 +15,9 @@ import { clearPendingCookie, newPendingId, OIDC_PENDING_TTL_SECONDS, readPending
 import { linkIdentityToUserInTx, linkPendingIdentityInTx, type LinkedUser } from "../auth/tx/link-identity.js";
 import { TxAbort } from "../http/tx-abort.js";
 import type { OidcTestHook } from "../auth/oidc-test-hook.js";
-import { resolveSessionUser, signSession, type UserGate } from "../auth/session.js";
-import { setSessionCookie } from "../auth/cookies.js";
+import { resolveSessionUser, type UserGate } from "../auth/session.js";
+import { startSession } from "../auth/sessions.js";
+import type { CollabHooks } from "../collab/hooks.js";
 import { touchLastLogin } from "../auth/last-login.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
 
@@ -28,6 +29,9 @@ export interface OidcRouteDeps {
   config: AppConfig;
   db: Db;
   gate: UserGate;
+  /** #388：同帳號重登後延遲重驗舊 session 的共編連線（`startSession`）。 */
+  collabHooks: CollabHooks;
+  reloginReverifyDelayMs?: number;
   registry: OidcRuntimeRegistry;
   /** login 與 callback 各自一個 bucket（issue #16）；SSO 證明起點吃 oidcLogin（§7.5.3）。 */
   limiters: { oidcLogin: FixedWindowLimiter; oidcCallback: FixedWindowLimiter };
@@ -222,8 +226,7 @@ export function oidcRoutes(deps: OidcRouteDeps) {
         clearPendingCookie(reply, deps.config);
         deps.gate.invalidate(linked.id);
         await touchLastLogin(deps.db, linked.id, request.log); // #247 §9.5 寫入點 3：SSO 證明連結
-        const proveToken = await signSession(deps.config.appSecret, { userId: linked.id, tv: linked.tokenVersion });
-        setSessionCookie(reply, deps.config, proveToken);
+        await startSession(deps, request, reply, { userId: linked.id, tv: linked.tokenVersion });
         return reply.redirect((pending.next !== undefined ? safeNextPath(pending.next) : null) ?? "/");
       }
 
@@ -273,8 +276,7 @@ export function oidcRoutes(deps: OidcRouteDeps) {
       // gate 快取不含它，不需 invalidate。
       if (outcome.kind === "created") deps.gate.invalidate(outcome.userId);
       await touchLastLogin(deps.db, outcome.userId, request.log); // #247 §9.5 寫入點 2：OIDC 登入（login／created）
-      const token = await signSession(deps.config.appSecret, { userId: outcome.userId, tv: outcome.tokenVersion });
-      setSessionCookie(reply, deps.config, token);
+      await startSession(deps, request, reply, { userId: outcome.userId, tv: outcome.tokenVersion });
       return reply.redirect(nextPath ?? "/");
     } catch (err) {
       request.log.error({ err }, "OIDC callback 發生未預期錯誤");

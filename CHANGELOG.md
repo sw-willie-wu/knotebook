@@ -9,7 +9,12 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ### Upgrade notes
 
+- **Everyone has to sign in again once after upgrading.** Signing in now records a session on the server, and cookies from before the upgrade don't name one, so they count as signed out. API tokens and connected apps keep working. **Migration 0038** only adds the `sessions` table; rolling back leaves it in place, and the previous version doesn't read it. See [Self-hosting](docs/self-hosting.md#upgrading-and-rolling-back).
 - **The `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET` variables are no longer imported.** A site that goes straight from v0.5 or earlier to this version gets no "SSO" sign-in service from them: upgrade to 0.15.x first so they are imported (all three must be set on that first start and valid: an issuer starting with lowercase `http://` or `https://`, without a username or password, and an issuer and client ID of at most 512 characters each, as the 0.15 documentation describes; otherwise nothing is imported and they are never read again), or set the identity provider up in Site admin → Sign-in after upgrading. The three lines in `.env` can be deleted; if they are left there they are ignored and the server starts as usual. Sign-in services that were already imported are not touched, and keep their old callback URL.
+
+### Changed
+
+- **Signing out signs out only that browser, and its cookie stops working on the server.** Before, signing out only cleared the cookie in the browser, so a copy of it kept working for up to 7 days, and the only way to end a session was to change the password, which signed out every browser. Now each sign-in is a session the server keeps, and signing out (or signing in to the same account again in the same browser) deletes it: the account's other browsers stay signed in, and a note the signed-out browser still had open stops accepting its edits within seconds. Changing or adding a password still signs out every other browser, resetting it with a link signs out every other browser too, and disabling an account ends all of its sessions. Expired sessions are deleted as people sign in.
 
 ### Removed
 

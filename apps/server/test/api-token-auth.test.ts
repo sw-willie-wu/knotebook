@@ -17,10 +17,9 @@ import { eq } from "drizzle-orm";
 import { SESSION_COOKIE } from "@knotebook/shared";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
 import { apiTokens, noteShares, notes, oauthClients, users } from "../src/db/schema.js";
-import { signSession } from "../src/auth/session.js";
 import { generateAccessToken } from "../src/auth/api-token.js";
 import type { Db } from "../src/db/index.js";
-import { buildTestApp, freshLimiters, testConfig } from "./helpers.js";
+import { buildTestApp, freshLimiters, signTestSession } from "./helpers.js";
 import { INITIALIZE, mcpPost } from "./mcp-helpers.js";
 
 /** testConfig 的 PUBLIC_URL 是 http://localhost:3000，issuer 取其 origin。 */
@@ -184,7 +183,7 @@ describe("/api/mcp 的 method 形狀與 Bearer challenge", () => {
       .insert(users)
       .values({ email: `both-${randomUUID()}@example.com`, displayName: "B" })
       .returning();
-    const cookie = await signSession(testConfig.appSecret, { userId: user.id, tv: 0 });
+    const cookie = await signTestSession({ userId: user.id, tv: 0 });
 
     // 先確認這個 cookie 本身有效
     const cookieOnly = await app.inject({ method: "GET", url: "/api/mcp", cookies: { [SESSION_COOKIE]: cookie } });
@@ -282,7 +281,7 @@ describe("/api/mcp 的 method 形狀與 Bearer challenge", () => {
       tokenId,
     });
 
-    const cookie = await signSession(testConfig.appSecret, { userId, tv: 0 });
+    const cookie = await signTestSession({ userId, tv: 0 });
     const viaSession = await app.inject({ method: "GET", url: "/__test/whoami-auth", cookies: { [SESSION_COOKIE]: cookie } });
     expect(viaSession.statusCode).toBe(200);
     expect(viaSession.json()).toEqual({ id: userId, email: user.email, authKind: "session", tokenScope: null, tokenId: null });
@@ -538,8 +537,8 @@ describe("notes 路由收 Bearer（D2 的允許清單）", () => {
     const auth = { authorization: `Bearer ${token}` };
     expect((await app.inject({ method: "GET", url: "/api/notes", headers: auth })).statusCode).toBe(200);
     expect((await app.inject({ method: "GET", url: "/api/notes", headers: auth })).statusCode).toBe(429);
-    // 同一使用者的 cookie session 不受影響（repo 慣例：各測試檔自己 signSession）
-    const cookie = await signSession(testConfig.appSecret, { userId, tv: 0 });
+    // 同一使用者的 cookie session 不受影響（repo 慣例：各測試檔自己 signTestSession）
+    const cookie = await signTestSession({ userId, tv: 0 });
     const viaSession = await app.inject({ method: "GET", url: "/api/notes", cookies: { [SESSION_COOKIE]: cookie } });
     expect(viaSession.statusCode).toBe(200);
   });

@@ -11,12 +11,11 @@ import { SESSION_COOKIE, type TokenScope } from "@knotebook/shared";
 import type { FastifyInstance } from "fastify";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
 import { apiTokens, oauthClients } from "../src/db/schema.js";
-import { signSession } from "../src/auth/session.js";
 import type { AppDeps } from "../src/app.js";
 import type { Db } from "../src/db/index.js";
 import { hashToken } from "../src/auth/api-token.js";
 import { mcpPost, rpc } from "./mcp-helpers.js";
-import { buildTestApp, freshLimiters, insertPasswordUser, testConfig } from "./helpers.js";
+import { buildTestApp, freshLimiters, insertPasswordUser, signTestSession } from "./helpers.js";
 
 /**
  * PAT 管理端點是 **cookie 專用**，所以每個案子都需要一個已登入的會話。
@@ -32,14 +31,14 @@ async function signedInApp(
     mustChangePassword: over.mustChangePassword ?? false,
     password: over.password,
   });
-  const cookie = await signSession(testConfig.appSecret, { userId: user.id, tv: 0 });
+  const cookie = await signTestSession({ userId: user.id, tv: 0 });
   return { app, db, cookie, userId: user.id, password: user.password };
 }
 
 /** 同一座 app 內再建第二個使用者與其 cookie（跨使用者隔離的案子用）。 */
 async function anotherUser(db: Db): Promise<{ userId: string; cookie: string }> {
   const user = await insertPasswordUser(db);
-  return { userId: user.id, cookie: await signSession(testConfig.appSecret, { userId: user.id, tv: 0 }) };
+  return { userId: user.id, cookie: await signTestSession({ userId: user.id, tv: 0 }) };
 }
 
 type CreateBody = { name: string; scope: TokenScope | "notes:write"; expiresInDays: 30 | 90 | 365 | null };

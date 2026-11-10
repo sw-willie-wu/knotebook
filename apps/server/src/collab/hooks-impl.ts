@@ -179,6 +179,15 @@ export function createCollabHooks(server: CollabServer, log: CollabHooksLogger =
       }
     },
 
+    /** #388 登出：只重驗這個使用者、這個 session 的連線（其他裝置不動）。 */
+    onSessionRevoked(userId: string, sessionId: string): void {
+      try {
+        reverify([...server.connectionsOf(userId)].filter(c => c.sessionId === sessionId));
+      } catch (error) {
+        log.error({ err: error, userId }, "collab onSessionRevoked 重驗失敗");
+      }
+    },
+
     /**
      * #103 §7：只重驗「noteIds ∩ userIds」的連線（比照 `onShareChanged` 的 N1：不對整份文件廣播）。
      * 兩個名單先各自去重；日誌只記數量（名單長度由群組大小決定，不讓單行大小隨之成長）。
