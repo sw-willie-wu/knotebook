@@ -923,7 +923,12 @@ input[name="share-access"] {
    沒有人對 dragover 呼叫 preventDefault，指標停在上面時 drop 不被接受（外部檔案會被瀏覽器直接開啟）。關掉它們的命中，
    讓事件落到底下的編輯器。pointer-events 會繼承，但子元素明寫 auto 時蓋得掉外層的 none，所以命中元素本身與子孫都要列：
    side menu 的 popover（KnotebookSideMenu.tsx 的 SIDE_MENU_FLOATING_OPTIONS）、欄內 ⋮⋮ 的外包層、分隔線浮層。
-   未分層：分隔線帶 Tailwind 的 pointer-events-auto（在 @layer utilities），未分層的樣式才贏得過。 */
+   未分層：分隔線帶 Tailwind 的 pointer-events-auto（在 @layer utilities），未分層的樣式才贏得過。
+   格式工具列也要關：⋮⋮ 拖曳開始時 core 會選取被拖的 block，工具列跟著出現在它正上方，工具列與它外面那層 floating-ui 的包裝
+   div 都會接走落在上面的 drop（標記掛在包裝 div 上：SelectionAiController.tsx 的 FORMATTING_TOOLBAR_ELEMENT_PROPS）。
+   只關工具列、不關整個 floating-ui portal：portal 裡還有檔案面板的 file input、AI 框、連結輸入框，它們本身就是拖放的落點。 */
+.kb-dragging [data-kb-formatting-toolbar-popover],
+.kb-dragging [data-kb-formatting-toolbar-popover] *,
 .kb-dragging [data-kb-side-menu-popover],
 .kb-dragging [data-kb-side-menu-popover] *,
 .kb-dragging [data-kb-column-side-menu],

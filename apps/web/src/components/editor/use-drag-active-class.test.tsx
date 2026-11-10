@@ -11,6 +11,7 @@ import { BlockNoteView } from "@blocknote/mantine";
 import i18n from "@/i18n";
 import { noteSchema } from "@/collab/schema";
 import { P, row, type AnyEditor, type PartialBlockLike } from "@/test/columns-fixtures";
+import { FORMATTING_TOOLBAR_ELEMENT_PROPS } from "@/components/ai/SelectionAiController";
 import { KnotebookSideMenu, NotePathContext, SIDE_MENU_FLOATING_OPTIONS } from "./KnotebookSideMenu";
 import { DRAG_ACTIVE_CLASS, useDragActiveClass } from "./use-drag-active-class";
 
@@ -22,7 +23,8 @@ import { DRAG_ACTIVE_CLASS, useDragActiveClass } from "./use-drag-active-class";
  * auto」的底稿（特異度低於拖放規則）：每一層都得靠拖放規則直接選中才量得到 none，不能靠從外層繼承。這樣之後若有樣式在任何一層
  * 明寫 `auto`，規則也不會因為只關了外層而失效。
  */
-const EXPLICIT_AUTO = "[data-kb-side-menu-popover], [data-kb-column-side-menu], .bn-side-menu, .bn-side-menu * { pointer-events: auto; }";
+const EXPLICIT_AUTO =
+  "[data-kb-side-menu-popover], [data-kb-column-side-menu], .bn-side-menu, .bn-side-menu *, [data-floating-ui-portal] * { pointer-events: auto; }";
 const css = readFileSync(`${process.cwd()}/src/index.css`, "utf8").replace(/\r\n/g, "\n");
 function dragRules(): string {
   const out: string[] = [];
@@ -217,5 +219,57 @@ describe("U4 卸載與換掉 columnEl", () => {
     rerender({ el: null });
     expect(second.classList.contains(DRAG_ACTIVE_CLASS)).toBe(false);
     unmount();
+  });
+});
+
+describe("U5 拖放進行中，格式工具列的浮層每一層都不吃指標；同一個 portal 裡的輸入框照常吃指標", () => {
+  // 結構照瀏覽器裡量到的：floating-ui portal（0×0）＞ floating-ui 的包裝 div（掛著工具列的標記）＞ `.bn-formatting-toolbar` ＞ 按鈕。
+  // ⋮⋮ 拖曳開始時 core 選取被拖的 block，工具列出現在它正上方；包裝 div 本身也會接走 drop，所以每一層都要量到 none。
+  function portalIn(column: HTMLElement): HTMLElement {
+    const portal = document.createElement("div");
+    portal.setAttribute("data-floating-ui-portal", "");
+    column.appendChild(portal);
+    return portal;
+  }
+  function floating(portal: HTMLElement, attrs: Record<string, unknown> = {}): HTMLElement {
+    const wrapper = document.createElement("div");
+    wrapper.setAttribute("data-floating-ui-focusable", "");
+    for (const [name, value] of Object.entries(attrs)) wrapper.setAttribute(name, String(value));
+    portal.appendChild(wrapper);
+    return wrapper;
+  }
+  function toolbarIn(portal: HTMLElement): Record<"wrapper" | "toolbar" | "button", HTMLElement> {
+    const wrapper = floating(portal, FORMATTING_TOOLBAR_ELEMENT_PROPS as Record<string, unknown>);
+    const toolbar = document.createElement("div");
+    toolbar.className = "bn-toolbar bn-formatting-toolbar";
+    const button = document.createElement("button");
+    toolbar.appendChild(button);
+    wrapper.appendChild(toolbar);
+    return { wrapper, toolbar, button };
+  }
+
+  it("U5 dragenter → 欄有 class，工具列的包裝層、工具列、按鈕 computed pointer-events 都是 none；drop 之後恢復", () => {
+    const { column } = mount(CONTENT());
+    const layers = toolbarIn(portalIn(column()));
+    for (const value of Object.values(pointerEventsOf(layers))) expect(value).not.toBe("none"); // 對照：沒拖放時照常吃指標
+    fire("dragenter");
+    expect(pointerEventsOf(layers)).toEqual({ wrapper: "none", toolbar: "none", button: "none" });
+    fire("drop");
+    for (const value of Object.values(pointerEventsOf(layers))) expect(value).not.toBe("none");
+  });
+
+  it("U5b 拖放中，同一個 portal 裡檔案面板的 input[type=file] 照常吃指標（它本身就是拖放的落點）", () => {
+    const { column } = mount(CONTENT());
+    const portal = portalIn(column());
+    toolbarIn(portal);
+    const panel = document.createElement("div");
+    panel.className = "bn-panel";
+    const input = document.createElement("input");
+    input.type = "file";
+    panel.appendChild(input);
+    floating(portal).appendChild(panel);
+    fire("dragenter");
+    expect(column().classList.contains(DRAG_ACTIVE_CLASS)).toBe(true);
+    expect(pointerEventsOf({ panel, input })).toEqual({ panel: "auto", input: "auto" });
   });
 });
