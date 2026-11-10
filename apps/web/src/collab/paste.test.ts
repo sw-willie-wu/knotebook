@@ -471,6 +471,7 @@ function mountPasteEditor(
   envRef: SiteLinkEnvRef,
   collab = false,
   hook = createSiteLinkPasteHook(envRef),
+  editorProps: Record<string, unknown> = {},
 ): { editor: RealEditor; container: HTMLElement; doc?: Y.Doc } {
   const extensions = [createSiteLinkConvertExtension({ envRef })];
   const pasteHandler = createMarkdownPasteHandler(hook);
@@ -481,11 +482,11 @@ function mountPasteEditor(
           schema: noteSchema,
           collaboration: { provider: { awareness: undefined }, fragment: (doc = new Y.Doc()).getXmlFragment(YDOC_FRAGMENT), user: { id: "u", name: "U", color: "#123456" } },
           pasteHandler,
-          _tiptapOptions: { extensions },
+          _tiptapOptions: { extensions, editorProps },
           // eslint-disable-next-line @typescript-eslint/no-explicit-any -- withCollaboration 的選項型別要求完整 schema 三元組
         } as any),
       )
-    : BlockNoteEditor.create({ schema: noteSchema, pasteHandler, _tiptapOptions: { extensions } } as never)) as RealEditor;
+    : BlockNoteEditor.create({ schema: noteSchema, pasteHandler, _tiptapOptions: { extensions, editorProps } } as never)) as RealEditor;
   const container = document.createElement("div");
   document.body.appendChild(container);
   editor.mount(container);
@@ -616,14 +617,17 @@ describe("#269 W6 貼上的站內連結轉換（真編輯器、真 DOM paste 事
     ]);
   });
 
-  it("重複內容：貼上的 `-[Alpha]` 緊接在相同的既有 `-[Alpha]` 後面——findDiffEnd 讓結尾早於起點（照字面 `[start, end.b]` 是點範圍），修正後只轉貼上的那個", () => {
+  it("重複內容：貼上的 `-[Alpha]` 緊接在相同的既有 `-[Alpha]` 後面——findDiffEnd 讓結尾早於起點（照字面 `[start, end.b]` 是點範圍），只轉貼上的那個", () => {
     const envRef = siteRef();
     const real = createSiteLinkPasteHook(envRef);
     let naive: { start: number; endA: number; endB: number } | null = null;
+    let before: AnyNode = null;
     const { editor } = mountPasteEditor(envRef, false, {
-      before: real.before,
+      before: (ed) => {
+        before = (ed as RealEditor)._tiptapEditor.view.state.doc;
+        return real.before(ed);
+      },
       after: (ed, snapshot) => {
-        const before = (snapshot as { doc: AnyNode }).doc;
         const after = (ed as RealEditor)._tiptapEditor.view.state.doc;
         const end = before.content.findDiffEnd(after.content);
         naive = { start: before.content.findDiffStart(after.content), endA: end.a, endB: end.b };
@@ -670,6 +674,150 @@ describe("#269 W6 貼上的站內連結轉換（真編輯器、真 DOM paste 事
       ["link", "/n/alice/alpha"],
       ["text", undefined],
     ]);
+  });
+});
+
+/**
+ * #353：段中貼上多段時，被切開那段的後半（換了新 block id）不在轉換範圍內——範圍是這次貼上插入的內容，不是前後文件的 diff。
+ * 既有連結用 `/notes/<id>`、貼上的用 `/n/alice/alpha`：兩者都命中快取，但 href 不同，PM 不會把緊貼的兩個連結併成一個。
+ */
+describe("#353 段中貼上多段：既有的一般站內連結不轉", () => {
+  afterEach(cleanupPasteEditors);
+
+  const NOTE_HREF = `/notes/${ALPHA.id}`;
+  const H = { type: "link" as const, href: NOTE_HREF, content: "H" };
+  const L = { type: "link" as const, href: NOTE_HREF, content: "L" };
+  const a = (t: string) => `<a href="/n/alice/alpha">${t}</a>`;
+  const TWO_HTML = { "text/html": `<p>X ${a("pa")}</p><p>Y ${a("pb")}</p>`, "text/plain": "X pa\nY pb" };
+  const TWO_MD = { "text/plain": "X [pa](/n/alice/alpha)\n\nY [pb](/n/alice/alpha)" };
+
+  /** 全文（含巢狀子區塊）依序的連結：一般連結 `link:<文字>`、wikilink `wiki:<snapshotTitle>`。 */
+  function linkSeq(editor: RealEditor): string[] {
+    const out: string[] = [];
+    editor._tiptapEditor.view.state.doc.descendants((n: AnyNode) => {
+      if (n.type.name === "wikilink") out.push(`wiki:${String(n.attrs.snapshotTitle)}`);
+      else if (n.isText && n.marks.some((m: AnyNode) => m.type.name === "link")) out.push(`link:${String(n.text)}`);
+      return true;
+    });
+    return out;
+  }
+  function select(editor: RealEditor, fromWord: string, toWord: string): void {
+    const pos = (word: string, end: boolean) => {
+      let p = -1;
+      editor._tiptapEditor.view.state.doc.descendants((n: AnyNode, at: number) => {
+        if (p === -1 && n.isText && String(n.text).includes(word)) p = at + String(n.text).indexOf(word) + (end ? word.length : 0);
+        return p === -1;
+      });
+      return p;
+    };
+    editor._tiptapEditor.commands.setTextSelection({ from: pos(fromWord, false), to: pos(toWord, true) });
+  }
+
+  it.each([
+    ["HTML", TWO_HTML],
+    ["markdown", TWO_MD],
+  ] as const)("issue 例 `[H] AAA| [L] BBB` 貼兩段（%s）：貼上的轉、被切開那段後半的 L 與前半的 H 不轉", (_name, data) => {
+    const { editor } = mountPasteEditor(siteRef());
+    editor.replaceBlocks(editor.document, [{ type: "paragraph", content: [H, " AAA ", L, " BBB"] }]);
+    caretAfter(editor, "AAA");
+    realPaste(editor, data);
+    expect(linkSeq(editor)).toEqual(["link:H", "wiki:pa", "wiki:pb", "link:L"]);
+    expect(shape(editor)).toHaveLength(2); // 前置：段落真的被切成兩段（後半換了 block id）
+  });
+
+  it("最後一段是巢狀清單項（PM 以 ReplaceAroundStep 把游標後的既有內容搬進貼上的最後一項）、游標緊貼在 L 前：L 不轉", () => {
+    const { editor } = mountPasteEditor(siteRef());
+    editor.replaceBlocks(editor.document, [{ type: "paragraph", content: [H, " AAA ", L, " BBB"] }]);
+    caretAfter(editor, "AAA ");
+    realPaste(editor, { "text/html": `<p>X ${a("pa")}</p><ul><li>Y ${a("pb")}<ul><li>Z ${a("pc")}</li></ul></li></ul>`, "text/plain": "X" });
+    expect(linkSeq(editor)).toEqual(["link:H", "wiki:pa", "wiki:pb", "wiki:pc", "link:L"]);
+  });
+
+  it("段首貼兩段：原段落的 L 不轉", () => {
+    const { editor } = mountPasteEditor(siteRef());
+    editor.replaceBlocks(editor.document, [{ type: "paragraph", content: [H] }, { type: "paragraph", content: ["AAA ", L] }]);
+    editor.setTextCursorPosition(editor.document[1]!.id, "start");
+    realPaste(editor, TWO_HTML);
+    expect(linkSeq(editor)).toEqual(["link:H", "wiki:pa", "wiki:pb", "link:L"]);
+  });
+
+  it("段內選取上貼兩段（取代選取）：選取外的 H、L 不轉", () => {
+    const { editor } = mountPasteEditor(siteRef());
+    editor.replaceBlocks(editor.document, [{ type: "paragraph", content: [H, " AAA BBB ", L, " CCC"] }]);
+    select(editor, "AAA", "BBB");
+    realPaste(editor, TWO_HTML);
+    expect(linkSeq(editor)).toEqual(["link:H", "wiki:pa", "wiki:pb", "link:L"]);
+  });
+
+  it("跨段選取上貼兩段：選取外的 H、L 不轉", () => {
+    const { editor } = mountPasteEditor(siteRef());
+    editor.replaceBlocks(editor.document, [
+      { type: "paragraph", content: [H, " AAA"] },
+      { type: "paragraph", content: ["BBB ", L, " CCC"] },
+    ]);
+    select(editor, "AAA", "BBB");
+    realPaste(editor, TWO_HTML);
+    expect(linkSeq(editor)).toEqual(["link:H", "wiki:pa", "wiki:pb", "link:L"]);
+  });
+
+  it.each([
+    ["HTML 兩段", TWO_HTML],
+    ["裸網址", { "text/plain": `${window.location.origin}/n/alice/alpha` }],
+  ] as const)("貼上被 handlePaste 擋下（筆記大小上限那類，回 true、文件沒變）、選取蓋著既有 L（%s）：L 不轉、文件不變", (_name, data) => {
+    const { editor } = mountPasteEditor(siteRef(), false, undefined, { handlePaste: () => true });
+    editor.replaceBlocks(editor.document, [{ type: "paragraph", content: ["go AAA ", L, " BBB"] }]);
+    const before = editor._tiptapEditor.view.state.doc;
+    select(editor, "AAA", "BBB");
+    realPaste(editor, data);
+    expect(linkSeq(editor)).toEqual(["link:L"]);
+    expect(editor._tiptapEditor.view.state.doc.eq(before)).toBe(true); // 前置：真的被擋下了
+  });
+
+  it.each([
+    // 格選取（第 0 欄第 1–2 列）：依文件順序夾在兩格之間、沒被選的格子（含 L）不算。
+    ["格選取", "cell"],
+    // 游標在一格裡：prosemirror-tables 從那一格起往下貼，貼到的格子超出原本的選取。
+    ["游標在格內", "caret"],
+  ] as const)("把複製的表格格子貼進表格（prosemirror-tables 的 handlePaste，不是 paste tr；%s）：貼到的格子裡的轉、沒貼到的 L 與既有連結不轉", (_name, how) => {
+    const { editor } = mountPasteEditor(siteRef());
+    const cell = (content: unknown) => ({ type: "tableCell", content });
+    const pa = [{ type: "link", href: "/n/alice/alpha", content: "pa" }];
+    editor.replaceBlocks(editor.document, [
+      {
+        type: "table",
+        content: {
+          type: "tableContent",
+          rows: [{ cells: [cell(pa), cell("m"), cell("x")] }, { cells: [cell("q"), cell("n"), cell([L])] }, { cells: [cell("r"), cell("s"), cell("t")] }],
+        },
+      } as never,
+    ]);
+    const view = editor._tiptapEditor.view;
+    const cells: number[] = [];
+    view.state.doc.descendants((n: AnyNode, p: number) => {
+      if (n.type.name === "tableCell") cells.push(p);
+      return true;
+    });
+    // CellSelection 走 Selection 的 JSON 註冊（prosemirror-tables 註冊了 "cell"），不必直接相依 prosemirror-tables。
+    const Selection = Object.getPrototypeOf(view.state.selection.constructor) as { fromJSON(doc: AnyNode, json: unknown): AnyNode };
+    const copied = Selection.fromJSON(view.state.doc, { type: "cell", anchor: cells[0], head: cells[3] }); // 第 0 欄第 0–1 列：pa、q
+    const html = view.serializeForClipboard(copied.content()).dom.innerHTML;
+    if (how === "cell") view.dispatch(view.state.tr.setSelection(Selection.fromJSON(view.state.doc, { type: "cell", anchor: cells[3], head: cells[6] })));
+    else editor._tiptapEditor.commands.setTextSelection(cells[3]! + 3);
+    expect(view.state.selection.constructor.name).toBe(how === "cell" ? "CellSelection" : "TextSelection"); // 前置
+    realPaste(editor, { "blocknote/html": html, "text/plain": "pa\nq" });
+    // 第 0 列的 pa 是既有的（沒被貼到）、第 1 列第 0 格是貼上的 pa、第 2 列第 0 格是貼上的 q。
+    expect(linkSeq(editor)).toEqual(["link:pa", "wiki:pa", "link:L"]);
+    // 前置：真的貼成兩格（不是把文字塞進一格）；wikilink 是 atom，不算進 textContent。
+    expect(view.state.doc.textContent).toBe("pamxnLqst");
+  });
+
+  it("行內貼單段（不切段）：照舊只轉貼上的", () => {
+    const { editor } = mountPasteEditor(siteRef());
+    editor.replaceBlocks(editor.document, [{ type: "paragraph", content: [H, " AAA ", L, " BBB"] }]);
+    caretAfter(editor, "AAA");
+    realPaste(editor, { "text/html": a("pa"), "text/plain": "pa" });
+    expect(linkSeq(editor)).toEqual(["link:H", "wiki:pa", "link:L"]);
+    expect(shape(editor)).toHaveLength(1);
   });
 });
 

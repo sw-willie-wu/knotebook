@@ -283,6 +283,7 @@ describe("ShareDialog", () => {
 
     await waitFor(() => expect(screen.getByText(SHARE.email)).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: `Remove ${SHARE.email}` }));
+    fireEvent.click(within(await screen.findByRole("alert")).getByRole("button", { name: "Remove" }));
 
     await waitFor(() => {
       const call = fetchMock.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === "DELETE");
@@ -290,6 +291,55 @@ describe("ShareDialog", () => {
       expect(String((call as [RequestInfo, RequestInit])[0])).toBe(`${SHARES_URL}/${SHARE.userId}`);
     });
     await waitFor(() => expect(screen.getByText("No one else has access yet.")).toBeInTheDocument());
+  });
+
+  describe("#395 移除成員的二次確認", () => {
+    async function openMembers(onCall?: (method: string, url: string) => Response | undefined) {
+      const stub = stubRoutedFetch({ shares: [SHARE], token: null, onCall });
+      renderDialog();
+      await openDialog();
+      await waitFor(() => expect(screen.getByRole("radio", { name: /Members only/ })).toBeChecked());
+      await waitFor(() => expect(screen.getByText(SHARE.email)).toBeInTheDocument());
+      return stub;
+    }
+    const deletes = (stub: { calls: Array<{ method: string; url: string }> }) => stub.calls.filter((c) => c.method === "DELETE");
+
+    it("按移除先出確認、帶 email；取消不送 DELETE、成員仍在", async () => {
+      const stub = await openMembers();
+      fireEvent.click(screen.getByRole("button", { name: `Remove ${SHARE.email}` }));
+      const confirm = await screen.findByRole("alert");
+      expect(within(confirm).getByText(/bob@example\.com/)).toBeInTheDocument();
+      expect(within(confirm).queryByText(/You will lose access/)).not.toBeInTheDocument();
+      expect(deletes(stub)).toHaveLength(0);
+
+      fireEvent.click(within(confirm).getByRole("button", { name: "Cancel" }));
+      await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+      expect(screen.getByRole("button", { name: `Remove ${SHARE.email}` })).toHaveFocus();
+      expect(deletes(stub)).toHaveLength(0);
+      expect(screen.getByText(SHARE.email)).toBeInTheDocument();
+    });
+
+    it("確認才送 DELETE，名單更新", async () => {
+      const stub = await openMembers();
+      fireEvent.click(screen.getByRole("button", { name: `Remove ${SHARE.email}` }));
+      fireEvent.click(within(await screen.findByRole("alert")).getByRole("button", { name: "Remove" }));
+      await waitFor(() => expect(deletes(stub)).toEqual([{ method: "DELETE", url: `${SHARES_URL}/${SHARE.userId}` }]));
+      await waitFor(() => expect(screen.getByText("No one else has access yet.")).toBeInTheDocument());
+    });
+
+    it("移除的是自己：文字講明失去這篇筆記的存取權，與一般移除不同", async () => {
+      const me = { id: SHARE.userId, email: SHARE.email, handle: "bob", displayName: "Bob", isAdmin: false, mustChangePassword: false, hasPassword: true, autoVersions: true };
+      const stub = await openMembers((method, url) =>
+        url === "/api/auth/me" && method === "GET"
+          ? fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(me) })
+          : undefined,
+      );
+      fireEvent.click(screen.getByRole("button", { name: `Remove ${SHARE.email}` }));
+      const confirm = await screen.findByRole("alert");
+      await waitFor(() => expect(within(confirm).getByText(/You will lose access to this note/)).toBeInTheDocument());
+      expect(within(confirm).getByText(/bob@example\.com/)).toBeInTheDocument();
+      expect(deletes(stub)).toHaveLength(0);
+    });
   });
 
   it("改角色送出 PUT {email, role} 至同一支端點", async () => {
@@ -490,6 +540,7 @@ describe("ShareDialog 三態（#72）", () => {
     await waitFor(() => expect(screen.getByRole("radio", { name: /Members only/ })).toBeChecked());
 
     fireEvent.click(screen.getByRole("button", { name: `Remove ${SHARE.email}` }));
+    fireEvent.click(within(await screen.findByRole("alert")).getByRole("button", { name: "Remove" }));
     await waitFor(() => expect(screen.queryByText("Bob")).not.toBeInTheDocument());
     expect(screen.getByRole("radio", { name: /Members only/ })).toBeChecked();
   });

@@ -322,7 +322,7 @@ describe("⋮ 選單：移動／複製到群組（#216）", () => {
     renderMenu(GROUP_NOTE);
     await pickFlyout("note-menu-copy-to", "My notes");
     let dialog = await screen.findByRole("dialog");
-    expect(dialog).toHaveTextContent("This creates a copy in your own notes; the original stays as it is.");
+    expect(dialog).toHaveTextContent("This creates a copy in your own notes; the original stays as it is. AI edit history, version history and backlinks are not copied.");
     fireEvent.click(within(dialog).getByRole("button", { name: "Copy to my notes" }));
     expect(await screen.findByText("Copied to your notes")).toBeInTheDocument();
     expect(s.calls.find((c) => c.url === URLS.copy)?.body).toEqual({});
@@ -334,6 +334,7 @@ describe("⋮ 選單：移動／複製到群組（#216）", () => {
     await pickFlyout("note-menu-copy-to", "Make a copy");
     dialog = await screen.findByRole("dialog");
     expect(dialog).toHaveTextContent('next to the original in "Workshop A"');
+    expect(dialog).toHaveTextContent("version history and backlinks are not copied");
     fireEvent.click(within(dialog).getByRole("button", { name: "Make a copy" }));
     await waitFor(() => expect(s2.calls.find((c) => c.url === URLS.copy)?.body).toEqual({ groupId: GA }));
   });
@@ -351,6 +352,7 @@ describe("⋮ 選單：移動／複製到群組（#216）", () => {
     expect(dialog).toHaveTextContent("Its public link will be turned off.");
     expect(dialog).toHaveTextContent("Its address changes to /g/…");
     expect(dialog).toHaveTextContent("You will no longer own it");
+    expect(dialog).toHaveTextContent("Its version history is cleared and doesn't come back.");
     const submit = within(dialog).getByRole("button", { name: "Move into group" });
     expect(submit).toHaveClass("bg-destructive");
     // 選單已關
@@ -365,6 +367,7 @@ describe("⋮ 選單：移動／複製到群組（#216）", () => {
     await waitFor(() => expect(within(dialog).getByRole("button", { name: "Move into group" })).not.toBeDisabled());
     expect(dialog).not.toHaveTextContent("Per-person sharing");
     expect(dialog).not.toHaveTextContent("public link");
+    expect(dialog).toHaveTextContent("Its version history is cleared");
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(s.calls.filter((c) => c.url === URLS.move)).toEqual([]);
@@ -491,6 +494,7 @@ describe("⋮ 選單：移動／複製到群組（#216）", () => {
 
     const dialog = await screen.findByRole("dialog");
     expect(dialog).toHaveTextContent('This creates a copy in "Workshop A"; the original stays as it is.');
+    expect(dialog).toHaveTextContent("version history and backlinks are not copied");
     const submit = within(dialog).getByRole("button", { name: "Copy into group" });
     expect(submit).not.toHaveClass("bg-destructive");
     expect(submit).toHaveClass("border-input", "bg-transparent");

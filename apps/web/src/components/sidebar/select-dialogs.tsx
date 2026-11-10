@@ -95,6 +95,7 @@ export function MoveConfirmDialog({ count, groupName, ...rest }: ConfirmProps & 
         <li>{t("select.moveClosesPublicLinks")}</li>
         <li>{t("select.moveUrlChange")}</li>
         <li>{t("select.moveOwnership")}</li>
+        <li>{t("select.moveClearsVersions")}</li>
       </ul>
     </ConfirmShell>
   );

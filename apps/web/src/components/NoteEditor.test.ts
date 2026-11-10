@@ -973,4 +973,41 @@ describe("#269 接線：站內連結外掛真的掛在 buildNoteEditorOptions �
       cleanup();
     }
   });
+
+  const a353 = (t: string) => `<a href="/n/alice/alpha">${t}</a>`;
+  it.each([
+    // 游標在 AAA 之後：被切開那段的後半換了新 block id（舊的 diff 範圍蓋到 L）。
+    ["兩段", "AAA", `<p>X ${a353("pa")}</p><p>Y ${a353("pb")}</p>`, ["link:H", "wiki:pa", "wiki:pb", "link:L"]],
+    // 最後一塊是巢狀清單項、游標緊貼 L 前：PM 以 ReplaceAroundStep 把游標後的既有內容搬進那一項（「選取＋尺寸差」會蓋到 L）。
+    ["最後一塊是巢狀清單項", "AAA ", `<p>X ${a353("pa")}</p><ul><li>Y ${a353("pb")}<ul><li>Z ${a353("pc")}</li></ul></li></ul>`, ["link:H", "wiki:pa", "wiki:pb", "wiki:pc", "link:L"]],
+  ] as const)("#353 產品組態：`[H] AAA [L] BBB` 段中貼%s → 貼上的轉成 wikilink，既有的 H、L 仍是一般連結", (_name, after, html, expected) => {
+    const { editor, cleanup } = mountBuilt();
+    try {
+      const href = "/notes/11111111-1111-4111-8111-111111111111"; // 與貼上的 href 不同：緊貼時 PM 不會併成一個連結
+      editor.replaceBlocks(editor.document, [{ type: "paragraph", content: [{ type: "link", href, content: "H" }, " AAA ", { type: "link", href, content: "L" }, " BBB"] }]);
+      const view = editor._tiptapEditor.view;
+      let caret = -1;
+      view.state.doc.descendants((n: { isText: boolean; text?: string }, p: number) => {
+        if (caret === -1 && n.isText && String(n.text).includes(after)) caret = p + String(n.text).indexOf(after) + after.length;
+        return caret === -1;
+      });
+      editor._tiptapEditor.commands.setTextSelection(caret);
+      const data: Record<string, string> = { "text/html": html, "text/plain": "X" };
+      const event = new Event("paste", { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "clipboardData", { value: { types: Object.keys(data), items: [], files: [], getData: (t: string) => data[t] ?? "" } });
+      view.dom.dispatchEvent(event);
+      // 全文（含巢狀子區塊）依序的連結。
+      const seq: string[] = [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- PM Node 型別在 apps/web 值層級拿不到（同本檔其他 descendants 走法）
+      view.state.doc.descendants((n: any) => {
+        if (n.type.name === "wikilink") seq.push(`wiki:${String(n.attrs.snapshotTitle)}`);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 同上
+        else if (n.isText && n.marks.some((m: any) => m.type.name === "link")) seq.push(`link:${String(n.text)}`);
+        return true;
+      });
+      expect(seq).toEqual(expected);
+    } finally {
+      cleanup();
+    }
+  });
 });

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter, Route, Routes, useLocation } from "react-router";
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router";
 import * as Y from "yjs";
 import { blocksToYDoc } from "@blocknote/core/yjs";
 import { YDOC_FRAGMENT } from "@knotebook/shared";
@@ -22,14 +22,20 @@ vi.mock("@/present/render", async (importOriginal) => {
 const nav = vi.hoisted(() => ({ fn: vi.fn() }));
 vi.mock("react-router", async (importOriginal) => {
   const mod = await importOriginal<typeof import("react-router")>();
+  const { useMemo } = await import("react");
   return {
     ...mod,
     useNavigate: () => {
       const real = mod.useNavigate();
-      return ((...args: Parameters<typeof real>) => {
-        nav.fn(...args);
-        return real(...args);
-      }) as typeof real;
+      // useMemo：包裝函式的身分跟 real 一樣穩定（像真的 useNavigate），否則把 navigate 放進 effect deps 的碼每次 render 都重跑
+      return useMemo(
+        () =>
+          ((...args: Parameters<typeof real>) => {
+            nav.fn(...args);
+            return real(...args);
+          }) as typeof real,
+        [real],
+      );
     },
   };
 });
@@ -77,7 +83,15 @@ function stubFetch() {
 
 function Probe() {
   const location = useLocation();
-  return <div data-testid="loc">{`${location.pathname}${location.search}${location.hash}`}</div>;
+  const navigate = useNavigate();
+  return (
+    <>
+      <div data-testid="loc">{`${location.pathname}${location.search}${location.hash}`}</div>
+      <button type="button" onClick={() => navigate(`/p/${TOKEN}?present#/b`)}>
+        go-present
+      </button>
+    </>
+  );
 }
 
 function renderPublic(entry: string) {
@@ -184,6 +198,29 @@ describe("公開頁 × 簡報", () => {
     expect(await screen.findByText("This link doesn't exist or is no longer active.")).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(fake.exitFullscreen).toHaveBeenCalledTimes(1);
+  });
+
+  it("#234 重抓 404 → 網址拿掉 ?present 與投影片 hash；replace 導頁、不新增歷史", async () => {
+    const queryClient = renderPublic(`/p/${TOKEN}?present#/b`);
+    await ready();
+    nav.fn.mockClear();
+    server.status = 404;
+    await act(async () => queryClient.invalidateQueries());
+    expect(await screen.findByText("This link doesn't exist or is no longer active.")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId("loc").textContent).toBe(`/p/${TOKEN}`));
+    const stripCalls = nav.fn.mock.calls.filter(([to]) => typeof to === "object" && to !== null);
+    expect(stripCalls).toEqual([[{ pathname: `/p/${TOKEN}`, search: "", hash: "" }, { replace: true }]]);
+  });
+
+  it("#234 先 404（非簡報）、之後才導到 ?present#/b → 一樣被 replace 拿掉", async () => {
+    server.status = 404;
+    renderPublic(`/p/${TOKEN}`);
+    expect(await screen.findByText("This link doesn't exist or is no longer active.")).toBeInTheDocument();
+    nav.fn.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "go-present" }));
+    await waitFor(() => expect(screen.getByTestId("loc").textContent).toBe(`/p/${TOKEN}`));
+    const replaceCalls = nav.fn.mock.calls.filter(([, opts]) => (opts as { replace?: boolean } | undefined)?.replace === true);
+    expect(replaceCalls).toEqual([[{ pathname: `/p/${TOKEN}`, search: "", hash: "" }, { replace: true }]]);
   });
 
   it("重抓非 404 失敗 → 簡報層不動（續渲快照）", async () => {
