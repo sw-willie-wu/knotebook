@@ -451,8 +451,8 @@ export const ERROR_CODES = [
   // `too_many_blocks`＝超過 `MAX_BLOCKS`；`content_too_large`＝413，body 超過 `bodyLimit`
   // （由 `app.ts` 的 `clientErrorCode` 映射，是唯一的 413 通用碼——上傳的 `file_too_large`
   // 由 uploads 路由自己回，不經那條分流）。
-  // #222：`unsupported_color`＝400，送來的 markdown 帶了不在編輯器 10 種內建色名內的文字色／底色
-  // （整筆拒絕，同 `unsupported_block`；`POST /api/notes` 帶 content 也會回）。
+  // #378：`unsupported_color`＝400，送來的 markdown 帶了編輯器無法顯示的文字色／底色（收拒規則見 `note-colors.ts` 的
+  // `canonicalColor`；整筆拒絕，同 `unsupported_block`；`POST /api/notes` 帶 content 也會回）。
   // 並排 PR-2（spec §11.3）：`unsupported_columns`／`unsupported_size`＝400，並排或圖片寬度／表格欄寬不是讀出的正規形（同樣整筆拒絕）。
   "fingerprint_mismatch",
   "unsupported_block",

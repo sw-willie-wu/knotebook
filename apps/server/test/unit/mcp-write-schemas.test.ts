@@ -153,8 +153,8 @@ describe("#108 M14：21b(ii) 的行為探針", () => {
   });
 });
 
-// #222：模型面字串要講到顏色怎麼寫、只收哪些名字、讀回來是同一個形——不講的話模型只會靠
-// read_note_section 偶然看到 HTML 去猜，而 `#ff6600` 這種值會整筆被拒。
+// #222／#378：模型面字串要講到顏色怎麼寫、收哪些名字與色碼、讀回來是同一個形（色碼讀回小寫 `#rrggbb`）——
+// 不講的話模型只會靠 read_note_section 偶然看到 HTML 去猜。
 // 色名清單寫死一份（不從 PALETTE_COLORS 導出）——否則兩邊一起改就一起綠。
 describe("#222 顏色在工具說明裡", () => {
   const NAMES = "default, gray, brown, red, orange, yellow, green, blue, purple, pink";
@@ -162,6 +162,9 @@ describe("#222 顏色在工具說明裡", () => {
     const d = editNoteInput.markdown.description ?? "";
     expect(d).toContain(NAMES);
     expect(d).toContain('<span style="color:red">');
+    expect(d).toContain("#ff6600");
+    expect(d).toContain("#rgb or #rrggbb");
+    expect(d).not.toContain("Only these names are accepted");
     expect(d).toContain("read_note_section");
   });
   it("create_note 的 content 說明指回 edit_note；read_note_section 的 markdown 說明講到顏色是 HTML、原樣寫回會保留", () => {

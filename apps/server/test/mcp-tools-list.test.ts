@@ -358,7 +358,7 @@ describe("#108 tools/list", () => {
     const EDIT_MD =
       "The new markdown. Required for every operation except delete_section and rename. Colors are HTML, as read_note_section returns them: " +
       'colored text is <span style="color:red">…</span> inside the markdown; a block\'s own color is e.g. <p data-background-color="yellow">…</p>. ' +
-      `Only these names are accepted: default, gray, brown, red, orange, yellow, green, blue, purple, pink. ${COLUMNS} ${SIZES} ${WRITE_LINK}`;
+      `For a color, use one of these names: default, gray, brown, red, orange, yellow, green, blue, purple, pink, or a hex color such as #ff6600 (written #rgb or #rrggbb). ${COLUMNS} ${SIZES} ${WRITE_LINK}`;
     const CREATE_CONTENT =
       "Markdown for the new note. Leave it out to create an empty note. Some deployments cannot store content this way and answer `invalid_body`; " +
       `create the note without it and the note still exists. Colors, side-by-side columns and sizes work as in edit_note. ${WRITE_LINK}`;

@@ -95,6 +95,25 @@ describe("W1–W7 狀態表", () => {
     expect((await bulkPut(s.ctx.app, s.bulk.token, editBody(d2.text, () => "Changed para"))).statusCode).toBe(200);
   });
 
+  it("色碼：上傳 #F60 → 下載回小寫 #ff6600；原上傳檔與重新下載的檔重送都判 unchanged", async () => {
+    const s = await scene();
+    const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
+    const addColor = (b: string) => b.replace("Para 1", 'Para <span style="color:#F60">1</span>');
+    const put = await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, addColor));
+    expect(put.statusCode).toBe(200);
+    expect(put.json()).toMatchObject({ result: "applied", applied: 1 });
+    const d2 = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
+    expect(d2.body).toContain('<span style="color:#ff6600">1</span>');
+    expect(d2.body).not.toContain("#F60");
+    const rowsBefore = (await edits(s.ctx, s.note.id)).length;
+    // 重新下載的副本把色碼改回上傳時的寫法（大寫短寫）：位元組與本文雜湊都跟下載的不同，要靠解析後的正規形比對才判得出沒有新改動。
+    const again = await bulkPut(s.ctx.app, s.bulk.token, editBody(d2.text, b => b.replace("#ff6600", "#F60")));
+    expect(again.statusCode, again.body).toBe(200);
+    expect(again.json()).toMatchObject({ applied: 0 });
+    expect((again.json() as { same: number }).same).toBeGreaterThanOrEqual(1);
+    expect((await edits(s.ctx, s.note.id)).length).toBe(rowsBefore);
+  });
+
   it("W5 409 三形：別人的 base、別篇的 base → reason other_note；不存在的 16 hex → expired（各帶對應訊息）", async () => {
     const s = await scene();
     const other = await seedNote(s.ctx.db, { ownerId: s.u.id }, { title: "Other" });
