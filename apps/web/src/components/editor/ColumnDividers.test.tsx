@@ -10,6 +10,7 @@ import { noteSchema } from "@/collab/schema";
 import { collabUndoManager } from "@/collab/undo";
 import { COLUMN_GAP_PX } from "@/collab/columns/layout";
 import { STACKED_ATTR } from "@/collab/columns/layout-extension";
+import { writeColumnWidths } from "@/collab/columns/width-preview";
 import { ratiosFromPixels } from "@/collab/columns/widths";
 import { IMG, P, mountEditor, row, type AnyEditor, type PartialBlockLike } from "@/test/columns-fixtures";
 import { ColumnDividers } from "./ColumnDividers";
@@ -419,7 +420,7 @@ describe("S4 鍵盤", () => {
   });
 });
 
-/** 另一個用戶端：同一份 Y 狀態的第二顆編輯器；`push()` 把它的變更送到受測的編輯器。 */
+/** 另一個用戶端：同一份 Y 狀態的第二顆編輯器；`push()` 把它的變更送到受測的編輯器，`pull()` 反過來。 */
 async function remotePeer(editor: AnyEditor) {
   const docA = collabUndoManager(editor)!.doc;
   const docB = new Y.Doc();
@@ -448,6 +449,7 @@ async function remotePeer(editor: AnyEditor) {
   return {
     peer,
     push: () => act(() => Y.applyUpdate(docA, Y.encodeStateAsUpdate(docB, Y.encodeStateVector(docA)))),
+    pull: () => act(() => Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA, Y.encodeStateVector(docB)))),
   };
 }
 
@@ -480,6 +482,31 @@ describe("S5 拖曳中遠端改了列", () => {
     expect(updates).not.toHaveBeenCalled();
     expect(previewTables().length).toBe(0);
     expect(widths("r").slice(0, 2)).toEqual([1, 1]);
+  });
+
+  it("S5b 按下第 2 條分隔線後，遠端調了第 1 條並同步過來 → 放開時第 1 欄保留遠端的值，只有分隔線兩側那兩欄照拖曳結果寫", async () => {
+    // 三欄各 400px、文件 [1,1,1]。
+    const { editor, separators } = setup([threeCols("r")], { layout: { rowWidth: 1248 } });
+    const { peer, push, pull } = await remotePeer(editor);
+    const manager = collabUndoManager(editor)!;
+    const stack = manager.undoStack.length;
+    down(separators("r")[1]!, 500);
+    move(540);
+    expect(writeColumnWidths(peer, "r", [1.2, 0.8, 1])).toBe(true);
+    push();
+    flushFrames();
+    expect(widths("r")).toEqual([1.2, 0.8, 1]);
+    expect(previewTables().length).toBe(1);
+    const update = vi.spyOn(editor, "updateBlock");
+    up(580);
+    // 按下時量的像素 [400, 480, 320] → [1, 1.2, 0.8]；第 1 欄被遠端改過，不蓋回 1。
+    expect(ratiosFromPixels([400, 480, 320], [1, 2])).toEqual([1, 1.2, 0.8]);
+    expect(widths("r")).toEqual([1.2, 1.2, 0.8]);
+    expect(update.mock.calls.map((c) => c[0])).toEqual(["rc1", "rc2"]);
+    expect(manager.undoStack.length).toBe(stack + 1);
+    expect(previewTables().length).toBe(0);
+    pull();
+    expect((peer.getBlock("r") as unknown as { children: { props: { width: number } }[] }).children.map((c) => c.props.width)).toEqual([1.2, 1.2, 0.8]);
   });
 
   it("S5 遠端把一欄換成新的一欄（欄數不變、id 序列變了）→ 放開時不寫、預覽表消失", async () => {

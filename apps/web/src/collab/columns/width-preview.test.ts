@@ -177,3 +177,26 @@ describe("WP5 撤銷步切分", () => {
     expect(manager.undoStack.length).toBe(stack2 + 2);
   });
 });
+
+describe("WP6 since：操作期間被別人改過的欄", () => {
+  it("WP6 own 以外的欄現值已不等於 base → 不寫、保留現值；own 的兩欄照 next 寫", () => {
+    const editor = mount([row([[P("a")], [P("b")], [P("c")]], "r", [1.2, 0.8, 1])]);
+    const spy = vi.spyOn(editor, "updateBlock");
+    expect(writeColumnWidths(editor, "r", [1, 1.2, 0.8], { since: { base: [1, 1, 1], own: [1, 2] } })).toBe(true);
+    expect(spy.mock.calls.map((c) => c[0])).toEqual(["rc1", "rc2"]);
+    expect(widths(editor)).toEqual([1.2, 1.2, 0.8]);
+  });
+
+  it("WP6 own 以外的欄現值仍等於 base → 照 next 寫（總和不是欄數的列整列正規化）", () => {
+    const editor = mount([row([[P("a")], [P("b")], [P("c")]], "r", [0.6, 0.6, 0.6])]);
+    expect(writeColumnWidths(editor, "r", [1.2, 0.8, 1], { since: { base: [0.6, 0.6, 0.6], own: [0, 1] } })).toBe(true);
+    expect(widths(editor)).toEqual([1.2, 0.8, 1]);
+  });
+
+  it("WP6 只有 own 以外、且被別人改過的欄不同 → 沒有可寫的欄，回 false、無 update", () => {
+    const editor = mount([row([[P("a")], [P("b")], [P("c")]], "r", [1.2, 0.8, 1])]);
+    const updates = countUpdates(editor);
+    expect(writeColumnWidths(editor, "r", [1, 0.8, 1], { since: { base: [1, 0.8, 1], own: [1, 2] } })).toBe(false);
+    expect(updates).not.toHaveBeenCalled();
+  });
+});

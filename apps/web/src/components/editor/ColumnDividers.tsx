@@ -62,6 +62,8 @@ interface DragState {
   startX: number;
   px: readonly number[];
   mins: readonly number[];
+  /** 按下時文件裡的欄寬：拖曳期間別人改過的欄，放開時不蓋掉（`writeColumnWidths` 的 `since`）。 */
+  base: readonly number[];
   /** 最近一次移動算出的整列比例；左右兩欄的像素沒變（沒動、或卡在最小寬度）時是 null，放開時不寫。 */
   next: number[] | null;
   preview: WidthPreview;
@@ -189,14 +191,17 @@ export function ColumnDividers({ container, editor }: { container: HTMLElement |
   const dragRef = useRef<DragState | null>(null);
   const placesRef = useRef<DividerPlace[]>(places);
 
-  /** 結束拖曳：`commit` 為 true 且文件裡的欄 id 序列沒變才寫；一律清預覽、還原 `user-select`。 */
+  /**
+   * 結束拖曳：`commit` 為 true 且文件裡的欄 id 序列沒變才寫；一律清預覽、還原 `user-select`。
+   * 分隔線兩側那兩欄照拖曳結果寫；其他欄若在拖曳期間被別人改過就保留現值（按下時量的像素已經過時）。
+   */
   const stopDrag = (commit: boolean) => {
     const drag = dragRef.current;
     if (!drag) return;
     dragRef.current = null;
     drag.controller.abort();
     if (commit && drag.next && sameIds(rowInDoc(editor, drag.rowId)?.ids, drag.columnIds)) {
-      writeColumnWidths(editor, drag.rowId, drag.next);
+      writeColumnWidths(editor, drag.rowId, drag.next, { since: { base: drag.base, own: [drag.index, drag.index + 1] } });
     }
     drag.preview.clear();
     document.body.style.userSelect = drag.prevUserSelect;
@@ -297,7 +302,8 @@ export function ColumnDividers({ container, editor }: { container: HTMLElement |
     const dom = viewDomOf(editor);
     const rowEl = dom && rowElById(dom, place.rowId);
     const row = rowEl && measureRow(editor, rowEl);
-    if (!row || !sameIds(row.columnIds, place.columnIds)) return;
+    const inDoc = rowInDoc(editor, place.rowId);
+    if (!row || !inDoc || !sameIds(row.columnIds, place.columnIds) || !sameIds(inDoc.ids, row.columnIds)) return;
     const target = e.currentTarget;
     target.setPointerCapture?.(e.pointerId);
     const controller = new AbortController();
@@ -311,6 +317,7 @@ export function ColumnDividers({ container, editor }: { container: HTMLElement |
       startX: e.clientX,
       px: row.px,
       mins: row.mins,
+      base: inDoc.widths,
       next: null,
       preview: createWidthPreview(document),
       prevUserSelect: document.body.style.userSelect,
@@ -374,7 +381,8 @@ export function ColumnDividers({ container, editor }: { container: HTMLElement |
     px[i + 1] = right;
     const next = ratiosFromPixels(px, [i, i + 1]);
     if (changedIndices(inDoc.widths, next).length === 0) return;
-    writeColumnWidths(editor, place.rowId, next, { undoStep: false });
+    // 像素與文件現值在同一次按鍵裡同步讀到，之間不會有別人的更新；`since` 與放開時同一套規則。
+    writeColumnWidths(editor, place.rowId, next, { undoStep: false, since: { base: inDoc.widths, own: [i, i + 1] } });
   };
 
   const cutUndoStep = () => collabUndoManager(editor)?.stopCapturing();

@@ -421,16 +421,23 @@ describe("雙用戶端：⋮⋮ 拖放時對方同時打字（B 以完整選項�
 
 /**
  * 放開第 `index` 條分隔線：照分隔線元件放開時的算法（`dividerResize` 夾最小寬度 → `ratiosFromPixels` 只讓被拖的兩欄吸收捨入差
- * → `writeColumnWidths` 只寫有變的欄、自成一個撤銷步）。`px` 是按下時量到的各欄像素寬，最小寬度都是文字欄的 200px。
- * 回傳寫進文件的整列比例。
+ * → `writeColumnWidths` 只寫有變的欄、自成一個撤銷步；被拖的兩欄以外，按下後被別人改過的欄不寫）。`px` 是按下時量到的各欄像素寬，
+ * `base` 是按下時文件裡的欄寬（省略＝現在就是按下的時候），最小寬度都是文字欄的 200px。回傳算出的整列比例。
  */
-function releaseDivider(editor: AnyEditor, rowId: string, px: readonly number[], index: number, delta: number): number[] {
+function releaseDivider(
+  editor: AnyEditor,
+  rowId: string,
+  px: readonly number[],
+  index: number,
+  delta: number,
+  base: readonly number[] = widthsOf(editor, rowId),
+): number[] {
   const [left, right] = dividerResize(px[index]!, px[index + 1]!, 200, 200, delta);
   const next = [...px];
   next[index] = left;
   next[index + 1] = right;
   const ratios = ratiosFromPixels(next, [index, index + 1]);
-  expect(writeColumnWidths(editor, rowId, ratios)).toBe(true);
+  expect(writeColumnWidths(editor, rowId, ratios, { since: { base, own: [index, index + 1] } })).toBe(true);
   return ratios;
 }
 
@@ -471,5 +478,25 @@ describe("雙用戶端：分隔線放開時對方同時編輯", () => {
     }
     const sum = Math.round(merged.reduce((s, w) => s + w, 0) * 100) / 100;
     console.log("CO9", JSON.stringify({ fromA, fromB, merged, sum }));
+  });
+
+  it("CO9b（安全）：B 按下第 2 條分隔線後，A 調了第 1 條並同步過來；B 放開 → 第 1 欄保留 A 的值，只有第 2、3 欄照 B 寫", async () => {
+    const pair = await collabPair([P("x", "x0"), row([[P("a", "a1")], [P("b", "b1")], [P("c", "c1")]], "r"), P("z", "z9")]);
+    const { a, b } = pair;
+    // B 按下：量到 [300,300,300]、文件 [1,1,1]。
+    const pressedPx = [300, 300, 300];
+    const pressedBase = widthsOf(b, "r");
+    expect(pressedBase).toEqual([1, 1, 1]);
+    const fromA = releaseDivider(a, "r", [300, 300, 300], 0, 60);
+    expect(fromA).toEqual([1.2, 0.8, 1]);
+    await pair.sync();
+    expect(widthsOf(b, "r")).toEqual([1.2, 0.8, 1]);
+    const update = vi.spyOn(b, "updateBlock");
+    const fromB = releaseDivider(b, "r", pressedPx, 1, 80, pressedBase);
+    expect(fromB).toEqual([1, 1.27, 0.73]);
+    expect(update.mock.calls.map((c) => c[0])).toEqual(["rc1", "rc2"]);
+    await pair.sync();
+    expectSameAndClean(a, b);
+    for (const e of [a, b]) expect(widthsOf(e, "r")).toEqual([1.2, 1.27, 0.73]);
   });
 });
