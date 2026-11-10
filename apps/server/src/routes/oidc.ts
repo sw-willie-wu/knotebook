@@ -38,7 +38,7 @@ export interface OidcRouteDeps {
   oidcTestHook?: OidcTestHook;
 }
 
-/** legacy＝env 匯入的那一個（舊網址，B13）；id＝路徑參數原字串（未驗）。 */
+/** legacy＝用舊回呼網址的那一個（B13）；id＝路徑參數原字串（未驗）。 */
 type ProviderRef = { kind: "legacy" } | { kind: "id"; raw: string };
 
 /** 空字串 claim 視為缺欄位（Plan 5 審查 MINOR-4：否則會建出 email="" 的帳號）。 */

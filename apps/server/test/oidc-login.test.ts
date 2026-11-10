@@ -34,7 +34,7 @@ function nextOf(p: OidcStatePayload | null): string | undefined {
 }
 
 describe("GET /api/auth/oidc/login（legacy 入口，#187 B13）", () => {
-  it("沒有 legacy provider（未匯入 OIDC_*）→ 302 /login?error=oidc_unavailable；legacy provider 停用 → 同", async () => {
+  it("沒有 legacy provider（舊回呼網址的那一個）→ 302 /login?error=oidc_unavailable；legacy provider 停用 → 同", async () => {
     const { app, db } = await buildTestApp();
     const res = await app.inject({ method: "GET", url: "/api/auth/oidc/login" });
     expect(res.statusCode).toBe(302);

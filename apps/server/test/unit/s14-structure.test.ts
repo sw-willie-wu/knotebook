@@ -128,7 +128,6 @@ describe("S14 結構性守衛（#175 §4.4）", () => {
         "notes/tx/redirects.ts",
         "notes/tx/shares.ts",
         "notes/tx/write-links.ts",
-        "auth/tx/legacy-oidc-env.ts",
         "auth/tx/link-identity.ts",
         "auth/tx/oidc-login.ts",
         "auth/tx/admin-auth-providers.ts",
@@ -233,7 +232,6 @@ describe("S14 結構性守衛（#175 §4.4）", () => {
     }
     expect(counts).toEqual({
       "auth/bootstrap.ts": 1,
-      "auth/legacy-oidc-env.ts": 1,
       "notes/editing/apply.ts": 1,
       "notes/editing/revert.ts": 1,
       "notes/tx/write-slug.ts": 1, // writeSlugInTx 的 savepoint（巢狀 tx.transaction）

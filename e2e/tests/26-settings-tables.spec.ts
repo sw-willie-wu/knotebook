@@ -120,7 +120,7 @@ async function call<R>(page: Page, method: "post" | "patch" | "put", url: string
   return (text === "" ? undefined : JSON.parse(text)) as R;
 }
 
-/** SSO 首登（同 05-oidc 情境一）：設定 fake-idp 下一次登入的 claims → 登入頁按「Sign in with SSO」→ 自動建帳進站（e2e 疊的 SSO 由 `OIDC_*` 匯入，承接 registration_enabled 預設開）。 */
+/** SSO 首登（同 05-oidc 情境一）：設定 fake-idp 下一次登入的 claims → 登入頁按「Sign in with SSO」→ 自動建帳進站（e2e 疊的 SSO 由 global-setup 建、已開自動建帳）。 */
 async function signInSsoUser(page: Page): Promise<void> {
   const control = await page.request.put(ROOT_CONTROL_URL, {
     data: { sub: `e2e-t26-${randomUUID()}`, email: SSO_EMAIL, email_verified: true, name: N.ssoUser },

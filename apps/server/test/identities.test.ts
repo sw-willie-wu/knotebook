@@ -3,7 +3,7 @@ import { Client } from "pg";
 import { eq, sql } from "drizzle-orm";
 import { SESSION_COOKIE } from "@knotebook/shared";
 import { siteSettings, userIdentities, users } from "../src/db/schema.js";
-import { backfillLegacyOidcIdentities } from "../src/auth/legacy-oidc-env.js";
+import { backfillLegacyOidcIdentities } from "../src/auth/legacy-identities.js";
 import { buildTestApp, insertPasswordUser, testConfig, type TestApp } from "./helpers.js";
 import { cookieOf, seedUser, waitForBlockedOrSettled } from "./group-helpers.js";
 import { buildOidcApp, identitiesOf, seedAuthProvider, ssoRoundTrip } from "./helpers/oidc-provider.js";

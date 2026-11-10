@@ -155,7 +155,7 @@ export const authProviders = pgTable(
     legacyCallback: boolean("legacy_callback").notNull().default(false),
     configVersion: integer("config_version").notNull().default(1),
     // S1「首次登入時自動建立帳號」：SSO 首登、email 沒有帳號時只看這欄（`auth/tx/oidc-login.ts`）。U3 新服務一律 false（DB 預設＋建立 API 不收此欄）；
-    // 例外：`OIDC_*` 匯入承接匯入當下的 `registration_enabled`（`auth/tx/legacy-oidc-env.ts`）；升級時由 migration 承接舊的 `registration_enabled`。
+    // 例外：升級時由 migration 承接舊的 `registration_enabled`（0.6.0 曾有的 `OIDC_*` env 匯入已移除）。
     autoCreateEnabled: boolean("auto_create_enabled").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -219,6 +219,7 @@ export const siteSettings = pgTable(
     singleton: boolean().primaryKey().default(true),
     registrationEnabled: boolean("registration_enabled").notNull().default(true),
     passwordLoginEnabled: boolean("password_login_enabled").notNull().default(true),
+    // 已無程式讀寫（`OIDC_*` env 匯入已移除）；欄位留著，丟掉要另開 migration。
     legacyOidcEnvHandledAt: timestamp("legacy_oidc_env_handled_at", { withTimezone: true }),
     // 儲存配額（spec §4.2、D4b）：新使用者／新群組的預設方案（初始 Basic）。只影響之後建立的（DEFAULT 函式快照）。
     defaultUserStoragePlanId: uuid("default_user_storage_plan_id").notNull(),

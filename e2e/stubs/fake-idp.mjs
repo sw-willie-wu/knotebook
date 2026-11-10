@@ -4,7 +4,7 @@
 // ../../docker-compose.e2e.yml 的 fake-idp 服務）。
 //
 // #187 PR2（spec §14.3、r2-M10）：同一個 process 掛兩個 issuer——
-//   - 根：`http://fake-idp:9400`（e2e 疊的 OIDC_* 匯入成 legacy provider「SSO」，05 用它）
+//   - 根：`http://fake-idp:9400`（`e2e/global-setup.ts` 以管理 API 建成名為「SSO」的服務，05 用它）
 //   - 路徑形：`http://fake-idp:9400/b`（19 在 /admin/auth 建的第二個服務用它）
 // 各自的 discovery 文件、iss、authorize／token／userinfo／jwks 路徑、**各自的簽章金鑰**與一次性狀態；**共用**同一組
 // client id／secret；control endpoint 每個 issuer 一個（`/control/next-login`、`/b/control/next-login`）。
