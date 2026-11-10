@@ -1,20 +1,20 @@
 /**
- * bulk transfer spec 2026-11-02 §6.4-2～-5：把整篇匯出的行與逐顆匯出對齊，得到段表（純函式，不碰編輯器）。
+ * bulk transfer：把整篇匯出的行與逐顆匯出對齊，得到段表（純函式，不碰編輯器）。
  *
- * 規則（照順序實作；E12、E13、E16、E17；spike S1 的 `alignRev5` 是演算法參考）：
+ * 規則（照順序實作）：
  * 1. 比對前每行 `lineKey`（trimEnd）；表格列（`/^\s*\|/`）再把儲存格填充空白與分隔列的 `-` 個數正規化——只用於比對。
- * 2. numbered：該顆第一行兩邊都是 `/^(\d+)\. /` 時剝掉編號比其餘；子行允許整篇那邊多出 `delta` 格縮排（編號寬度差，E3）。
+ * 2. numbered：該顆第一行兩邊都是 `/^(\d+)\. /` 時剝掉編號比其餘；子行允許整篇那邊多出 `delta` 格縮排（編號寬度差）。
  * 3. 開頭與結尾的空段落（逐顆匯出零行）記 0 行段、不吃空行；中間的空段落吃一個空行。
  * 4. 每個位置先逐顆、再群組；同一種之下先試 1 個分隔空行、再 0 個；`pos === 0` 只試 0。
  * 5. 群組（局部合段）：第 i 顆是清單項時，取「從 i 起同家族連續」的最長串、由長到短試；`(i, j)` 的群組匯出快取；
  *    每個起點至多 `cap` 次群組匯出，超過＝這個起點的群組全部放棄。群組只在 DP 回溯到這個起點、逐顆走不出完整解時才試。
- * 6. 失敗記憶化 `(i, pos)`；回傳依優先序的**第一個**完整解；找不到 → `segs: null`（§6.4-5，不可寫回）。
- * 7. **顯式堆疊**（plan §0.2 S6、gate r1 I3）：不遞迴、不以 spread 串接段陣列——遞迴版在 5 000 顆起爆 stack，
+ * 6. 失敗記憶化 `(i, pos)`；回傳依優先序的**第一個**完整解；找不到 → `segs: null`（不可寫回）。
+ * 7. **顯式堆疊**：不遞迴、不以 spread 串接段陣列——遞迴版在 5 000 顆起爆 stack，
  *    `[seg, ...rest]` 每層複製一次是 O(n²)。UI 存得出超過 `MAX_BLOCKS` 的筆記（它只管寫入）。成功時段表直接從堆疊讀出。
  */
 import { lineKey } from "./normalize.js";
 
-/** §6.4-3：每個起點至多幾次群組匯出。 */
+/** 每個起點至多幾次群組匯出。 */
 export const GROUP_EXPORT_CAP = 32;
 
 export type ListFamily = "num" | "star" | null;
@@ -38,7 +38,7 @@ export interface AlignStats {
 }
 
 const TABLE_ROW = /^\s*\|/;
-/** 規則 1 的比對鍵：trimEnd；表格列再收儲存格填充與分隔列 `-` 數（行內色佔位符位數讓整篇與逐顆的欄寬不同，spike S1）。 */
+/** 規則 1 的比對鍵：trimEnd；表格列再收儲存格填充與分隔列 `-` 數（行內色佔位符位數讓整篇與逐顆的欄寬不同）。 */
 function matchKey(line: string): string {
   const k = lineKey(line);
   return TABLE_ROW.test(k) ? k.replace(/ *\| */g, "|").replace(/-{3,}/g, "---") : k;
@@ -245,7 +245,7 @@ export function alignSegments(
   return { segs, stats };
 }
 
-/** 每行的比對種類（§8.2 `line_kinds`）：含 numberedListItem 的段的行 → 1，其餘 0；段表 null → 全 0。 */
+/** 每行的比對種類（`line_kinds`）：含 numberedListItem 的段的行 → 1，其餘 0；段表 null → 全 0。 */
 export function lineKindsOf(segs: AlignSeg[] | null, types: string[], nLines: number): number[] {
   const kinds = new Array<number>(nLines).fill(0);
   if (segs === null) return kinds;

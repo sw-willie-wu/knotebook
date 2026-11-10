@@ -1,5 +1,5 @@
 /**
- * #132 Task 5：`GET /oauth/authorize`（§5.3）。
+ * #132：`GET /oauth/authorize`。
  *
  * 這一族守的是三條承重紀律：
  * ① **限流擋在任何 DB 存取之前**，且是 consume-always（每一發通過 T1 的都計數）；
@@ -43,7 +43,7 @@ function baseParams(clientId: string, redirectUri: string): Record<string, strin
   };
 }
 
-describe("GET /oauth/authorize（§5.3）", () => {
+describe("GET /oauth/authorize", () => {
   it("全部合法 → 建 pending request 並 302 到 SPA 同意頁", async () => {
     const { app, db, close } = await buildTestApp();
     try {
@@ -83,11 +83,11 @@ describe("GET /oauth/authorize（§5.3）", () => {
     }
   });
 
-  // #239 O1：搬移只在同時要了編輯時才算數（normalizeScope）。
+  // #239：搬移只在同時要了編輯時才算數（normalizeScope）。
   it.each([
     ["notes:read notes:write notes:move", "notes:read notes:write notes:move"],
     ["notes:read notes:move", "notes:read"],
-    // #181 PR-2d OA：刪除同樣要搭編輯；順序無關、落庫固定 read → write → move → delete。
+    // #181 OA：刪除同樣要搭編輯；順序無關、落庫固定 read → write → move → delete。
     ["notes:read notes:write notes:delete", "notes:read notes:write notes:delete"],
     ["notes:delete notes:move notes:write", "notes:read notes:write notes:move notes:delete"],
     ["notes:read notes:delete", "notes:read"],

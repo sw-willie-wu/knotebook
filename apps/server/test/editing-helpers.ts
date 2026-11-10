@@ -53,10 +53,10 @@ export async function seedContent(ctx: CollabTestCtx, session: HttpSession, note
   //     `![說明](/api/uploads/x)`、`---`、圍欄程式碼這類行會被解析成**非文字 block**（圖片存成
   //     `url="…"` 之類的屬性），那串 markdown 語法本身永遠不會出現在字串裡。種子若以這種行
   //     結尾，這個 `waitFor` 會跑滿 5 秒然後拋逾時。**做法：在那種 fixture 的尾巴補一行可見文字**
-  //     （本棒的圖片 fixture 就是這麼寫的——見 `note-edits.test.ts` 那個「含上傳圖片的筆記」案）。
+  //     （圖片 fixture 就是這麼寫的——見 `note-edits.test.ts` 那個「含上傳圖片的筆記」案）。
   //     **絕對不要改這裡的等待**：把它改成「找不到就跳過」或縮短逾時，等於把全檔約 25 個
   //     「seed 完立刻 disconnect」案子的前提整個抽掉，而且是**靜默**的（症狀是內容莫名其妙不見）。
-  //     本 plan 的驗收表把「拿掉 seedContent 的等待」列為測試抓不到的危險突變。
+  //     「拿掉 seedContent 的等待」是測試抓不到的危險突變。
   //
   // (2) 屬性名本身就含常見 ASCII 字元（`textColor` 就含 `x`、`t`、`e`…），所以**單字元的 ASCII
   //     哨兵等於沒等**：空文件正規化那一筆更新一到就命中了，種子本體到沒到根本沒被驗到。

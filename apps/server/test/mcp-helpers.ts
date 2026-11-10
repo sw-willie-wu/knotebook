@@ -3,11 +3,11 @@
  *
  * 這個檔案存在的理由只有兩個，兩個都是「不集中就會空轉半天」的雷：
  *
- * 1. **`Accept` 只有一份真相**（規格 §14.1 開頭紀律）。SDK 的 transport 要求 `Accept`
+ * 1. **`Accept` 只有一份真相**（整個測試集的紀律）。SDK 的 transport 要求 `Accept`
  *    同時含 `application/json` 與 `text/event-stream`；少了它——包括完全不帶、只帶
  *    `application/json`、以及只帶通配符（星號／星號）——一律 `406`，通配符不算數，
  *    而且錯誤訊息與被測行為完全無關。
- * 2. **`origin` 一旦給了就必須連 `host` 一起給**（plan P4）。`app.inject` 的預設 Host 是
+ * 2. **`origin` 一旦給了就必須連 `host` 一起給**。`app.inject` 的預設 Host 是
  *    `localhost:80`，而 `testConfig.PUBLIC_URL` 是 `http://localhost:3000`——只設 `origin`
  *    的測試會恆得 403（落在案 7b 那一格），症狀同樣與被測行為無關。
  */
@@ -51,7 +51,7 @@ function buildHeaders(opts: McpRequestOpts, withContentType: boolean): Record<st
 }
 
 /**
- * `POST /api/mcp`。`body` 為 `undefined` 且沒給 `raw` ＝**完全不送 body**（P1 的變體 (i)）。
+ * `POST /api/mcp`。`body` 為 `undefined` 且沒給 `raw` ＝**完全不送 body**。
  * body 一律由這裡序列化，不交給 `inject` 自動處理——否則它會擅自補 `content-type`。
  */
 export function mcpPost(app: FastifyInstance, body: unknown, opts: McpRequestOpts = {}): Promise<LightMyRequestResponse> {

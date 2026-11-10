@@ -1,5 +1,5 @@
 /**
- * `assertSpaceRoomInTx`／`storage/usage.ts` 直測（spec §5.3、§5.4、A4、§11.1 S15 函式層、Review Focus RF1）。
+ * `assertSpaceRoomInTx`／`storage/usage.ts` 直測（S15 函式層）。
  * 交易一律 `db.transaction(tx => …)`（READ COMMITTED），另一方用另一條 pool 連線。
  */
 import { describe, expect, it } from "vitest";
@@ -17,8 +17,8 @@ const opts = { lockTimeoutMs: 60_000 };
 const lockTimeoutOf = async (pool: Pool) => (await pool.query<{ lock_timeout: string }>("show lock_timeout")).rows[0]!.lock_timeout;
 const sqlShow = () => sql`show lock_timeout`; // `show` 的結果欄名就是設定名
 
-describe("assertSpaceRoomInTx（spec §5.3）", () => {
-  it("A4：incoming ≤ 0 → 不取鎖、不讀配額（另一交易持同空間鎖時也立刻回；已超額也不拋）", async () => {
+describe("assertSpaceRoomInTx", () => {
+  it("incoming ≤ 0 → 不取鎖、不讀配額（另一交易持同空間鎖時也立刻回；已超額也不拋）", async () => {
     const { db, uploadsDir } = await buildTestApp();
     const u = await seedUser(db);
     await giveUserQuota(db, u.id, 0);
@@ -106,7 +106,7 @@ describe("assertSpaceRoomInTx（spec §5.3）", () => {
     expect(await usedOf(db.$client, { kind: "user", id: u.id })).toBe(700);
   });
 
-  it("RF1：同一空間 id 大寫與小寫取的是同一把鎖（第二筆被擋）", async () => {
+  it("同一空間 id 大寫與小寫取的是同一把鎖（第二筆被擋）", async () => {
     const { db } = await buildTestApp();
     const g = await seedGroup(db, "G", []);
     await giveGroupQuota(db, g.id, 1000);
@@ -135,7 +135,7 @@ describe("assertSpaceRoomInTx（spec §5.3）", () => {
     const { db, url } = await freshDb();
     const u = await seedUser(db);
     await giveUserQuota(db, u.id, 1000);
-    // database 層設 7s（spec m6：`TO DEFAULT` 要回到這個值）；只有之後新開的連線吃得到，故另開 pool
+    // database 層設 7s（`TO DEFAULT` 要回到這個值）；只有之後新開的連線吃得到，故另開 pool
     const dbName = (await db.$client.query<{ d: string }>("select current_database() as d")).rows[0]!.d;
     await db.$client.query(`alter database "${dbName}" set lock_timeout = '7s'`);
     const pool2 = new Pool({ connectionString: url, max: 2 });
@@ -176,7 +176,7 @@ describe("assertSpaceRoomInTx（spec §5.3）", () => {
   });
 });
 
-describe("storage/usage.ts（spec §5.4）", () => {
+describe("storage/usage.ts", () => {
   it("readSpaceUsage：數字 typeof number、planName；不存在的空間 → null", async () => {
     const { db, uploadsDir } = await buildTestApp();
     const u = await seedUser(db);

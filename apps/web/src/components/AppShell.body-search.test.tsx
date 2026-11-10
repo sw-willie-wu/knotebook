@@ -16,7 +16,7 @@ import { OWNER_PERMS } from "@/test/fixtures";
 import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 /**
- * #93 PR2 T6 W2：窄視窗抽屜裡點內文區的片段 → 抽屜一律關（別篇靠 pathname 也會關；同篇 pathname 不變，要靠點擊時主動關）。
+ * #93：窄視窗抽屜裡點內文區的片段 → 抽屜一律關（別篇靠 pathname 也會關；同篇 pathname 不變，要靠點擊時主動關）。
  * 防抖 300 ms 與 lazy chunk 都用真的（全域 asyncUtilTimeout 10 s，test/setup.ts）。
  */
 const USER = { id: "u1", email: "a@example.com", handle: "tester", displayName: "Ann", isAdmin: false, mustChangePassword: false, hasPassword: true, autoVersions: true } as UserDto;
@@ -93,7 +93,7 @@ describe("W2 窄視窗抽屜：點內文片段 → 抽屜關", () => {
     expect(requestAnchor).toHaveBeenCalledWith("h1", "needle");
   });
 
-  it("目前這一篇（網址帶 #b-）的命中項 → 抽屜同樣關（pathname 不變，只靠點擊時主動關；審查 m1。每處命中一項、整項是一個 link）", async () => {
+  it("目前這一篇（網址帶 #b-）的命中項 → 抽屜同樣關（pathname 不變，只靠點擊時主動關。每處命中一項、整項是一個 link）", async () => {
     renderShell((s) => s, `${canonicalNotePath(NOTE)}#b-h1`);
     const match = await openDrawerAndSearch();
     expect(within(match.closest('[data-testid="search-hit"]') as HTMLElement).getAllByRole("link")).toHaveLength(1);

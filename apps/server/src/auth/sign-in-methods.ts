@@ -5,9 +5,9 @@ import type { Db } from "../db/index.js";
 import type { DbOrTx } from "../db/tx.js";
 import { authProviders } from "../db/schema.js";
 
-// #187 PR3：「這個帳號還能怎麼登入」的判斷，INV-7（§8.2 解除、§8.3 unlinkable，B24）、B19 P2 與 §9.5 actingAdminHasSso 共用。
-// identity ↔ provider 一律以 effective issuer＝coalesce(resolved_issuer, issuer_url) **精確相等**（§4.1；寬鬆的 issuerKey
-// 只用在 B14 排除，見 auth/issuer.ts）。密碼算不算數看 **DB 值**、不看 env（B24）——env 救援期間做出的狀態，拿掉 env 之後仍成立。
+// #187：「這個帳號還能怎麼登入」的判斷，解除連結（unlinkable）、防自鎖守衛與 actingAdminHasSso 共用。
+// identity ↔ provider 一律以 effective issuer＝coalesce(resolved_issuer, issuer_url) **精確相等**（寬鬆的 issuerKey
+// 只用在同 issuer 排除，見 auth/issuer.ts）。密碼算不算數看 **DB 值**、不看 env——env 救援期間做出的狀態，拿掉 env 之後仍成立。
 
 export interface EnabledProviderIssuer {
   id: string;
@@ -41,7 +41,7 @@ export function usableIdentityIds(
   return new Set(identities.filter(i => issuers.has(i.issuer)).map(i => i.id));
 }
 
-/** INV-7：解除 `identityId` 之後，帳號仍有密碼（且 DB 值為真），或仍有另一個可用身分。 */
+/** 解除 `identityId` 之後，帳號仍有密碼（且 DB 值為真），或仍有另一個可用身分。 */
 export function canUnlinkIdentity(
   identityId: string,
   s: { hasPassword: boolean; passwordLoginDbValue: boolean; usableIdentityIds: ReadonlySet<string> },
@@ -52,8 +52,8 @@ export function canUnlinkIdentity(
 }
 
 /**
- * 「本人有一個 identity 對到某個啟用中 provider 的 effective issuer」的 SQL 述詞——B19 P2／§9.5 `actingAdminHasSso`
- * （`hasUsableSso`）與 §9.3 `actingAdminLockedOut`（`provider-impact.ts`，排除本服務）共用這一份。另有兩處因綁參數寫不出相關子查詢（要對外層每一列 `u`／`l` 判斷），內聯了同一個述詞：同檔 `passwordLoginImpact` 的 `usersWithoutSso` 子查詢，與 `auth/provider-impact.ts` 的 locked 子句（後者另排除本服務）；改述詞時三處要一起改。
+ * 「本人有一個 identity 對到某個啟用中 provider 的 effective issuer」的 SQL 述詞——防自鎖守衛／`actingAdminHasSso`
+ * （`hasUsableSso`）與 `actingAdminLockedOut`（`provider-impact.ts`，排除本服務）共用這一份。另有兩處因綁參數寫不出相關子查詢（要對外層每一列 `u`／`l` 判斷），內聯了同一個述詞：同檔 `passwordLoginImpact` 的 `usersWithoutSso` 子查詢，與 `auth/provider-impact.ts` 的 locked 子句（後者另排除本服務）；改述詞時三處要一起改。
  * `exceptProviderId` 給值時，不計該 provider（以 provider 計、不以 issuer 計：同 issuer 的另一個服務仍算）。
  */
 export function usableSsoExists(userId: string, exceptProviderId?: string): SQL {
@@ -65,13 +65,13 @@ export function usableSsoExists(userId: string, exceptProviderId?: string): SQL 
     )`;
 }
 
-/** B19 P2／§9.5 actingAdminHasSso：本人有一個 identity 對到某個啟用中 provider 的 effective issuer。 */
+/** 防自鎖守衛／actingAdminHasSso：本人有一個 identity 對到某個啟用中 provider 的 effective issuer。 */
 export async function hasUsableSso(q: DbOrTx, userId: string): Promise<boolean> {
   const result = await q.execute<{ ok: boolean }>(sql`select ${usableSsoExists(userId)} as ok`);
   return result.rows[0]!.ok;
 }
 
-/** §9.5 `passwordLoginImpact`（快照；權威判斷在 PATCH）。`actingAdminHasSso` 與 B19 P2 同一個函式（§14.1-28）。 */
+/** `passwordLoginImpact`（快照；權威判斷在 PATCH）。`actingAdminHasSso` 與防自鎖守衛同一個函式。 */
 export async function passwordLoginImpact(db: Db, actorUserId: string): Promise<AdminAuthSettingsDto["passwordLoginImpact"]> {
   const result = await db.execute<{ without_sso: number; enabled: number }>(sql`
     select

@@ -23,7 +23,7 @@ vi.mock("@/components/sidebar/folder-index", async (importOriginal) => {
   return { ...actual, liveNotesUnder: vi.fn(actual.liveNotesUnder) };
 });
 
-// 資料夾列 ⋮（資料夾 PR-3b-1 T4，spec §6.5）：照真實掛法渲染在 NoteList 內。
+// 資料夾列 ⋮：照真實掛法渲染在 NoteList 內。
 afterEach(() => {
   localStorage.clear();
   __resetCollapseForTests();
@@ -339,7 +339,7 @@ describe("FolderMenu", () => {
   });
 });
 
-// T2 審查 n-4：⋮「新增筆記」在 A1 建立時，A1 與祖先 A 都寫成展開（AppShell.handleNewNote 的祖先展開）。
+// ⋮「新增筆記」在 A1 建立時，A1 與祖先 A 都寫成展開（AppShell.handleNewNote 的祖先展開）。
 describe("FolderMenu × AppShell：⋮ 新增筆記展開祖先", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");

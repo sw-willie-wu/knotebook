@@ -1,7 +1,7 @@
 import { createDecipheriv, createHash } from "node:crypto";
 import { sealSecret } from "../lib/sealed-secret.js";
 
-// AI provider API key 的靜態加密（spec §13.2）。金鑰衍生比照 `auth/session.ts` 的
+// AI provider API key 的靜態加密。金鑰衍生比照 `auth/session.ts` 的
 // sha256 namespace 慣例（`sessionKey`）——同一個 APP_SECRET 用不同 namespace 字串
 // 字尾衍生出互不相通的用途專屬金鑰，不會讓 session JWT 的簽章金鑰與這裡的加密金鑰
 // 撞在一起（即使兩者都源自同一個 APP_SECRET）。

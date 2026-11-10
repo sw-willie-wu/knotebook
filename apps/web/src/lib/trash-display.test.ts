@@ -89,7 +89,7 @@ describe("trashDetailLine", () => {
   });
 });
 
-describe("trashDetailLine × 資料夾路徑（資料夾 spec §6.9）", () => {
+describe("trashDetailLine × 資料夾路徑", () => {
   const line = (i: TrashItemDto, locale = "en") => trashDetailLine(i, { now: NOW, t, locale });
   const RD = { id: "g2", name: "研發組" };
 
@@ -105,7 +105,7 @@ describe("trashDetailLine × 資料夾路徑（資料夾 spec §6.9）", () => {
   });
 });
 
-describe("trashLocationLine（第二行的 title，資料夾 spec §6.9「太長：title 給完整路徑」）", () => {
+describe("trashLocationLine（第二行的 title：太長時 title 給完整路徑）", () => {
   it("TP-F1 個人 [A, B] → A › B（無「我的筆記」前綴、不含時間段）", () => {
     expect(trashLocationLine(item({ id: "p", folderPath: ["A", "B"] }))).toBe("A › B");
   });
@@ -135,7 +135,7 @@ describe("trashItemTitle", () => {
   });
 });
 
-describe("日期 formatter 快取（final review M-1）", () => {
+describe("日期 formatter 快取", () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });

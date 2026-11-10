@@ -2,12 +2,12 @@
  * #398：markdown 解析在 worker 裡跑——HTTP 層的答案，與主執行緒（事件迴圈）有沒有被卡住。
  *
  * 主執行緒卡多久一律用**事件迴圈的停頓**量（每 10 ms 的計時器實際間隔的最大值，與 `monitorEventLoopDelay` 的最大值取大的），
- * 不用 `inject` 的耗時——同程序的 `inject` 在主執行緒卡住時也只是晚一點開始，量不到停頓（審查 I2）。
+ * 不用 `inject` 的耗時——同程序的 `inject` 在主執行緒卡住時也只是晚一點開始，量不到停頓。
  *
- * - 太複雜的內容（審查 ffrv3：figcaption 裡 2 000 段的引言，同執行緒約 25 秒）→ 時限到就 400、什麼都沒寫、主執行緒不停。
+ * - 太複雜的內容（figcaption 裡 2 000 段的引言，同執行緒約 25 秒）→ 時限到就 400、什麼都沒寫、主執行緒不停。
  * - worker 全忙、排隊超過上限 → 503 `server_busy`＋`Retry-After`。
- * - 批次寫回：整檔 worker 時間總預算（審查 C2）、`<!--`／換行的主執行緒字串處理（審查 I1）。
- * - 會被接受的重內容（審查 C1）：`/edits`、MCP `edit_note`、批次寫回、新增檔，寫進去時主執行緒的停頓。
+ * - 批次寫回：整檔 worker 時間總預算、`<!--`／換行的主執行緒字串處理。
+ * - 會被接受的重內容：`/edits`、MCP `edit_note`、批次寫回、新增檔，寫進去時主執行緒的停頓。
  */
 import { afterAll, describe, expect, it } from "vitest";
 import type * as Y from "yjs";
@@ -81,7 +81,7 @@ describe("#398 解析在 worker 裡：HTTP", () => {
     const before = (await getContent(ctx.app, note.id, token)).json();
     const pool = rt.parser as ParsePool;
     const timedOut0 = pool.stats().timedOut;
-    const baseline = await idleStall(); // 這台機器當下的雜訊（審查 r7 m6）
+    const baseline = await idleStall(); // 這台機器當下的雜訊
     const meter = loopStall();
     const t = performance.now();
     const res = await ctx.app.inject({ method: "POST", url: `/api/notes/${note.id}/edits`, headers: bearer(token), payload: { op: "replace_all", markdown: SLOW, if_match: before.fingerprint } });
@@ -110,7 +110,7 @@ describe("#398 解析在 worker 裡：HTTP", () => {
     const nB0 = await notesOfB();
     const before = (await getContent(ctx.app, note.id, token)).json();
     const slow = ctx.app.inject({ method: "POST", url: "/api/notes", headers: bearer(tokenB), payload: { content: SLOW } });
-    await until("慢的那筆進了 worker", () => (rt.parser as ParsePool).stats().busy === 1); // 審查 M3：輪詢，不睡固定時間
+    await until("慢的那筆進了 worker", () => (rt.parser as ParsePool).stats().busy === 1); // 輪詢，不睡固定時間
     const res = await ctx.app.inject({ method: "POST", url: `/api/notes/${note.id}/edits`, headers: bearer(token), payload: { op: "append", markdown: "排隊的" } });
     expect(res.statusCode).toBe(503);
     expect(res.headers["retry-after"]).toBe(String(PARSER_BUSY_RETRY_AFTER_S));
@@ -143,7 +143,7 @@ describe("#398 解析在 worker 裡：批次寫回（PUT /api/transfer/notes）"
     const s = await transferScene(rt);
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
     const text = editBody(d.text, b => b.replace("Para 1", "*a ".repeat(80_000) + "\n\n```\nx"));
-    const baseline = await idleStall(); // 這台機器當下的雜訊（審查 r7 m6）
+    const baseline = await idleStall(); // 這台機器當下的雜訊
     const meter = loopStall();
     const t = performance.now();
     const r = await bulkPut(s.ctx.app, s.bulk.token, text);
@@ -156,7 +156,7 @@ describe("#398 解析在 worker 裡：批次寫回（PUT /api/transfer/notes）"
     await s.ctx.destroy();
   }, 240_000);
 
-  it("審查 C2：20 段黏在一個太複雜的區塊下（每段一次邊界解析）→ 整檔 400 太複雜（檔案版的訊息），總時間在 3 × 時限內，不是每段各等一次時限；筆記沒變、沒紀錄", async () => {
+  it("20 段黏在一個太複雜的區塊下（每段一次邊界解析）→ 整檔 400 太複雜（檔案版的訊息），總時間在 3 × 時限內，不是每段各等一次時限；筆記沒變、沒紀錄", async () => {
     const T = TIMEOUT_MS / 2; // 整筆約 4 × 時限；第一個逾時就整檔失敗，正常工作被誤殺也只是同一個答案、不會多一次逾時
     const rt = await runtimeWith({ timeoutMs: T });
     const paras = Array.from({ length: 20 }, (_, k) => `Para ${k}`);
@@ -180,12 +180,12 @@ describe("#398 解析在 worker 裡：批次寫回（PUT /api/transfer/notes）"
     await s.ctx.destroy();
   }, 240_000);
 
-  it("審查 I1：`<!--`×6.5 萬（260 KB）、換行×26 萬接一個字 → 主執行緒停頓 < 200 ms（原本 4 秒、20 秒）", async () => {
+  it("`<!--`×6.5 萬（260 KB）、換行×26 萬接一個字 → 主執行緒停頓 < 200 ms（原本 4 秒、20 秒）", async () => {
     const rt = await runtimeWith();
     const s = await transferScene(rt);
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
     for (const [name, body] of [["comments", "<!--".repeat(65_000)], ["newlines", "x" + "\n".repeat(250_000) + "y"]] as const) {
-      const baseline = await idleStall(); // 這台機器當下的雜訊（審查 r7 m6）
+      const baseline = await idleStall(); // 這台機器當下的雜訊
       const meter = loopStall();
       const r = await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, () => body));
       const stall = meter.stop();
@@ -197,11 +197,11 @@ describe("#398 解析在 worker 裡：批次寫回（PUT /api/transfer/notes）"
 });
 
 /**
- * 審查 C1：會被接受的重內容（256 KiB 上限內）寫進去時，主執行緒卡多久。解析與套用的轉換（編輯器的先插後刪、合併後的指紋與大綱）都在
+ * 會被接受的重內容（256 KiB 上限內）寫進去時，主執行緒卡多久。解析與套用的轉換（編輯器的先插後刪、合併後的指紋與大綱）都在
  * worker 裡（`doc-jobs.ts`）；主執行緒剩下的是 Yjs 結構上的線性工作：活文件編碼成狀態、合併前比快照、把 diff 套進活文件、落盤時的編碼與
  * 走訪（版本指紋、搜尋索引）。實測（WSL）：轉換搬出之前 0.6–2.1 s；之後 0.2–0.45 s（最密的兩形；一般段落與清單約 0.1 s）。
  *
- * 主要的斷言是結構的：pool 收到的轉換工作數增加（＝轉換在 worker 裡跑，審查 r8 m3；轉換若回到主執行緒——例如 `DOC_INLINE_MAX_BYTES`
+ * 主要的斷言是結構的：pool 收到的轉換工作數增加（＝轉換在 worker 裡跑；轉換若回到主執行緒——例如 `DOC_INLINE_MAX_BYTES`
  * 調成無限大——這條就紅）。計時只留一次：`x<br>`（一段裡文字與換行交錯的上萬個子節點；修前的平方——逐一 `get(i)` 走子節點——就出在
  * 這種形）走 `/edits` 寫約 122 KB（上限的一半），寬鬆的上限 max(`HEAVY_STALL_CEILING_MS`, 3 × 閒置時的停頓)，擋平方回來（修前
  * `x<br>`×4.9 萬停 41.6 秒；平方的話一半大小約 10 秒，仍是上限的兩倍）。不寫滿 245 KB：這一筆在 worker 裡的轉換是線性的，本機就要
@@ -215,12 +215,12 @@ const DENSEST_BIG = "x<br>".repeat(24_500);
 const DENSEST_SMALL = "x<br>".repeat(8_000);
 const BOLD_ITALIC_SMALL = "**b** _i_ ".repeat(4_000);
 
-describe("審查 C1：會被接受的重內容寫進去，主執行緒停頓", () => {
+describe("會被接受的重內容寫進去，主執行緒停頓", () => {
   it("/edits replace_all：大的最密形（`x<br>`×2.45 萬，約 122 KB）→ 轉換送進 worker；主執行緒停頓在寬鬆上限內", async () => {
     const rt = await runtimeWith();
     const { ctx, note, token } = await setup(rt);
     const before = (await getContent(ctx.app, note.id, token)).json();
-    const baseline = await idleStall(); // 這台機器當下的雜訊（審查 r7 m6）
+    const baseline = await idleStall(); // 這台機器當下的雜訊
     const jobs0 = (rt.parser as ParsePool).stats().docJobs;
     const meter = loopStall();
     const res = await ctx.app.inject({ method: "POST", url: `/api/notes/${note.id}/edits`, headers: bearer(token), payload: { op: "replace_all", markdown: DENSEST_BIG, if_match: before.fingerprint } });
@@ -274,7 +274,7 @@ describe("審查 C1：會被接受的重內容寫進去，主執行緒停頓", (
 });
 
 /**
- * 讀出與套用的轉換在 worker 裡（`doc-jobs.ts`）：worker 對「當時的文件狀態」算 diff。合併時活文件若已被別人改過（`live-watch.ts`，審查 r4 I1）：
+ * 讀出與套用的轉換在 worker 裡（`doc-jobs.ts`）：worker 對「當時的文件狀態」算 diff。合併時活文件若已被別人改過（`live-watch.ts`）：
  * 只改到別段 → 照樣合併（Yjs CRDT 合併，兩邊的字都在、各一次）；改到這次寫入在意的 block → 從頭重來（worker 重比 if_match → 409），
  * 改了又改回（指紋相同）而一直被超前 → 至多 `DOC_MERGE_ATTEMPTS` 次，再不行 503。瀏覽器的修改用真的協作用戶端打。
  */
@@ -331,7 +331,7 @@ describe("轉換在 worker 裡：套用期間瀏覽器的修改落進活文件",
     await s.ctx.destroy();
   }, 120_000);
 
-  it("像打字一樣：AI 換 B 段的期間，瀏覽器在 A 段一個字一個字打（每字一筆更新）→ 合併；打的字全在、順序正確、B 段是 AI 的內容（審查 r5 m6）", async () => {
+  it("像打字一樣：AI 換 B 段的期間，瀏覽器在 A 段一個字一個字打（每字一筆更新）→ 合併；打的字全在、順序正確、B 段是 AI 的內容", async () => {
     const rt = await runtimeWith();
     let typed: (() => Promise<void>) | null = null;
     const s = await raceScene(rt, { beforeMerge: async () => await typed!() });
@@ -352,7 +352,7 @@ describe("轉換在 worker 裡：套用期間瀏覽器的修改落進活文件",
     await s.ctx.destroy();
   }, 120_000);
 
-  it("撤回刪段：worker 做事期間瀏覽器把那段救回來（同 id，像 Ctrl+Z）→ 不合併、不重複；重來時判定不能撤回 → 409 stale（審查 r5 m5）", async () => {
+  it("撤回刪段：worker 做事期間瀏覽器把那段救回來（同 id，像 Ctrl+Z）→ 不合併、不重複；重來時判定不能撤回 → 409 stale", async () => {
     const rt = await runtimeWith();
     const s = await raceScene(rt, {});
     const b = await sectionOf(s, "B");
@@ -455,7 +455,7 @@ describe("轉換在 worker 裡：套用期間瀏覽器的修改落進活文件",
     await s.ctx.destroy();
   }, 120_000);
 
-  it("transact 內的那道判斷（審查 r4 M5／突變 H）：開直連之後、transact 之前，瀏覽器改了目標段 → 不合併；重來時指紋不符 → 409", async () => {
+  it("transact 內的那道判斷（突變 H）：開直連之後、transact 之前，瀏覽器改了目標段 → 不合併；重來時指紋不符 → 409", async () => {
     const rt = await runtimeWith();
     let opened = 0;
     let edit: (() => Promise<void>) | null = null;
@@ -541,7 +541,7 @@ describe("讀出的轉換逾時", () => {
     const pool = rt.parser as ParsePool;
     const timedOut0 = pool.stats().timedOut;
     pool.configure({ timeoutMs: 50 }); // 讀出時限＝3 × 50 ms
-    const baseline = await idleStall(); // 這台機器當下的雜訊（審查 r7 m6）
+    const baseline = await idleStall(); // 這台機器當下的雜訊
     const meter = loopStall();
     const c = await s.ctx.app.inject({ method: "GET", url: `/api/notes/${s.note.id}/content`, headers: bearer(s.pat.token) });
     expect(c.statusCode, c.body).toBe(500);

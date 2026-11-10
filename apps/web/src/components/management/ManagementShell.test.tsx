@@ -5,7 +5,7 @@ import i18n from "@/i18n";
 import { settle } from "@/test/outside-click";
 import { ManagementShell, type ManagementNavItemSpec } from "./ManagementShell";
 
-// #247 §4、§11.1。jsdom 不套 Tailwind：`hidden`／`flex` 只能以 class 斷言，真實顯示由 Part 3 的 e2e 截圖驗。
+// #247。jsdom 不套 Tailwind：`hidden`／`flex` 只能以 class 斷言，真實顯示由 e2e 截圖驗。
 // matchMedia：`src/test/setup.ts:28-40` 的全域 stub 恆回 matches:false（＝窄視窗）；寬視窗案自己 stubGlobal。
 
 const ITEMS: ManagementNavItemSpec[] = [
@@ -74,7 +74,7 @@ function stubWideViewport() {
   );
 }
 
-describe("ManagementShell（#247 §4）", () => {
+describe("ManagementShell（#247）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
   });
@@ -152,7 +152,7 @@ describe("ManagementShell（#247 §4）", () => {
     expect(kids[2]).toBe(contentBox());
   });
 
-  it("開啟後焦點在返回鈕、不是任何項次（§4.7：Radix removeLinks；突變：加 onOpenAutoFocus 聚焦項次要紅）", async () => {
+  it("開啟後焦點在返回鈕、不是任何項次（Radix removeLinks；突變：加 onOpenAutoFocus 聚焦項次要紅）", async () => {
     renderShell();
     const back = await screen.findByRole("button", { name: "Back to sections" });
     await waitFor(() => expect(document.activeElement).toBe(back));

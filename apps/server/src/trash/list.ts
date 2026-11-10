@@ -1,11 +1,11 @@
 /**
- * #181 `GET /api/trash` 的查詢（spec 2026-10-21 §6.3.1、§6.7）：呼叫者有垃圾桶權（D-W9）的項目＝個人（owner）∪ 群組
+ * #181 `GET /api/trash` 的查詢：呼叫者有垃圾桶權的項目＝個人（owner）∪ 群組
  * （角色 `can_edit AND can_delete`）。兩支結構性互斥（個人支 `owner_id = $u`、群組支 INNER JOIN 群組；`owner_id` 與 `group_id`
  * 恰一個非 NULL，`notes_owner_xor_group_chk`），`unionAll`。
  * 垃圾桶權的推導與單篇的 `trashRightFromRow` 同規則（`trash-routes.test.ts` TR-L3／TR-M1 逐角色比對）。
- * #181 PR-2d：MCP `list_trash` 共用 `readTrashRetentionDays`；`delete_note` 移入後以 `loadTrashedMeta` 重讀。
- * 資料夾 PR-3d：MCP `list_trash` 改走 `listTrashPage`（keyset 游標）；REST 的 `listTrash` 是它第一頁的包裝。兩者同用毫秒排序鍵（Q3）。
- * 資料夾 PR-3d T8：MCP `delete_folder` 移入後以 `loadTrashedPurgeAt` 重讀到期時間。
+ * #181：MCP `list_trash` 共用 `readTrashRetentionDays`；`delete_note` 移入後以 `loadTrashedMeta` 重讀。
+ * 資料夾：MCP `list_trash` 改走 `listTrashPage`（keyset 游標）；REST 的 `listTrash` 是它第一頁的包裝。兩者同用毫秒排序鍵。
+ * 資料夾：MCP `delete_folder` 移入後以 `loadTrashedPurgeAt` 重讀到期時間。
  */
 import { and, desc, eq, inArray, isNotNull, sql, type SQL } from "drizzle-orm";
 import { alias, unionAll, type AnyPgColumn } from "drizzle-orm/pg-core";
@@ -38,7 +38,7 @@ function baseColumns(retentionDays: number | null) {
     purgeAt: purgeAtExpr(sql`${retentionDays}::int`).as("purge_at"),
     deleterHandle: deleter.handle,
     deleterName: deleter.displayName,
-    // 資料夾（spec 2026-10-22 §5.8）：`folder_id` 非 NULL → 即時路徑（資料夾期間改名、搬動也跟著），否則快照；NULL → []。
+    // 資料夾：`folder_id` 非 NULL → 即時路徑（資料夾期間改名、搬動也跟著），否則快照；NULL → []。
     // 外層欄一律帶表名字面（單表 SELECT 直接插欄位會渲染成裸名，`NOTES_FOLDER_ID` 檔頭）。node-postgres 把 jsonb 解成陣列。
     folderPath: sql<string[]>`coalesce(case when "notes"."folder_id" is not null then ${folderPathJsonSql(NOTES_FOLDER_ID())} else "notes"."trash_folder_path" end, '[]'::jsonb)`.as("folder_path"),
   };
@@ -47,12 +47,12 @@ function baseColumns(retentionDays: number | null) {
 /** keyset 游標：`deletedAtMs` 是毫秒排序鍵本身（命名避開 `trash-structure.test.ts` 守衛二的比對式）。 */
 export interface TrashCursor { deletedAtMs: Date; id: string }
 
-/** 毫秒排序鍵（資料夾 PR-3d Q3：REST 與 MCP 同用）。raw `sql` 時間戳要 `.mapWith`（`mcp/queries.ts` 檔頭）。 */
+/** 毫秒排序鍵（資料夾：REST 與 MCP 同用）。raw `sql` 時間戳要 `.mapWith`（`mcp/queries.ts` 檔頭）。 */
 const deletedAtMsExpr = sql`date_trunc('milliseconds', ${notes.deletedAt})`.mapWith(notes.deletedAt);
 
 /**
  * 呼叫者有垃圾桶權的項目，依（毫秒 `deleted_at` DESC, id DESC），至多 `opts.limit` 筆（多取一筆判 hasMore）。
- * keyset：兩支各在 `and(…)` 裡帶 `(date_trunc('milliseconds', deleted_at), id) < (游標)`，左側與排序鍵同精度（memory g:drizzle-query-builder-gotchas）。
+ * keyset：兩支各在 `and(…)` 裡帶 `(date_trunc('milliseconds', deleted_at), id) < (游標)`，左側與排序鍵同精度。
  * `items` 與 `keys` 等長、同序。retentionDays 由呼叫端讀好傳入（`readTrashRetentionDays`）。
  */
 export async function listTrashPage(
@@ -109,7 +109,7 @@ export async function listTrashPage(
 }
 
 /**
- * REST 與舊呼叫端：＝ `listTrashPage(after: null)` 的第一頁，回應形不變（Q3：同一毫秒內的相對順序改依 id）。
+ * REST 與舊呼叫端：＝ `listTrashPage(after: null)` 的第一頁，回應形不變（同一毫秒內的相對順序改依 id）。
  * 至多 `TRASH_LIST_LIMIT` 筆。
  */
 export async function listTrash(db: Db, userId: string, retentionDays: number | null): Promise<TrashListDto> {

@@ -1,8 +1,8 @@
 /**
- * 資料夾 PR-3d（folders spec §5.12）`list_folders`：呼叫者看得到的資料夾（個人、`can_read` 群組、自己的 shared），keyset 分頁。
+ * 資料夾：`list_folders`：呼叫者看得到的資料夾（個人、`can_read` 群組、自己的 shared），keyset 分頁。
  * 可見性與 REST `GET /api/folders` 同一個述詞（`folders/queries.ts` 的 `visibleFolderWhere`），排序依 keyset（kind、空間、id），不是樹序。
- * 讀取類：不做 scope 檢查、不扣桶。`group_id` 看不到（非成員、`can_read = false`）與不存在同句 `group_not_found`＋FM2（Q1）。
- * 依 wire 預算截頁只是兜底：每項最壞約 2 563，50 項遠在預算內（plan 讀碼發現 19），所以 description 不宣稱「fewer when」。
+ * 讀取類：不做 scope 檢查、不扣桶。`group_id` 看不到（非成員、`can_read = false`）與不存在同句 `group_not_found`。
+ * 依 wire 預算截頁只是兜底：每項最壞約 2 563，50 項遠在預算內，所以 description 不宣稱「fewer when」。
  */
 import { z } from "zod";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -19,7 +19,7 @@ import { toolError, toolResult } from "../tool-result.js";
 import { PAGE_CUT_RESERVE, countWithinWireBudget, wireCost } from "../wire-budget.js";
 import type { McpToolCtx } from "../context.js";
 
-/** D-LF（逐字照 plan「待確認字串」）。 */
+/** `list_folders` 的工具說明。 */
 export const LIST_FOLDERS_DESCRIPTION =
   "List the folders you can see: your personal folders, the folders of your groups where your role can read notes, " +
   "and your folders for notes others shared with you, which only you can see. " +
@@ -84,7 +84,7 @@ export async function listFolders(args: ListFoldersArgs, ctx: McpToolCtx): Promi
   }
   let groupId: string | undefined;
   if (args.group_id !== undefined) {
-    groupId = args.group_id.toLowerCase(); // GROUP_ID 不轉小寫（plan 讀碼發現 33）
+    groupId = args.group_id.toLowerCase(); // GROUP_ID 不轉小寫
     const target = await loadCreateTarget(ctx.db, ctx.userId, groupId);
     if (target === undefined || !target.canRead) return toolError("group_not_found", FOLDER_GROUP_NOT_FOUND_MESSAGE);
   }

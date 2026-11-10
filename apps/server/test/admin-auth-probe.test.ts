@@ -11,7 +11,7 @@ import { adminApp, captureLogs, expectAdminOnly, providerRow } from "./helpers/a
 
 const ISS = "https://idp.example.com";
 
-/** registry 的 fetch 包一層記錄器：每個出站請求的 URL、headers、body 都記下來（「不送 secret」的直接守衛，gate r1-t1-7 I1）。 */
+/** registry 的 fetch 包一層記錄器：每個出站請求的 URL、headers、body 都記下來（「不送 secret」的直接守衛）。 */
 async function probeApp(idpIssuer: string, options: BuildAppOptions = {}) {
   const idp = createFakeIdp(idpIssuer);
   const requests: Array<{ url: string; headers: string; body: string }> = [];
@@ -23,7 +23,7 @@ async function probeApp(idpIssuer: string, options: BuildAppOptions = {}) {
   return { ...built, idp, requests };
 }
 
-/** #299：沒有 client ID 的服務經 POST 建（`seedAuthProvider` 種不出 NULL，spec §9）。 */
+/** #299：沒有 client ID 的服務經 POST 建（`seedAuthProvider` 種不出 NULL）。 */
 async function createWithoutClientId(
   app: Awaited<ReturnType<typeof adminApp>>["app"],
   cookies: Record<string, string>,
@@ -36,7 +36,7 @@ async function createWithoutClientId(
   return res.json().id as string;
 }
 
-describe("POST /api/admin/auth/providers/:id/test（#187 §9.2）", () => {
+describe("POST /api/admin/auth/providers/:id/test（#187）", () => {
   it("只給站台管理員", async () => {
     const { app, db } = await probeApp(ISS);
     const p = await seedAuthProvider(db, { issuerUrl: ISS });
@@ -58,7 +58,7 @@ describe("POST /api/admin/auth/providers/:id/test（#187 §9.2）", () => {
     expect((await providerRow(db, p.id))!.resolvedIssuer).toBe(ISS);
   });
 
-  it("§14.1-12 尾斜線形：provider 填 https://gitlab.example/、IdP 回無斜線 → 成功、resolved_issuer＝無斜線；列表 issuerResolved 轉 true", async () => {
+  it("尾斜線形：provider 填 https://gitlab.example/、IdP 回無斜線 → 成功、resolved_issuer＝無斜線；列表 issuerResolved 轉 true", async () => {
     const { app, db, cookies } = await probeApp("https://gitlab.example");
     const p = await seedAuthProvider(db, { issuerUrl: "https://gitlab.example/" });
     const res = await app.inject({ method: "POST", url: `/api/admin/auth/providers/${p.id}/test`, cookies });
@@ -72,7 +72,7 @@ describe("POST /api/admin/auth/providers/:id/test（#187 §9.2）", () => {
     const { app, db, cookies, idp } = await probeApp("http://idp.lan");
     idp.omitFromMetadata(["token_endpoint_auth_methods_supported"]);
     const p = await seedAuthProvider(db, { issuerUrl: "http://idp.lan", clientSecret: null, enabled: false });
-    // 封給「別的 id」的密文：格式合法、AAD 不符 → 解不開（§5.1）。
+    // 封給「別的 id」的密文：格式合法、AAD 不符 → 解不開。
     await db.update(authProviders).set({ clientSecretEncrypted: sealClientSecret(testConfig.appSecret, "00000000-0000-4000-8000-000000000000", "x") });
     const res = await app.inject({ method: "POST", url: `/api/admin/auth/providers/${p.id}/test`, cookies });
     expect(res.statusCode).toBe(200);
@@ -139,7 +139,7 @@ describe("POST /api/admin/auth/providers/:id/test（#187 §9.2）", () => {
     expect(JSON.stringify(logs.lines.filter(l => l.msg !== "incoming request" && l.msg !== "request completed"))).not.toContain(errMessage);
   });
 
-  it("RF4t 大寫 uuid 路徑同義；不存在 → 404 not_found", async () => {
+  it("大寫 uuid 路徑同義；不存在 → 404 not_found", async () => {
     const { app, db, cookies } = await probeApp(ISS);
     const p = await seedAuthProvider(db, { issuerUrl: ISS });
     expect((await app.inject({ method: "POST", url: `/api/admin/auth/providers/${p.id.toUpperCase()}/test`, cookies })).statusCode).toBe(200);
@@ -149,7 +149,7 @@ describe("POST /api/admin/auth/providers/:id/test（#187 §9.2）", () => {
   });
 });
 
-describe("POST /api/admin/auth/discover（#187 §9.2：儲存前試探）", () => {
+describe("POST /api/admin/auth/discover（#187：儲存前試探）", () => {
   it("只給站台管理員", async () => {
     const { app, db } = await probeApp(ISS);
     await expectAdminOnly(app, db, "POST", "/api/admin/auth/discover", { issuerUrl: ISS });
@@ -164,7 +164,7 @@ describe("POST /api/admin/auth/discover（#187 §9.2：儲存前試探）", () =
     expect(await db.select().from(authProviders)).toHaveLength(0);
   });
 
-  it("discovery 失敗 → 502；warn log 只帶 origin+pathname，不帶 userinfo 與錯誤訊息（gate r1-t1-7 M5）", async () => {
+  it("discovery 失敗 → 502；warn log 只帶 origin+pathname，不帶 userinfo 與錯誤訊息", async () => {
     const logs = captureLogs();
     const { app, cookies, idp } = await probeApp(ISS, logs.options);
     idp.failNext("discovery");
@@ -191,7 +191,7 @@ describe("POST /api/admin/auth/discover（#187 §9.2：儲存前試探）", () =
     expect(JSON.stringify(logs.lines.filter(l => l.msg !== "incoming request" && l.msg !== "request completed"))).not.toContain("pass@");
   });
 
-  it("RF1d 不合法 issuer（大寫 scheme、NUL）→ 400、不打 IdP", async () => {
+  it("不合法 issuer（大寫 scheme、NUL）→ 400、不打 IdP", async () => {
     const { app, cookies, idp } = await probeApp(ISS);
     for (const issuerUrl of ["HTTPS://idp.example.com", `https://idp.example.com/${String.fromCodePoint(0)}`]) {
       expect((await app.inject({ method: "POST", url: "/api/admin/auth/discover", cookies, payload: { issuerUrl } })).statusCode).toBe(400);

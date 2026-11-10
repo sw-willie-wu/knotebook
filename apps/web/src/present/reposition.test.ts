@@ -17,7 +17,7 @@ describe("locateSlide", () => {
   });
 });
 
-describe("repositionAfterUpdate（spec §7.2）", () => {
+describe("repositionAfterUpdate", () => {
   it("①目前那張仍在 → 它的新位置（結構前移：前面一章被刪）", () => {
     const old = deck("_:_title|a:a1|b:b1,b2");
     const next = deck("_:_title|b:b1,b2");

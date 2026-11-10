@@ -10,24 +10,24 @@ import { SESSION_QUERY_KEY } from "@/auth/useSession";
 export interface ChangePasswordFormProps {
   /**
    * 成功（`POST /api/auth/password` 204 + `['me']` refetch 完成）後呼叫——
-   * **導向完全由呼叫端決定**（spec §13.4）：強制頁（`ChangePasswordPage`）
+   * **導向完全由呼叫端決定**：強制頁（`ChangePasswordPage`）
    * `navigate("/", {replace:true})`；設定 modal（`SettingsLoginSection`）
    * 只 toast、不導航（`navigate("/")` 會關掉 modal，甚至扯掉背景 `/notes/:ref`
    * 的共編 provider——不可）。本元件自己不 toast、不 navigate，只負責欄位/
-   * 驗證/送出/錯誤顯示＋成功後 `invalidateQueries(['me'])`（rev 5.7 的 server
+   * 驗證/送出/錯誤顯示＋成功後 `invalidateQueries(['me'])`（server
    * 重簽對齊行為在此層——見下方 handleSubmit 內註解）。
    */
   onSuccess: () => void;
   /**
    * 送出鈕的階層（ui/button.tsx 規範）。本元件同時裝在兩種表面，由呼叫端決定：
    * `"page"`（預設，`/change-password` 整頁強制改密）→ `brandSolid` 滿寬；
-   * `"outline"`（個人設定 modal 的「登入」頁，#247 §4.8：面板右卡不放實心鈕）→ `outline`、不滿寬。
+   * `"outline"`（個人設定 modal 的「登入」頁，#247：面板右卡不放實心鈕）→ `outline`、不滿寬。
    */
   tone?: "page" | "outline";
 }
 
 /**
- * 改密碼表單（自 `ChangePasswordPage` 抽出，rev 5.7 行為原封搬入；spec §13.4）。
+ * 改密碼表單（自 `ChangePasswordPage` 抽出，行為原封搬入）。
  * 打 `POST /api/auth/password`——currentPassword + newPassword，
  * `confirmNewPassword` 只在 client 端比對，不送出。
  *

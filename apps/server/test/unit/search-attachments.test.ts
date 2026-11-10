@@ -1,5 +1,5 @@
 /**
- * #93 M8：description 的「Attachments are not searched.」的守衛——src/ 內（剝註解後）沒有任何碼寫 `'attachment'`，
+ * #93：description 的「Attachments are not searched.」的守衛——src/ 內（剝註解後）沒有任何碼寫 `'attachment'`，
  * 唯一出現處是 db/schema.ts 的 CHECK（預留值）。
  */
 import { describe, expect, it } from "vitest";

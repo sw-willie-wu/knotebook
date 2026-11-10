@@ -14,7 +14,7 @@
  *    優先序裡排第一，命中後整份會被包成 `<pre><code class="language-markdown">`。
  *    對貼 Python 是對的，對貼 markdown 不是使用者要的。
  *
- * ⚠ **交回 `defaultPasteHandler()` 不等於「走 HTML 那條路」**（審查實測糾正過一次）：
+ * ⚠ **交回 `defaultPasteHandler()` 不等於「走 HTML 那條路」**：
  * BlockNote 的預設流程 `prioritizeMarkdownOverHTML` 是 true，會在處理 `text/html`
  * **之前**先看純文字像不像 markdown，像就直接拿去解析；而 `text/markdown` 的優先序
  * 本來就高於 `text/html`。所以判斷不能看格式清單，要看**內容**。
@@ -35,7 +35,7 @@ import { collectBlockIds, convertPastedMermaidBlocks, type MermaidPasteEditor } 
 
 /** VS Code 的 `mode` 屬於這些語言時，我們把內容當 markdown 解析而不是包成程式碼區塊。
  *
- * `mode` 是 VS Code 的 languageId（審查反編譯 VS Code bundle 確認過），`.md` 給的是
+ * `mode` 是 VS Code 的 languageId（反編譯 VS Code bundle 確認過），`.md` 給的是
  * `markdown`。`md` 實務上不會出現（那是副檔名），`mdx` 只有裝了 MDX 擴充才有——兩者
  * 留著不會有壞處。已知**不在**這裡而仍會變成程式碼區塊的：`quarto`／`rmd`／`mdc`，
  * 以及沒有語言關聯時的 `plaintext`。 */
@@ -45,7 +45,7 @@ const MARKDOWN_LANGUAGE_MODES = new Set(["markdown", "md", "mdx"]);
 const ALWAYS_DELEGATE_TYPES = ["blocknote/html", "Files"];
 
 /**
- * markdown **文件**的結構性證據。門檻刻意訂得比「出現一個行首標記」高很多，因為審查
+ * markdown **文件**的結構性證據。門檻刻意訂得比「出現一個行首標記」高很多，因為
  * 用真剪貼簿實測發現：只要一個標記就接手的話，**從文件網站複製程式碼片段會被我們
  * 攔走並改壞**——`# 註解` 開頭的 shell／Dockerfile／YAML 在剪貼簿上是
  * `<pre><code>` ＋逐字純文字，接手後註解變成 `<h1>`、縮排被收掉；`- old` / `+ new`
@@ -57,7 +57,7 @@ const ALWAYS_DELEGATE_TYPES = ["blocknote/html", "Files"];
  * 這個門檻只用在「剪貼簿同時有 HTML」的情況；純文字貼上沒有更好的來源可退，不需要
  * 過這一關。
  *
- * ⚠ **不變量：本判斷必須是 BlockNote `isMarkdown` 的嚴格子集。** 這是四輪審查換來的
+ * ⚠ **不變量：本判斷必須是 BlockNote `isMarkdown` 的嚴格子集。** 這是反覆修正換來的
  * 教訓——前幾版都是「對著案例集調」，每次補一個洞就漏下一個形狀（JSDoc 的 ` * ` 續行、
  * 超過 64 字的 `#` 註解、psql 的 `-----|-----`、shell 的 `1) `）。維持子集關係之後，
  * 「我們接手」在語意上只等於「與 BlockNote 相同的判斷，外加行尾正規化」，**不可能**把
@@ -224,7 +224,7 @@ function isCursorInCodeBlock(editor: PasteTargetEditor): boolean {
 }
 
 /**
- * #269 §8.3：貼上之後的轉換掛點。`before` 在任何出口之前取快照；`after` 在出口返回、`convertMermaid()` 之後呼叫。
+ * #269：貼上之後的轉換掛點。`before` 在任何出口之前取快照；`after` 在出口返回、`convertMermaid()` 之後呼叫。
  * 兩者丟錯都只放棄轉換（呼叫端包 try/catch），不影響貼上本身。
  */
 export interface PasteConversionHook {
@@ -271,7 +271,7 @@ export function createMarkdownPasteHandler(hook?: PasteConversionHook) {
       if (idsBeforePaste !== null) convertPastedMermaidBlocks(editor, idsBeforePaste);
     };
 
-    // #269 §8.3：站內連結轉換的快照（任何出口之前取）。取不到就這次不轉換——絕不影響貼上本身。
+    // #269：站內連結轉換的快照（任何出口之前取）。取不到就這次不轉換——絕不影響貼上本身。
     let siteLinkSnapshot: unknown;
     try {
       siteLinkSnapshot = hook?.before(editor);

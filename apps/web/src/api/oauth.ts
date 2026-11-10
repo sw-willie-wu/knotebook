@@ -13,7 +13,7 @@ export function useOauthRequest(req: string | null): UseQueryResult<OauthRequest
     retry: false,
     // #239：同意頁的勾選初值只在第一次拿到資料時算（`ConsentBody` 的 useState），之後重抓
     // 只會更新「Currently granted」與 replacesWithLess 這些衍生顯示，兩邊就對不上了。
-    // 這份資料當載入當下的快照用（spec §5.4），所以切回視窗或重新連線都不重抓。
+    // 這份資料當載入當下的快照用，所以切回視窗或重新連線都不重抓。
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     queryFn: () => api<OauthRequestDto>(`/api/oauth/request?req=${encodeURIComponent(req!)}`),
@@ -21,7 +21,7 @@ export function useOauthRequest(req: string | null): UseQueryResult<OauthRequest
 }
 
 /**
- * `POST /api/oauth/decision`：allow／deny 都會消費 pending request（I6）。
+ * `POST /api/oauth/decision`：allow／deny 都會消費 pending request。
  * #239：allow 必帶 `scope`（使用者勾選的結果，server 再以 `narrowerScope` 夾回 pending）；
  * deny 只帶 `{req, decision}`。
  */

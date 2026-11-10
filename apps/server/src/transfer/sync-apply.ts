@@ -1,18 +1,18 @@
 /**
- * bulk transfer spec 2026-11-02 §9.4-4、§9.5 第 6 步：mount fork **一次**、照決策套用、取 diff（plan PR-2 T7）。
+ * bulk transfer：mount fork **一次**、照決策套用、取 diff。
  * **持 fork lease、零 DB**；與 scratch 規劃（`sync-plan.ts`）先後、不巢狀。
  *
- * 前提同 `decide.ts`：呼叫端已確認筆記自下載後沒有被動過（現況頂層與基底段表逐顆相同；Willie 2026-11-04 第三輪）。
+ * 前提同 `decide.ts`：呼叫端已確認筆記自下載後沒有被動過（現況頂層與基底段表逐顆相同）。
  *
- * 順序：讓出一次（T14：mount 是一整段同步，不接在規劃尾段後面）→ mount → 無條件讓出一次（同 PR-1）→ ① 所有非 `same` 的插入與改寫（文件順序）：改寫在第一顆基底
+ * 順序：讓出一次（mount 是一整段同步，不接在規劃尾段後面）→ mount → 無條件讓出一次→ ① 所有非 `same` 的插入與改寫（文件順序）：改寫在第一顆基底
  * block 之前 `insertBlocks(parsed)` 再 `removeBlocks(基底那幾顆)`；插入區照 `place`（`P` 之後、`N` 之前、文件開頭）
  * ② 刪除區：`decide` 已定的錨點直接用；`deferred` 在**此刻**的 mounted doc 裡找第一顆要刪的 block 的前一顆（after）或最後一顆的
- * 後一顆（before）——本次插入的 block 可當鄰居、排除本次要移除的 block（rev 4 m-8）；找不到、或 `replaceWithEmpty`
+ * 後一顆（before）——本次插入的 block 可當鄰居、排除本次要移除的 block；找不到、或 `replaceWithEmpty`
  * → 收集起來，最後一次移除改成換成一顆空段落，這些區都以它為 anchor（before）③ `diffSince` → close。
  * 每區之後按時間預算讓出。找鄰居在 `diffSince`／合併之前，所以不會出現「內容已寫、紀錄撞 `anchor_chk` 才 500」。
- * **現況 0 顆頂層**（空筆記〔gate r1 I5〕；基底也是 0 顆，否則呼叫端已回 409）：mount 會正規化出一顆空 paragraph——①的第一個
+ * **現況 0 顆頂層**（空筆記；基底也是 0 顆，否則呼叫端已回 409）：mount 會正規化出一顆空 paragraph——①的第一個
  * 「文件開頭」插入把它換掉（只換一次），其餘區依序接在前一區後面；空筆記只有一個插入區，結果等於 `replace_all`：`beforeBlocks: []`、
- * 紀錄形＝插入列，那顆空段落不留。（T8–T11 審查 M18：原本的空筆記特例分支與這條一般路徑結果相同，已刪。）
+ * 紀錄形＝插入列，那顆空段落不留。（原本的空筆記特例分支與這條一般路徑結果相同，已刪。）
  * 寫入前防守：每個非 same、非刪除區插入的 block 都必須在頂層，否則在 `diffSince` 之前 throw（什麼都沒合併）。
  * 合併時的期望（現況整篇沒變）由呼叫端給 `mergeDiff`，這裡不算。
  */
@@ -35,7 +35,7 @@ export interface Applied {
 }
 
 /**
- * 紀錄列（§13）：每個 `applied` 區一列（**`same` 區不記**，gate r1 m23），文件順序；`op: "file_sync"`、`sectionId: null`；
+ * 紀錄列：每個 `applied` 區一列（**`same` 區不記**），文件順序；`op: "file_sync"`、`sectionId: null`；
  * 刪除區帶 `anchor`、`after_block_ids: []`，其餘 `anchor: null`（`note_ai_edits_anchor_chk` 的 file_sync 分支）。
  * `afterFingerprints[ri]`＝`mergeDiff` 以 `afterGroups = perRegion.map(p => p.afterIds)` 同一次走完算出的合併後指紋。
  * `recordable`＝`apply.ts` 的 `recordableAfter`（`fingerprint_chk` 防護）；⚠ 它的退化形（`after_block_ids: []`、指紋 null）對
@@ -79,7 +79,7 @@ export async function applySync(
   sv: Uint8Array,
   plan: SyncPlan,
   cur: { ids: string[] },
-  /** `normalizedId`：基底 0 顆、現況恰一顆空段落（審查 M1，`isLoneEmptyParagraph`）——那顆當成正規化出來的，與現況 0 顆同樣只換掉一次。 */
+  /** `normalizedId`：基底 0 顆、現況恰一顆空段落（`isLoneEmptyParagraph`）——那顆當成正規化出來的，與現況 0 顆同樣只換掉一次。 */
   opts: { yieldFn?: () => Promise<void>; now?: () => number; normalizedId?: string } = {},
 ): Promise<Applied> {
   const yieldFn = opts.yieldFn ?? yieldToLoop;
@@ -87,7 +87,7 @@ export async function applySync(
   const { regions, decisions, parsed } = plan;
   const perRegion: Applied["perRegion"] = regions.map(() => ({ beforeBlocks: [], afterIds: [], anchor: null }));
 
-  // T14（總管裁示 3）：mount 之前先讓出一次——fork 的 mount 是一整段同步（2 vCPU 參考環境 2 000 顆約 230–380 ms，切不開），
+  // mount 之前先讓出一次——fork 的 mount 是一整段同步（2 vCPU 參考環境 2 000 顆約 230–380 ms，切不開），
   // 不讓出的話它會接在規劃的尾段（scratch unmount、decide）後面成一段更長的停頓。mount 之後那次讓出照舊。
   await yieldFn();
   const s = await EditorSession.open(runtime, fork);
@@ -103,7 +103,7 @@ export async function applySync(
     const ed = s.editor;
     const snapshot = (ids: string[]): AnyBlock[] => ids.map(id => ed.getBlock(id)).filter((b): b is AnyBlock => b !== undefined);
 
-    // 寫入前的防守（審查 Important 2）：每個非 same、非刪除區插入的 block 都必須在頂層——不在就 throw。throw 在 diffSince／
+    // 寫入前的防守：每個非 same、非刪除區插入的 block 都必須在頂層——不在就 throw。throw 在 diffSince／
     // 合併之前，所以什麼都還沒寫進筆記（不會「內容已合併、紀錄撞 CHECK 才 500」）。
     const assertTopLevel = () => {
       const top = new Set(ed.document.map(b => b.id));
@@ -115,7 +115,7 @@ export async function applySync(
     };
 
     // ① 插入與改寫。同一個接點（同一顆 `P` 之後、或文件開頭）有多區時，後一區接在前一區最後一顆之後，保住文件順序
-    // （不接的話後一區會插到前一區前面）。現況 0 顆（空筆記，gate r1 I5）：mount 正規化出的
+    // （不接的話後一區會插到前一區前面）。現況 0 顆（空筆記）：mount 正規化出的
     // 那顆空段落只換掉一次（`normalized`），之後各區照這條接續規則接在前一區後面——空筆記只有一個插入區，所以就是「整個換掉」。
     let normalized: string | null = cur.ids.length === 0 ? (ed.document[0]?.id ?? null) : (opts.normalizedId ?? null);
     const chain = new Map<string, string>();
@@ -177,7 +177,7 @@ export async function applySync(
     }
     if (toEmpty.length > 0) {
       // 最後一次移除換成一顆空段落（結果頂層永不為空，`apply.ts` delete_section 的形）；這些區都以它為 anchor（before）。
-      // 總管追加 T11-1：記成佔位（`placeholder: true`）。空段落落在第一個被換掉的 block 的位置：文件順序第一個區的倖存者在它
+      // 記成佔位（`placeholder: true`）。空段落落在第一個被換掉的 block 的位置：文件順序第一個區的倖存者在它
       // 「之前」（before），其餘區在它「之後」（after）——撤回時才插得回原順序（3 區以上亂序撤回只近似，known-limitations）。
       const ids = toEmpty.flatMap(ri => decisions[ri]!.survivors);
       const empty = ed.replaceBlocks(ids, [{ type: "paragraph" }]).insertedBlocks[0]!;

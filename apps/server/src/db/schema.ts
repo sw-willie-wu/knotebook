@@ -8,9 +8,9 @@ import type { BulkRange } from "../auth/transfer-token.js";
 const bytea = customType<{ data: Buffer }>({ dataType: () => "bytea" });
 
 /**
- * 儲存配額（spec 2026-10-08 §4.1）：方案。`quota_bytes` NULL＝無上限；`0..2^50`。名稱 1..40 字元（code point，`char_length`），
+ * 儲存配額：方案。`quota_bytes` NULL＝無上限；`0..2^50`。名稱 1..40 字元（code point，`char_length`），
  * 應用層 trim 後寫入；不分大小寫唯一（`storage_plans_name_lower_idx`——409 `storage_plan_name_taken` 的分流鍵）。
- * 內建「Basic」只在 migration 建立、作為初始預設；之後與其他方案一樣可改名改配額（沒有 builtin 欄，D4a）。
+ * 內建「Basic」只在 migration 建立、作為初始預設；之後與其他方案一樣可改名改配額（沒有 builtin 欄）。
  * **必須宣告在 `users` 之前**：`users`／`groups`／`site_settings` 的 FK 在 extras 直接引用 `storagePlans.id`（TDZ）。
  */
 export const storagePlans = pgTable(
@@ -36,7 +36,7 @@ export const users = pgTable("users", {
   // `handles` registry（見下），這欄供 JOIN 與回應組裝。DB default 有兩個承重理由：
   // ①回滾兜底（0006 之後退回舊映像，舊碼 insert 不帶 handle 仍能建帳）；②大量既有
   // 整合測試直接 db.insert(users) 不帶 handle——沒有 default，drizzle 的 insert 型別
-  // 會把它變必填、整套 typecheck 全紅（plan gate 注意事項 8）。
+  // 會把它變必填、整套 typecheck 全紅。
   // `.unique()` 產出的 constraint 名 `users_handle_unique` 是錯誤判別契約的鍵
   // （handle_taken vs email_taken 靠 constraint 名分流）——**不得改成 uniqueIndex()**
   // （那會產 CREATE UNIQUE INDEX，pg 錯誤帶回的名字就不在判別白名單裡）。
@@ -45,7 +45,7 @@ export const users = pgTable("users", {
     .unique()
     .default(sql`'user-' || substr(gen_random_uuid()::text, 1, 8)`),
   passwordHash: text("password_hash"),
-  // #187：舊欄，0014 起只剩 §10.3 補登讀它、PR3 解除連結清它；下個 release 刪（B11）。新碼一律走 `user_identities`。
+  // #187：舊欄，0014 起只剩開機時的補登讀它、解除連結清它；下個 release 刪。新碼一律走 `user_identities`。
   oidcIssuer: text("oidc_issuer"),
   oidcSub: text("oidc_sub"),
   displayName: text("display_name").notNull(),
@@ -53,20 +53,20 @@ export const users = pgTable("users", {
   isAdmin: boolean("is_admin").notNull().default(false),
   disabledAt: timestamp("disabled_at", { withTimezone: true }),
   tokenVersion: integer("token_version").notNull().default(0),
-  // 首登強制改密碼（spec rev 5.7 / §14.2；#187 PR4 起 env bootstrap 管理員不再掛）：
+  // 首登強制改密碼（#187 起 env bootstrap 管理員不再掛）：
   // 已沒有寫入端（#285 拿掉代建）；只剩舊版代建、尚未改密碼的帳號帶著它。
   // OIDC 自動建帳、env bootstrap、註冊、接受邀請皆為 false。
   mustChangePassword: boolean("must_change_password").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  // 儲存配額（spec §4.2）：使用者個人空間的方案。DEFAULT 呼叫手寫 SQL 函式 `public.knotebook_default_storage_plan('user')`
+  // 儲存配額：使用者個人空間的方案。DEFAULT 呼叫手寫 SQL 函式 `public.knotebook_default_storage_plan('user')`
   // （定義在本功能的 `*_storage-quota.sql` migration 檔內；編號在 merge 時重產），在 INSERT 當下讀 `site_settings.default_user_storage_plan_id`——快照語意：之後改預設不影響既有列。
   // 有 default 才讓四個建帳點與既有測試的 `db.insert(users)` 不必帶它（比照 `handle`）。`site_settings` 沒有列時函式回 NULL →
-  // 23502（§4.2 契約變更）。FK 一律 `foreignKey({ name })`、不得用 `.references()`（自動名會讓 §7.1 依約束名分流落空）。
+  // 23502（契約變更）。FK 一律 `foreignKey({ name })`、不得用 `.references()`（自動名會讓依約束名分流落空）。
   storagePlanId: uuid("storage_plan_id").notNull().default(sql`public.knotebook_default_storage_plan('user')`),
-  // 筆記版本歷史（spec 2026-10-09 §4.3、D8）：個人空間的自動儲存開關。生效值＝站台總開關 且 這欄（A13），筆記載入時查一次。
+  // 筆記版本歷史：個人空間的自動儲存開關。生效值＝站台總開關 且 這欄，筆記載入時查一次。
   autoVersions: boolean("auto_versions").notNull().default(true),
-  // #247 §9.5：最後一次「新簽登入 session」的時間（帳密登入、OIDC 登入與首登建帳、SSO／密碼證明連結、註冊、以重設連結設定新密碼、接受邀請）。顯示用，站台管理使用者表讀它；
-  // 寫入是交易外的單句 `auth/last-login.ts` 的 `touchLastLogin`（不進 `resolveOidcLoginInTx`，不動「先 users 後 identity」鎖序，C24）；
+  // #247：最後一次「新簽登入 session」的時間（帳密登入、OIDC 登入與首登建帳、SSO／密碼證明連結、註冊、以重設連結設定新密碼、接受邀請）。顯示用，站台管理使用者表讀它；
+  // 寫入是交易外的單句 `auth/last-login.ts` 的 `touchLastLogin`（不進 `resolveOidcLoginInTx`，不動「先 users 後 identity」鎖序）；
   // 永不等鎖（`SKIP LOCKED`）：該列正被別的交易鎖著時略過，所以併發下偶爾會漏記這一次登入。
   // 不回填：升級前的帳號在下次登入前是 NULL。#267 起站台管理使用者表改顯示 `lastActiveAt`，這欄仍照寫、API 仍回。
   lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
@@ -85,18 +85,16 @@ export const users = pgTable("users", {
   // 有測試釘住「存在且非唯一」。
   index("users_email_lower_idx").on(sql`lower(${t.email})`),
   foreignKey({ name: "users_storage_plan_fk", columns: [t.storagePlanId], foreignColumns: [storagePlans.id] }).onDelete("restrict"),
-  // 刪方案時 RI 的 RESTRICT 檢查與方案表的 userCount 走它（spec §4.4 M6）。
+  // 刪方案時 RI 的 RESTRICT 檢查與方案表的 userCount 走它。
   index("users_storage_plan_idx").on(t.storagePlanId),
 ]);
 
 /**
- * #122：handle 配置的**唯一裁決者**（單一 registry，PK 裁決恰好一次——比照
- * [[ai-provider-key-exfil]] 的「判斷必須在 DB 端做」紀律）。取名＝`INSERT INTO handles`
+ * #122：handle 配置的**唯一裁決者**（單一 registry，PK 裁決恰好一次——判斷必須在 DB 端做）。取名＝`INSERT INTO handles`
  * （改名時刪舊列，舊名即釋出、任何人可再取；現行只有 live 列，#291）。
  * 三條建帳路徑一律 registry-first（同 tx 內先 INSERT handles 再 INSERT users）。
  *
- * `user_id` **刻意無 `.references()`**（repo 慣例是 uuid 都掛 FK——這裡是明示例外，
- * spec §2a）：①registry-first 順序下 handles 列先於 users 列插入，掛 FK 三條建帳
+ * `user_id` **刻意無 `.references()`**（repo 慣例是 uuid 都掛 FK——這裡是明示例外）：①registry-first 順序下 handles 列先於 users 列插入，掛 FK 三條建帳
  * 路徑全死；②產品無刪使用者功能。
  * CHECK 三條都是結構層不變量：charset/長度、state 枚舉、released_at↔state 一致
  * （`state='released'`／`released_at` 只在 rollback 窗期由舊版 server 寫入，新碼只寫 live，#291）。
@@ -113,7 +111,7 @@ export const handles = pgTable(
     check("handles_handle_chk", sql`${t.handle} ~ '^[a-z0-9-]{1,32}$'`),
     check("handles_state_chk", sql`${t.state} in ('live','released')`),
     check("handles_released_at_chk", sql`(${t.state} = 'released') = (${t.releasedAt} is not null)`),
-    // 依 user_id 查列的反向索引——比照 note_shares_user_idx 的慣例（讀碼審查 minor 7）。
+    // 依 user_id 查列的反向索引——比照 note_shares_user_idx 的慣例。
     index("handles_user_idx").on(t.userId),
   ],
 );
@@ -135,10 +133,10 @@ export const instanceSetup = pgTable("instance_setup", {
 }, t => [check("instance_setup_singleton_chk", sql`${t.singleton}`)]);
 
 /**
- * #187 §4.1：登入服務（OIDC provider）。`id` 由應用端先產（client secret 的 AAD 綁 id，§5.1）。
+ * #187：登入服務（OIDC provider）。`id` 由應用端先產（client secret 的 AAD 綁 id）。
  * `resolved_issuer`＝最近一次 discovery 成功時的 `metadata.issuer`；所有 identity ↔ provider 比對一律用
- * `coalesce(resolved_issuer, issuer_url)`（effective issuer，`auth/oidc-providers.ts`）。CHECK 守 INV-1（啟用⇒有 secret 與啟用⇒有 client ID）、
- * 長度上限（r3-M3：pending cookie 的大小上界靠它）；partial unique 守 INV-3（至多一個 legacy）。
+ * `coalesce(resolved_issuer, issuer_url)`（effective issuer，`auth/oidc-providers.ts`）。CHECK 守「啟用⇒有 secret 與啟用⇒有 client ID」、
+ * 長度上限（pending cookie 的大小上界靠它）；partial unique 保證至多一個 legacy。
  */
 export const authProviders = pgTable(
   "auth_providers",
@@ -154,13 +152,13 @@ export const authProviders = pgTable(
     sortOrder: integer("sort_order").notNull().default(0),
     legacyCallback: boolean("legacy_callback").notNull().default(false),
     configVersion: integer("config_version").notNull().default(1),
-    // S1「首次登入時自動建立帳號」：SSO 首登、email 沒有帳號時只看這欄（`auth/tx/oidc-login.ts`）。U3 新服務一律 false（DB 預設＋建立 API 不收此欄）；
+    // 「首次登入時自動建立帳號」：SSO 首登、email 沒有帳號時只看這欄（`auth/tx/oidc-login.ts`）。新服務一律 false（DB 預設＋建立 API 不收此欄）；
     // 例外：升級時由 migration 承接舊的 `registration_enabled`（0.6.0 曾有的 `OIDC_*` env 匯入已移除）。
     autoCreateEnabled: boolean("auto_create_enabled").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-    // 登入服務圖示（spec 2026-10-07-provider-icon §3）：kind ∈ template|gitlab|google|upload|none；upload ⇔ data 與 mime 皆非 NULL。
-    // icon_version 只在上傳時 +1（公開讀圖網址的 `?v=`）；icon_data 只在 PUT 寫、公開 GET 讀，清單 SELECT 一律不選（§5.3）。
+    // 登入服務圖示：kind ∈ template|gitlab|google|upload|none；upload ⇔ data 與 mime 皆非 NULL。
+    // icon_version 只在上傳時 +1（公開讀圖網址的 `?v=`）；icon_data 只在 PUT 寫、公開 GET 讀，清單 SELECT 一律不選。
     iconKind: text("icon_kind").notNull().default("template"),
     iconData: bytea("icon_data"),
     iconMime: text("icon_mime"),
@@ -188,8 +186,8 @@ export const authProviders = pgTable(
 );
 
 /**
- * #187 §4.2：登入身分。身分鍵＝`(issuer, sub)`（全域唯一，INV-4）；不存 provider_id（B1）。
- * B2「同帳號同 issuer 一個 sub」在應用層判、序列化點是目標帳號的 users 列鎖（B16），不設 DB 約束。
+ * #187：登入身分。身分鍵＝`(issuer, sub)`（全域唯一）；不存 provider_id。
+ * 「同帳號同 issuer 一個 sub」在應用層判、序列化點是目標帳號的 users 列鎖，不設 DB 約束。
  */
 export const userIdentities = pgTable(
   "user_identities",
@@ -210,8 +208,8 @@ export const userIdentities = pgTable(
 );
 
 /**
- * #187 §4.3：站台設定（singleton，INV-6）。`registration_enabled` 一律預設開（W23），只管帳密自助註冊（PR-C 起；SSO 首登看各服務的 `auto_create_enabled`）。
- * `password_login_enabled`（rev 10，W24）一律預設開；只存 DB 值（env 強制不寫回，B18），讀法見 `auth/password-login.ts`（PR3，spec §9.5）。
+ * #187：站台設定（singleton）。`registration_enabled` 一律預設開，只管帳密自助註冊（SSO 首登看各服務的 `auto_create_enabled`）。
+ * `password_login_enabled` 一律預設開；只存 DB 值（env 強制不寫回），讀法見 `auth/password-login.ts`。
  */
 export const siteSettings = pgTable(
   "site_settings",
@@ -221,14 +219,14 @@ export const siteSettings = pgTable(
     passwordLoginEnabled: boolean("password_login_enabled").notNull().default(true),
     // 已無程式讀寫（`OIDC_*` env 匯入已移除）；欄位留著，丟掉要另開 migration。
     legacyOidcEnvHandledAt: timestamp("legacy_oidc_env_handled_at", { withTimezone: true }),
-    // 儲存配額（spec §4.2、D4b）：新使用者／新群組的預設方案（初始 Basic）。只影響之後建立的（DEFAULT 函式快照）。
+    // 儲存配額：新使用者／新群組的預設方案（初始 Basic）。只影響之後建立的（DEFAULT 函式快照）。
     defaultUserStoragePlanId: uuid("default_user_storage_plan_id").notNull(),
     defaultGroupStoragePlanId: uuid("default_group_storage_plan_id").notNull(),
-    // 筆記版本歷史（spec §4.3、§10）：自動版本清除的兩個天數與自動儲存總開關。
+    // 筆記版本歷史：自動版本清除的兩個天數與自動儲存總開關。
     versionKeepAllDays: integer("version_keep_all_days").notNull().default(7),
     versionDailyUntilDays: integer("version_daily_until_days").notNull().default(30),
     autoVersionsEnabled: boolean("auto_versions_enabled").notNull().default(true),
-    // #272 §8（D4）：自動存版等待 X（整數分鐘 1–60，預設 5）；掃描器每輪現讀（`collab/versions.ts` 的 `scanDue`）。
+    // #272：自動存版等待 X（整數分鐘 1–60，預設 5）；掃描器每輪現讀（`collab/versions.ts` 的 `scanDue`）。
     versionAutoWaitMinutes: integer("version_auto_wait_minutes").notNull().default(5),
     // #181：垃圾桶保留天數（1–3650，預設 7）；NULL＝不自動刪。
     trashRetentionDays: integer("trash_retention_days").default(7),
@@ -251,18 +249,18 @@ export const siteSettings = pgTable(
 );
 
 /**
- * #103（migration 0011）：群組。名稱不唯一（D9），長度 1..80 由 CHECK 守——pg 的 `length()`
+ * #103（migration 0011）：群組。名稱不唯一，長度 1..80 由 CHECK 守——pg 的 `length()`
  * 數的是字元（code point），應用層的 `validateGroupName`（`groups/queries.ts`）用同一個單位。
- * `created_by` 可為 null、`ON DELETE SET NULL`（A9）：建立者之後沒有任何特殊身分（D5），這欄只是紀錄。
+ * `created_by` 可為 null、`ON DELETE SET NULL`：建立者之後沒有任何特殊身分，這欄只是紀錄。
  */
 export const groups = pgTable("groups", {
   id: uuid().primaryKey().defaultRandom(),
   name: text().notNull(),
   createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  // 儲存配額（spec §4.2）：同 `users.storage_plan_id`，讀 `default_group_storage_plan_id`。
+  // 儲存配額：同 `users.storage_plan_id`，讀 `default_group_storage_plan_id`。
   storagePlanId: uuid("storage_plan_id").notNull().default(sql`public.knotebook_default_storage_plan('group')`),
-  // 筆記版本歷史（spec 2026-10-09 §4.3、D8）：群組空間的自動儲存開關。生效值＝站台總開關 且 這欄（A13），筆記載入時查一次。
+  // 筆記版本歷史：群組空間的自動儲存開關。生效值＝站台總開關 且 這欄，筆記載入時查一次。
   autoVersions: boolean("auto_versions").notNull().default(true),
 }, t => [
   check("groups_name_chk", sql`length(${t.name}) between 1 and 80`),
@@ -271,11 +269,11 @@ export const groups = pgTable("groups", {
 ]);
 
 /**
- * #175（migration 0012）：群組角色。七旗標（spec §4.1）；內建兩個（`builtin` = admin／member，`name` 恆 NULL，
- * 顯示名走 i18n——Q19），自訂角色（`builtin` NULL、`name` 必填，`POST /api/groups/:id/roles` 建立，#175 PR3）。五條 CHECK：`builtin` 值域；
- * S8 的名稱兩條（內建恰無名、自訂恰有名；名稱 1..40 字）；S8／S10 的旗標兩條（內建管理員七旗標全真；四個筆記旗標
- * ⇒ 閱讀）——「新建 ⇒ 編輯」在 0013 拿掉（#175 PR3，Willie 裁決：自訂角色怎麼組合由管理者決定）。0013 拿掉 `group_roles_create_needs_edit_chk` 後實質不可逆：一旦有人建了 create-only 角色，要加回這條 CHECK 必須先修正那些資料。兩個管理旗標彼此獨立、也不蘊含閱讀（gate r2 M-4）——刻意沒有 CHECK。
- * `(group_id, id)` 唯一索引是 `group_members` 複合 FK 的目標（S7：成員的角色屬同一群組）。
+ * #175（migration 0012）：群組角色。七旗標；內建兩個（`builtin` = admin／member，`name` 恆 NULL，
+ * 顯示名走 i18n），自訂角色（`builtin` NULL、`name` 必填，`POST /api/groups/:id/roles` 建立，#175）。五條 CHECK：`builtin` 值域；
+ * 名稱兩條（內建恰無名、自訂恰有名；名稱 1..40 字）；旗標兩條（內建管理員七旗標全真；四個筆記旗標
+ * ⇒ 閱讀）——「新建 ⇒ 編輯」在 0013 拿掉（#175，自訂角色怎麼組合由管理者決定）。0013 拿掉 `group_roles_create_needs_edit_chk` 後實質不可逆：一旦有人建了 create-only 角色，要加回這條 CHECK 必須先修正那些資料。兩個管理旗標彼此獨立、也不蘊含閱讀——刻意沒有 CHECK。
+ * `(group_id, id)` 唯一索引是 `group_members` 複合 FK 的目標（成員的角色屬同一群組）。
  */
 export const groupRoles = pgTable("group_roles", {
   id: uuid().primaryKey().defaultRandom(),
@@ -302,8 +300,8 @@ export const groupRoles = pgTable("group_roles", {
 ]);
 
 /**
- * #103／#175：群組成員。`role_id` 以複合 FK `(group_id, role_id) → group_roles(group_id, id)`（NO ACTION，S7）
- * 掛在同一群組的角色上。S1（每個群組至少一位成員持內建管理員角色）**沒有 DB 守衛**：應用層在交易內先
+ * #103／#175：群組成員。`role_id` 以複合 FK `(group_id, role_id) → group_roles(group_id, id)`（NO ACTION）
+ * 掛在同一群組的角色上。「每個群組至少一位成員持內建管理員角色」**沒有 DB 守衛**：應用層在交易內先
  * `lockGroup` 再以另一條敘述數 `builtin='admin'`（`groups/queries.ts` 的 `countAdmins`）。`group_members_user_idx`：
  * 「某人所屬的群組」與可見性查詢的 grouped 分支用——PK 是 (group_id, user_id)，反向查不到。
  */
@@ -320,10 +318,10 @@ export const groupMembers = pgTable("group_members", {
 ]);
 
 /**
- * 資料夾（spec 2026-10-22 §5.1，migration 0034）：三種空間——personal（`owner_id`）、group（`group_id`）、shared（`owner_id`，
- * 被分享者自己的分類）。`parent_id` NULL＝根層。成環、深度、數量不在 DB 守（結構鎖內的應用層，§5.4）。
+ * 資料夾（migration 0034）：三種空間——personal（`owner_id`）、group（`group_id`）、shared（`owner_id`，
+ * 被分享者自己的分類）。`parent_id` NULL＝根層。成環、深度、數量不在 DB 守（結構鎖內的應用層）。
  * **只在 0034 手寫、不在這裡宣告**：`folders_sibling_name_idx`（同層名稱不分大小寫唯一，`… lower(name)) NULLS NOT DISTINCT`——
- * drizzle 的 index builder 沒有 NULLS NOT DISTINCT，spec §5.1 M3 ①）與三支 trigger（`notes_folder_space_trg`、
+ * drizzle 的 index builder 沒有 NULLS NOT DISTINCT）與三支 trigger（`notes_folder_space_trg`、
  * `folders_parent_space_trg`、`note_placements_folder_trg`；SQLSTATE `KF001`～`KF003`，見 `db/pg-errors.ts`）。
  */
 export const folders = pgTable("folders", {
@@ -349,7 +347,7 @@ export const notes = pgTable("notes", {
   id: uuid().primaryKey().defaultRandom(),
   ownerId: uuid("owner_id").references(() => users.id, { onDelete: "restrict" }),
   title: text().notNull().default("Untitled"),
-  // 網址代稱（#122 spec §3a 起 per-user）：NOT NULL——auto（slug_is_custom=false，跟標題
+  // 網址代稱（#122 起 per-user）：NOT NULL——auto（slug_is_custom=false，跟標題
   // 走、由 autoSlugFromTitle 派生＋owner 範圍去重）或自訂（=true，PATCH 顯式設定）。
   // 唯一範圍是 `(owner_id, slug)`（notes_owner_slug_idx），不再全域。存進來的值一律已過
   // `normalizeSlug`（NFC + 小寫）。DB default 三個承重理由（比照 users.handle）：①回滾
@@ -365,7 +363,7 @@ export const notes = pgTable("notes", {
   // slug 是否為使用者顯式自訂：false＝auto（title PATCH 會重算）、true＝PATCH {slug:string}
   // 設定過（title 變更不動 slug；{slug:null} 翻回 false）。
   slugIsCustom: boolean("slug_is_custom").notNull().default(false),
-  // 單層自訂 redirect（spec §3a：只記「自訂變更」——custom→custom 與 custom→auto；auto
+  // 單層自訂 redirect（只記「自訂變更」——custom→custom 與 custom→auto；auto
   // 重算不寫，否則打字殘影會灌出 untitled 洪水）。查找走 notes_owner_prev_slug_idx。
   prevSlug: text("prev_slug"),
   // 0007 當下的舊全域 slug 凍結快照——舊形 `/notes/<slug>` 永久相容的唯一資料來源。
@@ -375,17 +373,17 @@ export const notes = pgTable("notes", {
   legacySlug: text("legacy_slug"),
   // #72 公開分享連結：`base64url(randomBytes(32))`（43 字元）。**存原文不存 hash**
   // ——token 授權的 note_states 與它同一個 DB，hash 化不改變攻擊者能力邊界，而
-  // 「owner 隨時可複製現行連結」是產品需求（spec D1；與 AI 金鑰不同，那是第三方
-  // 憑證）。代價由兩條紀律扛——**皆由同 PR 的 Task 1b/1c commit 落地**：公開端點
-  // 格式 guard 先行（1b）、token 不進 log 的 req serializer（1c）；在那之前 token
+  // 「owner 隨時可複製現行連結」是產品需求（與 AI 金鑰不同，那是第三方
+  // 憑證）。代價由兩條紀律扛：公開端點
+  // 格式 guard 先行、token 不進 log 的 req serializer；在那之前 token
   // 只出現在管理端 response body，不經 URL。NULL＝未開公開。
   publicToken: text("public_token"),
-  // #122 PR3 公開別名（/p/<handle>/<slug>）：顯式 opt-in、與私人 slug 完全獨立的
+  // #122 公開別名（/p/<handle>/<slug>）：顯式 opt-in、與私人 slug 完全獨立的
   // 命名空間（同 owner 的別名可撞自己的私人 slug）。NULL＝未設。「只有已公開
   // （public_token 非 NULL）的筆記能設別名」是**應用層不變量、DB 層不強制**（直插
-  // 殘留形是合法列——正是讀取端拿來測兜底的形），**由 PR3 Task 2 落地**：條件式
+  // 殘留形是合法列——正是讀取端拿來測兜底的形），由應用層落實：條件式
   // UPDATE（WHERE ... AND public_token IS NOT NULL）＋DELETE public-link 的同一支
-  // UPDATE 連帶清空；公開讀取端另以 JOIN 述詞含 token 非空兜底（Task 3）。
+  // UPDATE 連帶清空；公開讀取端另以 JOIN 述詞含 token 非空兜底。
   publicSlug: text("public_slug"),
   // #note-width：公開頁內文欄寬度，值與 NOTE_WIDTHS 同（note-width-check-sync.test.ts 守）。DB default 讓舊 server
   // rollback 與既有 db.insert(notes) 不受影響；撤公開／移群組／轉移都不重設。
@@ -393,8 +391,8 @@ export const notes = pgTable("notes", {
   linksClock: bigint("links_clock", { mode: "number" }).notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  // #106（migration 0010）：最後一次 AI／API 寫入的落款，四欄同進同出（#137 Task 3 在
-  // `onStoreDocument` 那一側寫入；本棒只建欄）。`last_edited_token_id` 必須用延遲型別
+  // #106（migration 0010）：最後一次 AI／API 寫入的落款，四欄同進同出（#137 在
+  // `onStoreDocument` 那一側寫入）。`last_edited_token_id` 必須用延遲型別
   // 引用——`api_tokens` 宣告在本檔更下方，直接寫 `apiTokens.id` 會在模組初始化時 TDZ。
   // token 與 agent_label 皆可為 null：cookie 寫入沒有 token，而 agent label 是「讀時
   // 派生、寫入時快照」的顯示名（`auth/agent-label.ts`）。
@@ -402,31 +400,31 @@ export const notes = pgTable("notes", {
   lastEditedBy: uuid("last_edited_by").references(() => users.id, { onDelete: "set null" }),
   lastEditedTokenId: uuid("last_edited_token_id").references((): AnyPgColumn => apiTokens.id, { onDelete: "set null" }),
   lastEditedAgentLabel: text("last_edited_agent_label"),
-  // #175：`owner_id` 與 `group_id` 恰一個非 NULL（`notes_owner_xor_group_chk`，S6）；群組筆記沒有個人 owner。
-  // FK RESTRICT：XOR 下 SET NULL 會撞 CHECK；刪群組前群組必須是空的（PR1–PR3）。`group_role` 已廢除（W1）
+  // #175：`owner_id` 與 `group_id` 恰一個非 NULL（`notes_owner_xor_group_chk`）；群組筆記沒有個人 owner。
+  // FK RESTRICT：XOR 下 SET NULL 會撞 CHECK；刪群組前群組必須是空的。`group_role` 已廢除
   // ——權限只看成員的群組角色。
   groupId: uuid("group_id").references(() => groups.id, { onDelete: "restrict" }),
   // #181 垃圾桶：移入時刻（DB `now()`）；NULL＝活筆記；只由 `notes/tx/trash.ts` 寫。
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
   // #181：移入者；帳號之後被刪 → NULL（筆記仍在垃圾桶）。有值必有 deleted_at（notes_deleted_by_chk）。
   deletedBy: uuid("deleted_by"),
-  // 筆記版本歷史（spec §4.2）：配號器（A5：原子遞增、清除不倒退；§9 清空時歸零）；基底版號與基底指紋（A15）兩欄同進同出——
-  // NULL＝沒有基底。全文判斷一律看 `version_base_seq`，不看版本列數。不加 FK：基底不可刪由應用層守（A6）。
+  // 筆記版本歷史：配號器（原子遞增、清除不倒退；清空時歸零）；基底版號與基底指紋兩欄同進同出——
+  // NULL＝沒有基底。全文判斷一律看 `version_base_seq`，不看版本列數。不加 FK：基底不可刪由應用層守。
   versionCounter: integer("version_counter").notNull().default(0),
   versionBaseSeq: integer("version_base_seq"),
   versionBaseFingerprint: text("version_base_fingerprint"),
-  // #272 §5.1（D3）：待切段——最後一次內容變動的落盤時刻（app 時鐘；NULL＝沒有待切）、該段編輯者（形同 note_versions.editors，
+  // #272：待切段——最後一次內容變動的落盤時刻（app 時鐘；NULL＝沒有待切）、該段編輯者（形同 note_versions.editors，
   // 依 [user_id, agent_label] 去重、先到先排）、段開始時沒有基底才有的參考指紋。寫入者只有 `collab/versions.ts` 的 markPending／clearPending／
   // clearPendingIfDue 與 `notes/tx/versions.ts` 的切版交易、reset；三欄同清由 notes_version_pending_chk 守。
   versionPendingAt: timestamp("version_pending_at", { withTimezone: true }),
   versionPendingEditors: jsonb("version_pending_editors").$type<VersionEditorJson[]>().notNull().default([]),
   versionPendingRefFingerprint: text("version_pending_ref_fingerprint"),
-  // #272 §5.1（D12）：目前基底那一版的 uuid。**無 FK**（基底被刪仍保留身分以顯示「(deleted)」）；與 version_base_seq 同寫同清。
+  // #272：目前基底那一版的 uuid。**無 FK**（基底被刪仍保留身分以顯示「(deleted)」）；與 version_base_seq 同寫同清。
   versionBaseVersionId: uuid("version_base_version_id"),
-  // 資料夾（spec 2026-10-22 §5.1）：擁有者那邊的位置；NULL＝根層。垃圾桶期間不清（還原回原處）。資料夾被刪 → NULL（notes_folder_fk）。
+  // 資料夾：擁有者那邊的位置；NULL＝根層。垃圾桶期間不清（還原回原處）。資料夾被刪 → NULL（notes_folder_fk）。
   folderId: uuid("folder_id"),
   // 垃圾桶的資料夾路徑快照（名稱陣列，根→葉）：只在垃圾桶期間有意義；寫入者只有 `notes/tx/trash.ts`、`folders/tx/delete-folder.ts`、
-  // `groups/tx/delete-group.ts`。**刻意不加**「有快照必在垃圾桶」CHECK：回滾到步驟 2 的碼還原時只清 `deleted_at`（spec §7）。
+  // `groups/tx/delete-group.ts`。**刻意不加**「有快照必在垃圾桶」CHECK：回滾到步驟 2 的碼還原時只清 `deleted_at`。
   trashFolderPath: jsonb("trash_folder_path").$type<string[]>(),
 }, t => [
   index("notes_owner_idx").on(t.ownerId),   // GET /api/notes 自有分支（owner_id = $u）用
@@ -441,20 +439,20 @@ export const notes = pgTable("notes", {
   index("notes_owner_prev_slug_idx").on(t.ownerId, t.prevSlug).where(sql`${t.prevSlug} is not null`),
   // 公開端點以 token 反查筆記用；partial＝NULL 彼此不衝突。
   uniqueIndex("notes_public_token_idx").on(t.publicToken).where(sql`${t.publicToken} is not null`),
-  // 公開別名 per-user 唯一（#122 PR3）：同 owner 不重複、跨 owner 可同名；constraint
+  // 公開別名 per-user 唯一（#122）：同 owner 不重複、跨 owner 可同名；constraint
   // 名是管理端 409 public_slug_taken 的分流依據。partial＝未設別名不佔位。
   uniqueIndex("notes_owner_public_slug_idx").on(t.ownerId, t.publicSlug).where(sql`${t.publicSlug} is not null`),
-  // #175：群組內 slug 唯一（S12）與群組範圍的 prev 補查；個人範圍仍由 notes_owner_slug_idx 裁決（NULL owner 不互撞）。
+  // #175：群組內 slug 唯一與群組範圍的 prev 補查；個人範圍仍由 notes_owner_slug_idx 裁決（NULL owner 不互撞）。
   // notes_group_slug_idx 以 group_id 開頭，兼任「群組內所有筆記」（踢線名單、grouped 支的 JOIN、刪群組時撈該群組的筆記）——
-  // #103 的單欄 notes_group_idx 因此冗餘，0012 刪除（plan gate r1 A-M5）。
+  // #103 的單欄 notes_group_idx 因此冗餘，0012 刪除。
   uniqueIndex("notes_group_slug_idx").on(t.groupId, t.slug),
   index("notes_group_prev_slug_idx").on(t.groupId, t.prevSlug).where(sql`${t.prevSlug} is not null`),
   check("notes_owner_xor_group_chk", sql`(${t.ownerId} is null) <> (${t.groupId} is null)`),
-  // S11：群組筆記沒有公開別名（W7）。
+  // 群組筆記沒有公開別名。
   check("notes_group_no_public_slug_chk", sql`${t.groupId} is null or ${t.publicSlug} is null`),
   check("notes_public_width_chk", sql`${t.publicWidth} in ('standard','wide','full')`),
   check("notes_version_base_pair_chk", sql`(${t.versionBaseSeq} is null) = (${t.versionBaseFingerprint} is null)`),
-  // #272 §5.1：掃描器只看待切中的列（`version_pending_at <= dueBy`）。
+  // #272：掃描器只看待切中的列（`version_pending_at <= dueBy`）。
   index("notes_version_pending_idx").on(t.versionPendingAt).where(sql`${t.versionPendingAt} is not null`),
   check(
     "notes_version_pending_chk",
@@ -465,15 +463,15 @@ export const notes = pgTable("notes", {
   check("notes_deleted_by_chk", sql`${t.deletedBy} is null or ${t.deletedAt} is not null`),
   // #181：垃圾桶清單與到期清理只看已移入的列。
   index("notes_deleted_at_idx").on(t.deletedAt).where(sql`${t.deletedAt} is not null`),
-  // 資料夾（spec 2026-10-22 §5.1）：與所在資料夾同空間由 trigger `notes_folder_space_trg`（0034 手寫）守。
+  // 資料夾：與所在資料夾同空間由 trigger `notes_folder_space_trg`（0034 手寫）守。
   foreignKey({ name: "notes_folder_fk", columns: [t.folderId], foreignColumns: [folders.id] }).onDelete("set null"),
   check("notes_trash_folder_path_chk", sql`${t.trashFolderPath} is null or jsonb_typeof(${t.trashFolderPath}) = 'array'`),
   index("notes_folder_idx").on(t.folderId).where(sql`${t.folderId} is not null`),
 ]);
 
 /**
- * #175 §4.3：網址轉址表（W5）。`old_path`＝已正規化的完整路徑（`/n/<handle>/<slug>` 或 `/g/<group uuid 小寫>/<slug>`），
- * 同鍵再寫入最新者勝（B3）。一個月（Q20）、查詢時懶惰清理、無排程器。應用層寫入一律經 `notes/tx/redirects.ts`（#175 Task 4 起；0012 的一次性回填與測試的直插除外）。
+ * #175：網址轉址表。`old_path`＝已正規化的完整路徑（`/n/<handle>/<slug>` 或 `/g/<group uuid 小寫>/<slug>`），
+ * 同鍵再寫入最新者勝。一個月、查詢時懶惰清理、無排程器。應用層寫入一律經 `notes/tx/redirects.ts`（#175；0012 的一次性回填與測試的直插除外）。
  */
 export const noteRedirects = pgTable("note_redirects", {
   oldPath: text("old_path").primaryKey(),
@@ -499,14 +497,14 @@ export const noteStateBackups = pgTable("note_state_backups", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, t => [index("nsb_note_created_idx").on(t.noteId, t.createdAt)]);
 
-/** `note_versions.editors` 的一筆：依 (user_id, agent_label) 去重、首次出現順序（spec §4.1）。 */
+/** `note_versions.editors` 的一筆：依 (user_id, agent_label) 去重、首次出現順序。 */
 export interface VersionEditorJson {
   user_id: string;
   agent_label: string | null;
 }
 
 /**
- * #269 §12.2：一次性站內連結轉換的狀態表。**候選集在 migration 當下凍結**（0026 的 seed `INSERT … SELECT id, 'pending' FROM notes`）：
+ * #269：一次性站內連結轉換的狀態表。**候選集在 migration 當下凍結**（0026 的 seed `INSERT … SELECT id, 'pending' FROM notes`）：
  * 之後建立的筆記沒有列 ⇒ 轉換工作永遠不碰（它們的連結都經寫入路徑、以寫入者權限處理過）。沒有 converter_version：日後要重掃須另一支
  * migration 重新 seed。不動 `notes` 表（#272 會改它）。標記一律 UPDATE（列由 migration seed；處理途中筆記被刪 ⇒ 列已 cascade 消失）。
  */
@@ -524,8 +522,8 @@ export const noteLinkConversion = pgTable(
 );
 
 /**
- * 筆記版本歷史（spec 2026-10-09 §4.1）：每版一份完整 Y.Doc 快照（方案 A）。`seq`＝vN（同篇唯一，配號在 `notes.version_counter`）；
- * `kind='manual'` 永久保留、`auto` 依站台天數分層清除（§10）；`base_seq` 只在「基底 ≠ 這篇當時最新版」時填（顯示「從 vX 接著改」）。
+ * 筆記版本歷史：每版一份完整 Y.Doc 快照（方案 A）。`seq`＝vN（同篇唯一，配號在 `notes.version_counter`）；
+ * `kind='manual'` 永久保留、`auto` 依站台天數分層清除；`base_seq` 只在「基底 ≠ 這篇當時最新版」時填（顯示「從 vX 接著改」）。
  * 寫入者：`notes/tx/versions.ts`（切版）、`routes/note-versions.ts`（改名、刪除）、`collab/versions.ts`（清除）。刪筆記 CASCADE。
  */
 export const noteVersions = pgTable(
@@ -539,7 +537,7 @@ export const noteVersions = pgTable(
     name: text(),
     editors: jsonb().$type<VersionEditorJson[]>().notNull().default([]),
     baseSeq: integer("base_seq"),
-    // #272 §5.1（D12）：「沿自」那一版的 uuid；無 FK；`base_seq` 非 NULL 時同寫（升級前基底列已刪的舊資料為 NULL）。
+    // #272：「沿自」那一版的 uuid；無 FK；`base_seq` 非 NULL 時同寫（升級前基底列已刪的舊資料為 NULL）。
     baseVersionId: uuid("base_version_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -551,8 +549,8 @@ export const noteVersions = pgTable(
 );
 
 /**
- * #93 §3.1：全文索引，一段一列（`collab/store.ts` 落盤後、`notes/tx/copy.ts` 複製時、回填時整篇替換；寫入者只有
- * `notes/tx/search-index.ts`）。`section_id` 恆符合 `SECTION_ID_RE`、同一篇內唯一——唯一性由抽取器保證（§4.2），
+ * #93：全文索引，一段一列（`collab/store.ts` 落盤後、`notes/tx/copy.ts` 複製時、回填時整篇替換；寫入者只有
+ * `notes/tx/search-index.ts`）。`section_id` 恆符合 `SECTION_ID_RE`、同一篇內唯一——唯一性由抽取器保證，
  * 不建唯一索引（附件階段的列可能需要別的規則）。`source_kind='attachment'` 只是預留，本版沒有任何碼寫它。
  */
 export const noteSearchSections = pgTable(
@@ -576,9 +574,9 @@ export const noteSearchSections = pgTable(
 );
 
 /**
- * #93 §3.2：每篇一列的索引狀態。`source_version`＝建索引時依據的 `note_states.version`；`content_hash`＝全部列與 `capped` 的
+ * #93：每篇一列的索引狀態。`source_version`＝建索引時依據的 `note_states.version`；`content_hash`＝全部列與 `capped` 的
  * 正規序列化 sha256（`notes/search-text.ts` 的 `searchContentHash`）。不用 per-note clock：Yjs 的刪除不推進
- * state vector（spec §2.2 第 4 點），clock 判斷不了「內容沒變」。
+ * state vector，clock 判斷不了「內容沒變」。
  */
 export const noteSearchState = pgTable("note_search_state", {
   noteId: uuid("note_id").primaryKey().references(() => notes.id, { onDelete: "cascade" }),
@@ -591,7 +589,7 @@ export const noteSearchState = pgTable("note_search_state", {
 });
 
 export const noteShares = pgTable("note_shares", {
-  noteId: uuid("note_id").notNull().references(() => notes.id, { onDelete: "cascade" }),   // N10：CASCADE
+  noteId: uuid("note_id").notNull().references(() => notes.id, { onDelete: "cascade" }),   // CASCADE
   userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   role: text().notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -603,7 +601,7 @@ export const noteShares = pgTable("note_shares", {
         index("note_shares_user_idx").on(t.userId)]);
 
 /**
- * 共享私人放置（spec 2026-10-22 §5.1）：被分享者把別人分享給他的筆記放進自己的 shared 資料夾。分享列消失 → 放置跟著消失
+ * 共享私人放置：被分享者把別人分享給他的筆記放進自己的 shared 資料夾。分享列消失 → 放置跟著消失
  * （`note_placements_share_fk` CASCADE）；只能指向放置者自己的 shared 資料夾由 trigger `note_placements_folder_trg`（0034 手寫）守。
  */
 export const notePlacements = pgTable("note_placements", {
@@ -633,7 +631,7 @@ export const noteLinks = pgTable("note_links", {
  *   ⇔ 有 anchor），單向版會靜默放行半截列；
  * - `fingerprint_chk` 保證「有 after block 就一定有指紋」，撤回的前置條件因此可以只看
  *   `after_fingerprint is not null`。
- * - bulk transfer（migration 0036，spec 2026-11-02 §13 D5）：`op` 加 `file_sync`（檔案寫回，每區一列）；
+ * - bulk transfer（migration 0036）：`op` 加 `file_sync`（檔案寫回，每區一列）；
  *   `anchor_chk` 改成依 op 分支——`delete_section` 必帶 anchor、`file_sync` 列「有 anchor ⇔ 刪除區（沒有 after
  *   block）」、其他 op 不帶。
  *
@@ -675,7 +673,7 @@ export const uploads = pgTable("uploads", {
   id: uuid().primaryKey().defaultRandom(),
   noteId: uuid("note_id").notNull().references(() => notes.id, { onDelete: "cascade" }),
   uploaderId: uuid("uploader_id").references(() => users.id, { onDelete: "set null" }),
-  // #247 §9.2：佔用者——把這筆附件的位元組帶進其空間的人：上傳＝上傳者；移入群組＝移入者（該篇每一筆附件）；複製＝複製者。
+  // #247：佔用者——把這筆附件的位元組帶進其空間的人：上傳＝上傳者；移入群組＝移入者（該篇每一筆附件）；複製＝複製者。
   // 群組用量「依成員」依它分組；`uploader_id` 是出處，兩者並存。NULL＝佔用者帳號已刪除，或在回滾到 v0.9 期間新建的列。
   // 不加索引（同 uploader_id）：查詢從 notes join 進來，刪帳號時的 SET NULL 掃描成本與 uploader_id 同級。
   chargedToId: uuid("charged_to_id").references(() => users.id, { onDelete: "set null" }),
@@ -689,7 +687,7 @@ export const aiProviders = pgTable("ai_providers", {
   name: text().notNull(),
   type: text().notNull(),
   baseUrl: text("base_url").notNull(),
-  // 純型別鎖定（Task 4 交接）：無 migration 影響，只讓 drizzle 推斷出的 TS 型別是
+  // 純型別鎖定：無 migration 影響，只讓 drizzle 推斷出的 TS 型別是
   // `EncryptedApiKey | null` 而非 `unknown | null`，讓 `runtime.ts`/`admin-ai.ts` 不必
   // 各自 `as EncryptedApiKey` cast——執行期仍是裸 jsonb，實際存入的值是否真的符合這個
   // 形狀不受此型別註記保護（`decryptApiKey` 對壞資料的防禦性檢查因此仍然必要，見該檔）。
@@ -776,8 +774,8 @@ export const oauthClients = pgTable(
  *
  * `access_expires_at` 對 PAT 可 NULL（預設不到期），對 oauth 由 CHECK 強制非 NULL
  * （access 24h，過期後只剩 refresh 能換發）。⚠ 認證述詞是「**非 NULL 且已過期**才拒」
- * ——寫成 `access_expires_at > now()` 會讓每支預設 PAT 全滅（Bearer 驗證在 #130 的後續
- * task 才落地，屆時的實作檔是 `auth/bearer.ts`）。
+ * ——寫成 `access_expires_at > now()` 會讓每支預設 PAT 全滅（Bearer 驗證在
+ * `auth/bearer.ts`）。
  *
  * `name` 對 PAT 是使用者自取（端點另以 zod 限 1..64），對 oauth 是
  * `oauth_clients.client_name` 的**快照**——client 之後改名，既有 grant 上的名字不會跟著
@@ -814,7 +812,7 @@ export const apiTokens = pgTable(
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
     // #106（migration 0010）：這支 token 在筆記落款上顯示的 agent 名。NULL＝沒有覆寫值，
     // 讀時由 `deriveAgentLabel(name)`（`packages/shared/src/agent-label.ts`）派生（現值運算式＝`auth/agent-label.ts` 的 `agentLabelOf`）；
-    // 寫入這一欄的唯一入口是 `PATCH /api/auth/tokens/:id`（#138），OAuth 換發時由 I7 搬過去。
+    // 寫入這一欄的唯一入口是 `PATCH /api/auth/tokens/:id`（#138），OAuth 換發時搬到新授權。
     // 形狀 CHECK 與派生規則的字元集一致——這欄會被複製進 `note_ai_edits.agent_label` 與
     // `notes.last_edited_agent_label`，在 DB 端擋住形狀，繞過端點的寫入也騙不進來。
     agentLabel: text("agent_label"),
@@ -922,16 +920,16 @@ export const oauthCodes = pgTable(
 );
 
 /**
- * #200 spec §3：transfer token（`create_transfer_token` 簽給模型、讓 shell `curl` 上傳／下載一篇筆記的圖片）。
+ * #200：transfer token（`create_transfer_token` 簽給模型、讓 shell `curl` 上傳／下載一篇筆記的圖片）。
  *
  * - 明文不落庫，`token_hash` 是 `hashToken()`（sha256 hex，同 `api_tokens`）。
  * - **刻意沒有 `user_id`**：使用者一律經 `parent_token_id → api_tokens.user_id` 取得；母憑證被撤銷（硬刪列）、OAuth
- *   重新授權（先刪後插）、OAuth client 清理、刪使用者都經 cascade 帶走子列（spec §3.2）。refresh 是原地 UPDATE、
+ *   重新授權（先刪後插）、OAuth client 清理、刪使用者都經 cascade 帶走子列。refresh 是原地 UPDATE、
  *   id 不變，**不**殺子列。
- * - `consumed_chk`：只有 upload 會被「消費」（單次）；download 在 TTL 內多次使用（spec §4.4）。
+ * - `consumed_chk`：只有 upload 會被「消費」（單次）；download 在 TTL 內多次使用。
  * - 三個索引：兩條 FK 的支撐（撤銷母憑證／刪筆記時 cascade 掃這張表；parent 那支也服務簽發時的未消費計數），
  *   `expires_at` 給清理（`auth/transfer-cleanup.ts`）。
- * - #bulk（migration 0036，spec 2026-11-02 §5.1）：`purpose='bulk'` 沒有 `note_id`、有 `access`（`read`／`write`）與
+ * - #bulk（migration 0036）：`purpose='bulk'` 沒有 `note_id`、有 `access`（`read`／`write`）與
  *   `range`（`BulkRange`）；三條 `bulk_*_chk` 是雙向蘊含（bulk ⇔ 沒有 note、有 access、有 range），非 bulk 列三欄
  *   照舊（note 必有、另兩欄必空）。
  */
@@ -966,24 +964,24 @@ export const transferTokens = pgTable(
 );
 
 /**
- * bulk transfer spec 2026-11-02 §8.2：基底的一段——一般 1 個 id；局部合段（§6.4-3）才多個。`start`／`count` 是整篇匯出
+ * bulk transfer：基底的一段——一般 1 個 id；局部合段才多個。`start`／`count` 是整篇匯出
  * 正規化後的行範圍（0 行段 `count: 0`）。定義在這裡（不在 `transfer/`）：schema 只依型別，免得循環。
- * `links`（F1，可省略）：這段裡沒有自訂文字的 wikilink 下載時匯出的文字的雜湊（`transfer/link-texts.ts` 的 `linkTextHash`，去重）；
+ * `links`（可省略）：這段裡沒有自訂文字的 wikilink 下載時匯出的文字的雜湊（`transfer/link-texts.ts` 的 `linkTextHash`，去重）；
  * 沒有這種連結、或這版之前下載的基底就沒有這個鍵。jsonb 欄位，不需 migration。
  */
 export type TransferSegment = { ids: string[]; fps: string[]; start: number; count: number; links?: string[] };
 
 /**
- * bulk transfer spec 2026-11-02 §8.2：每次下載一篇存一列「加鹽 HMAC 行雜湊＋段表」的基底，供寫回（PR-2）用。
- * Willie 2026-11-04 第三輪起**不再三方合併**：筆記自下載後被動過（標題 HMAC ≠ 這份副本的標題；段表非 null → 頂層 id 與單顆指紋要與
+ * bulk transfer：每次下載一篇存一列「加鹽 HMAC 行雜湊＋段表」的基底，供寫回用。
+ * **不再三方合併**：筆記自下載後被動過（標題 HMAC ≠ 這份副本的標題；段表非 null → 頂層 id 與單顆指紋要與
  * `segments` 逐顆相等，段表 null → 整篇匯出的 HMAC 要等於 `body_sha`）→ 409 `base_unavailable`、reason `note_changed`，要重新下載；
  * 沒被動過才用行雜湊 diff 出這份副本改了哪幾段、只寫那幾段（`NoteWriteService.syncFile` 的 ⑥⑦）。
  *
- * - 只存雜湊（§21 D2）：`H(x) = HMAC-SHA256(K, salt ‖ x)`，`K` 由 `APP_SECRET` 導出（`transfer/base-hash.ts`）；
+ * - 只存雜湊：`H(x) = HMAC-SHA256(K, salt ‖ x)`，`K` 由 `APP_SECRET` 導出（`transfer/base-hash.ts`）；
  *   `key_id` 是算這列時的衍生金鑰指紋，換了 `APP_SECRET` 就比不上（寫回回 409 `base_unavailable`）。
- * - `segments` NULL＝這篇下載時段表對不上（§6.4-5，不可用檔案寫回）。
+ * - `segments` NULL＝這篇下載時段表對不上（不可用檔案寫回）。
  * - 三支 index：(user, note, created desc) 給寫回查基底與「每篇留 10 列」、`last_used_at` 給 30 天清理、
- *   `note_id` 給刪筆記／清垃圾桶的 FK cascade（前兩支都不以 `note_id` 開頭；plan §0.2 S2）。
+ *   `note_id` 給刪筆記／清垃圾桶的 FK cascade（前兩支都不以 `note_id` 開頭）。
  */
 export const transferBases = pgTable(
   "transfer_bases",
@@ -1005,7 +1003,7 @@ export const transferBases = pgTable(
     appliedBodySha: bytea("applied_body_sha"),
     /**
      * 寫回這份檔時記下的 `note_ai_edits`（file_sync）列 id（裁切後仍存活的；零區＝空陣列）。同檔重送時，其中任一列已撤回
-     * （`reverted_at` 非 null）→ 409 `base_unavailable`、reason `reverted`，不再回 unchanged（8000 探索測試 C，Willie 2026-11-04）。
+     * （`reverted_at` 非 null）→ 409 `base_unavailable`、reason `reverted`，不再回 unchanged。
      * 不設 FK：列被裁切或刪掉時 id 只是查不到，照「沒撤回」處理。
      */
     appliedEditIds: uuid("applied_edit_ids").array(),
@@ -1021,7 +1019,7 @@ export const transferBases = pgTable(
 );
 
 /**
- * bulk transfer spec 2026-11-02 §10：檔案寫回「新增筆記」的去重（同一使用者、同一份正規化後檔案在權杖 TTL 內只建一篇）。
+ * bulk transfer：檔案寫回「新增筆記」的去重（同一使用者、同一份正規化後檔案在權杖 TTL 內只建一篇）。
  * `file_sha = HMAC-SHA256(K, user_id ‖ 正規化後整個檔)`；`key_id` 不符目前金鑰的列當作不存在。PK `(user_id, file_sha)`
  * 讓同時送到的兩發只建一篇（upsert）。`note_id` index 給刪筆記的 FK cascade、`created_at` 給清理。
  */
@@ -1046,13 +1044,13 @@ export const transferCreates = pgTable(
 );
 
 /**
- * #286 spec §3.3：一次性連結（管理員產生、只顯示一次的重設密碼連結；之後的邀請沿用同一張表）。
+ * #286：一次性連結（管理員產生、只顯示一次的重設密碼連結；之後的邀請沿用同一張表）。
  *
  * - #285 擴充：`kind` 加 `'invite'`，加 `label`（管理員備註，只給管理員看）與 `used_by_id`（兌換建出的帳號），
  *   以及四條邀請 CHECK；邀請列的 `target_user_id` 必為 NULL，`label`／`used_by_id` 只有邀請列能有值。
- * - 明文不落庫，`token_hash` 是 `hashToken()`（同 `api_tokens`）；有效述詞只在 `auth/one-time-link.ts` 組（§3.4）。
+ * - 明文不落庫，`token_hash` 是 `hashToken()`（同 `api_tokens`）；有效述詞只在 `auth/one-time-link.ts` 組。
  * - `target_user_id` 允許 NULL 是給邀請；重設列由 `reset_target_chk` 強制非 NULL。
- * - I3（每人至多一支未用、未撤銷的重設連結）由 partial unique index `one_time_links_reset_active_uidx` 結構性保證。
+ * - 每人至多一支未用、未撤銷的重設連結，由 partial unique index `one_time_links_reset_active_uidx` 結構性保證。
  *   過期但沒用的列**仍佔**這個位置；再產生／取消／停用會先把它標成 revoked，所以不會撞。
  */
 export const oneTimeLinks = pgTable(

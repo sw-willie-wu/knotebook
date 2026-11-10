@@ -54,7 +54,7 @@ const MERGE_ROOT_TAGS = new Set(["BLOCKQUOTE", "H1", "H2", "H3", "H4", "H5", "H6
 const MERGE_ROOT_TAG = /<(?:blockquote|h[1-6]|summary)\b/i;
 /**
  * `<plaintext>`：它之後的所有字（含標籤）都變成純文字，序列化（`innerHTML`）後再剖析不會回到同一棵樹——預先併好再交給 BlockNote
- * 會與不併的結果不同（全分支審查 ffrv3），所以有它就不預先併。
+ * 會與不併的結果不同，所以有它就不預先併。
  */
 const PLAINTEXT_TAG = /<plaintext\b/i;
 /** 會被併的元素；`<summary>` 只有是 `<details>` 的第一個直屬 summary 時才算（`details.querySelector(":scope > summary")`）。 */
@@ -117,7 +117,7 @@ export function premergeParagraphs(html: string): string {
 }
 
 /**
- * block 上限的便宜預判（全分支審查 I2(b)）：完整解析遠比算數貴，所以先估一個**下界**——下界超過上限時真解析一定也超過，直接回
+ * block 上限的便宜預判：完整解析遠比算數貴，所以先估一個**下界**——下界超過上限時真解析一定也超過，直接回
  * `too_many_blocks`，結果與不預判相同（只有同時還有別種錯的檔，回的碼可能從那種錯變成 `too_many_blocks`）。估不準只會估少。
  *
  * 第一層（解析前、逐行，毫秒級）：全文沒有 `<`（沒有任何 HTML）、也沒有任何 ``` 或 ~~~（不管在哪：像 code fence 的都算）時才估——

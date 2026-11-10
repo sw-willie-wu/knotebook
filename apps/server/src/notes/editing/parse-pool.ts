@@ -55,7 +55,7 @@ export interface WorkerData {
 
 /** worker 的堆疊上限（MiB，`resourceLimits.stackSizeMb`；Node 預設 4）。超過在 worker 裡丟 `RangeError` → {@link TOO_COMPLEX}。 */
 export const PARSE_WORKER_STACK_MB = 4;
-/** 排隊最多幾筆（審查 M4）；超過的直接 `ParserBusyError`（503）。 */
+/** 排隊最多幾筆；超過的直接 `ParserBusyError`（503）。 */
 export const PARSE_QUEUE_MAX = 100;
 /** 每個 worker 解析滿這麼多筆就換新的（見檔頭）。換一個約 0.5 秒 CPU（量測見 `docs/self-hosting.md`），500 筆攤下來可忽略。 */
 export const RECYCLE_AFTER_PARSES = 500;
@@ -232,7 +232,7 @@ export class ParsePool implements MarkdownParser {
     if (this.closed) return Promise.reject(new Error("parse pool is closed"));
     // 預算已用完：不排隊、不送進 worker。
     if (budget !== undefined && budget.remainingMs <= 0) return Promise.resolve(tooComplex);
-    // 審查 M4：佇列有上限，超過直接回忙碌（不讓佇列無限長、每筆都掛著一顆計時器等到逾時）。
+    // 佇列有上限，超過直接回忙碌（不讓佇列無限長、每筆都掛著一顆計時器等到逾時）。
     if (this.queue.length >= PARSE_QUEUE_MAX) return Promise.reject(new ParserBusyError());
     return new Promise<R>((resolve, reject) => {
       const { queueWaitMs, ...taskExtra } = extra;

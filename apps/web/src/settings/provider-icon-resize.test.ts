@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { MAX_PROVIDER_ICON_SOURCE_BYTES } from "@knotebook/shared";
 import { ProviderIconResizeError, providerIconTargetSize, resizeProviderIcon, type ResizeDeps } from "./provider-icon-resize";
 
-/** jsdom 沒有 canvas／createImageBitmap（spec §2.8-6）：注入替身，驗尺寸計算與 MIME。真瀏覽器路徑由 e2e E1 覆蓋。 */
+/** jsdom 沒有 canvas／createImageBitmap：注入替身，驗尺寸計算與 MIME。真瀏覽器路徑由 e2e 覆蓋。 */
 function fakeDeps(size: { width: number; height: number }, opts: { decodeFails?: boolean; noContext?: boolean; nullBlob?: boolean } = {}) {
   const close = vi.fn();
   const bitmap = { ...size, close } as unknown as ImageBitmap;
@@ -32,8 +32,8 @@ const reasonOf = async (p: Promise<unknown>) => {
   }
 };
 
-describe("providerIconTargetSize（spec §6.4 第 4 步、§8.2 W3）", () => {
-  it("512×256 → 128×64；64×300 → 27×128；100×50 → 100×50（不放大，Q12）；128×128 不變；極端比例至少 1 px", () => {
+describe("providerIconTargetSize", () => {
+  it("512×256 → 128×64；64×300 → 27×128；100×50 → 100×50（不放大）；128×128 不變；極端比例至少 1 px", () => {
     expect(providerIconTargetSize(512, 256)).toEqual({ width: 128, height: 64 });
     expect(providerIconTargetSize(64, 300)).toEqual({ width: 27, height: 128 });
     expect(providerIconTargetSize(100, 50)).toEqual({ width: 100, height: 50 });
@@ -43,7 +43,7 @@ describe("providerIconTargetSize（spec §6.4 第 4 步、§8.2 W3）", () => {
   });
 });
 
-describe("resizeProviderIcon（spec §6.4、§8.2 W3）", () => {
+describe("resizeProviderIcon", () => {
   it("512×256 → canvas 128×64、drawImage(bitmap, 0, 0, 128, 64)、高品質平滑、輸出 image/png；釋放 bitmap", async () => {
     const f = fakeDeps({ width: 512, height: 256 });
     const blob = await resizeProviderIcon(png(), f.deps);
@@ -73,7 +73,7 @@ describe("resizeProviderIcon（spec §6.4、§8.2 W3）", () => {
     }
   });
 
-  it("GIF／SVG／空 type → unsupportedType，不解碼（Q11）", async () => {
+  it("GIF／SVG／空 type → unsupportedType，不解碼", async () => {
     for (const type of ["image/gif", "image/svg+xml", ""]) {
       const f = fakeDeps({ width: 10, height: 10 });
       expect(await reasonOf(resizeProviderIcon(png(10, type), f.deps)), type).toBe("unsupportedType");

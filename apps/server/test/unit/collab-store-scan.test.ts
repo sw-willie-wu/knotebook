@@ -105,7 +105,7 @@ describe("collectUnsafeUrlFindings（issue #44 最小步：只偵測不改寫）
 
   it("掃描是唯讀的：對「只經 applyUpdate 建出」的 doc（production 形狀）掃描前後 state 位元組相同", () => {
     // production 的 server 端 doc 只透過 Y.applyUpdate 取得內容，share entry 是
-    // AbstractType——getXmlFragment 的轉換分支就在這種 doc 上發生（審查實測 benign，
+    // AbstractType——getXmlFragment 的轉換分支就在這種 doc 上發生（實測 benign，
     // 這條把它釘住：yjs 升版若讓它變成會產生 update 的操作，這裡會紅）。
     const source = new Y.Doc();
     const el = new Y.XmlElement("image");

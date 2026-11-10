@@ -32,7 +32,7 @@ import { ADMIN, createNote, editorLocator, loginAs } from "./helpers.js";
  *
  * 第一版誤用「hover 最後一列最後一格」重現：`.hover()` 的 auto-scroll-into-view 會把
  * 目標（也就是最後一列）捲進視窗，順便讓表格下緣跟著捲回可見範圍，結果對修好前的
- * build 也量到假綠——已改用上面「hover 最上面那列、最後一欄」的路徑，見 I1 的前提
+ * build 也量到假綠——已改用上面「hover 最上面那列、最後一欄」的路徑，見下面的前提斷言
  * 斷言（確保 hover 目標不需要、也沒有觸發 auto-scroll）。
  *
  * 為什麼只有 e2e 驗得到：這是真實的 CSS containing block／floating-ui 幾何計算，
@@ -195,7 +195,7 @@ test("hover 表格最後一欄（下緣在視窗外）不會撐出全頁滾軸",
   // 錨點（整張表格）下緣不在。
   const lastHeaderCell = editor.getByText(LAST_HEADER, { exact: true }).first();
 
-  // ⚠ 前提斷言（I1）：hover 目標本身必須已經在視窗內，`.hover()` 才不會先幫我們
+  // ⚠ 前提斷言：hover 目標本身必須已經在視窗內，`.hover()` 才不會先幫我們
   // auto-scroll——一旦 Playwright 覺得目標不在視窗內而自動捲動，很可能連帶把表格
   // 下緣也捲回可見範圍，這條測試就會對「沒修好」的 build 量出假綠（開發期第一版
   // 用「hover 最後一列最後一格」正是這樣踩雷的，見檔頭）。
@@ -220,7 +220,7 @@ test("hover 表格最後一欄（下緣在視窗外）不會撐出全頁滾軸",
   // 露到 document 外」的差別。
   await expect(page.locator(".bn-extend-button-add-remove-columns").first()).toBeAttached({ timeout: 5_000 });
 
-  // 複驗（I1 的另一半）：hover 完之後，表格下緣依然必須在視窗外——如果 hover 這個
+  // 複驗：hover 完之後，表格下緣依然必須在視窗外——如果 hover 這個
   // 動作本身把表格捲回了可見範圍，下面的「document 不溢出」斷言就會對任何 build
   // 都恆綠，量不到 #160。
   const tableBottomAfterHover = await page.evaluate(
@@ -235,11 +235,11 @@ test("hover 表格最後一欄（下緣在視窗外）不會撐出全頁滾軸",
   expect(after.scrollHeight, "hover 後 document 不該多出一條全頁滾軸（#160）").toBeLessThanOrEqual(
     after.clientHeight,
   );
-  // N3：修法不得把「全頁滾軸」換成「內文捲動容器的橫向滾軸」——這裡量的是
+  // 修法不得把「全頁滾軸」換成「內文捲動容器的橫向滾軸」——這裡量的是
   // document 本身，跟下面水平孿生案量捲動容器是兩個不同層級，互相補位。
   expect(after.scrollWidth, "hover 後 document 不該多出橫向滾軸").toBeLessThanOrEqual(after.clientWidth);
 
-  // N3（補）：再往下一層量捲動容器本身（節點鏈同 `scrollEditorToTop`：note-editor
+  // 補：再往下一層量捲動容器本身（節點鏈同 `scrollEditorToTop`：note-editor
   // 的 parent 是置中 wrapper，再上一層才是捲動容器）——這裡的表格沒有超寬（垂直案
   // 只把表格撐高，不撐寬），所以捲動容器不該因為這次 hover 多出橫向可捲溢出；水平
   // 孿生案的表格本身就超寬，那條測試在它自己的核心斷言裡驗這一層（見 #162）。
@@ -300,7 +300,7 @@ test("hover 表格最後一列第一欄（右緣在視窗外，水平孿生案�
   // 一列）——「新增列」按鈕會拉伸成表格全寬，右緣落在視窗外。
   const lastRowFirstCell = editor.getByText(WIDE_LAST_ROW_FIRST_CELL, { exact: true });
 
-  // 前提斷言（同 I1 的精神，換成水平軸）：hover 目標本身必須已經在視窗內，
+  // 前提斷言（同前一條的精神，換成水平軸）：hover 目標本身必須已經在視窗內，
   // `.hover()` 才不會 auto-scroll 把表格右緣也捲回可見範圍。
   // ⚠ 這條只是便宜的早退檢查——真正擋住假綠通道的是 hover 之後那條複驗（下面
   // `tableRightAfterHover`）。

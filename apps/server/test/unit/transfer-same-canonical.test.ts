@@ -9,7 +9,7 @@ import { EditorSession } from "../../src/notes/editing/session.js";
 import { sameCanonicalOf, sameCanonicalSeq } from "../../src/transfer/same-canonical.js";
 import { SHAPE_LINK_TARGET, SHAPE_TITLES, TRANSFER_SHAPES, type ShapeBlock } from "./fixtures/transfer-shapes.js";
 
-/** bulk transfer spec §9.4-1、-3、§25.2；plan PR-2 §0.1-4、T5（C1–C5）。 */
+/** bulk transfer 的 same／canonical 判定（C1）。 */
 
 const rt = new EditingRuntime({ baseUrl: "http://localhost/" });
 rt.installGlobals();
@@ -91,7 +91,7 @@ describe("C2 效能（一次走完）", () => {
   }, 60_000);
 });
 
-/** §25.2 的 4 案「人已經做了同樣修改」：agent 的區文字＝人改完那顆的匯出（numbered 中間項用整篇匯出的編號）。 */
+/** 4 案「人已經做了同樣修改」：agent 的區文字＝人改完那顆的匯出（numbered 中間項用整篇匯出的編號）。 */
 describe("C3 人已經做了同樣修改 → sameCanonical 相等、指紋不等（前提）", () => {
   const N = (t: string): ShapeBlock => ({ type: "numberedListItem", content: t });
   async function humanEdited(blocks: ShapeBlock[], idx: number, edit: (ed: EditorSession["editor"], id: string) => void, opts: { browser?: boolean } = {}) {
@@ -131,7 +131,7 @@ describe("C3 人已經做了同樣修改 → sameCanonical 相等、指紋不等
     // 前提：同一組用 `fingerprintOf` 比 → 不等（證明 sameCanonical 承重）
     expect(fpsOf(sc.frag, sc.ids)).not.toEqual(fpsOf(frag(doc), [id]));
   });
-  // 第 ② 條（丟 `start`）單獨承重的形：預解析帶真的 `start: 2`（插入點前一顆已不是 numbered，所以沒拿掉——§25.2「之後別人刪掉
+  // 第 ② 條（丟 `start`）單獨承重的形：預解析帶真的 `start: 2`（插入點前一顆已不是 numbered，所以沒拿掉——「之後別人刪掉
   // 前兩項」），現況那顆沒有 start 值。上面兩案的 `start` 在兩邊都是 undefined 或不存在，第 ①、② 條任一條就夠。
   it("numbered 預解析帶 start: 2（沒拿掉）、現況那顆已是清單第一項 → 相等（只靠第 ② 條）", async () => {
     const { doc, id } = await humanEdited([N("b")], 0, (ed, bid) => ed.updateBlock(bid, { content: "b2" }));
@@ -155,7 +155,7 @@ describe("C4 不吞真修改", () => {
     expect(await one(a)).not.toBe(await one(b));
   });
   // 「其他元素的空字串屬性照常比」單獨承重的形：code `language: ""` 對「沒有 language 屬性」（讀時取預設 `text`）。上一案的
-  // `""` vs `"text"` 不管空字串丟不丟都不等，擋不住「對所有元素丟空字串屬性」（T5-M3 實測存活後補這案）。
+  // `""` vs `"text"` 不管空字串丟不丟都不等，擋不住「對所有元素丟空字串屬性」。
   it("非 wikilink 的空字串屬性：code language \"\" vs 沒有 language 屬性 → 不相等", async () => {
     const doc = await docWith([{ type: "codeBlock", props: { language: "" }, content: "x" }]);
     const a = sameCanonicalOf(topLevelContainers(frag(doc))[0]!);

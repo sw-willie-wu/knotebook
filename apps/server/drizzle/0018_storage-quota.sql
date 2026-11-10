@@ -1,6 +1,6 @@
--- 儲存配額（spec 2026-10-08-storage-quota-design.md §4）。drizzle-kit 產出後手補：Basic 列、site_settings 回填、DEFAULT 函式、
+-- 儲存配額。drizzle-kit 產出後手補：Basic 列、site_settings 回填、DEFAULT 函式、
 -- users／groups 回填與 SET NOT NULL／SET DEFAULT 的順序（函式必須在 ADD COLUMN … DEFAULT 之前存在、回填必須在 SET NOT NULL 之前）。
--- 後 merge 時在 main 上重產 drizzle 生成的部分（新編號、新 when、新 snapshot），再把本檔手寫段補回去（spec 檔頭 migration 編號段）。
+-- 後 merge 時在 main 上重產 drizzle 生成的部分（新編號、新 when、新 snapshot），再把本檔手寫段補回去。
 -- 單一交易；本檔不得出現平行建索引或行首提交的關鍵字（migrate.test.ts 的 grep 比對全檔含註解）。
 CREATE TABLE "storage_plans" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,

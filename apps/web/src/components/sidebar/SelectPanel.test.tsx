@@ -17,7 +17,7 @@ import { groupNote, personalNote, sharedNote } from "@/test/select-fixtures";
 import { FOLDER_LIST_EMPTY, folderDto, groupFolder } from "@/test/folder-fixtures";
 import { __resetFolderSortForTests } from "@/components/sidebar/folder-sort";
 
-// 一般 tab 的選取模式：標題列「選取」、選取模式標題列（含 Esc）與勾選樹（#181 PR-2c T4，NS1–NS13）。
+// 一般 tab 的選取模式：標題列「選取」、選取模式標題列（含 Esc）與勾選樹（#181，NS1–NS13）。
 
 afterEach(() => {
   localStorage.clear();
@@ -102,7 +102,7 @@ interface RenderOpts {
   outside?: ReactNode;
 }
 
-/** H7 骨架＋一份側欄實例外殼（`data-sidebar-instance`）。 */
+/** 骨架＋一份側欄實例外殼（`data-sidebar-instance`）。 */
 function renderPanel(opts: RenderOpts = {}) {
   if (opts.tab) localStorage.setItem("sidebar.tab", opts.tab);
   const queryClient = opts.queryClient ?? new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -158,7 +158,7 @@ async function renderSelecting(opts: RenderOpts & { notes?: NoteDto[]; groups?: 
 const pressEsc = (target: Element | Document = document.body, init: KeyboardEventInit = {}) => fireEvent.keyDown(target, { key: "Escape", ...init });
 const selecting = () => within(header()).queryByRole("button", { name: "Done" }) !== null;
 
-describe("一般 tab 的選取模式（PR-2c T4）", () => {
+describe("一般 tab 的選取模式", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -478,7 +478,7 @@ describe("一般 tab 的選取模式（PR-2c T4）", () => {
       expect(toastLi).toHaveAttribute("data-state", "open");
 
       // 真瀏覽器在 listener 之間跑 microtask：Radix 關 toast 的更新在 SelectHeader 的 bubble 之前就 commit（所以 ④b 要在 window
-      // capture 記錄）。jsdom 的 fireEvent 同步派發不會 flush，在 body 上補一個 flushSync 模擬那個時間點（T4 review r1 Minor-1）。
+      // capture 記錄）。jsdom 的 fireEvent 同步派發不會 flush，在 body 上補一個 flushSync 模擬那個時間點。
       const flush = () => {
         flushSync(() => {});
       };
@@ -587,7 +587,7 @@ describe("一般 tab 的選取模式（PR-2c T4）", () => {
     expect(checkbox("p2")).toBeNull();
   });
 
-  it("NS15 選取中清單重抓後沒有可勾的篇（群組 tab 只剩空群組）：仍是選取標題列與勾選樹，群組列沒有「＋」與 ⋮（T4 review Nit-3）", async () => {
+  it("NS15 選取中清單重抓後沒有可勾的篇（群組 tab 只剩空群組）：仍是選取標題列與勾選樹，群組列沒有「＋」與 ⋮", async () => {
     const { queryClient, box } = await renderSelecting({ tab: "workspace" });
     fireEvent.click(checkbox("g1a"));
     expect(within(header()).getByText("1 selected")).toBeInTheDocument();
@@ -606,7 +606,7 @@ describe("一般 tab 的選取模式（PR-2c T4）", () => {
     expect(await within(panel()).findByRole("button", { name: "Group actions for G1" })).toBeInTheDocument();
   });
 
-  it("NS15b 選取中清單重抓後完全沒有節點（我的筆記清空）：選取標題列＋平常的空狀態句，沒有勾選框（T5 review r1 M2）", async () => {
+  it("NS15b 選取中清單重抓後完全沒有節點（我的筆記清空）：選取標題列＋平常的空狀態句，沒有勾選框", async () => {
     const { queryClient, box } = await renderSelecting();
     fireEvent.click(checkbox("p1"));
     box.notes = ALL_NOTES.filter((note) => note.groupId !== null || note.role !== "owner");
@@ -650,7 +650,7 @@ describe("一般 tab 的選取模式（PR-2c T4）", () => {
   });
 });
 
-// ── 選取模式遇上資料夾（資料夾 PR-3b-1 T2）
+// ── 選取模式遇上資料夾
 describe("選取模式 × 資料夾", () => {
   const FA = personalNote({ id: "fa1", title: "fa1", folderId: "A" });
   const FA2 = personalNote({ id: "fa2", title: "fa2", folderId: "A1" });
@@ -683,7 +683,7 @@ describe("選取模式 × 資料夾", () => {
     __resetFolderSortForTests();
   });
 
-  // PR-3b-2 T6a 改寫：資料夾列換成可勾（原斷言「列內沒有勾選框」「全選只勾 root3」反轉成下列）。
+  // 資料夾列換成可勾（原斷言「列內沒有勾選框」「全選只勾 root3」反轉成下列）。
   it("NS-F1 我的筆記：資料夾 A 列有 button[aria-expanded] 與勾選框 folder:A；A 底下 fa1 有；收合 A → 全選勾可見的 A 與 root3", async () => {
     stubFolders();
     renderPanel();
@@ -711,8 +711,8 @@ describe("選取模式 × 資料夾", () => {
   });
 });
 
-// ── 資料夾可勾（資料夾 spec §6.10；PR-3b-2 T6a，NSf1–NSf6）
-describe("選取模式 × 資料夾可勾（PR-3b-2 T6a）", () => {
+// ── 資料夾可勾（NSf1–NSf6）
+describe("選取模式 × 資料夾可勾", () => {
   // 我的筆記：A ⊃ { q1, q2 }、B（空）、根層 q3。可見序＝folder:A、q1、q2、folder:B、q3。
   const FA = folderDto({ id: "A", name: "A" });
   const FB = folderDto({ id: "B", name: "B" });
@@ -781,7 +781,7 @@ describe("選取模式 × 資料夾可勾（PR-3b-2 T6a）", () => {
     expect(within(header()).getByRole("button", { name: "Select all" })).toBeInTheDocument();
   });
 
-  it("ST1 選取列的勾選框是自繪的（筆記列與資料夾列）：appearance-none、不含 accent-brand", async () => {
+  it("選取列的勾選框是自繪的（筆記列與資料夾列）：appearance-none、不含 accent-brand", async () => {
     await renderSelecting(MINE);
     const boxes = [checkbox("q2"), folderBox("B")!];
     for (const box of boxes) {

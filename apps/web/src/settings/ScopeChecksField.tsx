@@ -5,9 +5,9 @@ import type { ScopeChecks } from "@/lib/token-scope";
 import "@/i18n/management-strings";
 
 /**
- * #239／#181：「編輯」「移動或複製到群組」「移到垃圾桶與還原」三框（spec §9.1、§6.8.2）。現在只剩 OAuth 同意頁用
- * （#247 W22 起建立 token 對話框與行內編輯改用 `ScopeTogglesField`）；兩者用同一套
- * 標籤（W10：`settings.account.apiTokensScopeEdit`／`apiTokensScopeMove`／`apiTokensScopeDelete`——MCP 模型面字串引用的
+ * #239／#181：「編輯」「移動或複製到群組」「移到垃圾桶與還原」三框。現在只剩 OAuth 同意頁用
+ * （#247 起建立 token 對話框與行內編輯改用 `ScopeTogglesField`）；兩者用同一套
+ * 標籤（`settings.account.apiTokensScopeEdit`／`apiTokensScopeMove`／`apiTokensScopeDelete`——MCP 模型面字串引用的
  * 就是這幾句，server 單元 `scope-labels-sync.test.ts` 逐字比對）與同一套連動：
  * 取消編輯 → 搬移、刪除 disabled 且清掉勾選。
  */
@@ -24,7 +24,7 @@ export function ScopeChecksField({
   showWrite?: boolean;
   showMove?: boolean;
   showDelete?: boolean;
-  /** 同意頁 W8：已授予的項目旁標「目前已授予」。 */
+  /** 同意頁：已授予的項目旁標「目前已授予」。 */
   granted?: ScopeChecks;
 }) {
   const { t } = useTranslation();

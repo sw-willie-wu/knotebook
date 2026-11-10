@@ -9,7 +9,7 @@ import type { AdminAiActionDto, AdminAiModelDto, AdminAiProviderDto } from "@kno
 import { api } from "./client";
 
 /**
- * Admin AI 三層 CRUD 的 query key（spec §13.4，**key 定死**）：`["admin-ai","providers"]`／
+ * Admin AI 三層 CRUD 的 query key（**key 定死**）：`["admin-ai","providers"]`／
  * `["admin-ai","models"]`／`["admin-ai","actions"]`，共用 `["admin-ai"]` 前綴——
  * `invalidateAdminAi` 靠這個前綴一次打中三個。
  */
@@ -41,7 +41,7 @@ export function useAdminAiActions(): UseQueryResult<AdminAiActionDto[]> {
 /**
  * 任一 admin-ai mutation 成功 → invalidate 三層 admin-ai query（`["admin-ai"]` 前綴一次
  * 命中 providers/models/actions）＋ `["ai-actions"]`（`AiSession` 讀的可執行動作清單，
- * spec §13.4「同分頁立即生效」——admin 改了 action/model/provider 設定後，不必整頁重整，
+ * 同分頁立即生效——admin 改了 action/model/provider 設定後，不必整頁重整，
  * 框選 AI 框的動作清單馬上跟著換手）。
  */
 function invalidateAdminAi(queryClient: QueryClient): void {
@@ -98,14 +98,14 @@ export function useDeleteAiProvider() {
 /** `POST /api/admin/ai/providers/:id/test`——不帶 body。成功回 `{ok:true}`，只用來判斷
  * mutateAsync 是否 resolve。
  *
- * **`onSettled`（fix round 1，m-1），不是 `onSuccess`**：`routes/admin-ai.ts` 只在
+ * **`onSettled`，不是 `onSuccess`**：`routes/admin-ai.ts` 只在
  * decrypt 失敗那條路徑對 `runtime.degraded` 做 `add`（成功路徑不可能清掉
  * degraded——已 degraded 的 provider 一律先被 503 擋掉，根本進不到這支 fetch）。
  * degraded 徽章因此**只會在測試失敗時才需要刷新**；若沿用 `onSuccess`，剛被測出
  * degraded 的卡片直到下一次無關的操作前都不會亮警示，徽章過期。
  *
  * 成功路徑仍然一併 invalidate（`onSettled` 無條件跑）：不是因為成功會改變 degraded
- * （不會），純粹遵守 brief 對所有 admin-ai mutation「成功也 invalidate」的統一規則，
+ * （不會），純粹遵守所有 admin-ai mutation「成功也 invalidate」的統一規則，
  * 對這支端點來說是無害的多一次 refetch，不是「藉此反映 degraded 變化」。 */
 export function useTestAiProvider() {
   const queryClient = useQueryClient();

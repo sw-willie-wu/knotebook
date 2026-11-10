@@ -1,5 +1,5 @@
 /**
- * #272 §7.5：e2e 測試縫。**只在 `config.testHooks` 時由 app.ts 註冊**（KNOTEBOOK_E2E_TEST_HOOKS=1 且 PUBLIC_URL 是 loopback），否則 404。
+ * #272：e2e 測試縫。**只在 `config.testHooks` 時由 app.ts 註冊**（KNOTEBOOK_E2E_TEST_HOOKS=1 且 PUBLIC_URL 是 loopback），否則 404。
  * `PUT /api/admin/test/version-auto-wait { seconds }`：把自動切版的等待 X 壓成秒（`seconds: null`＝回站台設定）。requireAdmin；204。
  * 只覆寫這個行程的掃描器（`VersionService.overrideAutoWaitMs`），不寫 DB。
  */

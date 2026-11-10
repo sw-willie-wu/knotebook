@@ -11,7 +11,6 @@ import { seedGroup, seedNote } from "./group-helpers.js";
 import { mcpPost, rpc } from "./mcp-helpers.js";
 import type { FastifyInstance } from "fastify";
 
-// spec 2026-10-13 site-links §9、§15.2 I1；Review Focus RF1。
 const PASSWORD = "correct-horse-battery";
 
 async function call(app: FastifyInstance, token: string, name: string, args: unknown) {
@@ -32,7 +31,7 @@ function wikilinkAttrs(doc: Y.Doc): Array<Record<string, unknown>> {
   return out;
 }
 
-describe("#269 I1：MCP 站內連結往返", () => {
+describe("#269：MCP 站內連結往返", () => {
   it("寫 [x](/g/<gid>/<slug>#b-<bid>) → 讀回 [x](/notes/<id>#b-<bid>)；label 空時改目標標題後讀回新標題；表格同；REST /content 同形", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
@@ -44,7 +43,7 @@ describe("#269 I1：MCP 站內連結往返", () => {
 
     await call(ctx.app, token, "edit_note", { note_id: host.id, op: "append", markdown: `[x](/g/${group.id}/group-doc#b-abc123)` });
     await call(ctx.app, token, "edit_note", { note_id: host.id, op: "append", markdown: `[Target](${testConfig.publicUrl.origin}/notes/${target.id})` });
-    // 表格兩格：label 非空（cell）與 label 空（文字＝標題）——審查 r0 m2：表格裡的「改名後讀回新標題」也要有整合層觀測。
+    // 表格兩格：label 非空（cell）與 label 空（文字＝標題）——表格裡的「改名後讀回新標題」也要有整合層觀測。
     await call(ctx.app, token, "edit_note", { note_id: host.id, op: "append", markdown: `| a | b |\n| --- | --- |\n| [cell](/notes/${target.id}) | [Target](/notes/${target.id}) |` });
     const count = (s: string, sub: string) => s.split(sub).length - 1;
 
@@ -64,7 +63,7 @@ describe("#269 I1：MCP 站內連結往返", () => {
     expect((rest.json() as { markdown: string }).markdown).toContain(`[Renamed](/notes/${target.id})`);
   });
 
-  it("讀者看不到目標：讀回 snapshotTitle、不露現行標題；寫回後變一般連結（§17-8）", async () => {
+  it("讀者看不到目標：讀回 snapshotTitle、不露現行標題；寫回後變一般連結", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
     const reader = await ctx.createUser({ email: `r-${randomUUID()}@example.com`, password: PASSWORD });
@@ -74,7 +73,7 @@ describe("#269 I1：MCP 站內連結往返", () => {
     const host = await ctx.createNote(owner.id, "Host");
     await ctx.share(host.id, reader.id, "editor");
     await call(ctx.app, token, "edit_note", { note_id: host.id, op: "append", markdown: `[Secret Title](/notes/${secret.id})` });
-    // 審查 r0 m2：表格 cell 裡讀者看不到的目標同樣讀回存下來的文字。
+    // 表格 cell 裡讀者看不到的目標同樣讀回存下來的文字。
     await call(ctx.app, token, "edit_note", { note_id: host.id, op: "append", markdown: `| s |\n| --- |\n| [Secret Title](/notes/${secret.id}) |` });
     await ctx.db.update(notes).set({ title: "Renamed Secret" }).where(eq(notes.id, secret.id));
     const count = (s: string, sub: string) => s.split(sub).length - 1;
@@ -85,7 +84,7 @@ describe("#269 I1：MCP 站內連結往返", () => {
     // 對照：owner 看得到 ⇒ 同一份文件讀回現行標題（證明上面兩行不是因為什麼都沒換）。
     expect(count(await topMarkdown(ctx.app, token, host.id), `[Renamed Secret](/notes/${secret.id})`)).toBe(2);
 
-    // 審查 r0 m1：REST 讀出同樣以**讀者**的可見性取標題——`/content` 與 `/edits` 409 的 `current`。
+    // REST 讀出同樣以**讀者**的可見性取標題——`/content` 與 `/edits` 409 的 `current`。
     const rest = await getContent(ctx.app, host.id, readerToken);
     expect(rest.statusCode).toBe(200);
     const restMd = (rest.json() as { markdown: string }).markdown;
@@ -107,7 +106,7 @@ describe("#269 I1：MCP 站內連結往返", () => {
     expect(wikilinkAttrs(doc)).toHaveLength(2); // owner 寫的段落＋表格兩個；reader 寫的那一個看不到 ⇒ 一般連結
   });
 
-  it("RF1：標題與 label 含 markdown 特殊字元——讀出跳脫正確、寫回 label 逐字相同（或文字＝標題時為空）", async () => {
+  it("標題與 label 含 markdown 特殊字元——讀出跳脫正確、寫回 label 逐字相同（或文字＝標題時為空）", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
     const { token } = await seedTokenForUser(ctx.db, owner.id, "notes:read notes:write");
@@ -126,7 +125,7 @@ describe("#269 I1：MCP 站內連結往返", () => {
     expect(after.map(a => a.targetNoteId)).toEqual([tricky.id, tricky.id]);
   });
 
-  // 終審 m1：舊文件可能存大寫 targetNoteId，DB 回的 id 是小寫——現行標題查找要不分大小寫，否則退到 snapshotTitle。
+  // 舊文件可能存大寫 targetNoteId，DB 回的 id 是小寫——現行標題查找要不分大小寫，否則退到 snapshotTitle。
   it("文件存大寫 targetNoteId：MCP 讀出仍是現行標題（不是 snapshotTitle）", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
@@ -156,7 +155,7 @@ describe("#269 I1：MCP 站內連結往返", () => {
     expect(md).not.toContain("Old Snapshot");
   });
 
-  // Task 5 審查 m1：`createWithContent` 的寫入轉換（可見清單＋siteOrigin）原本沒有整合層觀測。
+  // `createWithContent` 的寫入轉換（可見清單＋siteOrigin）原本沒有整合層觀測。
   it("create_note 的 content 裡的站內連結 → 存成 wikilink（同 edit_note 的規則）", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });

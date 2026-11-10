@@ -5,7 +5,7 @@ import { toast } from "@/components/ui/toast";
 import type { EditorRef } from "@/components/wikilink/menu";
 
 /**
- * 低階上傳呼叫（Task 10b `POST /api/notes/:id/uploads`，multipart 欄位 `file`）：
+ * 低階上傳呼叫（`POST /api/notes/:id/uploads`，multipart 欄位 `file`）：
  * **可 reject**（`ApiFail`），呼叫端（{@link createUploadFile}）負責把它包成 BlockNote
  * 要的「絕不 reject」形狀。
  *
@@ -32,7 +32,7 @@ export async function postUpload(noteId: string, file: File): Promise<{ id: stri
 export type Translate = (key: string, opts?: Record<string, unknown>) => string;
 
 /**
- * 409 `storage_quota_exceeded` 的說明句（spec §9.1）：server 給了用量與上限（呼叫者看得到該空間）→ `storage.quotaDetail`；
+ * 409 `storage_quota_exceeded` 的說明句：server 給了用量與上限（呼叫者看得到該空間）→ `storage.quotaDetail`；
  * 否則（看不到、或欄位不完整——上限 `null` 不可能被超過，出現就當沒給）→ `storage.quotaFullGeneric`。toast 與 FilePanel 共用。
  */
 export function storageQuotaDescription(err: ApiFail, translate: Translate): string {
@@ -75,7 +75,7 @@ export interface CreateUploadFileOptions {
  * 對這個回傳的 promise 沒有任何 catch，reject 會變成未處理的 promise rejection，且會
  * 卡住它自己的 for 迴圈，後續要插入的檔案完全不會被處理。
  *
- * 契約（spec §12.4，逐字）：
+ * 契約（逐字）：
  * - 成功：回傳 `url`（字串），交給 `handleFileInsertion` 塞進 block props。
  * - 失敗：
  *   1. `toastOncePerCode`——同一個錯誤 code 5 秒內只提示一次，文案 `errors.<code>`
@@ -108,7 +108,7 @@ export function createUploadFile(
         try {
           const ed = editorRef.current;
           if (blockId && ed && ed.getBlock(blockId)) {
-            removeBlocksKeepColumns(ed, [blockId]); // D25：欄內的 placeholder 清掉不收欄
+            removeBlocksKeepColumns(ed, [blockId]); // 欄內的 placeholder 清掉不收欄
           }
         } catch {
           // block 已消失（或 editor 已卸載）等——靜默略過，不讓清理動作反過來炸掉呼叫端。

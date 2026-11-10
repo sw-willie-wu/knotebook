@@ -18,12 +18,12 @@ function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string
 }
 
 /**
- * 「依類型」區塊（#247 §5.4；Part 3 的群組儲存空間頁沿用）。**五列恆顯示**（W30，含 0 的列），
+ * 「依類型」區塊（#247；群組儲存空間頁沿用）。**五列恆顯示**（含 0 的列），
  * 順序＝`STORAGE_KINDS`。佔比的分母取五類之和、**不取 `usedBytes`**：兩者來自 server 上不同時點的
- * 兩句查詢，中間有上傳時可能瞬間不等（§9.1）；和為 0 時五條都是 0%。
+ * 兩句查詢，中間有上傳時可能瞬間不等；和為 0 時五條都是 0%。
  * ⚠ 現況上傳只收四種圖片，所以只有「影像」會非零——版面先為多類型留好（上傳放寬另開 issue）。
  * `byKind` 為 undefined（載入中或錯誤）時不渲染列：錯誤訊息由同頁的 `StorageUsageGroup` 負責。
- * 列距與列間框線同設定表格（spec 2026-10-13 settings-table §3：只統一列距與框線、不換元件）。
+ * 列距與列間框線同設定表格（只統一列距與框線、不換元件）。
  */
 export function StorageByKindGroup({ byKind, pending }: { byKind: StorageByKind | undefined; pending: boolean }) {
   const { t } = useTranslation();
@@ -54,7 +54,7 @@ export function StorageByKindGroup({ byKind, pending }: { byKind: StorageByKind 
 }
 
 /**
- * 個人空間的「自動儲存版本」開關（spec 2026-10 版本歷史 §6.8、§8.5；#247 從帳號頁搬來）：立即生效，只送
+ * 個人空間的「自動儲存版本」開關（#247 從帳號頁搬來）：立即生效，只送
  * `{ autoVersions }`；站台總開關關閉時 disabled 並給看得見的說明。`config` 未載入時當作開。
  */
 function AutoVersionsGroup() {
@@ -77,7 +77,7 @@ function AutoVersionsGroup() {
   );
 }
 
-/** 個人設定「儲存空間」（`/settings/storage`，#247 §5.4、W9）：用量／依類型／版本歷史。 */
+/** 個人設定「儲存空間」（`/settings/storage`，#247）：用量／依類型／版本歷史。 */
 export function SettingsStorageUsageSection() {
   const { t } = useTranslation();
   const storage = useStorageUsage();

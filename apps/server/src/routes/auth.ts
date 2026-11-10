@@ -64,14 +64,14 @@ export function authRoutes(deps: AuthRouteDeps) {
     app.get("/api/auth/config", async (request): Promise<AuthConfigDto> => {
       const { providers, autoCreateProviderIds } = await listEnabledProvidersForConfig(deps.db);
       const registrationEnabled = await readRegistrationEnabled(deps.db);
-      if (registrationEnabled === null) request.log.error("site_settings 讀不到列：帳密自助註冊與 SSO 首登自動建帳都視同關閉（#187 §4.3）");
-      // §9.5：有效值（DB OR env）；不揭露是否 env 強制。讀不到列 → 開＋log.error（B17）。
+      if (registrationEnabled === null) request.log.error("site_settings 讀不到列：帳密自助註冊與 SSO 首登自動建帳都視同關閉（#187）");
+      // 有效值（DB OR env）；不揭露是否 env 強制。讀不到列 → 開＋log.error。
       const passwordLoginEnabled = await isPasswordLoginAccepted(deps.db, deps.config, request.log);
-      // 版本歷史 §6.8：總開關讓非 admin 也讀得到（個人／群組開關的 disabled 顯示）。讀不到列 → true（DB 預設；起草裁定 16）。
+      // 版本歷史：總開關讓非 admin 也讀得到（個人／群組開關的 disabled 顯示）。讀不到列 → true（DB 預設）。
       const [versionsRow] = await deps.db.select({ v: siteSettings.autoVersionsEnabled }).from(siteSettings).where(eq(siteSettings.singleton, true)).limit(1);
       return {
         providers,
-        // 列缺失時一律 []，與登入交易的「視同關」一致（M2）。
+        // 列缺失時一律 []，與登入交易的「視同關」一致。
         registration: { enabled: registrationEnabled ?? false, providerIds: registrationEnabled === null ? [] : autoCreateProviderIds },
         passwordLogin: { enabled: passwordLoginEnabled },
         autoVersionsEnabled: versionsRow?.v ?? true,
@@ -81,9 +81,9 @@ export function authRoutes(deps: AuthRouteDeps) {
     });
 
     /**
-     * 登入服務圖示（spec 2026-10-07-provider-icon §4.4）：免登入、不看 enabled（停用中也可讀——admin 列表要用；圖示非機密、id 為 UUID）。
+     * 登入服務圖示：免登入、不看 enabled（停用中也可讀——admin 列表要用；圖示非機密、id 為 UUID）。
      * 只回檔頭驗過的 PNG／JPEG／WebP（PUT 時存的偵測值），`nosniff`＋`default-src 'none'; sandbox`。
-     * `v` 字串**完全等於**現版本才 immutable（`01`、`1.0` 不算——版本不同的網址不得被長快取，§7.3）。不加節流（Q9）。
+     * `v` 字串**完全等於**現版本才 immutable（`01`、`1.0` 不算——版本不同的網址不得被長快取）。不加節流。
      */
     app.get("/api/auth/providers/:id/icon", async (request, reply) => {
       const raw = (request.params as { id: string }).id;
@@ -109,13 +109,13 @@ export function authRoutes(deps: AuthRouteDeps) {
       if (!parsed.success) {
         return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "Invalid request body.");
       }
-      // #187 B20：帳密登入的有效值為關 → 403。排在讀帳號與 throttle **之前**：回應與帳號完全無關（同碼、同訊息、不讀 users），
+      // #187：帳密登入的有效值為關 → 403。排在讀帳號與 throttle **之前**：回應與帳號完全無關（同碼、同訊息、不讀 users），
       // 本身不是存在性 oracle，所以不需要 dummy-hash 等時化；不跑 argon2 也拿掉一個 CPU 放大面。關閉期間這條路徑不吃任何節流
-      // （§17 第 33 條，接受）。管理員不豁免（W24）。
+      // （接受）。管理員不豁免。
       if (!(await isPasswordLoginAccepted(deps.db, deps.config, request.log))) {
         return sendError(reply, 403, "password_login_disabled", PASSWORD_LOGIN_DISABLED_MESSAGE);
       }
-      // 進門一次性正規化（spec §14.3 單一漏斗）：下面 throttle 鍵值、DB 查詢、
+      // 進門一次性正規化（單一漏斗）：下面 throttle 鍵值、DB 查詢、
       // recordFailure/recordSuccess 全部共用這個值——throttle 帳號鍵與 DB 查詢比對
       // 若用不同的正規化值，Mixed-Case 變體就能各自累積獨立的 throttle 計數，形同
       // 繞過帳號軸限流。
@@ -167,7 +167,7 @@ export function authRoutes(deps: AuthRouteDeps) {
       }
 
       deps.throttle.recordSuccess(email, request.ip);
-      await touchLastLogin(deps.db, user!.id, request.log); // #247 §9.5 寫入點 1：帳密登入
+      await touchLastLogin(deps.db, user!.id, request.log); // #247：帳密登入
       await startSession(deps, request, reply, { userId: user!.id, tv: user!.tokenVersion });
 
       // 標上 shared 的 DTO 型別：形狀漂移（少欄位、型別改了）在 server 端就編譯失敗，
@@ -208,7 +208,7 @@ export function authRoutes(deps: AuthRouteDeps) {
       .object({
         handle: z.string().optional(),
         autoVersions: z.boolean().optional(),
-        // #247 §9.3：驗證與註冊同一套（routes/account.ts 的 registerBodySchema.displayName）。
+        // #247：驗證與註冊同一套（routes/account.ts 的 registerBodySchema.displayName）。
         displayName: z
           .string()
           .trim()
@@ -218,7 +218,7 @@ export function authRoutes(deps: AuthRouteDeps) {
           .optional(),
       })
       .refine(b => b.handle !== undefined || b.autoVersions !== undefined || b.displayName !== undefined, { message: "Invalid request body: send at least one field." });
-    /** 回應形：寫入後的值（交易內 RETURNING）——現行 `{ ...request.user, handle }` 是 gate 的 60 s 快取，不能沿用（r7 M-4）。 */
+    /** 回應形：寫入後的值（交易內 RETURNING）——現行 `{ ...request.user, handle }` 是 gate 的 60 s 快取，不能沿用。 */
     const profileReturning = () => ({
       id: users.id, email: users.email, handle: users.handle, displayName: users.displayName, isAdmin: users.isAdmin,
       mustChangePassword: users.mustChangePassword, hasPassword: sql<boolean>`${users.passwordHash} is not null`, autoVersions: users.autoVersions,
@@ -235,7 +235,7 @@ export function authRoutes(deps: AuthRouteDeps) {
      *
      * 舊名以 tx 內 SELECT 為準（request.user 是 gate 的 60s 快取，可能落後）。
      * 成功後 `gate.invalidate`（比照改密碼），/api/auth/me 立即反映。
-     * 版本歷史 §6.8、#247 §9.3：只帶 `autoVersions`／`displayName`（任一或兩者）→ 純 UPDATE、不進改名交易、不扣額度；與 `handle` 一起帶 →
+     * 版本歷史、#247：只帶 `autoVersions`／`displayName`（任一或兩者）→ 純 UPDATE、不進改名交易、不扣額度；與 `handle` 一起帶 →
      * 在改名交易的 `UPDATE users` 同一句寫（撞名回滾時一起不寫）。回應取寫入後的值（RETURNING），不沿用 `request.user` 快取；
      * 所有分支都經過下方同一個 `gate.invalidate` 出口——不得為 displayName 加提前 return。
      */
@@ -262,8 +262,8 @@ export function authRoutes(deps: AuthRouteDeps) {
         dto = row;
       } else {
         const newHandle = normalized;
-        // 5/日（spec §2a；plan m10 的「無 limiter 常數」指不建 FixedWindowLimiter，
-        // 具名常數反而消除 JSDoc/判斷/錯誤訊息三處數字漂移面）
+        // 5/日（不建 FixedWindowLimiter，
+        // 具名常數消除 JSDoc/判斷/錯誤訊息三處數字漂移面）
         const RENAME_QUOTA_PER_DAY = 5;
         const QUOTA_EXCEEDED = Symbol("rename-quota");
         const HANDLE_TAKEN = Symbol("rename-handle-taken");
@@ -274,7 +274,7 @@ export function authRoutes(deps: AuthRouteDeps) {
             const oldHandle = row!.handle;
             if (newHandle === oldHandle) throw HANDLE_TAKEN; // 改成自己現行名：窗期形（無 registry 列）也不得 200／耗額度
 
-            // ② 額度：鎖之後才數，排隊者看得到前者已 commit 的紀錄（I3）。
+            // ② 額度：鎖之後才數，排隊者看得到前者已 commit 的紀錄。
             const [spent] = await tx
               .select({ n: sql<number>`count(*)::int` })
               .from(handleRenames)
@@ -287,7 +287,7 @@ export function authRoutes(deps: AuthRouteDeps) {
             // ④ 釋放舊名。刪 0 列＝本人現行名不在 registry（窗期形），照常繼續；帶 user_id 不會刪到他人的列。
             await tx.delete(handles).where(and(eq(handles.handle, oldHandle), eq(handles.userId, userId)));
 
-            // ⑤ 改名；同一句帶上 autoVersions／displayName（兩者都帶 → 同一交易，§6.8、#247 §9.3）。
+            // ⑤ 改名；同一句帶上 autoVersions／displayName（兩者都帶 → 同一交易，#247）。
             const [updated] = await tx
               .update(users)
               .set({ handle: newHandle, ...extra })
@@ -372,7 +372,7 @@ export function authRoutes(deps: AuthRouteDeps) {
       // 用同一份舊快照 +1 寫回，會把先前那次的遞增結果覆蓋掉，等於撤銷被回捲）。
       // tv 本身的原子性靠單一 UPDATE 就夠；#388 起整段包在交易裡，是為了讓 bump 與換 session 列在同一把 users 列鎖下
       //（見 `auth/tx/change-password.ts`）。
-      // 成功改密碼一併清 mustChangePassword（spec rev 5.7）：不論這次改密碼前是 true 或
+      // 成功改密碼一併清 mustChangePassword：不論這次改密碼前是 true 或
       // false，改完後一律 false——這是「自己主動改過密碼」這件事本身帶來的效果，不需要
       // 額外判斷原本的值。
       // #388：同一交易裡刪光這個使用者的 session 列（其他裝置）、為本機建新的一列——「保留這台、踢掉其他台」。
@@ -382,7 +382,7 @@ export function authRoutes(deps: AuthRouteDeps) {
 
       // 踢掉所有舊 session（含改密碼前簽發、當下可能正被其他裝置使用的那些）——
       // 它們的 session 列上面已刪；gate.invalidate 讓下一次 `authenticate` 立刻反映新 tokenVersion，
-      // collabHooks.onUserRevoked 是 Plan 2 即時協作連線的接縫（Plan 1 為 noop）。
+      // collabHooks.onUserRevoked 是即時協作連線的接縫（沒有協作時為 noop）。
       deps.gate.invalidate(userId);
       deps.collabHooks.onUserRevoked(userId);
 

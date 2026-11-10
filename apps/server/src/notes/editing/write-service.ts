@@ -1,6 +1,6 @@
 /**
- * #108 §10.1（D22／不變量 M5）：**同一篇筆記的所有寫入路徑**——REST 的 `/edits`、
- * `/revert`、`POST /api/notes` 帶 `content`，以及 PR2 之後 MCP 的 `edit_note`／`create_note`
+ * #108：**同一篇筆記的所有寫入路徑**——REST 的 `/edits`、
+ * `/revert`、`POST /api/notes` 帶 `content`，以及 MCP 的 `edit_note`／`create_note`
  * ——必須經過**同一個** `NoteWriteQueue` 實例（`buildApp` 建一次、兩個路由共用）。不同實例
  * ＝沒有串行可言，而 #137 修過的資料損毀級 bug 與撤回的冪等守衛都建立在串行之上
  * （理由鏈逐字寫在 `queue.ts` 那段長註解裡）。
@@ -11,10 +11,10 @@
  *
  * ⚠ **`EditOp` 寫入路徑的 presence 目標只能取自 `presenceTargetForWrite(op, afterBlockIds)`**——#106 三棒各在
  * 這裡錯過一次（請求帶的 `section_id` 是 heading 的 block id，寫完就已經不存在了）。`syncFile`（`file_sync`）在本檔內以
- * 各區編輯後的 `afterIds` 組（bulk transfer plan §0.1-15），理由同：不吃請求帶的 id。
+ * 各區編輯後的 `afterIds` 組，理由同：不吃請求帶的 id。
  * ⚠ **帶 content 建立筆記的佇列逾時答案是 `500 internal` 不是 `503`**（`docs/ai-editing.md`
  * 逐字），所以 `createWithContent` 的 catch **刻意不分辨例外型別**，`QueueBusyError` 一併吃掉。
- * 這條逾時在真實路徑上不可達（plan 誠實缺口 13）；catch 不分辨型別是為了讓 REST 與 MCP
+ * 這條逾時在真實路徑上不可達；catch 不分辨型別是為了讓 REST 與 MCP
  * `create_note` 共用同一個答案，不是因為真的會逾時——建立筆記用的是剛 insert 出來的新 id，
  * per-note 佇列上結構性不可能有併發者，既有的那條 500 測試走的是 `beforeRecord` throw，不是
  * 真逾時。
@@ -105,7 +105,7 @@ export type CreateWithContentResult =
 
 export type SaveVersionOutcome = { ok: true; row: NoteVersionRow; upgraded: boolean } | { ok: false; kind: "busy" | "note-deleted" };
 
-/** §9.5-7：合併指紋不符時從頭重來（重新 fork、重新判「筆記動過沒」），最多 3 次。 */
+/** 合併指紋不符時從頭重來（重新 fork、重新判「筆記動過沒」），最多 3 次。 */
 export const SYNC_MERGE_ATTEMPTS = 3;
 
 export interface SyncFileInput {
@@ -138,7 +138,7 @@ export interface SyncFileOk {
   anchored: number;
   degradedLines: number;
 }
-/** §10：去重視窗（＝權杖 TTL）。 */
+/** 去重視窗（＝權杖 TTL）。 */
 export const CREATE_DEDUPE_MINUTES = 30;
 export interface CreateFromFileInput {
   userId: string;
@@ -160,9 +160,9 @@ export type CreateFromFileOutcome =
   | { ok: false; kind: "folder_gone" | "busy" | "internal" };
 
 /**
- * 409 `base_unavailable` 的成因（回應的 `error.reason`；8000 探索測試 D，Willie 2026-11-04）：`already_sent`＝這份副本已用其他內容
+ * 409 `base_unavailable` 的成因（回應的 `error.reason`）：`already_sent`＝這份副本已用其他內容
  * 送回過；`other_note`＝`base` 屬於別篇或別人；`expired`＝伺服器已沒有這份基底（裁掉、過期）或金鑰換過；`note_changed`＝這篇筆記在下載
- * 之後被改過（標題或內文，Willie 2026-11-04 第三輪：不再三方合併）；`reverted`＝這份檔寫回的紀錄已被撤回（`applied_edit_ids`）。
+ * 之後被改過（標題或內文，不再三方合併）；`reverted`＝這份檔寫回的紀錄已被撤回（`applied_edit_ids`）。
  */
 export type BaseUnavailableReason = "already_sent" | "other_note" | "expired" | "note_changed" | "reverted";
 
@@ -179,7 +179,7 @@ export type SyncFileOutcome =
 
 export interface NoteWriteServiceDeps {
   db: Db;
-  /** D-A：兩者同生同滅——沒有 collab 的部署寫不動內容，`available` 為 false。 */
+  /** 兩者同生同滅——沒有 collab 的部署寫不動內容，`available` 為 false。 */
   collab?: CollabServer;
   editing?: EditingRuntime;
   /** #138 presence 註冊表（選配；沒有 collab 時是全 no-op 空殼）。 */
@@ -190,7 +190,7 @@ export interface NoteWriteServiceDeps {
   testHooks?: EditingTestHooks;
   /** 版本歷史：套用、手動儲存（`app.ts` 傳 collab 那份或未綁定的那份）。選配（既有測試直接 new 本 service；沒有它時套用與手動儲存會丟錯）。#272 起 AI／直寫不再切版。 */
   versions?: VersionService;
-  /** bulk transfer plan H5：檔案寫回改名的 slug 候選縫（原樣傳給 `renameNoteTitle` 的第三個參數；`buildApp` 由 `slugUpdateTestHook` 透傳）。 */
+  /** bulk transfer：檔案寫回改名的 slug 候選縫（原樣傳給 `renameNoteTitle` 的第三個參數；`buildApp` 由 `slugUpdateTestHook` 透傳）。 */
   renameHook?: (candidate: string) => void | Promise<void>;
   /** #387：讀者讀到過、寫入者寫過的連結文字（測試注入用；未傳＝本 service 自建一份）。 */
   shownLinks?: ShownLinkTexts;
@@ -200,7 +200,7 @@ export interface NoteWriteServiceDeps {
 
 export class NoteWriteService {
   /**
-   * ⚠ **全樹唯一的 `new NoteWriteQueue()`**（M5）。`buildApp` 只建一個 service，
+   * ⚠ **全樹唯一的 `new NoteWriteQueue()`**。`buildApp` 只建一個 service，
    * `notesRoutes` 與 `mcpRoutes` 拿到的是同一個物件。process-local。
    */
   private readonly queue = new NoteWriteQueue();
@@ -208,7 +208,7 @@ export class NoteWriteService {
   /**
    * #387：讀者讀到過的「沒有自訂文字」的連結文字（process-local，同佇列）。讀路徑（MCP `read_note_section`、REST `/content`、`/edits` 與撤回
    * 409 的 `current`）把它傳給 `readNoteContent` 記下；`applyEdit`（`edit_note`、REST `/edits`）與帶 content 建立
-   * （`create_note`、REST `POST /api/notes`）寫入時查它，寫入成功後也把寫下去的連結記進去（審查 I1）。檔案寫回／檔案新增不查也不記
+   * （`create_note`、REST `POST /api/notes`）寫入時查它，寫入成功後也把寫下去的連結記進去。檔案寫回／檔案新增不查也不記
    * （#385 有自己的基底）。
    */
   readonly shownLinks: ShownLinkTexts;
@@ -239,7 +239,7 @@ export class NoteWriteService {
   }
 
   /**
-   * #269 §12.1：轉換工作專用——在本 service 的（全樹唯一的）佇列上跑一段，給它 `ApplyDeps`。與 MCP 寫入、套用版本、手動存版
+   * #269：轉換工作專用——在本 service 的（全樹唯一的）佇列上跑一段，給它 `ApplyDeps`。與 MCP 寫入、套用版本、手動存版
    * 串行（互動寫入最多等一篇）。等待上限由呼叫端給（轉換工作用 1 s）；逾時丟 `QueueBusyError`。
    * ⚠ `fn` 內**不得**再呼叫本 service 會進同一篇 `queue.run` 的方法（例如 `saveVersion`）——會等到自己逾時。
    */
@@ -278,11 +278,11 @@ export class NoteWriteService {
       ifMatch?: string;
     }
   ): Promise<WriteOutcome<ApplyOk, ApplyFailureCode> | ParserBusy | TooLarge> {
-    // #269 §8.5（A9）：lease **之前**預取寫入者可見清單（含 slug／群組／handle）；之後的解析在記憶體內完成、lease 期間零 DB。
+    // #269：lease **之前**預取寫入者可見清單（含 slug／群組／handle）；之後的解析在記憶體內完成、lease 期間零 DB。
     const candidates = await visibleNoteTargets(this.deps.db, input.userId);
     const agentLabel = input.tokenId ? await currentAgentLabel(this.deps.db, input.tokenId) : null;
     const applyDeps = this.applyDeps(log);
-    // #398 審查 M1：解析在進這篇筆記的佇列之前做（解析可能花上數秒，不該擋住同一篇的其他寫入）；結果交給 `applyEdit`，
+    // #398：解析在進這篇筆記的佇列之前做（解析可能花上數秒，不該擋住同一篇的其他寫入）；結果交給 `applyEdit`，
     // 它在段落與指紋檢查之後才用（錯誤碼的先後不變；合併時的指紋比對照舊兜住解析期間別人的修改）。
     let preparsed: ParseOutcome | undefined;
     if (input.op !== "delete_section" && input.markdown !== undefined) {
@@ -320,7 +320,7 @@ export class NoteWriteService {
       throw err;
     }
     if (!result.ok) return { ok: false, kind: "apply", code: result.code, ...(result.detail ? { detail: result.detail } : {}) };
-    // #138 presence（spec §9）：此時 `applyEdit` 已經 `disconnect()`，內容都在 live doc 上了。
+    // #138 presence：此時 `applyEdit` 已經 `disconnect()`，內容都在 live doc 上了。
     // ⚠ 目標取自**編輯後**的 `result.afterBlockIds`，不是請求帶進來的 `sectionId`：後者是
     //   heading 的 block id，`replace_section`／`delete_section` 已經把它換掉了。
     this.touch(input.noteId, input.tokenId, input.userHandle, agentLabel, presenceTargetForWrite(input.op, result.afterBlockIds));
@@ -356,7 +356,7 @@ export class NoteWriteService {
     return { ok: true, result, agentLabel };
   }
 
-  /** 版本歷史 §7：佇列（與 `/edits`、撤回、MCP **同一顆**）→ `applyVersionEdit`。`kind: "busy"`＝佇列逾時（路由映 503）。 */
+  /** 版本歷史：佇列（與 `/edits`、撤回、MCP **同一顆**）→ `applyVersionEdit`。`kind: "busy"`＝佇列逾時（路由映 503）。 */
   async applyVersion(log: FastifyBaseLogger, input: ApplyVersionInput): Promise<WriteOutcome<{ applied: true }, ApplyVersionFailureCode> | TooLarge> {
     const versions = this.deps.versions;
     if (!versions) throw new Error("NoteWriteService：沒有版本服務（app.ts 一定會注入；直接 new 本 service 的測試要自己帶）");
@@ -375,7 +375,7 @@ export class NoteWriteService {
   }
 
   /**
-   * 版本歷史 §6.3：手動儲存走同一顆佇列（與套用序列化）。不需要 collab／editing：文件沒載入時讀 note_states 當暫時狀態。
+   * 版本歷史：手動儲存走同一顆佇列（與套用序列化）。不需要 collab／editing：文件沒載入時讀 note_states 當暫時狀態。
    * `null`（交易內基底或空間對不上、已回寫記憶體）→ 重試一次，再 null → busy。uninitialized／fingerprint-failed → busy（503）。
    */
   async saveVersion(log: FastifyBaseLogger, input: { noteId: string; userId: string; name: string | null }): Promise<SaveVersionOutcome> {
@@ -404,29 +404,29 @@ export class NoteWriteService {
   }
 
   /**
-   * bulk transfer spec 2026-11-02 §9.2、§9.5（plan PR-2 T8／T9）：檔案寫回一篇既有筆記。Willie 2026-11-04 第三輪：**筆記自下載後只要
-   * 被動過（標題或內文），一律 409 `note_changed`，不再三方合併**。全在一次 `queue.run(noteId)` 內（F14；與 edit_note、撤回、套用版本
+   * bulk transfer：檔案寫回一篇既有筆記。**筆記自下載後只要
+   * 被動過（標題或內文），一律 409 `note_changed`，不再三方合併**。全在一次 `queue.run(noteId)` 內（與 edit_note、撤回、套用版本
    * 串行）；進佇列前只預取候選集合與 agentLabel（同 `applyToNote`）。順序：
    * ① 查基底（key＋user＋note）→ 查無 → `other_note`／`expired`；`key_id` 不符 → `expired`
    * ② 這份副本寫回過本文（`applied_body_sha`）：檔案本文與寫回的那份不同 → `already_sent`；相同 → 那次的紀錄有撤回過 → `reverted`；
-   *    標題又有改 → `already_sent`（審查 I1：寫回過的副本不再收任何修改，連只改標題也不收——寫回之後別人改了什麼，這份副本判不出來）；
+   *    標題又有改 → `already_sent`（寫回過的副本不再收任何修改，連只改標題也不收——寫回之後別人改了什麼，這份副本判不出來）；
    *    否則當沒改（這幾個成因先於 `note_changed`：筆記是被這份副本自己改的）
    * ③ 檔案與這份副本相同（本文：下載時的 `body_sha`，或②寫回的那份；標題：`applied_title_sha ?? title_sha`）→ `unchanged`、扣
    *    `tokenRead`——不管筆記有沒有被別人動過 ④ 本文有改、筆記不可寫回（段表 null）→ `not_mergeable`
-   * ⑤ 寫回額度 `transferWrite`（不足 → 429）：沒改的檔不碰（8000 探索測試 N5）；本文有改 → ⑦ 解析之前扣（全分支審查 I2：解析失敗也算），
-   *    零區退回（審查 M1，淨值不扣）；只改標題 → ⑨ 改名之前扣
+   * ⑤ 寫回額度 `transferWrite`（不足 → 429）：沒改的檔不碰；本文有改 → ⑦ 解析之前扣（解析失敗也算），
+   *    零區退回（淨值不扣）；只改標題 → ⑨ 改名之前扣
    * ⑥ 筆記動過沒（內容比對，不看 `updated_at`）：現行標題的 HMAC ≠ 這份副本的標題 → `note_changed`；再 fork（live 文件就 fork 它）比內文：
-   *    段表非 null → 頂層 id 與單顆指紋（整個 block 子樹的文字與屬性）要與基底段表逐顆相等（`matchesBase`；審查 I2：不再整篇匯出比，
-   *    連到的筆記改名或變不可見不算動過）——例外：基底 0 顆、現況恰一顆空段落（瀏覽器打開會正規化出來，審查 M1）當沒動過，套用時把它換掉；
+   *    段表非 null → 頂層 id 與單顆指紋（整個 block 子樹的文字與屬性）要與基底段表逐顆相等（`matchesBase`；不整篇匯出比，
+   *    連到的筆記改名或變不可見不算動過）——例外：基底 0 顆、現況恰一顆空段落（瀏覽器打開會正規化出來）當沒動過，套用時把它換掉；
    *    段表 null（只會是只改標題）→ 整篇匯出（`exportNoteBody`，與下載同一條組字）→ `normalizeBody` → HMAC ≠ `body_sha` → `note_changed`
-   * ⑦ 本文有改 → 行雜湊 → diff → 扣 `transferWrite`（至多一次）→ `planSync`（parse 失敗 → 400，已扣的不退；基底段表的 `links` 給它判「連結文字仍是下載時匯出的那個」，F1）；
+   * ⑦ 本文有改 → 行雜湊 → diff → 扣 `transferWrite`（至多一次）→ `planSync`（parse 失敗 → 400，已扣的不退；基底段表的 `links` 給它判「連結文字仍是下載時匯出的那個」）；
    *    零區（全是 `same`）→ 當 `unchanged`、什麼都不寫、退回 `transferWrite`；否則 `applySync` → `beforeMerge` → `mergeDiff`
    *    （期望＝fork 頂層每一顆的指紋＋整篇指紋，與 `applyUpdate` 同一個 transact：⑥ 之後瀏覽器或任何寫入改了筆記就不合併）；不符 → 從 ⑥
    *    重來（重新 fork、重新判），最多 3 次 ⑧ 紀錄交易（`recordFileSyncInTx`，交易外 `redactDbError`）→ `updateNoteLinks`
-   * ⑨ 改名（T9）：`renameNoteTitle` 帶 `expectTitle`＝⑥ 讀到的現行標題（檢查與改名同一句 UPDATE）⑩ presence。
-   * 帶內容參數的 DB 呼叫（紀錄、改名）錯誤一律經 `redactDbError`（plan 不變量 9）。
-   * 已知縫（不修，總管 2026-11-04 接受）：① 只改標題時，⑥ 的內文判斷與 ⑨ 的改名不在同一個交易（內文在 Yjs、標題在 DB），中間瀏覽器
-   * 打的字不擋改名 ② 寫回本文期間（⑥ 讀完標題之後、合併之前）別人改了標題，而檔案沒改標題：本文照寫，偵測不到這次改名（審查 M2）。
+   * ⑨ 改名：`renameNoteTitle` 帶 `expectTitle`＝⑥ 讀到的現行標題（檢查與改名同一句 UPDATE）⑩ presence。
+   * 帶內容參數的 DB 呼叫（紀錄、改名）錯誤一律經 `redactDbError`。
+   * 已知縫（不修）：① 只改標題時，⑥ 的內文判斷與 ⑨ 的改名不在同一個交易（內文在 Yjs、標題在 DB），中間瀏覽器
+   * 打的字不擋改名 ② 寫回本文期間（⑥ 讀完標題之後、合併之前）別人改了標題，而檔案沒改標題：本文照寫，偵測不到這次改名。
    */
   async syncFile(log: FastifyBaseLogger, input: SyncFileInput): Promise<SyncFileOutcome> {
     const candidates = await visibleNoteTargets(this.deps.db, input.userId);
@@ -474,13 +474,13 @@ export class NoteWriteService {
     let bodyChanged: boolean;
     if (applied === null) bodyChanged = !bodySha.equals(Buffer.from(base.bodySha));
     else if (bodySha.equals(applied)) {
-      // 同檔重送：這份檔寫回的紀錄若有任一列已撤回，內容已不是「都套用了」→ 409 reverted（8000 探索測試 C）。
+      // 同檔重送：這份檔寫回的紀錄若有任一列已撤回，內容已不是「都套用了」→ 409 reverted。
       const ids = base.appliedEditIds ?? [];
       if (ids.length > 0) {
         const [rev] = await db.select({ id: noteAiEdits.id }).from(noteAiEdits).where(and(inArray(noteAiEdits.id, ids), isNotNull(noteAiEdits.revertedAt))).limit(1);
         if (rev) return { ok: false, kind: "base_unavailable", reason: "reverted" };
       }
-      // 審查 I1：寫回過本文的副本又帶標題修改 → already_sent、不改名（寫回之後別人的修改，這份副本的基底已判不出來）。
+      // 寫回過本文的副本又帶標題修改 → already_sent、不改名（寫回之後別人的修改，這份副本的基底已判不出來）。
       if (titleChanged) return { ok: false, kind: "base_unavailable", reason: "already_sent" };
       bodyChanged = false;
     } else return { ok: false, kind: "base_unavailable", reason: "already_sent" };
@@ -494,8 +494,8 @@ export class NoteWriteService {
       return out;
     }
     if (bodyChanged && base.segments === null) return { ok: false, kind: "not_mergeable" };
-    // 寫回額度（`transferWrite`）：本文有改 → 解析前扣（全分支審查 I2，解析失敗也算）、零區退回；只改標題 → 改名前扣。
-    // 沒改的檔不碰這顆（8000 探索測試 N5），零區的檔淨值不扣（審查 M1）——但額度用完時本文有改的檔一律 429，連零區也是（判零區要先解析）。
+    // 寫回額度（`transferWrite`）：本文有改 → 解析前扣（解析失敗也算）、零區退回；只改標題 → 改名前扣。
+    // 沒改的檔不碰這顆，零區的檔淨值不扣——但額度用完時本文有改的檔一律 429，連零區也是（判零區要先解析）。
     // 走到這裡一定是 `applied === null`：寫回過本文的副本（applied 非 null）只有「同檔重送且標題沒改」會往下，而那時兩者都沒改、上面已回。
 
     const noteChanged: SyncFileOutcome = { ok: false, kind: "base_unavailable", reason: "note_changed" };
@@ -524,12 +524,12 @@ export class NoteWriteService {
     }
     let merged: MergeOutput | null = null;
     let syncApplied: SyncApplyDocResult | null = null;
-    // #398 審查 C2：這個檔的解析預算，合併前被別人改掉重來（最多 SYNC_MERGE_ATTEMPTS 次）也共用這一份。
+    // #398：這個檔的解析預算，合併前被別人改掉重來（最多 SYNC_MERGE_ATTEMPTS 次）也共用這一份。
     const fileBudget = applyDeps.editing.parser.fileBudget();
     let zeroRegion = false;
     let bodyChecked = false;
     // 比對基底、解析、套用都在 parse worker 裡、對文件狀態做（`doc-jobs.ts` 的 `sync`；很小的筆記在主執行緒）。worker 要問的兩件事在這裡
-    // 回答：連結的現行標題（段表 null 時整篇匯出比對用）、寫回額度（全分支審查 I2：解析**之前**扣——解析失敗（400）也算一次，同 edit_note
+    // 回答：連結的現行標題（段表 null 時整篇匯出比對用）、寫回額度（解析**之前**扣——解析失敗（400）也算一次，同 edit_note
     // 先扣 `edit` 再解析；重試不再扣，`charged`）。合併只在活文件仍是那份狀態時（`mergeAtBase`），否則從頭重來。
     const titles = titlesAsk(db, input.userId);
     let rateLimited = false;
@@ -572,7 +572,7 @@ export class NoteWriteService {
         }
         if (r.kind === "parse") return { ok: false, kind: "parse", code: r.code, ...(r.detail ? { detail: r.detail } : {}), ...(r.fence ? { fence: r.fence } : {}) };
         if (r.kind === "zero_region") {
-          // 零區（含全是 same，例如只加空行）→ 當 `unchanged`（審查 M1）：退回上面扣的寫回額度（之後照「都沒寫」扣 tokenRead）、
+          // 零區（含全是 same，例如只加空行）→ 當 `unchanged`：退回上面扣的寫回額度（之後照「都沒寫」扣 tokenRead）、
           // 不寫 `applied_body_sha`（這份副本之後只改標題仍照一般改名處理，不會被當成「已寫回過」而回 already_sent）。
           if (chargeTicket !== null) input.limiters.transferWrite.refund(input.userId, chargeTicket);
           charged = false;
@@ -582,7 +582,7 @@ export class NoteWriteService {
         }
         // 套用是另一件工作、同一份文件狀態（`doc-jobs.ts` 的 `SyncPlanDocOp` 註解）；時限＝一次 PARSE_TIMEOUT_MS 的 DOC_TIMEOUT_FACTOR 倍（同其他轉換）。
         const a = await editing.runDoc(input.userId, { kind: "syncApply", state, plan: r.plan, normalizedId: r.normalizedId }, { extraWeight: input.body.length });
-        // 套用逾時或用完記憶體：解析已經過了，是筆記本身太大或太複雜——同 edit_note 寫進既有筆記（500 `too_complex`，審查 r5 m2）。
+        // 套用逾時或用完記憶體：解析已經過了，是筆記本身太大或太複雜——同 edit_note 寫進既有筆記（500 `too_complex`）。
         if (a === DOC_TOO_COMPLEX) return { ok: false, kind: "note_too_complex" };
         if (hooks?.beforeMerge) await hooks.beforeMerge();
         const ctx: DirectCtx = { source: "ai-edit", userId: input.userId, tokenId: input.tokenId, agentLabel, applied: false };
@@ -597,7 +597,7 @@ export class NoteWriteService {
         watch?.stop();
       }
     }
-    if (!bodyChecked && !zeroRegion && merged === null) return { ok: false, kind: "busy" }; // 三次都撞指紋（§9.5-7）
+    if (!bodyChecked && !zeroRegion && merged === null) return { ok: false, kind: "busy" }; // 三次都撞指紋
     if (syncApplied !== null && merged !== null) {
       if (hooks?.beforeRecord) await hooks.beforeRecord();
       const { rows } = fileSyncRows({
@@ -622,7 +622,7 @@ export class NoteWriteService {
       firstWritten = firstIdx === -1 ? null : (syncApplied.perRegion[firstIdx]!.afterIds[0] ?? null);
     }
 
-    // ⑨ 改名（T9；§9.2-8、§9.7）：只在現行標題仍是 ⑥ 讀到的那個時才改（同一句 UPDATE）。
+    // ⑨ 改名：只在現行標題仍是 ⑥ 讀到的那個時才改（同一句 UPDATE）。
     if (titleChanged) {
       if (!contentWritten && !charged) {
         if (!input.limiters.transferWrite.consume(input.userId)) return { ok: false, kind: "rate_limited", retryAfterMs: input.limiters.transferWrite.retryAfterMs(input.userId) };
@@ -652,22 +652,22 @@ export class NoteWriteService {
     }
 
     if (!contentWritten && !out.renamed) {
-      // 都沒寫：扣 tokenRead（本請求已扣過 transferWrite 就不再扣，gate r2 m-6）。
+      // 都沒寫：扣 tokenRead（本請求已扣過 transferWrite 就不再扣）。
       if (!charged && !input.limiters.tokenRead.consume(tokenReadKey)) {
         return { ok: false, kind: "rate_limited", retryAfterMs: input.limiters.tokenRead.retryAfterMs(tokenReadKey) };
       }
       return out;
     }
-    // ⑩ presence（§0.1-15）：寫入的第一顆 block；只有刪除區 → 文件開頭；只改名不 touch（§9.2-9）。
+    // ⑩ presence：寫入的第一顆 block；只有刪除區 → 文件開頭；只改名不 touch。
     if (contentWritten) this.touch(input.noteId, input.tokenId, input.userHandle, agentLabel, firstWritten === null ? { kind: "doc-start" } : { kind: "block", blockId: firstWritten });
     return out;
   }
 
   /**
-   * bulk transfer spec §10（plan PR-2 T10）：沒有 `id` 的檔＝新增筆記。串行鍵 `create:${userId}:${fileSha}`（新筆記還沒有 id，
-   * gate r3 m7）；佇列內：去重命中（同使用者、同檔、同 `key_id`、30 分內、該筆記仍看得到）→ 扣 `tokenRead`、回原 id；否則先扣
-   * `transferWrite`（全分支審查 I2：解析失敗也算）→ 解析（`prepareContent`；失敗 → parse，不留筆記、不寫去重列）→ `createWithContent`（帶解析結果）→ upsert `transfer_creates`（TTL 外的舊列、原筆記進垃圾桶
-   * 都會撞 PK）→ fire-and-forget TTL 清理。建列失敗照 `mcp/tools/create-note.ts` 的 `mapCreateInsertFailure` 分流（gate r1 m5）。
+   * bulk transfer：沒有 `id` 的檔＝新增筆記。串行鍵 `create:${userId}:${fileSha}`（新筆記還沒有 id）；
+   * 佇列內：去重命中（同使用者、同檔、同 `key_id`、30 分內、該筆記仍看得到）→ 扣 `tokenRead`、回原 id；否則先扣
+   * `transferWrite`（解析失敗也算）→ 解析（`prepareContent`；失敗 → parse，不留筆記、不寫去重列）→ `createWithContent`（帶解析結果）→ upsert `transfer_creates`（TTL 外的舊列、原筆記進垃圾桶
+   * 都會撞 PK）→ fire-and-forget TTL 清理。建列失敗照 `mcp/tools/create-note.ts` 的 `mapCreateInsertFailure` 分流。
    */
   async createFromFile(log: FastifyBaseLogger, input: CreateFromFileInput): Promise<CreateFromFileOutcome> {
     const key = `create:${input.userId}:${input.fileSha.toString("hex")}`;
@@ -691,7 +691,7 @@ export class NoteWriteService {
       if (!input.limiters.tokenRead.consume(k)) return { ok: false, kind: "rate_limited", retryAfterMs: input.limiters.tokenRead.retryAfterMs(k) };
       return { ok: true, created: false, noteId: hit.noteId, unboundWikilinks: 0 };
     }
-    // 去重沒命中＝真的要建 → 先扣寫回額度、再解析（全分支審查 I2；取代審查 M2「只看不扣、解析成功才扣」與總管 m2）：解析失敗（400）
+    // 去重沒命中＝真的要建 → 先扣寫回額度、再解析（不是「只看不扣、解析成功才扣」）：解析失敗（400）
     // 也算一次，同 edit_note 先扣 `edit` 再解析——否則解析失敗的檔不花任何額度，每發都能讓伺服器同步解析一整份大檔。解析失敗不留筆記、不寫去重列。
     if (!input.limiters.transferWrite.consume(input.userId)) return { ok: false, kind: "rate_limited", retryAfterMs: input.limiters.transferWrite.retryAfterMs(input.userId) };
     const pre = await this.prepareContent(log, { userId: input.userId, tokenId: input.tokenId, content: input.body });
@@ -717,7 +717,7 @@ export class NoteWriteService {
     } catch (err) {
       throw redactDbError(log, err, "寫入新增去重");
     }
-    // plan §0.1-8：TTL 清理（fire-and-forget；失敗只 warn code／constraint）。
+    // TTL 清理（fire-and-forget；失敗只 warn code／constraint）。
     void db
       .execute(sql`delete from ${transferCreates} where ${transferCreates.createdAt} < now() - make_interval(mins => ${CREATE_DEDUPE_MINUTES}::int)`)
       .catch((err: unknown) => log.warn({ ...pgErrorSummary(err) }, "清理 transfer_creates 失敗"));
@@ -725,7 +725,7 @@ export class NoteWriteService {
   }
 
   /**
-   * 帶 content 建立筆記的完整管線（spec §5 逐字）：**先解析驗證（#398 起在 parse worker 裡）
+   * 帶 content 建立筆記的完整管線：**先解析驗證（#398 起在 parse worker 裡）
    * → 建列 → 把解析出的 block JSON 套到真 fork**。解析在建列**之前**是契約，所以壞
    * content 一列都不會建；套用時傳 `blocks` 而非 `markdown`，同一份內容不會被 parse 與
    * wikilink 重綁兩次。
@@ -739,10 +739,10 @@ export class NoteWriteService {
    */
   /**
    * `createWithContent` 的解析段（建列之前；不碰 DB 以外的狀態、不扣任何桶）。bulk transfer 的新增（`createFromFile`）先呼叫它、
-   * 成功再把結果傳給 `createWithContent` 省掉第二次解析（`transferWrite` 由呼叫端在解析之前扣，全分支審查 I2）。
+   * 成功再把結果傳給 `createWithContent` 省掉第二次解析（`transferWrite` 由呼叫端在解析之前扣）。
    */
   async prepareContent(log: FastifyBaseLogger, input: { userId: string; tokenId: string | null; content: string }): Promise<PreparedContent | { ok: false; kind: "parse"; code: ParseError; detail?: ParseDetail } | ParserBusy> {
-    // #269 §8.5（A9）：解析之前預取寫入者可見清單（含 slug／群組／handle）；解析本身零 DB。
+    // #269：解析之前預取寫入者可見清單（含 slug／群組／handle）；解析本身零 DB。
     const candidates = await visibleNoteTargets(this.deps.db, input.userId);
     const agentLabel = input.tokenId ? await currentAgentLabel(this.deps.db, input.tokenId) : null;
     const editing = this.applyDeps(log).editing;
@@ -771,7 +771,7 @@ export class NoteWriteService {
     log: FastifyBaseLogger,
     input: {
       userId: string; userHandle: string; tokenId: string | null; title: string | undefined; content: string; scope: SlugScope;
-      /** 資料夾 PR-3a：呼叫端已驗過的資料夾（spec §5.7.6）；缺省＝根層（MCP `create_note` 在 PR-3a 不送）。 */
+      /** 資料夾：呼叫端已驗過的資料夾；缺省＝根層。 */
       folderId?: string | null;
     },
     /** 呼叫端已經 `prepareContent` 過（bulk transfer 新增）就傳進來，不再解析一次；缺省＝這裡解析。 */
@@ -812,10 +812,10 @@ export class NoteWriteService {
         return { ok: false, kind: "parse", code: "unsupported_block", detail: "too_complex" };
       }
       if (!result.ok) throw new Error(`帶 content 建立筆記時套用失敗：${result.code}`);
-      // #387 審查 I1：寫下去的連結記在寫入者名下（同 `applyEdit` 的解析分支；檔案新增不記，批次的行為不變）。
+      // #387：寫下去的連結記在寫入者名下（同 `applyEdit` 的解析分支；檔案新增不記，批次的行為不變）。
       if (!pre) {
         const written = shownLinkTextsOf(blocks, new Map());
-        written.free.push(...cleared); // 被清掉的原文字也記（審查 m-b，同 `prepareEdit`）
+        written.free.push(...cleared); // 被清掉的原文字也記（同 `prepareEdit`）
         this.shownLinks.record(input.userId, written);
       }
       // #138：這條路徑**刻意不 touch** presence。筆記是這一發剛建出來的，不可能有人正開著它，

@@ -1,16 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDebouncer, UPDATE_DEBOUNCE_MS, UPDATE_MAX_WAIT_MS } from "./debounce";
 
-describe("createDebouncer（A8：trailing 500 ms＋maxWait 2 s）", () => {
+describe("createDebouncer（trailing 500 ms＋maxWait 2 s）", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
-  it("常數照 spec：500／2000", () => {
+  it("常數：500／2000", () => {
     expect(UPDATE_DEBOUNCE_MS).toBe(500);
     expect(UPDATE_MAX_WAIT_MS).toBe(2000);
   });
 
-  it("100 ms 內 5 次 → 最後一次後 500 ms 才跑、恰一次（spec §13.2-6）", () => {
+  it("100 ms 內 5 次 → 最後一次後 500 ms 才跑、恰一次", () => {
     const fn = vi.fn();
     const debouncer = createDebouncer(fn);
     for (let i = 0; i < 5; i++) {

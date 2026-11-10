@@ -1,6 +1,6 @@
 /**
- * 資料夾 PR-3a T11：刪群組（spec docs/superpowers/specs/2026-10-22-folders-design.md §5.9、§5.4 表「刪群組」兩列、§5.3 系統代建名、
- * A3-12、§7【推-4】）——轉移把群組資料夾整棵收進接收者個人根層的新頂層、全刪取結構鎖、舊碼在新 schema 上照跑。
+ * 資料夾：刪群組（「刪群組」兩列、系統代建名）
+ * ——轉移把群組資料夾整棵收進接收者個人根層的新頂層、全刪取結構鎖、舊碼在新 schema 上照跑。
  * 控制字元與組合字元一律以 `String.fromCharCode` 組字。
  */
 import { describe, expect, it, vi } from "vitest";
@@ -78,7 +78,7 @@ async function pathOf(pool: Pool, folderId: string): Promise<string[]> {
   }
   return out;
 }
-/** T1 m-1：trigger 只守被寫的那一列，這裡以 SQL 全掃補「父子同空間」「筆記與所在資料夾同空間」兩條不變量。 */
+/** trigger 只守被寫的那一列，這裡以 SQL 全掃補「父子同空間」「筆記與所在資料夾同空間」兩條不變量。 */
 async function spaceViolations(pool: Pool): Promise<{ parentChild: number; noteFolder: number }> {
   const parentChild = (await pool.query<{ n: number }>(
     `select count(*)::int n from folders c join folders p on p.id = c.parent_id
@@ -109,7 +109,7 @@ async function liveNote(db: Db, owner: { groupId: string } | { ownerId: string }
 }
 
 describe("刪群組・轉移：資料夾整棵收進接收者的新頂層", () => {
-  it("FG-1 正路（A3-12）：新頂層「研發組」在接收者根層、整棵掛在它下面；筆記三種列各自落位；之後還原帶快照的那篇在新頂層下照路徑重建；樹只有接收者看得到", async () => {
+  it("FG-1 正路：新頂層「研發組」在接收者根層、整棵掛在它下面；筆記三種列各自落位；之後還原帶快照的那篇在新頂層下照路徑重建；樹只有接收者看得到", async () => {
     const { app, db } = await buildTestApp();
     const pool = db.$client;
     const [r, q, m] = [await seedUser(db), await seedUser(db), await seedUser(db)];
@@ -194,7 +194,7 @@ describe("刪群組・轉移：資料夾整棵收進接收者的新頂層", () =
     expect((await rootsOf(pool, r.id)).map(f => f.name).sort()).toEqual(["G", "Mine"]);
   });
 
-  it("FG-3 沒有結構：沒有資料夾也沒有帶快照的垃圾桶筆記 → 不建新頂層、筆記在根層；只有帶快照的垃圾桶筆記（n-r4-2）→ 建新頂層、根層活筆記也進去、快照前接", async () => {
+  it("FG-3 沒有結構：沒有資料夾也沒有帶快照的垃圾桶筆記 → 不建新頂層、筆記在根層；只有帶快照的垃圾桶筆記→ 建新頂層、根層活筆記也進去、快照前接", async () => {
     const { app, db } = await buildTestApp();
     const pool = db.$client;
     const r = await seedUser(db);
@@ -240,7 +240,7 @@ describe("刪群組・轉移：資料夾整棵收進接收者的新頂層", () =
     expect(await noteFolderCols(pool, stale2)).toEqual({ folder_id: roots[0]!.id, trash_folder_path: ["X"] });
   });
 
-  it("FG-4 撞名與尾碼（M7、n-r4-1）：根層已有「研發組」→「研發組 (2)」、快照前接「研發組 (2)」；再有「研發組 (2)」→「研發組 (3)」；已有 team、群組名 Team → Team (2)（lower 比對）", async () => {
+  it("FG-4 撞名與尾碼：根層已有「研發組」→「研發組 (2)」、快照前接「研發組 (2)」；再有「研發組 (2)」→「研發組 (3)」；已有 team、群組名 Team → Team (2)（lower 比對）", async () => {
     const { app, db } = await buildTestApp();
     const pool = db.$client;
     const r = await seedUser(db);
@@ -288,7 +288,7 @@ describe("刪群組・轉移：資料夾整棵收進接收者的新頂層", () =
     expect(top.name).toBe(`${"名".repeat(76)} (2)`);
   });
 
-  it("FG-6 固定名（r3 n-5）：群組名全是控制字元 → zh-TW「群組」、en-US「Group」、不帶「Group」；NFD 群組名 → NFC 新頂層名", async () => {
+  it("FG-6 固定名：群組名全是控制字元 → zh-TW「群組」、en-US「Group」、不帶「Group」；NFD 群組名 → NFC 新頂層名", async () => {
     const { app, db } = await buildTestApp();
     const pool = db.$client;
     const cases: Array<[string | undefined, string]> = [["zh-TW,zh;q=0.9,en;q=0.8", "群組"], ["en-US,en;q=0.9", "Group"], [undefined, "Group"]];
@@ -407,7 +407,7 @@ describe("刪群組：結構鎖等太久 → 409 server_busy", () => {
   });
 });
 
-describe("舊碼相容（§7【推-4】）：4a7e0c1 的交易本體在新 schema 上照跑", () => {
+describe("舊碼相容：4a7e0c1 的交易本體在新 schema 上照跑", () => {
   it("FG-OLD 舊版移入群組、轉移、全刪、還原：都成功；歸屬變了的筆記 folder_id 自癒成 NULL，群組資料夾隨 DELETE groups CASCADE，還原回原資料夾或根層", async () => {
     const { db } = await buildTestApp();
     const pool = db.$client;

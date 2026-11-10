@@ -28,7 +28,7 @@ async function setup(md: string | null = "# A\n\n第一段\n\n# B\n\n第二段",
     ctx.app.inject({ method: "POST", url: `/api/notes/${note.id}/edits`, headers: bearer(t), payload: body });
   const rows = () => ctx.db.select().from(noteAiEdits).where(eq(noteAiEdits.noteId, note.id));
   const stateBytes = async () => Buffer.from((await ctx.db.select().from(noteStates).where(eq(noteStates.noteId, note.id)))[0]?.ydoc ?? Buffer.alloc(0));
-  // #137 Task 3：spec §12.2 對每個拒絕情境要求三件事，第三件就是 `last_edited_*` 不變——與
+  // #137：每個拒絕情境都要斷言三件事，第三件就是 `last_edited_*` 不變——與
   // `stateBytes` 並列，同一顆 debounce 打穿兩者（取基線前必須先讓落盤成為確定事件，見各案註解）。
   const lastEdited = async () =>
     (await ctx.db.select({ at: notes.lastEditedAt, by: notes.lastEditedBy, tokenId: notes.lastEditedTokenId, label: notes.lastEditedAgentLabel })
@@ -45,10 +45,10 @@ const cookieFor = async (userId: string) => `${SESSION_COOKIE}=${await signTestS
  * (1) `try { … } finally { s.close() }`——`testEditingRuntime` 是**模組層單例**，同一個 worker 內
  *     所有整合測試共用。回呼一 throw 就永久洩漏一個 in-flight 名額；重建旗標一旦被設起
  *     （每 50 次 mount，本檔輕鬆超過），後面每個 `acquire()` 都永遠不會 settle，整支測試檔
- *     以**無訊息逾時**收場（`session.ts` 的 m3 不變量白紙黑字寫了這條）。
+ *     以**無訊息逾時**收場（`session.ts` 白紙黑字寫了這條）。
  * (2) `waitFor` 觀察的是 **server 上的 doc**，不是 client.doc——改動要經 WebSocket 才會到
  *     server，函式回傳當下 server 還沒收到。少了這一步，「transact 內重算指紋擋住併發覆蓋」
- *     這條本棒最重要的守衛就是靠競態在驗，會偶爾假綠。
+ *     這條最重要的守衛就是靠競態在驗，會偶爾假綠。
  */
 async function humanEdit(ctx: Setup["ctx"], noteId: string, client: Setup["client"], sentinel: string, fn: (ed: EditorSession["editor"]) => void) {
   const s = await EditorSession.open(testEditingRuntime, client.doc);
@@ -186,7 +186,7 @@ describe("POST /api/notes/:id/edits：五 op", () => {
     expect(row).toMatchObject({ tokenId: null, agentLabel: null, userId: u.id });
   });
 
-  it("#240 R3 Bearer POST /edits 的大寫 id：append 寫進小寫那份 live doc", async () => {
+  it("#240 Bearer POST /edits 的大寫 id：append 寫進小寫那份 live doc", async () => {
     const s = await setup("# Head\n\n人寫的一行");
     const Y_TEXT = `Y-${Date.now()}`;
     const res = await s.ctx.app.inject({
@@ -200,8 +200,8 @@ describe("POST /api/notes/:id/edits：五 op", () => {
   });
 });
 
-describe("並排（T2）", () => {
-  it("E1：文件只剩一列時 append 不會把列換掉（isEmptyDoc 不把列當空文件）", async () => {
+describe("並排", () => {
+  it("文件只剩一列時 append 不會把列換掉（isEmptyDoc 不把列當空文件）", async () => {
     const s = await setup(null);
     await humanEdit(s.ctx, s.note.id, s.client, "右欄文字", ed => ed.replaceBlocks(ed.document, [
       { id: "r", type: "columnList", children: [
@@ -234,7 +234,7 @@ describe("if_match 與併發", () => {
     expect((await post({ op: "replace_section", section_id: a.sectionId, markdown: "# A\n\nx", if_match: "0000000000000000" })).statusCode).toBe(409);
     // `document.at(-1)` ＝ 第二段，**在 B 段**（fixture 的兩個 heading 同級才成立；若寫成 `## B`
     // 它會落在 A 段裡，這一行就會把「別段被人改」變成「同段被人改」，下一行的期待要從 201 變 409——
-    // 也就是把本棒最重要的守衛之一測反了）。
+    // 也就是把最重要的守衛之一測反了）。
     await humanEdit(ctx, note.id, client, "第二段（人改）", ed => ed.updateBlock(ed.document.at(-1)!.id, { content: "第二段（人改）" }));
     expect((await post({ op: "replace_section", section_id: a.sectionId, markdown: "# A\n\nAI 改的", if_match: a.fingerprint })).statusCode).toBe(201);
     expect((await content()).markdown).toContain("人改");
@@ -271,7 +271,7 @@ describe("if_match 與併發", () => {
     expect(docText(persisted)).not.toContain("AI 版");
     const svAfter = new Set(Y.decodeStateVector(Y.encodeStateVector(persisted)).keys());
     for (const k of svAfter) expect(svBefore.has(k) || k === s.client.doc.clientID).toBe(true);
-    // #137 spec §12.2 的 (b)：AI 沒寫進去，落款就不是 AI 的。
+    // #137 的 (b)：AI 沒寫進去，落款就不是 AI 的。
     expect(await s.lastEdited()).toMatchObject({ tokenId: null, label: null });
   });
 
@@ -354,15 +354,15 @@ describe("if_match 與併發", () => {
 });
 
 describe("拒絕案假綠守衛", () => {
-  // spec §12.2 的清單是「每一個拒絕情境都要斷言：note_states.ydoc 位元組相同、note_ai_edits 零列」。
+  // 清單是「每一個拒絕情境都要斷言：note_states.ydoc 位元組相同、note_ai_edits 零列」。
   // 這一案是那份清單的共用實作——新增任何拒絕碼都要加進 `cases`，不要另開一個沒有守衛的 it。
   // ⚠ `unsupported_block` 的**白名單分支**整合層到不了：headless schema ＝ `defaultBlockSpecs`
   // 全集＋mermaid／codeBlock（見 shared 的 `createHeadlessNoteSchema`），BlockNote 的 markdown/HTML
   // parser 產得出來的 type 一定在白名單裡。白名單那條分支由
   // `test/unit/editing-markdown.test.ts` 的「未知型別整筆拒絕」以收窄的假 schema 驗（刪掉
   // `markdown.ts` 的 `walk` 檢查 → 那一案必須紅）。這個碼的另外兩條分支到得了、在下面的 `cases` 裡：
-  // core parse 丟例外（並排 PR-2，同 mcp-write-guards GW5）與帶事件處理屬性的 HTML（語法檢查）。
-  // 並排 PR-2 的兩碼 `unsupported_columns`／`unsupported_size` 也在 `cases` 裡（final review M3）。
+  // core parse 丟例外（同 mcp-write-guards）與帶事件處理屬性的 HTML（語法檢查）。
+  // 並排的兩碼 `unsupported_columns`／`unsupported_size` 也在 `cases` 裡。
   it("403 viewer、empty_content、empty_section、too_many_blocks、unsupported_block／columns／size、NUL、未知欄位、fork 側 409、413 content_too_large → note_states 位元組相同、記錄零列", async () => {
     const s = await setup();
     const viewer = await s.ctx.createUser({ email: "v@example.com", password: PASSWORD });
@@ -378,7 +378,7 @@ describe("拒絕案假綠守衛", () => {
     s.client.disconnect();
     await settled(s.ctx);
     const before = await s.stateBytes();
-    // #137：spec §12.2 的第三件事。可以用嚴格的「四欄全等」，前提正是上面那兩行斷線＋卸載——
+    // #137：第三件事。可以用嚴格的「四欄全等」，前提正是上面那兩行斷線＋卸載——
     // 之後四欄已是人形落款且**不會再有任何 store**（底下每個請求都停在合併之前），所以「不變」
     // 是確定事件而非賭時序。⚠ 拿掉那兩行斷線，這一行會跟著變成隨機紅（同一顆 debounce 的兩個面）。
     const lastBefore = await s.lastEdited();
@@ -422,14 +422,14 @@ describe("拒絕案假綠守衛", () => {
   });
 
   it("429 也是拒絕案：EDIT_LIMIT 耗盡後的請求 → note_states 位元組相同、記錄零列", async () => {
-    // spec §12.2 把 429 列在拒絕案假綠守衛的清單裡，但它需要自己的桶，所以獨立一案。
+    // 429 也屬於拒絕案的假綠守衛，但它需要自己的桶，所以獨立一案。
     // 守的是「限流在任何 mount／直連之前就擋下來」：日後有人把 consume 搬到合併之後，
     // 位元組與零列這兩條會紅。
     const s = await setup(undefined, { limiters: { edit: new FixedWindowLimiter({ limit: 1, windowMs: 60_000 }) } });
     expect((await s.post({ op: "append", markdown: "第一次" })).statusCode).toBe(201);
     const before = await s.stateBytes();
     // #137：這一案也能用嚴格的「四欄全等」，理由是上面那次成功的 append——合併的 disconnect()
-    // 是立即 store，**會取代該批待送的 debounced store**（spec §13），所以之後沒有別的寫入者
+    // 是立即 store，**會取代該批待送的 debounced store**，所以之後沒有別的寫入者
     // 會再動這四欄。基線因此是確定事件，不是「大概來得及」。
     const lastBefore = await s.lastEdited();
     const rowsBefore = (await s.rows()).length;
@@ -513,14 +513,14 @@ describe("note_links 與媒體", () => {
     const r = await s.post({ op: "append", markdown: "看 [[目標筆記]] 與 [[不存在]]", if_match: c.fingerprint });
     expect(r.statusCode).toBe(201);
     expect(r.json().unboundWikilinks).toBe(1);
-    // ⚠ `/backlinks` 是 **cookie-only**（`app.authenticate`，不在 #107 D2 的 Bearer 允許清單上）
+    // ⚠ `/backlinks` 是 **cookie-only**（`app.authenticate`，不在 #107 的 Bearer 允許清單上）
     // ——用 Bearer 會拿到 401、`body.backlinks` 是 undefined。這裡改用 session cookie。
     const back = await s.ctx.app.inject({ method: "GET", url: `/api/notes/${target.id}/backlinks`, headers: { cookie: await cookieFor(s.u.id) } });
     expect(back.json().backlinks.map((b: { id: string }) => b.id)).toContain(s.note.id);
   });
 
   it("note_links 的 clock 取自 applyUpdate 之前的 live doc（＝寫入前的 docClock，且 < 寫入後）", async () => {
-    // 這一案守的是本棒 CAS 正確性的唯一依據：`mergeDiff` 在 `Y.applyUpdate` **之前**讀 `docClock`。
+    // 這一案守的是 CAS 正確性的唯一依據：`mergeDiff` 在 `Y.applyUpdate` **之前**讀 `docClock`。
     // 把那行挪到 applyUpdate 之後，兩個既有的 backlinks 案仍然全綠——因為 writeNoteLinks 的 CAS 用
     // 的是 `links_clock <= $clock`，更大的 clock 一樣寫得進去。失效是**靜默**的：AI 拿一個比它實際
     // 看到的狀態更新的 clock 去佔位，瀏覽器後續（clock 較小）的索引更新被判成 no-op，該筆記的
@@ -539,7 +539,7 @@ describe("note_links 與媒體", () => {
   });
 
   it("note_links 寫入失敗（DB 故障）→ 仍回 201、紀錄已寫、只是索引落後（不得把成功的寫入變成 500）", async () => {
-    // plan gate r3 Minor-2：`updateNoteLinks` 跑在**內容已落盤、note_ai_edits 也已寫**之後。
+    // `updateNoteLinks` 跑在**內容已落盤、note_ai_edits 也已寫**之後。
     // `writeNoteLinks` 對「忙碌」是**回值**（"busy"）不是拋出，所以它真的 throw 就代表 DB 故障——
     // 讓那個例外逃出去會把一次**完全成功**的寫入回成 500，而外部 AI 對 500 幾乎一定重試，於是
     // 同一筆編輯被套用兩次、`note_ai_edits` 多一列。這條鏈上其他每個失敗形都有明確語意
@@ -559,7 +559,7 @@ describe("note_links 與媒體", () => {
       await s.ctx.db.execute(sql`drop trigger knb_links_boom_trg on note_links`);
     }
     // 代價只有索引落後（known-limitations 第 9 條）：backlinks 這次沒建起來。
-    // ⚠ `/backlinks` 是 **cookie-only**（`app.authenticate`，不在 #107 D2 的 Bearer 允許清單上）
+    // ⚠ `/backlinks` 是 **cookie-only**（`app.authenticate`，不在 #107 的 Bearer 允許清單上）
     // ——用 Bearer 會拿到 401、`body.backlinks` 是 undefined。這裡改用 session cookie。
     const back = await s.ctx.app.inject({ method: "GET", url: `/api/notes/${target.id}/backlinks`, headers: { cookie: await cookieFor(s.u.id) } });
     expect(back.json().backlinks).toHaveLength(0);

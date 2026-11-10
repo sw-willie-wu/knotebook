@@ -24,7 +24,7 @@ const patchProvider = (b: Built, id: string, payload: object) =>
   b.app.inject({ method: "PATCH", url: `/api/admin/auth/providers/${id}`, cookies: b.cookies, payload });
 const off = (b: Built) => b.db.update(siteSettings).set({ passwordLoginEnabled: false });
 
-describe("provider PATCH 的 B19 守衛（#187 §9.2 rev 10、§14.1-24 ④–⑨）", () => {
+describe("provider PATCH 的防自鎖守衛（#187）", () => {
   it("④DB 關後停用唯一 enabled provider → 409 sso_provider_required、仍啟用", async () => {
     const b = await adminApp();
     const p = await seedAuthProvider(b.db, { issuerUrl: A });
@@ -36,7 +36,7 @@ describe("provider PATCH 的 B19 守衛（#187 §9.2 rev 10、§14.1-24 ④–�
     expect((await providerRow(b.db, p.id))!.enabled).toBe(true);
   });
 
-  it("⑤DB 關後以 §5.2 改 issuer（隱含停用）唯一 provider → 409，secret／issuer／版本都沒變（整筆回滾）", async () => {
+  it("⑤DB 關後改 issuer（隱含停用）唯一 provider → 409，secret／issuer／版本都沒變（整筆回滾）", async () => {
     const b = await adminApp();
     const p = await seedAuthProvider(b.db, { issuerUrl: A, configVersion: 3 });
     await b.db.insert(userIdentities).values({ userId: b.admin.id, issuer: A, sub: "a" });
@@ -56,7 +56,7 @@ describe("provider PATCH 的 B19 守衛（#187 §9.2 rev 10、§14.1-24 ④–�
     expect((await patchProvider(b, pa.id, { enabled: false })).json().error.code).toBe("admin_sso_link_required");
   });
 
-  it("⑦env 強制期間結果相同；⑨DB 開時停用最後一個 provider → 200（rev 9 行為不變）", async () => {
+  it("⑦env 強制期間結果相同；⑨DB 開時停用最後一個 provider → 200", async () => {
     const forced = await adminApp({ config: { ...testConfig, passwordLoginForceEnable: true } });
     const p = await seedAuthProvider(forced.db, { issuerUrl: A });
     await off(forced);
@@ -72,11 +72,11 @@ describe("provider PATCH 的 B19 守衛（#187 §9.2 rev 10、§14.1-24 ④–�
     const offAlready = await seedAuthProvider(b.db, { issuerUrl: B, enabled: false, clientSecret: null });
     await off(b);
     expect((await patchProvider(b, on.id, { displayName: "Renamed" })).statusCode).toBe(200);
-    // 本來就停用：寫入後 enabled 仍 false；只有「由 true 變 false」才驗——否則 P2 會擋（操作者沒有 SSO）。
+    // 本來就停用：寫入後 enabled 仍 false；只有「由 true 變 false」才驗——否則會被「操作者本人要有啟用中 provider 的身分」的檢查擋（操作者沒有 SSO）。
     expect((await patchProvider(b, offAlready.id, { displayName: "Renamed too" })).statusCode).toBe(200);
   });
 
-  it("讀不到 site_settings 列 → PATCH 與 DELETE 都 500＋log.error（§17 第 34 條；gate r1-t1-9 M5）", async () => {
+  it("讀不到 site_settings 列 → PATCH 與 DELETE 都 500＋log.error", async () => {
     const logs = captureLogs();
     const b = await adminApp({}, logs.options);
     const p = await seedAuthProvider(b.db, { issuerUrl: A, enabled: false, clientSecret: null });
@@ -87,8 +87,8 @@ describe("provider PATCH 的 B19 守衛（#187 §9.2 rev 10、§14.1-24 ④–�
   });
 });
 
-describe("B27：provider 寫入以 site_settings 列序列化（C25）", () => {
-  it("C25(a)：另一連線關閉帳密（持鎖、未提交）→ 停用最後一個 provider 等它提交 → 409 sso_provider_required", async () => {
+describe("provider 寫入以 site_settings 列序列化", () => {
+  it("另一連線關閉帳密（持鎖、未提交）→ 停用最後一個 provider 等它提交 → 409 sso_provider_required", async () => {
     const b = await adminApp();
     const p = await seedAuthProvider(b.db, { issuerUrl: A });
     const holder = await holderFor(b.db);
@@ -106,7 +106,7 @@ describe("B27：provider 寫入以 site_settings 列序列化（C25）", () => {
     expect((await providerRow(b.db, p.id))!.enabled).toBe(true);
   });
 
-  it("C25(b)：DB 關；另一連線停用 p1（持鎖、未提交）→ 這邊停用 p2 等它提交 → 409，終態至少一個 enabled", async () => {
+  it("DB 關；另一連線停用 p1（持鎖、未提交）→ 這邊停用 p2 等它提交 → 409，終態至少一個 enabled", async () => {
     const b = await adminApp();
     const p1 = await seedAuthProvider(b.db, { issuerUrl: A });
     const p2 = await seedAuthProvider(b.db, { issuerUrl: B });
@@ -127,7 +127,7 @@ describe("B27：provider 寫入以 site_settings 列序列化（C25）", () => {
     expect((await providerRow(b.db, p2.id))!.enabled).toBe(true);
   });
 
-  it("DELETE 也取 B27 鎖：另一連線持鎖 → DELETE 等它提交 → 204", async () => {
+  it("DELETE 也取站台設定列鎖：另一連線持鎖 → DELETE 等它提交 → 204", async () => {
     const b = await adminApp();
     const p = await seedAuthProvider(b.db, { issuerUrl: A, enabled: false, clientSecret: null });
     const holder = await holderFor(b.db);

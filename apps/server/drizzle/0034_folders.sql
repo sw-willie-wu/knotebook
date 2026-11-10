@@ -1,4 +1,4 @@
--- 資料夾（spec docs/superpowers/specs/2026-10-22-folders-design.md §5.1）：只建表（folders、note_placements）、notes 加可為 NULL 的兩欄（folder_id、trash_folder_path）與索引／CHECK，以及檔尾的手寫段（同層名稱唯一索引、三支 trigger）；單一交易、無非交易式 DDL；既有筆記全在根層，不回填。
+-- 資料夾：只建表（folders、note_placements）、notes 加可為 NULL 的兩欄（folder_id、trash_folder_path）與索引／CHECK，以及檔尾的手寫段（同層名稱唯一索引、三支 trigger）；單一交易、無非交易式 DDL；既有筆記全在根層，不回填。
 CREATE TABLE "folders" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"kind" text NOT NULL,
@@ -36,7 +36,7 @@ CREATE INDEX "note_placements_folder_idx" ON "note_placements" USING btree ("fol
 ALTER TABLE "notes" ADD CONSTRAINT "notes_folder_fk" FOREIGN KEY ("folder_id") REFERENCES "public"."folders"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "notes_folder_idx" ON "notes" USING btree ("folder_id") WHERE "notes"."folder_id" is not null;--> statement-breakpoint
 ALTER TABLE "notes" ADD CONSTRAINT "notes_trash_folder_path_chk" CHECK ("notes"."trash_folder_path" is null or jsonb_typeof("notes"."trash_folder_path") = 'array');--> statement-breakpoint
--- ⑦手寫（drizzle 表達不了）：同層名稱不分大小寫唯一（spec §5.1 M3 ①；NULLS NOT DISTINCT 讓根層的 NULL parent 也比得上）
+-- ⑦手寫（drizzle 表達不了）：同層名稱不分大小寫唯一（NULLS NOT DISTINCT 讓根層的 NULL parent 也比得上）
 CREATE UNIQUE INDEX "folders_sibling_name_idx" ON "folders" ("kind", "owner_id", "group_id", "parent_id", lower("name")) NULLS NOT DISTINCT;--> statement-breakpoint
 -- ⑧ trigger 1：筆記與所在資料夾同空間；歸屬變了而 folder_id 沒變（舊版碼的移入群組／轉移）→ 自癒成 NULL；其餘 → KF001
 CREATE FUNCTION notes_folder_space_guard() RETURNS trigger LANGUAGE plpgsql AS $fn$
@@ -50,7 +50,7 @@ BEGIN
   RAISE EXCEPTION USING ERRCODE = 'KF001', MESSAGE = 'notes.folder_id must point to a folder in the note''s own space';
 END $fn$;--> statement-breakpoint
 CREATE TRIGGER notes_folder_space_trg BEFORE INSERT OR UPDATE OF folder_id, owner_id, group_id ON notes FOR EACH ROW EXECUTE FUNCTION notes_folder_space_guard();--> statement-breakpoint
--- ⑨ trigger 2：父子同空間（一般 AFTER ROW：敘述結束才檢查，轉移以單一一句 UPDATE 改整棵；不設 DEFERRABLE，M4）
+-- ⑨ trigger 2：父子同空間（一般 AFTER ROW：敘述結束才檢查，轉移以單一一句 UPDATE 改整棵；不設 DEFERRABLE）
 CREATE FUNCTION folders_parent_space_guard() RETURNS trigger LANGUAGE plpgsql AS $fn$
 DECLARE p record;
 BEGIN

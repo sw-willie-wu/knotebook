@@ -28,8 +28,8 @@ async function rejected(p: Promise<unknown>): Promise<{ status: number; code: st
   throw new Error("expected TxAbort");
 }
 
-describe("linkPendingIdentityInTx（#187 §7.5.4，交易表 A2）", () => {
-  it("密碼證明成功：INSERT identity（帶 last_login_at）、must_change_password 不清（B15）、回 LinkedUser", async () => {
+describe("linkPendingIdentityInTx（#187，交易表 A2）", () => {
+  it("密碼證明成功：INSERT identity（帶 last_login_at）、must_change_password 不清、回 LinkedUser", async () => {
     const { db } = await buildTestApp();
     const u = await seedTarget(db);
     const r = await link(db, input(u.id));
@@ -41,7 +41,7 @@ describe("linkPendingIdentityInTx（#187 §7.5.4，交易表 A2）", () => {
     expect(after!.m).toBe(true);
   });
 
-  it("鎖內重驗：帳號不在／email 已改 → 409 oidc_link_expired；hash 已變（C23）→ 401 invalid_credentials；皆不寫入", async () => {
+  it("鎖內重驗：帳號不在／email 已改 → 409 oidc_link_expired；hash 已變→ 401 invalid_credentials；皆不寫入", async () => {
     const { db } = await buildTestApp();
     const u = await seedTarget(db);
     expect(await rejected(link(db, input("00000000-0000-0000-0000-000000000000")))).toEqual({ status: 409, code: "oidc_link_expired" });
@@ -50,21 +50,21 @@ describe("linkPendingIdentityInTx（#187 §7.5.4，交易表 A2）", () => {
     expect(await identitiesOf(db, u.id)).toEqual([]);
   });
 
-  it("B14 順序：先驗證明、再判停用——停用＋hash 已變 → 401；停用＋證明有效 → 403 account_disabled", async () => {
+  it("先驗證明、再判停用——停用＋hash 已變 → 401；停用＋證明有效 → 403 account_disabled", async () => {
     const { db } = await buildTestApp();
     const u = await seedTarget(db, { disabledAt: new Date() });
     expect(await rejected(link(db, input(u.id, { proof: { kind: "password", passwordHash: "x" } })))).toEqual({ status: 401, code: "invalid_credentials" });
     expect(await rejected(link(db, input(u.id)))).toEqual({ status: 403, code: "account_disabled" });
   });
 
-  it("B2：已有同 issuer 的另一個 sub → 409 identity_already_linked（證明之後才揭露）", async () => {
+  it("已有同 issuer 的另一個 sub → 409 identity_already_linked（證明之後才揭露）", async () => {
     const { db } = await buildTestApp();
     const u = await seedTarget(db);
     await db.insert(userIdentities).values({ userId: u.id, issuer: ISS, sub: "older" });
     expect(await rejected(link(db, input(u.id)))).toEqual({ status: 409, code: "identity_already_linked" });
   });
 
-  it("身分已屬別人 → 409 identity_taken；已屬本人 → 冪等成功、不重複（C12）", async () => {
+  it("身分已屬別人 → 409 identity_taken；已屬本人 → 冪等成功、不重複", async () => {
     const { db } = await buildTestApp();
     const u = await seedTarget(db);
     const [v] = await db.insert(users).values({ email: "v@example.com", displayName: "V" }).returning();

@@ -1,7 +1,7 @@
 /**
- * bulk transfer PR-2 單元測試共用：「寫回一篇」的記憶體夾具（plan H6；不碰 DB）。
- * T4 起：`realBoundaryCheck`（scratch session 內真 parser 的 `CheckBoundary`）、`makeBaseInMemory`（PR-1 匯出器＋基底雜湊）、
- * `regionsOf`（agent 本文 → 行雜湊 → diff → 區）。T6 起補規劃夾具。
+ * bulk transfer單元測試共用：「寫回一篇」的記憶體夾具（不碰 DB）。
+ * `realBoundaryCheck`（scratch session 內真 parser 的 `CheckBoundary`）、`makeBaseInMemory`（匯出器＋基底雜湊）、
+ * `regionsOf`（agent 本文 → 行雜湊 → diff → 區）。另有規劃夾具。
  */
 import * as Y from "yjs";
 import type { VisibleNoteTarget } from "../../../src/notes/editing/candidates.js";
@@ -68,7 +68,7 @@ export interface InMemoryBase {
   };
 }
 
-/** PR-1 的 `exportNoteForTransfer`＋`baseHashes`（固定測試金鑰與鹽）。 */
+/** `exportNoteForTransfer`＋`baseHashes`（固定測試金鑰與鹽）。 */
 export async function makeBaseInMemory(
   rt: EditingRuntime,
   doc: Y.Doc,
@@ -100,7 +100,7 @@ export async function diffAgainst(b: InMemoryBase, agentBody: string, opts: { ma
   return { agentLines, diff };
 }
 
-/** T6：H6 的 `planInMemory`——基底＋agent 本文＋現況 doc（未 mount 的 fork）→ `planSync`。`maxD` 原樣傳給 `diffLines`（gate r2 m-4）。 */
+/** H6 的 `planInMemory`——基底＋agent 本文＋現況 doc（未 mount 的 fork）→ `planSync`。`maxD` 原樣傳給 `diffLines`。 */
 export async function planInMemory(
   rt: EditingRuntime,
   b: InMemoryBase,
@@ -130,7 +130,7 @@ export async function planInMemory(
 }
 
 /**
- * T7：H6 的 `applyInMemory`——同 spike `writeBack` 的模擬：從 `live` fork 一份（不 mount）→ 規劃 → mount fork 一次套用 →
+ * H6 的 `applyInMemory`——`writeBack` 的模擬：從 `live` fork 一份（不 mount）→ 規劃 → mount fork 一次套用 →
  * `Y.applyUpdate(live, diff)`（記憶體合併）。回規劃、套用結果與合併後的 `live`。
  */
 export async function applyInMemory(

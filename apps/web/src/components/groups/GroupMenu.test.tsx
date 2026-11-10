@@ -69,7 +69,7 @@ describe("GroupMenu", () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("最後一位管理員形：成員與設定／重新命名／刪除群組（danger）；**沒有**退出群組（spec §8.2）", async () => {
+  it("最後一位管理員形：成員與設定／重新命名／刪除群組（danger）；**沒有**退出群組", async () => {
     renderMenu(ADMIN_GROUP, () => fakeResponse(500));
     const menu = await openMenu("Workshop A");
     expect(within(menu).getByRole("menuitem", { name: "Members & settings" })).toBeInTheDocument();
@@ -86,7 +86,7 @@ describe("GroupMenu", () => {
     expect(items).toEqual(["Members & settings", "Rename", "Delete group", "Leave group"]);
   });
 
-  it("GM-I1 四項各有圖示（users、pencil、trash、log-out），class 含 mr-2 h-4 w-4", async () => {
+  it("四項各有圖示（users、pencil、trash、log-out），class 含 mr-2 h-4 w-4", async () => {
     renderMenu(CO_ADMIN_GROUP, () => fakeResponse(500));
     const menu = await openMenu("Workshop C");
     const icons = within(menu).getAllByRole("menuitem").map((item) => item.querySelector("svg"));
@@ -104,7 +104,7 @@ describe("GroupMenu", () => {
   });
 
   it("兩個管理旗標分開看：canManageMembers 只決定「成員與設定／查看成員」、canManageGroup 只決定重新命名與刪除（不看 myRole）", async () => {
-    // 刻意與 myRole 不一致的 fixture（PR3 的自訂角色才會真的出現單一旗標；站台 admin 的 OR 也會讓兩者與角色脫鉤）
+    // 刻意與 myRole 不一致的 fixture（自訂角色才會真的出現單一旗標；站台 admin 的 OR 也會讓兩者與角色脫鉤）
     const membersOnly: GroupDto = { ...MEMBER_GROUP, id: "dddddddd-dddd-dddd-dddd-dddddddddddd", name: "Only members", canManageMembers: true, canManageGroup: false };
     const first = renderMenu(membersOnly, () => fakeResponse(500));
     let menu = await openMenu("Only members");
@@ -124,7 +124,7 @@ describe("GroupMenu", () => {
     expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["View members", "Rename", "Delete group", "Leave group"]);
   });
 
-  it("成員與設定 → navigate /groups/:id 並帶 backgroundLocation（#247 §6.6）", async () => {
+  it("成員與設定 → navigate /groups/:id 並帶 backgroundLocation（#247）", async () => {
     renderMenu(ADMIN_GROUP, () => fakeResponse(500));
     const menu = await openMenu("Workshop A");
     fireEvent.click(within(menu).getByRole("menuitem", { name: "Members & settings" }));
@@ -209,7 +209,7 @@ describe("GroupMenu", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Delete group?" })).not.toBeInTheDocument());
   });
 
-  it("刪除群組 → 409 not_admin → toast errors.not_admin，**對話框留著**、確認鈕可再按（spec §8.6）", async () => {
+  it("刪除群組 → 409 not_admin → toast errors.not_admin，**對話框留著**、確認鈕可再按", async () => {
     const { calls } = renderMenu(ADMIN_GROUP, (method) =>
       method === "DELETE" ? fakeResponse(409, { error: { code: "not_admin", message: "x" } }) : fakeResponse(500),
     );

@@ -4,7 +4,7 @@ import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "./dialog";
 import { Pencil, Trash } from "./icons";
 import { RowIconButton } from "./row-icon-button";
 
-describe("RowIconButton（spec §4.9：列內動作一律 icon 鈕）", () => {
+describe("RowIconButton（列內動作一律 icon 鈕）", () => {
   it("ghost＋size icon（h-8 w-8，ROW_ICON_BUTTON）；aria-label 與 title 都是 label；中性色", () => {
     render(<RowIconButton label="Edit Basic" icon={<Pencil className="h-4 w-4" />} />);
     const button = screen.getByRole("button", { name: "Edit Basic" });

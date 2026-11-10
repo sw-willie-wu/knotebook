@@ -1,9 +1,9 @@
-/** #180 spec §6.6 U7：COPY_UPLOAD_LIMIT_MESSAGE 的數字由 UPLOAD_LIMIT 內插（不手抄）；copy 配額可見形用 formatBytes。 */
+/** #180：COPY_UPLOAD_LIMIT_MESSAGE 的數字由 UPLOAD_LIMIT 內插（不手抄）；copy 配額可見形用 formatBytes。 */
 import { describe, expect, it } from "vitest";
 import { UPLOAD_LIMIT } from "../../src/http/rate-limit.js";
 import { COPY_UPLOAD_LIMIT_MESSAGE, copyQuotaVisibleMessage } from "../../src/mcp/tools/copy-note.js";
 
-describe("U7 copy_note 字串內插", () => {
+describe("copy_note 字串內插", () => {
   it("upload 上限句的數字＝UPLOAD_LIMIT（今天 120 檔／10 分）", () => {
     expect(COPY_UPLOAD_LIMIT_MESSAGE).toContain(`${UPLOAD_LIMIT.limit} files per ${UPLOAD_LIMIT.windowMs / 60_000} minutes`);
     expect(COPY_UPLOAD_LIMIT_MESSAGE).toBe(

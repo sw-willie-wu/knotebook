@@ -58,15 +58,15 @@ describe("i18n 無重複 key", () => {
 });
 
 // 保護 errors.<code> 對映全部 ERROR_CODES + errors.fallback 這個介面承諾
-// （Task 11+ 逐字依賴：任何 ApiFail.code 都要能在兩個語系裡查到對應文案）。
+// （逐字依賴：任何 ApiFail.code 都要能在兩個語系裡查到對應文案）。
 //
 // 這把測試正是 `errors.not_loaded`／`errors.file_too_large` 兩個 key 存在的原因
-// （Plan 3，ERROR_CODES 新增碼，見 packages/shared/src/index.ts 的 provenance 註解）：
+// （ERROR_CODES 新增碼）：
 // - `errors.not_loaded`：僅為 ERROR_CODES parity 而存在，目前**無 UI 呼叫路徑**——
-//   link-sync client（Task 7）收到 409 `not_loaded` 是靜默重試一次後放棄，不會把
+//   link-sync client 收到 409 `not_loaded` 是靜默重試一次後放棄，不會把
 //   這則文案顯示給使用者；此文案暫不可能被真人看到。
 // - `errors.file_too_large`：**會**經 uploadFile 的錯誤處理路徑以 toast 顯示給使用者
-//   （Plan 3 圖片上傳流程，見該 task 的 i18n 段落）。
+//   （圖片上傳流程）。
 describe("i18n error message coverage", () => {
   for (const [langName, resource] of [
     ["en", en],
@@ -85,7 +85,7 @@ describe("i18n error message coverage", () => {
   }
 });
 
-// #175 PR3（spec §4.1、§15 第 7 條）：server 用 `BUILTIN_ROLE_DISPLAY_NAMES` 擋「自訂角色取內建顯示名」——
+// #175：server 用 `BUILTIN_ROLE_DISPLAY_NAMES` 擋「自訂角色取內建顯示名」——
 // 那份常數必須等於兩語系 `groups.role.admin`／`groups.role.member` 的值，改顯示名時這裡會紅；
 // 新增語系不會自動紅（這裡只比對寫死 import 的 en／zh-TW），要同步這個陣列與 `BUILTIN_ROLE_DISPLAY_NAMES`。
 describe("內建角色顯示名＝保留名常數", () => {

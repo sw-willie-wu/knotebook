@@ -13,7 +13,7 @@ function captureLogger(): { logger: pino.Logger; lines: () => Array<{ level: num
   return { logger: pino({ level: "info" }, stream), lines: () => chunks.join("").split("\n").filter(Boolean).map(l => JSON.parse(l)) };
 }
 
-describe("backfillLegacyOidcIdentities（#187 §10.3）", () => {
+describe("backfillLegacyOidcIdentities（#187）", () => {
   it("舊碼（回滾期）寫的 users.oidc_* → 補成 identity；冪等；不 warn", async () => {
     const { db } = await buildTestApp();
     const pool = db.$client;

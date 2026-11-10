@@ -40,7 +40,7 @@ function Host() {
   );
 }
 
-describe("VersionPreview 寬度量尺（gate r2 M-1：loading 也畫在 ref wrapper 裡）", () => {
+describe("VersionPreview 寬度量尺（loading 也畫在 ref wrapper 裡）", () => {
   const original = globalThis.ResizeObserver;
   beforeEach(async () => {
     await i18n.changeLanguage("en");

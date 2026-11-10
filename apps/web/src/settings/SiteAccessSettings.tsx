@@ -10,10 +10,10 @@ import { SettingsGroup } from "./SettingsLayout";
 import "@/i18n/management-strings";
 
 /**
- * #187 §9.4／§9.5：`/admin/auth` 頂部的兩個立即生效開關。Switch 一律受控於 server 值——409（B19 的兩碼）時 server 值沒變，
+ * #187：`/admin/auth` 頂部的兩個立即生效開關。Switch 一律受控於 server 值——409（防自鎖守衛的兩個錯誤碼）時 server 值沒變，
  * Switch 自然維持原狀，只 toast。關閉帳密先過確認 dialog（顯示 usersWithoutSso）；開啟永遠直接送（server 永遠允許）。
  * 「關不了」的兩種原因（零個啟用服務、自己沒有可用 SSO）預先 disable 並以可見文字＋aria-describedby 說明；權威判斷在 PATCH。
- * 自行註冊開關只管帳密自助註冊（PR-C），帳密有效值關時照常可切，並以可見文字＋aria-describedby 說明不生效（S2，讓管理員能在暫開帳密前先關掉它）。
+ * 自行註冊開關只管帳密自助註冊，帳密有效值關時照常可切，並以可見文字＋aria-describedby 說明不生效（讓管理員能在暫開帳密前先關掉它）。
  */
 export function SiteAccessSettings() {
   const { t } = useTranslation();

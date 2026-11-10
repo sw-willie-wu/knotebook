@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { bodySearchGate } from "./body-search-gate";
 
-describe("bodySearchGate（D10 至少 2 個字、D14 超過 200 code unit 不搜）", () => {
+describe("bodySearchGate（至少 2 個字、超過 200 code unit 不搜）", () => {
   it.each([
     ["", "off"],
     ["  ", "off"],

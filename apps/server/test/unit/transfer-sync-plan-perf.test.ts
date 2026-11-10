@@ -14,8 +14,8 @@ vi.mock("@knotebook/shared", async importOriginal => {
 });
 
 /**
- * bulk transfer plan PR-2 T6：規劃尾段的複雜度與停頓（審查 Important 1）。2 000 顆、隔一顆改一顆（1 000 區）時，逐區重建頂層表
- * 是 O(區數×頂層數)（審查實測：最後一次讓出之後同步 7 639 ms，1 000 次 sameCanonicalSeq 佔 6 158 ms）。
+ * bulk transfer：規劃尾段的複雜度與停頓。2 000 顆、隔一顆改一顆（1 000 區）時，逐區重建頂層表
+ * 是 O(區數×頂層數)（最後一次讓出之後同步 7 639 ms，1 000 次 sameCanonicalSeq 佔 6 158 ms）。
  */
 
 const rt = new EditingRuntime({ baseUrl: "http://localhost/" });
@@ -30,7 +30,7 @@ async function scene(n: number) {
 }
 
 describe("規劃尾段", () => {
-  // 牆鐘門檻只抓數量級退化（複審：300 ms 在雲端 CI 上兩個方向都可能翻）；「每區之後都讓出」的確定性守衛在
+  // 牆鐘門檻只抓數量級退化（300 ms 在雲端 CI 上兩個方向都可能翻）；「每區之後都讓出」的確定性守衛在
   // transfer-sync-plan.test.ts 的 P6c（步進時鐘），呼叫次數守衛在下面兩案。
   it("1 000 區、2 000 顆：預設讓出下，最長同步間隔（含最後一次讓出到回傳）< 1 500 ms", async () => {
     const { b, live, body } = await scene(2000);

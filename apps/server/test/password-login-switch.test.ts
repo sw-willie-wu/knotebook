@@ -23,7 +23,7 @@ const login = (app: Awaited<ReturnType<typeof buildTestApp>>["app"], email: stri
   app.inject({ method: "POST", url: "/api/auth/login", payload: { email, password } });
 const turnOff = (db: Awaited<ReturnType<typeof buildTestApp>>["db"]) => db.update(siteSettings).set({ passwordLoginEnabled: false });
 
-describe("POST /api/auth/login 在帳密登入關閉時（#187 B20、§14.1-21）", () => {
+describe("POST /api/auth/login 在帳密登入關閉時（#187）", () => {
   it("六種帳號一律 403 password_login_disabled、body 逐字相同；不跑 argon2", async () => {
     const { app, db } = await buildTestApp();
     const ok = await insertPasswordUser(db, { password: PW });
@@ -79,7 +79,7 @@ describe("POST /api/auth/login 在帳密登入關閉時（#187 B20、§14.1-21�
     expect((await login(app, u.email, "wrong-password-xx")).statusCode).toBe(429);
   });
 
-  it("讀不到 site_settings 列 → 視同開（B17）：照常登入＋log.error（gate r1-t1-9 M5）", async () => {
+  it("讀不到 site_settings 列 → 視同開：照常登入＋log.error", async () => {
     const logs = captureLogs();
     const { app, db } = await buildTestApp({}, logs.options);
     const u = await insertPasswordUser(db, { password: PW });
@@ -89,7 +89,7 @@ describe("POST /api/auth/login 在帳密登入關閉時（#187 B20、§14.1-21�
   });
 });
 
-describe("帳密關閉時照常的路徑（#187 §14.1-22／23、B21、B23、B26；gate r1-t1-9 I3）", () => {
+describe("帳密關閉時照常的路徑（#187／23、B21、B23、B26）", () => {
   const A = "https://idp-a.example";
 
   it("B21：透過 X 首次登入（服務開自動建帳）在帳密關閉時照常建帳", async () => {
@@ -110,7 +110,7 @@ describe("帳密關閉時照常的路徑（#187 §14.1-22／23、B21、B23、B26
     expect((await app.inject({ method: "GET", url: "/api/mcp", headers: { authorization: `Bearer ${pat}` } })).statusCode).toBe(401);
   });
 
-  it("B26（§14.1-23）：DB 關時密碼帳號以同 email 的 SSO 首登 → /link-account、methods.password=true、對密碼連結成功並簽 session", async () => {
+  it("B26：DB 關時密碼帳號以同 email 的 SSO 首登 → /link-account、methods.password=true、對密碼連結成功並簽 session", async () => {
     const t = await buildOidcApp({ providers: [{ key: "a", issuerUrl: A }] });
     const u = await insertPasswordUser(t.db, { password: PW });
     await turnOff(t.db);
@@ -125,7 +125,7 @@ describe("帳密關閉時照常的路徑（#187 §14.1-22／23、B21、B23、B26
     expect(await identitiesOf(t.db, u.id)).toEqual([{ issuer: A, sub: "sa" }]);
   });
 
-  it("B26（§14.1-23）：關閉期間連結頁的錯密碼 401、吃 LoginThrottle（5 次後第 6 次 429，對密碼也 429）", async () => {
+  it("B26：關閉期間連結頁的錯密碼 401、吃 LoginThrottle（5 次後第 6 次 429，對密碼也 429）", async () => {
     const t = await buildOidcApp({ providers: [{ key: "a", issuerUrl: A }] });
     const v = await insertPasswordUser(t.db, { password: PW });
     await turnOff(t.db);
@@ -138,7 +138,7 @@ describe("帳密關閉時照常的路徑（#187 §14.1-22／23、B21、B23、B26
   });
 });
 
-describe("關閉帳密登入不影響既有憑證（#187 B25、§14.1-21 gate r4-M5）", () => {
+describe("關閉帳密登入不影響既有憑證（#187）", () => {
   it("關閉前的密碼 session：/api/auth/me 200、token_version 不變；PAT 與 OAuth access token 打 Bearer 端點照常", async () => {
     const { app, db } = await buildTestApp();
     const u = await insertPasswordUser(db, { password: PW });
@@ -170,7 +170,7 @@ describe("關閉帳密登入不影響既有憑證（#187 B25、§14.1-21 gate r4
   });
 });
 
-describe("GET /api/auth/config 的 passwordLogin.enabled＝有效值（#187 §14.1-27）", () => {
+describe("GET /api/auth/config 的 passwordLogin.enabled＝有效值（#187）", () => {
   it.each([
     [true, false, true],
     [false, false, false],

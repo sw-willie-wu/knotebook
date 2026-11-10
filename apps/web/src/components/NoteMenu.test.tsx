@@ -13,7 +13,7 @@ import { NARROW_QUERY, useVersionsController, VersionsProvider } from "@/lib/ver
 import { FOLDER_LIST_EMPTY, folderDto } from "@/test/folder-fixtures";
 import { mockWidePointer } from "@/test/wide-pointer";
 
-// ⋮ 選單（spec D.4）：複製連結（任何角色）＋移到垃圾桶（#181：不確認、成功 toast＋復原；#175 起看 `permissions.delete`，含 M11 的
+// ⋮ 選單：複製連結（任何角色）＋移到垃圾桶（#181：不確認、成功 toast＋復原；#175 起看 `permissions.delete`，含
 // leavingRef 時序：刪除失敗且已進終態時，`NoteMenu` 必須自己補一套「同文案同
 // 終點」的終態出口——`NotePage` 的終態 effect 被這支 handler 自己設的
 // `leavingRef.current=true` 閘住，永遠不會再觸發，見 `NoteMenu.tsx` 檔頭）。
@@ -141,7 +141,7 @@ function groupMenuNote(perms: { edit: boolean; delete: boolean }): NoteDto {
   };
 }
 
-describe("NoteMenu（⋮ 選單，spec D.4）", () => {
+describe("NoteMenu（⋮ 選單）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -161,7 +161,7 @@ describe("NoteMenu（⋮ 選單，spec D.4）", () => {
     expect(screen.queryByText(/Delete note/)).toBeNull();
   });
 
-  it("#297 D10：⋮ 選單沒有寬度（寬度只在頁首 icon）", () => {
+  it("#297：⋮ 選單沒有寬度（寬度只在頁首 icon）", () => {
     renderMenu(OWNER_NOTE, CONNECTED, { current: false });
     openMenu();
 
@@ -192,7 +192,7 @@ describe("NoteMenu（⋮ 選單，spec D.4）", () => {
     expect(screen.queryByRole("menuitem", { name: "Delete" })).not.toBeInTheDocument();
   });
 
-  // #175 §8.3：刪除項看 `note.permissions.delete`，不再由 `role === "owner"` 推——群組筆記的 role
+  // #175：刪除項看 `note.permissions.delete`，不再由 `role === "owner"` 推——群組筆記的 role
   // 從不是 owner，但角色有 `can_delete` 的成員要能刪。
   it("#175：群組筆記（role editor、permissions.delete true）→ 有刪除項", () => {
     const groupNote: NoteDto = {
@@ -271,7 +271,7 @@ describe("NoteMenu（⋮ 選單，spec D.4）", () => {
 
   it("NM-T2 owner 移到垃圾桶：不確認、點下即送（leavingRef 同步已是 true）→ 導回 / → toast 有 Undo", async () => {
     const leavingRef = { current: false };
-    // M1（複審修正）：`waitFor` 內綁兩個各自單調的條件（fetchSpy 被呼叫過＋
+    // `waitFor` 內綁兩個各自單調的條件（fetchSpy 被呼叫過＋
     // leavingRef 現在是 true）是恆真式——不管 `leavingRef.current = true` 擺在
     // 送出請求「之前」還是「之後」，兩個條件最終都會同時成立，測不出時序。
     // 真正有牙齒的做法：點下選單項之後**同步**斷言，並在 fetch spy 的 DELETE 分支**內側**
@@ -288,7 +288,7 @@ describe("NoteMenu（⋮ 選單，spec D.4）", () => {
     openMenu();
     fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
 
-    // spec §6.10.4 D-W7：不確認——沒有對話框，點下就送出。
+    // 不確認——沒有對話框，點下就送出。
     expect(leavingRef.current).toBe(true);
     expect(screen.queryByRole("dialog")).toBeNull();
 
@@ -392,7 +392,7 @@ describe("NoteMenu（⋮ 選單，spec D.4）", () => {
     expect(screen.queryByText("Moved to the trash", { exact: true })).toBeNull();
   });
 
-  // review B1 修正：刪除失敗但已進終態時，`NotePage` 的終態 effect 被這支
+  // 刪除失敗但已進終態時，`NotePage` 的終態 effect 被這支
   // handler 自己設的 `leavingRef.current=true` 閘住，永遠不會再觸發——`NoteMenu`
   // 必須自己就地補上同一套出口（同文案同終點），這裡真的分辨出「有 toast＋有
   // 導頁」，不是舊版誤判的「不重複 toast、讓終態流程接手」（那條路根本不會走到）。
@@ -437,7 +437,7 @@ describe("NoteMenu（⋮ 選單，spec D.4）", () => {
     expect(screen.queryByText("Moved to the trash", { exact: true })).toBeNull();
   });
 
-  // 複審 B1-a：覆蓋真實競態，回歸釘死「必須讀 stateRef.current，不能讀 closure
+  // 覆蓋真實競態，回歸釘死「必須讀 stateRef.current，不能讀 closure
   // 裡的 state」這件事本身。時間軸：按下確認鈕那一刻 `state` prop 還是
   // connected（`handleConfirmDelete` closure 捕捉到的也是它）→ DELETE 請求送出
   // 但**故意掛住不 settle**→ 共編這時收到 close(NOTE_DELETED)，父層把 `state`
@@ -504,7 +504,7 @@ describe("NoteMenu（⋮ 選單，spec D.4）", () => {
   });
 });
 
-// ── #175 PR2 ⋮「複製到我的筆記」（Task 10），#216 起併入「複製到… → 我的筆記」──
+// ── #175 ⋮「複製到我的筆記」，#216 起併入「複製到… → 我的筆記」──
 // 兩個外殼（頁首 NoteMenu、側欄 SidebarNoteMenu）共用 NoteMenuCore，各一案守「可見性」。
 
 const GROUP_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
@@ -585,7 +585,7 @@ describe("NoteMenu：複製到我的筆記已併入「複製到… → 我的筆
   });
 });
 
-describe("NoteMenu × 版本歷史（spec §8.5）", () => {
+describe("NoteMenu × 版本歷史", () => {
   function VersionsHost({ enabled, children }: { enabled: boolean; children: ReactNode }) {
     const value = useVersionsController({ noteId: OWNER_NOTE.id, enabled });
     return (
@@ -665,7 +665,7 @@ describe("NoteMenu × 版本歷史（spec §8.5）", () => {
   });
 
   // 替身只翻 `NARROW_QUERY`（`WIDE_POINTER_QUERY` 恆不成立）：描述的是觸控裝置（寬判準不翻）跨寬度的路徑，選單保持開著、項目就地增減。
-  // 有滑鼠的裝置跨寬度時寬判準也會翻，整個選單會先關（PR-3b-3；由 GroupTransfer.test 的 WC12 與本檔 NM-W1 守）。
+  // 有滑鼠的裝置跨寬度時寬判準也會翻，整個選單會先關（由 GroupTransfer.test 的 WC12 與本檔 NM-W1 守）。
   it("視窗跨斷點：選單開著時窄→寬項目消失、寬→窄項目出現", async () => {
     const setNarrow = installMatchMedia(true);
     renderVersionsMenu("enabled");
@@ -693,7 +693,7 @@ describe("NoteMenu × 版本歷史（spec §8.5）", () => {
     expect(JSON.parse(screen.getByTestId("v-state").textContent!).mode).not.toBeNull();
   });
 
-  it("final I-1：triggerRef（NotePage 交給版本歷史整頁當焦點退路）指到頁首 ⋮ 觸發鈕本身", () => {
+  it("triggerRef（NotePage 交給版本歷史整頁當焦點退路）指到頁首 ⋮ 觸發鈕本身", () => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("unexpected fetch"))));
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const triggerRef = createRef<HTMLButtonElement>();
@@ -718,8 +718,8 @@ describe("NoteMenu × 版本歷史（spec §8.5）", () => {
   });
 });
 
-// PR-3b-2 T4：頁首與側欄 ⋮ 共用 NoteMenuCore 的逐層子選單（資料夾 spec §6.11.4）；同空間移動開著的那篇不離場。
-describe("NoteMenu × 逐層子選單（PR-3b-2 T4）", () => {
+// 頁首與側欄 ⋮ 共用 NoteMenuCore 的逐層子選單；同空間移動開著的那篇不離場。
+describe("NoteMenu × 逐層子選單", () => {
   const A = folderDto({ id: "A", name: "A" });
   const A1 = folderDto({ id: "A1", name: "A1", parentId: "A" });
   const B = folderDto({ id: "B", name: "B" });
@@ -761,7 +761,7 @@ describe("NoteMenu × 逐層子選單（PR-3b-2 T4）", () => {
     vi.unstubAllGlobals();
   });
 
-  // PR-3b-3 T3：寬形＝往旁層疊（Radix 巢狀子選單），窄形（jsdom 預設）＝就地展開逐層；頁首與側欄 ⋮ 同一套。
+  // 寬形＝往旁層疊（Radix 巢狀子選單），窄形（jsdom 預設）＝就地展開逐層；頁首與側欄 ⋮ 同一套。
   it.each([
     ["header", "wide"],
     ["sidebar", "wide"],

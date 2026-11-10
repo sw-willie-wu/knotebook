@@ -1,5 +1,5 @@
 /**
- * 資料夾測試共用的種子與量測工具（資料夾 PR-3a plan H7）。測試檔不受結構守衛管轄，可直寫 `folders`／`note_placements`／
+ * 資料夾測試共用的種子與量測工具。測試檔不受結構守衛管轄，可直寫 `folders`／`note_placements`／
  * `notes.folder_id`。名稱預設隨機（同層不分大小寫唯一）。
  */
 import { randomUUID } from "node:crypto";

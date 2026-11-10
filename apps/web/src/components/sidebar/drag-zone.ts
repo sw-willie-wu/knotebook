@@ -5,13 +5,13 @@ import type { FolderSpaceKey } from "./folder-index";
 import type { SidebarNode } from "./tree";
 
 /**
- * 側欄拖曳的純函式（資料夾 spec §6.13）：區域落點、可拖判準、疊資料夾取名。
+ * 側欄拖曳的純函式：區域落點、可拖判準、疊資料夾取名。
  * 首包模組：不 import 字串包（字串在主檔 `folders.stackName*`）、不 import 畫面模組。
- * 位置一律取樹上的（`tree.ts` 兜底後），不用 `note.folderId` 原值（讀碼發現 10）。
+ * 位置一律取樹上的（`tree.ts` 兜底後），不用 `note.folderId` 原值。
  */
 
 export const DRAG_NOTE_MIME = "application/x-knotebook-note";
-/** spec §6.13：彈簧資料夾與疊資料夾預覽共用的 0.5 秒。 */
+/** 彈簧資料夾與疊資料夾預覽共用的 0.5 秒。 */
 export const DRAG_HOVER_DELAY_MS = 500;
 export const DRAG_POINTER_QUERY = "(hover: hover) and (pointer: fine)";
 
@@ -33,7 +33,7 @@ export interface DropLookup {
 type NoteEntry = DropLookup["notes"] extends ReadonlyMap<string, infer V> ? V : never;
 type FolderEntry = DropLookup["folders"] extends ReadonlyMap<string, infer V> ? V : never;
 
-/** spec §6.13「可拖」：personal 空間＝true（我的筆記 tab 只有自己的筆記）；group:<id>＝permissions.edit；shared＝note.groupId === null。 */
+/** 可拖：personal 空間＝true（我的筆記 tab 只有自己的筆記）；group:<id>＝permissions.edit；shared＝note.groupId === null。 */
 export function canDragNote(note: NoteDto, space: FolderSpaceKey): boolean {
   if (space === "personal") return true;
   if (space === "shared") return note.groupId === null;
@@ -80,7 +80,7 @@ export function readDragTarget(target: EventTarget | null, container: Element): 
   if (!(target instanceof Node)) return { kind: "outside" };
   const el = target instanceof Element ? target : target.parentElement;
   if (el === null || !container.contains(el)) return { kind: "outside" };
-  // 預覽塊裡的列（B 列等）不得當成一般筆記列（spec §6.13 區域表第一列）：先找預覽。
+  // 預覽塊裡的列（B 列等）不得當成一般筆記列（區域表第一列）：先找預覽。
   const preview = el.closest('[data-node-kind="preview"]');
   if (preview !== null && container.contains(preview)) return { kind: "preview" };
   const node = el.closest("[data-node-kind]");
@@ -115,7 +115,7 @@ function groupIdOf(space: FolderSpaceKey): string | null {
   return space.startsWith("group:") ? space.slice("group:".length) : null;
 }
 
-/** 落點＝被拖筆記目前所在處 → 不是落點（spec §6.13）。 */
+/** 落點＝被拖筆記目前所在處 → 不是落點。 */
 function placeAt(source: DragSource, folderId: string | null, scope: DropScope): DropZone | null {
   return folderId === source.folderId ? null : { kind: "place", folderId, scope };
 }
@@ -174,7 +174,7 @@ export function evaluateDragOver(input: {
 }
 
 /**
- * spec §6.13 第 4 步：existing（同層既有資料夾名）與 skip 都不分大小寫（toLowerCase）比對；回第一個沒被用的「新資料夾」「新資料夾 2」…。
+ * existing（同層既有資料夾名）與 skip 都不分大小寫（toLowerCase）比對；回第一個沒被用的「新資料夾」「新資料夾 2」…。
  * 鴿籠上限：最多試 taken.size + 1 個；字串壞掉（每次同字）時回最後一個候選，交給 server 的 409 重送路徑。
  */
 export function stackFolderName(existing: readonly string[], t: Translate, skip: ReadonlySet<string> = new Set()): string {
@@ -189,7 +189,7 @@ export function stackFolderName(existing: readonly string[], t: Translate, skip:
 
 const DRAG_TABS: readonly SidebarTab[] = ["myNotes", "workspace", "shared"];
 
-/** 側欄接不接手拖曳（讀碼發現 8；gate r1 m10）：finePointer ∧ tab ∈ {myNotes, workspace, shared} ∧ !selectionActive ∧ !creating ∧ nodesReady。 */
+/** 側欄接不接手拖曳：finePointer ∧ tab ∈ {myNotes, workspace, shared} ∧ !selectionActive ∧ !creating ∧ nodesReady。 */
 export function isDragEnabled(input: { finePointer: boolean; tab: SidebarTab; selectionActive: boolean; creating: boolean; nodesReady: boolean }): boolean {
   return input.finePointer && DRAG_TABS.includes(input.tab) && !input.selectionActive && !input.creating && input.nodesReady;
 }

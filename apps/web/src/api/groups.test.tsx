@@ -110,7 +110,7 @@ describe("api/groups", () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["notes"] });
   });
 
-  it("AT9 經 useInvalidateGroupsAndNotes 的 hook 也失效 ['trash']（D-W9：角色變了，誰看得到群組垃圾桶也變）", async () => {
+  it("經 useInvalidateGroupsAndNotes 的 hook 也失效 ['trash']（角色變了，誰看得到群組垃圾桶也變）", async () => {
     stubFetch({ "POST /api/groups": () => fakeResponse(201, GROUP) });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
@@ -146,7 +146,7 @@ describe("api/groups", () => {
     expect(keys).toEqual(expect.arrayContaining(['["note"]', '["note-by-path"]', '["note-by-group-path"]', '["groups"]', '["notes"]']));
   });
 
-  it("useDeleteGroup 的失效集合與順序：note 三把（['note']、['note-by-path']、['note-by-group-path']）先於 ['groups']／['notes']；含 ['public-link']（轉移清 token）；不含 ['shares']（v2 兩模式都不產生逐人分享——PR4 plan spec 疑點 Q4）", async () => {
+  it("useDeleteGroup 的失效集合與順序：note 三把（['note']、['note-by-path']、['note-by-group-path']）先於 ['groups']／['notes']；含 ['public-link']（轉移清 token）；不含 ['shares']（v2 兩模式都不產生逐人分享）", async () => {
     stubFetch({ [`DELETE /api/groups/${GROUP.id}`]: () => fakeResponse(204) });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
@@ -201,7 +201,7 @@ describe("api/groups", () => {
     await waitFor(() => expect(result.current.link.data).toEqual(linkBefore));
 
     // v2 與 v1 相反：v1 要先等 shares 落定才失效 note（mutateAsync 在其後 resolve）；v2 不 await 任何失效，
-    // public-link 重抓還懸著時 mutateAsync 就已經 resolve，回饋不被開著的查詢拖慢（Q4）。
+    // public-link 重抓還懸著時 mutateAsync 就已經 resolve，回饋不被開著的查詢拖慢。
     await result.current.del.mutateAsync({ id: GROUP.id, body: { mode: "transfer", transferTo: MEMBER.userId } });
     await waitFor(() => expect(gate.release).toBeDefined());
     expect(result.current.link.data).toEqual(linkBefore);
@@ -219,7 +219,7 @@ describe("api/groups", () => {
     expect(calls[0]).toEqual({ method: "DELETE", url: `/api/groups/${GROUP.id}`, body: { mode: "transfer", transferTo: MEMBER.userId } });
   });
 
-  it("#175 useSetMemberRole 另外失效單篇筆記三把 key：改到自己的角色時，開著那篇群組筆記的 permissions 要重抓（review r1 M-4）", async () => {
+  it("#175 useSetMemberRole 另外失效單篇筆記三把 key：改到自己的角色時，開著那篇群組筆記的 permissions 要重抓", async () => {
     stubFetch({
       [`PATCH /api/groups/${GROUP.id}/members/${MEMBER.userId}`]: () => fakeResponse(200, { ...MEMBER, roleId: ADMIN_ROLE.id, builtin: "admin" }),
     });
@@ -270,7 +270,7 @@ describe("api/groups", () => {
     expect(calls[1].body).toEqual({});
   });
 
-  it("#175 PR3 useCreateRole：POST /roles、body 恰為 {name, permissions}；只失效 ['groups']、['notes']、['trash']、['folders']，不碰單篇筆記 key", async () => {
+  it("#175 useCreateRole：POST /roles、body 恰為 {name, permissions}；只失效 ['groups']、['notes']、['trash']、['folders']，不碰單篇筆記 key", async () => {
     const role = customRole({ id: "r-new", name: "Editor" });
     const calls = stubFetch({ [`POST /api/groups/${GROUP.id}/roles`]: () => fakeResponse(201, role) });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -282,7 +282,7 @@ describe("api/groups", () => {
     expect([...keys].sort()).toEqual(['["folders"]', '["groups"]', '["notes"]', '["trash"]']);
   });
 
-  it("#175 PR3 useUpdateRole：PATCH /roles/:roleId、只給 permissions 時 body 恰為 {permissions}；失效七把 key（含 ['trash']、['folders']）", async () => {
+  it("#175 useUpdateRole：PATCH /roles/:roleId、只給 permissions 時 body 恰為 {permissions}；失效七把 key（含 ['trash']、['folders']）", async () => {
     const role = customRole({ id: "r-new", permissions: { ...customRole().permissions, edit: true } });
     const calls = stubFetch({ [`PATCH /api/groups/${GROUP.id}/roles/r-new`]: () => fakeResponse(200, role) });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -299,7 +299,7 @@ describe("api/groups", () => {
     expect([...keys].sort()).toEqual(['["folders"]', '["groups"]', '["note"]', '["note-by-group-path"]', '["note-by-path"]', '["notes"]', '["trash"]']);
   });
 
-  it("#175 PR3 useDeleteRole：DELETE /roles/:roleId、無 body；失效同 useUpdateRole", async () => {
+  it("#175 useDeleteRole：DELETE /roles/:roleId、無 body；失效同 useUpdateRole", async () => {
     const calls = stubFetch({ [`DELETE /api/groups/${GROUP.id}/roles/r-new`]: () => fakeResponse(204) });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
@@ -310,7 +310,7 @@ describe("api/groups", () => {
     expect([...keys].sort()).toEqual(['["folders"]', '["groups"]', '["note"]', '["note-by-group-path"]', '["note-by-path"]', '["notes"]', '["trash"]']);
   });
 
-  it("資料夾 spec §6.15：useDeleteGroup／useRemoveMember／useUpdateRole 成功後各失效 ['folders']", async () => {
+  it("資料夾：useDeleteGroup／useRemoveMember／useUpdateRole 成功後各失效 ['folders']", async () => {
     stubFetch({
       [`DELETE /api/groups/${GROUP.id}`]: () => fakeResponse(204),
       [`DELETE /api/groups/${GROUP.id}/members/${MEMBER.userId}`]: () => fakeResponse(204),

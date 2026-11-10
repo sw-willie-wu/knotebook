@@ -37,7 +37,7 @@ export interface OidcPendingRouteDeps {
   collabHooks: CollabHooks;
   reloginReverifyDelayMs?: number;
   throttle: LoginThrottle;
-  /** SSO 證明起點（§7.5.3）取 discovery 結果用。 */
+  /** SSO 證明起點取 discovery 結果用。 */
   registry: OidcRuntimeRegistry;
   limiters: { oidcLogin: FixedWindowLimiter };
   /** 測試縫：只經 `AppDeps.oidcTestHook` 注入（production 的 index.ts 不傳），見 `app.ts`。 */
@@ -49,12 +49,12 @@ function toUserDto(u: LinkedUser): UserDto {
 }
 
 /**
- * #187 §7.5：「這個 email 已有帳號，要連結嗎？」。只認 pending-link cookie（與目前 session 無關——已登入他人的瀏覽器完成連結，
- * 簽出的 session 取代舊的，§9.4）。confirm 的順序刻意與登入相同：**先驗密碼、再判停用**（B14／r2-M7），且停用、B2 都只在鎖內判。
+ * #187：「這個 email 已有帳號，要連結嗎？」。只認 pending-link cookie（與目前 session 無關——已登入他人的瀏覽器完成連結，
+ * 簽出的 session 取代舊的）。confirm 的順序刻意與登入相同：**先驗密碼、再判停用**，且停用、「同 issuer 只能連一個 sub」都只在鎖內判。
  */
 export function oidcPendingRoutes(deps: OidcPendingRouteDeps) {
   return async function register(app: FastifyInstance): Promise<void> {
-    /** 帳號仍在、email 未改（lower 比對）——不判停用（B14）。 */
+    /** 帳號仍在、email 未改（lower 比對）——不判停用。 */
     async function loadTarget(userId: string): Promise<{ passwordHash: string | null; emailLower: string } | null> {
       const [row] = await deps.db
         .select({ passwordHash: users.passwordHash, emailLower: sql<string>`lower(${users.email})` })
@@ -72,7 +72,7 @@ export function oidcPendingRoutes(deps: OidcPendingRouteDeps) {
         clearPendingCookie(reply, deps.config);
         return sendError(reply, 409, "oidc_link_expired", LINK_EXPIRED_MESSAGE);
       }
-      // methods 每次重算：provider 可能剛被停用（§7.5.2 第 2 步）。B14（Task 6 裁定 A）：排除與待連結身分同 issuer 者——
+      // methods 每次重算：provider 可能剛被停用。排除與待連結身分同 issuer 者——
       // 與 callback 的決策同一個函式（`auth/issuer.ts`），否則頁面會在證明前透露「這帳號已連過這個 IdP」。
       const providers = excludeSameIssuerProviders(await linkedEnabledProvidersWithIssuer(deps.db, pending.userId), pending.issuer);
       const methods = { password: target.passwordHash !== null, providers };
@@ -87,9 +87,9 @@ export function oidcPendingRoutes(deps: OidcPendingRouteDeps) {
       if (pending === null) return sendError(reply, 401, "unauthorized", NO_PENDING_MESSAGE);
       const parsed = confirmBodySchema.safeParse(request.body);
       if (!parsed.success) return sendError(reply, 400, "invalid_body", "Invalid request body.");
-      // 1. C18：另一分頁覆蓋了 pending。
+      // 1. 另一分頁覆蓋了 pending。
       if (parsed.data.pendingId !== pending.pendingId) return sendError(reply, 409, "oidc_link_expired", LINK_EXPIRED_MESSAGE);
-      // 2. 單一漏斗：checkAllowed／recordFailure／recordSuccess 三處同一個值（r2-N9；與 /api/auth/login 共用帳號軌與 IP 軌）。
+      // 2. 單一漏斗：checkAllowed／recordFailure／recordSuccess 三處同一個值（與 /api/auth/login 共用帳號軌與 IP 軌）。
       const throttleKey = normalizeEmail(pending.email);
       const allowed = deps.throttle.checkAllowed(throttleKey, request.ip);
       if (!allowed.allowed) return sendLoginThrottled(reply, allowed.retryAfterMs!);
@@ -118,7 +118,7 @@ export function oidcPendingRoutes(deps: OidcPendingRouteDeps) {
       }
       await deps.oidcTestHook?.("pending-confirm-verified", { userId: pending.userId });
 
-      // 5–6. §7.5.4 鎖內重驗與寫入（hash 仍是驗過的那個、停用、B2、INSERT）。
+      // 5–6. 鎖內重驗與寫入（hash 仍是驗過的那個、停用、同 issuer 已連過、INSERT）。
       const linkInput = {
         targetUserId: pending.userId,
         pendingEmail: pending.email,
@@ -132,22 +132,22 @@ export function oidcPendingRoutes(deps: OidcPendingRouteDeps) {
       } catch (err) {
         if (!(err instanceof TxAbort)) throw err;
         if (err.errCode === "oidc_link_expired") clearPendingCookie(reply, deps.config);
-        // 交易內的任何拒絕（hash 已變 401、停用 403、帳號已不在或 email 已改 409、B2／identity_taken 409）都不 recordSuccess、
-        // 也不 recordFailure（r3-N4）——只有交易成功才 recordSuccess。
+        // 交易內的任何拒絕（hash 已變 401、停用 403、帳號已不在或 email 已改 409、同 issuer 已連過／identity_taken 409）都不 recordSuccess、
+        // 也不 recordFailure——只有交易成功才 recordSuccess。
         return sendError(reply, err.status, err.errCode, err.message);
       }
       deps.throttle.recordSuccess(throttleKey, request.ip);
       clearPendingCookie(reply, deps.config);
       deps.gate.invalidate(linked.id);
-      await touchLastLogin(deps.db, linked.id, request.log); // #247 §9.5 寫入點 4：密碼證明連結
+      await touchLastLogin(deps.db, linked.id, request.log); // #247：密碼證明連結
       await startSession(deps, request, reply, { userId: linked.id, tv: linked.tokenVersion });
-      // next 由 server 從 pending 解出、再過 safeNextPath；web 只用這個值（r2-M2）。
+      // next 由 server 從 pending 解出、再過 safeNextPath；web 只用這個值。
       const next = (pending.next !== undefined ? safeNextPath(pending.next) : null) ?? "/";
       const body: PendingLinkConfirmDto = { user: toUserDto(linked), next };
       return reply.send(body);
     });
 
-    // §7.5.3 起點：要求 JSON body（B7：跨站表單送不進來——CSRF hook 只擋「帶 body 且非 JSON」）。
+    // SSO 證明起點：要求 JSON body（跨站表單送不進來——CSRF hook 只擋「帶 body 且非 JSON」）。
     app.post<{ Params: { providerId: string } }>("/api/auth/oidc/pending/prove/:providerId", async (request, reply) => {
       const pending = readPendingLink(request, deps.config.appSecret);
       if (pending === null) return sendError(reply, 401, "unauthorized", NO_PENDING_MESSAGE);
@@ -157,7 +157,7 @@ export function oidcPendingRoutes(deps: OidcPendingRouteDeps) {
       if (!deps.limiters.oidcLogin.consume(request.ip)) return sendError(reply, 429, "too_many_requests", "Too many requests. Wait a moment and try again.");
       const raw = request.params.providerId;
       const providerId = UUID_RE.test(raw) ? raw.toLowerCase() : null;
-      // 必須在**當下重算**的 methods.providers 裡（啟用中、本帳號有 issuer＝其 effective issuer 的身分，且 B14 排除與待連結身分
+      // 必須在**當下重算**的 methods.providers 裡（啟用中、本帳號有 issuer＝其 effective issuer 的身分，且同 issuer 排除與待連結身分
       // 同 issuer 者——與 GET pending、決策同一個 `excludeSameIssuerProviders`）；不區分原因。
       const usable = excludeSameIssuerProviders(await linkedEnabledProvidersWithIssuer(deps.db, pending.userId), pending.issuer);
       const provider = providerId !== null && usable.some(p => p.id === providerId) ? await loadEnabledProvider(deps.db, providerId) : null;
@@ -176,7 +176,7 @@ export function oidcPendingRoutes(deps: OidcPendingRouteDeps) {
       return reply.send(body);
     });
 
-    // 無 body：CSRF hook 放行（§2.4）；被跨站觸發的後果只是要重按一次 SSO（B7，§17 第 21 條）。
+    // 無 body：CSRF hook 放行；被跨站觸發的後果只是要重按一次 SSO。
     app.post("/api/auth/oidc/pending/cancel", async (_request, reply) => {
       clearPendingCookie(reply, deps.config);
       return reply.code(204).send();

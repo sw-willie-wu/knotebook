@@ -2,7 +2,7 @@ import { TOP_SECTION_ID } from "@knotebook/shared";
 import { foldedIndexOf } from "@/lib/search-match";
 
 /**
- * #93 PR2：在編輯器 DOM 裡，找「某個段落範圍內第一個含查詢字的 block」（側欄全文搜尋點片段 → 跳到命中的那一行，不只是段落標題）。
+ * #93：在編輯器 DOM 裡，找「某個段落範圍內第一個含查詢字的 block」（側欄全文搜尋點片段 → 跳到命中的那一行，不只是段落標題）。
  *
  * - **段落範圍＝`note-sections.ts` 的 `sectionize`**：只看頂層單位（`.bn-editor > .bn-block-group` 的直接子節點：`.bn-block-outer` 與
  *   並排列 `columnList`）；頂層 heading 開新段的條件與 `sectionize` 相同（`level <= 目前段的 level`，或目前是 `_top`）——較深的子標題不另成段、

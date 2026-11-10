@@ -54,7 +54,7 @@ describe("ConnectionBadge（issue #48：離線可見性）", () => {
     renderBadge({ phase: "connecting" }, false);
     act(() => vi.advanceTimersByTime(OFFLINE_WARN_MS));
     expect(screen.getByText("Not loaded — offline")).toBeInTheDocument();
-    // PR2 D.2：警示色訊號現在集中在狀態點上（phase 文字本身統一無色，見
+    // D.2：警示色訊號現在集中在狀態點上（phase 文字本身統一無色，見
     // ConnectionBadge.tsx 檔頭）——斷言狀態點（`role=status` 底下唯一的
     // `aria-hidden` 節點）帶 `bg-destructive`，不是預設的灰。
     const dot = screen.getByRole("status").querySelector('[aria-hidden="true"]');
@@ -166,7 +166,7 @@ describe("ConnectionBadge（issue #48：離線可見性）", () => {
 
   it("#115：文字 span 為 max-md:sr-only（窄視窗只留色點，但 aria-live 仍讀得到）；viewer 的「Read-only」也是", () => {
     // 用 sr-only 而不是 hidden：容器是 role=status aria-live=polite，display:none
-    // 會讓窄視窗的螢幕閱讀器收不到撤權/降級/離線通知（spec §3a）。
+    // 會讓窄視窗的螢幕閱讀器收不到撤權/降級/離線通知。
     const owner = renderBadge({ phase: "connected", role: "owner" }, true);
     expect(screen.getByText("Connected")).toHaveClass("max-md:sr-only");
     expect(screen.getByText("Connected").className).not.toContain("max-md:hidden");

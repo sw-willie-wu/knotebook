@@ -9,17 +9,17 @@ import { managementNavItemClass, managementTray } from "@/components/management/
 import { cn } from "@/lib/utils";
 
 /**
- * 三個設定管理類面板（個人設定、群組、站台管理）的共用外殼（#247 §4）：托盤上兩張卡——
+ * 三個設定管理類面板（個人設定、群組、站台管理）的共用外殼（#247）：托盤上兩張卡——
  * 左卡項次、右卡內容，與筆記頁「側欄卡＋內文卡」同一語彙。Dialog 由這裡持有；三個薄包裝
  * （`settings/SettingsModal`、`groups/GroupModal`、`admin/AdminModal`）只算 `onOpenChange`
  * 並把 boundary＋Suspense＋`<Outlet/>` 當 children 傳進來。
  *
- * 窄視窗（< md，§4.6，Willie W32）是**雙層**：一次只顯示一張卡，`layer` 決定是項次層還是內容層；
+ * 窄視窗（< md）是**雙層**：一次只顯示一張卡，`layer` 決定是項次層還是內容層；
  * `md:` 以上兩卡恆顯示、`layer` 無作用。兩卡的基底 class 不帶 `flex`，display 全由 layer class
- * 決定、`cn` 合併時放最後（§4.2）——基底若帶 `flex`，twMerge 會把它與 `hidden` 合併成後者，
+ * 決定、`cn` 合併時放最後——基底若帶 `flex`，twMerge 會把它與 `hidden` 合併成後者，
  * 但只要有人改成字串串接，`flex hidden` 並存、被隱藏的卡就會露出來（測試釘「被隱藏的卡不含裸 flex」）。
  *
- * 焦點（§4.6、§4.7）：
+ * 焦點：
  * - 開啟：不寫 `onOpenAutoFocus`。Radix FocusScope 的自動聚焦會 `removeLinks` 濾掉所有 `<a>`，
  *   項次（NavLink）永遠不會被選中；落點依右卡 DOM 順序＝返回鈕（窄）或 ✕（寬，返回鈕 display:none）。
  *   所以右卡子節點順序固定：返回鈕 → ✕ → 內容容器。
@@ -32,21 +32,21 @@ import { cn } from "@/lib/utils";
 export interface ManagementNavItemSpec {
   to: string;
   label: string;
-  /** 轉給 NavLink（§4.4）：群組 modal 的「成員」是 `/groups/:id`，不帶 end 會在子頁也高亮。 */
+  /** 轉給 NavLink：群組 modal 的「成員」是 `/groups/:id`，不帶 end 會在子頁也高亮。 */
   end?: boolean;
   /** 列右側灰字計數，可省。 */
   count?: ReactNode;
 }
 
 export interface ManagementShellProps {
-  /** 左卡標題列＝唯一的 DialogTitle（§4.5）。 */
+  /** 左卡標題列＝唯一的 DialogTitle。 */
   title: string;
   /** 標題下的副文字（群組 modal 的我的角色）。 */
   subtitle?: string;
   /** sr-only 的 DialogDescription；省略時用 title。 */
   description?: string;
   items: ManagementNavItemSpec[];
-  /** Esc 與 ✕ 都經過這裡（§4.7）。 */
+  /** Esc 與 ✕ 都經過這裡。 */
   onOpenChange: (open: boolean) => void;
   /** 右卡內容（各面板的 ErrorBoundary＋Suspense＋<Outlet/>）。 */
   children: ReactNode;
@@ -102,7 +102,7 @@ export function ManagementShell({ title, subtitle, description, items, onOpenCha
   const location = useLocation();
   const backgroundLocation = (location.state as { backgroundLocation?: Location } | null)?.backgroundLocation;
   // 初值 "content"：索引 route 都在 modal 外轉到第一個項次（群組的 /groups/:id 本身就是「成員」），
-  // modal 掛上時 URL 必定指著一個項次；深連結在手機上也要直接看到那一頁（§4.6）。
+  // modal 掛上時 URL 必定指著一個項次；深連結在手機上也要直接看到那一頁。
   const [layer, setLayer] = useState<Layer>("content");
   const [focusRequest, setFocusRequest] = useState<FocusRequest | null>(null);
   const seqRef = useRef(0);
@@ -132,7 +132,7 @@ export function ManagementShell({ title, subtitle, description, items, onOpenCha
     <Dialog open onOpenChange={onOpenChange}>
       {/* 點外面不關：內容區的 inline 表單（改密碼、改名…）有未存輸入；Esc／✕ 照常關閉。 */}
       <DialogContent size="panel" dismissOnOutside={false}>
-        {/* 托盤（§4.3）：頁底色 45%＋毛玻璃，陰影只在這一層；卡本身不投影。 */}
+        {/* 托盤：頁底色 45%＋毛玻璃，陰影只在這一層；卡本身不投影。 */}
         <div className={managementTray}>
           <div
             data-management-card="items"
@@ -170,7 +170,7 @@ export function ManagementShell({ title, subtitle, description, items, onOpenCha
               "md:flex",
             )}
           >
-            {/* 子節點順序是承重的：返回鈕 → ✕ → 內容容器（開啟焦點落點，§4.7）。 */}
+            {/* 子節點順序是承重的：返回鈕 → ✕ → 內容容器（開啟焦點落點）。 */}
             <Button
               type="button"
               variant="ghost"

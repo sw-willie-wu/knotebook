@@ -36,12 +36,12 @@ describe("present-url", () => {
     expect(slideIdFromHash(hashForSlide("a b"))).toBe("a b");
   });
 
-  it.each(["#/%E0%A4%A", "#/", "#x", "", "#"])("RF1：畸形或空的 hash %j → null、不 throw", (hash) => {
+  it.each(["#/%E0%A4%A", "#/", "#x", "", "#"])("畸形或空的 hash %j → null、不 throw", (hash) => {
     expect(slideIdFromHash(hash)).toBeNull();
   });
 });
 
-describe("exitFullscreenIfLeftPresentation（§6.5 卸載型呼叫點：讀真實網址）", () => {
+describe("exitFullscreenIfLeftPresentation（卸載型呼叫點：讀真實網址）", () => {
   let fake: FakeFullscreen | null = null;
   afterEach(async () => {
     await fake?.uninstall();

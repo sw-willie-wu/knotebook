@@ -98,7 +98,7 @@ export async function deleteSessionFromCookie(
  * 再建列、簽、發 cookie，最後機會性清過期列（fire-and-forget，失敗只 warn——比照 `transfer-cleanup.ts`。沒有排程：登入是最自然
  * 的時機，每次登入最多清一批，積壓會隨之後的登入清完）。
  *
- * 只限同一個帳號：#187 的 RF4（`oidc-pending.test.ts`）定過「瀏覽器已登入另一個帳號 V，完成連結登入目標帳號後，V 的 session
+ * 只限同一個帳號：`oidc-pending.test.ts` 釘過「瀏覽器已登入另一個帳號 V，完成連結登入目標帳號後，V 的 session
  * 不受影響」。那張別人的 cookie 在這台瀏覽器上會被新 cookie 蓋掉，但它的列（與副本）照舊留到 V 自己登出或過期。
  *
  * **延遲重驗舊 session 的共編連線**（與登出的立即重驗不同）：同一台瀏覽器重登時，舊分頁若立刻被要求重驗，它取 token 可能早於

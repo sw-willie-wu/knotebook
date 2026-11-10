@@ -171,7 +171,7 @@ describe("createLinkSync", () => {
     expect(api).toHaveBeenCalledTimes(2);
   });
 
-  it("遠端更新（非本地 origin 的 Y.applyUpdate）一樣觸發 debounce 重算提交（spec：含遠端）", async () => {
+  it("遠端更新（非本地 origin 的 Y.applyUpdate）一樣觸發 debounce 重算提交（含遠端）", async () => {
     // `doc.on("update", …)` 的 handler（`onDocUpdate`）刻意不檢查事件的 origin 參數——
     // 這裡專門用「另一個 Y.Doc 编輯後 Y.applyUpdate 回本體、origin 給一個跟本地 transact
     // 明顯不同的字串」來造出貨真價實的「遠端」更新（不是同一個 doc 上用預設 origin 呼叫
@@ -447,13 +447,13 @@ describe("createLinkSync", () => {
   });
 });
 
-// ── 走訪等價測試（spec §12.5-1）─────────────────────────────────────────────
+// ── 走訪等價測試─────────────────────────────────────────────
 //
-// server 端不依賴 BlockNote，無法測「editor 半邊」（Task 4 只測 docClock）；這裡補上
-// 唯一能驗證「Y.Doc 走訪抽取集合 == editor.document 遍歷抽取集合」的地方：用 Task 3 的
+// server 端不依賴 BlockNote，無法測「editor 半邊」（server 端只測 docClock）；這裡補上
+// 唯一能驗證「Y.Doc 走訪抽取集合 == editor.document 遍歷抽取集合」的地方：用
 // mount harness（`BlockNoteEditor.create` + `editor.mount`，headless 下 y-prosemirror
 // 不會把內容寫回 Y.Doc，見 `menu.test.tsx` 檔頭同名章節）造一個綁定同一個 Y.Doc 的真編輯器，
-// 用 `insertWikilink`（Task 2 的 spec.ts）插入真正的 wikilink 節點，比對兩條路徑抽出的
+// 用 `insertWikilink`（wikilink spec）插入真正的 wikilink 節點，比對兩條路徑抽出的
 // targetNoteId 集合。
 type ElementRendererHandle = (node: ReactNode, container: HTMLElement) => void;
 

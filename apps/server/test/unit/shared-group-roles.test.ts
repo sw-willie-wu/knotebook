@@ -1,6 +1,6 @@
 /**
- * #175 PR3：`packages/shared/src/group-roles.ts` 的單元案。閱讀恆真（plan spec 疑點 10）、六個可設旗標彼此不蘊含
- * （spec 疑點 11）——shared 只剩旗標清單與角色名稱規則。
+ * #175：`packages/shared/src/group-roles.ts` 的單元案。閱讀恆真、六個可設旗標彼此不蘊含
+ * ——shared 只剩旗標清單與角色名稱規則。
  */
 import { describe, expect, it } from "vitest";
 import { BUILTIN_ROLE_DISPLAY_NAMES, GROUP_ROLE_FLAGS, isReservedRoleName, normalizeRoleName } from "@knotebook/shared";
@@ -11,7 +11,7 @@ describe("GROUP_ROLE_FLAGS", () => {
   });
 });
 
-describe("角色名稱（spec §4.1；gate r1 I6、r2 M-9）", () => {
+describe("角色名稱", () => {
   it("normalizeRoleName：trim 之後 NFC", () => {
     expect(normalizeRoleName("  Reader \t")).toBe("Reader");
     // NFD (e + U+0301) must compose to NFC (U+00E9); written as escapes so the two forms are distinguishable by eye.

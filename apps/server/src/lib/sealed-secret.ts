@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 
-/** #187 §5.1：通用靜態加密的密文格式。與 `ai/crypto.ts` 的 `EncryptedApiKey` v2 **逐欄相同**（不得改 AI 密文格式）。 */
+/** #187：通用靜態加密的密文格式。與 `ai/crypto.ts` 的 `EncryptedApiKey` v2 **逐欄相同**（不得改 AI 密文格式）。 */
 export interface EncryptedSecret {
   v: 2;
   keyId: string;
@@ -23,7 +23,7 @@ function keyIdOf(key: Buffer): string {
 }
 
 /**
- * #187 §5.1：通用靜態加密。輸出格式＝`EncryptedApiKey` v2（`ai/crypto.ts`）——`encryptApiKey` 就是
+ * #187：通用靜態加密。輸出格式＝`EncryptedApiKey` v2（`ai/crypto.ts`）——`encryptApiKey` 就是
  * `sealSecret(appSecret, "ai-key", plaintext, "ai-key:v2:<providerId>")`。`aad` 綁「這份密文屬於哪一列」：
  * 搬到別列解不開（issue #14 的同一個理由）。
  */

@@ -1,5 +1,5 @@
 /**
- * #108 D-C：`McpServer` 宣告用的三個字串。
+ * #108：`McpServer` 宣告用的三個字串。
  *
  * `version` 執行期從 `apps/server/package.json` 讀（前例逐字相同：`db/migrate.ts` 的
  * `path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../drizzle")`）——發版流程
@@ -8,8 +8,8 @@
  * 讀不到一律退成 `"0.0.0"`、**絕不 throw**：讓一個顯示字串把整個端點打掛是錯的交換；
  * 呼叫端看 `versionReadFailed` 決定要不要 `log.warn`（module 層沒有 logger）。
  *
- * `instructions` 每一次 `initialize` 都進模型脈絡，所以有長度上限，且**不得**出現規格 §15.3
- * 那族「指紋＝讀過了嗎」的句子（單元測試逐條守著）。
+ * `instructions` 每一次 `initialize` 都進模型脈絡，所以有長度上限，且**不得**出現
+ * 「指紋＝讀過了嗎」那族句子（單元測試逐條守著）。
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -41,12 +41,12 @@ export const versionReadFailed = pkg.failed;
  * 只描述**這個憑證真的用得到的東西**。英文——與 `docs/` 及工具 `.describe()` 同語言；
  * 它進的是模型脈絡不是 UI，不走 i18n。
  *
- * ⚠ **兩支尾巴是二選一，不是相加**（#108 D-Q）。讀寫那支實測 **983** 字元，餘裕 **17**；唯讀那支實測 **995**，餘裕 **5**
+ * ⚠ **兩支尾巴是二選一，不是相加**（#108）。讀寫那支實測 **983** 字元，餘裕 **17**；唯讀那支實測 **995**，餘裕 **5**
  * （#381：WRITE 刪 ` and rename` −11，只影響讀寫那支；之前 994／995）
- * （bulk transfer PR-3 T4：第一句「Reading is always sectioned: no tool returns a whole note.」改成「Tools read notes in sections: none
+ * （bulk transfer：第一句「Reading is always sectioned: no tool returns a whole note.」改成「Tools read notes in sections: none
  * returns a whole note.」−2——token＋collab 部署有 `create_bulk_transfer_token`，模型照它的 curl 拿得到整篇檔，所以「讀取一律分段」對
  * 「讀筆記」這件事不再是全稱；新句只講工具，三種部署形〔token＋collab、session、無 collab〕都成立。之前 996／997）
- * （#folders PR-3d：刪 outline 上限句 −37、BASE 尾端補資料夾句（含換行）+58；之前 975／976。刪掉的上限仍在 `read_note_outline`
+ * （資料夾：刪 outline 上限句 −37、BASE 尾端補資料夾句（含換行）+58；之前 975／976。刪掉的上限仍在 `read_note_outline`
  * 的 description（`At most ${MCP_PAGE_MAX} sections per call`）。資料夾句只提 `list_folders`——它任何憑證都註冊，所以兩版共用、
  * 不依 canWrite 分版；資料夾寫入工具一個都不提）
  * （#181：縮 `there is no tool that returns` −14 與 `(id, heading, length)` −22 共換出 36 字元，BASE 尾端補垃圾桶一句
@@ -62,9 +62,9 @@ export const versionReadFailed = pkg.failed;
  * 縮了 23 字元（`for one section's text`／刪 `Also,`／`a single response`）——**下次撞牆先縮字，
  * 不要調大上限**（它保護的是模型脈絡）。#103 再用掉 11 字元（可見性句涵蓋群組）；#175 還回 7 字元。
  * 量法：`mcpInstructions(true).length`／`(false)`。
- * ⚠ **對唯讀憑證不得描述它沒有的工具**——與 D32「不宣告我們做不到的 capability」同一個原則；
+ * ⚠ **對唯讀憑證不得描述它沒有的工具**——與「不宣告我們做不到的 capability」同一個原則；
  * 而且 `insufficient_scope` 在 HTTP 上是死碼（`write-scope.ts` 檔頭），**唯讀版這段處置字樣
- * 是 D7 的意圖唯一到得了模型的落點**。守衛＝`mcp-edit-note.test.ts` 的 S3 ＋ 本檔的單元案。
+ * 是這個意圖唯一到得了模型的落點**。守衛＝`mcp-edit-note.test.ts` ＋ 本檔的單元案。
  * ⚠ **改了一個字就要重量**（兩支各自都有 ≤ 1000 的斷言，且各自都要過禁令詞正則）。
  */
 const BASE_INSTRUCTIONS = `Knotebook notes over MCP. Tools read notes in sections: none returns a whole
@@ -86,7 +86,7 @@ Notes can sit in folders; list_folders shows their paths.`;
  *     （`notes/create.ts`，#145 之後三條建立路徑共用的建列點；呼叫點是
  *     `tools/create-note.ts` 最後一段），不經 `applyEdit`／不留 `note_ai_edits` 列，
  *     **沒有東西撤得回**；原句「Every write…」把它也算進去了。
- *     ⚠ **不得寫回「puts content into a note」**（r2 審查抓到）：那個講法會把
+ *     ⚠ **不得寫回「puts content into a note」**：那個講法會把
  *     `delete_section` 也排除掉，而它**有紀錄、也撤得回**——`apply.ts:265` 的
  *     `insertEditRecord` 在五個 op 的**共同路徑**上，沒有逐 op 分支。
  * (2) 「successful」——內容合併與紀錄列不同交易（known-limitations「An API write can succeed
@@ -98,7 +98,7 @@ Notes can sit in folders; list_folders shows their paths.`;
  * #381：rename 也要 `if_match`（標題指紋）——「all but append and rename」→「all but append」；「the fingerprint of what you replace」
  * 對 rename 也成立（它換掉的是標題，給的是標題的指紋）。
  * #180：five → six ops（rename 不要 `if_match`）；末句不改——rename／move 不改內容，copy 把內容寫進一篇**新**筆記且不留紀錄，
- * 由 `COPY_NOTE_DESCRIPTION` 明說（spec §4.5）。
+ * 由 `COPY_NOTE_DESCRIPTION` 明說。
  */
 const WRITE_INSTRUCTIONS =
   "Writing needs the notes:write scope. edit_note changes one note (six ops; all but append " +
@@ -107,10 +107,10 @@ const WRITE_INSTRUCTIONS =
 
 /**
  * 唯讀憑證的尾段——**刻意不提寫入工具的名字**，只講怎麼取得寫入權。
- * #247 §12：處置是在「設定 → 授權」的 token 列上（鉛筆→行內編輯）開啟編輯權、再重新連線——`tools.listChanged` 是
+ * #247：處置是在「設定 → 授權」的 token 列上（鉛筆→行內編輯）開啟編輯權、再重新連線——`tools.listChanged` 是
  * `false`，client 不會自己重抓清單，升權後要重連才看得到寫入工具。引號內＝token 列與建立對話框上 toggle 的
  * 字樣（`settings.account.apiTokensScopeEdit`）。不提 `notes:move`（唯讀憑證沒有任何搬移相關工具）。
- * 字面 `notes:write`、`Settings` 刻意保留（S3 斷這兩個字樣）。
+ * 字面 `notes:write`、`Settings` 刻意保留（測試斷這兩個字樣）。
  */
 const READ_ONLY_INSTRUCTIONS =
   "This credential is read-only, so there are no tools here that change anything. To let it " +

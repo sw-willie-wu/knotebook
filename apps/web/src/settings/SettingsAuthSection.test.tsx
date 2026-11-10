@@ -94,13 +94,13 @@ function renderSection(fetchMock: ReturnType<typeof vi.fn>) {
   );
 }
 
-/** 一個登入服務＝以顯示名為名的資料列＋緊接的「＜名稱＞ details」明細列（spec 2026-10-13 settings-table §3 #4）。 */
+/** 一個登入服務＝以顯示名為名的資料列＋緊接的「＜名稱＞ details」明細列。 */
 const row = (name: string) => within(screen.getByRole("row", { name }));
 const details = (name: string) => within(screen.getByRole("row", { name: `${name} details` }));
 /** 名稱元素（列的 aria-labelledby 指向它）；圖示是它的前一個兄弟。 */
 const nameElementOf = (rowEl: HTMLElement) => document.getElementById(rowEl.getAttribute("aria-labelledby")!)!;
 
-describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
+describe("SettingsAuthSection（#187 /admin/auth）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -120,7 +120,7 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
     const legacy = row("SSO");
     expect(legacy.getByText(/Custom OIDC/)).toBeInTheDocument();
     expect(legacy.getByText(/Imported from OIDC_\*/)).toBeInTheDocument();
-    // Issuer 只在列上的 Issuer 欄：窄版重複段落已拿掉（spec §4）。
+    // Issuer 只在列上的 Issuer 欄：窄版重複段落已拿掉。
     expect(legacy.getByRole("cell", { name: "http://idp.lan" })).toBeInTheDocument();
     expect(screen.getAllByText("http://idp.lan")).toHaveLength(1);
     const legacyDetails = details("SSO");
@@ -358,7 +358,7 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
     const dialog = within(await screen.findByRole("dialog", { name: "Turn this sign-in service off?" }));
     fireEvent.click(dialog.getByRole("button", { name: "Turn off" }));
 
-    // Issuer 只在列上的 Issuer 欄一份（窄版重複段落已拿掉，spec §4）。
+    // Issuer 只在列上的 Issuer 欄一份（窄版重複段落已拿掉）。
     expect(await screen.findAllByText("http://other.lan")).toHaveLength(1);
     const refreshed = details("SSO");
     expect(refreshed.queryByText(/Connection OK/)).toBeNull();
@@ -453,7 +453,7 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
     expect(dialog.queryByText("After turning this off, you won't be able to sign in through a sign-in service yourself.")).not.toBeInTheDocument();
   });
 
-  it("provider-icon V5：名稱前有圖示（admin DTO 已換算的 icon）；upload 的 <img src> 等於 DTO icon.url；列名不變", async () => {
+  it("provider-icon：名稱前有圖示（admin DTO 已換算的 icon）；upload 的 <img src> 等於 DTO icon.url；列名不變", async () => {
     const url = `/api/auth/providers/${CUSTOM.id}/icon?v=5`;
     const server = fakeServer([LEGACY, { ...CUSTOM, iconKind: "upload", icon: { type: "upload", url } }]);
     renderSection(server.fetchMock);
@@ -465,7 +465,7 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
     expect(nameElementOf(screen.getByRole("row", { name: "SSO" })).previousElementSibling).toHaveAttribute("data-provider-icon", "generic");
   });
 
-  // 「Icon」鈕是 RowIconButton：外觀（ghost、無實心底）由它自己的測試與 panel-no-solid-buttons 守，這裡只查名稱與行為（spec §5.2）。
+  // 「Icon」鈕是 RowIconButton：外觀（ghost、無實心底）由它自己的測試與 panel-no-solid-buttons 守，這裡只查名稱與行為。
   it("provider-icon：兩列都有「Icon」鈕，Edit／Delete 照在；點了開出圖示對話框", async () => {
     const server = fakeServer([LEGACY, CUSTOM]);
     renderSection(server.fetchMock);
@@ -481,7 +481,7 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
   });
 });
 
-describe("登入服務表格（spec 2026-10-13 settings-table §3 #4）", () => {
+describe("登入服務表格", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -490,7 +490,7 @@ describe("登入服務表格（spec 2026-10-13 settings-table §3 #4）", () => 
     vi.unstubAllGlobals();
   });
 
-  it("L1 表名 Sign-in services；欄名 Service／Issuer／Linked／Creates accounts／Actions／Enabled；列內：Issuer、已連結人數、Test connection／Icon／Edit／Delete（依序，spec §2.7、§3 #4）、「Enabled ＜名稱＞」開關", async () => {
+  it("L1 表名 Sign-in services；欄名 Service／Issuer／Linked／Creates accounts／Actions／Enabled；列內：Issuer、已連結人數、Test connection／Icon／Edit／Delete（依序）、「Enabled ＜名稱＞」開關", async () => {
     renderSection(fakeServer([LEGACY, CUSTOM]).fetchMock);
     const table = await screen.findByRole("table", { name: "Sign-in services" });
     expect(within(table).getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual(["Service", "Issuer", "Linked", "Creates accounts", "Actions", "Enabled"]);
@@ -541,7 +541,7 @@ describe("登入服務表格（spec 2026-10-13 settings-table §3 #4）", () => 
     expect(dialog.queryByText("Linked accounts: 7")).toBeNull();
   });
 
-  it("L4 「Add sign-in service」是 outline（面板層級動作，§4.8）", async () => {
+  it("L4 「Add sign-in service」是 outline（面板層級動作）", async () => {
     renderSection(fakeServer([]).fetchMock);
     const add = await screen.findByRole("button", { name: "Add sign-in service" });
     expect(add.className).not.toMatch(/(^|\s)bg-(primary|brand|brand-deep)(\s|$)/);
@@ -593,7 +593,7 @@ describe("client ID 尚未填入（#299）", () => {
   });
 });
 
-describe("服務表的自動建帳開關（PR-C C-13）", () => {
+describe("服務表的自動建帳開關", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();

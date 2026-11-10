@@ -22,7 +22,7 @@ import {
 import { EMPTY_FOLDER_INDEX, indexFolders, type FolderIndex } from "./folder-index";
 
 /**
- * 逐層目的地清單（資料夾 spec §6.11.1–§6.11.3、§6.10「批次的目的地」；PR-3b-2 T2）。
+ * 逐層目的地清單。
  * fixture：個人資料夾 A ⊃ A1、B；群組 G（member：create＋edit）有 GF ⊃ GF1；群組 H（member）無資料夾；群組 R（只讀）；共享資料夾 SF。
  * 斷言形一律比 `[kind, label, 有沒有 drill, disabled]`。
  */
@@ -284,7 +284,7 @@ describe("DL10 深度上限（server：parentDepth + height > FOLDER_DEPTH_MAX�
   const DEEP = indexFolders([A, A1, B, ...D]);
   const source = batch({ movingFolders: [A] }); // A 高度 2
 
-  it("點進 D1 › D2 › D3：here（D3，3＋2＝5）可按、D4（4＋2＝6）tooDeep", () => {
+  it("點進 D1 › D2 › D3：here（3＋2＝5）可按、D4（4＋2＝6）tooDeep", () => {
     const path: DestPathStep[] = ["D1", "D2", "D3"].map((folderId) => ({ kind: "folder", folderId }));
     expect(shape(level(source, path, DEEP))).toEqual([BACK, ["here", "Move here", false, null], ["folder", "D4", false, "tooDeep"]]);
   });
@@ -436,7 +436,7 @@ describe("noteDestSource 與 spaceKey", () => {
   });
 });
 
-describe("字串（spec §6.16 逐字）", () => {
+describe("字串", () => {
   const get = (obj: unknown, path: string): unknown =>
     path.split(".").reduce<unknown>((o, k) => (o && typeof o === "object" ? (o as Record<string, unknown>)[k] : undefined), obj);
 

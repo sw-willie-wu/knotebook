@@ -8,7 +8,7 @@ import { buildDestinationLevel, type DestItem, type DestPathStep, type DestSourc
 import { DestinationPickerDialog } from "./DestinationPickerDialog";
 import { EMPTY_FOLDER_INDEX, indexFolders } from "./folder-index";
 
-// 目的地選擇框（#181 PR-2c T5 的 DP1–DP5；PR-3b-2 T6a 改成一次一層：DPf1–DPf5）。
+// 目的地選擇框（#181；一次一層：DPf1–DPf5）。
 // 層內容一律由 T2 的 `buildDestinationLevel` 產生（與 SelectActionBar 同一支）。
 
 type Props = Parameters<typeof DestinationPickerDialog>[0];
@@ -28,7 +28,7 @@ function mine(mode: "move" | "copy", movingFolders: FolderDto[] = []): DestSourc
   return { mode, current: PERSONAL, makeCopy: mode === "copy", others: [TEAM], locations: [null], movingFolders };
 }
 
-/** PR-2c 形（沒有上半部、沒有資料夾）：與 SelectActionBar 的過渡接法同形。 */
+/** 形（沒有上半部、沒有資料夾）：與 SelectActionBar 的過渡接法同形。 */
 function flat(mode: "move" | "copy"): DestSource {
   return { mode, current: null, makeCopy: false, others: mode === "move" ? [TEAM] : [PERSONAL, TEAM], locations: [], movingFolders: [] };
 }
@@ -73,8 +73,8 @@ describe("DestinationPickerDialog", () => {
     await i18n.changeLanguage("en");
   });
 
-  // ── PR-2c 既有案（DP1–DP5），依一次一層的新 props 改寫（T6a）
-  it("DP1 copy（PR-2c 形）：My notes、Team 依序，沒有「Groups」小標；圖示 user／users；按 Team → onPick 群組根層", () => {
+  // ── 既有案（DP1–DP5），依一次一層的新 props 改寫
+  it("DP1 copy：My notes、Team 依序，沒有「Groups」小標；圖示 user／users；按 Team → onPick 群組根層", () => {
     const { onPick } = renderPicker({ mode: "copy", level: level(flat("copy"), [], EMPTY_FOLDER_INDEX) });
     expect(within(dialog()).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["My notes", "Team"]);
     expect(within(dialog()).queryByText("Groups")).toBeNull();
@@ -90,7 +90,7 @@ describe("DestinationPickerDialog", () => {
     expect(onPick).toHaveBeenCalledWith({ kind: "place", space: PERSONAL, folder: null });
   });
 
-  it("DP2 move（PR-2c 形）：沒有 My notes，只有 Team；沒有「Groups」小標", () => {
+  it("DP2 move：沒有 My notes，只有 Team；沒有「Groups」小標", () => {
     renderPicker({ mode: "move" });
     expect(within(dialog()).queryByRole("button", { name: "My notes" })).toBeNull();
     expect(within(dialog()).queryByText("Groups")).toBeNull();
@@ -147,7 +147,7 @@ describe("DestinationPickerDialog", () => {
     expect(onPick).not.toHaveBeenCalled();
   });
 
-  // ── PR-3b-2 T6a：一次一層
+  // ── 一次一層
   it("DPf1 第一層：A（, open）、B、分隔線、Team 依序；分隔線是 li[role=separator]；點「A, open」→ onDrill、點 B → onPick", () => {
     const { onDrill, onPick } = renderPicker({ level: level(mine("move")) });
     expect(rows()).toEqual(["A, open", "B", "---", "Team"]);
@@ -215,7 +215,7 @@ describe("DestinationPickerDialog", () => {
     expect(item("B")).toHaveFocus();
   });
 
-  it("DPf2 換層後整層都反灰（選了 A、B：兩個 self、Team crossSpace）→ 焦點給 footer 的 Cancel（Fix round 1）", () => {
+  it("DPf2 換層後整層都反灰（選了 A、B：兩個 self、Team crossSpace）→ 焦點給 footer 的 Cancel", () => {
     const path: DestPathStep[] = [{ kind: "folder", folderId: "A" }];
     const view = renderPicker({ level: level(mine("move", [FA, FB]), path), levelKey: JSON.stringify(path), hasFolders: true });
     expect(item("Back")).toBeEnabled();
@@ -236,7 +236,7 @@ describe("DestinationPickerDialog", () => {
     const line = within(dialog()).getByText(CROSS_SPACE);
     expect(line.tagName).toBe("P");
     expect(list()).not.toContainElement(line);
-    // 說明行列進對話框的可及描述（Fix round 1）。
+    // 說明行列進對話框的可及描述。
     expect(dialog()).toHaveAccessibleDescription(`Choose where the 3 items go. ${CROSS_SPACE}`);
 
     view.rerender({ level: level(mine("move")), hasFolders: false });

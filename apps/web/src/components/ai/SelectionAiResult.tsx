@@ -10,7 +10,7 @@ const SelectionAiPreview = lazy(() =>
   import("@/components/versions/VersionsLazy").then((m) => ({ default: m.SelectionAiPreview })),
 );
 
-/** 框內焦點轉移的去處（#263 §5.3）。 */
+/** 框內焦點轉移的去處（#263）。 */
 export type BoxFocusTarget = "cancel" | "container" | "editor";
 /** 由框提供：執行動作，若動作前焦點在框內、且動作有生效（回傳不是 false），就在轉場後把焦點放到 `target`。 */
 export type RunWithFocus = (action: () => boolean | void, target: BoxFocusTarget) => void;
@@ -31,10 +31,10 @@ function usePreviewKey(preview: AiPreview): number {
 }
 
 /**
- * 框選 AI 框的預覽態（#263 spec §5.4）：noChange 提示、inline diff 預覽（lazy）、按鈕列。由 `SelectionAiBox` 在 `phase === "done"` 時渲染。
+ * 框選 AI 框的預覽態（#263）：noChange 提示、inline diff 預覽（lazy）、按鈕列。由 `SelectionAiBox` 在 `phase === "done"` 時渲染。
  *
  * 預覽就緒：`previewReady = readyFor === state.preview`——由子元件的 `onReady` 推導，不用 effect 重設（子效果先於父效果執行、模組已快取時
- * 旗標會被父層 effect 永久清掉）。**未就緒時套用停用**（D4：沒看到就不能套），boundary 錯誤時同樣停用、框另留捨棄。
+ * 旗標會被父層 effect 永久清掉）。**未就緒時套用停用**（沒看到就不能套），boundary 錯誤時同樣停用、框另留捨棄。
  * `onReady` 直接傳 `setReadyFor`（穩定參照）：inline 箭頭函式會讓子層每次父層 render 都多跑一輪 cleanup／ready。
  *
  * 按鈕列：未套用 → 套用／捨棄／重試（錨點非 ok 時只剩捨棄）；已套用（direct 自動套用）→ 還原（錨點非 ok 時停用）／關閉。

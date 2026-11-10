@@ -107,7 +107,7 @@ describe("resolveParseSettings", () => {
   });
   it("環境變數覆寫（空字串＝沒設；前後空白容許）", () => {
     const r = resolveParseSettings({ PARSE_WORKERS: "3", PARSE_WORKER_MEMORY_MB: " 768 ", PARSE_TIMEOUT_MS: "4000", PARSE_QUEUE_WAIT_MS: "" }, files({}, 8));
-    // 排隊等待沒設：跟著生效的時限走（4 × 4000 + 5000，審查 r4 I4）
+    // 排隊等待沒設：跟著生效的時限走（4 × 4000 + 5000）
     expect(r).toMatchObject({ workers: 3, workerMemoryMb: 768, timeoutMs: 4000, queueWaitMs: 21_000 });
     expect(r.from).toEqual({ workers: "env", workerMemoryMb: "env", timeoutMs: "env", queueWaitMs: "default" });
     expect(r.workersSource).toBe("env");
@@ -130,7 +130,7 @@ describe("resolveParseSettings", () => {
   });
 });
 
-describe("排隊等待的預設（審查 r4 I4）", () => {
+describe("排隊等待的預設", () => {
   it("沒設 PARSE_QUEUE_WAIT_MS：4 × PARSE_TIMEOUT_MS ＋ 5 秒（預設 45 秒），不短於最長的一件工作（批次寫回規劃 3× 預算＋1×、轉換 3×）", () => {
     expect(DEFAULT_PARSE_QUEUE_WAIT_MS).toBe(45_000);
     expect(DEFAULT_PARSE_QUEUE_WAIT_MS).toBeGreaterThan((PARSE_FILE_BUDGET_FACTOR + 1) * DEFAULT_PARSE_TIMEOUT_MS);

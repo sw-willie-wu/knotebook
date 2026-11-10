@@ -20,8 +20,8 @@ describe("crossesBucketBoundary（15 分桶邊界；半開區間 [start, end)、
   });
 });
 
-describe("selectPrunable（rev 3 具體向量；newest-per-bucket，三層聯集之外全刪）", () => {
-  it("now=2026-08-06T12:00:00Z 的具體向量：保留集合恰為 brief 逐字寫死的那組，其餘全刪", () => {
+describe("selectPrunable（具體向量；newest-per-bucket，三層聯集之外全刪）", () => {
+  it("now=2026-08-06T12:00:00Z 的具體向量：保留集合恰為下面寫死的那組，其餘全刪", () => {
     const now = new Date("2026-08-06T12:00:00Z");
     const existing: Date[] = [];
 
@@ -44,7 +44,7 @@ describe("selectPrunable（rev 3 具體向量；newest-per-bucket，三層聯集
     }
     expect(existing.length).toBe(36 + 9 + 9);
 
-    // brief 逐字寫死的保留集合（獨立算過）：
+    // 寫死的保留集合（獨立算過）：
     const retainedIso = new Set(
       [
         // 15分層：{11:10, 11:25, 11:40, 11:55}

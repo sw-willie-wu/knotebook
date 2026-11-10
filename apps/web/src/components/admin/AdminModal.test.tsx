@@ -9,7 +9,7 @@ import { ThemeProvider } from "@/theme";
 import { AppRoutes } from "@/App";
 import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
-// 站台管理 modal（`/admin/*`，#247 §7）：真 `AppRoutes`（驗的是 guard 串接、兩棵樹與 layout route 有沒有接對）。
+// 站台管理 modal（`/admin/*`，#247）：真 `AppRoutes`（驗的是 guard 串接、兩棵樹與 layout route 有沒有接對）。
 // 前身 `pages/AdminPage.test.tsx`（#174、#201）——本檔取代它。
 
 function fakeResponse(status: number, body?: unknown): Response {
@@ -80,7 +80,7 @@ function renderAt(entry: string | { pathname: string; state?: unknown }, fetchMo
 }
 
 /**
- * §5.1 的「不閃設定面板」負面判準：轉址過程中掛進 DOM 的任何 `[role=dialog]`，可及名稱（`aria-labelledby` 指到的
+ * 「不閃設定面板」負面判準：轉址過程中掛進 DOM 的任何 `[role=dialog]`，可及名稱（`aria-labelledby` 指到的
  * `DialogTitle` 文字）不得是設定面板的標題「Settings」。只記錄、不判斷「必須等於目的地」（群組 modal 會先是備用標題）。
  * 記 `addedNodes`（含子孫）而不是回呼當下 `querySelectorAll`——閃一下的節點可能在回呼跑之前就被移除了（同本檔
  * 「不先閃一下 modal」那案）；標題也先在被加入的子樹裡找（節點已脫離 document 時 `getElementById` 找不到）。
@@ -107,7 +107,7 @@ function watchDialogTitles() {
   return { titles, stop: () => observer.disconnect() };
 }
 
-describe("AdminModal（/admin/*，#247 §7）", () => {
+describe("AdminModal（/admin/*，#247）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
   });
@@ -115,7 +115,7 @@ describe("AdminModal（/admin/*，#247 §7）", () => {
     vi.unstubAllGlobals();
   });
 
-  it("M1 五項（nav 可及名稱 Site admin，§8）：Users／Groups／Sign-in／Storage plans／AI agents；沒有「Back to notes」；/admin/users 是 aria-current", async () => {
+  it("M1 五項（nav 可及名稱 Site admin）：Users／Groups／Sign-in／Storage plans／AI agents；沒有「Back to notes」；/admin/users 是 aria-current", async () => {
     renderAt("/admin/users", mockFetch(() => ADMIN_USER));
     const dialog = await screen.findByRole("dialog", { name: "Site admin" });
     const nav = within(dialog).getByRole("navigation", { name: "Site admin" });
@@ -170,7 +170,7 @@ describe("AdminModal（/admin/*，#247 §7）", () => {
   });
 
   it.each([["/settings/users"], ["/admin"], ["/admin/auth"], ["/admin/versions"]])(
-    "M5（Review Focus 5）%s 轉到站台 modal 的過程不閃設定面板（中途掛進的 dialog 標題從不是 Settings）",
+    "M5 %s 轉到站台 modal 的過程不閃設定面板（中途掛進的 dialog 標題從不是 Settings）",
     async (from) => {
       const watcher = watchDialogTitles();
       try {
@@ -211,7 +211,7 @@ describe("AdminModal（/admin/*，#247 §7）", () => {
     }
   });
 
-  it("M8 「Storage plans」頁同時有方案表、版本總開關與保留政策表單（§7.0）", async () => {
+  it("M8 「Storage plans」頁同時有方案表、版本總開關與保留政策表單", async () => {
     renderAt("/admin/storage", mockFetch(() => ADMIN_USER));
     const dialog = await screen.findByRole("dialog", { name: "Site admin" });
     expect(await within(dialog).findByRole("heading", { level: 1, name: "Storage plans" })).toBeInTheDocument();

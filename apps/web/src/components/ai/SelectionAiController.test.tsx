@@ -41,7 +41,7 @@ async function mount() {
   return ai;
 }
 
-describe("SelectionAiController（#263 §5.3：工具列壓制與 AI 鈕）", () => {
+describe("SelectionAiController（#263：工具列壓制與 AI 鈕）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
   });
@@ -71,7 +71,7 @@ describe("SelectionAiController（#263 §5.3：工具列壓制與 AI 鈕）", ()
     expect(ai.calls).toHaveLength(1);
   });
 
-  it("RF1：Ctrl+A 全選後開框 → 工具列收起（全選算在 target 內）", async () => {
+  it("Ctrl+A 全選後開框 → 工具列收起（全選算在 target 內）", async () => {
     await mount();
     act(() => {
       editor._tiptapEditor.commands.selectAll();
@@ -90,7 +90,7 @@ describe("SelectionAiController（#263 §5.3：工具列壓制與 AI 鈕）", ()
     expect(screen.queryByRole("button", { name: "AI" })).not.toBeInTheDocument();
   });
 
-  it("AI 項是一顆 icon 鈕：沒有下拉、沒有 aria-expanded（§5.1）", async () => {
+  it("AI 項是一顆 icon 鈕：沒有下拉、沒有 aria-expanded", async () => {
     await mount();
     selectInBlock(editor, "p1", 0, 5);
     const button = await screen.findByRole("button", { name: "AI" });
@@ -98,7 +98,7 @@ describe("SelectionAiController（#263 §5.3：工具列壓制與 AI 鈕）", ()
     expect(button).not.toHaveAttribute("aria-expanded");
     expect(button.querySelector('svg[data-icon="sparkles"]')).not.toBeNull();
     fireEvent.click(button);
-    // 舊版的下拉清單畫在工具列根元素裡；新版按下只開框（Task 11 起框裡才有動作 chip）。
+    // 舊版的下拉清單畫在工具列根元素裡；新版按下只開框（框裡才有動作 chip）。
     expect(within(toolbarRoot).queryByRole("button", { name: REWRITE.name })).not.toBeInTheDocument();
   });
 });

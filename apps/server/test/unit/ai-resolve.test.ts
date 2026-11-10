@@ -33,7 +33,7 @@ function snapshot(models: AiModelRow[], providers: AiProviderRow[]): AiSnapshot 
   return { models, providers };
 }
 
-describe("resolveActionModel（純記憶體判定，spec §13.2）", () => {
+describe("resolveActionModel（純記憶體判定）", () => {
   it("綁定 model 可用 → 直取，不看其他候選", () => {
     const bound = model({ id: "m-bound", providerId: "provider-1" });
     // isDefault 的另一筆刻意排更前——若 helper 誤把「綁定可用」也拿去跟回退候選比較

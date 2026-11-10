@@ -1,5 +1,5 @@
 /**
- * #175 §6.9：`writeSlugInTx`（交易內寫 slug 的 savepoint helper）與 `insertNoteWithAutoSlug` 的 `inTx` 模式。
+ * #175：`writeSlugInTx`（交易內寫 slug 的 savepoint helper）與 `insertNoteWithAutoSlug` 的 `inTx` 模式。
  * 「搶先寫入」以 `beforeWrite`／`beforeInsert` 縫在探測後、寫入前用**另一條連線**（`db`，已 commit）插同名列造出。
  */
 import { describe, expect, it } from "vitest";
@@ -11,7 +11,7 @@ import { insertNoteWithAutoSlug } from "../src/notes/create.js";
 import { buildTestApp } from "./helpers.js";
 import { seedGroup, seedNote, seedUser } from "./group-helpers.js";
 
-describe("#175 writeSlugInTx（§6.9）", () => {
+describe("#175 writeSlugInTx", () => {
   it("群組 scope 撞名 → -2、寫入後該列屬於目標群組", async () => {
     const { db } = await buildTestApp();
     const u = await seedUser(db);
@@ -90,7 +90,7 @@ describe("#175 writeSlugInTx（§6.9）", () => {
       }, { excludeNoteId: n.id, beforeWrite: async c => { seen.push(c); if (!c.startsWith("untitled-")) await seedNote(db, { groupId: g.id }, { slug: c }); } }),
     );
     expect(s).toMatch(/^untitled-[0-9a-f]{8}$/);
-    // 重試輪數釘死：5 輪探測（x、x-2…x-5）全被搶先，第 6 輪才退位 fallback（M8：門檻 `>` 改 `>=` 會少一輪）
+    // 重試輪數釘死：5 輪探測（x、x-2…x-5）全被搶先，第 6 輪才退位 fallback（門檻 `>` 改 `>=` 會少一輪）
     expect(seen.slice(0, 5)).toEqual(["x", "x-2", "x-3", "x-4", "x-5"]);
     expect(seen).toHaveLength(6);
     expect(seen[5]).toMatch(/^untitled-/);
@@ -118,7 +118,7 @@ describe("#175 writeSlugInTx（§6.9）", () => {
   });
 });
 
-describe("#175 insertNoteWithAutoSlug 的 inTx 模式（§6.5 (4)）", () => {
+describe("#175 insertNoteWithAutoSlug 的 inTx 模式（(4)）", () => {
   it("交易內撞名 → savepoint 重試成功、同交易之後還能寫；回傳的列屬於該群組", async () => {
     const { db } = await buildTestApp();
     const u = await seedUser(db);

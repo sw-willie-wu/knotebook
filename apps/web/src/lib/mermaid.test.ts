@@ -97,7 +97,7 @@ describe("renderMermaid", () => {
   });
 
   it("⚠ 以 suppressErrorRendering:true 初始化（否則 render 語法錯會把錯誤圖留在 document.body）", async () => {
-    // 2026-08-27 用瀏覽器看畫面才發現：預設設定下 `render()` 的拋錯路徑會在 body 留下一張
+    // 用瀏覽器看畫面才發現：預設設定下 `render()` 的拋錯路徑會在 body 留下一張
     // 「Syntax error in text」的圖，逃出元件邊界、每重繪一次多一張。當時靠先 `parse()` 擋；
     // #344 改成這個設定（mermaid 在兩條拋錯路徑都先清掉暫時容器），body 沒有殘留由 e2e 06 在真瀏覽器驗。
     renderMock.mockResolvedValue({ svg: "<svg></svg>" });
@@ -125,7 +125,7 @@ describe("renderMermaid", () => {
     await renderMermaid("graph TD; A-->B;", "light");
     expect(initializeMock).toHaveBeenCalledWith(
       // `htmlLabels` 兩個位置都要：全域鍵是 mermaid 11 的新位置，`flowchart.*` 是舊版相容。
-      // 只斷言其中一個的話，另一個被刪掉不會轉紅（第 2 輪審查突變實測）。
+      // 只斷言其中一個的話，另一個被刪掉不會轉紅（突變實測）。
       expect.objectContaining({
         securityLevel: "strict",
         startOnLoad: false,

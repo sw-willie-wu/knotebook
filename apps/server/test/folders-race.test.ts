@@ -1,6 +1,6 @@
 /**
- * 資料夾 PR-3a T12：併發（上）——刪資料夾與各操作（spec docs/superpowers/specs/2026-10-22-folders-design.md §6.18 第三點、
- * §5.4；plan 附錄 A 鎖序表）。以拋棄式 pg 實跑：一方卡在自己交易內的縫，另一方送出後以 `waitForLockWaiters` 確認它真的在等鎖，
+ * 資料夾：併發（上）——刪資料夾與各操作（第三點、
+ * 鎖序表）。以拋棄式 pg 實跑：一方卡在自己交易內的縫，另一方送出後以 `waitForLockWaiters` 確認它真的在等鎖，
  * 放行後斷言結果只會是指定的那一種。每組兩種先後（「刪先」與「對方先」）；每案都斷言沒有 409 `server_busy`（40P01 經
  * `isRetryableTxError` 會變成它）與資料一致（沒有指向不存在資料夾的筆記或放置、活筆記沒有快照）。
  */
@@ -250,7 +250,7 @@ describe("RF-PO 刪資料夾與放置出子樹", () => {
     await expectConsistent(s.pool);
   });
 
-  it("放置先：刪重評述詞、不再鎖到它 → 刪 200、trashedNoteIds 不含它、它的閘門被收（M1）、筆記在新位置活著", async () => {
+  it("放置先：刪重評述詞、不再鎖到它 → 刪 200、trashedNoteIds 不含它、它的閘門被收、筆記在新位置活著", async () => {
     const s = await scene();
     const t = await personalTree(s);
     const n = await noteIn(s, { ownerId: t.u }, t.G);
@@ -321,7 +321,7 @@ describe("RF-TR 刪資料夾與單篇移入垃圾桶", () => {
   });
 });
 
-describe("RF-PG 刪資料夾與多 id 永久刪除（含已還原回子樹的活 id 與子樹內的垃圾桶 id，m5）", () => {
+describe("RF-PG 刪資料夾與多 id 永久刪除（含已還原回子樹的活 id 與子樹內的垃圾桶 id）", () => {
   it("刪先：永久刪除等筆記鎖 → 垃圾桶的兩篇被刪、已還原的活 id 略過；刪 200、trashedNoteIds 不含被永久刪除的", async () => {
     const s = await scene();
     const t = await personalTree(s);
@@ -404,7 +404,7 @@ describe("RF-RS 刪資料夾與還原（照路徑重建到子樹內）", () => {
     await expectConsistent(s.pool);
   });
 
-  it("還原先：還原把 G 重建在 F 裡並 commit；刪拿到鎖後鎖到這篇沒開閘門的活筆記 → 409 conflict、什麼都沒刪、閘門全收（gate r1 I2）", async () => {
+  it("還原先：還原把 G 重建在 F 裡並 commit；刪拿到鎖後鎖到這篇沒開閘門的活筆記 → 409 conflict、什麼都沒刪、閘門全收", async () => {
     const s = await scene();
     const t = await setup(s);
     const [rr, dr] = await race(s, "note-restore-locked", () => restore(s.app, t.u, [t.r]), () => delFolder(s.app, t.u, t.F));
@@ -540,7 +540,7 @@ describe("RF-RN 刪資料夾與改名子資料夾", () => {
   });
 });
 
-describe("RF-CP 刪資料夾與複製進子樹（I-1）", () => {
+describe("RF-CP 刪資料夾與複製進子樹", () => {
   interface CpForm {
     name: string;
     setup(s: Scene): Promise<{ by: string; F: string; G: string; others: string[]; src: string; srcAt: string | null; title: string; body: { folderId: string; groupId?: string } }>;

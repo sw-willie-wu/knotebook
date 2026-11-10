@@ -3,7 +3,7 @@ import type { IdentitiesDto, OidcRedirectDto } from "@knotebook/shared";
 import { SESSION_QUERY_KEY } from "@/auth/useSession";
 import { api } from "./client";
 
-/** #187 §8.3：`GET /api/auth/identities`（session-only）。 */
+/** #187：`GET /api/auth/identities`（session-only）。 */
 export const IDENTITIES_QUERY_KEY = ["identities"] as const;
 
 export function useIdentities(): UseQueryResult<IdentitiesDto> {
@@ -19,7 +19,7 @@ export function useUnlinkIdentity() {
   });
 }
 
-/** §7.6：手動連結起點。B7：一律送 JSON body `{}`（server 拒收無 body 的 POST）。成功後呼叫端 `location.assign(url)`。 */
+/** 手動連結起點。一律送 JSON body `{}`（server 拒收無 body 的 POST）。成功後呼叫端 `location.assign(url)`。 */
 export function useStartLink() {
   return useMutation({
     mutationFn: (providerId: string) =>
@@ -27,7 +27,7 @@ export function useStartLink() {
   });
 }
 
-/** §8.4：加上密碼。成功後 server 已重簽本人 session（tokenVersion +1）；refetch session（hasPassword）與登入方式（unlinkable 會變）。 */
+/** 加上密碼。成功後 server 已重簽本人 session（tokenVersion +1）；refetch session（hasPassword）與登入方式（unlinkable 會變）。 */
 export function useSetPassword() {
   const queryClient = useQueryClient();
   return useMutation({

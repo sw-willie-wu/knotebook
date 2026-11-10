@@ -15,7 +15,7 @@ import {
 } from "./helpers.js";
 
 /**
- * 快捷鍵介紹頁（Ctrl+/ modal）的事實驗證（plan 2026-11-02-shortcuts-modal T1）。
+ * 快捷鍵介紹頁（Ctrl+/ modal）的事實驗證。
  *
  * 清單上的每一條快捷鍵／打字觸發字，都要有一支在真瀏覽器跑過的 e2e：test 名稱尾端的 `[sc:<id>]` 標籤把條目與測試連起來
  * （`shortcut-e2e-coverage.test.ts` 會掃本目錄 `*.spec.ts` 的原始文字，清單 id ⇔ 標籤雙向核對）。說明文字裡寫的行為都在這裡量過；
@@ -664,7 +664,7 @@ test("簡報模式：F 切換全螢幕（從選單進入時已是全螢幕） [s
   await expect.poll(isFs).toBe(true); // 從選單進簡報時已經在全螢幕
   await page.keyboard.press("f");
   await expect.poll(isFs).toBe(false); // F 先退出
-  await page.waitForTimeout(350); // 防連退窗口（§6.6-1）：語意上的間隔，不是等待條件
+  await page.waitForTimeout(350); // 防連退窗口：語意上的間隔，不是等待條件
   await page.keyboard.press("f");
   await expect.poll(isFs).toBe(true); // 再按回到全螢幕
 
@@ -735,7 +735,7 @@ test.describe.serial("ai facts", () => {
 // ── 借用既有 e2e 的條目（標籤在那些檔裡）：presentOverview、presentExit → 22-presentation；dragNoteToEditor → 42-folders-drag 42-7；
 //    dragNoteToFolder → 42-folders-drag 42-1、42-4。
 
-// ── 快捷鍵介紹頁（Ctrl+/ modal）本身的行為（T9）──────────────────────────────────────────────────
+// ── 快捷鍵介紹頁（Ctrl+/ modal）本身的行為──────────────────────────────────────────────────
 
 const shortcutsDialog = (page: Page): Locator => page.getByRole("dialog", { name: "Keyboard shortcuts" });
 
@@ -959,8 +959,8 @@ test.describe("shortcuts dialog", () => {
     await expect(page.getByRole("dialog")).toHaveCount(0);
   });
 
-  // K3 已知副作用：`/` 要按 Shift 的鍵盤配置（例：德文 Ctrl+Shift+7，key="/"、keyCode=55）。prosemirror-keymap 在有 Ctrl 時以 keyCode 退回比對，
-  // 於編輯器內會命中 BlockNote 的 Mod-Shift-7（轉編號清單）。這案用 CDP 模擬，只記錄實測結果並斷言它（T10 據此寫 known-limitations）。
+  // 已知副作用：`/` 要按 Shift 的鍵盤配置（例：德文 Ctrl+Shift+7，key="/"、keyCode=55）。prosemirror-keymap 在有 Ctrl 時以 keyCode 退回比對，
+  // 於編輯器內會命中 BlockNote 的 Mod-Shift-7（轉編號清單）。這案用 CDP 模擬，只記錄實測結果並斷言它（docs/known-limitations.md 據此寫）。
   test("E8 德文式 Ctrl+Shift+7（key=/）：編輯器內與編輯器外各自的結果", async ({ page }) => {
     test.setTimeout(90_000);
     await startNote(page, "dlg-de");
@@ -987,7 +987,7 @@ test.describe("shortcuts dialog", () => {
     await expect(shortcutsDialog(page)).toHaveCount(1); // 正向：內文外照常開（重試式斷言，不靠固定等待）
     const onBody = { dialog: await shortcutsDialog(page).count() };
     test.info().annotations.push({ type: "e8-on-body", description: JSON.stringify(onBody) });
-    // 實測（2026-11-02，Chromium、CDP 模擬）：內文裡那段被轉成編號清單、沒有開快捷鍵頁；內文外照常開。docs/known-limitations.md 據此寫。
+    // 實測（Chromium、CDP 模擬）：內文裡那段被轉成編號清單、沒有開快捷鍵頁；內文外照常開。docs/known-limitations.md 據此寫。
     expect(inEditor).toEqual({ blockType: "numberedListItem", dialog: 0 });
     expect(onBody).toEqual({ dialog: 1 });
   });

@@ -1,5 +1,5 @@
 /**
- * 在線頭像列的 awareness 欄位（spec §8／§19-1）。`knotebook` 欄只增不改形，`v` 讓 #312 可並存；
+ * 在線頭像列的 awareness 欄位。`knotebook` 欄只增不改形，`v` 讓 #312 可並存；
  * 欄位刻意不含任何網址，頭貼只以 `AvatarRef` 表達。
  */
 import type { AvatarRef } from "./avatar.js";

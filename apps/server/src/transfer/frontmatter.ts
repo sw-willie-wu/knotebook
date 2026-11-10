@@ -1,17 +1,17 @@
 /**
- * bulk transfer spec 2026-11-02 §6.4：一篇檔案的 frontmatter（寫出）；§9.1：讀入（`readNoteFile`，PR-2）。
+ * bulk transfer：一篇檔案的 frontmatter（寫出）；讀入（`readNoteFile`）。
  *
- * 鍵序固定（§6.4 的表）：`knotebook`、`id`、`title`、`role`、`base`、`url`。`title` 一律 `JSON.stringify`（逸出 `"`、`\`、
+ * 鍵序固定（表）：`knotebook`、`id`、`title`、`role`、`base`、`url`。`title` 一律 `JSON.stringify`（逸出 `"`、`\`、
  * 換行，所以永遠單行；讀法以 `"` 開頭 → `JSON.parse`，逐字往返）。其餘值是 uuid／角色名／16 hex／站內路徑，原樣寫。
  * 本文原樣接在第二條 `---` 之後（就是整篇匯出原文，不正規化）。
  */
 import { UUID_RE } from "@knotebook/shared";
 import { normalizeBody } from "./normalize.js";
 
-/** §21 D4：檔案格式版本。 */
+/** 檔案格式版本。 */
 export const TRANSFER_FILE_VERSION = 1;
 
-/** §9.1：frontmatter 的結束行 `---` 必須在前幾行內（1 起算第 200 行以內）。 */
+/** frontmatter 的結束行 `---` 必須在前幾行內（1 起算第 200 行以內）。 */
 export const FRONTMATTER_SCAN_LINES = 200;
 
 export type ReadFile =
@@ -19,7 +19,7 @@ export type ReadFile =
   | { kind: "new"; title: string | undefined; folderId: string | undefined; body: string }
   | { kind: "error"; message: string };
 
-/** §9.1 三種讀法：`"` 開頭 → JSON；`'…'` → YAML 單引號（`''` 還原成 `'`）；其他 → 原樣。`raw` 已去頭尾空白。 */
+/** 三種讀法：`"` 開頭 → JSON；`'…'` → YAML 單引號（`''` 還原成 `'`）；其他 → 原樣。`raw` 已去頭尾空白。 */
 export function parseScalar(raw: string): { ok: true; value: string } | { ok: false } {
   if (raw.startsWith('"')) {
     try {
@@ -40,17 +40,17 @@ const BASE_RE = /^[0-9a-f]{16}$/;
 const UNSTORABLE = /[\0]|\p{Surrogate}/u;
 
 const bad = (message: string): ReadFile => ({ kind: "error", message });
-/** 認得 front matter 的行（8000 探索測試 N7：冒號前可以有空白或 tab，`id :` 也算；`base:` 也算，好讓「有 base 沒 id」能被擋下）。 */
+/** 認得 front matter 的行（冒號前可以有空白或 tab，`id :` 也算；`base:` 也算，好讓「有 base 沒 id」能被擋下）。 */
 const MARKER_LINE = /^(?:knotebook|id|base)[ \t]*:/;
-/** 8000 探索測試 N7：有 `base` 卻沒有（認得出的）`id`——當成新檔會多建一篇，改回 400。 */
+/** 有 `base` 卻沒有（認得出的）`id`——當成新檔會多建一篇，改回 400。 */
 export const BASE_WITHOUT_ID_MESSAGE = "The front matter has a base but no id. This is a downloaded file: keep its original id line and send it again.";
-/** 8000 探索測試 B（HTTP 層，#372 起英文）；審查 M5：觸發條件含 `base:` 與冒號前的空白（`MARKER_LINE`）。 */
+/** B（HTTP 層，#372 起英文）；觸發條件含 `base:` 與冒號前的空白（`MARKER_LINE`）。 */
 export const UNCLOSED_FRONT_MATTER_MESSAGE =
   "The front matter has no closing `---`: the file starts with `---` and has a `knotebook:`, `id:` or `base:` line (spaces allowed before the colon) in its first 200 lines, but no `---` line closes it.";
 
 /**
- * §9.1：讀入一篇檔（`text`＝已 UTF-8 解碼的整個 body）。全部是純計算、在任何 DB 查詢之前；錯誤訊息不帶任何值。
- * 順序（plan T2）：① 去 BOM、CRLF → LF ② 含 NUL → 錯 ③ 辨識 frontmatter ④ 只讀四鍵、重複 → 錯 ⑤ 三種讀法
+ * 讀入一篇檔（`text`＝已 UTF-8 解碼的整個 body）。全部是純計算、在任何 DB 查詢之前；錯誤訊息不帶任何值。
+ * 順序：① 去 BOM、CRLF → LF ② 含 NUL → 錯 ③ 辨識 frontmatter ④ 只讀四鍵、重複 → 錯 ⑤ 三種讀法
  * ⑥ 值含 NUL／落單代理 → 錯 ⑦ 有 `id`：uuid（轉小寫）＋必須有 16 hex 的 `base` ⑧ 沒 `id`：新增，`folder_id` 轉小寫
  * ⑨ `title` 行存在但為空 → 錯 ⑩ 本文經 `normalizeBody`。
  */
@@ -68,7 +68,7 @@ export function readNoteFile(text: string): ReadFile {
       }
     }
     if (end !== -1 && !lines.slice(1, end).some(l => MARKER_LINE.test(l))) end = -1;
-    // 8000 探索測試 B：開頭 `---`、前 FRONTMATTER_SCAN_LINES 行內有 `knotebook:`／`id:`、卻找不到收尾的 `---` → 400（不再把整檔當內文、
+    // 開頭 `---`、前 FRONTMATTER_SCAN_LINES 行內有 `knotebook:`／`id:`、卻找不到收尾的 `---` → 400（不再把整檔當內文、
     // 誤建一篇新筆記，或把 front matter 寫進既有筆記）。
     else if (end === -1 && lines.slice(1, limit).some(l => MARKER_LINE.test(l))) return bad(UNCLOSED_FRONT_MATTER_MESSAGE);
   }

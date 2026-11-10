@@ -1,24 +1,24 @@
 /**
- * #108 §8.6 `edit_note`：改一篇筆記的一段或整篇。與 `POST /api/notes/:id/edits` 逐欄同形、
- * 同驗證規則、同必填矩陣（D18：**寫入側不發明第二套契約**）。
- * `rename` 是 MCP 獨有的第六個 op；REST `/edits` 刻意不加（spec §4.6）。
+ * #108 `edit_note`：改一篇筆記的一段或整篇。與 `POST /api/notes/:id/edits` 逐欄同形、
+ * 同驗證規則、同必填矩陣（**寫入側不發明第二套契約**）。
+ * `rename` 是 MCP 獨有的第六個 op；REST `/edits` 刻意不加。
  *
  * ⚠ **必填矩陣的單一真相**＝`notes/schemas.ts` 的 `editBodySchema`（五支）＋本檔的 `RENAME_BRANCH`，兩者由
- * `mcpEditBodySchema` 合成（#180 spec §4.1）。raw shape 只是把
+ * `mcpEditBodySchema` 合成（#180）。raw shape 只是把
  * 欄位攤平給模型看——**不得把整個 discriminatedUnion 當 `inputSchema` 傳給 `registerTool`**：
  * 它**不會 throw、執行期驗證照常**，但公告出去的 JSON Schema 會靜默變成
- * `{"type":"object","properties":{}}`——**模型看不到任何欄位**（實測 2026-09-08：entry 從
- * raw shape 的 641 bytes 掉到 126）。守衛＝`mcp-edit-note.test.ts` 的 S1，它是**那個症狀**
+ * `{"type":"object","properties":{}}`——**模型看不到任何欄位**（實測：entry 從
+ * raw shape 的 641 bytes 掉到 126）。守衛＝`mcp-edit-note.test.ts`，它是**那個症狀**
  * （properties 空掉）唯一的守衛。
  * ⚠ **誠實記下**：這條突變在**今天的接線上**還會順帶讓八案一起紅，但那是另一個原因——
  * raw shape 有 `note_id` 而 `editBodySchema` 的每個分支都 `.strict()`，union 會把它判成
  * `unrecognized_keys`，所以每一發呼叫都失敗。**那個副作用是巧合**：union 哪天多一個
- * `note_id` 鍵，八案就全部恢復綠，只剩 S1 紅。**不要把那八案當成這條的守衛。**
+ * `note_id` 鍵，八案就全部恢復綠，只剩對應的那案紅。**不要把那八案當成這條的守衛。**
  * ⚠ 餵進 `mcpEditBodySchema` 的物件要**逐鍵條件展開**：`.strict()` 看的是 `Object.keys`，
  * `{op:"append", section_id: undefined}` 會被判 `unrecognized_keys`（`delete_section` ＋
- * `markdown: undefined` 同一顆雷）。守衛＝S4 那兩發。
+ * `markdown: undefined` 同一顆雷）。守衛＝`mcp-edit-note.test.ts` 的對應兩發。
  *
- * ⚠ **`outline` 帶逐段指紋是 M12 的明文例外**（D18 的 REST 對等：`docs/ai-editing.md` 逐字
+ * ⚠ **`outline` 帶逐段指紋是明文例外**（與 REST 對等：`docs/ai-editing.md`
  * 承諾「連續寫入不必回頭再讀」）；**錯誤側一律不帶**——`fingerprint_mismatch` 代表你的視圖
  * 已經過期，遞一個新權杖讓你盲目重試是錯的（案 20）。
  * ⚠ `fingerprint_mismatch` 的 outline 走 `loadNoteDoc` + `outlineOf`，**不走 `readNoteContent`**
@@ -26,7 +26,7 @@
  * 不含任何 markdown）。這讓「不含 markdown」是結構性的，而不是靠記得刪欄位。
  *
  * ⚠ `section_id` **從來不進 SQL**（`applyEdit` 內部是對 outline 做記憶體裡的 `find`），
- * 所以不變量 S 對它只有前兩關（格式 guard ＋ NUL），由 `SEC` 承擔（M9／M14）。
+ * 所以不變量 S 對它只有前兩關（格式 guard ＋ NUL），由 `SEC` 承擔。
  */
 import { z } from "zod";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -58,7 +58,7 @@ export const EDIT_NOTE_DESCRIPTION =
   // ⚠ #146：**不是 owner**。撤回端點 `POST /api/notes/:id/edits/:editId/revert` 的角色閘門是
   //   `role === "none"` → 404、`role === "viewer"` → 403（`routes/notes.ts`），**editor 撤得回**。
   //   而「can undo it」不得寫成無條件——條件全文在下面 `editId` 的 `.describe()`。
-  // #180：主詞收窄成 `A change to the content`——為了不把 rename 包進去（[[g:model-facing-string-claims]] 限定詞兩方向）。
+  // #180：主詞收窄成 `A change to the content`——為了不把 rename 包進去（限定詞兩方向都要查）。
   // #381：rename 也要 `if_match`（標題指紋），刪掉「the last title written wins」——MCP rename 不再蓋掉它沒看過的標題
   //   （網頁改標題仍是 last-write-wins，但那不是這支工具的行為，這裡不講）。
   "edit_note reply; the title's (`titleFingerprint`) from read_note_outline or a previous rename's reply. " +
@@ -70,9 +70,9 @@ export const EDIT_NOTE_DESCRIPTION =
 /**
  * ⚠ **`op` 是唯一沒有與 REST 共用物件的欄位**：那邊是 `discriminatedUnion` 的五個 `z.literal`，
  * 這邊要的是一個帶 `.describe()` 的 `z.enum`（raw shape 表達不了 per-op 必填矩陣）。兩份字串
- * 集合由 `test/unit/mcp-write-schemas.test.ts` 對起來——#180：MCP 是 REST 五 ∪ {rename}（spec §4.6 的刻意偏離），由
- * 同檔 U1 對起來。
- * 其餘欄位逐字重用 `notes/schemas.ts` 的 base（M14），建法一律 `BASE.optional().describe()`。
+ * 集合由 `test/unit/mcp-write-schemas.test.ts` 對起來——#180：MCP 是 REST 五 ∪ {rename}（刻意偏離），由
+ * 同檔的測試對起來。
+ * 其餘欄位逐字重用 `notes/schemas.ts` 的 base，建法一律 `BASE.optional().describe()`。
  */
 export const editNoteInput = {
   note_id: NOTE_ID.describe("The note's id, as returned by list_notes or search_notes."),
@@ -86,8 +86,8 @@ export const editNoteInput = {
     "The new markdown. Required for every operation except delete_section and rename. Colors are HTML, as read_note_section " +
       `returns them: colored text is <span style="color:red">…</span> inside the markdown; a block's own color is ` +
       `e.g. <p data-background-color="yellow">…</p>. Only these names are accepted: ${PALETTE_COLORS.join(", ")}. ` +
-      // 並排 PR-2（spec §11.5，docs/ai-editing.md#columns／#sizes）：「Writes take 2 to 4」刻意只講寫入——讀出可能有 5 欄以上（§11.2）；
-      // 尺寸句不提表格格子裡的圖片（Q3，PR-4 才收）；showPreview 關閉的圖片不讀出寬度，所以主詞是「shown at a set width」。
+      // 並排（docs/ai-editing.md#columns／#sizes）：「Writes take 2 to 4」刻意只講寫入——讀出可能有 5 欄以上；
+      // 尺寸句不提表格格子裡的圖片（格子裡的圖片寬度還不支援）；showPreview 關閉的圖片不讀出寬度，所以主詞是「shown at a set width」。
       `Side-by-side columns are HTML, exactly as read_note_section returns them: <div data-kb-columns style="display:flex;gap:16px"> holding ` +
       `<div data-kb-column style="flex:N"> columns (N is the relative width, 0.1 to 10, at most two decimals), each of these tags and its </div> ` +
       "on a line of its own, each column with markdown inside, a blank line after its opening tag and another before its </div>. " +
@@ -103,12 +103,12 @@ export const editNoteInput = {
       "read_note_outline or a previous rename's reply. A title change does not change the content's fingerprints, and a " +
       "content change does not change `titleFingerprint`."
   ),
-  // #180 W1：與 `TITLE` 同一物件（U2）。
+  // #180：與 `TITLE` 同一物件。
   title: TITLE.optional().describe("The note's new title. Only rename takes it."),
 };
 
 /**
- * #180 spec §4.1：MCP 側的必填矩陣。前五支**就是** `editBodySchema.options` 的同一批物件（U1 以 `toBe` 逐支斷言）；
+ * #180：MCP 側的必填矩陣。前五支**就是** `editBodySchema.options` 的同一批物件（測試以 `toBe` 逐支斷言）；
  * REST 的 `editBodySchema` 一字不改，所以 REST 收到 `op:"rename"` 照舊 `invalid_union_discriminator`、收到 `title` 照舊 `unrecognized_keys`。
  */
 // #381：`if_match` 必填（`FP` 與其他五支同一物件）＝標題指紋；不帶 → `invalid_body`（Check: if_match.）。
@@ -119,11 +119,11 @@ export const editNoteOutput = {
   // ⚠ #146：撤回的條件全文放在這裡（`.describe()` 沒有長度預算，`instructions` 有）。
   //   條件逐一對得上原始碼：`revert.ts:65-68` 的 `editRevertable` ＋ `apply.ts:67` 的
   //   `RETENTION = 100`（同交易內裁切）。
-  //   ⚠ **`editRevertable` 是兩條分支，不是一條**（r2 審查抓到）：「寫進去的 block 還在、重算
+  //   ⚠ **`editRevertable` 是兩條分支，不是一條**：「寫進去的 block 還在、重算
   //   指紋等於 `after_fingerprint`」只是**非刪除**那四個 op；`delete_section` 寫進去的 block 就是
   //   它移走的那些，沒有 after 指紋可比，改判「錨點還在頂層 ＋ before_blocks 尚未被還原」。
   //   `edit_note` 對 `delete_section` 一樣回 `editId`，所以這裡必須兩條都講到。
-  //   ⚠ **刪除那條分支是兩個條件的 AND**（r3 審查抓到本字串只寫了前半）：
+  //   ⚠ **刪除那條分支是兩個條件的 AND**：
   //   `anchorId !== null && topIds.includes(anchorId) && !beforeIds.some(id => topIds.includes(id))`。
   //   **後半才是實務上會踩到的那個**：人在瀏覽器按 Ctrl-Z 把那段救回來（Yjs undo 沿用原 id），
   //   錨點還在、但 `before_blocks` 回到頂層 ⇒ 判為「這次刪除已經被還原」，撤回回 409 stale
@@ -169,8 +169,8 @@ export const editNoteOutput = {
       "How many `[[wikilinks]]` in what you wrote were left as plain text because no note you can see has that " +
         "exact title, or more than one does."
     ),
-  // #180 W5：rename 的回應只有 title／url（＋截斷旗標；#381 起再加 titleFingerprint）。四欄改選配是為了讓 rename 過 SDK 的 `validateToolOutput`（spec F49）——
-  // 四欄必填時每一發成功的 rename 都會變成 SDK 自產錯誤。五個內容 op 照舊回四欄（R12）。守衛＝R1 的「isError 不存在」。
+  // #180：rename 的回應只有 title／url（＋截斷旗標；#381 起再加 titleFingerprint）。四欄改選配是為了讓 rename 過 SDK 的 `validateToolOutput`——
+  // 四欄必填時每一發成功的 rename 都會變成 SDK 自產錯誤。五個內容 op 照舊回四欄。守衛＝rename 案的「isError 不存在」。
   title: z.string().max(MCP_TEXT_MAX).optional().describe("After a rename, the note's new title."),
   titleTruncated: z.literal(true).optional(),
   // #381：回應欄位一律 camelCase（同 editId／fingerprint）；算的是標題全文，不是上面截過的 `title`。
@@ -190,14 +190,14 @@ export interface EditNoteArgs {
   title?: string;
 }
 
-/** #175 §9.2：不指名 owner——群組筆記沒有 owner，能給編輯權的是能管理群組成員的人；個人筆記則是 owner。
+/** #175：不指名 owner——群組筆記沒有 owner，能給編輯權的是能管理群組成員的人；個人筆記則是 owner。
  *  「whoever manages your access to it」兩者都涵蓋。守衛＝`mcp-groups.test.ts` 的整句比對＋`not.toMatch(/owner/i)`。 */
 export const FORBIDDEN_MESSAGE =
   "You can read this note but not change it. Ask whoever manages your access to it for editing rights.";
 const MISMATCH_MESSAGE =
   "The note changed since you read it, so this write was not applied. The current outline is below; read what you " +
   "want to change again and retry with a fresh `if_match`.";
-/** #180 spec §4.3（code `conflict`）：UPDATE 0 列而列仍在的成因只有歸屬改變——個人筆記被移進群組、或群組被刪＋轉移。 */
+/** #180（code `conflict`）：UPDATE 0 列而列仍在的成因只有歸屬改變——個人筆記被移進群組、或群組被刪＋轉移。 */
 export const RENAME_CONFLICT_MESSAGE =
   "The note was moved into a group, or its group was deleted, after your access was checked, so its title was not changed. Try again.";
 /**
@@ -225,14 +225,14 @@ export function invalidBodyMessage(op: string, issues: readonly { path: Property
 }
 
 export async function editNote(args: EditNoteArgs, ctx: McpToolCtx): Promise<CallToolResult> {
-  // 1. §10.2 D23／M13：scope、session 跳過、`tokenWrite` 三件事的**單一入口**，排在
+  // 1. scope、session 跳過、`tokenWrite` 三件事的**單一入口**，排在
   //    `resolveRole` 之前（REST 的 `tokenWrite` 在 preHandler 扣，`role === "none"` 的 404
   //    一樣啃桶——MCP 對齊 REST）。
   const denied = requireWriteScope(ctx);
   if (denied !== null) return denied;
 
-  // 2. 必填矩陣（D-N；#180 起是 `mcpEditBodySchema`）。⚠ `note_id` **不進去**（每個分支都 `.strict()`，
-  //    多一把鍵就是 `unrecognized_keys`）；`op` 恆帶；其餘四個**逐鍵條件展開**（P15，#180 加 title）。
+  // 2. 必填矩陣（#180 起是 `mcpEditBodySchema`）。⚠ `note_id` **不進去**（每個分支都 `.strict()`，
+  //    多一把鍵就是 `unrecognized_keys`）；`op` 恆帶；其餘四個**逐鍵條件展開**（#180 加 title）。
   const parsed = mcpEditBodySchema.safeParse({
     op: args.op,
     ...(args.section_id === undefined ? {} : { section_id: args.section_id }),
@@ -242,19 +242,19 @@ export async function editNote(args: EditNoteArgs, ctx: McpToolCtx): Promise<Cal
   });
   if (!parsed.success) return toolError("invalid_body", invalidBodyMessage(args.op, parsed.error.issues));
 
-  // 2a. #180 §4.2：rename 排在 `resolveRole`、`edit` 桶、`writes.available` **之前**——它不碰 live doc，
-  //     不該因為部署沒有寫入 service 而 throw，也不扣 `edit` 桶（W6；REST title PATCH 本來無節流，F18）。
+  // 2a. #180：rename 排在 `resolveRole`、`edit` 桶、`writes.available` **之前**——它不碰 live doc，
+  //     不該因為部署沒有寫入 service 而 throw，也不扣 `edit` 桶（REST title PATCH 本來無節流）。
   if (parsed.data.op === "rename") return renameViaMcp(ctx, args.note_id, parsed.data.title, parsed.data.if_match);
   const data = parsed.data;
 
-  // 3. L3：每支工具自己 `resolveRole`。`none` 一律當「找不到」，與「存在但你沒權限」用**同一個
-  //    字串**（M2／案 17，重用 `note-read.ts` 那一份）。
+  // 3. 每支工具自己 `resolveRole`。`none` 一律當「找不到」，與「存在但你沒權限」用**同一個
+  //    字串**（案 17，重用 `note-read.ts` 那一份）。
   const role = await resolveRole(ctx.db, ctx.userId, args.note_id);
   if (role === "none") return toolError("not_found", NOTE_NOT_FOUND_MESSAGE);
   if (role === "viewer") return toolError("forbidden", FORBIDDEN_MESSAGE);
 
   // 4. `edit` 桶在**角色檢查之後**扣（`role === "none"` 的 404 不啃它，比照 `routes/notes.ts`），
-  //    但在任何 mount／直連之前——429 是拒絕案，不得留下任何落盤或紀錄（M6）。桶 key 是裸 userId。
+  //    但在任何 mount／直連之前——429 是拒絕案，不得留下任何落盤或紀錄。桶 key 是裸 userId。
   if (!ctx.limiters.edit.consume(ctx.userId)) return toolError("too_many_requests", WRITE_RATE_LIMITED_MESSAGE);
 
   // 5. 結構上到不了：`edit_note` 只在 `collab && editing` 都在時才註冊。留著是因為兩者在型別上
@@ -277,17 +277,17 @@ export async function editNote(args: EditNoteArgs, ctx: McpToolCtx): Promise<Cal
     if (out.kind === "busy") return toolError("server_busy", "Another write to this note is in progress. Try again in a moment.");
     if (out.kind === "parser_busy") return toolError("server_busy", PARSER_BUSY_TOOL_MESSAGE);
     if (out.kind === "too_large") return toolError("note_too_large", noteTooLargeMessage(out.limitBytes), { limitBytes: out.limitBytes });
-    // #181：授權之後被移入垃圾桶（或正被移入）——與不存在同一句（AG2）。
+    // #181：授權之後被移入垃圾桶（或正被移入）——與不存在同一句。
     if (out.kind === "gone") return toolError("not_found", NOTE_NOT_FOUND_MESSAGE);
     if (out.code === "fingerprint_mismatch") return mismatchError(ctx, args);
     // `section_not_found` **不帶 outline**——取頁規則對它沒有定義，不發明第二條。
     if (out.code === "section_not_found") return toolError("section_not_found", SECTION_NOT_FOUND_MESSAGE);
-    // 筆記本身太大或太複雜（不是你寫的內容）：重試沒用（審查 r4 M4）。
+    // 筆記本身太大或太複雜（不是你寫的內容）：重試沒用。
     if (out.code === "too_complex") return toolError("too_complex", NOTE_WRITE_TOO_COMPLEX_TOOL_MESSAGE);
     return toolError(out.code, writeFailureMessage(out.code, out.detail));
   }
 
-  // D-J 的取頁規則：section-scoped 的三個 op 從落點那一段起算，`replace_all`／`append` 從 0。
+  // 取頁規則：section-scoped 的三個 op 從落點那一段起算，`replace_all`／`append` 從 0。
   const sectionOffset = SECTION_SCOPED.has(args.op) ? (out.result.afterSectionIndex ?? 0) : 0;
   const page = buildOutlinePage(out.result.outline, sectionOffset, { withFingerprints: true });
   return toolResult({
@@ -317,10 +317,10 @@ async function mismatchError(ctx: McpToolCtx, args: EditNoteArgs): Promise<CallT
 }
 
 /**
- * #180 §4.2 第 3 步。權限＝PATCH title（`permissions.edit`，W6）；對個人／分享／群組筆記 `!permissions.edit` ⇔ `role === "viewer"`（F28）。
- * 不寫 `note_ai_edits`、不動 `last_edited_*`、不 touch presence、不進寫入佇列；`updated_at` 會動（F17）。
+ * #180 第 3 步。權限＝PATCH title（`permissions.edit`）；對個人／分享／群組筆記 `!permissions.edit` ⇔ `role === "viewer"`。
+ * 不寫 `note_ai_edits`、不動 `last_edited_*`、不 touch presence、不進寫入佇列；`updated_at` 會動。
  * owner handle 補查與 REST `ownerHandleOf` 同一個 FK 不變量（查不到 → throw，`runTool` 轉 `internal`）；**用 `row.ownerId`，不用 `ctx.userHandle`**
- * （分享 editor 改別人的筆記要回 owner 的 handle——R2）。
+ * （分享 editor 改別人的筆記要回 owner 的 handle）。
  * #381：`ifMatch`＝標題指紋，比對與寫入都在 `renameNoteTitle` 裡（pre-read 比對＋條件式 UPDATE，見該檔檔頭）；授權排在比對之前，
  * 所以看不到這篇的人拿到的是 not_found，不是 fingerprint_mismatch。
  */

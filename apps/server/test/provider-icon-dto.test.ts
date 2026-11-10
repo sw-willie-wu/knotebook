@@ -5,7 +5,7 @@ import { cookieOf, seedUser } from "./group-helpers.js";
 import { adminApp } from "./helpers/admin-auth.js";
 import { expectedIcon, expectNoIconBytes, seedIconMatrix } from "./helpers/provider-icon.js";
 
-describe("provider DTO 的 icon 換算（spec §5、§8.1 S7／S8）", () => {
+describe("provider DTO 的 icon 換算", () => {
   it("S7 GET /api/auth/config：三範本 × 五種 kind 各帶換算後的 icon；不出線 template／iconKind 與圖檔位元組", async () => {
     const { app, db } = await buildTestApp();
     const matrix = await seedIconMatrix(db);

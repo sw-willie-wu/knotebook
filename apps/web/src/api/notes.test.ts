@@ -33,7 +33,7 @@ function client() {
   return new QueryClient({ defaultOptions: { queries: { retry: false } } });
 }
 
-describe("patchNotesListLastEdited（spec §5.2）", () => {
+describe("patchNotesListLastEdited", () => {
   it("PL1 沒有 [\"notes\"] 快取：不建立快取項", () => {
     const qc = client();
     patchNotesListLastEdited(qc, "a", NEW);
@@ -95,7 +95,7 @@ describe("useDeleteNote", () => {
     vi.unstubAllGlobals();
   });
 
-  it("AT8 移入成功後失效 ['trash']，原有 ['notes']／['note', id]／['backlinks'] 照舊", async () => {
+  it("移入成功後失效 ['trash']，原有 ['notes']／['note', id]／['backlinks'] 照舊", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 204, json: () => Promise.reject(new Error("no body")) } as unknown as Response));
     const qc = client();
     const spy = vi.spyOn(qc, "invalidateQueries");
@@ -112,7 +112,7 @@ describe("useCreateNote × 資料夾", () => {
     vi.unstubAllGlobals();
   });
 
-  it("NT-F1 mutateAsync({ folderId }) → POST /api/notes body 恰為 {\"folderId\":\"A\"}", async () => {
+  it("mutateAsync({ folderId }) → POST /api/notes body 恰為 {\"folderId\":\"A\"}", async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 201, json: () => Promise.resolve({ id: "n1" }) } as unknown as Response);
     vi.stubGlobal("fetch", fetchMock);
     const qc = client();
@@ -127,7 +127,7 @@ describe("useCreateNote × 資料夾", () => {
   });
 });
 
-describe("單篇查詢的 retry 選項（垃圾桶 T6：解析層 in_trash 不重試）", () => {
+describe("單篇查詢的 retry 選項（垃圾桶：解析層 in_trash 不重試）", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });

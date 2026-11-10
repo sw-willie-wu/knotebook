@@ -1,5 +1,5 @@
 /**
- * #130 Task 8：`authenticateAny`（Bearer／session 雙路徑認證）與 `/api/mcp` 的
+ * #130：`authenticateAny`（Bearer／session 雙路徑認證）與 `/api/mcp` 的
  * Bearer challenge。
  *
  * ⚠ #108 之後 `GET /api/mcp` 不再是 501，而是**認證通過後**的 `405`（＋`Allow: POST`）——
@@ -93,7 +93,7 @@ describe("/api/mcp 的 method 形狀與 Bearer challenge", () => {
     const { token } = await seedToken(db);
     const res = await app.inject({ method: "GET", url: "/api/mcp", headers: { authorization: `Bearer ${token}` } });
     expect(res.statusCode).toBe(405);
-    // #108 D-D：RFC 9110 §15.5.6 的 MUST。405 的 body 是 JSON-RPC error 形（見 routes/mcp.ts）。
+    // #108：RFC 9110 §15.5.6 的 MUST。405 的 body 是 JSON-RPC error 形（見 routes/mcp.ts）。
     expect(res.headers.allow).toBe("POST");
     expect(res.json()).toEqual({
       jsonrpc: "2.0",
@@ -218,7 +218,7 @@ describe("/api/mcp 的 method 形狀與 Bearer challenge", () => {
 
   it("oauth grant 的 Bearer 連帶更新 oauth_clients.last_used_at（#132 的 I5 ① 依賴它）", async () => {
     const { app, db } = await buildTestApp();
-    // PR1 沒有建立 oauth grant 的產品路徑，直接插一列——這條分支的邏輯現在就在
+    // 目前沒有建立 oauth grant 的產品路徑，直接插一列——這條分支的邏輯現在就在
     // auth/bearer.ts 裡，必須有守衛，不能等 #132。
     const [user] = await db
       .insert(users)
@@ -253,7 +253,7 @@ describe("/api/mcp 的 method 形狀與 Bearer challenge", () => {
   });
 
   it("通過後 request.user 是 gate 投影的使用者、authKind 依路徑而異", async () => {
-    // token 路徑的 request.user 是 Task 9 三條 notes 路由做擁有權判定的依據——把它
+    // token 路徑的 request.user 是三條 notes 路由做擁有權判定的依據——把它
     // 設成 DB 的 api_tokens 列（而非 gate 的 user）測試不會紅，這裡用探針釘住。
     const { app, db } = await buildTestApp();
     app.get("/__test/whoami-auth", { preHandler: app.authenticateAny("notes:read") }, async request => ({
@@ -295,7 +295,7 @@ describe("/api/mcp 的 method 形狀與 Bearer challenge", () => {
     expect(res.headers["www-authenticate"]).toBeUndefined();
   });
 
-  it("spec §7：token 明文與 Authorization header 都不落 log", async () => {
+  it("token 明文與 Authorization header 都不落 log", async () => {
     const chunks: string[] = [];
     const sink = new Writable({
       write(chunk, _encoding, callback) {
@@ -314,7 +314,7 @@ describe("/api/mcp 的 method 形狀與 Bearer challenge", () => {
     expect(output.toLowerCase()).not.toContain("authorization");
   });
 
-  it("spec §7：5xx 的錯誤 log 記得 authKind（否則 request.authKind 是只寫不驗的死欄位）", async () => {
+  it("5xx 的錯誤 log 記得 authKind（否則 request.authKind 是只寫不驗的死欄位）", async () => {
     const chunks: string[] = [];
     const sink = new Writable({
       write(chunk, _encoding, callback) {
@@ -347,7 +347,7 @@ describe("/api/mcp 的 method 形狀與 Bearer challenge", () => {
   });
 });
 
-describe("notes 路由收 Bearer（D2 的允許清單）", () => {
+describe("notes 路由收 Bearer（允許清單）", () => {
   it("write token 打得動三條路由", async () => {
     const { app, db } = await buildTestApp();
     const { token } = await seedToken(db);
@@ -363,7 +363,7 @@ describe("notes 路由收 Bearer（D2 的允許清單）", () => {
 
   it("read token 打得動兩條 GET、打不動 POST（各路由的 required 值逐條釘住）", async () => {
     // 沒有這條，把 GET /api/notes/:ref 的 required 改成 notes:write 全套照樣綠——唯讀
-    // token 會被鎖在 MCP 最主要的讀取路由外。D2 允許清單的核心語意就是每列的 required。
+    // token 會被鎖在 MCP 最主要的讀取路由外。允許清單的核心語意就是每列的 required。
     const { app, db } = await buildTestApp();
     const writer = await seedToken(db);
     const created = await app.inject({
@@ -409,7 +409,7 @@ describe("notes 路由收 Bearer（D2 的允許清單）", () => {
     expect(res.headers["www-authenticate"]).toContain('error="insufficient_scope"');
   });
 
-  // #181 PR-2d AB：notes:delete 只多一個成員，REST 的 notes:write 判定與 /api/mcp 認證照常。
+  // #181 AB：notes:delete 只多一個成員，REST 的 notes:write 判定與 /api/mcp 認證照常。
   it("AB：讀寫刪除 token 打 POST /api/notes → 201、打 POST /api/mcp initialize → 200", async () => {
     const { app, db } = await buildTestApp();
     const { token } = await seedToken(db, { scope: "notes:read notes:write notes:delete" });
@@ -440,7 +440,7 @@ describe("notes 路由收 Bearer（D2 的允許清單）", () => {
     const cases = [
       { method: "PATCH" as const, url: `/api/notes/${noteId}`, payload: { title: "x" } },
       { method: "DELETE" as const, url: `/api/notes/${noteId}` },
-      // D8：collab-token 明文不收 Bearer
+      // collab-token 明文不收 Bearer
       { method: "POST" as const, url: `/api/notes/${noteId}/collab-token`, payload: {} },
     ];
     for (const c of cases) {

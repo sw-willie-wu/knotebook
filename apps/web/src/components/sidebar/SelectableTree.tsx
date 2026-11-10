@@ -14,9 +14,9 @@ import { visibleSelectionKeys, type SelectableTab } from "./select-model";
 import { noteLocationLabel, type LocationContext, type SidebarNode } from "./tree";
 
 /**
- * 一般 tab 選取模式的勾選樹（#181 PR-2c，spec §6.11、§6.10.2；資料夾 spec §6.10）：取代 NoteList 的清單內容（捲動容器不換）。
+ * 一般 tab 選取模式的勾選樹（#181）：取代 NoteList 的清單內容（捲動容器不換）。
  * 筆記列整列是 `<label>`＋勾選框，不是連結、沒有 ⋮。資料夾列＝折疊 chevron 鈕＋`<label>`（勾選框、資料夾圖示、名稱）：
- * `<button>` 不放進 `<label>`（無效 HTML，spec 缺陷 S2），沒有「＋」與 ⋮。群組 tab 的群組列只有折疊主鈕、不可勾。
+ * `<button>` 不放進 `<label>`（無效 HTML），沒有「＋」與 ⋮。群組 tab 的群組列只有折疊主鈕、不可勾。
  * 折疊與 NoteList 共用 `collapse.ts` 的同一把鍵。只准經 `SelectLazy` 引用。
  */
 
@@ -34,7 +34,7 @@ function onLabelClick(event: ReactMouseEvent<HTMLLabelElement>, key: string, onT
 }
 
 /**
- * memo：勾一列時其他列不重繪（plan gate r1 I2）——`note` 來自查詢資料、`location`／`onToggle` 由上層穩定；
+ * memo：勾一列時其他列不重繪——`note` 來自查詢資料、`location`／`onToggle` 由上層穩定；
  * 最近 tab 的位置行在列內算，才不會每次勾選都替每一列重算。
  */
 const SelectableNoteRow = memo(function SelectableNoteRow({
@@ -129,8 +129,8 @@ const SelectableFolderLabel = memo(function SelectableFolderLabel({
 });
 
 /**
- * 資料夾列：［折疊 chevron 鈕］［label：勾選框＋圖示＋名稱］。chevron 鈕的可及名稱＝資料夾名（§6.14；圖示 `aria-hidden`），
- * 點它只收合／展開、不勾；點 label 才勾（勾資料夾不連帶勾子項，§6.10）。
+ * 資料夾列：［折疊 chevron 鈕］［label：勾選框＋圖示＋名稱］。chevron 鈕的可及名稱＝資料夾名（圖示 `aria-hidden`），
+ * 點它只收合／展開、不勾；點 label 才勾（勾資料夾不連帶勾子項）。
  */
 function SelectableFolderNode({ node, ctx }: { node: Extract<SidebarNode, { kind: "folder" }>; ctx: TreeContext }) {
   const { t } = useTranslation();

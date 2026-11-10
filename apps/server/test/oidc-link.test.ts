@@ -54,7 +54,7 @@ async function linkRoundTrip(
   return { startRes, callback };
 }
 
-describe("POST /api/auth/oidc/link/:providerId（#187 §7.6、B7）", () => {
+describe("POST /api/auth/oidc/link/:providerId（#187、B7）", () => {
   it("200 {url}、封 state cookie；URL 是該 provider 的 authorization endpoint", async () => {
     const t = await twoProviders();
     const u = await insertPasswordUser(t.db);
@@ -78,7 +78,7 @@ describe("POST /api/auth/oidc/link/:providerId（#187 §7.6、B7）", () => {
     const t = await twoProviders({ limiters: freshLimiters({ oidcLogin: new FixedWindowLimiter({ limit: 1, windowMs: 60_000 }) }) });
     const id = t.provider("b").id;
     expect((await t.app.inject({ method: "POST", url: `/api/auth/oidc/link/${id}`, payload: {} })).statusCode).toBe(401);
-    // 有效 PAT（scope 足以通過 authenticateAny）、不帶 cookie：401 只能來自「只認 session」（Task 7 review r0 I1）。
+    // 有效 PAT（scope 足以通過 authenticateAny）、不帶 cookie：401 只能來自「只認 session」。
     const { token } = await seedTokenForUser(t.db, (await insertPasswordUser(t.db)).id);
     expect((await t.app.inject({ method: "POST", url: `/api/auth/oidc/link/${id}`, payload: {}, headers: bearer(token) })).statusCode).toBe(401);
     const flagged = await insertPasswordUser(t.db, { mustChangePassword: true });
@@ -109,7 +109,7 @@ describe("POST /api/auth/oidc/link/:providerId（#187 §7.6、B7）", () => {
     expect(res.json().error.code).toBe("identity_already_linked");
   });
 
-  it("§14.1-12 尾斜線形（gate r1-t1-9 M8）：provider 填 `B/`、resolved_issuer＝B → 預檢對到無斜線身分 → 409；resolved 未寫 → 預檢對不到 → 200（權威判斷在 callback 的 B2）", async () => {
+  it("尾斜線形：provider 填 `B/`、resolved_issuer＝B → 預檢對到無斜線身分 → 409；resolved 未寫 → 預檢對不到 → 200（權威判斷在 callback）", async () => {
     const resolved = await buildOidcApp({ providers: [{ key: "b", issuerUrl: `${B}/`, resolvedIssuer: B }] });
     const u = await insertPasswordUser(resolved.db);
     await resolved.db.insert(userIdentities).values({ userId: u.id, issuer: B, sub: "old" });
@@ -137,7 +137,7 @@ describe("POST /api/auth/oidc/link/:providerId（#187 §7.6、B7）", () => {
   });
 });
 
-describe("callback 的 intent: \"link\" 分支（#187 §8.1）", () => {
+describe("callback 的 intent: \"link\" 分支（#187）", () => {
   it("成功 → 302 /settings/login?linked=<id>、寫身分（last_login_at 有值）；不要求 email 相同；不簽新 session", async () => {
     const t = await twoProviders();
     const u = await insertPasswordUser(t.db);
@@ -151,7 +151,7 @@ describe("callback 的 intent: \"link\" 分支（#187 §8.1）", () => {
     expect(await lastLoginOf(t.db, u.id)).toBeNull(); // 已登入時連結第二個身分：不簽 session、不寫 users.last_login_at
   });
 
-  it("RF4：起點路徑的 provider id 大寫 → 照常連結（state 綁小寫 id，callback 不 oidc_state_mismatch）", async () => {
+  it("起點路徑的 provider id 大寫 → 照常連結（state 綁小寫 id，callback 不 oidc_state_mismatch）", async () => {
     const t = await twoProviders();
     const u = await insertPasswordUser(t.db);
     const { callback } = await linkRoundTrip(t, "b", await cookieOf(u.id), { sub: "sb" }, { providerIdInPath: t.provider("b").id.toUpperCase() });
@@ -169,7 +169,7 @@ describe("callback 的 intent: \"link\" 分支（#187 §8.1）", () => {
     expect(await identitiesOf(t.db, u.id)).toEqual([]);
   });
 
-  it("起點之後才被停用：session 檢查吃 gate 的 60 秒快取仍過 → 鎖內重驗擋下 → ?link_error=account_disabled、不寫入（§8.1 第 2 步）", async () => {
+  it("起點之後才被停用：session 檢查吃 gate 的 60 秒快取仍過 → 鎖內重驗擋下 → ?link_error=account_disabled、不寫入", async () => {
     const t = await twoProviders();
     const u = await insertPasswordUser(t.db);
     const { callback } = await linkRoundTrip(t, "b", await cookieOf(u.id), { sub: "sb-disabled" }, {
@@ -200,7 +200,7 @@ describe("callback 的 intent: \"link\" 分支（#187 §8.1）", () => {
     expect(await identitiesOf(t.db, w.id)).toEqual([{ issuer: B, sub: "first" }]);
   });
 
-  it("cookie 解開之前的失敗仍落 /login?error=（§7.3）：沒有 state cookie → oidc_state_mismatch", async () => {
+  it("cookie 解開之前的失敗仍落 /login?error=：沒有 state cookie → oidc_state_mismatch", async () => {
     const t = await twoProviders();
     const u = await insertPasswordUser(t.db);
     const cookies = await cookieOf(u.id);

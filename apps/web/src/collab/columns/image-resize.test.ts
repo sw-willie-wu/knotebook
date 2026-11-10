@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { collabUndoManager } from "@/collab/undo";
 import { IMG, P, mountEditor, row, shape, type AnyEditor, type PartialBlockLike } from "@/test/columns-fixtures";
 
-// spec 2026-10-21 columns-layout §7.3（PR-1：≤ 欄寬，不擴欄）、§17 #2。
+// 圖片寬度 ≤ 欄寬，不擴欄。
 
 /** 原生把手按下時往 wrapper 塞的那個全幅 capture 元素（core `createResizableFileBlockWrapper` 的 eventCaptureElement）。 */
 const CAPTURE = ":scope > div[style*='position: absolute']";
@@ -64,7 +64,7 @@ describe("欄內圖片把手", () => {
     expect(previewWidth(editor, "i1")).toBe(200);
   });
 
-  it("IR6 一次調寬自成一個撤銷步（共編，spec §7.4）：先打字不 stopCapturing 再拉圖，undo 一次只還原寬度、字還在", () => {
+  it("IR6 一次調寬自成一個撤銷步（共編）：先打字不 stopCapturing 再拉圖，undo 一次只還原寬度、字還在", () => {
     const mounted = mountEditor(inColumn(), { collab: true });
     cleanups.push(mounted.destroy);
     const { editor, container } = mounted;

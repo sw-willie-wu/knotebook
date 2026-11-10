@@ -11,10 +11,10 @@ import { expandAfterRestore } from "@/components/sidebar/folder-index";
 import { api, ApiFail } from "./client";
 
 /**
- * #181 垃圾桶（spec 2026-10-21 §6.3.4–§6.3.5、§6.7、§6.10）的 client 資料層。
+ * #181 垃圾桶的 client 資料層。
  * - 還原／永久刪除用純函式（`restoreTrashIds`／`purgeTrashIds`），hook 只是包一層：toast 的「復原」在筆記選單卸載之後才會被按，
- *   卸載後 `useMutation` 的 per-call 回呼不跑，所以呼叫端拿建立 toast 時捕捉的 `queryClient` 直接呼叫純函式（讀碼發現 5）。
- * - 清空＝把清單上全部 id 送 purge（spec §6.3.4-5）：只刪使用者看到的那批，之後才移入的不受影響。
+ *   卸載後 `useMutation` 的 per-call 回呼不跑，所以呼叫端拿建立 toast 時捕捉的 `queryClient` 直接呼叫純函式。
+ * - 清空＝把清單上全部 id 送 purge：只刪使用者看到的那批，之後才移入的不受影響。
  * - 每批 ≤ `TRASH_BATCH_MAX`、依序送；任一批失敗就停（409 `server_busy` 照一般錯誤處理），丟 `TrashBatchError` 帶已完成的部分。
  */
 
@@ -83,7 +83,7 @@ export function purgeTrashIds(ids: readonly string[]): Promise<TrashPurgeResultD
   );
 }
 
-/** 讀碼發現 27：還原成功的每篇蓋回常駐層（setQueryData(["note", id], note)），清掉移入時留下的 404 error 態。 */
+/** 還原成功的每篇蓋回常駐層（setQueryData(["note", id], note)），清掉移入時留下的 404 error 態。 */
 export function seedRestoredNotes(queryClient: QueryClient, restored: readonly NoteDto[]): void {
   for (const note of restored) queryClient.setQueryData(["note", note.id], note);
 }
@@ -101,11 +101,11 @@ export function trashErrorCause(err: unknown): unknown {
   return err instanceof TrashBatchError ? err.cause : err;
 }
 
-/** 移入／還原／永久刪除之後（不論成敗）要失效的 key（spec §6.10.1）。解析層前綴讓開著的「在垃圾桶裡」卡片在別處還原後重抓。 */
+/** 移入／還原／永久刪除之後（不論成敗）要失效的 key。解析層前綴讓開著的「在垃圾桶裡」卡片在別處還原後重抓。 */
 export function invalidateTrashRelated(queryClient: QueryClient, ids: readonly string[]): void {
   void queryClient.invalidateQueries({ queryKey: TRASH_QUERY_KEY });
   void queryClient.invalidateQueries({ queryKey: ["notes"] });
-  // 資料夾 spec §6.12：還原會照原路徑重建資料夾
+  // 資料夾：還原會照原路徑重建資料夾
   void queryClient.invalidateQueries({ queryKey: ["folders"] });
   void queryClient.invalidateQueries({ queryKey: ["backlinks"] });
   for (const id of ids) void queryClient.invalidateQueries({ queryKey: ["note", id] });
@@ -130,7 +130,7 @@ export function useRestoreTrash(): UseMutationResult<TrashRestoreResultDto, unkn
     onError: (err) => seedRestoredNotes(queryClient, partialRestored(err)),
     onSettled: (data, err, ids) => {
       invalidateTrashRelated(queryClient, ids);
-      // 資料夾 spec §6.8：還原後展開。必須在失效之後（見 expandAfterRestore）；分批中途失敗也展開已還原的。
+      // 資料夾：還原後展開。必須在失效之後（見 expandAfterRestore）；分批中途失敗也展開已還原的。
       void expandAfterRestore(queryClient, data?.restored ?? partialRestored(err));
     },
   });

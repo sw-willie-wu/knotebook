@@ -13,9 +13,9 @@ import type { NoteAccess } from "./service.js";
 // linksClock/deletedAt——用這個窄介面讓「完整 note row」與「union 出來的窄 row」都能
 // 結構相容地傳進來，不必為了餵同一個函式而多 select 用不到的欄位。
 // `ownerHandle` 不在 notes 表上（#122）——各回填點自行帶入：JOIN users（list/:ref/
-// by-path）、`request.user.handle`（POST——建立者即 owner，spec A12）、returning 後
+// by-path）、`request.user.handle`（POST——建立者即 owner）、returning 後
 // 補一次 SELECT users（PATCH——editor 改他人筆記時必須回 **owner 的** handle）。
-// #106 D6 的三欄同樣不在 `notes` 表的 owner JOIN 上：`editorHandle` 來自**另一個** users
+// #106 的三欄同樣不在 `notes` 表的 owner JOIN 上：`editorHandle` 來自**另一個** users
 // 別名（`editor`，LEFT JOIN `last_edited_by`），與 `ownerHandle` 是不同的兩個人。各回填點
 // 見下：list 兩支 union、`noteFieldsSelection`（:ref／by-path）、POST 帶 content 重讀、
 // PATCH returning 後補查。
@@ -36,7 +36,7 @@ export interface NoteFields {
   groupId: string | null;
   groupName: string | null;
   /**
-   * 呼叫者視角的位置（AG-F1）：owner／群組成員＝`notes.folder_id`；被分享者＝自己的放置。刻意不叫 `folderId`：spread 一整列
+   * 呼叫者視角的位置：owner／群組成員＝`notes.folder_id`；被分享者＝自己的放置。刻意不叫 `folderId`：spread 一整列
    * `notes`（PATCH 的 returning）補不上它，tsc 逼出每個呼叫點——否則擁有者的資料夾會原樣送給被分享者。
    */
   viewerFolderId: string | null;
@@ -45,9 +45,9 @@ export interface NoteFields {
 }
 
 /**
- * #175 §6.1：`access` 由呼叫端傳入——清單＝`accessFromListRow(row)`；單篇＝`resolveNoteAccess`（Q22 一致之後）；
- * 建立＝建立路徑自己算（§6.2，不得寫死 `"owner"`——gate r1 I3）。改吃 `NoteAccess` 讓 tsc 逼出每個呼叫點，
- * **但只保證「會改」、不保證「改對」**——正確值由各路徑的測試釘。`group` 對看得到這篇的人都有值（B7：看得到
+ * #175：`access` 由呼叫端傳入——清單＝`accessFromListRow(row)`；單篇＝`resolveNoteAccess`；
+ * 建立＝建立路徑自己算（不得寫死 `"owner"`）。改吃 `NoteAccess` 讓 tsc 逼出每個呼叫點，
+ * **但只保證「會改」、不保證「改對」**——正確值由各路徑的測試釘。`group` 對看得到這篇的人都有值（看得到
  * 群組筆記的只有成員）。
  */
 export function toNoteDto(note: NoteFields, access: Pick<NoteAccess, "role" | "permissions">): NoteDto {
@@ -104,8 +104,8 @@ export async function viewerFolderIdFor(
 }
 
 /**
- * 清單的 `sizeBytes`（spec D11 A）：Yjs 狀態位元組＋附件總和。兩個相關子查詢的外層欄寫成帶表名的字面——直接插 `${notes.id}`
- * 在單表 select 會渲染成裸 `"id"`，`uploads u` 子查詢裡的裸 `"id"` 解析成 `u.id`、靜默算錯（memory `g:drizzle-query-builder-gotchas`）；
+ * 清單的 `sizeBytes`：Yjs 狀態位元組＋附件總和。兩個相關子查詢的外層欄寫成帶表名的字面——直接插 `${notes.id}`
+ * 在單表 select 會渲染成裸 `"id"`，`uploads u` 子查詢裡的裸 `"id"` 解析成 `u.id`、靜默算錯；
  * 今天的三支都是 JOIN 形（會帶表名），字面讓它不依賴這件事。每次呼叫現造。
  */
 export function noteSizeBytesSql(): SQL.Aliased<number> {
@@ -116,7 +116,7 @@ export function noteSizeBytesSql(): SQL.Aliased<number> {
 }
 
 /**
- * GET :ref 與 by-path 共用的「完整列＋ownerHandle」select shape（A5 同形的結構保證）。每次現造（帶呼叫者 id）；FROM 必須
+ * GET :ref 與 by-path 共用的「完整列＋ownerHandle」select shape（同形的結構保證）。每次現造（帶呼叫者 id）；FROM 必須
  * `leftJoin(notePlacements, placementJoinOn(viewerId))`。
  */
 export function noteFieldsSelection(viewerId: string) {
@@ -139,11 +139,11 @@ export function noteFieldsSelection(viewerId: string) {
 }
 
 /**
- * 授權後的完整列讀取：JOIN users 帶 ownerHandle。不帶 `deleted_at` 條件——呼叫端都在閘口之後。I2（審查）：授權判定完到
+ * 授權後的完整列讀取：JOIN users 帶 ownerHandle。不帶 `deleted_at` 條件——呼叫端都在閘口之後。授權判定完到
  * 這裡的 re-select 之間存在競態視窗——若同時有另一個請求把這篇 note 刪了，這裡會查不到列。呼叫端對 undefined 明確回
  * 404，不拿 non-null assertion 賭「授權說有就一定還在」。
  * #175：LEFT JOIN——群組筆記沒有 owner（INNER 會讓群組筆記重讀落空，帶 content 建立的回應就退回 insert 那一列）。
- * 資料夾：`viewerId` 決定 `viewerFolderId` 取哪一欄（AG-F1）。
+ * 資料夾：`viewerId` 決定 `viewerFolderId` 取哪一欄。
  */
 export async function loadNoteFields(db: DbOrTx, noteId: string, viewerId: string): Promise<NoteFields | undefined> {
   const [row] = await db

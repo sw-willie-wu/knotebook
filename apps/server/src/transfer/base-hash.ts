@@ -1,10 +1,10 @@
 /**
- * bulk transfer spec 2026-11-02 §8.1–§8.2：基底的雜湊。只存雜湊、不存內容（§21 D2）。
+ * bulk transfer：基底的雜湊。只存雜湊、不存內容。
  *
  * - `H(x) = HMAC-SHA256(K, salt ‖ utf8(x))`；`K = sha256("${APP_SECRET}:transfer-base")`（namespace 導出子金鑰，
  *   同 `ai/crypto.ts` 的 `deriveKey`）。只拿到 DB、沒有 `APP_SECRET` 就無法對短行跑字典；鹽讓同一行在不同列的雜湊不同。
  * - `key_id = sha256(K)` 前 8 hex（同 `ai/crypto.ts` 的 `deriveKeyId`，那支未 export，照抄邏輯）。換了 `APP_SECRET`
- *   之後舊基底的 `key_id` 對不上，寫回回 409 `base_unavailable`（§8.1）。
+ *   之後舊基底的 `key_id` 對不上，寫回回 409 `base_unavailable`。
  * - 行雜湊：每行先 `lineKey`（trimEnd）；`kinds[i] === 1`（numbered 段的行）再 `normalizeNumbered`；取 HMAC 前 8 bytes 依序串接。
  */
 import { createHash, createHmac, randomBytes } from "node:crypto";

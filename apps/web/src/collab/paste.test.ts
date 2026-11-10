@@ -10,7 +10,7 @@ import { collabUndoManager } from "./undo";
 import { createSiteLinkConvertExtension, createSiteLinkPasteHook, type SiteLinkEnv, type SiteLinkEnvRef } from "./site-link-convert";
 import { attachTestElementRenderer } from "@/test/element-renderer";
 
-// 包一層照呼叫原實作的 spy（mermaid 轉換走 D25 helper）；不用 automock——同檔的真編輯器案要照常寫入。
+// 包一層照呼叫原實作的 spy（mermaid 轉換走保留欄的 helper）；不用 automock——同檔的真編輯器案要照常寫入。
 vi.mock("./columns/keep-columns", async (importOriginal) => {
   const m = await importOriginal<typeof import("./columns/keep-columns")>();
   return { ...m, replaceBlocksKeepColumns: vi.fn(m.replaceBlocksKeepColumns) };
@@ -42,7 +42,7 @@ describe("hasMarkdownStructure", () => {
   });
 
   /**
-   * 這一組全部是審查用真剪貼簿量到的**回歸案例**：它們的 `text/html` 是
+   * 這一組全部是用真剪貼簿量到的**回歸案例**：它們的 `text/html` 是
    * `<pre><code>`／帶連結粗體的段落，才是更好的來源。判斷若只要求「出現一個行首
    * 標記」，這些都會被我們接手，程式碼會被改壞、連結與粗體會被靜默丟掉。
    */
@@ -216,8 +216,8 @@ describe("createMarkdownPasteHandler", () => {
   /**
    * `documentAfterInsert` 是 issue #94 的關鍵：貼上**插完之後**文件長什麼樣。
    * 沒有它，`collectBlockIds(editor.document)` 會拋、`convertMermaid()` 靜默退化成 no-op
-   * ——把 `paste.ts` 的兩個 `convertMermaid()` 呼叫整個刪掉，測試也不會紅（2026-08-28
-   * 審查實測：兩個突變都存活）。
+   * ——把 `paste.ts` 的兩個 `convertMermaid()` 呼叫整個刪掉，測試也不會紅（
+   * 兩個突變都存活）。
    */
   function fakeEditor({
     inCodeBlock = false,
@@ -386,7 +386,7 @@ describe("createMarkdownPasteHandler", () => {
 
   // ── issue #94：貼上的 ```mermaid 轉成圖 ─────────────────────────────────
   //
-  // 兩條插入出口各有一個 `convertMermaid()`，**兩個都要有測試**：審查者實測把任一個刪掉，
+  // 兩條插入出口各有一個 `convertMermaid()`，**兩個都要有測試**：實測把任一個刪掉，
   // 693 條全綠（e2e 也只覆蓋 markdown 那條）。預設流程那條正是 `docs/diagrams.md` 主打的
   // 情境——從 AI 對話／GitHub README 複製，剪貼簿同時帶 text/plain 與 text/html。
 
@@ -445,7 +445,7 @@ describe("createMarkdownPasteHandler", () => {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 泛型三元組，走 repo 慣例
 type RealEditor = BlockNoteEditor<any, any, any>;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- ProseMirror Node 型別在 apps/web 值層級拿不到（memory knotebook-markdown-link-rule）
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- ProseMirror Node 型別在 apps/web 值層級拿不到
 type AnyNode = any;
 const ALPHA: SiteLinkCandidate = { id: "11111111-1111-4111-8111-111111111111", title: "Alpha", slug: "alpha", groupId: null, ownerHandle: "alice" };
 
@@ -569,7 +569,7 @@ describe("#269 W6 貼上的站內連結轉換（真編輯器、真 DOM paste 事
     ]);
   });
 
-  it("RF3（PM 層）：連結文字有粗體片段 ⇒ 一個 wikilink、label 串接；同 href 兩個連結各自轉、各自保留 label", () => {
+  it("PM 層：連結文字有粗體片段 ⇒ 一個 wikilink、label 串接；同 href 兩個連結各自轉、各自保留 label", () => {
     const { editor } = mountPasteEditor(siteRef());
     realPaste(editor, { "text/html": '<p><a href="/n/alice/alpha"><b>粗</b>體</a> / <a href="/n/alice/alpha">另一段</a></p>', "text/plain": "粗體 / 另一段" });
     const block = editor.document.find((b) => Array.isArray(b.content) && (b.content as unknown[]).length > 0)!;
@@ -824,7 +824,7 @@ describe("#353 段中貼上多段：既有的一般站內連結不轉", () => {
 /**
  * I1（一次貼上只歸一個擁有者）：會經過 link AddMarkStep 的貼法——空選取貼裸網址（tiptap paste rule 在附加 tr 加 link）、選取上貼網址
  * （Link 的 handlePaste → setMark）——AddMarkStep 外掛與貼上 hook 都收得到同一個連結。快取未命中時 `schedule` 必須恰好一次
- * （A6 每動作上限、§7.6 撤銷後不被晚到的第二發轉回）；命中時只轉一次。
+ * （每動作上限、撤銷後不被晚到的第二發轉回）；命中時只轉一次。
  */
 describe("#269 I1 貼上的轉換只做一次（外掛 × 貼上 hook）", () => {
   afterEach(cleanupPasteEditors);
@@ -933,7 +933,7 @@ describe("#269 I1 貼上的轉換只做一次（外掛 × 貼上 hook）", () =>
   });
 });
 
-/** W11（§7.6 貼上那一列）：同步轉換與貼上是否併成一格——預期一下 Ctrl+Z 整段貼上消失。MEASURED 是【推】假說，實測不同就照實改並回報。 */
+/** W11（貼上那一列）：同步轉換與貼上是否併成一格——預期一下 Ctrl+Z 整段貼上消失。MEASURED 是預期值，實測不同就照實改。 */
 const MEASURED_PASTE = { undoRemovesWholePaste: true } as const;
 
 describe("#269 W11 貼上轉換的撤銷（量到的結果即斷言）", () => {

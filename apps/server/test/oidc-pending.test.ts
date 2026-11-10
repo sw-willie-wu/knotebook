@@ -45,7 +45,7 @@ const twoProviders = () => buildOidcApp({ providers: [{ key: "a", issuerUrl: A, 
 const confirm = (t: OidcTestApp, cookie: string, body: unknown, extraCookies: Record<string, string> = {}) =>
   t.app.inject({ method: "POST", url: "/api/auth/oidc/pending/confirm", cookies: { [OIDC_PENDING_COOKIE]: cookie, ...extraCookies }, payload: body as object });
 
-describe("GET /api/auth/oidc/pending（#187 §7.5.2 第 2 步）", () => {
+describe("GET /api/auth/oidc/pending（#187）", () => {
   it("200：pendingId／email／providerDisplayName／methods（每次重算）；沒有 cookie → 401", async () => {
     const t = await twoProviders();
     const { cookie, pendingId } = await toPending(t);
@@ -78,7 +78,7 @@ describe("GET /api/auth/oidc/pending（#187 §7.5.2 第 2 步）", () => {
     expect(res.cookies.find(c => c.name === OIDC_PENDING_COOKIE)?.value).toBe("");
   });
 
-  it("RF2b：兩個啟用中的 provider 指向帳號已連結的同一個 issuer → methods.providers 兩個都列", async () => {
+  it("兩個啟用中的 provider 指向帳號已連結的同一個 issuer → methods.providers 兩個都列", async () => {
     const t = await buildOidcApp({ providers: [
       { key: "a1", issuerUrl: A, displayName: "A one", sortOrder: 1 }, { key: "a2", issuerUrl: `${A}/`, displayName: "A two", sortOrder: 2, resolvedIssuer: A },
       { key: "b", issuerUrl: B, displayName: "B" },
@@ -89,7 +89,7 @@ describe("GET /api/auth/oidc/pending（#187 §7.5.2 第 2 步）", () => {
     expect(res.json().methods.providers).toEqual([{ id: t.provider("a1").id, displayName: "A one", icon: GENERIC }, { id: t.provider("a2").id, displayName: "A two", icon: GENERIC }]);
   });
 
-  it("B14（Task 6 裁定 A）：帳號有 pending issuer 的另一個 sub＋另一 issuer 的已啟用 provider 身分＋密碼 → providers 只列另一 issuer、不列 pending issuer", async () => {
+  it("B14：帳號有 pending issuer 的另一個 sub＋另一 issuer 的已啟用 provider 身分＋密碼 → providers 只列另一 issuer、不列 pending issuer", async () => {
     const t = await twoProviders();
     // 身分在 SSO 之前就在：B 的另一個 sub（同 issuer）與 A 的身分（另一 issuer）。列出 B 就等於證明前告訴對方「這帳號已連過 B」。
     const { cookie, pendingId } = await toPending(t, {
@@ -102,7 +102,7 @@ describe("GET /api/auth/oidc/pending（#187 §7.5.2 第 2 步）", () => {
     expect(res.json()).toEqual({ pendingId, email: "target@x.example", providerDisplayName: "B", methods: { password: true, providers: [{ id: t.provider("a").id, displayName: "A", icon: GENERIC }] } });
   });
 
-  it("S7（provider-icon）：methods.providers 每項帶換算後的 icon（三範本 × 五種 kind，經 T1 重新組形）；不含圖檔位元組", async () => {
+  it("provider-icon：methods.providers 每項帶換算後的 icon（三範本 × 五種 kind，經 T1 重新組形）；不含圖檔位元組", async () => {
     const t = await twoProviders();
     const matrix = await seedIconMatrix(t.db);
     const { cookie } = await toPending(t, {
@@ -117,8 +117,8 @@ describe("GET /api/auth/oidc/pending（#187 §7.5.2 第 2 步）", () => {
   });
 });
 
-describe("POST /api/auth/oidc/pending/confirm（#187 §7.5.2–§7.5.4）", () => {
-  it("§14.1-2：密碼正確 → 200 {user, next:'/'}、簽 session、清 pending、寫第二列 identity；之後 B 直接登入", async () => {
+describe("POST /api/auth/oidc/pending/confirm（#187）", () => {
+  it("密碼正確 → 200 {user, next:'/'}、簽 session、清 pending、寫第二列 identity；之後 B 直接登入", async () => {
     const t = await twoProviders();
     const { user, cookie, pendingId } = await toPending(t);
     expect(await lastLoginOf(t.db, user.id)).toBeNull(); // 停在 /link-account（confirm_link）不簽 session、不寫
@@ -159,7 +159,7 @@ describe("POST /api/auth/oidc/pending/confirm（#187 §7.5.2–§7.5.4）", () =
     expect(typeof sixth.json().retryAfterMs).toBe("number");
     const login = await t.app.inject({ method: "POST", url: "/api/auth/login", payload: { email: user.email, password: PW } });
     expect(login.statusCode).toBe(429);
-    // 上一行分不出帳號軌：同一個來源 IP 的 IP 軌也是 5 次門檻，本身就擋（Task 10 突變 M1 實跑存活）。換來源 IP 只剩帳號軌——
+    // 上一行分不出帳號軌：同一個來源 IP 的 IP 軌也是 5 次門檻，本身就擋（突變實測存活）。換來源 IP 只剩帳號軌——
     // confirm 與 /api/auth/login 用同一個 email 鍵才會 429；鍵若不同，這裡密碼正確 → 200。
     const loginOtherIp = await t.app.inject({ method: "POST", url: "/api/auth/login", remoteAddress: "10.9.8.6", payload: { email: user.email, password: PW } });
     expect(loginOtherIp.statusCode).toBe(429);
@@ -185,9 +185,9 @@ describe("POST /api/auth/oidc/pending/confirm（#187 §7.5.2–§7.5.4）", () =
     expect(res.json().error.code).toBe("account_disabled");
   });
 
-  it("§14.1-3 B2：帳號已有同 issuer 另一個 sub → 證明前是 /link-account、以密碼證明後 409 identity_already_linked", async () => {
+  it("帳號已有同 issuer 另一個 sub → 證明前是 /link-account、以密碼證明後 409 identity_already_linked", async () => {
     const t = await twoProviders();
-    // 身分要在 SSO **之前**就在（gate r1 t8-13 M2）：toPending 內的 `/link-account` 斷言才是「證明前不揭露 B2」的那一條。
+    // 身分要在 SSO **之前**就在：toPending 內的 `/link-account` 斷言才是「證明前不揭露同 issuer 已連過」的那一條。
     const { user, cookie, pendingId } = await toPending(t, {
       beforeSso: async userId => {
         await t.db.insert(userIdentities).values({ userId, issuer: B, sub: "older-sub" });
@@ -199,8 +199,8 @@ describe("POST /api/auth/oidc/pending/confirm（#187 §7.5.2–§7.5.4）", () =
     expect(await identitiesOf(t.db, user.id)).toEqual([{ issuer: B, sub: "older-sub" }]);
   });
 
-  it("r3-N4：tx 拒絕（403 停用）時 recordSuccess／recordFailure 都不記——帳號軌的失敗數不被清掉", async () => {
-    // gate r1 t8-13 I3。帳號軌第 5 次失敗起擋（`auth/rate-limit.ts` evaluateRecord：failureCount < 5 不擋，5 次後 2^(5-4)=2 秒）。
+  it("tx 拒絕（403 停用）時 recordSuccess／recordFailure 都不記——帳號軌的失敗數不被清掉", async () => {
+    // 帳號軌第 5 次失敗起擋（`auth/rate-limit.ts` evaluateRecord：failureCount < 5 不擋，5 次後 2^(5-4)=2 秒）。
     // ⚠ 最後兩步換一個來源 IP：LoginThrottle 的 IP 軌不會被 recordSuccess 清（同檔 recordSuccess 只刪帳號軌），同一個 IP
     // 打第 5 次失敗時 IP 軌也滿 5 → 不論帳號軌有沒有被清都 429，突變看不出來。換 IP 後只剩帳號軌在決定結果。
     const t = await twoProviders();
@@ -221,7 +221,7 @@ describe("POST /api/auth/oidc/pending/confirm（#187 §7.5.2–§7.5.4）", () =
     expect(await identitiesOf(t.db, user.id)).toEqual([]);
   });
 
-  it("§14.1-4 cookie 過期：exp 已過的 pending → confirm 401 unauthorized、不寫入（與「沒有 pending」同一條路徑；spec 疑點第 12 條）", async () => {
+  it("cookie 過期：exp 已過的 pending → confirm 401 unauthorized、不寫入（與「沒有 pending」同一條路徑）", async () => {
     const t = await twoProviders();
     const { user, cookie, pendingId } = await toPending(t);
     const nowS = Math.floor(Date.now() / 1000);
@@ -234,7 +234,7 @@ describe("POST /api/auth/oidc/pending/confirm（#187 §7.5.2–§7.5.4）", () =
     expect(await identitiesOf(t.db, user.id)).toEqual([]);
   });
 
-  it("C18：pendingId 與 cookie 不符（另一分頁覆蓋）→ 409 oidc_link_expired；C12：同一顆 cookie 雙送出 → 第二次冪等 200", async () => {
+  it("C18：pendingId 與 cookie 不符（另一分頁覆蓋）→ 409 oidc_link_expired；同一顆 cookie 雙送出 → 第二次冪等 200", async () => {
     const t = await twoProviders();
     const { user, cookie, pendingId } = await toPending(t);
     const bad = await confirm(t, cookie, { password: PW, pendingId: "not-the-same" });
@@ -300,7 +300,7 @@ describe("POST /api/auth/oidc/pending/confirm（#187 §7.5.2–§7.5.4）", () =
     expect(await identitiesOf(t.db, user.id)).toEqual([]);
   });
 
-  it("RF3：pending 期間要連結的 provider 被刪掉 → GET 的 providerDisplayName 為 null；密碼證明仍能連結（B1）", async () => {
+  it("pending 期間要連結的 provider 被刪掉 → GET 的 providerDisplayName 為 null；密碼證明仍能連結", async () => {
     const t = await twoProviders();
     const { user, cookie, pendingId } = await toPending(t);
     await t.db.update(authProviders).set({ enabled: false }).where(eq(authProviders.id, t.provider("b").id));
@@ -311,7 +311,7 @@ describe("POST /api/auth/oidc/pending/confirm（#187 §7.5.2–§7.5.4）", () =
     expect(await identitiesOf(t.db, user.id)).toEqual([{ issuer: B, sub: "sb" }]);
   });
 
-  it("RF4：瀏覽器已登入另一個帳號 V → 完成連結後回應的 session 是目標帳號；V 的舊 session 不受影響", async () => {
+  it("瀏覽器已登入另一個帳號 V → 完成連結後回應的 session 是目標帳號；V 的舊 session 不受影響", async () => {
     const t = await twoProviders();
     const v = await insertPasswordUser(t.db, { email: "v@x.example" });
     const vCookie = await signTestSession({ userId: v.id, tv: 0 });

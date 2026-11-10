@@ -9,7 +9,7 @@
  *
  * 兩條路都失敗時回 `false`，呼叫端應該把網址攤開來讓使用者自己選取複製。
  *
- * PR2（D.4）：host 選擇器擴為 `[role="dialog"],[role="menu"]`——內文卡頁頭的 ⋮
+ * host 選擇器是 `[role="dialog"],[role="menu"]`——內文卡頁頭的 ⋮
  * 選單（`role="menu"`）也是 Radix 的 focus-trap surface（跟 dialog 同一套
  * `FocusScope` 邏輯），從選單觸發複製時一樣需要把暫時的 textarea 掛進去，否則焦點
  * 被搶走、`execCommand("copy")` 在沒有焦點的元素上跑會靜默失敗（見下方
@@ -43,7 +43,7 @@ function copyViaExecCommand(text: string): boolean {
   // `focusin` 監聽器，焦點一落到容器外就同步搶回去。textarea 若掛在 document.body，
   // `select()` 之後焦點立刻被奪走，`execCommand("copy")` 在沒有焦點的 textarea 上跑——
   // Chromium 實測仍回傳 true 但剪貼簿是空的。掛進焦點所在的 dialog／menu 內就不會
-  // 觸發那個監聽器（PR2 D.4：⋮ 選單是 `role="menu"`，同一套雷，選擇器一併擴充）。
+  // 觸發那個監聽器（⋮ 選單是 `role="menu"`，同一套雷，選擇器一併擴充）。
   const host = active?.closest('[role="dialog"],[role="menu"]') ?? document.body;
 
   host.appendChild(textarea);

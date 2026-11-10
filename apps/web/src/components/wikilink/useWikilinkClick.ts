@@ -14,7 +14,7 @@ export interface WikilinkClickTarget {
   anchorBlockId: string;
   broken: boolean;
   /**
-   * #93 PR2（側欄搜尋點片段）：要在段落範圍內找的字（`forQuery`）。同篇走 `requestAnchor(…, findText)`；別篇放進 navigation state
+   * #93（側欄搜尋點片段）：要在段落範圍內找的字（`forQuery`）。同篇走 `requestAnchor(…, findText)`；別篇放進 navigation state
    * （`FIND_STATE_KEY`），不進網址。省略＝一般錨點行為。
    */
   findText?: string;
@@ -65,7 +65,7 @@ export function useWikilinkActivate() {
 }
 
 /**
- * #269 §7.2：wikilink 點擊的**唯一**實作（member、public、公開頁同篇 `#b-` 形都用它；rev 7 起可編輯時也直接跳轉，工具列改由 hover／長按開）。
+ * #269：wikilink 點擊的**唯一**實作（member、public、公開頁同篇 `#b-` 形都用它；可編輯時也直接跳轉，工具列改由 hover／長按開）。
  * - **不用 `<Link>`**：同路徑同 hash 時它預設 REPLACE，上一頁回不到點擊前。
  * - **不留給原生 `<a href>` 預設行為**：fragment 導航不經 react-router，而且區塊只有 `data-id` 沒有 `id`，瀏覽器捲不到。
  * - 同篇錨點先 `requestAnchor` 再 `navigate({ search, hash }, { replace: false })`：捲動由待處理錨點驅動，不依賴 router 是否產生新 key。

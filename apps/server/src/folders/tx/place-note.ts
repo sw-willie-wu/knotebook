@@ -1,10 +1,9 @@
 /**
- * 把筆記放進／移出資料夾的交易本體（spec docs/superpowers/specs/2026-10-22-folders-design.md §5.7.5〔r3 m-7〕；§5.4 表
- * 「筆記放置」「共享放置」）。S14：只收 `tx`／純資料／測試縫。不取結構鎖（放置不改變結構）。
+ * 把筆記放進／移出資料夾的交易本體（筆記放置與共享放置）。S14：只收 `tx`／純資料／測試縫。不取結構鎖（放置不改變結構）。
  * 鎖序：（群組筆記）groups KS → 目標資料夾 KS → 筆記（個人／群組 `FOR UPDATE`；共享 `FOR KEY SHARE`，不擋擁有者的寫入）。
- * 鎖完才重判，判的順序照入口（§5.5 I2）：筆記授權 → 資料夾可見性 → 空間。
+ * 鎖完才重判，判的順序照入口：筆記授權 → 資料夾可見性 → 空間。
  * 寫入：個人／群組＝`UPDATE notes SET folder_id`（已在該處 → 不寫）；共享＝upsert／刪 `note_placements`（沒變 → 0 列）。
- * 不動 `updated_at`、slug、版本（S-F8）。失敗一律 throw `TxAbort`；撤分享的 23503、trigger 的 KF00x 交給服務層映射。
+ * 不動 `updated_at`、slug、版本。失敗一律 throw `TxAbort`；撤分享的 23503、trigger 的 KF00x 交給服務層映射。
  */
 import { and, eq, isNull, sql } from "drizzle-orm";
 import type { Tx } from "../../db/tx.js";

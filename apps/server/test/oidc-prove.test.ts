@@ -45,7 +45,7 @@ async function prove(t: OidcTestApp, key: string, cookies: Record<string, string
 
 const app2 = (over = {}) => buildOidcApp({ providers: [{ key: "a", issuerUrl: A, displayName: "A" }, { key: "b", issuerUrl: B, displayName: "B" }] }, over);
 
-describe("SSO 證明（#187 §7.5.3，§14.1-4a）", () => {
+describe("SSO 證明（#187）", () => {
   it("純 SSO 帳號：methods={password:false, providers:[A]}；以 A 證明 → B 的身分（取自 pending）連到 U、session、旗標不清、清 pending、A 的 last_login_at 更新", async () => {
     const t = await app2();
     const { user, pending, pendingId } = await ssoOnlyPending(t, "/n/alice/x");
@@ -88,10 +88,10 @@ describe("SSO 證明（#187 §7.5.3，§14.1-4a）", () => {
     expect(ok.statusCode).toBe(200);
   });
 
-  it("state 的 pendingId 與當下 pending 不符（另一分頁覆蓋了 pending）→ /link-account?error=oidc_link_expired（不清 pending，M1）；callback 時 pending 已不在 → 同；起點沒有 pending → 401", async () => {
+  it("state 的 pendingId 與當下 pending 不符（另一分頁覆蓋了 pending）→ /link-account?error=oidc_link_expired（不清 pending）；callback 時 pending 已不在 → 同；起點沒有 pending → 401", async () => {
     const t = await app2();
     const first = await ssoOnlyPending(t);
-    // (a) callback 時 pending cookie 已不在（過期或被清——`readPendingLink` 都回 null）：只帶 state cookie 回來（gate r1 t8-13 M3）。
+    // (a) callback 時 pending cookie 已不在（過期或被清——`readPendingLink` 都回 null）：只帶 state cookie 回來。
     const s0 = await t.app.inject({ method: "POST", url: `/api/auth/oidc/pending/prove/${t.provider("a").id}`, cookies: { [OIDC_PENDING_COOKIE]: first.pending }, payload: { pendingId: first.pendingId } });
     t.idp("a").setNextLogin({ sub: "ua", email: "u@x.example" });
     const a0 = t.idp("a").authorize(s0.json().url);
@@ -112,7 +112,7 @@ describe("SSO 證明（#187 §7.5.3，§14.1-4a）", () => {
     const overwritten = again.cookies[OIDC_PENDING_COOKIE]!;
     const cb = await t.app.inject({ method: "GET", url: `/api/auth/oidc/callback/${t.provider("a").id}?code=${code}&state=${state}`, cookies: { [OIDC_PENDING_COOKIE]: overwritten, [OIDC_STATE_COOKIE]: stateCookie } });
     expect(cb.headers.location).toBe("/link-account?error=oidc_link_expired");
-    // M1／C18：不符時不清 cookie——覆蓋後的新 pending 屬於另一分頁，仍有效。
+    // 不符時不清 cookie——覆蓋後的新 pending 屬於另一分頁，仍有效。
     expect(cb.cookies.find(c => c.name === OIDC_PENDING_COOKIE)).toBeUndefined();
     const stillThere = await t.app.inject({ method: "GET", url: "/api/auth/oidc/pending", cookies: { [OIDC_PENDING_COOKIE]: overwritten } });
     expect(stillThere.statusCode).toBe(200);
@@ -140,7 +140,7 @@ describe("SSO 證明（#187 §7.5.3，§14.1-4a）", () => {
     expect((await post(t.provider("a").id, { pendingId })).statusCode).toBe(404);
   });
 
-  it("B14：帳號已有待連結 issuer（B）的另一個 sub → 起點對 B 回 404 provider_not_found（與 GET pending 同一個排除），A 仍可用", async () => {
+  it("帳號已有待連結 issuer（B）的另一個 sub → 起點對 B 回 404 provider_not_found（與 GET pending 同一個排除），A 仍可用", async () => {
     const t = await app2();
     const u = await insertPasswordUser(t.db, { email: "u@x.example", password: "correct-horse-battery-staple" });
     await t.db.insert(userIdentities).values([{ userId: u.id, issuer: A, sub: "ua" }, { userId: u.id, issuer: B, sub: "older-b" }]);
@@ -157,7 +157,7 @@ describe("SSO 證明（#187 §7.5.3，§14.1-4a）", () => {
     expect((await post("a")).statusCode).toBe(200);
   });
 
-  it("§14.1-4a 第 2 點 B2：帳號已有 A(sub-1)＋B → 以 A 的另一個 sub 首登，證明前不揭露 B2；用 B 證明完 → /link-account?error=identity_already_linked、不寫入", async () => {
+  it("帳號已有 A(sub-1)＋B → 以 A 的另一個 sub 首登，證明前不揭露同 issuer 已連過；用 B 證明完 → /link-account?error=identity_already_linked、不寫入", async () => {
     const t = await app2();
     await ssoRoundTrip(t.app, t.idp("a"), { loginUrl: `/api/auth/oidc/login/${t.provider("a").id}`, claims: { sub: "sub-1", email: "u@x.example" } });
     const [u] = await t.db.select().from(users).where(eq(users.email, "u@x.example"));
@@ -266,8 +266,8 @@ describe("SSO 證明（#187 §7.5.3，§14.1-4a）", () => {
     await entered;
     const loginP = ssoRoundTrip(t.app, t.idp("a"), { loginUrl: `/api/auth/oidc/login/${t.provider("a").id}`, claims: { sub: "ua", email: "u@x.example" } });
     try {
-      // 這一案要證明的就是「不被擋」：login 分支不寫 users（B15），與 A2 的 users 鎖不相交；交易後的 touchLastLogin 以
-      // SKIP LOCKED 取列，A2 持鎖時整句 0 列、不等（#247 §9.5）。
+      // 這一案要證明的就是「不被擋」：login 分支不寫 users，與 A2 的 users 鎖不相交；交易後的 touchLastLogin 以
+      // SKIP LOCKED 取列，A2 持鎖時整句 0 列、不等（#247）。
       expect(await waitForBlockedOrSettled(t.db.$client, loginP)).toBe("settled");
       expect((await loginP).callbackRes.headers.location).toBe("/");
       expect(await lastLoginOf(t.db, user.id)).toBeNull();

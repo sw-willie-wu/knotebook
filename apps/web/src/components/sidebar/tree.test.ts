@@ -58,8 +58,8 @@ const VIEWER_SHARED_NOTE = note("shared-viewer", { ownerId: "u9", role: "viewer"
 const MY_GROUP_NOTE = groupNote("mine-in-a", GROUP_A, "editor");
 const ORPHAN_GROUP_NOTE = groupNote("orphan", { id: "99999999-9999-9999-9999-999999999999", name: "Gone" }, "editor", { ...EDITOR_PERMS });
 
-// ── TR1：歸類（#175 spec §8.2 四列）──純函式，每列一案。
-describe("partitionNotes／noteBucket（#175 §8.2）", () => {
+// ── 歸類（#175 四列）──純函式，每列一案。
+describe("partitionNotes／noteBucket（#175）", () => {
   it("第 1 列：群組筆記且群組在 groups → 該群組段（不進我的筆記／與我共享）", () => {
     const parts = partitionNotes([MY_GROUP_NOTE], [GROUP_A]);
     expect(parts.byGroup.get(GROUP_A.id)?.map((n) => n.id)).toEqual([MY_GROUP_NOTE.id]);
@@ -99,7 +99,7 @@ describe("partitionNotes／noteBucket（#175 §8.2）", () => {
   });
 });
 
-// ── TR2：最近
+// ── 最近
 describe("recentNotes", () => {
   it("依 lastEdited.at ?? updatedAt 新到舊交錯排序", () => {
     const a = note("A", { updatedAt: "2026-10-01T00:00:00.000Z", lastEdited: { at: "2026-10-05T00:00:00.000Z", byHandle: "x", agentLabel: null } });
@@ -130,7 +130,7 @@ describe("recentNotes", () => {
   });
 });
 
-// ── TR3：節點樹
+// ── 節點樹
 describe("buildTabNodes", () => {
   const notes = [OWNER_NOTE, SHARED_NOTE, MY_GROUP_NOTE, ORPHAN_GROUP_NOTE];
   const groups = [GROUP_A, GROUP_B];
@@ -164,13 +164,13 @@ describe("buildTabNodes", () => {
     expect(where("workspace")).toBe(false);
   });
 
-  it("TR5：trash → []（垃圾桶不從 notes 組樹；不落入群組兜底）", () => {
+  it("trash → []（垃圾桶不從 notes 組樹；不落入群組兜底）", () => {
     expect(groups.length).toBeGreaterThan(0);
     expect(buildTabNodes("trash", notes, groups, EMPTY_FOLDER_INDEX)).toEqual([]);
   });
 });
 
-// ── TR4：位置標籤
+// ── 位置標籤
 describe("noteLocationLabel", () => {
   const ids = new Set([GROUP_A.id]);
   const label = (n: NoteDto) => noteLocationLabel(n, { groupIds: ids, folders: EMPTY_FOLDER_INDEX }, (k, o) => i18n.t(k, o));
@@ -198,7 +198,7 @@ describe("noteLocationLabel", () => {
   });
 });
 
-// ── TR6：位置段落（spec §9-2，垃圾桶第二行也經它）
+// ── 位置段落（垃圾桶第二行也經它）
 describe("noteLocationSegments", () => {
   it("群組筆記＝[群組名]；個人＝[]", () => {
     expect(noteLocationSegments({ group: { name: "Workshop A" } }, [])).toEqual(["Workshop A"]);
@@ -206,7 +206,7 @@ describe("noteLocationSegments", () => {
   });
 });
 
-// ── TR7：樹裡有沒有可勾的節點（「選取」鈕可不可按；PR-3b-2 T6a 起資料夾也算）
+// ── 樹裡有沒有可勾的節點（「選取」鈕可不可按；資料夾也算）
 describe("hasSelectableNodes", () => {
   it("[] → false", () => {
     expect(hasSelectableNodes([])).toBe(false);
@@ -233,7 +233,7 @@ describe("hasSelectableNodes", () => {
   });
 });
 
-// ── 資料夾（PR-3b-1 T1）：建樹、排序、兜底、路徑行
+// ── 資料夾：建樹、排序、兜底、路徑行
 afterEach(() => {
   localStorage.clear();
   __resetCollapseForTests();
@@ -251,7 +251,7 @@ function shape(nodes: readonly SidebarNode[]): unknown[] {
 
 const GONE = { id: "99999999-9999-9999-9999-999999999999", name: "Gone" };
 
-describe("buildTabNodes × 資料夾（spec §6.2）", () => {
+describe("buildTabNodes × 資料夾", () => {
   it("FT1 我的筆記：資料夾在前且依名稱、根層筆記維持 server 序；資料夾內依 sortOf", () => {
     const folders = indexFolders([folderDto({ id: "B", name: "B" }), folderDto({ id: "A", name: "A" })]);
     // n1 比 n2 新、標題排名較前、sizeBytes 較大：三種排序都會把 n1 排在 n2 前
@@ -304,7 +304,7 @@ describe("buildTabNodes × 資料夾（spec §6.2）", () => {
     expect(shape(buildTabNodes("shared", [missing, cross, orphan], [GROUP_A], folders))).toEqual(["orphan-in-folder"]);
   });
 
-  it("FT6 空資料夾也是節點（children []）；只有空資料夾的樹 hasSelectableNodes → true（PR-3b-2 T6a：資料夾可勾）", () => {
+  it("FT6 空資料夾也是節點（children []）；只有空資料夾的樹 hasSelectableNodes → true（資料夾可勾）", () => {
     const folders = indexFolders([folderDto({ id: "E", name: "Empty" })]);
     const nodes = buildTabNodes("myNotes", [], [], folders);
     expect(nodes).toEqual([{ kind: "folder", id: "E", folder: folders.byId.get("E"), depth: 1, children: [] }]);
@@ -332,7 +332,7 @@ describe("buildTabNodes × 資料夾（spec §6.2）", () => {
     expect(label(inSelf)).toBe("My notes › Self");
   });
 
-  it("FT8 EMPTY_FOLDER_INDEX：對既有 fixture 與 T1 前逐節點相同", () => {
+  it("FT8 EMPTY_FOLDER_INDEX：對既有 fixture 逐節點相同", () => {
     const notes = [OWNER_NOTE, SHARED_NOTE, MY_GROUP_NOTE, ORPHAN_GROUP_NOTE];
     const groups = [GROUP_A, GROUP_B];
     const n = (x: NoteDto) => ({ kind: "note", id: x.id, note: x });
@@ -347,7 +347,7 @@ describe("buildTabNodes × 資料夾（spec §6.2）", () => {
   });
 });
 
-describe("sortFolderNotes（spec §6.7）", () => {
+describe("sortFolderNotes", () => {
   const titles = (list: readonly NoteDto[]) => list.map((x) => x.title);
 
   it("FT9 name：依 collator（numeric；zh-Hant 漢字在拉丁字母前）", () => {
@@ -389,7 +389,7 @@ describe("noteSpaceKey", () => {
   });
 });
 
-describe("noteLocationLabel × 資料夾（spec §6.9）", () => {
+describe("noteLocationLabel × 資料夾", () => {
   const folders = indexFolders([
     folderDto({ id: "pA", name: "A" }),
     folderDto({ id: "pB", name: "B", parentId: "pA" }),

@@ -1,6 +1,6 @@
 /**
- * #93 §5.3：onStoreDocument 的索引接線（S1、S2、S6、S7、S8、S9、S15、RF3）。
- * WS 形（S1、S6、S7）走 buildCollabTestApp；決定性時序（S9、S15、RF3、S6 的 logger／抽取失敗）直接呼叫 createNoteStore。
+ * #93：onStoreDocument 的索引接線。
+ * WS 形走 buildCollabTestApp；決定性時序（含 logger／抽取失敗）直接呼叫 createNoteStore。
  */
 import { describe, expect, it } from "vitest";
 import { eq, sql } from "drizzle-orm";
@@ -47,7 +47,7 @@ describe("S1 一般落盤（WS）", () => {
     const t = writeParagraph(client.doc, "p1", "keep SECRETWORD tail");
     await waitIndexed(ctx.db, note.id, b => b.includes("SECRETWORD"));
     expect((await indexRows(ctx.db, note.id)).map(r => [r.sectionId, r.body])).toEqual([["_top", "keep SECRETWORD tail"]]);
-    t.delete(5, 11); // 刪 "SECRETWORD "——Yjs 的刪除不推進 state vector（spec §2.2 第 4 點）
+    t.delete(5, 11); // 刪 "SECRETWORD "——Yjs 的刪除不推進 state vector
     await waitIndexed(ctx.db, note.id, b => !b.includes("SECRETWORD"));
     expect((await indexRows(ctx.db, note.id)).map(r => r.body)).toEqual(["keep tail"]);
     client.disconnect();
@@ -224,7 +224,7 @@ describe("S7／S8 敵意與巨大文件", () => {
   });
 });
 
-describe("S9／S15／RF3（直接呼叫 createNoteStore，決定性）", () => {
+describe("直接呼叫 createNoteStore，決定性", () => {
   async function storeWithCounters() {
     const { db } = await freshDb();
     const u = await seedUser(db);
@@ -294,7 +294,7 @@ describe("S9／S15／RF3（直接呼叫 createNoteStore，決定性）", () => {
     expect(back.getXmlFragment(YDOC_FRAGMENT).toString()).not.toContain("LATEWORD");
   });
 
-  it("RF3：落盤時筆記已被刪 → 不呼叫 indexer、不 warn、快取一併清掉", async () => {
+  it("落盤時筆記已被刪 → 不呼叫 indexer、不 warn、快取一併清掉", async () => {
     const { db, n, calls, store, warns } = await storeWithCounters();
     const doc = new Y.Doc();
     await store.onLoadDocument(n.id, doc);

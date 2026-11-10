@@ -12,7 +12,7 @@ import { createPmPlugin } from "./pm-plugin";
 import { attachTestElementRenderer } from "@/test/element-renderer";
 import { P, row, shape } from "@/test/columns-fixtures";
 
-// spec 2026-10-13 site-links §8.4、§6.5、§15.1 W4、§7.6（AddMarkStep 外掛、非同步後備兩列）。
+// W4（AddMarkStep 外掛、非同步後備兩列）。
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 泛型三元組，走 repo 慣例
 type AnyEditor = BlockNoteEditor<any, any, any>;
@@ -87,7 +87,7 @@ describe("#269 W4 AddMarkStep 外掛", () => {
   });
 
   it("選取上貼網址（tiptap Link 的 handlePaste → setMark）：外掛單獨掛著時換成 wikilink、label＝被選的字（產品組態下這條路徑歸貼上 hook）", () => {
-    // 本檔的組態只掛外掛、沒有貼上 hook；產品組態（NoteEditor）裡選取上貼網址由貼上 hook 轉換（Task 12），這裡量的是外掛自己的行為。
+    // 本檔的組態只掛外掛、沒有貼上 hook；產品組態（NoteEditor）裡選取上貼網址由貼上 hook 轉換，這裡量的是外掛自己的行為。
     ({ editor, container } = mount(env()));
     editor.replaceBlocks(editor.document, [{ type: "paragraph", content: "go Alpha now" }]);
     const view = editor._tiptapEditor.view;
@@ -101,7 +101,7 @@ describe("#269 W4 AddMarkStep 外掛", () => {
     expect(inline(editor).find((n) => n.type === "wikilink")?.props).toEqual({ targetNoteId: A_ID, snapshotTitle: "Alpha", label: "", anchorBlockId: "" });
   });
 
-  it("SLC-COL1 欄內（並排 PR-1 預留點 7）：第 2 欄段落選取上貼網址 → 換成 wikilink、列仍兩欄", () => {
+  it("欄內（並排預留點 7）：第 2 欄段落選取上貼網址 → 換成 wikilink、列仍兩欄", () => {
     ({ editor, container } = mount(env()));
     editor.replaceBlocks(editor.document, [row([[P("left")], [P("go Alpha now", "c2p")]], "r1")]);
     const view = editor._tiptapEditor.view;
@@ -278,7 +278,7 @@ describe("#269 W4 AddMarkStep 外掛", () => {
   });
 });
 
-describe("#269 非同步後備（§6.5、A6）", () => {
+describe("#269 非同步後備", () => {
   afterEach(() => document.body.replaceChildren());
 
   it("解析成功 → 一筆 transaction 換掉仍在原區塊、href 與文字都相同的連結；文字被改過的放棄；相異 href 超過 20 只問前 20 個", async () => {
@@ -331,7 +331,7 @@ describe("#269 非同步後備（§6.5、A6）", () => {
 });
 
 /**
- * W11（§7.6 兩列，量到的結果即斷言；共編組態、不用 fake timers）：
+ * W11（兩列，量到的結果即斷言；共編組態、不用 fake timers）：
  * - AddMarkStep 外掛：轉換與建連結在**同一筆 dispatch**（appendTransaction）⇒ 預期同一撤銷格：第一下 undo 整個連結消失。
  * - 非同步後備：(a) 後備在停頓之後才落地（stopCapturing 隔開）⇒ 第一下 undo 只把 wikilink 退回一般連結，且退回後不再被自動轉換；
  *   (b) 後備緊接著落地（同一個 500ms 窗口）⇒ 第一下 undo 連建連結一起撤。MEASURED 是【推】假說，實測不同就照實改並回報。

@@ -1,5 +1,5 @@
 /**
- * bulk transfer spec 2026-11-02 §9.2-8、§9.7；plan PR-2 T9（RN1–RN9）：改名與 `unchanged`／`renamed` 的扣桶規則。
+ * bulk transfer（RN1–RN9）：改名與 `unchanged`／`renamed` 的扣桶規則。
  */
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
@@ -26,8 +26,8 @@ const titleOf = async (ctx: CollabTestCtx, id: string) => (await ctx.db.select({
 const baseOf = async (ctx: CollabTestCtx, key: string) => (await ctx.db.select().from(transferBases).where(eq(transferBases.key, key)))[0]!;
 const one = () => new FixedWindowLimiter({ limit: 1, windowMs: 60_000 });
 
-describe("改名（§9.7）", () => {
-  it("RN1 只改 title → 200 renamed、不 mount（判內文動過沒用結構比對，審查 I2）、transferWrite 扣 1、applied_title_sha 寫入；RN2 同檔再送 → unchanged、不扣", async () => {
+describe("改名", () => {
+  it("RN1 只改 title → 200 renamed、不 mount（判內文動過沒用結構比對）、transferWrite 扣 1、applied_title_sha 寫入；RN2 同檔再送 → unchanged、不扣", async () => {
     const transferWrite = new FixedWindowLimiter({ limit: 2, windowMs: 60_000 });
     const s = await scene({ limiters: { transferWrite } });
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
@@ -112,7 +112,7 @@ describe("改名（§9.7）", () => {
     expect((await bulkPut(s.ctx.app, s.bulk.token, renameIn(d.text, "Renamed unmergeable"))).json()).toMatchObject({ result: "renamed" });
   });
 
-  it("RN8b（全分支審查 M5）#393 之前下載、mergeable:false 的筆記只改標題 → 409 note_changed、沒改名（讀出格式變了，整篇匯出比對不再相等）", async () => {
+  it("RN8b #393 之前下載、mergeable:false 的筆記只改標題 → 409 note_changed、沒改名（讀出格式變了，整篇匯出比對不再相等）", async () => {
     const s = await scene({ transferTestHooks: { forceUnmergeable: () => true } });
     const note = await seedNote(s.ctx.db, { ownerId: s.u.id }, { title: "Title" });
     await seedBlocks(s.ctx.db, note.id, [{ type: "paragraph", content: "2*3*4 and 5*6" }]);
@@ -139,7 +139,7 @@ describe("改名（§9.7）", () => {
     expect(await titleOf(s.ctx, s.note.id)).toBe("Title");
   });
 
-  it("RN10（第三輪改）合併前別人做了同樣的內文修改 → 不合併、重來時判 note_changed → 409、沒改名（原 T9-M7「重試變零區＋改名」已不存在）", async () => {
+  it("RN10 合併前別人做了同樣的內文修改 → 不合併、重來時判 note_changed → 409、沒改名", async () => {
     const ref = {} as { ctx: CollabTestCtx };
     let noteRef = "";
     let n = 0;
@@ -162,7 +162,7 @@ describe("改名（§9.7）", () => {
     expect(await titleOf(s.ctx, s.note.id)).toBe("Title");
   });
 
-  it("RN11（T9-M5）同檔同時兩發只改名 → 只改一次：一發 renamed、一發 unchanged", async () => {
+  it("RN11 同檔同時兩發只改名 → 只改一次：一發 renamed、一發 unchanged", async () => {
     // 第一發在改名 UPDATE 前停 300 ms：佇列內時第二發只能排隊等；若改名移到佇列外，第二發會在這段時間讀到同一份基底而再改一次。
     let first = true;
     const s = await scene({ slugUpdateTestHook: async () => { if (first) { first = false; await new Promise(r => setTimeout(r, 300)); } } });

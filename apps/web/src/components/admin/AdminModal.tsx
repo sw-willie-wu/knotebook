@@ -5,7 +5,7 @@ import { ChunkLoadBeacon, LazyRouteErrorBoundary, LazyRouteLoading } from "@/com
 import { ManagementShell } from "@/components/management/ManagementShell";
 
 /**
- * 站台管理 modal（#247 §7，W1／W14）——第二棵 Routes 樹的 layout route，外殼是 `ManagementShell`，五項：
+ * 站台管理 modal（#247）——第二棵 Routes 樹的 layout route，外殼是 `ManagementShell`，五項：
  * 使用者／群組／登入／儲存方案（含站台版本設定）／AI 代理。
  *
  * 守衛不在這裡：`App.tsx` 把本路由掛在 `RequireAuth → ChangePasswordGate → RequireAdmin` 底下；`/admin`、`/admin/auth`、

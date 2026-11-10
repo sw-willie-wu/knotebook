@@ -1,9 +1,9 @@
 /**
- * #132 Task 7：`POST /oauth/token`（§5.4）。
+ * #132：`POST /oauth/token`。
  *
  * 這一族守的是：①authorization_code 分支的步驟 1–6 是**單一 tx**，任何失敗都回捲
  * （不留下「code 被吃掉卻沒 token」的死狀態，也不留下「I7 刪了舊 grant 卻沒發新的」）；
- * ②I3 code 單次、I4 refresh 輪替、I7 同 (user, client) 單一 grant；③錯誤碼分流——
+ * ②code 單次、refresh 輪替、同 (user, client) 單一 grant；③錯誤碼分流——
  * `invalid_target` 不能寫成 `invalid_grant`（client 會誤判 code 壞掉重跑整輪）；
  * ④form 端點：送 JSON → 415、壞 form → 400、所有錯誤都是 400 且 no-store。
  */
@@ -18,7 +18,7 @@ import { ISSUER, RESOURCE, authorizeAndConsent, codeGrant, exchange, obtainCode 
 
 const NUL = String.fromCharCode(0);
 
-describe("POST /oauth/token — authorization_code（§5.4）", () => {
+describe("POST /oauth/token — authorization_code", () => {
   it("換發成功：回 access／refresh／scope，header 帶 no-store 與 pragma", async () => {
     const { app, db, close } = await buildTestApp();
     try {
@@ -45,7 +45,7 @@ describe("POST /oauth/token — authorization_code（§5.4）", () => {
       const ttl = row!.accessExpiresAt!.getTime() - Date.now();
       expect(ttl).toBeGreaterThan(23 * 3600_000);
       expect(ttl).toBeLessThanOrEqual(24 * 3600_000);
-      // I3：code 已被消費
+      // code 已被消費
       expect(await db.select().from(oauthCodes)).toHaveLength(0);
     } finally {
       await close();
@@ -62,7 +62,7 @@ describe("POST /oauth/token — authorization_code（§5.4）", () => {
 
       const token = (await exchange(app, codeGrant(c))).json().access_token as string;
       // 斷言要在 Bearer 那一發**之前**：Bearer 路徑（touchLastUsed）也會更新這個欄位，
-      // 放後面的話 §5.4 步驟 7 那條 UPDATE 拿掉也照樣綠。
+      // 放後面的話，token 端點最後那條 UPDATE 拿掉也照樣綠。
       const [client] = await db.select().from(oauthClients);
       expect(client!.lastUsedAt.getTime()).toBeGreaterThan(stale.getTime());
 
@@ -73,7 +73,7 @@ describe("POST /oauth/token — authorization_code（§5.4）", () => {
     }
   });
 
-  // §9.2 全流程鏈的最後一段：oauth grant 也能從設定頁撤銷，撤了立刻失效。
+  // 全流程鏈的最後一段：oauth grant 也能從設定頁撤銷，撤了立刻失效。
   // #130 只對 PAT 測過這個端點（查詢是 kind-agnostic，但沒有守衛就會漂）。
   it("撤銷 oauth grant → 該 access token 立刻 401", async () => {
     const { app, db, close } = await buildTestApp();
@@ -95,7 +95,7 @@ describe("POST /oauth/token — authorization_code（§5.4）", () => {
     }
   });
 
-  it("code 二次使用 → invalid_grant（I3）", async () => {
+  it("code 二次使用 → invalid_grant", async () => {
     const { app, db, close } = await buildTestApp();
     try {
       const { cookie } = await createUserAndLogin(db);
@@ -104,14 +104,14 @@ describe("POST /oauth/token — authorization_code（§5.4）", () => {
       const replay = await exchange(app, codeGrant(c));
       expect(replay.statusCode).toBe(400);
       expect(replay.json()).toEqual({ error: "invalid_grant", error_description: "The authorization code is invalid." });
-      // 重放不撤銷已簽的 grant（§5.5 刻意不做）
+      // 重放不撤銷已簽的 grant（刻意不做）
       expect(await db.select().from(apiTokens)).toHaveLength(1);
     } finally {
       await close();
     }
   });
 
-  // 失敗的兌換整個 tx 回捲＝**不消費 code**（spec §5.4）。同一支 code 修正參數後可重試。
+  // 失敗的兌換整個 tx 回捲＝**不消費 code**。同一支 code 修正參數後可重試。
   it("PKCE 不符／client_id 不符／redirect_uri 不符 → invalid_grant，且 code 仍在（tx 回捲）", async () => {
     const { app, db, close } = await buildTestApp();
     try {
@@ -204,8 +204,8 @@ describe("POST /oauth/token — authorization_code（§5.4）", () => {
       // 對同一個 client 再走一輪授權（此時額度還沒滿，decision 才過得了）
       const second = await authorizeAndConsent(app, cookie, first.clientId, first.redirectUri);
 
-      // ⚠ 額度**必須在同意之後、兌換之前**才填滿。I1 讓 decision 與 token 兩側的額度
-      // 查詢等價（spec §3），所以沒有任何 PAT 數量能讓 decision 過而 token 拒——
+      // ⚠ 額度**必須在同意之後、兌換之前**才填滿。額度規則讓 decision 與 token 兩側的額度
+      // 查詢等價，所以沒有任何 PAT 數量能讓 decision 過而 token 拒——
       // 「token 側拒發」唯一到得了的路徑就是同意與兌換之間額度被吃掉。
       await db.insert(apiTokens).values(
         Array.from({ length: 20 }, (_, i) => ({
@@ -237,7 +237,7 @@ describe("POST /oauth/token — authorization_code（§5.4）", () => {
     }
   });
 
-  // §0.2 歸 PR3 的跨棒案：20 支且其中一支屬本 client → 兩側的額度扣除等價，重新授權仍成功
+  // 跨功能案：20 支且其中一支屬本 client → 兩側的額度扣除等價，重新授權仍成功
   it("20 支且其中一支屬本 client：重新授權仍成功，該 client 仍只有一列，舊 access 401", async () => {
     const { app, db, close } = await buildTestApp();
     try {
@@ -372,7 +372,7 @@ describe("POST /oauth/token — refresh_token", () => {
       expect(rotated.json().scope).toBe("notes:read notes:write");
       expect(rotated.json().expires_in).toBe(86400);
       expect(await db.select().from(apiTokens)).toHaveLength(1); // 輪替不是新列
-      // 輪替是 I5 ① 的「使用」之一（§5.4 refresh 步驟 4）
+      // 輪替是 I5 ① 的「使用」之一（refresh 步驟 4）
       const [client] = await db.select().from(oauthClients);
       expect(client!.lastUsedAt.getTime()).toBeGreaterThan(stale.getTime());
 
@@ -383,7 +383,7 @@ describe("POST /oauth/token — refresh_token", () => {
       });
       expect(replay.statusCode).toBe(400);
       expect(replay.json().error).toBe("invalid_grant");
-      // 舊 access 也隨輪替失效（I4 一次換兩把）
+      // 舊 access 也隨輪替失效（一次換兩把）
       const oldAccess = await app.inject({
         method: "GET",
         url: "/api/notes",
@@ -395,7 +395,7 @@ describe("POST /oauth/token — refresh_token", () => {
     }
   });
 
-  // #239 O3（迴歸守衛）：exchange 回的是 decision 夾出來的授予值；refresh 不碰 scope——列上被改過的值原樣回傳。
+  // #239（迴歸守衛）：exchange 回的是 decision 夾出來的授予值；refresh 不碰 scope——列上被改過的值原樣回傳。
   it("#239：要求讀寫搬移、只勾讀寫 → exchange 回讀寫；列改成讀寫搬移後 refresh 回讀寫搬移、列 id 不變", async () => {
     const { app, db, close } = await buildTestApp();
     try {
@@ -421,7 +421,7 @@ describe("POST /oauth/token — refresh_token", () => {
     }
   });
 
-  // #181 PR-2d OT：讀寫刪除照原值換發、refresh 輪替不動 scope。
+  // #181 OT：讀寫刪除照原值換發、refresh 輪替不動 scope。
   it("#181：要求並勾讀寫刪除 → exchange 回讀寫刪除、列也是；refresh 輪替後仍是讀寫刪除", async () => {
     const RWD = "notes:read notes:write notes:delete";
     const { app, db, close } = await buildTestApp();
@@ -445,7 +445,7 @@ describe("POST /oauth/token — refresh_token", () => {
     }
   });
 
-  // #181 PR-2d OD 的端到端那一半：要求讀寫搬移、勾讀寫刪除 → 交集讀寫，token 回應與列都是讀寫。
+  // #181 OD 的端到端那一半：要求讀寫搬移、勾讀寫刪除 → 交集讀寫，token 回應與列都是讀寫。
   it("#181：要求讀寫搬移、勾讀寫刪除 → exchange 回讀寫、列也是讀寫", async () => {
     const { app, db, close } = await buildTestApp();
     try {
@@ -463,7 +463,7 @@ describe("POST /oauth/token — refresh_token", () => {
     }
   });
 
-  it("access 過期後 refresh 仍可換發，新 access 立即可用（§9.2 Bearer 段）", async () => {
+  it("access 過期後 refresh 仍可換發，新 access 立即可用（Bearer 段）", async () => {
     const { app, db, close } = await buildTestApp();
     try {
       const { cookie } = await createUserAndLogin(db);
@@ -606,11 +606,11 @@ describe("POST /oauth/token — 通則", () => {
     }
   });
 
-  // M-5：plan 原本有「壞掉的 form body → 400」一案，落不了地——@fastify/formbody 用
+  // 「壞掉的 form body → 400」一案落不了地——@fastify/formbody 用
   // fast-querystring，`%%%` 之類不會丟例外、只會 parse 成 `{"%%%": ""}`，落到
   // unsupported_grant_type。scoped error handler「保留 formbody 的 415」那條因此仍無守衛。
 
-  // Task 2 留下的假綠缺口：那時 /oauth 下沒有路由，`FORM_EXEMPT_ROUTES` 的查表是死碼，
+  // 留下的假綠缺口：那時 /oauth 下沒有路由，`FORM_EXEMPT_ROUTES` 的查表是死碼，
   // 把 `wantsForm` 改成恆 false 也全綠。這兩案是唯一能釘住「守衛真的去查豁免清單」的地方。
   it("送 form → 過得了守衛（落 400 業務錯誤，不是 415）；送 JSON → 415 RFC 形", async () => {
     const { app, close } = await buildTestApp();

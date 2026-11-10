@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import type { VersionDto } from "@knotebook/shared";
 import { KIND_FILTER_STORAGE_KEY, NARROW_QUERY, VersionsProvider, isOverlayOpen, useVersions, useVersionsController } from "./versions-context";
 
-/** 可控的 matchMedia（jsdom 預設 stub 的 addEventListener 是 no-op——[[knotebook-ui-chrome]]）。 */
+/** 可控的 matchMedia（jsdom 預設 stub 的 addEventListener 是 no-op）。 */
 function installMatchMedia(initialNarrow: boolean) {
   let narrow = initialNarrow;
   const listeners = new Set<(e: { matches: boolean }) => void>();
@@ -91,7 +91,7 @@ describe("versions-context", () => {
     expect(result.current.mode).toBe("panel");
   });
 
-  it("Task 19（spec §8.4 rev 10 追記）：close() 關面板＝一併離開預覽，右邊也重設 current", () => {
+  it("close() 關面板＝一併離開預覽，右邊也重設 current", () => {
     const { result } = renderHook(() => useVersionsController({ noteId: "n1", enabled: true }));
     act(() => {
       result.current.open();
@@ -114,7 +114,7 @@ describe("versions-context", () => {
     expect(result.current.dialog).toBeNull();
   });
 
-  it("RF4：開著跨斷點（寬→窄）→ 整個關掉，預覽一併離開", () => {
+  it("開著跨斷點（寬→窄）→ 整個關掉，預覽一併離開", () => {
     const { result } = renderHook(() => useVersionsController({ noteId: "n1", enabled: true }));
     act(() => {
       result.current.open();
@@ -125,7 +125,7 @@ describe("versions-context", () => {
     expect(result.current.preview).toBeNull();
   });
 
-  it("RF4：窄→寬同樣關掉整頁", () => {
+  it("窄→寬同樣關掉整頁", () => {
     mm.set(true);
     const { result } = renderHook(() => useVersionsController({ noteId: "n1", enabled: true }));
     act(() => result.current.open());
@@ -157,7 +157,7 @@ describe("versions-context", () => {
     expect(result.current.onlyChanges).toBe(false);
   });
 
-  it("換筆記：窄視窗整頁（sheet）照舊關閉（Willie 2026-10-11 裁定；只有寬版面板保留）", () => {
+  it("換筆記：窄視窗整頁（sheet）照舊關閉（只有寬版面板保留）", () => {
     mm.set(true);
     const { result, rerender } = renderHook(({ id }: { id: string }) => useVersionsController({ noteId: id, enabled: true }), { initialProps: { id: "n1" } });
     act(() => {
@@ -315,15 +315,15 @@ describe("versions-context", () => {
     expect(result.current.onlyChanges).toBe(false);
   });
 
-  // ── rev 10：比較對象＝左右一對（spec §8.4【rev 10】） ─────────────────────────────
-  it("rev 10：右邊預設 current；沒有 provider 的 no-op 也是 current", () => {
+  // ── 比較對象＝左右一對 ─────────────────────────────
+  it("右邊預設 current；沒有 provider 的 no-op 也是 current", () => {
     const { result } = renderHook(() => useVersionsController({ noteId: "n1", enabled: true }));
     expect(result.current.compareRight).toBe("current");
     const { result: noop } = renderHook(() => useVersions());
     expect(noop.current.compareRight).toBe("current");
   });
 
-  it("rev 10：startPreview 只換左邊，右邊選過的版保持（「面板選版本的時候如果右側有選成其他版的話不用跳回目前」）", () => {
+  it("startPreview 只換左邊，右邊選過的版保持（「面板選版本的時候如果右側有選成其他版的話不用跳回目前」）", () => {
     const { result } = renderHook(() => useVersionsController({ noteId: "n1", enabled: true }));
     act(() => result.current.startPreview(vtarget(3)));
     act(() => result.current.setCompareRight(vtarget(1)));
@@ -332,7 +332,7 @@ describe("versions-context", () => {
     expect(result.current.compareRight).toEqual(vtarget(1));
   });
 
-  it("rev 10：stopPreview → 右邊重設 current", () => {
+  it("stopPreview → 右邊重設 current", () => {
     const { result } = renderHook(() => useVersionsController({ noteId: "n1", enabled: true }));
     act(() => result.current.startPreview(vtarget(3)));
     act(() => result.current.setCompareRight(vtarget(1)));
@@ -340,7 +340,7 @@ describe("versions-context", () => {
     expect(result.current.compareRight).toBe("current");
   });
 
-  it("rev 10：enabled 翻 false → 右邊重設 current（翻回 true 也不重現）", () => {
+  it("enabled 翻 false → 右邊重設 current（翻回 true 也不重現）", () => {
     const { result, rerender } = renderHook(({ enabled }: { enabled: boolean }) => useVersionsController({ noteId: "n1", enabled }), { initialProps: { enabled: true } });
     act(() => result.current.startPreview(vtarget(3)));
     act(() => result.current.setCompareRight(vtarget(1)));
@@ -349,14 +349,14 @@ describe("versions-context", () => {
     expect(result.current.compareRight).toBe("current");
   });
 
-  it("rev 10 N-2：enabled=false 時 setCompareRight 不生效（翻回 true 仍是 current）", () => {
+  it("enabled=false 時 setCompareRight 不生效（翻回 true 仍是 current）", () => {
     const { result, rerender } = renderHook(({ enabled }: { enabled: boolean }) => useVersionsController({ noteId: "n1", enabled }), { initialProps: { enabled: false } });
     act(() => result.current.setCompareRight(vtarget(1)));
     rerender({ enabled: true });
     expect(result.current.compareRight).toBe("current");
   });
 
-  it("rev 10：跨斷點（預覽一併離開）→ 右邊重設 current", () => {
+  it("跨斷點（預覽一併離開）→ 右邊重設 current", () => {
     const { result } = renderHook(() => useVersionsController({ noteId: "n1", enabled: true }));
     act(() => result.current.startPreview(vtarget(3)));
     act(() => result.current.setCompareRight(vtarget(1)));

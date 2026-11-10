@@ -10,7 +10,7 @@ describe("validPlanName（trim 後 1–40 個 code point；server 仍是最終�
   });
 });
 
-describe("quotaBytesFromInput（RF3）", () => {
+describe("quotaBytesFromInput", () => {
   it("1 MB → 1048576；1.5 GB → 1610612736；前後空白可", () => {
     expect(quotaBytesFromInput("1", "MB")).toBe(1048576);
     expect(quotaBytesFromInput(" 1.5 ", "GB")).toBe(1610612736);

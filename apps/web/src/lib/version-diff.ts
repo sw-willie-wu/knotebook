@@ -2,16 +2,16 @@ import { diffWordsWithSpace } from "diff";
 import { normalizeAnchor, wikilinkHref, wikilinkVisibleText } from "@knotebook/shared";
 
 /**
- * 版本預覽的 diff（spec §8.4，A7：在 client 算）。純函式、不碰 DOM、不碰 Y.Doc。
+ * 版本預覽的 diff（在 client 算）。純函式、不碰 DOM、不碰 Y.Doc。
  *
- * 配對是**逐層**的（起草裁定 11）：只在同一個父的子清單之間配對，所以跨層搬移＝刪除＋新增（§13-7）。
- * 同一層內分三道（spec rev 11 §8.4 規則 1，每道只處理前一道剩下的）：1a 以 `id` 配對——但內容不同的一對若任一顆
+ * 配對是**逐層**的：只在同一個父的子清單之間配對，所以跨層搬移＝刪除＋新增。
+ * 同一層內分三道（規則 1，每道只處理前一道剩下的）：1a 以 `id` 配對——但內容不同的一對若任一顆
  * 的內容在對側未配對區塊裡有完全相同、且己側沒有別顆能接走的，就讓位（區塊開頭按 Enter：舊 id 留在空區塊、原文字
  * 換新 id）；1b 內容完全相同者依出現順序配（整篇貼上重發所有 id）；1c 文字型區塊在候選帶內取 token bigram Dice
  * 最高且 ≥ 0.5 者配（空的文字型區塊 token 為 0，不做 1c）。兩側都是空文字區塊的對子不標 moved。
  * `moved` 對三道的全部對子一起算 LIS。
- * 渲染 id：b 側（新增、保留）沿用 b 的 id；刪除的區塊與其子孫一律換合成 id `diff-del-<n>`（§8.4-4）——
- * 否則「父刪子升」時 a 側的子和 b 側的同一顆會撞 id。缺 id 或同一側重複出現的 id（RF1：壞掉的快照）一律
+ * 渲染 id：b 側（新增、保留）沿用 b 的 id；刪除的區塊與其子孫一律換合成 id `diff-del-<n>`——
+ * 否則「父刪子升」時 a 側的子和 b 側的同一顆會撞 id。缺 id 或同一側重複出現的 id（壞掉的快照）一律
  * 當成無法配對：b 側合成 `diff-anon-<n>` 當新增、a 側當刪除。
  */
 export interface DiffBlock {
@@ -41,7 +41,7 @@ export interface DiffRender {
   marks: Map<string, DiffMarkInfo>;
 }
 
-/** inline diff 只做這六種有 inline content 的型別（spec §8.4-5）；其餘只標 changed、內容取 b。 */
+/** inline diff 只做這六種有 inline content 的型別；其餘只標 changed、內容取 b。 */
 export const INLINE_DIFF_TYPES: ReadonlySet<string> = new Set([
   "paragraph",
   "heading",
@@ -57,7 +57,7 @@ interface Ctx {
 }
 
 /**
- * #269 §13.2：區塊層比較略過 wikilink 的 `snapshotTitle`——MCP／站內 AI 往返時它常變（帶 label 的連結往返後一律變），不得讓區塊
+ * #269：區塊層比較略過 wikilink 的 `snapshotTitle`——MCP／站內 AI 往返時它常變（帶 label 的連結往返後一律變），不得讓區塊
  * 被標成 changed。只影響序列化（replacer 回傳新物件），**輸入不改寫**。
  */
 function ignoreWikilinkSnapshot(_key: string, value: unknown): unknown {
@@ -71,7 +71,7 @@ function ignoreWikilinkSnapshot(_key: string, value: unknown): unknown {
   return value;
 }
 /**
- * 並排的列與欄只靠 id 配對（columns-layout spec §11.9）：它們沒有 content，所有列的 shallow 相同、同寬的欄也相同，
+ * 並排的列與欄只靠 id 配對：它們沒有 content，所有列的 shallow 相同、同寬的欄也相同，
  * 不帶 id 的話 1b 會把「刪一欄加一欄」配成同一欄、「刪一列在別處加一列」配成同一列。鍵含 id 之後 1a 也不會讓位。
  */
 const ID_PAIRED_TYPES: ReadonlySet<string> = new Set(["columnList", "column"]);
@@ -132,7 +132,7 @@ function addedSubtree(b: DiffBlock, ctx: Ctx, pairable: boolean): DiffEntry {
   };
 }
 
-/** 1c 的候選帶半寬（a 未配對序列中的位置差）與相似度門檻（spec rev 11 §8.4 規則 1c）。 */
+/** 1c 的候選帶半寬（a 未配對序列中的位置差）與相似度門檻（規則 1c）。 */
 export const FUZZY_WINDOW = 30;
 export const FUZZY_THRESHOLD = 0.5;
 /** 1c 兩側 token 至少要這麼多（bigram ≥ 3）才比；更短的只靠 1b 的完全相等。 */
@@ -149,7 +149,7 @@ const LATIN_OR_DIGIT = /[\p{Script=Latin}\p{Nd}]/u;
 const SEPARATOR = /[\s\p{P}]/u;
 
 /**
- * 切 token（spec §8.4 規則 1c，review I-1）：連續的拉丁字母／數字一段為一個 token；其他字元（CJK、emoji、
+ * 切 token（規則 1c）：連續的拉丁字母／數字一段為一個 token；其他字元（CJK、emoji、
  * U+FFFC 等）每個 code point 各自一個 token；空白與標點只當分隔、不成 token。
  * 字元 bigram 在英文上太寬鬆（同主題不相關段落常過 0.5），token bigram 對英文是詞對、對中文仍是字對。
  */
@@ -208,13 +208,13 @@ export function bigramDice(a: string, b: string): number {
   return diceOf(ga, na, gb, nb);
 }
 
-/** INLINE 型且沒有任何文字的區塊（空段落等）：照常配對，但兩側都是空的對子不參與 LIS、不標 moved（review M-2：空行 moved 是雜訊）。 */
+/** INLINE 型且沒有任何文字的區塊（空段落等）：照常配對，但兩側都是空的對子不參與 LIS、不標 moved（空行 moved 是雜訊）。 */
 function isBlankText(b: DiffBlock): boolean {
   return INLINE_DIFF_TYPES.has(b.type) && textOf(b) === "";
 }
 
 /**
- * 同一層的三道配對（spec rev 11 §8.4 規則 1）。只在**可配對**的區塊之間進行（RF1：缺 id、同層重複 id 一律不配）。
+ * 同一層的三道配對（規則 1）。只在**可配對**的區塊之間進行（缺 id、同層重複 id 一律不配）。
  * 回傳 b 索引 → a 索引。
  */
 function pairLevel(a: readonly DiffBlock[], b: readonly DiffBlock[], aOk: Set<string>, bOk: Set<string>): Map<number, number> {
@@ -228,14 +228,14 @@ function pairLevel(a: readonly DiffBlock[], b: readonly DiffBlock[], aOk: Set<st
   });
 
   // 讓位池的材料：所有可配對區塊，**含空的文字型區塊**——在文末空段落打字時 BlockNote 會補一顆新的空段落，
-  // 舊 id 那顆（原本空）讓位、兩顆空段落以 1b 配成 unchanged，新字才會是 added（修正輪 2 裁定）。
+  // 舊 id 那顆（原本空）讓位、兩顆空段落以 1b 配成 unchanged，新字才會是 added。
   // 空段落對子不參與 moved（見 diffLevel）；1c 因 token 數為 0 本來就不做。
   const aMat = aCan;
   const bMat = bCan;
 
   // 1a id 配對：同 id 且 shallow 相等 → 固定。不相等時，若某一顆的內容在對側未配對池裡「多出來」（對側池中相等者的
   // 個數 > 己側池中相等者的個數，即己側沒有別顆能接走它）→ 讓位（拆開回池）——解「區塊開頭按 Enter」。
-  // 只看「有沒有」會在同層有重複內容時交叉配對、生出假 moved（review M-1），所以比個數。
+  // 只看「有沒有」會在同層有重複內容時交叉配對、生出假 moved，所以比個數。
   // 未配對池＝內容材料中不在 id 對子裡的＋已讓位的。讓位會讓池變大、可能觸發另一對讓位（連鎖），所以依 b 順序
   // 重跑到不再有新的讓位為止。
   const idPairs: Array<[number, number]> = []; // [bi, ai]，依 b 順序
@@ -350,7 +350,7 @@ function diffLevel(a: readonly DiffBlock[], b: readonly DiffBlock[], ctx: Ctx): 
   for (const [bi, ai] of pairs) pairedA.set(ai, bi);
 
   // moved：三道配對的全部對子一起，依 b 順序取 a 索引做 LIS（規則 3）。兩側都是空文字區塊的對子不參與、moved 恆 false
-  // （空行的相對順序沒有意義，標 moved 只是雜訊；review M-2／修正輪 2）。
+  // （空行的相對順序沒有意義，標 moved 只是雜訊）。
   const commonB = b.map((_, bi) => bi).filter((bi) => pairs.has(bi) && !(isBlankText(b[bi]) && isBlankText(a[pairs.get(bi)!])));
   const keep = lisPositions(commonB.map((bi) => pairs.get(bi)!));
   const moved = new Set(commonB.filter((_, i) => !keep.has(i)));
@@ -377,7 +377,7 @@ function diffLevel(a: readonly DiffBlock[], b: readonly DiffBlock[], ctx: Ctx): 
 
   // 刪除：依 a 的順序，插在「a 裡它前一顆已配對區塊」（在 out 裡的位置）之後（同一錨點後的多顆刪除維持 a 的順序）；沒有就放開頭。
   // 錨點跳過「兩側皆空文字、且 id 不同」的對子（＝靠 1b 配起來的空行）：1b 會把被刪的空行配給任意遠處的新空行，
-  // 拿它當錨點會讓緊接其後被刪的段落顯示到遠處（fix2 review I-A）。
+  // 拿它當錨點會讓緊接其後被刪的段落顯示到遠處。
   let headInsert = 0;
   const afterCount = new Map<number, number>(); // 錨點 b 索引 → 其後已插幾顆
   for (let i = 0; i < a.length; i += 1) {
@@ -497,7 +497,7 @@ const asDeleted = (u: Unit): Unit => (u.node !== undefined ? { ...u, side: "del"
 const asAdded = (u: Unit): Unit => (u.node !== undefined ? { ...u, side: "add" } : { ...u, side: "add", styles: { ...u.styles, backgroundColor: "green" } });
 
 /**
- * #269 §13.2：equal 段逐對比較兩側單位的 `(href, wl)`，不同就當成不一致；整個輸出序列中每個極大的連續非 equal 區域一律發成
+ * #269：equal 段逐對比較兩側單位的 `(href, wl)`，不同就當成不一致；整個輸出序列中每個極大的連續非 equal 區域一律發成
  * 「該區域全部舊側單位（刪）＋全部新側單位（增）」——不逐單位交錯，regroup 才會各重組成一個節點。
  */
 function inlineDiff(aContent: unknown, bContent: unknown, wikilinkText?: WikilinkText): unknown[] {
@@ -555,7 +555,7 @@ function hasChange(e: DiffEntry): boolean {
 }
 
 /**
- * `parentType === "columnList"`（這一層是欄）時不收合：佔位段落不能當 `columnList` 的直接子節點（columns-layout spec §11.9）；
+ * `parentType === "columnList"`（這一層是欄）時不收合：佔位段落不能當 `columnList` 的直接子節點；
  * 收合只發生在欄內的 block 層與頂層。
  */
 function renderLevel(
@@ -601,7 +601,7 @@ export function renderDiff(
 ): DiffRender {
   const marks = new Map<string, DiffMarkInfo>();
   const titleOf = opts.titleOf;
-  // #269 §13.2：逐字層的 wikilink 顯示文字＝label || titleOf(id) || snapshotTitle || wikilinkHref（同 §7.3 匯出的後備鏈，永遠 ≥1 單位）。
+  // #269：逐字層的 wikilink 顯示文字＝label || titleOf(id) || snapshotTitle || wikilinkHref（同匯出的後備鏈，永遠 ≥1 單位）。
   const wikilinkText: WikilinkText = (props) => wikilinkVisibleText(props, titleOf?.(String(props.targetNoteId ?? "")));
   const blocks = renderLevel(
     entries,
@@ -630,18 +630,18 @@ export function sideBySideMarks(entries: DiffEntry[]): { left: Map<string, DiffM
   return { left, right };
 }
 
-/** 並排的一列：a／b **頂層**陣列的索引，單側列對面為 null（spec rev 12 §8.4「並排逐區塊對齊」）。 */
+/** 並排的一列：a／b **頂層**陣列的索引，單側列對面為 null。 */
 export interface SplitRow {
   left: number | null;
   right: number | null;
 }
 
 /**
- * 並排逐區塊對齊的列（spec rev 12 §8.4「列的產生」）。只看頂層 entries；巢狀子區塊跟著所屬頂層區塊走。
- * 用索引不用 id：RF1 重複 id 在 DOM 上 `data-id` 會撞；兩欄 DOM 的頂層 `.bn-block-outer` 依文件順序與 a／b 一一對應。
+ * 並排逐區塊對齊的列。只看頂層 entries；巢狀子區塊跟著所屬頂層區塊走。
+ * 用索引不用 id：重複 id 在 DOM 上 `data-id` 會撞；兩欄 DOM 的頂層 `.bn-block-outer` 依文件順序與 a／b 一一對應。
  *
  * 1. 錨列＝配對且 `moved === false` 的 entry（`diffLevel` 裡 `before === a[ai]`、`after === b[bi]`，以物件身分取索引），分兩階
- *    （Task 2 review I-1）：
+ *
  *    1a 先取**非**「兩側皆空文字」的對子——它們來自 `diffLevel` 的 LIS，依 b 順序時 a 索引天然遞增；仍留遞增檢查當防線
  *       （不遞增就降級）。
  *    1b 兩側皆空文字的對子（1b 配對可配到很遠、`moved` 恆 false）只有 a 索引與 b 索引都嚴格夾在相鄰兩個錨列之間

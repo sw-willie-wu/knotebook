@@ -1,7 +1,6 @@
 /**
- * #181 PR-2d：MCP 垃圾桶工具（spec 2026-10-21 §6.8.1、§9-11、A2-13）。T4 寫 `list_trash`（LT 段）；T5 寫 `delete_note`／
- * `restore_note`（DN、RN、DS、PX、SC 段）。併入資料夾後補 FD 段（資料夾 spec §5.8：移入留在資料夾並寫路徑快照、還原回原資料夾，
- * 資料夾已刪則重建路徑；資料夾 PR-3d 起 restore_note 的 note 帶 folder、list_trash 每項帶 folderPath，delete_note 仍不帶）。
+ * #181：MCP 垃圾桶工具。LT 段測 list_trash；DN／RN 段測 delete_note／restore_note（另有 DS、PX、SC 段）。併入資料夾後補 FD 段（移入留在資料夾並寫路徑快照、還原回原資料夾，
+ * 資料夾已刪則重建路徑；資料夾功能加入後 restore_note 的 note 帶 folder、list_trash 每項帶 folderPath，delete_note 仍不帶）。
  * 比對對象一律是同一人 cookie 的 REST（`GET /api/trash`、`DELETE /api/notes/:id`、`POST /api/trash/restore`，同一組服務函式）。
  * 造垃圾桶狀態打 `DELETE /api/notes/:id` 或 `markTrashed`；大量資料與病態字串直改 DB。斷言共編閘門（`isDeleting`）的案接真的 hooks。
  */
@@ -64,7 +63,7 @@ async function listTrashOf(app: FastifyInstance, auth: Auth, cursor?: string): P
   expect(r.isError, JSON.stringify(r.content)).toBeUndefined();
   return r.structuredContent as unknown as ListTrashOut;
 }
-/** 資料夾 PR-3d：`list_trash` 從頭翻到 `nextCursor` 為 null；每頁 `truncated` ≡ `nextCursor !== null`。 */
+/** 資料夾：`list_trash` 從頭翻到 `nextCursor` 為 null；每頁 `truncated` ≡ `nextCursor !== null`。 */
 async function listTrashAll(app: FastifyInstance, auth: Auth): Promise<ListTrashOut[]> {
   const pages: ListTrashOut[] = [];
   let cursor: string | undefined;
@@ -77,7 +76,7 @@ async function listTrashAll(app: FastifyInstance, auth: Auth): Promise<ListTrash
   }
   throw new Error("list_trash 翻了 20 頁還沒到底");
 }
-/** Q3 之後同一毫秒改依 id 排：把剛移入那篇的 `deleted_at` 設成前一篇＋2 ms，讓「依序移入」的順序不靠微秒（M7）。 */
+/** 同一毫秒改依 id 排：把剛移入那篇的 `deleted_at` 設成前一篇＋2 ms，讓「依序移入」的順序不靠微秒。 */
 async function spaceAfter(db: Db, noteId: string, prevId: string): Promise<void> {
   await db.$client.query(
     `update notes set deleted_at = (select deleted_at from notes where id = $2) + interval '2 milliseconds' where id = $1`,
@@ -127,7 +126,7 @@ describe("LT1 範圍與順序：與 GET /api/trash 逐字相同", () => {
   });
 });
 
-describe("LT2 角色（D-W9）", () => {
+describe("LT2 角色", () => {
   it("群組垃圾桶筆記：admin、editDelete 列得到；deleteOnly、editOnly、member、readOnly、outsider 列不到", async () => {
     const ctx = await buildCollabTestApp();
     const s = await sixRoleScene(ctx.db);
@@ -142,7 +141,7 @@ describe("LT2 角色（D-W9）", () => {
 });
 
 describe("LT3 每頁 100 與翻頁", () => {
-  // 個人與群組各一批、時間交錯（各隔 1 秒），keyset 兩支都要帶到（T4-M1）。
+  // 個人與群組各一批、時間交錯（各隔 1 秒），keyset 兩支都要帶到。
   const seedMany = (db: Db, u: SeededUser, n: number, offset = 0) =>
     db.$client.query(
       `insert into notes (owner_id, title, slug, deleted_at, deleted_by)
@@ -252,7 +251,7 @@ describe("LT4 欄位", () => {
 });
 
 describe("LT5 輸入", () => {
-  it("{} 成功；{ limit: 5 } → SDK 輸入驗證錯誤（無 structuredContent、訊息含 limit）；不帶 arguments → SDK 的 Required（同 X-241b）", async () => {
+  it("{} 成功；{ limit: 5 } → SDK 輸入驗證錯誤（無 structuredContent、訊息含 limit）；不帶 arguments → SDK 的 Required", async () => {
     const ctx = await buildCollabTestApp();
     const me = await seedUser(ctx.db);
     const auth = await tokenOf(ctx, me.id, R);
@@ -284,7 +283,7 @@ describe("LT6 鏡像與模型面字串", () => {
       outputSchema: { properties: Record<string, { description?: string }> };
     }>;
     const t = tools.find(x => x.name === "list_trash")!;
-    // 資料夾 PR-3d 加了 cursor：新句在、PR-2d「沒有分頁」的舊句不在；folderPath 的定義以「還原的去處」為準（各 Rev 的舊錨不得回來）。
+    // 資料夾功能加了 cursor：新句在、「沒有分頁」的舊句不在；folderPath 的定義以「還原的去處」為準（舊的錨不得回來）。
     expect(t.description).toContain("pass `nextCursor` back as `cursor`");
     expect(t.description).toContain(`up to ${MCP_PAGE_MAX} per call`);
     expect(t.description).not.toContain("only the newest");
@@ -316,7 +315,7 @@ describe("LT7 站台設定列不在", () => {
   });
 });
 
-// ───────────────────────── 資料夾 PR-3d T4：folderPath、cursor ─────────────────────────
+// ───────────────────────── 資料夾：folderPath、cursor ─────────────────────────
 
 describe("LT8 folderPath（還原的去處）", () => {
   it("資料夾還在 → 即時路徑（期間改名、搬動也跟著）；資料夾已刪 → 移入時的快照；根層 → []", async () => {
@@ -386,7 +385,7 @@ describe("LT9 壞游標", () => {
     expect(notesCursor).not.toBeNull(); // 前提：真的拿到一個 list_notes 游標
     const enc = (s: string) => Buffer.from(s, "utf8").toString("base64url");
     const withNul = enc(`t|${new Date().toISOString()}${String.fromCharCode(0)}|${n.id}`);
-    // 偽造的兩段（T4 審查 M1）：id 不是 UUID、時間不是日期；以及 JS 收、pg 不收的超範圍年份（N1）——都要是 invalid_body，不是 internal。
+    // 偽造的兩段：id 不是 UUID、時間不是日期；以及 JS 收、pg 不收的超範圍年份——都要是 invalid_body，不是 internal。
     const badId = enc(`t|${new Date().toISOString()}|zzz`);
     const badDate = enc(`t|not-a-date|${n.id}`);
     const farYear = enc(`t|+275760-09-13T00:00:00.000Z|${n.id}`);
@@ -419,7 +418,7 @@ describe("LT-K 毫秒邊界", () => {
     expect(same.rows[0]!.n).toBe(2); // 前提：這一毫秒恰好兩篇
 
     const rest = (await restListOf(ctx.app, me.id)).items.map(i => i.id);
-    expect(rest.slice(99)).toEqual([large, small]); // Q3：同一毫秒依 id DESC（不是 µs）
+    expect(rest.slice(99)).toEqual([large, small]); // 同一毫秒依 id DESC（不是 µs）
     const pages = await listTrashAll(ctx.app, await tokenOf(ctx, me.id, R));
     expect(pages.map(p => p.items.length)).toEqual([100, 1]);
     const ids = pages.flatMap(p => p.items.map(i => i.id));
@@ -428,7 +427,7 @@ describe("LT-K 毫秒邊界", () => {
   });
 });
 
-// ───────────────────────── T5：delete_note／restore_note ─────────────────────────
+// ───────────────────────── delete_note／restore_note ─────────────────────────
 
 type DeleteOut = { id: string; title: string; titleTruncated?: true; purgeAt: string | null };
 type NoteSummary = { id: string; title: string; owner: { kind: string }; url: string; role: string };
@@ -479,7 +478,7 @@ describe("DN1 owner 移入個人筆記", () => {
   });
 });
 
-describe("DN2 not_found 同形（AG2）", () => {
+describe("DN2 not_found 同形", () => {
   it("已在垃圾桶的同一篇、別人的私人筆記、隨機 uuid → structuredContent 逐欄相同", async () => {
     const ctx = await buildCollabTestApp();
     const me = await seedUser(ctx.db);
@@ -515,7 +514,7 @@ describe("DN3 分享者", () => {
   });
 });
 
-describe("DN4 六角色（§6.3.1）", () => {
+describe("DN4 六角色", () => {
   it("admin、editDelete、deleteOnly 成功；member、editOnly、readOnly forbidden；outsider 與隨機 uuid 逐欄相同；deleteOnly 之後 list_trash 不含、restore_note not_found", async () => {
     const ctx = await buildCollabTestApp();
     const s = await sixRoleScene(ctx.db);
@@ -608,7 +607,7 @@ describe("DN7 edit 桶", () => {
   });
 });
 
-describe("DN8 token 寫入預算（gate r1 I1；tokenWrite 扣點在 HTTP 上是活的）", () => {
+describe("DN8 token 寫入預算（tokenWrite 扣點在 HTTP 上是活的）", () => {
   it("tokenWrite 0 格：RWD 憑證 → too_many_requests、deleted_at 仍 NULL、edit 桶沒被扣；session 照常成功", async () => {
     const edit = editLimiter();
     const ctx = await buildCollabTestApp({ limiters: { tokenWrite: emptyLimiter(), edit } });
@@ -643,7 +642,7 @@ describe("DN8 token 寫入預算（gate r1 I1；tokenWrite 扣點在 HTTP 上是
   });
 });
 
-describe("DN9 交易被併發犧牲（gate r1 m5）", () => {
+describe("DN9 交易被併發犧牲", () => {
   it("note-trash-locked 丟 40001 → server_busy＋DELETE_BUSY_MESSAGE；deleted_at 仍 NULL；閘門已收", async () => {
     const ctx = await buildCollabTestApp({
       ...realHooks,
@@ -713,7 +712,7 @@ describe("DN11 purgeAt 跟著當下設定", () => {
   });
 });
 
-describe("DN12 授權之後才落空：commit 後重讀（讀碼發現 6）與交易內重判", () => {
+describe("DN12 授權之後才落空：commit 後重讀與交易內重判", () => {
   it("移入交易持鎖時 site_settings 列被刪 → 移入照樣 commit，loadTrashedMeta 落空 → not_found＋同一句", async () => {
     const holder: { db?: Db; armed?: boolean } = {};
     const hook: GroupTestHook = async point => {
@@ -776,7 +775,7 @@ describe("RN1 owner 還原", () => {
   });
 });
 
-describe("RN2 not_found 同形（AG2）", () => {
+describe("RN2 not_found 同形", () => {
   it("已還原的同一篇、活筆記、隨機 uuid、別人的個人垃圾桶筆記 → structuredContent 逐欄相同", async () => {
     const ctx = await buildCollabTestApp();
     const me = await seedUser(ctx.db);
@@ -893,7 +892,7 @@ describe("RN6 token 寫入預算", () => {
   });
 });
 
-describe("RN7 交易被併發犧牲（gate r1 m5）", () => {
+describe("RN7 交易被併發犧牲", () => {
   it("note-restore-locked 丟 40001 → server_busy＋RESTORE_BUSY_MESSAGE；仍在垃圾桶", async () => {
     const ctx = await buildCollabTestApp({
       groupTestHook: async point => {
@@ -927,7 +926,7 @@ describe("RN7 交易被併發犧牲（gate r1 m5）", () => {
   });
 });
 
-describe("DS1 模型面字串（gate r1 I2、r2 I2）", () => {
+describe("模型面字串", () => {
   it("delete_note／restore_note 的 description 與 purgeAt 說明：新子句在、被拿掉的舊說法不在", async () => {
     const ctx = await buildCollabTestApp();
     const me = await seedUser(ctx.db);
@@ -948,7 +947,7 @@ describe("DS1 模型面字串（gate r1 I2、r2 I2）", () => {
     expect(del.outputSchema.properties.purgeAt!.description).toContain("list_trash shows the current date");
     expect(res.description).toContain("a different owner and URL");
     expect(res.description).not.toContain("same URL");
-    // RN-D（資料夾 PR-3d）：RN+ 在、回應形那句仍在。
+    // RN+ 在、回應形那句仍在。
     expect(res.description).toContain(
       "It usually goes back into the folder that list_trash shows as its `folderPath`, re-creating folders on that path that are missing.",
     );
@@ -956,11 +955,11 @@ describe("DS1 模型面字串（gate r1 I2、r2 I2）", () => {
   });
 });
 
-describe("PX REST／MCP 同一份 fixture（§6.14）", () => {
+describe("PX REST／MCP 同一份 fixture", () => {
   it("六角色＋outsider＋逐人分享的檢視者／編輯者 × 移入／列出／還原：REST 與 MCP 的結果對映表逐格相同", async () => {
     const ctx = await buildCollabTestApp();
     const s = await sixRoleScene(ctx.db);
-    // 逐人分享（spec §6.3.1「逐人分享的編輯者／檢視者」）：另一人的個人筆記分享給他們。
+    // 逐人分享：另一人的個人筆記分享給他們。
     const shareOwner = await seedUser(ctx.db);
     const users: Record<string, SeededUser> = {
       admin: s.admin, editDelete: s.editDelete, deleteOnly: s.deleteOnly, member: s.member, editOnly: s.editOnly, readOnly: s.readOnly,
@@ -1017,8 +1016,8 @@ describe("PX REST／MCP 同一份 fixture（§6.14）", () => {
   });
 });
 
-describe("SC1 註冊與 AG3", () => {
-  it("R／RW／RWM 沒有 delete_note／restore_note／delete_folder（資料夾 PR-3d T8）、有 list_trash；RWD／RWMD／session 四支都有；名字都不含 purge／empty／permanent；RWM 直接呼叫 delete_note → Tool not found", async () => {
+describe("SC1 註冊", () => {
+  it("R／RW／RWM 沒有 delete_note／restore_note／delete_folder、有 list_trash；RWD／RWMD／session 四支都有；名字都不含 purge／empty／permanent；RWM 直接呼叫 delete_note → Tool not found", async () => {
     const ctx = await buildCollabTestApp();
     const me = await seedUser(ctx.db);
     const n = await seedNote(ctx.db, { ownerId: me.id });
@@ -1045,7 +1044,7 @@ describe("SC1 註冊與 AG3", () => {
   });
 });
 
-describe("SC2 AG6（PR-2d 部分）", () => {
+describe("SC2", () => {
   it("RWMD 憑證：edit_note append、copy_note（個人、群組）、create_note（群組）、move_note_to_group 之後沒有任何筆記在垃圾桶", async () => {
     const ctx = await buildCollabTestApp();
     const me = await seedUser(ctx.db);

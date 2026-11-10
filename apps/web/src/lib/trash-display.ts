@@ -2,14 +2,14 @@ import type { NoteDto, TrashItemDto } from "@knotebook/shared";
 import { noteLocationSegments } from "@/components/sidebar/tree";
 import { selectionKey } from "@/lib/sidebar-selection";
 
-/** #181 垃圾桶列的顯示純函式（spec 2026-10-21 §6.10.1、§6.10.3、§6.10.7）。 */
+/** #181 垃圾桶列的顯示純函式。 */
 
 type Translate = (key: string, options?: Record<string, unknown>) => string;
 
 export const DAY_MS = 86_400_000;
 
 /**
- * 「剩 N 天」：N＝max(1, ⌈(purgeAt − now)／1 天⌉)（總管裁定 2026-10-22：沒有「不到 1 天」）——剛移入（保留 7 天）是「剩 7 天」，
+ * 「剩 N 天」：N＝max(1, ⌈(purgeAt − now)／1 天⌉)（沒有「不到 1 天」）——剛移入（保留 7 天）是「剩 7 天」，
  * 與底部說明一致；不到一天、或已過 purgeAt 等下一輪清理，都是「剩 1 天」。null＝保留天數為 NULL（不自動刪）。
  */
 export function remainingLabel(purgeAt: string | null, now: number, t: Translate): string | null {
@@ -18,7 +18,7 @@ export function remainingLabel(purgeAt: string | null, now: number, t: Translate
 }
 
 /**
- * 每個語系每種格式只建一個 `Intl.DateTimeFormat`（final review M-1：1000 列每次新建約 70 ms）。
+ * 每個語系每種格式只建一個 `Intl.DateTimeFormat`（1000 列每次新建約 70 ms）。
  * `date` 的空 options 與 `toLocaleDateString(locale)` 同預設（年月日）；Invalid Date 照 `toLocale*` 回 "Invalid Date"、不丟錯。
  */
 const DATE_FORMATS = { date: {}, dateTime: { dateStyle: "short", timeStyle: "short" } } as const;
@@ -36,7 +36,7 @@ function formatDate(iso: string, kind: keyof typeof DATE_FORMATS, locale: string
 }
 
 /**
- * 列的第二行：個人「剩 N 天」（在資料夾裡「A › B · 剩 N 天」，無「我的筆記」前綴）；群組「群組名 › A · X 刪除 · 剩 N 天」（資料夾 spec §6.9）。
+ * 列的第二行：個人「剩 N 天」（在資料夾裡「A › B · 剩 N 天」，無「我的筆記」前綴）；群組「群組名 › A · X 刪除 · 剩 N 天」。
  * 位置段是一段（以「 › 」串），之後才以「 · 」接。保留天數 NULL 時時間段改成刪除日期（用到才格式化）。
  */
 export function trashDetailLine(item: TrashItemDto, ctx: { now: number; t: Translate; locale: string }): string {
@@ -52,7 +52,7 @@ export function trashDetailLine(item: TrashItemDto, ctx: { now: number; t: Trans
 }
 
 /**
- * 第二行的位置段（[群組名?, ...資料夾路徑] 以「 › 」串）：第二行元素的 `title` 用它給完整路徑（資料夾 spec §6.9「太長：title 給完整路徑」）。
+ * 第二行的位置段（[群組名?, ...資料夾路徑] 以「 › 」串）：第二行元素的 `title` 用它給完整路徑（太長時看得到全文）。
  * 個人根層＝空字串（呼叫端以 `|| undefined` 不帶 title）。
  */
 export function trashLocationLine(item: TrashItemDto): string {
@@ -83,7 +83,7 @@ export function splitTrashSections(items: readonly TrashItemDto[]): TrashSection
 }
 
 /**
- * 選取模式要送出的 id：照清單順序（個人在前），只算目前清單上有的（清單重抓後消失的鍵不計、不送，讀碼發現 22）。
+ * 選取模式要送出的 id：照清單順序（個人在前），只算目前清單上有的（清單重抓後消失的鍵不計、不送）。
  * 標題列「已選 N 篇」與底部動作列共用。
  */
 export function selectedTrashIds(items: readonly TrashItemDto[], keys: ReadonlySet<string>): string[] {
@@ -91,7 +91,7 @@ export function selectedTrashIds(items: readonly TrashItemDto[], keys: ReadonlyS
   return [...personal, ...workspace].filter((item) => keys.has(selectionKey({ kind: "note", id: item.id }))).map((item) => item.id);
 }
 
-/** spec §6.10.7：個人筆記恆可；群組筆記要 edit 且 delete。 */
+/** 個人筆記恆可；群組筆記要 edit 且 delete。 */
 export function canRestoreAfterTrash(note: Pick<NoteDto, "group" | "permissions">): boolean {
   if (note.group === null) return true;
   return note.permissions.edit && note.permissions.delete;

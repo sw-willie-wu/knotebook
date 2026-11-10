@@ -1,11 +1,11 @@
 /**
- * #175 PR4（spec §6.8、§11）刪群組兩模式的交錯案：C9a／C9b（轉移 × 成員異動）、C10（轉移的 savepoint 重試）、
+ * #175 刪群組兩模式的交錯案：C9a／C9b（轉移 × 成員異動）、C10（轉移的 savepoint 重試）、
  * C12／C12b／C12c（全刪 × gate 之後才進群組的筆記）、C17（全刪 gate 之後被轉移）、C20a–d（複製／移動／PATCH × 刪群組）、
- * C13 反向（token PUT × 轉移）、C21（別名 PUT × 轉移＋接手者重開 token，三方形）、C22（全刪持 L 時的上傳；Task 2 review r1 M1；#188 起 T7 與 `deleteNotesInTx` 的 `FOR UPDATE` 任一把都守得住這條）。
+ * C13 反向（token PUT × 轉移）、C21（別名 PUT × 轉移＋接手者重開 token，三方形）、C22（全刪持 L 時的上傳；#188 起 T7 與 `deleteNotesInTx` 的 `FOR UPDATE` 任一把都守得住這條）。
  * 要證明「測到的是交錯」的案在注入縫裡呼叫 `waitForBlockedOrSettled`，最後斷言 `"blocked"`；標「序列」的案在縫裡
  * `await` 一次完整的請求（窗在授權／gate 之後、交易或 UPDATE 之前，序列即可）。
- * C11（同一個舊網址兩次寫入轉址）不寫：轉移只寫 `/g/<被刪群組>/<現行 slug>` 鍵；移動與 0012 只寫 `/n/` 鍵；同群組的現行 slug
- * 由 S12 互異、群組轉移後即不存在——結構上不會同鍵（plan Task 4 第 12 條）。
+ * 同一個舊網址兩次寫入轉址的案不寫：轉移只寫 `/g/<被刪群組>/<現行 slug>` 鍵；移動與 0012 只寫 `/n/` 鍵；同群組的現行 slug
+ * 由群組內 slug 唯一而互異、群組轉移後即不存在——結構上不會同鍵。
  */
 import { existsSync } from "node:fs";
 import { readdir } from "node:fs/promises";
@@ -98,7 +98,7 @@ function gatedHooks() {
   return { hooks, gates };
 }
 
-describe("#175 PR4 轉移 × 成員異動（C9a／C9b）", () => {
+describe("#175 轉移 × 成員異動（C9a／C9b）", () => {
   it("C9a transferTo 被降級先拿到 lockGroup（group-members-checked）→ 轉移的 lockGroup 等它 → 降級 200、轉移 409 not_admin；群組與筆記原封不動", async () => {
     const state: RaceState = {};
     const holder: { pool?: Pool } = {};
@@ -146,7 +146,7 @@ describe("#175 PR4 轉移 × 成員異動（C9a／C9b）", () => {
   });
 });
 
-describe("#175 PR4 轉移的 slug 重試（C10）", () => {
+describe("#175 轉移的 slug 重試（C10）", () => {
   it("C10 轉移探測到候選 x 之後（group-transfer-slug-candidate）transferTo 的個人範圍被另一連線佔走 x → savepoint 撞 notes_owner_slug_idx 重試 → x-2；外層交易 commit、轉址 /g/<g>/x 指向轉移的那篇", async () => {
     const holder: { db?: Parameters<typeof seedNote>[0]; ownerId?: string; seeded?: Promise<{ id: string; slug: string }>; interleave?: string } = {};
     const candidates: string[] = [];
@@ -181,8 +181,8 @@ describe("#175 PR4 轉移的 slug 重試（C10）", () => {
   });
 });
 
-describe("#175 PR4 全刪 × gate 之後才進群組的筆記（C12／C12b／C12c）", () => {
-  it("C12 全刪：gate 之後（group-delete-gated）才在群組建的筆記 → 不經 gate 被刪；onGroupAccessChanged 恰一次 (那一篇, 全體成員)；beforeNoteDeleted 只對原本的 P0 呼叫", async () => {
+describe("#175 全刪 × gate 之後才進群組的筆記（C12／C12b／C12c）", () => {
+  it("C12 全刪：gate 之後（group-delete-gated）才在群組建的筆記 → 不經 gate 被刪；onGroupAccessChanged 恰一次 (那一篇, 全體成員)；beforeNoteDeleted 只對原本那批筆記呼叫", async () => {
     const state: { fire?: () => Promise<LightMyRequestResponse>; done?: LightMyRequestResponse; fired?: boolean } = {};
     const { hooks, gates } = gatedHooks();
     const built = await buildTestApp({ collabHooks: hooks, groupTestHook: serialHook("group-delete-gated", state) });
@@ -258,7 +258,7 @@ describe("#175 PR4 全刪 × gate 之後才進群組的筆記（C12／C12b／C12
   });
 });
 
-describe("#175 PR4 全刪 × 轉移（C17）", () => {
+describe("#175 全刪 × 轉移（C17）", () => {
   it("C17 全刪開完 gate 之後（group-delete-gated），另一位管理員的轉移先完成 → 全刪 404 not_found、每個 gate release；筆記以 transferTo 的個人筆記存活", async () => {
     const state: { fire?: () => Promise<LightMyRequestResponse>; done?: LightMyRequestResponse; fired?: boolean } = {};
     const { hooks, gates } = gatedHooks();
@@ -282,7 +282,7 @@ describe("#175 PR4 全刪 × 轉移（C17）", () => {
   });
 });
 
-describe("#175 PR4 複製／移動 × 刪群組（C20a／C20b／C20c）", () => {
+describe("#175 複製／移動 × 刪群組（C20a／C20b／C20c）", () => {
   it("C20a 複製（群組筆記 → 個人）持來源 KEY SHARE（note-copy-locked）時全刪 → 全刪的 FOR UPDATE 等複製 commit → 複製 201（副本是複製者的個人筆記、附件獨立）、全刪 204、來源消失", async () => {
     const holder: { app?: FastifyInstance; pool?: Pool; groupId?: string; adminId?: string; del?: Promise<LightMyRequestResponse>; interleave?: string } = {};
     const { hooks } = gatedHooks();
@@ -302,9 +302,9 @@ describe("#175 PR4 複製／移動 × 刪群組（C20a／C20b／C20c）", () => 
     const u1 = await seedUpload(db, uploadsDir, src.id, a.id);
     await seedDoc(db, src.id, imageDoc([`/api/uploads/${u1}`]));
 
-    // 註（Task 4–6 review r1 N2）：M8（拿掉 T7 的 FOR UPDATE）下本案仍綠——等待改由 deleteNotesInTx 取得（#188 起是它第一步的 FOR UPDATE，之前是 DELETE notes）
+    // 註：拿掉 T7 的 FOR UPDATE 時本案仍綠——等待改由 deleteNotesInTx 取得（#188 起是它第一步的 FOR UPDATE，之前是 DELETE notes）
     // （同樣要等複製持有的 KEY SHARE），複製在自己的快照讀附件、磁碟檔在 T7 commit 後才刪，結果逐項相同，屬等價。
-    // FOR UPDATE 的承重由 C22 守（#188 起 `deleteNotesInTx` 也取 FOR UPDATE，M8 對 C22 亦等價；見 C22 的註）。
+    // FOR UPDATE 的承重由 C22 守（#188 起 `deleteNotesInTx` 也取 FOR UPDATE，與 C22 亦等價；見 C22 的註）。
     const copied = await copy(app, src.id, m.id);
     const del = await holder.del!;
 
@@ -371,7 +371,7 @@ describe("#175 PR4 複製／移動 × 刪群組（C20a／C20b／C20c）", () => 
   });
 });
 
-describe("#175 PR4 授權之後群組被轉移（C20d／C13 反向）", () => {
+describe("#175 授權之後群組被轉移（C20d／C13 反向）", () => {
   it("C20d 自訂 slug PATCH 授權之後（slugPatchTestHook authorized）群組被轉移 → PATCH 409 conflict；slug 未寫", async () => {
     const state: { noteId?: string; fire?: () => Promise<LightMyRequestResponse>; moved?: LightMyRequestResponse } = {};
     const built = await buildTestApp({
@@ -422,7 +422,7 @@ describe("#175 PR4 授權之後群組被轉移（C20d／C13 反向）", () => {
   });
 });
 
-describe("#175 PR4 全刪 × 上傳（C22，Task 2 review r1 M1）", () => {
+describe("#175 全刪 × 上傳（C22）", () => {
   /** 等到這個測試 DB 上至少有 `n` 條連線在等鎖，或 `other` 已結束。 */
   async function waitForWaiters(pool: Pool, n: number, other?: Promise<unknown>, timeoutMs = 5_000): Promise<"blocked" | "settled"> {
     let settled = false;
@@ -442,15 +442,15 @@ describe("#175 PR4 全刪 × 上傳（C22，Task 2 review r1 M1）", () => {
   it("C22 全刪持 L（群組筆記 FOR UPDATE）時上傳到其中一篇 → 上傳交易的筆記 KEY SHARE 讀等全刪 commit → 刪除 204、上傳 404 not_found（讀到 0 列 → TxAbort，路由已 unlink）；uploads 0 列、磁碟沒有孤兒檔", async () => {
     // 把 T7 停在「已持 L、`deleteNotesInTx` 的 DELETE uploads 還沒做完」：另一條連線先對該篇既有的附件列 u0 取 FOR UPDATE，
     // T7 的 DELETE uploads 就卡在 u0 上（此時 L 已到手）。在這個窗裡發上傳：有 L 時上傳交易（`insertUploadInTx`）對 notes 列的
-    // `FOR KEY SHARE` 讀 → 與 FOR UPDATE 互斥 → 等 T7 commit 後讀到 0 列 → TxAbort 404（儲存配額 PR1 以前是 INSERT 的 FK 檢查
+    // `FOR KEY SHARE` 讀 → 與 FOR UPDATE 互斥 → 等 T7 commit 後讀到 0 列 → TxAbort 404（儲存配額功能以前是 INSERT 的 FK 檢查
     // 取同一把鎖、撞 23503 → 404）；沒有 L 時上傳直接成功（201），之後 DELETE uploads 的快照看不到它、
-    // DELETE notes 以 CASCADE 帶走它的列——它不在回傳的 uploadIds 裡，磁碟檔就成了孤兒（review r1 M1 的最小 schema 實測形）。
-    // 鑑別（Task 4–6 review r1 N6）：PR4 時拿掉 T7 的 FOR UPDATE（M8），本案先紅在 interleave 斷言（上傳沒被擋、得 201），
-    // 跑不到最後的 readdir；孤兒檔本身是靠測試側變體（拿掉 interleave 斷言後）才實際看到——readdir 那條不是 M8 的守衛。
-    // #188 起 `deleteNotesInTx` 在 DELETE uploads 之前也對 L 取 FOR UPDATE：單拿掉 M8 或單拿掉那一把，本案都仍綠（等價）；
+    // DELETE notes 以 CASCADE 帶走它的列——它不在回傳的 uploadIds 裡，磁碟檔就成了孤兒（最小 schema 的實測形）。
+    // 鑑別：拿掉 T7 的 FOR UPDATE 時，本案先紅在 interleave 斷言（上傳沒被擋、得 201），
+    // 跑不到最後的 readdir；孤兒檔本身是靠測試側變體（拿掉 interleave 斷言後）才實際看到——readdir 那條不是對應的守衛。
+    // #188 起 `deleteNotesInTx` 在 DELETE uploads 之前也對 L 取 FOR UPDATE：單拿掉其中一把，本案都仍綠（等價）；
     // 兩把都拿掉才紅在 interleave。#181 起單篇 DELETE 改為移入垃圾桶、不再走 `deleteNotesInTx`；那一把在三個呼叫端都冗餘
     // （永久刪除先 `lockNotes`、清理先 `FOR UPDATE SKIP LOCKED`、全刪先鎖 L），沒有案能單獨殺掉它（等價）。
-    // 上傳交易被拒（0 列 TxAbort；防禦縱深的 FK 23503 同）時路由先 unlink 再回 404 not_found（Task 4–6 review r1 M1）；本案的 readdir 斷言同時守住「先 unlink」。
+    // 上傳交易被拒（0 列 TxAbort；防禦縱深的 FK 23503 同）時路由先 unlink 再回 404 not_found；本案的 readdir 斷言同時守住「先 unlink」。
     const holder: {
       app?: FastifyInstance; pool?: Pool; noteId?: string; userId?: string; u0?: string;
       up?: Promise<LightMyRequestResponse>; locker?: Promise<void>; t7Blocked?: string; interleave?: string;
@@ -500,9 +500,9 @@ describe("#175 PR4 全刪 × 上傳（C22，Task 2 review r1 M1）", () => {
   });
 });
 
-describe("#175 PR4 別名 PUT 授權之後群組被轉移、接手者重開公開連結（C21）", () => {
-  // 轉移已清 token（Willie 裁決），兩方形（只轉移）被既有述詞 `public_token IS NOT NULL` 擋下；要接手者重開 token 的三方形
-  // 才會讓舊述詞 `group_id IS NULL` 放行、把前成員選的名字寫進接手者的 `/p/<B>/…` 命名空間（plan Task 7、gate r1 W4）。
+describe("#175 別名 PUT 授權之後群組被轉移、接手者重開公開連結（C21）", () => {
+  // 轉移已清 token，兩方形（只轉移）被既有述詞 `public_token IS NOT NULL` 擋下；要接手者重開 token 的三方形
+  // 才會讓舊述詞 `group_id IS NULL` 放行、把前成員選的名字寫進接手者的 `/p/<B>/…` 命名空間。
   it("C21 別名 PUT 授權之後（public-link-authorized）：群組被轉移給 B、B 重新開公開連結 → M 遲到的別名 PUT 400 invalid_body；B 那篇的 public_slug 仍 NULL、token 是 B 剛開的那個", async () => {
     const state: {
       noteId?: string;

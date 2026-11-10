@@ -8,7 +8,7 @@ import { OIDC_STATE_COOKIE_PATH, OIDC_STATE_TTL_SECONDS, sealOidcState, type Oid
 
 /**
  * login 與 SSO 證明起點共用：產 state／nonce／PKCE、封 state cookie（綁 providerId＋configVersion＋intent）、組 authorization URL。
- * scope 逐字 "openid email profile"（漏了 email／name claim 全缺，Plan 5 四輪 gate MAJOR-1）。`buildAuthorizationUrl` 在 metadata
+ * scope 逐字 "openid email profile"（漏了 email／name claim 全缺）。`buildAuthorizationUrl` 在 metadata
  * 缺 endpoint 時會 throw——呼叫端一律 catch。
  */
 export async function startAuthorization(

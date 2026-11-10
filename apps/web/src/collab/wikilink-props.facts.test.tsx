@@ -10,9 +10,9 @@ import { YDOC_FRAGMENT, canonicalizeElements, topLevelContainers } from "@knoteb
 import "@/i18n";
 import { noteSchema } from "./schema";
 
-// spec 2026-10-13 site-links §2.1【推】、§4.1【推】、§4.4、§16.2-1：BlockNote／y-prosemirror 的事實，量到的結果即斷言。
-// ⚠ 量測案的期望值（MEASURED）是起草時的【推】假說：實跑與假說不同時，照實測改 MEASURED、把差異寫進回報——
-// 不得為了湊假說改產品碼。CHANGELOG ③ 依這裡的結果決定寫不寫、怎麼寫（Task 18）。
+// BlockNote／y-prosemirror 的事實，量到的結果即斷言。
+// ⚠ 量測案的期望值（MEASURED）是【推】假說：實跑與假說不同時，照實測改 MEASURED、把差異寫進回報——
+// 不得為了湊假說改產品碼。CHANGELOG ③ 依這裡的結果決定寫不寫、怎麼寫。
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 編輯器泛型三元組，走 repo 慣例
 type AnyEditor = BlockNoteEditor<any, any, any>;
@@ -105,12 +105,12 @@ function pressEnter(editor: AnyEditor): void {
 }
 
 type Op = "open" | "type" | "split" | "move" | "paste";
-/** 【推】假說（spec §2.1：`mappedIdentity` 成立的子元素被跳過，只有節點被重建時才補寫）。實測不同就照實改。 */
+/** 【推】假說（`mappedIdentity` 成立的子元素被跳過，只有節點被重建時才補寫）。實測不同就照實改。 */
 const MEASURED: Record<Op, boolean> = { open: false, type: false, split: true, move: true, paste: true };
 /**
  * 【推】假說：p1 的正規化（＝MCP 段落指紋的輸入）是否因補寫而變。只量 open／move（兩者都不改 p1 的文字）。
  * 與 MEASURED 分開記：`canonicalizeElements` 若略去「等於預設值」的屬性，補寫了也不會變——兩者可能不一致，各自照實測。
- * CHANGELOG ③ 只看這一組（Task 18 Step 7）。
+ * CHANGELOG ③ 只看這一組。
  */
 const MEASURED_CANONICAL: Record<"open" | "move", boolean> = { open: false, move: true };
 
@@ -157,7 +157,7 @@ async function measure(op: Op): Promise<{
     await act(async () => {
       await new Promise((r) => setTimeout(r, 0));
     });
-    // plan gate r1 M6（spec §4.3）：編輯器讀舊 Y.Doc 時，舊 wikilink 的新 props 讀成預設 ""。
+    // 編輯器讀舊 Y.Doc 時，舊 wikilink 的新 props 讀成預設 ""。
     const legacyProps =
       (editor.getBlock("p1")?.content as Array<{ type: string; props?: Record<string, unknown> }> | undefined)?.find((n) => n.type === "wikilink")?.props ?? null;
     const p1Text = ((editor.getBlock("p1")?.content ?? []) as Array<{ type: string; text?: string }>).map((n) => (n.type === "text" ? n.text : "")).join("");
@@ -187,7 +187,7 @@ describe("#269 事實：新 props 在真編輯器（BlockNoteView 掛載）裡�
     }
   });
 
-  it("站內複製貼上（spec §4.1）：blocknote/html＝view.serializeForClipboard 的 innerHTML 帶兩個 data-*，經 pasteHTML(html, true)（raw）貼出的 wikilink 帶 label 與 anchorBlockId", () => {
+  it("站內複製貼上：blocknote/html＝view.serializeForClipboard 的 innerHTML 帶兩個 data-*，經 pasteHTML(html, true)（raw）貼出的 wikilink 帶 label 與 anchorBlockId", () => {
     // BlockNote 0.52.1 copyExtension：`blocknote/html` = `view.serializeForClipboard(selection.content()).dom.innerHTML`；
     // 貼上時 `blocknote/html` 一律走 `editor.pasteHTML(html, true)`（PM 的 raw paste，不重解析成 blocks）。
     const editor = BlockNoteEditor.create({
@@ -221,7 +221,7 @@ describe("#269 事實：新 props 在真編輯器（BlockNoteView 掛載）裡�
   });
 });
 
-describe("#269 量測（§4.4、CHANGELOG ③）：舊 wikilink 被新分頁補寫預設屬性的條件", () => {
+describe("#269 量測（CHANGELOG ③）：舊 wikilink 被新分頁補寫預設屬性的條件", () => {
   afterEach(() => document.body.replaceChildren());
 
   for (const op of ["open", "type", "split", "move", "paste"] as const) {

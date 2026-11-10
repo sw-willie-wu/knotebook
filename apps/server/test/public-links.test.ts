@@ -5,7 +5,7 @@ import { buildTestApp } from "./helpers.js";
 import { seedDoc, wikilinkDoc } from "./copy-helpers.js";
 import { seedGroup, seedNote, seedUser } from "./group-helpers.js";
 
-// spec 2026-10-13 site-links §11.1、§15.2 I4（server 半）；E8'：只收有自訂公開網址的目標，token 形永不出現在 payload。
+// server 半：只收有自訂公開網址的目標，token 形永不出現在 payload。
 const token = () => randomBytes(32).toString("base64url");
 
 describe("#269 公開 payload 的 links", () => {

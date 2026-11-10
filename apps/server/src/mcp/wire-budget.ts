@@ -1,5 +1,5 @@
 /**
- * 資料夾 PR-3d（spec §5.12「回應大小」）：清單類工具（list_notes／list_trash／list_folders）依 wire 成本截頁的共用計價。
+ * 資料夾：清單類工具（list_notes／list_trash／list_folders）依 wire 成本截頁的共用計價。
  * `search_notes` 的 `assembleSearchPayload` 也用同一支 `wireCost`。
  */
 import { MCP_LIST_WIRE_BUDGET } from "./limits.js";

@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { Switch } from "./switch";
 
-/** #247 §4.9（W25）：全站 switch 細版 26×14、滑塊 10、開啟位移 12；`tone="destructive"` 開啟態紅。 */
-describe("Switch 尺寸與 tone（#247 §4.9）", () => {
+/** #247：全站 switch 細版 26×14、滑塊 10、開啟位移 12；`tone="destructive"` 開啟態紅。 */
+describe("Switch 尺寸與 tone（#247）", () => {
   it("軌道 h-3.5 w-[26px]、不再帶舊的 h-4 w-7", () => {
     render(<Switch aria-label="s" />);
     const track = screen.getByRole("switch", { name: "s" });

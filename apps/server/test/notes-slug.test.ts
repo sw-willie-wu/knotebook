@@ -142,7 +142,7 @@ describe("PATCH /api/notes/:id — slug", () => {
     expect(getRes.json()).toMatchObject({ title: "Untitled", slug: note.slug });
   });
 
-  it("非 owner 矩陣：editor 只帶 title（不帶 slug）→ 200，且**會重算 owner 的 auto slug**（spec §5.9 刻意行為）", async () => {
+  it("非 owner 矩陣：editor 只帶 title（不帶 slug）→ 200，且**會重算 owner 的 auto slug**（刻意行為）", async () => {
     const { app, db } = await buildTestApp();
     const owner = await insertUser(db, { email: "owner-slug6@example.com" });
     const editor = await insertUser(db, { email: "editor-slug6@example.com" });
@@ -164,7 +164,7 @@ describe("PATCH /api/notes/:id — slug", () => {
     });
     expect(res.statusCode).toBe(200);
     // editor 是受信任協作者、本就有改標題之權——auto slug 跟標題走是同一件事的延伸
-    // （無節流、不留 prev；濫用面與「editor 亂改標題」同類屬社交層，spec §5.9 明示取捨）。
+    // （無節流、不留 prev；濫用面與「editor 亂改標題」同類屬社交層，刻意接受）。
     expect(res.json()).toMatchObject({ title: "editor can rename", slug: "editor-can-rename" });
   });
 
@@ -268,7 +268,7 @@ describe("PATCH /api/notes/:id — slug", () => {
 
   it("slug:null **計入** slugPatch 節流（#122 意圖反轉：進 slug 分支即計）——第 11 次清除 429", async () => {
     // 舊契約是「清除不計流」；#122 起 {slug:null} 是「回 auto」的實寫入（格 3/4），
-    // 與格 1 同桶先計後驗（null 無格式驗）。api.md／CHANGELOG 同步改（spec m4-6）。
+    // 與格 1 同桶先計後驗（null 無格式驗）。api.md／CHANGELOG 同步改。
     const { app, db } = await buildTestApp();
     const owner = await insertUser(db, { email: "owner-slug11@example.com" });
     const cookie = await cookieFor(owner.id);
@@ -334,8 +334,8 @@ describe("GET /api/notes/:ref", () => {
   });
 
   it("legacy 查找也過 normalizeSlug：大寫與 NFD 變體都解得到（快照存 NFC 小寫）", async () => {
-    // 原本守著這條的 NFD 案在 #122 搬去了 by-path——legacy 分支必須自己接手（突變審查
-    // F2／讀碼審查 M1：拿掉 normalizeSlug(ref) 原本全套仍綠）。舊形連結的非正規化來源
+    // 原本守著這條的 NFD 案在 #122 搬去了 by-path——legacy 分支必須自己接手（
+    // 拿掉 normalizeSlug(ref) 原本全套仍綠）。舊形連結的非正規化來源
     // 是真實的：使用者手打大寫、macOS/輸入法貼上 NFD。
     const { app, db } = await buildTestApp();
     const owner = await insertUser(db, { email: "owner-ref-nfd@example.com" });
@@ -371,7 +371,7 @@ describe("GET /api/notes/:ref", () => {
     expect(res.statusCode).toBe(404);
   });
 
-  it("解碼後 UTF-16 長度 > 100 的舊形長 ref 仍可查到（I1：maxParamLength 守衛）", async () => {
+  it("解碼後 UTF-16 長度 > 100 的舊形長 ref 仍可查到（maxParamLength 守衛）", async () => {
     const { app, db } = await buildTestApp();
     const owner = await insertUser(db, { email: "owner-ref-astral@example.com" });
     const cookie = await cookieFor(owner.id);
@@ -416,8 +416,8 @@ describe("GET /api/notes — 清單含 slug", () => {
 });
 
 /**
- * #122 PR2 Task 2：PATCH 分流矩陣（spec §3a）。prev_slug/slug_is_custom 尚未進 DTO
- * （Task 3 才回填），這裡直接查 DB 斷言。
+ * #122：PATCH 分流矩陣。prev_slug/slug_is_custom 尚未進 DTO
+ * （之後才回填），這裡直接查 DB 斷言。
  */
 describe("PATCH /api/notes/:id — #122 分流矩陣", () => {
   async function dbRow(db: Db, id: string) {
@@ -591,9 +591,9 @@ describe("PATCH /api/notes/:id — #122 分流矩陣", () => {
     expect((await dbRow(db, note.id)).slug).toBe(candidates[5]);
   });
 
-  it("title-only PATCH **不計** slugPatch 節流（spec §3a 格 2 刻意取捨）——連發 11 次全 200", async () => {
+  it("title-only PATCH **不計** slugPatch 節流（格 2 刻意取捨）——連發 11 次全 200", async () => {
     // TitleInput 的自動存檔走這條路；若誤計流，10 分鐘內第 11 次存檔就 429、
-    // 核心編輯路徑掛掉（突變審查 G1：這條產品級行為反轉原本無人看守）。
+    // 核心編輯路徑掛掉（這條產品級行為反轉原本無人看守）。
     const { app, db } = await buildTestApp();
     const owner = await insertUser(db, { email: "owner-mx8@example.com" });
     const cookie = await cookieFor(owner.id);
@@ -610,7 +610,7 @@ describe("PATCH /api/notes/:id — #122 分流矩陣", () => {
     }
   });
 
-  it("#180 W16（X3）：PATCH {title:'a\\0b'} → 400 invalid_body、DB 不變（`TITLE` 的 NUL 守衛；拿掉它會落到 pg 22021 → 500）", async () => {
+  it("#180：PATCH {title:'a\\0b'} → 400 invalid_body、DB 不變（`TITLE` 的 NUL 守衛；拿掉它會落到 pg 22021 → 500）", async () => {
     const { app, db } = await buildTestApp();
     const owner = await insertUser(db, { email: "owner-x3@example.com" });
     const cookie = await cookieFor(owner.id);
@@ -650,7 +650,7 @@ describe("PATCH /api/notes/:id — #122 分流矩陣", () => {
   });
 
   it("探測下邊界：占 base 與 -2..-19 → 得 -20（不是 uuid8）——上限恰為 20 的雙邊夾", async () => {
-    // 「探測上限 20」若只從上方夾（全占→uuid8），把上限悄悄改小照樣綠（突變審查 G5）。
+    // 「探測上限 20」若只從上方夾（全占→uuid8），把上限悄悄改小照樣綠。
     const { app, db } = await buildTestApp();
     const owner = await insertUser(db, { email: "owner-mx10@example.com" });
     const cookie = await cookieFor(owner.id);
@@ -665,7 +665,7 @@ describe("PATCH /api/notes/:id — #122 分流矩陣", () => {
 
   it("兩篇同時退位 → 兩個 fallback slug 互異（uuid8 不是固定字串）", async () => {
     // fallbackAutoSlug 改回傳固定值時，第二篇的第 6 次 UPDATE 會撞索引直接 500
-    // （突變審查 G6：形斷言 /^untitled-[0-9a-f]{8}$/ 攔不住固定字串）。
+    // （形斷言 /^untitled-[0-9a-f]{8}$/ 攔不住固定字串）。
     const { app, db } = await buildTestApp();
     const owner = await insertUser(db, { email: "owner-mx11@example.com" });
     const cookie = await cookieFor(owner.id);
@@ -686,11 +686,11 @@ describe("PATCH /api/notes/:id — #122 分流矩陣", () => {
 
   it("去重尾碼重截：長 base（59 字元）撞名 → 總長 ≤60、尾非 dash、過 validateSlug（與 0007 SQL 版同界）", async () => {
     // 「重截基底使總長 ≤60」是 TS/SQL 兩份實作唯一必須對齊的算術；短 base 的去重案
-    // 全都測不到它（讀碼審查 M2／突變審查 G4——把 60-suffix.length 改回 60 原本全綠）。
+    // 全都測不到它（把 60-suffix.length 改回 60 原本全綠）。
     const { app, db } = await buildTestApp();
     const owner = await insertUser(db, { email: "owner-mx12@example.com" });
     const cookie = await cookieFor(owner.id);
-    const longTitle = "a".repeat(59) + " bbbb"; // autoSlugFromTitle → "a"×59（Task 1 同值）
+    const longTitle = "a".repeat(59) + " bbbb"; // autoSlugFromTitle → "a"×59
     await db.insert(notes).values({ ownerId: owner.id, title: "occupier", slug: "a".repeat(59) });
     const note = (await app.inject({ method: "POST", url: "/api/notes", cookies: { [SESSION_COOKIE]: cookie }, payload: {} })).json();
     await app.inject({ method: "PATCH", url: `/api/notes/${note.id}`, cookies: { [SESSION_COOKIE]: cookie }, payload: { title: longTitle } });
@@ -702,7 +702,7 @@ describe("PATCH /api/notes/:id — #122 分流矩陣", () => {
 
   it("語句形狀守衛：格 1 無 pre-check/pre-read、格 3 無 pre-read、格 4 恰一次 pre-read；四格寫入語句各恰一條", async () => {
     // 「不做唯一性 pre-check、單一 UPDATE」是 JSDoc/spec 的承重契約，結果值測試釘不住
-    // 語句形狀（加一段 pre-check SELECT 照樣全綠——突變審查 G2）。用 drizzle logger
+    // 語句形狀（加一段 pre-check SELECT 照樣全綠）。用 drizzle logger
     // 逐請求收 SQL 字面驗形。
     const { pool, db } = await freshDb();
     const queries: string[] = [];
@@ -814,14 +814,14 @@ describe("POST /api/notes — 建立時的 slug 派生（#145）", () => {
     });
   });
 
-  it("不帶 title → 仍吃 DB default `untitled-<8hex>`，**不**派生成 `untitled`（D6）", async () => {
+  it("不帶 title → 仍吃 DB default `untitled-<8hex>`，**不**派生成 `untitled`", async () => {
     const { app, db } = await buildTestApp();
     const owner = await insertUser(db, { email: "owner-c2@example.com" });
     const cookie = await cookieFor(owner.id);
 
     const res = await post(app, cookie, {});
     expect(res.statusCode).toBe(201);
-    // 這一案是 D6 唯一的守衛：「順手讓不帶 title 的建立也派生」那發突變只有它會紅，
+    // 這一案是「不帶 title 不派生」唯一的守衛：「順手讓不帶 title 的建立也派生」那發突變只有它會紅，
     // 且**這一行必須排在下面的形狀比對之前**——突變之下 slug 會是 `untitled`，先報
     // 「不該等於 untitled」才指得到病因。
     expect(res.json().slug).not.toBe("untitled");
@@ -849,7 +849,7 @@ describe("POST /api/notes — 建立時的 slug 派生（#145）", () => {
     expect(other.json().slug).toBe("shared-title");
   });
 
-  it("標題沒有可用網址形（純標點／uuid）→ `untitled`，第二篇 `untitled-2`（D7）", async () => {
+  it("標題沒有可用網址形（純標點／uuid）→ `untitled`，第二篇 `untitled-2`", async () => {
     const { app, db } = await buildTestApp();
     const owner = await insertUser(db, { email: "owner-c4@example.com" });
     const cookie = await cookieFor(owner.id);
@@ -858,7 +858,7 @@ describe("POST /api/notes — 建立時的 slug 派生（#145）", () => {
     const punct = await post(app, cookie, { title: "###" });
     expect(punct.statusCode).toBe(201);
     expect(punct.json().slug).toBe("untitled");
-    // D6／D7 的分界：退位形是 `untitled`，**不是**不帶 title 那條路的 `untitled-<8hex>`。
+    // 分界：退位形是 `untitled`，**不是**不帶 title 那條路的 `untitled-<8hex>`。
     expect(punct.json().slug).not.toMatch(/^untitled-[0-9a-f]{8}$/);
 
     // uuid 形標題（`validateSlug` 的 uuid_like 分支）同樣退位，而退位形**也會去重**。
@@ -868,7 +868,7 @@ describe("POST /api/notes — 建立時的 slug 派生（#145）", () => {
   });
 
   it("語句形狀守衛：帶 title 的建立恰 1 條探測 SELECT ＋ 1 條 INSERT；不帶 title 恰 0 條探測", async () => {
-    // 「不帶 title 一次探測都不發」是 D6 與 `db/schema.ts` 那條 default 註解的承重契約，而
+    // 「不帶 title 一次探測都不發」是這條規則與 `db/schema.ts` 那條 default 註解的承重契約，而
     // 結果值測試釘不住語句形狀（多一條探測照樣全綠）。用 drizzle logger 逐請求收 SQL 驗形。
     const { pool, db } = await freshDb();
     const queries: string[] = [];
@@ -881,7 +881,7 @@ describe("POST /api/notes — 建立時的 slug 派生（#145）", () => {
     const probes = () => queries.filter(q => /^select/i.test(q.trim()) && /"slug"\s*=/.test(q));
     const noteInserts = () => queries.filter(q => /^insert into "notes"/i.test(q.trim()));
 
-    // ⚠ **順序是斷言的一部分（N3）**：「恰 1」那半排前面。探測 regex 若因 drizzle 換渲染形而
+    // ⚠ **順序是斷言的一部分**：「恰 1」那半排前面。探測 regex 若因 drizzle 換渲染形而
     //   失配，下面「恰 0」那半會靜默變成恆真，而 vitest 第一個失敗即中止——自我驗證的那半
     //   排在後面就永遠跑不到。
     queries.length = 0;
@@ -921,7 +921,7 @@ describe("POST /api/notes — 建立時的 slug 派生（#145）", () => {
     //   `[0]`／`[5]`／DB 值**四條全綠**（attempt 1..4 拿 race-me…race-me-4 全被搶、attempt 5
     //   就提前退位拿 uuid8_a 也被搶、attempt 6 拿 uuid8_b 成功 ⇒ 長度仍 6、`[0]` 仍 race-me、
     //   `[5]` 仍是 uuid8 形）。唯一看得見差別的位置是 `candidates[4]`，所以它必須被釘住、
-    //   而且要排在其他四條之前。PATCH 側那個兄弟案有同一個盲點（本棒不改它）。
+    //   而且要排在其他四條之前。PATCH 側那個兄弟案有同一個盲點。
     expect(candidates.slice(0, 5)).toEqual(["race-me", "race-me-2", "race-me-3", "race-me-4", "race-me-5"]);
     expect(candidates).toHaveLength(6);
     expect(candidates[5]).toMatch(/^untitled-[0-9a-f]{8}$/);
@@ -929,11 +929,11 @@ describe("POST /api/notes — 建立時的 slug 派生（#145）", () => {
   });
 
   it("源碼守衛：src/ 內 `.insert(notes)` 只允許出現在 notes/create.ts", () => {
-    // D1 的型別層（刪掉那支 values 組裝函式與它的型別、`createWithContent` 改收 `title`）擋得住「照既有
+    // 型別層（刪掉那支 values 組裝函式與它的型別、`createWithContent` 改收 `title`）擋得住「照既有
     // 形只改其中一處」，但擋不住「有人重新手寫一次 `db.insert(notes).values({ownerId,title})`」
     // ——那仍是合法 drizzle。這一案就是那一面：第四條建立路徑一出現就紅。
     //
-    // **對照實驗**（改碼前對 `main` @ 662f2fc 的同一棵樹跑過同一份 walk）：offenders 是
+    // **對照實驗**（改碼前的同一棵樹也跑過同一份 walk）：offenders 是
     // **3 條**（`routes/notes.ts:259`、`mcp/tools/create-note.ts:151`、
     // `notes/editing/write-service.ts:239`），而 `db/schema.ts:88`、`mcp/server-info.ts:68`、
     // `write-service.ts:66` 那三處**註解**命中被濾掉。拿到非空結果才證明 walk、副檔名與註解
@@ -969,7 +969,7 @@ describe("POST /api/notes — 建立時的 slug 派生（#145）", () => {
 });
 
 /**
- * #122 PR2 Task 3：新形網址解析端點與 DTO 回填（spec §3b）。
+ * #122：新形網址解析端點與 DTO 回填。
  */
 describe("GET /api/notes/by-path/:handle/:slug", () => {
   it("命中＋正規化（handle 大小寫、slug 大小寫）＋**A5 同形**：回應與 GET /api/notes/:id 逐鍵相等", async () => {
@@ -1019,7 +1019,7 @@ describe("GET /api/notes/by-path/:handle/:slug", () => {
 
     // >1：兩篇筆記先後用過同一個名字 → prev 同名 → 補查多義，一律 404。
     // setup 的每次 PATCH 都斷 200——slugPatch 桶 10 次/10 分鐘，本案共用 6 次，未來
-    // 加案踩到節流時要在這裡先炸、不是讓 fixture 靜默失效（突變審查觀察）。
+    // 加案踩到節流時要在這裡先炸、不是讓 fixture 靜默失效。
     const b = (await app.inject({ method: "POST", url: "/api/notes", cookies: { [SESSION_COOKIE]: cookie }, payload: {} })).json();
     expect((await patch(a.id, { slug: "dup-name" })).statusCode).toBe(200);
     expect((await patch(a.id, { slug: "a-final" })).statusCode).toBe(200); // a.prev = dup-name
@@ -1028,7 +1028,7 @@ describe("GET /api/notes/by-path/:handle/:slug", () => {
     const missMulti = await get("dup-name");
     expect(missMulti.statusCode).toBe(404);
 
-    // 404 **逐位元組同形**（spec §5.2 安全不變量；突變審查 F3：只釘 code 擋不住
+    // 404 **逐位元組同形**（安全不變量：只釘 code 擋不住
     // message 分岔）。現行實作 0 與 >1 走同一個 `length !== 1` 出口、此行恆真——
     // 留著是**前瞻守衛**：將來有人把兩態拆成不同分支/訊息時它才生效；跨分支的
     // 真同形守衛在權限案（role 分支 vs prev 分支的 raw body 相等）。
@@ -1036,7 +1036,7 @@ describe("GET /api/notes/by-path/:handle/:slug", () => {
   });
 
   it("被分享者用 **owner 的** handle 打 by-path → 200、role 是自己的、ownerHandle 是 owner 的", async () => {
-    // by-path 與 :ref 語意差最大的一格：URL 第一段是別人的 handle（讀碼審查 m7）。
+    // by-path 與 :ref 語意差最大的一格：URL 第一段是別人的 handle。
     const { app, db } = await buildTestApp();
     const owner = await insertUser(db, { email: "owner-bp4@example.com" });
     const viewer = await insertUser(db, { email: "viewer-bp4@example.com" });
@@ -1071,7 +1071,7 @@ describe("GET /api/notes/by-path/:handle/:slug", () => {
     await app.inject({ method: "PATCH", url: `/api/notes/${note.id}`, cookies: { [SESSION_COOKIE]: ownerCookie }, payload: { slug: "secret-b" } });
 
     // 現行命中與 prev 命中都不得對無權限者確認存在；且與「真的不存在」的 404 **逐位元組
-    // 同形**（spec §5.2；突變審查 F3）——無權限者拿不到任何「其實存在」的判別訊號。
+    // 同形**——無權限者拿不到任何「其實存在」的判別訊號。
     const trueMiss = await app.inject({
       method: "GET",
       url: `/api/notes/by-path/${owner.handle}/definitely-not-a-note`,
@@ -1091,7 +1091,7 @@ describe("GET /api/notes/by-path/:handle/:slug", () => {
 });
 
 describe("#122 DTO 回填（ownerHandle/slugIsCustom/prevSlug）", () => {
-  it("POST：ownerHandle＝建立者 handle（A12，不補查）；slugIsCustom=false、prevSlug=null", async () => {
+  it("POST：ownerHandle＝建立者 handle（不補查）；slugIsCustom=false、prevSlug=null", async () => {
     const { app, db } = await buildTestApp();
     const owner = await insertUser(db, { email: "owner-dto1@example.com" });
     const cookie = await cookieFor(owner.id);

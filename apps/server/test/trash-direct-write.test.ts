@@ -1,4 +1,4 @@
-// #181 §6.2-11（M-B）：直連寫入的重確認統一在 `withDirectConnection`——閘門開著或筆記已在垃圾桶就丟
+// #181（M-B）：直連寫入的重確認統一在 `withDirectConnection`——閘門開著或筆記已在垃圾桶就丟
 // `NoteGoneError`，而且在開直連之前就擋（不把文件載回記憶體）。真 hooks（`createCollabHooks`；預設 noop hooks 不開閘門，見 `test/helpers.ts` 的 `noopCollabHooks`）。
 // DW3 驗那個重確認依賴的前提：直連持有文件時移入的 unload 輪詢會等，移入在寫入落盤之後才 commit。
 import { describe, expect, it, vi } from "vitest";
@@ -93,7 +93,7 @@ describe("#181 直連寫入的重確認", () => {
       },
     );
 
-    // 前提本身（spec §6.2-11【推】）：直連持有期間移入沒有 commit——unload 輪詢在等這份文件。
+    // 前提本身：直連持有期間移入沒有 commit——unload 輪詢在等這份文件。
     expect(seenDuring!.deleted_at).toBeNull();
     expect(out).toBe("written");
     expect((await del!).status).toBe(204);

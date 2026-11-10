@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 /**
- * 來源層守衛（D25，spec 2026-10-21 columns-layout §5.5）：web 原始碼裡我們發動的移除／取代一律走 `collab/columns/keep-columns.ts`。
+ * 來源層守衛：web 原始碼裡我們發動的移除／取代一律走 `collab/columns/keep-columns.ts`。
  * core 的 `removeBlocks`／`replaceBlocks` 會收欄、把剩一欄的列攤平；改回它們時 jsdom 測試只在有欄的案才會紅，
  * 新增的呼叫點根本沒有那種案——所以靠讀原始碼擋。
  *
@@ -31,7 +31,7 @@ function sourceFiles(dir: string, rel = ""): string[] {
 
 const scanned = sourceFiles(root).filter((path) => !ALLOWED.has(path));
 
-describe("D25 來源層守衛：移除／取代走 keep-columns", () => {
+describe("來源層守衛：移除／取代走 keep-columns", () => {
   it("G1：除 keep-columns.ts 外，web 原始碼不含 `.removeBlocks(`／`.replaceBlocks(`", () => {
     const hits = scanned.flatMap((path) => {
       const lines = readFileSync(`${root}/${path}`, "utf8").split(/\r?\n/);
@@ -40,7 +40,7 @@ describe("D25 來源層守衛：移除／取代走 keep-columns", () => {
     expect(hits).toEqual([]);
   });
 
-  it("G1b：D25 的關鍵檔都在掃描範圍內（放行清單沒有吃掉它們）", () => {
+  it("G1b：關鍵檔都在掃描範圍內（放行清單沒有吃掉它們）", () => {
     for (const path of [
       "ai/apply.ts",
       "collab/mermaid-paste.ts",

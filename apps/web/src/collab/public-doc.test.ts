@@ -10,7 +10,7 @@ function independentBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-describe("decodePublicYdoc（#72 Task 3：公開端點 ydoc payload → Y.Doc）", () => {
+describe("decodePublicYdoc（#72：公開端點 ydoc payload → Y.Doc）", () => {
   it("防套套邏輯：EMPTY_YDOC_UPDATE_B64 必須等於 Y 獨立算出的空文件編碼（兩端都 import 同常數時，常數本身錯了照樣全綠——這條用 Y 現算擋住）", () => {
     expect(independentBase64(Y.encodeStateAsUpdate(new Y.Doc()))).toBe(EMPTY_YDOC_UPDATE_B64);
   });

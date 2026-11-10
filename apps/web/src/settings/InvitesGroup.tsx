@@ -74,7 +74,7 @@ function RevokeInviteDialog({ invite }: { invite: AdminInviteDto }) {
   );
 }
 
-/** 使用者頁的邀請表（#285 spec §6.1）。帳密有效值關時表上方提示「未使用的邀請暫時不能用」（D2）。 */
+/** 使用者頁的邀請表（#285）。帳密有效值關時表上方提示「未使用的邀請暫時不能用」。 */
 export function InvitesGroup() {
   const { t, i18n } = useTranslation();
   const invitesQuery = useAdminInvites();

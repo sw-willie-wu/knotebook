@@ -5,7 +5,7 @@ import { createLongPress } from "@/lib/long-press";
 const LINK_SELECTOR = 'a[data-inline-content-type="link"]';
 
 /**
- * spec 2026-10-13 site-links rev 7 §7.4：可編輯時，觸控長按一般連結（link mark）⇒ BlockNote 原生連結工具列。
+ * 可編輯時，觸控長按一般連結（link mark）⇒ BlockNote 原生連結工具列。
  * 做法：長按成立時把游標（空選取）放進連結文字裡，交給 `LinkToolbarController` 既有的「游標在連結內」路徑開工具列（selection 優先於 hover）。
  * 點一下維持 BlockNote 原行為（`clickHandler.ts` 的 `window.open`）。長按後補發的 mousedown／mouseup／click 在 capture 攔下——
  * ProseMirror 的 `handleClick` 跑在 mouseup，不攔就會照樣開新分頁。掛在 `<BlockNoteView>` 裡（要它的 context）；唯讀時什麼都不攔。

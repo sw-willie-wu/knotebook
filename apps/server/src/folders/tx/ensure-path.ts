@@ -1,6 +1,6 @@
 /**
- * 還原的照路徑重建（spec docs/superpowers/specs/2026-10-22-folders-design.md §5.8-2）。S14：只收 `tx`／純資料。
- * 呼叫端（`restoreNotesInTx`）必持該空間的結構鎖：改名、建立也取同一把（M6），所以「找不到 → INSERT」之間不會被搶名、不撞 23505。
+ * 還原的照路徑重建。S14：只收 `tx`／純資料。
+ * 呼叫端（`restoreNotesInTx`）必持該空間的結構鎖：改名、建立也取同一把，所以「找不到 → INSERT」之間不會被搶名、不撞 23505。
  */
 import { and, asc, sql } from "drizzle-orm";
 import type { Tx } from "../../db/tx.js";
@@ -10,7 +10,7 @@ import { folderSpaceWhere } from "../sql.js";
 
 /**
  * 由根到葉逐層 `select id from folders where <space> and parent_id is not distinct from $p and lower(name) = lower($seg)
- * order by id limit 1`；沒有就 INSERT（`created_by = by`）。比對在 SQL 以 `lower()`（與同層唯一索引同一個，M8）；段名由呼叫端先做 NFC。
+ * order by id limit 1`；沒有就 INSERT（`created_by = by`）。比對在 SQL 以 `lower()`（與同層唯一索引同一個）；段名由呼叫端先做 NFC。
  * **不檢查深度與數量上限**（還原不因上限失敗）。segments 不得為空。回葉 id。
  */
 export async function ensureFolderPathInTx(tx: Tx, space: FolderSpace, segments: readonly string[], by: string): Promise<string> {

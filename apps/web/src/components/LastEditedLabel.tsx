@@ -2,7 +2,7 @@ import { useTranslation } from "react-i18next";
 import type { NoteDto } from "@knotebook/shared";
 
 /**
- * 內文卡頁首的「最後編輯」標籤（#106 spec §10）。
+ * 內文卡頁首的「最後編輯」標籤（#106）。
  *
  * 兩形：`agentLabel` 為 null＝真人改的，純文字（不可按）；非 null＝AI／API 經 token
  * 改的，顯示 `handle (label)` 並且是**按鈕**，按下去開 AI 修改紀錄 dialog（那個 dialog

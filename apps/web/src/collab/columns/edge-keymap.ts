@@ -1,14 +1,14 @@
 /**
- * D24（spec 2026-10-21 columns-layout §5.4 調整 1）：欄首 Backspace／欄尾 Delete。
+ * 欄首 Backspace／欄尾 Delete。
  *
- * - 理由是**結構與順序正確、接住例外**，不是防丟字（rev 7 更正：core 不丟字）。core 在這兩個位置會多留一個空段落、
- *   把同列其他空欄一起收掉（E4）、把 block 插到錯的位置（P3b），列在文件尾時最後一欄結尾 Delete 還會丟例外（P6b）。
- * - **不呼叫 `fixColumnList`**：它收的是同列**所有**空欄，使用者刻意留的空欄會被一起拿掉（E4、E12）。這裡只處理來源欄：
+ * - 理由是**結構與順序正確、接住例外**，不是防丟字（core 不丟字）。core 在這兩個位置會多留一個空段落、
+ *   把同列其他空欄一起收掉、把 block 插到錯的位置，列在文件尾時最後一欄結尾 Delete 還會丟例外。
+ * - **不呼叫 `fixColumnList`**：它收的是同列**所有**空欄，使用者刻意留的空欄會被一起拿掉。這裡只處理來源欄：
  *   空了才刪；列只剩兩欄時用另一欄的內容一步取代整列（分兩步先刪欄，PM 會補回一個空欄）。
  * - `priority: 1000`：要先於 core `KeyboardShortcutsExtension`（50）的 Backspace／Delete 鏈；條件不成立一律回 false 交還 core。
  * - 位置條件成立後先試 `undoInputRule`（排在空欄特例之前）：core 的 Backspace 鏈第一步就是它，我們搶在前面接手就得自己先試，否則剛觸發的 input rule
  *   撤不回、反而被搬走。
- * - Delete 端排除程式碼區塊（總管裁定）：交還 core 自己的程式碼區塊 Delete（空程式碼區塊會被刪掉並收欄）；P6b 的吞掉也不含它。
+ * - Delete 端排除程式碼區塊：交還 core 自己的程式碼區塊 Delete（空程式碼區塊會被刪掉並收欄）；吞掉的情形也不含它。
  * - 測試必須用真 keydown（`view.someProp("handleKeyDown", …)`）；`commands.keyboardShortcut()` 會把多 step 交易重播、量到假象。
  *
  * tiptap 的回呼只給 tiptap 編輯器；`transact`／`asUndoStep` 要 BlockNote 編輯器，從 `editorRef` 取（同 markdown-link）。
@@ -20,7 +20,7 @@ import type { EditorRef } from "@/components/wikilink/menu";
 import { columnContextOf, findNodeById, type ColumnContext, type PMNodeLike } from "./position";
 import { asUndoStep } from "./undo-step";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- PM Transaction／Node 在 apps/web 值層級拿不到（讀碼發現 13）
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- PM Transaction／Node 在 apps/web 值層級拿不到
 type Any = any;
 type BnEditor = NonNullable<EditorRef["current"]>;
 
@@ -131,7 +131,7 @@ export function createColumnEdgeKeymapExtension(opts: { editorRef: EditorRef }):
           const c = edgeContext(tiptap.state);
           if (!c || !c.atEnd || c.blockIndex !== c.col.childCount - 1) return false;
           if (c.block.childCount !== 1 || c.block.firstChild!.type.name === "codeBlock") return false;
-          // 最後一欄：列之後沒有任何 block 時吞掉（core 會丟例外，P6b）；否則交還 core（P6）。
+          // 最後一欄：列之後沒有任何 block 時吞掉（core 會丟例外）；否則交還 core。
           if (c.colIndex === c.list.childCount - 1) return !tiptap.state.doc.resolve(c.listPos + c.list.nodeSize).nodeAfter;
           const listId = idOf(c.list);
           const colId = idOf(c.col);
@@ -146,7 +146,7 @@ export function createColumnEdgeKeymapExtension(opts: { editorRef: EditorRef }):
           const movedId = idOf(next.firstChild!);
           return apply(editor, tiptap.state, (tr) => {
             moveBlock(tr, movedId, idOf(next), colId, listId, curId);
-            // 原 block 就是被取代的空段落（E10）時，游標放被搬 block 開頭。
+            // 原 block 就是被取代的空段落時，游標放被搬 block 開頭。
             return findNodeById(tr.doc, curId, "blockContainer") ? blockEnd(tr.doc, curId) : blockStart(tr.doc, movedId);
           });
         },

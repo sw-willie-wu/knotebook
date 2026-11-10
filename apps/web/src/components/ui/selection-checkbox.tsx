@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import { Check, Minus } from "./icons";
 
 /**
- * 選取模式的勾選框（資料夾 spec F27、§6.10「勾選框的樣子」）：14px、方形小圓角、自己畫。
+ * 選取模式的勾選框：14px、方形小圓角、自己畫。
  * 仍是原生 `<input type="checkbox">`（`appearance-none`）——Shift 範圍讀原生 click 的 `shiftKey`、`<label>` 轉送點擊、
  * 鍵盤與 `getByRole("checkbox")` 都不變；勾與橫線是疊在上面的 svg（`peer-checked:`／`peer-indeterminate:` 顯示），
  * 勾選態＝主色底＋`text-brand-fg`（比照 `checkbox.tsx`）。
@@ -48,7 +48,7 @@ export const SelectionCheckbox = forwardRef<HTMLInputElement, SelectionCheckboxP
   );
 });
 
-/** 三態全選框（spec F26；一般 tab 與垃圾桶共用）。 */
+/** 三態全選框（一般 tab 與垃圾桶共用）。 */
 export function SelectAllCheckbox({
   state,
   disabled,
@@ -63,7 +63,7 @@ export function SelectAllCheckbox({
   label: string;
   title: string;
 }) {
-  // 外層 24px 也帶同字 title：14px 的框旁邊（這一格裡）滑過也有提示（T4 review m6）。
+  // 外層 24px 也帶同字 title：14px 的框旁邊（這一格裡）滑過也有提示。
   return (
     <span className="flex h-6 w-6 shrink-0 items-center justify-center" title={title}>
       <SelectionCheckbox

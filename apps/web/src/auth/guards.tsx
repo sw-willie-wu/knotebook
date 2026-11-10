@@ -52,7 +52,7 @@ function useSessionGate(): { screen: ReactElement | null; user: NonNullable<Retu
   if (user === null) {
     // #131：把「我本來要去哪」交給登入頁（`?next=`），登入完才回得去；不帶的話一律
     // 落 `/`。整串 pathname+search 做**一次** encodeURIComponent，內含的 `?`／`&` 才不
-    // 會被當成 /login 自己的參數；`LoginPage`（Task 4 起）用 `searchParams.get("next")`
+    // 會被當成 /login 自己的參數；`LoginPage` 用 `searchParams.get("next")`
     // 解一次拿回原字串，再過 `safeNextPath`（同一支函式 server 端也用）。
     //
     // ⚠ **開著設定 modal 時**（location.state 帶 backgroundLocation），這裡在 `App.tsx`
@@ -60,7 +60,7 @@ function useSessionGate(): { screen: ReactElement | null; user: NonNullable<Retu
     // 的 next 來自第二棵樹（見該檔的兩棵樹說明）。其餘路徑沒有這個覆寫，拿到的就是真實
     // 網址。
     //
-    // **hash 不帶**：純粹是 spec 沒要求、且密碼與 SSO 兩條路徑要一致才好推理。注意這
+    // **hash 不帶**：沒有需求，且密碼與 SSO 兩條路徑要一致才好推理。注意這
     // **不是**因為 fragment 活不下來——`#` 被 encode 成 `%23` 之後照樣送得到 server、
     // 封得進 state cookie，`safeNextPath` 那頭也**接受**帶 fragment 的路徑（寬進嚴出，
     // 本處只是不產生它）。
@@ -96,7 +96,7 @@ export function RequireAdmin() {
 }
 
 /**
- * 首登強制改密碼閘門（spec rev 5.7）：`user.mustChangePassword === true` → 除
+ * 首登強制改密碼閘門：`user.mustChangePassword === true` → 除
  * `/change-password` 本身以外的受保護路由一律導向 `/change-password`——比照
  * `RequireAdmin` 的模式，這裡不用另外判斷「目前路徑是不是
  * `/change-password`」，因為 `App.tsx` 把 `/change-password` 這條路由掛在本 gate

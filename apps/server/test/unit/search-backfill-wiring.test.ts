@@ -1,5 +1,5 @@
 /**
- * #93 S13（spec §6.3）：回填呼叫點在 `app.listen` **之後**（與 handle.test.ts 的補登守衛方向相反——偏離 C），
+ * #93 S13：回填呼叫點在 `app.listen` **之後**（與 handle.test.ts 的補登守衛方向相反），
  * 關機 handler 第一步 abort。錨定**呼叫點字面**（`backfillSearchIndex(db`），不是函式名——後者先命中 import。
  */
 import { describe, expect, it } from "vitest";
@@ -15,7 +15,7 @@ describe("#93 S13：index.ts 的回填接線", () => {
     const listenAt = src.indexOf(".listen(");
     expect(callAt, "index.ts 必須呼叫 backfillSearchIndex(db…)").toBeGreaterThan(-1);
     expect(listenAt).toBeGreaterThan(-1);
-    expect(callAt, "回填必須在 listen 之後（spec §6.1 偏離 C）").toBeGreaterThan(listenAt);
+    expect(callAt, "回填必須在 listen 之後").toBeGreaterThan(listenAt);
   });
   it("關機 handler 先 abort 回填，再 destroy collab", () => {
     const onceAt = src.indexOf("process.once(");
@@ -32,7 +32,7 @@ describe("#93 S13：index.ts 的回填接線", () => {
     expect(startAt).toBeGreaterThan(listenAt);
     const onceAt = src.indexOf("process.once(");
     expect(onceAt, "index.ts 要有 process.once( 關機 handler").toBeGreaterThan(-1);
-    // 剔掉註解行再找（#272 plan gate 抓到的雷：handler 上方／裡面的註解字面會先命中）。
+    // 剔掉註解行再找（#272：handler 上方／裡面的註解字面會先命中）。
     const handler = src.slice(onceAt).replace(/^\s*\/\/.*$/gm, "");
     // 單獨形（#272 未 merge）或併入 Promise.all 的形（#272 已 merge）都接受；stop 必須在「collab.destroy() 之前的那個 race」裡。
     const race = /Promise\.race\(\[(?:Promise\.all\(\[[^\]]*\bapp\.linkConversion\.stop\(\)[^\]]*\]\)|app\.linkConversion\.stop\(\)), stopGrace\(\)\]\)/.exec(handler);
@@ -42,7 +42,7 @@ describe("#93 S13：index.ts 的回填接線", () => {
     expect(destroyAt, "race 要在 collab.destroy() 之前").toBeGreaterThan(race!.index + race![0].length - 1);
     // 寬限常數（#272 併線後只留一份，現住 collab/versions.ts）：先從 stopGrace 的定義取出它**實際**用的常數名，再到**定義**該常數
     // 的檔（index.ts 自己，或 index.ts 從 ./… import 它的那支）剔掉 `//` 註解行後找 `const <名> = 2_000;`——stopGrace 改用另一個
-    // 本地常數、或 2_000 只剩註解裡有，都會紅（merge review m1）。
+    // 本地常數、或 2_000 只剩註解裡有，都會紅。
     const grace = /const stopGrace = \(\): Promise<void> => new Promise\(resolve => setTimeout\(resolve, ([A-Z_]+)\)\.unref\(\)\);/.exec(src);
     expect(grace, "stopGrace 要寫成 new Promise(resolve => setTimeout(resolve, <常數>).unref())").not.toBeNull();
     const graceName = grace![1]!;

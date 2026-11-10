@@ -12,7 +12,7 @@ import { personalNote } from "@/test/select-fixtures";
 import { runStackFolder, showStackCreatedToast, STACK_CREATE_ATTEMPTS, undoStackFolder, type StackNote } from "./stack-folder";
 
 /**
- * 疊資料夾的三發、補償與復原（資料夾 spec §6.13 疊資料夾第 5–8 步；總管裁定 2026-10-30 Q2）。
+ * 疊資料夾的三發、補償與復原（疊資料夾的第 5–8 步）。
  * 假 fetch：依序記下 [method, url, body 原字串]；非 GET 依序取 replies（用完就 throw，之後不該再有請求）；GET 一律回空清單。
  */
 

@@ -5,7 +5,7 @@ import { Awareness } from "y-protocols/awareness";
 import { usePresencePeople } from "./usePresencePeople";
 import { setRemote, userState } from "./test-awareness";
 
-// #293 §9.1-6：訂閱 awareness、rAF 一幀合併、簽章沒變不 setState、cursorOf 讀即時值。
+// #293：訂閱 awareness、rAF 一幀合併、簽章沒變不 setState、cursorOf 讀即時值。
 
 let frames: FrameRequestCallback[] = [];
 const awarenesses: Awareness[] = [];

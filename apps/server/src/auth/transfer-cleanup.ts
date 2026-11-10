@@ -3,7 +3,7 @@ import type { Db } from "../db/index.js";
 import { transferTokens } from "../db/schema.js";
 
 /**
- * #200 spec §4.6：過期 transfer token 的清理。**沒有排程**，比照 `oauth/cleanup.ts` 的機會性執行：唯一呼叫點是
+ * #200：過期 transfer token 的清理。**沒有排程**，比照 `oauth/cleanup.ts` 的機會性執行：唯一呼叫點是
  * `create_transfer_token` 簽發成功、交易提交後的 fire-and-forget（失敗只 `log.warn`）。
  *
  * ⚠ `for update skip locked` 承重：撤銷母憑證、OAuth 清理、刪筆記的 cascade 以 parent／note 索引的順序刪同一批過期列，

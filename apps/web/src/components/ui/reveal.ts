@@ -1,10 +1,9 @@
 /**
  * 側欄 24px 圖示鈕的「滑過才浮出」（button.tsx 規範的 24px 例外那幾顆共用）。`noterow` 的使用者：筆記列 ⋮
  * （`NoteMenu.tsx`）與垃圾桶列的「還原」、⋮（`sidebar/TrashPanel.tsx`）；列 `<li>` 帶 `group/noterow`。
- * `folderrow`：資料夾列的「在 X 建立筆記」與 ⋮（列帶 `group/folderrow`，資料夾 spec §6.3）。
+ * `folderrow`：資料夾列的「在 X 建立筆記」與 ⋮（列帶 `group/folderrow`）。
  * - 桌面：平常 `opacity-0`；滑過該列（`group-hover/<scope>`）、列內有鍵盤焦點
- *   （`group-has-[:focus-visible]/<scope>`——不用 focus-within，滑鼠點完留下的焦點會讓它殘留，
- *   全域 memory hover-reveal-focus-visible）、自己被鍵盤聚焦時浮出。
+ *   （`group-has-[:focus-visible]/<scope>`——不用 focus-within，滑鼠點完留下的焦點會讓它殘留）、自己被鍵盤聚焦時浮出。
  * - 選單開著時不消失：Radix trigger 開啟時帶 `data-state="open"`；modal 選單開著時指標已離開列，
  *   沒有這條 ⋮ 會在選單還開著時淡掉。對非選單的「＋」沒有作用（它不帶 data-state）。
  * - 觸控（`hover: none`）常駐：Tailwind v4 的 group-hover 只在 `@media (hover: hover)` 生效。

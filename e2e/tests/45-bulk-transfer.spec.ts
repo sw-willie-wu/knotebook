@@ -4,16 +4,16 @@ import { expect, test, type APIRequestContext, type BrowserContext, type Page } 
 import { ADMIN, createUserViaInvite, editorLocator, loginAs, randomEmail, waitForEditorSelection } from "./helpers.js";
 
 /**
- * bulk transfer（MCP 批次讀寫）spec 2026-11-02 §18.3 六案：真瀏覽器 A 開著筆記時，agent 經 bulk 權杖下載、寫回、整包匯出。
+ * bulk transfer（MCP 批次讀寫）六案：真瀏覽器 A 開著筆記時，agent 經 bulk 權杖下載、寫回、整包匯出。
  *
- * 隔離（PR-3 plan T5 做法）：
+ * 隔離：
  * - **專用使用者**（`createUserViaInvite`）：不用 ADMIN——ADMIN 有前面各檔留下的大量筆記，額度（`transferExport` 每人每小時 10 次、
  *   `contentRead` 每人每分鐘 120 次）也是 per user。**整檔只建一支 PAT**（notes:read notes:write＝設定頁的「Create and edit notes」）。
  * - 每案建自己的資料夾與筆記，**簽 bulk 權杖一律帶 `folder_id`**（範圍只含該案的筆記）；每案 `finally` 以 `DELETE /api/transfer/token`
  *   撤掉自己的權杖（一支 PAT 同時最多 3 張）。整檔只有 E5 打整包。標記字串一律隨機（重跑、髒疊不撞名）。
  *
- * 每案的順序寫死（gate r2 N1）：① bulk 權杖單篇下載一次（拿 `base`）② A 在瀏覽器改 ③ 輪詢到 server 已有 A 的字 ④ `PUT`（E5 是整包）。
- * Willie 2026-11-04 第三輪（筆記動過就 409 note_changed）：E1–E3 的 ④ 改成預期 409；E1、E2 之後重新下載一次再寫回；E4 改成 ②③ 在 ① 之前。
+ * 每案的順序寫死：① bulk 權杖單篇下載一次（拿 `base`）② A 在瀏覽器改 ③ 輪詢到 server 已有 A 的字 ④ `PUT`（E5 是整包）。
+ * 規則改成「筆記動過就 409 note_changed」之後：E1–E3 的 ④ 改成預期 409；E1、E2 之後重新下載一次再寫回；E4 改成 ②③ 在 ① 之前。
  * ⚠ ③ **不准用 `GET /api/transfer/notes/:id`**：那支每呼叫一次就寫一列基底（每 (user, note) 只留 10 列，會把 ① 的基底擠掉）。
  *   改用 A 的 cookie 打 `GET /api/notes/:id/content`——`loadNoteDoc` 有 live doc 就 fork live（不讀落盤的 `note_states`）、不寫基底、
  *   cookie 讀者不 touch presence；吃 `contentRead`，所以間隔 400 ms。
@@ -214,7 +214,7 @@ async function typeAtEndOf(para: string, text: string, newParagraph = false): Pr
   await page.keyboard.type(text);
 }
 
-/** ④' 寫回、預期被拒：409 base_unavailable、reason note_changed（Willie 2026-11-04 第三輪：筆記動過就拒）。 */
+/** ④' 寫回、預期被拒：409 base_unavailable、reason note_changed（筆記動過就拒）。 */
 async function writeBackRefused(c: Case, file: string): Promise<void> {
   const res = await c.bulk.put(`${origin}/api/transfer/notes`, {
     headers: { ...c.auth, "Content-Type": "text/markdown; charset=utf-8" },
@@ -303,7 +303,7 @@ test("E4 寫回改兩區：AI 修改紀錄列出兩列 file_sync；撤回其中�
     c = await setupCase("e4", 6);
     const [p1, p2, , , p5] = c.paras as [string, string, string, string, string];
     const aMark = `a-${rand()}`;
-    await typeAtEndOf(p1, ` ${aMark}`); // ② A 改的是第 1 段（不在 agent 的兩區裡）——第三輪：A 先改、agent 後下載（否則 409）
+    await typeAtEndOf(p1, ` ${aMark}`); // ② A 改的是第 1 段（不在 agent 的兩區裡）——A 先改、agent 後下載（否則 409）
     await pollServer(c.noteId, [`${p1} ${aMark}`]); // ③
     const file = await download(c); // ① 含 A 打的字
     const m2 = `agent2-${rand()}`;
@@ -383,7 +383,7 @@ test("E5 A 打標記並持續打字（未落盤）時整包匯出：包裡那篇
   try {
     c = await setupCase("e5", 4);
     const [, p2] = c.paras as [string, string];
-    // 時間界線（gate r2 N7）：從閒置開始。開筆記可能帶出一次正規化寫入，store 的 debounce 是 2 s——等 3 s 讓它先落盤，
+    // 時間界線：從閒置開始。開筆記可能帶出一次正規化寫入，store 的 debounce 是 2 s——等 3 s 讓它先落盤，
     // 之後打的第一個字重新起算 debounce 的 maxDebounce（約 10 s），在那之前 note_states 不會有標記。
     await page.waitForTimeout(3_000);
     const mark = `mk-${rand()}`;

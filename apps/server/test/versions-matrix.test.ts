@@ -1,5 +1,5 @@
-// spec 2026-10-09 §11.2：D8 開關矩陣（#272 起只有「停手 X 後掃描切」一個自動切點：關掉就不切、手動照常；站台開＋個人關；改設定要重新載入才生效）、
-// 指紋情境（r1 I-2）、版號併發、撤回前有人工未存修改。
+// 開關矩陣（#272 起只有「停手 X 後掃描切」一個自動切點：關掉就不切、手動照常；站台開＋個人關；改設定要重新載入才生效）、
+// 指紋情境、版號併發、撤回前有人工未存修改。
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import * as Y from "yjs";
@@ -43,7 +43,7 @@ async function cutPoints(s: S, noteId: string): Promise<[number, number]> {
   return [afterCuts, (await versionsOf(s.ctx.db, noteId)).length];
 }
 
-describe("D8 開關矩陣", () => {
+describe("開關矩陣", () => {
   it("站台總開關關 → 掃描不切、手動照建", async () => {
     const s = await setup();
     await s.ctx.db.update(siteSettings).set({ autoVersionsEnabled: false });
@@ -70,7 +70,7 @@ describe("D8 開關矩陣", () => {
     expect(await cutPoints(s, gnote.id)).toEqual([0, 1]);
   });
 
-  it("開關改了之後要重新載入才生效（A13、§13-11）：載入中照載入時的值待切與切；重新載入後關了就不再待切", async () => {
+  it("開關改了之後要重新載入才生效：載入中照載入時的值待切與切；重新載入後關了就不再待切", async () => {
     const s = await setup();
     const n = await s.ctx.createNote(s.u.id);
     const client = await seedContent(s.ctx, s.session, n.id, "載入時開著");
@@ -91,7 +91,7 @@ describe("D8 開關矩陣", () => {
   });
 });
 
-describe("指紋情境（r1 I-2）", () => {
+describe("指紋情境", () => {
   it("套用後打一字再刪 → 不 dirty；套用基底那一版本身（同內容）→ dirty=false 且掃描不多切", async () => {
     const s = await setup();
     const n = await s.ctx.createNote(s.u.id);
@@ -110,7 +110,7 @@ describe("指紋情境（r1 I-2）", () => {
   });
 });
 
-describe("版號併發（§11.2）", () => {
+describe("版號併發", () => {
   it("同篇同時 10 次手動切版（各自不同內容、文件沒載入）→ 恰一版成功、其餘因基底改變而 null；再循序 9 次 → seq 1..10 連續＝計數", async () => {
     const s = await setup();
     const n = await s.ctx.createNote(s.u.id);
@@ -161,7 +161,7 @@ describe("版號併發（§11.2）", () => {
   });
 });
 
-describe("撤回不立刻切版（#272 D2）", () => {
+describe("撤回不立刻切版（#272）", () => {
   it("撤回前有人工未存修改 → 撤回當下不增版；離開後掃描 +1（人、AI、撤回在同一版）", async () => {
     const s = await setup();
     const n = await s.ctx.createNote(s.u.id);

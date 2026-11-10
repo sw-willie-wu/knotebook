@@ -26,9 +26,9 @@ import { sendWebResponse, toWebRequest } from "../mcp/transport.js";
  * `/api/mcp`：Streamable HTTP 的 MCP 端點（#108）。
  *
  * **六步順序是契約，不是巧合**：全域 JSON 守衛（`app.ts` 的 `onRequest`）→ 認證
- * （`authenticateAny`，401／403／429 都在這裡）→ Origin 守衛（§7.4 D10）→ 建 `McpServer`
+ * （`authenticateAny`，401／403／429 都在這裡）→ Origin 守衛→ 建 `McpServer`
  * ／註冊工具／`registerCapabilities`／`connect` → `handleRequest` → 把 `Response` 具現
- * → 搬回 `reply`；`finally` 關掉 server。整條路徑仍在全域 `onSend` 鏈上，nosniff 不掉（M7）。
+ * → 搬回 `reply`；`finally` 關掉 server。整條路徑仍在全域 `onSend` 鏈上，nosniff 不掉。
  *
  * **stateless、一請求一實例是 SDK 的硬性要求**：`sessionIdGenerator` 不傳，transport 跨請求
  * 重用會直接 throw `Stateless transport cannot be reused across requests.`。
@@ -40,12 +40,12 @@ import { sendWebResponse, toWebRequest } from "../mcp/transport.js";
  *
  * **⚠ 兩件與規格字面不同、但實測如此的事**：
  * 1. **壞 JSON body 是本站的 `400 bad_request`，不是 JSON-RPC `-32700`**。擋下它的是 Fastify
- *    的 content-type parser，在我們的 handler 之前、也在 SDK 之前。實測（2026-09-07）：
+ *    的 content-type parser，在我們的 handler 之前、也在 SDK 之前。實測：
  *    不帶 content-type 且不帶 body → 進到 handler、`parsedBody: undefined` → SDK 自己的
  *    `415 -32000 "Unsupported Media Type: Content-Type must be application/json"`；
  *    帶 `content-type: application/json` 但空 body → Fastify 的 parser 先炸 → 本站 `400
- *    bad_request`。**`-32700` 在這條接線上沒有可達路徑**——規格 §8.1 D12 (2) 那一格描述的
- *    是 SDK 單飛時的行為。
+ *    bad_request`。**`-32700` 在這條接線上沒有可達路徑**——那是
+ *    SDK 單飛時的行為。
  * 2. **一支工具都沒註冊時，`tools/list`／`tools/call` 回的是 `200` ＋ `-32601 Method not
  *    found`，不是空清單**——那兩個 handler 由第一次 `registerTool()` 才裝上，
  *    `registerCapabilities` 只宣告能力、不裝 handler（所以 `initialize` 照樣回
@@ -54,7 +54,7 @@ import { sendWebResponse, toWebRequest } from "../mcp/transport.js";
  *    （它們只查 DB，不需要 collab）。留著是因為「未來某個 scope 過濾把工具全濾掉」會直接
  *    掉進這個形，而它的症狀（`-32601`）看起來完全不像「清單是空的」。
  *
- * **`tools/list` 的長度是憑證 scope 與部署形態兩者的函式**（D-A）：沒有 `collab`／`editing`
+ * **`tools/list` 的長度是憑證 scope 與部署形態兩者的函式**：沒有 `collab`／`editing`
  * 的 app（`buildTestApp` 那種）只註冊查得動 DB 的工具，讀不到 live doc 的兩支整條不宣告。
  */
 
@@ -68,12 +68,12 @@ const METHOD_NOT_ALLOWED_BODY = {
 export interface McpRouteDeps {
   db: Db;
   config: AppConfig;
-  /** D-A：兩者皆選配——無 collab 的 app 上路由仍然註冊，只是讀 live doc 的工具不宣告。 */
+  /** 兩者皆選配——無 collab 的 app 上路由仍然註冊，只是讀 live doc 的工具不宣告。 */
   collab?: CollabServer;
   editing?: EditingRuntime;
   /**
    * 逐鍵挑（不整包轉傳）：MCP 只該看得到自己會用的六顆桶。`contentRead` 給兩支讀取工具，
-   * `edit`／`tokenWrite` 給 PR2 的兩支寫入工具（前者在角色檢查之後扣，後者在 scope 檢查
+   * `edit`／`tokenWrite` 給兩支寫入工具（前者在角色檢查之後扣，後者在 scope 檢查
    * 那一步扣，順序與 REST 對齊），`search` 給 `search_notes`（#93），`upload` 給 `copy_note`（#180），
    * `folder` 給資料夾工具（經 `folders/service.ts` 扣，與 `foldersRoutes` 同一實例，見 `FOLDER_LIMIT`）。
    */
@@ -87,13 +87,13 @@ export interface McpRouteDeps {
   };
   presence?: PresenceRegistry;
   /**
-   * #108 §10.1（D22／M5）：`buildApp` 建的**同一個**寫入 service（`notesRoutes` 拿到的是
+   * #108：`buildApp` 建的**同一個**寫入 service（`notesRoutes` 拿到的是
    * 同一個物件），MCP 寫入與 REST 寫入因此對同一篇筆記串行。
-   * 消費端＝`mcp/tools/edit-note.ts`（Task 2 起）與 `mcp/tools/create-note.ts`（Task 3 起）。
+   * 消費端＝`mcp/tools/edit-note.ts` 與 `mcp/tools/create-note.ts`。
    */
   writes: NoteWriteService;
   testHooks?: McpTestHooks;
-  /** #175 PR5：群組測試注入縫，原樣帶進 `McpToolCtx.groupTestHook`（`app.ts` 傳 `deps.groupTestHook`）。 */
+  /** #175：群組測試注入縫，原樣帶進 `McpToolCtx.groupTestHook`（`app.ts` 傳 `deps.groupTestHook`）。 */
   groupTestHook?: GroupTestHook;
   /** #180：原樣帶進 `McpToolCtx.collabHooks`（`app.ts` 傳 `deps.collabHooks`，與 `notesRoutes` 同一個）。 */
   collabHooks: CollabHooks;
@@ -101,7 +101,7 @@ export interface McpRouteDeps {
   uploadsDir: string;
   /** #180：原樣帶進 `McpToolCtx.storageLockTimeoutMs`。 */
   storageLockTimeoutMs: number;
-  /** #180 §9-10：原樣帶進 `McpToolCtx.versions`（`app.ts` 傳 `versions`，與 `notesRoutes` 同一個實例）。 */
+  /** #180：原樣帶進 `McpToolCtx.versions`（`app.ts` 傳 `versions`，與 `notesRoutes` 同一個實例）。 */
   versions: VersionService;
   /** #180：原樣帶進 `McpToolCtx.slugUpdateTestHook`。 */
   slugUpdateTestHook?: (candidate: string) => void | Promise<void>;
@@ -129,7 +129,7 @@ export function mcpRoutes(deps: McpRouteDeps) {
      */
     const originGuard = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
       const origin = request.headers.origin;
-      // 不帶 `Origin` 的請求不受此限（D10 刻意的放行面：非瀏覽器 client）。
+      // 不帶 `Origin` 的請求不受此限（刻意的放行面：非瀏覽器 client）。
       if (origin === undefined) return;
       if (!mcpOriginAllowed(origin, request.host, publicHost)) {
         // 早退形比照 `auth/bearer.ts` 的 preHandler：`sendError` 之後直接 return，
@@ -152,11 +152,11 @@ export function mcpRoutes(deps: McpRouteDeps) {
     // `bodyLimit` 與 `POST /api/notes/:id/edits` 共用同一個常數（`http/body-limits.ts`）——
     // 「兩者逐位元組相同」現在由構造成立，不再是一句要靠人維護的宣稱。
     app.post("/api/mcp", { preHandler, bodyLimit: WRITE_BODY_LIMIT }, async (request, reply) => {
-      // #108 D-Q：`instructions` 是 **per-request 二選一**（不是相加）——唯讀憑證看到的那一版
+      // #108：`instructions` 是 **per-request 二選一**（不是相加）——唯讀憑證看到的那一版
       // 刻意不提寫入工具的名字，改講「怎麼取得寫入權」。判準與註冊時的 scope 過濾**同一份**
       // （`canWriteNotes`），否則會出現「清單裡有工具但 instructions 說你是唯讀的」這種漂移。
       // #239：`canMoveNotes` 不影響 instructions（仍二選一）——讀寫版首句只講 notes:write 這個必要條件，
-      // 有沒有 notes:move 都為真（spec §7.4）；搬移權只決定註冊（`register.ts`）。
+      // 有沒有 notes:move 都為真；搬移權只決定註冊（`register.ts`）。
       // #181：`canDeleteNotes` 同樣不影響 instructions——刪除權只決定 delete_note／restore_note 的註冊。
       const canWrite = canWriteNotes({
         authKind: request.authKind === "session" ? "session" : "token",
@@ -167,7 +167,7 @@ export function mcpRoutes(deps: McpRouteDeps) {
         { instructions: mcpInstructions(canWrite) }
       );
       // 身分綁進工具閉包：每支工具是可以單獨呼叫的 `(args, ctx) => result`，不從
-      // `request` 撈東西。註冊必須排在 `registerCapabilities` **之前**（D32 的順序）。
+      // `request` 撈東西。註冊必須排在 `registerCapabilities` **之前**。
       registerMcpTools(server, {
         db: deps.db,
         collab: deps.collab,
@@ -199,7 +199,7 @@ export function mcpRoutes(deps: McpRouteDeps) {
         const res = await transport.handleRequest(toWebRequest(request, endpointUrl), {
           parsedBody: request.body,
         });
-        // ⚠ 先具現（M1(b)）：status／headers／body 全部變成值之後才可以關閉 server。
+        // ⚠ 先具現：status／headers／body 全部變成值之後才可以關閉 server。
         const status = res.status;
         const headers = [...res.headers] as [string, string][];
         const text = await res.text();

@@ -1,6 +1,6 @@
 /**
- * bulk transfer plan PR-2 T1 Step 1：S14 探針——**不是產品守衛**。PUT（有 body）上 `request.raw` 的 `close` 何時觸發，決定 T8 的
- * 斷線偵測只准掛 `reply.raw` 的 `close`（plan §0.1-11）。整檔 `describe.skipIf(!process.env.KN_PROBE)`：CI 的 `test:unit` 照收檔
+ * bulk transfer：S14 探測——**不是產品守衛**。PUT（有 body）上 `request.raw` 的 `close` 何時觸發，決定 T8 的
+ * 斷線偵測只准掛 `reply.raw` 的 `close`。整檔 `describe.skipIf(!process.env.KN_PROBE)`：CI 的 `test:unit` 照收檔
  * 但不跑（避免「10 次不一致就紅」偶發）。序列寫進 `KN_PROBE_LOG`（UTF-8；沒給就只印 stdout）。
  *
  * 真 `Fastify()`（不用 `buildApp`）、頂層 `text/markdown` parser、`PUT /p` 與 `GET /g`；事件監聽掛在 onRequest（最早的點，
@@ -19,7 +19,7 @@ const out = (line: string) => {
 };
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
-describe.skipIf(!process.env.KN_PROBE)("S14 探針：HTTP close 事件的時序", () => {
+describe.skipIf(!process.env.KN_PROBE)("S14 探測：HTTP close 事件的時序", () => {
   it("P1–P4 × keep-alive／非 keep-alive × 10 次：事件序列一致", async () => {
     const app = Fastify();
     app.addContentTypeParser("text/markdown", { parseAs: "buffer" }, (_r, body, done) => done(null, body));

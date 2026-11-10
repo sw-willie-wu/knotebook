@@ -193,7 +193,7 @@ describe("invalidateTrashRelated", () => {
     expect([...keys].sort()).toEqual(['["backlinks"]', '["folders"]', '["note","a"]', '["note","b"]', '["note-by-group-path"]', '["note-by-path"]', '["notes"]', '["trash"]']);
   });
 
-  it("AT-F 失效 ['folders']（資料夾 spec §6.12：還原會照原路徑重建資料夾）", () => {
+  it("AT-F 失效 ['folders']（資料夾：還原會照原路徑重建資料夾）", () => {
     const qc = client();
     const spy = vi.spyOn(qc, "invalidateQueries");
     invalidateTrashRelated(qc, ["a"]);
@@ -256,7 +256,7 @@ describe("useRestoreTrash／usePurgeTrash", () => {
     expect(trashInvalidations(spy)).toBe(2);
   });
 
-  /** 讀碼發現 27：移入時常駐層重抓拿到 404 → status error、data 留著舊 DTO。 */
+  /** 移入時常駐層重抓拿到 404 → status error、data 留著舊 DTO。 */
   async function residentInError(qc: QueryClient, id: string) {
     qc.setQueryData(["note", id], note(id, "old"));
     await qc
@@ -288,7 +288,7 @@ describe("useRestoreTrash／usePurgeTrash", () => {
   });
 });
 
-// 資料夾 PR-3b-2 T7（spec §6.8 還原後展開；總管裁定 I4、I-A）：還原照原路徑重建的資料夾與祖先要展開。
+// 資料夾（還原後展開）：還原照原路徑重建的資料夾與祖先要展開。
 describe("useRestoreTrash × 還原後展開", () => {
   const CHAIN = folderChain("R", 3); // R1 ⊃ R2 ⊃ R3
   const inFolder = (id: string, folderId: string): NoteDto => ({ ...note(id), folderId });
@@ -310,7 +310,7 @@ describe("useRestoreTrash × 還原後展開", () => {
     await waitFor(() => expect(isCollapsed("folder:A")).toBe(false));
   });
 
-  it("FI-R2 掛著 useFolders observer（我的筆記 tab 的形）→ 還原成功後新資料夾與祖先展開、GET /api/folders 恰好 1 次、沒有 unhandled rejection", async () => {
+  it("掛著 useFolders observer（我的筆記 tab 的形）→ 還原成功後新資料夾與祖先展開、GET /api/folders 恰好 1 次、沒有 unhandled rejection", async () => {
     const unhandled = vi.fn();
     process.on("unhandledRejection", unhandled);
     try {

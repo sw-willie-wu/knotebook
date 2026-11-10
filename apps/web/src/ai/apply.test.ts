@@ -32,8 +32,7 @@ beforeEach(() => {
   vi.mocked(replaceBlocksKeepColumns).mockReset(); // 不可寫成箭頭直接回傳：beforeEach 回傳的函式會被當成 teardown 呼叫；mockReset 連 mockImplementationOnce 佇列一起清，並還原成包裝的原實作
 });
 
-// ⚠ 自我審查發現（不在 brief 的逐字程式碼裡，brief 只驗過 anchor/apply 邏輯本身；
-// fix round 1 M-1 已用 fetch spy probe 驗證下述因果，見 task-1-report.md）：
+// ⚠ 補充（已用 fetch spy 驗證下述因果）：
 // wikilink 是用 `createReactInlineContentSpec` 蓋的 React inline content。ProseMirror
 // 在**掛載中**（非 headless）的編輯器插入這類節點時，會同步走
 // `ReactInlineContentSpec.tsx` 的 `renderHTML`（Tiptap node spec 的 `toDOM`，用於
@@ -46,13 +45,13 @@ beforeEach(() => {
 // 該函式只認 `editor.elementRenderer`（由正式的 `<BlockNoteView>` 元件透過
 // `withReactContext` 掛上）；`editor.headless` 掛載後是 `false`，`elementRenderer`
 // 是 `null` 時就直接丟 `Error: elementRenderer not available, expected headless
-// editor`。brief 給的 harness 只 `editor.mount(el)`，沒有渲染 `<BlockNoteView>`，因此
+// editor`。原本的 harness 只 `editor.mount(el)`，沒有渲染 `<BlockNoteView>`，因此
 // 需要補上這個 shim；但因為實際渲染的是無 hook 的 `toExternalHTML`，shim 只需要滿足
 // `renderToDOMSpec` 對「非 null」的檢查、把節點同步塞進 DOM 即可，**不需要**
-// `QueryClientProvider`／`MemoryRouter`／`fetch` stub（fix round 1 前的版本誤判了這點，
+// `QueryClientProvider`／`MemoryRouter`／`fetch` stub（先前的版本誤判了這點，
 // 用 fetch spy 探測過：wikilink 重綁測試全程 `fetch` 呼叫次數＝0，8 個測試拿掉這些
 // context/stub 後全數照樣通過）。這是**測試 harness 的補強**，不改動任何一條測試斷言。
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- initialContent 走 BlockNote 泛型三元組最寬型別，同 brief 原始碼與 repo 慣例
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- initialContent 走 BlockNote 泛型三元組最寬型別，同 repo 慣例
 function mountedEditor(initial?: any[]) {
   const editor = BlockNoteEditor.create({ schema: noteSchema, initialContent: initial });
   const el = document.createElement("div");
@@ -70,7 +69,7 @@ function prep(editor: any, markdown: string, notes: SiteLinkCandidate[] = []): P
   return prepared;
 }
 
-describe("AI 套用鏈（spec §13.3）", () => {
+describe("AI 套用鏈", () => {
   it("套用：markdown 結果替換錨定 blocks，回傳插入 ids 與被替換快照", () => {
     const editor = mountedEditor([{ type: "paragraph", content: "原文一" }, { type: "paragraph", content: "原文二" }]);
     const ids = editor.document.slice(0, 2).map((b) => b.id);
@@ -110,7 +109,7 @@ describe("AI 套用鏈（spec §13.3）", () => {
     const anchor = captureAnchor(editor, "note-1", [editor.document[0].id]);
     const out = applyAiResult(editor, anchor, prep(editor, "新文"));
     if (!out.ok) throw new Error("apply 應成功");
-    const inserted = captureAnchor(editor, "note-1", out.insertedIds); // 套用後立刻存插入錨點（Task 6 同款）
+    const inserted = captureAnchor(editor, "note-1", out.insertedIds); // 套用後立刻存插入錨點
     expect(revertAiResult(editor, inserted, out.replacedSnapshot)).toBe("ok");
     expect(JSON.stringify(editor.document)).toContain("原文");
     // 再套一次後「內容被改」→ stale 且文件不變
@@ -146,7 +145,7 @@ describe("AI 套用鏈（spec §13.3）", () => {
     expect(p.unboundCount).toBe(2);
   });
 
-  // fix round 1 I-1：codeBlock 的 content 型態是 "plain"，但 parse 出來的節點形狀跟
+  // codeBlock 的 content 型態是 "plain"，但 parse 出來的節點形狀跟
   // inline content 的 paragraph 一樣是 `{type:"text"}[]` 陣列——重綁若只憑
   // `Array.isArray` 判斷會把 code fence 裡剛好命中的 `[[X]]` 也换成 wikilink inline
   // node，塞進不接受 inline content 的 block。
@@ -164,7 +163,7 @@ describe("AI 套用鏈（spec §13.3）", () => {
     expect(p.unboundCount).toBe(0);
   });
 
-  // fix round 1 I-2：`tryParseMarkdownToBlocks` 對空／純空白 markdown 實測回傳單一空
+  // `tryParseMarkdownToBlocks` 對空／純空白 markdown 實測回傳單一空
   // 段落（不是 `[]`，見 apply.ts `isBlankParseResult` 的實測註記）——不擋的話
   // `replaceBlocks` 會把使用者原本的段落換成空段落、卻回報 ok。
   it("空結果：空字串／純空白 markdown → prepareAiResult 回 {empty:true}，不碰文件", () => {
@@ -184,7 +183,7 @@ describe("AI 套用鏈（spec §13.3）", () => {
     expect(p.blocks[0]!.content).toEqual([{ type: "text", text: "L1\nL2", styles: {} }]);
   });
 
-  // 並排 PR-2（spec §11.6 第 1 點、§11.3、Q6）：AI 結果走與 MCP 相同的語法＋結構檢查；目標不在頂層（"nested"）時不收任何並排。
+  // 並排：AI 結果走與 MCP 相同的語法＋結構檢查；目標不在頂層（"nested"）時不收任何並排。
   const ROW2 = golden("G1-cols-spec");
   it("GA1：正規形兩欄、placement top → PreparedResult，一列兩欄、欄寬 [1, 1.5]", () => {
     const editor = mountedEditor([{ type: "paragraph", content: "別動我" }]);
@@ -265,7 +264,7 @@ describe("AI 套用鏈（spec §13.3）", () => {
     expect(strip(out.blocks)).toBe(strip(expected));
   });
 
-  // final review Nit 1：core 剖析 <details> 時把子節點 clone 進活文件，瀏覽器裡 <img onerror> 會觸發——語法檢查先擋，不進 core parse
+  // core 剖析 <details> 時把子節點 clone 進活文件，瀏覽器裡 <img onerror> 會觸發——語法檢查先擋，不進 core parse
   it("GA10：<details> 內、figure 內的 <img onerror> → { invalid: unsupported_block }，core parse 沒被呼叫；top 與 nested 同", () => {
     const editor = mountedEditor([{ type: "paragraph", content: "別動我" }]);
     const parse = vi.spyOn(editor, "tryParseHTMLToBlocks");
@@ -307,7 +306,7 @@ describe("AI 套用鏈（spec §13.3）", () => {
     expect(mermaidOf(FENCE, "nested").map((b) => b.type)).toEqual(["mermaid"]);
   });
 
-  it("MM4（review r1 M1）：AI 沒改的圖在預覽 diff 裡是 context（還原後保留 parse 給的 id 才配得到）", () => {
+  it("MM4：AI 沒改的圖在預覽 diff 裡是 context（還原後保留 parse 給的 id 才配得到）", () => {
     const CODE = "graph TD; A-->B";
     const editor = mountedEditor([P("old words", "p1"), { id: "m", type: "mermaid", props: { code: CODE } }, P("tail", "p3")]);
     const p = prep(editor, "new words\n\n```mermaid\n" + CODE + "\n```\n\ntail");
@@ -317,7 +316,7 @@ describe("AI 套用鏈（spec §13.3）", () => {
     expect(marks).toEqual(["context"]);
   });
 
-  it("GA7（Q2）：合併表頭只設一欄寬（colwidth=\"120,\"）→ PreparedResult，columnWidths 第二項是 undefined（不是 NaN）", () => {
+  it("GA7：合併表頭只設一欄寬（colwidth=\"120,\"）→ PreparedResult，columnWidths 第二項是 undefined（不是 NaN）", () => {
     const editor = mountedEditor([{ type: "paragraph", content: "別動我" }]);
     const p = prepareAiResult(editor, golden("G3-table-colspan-partial"), { notes: [], placement: "top" });
     if ("empty" in p || "invalid" in p) throw new Error("預期 PreparedResult");
@@ -328,7 +327,7 @@ describe("AI 套用鏈（spec §13.3）", () => {
     expect(ws[2]).toBe(80);
   });
 
-  it("GA8（讀碼發現 15）：收合標題底下的站內上傳圖片 → url 還原成相對形；同形外站網址原樣不動", () => {
+  it("GA8：收合標題底下的站內上傳圖片 → url 還原成相對形；同形外站網址原樣不動", () => {
     const editor = mountedEditor([{ type: "paragraph", content: "別動我" }]);
     const md = golden("G2-img-in-toggle-heading");
     const urlOf = (markdown: string): unknown => {
@@ -341,7 +340,7 @@ describe("AI 套用鏈（spec §13.3）", () => {
     expect(urlOf(md.replace('src="/api/uploads/', 'src="https://other.example/api/uploads/'))).toBe(external);
   });
 
-  it("PL1：anchorPlacement——頂層 → top；欄內 → nested；縮排子 block → nested；頂層段落＋頂層列 → top；頂層＋欄內 → nested", () => {
+  it("anchorPlacement——頂層 → top；欄內 → nested；縮排子 block → nested；頂層段落＋頂層列 → top；頂層＋欄內 → nested", () => {
     const editor = mountedEditor([P("x", "x"), row([[P("a", "a1")], [P("b", "b1")]], "r"), withChildren(P("p", "p"), [P("c", "c1")])]);
     expect(anchorPlacement(editor, ["x"])).toBe("top");
     expect(anchorPlacement(editor, ["a1"])).toBe("nested");
@@ -359,8 +358,8 @@ describe("AI 套用鏈（spec §13.3）", () => {
     expect(out.ok).toBe(true);
   });
 
-  // 同列另一欄是空的：core 的 fixColumnList 會刪掉所有空欄、把剩一欄的列攤平——D25 不收。
-  it("AP1（D25）：錨點是欄內唯一 block → 套用與撤回都不收欄", () => {
+  // 同列另一欄是空的：core 的 fixColumnList 會刪掉所有空欄、把剩一欄的列攤平——程式發動的移除不走這條。
+  it("錨點是欄內唯一 block → 套用與撤回都不收欄", () => {
     const editor = mountedEditor([P("x", "x"), row([[P("原文", "b")], [P("", "e")]], "r"), P("z", "z")]);
     const anchor = captureAnchor(editor, "note-1", ["b"]);
     const out = applyAiResult(editor, anchor, prep(editor, "新一\n\n新二"));
@@ -381,7 +380,7 @@ describe("AI 套用鏈（spec §13.3）", () => {
     expect(hasNonTextBlock(editor, [ids[0]])).toBe(false);
   });
 
-  it("HN1：hasNonTextBlock 看錨點的子孫——列的第 2 欄有 image → true；段落底下縮排 image → true；只有文字的列 → false", () => {
+  it("hasNonTextBlock 看錨點的子孫——列的第 2 欄有 image → true；段落底下縮排 image → true；只有文字的列 → false", () => {
     const editor = mountedEditor([
       row([[P("a", "a1")], [P("b", "b1"), IMG("i1")]], "r"),
       withChildren(P("p", "p"), [IMG("i2")]),
@@ -393,7 +392,7 @@ describe("AI 套用鏈（spec §13.3）", () => {
     expect(hasNonTextBlock(editor, ["gone"])).toBe(false); // 錨點在串流期間被刪：不丟（否則 finish 會在這裡炸）
   });
 
-  // T6 review r1 I1：守門 verifyAnchor 只比內容不比位置；預覽期間錨點換了位置，套用前以現在的位置重驗結構（Q6）。
+  // 守門 verifyAnchor 只比內容不比位置；預覽期間錨點換了位置，套用前以現在的位置重驗結構。
   const ROW_AB = `<div data-kb-columns style="display:flex;gap:16px">\n<div data-kb-column style="flex:1">\n\nA\n\n</div>\n<div data-kb-column style="flex:1.5">\n\nB\n\n</div>\n</div>`;
   const clean = { dupIds: 0, nullIds: 0, nestedRows: 0, valid: true };
   it("AP-Q6a：預覽期間把頂層錨點縮排（Tab／nestBlock）→ 套用回 changed、文件不變、沒有巢狀列；不含並排的結果照常套用", () => {
@@ -428,7 +427,7 @@ describe("AI 套用鏈（spec §13.3）", () => {
     expect(integrity(editor)).toEqual(clean);
   });
 
-  // T6 review r1 M2：同 MCP（#222），不在色盤的色值整筆拒絕
+  // 同 MCP（#222），不在色盤的色值整筆拒絕
   it("GA-C1：文字色是 #hex（parse 成 rgb()）→ unsupported_color", () => {
     const editor = mountedEditor([P("別動我")]);
     expect(prepareAiResult(editor, '<span style="color:#ff0000">x</span>', { notes: [], placement: "top" })).toEqual({ invalid: "unsupported_color" });
@@ -441,7 +440,7 @@ describe("AI 套用鏈（spec §13.3）", () => {
     expect("blocks" in ok && ok.blocks[0]!.props.backgroundColor).toBe("red");
   });
 
-  it("GA-C3（T6 re-review Na）：parse 結果是單一帶色盤外底色的空段落 → unsupported_color（同 server：色值檢查在空判準之前）；色盤內底色仍是 empty", () => {
+  it("GA-C3：parse 結果是單一帶色盤外底色的空段落 → unsupported_color（同 server：色值檢查在空判準之前）；色盤內底色仍是 empty", () => {
     const editor = mountedEditor([P("別動我")]);
     // 事實釘：core 0.52.1 parse 空 <p> 時丟掉段落、補一個預設 props 的空段落，所以真的 markdown 走不到「空且帶色」——以 spy 造 parse 結果（同 GA4）
     expect(prepareAiResult(editor, '<p data-background-color="chartreuse"></p>', { notes: [], placement: "top" })).toEqual({ empty: true });
@@ -466,7 +465,7 @@ describe("AI 套用鏈（spec §13.3）", () => {
     expect(blockSnapshot(editor, "no-such-id")).toBeNull();
   });
 
-  it("verifyAnchor 三態：ok／missing／changed（Task 6 revert 鈕啟用判定逐字依賴的公開介面）", () => {
+  it("verifyAnchor 三態：ok／missing／changed（還原鈕啟用判定依賴的公開介面）", () => {
     const editor = mountedEditor([{ type: "paragraph", content: "甲" }, { type: "paragraph", content: "乙" }]);
     const ids = editor.document.slice(0, 2).map((b) => b.id);
     const anchor = captureAnchor(editor, "note-1", ids);
@@ -478,7 +477,7 @@ describe("AI 套用鏈（spec §13.3）", () => {
   });
 });
 
-describe("#269 W10：站內連結 → wikilink（快取命中才轉，沒有後備）", () => {
+describe("#269：站內連結 → wikilink（快取命中才轉，沒有後備）", () => {
   const notes2: SiteLinkCandidate[] = [
     { id: "11111111-1111-4111-8111-111111111111", title: "Alpha", slug: "alpha", groupId: null, ownerHandle: "alice" },
   ];
@@ -497,7 +496,7 @@ describe("#269 W10：站內連結 → wikilink（快取命中才轉，沒有後�
     expect(json).toContain('"href":"/n/alice/missing"');
   });
 
-  it("RF1：AI 回寫的跳脫連結文字（我們送出的形）解回原字串——label 逐字保留、文字等於現行標題時 label 為空", () => {
+  it("AI 回寫的跳脫連結文字（我們送出的形）解回原字串——label 逐字保留、文字等於現行標題時 label 為空", () => {
     const editor = createTestEditor([{ id: "p", type: "paragraph", content: "x" }]);
     const id = notes2[0]!.id;
     const titled: SiteLinkCandidate[] = [{ ...notes2[0]!, title: "[Draft] Plan *v2*" }];

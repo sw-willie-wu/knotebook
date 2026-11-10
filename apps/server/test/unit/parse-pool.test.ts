@@ -239,7 +239,7 @@ describe("ParsePool（假 worker）", () => {
     await expect(slow).resolves.toBe("too_complex");
   });
 
-  it("#398 C2 檔案總預算：時限取單次時限與剩下預算的小者；做完扣掉實際時間；用完之後的解析不送進 worker、直接 too_complex", async () => {
+  it("#398 檔案總預算：時限取單次時限與剩下預算的小者；做完扣掉實際時間；用完之後的解析不送進 worker、直接 too_complex", async () => {
     const pool = mk({ workers: 1, timeoutMs: 5_000 });
     spawned[0]!.ready();
     const budget = { remainingMs: 1_200 };
@@ -262,7 +262,7 @@ describe("ParsePool（假 worker）", () => {
     expect(pool.fileBudget()).toEqual({ remainingMs: 15_000 });
   });
 
-  it("#398 M4 排隊上限：佇列滿 PARSE_QUEUE_MAX 筆，再來的直接 ParserBusyError（不等逾時）", async () => {
+  it("#398 排隊上限：佇列滿 PARSE_QUEUE_MAX 筆，再來的直接 ParserBusyError（不等逾時）", async () => {
     const pool = mk({ workers: 1 });
     const queued = Array.from({ length: PARSE_QUEUE_MAX }, (_, i) => pool.parse(req(`u${i}`)));
     await expect(pool.parse(req("late"))).rejects.toBeInstanceOf(ParserBusyError);

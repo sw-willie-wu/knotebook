@@ -2,11 +2,11 @@ import { test, expect, type Locator, type Page } from "@playwright/test";
 import { ADMIN, adminNav, createNote, editorLocator, loginAs, openSelectionAiBox, openSiteAdmin, waitForEditorSelection } from "./helpers.js";
 
 /**
- * #263 框選 AI 框的幾何守衛（spec 2026-10-12 §7 e2e「幾何」）。provider 自建（流程照 10-responsive）——「Default model」的勾選承重：
+ * #263 框選 AI 框的幾何守衛（e2e「幾何」）。provider 自建（流程照 10-responsive）——「Default model」的勾選承重：
  * 全套順序下 04 留下的 provider 已被改指 `/slow`，不勾的話 auto 解析會選到它。
- * 量法（memory knotebook-blocknote-floating-containing-block）：全頁滾軸量 `documentElement.scrollHeight <= clientHeight`；捲動後不固定等待，
+ * 量法：全頁滾軸量 `documentElement.scrollHeight <= clientHeight`；捲動後不固定等待，
  * 以 expect.poll 等框的位置跟上（floating-ui 的 ancestorScroll 回呼下一幀才派送）。捲動容器＝note-editor 的祖父（同 14-table-hover 的節點鏈）。
- * 位置分兩種（#263 後續 2026-10-13）：輸入／串流／錯誤態浮在首區塊上方（可 flip 到下方）；結果態（done）蓋在首區塊上——框頂＝首區塊
+ * 位置分兩種（#263）：輸入／串流／錯誤態浮在首區塊上方（可 flip 到下方）；結果態（done）蓋在首區塊上——框頂＝首區塊
  * `.bn-block-outer` 頂、左緣對齊、不 flip，區塊頂捲出容器頂時夾在容器頂。
  */
 
@@ -103,7 +103,7 @@ test("建 provider（/fast，勾 Default model）", async ({ browser }) => {
     await providerDialog.locator("#ai-provider-base-url").fill("http://ai-stub:9500/fast");
     await providerDialog.getByRole("button", { name: "Create", exact: true }).click();
     await expect(providerDialog).not.toBeVisible();
-    // 「Add model」在供應商的明細列（spec 2026-10-13 settings-table §3 #1）。
+    // 「Add model」在供應商的明細列。
     await page.getByRole("row", { name: `${PROVIDER_NAME} details`, exact: true }).getByRole("button", { name: "Add model", exact: true }).click();
     const modelDialog = page.getByRole("dialog", { name: "Add model" });
     await modelDialog.getByLabel("Model ID", { exact: true }).fill("e2e-box-model");
@@ -130,17 +130,17 @@ test("開框不長全頁滾軸；點內文（空選取）框仍在；在別段�
     const box = await openSelectionAiBox(page, paragraphs[4]!);
     expect(await noPageScrollbar(page)).toBe(true);
 
-    // 空選取：單擊第 7 段（只放游標）→ 框不關（D6）
+    // 空選取：單擊第 7 段（只放游標）→ 框不關
     await editorLocator(page).getByText(paragraphs[7]!, { exact: true }).click();
-    await waitForEditorSelection(page); // 等 PM 的選取真的落到第 7 段（D12 的判定已跑過）再斷言
+    await waitForEditorSelection(page); // 等 PM 的選取真的落到第 7 段（判定已跑過）再斷言
     // 只斷言 toBeVisible 判不出「框被關了」：關閉時 BlockNote 的 GenericPopover 跑淡出轉場，轉場期間改顯示框最後一次的 innerHTML 複本（輸入框也在），
-    // DOM 晚一點才卸（e2e 探針實量：關框後 50ms 框仍在 DOM、500ms 時已卸；只斷言可見時，「空選取也關框」的突變照綠）。
+    // DOM 晚一點才卸（實量：關框後 50ms 框仍在 DOM、500ms 時已卸；只斷言可見時，「空選取也關框」的突變照綠）。
     // 所以等兩個畫格讓 React 提交選取變更排下的更新，再看外層 popover 的 inline opacity：關閉轉場把它設成 "0"（floating-ui useTransitionStyles 的預設，GenericPopover 沒改）。
     await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
     await expect(box).toBeVisible();
     expect(await box.evaluate((el) => (el.parentElement as HTMLElement).style.opacity)).not.toBe("0");
 
-    // 拖選第 8 段（滑鼠非空選取）→ 框關（D12；store 在 pointerdown 期間恆為 false，這條是 onSelectionChange 判定的守衛）
+    // 拖選第 8 段（滑鼠非空選取）→ 框關（store 在 pointerdown 期間恆為 false，這條是 onSelectionChange 判定的守衛）
     const target = editorLocator(page).getByText(paragraphs[8]!, { exact: true });
     const r = (await target.boundingBox())!;
     await page.mouse.move(r.x + 2, r.y + r.height / 2);
@@ -193,7 +193,7 @@ test("Ctrl+A 後開框、只框選首區塊時開框：框的 top ≥ 捲動容�
     expect(await boxContentFits(box)).toBe(true);
     // 全選也算在框選目標內 → 內建工具列被壓住、不和框疊在一起（toHaveCount 會等工具列的收合轉場跑完）。註：Chromium 裡實按 Ctrl+A 後
     // PM 的選取實量是 TextSelection（anchor 3、head 347，doc size 350），不是 AllSelection（from 0）——selectionInsideAnchor 對 from 的
-    // 夾回在這條路徑上不承重（e2e 突變拿掉它此案照綠），AllSelection 那半由 Task 6／8 的單元測試守；本行守的是壓制公式本身。
+    // 夾回在這條路徑上不承重（e2e 突變拿掉它此案照綠），AllSelection 那半由單元測試守；本行守的是壓制公式本身。
     await expect(page.locator(".bn-formatting-toolbar")).toHaveCount(0);
     await expect(box).toBeVisible();
     await page.keyboard.press("Escape");
@@ -211,9 +211,9 @@ test("Ctrl+A 後開框、只框選首區塊時開框：框的 top ≥ 捲動容�
   }
 });
 
-test("換行一致（D7）：同一段長文在預覽框內與正文中的渲染高度差 ≤ 1px", async ({ browser }) => {
+test("換行一致：同一段長文在預覽框內與正文中的渲染高度差 ≤ 1px", async ({ browser }) => {
   // 視窗加高到 1000：框高上限 min(40vh, 可用高度)＝400px，預覽（原文一塊 126px＋一行新增＋按鈕列，整框實量 205px）放得下、不出捲軸。出捲軸時捲軸寬
-  // 會吃掉文字欄、換行就跟正文不同（spec §10 #11，列 known-limitations）——那不是本案要驗的，所以下面先斷言框內不捲動（前置條件）。
+  // 會吃掉文字欄、換行就跟正文不同（列 known-limitations）——那不是本案要驗的，所以下面先斷言框內不捲動（前置條件）。
   const context = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
   try {
     const page = await context.newPage();

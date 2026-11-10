@@ -10,7 +10,7 @@ import { AppShell } from "./AppShell";
 import { trashList } from "@/test/trash-fixtures";
 import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
-// 垃圾桶 tab 的 lazy chunk（TrashLazy）還沒到時的兩個 Suspense 佔位（T9 fix r2 N-1）：jsdom 下 import 幾乎即到、量不到佔位，
+// 垃圾桶 tab 的 lazy chunk（TrashLazy）還沒到時的兩個 Suspense 佔位：jsdom 下 import 幾乎即到、量不到佔位，
 // 所以讓 TrashLazy 的載入卡在手動放行的 promise 上。
 
 const gate = vi.hoisted(() => {
@@ -72,7 +72,7 @@ describe("AppShell — 垃圾桶 chunk 載入中的佔位", () => {
     vi.unstubAllGlobals();
   });
 
-  it("TL1 chunk 還沒到：tabpanel 是「Trash＋Loading…」、底部是同高空位（沒有 New note）；放行後換成真面板與保留天數說明", async () => {
+  it("chunk 還沒到：tabpanel 是「Trash＋Loading…」、底部是同高空位（沒有 New note）；放行後換成真面板與保留天數說明", async () => {
     stubFetch();
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
@@ -89,12 +89,12 @@ describe("AppShell — 垃圾桶 chunk 載入中的佔位", () => {
     );
     fireEvent.click(await within(aside()).findByRole("tab", { name: "Trash" }));
 
-    // TrashPanelFallback（X4：改成 null → 紅）
+    // TrashPanelFallback（改成 null → 紅）
     const panel = within(aside()).getByRole("tabpanel");
     expect(within(panel).getByText("Trash", { exact: true })).toBeInTheDocument();
     expect(within(panel).getByText("Loading…", { exact: true })).toBeInTheDocument();
     expect(panel.querySelector("[data-sidebar-header]")).toBeNull();
-    // SidebarFooter 的佔位（X3：改成 null → 紅）：底部是 h-7 的空位，不是「新增筆記」也不是說明句
+    // SidebarFooter 的佔位（改成 null → 紅）：底部是 h-7 的空位，不是「新增筆記」也不是說明句
     expect(aside().querySelector(":scope > div.h-7")).not.toBeNull();
     expect(within(aside()).queryByRole("button", { name: "New note" })).toBeNull();
     expect(within(aside()).queryByTestId("trash-footer")).toBeNull();

@@ -12,7 +12,7 @@ import { signCollabToken } from "../src/collab/token.js";
 import { waitFor } from "./editing-helpers.js";
 import { buildCollabTestApp, COLLAB_TOKEN_INIT, testConfig, testSessionId } from "./helpers.js";
 
-// spec 2026-10-13 site-links §5、§15.2 G1–G3：collab 連線的 note schema 版本閘門。
+// G1–G3：collab 連線的 note schema 版本閘門。
 const PASSWORD = "correct-horse-battery";
 
 describe("#269 舊分頁閘門（onAuthenticate）", () => {

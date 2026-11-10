@@ -10,7 +10,7 @@ import type { BacklinkDto, LastEditedDto, NoteDto } from "@knotebook/shared";
 import { api } from "./client";
 
 /**
- * 筆記在別處（AI 經 API 寫入、撤回一筆修改…）被改動之後要失效的三把 key（#106 spec §10）：
+ * 筆記在別處（AI 經 API 寫入、撤回一筆修改…）被改動之後要失效的三把 key（#106）：
  * id 錨定的常駐層、目前 ref 的解析層、路徑解析層（個人筆記 by-path／群組筆記 by-group-path 二擇一）。
  *
  * ⚠ `invalidateQueries(["note", id])` 是**前綴**比對，**不涵蓋** `["note", slug]`——
@@ -23,7 +23,7 @@ export function invalidateNoteQueries(
 ): void {
   void queryClient.invalidateQueries({ queryKey: ["note", note.id] });
   if (ref !== note.id) void queryClient.invalidateQueries({ queryKey: ["note", ref] });
-  // #175 §8.1：路徑解析層依形二擇一——群組筆記 `/g/`、個人筆記 `/n/`。判準與 `canonicalNotePath`
+  // #175：路徑解析層依形二擇一——群組筆記 `/g/`、個人筆記 `/n/`。判準與 `canonicalNotePath`
   // 同一條（`typeof … === "string"`，不是 `!== null`：沒有 `groupId` 欄的舊物件不得被當成群組筆記）。
   if (typeof note.groupId === "string") {
     void queryClient.invalidateQueries({ queryKey: ["note-by-group-path", note.groupId, note.slug] });
@@ -33,7 +33,7 @@ export function invalidateNoteQueries(
 }
 
 /**
- * spec §5.2：最近 tab 跟上開著那篇的編輯——把 `["notes"]` 快取裡那一列的 `lastEdited` 換成新值。
+ * 最近 tab 跟上開著那篇的編輯——把 `["notes"]` 快取裡那一列的 `lastEdited` 換成新值。
  * 只有開著的那篇有觸發點，其他筆記等清單下次重抓。沒有快取、沒有這一列、值相同、較舊（或 null）都不寫。
  */
 export function patchNotesListLastEdited(
@@ -77,17 +77,17 @@ function retryOption(options: NoteQueryOptions): Pick<UseQueryOptions<NoteDto>, 
 }
 
 /**
- * `GET /api/notes/:ref`。#122 起 NotePage 用它扮兩個角色（spec §3b）：
+ * `GET /api/notes/:ref`。#122 起 NotePage 用它扮兩個角色：
  * - **解析層**（ref＝路由參數，slug 或 uuid）：`enabled` 由呼叫端以 paramsKey 判斷
  *   控制——只在真導航（key 不等）時打；收斂 effect 換到本篇 canonical 不算真導航（#179）；
  * - **常駐層**（ref＝解析出的 id）：key 以 id 為錨永不過時，refetch/invalidate 全清
- *   都安全。`ref.length > 0` 的守衛同時吃掉「尚未解析完成」的空字串（A11：不打
+ *   都安全。`ref.length > 0` 的守衛同時吃掉「尚未解析完成」的空字串（不打
  *   `/api/notes/undefined`）。
  *
  * ⚠ **禁止加 `placeholderData`/`keepPreviousData`**（即使是為了消掉轉場的 loading
  * 閃爍）：NotePage 的 seed effect 依賴「`resolveQuery.data` 必屬當下這組 ref」——
  * 給了 placeholder，導航瞬間 data 會是**上一篇**的 note，seed 會寫出
- * `{key: 新, id: 舊}`，頁面停在錯的筆記上、網址卻是新的，而且沒有測試會紅（A4）。
+ * `{key: 新, id: 舊}`，頁面停在錯的筆記上、網址卻是新的，而且沒有測試會紅。
  */
 export function useNote(ref: string, options: NoteQueryOptions = {}): UseQueryResult<NoteDto> {
   return useQuery({
@@ -100,7 +100,7 @@ export function useNote(ref: string, options: NoteQueryOptions = {}): UseQueryRe
 
 /**
  * `GET /api/notes/by-path/:handle/:slug`——`/n/<handle>/<slug>` 新形網址的解析層
- * （#122 spec §3b）。query key 含 handle 與 slug（A4：data 必屬當下這組 params）；
+ * （#122）。query key 含 handle 與 slug（data 必屬當下這組 params）；
  * `useNote` 的 placeholderData 禁令同樣適用於此（同一個 seed effect 消費）。
  */
 export function useNoteByPath(
@@ -118,7 +118,7 @@ export function useNoteByPath(
 
 /**
  * `GET /api/notes/by-group-path/:groupId/:slug`——`/g/<group_id>/<slug>` 群組筆記網址的解析層
- * （#175 §8.1）。query key 含 groupId 與 slug（A4：data 必屬當下這組 params）。
+ * （#175）。query key 含 groupId 與 slug（data 必屬當下這組 params）。
  * ⚠ 與 `useNote`／`useNoteByPath` 同一條禁令：**不得加 `placeholderData`**（同一個 seed effect 消費）。
  */
 export function useNoteByGroupPath(
@@ -136,7 +136,7 @@ export function useNoteByGroupPath(
 }
 
 /**
- * 反向連結（Task 6a `GET /api/notes/:id/backlinks` → `{backlinks: BacklinkDto[]}`）。
+ * 反向連結（`GET /api/notes/:id/backlinks` → `{backlinks: BacklinkDto[]}`）。
  * `enabled: !!noteId`——與 `useNote` 的 `ref.length > 0` 同用意：`NotePage` 在 note
  * 還沒載完時 `noteId` 是 `undefined`，不該對 `/undefined/backlinks` 發請求。
  * React Query 預設 `refetchOnWindowFocus: true`（見 `main.tsx` 的 `new QueryClient()`

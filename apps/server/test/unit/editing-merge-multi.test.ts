@@ -5,7 +5,7 @@ import { checkExpectations, fingerprintForIds, fingerprintsOfGroups, topLevelSna
 import { EditingRuntime } from "../../src/notes/editing/runtime.js";
 import { docWith, withEditor } from "./fixtures/transfer-sync.js";
 
-/** bulk transfer plan PR-2 §0.1-5、T7（MD1–MD6）：`mergeDiff` 多期望分支的純函式（直接吃 fragment，不經 `mergeDiff`，gate r1 m7）。 */
+/** bulk transfer：`mergeDiff` 多期望分支的純函式（直接吃 fragment，不經 `mergeDiff`）。 */
 
 const rt = new EditingRuntime({ baseUrl: "http://localhost/" });
 rt.installGlobals();
@@ -39,7 +39,7 @@ describe("MD1–MD4", () => {
     expect(checkExpectations(frag(d), exp, [ids[0]!])).toBe(true);
     expect(checkExpectations(frag(d), exp, [ids[2]!])).toBe(false);
   });
-  it("MD4 倖存者被拖亂順序 → 仍通過（逐顆比指紋、不比順序；總管裁示 Q5，§0.2 R9）", async () => {
+  it("MD4 倖存者被拖亂順序 → 仍通過（逐顆比指紋、不比順序）", async () => {
     const d = await docWith(rt, [P("a"), P("b"), P("c")]);
     const ids = topLevelSnapshot(frag(d)).ids;
     const exp = expectAll(d, [ids[0]!, ids[1]!, ids[2]!]);

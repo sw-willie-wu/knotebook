@@ -1,8 +1,8 @@
 /**
- * #132 Task 6：同意頁的兩支站內端點（§5.3.1／§5.3.2）。
+ * #132：同意頁的兩支站內端點。
  *
  * 這一族守的是：①`GET /api/oauth/request` **不消費**（頁面可重新整理）、不吃桶；
- * ②I6 單次消費——allow 與 deny 都消費，連點兩下只建一個 code；③I1 額度要扣掉會被 I7
+ * ②單次消費——allow 與 deny 都消費，連點兩下只建一個 code；③額度要扣掉會被這次授權
  * 取代的那一列（否則「20 支且其中一支是本 client」重新授權會吃 409）；④兩支都是
  * cookie 專用、站內錯誤形；⑤不變量 S：`req` 進 SQL 述詞前先過正規式。
  */
@@ -71,7 +71,7 @@ async function seedGrant(db: TestApp["db"], userId: string, clientId: string, sc
   });
 }
 
-describe("GET /api/oauth/request（§5.3.1）", () => {
+describe("GET /api/oauth/request", () => {
   it("200 回四要素；不消費（可重新整理）", async () => {
     const { app, db, close } = await buildTestApp();
     try {
@@ -202,7 +202,7 @@ describe("GET /api/oauth/request（§5.3.1）", () => {
   });
 });
 
-describe("POST /api/oauth/decision（§5.3.2）", () => {
+describe("POST /api/oauth/decision", () => {
   it("allow → 200 redirectTo 帶 code／state／iss，並建一列 oauth_codes", async () => {
     const { app, db, close } = await buildTestApp();
     try {
@@ -223,7 +223,7 @@ describe("POST /api/oauth/decision（§5.3.2）", () => {
 
       const rows = await db.select().from(oauthCodes);
       expect(rows).toHaveLength(1);
-      // I2：明文不落庫（DB 只有 sha256）；其餘欄位從 pending request 抄過來
+      // 明文不落庫（DB 只有 sha256）；其餘欄位從 pending request 抄過來
       expect(rows[0]!.codeHash).not.toBe(code);
       expect(rows[0]!.codeHash).toMatch(/^[0-9a-f]{64}$/);
       expect(rows[0]!.userId).toBe(userId);
@@ -378,7 +378,7 @@ describe("POST /api/oauth/decision（§5.3.2）", () => {
       });
 
       const ok = await decide(app, cookie, { req, decision: "allow", scope: RWM });
-      expect(ok.statusCode).toBe(200); // 扣掉會被 I7 取代的那一列
+      expect(ok.statusCode).toBe(200); // 扣掉會被這次授權取代的那一列
 
       // 換一個新 client：同樣 20 支，這次沒得扣 → 409
       const other = await startFlow(app);
@@ -392,7 +392,7 @@ describe("POST /api/oauth/decision（§5.3.2）", () => {
     }
   });
 
-  // I1 額度的「有效」定義守衛（§9.2）：oauth grant 一律計入，**access 過期也算**
+  // I1 額度的「有效」定義守衛：oauth grant 一律計入，**access 過期也算**
   // （refresh 不到期）。把述詞寫成「未過期才計」的話這一案會變 200。
   it("20 支 oauth grant 全部 access 過期，對新 client 授權仍 409", async () => {
     const { app, db, close } = await buildTestApp();
@@ -475,7 +475,7 @@ describe("#239 decision scope", () => {
     }
   });
 
-  // spec §5.5「不在落庫形內」那一半：別名與缺 write 的組合一律 400，不正規化、不消費（#181 起是五形）。
+  // 「不在落庫形內」那一半：別名與缺 write 的組合一律 400，不正規化、不消費（#181 起是五形）。
   it.each(["notes:write", "notes:read notes:move", "notes:move", "notes:read notes:delete"])(
     "(a') allow 帶非落庫形 scope=%s → 400，pending 仍在；同一 req 帶合法 scope 仍可 allow",
     async scope => {
@@ -498,7 +498,7 @@ describe("#239 decision scope", () => {
     [RWM, "notes:read notes:write", "notes:read notes:write"], // (b)
     ["notes:write", RWM, "notes:read notes:write"], // (c) 夾回 pending
     [RWM, "notes:read", "notes:read"], // (d)
-    // #181 PR-2d OD（A2-13）：授予＝要求 ∩ 勾選（格上的交集，不是鏈上取小）。
+    // #181 OD：授予＝要求 ∩ 勾選（格上的交集，不是鏈上取小）。
     [RWM, RWD, "notes:read notes:write"], // move 與 delete 互不包含 → 只剩讀寫
     [RWMD, RWMD, RWMD],
     [RWD, RWMD, RWD], // 不超過要求
@@ -547,7 +547,7 @@ describe("#239 decision scope", () => {
   });
 });
 
-describe("#239 O2b existingScope", () => {
+describe("#239 existingScope", () => {
   it("無既有列 → null／false；本人同 client 讀寫列 → 讀寫／true；別人的同 client 列、本人別 client 的列都不算", async () => {
     const { app, db, close } = await buildTestApp();
     try {
@@ -568,7 +568,7 @@ describe("#239 O2b existingScope", () => {
     }
   });
 
-  // #181 PR-2d：existingScope 原樣回五形之一；它只是同意頁的預設勾選，decision 照「要求 ∩ 勾選」授予、不看它。
+  // #181：existingScope 原樣回五形之一；它只是同意頁的預設勾選，decision 照「要求 ∩ 勾選」授予、不看它。
   it("既有讀寫刪除列、本次要求讀寫搬移 → existingScope 是讀寫刪除；allow 讀寫搬移 → code 是讀寫搬移", async () => {
     const { app, db, close } = await buildTestApp();
     try {

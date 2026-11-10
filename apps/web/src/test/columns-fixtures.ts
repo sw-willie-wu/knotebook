@@ -6,8 +6,8 @@ import { noteSchema } from "@/collab/schema";
 import type { EditorRef } from "@/components/wikilink/menu";
 
 /**
- * 並排排版（spec 2026-10-21 columns-layout）的 web 測試共用工具。`shape`／`cursorOf`／`integrity`
- * 的格式與探針 `probe-r7/setup3.mjs`、`probe-plan-cols/p5c.mjs` 逐字相同，測試的期望值可以直接抄探針輸出。
+ * 並排排版的 web 測試共用工具。`shape`／`cursorOf`／`integrity`
+ * 的格式固定，期望值可以直接從 `shape()` 等函式的輸出抄。
  */
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 泛型三元組（repo 慣例）
@@ -49,12 +49,12 @@ function shapeOf(b: BlockLike): string {
   return `${b.type}${text}${kids}`;
 }
 
-/** `paragraph:x  ROW[COL(paragraph:a) | COL(paragraph)]  paragraph:z`（探針 shape）。 */
+/** `paragraph:x  ROW[COL(paragraph:a) | COL(paragraph)]  paragraph:z`。 */
 export function shape(editor: AnyEditor): string {
   return (editor.document as BlockLike[]).map(shapeOf).join("  ");
 }
 
-/** `${游標所在 block 的文字 || 型別}@${parentOffset}`（探針 curOf）。 */
+/** `${游標所在 block 的文字 || 型別}@${parentOffset}`。 */
 export function cursorOf(editor: AnyEditor): string {
   const $from = editor.prosemirrorView!.state.selection.$from;
   const block = editor.getTextCursorPosition().block as BlockLike;
@@ -73,7 +73,7 @@ export function pressKey(
   return !!view.someProp("handleKeyDown", (f) => f(view, event));
 }
 
-/** 文字節點恰為 `word` 的那段（最後一個符合者）內第 `offset` 字的位置（探針 tp）。 */
+/** 文字節點恰為 `word` 的那段（最後一個符合者）內第 `offset` 字的位置。 */
 export function textPos(editor: AnyEditor, word: string, offset: number): number {
   let pos: number | undefined;
   editor.prosemirrorView!.state.doc.descendants((node, p) => {
@@ -85,7 +85,7 @@ export function textPos(editor: AnyEditor, word: string, offset: number): number
 
 const BN_BLOCK_NODES = new Set(["blockContainer", COLUMN_TYPE, COLUMN_LIST_TYPE]);
 
-/** `doc.check()`、bnBlock id 重複／缺、深度 > 1 的 columnList（探針 ids＋nested）。 */
+/** `doc.check()`、bnBlock id 重複／缺、深度 > 1 的 columnList。 */
 export function integrity(editor: AnyEditor): { dupIds: number; nullIds: number; nestedRows: number; valid: boolean } {
   const doc = editor.prosemirrorView!.state.doc;
   const seen = new Set<string>();

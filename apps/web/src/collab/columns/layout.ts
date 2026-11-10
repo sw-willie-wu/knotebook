@@ -1,9 +1,9 @@
 /**
- * 並排的版面規則（spec 2026-10-21 columns-layout §6、§8）：欄距、最小寬度與「整列堆疊」判斷。純函式，編輯器的堆疊外掛
+ * 並排的版面規則：欄距、最小寬度與「整列堆疊」判斷。純函式，編輯器的堆疊外掛
  * （`layout-extension.ts`）與之後的簡報版面共用。
  *
  * ⚠ 三個像素常數與 `index.css` 的並排段落是同一份數值（`gap`、兩個 `min-width`），兩邊要一起改；`columns-css.guard.test.ts` 比對。
- * 數值來源：96／200 是 spec §6 的 UI 稿＋決定，24 是 spec §6 的決定（不是量測值）。
+ * 數值來源：96／200 來自 UI 稿，24 是設計值（不是量測值）。
  */
 import { COLUMN_TYPE } from "@knotebook/shared";
 

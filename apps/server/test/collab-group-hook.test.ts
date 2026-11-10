@@ -1,6 +1,6 @@
 /**
- * #103 §7：`onGroupAccessChanged` 只重驗 (noteIds × userIds) 的交集連線；重驗結果由 `resolveRole` 決定。
- * 本檔直接呼叫 hook（路由的呼叫點在 Task 8／9 的 spy 測試與 Task 12 的端到端踢線測試驗）。
+ * #103：`onGroupAccessChanged` 只重驗 (noteIds × userIds) 的交集連線；重驗結果由 `resolveRole` 決定。
+ * 本檔直接呼叫 hook（路由的呼叫點由 spy 測試與端到端踢線測試驗）。
  */
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";

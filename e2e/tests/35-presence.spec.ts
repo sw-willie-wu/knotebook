@@ -2,12 +2,12 @@ import { test, expect, type BrowserContext, type Locator, type Page } from "@pla
 import { ADMIN, createNote, createUserViaInvite, editorLocator, loginAs, noteIdFromUrl, randomEmail, reEscape, waitForEditorSelection } from "./helpers.js";
 
 /**
- * #293 PR-1（spec §14.1 A1–A6、A8）：頁首「也在這篇的人」頭像列。
+ * #293：頁首「也在這篇的人」頭像列。
  * A（擁有者）寫 40 段 → B（檢視者）進來 → A 看到 B（唯讀者沒有游標）、B 看到 A（外框色＝遠端游標色、點頭像捲到游標）
  * → B 多開一分頁仍一顆 → B 的兩支 PAT 各讀一次，A 看到兩顆 AI（不與 B 合併）→ 390 寬 +N 與完整名單 → 鍵盤 → B 關掉後 35 s 內消失。
  *
- * 唯讀者沒有游標（讀碼發現 10）：此檔「B 的頭像是 no cursor」即守衛；紅了代表 viewer 也送了 cursor，不得改斷言。
- * 被刪位置點頭像會捲到相鄰（spec §9.4），所以這裡只對「沒有游標」的頭像斷言不捲。
+ * 唯讀者沒有游標：此檔「B 的頭像是 no cursor」即守衛；紅了代表 viewer 也送了 cursor，不得改斷言。
+ * 被刪位置點頭像會捲到相鄰，所以這裡只對「沒有游標」的頭像斷言不捲。
  */
 
 const RUN = Date.now();
@@ -19,7 +19,7 @@ function scrollerOf(page: Page): Locator {
 const scrollTopOf = (page: Page) => scrollerOf(page).evaluate((el) => el.scrollTop);
 
 async function waitConnectedOnNote(page: Page, title: string): Promise<void> {
-  // viewer 的標題是 h1（memory knotebook-notepage-fallback-appshell-swap：等標題再碰側欄／頁首）
+  // viewer 的標題是 h1（等標題再碰側欄／頁首）
   await expect(page.getByRole("heading", { name: title, level: 1 })).toBeVisible({ timeout: 15_000 });
   // #335：viewer 連上後徽章只寫「Read-only」（能編輯者才是「Connected」）；本檔只有 viewer 等這道屏障
   await expect(page.getByRole("status").filter({ hasText: /^Read-only/ })).toBeVisible({ timeout: 15_000 });
@@ -69,7 +69,7 @@ test("頁首頭像列：A 看 B（無游標）、B 看 A（外框色、點了捲
     // 點前段，B 視窗內，不會捲動。
     await pageB.getByTestId("note-editor").getByText(`Line 2 ${RUN}`).click();
 
-    // ── A1／A3：A 看 B ──────────────────────────────────────────────
+    // ── A 看 B ──────────────────────────────────────────────
     const rowA = pageA.getByRole("group", { name: "Also viewing this note" });
     const bAvatar = rowA.getByRole("button", { name: "E2E Viewer, Viewer, no cursor right now" });
     await expect(bAvatar).toBeVisible({ timeout: 15_000 });
@@ -87,7 +87,7 @@ test("頁首頭像列：A 看 B（無游標）、B 看 A（外框色、點了捲
     await bAvatar.click();
     expect(await scrollTopOf(pageA)).toBe(scrollBefore);
 
-    // ── A1／A4：B 看 A ──────────────────────────────────────────────
+    // ── B 看 A ──────────────────────────────────────────────
     // 之後到第 5 步之前 A 不再碰別的元素，保住焦點＝游標。
     await editorLocator(pageA).getByText(`Last line ${RUN}`).click();
     // 游標落在行尾，B 端該段文字不被 A 的遠端游標 widget 切開。
@@ -113,7 +113,7 @@ test("頁首頭像列：A 看 B（無游標）、B 看 A（外框色、點了捲
     await expect.poll(() => scrollTopOf(pageB)).toBeGreaterThan(0);
     await expect(caret).toBeInViewport();
 
-    // ── A2：同一人多分頁只有一顆 ───────────────────────────────────
+    // ── 同一人多分頁只有一顆 ───────────────────────────────────
     const bAnyAvatar = rowA.getByRole("button", { name: /^E2E Viewer, Viewer,/ });
     const pageB2 = await ctxB.newPage();
     await pageB2.goto(noteUrl);
@@ -125,7 +125,7 @@ test("頁首頭像列：A 看 B（無游標）、B 看 A（外框色、點了捲
     await pageA.waitForTimeout(1_500);
     await expect(bAnyAvatar).toHaveCount(1);
 
-    // ── A6：兩支 AI（不與 B 合併）──────────────────────────────────
+    // ── 兩支 AI（不與 B 合併）──────────────────────────────────
     const bMe = (await (await pageB.request.get("/api/auth/me")).json()) as { handle: string };
     const labels: string[] = [];
     for (const n of ["ai1", "ai2"]) {
@@ -149,7 +149,7 @@ test("頁首頭像列：A 看 B（無游標）、B 看 A（外框色、點了捲
     await expect(pageA.getByRole("tooltip")).toContainText(`${bMe.handle} (${labels[0]}) · AI agent`);
     await expect(bAnyAvatar).toHaveCount(1);
 
-    // ── A5：窄螢幕 +N 與完整名單（A 看到 3 位）──────────────────────
+    // ── 窄螢幕 +N 與完整名單（A 看到 3 位）──────────────────────
     // ai1 的 Tooltip 還開著；縮窄後該頭像被藏，先把滑鼠移走讓 Tooltip 關掉，免得蓋住 +N。
     // 不用 hover()（可能動到 A 的捲動，後面 Enter 捲動需要 scrollTop > 0）。Radix hoverable Tooltip 離開 trigger 只建 grace area，
     // 要等「之後」的 pointermove 落在區外才關（react-tooltip dist/index.mjs:268-291），所以送兩段 move，慢機器重試。
@@ -189,7 +189,7 @@ test("頁首頭像列：A 看 B（無游標）、B 看 A（外框色、點了捲
     await expect(personBtn).toHaveCount(3);
     await expect(rowA.getByRole("button", { name: /more, show everyone/ })).toHaveCount(0);
 
-    // ── A8：鍵盤 ────────────────────────────────────────────────────
+    // ── 鍵盤 ────────────────────────────────────────────────────
     const first = rowA.getByRole("button").first();
     const second = rowA.getByRole("button").nth(1);
     await first.focus();
@@ -210,7 +210,7 @@ test("頁首頭像列：A 看 B（無游標）、B 看 A（外框色、點了捲
     await expect.poll(() => scrollTopOf(pageA)).toBeLessThan(topBeforeEnter);
     await expect(pageA.getByRole("menu")).toHaveCount(0);
 
-    // ── A2：B 的最後一個分頁關掉 → 消失；AI 仍在（閒置 120 s 才消失，不等）──
+    // ── B 的最後一個分頁關掉 → 消失；AI 仍在（閒置 120 s 才消失，不等）──
     await pageB.close();
     await expect(bAnyAvatar).toHaveCount(0, { timeout: 35_000 });
     await expect(agentBtn(labels[0]!)).toBeVisible();

@@ -1,7 +1,7 @@
 /**
  * #398 結構守衛：伺服器的 markdown 寫入解析一律經 `EditingRuntime.parser`（生產＝worker pool）。`src/` 裡**提到**（import、別名 import、
  * 命名空間取用、呼叫——去掉註解後只要出現這個名字就算）`parseMarkdownForNote`、`trailingOpenFenceLine`、`tryParseHTMLToBlocks` 的，
- * 只能是定義它的檔與解析核心——新的寫入路徑若在主執行緒自己解析，這裡會紅（審查 M2：原本只找呼叫，`import { x as y }` 抓不到）。
+ * 只能是定義它的檔與解析核心——新的寫入路徑若在主執行緒自己解析，這裡會紅（原本只找呼叫，`import { x as y }` 抓不到）。
  */
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";

@@ -1,5 +1,5 @@
 /**
- * #175 PR2 T4（複製）的測試種子與量測。新檔（plan R7：不動 `group-helpers.ts`）。
+ * #175（複製）的測試種子與量測。新檔（不動 `group-helpers.ts`）。
  * wikilink 節點的形狀照 `packages/shared/src/note-markdown.ts` 的 `extractLinkTargets` 實際讀的：
  * `Y.XmlElement` 節點名 `"wikilink"`、屬性 `targetNoteId`（UUID）；位置不拘（它走整棵樹）。
  */
@@ -18,7 +18,7 @@ export async function seedDoc(db: Db, noteId: string, doc: Y.Doc): Promise<void>
   await db.insert(noteStates).values({ noteId, ydoc: Buffer.from(Y.encodeStateAsUpdate(doc)), version: 1 });
 }
 
-/** 插一列 uploads＋把 bytes 寫到磁碟（`opts.noFile`：只插列、不寫檔——RF4）。回 upload id。 */
+/** 插一列 uploads＋把 bytes 寫到磁碟（`opts.noFile`：只插列、不寫檔）。回 upload id。 */
 export async function seedUpload(
   db: Db,
   uploadsDir: string,

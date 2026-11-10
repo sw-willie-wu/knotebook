@@ -1,5 +1,5 @@
 /**
- * #398 審查 C1（續）：jsdom 30 在大的子節點清單上有三處平方，全在主執行緒（MCP `read_note_section`、REST `/content`、批次下載、
+ * #398：jsdom 30 在大的子節點清單上有三處平方，全在主執行緒（MCP `read_note_section`、REST `/content`、批次下載、
  * 409 的 `current` 都要把筆記匯出成 markdown），也在 parse worker 裡：
  *
  * 1. `Node-impl._modified()` 在節點每次改動時**立刻**把已被取用過的 `childNodes`／`children` 活清單整份重算（O(子數)）。BlockNote 的

@@ -43,8 +43,8 @@ async function appWithTokenHook(seed: { autoCreateEnabled?: boolean } = {}) {
   return { app, db, idp, logs, provider, setBeforeToken };
 }
 
-describe("多 provider 的 login／callback（#187 §7.1–§7.4）", () => {
-  it("§14.1-13 redirect_uri 字面：一般 provider＝<PUBLIC_URL>/api/auth/oidc/callback/<id>、legacy＝舊路徑；兩者都能走完並建帳", async () => {
+describe("多 provider 的 login／callback（#187）", () => {
+  it("redirect_uri 字面：一般 provider＝<PUBLIC_URL>/api/auth/oidc/callback/<id>、legacy＝舊路徑；兩者都能走完並建帳", async () => {
     const t = await buildOidcApp({ providers: [{ key: "a", issuerUrl: A }, { key: "l", issuerUrl: B, legacyCallback: true }] });
     const a = await ssoRoundTrip(t.app, t.idp("a"), { loginUrl: `/api/auth/oidc/login/${t.provider("a").id}`, claims: { sub: "sa", email: "a@x.example", name: "A" } });
     expect(a.redirectUri).toBe(`http://localhost:3000/api/auth/oidc/callback/${t.provider("a").id}`);
@@ -52,13 +52,13 @@ describe("多 provider 的 login／callback（#187 §7.1–§7.4）", () => {
     const l = await ssoRoundTrip(t.app, t.idp("l"), { loginUrl: "/api/auth/oidc/login", claims: { sub: "sl", email: "l@x.example", name: "L" } });
     expect(l.redirectUri).toBe("http://localhost:3000/api/auth/oidc/callback");
     expect(l.callbackRes.headers.location).toBe("/");
-    // 帶 id 的入口打到 legacy provider 也可以（redirect_uri 仍是舊路徑——legacy 不提供切換，§7.1）。
+    // 帶 id 的入口打到 legacy provider 也可以（redirect_uri 仍是舊路徑——legacy 不提供切換）。
     const l2 = await ssoRoundTrip(t.app, t.idp("l"), { loginUrl: `/api/auth/oidc/login/${t.provider("l").id}`, claims: { sub: "sl", email: "l@x.example" } });
     expect(l2.redirectUri).toBe("http://localhost:3000/api/auth/oidc/callback");
     expect(l2.callbackRes.headers.location).toBe("/");
   });
 
-  it("S5：A 建的帳號、B（不同 issuer）同 email 首登 → 不自動合併：302 /link-account、pending cookie 帶 B 的身分與目標帳號、零寫入", async () => {
+  it("A 建的帳號、B（不同 issuer）同 email 首登 → 不自動合併：302 /link-account、pending cookie 帶 B 的身分與目標帳號、零寫入", async () => {
     const t = await buildOidcApp({ providers: [{ key: "a", issuerUrl: A }, { key: "b", issuerUrl: B, displayName: "B" }] });
     await ssoRoundTrip(t.app, t.idp("a"), { loginUrl: `/api/auth/oidc/login/${t.provider("a").id}`, claims: { sub: "sa", email: "same@x.example" } });
     const [u] = await t.db.select().from(users).where(eq(users.email, "same@x.example"));
@@ -75,7 +75,7 @@ describe("多 provider 的 login／callback（#187 §7.1–§7.4）", () => {
     expect(await t.db.select().from(users)).toHaveLength(1);
   });
 
-  it("§14.1-8 state cookie：providerId 不符 → oidc_state_mismatch；login 後版本變了 → oidc_unavailable；舊格式（無 providerId）→ oidc_state_mismatch", async () => {
+  it("state cookie：providerId 不符 → oidc_state_mismatch；login 後版本變了 → oidc_unavailable；舊格式（無 providerId）→ oidc_state_mismatch", async () => {
     const t = await buildOidcApp({ providers: [{ key: "a", issuerUrl: A }, { key: "b", issuerUrl: B }] });
     const swapped = await ssoRoundTrip(t.app, t.idp("a"), {
       loginUrl: `/api/auth/oidc/login/${t.provider("a").id}`, claims: { sub: "s", email: "s@x.example" },
@@ -96,7 +96,7 @@ describe("多 provider 的 login／callback（#187 §7.1–§7.4）", () => {
     expect(oldRes.headers.location).toBe("/login?error=oidc_state_mismatch");
   });
 
-  it("§14.1-9 停用：login 與 callback 都拒（oidc_unavailable）；重新啟用恢復；刪除後以同 issuer 重建 → 原身分照常 login（B1）", async () => {
+  it("停用：login 與 callback 都拒（oidc_unavailable）；重新啟用恢復；刪除後以同 issuer 重建 → 原身分照常 login", async () => {
     const t = await buildOidcApp({ providers: [{ key: "a", issuerUrl: A }] });
     const id = t.provider("a").id;
     await ssoRoundTrip(t.app, t.idp("a"), { loginUrl: `/api/auth/oidc/login/${id}`, claims: { sub: "sa", email: "a@x.example" } });
@@ -130,7 +130,7 @@ describe("多 provider 的 login／callback（#187 §7.1–§7.4）", () => {
     expect((await ssoRoundTrip(t.app, t.idp("a"), { loginUrl: `/api/auth/oidc/login/${id}`, claims: { sub: "old", email: "old@x.example" } })).callbackRes.headers.location).toBe("/");
   });
 
-  it("W22（C-3）同一站台 A 開 B 關：新 email 經 A → 建帳；經 B → registration_disabled；站台 registration_enabled=false 不影響 A", async () => {
+  it("W22 同一站台 A 開 B 關：新 email 經 A → 建帳；經 B → registration_disabled；站台 registration_enabled=false 不影響 A", async () => {
     const t = await buildOidcApp({ providers: [{ key: "a", issuerUrl: A }, { key: "b", issuerUrl: B, autoCreateEnabled: false }] });
     await t.db.update(siteSettings).set({ registrationEnabled: false });
     const ra = await ssoRoundTrip(t.app, t.idp("a"), { loginUrl: `/api/auth/oidc/login/${t.provider("a").id}`, claims: { sub: "na", email: "na@x.example" } });
@@ -141,7 +141,7 @@ describe("多 provider 的 login／callback（#187 §7.1–§7.4）", () => {
     expect(await t.db.select().from(users)).toHaveLength(1);
   });
 
-  it("R1 (a)（C-5）callback 驗過版本後、交易前服務 config_version 變了 → /login?error=oidc_unavailable、不建帳、記 warn", async () => {
+  it("R1 (a)callback 驗過版本後、交易前服務 config_version 變了 → /login?error=oidc_unavailable、不建帳、記 warn", async () => {
     const t = await appWithTokenHook();
     const providerId = t.provider.id;
     t.setBeforeToken(async () => {
@@ -153,7 +153,7 @@ describe("多 provider 的 login／callback（#187 §7.1–§7.4）", () => {
     expect(t.logs.lines.filter(l => l.msg === STALE_MSG)).toEqual([{ msg: STALE_MSG, level: "warn", obj: { providerId } }]);
   });
 
-  it("R1 (b)（C-5）callback 驗過版本後、交易前服務列被刪 → /login?error=oidc_unavailable、不建帳、記 warn", async () => {
+  it("R1 (b)callback 驗過版本後、交易前服務列被刪 → /login?error=oidc_unavailable、不建帳、記 warn", async () => {
     const t = await appWithTokenHook();
     const providerId = t.provider.id;
     t.setBeforeToken(async () => {
@@ -188,7 +188,7 @@ describe("多 provider 的 login／callback（#187 §7.1–§7.4）", () => {
     expect(await t.db.select().from(users)).toHaveLength(0);
   });
 
-  it("r3-M3 claim 上限：email 255 字或 sub 256 字 → oidc_claim_too_long、不封 pending、不建帳；剛好 254／255 → 照常", async () => {
+  it("claim 上限：email 255 字或 sub 256 字 → oidc_claim_too_long、不封 pending、不建帳；剛好 254／255 → 照常", async () => {
     const t = await buildOidcApp({ providers: [{ key: "a", issuerUrl: A }] });
     const id = t.provider("a").id;
     const email255 = "e".repeat(255 - "@x.example".length) + "@x.example";
@@ -203,7 +203,7 @@ describe("多 provider 的 login／callback（#187 §7.1–§7.4）", () => {
     expect(ok.callbackRes.headers.location).toBe("/");
   });
 
-  it("RF1：provider id 以大寫出現在 login 與 callback 網址 → 照常完成；送給 IdP 的 redirect_uri 用小寫 id", async () => {
+  it("provider id 以大寫出現在 login 與 callback 網址 → 照常完成；送給 IdP 的 redirect_uri 用小寫 id", async () => {
     const t = await buildOidcApp({ providers: [{ key: "a", issuerUrl: A }] });
     const id = t.provider("a").id;
     const r = await ssoRoundTrip(t.app, t.idp("a"), {
@@ -215,7 +215,7 @@ describe("多 provider 的 login／callback（#187 §7.1–§7.4）", () => {
     expect(r.cookies[SESSION_COOKIE]).toBeDefined();
   });
 
-  it("RF2：兩個啟用中的 provider 指向同一個 issuer → 用 A 建的帳號用 B 直接登入（不是 confirm_link、不建第二個帳號）", async () => {
+  it("兩個啟用中的 provider 指向同一個 issuer → 用 A 建的帳號用 B 直接登入（不是 confirm_link、不建第二個帳號）", async () => {
     const t = await buildOidcApp({ providers: [{ key: "a1", issuerUrl: A, clientId: "c1" }, { key: "a2", issuerUrl: `${A}/`, clientId: "c2", displayName: "Same IdP again" }] });
     await ssoRoundTrip(t.app, t.idp("a1"), { loginUrl: `/api/auth/oidc/login/${t.provider("a1").id}`, claims: { sub: "sa", email: "a@x.example" } });
     const r = await ssoRoundTrip(t.app, t.idp("a2"), { loginUrl: `/api/auth/oidc/login/${t.provider("a2").id}`, claims: { sub: "sa", email: "a@x.example" } });
@@ -224,7 +224,7 @@ describe("多 provider 的 login／callback（#187 §7.1–§7.4）", () => {
     expect(await t.db.select().from(users)).toHaveLength(1);
   });
 
-  it("r1-I1 尾斜線形：provider 填 https://gitlab.example/、IdP 回無斜線 → 登入成功、resolved_issuer 寫成無斜線、身分存 IdP 的值", async () => {
+  it("尾斜線形：provider 填 https://gitlab.example/、IdP 回無斜線 → 登入成功、resolved_issuer 寫成無斜線、身分存 IdP 的值", async () => {
     const t = await buildOidcApp({ providers: [{ key: "g", issuerUrl: "https://gitlab.example/", idpIssuer: "https://gitlab.example" }] });
     const r = await ssoRoundTrip(t.app, t.idp("g"), { loginUrl: `/api/auth/oidc/login/${t.provider("g").id}`, claims: { sub: "sg", email: "g@x.example" } });
     expect(r.callbackRes.headers.location).toBe("/");
@@ -234,7 +234,7 @@ describe("多 provider 的 login／callback（#187 §7.1–§7.4）", () => {
     expect(i!.issuer).toBe("https://gitlab.example");
   });
 
-  it("§14.1-15／16：舊回呼網址的 legacy provider，接上 0014 搬過來的身分與補登的身分 → 同帳號登入", async () => {
+  it("舊回呼網址的 legacy provider，接上 0014 搬過來的身分與補登的身分 → 同帳號登入", async () => {
     const idp = createFakeIdp(A);
     const { app, db } = await buildTestApp({ oidcRegistry: createOidcRuntimeRegistry({ fetch: idp.fetch }) });
     const [u] = await db.insert(users).values({ email: "legacy@x.example", displayName: "Legacy" }).returning();
@@ -254,7 +254,7 @@ describe("多 provider 的 login／callback（#187 §7.1–§7.4）", () => {
     expect(p!.r).toBe(A);
   });
 
-  it("§14.1-1 B3：email_verified 為 false、為字串 'true'、或缺 → 結果與 true 相同（照常建帳）", async () => {
+  it("email_verified 為 false、為字串 'true'、或缺 → 結果與 true 相同（照常建帳）", async () => {
     const t = await buildOidcApp({ providers: [{ key: "a", issuerUrl: A }] });
     const id = t.provider("a").id;
     const variants: Array<Record<string, unknown>> = [{ email_verified: false }, { email_verified: "true" }, {}];

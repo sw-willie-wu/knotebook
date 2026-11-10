@@ -1,9 +1,9 @@
 /**
- * 欄內圖片的縮放把手（spec 2026-10-21 columns-layout §7.3 的 PR-1 部分、§17 #2）。
+ * 欄內圖片的縮放把手。
  *
  * 原生把手（core `createResizableFileBlockWrapper`）不知道欄：上限是編輯器寬。欄內的把手改由這裡接手——在編輯器 DOM 上以
  * capture 攔下 `mousedown`／`touchstart` 並停止傳播，原生掛在把手元素上的 handler 就收不到。拖曳公式照原生（置中時位移乘 2），
- * 寬度夾在 [64, 欄內容寬]：PR-1 不擴欄。只按一下不寫入；放開才寫一次 `previewWidth`，自成一個撤銷步（§7.4「一次調寬」）。
+ * 寬度夾在 [64, 欄內容寬]：不擴欄。只按一下不寫入；放開才寫一次 `previewWidth`，自成一個撤銷步（一次調寬）。
  * 不在欄內、或唯讀時不攔，原生照舊。
  */
 import { COLUMN_TYPE } from "@knotebook/shared";

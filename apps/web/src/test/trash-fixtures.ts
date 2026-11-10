@@ -5,7 +5,7 @@ import { DAY_MS } from "@/lib/trash-display";
 export const TRASH_ME = { handle: "tester", displayName: "Tester" };
 
 /**
- * 垃圾桶項目（#181 PR-2b）。purgeAt／deletedAt 以呼叫當下的 Date.now() 推算（不用假時鐘：react-query 的 waitFor 與假時鐘相衝）。
+ * 垃圾桶項目（#181）。purgeAt／deletedAt 以呼叫當下的 Date.now() 推算（不用假時鐘：react-query 的 waitFor 與假時鐘相衝）。
  * `daysLeft` 預設 3（整數：顯示時的 now 稍晚，3 天 − ε 取 ceil 恆為 3）；`null` → `purgeAt: null`。`deletedBy` 預設 `TRASH_ME`、`group` 預設 null。
  */
 export function trashItem(

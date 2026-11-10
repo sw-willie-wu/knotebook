@@ -12,7 +12,7 @@ import { folderDto } from "@/test/folder-fixtures";
 import { personalNote } from "@/test/select-fixtures";
 import { placeNoteWithUndo } from "./note-place";
 
-// ⋮ 同空間移動＋復原（資料夾 spec §6.11.2「選定後」）。真的 QueryClient、假 fetch 只收 PUT /api/notes/n1/folder。
+// ⋮ 同空間移動＋復原。真的 QueryClient、假 fetch 只收 PUT /api/notes/n1/folder。
 
 function fakeResponse(status: number, body: unknown): Response {
   return { ok: status < 400, status, json: () => Promise.resolve(body) } as unknown as Response;
@@ -182,7 +182,7 @@ describe("placeNoteWithUndo", () => {
   });
 });
 
-// 拖曳的放置（spec §6.13）：optimistic 時 PUT 前先改 ["notes"]，失敗回滾；⋮ 不帶 optimistic，行為不變。
+// 拖曳的放置：optimistic 時 PUT 前先改 ["notes"]，失敗回滾；⋮ 不帶 optimistic，行為不變。
 describe("placeNoteWithUndo optimistic", () => {
   const CACHED: NoteDto[] = [personalNote({ id: "n1", title: "Note", folderId: null }), personalNote({ id: "n2", title: "Other", folderId: "B" })];
 

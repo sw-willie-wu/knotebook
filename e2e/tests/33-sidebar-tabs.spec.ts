@@ -2,8 +2,8 @@ import { expect, test } from "@playwright/test";
 import { ADMIN, createNote, loginAs, reEscape, showSidebarTab } from "./helpers.js";
 
 /**
- * 側欄 tab（PR-1；#181 PR-2b 加第五顆「Trash」）：五顆 tab 的 DOM／預設 tab、選擇重整後保留（A1-1）、方向鍵與 Home／End（A1-5）、
- * 搜尋視圖與 Esc／清除鈕（A1-4）、390 寬抽屜的 tab 觸控高度與不橫捲（A1-6）。
+ * 側欄 tab（#181 加第五顆「Trash」）：五顆 tab 的 DOM／預設 tab、選擇重整後保留、方向鍵與 Home／End、
+ * 搜尋視圖與 Esc／清除鈕、390 寬抽屜的 tab 觸控高度與不橫捲。
  * 本檔不斷言點搜尋結果後字串保留（AppShell 會重掛、搜尋字串本來就掉），所以搜尋段一律在筆記頁上做。
  */
 const RUN = Date.now();
@@ -28,14 +28,14 @@ test("sidebar tabs: roles, persistence, keyboard, search view, narrow drawer", a
   await expect(tablist.getByRole("tab", { name: "My notes", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(sidebar.getByRole("tabpanel").getByRole("link", { name: new RegExp("^" + reEscape(title)) })).toBeVisible();
 
-  // ── A1-1：選擇重整後仍在 ──────────────────────────────────────────────────
+  // ── 選擇重整後仍在 ──────────────────────────────────────────────────
   await showSidebarTab(page, "Groups");
   await page.reload();
   // 等 lazy NotePage 掛上：fallback 自帶的 AppShell 會被換掉（drawerOpen 跟著重設；搜尋字串 #369 起住在 App 層、不重設）。
   await expect(page.getByRole("textbox", { name: "Note title" })).toBeVisible();
   await expect(tablist.getByRole("tab", { name: "Groups", exact: true })).toHaveAttribute("aria-selected", "true");
 
-  // ── A1-5：方向鍵（循環、同時切換並移焦點）與 Home ─────────────────────────
+  // ── 方向鍵（循環、同時切換並移焦點）與 Home ─────────────────────────
   const workspaceTab = tablist.getByRole("tab", { name: "Groups", exact: true });
   const sharedTab = tablist.getByRole("tab", { name: "Shared with me", exact: true });
   const recentTab = tablist.getByRole("tab", { name: "Recent", exact: true });
@@ -57,7 +57,7 @@ test("sidebar tabs: roles, persistence, keyboard, search view, narrow drawer", a
   await expect(trashTab).toBeFocused();
   await showSidebarTab(page, "Groups");
 
-  // ── A1-4：搜尋視圖 ────────────────────────────────────────────────────────
+  // ── 搜尋視圖 ────────────────────────────────────────────────────────
   const search = sidebar.getByRole("textbox", { name: "Search notes" });
   await search.fill(String(RUN));
   await expect(tablist).toHaveCount(0);
@@ -85,7 +85,7 @@ test("sidebar tabs: roles, persistence, keyboard, search view, narrow drawer", a
   await search.fill("");
   await expect(tablist).toBeVisible();
 
-  // ── A1-6：390 寬抽屜 ─────────────────────────────────────────────────────
+  // ── 390 寬抽屜 ─────────────────────────────────────────────────────
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(noteUrl);
   // 等 lazy NotePage 掛上：fallback 自帶的 AppShell 會被換掉（drawerOpen 跟著重設；搜尋字串 #369 起住在 App 層、不重設）。
@@ -108,7 +108,7 @@ test("sidebar tabs: roles, persistence, keyboard, search view, narrow drawer", a
   await expect(drawer.getByRole("tab", { name: "My notes", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(drawerPanel.getByRole("link", { name: new RegExp("^" + reEscape(title)) })).toBeVisible();
   await expect(drawerPanel.getByRole("link", { name: new RegExp("^" + reEscape(longTitle)) })).toBeVisible();
-  // fixed 的抽屜溢出量不到 documentElement.scrollWidth，直接量清單內容。資料夾 PR-3b 起清單內層包層是 `overflow-x-clip`（安全網），
+  // fixed 的抽屜溢出量不到 documentElement.scrollWidth，直接量清單內容。資料夾功能加入後清單內層包層是 `overflow-x-clip`（安全網），
   // 清單本身恆不溢出；改量包層（`[data-sidebar-list] > div`）的內容寬度。
   const list = drawerPanel.locator("[data-sidebar-list] > div");
   expect(await list.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);

@@ -11,7 +11,7 @@ const h = (id: string, level: number, children: SlideBlock[] = [], extra: Record
 });
 const d = (id: string): SlideBlock => ({ id, type: "divider", props: {}, children: [] });
 
-/** `章:[張(該張除標題外的 block id…), …]`，章與章以兩個空白分隔——與 spec §4.3 表同形（封面章一律列出，Q4）。 */
+/** `章:[張(該張除標題外的 block id…), …]`，章與章以兩個空白分隔——封面章一律列出。 */
 function show(sections: Section[]): string {
   return sections
     .map((s) => `${s.id}:[${s.slides
@@ -23,7 +23,7 @@ function show(sections: Section[]): string {
     .join("  ");
 }
 
-describe("noteToSlides：spec §4.3 表（封面章一律保留，§4.2-5／-7）", () => {
+describe("noteToSlides：表（封面章一律保留）", () => {
   it.each<[string, SlideBlock[], string]>([
     ["段落 a；H2 x；段落 b；H3 y；H4 z；段落 c", [p("a"), h("x", 2), p("b"), h("y", 3), h("z", 4), p("c")], "_title:[_title(a)]  x:[x(b), y(z,c)]"],
     ["H1 x；H2 y；H3 z", [h("x", 1), h("y", 2), h("z", 3)], "_title:[_title]  x:[x, y(z)]"],
@@ -38,7 +38,7 @@ describe("noteToSlides：spec §4.3 表（封面章一律保留，§4.2-5／-7�
     expect(show(noteToSlides("T", blocks))).toBe(expected);
   });
 
-  it("toggle 標題的子 block 跟父 block 走（只看頂層，§4.2-1）：子 block 在 blocks[0].children、不在該張的 blocks 裡", () => {
+  it("toggle 標題的子 block 跟父 block 走（只看頂層）：子 block 在 blocks[0].children、不在該張的 blocks 裡", () => {
     const sections = noteToSlides("T", [h("x", 1, [p("c1")], { isToggleable: true })]);
     const slide = sections[1].slides[0];
     expect(slide.blocks.map((b) => b.id)).toEqual(["x"]);
@@ -61,7 +61,7 @@ describe("noteToSlides：spec §4.3 表（封面章一律保留，§4.2-5／-7�
     expect(show(noteToSlides("T", [blank("b1"), p("b2", "")]))).toBe("_title:[_title(b1,b2)]");
   });
 
-  it("空標題字串不影響切頁（標題由渲染層補，§4.2-3）", () => {
+  it("空標題字串不影響切頁（標題由渲染層補）", () => {
     expect(show(noteToSlides("", [h("x", 2)]))).toBe("_title:[_title]  x:[x]");
   });
 
@@ -87,7 +87,7 @@ describe("noteToSlides：spec §4.3 表（封面章一律保留，§4.2-5／-7�
     expect(show(noteToSlides("T", [d("d"), withLink]))).toBe("_title:[_title]  d:[d(l)]");
   });
 
-  it("PSL1：列的欄內有標題 → 不為它切頁（只看頂層；columns-layout spec §11.8）", () => {
+  it("列的欄內有標題 → 不為它切頁（只看頂層）", () => {
     const col = (id: string, children: SlideBlock[]): SlideBlock => ({ id, type: "column", props: { width: 1 }, children });
     const row: SlideBlock = { id: "r", type: "columnList", props: {}, children: [col("rc0", [h("in", 1), p("a")]), col("rc1", [p("b")])] };
     expect(show(noteToSlides("T", [h("A", 1), row]))).toBe("_title:[_title]  A:[A(r)]");

@@ -1,32 +1,32 @@
 /**
- * 筆記版本歷史（spec 2026-10-09-note-versions-design.md §4、§6）。server 與 web 共用的常數、DTO 與名稱正規化。
+ * 筆記版本歷史。server 與 web 共用的常數、DTO 與名稱正規化。
  * 「基底」＝目前內容是從哪一版接著改（`notes.version_base_seq`）；null＝沒有基底（還沒存過、或套用後基底寫不回去）。
  */
-/** §6.3：版本名稱上限（code point）。 */
+/** 版本名稱上限（code point）。 */
 export const VERSION_NAME_MAX = 120;
-/** §6.1：清單分頁。 */
+/** 清單分頁。 */
 export const VERSION_LIST_LIMIT_DEFAULT = 50;
 export const VERSION_LIST_LIMIT_MAX = 100;
-/** A11：站台清除設定 1 ≤ 全部保留天數 ≤ 每日一版天數 ≤ 3650（DB CHECK `site_settings_version_days_chk` 同值）。 */
+/** 站台清除設定 1 ≤ 全部保留天數 ≤ 每日一版天數 ≤ 3650（DB CHECK `site_settings_version_days_chk` 同值）。 */
 export const VERSION_DAYS_MAX = 3650;
 export const VERSION_KEEP_ALL_DAYS_DEFAULT = 7;
 export const VERSION_DAILY_UNTIL_DAYS_DEFAULT = 30;
-/** #272 §7.1（D4）：自動存版等待 X——最後一次內容變動後這麼多分鐘沒有新的變動才自動存一版。站台設定（DB CHECK `site_settings_version_auto_wait_chk` 同範圍）。 */
+/** #272：自動存版等待 X——最後一次內容變動後這麼多分鐘沒有新的變動才自動存一版。站台設定（DB CHECK `site_settings_version_auto_wait_chk` 同範圍）。 */
 export const VERSION_AUTO_WAIT_MINUTES_DEFAULT = 5;
 export const VERSION_AUTO_WAIT_MINUTES_MIN = 1;
 export const VERSION_AUTO_WAIT_MINUTES_MAX = 60;
 
 export type VersionKind = "auto" | "manual";
 
-/** 每版一份編輯者名單（D2）；`handle` 是現值（刪除的使用者為 `""`），`agentLabel` 是切版當下的快照（AI 寫入才有）。 */
+/** 每版一份編輯者名單；`handle` 是現值（刪除的使用者為 `""`），`agentLabel` 是切版當下的快照（AI 寫入才有）。 */
 export interface VersionEditorDto {
   handle: string;
   agentLabel: string | null;
 }
 
 /**
- * #272 §9（D7、D12）：基底參照。`id`＝基底那一版的 uuid（升級前就已刪除的舊資料為 null）；`deleted`＝該列已不存在；
- * `name` 只在未刪時有（已刪不保留，D12）。
+ * #272：基底參照。`id`＝基底那一版的 uuid（升級前就已刪除的舊資料為 null）；`deleted`＝該列已不存在；
+ * `name` 只在未刪時有（已刪不保留）。
  */
 export interface VersionBaseRefDto {
   id: string | null;
@@ -34,7 +34,7 @@ export interface VersionBaseRefDto {
   deleted: boolean;
 }
 
-/** §6.1 清單的一列。`baseSeq`＝「沿自」的那一版（只在基底不是當時最新版時有值）；`base`＝它的參照（`baseSeq` 為 null 時為 null，#272）。 */
+/** 清單的一列。`baseSeq`＝「沿自」的那一版（只在基底不是當時最新版時有值）；`base`＝它的參照（`baseSeq` 為 null 時為 null，#272）。 */
 export interface VersionDto {
   id: string;
   seq: number;
@@ -46,7 +46,7 @@ export interface VersionDto {
   createdAt: string;
 }
 
-/** §6.1／§6.4：目前內容與版本的關係。`autoEnabled`＝A13 生效值（站台且空間）。`base`＝`baseSeq` 那一版的參照（#272）；`nextSeq` 保留，web 不再顯示（D5）。 */
+/** 目前內容與版本的關係。`autoEnabled`＝生效值（站台且空間）。`base`＝`baseSeq` 那一版的參照（#272）；`nextSeq` 保留，web 不再顯示。 */
 export interface VersionCurrentDto {
   baseSeq: number | null;
   base: VersionBaseRefDto | null;
@@ -62,17 +62,17 @@ export interface VersionListDto {
   nextBefore: number | null;
 }
 
-/** `GET /api/notes/:id/versions/:seq`：只回快照；名稱等一律從清單取（§6.2）。`ydoc` 是 base64 的 `encodeStateAsUpdate`。 */
+/** `GET /api/notes/:id/versions/:seq`：只回快照；名稱等一律從清單取。`ydoc` 是 base64 的 `encodeStateAsUpdate`。 */
 export interface VersionSnapshotDto {
   id: string;
   seq: number;
   ydoc: string;
 }
 
-/** `POST /api/notes/:id/versions`。`upgraded: true`＝內容與基底相同，沒有建新列，基底那版轉為手動並套名稱（A4）。 */
+/** `POST /api/notes/:id/versions`。`upgraded: true`＝內容與基底相同，沒有建新列，基底那版轉為手動並套名稱。 */
 export type SavedVersionDto = VersionDto & { upgraded: boolean };
 
-/** `POST /api/notes/:id/versions/:seq/apply` 的 body（§6.4，兩欄必填；`versionId` 是清單列的 `id`）。 */
+/** `POST /api/notes/:id/versions/:seq/apply` 的 body（兩欄必填；`versionId` 是清單列的 `id`）。 */
 export interface ApplyVersionBody {
   versionId: string;
   discardUnsaved: boolean;
@@ -83,19 +83,19 @@ export interface ApplyVersionResultDto {
   current: VersionCurrentDto;
 }
 
-/** `GET/PATCH /api/admin/versions/settings`（§6.7）。 */
+/** `GET/PATCH /api/admin/versions/settings`。 */
 export interface VersionSettingsDto {
   keepAllDays: number;
   dailyUntilDays: number;
   autoVersionsEnabled: boolean;
-  /** #272 §8（D4）：自動存版等待 X（整數分鐘 1–60）——最後一次內容變動後這麼久沒有新的變動，就自動存一版。 */
+  /** #272：自動存版等待 X（整數分鐘 1–60）——最後一次內容變動後這麼久沒有新的變動，就自動存一版。 */
   autoWaitMinutes: number;
 }
 
 const UNSTORABLE = /\u0000|\p{Surrogate}/u;
 
 /**
- * §6.3／§6.5：版本名稱正規化。去頭尾空白（`String.prototype.trim`，含全形空白）；空字串＝NULL；上限以 **code point** 計；
+ * 版本名稱正規化。去頭尾空白（`String.prototype.trim`，含全形空白）；空字串＝NULL；上限以 **code point** 計；
  * NUL 與落單代理拒絕（PostgreSQL text 存不下 → 22021，必須在進 SQL 前擋）。web 先驗、server 為準。
  */
 export function normalizeVersionName(raw: string | null): { ok: true; name: string | null } | { ok: false } {

@@ -1,5 +1,5 @@
 /**
- * 資料夾 PR-3a T5：`GET`／`POST /api/folders`（spec §5.7.1、§5.5 入口順序、§5.6、§5.3 深度與數量、§5.11）。
+ * 資料夾：`GET`／`POST /api/folders`（入口順序、深度與數量）。
  * 控制字元與組合字元一律以 `String.fromCharCode` 組字（原始碼不放跳脫序列）。
  */
 import { describe, expect, it, vi } from "vitest";

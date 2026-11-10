@@ -111,7 +111,7 @@ describe("MermaidView — 渲染態", () => {
     await waitFor(() => expect(screen.getByTestId("new")).toBeInTheDocument());
 
     // ⚠ 不可用 `waitFor(new)`：它第一次檢查就成立、立刻返回，舊結果的 setState 還沒 flush 就斷言，
-    // 拿掉閘門也只有約一半機率紅（審查 r2 實測）。在 act 裡 resolve、再讓 microtask／macrotask 跑完才斷言。
+    // 拿掉閘門也只有約一半機率紅。在 act 裡 resolve、再讓 microtask／macrotask 跑完才斷言。
     await act(async () => {
       resolveSlow({ ok: true, svg: "<svg data-testid='stale'></svg>" });
     });
@@ -453,9 +453,9 @@ describe("MermaidView — 工具列", () => {
   });
 });
 
-// ── 樣式載重的結構守衛（審查 I-5）──────────────────────────────────────────────
+// ── 樣式載重的結構守衛──────────────────────────────────────────────
 //
-// 這兩件事 `MermaidView.tsx` 的註解都寫明是實測換來的，但突變實測（2026-08-28 審查）
+// 這兩件事 `MermaidView.tsx` 的註解都寫明是實測換來的，但突變實測
 // 顯示兩者被改掉時測試全綠。jsdom 沒有 layout／Tab 順序，只能用 class 字串做結構守衛
 // ——同 `theme.scrollbar-guard.test.ts`／`theme.block-selection-guard.test.ts` 的既有手法。
 

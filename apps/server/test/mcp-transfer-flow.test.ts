@@ -1,5 +1,5 @@
 /**
- * #200 spec §9.3 M2a（確定性並發）、M4（log 不含明文）、§9.2 T1 後半（工具給的 curl 形真的能用＋寫回 edit_note 讀得回來）、
+ * #200（確定性並發）、M4（log 不含明文）、T1 後半（工具給的 curl 形真的能用＋寫回 edit_note 讀得回來）、
  * M2 的「not_found 與 read_note_outline 逐位元組相同」（後者要 collab app）。
  */
 import { randomUUID } from "node:crypto";
@@ -19,7 +19,7 @@ type Payload = { token: string; url: string; curl: string; method: string; noteI
 const callTool = (app: Parameters<typeof mcpPost>[0], token: string, name: string, args: Record<string, unknown>) =>
   mcpPost(app, rpc("tools/call", { name, arguments: args }), { token }).then(r => r.json().result as { isError?: true; structuredContent: Record<string, unknown>; content: Array<{ text: string }> });
 
-describe("M2a：同一母憑證並發簽發——① 的 FOR NO KEY UPDATE 序列化計數（spec §4.2、§9.3）", () => {
+describe("M2a：同一母憑證並發簽發——① 的 FOR NO KEY UPDATE 序列化計數", () => {
   it("已有 4 支未消費：第一發停在 afterCount（讀到 4），第二發卡在 ①（blocked）；放行後恰 5 支、第二發 too_many_requests", async () => {
     const seam: IssueTransferTokenSeam = {};
     const { app, db } = await buildTestApp({ mcpTestHooks: { issueTransferToken: seam } });
@@ -70,13 +70,13 @@ describe("M2a：同一母憑證並發簽發——① 的 FOR NO KEY UPDATE 序�
   }, 120_000);
 });
 
-describe("M4：transfer token 明文從頭到尾不進 log（spec §6.4 末段）", () => {
+describe("M4：transfer token 明文從頭到尾不進 log", () => {
   it("簽發 → 上傳 201 → 重用 401 → 下載 → 錯用途 403 → 一次 runTool 例外：整份 log 不含明文、不含 knbt_", async () => {
     const chunks: string[] = [];
     let explode = false;
     // level 用 debug（比生產的 info 多開一級，涵蓋本專案所有 log 呼叫）。⚠ 不是 trace：@fastify/multipart 在 trace 級
     // 會印 `{ busboyOptions: { headers } }`（含 Authorization 原文，cookie 上傳時同理含 session cookie）——第三方程式庫
-    // 的既有行為、生產的 logger（`buildApp` 預設 `true`＝info，無 LOG_LEVEL 設定）印不出來；實測紀錄見 Task 7 回報。
+    // 的既有行為、生產的 logger（`buildApp` 預設 `true`＝info，無 LOG_LEVEL 設定）印不出來。
     const { app, db } = await buildTestApp(
       { mcpTestHooks: { beforeTool: name => { if (explode && name === "create_transfer_token") throw new Error("boom"); } } },
       { logger: { level: "debug", stream: { write: (s: string) => void chunks.push(s) } } },

@@ -1,5 +1,5 @@
 /**
- * 資料夾 PR-3d（plan docs/superpowers/plans/2026-10-28-folders-pr3d.md H7）：MCP 資料夾測試共用的呼叫工具。
+ * 資料夾：MCP 資料夾測試共用的呼叫工具。
  * `callTool` 打 `/api/mcp` 的 tools/call；`restFolder` 以同一人 cookie 打 REST（比對錯誤形用）；`expectSameNotFound` 逐欄比兩個錯誤結果。
  */
 import { expect } from "vitest";
@@ -34,7 +34,7 @@ export function restFolder(
   return inject(app, method, url, userId, body);
 }
 
-/** 兩個工具錯誤結果逐欄相同（看不到＝不存在，AG-F3）：isError、structuredContent、鏡像 text 都相同，且碼是 not_found。 */
+/** 兩個工具錯誤結果逐欄相同（看不到＝不存在）：isError、structuredContent、鏡像 text 都相同，且碼是 not_found。 */
 export function expectSameNotFound(a: ToolCallResult, b: ToolCallResult): void {
   expect(a.isError).toBe(true);
   expect(a.structuredContent?.code).toBe("not_found");

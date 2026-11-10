@@ -2,11 +2,11 @@ import { test, expect } from "@playwright/test";
 import { ADMIN, createNote, editorLocator, loginAs } from "./helpers.js";
 
 /**
- * §14.5 流程 2：兩個獨立 `browser.newContext()`（各自獨立 cookie jar，模擬兩台
+ * 兩個獨立 `browser.newContext()`（各自獨立 cookie jar，模擬兩台
  * 裝置）同開同一篇筆記，斷言雙向即時同步。用同一個 admin 帳號登入兩個 context
- * 即可驗證——這一階段還不需要分享/第二使用者（那是 §14.5 流程 3 的範圍）。
+ * 即可驗證——這一階段還不需要分享/第二使用者（那是之後多人流程的範圍）。
  *
- * `ADMIN.password`：疊內唯一的 admin 密碼（#187 PR4 起 env 管理員首登不強改密碼，
+ * `ADMIN.password`：疊內唯一的 admin 密碼（#187 起 env 管理員首登不強改密碼，
  * 沒有檔序耦合）。
  */
 test("雙 browser context 即時共編：雙向文字同步", async ({ browser }) => {
@@ -41,7 +41,7 @@ test("雙 browser context 即時共編：雙向文字同步", async ({ browser }
     await expect(editorA).toContainText("Hello from A and B", { timeout: 10_000 });
   } finally {
     // try/finally：斷言失敗時仍要釋放兩個 context（否則失敗案例會在同一個 worker
-    // 累積殘留 browser context，拖累後續 spec 的資源——T12 審查遞延項）。
+    // 累積殘留 browser context，拖累後續 spec 的資源——已知遞延項）。
     await contextA.close();
     await contextB.close();
   }

@@ -11,7 +11,7 @@ import {
 // 兩種錯誤形狀（node-postgres 原生、drizzle 0.44 的 DrizzleQueryError 把原錯誤放 `.cause`）都要認得。
 const wrap = (e: object) => new Error("Failed query", { cause: e });
 
-describe("pg-errors 的配額相關判別（spec §6.9、§7.1、§4.2）", () => {
+describe("pg-errors 的配額相關判別", () => {
   it("isLockTimeout 只認 55P03；isRetryableTxError 認 40001／40P01／55P03", () => {
     expect(isLockTimeout({ code: "55P03" })).toBe(true);
     expect(isLockTimeout(wrap({ code: "55P03" }))).toBe(true);
@@ -38,7 +38,7 @@ describe("pg-errors 的配額相關判別（spec §6.9、§7.1、§4.2）", () =
   });
 });
 
-describe("pg-errors 的資料夾 trigger 判別（spec 2026-10-22 §5.1）", () => {
+describe("pg-errors 的資料夾 trigger 判別", () => {
   it("isNoteFolderSpaceViolation 認 KF001（原生形與 drizzle 形）", () => {
     expect(isNoteFolderSpaceViolation({ code: "KF001" })).toBe(true);
     expect(isNoteFolderSpaceViolation(Object.assign(new Error(), { cause: { code: "KF001" } }))).toBe(true);

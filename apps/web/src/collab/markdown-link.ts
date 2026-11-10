@@ -3,8 +3,7 @@
  * 白名單**，整段文字交給剖析器，只認「最後一個 inline content 是 link 且其還原等於文字
  * 尾段」這一種結果——`![a](url)`、`\[a](url)` 這類前綴因此由剖析器自己排除，不必黑名單。
  *
- * 判準的來由、已知例外、以及「為什麼不收窄 scheme」全在
- * `docs/superpowers/specs/2026-09-15-99-markdown-link-input-rule-design.md`。
+ * 判準的來由、已知例外、以及「為什麼不收窄 scheme」見 #99。
  */
 import { Extension, InputRule } from "@tiptap/core";
 import { SuggestionMenu } from "@blocknote/core";
@@ -54,7 +53,7 @@ export function resolveTrailingMarkdownLink(editor: AnyEditor, textBefore: strin
   if (typeof href !== "string" || href === "") return null;
 
   // 還原比對。組法必須與剖析的切法對稱——不對稱的那一整族（title、角括號網址、
-  // 網址前後空白…）一律不觸發，這是刻意的，清單見 spec §9.2。
+  // 網址前後空白…）一律不觸發，這是刻意的，清單見 `markdown-link.oracle.test.ts`。
   const recon = `[${only.text}](${href})`;
   if (!textBefore.endsWith(recon)) return null;
 
@@ -84,11 +83,11 @@ export function createMarkdownLinkExtension({ editorRef, siteLinks }: { editorRe
             // **任何建議選單開著時都不觸發**（`shown()` 是跨 trigger 共用的，不只 `[[`）。
             // 與這個 repo 既有的優先序一致：`[[` 偵測掛在 editorProps 層、本來就比
             // plugin 早跑。代價是選單開著打不出連結，按 Esc 關掉即可——已列為已知限制。
-            // ⚠ 若改成比對 `triggerCharacter`，這三行註解與 Step 9d-2 的測試名要一併改回 `[[` 專屬。
-            // ⚠ 【驗 plan-gate】`shown()` 是**跨 trigger 共用**的（開 `/` 選單時它也是 true）。
+            // ⚠ 若改成比對 `triggerCharacter`，這三行註解與對應的測試名要一併改回 `[[` 專屬。
+            // ⚠ `shown()` 是**跨 trigger 共用**的（開 `/` 選單時它也是 true）。
             // 要只擋 `[[` 就改成比對 `menu.store.state?.triggerCharacter === "[["`
             // （⚠ `triggerCharacter` **不在 extension 本體上**，repo 內先例：`NoteEditor.test.ts:375`、`:435`）；沒改的話已知限制要寫成
-            // 「任何建議選單開著時」而不是「`[[` 選單開著時」（Task 4 Step 3）。
+            // 「任何建議選單開著時」而不是「`[[` 選單開著時」。
             if (editor.getExtension(SuggestionMenu)?.shown?.()) return null;
 
             const scanned = text.length > MAX_LINK_SCAN ? text.slice(-MAX_LINK_SCAN) : text;
@@ -135,7 +134,7 @@ export function createMarkdownLinkExtension({ editorRef, siteLinks }: { editorRe
             });
             if (hasMark) return null;
 
-            // #269 §8.2（守衛之後才進來）：站內網址且快取命中 ⇒ 直接插 wikilink；否則照舊插一般連結，是站內網址就排後備。
+            // #269（守衛之後才進來）：站內網址且快取命中 ⇒ 直接插 wikilink；否則照舊插一般連結，是站內網址就排後備。
             const env = siteLinks?.current ?? null;
             const parsed = env ? parseSiteNoteHref(href, env.origin) : null;
             if (env && parsed) {

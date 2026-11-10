@@ -1,5 +1,5 @@
 /**
- * 資料夾 PR-3d T1（plan docs/superpowers/plans/2026-10-28-folders-pr3d.md）：共用骨架的純函式與常數。
+ * 資料夾：共用骨架的純函式與常數。
  * FF＝資料夾名稱與路徑的截法、WB＝wire 預算、KC＝keyset 游標、FM＝`FolderFailure` → MCP 錯誤的對照表與英文句。
  * 查詢（`loadFolderNames`／`loadFolderPath`）由 T2／T5 的整合測試守。
  */
@@ -142,7 +142,7 @@ describe("FF2 路徑截法（truncateFolderPath／folderPathCost）", () => {
   });
 });
 
-describe("WB1 countWithinWireBudget／wireCost", () => {
+describe("countWithinWireBudget／wireCost", () => {
   it("costs 為空回 0", () => {
     expect(countWithinWireBudget([], 0)).toBe(0);
   });
@@ -219,7 +219,7 @@ describe("KC1 keyset 游標", () => {
   });
 });
 
-describe("KC2 parseCursorTimestamp（T4 審查 N1）", () => {
+describe("KC2 parseCursorTimestamp", () => {
   it("本站發的 toISOString 形 → Date；超範圍年份、年 0、寬鬆格式、溢位日期、非日期、接 NUL → null", () => {
     const ok = "2026-10-28T01:02:03.456Z";
     expect(parseCursorTimestamp(ok)!.toISOString()).toBe(ok);
@@ -238,7 +238,7 @@ describe("KC2 parseCursorTimestamp（T4 審查 N1）", () => {
   });
 });
 
-describe("BC1 清單預算的固定部分（T4 審查 M2）", () => {
+describe("清單預算的固定部分", () => {
   // 拿掉佔位游標或 PAGE_CUT_RESERVE，回應就可能超出預算一點點（每項 +2 的上界吃掉大部分，殺不到）——這裡直接釘組成。
   it("LIST_BASE_COST＝空頁＋82 字元游標＋保留；不小於帶 pageCutShort 的最大空頁成本", () => {
     const realCursorLen = Buffer.from(`2026-10-28T01:02:03.456Z|${ID}`, "utf8").toString("base64url").length;
@@ -259,7 +259,7 @@ describe("FM 英文句與 FolderFailure 對照表", () => {
   const TOOLS: FolderTool[] = ["create_folder", "rename_folder", "move_folder", "move_note_to_folder", "delete_folder"];
   const map = (tool: FolderTool, code: ErrorCode) => folderFailureToToolError(tool, { code }).structuredContent;
 
-  it("字面（plan「待確認字串」逐字）", () => {
+  it("字面逐字", () => {
     expect(FOLDER_NOT_FOUND_MESSAGE).toBe(
       "No folder with that id that you can use here. For example, it may not exist, may have been deleted, or may be someone else's or in a group whose notes your role can't read; list_folders shows the folders you can see.",
     );
@@ -314,13 +314,13 @@ describe("FM 英文句與 FolderFailure 對照表", () => {
     expect(CREATE_BUSY_MESSAGE).toBe("The server was busy, so no note was created. Try again in a moment.");
   });
 
-  it("名稱三因 → FM4／FM5／FM6", () => {
+  it("名稱三因 → `FOLDER_NAME_UNSTORABLE_MESSAGE`／`FOLDER_NAME_CONTROL_MESSAGE`／`FOLDER_NAME_LENGTH_MESSAGE`", () => {
     expect(folderNameErrorMessage("unstorable")).toBe(FOLDER_NAME_UNSTORABLE_MESSAGE);
     expect(folderNameErrorMessage("control")).toBe(FOLDER_NAME_CONTROL_MESSAGE);
     expect(folderNameErrorMessage("length")).toBe(FOLDER_NAME_LENGTH_MESSAGE);
   });
 
-  it("folder_not_found → not_found＋FM1，五支工具逐字相同", () => {
+  it("folder_not_found → not_found，五支工具逐字相同", () => {
     const results = TOOLS.map(t => map(t, "folder_not_found"));
     for (const r of results) expect(r).toEqual({ code: "not_found", message: FOLDER_NOT_FOUND_MESSAGE });
   });
@@ -340,14 +340,14 @@ describe("FM 英文句與 FolderFailure 對照表", () => {
     }
   });
 
-  it("forbidden：move_note_to_folder＝FM12，其餘＝FM3", () => {
+  it("forbidden：move_note_to_folder 用 `NOTE_FILE_FORBIDDEN_MESSAGE`，其餘用 `FOLDER_MANAGE_FORBIDDEN_MESSAGE`", () => {
     expect(map("move_note_to_folder", "forbidden")).toEqual({ code: "forbidden", message: NOTE_FILE_FORBIDDEN_MESSAGE });
     for (const tool of TOOLS.filter(t => t !== "move_note_to_folder")) {
       expect(map(tool, "forbidden")).toEqual({ code: "forbidden", message: FOLDER_MANAGE_FORBIDDEN_MESSAGE });
     }
   });
 
-  it("folder_cross_space：move_folder＝FM17、move_note_to_folder＝FM16，其他三支 throw", () => {
+  it("folder_cross_space：move_folder 用 `FOLDER_MOVE_CROSS_SPACE_MESSAGE`、move_note_to_folder 用 `NOTE_FOLDER_CROSS_SPACE_MESSAGE`，其他三支 throw", () => {
     expect(map("move_folder", "folder_cross_space")).toEqual({ code: "invalid_body", message: FOLDER_MOVE_CROSS_SPACE_MESSAGE });
     expect(map("move_note_to_folder", "folder_cross_space")).toEqual({ code: "invalid_body", message: NOTE_FOLDER_CROSS_SPACE_MESSAGE });
     for (const tool of ["create_folder", "rename_folder", "delete_folder"] as const) {

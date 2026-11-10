@@ -1,16 +1,16 @@
 /**
- * bulk transfer spec 2026-11-02 §9.5 第 1–4 步：規劃（plan PR-2 T6）。**零 DB**；scratch session 只在寫進預解析 block 時開，
+ * bulk transfer：規劃。**零 DB**；scratch session 只在寫進預解析 block 時開，
  * 與之後的 fork mount（`sync-apply.ts`）是**先後、不巢狀**（`runtime.acquire()` 不可重入）。
  *
  * 流程：① 無條件讓出一次 ② `findRegions`（未閉合 fence 的整檔判斷也經 `runtime.parser`），邊界回呼＝`runtime.parser` 解析（#398：parse worker；`makeBoundaryCheck`：去 id、忽略 start、取
  * parse(k) 顆數、parse 失敗 → false）③ `anchors`／`placeFor`（要 `cur.types` 判插入點前一顆是不是 numbered）④ 每個非刪除區
- * 解析（同上）：失敗 → 整篇 400（含「拿掉閉合註解後還有字、但 parse 成 `empty_content`」，§9.3-6）；有
- * `exportedLinkText` 時 parse 出的 wikilink 過一次 `keepLabelFree`（F1：文字仍是下載時匯出的那個 → 不存成自訂文字）；`stripStart` 的區
+ * 解析（同上）：失敗 → 整篇 400（含「拿掉閉合註解後還有字、但 parse 成 `empty_content`」）；有
+ * `exportedLinkText` 時 parse 出的 wikilink 過一次 `keepLabelFree`（文字仍是下載時匯出的那個 → 不存成自訂文字）；`stripStart` 的區
  * 拿掉第一顆 numbered 的 `props.start` ⑤ 開 scratch session（`try/finally close`），預解析 block `insertBlocks` 進 scratch doc、記每區插入的 id ⑥ close ⑦ 在未 mount 的
  * scratch 結構與 `curFragment` 上以 `sameCanonicalSeq` 算序列 ⑧ `decide`（改寫區的預解析與基底那幾顆逐顆比，`same`）。
  * 前提同 `decide.ts`：呼叫端已確認筆記自下載後沒有被動過（現況頂層與基底段表逐顆相同）。
  * 讓出按時間預算（同一個計時器）：每次邊界 parse、每區 parse 之間、寫進 scratch 之後。
- * 重試（gate r1 m8）：`SyncPlan` 不保留 scratch doc；合併指紋不符時呼叫端直接重跑 `planSync`（新 fork、新 `cur`）。
+ * 重試：`SyncPlan` 不保留 scratch doc；合併指紋不符時呼叫端直接重跑 `planSync`（新 fork、新 `cur`）。
  * #398：解析的 worker 全忙排太久 → `ParserBusyError` 原樣丟出（呼叫端映成 503）；同一人的解析在 pool 裡一次一筆。
  */
 import type { PartialBlock } from "@blocknote/core";
@@ -56,12 +56,12 @@ export interface PlanSyncInput {
   candidates: readonly VisibleNoteTarget[];
   siteOrigin: string;
   /**
-   * F1：`(目標 id, 文字)` 是不是下載時某個沒有自訂文字的 wikilink 匯出的文字（呼叫端由基底段表的 `links` 組）。是 → parse 出的
+   * `(目標 id, 文字)` 是不是下載時某個沒有自訂文字的 wikilink 匯出的文字（呼叫端由基底段表的 `links` 組）。是 → parse 出的
    * 那個 wikilink 照「沒有自訂文字」存（`keepLabelFree`）。不給＝舊規則（只認目標現在的標題）。
    */
   exportedLinkText?: (targetId: string, text: string) => boolean;
   /**
-   * #398 審查 C2：這個檔的 worker 時間總預算（`runtime.parser.fileBudget()`）。指紋不符重來時呼叫端傳同一份，整個寫回共用；
+   * #398：這個檔的 worker 時間總預算（`runtime.parser.fileBudget()`）。指紋不符重來時呼叫端傳同一份，整個寫回共用；
    * 不給＝這次規劃自己開一份。用完 → 整篇 `unsupported_block`／`too_complex`。
    */
   fileBudget?: ParseBudget;
@@ -70,9 +70,9 @@ export interface PlanSyncInput {
   now?: () => number;
 }
 
-/** `unclosed_fence`：檔案層級有未閉合的 code fence（審查 m3，`regions.ts` 的 `UNCLOSED_FENCE_MESSAGE`）；其餘是 parse 的錯誤碼。 */
+/** `unclosed_fence`：檔案層級有未閉合的 code fence（`regions.ts` 的 `UNCLOSED_FENCE_MESSAGE`）；其餘是 parse 的錯誤碼。 */
 export type PlanSyncError = ParseError | "unclosed_fence";
-/** 失敗形：`detail`＝parse 成因（`ParseDetail`）；`fence`＝未閉合的 fence 記號。只給 HTTP 層挑訊息（8000 探索測試 E）。 */
+/** 失敗形：`detail`＝parse 成因（`ParseDetail`）；`fence`＝未閉合的 fence 記號。只給 HTTP 層挑訊息。 */
 export type PlanSyncFailure = { ok: false; code: PlanSyncError; detail?: ParseDetail; fence?: string };
 
 class TooComplexAbort extends Error {}
@@ -106,7 +106,7 @@ export async function planSync(runtime: EditingRuntime, input: PlanSyncInput): P
   {
     await yieldFn();
     last = now();
-    // #398 審查 C2：邊界檢查的解析回太複雜（逾時、記憶體、預算用完）→ 整篇 400，不當成「邊界不成立」繼續解析下一段。
+    // #398：邊界檢查的解析回太複雜（逾時、記憶體、預算用完）→ 整篇 400，不當成「邊界不成立」繼續解析下一段。
     const check = makeBoundaryCheck(async md => {
       const p = await parseMd(md);
       await budget();
@@ -129,7 +129,7 @@ export async function planSync(runtime: EditingRuntime, input: PlanSyncInput): P
     boundaryChecks = rr.boundaryChecks;
     const anc = anchorsOf(input.segments, regions);
     const curIdx = new Map(input.cur.ids.map((id, i) => [id, i]));
-    // 審查 m（stripStart 的前一顆）：同一個接點（`P` 之後、文件開頭）有多區時，`applySync` 把後一區接在前一區最後一顆之後，所以
+    // m（stripStart 的前一顆）：同一個接點（`P` 之後、文件開頭）有多區時，`applySync` 把後一區接在前一區最後一顆之後，所以
     // 後一區真正的「前一顆」是前一區的最後一顆——用同一把鏈的 key 記住它的型別（判 same 的只有改寫區，改寫區放在基底 block 之前、不用鏈）。
     const lastTypeByKey = new Map<string, string>();
     for (let ri = 0; ri < regions.length; ri++) {
@@ -162,7 +162,7 @@ export async function planSync(runtime: EditingRuntime, input: PlanSyncInput): P
   const s = await EditorSession.open(runtime, scratch);
   try {
     // ⑤ 預解析寫進 scratch doc（接在 mount 正規化出的那顆空段落之後；那顆不參與比較）。接點記在 `tail`，不每區重讀
-    // `editor.document`（那是整份 block JSON，逐區讀是 O(區數×頂層數)，審查 Important 1）；每區之後讓出。
+    // `editor.document`（那是整份 block JSON，逐區讀是 O(區數×頂層數)）；每區之後讓出。
     let tail = s.editor.document[0]!.id;
     for (let ri = 0; ri < regions.length; ri++) {
       const blocks = parsed[ri]!;
@@ -178,12 +178,12 @@ export async function planSync(runtime: EditingRuntime, input: PlanSyncInput): P
   } finally {
     s.close();
   }
-  // ⑦ 未 mount 的結構上一次走完：兩個 fragment 各建一次索引、每顆至多 canonicalize 一次（審查 Important 1）。
+  // ⑦ 未 mount 的結構上一次走完：兩個 fragment 各建一次索引、每顆至多 canonicalize 一次。
   const scratchIdx = indexTopLevel(scratch.getXmlFragment(YDOC_FRAGMENT));
   const curIdxSame = indexTopLevel(input.curFragment);
   const pre = insertedIds.map(ids => sameCanonicalSeqIn(scratchIdx, ids) ?? []);
   const same = (ri: number, against: string[]): boolean => {
-    // 先比長度（不必 canonicalize 就知道不等，審查 m）。
+    // 先比長度（不必 canonicalize 就知道不等）。
     const p = pre[ri]!;
     if (against.length !== p.length) return false;
     const seq = sameCanonicalSeqIn(curIdxSame, against);

@@ -18,7 +18,7 @@ const NOTE = "11111111-1111-1111-1111-111111111111";
 describe("classifyClientMessage（issue #50 訊息預檢）", () => {
   it("MessageReceiver 有 handler 的 type（0/1/3/4/5/7 + Auth+Token + BroadcastStateless(6)）→ ok", () => {
     // ⚠ 白名單是「4.5.0 的 switch 實際有 case 的集合」，不是 MessageType enum 的範圍
-    //（審查抓到：enum 有 0..10，但 8/9/10 沒有 case、落在 console.error 的 default）。
+    //（enum 有 0..10，但 8/9/10 沒有 case、落在 console.error 的 default）。
     // 6 放行的理由不同：client 送它 Hocuspocus 會 throw 並自行關線，自我設限。
     for (const type of [0, 1, 3, 4, 5, 6, 7]) {
       expect(classifyClientMessage(frame(NOTE, type)).verdict).toBe("ok");

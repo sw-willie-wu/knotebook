@@ -1,5 +1,5 @@
 /**
- * 資料夾 PR-3d（folders spec §5.12、§5.7.2）`rename_folder`：只改名，不動位置、筆記與網址。服務層 `updateFolder` 負責入口順序與交易。
+ * 資料夾：`rename_folder`：只改名，不動位置、筆記與網址。服務層 `updateFolder` 負責入口順序與交易。
  */
 import { z } from "zod";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -13,7 +13,7 @@ import { toolError } from "../tool-result.js";
 import { requireWriteScope } from "../write-scope.js";
 import type { McpToolCtx } from "../context.js";
 
-/** D-RF（逐字照 plan「待確認字串」）。 */
+/** `rename_folder` 的工具說明。 */
 export const RENAME_FOLDER_DESCRIPTION =
   "Rename a folder you can see; in a group, it needs a role that can edit notes. The name rules are the same as for create_folder. " +
   "Nothing else changes — not where the folder is, not the notes in it, not any URL. The reply is the folder, in the shape list_folders returns.";

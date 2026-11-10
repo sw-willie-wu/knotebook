@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { canUnlinkIdentity, usableIdentityIds } from "../../src/auth/sign-in-methods.js";
 
 describe("usableIdentityIds（effective issuer 精確相等）", () => {
-  it("只收 issuer 等於某個啟用中 provider 的 effective issuer 者；尾斜線不同就不算（寬鬆比對只用在 B14 排除）", () => {
+  it("只收 issuer 等於某個啟用中 provider 的 effective issuer 者；尾斜線不同就不算（寬鬆比對只用在同 issuer 排除）", () => {
     const ids = usableIdentityIds(
       [{ id: "a", issuer: "https://a.example" }, { id: "b", issuer: "https://b.example" }, { id: "c", issuer: "https://c.example/" }],
       [{ effectiveIssuer: "https://a.example" }, { effectiveIssuer: "https://c.example" }],
@@ -11,7 +11,7 @@ describe("usableIdentityIds（effective issuer 精確相等）", () => {
   });
 });
 
-describe("canUnlinkIdentity（INV-7，B24：密碼只在 DB 值為真時算數）", () => {
+describe("canUnlinkIdentity（密碼只在 DB 值為真時算數）", () => {
   const set = (...ids: string[]) => new Set(ids);
   it.each([
     // [hasPassword, dbValue, usable, target, expected]

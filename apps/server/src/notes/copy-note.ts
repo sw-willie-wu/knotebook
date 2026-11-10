@@ -1,15 +1,15 @@
 /**
- * #180 spec §3.3：複製的本體——REST `POST /api/notes/:id/copy` 與 MCP `copy_note` 共用（W7／W12：不讓共用函式長出 MCP 模式分支）。
- * 順序逐條＝原路由（F32）：入口 `sourceId.toLowerCase()`（MCP 的 `NOTE_ID` 與 REST 的 app 層 `lowercaseUuidParams` 送進來已是小寫；這裡保留作防禦——
- * live doc 與踢線以小寫字串為鍵，gate r1 I1）→ `role === "none"` → `not_found` → 有 `groupId`：非 UUID 或 `loadCreateTarget` 落空／`!canCreate` →
+ * #180：複製的本體——REST `POST /api/notes/:id/copy` 與 MCP `copy_note` 共用（不讓共用函式長出 MCP 模式分支）。
+ * 順序逐條＝原路由：入口 `sourceId.toLowerCase()`（MCP 的 `NOTE_ID` 與 REST 的 app 層 `lowercaseUuidParams` 送進來已是小寫；這裡保留作防禦——
+ * live doc 與踢線以小寫字串為鍵）→ `role === "none"` → `not_found` → 有 `groupId`：非 UUID 或 `loadCreateTarget` 落空／`!canCreate` →
  * `group_not_found`（交易外只是快速 404；授權本身在 `copyNoteInTx` (g) 重驗）→ 扣 **`edit` 桶** → 交易前 `loadNoteDoc`＋
  * `cloneForCopy`＋`extractForIndex`（S14：`loadNoteDoc` 借連線，不得在交易內）→ 數「會被複製的附件」→ `toCopy > 0` 時不持鎖
  * 預檢目標空間已滿 → `space_full`（不扣 upload 桶）→ **`upload` 桶 `consumeMany(userId, toCopy)`** → 交易 → catch：先 best-effort
  * 刪已落盤的新檔，再分類（`TxAbort`（含 `StorageQuotaExceeded`）→ `aborted`、FK → 群組 `group_not_found`／個人 `fk_personal`、
  * `isRetryableTxError` → `busy`、其餘 rethrow）→ commit 後 `syncLinksFromDoc`。
- * 資料夾 PR-3a（spec §5.7.6、§5.5 I2）：帶 `folderId` 時，在 `not_found` 之後、群組判準之前依序判可見性（非 UUID／看不到 → 404
- * `folder_not_found`）與空間一致性（400 `folder_cross_space`），群組判準之後再判群組資料夾的 `can_edit`（403，D13）——三者都以
- * `{ kind: "aborted", err: TxAbort }` 回（outcome 聯集不變，讀碼發現 16）；交易內 `copyNoteInTx` 重判並顯式鎖資料夾（I-1）。
+ * 資料夾：帶 `folderId` 時，在 `not_found` 之後、群組判準之前依序判可見性（非 UUID／看不到 → 404
+ * `folder_not_found`）與空間一致性（400 `folder_cross_space`），群組判準之後再判群組資料夾的 `can_edit`（403）——三者都以
+ * `{ kind: "aborted", err: TxAbort }` 回（outcome 聯集不變）；交易內 `copyNoteInTx` 重判並顯式鎖資料夾。
  * 含 `.transaction(` ⇒ 在 S14 的 `ROUTE_FILES`（④ `{all:1, inTx:1}`、⑤ 引數只有識別字／屬性存取）。
  */
 import { and, eq, inArray, sql } from "drizzle-orm";
@@ -47,7 +47,7 @@ export interface CopyNoteDeps {
   log: FastifyBaseLogger;
   uploadsDir: string;
   storageLockTimeoutMs: number;
-  /** 與上傳端點、REST 複製**同一實例**（F40）。 */
+  /** 與上傳端點、REST 複製**同一實例**。 */
   limiters: { edit: FixedWindowLimiter; upload: FixedWindowLimiter };
   /** 筆記大小上限（`config.noteMaxBytes`）；不給＝不擋。 */
   noteMaxBytes?: number;
@@ -79,10 +79,10 @@ export async function copyNote(
   const sourceId = input.sourceId.toLowerCase();
   const userId = input.userId;
 
-  // 看得到就能讀（規格落差 16：role 非 none ⇒ permissions.read 恆真），不另看 read 旗標。
+  // 看得到就能讀（role 非 none ⇒ permissions.read 恆真），不另看 read 旗標。
   if ((await resolveNoteAccess(deps.db, userId, sourceId)).role === "none") return { kind: "not_found" };
 
-  // 資料夾 PR-3a：可見性 → 空間一致性（與 `POST /api/notes` 同一套判準，§5.7.6 第 1、2 步）。
+  // 資料夾：可見性 → 空間一致性（與 `POST /api/notes` 同一套判準）。
   let folderId: string | null = null;
   let groupFolder = false;
   if (input.folderId !== undefined) {
@@ -101,14 +101,14 @@ export async function copyNote(
   } else {
     if (!UUID_RE.test(input.groupId)) return { kind: "group_not_found" };
     const groupId = input.groupId.toLowerCase();
-    // 快速 404 only：結果不用來組 DTO（降級可能落在這裡與 (g) 之間——review r2 M-2）。
+    // 快速 404 only：結果不用來組 DTO（降級可能落在這裡與 (g) 之間）。
     const m = await loadCreateTarget(deps.db, userId, groupId);
     if (!m || !m.canCreate) return { kind: "group_not_found" };
-    // D13：群組資料夾另要 `can_edit`（交易內 (g) 重判）。
+    // 群組資料夾另要 `can_edit`（交易內 (g) 重判）。
     if (groupFolder && !m.canEdit) return { kind: "aborted", err: new TxAbort(403, "forbidden", NOTE_FOLDER_ROLE_FORBIDDEN_MESSAGE) };
     scope = { groupId };
   }
-  // `edit` 桶先扣（額度用完的不必載入筆記），被筆記大小上限擋下就退回（審查 r4 M7：413 的複製不吃額度）。
+  // `edit` 桶先扣（額度用完的不必載入筆記），被筆記大小上限擋下就退回（413 的複製不吃額度）。
   const editTicket = deps.limiters.edit.consumeTicket(userId);
   if (editTicket === null) return { kind: "edit_rate_limited" };
 
@@ -123,17 +123,17 @@ export async function copyNote(
       return { kind: "too_large", limitBytes: cap };
     }
   }
-  const searchExtract = extractForIndex(copy.doc); // #93 §5.4：交易前抽（純資料）
-  // #175 T4 M-1（Willie 裁決）：複製會多存一份附件檔，依「會被複製的附件數」扣 upload 桶（與上傳端點同桶、同 429 形；
+  const searchExtract = extractForIndex(copy.doc); // #93：交易前抽（純資料）
+  // #175：複製會多存一份附件檔，依「會被複製的附件數」扣 upload 桶（與上傳端點同桶、同 429 形；
   // 單位＝檔案數，同上傳端點一次一檔）。數法與 `copyNoteInTx` (3) 同一個述詞（文件引用到、且 `note_id`＝來源）；交易前
-  // 數、交易內再讀，兩次之間來源新增／刪除附件會讓扣的數與實際複製的差幾張，磁碟檔已遺失而被跳過的那張（RF4）也照扣——
+  // 數、交易內再讀，兩次之間來源新增／刪除附件會讓扣的數與實際複製的差幾張，磁碟檔已遺失而被跳過的那張也照扣——
   // 都只在「多扣或少扣幾張」的量級，不值得為此把扣桶搬進交易。0 張不碰桶。額度不足 → 429、不做任何寫入（edit 桶已扣）。
   const wanted = [...copy.uploadNodes.keys()];
   const toCopy = wanted.length === 0
     ? 0
     : (await deps.db.select({ n: sql<number>`count(*)::int` }).from(uploads).where(and(inArray(uploads.id, wanted), eq(uploads.noteId, sourceId))))[0]!.n;
-  // 儲存配額 §6.4-3a：不持鎖的「已滿」預檢——有附件要複製、且目標空間已滿 → 409，不開交易、不寫檔、不扣 upload 桶。
-  // 只在 toCopy > 0 時做（A4：無附件的複製不受配額限——起草裁定 1／Review Focus RF2）。權威判定在交易內（鎖內、以實際複製的大小）。
+  // 儲存配額：不持鎖的「已滿」預檢——有附件要複製、且目標空間已滿 → 409，不開交易、不寫檔、不扣 upload 桶。
+  // 只在 toCopy > 0 時做（無附件的複製不受配額限）。權威判定在交易內（鎖內、以實際複製的大小）。
   if (toCopy > 0) {
     const space: StorageSpace = "groupId" in scope ? { kind: "group", id: scope.groupId } : { kind: "user", id: userId };
     const usage = await readSpaceUsage(deps.db, space);
@@ -153,7 +153,7 @@ export async function copyNote(
     await deleteUploadFiles(deps.uploadsDir, copiedFileIds, deps.log);
     // `TxAbort` 含子類 `StorageQuotaExceeded`：原樣交給呼叫端，由呼叫端先判子類（反序會失去數字）。
     if (err instanceof TxAbort) return { kind: "aborted", err };
-    // 防禦縱深（資料夾 PR-3a）：目標資料夾在交易內已持 KEY SHARE 並重判過空間，INSERT 撞不到 `notes_folder_fk`／KF001；撞到與看不到同形。
+    // 防禦縱深：目標資料夾在交易內已持 KEY SHARE 並重判過空間，INSERT 撞不到 `notes_folder_fk`／KF001；撞到與看不到同形。
     if (isNoteFolderSpaceViolation(err) || foreignKeyViolationConstraint(err) === "notes_folder_fk") {
       return { kind: "aborted", err: new TxAbort(404, "folder_not_found", FOLDER_NOT_FOUND_MESSAGE) };
     }
@@ -162,10 +162,10 @@ export async function copyNote(
       if ("groupId" in scope) return { kind: "group_not_found" };
       // 個人目標唯一可能的 23503 是 notes.owner_id／uploads.uploader_id／uploads.charged_to_id → users（複製者帳號在交易中被硬刪；`src/` 目前
       // 沒有這條路徑）。個人建立路徑沒有對應的錯誤形（它把 23503 一律當群組被刪），這裡不借用 `group_not_found`
-      // （詞不對題，review r1 M-3），回通用 404 `not_found`——對已不存在的帳號而言，「找不到」是最不誤導的答案。
+      // （詞不對題），回通用 404 `not_found`——對已不存在的帳號而言，「找不到」是最不誤導的答案。
       return { kind: "fk_personal" };
     }
-    // 儲存配額 §6.9：空間鎖逾時（55P03）／死結（40P01）／40001 → 409 server_busy（已複製的檔已在上面清掉）。
+    // 儲存配額：空間鎖逾時（55P03）／死結（40P01）／40001 → 409 server_busy（已複製的檔已在上面清掉）。
     if (isRetryableTxError(err)) return { kind: "busy" };
     throw err;
   }

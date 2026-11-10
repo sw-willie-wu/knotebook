@@ -20,9 +20,9 @@ import { createFakeDataTransfer, mockFinePointer, type FakeDataTransfer } from "
 import { NoteList } from "./NoteList";
 
 /**
- * 側欄拖曳接線（資料夾 spec §6.13、§6.8；PR-3c T4）：接手判準、落點範圍提示、放進資料夾／回根目錄（樂觀）、彈簧資料夾。
+ * 側欄拖曳接線：接手判準、落點範圍提示、放進資料夾／回根目錄（樂觀）、彈簧資料夾。
  * fixture（同 T2 的子集）：個人 F ⊃ F1；根層 A、F 裡 N1、N2；群組 G 有 GF、根層 g1、GF 裡 g2、唯讀 gr；群組 H 有 HF、h1。
- * 計時照 plan H7：渲染與等樹用真計時，只在停留段切假的 setTimeout／clearTimeout。
+ * 計時：渲染與等樹用真計時，只在停留段切假的 setTimeout／clearTimeout。
  */
 
 afterEach(() => {
@@ -465,7 +465,7 @@ describe("NoteList 拖曳", () => {
 
 const previewOf = (root: HTMLElement = panel()) => root.querySelector<HTMLElement>('[data-node-kind="preview"]');
 
-/** 在 B 的連結上 dragOver 一發並停滿 0.5 秒（H7：只在這一段用假的 setTimeout／clearTimeout）。 */
+/** 在 B 的連結上 dragOver 一發並停滿 0.5 秒（只在這一段用假的 setTimeout／clearTimeout）。 */
 function holdOver(el: HTMLElement, dt: FakeDataTransfer) {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   fireEvent.dragOver(el, { dataTransfer: dt });
@@ -505,7 +505,7 @@ function renderTwoInstances() {
   return { inst, node, hideDrawer: () => view.rerender(ui(false)) };
 }
 
-describe("NoteList 疊資料夾（PR-3c T5）", () => {
+describe("NoteList 疊資料夾", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -608,7 +608,7 @@ describe("NoteList 疊資料夾（PR-3c T5）", () => {
     expect(previewOf(inst("static"))).toBeNull();
     expect(screen.queryByText(/Created/)).toBeNull();
 
-    // 沿用預設名按 Save：不送 PATCH（總管裁定），關框後照樣出成功 toast。
+    // 沿用預設名按 Save：不送 PATCH，關框後照樣出成功 toast。
     fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
 
     expect(await screen.findByText("Created “New folder” with 2 notes", { exact: true })).toBeInTheDocument();

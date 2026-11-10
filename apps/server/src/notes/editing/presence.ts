@@ -1,4 +1,4 @@
-// 實作等級：full（Task 1 spike：四個探針全綠，游標真的解回目標 block）。
+// 實作等級：full（實測過：游標真的解回目標 block）。
 import { createHash } from "node:crypto";
 import type { Hocuspocus } from "@hocuspocus/server";
 import * as Y from "yjs";
@@ -8,7 +8,7 @@ import {
 } from "@knotebook/shared";
 import type { CollabContext } from "../../collab/server.js";
 
-// D8：只對已載入文件掛 awareness，直接發事件（clock 不大於 meta 的項目會被整筆跳過，
+// 只對已載入文件掛 awareness，直接發事件（clock 不大於 meta 的項目會被整筆跳過，
 // y-protocols/awareness.js:256；Hocuspocus 的 handleAwarenessUpdate 再重新編碼廣播）。
 // ⚠ clocks 是**模組層**、process 生命週期、永不修剪：provider 在 removal 後仍保留 meta 的
 // clock（awareness.js:269-272），重新起算的計數會被靜默丟棄＝閒置停止後 AI 再也不現身。
@@ -16,16 +16,16 @@ import type { CollabContext } from "../../collab/server.js";
 // ⚠ state 一定要帶 `beat`：change 只在 state 深度不等時才發（awareness.js:278），而名牌只吃
 // change 的 `updated`（@blocknote/core/dist/yjs.js:80）——少了它，名牌一次都不會亮。
 // 每個 beat 都重取 documents.get，絕不快取 Awareness（unload 會 destroy、reload 是新物件）。
-// state 帶 `knotebook` agent 標記（#293 §8.2）：web 頭像列只認它判斷 AI，不從名字猜。
+// state 帶 `knotebook` agent 標記（#293）：web 頭像列只認它判斷 AI，不從名字猜。
 const clocks = new Map<number, number>();
 const ORIGIN = "ai-presence";
 export const PRESENCE_COLOR = AGENT_PRESENCE_COLOR;
 
-/** presence 的身分：`name`／`color` 進 awareness 的 `user`（BlockNote 名牌照舊）；`handle`／`label` 進 `knotebook` 的 agent 標記（#293 §8.2）。 */
+/** presence 的身分：`name`／`color` 進 awareness 的 `user`（BlockNote 名牌照舊）；`handle`／`label` 進 `knotebook` 的 agent 標記（#293）。 */
 export interface PresenceIdentity { name: string; color: string; handle: string; label: string }
 
 /**
- * presence 顯示名的**唯一**組字點（#108 PR2），同時帶出 handle／label。原本 `routes/notes.ts` 三處（`/content` 讀、
+ * presence 顯示名的**唯一**組字點（#108），同時帶出 handle／label。原本 `routes/notes.ts` 三處（`/content` 讀、
  * `/edits` 寫、`/revert`）＋ `mcp/note-read.ts` 一處各有一份逐字相同的字面量，四份都改吃這裡。
  * ⚠ **組字只有一份了，但「它組得對不對」仍然只有兩條逐字斷言守著**（`note-presence.test.ts`
  * 與 `mcp-content.test.ts` 的 presence 案）——把 `<handle> (<label>)` 前後顛倒兩者都會紅。
@@ -43,25 +43,24 @@ export type PresenceTarget =
   | { kind: "block"; blockId: string }
   | { kind: "doc-start" };
 
-/** spec §9：`?section=` 讀 → 該段第一顆；整篇讀 → 文件開頭。讀取不動結構，用 sectionId 是安全的。 */
+/** `?section=` 讀 → 該段第一顆；整篇讀 → 文件開頭。讀取不動結構，用 sectionId 是安全的。 */
 export function presenceTargetForRead(section: string | undefined): PresenceTarget {
   return section === undefined ? { kind: "doc-start" } : { kind: "section", sectionId: section };
 }
 
 /**
- * spec §9：段落寫入 → 該段第一顆；`replace_all` → 文件第一顆。
+ * 段落寫入 → 該段第一顆；`replace_all` → 文件第一顆。
  * ⚠ **只吃編輯後的 `afterBlockIds`，絕不吃請求帶進來的 `section_id`**：section_id 就是 heading
  * 那顆 block 的 id，而 replace_section／delete_section 連 heading 一起換掉（apply.ts 的
  * `ed.replaceBlocks(sectionIds, …)`），編輯完成後它已不存在——拿它去查會靜默退回文件開頭。
  * `afterBlockIds[0]` 就是這次寫下去的第一顆 block，四個 op 一致；delete_section 的 afterIds
  * 恆為空（該段已刪，沒有落點）→ 文件開頭。
- * ⚠ **刻意偏離 spec §9 的只有 `insert_after` 一個 op**：spec 的字面是「定到該段的 heading」，
+ * ⚠ **`insert_after` 刻意不定到該段的 heading**：
  * 這裡落在**剛插入的第一顆**。理由是簽章裡刻意沒有 sectionId 參數（見上），而使用者要看的本來
- * 就是 AI 剛寫下的那一顆；其餘四個 op 的結果與 spec 逐字相同。plan 與 spec 都不進版控，所以
- * 這個偏離只有這段註解留得下來——不要當成 bug「修」回去。
+ * 就是 AI 剛寫下的那一顆。這是刻意的——不要當成 bug「修」回去。
  */
 export function presenceTargetForWrite(op: EditOp, afterBlockIds: readonly string[]): PresenceTarget {
-  if (op === "replace_all") return { kind: "doc-start" }; // spec §9 明文：整篇取代 → 文件第一顆
+  if (op === "replace_all") return { kind: "doc-start" }; // 整篇取代 → 文件第一顆
   const first = afterBlockIds[0];
   return first === undefined ? { kind: "doc-start" } : { kind: "block", blockId: first };
 }
@@ -126,8 +125,8 @@ export class PresenceRegistry {
     // `content` 也是 `undefined`。拿掉這層、直接呼叫 `content.get(0)`，會在**這裡**（伺服器端
     // `cursorFor` 本身，touch/emit 呼叫進來的同步呼叫鏈）丟
     // `TypeError: Cannot read properties of undefined (reading 'get')`——這是可達的正式情境
-    // （筆記剛建立、還沒有人打過字）。這跟 Task 1 spike 講的「錯誤編碼形在裝飾計算裡丟錯」是
-    // **兩個不同機制**：spike 那條是游標的**編碼形式**在**用戶端** y-prosemirror 的裝飾計算裡
+    // （筆記剛建立、還沒有人打過字）。這跟「錯誤編碼形在裝飾計算裡丟錯」是
+    // **兩個不同機制**：那條是游標的**編碼形式**在**用戶端** y-prosemirror 的裝飾計算裡
     // 丟錯；這裡是**完全沒有頂層容器**在**伺服器端**因為呼叫在 `undefined` 上取子節點而丟錯。
     // 圖片、分隔線這類「非文字」block **不是**這一層要擋的對象：容器的第一個子節點就是那顆
     // 內容元素本身（例如 `<blockContainer><image .../></blockContainer>`），`content` 非
