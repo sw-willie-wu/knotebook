@@ -76,6 +76,9 @@
     "noShares": "No one else has access yet.",
     "roleLabel": "Role for {{email}}",
     "remove": "Remove {{email}}",
+    "removeConfirm": "Remove {{email}} from this note? They will lose access to it.",
+    "removeSelfConfirm": "Remove yourself ({{email}}) from this note? You will lose access to this note and cannot add yourself back.",
+    "removeConfirmButton": "Remove",
     "emailPlaceholder": "Email address",
     "newRoleLabel": "Role for new share",
     "add": "Add",
@@ -495,6 +498,14 @@
       "acknowledge": "I understand the notes will be permanently deleted",
       "adminsUnavailable": "Couldn't load the group's admins.",
       "confirm": "Delete group"
+    },
+    "removeMember": {
+      "title": "Remove member?",
+      "description": "{{email}} will lose access to the notes in \"{{name}}\".",
+      "confirm": "Remove",
+      "selfTitle": "Remove yourself?",
+      "selfDescription": "You ({{email}}) will lose access to the notes in \"{{name}}\" and cannot add yourself back.",
+      "selfConfirm": "Remove me"
     },
     "leave": {
       "title": "Leave group?",
