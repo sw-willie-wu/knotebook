@@ -538,4 +538,11 @@ describe("CE classifyEdge 的頂層目標", () => {
     expect(classifyEdge(view.state.doc, { ids: ["z1"], kind: "node", hasRows: false }, hit)).not.toBeNull();
     expect(classifyEdge(view.state.doc, { ids: ["z1", "gone"], kind: "multi", hasRows: false }, hit)).toBeNull();
   });
+
+  it("CE3 X 標了 hasRows → null（對照：同一組 id 不標 hasRows 時建列）", () => {
+    const { view } = mount([P("p", "p1"), P("y", "y1")]);
+    const hit = { kind: "top", yPos: posOf(view, "y1"), side: "right" } as const;
+    expect(classifyEdge(view.state.doc, { ids: ["p1"], kind: "multi", hasRows: false }, hit)).toMatchObject({ kind: "newRow", yId: "y1" });
+    expect(classifyEdge(view.state.doc, { ids: ["p1"], kind: "multi", hasRows: true }, hit)).toBeNull();
+  });
 });

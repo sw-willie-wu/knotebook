@@ -230,10 +230,10 @@ function isMac(): boolean {
   return ios || /Mac/.test(navigator.platform);
 }
 
-type PointerLike = { clientX: number; clientY: number; ctrlKey?: boolean; altKey?: boolean; synthetic?: boolean };
+export type PointerLike = { clientX: number; clientY: number; ctrlKey?: boolean; altKey?: boolean; synthetic?: boolean };
 
 /** 同 PM 的 `dragMoves`：先問 `dragCopies` prop，沒人回答時看複製拖的修飾鍵（mac 是 Alt，其他是 Ctrl）。 */
-function dragMoves(view: EditorView, event: PointerLike): boolean {
+export function dragMoves(view: EditorView, event: PointerLike): boolean {
   let copy: boolean | undefined;
   view.someProp("dragCopies", (test) => {
     copy = copy || test(event as DragEvent);

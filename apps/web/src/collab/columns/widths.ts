@@ -26,6 +26,8 @@ export function ratiosFromPixels(px: readonly number[], changed?: readonly numbe
     for (const i of candidates) if (target < 0 || cents[i]! > cents[target]! || (cents[i] === cents[target] && i < target)) target = i;
     if (target >= 0) cents[target] = cents[target]! + diff;
   }
+  // 捨入差加上去之後再夾一次，被夾掉的部分不會轉給別欄，所以極端比例下總和可能不等於欄數。實際拖曳碰不到：
+  // 每欄的像素寬都有下限（`COLUMN_MIN_TEXT_PX`／`COLUMN_MIN_IMAGE_PX`），比例不會靠近 0.1 或 10。
   return cents.map((c) => clampColumnWidth(c / 100));
 }
 
