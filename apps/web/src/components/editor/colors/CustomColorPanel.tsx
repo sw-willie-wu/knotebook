@@ -79,6 +79,14 @@ function usePinnedFocus(enabled: boolean, rootRef: { current: HTMLDivElement | n
   };
 }
 
+/** 面板裡依 Tab 順序可取得焦點的元素（停用的鈕不算；面板根節點的 tabIndex 是 -1，也不算）。 */
+function panelTabbables(root: HTMLElement | null): HTMLElement[] {
+  if (!root) return [];
+  return Array.from(root.querySelectorAll<HTMLElement>("a[href], button, input, select, textarea, [tabindex]")).filter(
+    (el) => el.tabIndex >= 0 && !(el as HTMLButtonElement).disabled,
+  );
+}
+
 /** 開面板時色碼框的初始值：目前的自訂色，沒有就用上次套用的，再沒有就只放 `#`。 */
 function initialHex(current: string): string {
   if (isCustomColor(current)) return current;
@@ -132,8 +140,27 @@ export function CustomColorPanel({ request, onBack, onApply, pinFocus = false, r
   // Mantine 的 MenuDropdown 會對 ArrowUp／ArrowDown preventDefault 並把焦點移到選單項，色碼框的游標就動不了，
   // 所以只擋這兩個鍵。其他鍵（Tab、Escape）一定要放行：stopPropagation 會讓事件到不了 document，
   // 而 dropdown 的 Tab 繞回、工具列的 focus trap 與點外面關選單都掛在 document 上。
+  //
+  // Tab 的繞回由面板自己先做：在最後一個元素按 Tab 移到第一個、在第一個按 Shift+Tab 移到最後一個。只靠 document 上的
+  // trap 時，若面板的最後一個元素同時是整條格式工具列的最後一個（例如選取表格儲存格，顏色鈕之後沒有可用的鈕），工具列的
+  // trap 會把焦點繞到工具列第一顆鈕，下一鍵就關掉選單。這裡先移好焦點，document 上的 trap 看到焦點已不在端點就不介入。
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === "ArrowUp" || e.key === "ArrowDown") e.stopPropagation();
+    if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+      e.stopPropagation();
+      return;
+    }
+    if (e.key !== "Tab" || e.defaultPrevented) return;
+    const items = panelTabbables(rootRef.current);
+    if (items.length === 0) return;
+    const first = items[0]!;
+    const last = items[items.length - 1]!;
+    if (!e.shiftKey && e.target === last) {
+      e.preventDefault();
+      first.focus();
+    } else if (e.shiftKey && e.target === first) {
+      e.preventDefault();
+      last.focus();
+    }
   };
 
   const previewAttr = request.section === "text" ? { "data-text-color": shown } : { "data-background-color": shown };

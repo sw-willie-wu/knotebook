@@ -15,6 +15,7 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 ### Added
 
 - **The API, MCP, bulk transfer and the in-app AI accept hex colors.** Text and background colors can be written as `#rgb` or `#rrggbb`, for example `<span style="color:#ff6600">`, besides the ten color names; they are stored and read back as lowercase `#rrggbb` (#378).
+- **Custom colors in the editor.** The text and background color menus in the formatting toolbar and the drag-handle menu have a Custom… item: pick a color in the square or type a hex code, then Apply, and the last eight custom colors you applied are kept on this device (#378).
 
 ### Changed
 
