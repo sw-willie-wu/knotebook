@@ -71,7 +71,7 @@ export async function cancelPasswordResetsInTx(tx: Tx, input: { targetUserId: st
  */
 export async function completePasswordResetInTx(
   tx: Tx,
-  input: { linkId: string; targetUserId: string; passwordHash: string },
+  input: { linkId: string; targetUserId: string; passwordHash: string; ttlSeconds: number },
 ) {
   const [target] = await tx
     .select({ disabledAt: users.disabledAt })
@@ -102,5 +102,5 @@ export async function completePasswordResetInTx(
     });
   await tx.update(oneTimeLinks).set({ usedAt: sql`now()` }).where(eq(oneTimeLinks.id, input.linkId));
   // #388：同一交易裡刪光這個使用者的 session 列（其他瀏覽器）、為這台裝置建新的一列；`sessionId` 簽進回應的 cookie。
-  return { ...updated!, sessionId: await replaceUserSessionsInTx(tx, input.targetUserId) };
+  return { ...updated!, sessionId: await replaceUserSessionsInTx(tx, input.targetUserId, input.ttlSeconds) };
 }

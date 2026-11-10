@@ -160,7 +160,7 @@ Tool inputs are snake_case (`note_id`, `group_id`); replies use camelCase. Every
 
 There is **no next page**: when `truncated` is true the answer is a narrower query, not a cursor.
 
-**Errors** `too_many_requests` — searches have a budget of their own, 60 per minute per user (see [Limits](#limits)).
+**Errors** `too_many_requests` — searches have a budget of their own, 60 per minute per user by default (see [Limits](#limits)).
 
 ### `read_note_outline`
 
@@ -351,7 +351,7 @@ Shared with me/<your folder path>/<title>.md
 
 #### Fetching one note
 
-`note` answers with the same file for one note, read live at that moment, as `text/markdown; charset=utf-8`, with a `base` of its own. A note you can't see, one that doesn't exist and one in the trash answer the same `404`; a note you can see that is outside the token's range answers `403`. A fetch that gets past those checks counts as one content read (120 per minute per user).
+`note` answers with the same file for one note, read live at that moment, as `text/markdown; charset=utf-8`, with a `base` of its own. A note you can't see, one that doesn't exist and one in the trash answer the same `404`; a note you can see that is outside the token's range answers `403`. A fetch that gets past those checks counts as one content read (120 per minute per user by default).
 
 #### Sending a file back
 
@@ -395,7 +395,7 @@ The four commands call REST endpoints, so a failure there is an HTTP status with
 - **With `folder_id`, the folder is checked first** — before `notes:move` is checked, before the note is looked up, and before any of the budgets below is spent: a folder you can't see answers `not_found` (the same as one that doesn't exist), and a folder you can see that doesn't fit the call — a group's folder without that group's `group_id`, a personal folder with a `group_id`, or one of your folders for notes shared with you — answers `invalid_body`. So a call with `folder_id` can get a different error than the same call without it, or than `POST /api/notes/:id/copy`, which looks up the note before the folder: a note you can't see together with a folder you can't see answers the folder's `not_found`, and a group folder you can't see answers `not_found` rather than `insufficient_scope` on a credential without `notes:move`.
 - **The copy gets the note's title and its current content**, and usually its own copies of the images uploaded to that note: an image block pointing at another note's upload, an upload URL inside a text link, and a full `https://…/api/uploads/…` URL keep pointing at the original, and an image whose file is already missing on the server is skipped and keeps its original URL (see [Known limitations](./known-limitations.md)). From then on the two notes change separately.
 - Per-person shares, the public link, the AI edit history and the version history are not copied, and making the copy isn't recorded in any note's history — the copy starts with none.
-- **Three budgets apply**: with a token, one token write (60 per 10 minutes); one write from the 30-writes-per-minute budget; and, when the copy will include images, one upload per image from the 120-per-10-minutes upload budget it shares with uploading images, counted before anything is copied.
+- **Three budgets apply**: with a token, one token write (60 per 10 minutes by default); one write from the 30-writes-per-minute (by default) budget; and, when the copy will include images, one upload per image from the 120-per-10-minutes (by default) upload budget it shares with uploading images, counted before anything is copied.
 - **Errors** `insufficient_scope` (`group_id` was passed and the credential doesn't have `notes:move`; this is checked before the note is looked up or any of the three budgets above is spent — after the folder, when there is a `folder_id` — so nothing is copied, and a `note_id` that doesn't exist answers the same), `not_found` (the note, or the folder), `invalid_body` (a `folder_id` that doesn't fit the call), `forbidden` (a group's folder, and your role there can't edit notes), `group_not_found`, `storage_quota_exceeded` (the target space has no room for the note's images — a copy without images is never refused for space; someone who can see that space's usage also gets `usedBytes` and `quotaBytes`, and `incomingBytes` when the server got as far as measuring the images), `note_too_large` (the note is larger than the site's note size limit, so its copy would be too; carries `limitBytes`; nothing was copied), `too_many_requests` (any of the three budgets), `server_busy` (nothing was copied — try again in a moment).
 
 ### `list_trash`
@@ -427,7 +427,7 @@ The four commands call REST endpoints, so a failure there is an HTTP status with
 - **This tool deletes nothing permanently, but a note in the trash can still be deleted permanently.** No tool deletes a note permanently or empties the trash. A note in the trash is deleted permanently once it is due under the site's trash setting, when the site empties the trash on its own, or sooner if someone deletes it permanently in the web app.
 - A note that is already in the trash answers `not_found`, the same as one that doesn't exist; `list_trash` shows the ones you can restore.
 - Moving a note to the trash is not recorded in any note's history; `restore_note` is how to undo it.
-- **Two budgets apply**: with a token, one token write (60 per 10 minutes), spent before the note is looked up; and one write from the 30-writes-per-minute budget, spent once the access check has passed and the site's trash setting has been read (if the setting can't be read, the call answers `internal` having spent only the token write). Once spent, they stay spent even when the call then fails without moving the note (see [Known limitations](#known-limitations)).
+- **Two budgets apply**: with a token, one token write (60 per 10 minutes by default), spent before the note is looked up; and one write from the 30-writes-per-minute (by default) budget, spent once the access check has passed and the site's trash setting has been read (if the setting can't be read, the call answers `internal` having spent only the token write). Once spent, they stay spent even when the call then fails without moving the note (see [Known limitations](#known-limitations)).
 - **Errors** `not_found`, `forbidden`, `too_many_requests` (either budget), `server_busy` (a lock or serialization conflict; nothing was moved — try again in a moment).
 
 ### `restore_note`
@@ -464,7 +464,7 @@ The four commands call REST endpoints, so a failure there is an HTTP status with
 
 - **Your personal folders and your folders for notes shared with you** are yours alone, and only you can see them. **A group's folders** are seen by every member whose role can read the group's notes, names included; changing them — creating, renaming, moving, deleting them, and filing the group's notes in them — needs a role that can edit notes, and a member who can see them but whose role can't edit notes gets `forbidden`.
 - A token or app credential needs `notes:write` for the first four and `notes:delete` for `delete_folder`; one without it isn't offered the tool.
-- **Two budgets apply** to each call: with a token, one token write (60 per 10 minutes), spent before anything is looked up; and one from the folder budget (600 per minute per user, shared with the web app's folder changes and separate from the 30-writes-per-minute budget), spent once the checks before the change itself have passed — for `delete_folder`, one however many notes it moves to the trash. Once spent, they stay spent even when the call then fails without changing anything.
+- **Two budgets apply** to each call: with a token, one token write (60 per 10 minutes by default), spent before anything is looked up; and one from the folder budget (600 per minute per user, shared with the web app's folder changes and separate from the 30-writes-per-minute budget), spent once the checks before the change itself have passed — for `delete_folder`, one however many notes it moves to the trash. Once spent, they stay spent even when the call then fails without changing anything.
 - `server_busy` means a lock or serialization conflict: nothing was changed — try again in a moment.
 - None of them is recorded in a note's history; after `delete_folder`, `restore_note` is how to bring the notes back.
 
@@ -525,7 +525,7 @@ The four commands call REST endpoints, so a failure there is an HTTP status with
 
 - Images up to 5 242 880 bytes (5 MiB) come back as an image. A larger one answers `file_too_large` with `noteId` and `bytes`: with a token, download it with `create_transfer_token` (`purpose: "download"`) for that `noteId`; over a browser session, open it in the browser.
 - You need to be able to read `note_id` **and** the note the image was uploaded to — the same rule as fetching `/api/uploads/<id>` in the browser. An image block copied from another note shows only if you can read that note; an image with an external URL can't be read here.
-- It counts as one content read (120 per minute per user).
+- It counts as one content read (120 per minute per user by default).
 - **Errors** `not_found` (no note you can read with that id; or no image with that id you can read — an image that doesn't exist, one on a note you can't read, and one whose file is missing answer the same), `file_too_large`, `too_many_requests`.
 
 **What Claude Code does with an image it receives.** This is the client's behaviour, observed with Claude Code 2.1.295 — Knotebook doesn't control it, and other clients or other Claude Code versions may differ. In that test, an image of up to 512 000 bytes was passed to the model as it is; from 516 096 bytes up (the two nearest sizes tested), it was re-encoded as a JPEG of about 500 KB first, and an image more than 2000 pixels on its longer side was scaled down to 2000. Claude Code also keeps a full-size copy of each image an MCP tool returns on the machine it runs on, under `~/.claude/projects/<project>/<session>/tool-results/`. Claude Code's own documentation lists that directory among the files it deletes once they are older than its `cleanupPeriodDays` setting; if you'd rather not keep note images on that machine for that long, lower the setting or delete the directory yourself.
@@ -553,6 +553,8 @@ After a successful `edit_note` you do not have to go back to step 2: the reply a
 
 ## Limits
 
+The per-user rate budgets in this table (content reads, searches, writes, uploads, token writes, token reads, downloads and files sent back) are defaults, and so is every figure for them elsewhere on this page (for example "the 30-writes-per-minute budget"): a site admin can lower any of them in Site admin → Site limits, and none can be raised above the number shown. The folder budget is fixed.
+
 | Limit | Value | Applies to | What you get |
 |---|---|---|---|
 | Heading, title and group name length, and the display name of whoever moved a note to the trash | 200 characters as written in JSON: `"`, `\` and the control characters JSON writes as `\n`, `\t`, `\r`, `\b`, `\f` count as two each, every other control character (U+0000–U+001F) and an unpaired surrogate as six | every tool that returns one; the display name, `list_trash` | cut, with `headingTruncated` / `titleTruncated` / `nameTruncated` / `groupNameTruncated` (`list_folders`) / `displayNameTruncated: true` |
@@ -566,27 +568,27 @@ After a successful `edit_note` you do not have to go back to step 2: the reply a
 | Folders per `list_folders` call | 50 | `list_folders` | a `nextCursor` while more follow |
 | Note ids in `delete_folder`'s reply | 100, in id order | `delete_folder` | `trashedNoteIdsTruncated: true`; `trashedNoteCount` still counts them all |
 | Blocks after parsing | 2000, counting nested blocks | `edit_note`, `create_note` with `content` | tool error `too_many_blocks` |
-| Content reads | 120 per minute per user | `read_note_outline`, `read_note_section`, `read_note_image`, `create_transfer_token` with `download` | tool error `too_many_requests` |
-| Searches | 60 per minute per user | `search_notes` | tool error `too_many_requests` |
-| Writes | 30 per minute per user | `edit_note` (except `rename`), `create_note` **with `content`**, `copy_note`, `delete_note`, `restore_note` | tool error `too_many_requests` |
+| Content reads | default 120 per minute per user (a site admin can lower it) | `read_note_outline`, `read_note_section`, `read_note_image`, `create_transfer_token` with `download` | tool error `too_many_requests` |
+| Searches | default 60 per minute per user (a site admin can lower it) | `search_notes` | tool error `too_many_requests` |
+| Writes | default 30 per minute per user (a site admin can lower it) | `edit_note` (except `rename`), `create_note` **with `content`**, `copy_note`, `delete_note`, `restore_note` | tool error `too_many_requests` |
 | Folder changes | 600 per minute per user, shared with the web app's folder changes | `create_folder`, `rename_folder`, `move_folder`, `move_note_to_folder`, `delete_folder` (one however many notes it moves to the trash) | tool error `too_many_requests` |
-| Uploads | 120 files per 10 minutes per user | `copy_note` (one per attached image the copy will include, counted before copying), shared with uploads | tool error `too_many_requests` |
-| Token writes | 60 per 10 minutes per user | `edit_note`, `create_note` **with or without `content`**, `move_note_to_group`, `copy_note` (except one refused for its `folder_id` or for lack of `notes:move`, which spends nothing), `delete_note`, `restore_note`, `create_folder`, `rename_folder`, `move_folder`, `move_note_to_folder`, `delete_folder`, and `create_transfer_token` with `upload`, made with a token | tool error `too_many_requests` |
+| Uploads | default 120 files per 10 minutes per user (a site admin can lower it) | `copy_note` (one per attached image the copy will include, counted before copying), shared with uploads | tool error `too_many_requests` |
+| Token writes | default 60 per 10 minutes per user (a site admin can lower it) | `edit_note`, `create_note` **with or without `content`**, `move_note_to_group`, `copy_note` (except one refused for its `folder_id` or for lack of `notes:move`, which spends nothing), `delete_note`, `restore_note`, `create_folder`, `rename_folder`, `move_folder`, `move_note_to_folder`, `delete_folder`, and `create_transfer_token` with `upload`, made with a token | tool error `too_many_requests` |
 | Concurrent writes to one note | serialised, 10 s wait | `edit_note` (except `rename`) | tool error `server_busy` |
 | Reading the markdown | a time limit (default 10 s) and a memory limit (default 1024 MiB) per write, set by the site (see [Self-hosting](./self-hosting.md#parse-workers)) | `edit_note`, `create_note` with `content`, files sent back or created over bulk transfer | tool error `unsupported_block` saying the content is too complex; **HTTP `400 unsupported_block`** for a file |
 | Waiting to be read | 45 s by default (4 × the time limit above + 5 s), set by the site, and at most 100 writes waiting | the same | tool error `server_busy`; **HTTP `503 server_busy`** with `Retry-After` for a file |
-| Note size | 5 MiB of stored state by default, set by the site (`NOTE_MAX_BYTES`); only growth past it is refused | `edit_note`, `create_note` with `content`, `copy_note`, files sent back or created over bulk transfer | tool error `note_too_large` with `limitBytes`; **HTTP `413 note_too_large`** for a file |
+| Note size | 5 MiB of stored state by default, set by the site (Site admin → Site limits, or the `NOTE_MAX_BYTES` environment variable, which then locks it); only growth past it is refused | `edit_note`, `create_note` with `content`, `copy_note`, files sent back or created over bulk transfer | tool error `note_too_large` with `limitBytes`; **HTTP `413 note_too_large`** for a file |
 | Turning a note into markdown, or putting a write into a note | three times the time limit above (default 30 s) and the same memory limit, set by the site, with the same wait for a parse worker | `read_note_outline`, `read_note_section`, `edit_note`'s outline when its fingerprint doesn't match, a note fetched or downloaded over bulk transfer; `edit_note`, `create_note` with `content`, files sent back | reading: tool error `too_complex` (**HTTP `500 too_complex`** for a fetched note; a downloaded note is left out as `skipped`); writing: putting your write into an existing note — tool error `too_complex` (the note is too large or too complex; retrying won't help), reading the markdown you sent or a new note's content — tool error `unsupported_block` saying the content is too complex (a file: **HTTP `400`**, or **`500 too_complex`** when putting it into the note runs out); waiting: tool error `server_busy` (**HTTP `503`** with `Retry-After`) |
 | Concurrent writes to one note | serialised | `create_note` with `content` | not observable in practice — a note this call just created has no other writer to contend with, so the 10 s wait never fires |
-| Token reads | 300 per minute per user | every `POST /api/mcp` made with a token, each image download made with a transfer token, and each file sent back with a bulk transfer token that changes nothing | **HTTP `429`** |
+| Token reads | default 300 per minute per user (a site admin can lower it) | every `POST /api/mcp` made with a token, each image download made with a transfer token, and each file sent back with a bulk transfer token that changes nothing | **HTTP `429`** |
 | Request body | 262 144 bytes | the whole `POST /api/mcp` request, however many tool calls it carries | **HTTP `413 content_too_large`** |
 | Transfer token lifetime | 10 minutes, or less when the credential that asked for it expires sooner | `create_transfer_token` | the token answers `401` once expired |
 | Bulk transfer token lifetime | 30 minutes, or less when the credential that asked for it expires sooner | `create_bulk_transfer_token` | the token answers `401` once expired |
 | Bulk transfer tokens | 3 per credential that haven't expired | `create_bulk_transfer_token` | tool error `too_many_requests` |
 | Notes per download | 3 000 in the token's range | `export` from `create_bulk_transfer_token` | **HTTP `413 too_many_notes`** |
-| Downloads | 10 per hour per user, and one at a time on the whole site | `export` from `create_bulk_transfer_token` | **HTTP `429`**, with `Retry-After` |
+| Downloads | default 10 per hour per user (a site admin can lower it), and one at a time on the whole site | `export` from `create_bulk_transfer_token` | **HTTP `429`**, with `Retry-After` |
 | Single-note fetches | the 120-per-minute content-read budget above | `note` from `create_bulk_transfer_token` | **HTTP `429`**, with `Retry-After` |
-| Files sent back | 30 per minute per user, separate from the writes and token writes above; a file that changes nothing counts against the token reads above instead. A file whose text differs from its downloaded copy counts before its text is parsed — even if it is then refused with a `400` — and is given back if it turns out to change nothing; once the 30 are used up, such a file answers `429` unless an earlier check refuses it first (a `409` or `403`, for example), while a file the same as its downloaded copy, or a new-note file identical to one that created a note in the last 30 minutes, still goes through | `write` from `create_bulk_transfer_token` | **HTTP `429`**, with `Retry-After` |
+| Files sent back | default 30 per minute per user (a site admin can lower it), separate from the writes and token writes above; a file that changes nothing counts against the token reads above instead. A file whose text differs from its downloaded copy counts before its text is parsed — even if it is then refused with a `400` — and is given back if it turns out to change nothing; once that many are used up, such a file answers `429` unless an earlier check refuses it first (a `409` or `403`, for example), while a file the same as its downloaded copy, or a new-note file identical to one that created a note in the last 30 minutes, still goes through | `write` from `create_bulk_transfer_token` | **HTTP `429`**, with `Retry-After` |
 | File size | 262 144 bytes, the same as the request body limit above | `write` from `create_bulk_transfer_token` | **HTTP `413 content_too_large`** |
 | Unused upload tokens | 5 per credential | `create_transfer_token` with `upload` | tool error `too_many_requests` |
 | Image size | 5 242 880 bytes | `read_note_image` | tool error `file_too_large` |
@@ -609,7 +611,7 @@ Three layers answer differently, and a client has to handle all three.
 - `401 unauthorized` — no credential, or one that is unknown, expired, or whose account is disabled. Carries the `WWW-Authenticate` challenge.
 - `403 forbidden` — the request carried an `Origin` header, and either it or the request's own `Host` did not match the host in `PUBLIC_URL`.
 - `413 content_too_large` — the request body was over 262 144 bytes.
-- `429 too_many_requests` — the 300-reads-per-minute token budget, or the per-IP limit on invalid Bearer attempts (30 per minute).
+- `429 too_many_requests` — the token read budget (300 reads per minute by default), or the per-IP limit on invalid Bearer attempts (30 per minute).
 - `415 unsupported_media_type` — the request had a body, and its `Content-Type` was either missing or not `application/json`.
 - `400 bad_request` — the body was not valid JSON.
 

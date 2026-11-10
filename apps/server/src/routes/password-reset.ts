@@ -16,6 +16,7 @@ import { z } from "zod";
 import type { UserDto } from "@knotebook/shared";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
+import type { SiteLimits } from "../site-limits/store.js";
 import { oneTimeLinks, users } from "../db/schema.js";
 import { hashToken } from "../auth/api-token.js";
 import { MIN_PASSWORD_LENGTH } from "../auth/constants.js";
@@ -38,6 +39,7 @@ const completeBodySchema = z.object({ token: z.string(), newPassword: z.string()
 export interface PasswordResetRouteDeps {
   db: Db;
   config: AppConfig;
+  siteLimits: SiteLimits;
   gate: UserGate;
   collabHooks: CollabHooks;
   limiters: { oneTimeLinkMiss: FixedWindowLimiter; oneTimeLinkAttempt: FixedWindowLimiter };
@@ -113,7 +115,9 @@ export function passwordResetRoutes(deps: PasswordResetRouteDeps) {
         if (err instanceof HashBusyError) return sendError(reply, 429, "server_busy", "The server is busy. Try again in a moment.");
         throw err;
       }
-      const input = { linkId: link.id, targetUserId: link.targetUserId, passwordHash };
+      // #397：有效期在交易前讀一次，新列與交易後簽的 cookie／JWT 用同一個值。
+      const ttlSeconds = deps.siteLimits.get("sessionTtlSeconds");
+      const input = { linkId: link.id, targetUserId: link.targetUserId, passwordHash, ttlSeconds };
       let updated: Awaited<ReturnType<typeof completePasswordResetInTx>>;
       try {
         updated = await deps.db.transaction(tx => completePasswordResetInTx(tx, input));
@@ -128,7 +132,7 @@ export function passwordResetRoutes(deps: PasswordResetRouteDeps) {
       deps.collabHooks.onUserRevoked(updated.id);
       request.log.info({ targetUserId: updated.id, linkId: link.id }, "重設密碼連結已使用");
       await touchLastLogin(deps.db, updated.id, request.log); // #247 §9.5 寫入點 6：重設密碼連結
-      await setSessionCookieFor(reply, deps.config, { userId: updated.id, tv: updated.tokenVersion, sid: updated.sessionId });
+      await setSessionCookieFor(reply, deps.config, { userId: updated.id, tv: updated.tokenVersion, sid: updated.sessionId, ttlSeconds });
       const dto: UserDto = {
         id: updated.id,
         email: updated.email,

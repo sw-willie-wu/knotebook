@@ -1,7 +1,7 @@
 import type { FastifyRequest } from "fastify";
-import { MAX_UPLOAD_BYTES } from "@knotebook/shared";
+import { SITE_LIMITS } from "@knotebook/shared";
 
-const DRAIN_CAP_BYTES = MAX_UPLOAD_BYTES * 2;
+const DRAIN_CAP_BYTES = SITE_LIMITS.uploadMaxBytes.max * 2;
 
 const drainedRequests = new WeakSet<object>();
 
@@ -27,7 +27,7 @@ const drainedRequests = new WeakSet<object>();
  * 讀取，等同完全沒有 drain——真 socket 測試會卡在 `app.close()` 逾時（見
  * `test/uploads.test.ts` 的「真 socket：parts 超限」迴歸）。
  *
- * 累計超過 `MAX_UPLOAD_BYTES * 2` 就 `request.raw.destroy()`——直接砍斷底層連線。
+ * 累計超過 `SITE_LIMITS.uploadMaxBytes.max * 2` 就 `request.raw.destroy()`——直接砍斷底層連線。
  *
  * **超限語意（明文取捨；review fix round 1 依實測修正措辭）**：`destroy()` 之後
  * client 端**最壞情況**是收到 TCP/socket 層級的 network error 而非我們原本要送出的

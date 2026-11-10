@@ -7,12 +7,12 @@ import { MAX_PROVIDER_ICON_BYTES, autoSlugFromTitle, validateHandle, validateSlu
 import { applyMigrationsThrough, freshDb, freshEmptyDb, idxOfTag, journalEntries } from "./helpers.js";
 import { runMigrations } from "../src/db/migrate.js";
 import { PgDialect, getTableConfig } from "drizzle-orm/pg-core";
-import { apiTokens, authProviders, folders, groupMembers, groupRoles, groups, notePlacements, noteRedirects, notes, oauthClients, oauthCodes, noteSearchSections, noteSearchState, noteLinkConversion, noteVersions, handleRenames, oauthRequests, oneTimeLinks, sessions, siteSettings, storagePlans, transferBases, transferCreates, transferTokens, userIdentities, users } from "../src/db/schema.js";
+import { apiTokens, authProviders, folders, groupMembers, groupRoles, groups, notePlacements, noteRedirects, notes, oauthClients, oauthCodes, noteSearchSections, noteSearchState, noteLinkConversion, noteVersions, handleRenames, oauthRequests, oneTimeLinks, sessions, siteLimitChanges, siteLimits, siteSettings, storagePlans, transferBases, transferCreates, transferTokens, userIdentities, users } from "../src/db/schema.js";
 
 const drizzleDirForTest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
 /** drizzle 對 `schema.ts` 的序列化；宣告漂移守衛拿最新一支當比對基準（Task 14 rebase 後改成實際檔名）。 */
-const SNAPSHOT_FILE = "meta/0038_snapshot.json";
+const SNAPSHOT_FILE = "meta/0039_snapshot.json";
 const snapshotLatest = JSON.parse(readFileSync(path.join(drizzleDirForTest, SNAPSHOT_FILE), "utf8")) as {
   tables: Record<string, {
     checkConstraints?: Record<string, { name: string; value: string }>;
@@ -23,12 +23,12 @@ const snapshotLatest = JSON.parse(readFileSync(path.join(drizzleDirForTest, SNAP
 const pgDialect = new PgDialect();
 
 describe("runMigrations", () => {
-  it("migrate 兩次 idempotent 且 37 張表存在", async () => {
+  it("migrate 兩次 idempotent 且 39 張表存在", async () => {
     const { db, pool } = await freshDb();
     await runMigrations(db); // freshDb 已跑過一次——此為第二次
     const r = await pool.query(`select table_name from information_schema.tables where table_schema='public'`);
     const tableNames = r.rows.map(x => x.table_name);
-    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles", "api_tokens", "oauth_clients", "oauth_requests", "oauth_codes", "note_ai_edits", "groups", "group_members", "group_roles", "note_redirects", "auth_providers", "user_identities", "site_settings", "note_search_sections", "note_search_state", "transfer_tokens", "storage_plans", "note_versions", "note_link_conversion", "handle_renames", "one_time_links", "folders", "note_placements", "transfer_bases", "transfer_creates", "sessions"])
+    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles", "api_tokens", "oauth_clients", "oauth_requests", "oauth_codes", "note_ai_edits", "groups", "group_members", "group_roles", "note_redirects", "auth_providers", "user_identities", "site_settings", "note_search_sections", "note_search_state", "transfer_tokens", "storage_plans", "note_versions", "note_link_conversion", "handle_renames", "one_time_links", "folders", "note_placements", "transfer_bases", "transfer_creates", "sessions", "site_limits", "site_limit_changes"])
       expect(tableNames).toContain(t);
   });
 
@@ -1484,6 +1484,8 @@ describe("0009_api-tokens", () => {
       handle_renames: ["id", "user_id", "renamed_at"],
       one_time_links: ["id", "kind", "token_hash", "target_user_id", "created_by_id", "expires_at", "used_at", "revoked_at", "created_at", "label", "used_by_id"],
       sessions: ["id", "user_id", "created_at", "expires_at"],
+      site_limits: ["key", "value", "updated_at"],
+      site_limit_changes: ["id", "key", "old_value", "new_value", "old_effective", "new_effective", "actor_user_id", "changed_at"],
     };
 
     for (const [table, decl] of [
@@ -1513,6 +1515,8 @@ describe("0009_api-tokens", () => {
       ["folders", folders],
       ["note_placements", notePlacements],
       ["sessions", sessions],
+      ["site_limits", siteLimits],
+      ["site_limit_changes", siteLimitChanges],
     ] as const) {
       const cfg = getTableConfig(decl);
       // 宣告的欄名 = DB 的欄名 = 這裡寫死的期望（三方對齊，任一邊漂移就紅）
@@ -3381,6 +3385,24 @@ describe("bulk transfer（0036，bulk transfer spec 2026-11-02 §16）", () => {
     const { rows } = await pool.query(`select indexname from pg_indexes where tablename = 'sessions' order by indexname`);
     expect(rows.map((r: { indexname: string }) => r.indexname)).toEqual(["sessions_expires_idx", "sessions_pkey", "sessions_user_idx"]);
     const sqlText = readFileSync(path.join(drizzleDirForTest, "0038_sessions.sql"), "utf8");
+    expect(sqlText).not.toMatch(/CONCURRENTLY/i);
+    expect(sqlText).not.toMatch(/^\s*COMMIT/im);
+  });
+
+  it("#397 0039 site_limits／site_limit_changes：CHECK、actor ON DELETE SET NULL、changed_at DESC 索引；SQL 檔無 CONCURRENTLY／行首 COMMIT", async () => {
+    const { pool } = await freshEmptyDb();
+    await applyMigrationsThrough(pool, idxOfTag("0039_site-limits"));
+    await expect(pool.query(`insert into site_limits (key, value) values ('1bad', 1)`)).rejects.toMatchObject({ code: "23514", constraint: "site_limits_key_chk" });
+    await expect(pool.query(`insert into site_limits (key, value) values ('rateEdit', -1)`)).rejects.toMatchObject({ code: "23514", constraint: "site_limits_value_chk" });
+    await pool.query(`insert into site_limits (key, value) values ('rateEdit', 0)`);
+    const u = (await pool.query(`insert into users (email, display_name) values ('s397@example.com', 'S') returning id`)).rows[0].id as string;
+    await pool.query(`insert into site_limit_changes (key, old_value, new_value, old_effective, new_effective, actor_user_id) values ('rateEdit', null, 10, 30, 10, $1)`, [u]);
+    await pool.query(`delete from users where id = $1`, [u]);
+    const left = (await pool.query(`select key, actor_user_id from site_limit_changes`)).rows;
+    expect(left).toEqual([{ key: "rateEdit", actor_user_id: null }]);
+    const { rows } = await pool.query(`select indexdef from pg_indexes where tablename = 'site_limit_changes'`);
+    expect(rows.map((r: { indexdef: string }) => r.indexdef)).toEqual(expect.arrayContaining([expect.stringMatching(/USING btree \(changed_at DESC( NULLS LAST)?\)$/)]));
+    const sqlText = readFileSync(path.join(drizzleDirForTest, "0039_site-limits.sql"), "utf8");
     expect(sqlText).not.toMatch(/CONCURRENTLY/i);
     expect(sqlText).not.toMatch(/^\s*COMMIT/im);
   });

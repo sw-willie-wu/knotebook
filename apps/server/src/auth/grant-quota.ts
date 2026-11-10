@@ -1,9 +1,10 @@
 import { and, eq, sql } from "drizzle-orm";
 import type { Db } from "../db/index.js";
+import { SITE_LIMITS } from "@knotebook/shared";
 import { apiTokens } from "../db/schema.js";
 
-/** I1：每位使用者計入額度的 grant 上限。 */
-export const TOKEN_LIMIT_PER_USER = 20;
+/** 每位使用者計入額度的 grant 上限的預設值；實際生效值由路由現讀 `siteLimits.get("apiTokensPerUser")`。 */
+export const TOKEN_LIMIT_PER_USER = SITE_LIMITS.apiTokensPerUser.default;
 
 /**
  * 這個查詢在 `/oauth/token` 內是在 transaction 裡跑的，所以參數型別要同時吃 `Db` 與

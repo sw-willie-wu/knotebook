@@ -86,10 +86,13 @@ export const COPY_NEEDS_MOVE_MESSAGE =
   "credential via the pencil on its row in Settings → Authorization, then try again.";
 export const copyNoteOutput = { note: noteSummarySchema.describe("The new copy, in the same shape list_notes returns.") };
 
-/** spec §6.6（`too_many_requests`）：數字由 `UPLOAD_LIMIT` 內插，不手抄（U7 守）。 */
-export const COPY_UPLOAD_LIMIT_MESSAGE =
-  `Copying this note's images would go over your upload limit (${UPLOAD_LIMIT.limit} files per ${UPLOAD_LIMIT.windowMs / 60_000} minutes, ` +
-  "copies included), so nothing was copied. Wait a few minutes and try again.";
+/** `too_many_requests`：上限由呼叫端傳入（#397：擋下這次請求那顆桶的當下上限，`FixedWindowLimiter.currentLimit()`）；視窗長度仍由 `UPLOAD_LIMIT` 內插，不手抄。 */
+export function copyUploadLimitMessage(limit: number): string {
+  return (
+    `Copying this note's images would go over your upload limit (${limit} files per ${UPLOAD_LIMIT.windowMs / 60_000} minutes, ` +
+    "copies included), so nothing was copied. Wait a few minutes and try again."
+  );
+}
 export const COPY_BUSY_MESSAGE = "The server was busy, so no copy was made. Try again in a moment.";
 /** 不可見形只會是群組（個人空間對本人恆可見，F37）。 */
 export const COPY_QUOTA_HIDDEN_MESSAGE =
@@ -158,7 +161,7 @@ export async function copyNoteTool(args: CopyNoteArgs, ctx: McpToolCtx): Promise
     case "edit_rate_limited":
       return toolError("too_many_requests", WRITE_RATE_LIMITED_MESSAGE);
     case "upload_rate_limited":
-      return toolError("too_many_requests", COPY_UPLOAD_LIMIT_MESSAGE);
+      return toolError("too_many_requests", copyUploadLimitMessage(ctx.limiters.upload.currentLimit()));
     case "space_full":
       return quotaError(ctx, out.space, out.usage.usedBytes, out.usage.quotaBytes, null);
     case "aborted": {

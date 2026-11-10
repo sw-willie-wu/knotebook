@@ -60,7 +60,7 @@ export interface ApplyDeps {
   /** #387：寫入者讀到過的連結文字（`NoteWriteService` 那一份）。`prepareEdit` 解析 markdown 後據以不把它凍結成自訂文字，`applyEdit`
    *  合併成功後把寫下去的連結也記進去（審查 I1）；不給＝舊規則。 */
   shownLinks?: ShownLinkTexts;
-  /** 筆記大小上限（`config.noteMaxBytes`）；不給＝不擋（直接組 deps 的測試）。`mergeAtBase` 在合併之前比（`notes/note-size.ts`）。 */
+  /** 筆記大小上限（呼叫端傳入的值）；不給＝不擋（直接組 deps 的測試）。`mergeAtBase` 在合併之前比（`notes/note-size.ts`）。 */
   noteMaxBytes?: number;
 }
 

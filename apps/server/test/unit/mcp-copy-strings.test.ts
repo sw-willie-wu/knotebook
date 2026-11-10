@@ -1,12 +1,14 @@
-/** #180 spec §6.6 U7：COPY_UPLOAD_LIMIT_MESSAGE 的數字由 UPLOAD_LIMIT 內插（不手抄）；copy 配額可見形用 formatBytes。 */
+/** #180：copyUploadLimitMessage(limit) 的上限由呼叫端傳入、視窗長度由 UPLOAD_LIMIT 內插（不手抄）；copy 配額可見形用 formatBytes。 */
 import { describe, expect, it } from "vitest";
 import { UPLOAD_LIMIT } from "../../src/http/rate-limit.js";
-import { COPY_UPLOAD_LIMIT_MESSAGE, copyQuotaVisibleMessage } from "../../src/mcp/tools/copy-note.js";
+import { copyUploadLimitMessage, copyQuotaVisibleMessage } from "../../src/mcp/tools/copy-note.js";
 
 describe("U7 copy_note 字串內插", () => {
-  it("upload 上限句的數字＝UPLOAD_LIMIT（今天 120 檔／10 分）", () => {
-    expect(COPY_UPLOAD_LIMIT_MESSAGE).toContain(`${UPLOAD_LIMIT.limit} files per ${UPLOAD_LIMIT.windowMs / 60_000} minutes`);
-    expect(COPY_UPLOAD_LIMIT_MESSAGE).toBe(
+  it("upload 上限句的數字＝傳入的上限（#397：現讀當下的桶）", () => {
+    expect(copyUploadLimitMessage(12)).toContain("12 files per 10 minutes");
+  });
+  it("傳 UPLOAD_LIMIT.limit → 全文等於 c4e012a 的那句（今天 120 檔／10 分）", () => {
+    expect(copyUploadLimitMessage(UPLOAD_LIMIT.limit)).toBe(
       "Copying this note's images would go over your upload limit (120 files per 10 minutes, copies included), so nothing was copied. Wait a few minutes and try again."
     );
   });
