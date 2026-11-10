@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { OIDC_STATE_COOKIE } from "@knotebook/shared";
 import { createFakeIdp, type FakeIdp, type FakeIdpClaims } from "./helpers/fake-idp.js";
-import { InstanceNotInitializedError, logInitFailure } from "../src/auth/bootstrap.js";
+import { INSTANCE_NOT_INITIALIZED, logInitFailure } from "../src/auth/bootstrap.js";
 import { seedAuthProvider } from "./helpers/oidc-provider.js";
 import { buildTestApp } from "./helpers.js";
 import { createOidcRuntimeRegistry } from "../src/auth/oidc-client.js";
@@ -150,7 +150,7 @@ describe("開機建管理員失敗的 log（#211）", () => {
   });
 
   it("已知的「尚未初始化」錯誤：原樣記（訊息可行動）", () => {
-    const { lines } = capture(new InstanceNotInitializedError("此實例尚未初始化：請設定 ADMIN_EMAIL"));
+    const { lines } = capture(Object.assign(new Error("此實例尚未初始化：請設定 ADMIN_EMAIL"), { name: INSTANCE_NOT_INITIALIZED }));
     expect(lines[0]).toHaveProperty("err");
     expect((lines[0]!.err as { message: string }).message).toContain("ADMIN_EMAIL");
   });

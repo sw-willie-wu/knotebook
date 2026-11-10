@@ -6,20 +6,15 @@ import { deriveHandle } from "./handle.js";
 import { hashPassword } from "./password.js";
 import { redactDbError } from "../lib/redact-db-error.js";
 
-/** 未初始化且沒給 envAdmin：訊息不帶任何值，開機失敗時可原樣記 log（見 `logInitFailure`）。 */
-export class InstanceNotInitializedError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "InstanceNotInitializedError";
-  }
-}
+/** 未初始化且沒給 envAdmin 時丟出的錯誤的 `name`：訊息不帶任何值，開機失敗時可原樣記 log（見 `logInitFailure`）。 */
+export const INSTANCE_NOT_INITIALIZED = "InstanceNotInitializedError";
 
 /**
- * 開機 `initializeInstance` 失敗的 log（#211）。drizzle 把**任何**驅動錯誤包成 DrizzleQueryError，其 message 與 `params` 帶管理員 email
+ * 開機 `initializeInstance` 失敗的 log。drizzle 把**任何**驅動錯誤包成 DrizzleQueryError，其 message 與 `params` 帶管理員 email
  * 與 argon2 雜湊——連線中斷這類沒有 SQLSTATE 的錯誤也一樣。所以只有已知、不帶值的「尚未初始化」原樣記，其餘一律走 `redactDbError`。
  */
 export function logInitFailure(log: { error(obj: object, msg: string): void }, err: unknown): void {
-  if (err instanceof InstanceNotInitializedError) log.error({ err }, "instance initialization failed");
+  if (err instanceof Error && err.name === INSTANCE_NOT_INITIALIZED) log.error({ err }, "instance initialization failed");
   else redactDbError(log, err, "實例初始化");
 }
 
@@ -45,9 +40,11 @@ export async function initializeInstance(db: Db, envAdmin?: EnvAdminBootstrap): 
   if (rows.length > 0) return;
 
   if (!envAdmin) {
-    throw new InstanceNotInitializedError(
+    const notInitialized = new Error(
       "此實例尚未初始化：請在 .env 設定 ADMIN_EMAIL 與 ADMIN_PASSWORD 後重啟（首次啟動會自動建立該管理員帳號）"
     );
+    notInitialized.name = INSTANCE_NOT_INITIALIZED;
+    throw notInitialized;
   }
 
   // 寫入端正規化（spec §14.3 單一漏斗）：與 routes/account.ts（註冊、接受邀請）、routes/auth.ts 讀取

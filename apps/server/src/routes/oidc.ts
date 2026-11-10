@@ -23,14 +23,10 @@ import { touchLastLogin } from "../auth/last-login.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
 
 
-/**
- * #211：callback 的非預期失敗不記整個 err。DB 錯誤（SQLSTATE 形的 5 碼 code；DrizzleQueryError 的 params 可能含 sub／email）
- * 走 `redactDbError`；其餘只記 `fetchErrorSummary` 摘要。
- */
-function logOidcFailure(log: FastifyRequest["log"], err: unknown, context: string, msg: string): void {
+/** SQLSTATE 形（5 碼）的 code＝DB 錯誤；其 message／params 可能含 sub／email，log 要走 `redactDbError`，不可記整個 err。 */
+function hasSqlState(err: unknown): boolean {
   const { code } = pgErrorSummary(err);
-  if (code !== null && /^[0-9A-Z]{5}$/.test(code)) redactDbError(log, err, context);
-  else log.error(oidcErrorLogFields(err), msg);
+  return code !== null && /^[0-9A-Z]{5}$/.test(code);
 }
 
 /** r3-M3：IdP claim 的長度上限——pending cookie 的大小上界靠它（§7.5.1）。 */
@@ -253,7 +249,8 @@ export function oidcRoutes(deps: OidcRouteDeps) {
         try {
           resolved = await runLogin();
         } catch (err2) {
-          logOidcFailure(request.log, err2, "OIDC 帳號解析 race 重查", "OIDC 帳號解析 race 重查後仍失敗");
+          if (hasSqlState(err2)) redactDbError(request.log, err2, "OIDC 帳號解析 race 重查");
+          else request.log.error(oidcErrorLogFields(err2), "OIDC 帳號解析 race 重查後仍失敗");
           return reply.redirect(failLocation("oidc_exchange_failed"));
         }
       }
@@ -291,7 +288,8 @@ export function oidcRoutes(deps: OidcRouteDeps) {
       await startSession(deps, request, reply, { userId: outcome.userId, tv: outcome.tokenVersion });
       return reply.redirect(nextPath ?? "/");
     } catch (err) {
-      logOidcFailure(request.log, err, "OIDC callback", "OIDC callback 發生未預期錯誤");
+      if (hasSqlState(err)) redactDbError(request.log, err, "OIDC callback");
+      else request.log.error(oidcErrorLogFields(err), "OIDC callback 發生未預期錯誤");
       return reply.redirect(failLocation("oidc_exchange_failed"));
     }
   }

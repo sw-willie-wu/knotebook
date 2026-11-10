@@ -127,7 +127,7 @@ async function main(): Promise<void> {
       config.adminEmail && config.adminPassword ? { email: config.adminEmail, password: config.adminPassword } : undefined
     );
   } catch (err) {
-    logInitFailure(logger, err); // #211：不記整個 err（DrizzleQueryError 的 params 帶管理員 email 與密碼雜湊）
+    logInitFailure(logger, err); // 不記整個 err（DrizzleQueryError 的 params 帶管理員 email 與密碼雜湊）
     process.exit(1);
   }
 
