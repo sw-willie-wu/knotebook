@@ -475,14 +475,16 @@ function hexToRgb(hex: string): string {
   return `rgb(${n >> 16}, ${(n >> 8) & 255}, ${n & 255})`;
 }
 
-/** 新 context 以 admin 登入、建一份筆記，把 `lines` 逐段打進去。 */
+/** 新 context 以 admin 登入、建一份筆記，把 `lines` 逐段打進去。`prepare` 在開頁面之前對 context 做設定（例如攔截請求）。 */
 async function startColorNote(
   browser: Browser,
   name: string,
   lines: string[],
   options: Parameters<Browser["newContext"]>[0] = { viewport: WIDE },
+  prepare?: (context: BrowserContext) => Promise<unknown>,
 ): Promise<{ context: BrowserContext; page: Page; title: string }> {
   const context = await browser.newContext(options);
+  await prepare?.(context);
   const page = await context.newPage();
   await loginAs(page, ADMIN.email, ADMIN.password);
   await expect(page).toHaveURL(/\/$/);
@@ -940,7 +942,11 @@ test("C11c 工具列的面板：真鍵盤 Tab 在最後一個元素繞回 Back�
 
 test("C11c 工具列的面板（選取表格儲存格，顏色鈕之後沒有可用的鈕）：Tab／Shift+Tab 仍在面板內繞回，粗體沒被切換", async ({ browser }) => {
   test.setTimeout(120_000);
-  const { context, page } = await startColorNote(browser, "tab table", []);
+  // 站台設了 AI 動作時（同一座疊上別的測試會設），工具列尾端多一顆 AI 鈕，顏色鈕之後就有可用的鈕、量不到本案要的情境。
+  // 這一頁把 AI 動作清單換成空的，工具列跟沒設 AI 動作的站台相同。
+  const { context, page } = await startColorNote(browser, "tab table", [], { viewport: WIDE }, (ctx) =>
+    ctx.route("**/api/ai/actions", (route) => route.fulfill({ json: { actions: [] } })),
+  );
   try {
     await pasteHtml(page, "<table><tr><td>cell one</td><td>cell two</td></tr></table>");
     const cells = editorLocator(page).locator("td");
@@ -991,7 +997,7 @@ test("C13 帶自訂行內色與 block 底色的段落複製貼上到另一份筆
     await expect(page).toHaveURL(/\/$/);
     const stamp = Date.now();
     await createNote(page, `E2E colors copy source ${stamp}`);
-    await pasteHtml(page, `<p data-background-color="${CUSTOM}">copy <span data-style-type="textColor" data-value="${CUSTOM}">me</span></p>`);
+    await pasteHtml(page, `<p data-background-color="${CUSTOM}">copy <span data-style-type="textColor" data-value="${CUSTOM}">me</span></p><p>tail</p>`);
 
     const probe = () =>
       editorLocator(page).evaluate((root, hex) => {
@@ -1007,10 +1013,20 @@ test("C13 帶自訂行內色與 block 底色的段落複製貼上到另一份筆
     const expected = { blockText: "copy me", blockBg: RGB_CUSTOM, spanText: "me", spanColor: RGB_CUSTOM };
     await expect.poll(probe, { timeout: 15_000 }).toEqual(expected);
 
-    // 用 Ctrl+A 選整個 block 再複製：選取只在一個 block 的文字裡時，BlockNote 只複製行內內容（內建色也一樣），
-    // block 的底色要整個 block 被選到才會跟著走。
+    // 選取只在一個 block 的文字裡時，BlockNote 只複製行內內容（內建色也一樣），block 的底色要選取跨到別的 block 才會跟著走。
+    // Ctrl+A 在這個編輯器是瀏覽器原生的全選，ProseMirror 讀回來是從第一段文字頭到最後一段文字尾的文字選取：只有一段時
+    // 仍在那一段裡，所以後面多放一段 tail。原生全選要等 selectionchange 才讀進編輯器，複製前先等選取真的跨了 block。
     await clickEndOfParagraph(page, paragraph(page, "copy me"));
     await page.keyboard.press("ControlOrMeta+a");
+    await expect
+      .poll(() =>
+        editorLocator(page).evaluate((el) => {
+          type Sel = { empty: boolean; $from: { sameParent(other: unknown): boolean }; $to: unknown };
+          const selection = (el as Element & { editor?: { view?: { state: { selection: Sel } } } }).editor?.view?.state.selection;
+          return selection ? !selection.empty && !selection.$from.sameParent(selection.$to) : null;
+        }),
+      )
+      .toBe(true);
     await page.keyboard.press("ControlOrMeta+c");
     const copied = await page.evaluate(async () => {
       const items = await navigator.clipboard.read();
