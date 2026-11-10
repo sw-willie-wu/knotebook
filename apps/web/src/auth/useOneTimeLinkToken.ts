@@ -10,7 +10,7 @@ function parseFragmentParam(hash: string, param: string): string | null {
 }
 
 /**
- * 一次性連結頁（#286 重設密碼、#285 邀請註冊）共用的 token 處理（#286 spec §3.2）：
+ * 一次性連結頁（#286 重設密碼、#285 邀請註冊）共用的 token 處理（#286）：
  * 1. token 在 fragment（`#<param>=…`），不送到 server、不進 log 與 Referer；第一次 render 就同步取得（fragment 或 storage），不等 effect；
  *    同一頁之後 fragment 換成新 token（貼新連結）時，render 期間改採新 token，不被舊的 `forget()` 擋住；
  * 2. 掛載時立刻以 react-router 的 `navigate(…, { replace: true })` 清掉 fragment。不用 `history.replaceState`：router 的

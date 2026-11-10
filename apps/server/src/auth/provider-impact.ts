@@ -4,16 +4,15 @@ import type { Db } from "../db/index.js";
 import { usableSsoExists } from "./sign-in-methods.js";
 
 /**
- * #187 §9.3：停用一個登入服務前的受影響人數（快照）。identity ↔ provider 一律以 effective issuer
- * ＝`coalesce(resolved_issuer, issuer_url)` **精確相等**對照（§4.1；與 `linkedEnabledProvidersWithIssuer` 同一形）——
+ * #187：停用一個登入服務前的受影響人數（快照）。identity ↔ provider 一律以 effective issuer
+ * ＝`coalesce(resolved_issuer, issuer_url)` **精確相等**對照（與 `linkedEnabledProvidersWithIssuer` 同一形）——
  * `resolved_issuer` 為 NULL 時可能對不上（尾斜線形），回應帶 `issuerResolved` 讓頁面說明「人數可能不準」。
  *
  * - linkedUsers：有 identity 對到本服務、且未停用的帳號（同一帳號只算一次）。
  * - lockedOutUsers：其中**無密碼**、且沒有任何 identity 對到「**其他**啟用中服務」（`p2.id <> 本服務`）的帳號。
- *   ⚠ 「其他服務」以 provider 計、不以 identity 計：兩個服務指向同一個 issuer 時，同一個 identity 也能經另一個登入（RF2；
- *   spec §9.3 寫「其他 identity」，見 plan spec 疑點 1）。
- * #187 PR3（W24）：「無密碼」＝`password_hash is null` **或**帳密登入開關的 DB 值為關（同 INV-7／B24，不看 env；讀不到列視同開）；
- * `actingAdminLockedOut`＝操作者有本服務的身分、且沒有任何身分對到「其他啟用中服務」（`usableSsoExists(…, 本服務)`，與 B19 P2 共用述詞），
+ *   ⚠ 「其他服務」以 provider 計、不以 identity 計：兩個服務指向同一個 issuer 時，同一個 identity 也能經另一個登入。
+ * #187：「無密碼」＝`password_hash is null` **或**帳密登入開關的 DB 值為關（同解除連結的判斷，不看 env；讀不到列視同開）；
+ * `actingAdminLockedOut`＝操作者有本服務的身分、且沒有任何身分對到「其他啟用中服務」（`usableSsoExists(…, 本服務)`，與防自鎖守衛共用述詞），
  * 同樣以 provider 計，不看本服務目前是否啟用（與 linkedUsers 一致）。公式只在這裡。
  */
 export async function providerImpact(db: Db, providerId: string, actorUserId: string): Promise<AdminAuthProviderImpactDto | null> {

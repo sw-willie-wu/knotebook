@@ -12,8 +12,8 @@ const PDto = { id: "p1", displayName: "GitLab", icon: null };
 /** 與 claims() 的 issuer 同一個 IdP 的 provider（本次登入必經它進來）。 */
 const SELF = (effectiveIssuer = "https://idp.example") => ({ id: "self", displayName: "IdP", icon: null, effectiveIssuer });
 
-describe("decideOidcLogin（#187 §7.4）", () => {
-  it("1. 身分命中 → login（不看自動建帳開關，W21；不看 email 列）", () => {
+describe("decideOidcLogin（#187）", () => {
+  it("1. 身分命中 → login（不看自動建帳開關；不看 email 列）", () => {
     expect(decideOidcLogin(claims(), row(), [row({ id: "x" }), row({ id: "y" })], false)).toEqual({ kind: "login", userId: "u1" });
   });
   it("1. 身分命中但停用 → account_disabled", () => {
@@ -53,7 +53,7 @@ describe("decideOidcLogin（#187 §7.4）", () => {
   it("4. B14：停用帳號在證明前仍回 confirm_link（不洩漏停用）", () => {
     expect(decideOidcLogin(claims(), null, [row({ disabledAt: new Date() })], true).kind).toBe("confirm_link");
   });
-  it("4.2 confirm_link 不看自動建帳開關（W21：沒有建新帳號）", () => {
+  it("4.2 confirm_link 不看自動建帳開關（沒有建新帳號）", () => {
     expect(decideOidcLogin(claims(), null, [row()], false).kind).toBe("confirm_link");
   });
   it("5. 無列、該服務沒開自動建帳 → registration_disabled", () => {

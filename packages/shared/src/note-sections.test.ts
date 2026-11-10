@@ -155,7 +155,7 @@ describe("canonicalize", () => {
   });
 });
 
-// ─────────── #93 T1／T2：textOf 迭代化（spec §4.1） ───────────
+// ─────────── #93 T1／T2：textOf 迭代化 ───────────
 /** 改動前的遞迴版 textOf，逐字保留當參考實作（T1 等價性的對照組）。 */
 function refTextOf(node: Y.XmlElement | Y.XmlText): string {
   if (node instanceof Y.XmlText) {
@@ -249,7 +249,7 @@ function randomDoc(seed: number): Y.Doc {
   return doc;
 }
 
-describe("#93 textOf 迭代化（spec §4.1）", () => {
+describe("#93 textOf 迭代化", () => {
   // 建鏈必須包在單一 doc.transact 裡：逐筆 insert 每次各開一個 transaction、收尾成本隨深度長，整條鏈是 O(n²)
   // （CI 上單這段同步跑 40–48 s；同步卡住 worker 超過 60 s 會讓 vitest 的 onTaskUpdate RPC 逾時 → Unhandled Error、exit 1）。
   // 單一 transaction 下 20 000 層本機實測約 20 ms，樹的形狀相同。
@@ -356,7 +356,7 @@ function makeRowDoc(top: Array<{ kind: "p" | "h"; id: string; text: string; leve
   return doc;
 }
 
-describe("並排列是頂層單位（spec §11.4）", () => {
+describe("並排列是頂層單位", () => {
   const row: RowSpec = { kind: "row", id: "r", cols: [[{ type: "paragraph", id: "a1", text: "甲乙" }], [{ type: "heading", id: "h", text: "欄內" }]] };
 
   it("NS1：topLevelContainers 依序收 blockContainer、columnList；不攤平欄內", () => {

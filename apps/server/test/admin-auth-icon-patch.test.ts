@@ -13,14 +13,14 @@ import type { FastifyInstance } from "fastify";
 const patch = (app: FastifyInstance, cookies: Record<string, string>, id: string, payload: object) =>
   app.inject({ method: "PATCH", url: `/api/admin/auth/providers/${id}`, cookies, payload });
 
-/** 已上傳狀態的 fixture（直寫 DB——PUT 在 Task 5；本 fixture 不是被測方）。 */
+/** 已上傳狀態的 fixture（直寫 DB；本 fixture 不是被測方）。 */
 async function seedUploaded(db: Db, template: "gitlab" | "google" | "oidc" = "oidc") {
   const p = await seedAuthProvider(db, { issuerUrl: `https://icon-${template}.example`, template, enabled: true });
   await db.update(authProviders).set({ iconKind: "upload", iconData: pngBytes(), iconMime: "image/png", iconVersion: 3 }).where(eq(authProviders.id, p.id));
   return p;
 }
 
-describe("PATCH /api/admin/auth/providers/:id 的 iconKind（spec §4.3、§8.1 S1／S5）", () => {
+describe("PATCH /api/admin/auth/providers/:id 的 iconKind", () => {
   it("S1：非管理員（真 session）403、未登入 401、管理員的有效 PAT 401；DB 不變", async () => {
     const { app, db, admin } = await adminApp();
     const p = await seedUploaded(db);
@@ -95,7 +95,7 @@ describe("PATCH /api/admin/auth/providers/:id 的 iconKind（spec §4.3、§8.1 
     expect(await providerRow(db, p.id)).toEqual(before);
   });
 
-  it("RF1：已上傳的服務送不帶 iconKind 的 PATCH（改顯示名、排序、停用）→ 圖示原封不動（kind／data／mime／version）", async () => {
+  it("已上傳的服務送不帶 iconKind 的 PATCH（改顯示名、排序、停用）→ 圖示原封不動（kind／data／mime／version）", async () => {
     const { app, db, cookies } = await adminApp();
     const p = await seedUploaded(db);
     for (const body of [{ displayName: "Renamed" }, { sortOrder: 9 }, { enabled: false }]) {
@@ -108,7 +108,7 @@ describe("PATCH /api/admin/auth/providers/:id 的 iconKind（spec §4.3、§8.1 
     }
   });
 
-  it("Q2：只帶 iconKind 的 PATCH 也排在 B27 站台設定鎖之後（holder 扮演另一個站台設定寫入者；被測 PATCH 真的在跑）", async () => {
+  it("只帶 iconKind 的 PATCH 也排在站台設定鎖之後（holder 扮演另一個站台設定寫入者；被測 PATCH 真的在跑）", async () => {
     const { app, db, cookies } = await adminApp();
     const p = await seedAuthProvider(db, { issuerUrl: "https://lock.example" });
     const [{ current_database: dbName }] = (await db.execute<{ current_database: string }>(sql`select current_database()`)).rows;

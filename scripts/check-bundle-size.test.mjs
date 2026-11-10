@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { BODY_SEARCH_MARKER, FOLDER_I18N_MARKER, MANAGEMENT_I18N_MARKERS, MAX_ENTRY_BYTES, SELECT_I18N_MARKER, SHORTCUTS_I18N_MARKER, VERSIONS_MARKERS, checkBundleSize } from './check-bundle-size.mjs';
 
-// 守 Willie 2026-10-26 裁定的數字（下面兩案明傳 700 * 1024 測判斷本身，與預設值無關）。
+// 守預設上限 750 KiB（理由見 check-bundle-size.mjs 的常數註解；下面兩案明傳 700 * 1024 測判斷本身，與預設值無關）。
 test('BS0 首包上限是 750 KiB', () => {
   assert.equal(MAX_ENTRY_BYTES, 750 * 1024);
 });
@@ -159,7 +159,7 @@ test('AdminSections chunk 不存在（被靜態 import 併回 entry）→ throw'
   }
 });
 
-// spec §11.4／起草裁定 2：版本歷史 UI（含 diff 套件）必須是自己的 lazy chunk
+// 版本歷史 UI（含 diff 套件）必須是自己的 lazy chunk
 test('VersionsLazy chunk 不存在（被靜態 import 併回 NotePage／entry）→ throw', () => {
   const { assets, cleanup } = fakeAssets({
     'index-Abc123.js': 100, 'NotePage-Def456.js': 10, 'mermaid.core-Ghi789.js': 10, 'shiki-Jkl012.js': 10,
@@ -197,7 +197,7 @@ test('TrashLazy chunk 不存在（兩個掛載點都改成靜態 import、整組
   }
 });
 
-// #181 PR-2c：一般 tab 選取模式必須是自己的 lazy chunk（SelectLazy 是唯一入口）
+// #181：一般 tab 選取模式必須是自己的 lazy chunk（SelectLazy 是唯一入口）
 test('BS1 SelectLazy chunk 不存在（整組併回 entry）→ throw', () => {
   const { assets, cleanup } = fakeAssets({
     'index-Abc123.js': 100, 'NotePage-Def456.js': 10, 'mermaid.core-Ghi789.js': 10, 'shiki-Jkl012.js': 10, 'AdminSections-Mno345.js': 10,
@@ -242,7 +242,7 @@ test('BS4 SELECT_I18N_MARKER 是 select.en.json 裡 select.* 的鍵', () => {
   assert.equal(typeof node, 'string', `select.${SELECT_I18N_MARKER} 不在 select.en.json——鍵改名了，請同步更新 SELECT_I18N_MARKER`);
 });
 
-// 資料夾 PR-3b：資料夾對話框必須是自己的 lazy chunk（FolderLazy 是唯一入口）
+// 資料夾：資料夾對話框必須是自己的 lazy chunk（FolderLazy 是唯一入口）
 test('BS-F1 FolderLazy chunk 不存在（整組併回 entry）→ throw', () => {
   const files = { ...MARKER_BASE, 'NotePage-Def456.js': 'x', 'VersionsLazy-Vvv000.js': 'x' };
   delete files['FolderLazy-Fff000.js'];
@@ -278,7 +278,7 @@ test('BS-F3 鍵名只在 FolderLazy 裡 → 通過、回傳 folderChunks', () =>
   }
 });
 
-// #93 PR2：側欄搜尋的內文區必須是自己的 lazy chunk（BodySearchLazy 是唯一入口，D18）
+// #93：側欄搜尋的內文區必須是自己的 lazy chunk（BodySearchLazy 是唯一入口）
 test('BS-B1 BodySearchLazy chunk 不存在（被靜態 import、整組併回 entry）→ throw', () => {
   const files = { ...MARKER_BASE, 'NotePage-Def456.js': 'x', 'VersionsLazy-Vvv000.js': 'x' };
   delete files['BodySearchLazy-Bbb000.js'];
@@ -328,7 +328,7 @@ test('BS-F4 FOLDER_I18N_MARKER 是 folders.en.json 裡 folderDialogs.* 的鍵', 
   assert.equal(typeof node, 'string', `folderDialogs.${FOLDER_I18N_MARKER} 不在 folders.en.json——鍵改名了，請同步更新 FOLDER_I18N_MARKER`);
 });
 
-// 快捷鍵介紹頁（PR-B）：清單、字串包、鍵面必須是自己的 lazy chunk（ShortcutsLazy 是唯一入口，ShortcutsDialog 的 lazy import）
+// 快捷鍵介紹頁：清單、字串包、鍵面必須是自己的 lazy chunk（ShortcutsLazy 是唯一入口，ShortcutsDialog 的 lazy import）
 test('BS-K1 ShortcutsLazy chunk 不存在（整組併回 entry）→ throw', () => {
   const files = { ...MARKER_BASE, 'NotePage-Def456.js': 'x', 'VersionsLazy-Vvv000.js': 'x' };
   delete files['ShortcutsLazy-Kkk000.js'];
@@ -450,7 +450,7 @@ test('reveal-viewport 字串只准在 PresentationOverlay-*.js：在 overlay 裡
   }
 });
 
-test('Q1：簡報 chunk 的靜態 import 閉包（含間接）碰到 shiki → throw；只有動態 import("./shiki-…") 不算', () => {
+test('簡報 chunk 的靜態 import 閉包（含間接）碰到 shiki → throw；只有動態 import("./shiki-…") 不算', () => {
   const base = {
     'index-Abc123.js': 100, 'NotePage-Def456.js': 10, 'mermaid.core-Ghi789.js': 10, 'AdminSections-Mno345.js': 10, 'VersionsLazy-Vvv000.js': 10,
     'shiki-Jkl012.js': 'export const s=1', 'bundle-full-Zz9.js': 'export const b=1', 'TrashLazy-Ttt000.js': 10,

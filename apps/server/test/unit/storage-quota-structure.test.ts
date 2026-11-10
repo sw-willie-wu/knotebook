@@ -1,19 +1,19 @@
 /**
- * 儲存配額的結構性守衛（spec 2026-10-08 §11.3）。剝註解後掃 `src/`（剝法同 s14-structure.test.ts 的 `code()`）。
+ * 儲存配額的結構性守衛。剝註解後掃 `src/`（剝法同 s14-structure.test.ts 的 `code()`）。
  * 誠實：字面掃描——改名重匯出、別名呼叫、經另一模組轉手等刻意規避守不到；行為面由 storage-quota-race.test.ts 的 R1／R13 守。
- *   ① `insert(uploads)` 只在 U-tx 與 T4（新增 uploads 列的路徑必須進白名單——§6.7）
+ *   ① `insert(uploads)` 只在 U-tx 與 T4（新增 uploads 列的路徑必須進白名單）
  *   ② `assertSpaceRoomInTx(` 呼叫形只在白名單四檔、各恰一次；delete-group.ts 那一次在 `transferGroupInTx` 函式體內；
- *      quota.ts 恰一次宣告形、0 次呼叫形；其他檔 0 次（Q-S1、Q-S3）
+ *      quota.ts 恰一次宣告形、0 次呼叫形；其他檔 0 次
  *   ③ `pg_advisory` 只在 quota.ts 與資料夾結構鎖 folders/tx/lock.ts（第二種 advisory 鎖；鍵前綴 `knotebook.folders:` 與容量鎖的
- *      `knotebook.storage:` 不同，不共用 key 空間——資料夾 spec 2026-10-22 §5.4）
- *   ④ quota.ts 取鎖那個 `tx.execute(` 呼叫不含 `sum(`；之後另有 SUM 查詢（M3：兩句）
+ *      `knotebook.storage:` 不同，不共用 key 空間）
+ *   ④ quota.ts 取鎖那個 `tx.execute(` 呼叫不含 `sum(`；之後另有 SUM 查詢（兩句）
  *   ⑤ 白名單檔裡 `assertSpaceRoomInTx(` 早於同函式的 `writeSlugInTx(`／`insertNoteWithAutoSlug(`（Q-S7 的字面守衛）
  *   ⑥ quota.ts、白名單四檔與其路由檔不出現 isolationLevel／setTransaction／set transaction（限定範圍：#93 的
- *      search-query.ts 合法使用 setTransaction——跨 spec I-1，所以不掃整個 src/）
+ *      search-query.ts 合法使用 setTransaction，所以不掃整個 src/）
  *   ⑦ HTTP 409 的訊息字面只在 storage/space.ts（STORAGE_QUOTA_EXCEEDED_MESSAGE）——errors.ts 的 helper 與
- *      StorageQuotaExceeded 都引用它；字面散在兩處時，改一處另一處就漂（PR1 review 擱置項）
+ *      StorageQuotaExceeded 都引用它；字面散在兩處時，改一處另一處就漂
  *   ⑧ `update(uploads)` 只在 notes/tx/move.ts、恰一次，且在 moveNoteToGroupInTx 內 `writeSlugInTx(…)` 整個呼叫結束之後、
- *      `recordRedirectsInTx(` 之前（#247 §9.2 rev 10：不在會隨撞 slug 重試重跑的 callback 裡；Part 4 Review Focus 1）
+ *      `recordRedirectsInTx(` 之前（#247：不在會隨撞 slug 重試重跑的 callback 裡）
  *   ⑨ 鎖等待上限不寫死數字：`(storage)lockTimeoutMs` 不接數字字面、`lock_timeout` 不設數字或 `'<n>ms'` 字面；唯一的數字是 quota.ts 的
  *      `DEFAULT_STORAGE_LOCK_TIMEOUT_MS = 5000`。注入值有生效的整合測試（lock-timeout-bound.ts 那一族）只抓得到「落回這個常數」，
  *      寫死別的數字它們分不出來——由這條補上。
@@ -68,7 +68,7 @@ const WHITELIST = ["uploads/tx/insert-upload.ts", "notes/tx/copy.ts", "notes/tx/
 const CALL = /(?<!function\s+)\bassertSpaceRoomInTx\(/g;
 const DECL = /\bfunction\s+assertSpaceRoomInTx\(/g;
 
-describe("儲存配額結構性守衛（spec §11.3）", () => {
+describe("儲存配額結構性守衛", () => {
   const files = walk(SRC);
 
   it("① insert(uploads) 只在 uploads/tx/insert-upload.ts 與 notes/tx/copy.ts", () => {
@@ -140,7 +140,7 @@ describe("儲存配額結構性守衛（spec §11.3）", () => {
     expect(at("http/errors.ts")).toContain("STORAGE_QUOTA_EXCEEDED_MESSAGE");
   });
 
-  it("⑧ update(uploads) 只在 notes/tx/move.ts 恰一次，位在 writeSlugInTx(…) 呼叫之後、recordRedirectsInTx( 之前（#247 §9.2）", () => {
+  it("⑧ update(uploads) 只在 notes/tx/move.ts 恰一次，位在 writeSlugInTx(…) 呼叫之後、recordRedirectsInTx( 之前（#247）", () => {
     const hits = files.filter(p => /\.update\(\s*uploads\s*\)/.test(code(p))).map(rel).sort();
     expect(hits).toEqual(["notes/tx/move.ts"]);
     const src = at("notes/tx/move.ts");

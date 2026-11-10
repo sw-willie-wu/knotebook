@@ -1,6 +1,6 @@
 /**
- * 資料夾的可見性與清單（spec docs/superpowers/specs/2026-10-22-folders-design.md §5.5、§5.11）。可見性與權限只有一個推導：
- * `folderAccessOf`（交易外的 `folderAccessFromRow` 與交易內的 `folderAccessInTx` 都經它）。看不到與不存在同形（null，AG-F3）。
+ * 資料夾的可見性與清單。可見性與權限只有一個推導：
+ * `folderAccessOf`（交易外的 `folderAccessFromRow` 與交易內的 `folderAccessInTx` 都經它）。看不到與不存在同形（null）。
  */
 import { and, asc, eq, inArray, isNotNull, or, sql, type SQL } from "drizzle-orm";
 import type { FolderDto, FolderPermissionsDto } from "@knotebook/shared";
@@ -61,7 +61,7 @@ export function folderAccessFromRow(row: FolderAccessRow | undefined, userId: st
   return folderAccessOf(row.folder, flags, userId);
 }
 
-/** 非 UUID → null；看不到 → null（與不存在同形，AG-F3）。 */
+/** 非 UUID → null；看不到 → null（與不存在同形）。 */
 export async function resolveFolderAccess(db: DbOrTx, userId: string, folderId: string): Promise<FolderAccess | null> {
   if (!UUID_RE.test(folderId)) return null;
   const [row] = await folderAccessQuery(db, userId, folderId.toLowerCase());
@@ -119,7 +119,7 @@ export const FOLDER_KINDS: readonly FolderKind[] = ["group", "personal", "shared
 export interface FolderPageKey { kind: FolderKind; spaceId: string; id: string }
 
 /**
- * 資料夾 PR-3d：MCP `list_folders` 的分頁清單。可見性與 `listVisibleFolders` 同一個述詞（`visibleFolderWhere`），
+ * 資料夾：MCP `list_folders` 的分頁清單。可見性與 `listVisibleFolders` 同一個述詞（`visibleFolderWhere`），
  * keyset `(kind, coalesce(group_id, owner_id), id) > (游標)` 升序（ORDER BY 同三欄、同順序），`.limit(limit + 1)`；
  * 可選 `groupId`（`folders.group_id = $g`）與 `ids`。每列帶 `path`（根 → 葉；外層欄寫帶表名字面 `"folders"."id"`）與 `groupName`。
  * SQL 的篩選與 `folderAccessOf` 不一致 → throw（同 `listVisibleFolders` 的紀律）。

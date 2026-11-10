@@ -221,7 +221,7 @@ describe("共編 undo/redo 生命線（issue #97）", () => {
 /**
  * issue #100：撤到空白文件之後 redo 失效。
  *
- * 機制（jsdom 完整重現，與真瀏覽器探針序列逐格吻合）：undo 讓 fragment 變空 →
+ * 機制（jsdom 完整重現，與真瀏覽器的序列逐格吻合）：undo 讓 fragment 變空 →
  * BlockNote/PM 正規化補回空段落 → y-prosemirror sync plugin 的 `view.update` 在
  * **下一筆任意 PM transaction** 觸發時，以 `ySyncPluginKey`（＝使用者編輯共用的
  * origin）把正規化寫回 Y.Doc → `UndoManager` 當成新編輯 → `clear(false, true)`
@@ -318,13 +318,13 @@ describe("撤到空白文件後的 redo（issue #100）", () => {
 });
 
 /**
- * issue #100 修法的迴歸邊界（審查 C1，兩形在 main 上本來是好的，第一版修法弄壞過）：
+ * issue #100 修法的迴歸邊界（兩形在 main 上本來是好的，第一版修法弄壞過）：
  * 「殘渣」的鑑別不能用「長得像預設空文件」——那個結構可能是 redo 項目的**活 parent**
  * （yjs 的 redoItem 對已刪除且不在 redo 集合裡的 parent 直接回 null，redo 整疊 pop 光、
  * 什麼都沒恢復）。只有「這個 session 剛拒捕的那筆正規化、且之後沒有任何編輯沾過它」
  * 才可以清。
  */
-describe("殘渣鑑別不得誤刪活 baseline（issue #100 審查 C1）", () => {
+describe("殘渣鑑別不得誤刪活 baseline（#100）", () => {
   function triggerWriteback(editor: AnyEditor): void {
     act(() => { const view = editor._tiptapEditor.view; view.dispatch(view.state.tr); });
   }
@@ -372,12 +372,12 @@ describe("殘渣鑑別不得誤刪活 baseline（issue #100 審查 C1）", () =>
 });
 
 /**
- * 判別式各條腿的釘子（審查 I1：突變測試曾發現 origin 與 deleteSet 兩條腿沒有任何
+ * 判別式各條腿的釘子（突變測試曾發現 origin 與 deleteSet 兩條腿沒有任何
  * 測試守著）。自然流程打不到這兩條腿（使用者情境都被其他條件先擋下），所以用
  * **合成 transaction** 直接打：判別式對 origin 只比對 `key === "y-sync$"` 字串，
  * 測試可以用假物件當 origin。
  */
-describe("判別式的腿各自有守（issue #100 審查 I1）", () => {
+describe("判別式的腿各自有守（#100）", () => {
   function triggerWriteback(editor: AnyEditor): void {
     act(() => { const view = editor._tiptapEditor.view; view.dispatch(view.state.tr); });
   }
@@ -442,7 +442,7 @@ describe("判別式的腿各自有守（issue #100 審查 I1）", () => {
   });
 
   // ⚠ 這條實際被釘住的是「作廢分支」（清殘渣與 redo 的 transaction 流經 captureTransaction
-  // 就把記錄清掉），不是 redo wrapper 末尾那行 null——那行是縱深防禦（審查二 I2）。
+  // 就把記錄清掉），不是 redo wrapper 末尾那行 null——那行是縱深防禦。
   it("殘渣記錄用過即棄：redo 一次之後，同一顆節點不會被第二次 redo 誤刪", () => {
     const { doc, editor } = collabEditor();
     render(<NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />);
@@ -461,14 +461,14 @@ describe("判別式的腿各自有守（issue #100 審查 I1）", () => {
 });
 
 /**
- * 死窗口加固（第二輪審查 I1）：作廢不變量「captureTransaction 看得到每一筆」的前提
+ * 死窗口加固：作廢不變量「captureTransaction 看得到每一筆」的前提
  * 是 manager 訂閱著 afterTransaction——而 #97 的病灶正是這條訂閱會在 view 重掛被拆。
  * 訂閱死掉期間遠端更新「就地沾染」殘渣節點的話，identity 比對擋不住（節點沒被換掉），
  * re-arm 後 redo 會把遠端內容連著殘渣一起刪掉（非 tracked origin、undo 救不回、會廣播）。
  * 加固：**re-arm 一律作廢殘渣記錄**（re-arm＝可能存在過死窗口），劣化方向是已
  * 文件化的「平行空 block」，fail-safe。
  */
-describe("死窗口後 re-arm 作廢殘渣記錄（issue #100 審查二 I1）", () => {
+describe("死窗口後 re-arm 作廢殘渣記錄（issue #100）", () => {
   it("訂閱死掉期間遠端寫入殘渣段落 → re-arm → redo 不得刪掉遠端內容", () => {
     const { doc, editor } = collabEditor();
     const { rerender } = render(

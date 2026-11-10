@@ -1,16 +1,15 @@
 /**
- * #108 PR1 Task 5：回應大小的兩道門檻（規格 §14.2 案 11b／11c、不變量 M16）。
+ * #108：回應大小的兩道門檻（案 11b／11c）。
  *
  * 兩個數字是**兩件不同的事**，不要混：
  * - {@link N_LIST_MAX} 管 **`tools/list` 的脈絡成本**（所有工具的 input／output schema 全部
  *   進模型脈絡，「schema 慢慢變胖」需要有東西擋）。它是**測試門檻**，不是生產常數，所以
  *   不進 `src/`。
- * - {@link MCP_MAX_WIRE} 是 §8.1 的 `N`，管**單次 `tools/call` 的回應**。它是**哨兵不是
+ * - {@link MCP_MAX_WIRE} 是 `N`，管**單次 `tools/call` 的回應**。它是**哨兵不是
  *   目標值**：破了代表 `mcp/limits.ts` 那張表的某一列漏接，正確處置是回頭查那一列，
  *   **不是調大 N**。
  *
- * ⚠ 量的一律是 **wire 回應**（`res.body.length`，UTF-16 code unit），不是 payload：D11 的
- * 鏡像讓同一份 payload 在回應裡出現兩次（第二次還被 JSON 逃脫），`wire ≈ 2.1 × payload`。
+ * ⚠ 量的一律是 **wire 回應**（`res.body.length`，UTF-16 code unit），不是 payload：鏡像讓同一份 payload 在回應裡出現兩次（第二次還被 JSON 逃脫），`wire ≈ 2.1 × payload`。
  * `tools/list` 那一發還含 SDK 自產的 `"execution":{"taskSupport":"forbidden"}` 與兩份 schema
  * 各自的 `"$schema"` 行——量整個 body 才算得到真正進脈絡的成本。
  *
@@ -45,7 +44,7 @@ import type { FastifyInstance } from "fastify";
 const PASSWORD = "correct-horse-battery";
 
 /**
- * §8.1 的 `N`：一次 `tools/call` 的 wire 回應上限（UTF-16 code unit）。與
+ * `N`：一次 `tools/call` 的 wire 回應上限（UTF-16 code unit）。與
  * `POST /api/notes/:id/edits` 的 `bodyLimit` 同一個數字——請求進得來多大，回應就不該更大。
  */
 export const MCP_MAX_WIRE = 262_144;
@@ -53,130 +52,40 @@ export const MCP_MAX_WIRE = 262_144;
 /**
  * `tools/list` 的 wire 回應上限（UTF-16 code unit）。
  *
- * **怎麼來的**（Task 5，2026-09-09 實測，**讀寫憑證、六支工具**——PR2 起讀寫憑證才是最壞
- * 情形，唯讀憑證只當對照）：當時實測 **15 362**（唯讀憑證四支對照組 9479，與 PR1 量到的
- * 數字相同）→ 向上取整到 1024 的倍數＝16 384 → ×1.3 ＝ 21 299.2 → 進位 **21 300**。1.3 是
- * 「schema 與 `.describe()` 正常增修」的餘地，形狀比照 `scripts/check-bundle-size.mjs` 的
- * `MAX_ENTRY_BYTES`；`edit_note`／`create_note` 兩支的 input／output schema 一起進脈絡，
- * 是這條線從 PR1 的 13 312 破線 2050 的直接原因。
+ * **怎麼訂**：量「最壞情形」的憑證（讀寫搬移刪除憑證，註冊的工具最多）的 `tools/list` wire ＝ W，
+ * 向上取整到 1024 的倍數，再 ×1.3（「schema 與 `.describe()` 正常增修」的餘地），進位到百位。
+ * 形狀比照 `scripts/check-bundle-size.mjs` 的 `MAX_ENTRY_BYTES`。
  *
- * **基線：2026-10-08 實測（#93），讀寫憑證六支 wire ＝ 20 312**（#93 的 +1 360 來自 search_notes 的 output schema 多了每篇
- * matchedOn／matches 與頂層 matchesTruncated（含 `.describe()`）、description 改寫、`query` 的說明；唯讀憑證四支對照組 12 459）。
- * #93 與 #200 先合的那支依自身實測設定 N_LIST_MAX；#93 先合、20 312 未破 21 300，所以 #93 合併時門檻不動（spec §8.7 的合併順序規則）；
- * 後合的 #200 PR1 在 main 之上重量、依原配方重訂（下段）。
+ * **目前的基線**（#417 實測）：讀寫搬移刪除憑證二十支 wire ＝ 63 199（門檻 78 600 的 80.4%）；對照組：讀寫刪除十九支 59 786、
+ * 讀寫搬移十七支 56 109、讀寫十六支 52 696、唯讀九支 26 534。照配方重推是 63 488 × 1.3 ＝ 82 534.4 → 82 600，
+ * 但規則是破了才重訂：門檻不動，直到真的有工具或 schema 讓某個憑證的 wire 破線。重訂時回頭把「為什麼增加」
+ * 查清楚，連同推導一起更新這段，不是逕自調大。案 11b 每次跑都 `console.log` 印出當下的值，對照組與百分比
+ * 刻意不抄在別處。
  *
- * **#200 PR1（2026-10-08，在 main @ 7e20a5e 之上實測，#93 PR1 已合）：讀寫憑證七支 wire ＝ 21 976**（相對 #93 基線 20 312 的
- * +1 664 來自 create_transfer_token 的 description、input／output schema，含終審把 purpose 的 `.describe()` 改成
- * 「stores … then reference it with edit_note」的 +38；唯讀憑證五支對照組 13 954）。依原配方（向上取整到
- * 1024 的倍數 ×1.3）重訂：22 528 × 1.3 ＝ 29 286.4 → 29 300。
- *
- * **#222（2026-10-08，在 main @ 0aec79b 之上實測，#200 PR1 已合）：讀寫憑證七支 wire ＝ 22 388**（+412 來自 edit_note／
- * create_note／read_note_section 的顏色敘述；唯讀憑證五支對照組 14 041）。依同一配方重推仍是 22 528 × 1.3 → 29 300，門檻不動。
- *
- * **#180＋#200 PR2（2026-10-10，整合分支，main 含 #236）：讀寫憑證十支 wire ＝ 29 437**（相對 #222 基線 22 388 的 +7 049：
- * #180 的 rename／move／copy／create_note 改鍵名 ＋5 707（spec 預估 +5 707；I-4 整合點量到 28 095）、#200 的 read_note_image 與
- * read_note_section 一句 ＋1 342（spec 預估 +1 392；唯讀憑證那邊同樣多 1 342）；唯讀憑證六支對照組 15 383）。實測比 spec §8 預期的 29 487
- * 少 50（#200 那一段預估 +1 392、實測 +1 342；#180 那一段與預估吻合）。這 −50 的原因：spec 的量測腳本給 `read_note_image` outputSchema 的 `noteId` 多掛了一句 `.describe`（+52），實碼的 `UPLOAD_ID_RE` 多一組捕獲括號（+2）；模型面字串與 spec 一致。已破 29 300，依原配方（向上取整到 1024 的倍數 ×1.3）重訂：29 696 × 1.3 ＝ 38 604.8 → 38 700。
- *
- * 之前：#177 後 18 952（2026-10-07；#177 的 +294 來自群組 `owner` 多了 `name` 的 `maxLength` 與 `nameTruncated`（四份 outputSchema 各展開一次）、heading `.describe()` 加 ` as written in JSON`（+19 × 兩支）；#175 PR5 後 18 658、#175 PR1 後 18 105、PR2／PR3 後
- * 18 144；#175 之前為 16 774，#145 時記為 16 763）。PR5 的 +Δ 來自 `create_note` 的 `groupId` 欄
- * （`.describe()`＋`format`）、description 首句與兩處 edit_note 限定、`title` 片語。PR1 的 +1 331 來自
- * `owner` 判別聯合（`{kind:"user"…}｜{kind:"group"…}`）的 JSON
- * Schema 在 list_notes／search_notes／create_note／read_note_outline 四份 outputSchema 各展開一次（加上
- * `list_notes` description 變長）。⚠ 上面那個 15 362 在 #148
- * （改寫模型面敘述那一輪）之後就過期了，而這段註解當時沒跟上——別再拿它去論證餘裕。對照組、
- * 百分比刻意不抄在這裡：案 11b 每次跑都 `console.log` 印出當下的值（剩餘字元一減就有）。
- *
- * Task 5 複量（2026-10-10，rebase 到 main @ f3017a7 之後）：讀寫憑證十支 W' ＝ 29 437（唯讀六支對照組 15 383），與整合分支上的實測相同；
- * 依原配方重推仍是 29 696 × 1.3 ＝ 38 604.8 → 38 700，門檻不動。
- *
- * **#239（2026-10-11，feat/239-notes-move-scope，Task 2 的改動（Task 1 之上））：被測改讀寫搬移憑證**（`move_note_to_group` 只在
- * notes:move 時註冊，讀寫憑證的 `copy_note` 換短版說明）。實測讀寫搬移十支 wire ＝ 29 437（與 #180＋#200 PR2 的讀寫十支同值——集合與字串皆同）、
- * 讀寫九支對照組 26 930、唯讀六支對照組 15 383。最壞情形仍是 29 437，依原配方重推 29 696 × 1.3 ＝ 38 604.8 → 38 700，門檻不動。
- * 合流複量（2026-10-11，rebase 到 main @ 666dbd6——#241 全面 `.strict()` 之後）：三個數字逐一相同（29 437／26 930／15 383），門檻不動。
- *
- * **並排 PR-2 Task 10（2026-10-26，feat/columns-rw @ 21215f8 之上實測）**：改動前讀寫搬移十支 wire ＝ 30 437（讀寫九支 27 930、
- * 唯讀六支 15 710——比 #239 那次各多 1 000、1 000、327，是 #239 之後到本次改動前累積的、本段之前沒記），改動後 **31 504**（讀寫九支 28 997、唯讀六支 15 958；
- * 審查 r1 前是 31 472，r1 把 read_note_section 圖片句改成舉例寫法 +32）。
- * +1 067 來自 `edit_note` 的 markdown `.describe()` 加並排與尺寸兩句、`create_note` content 一句改寫、`read_note_section` 的圖片句與
- * markdown `.describe()` 改寫（後兩者唯讀憑證也有，+248）。未破 38 700，門檻不動（照配方重推會是 31 744 × 1.3 ＝ 41 267.2 → 41 300，
- * 但規則是破了才重訂）。並排 PR-2 與 #181 PR-2d 是平行分支，各自量的是自己那一邊；兩邊合流後的數字見下方「合流複量」。
- *
- * **#181 PR-2d（2026-10-26，feat/trash-mcp，T5 之上）：被測改讀寫搬移刪除憑證**（`delete_note`／`restore_note` 只在 notes:delete
- * 時註冊；`list_trash` 任何憑證都有）。實測讀寫搬移刪除十三支 wire ＝ **37 125**（現行門檻 38 700 的 95.9%）；對照組：讀寫刪除十二支
- * 34 618、讀寫搬移十一支 32 998、讀寫十支 30 491、唯讀七支 18 271（相對 #239 的 29 437／26 930／15 383：list_trash 讓每一組各多一支，
- * 兩支新工具讓 RWM → RWMD 再多 4 127）。依原配方重訂：37 125 向上取整到 1024 的倍數＝37 888 → ×1.3 ＝ 49 254.4 → 進位 **49 300**。
- *
- * **合流複量（2026-10-29，main @ 3922479（含 #181 PR-2d）合進 feat/columns-rw @ ff60929 之後實測）**：讀寫搬移刪除十三支 wire ＝ **38 192**
- * （門檻 49 300 的 77.5%）；對照組：讀寫刪除十二支 35 685、讀寫搬移十一支 34 065、讀寫十支 31 558、唯讀七支 18 519。相對 #181 PR-2d 的五個數字
- * 各多 1 067、1 067、1 067、1 067、248——恰好是並排 PR-2 Task 10 那段量到的增量（唯讀那組只吃 read_note_section 的兩處），兩邊的字串互不重疊。
- * 未破 49 300，門檻不動（照配方重推會是 38 912 × 1.3 ＝ 50 585.6 → 50 600，但規則是破了才重訂）；下方 #181 PR-2d 突變追記的
- * 「+12 275 → 49 400」是以 37 125 為基線，現在要撞牆得加長 `N_LIST_MAX − W + 100` ＝ 11 208（舊數字不得沿用）。
- *
- * **#folders PR-3d T6（2026-10-29，feat/folders-mcp，T5 之上）：讀寫搬移刪除憑證十七支**（T2 起 `noteSummarySchema` 多 `folder`、T3 `list_notes` 多
- * `pageCutShort`、T4 `list_trash` 多 `cursor`／`folderPath` 等欄、T5 加 `list_folders`、T6 加 `create_folder`／`rename_folder`／`move_folder`）。
- * 實測讀寫搬移刪除十七支 wire ＝ **52 043**（舊門檻 49 300 的 105.6%，破線，照 plan 讀碼發現 24 當場重訂）；對照組：讀寫刪除十六支 49 089、
- * 讀寫搬移十五支 47 338、讀寫十四支 44 384、唯讀八支 24 004（T5 後十四支是 44 777，三支資料夾寫入工具＋共用的 folder schema 讓它多 7 266）。
- * 依原配方重訂：52 043 向上取整到 1024 的倍數＝52 224 → ×1.3 ＝ 67 891.2 → 進位 **67 900**。T7（`move_note_to_folder` 與三支 `folder_id`）、
- * T8（`delete_folder`）還會再加；T9 做最後一次重訂與棚內突變。
- *
- * **#folders PR-3d（2026-10-30，feat/folders-mcp，T8 之上；定稿）：讀寫搬移刪除憑證十九支 wire ＝ 58 728**（舊門檻 67 900 的 86.5%）；對照組：
- * 讀寫刪除十八支 55 315、讀寫搬移十六支 51 638、讀寫十五支 48 225、唯讀八支 24 004。T6 之後的中間值：T7 後 RWMD 十八支 56 343、T8 後 58 728
- * （都在 67 900 內，當時沒有重訂；T9 只改 `instructions`，它不在 `tools/list` 裡，W 不變）。依原配方定稿：58 728 向上取整到 1024 的倍數＝59 392
- * → ×1.3 ＝ 77 209.6 → 進位 **77 300**。資料夾整條線（main 的 49 300 → 77 300）的增量來自六支新工具與既有工具新增的欄位（`folder`、`pageCutShort`、`list_trash` 的 `cursor`／`folderPath` 等，見 T6 段）。
- *
- * **合流複量（2026-10-30，origin/feat/folders @ 7802370——已含 main 的並排 PR-2（#343）——合進 feat/folders-mcp @ 3be6743 之後實測；PR-3d 定稿改以此為準）**：
- * 讀寫搬移刪除十九支 wire ＝ **59 795**；對照組：讀寫刪除十八支 56 382、讀寫搬移十六支 52 705、讀寫十五支 49 292、唯讀八支 24 252。相對上段
- * PR-3d 定稿的五個數字各多 1 067、1 067、1 067、1 067、248——恰好是並排 PR-2 Task 10 那段量到的增量（`edit_note` markdown `.describe()` 的
- * 並排與尺寸兩句、`create_note` content 一句改寫、`read_note_section` 的圖片句與 markdown `.describe()` 改寫；唯讀那組只吃 read_note_section 的兩處），
- * 與資料夾的字串互不重疊（上面 PR-3d T6、定稿兩段是在還沒有並排字串的分支上量的）。PR-3d 定稿本來就是照最終 W 重推，所以合流後照同一配方重推：
- * 59 795 向上取整到 1024 的倍數＝60 416（越過了上段的 59 392）→ ×1.3 ＝ 78 540.8 → 進位 **78 600**。
- *
- * **bulk transfer PR-1／PR-2／PR-3（2026-11-03，feat/bulk-transfer；PR-2 T12 量、PR-3 T4 在 feat/bulk-transfer-pr3〔基 78df5d0、T3 定稿之後〕複量同值）：
- * 讀寫搬移刪除憑證二十支 wire ＝ 62 353**（門檻 78 600 的 79.3%）；對照組：讀寫刪除十九支 58 940、讀寫搬移十七支 55 263、讀寫十六支 51 850、
- * 唯讀九支 26 346。PR-1 加 `create_bulk_transfer_token`（有 collab 的 token 路徑每一組多一支），PR-2 讓它的 description 與輸出依 `notes:write`
- * 二選一；PR-3 改的 RW `next`（503 句、T7 回補的新增檔 front matter 一句與「usually」；只在工具回應裡）與 `instructions` 第一句
- * （`initialize` 的回應）都不在 `tools/list`，W 不變——`create_bulk_transfer_token` 的回應 wire 8 846 → 9 202（案 11c，餘裕 ×28.5）。未破 78 600，門檻不動（照配方重推會是 62 464 × 1.3 ＝ 81 203.2 → 81 300，
- * 但規則是破了才重訂）。現在要撞牆得加長 `N_LIST_MAX − W + 100` ＝ 16 347（上方各段的舊差額不得沿用）。
- *
- * 最近一次依原配方重訂：2026-10-30（#folders PR-3d 與 feat/folders 合流後定稿，見上；之前 2026-10-30 PR-3d 定稿 77 300、2026-10-29 PR-3d T6、2026-10-26 #181 PR-2d）；下次逼近時同樣回頭重訂連同推導，不是逕自調大。
- *
- * **什麼樣的迴歸會撞牆**（**突變實跑，2026-09-09**）：把 `edit_note` 的 `if_match`
- * 欄位 `.describe()` 加長 6000 字元（`"x".repeat(6000)` 接在句尾）→ wire 變成 **21 362**，
- * 紅（`expected 21362 to be less than or equal to 21300`）；已 revert。這條迴歸只是拿來驗證
- * 餘裕確實存在、且沒有 D11 那種鏡像效應（`tools/list` 的 schema 只進脈絡一份，加長多少 wire
- * 就多長多少，不是 ×2.1）。撞牆時**先問「這段字非進 schema 不可嗎」**：`tools/list` 的每一個
- * 位元組每一次連線都進模型脈絡，而 `instructions` 與 `docs/mcp.md` 是更便宜的落點。
- * #200 PR1 追記（**突變實跑，2026-10-08**，門檻 28 000、基線 20 578）：同一條 +6000 的迴歸現在是 **26 578、不再撞牆**
- * （餘裕變大是重訂門檻的直接結果）；加長 7500 → **28 078**，紅（`expected 28078 to be less than or equal to 28000`）。
- * #180＋#200 PR2 追記（**突變實跑，2026-10-10**，門檻 38 700、基線 29 437；舊數字不得沿用，spec §8）：同一條 +6000 的迴歸現在是 **35 437、不再撞牆**
- * （用掉 91.6%）；要撞牆得加長 `N_LIST_MAX − W + 100` ＝ 9 363 → **38 800**，紅（`expected 38800 to be less than or equal to 38700`）。
- * 兩發都已 revert（棚內突變，md5 還原確認）。
- * #181 PR-2d 追記（**突變實跑，2026-10-26**，門檻 49 300、基線 37 125）：把 `delete_note` 的 description 加長
- * `N_LIST_MAX − W + 100` ＝ 12 275 字元（`x`，接在句尾）→ **49 400**，紅（`expected 49400 to be less than or equal to 49300`）；已 revert（棚內突變，md5 還原確認）。
- * #folders PR-3d 定稿追記（**突變實跑，2026-10-30**，門檻 77 300、基線 58 728）：把 `delete_folder` 的 description 加長
- * `N_LIST_MAX − W + 100` ＝ 18 672 字元（`x`，接在句尾）→ **77 400**，紅（`expected 77400 to be less than or equal to 77300`）；已 revert（棚內突變，md5 還原確認）。
- * 合流定稿追記（**突變實跑，2026-10-30**，門檻 78 600、基線 59 795；上一條的數字不得沿用）：同樣把 `delete_folder` 的 description 加長
- * `N_LIST_MAX − W + 100` ＝ 18 905 字元（`x`，接在句尾）→ **78 700**，紅（`expected 78700 to be less than or equal to 78600`）；已 revert（棚內突變，md5 還原確認）。
+ * **什麼樣的迴歸會撞牆**：任何一支工具的 description 或 schema 加長 `N_LIST_MAX − W + 100` ＝ 15 501 字元
+ * （接在句尾）就會紅（`expected … to be less than or equal to 78600`）。`tools/list` 的 schema 只進脈絡一份，
+ * 加長多少 wire 就多長多少，不是 ×2.1 的鏡像效應。撞牆時**先問「這段字非進 schema 不可嗎」**：
+ * `tools/list` 的每一個位元組每一次連線都進模型脈絡，而 `instructions` 與 `docs/mcp.md` 是更便宜的落點。
+ * 另一個提醒：`open_notes_as_files` 的回應 wire 是 10 296（案 11c，餘裕 ×25.5；#417 實測）。
  */
 export const N_LIST_MAX = 78_600;
 
 /**
- * 案 (vii) 第一發（#181 `list_trash` 最壞形）的下界哨兵。2026-10-26 實測 **236 598**（群組名 80 個 `"`；第二發 67＋13 形 247 498；
+ * 案 (vii) 第一發（#181 `list_trash` 最壞形）的下界哨兵。實測 **236 598**（群組名 80 個 `"`；第二發 67＋13 形 247 498；
  * 恰好 100 篇時 `truncated:false` 比 `true` 多 1 字元、鏡像兩份再多 2 → **247 500**，餘裕 ×1.06，剩 14 644）。落到 230 000 以下代表
  * 測資沒造滿（刪除者或群組沒帶上、標題沒截到逃脫後 200），或 `truncateText` 截得比「逃脫後 200」還兇——回頭查 fixture，不要改這個數字遷就（用意同 MIN_WORST_GROUP_WIRE）。
- * 資料夾 PR-3d T4 起 `list_trash` 依預算截頁、每項另帶 `folderPath`（(vii) 每篇放在最壞的五層路徑），單頁不會再超過預算，所以改量
+ * 資料夾功能加入後 `list_trash` 依預算截頁、每項另帶 `folderPath`（(vii) 每篇放在最壞的五層路徑），單頁不會再超過預算，所以改量
  * 「全部頁的 items 逐項 `wireCost` 合計」：101 項約 3 761 × 101 ≈ 38 萬，遠高於 230 000；低於它代表 fixture 沒造滿（同上）。
  */
 const MIN_WORST_TRASH_WIRE = 230_000;
 
 /**
- * 案 (iv) 第一發（#177 之後的群組形最壞情形）的下界哨兵。2026-10-07 實測 **247 056**（餘裕 ×1.06，剩 15 088）；
+ * 案 (iv) 第一發（#177 之後的群組形最壞情形）的下界哨兵。實測 **247 056**（餘裕 ×1.06，剩 15 088）；
  * #177 之前同一欄位配置的合規形（標題 200 個 ASCII、群組名 80 個 `"`）是 211 556。落到 240 000 以下代表測資沒造滿，
  * 或 `truncateText` 截得比「逃脫後 200」還兇（例如把預算算成兩份逃脫）——回頭查，不要改這個數字遷就。
- * 資料夾 PR-3d T3 起 `list_notes` 依 wire 預算（`MCP_LIST_WIRE_BUDGET` 240 000）截頁，單頁回應不會再超過預算，所以改量
+ * 資料夾功能加入後 `list_notes` 依 wire 預算（`MCP_LIST_WIRE_BUDGET` 240 000）截頁，單頁回應不會再超過預算，所以改量
  * 「合併所有頁的 `notes` 後 `wireCost({ notes, nextCursor: null })`」（鏡像兩份、不含 JSON-RPC 信封）：100 篇加上 `folder: null`
- * 後預估約 25 萬（T2 單頁實測 250 056 含信封）。它仍是「fixture 夠壞」的證明——低於 240 000 就代表不截頁也放得下，(iv) 便量不到截頁。
+ * 後預估約 25 萬（單頁實測 250 056 含信封）。它仍是「fixture 夠壞」的證明——低於 240 000 就代表不截頁也放得下，(iv) 便量不到截頁。
  */
 const MIN_WORST_GROUP_WIRE = 240_000;
 
@@ -198,7 +107,7 @@ async function callWire(
   return (await callWireResult(app, token, label, name, args)).wire;
 }
 
-/** 同 {@link callWire}，另回 `structuredContent`（資料夾 PR-3d (viii) 要對回應內容下斷言）。 */
+/** 同 {@link callWire}，另回 `structuredContent`（資料夾 (viii) 要對回應內容下斷言）。 */
 async function callWireResult<T = Record<string, unknown>>(
   app: FastifyInstance,
   token: string,
@@ -218,12 +127,12 @@ async function callWireResult<T = Record<string, unknown>>(
   return { wire, sc: result.structuredContent };
 }
 
-/** 一項在清單裡的 wire 成本（鏡像兩份＋兩個逗號；plan 讀碼發現 3 的計法）。 */
+/** 一項在清單裡的 wire 成本（鏡像兩份＋兩個逗號）。 */
 const itemWire = (v: unknown): number => wireCost(v) + 2;
 
 type ListNotesPage = { notes: Array<Record<string, unknown> & { id: string; updatedAt: string }>; nextCursor: string | null; pageCutShort?: true };
 
-/** 資料夾 PR-3d T3：`list_notes` 從頭翻到 `nextCursor` 為 null；每頁都量 wire、斷 ≤ N（同 callWire）。 */
+/** 資料夾：`list_notes` 從頭翻到 `nextCursor` 為 null；每頁都量 wire、斷 ≤ N（同 callWire）。 */
 async function pageAllNotes(app: FastifyInstance, token: string, label: string, limit: number): Promise<ListNotesPage[]> {
   const pages: ListNotesPage[] = [];
   let cursor: string | undefined;
@@ -238,7 +147,7 @@ async function pageAllNotes(app: FastifyInstance, token: string, label: string, 
     measured.push({ label: pageLabel, wire });
     console.log(`[案 11c] ${pageLabel.padEnd(46)} wire=${String(wire).padStart(7)}  餘裕 ×${(MCP_MAX_WIRE / wire).toFixed(1)}`);
     expect(wire).toBeLessThanOrEqual(MCP_MAX_WIRE);
-    // 生產端不變量（spec §5.12）：每頁的 payload（鏡像兩份）不超過預算；比哨兵嚴，守得住預算常數接錯或不截頁這類回歸。
+    // 生產端不變量：每頁的 payload（鏡像兩份）不超過預算；比哨兵嚴，守得住預算常數接錯或不截頁這類回歸。
     expect(wireCost(result.structuredContent)).toBeLessThanOrEqual(MCP_LIST_WIRE_BUDGET);
     pages.push(result.structuredContent);
     if (result.structuredContent.nextCursor === null) return pages;
@@ -254,7 +163,7 @@ type ListTrashPage = {
   pageCutShort?: true;
 };
 
-/** 資料夾 PR-3d T4：`list_trash` 從頭翻到 `nextCursor` 為 null；每頁 wire ≤ N、payload ≤ 預算、`truncated` ≡ `nextCursor !== null`。 */
+/** 資料夾：`list_trash` 從頭翻到 `nextCursor` 為 null；每頁 wire ≤ N、payload ≤ 預算、`truncated` ≡ `nextCursor !== null`。 */
 async function pageAllTrash(app: FastifyInstance, token: string, label: string): Promise<{ pages: ListTrashPage[]; wires: number[] }> {
   const pages: ListTrashPage[] = [];
   const wires: number[] = [];
@@ -319,7 +228,7 @@ async function seedWorstGroupNotes(
   count: number = MCP_PAGE_MAX,
 ): Promise<{ o: { id: string; email: string; token: string }; g: { id: string } }> {
   const o = await owner(ctx);
-  const handle = `h${"a".repeat(31)}`; // 32 字元：讓 lastEdited.byHandle 也滿長，同 (iii)（gate r4 B-N2）
+  const handle = `h${"a".repeat(31)}`; // 32 字元：讓 lastEdited.byHandle 也滿長，同 (iii)
   await ctx.db.update(users).set({ handle }).where(eq(users.id, o.id));
   const name = `${'"'.repeat(67)}${"\u0001".repeat(13)}`;
   expect([...name]).toHaveLength(80); // `groups_name_chk` 的上限
@@ -344,7 +253,7 @@ async function firstSectionId(app: FastifyInstance, token: string, noteId: strin
 }
 
 /**
- * `edit_note` 的 `if_match` 只能從**指紋**來，而 `read_note_outline` 依 M12 刻意不帶指紋
+ * `edit_note` 的 `if_match` 只能從**指紋**來，而 `read_note_outline` 刻意不帶指紋
  * （`outline-page.ts` 檔頭）——量測要走 REST 的 `GET /content`，與 `mcp-edit-note.test.ts`
  * 的 `restOutline()` 同一個理由：獨立真相，不繞路去猜。
  */
@@ -361,12 +270,12 @@ async function sectionAt(
 }
 
 describe("#108 tools/list 的脈絡成本（案 11b）", () => {
-  // PR1 量的是唯讀憑證（四支工具）；PR2 起讀寫憑證（六支工具）才是最壞情形——`edit_note`／
+  // 量的是唯讀憑證（四支工具）；讀寫憑證（六支工具）才是最壞情形——`edit_note`／
   // `create_note` 的 input／output schema 一起進脈絡。本案改打讀寫憑證，唯讀憑證只當對照
   // 一起印出來，門檻只釘在讀寫憑證那個數字上。
-  // #239（spec §7.6）：最壞情形換成**讀寫搬移**憑證（`move_note_to_group` 只在 notes:move 時註冊，
+  // #239：最壞情形換成**讀寫搬移**憑證（`move_note_to_group` 只在 notes:move 時註冊，
   // `copy_note` 的說明是長版）——被測改它；讀寫與唯讀一起印出來當對照，門檻只釘在讀寫搬移那個數字上（支數見下方斷言；#181 起各多 list_trash）。
-  // #181 PR-2d：最壞情形換成**讀寫搬移刪除**憑證（`delete_note`／`restore_note` 只在 notes:delete 時註冊）——被測改它；
+  // #181：最壞情形換成**讀寫搬移刪除**憑證（`delete_note`／`restore_note` 只在 notes:delete 時註冊）——被測改它；
   // 讀寫刪除、讀寫搬移、讀寫、唯讀一起印出來當對照，門檻只釘在 RWMD 那個數字上。
   it("讀寫搬移刪除憑證的 tools/list 完整 wire 回應 ≤ N_LIST_MAX（RWD、RWM、RW、R 當對照）", async () => {
     const ctx = await buildCollabTestApp();
@@ -410,23 +319,23 @@ describe("#108 tools/list 的脈絡成本（案 11b）", () => {
   });
 });
 
-describe("#108 單次回應大小（案 11c／M16）", () => {
+describe("#108 單次回應大小（案 11c）", () => {
   // 測資 (i)：一顆 heading 260 000 字元、標題也 260 000 字元的筆記。
-  // **殺掉的寫法（四條突變全部實跑過，2026-09-07；每一條都同時放寬對應的 `outputSchema`
+  // **殺掉的寫法（四條突變全部實跑過；每一條都同時放寬對應的 `outputSchema`
   // 上限，否則先擋下它的是 SDK 的 `validateToolOutput` 而不是這條大小門檻）**：
   //   - `dto.ts` 的 `title` 不截 → `(i) list_notes` 520 644
   //   - `read-note-outline.ts` 的 `note.title` 不截（**與上一條是兩個呼叫點**）→ 521 294
   //   - `outline-page.ts` 的 `heading` 不截 → `(i) read_note_outline` 521 290
   //   - `read-note-section.ts` 的 `markdown` 不截 → `(i) read_note_section` 560 513
-  // ⚠ **但這一案不是那四條的唯一守衛，別這樣宣稱**（reviewer 重跑）：`heading`／`markdown`
+  // ⚠ **但這一案不是那四條的唯一守衛，別這樣宣稱**：`heading`／`markdown`
   //   不截 `mcp-content.test.ts` 也會紅（各一案／三案），`title` 那條由 `mcp-notes.test.ts`
   //   的 200 字元斷言直接守。**(i) 獨有的那一層是「病態筆記下 wire ≤ N」**——逐欄斷言看的是
-  //   欄位值，看不到「整個回應加起來會不會爆」，而那正是 M16 最後一列要的東西。
-  // Task 5 案 11c 補：`create_note` 的最壞情形是**回應裡的 `title` 被截到 200 字元 ＋ 多帶
+  //   欄位值，看不到「整個回應加起來會不會爆」，而那正是最後一列要的東西。
+  // 案 11c 補：`create_note` 的最壞情形是**回應裡的 `title` 被截到 200 字元 ＋ 多帶
   // `titleTruncated:true`**（`toNoteSummary`，`dto.ts`）——與這一案的 `hugeTitle` 同一個
   // 病態形，所以順手擺在 (i)：一發讀寫憑證的 `create_note`，帶一顆同樣 260 000 字元的標題。
   // ⚠ `create_note` 不寫 live doc（不帶 `content`），對這一案其他量測**零污染**。
-  // #200 PR1：`create_transfer_token` 也在這一案量（spec §9.4(c) 要求每支工具都量）——upload／download 各一發。它的回應
+  // #200：`create_transfer_token` 也在這一案量（每支工具都要量）——upload／download 各一發。它的回應
   // 不帶標題或內容（只有 id、token、網址、curl、固定的 `next`），病態筆記對它不是最壞形，量的是「它也在 N 以內」這件事本身。
   // `edit_note` 在 (ii) 量（它的最壞形是一整頁逐段指紋）。
   it("(i) 一篇 heading／title 各 260 000 字元的筆記 → edit_note 的 rename 與其他工具（含 create_transfer_token 兩種 purpose）都 ≤ N", async () => {
@@ -449,16 +358,16 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
     await callWire(ctx.app, rwToken, "(i) create_note", "create_note", { title: hugeTitle });
     await callWire(ctx.app, rwToken, "(i) create_transfer_token upload", "create_transfer_token", { note_id: note.id, purpose: "upload" });
     await callWire(ctx.app, rwToken, "(i) create_transfer_token download", "create_transfer_token", { note_id: note.id, purpose: "download" });
-    // bulk transfer PR-1：回應不帶標題或內容（權杖、三組 curl、固定的 `next`），量的是「它也在 N 以內」。
-    await callWire(ctx.app, rwToken, "(i) create_bulk_transfer_token", "create_bulk_transfer_token", {});
-    // #180 §9-6：copy_note 的最壞形＝副本 title 截斷＋titleTruncated（同 create_note）；來源就是這篇 260 000 字元標題的筆記。
+    // bulk transfer：回應不帶標題或內容（權杖、三組 curl、固定的 `next`），量的是「它也在 N 以內」。
+    await callWire(ctx.app, rwToken, "(i) open_notes_as_files", "open_notes_as_files", {});
+    // #180：copy_note 的最壞形＝副本 title 截斷＋titleTruncated（同 create_note）；來源就是這篇 260 000 字元標題的筆記。
     await callWire(ctx.app, rwToken, "(i) copy_note", "copy_note", { note_id: note.id });
-    // #180 §9-6：move_note_to_group 的最壞形＝搬後 title 截斷＋群組 owner。先建一個群組，把這篇病態筆記搬進去。
+    // #180：move_note_to_group 的最壞形＝搬後 title 截斷＋群組 owner。先建一個群組，把這篇病態筆記搬進去。
     // #239：move_note_to_group 只在 notes:move 時註冊——這一發改用讀寫搬移憑證（callWire 斷 isError 為 undefined）。
     const mg = await seedGroup(ctx.db, "Move target", [{ userId: o.id, role: "admin" }]);
     const { token: rwmToken } = await seedTokenForUser(ctx.db, o.id, "notes:read notes:write notes:move");
     await callWire(ctx.app, rwmToken, "(i) move_note_to_group", "move_note_to_group", { note_id: note.id, group_id: mg.id });
-    // #180 §9-6／R9：rename 的最壞形＝回應 `title` 被截到逃脫後 200 ＋ titleTruncated（鏡像兩份），標題同樣 260 000 字元。
+    // #180：rename 的最壞形＝回應 `title` 被截到逃脫後 200 ＋ titleTruncated（鏡像兩份），標題同樣 260 000 字元。
     // 擺在 (i) 最後：它會真的改標題（後面的量測若接在它之後，請排在它前面——copy／move 已排在這行之前）。
     // #381：rename 必帶 if_match＝目前標題（hugeTitle，copy／move 都不改來源標題）的指紋。
     await callWire(ctx.app, rwToken, "(i) edit_note rename", "edit_note", {
@@ -495,10 +404,10 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
       section_id: sectionId,
     });
 
-    // Task 5 案 11c 補：`edit_note` 的最壞情形是**成功回應帶一整頁（100 筆）逐段指紋的
+    // 案 11c 補：`edit_note` 的最壞情形是**成功回應帶一整頁（100 筆）逐段指紋的
     // outline**（`outline-page.ts` 的 `withFingerprints: true`，`read_note_outline` 完全
     // 沒有這個負擔）。⚠ 寫入落點刻意指在**後段**（第 250 段，遠離第一頁）：`replace_section`
-    // 這族 op 的取頁規則是從落點（`afterSectionIndex`）起算（D-J），打第一段等於跟
+    // 這族 op 的取頁規則是從落點（`afterSectionIndex`）起算，打第一段等於跟
     // `read_note_outline` 第一頁量到同一種形，量不到「取頁規則對任意落點都算得出一整頁」
     // 這件事——這一發放在該 it 的**最後**，因為它會真的寫進去，不得污染前面幾發的量測。
     const target = await sectionAt(ctx.app, o.token, note.id, 250);
@@ -522,10 +431,10 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
    * `lastEditedAgentLabel`（`lastEditedTokenId` 不進 DTO，不必補）。
    * **量到的值明顯小於 160 000 就是測資沒造滿，回頭查測資，不要調 N。**
    *
-   * 2026-09-07 實測 **155 556**（餘裕 ×1.7）。⚠ **與規格 rev 5 的參考值 160 360 差 4804
+   * 實測 **155 556**（餘裕 ×1.7）。⚠ **與先前估算的參考值 160 360 差 4804
    * （每列約 48 wire）的成因已查明，不是測資沒造滿**：這裡的 `title` 取**恰好 200、不觸發截斷**，
    * 而真正的最壞情形是 `title > 200` 被截到 200 **並多帶一把 `"titleTruncated":true`**
-   * （鏡像兩份 ≈ 48 wire／列）。刻意照 plan 取 200，因為這一案要量的是「合規的最壞情形」；
+   * （鏡像兩份 ≈ 48 wire／列）。刻意取 200，因為這一案要量的是「合規的最壞情形」；
    * 引用這個數字時要一併講這句，否則會被問「是不是還是沒造滿」。
    *
    * ⚠ **誠實記下：這一案殺不掉任何一種「漏截」的寫法**——每一格都恰好在上限之內，拿掉截斷
@@ -553,22 +462,22 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
 
     const wire = await callWire(ctx.app, o.token, "(iii) list_notes limit=100", "list_notes", { limit: MCP_PAGE_MAX });
     // 「測資沒造滿」的哨兵（判準見上：應落在 160 000 上下）。
-    // ⚠ **解析度只到「整組 `lastEdited` 落空」那一級**（reviewer 實測）：整組落空 → 129 756，紅；
-    //   只把 `lastEditedAgentLabel` 設 null → 149 356，**綠**。也就是說它擋得住 gate r3 m3 警告的
+    // ⚠ **解析度只到「整組 `lastEdited` 落空」那一級**（實測）：整組落空 → 129 756，紅；
+    //   只把 `lastEditedAgentLabel` 設 null → 149 356，**綠**。也就是說它擋得住的是
     //   那個形（用 `ctx.createNote` 隨手造 → `last_edited_at` 是 NULL → 四欄全不在回應裡），
     //   **擋不住「四欄裡有一欄沒造滿」**。
     expect(wire).toBeGreaterThan(140_000);
     // `search_notes` 的 `limit` 上限是 50，所以它的最壞情形恰好是這一發的一半左右。
     await callWire(ctx.app, o.token, "(iii) search_notes limit=50", "search_notes", { query: "ttt", limit: 50 });
 
-    // Task 5 案 11c 補：`create_note` 的另一半最壞情形——`owner.handle`（#175 前叫 `ownerHandle`）是這一案剛設的
+    // 案 11c 補：`create_note` 的另一半最壞情形——`owner.handle`（#175 前叫 `ownerHandle`）是這一案剛設的
     // 32 字元上限（(i) 那一發的 owner 是隨機 email 產生的短 handle，量不到這一格）。標題
     // 一樣給到會截斷的長度，兩案合起來才是 `create_note` 回應真正的最壞情形。
     await callWire(ctx.app, rwToken, "(iii) create_note", "create_note", { title: "c".repeat(300) });
   });
 
   /**
-   * 測資 (iv)（#175 gate r1 B-M9；#177 改成真正的最壞形）：(iii) 的群組變體。群組筆記每列的 `owner` 是
+   * 測資 (iv)（#175；#177 改成真正的最壞形）：(iii) 的群組變體。群組筆記每列的 `owner` 是
    * `{"kind":"group","id":"<36>","name":"<80 code point>"}`、`url` 是 `/g/<36>/…`，都比個人形的
    * `{"kind":"user","handle":"<32>"}`／`/n/<32>/…` 長——(iii) 的 fixture 裡沒有群組筆記，量不到這一形。
    *
@@ -582,16 +491,16 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
    *   C0（預算恰好 200、wire 550）。截了會多帶 `nameTruncated`（約 46），所以最壞是**截過的**：**67 個 `"` ＋ 13 個
    *   U+0001** → 留 67＋11（預算恰好 200、wire 545）＋ 旗標 ≈ 每列 591。全 C0（80 個）反而只剩 33 個 ＋ 旗標 ≈ 475。
    *   ⚠ 這組是拿真的 `ownerForModel`／`toNoteSummary` 算兩層 `JSON.stringify` 的長度、對 `"`／U+0001／`\n`／ASCII／
-   *   emoji／CJK 任三種的組合窮舉出來的（2026-10-07，一次性腳本、不進版控）；69＋11 比 67＋13 少 1。
+   *   emoji／CJK 任三種的組合窮舉出來的（一次性腳本、不進版控）；69＋11 比 67＋13 少 1。
    * 第一發（最壞形）實測見 `[案 11c]` 那行 log。
    *
-   * 後兩發是**回到 #177 之前就會破 N 的兩形**：群組名改成 80 個 U+0001、標題改成 200 個 U+0001。資料夾 PR-3d T3 起 list_notes
+   * 後兩發是**回到 #177 之前就會破 N 的兩形**：群組名改成 80 個 U+0001、標題改成 200 個 U+0001。資料夾功能加入後 list_notes
    * 依預算截頁，它們只斷 ≤ N，不再是那兩條突變的守衛（見 it 內註解）。
    */
   it("(iv) #175／#177 群組形：100 筆最壞群組筆記（標題 200 個 `\"`、群組名 67 個 `\"`＋13 個 U+0001）＋ limit 100 → 依大小截頁、每頁 ≤ N、續翻與 REST 同一組", async () => {
     const ctx = await buildCollabTestApp();
     const { o, g } = await seedWorstGroupNotes(ctx);
-    // 資料夾 PR-3d T3（m-3）：第一頁依 wire 預算截短；續翻到 null，每頁 ≤ N（pageAllNotes 內建），合計與 REST 同一組。
+    // 資料夾（m-3）：第一頁依 wire 預算截短；續翻到 null，每頁 ≤ N（pageAllNotes 內建），合計與 REST 同一組。
     const pages = await pageAllNotes(ctx.app, o.token, "(iv) list_notes limit=100（群組形最壞）", MCP_PAGE_MAX);
     expect(pages[0]!.pageCutShort).toBe(true);
     expect(pages[0]!.notes.length).toBeLessThan(MCP_PAGE_MAX);
@@ -602,7 +511,7 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
     const search = await callWire(ctx.app, o.token, "(iv) search_notes limit=50（群組形最壞）", "search_notes", { query: '""""', limit: 50 });
     expect(search).toBeGreaterThan(MIN_WORST_GROUP_WIRE / 2); // 確定 50 筆都命中，不是空結果的假綠
 
-    // 下面兩發是 #177 之前會破 N 的兩形，只斷 ≤ N。⚠ T3 起 list_notes 依預算截頁，它們**不再是**「`ownerForModel` 不截群組名」
+    // 下面兩發是 #177 之前會破 N 的兩形，只斷 ≤ N。⚠ list_notes 依預算截頁，它們**不再是**「`ownerForModel` 不截群組名」
     // 「`truncateText` 退回按原長度」兩條突變的守衛（那樣寫時頁會被截得更短，照樣 ≤ N）；實際守衛是 `test/unit/mcp-limits.test.ts`
     // 的群組名與標題案。
     await ctx.db.update(groups).set({ name: "\u0001".repeat(80) }).where(eq(groups.id, g.id));
@@ -610,14 +519,14 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
     await ctx.db.update(notes).set({ title: "\u0001".repeat(200) }).where(eq(notes.groupId, g.id));
     await callWire(ctx.app, o.token, "(iv) list_notes 標題 200 個 U+0001", "list_notes", { limit: MCP_PAGE_MAX });
 
-    // #175 PR5：`create_note` 的群組形（`groupId`）——回應的 `owner` 是上面改過的群組名。標題給 1000 個 `"`（會截）：
+    // #175：`create_note` 的群組形（`groupId`）——回應的 `owner` 是上面改過的群組名。標題給 1000 個 `"`（會截）：
     // 260 000 個 `"` 逃脫後超過請求的 bodyLimit（413），而截斷後的形與長度無關。
     // 只靠 `callWire` 內建的 `≤ N` 與非錯誤；不加下界哨兵（create_note 回應本來就小）。
     const { token: rwToken } = await seedTokenForUser(ctx.db, o.id, "notes:read notes:write");
     await callWire(ctx.app, rwToken, "(iv) create_note（群組形）", "create_note", { title: '"'.repeat(1000), group_id: g.id });
   });
 
-  // (iv-b)（T3 審查 I1）：多一篇讓 `limit + 1` 那列存在（hasMore = true），截頁這條路徑在「本來就還有下一頁」時也要走到。
+  // (iv-b)：多一篇讓 `limit + 1` 那列存在（hasMore = true），截頁這條路徑在「本來就還有下一頁」時也要走到。
   it("(iv-b) 101 篇最壞群組筆記、limit 100（查詢多取的那列存在）→ 第一頁照樣依大小截、有 nextCursor；續翻到底與 REST 同一組 101 篇", async () => {
     const ctx = await buildCollabTestApp();
     const { o } = await seedWorstGroupNotes(ctx, MCP_PAGE_MAX + 1);
@@ -629,7 +538,7 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
   });
 
   /**
-   * LN4（資料夾 PR-3d T3）：截頁的游標落在同一毫秒的一對上。先把 (iv) 的 100 篇依原順序各拉開 2 ms（內容不變），翻一次找出第一頁的截點 k；
+   * LN4：截頁的游標落在同一毫秒的一對上。先把 (iv) 的 100 篇依原順序各拉開 2 ms（內容不變），翻一次找出第一頁的截點 k；
    * 再把第 k、k+1 篇設成同一毫秒、差 1 µs，**µs 序與 id 序相反**（µs 較大的給 id 較小者）：REST（微秒）與 MCP（毫秒＋id）在這一對上順序相反，
    * 游標若用微秒或非排序鍵就會漏掉其中一篇。
    */
@@ -666,8 +575,8 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
   });
 
   /**
-   * 測資 (v)（#93 §8.4，M6）：50 篇 (iv) 形的群組筆記，每篇 5 段、heading 200 個 `"`、body 以 `"` 為主並含查詢字。
-   * 沒有 wire 預算時約 328 000 > N（spec §8.4 的估算）；有預算 → ≤ N 且 `matchesTruncated: true`。
+   * 測資 (v)（#93）：50 篇 (iv) 形的群組筆記，每篇 5 段、heading 200 個 `"`、body 以 `"` 為主並含查詢字。
+   * 沒有 wire 預算時約 328 000 > N（估算）；有預算 → ≤ N 且 `matchesTruncated: true`。
    * 對照組：同一批改成正常 heading 與內文 → 每篇 3 個 match、無 matchesTruncated。
    */
   it("(v) #93 search_notes：50 篇最壞群組筆記 × 5 段最壞 heading／內文 → ≤ N、matchesTruncated；正常內容 → 每篇 3 個", async () => {
@@ -706,7 +615,7 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
   });
 
   /**
-   * 測資 (vi)（#200 §7.5）：image block 是 N 的**唯一豁免**，上限由 `MCP_IMAGE_MAX_BYTES` 單獨管。
+   * 測資 (vi)（#200）：image block 是 N 的**唯一豁免**，上限由 `MCP_IMAGE_MAX_BYTES` 單獨管。
    * 剛好上限的圖：wire − image.data.length ≤ N（其餘部分照樣受哨兵管）、data.length ≤ 4·ceil(MAX/3)（base64 膨脹的精確上界）；
    * 上限＋1 → file_too_large（不讀檔）。
    */
@@ -729,12 +638,12 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
   });
 
   /**
-   * 測資 (vii)（#181 PR-2d，plan 讀碼發現 4）：`list_trash` 的最壞形。一頁 100 項（101 篇 → `truncated: true`），每項的
+   * 測資 (vii)（#181）：`list_trash` 的最壞形。一頁 100 項（101 篇 → `truncated: true`），每項的
    * `title`（DB 不限長）與刪除者 `displayName`（DB 不限長）都以 300 個 `"` 截成 100 個 `"` ＋ `*Truncated`（理由同 (iv)：`"` 的
    * wire／預算比最大）、`handle` 32、群組形（`group` 物件）、`retentionDays` 3650（`purgeAt` 非 null）。
-   * 第一發照 plan 用群組名 80 個 `"`（不截）；第二發換成 (iv) 的 67 個 `"` ＋ 13 個 U+0001（截過＋`nameTruncated`，群組名的真正最壞形）。
-   * 突變（`toTrashItemForModel` 不截標題、outputSchema 同時放寬；2026-10-26 實跑）→ 第一發 351 998 > N，紅。
-   * 資料夾 PR-3d T4：每篇放在五層 `[33,40,40,40,41]` 個 `"` 的群組資料夾鏈最深處（plan 讀碼發現 2 的嚴格最壞路徑），每項另帶 `folderPath`；
+   * 第一發用群組名 80 個 `"`（不截）；第二發換成 (iv) 的 67 個 `"` ＋ 13 個 U+0001（截過＋`nameTruncated`，群組名的真正最壞形）。
+   * 突變（`toTrashItemForModel` 不截標題、outputSchema 同時放寬；實跑）→ 第一發 351 998 > N，紅。
+   * 資料夾：每篇放在五層 `[33,40,40,40,41]` 個 `"` 的群組資料夾鏈最深處（嚴格最壞路徑），每項另帶 `folderPath`；
    * `list_trash` 依預算截頁，所以三發都翻到底：每頁 ≤ N 且 payload ≤ 預算、`truncated` ≡ `nextCursor !== null`，第一頁截點貼近預算
    * （wire > 預算 − 4 000＝fixture 夠壞）。第三發（LT-PC）把 31 篇還原成活筆記、剩 70 篇：被預算截但查詢沒有下一列（hasMore false），
    * 第一頁仍要 `truncated: true`、有 `nextCursor`（殺「`truncated` 改回 hasMore」）。
@@ -764,7 +673,7 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
       const items = pages.flatMap(p => p.items);
       expect(new Set(items.map(i => i.id)).size).toBe(total);
       expect(items[0]!.folderPathTruncated).toBe(true); // 前提：真的帶上最壞路徑
-      // 資料夾 PR-3d T9（(viii) ④ 指回這裡）：每項最壞與路徑增量印出來，給 `limits.ts` 的推導註解定稿。
+      // 資料夾（(viii) ④ 指回這裡）：每項最壞與路徑增量印出來，給 `limits.ts` 的推導註解定稿。
       const noPath: Record<string, unknown> = { ...items[0]! };
       delete noPath.folderPath;
       delete noPath.folderPathTruncated;
@@ -794,7 +703,7 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
   });
 
   /**
-   * 測資 (viii)（資料夾 PR-3d T9，spec §5.12 n-3 六發；plan 讀碼發現 2、3、19）：一個 app 內造齊。
+   * 測資 (viii)：一個 app 內造齊。
    * - 群組名 67 個 `"`＋13 個 U+0001、owner handle 32；群組資料夾鏈五層 `[33, 40, 40, 40, 41]` 個 `"`（截後成本恰 400 的嚴格最壞路徑）；
    *   最深那層另有 50 個兄弟資料夾，名稱 78 個 `"`＋兩位數序號（逃脫後 158 → 截成 40 個 `"`＋`nameTruncated`，路徑同樣恰 400）。
    *   序號放在尾端：截後留下的前綴全是 `"`（wire 最貴的字），放前面會留下兩個便宜的數字。

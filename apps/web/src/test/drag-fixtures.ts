@@ -2,7 +2,7 @@ import { vi, type Mock } from "vitest";
 import { DRAG_POINTER_QUERY } from "@/components/sidebar/drag-zone";
 
 /**
- * 側欄拖曳的測試工具（資料夾 PR-3c T4 起）。jsdom 沒有 DataTransfer：以 `fireEvent.dragStart／dragOver／drop／dragEnd(el, { dataTransfer })`
+ * 側欄拖曳的測試工具。jsdom 沒有 DataTransfer：以 `fireEvent.dragStart／dragOver／drop／dragEnd(el, { dataTransfer })`
  * 帶這個假物件。`setData` 會把型別推進 `types`（型別已在就不重複），所以接手後同一個物件的後續 `dragOver` 看得到自訂型別。
  */
 export interface FakeDataTransfer {

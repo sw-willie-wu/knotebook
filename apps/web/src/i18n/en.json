@@ -395,7 +395,8 @@
       "groups": "Groups",
       "storage": "Storage plans",
       "ai": "AI agents",
-      "auth": "Sign-in"
+      "auth": "Sign-in",
+      "limits": "Site limits"
     }
   },
   "theme": {
@@ -980,6 +981,7 @@
     "folder_not_empty": "The folder still has other items, so it wasn't deleted.",
     "too_complex": "This note is too large or too complex to read within the server's limits.",
     "note_too_large": "This change would make the note larger than its size limit, so it wasn't saved.",
+    "limit_locked_by_env": "This setting is set in the server's .env file. Change it there and restart the server.",
     "password_not_set": "This account signs in only through a sign-in service and has no password to reset.",
     "user_disabled": "This account is disabled. Enable it before resetting its password.",
     "empty_result": "The AI returned an empty result.",

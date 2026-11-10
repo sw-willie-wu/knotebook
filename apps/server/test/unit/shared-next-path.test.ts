@@ -1,5 +1,5 @@
 /**
- * #131 Task 1／2：登入導回的兩支共用純函式（`packages/shared`）。
+ * #131／2：登入導回的兩支共用純函式（`packages/shared`）。
  *
  * `isExcludedPath` 原本是 `apps/server/src/http/spa.ts` 的私有函式（決定哪些路徑
  * 不該回 SPA 的 index.html），本 PR 搬進 shared 給 `safeNextPath` 共用——同一份
@@ -41,7 +41,7 @@ describe("isExcludedPath", () => {
     expect(isExcludedPath("/settings/account")).toBe(false);
     // #132 的同意頁是 SPA 路徑 /authorize、**不在 /oauth 之下**。這一行釘住的是反向：
     // 沒有人把 /authorize（或 /auth）也塞進清單、害同意頁自己拿不到 SPA fallback；
-    // 正因為排除 /oauth 並不殃及它，下一棒才沒有理由刪掉那個前綴。
+    // 正因為排除 /oauth 並不殃及它，所以沒有理由刪掉那個前綴。
     expect(isExcludedPath("/authorize")).toBe(false);
   });
 
@@ -96,7 +96,7 @@ describe("safeNextPath", () => {
     expect(safeNextPath("/\\evil")).toBeNull();
   });
 
-  it("spec §9.1 逐字點名的四個控制字元（對照組）", () => {
+  it("逐字點名的四個控制字元（對照組）", () => {
     // URL 解析器會靜默吃掉 CR/LF/TAB，所以必須在解析前擋——Location 標頭注入。
     expect(safeNextPath("/x\r\nSet-Cookie: a=b")).toBeNull();
     expect(safeNextPath("/x\ny")).toBeNull();
@@ -173,7 +173,7 @@ describe("safeNextPath", () => {
     expect(safeNextPath("/loginx")).toBe("/loginx");
   });
 
-  it("/link-account 也不是合法目標（存在前提是「還沒登入、正在連結」——#187 §9.4）", () => {
+  it("/link-account 也不是合法目標（存在前提是「還沒登入、正在連結」——#187）", () => {
     expect(safeNextPath("/link-account")).toBeNull();
     expect(safeNextPath("/link-account/")).toBeNull();
     expect(safeNextPath("/LINK-ACCOUNT")).toBeNull();
@@ -192,7 +192,7 @@ describe("safeNextPath", () => {
   });
 });
 
-describe("#187 PR3：/register 也排除（「存在前提是尚未登入」）", () => {
+describe("#187：/register 也排除（「存在前提是尚未登入」）", () => {
   it.each(["/register", "/register/", "/REGISTER", "/Register//", "/register?next=%2Fx"])("%s → null", (input) => {
     expect(safeNextPath(input)).toBeNull();
   });

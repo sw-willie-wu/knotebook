@@ -74,7 +74,7 @@ function stubFetch() {
         ok: server.status === 200,
         status: server.status,
         // 每次回**新的**物件（structuredClone），等同真瀏覽器每次 JSON 解析——回同一個參照的話，關掉 structural sharing
-        // 也看不出差別，S6 沒有鑑別力（r1-p3 M1 實跑 2×2 矩陣）
+        // 也看不出差別，這一案就沒有鑑別力
         json: () => Promise.resolve(server.status === 200 ? structuredClone(server.body) : { error: { code: server.status === 404 ? "not_found" : "internal", message: "x" } }),
       } as unknown as Response);
     }),
@@ -119,7 +119,7 @@ const ready = async () => {
   return deck;
 };
 
-describe("公開頁 × 簡報（spec §8、F1）", () => {
+describe("公開頁 × 簡報", () => {
   let fake: FakeFullscreen | null = null;
 
   beforeEach(async () => {
@@ -163,7 +163,7 @@ describe("公開頁 × 簡報（spec §8、F1）", () => {
     expect(deck.el.closest("[inert]")).toBeNull();
   });
 
-  it("F1：重抓到內容不同的新 Y.Doc → 經防抖重切、停在同一張（b 的新索引）", async () => {
+  it("重抓到內容不同的新 Y.Doc → 經防抖重切、停在同一張（b 的新索引）", async () => {
     const queryClient = renderPublic(`/p/${TOKEN}?present`);
     const deck = await ready();
     act(() => deck.slide(2, 0)); // b
@@ -176,7 +176,7 @@ describe("公開頁 × 簡報（spec §8、F1）", () => {
     expect(screen.getByTestId("loc").textContent).toBe(`/p/${TOKEN}?present#/b`);
   });
 
-  it("S6：資料相同的重抓不重切（react-query structural sharing 讓 doc 不換）", async () => {
+  it("資料相同的重抓不重切（react-query structural sharing 讓 doc 不換）", async () => {
     const queryClient = renderPublic(`/p/${TOKEN}?present`);
     await ready();
     const calls = vi.mocked(renderDeck).mock.calls.length;

@@ -217,7 +217,7 @@ describe("worker 逾時、掛掉 → \"too_complex\"；門檻；transfer", () =>
     expect(pooled.byteLength).toBe(len);
   }, 180_000);
 
-  it("≥ 64 KiB 但不是自己佔整個 ArrayBuffer（切片：byteOffset ≠ 0，或只佔前段）→ 複製、不 transfer：共用那塊的其他資料不被拿走，答案照樣對（審查 r4 M5／突變 G）", async () => {
+  it("≥ 64 KiB 但不是自己佔整個 ArrayBuffer（切片：byteOffset ≠ 0，或只佔前段）→ 複製、不 transfer：共用那塊的其他資料不被拿走，答案照樣對（突變 G）", async () => {
     const { wrt } = await workerRuntime();
     const state = await big();
     const expected = await rt.runDoc("u", { kind: "outline", state: new Uint8Array(state) });
@@ -239,7 +239,7 @@ describe("worker 逾時、掛掉 → \"too_complex\"；門檻；transfer", () =>
   }, 180_000);
 });
 
-describe("合併守衛與內容量（審查 r4 I1、I3）", () => {
+describe("合併守衛與內容量", () => {
   const paras = Array.from({ length: 30 }, (_, k) => (k % 10 === 0 ? { type: "heading", content: `H${k}` } : { type: "paragraph", content: `p ${k} lorem ipsum dolor` }));
   it("守衛：不帶 if_match → none；整篇 if_match（append／replace_all）→ any；段落 if_match → 目標段的頂層容器 item", async () => {
     const state = await stateWith(paras);

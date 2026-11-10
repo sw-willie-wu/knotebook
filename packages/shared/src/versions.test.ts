@@ -6,23 +6,23 @@ import {
   VERSION_LIST_LIMIT_DEFAULT, VERSION_LIST_LIMIT_MAX, VERSION_NAME_MAX, normalizeVersionName,
 } from "./versions.js";
 
-describe("versions 常數（spec A11、A12、§6.1、§6.3）", () => {
+describe("versions 常數", () => {
   it("名稱 120、清單 50／100、天數 7／30／3650", () => {
     expect(VERSION_NAME_MAX).toBe(120);
     expect([VERSION_LIST_LIMIT_DEFAULT, VERSION_LIST_LIMIT_MAX]).toEqual([50, 100]);
     expect([VERSION_KEEP_ALL_DAYS_DEFAULT, VERSION_DAILY_UNTIL_DAYS_DEFAULT, VERSION_DAYS_MAX]).toEqual([7, 30, 3650]);
   });
 
-  it("#272 §7.1：自動存版等待 X 預設 5、範圍 1–60（分鐘）", () => {
+  it("#272：自動存版等待 X 預設 5、範圍 1–60（分鐘）", () => {
     expect([VERSION_AUTO_WAIT_MINUTES_DEFAULT, VERSION_AUTO_WAIT_MINUTES_MIN, VERSION_AUTO_WAIT_MINUTES_MAX]).toEqual([5, 1, 60]);
   });
 
-  it("三個新錯誤碼都在 ERROR_CODES（§6）", () => {
+  it("三個新錯誤碼都在 ERROR_CODES", () => {
     for (const code of ["version_is_base", "version_unsaved_changes", "version_mismatch"]) expect(ERROR_CODES).toContain(code);
   });
 });
 
-describe("normalizeVersionName（§6.3：去頭尾空白、空字串＝NULL、上限 120 字）", () => {
+describe("normalizeVersionName（去頭尾空白、空字串＝NULL、上限 120 字）", () => {
   it("null／空字串／只有空白（含全形空白）→ NULL", () => {
     expect(normalizeVersionName(null)).toEqual({ ok: true, name: null });
     expect(normalizeVersionName("")).toEqual({ ok: true, name: null });
@@ -40,7 +40,7 @@ describe("normalizeVersionName（§6.3：去頭尾空白、空字串＝NULL、�
     expect(normalizeVersionName("a".repeat(121))).toEqual({ ok: false });
   });
 
-  it("NUL 與落單代理拒絕（PostgreSQL 存不下，§Global Constraints）；成對代理照收", () => {
+  it("NUL 與落單代理拒絕（PostgreSQL 存不下）；成對代理照收", () => {
     expect(normalizeVersionName(`a${String.fromCodePoint(0)}b`)).toEqual({ ok: false });
     expect(normalizeVersionName("a\uD800b")).toEqual({ ok: false });
     expect(normalizeVersionName("a\uDC00")).toEqual({ ok: false });

@@ -1,14 +1,14 @@
 /**
- * bulk transfer spec 2026-11-02 §6.1、§6.6-4～-6、§25.4：串流寫出 `.tar.gz`（不加依賴，照 spike S4 的 A 形）。
+ * bulk transfer：串流寫出 `.tar.gz`（不加依賴）。
  *
  * - 路徑非 ASCII 或超過 100 bytes → 先寫一個 `x` 型 pax 標頭帶 `path` 記錄（UTF-8 原名），ustar 標頭的 name 欄放 ASCII 後備
- *   （`PaxHeader-fallback/<sha1 前 16>`）。GNU tar、bsdtar、Python tarfile 都認 pax（spike S4）。
+ *   （`PaxHeader-fallback/<sha1 前 16>`）。GNU tar、bsdtar、Python tarfile 都認 pax。
  * - 每個項目寫完 `gzip.flush(Z_SYNC_FLUSH)`，等回呼——回呼要等下游消化，所以 flush 本身就是背壓（`write()` 回 false 時另等
- *   `drain`，是防線、不承重：plan T7-M4）。
- * - **所有等待都與內部 abort signal 賽跑**（plan gate r1 C1）：gzip pipe 到不消化的下游時，下游被 destroy 之後 flush 回呼與
+ *   `drain`，是防線、不承重）。
+ * - **所有等待都與內部 abort signal 賽跑**：gzip pipe 到不消化的下游時，下游被 destroy 之後 flush 回呼與
  *   drain 都永不 settle。`abort()` 讓 pending 的 `addFile`／`addDir`／`finish` 立刻以 `TarAbortError` reject，之後的呼叫也立刻
  *   reject；`out` 自己 `'close'`／`'error'`（socket 斷）時 writer 也會 abort。`finish()` 只有 `out` 的 `'finish'` 算成功。
- * - 中止不送 tar 結尾區塊也不送 gzip 結尾：呼叫端另外 destroy socket（§5.6：curl 因此 exit 18）。
+ * - 中止不送 tar 結尾區塊也不送 gzip 結尾：呼叫端另外 destroy socket（curl 因此 exit 18）。
  */
 import { createHash } from "node:crypto";
 import { once } from "node:events";

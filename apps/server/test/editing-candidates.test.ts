@@ -39,7 +39,7 @@ describe("#269 visibleNoteTargets／visibleTitlesByIds", () => {
     const a = await ctx.createNote(me.id, "A");
     const b = await ctx.createNote(me.id, "B");
     const secret = await ctx.createNote(other.id, "Secret");
-    // 看得到但不在 ids 裡的：shared 支（被分享）與 grouped 支（可讀群組）各一篇——三支的 `idCond` 各有一篇守著（review r0 m1）。
+    // 看得到但不在 ids 裡的：shared 支（被分享）與 grouped 支（可讀群組）各一篇——三支的 `idCond` 各有一篇守著。
     const sharedIn = await ctx.createNote(other.id, "SharedIn");
     await ctx.share(sharedIn.id, me.id, "viewer");
     const g = await seedGroup(ctx.db, "G", [{ userId: me.id, role: "member" }]);

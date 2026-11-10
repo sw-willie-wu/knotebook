@@ -1,8 +1,8 @@
 /**
- * #286 管理員替使用者產生／取消一次性重設密碼連結（spec §4.2，`requireAdmin`）。
+ * #286 管理員替使用者產生／取消一次性重設密碼連結（`requireAdmin`）。
  *
  * 不放進 `admin-users.ts`：本檔列在 `test/unit/s14-structure.test.ts` 的 `ROUTE_FILES`，兩支交易都受 ④⑤ 掃描。
- * log 與回應絕不含 token 明文或 `token_hash`（201 回應的 `token` 除外，I1）；產生交易的非預期錯誤一律遮蔽（§3.8）。
+ * log 與回應絕不含 token 明文或 `token_hash`（201 回應的 `token` 除外）；產生交易的非預期錯誤一律遮蔽。
  */
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -27,7 +27,7 @@ export interface AdminPasswordResetRouteDeps {
 
 export function adminPasswordResetRoutes(deps: AdminPasswordResetRouteDeps) {
   return async function register(app: FastifyInstance): Promise<void> {
-    // 判斷順序（spec §4.2 N-5）：UUID → body → 帳密有效值 → 交易（404／409）。帳密關閉時打不存在的 id → 403。
+    // 判斷順序：UUID → body → 帳密有效值 → 交易（404／409）。帳密關閉時打不存在的 id → 403。
     app.post("/api/admin/users/:id/password-reset", { preHandler: app.requireAdmin }, async (request, reply) => {
       const { id: rawId } = request.params as { id: string };
       if (!UUID_RE.test(rawId)) return sendError(reply, 404, "user_not_found", "No user with that id.");
@@ -49,12 +49,12 @@ export function adminPasswordResetRoutes(deps: AdminPasswordResetRouteDeps) {
       }
       const { linkId, expiresAt, replaced } = issued;
       request.log.info({ userId: request.user!.id, targetUserId: id, linkId, expiresAt, replaced }, "產生重設密碼連結");
-      // spec §3.7：清理沒有排程，產生成功後機會性執行；失敗不影響回應。
+      // 清理沒有排程，產生成功後機會性執行；失敗不影響回應。
       void deleteEndedOneTimeLinks(deps.db).catch((err: unknown) => request.log.warn({ err }, "清理一次性連結失敗"));
       return reply.code(201).send({ token, expiresAt: expiresAt.toISOString() });
     });
 
-    // 取消永遠允許：不看帳密開關、不看停用（spec §4.2）。本來就沒有也是 204。
+    // 取消永遠允許：不看帳密開關、不看停用。本來就沒有也是 204。
     app.delete("/api/admin/users/:id/password-reset", { preHandler: app.requireAdmin }, async (request, reply) => {
       const { id: rawId } = request.params as { id: string };
       if (!UUID_RE.test(rawId)) return sendError(reply, 404, "user_not_found", "No user with that id.");

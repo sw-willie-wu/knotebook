@@ -1,4 +1,4 @@
-// §10.2 清除（DELETE 的並發保險、切版後清除、背景掃描 ≥ 250 篇）、病態文件（5000 層）、§13 的量測（只回報、不斷言上限）。
+// 清除（DELETE 的並發保險、切版後清除、背景掃描 ≥ 250 篇）、病態文件（5000 層）、量測（只回報、不斷言上限）。
 import { describe, expect, it } from "vitest";
 import { eq, sql } from "drizzle-orm";
 import * as Y from "yjs";
@@ -28,7 +28,7 @@ describe("pruneNote 的並發保險（DELETE 當下重判）", () => {
     const u = await seedUser(db);
     const n = await seedNote(db, { ownerId: u.id });
     // 天數越小越新：seq 1 最舊（70.4 天前）、seq 4 最新（70.1 天前），四列同一 UTC 日（2026-07-31 週五）→ 同週，留 seq 4、刪 1–3。
-    // （gate r1 I-2：原稿方向寫反，seq 1 反而最新、doomed 變成 [2,3,4]）
+    // （原稿方向寫反，seq 1 反而最新、doomed 變成 [2,3,4]）
     await seedAutos(db, n.id, [70.4, 70.3, 70.2, 70.1, 0.5]);
     const svc = createVersionService({
       db, log: { warn: () => {} },
@@ -45,7 +45,7 @@ describe("pruneNote 的並發保險（DELETE 當下重判）", () => {
   });
 });
 
-describe("切版後清除（§5.3 第 5 步）", () => {
+describe("切版後清除", () => {
   it("手動存一版之後，舊的自動版本依 policy 被清：結果＝policy 對同一組列的輸出", async () => {
     const { app, db } = await buildTestApp();
     const u = await seedUser(db);
@@ -65,7 +65,7 @@ describe("切版後清除（§5.3 第 5 步）", () => {
   });
 });
 
-describe("sweep 規模（§11.2：連續三輪涵蓋 ≥ 250 篇中的每一篇）", () => {
+describe("sweep 規模（連續三輪涵蓋 ≥ 250 篇中的每一篇）", () => {
   it("250 篇各有一列該刪：三輪（100／100／50）後每篇都清乾淨；第四輪回 0", async () => {
     const { db } = await buildTestApp();
     const u = await seedUser(db);
@@ -84,7 +84,7 @@ describe("sweep 規模（§11.2：連續三輪涵蓋 ≥ 250 篇中的每一篇�
   });
 });
 
-describe("病態文件（§11.2 深巢狀：5000 層巢狀不讓版本路由與搬移回 500）", () => {
+describe("病態文件（深巢狀：5000 層巢狀不讓版本路由與搬移回 500）", () => {
   it("5000 層：GET /versions 不 500、手動存 201、GET 快照 200、搬到群組成功", async () => {
     const { app, db } = await buildTestApp();
     const u = await seedUser(db);
@@ -100,7 +100,7 @@ describe("病態文件（§11.2 深巢狀：5000 層巢狀不讓版本路由與�
 });
 
 describe("量測（只回報；數字抄進回報與 PR body）", () => {
-  it("§13-10：刪群組・轉移 50 篇（每篇 3 版）耗時", async () => {
+  it("刪群組・轉移 50 篇（每篇 3 版）耗時", async () => {
     const { app, db } = await buildTestApp();
     const u = await seedUser(db);
     const g = await seedGroup(db, "G", [{ userId: u.id, role: "admin" }]);
@@ -110,11 +110,11 @@ describe("量測（只回報；數字抄進回報與 PR body）", () => {
     }
     const t0 = performance.now();
     const r = await app.inject({ method: "DELETE", url: `/api/groups/${g.id}`, cookies: await cookieOf(u.id), payload: { mode: "transfer", transferTo: u.id } });
-    console.log(`MEASURE §13-10 transfer 50 notes: ${Math.round(performance.now() - t0)} ms`);
+    console.log(`MEASURE transfer 50 notes: ${Math.round(performance.now() - t0)} ms`);
     expect(r.statusCode).toBe(204);
   });
 
-  it("§13-9（server 代理）：缺 isToggleable 的舊 heading 被 mount 後會不會回寫屬性、版本指紋變不變", async () => {
+  it("server 代理：缺 isToggleable 的舊 heading 被 mount 後會不會回寫屬性、版本指紋變不變", async () => {
     const doc = new Y.Doc();
     const g = new Y.XmlElement("blockGroup");
     doc.getXmlFragment(YDOC_FRAGMENT).insert(0, [g]);
@@ -133,12 +133,12 @@ describe("量測（只回報；數字抄進回報與 PR body）", () => {
     s.close();
     const wrote = Y.encodeStateAsUpdate(doc, sv).length > 2;
     const fpChanged = versionFingerprint(doc.getXmlFragment(YDOC_FRAGMENT)) !== fpBefore;
-    console.log(`MEASURE §13-9 mount writeback: wrote=${wrote} fpChanged=${fpChanged} attrs=${JSON.stringify(h.getAttributes())}`);
+    console.log(`MEASURE mount writeback: wrote=${wrote} fpChanged=${fpChanged} attrs=${JSON.stringify(h.getAttributes())}`);
     expect(fpBefore).toMatch(/^[0-9a-f]{16}$/);
     expect(wrote || !fpChanged).toBe(true); // 沒寫回就不該指紋變（指紋只看 Yjs 結構）
   });
 
-  it("§13-5（server 側）：2000 區塊筆記的手動存與 GET 快照耗時", async () => {
+  it("server 側：2000 區塊筆記的手動存與 GET 快照耗時", async () => {
     const { app, db } = await buildTestApp();
     const u = await seedUser(db);
     const n = await seedNote(db, { ownerId: u.id });
@@ -149,7 +149,7 @@ describe("量測（只回報；數字抄進回報與 PR body）", () => {
     const saveMs = Math.round(performance.now() - t0);
     t0 = performance.now();
     const snap = await app.inject({ method: "GET", url: `/api/notes/${n.id}/versions/1`, cookies });
-    console.log(`MEASURE §13-5 server 2000 blocks: save=${saveMs} ms snapshot=${Math.round(performance.now() - t0)} ms bytes=${snap.body.length}`);
+    console.log(`MEASURE server 2000 blocks: save=${saveMs} ms snapshot=${Math.round(performance.now() - t0)} ms bytes=${snap.body.length}`);
     expect(snap.statusCode).toBe(200);
   });
 });

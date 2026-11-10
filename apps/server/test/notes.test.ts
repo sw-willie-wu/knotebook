@@ -87,7 +87,7 @@ describe("POST /api/notes", () => {
     expect(typeof body.createdAt).toBe("string");
     expect(typeof body.updatedAt).toBe("string");
 
-    // M6（審查）：精確鎖住 DTO 的欄位集合（而非只用 toMatchObject 驗子集）——notes 表
+    // 精確鎖住 DTO 的欄位集合（而非只用 toMatchObject 驗子集）——notes 表
     // 實際還有 linksClock、deletedAt 兩個內部欄位，NoteDto 组裝必須明確排除，不能讓
     // 未來有人不小心把 `...note` 展開進回應而洩漏出去。
     expect(Object.keys(body).sort()).toEqual([
@@ -524,7 +524,7 @@ describe("DELETE /api/notes/:id", () => {
     expect(existsSync(filePath)).toBe(true);
   });
 
-  it("移入交易 commit 前失敗（模擬用強制 rollback）→ 500、筆記不在垃圾桶、附件列與磁碟檔都在（#181：DELETE 本來就不刪檔；原 Task 11 的「刪檔只在 commit 後」契約移到永久刪除）", async () => {
+  it("移入交易 commit 前失敗（模擬用強制 rollback）→ 500、筆記不在垃圾桶、附件列與磁碟檔都在（#181：DELETE 本來就不刪檔；原本「刪檔只在 commit 後」契約移到永久刪除）", async () => {
     const { app, db, uploadsDir } = await buildTestApp();
     const owner = await insertUser(db, { email: "owner-del8@example.com" });
     const ownerCookie = await cookieFor(owner.id);

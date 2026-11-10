@@ -13,7 +13,7 @@ import { adminApp, captureLogs, expectAdminOnly, providerRow } from "./helpers/a
 const ISS = "https://idp.example.com";
 const NUL = String.fromCodePoint(0);
 
-/** 一個啟用中、有 secret、resolved_issuer 已寫、版本 3 的 provider——§5.2 各案的起點。 */
+/** 一個啟用中、有 secret、resolved_issuer 已寫、版本 3 的 provider——各案的起點。 */
 async function seedLive(db: Parameters<typeof seedAuthProvider>[0]) {
   return seedAuthProvider(db, { issuerUrl: ISS, resolvedIssuer: ISS, clientId: "client-a", clientSecret: "secret-a", enabled: true, configVersion: 3 });
 }
@@ -22,7 +22,7 @@ function patch(app: Awaited<ReturnType<typeof adminApp>>["app"], cookies: Record
   return app.inject({ method: "PATCH", url: `/api/admin/auth/providers/${id}`, cookies, payload });
 }
 
-/** #299：沒有 client ID 的服務經 POST 建（`seedAuthProvider` 種不出 NULL，spec §9）。 */
+/** #299：沒有 client ID 的服務經 POST 建（`seedAuthProvider` 種不出 NULL）。 */
 async function createWithoutClientId(app: Awaited<ReturnType<typeof adminApp>>["app"], cookies: Record<string, string>, withSecret: boolean): Promise<string> {
   const payload = { template: "oidc", displayName: "SSO", issuerUrl: ISS, ...(withSecret ? { clientSecret: "secret-a" } : {}) };
   const res = await app.inject({ method: "POST", url: "/api/admin/auth/providers", cookies, payload });
@@ -30,14 +30,14 @@ async function createWithoutClientId(app: Awaited<ReturnType<typeof adminApp>>["
   return res.json().id as string;
 }
 
-describe("PATCH /api/admin/auth/providers/:id（#187 §5.2）", () => {
+describe("PATCH /api/admin/auth/providers/:id（#187）", () => {
   it("只給站台管理員", async () => {
     const { app, db } = await adminApp();
     const p = await seedLive(db);
     await expectAdminOnly(app, db, "PATCH", `/api/admin/auth/providers/${p.id}`, { displayName: "x" });
   });
 
-  it("§5.2 (a) 改 issuer（沒帶 secret）→ secret、resolved_issuer 清空、停用、版本 +1；回應 enabled=false、hasSecret=false", async () => {
+  it("(a) 改 issuer（沒帶 secret）→ secret、resolved_issuer 清空、停用、版本 +1；回應 enabled=false、hasSecret=false", async () => {
     const { app, db, cookies } = await adminApp();
     const p = await seedLive(db);
     const res = await patch(app, cookies, p.id, { issuerUrl: "https://other.example.com" });
@@ -47,7 +47,7 @@ describe("PATCH /api/admin/auth/providers/:id（#187 §5.2）", () => {
     expect(row).toMatchObject({ clientSecretEncrypted: null, resolvedIssuer: null, enabled: false, configVersion: 4 });
   });
 
-  it("§5.2 issuer 送同一個值（編輯表單每次都帶）→ 不清、不停用、版本不變（RF5 的 server 半）", async () => {
+  it("issuer 送同一個值（編輯表單每次都帶）→ 不清、不停用、版本不變", async () => {
     const { app, db, cookies } = await adminApp();
     const p = await seedLive(db);
     const res = await patch(app, cookies, p.id, { issuerUrl: ISS, displayName: "Renamed" });
@@ -57,7 +57,7 @@ describe("PATCH /api/admin/auth/providers/:id（#187 §5.2）", () => {
     expect(openClientSecret(testConfig.appSecret, row!)).toBe("secret-a");
   });
 
-  it("§5.2 (b) 改 issuer＋同時帶新 secret → secret 是新值、resolved 清空、強制停用、版本 +1（r2-M3）", async () => {
+  it("(b) 改 issuer＋同時帶新 secret → secret 是新值、resolved 清空、強制停用、版本 +1", async () => {
     const { app, db, cookies } = await adminApp();
     const p = await seedLive(db);
     const res = await patch(app, cookies, p.id, { issuerUrl: "https://other.example.com", clientSecret: "secret-b", enabled: true });
@@ -67,7 +67,7 @@ describe("PATCH /api/admin/auth/providers/:id（#187 §5.2）", () => {
     expect(openClientSecret(testConfig.appSecret, row!)).toBe("secret-b");
   });
 
-  it("§5.2 (b) 只帶 secret → 覆寫、版本 +1、啟用狀態與 resolved_issuer 不變", async () => {
+  it("(b) 只帶 secret → 覆寫、版本 +1、啟用狀態與 resolved_issuer 不變", async () => {
     const { app, db, cookies } = await adminApp();
     const p = await seedLive(db);
     expect((await patch(app, cookies, p.id, { clientSecret: "secret-c" })).statusCode).toBe(200);
@@ -76,7 +76,7 @@ describe("PATCH /api/admin/auth/providers/:id（#187 §5.2）", () => {
     expect(openClientSecret(testConfig.appSecret, row!)).toBe("secret-c");
   });
 
-  it("§5.2 只改 client_id → 新值、版本 +1；再送一次同值 → 版本不變；secret 都不清（r3-M2）", async () => {
+  it("只改 client_id → 新值、版本 +1；再送一次同值 → 版本不變；secret 都不清", async () => {
     const { app, db, cookies } = await adminApp();
     const p = await seedLive(db);
     await patch(app, cookies, p.id, { clientId: "client-b" });
@@ -87,7 +87,7 @@ describe("PATCH /api/admin/auth/providers/:id（#187 §5.2）", () => {
     expect(openClientSecret(testConfig.appSecret, row!)).toBe("secret-a");
   });
 
-  it("§5.2 只改顯示名／排序／啟用 → 版本不變；PATCH 不帶 issuerUrl → 不清 secret、不停用", async () => {
+  it("只改顯示名／排序／啟用 → 版本不變；PATCH 不帶 issuerUrl → 不清 secret、不停用", async () => {
     const { app, db, cookies } = await adminApp();
     const p = await seedLive(db);
     await patch(app, cookies, p.id, { displayName: "Name 2", sortOrder: 5 });
@@ -98,7 +98,7 @@ describe("PATCH /api/admin/auth/providers/:id（#187 §5.2）", () => {
     expect(openClientSecret(testConfig.appSecret, row!)).toBe("secret-a");
   });
 
-  it("啟用沒有 secret 的 provider → 409 provider_secret_missing（DB CHECK，INV-1），列不變", async () => {
+  it("啟用沒有 secret 的 provider → 409 provider_secret_missing（DB CHECK），列不變", async () => {
     const { app, db, cookies } = await adminApp();
     const p = await seedAuthProvider(db, { issuerUrl: ISS, clientSecret: null, enabled: false });
     const res = await patch(app, cookies, p.id, { enabled: true });
@@ -155,7 +155,7 @@ describe("PATCH /api/admin/auth/providers/:id（#187 §5.2）", () => {
     expect(await providerRow(db, p.id)).toMatchObject({ configVersion: 3 });
   });
 
-  it("RF1p PATCH 不合法輸入 → 400、列不變：大寫 scheme、NUL 顯示名、41 字顯示名", async () => {
+  it("PATCH 不合法輸入 → 400、列不變：大寫 scheme、NUL 顯示名、41 字顯示名", async () => {
     const { app, db, cookies } = await adminApp();
     const p = await seedLive(db);
     for (const payload of [{ issuerUrl: "HTTPS://idp.example.com" }, { displayName: `a${NUL}` }, { displayName: "x".repeat(41) }]) {
@@ -164,7 +164,7 @@ describe("PATCH /api/admin/auth/providers/:id（#187 §5.2）", () => {
     expect(await providerRow(db, p.id)).toMatchObject({ issuerUrl: ISS, displayName: "SSO", configVersion: 3 });
   });
 
-  it("RF1p PATCH issuer 格式錯又帶帳密 → 400 invalid_body（不是 500）、列不變", async () => {
+  it("PATCH issuer 格式錯又帶帳密 → 400 invalid_body（不是 500）、列不變", async () => {
     const { app, db, cookies } = await adminApp();
     const p = await seedLive(db);
     const res = await patch(app, cookies, p.id, { issuerUrl: "https://user:pass@ho st/v1" });
@@ -173,7 +173,7 @@ describe("PATCH /api/admin/auth/providers/:id（#187 §5.2）", () => {
     expect(await providerRow(db, p.id)).toMatchObject({ issuerUrl: ISS, configVersion: 3 });
   });
 
-  it("RF4 大寫 uuid 路徑 → 與小寫同義；registry.invalidate 收到小寫 id（每次成功的 PATCH 都叫）", async () => {
+  it("大寫 uuid 路徑 → 與小寫同義；registry.invalidate 收到小寫 id（每次成功的 PATCH 都叫）", async () => {
     const invalidated: string[] = [];
     const inner = createOidcRuntimeRegistry();
     const registry: OidcRuntimeRegistry = { get: inner.get, probe: inner.probe, invalidate: id => { invalidated.push(id); inner.invalidate(id); } };
@@ -198,7 +198,7 @@ describe("PATCH /api/admin/auth/providers/:id（#187 §5.2）", () => {
     const line = logs.lines.find(l => l.msg === "登入服務的 issuer 被寫入");
     expect(line).toBeDefined();
     expect(line!.obj).toMatchObject({ providerId: p.id, userId: admin.id, from: "https://idp.example.com/", to: "https://evil.example.com/realm", hasSecretAfter: false, enabledAfter: false });
-    // 只記 origin+pathname：userinfo（user:pass@）與 query（?k=…）都不得出現在 from／to（gate r1-t1-7 M8：比對值本身，不比欄名）。
+    // 只記 origin+pathname：userinfo（user:pass@）與 query（?k=…）都不得出現在 from／to（比對值本身，不比欄名）。
     for (const field of [line!.obj.from, line!.obj.to]) expect(String(field)).not.toMatch(/[?@]|pass/);
     logs.lines.length = 0;
     await patch(app, cookies, p.id, { issuerUrl: "https://evil.example.com/realm?k=secret" });
@@ -208,16 +208,16 @@ describe("PATCH /api/admin/auth/providers/:id（#187 §5.2）", () => {
     expect(logs.lines.filter(l => l.msg === "登入服務的 issuer 被寫入")).toHaveLength(0);
   });
 
-  it("改成 http issuer → 另記一行 warn（§5.3）", async () => {
+  it("改成 http issuer → 另記一行 warn", async () => {
     const logs = captureLogs();
     const { app, db, cookies } = await adminApp({}, logs.options);
     const p = await seedLive(db);
     await patch(app, cookies, p.id, { issuerUrl: "http://idp.lan" });
-    const line = logs.lines.find(l => l.msg === "登入服務的 issuer 是明文 http（§5.3）");
+    const line = logs.lines.find(l => l.msg === "登入服務的 issuer 是明文 http");
     expect(line?.level).toBe("warn");
   });
 
-  it("C8 TOCTOU：攻擊者的 no-op PATCH（issuer 不變）排在受害者「改回正確 issuer＋重輸 secret」之後，也偷不到那把 secret", async () => {
+  it("TOCTOU：攻擊者的 no-op PATCH（issuer 不變）排在受害者「改回正確 issuer＋重輸 secret」之後，也偷不到那把 secret", async () => {
     // 同 test/admin-ai.test.ts:353 的作法：另一條連線持行鎖把順序釘死，不賭機率。
     const { app, db, cookies } = await adminApp();
     const EVIL = "https://evil.example.com";
@@ -249,12 +249,12 @@ describe("PATCH /api/admin/auth/providers/:id（#187 §5.2）", () => {
     expect(row!.enabled).toBe(false);
   });
 
-  it("RF3／C5：在飛的登入——只改顯示名 → 回來照常登入；改 client id → 回來 oidc_unavailable", async () => {
+  it("在飛的登入——只改顯示名 → 回來照常登入；改 client id → 回來 oidc_unavailable", async () => {
     for (const [change, expectedLocation] of [[{ displayName: "Renamed mid-flight" }, "/"], [{ clientId: "client-b" }, "/login?error=oidc_unavailable"]] as const) {
       const { app, db, idp, provider } = await buildOidcApp({ providers: [{ key: "a", issuerUrl: ISS }] });
       const admin = await seedUser(db, { isAdmin: true });
       const p = provider("a");
-      idp("a").setNextLogin({ sub: `rf3-${Math.random()}`, email: `rf3-${Math.random()}@example.com`, name: "RF3" });
+      idp("a").setNextLogin({ sub: `inflight-${Math.random()}`, email: `inflight-${Math.random()}@example.com`, name: "Inflight" });
       const loginRes = await app.inject({ method: "GET", url: `/api/auth/oidc/login/${p.id}` });
       expect(loginRes.statusCode).toBe(302);
       const { code, state } = idp("a").authorize(loginRes.headers.location as string);
@@ -277,8 +277,8 @@ const AUTO_CREATE_LOG = "登入服務的自動建帳開關被變更";
 const ISSUER_LOG = "登入服務的 issuer 被寫入";
 const OTHER_ISS = "https://other.example.com";
 
-describe("PATCH autoCreateEnabled（PR-C C-9、C-10）", () => {
-  it("A1（C-9）PATCH {autoCreateEnabled} 可切換；不動 configVersion；只有值變了才記開關 log", async () => {
+describe("PATCH autoCreateEnabled", () => {
+  it("A1 PATCH {autoCreateEnabled} 可切換；不動 configVersion；只有值變了才記開關 log", async () => {
     const logs = captureLogs();
     const { app, db, cookies, admin } = await adminApp({}, logs.options);
     const p = await seedLive(db);
@@ -295,13 +295,13 @@ describe("PATCH autoCreateEnabled（PR-C C-9、C-10）", () => {
     // 沒帶此欄 → 值不變（coalesce）。
     expect((await patch(app, cookies, p.id, { displayName: "x" })).statusCode).toBe(200);
     expect((await providerRow(db, p.id))!.autoCreateEnabled).toBe(false);
-    // 關 → 開也記（spec §4.1：打開自動建帳是最要留紀錄的事件）。
+    // 關 → 開也記（打開自動建帳是最要留紀錄的事件）。
     expect((await patch(app, cookies, p.id, { autoCreateEnabled: true })).statusCode).toBe(200);
     expect(autoLines()).toHaveLength(2);
     expect(autoLines()[1]!.obj).toEqual({ providerId: p.id, userId: admin.id, autoCreateEnabled: true });
   });
 
-  it("A2（C-9）帳密 DB 值關、操作者沒有 SSO 身分時，切換自動建帳照樣 200（不觸發 B19）；對照：同條件停用 → 409", async () => {
+  it("帳密 DB 值關、操作者沒有 SSO 身分時，切換自動建帳照樣 200（不觸發防自鎖守衛）；對照：同條件停用 → 409", async () => {
     const { app, db, cookies } = await adminApp();
     const p = await seedLive(db);
     await db.update(siteSettings).set({ passwordLoginEnabled: false });
@@ -317,7 +317,7 @@ describe("PATCH autoCreateEnabled（PR-C C-9、C-10）", () => {
     await expectAdminOnly(app, db, "PATCH", `/api/admin/auth/providers/${p.id}`, { autoCreateEnabled: true });
   });
 
-  it("A4 (a)（C-10）現值 true、只改 issuer → 仍 true；issuer log 帶 autoCreateEnabledAfter: true；沒有開關 log", async () => {
+  it("A4 (a)現值 true、只改 issuer → 仍 true；issuer log 帶 autoCreateEnabledAfter: true；沒有開關 log", async () => {
     const logs = captureLogs();
     const { app, db, cookies } = await adminApp({}, logs.options);
     const p = await seedLive(db);
@@ -330,7 +330,7 @@ describe("PATCH autoCreateEnabled（PR-C C-9、C-10）", () => {
     expect(logs.lines.filter(l => l.msg === AUTO_CREATE_LOG)).toHaveLength(0);
   });
 
-  it("A4 (b)（C-10）現值 true、改 issuer＋autoCreateEnabled: false → false；兩行 log 都有，開關 log 在前", async () => {
+  it("A4 (b)現值 true、改 issuer＋autoCreateEnabled: false → false；兩行 log 都有，開關 log 在前", async () => {
     const logs = captureLogs();
     const { app, db, cookies } = await adminApp({}, logs.options);
     const p = await seedLive(db);
@@ -345,7 +345,7 @@ describe("PATCH autoCreateEnabled（PR-C C-9、C-10）", () => {
     expect(logs.lines[issuerIdx]!.obj).toMatchObject({ autoCreateEnabledAfter: false });
   });
 
-  it("A4 (c)（C-10）現值 false、改 issuer＋autoCreateEnabled: true → true（有無帶 secret 皆然）", async () => {
+  it("A4 (c)現值 false、改 issuer＋autoCreateEnabled: true → true（有無帶 secret 皆然）", async () => {
     for (const extra of [{}, { clientSecret: "new-secret" }]) {
       const { app, db, cookies } = await adminApp();
       const p = await seedAuthProvider(db, { issuerUrl: ISS, resolvedIssuer: ISS, clientId: "client-a", clientSecret: "secret-a", enabled: true, configVersion: 3, autoCreateEnabled: false });
@@ -357,7 +357,7 @@ describe("PATCH autoCreateEnabled（PR-C C-9、C-10）", () => {
   });
 });
 
-// 總管裁定（Task 3 審查 m1）：寫密文欄的那一句若遇非預期 DB 錯誤，全域 error handler 記整個 err——drizzle 0.44 的
+// 寫密文欄的那一句若遇非預期 DB 錯誤，全域 error handler 記整個 err——drizzle 0.44 的
 // `DrizzleQueryError` 把 params（含 jsonb 的 ct／iv／tag）串進 message 也掛成屬性。用真的 trigger 讓 INSERT／UPDATE 失敗
 // （SQLSTATE P0001，不是任何已知的 CHECK／唯一鍵），走真實的 drizzle 錯誤形，不靠假物件。
 describe("寫 client secret 時遇非預期 DB 錯誤：回 500、log 不帶密文", () => {

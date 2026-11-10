@@ -8,7 +8,7 @@ import { hasMarkdownStructure } from "./paste";
  * 為什麼這條性質值得一個專門的檔案：`decideMarkdownPaste` 只在「剪貼簿同時有 HTML」
  * 時用這個門檻決定要不要把貼上從 HTML 路徑接過來。只要維持子集關係，接手就等於
  * 「與 BlockNote 相同的判斷，外加行尾正規化」——不可能把它原本會用 HTML 處理的內容
- * 拉走（那正是四輪審查裡反覆抓到的回歸：JSDoc 的 ` * ` 續行被當清單、超長 `#` 註解被
+ * 拉走（那是反覆出現過的回歸：JSDoc 的 ` * ` 續行被當清單、超長 `#` 註解被
  * 當標題、psql 的 `-----|-----` 被當表格、shell 的 `1) ` 被當編號清單）。
  *
  * oracle 直接讀 `node_modules` 裡安裝的那份原始碼來執行——**刻意不把它複製進本專案**
@@ -24,7 +24,7 @@ function loadBlockNoteIsMarkdown(): (src: string) => boolean {
   return new Function(`${source}\nreturn isMarkdown;`)() as (src: string) => boolean;
 }
 
-/** 前四輪審查用真剪貼簿量到的形狀，加上一般 markdown 文件。子集關係要對整組成立。 */
+/** 用真剪貼簿量到的形狀，加上一般 markdown 文件。子集關係要對整組成立。 */
 const CORPUS: Array<[string, string]> = [
   ["JSDoc 註解", "/**\n * Adds two numbers together.\n * @param {number} a - first\n */\nfunction add(a, b) {\n  return a + b;\n}"],
   ["C/Java 授權標頭", "/*\n * Copyright 2026 Someone.\n * Licensed under the Apache License.\n */"],

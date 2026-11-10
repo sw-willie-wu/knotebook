@@ -1,5 +1,5 @@
 /**
- * 資料夾 PR-3a T4：`NoteDto.folderId`（呼叫者視角，spec §5.11 M9、AG-F1、A3-16）與 `sizeBytes`（D11 A，只有 `GET /api/notes`）。
+ * 資料夾：`NoteDto.folderId`（呼叫者視角）與 `sizeBytes`（只有 `GET /api/notes`）。
  * 資料夾還沒有寫入 API——位置一律以 helper 直寫 `notes.folder_id`／`note_placements`。
  */
 import { performance } from "node:perf_hooks";
@@ -18,7 +18,7 @@ import { buildCollabTestApp, buildTestApp } from "./helpers.js";
 import { seedAttachment } from "./storage-helpers.js";
 import { markTrashed } from "./trash-helpers.js";
 
-/** 既有的 14 鍵（`notes.test.ts` 的 M6 集合）。 */
+/** 既有的 14 鍵（`notes.test.ts` 的那組）。 */
 const BASE_KEYS = [
   "createdAt", "group", "groupId", "id", "lastEdited", "ownerHandle", "ownerId", "permissions", "prevSlug", "role", "slug", "slugIsCustom", "title", "updatedAt",
 ];
@@ -67,7 +67,7 @@ async function scene(db: Db) {
   return { o, s, e, v, m, g, n, r, gn, FO: fo.id, FS: fs.id, FG: fg.id };
 }
 
-describe("資料夾 PR-3a T4：NoteDto.folderId（呼叫者視角）", () => {
+describe("資料夾：NoteDto.folderId（呼叫者視角）", () => {
   it("DTO-1 清單：O 看 N＝FO、R＝null；S 看 N＝自己的放置 FS；V 看 N＝null；M 看 GN＝FG", async () => {
     const { app, db } = await buildTestApp();
     const c = await scene(db);
@@ -165,7 +165,7 @@ describe("資料夾 PR-3a T4：NoteDto.folderId（呼叫者視角）", () => {
   });
 });
 
-describe("資料夾 PR-3a T4：sizeBytes（D11 A）", () => {
+describe("資料夾：sizeBytes", () => {
   it("DTO-9 內文 123 bytes＋附件 10、20 → 153；R → 0；S 看 N 也是 153；SQL 外層欄帶表名", async () => {
     const { app, db, uploadsDir } = await buildTestApp();
     const c = await scene(db);

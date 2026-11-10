@@ -10,7 +10,7 @@ import { type Accent, ACCENTS } from "./theme";
  * 的手法：剝註解→定位塊→抽值）。
  *
  * 背景見 `index.css` 「主題色（accent）十二個套用塊」上方的區塊註解：
- * - 六色 × light/dark 共十二個 `[data-accent=…]` 塊，值必須逐字抄 spec 值表。
+ * - 六色 × light/dark 共十二個 `[data-accent=…]` 塊，值必須逐字抄既定的值表。
  * - `:root`/`:root.dark` 基底塊的五個 `--brand*` token（`--brand-fg` 不算，見下）
  *   是屬性不存在時的 fallback，必須逐字＝indigo 那組——這是「首屏 fallback 與
  *   hydrate 補設同色」的支點。
@@ -22,7 +22,7 @@ import { type Accent, ACCENTS } from "./theme";
  *   oklch 三值推導（light /14%、/20%；dark /16%、/24%），不得誤用 light
  *   `--brand`。
  *
- * 通用規則（F1/F2）：token 比對一律**逐名、以冒號錨定**（`--brand:`／
+ * 通用規則：token 比對一律**逐名、以冒號錨定**（`--brand:`／
  * `--brand-soft:`／`--brand-soft-strong:`／`--brand-on-soft:` 四個精確名）。
  * 冒號緊接在名稱後，天然排除 `--brand-soft-strong:` 誤配到 `--brand-soft:`、
  * 也排除 `--brand-swatch-*:` 誤配到 `--brand:`——不需要額外的前綴排除邏輯，

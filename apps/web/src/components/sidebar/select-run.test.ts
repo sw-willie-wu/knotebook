@@ -3,7 +3,7 @@ import { act, renderHook } from "@testing-library/react";
 import type { SidebarTabActions } from "@/lib/sidebar-tab";
 import { beginSelectRun, endSelectRun, updateSelectRun, useSelectRun } from "./select-run";
 
-// 批次進行中的 provider 層 store（#181 PR-2c T5，RN1–RN4）。store 是模組層：每案新建 owner（前一案失敗不連累下一案）。
+// 批次進行中的 provider 層 store（#181，RN1–RN4）。store 是模組層：每案新建 owner（前一案失敗不連累下一案）。
 
 function owner(): SidebarTabActions {
   return {

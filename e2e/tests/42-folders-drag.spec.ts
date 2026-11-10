@@ -15,7 +15,7 @@ import {
 } from "./helpers.js";
 
 /**
- * 資料夾 PR-3c（spec §6.18 e2e 列中本 PR 的一支；A3-7 的 Chromium 可自動化部分；§6.13【推-2】）：側欄原生拖曳——放進資料夾、拖回根目錄、
+ * 資料夾（Chromium 可自動化部分）：側欄原生拖曳——放進資料夾、拖回根目錄、
  * 彈簧資料夾、A 疊 B 建資料夾（改名框關閉後才出 toast）與復原、預覽後移開不建、群組 tab 跨群組不給落點、拖進編輯器。
  * 每個 test 以 `createUserViaInvite` 開自己的使用者並登入它（同 40／41：資料夾會改變共用帳號的可見列）；資料以 API 建後 `goto("/")`。
  * 拖曳一律 `dragTo`／`dragMoveTo`（page.mouse，Chromium）：等待只用斷言（落點標示 `data-drop-scope`、預覽 `data-node-kind="preview"`），

@@ -11,9 +11,9 @@ import { RotateCcw, Trash } from "@/components/ui/icons";
 import { PurgeConfirmDialog, toastTrashFailure, toastTrashResult } from "@/components/sidebar/trash-dialogs";
 
 /**
- * 垃圾桶 tab 的側欄底部（`SidebarFooter` 經 `TrashLazy` 延遲載入）：保留天數說明（spec §6.10.1）；選取模式換成動作列（spec §6.10.2）。
+ * 垃圾桶 tab 的側欄底部（`SidebarFooter` 經 `TrashLazy` 延遲載入）：保留天數說明；選取模式換成動作列。
  * 兩者在同一個 lazy 元件裡切換：各自一個 lazy 的話，第一次進選取時動作列還要再 suspend 一次、先閃一下佔位。
- * 寬螢幕（`useWidePointer`，PR-3b-3，spec §6.10.2 rev 4.3）選取中底部什麼都不顯示（保留天數說明也不出現，總管裁定 ⑧）：
+ * 寬螢幕（`useWidePointer`）選取中底部什麼都不顯示（保留天數說明也不出現）：
  * 動作在 `TrashPanel` 標題列的 `TrashWideToolbar`。
  */
 export function TrashFooter() {
@@ -37,10 +37,10 @@ function TrashFooterNote() {
 }
 
 /**
- * 垃圾桶選取模式的動作（spec §6.10.2）：還原、開永久刪除確認、確認後送出、成功收尾。窄形 `TrashActionBar` 與寬形 `TrashWideToolbar` 共用。
+ * 垃圾桶選取模式的動作：還原、開永久刪除確認、確認後送出、成功收尾。窄形 `TrashActionBar` 與寬形 `TrashWideToolbar` 共用。
  * 0 篇或送出中 `disabled`。成功後離開選取模式（結果走 toast），失敗留在選取模式讓使用者重試。送出的 id 照清單順序、只算清單上還在的（`selectedTrashIds`）。
  * ⚠ 兩個呼叫端都只在選取中掛載——`mountedRef` 守衛（回應晚到時不結束使用者重新開始的另一輪選取）靠這一點成立；
- * `purgeDialog` 由呼叫端渲染在自己裡面，跟著呼叫端一起卸載（plan gate r1 I2 ①）。
+ * `purgeDialog` 由呼叫端渲染在自己裡面，跟著呼叫端一起卸載。
  */
 export function useTrashSelectionActions(): {
   selectedIds: string[];
@@ -141,7 +141,7 @@ export function useTrashSelectionActions(): {
           } catch (err) {
             toastTrashFailure("purge", err, t);
           }
-          // 成敗都關（讀碼發現 23）。送出中取消了框也不會重開到別的對象：動作鈕在 pending 時 disabled。
+          // 成敗都關。送出中取消了框也不會重開到別的對象：動作鈕在 pending 時 disabled。
           setConfirmOpen(false);
           if (ok) finish(shell);
         });
@@ -159,7 +159,7 @@ export function useTrashSelectionActions(): {
   return { selectedIds, disabled, busy, onRestore, onPurge, purgeDialog };
 }
 
-/** 窄形：底部動作列「還原」（主色，總管裁定 ⑩）「永久刪除」（紅字），各帶圖示。 */
+/** 窄形：底部動作列「還原」（主色）「永久刪除」（紅字），各帶圖示。 */
 function TrashActionBar() {
   const { t } = useTranslation();
   const { disabled, onRestore, onPurge, purgeDialog } = useTrashSelectionActions();
@@ -208,7 +208,7 @@ function TrashActionBar() {
 }
 
 /**
- * 寬形（spec §6.10.2 rev 4.3）：`TrashPanel` 標題列裡的「還原」「永久刪除」兩顆 24px 純圖示鈕（可及名稱＝hover 提示＝原按鈕字；
+ * 寬形：`TrashPanel` 標題列裡的「還原」「永久刪除」兩顆 24px 純圖示鈕（可及名稱＝hover 提示＝原按鈕字；
  * 外觀同一般 tab 的 `SelectActionBar` toolbar 形）＋永久刪除確認框。`TrashPanel` 只在選取中渲染它（`mountedRef` 守衛靠這一點）。
  * 確認框內的 Esc 經 React 樹（portal）冒泡到 `TrashPanel` 根，由它的 `handleKeyDown` 開頭濾掉：只關框、不結束選取。
  */

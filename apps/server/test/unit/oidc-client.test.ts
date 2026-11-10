@@ -13,7 +13,7 @@ function config(publicUrl: string) {
 
 const ISSUER_URL = "https://idp.example.com";
 
-/** #187：`AppConfig.oidc` 已移除；runtime 直接收 `OidcClientSettings`（Task 3）。 */
+/** #187：`AppConfig.oidc` 已移除；runtime 直接收 `OidcClientSettings`。 */
 function oidcSettings(): OidcClientSettings {
   return { issuerUrl: ISSUER_URL, clientId: "test-client", clientSecret: "test-secret" };
 }
@@ -43,7 +43,7 @@ function discoveryOnlyFetch(algs: string[] | undefined): CustomFetch {
 const LEGACY = { id: "p1", legacyCallback: true };
 const PER_PROVIDER = { id: "p1", legacyCallback: false };
 
-describe("auth/oidc-client：oidcRedirectUri（login、callback、SSO 證明起點共用的單一 helper，#187 §7.1）", () => {
+describe("auth/oidc-client：oidcRedirectUri（login、callback、SSO 證明起點共用的單一 helper，#187）", () => {
   it("legacy provider → <publicUrl origin>/api/auth/oidc/callback（env 匯入的那一個沿用舊回呼網址）", () => {
     expect(oidcRedirectUri(config("https://notes.example.com"), LEGACY)).toBe(
       "https://notes.example.com/api/auth/oidc/callback"
@@ -57,8 +57,8 @@ describe("auth/oidc-client：oidcRedirectUri（login、callback、SSO 證明起�
   });
 
   it("publicUrl 帶 port → 保留 port", () => {
-    expect(oidcRedirectUri(config("http://192.168.3.22:8006"), PER_PROVIDER)).toBe(
-      "http://192.168.3.22:8006/api/auth/oidc/callback/p1"
+    expect(oidcRedirectUri(config("http://192.168.1.50:3000"), PER_PROVIDER)).toBe(
+      "http://192.168.1.50:3000/api/auth/oidc/callback/p1"
     );
   });
 
@@ -69,7 +69,7 @@ describe("auth/oidc-client：oidcRedirectUri（login、callback、SSO 證明起�
   });
 });
 
-describe("auth/oidc-client：createOidcRuntime 對 id_token_signing_alg_values_supported 的三分支判定（MINOR-6，審查 fix round 1）", () => {
+describe("auth/oidc-client：createOidcRuntime 對 id_token_signing_alg_values_supported 的三分支判定", () => {
   it("metadata 缺該欄位 → 視為含 RS256，不擋（getConfiguration 正常 resolve）", async () => {
     const runtime = createOidcRuntime(oidcSettings(), { fetch: discoveryOnlyFetch(undefined) });
     await expect(runtime.getConfiguration()).resolves.toBeDefined();

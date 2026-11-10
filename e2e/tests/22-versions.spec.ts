@@ -3,7 +3,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { ADMIN, createNote, editorLocator, loginAs, noteIdFromUrl, reEscape, setAutoWait, versionLabelOf, waitForEditorSelection } from "./helpers.js";
 
 /**
- * 並排逐區塊對齊（spec rev 12 §8.4）：兩欄頂層區塊帶 `data-diff-row`。同列兩側 top 相差 ≤ 1 px；只在一側出現的列，
+ * 並排逐區塊對齊：兩欄頂層區塊帶 `data-diff-row`。同列兩側 top 相差 ≤ 1 px；只在一側出現的列，
  * 對面欄有一塊 `.kb-diff-spacer` 蓋住那一列的高度（容差 1 px）。`minSingle`：至少要有幾個單側列（避免空斷言）。
  * 版面在 layout effect／ResizeObserver＋rAF 裡寫，所以用 toPass 重試。一次 evaluate 讀完兩欄（同一個 layout 快照）。
  */
@@ -45,7 +45,7 @@ async function expectSplitAligned(page: Page, minSingle: number) {
 }
 
 /**
- * 版本歷史 e2e（spec §11.3；#272 起 UI 不顯示 vN）：存（milestone）→ 改 → 存（second）→ 改 → 預覽 second 看到 diff 標記 →
+ * 版本歷史 e2e（#272 起 UI 不顯示 vN）：存（milestone）→ 改 → 存（second）→ 改 → 預覽 second 看到 diff 標記 →
  * 套用 milestone（「不儲存」）→ 內容回到 milestone → 再改並存（third）→ 清單出現「沿自 milestone (…)」→ 預覽期間另一個 context 改字、
  * 再點選中列離開預覽後游標與浮層正常 → 窄視窗（390）整頁兩步套用。
  * 自動存版要停手 X 分鐘（站台預設 5），本案只用手動儲存（Ctrl+S）建版；自動存版由 server 整合測試與 22c（測試縫把 X 壓成秒）守。
@@ -104,15 +104,15 @@ test("22 版本歷史：存、改、預覽 diff、套用、沿自「名稱 (短 
     await expect(panel.getByTestId("base-dot")).toHaveCount(0);
     await expect(panel.getByRole("button", { name: /^second \(/ })).not.toContainText(/Manual|Auto/);
 
-    // 預覽 second（rev 10：預設 vs 目前狀態）：second 之後才打的 gamma-three 是新增，beta-two、alpha-one 未變
+    // 預覽 second（預設 vs 目前狀態）：second 之後才打的 gamma-three 是新增，beta-two、alpha-one 未變
     await panel.getByRole("button", { name: /^second \(/ }).click();
     await expect(page.getByTestId("preview-banner")).toContainText(/Previewing second \([0-9a-f]{7}\)/);
-    // 1400 px 開面板：預覽區約 774 px ≥ 720 → 自動並排；兩欄標頭是左右一對下拉（rev 10）。切單欄再看 data-diff。
+    // 1400 px 開面板：預覽區約 774 px ≥ 720 → 自動並排；兩欄標頭是左右一對下拉。切單欄再看 data-diff。
     await expect(page.getByTestId("diff-split")).toBeVisible();
     const splitHead = page.getByTestId("diff-split-head");
     await expect(splitHead.getByRole("button", { name: "Left side" })).toHaveText(/^second \(/);
     await expect(splitHead.getByRole("button", { name: "Right side" })).toHaveText(/Current state/);
-    // rev 12 並排逐區塊對齊：second 之後才打的 gamma-three 只在右欄 → 至少一個單側列，左欄同位置有斜紋 spacer。
+    // 並排逐區塊對齊：second 之後才打的 gamma-three 只在右欄 → 至少一個單側列，左欄同位置有斜紋 spacer。
     await expectSplitAligned(page, 1);
     await page.getByTestId("preview-banner").getByRole("button", { name: "Single column" }).click();
     const diffBlocks = page.getByTestId("diff-single").locator("[data-diff]");
@@ -124,7 +124,7 @@ test("22 版本歷史：存、改、預覽 diff、套用、沿自「名稱 (短 
     // 預覽 milestone → 套用 → dirty → 三選一「不儲存，直接套用」
     await panel.getByRole("button", { name: /^milestone \(/ }).click();
     const applyV1 = page.getByTestId("versions-footer").getByRole("button", { name: /^Apply milestone \(/ });
-    // I-4／起草裁定 22：面板開著時右下泡泡堆疊讓到面板外側，不得蓋住「Apply milestone (…)」（#263 起容器裡只剩歷史泡泡，面板開著時整個容器不渲染；容器若在，就不得蓋住）
+    // 面板開著時右下泡泡堆疊讓到面板外側，不得蓋住「Apply milestone (…)」（#263 起容器裡只剩歷史泡泡，面板開著時整個容器不渲染；容器若在，就不得蓋住）
     const stack = page.getByTestId("corner-stack");
     if ((await stack.count()) > 0) {
       const s = (await stack.boundingBox())!;
@@ -152,9 +152,9 @@ test("22 版本歷史：存、改、預覽 diff、套用、沿自「名稱 (短 
     await panel.getByRole("button", { name: /^third \(/ }).click();
     await expect(page.getByTestId("preview-banner")).toBeVisible();
 
-    // RF3（gate r1 I-3）真鍵盤：預覽中開著儲存對話框／⋯ 列選單按 Esc → 只關浮層，預覽橫幅留著；沒有浮層時 Esc＝離開預覽
+    // 真鍵盤：預覽中開著儲存對話框／⋯ 列選單按 Esc → 只關浮層，預覽橫幅留著；沒有浮層時 Esc＝離開預覽
     // 先等 toast（「Saved as third (…)」，5 s）消失：toast 還在時第一下 Esc 被 Radix Toast 吃掉（關的是 toast、對話框留著），
-    // 量的就不是本段要守的東西（Task 14 首跑實測：toast 在 → Esc 後對話框仍開；toast 不在 → 對話框關）。
+    // 量的就不是本段要守的東西（實測：toast 在 → Esc 後對話框仍開；toast 不在 → 對話框關）。
     await expect(page.getByRole("region", { name: /^Notifications/ }).getByRole("listitem")).toHaveCount(0, { timeout: 15_000 });
     await page.keyboard.press("Control+s");
     const saveDlg = page.getByRole("dialog", { name: "Save current version" });
@@ -177,7 +177,7 @@ test("22 版本歷史：存、改、預覽 diff、套用、沿自「名稱 (短 
     await otherPage.goto(url);
     await expect(otherPage.getByRole("status").filter({ hasText: /^Connected/ })).toBeVisible({ timeout: 15_000 });
     await typeAtEnd(otherPage, "remote-five");
-    // Task 19：橫幅沒有 ✕；再點已選中的 third 列＝離開預覽（toggle）。
+    // 橫幅沒有 ✕；再點已選中的 third 列＝離開預覽（toggle）。
     await panel.getByRole("button", { name: /^third \(/ }).click();
     await expect(page.getByTestId("preview-banner")).toBeHidden();
     await expect(editorLocator(page)).toContainText("remote-five", { timeout: 15_000 });
@@ -216,7 +216,7 @@ test("22 版本歷史：存、改、預覽 diff、套用、沿自「名稱 (短 
   }
 });
 
-test("22b 並排逐區塊對齊（spec rev 12）：中間插一段＋前一段改長 → 左 2 與右 3 同列、插入那列左欄留斜紋", async ({ browser }) => {
+test("22b 並排逐區塊對齊：中間插一段＋前一段改長 → 左 2 與右 3 同列、插入那列左欄留斜紋", async ({ browser }) => {
   test.setTimeout(120_000);
   const shotDir = process.env.VERSIONS_SCREENSHOT_DIR; // 目視截圖：設了才截，本檔不寫絕對路徑
   const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 } });
@@ -231,7 +231,7 @@ test("22b 並排逐區塊對齊（spec rev 12）：中間插一段＋前一段�
 
     const editor = editorLocator(page);
     // 中間插一段（one-top 之後）；再把 one-top 改長到在並排欄裡換行 → 同列兩側高度不同（矮側要補留白）。
-    // 游標要確定落在 one-top 才按 Enter：插入曾跑到 two-bottom 之後（修正輪 1 本機一次、CI run 38047114343 一次）。
+    // 游標要確定落在 one-top 才按 Enter：插入曾跑到 two-bottom 之後。
     // 原因不是存版對話框的焦點還原，而是 ProseMirror 還沒收到點擊／End 的 selectionchange（不經對話框也重現，見
     // `waitForEditorSelection` 註解）：DOM selection 已在 one-top，state.selection 還在 two-bottom 尾。所以除了 DOM
     // selection，還要等 ProseMirror 的 state 對齊；預覽前再斷言三段的順序。

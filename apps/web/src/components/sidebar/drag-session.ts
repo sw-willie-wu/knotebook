@@ -2,7 +2,7 @@ import { useSyncExternalStore } from "react";
 import { DRAG_HOVER_DELAY_MS, dropScopeKey, readDragTarget, type DragOverResult, type DragSource, type DropZone, type HoldAction } from "./drag-zone";
 
 /**
- * 側欄拖曳的模組層 store（資料夾 spec §6.13；讀碼發現 7）：靜態卡與抽屜兩份 NoteList 共用拖曳狀態、預覽與「建立中」。
+ * 側欄拖曳的模組層 store：靜態卡與抽屜兩份 NoteList 共用拖曳狀態、預覽與「建立中」。
  * 計時只有一個（彈簧與疊資料夾不會同列，共用 DRAG_HOVER_DELAY_MS）；離開樹以 document 的 dragover（capture）對照**發起拖曳的那個容器**判定。
  */
 

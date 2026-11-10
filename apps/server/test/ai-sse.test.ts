@@ -393,7 +393,7 @@ describe("POST /api/ai — 正常串流", () => {
     });
 
     expect(res.statusCode).toBe(200);
-    // fix round 1 M-4：四個 SSE header 全斷（不只 content-type）——這行最容易在後人整理
+    // 四個 SSE header 全斷（不只 content-type）——這行最容易在後人整理
     // header 時被無感刪掉，尤其 x-accel-buffering（反向代理不緩衝，SSE 即時性的關鍵）。
     expect(res.headers["content-type"]).toContain("text/event-stream");
     expect(res.headers["cache-control"]).toBe("no-cache");
@@ -403,7 +403,7 @@ describe("POST /api/ai — 正常串流", () => {
     expect(res.body).toContain('"text":"Hello"');
     expect(res.body).not.toContain("event: error");
 
-    // 上游收到的 body：system/user 都正確套用（含 {{text}} 模板替換；system 前面是並排 PR-2 的固定說明）。
+    // 上游收到的 body：system/user 都正確套用（含 {{text}} 模板替換；system 前面是並排的固定說明）。
     expect(fakeUpstream.requestBodies).toHaveLength(1);
     const sent = fakeUpstream.requestBodies[0]!;
     expect(sent.model).toBe(model.modelId);
@@ -413,7 +413,7 @@ describe("POST /api/ai — 正常串流", () => {
     ]);
   });
 
-  it("[DONE] 後即使 upstream 自己不主動關閉連線，server 端仍主動中止（I-2 回歸，防 socket 洩漏）", async () => {
+  it("[DONE] 後即使 upstream 自己不主動關閉連線，server 端仍主動中止（回歸，防 socket 洩漏）", async () => {
     const fakeUpstream = await startFakeUpstream((_req, res) => {
       res.writeHead(200, SSE_HEADERS);
       res.write(sseDelta("ok"));
@@ -549,14 +549,14 @@ describe("POST /api/ai — 正常串流", () => {
   // 不另設 per-test 逾時、沿用全域 testTimeout（vitest.config.ts 120 s）：以前寫死的 15 s 也罩住 buildTestApp（建庫）與
   // 種資料，機器忙時那段一慢就逾時假紅。「注入的 400 ms 有接上」改由下面只量 idle 那一段的牆鐘界線守（20 s 對生產預設 60 s）。
   it(
-    "idle timeout：fake upstream 停止吐 delta 後短逾時 → SSE error（round 2：真實時間，見 aiIdleTimeoutMs 測試 seam）",
+    "idle timeout：fake upstream 停止吐 delta 後短逾時 → SSE error（真實時間，見 aiIdleTimeoutMs 測試 seam）",
     async () => {
       const fakeUpstream = await startFakeUpstream((_req, res) => {
         res.writeHead(200, SSE_HEADERS);
         res.write(sseDelta("only-one-chunk-then-silence"));
         // 之後刻意不再吐任何 delta、也不 res.end()——模擬 upstream 卡住，逼出 idle timeout 分支。
       });
-      // round 2（CI flake 復發，Task 4 審查 N-5 同款建議）：round 1 靠 `vi.useFakeTimers` +
+      // 第二版（CI flake 復發後改寫）：第一版靠 `vi.useFakeTimers` +
       // `vi.advanceTimersByTimeAsync(60_000)` 把「idle timer 已 arm」變成確定性訊號（收到第
       // 一個 delta 才推假時鐘），方向沒錯，但 CI 上兩次都仍在 `startFakeUpstream` 的
       // `onTestFinished` server.close() 卡滿 180s hook timeout——且是在測試本體（含
@@ -603,7 +603,7 @@ describe("POST /api/ai — 正常串流", () => {
 
       // 等到「至少收到一個完整 delta 事件」為止（poll/await 實際資料，不用固定 sleep）——
       // handler 的 for-await 迴圈每次迭代都 resetIdleTimer，收到第一個 delta 代表 idle timer
-      // 必然已 arm，語意與 round 1 相同，這部分仍有價值、原樣保留。
+      // 必然已 arm，語意與第一版相同，這部分仍有價值、原樣保留。
       await firstDelta;
       const idleStart = Date.now();
 
@@ -739,7 +739,7 @@ describe("POST /api/ai — openai_compatible 無金鑰撞上游授權錯誤（is
     });
     expect(res.statusCode).toBe(200); // hijack 後一律 200，錯誤走 SSE 事件
     expect(eventSequence(res.body)).toEqual(["error"]);
-    // 「上游 body 絕不外洩」的不變量對**兩個** error 出口都要成立（審查指出：既有的
+    // 「上游 body 絕不外洩」的不變量對**兩個** error 出口都要成立（既有的
     // sentinel 測試只驅動 500、只蓋得到 upstream_error 那條出口）——fake upstream 的
     // body 帶哨兵字串，映射與否都不得出現在 SSE 回應裡。
     expect(res.body).not.toContain("missing api key");
@@ -775,13 +775,13 @@ describe("POST /api/ai — openai_compatible 無金鑰撞上游授權錯誤（is
   });
 });
 
-describe("POST /api/ai — #263 Instruct 欄位矩陣（§4.3：串流前 400、在角色檢查與節流之前）", () => {
+describe("POST /api/ai — #263 Instruct 欄位矩陣（串流前 400、在角色檢查與節流之前）", () => {
   // 刻意用使用者無權限的 note：400 若排在 resolveRole 之後，這些案會變 404。
   const NO_ACCESS_NOTE = "11111111-2222-4333-8444-555555555555";
   const cases: Array<[string, Record<string, unknown>]> = [
     ["Instruct 缺 instruction", { action_id: INSTRUCT_ACTION_ID }],
     ["Instruct instruction 為空字串", { action_id: INSTRUCT_ACTION_ID, instruction: "" }],
-    ["Instruct instruction 只有空白（含全形空白，RF2）", { action_id: INSTRUCT_ACTION_ID, instruction: " 　\t" }],
+    ["Instruct instruction 只有空白（含全形空白）", { action_id: INSTRUCT_ACTION_ID, instruction: " 　\t" }],
     ["Instruct instruction trim 後 501 code point", { action_id: INSTRUCT_ACTION_ID, instruction: `  ${"字".repeat(501)}  ` }],
     ["Instruct focus 2001 code point", { action_id: INSTRUCT_ACTION_ID, instruction: "改短", focus: "😀".repeat(2001) }],
     ["非 Instruct 帶 instruction（空字串也算帶）", { action_id: REWRITE_ACTION_ID, instruction: "" }],
@@ -838,7 +838,7 @@ describe("POST /api/ai — #263 Instruct 欄位矩陣（§4.3：串流前 400、
   });
 });
 
-describe("POST /api/ai — #263 組裝（§4.2：固定標記與守門）", () => {
+describe("POST /api/ai — #263 組裝（固定標記與守門）", () => {
   async function instructRun(payload: Record<string, unknown>, before?: (db: Db) => Promise<void>) {
     const fakeUpstream = await startFakeUpstream((_req, res) => {
       res.writeHead(200, SSE_HEADERS);
@@ -858,7 +858,7 @@ describe("POST /api/ai — #263 組裝（§4.2：固定標記與守門）", () =
     return { res, db, sent: fakeUpstream.requestBodies };
   }
 
-  it("Instruct（AQ3）：user＝預設 template 依序代入三個標記（instruction 用 trim 後的值）；system＝固定說明＋空行＋守門＋空行＋動作 prompt", async () => {
+  it("Instruct：user＝預設 template 依序代入三個標記（instruction 用 trim 後的值）；system＝固定說明＋空行＋守門＋空行＋動作 prompt", async () => {
     const { res, db, sent } = await instructRun({
       action_id: INSTRUCT_ACTION_ID,
       text: "第一段\n\n第二段",
@@ -895,7 +895,7 @@ describe("POST /api/ai — #263 組裝（§4.2：固定標記與守門）", () =
     expect(sent[0]!.messages?.[1]?.content).toContain("<text>\nbody\n</text>");
   });
 
-  it("quick 動作（AQ1）：system＝固定說明＋空行＋動作 prompt（不前置 Instruct 守門）、text 裸代入、{{instruction}}／{{focus}} 代入空字串", async () => {
+  it("quick 動作：system＝固定說明＋空行＋動作 prompt（不前置 Instruct 守門）、text 裸代入、{{instruction}}／{{focus}} 代入空字串", async () => {
     const fakeUpstream = await startFakeUpstream((_req, res) => {
       res.writeHead(200, SSE_HEADERS);
       res.end(`${sseDelta("ok")}data: [DONE]\n\n`);
@@ -920,9 +920,9 @@ describe("POST /api/ai — #263 組裝（§4.2：固定標記與守門）", () =
   });
 });
 
-// 並排 PR-2（spec 2026-10-21 columns-layout §11.6，Q4）：MARKUP_GUARD_PROMPT 由 server 前置在每一個動作的 system 最前面，
+// 並排：MARKUP_GUARD_PROMPT 由 server 前置在每一個動作的 system 最前面，
 // 管理員改 DB 裡的 systemPrompt（含改成空字串）都拿不掉它。
-describe("POST /api/ai — 並排與尺寸的固定說明（Q4）", () => {
+describe("POST /api/ai — 並排與尺寸的固定說明", () => {
   async function upstreamApp() {
     const fakeUpstream = await startFakeUpstream((_req, res) => {
       res.writeHead(200, SSE_HEADERS);
@@ -976,7 +976,7 @@ describe("POST /api/ai — 並排與尺寸的固定說明（Q4）", () => {
     });
   });
 
-  // T9＋T10 審查 r1 N-3：anthropic 分支的 system 是請求 body 頂層的 `system`（`upstream.ts` streamAnthropic），不是 messages[0]；
+  // anthropic 分支的 system 是請求 body 頂層的 `system`（`upstream.ts` streamAnthropic），不是 messages[0]；
   // 兩個分支今天共用同一個 opts，有人拆開時這案會紅。
   it("AQ5：anthropic provider 的請求 body `system` 也是固定說明＋空行＋動作 prompt", async () => {
     const ev = (type: string, data: unknown) => `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`;

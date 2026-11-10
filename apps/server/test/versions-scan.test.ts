@@ -1,5 +1,5 @@
-// #272 待切與掃描器（spec 2026-10-13-version-autosave-idle-design.md §6.3、§7.2–§7.3；§12.1 案 7、10–18、20、22（markPending 的空間述詞）；
-// Review Focus RF2、RF3、RF5）。服務直接建（fakeHost、不起 Hocuspocus）；待切一律以 `markPending` 寫入，不經 noteStored（Task 3 才接線）。
+// #272 待切與掃描器（案 7、10–18、20、22（markPending 的空間述詞）；
+// 服務直接建（fakeHost、不起 Hocuspocus）；待切一律以 `markPending` 寫入，不經 noteStored（尚未接線）。
 import { describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import * as Y from "yjs";
@@ -61,7 +61,7 @@ async function setup(deps: Partial<VersionServiceDeps> = {}) {
   return { db, u, note, host, warns, warnsWith, svc, mk, space, me, store, pend };
 }
 
-describe("markPending／clearPendingIfDue（§6.3、§7.3）", () => {
+describe("markPending／clearPendingIfDue", () => {
   it("案 7：沒有基底時 ref 只在待切開始寫、同段不覆寫；清掉再開一段才換；有基底時 ref 一律 NULL；編輯者先到先排、去重", async () => {
     const s = await setup();
     const claude = { user_id: s.u.id, agent_label: "Claude" };
@@ -95,7 +95,7 @@ describe("markPending／clearPendingIfDue（§6.3、§7.3）", () => {
     expect(await s.pend(s.note.id, at(0))).toBe(1);
   });
 
-  it("RF3：agent 名稱含雙引號、反斜線、emoji、CJK，同一人不同 agent → 去重逐字正確；切出的那一版 editors 與名單一致", async () => {
+  it("agent 名稱含雙引號、反斜線、emoji、CJK，同一人不同 agent → 去重逐字正確；切出的那一版 editors 與名單一致", async () => {
     const s = await setup({ autoWaitMs: 0 });
     const list = [`Cl"aude \\ 🤖`, "助手（測試）", "a'b"].map(l => ({ user_id: s.u.id, agent_label: l }));
     await s.store(s.note.id, ["特殊字元名單"]);
@@ -107,7 +107,7 @@ describe("markPending／clearPendingIfDue（§6.3、§7.3）", () => {
   });
 });
 
-describe("掃描器 scanDue（§7.2–§7.3）", () => {
+describe("掃描器 scanDue", () => {
   it("案 10：未到期不切；到期且 dirty → 1 版、editors＝待切編輯者、待切同交易清空", async () => {
     const s = await setup({ autoWaitMs: 5 * MIN });
     const claude = { user_id: s.u.id, agent_label: "Claude" };
@@ -307,7 +307,7 @@ describe("掃描器 scanDue（§7.2–§7.3）", () => {
     expect(s.warnsWith(FAIL)).toBe(2);
   });
 
-  it("RF2：文件已載入但版本狀態沒初始化（Map 沒條目）→ 每輪略過、待切保留、只 warn 一次；卸載後下一輪照切", async () => {
+  it("文件已載入但版本狀態沒初始化（Map 沒條目）→ 每輪略過、待切保留、只 warn 一次；卸載後下一輪照切", async () => {
     const s = await setup({ autoWaitMs: 0 });
     await s.store(s.note.id, ["載入了但沒初始化"]);
     await s.pend(s.note.id, at(0));
@@ -322,7 +322,7 @@ describe("掃描器 scanDue（§7.2–§7.3）", () => {
     expect(await versionsOf(s.db, s.note.id)).toHaveLength(1);
   });
 
-  it("RF2（真實形）：noteLoaded 讀 DB 失敗留下 initialized:false 條目 → 每輪略過、待切保留、只 warn 一次；forget＋卸載後下一輪照切", async () => {
+  it("真實形：noteLoaded 讀 DB 失敗留下 initialized:false 條目 → 每輪略過、待切保留、只 warn 一次；forget＋卸載後下一輪照切", async () => {
     const s = await setup({ autoWaitMs: 0 });
     await s.store(s.note.id, ["條目沒初始化"]);
     await s.pend(s.note.id, at(0));
@@ -342,7 +342,7 @@ describe("掃描器 scanDue（§7.2–§7.3）", () => {
   });
 });
 
-describe("交易內併待切編輯者（§4.3「待切中手動儲存」、§7.3）", () => {
+describe("交易內併待切編輯者（待切中手動儲存）", () => {
   it("案 20：手動儲存 → editors＝待切 ∪ 記憶體緩衝 ∪ 存檔人（去重、先到先排）、同交易清待切；升級分支也清待切、升級列 editors 不變", async () => {
     const s = await setup();
     const other = await seedUser(s.db);
@@ -362,7 +362,7 @@ describe("交易內併待切編輯者（§4.3「待切中手動儲存」、§7.3
     expect(await pendingOf(s.db, s.note.id)).toEqual(NO_PENDING);
   });
 
-  it("RF5：沒人開著的筆記在待切中被手動儲存（暫時狀態）→ 待切編輯者併進新版、清待切；之後的掃描不再多切", async () => {
+  it("沒人開著的筆記在待切中被手動儲存（暫時狀態）→ 待切編輯者併進新版、清待切；之後的掃描不再多切", async () => {
     const s = await setup({ autoWaitMs: 0 });
     const claude = { user_id: s.u.id, agent_label: "Claude" };
     await s.store(s.note.id, ["沒人開著時 AI 寫的"]);

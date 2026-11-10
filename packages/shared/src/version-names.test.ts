@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { VERSION_NAME_ADJECTIVES, VERSION_NAME_NOUNS, derivedVersionName } from "./version-names.js";
 
-describe("derivedVersionName（#272 §10.2，D6'：字表凍結）", () => {
-  it("spec 範例：3f2a9c1e-7b4d-4e8a-9c21-5d6e7f8a9b0c → plucky-finch；大寫 uuid 同名", () => {
+describe("derivedVersionName（#272：字表凍結）", () => {
+  it("範例：3f2a9c1e-7b4d-4e8a-9c21-5d6e7f8a9b0c → plucky-finch；大寫 uuid 同名", () => {
     expect(derivedVersionName("3f2a9c1e-7b4d-4e8a-9c21-5d6e7f8a9b0c")).toBe("plucky-finch");
     expect(derivedVersionName("3F2A9C1E-7B4D-4E8A-9C21-5D6E7F8A9B0C")).toBe("plucky-finch");
   });
@@ -24,7 +24,7 @@ describe("derivedVersionName（#272 §10.2，D6'：字表凍結）", () => {
     expect([...VERSION_NAME_NOUNS.slice(0, 3), VERSION_NAME_NOUNS[63]]).toEqual(["badger", "beaver", "bison", "deer"]);
   });
 
-  it("字表凍結（GC12）：整張表逐字等於 spec §10.2 的字表（順序即索引；中間任一字改動都會讓既有版本換名）", () => {
+  it("字表凍結：整張表逐字等於既定的字表（順序即索引；中間任一字改動都會讓既有版本換名）", () => {
     expect(VERSION_NAME_ADJECTIVES.join(" ")).toBe(
       "able agile amber ample azure bold brave bright brisk calm candid cheery civil clever cosmic crisp curious daring deft eager early earnest fair fancy fleet fond frank gentle glad golden grand happy hardy honest humble jolly keen kind lively loyal lucid merry mellow mighty modest noble plucky polite proud quick quiet rapid ready sharp shiny snowy steady sunny swift tidy upbeat vivid warm witty",
     );

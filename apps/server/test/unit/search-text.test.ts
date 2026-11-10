@@ -1,5 +1,5 @@
 /**
- * #93 §4：全文索引抽取器（T2 抽取器部分–T8、RF1）。純函式，不連 DB。
+ * #93：全文索引抽取器。純函式，不連 DB。
  */
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
@@ -27,7 +27,7 @@ async function editorDoc(blocks: Array<Record<string, unknown>>): Promise<Y.Doc>
   }
   return doc;
 }
-// 在未改 topLevelContainers 的碼上實跑取得（T2 Step 1）
+// 在未改 topLevelContainers 的碼上實跑取得
 const GOLDEN_HASH = "01dbcb87f9d4075de27636b598be9980503470e31176ba28a45069a7cad984d6";
 const colRow = (id: string, cols: Array<Array<Record<string, unknown>>>) => ({
   id,
@@ -38,8 +38,8 @@ const colRow = (id: string, cols: Array<Array<Record<string, unknown>>>) => ({
 const ids = (b: Blk[]) => extractSearchSections(frag(searchDoc(b))).rows.map(r => r.sectionId);
 const bodyOf = (b: Blk[], sectionId: string) => extractSearchSections(frag(searchDoc(b))).rows.find(r => r.sectionId === sectionId)?.body;
 
-describe("並排（T2 頂層單位擴充）", () => {
-  it("Q0：不含並排的既有文件 contentHash 逐位元組不變（golden）", async () => {
+describe("並排（頂層單位擴充）", () => {
+  it("不含並排的既有文件 contentHash 逐位元組不變（golden）", async () => {
     const doc = await editorDoc([
       { id: "ha", type: "heading", props: { level: 1 }, content: "A" },
       { id: "p1", type: "paragraph", content: "段落一" },
@@ -51,7 +51,7 @@ describe("並排（T2 頂層單位擴充）", () => {
     expect(extractSearchSections(frag(doc)).contentHash).toBe(GOLDEN_HASH);
   });
 
-  it("Q1：列的兩欄文字都進 _top 的 body；欄內 heading 的字也在 body、不另成段", async () => {
+  it("列的兩欄文字都進 _top 的 body；欄內 heading 的字也在 body、不另成段", async () => {
     const doc = await editorDoc([
       colRow("r", [
         [{ id: "a", type: "paragraph", content: "左欄字" }],
@@ -67,7 +67,7 @@ describe("並排（T2 頂層單位擴充）", () => {
   });
 });
 
-describe("T2 深度（抽取器）", () => {
+describe("深度（抽取器）", () => {
   // 建鏈必須包在單一 doc.transact 裡：逐筆 insert 每次各開一個 transaction、收尾成本隨深度長，整條鏈是 O(n²)
   // （CI 上單這段同步跑 52–68 s；超過 60 s 時 worker 等不到 vitest 的 onTaskUpdate RPC 回覆 → Unhandled Error、exit 1）。
   // 單一 transaction 下 20 000 層本機實測約 20 ms，樹的形狀相同。
@@ -97,7 +97,7 @@ describe("T2 深度（抽取器）", () => {
   });
 });
 
-describe("T3 段落對應", () => {
+describe("段落對應", () => {
   const blocks: Blk[] = [
     { id: "p0", text: "foo" },
     { id: "p1", text: "bar" },
@@ -128,8 +128,8 @@ describe("T3 段落對應", () => {
   });
 });
 
-describe("T4 走訪規則", () => {
-  it("#269 §13.1：wikilink → label 或 snapshotTitle（無方括號；不展開子節點；非字串 → 空）；inline 不加分隔", () => {
+describe("走訪規則", () => {
+  it("#269：wikilink → label 或 snapshotTitle（無方括號；不展開子節點；非字串 → 空）；inline 不加分隔", () => {
     expect(bodyOf([{ id: "p", inline: ["see ", { wikilink: "Roadmap" }, " now"] }], "_top")).toBe("see Roadmap now");
     expect(bodyOf([{ id: "p", inline: ["see ", { wikilink: "Roadmap", label: "the plan" }, " now"] }], "_top")).toBe("see the plan now");
     expect(bodyOf([{ id: "p", inline: ["see ", { wikilink: "Roadmap", label: "" }, " now"] }], "_top")).toBe("see Roadmap now");
@@ -179,7 +179,7 @@ describe("T4 走訪規則", () => {
   });
 });
 
-describe("T5 敵意 id（spec §4.2 第 4、5 點）", () => {
+describe("敵意 id", () => {
   it("重複的段落 id → 只有第一次出現的段落入索引（第二段的獨有字搜不到）", () => {
     const b: Blk[] = [
       { id: "dup", type: "heading", text: "First" },
@@ -190,7 +190,7 @@ describe("T5 敵意 id（spec §4.2 第 4、5 點）", () => {
     expect(ids(b)).toEqual(["dup"]);
     expect(extractSearchSections(frag(searchDoc(b))).rows.map(r => r.body).join("\n")).not.toContain("UNIQUE2");
   });
-  it("RF1：id 第一次出現在**空段**、後面的非空段同 id → 後者不入（read_note_section 讀到的是前者）", () => {
+  it("id 第一次出現在**空段**、後面的非空段同 id → 後者不入（read_note_section 讀到的是前者）", () => {
     const b: Blk[] = [
       { id: "dup", type: "heading", text: "" },
       { id: "x", type: "heading", text: "Other" },
@@ -210,7 +210,7 @@ describe("T5 敵意 id（spec §4.2 第 4、5 點）", () => {
   it("非 heading 的 container 與後面某段 heading 同 id → 那一段照入（它不是段落 id）", () => {
     expect(ids([{ id: "same", text: "para" }, { id: "same", type: "heading", text: "H" }, { id: "q", text: "body" }])).toEqual(["_top", "same"]);
   });
-  it("任何頂層 container 的 id 為數字、空字串或缺 → 整篇 0 列、capped、indexedUnits 0（m3）", () => {
+  it("任何頂層 container 的 id 為數字、空字串或缺 → 整篇 0 列、capped、indexedUnits 0", () => {
     for (const bad of [123, "", undefined]) {
       const ex = extractSearchSections(frag(searchDoc([{ id: "p", text: "ok" }, { id: bad, text: "x" }])));
       expect(ex, String(bad)).toMatchObject({ rows: [], capped: true, indexedUnits: 0 });
@@ -218,7 +218,7 @@ describe("T5 敵意 id（spec §4.2 第 4、5 點）", () => {
   });
 });
 
-describe("T6 清洗", () => {
+describe("清洗", () => {
   it("文字、heading、wikilink 標題中的 NUL 與落單代理 → U+FFFD；成對代理原樣", () => {
     const ex = extractSearchSections(frag(searchDoc([
       { id: "p", inline: ["a\u0000b \uD800 \uDC00 😀 ", { wikilink: "w\u0000t" }] },
@@ -230,7 +230,7 @@ describe("T6 清洗", () => {
   });
 });
 
-describe("T7 上限", () => {
+describe("上限", () => {
   it("body 合計 1 048 577 → indexedUnits 恰為上限、capped、其後段落不入", () => {
     const ex = extractSearchSections(frag(searchDoc([
       { id: "p", text: "x".repeat(SEARCH_INDEX_NOTE_MAX + 1) },
@@ -240,7 +240,7 @@ describe("T7 上限", () => {
     expect(ex.rows[0]!.body.length).toBe(SEARCH_INDEX_NOTE_MAX);
     expect(ex).toMatchObject({ indexedUnits: SEARCH_INDEX_NOTE_MAX, capped: true });
   });
-  it("切點落在代理對中間時退一格；退格後剩的 1 格不給後面的段（§4.4「其後各段不入索引」）", () => {
+  it("切點落在代理對中間時退一格；退格後剩的 1 格不給後面的段（其後各段不入索引）", () => {
     const ex = extractSearchSections(frag(searchDoc([
       { id: "p", text: `${"x".repeat(SEARCH_INDEX_NOTE_MAX - 1)}😀` },
       { id: "h", type: "heading", text: "a" },
@@ -277,7 +277,7 @@ describe("T7 上限", () => {
   });
 });
 
-describe("T8 雜湊", () => {
+describe("雜湊", () => {
   const b: Blk[] = [{ id: "p", text: "same content" }];
   it("同內容同雜湊；改一個字 → 不同", () => {
     const h1 = extractSearchSections(frag(searchDoc(b))).contentHash;

@@ -1,6 +1,6 @@
 /**
- * #175 §6.1／§6.4／Q22：NoteDto 新形、by-path 兩形的查找序（現行 → 轉址 → prev）、四種 404 逐位元組相同、
- * RF1（大寫 group id）、RF3（migration 後的舊形 legacy 網址）。PR1 沒有寫轉址的生產路徑——轉址列用 seedRedirect 直插。
+ * #175：NoteDto 新形、by-path 兩形的查找序（現行 → 轉址 → prev）、四種 404 逐位元組相同、
+ * 另涵蓋大寫 group id、migration 後的舊形 legacy 網址。寫轉址的生產路徑只有移動——轉址列用 seedRedirect 直插。
  */
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
@@ -14,7 +14,7 @@ import { buildTestApp } from "./helpers.js";
 import { cookieOf, seedGroup, seedNote, seedRedirect, seedRole, seedShare, seedUser, setMemberRole } from "./group-helpers.js";
 
 const NOT_FOUND = { error: { code: "not_found", message: "No note with that id." } };
-/** 內建一般成員（can_read＋can_edit）在群組筆記上的旗標（§5.2）。 */
+/** 內建一般成員（can_read＋can_edit）在群組筆記上的旗標。 */
 const MEMBER_PERMS = { read: true, edit: true, delete: false, manageShares: false, managePublicLink: false, changeSlug: false, moveToGroup: false };
 /** 只讀自訂角色（can_read）。 */
 const READER_PERMS = { read: true, edit: false, delete: false, manageShares: false, managePublicLink: false, changeSlug: false, moveToGroup: false };
@@ -34,7 +34,7 @@ async function scene(db: Db) {
   return { admin, member, reader, blind, outsider, g };
 }
 
-describe("#175 NoteDto 新形（§6.1）", () => {
+describe("#175 NoteDto 新形", () => {
   it("GET /api/notes：群組筆記 ownerId/ownerHandle null、groupId 與 group 有值、permissions 依角色；個人筆記 owner 全真；鍵集合", async () => {
     const { app, db } = await buildTestApp();
     const s = await scene(db);
@@ -57,7 +57,7 @@ describe("#175 NoteDto 新形（§6.1）", () => {
   });
 });
 
-describe("#175 by-path 兩形（§6.4）", () => {
+describe("#175 by-path 兩形", () => {
   it("/g/：現行 slug 200；轉址（未過期）200 回目標；轉址已過期 404 且該列被刪；prev_slug 200；活網址勝轉址；轉址勝 prev", async () => {
     const { app, db } = await buildTestApp();
     const s = await scene(db);
@@ -68,7 +68,7 @@ describe("#175 by-path 兩形（§6.4）", () => {
     await seedRedirect(db, `/g/${s.g.id}/moved`, target.id);
     await seedRedirect(db, `/g/${s.g.id}/stale`, target.id, { expired: true });
     await seedRedirect(db, `/g/${s.g.id}/live`, target.id); // 活網址同鍵
-    await seedRedirect(db, `/g/${s.g.id}/both`, target.id); // 轉址與 prev 同鍵：轉址勝（B4 查找序）
+    await seedRedirect(db, `/g/${s.g.id}/both`, target.id); // 轉址與 prev 同鍵：轉址勝（查找序）
     const base = `/api/notes/by-group-path/${s.g.id}`;
     expect((await get(app, `${base}/live`, s.member.id)).json().id).toBe(live.id);
     expect((await get(app, `${base}/moved`, s.member.id)).json()).toMatchObject({
@@ -94,7 +94,7 @@ describe("#175 by-path 兩形（§6.4）", () => {
     expect((await get(app, `/api/notes/by-path/${owner.handle}/went-to-group`, s.member.id)).json()).toMatchObject({
       id: gn.id, groupId: s.g.id, ownerHandle: null, ownerId: null, group: { id: s.g.id, name: "Team" }, role: "editor", permissions: MEMBER_PERMS,
     });
-    // 轉址鍵用**正規化後**的 handle（比照 RF1）：大寫 handle 的網址也命中轉址
+    // 轉址鍵用**正規化後**的 handle：大寫 handle 的網址也命中轉址
     expect((await get(app, `/api/notes/by-path/${owner.handle.toUpperCase()}/went-to-group`, s.member.id)).json().id).toBe(gn.id);
     expect((await get(app, `/api/notes/by-path/${owner.handle}/p-old`, s.member.id)).json().id).toBe(gn.id);
     // owner 不是群組成員：轉址解得到 id，但授權 none → 同一條 404
@@ -115,7 +115,7 @@ describe("#175 by-path 兩形（§6.4）", () => {
     const patch = async (userId: string, handle: string) =>
       app.inject({ method: "PATCH", url: "/api/auth/profile", payload: { handle }, cookies: await cookieOf(userId) });
     expect((await patch(x.id, `${old}-new`)).statusCode).toBe(200);
-    // X 改名後、Y 取走前：舊路徑仍解到已搬進群組的筆記（spec §6）
+    // X 改名後、Y 取走前：舊路徑仍解到已搬進群組的筆記
     expect((await get(app, `/api/notes/by-path/${old}/moved`, s.member.id)).json().id).toBe(gn.id);
     expect((await patch(y.id, old)).statusCode).toBe(200);
     // Y 沒有 moved：舊轉址仍到原筆記
@@ -144,7 +144,7 @@ describe("#175 by-path 兩形（§6.4）", () => {
     expect(bodies[0]!.json()).toEqual(NOT_FOUND);
   });
 
-  it("RF1：/g/<大寫 UUID>/<slug> 與小寫同樣 200；轉址鍵以小寫比對（大寫網址也命中轉址）", async () => {
+  it("/g/<大寫 UUID>/<slug> 與小寫同樣 200；轉址鍵以小寫比對（大寫網址也命中轉址）", async () => {
     const { app, db } = await buildTestApp();
     const s = await scene(db);
     const n = await seedNote(db, { groupId: s.g.id }, { slug: "case" });
@@ -154,7 +154,7 @@ describe("#175 by-path 兩形（§6.4）", () => {
     expect((await get(app, `/api/notes/by-group-path/${upper}/old-case`, s.member.id)).json().id).toBe(n.id);
   });
 
-  it("RF3：migration 後群組筆記的舊形 /notes/<legacy_slug>——成員 200 且 groupId 有值；已不是成員的原 owner 404（Q5）", async () => {
+  it("migration 後群組筆記的舊形 /notes/<legacy_slug>——成員 200 且 groupId 有值；已不是成員的原 owner 404", async () => {
     const { app, db } = await buildTestApp();
     const s = await scene(db);
     const formerOwner = await seedUser(db);
@@ -168,7 +168,7 @@ describe("#175 by-path 兩形（§6.4）", () => {
   });
 });
 
-describe("#175 Q22：授權與取列之間歸屬變了（PR2 的移動；這裡以 SQL 模擬）", () => {
+describe("#175：授權與取列之間歸屬變了（移動；這裡以 SQL 模擬）", () => {
   it(":ref——移進 owner 也是成員的群組 → 重讀後 200 且帶群組；移進 owner 不是成員的群組 → 404", async () => {
     const s = { hookNote: "", moveTo: "" };
     const built = await buildTestApp({
@@ -192,7 +192,7 @@ describe("#175 Q22：授權與取列之間歸屬變了（PR2 的移動；這裡�
   });
 });
 
-describe("#175 recordRedirectsInTx（§4.3；PR2／PR4 的寫入 helper）", () => {
+describe("#175 recordRedirectsInTx（刪群組轉移的寫入 helper）", () => {
   it("先清過期列、再 upsert：同鍵改指新筆記並續命；其他未過期列不動", async () => {
     const { db } = await buildTestApp();
     const u = await seedUser(db);
@@ -209,7 +209,7 @@ describe("#175 recordRedirectsInTx（§4.3；PR2／PR4 的寫入 helper）", () 
   });
 });
 
-describe("#175 PR2：by-path「取列後、授權前」被真的移動（path-resolved；PR1 Task 4 review M-1）", () => {
+describe("#175：by-path「取列後、授權前」被真的移動（path-resolved）", () => {
   it("/n/ 形——owner 自己開、取列後被移進他是成員的群組 → 200 且帶新群組（authorizeRow 的重讀段承重）", async () => {
     const s = { fire: undefined as undefined | (() => Promise<unknown>) };
     const built = await buildTestApp({
@@ -269,7 +269,7 @@ describe("#175 PR2：by-path「取列後、授權前」被真的移動（path-re
   });
 });
 
-describe("#175 PR2：by-path /g/ 形「取列後、授權前」被移到別的群組（path-resolved；SQL 模擬——PR2 沒有群組間移動的生產路徑）", () => {
+describe("#175：by-path /g/ 形「取列後、授權前」被移到別的群組（path-resolved；SQL 模擬——沒有群組間移動的生產路徑）", () => {
   function hookApp(fire: { f?: () => Promise<unknown> }) {
     return buildTestApp({
       groupTestHook: async point => {

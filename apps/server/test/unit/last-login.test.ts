@@ -1,4 +1,4 @@
-/** #247 §9.5 Review Focus 5：touchLastLogin 失敗不得擋登入（OIDC callback 的外層 catch 會把任何例外變成 oidc_exchange_failed）。 */
+/** #247：touchLastLogin 失敗不得擋登入（OIDC callback 的外層 catch 會把任何例外變成 oidc_exchange_failed）。 */
 import { describe, expect, it, vi } from "vitest";
 import type { FastifyBaseLogger } from "fastify";
 import type { Db } from "../../src/db/index.js";

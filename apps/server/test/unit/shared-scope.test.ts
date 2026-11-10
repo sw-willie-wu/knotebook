@@ -1,5 +1,5 @@
 /**
- * #130 Task 1：API token 的 scope 契約（`packages/shared`）。
+ * #130：API token 的 scope 契約（`packages/shared`）。
  *
  * 落庫形是**集合不是單值**——write 一定把 read 顯式寫進字串、move／delete 一定帶著 write，所以只有
  * R、RW、RWM、RWD、RWMD 五種（#181 起是格不是鏈）；`hasScope` 因此是成員判定，

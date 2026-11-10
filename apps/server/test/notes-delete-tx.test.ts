@@ -6,7 +6,7 @@ import { deleteNotesInTx } from "../src/notes/tx/delete-notes.js";
 import { buildTestApp } from "./helpers.js";
 import { seedNote, seedRedirect, seedShare, seedUser } from "./group-helpers.js";
 
-describe("#175 deleteNotesInTx（T14，PR4 全刪共用）", () => {
+describe("#175 deleteNotesInTx（T14，刪群組・全刪共用）", () => {
   it("多篇：notes 與其 states／backups／shares／兩方向 links／uploads／轉址／AI 紀錄都消失（CASCADE），回被刪的 upload id；名單外的列不動", async () => {
     const { db } = await buildTestApp();
     const [u, v] = await Promise.all([seedUser(db), seedUser(db)]);

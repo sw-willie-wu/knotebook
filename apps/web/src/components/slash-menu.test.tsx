@@ -13,10 +13,10 @@ import { P, mountEditor, row, shape, type AnyEditor } from "@/test/columns-fixtu
  *
  * ⚠ **假的預設項一定要帶 `group`**。第一版沒帶，於是 `lastIndexOf(group)` 永遠是 -1，
  * 五條測試全部走 `-1` 的 fallback 分支、生產環境走的卻是另一條——把整條組合邏輯換成
- * `return [item]`（＝上面說的那個最典型失效）測試照樣全綠（第 2 輪審查突變實測）。
+ * `return [item]`（＝上面說的那個最典型失效）測試照樣全綠（突變實測）。
  * 群組名與順序照 BlockNote 內建 en 字典的形狀（…Advanced → Media → Others）。
  *
- * 並排項（spec 2026-10-21 columns-layout §7.1-②）要看游標位置，所以 `editor` 是真的編輯器、
+ * 並排項要看游標位置，所以 `editor` 是真的編輯器、
  * mock 用 importOriginal 只換掉那兩支（其餘照真）。
  */
 
@@ -155,7 +155,7 @@ describe("buildSlashMenuItems", () => {
   });
 });
 
-describe("並排項 /grid N（spec §7.1-②）", () => {
+describe("並排項 /grid N", () => {
   const columnItems = <T extends { aliases?: readonly string[] }>(items: T[]) => items.filter((item) => item.aliases?.includes("grid"));
 
   it("SL1：三項緊接在連結項之後、與連結項同一 group", () => {

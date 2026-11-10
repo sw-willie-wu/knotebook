@@ -9,10 +9,10 @@
  * - 讀出時記下讀者看到的每個「沒有自訂文字」的連結的 `(讀者, 目標 id, 顯示文字)`（顯示文字＝`wikilinkVisibleText`，與匯出同一個算法）；
  *   同一次讀出裡**有**自訂文字的連結，把同一組 `(讀者, 目標, 文字)` 拿掉（最後讀到的算數；同一次讀出兩種都有時，沒有自訂文字的算數，同 #385）。
  * - 寫入時（`parseMarkdownForNote` 之後）parse 出帶 label 的 wikilink，若 `(寫入者, 目標, label)` 在表裡 → 清掉 label（`keepLabelFree`）。
- *   寫入成功後，寫下去的連結也記在寫入者名下（審查 I1：agent 自己 append 的連結、目標改名後用回覆的指紋原樣寫回，同樣不凍結）。
+ *   寫入成功後，寫下去的連結也記在寫入者名下（agent 自己 append 的連結、目標改名後用回覆的指紋原樣寫回，同樣不凍結）。
  * - 讀出（`exportMarkdown`）與 `edit_note`（`prepareEdit`）在持有 editor lease 時只收集、放掉 lease（寫入還要等合併成功）之後才記；
- *   帶 content 建立（`createWithContent`）的解析與收集本來就在 lease 之外，建立成功後才記（審查 m3、m-c）。
- * - 寫入記下的除了存下的連結（沒有自訂文字的以 `snapshotTitle` 記），還有被 `keepLabelFree` 清掉的那些原本的文字（審查 m-b）。
+ *   帶 content 建立（`createWithContent`）的解析與收集本來就在 lease 之外，建立成功後才記（m-c）。
+ * - 寫入記下的除了存下的連結（沒有自訂文字的以 `snapshotTitle` 記），還有被 `keepLabelFree` 清掉的那些原本的文字。
  * - 只存雜湊（sha256），不存標題原文。每筆保存 `SHOWN_LINK_TTL_MS`（再讀到或寫到會重算）；每帳號至多
  *   `SHOWN_LINK_PER_USER_MAX` 筆（滿了只丟該帳號自己最舊的）、全站至多 `SHOWN_LINK_MAX` 筆（滿了丟全站最舊的）。
  * - process-local（同寫入佇列、presence）：伺服器重啟後表是空的，寫入照舊規則（記在 docs/known-limitations.md）。
@@ -32,7 +32,7 @@ export interface ShownLinks {
 }
 
 /**
- * `blocks`（含子 block、表格格子）裡的每個 wikilink，依有沒有自訂文字分兩列。不改寫輸入。寫入端記「自己寫下的」（審查 I1）時
+ * `blocks`（含子 block、表格格子）裡的每個 wikilink，依有沒有自訂文字分兩列。不改寫輸入。寫入端記「自己寫下的」時
  * `titles` 給空表：沒有自訂文字的連結就以存下的 `snapshotTitle`（＝寫入的文字，或 `keepLabelFree` 換上的現行標題）記。
  */
 export function shownLinkTextsOf(blocks: readonly unknown[], titles: ReadonlyMap<string, string>): ShownLinks {
@@ -57,7 +57,7 @@ const keyOf = (userId: string, targetId: string, text: string): string =>
 export class ShownLinkTexts {
   /** 鍵 → 到期時間與使用者。插入順序＝到期順序（保存期限固定、重記時先刪再插）。 */
   private readonly entries = new Map<string, { exp: number; user: string }>();
-  /** 每位使用者的鍵（插入順序＝該使用者的新舊順序），給每帳號上限逐出用（審查 m1：一個帳號不得洗掉別人的記錄）。 */
+  /** 每位使用者的鍵（插入順序＝該使用者的新舊順序），給每帳號上限逐出用（一個帳號不得洗掉別人的記錄）。 */
   private readonly byUser = new Map<string, Set<string>>();
   private readonly ttlMs: number;
   private readonly max: number;
@@ -122,7 +122,7 @@ export class ShownLinkTexts {
   /**
    * 寫入端（parse 之後）：`blocks` 裡帶 label 的 wikilink，`(userId, 目標, label)` 讀到過當作沒有自訂文字的連結 → 清掉 label，
    * `snapshotTitle` 換成目標現在的標題（`candidates`＝寫入者看得到的筆記；同 #385 的 `keepLabelFree`）。回傳新陣列（copy-on-write）
-   * 與被清掉的 `(小寫目標 id, 原本的文字)`——寫入端要把它們一起記回去（審查 m-b：存下的 `snapshotTitle` 已是現行標題，不記的話原本那段
+   * 與被清掉的 `(小寫目標 id, 原本的文字)`——寫入端要把它們一起記回去（存下的 `snapshotTitle` 已是現行標題，不記的話原本那段
    * 文字的期限不會因為這次寫入而延長）。
    */
   keepLabelFree<B>(blocks: B[], userId: string, candidates: ReadonlyArray<{ id: string; title: string }>): [B[], Array<[string, string]>] {

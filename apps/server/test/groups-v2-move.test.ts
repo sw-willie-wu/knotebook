@@ -1,5 +1,5 @@
 /**
- * #175 PR2 T3（spec §6.3）：`POST /api/notes/:id/move`——個人筆記移進群組（功能面）。交錯案在 `groups-v2-move-race.test.ts`，
+ * #175：`POST /api/notes/:id/move`——個人筆記移進群組（功能面）。交錯案在 `groups-v2-move-race.test.ts`，
  * 真共編連線的踢線在 `groups-v2-revocation.test.ts` 檔尾。
  */
 import { describe, expect, it } from "vitest";
@@ -21,7 +21,7 @@ const move = async (app: FastifyInstance, noteId: string, userId: string, payloa
 
 const get = async (app: FastifyInstance, url: string, userId: string) => app.inject({ method: "GET", url, cookies: await cookieOf(userId) });
 
-describe("#175 PR2 POST /api/notes/:id/move（T3）", () => {
+describe("#175 POST /api/notes/:id/move（T3）", () => {
   it("個人筆記移進群組：200 新形 DTO；DB 清 shares／token／別名／prev、owner NULL、slug 與 slug_is_custom 不變、updated_at 不動；轉址恰一列；AI 紀錄／links／uploads／note_states 跟著 UUID", async () => {
     const spy = spyCollabHooks();
     const { app, db } = await buildTestApp({ collabHooks: spy });
@@ -64,7 +64,7 @@ describe("#175 PR2 POST /api/notes/:id/move（T3）", () => {
     expect((await db.$client.query("select public_width from notes where id = $1", [n.id])).rows).toEqual([{ public_width: "full" }]);
   });
 
-  it("RF1：100 字元自訂 slug 在群組撞名 → ≤60、-2 結尾、slug_is_custom 仍 true、updated_at 不動、舊 /n/ 網址轉到它", async () => {
+  it("100 字元自訂 slug 在群組撞名 → ≤60、-2 結尾、slug_is_custom 仍 true、updated_at 不動、舊 /n/ 網址轉到它", async () => {
     const { app, db } = await buildTestApp();
     const owner = await seedUser(db);
     const g = await seedGroup(db, "G", [{ userId: owner.id, role: "member" }]);
@@ -84,7 +84,7 @@ describe("#175 PR2 POST /api/notes/:id/move（T3）", () => {
     // 撞名改了網址名（-2）也不動 updated_at——`docs/known-limitations.md`「**`list_notes` pages through live data, not a snapshot.**」條的「moving a note into a group can give it
     // a new URL name, but does not move it in this order」靠這條（案 1 是不撞名的形）；MCP `list_notes` 說明
     // （`LIST_NOTES_DESCRIPTION`）的同義句「a note moved into one of your groups … appear at their own unchanged
-    // positions」也靠它。兩句都由 Task 6 寫入。
+    // positions」也靠它。兩句都由移動路徑寫入。
     expect(await noteState(db.$client, n.id)).toMatchObject({ slug: expected, slug_is_custom: true, group_id: g.id, updated_at: before.updated_at });
     const old = await get(app, `/api/notes/by-path/${owner.handle}/${base}`, owner.id);
     expect(old.statusCode).toBe(200);
@@ -120,7 +120,7 @@ describe("#175 PR2 POST /api/notes/:id/move（T3）", () => {
     expect(await db.select({ oldPath: noteRedirects.oldPath }).from(noteRedirects)).toEqual([{ oldPath: `/n/${owner.handle}/plan` }]);
   });
 
-  it("RF5：移動後以大寫 handle 開舊網址 → 轉址命中 200", async () => {
+  it("移動後以大寫 handle 開舊網址 → 轉址命中 200", async () => {
     const { app, db } = await buildTestApp();
     const owner = await seedUser(db);
     const g = await seedGroup(db, "G", [{ userId: owner.id, role: "member" }]);

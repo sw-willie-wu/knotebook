@@ -13,6 +13,7 @@ import {
 } from "@knotebook/shared";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
+import type { SiteLimits } from "../site-limits/store.js";
 import { oneTimeLinks, userIdentities, users } from "../db/schema.js";
 import { UUID_RE } from "../notes/service.js";
 import { foreignKeyViolationConstraint, notNullViolationColumn, uniqueViolationConstraint } from "../db/pg-errors.js";
@@ -47,6 +48,7 @@ import { SITE_SETTINGS_MISSING_MESSAGE } from "../auth/tx/admin-site-settings.js
 export interface AccountRouteDeps {
   db: Db;
   config: AppConfig;
+  siteLimits: SiteLimits;
   gate: UserGate;
   collabHooks: CollabHooks;
   limiters: { register: FixedWindowLimiter; oneTimeLinkMiss: FixedWindowLimiter; oneTimeLinkAttempt: FixedWindowLimiter };
@@ -58,8 +60,8 @@ const TOO_MANY_REQUESTS_MESSAGE = "Too many requests. Wait a moment and try agai
 
 const MAX_DERIVE_ATTEMPTS = 3;
 
-// 上限（總管裁定疑點 4）：email 對齊 SSO 那條的 254（`routes/oidc.ts` 的 `MAX_EMAIL_CLAIM_LENGTH`），以 JS `.length` 計；
-// 顯示名 100 個 code point。以 refine 給自訂訊息（`sendInvalidBody` 只取自訂 issue 的訊息）。註冊與接受邀請共用（#285 spec §5.3）。
+// 上限：email 對齊 SSO 那條的 254（`routes/oidc.ts` 的 `MAX_EMAIL_CLAIM_LENGTH`），以 JS `.length` 計；
+// 顯示名 100 個 code point。以 refine 給自訂訊息（`sendInvalidBody` 只取自訂 issue 的訊息）。註冊與接受邀請共用（#285）。
 const emailField = z
   .string()
   .trim()
@@ -74,7 +76,7 @@ const displayNameField = z
   .optional();
 
 const registerBodySchema = z.object({ email: emailField, password: z.string(), displayName: displayNameField }).strict();
-// strict：沒有可改 is_admin／must_change_password 的欄位（V3）。
+// strict：沒有可改 is_admin／must_change_password 的欄位。
 const acceptInviteBodySchema = z.object({ token: z.string(), email: emailField, password: z.string(), displayName: displayNameField }).strict();
 const inspectInviteBodySchema = z.object({ token: z.string() }).strict();
 
@@ -84,7 +86,7 @@ function defaultDisplayName(email: string): string {
 }
 
 /**
- * #285 交易外、不鎖地以雜湊查有效的邀請（spec §5.3 第 2 步）。形狀不合或查無 → null。
+ * #285 交易外、不鎖地以雜湊查有效的邀請。形狀不合或查無 → null。
  * 參數帶 `token_hash`：非預期的 DB 錯誤一律遮蔽，不讓雜湊隨 drizzle 錯誤進 log（同 `routes/password-reset.ts`）。
  */
 async function findActiveInvite(db: Db, token: string, log: FastifyBaseLogger): Promise<{ id: string; expiresAt: Date } | null> {
@@ -102,15 +104,15 @@ async function findActiveInvite(db: Db, token: string, log: FastifyBaseLogger): 
 }
 
 /**
- * #187 PR3：自己帳號的路由——帳密註冊（§9.1）、登入方式（§8.2／§8.3，Task 5）、加上密碼（§8.4，Task 6）。
- * #285：無登入的邀請 inspect 與接受邀請（spec §5.3）——無效一律 410 `invite_invalid`、不區分原因；不看「允許用帳號密碼自行註冊」、
- * 不扣 `REGISTER_LIMIT`（E2、E5——邀請本身就是授權，有效 token 的接受不該被同 IP 的註冊額度擋住）；帳密開關只在交易外判；
+ * #187：自己帳號的路由——帳密註冊、登入方式、加上密碼。
+ * #285：無登入的邀請 inspect 與接受邀請——無效一律 410 `invite_invalid`、不區分原因；不看「允許用帳號密碼自行註冊」、
+ * 不扣 `REGISTER_LIMIT`（邀請本身就是授權，有效 token 的接受不該被同 IP 的註冊額度擋住）；帳密開關只在交易外判；
  * log 與回應絕不含 token 明文或 `token_hash`。HTTP 層訊息英文（#372）。
  * 兩顆桶與 `routes/password-reset.ts` 共用同一組實例：miss 桶（key=ip）只在交易外查無有效邀請時扣、有效 token 不預檢（不擋有效 token），
  * 帳密 403 與交易內 410 都不扣；嘗試桶（key=`link:${id}`）只在 accept、帳密有效值為開之後才扣，inspect 不扣。
  */
 export function accountRoutes(deps: AccountRouteDeps) {
-  /** 交易外「邀請無效」的唯一出口（交易內並發造成的 410 刻意不經過它，N-4）：先扣 miss 桶（key=ip），超限 429，否則 410。 */
+  /** 交易外「邀請無效」的唯一出口（交易內並發造成的 410 刻意不經過它）：先扣 miss 桶（key=ip），超限 429，否則 410。 */
   function sendInvalidInvite(reply: FastifyReply, ip: string): FastifyReply {
     if (!deps.limiters.oneTimeLinkMiss.consume(ip)) return sendError(reply, 429, "too_many_requests", TOO_MANY_REQUESTS_MESSAGE);
     return sendError(reply, 410, "invite_invalid", INVITE_INVALID_MESSAGE);
@@ -118,11 +120,11 @@ export function accountRoutes(deps: AccountRouteDeps) {
 
   return async function register(app: FastifyInstance): Promise<void> {
     app.post("/api/auth/register", async (request, reply) => {
-      // §9.1 第 1 步：per-IP 限流，每個請求都扣（無 userId）。
+      // per-IP 限流，每個請求都扣（無 userId）。
       if (!deps.limiters.register.consume(request.ip)) return sendError(reply, 429, "too_many_requests", "Too many sign-ups. Wait a moment and try again.");
-      // 第 2、2a 步（快速路徑；權威判斷在交易內 FOR SHARE）。讀不到列：註冊視同關（§4.3）。
+      // 第 2、2a 步（快速路徑；權威判斷在交易內 FOR SHARE）。讀不到列：註冊視同關。
       const registrationEnabled = await readRegistrationEnabled(deps.db);
-      if (registrationEnabled === null) request.log.error("site_settings 讀不到列：註冊視同關閉（#187 §4.3）");
+      if (registrationEnabled === null) request.log.error("site_settings 讀不到列：註冊視同關閉（#187）");
       if (registrationEnabled !== true) return sendError(reply, 403, "registration_disabled", REGISTRATION_DISABLED_MESSAGE);
       if (!(await isPasswordLoginAccepted(deps.db, deps.config, request.log))) {
         return sendError(reply, 403, "password_login_disabled", PASSWORD_LOGIN_DISABLED_MESSAGE);
@@ -162,14 +164,14 @@ export function accountRoutes(deps: AccountRouteDeps) {
           // 第 6 步：並發形的最後防線。
           if (constraint === "users_email_unique") return sendError(reply, 409, "email_taken", "That email is already in use.");
           if ((constraint === "handles_pkey" || constraint === "users_handle_unique") && attempt <= MAX_DERIVE_ATTEMPTS) continue;
-          // INSERT 帶 password hash，非預期 DB 錯誤不得讓 params 進 log（spec §5.6）。
+          // INSERT 帶 password hash，非預期 DB 錯誤不得讓 params 進 log。
           throw redactDbError(request.log, err, "註冊");
         }
       }
       if (created === undefined) throw new Error("註冊：handle 配置重試耗盡");
 
-      // 第 7 步：成功即登入（B9）。
-      await touchLastLogin(deps.db, created.id, request.log); // #247 §9.5 寫入點 5：註冊（建帳即自動登入）
+      // 第 7 步：成功即登入。
+      await touchLastLogin(deps.db, created.id, request.log); // #247：註冊（建帳即自動登入）
       await startSession(deps, request, reply, { userId: created.id, tv: created.tokenVersion });
       const dto: UserDto = {
         id: created.id,
@@ -185,7 +187,7 @@ export function accountRoutes(deps: AccountRouteDeps) {
       return reply.code(201).send(dto);
     });
 
-    // #285 spec §5.3：檢查邀請（不消耗）。順序：body → 邀請（無效扣 miss 桶）→ 帳密有效值（403 不扣桶）。
+    // #285：檢查邀請（不消耗）。順序：body → 邀請（無效扣 miss 桶）→ 帳密有效值（403 不扣桶）。
     app.post("/api/auth/invite/inspect", async (request, reply) => {
       const parsed = inspectInviteBodySchema.safeParse(request.body);
       if (!parsed.success) return sendError(reply, 400, "invalid_body", "Invalid request body.");
@@ -197,8 +199,8 @@ export function accountRoutes(deps: AccountRouteDeps) {
       return reply.send({ expiresAt: invite.expiresAt.toISOString() });
     });
 
-    // #285 spec §5.3：接受邀請。順序：body → 邀請（無效扣 miss 桶）→ 帳密有效值（403 不動列、不扣桶，D2）→ 嘗試桶 → 長度 → email 預查 → argon2 → 交易。
-    // argon2 之前能判的都先判（§5.5）。
+    // #285：接受邀請。順序：body → 邀請（無效扣 miss 桶）→ 帳密有效值（403 不動列、不扣桶）→ 嘗試桶 → 長度 → email 預查 → argon2 → 交易。
+    // argon2 之前能判的都先判。
     app.post("/api/auth/invite/accept", async (request, reply) => {
       const parsed = acceptInviteBodySchema.safeParse(request.body);
       if (!parsed.success) return sendInvalidBody(reply, parsed.error);
@@ -207,7 +209,7 @@ export function accountRoutes(deps: AccountRouteDeps) {
       if (!(await isPasswordLoginAccepted(deps.db, deps.config, request.log))) {
         return sendError(reply, 403, "password_login_disabled", PASSWORD_LOGIN_DISABLED_MESSAGE);
       }
-      // 帳密關閉的 403 在上面先回，不扣這個桶（同重設密碼 N-1）。
+      // 帳密關閉的 403 在上面先回，不扣這個桶（同重設密碼）。
       if (!deps.limiters.oneTimeLinkAttempt.consume(`link:${invite.id}`)) {
         return sendError(reply, 429, "too_many_requests", TOO_MANY_REQUESTS_MESSAGE);
       }
@@ -241,26 +243,26 @@ export function accountRoutes(deps: AccountRouteDeps) {
         try {
           created = await deps.db.transaction(tx => acceptInviteInTx(tx, input));
         } catch (err) {
-          // 交易內的 410 是並發造成（這發已以有效 token 通過上面的查詢），不經 sendInvalidInvite（spec N-4）。
+          // 交易內的 410 是並發造成（這發已以有效 token 通過上面的查詢），不經 sendInvalidInvite。
           if (err instanceof TxAbort) return sendError(reply, err.status, err.errCode, err.message);
           const constraint = uniqueViolationConstraint(err);
           if (constraint === "users_email_unique") return sendError(reply, 409, "email_taken", "That email is already in use.");
           if ((constraint === "handles_pkey" || constraint === "users_handle_unique") && attempt <= MAX_DERIVE_ATTEMPTS) continue;
-          // 儲存配額 §10（m9）：預設方案被刪的競態 → 23503。
+          // 儲存配額：預設方案被刪的競態 → 23503。
           if (foreignKeyViolationConstraint(err) === "users_storage_plan_fk") return sendError(reply, 409, "server_busy", "The server is busy. Try again in a moment.");
           // site_settings 沒有列 → DEFAULT 函式回 NULL → 23502。
           if (notNullViolationColumn(err) === "storage_plan_id") {
             request.log.error({ table: "site_settings" }, SITE_SETTINGS_MISSING_MESSAGE);
             return sendError(reply, 500, "internal", "Internal server error.");
           }
-          // INSERT 帶 password hash，非預期 DB 錯誤不得讓 params 進 log（spec §5.6）。
+          // INSERT 帶 password hash，非預期 DB 錯誤不得讓 params 進 log。
           throw redactDbError(request.log, err, "接受邀請");
         }
       }
       if (created === undefined) throw new Error("接受邀請：handle 配置重試耗盡");
 
       request.log.info({ linkId: invite.id, userId: created.id }, "邀請已使用");
-      await touchLastLogin(deps.db, created.id, request.log); // #247 §9.5 寫入點 7：接受邀請
+      await touchLastLogin(deps.db, created.id, request.log); // #247：接受邀請
       await startSession(deps, request, reply, { userId: created.id, tv: created.tokenVersion });
       const dto: UserDto = {
         id: created.id,
@@ -275,7 +277,7 @@ export function accountRoutes(deps: AccountRouteDeps) {
       return reply.code(201).send(dto);
     });
 
-    // §8.3：session-only（`app.authenticate` 只認 cookie；Bearer → 401，r2-N6）。
+    // session-only（`app.authenticate` 只認 cookie；Bearer → 401）。
     app.get("/api/auth/identities", { preHandler: app.authenticate }, async (request): Promise<IdentitiesDto> => {
       const userId = request.user!.id;
       const mine = await deps.db
@@ -305,7 +307,7 @@ export function accountRoutes(deps: AccountRouteDeps) {
           .filter(p => !linkedIssuers.has(p.effectiveIssuer))
           .map(p => ({ providerId: p.id, displayName: p.displayName, template: p.template as AuthProviderTemplate, icon: p.icon })),
         hasPassword,
-        // 有效值（DB OR env）：只決定設定頁顯示「加上密碼」與說明；INV-7 不看它（已折進 unlinkable）。
+        // 有效值（DB OR env）：只決定設定頁顯示「加上密碼」與說明；解除連結的判斷不看它（已折進 unlinkable）。
         passwordLoginEnabled: effectivePasswordLogin(dbValue, deps.config.passwordLoginForceEnable),
       };
     });
@@ -325,11 +327,11 @@ export function accountRoutes(deps: AccountRouteDeps) {
       return reply.code(204).send();
     });
 
-    // §8.4（S3，推翻 W3）：純 SSO 帳號加上密碼。不要求近期登入（B12，總管裁決；已知限制寫明）。session-only。
+    // 純 SSO 帳號加上密碼。不要求近期登入（已知限制寫明）。session-only。
     app.post("/api/auth/password/set", { preHandler: app.authenticate }, async (request, reply) => {
       const parsed = z.object({ newPassword: z.string() }).strict().safeParse(request.body);
       if (!parsed.success) return sendInvalidBody(reply, parsed.error);
-      // 第 0 步（B22）：有效值為關 → 403。一般讀、不鎖（與關閉的並發見 C30：讀到開之後才關閉 → 密碼設好了，關閉期間登入端點不收它）。
+      // 第 0 步：有效值為關 → 403。一般讀、不鎖（與關閉的並發：讀到開之後才關閉 → 密碼設好了，關閉期間登入端點不收它）。
       if (!(await isPasswordLoginAccepted(deps.db, deps.config, request.log))) {
         return sendError(reply, 403, "password_login_disabled", PASSWORD_LOGIN_DISABLED_MESSAGE);
       }
@@ -343,15 +345,17 @@ export function accountRoutes(deps: AccountRouteDeps) {
         throw err;
       }
       const userId = request.user!.id;
-      // 單句條件 UPDATE（C14：雙送出第二次 0 列）；token_version 在 SQL 端 +1（同改密碼的理由）。與解除連結以 users 列鎖序列化（C10）。
+      // 單句條件 UPDATE（雙送出第二次 0 列）；token_version 在 SQL 端 +1（同改密碼的理由）。與解除連結以 users 列鎖序列化。
       // #388：命中才在同一交易裡換 session 列（刪光、本機換新的一列；同改密碼，見 `auth/tx/change-password.ts`）。
-      const input = { userId, passwordHash };
+      // #397：有效期在交易前讀一次，新列與交易後重簽的 cookie／JWT 用同一個值。
+      const ttlSeconds = deps.siteLimits.get("sessionTtlSeconds");
+      const input = { userId, passwordHash, ttlSeconds };
       const updated = await deps.db.transaction(tx => setPasswordInTx(tx, input));
       if (updated === null) return sendError(reply, 409, "password_already_set", "This account already has a password. Change it instead.");
       // 同改密碼：讓其他裝置的舊 session 失效、重簽本人。
       deps.gate.invalidate(userId);
       deps.collabHooks.onUserRevoked(userId);
-      await setSessionCookieFor(reply, deps.config, { userId, tv: updated.tokenVersion, sid: updated.sessionId });
+      await setSessionCookieFor(reply, deps.config, { userId, tv: updated.tokenVersion, sid: updated.sessionId, ttlSeconds });
       return reply.code(204).send();
     });
   };

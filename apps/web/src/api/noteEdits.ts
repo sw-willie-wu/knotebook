@@ -13,7 +13,7 @@ export const NOTE_EDITS_QUERY_KEY = (noteId: string) => ["note-edits", noteId] a
  * 時才該送出。`NotePage.test.tsx` 的 `mockFetch` 有一支 `GET /api/notes/…` 的 catch-all，
  * dialog 關著時多打的這一發**不會**在那裡炸開（它會被餵成 NoteDto），所以那 37 案
  * **守不到這件事**——真正的守衛是 `AiEditsDialog.test.tsx` 的「關著時一發都不打」那一案。
- * ⚠ **催化不是那 37 案守不到的決定性原因**（審查實測）：就算把這支 catch-all 改成直接
+ * ⚠ **催化不是那 37 案守不到的決定性原因**：就算把這支 catch-all 改成直接
  * `throw`，那 37 案仍然全綠——react-query 只是把這個 reject 收進這支 query 自己的 error
  * 狀態，沒有任何斷言在看它。所以「把 mock 改嚴」不會重建這道守衛，唯一的守衛仍然只有
  * 上面那個 `AiEditsDialog.test.tsx` 的案例。

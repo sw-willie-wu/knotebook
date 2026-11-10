@@ -10,7 +10,7 @@ import type {
 import { AUTH_CONFIG_QUERY_KEY } from "./authConfig";
 import { api, ApiFail } from "./client";
 
-/** #187 PR2：`/api/admin/auth/*` 的 query key 一律掛在 `["admin-auth"]` 前綴下——任一 mutation 一次 invalidate 全部。 */
+/** #187：`/api/admin/auth/*` 的 query key 一律掛在 `["admin-auth"]` 前綴下——任一 mutation 一次 invalidate 全部。 */
 export const ADMIN_AUTH_PROVIDERS_QUERY_KEY = ["admin-auth", "providers"] as const;
 
 export function useAdminAuthProviders(): UseQueryResult<AdminAuthProviderDto[]> {
@@ -20,7 +20,7 @@ export function useAdminAuthProviders(): UseQueryResult<AdminAuthProviderDto[]> 
   });
 }
 
-/** 停用 dialog 開著時才抓（`enabled`）；每次開都重抓——人數是當下快照（§9.3）。 */
+/** 停用 dialog 開著時才抓（`enabled`）；每次開都重抓——人數是當下快照。 */
 export function useAuthProviderImpact(id: string, enabled: boolean): UseQueryResult<AdminAuthProviderImpactDto> {
   return useQuery({
     queryKey: ["admin-auth", "impact", id],
@@ -52,9 +52,9 @@ export interface PatchAuthProviderBody {
   clientSecret?: string;
   enabled?: boolean;
   sortOrder?: number;
-  /** 圖示種類（spec 2026-10-07-provider-icon §4.3）；upload 只能經 `useUploadAuthProviderIcon`。 */
+  /** 圖示種類；upload 只能經 `useUploadAuthProviderIcon`。 */
   iconKind?: Exclude<ProviderIconKind, "upload">;
-  /** 首次登入時自動建立帳號（PR-C）。服務表的開關送單獨這一欄；編輯對話框只在改 issuer 時帶（確認框的選擇，或本來關時明帶 false）。 */
+  /** 首次登入時自動建立帳號。服務表的開關送單獨這一欄；編輯對話框只在改 issuer 時帶（確認框的選擇，或本來關時明帶 false）。 */
   autoCreateEnabled?: boolean;
 }
 
@@ -114,7 +114,7 @@ export function useDiscoverAuthProvider() {
   });
 }
 
-/** #187 §9.5：站台設定（「允許帳號密碼登入」「允許用帳號密碼自行註冊」）。`passwordLoginEnabled` 是 DB 值、`passwordLoginForced` 是 env。 */
+/** #187：站台設定（「允許帳號密碼登入」「允許用帳號密碼自行註冊」）。`passwordLoginEnabled` 是 DB 值、`passwordLoginForced` 是 env。 */
 export const ADMIN_AUTH_SETTINGS_QUERY_KEY = ["admin-auth", "settings"] as const;
 
 export function useAdminAuthSettings(): UseQueryResult<AdminAuthSettingsDto> {

@@ -4,7 +4,7 @@ import { destinationItemIcon } from "./destination-icon";
 import type { DestItem } from "./destination-level";
 
 describe("destinationItemIcon", () => {
-  it("DI1 back -> ChevronLeft；root -> House；here -> CornerDownRight；folder -> Folder", () => {
+  it("back -> ChevronLeft；root -> House；here -> CornerDownRight；folder -> Folder", () => {
     expect(destinationItemIcon({ kind: "back" } as DestItem)).toBe(ChevronLeft);
     expect(destinationItemIcon({ kind: "root" } as DestItem)).toBe(House);
     expect(destinationItemIcon({ kind: "here" } as DestItem)).toBe(CornerDownRight);

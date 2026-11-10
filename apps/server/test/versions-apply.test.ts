@@ -1,5 +1,5 @@
-// 套用版本與手動儲存（spec 2026-10-09 §7、§11.2「套用」「手動儲存」「沒有 WS 連線時 REST 套用」「指紋」的空版本案）。
-// 直接驅動 NoteWriteService（另建一個實例、自己的佇列）：REST 的映射在 Task 9。
+// 套用版本與手動儲存（套用、手動儲存、沒有 WS 連線時 REST 套用、指紋的空版本案）。
+// 直接驅動 NoteWriteService（另建一個實例、自己的佇列）：REST 的映射在路由測試。
 import { describe, expect, it } from "vitest";
 import { eq, sql } from "drizzle-orm";
 import * as Y from "yjs";
@@ -87,7 +87,7 @@ async function storedText(s: S): Promise<string> {
   return docText(doc);
 }
 
-describe("套用（§7、§11.2）", () => {
+describe("套用", () => {
   it("正常：內容＝快照（另一條連線看得到）、區塊 id 保留、基底更新、dirty=false、不增版本、不寫 note_ai_edits、落款是人、note_links 更新", async () => {
     const s = await setup();
     const { client, other, v1 } = await twoVersions(s);
@@ -126,7 +126,7 @@ describe("套用（§7、§11.2）", () => {
     const s = await setup();
     const { client, v1, v2 } = await twoVersions(s);
     await setBlocks(s, client, [{ type: "paragraph", content: "未存的修改" }], "未存的修改");
-    // §6.4 優先序：dirty 文件上 versionId 對不上 → 仍是 version_mismatch（讀列在 isDirty 之前），不是 version_unsaved_changes。
+    // 優先序：dirty 文件上 versionId 對不上 → 仍是 version_mismatch（讀列在 isDirty 之前），不是 version_unsaved_changes。
     expect(await s.apply(1, v2.id)).toEqual({ ok: false, kind: "apply", code: "version_mismatch" });
     expect(await s.apply(1, v1.id)).toEqual({ ok: false, kind: "apply", code: "version_unsaved_changes" });
     expect(docText(s.live())).toContain("未存的修改");
@@ -261,9 +261,9 @@ describe("套用（§7、§11.2）", () => {
     expect(await storedText(s)).toContain("舊筆記第一版");
   });
 
-  it("空版本套用後 dirty=false（§7-4：留一顆空段落，fpAfter＝真空指紋）", async () => {
+  it("空版本套用後 dirty=false（留一顆空段落，fpAfter＝真空指紋）", async () => {
     const s = await setup();
-    const empty = await s.save("空"); // 新筆記、沒有基底、真空：手動照建（§6.3 作者補）
+    const empty = await s.save("空"); // 新筆記、沒有基底、真空：手動照建（作者補）
     const client = await s.session.connect(s.note.id);
     await setBlocks(s, client, [{ type: "paragraph", content: "後來的內容" }], "後來的內容");
     await s.save();
@@ -275,7 +275,7 @@ describe("套用（§7、§11.2）", () => {
   });
 });
 
-describe("手動儲存（§6.3 的 service 半段）", () => {
+describe("手動儲存（service 半段）", () => {
   it("乾淨且有基底 → upgraded、總數不變；dirty → 新版；沒有基底的舊筆記（沒載入）→ 建一版；筆記已刪 → note-deleted", async () => {
     const s = await setup();
     const old = new Y.Doc();

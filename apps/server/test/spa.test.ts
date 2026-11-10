@@ -5,13 +5,13 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildTestApp } from "./helpers.js";
 
-// spec §11.5 逐字契約，見 task-9-brief.md：
+// 逐字契約：
 //   - fallback 僅 GET/HEAD；以 pathname（去 query）判定
 //   - 排除前綴為 segment 邊界：/api、/collab、/healthz、/assets，#131 起再加 /oauth 與
 //     /.well-known（`/x` 本身或 `/x/...`；`/collaborators` 不受 `/collab` 牽連）
 //   - Accept 子字串含 text/html 才算（`*/*` 不算）
 //   - /assets/* 缺檔 → 404（webDist 不存在或未傳 → 全 JSON 404，既有行為）
-describe("SPA fallback（spec §11.5）", () => {
+describe("SPA fallback", () => {
   let webDist: string;
 
   beforeAll(() => {
@@ -177,7 +177,7 @@ describe("SPA fallback（spec §11.5）", () => {
     }
   });
 
-  // ⚠ gate 審查抓到的 Critical：`@fastify/static` 的 `wildcard:false` 仍會為 root 下
+  // ⚠ 曾經的嚴重漏洞：`@fastify/static` 的 `wildcard:false` 仍會為 root 下
   // **實際存在的每個檔案**各註冊一條路由，而 `index.html` 就是其中之一——於是
   // `GET /index.html` 會由 static 送出同一份 SPA（App.tsx 的 `/*` route 讓它渲染
   // 首頁、session cookie 是 lax 照送＝已登入），卻**一個安全標頭都沒有**。
@@ -201,7 +201,7 @@ describe("SPA fallback（spec §11.5）", () => {
     expect(res.headers["content-security-policy"]).toBeUndefined();
   });
 
-  // gate 審查（m1）：CSP 只對 HTML 有意義，但 `nosniff` 是逐回應的便宜標頭，JSON 與
+  // CSP 只對 HTML 有意義，但 `nosniff` 是逐回應的便宜標頭，JSON 與
   // 靜態 JS 也該有——所以它掛在全域 onSend，不是只掛在 SPA 那條路徑上。
   it("nosniff 掛在**每個**回應上（JSON 與靜態資產也算），不只 HTML", async () => {
     const { app } = await buildTestApp({}, { webDist });
@@ -221,7 +221,7 @@ describe("SPA fallback（spec §11.5）", () => {
     expect(res.headers["x-robots-tag"]).toBe("noindex");
   });
 
-  it("#72：/p 本身、//p/、/P/ 變體同樣 noindex（判定與 log 遮罩共用正規化——只修一邊的洩漏形審查實測過）", async () => {
+  it("#72：/p 本身、//p/、/P/ 變體同樣 noindex（判定與 log 遮罩共用正規化——只修一邊的洩漏形實測過）", async () => {
     const { app } = await buildTestApp({}, { webDist });
     for (const url of ["/p", "//p/some-token", "/P/some-token"]) {
       const res = await app.inject({ method: "GET", url, headers: { accept: "text/html" } });

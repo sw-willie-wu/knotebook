@@ -23,7 +23,7 @@ function ids(blocks: readonly DiffBlock[]): string[] {
 
 const AFTER: DiffBlock[] = [{ id: "new-1", type: "paragraph", props: {}, content: [{ type: "text", text: "ONE", styles: {} }], children: [] }];
 
-describe("stripTextWrapper（#263 §5.2 第 0 步）", () => {
+describe("stripTextWrapper（#263）", () => {
   it("整段以 <text> 開頭、</text> 結尾（忽略前後空白）才剝；標記內緊鄰的一個換行一併去掉", () => {
     expect(stripTextWrapper("<text>\nA\n\nB\n</text>")).toBe("A\n\nB");
     expect(stripTextWrapper("  <text>A</text>\n")).toBe("A");
@@ -36,7 +36,7 @@ describe("stripTextWrapper（#263 §5.2 第 0 步）", () => {
   });
 });
 
-describe("isNoChange（#263 §5.2 第 3 步，RF5）", () => {
+describe("isNoChange（#263）", () => {
   it("兩端 trim、統一換行後相等 → true", () => {
     expect(normalizeMarkdown("\r\nA\r\nB  \r\n")).toBe("A\nB");
     expect(isNoChange("alpha beta  \r\n", "alpha beta\n")).toBe(true);
@@ -47,7 +47,7 @@ describe("isNoChange（#263 §5.2 第 3 步，RF5）", () => {
   });
 });
 
-describe("buildPreview（#263 §5.4；後續 2026-10-13：只放被改的區塊，不再帶前後上下文）", () => {
+describe("buildPreview（#263：只放被改的區塊，不再帶前後上下文）", () => {
   const DOC = [
     { id: "p0", type: "paragraph", content: "zero" },
     { id: "p1", type: "paragraph", content: "one" },

@@ -1,11 +1,11 @@
 import { MAX_PROVIDER_ICON_SOURCE_BYTES, PROVIDER_ICON_SIZE } from "@knotebook/shared";
 
 /**
- * 登入服務圖示的瀏覽器端縮圖（spec 2026-10-07-provider-icon §6.4、D7）：等比縮到最長邊 128 px（不放大）、一律重新編碼成 PNG（保留透明）。
- * server 不做影像處理（§1.3），仍照 §4.2 驗檔頭與 256 KB。`deps` 只為測試注入（jsdom 沒有 canvas／createImageBitmap）。
+ * 登入服務圖示的瀏覽器端縮圖：等比縮到最長邊 128 px（不放大）、一律重新編碼成 PNG（保留透明）。
+ * server 不做影像處理，仍驗檔頭與 256 KB。`deps` 只為測試注入（jsdom 沒有 canvas／createImageBitmap）。
  */
 
-/** 選檔 `<input accept>`；本函式另檢 `file.type`（Q11）。 */
+/** 選檔 `<input accept>`；本函式另檢 `file.type`。 */
 export const PROVIDER_ICON_ACCEPT = "image/png,image/jpeg,image/webp";
 const ACCEPTED_TYPES = new Set(PROVIDER_ICON_ACCEPT.split(","));
 
@@ -29,7 +29,7 @@ const browserDeps: ResizeDeps = {
   createCanvas: () => document.createElement("canvas"),
 };
 
-/** `scale = min(1, 128 / max(w, h))`；每邊至少 1 px（Q12：不放大）。 */
+/** `scale = min(1, 128 / max(w, h))`；每邊至少 1 px（不放大）。 */
 export function providerIconTargetSize(width: number, height: number): { width: number; height: number } {
   const scale = Math.min(1, PROVIDER_ICON_SIZE / Math.max(width, height));
   return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };

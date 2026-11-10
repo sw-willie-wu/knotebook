@@ -35,7 +35,7 @@ function constraintOf(e: unknown): string | null {
 }
 
 /**
- * unique violation 的 **constraint 名**（#122 判別契約 M4-2）：`users` 表如今有
+ * unique violation 的 **constraint 名**（#122 判別契約）：`users` 表如今有
  * email 與 handle 兩把唯一鍵、`handles` 表另有 PK——「任何 unique violation →
  * email_taken」的舊映射會把 handle 撞名誤報成「此 email 已被使用」。呼叫端依
  * constraint 名分流（`handles_pkey`/`users_handle_unique` → handle_taken、
@@ -76,7 +76,7 @@ export function isTransientTransactionError(err: unknown): boolean {
 export const PG_CHECK_VIOLATION = "23514";
 
 /**
- * check_violation（23514）的 constraint 名（#187 PR2：`auth_providers_enabled_secret_chk` → 409 `provider_secret_missing`）。
+ * check_violation（23514）的 constraint 名（#187：`auth_providers_enabled_secret_chk` → 409 `provider_secret_missing`）。
  * 兩種錯誤形狀（node-postgres 原生、drizzle 包一層）同 `uniqueViolationConstraint`。非 check violation 回 null；
  * 呼叫端只認自己知道的名字，其餘 rethrow（輸入驗證已與其他 CHECK 對齊，撞到＝bug，該 500）。
  */
@@ -104,20 +104,20 @@ export const PG_LOCK_NOT_AVAILABLE = "55P03";
 export const PG_NOT_NULL_VIOLATION = "23502";
 
 /**
- * 儲存配額（spec §5.3、§6.9）：空間鎖那一句的 `lock_timeout` 到期＝55P03 `lock_not_available`。與 40001／40P01 同屬
+ * 儲存配額：空間鎖那一句的 `lock_timeout` 到期＝55P03 `lock_not_available`。與 40001／40P01 同屬
  * 「交易本身沒錯、純粹是併發」——路由一律映射 409 `server_busy`。
  */
 export function isLockTimeout(err: unknown): boolean {
   return matchesCode(err, PG_LOCK_NOT_AVAILABLE);
 }
 
-/** 40001／40P01／55P03：交易被併發犧牲（什麼都沒寫）的路由一律以此映射 409 `server_busy`（§6.9；呼叫端 grep 本函式名）。 */
+/** 40001／40P01／55P03：交易被併發犧牲（什麼都沒寫）的路由一律以此映射 409 `server_busy`（呼叫端 grep 本函式名）。 */
 export function isRetryableTxError(err: unknown): boolean {
   return isTransientTransactionError(err) || isLockTimeout(err);
 }
 
 /**
- * foreign_key_violation（23503）的 constraint 名（§7.1 刪方案的分流、§10 建帳／建群組撞已刪的預設方案）。兩種錯誤形狀同
+ * foreign_key_violation（23503）的 constraint 名（刪方案的分流、建帳／建群組撞已刪的預設方案）。兩種錯誤形狀同
  * `uniqueViolationConstraint`；非 23503 或沒有約束名回 null。呼叫端只認自己知道的名字，其餘照舊處理。
  */
 export function foreignKeyViolationConstraint(err: unknown): string | null {
@@ -130,19 +130,19 @@ function columnOf(e: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
 
-/** not_null_violation（23502）的欄名（§4.2：`site_settings` 沒有列時 DEFAULT 函式回 NULL → `storage_plan_id` 23502）。 */
+/** not_null_violation（23502）的欄名（`site_settings` 沒有列時 DEFAULT 函式回 NULL → `storage_plan_id` 23502）。 */
 export function notNullViolationColumn(err: unknown): string | null {
   if (!matchesCode(err, PG_NOT_NULL_VIOLATION)) return null;
   return columnOf(err) ?? columnOf(err instanceof Error ? err.cause : undefined);
 }
 
-// 資料夾（spec 2026-10-22 §5.1）：0034 三支手寫 trigger 的自訂 SQLSTATE。
+// 資料夾：0034 三支手寫 trigger 的自訂 SQLSTATE。
 export const PG_NOTE_FOLDER_SPACE = "KF001";   // notes_folder_space_trg：筆記與所在資料夾不同空間
 export const PG_FOLDER_PARENT_SPACE = "KF002"; // folders_parent_space_trg：父子不同空間
 export const PG_PLACEMENT_FOLDER = "KF003";    // note_placements_folder_trg：放置不是放置者自己的 shared 資料夾
 
 /**
- * KF001（兩種錯誤形狀都認）。spec §5.1 M5：新碼走得到 KF001 的只有 `POST /api/notes {folderId}`（不在交易內）——
+ * KF001（兩種錯誤形狀都認）。新碼走得到 KF001 的只有 `POST /api/notes {folderId}`（不在交易內）——
  * 授權之後、INSERT 之前那個群組剛完成轉移（資料夾已變 personal）；帶 `folderId` 的寫入入口一律映成 404 `folder_not_found`。
  */
 export function isNoteFolderSpaceViolation(err: unknown): boolean {

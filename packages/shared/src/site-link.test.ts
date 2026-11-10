@@ -17,7 +17,7 @@ import {
   type SiteLinkCandidate,
 } from "./site-link.js";
 
-// spec 2026-10-13 site-links §6、§15.1 S1／S2。
+// S1／S2。
 
 const ORIGIN = "https://kb.example.com";
 const GID = "AAAAAAAA-1111-4111-8111-111111111111";
@@ -82,7 +82,7 @@ describe("S1 parseSiteNoteHref（唯一的站內網址判準）", () => {
   it("壞百分比編碼 → null（decodeURIComponent throw）", () => {
     expect(ok("/n/alice/%E0%A4%A")).toBeNull();
   });
-  it("RF2：百分比編碼的 CJK slug 與 NFD slug 都還原成 NFC＋小寫", () => {
+  it("百分比編碼的 CJK slug 與 NFD slug 都還原成 NFC＋小寫", () => {
     expect(ok("/n/alice/%E4%B8%AD%E6%96%87")?.path).toEqual({ kind: "n", handle: "alice", slug: "中文" });
     const nfd = "Café"; // e + U+0301
     expect(ok(`/n/alice/${encodeURIComponent(nfd)}`)?.path).toEqual({ kind: "n", handle: "alice", slug: "café" });
@@ -101,7 +101,7 @@ describe("建構器、anchor 正規化、顯示文字", () => {
     expect(normalizeAnchor(42)).toBe("");
     expect(normalizeAnchor(undefined)).toBe("");
   });
-  it("wikilinkDisplayText（§4.2）與 wikilinkVisibleText（永不為空）", () => {
+  it("wikilinkDisplayText 與 wikilinkVisibleText（永不為空）", () => {
     expect(wikilinkDisplayText({ label: "L", snapshotTitle: "S" }, "Live")).toBe("L");
     expect(wikilinkDisplayText({ label: "", snapshotTitle: "S" }, "Live")).toBe("Live");
     expect(wikilinkDisplayText({ label: "", snapshotTitle: "S" })).toBe("S");
@@ -111,7 +111,7 @@ describe("建構器、anchor 正規化、顯示文字", () => {
   });
 });
 
-describe("label 規則（§6.3，三支各一案＋snapshotTitle 取原文字）", () => {
+describe("label 規則（三支各一案＋snapshotTitle 取原文字）", () => {
   const target = { id: NOTE_ID.toUpperCase(), title: "Target Title" };
   const href = `/notes/${NOTE_ID}`;
   it("文字空 → label 空、snapshotTitle 取目標標題", () => {
@@ -124,7 +124,7 @@ describe("label 規則（§6.3，三支各一案＋snapshotTitle 取原文字）
       targetNoteId: NOTE_ID, snapshotTitle: "Target Title", label: "", anchorBlockId: "x1",
     });
   });
-  it("文字＝href（裸網址）→ label 空、snapshotTitle 取原文字（A3：不把讀者看不到的目標標題寫進文件）", () => {
+  it("文字＝href（裸網址）→ label 空、snapshotTitle 取原文字（不把讀者看不到的目標標題寫進文件）", () => {
     expect(wikilinkPropsFromLink({ text: href, href, target, anchorBlockId: "" })).toEqual({
       targetNoteId: NOTE_ID, snapshotTitle: href, label: "", anchorBlockId: "",
     });
@@ -167,7 +167,7 @@ describe("resolveFromList（server 預取清單與 web 快取共用）", () => {
     expect(resolveFromList({ kind: "ref", ref: "my-old-title-aaaaaaaa-0000-4000-8000-000000000002" }, CANDIDATES)?.title).toBe("Group Note");
     expect(resolveFromList({ kind: "ref", ref: "mine" }, CANDIDATES)).toBeNull();
   });
-  it("RF2：剖析後的編碼 CJK slug 命中 NFC slug 的那篇", () => {
+  it("剖析後的編碼 CJK slug 命中 NFC slug 的那篇", () => {
     const parsed = parseSiteNoteHref("/n/alice/%E4%B8%AD%E6%96%87", ORIGIN)!;
     expect(resolveFromList(parsed.path, CANDIDATES)?.title).toBe("中文");
   });
@@ -211,7 +211,7 @@ describe("S2 convertSiteLinks（inline、巢狀、表格兩種 cell、樣式丟�
     expect(content[5]).toEqual(link("/n/alice/missing", t("gone")));
   });
 
-  it("RF3：多個樣式片段串成一個 label（樣式丟棄）；同 href 兩個連結各自轉、各自保留 label", () => {
+  it("多個樣式片段串成一個 label（樣式丟棄）；同 href 兩個連結各自轉、各自保留 label", () => {
     const blocks = [{ type: "paragraph", content: [
       link("/n/alice/mine", t("粗", { bold: true }), t("體")),
       t(" / "),
@@ -251,7 +251,7 @@ describe("S2 convertSiteLinks（inline、巢狀、表格兩種 cell、樣式丟�
     expect(cell.content[0]).toMatchObject({ type: "wikilink", props: { label: "G" } });
   });
 
-  it("SL-COL1（並排 §11.11）：欄內段落的站內連結也轉成 wikilink", () => {
+  it("欄內段落的站內連結也轉成 wikilink", () => {
     const blocks = [{ type: "columnList", children: [
       { type: "column", props: { width: 1 }, children: [{ type: "paragraph", content: [link("/n/alice/mine", t("Mine"))], children: [] }] },
       { type: "column", props: { width: 1 }, children: [{ type: "paragraph", content: [t("plain")], children: [] }] },
@@ -304,10 +304,10 @@ describe("wikilinksToLinks（MCP 讀與站內 AI 的匯出副本改寫）", () =
     expect(cell[0]).toMatchObject({ type: "link", href: `/notes/${NOTE_ID}` });
   });
 
-  // RF1（#269 Task 6）：BlockNote 的 markdown 匯出不跳脫文字，跳脫由 `escapeLinkText` 做——但只在真正變成 markdown 的那一步
+  // #269：BlockNote 的 markdown 匯出不跳脫文字，跳脫由 `escapeLinkText` 做——但只在真正變成 markdown 的那一步
   // （note-markdown-read.ts 的 markdown 分支）。`wikilinksToLinks` 本身**不跳脫**：它的輸出在讀路徑上也會走上色區塊的原始 HTML
-  // 輸出，那裡跳脫會讓反斜線每往返一次多一層（審查 r0 I1）。`<`、`&` 刻意不收（見 escapeLinkText）。
-  it("RF1：escapeLinkText 跳脫 \\ ` * _ [ ] ~、< 與 & 不動；wikilinksToLinks 段落與表格 cell 都輸出原文（不跳脫）", () => {
+  // 輸出，那裡跳脫會讓反斜線每往返一次多一層。`<`、`&` 刻意不收（見 escapeLinkText）。
+  it("escapeLinkText 跳脫 \\ ` * _ [ ] ~、< 與 & 不動；wikilinksToLinks 段落與表格 cell 都輸出原文（不跳脫）", () => {
     expect(escapeLinkText("[Draft] Plan *v2*")).toBe("\\[Draft\\] Plan \\*v2\\*");
     expect(escapeLinkText("a]b\\")).toBe("a\\]b\\\\");
     expect(escapeLinkText("a_b_ `c` ~~s~~ x|y")).toBe("a\\_b\\_ \\`c\\` \\~\\~s\\~\\~ x|y");

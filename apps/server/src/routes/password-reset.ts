@@ -1,14 +1,14 @@
 /**
- * #286 無登入的重設密碼端點（spec §4.3）：inspect（不消耗連結）與完成（設定新密碼、登出其他瀏覽器、簽新 session）。
+ * #286 無登入的重設密碼端點：inspect（不消耗連結）與完成（設定新密碼、登出其他瀏覽器、簽新 session）。
  *
- * - 無登入：持有連結的人就是本人。token 只從 POST body 收（spec §3.2，網址上只在 fragment），所以不需要 log 遮罩；
+ * - 無登入：持有連結的人就是本人。token 只從 POST body 收（網址上只在 fragment），所以不需要 log 遮罩；
  *   log 與回應絕不含 token 明文或 `token_hash`。
  * - 無效 token 一律 410 `reset_link_invalid`，不區分原因；交易外的「連結無效」出口都經 `sendInvalidLink`，
  *   交易內（並發造成）的 410 刻意不經過它。
- * - 帳密開關（有效值）只在交易外判斷，交易內不重讀（spec §4.3 末【推】）：關閉時 403，連結不動、不扣任何桶。
- * - 兩顆桶（spec §3.6）：miss 桶（key=ip）只在交易外查無時扣，有效 token 不做預檢、不被擋；
+ * - 帳密開關（有效值）只在交易外判斷，交易內不重讀（末【推】）：關閉時 403，連結不動、不扣任何桶。
+ * - 兩顆桶：miss 桶（key=ip）只在交易外查無時扣，有效 token 不做預檢、不被擋；
  *   嘗試桶（key=`link:${id}`）只在完成端點、帳密有效值為開之後扣，inspect 不扣。
- * - 登出手段與改密碼相同（`token_version + 1`＋#388 刪光 session 列＋`gate.invalidate`＋`onUserRevoked`），PAT／OAuth 不受影響（spec §4.4）。
+ * - 登出手段與改密碼相同（`token_version + 1`＋#388 刪光 session 列＋`gate.invalidate`＋`onUserRevoked`），PAT／OAuth 不受影響。
  */
 import type { FastifyBaseLogger, FastifyInstance, FastifyReply } from "fastify";
 import { and, eq } from "drizzle-orm";
@@ -16,6 +16,7 @@ import { z } from "zod";
 import type { UserDto } from "@knotebook/shared";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
+import type { SiteLimits } from "../site-limits/store.js";
 import { oneTimeLinks, users } from "../db/schema.js";
 import { hashToken } from "../auth/api-token.js";
 import { MIN_PASSWORD_LENGTH } from "../auth/constants.js";
@@ -38,14 +39,15 @@ const completeBodySchema = z.object({ token: z.string(), newPassword: z.string()
 export interface PasswordResetRouteDeps {
   db: Db;
   config: AppConfig;
+  siteLimits: SiteLimits;
   gate: UserGate;
   collabHooks: CollabHooks;
   limiters: { oneTimeLinkMiss: FixedWindowLimiter; oneTimeLinkAttempt: FixedWindowLimiter };
 }
 
 /**
- * 交易外、不鎖地以雜湊查有效的重設連結（spec §3.5 完成的第一步）。形狀不合或查無 → null。
- * 參數帶 `token_hash`：非預期的 DB 錯誤一律遮蔽，不讓雜湊隨 drizzle 錯誤進 log（§3.8）。
+ * 交易外、不鎖地以雜湊查有效的重設連結（完成的第一步）。形狀不合或查無 → null。
+ * 參數帶 `token_hash`：非預期的 DB 錯誤一律遮蔽，不讓雜湊隨 drizzle 錯誤進 log。
  */
 async function findActiveResetLink(
   db: Db,
@@ -89,7 +91,7 @@ export function passwordResetRoutes(deps: PasswordResetRouteDeps) {
       return reply.send({ email: link.email, expiresAt: link.expiresAt.toISOString() });
     });
 
-    // 順序（spec §4.3）：body → 連結 → 帳密有效值 → 嘗試桶 → 長度 → argon2 → 交易。argon2 之前能判的都先判（A-13）。
+    // 順序：body → 連結 → 帳密有效值 → 嘗試桶 → 長度 → argon2 → 交易。argon2 之前能判的都先判。
     app.post("/api/auth/password-reset", async (request, reply) => {
       const parsed = completeBodySchema.safeParse(request.body);
       if (!parsed.success) return sendError(reply, 400, "invalid_body", "Invalid request body.");
@@ -99,7 +101,7 @@ export function passwordResetRoutes(deps: PasswordResetRouteDeps) {
       if (!(await isPasswordLoginAccepted(deps.db, deps.config, request.log))) {
         return sendError(reply, 403, "password_login_disabled", PASSWORD_LOGIN_DISABLED_MESSAGE);
       }
-      // 帳密關閉的 403 在上面先回，不扣這個桶（spec N-1）。
+      // 帳密關閉的 403 在上面先回，不扣這個桶。
       if (!deps.limiters.oneTimeLinkAttempt.consume(`link:${link.id}`)) {
         return sendError(reply, 429, "too_many_requests", TOO_MANY_REQUESTS_MESSAGE);
       }
@@ -113,12 +115,14 @@ export function passwordResetRoutes(deps: PasswordResetRouteDeps) {
         if (err instanceof HashBusyError) return sendError(reply, 429, "server_busy", "The server is busy. Try again in a moment.");
         throw err;
       }
-      const input = { linkId: link.id, targetUserId: link.targetUserId, passwordHash };
+      // #397：有效期在交易前讀一次，新列與交易後簽的 cookie／JWT 用同一個值。
+      const ttlSeconds = deps.siteLimits.get("sessionTtlSeconds");
+      const input = { linkId: link.id, targetUserId: link.targetUserId, passwordHash, ttlSeconds };
       let updated: Awaited<ReturnType<typeof completePasswordResetInTx>>;
       try {
         updated = await deps.db.transaction(tx => completePasswordResetInTx(tx, input));
       } catch (err) {
-        // 交易內的 410 都是並發造成（這發已以有效 token 通過上面的查詢），不經 sendInvalidLink、不扣 miss 桶（spec N-4）。
+        // 交易內的 410 都是並發造成（這發已以有效 token 通過上面的查詢），不經 sendInvalidLink、不扣 miss 桶。
         if (err instanceof TxAbort) return sendError(reply, err.status, err.errCode, err.message);
         // UPDATE 的參數帶 password hash：drizzle 的錯誤會把參數串進 message。
         throw redactDbError(request.log, err, "重設密碼");
@@ -127,8 +131,8 @@ export function passwordResetRoutes(deps: PasswordResetRouteDeps) {
       deps.gate.invalidate(updated.id);
       deps.collabHooks.onUserRevoked(updated.id);
       request.log.info({ targetUserId: updated.id, linkId: link.id }, "重設密碼連結已使用");
-      await touchLastLogin(deps.db, updated.id, request.log); // #247 §9.5 寫入點 6：重設密碼連結
-      await setSessionCookieFor(reply, deps.config, { userId: updated.id, tv: updated.tokenVersion, sid: updated.sessionId });
+      await touchLastLogin(deps.db, updated.id, request.log); // #247：重設密碼連結
+      await setSessionCookieFor(reply, deps.config, { userId: updated.id, tv: updated.tokenVersion, sid: updated.sessionId, ttlSeconds });
       const dto: UserDto = {
         id: updated.id,
         email: updated.email,

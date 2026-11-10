@@ -1,4 +1,4 @@
-// 撤回：stale 判準＝§5 revertable（live doc 在 transact 內再核對一次）；anchor 三規則（delete_section 沒有指紋可比，
+// 撤回：stale 判準＝revertable（live doc 在 transact 內再核對一次）；anchor 三規則（delete_section 沒有指紋可比，
 // 錨點旁被改過也判得回——docs 明講）；撤回列 before_blocks＝被撤掉的 AI block、after_block_ids＝插回的原 id；
 // 撤回列永不可撤回；撤回後同 apply.ts 更新 note_links。
 // ⚠ `revert_of` 是 ON DELETE CASCADE，與裁切（RETENTION）交互：撤回**最舊那一筆**時，插入撤回列後
@@ -20,7 +20,7 @@ import type { DirectCtx } from "./session.js";
 export { isDeleteShape } from "./revert-core.js";
 
 
-// 現值運算式不在這裡複製一份——`auth/agent-label.ts` 的 `agentLabelOf` 是 spec §8 指名的唯一實作，
+// 現值運算式不在這裡複製一份——`auth/agent-label.ts` 的 `agentLabelOf` 是唯一實作，
 // 派生表釘在 test/unit/agent-label.test.ts。這裡用的是**純述詞**版而不是路由端的 `currentAgentLabel`：
 // 這一發 JOIN 一次撈最多 100 列，逐列再查一次 DB 就是 N+1。
 
@@ -71,7 +71,7 @@ export async function revertEdit(deps: ApplyDeps, input: { noteId: string; editI
   if (!row) return { ok: false, code: "not_found" };
   if (row.op === "revert" || row.revertedAt !== null) return { ok: false, code: "already_reverted" };
   const anchor = row.anchor as Anchor | null;
-  // 總管追加 T11-2：file_sync 刪除形的佔位空段落，只有在「同一篇沒有其他未撤回的列也用它當 anchor」時才刪——在取 lease 之前查好。
+  // file_sync 刪除形的佔位空段落，只有在「同一篇沒有其他未撤回的列也用它當 anchor」時才刪——在取 lease 之前查好。
   const othersShareAnchor =
     row.op === "file_sync" && anchor?.placeholder === true
       ? (
@@ -95,7 +95,7 @@ export async function revertEdit(deps: ApplyDeps, input: { noteId: string; editI
     try {
       const extra = JSON.stringify(row.beforeBlocks ?? []).length;
       const out = await deps.editing.runDoc(input.userId, { kind: "revert", state, row: revertRow, othersShareAnchor }, { extraWeight: extra });
-      // 撤回沒有解析：worker 逾時或用完記憶體只會是筆記本身太大或太複雜——重試沒用（審查 r4 M4：不回 503＋Retry-After），內容與紀錄都沒動。
+      // 撤回沒有解析：worker 逾時或用完記憶體只會是筆記本身太大或太複雜——重試沒用（不回 503＋Retry-After），內容與紀錄都沒動。
       if (out === DOC_TOO_COMPLEX) return { ok: false, code: "too_complex" };
       if (!out.ok) return { ok: false, code: "stale" };
       r = out;

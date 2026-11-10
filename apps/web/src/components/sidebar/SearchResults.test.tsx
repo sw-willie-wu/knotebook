@@ -64,7 +64,7 @@ const ALPHA_SHARED = note("n3", "alpha shared", {
 const BETA = note("n4", "Beta");
 const FIXTURE = [ALPHA_PLAN, ALPHA_GROUP, ALPHA_SHARED, BETA];
 
-/** #93 PR2：`/api/search` 的回應（預設空）。測試可換成自己的處理（回 Response 或 Promise）。 */
+/** #93：`/api/search` 的回應（預設空）。測試可換成自己的處理（回 Response 或 Promise）。 */
 const EMPTY_SEARCH = () => fakeResponse(true, 200, { hits: [], nextCursor: null });
 let searchHandler: (url: string) => Response | Promise<Response> = EMPTY_SEARCH;
 let searchUrls: string[] = [];
@@ -272,7 +272,7 @@ describe("SearchResults × 資料夾路徑", () => {
   });
 });
 
-describe("SearchResults × 內文符合（#93 PR2 T5）", () => {
+describe("SearchResults × 內文符合（#93）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     searchUrls = [];
@@ -341,7 +341,7 @@ describe("SearchResults × 內文符合（#93 PR2 T5）", () => {
     b.unmount();
 
     // stale 的空批：舊批本身是空的（標題 0、內文 0 → 先看到 noMatch）；改字後防抖中、新請求未回都是 stale → noMatch 消失（舊的空批
-    // 不能拿來斷定新字也沒有命中）；新批回空 → noMatch 再出現。舊批若有結果，rows.length > 0 本來就不顯示，殺不掉「拿掉 !stale」（審查 m3）。
+    // 不能拿來斷定新字也沒有命中）；新批回空 → noMatch 再出現。舊批若有結果，rows.length > 0 本來就不顯示，殺不掉「拿掉 !stale」。
     searchHandler = EMPTY_SEARCH;
     const c = renderControlled("qqq");
     await waitFor(() => expect(noMatch()).toHaveLength(1));

@@ -43,7 +43,7 @@ afterEach(() => {
   __resetFolderSortForTests();
 });
 
-describe("SMf1 SELECT_ACTIONS（資料夾 spec §6.10：群組、與我共享加 move）", () => {
+describe("SMf1 SELECT_ACTIONS（資料夾：群組、與我共享加 move）", () => {
   it("四個 tab", () => {
     expect(SELECT_ACTIONS).toEqual({
       recent: ["copy", "delete"],
@@ -76,7 +76,7 @@ function tally(o: Partial<ResultTally> & Pick<ResultTally, "action">): ResultTal
 const PERSONAL_ROOT: DestTarget = { kind: "place", space: { kind: "personal" }, folder: null };
 const groupRoot = (groupId: string, name: string): DestTarget => ({ kind: "place", space: { kind: "group", groupId, name }, folder: null });
 
-describe("SMd8 selectionResultTitle（PR-2c 案，改寫成 ResultTally；預期字不變）", () => {
+describe("selectionResultTitle（改寫成 ResultTally；預期字不變）", () => {
   const GROUP_A = groupRoot("ga", "A");
 
   it("delete (3, 0)", () => {
@@ -121,7 +121,7 @@ describe("SMd8 selectionResultTitle（PR-2c 案，改寫成 ResultTally；預期
     }
   });
 
-  it("I-B-1 destination 是 makeCopy、copySource 為 null → throw", () => {
+  it("destination 是 makeCopy、copySource 為 null → throw", () => {
     expect(() => selectionResultTitle(tally({ action: "copy", notesDone: 1, destination: { kind: "makeCopy" } }), t)).toThrow(
       "makeCopy needs a copySource",
     );
@@ -137,7 +137,7 @@ describe("SMd8 selectionResultTitle（PR-2c 案，改寫成 ResultTally；預期
   });
 });
 
-// ── PR-3b-2 T5：資料夾與筆記同列選取（資料夾 spec §6.10） ──
+// ── 資料夾與筆記同列選取 ──
 
 /** 我的筆記：A ⊃ A1；p1 在 A、p2 在 A1、p3 在根層。樹序：A、A1、p2、p1、p3。 */
 const FA = folderDto({ id: "A", name: "A" });
@@ -268,7 +268,7 @@ describe("SMf6 partitionTargets(move)", () => {
     expect(out).toEqual({ eligible: [noteT(viewer)], notesSkipped: 0, foldersSkipped: 0, foldersBlocked: 0 });
   });
 
-  it("myNotes 照 PR-2c：moveToGroup 且 groupId === null", () => {
+  it("myNotes：moveToGroup 且 groupId === null", () => {
     const noMove = personalNote({ id: "nm", title: "NM", permissions: { ...A.permissions, moveToGroup: false } });
     const out = partitionTargets("move", [noteT(A), noteT(noMove)], { tab: "myNotes", index: EMPTY_FOLDER_INDEX, notes: [], groupIds: new Set() });
     expect(out).toEqual({ eligible: [noteT(A)], notesSkipped: 1, foldersSkipped: 0, foldersBlocked: 0 });
@@ -351,7 +351,7 @@ describe("SMf7 batchDestSource", () => {
   });
 });
 
-describe("SMf8 movingFolders 與第一層為空（I2）", () => {
+describe("SMf8 movingFolders 與第一層為空", () => {
   it("myNotes move 選了資料夾 → movingFolders 非空（只 move；locations 用 parentId）", () => {
     const move = asSource(batchDestSource({ tab: "myNotes", mode: "move", eligible: [folderT(FA1), noteT(P3)], groups: [G1], groupIds: new Set(["g1"]) }));
     expect(move.movingFolders).toEqual([FA1]);
@@ -447,11 +447,11 @@ describe("SMf10 selectionResultTitle（資料夾）", () => {
     );
   });
 
-  it("m6 delete foldersDone 0、notesDone 1 → trashed", () => {
+  it("delete foldersDone 0、notesDone 1 → trashed", () => {
     expect(selectionResultTitle(tally({ action: "delete", notesDone: 1 }), t)).toBe("Moved 1 note to the trash");
   });
 
-  describe("copy（I-B：沿用既有鍵）", () => {
+  describe("copy（沿用既有鍵）", () => {
     it("個人根層 1 篇 → copiedToPersonal", () => {
       expect(selectionResultTitle(tally({ action: "copy", notesDone: 1, destination: PERSONAL_ROOT, destinationName: "My notes" }), t)).toBe(
         "Copied 1 note to My notes",

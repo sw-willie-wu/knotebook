@@ -12,9 +12,9 @@ import { usePresentationShell } from "./PresentationShell";
 import { PRESENT_SEARCH } from "./present-url";
 
 /**
- * #229 簡報層（lazy chunk 的入口，spec §6）。React 薄殼：最新值寫進 ref、生命週期交給 controller.ts。
- * reveal.js、reveal.css、present.css、DOMPurify、presentationSchema 只經由本模組進來（§6.2、§11.1）。
- * router 的 search 還沒正規化成 `?present`（外殼在做）之前不啟動（§6.4-1）。
+ * #229 簡報層（lazy chunk 的入口）。React 薄殼：最新值寫進 ref、生命週期交給 controller.ts。
+ * reveal.js、reveal.css、present.css、DOMPurify、presentationSchema 只經由本模組進來。
+ * router 的 search 還沒正規化成 `?present`（外殼在做）之前不啟動。
  */
 export type PresentationOverlayProps = PresentationSource;
 

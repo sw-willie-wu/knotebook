@@ -23,7 +23,7 @@ const BLOCKS = [
   },
 ];
 
-describe("version-snapshot（spec §8.4：不 mount 讀快照）", () => {
+describe("version-snapshot（不 mount 讀快照）", () => {
   it("ydocBytesToBlocks：快照 bytes → blocks，id、型別、wikilink 的 targetNoteId 全保留", () => {
     const bytes = Y.encodeStateAsUpdate(docWith(BLOCKS));
     const blocks = ydocBytesToBlocks(bytes);

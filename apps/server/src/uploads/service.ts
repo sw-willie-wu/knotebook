@@ -36,7 +36,7 @@ export function assertUploadsDirWritable(uploadsDir: string): void {
  * 上傳檔案在磁碟上的實際路徑——固定用 DB 主鍵 `id`（無副檔名）當檔名，`Content-Type`
  * 一律由 GET 端在回應時從 DB 的 `mime`（偵測值）欄位回填，不依賴檔名推斷。
  *
- * 原本是 `routes/uploads.ts` 內的私有函式，Task 11 移到這裡並 export：DELETE
+ * 原本是 `routes/uploads.ts` 內的私有函式，移到這裡並 export：DELETE
  * note 交易（`routes/notes.ts`）也需要用同一套路徑組法算出要補刪的檔案位置，
  * 兩處各自維護一份會有漂移風險（同 `isForeignKeyViolation` 收斂到 `db/pg-errors.ts`
  * 的理由）。
@@ -51,7 +51,7 @@ export interface UploadDeleteLogger {
 }
 
 /**
- * DELETE note 交易 commit **之後**的 best-effort 補刪 blob 檔案（Task 11，spec 決策：
+ * DELETE note 交易 commit **之後**的 best-effort 補刪 blob 檔案（
  * blob 刪除不能放進交易內——DB rollback 救不回已經被刪掉的檔案，只能反過來，先確定
  * DB 那邊的 `uploads` 列真的 commit 成功，才動磁碟）。
  *

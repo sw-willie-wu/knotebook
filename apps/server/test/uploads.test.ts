@@ -113,7 +113,7 @@ async function postUpload(
   });
 }
 
-// ───────────────────────────── 真 socket drain 驗證（Critical-2 review：`app.inject` 無真 socket，
+// ───────────────────────────── 真 socket drain 驗證（`app.inject` 無真 socket，
 // 量不出「body 未 drain 導致連線卡住、graceful shutdown 吊死」這類問題）─────────────────────────────
 
 /**
@@ -129,7 +129,7 @@ async function postUpload(
  * 超過 cap 時對 `request.raw` 呼叫 `destroy()`（見 `src/http/drain.ts`），這是
  * server 端主動砍線，client 端若此時仍在寫入大 body，底層 socket 會收到
  * ECONNRESET／EPIPE（CI 實測過 `write ECONNRESET`，errno -104；本機 loopback 因為
- * 太快，通常整包已經寫完才收到，測不出來，見 Task 9 測試內的時序註解）——這是
+ * 太快，通常整包已經寫完才收到，測不出來，見該測試內的時序註解）——這是
  * `destroy()` 本來就預期的副作用，不是 bug，但**client 端必須有人接住**，否則
  * Node 對沒有 `error` listener 的 EventEmitter 丟未接住的 'error' 視同
  * uncaughtException，讓整個測試檔案炸掉（即使個別測試斷言全過）。舊版只在
@@ -191,10 +191,10 @@ function rawSocketPost(opts: { port: number; path: string; headers: Record<strin
   });
 }
 
-describe("uploadsDir 啟動期可寫性探測（Task 9，AppDeps.uploadsDir）", () => {
+describe("uploadsDir 啟動期可寫性探測（AppDeps.uploadsDir）", () => {
   it("uploadsDir 的父路徑其實是一般檔案（非目錄）→ buildApp 同步 throw、fail-fast（與 mode 無關）", async () => {
     // fixture：先建一個真實存在的父目錄，裡面放一個「一般檔案」，再把
-    // `<該檔案>/uploads` 當成 uploadsDir 傳進去——任何試圖在它底下寫入探針檔的
+    // `<該檔案>/uploads` 當成 uploadsDir 傳進去——任何試圖在它底下寫入探測檔的
     // 動作都會因為路徑上有一段其實是檔案（ENOTDIR）而失敗，與該檔案的權限
     // mode 完全無關（即使 chmod 777 依然是「檔案」不是「目錄」）。
     const parentDir = mkdtempSync(path.join(os.tmpdir(), "knotebook-uploads-fixture-"));
@@ -210,24 +210,24 @@ describe("uploadsDir 啟動期可寫性探測（Task 9，AppDeps.uploadsDir）",
   });
 });
 
-// ───────────────────────────── CSRF hook：multipart 豁免 + Origin 驗證（Task 10a，spec §12.4）─────────────────────────────
+// ───────────────────────────── CSRF hook：multipart 豁免 + Origin 驗證─────────────────────────────
 //
-// Task 10b 落地真實路由後改掛真實 `POST /api/notes/:id/uploads`（Task 10a 的樁路由
-// `withUploadStubRoute`／`/__test/not-exempt` 已刪除——同 URL 雙註冊會 FST_ERR_DUPLICATED_ROUTE，
-// 見 task-10-brief）。essence／Origin 不符的分支在 CSRF hook 就被擋下，不需要真的登入或
+// 落地真實路由後改掛真實 `POST /api/notes/:id/uploads`（早先的樁路由
+// `withUploadStubRoute`／`/__test/not-exempt` 已刪除——同 URL 雙註冊會 FST_ERR_DUPLICATED_ROUTE）。
+// essence／Origin 不符的分支在 CSRF hook 就被擋下，不需要真的登入或
 // 真的有這篇筆記——用假 UUID 當 noteId 即可，因為這兩條早退發生在路由參數被解析、
 // resolveRole 查 DB 之前。Origin 相符的正面案例則改成走完整真實流程（真登入 + 真筆記 +
 // 合法 PNG bytes），直接斷言 201，一次覆蓋「CSRF 放行」與「真實路由確實能吃這個請求」
-// 兩件事，不必再靠 Task 10a 那支只回字面 201 的樁路由。
+// 兩件事，不必再靠只回字面 201 的樁路由。
 //
-// 白名單判定的 mutation 護欄（Task 10a 的 C1）不再需要專屬的 `/__test/not-exempt` 樁路由：
-// `@fastify/multipart` 現在確實註冊在生產 app 的頂層（`app.ts`，Task 10b），這件事本身讓
+// 白名單判定的 mutation 護欄不再需要專屬的 `/__test/not-exempt` 樁路由：
+// `@fastify/multipart` 現在確實註冊在生產 app 的頂層（`app.ts`），這件事本身讓
 // 下方「CSRF 迴歸」小節的既有測試（multipart body 打 `/api/auth/login` 仍 415）天然具備
 // 同等的鑑別力——若 `isMultipartExemptRoute` 被 mutation 成「只看 essence、不比對白名單」，
 // 這個請求會流進真正的 `/api/auth/login` handler（multipart 不會填 `request.body`，
 // zod safeParse 落在 undefined 上失敗）→ 400，而非正確實作的 415，status code 本身就
 // 足以讓測試變紅，不需要另外一支專門回 200 的樁路由才能觀察差異。
-describe("CSRF hook：multipart 上傳路由豁免 + Origin 驗證（Task 10a，掛真實路由重驗）", () => {
+describe("CSRF hook：multipart 上傳路由豁免 + Origin 驗證（掛真實路由重驗）", () => {
   const FAKE_NOTE_ID = "11111111-1111-1111-1111-111111111111";
 
   it("essence 不是 multipart/form-data（打上傳端點，沒帶 Origin）→ 415 unsupported_media_type（essence 先於 Origin 檢查）", async () => {
@@ -266,7 +266,7 @@ describe("CSRF hook：multipart 上傳路由豁免 + Origin 驗證（Task 10a，
     it("同 host 不同 port（都非 80/443）→ 403（LAN 形狀下 port 差異不可被忽略）", async () => {
       const { app } = await buildTestApp();
       const res = await postUpload(app, FAKE_NOTE_ID, singleFileBody(PNG_BYTES), {
-        headers: { origin: "http://192.168.3.22:9999", host: "192.168.3.22:8006" },
+        headers: { origin: "http://192.168.1.50:9999", host: "192.168.1.50:3000" },
       });
       expect(res.statusCode).toBe(403);
       expect(res.json().error.code).toBe("forbidden");
@@ -281,7 +281,7 @@ describe("CSRF hook：multipart 上傳路由豁免 + Origin 驗證（Task 10a，
       expect(res.json().error.code).toBe("forbidden");
     });
 
-    it("含 port 的 LAN 形狀（192.168.x.x:8006）Origin 與 host 相符 → 通過 CSRF 閘門，走到真實路由（登入+真筆記後 201）", async () => {
+    it("含 port 的 LAN 形狀（192.168.x.x:3000）Origin 與 host 相符 → 通過 CSRF 閘門，走到真實路由（登入+真筆記後 201）", async () => {
       const { app, db } = await buildTestApp();
       const owner = await insertUser(db, { email: "owner-lan@example.com" });
       const cookie = await cookieFor(owner.id);
@@ -289,7 +289,7 @@ describe("CSRF hook：multipart 上傳路由豁免 + Origin 驗證（Task 10a，
 
       const res = await postUpload(app, note.id, singleFileBody(PNG_BYTES), {
         cookie,
-        headers: { origin: "http://192.168.3.22:8006", host: "192.168.3.22:8006" },
+        headers: { origin: "http://192.168.1.50:3000", host: "192.168.1.50:3000" },
       });
       expect(res.statusCode).toBe(201);
     });
@@ -320,7 +320,7 @@ describe("CSRF hook：multipart 上傳路由豁免 + Origin 驗證（Task 10a，
       expect(res.statusCode).toBe(201);
     });
 
-    it("無 Origin header → 放行（不是 CSRF 閘門保護的向量，spec 明文）", async () => {
+    it("無 Origin header → 放行（不是 CSRF 閘門保護的向量）", async () => {
       const { app, db } = await buildTestApp();
       const owner = await insertUser(db, { email: "owner-noorigin@example.com" });
       const cookie = await cookieFor(owner.id);
@@ -358,7 +358,7 @@ describe("CSRF hook：multipart 上傳路由豁免 + Origin 驗證（Task 10a，
   });
 });
 
-// ───────────────────────────── Task 10b：POST /api/notes/:id/uploads routes + limiter ─────────────────────────────
+// ───────────────────────────── POST /api/notes/:id/uploads routes + limiter ─────────────────────────────
 
 describe("POST /api/notes/:id/uploads", () => {
   it("201：DB 列 noteId/uploaderId/mime/size 正確，GET 往返位元組與原始上傳一致", async () => {
@@ -550,7 +550,7 @@ describe("POST /api/notes/:id/uploads", () => {
     expect(res2.json().error.code).toBe("too_many_requests");
   });
 
-  // review 意見（Critical-1 附註）：這支用 `app.inject`（無真 socket），只能證明
+  // 這支用 `app.inject`（無真 socket），只能證明
   // 「早退 4xx 收到結構化 error body」——**不能**當成「連線沒有卡住」的證據（`inject`
   // 沒有真的 TCP 連線可以卡）。preHandler 這幾條早退分支（401/403/404/429）之所以在
   // 真 socket 上也沒事，是因為它們完全沒碰過 `request.parts()`，Node 自己的
@@ -564,9 +564,9 @@ describe("POST /api/notes/:id/uploads", () => {
     const note = await createNote(db, owner.id);
     await share(db, note.id, viewer.id, "viewer");
 
-    // review fix round 1（M-1）：`2 * MAX_UPLOAD_BYTES` 剛好等於 cap，multipart 框線
+    // `2 * MAX_UPLOAD_BYTES` 剛好等於 cap，multipart 框線
     // 開銷（boundary/headers，實測約 147 bytes）會讓實際位元組數悄悄超過 cap，讓這支
-    // 「under cap」迴歸測試意外跟 Task 9 的「over cap」測試撞在同一個分支——扣掉
+    // 「under cap」迴歸測試意外跟「over cap」測試撞在同一個分支——扣掉
     // 1 KiB 當緩衝，確定嚴格 under cap，讓新舊測試形成真正的 under/over 對照。
     const bigBody = singleFileBody(Buffer.alloc(2 * MAX_UPLOAD_BYTES - 1024, 0x42));
     const res = await postUpload(app, note.id, bigBody, { cookie: viewerCookie });
@@ -575,7 +575,7 @@ describe("POST /api/notes/:id/uploads", () => {
   }, 20_000);
 });
 
-// ───────────────────────────── Task 10b：GET /api/uploads/:id ─────────────────────────────
+// ───────────────────────────── GET /api/uploads/:id ─────────────────────────────
 
 describe("GET /api/uploads/:id", () => {
   async function uploadOne(
@@ -671,7 +671,7 @@ describe("GET /api/uploads/:id", () => {
   });
 });
 
-// ───────────────────────────── Task 10b：真 socket drain 驗證（Critical-2 review）─────────────────────────────
+// ───────────────────────────── 真 socket drain 驗證 ─────────────────────────────
 //
 // 這個 describe 專門補 `app.inject` 量不出來的那類 bug：`request.parts()` 已經開始消費
 // （`request.pipe(bb)` 真的跑過），中途因為 parts/fields 超限而錯誤收尾——busboy 的
@@ -682,7 +682,7 @@ describe("GET /api/uploads/:id", () => {
 // 「已經開始解析、又中途出錯」這條路徑需要我們自己補 `resume()`（見 `routes/uploads.ts`
 // 的 catch 分支）。真 socket 才量得出「body 沒被讀完 → 連線卡住 → graceful shutdown
 // （`app.close()`）吊死」，`app.inject` 的 payload 整包在記憶體、沒有真 TCP 連線可卡。
-describe("Task 10b：真 socket drain 驗證（parts 超限走到 catch 分支，Critical-2 review）", () => {
+describe("真 socket drain 驗證（parts 超限走到 catch 分支）", () => {
   it(
     "400 invalid_body（33 個小 file part 觸發 parts 超限，後面還接一個 20MB 沒被解析到的 part）：" +
       "client 收到結構化 error body，且 server graceful shutdown（app.close()）在合理時間內完成——" +
@@ -704,9 +704,9 @@ describe("Task 10b：真 socket drain 驗證（parts 超限走到 catch 分支�
       // part 的位元組原封不動留在 request 裡）。~20MB 是刻意選的量級：太小的話即使
       // 完全沒有 resume()，OS/Node 的 buffer 也可能剛好裝得下，觀察不到卡住。
       //
-      // review fix round 1（M-1）：`20 * 1024 * 1024` 剛好等於 cap（`MAX_UPLOAD_BYTES *
+      // `20 * 1024 * 1024` 剛好等於 cap（`MAX_UPLOAD_BYTES *
       // 2`），33 個小 part 的 multipart 框線開銷（實測約 4.6 KB）會讓整包實際位元組數
-      // 悄悄超過 cap，讓這支「under cap」regression 意外撞進 Task 9 的「over cap」分支
+      // 悄悄超過 cap，讓這支「under cap」regression 意外撞進「over cap」分支
       // ——扣掉 64 KiB 當緩衝（遠大於實測開銷），確定嚴格 under cap。
       const bigTail = {
         name: "big",
@@ -729,7 +729,7 @@ describe("Task 10b：真 socket drain 驗證（parts 超限走到 catch 分支�
         expect(res.status).toBe(400);
         expect(JSON.parse(res.body)).toMatchObject({ error: { code: "invalid_body" } });
       } finally {
-        // review 意見 2：先關 client 端連線，再關 server——否則即使 server 端完全正確
+        // 先關 client 端連線，再關 server——否則即使 server 端完全正確
         // drain 了 body，client 自己留著的 keep-alive 連線一樣會讓 app.close() 卡住等它
         // 自然結束，把「與本測試無關的 keep-alive 存活」誤判成我們要抓的那個 bug。
         socket?.destroy();
@@ -752,7 +752,7 @@ describe("Task 10b：真 socket drain 驗證（parts 超限走到 catch 分支�
   );
 });
 
-// ───────────────────────────── Task 9：drainWithCap 位元組上限（安全 backlog ③，spec §13.2）─────────────────────────────
+// ───────────────────────────── drainWithCap 位元組上限 ─────────────────────────────
 //
 // `app.inject` 量不出這裡要驗證的東西（沒有真 socket，`request.raw.destroy()` 對它
 // 而言只是銷毀一個記憶體內的假流）——必須用真 socket。
@@ -771,7 +771,7 @@ describe("Task 10b：真 socket drain 驗證（parts 超限走到 catch 分支�
 // 的 keep-alive 連線會讓 `app.close()` 卡住等它自然結束）。這支測試斷言的就是這個
 // 「自己關閉」的行為，並限定在遠低於 Node 預設 `keepAliveTimeout`（5000ms）的時間窗
 // 內發生，藉此與「keep-alive 自然到期」區隔開來。
-describe("Task 9：drainWithCap 位元組上限（真 socket，超過 cap 的早退 body）", () => {
+describe("drainWithCap 位元組上限（真 socket，超過 cap 的早退 body）", () => {
   it(
     "viewer 403 早退（preHandler，尚未進入 multipart 解析）＋ body 明顯超過 cap（cap + 8MiB）：" +
       "回應仍完整送達（結構化 403 body，早於 drain 的非同步 destroy() 之前已送出），" +
@@ -812,7 +812,7 @@ describe("Task 9：drainWithCap 位元組上限（真 socket，超過 cap 的早
 
       // 連線隨後被 drainWithCap 的 destroy() 砍斷：client socket 應在遠短於 Node 預設
       // keepAliveTimeout（5000ms）的時間內自行 close——不是測試呼叫 socket.destroy()。
-      // review fix round 1（L-2）：通過側實測 close 只要 ~22ms，800ms 仍留 20 倍以上
+      // 通過側實測 close 只要 ~22ms，800ms 仍留 20 倍以上
       // margin；同時把「真的卡住沒 destroy」這種失敗情境的偵測時間從原本 ~3s 壓到
       // ~800ms（4 倍），不必為了容錯犧牲太多回饋速度。
       const CLIENT_CLOSE_TIMEOUT_MS = 800;

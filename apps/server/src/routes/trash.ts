@@ -1,9 +1,9 @@
 /**
- * #181 垃圾桶 REST（spec 2026-10-21 §6.3.3–§6.3.5、§6.7）：`GET /api/trash`、`POST /api/trash/restore`、`POST /api/trash/purge`。
+ * #181 垃圾桶 REST：`GET /api/trash`、`POST /api/trash/restore`、`POST /api/trash/purge`。
  * 全部 cookie-only（`app.authenticate`，與 `DELETE /api/notes/:id` 一致；外部程式走 MCP）。
  *
- * - AG2：沒有垃圾桶權與不存在逐欄相同（`skipped: [{ id, reason: "not_found" }]`）——預判在 `trash/service.ts`，這裡不直呼交易本體。
- * - 清空＝client 把目前清單上的全部 id 送 purge（§6.3.4-5），沒有「清空」端點：清單載入後才進垃圾桶的筆記不會被一起清掉。
+ * - 沒有垃圾桶權與不存在逐欄相同（`skipped: [{ id, reason: "not_found" }]`）——預判在 `trash/service.ts`，這裡不直呼交易本體。
+ * - 清空＝client 把目前清單上的全部 id 送 purge，沒有「清空」端點：清單載入後才進垃圾桶的筆記不會被一起清掉。
  * - 本檔沒有交易（S14 不登記）；交易都在 `trash/service.ts`。
  */
 import type { FastifyInstance } from "fastify";
@@ -17,7 +17,7 @@ import { UUID_RE, resolveNoteAccess } from "../notes/service.js";
 import { listTrash, readTrashRetentionDays } from "../trash/list.js";
 import { purgeTrashed, restoreTrashed, type TrashBatchResult, type TrashServiceDeps } from "../trash/service.js";
 
-/** 上限算**原始個數**（去重之前；gate r1 M6）。 */
+/** 上限算**原始個數**（去重之前）。 */
 const idsBodySchema = z.object({ ids: z.array(z.string()).min(1).max(TRASH_BATCH_MAX) }).strict();
 const IDS_INVALID_MESSAGE = `Invalid request body: ids must be 1 to ${TRASH_BATCH_MAX} note ids.`;
 /** 還原／永久刪除的交易被併發犧牲（40001／40P01／55P03，整個交易回滾、什麼都沒做）→ 409 server_busy，比照刪群組等路由。 */

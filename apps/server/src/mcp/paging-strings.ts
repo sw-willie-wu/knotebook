@@ -1,6 +1,6 @@
 /**
- * 資料夾 PR-3d（spec §5.12）：清單類工具（list_notes／list_trash／list_folders）共用的翻頁欄位 `.describe()`。
- * 模型看得到的字串，改字前讀 memory g:model-facing-string-claims（`PAGE_CUT_SHORT_DESCRIBE` 釘在 mcp-notes.test.ts LN2）。
+ * 資料夾：清單類工具（list_notes／list_trash／list_folders）共用的翻頁欄位 `.describe()`。
+ * 模型看得到的字串，改字要同步 docs 與逐字斷言的測試（`PAGE_CUT_SHORT_DESCRIBE` 釘在 mcp-notes.test.ts LN2）。
  */
 
 /** 依大小截短的頁的旗標說明。 */

@@ -16,13 +16,13 @@ export interface ManualCopyFieldProps {
  * `DialogDescription`（見下），它讀 `useDialogContext()`，脫離 Dialog 會直接丟錯；
  * 兩處既有呼叫端（`ShareDialog`／`NoteMenu`）都已符合這個前提。
  *
- * PR2（D.4）從 `ShareDialog` 的 `CopyLinkButton` 抽出，供 ⋮ 選單的複製失敗分支共用。
+ * 從 `ShareDialog` 的 `CopyLinkButton` 抽出，供 ⋮ 選單的複製失敗分支共用。
  * **`ShareDialog.test.tsx` 零改動是這次抽出的保存條件**——抽出時逐項保真：
  * `readOnly` + `onFocus` 全選 + 既有文案（`share.copyFailed`）。
  *
  * 說明文字用 `DialogDescription`（而非普通 `<p>`）：`NoteMenu.tsx` 的手動複製
  * Dialog 原本只有 `DialogTitle`，沒有可以掛 `aria-describedby` 的說明句。
- * **`id` 不覆寫**（review 修正——舊版曾傳 `id={labelId}` 蓋掉 Radix 內部的
+ * **`id` 不覆寫**（舊版曾傳 `id={labelId}` 蓋掉 Radix 內部的
  * `context.descriptionId`）：`DialogContent` 的 `aria-describedby` 一律指向
  * `context.descriptionId`，蓋掉這個 id 會讓 `aria-describedby` 指向一個不存在的
  * 節點，變成懸空引用。`ShareDialog` 因為自己還有一個沒被蓋 id 的

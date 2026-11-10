@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { AdminAuthProviderDto } from "@knotebook/shared";
+import type { AdminAuthProviderDto, SiteLimitItemDto, SiteLimitKey, SiteLimitsDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { copyText } from "@/lib/clipboard";
+import { SITE_LIMITS_QUERY_KEY } from "@/api/siteLimits";
+import { siteLimitsDto } from "@/test/site-limits-fixtures";
 import { SettingsAuthSection } from "./SettingsAuthSection";
 
 vi.mock("@/lib/clipboard", () => ({ copyText: vi.fn(async () => true) }));
@@ -54,12 +56,19 @@ const CUSTOM: AdminAuthProviderDto = {
   icon: { type: "builtin", name: "gitlab" },
 };
 
+/** 站台限制：「登入期限與 token」組只用到這兩項，其餘照實放著。 */
+const LIMITS: SiteLimitsDto = siteLimitsDto();
+const limitsWith = (key: SiteLimitKey, patch: Partial<SiteLimitItemDto>): SiteLimitsDto => ({
+  ...LIMITS,
+  items: LIMITS.items.map((item) => (item.key === key ? { ...item, ...patch } : item)),
+});
+
 /** 回 Promise＝延後回應（測「進行中」狀態用）。 */
 type Handler = (method: string, url: string, body: unknown) => Response | Promise<Response> | null;
 
 /** 有狀態的假 server：GET 列表回目前的 `providers`；`on()` 掛額外端點；`calls` 記每一次請求。 */
 function fakeServer(initial: AdminAuthProviderDto[]) {
-  const state = { providers: [...initial] };
+  const state = { providers: [...initial], limits: LIMITS };
   const calls: Array<{ method: string; url: string; body: unknown }> = [];
   const handlers: Handler[] = [];
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -75,6 +84,7 @@ function fakeServer(initial: AdminAuthProviderDto[]) {
     if (method === "GET" && url === "/api/admin/auth/settings") {
       return fakeResponse(200, { registrationEnabled: true, passwordLoginEnabled: true, passwordLoginForced: false, passwordLoginImpact: { usersWithoutSso: 0, actingAdminHasSso: true, enabledProviders: 1 } });
     }
+    if (method === "GET" && url === "/api/admin/limits") return fakeResponse(200, state.limits);
     const impact = /^\/api\/admin\/auth\/providers\/([^/]+)\/impact$/.exec(url);
     if (method === "GET" && impact) {
       return fakeResponse(200, { linkedUsers: impact[1] === LEGACY.id ? 11 : 0, lockedOutUsers: 0, issuerResolved: true, actingAdminLockedOut: false });
@@ -86,21 +96,23 @@ function fakeServer(initial: AdminAuthProviderDto[]) {
 
 function renderSection(fetchMock: ReturnType<typeof vi.fn>) {
   vi.stubGlobal("fetch", fetchMock);
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <QueryClientProvider client={queryClient}>
       <SettingsAuthSection />
       <Toaster />
     </QueryClientProvider>,
   );
+  return queryClient;
 }
 
-/** 一個登入服務＝以顯示名為名的資料列＋緊接的「＜名稱＞ details」明細列（spec 2026-10-13 settings-table §3 #4）。 */
+/** 一個登入服務＝以顯示名為名的資料列＋緊接的「＜名稱＞ details」明細列。 */
 const row = (name: string) => within(screen.getByRole("row", { name }));
 const details = (name: string) => within(screen.getByRole("row", { name: `${name} details` }));
 /** 名稱元素（列的 aria-labelledby 指向它）；圖示是它的前一個兄弟。 */
 const nameElementOf = (rowEl: HTMLElement) => document.getElementById(rowEl.getAttribute("aria-labelledby")!)!;
 
-describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
+describe("SettingsAuthSection（#187 /admin/auth）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -120,7 +132,7 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
     const legacy = row("SSO");
     expect(legacy.getByText(/Custom OIDC/)).toBeInTheDocument();
     expect(legacy.getByText(/Imported from OIDC_\*/)).toBeInTheDocument();
-    // Issuer 只在列上的 Issuer 欄：窄版重複段落已拿掉（spec §4）。
+    // Issuer 只在列上的 Issuer 欄：窄版重複段落已拿掉。
     expect(legacy.getByRole("cell", { name: "http://idp.lan" })).toBeInTheDocument();
     expect(screen.getAllByText("http://idp.lan")).toHaveLength(1);
     const legacyDetails = details("SSO");
@@ -358,7 +370,7 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
     const dialog = within(await screen.findByRole("dialog", { name: "Turn this sign-in service off?" }));
     fireEvent.click(dialog.getByRole("button", { name: "Turn off" }));
 
-    // Issuer 只在列上的 Issuer 欄一份（窄版重複段落已拿掉，spec §4）。
+    // Issuer 只在列上的 Issuer 欄一份（窄版重複段落已拿掉）。
     expect(await screen.findAllByText("http://other.lan")).toHaveLength(1);
     const refreshed = details("SSO");
     expect(refreshed.queryByText(/Connection OK/)).toBeNull();
@@ -453,7 +465,7 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
     expect(dialog.queryByText("After turning this off, you won't be able to sign in through a sign-in service yourself.")).not.toBeInTheDocument();
   });
 
-  it("provider-icon V5：名稱前有圖示（admin DTO 已換算的 icon）；upload 的 <img src> 等於 DTO icon.url；列名不變", async () => {
+  it("provider-icon：名稱前有圖示（admin DTO 已換算的 icon）；upload 的 <img src> 等於 DTO icon.url；列名不變", async () => {
     const url = `/api/auth/providers/${CUSTOM.id}/icon?v=5`;
     const server = fakeServer([LEGACY, { ...CUSTOM, iconKind: "upload", icon: { type: "upload", url } }]);
     renderSection(server.fetchMock);
@@ -465,7 +477,7 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
     expect(nameElementOf(screen.getByRole("row", { name: "SSO" })).previousElementSibling).toHaveAttribute("data-provider-icon", "generic");
   });
 
-  // 「Icon」鈕是 RowIconButton：外觀（ghost、無實心底）由它自己的測試與 panel-no-solid-buttons 守，這裡只查名稱與行為（spec §5.2）。
+  // 「Icon」鈕是 RowIconButton：外觀（ghost、無實心底）由它自己的測試與 panel-no-solid-buttons 守，這裡只查名稱與行為。
   it("provider-icon：兩列都有「Icon」鈕，Edit／Delete 照在；點了開出圖示對話框", async () => {
     const server = fakeServer([LEGACY, CUSTOM]);
     renderSection(server.fetchMock);
@@ -481,7 +493,7 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
   });
 });
 
-describe("登入服務表格（spec 2026-10-13 settings-table §3 #4）", () => {
+describe("登入服務表格", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -490,7 +502,7 @@ describe("登入服務表格（spec 2026-10-13 settings-table §3 #4）", () => 
     vi.unstubAllGlobals();
   });
 
-  it("L1 表名 Sign-in services；欄名 Service／Issuer／Linked／Creates accounts／Actions／Enabled；列內：Issuer、已連結人數、Test connection／Icon／Edit／Delete（依序，spec §2.7、§3 #4）、「Enabled ＜名稱＞」開關", async () => {
+  it("L1 表名 Sign-in services；欄名 Service／Issuer／Linked／Creates accounts／Actions／Enabled；列內：Issuer、已連結人數、Test connection／Icon／Edit／Delete（依序）、「Enabled ＜名稱＞」開關", async () => {
     renderSection(fakeServer([LEGACY, CUSTOM]).fetchMock);
     const table = await screen.findByRole("table", { name: "Sign-in services" });
     expect(within(table).getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual(["Service", "Issuer", "Linked", "Creates accounts", "Actions", "Enabled"]);
@@ -541,7 +553,7 @@ describe("登入服務表格（spec 2026-10-13 settings-table §3 #4）", () => 
     expect(dialog.queryByText("Linked accounts: 7")).toBeNull();
   });
 
-  it("L4 「Add sign-in service」是 outline（面板層級動作，§4.8）", async () => {
+  it("L4 「Add sign-in service」是 outline（面板層級動作）", async () => {
     renderSection(fakeServer([]).fetchMock);
     const add = await screen.findByRole("button", { name: "Add sign-in service" });
     expect(add.className).not.toMatch(/(^|\s)bg-(primary|brand|brand-deep)(\s|$)/);
@@ -593,7 +605,106 @@ describe("client ID 尚未填入（#299）", () => {
   });
 });
 
-describe("服務表的自動建帳開關（PR-C C-13）", () => {
+describe("登入期限與 token 組", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const group = async () => {
+    const region = within(await screen.findByRole("region", { name: "Session and tokens" }));
+    const input = (name: string) => region.getByLabelText(name, { selector: "input" });
+    return { ...region, input };
+  };
+  const patches = (server: ReturnType<typeof fakeServer>) => server.calls.filter((c) => c.method === "PATCH" && c.url === "/api/admin/limits");
+
+  it("登入服務表之外多一組：登入有效期以小時顯示、兩列各有小字，登入服務表照在", async () => {
+    renderSection(fakeServer([CUSTOM]).fetchMock);
+    const g = await group();
+    expect(g.input("Web sign-in lasts")).toHaveValue("168");
+    expect(g.input("Active API tokens per person")).toHaveValue("20");
+    expect(g.getByText(/Only affects people who sign in afterwards/)).toBeInTheDocument();
+    expect(g.getByText(/Lowering it does not revoke existing tokens/)).toBeInTheDocument();
+    expect(g.getAllByRole("group").map((r) => r.getAttribute("data-limit-key"))).toEqual(["sessionTtlSeconds", "apiTokensPerUser"]);
+    expect(await screen.findByRole("table", { name: "Sign-in services" })).toBeInTheDocument();
+  });
+
+  it("位置：在「允許自行註冊」開關之後、登入服務表之前", async () => {
+    renderSection(fakeServer([CUSTOM]).fetchMock);
+    const region = await screen.findByRole("region", { name: "Session and tokens" });
+    const access = await screen.findByRole("switch", { name: "Allow self-registration with a password" });
+    const table = await screen.findByRole("table", { name: "Sign-in services" });
+    expect(access.compareDocumentPosition(region) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(region.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("改成 24 小時儲存 → PATCH 只送被改的那一項、以秒計", async () => {
+    const server = fakeServer([CUSTOM]);
+    server.on((method, url) => (method === "PATCH" && url === "/api/admin/limits" ? fakeResponse(200, server.state.limits) : null));
+    renderSection(server.fetchMock);
+    const g = await group();
+    fireEvent.change(g.input("Web sign-in lasts"), { target: { value: "24" } });
+    fireEvent.click(g.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(patches(server)).toHaveLength(1));
+    expect(patches(server)[0]!.body).toEqual({ set: { sessionTtlSeconds: 86400 } });
+  });
+
+  it("已調整的 token 上限有「Restore default」，按下送 null", async () => {
+    const server = fakeServer([CUSTOM]);
+    server.state.limits = limitsWith("apiTokensPerUser", { value: 5, source: "admin", stored: 5 });
+    server.on((method, url) => (method === "PATCH" && url === "/api/admin/limits" ? fakeResponse(200, LIMITS) : null));
+    renderSection(server.fetchMock);
+    const g = await group();
+    expect(g.input("Active API tokens per person")).toHaveValue("5");
+    fireEvent.click(g.getByRole("button", { name: "Restore default" }));
+    await waitFor(() => expect(patches(server)).toHaveLength(1));
+    expect(patches(server)[0]!.body).toEqual({ set: { apiTokensPerUser: null } });
+  });
+
+  it("超出範圍（0 小時）→ 不送、顯示範圍錯誤", async () => {
+    const server = fakeServer([CUSTOM]);
+    renderSection(server.fetchMock);
+    const g = await group();
+    fireEvent.change(g.input("Web sign-in lasts"), { target: { value: "0" } });
+    fireEvent.click(g.getByRole("button", { name: "Save" }));
+    expect(await g.findByRole("alert")).toHaveTextContent(/Enter a whole number from 1 to 720/);
+    expect(patches(server)).toHaveLength(0);
+  });
+
+  it("已有資料時背景重抓失敗：輸入到一半的內容與整組都還在，不換成錯誤", async () => {
+    const server = fakeServer([CUSTOM]);
+    const queryClient = renderSection(server.fetchMock);
+    const g = await group();
+    fireEvent.change(g.input("Web sign-in lasts"), { target: { value: "24" } });
+    server.on((method, url) => (method === "GET" && url === "/api/admin/limits" ? fakeResponse(500, { error: { code: "internal", message: "x" } }) : null));
+    await queryClient.refetchQueries({ queryKey: SITE_LIMITS_QUERY_KEY });
+    await waitFor(() => expect(queryClient.getQueryState(SITE_LIMITS_QUERY_KEY)?.fetchStatus).toBe("idle"));
+    expect(queryClient.getQueryState(SITE_LIMITS_QUERY_KEY)?.status).toBe("error");
+    expect(screen.getByRole("region", { name: "Session and tokens" })).toBeInTheDocument();
+    expect(g.input("Web sign-in lasts")).toHaveValue("24");
+    expect(g.queryByRole("alert")).toBeNull();
+  });
+
+  it("中文標題「登入期限與 token」", async () => {
+    await i18n.changeLanguage("zh-TW");
+    renderSection(fakeServer([CUSTOM]).fetchMock);
+    const region = within(await screen.findByRole("region", { name: "登入期限與 token" }));
+    expect(region.getByText(/只影響之後新登入的人/)).toBeInTheDocument();
+    expect(region.getByText(/調低不會撤銷既有 token/)).toBeInTheDocument();
+  });
+
+  it("載入失敗：顯示伺服器錯誤文案（跟站台限制分頁同一套），不是通用訊息", async () => {
+    const server = fakeServer([CUSTOM]);
+    server.on((method, url) => (method === "GET" && url === "/api/admin/limits" ? fakeResponse(500, { error: { code: "limit_locked_by_env", message: "x" } }) : null));
+    renderSection(server.fetchMock);
+    expect(await screen.findByText(i18n.t("errors.limit_locked_by_env"))).toBeInTheDocument();
+  });
+});
+
+describe("服務表的自動建帳開關", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();

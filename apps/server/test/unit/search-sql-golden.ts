@@ -1,5 +1,5 @@
 /**
- * #93 PR2 T1 U0：`buildNoteSearchQuery` 在 PR2 之前（main @ 6c5a46f，未加 `bodyOnly`／`page`）的 `toSQL()` 原樣輸出。
+ * #93：`buildNoteSearchQuery` 在加 `bodyOnly`／`page` 之前（未加 `bodyOnly`／`page`）的 `toSQL()` 原樣輸出。
  * 呼叫：`{ userId: GOLDEN_USER, query: "q", limit: 20 }`。不變量 1（MCP `search_notes` 的 SQL 與參數逐位元組不變）的守衛；
  * **不要為了讓測試過而重抓**——它變了就是 MCP 的查詢變了。
  */

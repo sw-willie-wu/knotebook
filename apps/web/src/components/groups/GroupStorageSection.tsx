@@ -19,10 +19,10 @@ function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string
 }
 
 /**
- * 「依成員」（#247 §6.4、§9.2 rev 11）：每個人佔用了這個群組多少空間——server 依 `uploads.charged_to_id`（佔用者）分組：
+ * 「依成員」（#247）：每個人佔用了這個群組多少空間——server 依 `uploads.charged_to_id`（佔用者）分組：
  * 在群組筆記裡直接上傳＝上傳者；把筆記移入或複製進群組＝執行的人（移入含該篇全部附件；複製只含隨副本複製的附件）。佔用者帳號已刪除者彙總成
  * `userId: null` 一列。只列 `bytes > 0`；沒有任何列時一句說明。佔比分母同「依類型」：`byKind` 五值之和。
- * 列距與列間框線同設定表格（spec 2026-10-13 settings-table §3：只統一列距與框線、不換元件，保留進度條 grid）。
+ * 列距與列間框線同設定表格（只統一列距與框線、不換元件，保留進度條 grid）。
  */
 function ByMemberGroup({ usage }: { usage: GroupStorageUsageDto }) {
   const { t } = useTranslation();
@@ -62,9 +62,9 @@ function ByMemberGroup({ usage }: { usage: GroupStorageUsageDto }) {
 }
 
 /**
- * 群組的「自動儲存版本」開關（#175 §6.8、§8.5；#247 §6.4 搬到儲存空間頁）：**對所有成員渲染**；非 `canManageGroup` 時
+ * 群組的「自動儲存版本」開關（#175、#247 搬到儲存空間頁）：**對所有成員渲染**；非 `canManageGroup` 時
  * disabled 並說明誰能改；站台總開關關閉時 disabled 並說明站台已關（`AutoVersionsSwitch` 以 siteOff 優先）。
- * 說明加一句「版本不佔額度」（§5.4，`settings.storage.versionsNote`）。
+ * 說明加一句「版本不佔額度」（`settings.storage.versionsNote`）。
  */
 function GroupAutoVersionsGroup({ group }: { group: GroupDto }) {
   const { t } = useTranslation();
@@ -89,9 +89,9 @@ function GroupAutoVersionsGroup({ group }: { group: GroupDto }) {
 }
 
 /**
- * 群組 modal「儲存空間」（`/groups/:id/storage`，#247 §6.4、W12）：用量／配額／方案、依類型（五列恆顯示）、依成員、版本歷史開關。
- * **所有成員**都看得到（§9.2 把 `GET /api/groups/:id/storage` 放寬為成員可讀；唯讀）。
- * ⚠ SCOPE：上傳目前只收四種圖片，實際只有「影像」會非零（§5.4）。
+ * 群組 modal「儲存空間」（`/groups/:id/storage`，#247）：用量／配額／方案、依類型（五列恆顯示）、依成員、版本歷史開關。
+ * **所有成員**都看得到（`GET /api/groups/:id/storage` 成員可讀；唯讀）。
+ * ⚠ SCOPE：上傳目前只收四種圖片，實際只有「影像」會非零。
  */
 export function GroupStorageSection() {
   const { t } = useTranslation();

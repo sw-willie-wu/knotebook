@@ -78,7 +78,7 @@ describe("PresentationOverlay（真 reveal.js 6.0.2）", () => {
   afterEach(async () => {
     // 先卸載（失敗的案也走 controller teardown → reveal.destroy()），再清掉本案建的 timer：reveal 6.0.2 的
     // setupScrollPrevention（js/reveal.js:461）每個實例一支 1 s setInterval、destroy 不清；滑鼠游標隱藏的 5 s
-    // setTimeout（controllers/pointer.js:98）也會留下（Task 9 棚內探針：不清時每案卸載 1.5 s 後仍 pending）。
+    // setTimeout（controllers/pointer.js:98）也會留下（不清時每案卸載 1.5 s 後仍 pending）。
     cleanup();
     for (const result of intervals.mock.results) if (result.type === "return") clearInterval(result.value);
     for (const result of timeouts.mock.results) if (result.type === "return") clearTimeout(result.value);
@@ -124,7 +124,7 @@ describe("PresentationOverlay（真 reveal.js 6.0.2）", () => {
     unmount();
   });
 
-  it("RF1（真 reveal）：?present#/1 → reveal 的 readURL 會依索引跳，controller 拉回封面（§6.4-4，r1-p2 M2）", async () => {
+  it("真 reveal：?present#/1 → reveal 的 readURL 會依索引跳，controller 拉回封面", async () => {
     window.history.replaceState(null, "", "/n/tester/my-note?present#/1");
     const { unmount } = render(<App />);
     await waitFor(() => expect(document.querySelector(".reveal.ready")).not.toBeNull());
@@ -142,7 +142,7 @@ describe("PresentationOverlay（真 reveal.js 6.0.2）", () => {
     unmount();
   });
 
-  describe("並排的堆疊（columns-layout spec §11.8；controller 的三個呼叫點）", () => {
+  describe("並排的堆疊（controller 的三個呼叫點）", () => {
     // 模擬 reveal.css 的 `.slides>section{display:none}`：只有 section.present 裡、已掛上文件的 .kn-slide-body 量得到寬度。
     // jsdom 的 clientWidth 定義在 Element.prototype，HTMLElement.prototype 本來沒有自己的 descriptor → 收尾用 delete 還原。
     beforeEach(() => {

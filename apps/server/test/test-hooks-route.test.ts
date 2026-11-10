@@ -1,4 +1,4 @@
-// #272 §7.5（案 27）：e2e 測試縫 PUT /api/admin/test/version-auto-wait——只在 config.testHooks 時註冊（KNOTEBOOK_E2E_TEST_HOOKS=1 且
+// #272（案 27）：e2e 測試縫 PUT /api/admin/test/version-auto-wait——只在 config.testHooks 時註冊（KNOTEBOOK_E2E_TEST_HOOKS=1 且
 // PUBLIC_URL 是 loopback）；requireAdmin；strict { seconds: 1–3600 的整數 | null }；204；覆寫掃描器的等待 X（null＝回站台設定）。
 import { describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";

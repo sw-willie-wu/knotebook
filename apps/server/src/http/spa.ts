@@ -15,7 +15,7 @@ function acceptsHtml(accept: string | undefined): boolean {
 const FALLBACK_METHODS = new Set(["GET", "HEAD"]);
 
 /**
- * 掛 SPA 服務（spec §11.5）：`webDist` 存在時註冊 `@fastify/static`
+ * 掛 SPA 服務：`webDist` 存在時註冊 `@fastify/static`
  * `{ root: webDist, wildcard: false, index: false }`——`wildcard: false` 只為啟動當下
  * 「實際存在」的檔案建路由（例如 `/assets/app.js`），不存在的檔案／目錄完全不註冊
  * 路由，一律落入 Fastify 正常的「未命中路由」流程，最終走到下面同一個
@@ -42,7 +42,7 @@ export function registerSpaFallback(app: FastifyInstance, webDist: string | unde
       wildcard: false,
       index: false,
       /**
-       * ⚠ **`index.html` 一律不由 static 送**（issue #101 的 gate 審查抓到）。
+       * ⚠ **`index.html` 一律不由 static 送**（issue #101）。
        * `wildcard: false` 只是不建萬用路由，root 底下**實際存在的每個檔案**仍會各得
        * 一條路由——`index.html` 就是其中之一。於是 `GET /index.html` 會由 static 回出
        * 同一份 SPA（`App.tsx` 的 `/*` route 讓它渲染首頁，session cookie 是 lax 照送，

@@ -14,7 +14,7 @@ import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
  * 分實例。boundary 自身的行為在 ErrorBoundary.test.tsx（案 A–D），那裡手組的形狀對
  * 不代表 App.tsx 的對——比照 App.errorBoundary.test.tsx 案 11／11a。
  *
- * ⚠⚠ 每個頁面的「throw」案必須是本檔第一個觸發該頁 lazy 的案子（AdminSections（站台 modal 的五個區塊，#247）、RegisterPage
+ * ⚠⚠ 每個頁面的「throw」案必須是本檔第一個觸發該頁 lazy 的案子（AdminSections（站台 modal 的六個區塊，#247）、RegisterPage
  * 各自的 lazy 是模組級單例，只有第一次觸發會經過 suspend 期）。「beacon 錯放到 Suspense
  * 外」的守門靠那次 pending 期：錯放的 beacon 會在 pending 期 commit、清掉種下的旗標，
  * 讓 componentDidCatch 誤判「首次」而走 reload＋載入畫面——錯誤文案斷言與「reload 沒被
@@ -24,7 +24,7 @@ import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
  * lazy 第一次動態 import 時執行並把它設成 true，所以這條把「本案是第一個觸發者」的順序
  * 假設變成會紅的斷言。⚠ 不能改用「render 後此刻不是錯誤畫面」當前置斷言：/admin 在
  * RequireAuth 底下、要等非同步的 /api/auth/me，render 當下**必然**不是錯誤畫面，不論 lazy
- * 是否已載入過（審查實測：admin 的 ok 案移到 throw 案前＋beacon 錯放，admin 案照綠）。
+ * 是否已載入過（admin 的 ok 案移到 throw 案前＋beacon 錯放，admin 案照綠）。
  */
 
 // vi.mock 是 hoisted 的——共享狀態走 vi.hoisted；模式要在 mock 元件函式本體內讀
@@ -53,6 +53,7 @@ vi.mock("./components/admin/AdminSections", () => {
     AdminLoginSection: make("adminsections-login"),
     AdminStorageSection: make("adminsections-storage"),
     AdminAiSection: make("adminsections-ai"),
+    AdminLimitsSection: make("adminsections-limits"),
   };
 });
 
@@ -171,6 +172,22 @@ describe("App route tree — 整頁 lazy route 的 ErrorBoundary 接線（#201�
 
     await waitFor(() => expect(screen.getByText("adminsections-mock-ok")).toBeInTheDocument());
     expect(sessionStorage.getItem(ADMIN_FLAG)).toBeNull();
+  });
+
+  it("站台 modal 六個區塊都來自同一個 AdminSections 模組：/admin/limits 渲染它的 AdminLimitsSection", async () => {
+    mockPages.admin = "ok";
+    renderAt("/admin/limits");
+
+    const dialog = await screen.findByRole("dialog", { name: "Site admin" });
+    await waitFor(() => expect(within(dialog).getByText("adminsections-limits")).toBeInTheDocument());
+    expect(within(dialog).getAllByRole("link").map((l) => l.getAttribute("href"))).toEqual([
+      "/admin/users",
+      "/admin/groups",
+      "/admin/login",
+      "/admin/storage",
+      "/admin/ai",
+      "/admin/limits",
+    ]);
   });
 
   it("/register（frame=page）：RegisterPage chunk 失敗（旗標已設）→ 錯誤畫面＋重試、不 reload、旗標仍在", async () => {

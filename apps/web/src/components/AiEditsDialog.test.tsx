@@ -1,5 +1,5 @@
 /**
- * #138 Task 4：AI 修改紀錄 dialog。
+ * #138：AI 修改紀錄 dialog。
  *
  * 沿 `ShareDialog.test.tsx` 的慣例：不 mock hook，而是 stub 全域 `fetch` 讓真的
  * react-query 打到假回應。`stubFetch` 的 handler 對未預期的 URL 直接 throw——那是
@@ -105,7 +105,7 @@ describe("AiEditsDialog", () => {
     vi.unstubAllGlobals();
   });
 
-  it("四態（#272 D11）：可撤回列有撤回鈕；已撤回列標 reverted；撤回紀錄本身標 revertRecord；其餘不可撤回列寫出原因；清單下方一行保留筆數", async () => {
+  it("四態（#272）：可撤回列有撤回鈕；已撤回列標 reverted；撤回紀錄本身標 revertRecord；其餘不可撤回列寫出原因；清單下方一行保留筆數", async () => {
     const edits = [
       edit({ id: E1, revertable: true }),
       edit({ id: E2, revertable: false, revertedAt: "2026-02-04T00:00:00.000Z", agentLabel: null }),
@@ -147,7 +147,7 @@ describe("AiEditsDialog", () => {
     expect(within(second).getByTestId("ai-edit-who").textContent).toBe(NOTE.ownerHandle);
   });
 
-  it("#272 D11：清單是空的 → 只顯示「尚無」那一句，沒有保留筆數那行", async () => {
+  it("#272：清單是空的 → 只顯示「尚無」那一句，沒有保留筆數那行", async () => {
     stubFetch((url) => {
       if (url === EDITS_URL) return listBody([]);
       throw new Error(`unexpected fetch: ${url}`);

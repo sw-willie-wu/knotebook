@@ -54,20 +54,20 @@ export interface NoteMenuProps {
   /** 開啟 AI 修改紀錄 dialog（#106）。狀態住在 `NotePage`——這個 dialog 有兩個觸發點
    * （這裡與頁首的 `LastEditedLabel`），放在任一個元件內另一個就打不開。 */
   onOpenEdits: () => void;
-  /** 頁首 ⋮ 觸發鈕的 ref（選填）：NotePage 拿它當版本歷史整頁關閉時的焦點退路（從 ⋮ 開整頁時記到的選單項已卸載，final I-1）。
+  /** 頁首 ⋮ 觸發鈕的 ref（選填）：NotePage 拿它當版本歷史整頁關閉時的焦點退路（從 ⋮ 開整頁時記到的選單項已卸載）。
    * 不傳時用內部自己的 ref。 */
   triggerRef?: RefObject<HTMLButtonElement | null>;
 }
 
 /**
- * 內文卡頁頭的 ⋮ 選單（spec D.4）：複製連結（任何角色）＋簡報模式（#229，任何角色）＋AI 修改紀錄＋移動到…／複製到…（#216；資料夾 spec §6.11 起是逐層子選單，規則見 `sidebar/destination-level.ts`、兩種形態見 `share/GroupTransfer.tsx`，「複製到我的筆記」已併入「複製到… → 我的筆記」）
- * ＋移到垃圾桶（`permissions.delete`，#175 §8.3；#181 起刪除＝移入垃圾桶）。
+ * 內文卡頁頭的 ⋮ 選單：複製連結（任何角色）＋簡報模式（#229，任何角色）＋AI 修改紀錄＋移動到…／複製到…（#216；逐層子選單，規則見 `sidebar/destination-level.ts`、兩種形態見 `share/GroupTransfer.tsx`，「複製到我的筆記」已併入「複製到… → 我的筆記」）
+ * ＋移到垃圾桶（`permissions.delete`，#175；#181 起刪除＝移入垃圾桶）。
  *
- * **移到垃圾桶不確認（spec §6.10.4 D-W7）**：點下選單項即送 DELETE；成功 toast「已移到垃圾桶」，
- * 能自己還原的才帶「復原」（判準在 `canRestoreAfterTrash`，§6.10.7），toast 與復原見 `lib/trash-undo.ts`
+ * **移到垃圾桶不確認**：點下選單項即送 DELETE；成功 toast「已移到垃圾桶」，
+ * 能自己還原的才帶「復原」（判準在 `canRestoreAfterTrash`），toast 與復原見 `lib/trash-undo.ts`
  * （復原常在選單卸載之後才被按，所以不經這裡的 hook 回呼）。刪除中選單項 disabled，不重送。
  *
- * **focus trap 雷（rev5 定案，⚠ 改動前必讀）**：Radix `DropdownMenu` 預設是 modal，
+ * **focus trap 雷（⚠ 改動前必讀）**：Radix `DropdownMenu` 預設是 modal，
  * 跟 `Dialog` 共用同一套 `FocusScope` 搶焦點；`lib/clipboard.ts` 的 `execCommand`
  * 退路只認 `[role="dialog"],[role="menu"]` 這兩種 host（該檔已同步擴充）。若複製項
  * 的 `onSelect` 讓選單照 Radix 預設行為關閉，`document.activeElement` 會落在別處，
@@ -79,7 +79,7 @@ export interface NoteMenuProps {
  * `DropdownMenu` 本體因此改 controlled（`open`/`onOpenChange`），不能用 Radix 的
  * 非受控預設行為。
  *
- * **與共編 `deleted` 終態的互動（M11，⚠ review 修正——舊版方向反了，見下）**：
+ * **與共編 `deleted` 終態的互動（⚠ 舊版方向反了，見下）**：
  * server 的 `beforeNoteDeleted` 會先關掉發起者自己的連線，`close(NOTE_DELETED)`
  * 可能**早於** DELETE 的 HTTP 回應抵達。刪除 handler：
  * - 點下後**先** `leavingRef.current = true`，**再** `await deleteNote.mutateAsync`；
@@ -100,7 +100,7 @@ export interface NoteMenuProps {
  *
  * **兩個外殼（側欄筆記列 ⋮）**：選單本體是內部的 `NoteMenuCore`，外面兩個薄殼——
  * - `NoteMenu`（頁首）：`leavingRef`／`state` 必填，所以 NotePage 漏傳
- *   `leavingRef` 編譯不過，上面 M11 的契約留在型別上（沒有改成 optional 的理由）。
+ *   `leavingRef` 編譯不過，上面的契約留在型別上（沒有改成 optional 的理由）。
  * - `SidebarNoteMenu`（側欄每列，24px、hover 浮出）：「開著的那篇」看 NotePage 提供的
  *   `NotePageControlsContext`（`controls.noteId === note.id`），**不看** `useActiveNote`——
  *   `activeNoteId` 會被側欄點擊樂觀設定，那時 NotePage 手上還沒有那篇的 `leavingRef`。
@@ -196,18 +196,18 @@ function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef:
   /** 群組移動／複製確認框關閉後把焦點還給 ⋮ 觸發鈕（沒有 DialogTrigger，Radix 預設會掉到 body）。 */
   const ownTriggerRef = useRef<HTMLButtonElement>(null);
   const triggerRef = externalTriggerRef ?? ownTriggerRef;
-  /** #229 §6.6-6：從這一項進入簡報時，選單關閉別把焦點還給觸發鈕（它即將在 inert 的 AppShell 裡）；簡報層掛上後自己聚焦根。 */
+  /** #229：從這一項進入簡報時，選單關閉別把焦點還給觸發鈕（它即將在 inert 的 AppShell 裡）；簡報層掛上後自己聚焦根。 */
   const enteringPresentationRef = useRef(false);
   /** #216：選定的「移動／複製到群組」目標；非 null 時掛確認框（選單已關）。 */
   const [transfer, setTransfer] = useState<GroupTransferPick | null>(null);
   /** 窄／觸控的就地展開形展開的是哪一組（寬螢幕層疊形不用）；Esc 先收合再關選單，見 `onEscapeKeyDown`。 */
   const [groupExpanded, setGroupExpanded] = useState<GroupTransferKind | null>(null);
-  /** 就地展開形移動、複製各自的所在層（資料夾 spec §6.11.4）；選單關閉、收合、跨過寬窄判準時回第一層。 */
+  /** 就地展開形移動、複製各自的所在層；選單關閉、收合、跨過寬窄判準時回第一層。 */
   const [paths, setPaths] = useState<DestPaths>(EMPTY_DEST_PATHS);
   const [manualCopyUrl, setManualCopyUrl] = useState<string | null>(null);
 
   /**
-   * 子選單選定非 `>` 項（spec §6.11.2）：先收合、回第一層、關選單（確認框的 FocusScope 不與選單互搶）。
+   * 子選單選定非 `>` 項：先收合、回第一層、關選單（確認框的 FocusScope 不與選單互搶）。
    * 同空間移動（`isSameSpaceMove`）→ 直接 PUT＋「已移到「X」」與復原，不確認、不離場（開著的那篇網址不變）；
    * 其餘 → 現行確認框；`transferTargetOf` 回 null 但不是同空間移動（到不了的分支）→ 什麼都不做。
    */
@@ -315,7 +315,7 @@ function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef:
           className="max-h-[var(--radix-dropdown-menu-content-available-height)] max-w-[min(20rem,calc(100vw-1rem))] overflow-y-auto"
           onEscapeKeyDown={(event) => {
             if (groupExpanded !== null) {
-              // 就地展開形：Esc 先收合（回第一層）、不關整個選單（spec §6.11.4）
+              // 就地展開形：Esc 先收合（回第一層）、不關整個選單
               event.preventDefault();
               setGroupExpanded(null);
               setPaths(EMPTY_DEST_PATHS);
@@ -336,7 +336,7 @@ function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef:
             <LinkIcon className="mr-2 h-4 w-4" />
             {t("share.copyLink")}
           </DropdownMenuItem>
-          {/* #229 簡報模式（任何能讀的角色；F10：預設在「複製連結」之後）。三步形同下面兩項；onPresent 在這個
+          {/* #229 簡報模式（任何能讀的角色；預設在「複製連結」之後）。三步形同下面兩項；onPresent 在這個
               使用者事件裡同步要求全螢幕再導頁（usePresentEntry）。 */}
           <DropdownMenuItem
             onSelect={(event) => {
@@ -349,8 +349,8 @@ function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef:
             <Presentation className="mr-2 h-4 w-4" />
             {t("note.menu.present")}
           </DropdownMenuItem>
-          {/* 版本歷史（spec §8.5）：只在 `useVersions().enabled`（＝canEdit，且在 NotePage 的 VersionsProvider 之內）時渲染——
-              側欄每列的 ⋮ 在 provider 之外，拿到的是 no-op 預設（enabled=false），所以只出現在頁首 ⋮（起草裁定 5）。
+          {/* 版本歷史：只在 `useVersions().enabled`（＝canEdit，且在 NotePage 的 VersionsProvider 之內）時渲染——
+              側欄每列的 ⋮ 在 provider 之外，拿到的是 no-op 預設（enabled=false），所以只出現在頁首 ⋮。
               項目本身只在窄視窗渲染（見 `VersionsMenuItem`）；「儲存當前版本」不在 ⋮（入口是 Ctrl+S 與版本面板／整頁底部的按鈕）。
               三步形同下方 AI 修改紀錄項（focus trap 規矩，見檔頭）。 */}
           {versions.enabled && (
@@ -375,9 +375,9 @@ function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef:
             <MessageCircle className="mr-2 h-4 w-4" />
             {t("note.menu.aiEdits")}
           </DropdownMenuItem>
-          {/* #216＋資料夾 spec §6.11：移動到…／複製到…。寬螢幕是往旁層疊的 Radix 巢狀子選單（hover／點擊／方向鍵進出；Esc 各層自接，只收一層），
+          {/* #216：移動到…／複製到…。寬螢幕是往旁層疊的 Radix 巢狀子選單（hover／點擊／方向鍵進出；Esc 各層自接，只收一層），
               窄／觸控是就地展開逐層（點 `>` 項換層、選單不關）。選定目的地 → handlePick。第一層為空的那一組整項不渲染。
-              選單開著時跨過寬窄判準 → 關整個選單、回收合態與第一層（spec §6.11.4）。 */}
+              選單開著時跨過寬窄判準 → 關整個選單、回收合態與第一層。 */}
           <GroupTransferMenuItems
             note={note}
             expanded={groupExpanded}
@@ -391,7 +391,7 @@ function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef:
               setPaths(EMPTY_DEST_PATHS);
             }}
           />
-          {/* #175 §8.3：刪除看 `permissions.delete`（群組筆記的 role 從不是 owner，但角色有
+          {/* #175：刪除看 `permissions.delete`（群組筆記的 role 從不是 owner，但角色有
               `can_delete` 的成員要能刪；個人筆記只有 owner 為真）。#181：點下即移到垃圾桶、不確認；刪除中 disabled 不重送。 */}
           {note.permissions.delete && (
             <DropdownMenuItem

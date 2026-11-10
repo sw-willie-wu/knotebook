@@ -18,8 +18,8 @@ const toastMock = vi.hoisted(() => vi.fn());
 vi.mock("@/components/ui/toast", () => ({ toast: toastMock }));
 const { buildNoteEditorOptions } = await import("@/components/NoteEditor");
 
-// spec §13.1「雙用戶端（記錄現象）」、§5.5（D17、D25）。被測的是 y-prosemirror 與 core 的合併行為，不是本 PR 的碼——
-// 「已知限制 D17」的案把實測值寫死；其餘（spec 的「安全」）紅了就是回歸。手法同 probe-collab/collab.mjs。
+// 雙用戶端（記錄現象）。被測的是 y-prosemirror 與 core 的合併行為，不是並排功能本身的碼——
+// 「已知限制」的案把實測值寫死；其餘（標為「安全」的）紅了就是回歸。手法同 probe-collab/collab.mjs。
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -31,7 +31,7 @@ afterEach(() => {
 const tick = () => new Promise((resolve) => setTimeout(resolve, 50));
 
 /**
- * 兩顆共編編輯器，各自一份 Y.Doc，經 `Y.applyUpdate` 互傳。預設兩顆都只掛列邊界的 keymap（`createColumnEdgeKeymapExtension`）；`full` 列出的那顆改用
+ * 兩顆共編編輯器，各自一份 Y.Doc，經 `Y.applyUpdate` 互傳。預設兩顆都只掛欄首／欄尾鍵位（`createColumnEdgeKeymapExtension`）；`full` 列出的那顆改用
  * `buildNoteEditorOptions` 的完整選項（`handleDrop` 串接、拖曳來源記錄器、DropCursor hook 都在），拖放才走產品的接手路徑。
  */
 async function collabPair(initial: PartialBlockLike[], opts: { full?: readonly ("a" | "b")[] } = {}) {
@@ -117,7 +117,7 @@ const typeInCell = (editor: AnyEditor, index: number, text: string) => {
     if (n.type.name === "tableCell" || n.type.name === "tableHeader") cells.push(pos);
   });
   const pos = cells[index]!;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Selection 類別從現行選取的 constructor 取（讀碼發現 13）
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Selection 類別從現行選取的 constructor 取
   const Sel = view.state.selection.constructor as any;
   const end = Sel.near(view.state.doc.resolve(pos + view.state.doc.nodeAt(pos)!.nodeSize - 1), -1);
   view.dispatch(view.state.tr.setSelection(end).insertText(text));
@@ -126,7 +126,7 @@ const typeInCell = (editor: AnyEditor, index: number, text: string) => {
 const CLEAN = { dupIds: 0, nullIds: 0, nestedRows: 0, valid: true };
 const AB = () => [P("x", "x0"), row([[P("a", "a1")], [P("b", "b1")]], "r"), P("z", "z9")];
 
-describe("雙用戶端（記錄現象，spec §13.1、§5.5）", () => {
+describe("雙用戶端（記錄現象）", () => {
   it("CO1（安全）：A 在第 1 欄打字、B 在第 2 欄結尾 Enter 再打字 → 兩邊都保有兩人的字、列仍是合法兩欄", async () => {
     const { a, b, sync } = await collabPair(AB());
     typeAtEnd(a, "a1", "AAA");
@@ -143,7 +143,7 @@ describe("雙用戶端（記錄現象，spec §13.1、§5.5）", () => {
     expect(shape(b)).toBe(shape(a));
   });
 
-  it("CO2（已知限制 D17）：A 在第 1 欄打字、B 同時在 b 開頭 Backspace（D24 攤平）→ A 的字消失", async () => {
+  it("CO2（已知限制）：A 在第 1 欄打字、B 同時在 b 開頭 Backspace（攤平）→ A 的字消失", async () => {
     const { a, b, sync } = await collabPair(AB());
     typeAtEnd(a, "a1", "AAA");
     b.setTextCursorPosition("b1", "start");
@@ -158,7 +158,7 @@ describe("雙用戶端（記錄現象，spec §13.1、§5.5）", () => {
     expect(shape(b)).toBe(shape(a));
   });
 
-  it("CO3（已知限制 D17）：同一欄兩個 block 被兩人分別刪掉（D25 方式）→ 整列被 y-prosemirror 刪掉", async () => {
+  it("CO3（已知限制）：同一欄兩個 block 被兩人分別刪掉 → 整列被 y-prosemirror 刪掉", async () => {
     const { a, b, sync } = await collabPair([P("x", "x0"), row([[P("a", "a1"), P("q", "q1")], [P("b", "b1")]], "r"), P("z", "z9")]);
     removeBlocksKeepColumns(a, ["a1"]);
     removeBlocksKeepColumns(b, ["q1"]);
@@ -324,7 +324,7 @@ const rowBlock = (editor: AnyEditor, rowId: string): RowBlock => editor.document
 const widthsOf = (editor: AnyEditor, rowId: string): number[] => rowBlock(editor, rowId).children.map((col) => col.props.width);
 
 describe("雙用戶端：⋮⋮ 拖放時對方同時打字（B 以完整選項掛、走真 dragstart＋drop）", () => {
-  // 記錄（jsdom 實測）：Y 被換成新列，A 在 Y 裡打的字跟著舊的 Y 消失（holder "gone"，合併後 `ROW[y｜x] z`）。
+  // 記錄：Y 被換成新列，A 在 Y 裡打的字跟著舊的 Y 消失（holder "gone"，合併後 `ROW[y｜x] z`）。
   it("CO6（記錄）：B 把 x 拖到 y 右緣建列 [y｜x]，A 同時在 y 打字 → 列合法、兩邊相同，記下 A 的字落在哪個 block", async () => {
     const pair = await collabPair([P("y", "y1"), P("x", "x1"), P("z", "z1")], { full: ["b"] });
     const { a, b } = pair;
@@ -333,7 +333,7 @@ describe("雙用戶端：⋮⋮ 拖放時對方同時打字（B 以完整選項�
     console.log("CO6 middle", JSON.stringify({ shape: shape(a), holder: blockHolding(a, "AAA") }));
   });
 
-  // 記錄（jsdom 實測）：A 的字不在 y，出現在列後補的那個空段落（合併後 `ROW[y｜x]  paragraph:AAA`）。
+  // 記錄：A 的字不在 y，出現在列後補的那個空段落（合併後 `ROW[y｜x]  paragraph:AAA`）。
   it("CO6（記錄）：新列是文件最後一個 block（列後補空段落），A 同時在 y 打字 → 列合法、兩邊相同，記下 A 的字落在哪個 block", async () => {
     const pair = await collabPair([P("x", "x1"), P("y", "y1")], { full: ["b"] });
     const { a, b } = pair;
@@ -376,7 +376,7 @@ describe("雙用戶端：⋮⋮ 拖放時對方同時打字（B 以完整選項�
     }
   });
 
-  // 記錄（jsdom 實測）：兩邊各自插入的新欄都留下，合併後 5 欄、欄寬全是 1，`doc.check()` 照過；超過單人拖曳的 4 欄上限
+  // 記錄：兩邊各自插入的新欄都留下，合併後 5 欄、欄寬全是 1，`doc.check()` 照過；超過單人拖曳的 4 欄上限
   // （單人拖到 4 欄的列只出橫線）。
   it("CO10（記錄）：兩人同時對 3 欄列的不同欄直線加欄 → 列合法、兩邊相同，記下欄數", async () => {
     const pair = await collabPair([P("p", "p1"), P("q", "q1"), row([[P("a", "a1")], [P("b", "b1")], [P("c", "c1")]], "r")], { full: ["a", "b"] });
@@ -396,7 +396,7 @@ describe("雙用戶端：⋮⋮ 拖放時對方同時打字（B 以完整選項�
     console.log("CO10", JSON.stringify({ shape: shape(a), columns: count, widths: widthsOf(a, "r") }));
   });
 
-  // 記錄（jsdom 實測）：A 在空段落 E 打的字出現在取代它的 z 裡。字在 z 的前或後取決於兩邊 Y.Doc 的 clientID 大小
+  // 記錄：A 在空段落 E 打的字出現在取代它的 z 裡。字在 z 的前或後取決於兩邊 Y.Doc 的 clientID 大小
   // （`AAAz` 或 `zAAA`），每次跑都可能不同，所以只記錄、不斷言順序。
   it("CO11（記錄）：B 把 z 橫線放進空欄 E，A 同時在 E 打字 → 列合法、兩邊相同，記下 A 的字落在哪個 block", async () => {
     const pair = await collabPair([row([[P("a", "a1")], [P("", "e1")]], "r"), P("z", "z1")], { full: ["b"] });
@@ -406,7 +406,7 @@ describe("雙用戶端：⋮⋮ 拖放時對方同時打字（B 以完整選項�
     console.log("CO11 empty", JSON.stringify({ shape: shape(a), holder: blockHolding(a, "AAA") }));
   });
 
-  // 記錄（jsdom 實測）：A 的字不在搬走的 X，出現在來源欄留下的空段落（合併後原列 `[a｜AAA]`，新列的 X 沒有 A 的字）。
+  // 記錄：A 的字不在搬走的 X，出現在來源欄留下的空段落（合併後原列 `[a｜AAA]`，新列的 X 沒有 A 的字）。
   it("CO11（記錄）：B 把來源欄唯一的 X 直線拖走，A 同時在 X 打字 → 列合法、兩邊相同，記下 A 的字是否在來源欄留下的空段落", async () => {
     const pair = await collabPair([P("w", "w1"), row([[P("a", "a1")], [P("X", "X1")]], "r")], { full: ["b"] });
     const { a, b } = pair;
@@ -458,7 +458,7 @@ describe("雙用戶端：分隔線放開時對方同時編輯", () => {
     }
   });
 
-  // 記錄（jsdom 實測）：兩人都寫到中間那欄，合併後中間那欄取其中一人的值（Y 的屬性衝突以 clientID 決定），另外兩欄各自保留
+  // 記錄：兩人都寫到中間那欄，合併後中間那欄取其中一人的值（Y 的屬性衝突以 clientID 決定），另外兩欄各自保留
   // 寫它的人的值，所以總和可能不等於欄數。每欄仍在合法範圍內，讀出寫回 markdown 不會被拒。
   it("CO9（記錄）：A、B 同時調同一列不同對的分隔線 → 兩邊相同、每欄在 [0.1, 10]，記下合併後的欄寬與總和", async () => {
     const pair = await collabPair([P("x", "x0"), row([[P("a", "a1")], [P("b", "b1")], [P("c", "c1")]], "r"), P("z", "z9")]);

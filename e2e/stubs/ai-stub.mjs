@@ -5,7 +5,7 @@
 // SSE 形狀對齊 apps/server/test/unit/__fixtures__/vllm-sse.txt，但每個 delta 同時帶
 // `reasoning_content` 欄——E2E 層順帶驗「thinking 內容不會洩漏到使用者看得到的輸出」。
 // `/fast`、`/slow` 不看請求內容、一律回 FINAL_CONTENT；`/echo` 回最後一則 user 訊息、第一個 `Original` 換成
-// `Rewritten`（並排 PR-2 e2e 37：驗「AI 改一個字、寬度與並排標記原樣保留」）。
+// `Rewritten`（並排 e2e 37：驗「AI 改一個字、寬度與並排標記原樣保留」）。
 
 import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";

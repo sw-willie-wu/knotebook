@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 import i18n from "@/i18n";
 import { baseLabel, baseLabelOrDeleted, currentSubtitle, shortVersionId, versionLabel, versionName } from "./version-labels";
 
-// #272 §10.1（D5、D6'、D12）。
+// #272。
 const ID = "3F2A9C1E-7b4d-4e8a-9c21-5d6e7f8a9b0c";
 const en = i18n.getFixedT("en");
 const zh = i18n.getFixedT("zh-TW");
 
-describe("版本標籤（#272 §10.1）", () => {
+describe("版本標籤（#272）", () => {
   it("shortVersionId：uuid 前 7 碼、小寫", () => {
     expect(shortVersionId(ID)).toBe("3f2a9c1");
   });

@@ -1,14 +1,14 @@
 /**
- * #132 Task 2：兩個 RFC 形 prefix plugin 的骨架與元資料端點（§5.0／§5.1）。
+ * #132：兩個 RFC 形 prefix plugin 的骨架與元資料端點。
  *
- * 這一族守的是：①元資料由 `PUBLIC_URL` origin 派生、不宣告 CIMD（D5）；②`/oauth` 與
+ * 這一族守的是：①元資料由 `PUBLIC_URL` origin 派生、不宣告 CIMD；②`/oauth` 與
  * `/.well-known` 兩個前綴下的錯誤 body 是 RFC 形（全站唯一例外），連 404／415 都是；
  * ③根形 PRM 與未知 well-known 路徑即使帶 `Accept: text/html` 也不回 index.html。
  */
 import { describe, expect, it } from "vitest";
 import { buildTestApp, testConfig } from "./helpers.js";
 
-describe("OAuth 元資料端點（§5.1）", () => {
+describe("OAuth 元資料端點", () => {
   it("PRM：resource 與 authorization_servers 由 PUBLIC_URL origin 派生", async () => {
     const { app, close } = await buildTestApp();
     try {
@@ -19,7 +19,7 @@ describe("OAuth 元資料端點（§5.1）", () => {
       // 絕對值：自我參照的斷言擋不住 `.href` 突變（尾斜線會一路傳遞而處處自洽）
       expect(body.resource).toBe(`${testConfig.publicUrl.origin}/api/mcp`);
       expect(body.authorization_servers).toEqual([testConfig.publicUrl.origin]);
-      // #181 PR-2d：順序 read、write、move、delete
+      // #181：順序 read、write、move、delete
       expect(body.scopes_supported).toEqual(["notes:read", "notes:write", "notes:move", "notes:delete"]);
       expect(body.bearer_methods_supported).toEqual(["header"]);
       expect(body.resource_name).toBe("Knotebook");
@@ -28,7 +28,7 @@ describe("OAuth 元資料端點（§5.1）", () => {
     }
   });
 
-  it("AS metadata：端點齊全且不宣告 CIMD（D5）", async () => {
+  it("AS metadata：端點齊全且不宣告 CIMD", async () => {
     const { app, close } = await buildTestApp();
     try {
       const res = await app.inject({ method: "GET", url: "/.well-known/oauth-authorization-server" });
@@ -46,14 +46,14 @@ describe("OAuth 元資料端點（§5.1）", () => {
       expect(body.code_challenge_methods_supported).toEqual(["S256"]);
       expect(body.token_endpoint_auth_methods_supported).toEqual(["none"]);
       expect(body.authorization_response_iss_parameter_supported).toBe(true);
-      // D5：不宣告 CIMD，client 才會退回 registration_endpoint
+      // 不宣告 CIMD，client 才會退回 registration_endpoint
       expect(body).not.toHaveProperty("client_id_metadata_document_supported");
     } finally {
       await close();
     }
   });
 
-  // §5.1：根形 PRM 與任何未註冊的 /.well-known 路徑都不得回 index.html
+  // 根形 PRM 與任何未註冊的 /.well-known 路徑都不得回 index.html
   it("根形 PRM 與未知 well-known 路徑回 RFC 形 404，即使 Accept: text/html", async () => {
     const { app, close } = await buildTestApp();
     try {
@@ -82,7 +82,7 @@ describe("OAuth 元資料端點（§5.1）", () => {
     }
   });
 
-  // §5.0：全域守衛對 /oauth 前綴的 415 也要走 RFC 形（含裸路徑，round 4 實測）
+  // 全域守衛對 /oauth 前綴的 415 也要走 RFC 形（含裸路徑）
   it("/oauth 前綴送 form body 且非豁免路由 → 415 RFC 形", async () => {
     const { app, close } = await buildTestApp();
     try {

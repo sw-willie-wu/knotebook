@@ -61,7 +61,7 @@ describe("文章欄守衛（#115 頁首/頁尾滿卡寬；#297 三段寬度經 a
   it("(a) 常數字面固定", () => {
     expect(ARTICLE_COLUMN).toBe("mx-auto w-full max-w-[clamp(42.5rem,85%,66rem)]");
     expect(ARTICLE_COLUMN_PADDING).toBe("px-4 max-md:px-0");
-    // #297：三段寬度；標準＝上面那條舊字串（D6）。
+    // #297：三段寬度；標準＝上面那條舊字串。
     expect(ARTICLE_COLUMN_MAX).toEqual({
       standard: "max-w-[clamp(42.5rem,85%,66rem)]",
       wide: "max-w-[clamp(42.5rem,92.5%,88rem)]",
@@ -115,7 +115,7 @@ describe("文章欄守衛（#115 頁首/頁尾滿卡寬；#297 三段寬度經 a
 
     for (const { label, path } of NON_CONSUMERS) {
       const code = stripComments(readSource(path));
-      // #115 定案：頁首/頁尾滿卡寬。把欄（或自寫 clamp）加回去＝回到 #88 前後那種
+      // #115：頁首/頁尾滿卡寬。把欄（或自寫 clamp）加回去＝回到 #88 前後那種
       // 「三處對齊」布局，是刻意拆掉的行為，不得靜默復活。
       expect(code, `${label}（${path}）不得 import/使用文章欄常數`).not.toMatch(/article-column/);
       expect(code, `${label} 不得自己寫死欄寬`).not.toMatch(/max-w-\[clamp\(/);

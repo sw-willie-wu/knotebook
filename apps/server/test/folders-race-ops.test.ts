@@ -1,6 +1,6 @@
 /**
- * 資料夾 PR-3a T13：併發（下）——刪群組（轉移、全刪）、共享放置、結構交易彼此（spec docs/superpowers/specs/2026-10-22-folders-design.md
- * §6.18 其餘各組、§5.4、§5.9；plan 附錄 A 鎖序表）。作法同 `folders-race.test.ts`：一方卡在自己交易內的縫，另一方送出後以
+ * 資料夾：併發（下）——刪群組（轉移、全刪）、共享放置、結構交易彼此。
+ * 作法同 `folders-race.test.ts`：一方卡在自己交易內的縫，另一方送出後以
  * `waitForLockWaiters` 確認它真的在等鎖（**斷言**，不只是等待），放行後斷言勝方、錯誤碼與 DB 終值。每組兩種先後；每案都斷言沒有
  * 409 `server_busy`（40P01 經 `isRetryableTxError` 會變成它）與資料一致——RG-CN 例外：那組真的會死結，斷言的是 40P01 映成 409。
  * RG-PG／RG-DA 照 trash-race 的 RC-DL：測試連線持一篇的列鎖，讓兩方依序排在它後面（heap 序、created_at 序與 id 序相反的兩篇）。
@@ -245,7 +245,7 @@ async function queueBehind(s: Scene, rowId: string, first: () => Promise<Res>, s
 }
 
 /**
- * RG-PG／RG-DA 的場景（r3 `deleteall3`／`purgeB` 形）：群組資料夾 F 裡兩篇垃圾桶筆記 a < b（id），但 b 先插（heap 序在前）、
+ * RG-PG／RG-DA 的場景（`deleteall3`／`purgeB` 形）：群組資料夾 F 裡兩篇垃圾桶筆記 a < b（id），但 b 先插（heap 序在前）、
  * slug 較小、created_at 較早——舊的全刪（不帶 ORDER BY）與轉移（依 created_at）都是 b 先鎖；永久刪除依 id 是 a 先。
  */
 async function lockOrderScene(s: Scene) {
@@ -264,7 +264,7 @@ async function lockOrderScene(s: Scene) {
   return { ...t, F, a, b };
 }
 
-describe("RG-PG 轉移與多 id 永久刪除群組垃圾桶筆記（依 id 鎖，讀碼發現 1）", () => {
+describe("RG-PG 轉移與多 id 永久刪除群組垃圾桶筆記（依 id 鎖）", () => {
   it("永久刪除先（排在 a 上）：永久刪除 200 purged [a, b]；轉移 204、轉走 0 篇，F 照樣收進接收者的新頂層", async () => {
     const s = await scene();
     const t = await lockOrderScene(s);
@@ -295,7 +295,7 @@ describe("RG-PG 轉移與多 id 永久刪除群組垃圾桶筆記（依 id 鎖�
   });
 });
 
-describe("RG-DA 全刪與多 id 永久刪除（heap 序與 id 序相反，讀碼發現 1）", () => {
+describe("RG-DA 全刪與多 id 永久刪除（heap 序與 id 序相反）", () => {
   it("永久刪除先（排在 a 上）：永久刪除 200 purged [a, b]；全刪 204、群組與資料夾都不在", async () => {
     const s = await scene();
     const t = await lockOrderScene(s);
@@ -402,12 +402,12 @@ describe("RG-FD 轉移與刪群組資料夾", () => {
     expect((await trashCols(s.pool, t.a))?.deleted_at).not.toBeNull();
     expect(await ownerOf(s.pool, t.a)).toEqual({ owner_id: t.r, group_id: null });
     expect(await noteFolderCols(s.pool, t.a)).toEqual({ folder_id: null, trash_folder_path: [GROUP_NAME, "F"] });
-    // 群組已沒有資料夾，新頂層是為了帶快照的垃圾桶筆記建的（n-r4-2）。
+    // 群組已沒有資料夾，新頂層是為了帶快照的垃圾桶筆記建的。
     expect((await personalRoots(s.pool, t.r)).map(f => f.name)).toEqual([GROUP_NAME]);
     await expectConsistent(s.pool);
   });
 
-  it("刪的預讀與開閘門之後、交易之前群組被轉移完（T8 concern 3）：交易內 404 folder_not_found、接收者的 F 與 a 都沒動、閘門已收", async () => {
+  it("刪的預讀與開閘門之後、交易之前群組被轉移完：交易內 404 folder_not_found、接收者的 F 與 a 都沒動、閘門已收", async () => {
     const s = await scene();
     const t = await setup(s);
     const h = s.seams.hold("folder-delete-gated");
@@ -490,7 +490,7 @@ describe("RG-RS 轉移與還原群組垃圾桶筆記（照路徑重建）", () =
     await expectConsistent(s.pool);
   });
 
-  it("轉移先，由接收者還原：還原在 groups KS 上等 → 轉移後是接收者的個人筆記、空間不在已取的鎖鍵裡 → 不重建、還原到接收者根層（§5.8-1）", async () => {
+  it("轉移先，由接收者還原：還原在 groups KS 上等 → 轉移後是接收者的個人筆記、空間不在已取的鎖鍵裡 → 不重建、還原到接收者根層", async () => {
     const s = await scene();
     const t = await setup(s);
     const [dr, rr] = await race(s, "group-delete-locked", () => transfer(s.app, t.q, t.g, t.r), () => restore(s.app, t.r, [t.tn]));
@@ -505,8 +505,8 @@ describe("RG-RS 轉移與還原群組垃圾桶筆記（照路徑重建）", () =
   });
 });
 
-describe("RG-RN 轉移與接收者改名個人根層資料夾（改成群組名，M6）", () => {
-  /** 群組有資料夾 A（轉移會建新頂層）；接收者根層有 O「Old」。轉移由 q 發動、轉給 r（發動者 ≠ 接收者，T11 I-1）。 */
+describe("RG-RN 轉移與接收者改名個人根層資料夾（改成群組名）", () => {
+  /** 群組有資料夾 A（轉移會建新頂層）；接收者根層有 O「Old」。轉移由 q 發動、轉給 r（發動者 ≠ 接收者）。 */
   async function setup(s: Scene) {
     const t = await groupScene(s);
     const A = (await seedFolder(s.db, { group: t.g }, { name: "A" })).id;
@@ -578,7 +578,7 @@ describe("RG-DF 全刪與刪群組資料夾", () => {
   });
 });
 
-describe("RG-CN 全刪與在群組資料夾建立筆記（FK 檢查序是 pg_dump 還原後的樣子，最終審查 m-1）", () => {
+describe("RG-CN 全刪與在群組資料夾建立筆記（FK 檢查序是 pg_dump 還原後的樣子）", () => {
   /**
    * 同表的 RI 觸發器依名稱（`RI_ConstraintTrigger_c_<oid>`）序觸發。重建群組 FK 讓它的 OID 變大 → INSERT 先檢查資料夾 FK
    * （pg_dump 依名稱建 FK、還原後就是這個序）。只動本案的資料庫（每案一個新庫）。
@@ -627,7 +627,7 @@ describe("RG-CN 全刪與在群組資料夾建立筆記（FK 檢查序是 pg_dum
   }
 });
 
-describe("RP-US 共享放置與撤分享（API 版，r3 m-7）", () => {
+describe("共享放置與撤分享（API 版）", () => {
   /** 擁有者 o 把 n 分享給 editor e；e 有自己的共享私人資料夾 SE。 */
   async function setup(s: Scene) {
     const [o, e] = [await seedUser(s.db), await seedUser(s.db)];

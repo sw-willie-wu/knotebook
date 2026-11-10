@@ -17,18 +17,18 @@ import { useTheme } from "@/theme";
 export interface PublicNoteEditorProps {
   /** `decodePublicYdoc` 解出來的快照文件——本元件只讀不寫（沒有 provider、沒有連線）。 */
   doc: Y.Doc;
-  /** 公開頁把手（#122 PR3 起兩形）：`resolveFileUrl` 依形組公開圖端點路徑要用。 */
+  /** 公開頁把手（#122 起兩形）：`resolveFileUrl` 依形組公開圖端點路徑要用。 */
   publicRef: PublicNoteRef;
-  /** #269 §11.1：公開 payload 的 links（只含有自訂公開網址的目標）。wikilink 經 WikilinkContext 的 public 模式渲染——不呼叫 useNotes。 */
+  /** #269：公開 payload 的 links（只含有自訂公開網址的目標）。wikilink 經 WikilinkContext 的 public 模式渲染——不呼叫 useNotes。 */
   links: readonly PublicLinkDto[];
 }
 
 /**
- * 公開唯讀頁的 BlockNote 檢視（#72 Task 3）。比照 `NoteEditor` 的拆分理由：BlockNote
+ * 公開唯讀頁的 BlockNote 檢視（#72）。比照 `NoteEditor` 的拆分理由：BlockNote
  * 依賴大量 jsdom 沒有的 DOM/Range API，頁面層測試把這個模組 mock 掉、只驗 props 接線
  * （`PublicNotePage.test.tsx`）；選項本身的契約守在 `collab/editor-options.test.ts`。
  *
- * Task 0 spike 定案：`withCollaboration`＋local `new Awareness(doc)`＋`editable={false}`
+ * 實測結論：`withCollaboration`＋local `new Awareness(doc)`＋`editable={false}`
  * 在無 provider 下正常渲染（含 code/mermaid lazy 鏈）；**不掛 useCollab、不打
  * collab-token**（也沒有 noteId 可打）。
  */

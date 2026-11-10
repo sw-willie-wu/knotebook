@@ -2,7 +2,7 @@
  * Hocuspocus v4 的 Fastify 掛載與連線索引。
  *
  * ──────────────────────────────────────────────────────────────────────────
- * Plan 2 spike 結論（對 `@hocuspocus/server` 4.5.0 原始碼與實測 harness 定案）
+ * `@hocuspocus/server` 4.5.0 的整合要點（讀原始碼並以 harness 實測確認）
  * ──────────────────────────────────────────────────────────────────────────
  *
  * **1. 掛載機制：原生 `app.server.on("upgrade")` + `ws` 的 `noServer` 模式，自行篩
@@ -28,7 +28,7 @@
  * 選擇原生 upgrade 而非 `@fastify/websocket` 的理由：/collab 完全不需要 Fastify 的
  * 路由/序列化/hook 管線（授權走 Hocuspocus 自己的 `onAuthenticate` + collab token，
  * 不走 session cookie 的 `authenticate` preHandler），而且 upgrade 不進 Fastify 路由
- * 也讓 Task 10 的 SPA fallback（`setNotFoundHandler`）不必特別排除 `/collab`。
+ * 也讓 SPA fallback（`setNotFoundHandler`）不必特別排除 `/collab`。
  *
  * ⚠ 代價：一旦註冊了 `upgrade` listener，Node 就不再自動銷毀未被處理的 upgrade
  * socket，所以非 `/collab` 的 upgrade 必須由我們自己回 404 並 `destroy()`，否則連線
@@ -44,11 +44,11 @@
  * `documentName`）。實測：兩個 provider 連同一個 `ws://…/collab`、`name` 給同一個
  * note uuid，即在同一份文件上收斂。
  *
- * 推論（Task 5 必須依賴的性質）：**同一條 WebSocket 可承載多份文件**，因此
+ * 推論（連線索引依賴的性質）：**同一條 WebSocket 可承載多份文件**，因此
  * `socketId` 是 per-websocket 而非 per-document——連線索引與 onNextTokenSync 的回呼
  * 一律以 `(socketId, documentName)` 複合鍵登記，不可只用 socketId。
  *
- * **3. 各 hook payload 的實測形狀（Task 5/6 直接依賴，勿憑記憶改）：**
+ * **3. 各 hook payload 的實測形狀（連線索引與撤權直接依賴，勿憑記憶改）：**
  *   - `onAuthenticate`：有 `token`/`documentName`/`connectionConfig`，**無 `connection`**
  *     （連線期 readOnly 只能經 `connectionConfig.readOnly` 設定）；回傳值會被 merge 進
  *     該連線的 `context`。
@@ -60,7 +60,7 @@
  *     無從分辨自己代表哪一次。本檔改用 `Connection.onClose`（有物件同一性）拆索引。
  *   - `onTokenSync`：有 `connection` + `socketId` + `documentName` + 新的 `token`；
  *     由 server 端 `connection.requestToken()` 觸發，provider 收到後會重新呼叫它的
- *     token function 並回送（實測往返成立，Task 6 的 5s deadline 即建立在此之上）。
+ *     token function 並回送（實測往返成立，撤權的 5s deadline 即建立在此之上）。
  *   - `Connection.close({code, reason})` 只切斷「該連線對該文件」的關係並送一則帶
  *     reason 的應用層 CLOSE 訊息給那一個 client，不影響同文件的其他連線、也不關閉底層
  *     socket——正是撤權需要的粒度（有別於 `closeConnections()` 的 ResetConnection 廣播）。
@@ -96,7 +96,7 @@ import { createVersionService, type VersionService } from "./versions.js";
 import { LastActiveTracker, type LastActiveTrackerOptions } from "../auth/last-active.js";
 import { FixedWindowLimiter } from "../http/rate-limit.js";
 
-/** Hocuspocus 的 `onStoreDocument` debounce（ms）。production 一律 2000——見 Task 7 brief。 */
+/** Hocuspocus 的 `onStoreDocument` debounce（ms）。production 一律 2000。 */
 const STORE_DEBOUNCE_MS = 2_000;
 
 /**
@@ -153,7 +153,7 @@ export {
  *
  * 每個 cause 的日誌級別不同（見 `logReject`），但**握手階段的出口只有 `rejectAuth` 一個**：
  * 別處裸 `throw new CollabAuthError(...)` 的話，那次拒連就不會出現在 `cause` 這個欄位上，
- * 而 docs 的排錯指引正是叫維護者 grep 它（審查抓到——`server-error` 一度就是這樣漏掉的，
+ * 而 docs 的排錯指引正是叫維護者 grep 它（`server-error` 一度就是這樣漏掉的，
  * 而它偏偏是唯一會讓分頁真的一直停在「連線中」的那個）。
  */
 const REJECT_WIRE_REASON = {
@@ -167,7 +167,7 @@ const REJECT_WIRE_REASON = {
   "no-role": COLLAB_REJECT_FORBIDDEN,
   /** onAuthenticate 撞到未預期例外（DB 抖動…）。不是裁決，client 會自己退避重試。 */
   "server-error": COLLAB_REJECT_SERVER_ERROR,
-  /** #269 §5：token 的 note schema 版本（`sv`）與這個 server 的 `NOTE_SCHEMA_VERSION` 不同——舊分頁或回滾後的新分頁。info 級。 */
+  /** #269：token 的 note schema 版本（`sv`）與這個 server 的 `NOTE_SCHEMA_VERSION` 不同——舊分頁或回滾後的新分頁。info 級。 */
   "client-outdated": COLLAB_REJECT_CLIENT_OUTDATED,
 } as const;
 
@@ -191,7 +191,7 @@ export class CollabAuthError extends Error {
 }
 
 /**
- * 拒連日誌的 per-user 上限（issue #37 的訊號 vs. 日誌量的折衷，審查 round 2 指出）。
+ * 拒連日誌的 per-user 上限（issue #37 的訊號 vs. 日誌量的折衷）。
  *
  * 為什麼需要：Hocuspocus 對認證失敗**不關 socket**，還會把該文件的狀態清乾淨，讓同一條
  * socket 上的下一則 auth 訊息當成全新的第一次嘗試。而 collab-token 的 60/分鐘節流管的是
@@ -283,7 +283,7 @@ export function classifyClientMessage(data: Uint8Array): ClientMessageCheck {
     return subtype.value === 0 ? { verdict: "ok" } : bogus();
   }
   // ⚠ `ok` 集合＝**MessageReceiver.apply 實際有 case 的 type**，不是 MessageType enum
-  // 的範圍（首輪審查抓到的洞：enum 有 0..10，但 SyncStatus(8)/Ping(9)/Pong(10) 在
+  // 的範圍（enum 有 0..10，但 SyncStatus(8)/Ping(9)/Pong(10) 在
   // 4.5.0 的 switch **沒有 case**、落在同一個 console.error-and-continue 的 default
   // ——用 enum 範圍當白名單等於把 #50 的洞原樣留給 type 9）。
   // - 0/1/3/4/5/7：有 handler，放行。
@@ -315,7 +315,7 @@ export interface CollabDeps {
   config: AppConfig;
   gate: UserGate;
   /**
-   * Task 7（`collab/store.ts`）樂觀鎖衝突事件與握手拒絕（issue #37）的日誌目的地。
+   * `collab/store.ts` 的樂觀鎖衝突事件與握手拒絕（issue #37）的日誌目的地。
    * `createCollabServer` 在 `buildApp()`（因而 `app.log`）存在之前就要建出來（見
    * `src/index.ts` 的呼叫順序），故不能直接依賴 Fastify logger；未傳時退回 console
    * （見 `consoleCollabLogger`）。
@@ -323,7 +323,7 @@ export interface CollabDeps {
   log?: CollabLogger;
   /** #93：全文索引的測試縫（`NoteStoreSearchHooks`，生產不注入）——透傳給 `createNoteStore`。 */
   storeSearchHooks?: NoteStoreSearchHooks;
-  /** #272 §7.1：自動切版等待 X 的測試覆寫（毫秒，透傳成 `VersionServiceDeps.autoWaitMs`）；未傳＝每輪讀站台設定。生產不注入。 */
+  /** #272：自動切版等待 X 的測試覆寫（毫秒，透傳成 `VersionServiceDeps.autoWaitMs`）；未傳＝每輪讀站台設定。生產不注入。 */
   versionAutoWaitMs?: number;
   /** #267：`LastActiveTracker` 的測試縫（節流表時鐘／上限），生產不注入。 */
   lastActiveOptions?: LastActiveTrackerOptions;
@@ -363,7 +363,7 @@ export interface CollabServer {
    */
   linkSyncState(noteId: string, userId: string): { ok: true; clock: number } | { ok: false };
   /**
-   * 一次性回呼：該連線下一次 `onTokenSync` 抵達即觸發（Task 6 的 deadline 解除用）。
+   * 一次性回呼：該連線下一次 `onTokenSync` 抵達即觸發（撤權 deadline 解除用）。
    *
    * 以 `(socketId, documentName)` 複合鍵存 **Set<cb>** 而非單一 cb——同一條連線在 5s
    * 內可能被 reverify 兩次（例如先撤分享、再停用同一使用者），用覆寫的話第一個
@@ -371,14 +371,14 @@ export interface CollabServer {
    */
   onNextTokenSync(handle: ConnectionHandle, cb: () => void): void;
   /**
-   * 刪除閘門：登記期間這篇筆記的連線一律被拒／被關（Task 6 的 beforeNoteDeleted 用）。
+   * 刪除閘門：登記期間這篇筆記的連線一律被拒／被關（`beforeNoteDeleted` 用）。
    *
    * ⚠ **必須在移入垃圾桶／刪除交易之前 await**：它會先把「此刻看得到這篇筆記的人」抓下來留著
    * （`loadNoteAudience`），交易一 commit 之後授權就查不到他們了（移入：單篇授權排除垃圾桶筆記；
    * 刪群組・全刪：那些列不在了。垃圾桶的永久刪除不開閘門）。這份名單決定 `onAuthenticate`
    * 要不要對某個人說出 `note-deleting`——名單上的人、以及此刻仍查得到角色的人聽得到，
    * 其他人一律照 `no-role` 回答，閘門因此不會變成「這個 noteId 存不存在」的 oracle
-   * （issue #35 審查）。
+   * （#35）。
    *
    * ⚠ 名單抓取失敗時 value 是 `null`，**那絕不等於「誰都聽得到」**——理由與替代判準見
    * `deletingAudienceHas`。
@@ -490,7 +490,7 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
     removeFromIndex(byNote, handle.noteId, handle);
   }
 
-  // Task 7：note_states/note_state_backups 的唯一寫入者。建在 Hocuspocus 設定物件外面
+  // note_states/note_state_backups 的唯一寫入者。建在 Hocuspocus 設定物件外面
   // （而非 inline lambda 內 new 一份）純粹是可讀性考量，狀態（sv/lastBackupAt 快取）本來
   // 就只需要一份，跟著整個 CollabServer 的生命週期走。
   const log = deps.log ?? consoleCollabLogger;
@@ -503,7 +503,7 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
 
   /**
    * 這個人在不在「刪除當下的可見名單」上。名單抓取失敗（`null`）一律回 false——**那個 fallback
-   * 絕不能是「誰都聽得到」**（審查 round 3）：任何登入使用者都能對任意 UUID 簽一份 token，
+   * 絕不能是「誰都聽得到」**：任何登入使用者都能對任意 UUID 簽一份 token，
    * 於是一次 DB 抖動就會把整整兩分鐘的「這個 id 剛被刪掉」告訴全世界。名單抓不到時改由
    * 「他現在還有沒有角色」決定（見 onAuthenticate），那個判準本身不透露任何額外資訊。
    */
@@ -529,7 +529,7 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
    * 常數集合。**不記 token 內容**。⚠ `noteId` 是 client 指定的 documentName（未必是 uuid，
    * 最長可達 `maxParamLength`），一律截短到 `LOGGED_NOTE_ID_MAX` 再寫。
    *
-   * 級別分三級（審查指出）：
+   * 級別分三級：
    *
    * - **`handshake` 階段的** `bad-token` → **debug**。/collab 的 upgrade 不需要 session，而
    *   Hocuspocus 對認證失敗**不關 socket**（還會把該文件的狀態清乾淨，讓下一則 auth 訊息當成
@@ -537,15 +537,14 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
    *   WebSocket 訊息換一行日誌，而且繞過任何反向代理擋得住的 HTTP 節流。它也是診斷價值最低
    *   的一個（沒有 userId，而且 client 收到它只會自己退避重試，不會把人踢走）。
    *
-   *   ⚠ **`reverify` 階段的 `bad-token` 完全相反，走 info**（審查指出這段註解一度只寫了前
-   *   半、與程式碼漂移）：那是 `onTokenSync` 把一條**已經認證過**的連線踢掉（含 N6 的借殼
+   *   ⚠ **`reverify` 階段的 `bad-token` 完全相反，走 info**：那是 `onTokenSync` 把一條**已經認證過**的連線踢掉（含借殼
    *   身分），`userId` 一定有值，而且 client 端把它歸 A 桶——人是真的被導走並看到「你已失去
    *   存取權」。照前半那句去簡化守衛（改成只看 `cause`），會靜靜地把整套功能裡診斷價值最高
    *   的那一行刪掉。
    * - `server-error` → **error**，並帶上 `err`（要 stack）。那是真的故障。
    * - 其餘 → **info**。
    *
-   * ⚠ **info／error 兩級都套 per-user 節流**（`REJECT_LOG_LIMIT`，審查 round 2 指出）：
+   * ⚠ **info／error 兩級都套 per-user 節流**（`REJECT_LOG_LIMIT`）：
    * collab-token 的 60/分鐘管的是「簽發」不是「使用」，同一份合法 token 可以在 TTL 內被
    * 同一條 socket 重放無數次，每一則都寫一行的話，任何一個帳號都能把日誌磁碟灌爆。
    */
@@ -586,10 +585,10 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
     throw new CollabAuthError(reason);
   }
 
-  // #106 D6 落款（spec §9）。`lastContext` ＝ 排定這次 store 的那一批編輯的 context：
+  // #106 落款。`lastContext` ＝ 排定這次 store 的那一批編輯的 context：
   // WS 連線是 `CollabContext`（人），直連是 `DirectCtx`（AI）。三件事要記住：
   // ① 合併的 `disconnect()` 是**立即 store**，會取代同一批待送的 debounced store——所以同一批
-  //    人的編輯會被記成 AI 落款（內容不掉，只是落款歸給那次 AI 寫入，spec §13 接受）。
+  //    人的編輯會被記成 AI 落款（內容不掉，只是落款歸給那次 AI 寫入，可接受）。
   // ② 拒絕路徑的 `disconnect()` **也會 store**，`applied === false` 是唯一擋住落款的閘；
   //    它同樣取代那批待送 store 的 `lastContext`（人那批的落款不寫、內容不掉）。
   // ③ UPDATE **不得讓 store 失敗**（同 `collab/store.ts` 的紀律：onStoreDocument 拋錯會讓
@@ -597,7 +596,7 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
   async function stampLastEdited(documentName: string, lastContext: unknown): Promise<void> {
     const ctx = lastContext as Partial<DirectCtx> | undefined;
     if (typeof ctx?.userId !== "string") return;
-    // 版本歷史 §7-3：直連（AI 寫入與套用版本）一律看 applied——套用失敗的那次 store 也不落款。
+    // 版本歷史：直連（AI 寫入與套用版本）一律看 applied——套用失敗的那次 store 也不落款。
     const isDirect = ctx.source !== undefined;
     if (isDirect && ctx.applied !== true) return;
     try {
@@ -619,14 +618,14 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
     // 不印 Hocuspocus 自己的啟動畫面／噪音；本專案的日誌一律走 Fastify logger。
     quiet: true,
 
-    // Task 7：debounce `onStoreDocument`——單次連續編輯只在停手 2s 後落地一次，而不是
+    // debounce `onStoreDocument`——單次連續編輯只在停手 2s 後落地一次，而不是
     // 每個 keystroke 都寫 DB（`maxDebounce` 留預設 10s，保證持續打字時仍會定期落地）。
     debounce: STORE_DEBOUNCE_MS,
 
     // `document` 是 Hocuspocus 的 `Document`（`extends Y.Doc`），結構相容於
     // `NoteStore` 兩個方法要的 `Y.Doc` 參數。
-    // 版本歷史（spec §4.5、§5.2）：noteStore 先把 note_states 套進 doc，再初始化版本狀態（先同步抓 loadFingerprint）。
-    // 失敗只 warn：initialized 留 false＝這個載入週期不切自動版本、手動儲存回 503（§13-13）。
+    // 版本歷史：noteStore 先把 note_states 套進 doc，再初始化版本狀態（先同步抓 loadFingerprint）。
+    // 失敗只 warn：initialized 留 false＝這個載入週期不切自動版本、手動儲存回 503。
     onLoadDocument: async ({ documentName, document }) => {
       const update = await noteStore.onLoadDocument(documentName, document);
       try {
@@ -636,7 +635,7 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
       }
       return update;
     },
-    // 版本歷史 §5.2：只累積編輯者，零 DB。人＝CollabContext；直連＝DirectCtx（帶 agentLabel）。沒有 userId 的忽略。
+    // 版本歷史：只累積編輯者，零 DB。人＝CollabContext；直連＝DirectCtx（帶 agentLabel）。沒有 userId 的忽略。
     onChange: async ({ documentName, context }) => {
       const c = context as Partial<DirectCtx> | undefined;
       if (typeof c?.userId !== "string") return;
@@ -649,14 +648,14 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
     onStoreDocument: async ({ documentName, document, lastContext }) => {
       await noteStore.onStoreDocument(documentName, document);
       await stampLastEdited(documentName, lastContext);
-      // #272 §6.2：內容有變就寫待切（await 才受 saveMutex 保護，unload 會等它）；③ 不得讓 store 失敗——只 warn。
+      // #272：內容有變就寫待切（await 才受 saveMutex 保護，unload 會等它）；③ 不得讓 store 失敗——只 warn。
       try {
         await versions.noteStored(documentName, document, lastContext);
       } catch (err) {
         log.warn({ err, noteId: documentName }, "版本歷史：落盤後寫待切失敗（不影響落盤）");
       }
     },
-    // fix round 1 IMPORTANT 2：文件從記憶體卸載時清掉 noteStore 的 sv／lastBackupAt
+    // 文件從記憶體卸載時清掉 noteStore 的 sv／lastBackupAt
     // 快取、warnedUnsafeUrl 旗標與 indexedHash（#93 全文索引雜湊），否則每篇曾經打開過的
     // 筆記都會在 process 存活期間永久占 Map／Set entry（慢性洩漏）。安全性見
     // `NoteStore.afterUnloadDocument` 的註解。版本狀態同理（`forget`）。
@@ -666,13 +665,13 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
     },
 
     // 真授權：驗 token 簽章 → 重跑 resolveRole + gate.check——token 內帶的 role 只是
-    // 簽發當下的快照，絕不當作授權依據（N2）。這保證撤分享/停用帳號在 TTL 內對「舊而
+    // 簽發當下的快照，絕不當作授權依據。這保證撤分享/停用帳號在 TTL 內對「舊而
     // 未過期」的 token 立即生效，而不必等 token 自然過期。
     // ⚠ #106：AI 寫入走 `notes/editing/session.ts` 的 `withDirectConnection`（直連，非
     // WebSocket），**繞過本 hook**；讀取走 `notes/editing/read.ts` 也不經過這裡。兩條路
     // 的授權都在路由層（`routes/notes.ts` 的 `resolveRole`）做完。
     onAuthenticate: async ({ token, documentName, connectionConfig }) => {
-      // ⚠ 提到 try 外面（審查 round 2）：`server-error` 那一行也要帶得出 userId——它正是
+      // ⚠ 提到 try 外面：`server-error` 那一行也要帶得出 userId——它正是
       // 唯一會讓分頁真的一直停在「連線中」的原因，維護者最需要知道是誰。catch 看不到
       // try 內的 `claims`，所以身分一驗出來就先存這裡。
       let userId: string | undefined;
@@ -685,7 +684,7 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
         }
         userId = claims.userId;
 
-        // #269 §5.1-3：舊分頁閘門。放在驗完 token 之後、刪除閘門之前：不需要 DB、與筆記存不存在無關（不形成存在性
+        // #269：舊分頁閘門。放在驗完 token 之後、刪除閘門之前：不需要 DB、與筆記存不存在無關（不形成存在性
         // oracle）。`!==` 不用 `<`：server 回滾時比較新的 client 一樣要重整。
         // ⚠ `onTokenSync` 刻意**不**重驗 `sv`：`sv` 隨 bundle 固定、`NOTE_SCHEMA_VERSION` 隨程序固定，schema 升版必然換程序
         // ⇒ 所有 socket 斷線重握手。日後若改成熱更新，這個前提就不成立，要回頭在重驗補上（`collab-gate.test.ts` G3 釘現狀）。
@@ -693,7 +692,7 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
           rejectAuth("client-outdated", { noteId: documentName, userId: claims.userId });
         }
 
-        // ⚠ 刪除閘門刻意排在**驗完 token 之後**（審查指出）：它是這個 server 唯一會透露
+        // ⚠ 刪除閘門刻意排在**驗完 token 之後**：它是這個 server 唯一會透露
         // 「某個 noteId 存在（且剛被刪掉）」的地方，擺在最前面等於讓一個連 session 都不需要
         // 的 socket 就能問這個問題。擺在這裡，要問就得先持有一份對這篇筆記合法簽章的 token。
         // 順序仍必須早於 resolveRole：移入垃圾桶／刪除交易 commit 之後授權就查不到這篇（移入：單篇授權排除垃圾桶筆記；
@@ -711,7 +710,7 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
         // 慢路徑：閘門開著、而且**此刻還查得到角色**⇒ 這個人本來就看得到這篇筆記，可以對他
         // 說 note-deleting。這一段同時補三件事，且都不透露任何「名單以外」的資訊：
         //   - 名單抓取失敗（audience 為 null）時的替代判準；
-        //   - 快路徑那次讀取剛好早於 `markDeleting` 的競態（審查 round 2）；
+        //   - 快路徑那次讀取剛好早於 `markDeleting` 的競態；
         //   - 刪除窗口內才被加分享的人（名單快照抓不到他）——照樣要擋。
         // 反過來，`role === 'none'` 又不在名單上的人一律往下落到 `no-role`，與「這篇筆記存在
         // 但不是你的」完全同一句話。
@@ -730,7 +729,7 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
 
         // ⚠ v4 的 onAuthenticate payload 沒有 `connection` 物件（見檔頭註解）——連線期的
         // 唯讀狀態只能經這裡的 connectionConfig.readOnly 設定；`connection.readOnly` 這個
-        // 可變欄位要到 connected/onTokenSync 才拿得到（Task 6 降級走 `setReadOnly`）。
+        // 可變欄位要到 connected/onTokenSync 才拿得到（撤權降級走 `setReadOnly`）。
         if (role === "viewer") {
           connectionConfig.readOnly = true;
         }
@@ -743,7 +742,7 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
         // client 舊版一律當撤權——對一個權限完好的使用者說錯話，而且 server 端也不會留下
         // 任何紀錄（`console.error` 只印 message，這裡的 err 才有 stack）。
         //
-        // ⚠ 一樣走 `rejectAuth`（審查指出）：這是唯一會讓分頁真的一直停在「連線中」的原因，
+        // ⚠ 一樣走 `rejectAuth`：這是唯一會讓分頁真的一直停在「連線中」的原因，
         // 也就是維護者最需要找到的那一種。它若不出現在 `cause` 欄位上，docs 教的
         // `grep '"cause"'` 就剛好漏掉它。
         rejectAuth("server-error", { noteId: documentName, userId, err });
@@ -755,8 +754,8 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
       // ⚠ 競態窗口：onAuthenticate 通過之後、connected 抵達之前，Hocuspocus 已經在
       // drain 佇列訊息——這條連線在這段期間是「活的」（能 apply update），但要到這裡
       // 才會被登記進索引。若 markDeleting 剛好在這個窗口內被設定（onAuthenticate 當下
-      // 還沒 deleting，通過了檢查），這條連線會對 connectionsOfNote 永遠隱形，Task 6
-      // 的刪除清掃（枚舉 connectionsOfNote 逐一 close）找不到它，等於刪除中的筆記還能
+      // 還沒 deleting，通過了檢查），這條連線會對 connectionsOfNote 永遠隱形，
+      // `beforeNoteDeleted` 的刪除清掃（枚舉 connectionsOfNote 逐一 close）找不到它，等於刪除中的筆記還能
       // 被寫入。在這裡重查一次並直接關閉，不註冊進索引，堵掉這個窗口。
       if (deleting.has(documentName)) {
         connection.close({ code: APP_CLOSE_CODE, reason: COLLAB_CLOSE_NOTE_DELETED });
@@ -791,7 +790,7 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
       // onDisconnect 的 payload 只有 socketId + documentName、**沒有 connection**，無從分辨
       // 送達的是哪一次登記的拆除通知。退訂後立刻重訂時，新的 connected 可能早於舊連線的
       // 拆除通知抵達，屆時一個「照複合鍵刪除」的拆除會把**新的、還活著的**連線從索引中
-      // 移除——該使用者從此對 connectionsOfNote 隱形，Task 6 的撤權會漏掉他，而他還在編輯。
+      // 移除——該使用者從此對 connectionsOfNote 隱形，撤權會漏掉他，而他還在編輯。
       // 走 connection.onClose 才有物件同一性可比對（見 unregister 的守衛）。
       connection.onClose(() => unregister(key, handle));
 
@@ -806,8 +805,8 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
 
     // 重驗：與 onAuthenticate 同一套邏輯（驗簽章 → 重跑 resolveRole + gate.check，
     // token 內 role 不作授權依據）。⚠ 不讀寫 `connection.context`——它是 hookPayload
-    // 快照，在 onTokenSync 觸發的當下已經 stale（§5）；「這條連線 onAuthenticate 當時
-    // 的 userId」改用我們自己的索引（`handle.userId`）比對，N6 要求新 token 的 userId
+    // 快照，在 onTokenSync 觸發的當下已經 stale；「這條連線 onAuthenticate 當時
+    // 的 userId」改用我們自己的索引（`handle.userId`）比對，新 token 的 userId
     // 必須與它相同，否則視同借殼延續，一律 close。
     //
     // 拒絕走 `handle.close(COLLAB_CLOSE_REVOKED)`，不 throw：這個 hook 一旦 throw，
@@ -815,12 +814,12 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
     // console.error（見 CollabAuthError 的類別註解），撤權是正常營運事件不該噴 stderr。
     //
     // ⚠ onNextTokenSync 的回呼**不論本次重驗結果為何都要觸發**：它只是「這條連線收到一次
-    // token sync 了」的訊號（Task 6 拿來解除 5s deadline），驗證失敗一樣是有收到回應。
+    // token sync 了」的訊號（撤權拿來解除 5s deadline），驗證失敗一樣是有收到回應。
     // 必須在驗證**之前**先取出＋清空 callbacks、驗證結果用 try/finally 派送——
     // `handle.close()` 會同步觸發 `connection.onClose` → `unregister(key, handle)` →
     // `tokenSyncCallbacks.delete(key)`；若照舊在驗證「之後」才去 `.get(key)`，reject
     // 分支會發現這個 key 早已被 unregister 清掉，callbacks 靜靜地一個都不會觸發
-    // （Task 6 的 5s deadline 因此永遠等不到解除）。驗證中途若意外 throw（例如
+    // （撤權的 5s deadline 因此永遠等不到解除）。驗證中途若意外 throw（例如
     // resolveRole/gate.check 撞到 DB 抖動），finally 仍保證 callbacks 被觸發，錯誤本身
     // 照樣往外冒（與 onAuthenticate 對未預期例外的處理一致，不在此吞掉）。
     onTokenSync: async ({ socketId, documentName, token }) => {
@@ -870,7 +869,7 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
           try {
             cb();
           } catch {
-            // 回呼是呼叫方（Task 6 的 clearTimeout）的責任，失敗不得影響連線。
+            // 回呼是呼叫方（撤權的 clearTimeout）的責任，失敗不得影響連線。
           }
         }
       }
@@ -1025,7 +1024,7 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
         // 「已刪除」這句話說給誰聽則退回用「現在還有沒有角色」判斷（見 onAuthenticate）。
         log.warn({ err, noteId }, "collab 刪除閘門取不到可見名單，改用角色判斷");
       }
-      // ⚠ **合併而非覆蓋**（審查 round 3）：同一篇筆記的兩個 DELETE 同時進來時，較晚那次的
+      // ⚠ **合併而非覆蓋**：同一篇筆記的兩個 DELETE 同時進來時，較晚那次的
       // `loadNoteAudience` 可能落在較早那次 commit 之後而查回空集合——直接覆寫的話，原本
       // 該被告知「筆記已刪除」的協作者全部變成聽到「你已失去存取權」。null（名單不明）遇上
       // 一份真名單時取那份名單：它嚴格地知道得更多。
@@ -1042,12 +1041,12 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
     },
 
     async releaseDeletingGate(noteId: string, epoch: number): Promise<boolean> {
-      // ⚠ 只收得掉「自己開的那一道門」（審查 round 4）：同一篇筆記併發兩個 DELETE 時，
+      // ⚠ 只收得掉「自己開的那一道門」：同一篇筆記併發兩個 DELETE 時，
       // 失敗那一次不得把成功那一次開的閘門關掉——關掉的話接下來兩分鐘內重連的協作者會被
       // 告知「你已失去存取權」，而真相是筆記真的被刪了。
       if (deleting.get(noteId)?.epoch !== epoch) return false;
 
-      // 第二道：列在且 `deleted_at IS NULL` 才收（審查 round 3；#181 spec §6.4.1 M-D）——否則兩個 DELETE
+      // 第二道：列在且 `deleted_at IS NULL` 才收（#181）——否則兩個 DELETE
       // 併發時，後到、交易內得 404 的那個會收掉先到那次成功移入的閘門。
       try {
         if (!(await noteIsLive(deps.db, noteId))) return false;

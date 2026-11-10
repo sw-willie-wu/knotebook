@@ -14,7 +14,7 @@ function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string
   return t("errors.fallback");
 }
 
-/** #272 D11：不可撤回列顯示哪一句原因。可撤回性仍由 server 判（`revertable`，`notes/editing/revert.ts` 的 `editRevertable`）；這裡只決定措辭。 */
+/** #272：不可撤回列顯示哪一句原因。可撤回性仍由 server 判（`revertable`，`notes/editing/revert.ts` 的 `editRevertable`）；這裡只決定措辭。 */
 function notRevertableReason(t: (key: string) => string, edit: NoteEditDto): string {
   if (edit.revertedAt !== null) return t("aiEdits.reverted");
   if (edit.op === "revert") return t("aiEdits.revertRecord");
@@ -72,7 +72,7 @@ function EditRow({ note, edit }: { note: NoteDto; edit: NoteEditDto }) {
 }
 
 /**
- * AI 修改紀錄 dialog（#106 spec §5／§10）。開關狀態住在 `NotePage`——這個 dialog 有
+ * AI 修改紀錄 dialog（#106）。開關狀態住在 `NotePage`——這個 dialog 有
  * **兩個觸發點**（⋮ 選單項與頁首的 `LastEditedLabel`），狀態放在任一個元件內另一個
  * 就打不開（與 `ShareDialog`／`NoteMenu` 自持狀態的慣例相反，理由在此）。
  *

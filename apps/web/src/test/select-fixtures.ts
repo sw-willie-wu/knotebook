@@ -2,7 +2,7 @@ import type { GroupDto, NoteDto } from "@knotebook/shared";
 import { EDITOR_PERMS, OWNER_PERMS, VIEWER_PERMS } from "@/test/fixtures";
 
 /**
- * #181 PR-2c 一般 tab 選取模式的筆記 fixture（T2 起各測試共用）。
+ * #181 一般 tab 選取模式的筆記 fixture（各測試共用）。
  * 權限物件一律以 `@/test/fixtures` 的三件組展開再覆寫。
  */
 
@@ -45,7 +45,7 @@ export function sharedNote(o: { id: string; title: string; role?: "editor" | "vi
 
 /**
  * 群組筆記：沒有個人 owner；`edit`／`delete` 預設皆 true（角色旗標推得），`edit === false` 時 role 為 viewer。
- * `manageShares`／`moveToGroup` 恆 false（#175 S5、W4），測試要分辨時自己覆寫 `permissions`。
+ * `manageShares`／`moveToGroup` 恆 false（#175），測試要分辨時自己覆寫 `permissions`。
  */
 export function groupNote(o: { id: string; title: string; group: GroupDto; edit?: boolean; delete?: boolean } & Partial<NoteDto>): NoteDto {
   const { group, edit = true, delete: canDelete = true, ...rest } = o;

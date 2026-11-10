@@ -9,7 +9,7 @@ import "@/i18n/management-strings";
 // lazy chunk（設定各區塊／站台管理／登入流程頁）在測試裡第一次 render 會做真實的動態
 // import；CI 高負載時可能超過 1 秒，而 Testing Library 的 waitFor／findBy 預設上限就是
 // 1000ms，本機尚可、CI 間歇紅。守門力在斷言內容，不在等待長度。
-// 2026-10-30 再從 3 秒放寬到 10 秒：每檔第一案付冷載入 lazy import／首次重 render，單跑約
+// 再從 3 秒放寬到 10 秒：每檔第一案付冷載入 lazy import／首次重 render，單跑約
 // 0.6–1 秒（flake 稽核的 vitest JSON 實測：App.test 第一案 945 ms、第二案 94 ms）；多個 agent
 // 同時跑全套（3 套 × 23 workers 擠 24 核）時會被拖過 3 秒——同一 commit 3 套並行實測 2 案
 // 「Unable to find」紅（ApiTokensSection、SettingsUsersSection 的第一個等待），單跑全綠。
@@ -59,7 +59,7 @@ if (typeof window.matchMedia !== "function") {
 }
 
 // jsdom 的 getBoundingClientRect() 回傳的物件沒有 toJSON，BlockNote 的
-// SuggestionMenuView.update（wikilink autocomplete，Plan 3）呼叫時會直接炸掉。
+// SuggestionMenuView.update（wikilink autocomplete）呼叫時會直接炸掉。
 // 這裡墊一個真正的 DOMRect（含 toJSON）當預設值；需要真實尺寸的測試請自行 spy 覆寫。
 Element.prototype.getBoundingClientRect = function () {
   return new DOMRect(0, 0, 0, 0);

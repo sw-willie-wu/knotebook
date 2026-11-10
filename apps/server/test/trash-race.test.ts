@@ -1,8 +1,8 @@
 /**
- * #181 PR-2a T12：垃圾桶交易彼此的併發（spec §6.14、A2-16 併發半、M-D）。以拋棄式 pg 實跑：一方卡在 T3 的鎖後縫，
+ * #181：垃圾桶交易彼此的併發。以拋棄式 pg 實跑：一方卡在 T3 的鎖後縫，
  * 另一方送出後以 `waitForLockWaiters` 確認它真的在等鎖（交錯真的發生），放行後斷言結果只會是指定的那一種。
  * 「移入×上傳」的另一形（個人筆記、既有附件）在 `notes-delete-race.test.ts`；這裡是群組筆記、成員上傳，並接著永久刪除。
- * RC-DL：刪群組（全刪／轉移）× 多 id 永久刪除／還原的鎖序（T12b 統一依 id 鎖之後不再成環），以及還原／永久刪除被併發犧牲時的 409。
+ * RC-DL：刪群組（全刪／轉移）× 多 id 永久刪除／還原的鎖序（統一依 id 鎖之後不再成環），以及還原／永久刪除被併發犧牲時的 409。
  */
 import { randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
@@ -77,7 +77,7 @@ async function blockedOrBail(pool: Pool, n: number, bail: () => void, inflight: 
   }
 }
 
-describe("RC1 移入 × 移入（M-D）", () => {
+describe("RC1 移入 × 移入", () => {
   it("第一個卡在鎖後、第二個等鎖 → 204／404；後到那次的 release 不收掉先到那次的閘門；deleted_by 是第一個人", async () => {
     const seams = new Seams();
     const ctx = await buildCollabTestApp({ collabHooks: (server, log) => createCollabHooks(server, log), groupTestHook: seams.group });
@@ -332,8 +332,8 @@ describe("RC5 角色降級 × 還原", () => {
 });
 
 /**
- * RC-DL：刪群組 × 多 id 永久刪除／還原的鎖序（資料夾 spec gate 實跑 5/14 撞到的形；T12 實跑確認會死結，T12b 修）。
- * 兩篇 a < b（id），但全刪的掃描順序（視 plan：實體或 `notes_group_slug_idx` 的 slug 序）與轉移的 created_at 序都是 b 先。
+ * RC-DL：刪群組 × 多 id 永久刪除／還原的鎖序（實跑撞到過的形，會死結）。
+ * 兩篇 a < b（id），但全刪的掃描順序（實體或 `notes_group_slug_idx` 的 slug 序）與轉移的 created_at 序都是 b 先。
  * 修法：全刪、轉移都改依 id 升冪鎖（與垃圾桶三支、`deleteNotesInTx` 同序），轉移的 slug 處理順序另在 JS 依 created_at, id 排。
  * 決定性的造法：測試連線先持 a 的列鎖 → 永久刪除／還原排在 a 上（什麼都還沒鎖）→ 刪群組也排在 a 上 → 測試放掉 a：
  * a 的佇列先進先出，永久刪除／還原先拿到 a、再拿 b、commit；刪群組之後才拿到鎖。改回舊鎖序（刪群組先鎖 b 再等 a）就成環 → 40P01。

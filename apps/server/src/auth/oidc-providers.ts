@@ -9,7 +9,7 @@ import type { OidcRuntimeRegistry } from "./oidc-client.js";
 import { providerIconColumns, toPublicProvider } from "./provider-icon.js";
 
 // #187：provider 列的讀取與 identity ↔ provider 對照。**所有對照一律用 effective issuer**
-// ＝`coalesce(resolved_issuer, issuer_url)`（spec §4.1 r1-I1；§18 排他句「plan 以 grep `issuer_url =` 複驗」）。
+// ＝`coalesce(resolved_issuer, issuer_url)`（不得直接比 `issuer_url =`）。
 
 export const OIDC_CLIENT_SECRET_NAMESPACE = "oidc-client-secret";
 
@@ -66,7 +66,7 @@ export async function loadEnabledProvider(db: DbOrTx, id: string): Promise<OidcP
   return withClientId(row);
 }
 
-/** 舊路由（`/api/auth/oidc/login`、`/callback`，B13）對應的那一個 provider。 */
+/** 舊路由（`/api/auth/oidc/login`、`/callback`）對應的那一個 provider。 */
 export async function loadLegacyProvider(db: DbOrTx): Promise<OidcProviderRow | null> {
   const [row] = await db
     .select(providerColumns())
@@ -76,7 +76,7 @@ export async function loadLegacyProvider(db: DbOrTx): Promise<OidcProviderRow | 
   return withClientId(row);
 }
 
-/** `/api/auth/config` 用：啟用中的服務（公開形）＋其中開了自動建帳的 id（PR-C §3.4），兩者同一個排序。 */
+/** `/api/auth/config` 用：啟用中的服務（公開形）＋其中開了自動建帳的 id，兩者同一個排序。 */
 export async function listEnabledProvidersForConfig(
   db: DbOrTx,
 ): Promise<{ providers: AuthProviderPublicDto[]; autoCreateProviderIds: string[] }> {
@@ -89,8 +89,8 @@ export async function listEnabledProvidersForConfig(
 }
 
 /**
- * 本帳號已連結且啟用中的 provider，帶 effective issuer（§7.4 第 4 步、§7.5.2、§7.5.3 第 2 步）：啟用中，且本帳號有一個 identity 的
- * issuer 等於它的 effective issuer。給使用者看的清單一律再經 `excludeSameIssuerProviders`（`auth/issuer.ts`，B14）排除與待連結
+ * 本帳號已連結且啟用中的 provider，帶 effective issuer：啟用中，且本帳號有一個 identity 的
+ * issuer 等於它的 effective issuer。給使用者看的清單一律再經 `excludeSameIssuerProviders`（`auth/issuer.ts`）排除與待連結
  * 身分同 issuer 者——決策、`GET /api/auth/oidc/pending`、SSO 證明起點三處共用。收 `DbOrTx`：決策交易內以 tx 呼叫（S14：tx 內不得回頭用 pool）。
  */
 export async function linkedEnabledProvidersWithIssuer(
@@ -116,7 +116,7 @@ export async function linkedEnabledProvidersWithIssuer(
 }
 
 /**
- * spec §4.1：`resolved_issuer` 的寫入一律帶版本述詞、不在任何交易內（S14）。舊版本的 discovery 結果不得蓋掉新設定（PR2 改
+ * `resolved_issuer` 的寫入一律帶版本述詞、不在任何交易內（S14）。舊版本的 discovery 結果不得蓋掉新設定（改
  * issuer 會清 resolved_issuer 並 +1 版本）；值相同不寫（`IS DISTINCT FROM`）。回「真的寫了一列」。
  */
 export async function recordResolvedIssuer(db: Db, provider: { id: string; configVersion: number }, issuer: string): Promise<boolean> {
@@ -136,12 +136,12 @@ export async function recordResolvedIssuer(db: Db, provider: { id: string; confi
 
 /**
  * login／callback／SSO 證明起點共用：從 registry 取 discovery 結果（secret 只在建 runtime 時解），discovery 回報的 issuer
- * 與列上 `resolved_issuer` 不同就以版本述詞寫回（spec §6「第一次 discovery 成功後以版本述詞寫 resolved_issuer」——
- * registry 不碰 DB，由這裡寫；見 plan「spec 疑點」第 7 條）。
+ * 與列上 `resolved_issuer` 不同就以版本述詞寫回（第一次 discovery 成功後寫 resolved_issuer——
+ * registry 不碰 DB，由這裡寫）。
  *
  * 會 throw 的只有取 discovery 結果那一步，且一律是 `OidcUnavailableError`（registry 已包）。`resolved_issuer` 的寫回是
  * **盡力而為**：它失敗（DB 暫時錯誤等）時吞掉、記一筆 warn（只帶 provider id 與錯誤訊息），照常回傳 configuration——
- * 這次登入用不到它（身分的 issuer 取自 discovery 結果本身），下一次 discovery 結果照樣會再試著寫（#187 Task 8，Task 3 審查）。
+ * 這次登入用不到它（身分的 issuer 取自 discovery 結果本身），下一次 discovery 結果照樣會再試著寫（#187）。
  */
 export async function providerConfiguration(
   deps: { db: Db; registry: OidcRuntimeRegistry; appSecret: string; log?: { warn(obj: object, msg: string): void } },
@@ -166,8 +166,8 @@ export async function providerConfiguration(
 }
 
 /**
- * #187 §9.2：測試連線／先試探的非致命提醒（`secret_undecryptable` 由 `/test` 另判）。
- * - `insecure_issuer`：管理員填的 issuer 是明文 http（§5.3）。
+ * #187：測試連線／先試探的非致命提醒（`secret_undecryptable` 由 `/test` 另判）。
+ * - `insecure_issuer`：管理員填的 issuer 是明文 http。
  * - `client_secret_post_not_advertised`：discovery 沒宣告 `client_secret_post`——Knotebook 一律用它（`oidc-client.ts` 的
  *   `ClientSecretPost`），沒宣告時換 token 可能被拒。欄位缺席也算（RFC 8414 的預設是 `client_secret_basic`）。
  */

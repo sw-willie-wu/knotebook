@@ -3,7 +3,7 @@ import { fireEvent, render } from "@testing-library/react";
 import { AGENT_PRESENCE_COLOR, avatarUrl } from "@knotebook/shared";
 import { Avatar } from "./Avatar";
 
-// #293 §9.2／§11：頭像三形（首字、圖與失敗退首字、AI）與外框。
+// #293：頭像三形（首字、圖與失敗退首字、AI）與外框。
 
 const ID = "0f8fad5b-d9cb-469f-a165-70867728950e";
 

@@ -168,6 +168,156 @@
       "copyFailed": "無法自動複製——請選取上方的連結手動複製。",
       "done": "完成"
     },
+    "limits": {
+      "title": "站台限制",
+      "description": "改了立即生效。由伺服器 .env 設定的項目在這裡是鎖住的，要改請改 .env 並重啟伺服器。",
+      "categories": {
+        "uploadsNotes": "上傳與筆記",
+        "parseWorkers": "解析 worker",
+        "rateLimits": "速率限制",
+        "bulkTransfer": "批次讀寫",
+        "signIn": "登入期限與 token"
+      },
+      "items": {
+        "uploadMaxBytes": {
+          "label": "上傳檔案大小上限",
+          "description": "單一檔案最大可上傳多大。下一次上傳就套用。"
+        },
+        "noteMaxBytes": {
+          "label": "筆記大小上限",
+          "description": "單篇筆記內容的大小上限。下一次寫入就套用。"
+        },
+        "parseWorkers": {
+          "label": "解析 worker 數",
+          "description": "同時把 API／MCP 寫入的 Markdown 轉成筆記內容、把筆記轉成 Markdown 讀出的 worker 數。留空＝依這台伺服器自動決定。"
+        },
+        "parseWorkerMemoryMb": {
+          "label": "每個 worker 記憶體上限",
+          "description": "每個 worker 可用的記憶體。用量超過一半時會換新的 worker。"
+        },
+        "parseTimeoutMs": {
+          "label": "解析時限",
+          "description": "單次轉換最長可跑多久，超過就中止。"
+        },
+        "parseQueueWaitMs": {
+          "label": "排隊最長等待",
+          "description": "請求等空閒 worker 的最長時間，超過就回覆忙碌。留空＝依解析時限自動決定。"
+        },
+        "rateTokenRead": {
+          "label": "API／MCP 讀取次數",
+          "description": "每人以 API token 或 MCP 讀取的次數上限。"
+        },
+        "rateTokenWrite": {
+          "label": "API／MCP 寫入次數",
+          "description": "每人以 API token 或 MCP 寫入的次數上限。"
+        },
+        "rateContentRead": {
+          "label": "讀筆記內容次數",
+          "description": "每人讀取筆記內容的次數上限。"
+        },
+        "rateEdit": {
+          "label": "寫筆記內容次數",
+          "description": "每人寫入筆記內容的次數上限。建立有內容的筆記、複製筆記、MCP 刪除與還原、儲存或還原版本，也都算在這個額度內。"
+        },
+        "rateSearch": {
+          "label": "全文搜尋次數",
+          "description": "每人全文搜尋的次數上限。"
+        },
+        "rateUpload": {
+          "label": "上傳與複製次數",
+          "description": "每人上傳檔案的次數上限。複製筆記時，每個被複製的附件也算一次；沒有附件的複製不算。"
+        },
+        "rateAi": {
+          "label": "站內 AI 次數",
+          "description": "每人使用站內 AI 的次數上限。"
+        },
+        "rateTransferExport": {
+          "label": "批次下載次數",
+          "description": "每人批次下載的次數上限。"
+        },
+        "rateTransferWrite": {
+          "label": "批次寫回次數",
+          "description": "每人批次寫回的次數上限。"
+        },
+        "sessionTtlSeconds": {
+          "label": "網頁登入有效期",
+          "description": "網頁登入多久後失效。只影響之後新登入的人。"
+        },
+        "apiTokensPerUser": {
+          "label": "每人有效 API token 上限",
+          "description": "每人最多可持有幾個有效的 API token。調低不會撤銷既有 token。"
+        }
+      },
+      "units": {
+        "mib": "MiB",
+        "seconds_one": "秒",
+        "seconds_other": "秒",
+        "hours_one": "小時",
+        "hours_other": "小時",
+        "count_one": "次",
+        "count_other": "次",
+        "workers_one": "個",
+        "workers_other": "個",
+        "tokens_one": "個",
+        "tokens_other": "個",
+        "bytes_one": "bytes",
+        "bytes_other": "bytes",
+        "ms": "ms"
+      },
+      "defaultAndRange": "預設 {{default}} · 範圍 {{min}}–{{max}}",
+      "defaultAndRangeWindow": "預設 {{default}} · 範圍 {{min}}–{{max}} · 每 {{window}}",
+      "defaultAuto": "自動",
+      "window": {
+        "minutes_one": "{{count}} 分鐘",
+        "minutes_other": "{{count}} 分鐘",
+        "hours_one": "{{count}} 小時",
+        "hours_other": "{{count}} 小時"
+      },
+      "status": {
+        "auto": "自動：{{value}}（{{source}}）",
+        "autoSourceCpu": "依 CPU",
+        "autoSourceMemory": "依記憶體",
+        "autoPlain": "自動：{{value}}",
+        "adjusted": "已調整",
+        "lockedByEnv": "由 .env 的 {{env}} 設定，要改請改 .env 並重啟伺服器。",
+        "outOfRange": "超出管理頁可調範圍。",
+        "storedNotApplied": "管理頁存的值 {{value}} 不會生效。",
+        "storedIgnored": "存的值 {{value}} 超出目前範圍，未套用。"
+      },
+      "actions": {
+        "resetDefault": "恢復預設",
+        "resetAuto": "改回自動",
+        "save": "儲存",
+        "saving": "儲存中…",
+        "saved": "已儲存。"
+      },
+      "consequences": {
+        "parseTimeoutMs": "調低後，整段密集格式（例如大量換行分隔的字）的寫入可能被拒；讀出與批次下載的時限是這個值的 3 倍，太低時大筆記可能讀不出來。",
+        "parseWorkerMemoryMb": "調低後，整段密集格式（量過的要 640–768 MiB）與巢狀很深的格式可能被拒，大筆記的讀出也可能因記憶體不足失敗；worker 也會更常換新，處理速度可能變慢。",
+        "parseQueueWaitMs": "比「4 × 解析時限＋5 秒」短時，排在一件慢工作後面的請求可能先收到忙碌錯誤。"
+      },
+      "machine_one": "這台伺服器：{{count}} 個 CPU、{{memory}} GiB 記憶體（{{source}}）",
+      "machine_other": "這台伺服器：{{count}} 個 CPU、{{memory}} GiB 記憶體（{{source}}）",
+      "memoryWarning_one": "可能超過記憶體：約需 {{needed}} MB（{{count}} 個 worker × ({{memoryMb}} + 150) MB ＋ 1000 MB，再加 20%），假設 PostgreSQL 跑在同一台。仍可儲存。",
+      "memoryWarning_other": "可能超過記憶體：約需 {{needed}} MB（{{count}} 個 worker × ({{memoryMb}} + 150) MB ＋ 1000 MB，再加 20%），假設 PostgreSQL 跑在同一台。仍可儲存。",
+      "changes": {
+        "heading": "最近的修改",
+        "empty": "還沒有修改。",
+        "time": "時間",
+        "actor": "誰",
+        "item": "項目",
+        "change": "變更",
+        "actorGone": "已不存在的帳號",
+        "toDefault": "預設（{{value}}）",
+        "toAuto": "自動（{{value}}）",
+        "arrow": "{{from}} → {{to}}"
+      },
+      "validation": {
+        "notInteger": "請輸入整數。",
+        "outOfRange": "請輸入 {{min}} 到 {{max}} 的整數。"
+      },
+      "invalidRange": "數值不在可調範圍內。"
+    },
     "invites": {
       "create": "建立邀請",
       "createTitle": "建立邀請",
@@ -314,7 +464,7 @@
         "copy": "複製",
         "copied": "已複製。",
         "copyFailed": "無法自動複製——請手動選取。",
-        "scopes": "讀取：可用 list_notes、search_notes、read_note_outline、read_note_section、read_note_image、list_trash、list_folders、create_transfer_token（下載）、create_bulk_transfer_token（把多篇筆記下載成檔案）。編輯：另開 edit_note、create_note、copy_note（複製到個人）、create_folder、rename_folder、move_folder、move_note_to_folder 與 create_transfer_token 的上傳，並可把 create_bulk_transfer_token 下載的檔案送回。搬移：才能用 move_note_to_group 與複製到群組（移入群組不可逆，所以獨立成一個權限）。刪除：才能用 delete_note、restore_note 與 delete_folder（移到垃圾桶與還原；delete_folder 可能把資料夾裡的筆記移到垃圾桶；這裡沒有工具會永久刪除筆記，但留在垃圾桶的筆記之後仍可能被永久刪除——依站台的垃圾桶設定，或有人在網頁上刪除）。"
+        "scopes": "讀取：可用 list_notes、search_notes、read_note_outline、read_note_section、read_note_image、list_trash、list_folders、create_transfer_token（下載）、open_notes_as_files（把一篇或多篇筆記下載成檔案）。編輯：另開 edit_note、create_note、copy_note（複製到個人）、create_folder、rename_folder、move_folder、move_note_to_folder 與 create_transfer_token 的上傳，並可把 open_notes_as_files 下載的檔案送回。搬移：才能用 move_note_to_group 與複製到群組（移入群組不可逆，所以獨立成一個權限）。刪除：才能用 delete_note、restore_note 與 delete_folder（移到垃圾桶與還原；delete_folder 可能把資料夾裡的筆記移到垃圾桶；這裡沒有工具會永久刪除筆記，但留在垃圾桶的筆記之後仍可能被永久刪除——依站台的垃圾桶設定，或有人在網頁上刪除）。"
       },
       "tokens": {
         "name": "名稱",

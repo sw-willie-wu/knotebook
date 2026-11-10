@@ -1,5 +1,5 @@
 /**
- * 資料夾 PR-3a T3：SQL 片段（`folders/sql.ts`）、可見性查詢（`folders/queries.ts`）、結構鎖與交易內讀取（`folders/tx/lock.ts`）。
+ * 資料夾：SQL 片段（`folders/sql.ts`）、可見性查詢（`folders/queries.ts`）、結構鎖與交易內讀取（`folders/tx/lock.ts`）。
  * 直接對 DB 跑，不經路由。
  */
 import { randomUUID } from "node:crypto";
@@ -24,7 +24,7 @@ import { sixRoleScene } from "./trash-helpers.js";
 import { noteFolderCols, seedFolder, seedFolderChain, setNoteFolder } from "./folder-helpers.js";
 import { INJECTED_LOCK_TIMEOUT_BOUND_MS, SLOW_DEFAULT_LOCK_TIMEOUT_MS } from "./lock-timeout-bound.js";
 
-/** drizzle logger 會記交易控制語句（H7）——數 SQL 前先濾掉。 */
+/** drizzle logger 會記交易控制語句——數 SQL 前先濾掉。 */
 const TXN_CONTROL = /^(begin|commit|rollback)\b/i;
 const loggedDb = (pool: Pool, queries: string[]) => drizzle(pool, { logger: { logQuery: (q: string) => queries.push(q) } }) as unknown as Db;
 const ids = async (db: Db, inner: ReturnType<typeof subtreeFolderIdsSql>) =>
@@ -205,7 +205,7 @@ describe("資料夾可見性（folders/queries.ts、folders/tx/lock.ts）", () =
     expect(await resolveFolderAccess(db, s.admin.id, randomUUID())).toBeNull();
     await expect(resolveFolderAccess(db, s.admin.id, "x")).resolves.toBeNull();
 
-    // 站台管理員沒有特權（spec §5.5）：非成員看不到群組資料夾、看不到別人的 personal／shared，清單也是空的
+    // 站台管理員沒有特權：非成員看不到群組資料夾、看不到別人的 personal／shared，清單也是空的
     const siteAdmin = await seedUser(db, { isAdmin: true });
     for (const f of [gf, pf, sf]) expect(await resolveFolderAccess(db, siteAdmin.id, f.id), f.name).toBeNull();
     expect(await db.transaction(tx => folderAccessInTx(tx, siteAdmin.id, gfRow!))).toBeNull();

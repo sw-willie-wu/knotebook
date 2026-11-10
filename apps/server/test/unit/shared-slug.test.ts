@@ -176,7 +176,7 @@ describe("autoSlugFromTitle", () => {
   });
 
   it("截長：>60 字元標題 → 截 60（與 0007 SQL 版同界）", () => {
-    // 此組輸入/期望值供 0007 的 SQL/TS 雙實作對照複用（同 PR Task 2）——改值要兩處一起
+    // 此組輸入/期望值供 0007 的 SQL/TS 雙實作對照複用——改值要兩處一起
     const title = "Q3 Planning Meeting Notes For The Whole Engineering Organization Retro";
     expect(autoSlugFromTitle(title)).toBe("q3-planning-meeting-notes-for-the-whole-engineering-organiza");
   });
@@ -239,7 +239,7 @@ describe("canonicalNotePath", () => {
 });
 
 describe("publicAliasPath", () => {
-  // #122 PR3：`/p/` 兩段形**頁面**網址組字點（gate m-2 收窄版）——ShareDialog
+  // #122：`/p/` 兩段形**頁面**網址組字點——ShareDialog
   // 前綴/複製走它；API 網址另有 web 的 public-note-ref.ts（編碼政策不同、刻意
   // 不共用，見 shared 的 JSDoc）。不編碼理由同 canonicalNotePath。
   it("→ /p/<handle>/<slug>；非 ASCII 原樣", () => {

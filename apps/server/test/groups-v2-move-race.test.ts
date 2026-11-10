@@ -1,8 +1,8 @@
 /**
- * #175 PR2 T3（spec §6.3）的交錯案：C1（同篇同時移兩處）、C5（移動 × 刪群組：C5a 全刪空群組、C5b 轉移）、C6（移動 × PUT shares，S5）、
+ * #175 的交錯案：C1（同篇同時移兩處）、移動 × 刪群組（C5a 全刪空群組、C5b 轉移）、移動 × PUT shares、
  * C13／C14（移動 × public-link token／別名 PUT）、C15（移動 × 自訂 slug PATCH）、C18a／C18b／C18c（移動 × 移除成員／降級，
- * review r1 m-1：(1) 對目標群組列取 KEY SHARE，與 `lockGroup` 互斥；r2 m-3 補反向順序）、C18d（移動 × 改群組名，r2 m-2）。
- * C18 原叫 C17a／b，與 spec §11 既有的 C17（刪群組・全刪 vs 轉移）撞號，r2 m-1 改名。
+ * 對目標群組列取 KEY SHARE，與 `lockGroup` 互斥；另有反向順序）、C18d（移動 × 改群組名）。
+ *
  * 要證明「測到的是交錯」的案在注入縫裡呼叫 `waitForBlockedOrSettled`，最後斷言 `"blocked"`；C13–C15 在縫裡
  * `await` 一次完整的移動請求（授權之後、寫入之前的窗，序列即可）。
  */
@@ -29,7 +29,7 @@ function raceHook(point: GroupRacePoint, state: RaceState, holder: { pool?: Pool
   };
 }
 
-describe("#175 PR2 移動的交錯（C1／C5／C6）", () => {
+describe("#175 移動的交錯（C1）", () => {
   it("C1 同一篇同時移進 G1、G2：先拿到 FOR UPDATE 的成功；後到者讀到 owner NULL → 409 conflict；轉址恰一列", async () => {
     const state: RaceState = {};
     const holder: { pool?: Pool } = {};
@@ -148,10 +148,10 @@ describe("#175 PR2 移動的交錯（C1／C5／C6）", () => {
   });
 });
 
-describe("#175 PR2 移動 × 成員異動（C18a／C18b／C18c）", () => {
+describe("#175 移動 × 成員異動（C18a／C18b／C18c）", () => {
   // C18a／b：成員異動先拿到 `lockGroup`（group-members-checked）→ 移動 (1) 的 KEY SHARE 等它 commit → 讀到異動後的成員資格。
   // C18c 是反過來（移動先持鎖、成員異動等它）：移動 commit 後路由在交易外重讀筆記組回應，可能與成員異動的 commit
-  // 競速，回應不一定決定（review r2 第 3 節：自然時序 10/10 回 200，強制異動先 commit 可構造出 404）——所以只斷言
+  // 競速，回應不一定決定（自然時序 10/10 回 200，強制異動先 commit 可構造出 404）——所以只斷言
   // 決定性的部分：最終狀態是「先移動、後異動」，異動的踢線名單含剛移入的筆記。
   // 拿掉 KEY SHARE（突變實測）：移動讀到異動 commit 前的成員資格而通過，UPDATE 的 FK 才等鎖（interleave 仍 blocked），
   // 之後移動照樣 commit、筆記進了群組——C18b 回 200；C18a 回 404 `not_found`（commit 後重讀時呼叫者已不是成員）。
@@ -240,7 +240,7 @@ describe("#175 PR2 移動 × 成員異動（C18a／C18b／C18c）", () => {
   });
 });
 
-describe("#175 PR2 移動 × 改群組名（C18d）", () => {
+describe("#175 移動 × 改群組名（C18d）", () => {
   it("C18d 移動持 groups KEY SHARE（note-move-locked）時改群組名不被擋 → 改名在移動放行前就完成（settled）、200；移動 200", async () => {
     const state: RaceState = {};
     const holder: { pool?: Pool } = {};
@@ -266,7 +266,7 @@ describe("#175 PR2 移動 × 改群組名（C18d）", () => {
   });
 });
 
-describe("#175 PR2 授權之後被移走（C13／C14／C15）", () => {
+describe("#175 授權之後被移走（C13／C14／C15）", () => {
   it("C13 token PUT 授權之後（public-link-authorized）筆記被移走 → PUT 409 conflict；token 仍 NULL", async () => {
     const state: { noteId?: string; fire?: () => Promise<LightMyRequestResponse>; moved?: LightMyRequestResponse } = {};
     const built = await buildTestApp({
@@ -297,7 +297,7 @@ describe("#175 PR2 授權之後被移走（C13／C14／C15）", () => {
         if (point !== "public-link-authorized" || ctx.noteId !== state.noteId || state.moved) return;
         state.moved = await move(holder.app!, state.noteId!, state.userId!, state.groupId!);
         // 移進群組後，有 managePublicLink 的成員（這裡是 owner 本人，群組內建管理員）重開 token——別名 UPDATE 的
-        // `public_token IS NOT NULL` 因此為真，只剩 `group_id IS NULL` 擋住撞 S11 CHECK（500）。
+        // `public_token IS NOT NULL` 因此為真，只剩 `group_id IS NULL` 擋住撞 CHECK（500）。
         state.reopened = await holder.app!.inject({ method: "PUT", url: `/api/notes/${state.noteId}/public-link`, cookies: await cookieOf(state.userId!) });
       },
     });

@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 編輯器泛型三元組，走 repo 慣例用 any（防循環 import，同 spec.tsx）
 type AnyEditor = BlockNoteEditor<any, any, any>;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- ProseMirror Node 型別在 apps/web 值層級拿不到（memory knotebook-markdown-link-rule）
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- ProseMirror Node 型別在 apps/web 值層級拿不到
 type AnyPmNode = any;
 
 export interface WikilinkToolbarProps {
@@ -37,12 +37,12 @@ export interface WikilinkToolbarProps {
 const TARGET_LIMIT = 20;
 
 /**
- * #269 §7.4（rev 7）：編輯模式 wikilink 的小工具列（hover／觸控長按開，見 `useToolbarTriggers`；三鈕，沒有「開啟」——
+ * #269：編輯模式 wikilink 的小工具列（hover／觸控長按開，見 `useToolbarTriggers`；三鈕，沒有「開啟」——
  * 點連結本身就跳轉）。開啟時不搶焦點（`onOpenAutoFocus` prevent，同 BlockNote 連結工具列）。Radix Popover 錨在連結元素；Esc／點外關閉；焦點回歸放在
  * `onCloseAutoFocus`（按鈕、Esc、點外三條關閉路徑都經過它），而且**只在焦點無處可去**（`activeElement` 是 body 或 null）時才拉回
  * 編輯器：點外點到可聚焦的元素（標題欄、另一個 wikilink 的工具列）時焦點已經在那裡，不可搶走。
  * `preventDefault()`：Radix 的 Popover 內容在我們的 handler 之後，若事件沒被 prevent 會做 `triggerRef.current?.focus()`——現在用
- * `Popover.Anchor`、沒有 Trigger 所以是 no-op（拿掉它測試全綠，T10-M4）；留著是防日後改用 `Popover.Trigger` 時焦點被搶回觸發鈕。
+ * `Popover.Anchor`、沒有 Trigger 所以是 no-op（拿掉它測試全綠）；留著是防日後改用 `Popover.Trigger` 時焦點被搶回觸發鈕。
  */
 export function WikilinkToolbar(p: WikilinkToolbarProps) {
   const { t } = useTranslation();
@@ -151,9 +151,9 @@ export function findWikilinkPos(editor: AnyEditor, el: HTMLElement): { pos: numb
 }
 
 /**
- * 移除連結（§7.4 第三鈕）：把 `el` 那一個 wikilink 節點在一筆 transaction 裡換成純文字。找不到回 false。
+ * 移除連結（第三鈕）：把 `el` 那一個 wikilink 節點在一筆 transaction 裡換成純文字。找不到回 false。
  * 節點身上的其他 mark（粗體、文字顏色…：PM 節點帶得到，雖然 BlockNote 的 JSON 不列）原樣留給文字；只丟 `link` mark
- * （不帶 link mark ⇒ §8.4 外掛不會再轉）。`placeCaret`：同一筆 transaction 把游標放到換出來的文字尾（工具列開啟時編輯器
+ * （不帶 link mark ⇒ 站內連結轉換外掛不會再轉）。`placeCaret`：同一筆 transaction 把游標放到換出來的文字尾（工具列開啟時編輯器
  * 沒有焦點，關閉後拉回焦點時游標要在連結原處，不是舊選取）。
  */
 export function removeWikilinkNode(editor: AnyEditor, el: HTMLElement, text: string, placeCaret = false): boolean {

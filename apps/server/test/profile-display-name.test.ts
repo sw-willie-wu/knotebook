@@ -1,4 +1,4 @@
-/** #247 §9.3：PATCH /api/auth/profile 加 displayName（驗證同註冊；純 UPDATE 不進改名交易；gate.invalidate）。 */
+/** #247：PATCH /api/auth/profile 加 displayName（驗證同註冊；純 UPDATE 不進改名交易；gate.invalidate）。 */
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -13,7 +13,7 @@ async function call(app: FastifyInstance, method: "GET" | "PATCH", url: string, 
   return app.inject({ method, url, ...(who ? { cookies: await cookieOf(who) } : {}), ...(payload !== undefined ? { payload: payload as object } : {}) });
 }
 
-describe("PATCH /api/auth/profile — displayName（#247 §9.3）", () => {
+describe("PATCH /api/auth/profile — displayName（#247）", () => {
   it("只帶 displayName：200 回寫入後的 UserDto（已 trim）、DB 寫入、緊接 /me 回新名（gate.invalidate，不等 60 秒快取）", async () => {
     const { app, db } = await buildTestApp();
     const u = await seedUser(db, { displayName: "Old Name" });
@@ -56,7 +56,7 @@ describe("PATCH /api/auth/profile — displayName（#247 §9.3）", () => {
     expect(ok.json()).toMatchObject({ displayName: "Won", handle: `${u.handle}-y` });
   });
 
-  it("Review Focus 3：不合法 → 400 invalid_body（不是 500、不寫）；100 個 astral 字元放行；{} 400；未登入 401", async () => {
+  it("不合法 → 400 invalid_body（不是 500、不寫）；100 個 astral 字元放行；{} 400；未登入 401", async () => {
     const { app, db } = await buildTestApp();
     const u = await seedUser(db, { displayName: "Stay" });
     for (const displayName of ["", "   ", "　　", EMOJI.repeat(101), "x".repeat(101), `a${NUL}b`, "a\uD800b", 5, null]) {

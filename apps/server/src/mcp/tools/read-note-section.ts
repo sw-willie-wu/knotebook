@@ -1,20 +1,20 @@
 /**
- * #108 §8.4 `read_note_section`：一段筆記的 markdown，單次上限 4000 個 UTF-16 code unit。
+ * #108 `read_note_section`：一段筆記的 markdown，單次上限 4000 個 UTF-16 code unit。
  *
- * ⚠ **`fingerprint` 只隨「結束該段的那一頁」附上**（D16／M12(3)）。
+ * ⚠ **`fingerprint` 只隨「結束該段的那一頁」附上**。
  * **理由是正確性，不是安全**：`replace_section` 是整段取代——模型讀了前 4000 字元、以為那
  * 就是全部，寫回去就吃掉了沒讀到的尾巴，而且它不會知道自己刪了什麼。**它防的是循序讀取的
  * 誠實 agent**：`offset` 沒有上界，一發大 `offset` 的呼叫同樣算結束頁、照樣拿得到指紋
- * （規格 §8.4 rev 5 的誠實降級）。**不得把這條寫成一道安全防線。**
+ * （這是刻意接受的降級）。**不得把這條寫成一道安全防線。**
  *
  * ⚠ `truncated` 時附上的 `note` 是**解釋性文案**（解釋為什麼沒有 `fingerprint`、怎麼拿到），
- * **不是防線**——沒有任何驗收去斷言「這個欄位存在就安全」（規格 §14.3 對 rev 1 那句的更正）。
+ * **不是防線**——沒有任何驗收去斷言「這個欄位存在就安全」。
  *
  * ⚠ **`heading` 刻意不回**：它在 `NoteOutlineEntry` 上沒有任何上限，留著就得再截一次；
  * 而那顆標題本來就在 `markdown` 的第一行。
  *
  * ⚠ `section_id` **從來不進 SQL**（`readNoteContent` → `outlineOf` → 記憶體裡的 `find`），
- * 所以不變量 S 對它只有前兩關（格式 guard ＋ NUL），由 `SEC` 這個 schema 承擔（M9／M14）。
+ * 所以不變量 S 對它只有前兩關（格式 guard ＋ NUL），由 `SEC` 這個 schema 承擔。
  */
 import { z } from "zod";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -32,9 +32,9 @@ export const READ_NOTE_SECTION_DESCRIPTION =
   `At most ${MCP_SECTION_CHARS} characters per call: while \`truncated\` is true, call again with \`offset\` ` +
   "set to `nextOffset`. The `fingerprint` you need to replace this section arrives with the page that " +
   "finishes it, so read to the end before you rewrite it. " +
-  // 並排 PR-2（spec §11.5）：有寬度的圖片也是 `<figure>`。「for example」是舉例不是窮舉（整塊輸出成 HTML 的節點裡，圖片照該節點的 HTML 形；
-  // 讀碼發現 15 之前寫入收合區塊的圖片是含站台位址的絕對網址，所以主句只說「位址裡有 upload id」），這句只負責讓模型找到 id；
-  // 不提表格格子（Q3，PR-2 沒有格子圖片）。
+  // 並排：有寬度的圖片也是 `<figure>`。「for example」是舉例不是窮舉（整塊輸出成 HTML 的節點裡，圖片照該節點的 HTML 形；
+  // 舊版寫入收合區塊的圖片是含站台位址的絕對網址，所以主句只說「位址裡有 upload id」），這句只負責讓模型找到 id；
+  // 不提表格格子（格子裡不會有帶寬的圖片）。
   "An uploaded image's address contains its upload id, for example `/api/uploads/<id>` in `![name](/api/uploads/<id>)` or, for an image with " +
   "a caption or shown at a set width, in `<figure><img … src=\"/api/uploads/<id>\" …>…</figure>`; see them with read_note_image.";
 
@@ -77,7 +77,7 @@ export const readNoteSectionOutput = {
       .describe(
         "This page of the section, as markdown. The first page starts with the section's heading line — except " +
           "`_top`, which has no heading; a later page resumes where the last one stopped. Colored text and blocks come back as " +
-          // 並排 PR-2：5 欄以上的列讀得到、原樣寫回會被拒（spec §11.2 的 I5 例外），所以括號補寫入的欄數。
+          // 並排：5 欄以上的列讀得到、原樣寫回會被拒（例外），所以括號補寫入的欄數。
           "HTML, as do images shown at a set width, tables with set column widths, and the <div> tags around side-by-side columns; " +
           "write it back unchanged to keep them (edit_note takes rows of 2 to 4 columns). " +
           READ_NOTE_LINK_SENTENCE
@@ -102,9 +102,9 @@ export interface ReadNoteSectionArgs {
 export async function readNoteSection(args: ReadNoteSectionArgs, ctx: McpToolCtx): Promise<CallToolResult> {
   const access = await authorizeNoteRead(ctx, args.note_id, args.section_id);
   if (!access.ok) return access.error;
-  // D-A：這支工具只在 `collab` 與 `editing` 都在時才註冊，所以經 HTTP 到不了這裡。留著是
+  // 這支工具只在 `collab` 與 `editing` 都在時才註冊，所以經 HTTP 到不了這裡。留著是
   // 因為 `ctx.editing` 在型別上是選配——`runTool()` 會把它轉成 `internal`，不讓例外冒到 SDK。
-  // ⚠ 誠實記下：**本棒沒造這個場景**（工具刻意設計成可單獨呼叫，單元探針測得到），不是測不到。
+  // ⚠ 單元測試造得出這個場景（工具刻意設計成可單獨呼叫），只是目前沒有。
   if (ctx.editing === undefined) throw new Error("read_note_section：editing runtime 缺席（不該被註冊）");
 
   let result: Awaited<ReturnType<typeof readNoteContent>>;

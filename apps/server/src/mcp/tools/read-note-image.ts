@@ -1,7 +1,7 @@
 /**
- * #200 §7：`read_note_image(note_id, upload_id)`。collab 閘門**外**、讀寫／唯讀／session 都註冊（只讀 DB 與磁碟）；
+ * #200：`read_note_image(note_id, upload_id)`。collab 閘門**外**、讀寫／唯讀／session 都註冊（只讀 DB 與磁碟）；
  * 描述依 `authKind` 二選一（session 沒有 `create_transfer_token`）。
- * 流程（§7.3，Q3 放寬規則＝對齊 `GET /api/uploads/:id`）：`authorizeNoteRead`（none → not_found、扣 contentRead、token 路徑 touch presence）
+ * 流程（放寬規則＝對齊 `GET /api/uploads/:id`）：`authorizeNoteRead`（none → not_found、扣 contentRead、token 路徑 touch presence）
  * → 查上傳列 → 上傳屬別篇時再 `resolveRole(上傳所屬筆記)`，none → 同一個 not_found → 上限 → 讀檔（ENOENT → 同一個 not_found）。
  * 「查無／讀不到所屬筆記／檔案不在」三者**在 MCP 內**同一句，不洩漏存在性（REST 的 403／404 區分是既有取捨，不在此宣稱）。
  */
@@ -19,7 +19,7 @@ import { toolError, toolResultWithImage } from "../tool-result.js";
 import type { McpToolCtx } from "../context.js";
 
 const UPLOAD_ID_RE = /^(?:\/api\/uploads\/)?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
-/** #200 §7.2（M11）：裸 UUID 或恰為 `/api/uploads/<uuid>`；NUL 守衛（今天被 regex 蓋住，同 NOTE_ID 的第二道）；transform 去前綴並小寫。 */
+/** #200：裸 UUID 或恰為 `/api/uploads/<uuid>`；NUL 守衛（今天被 regex 蓋住，同 NOTE_ID 的第二道）；transform 去前綴並小寫。 */
 export const UPLOAD_ID = z
   .string()
   .regex(UPLOAD_ID_RE)
@@ -51,7 +51,7 @@ function tooLarge(ctx: McpToolCtx, bytes: number, noteId: string): CallToolResul
   const tail = ctx.authKind === "token"
     ? ` Download it with create_transfer_token (purpose "download") for note ${noteId}.`
     : " Open it in the browser instead.";
-  // 回上傳**真正所屬**的 noteId：download transfer token 綁在那一篇（§7.3-4）。
+  // 回上傳**真正所屬**的 noteId：download transfer token 綁在那一篇。
   return toolError("file_too_large", head + tail, { noteId, bytes });
 }
 
@@ -64,7 +64,7 @@ export async function readNoteImage(args: { note_id: string; upload_id: string }
     .from(uploads)
     .where(eq(uploads.id, args.upload_id));
   if (!row) return toolError("not_found", NOT_READABLE_MESSAGE);
-  // Q3 放寬：上傳屬別篇時，呼叫者也要讀得到那一篇（＝瀏覽器 GET /api/uploads/:id 的授權依據）。
+  // 放寬：上傳屬別篇時，呼叫者也要讀得到那一篇（＝瀏覽器 GET /api/uploads/:id 的授權依據）。
   if (row.noteId !== noteId && (await resolveRole(ctx.db, ctx.userId, row.noteId)) === "none") {
     return toolError("not_found", NOT_READABLE_MESSAGE);
   }

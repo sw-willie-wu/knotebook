@@ -38,7 +38,7 @@ afterAll(async () => {
   for (const p of pools) await p.close();
 });
 
-/** 審查（ffrv3）的形：premerge 跳過的子樹裡的引言（同執行緒約 25 秒）、深度×內容（同執行緒把 4 GB 吃光）、幾千層巢狀。 */
+/** 實測會出事的形狀：premerge 跳過的子樹裡的引言（同執行緒約 25 秒）、深度×內容（同執行緒把 4 GB 吃光）、幾千層巢狀。 */
 const ps = (n: number) => Array.from({ length: n }, (_, k) => `<p>q${k}</p>`).join("");
 const SLOW_FIGCAPTION = "<figcaption><blockquote>" + ps(2000) + "</blockquote></figcaption>";
 const OOM_QUOTE_BOLD = "> ".repeat(120) + "**x** ".repeat(15000);
@@ -87,7 +87,7 @@ describe("時限、記憶體上限、主執行緒不被卡住", () => {
     expect(await pool.parse(req("# ok"))).toMatchObject({ unbound: 0 });
   }, 180_000);
 
-  it("解析期間主執行緒照常跑：最大停頓 < max(200 ms, 3 × 閒置時的停頓)（同執行緒時整段停住，秒級；審查 r7 m6）", async () => {
+  it("解析期間主執行緒照常跑：最大停頓 < max(200 ms, 3 × 閒置時的停頓)（同執行緒時整段停住，秒級）", async () => {
     const pool = mk({ workers: 1, timeoutMs: 3_000 });
     await ready(pool);
     const baseline = await idleStall();
@@ -131,12 +131,12 @@ describe("時限、記憶體上限、主執行緒不被卡住", () => {
 });
 
 describe("createEditingRuntime", () => {
-  it("生產與整合測試的 runtime 一律用 worker pool（設定取自 config.parse），close 收掉", async () => {
-    const config = loadConfig({ DATABASE_URL: "postgres://u:p@localhost:5432/db", APP_SECRET: "a".repeat(64), PUBLIC_URL: "http://localhost:3000", PARSE_WORKERS: "1", PARSE_TIMEOUT_MS: "7000" });
-    const runtime = createEditingRuntime(config);
+  it("生產與整合測試的 runtime 一律用 worker pool（設定取自傳入的 ParseLimits），close 收掉", async () => {
+    const config = loadConfig({ DATABASE_URL: "postgres://u:p@localhost:5432/db", APP_SECRET: "a".repeat(64), PUBLIC_URL: "http://localhost:3000" });
+    const runtime = createEditingRuntime(config, { workers: 1, workerMemoryMb: 768, timeoutMs: 7_000, queueWaitMs: 33_000 });
     try {
       expect(runtime.parser).toBeInstanceOf(ParsePool);
-      expect((runtime.parser as ParsePool).limits).toMatchObject({ workers: 1, timeoutMs: 7_000 });
+      expect((runtime.parser as ParsePool).limits).toEqual({ workers: 1, workerMemoryMb: 768, timeoutMs: 7_000, queueWaitMs: 33_000 });
       expect(await runtime.parser.parse(req("hello"))).toMatchObject({ unbound: 0 });
     } finally {
       await runtime.close();

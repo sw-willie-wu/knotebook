@@ -2,7 +2,7 @@ import type { SVGProps } from "react";
 import type { NoteWidth } from "@knotebook/shared";
 
 // 極簡內聯 SVG icon——刻意不引入 icon 套件（lucide-react 等）。這些組件用到的
-// 圖示是一組固定、數量有限的集合（PR2 起隨版面改版擴充），換一個新依賴仍然不划算。
+// 圖示是一組固定、數量有限的集合（隨版面改版擴充），換一個新依賴仍然不划算。
 
 export function X(props: SVGProps<SVGSVGElement>) {
   return (
@@ -73,7 +73,7 @@ export function Trash(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-/** 垃圾桶的「還原」（#181 PR-2b，逆時針箭頭）。路徑取自 lucide `rotate-ccw`（ISC），手刻同風格。 */
+/** 垃圾桶的「還原」（#181，逆時針箭頭）。路徑取自 lucide `rotate-ccw`（ISC），手刻同風格。 */
 export function RotateCcw(props: SVGProps<SVGSVGElement>) {
   return (
     <svg data-icon="restore" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
@@ -83,7 +83,7 @@ export function RotateCcw(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-/** 垃圾桶標題列的「選取」（#181 PR-2b，方框打勾）。 */
+/** 垃圾桶標題列的「選取」（#181，方框打勾）。 */
 export function SquareCheck(props: SVGProps<SVGSVGElement>) {
   return (
     <svg data-icon="select" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
@@ -93,7 +93,7 @@ export function SquareCheck(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-/** 編輯／重新命名／進入行內編輯（#247 §4.9 列內動作）。路徑取自 lucide `pencil`（ISC），手刻同風格。 */
+/** 編輯／重新命名／進入行內編輯（#247 列內動作）。路徑取自 lucide `pencil`（ISC），手刻同風格。 */
 export function Pencil(props: SVGProps<SVGSVGElement>) {
   return (
     <svg data-icon="pencil" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
@@ -363,7 +363,7 @@ export function History(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-// 版本預覽橫幅的三顆模式鈕（spec §8.4 rev 10 追記）：並排＝兩欄、單欄＝框內橫列（與兩欄同框、一眼對照）、只看差異＝篩選。
+// 版本預覽橫幅的三顆模式鈕：並排＝兩欄、單欄＝框內橫列（與兩欄同框、一眼對照）、只看差異＝篩選。
 export function Columns2(props: SVGProps<SVGSVGElement>) {
   return (
     <svg data-icon="columns-2" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
@@ -393,7 +393,7 @@ export function ListFilter(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-/** 列內「測試連線」（#247 §4.9）。 */
+/** 列內「測試連線」（#247）。 */
 export function Plug(props: SVGProps<SVGSVGElement>) {
   return (
     <svg data-icon="plug" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
@@ -415,7 +415,7 @@ export function KeyRound(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-/** 登入服務列的「圖示」對話框觸發鈕（#247 §7.0）。名稱避開 DOM 的 `Image` 全域。 */
+/** 登入服務列的「圖示」對話框觸發鈕（#247）。名稱避開 DOM 的 `Image` 全域。 */
 export function ImageIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg data-icon="image" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
@@ -496,7 +496,7 @@ export function ChevronsRight(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-/** AI 動作列的「上移」（spec 2026-10-13 settings-table §2.7：取代文字箭頭）。路徑取自 lucide `arrow-up`（ISC）。 */
+/** AI 動作列的「上移」（取代文字箭頭）。路徑取自 lucide `arrow-up`（ISC）。 */
 export function ArrowUp(props: SVGProps<SVGSVGElement>) {
   return (
     <svg data-icon="arrow-up" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>

@@ -1,4 +1,4 @@
-// #106 D6（spec §9）最後編輯落款的整合守衛：`collab/server.ts` 的 `onStoreDocument` 兩分支
+// #106 最後編輯落款的整合守衛：`collab/server.ts` 的 `onStoreDocument` 兩分支
 // （人＝WS 的 `CollabContext`、AI＝直連的 `DirectCtx`）＋`applied` 閘，以及 `NoteDto.lastEdited`
 // 的每一個產出點（list／`:ref`／by-path／POST／PATCH）。
 import { describe, expect, it } from "vitest";
@@ -85,7 +85,7 @@ describe("最後編輯", () => {
     const patched = await ctx.app.inject({ method: "PATCH", url: `/api/notes/${id}`, headers: { cookie }, payload: { title: "C2" } });
     // ⚠ 這一行**不能只驗 agentLabel**：PATCH 的落款 handle 是 `.returning()` 之後另外補查來的
     // （`editorHandleOf`），只驗 agentLabel 的話「補查漏接 → byHandle 變空字串」完全抓不到
-    // （突變 M5c 實測存活）。與 POST 那格同一形：拿同一個回應裡的 ownerHandle 當期望值。
+    // （突變實測存活）。與 POST 那格同一形：拿同一個回應裡的 ownerHandle 當期望值。
     expect(patched.json().lastEdited).toMatchObject({ byHandle: dto.ownerHandle, agentLabel: "bot" });
   });
 

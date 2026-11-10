@@ -90,7 +90,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("runSequential（spec §6.11 執行、D-M4）", () => {
+describe("runSequential（執行）", () => {
   it("SB1 依序：前一篇回來之前不送下一篇；全部成功 → done 三篇、沒有略過與停下", async () => {
     let release!: (r: Response) => void;
     const calls = stubFetch({
@@ -298,7 +298,7 @@ describe("hook 丟例外（finally 的意義）", () => {
   });
 });
 
-// ── PR-3b-2 T5：資料夾與筆記的批次（資料夾 spec §6.10） ──
+// ── 資料夾與筆記的批次 ──
 
 const folderT = (id: string, parentId: string | null = null): SelectionTarget => ({ kind: "folder", folder: folderDto({ id, name: id, parentId }) });
 const patchFolder = (id: string): string => `PATCH /api/folders/${id}`;
@@ -314,7 +314,7 @@ describe("SBf1 classifyBatchError（資料夾錯誤碼）", () => {
     expect(classifyBatchError(gone, { folderGone: "skip" })).toBe("skip");
     expect(classifyBatchError(new ApiFail(403, "folder_delete_blocked", "x"))).toBe("skip");
     expect(classifyBatchError(new ApiFail(409, "folder_name_taken", "x"))).toBe("stop");
-    // 選項只影響 folder_not_found：其餘照 PR-2c。
+    // 選項只影響 folder_not_found：其餘照一般流程。
     expect(classifyBatchError(new ApiFail(404, "not_found", "x"), { folderGone: "skip" })).toBe("skip");
     expect(classifyBatchError(new ApiFail(429, "too_many_requests", "x"), { folderGone: "skip" })).toBe("stop");
   });
@@ -383,7 +383,7 @@ describe("placeTargetsInOrder（同空間）", () => {
   });
 });
 
-describe("undoPlacements（D18 ③）", () => {
+describe("undoPlacements", () => {
   const placed: PlacedItem[] = [
     { kind: "folder", id: "A", from: null },
     { kind: "note", id: "p1", from: "B" },
@@ -485,7 +485,7 @@ describe("deleteTargetsInOrder", () => {
   });
 });
 
-describe("moveNotesInOrder（PR-3b 簽名）", () => {
+describe("moveNotesInOrder（簽名）", () => {
   it("SBf8 body：帶資料夾 {groupId, folderId}、根層只有 {groupId}；finally 另失效 folders", async () => {
     const [a] = notes("a");
     const calls = stubFetch({ [move("a")]: () => ok({ ...a, groupId: "G" }) });
@@ -500,7 +500,7 @@ describe("moveNotesInOrder（PR-3b 簽名）", () => {
   });
 });
 
-describe("copyNotesInOrder（PR-3b 目的地）", () => {
+describe("copyNotesInOrder（目的地）", () => {
   const G = groupDto({ id: "G", name: "G" }, memberRole());
 
   it("SBf9 建立副本：每篇落回自己的群組與資料夾；原資料夾 404 → 該篇不帶 folderId 重送一次、算完成", async () => {

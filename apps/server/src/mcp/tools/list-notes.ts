@@ -1,8 +1,8 @@
 /**
- * #108 §8.2 `list_notes`：呼叫者看得見的筆記（自有 ∪ 被分享 ∪ 所屬群組的，#175），keyset 分頁。
+ * #108 `list_notes`：呼叫者看得見的筆記（自有 ∪ 被分享 ∪ 所屬群組的，#175），keyset 分頁。
  *
  * ⚠ **keyset 分頁不是快照**——但**成因不是「邊列邊改」**（#146 更正：這裡原本寫「`edit_note`
- * 會更新 `updated_at`」，是假的，而 PR3 的稽核表一度拿這句註解當證據，證據鏈是循環的）。
+ * 會更新 `updated_at`」，是假的）。
  * 查證：全 repo **零個 `$onUpdate`**；`notes.updated_at` 只有兩種東西會動——insert 的
  * `defaultNow()`，以及標題 PATCH（`routes/notes.ts`）與 slug PATCH（`notes/tx/patch-slug.ts`）兩處 DB 端 `now()`（#142）。
  * `notes/editing/` 整個目錄**零個 `updatedAt` 引用**（`edit_note` 走的 write-service →
@@ -13,13 +13,13 @@
  * ⚠ **第三個成因不是「被搬上去」而是「本來就在上面才加進來」**：翻頁期間分享給你的筆記、或你加入的
  * 群組的筆記、或 owner 移進你群組的筆記，以原本的位置加入清單（#175）。分享只寫 `note_shares`（`notes/tx/shares.ts` 的 insert／
  * `routes/notes.ts` 的 delete），加入群組只寫 `group_members`（groups 路由的成員端點），**都不碰
- * `notes.updated_at`**；移進群組（#175 PR2）的 UPDATE 在 `notes/tx/move.ts`，只寫 owner／group／slug／
+ * `notes.updated_at`**；移進群組（#175）的 UPDATE 在 `notes/tx/move.ts`，只寫 owner／group／slug／
  * prev_slug／公開 token／別名，**不寫 `updatedAt`**——撞名改了網址名（`-2`）也一樣（守衛＝
- * `test/groups-v2-move.test.ts` 首案與 RF1 案，兩案都斷 `updated_at` 與移動前相等）；而可見性是 `owned ∪ shared ∪ grouped`、**每一頁現算**（`notes/list-query.ts`
+ * `test/groups-v2-move.test.ts` 的兩案都斷 `updated_at` 與移動前相等）；而可見性是 `owned ∪ shared ∪ grouped`、**每一頁現算**（`notes/list-query.ts`
  * ＋ `mcp/queries.ts` 的 unionAll ＋ keyset 述詞）——那篇筆記於是以自己**未變動**的
  * `updated_at` 加入結果集，落點若在已經翻過去的區段，**沒有任何一頁會顯示它**。
  * 這一條模型偵測不到也閃避不了，所以 `description` 必須講（**不得只列前兩個成因**）。
- * 處置有兩處：known-limitations（PR3 已改成正確版本）＋工具 `description`
+ * 處置有兩處：known-limitations＋工具 `description`
  * （`LIST_NOTES_DESCRIPTION`，不是欄位的 `.describe()`）裡逐字給模型看的那句話
  * （在下面，**不得刪**；守衛＝`mcp-notes.test.ts` 的「三句逐字文案在 wire 上出現」那一案——#175 起
  * 第三成因句也整句釘在那裡，之前只釘了前兩句）。
@@ -100,9 +100,9 @@ export const LIST_BASE_COST = wireCost({ notes: [], nextCursor: CURSOR_PLACEHOLD
  * 回一串垃圾，所以格式關不能省：少了 `UUID_RE` 或時間段的格式檢查，垃圾就會進 keyset 述詞，
  * pg 報型別錯 → 模型收到 `internal` 而不是「你的游標壞了」。
  *
- * 時間段走 `parseCursorTimestamp`（資料夾 PR-3d T4 審查 N1）：只收本站發的四位數年份 ISO 形並做往返檢查——
+ * 時間段走 `parseCursorTimestamp`：只收本站發的四位數年份 ISO 形並做往返檢查——
  * 原本的 `new Date(ts)` 會收 `+275760-…` 這類 JS 有效、pg 解析不了的形，落成 `internal`。
- * ⚠ `noNul` 那一關：NUL 接在時間戳後面（`…Z` + NUL）時，2026-09-07 的實測是三關裡只有 `noNul` 擋得住
+ * ⚠ `noNul` 那一關：NUL 接在時間戳後面（`…Z` + NUL）時，實測是三關裡只有 `noNul` 擋得住
  * （`new Date` 收它）。改走 `parseCursorTimestamp` 之後格式檢查也擋得住，`noNul` 對那個落點不再是唯一守衛；
  * 留著它是因為它同時擋 id 欄以外的任何落點，成本為零。守衛＝`mcp-notes.test.ts` 的「壞 cursor 四發」第四發。
  * 字元集先擋（同 `decodeKeysetCursor`）：`Buffer.from(…, "base64url")` 會靜默略過字元集外的字元，真游標後面接 `!!` 也解得回來（守衛＝`mcp-notes.test.ts`「真游標後面接 !!」案）。
@@ -134,7 +134,7 @@ export async function listNotes(args: ListNotesArgs, ctx: McpToolCtx): Promise<C
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
   const summaries = await noteSummariesForModel(ctx.db, page);
-  // 資料夾 PR-3d（spec §5.12）：依 wire 成本截頁。截了就回已收的、游標指向被收的最後一篇（`updatedAtMs`，理由同 encodeCursor），
+  // 資料夾：依 wire 成本截頁。截了就回已收的、游標指向被收的最後一篇（`updatedAtMs`，理由同 encodeCursor），
   // 並帶 `pageCutShort: true`；沒截照舊（沒有這把 key）。
   const kept = countWithinWireBudget(summaries.map(wireCost), LIST_BASE_COST);
   if (kept < page.length) {

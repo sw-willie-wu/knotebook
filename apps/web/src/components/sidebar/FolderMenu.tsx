@@ -36,7 +36,7 @@ function isFolderSort(value: string): value is FolderSort {
 /**
  * 一個選單項：可執行時是一般項；不可執行（`blockedReason` 有值）時**不用** Radix 的 `disabled`（disabled 項不在方向鍵焦點序裡，
  * 鍵盤與讀屏使用者聽不到說明）——改 `aria-disabled`、`onSelect` 只 `preventDefault`（不關選單、不開框），名稱只有項目名
- * （`aria-labelledby`），說明只在描述裡唸一次（`aria-describedby`）。plan Rev 2 M-7。
+ * （`aria-labelledby`），說明只在描述裡唸一次（`aria-describedby`）。
  */
 function MenuAction({
   icon: Icon,
@@ -104,7 +104,7 @@ function DeleteAction({ folder, hasLiveNotes, onRun }: { folder: FolderDto; hasL
 }
 
 /**
- * 資料夾列 ⋮（資料夾 spec §6.5；稿 `FolderMenu`）。24px、hover 浮出（`hoverReveal("folderrow")`）；controlled DropdownMenu，
+ * 資料夾列 ⋮。24px、hover 浮出（`hoverReveal("folderrow")`）；controlled DropdownMenu，
  * 選單項三步形（`preventDefault` → 關選單 → 動作；GroupMenu／NoteMenu 檔頭的 focus trap 規矩）。對話框由 NoteList 的 host 開
  * （`onRequest` 帶 ⋮ 當還焦點的對象）；排序選了不關選單（radio 可連續看效果）。首包模組：不 import 字串包。
  */

@@ -17,7 +17,7 @@ vi.mock("@anthropic-ai/sdk", () => {
 import { renderUserTemplate, streamAnthropic, streamOpenAiCompatible, UpstreamError } from "../../src/ai/upstream.js";
 
 /** 把字串在指定 byte offset 切成兩個 chunk 餵給 ReadableStream——用來逼真模擬「一行 SSE
- * event 跨 chunk 邊界斷開」的情境（brief 明點的 vLLM fixture 測試重點）。 */
+ * event 跨 chunk 邊界斷開」的情境。 */
 function chunkedTextStream(text: string, splitAt: number): ReadableStream<Uint8Array> {
   const bytes = new TextEncoder().encode(text);
   const first = bytes.slice(0, splitAt);
@@ -225,10 +225,10 @@ describe("streamAnthropic", () => {
     });
     await collect(handle.stream);
 
-    // fix round 1 I-1（安全）：ctor 必須帶 `fetchOptions: { redirect: "manual" }`，理由同
-    // Task 4 審查 I-4——SDK 自帶的 `x-api-key` 不在 undici 轉址剝除清單內，302 會把明文 key
-    // 原樣送去第三方主機；審查者用真 SDK + 302 repro 實測過，加了這個選項才是零外送。
-    // `dangerouslyAllowBrowser: true`（#136 Task 2）：`notes/editing/runtime.ts` 把 jsdom 的
+    // ctor 必須帶 `fetchOptions: { redirect: "manual" }`，理由同
+    // SDK 自帶的 `x-api-key` 不在 undici 轉址剝除清單內，302 會把明文 key
+    // 原樣送去第三方主機；用真 SDK + 302 重現過，加了這個選項才是零外送。
+    // `dangerouslyAllowBrowser: true`（#136）：`notes/editing/runtime.ts` 把 jsdom 的
     // window/document 掛上 globalThis 後 SDK 的瀏覽器嗅探會誤判並 throw（editing-runtime.test.ts 釘住）。
     expect(mod.__ctorMock).toHaveBeenCalledWith({
       apiKey: "sk-ant-test",
@@ -248,7 +248,7 @@ describe("streamAnthropic", () => {
   });
 });
 
-describe("renderUserTemplate（#263 §4.3：三佔位符、單次替換）", () => {
+describe("renderUserTemplate（#263：三佔位符、單次替換）", () => {
   const vars = { text: "T", instruction: "I", focus: "F" };
 
   it("三個佔位符各自代入、可重複出現", () => {

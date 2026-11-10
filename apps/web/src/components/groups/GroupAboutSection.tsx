@@ -131,15 +131,15 @@ function ConfirmSection({
   );
 }
 
-/** 名單裡掛內建管理員角色的人數（spec §8.5「看 `builtin === "admin"` 計數」）。 */
+/** 名單裡掛內建管理員角色的人數（看 `builtin === "admin"` 計數）。 */
 function countAdmins(members: GroupMemberDto[]): number {
   return members.filter((member) => member.builtin === "admin").length;
 }
 
 /**
- * 退出與刪除成功後的去處（#247 §6.5，兩者同一規則）：回背景頁；但背景頁若是**這個群組**的筆記（`/g/<id>/…`，不分大小寫）——
+ * 退出與刪除成功後的去處（#247，兩者同一規則）：回背景頁；但背景頁若是**這個群組**的筆記（`/g/<id>/…`，不分大小寫）——
  * 剛失去存取權（退出）或已不存在（刪除）——改回 `/`。沒有背景頁（深連結）也回 `/`。
- * 不再導到 `/settings/groups`：那會從群組 modal 跳進個人設定 modal（違反 W11）。
+ * 不再導到 `/settings/groups`：那會從群組 modal 跳進個人設定 modal。
  */
 export function afterLeaveTarget(groupId: string, backgroundLocation: Location | undefined): Location | "/" {
   if (!backgroundLocation) return "/";
@@ -173,9 +173,9 @@ function InfoGroup({ group }: { group: GroupDto }) {
 }
 
 /**
- * 退出（不是最後一位管理員才顯示，#175 §8.2）與刪除（`canManageGroup`；兩模式 `DeleteGroupDialog` 不變）。
+ * 退出（不是最後一位管理員才顯示，#175）與刪除（`canManageGroup`；兩模式 `DeleteGroupDialog` 不變）。
  * 最後一位管理員看成員名單的 `builtin === "admin"` 計數；名單 pending 時不渲染退出區；error 時照常渲染，由 server 409 兜底。
- * 「Delete group」是面板層級的 `outline` 鈕、不塗紅（§4.8）；紅色留給對話框的提交鈕。
+ * 「Delete group」是面板層級的 `outline` 鈕、不塗紅；紅色留給對話框的提交鈕。
  */
 function LeaveAndDelete({ group, backgroundLocation }: { group: GroupDto; backgroundLocation: Location | undefined }) {
   const { t } = useTranslation();
@@ -221,8 +221,8 @@ function LeaveAndDelete({ group, backgroundLocation }: { group: GroupDto; backgr
 }
 
 /**
- * 群組 modal「關於」（`/groups/:id/about`，#247 §6.5）：名稱（`canManageGroup` 行內可改，否則唯讀）、資訊、退出、刪除。
- * 項次四個對所有成員相同，內容依兩個管理旗標降級（W13）。
+ * 群組 modal「關於」（`/groups/:id/about`，#247）：名稱（`canManageGroup` 行內可改，否則唯讀）、資訊、退出、刪除。
+ * 項次四個對所有成員相同，內容依兩個管理旗標降級。
  */
 export function GroupAboutSection() {
   const { t } = useTranslation();

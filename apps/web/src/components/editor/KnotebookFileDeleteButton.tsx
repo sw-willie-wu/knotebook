@@ -6,7 +6,7 @@ import { Trash } from "@/components/ui/icons";
 
 /**
  * 工具列的檔案刪除鈕（取代 `@blocknote/react` 的 `FileDeleteButton`，`AiToolbar` 以 key `fileDeleteButton` 換掉）：
- * 顯示條件照原生（可編輯、選取恰一個 block、該 block 有字串 `url` prop），刪除改走 D25 helper——刪欄內的圖不收欄。
+ * 顯示條件照原生（可編輯、選取恰一個 block、該 block 有字串 `url` prop），刪除改走 `keep-columns.ts` 的 helper——刪欄內的圖不收欄。
  * 圖示用自家 `Trash`：原生的圖示來自 apps/web 摸不到的 `react-icons`。
  */
 export function KnotebookFileDeleteButton() {

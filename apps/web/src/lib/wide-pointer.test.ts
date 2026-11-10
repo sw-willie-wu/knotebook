@@ -8,7 +8,7 @@ describe("wide-pointer", () => {
     vi.unstubAllGlobals();
   });
 
-  it("WP1 query 字串恰為 spec F22 的判準", () => {
+  it("WP1 query 字串恰為寬螢幕的判準", () => {
     expect(WIDE_POINTER_QUERY).toBe("(width >= 48rem) and (hover: hover) and (pointer: fine)");
   });
 

@@ -1,5 +1,5 @@
 /**
- * 資料夾 PR-3a T6：`PATCH /api/folders/:id`（spec §5.7.2 改名、§5.7.3 搬移〔只限同空間〕、§5.5 入口順序、A3-10 ①、A3-11）。
+ * 資料夾：`PATCH /api/folders/:id`（改名、搬移〔只限同空間〕、入口順序）。
  * 控制字元與組合字元一律以 `String.fromCharCode` 組字（原始碼不放跳脫序列）。
  */
 import { describe, expect, it, vi } from "vitest";
@@ -66,7 +66,7 @@ function armedHook() {
 }
 
 describe("PATCH /api/folders/:id", () => {
-  it("FU-1 改名：200；只差大小寫照寫；NFC 等價不寫；同層撞名 409；名稱規則同 FC-5", async () => {
+  it("FU-1 改名：200；只差大小寫照寫；NFC 等價不寫；同層撞名 409；名稱規則同建立", async () => {
     const { app, db } = await buildTestApp();
     const pool = db.$client;
     const u = await seedUser(db);
@@ -230,7 +230,7 @@ describe("PATCH /api/folders/:id", () => {
         failed(res, 403, "forbidden");
         expect(messageOf(res)).toBe(NOT_MANAGER);
       }
-      // §5.7.3 順序：可見性 → 空間 → 管理權——沒有管理權的人往跨空間目標搬得 400、往看不到的目標得 404。
+      // 順序：可見性 → 空間 → 管理權——沒有管理權的人往跨空間目標搬得 400、往看不到的目標得 404。
       const own = await seedFolder(db, { personal: u.id });
       const cross = await patch(app, u.id, c.id, { parentId: own.id });
       failed(cross, 400, "folder_cross_space");
@@ -248,7 +248,7 @@ describe("PATCH /api/folders/:id", () => {
     expect(await folderRow(pool, c.id)).toMatchObject({ parent_id: g.id, name: "C" });
   });
 
-  it("FU-7 S-F8／A3-11：搬移與改名前後，子樹裡活、垃圾桶、被分享、有版本與 note_states 的筆記一個位元都沒寫", async () => {
+  it("FU-7 搬移與改名前後，子樹裡活、垃圾桶、被分享、有版本與 note_states 的筆記一個位元都沒寫", async () => {
     const { app, db } = await buildTestApp();
     const pool = db.$client;
     const u = await seedUser(db);

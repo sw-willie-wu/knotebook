@@ -1,5 +1,5 @@
 /**
- * #93 §8.3：摘錄演算法（M5 單元、RF2）。cost＝MCP 的 JSON 逃脫後成本（`escapedLength`）。
+ * #93：摘錄演算法。cost＝MCP 的 JSON 逃脫後成本（`escapedLength`）。
  * 保證：libc locale 下恆含命中起點；命中逃脫後成本 ≤ 158 時含整段命中；結果逃脫後 ≤ 160。
  */
 import { describe, expect, it } from "vitest";
@@ -22,7 +22,7 @@ function windowOf(body: string, query: string) {
 const snip = (body: string, q: string) => buildSnippet(windowOf(body, q), MCP_SNIPPET_MAX, escapedLength);
 const esc = (s: string) => JSON.stringify(s).length - 2;
 
-describe("M5 摘錄", () => {
+describe("摘錄", () => {
   it("命中在段首：沒有前綴 …；段尾：沒有後綴 …；段中：兩邊都有", () => {
     expect(snip("zeta and more", "zeta")).toBe("zeta and more");
     expect(snip("some words zeta", "zeta")).toBe("some words zeta");
@@ -58,7 +58,7 @@ describe("M5 摘錄", () => {
     const body = `${"\\\"\u0001中😀".repeat(60)}zeta${"\\\"\u0002文😀".repeat(80)}`;
     expect(esc(snip(body, "zeta"))).toBeLessThanOrEqual(MCP_SNIPPET_MAX);
   });
-  it("RF2：命中前後都是 emoji、命中本身含 emoji → 含命中、沒有孤立代理、≤ 160", () => {
+  it("命中前後都是 emoji、命中本身含 emoji → 含命中、沒有孤立代理、≤ 160", () => {
     const s = snip(`${"😀".repeat(50)}ze😀ta${"😀".repeat(80)}`, "ze😀ta");
     expect(s).toContain("ze😀ta");
     expect(JSON.stringify(s)).not.toMatch(/\\ud[89a-f]/i);

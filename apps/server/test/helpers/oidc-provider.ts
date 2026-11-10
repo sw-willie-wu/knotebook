@@ -24,11 +24,11 @@ export interface SeedProviderOpts {
   sortOrder?: number;
   resolvedIssuer?: string | null;
   configVersion?: number;
-  /** 預設 true，讓既有的首登建帳測試維持原意；DB 預設 false 由 migrate／admin 測試守（spec §7.1）。 */
+  /** 預設 true，讓既有的首登建帳測試維持原意；DB 預設 false 由 migrate／admin 測試守。 */
   autoCreateEnabled?: boolean;
 }
 
-/** 直接寫 `auth_providers`（PR2 才有管理 API）。secret 以 `testConfig.appSecret` 封——`buildTestApp` 預設 config 同一把。 */
+/** 直接寫 `auth_providers`（管理 API 另有測試）。secret 以 `testConfig.appSecret` 封——`buildTestApp` 預設 config 同一把。 */
 export async function seedAuthProvider(db: Db, opts: SeedProviderOpts): Promise<OidcProviderRow> {
   const id = opts.id ?? randomUUID();
   const secret = opts.clientSecret === undefined ? "test-secret" : opts.clientSecret;
@@ -74,7 +74,7 @@ export async function identitiesOf(db: Db, userId: string): Promise<Array<{ issu
 /**
  * #187：單一 legacy provider 的 OIDC 整合測試（oidc-login／oidc-callback／handle）共用起手式——`buildTestApp` 注入以 `fetch`
  * 接 fake IdP 的 `createOidcRuntimeRegistry`（OIDC 設定一律來自 DB 的 `auth_providers`，不再讀 config），再
- * seed 一個 legacy provider（＝env 匯入的那一個，走舊網址 `/api/auth/oidc/login`、`/callback`，B13），issuer 與 fake IdP 相同。
+ * seed 一個 legacy provider（＝env 匯入的那一個，走舊網址 `/api/auth/oidc/login`、`/callback`），issuer 與 fake IdP 相同。
  * `config` 就是 `testConfig`：PUBLIC_URL（http://localhost:3000）與 APP_SECRET（"a"×64）與舊 `oidcConfig()` 逐字相同。
  */
 export async function legacyOidcApp(
@@ -141,8 +141,8 @@ function mergeCookies(base: Record<string, string>, res: InjectResponse): Record
 }
 
 /**
- * login 302 → fakeIdp.authorize → callback。callback 路徑取自 authorize URL 上的 `redirect_uri`（＝也順手驗了 §7.1 的字面），
- * 除非 `callbackPath` 指定（RF1 的大寫路徑、state 錯配那幾案）。
+ * login 302 → fakeIdp.authorize → callback。callback 路徑取自 authorize URL 上的 `redirect_uri`（＝也順手驗了字面相符），
+ * 除非 `callbackPath` 指定（大寫路徑、state 錯配那幾案）。
  */
 export async function ssoRoundTrip(
   app: FastifyInstance,

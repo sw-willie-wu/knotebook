@@ -1,4 +1,4 @@
--- bulk transfer（spec docs/superpowers/specs/2026-11-02-mcp-bulk-transfer-design.md §16）：只建表（transfer_bases、transfer_creates）、transfer_tokens 加欄（access、range；note_id 改可 NULL）、改 CHECK（transfer_tokens 的 purpose 與四條 bulk 條件、note_ai_edits 的 op／anchor 收 file_sync）；單一交易、無非交易式 DDL、不回填。回滾到 0.14：舊碼對 bulk 列用途不符 → 403（transfer-auth.ts 的 purpose 比對），不讀新欄新表；file_sync 的 AI 修改紀錄列回滾後撤不回。整合分支合流時若編號被佔，重產編號（journal 的 when 要新於前一支）。
+-- bulk transfer：只建表（transfer_bases、transfer_creates）、transfer_tokens 加欄（access、range；note_id 改可 NULL）、改 CHECK（transfer_tokens 的 purpose 與四條 bulk 條件、note_ai_edits 的 op／anchor 收 file_sync）；單一交易、無非交易式 DDL、不回填。回滾到 0.14：舊碼對 bulk 列用途不符 → 403（transfer-auth.ts 的 purpose 比對），不讀新欄新表；file_sync 的 AI 修改紀錄列回滾後撤不回。整合分支合流時若編號被佔，重產編號（journal 的 when 要新於前一支）。
 CREATE TABLE "transfer_bases" (
 	"key" text PRIMARY KEY NOT NULL,
 	"user_id" uuid NOT NULL,

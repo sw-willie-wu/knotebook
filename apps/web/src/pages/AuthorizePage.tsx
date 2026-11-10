@@ -11,10 +11,10 @@ import { checksFromScope, scopeFromChecks, type ScopeChecks } from "@/lib/token-
 import { ScopeChecksField } from "@/settings/ScopeChecksField";
 
 /**
- * OAuth 同意頁（`/authorize?req=<id>`，spec §5.3.3）。獨立版面，比照 change-password。
+ * OAuth 同意頁（`/authorize?req=<id>`）。獨立版面，比照 change-password。
  *
  * 頁面只認 `req` 這個 id，不認散裝的授權參數——參數在 server 端就已經驗過並封進
- * pending request。allow 與 deny 都會消費它（I6），所以按錯只能從 client 重新發起。
+ * pending request。allow 與 deny 都會消費它，所以按錯只能從 client 重新發起。
  */
 export default function AuthorizePage() {
   const { t } = useTranslation();
@@ -51,7 +51,7 @@ export default function AuthorizePage() {
 }
 
 /**
- * 載入完成後的同意內容。抽成元件是為了讓勾選 state 的初值在**資料到手時**才算（W8：
+ * 載入完成後的同意內容。抽成元件是為了讓勾選 state 的初值在**資料到手時**才算（
  * 依 `existingScope` 預設勾選）——掛在外層的話 `useState` 初值會在資料還沒來時就定死。
  */
 function ConsentBody({ req, data }: { req: string; data: OauthRequestDto }) {
@@ -59,22 +59,22 @@ function ConsentBody({ req, data }: { req: string; data: OauthRequestDto }) {
   const { user, logout } = useSession();
   const decision = useOauthDecision();
   const scopesTitleId = useId();
-  // #239 W4'／W8：第一次授權全不勾；重新授權沿用既有權限，但不超過本次要求（交集）。
+  // #239：第一次授權全不勾；重新授權沿用既有權限，但不超過本次要求（交集）。
   const [checks, setChecks] = useState<ScopeChecks>(() =>
     data.existingScope === null
       ? { write: false, move: false, delete: false }
       : checksFromScope(narrowerScope(data.existingScope, data.scope))
   );
-  // 依 `scopes` 逐項判斷，未知值不渲染（spec §9.2）。
+  // 依 `scopes` 逐項判斷，未知值不渲染。
   const offersWrite = data.scopes.includes("notes:write");
   const offersMove = data.scopes.includes("notes:move");
   const offersDelete = data.scopes.includes("notes:delete");
-  // 既有權限不是本次要求的子集：按 Allow 會靜默降權，要說出來（spec §9.2【作者補】）。交集版 `narrowerScope`
+  // 既有權限不是本次要求的子集：按 Allow 會靜默降權，要說出來。交集版 `narrowerScope`
   // 下 `narrower(existing, request) !== existing` ⇔ existing ⊄ request（#181 起 scope 是格，不再是鏈上比大小）。
   const wider = data.existingScope !== null && narrowerScope(data.existingScope, data.scope) !== data.existingScope;
 
   function submit(choice: "allow" | "deny"): void {
-    // deny 只送 `{req, decision}`（spec §9.2）；allow 依勾選帶 scope，沒出現的框一律當未勾。
+    // deny 只送 `{req, decision}`；allow 依勾選帶 scope，沒出現的框一律當未勾。
     const body =
       choice === "allow"
         ? {
@@ -86,7 +86,7 @@ function ConsentBody({ req, data }: { req: string; data: OauthRequestDto }) {
     decision.mutate(body, {
       onSuccess: res => window.location.assign(res.redirectTo),
       onError: err => {
-        // 409：pending request 已被消費（I6 在 I1 之前），撤銷完回不到這頁——文案要說清楚。
+        // 409：pending request 已被消費（單次消費在額度檢查之前），撤銷完回不到這頁——文案要說清楚。
         // 410（連點兩下／過期）與載入端的 410 同一句。
         const code = err instanceof ApiFail ? err.code : undefined;
         const key =
@@ -117,7 +117,7 @@ function ConsentBody({ req, data }: { req: string; data: OauthRequestDto }) {
 
       <div className="space-y-1 rounded-md border border-border p-3">
         <p className="text-sm font-medium">{t("authorize.redirectTo", { host: data.redirectHost })}</p>
-        {/* v1 的 redirectHost 恆為 loopback（D10），所以無條件顯示。放寬 D10
+        {/* v1 的 redirectHost 恆為 loopback，所以無條件顯示。redirect 若放寬到非 loopback，
             時這行要改成依 host 判斷，否則會對遠端 host 亂噴。 */}
         <p className="text-xs text-muted-foreground">{t("authorize.loopbackWarning")}</p>
       </div>

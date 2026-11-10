@@ -1,5 +1,5 @@
 /**
- * #93 §8：MCP search_notes 的輸出（M1 MCP 層、M3、M5 端到端、M8、M9）。M6／M10 在 mcp-size.test.ts，M7 在 mcp-notes.test.ts。
+ * #93：MCP search_notes 的輸出（M1 MCP 層、M3、M5 端到端、M8）。
  */
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";

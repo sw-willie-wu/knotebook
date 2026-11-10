@@ -3,10 +3,10 @@ import { expect, test, type Page } from "@playwright/test";
 import { ADMIN, createNote, loginAs, openGroupPanel, openSiteAdmin, showSidebarTab } from "./helpers.js";
 
 /**
- * #247 §11.3：三個管理面板（個人設定、群組、站台管理）的外殼在真瀏覽器裡的行為——
- * 1440×900 三面板截圖、390×844 雙層（開啟即內容層、返回到項次層）與兩條焦點時序（§4.6 的 useLayoutEffect，jsdom 測不到）、
- * 開啟焦點落點（§4.7：寬在 ✕、窄在返回鈕）、內容層 `getByRole("dialog", { name })`（左卡 hidden 時標題仍是
- * aria-labelledby 直接引用的節點）、Esc 回背景頁、舊網址轉址、§4.8 全站 outline hover 填色三處。
+ * #247：三個管理面板（個人設定、群組、站台管理）的外殼在真瀏覽器裡的行為——
+ * 1440×900 三面板截圖、390×844 雙層（開啟即內容層、返回到項次層）與兩條焦點時序（useLayoutEffect，jsdom 測不到）、
+ * 開啟焦點落點（寬在 ✕、窄在返回鈕）、內容層 `getByRole("dialog", { name })`（左卡 hidden 時標題仍是
+ * aria-labelledby 直接引用的節點）、Esc 回背景頁、舊網址轉址、全站 outline hover 填色三處。
  * 目視用截圖：設了 `PANELS_SCREENSHOT_DIR` 才截，未設就略過；本檔不寫任何絕對路徑。
  */
 const shotDir = process.env.PANELS_SCREENSHOT_DIR;
@@ -24,7 +24,7 @@ async function createGroup(page: Page, name: string): Promise<void> {
 }
 
 /**
- * 外框 outline 鈕 hover 要填色（§4.8，W17）：hover 後背景要「等於」`--brand-deep` 的實際色（`button.tsx` outline 變體的
+ * 外框 outline 鈕 hover 要填色：hover 後背景要「等於」`--brand-deep` 的實際色（`button.tsx` outline 變體的
  * `hover:bg-brand-deep`）。只斷「不是透明」不夠：`transition-colors` 的第一個中間影格就會過關（截圖會截到半途），
  * 呼叫端若另加了底色（at rest 就不透明）也會過關——兩者都讓斷言失去鑑別力。期望色在頁內用暫時元素解析 CSS 變數得到。
  */
@@ -92,7 +92,7 @@ test.describe.serial("24 管理面板（#247）", () => {
       await expect(admin.getByRole("navigation", { name: "Site admin" }).getByRole("link", { name: "Users" })).toHaveAttribute("aria-current", "page");
       await expect(admin.getByRole("heading", { level: 1, name: "User management" })).toBeVisible();
       // #267：「最後活動」欄——管理員自己剛才的 session 請求就是活動，那列顯示 Online。
-      // 依表名／列名（＝email，spec 2026-10-13 settings-table §3 #5）／格名查詢，不依欄序號（spec §5.2）。
+      // 依表名／列名（＝email）／格名查詢，不依欄序號。
       const usersTable = admin.getByRole("table", { name: "Users", exact: true });
       await expect(usersTable.getByRole("columnheader", { name: "Last active", exact: true })).toHaveCount(1);
       await expect(usersTable.getByRole("row", { name: ADMIN.email, exact: true }).getByRole("cell", { name: "Online", exact: true })).toBeVisible();
@@ -173,7 +173,7 @@ test.describe.serial("24 管理面板（#247）", () => {
     }
   });
 
-  test("24-4 §4.8 全站 outline hover 填色（三處截圖）：分享面板、改密碼頁、刪除群組確認框的取消鈕", async ({ browser }) => {
+  test("24-4 全站 outline hover 填色（三處截圖）：分享面板、改密碼頁、刪除群組確認框的取消鈕", async ({ browser }) => {
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     try {
       const page = await context.newPage();
@@ -201,7 +201,7 @@ test.describe.serial("24 管理面板（#247）", () => {
       await shot(page, "24-outline-share.png");
       await page.keyboard.press("Escape");
 
-      // 3. 改密碼頁（整頁，`tone="page"`）：只有 brandSolid 送出鈕、沒有 outline 鈕——只截圖（spec §4.8「抽三處截圖」），不做 hover 斷言。
+      // 3. 改密碼頁（整頁，`tone="page"`）：只有 brandSolid 送出鈕、沒有 outline 鈕——只截圖，不做 hover 斷言。
       await page.goto("/change-password");
       // 截圖前等頁面真的畫出來（lazy chunk）：未旗標的帳號也能直接開這頁（路由不擋）。
       await expect(page.getByRole("button", { name: "Change password", exact: true })).toBeVisible();

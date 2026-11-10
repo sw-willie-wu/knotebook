@@ -1,6 +1,6 @@
 /**
- * #175 §6.9（gate r1 I2）：交易內寫 slug 的唯一 helper——移動（T3）、複製（T4，經 `insertNoteWithAutoSlug` 的
- * `inTx` 模式）、PR4 的轉移（T6）三條路徑共用。每一輪：交易內探測（scope 範圍、排除本列）→ 在 savepoint 裡寫
+ * #175：交易內寫 slug 的唯一 helper——移動（T3）、複製（T4，經 `insertNoteWithAutoSlug` 的
+ * `inTx` 模式）、刪群組的轉移（T6）三條路徑共用。每一輪：交易內探測（scope 範圍、排除本列）→ 在 savepoint 裡寫
  * （drizzle 巢狀 `tx.transaction` ＝ `savepoint sp<n>`）→ 撞兩把 slug 唯一索引之一 → savepoint 已回滾、外層交易
  * 仍可用 → 重探測；`MAX_AUTO_SLUG_RETRIES` 輪後改用 `fallbackAutoSlug()` 不探測直接寫。其他錯誤（含別的 23505、
  * FK 23503）原樣拋出。交易外的兩條（PATCH 格 3／4、`insertNoteWithAutoSlug` 預設模式）每輪本來就是新交易，不經這裡。

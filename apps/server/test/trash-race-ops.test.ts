@@ -1,6 +1,6 @@
 /**
- * #181 PR-2a T12：移入垃圾桶 ×｛搬移、上傳、複製、分享、改網址、改標題、開公開連結、MCP `edit_note`｝的併發（spec §6.14、
- * A2-16 併發半）。每種操作三形：
+ * #181：移入垃圾桶 ×｛搬移、上傳、複製、分享、改網址、改標題、開公開連結、MCP `edit_note`｝的併發。
+ * 每種操作三形：
  *   (a) 操作先——操作卡在它的交易內縫（持鎖）、DELETE 送出並確認在等鎖 → 放行 → 操作成功、之後移入；
  *   (b) 移入先——操作卡在它的授權後縫，縫裡跑完整個 DELETE → 放行 → 操作回該處原本的 not_found，狀態沒被改到；
  *   (c) 移入在途——DELETE 卡在 `note-trash-locked`（持 FOR UPDATE）、操作送出並確認在等鎖 → 放行 → 操作 not_found
@@ -90,7 +90,7 @@ interface Scene {
 
 /**
  * owner 的個人筆記（自訂 slug、一筆 viewer 分享）；owner 在搬移目標群組裡是 `ownerRole`。
- * 閘門照 D3 的造法注入 release spy（`beforeNoteDeleted` 回 `{ release }`）。
+ * 閘門照既有的造法注入 release spy（`beforeNoteDeleted` 回 `{ release }`）。
  */
 async function scene(ownerRole: "admin" | "member" = "admin"): Promise<Scene> {
   const seams = new Seams();
@@ -113,7 +113,7 @@ async function scene(ownerRole: "admin" | "member" = "admin"): Promise<Scene> {
 const titleOf = async (db: Db, id: string) => (await db.select({ title: notes.title }).from(notes).where(eq(notes.id, id)))[0]!.title;
 const uploadRows = async (db: Db, id: string) => (await db.select({ id: uploads.id }).from(uploads).where(eq(uploads.noteId, id))).map(r => r.id);
 
-/** A2-16 的狀態：歸屬、網址、公開、標題、分享、版本，加上附件列、筆記總數與磁碟檔（上傳、複製兩種）。 */
+/** 狀態：歸屬、網址、公開、標題、分享、版本，加上附件列、筆記總數與磁碟檔（上傳、複製兩種）。 */
 async function snap(e: Scene) {
   const [width] = await e.db.select({ w: notes.publicWidth }).from(notes).where(eq(notes.id, e.noteId));
   return {

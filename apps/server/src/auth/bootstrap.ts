@@ -4,35 +4,50 @@ import type { Db } from "../db/index.js";
 import { handles, instanceSetup, users } from "../db/schema.js";
 import { deriveHandle } from "./handle.js";
 import { hashPassword } from "./password.js";
+import { redactDbError } from "../lib/redact-db-error.js";
+
+/** 未初始化且沒給 envAdmin 時丟出的錯誤的 `name`：訊息不帶任何值，開機失敗時可原樣記 log（見 `logInitFailure`）。 */
+export const INSTANCE_NOT_INITIALIZED = "InstanceNotInitializedError";
+
+/**
+ * 開機 `initializeInstance` 失敗的 log。drizzle 把**任何**驅動錯誤包成 DrizzleQueryError，其 message 與 `params` 帶管理員 email
+ * 與 argon2 雜湊——連線中斷這類沒有 SQLSTATE 的錯誤也一樣。所以只有已知、不帶值的「尚未初始化」原樣記，其餘一律走 `redactDbError`。
+ */
+export function logInitFailure(log: { error(obj: object, msg: string): void }, err: unknown): void {
+  if (err instanceof Error && err.name === INSTANCE_NOT_INITIALIZED) log.error({ err }, "instance initialization failed");
+  else redactDbError(log, err, "實例初始化");
+}
 
 /** `ADMIN_EMAIL`/`ADMIN_PASSWORD` env bootstrap 的輸入——config.ts 的 loadConfig 已保證
- * 成對且格式/長度合法（spec rev 5.7），這裡不重複驗證。 */
+ * 成對且格式/長度合法，這裡不重複驗證。 */
 export interface EnvAdminBootstrap {
   email: string;
   password: string;
 }
 
 /**
- * 實例初始化的唯一路徑（spec §14.2，setup token 已退役）：
+ * 實例初始化的唯一路徑（setup token 已退役）：
  * - 已初始化（instance_setup 有列）→ no-op（envAdmin 被忽略——「僅首次初始化生效」）。
  * - 未初始化＋envAdmin → 原子建立 admin：INSERT instance_setup ON CONFLICT DO NOTHING
  *   當並發/重試 guard（拿不到列＝別人已完成，靜默返回）；mustChangePassword: false
- *   （#187 W6：env 管理員不強制首登改密碼——密碼是部署者自己設在 .env 的，不是別人代設的暫時密碼）。
+ *   （#187：env 管理員不強制首登改密碼——密碼是部署者自己設在 .env 的，不是別人代設的暫時密碼）。
  * - 未初始化＋無 envAdmin → throw（可行動訊息）。**這裡 throw、不 process.exit**——
  *   exit 會殺掉 vitest runner；production 的「印錯 + exit」由 index.ts 呼叫端承擔
- *   （與 migration 失敗處置同形，spec §14.2）。
+ *   （與 migration 失敗處置同形）。
  */
 export async function initializeInstance(db: Db, envAdmin?: EnvAdminBootstrap): Promise<void> {
   const rows = await db.select().from(instanceSetup).limit(1);
   if (rows.length > 0) return;
 
   if (!envAdmin) {
-    throw new Error(
+    const notInitialized = new Error(
       "此實例尚未初始化：請在 .env 設定 ADMIN_EMAIL 與 ADMIN_PASSWORD 後重啟（首次啟動會自動建立該管理員帳號）"
     );
+    notInitialized.name = INSTANCE_NOT_INITIALIZED;
+    throw notInitialized;
   }
 
-  // 寫入端正規化（spec §14.3 單一漏斗）：與 routes/account.ts（註冊、接受邀請）、routes/auth.ts 讀取
+  // 寫入端正規化（單一漏斗）：與 routes/account.ts（註冊、接受邀請）、routes/auth.ts 讀取
   // 比對共用同一套正規化規則，displayName 亦從正規化後的值切，避免大寫 env
   // 造成同一帳號在「查詢比對用小寫、顯示用原始大小寫殘留」兩套來源不一致。
   const email = normalizeEmail(envAdmin.email);
@@ -42,7 +57,7 @@ export async function initializeInstance(db: Db, envAdmin?: EnvAdminBootstrap): 
   await db.transaction(async tx => {
     const [setupRow] = await tx.insert(instanceSetup).values({ singleton: true }).onConflictDoNothing().returning();
     if (!setupRow) return; // 已有人完成——不重複建立
-    // #122 registry-first（spec §2a）：**必須在上面的 setupRow 早退之後**——早退是正常
+    // #122 registry-first：**必須在上面的 setupRow 早退之後**——早退是正常
     // COMMIT，若 registry INSERT 先於守衛，並發敗方會 commit 一列指向不存在使用者的
     // live 列、燒掉該名字並讓下次 boot 撞 PK。tx 內**不做裸重試**（aborted
     // transaction）：探測後仍撞 PK＝真競態→整個啟動 fail-closed（重啟重試）。

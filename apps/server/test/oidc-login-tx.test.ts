@@ -21,8 +21,8 @@ async function seedUser(db: Db, over: Partial<typeof users.$inferInsert> = {}) {
   return u!;
 }
 
-describe("resolveOidcLoginInTx（#187 §7.4 執行層）", () => {
-  it("身分命中 → login：只寫 last_login_at；users 列逐欄不變（含 must_change_password=true，B15）", async () => {
+describe("resolveOidcLoginInTx（#187 執行層）", () => {
+  it("身分命中 → login：只寫 last_login_at；users 列逐欄不變（含 must_change_password=true）", async () => {
     const { db } = await buildTestApp();
     const p = await seedRunProvider(db);
     const u = await seedUser(db, { mustChangePassword: true });
@@ -58,7 +58,7 @@ describe("resolveOidcLoginInTx（#187 §7.4 執行層）", () => {
     expect(h).toMatchObject({ userId: id, state: "live" });
   });
 
-  it("T1（C-3）服務沒開自動建帳 → registration_disabled、零寫入；與站台開關無關", async () => {
+  it("T1 服務沒開自動建帳 → registration_disabled、零寫入；與站台開關無關", async () => {
     const { db } = await buildTestApp();
     const p = await seedRunProvider(db, { autoCreateEnabled: false });
     expect(await run(db, claims({ email: "new@example.com" }), p)).toEqual({
@@ -74,7 +74,7 @@ describe("resolveOidcLoginInTx（#187 §7.4 執行層）", () => {
     expect((await run(b.db, claims({ email: "new@example.com" }), q)).outcome.kind).toBe("created");
   });
 
-  it("T2（C-5）site_settings 沒有列 → registration_disabled＋settingsMissing；服務列再刪掉仍是 registration_disabled、providerStale=false", async () => {
+  it("T2 site_settings 沒有列 → registration_disabled＋settingsMissing；服務列再刪掉仍是 registration_disabled、providerStale=false", async () => {
     const { db } = await buildTestApp();
     const p = await seedRunProvider(db);
     await db.delete(siteSettings);
@@ -87,7 +87,7 @@ describe("resolveOidcLoginInTx（#187 §7.4 執行層）", () => {
     expect(await db.select().from(users)).toHaveLength(0);
   });
 
-  it("T3（C-5）服務開著但列已刪 → oidc_unavailable＋providerStale、零寫入", async () => {
+  it("T3 服務開著但列已刪 → oidc_unavailable＋providerStale、零寫入", async () => {
     const { db } = await buildTestApp();
     const p = await seedRunProvider(db);
     await db.delete(authProviders).where(eq(authProviders.id, p.id));
@@ -99,7 +99,7 @@ describe("resolveOidcLoginInTx（#187 §7.4 執行層）", () => {
     expect(await db.select().from(users)).toHaveLength(0);
   });
 
-  it("T4（C-5）服務開著但 config_version 已變 → oidc_unavailable＋providerStale、零寫入；版本相符 → created", async () => {
+  it("T4 服務開著但 config_version 已變 → oidc_unavailable＋providerStale、零寫入；版本相符 → created", async () => {
     const { db } = await buildTestApp();
     const p = await seedRunProvider(db, { configVersion: 3 });
     expect(await run(db, claims({ email: "new@example.com" }), { id: p.id, configVersion: 2 })).toEqual({
@@ -111,7 +111,7 @@ describe("resolveOidcLoginInTx（#187 §7.4 執行層）", () => {
     expect((await run(db, claims({ email: "new@example.com" }), p)).outcome.kind).toBe("created");
   });
 
-  it("T5（C-4／C-5）服務沒開自動建帳、或版本已變：已連結身分照常 login、email 有帳號照常 confirm_link（只影響建帳那步）", async () => {
+  it("T5 服務沒開自動建帳、或版本已變：已連結身分照常 login、email 有帳號照常 confirm_link（只影響建帳那步）", async () => {
     const { db } = await buildTestApp();
     const p = await seedRunProvider(db, { autoCreateEnabled: false, configVersion: 2 });
     const cases = [
@@ -152,7 +152,7 @@ describe("resolveOidcLoginInTx（#187 §7.4 執行層）", () => {
     expect(await identitiesOf(db, u.id)).toEqual([{ issuer: ISS, sub: "older-sub" }]);
   });
 
-  // fix round 1（B14 裁定 A）：outcome 不帶 methods，所以這層看得到的是「同 issuer 的 provider 有沒有被算成證明方法」的後果——
+  // outcome 不帶 methods，所以這層看得到的是「同 issuer 的 provider 有沒有被算成證明方法」的後果——
   // 無密碼帳號只剩它時是 no_proof_method、還有別的 provider 時是 confirm_link。providers 清單的內容由單元案斷言。
   it("B14：純 SSO 帳號已有 ISS 身分（不同 sub）＋另一個 issuer 的已啟用 provider → confirm_link；ISS 的 provider 不算證明方法", async () => {
     const { db } = await buildTestApp();
@@ -206,7 +206,7 @@ describe("resolveOidcLoginInTx（#187 §7.4 執行層）", () => {
     expect((await run(db, claims({ email: null, sub: "zz" }), p)).outcome).toEqual({ kind: "reject", code: "oidc_email_missing" });
   });
 
-  it("C-6：持 B27 鎖把服務開關改成 false 的交易未 commit 時，首登交易卡在 site_settings FOR SHARE；commit 後得 registration_disabled", async () => {
+  it("持站台設定列鎖把服務開關改成 false 的交易未 commit 時，首登交易卡在 site_settings FOR SHARE；commit 後得 registration_disabled", async () => {
     const { db } = await buildTestApp();
     const p = await seedRunProvider(db);
     const pool = db.$client;

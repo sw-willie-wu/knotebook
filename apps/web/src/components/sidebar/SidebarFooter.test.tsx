@@ -18,8 +18,8 @@ import { TrashPanel } from "./TrashPanel";
 import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 import { mockWidePointer } from "@/test/wide-pointer";
 
-// 側欄底部（plan T4）：新增筆記／垃圾桶保留天數說明；`useTrash()` 只在垃圾桶 tab 才掛（讀碼發現 28）。
-// 垃圾桶選取模式的動作列（plan T5 SM8–SM10、SM15、SM17）。
+// 側欄底部：新增筆記／垃圾桶保留天數說明；`useTrash()` 只在垃圾桶 tab 才掛。
+// 垃圾桶選取模式的動作列。
 
 afterEach(() => {
   localStorage.clear();
@@ -155,7 +155,7 @@ describe("SidebarFooter", () => {
   });
 });
 
-/** 一般 tab 選取模式的底部（PR-2c T5，SF5／SF6）：選取由探針鈕開始／結束，動作列是 lazy 的 `SelectActionBar`。 */
+/** 一般 tab 選取模式的底部：選取由探針鈕開始／結束，動作列是 lazy 的 `SelectActionBar`。 */
 describe("SidebarFooter — 一般 tab 選取模式", () => {
   function SelectionProbe() {
     const { updateSelection } = useSidebarTabActions();
@@ -226,7 +226,7 @@ describe("SidebarFooter — 一般 tab 選取模式", () => {
     expect(screen.queryByRole("button", { name: "Copy to" })).toBeNull();
   });
 
-  // PR-3b-3 T4（資料夾 spec F26）：寬螢幕的動作列在標題列（SelectHeader），底部不顯示。
+  // 寬螢幕的動作列在標題列（SelectHeader），底部不顯示。
   it("SF-W1 寬＋一般 tab 選取中 → 底部不渲染任何東西；未選取與結束選取後是 New note", async () => {
     mockWidePointer(true);
     renderSelectFooter();
@@ -515,7 +515,7 @@ describe("SidebarFooter — 垃圾桶選取模式的動作列", () => {
     fireEvent.click(shellBox(1, "p1"));
     const restore = barButton(1, "Restore");
     restore.focus();
-    // M2：這一下 Esc 只結束選取——preventDefault（fireEvent 回 false），搜尋標記的 Esc 監聽看到 defaultPrevented 就讓路
+    // 這一下 Esc 只結束選取——preventDefault（fireEvent 回 false），搜尋標記的 Esc 監聽看到 defaultPrevented 就讓路
     expect(fireEvent.keyDown(restore, { key: "Escape" })).toBe(false);
 
     expect(within(shell(1)).queryByRole("button", { name: "Restore" })).toBeNull();
@@ -637,7 +637,7 @@ describe("SidebarFooter — 垃圾桶選取模式的動作列", () => {
 });
 
 /**
- * PR-3b-3 T5（tabs-and-trash spec §6.10.2 rev 4.3）：寬螢幕的垃圾桶選取工具列在標題列一列（✕＋三態全選框＋已選 N 篇＋兩顆圖示鈕），
+ * 寬螢幕的垃圾桶選取工具列在標題列一列（✕＋三態全選框＋已選 N 篇＋兩顆圖示鈕），
  * 選取中底部不顯示（保留天數說明也不出現）。骨架同上（兩份外殼，動作一律從 `shell(1)` 發起）。
  */
 describe("SidebarFooter — 垃圾桶寬螢幕選取工具列", () => {

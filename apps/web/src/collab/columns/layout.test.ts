@@ -3,7 +3,7 @@ import { COLUMN_TYPE } from "@knotebook/shared";
 import { IMG, P, mountEditor, row, withChildren, type PartialBlockLike } from "@/test/columns-fixtures";
 import { columnKindOf, shouldStack, type PMNodeLike } from "./layout";
 
-// spec 2026-10-21 columns-layout §6、§8。
+// 並排的欄寬與版面。
 
 describe("L1 shouldStack：各欄最小寬度總和＋溝寬總和 > 可用寬度 → 堆疊", () => {
   it("兩欄文字：200+24+200＝424", () => {

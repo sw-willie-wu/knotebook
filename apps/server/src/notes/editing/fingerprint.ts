@@ -25,9 +25,9 @@ export function outlineOf(fragment: Y.XmlFragment): { outline: OutlineEntry[]; w
 }
 
 /**
- * bulk transfer spec §6.4-1（F11）：頂層每顆的 id 與單顆指紋，**一次走完**（`topLevelContainers` 一次、每顆
+ * bulk transfer：頂層每顆的 id 與單顆指紋，**一次走完**（`topLevelContainers` 一次、每顆
  * `canonicalizeElements([c])` 一次）。結果與逐顆 `fingerprintForIds(fragment, [id])` 逐位元組相同，但那支每次都重建
- * 整個頂層表（`canonicalizeSection`），n 顆就是 O(n²)——2 000 顆 14–15 s（§25.5）。整篇匯出的指紋一律走這支。
+ * 整個頂層表（`canonicalizeSection`），n 顆就是 O(n²)——2 000 顆 14–15 s。整篇匯出的指紋一律走這支。
  * 缺 id 同 `outlineOf` 丟錯。
  */
 export function topLevelFingerprints(fragment: Y.XmlFragment): { ids: string[]; fps: string[] } {
@@ -43,9 +43,9 @@ export function topLevelFingerprints(fragment: Y.XmlFragment): { ids: string[]; 
 }
 
 /**
- * bulk transfer plan PR-2 §0.1-4：`topLevelFingerprints` 再多回每顆的型別，同樣一次走完。`types[i]`＝容器第一個子元素的
+ * bulk transfer：`topLevelFingerprints` 再多回每顆的型別，同樣一次走完。`types[i]`＝容器第一個子元素的
  * `nodeName`（blockContent 的節點名＝block 型別）；**容器本身是 `columnList` 就回 `columnList`**（與 `editor.document` 的 type
- * 一致，gate r1 m3）。決策表要「錨點前一顆是不是 numbered」、合併要每個倖存者各自的指紋——都用這一支。缺 id 同樣丟錯。
+ * 一致）。決策表要「錨點前一顆是不是 numbered」、合併要每個倖存者各自的指紋——都用這一支。缺 id 同樣丟錯。
  */
 export function topLevelSnapshot(fragment: Y.XmlFragment): { ids: string[]; fps: string[]; types: string[] } {
   const ids: string[] = [];
@@ -63,9 +63,9 @@ export function topLevelSnapshot(fragment: Y.XmlFragment): { ids: string[]; fps:
 }
 
 /**
- * bulk transfer plan PR-2 §0.1-5：`mergeDiff` 多期望分支的檢查本體（純函式，吃 fragment）。頂層走一次建 `id → 容器` 表，
+ * bulk transfer：`mergeDiff` 多期望分支的檢查本體（純函式，吃 fragment）。頂層走一次建 `id → 容器` 表，
  * 只對要比的那幾顆各 canonicalize 一次；每個 `expectEach` 的指紋各自比（**不比順序**）、`anchorIds` 都要在頂層。
- * **禁止逐 id 呼叫 `fingerprintForIds`**（每次重建頂層表，O(n²)；2 000 顆 14–15 s，§25.5）。
+ * **禁止逐 id 呼叫 `fingerprintForIds`**（每次重建頂層表，O(n²)；2 000 顆 14–15 s）。
  */
 export function checkExpectations(fragment: Y.XmlFragment, expectEach: ReadonlyArray<{ id: string; fp: string }>, anchorIds: readonly string[]): boolean {
   const byId = new Map<string, Y.XmlElement>();

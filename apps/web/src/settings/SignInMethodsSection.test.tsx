@@ -50,14 +50,14 @@ function setup(data: IdentitiesDto, path = "/settings/login", extra: (m: string,
   return { calls };
 }
 
-describe("SignInMethodsSection（#187 §8.5）", () => {
+describe("SignInMethodsSection（#187）", () => {
   beforeEach(async () => { await i18n.changeLanguage("en"); dismissAllToasts(); });
   afterEach(() => vi.unstubAllGlobals());
 
   it("已連結列：provider 名（HTML 形渲染為字面）、對不到 provider 時顯示 issuer host、日期；可連結列：Link X", async () => {
     setup(BASE);
     const row1 = within(await screen.findByRole("row", { name: "<b>GitLab</b>" }));
-    // 欄名「Linked」「Last used」在表頭；格內只有日期（spec 2026-10-13 settings-table §3 #10）。
+    // 欄名「Linked」「Last used」在表頭；格內只有日期。
     expect(row1.getByRole("cell", { name: new Date("2026-10-01T00:00:00.000Z").toLocaleDateString("en") })).toBeInTheDocument();
     expect(row1.getByRole("cell", { name: new Date("2026-10-05T00:00:00.000Z").toLocaleDateString("en") })).toBeInTheDocument();
     expect(within(screen.getByRole("table", { name: "Sign-in methods" })).getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual([
@@ -86,7 +86,7 @@ describe("SignInMethodsSection（#187 §8.5）", () => {
     expect(document.getElementById(row2.getAttribute("aria-labelledby")!)).toHaveTextContent(/^gone\.example$/);
   });
 
-  it("unlinkable=false → 解除鈕 softDisabled（aria-disabled、可聚焦、title＝原因、點了不開確認框），原因另以可見文字＋aria-describedby 說明（spec §2.7）", async () => {
+  it("unlinkable=false → 解除鈕 softDisabled（aria-disabled、可聚焦、title＝原因、點了不開確認框），原因另以可見文字＋aria-describedby 說明", async () => {
     setup(BASE);
     const row2 = within(await screen.findByRole("row", { name: /gone\.example/ }));
     const button = row2.getByRole("button", { name: "Unlink" });
@@ -220,7 +220,7 @@ describe("SignInMethodsSection（#187 §8.5）", () => {
     setup(BASE, `/settings/login?link_error=${code}`);
     expect(await screen.findByText(text)).toBeInTheDocument();
   });
-  it("provider-icon V4：已連結列名稱前有圖示——第一個 provider 的 icon、以 host 標示者用通用圖示、icon null 不渲染；「Link X」鈕文字前有圖示", async () => {
+  it("provider-icon：已連結列名稱前有圖示——第一個 provider 的 icon、以 host 標示者用通用圖示、icon null 不渲染；「Link X」鈕文字前有圖示", async () => {
     setup({
       ...BASE,
       identities: [
@@ -251,7 +251,7 @@ describe("SignInMethodsSection（#187 §8.5）", () => {
   });
 });
 
-describe("回程落點：以 AppRoutes 渲染 /settings/login（#247 §9.9、§11.1）", () => {
+describe("回程落點：以 AppRoutes 渲染 /settings/login（#247）", () => {
   beforeEach(async () => { await i18n.changeLanguage("en"); dismissAllToasts(); });
   afterEach(() => vi.unstubAllGlobals());
 

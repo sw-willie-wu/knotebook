@@ -379,7 +379,7 @@ describe("BodySearchView 點擊（T6）", () => {
     fireEvent.click(matchLink());
     expect(same.requestAnchor).toHaveBeenCalledWith("_top", "needle");
     expect(same.scrollToTop).not.toHaveBeenCalled();
-    // m1：同篇 `_top` 也把查詢字寫進目前這筆 history 的 state（replace，不多一筆），重整才跳得回去
+    // 同篇 `_top` 也把查詢字寫進目前這筆 history 的 state（replace，不多一筆），重整才跳得回去
     expect(lastLocation).toEqual({ pathname: "/start", hash: "", state: { kbFind: "needle" } });
     expect(lastNavType).toBe("REPLACE"); // 不多一筆 history
   });

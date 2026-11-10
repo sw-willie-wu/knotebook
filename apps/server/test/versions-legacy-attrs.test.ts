@@ -1,6 +1,6 @@
-// 版本歷史 × 舊 schema 筆記（spec 2026-10-09 §13-9 方案二）與「基底列已不在」的手動儲存（Task 14b Step 2b）。
-// §13-9：note_states 缺較新 schema 預設屬性的舊筆記，瀏覽器打一字再刪時 y-prosemirror 會把被碰到的段落連預設屬性寫回
-// （PR2 Task 15 真瀏覽器實測 MEASURE-13-9 openClose=0 typeDelete=1）。這裡以 WS client 直接 setAttribute 模擬那筆回寫。
+// 版本歷史 × 舊 schema 筆記（方案二）與「基底列已不在」的手動儲存。
+// note_states 缺較新 schema 預設屬性的舊筆記，瀏覽器打一字再刪時 y-prosemirror 會把被碰到的段落連預設屬性寫回
+// （真瀏覽器實測 openClose=0 typeDelete=1）。這裡以 WS client 直接 setAttribute 模擬那筆回寫。
 import { describe, expect, it } from "vitest";
 import { eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -17,7 +17,7 @@ import { noteBase, paraDoc, versionsOf } from "./version-helpers.js";
 const PASSWORD = "correct-horse-battery";
 const PARA_DEFAULTS = { backgroundColor: "default", textAlignment: "left", textColor: "default" } as const;
 
-/** PR2 Task 15 seed 腳本的形：heading 只有 level（number）、paragraph 沒有任何屬性。 */
+/** seed 腳本的形：heading 只有 level（number）、paragraph 沒有任何屬性。 */
 function legacyDoc(): Y.Doc {
   const doc = new Y.Doc();
   const g = new Y.XmlElement("blockGroup");
@@ -70,7 +70,7 @@ async function rewriteParagraphAttrs(s: Awaited<ReturnType<typeof legacySetup>>,
   return { c, dirty };
 }
 
-// #269 §4.4：wikilink 新 props 預設 ""——版本指紋規則 (4)（值 === schema 預設視同缺席，預設表由 schema 動態推出）自動忽略，
+// #269：wikilink 新 props 預設 ""——版本指紋規則 (4)（值 === schema 預設視同缺席，預設表由 schema 動態推出）自動忽略，
 // 新分頁補寫 `label=""`／`anchorBlockId=""` 不會多切版本；非預設值照常進指紋。
 function wikilinkDoc(attrs: Record<string, string>): Y.Doc {
   const doc = new Y.Doc();
@@ -89,7 +89,7 @@ function wikilinkDoc(attrs: Record<string, string>): Y.Doc {
   return doc;
 }
 
-describe("#269 §4.4：wikilink 新 props 與版本指紋", () => {
+describe("#269：wikilink 新 props 與版本指紋", () => {
   it("補寫 label=\"\"、anchorBlockId=\"\" 前後版本指紋相等", () => {
     const fp = (attrs: Record<string, string>) => versionFingerprint(wikilinkDoc(attrs).getXmlFragment(YDOC_FRAGMENT));
     expect(fp({ label: "", anchorBlockId: "" })).toBe(fp({}));
@@ -100,7 +100,7 @@ describe("#269 §4.4：wikilink 新 props 與版本指紋", () => {
   });
 });
 
-describe("§13-9：舊 schema 筆記被回寫預設屬性（方案二）", () => {
+describe("舊 schema 筆記被回寫預設屬性（方案二）", () => {
   it("paragraph 補上三個預設值、文字不變 → isDirty false；斷線、掃描 → 總數 0", async () => {
     const s = await legacySetup();
     const { c, dirty } = await rewriteParagraphAttrs(s, { ...PARA_DEFAULTS });
@@ -131,7 +131,7 @@ async function call(app: FastifyInstance, url: string, who: string, payload: unk
   return app.inject({ method: "POST", url, cookies: await cookieOf(who), payload: payload as object });
 }
 
-describe("手動儲存：基底指向已被刪掉的版本（Task 14b Step 2b）", () => {
+describe("手動儲存：基底指向已被刪掉的版本", () => {
   it("建 v1 → SQL 直接刪掉 v1（繞過 version_is_base）→ 內容不改 → POST 手動儲存 → 201 新版 seq 2、upgraded false、基底改指 2", async () => {
     const built = await buildTestApp();
     const owner = await seedUser(built.db);

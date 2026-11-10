@@ -15,13 +15,13 @@ import { setRemote } from "@/components/presence/test-awareness";
 import { NoteEditor } from "./NoteEditor";
 import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
-// 分隔線浮層換成探針：這裡只驗 NoteEditor 依 editable 掛或不掛它（浮層本身的行為在 ColumnDividers.test.tsx）。
+// 分隔線浮層換成替身：這裡只驗 NoteEditor 依 editable 掛或不掛它（浮層本身的行為在 ColumnDividers.test.tsx）。
 vi.mock("@/components/editor/ColumnDividers", async () => {
   const { createElement } = await import("react");
   return { ColumnDividers: () => createElement("div", { "data-testid": "column-dividers-probe" }) };
 });
 
-// #293 §9.4：`NoteEditor` 的 `onCursorScroller` 接線。掛真 `<NoteEditor>`（Host 照 `NoteEditor.layout.test.tsx`）。
+// #293：`NoteEditor` 的 `onCursorScroller` 接線。掛真 `<NoteEditor>`（Host 照 `NoteEditor.layout.test.tsx`）。
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 泛型三元組，repo 慣例
 type AnyEditor = BlockNoteEditor<any, any, any>;
@@ -103,7 +103,7 @@ function Host({ children }: { children: ReactNode }) {
   );
 }
 
-describe("NoteEditor：onCursorScroller（#293 §9.4）", () => {
+describe("NoteEditor：onCursorScroller（#293）", () => {
   // jsdom 的 HTMLElement 不一定有 scrollTo；缺就先墊一支，好讓 spy 有東西可蓋。
   let addedScrollTo = false;
   beforeAll(() => {
@@ -209,10 +209,10 @@ describe("NoteEditor：onCursorScroller（#293 §9.4）", () => {
   });
 });
 
-// #293 T6b：唯讀時本分頁不送游標（spec §4.1 as-built）。真 y-prosemirror cursor plugin＋真 Awareness。
+// #293：唯讀時本分頁不送游標（as-built）。真 y-prosemirror cursor plugin＋真 Awareness。
 // jsdom 裡 `.ProseMirror` 帶 BlockNote 無條件給的 tabIndex=0，`focus()` 會讓 `view.hasFocus()` 成立——
-// 與瀏覽器裡 viewer 點進內文同一條路（T7 r2 P1）。
-describe("NoteEditor：唯讀者不送游標（#293 T6b）", () => {
+// 與瀏覽器裡 viewer 點進內文同一條路。
+describe("NoteEditor：唯讀者不送游標（#293）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     stubFetch();

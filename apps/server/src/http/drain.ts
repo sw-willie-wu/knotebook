@@ -1,15 +1,15 @@
 import type { FastifyRequest } from "fastify";
-import { MAX_UPLOAD_BYTES } from "@knotebook/shared";
+import { SITE_LIMITS } from "@knotebook/shared";
 
-const DRAIN_CAP_BYTES = MAX_UPLOAD_BYTES * 2;
+const DRAIN_CAP_BYTES = SITE_LIMITS.uploadMaxBytes.max * 2;
 
 const drainedRequests = new WeakSet<object>();
 
 /**
- * 安全 backlog ③（spec §13.2）：drain 位元組上限。單一共用 helper，取代 `app.ts`
+ * 安全 backlog ③：drain 位元組上限。單一共用 helper，取代 `app.ts`
  * onRequest 兩處＋`routes/uploads.ts` preHandler 四處／handler 四處合計十個
- * `request.raw.resume()` 呼叫點（`§12.4` 原本的「早退必 drain」通則現由這支 helper
- * 承接——舊註解已就地改引這裡）。`part.file.resume()`（`@fastify/multipart` 的
+ * `request.raw.resume()` 呼叫點（「早退必 drain」通則由這支 helper
+ * 承接）。`part.file.resume()`（`@fastify/multipart` 的
  * file part stream，不是 `request.raw`）是不同對象，不在這支 helper 的管轄範圍內。
  *
  * **裸 `request.raw.resume()` 不計位元組**：它只是把底層 socket 切進 flowing mode
@@ -27,9 +27,9 @@ const drainedRequests = new WeakSet<object>();
  * 讀取，等同完全沒有 drain——真 socket 測試會卡在 `app.close()` 逾時（見
  * `test/uploads.test.ts` 的「真 socket：parts 超限」迴歸）。
  *
- * 累計超過 `MAX_UPLOAD_BYTES * 2` 就 `request.raw.destroy()`——直接砍斷底層連線。
+ * 累計超過 `SITE_LIMITS.uploadMaxBytes.max * 2` 就 `request.raw.destroy()`——直接砍斷底層連線。
  *
- * **超限語意（明文取捨；review fix round 1 依實測修正措辭）**：`destroy()` 之後
+ * **超限語意（明文取捨，措辭依實測）**：`destroy()` 之後
  * client 端**最壞情況**是收到 TCP/socket 層級的 network error 而非我們原本要送出的
  * 結構化 `{ error: { code, message } }`——`destroy()` 是硬中斷（可能帶 RST），若
  * response 尚未完整送達／被 client 讀走，RST 可以把已經 buffer 但還沒被讀取的回應
@@ -38,7 +38,7 @@ const drainedRequests = new WeakSet<object>();
  * 與緊接著的 `sendError(...)` 在同一段同步程式碼內執行、中間沒有 `await`，而累計
  * 位元組超過 cap 進而呼叫 `destroy()` 至少要等一輪事件迴圈之後的 `data` 事件才會
  * 發生——回應幾乎總是搶先寫出，client 實際上仍會收到完整的結構化 403/400 body，
- * 只是連線隨後被關閉、不維持 keep-alive（見 `test/uploads.test.ts` Task 9 那支真
+ * 只是連線隨後被關閉、不維持 keep-alive（見 `test/uploads.test.ts` 那支真
  * socket 測試的時序註解，內含實測數據）。正常的早退情境（未登入、無權限、節流、
  * 格式錯誤……）body 遠低於這個上限，既有「早退仍收到結構化 error body」的迴歸測試
  * 不受影響；只有真的送出異常巨量 body 的 client 才會撞到這條防線。

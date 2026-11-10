@@ -21,8 +21,8 @@ import {
 } from "./GroupTransfer";
 
 // #216：⋮ 選單的「移動到群組」「複製到群組」（原 MoveToGroupSection 的測試搬來）。
-// 寬螢幕＝右側 flyout（Radix Sub；PR-3b-3 起各層往旁層疊）；窄／觸控（matchMedia 不命中 WIDE_POINTER_QUERY）＝就地向下展開。
-// PR-3b-2 T4 起子選單是逐層清單（destination-level）：這組案的群組都沒有資料夾、筆記在根層、`GET /api/folders` 回空，
+// 寬螢幕＝右側 flyout（Radix Sub；各層往旁層疊）；窄／觸控（matchMedia 不命中 WIDE_POINTER_QUERY）＝就地向下展開。
+// 子選單是逐層清單（destination-level）：這組案的群組都沒有資料夾、筆記在根層、`GET /api/folders` 回空，
 // 第一層與 #216 的平清單同項同序（上下半部之間的分隔線不是 menuitem），斷言照舊不放寬。資料夾層的案在檔尾「逐層子選單」與「寬螢幕層疊」。
 
 function fakeResponse({ ok, status, json }: { ok: boolean; status: number; json?: () => Promise<unknown> }): Response {
@@ -91,7 +91,7 @@ const GROUP_NOTE: NoteDto = { ...MOVED, id: NOTE.id };
 
 interface Server {
   groups: GroupDto[];
-  /** `GET /api/folders`（PR-3b-2 T4：⋮ 子選單掛著時會讀；預設空）。 */
+  /** `GET /api/folders`（⋮ 子選單掛著時會讀；預設空）。 */
   folders: FolderDto[];
   shares: ShareDto[];
   token: string | null;
@@ -233,7 +233,7 @@ describe("⋮ 選單：移動／複製到群組（#216）", () => {
     expect(copy.querySelector('svg[data-icon="chevron-right"]')).not.toBeNull();
   });
 
-  // 選項矩陣（Willie 2026-10-08）。
+  // 選項矩陣。
   it("矩陣：自己的個人筆記 -> 移動＝候選群組；複製＝建立副本＋候選群組（create＋edit）", async () => {
     stub({ groups: [GROUP_A, GROUP_B, GROUP_C] });
     renderMenu();
@@ -263,7 +263,7 @@ describe("⋮ 選單：移動／複製到群組（#216）", () => {
     ]);
   });
 
-  it("TC4 zh-TW：群組筆記的複製第二層有「我的筆記」、沒有「個人空間」（與側欄 tab 同名）", async () => {
+  it("zh-TW：群組筆記的複製第二層有「我的筆記」、沒有「個人空間」（與側欄 tab 同名）", async () => {
     await i18n.changeLanguage("zh-TW");
     stub({ groups: [GROUP_A, GROUP_C] });
     renderMenu(GROUP_NOTE);
@@ -656,8 +656,8 @@ describe("⋮ 選單：移動／複製到群組（#216）", () => {
   });
 });
 
-// PR-3b-2 T3：確認框帶資料夾、「建立副本」落點與 n6 退回（資料夾 spec §6.11.2、§6.11.3、§5.7.6）。直接渲染 GroupTransferDialog。
-describe("GroupTransferDialog：資料夾目的地（PR-3b-2 T3）", () => {
+// 確認框帶資料夾、「建立副本」落點與退回。直接渲染 GroupTransferDialog。
+describe("GroupTransferDialog：資料夾目的地", () => {
   const GG = "dddddddd-dddd-dddd-dddd-dddddddddddd";
   const GROUP_G = groupDto({ id: GG, name: "G" }, memberRole());
   const IN_A: NoteDto = { ...NOTE, folderId: "A" };
@@ -855,9 +855,9 @@ describe("GroupTransferDialog：資料夾目的地（PR-3b-2 T3）", () => {
   });
 });
 
-// PR-3b-2 T4：⋮ 的逐層子選單（資料夾 spec §6.11.1、§6.11.4、§6.14）。寬＝flyout（jsdom 預設）；窄／觸控＝就地展開。
+// ⋮ 的逐層子選單。寬＝flyout（jsdom 預設）；窄／觸控＝就地展開。
 // 焦點與子選單換層在 jsdom 只守「程式有搬焦點／狀態有變」，真瀏覽器由 e2e 41 驗。
-describe("⋮ 逐層子選單（PR-3b-2 T4）", () => {
+describe("⋮ 逐層子選單", () => {
   const GG = "dddddddd-dddd-dddd-dddd-dddddddddddd";
   const GH = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee";
   const G = groupDto({ id: GG, name: "G" }, memberRole());
@@ -869,7 +869,7 @@ describe("⋮ 逐層子選單（PR-3b-2 T4）", () => {
   const GF = groupFolder({ id: "GF", name: "GF", groupId: GG });
   const HF = groupFolder({ id: "HF", name: "HF", groupId: GH });
   const SF = sharedFolder({ id: "SF", name: "SF" });
-  /** 個人 A ⊃ A1、B；群組 G、H 沒有資料夾（NM-D1 的形）。 */
+  /** 個人 A ⊃ A1、B；群組 G、H 沒有資料夾。 */
   const BASE_SERVER = { groups: [G, H], folders: [A, A1, B] };
 
   /** 可及名稱：aria-label 優先，否則去掉 aria-hidden 的子元素。 */
@@ -923,8 +923,8 @@ describe("⋮ 逐層子選單（PR-3b-2 T4）", () => {
     return screen.findByRole("menu", { name });
   }
 
-  // PR-3b-3 T3：寬形改成層疊（Radix 巢狀子選單，下方「寬螢幕層疊」describe 的 WC 案）；原本這裡的 flyout 逐層案（NM-D1–D7、D9、D13–D17）
-  // 已刪或改寫成 WC 案／窄形案。這裡留與形態無關、在寬形照綠的案（同空間移動、反灰、確認框、前導圖示）；寬形 SubTrigger 不帶「, open」（總管裁定 ③）。
+  // 寬形改成層疊（Radix 巢狀子選單，下方「寬螢幕層疊」describe 的 WC 案）；原本這裡的 flyout 逐層案
+  // 已刪或改寫成 WC 案／窄形案。這裡留與形態無關、在寬形照綠的案（同空間移動、反灰、確認框、前導圖示）；寬形 SubTrigger 不帶「, open」。
   it("NM-D8 點「B」（沒有子資料夾）→ 選單關、不開確認框、PUT {folderId:B}、toast「Moved to “B”」", async () => {
     const s = stub(BASE_SERVER);
     renderMenu();
@@ -1044,7 +1044,7 @@ describe("⋮ 逐層子選單（PR-3b-2 T4）", () => {
       expect(screen.getAllByRole("menu")).toHaveLength(1);
     });
 
-    it("BK1 窄形（就地展開）第二層的 Back：文字恰為「Back」（無「‹」）、前導 chevron-left（aria-hidden、與 chevron-right 同尺寸 class）", async () => {
+    it("窄形（就地展開）第二層的 Back：文字恰為「Back」（無「‹」）、前導 chevron-left（aria-hidden、與 chevron-right 同尺寸 class）", async () => {
       stub(BASE_SERVER);
       renderMenu();
       const { group } = await expandMove(["A, open", "B", "G", "H"]);
@@ -1100,7 +1100,7 @@ describe("⋮ 逐層子選單（PR-3b-2 T4）", () => {
       expect(names(screen.getByRole("group", { name: "Move to…" }))).toEqual(["A, open", "B", "G", "H"]);
     });
 
-    it("NM-I4（自補）第二層時再點觸發項收合 → 再展開回第一層；第二層時改展開 Copy to… → 回頭展開 Move to… 也是第一層", async () => {
+    it("NM-I4 第二層時再點觸發項收合 → 再展開回第一層；第二層時改展開 Copy to… → 回頭展開 Move to… 也是第一層", async () => {
       stub(BASE_SERVER);
       renderMenu();
       const { trigger, group } = await expandMove(["A, open", "B", "G", "H"]);
@@ -1119,9 +1119,9 @@ describe("⋮ 逐層子選單（PR-3b-2 T4）", () => {
       expect(names(screen.getByRole("group", { name: "Move to…" }))).toEqual(["A, open", "B", "G", "H"]);
     });
 
-    // flyout 形的 NM-D6／NM-D17 另有 Radix `MenuSub` 自己的保險（父選單關閉或卸載時呼叫 onOpenChange(false) → 子選單關閉重設 path），
-    // 主選單關閉與選定後的重設只有在就地展開形才是唯一一道：這兩案守它（自補）。
-    it("NM-I5（自補，NM-D6 的就地展開版）第二層時點選單外關掉整個選單 → 再開、展開 → 第一層", async () => {
+    // flyout 形另有 Radix `MenuSub` 自己的保險（父選單關閉或卸載時呼叫 onOpenChange(false) → 子選單關閉重設 path），
+    // 主選單關閉與選定後的重設只有在就地展開形才是唯一一道：這兩案守它。
+    it("NM-I5（就地展開版）第二層時點選單外關掉整個選單 → 再開、展開 → 第一層", async () => {
       stub(BASE_SERVER);
       renderMenu();
       const { group } = await expandMove(["A, open", "B", "G", "H"]);
@@ -1133,7 +1133,7 @@ describe("⋮ 逐層子選單（PR-3b-2 T4）", () => {
       expect(names(screen.getByRole("group", { name: "Move to…" }))).toEqual(["A, open", "B", "G", "H"]);
     });
 
-    it("NM-I6（自補，NM-D17 的就地展開版）第二層選定（確認框）→ 取消後再開、展開 → 第一層", async () => {
+    it("NM-I6（就地展開版）第二層選定（確認框）→ 取消後再開、展開 → 第一層", async () => {
       stub({ ...BASE_SERVER, folders: [A, A1, B, GF] });
       renderMenu();
       const { group } = await expandMove(["A, open", "B", "G, open", "H"]);
@@ -1169,10 +1169,10 @@ describe("⋮ 逐層子選單（PR-3b-2 T4）", () => {
       await expandMove(["SF"]);
     });
 
-    // NM-I7–I9：原 NM-D14–D16（flyout 形）的窄形版——所在層 path 只剩窄形在用（T2 交接：不看 path.length，見 `livePath`）。
+    // NM-I7–I9：flyout 形的窄形版——所在層 path 只剩窄形在用（不看 path.length，見 `livePath`）。
     const moveGroup = () => screen.getByRole("group", { name: "Move to…" });
 
-    it("NM-I7（原 NM-D14）在 A › A1 時 A1 被刪（folders 重抓）→ 顯示 A 那層；按「Back」恰退一層到第一層", async () => {
+    it("NM-I7 在 A › A1 時 A1 被刪（folders 重抓）→ 顯示 A 那層；按「Back」恰退一層到第一層", async () => {
       const s = stub({ ...BASE_SERVER, folders: [A, A1, A2, B] });
       const qc = renderMenu();
       await expandMove(["A, open", "B", "G", "H"]);
@@ -1188,7 +1188,7 @@ describe("⋮ 逐層子選單（PR-3b-2 T4）", () => {
       await waitFor(() => expect(names(moveGroup())).toEqual(["A", "B", "G", "H"]));
     });
 
-    it("NM-I8（原 NM-D15）在 A 那層時 A 被刪 → 顯示第一層；第一層 ArrowLeft 收合（不是回「上一層」）", async () => {
+    it("NM-I8 在 A 那層時 A 被刪 → 顯示第一層；第一層 ArrowLeft 收合（不是回「上一層」）", async () => {
       const s = stub(BASE_SERVER);
       const qc = renderMenu();
       const { trigger } = await expandMove(["A, open", "B", "G", "H"]);
@@ -1204,7 +1204,7 @@ describe("⋮ 逐層子選單（PR-3b-2 T4）", () => {
       expect(screen.getByRole("menu")).toBeInTheDocument();
     });
 
-    it("NM-I9（原 NM-D16）在 A 那層時 A 被刪 → 第一層點「B, open」→ 進 B 那層（不接在失效的 A 後面）", async () => {
+    it("NM-I9 在 A 那層時 A 被刪 → 第一層點「B, open」→ 進 B 那層（不接在失效的 A 後面）", async () => {
       const B1 = folderDto({ id: "B1", name: "B1", parentId: "B" });
       const s = stub({ ...BASE_SERVER, folders: [A, A1, B, B1] });
       const qc = renderMenu();
@@ -1221,10 +1221,10 @@ describe("⋮ 逐層子選單（PR-3b-2 T4）", () => {
     });
   });
 
-  // PR-3b-3 T3（資料夾 spec F23、§6.11.1、§6.11.4、§6.14）：寬螢幕（≥48rem 且可 hover）＝往旁層疊的 Radix 巢狀子選單。
-  // 有子資料夾的項目＝SubTrigger（可及名稱＝項目文字，不帶「, open」：總管裁定 ③），展開後第一項「Move here／Copy here」、群組第一項「Top level」；
-  // 沒有「Back」；層數照實際樹（總管裁定 ①）；Esc 只收一層（②）；選單開著時跨過寬窄判準 → 整個選單關（④）。
-  describe("寬螢幕層疊（PR-3b-3）", () => {
+  // 寬螢幕（≥48rem 且可 hover）＝往旁層疊的 Radix 巢狀子選單。
+  // 有子資料夾的項目＝SubTrigger（可及名稱＝項目文字，不帶「, open」），展開後第一項「Move here／Copy here」、群組第一項「Top level」；
+  // 沒有「Back」；層數照實際樹；Esc 只收一層（②）；選單開著時跨過寬窄判準 → 整個選單關（④）。
+  describe("寬螢幕層疊", () => {
     const GF1 = groupFolder({ id: "GF1", name: "GF1", groupId: GG, parentId: "GF" });
     /** 個人 A ⊃ A1、B；群組 G 有 GF ⊃ GF1；H 沒有資料夾。 */
     const WIDE_SERVER = { groups: [G, H], folders: [A, A1, B, GF, GF1] };
@@ -1421,7 +1421,7 @@ describe("⋮ 逐層子選單（PR-3b-2 T4）", () => {
       await act(async () => s.release(URLS.folders, okJson({ folders: WIDE_SERVER.folders })));
       await waitFor(() => expect(names(sub)).toEqual(["A", "B", "G", "H"]));
       expect(within(sub).getAllByRole("menuitem").filter(haspopup).map(accessibleName)).toEqual(["A", "G"]);
-      // 焦點原本在一般項「G」，換成 SubTrigger 時元件重掛：不得掉到 body，交還給這一層（真瀏覽器落點見 H8）。
+      // 焦點原本在一般項「G」，換成 SubTrigger 時元件重掛：不得掉到 body，交還給這一層。
       await waitFor(() => expect(document.activeElement).not.toBe(document.body));
       expect(sub.contains(document.activeElement)).toBe(true);
     });
@@ -1542,7 +1542,7 @@ describe("⋮ 逐層子選單（PR-3b-2 T4）", () => {
   });
 });
 
-describe("isSameSpaceMove（PR-3b-2 T4 fix）", () => {
+describe("isSameSpaceMove", () => {
   const place = (space: DestSpace): DestinationPick["target"] => ({ kind: "place", space, folder: null });
   const pick = (kind: "move" | "copy", target: DestinationPick["target"]): DestinationPick => ({ kind, target, groups: [], index: indexFolders([]) });
   const groupNote: NoteDto = { ...NOTE, groupId: GA };

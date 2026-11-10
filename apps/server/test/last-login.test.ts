@@ -1,4 +1,4 @@
-/** #247 §9.5：五個「新簽一張登入 session」的點寫 users.last_login_at；同一次登入換 token、已登入時連結身分都不寫。時間一律以 DB 時鐘比。 */
+/** #247：五個「新簽一張登入 session」的點寫 users.last_login_at；同一次登入換 token、已登入時連結身分都不寫。時間一律以 DB 時鐘比。 */
 import { describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import { SESSION_COOKIE } from "@knotebook/shared";
@@ -20,7 +20,7 @@ async function touchedSince(db: Db, userId: string, t0: string): Promise<boolean
   return (await db.execute<{ ok: boolean }>(sql`select coalesce(last_login_at >= ${t0}::timestamptz, false) as ok from users where id = ${userId}`)).rows[0]!.ok;
 }
 
-describe("users.last_login_at（#247 §9.5）", () => {
+describe("users.last_login_at（#247）", () => {
   it("帳密登入 → 寫入（≥ 登入前的 DB 時間）；錯密碼、停用帳號的對密碼都不寫", async () => {
     const { app, db } = await buildTestApp();
     const u = await insertPasswordUser(db, { password: PW });

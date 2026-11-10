@@ -133,7 +133,7 @@ vi.mock("./pages/NotePage", async () => {
 });
 
 /**
- * issue #19（審查抓到的 blocking，補回歸釘）：NotePage 走 lazy 之後，Suspense fallback
+ * issue #19（回歸釘）：NotePage 走 lazy 之後，Suspense fallback
  * **必須包 AppShell**——裸 <p> 會讓「從首頁點開第一篇筆記」的瞬間整個側欄/選單消失、
  * 白頁閃一下再長回來，恰好發生在切分要優化的路徑上。E2E 在 localhost 上 chunk 毫秒級
  * 解析、看不到 fallback；只有這裡把 chunk 的 resolve 拖住，才驗得到 fallback 的長相。
@@ -141,7 +141,7 @@ vi.mock("./pages/NotePage", async () => {
  * ⚠ 不可用「doMock + await import("./App")」的寫法（第一版就是，假守衛）：檔頭的靜態
  * import 已經把 ./App 連同真 NotePage 快取住，測試內的動態 import 拿到同一份快取，
  * mock 根本沒生效——突變驗證（把 fallback 改回裸 <p>、甚至把 lazy 整個拿掉）照樣綠。
- * 現行寫法兩種突變都會紅（已實測；改成閘門版後於 2026-10-30 重測：靜態 import、fallback 改裸 <p>
+ * 現行寫法兩種突變都會紅（已實測；改成閘門版後重測：靜態 import、fallback 改裸 <p>
  * 兩者都在「New note」等待處紅）。
  */
 describe("App route tree — NotePage lazy fallback 保留 AppShell（issue #19）", () => {

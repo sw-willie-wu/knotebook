@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { noteSchema } from "@/collab/schema";
 import { presentationSchema } from "./schema";
 
-describe("presentationSchema parity（spec §5.2-4、§13.1）", () => {
+describe("presentationSchema parity", () => {
   it("block 型別集合與 noteSchema 相同", () => {
     expect(Object.keys(presentationSchema.blockSchema).sort()).toEqual(Object.keys(noteSchema.blockSchema).sort());
   });
@@ -15,7 +15,7 @@ describe("presentationSchema parity（spec §5.2-4、§13.1）", () => {
     }
   });
 
-  it("有並排兩型 columnList／column，column 的 propSchema 只有 width（columns-layout §5.3）", () => {
+  it("有並排兩型 columnList／column，column 的 propSchema 只有 width", () => {
     const blocks = presentationSchema.blockSchema as Record<string, { propSchema: unknown }>;
     expect(blocks.columnList).toBeDefined();
     expect(blocks.column).toBeDefined();

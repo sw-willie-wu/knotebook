@@ -3,7 +3,7 @@ import { and, eq, isNull, sql, type SQL } from "drizzle-orm";
 import { oneTimeLinks } from "../db/schema.js";
 
 /**
- * #286 spec §3.1、§3.4：一次性連結（`one_time_links`）的明文格式與有效述詞。落庫只存 `hashToken()`。
+ * #286：一次性連結（`one_time_links`）的明文格式與有效述詞。落庫只存 `hashToken()`。
  *
  * ⚠ `RESET_TOKEN_PREFIX` **刻意不是** `ACCESS_TOKEN_PREFIX`（`knb_`）的延長：第 4 個字元是 `p` 而不是 `_`，
  * 所以 `isAccessTokenShape("knbp_…")` 為假——重設 token 送到任何 `authenticateAny` 路由都在前綴那關 401、
@@ -30,7 +30,7 @@ export function isOneTimeTokenShape(kind: OneTimeLinkKind, token: string): boole
 }
 
 /**
- * spec §3.4 有效述詞的**唯一**定義：kind 相符、未用、未撤銷、未過期（時間一律用 DB 的 `now()`）。
+ * 有效述詞的**唯一**定義：kind 相符、未用、未撤銷、未過期（時間一律用 DB 的 `now()`）。
  * `token_hash` 或 `id` 的比對由呼叫端另外 `and` 上。帳密登入開關**不**進這個述詞（由端點另外判斷），
  * 列本身的狀態不受開關影響，重新開啟後自然恢復。
  */
@@ -45,7 +45,7 @@ export function activeOneTimeLink(kind: OneTimeLinkKind): SQL {
 
 /**
  * 某人「還沒結束」的重設連結：未用、未撤銷，**不看到期**——再產生、取消、停用都要把過期未用的列一起撤
- * （spec §4.2 N-3；過期未用的列仍佔 I3 的索引位置）。
+ * （過期未用的列仍佔「每人至多一支」的索引位置）。
  */
 export function pendingPasswordResetsOf(targetUserId: string): SQL {
   return and(

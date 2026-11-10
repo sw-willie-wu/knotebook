@@ -10,7 +10,7 @@ import {
 } from "./people";
 
 /**
- * #293 §9.1-6：訂閱 awareness 的 `change`（y-protocols 只在狀態內容不同時發；心跳只發 update），
+ * #293：訂閱 awareness 的 `change`（y-protocols 只在狀態內容不同時發；心跳只發 update），
  * 一幀內多次合併成一次重算；簽章（鍵、名字、角色、頭貼、有無游標）沒變就不 setState——游標移動不重繪頭像列，
  * 點擊時由 `cursorOf` 讀即時狀態。
  */

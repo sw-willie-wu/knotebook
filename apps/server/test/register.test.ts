@@ -32,7 +32,7 @@ async function holderFor(db: TestApp["db"]): Promise<Client> {
   return holder;
 }
 
-describe("POST /api/auth/register（#187 §9.1、B9）", () => {
+describe("POST /api/auth/register（#187）", () => {
   it("成功 → 201 UserDto、簽 session（可打 /me）、must_change_password=false、handle 派生自 email local-part", async () => {
     const { app, db } = await buildTestApp();
     const res = await register(app, { email: "new.user@example.com", password: PW, displayName: "New User" });
@@ -56,7 +56,7 @@ describe("POST /api/auth/register（#187 §9.1、B9）", () => {
     expect(res.json().displayName).toBe("solo");
   });
 
-  it("RF1：email 前後空白與大寫 → 存成正規化小寫；之後以小寫登入成功；顯示名含 NUL → 400、不是 500", async () => {
+  it("email 前後空白與大寫 → 存成正規化小寫；之後以小寫登入成功；顯示名含 NUL → 400、不是 500", async () => {
     const { app, db } = await buildTestApp();
     const res = await register(app, { email: "  Alice@X.Example ", password: PW });
     expect(res.statusCode).toBe(201);
@@ -70,7 +70,7 @@ describe("POST /api/auth/register（#187 §9.1、B9）", () => {
     expect(await db.select().from(users).where(eq(users.email, "bob@x.example"))).toEqual([]);
   });
 
-  it("疑點 4 上限（總管裁定）：email 255 字元 → 400（英文訊息）、254 → 201；顯示名 101 個 code point → 400、100 個 → 201", async () => {
+  it("上限：email 255 字元 → 400（英文訊息）、254 → 201；顯示名 101 個 code point → 400、100 個 → 201", async () => {
     const { app, db } = await buildTestApp();
     const emailOf = (n: number) => `${"a".repeat(n - "@example.com".length)}@example.com`;
     const long = await register(app, { email: emailOf(255), password: PW });
@@ -78,7 +78,7 @@ describe("POST /api/auth/register（#187 §9.1、B9）", () => {
     expect(long.json().error.message).toBe("The email can be at most 254 characters.");
     const longLocal = await register(app, { email: emailOf(254), password: PW });
     expect(longLocal.statusCode).toBe(201);
-    // R1（I1）：不帶顯示名時預設值＝local-part（242 字元）截到前 100 個 code point。
+    // 不帶顯示名時預設值＝local-part（242 字元）截到前 100 個 code point。
     expect(longLocal.json().displayName).toBe("a".repeat(100));
     const [longRow] = await db.select().from(users).where(eq(users.id, longLocal.json().id));
     expect(longRow!.displayName).toBe("a".repeat(100));
@@ -87,7 +87,7 @@ describe("POST /api/auth/register（#187 §9.1、B9）", () => {
     expect((await register(app, { email: "n2@example.com", password: PW, displayName: "😀".repeat(100) })).statusCode).toBe(201);
   });
 
-  it("email 已存在 → 409；r2-M8：既有 `Alice@x`（大小寫混合舊列）時以 `alice@x` 註冊 → 409 email_taken", async () => {
+  it("email 已存在 → 409；既有 `Alice@x`（大小寫混合舊列）時以 `alice@x` 註冊 → 409 email_taken", async () => {
     const { app, db } = await buildTestApp();
     await insertPasswordUser(db, { email: "taken@example.com" });
     expect((await register(app, { email: "taken@example.com", password: PW })).json().error.code).toBe("email_taken");
@@ -114,7 +114,7 @@ describe("POST /api/auth/register（#187 §9.1、B9）", () => {
     expect(vi.mocked(hashPassword)).not.toHaveBeenCalled();
   });
 
-  it("B21：帳密登入有效值關 → 403 password_login_disabled；兩者皆關 → registration_disabled；env 強制＋DB 關 → 201", async () => {
+  it("帳密登入有效值關 → 403 password_login_disabled；兩者皆關 → registration_disabled；env 強制＋DB 關 → 201", async () => {
     const { app, db } = await buildTestApp();
     await db.update(siteSettings).set({ passwordLoginEnabled: false });
     expect((await register(app, { email: "p@example.com", password: PW })).json().error.code).toBe("password_login_disabled");
@@ -131,7 +131,7 @@ describe("POST /api/auth/register（#187 §9.1、B9）", () => {
     expect((await register(app, { email: "x@example.com", password: PW })).json().error.code).toBe("registration_disabled");
   });
 
-  it("RG-C7（C-7）帳密自助註冊只看 registration_enabled＋帳密有效值，與服務的自動建帳無關", async () => {
+  it("RG-C7 帳密自助註冊只看 registration_enabled＋帳密有效值，與服務的自動建帳無關", async () => {
     const { app, db } = await buildTestApp();
     await seedAuthProvider(db, { issuerUrl: "https://idp.example", autoCreateEnabled: true });
     await db.update(siteSettings).set({ registrationEnabled: false });
@@ -221,7 +221,7 @@ describe("POST /api/auth/register（#187 §9.1、B9）", () => {
     }
   });
 
-  it("RG-R（spec §5.6）：交易的非預期 DB 錯誤 → 500，log 遮蔽（context「註冊」、無 password hash、無 params）；users／handles 無新列", async () => {
+  it("RG-R：交易的非預期 DB 錯誤 → 500，log 遮蔽（context「註冊」、無 password hash、無 params）；users／handles 無新列", async () => {
     const out: string[] = [];
     const lines: Array<{ msg?: string; obj: Record<string, unknown> }> = [];
     const { app, db } = await buildTestApp({}, {

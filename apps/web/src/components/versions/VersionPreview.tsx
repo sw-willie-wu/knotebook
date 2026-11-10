@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils";
 import { ComparePicker } from "./ComparePicker";
 
 /**
- * 並排的門檻（content box 寬，`useContainerWidth` 量；final §14-6，Willie 裁定 720）。門檻的唯一來源：
+ * 並排的門檻（content box 寬，`useContainerWidth` 量；定為 720）。門檻的唯一來源：
  * 不到門檻就不走並排渲染（只有單欄），所以並排的 grid 一律兩欄、不另用容器查詢。
  */
 const SPLIT_MIN_WIDTH = 720;
@@ -30,13 +30,13 @@ const NO_MARKS: Map<string, DiffMark> = new Map();
 
 /**
  * 唯讀 diff 編輯器（單欄、並排的一側、前後對話框共用）。**不掛 collaboration**、`editable={false}`；
- * `resolveFileUrl` 一律過 `safeMediaUrl`（RF2：快照可能帶協作者寫進去的危險網址，issue #12 同一道守衛）。
- * render 後依 `marks` 以 `data-id` 回貼 `data-diff`（spec §8.4）；沒在 marks 裡的區塊貼 `context`。
+ * `resolveFileUrl` 一律過 `safeMediaUrl`（快照可能帶協作者寫進去的危險網址，issue #12 同一道守衛）。
+ * render 後依 `marks` 以 `data-id` 回貼 `data-diff`；沒在 marks 裡的區塊貼 `context`。
  *
  * `useCreateBlockNote(…, [blocks])` 在 `blocks` 身分一換就重建整顆編輯器——呼叫端傳進來的 `blocks` 必須是記憶化的參照
- * （見 `VersionPreview` 的 useMemo 鏈）。`data-diff` 貼在 `.bn-block-outer[data-id]` 上：Task 8 Step 1 探針在 jsdom 實跑，
+ * （見 `VersionPreview` 的 useMemo 鏈）。`data-diff` 貼在 `.bn-block-outer[data-id]` 上：在 jsdom 實跑過，
  * 屬性經選取、空 meta、改別的區塊、同 id `replaceBlocks` 四種 transaction 都還在（唯讀編輯器本身不會再有 transaction）。
- * 並排的欄與列（`[data-node-type=column|columnList][data-id]`）也貼（columns-layout spec §11.9）；T9 審查的 jsdom 探針實測，
+ * 並排的欄與列（`[data-node-type=column|columnList][data-id]`）也貼；jsdom 實測，
  * 堆疊外掛的 decoration 交易後欄與列元素不換、屬性仍在。
  */
 export function DiffEditor({
@@ -48,7 +48,7 @@ export function DiffEditor({
   blocks: DiffBlock[];
   marks: Map<string, DiffMark | DiffMarkInfo>;
   testId?: string;
-  /** 交出 `editor.domElement`（＝`.bn-editor` 本身，見 `topLevelOuters`）給父層量版面（rev 12 並排對齊、看前後鈕重量）。 */
+  /** 交出 `editor.domElement`（＝`.bn-editor` 本身，見 `topLevelOuters`）給父層量版面（並排對齊、看前後鈕重量）。 */
   rootRef?: MutableRefObject<HTMLElement | null>;
 }) {
   const { resolvedTheme } = useTheme();
@@ -66,7 +66,7 @@ export function DiffEditor({
     // 子層的 layout effect 先於父層（VersionPreview）的跑：父層量版面時這裡已交出本次 render 的 root。
     if (rootRef) rootRef.current = root ?? null;
     if (!root) return;
-    // 並排的欄與列不是 `.bn-block-outer`，另外列進來（columns-layout spec §11.9：欄的增刪與寬度變更、整列增刪）。
+    // 並排的欄與列不是 `.bn-block-outer`，另外列進來（columns-layout：欄的增刪與寬度變更、整列增刪）。
     root.querySelectorAll<HTMLElement>('.bn-block-outer[data-id], [data-node-type="column"][data-id], [data-node-type="columnList"][data-id]').forEach((el) => {
       const info = marks.get(el.dataset.id!);
       const mark = typeof info === "string" ? info : (info?.mark ?? "context");
@@ -74,7 +74,7 @@ export function DiffEditor({
       if (typeof info === "object" && info.moved && mark !== "moved") el.setAttribute("data-diff-moved", "true");
     });
   });
-  // 卸載（載入中分支、換單欄）時交還 null，父層不會拿已脫離 DOM 的舊 root 去量或掛 observer（Task 2 review N-1）。
+  // 卸載（載入中分支、換單欄）時交還 null，父層不會拿已脫離 DOM 的舊 root 去量或掛 observer。
   useLayoutEffect(
     () => () => {
       if (rootRef) rootRef.current = null;
@@ -127,7 +127,7 @@ function NonTextDialog({ change, onClose }: { change: NonTextChange; onClose: ()
   );
 }
 
-/** 並排時對面欄留白的斜紋塊（rev 12）：相對所在欄 `section` 的 px。`row`＝這塊蓋住的第一個列號（當 React key）；
+/** 並排時對面欄留白的斜紋塊：相對所在欄 `section` 的 px。`row`＝這塊蓋住的第一個列號（當 React key）；
  * `left`／`width`＝該欄頂層 `.bn-block-outer` 的橫向範圍（不含編輯器左右內距；量不到時為 null＝整欄寬）。 */
 interface Spacer {
   side: "left" | "right";
@@ -141,18 +141,18 @@ interface Spacer {
 /**
  * 一顆 diff 編輯器的頂層單位（依文件順序，與傳進去的 blocks 陣列一一對應；陣列為空時 DiffEditor 渲染的那顆
  * 佔位段落是多出來的第 0 顆，`splitRows` 不給它列號）：頂層 `.bn-block-outer` 與頂層並排列。
- * selector 是實測：2026-10-10 在 jsdom 掛 `BlockNoteView` 印 DOM——`editor.domElement` 本身就是 `.bn-editor`
+ * selector 是實測：在 jsdom 掛 `BlockNoteView` 印 DOM——`editor.domElement` 本身就是 `.bn-editor`
  * （className `tiptap ProseMirror bn-editor bn-default-styles …`），其下 `.bn-block-group > .bn-block-outer[data-id]` 是頂層；
  * 巢狀子區塊在 `.bn-block-outer > .bn-block > .bn-block-group > .bn-block-outer` 更深層（A、B〔子 C〕三顆：
  * `.bn-block-outer` 全抓得 A,B,C；本 selector 得 A,B）。頂層的 `columnList` 直接掛在 `.bn-block-group` 下、不包 `.bn-block-outer`，
- * 一列＝一個對齊列；列內不逐欄對齊（columns-layout spec §11.9，同「巢狀不對齊」）。
+ * 一列＝一個對齊列；列內不逐欄對齊（同「巢狀不對齊」）。
  */
 function topLevelOuters(root: HTMLElement | null): HTMLElement[] {
   return root ? Array.from(root.querySelectorAll<HTMLElement>(':scope > .bn-block-group > :is(.bn-block-outer, [data-node-type="columnList"])')) : [];
 }
 
 /** 頂層區塊的高度（`getBoundingClientRect().height`，border box、小數）。用小數而不是整數的 `offsetHeight`：h3 行高 31.2px、h5 21.6px、
- * 依比例縮放的圖片也常是小數，四捨五入的誤差會逐列累加成錯位（Task 2 review M-1）。border box 不含自己的 margin，所以不必先清 margin 就能量。 */
+ * 依比例縮放的圖片也常是小數，四捨五入的誤差會逐列累加成錯位。border box 不含自己的 margin，所以不必先清 margin 就能量。 */
 function blockHeight(el: HTMLElement): number {
   return el.getBoundingClientRect().height;
 }
@@ -168,9 +168,9 @@ function sameHeights(x: number[][], y: number[][]): boolean {
 }
 
 /**
- * 並排逐區塊對齊（spec rev 12 §8.4「版面」「量測」「標記」）：清 → 標 `data-diff-row` → 讀全部高度 → 寫全部 margin → 讀 spacer 位置。
+ * 並排逐區塊對齊：清 → 標 `data-diff-row` → 讀全部高度 → 寫全部 margin → 讀 spacer 位置。
  * 每列高＝兩側頂層區塊高度（`blockHeight`）的最大值。留白一律寫成「下一顆」的 `margin-top`（矮側在同列之下的差值、對面單側列的整列高都累加進去；
- * 欄末沒有下一顆 → 該欄 `section` 的 `padding-bottom`）——spec 字面是「矮側補 margin-bottom、單側列對面下一顆補 margin-top」，
+ * 欄末沒有下一顆 → 該欄 `section` 的 `padding-bottom`）——直覺的寫法是「矮側補 margin-bottom、單側列對面下一顆補 margin-top」，
  * 但同一個邊界上一顆的 margin-bottom 與下一顆的 margin-top 會**摺疊成較大者**而不是相加（CSS margin collapsing），
  * 矮側後面緊接對面單側列時會少算；所以每個邊界只寫一個 margin。
  * jsdom 量到全 0 → 只清與標，不寫 style、不產生 spacer。
@@ -243,12 +243,12 @@ function SpacerDiv({ spacer }: { spacer: Spacer }) {
 }
 
 /**
- * 版本預覽（spec §8.4）：渲染在 `NoteEditor` 的 `previewSlot`（`overflow-y-auto` 的捲動容器）裡。
+ * 版本預覽：渲染在 `NoteEditor` 的 `previewSlot`（`overflow-y-auto` 的捲動容器）裡。
  * 單欄＝一顆唯讀編輯器渲染 `renderDiff`；並排＝左右兩顆，**兩欄都不是捲動容器**，一起在 slot 那一個捲動容器裡同步捲動。
  *
- * ⚠ 所有衍生值都 `useMemo`（gate r1 I-5）：`DiffEditor` 以 `blocks` 身分決定要不要重建編輯器，而本元件會因清單去抖動
+ * ⚠ 所有衍生值都 `useMemo`：`DiffEditor` 以 `blocks` 身分決定要不要重建編輯器，而本元件會因清單去抖動
  * invalidate、視窗聚焦重抓、ResizeObserver、context 變動頻繁 re-render——任何一層沒記憶化都會讓預覽每次跳回頂端重建。
- * ⚠ return 一律是 `ref` 那層 wrapper（gate r2 M-1）：`useContainerWidth` 只在掛載時裝量尺，loading 早退會讓量尺永遠沒掛上。
+ * ⚠ return 一律是 `ref` 那層 wrapper：`useContainerWidth` 只在掛載時裝量尺，loading 早退會讓量尺永遠沒掛上。
  */
 export function VersionPreview({ doc, forceSingle = false }: { doc: Y.Doc; forceSingle?: boolean }) {
   const { t } = useTranslation();
@@ -258,7 +258,7 @@ export function VersionPreview({ doc, forceSingle = false }: { doc: Y.Doc; force
   // #297：單欄 diff 跟這篇的站內寬度（與編輯中的欄同寬，比對時不跳動）；noteId 為 null → 標準。
   const [noteWidth] = useNoteWidth(noteId);
 
-  // 比較對象＝左右一對（spec §8.4【rev 10】）：左＝預覽的那一版、右＝compareRight（"current" 時不抓快照、讀活文件的 fork）。
+  // 比較對象＝左右一對：左＝預覽的那一版、右＝compareRight（"current" 時不抓快照、讀活文件的 fork）。
   const rightTarget = compareRight === "current" ? null : compareRight;
   const left = useVersionSnapshot(noteId ?? "", preview);
   const right = useVersionSnapshot(noteId ?? "", rightTarget);
@@ -267,7 +267,7 @@ export function VersionPreview({ doc, forceSingle = false }: { doc: Y.Doc; force
   // 兩邊的 useVersionSnapshot 都已 invalidate 清單。
   const leftGone = left.error instanceof VersionSnapshotMismatch;
   const rightGone = rightTarget !== null && right.error instanceof VersionSnapshotMismatch;
-  // 讀取失敗（非 mismatch）→ 預覽區顯示通用錯誤，不停在「正在載入」（fix round 1 M-1）。
+  // 讀取失敗（非 mismatch）→ 預覽區顯示通用錯誤，不停在「正在載入」。
   // 只看兩份快照：diff 只吃快照（與活文件 fork），不吃版本清單；清單（尤其是有篩選的那份，#258）抓不到或還沒到都不該打斷預覽，
   // 所以本元件不訂閱清單（清單由面板／整頁／比較下拉各自訂閱，錯誤顯示在它們那邊）。
   const failed = (left.isError && !leftGone) || (rightTarget !== null && right.isError && !rightGone);
@@ -295,26 +295,26 @@ export function VersionPreview({ doc, forceSingle = false }: { doc: Y.Doc; force
   const entries = useMemo(() => (a && b ? diffBlocks(a, b) : null), [a, b]);
   const titleOf = useWikilinkTitleOf(a, b);
   const collapsedText = useCallback((n: number) => t("versions.preview.collapsed", { count: n }), [t]);
-  // #269 §13.2：titleOf 以「相關標題」為值相等的鍵記憶化——清單重抓但相關標題沒變時同一個函式，這裡不重算、DiffEditor 不重建。
+  // #269：titleOf 以「相關標題」為值相等的鍵記憶化——清單重抓但相關標題沒變時同一個函式，這裡不重算、DiffEditor 不重建。
   const single = useMemo(() => (entries ? renderDiff(entries, { onlyChanges, collapsedText, titleOf }) : null), [entries, onlyChanges, collapsedText, titleOf]);
   const sides = useMemo(() => (entries ? sideBySideMarks(entries) : null), [entries]);
   const nonText = useMemo(() => (entries && single ? collectNonText(entries, single.marks) : []), [entries, single]);
 
-  // 並排只在預覽區夠寬時存在（final §14-6）：窄時一律單欄，使用者選過的「並排」留在 splitMode、變寬後恢復。
+  // 並排只在預覽區夠寬時存在：窄時一律單欄，使用者選過的「並排」留在 splitMode、變寬後恢復。
   // 與 controller 的 `splitActive`（`previewWide && splitMode !== "single"`）同一條。
   const wide = !forceSingle && width >= SPLIT_MIN_WIDTH;
   const split = wide && splitMode !== "single";
-  // 回報寬度判定給橫幅／整頁（final M-1、§14-6）：寬度只有本元件量得到。卸載時歸零。
-  // useLayoutEffect（final fix 2 N-A）：寬版第一次進預覽時，在瀏覽器繪製前就讓橫幅拿到 previewWide，避免閃一格沒有並排鈕【推】
-  // （jsdom 分不出 useEffect／useLayoutEffect：換回 useEffect 測試照樣綠，突變 R6；沒有測試守著）。
+  // 回報寬度判定給橫幅／整頁：寬度只有本元件量得到。卸載時歸零。
+  // useLayoutEffect：寬版第一次進預覽時，在瀏覽器繪製前就讓橫幅拿到 previewWide，避免閃一格沒有並排鈕【推】
+  // （jsdom 分不出 useEffect／useLayoutEffect：換回 useEffect 測試照樣綠；沒有測試守著）。
   useLayoutEffect(() => {
     reportPreviewWide(wide);
     return () => reportPreviewWide(false);
   }, [wide, reportPreviewWide]);
 
-  // 並排逐區塊對齊（spec rev 12 §8.4）＋非文字 changed 的「看前後」鈕位置，同一個 layout effect、同一條 ResizeObserver。
+  // 並排逐區塊對齊＋非文字 changed 的「看前後」鈕位置，同一個 layout effect、同一條 ResizeObserver。
   // 「看前後」鈕疊在 wrapper 上，top 對齊該區塊（右欄／單欄那一顆），要在對齊的 margin 寫完之後才量。
-  // 子層 DiffEditor 的 DOM 與 rootRef 在它自己的 layout effect 裡就已就緒（子先於父；Step 1 探針），所以這裡量得到。
+  // 子層 DiffEditor 的 DOM 與 rootRef 在它自己的 layout effect 裡就已就緒（子先於父），所以這裡量得到。
   // 觸發：列、並排與否、寬度、按鈕集合變了 → 整套重跑；編輯器 root 尺寸變了（圖片／嵌入後載入撐高）→ ResizeObserver，
   // 以 requestAnimationFrame 去抖（同一幀多次只跑一次），且兩欄頂層高度簽章沒變就不重寫（自己寫 margin 撐大 root 也會觸發 observer）。
   // jsdom 量不到高度與座標：對齊只有 data-diff-row 與「全 0 不寫 style」有單元測試，實際對齊由 e2e 22 驗。
@@ -363,7 +363,7 @@ export function VersionPreview({ doc, forceSingle = false }: { doc: Y.Doc; force
     };
   }, [rows, split, width, nonText]);
   const [opened, setOpened] = useState<NonTextChange | null>(null);
-  // 換一版預覽（或換右邊）：render 期間重設「看前後」對話框與鈕位（fix round 1 M-4；同 useVersionsController 的「依 props 重設 state」形）。
+  // 換一版預覽（或換右邊）：render 期間重設「看前後」對話框與鈕位（同 useVersionsController 的「依 props 重設 state」形）。
   const seqNow = `${preview?.id ?? ""}|${rightTarget?.id ?? "current"}`;
   const [forSeq, setForSeq] = useState(seqNow);
   if (forSeq !== seqNow) {
@@ -372,8 +372,8 @@ export function VersionPreview({ doc, forceSingle = false }: { doc: Y.Doc; force
     setTops({});
   }
 
-  // 並排時兩個比較對象下拉就是兩欄的標頭（rev 10，取代原本純文字的 vN 標籤，位置不變）；橫幅那時不放下拉。
-  // 標頭列只看 `preview && split`，**不跟著 body 的載入／失敗分支消失**（review I-1）：否則右快照讀取失敗時沒有任何控制項能把右邊換掉，
+  // 並排時兩個比較對象下拉就是兩欄的標頭（取代原本純文字的 vN 標籤，位置不變）；橫幅那時不放下拉。
+  // 標頭列只看 `preview && split`，**不跟著 body 的載入／失敗分支消失**：否則右快照讀取失敗時沒有任何控制項能把右邊換掉，
   // 在欄標頭選一個未快取的版本時觸發鈕會在選單關閉前卸載、焦點掉到 body。標頭列與兩欄共用同一組 grid 欄寬與 gap，左右對齊。
   const splitHead =
     preview && split ? (

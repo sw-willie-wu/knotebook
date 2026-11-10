@@ -1,5 +1,5 @@
 /**
- * #200 spec §4.1、§4.5：transfer token 的明文格式與 401 的 challenge 組字。純函式，無 DB。
+ * #200：transfer token 的明文格式與 401 的 challenge 組字。純函式，無 DB。
  *
  * 守衛重點：`knbt_` 的第 4 字元是 `t` 不是 `_`，所以 `isAccessTokenShape("knbt_…")` 為假——transfer token 送到任何
  * `authenticateAny` 路由（`routes/notes.ts` 七處、`/api/mcp`）都在前綴那關 401、不進 DB（同 `knbr_` 的手法，
@@ -15,7 +15,7 @@ import {
   isTransferTokenShape,
 } from "../../src/auth/transfer-token.js";
 
-describe("transfer token 明文格式（spec §4.1）", () => {
+describe("transfer token 明文格式", () => {
   it("knbt_ + 43 字元 base64url（共 48），每次都不同", () => {
     const a = generateTransferToken();
     const b = generateTransferToken();
@@ -36,12 +36,12 @@ describe("transfer token 明文格式（spec §4.1）", () => {
     expect(isTransferTokenShape("Xknbt_abc")).toBe(false);
   });
 
-  it("每支母憑證的未消費 upload token 上限是 5（spec §4.3a）", () => {
+  it("每支母憑證的未消費 upload token 上限是 5", () => {
     expect(MAX_PENDING_UPLOAD_TOKENS).toBe(5);
   });
 });
 
-describe("buildTransferChallenge（spec §4.5，T22 的字串）", () => {
+describe("buildTransferChallenge", () => {
   it("帶 error：逐字 `Bearer realm=\"knotebook-transfer\", error=\"invalid_token\"`，不含 resource_metadata／scope", () => {
     expect(buildTransferChallenge("invalid_token")).toBe('Bearer realm="knotebook-transfer", error="invalid_token"');
   });

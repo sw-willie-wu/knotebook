@@ -1,5 +1,5 @@
 /**
- * 並排 PR-2（spec §11.3、§11.12、§13.1、驗收 10／11 的 server 半）：MCP／REST 讀出並排、圖片寬度與表格欄寬的正規形，
+ * 並排（server 半）：MCP／REST 讀出並排、圖片寬度與表格欄寬的正規形，
  * 原樣寫回（replace_section）結構與寬度不變；只改一個字時寬度不流失（#305）；不合格的讀出（5 欄）原樣寫回整筆拒絕。
  *
  * ⚠ `callTool`／`payloadOf`／`errorOf` 是 `mcp-colors.test.ts` 那份的又一份；`humanEdit` 抄自 `note-edits.test.ts`
@@ -99,7 +99,7 @@ const P = (text: string) => ({ type: "paragraph", content: text });
 const col = (width: number, ...children: AnyBlocks) => ({ type: "column", props: { width }, children });
 const row = (...cols: AnyBlocks) => ({ type: "columnList", children: cols });
 
-describe("並排讀出 → 原樣寫回（驗收 10）", () => {
+describe("並排讀出 → 原樣寫回", () => {
   it("MC1：read_note_section 的 _top 帶出正規並排行；原樣 replace_section 成功、再讀逐字相同、Y 結構仍是一列兩欄 [1, 1.5]", async () => {
     const s = await scene();
     await humanEdit(s, "後段落", [P("前段落"), row(col(1, P("左欄L")), col(1.5, P("右欄R"))), P("後段落")]);
@@ -118,7 +118,7 @@ describe("並排讀出 → 原樣寫回（驗收 10）", () => {
   });
 });
 
-describe("#305：只改一個字，圖片寬度與表格欄寬不流失（驗收 11 server 半）", () => {
+describe("#305：只改一個字，圖片寬度與表格欄寬不流失（server 半）", () => {
   const sized = (uploadId: string): AnyBlocks => [
     P("old words"),
     { type: "image", props: { url: `/api/uploads/${uploadId}`, previewWidth: 300 } },
@@ -153,7 +153,7 @@ describe("#305：只改一個字，圖片寬度與表格欄寬不流失（驗收
     s.client.disconnect();
   });
 
-  it("MC3（§11.12）：REST GET /api/notes/:id/content 同樣讀出 <figure> 寬度與第一列 colwidth", async () => {
+  it("MC3：REST GET /api/notes/:id/content 同樣讀出 <figure> 寬度與第一列 colwidth", async () => {
     const s = await scene();
     await seedSized(s);
     const res = await getContent(s.ctx.app, s.noteId, s.token);
@@ -165,7 +165,7 @@ describe("#305：只改一個字，圖片寬度與表格欄寬不流失（驗收
   });
 });
 
-describe("不合格的既存結構（I5 例外）", () => {
+describe("不合格的既存結構（例外）", () => {
   it("MC4：人工編輯出的 5 欄列讀出 5 個欄行；原樣 replace_section → unsupported_columns、內容不變", async () => {
     const s = await scene();
     await humanEdit(s, "第五欄", [row(col(1, P("第一欄")), col(1, P("第二欄")), col(1, P("第三欄")), col(1, P("第四欄")), col(1, P("第五欄")))]);

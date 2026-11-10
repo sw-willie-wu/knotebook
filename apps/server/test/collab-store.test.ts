@@ -40,7 +40,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-describe("Task 7：onLoadDocument/onStoreDocument + 樂觀鎖 + 分桶備份", () => {
+describe("onLoadDocument/onStoreDocument + 樂觀鎖 + 分桶備份", () => {
   it("編輯後 ≤5s note_states 有資料，內容與編輯一致", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: "owner-store1@example.com", password: PASSWORD });
@@ -148,11 +148,11 @@ describe("Task 7：onLoadDocument/onStoreDocument + 樂觀鎖 + 分桶備份", (
   });
 
   it("永久刪除期間 pending store 不復活資料列（用預設 noop hooks：DELETE 移入＋永久刪除落地時 store debounce 仍 pending）", async () => {
-    // 刻意用預設（noop）collabHooks，不是 Task 6 的真實作——真實作的 beforeNoteDeleted
+    // 刻意用預設（noop）collabHooks，不是真實作——真實作的 beforeNoteDeleted
     // 會在刪除交易前 flush+unload，讓 store 早於 DELETE 落地，測不到「資料列被復活」
     // 這個競態；noop 才會讓 DELETE 在 store debounce 仍 pending 時搶先落地，正是本規則
-    // 存在的理由（Task 6 的 gate 依賴這條規則成立）。
-    // #181：DELETE 只移入垃圾桶（列還在，落單的 store 照寫，spec §6.4.1）——「筆記不存在就丟棄」要靠永久刪除才走得到，
+    // 存在的理由（刪除閘門依賴這條規則成立）。
+    // #181：DELETE 只移入垃圾桶（列還在，落單的 store 照寫）——「筆記不存在就丟棄」要靠永久刪除才走得到，
     // 所以移入後同一個 debounce 窗內直接呼叫永久刪除的交易本體。
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: "owner-store5@example.com", password: PASSWORD });
@@ -213,7 +213,7 @@ describe("onStoreDocument 危險 URL 掃描（issue #44）", () => {
     expect(warns).toHaveLength(1);
 
     // unload → 重載 → store：訊號重新出現（同一個 warn sink 也收樂觀鎖衝突那行，
-    // 所以第二行的欄位要真的驗、不能只數行數——審查指出）。
+    // 所以第二行的欄位要真的驗、不能只數行數）。
     store.afterUnloadDocument(note.id);
     const doc2 = new Y.Doc();
     await store.onLoadDocument(note.id, doc2);

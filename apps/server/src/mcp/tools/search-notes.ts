@@ -1,16 +1,16 @@
 /**
- * #108 §8.5／#93 §8：`search_notes`——標題＋內文、大小寫不敏感的字面子字串比對，範圍＝呼叫者看得見的筆記。
+ * #108／#93：`search_notes`——標題＋內文、大小寫不敏感的字面子字串比對，範圍＝呼叫者看得見的筆記。
  *
  * - 查詢在 `notes/search-query.ts` 的 `searchNotesForUser`（同一個 REPEATABLE READ READ ONLY 交易兩句：列表＋matches）。
  *   ⚠ 不用 LIKE／ILIKE（`%`／`_` 會變萬用字元）。
- * - **不做游標分頁（D33）**：`ORDER BY` 首鍵是 rank；回一個不可能算錯的 `truncated`。**不得發明 `cursor`／`nextCursor`。**
- * - 輸出兩個變體（I5）：`canRead`＝註冊時的 `ctx.collab && ctx.editing`（與 `register.ts` 讀取工具的閘門同一個判準）——
+ * - **不做游標分頁**：`ORDER BY` 首鍵是 rank；回一個不可能算錯的 `truncated`。**不得發明 `cursor`／`nextCursor`。**
+ * - 輸出兩個變體：`canRead`＝註冊時的 `ctx.collab && ctx.editing`（與 `register.ts` 讀取工具的閘門同一個判準）——
  *   沒有讀取工具的部署上，description 與 `sectionId` 的說明不提 read_note_section／outline／延遲。
  * - `matchedOn` 在每篇（偏離 D）：頂層一個值對混合清單沒有意義；頂層 `matchedOn` 已刪（破壞性，CHANGELOG Changed）。
- * - 摘錄（§8.3）：`notes/search-snippet.ts`，成本＝JSON 逃脫後（`escapedLength`），上限 `MCP_SNIPPET_MAX`。
- * - wire 預算（§8.4，偏離 E）：50 篇 × 3 個最壞情形約 328 000 > N；依「筆記順序 → ord 順序」加入 match，下一個會超過
+ * - 摘錄：`notes/search-snippet.ts`，成本＝JSON 逃脫後（`escapedLength`），上限 `MCP_SNIPPET_MAX`。
+ * - wire 預算（偏離 E）：50 篇 × 3 個最壞情形約 328 000 > N；依「筆記順序 → ord 順序」加入 match，下一個會超過
  *   `MCP_SEARCH_WIRE_BUDGET` 就停止（不跳過再試）並在頂層放 `matchesTruncated: true`。
- * - 限流（§8.6）：自己的 `search` 桶，查詢之前扣；`contentRead` 不受影響。
+ * - 限流：自己的 `search` 桶，查詢之前扣；`contentRead` 不受影響。
  */
 import { z } from "zod";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -27,10 +27,10 @@ import type { McpToolCtx } from "../context.js";
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 50;
 const MAX_QUERY = 200;
-/** §8.4：`,"matchesTruncated":true` 兩份（structuredContent＋鏡像）的成本約 56，取 64。 */
+/** `,"matchesTruncated":true` 兩份（structuredContent＋鏡像）的成本約 56，取 64。 */
 const MATCHES_TRUNCATED_RESERVE = 64;
 
-// spec §8.7 逐字（模型面字串：只寫各部署形態都為真的話——I5）。守衛：test/mcp-search.test.ts 的 M8 兩案（toBe 整句）。
+// 逐字（模型面字串：只寫各部署形態都為真的話）。守衛：test/mcp-search.test.ts 的 M8 兩案（toBe 整句）。
 const DESC_HEAD =
   "Find notes among the ones you can see by text in their title or body. Matching is case-insensitive and literal. " +
   "Notes whose title matches come first — exact titles, then titles that start with your text, then the rest — then notes that match only in the body. ";
@@ -49,12 +49,12 @@ export function searchNotesDescription(canRead: boolean): string {
   return canRead ? SEARCH_NOTES_DESCRIPTION_READ : SEARCH_NOTES_DESCRIPTION_NO_READ;
 }
 
-/** #93 §8.6：search 桶耗盡時的訊息（模型面字串，逐字）。 */
+/** #93：search 桶耗盡時的訊息（模型面字串，逐字）。 */
 export const SEARCH_RATE_LIMITED_MESSAGE = "Too many searches right now. Wait a moment before searching again.";
 
 export const searchNotesInput = {
-  // 不變量 S 的第一、二關在 schema 層（`noNul` 與 `routes/notes.ts` 是同一份，M14）：
-  // 含 NUL 的字串到不了 handler，也就到不了 SQL。第三關是 drizzle 的參數化。MCP 不 trim（照收原字串，§9.1）。
+  // 不變量 S 的第一、二關在 schema 層（`noNul` 與 `routes/notes.ts` 是同一份）：
+  // 含 NUL 的字串到不了 handler，也就到不了 SQL。第三關是 drizzle 的參數化。MCP 不 trim（照收原字串）。
   query: z
     .string()
     .min(1)

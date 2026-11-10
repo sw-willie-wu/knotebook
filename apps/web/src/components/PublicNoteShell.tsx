@@ -4,7 +4,7 @@ import { useOnline } from "./ErrorBoundary";
 import { Button } from "./ui/button";
 
 /**
- * `/p/:token` 公開唯讀頁的頁面外殼（#72 Task 3）——fallback／錯誤邊界／頁面本體
+ * `/p/:token` 公開唯讀頁的頁面外殼（#72）——fallback／錯誤邊界／頁面本體
  * 共用的單卡版面。
  *
  * **刻意不重用 `NotePageFallback`／`NoteRouteErrorBoundary`**：那兩個都包
@@ -17,7 +17,7 @@ import { Button } from "./ui/button";
  */
 
 /**
- * 滿版外框（user 定案，2026-09-02）：公開唯讀頁直接鋪滿視窗——**無卡面、無圓角、
+ * 滿版外框：公開唯讀頁直接鋪滿視窗——**無卡面、無圓角、
  * 無 70rem 上限、無 p-3 外距**（原本的「置中一張卡」是 #72 時期的單卡版面，#115
  * 之後與主 app 的滿版卡語彙不一致）。內文行寬仍由 PublicNotePage 內的文章欄
  * （`articleColumn(width)`，#297 起寬度取公開端點的 `width`）管，這裡只負責把底鋪滿。`flex flex-col`＋`overflow-hidden`
@@ -26,7 +26,7 @@ import { Button } from "./ui/button";
  *
  * 底色是 **bg-card 不是 bg-background**（承重）：BlockNote 編輯器的底色
  * light/dark 都耦合到 `--color-card`（index.css 的兩條 `.bn-root[data-color-scheme]`
- * 覆寫——dark 是 PR2 原有、light 是本次把數值巧合升級成的耦合；主 app 裡編輯器
+ * 覆寫——dark 是原有、light 是把數值巧合升級成的耦合；主 app 裡編輯器
  * 坐在內文卡上）——公開頁底若用更深的 bg-background，文章欄寬的卡色長條會浮在
  * 頁底上、看起來仍像一張內文卡（user 第二次回報的形）。整頁同卡色＝編輯器天然
  * 融入。不選 per-page 覆寫 bn 變數的理由是成本：那要 light＋dark 兩條新規則＋

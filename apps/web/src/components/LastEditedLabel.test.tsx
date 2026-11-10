@@ -1,5 +1,5 @@
 /**
- * #138 Task 4：頁首的「最後編輯」標籤。
+ * #138：頁首的「最後編輯」標籤。
  *
  * ⚠ 時間一律用**既有的絕對日期格式**（`ApiTokensSection.tsx` 的 `formatDate` 同款
  * `toLocaleDateString(i18n.language)`）——repo 裡沒有任何 `Intl.RelativeTimeFormat`
@@ -50,40 +50,40 @@ describe("LastEditedLabel", () => {
   it("人形：前綴 + handle · 日期，不是按鈕；title 是含 who 的完整字串（lastEditedAt）", () => {
     render(
       <LastEditedLabel
-        note={{ ...NOTE, lastEdited: { at: AT, byHandle: "willie", agentLabel: null } }}
+        note={{ ...NOTE, lastEdited: { at: AT, byHandle: "alice", agentLabel: null } }}
         onOpenEdits={vi.fn()}
       />,
     );
     const el = screen.getByTestId("last-edited");
-    expect(el.textContent).toBe(`Last edited by willie · ${fmt(AT)}`);
+    expect(el.textContent).toBe(`Last edited by alice · ${fmt(AT)}`);
     expect(el.tagName).not.toBe("BUTTON");
-    expect(el.getAttribute("title")).toBe(i18n.t("note.lastEditedAt", { who: "willie", when: full(AT) }));
+    expect(el.getAttribute("title")).toBe(i18n.t("note.lastEditedAt", { who: "alice", when: full(AT) }));
   });
 
   it("AI 形：handle (label) · 日期，是按鈕，按下呼叫 onOpenEdits", () => {
     const open = vi.fn();
     render(
       <LastEditedLabel
-        note={{ ...NOTE, lastEdited: { at: AT, byHandle: "willie", agentLabel: "claude" } }}
+        note={{ ...NOTE, lastEdited: { at: AT, byHandle: "alice", agentLabel: "claude" } }}
         onOpenEdits={open}
       />,
     );
-    const btn = screen.getByRole("button", { name: /willie \(claude\)/ });
-    expect(btn.textContent).toBe(`Last edited by willie (claude) · ${fmt(AT)}`);
+    const btn = screen.getByRole("button", { name: /alice \(claude\)/ });
+    expect(btn.textContent).toBe(`Last edited by alice (claude) · ${fmt(AT)}`);
     // AI 形是唯一可按的那一種，tooltip 比人形的 lastEditedAt 多一句「點一下看改了什麼」，
     // 說明按下去會發生什麼（見上一案）。
-    expect(btn.getAttribute("title")).toBe(i18n.t("note.lastEditedTitle", { who: "willie (claude)", when: full(AT) }));
+    expect(btn.getAttribute("title")).toBe(i18n.t("note.lastEditedTitle", { who: "alice (claude)", when: full(AT) }));
     fireEvent.click(btn);
     expect(open).toHaveBeenCalledTimes(1);
   });
 
-  // review r1 minor-2：窄視窗要跟同一個 header 裡的 ConnectionBadge 一致——
+  // 窄視窗要跟同一個 header 裡的 ConnectionBadge 一致——
   // max-md:sr-only（螢幕閱讀器讀得到、視覺隱藏），不是 hidden（display:none 整個
   // 從無障礙樹消失）；斷點也是 md，不是 sm。兩形（人形 span、AI 形 button）都要守。
   it("窄視窗：max-md:sr-only（非 hidden），兩形都要守", () => {
     const { rerender } = render(
       <LastEditedLabel
-        note={{ ...NOTE, lastEdited: { at: AT, byHandle: "willie", agentLabel: null } }}
+        note={{ ...NOTE, lastEdited: { at: AT, byHandle: "alice", agentLabel: null } }}
         onOpenEdits={vi.fn()}
       />,
     );
@@ -94,7 +94,7 @@ describe("LastEditedLabel", () => {
 
     rerender(
       <LastEditedLabel
-        note={{ ...NOTE, lastEdited: { at: AT, byHandle: "willie", agentLabel: "claude" } }}
+        note={{ ...NOTE, lastEdited: { at: AT, byHandle: "alice", agentLabel: "claude" } }}
         onOpenEdits={vi.fn()}
       />,
     );
@@ -108,14 +108,14 @@ describe("LastEditedLabel", () => {
   it("分隔線與可縮（class 斷言，jsdom 無 CSS、無版面）：兩形皆然", () => {
     const { rerender } = render(
       <LastEditedLabel
-        note={{ ...NOTE, lastEdited: { at: AT, byHandle: "willie", agentLabel: null } }}
+        note={{ ...NOTE, lastEdited: { at: AT, byHandle: "alice", agentLabel: null } }}
         onOpenEdits={vi.fn()}
       />,
     );
     for (const agentLabel of [null, "claude"]) {
       rerender(
         <LastEditedLabel
-          note={{ ...NOTE, lastEdited: { at: AT, byHandle: "willie", agentLabel } }}
+          note={{ ...NOTE, lastEdited: { at: AT, byHandle: "alice", agentLabel } }}
           onOpenEdits={vi.fn()}
         />,
       );

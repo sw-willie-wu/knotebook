@@ -1,5 +1,5 @@
 /**
- * #181 PR-2a T11：既有 MCP 工具與垃圾桶（spec 2026-10-21 §6.8.1、A2-5 MCP 面、A2-13 的 PR-2a 部分、AG6）。
+ * #181：既有 MCP 工具與垃圾桶。
  * 憑證一律讀寫搬移（`notes:read notes:write notes:move`）；讀 live doc 的工具要 collab，所以全檔用 `buildCollabTestApp`。
  * 造垃圾桶狀態打 `DELETE /api/notes/:id`、還原打 `POST /api/trash/restore`（cookie）。
  */
@@ -70,7 +70,7 @@ function perNoteCalls(noteId: string, uploadId: string, groupId: string): Array<
   ];
 }
 
-describe("MC1 既有工具看不到垃圾桶筆記（§6.8.1）", () => {
+describe("MC1 既有工具看不到垃圾桶筆記", () => {
   it("list／search 不列；七支單篇工具（edit_note 含 append 與 rename）回 not_found，text 與隨機 uuid 相同；還原後又列得到、讀得到", async () => {
     const ctx = await buildCollabTestApp();
     const u = await seedUser(ctx.db);
@@ -146,7 +146,7 @@ describe("MC1b 跨篇附件（read-note-image 的第二次授權）", () => {
   });
 });
 
-describe("MC2 AG6：既有工具不會把筆記移進垃圾桶", () => {
+describe("MC2 既有工具不會把筆記移進垃圾桶", () => {
   it("讀寫搬移憑證：tools/list 沒有 delete_note／restore_note；edit_note（含 replace_all 清空）、copy_note（個人、群組）、create_note（群組）、move_note_to_group 之後垃圾桶筆記數不變", async () => {
     const ctx = await buildCollabTestApp();
     const u = await seedUser(ctx.db);
@@ -162,8 +162,8 @@ describe("MC2 AG6：既有工具不會把筆記移進垃圾桶", () => {
     expect(names).toEqual(expect.arrayContaining(["edit_note", "copy_note", "create_note", "move_note_to_group"]));
     expect(names).not.toContain("delete_note");
     expect(names).not.toContain("restore_note");
-    expect(names).not.toContain("delete_folder"); // 資料夾 PR-3d T8：同樣只在 notes:delete 時註冊
-    expect(names).toContain("list_trash"); // #181 PR-2d：讀取類，任何憑證都有
+    expect(names).not.toContain("delete_folder"); // 資料夾：同樣只在 notes:delete 時註冊
+    expect(names).toContain("list_trash"); // #181：讀取類，任何憑證都有
     expect(await trashedIds()).toEqual([t.id]);
 
     const ok = async (name: string, args: Record<string, unknown>): Promise<Result> => {
@@ -197,7 +197,7 @@ function wikilinkTargets(doc: Y.Doc): string[] {
   return out;
 }
 
-describe("MC3 §6.4 的例外（rev 4.2，known-limitations）：垃圾桶期間讀出再寫回，指向它的 wikilink 變一般連結", () => {
+describe("MC3 索引照寫的例外（known-limitations）：垃圾桶期間讀出再寫回，指向它的 wikilink 變一般連結", () => {
   it("A 連到 B、C；B 在垃圾桶時以 read_note_section 讀 A、replace_section 原樣寫回 → 只剩 C 是 wikilink；還原 B 後不會變回", async () => {
     const ctx = await buildCollabTestApp();
     const u = await seedUser(ctx.db);

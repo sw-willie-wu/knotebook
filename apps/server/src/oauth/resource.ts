@@ -1,8 +1,8 @@
 /**
- * #132：canonical resource identifier（D11：全站只有一個）的唯一比對處。
- * authorize 的 T2 與 `/oauth/token` 的兩個 grant 分支共用，不得各寫一份字串比較。
+ * #132：canonical resource identifier（全站只有一個）的唯一比對處。
+ * authorize（redirect_uri 可信之後）與 `/oauth/token` 的兩個 grant 分支共用，不得各寫一份字串比較。
  *
- * ⚠ 簽章**刻意**比 spec §2 多一個 `issuer` 參數：讓這個模組保持純函式、不讀 config。
+ * ⚠ 簽章**刻意**多一個 `issuer` 參數：讓這個模組保持純函式、不讀 config。
  * 不要「修回」單參數形。
  */
 

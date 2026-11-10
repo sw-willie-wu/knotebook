@@ -3,7 +3,7 @@ import { COLLAB_RESTART_DELAYS_MS, COLLAB_RESTART_JITTER, COLLAB_TOKEN_RETRY_DEL
 import { DELETING_GATE_TTL_MS } from "../../src/collab/hooks-impl.js";
 
 /**
- * 刪除閘門的 TTL 與 client 重啟退避是一組**跨套件的耦合契約**（issue #35 審查 round 2）。
+ * 刪除閘門的 TTL 與 client 重啟退避是一組**跨套件的耦合契約**（#35）。
  *
  * 閘門是 server 唯一能對「刪除當下本來就看得到這篇筆記的人」說出「它被刪掉了」的窗口：
  * 交易一 commit，那一列就查不到，`resolveRole` 只會回 'none'，而那條路對使用者說的是

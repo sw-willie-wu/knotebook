@@ -5,10 +5,10 @@ import type { EncryptedSecret } from "../../lib/sealed-secret.js";
 import { TxAbort } from "../../http/tx-abort.js";
 import { assertSsoOnlyGuardInTx, lockSiteSettingsInTx } from "./admin-site-settings.js";
 
-// #187 PR2：站台管理對 `auth_providers` 的交易本體（S14：只收 tx、只做 DB）。列表、POST 的 RETURNING 與本檔的 UPDATE
-// RETURNING 共用 `adminProviderColumns()`——`hasSecret` 由 SQL 端 `is not null` 算，**從不** SELECT 密文本體（INV-5；
+// #187：站台管理對 `auth_providers` 的交易本體（S14：只收 tx、只做 DB）。列表、POST 的 RETURNING 與本檔的 UPDATE
+// RETURNING 共用 `adminProviderColumns()`——`hasSecret` 由 SQL 端 `is not null` 算，**從不** SELECT 密文本體（
 // 比照 `routes/admin-ai.ts` 的 `providerListColumns`）。
-// #187 PR3：B27 第一句、B19 在 UPDATE 之後（spec §9.2 rev 10）。
+// #187：第一句取站台設定列鎖、防自鎖守衛在 UPDATE 之後。
 
 export interface AdminProviderRow {
   id: string;
@@ -44,7 +44,7 @@ export function adminProviderColumns() {
     createdAt: authProviders.createdAt,
     hasSecret: sql<boolean>`${authProviders.clientSecretEncrypted} is not null`,
     issuerResolved: sql<boolean>`${authProviders.resolvedIssuer} is not null`,
-    // 圖示：只選換算要的兩欄（template 已在上面），**不選 icon_data／icon_mime**（spec §5.3）。
+    // 圖示：只選換算要的兩欄（template 已在上面），**不選 icon_data／icon_mime**。
     iconKind: authProviders.iconKind,
     iconVersion: authProviders.iconVersion,
   };
@@ -60,33 +60,33 @@ export interface UpdateAuthProviderInput {
   autoCreateEnabled?: boolean;
   /** 圖示種類（不含 upload）。帶了就在同一句 UPDATE 清掉上傳圖（data／mime 設 NULL）；icon_version 不動、config_version 不看它。 */
   iconKind?: "template" | "gitlab" | "google" | "none";
-  /** B19 P2 的「操作者」。 */
+  /** 防自鎖守衛的「操作者」。 */
   actorUserId: string;
-  /** 已封好的新 secret（AAD 綁 id；**交易外**封——S14）。undefined＝這次沒帶 secret，走 §5.2 (a) 句。 */
+  /** 已封好的新 secret（AAD 綁 id；**交易外**封——S14）。undefined＝這次沒帶 secret，走下方的 (a)。 */
   newSecretSealed?: EncryptedSecret;
 }
 
 export interface UpdateAuthProviderResult {
   row: AdminProviderRow;
-  /** 只供稽核 log 的 `from`：B27 站台設定鎖之後的一般讀——改 `issuer_url` 的寫入（provider PATCH）都排在那把鎖後，讀到的是當下的 issuer（PR3 起；`recordResolvedIssuer` 不取這把鎖，但它只寫 `resolved_issuer`）。 */
+  /** 只供稽核 log 的 `from`：站台設定鎖之後的一般讀——改 `issuer_url` 的寫入（provider PATCH）都排在那把鎖後，讀到的是當下的 issuer（`recordResolvedIssuer` 不取這把鎖，但它只寫 `resolved_issuer`）。 */
   previousIssuerUrl: string;
-  /** 只供開關稽核 log 判斷「有沒有變」：同 `previousIssuerUrl`，B27 站台設定鎖之後的一般讀。 */
+  /** 只供開關稽核 log 判斷「有沒有變」：同 `previousIssuerUrl`，站台設定鎖之後的一般讀。 */
   previousAutoCreateEnabled: boolean;
 }
 
 /**
- * #187 §5.2：改登入服務。**所有「有沒有變」的判斷都在這一句 UPDATE 的 SET 右側**——SET 右側一律對舊 tuple 求值、UPDATE 對
+ * #187：改登入服務。**所有「有沒有變」的判斷都在這一句 UPDATE 的 SET 右側**——SET 右側一律對舊 tuple 求值、UPDATE 對
  * 該列取 row lock，所以「issuer 有沒有變」永遠是拿這一次要寫進去的值跟當下的舊值比（#46：Node 端先讀再比是 TOCTOU，
- * 60 輪命中 17 次）。沒帶的欄位以 `coalesce(參數, 現值)` 代入（r3-M2）：沒帶 issuerUrl 不算改 issuer、沒帶 clientId 不算改 client。
+ * 60 輪命中 17 次）。沒帶的欄位以 `coalesce(參數, 現值)` 代入：沒帶 issuerUrl 不算改 issuer、沒帶 clientId 不算改 client。
  *
  * (a) 沒帶 secret：issuer 變了 → 清 secret、清 resolved_issuer、停用；版本只在 issuer 或 client id 實際變更時 +1。
- * (b) 帶了 secret：secret 直接覆寫、版本 +1；issuer 變了 → 清 resolved_issuer、**強制停用**（INV-2 的加嚴形）。
- * autoCreateEnabled：coalesce 代入；不影響版本、不觸發 B19（PR-C）。
+ * (b) 帶了 secret：secret 直接覆寫、版本 +1；issuer 變了 → 清 resolved_issuer、**強制停用**。
+ * autoCreateEnabled：coalesce 代入；不影響版本、不觸發防自鎖守衛。
  *
- * #187 PR3：B27 第一句、B19 在 UPDATE 之後（spec §9.2 rev 10）。
+ * #187：第一句取站台設定列鎖、防自鎖守衛在 UPDATE 之後。
  */
 export async function updateAuthProviderInTx(tx: Tx, input: UpdateAuthProviderInput): Promise<UpdateAuthProviderResult> {
-  // B27：第一句取站台設定列鎖（序列化所有站台設定寫入，C25）。之後的 `before` 讀因此可信（其他 provider PATCH 都排在鎖後）。
+  // 第一句取站台設定列鎖（序列化所有站台設定寫入）。之後的 `before` 讀因此可信（其他 provider PATCH 都排在鎖後）。
   const settings = await lockSiteSettingsInTx(tx);
   const [before] = await tx
     .select({ issuerUrl: authProviders.issuerUrl, enabled: authProviders.enabled, autoCreateEnabled: authProviders.autoCreateEnabled })
@@ -107,9 +107,9 @@ export async function updateAuthProviderInTx(tx: Tx, input: UpdateAuthProviderIn
     sortOrder: sql`coalesce(${input.sortOrder ?? null}::integer, ${authProviders.sortOrder})`,
     resolvedIssuer: sql`case when ${issuerChanged()} then null else ${authProviders.resolvedIssuer} end`,
     enabled: sql`case when ${issuerChanged()} then false else coalesce(${input.enabled ?? null}::boolean, ${authProviders.enabled}) end`,
-    // S6／U4：改 issuer 時**不**強制改值（要不要關由 UI 確認框決定並照選擇帶值）；不進 configVersion 的判斷。
+    // 改 issuer 時**不**強制改值（要不要關由 UI 確認框決定並照選擇帶值）；不進 configVersion 的判斷。
     autoCreateEnabled: sql`coalesce(${input.autoCreateEnabled ?? null}::boolean, ${authProviders.autoCreateEnabled})`,
-    // 圖示（spec 2026-10-07-provider-icon §4.3）：沒帶 iconKind → 三欄原值；帶了 → 換 kind 並清圖（CHECK auth_providers_icon_upload_chk 要求非 upload ⇔ 兩欄皆 NULL）。
+    // 圖示：沒帶 iconKind → 三欄原值；帶了 → 換 kind 並清圖（CHECK auth_providers_icon_upload_chk 要求非 upload ⇔ 兩欄皆 NULL）。
     iconKind: sql`coalesce(${input.iconKind ?? null}::text, ${authProviders.iconKind})`,
     iconData: sql`case when ${input.iconKind ?? null}::text is null then ${authProviders.iconData} else null::bytea end`,
     iconMime: sql`case when ${input.iconKind ?? null}::text is null then ${authProviders.iconMime} else null::text end`,
@@ -131,18 +131,18 @@ export async function updateAuthProviderInTx(tx: Tx, input: UpdateAuthProviderIn
   const [row] = await tx.update(authProviders).set(set).where(eq(authProviders.id, input.id)).returning(adminProviderColumns());
   // 讀到之後、UPDATE 之前被刪（別的管理員 DELETE）→ 0 列。
   if (!row) throw new TxAbort(404, "not_found", "No sign-in service with that id.");
-  // B19：DB 值為關時，任何使 enabled 由 true 變 false 的形（含 §5.2 改 issuer 的隱含停用）都在寫入後狀態上驗 P1／P2；違反 → throw、整筆回滾。
+  // 防自鎖守衛：DB 值為關時，任何使 enabled 由 true 變 false 的形（含改 issuer 的隱含停用）都在寫入後狀態上驗「至少一個啟用中的服務」與「操作者本人有可用 SSO 身分」；違反 → throw、整筆回滾。
   if (!settings.passwordLoginEnabled && before.enabled && !row.enabled) await assertSsoOnlyGuardInTx(tx, input.actorUserId);
   return { row, previousIssuerUrl: before.issuerUrl, previousAutoCreateEnabled: before.autoCreateEnabled };
 }
 
 /**
- * #187 §9.2、W11：刪除登入服務——**單句裁決「已停用才刪」**（C7：與並發的重新啟用以 row lock 序列化，後到者以新版 tuple 判）。
- * 0 列時再查一次分辨 409／404（r2-N3）。identities 不動（B1：身分不綁 provider，以同 issuer 重建即恢復）。
- * #187 PR3：B27 第一句（spec §9.2 rev 10；不需 B19——已停用才刪得掉）。
+ * #187：刪除登入服務——**單句判定「已停用才刪」**（與並發的重新啟用以 row lock 序列化，後到者以新版 tuple 判）。
+ * 0 列時再查一次分辨 409／404。identities 不動（身分不綁 provider，以同 issuer 重建即恢復）。
+ * #187：第一句取站台設定列鎖（不需防自鎖守衛——已停用才刪得掉）。
  */
 export async function deleteAuthProviderInTx(tx: Tx, input: { id: string }): Promise<void> {
-  await lockSiteSettingsInTx(tx); // B27（不需 B19：已停用才刪得掉，不改 enabled 集合）
+  await lockSiteSettingsInTx(tx); // 站台設定列鎖（不需防自鎖守衛：已停用才刪得掉，不改 enabled 集合）
   const deleted = await tx
     .delete(authProviders)
     .where(and(eq(authProviders.id, input.id), eq(authProviders.enabled, false)))

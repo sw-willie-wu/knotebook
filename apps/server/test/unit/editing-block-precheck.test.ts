@@ -1,5 +1,5 @@
 /**
- * 全分支審查 I2(b)：block 上限的便宜預判（`plainParagraphFloor`／`topLevelBlockFloor`）。審查實測：約 988 KB、2.7 萬段的檔回 400
+ * block 上限的便宜預判（`plainParagraphFloor`／`topLevelBlockFloor`）。實測：約 988 KB、2.7 萬段的檔回 400
  * `too_many_blocks`，每發同步卡 ~3 秒（完整解析 `tryParseHTMLToBlocks` 約 2.4 s）。預判是**下界**：超過一定超過、估少照舊解析。
  */
 import { describe, expect, it, vi } from "vitest";
@@ -41,7 +41,7 @@ describe("plainParagraphFloor（第一層：逐行）", () => {
     expect(plainParagraphFloor("a\n\nb <\n\nc")).toBe(0);
   });
 
-  it("P3（全分支審查複審 I-A）全文有任何 ``` 或 ~~~ 就不估（BlockNote 不是 CommonMark，fence 怎麼開怎麼收交給第二層）", () => {
+  it("P3 全文有任何 ``` 或 ~~~ 就不估（BlockNote 不是 CommonMark，fence 怎麼開怎麼收交給第二層）", () => {
     expect(plainParagraphFloor("x\n\n```\n\na\n\nb\n```\n\ny")).toBe(0);
     expect(plainParagraphFloor("~~~~\n\na\n\n~~~\n\nb\n~~~~\n\nc")).toBe(0);
     expect(plainParagraphFloor("``` a`b\n\nc")).toBe(0);
@@ -51,7 +51,7 @@ describe("plainParagraphFloor（第一層：逐行）", () => {
 });
 
 describe("topLevelBlockFloor（第二層：頂層 DOM）", () => {
-  it("D1 頂層有字的 p／h1–h6／pre 與頂層清單有字的 li 各算一；巢在別的元素裡的、沒字的不算", () => {
+  it("頂層有字的 p／h1–h6／pre 與頂層清單有字的 li 各算一；巢在別的元素裡的、沒字的不算", () => {
     const root = syntaxCheckRoot(
       "<p>a</p><h2>b</h2><pre><code>c</code></pre><ul><li>d</li><li>e</li></ul><ol><li></li></ol><p></p><p><img src=x></p>" +
         "<table><tr><td><p>x</p><p>y</p></td></tr></table><div><p>z</p></div>",
@@ -60,7 +60,7 @@ describe("topLevelBlockFloor（第二層：頂層 DOM）", () => {
   });
 });
 
-describe("parseMarkdownForNote 的預判（審查探針的形：2.7 萬段）", () => {
+describe("parseMarkdownForNote 的預判（2.7 萬段）", () => {
   it("B1 純 markdown 2.7 萬段 → too_many_blocks，沒進完整解析（tryParseHTMLToBlocks 0 次）", async () => {
     const md = paras(27_000);
     expect(Buffer.byteLength(md)).toBeGreaterThan(900_000);
@@ -96,7 +96,7 @@ describe("parseMarkdownForNote 的預判（審查探針的形：2.7 萬段）", 
     }
   }, 60_000);
 
-  // 複審 I-A：審查找到的六形——第一層照 CommonMark 數 fence 時都會把 BlockNote 解析成 1–3 顆的內容誤判成 too_many_blocks。
+  // 六種形狀——第一層照 CommonMark 數 fence 時都會把 BlockNote 解析成 1–3 顆的內容誤判成 too_many_blocks。
   const FENCE_HEADS: Array<[string, string]> = [
     ["info string 含 backtick（BlockNote 照開 fence）", "``` a`b\n\n"],
     ["收尾 fence 後帶 NBSP", "```\ncode\n```\u00a0\n\nZed\n\n```\n\n"],

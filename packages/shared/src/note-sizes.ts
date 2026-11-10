@@ -1,5 +1,5 @@
-// 圖片寬度（`previewWidth`）與表格欄寬（`colwidth`）的合法範圍（spec 2026-10-21 columns-layout §11.1 I6）：
-// 讀出端用 clampSizePx 夾回（I5），寫入端用 isSizePx 檢查字面。
+// 圖片寬度（`previewWidth`）與表格欄寬（`colwidth`）的合法範圍：
+// 讀出端用 clampSizePx 夾回，寫入端用 isSizePx 檢查字面。
 
 export const SIZE_PX_MIN = 32;
 export const SIZE_PX_MAX = 4000;

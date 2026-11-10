@@ -1,8 +1,8 @@
 /**
- * #108 PR2 Task 4：跨工具的驗收族——§14.5 的拒絕族（案 24–28(a)／29b／30／32／32b）、
- * 串行（案 22／M5）、以及案 14c 後半／14d（§8.4／§8.10）。
+ * #108：跨工具的驗收族——拒絕族（案 24–28(a)／29b／30／32／32b）、
+ * 串行（案 22）、以及案 14c 後半／14d。
  *
- * 這是「兩支寫入工具都在了」之後才有鑑別力的一批：Task 1–3 各自的既有測試檔（
+ * 這是「兩支寫入工具都在了」之後才有鑑別力的一批：各自的既有測試檔（
  * `mcp-edit-note.test.ts`／`mcp-create-note.test.ts`）已經驗過各工具**自己**的行為，
  * 本檔驗的是**跨工具**的東西——同一顆桶被兩支工具共用、同一個 service 讓 REST 與 MCP
  * 串行、同一套「拒絕就零副作用」紀律要在多種拒絕原因下都成立。
@@ -11,7 +11,7 @@
  * 位元組不變、`hocuspocus.documents` 未因此新增文件、無 presence 被 touch。共用的
  * `snapshot()`／`expectNoSideEffects()` 收在檔頭，避免四件事在每一案各寫一份、漏一件。
  *
- * ⚠ **presence 的「沒被 touch」逐案分兩種形，不是全部等價**（I1 修正）：拒絕路徑本身都在
+ * ⚠ **presence 的「沒被 touch」逐案分兩種形，不是全部等價**：拒絕路徑本身都在
  * `applyToNote` 真正 touch presence 之前就返回，差別在**呼叫 `snapshot()` 那一刻 awareness
  * 是不是已經因為「前面那發鋪陳用的成功呼叫」而非空**：
  * - **before 時 awareness 為空**（key 集合比較與深比對在這裡等價，走 key 集合即可）：
@@ -20,7 +20,7 @@
  * - **before 時 awareness 已非空**（key 集合比較對「偷 touch」零鑑別力，必須走深比對）：
  *   案 30、並排 GW1／GW3／GW5（同樣先有一發成功的 append）——`before` 之前先有一發**成功**的 `append`（「先改一次」）讓這顆 token 的名牌現身，
  *   之後若 handler 偷跑一次 touch，只會「就地更新同一個 clientId 的 state」（`presence.ts:147`
- *   的 `emit(existing,"updated")`），key 集合一個字都不變——`mcp-edit-note.test.ts` D-N 案
+ *   的 `emit(existing,"updated")`），key 集合一個字都不變——`mcp-edit-note.test.ts` 的對應案
  *   （`:258-268`）那個雷本檔只有案 30 與 GW1／GW3／GW5 會踩到，見案 30 內的深度比對與突變記述（GW 各案走 expectNoSideEffects 的 key 集合比較，其 presence 面由案 30 的深比對涵蓋）。
  */
 import { randomUUID } from "node:crypto";
@@ -63,7 +63,7 @@ async function callTool(app: FastifyInstance, token: string, name: string, args:
   return { status: res.statusCode, result: res.json().result };
 }
 
-/** 成功呼叫的 `structuredContent`（順手守住 M10 的鏡像等式）。 */
+/** 成功呼叫的 `structuredContent`（順手守住鏡像等式）。 */
 function payloadOf<T>(call: ToolCall): T {
   expect(call.status).toBe(200);
   expect(call.result.isError).toBeUndefined();
@@ -155,8 +155,8 @@ async function expectNoSideEffects(ctx: CollabTestCtx, noteId: string, before: S
   expect(after.awarenessKeys, "M6：無新名牌加入 awareness（本檔全是拒絕案，見檔頭）").toEqual(before.awarenessKeys);
 }
 
-describe("#108 §14.5 拒絕族：四件零副作用逐案照斷", () => {
-  // 案 24：scope 不足（唯讀憑證呼叫 edit_note）→ (4a) 形，不是 insufficient_scope（P16）。
+describe("#108 拒絕族：四件零副作用逐案照斷", () => {
+  // 案 24：scope 不足（唯讀憑證呼叫 edit_note）→ (4a) 形，不是 insufficient_scope。
   // 本案的價值在四件零副作用照斷——與 `mcp-tools-list.test.ts` 案 10 的差異是那邊只斷
   // note_ai_edits 一件，本檔統一走完整四件。
   it("scope 不足（唯讀憑證呼叫 edit_note）→ SDK 的 (4a) 形，四件零副作用（案 24）", async () => {
@@ -192,9 +192,9 @@ describe("#108 §14.5 拒絕族：四件零副作用逐案照斷", () => {
 
   // 案 26：role === "none"（別人的私有筆記）→ not_found，訊息與案 17（`NOTE_NOT_FOUND_MESSAGE`）
   // 逐位元組同形。⚠ 另外持一顆自己的 `edit` 桶，順手驗「`edit` 桶排在角色檢查之後扣、
-  // role===none 的 404 不啃它」——這是下面 Step 3 突變（把 edit 桶移到 resolveRole 之前）
+  // role===none 的 404 不啃它」——這是下面的突變（把 edit 桶移到 resolveRole 之前）
   // 唯一抓得住的地方（案 27 對那條突變零鑑別力，見該案註解）。
-  // 突變實測（Task 4 審查輪實跑，`edit-note.ts` 把 `edit` 桶消耗那段移到 `resolveRole` 之前）：
+  // 突變實測（`edit-note.ts` 把 `edit` 桶消耗那段移到 `resolveRole` 之前）：
   // 只有本案紅——`role===none 的 404 不得啃掉 edit 桶: expected 29 to be 30`（桶被啃掉一格）；
   // 其餘各案（含案 27）全綠，已 revert。
   it("角色為 none（別人的私有筆記）→ not_found，訊息與案 17 逐位元組同形，不啃 edit 桶，四件零副作用（案 26）", async () => {
@@ -268,10 +268,10 @@ describe("#108 §14.5 拒絕族：四件零副作用逐案照斷", () => {
 
   // 案 29b：兩種我們自產、而且 HTTP 上到得了的寫入側錯誤——`forbidden`（viewer，同案 25 的
   // 造法）與 `fingerprint_mismatch`——都在 `ERROR_CODES` 裡，且 `content[0].text` 鏡像
-  // `structuredContent`（M10）。⚠ 規格 §14.5 案 29b 舉的 `insufficient_scope` 在整合層
-  // （走 HTTP）不可達（P16）：唯讀憑證根本沒有 `edit_note` 可呼叫（案 24 的 (4a) 形），
-  // 讀寫憑證在 `requireWriteScope` 第 1 步（session 或 scope 檢查）就放行——這是 P16 那條
-  // 裁決漏列的第四處，逐字記在這裡免得下一輪對規格時判成漏做。
+  // `structuredContent`。⚠ 案 29b 舉的 `insufficient_scope` 在整合層
+  // （走 HTTP）不可達：唯讀憑證根本沒有 `edit_note` 可呼叫（案 24 的 (4a) 形），
+  // 讀寫憑證在 `requireWriteScope` 第 1 步（session 或 scope 檢查）就放行——這是那條規則
+  // 漏列的第四處，逐字記在這裡免得之後被判成漏做。
   it("寫入側的兩種我們自產錯誤（forbidden／fingerprint_mismatch）都在 ERROR_CODES 裡，且 content 鏡像 structuredContent（案 29b）", async () => {
     // forbidden：viewer 呼叫 edit_note（造法同案 25）。
     const s1 = await scene();
@@ -304,13 +304,13 @@ describe("#108 §14.5 拒絕族：四件零副作用逐案照斷", () => {
     s2.disconnect();
   });
 
-  // 案 30：指紋不符 → fingerprint_mismatch（零副作用面；回應形由 Task 2 的案 20 守，本案不重複）。
+  // 案 30：指紋不符 → fingerprint_mismatch（零副作用面；回應形由案 20 守，本案不重複）。
   // ⚠ **本案是本檔唯一「before 時 awareness 已非空」的案**（見檔頭列舉）：拿 `before` 快照
   //   之前先有一發**成功**的 `append`（「先改一次」，為了讓 `last.fingerprint` 過期而必須
   //   先寫一次），那一發會 touch presence——`snapshot()` 的 key 集合對「fingerprint_mismatch
-  //   那條路徑偷 touch」因此零鑑別力，改走 `mcp-edit-note.test.ts:258-268`（D-N 案）的深度
+  //   那條路徑偷 touch」因此零鑑別力，改走 `mcp-edit-note.test.ts:258-268`的深度
   //   比對：同一顆 clientId 的整個 state（`structuredClone`）逐位元組比對。
-  //   突變實測（Task 4 審查輪實跑，`edit-note.ts` 的 `mismatchError` 回傳前偷插一次
+  //   突變實測（`edit-note.ts` 的 `mismatchError` 回傳前偷插一次
   //   `ctx.presence.touch(args.note_id, ctx.tokenId!, { name: "mut", color: "#000", handle: "mut", label: "x" },
   //   { kind: "doc-start" })`）：**只有深度比對那一行紅**（`beat` 從 2 變 3、`user.name` 從
   //   `"user-… (claude)"` 變 `"mut"`），`expectNoSideEffects()` 的四件（含 key 集合）排在它
@@ -383,7 +383,7 @@ describe("#108 §14.5 拒絕族：四件零副作用逐案照斷", () => {
   // not_found，但 `tokenWrite` 已被啃掉（`requireWriteScope` 排在 `resolveRole` 之前，
   // 對齊 REST 的 preHandler 扣點順序）；緊接著對自己的合法筆記發一發合法的 `edit_note` →
   // 被 `too_many_requests` 擋下。案 32 兩發都打看得見的筆記，對這個順序**確定**零鑑別力。
-  // 突變實測（Task 4 審查輪實跑，`edit-note.ts` 把 `requireWriteScope(ctx)` 移到 `resolveRole` 之後）：
+  // 突變實測（`edit-note.ts` 把 `requireWriteScope(ctx)` 移到 `resolveRole` 之後）：
   // 只有本案紅（`expected undefined to be true`——第二發不再被擋，直接寫成功，`errorOf` 的
   // `isError` 斷言先炸）；其餘各案（含案 32）全綠，已 revert。
   it("扣點順序的唯一守衛：role=none 那發雖 404 仍啃 tokenWrite，緊接著合法一發被擋（案 32b）", async () => {
@@ -405,16 +405,16 @@ describe("#108 §14.5 拒絕族：四件零副作用逐案照斷", () => {
   });
 });
 
-describe("#108 串行（案 22／M5）", () => {
-  // ⚠ 規格 rev 4 明文刪掉了結果碼形——改釘在併發本身：A（REST）卡在 `beforeMerge`，B（MCP）
+describe("#108 串行（案 22）", () => {
+  // ⚠ 不釘結果碼形——改釘在併發本身：A（REST）卡在 `beforeMerge`，B（MCP）
   // 在那段期間發出，斷言 B 沒有進入 `beforeMerge`（`inFlight`／`maxInFlight` 計數形，照抄
   // `test/unit/editing-queue.test.ts:26-48`）。
-  // 突變實測（Task 4 審查輪實跑，`app.ts` 的 `mcpRoutes({...})` 呼叫把共用的 `writes` 換成
+  // 突變實測（`app.ts` 的 `mcpRoutes({...})` 呼叫把共用的 `writes` 換成
   // `new NoteWriteService({...})`——MCP 自己一份 `NoteWriteQueue`，繞過與 REST 共用的實例）：
   // 本案紅在 `B 在 A 還卡著時沒有進入 beforeMerge: expected 2 to be 1`（`maxInFlight === 2`，
-  // B 沒有排隊、直接跟 A 併發跑進 `beforeMerge`）。這是 Task 1 那整個重構唯一的行為面守衛，
+  // B 沒有排隊、直接跟 A 併發跑進 `beforeMerge`）。這是共用寫入佇列重構唯一的行為面守衛，
   // 已 revert。
-  it("REST 與 MCP 寫入同一篇筆記時仍然串行（inFlight 計數形，不是結果碼形，案 22／M5）", async () => {
+  it("REST 與 MCP 寫入同一篇筆記時仍然串行（inFlight 計數形，不是結果碼形，案 22）", async () => {
     let inFlight = 0;
     let maxInFlight = 0;
     let releaseA: () => void = () => {};
@@ -459,7 +459,7 @@ describe("#108 串行（案 22／M5）", () => {
     const aRes = await a;
     expect(aRes.statusCode, "A 的 REST 寫入成功").toBe(201);
     const bCall = await b;
-    // 附帶斷言（不是 M5 的守點）：落敗方（B，if_match 已過期）拿到下列碼之一。
+    // 附帶斷言（不是守點）：落敗方（B，if_match 已過期）拿到下列碼之一。
     expect(bCall.result.isError).toBe(true);
     expect(["fingerprint_mismatch", "section_not_found", "server_busy"]).toContain(bCall.result.structuredContent!.code);
     expect(maxInFlight).toBe(1);
@@ -467,10 +467,10 @@ describe("#108 串行（案 22／M5）", () => {
   });
 });
 
-describe("#108 案 14c 後半／14d（§8.4／§8.10）", () => {
+describe("#108 案 14c 後半／14d", () => {
   // 14c 後半：段落被截斷（`truncated: true`）時 `read_note_section` **不回** `fingerprint`；
   // 此時拿一個猜的／過期的 `if_match` 去 `replace_section` → `fingerprint_mismatch`。
-  // （前半——讀完整段含 fingerprint——在 PR1 `mcp-content.test.ts` 案 14c 前半已有。）
+  // （前半——讀完整段含 fingerprint——在 `mcp-content.test.ts` 案 14c 前半已有。）
   it("段落被截斷時 read_note_section 不回 fingerprint；拿猜的 if_match 去 replace_section → fingerprint_mismatch（案 14c 後半）", async () => {
     const LONG = "L".repeat(9_000);
     const s = await scene(`# Long\n\n${LONG}`);
@@ -499,10 +499,10 @@ describe("#108 案 14c 後半／14d（§8.4／§8.10）", () => {
 
   // 14d：期望結果是「成功」——零讀取繞過。`append` 一顆非空 block（不帶 `if_match`）→
   // 成功，回應帶整篇 `fingerprint`；再拿它 `replace_all` → 成功。**這是刻意行為不是洞**
-  // （§8.10 的 (A) 裁決）：使用者會在筆記裡看到那段垃圾，而且 `note_ai_edits` 有一列、撤得回。
+  // （(A) 裁決）：使用者會在筆記裡看到那段垃圾，而且 `note_ai_edits` 有一列、撤得回。
   // ⚠ `markdown: "\n"` 造不出來（`isBlankParseResult` 會回 `empty_content`）——測資是一顆
   //   真的非空 block。⚠ 測資用一篇已有內容、且 ≤100 段的筆記（`THREE_SECTIONS`）。
-  it("append 不讀就寫、成功且回整篇 fingerprint，再用它 replace_all 也成功（案 14d／§8.10(A)）", async () => {
+  it("append 不讀就寫、成功且回整篇 fingerprint，再用它 replace_all 也成功（案 14d）", async () => {
     const s = await scene(THREE_SECTIONS);
     const appended = payloadOf<EditPayload>(
       await editNote(s.ctx.app, s.token, { note_id: s.noteId, op: "append", markdown: "# 零讀取追加\n\n沒讀過就寫的內容" })
@@ -520,13 +520,13 @@ describe("#108 案 14c 後半／14d（§8.4／§8.10）", () => {
   });
 });
 
-// 並排 PR-2（spec §11.3）：寫入面整筆拒絕不合格的並排與尺寸；MCP／REST 共用 parseMarkdownForNote。
+// 並排：寫入面整筆拒絕不合格的並排與尺寸；MCP／REST 共用 parseMarkdownForNote。
 const ROW2 = `<div data-kb-columns style="display:flex;gap:16px">\n<div data-kb-column style="flex:1">\n\nA\n\n</div>\n<div data-kb-column style="flex:1">\n\nB\n\n</div>\n</div>`;
 const FIVE_COLS = `<div data-kb-columns style="display:flex;gap:16px">\n${[1, 2, 3, 4, 5].map(i => `<div data-kb-column style="flex:1">\n\nc${i}\n\n</div>`).join("\n")}\n</div>`;
 const FLEX_DIV = '<div style="display:flex"><div><p>L</p></div><div><p>R</p></div></div>';
 const FIGURE_IMG = '<figure><img alt="p" src="/api/uploads/u9" width="300"></figure>';
 const BARE_IMG = '<img alt="p" src="/api/uploads/u9" width="300">';
-/** REST 400 的訊息（spec §11.3 草稿；`unsupported_size` 依 Q3 不提格子；T10 改成每個觸發條件都成立的版本）——逐字。 */
+/** REST 400 的訊息（草稿；`unsupported_size` 不提格子；改成每個觸發條件都成立的版本）——逐字。 */
 const REST_COLUMNS_MESSAGE =
   "That markdown has layout or editor-internal HTML this editor cannot store, so nothing was written. Write side-by-side columns exactly as GET /api/notes/:id/content returns them: <div data-kb-columns style=\"display:flex;gap:16px\"> holding 2 to 4 <div data-kb-column style=\"flex:N\"> columns, N from 0.1 to 10 with at most two decimal places, with a blank line after each column's opening tag and another before its </div>, at the top level of the markdown, not nested inside a list, a quote or anything else. Other <div> elements cannot use display:flex or display:grid, and no element can carry data-node-type.";
 const REST_SIZE_MESSAGE =
@@ -619,11 +619,11 @@ describe("並排與尺寸：寫入面拒絕不合格的形", () => {
   });
 });
 
-describe("#108 M14 案 21b(ii) 的 HTTP 落點（「無任何落盤」那一半）", () => {
+describe("#108 案 21b(ii) 的 HTTP 落點（「無任何落盤」那一半）", () => {
   // ⚠ **這半段的 schema 層 safeParse 斷言在 `test/unit/mcp-write-schemas.test.ts`**——這裡
   //   只補「同一份 payload 經 tools/call 打進去」的那一半：需要 `buildCollabTestApp()`（真
   //   DB），與 `vitest.unit.config.ts` 刻意不帶 `globalSetup`（保證 `test:unit` 永不用
-  //   docker）衝突，所以搬到這個既有的整合測試檔。案號與斷言內容與 brief 原文一字不改。
+  //   docker）衝突，所以搬到這個既有的整合測試檔。
   it("markdown 含 NUL：經 HTTP 也是 SDK 的 (4a) 形、note_ai_edits 零新增列（案 21b(ii)）", async () => {
     const s = await scene(null);
     const before = await s.ctx.db.select().from(noteAiEdits).where(eq(noteAiEdits.noteId, s.noteId));

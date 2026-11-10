@@ -9,7 +9,7 @@ import { BlockNoteEditor } from "@blocknote/core";
 import { createHeadlessNoteSchema } from "@knotebook/shared";
 import { trailingOpenFenceLine } from "../../transfer/regions.js";
 import type { VisibleNoteTarget } from "./candidates.js";
-import { DEFAULT_PARSE_TIMEOUT_MS } from "./parse-settings.js";
+import { DEFAULT_PARSE_TIMEOUT_MS, type ParseLimits } from "./parse-settings.js";
 import type { AskFn, DocOp } from "./doc-jobs.js";
 import { parseMarkdownForNote, type ParsedMarkdown, type ParseFailure } from "./markdown.js";
 
@@ -24,7 +24,7 @@ export interface ParseRequest {
   budget?: ParseBudget;
 }
 /**
- * #398 審查 C2：一個檔的 worker 時間總預算（毫秒，會被扣）。批次寫回一個檔要解析很多次（邊界、各區、fence 判斷，指紋不符時整套重來），
+ * #398：一個檔的 worker 時間總預算（毫秒，會被扣）。批次寫回一個檔要解析很多次（邊界、各區、fence 判斷，指紋不符時整套重來），
  * 每次各有時限還不夠——預算用完，之後的解析不送進 worker、直接回太複雜；送進去的那次時限也不超過剩下的預算。
  */
 export interface ParseBudget {
@@ -51,6 +51,8 @@ export interface MarkdownParser {
    * 逾時或 worker 掛掉回 `"too_complex"`；排隊逾時丟 {@link ParserBusyError}。
    */
   runDoc?(owner: string, op: DocOp, ask: AskFn, timeoutMs: number, queueWaitMs?: number): Promise<unknown>;
+  /** 選配：執行期換設定（worker pool 有；同執行緒的解析入口沒有，跟著站台限制改時跳過）。語意見 `ParsePool.configure`。 */
+  configure?(next: Partial<ParseLimits>): void;
   close(): Promise<void>;
 }
 

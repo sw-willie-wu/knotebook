@@ -6,10 +6,10 @@
  * ──────────────────────────────────────────────────────────────────────────
  * **兩條貼上路徑都先變成 `codeBlock(language="mermaid")`**，實測如下：
  * - markdown／純文字：`tryParseMarkdownToBlocks` 直接產出
- *   `{ type: "codeBlock", props: { language: "mermaid" } }`（2026-08-27 瀏覽器實測）。
+ *   `{ type: "codeBlock", props: { language: "mermaid" } }`（瀏覽器實測）。
  *   Windows 剪貼簿的 `text/plain` 正是最常見的貼上來源（見 `collab/paste.ts` 檔頭）。
  * - HTML：`tryParseHTMLToBlocks('<pre><code class="language-mermaid">…')` 也是 codeBlock——
- *   BlockNote 內建 codeBlock 的 `pre` 規則優先序高過自訂 block 的 `parse`（2026-08-28 審查
+ *   BlockNote 內建 codeBlock 的 `pre` 規則優先序高過自訂 block 的 `parse`（
  *   實測）。`spec.tsx` 因此**沒有** `parse` 規則，`spec.test.tsx` 有一條反向釘住這件事。
  *
  * 所以轉換一律在這一層做：等 BlockNote 插完，再把**這次新插入的**
@@ -91,7 +91,7 @@ export function findPastedMermaidCodeBlocks(
  *
  * ⚠ **絕不外拋**：呼叫點在貼上**已經完成之後**，這裡再拋會讓一次成功的貼上看起來像壞掉
  * （`collab/paste.ts` 檔頭記載：handler 拋錯的代價是使用者「按了完全沒反應」）。
- * 逐一取代而非一次做完，一個失敗不影響其他。取代走 D25 helper：欄內的 code block 轉圖不收欄。
+ * 逐一取代而非一次做完，一個失敗不影響其他。取代走 `keep-columns.ts` 的 helper：欄內的 code block 轉圖不收欄。
  */
 export function convertPastedMermaidBlocks(editor: MermaidPasteEditor, idsBeforePaste: Set<string>): number {
   let converted = 0;

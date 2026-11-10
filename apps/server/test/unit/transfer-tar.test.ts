@@ -9,14 +9,14 @@ import zlib from "node:zlib";
 import { TarGzWriter, paxRecord } from "../../src/transfer/tar.js";
 import { parseTar, readPartialTarGz, readTarGz } from "../tar-read.js";
 
-/** bulk transfer spec §6.1、§6.6-4～-6、§25.4；plan T7（T-1～T-8）。 */
+/** bulk transfer 的 tar 輸出。 */
 
 const MTIME = new Date("2026-11-02T00:00:00Z");
 const cjk64 = "資料夾名稱很長".repeat(10).slice(0, 64);
 const title64 = "會議紀錄標題非常長的筆記".repeat(6).slice(0, 64);
 const a64 = "a".repeat(64);
 const b64s = "b".repeat(64);
-/** spike S4 A 形的 21 項名單（目錄不帶尾斜線）。 */
+/** 21 項名單（目錄不帶尾斜線）。 */
 const ENTRIES: Array<{ dir: string } | { name: string }> = [
   { dir: "My notes" },
   { dir: "Groups" },

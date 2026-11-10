@@ -4,10 +4,10 @@
  *
  * N1 是 issue 的情境；N2 是「agent 真的改了文字」；N3 其他會寫連結的 op（insert_after／append／replace_all，含寫進另一篇）；
  * N4 記憶是每個人自己的，REST `GET /content` 讀到的也算；N5 讀到同一段文字的自訂文字連結 → 不當成沒有自訂文字；N6 `create_note`；
- * N7 agent 自己寫的連結（沒讀過）、目標改名後用回覆的指紋原樣寫回（審查 I1）；N8／N9 REST `/edits` 與撤回 409 的 `current` 也算讀到（審查 I2）；
- * N11 自己寫的自訂文字連結原樣寫回仍是自訂文字（第二輪 I-a）；N12 合併失敗的寫入不記（m-a）；N13 被清掉的原文字隨寫入延長期限（m-b）。
+ * N7 agent 自己寫的連結（沒讀過）、目標改名後用回覆的指紋原樣寫回；N8／N9 REST `/edits` 與撤回 409 的 `current` 也算讀到；
+ * N11 自己寫的自訂文字連結原樣寫回仍是自訂文字；N12 合併失敗的寫入不記（m-a）；N13 被清掉的原文字隨寫入延長期限（m-b）。
  *
- * ⚠ scene 用 `seedBlocks` 直接種連結（不經寫入）：寫入也會記在寫入者名下（I1），用 `edit_note` 種的話 N1／N3／N6 不讀也會過，
+ * ⚠ scene 用 `seedBlocks` 直接種連結（不經寫入）：寫入也會記在寫入者名下，用 `edit_note` 種的話 N1／N3／N6 不讀也會過，
  * 就守不到「讀出會記」了。
  */
 import { randomUUID } from "node:crypto";
@@ -146,7 +146,7 @@ describe("#387 edit_note 寫回時保住「沒有自訂文字」的 wikilink", (
     expect(await links(s.ctx, r.note.id)).toEqual([{ targetNoteId: s.target.id, label: "", snapshotTitle: "Target v2" }]);
   });
 
-  it("N7 agent 自己 append 的連結（沒讀過）→ 目標改名 → 用回覆的指紋 replace_all 原樣寫回 → 仍沒有自訂文字（審查 I1）", async () => {
+  it("N7 agent 自己 append 的連結（沒讀過）→ 目標改名 → 用回覆的指紋 replace_all 原樣寫回 → 仍沒有自訂文字", async () => {
     const s = await scene();
     const other = await s.ctx.createNote(s.owner.id, "Other");
     const a = (await call(s.ctx.app, s.token, "edit_note", { note_id: other.id, op: "append", markdown: `Mine [Target v1](${s.href})` })) as { fingerprint: string };
@@ -156,7 +156,7 @@ describe("#387 edit_note 寫回時保住「沒有自訂文字」的 wikilink", (
     expect(await links(s.ctx, other.id)).toEqual([{ targetNoteId: s.target.id, label: "", snapshotTitle: "Target v2" }]);
   });
 
-  it("N10 create_note 寫下的連結（沒讀過）→ 目標改名 → 同樣的文字 append 進另一篇 → 沒有自訂文字（審查 I1，create 那條）", async () => {
+  it("N10 create_note 寫下的連結（沒讀過）→ 目標改名 → 同樣的文字 append 進另一篇 → 沒有自訂文字（create 那條）", async () => {
     const s = await scene();
     await call(s.ctx.app, s.token, "create_note", { title: "Made", content: `see [Target v1](${s.href})` });
     await s.rename("Target v2");
@@ -164,7 +164,7 @@ describe("#387 edit_note 寫回時保住「沒有自訂文字」的 wikilink", (
     expect((await links(s.ctx, s.host.id)).map(l => [l.label, l.snapshotTitle])).toEqual([["", "Target v1"], ["", "Target v2"]]);
   });
 
-  it("N8 REST `POST /edits` 舊指紋 409 → 目標改名 → 照 `current` 寫回 → 仍沒有自訂文字（審查 I2）", async () => {
+  it("N8 REST `POST /edits` 舊指紋 409 → 目標改名 → 照 `current` 寫回 → 仍沒有自訂文字", async () => {
     const s = await scene();
     const stale = await s.ctx.app.inject({ method: "POST", url: `/api/notes/${s.host.id}/edits`, headers: bearer(s.token), payload: { op: "replace_all", markdown: "x", if_match: "0000000000000000" } });
     expect(stale.statusCode).toBe(409);
@@ -175,7 +175,7 @@ describe("#387 edit_note 寫回時保住「沒有自訂文字」的 wikilink", (
     expect(await links(s.ctx, s.host.id)).toEqual([{ targetNoteId: s.target.id, label: "", snapshotTitle: "Target v2" }]);
   });
 
-  it("N9 REST 撤回 409 stale 的 `current` → 目標改名 → 照 `current` 寫回 → 仍沒有自訂文字（審查 I2）", async () => {
+  it("N9 REST 撤回 409 stale 的 `current` → 目標改名 → 照 `current` 寫回 → 仍沒有自訂文字", async () => {
     const s = await scene([{ type: "heading", props: { level: 2 }, content: "Tail" }]);
     // 另一位編輯者做出一筆之後被改掉的修改（他的讀寫記在他自己名下，不算到 owner 頭上）。
     const writer = await s.ctx.createUser({ email: `w-${randomUUID()}@example.com`, password: PASSWORD });
@@ -194,7 +194,7 @@ describe("#387 edit_note 寫回時保住「沒有自訂文字」的 wikilink", (
     expect(await links(s.ctx, s.host.id)).toEqual([{ targetNoteId: s.target.id, label: "", snapshotTitle: "Target v2" }]);
   });
 
-  it("N11 agent 自己寫的自訂文字連結 → 用回覆的指紋 replace_all 原樣寫回 → 仍是那個自訂文字（第二輪 I-a）", async () => {
+  it("N11 agent 自己寫的自訂文字連結 → 用回覆的指紋 replace_all 原樣寫回 → 仍是那個自訂文字", async () => {
     const s = await scene();
     const other = await s.ctx.createNote(s.owner.id, "Other");
     const a = (await call(s.ctx.app, s.token, "edit_note", { note_id: other.id, op: "append", markdown: `Mine [My own words](${s.href})` })) as { fingerprint: string };
@@ -203,7 +203,7 @@ describe("#387 edit_note 寫回時保住「沒有自訂文字」的 wikilink", (
     expect((await links(s.ctx, other.id)).map(l => l.label)).toEqual(["My own words"]);
   });
 
-  it("N12 合併前失敗的寫入不記：edit_note append 失敗 → 目標改名 → 再寫同樣文字 → 照舊存成自訂文字（第二輪 m-a）", async () => {
+  it("N12 合併前失敗的寫入不記：edit_note append 失敗 → 目標改名 → 再寫同樣文字 → 照舊存成自訂文字", async () => {
     let failNext = true;
     const s = await scene([], { editingTestHooks: { beforeMerge: async () => { if (failNext) { failNext = false; throw new Error("probe: merge refused"); } } } });
     const other = await s.ctx.createNote(s.owner.id, "Other");
@@ -215,7 +215,7 @@ describe("#387 edit_note 寫回時保住「沒有自訂文字」的 wikilink", (
     expect((await links(s.ctx, other.id)).map(l => l.label)).toEqual(["Target v1"]);
   });
 
-  it("N13 寫回時被清掉的原文字也隨這次寫入延長期限（edit_note 與 create_note；第二輪 m-b）", async () => {
+  it("N13 寫回時被清掉的原文字也隨這次寫入延長期限（edit_note 與 create_note）", async () => {
     for (const via of ["edit_note", "create_note"] as const) {
       let now = 0;
       const shownLinks = new ShownLinkTexts({ ttlMs: 1000, now: () => now });

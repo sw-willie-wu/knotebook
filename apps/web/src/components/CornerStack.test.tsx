@@ -38,7 +38,7 @@ function renderStack(enabled: boolean) {
 
 const SHIFT = "md:right-[calc(20rem+2.25rem)]";
 
-describe("CornerStack（spec 2026-10-09 §8.1；#263 起只剩歷史泡泡）", () => {
+describe("CornerStack（#263 起只剩歷史泡泡）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
   });

@@ -19,12 +19,12 @@ function hasIntersectionObserver(): boolean {
  *
  * ⚠ 不能省：筆記頁捲動的是內層的 `overflow-y-auto` 容器，不是視窗。`root` 用預設（視窗）時，
  * `rootMargin` 只放寬視窗那一層，目標先被內層捲動容器的可見框裁掉——600px 的預先範圍**完全不生效**，
- * 圖要真的露出來才開始畫（2026-11-02 e2e 疊上實測：捲動容器底緣下方 42px 的圖一直沒被請求）。
+ * 圖要真的露出來才開始畫（e2e 疊上實測：捲動容器底緣下方 42px 的圖一直沒被請求）。
  *
  * ⚠ **從編輯器（`.bn-editor`）外面開始找**：BlockNote 的並排欄 `.bn-block-column` 設了
  * `overflow-x:auto`，依 CSS 規則另一軸的 `visible` 會算成 `auto`，所以欄的 computed `overflowY` 也是
  * `"auto"`——從圖本身往上找會先撞到欄。欄不會縱向捲動，圖永遠落在它的框內，IntersectionObserver 就
- * 一直回報「在附近」（審查 r1 實測），並排裡的圖等於掛上就畫。編輯器內部的東西（欄、表格包層）
+ * 一直回報「在附近」，並排裡的圖等於掛上就畫。編輯器內部的東西（欄、表格包層）
  * 永遠不是筆記的捲動容器。不在編輯器裡（獨立使用）時從自己的父層開始。
  */
 function scrollRootOf(el: Element): Element | null {
@@ -114,7 +114,7 @@ export function MermaidView({ code, editable, theme, onChange }: MermaidViewProp
   }, []);
 
   // 要不要畫：在視窗附近就畫；不在附近時，只有「畫過、而且原始碼換了」才照常重畫。
-  // **只換了主題**的遠處圖先留著舊主題的圖，等進到附近再重畫（審查 r1 M5）——換主題時畫面上的圖先換，
+  // **只換了主題**的遠處圖先留著舊主題的圖，等進到附近再重畫——換主題時畫面上的圖先換，
   // 不必排在上面那一長串捲出去的圖後面；600px 的預先範圍讓它捲回來之前多半已經換好。
   // 原始碼換了（例如共編的人改了它）則不等：舊圖已經不是這段原始碼的樣子。
   const key = renderKey(code, theme);
@@ -213,13 +213,13 @@ export function MermaidView({ code, editable, theme, onChange }: MermaidViewProp
   //
   // 位置：**疊在方塊內的右上角**（`index.css` 的 `.block-control` 負責絕對定位，與 codeBlock
   // 的語言下拉同一條規則；外層要 `relative` 當它的 containing block）。#111 曾在方塊外面上方
-  // 留一條 `h-7` 保留列放它，2026-10-15 定案拿掉（沒 hover 就是隱形、不擋內容，不必留距離）。
+  // 留一條 `h-7` 保留列放它，後來拿掉（沒 hover 就是隱形、不擋內容，不必留距離）。
   // 疊上去之後與編輯鈕的**重疊**是刻意的，重疊區的點擊歸這顆鈕：
   //   - 可編輯：兩顆做的是同一件事（`startEditing`），點到哪顆結果都一樣。
   //   - 唯讀：底下是不可點的 `<div>`，沒有東西被攔。
   //   - 早期版本這顆鈕也疊在右上角（`absolute right-1 top-1`），e2e 抓到：block 很矮時（剛插入、
   //     只有一行提示）編輯鈕的**中心點**正好落在它底下——Playwright 的 click 打的就是中心點。
-  //     現在空 block 的中心點命中的是編輯鈕（2026-10-15 headless Chromium 151、900px 寬實測），
+  //     現在空 block 的中心點命中的是編輯鈕（headless Chromium 151、900px 寬實測），
   //     而且就算打到也同樣是進編輯。
   //   殘留：圖裡 `click X href` 的連結若正好畫在右上角，被這顆鈕蓋住的那一小塊點不到連結
   //   （滑鼠會先 hover 出鈕、看得見）。

@@ -3,7 +3,9 @@ import * as client from "openid-client";
 import { normalizeEmail, OIDC_STATE_COOKIE, safeNextPath } from "@knotebook/shared";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
-import { isUniqueViolation } from "../db/pg-errors.js";
+import type { SiteLimits } from "../site-limits/store.js";
+import { isUniqueViolation, pgErrorSummary } from "../db/pg-errors.js";
+import { redactDbError } from "../lib/redact-db-error.js";
 import { UUID_RE } from "../notes/service.js";
 import { unsealOidcState } from "../auth/oidc-state.js";
 import { clearOidcStateCookie, setOidcStateCookie, startAuthorization } from "../auth/oidc-authorize.js";
@@ -21,37 +23,45 @@ import type { CollabHooks } from "../collab/hooks.js";
 import { touchLastLogin } from "../auth/last-login.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
 
-/** r3-M3：IdP claim 的長度上限——pending cookie 的大小上界靠它（§7.5.1）。 */
+
+/** SQLSTATE 形（5 碼）的 code＝DB 錯誤；其 message／params 可能含 sub／email，log 要走 `redactDbError`，不可記整個 err。 */
+function hasSqlState(err: unknown): boolean {
+  const { code } = pgErrorSummary(err);
+  return code !== null && /^[0-9A-Z]{5}$/.test(code);
+}
+
+/** IdP claim 的長度上限——pending cookie 的大小上界靠它。 */
 export const MAX_EMAIL_CLAIM_LENGTH = 254;
 export const MAX_SUB_CLAIM_LENGTH = 255;
 
 export interface OidcRouteDeps {
   config: AppConfig;
   db: Db;
+  siteLimits: SiteLimits;
   gate: UserGate;
   /** #388：同帳號重登後延遲重驗舊 session 的共編連線（`startSession`）。 */
   collabHooks: CollabHooks;
   reloginReverifyDelayMs?: number;
   registry: OidcRuntimeRegistry;
-  /** login 與 callback 各自一個 bucket（issue #16）；SSO 證明起點吃 oidcLogin（§7.5.3）。 */
+  /** login 與 callback 各自一個 bucket（issue #16）；SSO 證明起點吃 oidcLogin。 */
   limiters: { oidcLogin: FixedWindowLimiter; oidcCallback: FixedWindowLimiter };
   oidcTestHook?: OidcTestHook;
 }
 
-/** legacy＝用舊回呼網址的那一個（B13）；id＝路徑參數原字串（未驗）。 */
+/** legacy＝用舊回呼網址的那一個；id＝路徑參數原字串（未驗）。 */
 type ProviderRef = { kind: "legacy" } | { kind: "id"; raw: string };
 
-/** 空字串 claim 視為缺欄位（Plan 5 審查 MINOR-4：否則會建出 email="" 的帳號）。 */
+/** 空字串 claim 視為缺欄位（否則會建出 email="" 的帳號）。 */
 function nonEmptyClaim(value: unknown): string | null {
   return typeof value === "string" && value.trim() !== "" ? value : null;
 }
 
 /**
- * `GET /api/auth/oidc/login[/:providerId]`＋`GET /api/auth/oidc/callback[/:providerId]`（#187 §7.1–§7.4）。
+ * `GET /api/auth/oidc/login[/:providerId]`＋`GET /api/auth/oidc/callback[/:providerId]`（#187）。
  * 全程 302、不回 JSON：呼叫者是瀏覽器頂層導航。在 state cookie 解開之前的失敗落 `/login?error=<code>`（不帶 next）；解開之後
- * 的失敗經 `failLocation`：登入途中落登入頁並帶上 cookie 裡的 next（#131），SSO 證明途中（`intent: "prove"`，§7.5.3）
+ * 的失敗經 `failLocation`：登入途中落登入頁並帶上 cookie 裡的 next（#131），SSO 證明途中（`intent: "prove"`）
  * 落 `/link-account?error=`。callback 遇到「email 已有帳號」（confirm_link）→ 封 pending-link
- * cookie、302 `/link-account`（§7.5）。
+ * cookie、302 `/link-account`。
  */
 export function oidcRoutes(deps: OidcRouteDeps) {
   const configDeps = { db: deps.db, registry: deps.registry, appSecret: deps.config.appSecret };
@@ -61,9 +71,9 @@ export function oidcRoutes(deps: OidcRouteDeps) {
   }
 
   async function startLogin(request: FastifyRequest, reply: FastifyReply, ref: ProviderRef): Promise<FastifyReply> {
-    // §7.2：四個（＋非 uuid 一個）早退出口都不帶 next（設定錯誤路徑，使用者從 client 重新發起即可——#131 spec round 10）。
+    // 四個（＋非 uuid 一個）早退出口都不帶 next（設定錯誤路徑，使用者從 client 重新發起即可——#131）。
     if (ref.kind === "id" && !UUID_RE.test(ref.raw)) return reply.redirect("/login?error=oidc_unavailable");
-    // 限流放在 DB 讀取之前（r1-N2）。
+    // 限流放在 DB 讀取之前。
     if (!deps.limiters.oidcLogin.consume(request.ip)) return reply.redirect("/login?error=too_many_requests");
     try {
       const provider = await loadProvider(ref);
@@ -99,13 +109,13 @@ export function oidcRoutes(deps: OidcRouteDeps) {
     const loginErrorLocation = (code: string): string =>
       nextPath === null ? `/login?error=${code}` : `/login?error=${code}&next=${encodeURIComponent(nextPath)}`;
     let intent: "login" | "prove" | "link" | null = null;
-    // §7.3：cookie 解開之後，SSO 證明途中的失敗回連結頁（同一顆 pending 還能改用密碼或換 provider）；設定頁手動連結的回設定頁（§8.1）；
+    // cookie 解開之後，SSO 證明途中的失敗回連結頁（同一顆 pending 還能改用密碼或換 provider）；設定頁手動連結的回設定頁；
     // 登入途中的回登入頁（帶 next）。
     const failLocation = (code: string): string =>
       intent === "prove" ? `/link-account?error=${code}` : intent === "link" ? `/settings/login?link_error=${code}` : loginErrorLocation(code);
 
     try {
-      // §7.3 第 2 步：provider 不存在或停用 → oidc_unavailable（cookie 解開之前，不帶 next；C6、C19）。
+      // provider 不存在或停用 → oidc_unavailable（cookie 解開之前，不帶 next）。
       const provider = await loadProvider(ref);
       if (provider === null) return reply.redirect(loginErrorLocation("oidc_unavailable"));
 
@@ -116,10 +126,10 @@ export function oidcRoutes(deps: OidcRouteDeps) {
       const payload = unsealOidcState(deps.config.appSecret, sealedCookie, Math.floor(Date.now() / 1000));
       if (payload === null) return reply.redirect(loginErrorLocation("oidc_state_mismatch"));
       intent = payload.intent;
-      // 封章保證「這是我們封的」，不保證「現在仍然安全」——再驗一次（#131 §5.3.3）。prove 形沒有 next（留在 pending cookie）。
+      // 封章保證「這是我們封的」，不保證「現在仍然安全」——再驗一次（#131）。prove 形沒有 next（留在 pending cookie）。
       nextPath = payload.intent === "login" && payload.next !== undefined ? safeNextPath(payload.next) : null;
 
-      // 第 4 步：cookie 是哪個 provider 發的；設定在登入途中變了（C5）就乾淨失敗。
+      // 第 4 步：cookie 是哪個 provider 發的；設定在登入途中變了就乾淨失敗。
       if (payload.providerId !== provider.id) return reply.redirect(failLocation("oidc_state_mismatch"));
       if (payload.configVersion !== provider.configVersion) return reply.redirect(failLocation("oidc_unavailable"));
       const query = request.query as Record<string, unknown>;
@@ -147,7 +157,7 @@ export function oidcRoutes(deps: OidcRouteDeps) {
           pkceCodeVerifier: payload.codeVerifier,
         });
       } catch (err) {
-        request.log.warn({ err }, "OIDC code 交換失敗");
+        request.log.warn(oidcErrorLogFields(err), "OIDC code 交換失敗");
         return reply.redirect(failLocation("oidc_exchange_failed"));
       }
       const idTokenClaims = tokens.claims();
@@ -161,13 +171,13 @@ export function oidcRoutes(deps: OidcRouteDeps) {
       let email = nonEmptyClaim(idTokenClaims.email);
       const name = typeof idTokenClaims.name === "string" ? idTokenClaims.name : null;
       let preferredUsername = nonEmptyClaim(idTokenClaims.preferred_username);
-      // B3／r2-M4：只在 ID token 缺 email 時補打 userinfo；IdP 的「email 已驗證」旗標一律不讀。
+      // 只在 ID token 缺 email 時補打 userinfo；IdP 的「email 已驗證」旗標一律不讀。
       if (email === null && metadata.userinfo_endpoint !== undefined) {
         let userinfo: Awaited<ReturnType<typeof client.fetchUserInfo>>;
         try {
           userinfo = await client.fetchUserInfo(configuration, tokens.access_token, sub);
         } catch (err) {
-          request.log.warn({ err }, "OIDC userinfo 取得失敗");
+          request.log.warn(oidcErrorLogFields(err), "OIDC userinfo 取得失敗");
           return reply.redirect(failLocation("oidc_exchange_failed"));
         }
         email = nonEmptyClaim(userinfo.email);
@@ -175,14 +185,14 @@ export function oidcRoutes(deps: OidcRouteDeps) {
       }
       const normalizedEmail = email !== null ? normalizeEmail(email) : null;
       if ((normalizedEmail !== null && normalizedEmail.length > MAX_EMAIL_CLAIM_LENGTH) || sub.length > MAX_SUB_CLAIM_LENGTH) {
-        request.log.warn({ emailLength: normalizedEmail?.length ?? 0, subLength: sub.length }, "OIDC claim 過長，拒收（r3-M3）");
+        request.log.warn({ emailLength: normalizedEmail?.length ?? 0, subLength: sub.length }, "OIDC claim 過長，拒收");
         return reply.redirect(failLocation("oidc_claim_too_long"));
       }
-      // issuer 單一真相：serverMetadata().issuer（＝ID token iss）——不是管理員填的字面（§2.2）。
+      // issuer 單一真相：serverMetadata().issuer（＝ID token iss）——不是管理員填的字面。
       const claims: OidcClaims = { issuer: metadata.issuer, sub, email: normalizedEmail, name, preferredUsername };
 
       if (payload.intent === "link") {
-        // §8.1 第 1 步：驗目前 session（authenticate 的核心，不掛 preHandler 以維持一律 302）。不在、失效、停用、或不是發起者 → mismatch。
+        // 驗目前 session（authenticate 的核心，不掛 preHandler 以維持一律 302）。不在、失效、停用、或不是發起者 → mismatch。
         const session = await resolveSessionUser(request.cookies, deps.config.appSecret, deps.gate);
         if (session === null || session.user.id !== payload.linkUserId) return reply.redirect(failLocation("oidc_link_session_mismatch"));
         const linkInput = { userId: payload.linkUserId, issuer: claims.issuer, sub: claims.sub };
@@ -192,18 +202,18 @@ export function oidcRoutes(deps: OidcRouteDeps) {
           if (!(err instanceof TxAbort)) throw err;
           return reply.redirect(failLocation(err.errCode));
         }
-        // #247 §9.9：已連結登入方式在設定的「登入」頁（讀 ?linked=／?link_error=、toast 後清參數）。
+        // #247：已連結登入方式在設定的「登入」頁（讀 ?linked=／?link_error=、toast 後清參數）。
         return reply.redirect(`/settings/login?linked=${provider.id}`);
       }
 
       if (payload.intent === "prove") {
-        // §7.5.3 callback：新身分取自 pending，第二段往返只用來證明本人（claims.issuer／sub＝證明身分）。
+        // callback：新身分取自 pending，第二段往返只用來證明本人（claims.issuer／sub＝證明身分）。
         const pending = readPendingLink(request, deps.config.appSecret);
         if (pending === null) {
           clearPendingCookie(reply, deps.config);
           return reply.redirect(failLocation("oidc_link_expired"));
         }
-        // pendingId／userId 不符＝另一分頁覆蓋了 pending（C18）：新 pending 屬於那個分頁，不清（與 confirm 路由一致，M1）。
+        // pendingId／userId 不符＝另一分頁覆蓋了 pending：新 pending 屬於那個分頁，不清（與 confirm 路由一致）。
         if (pending.pendingId !== payload.pendingId || pending.userId !== payload.proveUserId) {
           return reply.redirect(failLocation("oidc_link_expired"));
         }
@@ -225,12 +235,12 @@ export function oidcRoutes(deps: OidcRouteDeps) {
         }
         clearPendingCookie(reply, deps.config);
         deps.gate.invalidate(linked.id);
-        await touchLastLogin(deps.db, linked.id, request.log); // #247 §9.5 寫入點 3：SSO 證明連結
+        await touchLastLogin(deps.db, linked.id, request.log); // #247：SSO 證明連結
         await startSession(deps, request, reply, { userId: linked.id, tv: linked.tokenVersion });
         return reply.redirect((pending.next !== undefined ? safeNextPath(pending.next) : null) ?? "/");
       }
 
-      // §7.4 執行層。撞唯一鍵 → 整 tx 重投恰一次（C1：對方已 commit，重查會命中）。
+      // 執行層。撞唯一鍵 → 整 tx 重投恰一次（對方已 commit，重查會命中）。
       const loginInput = { claims, providerId: provider.id, configVersion: provider.configVersion };
       const runLogin = () => deps.db.transaction(tx => resolveOidcLoginInTx(tx, loginInput, deps.oidcTestHook));
       let resolved: ResolveOidcLoginResult;
@@ -241,11 +251,12 @@ export function oidcRoutes(deps: OidcRouteDeps) {
         try {
           resolved = await runLogin();
         } catch (err2) {
-          request.log.warn({ err: err2 }, "OIDC 帳號解析 race 重查後仍失敗");
+          if (hasSqlState(err2)) redactDbError(request.log, err2, "OIDC 帳號解析 race 重查");
+          else request.log.error(oidcErrorLogFields(err2), "OIDC 帳號解析 race 重查後仍失敗");
           return reply.redirect(failLocation("oidc_exchange_failed"));
         }
       }
-      if (resolved.settingsMissing) request.log.error("site_settings 讀不到列：SSO 首登自動建帳視同關閉（#187 §4.3）");
+      if (resolved.settingsMissing) request.log.error("site_settings 讀不到列：SSO 首登自動建帳視同關閉（#187）");
       if (resolved.providerStale) request.log.warn({ providerId: provider.id }, "登入進行期間服務設定已變或已刪：SSO 首登視同關閉");
 
       const outcome = resolved.outcome;
@@ -265,21 +276,22 @@ export function oidcRoutes(deps: OidcRouteDeps) {
           ...(nextPath !== null ? { next: nextPath } : {}),
         });
         if (sealed === null) {
-          // 防禦縱深：claim 已有上限，結構上到不了（plan 複驗第 21 條）。
+          // 防禦縱深：claim 已有上限，結構上到不了（見 `auth/oidc-pending.ts` 的大小規則）。
           request.log.warn("pending-link cookie 封章後仍超過上限，不封章");
           return reply.redirect(failLocation("oidc_claim_too_long"));
         }
         setPendingCookie(reply, deps.config, sealed.sealed);
         return reply.redirect("/link-account");
       }
-      // created 寫了 users（新列）：invalidate 讓 gate 不吐舊快取。交易內 login 不寫 users（B15）；交易後的 last_login_at 不在 UserDto 裡，
+      // created 寫了 users（新列）：invalidate 讓 gate 不吐舊快取。交易內 login 不寫 users；交易後的 last_login_at 不在 UserDto 裡，
       // gate 快取不含它，不需 invalidate。
       if (outcome.kind === "created") deps.gate.invalidate(outcome.userId);
-      await touchLastLogin(deps.db, outcome.userId, request.log); // #247 §9.5 寫入點 2：OIDC 登入（login／created）
+      await touchLastLogin(deps.db, outcome.userId, request.log); // #247：OIDC 登入（login／created）
       await startSession(deps, request, reply, { userId: outcome.userId, tv: outcome.tokenVersion });
       return reply.redirect(nextPath ?? "/");
     } catch (err) {
-      request.log.error({ err }, "OIDC callback 發生未預期錯誤");
+      if (hasSqlState(err)) redactDbError(request.log, err, "OIDC callback");
+      else request.log.error(oidcErrorLogFields(err), "OIDC callback 發生未預期錯誤");
       return reply.redirect(failLocation("oidc_exchange_failed"));
     }
   }

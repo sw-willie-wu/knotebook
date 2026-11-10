@@ -188,7 +188,7 @@ describe("useCollab", () => {
     const [url, init] = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
     expect(url).toBe(`/api/notes/${NOTE_ID}/collab-token`);
     expect(init.method).toBe("POST");
-    // #269 §5.1-1：token 請求帶 note schema 版本（閘門）。
+    // #269：token 請求帶 note schema 版本（閘門）。
     expect(JSON.parse(String(init.body))).toEqual({ noteSchemaVersion: NOTE_SCHEMA_VERSION });
 
     // 取到 token 還不算連上；onAuthenticated 才是 open。
@@ -601,7 +601,7 @@ describe("useCollab", () => {
 
   it("終態要掐掉**拒連**排出去的那次重啟（不只 token 失敗那條）", async () => {
     // stopRestartsRef 這道閘門在這個 commit 之後多了一個更常見的餵食者；沒有測試守著，
-    // 一次整理就會讓終態的連線被 timer 重新拉起來（memory note 點名的不變量）。
+    // 一次整理就會讓終態的連線被 timer 重新拉起來。
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.spyOn(Math, "random").mockReturnValue(0.5);
     vi.stubGlobal(
@@ -1061,7 +1061,7 @@ describe("useCollab", () => {
 /**
  * issue #40：撤權重驗 deadline 與 token 重試表是一組跨端耦合的取捨——deadline（5s）
  * **刻意短於**重試表總和（7.5s），作為撤權的最後一道 fail-closed 保險（放寬 deadline
- * 會吃掉 §10 ≤10s SLA 的餘裕；誤殺的實際代價與不變量見 shared 的
+ * 會吃掉「撤銷存取 ≤10s」的餘裕；誤殺的實際代價與不變量見 shared 的
  * COLLAB_REVERIFY_DEADLINE_MS 註解，不在此重述）。舊註解宣稱「deadline 的餘裕含
  * client 重試退避」，為假，已改寫。
  *

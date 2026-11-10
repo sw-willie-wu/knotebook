@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 
-// #187：短效 cookie 的 AES-256-GCM 封章（state cookie `:oidc-state`、pending-link cookie `:oidc-pending-link`）。格式與 Plan 5 的
+// #187：短效 cookie 的 AES-256-GCM 封章（state cookie `:oidc-state`、pending-link cookie `:oidc-pending-link`）。格式與
 // `sealOidcState` 逐位元組相同：`base64url(iv).base64url(ct).base64url(tag)`，金鑰 sha256(`<APP_SECRET>:<namespace>`)。
 // 只管加解密與 JSON；欄位驗證由各用途自己做（拿到的是 unknown）。
 

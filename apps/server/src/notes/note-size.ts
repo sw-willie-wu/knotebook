@@ -1,7 +1,7 @@
 /**
- * 筆記大小上限（`NOTE_MAX_BYTES`，預設 5 MiB；`config.noteMaxBytes` 是唯一的來源，下一版搬進站台設定 #397）。
+ * 筆記大小上限（`NOTE_MAX_BYTES`，預設 5 MiB；生效值由 `SiteLimits.get("noteMaxBytes")` 提供，#397）。
  *
- * 量的是筆記的 Yjs 狀態（`Y.encodeStateAsUpdate`，＝`note_states.ydoc` 存的位元組）。**依結果判斷，不依更新聲稱的結構**（審查 r6 I1：
+ * 量的是筆記的 Yjs 狀態（`Y.encodeStateAsUpdate`，＝`note_states.ydoc` 存的位元組）。**依結果判斷，不依更新聲稱的結構**（
  * 從更新的結構推算「新增多少、刪掉多少」是打地鼠——重複的刪除範圍、刪掉的 map key、子文件的 meta／guid、XmlHook 的名稱、ContentAny 裡的
  * BigInt 都能讓推算失準）。一次修改在新文件上試套之後，量四個數（{@link measureTrial}）：
  * - `stateBefore`／`stateAfter`：狀態編碼的長度；
@@ -21,8 +21,9 @@
  * 已經超過上限的筆記照常開啟、讀出、下載、匯出；不自動截斷、搬移或刪除任何東西。
  */
 import * as Y from "yjs";
+import { SITE_LIMITS } from "@knotebook/shared";
 
-export const DEFAULT_NOTE_MAX_BYTES = 5 * 1024 * 1024;
+export const DEFAULT_NOTE_MAX_BYTES = SITE_LIMITS.noteMaxBytes.default;
 /** `NOTE_MAX_BYTES` 的上限（pg `bytea` 單值上限 1 GiB，再大也存不進 `note_states`）。 */
 export const NOTE_MAX_BYTES_MAX = 1024 * 1024 * 1024;
 

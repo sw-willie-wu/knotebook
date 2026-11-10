@@ -4,18 +4,18 @@ import { describe, expect, it } from "vitest";
 import { stripComments } from "./strip-comments.test-helper";
 
 /**
- * 來源層守衛（N10，2026-09-17 審查）：`brandSolid`／`brandDeep` 是主色實心鈕的
+ * 來源層守衛：`brandSolid`／`brandDeep` 是主色實心鈕的
  * 兩階，見 `ui/button.tsx` 規範——**依所在表面二選一、不得混用**：`brandSolid`
  * 給頁面層級的唯一主動作（登入、授權同意、全頁錯誤的主要出路），`brandDeep` 給
  * modal／panel 內部的唯一主動作。兩階刻意設計成「不會同時出現在同一個畫面」，
  * 但這個不變量目前只靠 code review 撐著——沒有東西擋住有人在第五個檔案裡也用
- * `brandSolid`，讓某個畫面同時看到兩種主色實心塊（審查探針指出的缺口）。
+ * `brandSolid`，讓某個畫面同時看到兩種主色實心塊。
  *
  * 這裡機械釘住目前唯一合法的七個呼叫端；出現第八個就會在這裡先紅，逼著寫的人
  * 回頭想一次「這個畫面到底是頁面層級還是 modal/panel 內部」，而不是靜默疊加。
- * （#187 PR1 加入 `pages/LinkAccountPage.tsx`：與登入頁同層的整頁，「以密碼確認並連結」是
+ * （#187 加入 `pages/LinkAccountPage.tsx`：與登入頁同層的整頁，「以密碼確認並連結」是
  * 該頁唯一的主動作；SSO 證明與取消為 outline——`LinkAccountPage.test.tsx` 斷言該頁恰一顆實心鈕。
- * #187 PR3 加入 `pages/RegisterPage.tsx`：與登入頁同層的整頁，「建立帳號」是唯一主動作。
+ * #187 加入 `pages/RegisterPage.tsx`：與登入頁同層的整頁，「建立帳號」是唯一主動作。
  * #286 加入 `pages/ResetPasswordPage.tsx`：與登入頁同層的未登入整頁，「Set password」是表單畫面唯一的主動作
  * （`ResetPasswordPage.test.tsx` P12 斷言恰一顆實心鈕）。）
  *
@@ -55,7 +55,7 @@ function listTsxFiles(dir: string): string[] {
   return files;
 }
 
-describe("brandSolid 呼叫端範圍守衛（N10）", () => {
+describe("brandSolid 呼叫端範圍守衛", () => {
   it("brandSolid（剝註解後）只出現在七個既知的頁面層級呼叫端", () => {
     const root = `${process.cwd()}/src`;
     const tsxFiles = listTsxFiles(root);

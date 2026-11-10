@@ -125,7 +125,7 @@ describe("FolderDeleteDialog", () => {
     act(() => dismissAllToasts());
   });
 
-  it("FD1 有筆記：標題、內文照 DF3、送出 → DELETE /api/folders/A → toast＋Undo", async () => {
+  it("FD1 有筆記：標題、內文、送出 → DELETE /api/folders/A → toast＋Undo", async () => {
     const calls = stubServer({ del: deleted(["p1", "p2"]) });
     renderDialog(A);
     expect(screen.getByRole("dialog", { name: "Delete folder “A”?" })).toBeInTheDocument();

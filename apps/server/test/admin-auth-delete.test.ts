@@ -10,7 +10,7 @@ import { adminApp, expectAdminOnly, providerRow } from "./helpers/admin-auth.js"
 
 const ISS = "https://idp.example.com";
 
-describe("DELETE /api/admin/auth/providers/:id（#187 §9.2、W11）", () => {
+describe("DELETE /api/admin/auth/providers/:id（#187）", () => {
   it("只給站台管理員", async () => {
     const { app, db } = await adminApp();
     const p = await seedAuthProvider(db, { issuerUrl: ISS, enabled: false });
@@ -30,7 +30,7 @@ describe("DELETE /api/admin/auth/providers/:id（#187 §9.2、W11）", () => {
     expect((await app.inject({ method: "DELETE", url: "/api/admin/auth/providers/nope", cookies })).statusCode).toBe(404);
   });
 
-  it("RF4d 已停用 → 204（大寫 uuid 路徑同義）；identities 不動（B1）；registry.invalidate 收到小寫 id", async () => {
+  it("已停用 → 204（大寫 uuid 路徑同義）；identities 不動；registry.invalidate 收到小寫 id", async () => {
     const invalidated: string[] = [];
     const inner = createOidcRuntimeRegistry();
     const registry: OidcRuntimeRegistry = { get: inner.get, probe: inner.probe, invalidate: id => { invalidated.push(id); inner.invalidate(id); } };
@@ -45,7 +45,7 @@ describe("DELETE /api/admin/auth/providers/:id（#187 §9.2、W11）", () => {
     expect(invalidated).toEqual([p.id]);
   });
 
-  it("§14.1-9 停用 → 刪除（既有 session 不撤，Q5）→ 以同 issuer 重建（API）→ 原身分照常登入同一個帳號", async () => {
+  it("停用 → 刪除（既有 session 不撤）→ 以同 issuer 重建（API）→ 原身分照常登入同一個帳號", async () => {
     const { app, db, idp, provider } = await buildOidcApp({ providers: [{ key: "a", issuerUrl: ISS }] });
     const admin = await seedUser(db, { isAdmin: true });
     const adminCookies = await cookieOf(admin.id);
@@ -57,7 +57,7 @@ describe("DELETE /api/admin/auth/providers/:id（#187 §9.2、W11）", () => {
     const oldId = provider("a").id;
     expect((await app.inject({ method: "PATCH", url: `/api/admin/auth/providers/${oldId}`, cookies: adminCookies, payload: { enabled: false } })).statusCode).toBe(200);
     expect((await app.inject({ method: "DELETE", url: `/api/admin/auth/providers/${oldId}`, cookies: adminCookies })).statusCode).toBe(204);
-    // Q5：停用與刪除都不撤 session——用那個服務登入的 session 仍有效（gate r1-t1-7 M7）。
+    // 停用與刪除都不撤 session——用那個服務登入的 session 仍有效。
     expect((await app.inject({ method: "GET", url: "/api/auth/me", cookies: { [SESSION_COOKIE]: first.cookies[SESSION_COOKIE]! } })).statusCode).toBe(200);
     const created = await app.inject({ method: "POST", url: "/api/admin/auth/providers", cookies: adminCookies, payload: { template: "oidc", displayName: "Again", issuerUrl: ISS, clientId: "test-client", clientSecret: "test-secret" } });
     const newId = created.json().id as string;
@@ -70,7 +70,7 @@ describe("DELETE /api/admin/auth/providers/:id（#187 §9.2、W11）", () => {
     expect(meAfter.json().id).toBe(meBefore.json().id);
   });
 
-  it("刪掉 legacy provider（已停用）→ 列真的刪掉；之後以同 issuer 新建的服務不是 legacy、回呼網址帶 id（gate r1-t1-7 M2）", async () => {
+  it("刪掉 legacy provider（已停用）→ 列真的刪掉；之後以同 issuer 新建的服務不是 legacy、回呼網址帶 id", async () => {
     const { app, db, cookies } = await adminApp();
     const legacy = await seedAuthProvider(db, { issuerUrl: ISS, legacyCallback: true, enabled: false });
     expect((await app.inject({ method: "DELETE", url: `/api/admin/auth/providers/${legacy.id}`, cookies })).statusCode).toBe(204);
@@ -80,7 +80,7 @@ describe("DELETE /api/admin/auth/providers/:id（#187 §9.2、W11）", () => {
     expect(created.json()).toMatchObject({ legacyCallback: false, callbackUrl: `http://localhost:3000/api/auth/oidc/callback/${created.json().id}` });
   });
 
-  it("C7 停用與刪除交錯：DELETE 卡在「另一條連線正把它重新啟用」的行鎖上 → 對方提交後 409 provider_enabled、列還在", async () => {
+  it("停用與刪除交錯：DELETE 卡在「另一條連線正把它重新啟用」的行鎖上 → 對方提交後 409 provider_enabled、列還在", async () => {
     const { app, db, cookies } = await adminApp();
     const p = await seedAuthProvider(db, { issuerUrl: ISS, enabled: false });
     const [{ current_database: dbName }] = (await db.execute<{ current_database: string }>(sql`select current_database()`)).rows;

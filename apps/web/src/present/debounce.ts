@@ -1,4 +1,4 @@
-/** A8：防抖 trailing 500 ms＋maxWait 2 s（spec §3.4、§7.1-2）。時間以 `Date.now()` 量（vitest fake timers 會一併假造）。 */
+/** 防抖 trailing 500 ms＋maxWait 2 s。時間以 `Date.now()` 量（vitest fake timers 會一併假造）。 */
 export const UPDATE_DEBOUNCE_MS = 500;
 export const UPDATE_MAX_WAIT_MS = 2000;
 

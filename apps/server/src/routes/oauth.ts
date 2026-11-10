@@ -9,7 +9,8 @@ import { apiTokens, oauthClients, oauthCodes, oauthRequests, users } from "../db
 import { isForeignKeyViolation, uniqueViolationConstraint } from "../db/pg-errors.js";
 import type { UserGate } from "../auth/session.js";
 import { generateAccessToken, generateRefreshToken, hashToken, REFRESH_TOKEN_PREFIX } from "../auth/api-token.js";
-import { countBillableGrants, TOKEN_LIMIT_PER_USER } from "../auth/grant-quota.js";
+import { countBillableGrants } from "../auth/grant-quota.js";
+import type { SiteLimits } from "../site-limits/store.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
 import { BODY_TOO_LARGE_MESSAGE } from "../http/errors.js";
 import { sendOauthError } from "../http/oauth-errors.js";
@@ -23,12 +24,13 @@ import { DEFAULT_CLIENT_NAME, hasUnsafeClientNameChar } from "../oauth/client-na
 export interface OauthRouteDeps {
   db: Db;
   config: AppConfig;
+  siteLimits: SiteLimits;
   gate: UserGate;
   limiters: { dcr: FixedWindowLimiter; authorize: FixedWindowLimiter; tokenEndpoint: FixedWindowLimiter };
 }
 
 /**
- * 兩個 RFC 形 plugin 共用的 error／notFound handler（§5.0）。
+ * 兩個 RFC 形 plugin 共用的 error／notFound handler。
  *
  * ⚠ **只能在帶 prefix 的封裝 plugin 內呼叫**：root 的 `setNotFoundHandler` 由
  * `http/spa.ts` 獨佔，無 prefix 的 plugin 再呼叫一次會開機即崩。
@@ -41,7 +43,7 @@ export function registerRfcErrorHandlers(app: FastifyInstance): void {
       request.log.error({ err: error, authKind: request.authKind }, "oauth endpoint error");
       return sendOauthError(reply, 500, "server_error", "Internal server error.");
     }
-    // §5.0 的映射表只列 415／400／404／405，都歸 invalid_request；今天沒有路由會丟
+    // 映射表只列 415／400／404／405，都歸 invalid_request；今天沒有路由會丟
     // 401／403／429（那些是 handler 直送），有的話這裡要先補碼再改。
     return sendOauthError(reply, status, "invalid_request", status === 413 ? BODY_TOO_LARGE_MESSAGE : error.message || "Bad request.");
   });
@@ -75,8 +77,8 @@ const MAX_CLIENT_ID = 64;
 const CODE_CHALLENGE_RE = /^[A-Za-z0-9_-]{43,128}$/;
 
 /**
- * client 或 redirect_uri 不可信時的說明頁（§5.3 步驟 1）。**全靜態、不回聲任何請求
- * 參數**——這裡的輸入全是無認證方控制的字串。這是 I5 清掉 client 之後、client 拿舊
+ * client 或 redirect_uri 不可信時的說明頁（步驟 1）。**全靜態、不回聲任何請求
+ * 參數**——這裡的輸入全是無認證方控制的字串。這是殭屍 client 被清掉之後、client 拿舊
  * client_id 回頭的必經路徑，訊息必須可操作。
  */
 const UNKNOWN_CLIENT_MESSAGE = [
@@ -97,7 +99,7 @@ function sendPlainText(reply: FastifyReply, statusCode: number, message: string)
     .send(message);
 }
 
-/** T2 的錯誤一律導回 client（RFC 6749 §4.1.2.1）——一律 URL API，禁止字串串接。 */
+/** redirect_uri 可信之後的錯誤一律導回 client（RFC 6749 §4.1.2.1）——一律 URL API，禁止字串串接。 */
 function redirectWithError(
   reply: FastifyReply,
   redirectUri: string,
@@ -122,8 +124,8 @@ const ACCESS_TTL_MS = 24 * 60 * 60_000;
 const OAUTH_USER_CLIENT_UIDX = "api_tokens_oauth_user_client_uidx";
 
 /**
- * §5.4 的參數長度表；超過上限一律 `invalid_request`（不進 DB）。只有 `code_verifier` 有
- * **實質**下限（43，spec 明文 43..128）：太短若放到 PKCE 比對才失敗會回 invalid_grant，
+ * 參數長度表；超過上限一律 `invalid_request`（不進 DB）。只有 `code_verifier` 有
+ * **實質**下限（43，RFC 7636 規定 43..128）：太短若放到 PKCE 比對才失敗會回 invalid_grant，
  * client 會誤判 code 壞掉重跑整輪。其餘的 `min: 1` 只擋空值——`code`／`refresh_token`
  * 刻意不設有意義的下限：畸形憑證是 invalid_grant 的事（RFC 6749 §5.2），由 hash 查無／
  * 前綴檢查判，不在這裡搶答。
@@ -141,8 +143,8 @@ const TOKEN_FIELD_LIMITS: Record<string, { min: number; max: number }> = {
 const CODE_VERIFIER_RE = /^[A-Za-z0-9._~-]{43,128}$/;
 
 /**
- * tx 內的失敗一律**用 throw 表達**（spec §5.4）。drizzle 的 `db.transaction()` 只在
- * callback throw 時 ROLLBACK，正常 return 一律 COMMIT——用回傳值表達失敗，會把 I7 的
+ * tx 內的失敗一律**用 throw 表達**。drizzle 的 `db.transaction()` 只在
+ * callback throw 時 ROLLBACK，正常 return 一律 COMMIT——用回傳值表達失敗，會把舊授權的
  * DELETE 與 code 的消費一起提交，換來「舊授權被刪掉、新 token 沒發出」的死狀態。
  */
 class OauthGrantError extends Error {
@@ -160,7 +162,7 @@ function formField(body: unknown, name: string): string | undefined {
 }
 
 /**
- * `/oauth` 前綴 plugin（§5.2–§5.4）。RFC 形錯誤 body 是全站唯一例外，理由與錯誤映射
+ * `/oauth` 前綴 plugin。RFC 形錯誤 body 是全站唯一例外，理由與錯誤映射
  * 見 `http/oauth-errors.ts`（docs/api.md 的對應說明在文件那一棒補）。
  */
 export function oauthRoutes(deps: OauthRouteDeps) {
@@ -184,7 +186,7 @@ export function oauthRoutes(deps: OauthRouteDeps) {
       }
       const body = parsed.data;
 
-      // D10：無認證的 DCR 若收遠端 redirect，任何人都能註冊好聽的名字做一鍵釣魚。
+      // 無認證的 DCR 若收遠端 redirect，任何人都能註冊好聽的名字做一鍵釣魚。
       if (!body.redirect_uris.every(isLoopbackRedirectUri)) {
         return sendOauthError(
           reply,
@@ -234,7 +236,7 @@ export function oauthRoutes(deps: OauthRouteDeps) {
       const clientId = queryString(query.client_id);
       const redirectUri = queryString(query.redirect_uri);
 
-      // T1：只驗「建立 redirect 可信度」所需的兩個參數。失敗不吃限流額度。
+      // 第一關：只驗「建立 redirect 可信度」所需的兩個參數。失敗不吃限流額度。
       if (
         clientId === undefined ||
         clientId.length > MAX_CLIENT_ID ||
@@ -249,7 +251,7 @@ export function oauthRoutes(deps: OauthRouteDeps) {
         return sendPlainText(reply, 429, RATE_LIMITED_MESSAGE);
       }
 
-      // ⚠ I5 必須早於下面的 client 查表：否則被清掉的 client 會在建 request 時撞 FK 變 500。
+      // ⚠ 殭屍 client 清理必須早於下面的 client 查表：否則被清掉的 client 會在建 request 時撞 FK 變 500。
       await runOauthCleanup(deps.db);
 
       // client_id 是這條路上唯一進 **SQL 述詞** 的請求字串：帶 NUL 的 bind 參數會讓 PG
@@ -264,7 +266,7 @@ export function oauthRoutes(deps: OauthRouteDeps) {
         return sendPlainText(reply, 400, UNKNOWN_CLIENT_MESSAGE);
       }
 
-      // T2：redirect_uri 此刻已可信，錯誤一律導回去（RFC 6749 §4.1.2.1）。
+      // 第二關：redirect_uri 此刻已可信，錯誤一律導回去（RFC 6749 §4.1.2.1）。
       const issuer = publicUrlIssuer(deps.config.publicUrl);
       const rawState = queryString(query.state);
       // 不合格的 state 一律不回聲（原樣回一個我們自己拒收的值沒有意義）。
@@ -317,7 +319,7 @@ export function oauthRoutes(deps: OauthRouteDeps) {
           expiresAt: new Date(Date.now() + REQUEST_TTL_MS),
         });
       } catch (err) {
-        // 併發 TOCTOU：另一發請求的 I5 在我們查到 client 之後把它清掉（只發生在跨
+        // 併發 TOCTOU：另一發請求的殭屍 client 清理在我們查到 client 之後把它清掉（只發生在跨
         // 24h／30d 邊界的毫秒視窗）。回說明頁而不是讓 FK 違反冒成 500——語意也對，
         // 那個 client 此刻確實不存在了。無法穩定重現，故無測試。
         if (isForeignKeyViolation(err)) return sendPlainText(reply, 400, UNKNOWN_CLIENT_MESSAGE);
@@ -328,7 +330,7 @@ export function oauthRoutes(deps: OauthRouteDeps) {
     });
 
     app.post("/token", async (request, reply) => {
-      // §5.4：**所有**回應都帶這兩個 header，429 與成功回應都不例外——所以設在限流
+      // **所有**回應都帶這兩個 header，429 與成功回應都不例外——所以設在限流
       // 之前（`sendOauthError` 自己也會設 cache-control，重複設同值無害）。
       reply.header("cache-control", "no-store").header("pragma", "no-cache");
       if (!deps.limiters.tokenEndpoint.consume(request.ip)) {
@@ -374,12 +376,12 @@ export function oauthRoutes(deps: OauthRouteDeps) {
 
         try {
           const issued = await deps.db.transaction(async tx => {
-            // I3：單次消費。0 列＝用過／過期／不存在（三者刻意同形）。
+            // 單次消費。0 列＝用過／過期／不存在（三者刻意同形）。
             const [consumed] = await tx
               .delete(oauthCodes)
               .where(and(eq(oauthCodes.codeHash, hashToken(code)), sql`${oauthCodes.expiresAt} > now()`))
               .returning();
-            // ⚠ 這些 throw 讓整個 tx 回捲＝**失敗的兌換不消費 code**（spec §5.4 要的）。
+            // ⚠ 這些 throw 讓整個 tx 回捲＝**失敗的兌換不消費 code**。
             // 代價是同一支 code 可在 10 分鐘內重試，PKCE 是唯一防線；已記 known-limitations。
             if (consumed === undefined) invalidGrant();
             // client_id／redirect_uri 在 JS 端與 DB 列逐字比對，不進 SQL 述詞（不變量 S）。
@@ -392,8 +394,8 @@ export function oauthRoutes(deps: OauthRouteDeps) {
             const [account] = await tx.select({ disabledAt: users.disabledAt }).from(users).where(eq(users.id, consumed.userId));
             if (account === undefined || account.disabledAt !== null) invalidGrant();
 
-            // I7：先刪同 (user, client) 的既有 grant，再算 I1 額度（等價於 decision 側的扣除）。
-            // ⚠ #106 D7：先刪後插會把使用者在設定頁改過的 agent 名稱洗掉，這裡從**被刪的那一列**
+            // 先刪同 (user, client) 的既有 grant，再算額度（等價於 decision 側的扣除）。
+            // ⚠ #106：先刪後插會把使用者在設定頁改過的 agent 名稱洗掉，這裡從**被刪的那一列**
             // 搬過去（`.returning()` 拿的就是它，不必多一次 SELECT，也沒有兩次查詢之間的窗口）。
             const [replaced] = await tx
               .delete(apiTokens)
@@ -401,10 +403,11 @@ export function oauthRoutes(deps: OauthRouteDeps) {
                 and(eq(apiTokens.userId, consumed.userId), eq(apiTokens.kind, "oauth"), eq(apiTokens.clientId, consumed.clientId))
               )
               .returning({ agentLabel: apiTokens.agentLabel });
-            // ⚠ 這一條 throw 是承重的：它讓上面那筆 I7 的 DELETE 一起 ROLLBACK。改成
+            // ⚠ 這一條 throw 是承重的：它讓上面那筆 DELETE 一起 ROLLBACK。改成
             // 回傳值就會提交刪除卻不發 token，把使用者既有的授權吞掉。
-            if ((await countBillableGrants(tx, consumed.userId)) >= TOKEN_LIMIT_PER_USER) {
-              throw new OauthGrantError("invalid_grant", `Token limit reached: you already have ${TOKEN_LIMIT_PER_USER} active tokens. Revoke one first.`);
+            const tokenLimit = deps.siteLimits.get("apiTokensPerUser");
+            if ((await countBillableGrants(tx, consumed.userId)) >= tokenLimit) {
+              throw new OauthGrantError("invalid_grant", `Token limit reached: you already have ${tokenLimit} active tokens. Revoke one first.`);
             }
 
             const [client] = await tx.select().from(oauthClients).where(eq(oauthClients.clientId, consumed.clientId));
@@ -427,7 +430,7 @@ export function oauthRoutes(deps: OauthRouteDeps) {
             return { accessToken, refreshToken, scope: consumed.scope };
           });
 
-          // ⚠ I5 只能 fire-and-forget：tx 已經提交，清理失敗若冒到 error handler 就會
+          // ⚠ 清理只能 fire-and-forget：tx 已經提交，清理失敗若冒到 error handler 就會
           // 變成 500——client 拿不到 token，code 卻已被消費。
           void runOauthCleanup(deps.db).catch((err: unknown) => {
             request.log.warn({ err }, "oauth cleanup after token exchange failed");
@@ -481,7 +484,7 @@ export function oauthRoutes(deps: OauthRouteDeps) {
           return sendOauthError(reply, 400, "invalid_grant", "The refresh token is invalid.");
         }
 
-        // I4：輪替。0 列＝這一支已被另一發輪替掉。
+        // 輪替。0 列＝這一支已被另一發輪替掉。
         const accessToken = generateAccessToken();
         const nextRefresh = generateRefreshToken();
         const rotated = await deps.db

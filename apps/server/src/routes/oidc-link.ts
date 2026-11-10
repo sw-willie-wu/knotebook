@@ -19,11 +19,11 @@ export interface OidcLinkRouteDeps {
   limiters: { oidcLogin: FixedWindowLimiter };
 }
 
-/** B7：一律要求 JSON body（`{}`，strict）——CSRF hook 只擋「帶 body 且非 JSON」，無 body 的 POST 會被放行，所以這裡要 body。 */
+/** 一律要求 JSON body（`{}`，strict）——CSRF hook 只擋「帶 body 且非 JSON」，無 body 的 POST 會被放行，所以這裡要 body。 */
 const linkBodySchema = z.object({}).strict();
 
 /**
- * #187 §7.6：設定頁的手動連結起點。session-only（`app.authenticate` 只認 cookie；Bearer → 401）。回 `{url}`，前端
+ * #187：設定頁的手動連結起點。session-only（`app.authenticate` 只認 cookie；Bearer → 401）。回 `{url}`，前端
  * `location.assign`——不開「有副作用的 GET」。callback 在 `routes/oidc.ts` 的 `intent: "link"` 分支。
  */
 export function oidcLinkRoutes(deps: OidcLinkRouteDeps) {
