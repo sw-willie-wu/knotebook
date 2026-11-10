@@ -1,7 +1,7 @@
 /**
- * #247 §9.2（rev 9／10）：群組用量「依成員」依佔用者 `uploads.charged_to_id` 分組——三條寫入（上傳、移入、複製）、一條刻意不動（刪群組轉移）。
- * (a)–(d)、(f)、(g) 對應 spec §9.2「測試要求」；RF2–RF5 對應 Part 4 計畫的 Review Focus。
- * (e)（migration 0023 回填）在 migrate.test.ts；「佔用者≠上傳者」的查詢分組案在 storage-admin.test.ts；RF1（UPDATE 的位置）在 unit/storage-quota-structure.test.ts ⑧。
+ * #247：群組用量「依成員」依佔用者 `uploads.charged_to_id` 分組——三條寫入（上傳、移入、複製）、一條刻意不動（刪群組轉移）。
+ * 案 (a)–(d)、(f)、(g) 各釘 charged_to 的一種情境。
+ * (e)（migration 0023 回填）在 migrate.test.ts；「佔用者≠上傳者」的查詢分組案在 storage-admin.test.ts；UPDATE 的位置在 unit/storage-quota-structure.test.ts。
  */
 import { describe, expect, it } from "vitest";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
@@ -52,7 +52,7 @@ async function sharedNoteWithBsUploads(app: FastifyInstance, db: Db) {
   return { a, b, x, g, n };
 }
 
-describe("#247 §9.2 byMember 依佔用者（uploads.charged_to_id）", () => {
+describe("#247 byMember 依佔用者（uploads.charged_to_id）", () => {
   it("(a) REST 移入：B 在 A 分享給他的個人筆記上傳 → A 移入 G → 那些附件算 A、B（仍是成員）無列；uploader_id 仍是 B；G 另一篇 X 的附件不受影響（UPDATE 只動本篇）", async () => {
     const { app, db } = await buildTestApp();
     const { a, b, x, g, n } = await sharedNoteWithBsUploads(app, db);
@@ -149,7 +149,7 @@ describe("#247 §9.2 byMember 依佔用者（uploads.charged_to_id）", () => {
     expect((await db.$client.query("select owner_id, group_id from notes where id = $1", [gn.id])).rows).toEqual([{ owner_id: x.id, group_id: null }]);
   });
 
-  it("RF2 移入的筆記帶著上傳者帳號早已刪除的附件（uploader_id NULL）→ 也算移入者：每一筆，不論原上傳者", async () => {
+  it("移入的筆記帶著上傳者帳號早已刪除的附件（uploader_id NULL）→ 也算移入者：每一筆，不論原上傳者", async () => {
     const { app, db } = await buildTestApp();
     const [a, x] = await Promise.all([seedUser(db, { displayName: "A" }), seedUser(db, { displayName: "X" })]);
     const g = await seedGroup(db, "G", [{ userId: x.id, role: "admin" }, { userId: a.id, role: "member" }]);
@@ -166,7 +166,7 @@ describe("#247 §9.2 byMember 依佔用者（uploads.charged_to_id）", () => {
     ]);
   });
 
-  it("RF3 群組筆記再複製進同一群組：原篇仍算移入者 A，副本（只含內容連到的附件）算複製者 C", async () => {
+  it("群組筆記再複製進同一群組：原篇仍算移入者 A，副本（只含內容連到的附件）算複製者 C", async () => {
     const { app, db, uploadsDir } = await buildTestApp();
     const [a, c, x] = await Promise.all([seedUser(db, { displayName: "A" }), seedUser(db, { displayName: "C" }), seedUser(db, { displayName: "X" })]);
     const g = await seedGroup(db, "G", [{ userId: x.id, role: "admin" }, { userId: a.id, role: "member" }, { userId: c.id, role: "member" }]);
@@ -183,7 +183,7 @@ describe("#247 §9.2 byMember 依佔用者（uploads.charged_to_id）", () => {
     ]);
   });
 
-  it("RF4 佔用者離開群組後照列名字與位元組（不看是否仍是成員）", async () => {
+  it("佔用者離開群組後照列名字與位元組（不看是否仍是成員）", async () => {
     const { app, db } = await buildTestApp();
     const { a, x, g, n } = await sharedNoteWithBsUploads(app, db);
     expect((await moveRest(app, n.id, a.id, g.id)).statusCode).toBe(200);
@@ -191,7 +191,7 @@ describe("#247 §9.2 byMember 依佔用者（uploads.charged_to_id）", () => {
     expect(await byMember(app, g.id, x.id)).toEqual([{ userId: a.id, handle: a.handle, displayName: "A", bytes: 150 }]);
   });
 
-  it("RF5 轉移後接收者 X 再把那篇移入另一個群組 H → H 裡算 X（移入覆寫），不是原佔用者 M", async () => {
+  it("轉移後接收者 X 再把那篇移入另一個群組 H → H 裡算 X（移入覆寫），不是原佔用者 M", async () => {
     const { app, db } = await buildTestApp();
     const [m, x] = await Promise.all([seedUser(db, { displayName: "M" }), seedUser(db, { displayName: "X" })]);
     const g = await seedGroup(db, "G", [{ userId: x.id, role: "admin" }, { userId: m.id, role: "member" }]);

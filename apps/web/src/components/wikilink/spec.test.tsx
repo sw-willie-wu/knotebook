@@ -12,9 +12,7 @@ import { OWNER_PERMS } from "@/test/fixtures";
 import { WikilinkContext, type WikilinkMode } from "./context";
 import { insertWikilink, WikilinkInline } from "./spec";
 
-// spec 2026-10-13 site-links §7、§11.2、§15.1 W1／W5（元件半）。
-
-describe("匯出（headless BlockNoteEditor，§7.3）", () => {
+describe("匯出（headless BlockNoteEditor）", () => {
   const blocks = (props: Record<string, string>) => [
     { type: "paragraph" as const, content: ["See ", { type: "wikilink" as const, props: { targetNoteId: "note-1", snapshotTitle: "Meeting Notes", label: "", anchorBlockId: "", ...props } }, " now."] },
   ];
@@ -105,7 +103,7 @@ const loadedClient = (notes: NoteDto[]) => {
   return qc;
 };
 
-describe("MemberWikilink（W1）", () => {
+describe("MemberWikilink", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
@@ -154,8 +152,8 @@ describe("MemberWikilink（W1）", () => {
     expect(screen.queryByText(TARGET.title)).not.toBeInTheDocument();
   });
 
-  it("#269 Task 16 m1：文件存大寫 targetNoteId、清單是小寫 id ⇒ 命中（活連結、現行標題），不是斷鏈", () => {
-    // 必須含 a–f：TARGET.id 全是數字，toUpperCase() 不變，測不出大小寫（Task 16 M6 的教訓）。
+  it("#269：文件存大寫 targetNoteId、清單是小寫 id ⇒ 命中（活連結、現行標題），不是斷鏈", () => {
+    // 必須含 a–f：TARGET.id 全是數字，toUpperCase() 不變，測不出大小寫。
     const hex: NoteDto = { ...TARGET, id: "abcdef12-3456-4789-8abc-def123456789" };
     expect(hex.id.toUpperCase()).not.toBe(hex.id);
     renderWikilink({ queryClient: loadedClient([hex]), props: { targetNoteId: hex.id.toUpperCase(), snapshotTitle: "Old" } });
@@ -183,7 +181,7 @@ describe("MemberWikilink（W1）", () => {
     }
   });
 
-  it("可編輯時一般點擊（rev 7）：與唯讀相同——preventDefault、同分頁導航（工具列改由 hover／長按開，見 WikilinkToolbar.test.tsx）", () => {
+  it("可編輯時一般點擊：與唯讀相同——preventDefault、同分頁導航（工具列改由 hover／長按開，見 WikilinkToolbar.test.tsx）", () => {
     renderWikilink({ queryClient: loadedClient([TARGET]), props: { targetNoteId: TARGET.id }, editor: EDITABLE_STUB });
     const link = screen.getByRole("link", { name: TARGET.title });
     expect(fireEvent.click(link)).toBe(false);
@@ -228,7 +226,7 @@ describe("MemberWikilink（W1）", () => {
   });
 });
 
-describe("PublicWikilink（W5 元件半：不呼叫 useNotes）", () => {
+describe("PublicWikilink（不呼叫 useNotes）", () => {
   const links = (list: PublicLinkDto[]): WikilinkMode => ({ mode: "public", links: new Map(list.map((l) => [l.id, l])) });
   beforeEach(async () => {
     await i18n.changeLanguage("en");
@@ -281,7 +279,7 @@ describe("PublicWikilink（W5 元件半：不呼叫 useNotes）", () => {
   });
 });
 
-describe("insertWikilink（§8.7）", () => {
+describe("insertWikilink", () => {
   it("新 props 預設空字串；呼叫端可帶 label／anchorBlockId；補一個 trailing space", () => {
     const insertInlineContent = vi.fn();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 測試替身只需要 insertInlineContent

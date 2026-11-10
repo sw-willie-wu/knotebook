@@ -21,7 +21,7 @@ describe("present.css", () => {
     for (const selector of selectors) expect(selector, selector).toMatch(/^(\.kn-present|:root\.dark \.kn-present)\b/);
   });
 
-  it.each(Object.keys(COLORS_DEFAULT))("色名 %s：淺色與深色的字色、底色逐值等於 BlockNote 匯出的常數（§5.3 末列）", (name) => {
+  it.each(Object.keys(COLORS_DEFAULT))("色名 %s：淺色與深色的字色、底色逐值等於 BlockNote 匯出的常數（末列）", (name) => {
     expect(rule(`.kn-present [data-text-color="${name}"]`)).toContain(`color: ${COLORS_DEFAULT[name].text};`);
     expect(rule(`.kn-present [data-background-color="${name}"]`)).toContain(`background-color: ${COLORS_DEFAULT[name].background};`);
     expect(rule(`:root.dark .kn-present [data-text-color="${name}"]`)).toContain(`color: ${COLORS_DARK_MODE_DEFAULT[name].text};`);
@@ -36,7 +36,7 @@ describe("present.css", () => {
     expect(rule(".kn-present .reveal .slides section[data-kn-slide-id]:not([data-prevent-swipe])")).toContain("touch-action: none;");
   });
 
-  it("PCSS1：並排——堆疊的列 display:block !important、列的 gap 24px !important（蓋過正規形 inline style）", () => {
+  it("並排——堆疊的列 display:block !important、列的 gap 24px !important（蓋過正規形 inline style）", () => {
     expect(rule(".kn-present .kn-slide-body [data-kb-columns][data-stacked] {")).toContain("display: block !important;");
     expect(rule(".kn-present .kn-slide-body [data-kb-columns] {")).toContain("gap: 24px !important;");
   });

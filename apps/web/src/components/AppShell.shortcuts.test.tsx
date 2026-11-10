@@ -14,7 +14,7 @@ import { AppShell, SidebarDrawerButton } from "./AppShell";
 import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 /**
- * Ctrl/Cmd+/ 開關快捷鍵介紹頁（plan 2026-11-02-shortcuts-modal T6）：判準（K3）、讓路（K4）、焦點回歸（K11）、context（K1）。
+ * Ctrl/Cmd+/ 開關快捷鍵介紹頁：判準、讓路、焦點回歸、context。
  * 對話框內容換成替身（內容自己的行為在 ShortcutsLazy.test.tsx；lazy 載入失敗在 AppShell.shortcuts-lazy-error.test.tsx）。
  */
 
@@ -126,7 +126,7 @@ describe("AppShell — Ctrl/Cmd+/ 快捷鍵介紹", () => {
     expect(dialog()).toBeNull();
   });
 
-  it("S4 Ctrl+Shift+?（key 是 ?）不開；Ctrl+Shift+/（key 是 /，K3：不看 shift）開", async () => {
+  it("S4 Ctrl+Shift+?（key 是 ?）不開；Ctrl+Shift+/（key 是 /，不看 shift）開", async () => {
     renderShell();
     await ready();
     press({ key: "?", ctrlKey: true, shiftKey: true });
@@ -155,7 +155,7 @@ describe("AppShell — Ctrl/Cmd+/ 快捷鍵介紹", () => {
     expect(dialog()).toBeNull();
   });
 
-  // D7：選單開著也讓路（比照 Ctrl+S；Radix 選單與 Dialog 共用 FocusScope 會搶焦點）。與 Ctrl+K「menu 照觸發」刻意不同。
+  // 選單開著也讓路（比照 Ctrl+S；Radix 選單與 Dialog 共用 FocusScope 會搶焦點）。與 Ctrl+K「menu 照觸發」刻意不同。
   it("S7 頁上有 role=menu → 不開、不 preventDefault", async () => {
     renderShell();
     await ready();
@@ -173,7 +173,7 @@ describe("AppShell — Ctrl/Cmd+/ 快捷鍵介紹", () => {
     expect(await screen.findByRole("dialog", { name: "Keyboard shortcuts" })).toBeInTheDocument();
   });
 
-  it("S9 開著再按一次 → 關（D6 切換）、被 preventDefault", async () => {
+  it("S9 開著再按一次 → 關（切換）、被 preventDefault", async () => {
     renderShell();
     await ready();
     press({ key: "/", ctrlKey: true });
@@ -190,7 +190,7 @@ describe("AppShell — Ctrl/Cmd+/ 快捷鍵介紹", () => {
     expect(dialog()).toBeNull();
   });
 
-  // 本案同時守鍵盤路徑與 ShortcutsDialog 的 onCloseAutoFocus：無 Trigger 的受控 Dialog，Radix 關閉時不還焦點、落 body（gate r1 I1）。
+  // 本案同時守鍵盤路徑與 ShortcutsDialog 的 onCloseAutoFocus：無 Trigger 的受控 Dialog，Radix 關閉時不還焦點、落 body。
   it("S11 關閉後焦點回到開啟前的元素", async () => {
     renderShell();
     const probe = await screen.findByRole("button", { name: "probe" });
@@ -240,7 +240,7 @@ describe("AppShell — 從使用者選單開快捷鍵介紹", () => {
     await waitFor(() => expect(trigger).toHaveFocus());
   });
 
-  // 抽屜開著時，快捷鍵頁疊在抽屜上、抽屜不關（K12）。快捷鍵頁開著時抽屜被 Radix 標成 aria-hidden（預期行為），
+  // 抽屜開著時，快捷鍵頁疊在抽屜上、抽屜不關。快捷鍵頁開著時抽屜被 Radix 標成 aria-hidden（預期行為），
   // 所以那段不用 getByRole 找抽屜，改用 [data-sidebar-drawer]；Esc 關掉快捷鍵頁後才用 getByRole 確認抽屜恢復可及。
   it("S15 窄視窗：抽屜裡的 UserMenu 開快捷鍵頁，抽屜仍在；Esc 只關快捷鍵頁，焦點回抽屜裡的觸發鈕", async () => {
     const mql = {

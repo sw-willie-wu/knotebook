@@ -13,7 +13,7 @@ export type SidebarNode =
 export type NoteBucket = { kind: "group"; groupId: string } | { kind: "myNotes" } | { kind: "shared" };
 
 /**
- * #175 spec §8.2 的分段表（搜尋與各 tab 共用同一份歸類）：
+ * #175 的分段表（搜尋與各 tab 共用同一份歸類）：
  * - `group` 非 null 且那個群組在 `groupIds`（＝我是成員）→ 該群組（不標角色，#182）；
  * - `group` 非 null 但群組不在 `groupIds`（剛被移出、清單未 refetch）→ 與我共享（兜底）；
  * - `role === "owner"` → 我的筆記；
@@ -95,8 +95,8 @@ export function sortFolderNotes(notes: readonly NoteDto[], sort: FolderSort): No
 }
 
 /**
- * 一個空間（我的筆記、與我共享、某群組）的根：資料夾在前（索引已依名稱排好）、根層筆記在後（維持輸入＝server 順序，前 §9-10）。
- * 筆記的 `folderId` 不在索引、或資料夾空間與筆記所在空間不符 → 落根層（兜底，讀碼發現 4）。
+ * 一個空間（我的筆記、與我共享、某群組）的根：資料夾在前（索引已依名稱排好）、根層筆記在後（維持輸入＝server 順序）。
+ * 筆記的 `folderId` 不在索引、或資料夾空間與筆記所在空間不符 → 落根層（兜底）。
  */
 function spaceNodes(space: FolderSpaceKey, notes: readonly NoteDto[], folders: FolderIndex, sortOf: (folderId: string) => FolderSort): SidebarNode[] {
   const byFolder = new Map<string, NoteDto[]>();
@@ -123,7 +123,7 @@ function spaceNodes(space: FolderSpaceKey, notes: readonly NoteDto[], folders: F
 }
 
 /**
- * folders 必填（讀碼發現 6）。同層資料夾在前（索引已依名稱排好）、筆記在後；資料夾內筆記依 sortOf(id)；根層筆記維持 server 順序（前 §9-10）。
+ * folders 必填。同層資料夾在前（索引已依名稱排好）、筆記在後；資料夾內筆記依 sortOf(id)；根層筆記維持 server 順序。
  * 最近 tab 不建資料夾節點；垃圾桶照舊回 []。
  */
 export function buildTabNodes(
@@ -149,7 +149,7 @@ export function buildTabNodes(
 
 /**
  * 樹裡有沒有可勾的節點（資料夾或筆記，含群組下的；群組節點本身不算，所以空群組不算、空資料夾算）：
- * 一般 tab 標題列「選取」鈕可不可按（PR-2c；資料夾 spec §6.10 起資料夾也可勾）。
+ * 一般 tab 標題列「選取」鈕可不可按（資料夾也可勾）。
  */
 export function hasSelectableNodes(nodes: readonly SidebarNode[]): boolean {
   return nodes.some((node) => node.kind !== "group" || hasSelectableNodes(node.children));
@@ -170,13 +170,13 @@ export function noteFolderPath(note: NoteDto, ctx: LocationContext): string[] {
   return folderPath(ctx.folders, folder.id) ?? [];
 }
 
-/** spec §9-2 單一函式：[群組名?, ...資料夾路徑]。垃圾桶第二行（`lib/trash-display.ts`）也經它。 */
+/** 單一函式：[群組名?, ...資料夾路徑]。垃圾桶第二行（`lib/trash-display.ts`）也經它。 */
 export function noteLocationSegments(note: { group: { name: string } | null }, path: readonly string[]): string[] {
   return note.group ? [note.group.name, ...path] : [...path];
 }
 
 /**
- * 筆記的位置標籤（資料夾 spec §6.9）：搜尋結果與最近 tab 的第二行都只經這一支。
+ * 筆記的位置標籤：搜尋結果與最近 tab 的第二行都只經這一支。
  * 個人「My notes › A › B」；群組「Groups › G › A」；共享無放置「Shared with me · Viewer」、有放置「Shared with me › X · Viewer」。
  */
 export function noteLocationLabel(note: NoteDto, ctx: LocationContext, t: Translate): string {

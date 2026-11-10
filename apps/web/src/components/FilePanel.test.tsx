@@ -73,7 +73,7 @@ function fakeResponse({ ok, status, json }: { ok: boolean; status: number; json?
   return { ok, status, json: json ?? (() => Promise.reject(new Error("no body"))) } as unknown as Response;
 }
 
-describe("FilePanel（Task 14：image block 恢復＋自家 Upload/Embed tab）", () => {
+describe("FilePanel（image block 恢復＋自家 Upload/Embed tab）", () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 同上
   let editor: BlockNoteEditor<any, any, any>;
 
@@ -151,7 +151,7 @@ describe("FilePanel（Task 14：image block 恢復＋自家 Upload/Embed tab）"
       fireEvent.change(input, { target: { files: [pngFile()] } });
 
       await waitFor(() => {
-        // 審查修復（Important 2）：`errors.unsupported_media_type` 的實際文案，
+        // `errors.unsupported_media_type` 的實際文案，
         // 不是通用的 `note.filePanel.upload.error`——已知錯誤碼要顯示對症下藥的訊息。
         expect(screen.getByRole("alert")).toHaveTextContent("That file type isn't supported.");
       });
@@ -258,7 +258,7 @@ describe("FilePanel（Task 14：image block 恢復＋自家 Upload/Embed tab）"
       });
     });
 
-    // review fix round 1（L-3）：image block 的 EmbedTab 是同一個元件，但只有透過
+    // image block 的 EmbedTab 是同一個元件，但只有透過
     // 「切到 Embed tab」才會渲染網址輸入——scheme 白名單邏輯本身在 audio/video/file
     // 三案已覆蓋，這裡補 image block 這條進入路徑本身的覆蓋面（純覆蓋面，不是新邏輯）。
     it("Embed tab：javascript: 偽 URL → 拒收＋行內錯誤，props.url 未寫入", () => {
@@ -334,7 +334,7 @@ describe("FilePanel（Task 14：image block 恢復＋自家 Upload/Embed tab）"
       expect((editor.getBlock(blockId)!.props as Record<string, unknown>).url).toBe("");
     });
 
-    // 安全 backlog ④（spec §13.2/§13.5）：Embed tab 的 URL scheme 白名單。
+    // 安全 backlog ④：Embed tab 的 URL scheme 白名單。
     it("javascript: 偽 URL → 拒收＋行內錯誤，props.url 未寫入", () => {
       const blockId = insertBlock(editor, type);
       renderPanel(editor, "note-1", blockId);

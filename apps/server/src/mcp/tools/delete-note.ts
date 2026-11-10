@@ -1,9 +1,9 @@
 /**
- * #181 spec §6.8.1 `delete_note(note_id)`：移到垃圾桶（同 REST `DELETE /api/notes/:id` 的權限與服務函式）。
- * 移入只能經 `trash/service.ts` 的 `trashNote`（AG6：唯一寫 deleted_at 的是 `trashNotesInTx`）；本檔不得出現 deleted_at 字面（守衛二）。
+ * #181 `delete_note(note_id)`：移到垃圾桶（同 REST `DELETE /api/notes/:id` 的權限與服務函式）。
+ * 移入只能經 `trash/service.ts` 的 `trashNote`（唯一寫 deleted_at 的是 `trashNotesInTx`）；本檔不得出現 deleted_at 字面（守衛二）。
  * 流程順序是契約：`requireDeleteScope`（第一個動作，拒絕時什麼都沒做）→ `resolveNoteAccess`（none → not_found、無刪除權 → forbidden）
- * → `readTrashRetentionDays`（只當存在性守衛，排在扣桶之前）→ edit 桶（REST 不扣，讀碼發現 10）→ `trashNote`
- * （可重試的交易錯誤 → server_busy）→ `loadTrashedMeta`（commit 後一讀；落空 → not_found，讀碼發現 6）。
+ * → `readTrashRetentionDays`（只當存在性守衛，排在扣桶之前）→ edit 桶（REST 不扣）→ `trashNote`
+ * （可重試的交易錯誤 → server_busy）→ `loadTrashedMeta`（commit 後一讀；落空 → not_found）。
  */
 import { z } from "zod";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -43,7 +43,7 @@ export const deleteNoteOutput = {
     ),
 };
 
-/** AG2：所有 not_found 成因（不存在、看不到、已在垃圾桶、commit 後重讀落空）同一句。 */
+/** 所有 not_found 成因（不存在、看不到、已在垃圾桶、commit 後重讀落空）同一句。 */
 export const DELETE_NOT_FOUND_MESSAGE =
   "No note with that id that you can see. For example, it may not exist, may not be shared with you, may belong to a group you " +
   "aren't in or whose notes your role can't see, or may already be in the trash (list_trash shows the ones you can restore).";

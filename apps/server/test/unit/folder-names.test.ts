@@ -9,7 +9,7 @@ import {
 const NUL = String.fromCodePoint(0);
 const SMILE = "😀";
 
-describe("NM-1 normalizeFolderName（spec §5.3 使用者輸入）", () => {
+describe("NM-1 normalizeFolderName（使用者輸入）", () => {
   const cases: Array<[string, string, ReturnType<typeof normalizeFolderName>]> = [
     ["NUL", `A${NUL}B`, { ok: false, reason: "unstorable" }],
     ["落單代理", "\uD800", { ok: false, reason: "unstorable" }],
@@ -47,7 +47,7 @@ describe("NM-1 normalizeFolderName（spec §5.3 使用者輸入）", () => {
   });
 });
 
-describe("NM-2 normalizeFolderNameLoose（spec §5.3 系統代建）", () => {
+describe("NM-2 normalizeFolderNameLoose（系統代建）", () => {
   it("全是控制字元 → fallback", () => {
     expect(normalizeFolderNameLoose("\u0001\u0002", "Group")).toBe("Group");
   });
@@ -78,7 +78,7 @@ describe("NM-2 normalizeFolderNameLoose（spec §5.3 系統代建）", () => {
   });
 });
 
-describe("NM-3 folderNameWithSuffix（spec §5.3 M7）", () => {
+describe("NM-3 folderNameWithSuffix", () => {
   it("80 個 a、n=2 → 76 個 a＋「 (2)」", () => {
     const r = folderNameWithSuffix("a".repeat(80), 2);
     expect(r).toBe(`${"a".repeat(76)} (2)`);
@@ -90,7 +90,7 @@ describe("NM-3 folderNameWithSuffix（spec §5.3 M7）", () => {
   it("短名不截", () => {
     expect(folderNameWithSuffix("ab", 2)).toBe("ab (2)");
   });
-  it("截完 trimEnd，不留雙空白（gate r1 m3）", () => {
+  it("截完 trimEnd，不留雙空白", () => {
     const base = `${"a".repeat(75)}  zz`;
     expect(Array.from(base).length).toBe(79);
     expect(folderNameWithSuffix(base, 2)).toBe(`${"a".repeat(75)} (2)`);
@@ -105,7 +105,7 @@ describe("NM-3 folderNameWithSuffix（spec §5.3 M7）", () => {
   });
 });
 
-describe("NM-4 fallbackGroupFolderName（spec §5.9-4、r3 n-5）", () => {
+describe("NM-4 fallbackGroupFolderName", () => {
   it.each(["zh-TW,zh;q=0.9", "zh", " ZH-cn"])("%j → 群組", (al) => {
     expect(fallbackGroupFolderName(al)).toBe("群組");
   });

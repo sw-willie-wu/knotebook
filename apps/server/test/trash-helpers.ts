@@ -1,6 +1,6 @@
 /**
- * #181 垃圾桶整合測試共用的種子與量測。**只在測試裡直寫 `deleted_at`**（不經 `trashNotesInTx`）——`test/` 不受 src 的
- * AG6 守衛管轄。
+ * #181 垃圾桶整合測試共用的種子與量測。**只在測試裡直寫 `deleted_at`**（不經 `trashNotesInTx`）——`test/` 不受 src 的守衛管轄。
+ *
  */
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import type { Pool } from "pg";
@@ -42,7 +42,7 @@ export interface SixRoleScene {
   outsider: SeededUser;   // 非成員
 }
 
-/** spec §6.3.1 第二張表的六種角色＋非成員，同一個群組。 */
+/** 第二張表的六種角色＋非成員，同一個群組。 */
 export async function sixRoleScene(db: Db): Promise<SixRoleScene> {
   const admin = await seedUser(db);
   const member = await seedUser(db);

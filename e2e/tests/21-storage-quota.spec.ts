@@ -3,7 +3,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { ADMIN, adminNav, createNote, createUserViaInvite, editorLocator, loginAs, openSiteAdmin, randomEmail } from "./helpers.js";
 
 /**
- * 儲存配額 E1（spec §11.6）：管理員在 Site admin → Storage plans 建一個 1 MB 方案、在 Site admin → Users 指派給新建的
+ * 儲存配額 E1：管理員在 Site admin → Storage plans 建一個 1 MB 方案、在 Site admin → Users 指派給新建的
  * 測試使用者 → 該使用者在自己的筆記貼一張 > 1 MB 的圖 → toast「Storage is full」＋用量句（自己的個人空間看得到數字）。
  * `finally` 以 API 把使用者指回新使用者的預設方案（e2e 疊上就是 Basic）並刪掉 1 MB 方案。
  *
@@ -11,8 +11,8 @@ import { ADMIN, adminNav, createNote, createUserViaInvite, editorLocator, loginA
  *   FilePanel 的 Upload tab 走的是行內錯誤，不是本案要驗的出口。
  * - 檔案是 1,100,000 bytes 的「PNG」：只有 8 bytes PNG 簽名＋零填充——server 只看 magic bytes（`uploads/magic-bytes.ts`），
  *   瀏覽器端也不解碼；> 1 MiB（1,048,576）才放不下 1 MB 方案。
- * - 用量句的數字是 RF1 的端到端守衛：`NoteEditor` 的 late-bound translate 若丟掉插值參數，這裡會看到 `{{used}}`。
- * - 名稱與 email 隨機化：腳本失敗時不 down 疊，重跑會吃到髒資料（[[knotebook-local-workflow]]）。
+ * - 用量句的數字是端到端守衛：`NoteEditor` 的 late-bound translate 若丟掉插值參數，這裡會看到 `{{used}}`。
+ * - 名稱與 email 隨機化：腳本失敗時不 down 疊，重跑會吃到髒資料。
  */
 
 const PLAN_NAME = `E2E 1MB ${randomUUID().slice(0, 8)}`;
@@ -76,7 +76,7 @@ test("21 儲存配額 E1：1 MB 方案指派給使用者 → 貼 > 1 MB 圖 → 
     await expect(userPage.getByText("Storage is full", { exact: true })).toBeVisible({ timeout: 15_000 });
     await expect(userPage.getByText("0 B of 1 MB used. Ask a site admin for more space.", { exact: true })).toBeVisible();
   } finally {
-    // 指回預設方案、刪掉 1 MB 方案（API；不經 UI，讓清理不受畫面狀態影響）。清理**絕不 throw**（review m3）：
+    // 指回預設方案、刪掉 1 MB 方案（API；不經 UI，讓清理不受畫面狀態影響）。清理**絕不 throw**：
     // 在 finally 裡 throw 會蓋掉主體的原始失敗，Playwright 只會回報清理的錯——每一步先看 res.ok()，失敗只 console.warn。
     try {
       const plansRes = await adminPage.request.get("/api/admin/storage-plans");

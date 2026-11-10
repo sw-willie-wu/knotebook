@@ -4,7 +4,7 @@ import i18n from "@/i18n";
 import { setNoteWidth } from "@/components/note-width";
 import { NoteWidthMenu } from "./NoteWidthMenu";
 
-/** #297 §4.3：頁首寬度 icon＋三選一選單。Radix trigger 只掛 onPointerDown，開選單用 pointerDown（同 NoteMenu.test）。 */
+/** #297：頁首寬度 icon＋三選一選單。Radix trigger 只掛 onPointerDown，開選單用 pointerDown（同 NoteMenu.test）。 */
 const ID = "11111111-1111-4111-8111-111111111111";
 
 function widthButton(): HTMLElement {

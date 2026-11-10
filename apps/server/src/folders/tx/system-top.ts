@@ -1,6 +1,6 @@
 /**
- * 刪群組轉移的新頂層（spec docs/superpowers/specs/2026-10-22-folders-design.md §5.9-4、§5.3 系統代建名）。S14：只收 `tx`／純資料。
- * 呼叫端（`transferGroupInTx`）必持接收者個人空間的結構鎖：改名、建立、照路徑重建也取同一把（M6），探測與 INSERT 之間不會被搶名、不撞 23505。
+ * 刪群組轉移的新頂層（系統代建名）。S14：只收 `tx`／純資料。
+ * 呼叫端（`transferGroupInTx`）必持接收者個人空間的結構鎖：改名、建立、照路徑重建也取同一把，探測與 INSERT 之間不會被搶名、不撞 23505。
  */
 import { and, isNull, sql } from "drizzle-orm";
 import { FOLDERS_PER_SPACE_MAX } from "@knotebook/shared";
@@ -10,8 +10,8 @@ import { folderNameWithSuffix } from "../names.js";
 import { folderSpaceWhere } from "../sql.js";
 
 /**
- * 接收者個人根層建系統資料夾：n = 1, 2, … 試 `folderNameWithSuffix(baseName, n)`，以 SQL `lower()` 比對同層（與同層唯一索引同一個，M8）；
- * 空的就 INSERT（`created_by = by`）。baseName 由呼叫端先過 `normalizeFolderNameLoose`。不檢查深度與數量上限（§5.3）。
+ * 接收者個人根層建系統資料夾：n = 1, 2, … 試 `folderNameWithSuffix(baseName, n)`，以 SQL `lower()` 比對同層（與同層唯一索引同一個）；
+ * 空的就 INSERT（`created_by = by`）。baseName 由呼叫端先過 `normalizeFolderNameLoose`。不檢查深度與數量上限。
  * 至多 `FOLDERS_PER_SPACE_MAX + 2` 次，用完 throw（實務上不可能：系統代建不受數量上限，但根層要先累積這麼多同基名的資料夾）。回實際寫入的名稱（含尾碼）。
  */
 export async function createSystemTopFolderInTx(tx: Tx, input: { ownerId: string; baseName: string; by: string }): Promise<{ id: string; name: string }> {

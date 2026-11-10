@@ -12,7 +12,7 @@ import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
  * （App.tsx 的 provider 那三行）。其餘測試都自備 provider 再 render AppRoutes——
  * 正式樹的這層接線在那些路徑上根本不會被執行到；而 useActiveNote 是 fail-loud，
  * 漏了這層的代價是**所有已登入頁面**（側欄每一列都消費 context）被 app 級
- * ErrorBoundary 接成 fallback、整站白屏頁（突變審查：拿掉 provider 原本全套仍綠）。
+ * ErrorBoundary 接成 fallback、整站白屏頁（拿掉 provider 原本全套仍綠）。
  *
  * 前提同 App.appBoundary.test：render 預設匯出 App＝內含 BrowserRouter、讀真實
  * window.location（jsdom 預設 `/` → HomePage，側欄 NoteList 渲染 stub 回的筆記）。
@@ -96,7 +96,7 @@ describe("App — ActiveNoteProvider 接線（#122）", () => {
 
     await waitFor(() => expect(screen.getAllByRole("link", { name: "Wired Note" }).length).toBeGreaterThan(0));
     // app 級 fallback 的實際文案是 app.crashTitle（比照 App.appBoundary.test 的
-    // APP_CRASH_TITLE）——別寫成 errors.internal 那句，那是死守衛（突變審查抓到）。
+    // APP_CRASH_TITLE）——別寫成 errors.internal 那句，那是死守衛。
     expect(screen.queryByText("Something went wrong")).not.toBeInTheDocument();
   });
 });

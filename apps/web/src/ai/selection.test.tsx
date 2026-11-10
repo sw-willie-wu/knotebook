@@ -39,7 +39,7 @@ const DOC = [
   { id: "p3", type: "paragraph", content: "third" },
 ];
 
-describe("toolbarWouldShow（#263 S2：照抄上游 FormattingToolbarExtension.shouldShow）", () => {
+describe("toolbarWouldShow（#263：照抄上游 FormattingToolbarExtension.shouldShow）", () => {
   it("逐案與上游 store 一致：空選取 false、無文字的 TextSelection false、跨 code false、NodeSelection true、一般文字 true、全選含 code false", () => {
     const editor = createEditor([
       { id: "p1", type: "paragraph", content: "alpha" },
@@ -66,7 +66,7 @@ describe("toolbarWouldShow（#263 S2：照抄上游 FormattingToolbarExtension.s
   });
 });
 
-describe("selectionInsideAnchor（#263 §5.2：D12 與工具列壓制共用的唯一判斷）", () => {
+describe("selectionInsideAnchor（#263：與工具列壓制共用的唯一判斷）", () => {
   it("在範圍內 true；部分重疊、範圍外 false；錨點區塊不在了 false", () => {
     const editor = bareMounted(DOC);
     select(editor, start(editor, "p1") + 1, start(editor, "p1") + 4);
@@ -79,7 +79,7 @@ describe("selectionInsideAnchor（#263 §5.2：D12 與工具列壓制共用的�
     expect(read(editor, (tr) => selectionInsideAnchor(tr, ["gone"]))).toBe(false);
   });
 
-  it("RF1：Ctrl+A（AllSelection，from=0、to=doc.content.size）對「全部頂層區塊」的錨點算在範圍內；只錨首區塊時不算", () => {
+  it("Ctrl+A（AllSelection，from=0、to=doc.content.size）對「全部頂層區塊」的錨點算在範圍內；只錨首區塊時不算", () => {
     const editor = bareMounted(DOC);
     act(() => void editor._tiptapEditor.commands.selectAll());
     expect(read(editor, (tr) => [tr.selection.from, tr.selection.to])).toEqual([0, editor.prosemirrorState.doc.content.size]);
@@ -98,7 +98,7 @@ describe("selectionInsideAnchor（#263 §5.2：D12 與工具列壓制共用的�
   });
 });
 
-describe("selectionFocus（#263 §5.2 open()、D8）", () => {
+describe("selectionFocus（#263 open()）", () => {
   it("整塊選取（首區塊開頭到末區塊結尾）→ 空字串；Ctrl+A 對全部區塊 → 空字串", () => {
     const editor = bareMounted(DOC);
     select(editor, start(editor, "p1"), end(editor, "p2"));
@@ -120,7 +120,7 @@ describe("selectionFocus（#263 §5.2 open()、D8）", () => {
       { id: "w", type: "paragraph", content: ["see ", { type: "wikilink", props: { targetNoteId: "x", snapshotTitle: "Plan" } }, " end"] },
       { id: "z", type: "paragraph", content: "zz" },
     ]);
-    // wikilink 是 atom，在 PM 裡只佔 1 個位置："see "（4）＋wikilink（1）＝5（起草時 jsdom 實跑校正）
+    // wikilink 是 atom，在 PM 裡只佔 1 個位置："see "（4）＋wikilink（1）＝5
     select(editor, start(editor, "w"), start(editor, "w") + 5);
     expect(read(editor, (tr) => selectionFocus(tr, ["w"]))).toBe("see [Plan](/notes/x)");
     expect(read(editor, (tr) => selectionFocus(tr, ["w"], (id) => (id === "x" ? "Live" : undefined)))).toBe("see [Live](/notes/x)");
@@ -133,14 +133,14 @@ describe("selectionFocus（#263 §5.2 open()、D8）", () => {
     expect(leafText(node({}))).toBe("[/notes/x](/notes/x)");
   });
 
-  it("#269 RF1：leafText 的連結文字做 markdown 跳脫（與送出的 markdown 同形，AI 回寫才解得回原字串）", () => {
+  it("#269：leafText 的連結文字做 markdown 跳脫（與送出的 markdown 同形，AI 回寫才解得回原字串）", () => {
     const node = (attrs: Record<string, string>) => ({ type: { name: "wikilink" }, attrs: { targetNoteId: "x", snapshotTitle: "", label: "", anchorBlockId: "", ...attrs }, textContent: "" }) as never;
     expect(leafText(node({ label: "[Draft] Plan *v2*" }))).toBe("[\\[Draft\\] Plan \\*v2\\*](/notes/x)");
     expect(leafText(node({ label: "a]b\\" }))).toBe("[a\\]b\\\\](/notes/x)");
     expect(leafText(node({}), () => "`c`_~")).toBe("[\\`c\\`\\_\\~](/notes/x)");
   });
 
-  it("RF2：超過 2000 code point 截到 2000，不切半個 emoji", () => {
+  it("超過 2000 code point 截到 2000，不切半個 emoji", () => {
     const editor = bareMounted([{ id: "e", type: "paragraph", content: `${"😀".repeat(2100)}x` }]);
     // emoji 在 PM 裡佔 2 個位置（UTF-16），選到 x 之前
     select(editor, start(editor, "e"), start(editor, "e") + 4200);

@@ -5,7 +5,7 @@ import { ADMIN_USERS_QUERY_KEY } from "./admin";
 import { ADMIN_GROUPS_QUERY_KEY, ADMIN_STORAGE_PLANS_QUERY_KEY, STORAGE_USAGE_QUERY_KEY, groupStorageKey } from "./storage";
 
 /**
- * 站台管理的儲存方案（spec §7.1）。方案的名稱／上限會出現在使用者表、群組表與自己的用量上，所以方案的任何 mutation 成功後
+ * 站台管理的儲存方案。方案的名稱／上限會出現在使用者表、群組表與自己的用量上，所以方案的任何 mutation 成功後
  * 四把 key 一起失效（`useInvalidateStorageAdmin`）。
  */
 export function useAdminStoragePlans(): UseQueryResult<StoragePlansResponse> {
@@ -67,7 +67,7 @@ export function useUpdateStorageDefaults() {
   });
 }
 
-/** `GET /api/admin/groups`（spec §7.2）：站上所有群組（不論我是不是成員），含成員數與儲存欄。 */
+/** `GET /api/admin/groups`：站上所有群組（不論我是不是成員），含成員數與儲存欄。 */
 export function useAdminGroups(): UseQueryResult<AdminGroupDto[]> {
   return useQuery({ queryKey: ADMIN_GROUPS_QUERY_KEY, queryFn: () => api<AdminGroupDto[]>("/api/admin/groups") });
 }

@@ -32,13 +32,13 @@ type GroupNameDialogProps = {
   onOpenChange: (open: boolean) => void;
   /** 成功後（已 invalidate `['groups']`／`['notes']`）回傳 server 的 GroupDto。 */
   onSaved?: (group: GroupDto) => void;
-  /** 關閉時把焦點還給誰（spec §8.2「焦點回群組「＋」」）。受控 Dialog 沒有 `DialogTrigger`，
+  /** 關閉時把焦點還給誰（例如群組的「＋」）。受控 Dialog 沒有 `DialogTrigger`，
    * Radix 自己不會還原焦點（它的 `onCloseAutoFocus` 預設只 `preventDefault`）——這裡手動做。 */
   returnFocusRef?: RefObject<HTMLElement | null>;
 } & ({ mode: "create" } | { mode: "rename"; group: GroupDto });
 
 /**
- * 新增／重新命名群組（spec §8.2，P11：Dialog 而非 Popover）。只問名稱：文字欄
+ * 新增／重新命名群組（Dialog 而非 Popover）。只問名稱：文字欄
  * `autoFocus`、`maxLength=80`；Enter 送出（form submit）、Escape 取消（Radix）。**受控**
  * （`open`／`onOpenChange`）——呼叫端（側欄群組「＋」、⋮ 的「重新命名」、設定頁）
  * 各自持有 open state；要「焦點回群組「＋」」的呼叫端傳 `returnFocusRef`（見該 prop）。

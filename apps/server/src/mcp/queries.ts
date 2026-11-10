@@ -11,7 +11,7 @@
  * 進去）drizzle 產得出 SQL 但 pg 直接拒（`invalid UNION/INTERSECT/EXCEPT ORDER BY clause`），
  * 所以 rank 要先 `.as("rank")` 成為輸出欄、再 `orderBy(asc(rank))`。
  *
- * 可見性語意（owned ∪ shared ∪ grouped）不在這裡——它只有一份，在 `notes/list-query.ts`（D-H）。
+ * 可見性語意（owned ∪ shared ∪ grouped）不在這裡——它只有一份，在 `notes/list-query.ts`。
  */
 import { desc, sql, type SQL } from "drizzle-orm";
 import { unionAll } from "drizzle-orm/pg-core";

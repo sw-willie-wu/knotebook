@@ -60,7 +60,7 @@ describe("PresenceRegistry", () => {
   });
 
   it("touch：文件已載入才 seed（states+meta+emit added）；clock 從 1 起；未載入 no-op；hocuspocus 缺席全 no-op", () => {
-    // n2:t2 在本檔只出現這一案，所以 spec §9 的「從 1 起」可以用絕對值釘住
+    // n2:t2 在本檔只出現這一案，所以「從 1 起」可以用絕對值釘住
     const h = fakeHocuspocus(); const doc = h.makeDoc(); h.documents.set("n2", doc);
     const reg = new PresenceRegistry(h as never);
     const id = presenceClientId("n2", "t2");

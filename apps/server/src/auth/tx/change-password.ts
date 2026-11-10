@@ -24,7 +24,7 @@ export async function changePasswordInTx(tx: Tx, input: { userId: string; passwo
   return { tokenVersion: updated.tokenVersion, sessionId: await replaceUserSessionsInTx(tx, input.userId, input.ttlSeconds) };
 }
 
-/** 加上密碼：只在還沒有密碼時命中（C14：雙送出第二次 0 列 → null → 409）；命中才換 session 列。 */
+/** 加上密碼：只在還沒有密碼時命中（雙送出第二次 0 列 → null → 409）；命中才換 session 列。 */
 export async function setPasswordInTx(tx: Tx, input: { userId: string; passwordHash: string; ttlSeconds: number }): Promise<{ tokenVersion: number; sessionId: string } | null> {
   const [updated] = await tx
     .update(users)

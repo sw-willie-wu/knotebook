@@ -20,7 +20,7 @@ function body(html: string): HTMLDivElement {
 
 const stacked = (root: ParentNode) => root.querySelector("[data-kb-columns]")!.hasAttribute("data-stacked");
 
-describe("present/columns：markStackedColumnRows（spec §11.8、§6）", () => {
+describe("present/columns：markStackedColumnRows", () => {
   it("PC1：兩文字欄，寬 423 → data-stacked；再以 424 標 → 拿掉", () => {
     const root = body(TEXT_ROW);
     markStackedColumnRows(root, 423);

@@ -1,5 +1,5 @@
 /**
- * bulk transfer spec 2026-11-02 §9（寫回既有筆記）；plan PR-2 T8（W1–W17）。流程：`downloadNote` → `editBody` → `bulkPut`。
+ * bulk transfer 寫回既有筆記（W1–W17）。流程：`downloadNote` → `editBody` → `bulkPut`。
  */
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
@@ -73,7 +73,7 @@ describe("W1–W7 狀態表", () => {
     expect((await baseRow(s.ctx, d.fm.base!)).appliedBodySha).not.toBeNull();
   });
 
-  // isBlocked 預檢在佇列之前（§9.2-4）：桶滿時連同檔重送都 429，所以這裡用 limit 2——寫一次、重送、再寫一篇仍成功＝重送沒扣。
+  // isBlocked 預檢在佇列之前：桶滿時連同檔重送都 429，所以這裡用 limit 2——寫一次、重送、再寫一篇仍成功＝重送沒扣。
   it("W3 寫回後同檔重送 → unchanged、不扣 transferWrite；W4 舊 base 改別段 → 409 base_unavailable、筆記未變", async () => {
     const transferWrite = new FixedWindowLimiter({ limit: 2, windowMs: 60_000 });
     const s = await scene({ limiters: { transferWrite } });
@@ -95,7 +95,7 @@ describe("W1–W7 狀態表", () => {
     expect((await bulkPut(s.ctx.app, s.bulk.token, editBody(d2.text, () => "Changed para"))).statusCode).toBe(200);
   });
 
-  it("W5 409 三形：別人的 base、別篇的 base → reason other_note；不存在的 16 hex → expired（各帶對應訊息）", async () => {
+  it("409 三形：別人的 base、別篇的 base → reason other_note；不存在的 16 hex → expired（各帶對應訊息）", async () => {
     const s = await scene();
     const other = await seedNote(s.ctx.db, { ownerId: s.u.id }, { title: "Other" });
     await seedMd(s.ctx.db, other.id, "Other para");
@@ -138,7 +138,7 @@ describe("W1–W7 狀態表", () => {
     expect(r2.json()).toMatchObject({ result: "unchanged" });
   });
 
-  it("W7 只插空行 → unchanged、applied_body_sha 不寫（審查 M1）、不扣 transferWrite", async () => {
+  it("W7 只插空行 → unchanged、applied_body_sha 不寫、不扣 transferWrite", async () => {
     const transferWrite = new FixedWindowLimiter({ limit: 1, windowMs: 60_000 });
     const s = await scene({ limiters: { transferWrite } });
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
@@ -254,7 +254,7 @@ describe("W9–W12 權限、範圍、額度、佇列", () => {
     expect(await liveMarkdown(s.ctx, n2.id)).toBe(before);
   });
 
-  it("W10b（8000 探索測試 N5，取代 T8-M8 的預檢）桶滿時「同檔重送」仍 200 unchanged（寫回額度只看有改的檔）；同一份副本改別的內容 → 409 already_sent", async () => {
+  it("W10b 桶滿時「同檔重送」仍 200 unchanged（寫回額度只看有改的檔）；同一份副本改別的內容 → 409 already_sent", async () => {
     const transferWrite = new FixedWindowLimiter({ limit: 1, windowMs: 60_000 });
     const s = await scene({ limiters: { transferWrite } });
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
@@ -266,7 +266,7 @@ describe("W9–W12 權限、範圍、額度、佇列", () => {
     expect((await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, b => b.replace("Para 2", "y")))).statusCode).toBe(409);
   });
 
-  it("W10c（全分支審查 I2）寫回額度在解析之前扣：解析失敗的寫回 400 也算一次 → 另一篇的真寫入 429、筆記未變", async () => {
+  it("W10c 寫回額度在解析之前扣：解析失敗的寫回 400 也算一次 → 另一篇的真寫入 429、筆記未變", async () => {
     const transferWrite = new FixedWindowLimiter({ limit: 1, windowMs: 60_000 });
     const s = await scene({ limiters: { transferWrite } });
     const n2 = await seedNote(s.ctx.db, { ownerId: s.u.id }, { title: "N2" });
@@ -283,7 +283,7 @@ describe("W9–W12 權限、範圍、額度、佇列", () => {
     expect(await liveMarkdown(s.ctx, n2.id)).toBe(before);
   });
 
-  it("W10d（全分支審查 I2）額度用完時，本文位元組有改的檔一律 429——連只插空行（零區）的也是（判零區要先解析）；位元組相同的重送仍 200 unchanged", async () => {
+  it("W10d 額度用完時，本文位元組有改的檔一律 429——連只插空行（零區）的也是（判零區要先解析）；位元組相同的重送仍 200 unchanged", async () => {
     const transferWrite = new FixedWindowLimiter({ limit: 1, windowMs: 60_000 });
     const s = await scene({ limiters: { transferWrite } });
     const n2 = await seedNote(s.ctx.db, { ownerId: s.u.id }, { title: "N2" });
@@ -339,7 +339,7 @@ describe("W9–W12 權限、範圍、額度、佇列", () => {
   });
 });
 
-describe("W13 log 鍵集合（§13＋plan §0.1-10：11 鍵——第三輪拿掉 conflicts、versionId；錯誤出口 diff 鍵 null）", () => {
+describe("W13 log 鍵集合（11 鍵——沒有 conflicts、versionId；錯誤出口 diff 鍵 null）", () => {
   it("applied／409／400 各恰一行 info、鍵恰 11 個；log 不含標題、本文、檔內標記、knbt_", async () => {
     const chunks: string[] = [];
     const s = await scene({ logger: { level: "info", stream: { write: (x: string) => void chunks.push(x) } } }, PARAS(3, "SecretBodyMarker"));
@@ -361,7 +361,7 @@ describe("W13 log 鍵集合（§13＋plan §0.1-10：11 鍵——第三輪拿掉
     for (const m of ["SecretBodyMarker", "SecretTitleMarker", "knbt_"]) expect(all).not.toContain(m);
   });
 
-  it("W13b（審查 m1）未預期的例外（紀錄交易 trigger 失敗）→ 500、`bulk transfer write` 恰一行、result internal、11 鍵且 diff 鍵 null；log 不含本文與 Failed query", async () => {
+  it("W13b 未預期的例外（紀錄交易 trigger 失敗）→ 500、`bulk transfer write` 恰一行、result internal、11 鍵且 diff 鍵 null；log 不含本文與 Failed query", async () => {
     const chunks: string[] = [];
     const s = await scene({ logger: { level: "info", stream: { write: (x: string) => void chunks.push(x) } } }, PARAS(3, "SecretBodyMarker"));
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
@@ -388,7 +388,7 @@ describe("W13 log 鍵集合（§13＋plan §0.1-10：11 鍵——第三輪拿掉
   });
 });
 
-describe("W14 空筆記（gate r1 I5）", () => {
+describe("W14 空筆記", () => {
   it("沒有內容的筆記 → 下載本文空 → 寫兩段 → 200、內容＝agent 本文、沒有多餘空段落、紀錄形＝插入列", async () => {
     const s = await scene({}, "");
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
@@ -403,7 +403,7 @@ describe("W14 空筆記（gate r1 I5）", () => {
     expect(row!.afterBlockIds).toHaveLength(2);
   });
 
-  it("W14b（審查 m4，known-limitation）只剩一顆空段落的筆記不算「空筆記」：寫兩段 → 那顆空段落留在結尾（§9.4-2，結尾 0 行段永遠最後）", async () => {
+  it("W14b（known-limitation）只剩一顆空段落的筆記不算「空筆記」：寫兩段 → 那顆空段落留在結尾（結尾 0 行段永遠最後）", async () => {
     const s = await scene({}, "");
     await seedBlocks(s.ctx.db, s.note.id, [{ type: "paragraph" }]);
     const [emptyId] = await topIdsOf(s.ctx, s.note.id);
@@ -417,7 +417,7 @@ describe("W14 空筆記（gate r1 I5）", () => {
   });
 });
 
-describe("W15 帶內容的 DB 失敗不洩內容（gate r1 I4、r2 I-3）", () => {
+describe("W15 帶內容的 DB 失敗不洩內容", () => {
   async function withTrigger<T>(ctx: CollabTestCtx, table: string, when: string, f: () => Promise<T>): Promise<T> {
     await ctx.db.execute(sql.raw(`create function kn_w15() returns trigger language plpgsql as $$ begin raise exception 'W15TriggerMarker'; end $$`));
     await ctx.db.execute(sql.raw(`create trigger kn_w15 ${when} on ${table} for each row execute function kn_w15()`));
@@ -462,7 +462,7 @@ describe("W15 帶內容的 DB 失敗不洩內容（gate r1 I4、r2 I-3）", () =
     expect((await s.ctx.db.select({ title: notes.title }).from(notes).where(eq(notes.id, s.note.id)))[0]!.title).toBe("Title");
     assertClean(c.chunks, "W15TitleMarkerC");
   });
-  it("(d)（審查 M4，docs/api.md 的 internal 列）內文已寫入並記錄、之後改名失敗 → 500；同檔重送 → 409 already_sent、內文不重複", async () => {
+  it("(d)（docs/api.md 的 internal 列）內文已寫入並記錄、之後改名失敗 → 500；同檔重送 → 409 already_sent、內文不重複", async () => {
     const c = capture();
     const s = await scene({ logger: c.logger });
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
@@ -487,7 +487,7 @@ describe("W15 帶內容的 DB 失敗不洩內容（gate r1 I4、r2 I-3）", () =
   });
 });
 
-describe("W16 溢位（gate r1 I6，真上限；第三輪：「人改了中間那段」的形改回 409，見 transfer-write-reread NC1）", () => {
+describe("W16 溢位（真上限；「人改了中間那段」的形改回 409，見 transfer-write-reread）", () => {
   it("2 500 段；agent 改 0–599 與 1 900–2 499 → 中間那段沒被動到、id 不變、log diffOverflow／anchored／degradedLines", async () => {
     const chunks: string[] = [];
     const s = await scene({ logger: { level: "info", stream: { write: (x: string) => void chunks.push(x) } } }, PARAS(2500, "Unique line"));
@@ -517,7 +517,7 @@ describe("W16 溢位（gate r1 I6，真上限；第三輪：「人改了中間�
   }, 180_000);
 });
 
-describe("W17 紀錄交易失敗後重送不重複（gate r1 m11；第三輪：重送回 409 note_changed，不再判 same）", () => {
+describe("W17 紀錄交易失敗後重送不重複（重送回 409 note_changed，不再判 same）", () => {
   it("改寫、刪除、插入兩段 → 紀錄失敗 500（內容已合併）→ 同檔重送 → 409 note_changed；內容不重複、頂層 id 唯一", async () => {
     const s = await scene({}, PARAS(5));
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
@@ -546,7 +546,7 @@ describe("W17 紀錄交易失敗後重送不重複（gate r1 m11；第三輪：�
   });
 });
 
-describe("W18 寫回與新增在回覆之前已經建好全文索引（PR-3 合流 #369：known-limitations「A write … is indexed before its reply comes back」對 bulk 也成立）", () => {
+describe("W18 寫回與新增在回覆之前已經建好全文索引（#369：known-limitations「A write … is indexed before its reply comes back」對 bulk 也成立）", () => {
   type SearchHit = { note: { id: string }; matchedOn: "title" | "body" | "both"; matches: Array<{ snippet: string }> };
   const search = async (ctx: CollabTestCtx, userId: string, q: string) => {
     const r = await ctx.app.inject({ method: "GET", url: `/api/search?q=${encodeURIComponent(q)}`, cookies: await cookieOf(userId) });
@@ -581,7 +581,7 @@ describe("W18 寫回與新增在回覆之前已經建好全文索引（PR-3 合�
   });
 });
 
-describe("Z 下載後筆記被換過 → 409 note_changed（Willie 2026-11-04 第三輪：取代 anchors_gone，動過就拒）", () => {
+describe("Z 下載後筆記被換過 → 409 note_changed（取代 anchors_gone，動過就拒）", () => {
   /** REST `replace_section`（PAT）：把 outline[1]（第一個 heading 那段）整段換成 markdown → 所有 block 換新 id。 */
   async function replaceSection(s: Awaited<ReturnType<typeof scene>>, markdown: string) {
     const c = (await getContent(s.ctx.app, s.note.id, s.pat.token)).json() as { outline: Array<{ sectionId: string; fingerprint: string }> };
@@ -681,7 +681,7 @@ describe("Z 下載後筆記被換過 → 409 note_changed（Willie 2026-11-04 �
   });
 });
 
-describe("X8000 探索測試 A–E（Willie 2026-11-04 第二輪；A 組第三輪改成 note_changed）", () => {
+describe("X 錯誤形 A–E（A 組回 note_changed）", () => {
   const CH = "# 第一章\n\n段落 A1\n\n## 1.1 小節\n\n段落 B1\n\n# 第二章\n\n段落 C1\n\n* 清單一\n* 清單二\n\n# 第三章\n\n段落 D1";
   const versions = (ctx: CollabTestCtx, noteId: string) => ctx.db.select().from(noteVersions).where(eq(noteVersions.noteId, noteId));
   /** REST edit_note 的 replace_section／delete_section（PAT），以 heading 找那一段。 */
@@ -782,7 +782,7 @@ describe("X8000 探索測試 A–E（Willie 2026-11-04 第二輪；A 組第三�
     const r = await bulkPut(s.ctx.app, s.bulk.token, text);
     expect(r.statusCode).toBe(409);
     expect(errOf(r)).toEqual({ code: "base_unavailable", message: BASE_UNAVAILABLE_MESSAGES.reverted, reason: "reverted" });
-    // 審查 m5（文件寫明）：撤回後這份副本整份不收，連只改標題也一樣
+    // 撤回後這份副本整份不收，連只改標題也一樣
     const rn = await bulkPut(s.ctx.app, s.bulk.token, renameIn(text, "New title"));
     expect(rn.statusCode).toBe(409);
     expect(errOf(rn).reason).toBe("reverted");
@@ -790,7 +790,7 @@ describe("X8000 探索測試 A–E（Willie 2026-11-04 第二輪；A 組第三�
     expect(norm(await liveMarkdown(s.ctx, s.note.id))).toBe(PARAS(4));
   });
 
-  it("C-旁觀者（審查 F5）：別篇筆記的紀錄列撤回，不影響這份副本——同檔重送仍 unchanged", async () => {
+  it("C-旁觀者：別篇筆記的紀錄列撤回，不影響這份副本——同檔重送仍 unchanged", async () => {
     const s = await scene();
     const n2 = await seedNote(s.ctx.db, { ownerId: s.u.id }, { title: "Other" });
     await seedMd(s.ctx.db, n2.id, PARAS(3, "Q"));

@@ -67,7 +67,7 @@ export async function loadNoteDoc(deps: ReadDeps, noteId: string): Promise<{ doc
 }
 
 /**
- * `notes.last_edited_*` 四欄 → 對外的 `LastEditedDto`（#106 D6）。**純 SELECT，不開直連**
+ * `notes.last_edited_*` 四欄 → 對外的 `LastEditedDto`（#106）。**純 SELECT，不開直連**
  * （`/content` 兩形與兩個 409 的 `current` 都吃這一支，讀路徑零副作用的守衛也涵蓋它）。
  * `users` 要 `alias`：這裡 JOIN 的是**編輯者**，不是 owner——同一張表在同一句裡另有用途時，
  * 不取別名會讓 drizzle 產生歧義的 FROM。編輯者帳號被刪（FK `set null`）時 handle 落空回空字串。
@@ -84,7 +84,7 @@ export async function loadLastEdited(db: Db, noteId: string): Promise<LastEdited
 }
 
 /**
- * #269 §9.1：讀者看得到的 wikilink 目標的現行標題。**mount 之前**呼叫（不持 lease）：`extractLinkTargets` 只走 Yjs 結構，
+ * #269：讀者看得到的 wikilink 目標的現行標題。**mount 之前**呼叫（不持 lease）：`extractLinkTargets` 只走 Yjs 結構，
  * 一次 `visibleTitlesByIds`（≤3 句、空集合不查）。看不到的目標（含已刪）不在 map 裡——讀出退到 `snapshotTitle`、不露現行標題。
  */
 export async function linkTitlesFor(db: Db, viewerId: string, doc: Y.Doc): Promise<Map<string, string>> {
@@ -95,10 +95,10 @@ export async function linkTitlesFor(db: Db, viewerId: string, doc: Y.Doc): Promi
 }
 
 /**
- * MCP 讀出與檔案匯出（bulk transfer spec §6.4「本文＝MCP 讀出逐位元組相同」）共用的**唯一**組字點：在已 mount 的
- * editor 上把 `blocks` 匯出成 markdown。#269 §9.1：wikilink 在匯出用的 JSON 副本上改寫成 `[文字](/notes/<id>[#b-…])`
+ * MCP 讀出與檔案匯出（本文與 MCP 讀出逐位元組相同）共用的**唯一**組字點：在已 mount 的
+ * editor 上把 `blocks` 匯出成 markdown。#269：wikilink 在匯出用的 JSON 副本上改寫成 `[文字](/notes/<id>[#b-…])`
  * 的 link 節點（`wikilinksToLinks`：label 優先，否則 `titles` 裡的現行標題，否則 snapshotTitle）；`titles` 鍵一律小寫。
- * #222：有顏色的頂層節點輸出成寫入端認得的 HTML。沒有顏色，也沒有任何要跳脫的字元（含站內連結文字，#269 RF1）、要改寫成行內
+ * #222：有顏色的頂層節點輸出成寫入端認得的 HTML。沒有顏色，也沒有任何要跳脫的字元（含站內連結文字，#269）、要改寫成行內
  * `<br>` 的換行、樣式邊緣空白（#386）時，與 blocksToMarkdownLossy 位元組相同（shared note-markdown-read.ts）。純同步、零 DB（呼叫端持 lease）。
  */
 export function toNoteMarkdown(editor: EditorSession["editor"], blocks: EditorSession["editor"]["document"], titles: ReadonlyMap<string, string>): string {
@@ -106,8 +106,8 @@ export function toNoteMarkdown(editor: EditorSession["editor"], blocks: EditorSe
 }
 
 /** mount 只為匯出 markdown；`ids` 為 undefined＝整篇。呼叫端已保證至少有一個 block（見下）。
- * #269 §9.1：持 lease 期間**零 DB**（組字見 `toNoteMarkdown`）。`onShown`（#387）：匯出的這些 block 裡的連結文字——lease 內只收集
- * （純計算），`close()` 之後才交給呼叫端（審查 m3）。 */
+ * #269：持 lease 期間**零 DB**（組字見 `toNoteMarkdown`）。`onShown`（#387）：匯出的這些 block 裡的連結文字——lease 內只收集
+ * （純計算），`close()` 之後才交給呼叫端。 */
 async function exportMarkdown(runtime: EditingRuntime, doc: Y.Doc, ids: Set<string> | undefined, titles: ReadonlyMap<string, string>, onShown?: (shown: ShownLinks) => void): Promise<string> {
   const s = await EditorSession.open(runtime, doc);
   let shown: ShownLinks | undefined;
@@ -138,21 +138,21 @@ export async function readNoteContentFromDoc(
   const { outline, whole } = outlineOf(doc.getXmlFragment(YDOC_FRAGMENT)); // 先算（未 mount）
   const target = section === undefined ? undefined : outline.find(o => o.sectionId === section);
   if (section !== undefined && !target) return "section_not_found";
-  // spec §5「空文件形」：真空文件（無頂層 block，例如從未開過的筆記）的 markdown 恆為 ""。
+  // 空文件形：真空文件（無頂層 block，例如從未開過的筆記）的 markdown 恆為 ""。
   // 這一支**不 mount**——mount 會把真空文件正規化出一個空 paragraph，匯出就成了 "\n"；順帶讓
   // 最常見的冷讀路徑完全不碰 jsdom。零 block 的 `_top` 段（文件以 heading 開頭）同理。
   const blockIds = target ? target.blockIds : outline.flatMap(o => o.blockIds);
   const markdown = blockIds.length === 0 ? "" : await exportMarkdown(runtime, doc, target && new Set(blockIds), titles, onShown);
   if (target) {
     const { blockIds: _ignored, sectionId, ...entry } = target;
-    return { section: { id: sectionId, ...entry, markdown } }; // spec §5：段落形的鍵是 id
+    return { section: { id: sectionId, ...entry, markdown } }; // 段落形的鍵是 id
   }
   // blockIds 是內部欄位，對外的 NoteOutlineEntry 不帶（note-content.test.ts 釘住）。
   return { markdown, fingerprint: whole, outline: outline.map(({ blockIds: _b, ...e }) => e) };
 }
 
 /**
- * `viewerId`（#269 §9.1）＝讀者——現行標題只對他看得到的目標露出；`deps.shownLinks` 給了就記在他名下（#387）。
+ * `viewerId`（#269）＝讀者——現行標題只對他看得到的目標露出；`deps.shownLinks` 給了就記在他名下（#387）。
  * 轉換在 parse worker 裡做（很小的筆記在主執行緒；`EditingRuntime.runDoc`）：worker 全忙排太久 → `ParserBusyError`（503）；
  * 逾時或用完記憶體 → {@link NoteReadTooComplexError}。
  */

@@ -22,8 +22,8 @@ import {
 } from "./versions-panel-width";
 
 /**
- * 列的兩行內容（面板與窄視窗整頁共用）。第一行「名稱 (短 id)」（#272 D5；未命名的用 uuid 推出的英文名），**只有自動版本**再加一顆
- * 中性色「自動存檔」pill（#258）；第二行 編輯者 · 時間 · 沿自 …（基底版已刪除時標「(deleted)」，D12）。基底版不在列上標示。
+ * 列的兩行內容（面板與窄視窗整頁共用）。第一行「名稱 (短 id)」（#272；未命名的用 uuid 推出的英文名），**只有自動版本**再加一顆
+ * 中性色「自動存檔」pill（#258）；第二行 編輯者 · 時間 · 沿自 …（基底版已刪除時標「(deleted)」）。基底版不在列上標示。
  */
 export function VersionRowContent({ version }: { version: VersionDto }) {
   const { t, i18n } = useTranslation();
@@ -47,7 +47,7 @@ export function VersionRowContent({ version }: { version: VersionDto }) {
   );
 }
 
-/** 每列的 ⋯（面板與整頁共用）：套用、編輯版本名稱、刪除（基底版 disabled＋看得見的說明，起草裁定 9）。 */
+/** 每列的 ⋯（面板與整頁共用）：套用、編輯版本名稱、刪除（基底版 disabled＋看得見的說明）。 */
 export function VersionRowMenu({ version, isBase, onApply }: { version: VersionDto; isBase: boolean; onApply: (v: VersionDto) => void }) {
   const { t } = useTranslation();
   const { openDialog } = useVersions();
@@ -71,9 +71,9 @@ export function VersionRowMenu({ version, isBase, onApply }: { version: VersionD
 }
 
 /**
- * 版本面板（spec §8.2，md+ 第三欄卡）。
+ * 版本面板（md+ 第三欄卡）。
  * `current` 的刷新：面板開著時訂閱活 `Y.Doc` 的 `update`，去抖動 1 s 後 invalidate `['notes', id, 'versions']`。
- * 離開預覽（spec §8.4 rev 10 追記，Task 19；橫幅沒有 ✕）：點清單空白處（`<ul>` 本身，點到列或 ⋯ 不算）、
+ * 離開預覽（橫幅沒有 ✕）：點清單空白處（`<ul>` 本身，點到列或 ⋯ 不算）、
  * 再點已選中的那一列（toggle）、✕ 關面板（`close()` 一併離開預覽）；另有 NotePage 的 Esc。
  */
 export function VersionsPanel({
@@ -92,7 +92,7 @@ export function VersionsPanel({
   const id = noteId ?? "";
   const list = useVersionList(id, true, kindFilter);
   const rowsRef = useRef<Array<HTMLButtonElement | null>>([]);
-  // 這一發 click 的按下點是否也在 <ul> 本身（review M-1）：在列上按下、拖到列間縫放開時，瀏覽器把 click 派給共同祖先 <ul>，
+  // 這一發 click 的按下點是否也在 <ul> 本身：在列上按下、拖到列間縫放開時，瀏覽器把 click 派給共同祖先 <ul>，
   // 只看 click 的 target 會誤判成點空白。
   const pressedOnListRef = useRef(false);
 

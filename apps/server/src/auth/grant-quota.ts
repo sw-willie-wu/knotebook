@@ -9,13 +9,13 @@ import { apiTokens } from "../db/schema.js";
 export type DbOrTx = Db | Parameters<Parameters<Db["transaction"]>[0]>[0];
 
 /**
- * I1 的「有效」定義——**只給額度用**。`kind='oauth' OR` 那半段是因為 refresh 不到期
+ * 額度的「有效」定義——**只給額度用**。`kind='oauth' OR` 那半段是因為 refresh 不到期
  * （access 過期不代表授權失效）；**不得**拿去當認證述詞（`auth/bearer.ts`），帶進去
  * 會讓過期的 oauth access token 永遠有效。
  *
- * `excludeClientId`：OAuth 路徑要扣掉會被 I7 取代的那一列，否則「20 支且其中一支就是
+ * `excludeClientId`：OAuth 路徑要扣掉會被這次授權取代的那一列，否則「20 支且其中一支就是
  * 本 client」的使用者重新授權同一個 client 會吃 409，與同意頁的「將取代舊授權」矛盾。
- * `/oauth/token`（§5.4 步驟 5）走的是「先刪後計」——兩者等價，改一邊要一起改。
+ * `/oauth/token`（步驟 5）走的是「先刪後計」——兩者等價，改一邊要一起改。
  *
  * **軟配額**：查完再插、不鎖 user 列，並行建立可短暫超出 20（非安全邊界）。
  */

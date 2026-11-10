@@ -9,7 +9,7 @@ import { createOidcRuntimeRegistry } from "../src/auth/oidc-client.js";
 import { linkedEnabledProvidersWithIssuer, listEnabledProvidersForConfig, loadEnabledProvider, loadLegacyProvider, openClientSecret, providerConfiguration, recordResolvedIssuer } from "../src/auth/oidc-providers.js";
 import { SecretDecryptError } from "../src/lib/sealed-secret.js";
 
-describe("auth/oidc-providers（#187 §4.1、§6）", () => {
+describe("auth/oidc-providers（#187）", () => {
   it("recordResolvedIssuer：版本述詞——舊版本不覆寫新設定；同值不寫；NULL → 寫", async () => {
     const { db } = await buildTestApp();
     const p = await seedAuthProvider(db, { issuerUrl: "https://gitlab.example/" });
@@ -21,7 +21,7 @@ describe("auth/oidc-providers（#187 §4.1、§6）", () => {
     expect(row!.r).toBeNull();
   });
 
-  it("providerConfiguration：尾斜線形——provider 填 https://gitlab.example/、IdP 回無斜線 → 成功並寫 resolved_issuer＝無斜線（r1-I1）；大寫 host 同", async () => {
+  it("providerConfiguration：尾斜線形——provider 填 https://gitlab.example/、IdP 回無斜線 → 成功並寫 resolved_issuer＝無斜線；大寫 host 同", async () => {
     for (const [issuerUrl, idpIssuer] of [["https://gitlab.example/", "https://gitlab.example"], ["https://GitLab.Example", "https://gitlab.example"]] as const) {
       const { db } = await buildTestApp();
       const idp = createFakeIdp(idpIssuer);
@@ -70,7 +70,7 @@ describe("auth/oidc-providers（#187 §4.1、§6）", () => {
       { userId: u!.id, issuer: "https://off.example", sub: "2" },
     ]);
     expect(await linkedEnabledProvidersWithIssuer(db, u!.id)).toEqual([{ id: slash.id, displayName: "GitLab", icon: GENERIC, effectiveIssuer: "https://gitlab.example" }]);
-    // resolved_issuer 為 NULL 時退回 issuer_url 字面：帶尾斜線的字面對不上無斜線的身分（spec §4.1「NULL 的影響」）。
+    // resolved_issuer 為 NULL 時退回 issuer_url 字面：帶尾斜線的字面對不上無斜線的身分。
     await db.update(authProviders).set({ resolvedIssuer: null }).where(eq(authProviders.id, slash.id));
     expect(await linkedEnabledProvidersWithIssuer(db, u!.id)).toEqual([]);
     expect(off.enabled).toBe(false);

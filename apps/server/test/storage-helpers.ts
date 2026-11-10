@@ -1,5 +1,5 @@
 /**
- * 儲存配額整合測試共用的種子與量測（spec 2026-10-08 §11）。直插只在測試裡。
+ * 儲存配額整合測試共用的種子與量測。直插只在測試裡。
  * 上傳一律走真路由（`upload()`），附件大小可精確指定：PNG 簽章 8 bytes＋填充（`detectImageMimeType` 只認完整簽章）。
  */
 import { readdir, writeFile } from "node:fs/promises";

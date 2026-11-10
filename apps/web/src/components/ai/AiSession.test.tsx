@@ -89,7 +89,7 @@ async function finishStream(call: AiCall, text: string): Promise<void> {
   await waitFor(() => expect(phase()).not.toBe("streaming"));
 }
 
-describe("AiSession 狀態機（#263 spec §5.2）", () => {
+describe("AiSession 狀態機（#263）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -175,7 +175,7 @@ describe("AiSession 狀態機（#263 spec §5.2）", () => {
     expect(ai.calls[0]!.body.instruction).toBe("shorter");
   });
 
-  it("RF5 noChange：模型回的與原文只差 CRLF／尾端空白 → 不自動套用、preview.noChange、apply() 回 false、文件不動", async () => {
+  it("noChange：模型回的與原文只差 CRLF／尾端空白 → 不自動套用、preview.noChange、apply() 回 false、文件不動", async () => {
     const { ai } = await mount();
     openOn("p1", 0, 5);
     startAction(REWRITE.id);
@@ -211,11 +211,11 @@ describe("AiSession 狀態機（#263 spec §5.2）", () => {
     expect(session.state.phase === "error" && session.state.code).toBe("empty_result");
   });
 
-  // 並排 PR-2（spec §11.6 第 1 點）：AI 結果走與 MCP 相同的檢查；不合格 → error 態、不建預覽、不套用。
+  // 並排：AI 結果走與 MCP 相同的檢查；不合格 → error 態、不建預覽、不套用。
   it.each([
     ["direct", REWRITE],
     ["preview", SUMMARIZE],
-  ])("GS1（%s）：串流完成的內容含排版用的 flex div（S7）→ error 態 unsupported_columns、文件不變、沒有寫入", async (_mode, action) => {
+  ])("GS1（%s）：串流完成的內容含排版用的 flex div→ error 態 unsupported_columns、文件不變、沒有寫入", async (_mode, action) => {
     const { ai } = await mount();
     openOn("p1", 0, 5);
     const before = docText();
@@ -237,7 +237,7 @@ describe("AiSession 狀態機（#263 spec §5.2）", () => {
     expect(vi.mocked(replaceBlocksKeepColumns)).not.toHaveBeenCalled();
   });
 
-  it("MM3（#94）：選取涵蓋 mermaid 圖、AI 只改段落文字 → 自動套用後圖仍是 mermaid block、code 不變", async () => {
+  it("#94：選取涵蓋 mermaid 圖、AI 只改段落文字 → 自動套用後圖仍是 mermaid block、code 不變", async () => {
     const CODE = "graph TD; A-->B";
     const { ai } = await mount({ doc: [P("old words", "p1"), { id: "m", type: "mermaid", props: { code: CODE } }, P("tail", "p3")] });
     act(() => {
@@ -256,7 +256,7 @@ describe("AiSession 狀態機（#263 spec §5.2）", () => {
     expect(doc[1]!.props.code).toBe(CODE);
   });
 
-  it("GS7（review r1 N2）：串流完成後 finish 意外丟例外 → error 態 internal（不卡在串流中）、沒有寫入、沒有未處理的 rejection", async () => {
+  it("GS7：串流完成後 finish 意外丟例外 → error 態 internal（不卡在串流中）、沒有寫入、沒有未處理的 rejection", async () => {
     const unhandled: unknown[] = [];
     const onUnhandled = (reason: unknown) => unhandled.push(reason);
     process.on("unhandledRejection", onUnhandled);
@@ -280,7 +280,7 @@ describe("AiSession 狀態機（#263 spec §5.2）", () => {
     }
   });
 
-  it("GS9（T6 re-review Nb）：direct 自動套用成功之後 toast 丟例外 → 仍是 done＋applied（還原入口在）、還原得回去、沒有未處理的 rejection", async () => {
+  it("GS9：direct 自動套用成功之後 toast 丟例外 → 仍是 done＋applied（還原入口在）、還原得回去、沒有未處理的 rejection", async () => {
     const unhandled: unknown[] = [];
     const onUnhandled = (reason: unknown) => unhandled.push(reason);
     process.on("unhandledRejection", onUnhandled);
@@ -308,7 +308,7 @@ describe("AiSession 狀態機（#263 spec §5.2）", () => {
     }
   });
 
-  it("GS8（review r1 I1）：預覽期間錨點被縮排、按套用 → 回 false、toast「原文已變更」、文件不變、沒有巢狀列", async () => {
+  it("GS8：預覽期間錨點被縮排、按套用 → 回 false、toast「原文已變更」、文件不變、沒有巢狀列", async () => {
     const { ai } = await mount({ doc: [P("prev", "p0"), P("x words", "x")] });
     openOn("x", 0, 1);
     startAction(SUMMARIZE.id);
@@ -318,7 +318,7 @@ describe("AiSession 狀態機（#263 spec §5.2）", () => {
       editor.setTextCursorPosition("x", "end");
       editor.nestBlock();
     });
-    expect(phase()).toBe("done"); // 游標在錨點內，D12 不關
+    expect(phase()).toBe("done"); // 游標在錨點內，不關
     const before = docText();
     let applied = true;
     act(() => {
@@ -346,7 +346,7 @@ describe("AiSession 狀態機（#263 spec §5.2）", () => {
       await finishStream(ai.calls[0]!, '<div data-content-type="paragraph">x</div>');
       expect(session.state.phase === "error" && session.state.code).toBe("unsupported_block");
       const region = await screen.findByTestId("selection-ai-box");
-      // final review cleanup：文案泛化（這碼也代表剖析例外與事件處理屬性，不只「區塊類型」）
+      // 文案泛化（這碼也代表剖析例外與事件處理屬性，不只「區塊類型」）
       const alert = await within(region).findByRole("alert");
       expect(alert).toHaveTextContent("That content contains something this note can't store.");
       expect(alert).not.toHaveTextContent("block type");
@@ -362,7 +362,7 @@ describe("AiSession 狀態機（#263 spec §5.2）", () => {
   });
 
   const ROW2 = `<div data-kb-columns style="display:flex;gap:16px">\n<div data-kb-column style="flex:1">\n\nA\n\n</div>\n<div data-kb-column style="flex:1.5">\n\nB\n\n</div>\n</div>`;
-  it("GS5（Q6）：錨點在欄內、AI 回正規形並排 → error 態 unsupported_columns；錨點在頂層 → 自動套用成一列", async () => {
+  it("GS5：錨點在欄內、AI 回正規形並排 → error 態 unsupported_columns；錨點在頂層 → 自動套用成一列", async () => {
     const { ai } = await mount({ doc: [P("x", "x"), row([[P("a", "a1")], [P("b", "b1")]], "r")] });
     openOn("b1", 0, 1);
     startAction(REWRITE.id);
@@ -501,7 +501,7 @@ describe("AiSession 狀態機（#263 spec §5.2）", () => {
     expect(docText()).not.toContain("alpha beta gamma");
   });
 
-  it("手動套用成功 → 回 idle（S1）、文件換字、關標亮", async () => {
+  it("手動套用成功 → 回 idle、文件換字、關標亮", async () => {
     const { ai } = await mount();
     openOn("p1", 0, 5);
     startAction(SUMMARIZE.id);
@@ -517,7 +517,7 @@ describe("AiSession 狀態機（#263 spec §5.2）", () => {
     await waitFor(() => expect(highlighted()).toBe(false));
   });
 
-  it("apply(false)（預覽尚未就緒）→ 回 false、停在 done、文件不動（spec §5.2：previewReady 是 apply 的前置條件）", async () => {
+  it("apply(false)（預覽尚未就緒）→ 回 false、停在 done、文件不動（previewReady 是 apply 的前置條件）", async () => {
     const { ai } = await mount();
     openOn("p1", 0, 5);
     startAction(SUMMARIZE.id);
@@ -604,7 +604,7 @@ describe("AiSession 狀態機（#263 spec §5.2）", () => {
     expect(phase()).toBe("done");
   });
 
-  it("D12（W14）：input 與 error 態一樣——在 target 外做非空選取 → 自動關閉、關標亮；onAutoClose 各呼叫一次", async () => {
+  it("D12：input 與 error 態一樣——在 target 外做非空選取 → 自動關閉、關標亮；onAutoClose 各呼叫一次", async () => {
     const onAutoClose = vi.fn();
     const { ai } = await mount({ onAutoClose });
     openOn("p1", 0, 5);
@@ -685,8 +685,8 @@ describe("AiSession 狀態機（#263 spec §5.2）", () => {
   });
 
   it("selfWriteRef（自動套用＋還原那半）：串流中在 target 後方做非空選取 → direct 自動套用 → 還原，框仍在、回到未套用；D12 回呼 0 次", async () => {
-    // 白箱斷言 onAutoClose：沒有旗標時 D12 會在還原的取代期間 close()，但 revert() 隨後的 setState 會蓋掉 idle（同一批次），
-    // 框照樣留著——只看 state 抓不到（起草時 jsdom 突變實測：拿掉旗標只有 onAutoClose 斷言會紅）。
+    // 白箱斷言 onAutoClose：沒有旗標時會在還原的取代期間 close()，但 revert() 隨後的 setState 會蓋掉 idle（同一批次），
+    // 框照樣留著——只看 state 抓不到（拿掉旗標只有 onAutoClose 斷言會紅）。
     const onAutoClose = vi.fn();
     const { ai } = await mount({ onAutoClose });
     openOn("p1", 0, 5);
@@ -716,7 +716,7 @@ describe("AiSession 狀態機（#263 spec §5.2）", () => {
     expect(phase()).toBe("idle");
   });
 
-  it("RF3：選取含圖片區塊時 direct 動作不自動套用（強制預覽）", async () => {
+  it("選取含圖片區塊時 direct 動作不自動套用（強制預覽）", async () => {
     const { ai } = await mount({ doc: [...DOC, { id: "img", type: "image", props: { url: "https://example.com/a.png" } }] });
     act(() => {
       editor._tiptapEditor.commands.selectAll();
@@ -744,7 +744,7 @@ describe("AiSession 狀態機（#263 spec §5.2）", () => {
     expect(docText()).toContain("edited after apply");
   });
 
-  it("#269 §9.4：送出的 markdown 把 wikilink 寫成 [現行標題 或 label](/notes/<id>)（匯出副本，不動文件）", async () => {
+  it("#269：送出的 markdown 把 wikilink 寫成 [現行標題 或 label](/notes/<id>)（匯出副本，不動文件）", async () => {
     const id = "11111111-1111-4111-8111-111111111111";
     editor = createTestEditor([
       { id: "w1", type: "paragraph", content: ["see ", { type: "wikilink", props: { targetNoteId: id, snapshotTitle: "Old", label: "", anchorBlockId: "h1" } }, " end"] },
@@ -761,7 +761,7 @@ describe("AiSession 狀態機（#263 spec §5.2）", () => {
     expect(JSON.stringify(editor.document)).toBe(before);
   });
 
-  it("#269 §9.4：open() 的 focus（部分選取）也把 wikilink 寫成 [現行標題](/notes/<id>)", async () => {
+  it("#269：open() 的 focus（部分選取）也把 wikilink 寫成 [現行標題](/notes/<id>)", async () => {
     const id = "11111111-1111-4111-8111-111111111111";
     editor = createTestEditor([
       { id: "w1", type: "paragraph", content: ["see ", { type: "wikilink", props: { targetNoteId: id, snapshotTitle: "Old", label: "", anchorBlockId: "h1" } }, " end"] },
@@ -775,7 +775,7 @@ describe("AiSession 狀態機（#263 spec §5.2）", () => {
     expect(session.state.phase === "input" && session.state.target.focus).toBe(`see [Live Title](/notes/${id}#b-h1)`);
   });
 
-  it("#269 終審 m1：文件存大寫 targetNoteId 時，送出的仍是現行標題（id 比對不分大小寫）", async () => {
+  it("#269：文件存大寫 targetNoteId 時，送出的仍是現行標題（id 比對不分大小寫）", async () => {
     const id = "abcdef12-3456-4abc-8def-0123456789ab"; // 清單（server）回的小寫 id
     const upper = id.toUpperCase();
     expect(upper).not.toBe(id); // fixture 自檢：真的有 a–f 字母會被轉大寫
@@ -793,7 +793,7 @@ describe("AiSession 狀態機（#263 spec §5.2）", () => {
     expect(ai.calls[0]!.body.text).not.toContain("[Old]");
   });
 
-  it("#269 RF1：送出的 /notes/ 連結文字經 markdown 跳脫；AI 原樣回寫後 label 逐字保留（文字＝現行標題者 label 仍空）", async () => {
+  it("#269：送出的 /notes/ 連結文字經 markdown 跳脫；AI 原樣回寫後 label 逐字保留（文字＝現行標題者 label 仍空）", async () => {
     const id = "11111111-1111-4111-8111-111111111111";
     const note: NoteDto = { id, title: "[Draft] Plan *v2*", slug: "draft", ownerId: "u1", role: "owner", createdAt: "x", updatedAt: "x", slugIsCustom: false, prevSlug: null, ownerHandle: "alice", lastEdited: null, group: null, groupId: null, folderId: null, permissions: OWNER_PERMS };
     const wl = (label: string) => ({ type: "wikilink", props: { targetNoteId: id, snapshotTitle: "Old", label, anchorBlockId: "" } });
@@ -821,7 +821,7 @@ describe("AiSession 狀態機（#263 spec §5.2）", () => {
   });
 });
 
-// 並排 PR-2（spec §7.5、§11.6、Q7）：選取碰到並排時，錨點每個 block 換成它的頂層祖先（去重保序）；完全在單一欄內或不碰並排照舊。
+// 並排：選取碰到並排時，錨點每個 block 換成它的頂層祖先（去重保序）；完全在單一欄內或不碰並排照舊。
 describe("AiSession open() 與並排：擴大成整列", () => {
   const TWO = () => [P("x", "x"), row([[P("a", "a1")], [P("b", "b1"), P("q", "q1")]], "r"), P("z", "z")];
   const THREE = () => [P("x", "x"), row([[P("a", "a1")], [P("b", "b1")], [P("c", "c1")]], "r"), P("z", "z")];
@@ -878,7 +878,7 @@ describe("AiSession open() 與並排：擴大成整列", () => {
     expect(anchorIds()).toEqual(["k1", "z"]);
   });
 
-  it("AO12（T7 review r1 Minor-2）focus 以擴大後的錨點算：b1 首到 z 尾 → Instruct 送 focus「b\\nq\\nz」（第 1 欄沒選到）；a1 首到 q1 尾（整列全文）→ 不帶 focus", async () => {
+  it("AO12 focus 以擴大後的錨點算：b1 首到 z 尾 → Instruct 送 focus「b\\nq\\nz」（第 1 欄沒選到）；a1 首到 q1 尾（整列全文）→ 不帶 focus", async () => {
     const { ai } = await mount({ doc: TWO() });
     selectText(editor, contentStart(editor, "b1"), contentEnd(editor, "z"));
     act(() => session.open());
@@ -893,7 +893,7 @@ describe("AiSession open() 與並排：擴大成整列", () => {
     expect(ai.calls[1]!.body).not.toHaveProperty("focus");
   });
 
-  it("AO7（Review Focus 5）從縮排的子 block 選進一列、AI 回並排 → 錨點是父段落與列；套用後沒有巢狀列、頂層是新列與 z", async () => {
+  it("AO7 從縮排的子 block 選進一列、AI 回並排 → 錨點是父段落與列；套用後沒有巢狀列、頂層是新列與 z", async () => {
     const { ai } = await mount({ doc: [withChildren(P("p", "p"), [P("k", "k1")]), row([[P("a", "a1")], [P("b", "b1")]], "r"), P("z", "z")] });
     openRange("k1", "b1");
     expect(anchorIds()).toEqual(["p", "r"]);

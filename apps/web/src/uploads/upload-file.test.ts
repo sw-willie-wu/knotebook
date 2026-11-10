@@ -124,7 +124,7 @@ describe("postUpload", () => {
 });
 
 describe("createUploadFile", () => {
-  // toastOncePerCode 的去重 Map 是 module 級的（brief 明訂），跨測試共用同一份——
+  // toastOncePerCode 的去重 Map 是 module 級的，跨測試共用同一份——
   // 若每個測試都把假時鐘釘在同一個絕對時間點（例如都歸零），前一個測試對同一個 code
   // 留下的時間戳跟下一個測試的「now」會相等或極接近，`now - last < 5000` 恆成立，
   // 下一個測試永遠被當成還在去重窗口內、假紅到看不出真正的行為（實測踩過）。改成每個
@@ -395,7 +395,7 @@ describe("createUploadFile", () => {
     expect(toastMock).toHaveBeenCalledWith({ title: "t:errors.storage_quota_exceeded", description: "t:storage.quotaFullGeneric" });
   });
 
-  it("RF5：usedBytes 有、quotaBytes 為 null → 不印半套數字，退回通用文案", async () => {
+  it("usedBytes 有、quotaBytes 為 null → 不印半套數字，退回通用文案", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(quota409({ incomingBytes: 700, usedBytes: 5, quotaBytes: null })));
     const uploadFile = createUploadFile({ noteId: "note-1", editorRef: { current: fakeEditor(new Set(["b1"])) }, translate: translateWithOpts });
     await uploadFile(file(), "b1");
@@ -416,7 +416,7 @@ describe("createUploadFile", () => {
   });
 });
 
-describe("createUploadFile 真編輯器（D25）", () => {
+describe("createUploadFile 真編輯器", () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it("UP1：欄內的圖片 placeholder 上傳失敗 → macrotask 後該欄剩空段落、列仍在", async () => {

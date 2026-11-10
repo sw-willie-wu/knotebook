@@ -36,7 +36,7 @@ export interface FreshDb {
 }
 
 /**
- * 建一個全新的 database（隨機名），**不跑任何 migration**（#122 §7-H harness 的入口：
+ * 建一個全新的 database（隨機名），**不跑任何 migration**（#122-H harness 的入口：
  * migration 資料案例需要「先建到第 N 支的 schema、塞舊資料、再跑目標 migration」，
  * `freshDb()` 無條件跑完全部做不到）。一般測試請用 `freshDb()`。
  *
@@ -74,7 +74,7 @@ export async function freshEmptyDb(): Promise<FreshDb> {
     closed = true;
     // 建了就要收：不 DROP 的話，單一 run 內 400+ 條測試會在同一顆容器裡單調累積出
     // 數百個 test_<random> 資料庫，最終在 CREATE DATABASE 那一行撞牆（issue #51，
-    // 2026-08-21 實際踩到整份整合測試一次全紅、重跑全綠）。先 pool.end() 收掉自己的
+    // 實際踩過整份整合測試一次全紅、重跑全綠）。先 pool.end() 收掉自己的
     // 連線，再另開一條到 base（不能在自己身上 DROP）把它刪掉。
     // - `pool.end()` 放進 try/finally 的 try：即使它拋，DROP 仍會執行（否則那個 db 永久洩漏）；
     // - WITH (FORCE)（PG 13+）踢掉殘留連線，免得某條測試沒關乾淨就 DROP 失敗；
@@ -185,18 +185,18 @@ export function idxOfTag(tag: string): number {
 }
 
 /**
- * #122 §7-H harness：以 committed SQL 檔把 migration 逐支重放到 journal `idx <= upToIdx`
+ * #122-H harness：以 committed SQL 檔把 migration 逐支重放到 journal `idx <= upToIdx`
  * 為止（`--> statement-breakpoint` 切分——與 drizzle migrator 同一套、不 parse SQL，
  * DO `$$` 塊安全），**全部語句包在單一 transaction** 內執行並寫 `drizzle.__drizzle_migrations`
  * 記帳。之後對同一顆 DB 呼叫既有 `runMigrations` 就只會跑剩餘 pending——migration
  * 資料案例的目標支由它執行（drizzle 天然把 pending 包成單一 tx，`CONCURRENTLY` 自然紅）。
  *
- * ⚠ 記帳形承重（plan gate M1，對 drizzle-orm 0.44.7 pg-core/dialect.js 核實）：drizzle 的
+ * ⚠ 記帳形承重（對 drizzle-orm 0.44.7 pg-core/dialect.js 核實）：drizzle 的
  * 跳過判準只看「`order by created_at desc limit 1` 那一列的 created_at < folderMillis」——
  * **`created_at` 必須寫 journal entry 的 `when`**。寫 `Date.now()` 的失效模式是**靜默**：
  * Date.now() 比所有 journal when 都大，之後每一支 pending migration 都被跳過、不炸不紅
- * ——守住這行的是 migration-harness.test.ts 的「applyThrough(N-1) 之後 runMigrations
- * 真的把剩餘 pending 跑完」記帳筆數黑箱案（突變審查實證：只有它殺得掉這刀）。`hash`
+ * ——守住這行的是 migration-harness.test.ts 的「applyThrough 之後 runMigrations
+ * 真的把剩餘 pending 跑完」記帳筆數黑箱案（只有它殺得掉這刀）。`hash`
  * ＝整份 .sql 檔文字的 sha256 hex（NOT NULL 必填，但不參與跳過判準）。
  *
  * ⚠ 執行協定比 drizzle 寬鬆一格：這裡逐段走 pg 的 simple protocol（一段可含多語句），
@@ -211,7 +211,7 @@ export async function applyMigrationsThrough(pool: Pool, upToIdx: number, fromId
   const journal = JSON.parse(readFileSync(path.join(drizzleDir, "meta", "_journal.json"), "utf8")) as {
     entries: Array<{ idx: number; when: number; tag: string }>;
   };
-  // upToIdx 必須精確存在（讀碼審查 minor）：超出範圍若靜默全跑，「舊 schema fixture」
+  // upToIdx 必須精確存在：超出範圍若靜默全跑，「舊 schema fixture」
   // 會被建在新 schema 上、資料案例整組錯位——fail loud。
   if (!journal.entries.some((entry) => entry.idx === upToIdx)) {
     const available = journal.entries.map((entry) => entry.idx).join(", ");
@@ -285,7 +285,7 @@ export const testConfig: AppConfig = loadConfig({
 export interface TestApp {
   app: FastifyInstance;
   db: Db;
-  /** 實際掛進 app 的 uploadsDir（Task 10b）——測試用它直接檢查磁碟狀態（例如 413 不落檔、GET 磁碟無檔 404 的 fixture）。 */
+  /** 實際掛進 app 的 uploadsDir——測試用它直接檢查磁碟狀態（例如 413 不落檔、GET 磁碟無檔 404 的 fixture）。 */
   uploadsDir: string;
   /** #397：app 實際在用的 `SiteLimits`（綁這個 app 的 `db` 與 `config.limitEnv`，見 `buildTestApp`）。 */
   siteLimits: SiteLimits;
@@ -317,7 +317,7 @@ export function withTestRoutes(app: FastifyInstance): FastifyInstance {
 
 // AppDeps.limiters 的測試預設：**每次呼叫都建全新實例**（`FixedWindowLimiter` 內部狀態
 // 是 in-memory Map，若在此改成 module-level 常數並跨測試共用，不同測試檔案／不同
-// buildTestApp() 呼叫之間的請求計數會互相汙染——例如本檔 Task 4 的「61 次觸發 429」
+// buildTestApp() 呼叫之間的請求計數會互相汙染——例如「61 次觸發 429」
 // 測試會被同一份 map 上其他測試先前已消耗掉的計數影響，導致隨執行順序隨機紅綠。
 // 只含 20 顆固定的桶（`buildFixedLimiters()`，數值同生產）加上 overrides；9 顆站台可調的桶不在這裡，
 // 由 `buildApp` 用該 app 的 `deps.siteLimits` 補（#397），讓測試環境的節流行為與生產一致。
@@ -340,7 +340,7 @@ export function freshLimiters(overrides: Partial<Limiters> = {}): Partial<Limite
  * `seedContent` 都注入這一份）。**module 層單例是刻意的**，與 `freshLimiters` 的「每次全新」
  * 相反：runtime 沒有跨測試會互相汙染的計數語意，而每個測試各建一份 jsdom 就是每次
  * `installGlobals()` 重掛全域 window／document——同檔案內先前建好的 editor 會被抽掉腳下的
- * window（Task 2 的 m2 觀察），且每份殘留約 0.53 MB。
+ * window，且每份殘留約 0.53 MB。
  *
  * #397：pool 的設定取站台預設（在任何 DB 之前建，所以用 `SiteLimits.defaults`），而且**永遠不跟著任何 app 的 `siteLimits` 改**——
  * 它跨多個 app 共用，一個 app 的 PATCH 不能改到別的測試的 pool。`buildTestApp`／`buildCollabTestApp` 在 `editing` 是它（含沒給、
@@ -354,7 +354,7 @@ const SHARED_RUNTIME_FOLLOW_ERROR = "testEditingRuntime is shared; pass your own
  * 建一個掛好預設 deps（freshDb + 真 UserGate/LoginThrottle + noop collab hooks）的
  * FastifyInstance，供整合測試使用。任何 deps 都可用 `overrides` 覆寫。
  *
- * **不呼叫 `initializeInstance`**（§14.2）——app 建構不需要初始化判斷，fail-fast 只在
+ * **不呼叫 `initializeInstance`**——app 建構不需要初始化判斷，fail-fast 只在
  * `index.ts` 呼叫（production 啟動路徑）。整合測試一律直接 `db.insert(users)` 建帳
  * （既有慣例，見 `buildCollabTestApp` 的 `createUser`）。
  *
@@ -392,7 +392,7 @@ export async function buildTestApp(overrides: Partial<AppDeps> = {}, options: Bu
 
 // ───────────────────────────── 共編（Hocuspocus）測試 harness ─────────────────────────────
 //
-// 所有共編整合測試唯一的 harness。Task 5/6/7 一律「消費」以下這組介面，不得各自
+// 所有共編整合測試唯一的 harness。其他共編測試一律「消費」以下這組介面，不得各自
 // 再 roll 一套（造使用者、登入、建 provider、拆除的細節只在這裡有一份）。
 //
 // 與 `buildTestApp` 的差異：共編需要**真的 HTTP + WebSocket**（`app.inject` 不會真的
@@ -417,11 +417,10 @@ export interface HttpSession {
   /**
    * 連上 `/collab` 的某份 note，resolve 時已完成首次 sync。
    *
-   * 預設的取 token 邏輯是 `POST /api/notes/:id/collab-token`（Task 4 契約，回應 body
+   * 預設的取 token 邏輯是 `POST /api/notes/:id/collab-token`（回應 body
    * `{ token, role }`）。
-   * - `tokenOverride`：跳過該 endpoint 直接用指定字串當 token。Task 1 的 spike 必用
-   *   （endpoint 尚不存在），N2 的「舊 token 重連」測試亦用它。
-   * - `tokenFn`：完全取代預設邏輯（Task 6 的「token endpoint 5xx 不誤殺」以此模擬失敗）。
+   * - `tokenOverride`：跳過該 endpoint 直接用指定字串當 token。「舊 token 重連」測試用它。
+   * - `tokenFn`：完全取代預設邏輯（「token endpoint 5xx 不誤殺」以此模擬失敗）。
    *
    * **拒連即 reject**（onAuthenticate throw、或逾時未 sync），錯誤訊息含被拒原因；
    * reject 前會把 provider 拆掉，不會在測試剩餘時間裡持續重連。
@@ -437,7 +436,7 @@ export interface CollabLogLine {
 }
 
 /**
- * #269 §5／§15.5：取 collab token 的 RequestInit——帶 `noteSchemaVersion`。閘門上線後沒帶 body 的 token 一律 sv=0、
+ * #269：取 collab token 的 RequestInit——帶 `noteSchemaVersion`。閘門上線後沒帶 body 的 token 一律 sv=0、
  * 握手以 client-outdated 拒（經這支 helper 的整合套件會全紅）。直接 POST collab-token 的測試一律用它。
  */
 export const COLLAB_TOKEN_INIT = { method: "POST", body: JSON.stringify({ noteSchemaVersion: NOTE_SCHEMA_VERSION }) } as const;
@@ -476,7 +475,7 @@ export interface CollabTestCtx {
 /**
  * 建一個掛上真 `CollabServer` 並實際 listen 的 app，供共編整合測試使用。
  *
- * `collabHooks` 是注入縫：預設 `noopCollabHooks`（比照 `buildTestApp`），Task 6 的撤權
+ * `collabHooks` 是注入縫：預設 `noopCollabHooks`（比照 `buildTestApp`），撤權
  * 測試必須傳 `collabHooks: (server, log) => createCollabHooks(server, log)` 接真實作
  * （第二個參數是本 harness 的錄音 logger，`collabLogs` 才收得到 hooks 那邊的訊號）——否則
  * shares/disable/DELETE 那些呼叫點全是 no-op，撤權路徑永遠不會被觸發，測試會綠得毫無意義。
@@ -500,7 +499,7 @@ export async function buildCollabTestApp(
     shownLinks?: AppDeps["shownLinks"];
     /** #108 `/api/mcp` 的注入縫，語意見 `AppDeps.mcpTestHooks`。 */
     mcpTestHooks?: AppDeps["mcpTestHooks"];
-    /** #175 PR5：群組測試注入縫（`"membership-checked"` 等），語意見 `AppDeps.groupTestHook`；帶 content 的 MCP `create_note {groupId}` 要 collab app 才寫得出。 */
+    /** #175：群組測試注入縫（`"membership-checked"` 等），語意見 `AppDeps.groupTestHook`；帶 content 的 MCP `create_note {groupId}` 要 collab app 才寫得出。 */
     groupTestHook?: AppDeps["groupTestHook"];
     /** #106（#137）per-note 佇列等待上限（毫秒），語意見 `AppDeps.editingQueueWaitMs`。 */
     editingQueueWaitMs?: number;
@@ -510,7 +509,7 @@ export async function buildCollabTestApp(
     storeSearchHooks?: CollabDeps["storeSearchHooks"];
     /** #272：自動切版等待 X 的測試覆寫（毫秒），語意見 `CollabDeps.versionAutoWaitMs`。整合測試多半給 0，再直接呼叫 `collab.versions.scanDue()`。 */
     versionAutoWaitMs?: number;
-    /** #272 §7.5：換掉 `testConfig`（例：開 e2e 測試縫）。 */
+    /** #272：換掉 `testConfig`（例：開 e2e 測試縫）。 */
     config?: AppConfig;
     /** #388：同帳號重登後延遲重驗的等待（毫秒），語意見 `AppDeps.reloginReverifyDelayMs`。 */
     reloginReverifyDelayMs?: number;
@@ -518,10 +517,10 @@ export async function buildCollabTestApp(
     lastActiveOptions?: CollabDeps["lastActiveOptions"];
     /** bulk transfer：`/api/transfer/*` 的測試縫，語意見 `AppDeps.transferTestHooks`。 */
     transferTestHooks?: AppDeps["transferTestHooks"];
-    /** bulk transfer plan H5：log 測試用（預設 `false`）；傳 `{ level, stream }` 收 pino 原文。 */
+    /** bulk transfer：log 測試用（預設 `false`）；傳 `{ level, stream }` 收 pino 原文。 */
     logger?: BuildAppOptions["logger"];
     /**
-     * bulk transfer plan H5（gate r1 I7）：共用 DB——給了就不 `freshDb()`（DB 的清理照舊由建它的那次 `freshDb()` 的
+     * bulk transfer：共用 DB——給了就不 `freshDb()`（DB 的清理照舊由建它的那次 `freshDb()` 的
      * `onTestFinished` 負責），collab server 各自建。⚠ 收尾順序：**先 `destroy()` 第一個 app 再建第二個**，避免兩個 collab
      * server 同時持有同一篇 live doc。
      */

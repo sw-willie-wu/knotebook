@@ -103,7 +103,7 @@ async function submit(password: string, confirm: string) {
   fireEvent.click(screen.getByRole("button", { name: "Set password" }));
 }
 
-describe("ResetPasswordPage（#286 §5.2、A-16）", () => {
+describe("ResetPasswordPage（#286）", () => {
   beforeEach(async () => {
     sessionStorage.clear();
     navigateFn = null;
@@ -172,7 +172,7 @@ describe("ResetPasswordPage（#286 §5.2、A-16）", () => {
     expect(sessionStorage.getItem(KEY)).toBeNull();
   });
 
-  it("P5 inspect 403 password_login_disabled → passwordLoginOff 全文、沒有表單、鍵仍在（D2）", async () => {
+  it("P5 inspect 403 password_login_disabled → passwordLoginOff 全文、沒有表單、鍵仍在", async () => {
     setup(`/reset-password#token=${TOKEN}`, { inspect: () => fail(403, "password_login_disabled") });
     expect(await screen.findByText(LOGIN_OFF_TEXT)).toBeInTheDocument();
     expect(screen.queryByLabelText("New password")).toBeNull();
@@ -214,8 +214,8 @@ describe("ResetPasswordPage（#286 §5.2、A-16）", () => {
   it("P8 成功：完成請求 body 正確 → 導 /、session 快取寫入回應；寫入快取之前鍵已刪", async () => {
     const { calls, queryClient } = setup(`/reset-password#token=${TOKEN}`);
     // 鍵最後一定會被刪（已登入的 effect、卸載 cleanup 都會刪），所以看「寫入 session 快取的當下」鍵還在不在：
-    // 成功路徑自己沒刪的話，那一刻鍵還在。這案釘的是 plan T5 規定的「刪鍵 → setQueryData」順序；spec §5.2-5
-    // 沒有規定先後，照 spec 的列舉順序重排時這案會紅，是預期的。
+    // 成功路徑自己沒刪的話，那一刻鍵還在。這案釘的是「刪鍵 → setQueryData」順序；
+    // 沒有規定先後，照列舉順序重排時這案會紅，是預期的。
     const keyAtSessionWrite: Array<string | null> = [];
     const setQueryData = queryClient.setQueryData.bind(queryClient);
     vi.spyOn(queryClient, "setQueryData").mockImplementation(((key: unknown, data: unknown) => {

@@ -1,5 +1,5 @@
 /**
- * bulk transfer（spec 2026-11-02）測試共用：直接簽 bulk 權杖、MCP 呼叫小工具。T9／T10 再補 HTTP 端點的工具。
+ * bulk transfer 測試共用：直接簽 bulk 權杖、MCP 呼叫小工具。HTTP 端點的工具另見各測試檔。
  */
 import http from "node:http";
 import type { FastifyInstance } from "fastify";
@@ -59,7 +59,7 @@ export async function seedMd(db: Db, noteId: string, markdown: string): Promise<
   await seedDoc(db, noteId, await mdDoc(markdown));
 }
 
-/** PR-2 T13：block JSON 直接寫 note_states（markdown 寫不出的形：toggle、有色清單、帶段落子的 bullet）。 */
+/** block JSON 直接寫 note_states（markdown 寫不出的形：toggle、有色清單、帶段落子的 bullet）。 */
 export async function seedBlocks(db: Db, noteId: string, blocks: unknown[]): Promise<void> {
   const doc = new Y.Doc();
   const s = await EditorSession.open(testEditingRuntime, doc);
@@ -80,7 +80,7 @@ export function bulkGet(app: FastifyInstance, url: string, token?: string, opts:
   });
 }
 
-/** PR-2 H5：`PUT /api/transfer/notes`（預設 `text/markdown; charset=utf-8`）。 */
+/** `PUT /api/transfer/notes`（預設 `text/markdown; charset=utf-8`）。 */
 export function bulkPut(
   app: FastifyInstance,
   token: string | undefined,
@@ -100,7 +100,7 @@ export function bulkPut(
   });
 }
 
-/** PR-2 H5：單篇下載 → `{ text, fm, body }`（`bulkGet`＋`parseNoteFile`）。 */
+/** 單篇下載 → `{ text, fm, body }`（`bulkGet`＋`parseNoteFile`）。 */
 export async function downloadNote(app: FastifyInstance, token: string, noteId: string): Promise<{ text: string; fm: Record<string, string>; body: string }> {
   const r = await bulkGet(app, `/api/transfer/notes/${noteId}`, token);
   if (r.statusCode !== 200) throw new Error(`downloadNote: ${r.statusCode} ${r.body}`);
@@ -109,19 +109,19 @@ export async function downloadNote(app: FastifyInstance, token: string, noteId: 
   return { text, fm, body };
 }
 
-/** PR-2 H5：只改本文（保留 frontmatter 8 行）。 */
+/** 只改本文（保留 frontmatter 8 行）。 */
 export function editBody(text: string, f: (body: string) => string): string {
   const lines = text.split("\n");
   return [...lines.slice(0, 8), f(lines.slice(8).join("\n"))].join("\n");
 }
 
-/** PR-2 H5：改 `title` 行（值用 `JSON.stringify`）。 */
+/** 改 `title` 行（值用 `JSON.stringify`）。 */
 export function renameIn(text: string, title: string): string {
   return text.replace(/^title: .*$/m, `title: ${JSON.stringify(title)}`);
 }
 
 /**
- * PR-2：模擬「人」在下載之後的修改——讀路徑 fork → server 端編輯器改 → 以直連（轉換工作形的 ctx：不落款、不進 AI 修改紀錄）
+ * 模擬「人」在下載之後的修改——讀路徑 fork → server 端編輯器改 → 以直連（轉換工作形的 ctx：不落款、不進 AI 修改紀錄）
  * 合併回 live doc（冷筆記會被載入、合併、落盤）。
  */
 export async function humanEdit(ctx: { db: Db; collab: CollabServer }, noteId: string, f: (ed: EditorSession["editor"]) => void): Promise<void> {
@@ -146,7 +146,7 @@ export async function topIdsOf(ctx: { db: Db; collab: CollabServer }, noteId: st
   return topLevelContainers(doc.getXmlFragment(YDOC_FRAGMENT)).map(c => c.getAttribute("id") as string);
 }
 
-/** PR-2 T13：現況頂層 block 的 id、型別、純文字（行內內容串起來）與子 block 數（fork 上開一次 session 讀；不寫回）。 */
+/** 現況頂層 block 的 id、型別、純文字（行內內容串起來）與子 block 數（fork 上開一次 session 讀；不寫回）。 */
 export async function liveBlocks(ctx: { db: Db; collab: CollabServer }, noteId: string): Promise<Array<{ id: string; type: string; text: string; children: number }>> {
   const { doc } = await loadNoteDoc({ db: ctx.db, collab: ctx.collab }, noteId);
   const s = await EditorSession.open(testEditingRuntime, doc);
@@ -159,7 +159,7 @@ export async function liveBlocks(ctx: { db: Db; collab: CollabServer }, noteId: 
   }
 }
 
-/** PR-2 H5：MCP 讀出的整篇 markdown（比對寫回結果用；不 touch presence）。 */
+/** MCP 讀出的整篇 markdown（比對寫回結果用；不 touch presence）。 */
 export async function liveMarkdown(ctx: { db: Db; collab: CollabServer }, noteId: string): Promise<string> {
   const { doc } = await loadNoteDoc({ db: ctx.db, collab: ctx.collab }, noteId);
   const r = await readNoteContentFromDoc(testEditingRuntime, doc);
@@ -168,7 +168,7 @@ export async function liveMarkdown(ctx: { db: Db; collab: CollabServer }, noteId
 }
 
 /**
- * PR-2 H5：`node:http` 真 HTTP 的 PUT（S14 用）。`pauseAfterHeaders`：送完 header＋body 後先等 `waitBeforeEnd`；`destroyAfter`：
+ * `node:http` 真 HTTP 的 PUT（S14 用）。`pauseAfterHeaders`：送完 header＋body 後先等 `waitBeforeEnd`；`destroyAfter`：
  * 送完 body 後（或只送一半時）在給定的 promise 解析後 destroy 連線。回應若有就收（被 destroy 時回 null）。
  */
 export function putRaw(

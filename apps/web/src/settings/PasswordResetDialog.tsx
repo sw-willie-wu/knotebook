@@ -140,9 +140,9 @@ function PasswordResetDialogBody({
 }
 
 /**
- * 使用者表列內的「重設密碼」（#286）：沒有密碼的帳號不渲染（R4）；已停用的帳號 `softDisabled`（R3）。
+ * 使用者表列內的「重設密碼」（#286）：沒有密碼的帳號不渲染；已停用的帳號 `softDisabled`。
  * 對話框關閉時本地狀態全部重設——產生的明文連結只活在這裡的 state 與結果畫面的 DOM。
- * 產生或取消失敗：關閉對話框、錯誤交給列錯誤（spec §5.1）。
+ * 產生或取消失敗：關閉對話框、錯誤交給列錯誤。
  */
 export function PasswordResetAction({ row, onError }: { row: AdminUserDto; onError: (message: string | null) => void }) {
   const { t } = useTranslation();

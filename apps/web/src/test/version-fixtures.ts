@@ -1,7 +1,7 @@
 /**
  * #272 版本測試的固定 id 與標籤。`vid(seq)`：seq 編進前 4 個 hex（短 id 前 7 碼互異）與最後一組的第 1–8 個 hex（推名的兩個索引）。
  * 例：`vid(1)`＝`0001aaaa-0000-4000-8000-000100010000`、`vlabel(1)`＝`agile-beaver (0001aaa)`、`vlabel(2)`＝`amber-bison (0002aaa)`、
- * `vlabel(3)`＝`ample-bobcat (0003aaa)`。斷言一律經被測的 `versionLabel`（`vlabel`）；每支有 vN 斷言的測試檔另至少寫死一處字面值（spec §12.2）。
+ * `vlabel(3)`＝`ample-bobcat (0003aaa)`。斷言一律經被測的 `versionLabel`（`vlabel`）；每支有 vN 斷言的測試檔另至少寫死一處字面值。
  */
 import type { VersionBaseRefDto } from "@knotebook/shared";
 import type { VersionTarget } from "@/api/versions";

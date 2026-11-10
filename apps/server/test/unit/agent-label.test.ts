@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { AGENT_LABEL_RE, agentLabelOf, deriveAgentLabel } from "../../src/auth/agent-label.js";
 
 describe("deriveAgentLabel", () => {
-  it("spec §8 的派生表：第一個切詞 → NFKC → 小寫 → 濾字元 → 截 32 → 空則 agent", () => {
+  it("派生表：第一個切詞 → NFKC → 小寫 → 濾字元 → 截 32 → 空則 agent", () => {
     expect(deriveAgentLabel("Claude Code (knotebook)")).toBe("claude");
     expect(deriveAgentLabel("MCP CLI Proxy")).toBe("mcp");
     expect(deriveAgentLabel("我的腳本")).toBe("agent");           // 全被濾掉 → fallback

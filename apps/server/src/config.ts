@@ -11,7 +11,7 @@ const schema = z.object({
   ),
   APP_SECRET: z.string().regex(/^[0-9a-fA-F]{64,}$/, "APP_SECRET 需 ≥64 hex 字元；用 `openssl rand -hex 32` 產生"),
   PUBLIC_URL: z.string().url("PUBLIC_URL 必須是有效的 http/https URL"),
-  // spec rev 5.7 / §14.2：ADMIN_EMAIL/ADMIN_PASSWORD 是實例初始化的唯一（env-only）
+  // ADMIN_EMAIL/ADMIN_PASSWORD 是實例初始化的唯一（env-only）
   // 管道——這裡故意只驗「有沒有值」（空字串視同未設），格式（email 合法性）與長度
   // （密碼下限）留到下面手動驗證——原因是「兩者必須成對」與「密碼太短」都需要在單一
   // Error 訊息裡講清楚是哪個條件失敗，塞進 zod schema 本身的錯誤聚合格式反而不利閱讀
@@ -24,12 +24,12 @@ const schema = z.object({
   // issue #13：反向代理信任設定。比照上面幾組「空字串視同未設」的模式；值本身的
   // 語法交給 `parseTrustProxy` 手動驗證（錯誤訊息要能指出是哪一段不合法）。
   TRUST_PROXY: z.string().min(1).optional().or(z.literal("").transform(() => undefined)),
-  // #187 B18：帳密登入的救援開關。值的語法（只收 true／false，不分大小寫）在 parsePasswordLoginForceEnable 手動驗證。
+  // #187：帳密登入的救援開關。值的語法（只收 true／false，不分大小寫）在 parsePasswordLoginForceEnable 手動驗證。
   PASSWORD_LOGIN_FORCE_ENABLE: z.string().optional(),
-  // #175 §6.10：pool 保險絲（Willie 2026-09-30 Q24）。值的語法（正整數）在 loadConfig 手動驗證，錯誤訊息要點名。
+  // #175：pool 保險絲。值的語法（正整數）在 loadConfig 手動驗證，錯誤訊息要點名。
   DATABASE_POOL_MAX: z.string().min(1).optional().or(z.literal("").transform(() => undefined)),
   DATABASE_POOL_CONNECTION_TIMEOUT_MS: z.string().min(1).optional().or(z.literal("").transform(() => undefined)),
-  // #272 §7.5：e2e 測試縫。只認字面 "1"；只在 loopback 部署生效（見 loadConfig）。刻意不寫進 .env.example 與 self-hosting 文件。
+  // #272：e2e 測試縫。只認字面 "1"；只在 loopback 部署生效（見 loadConfig）。刻意不寫進 .env.example 與 self-hosting 文件。
   KNOTEBOOK_E2E_TEST_HOOKS: z.string().optional(),
 });
 
@@ -75,7 +75,7 @@ export function parseTrustProxy(raw: string | undefined): boolean | number | str
     // ⚠ 收下小寫版本：proxy-addr 對具名網段是 `Object.hasOwn(IP_RANGES, value)` 的**精確**
     // 比對，只認全小寫。這裡若原樣收下 `Loopback`，fastify 會在建構子丟
     // `invalid IP address: Loopback`——一個既不是我們的錯誤格式、也指不出是哪個環境
-    // 變數的訊息（審查實測）。
+    // 變數的訊息。
     const keyword = entry.toLowerCase();
     if (TRUST_PROXY_KEYWORDS.has(keyword)) {
       normalized.push(keyword);
@@ -93,7 +93,7 @@ export function parseTrustProxy(raw: string | undefined): boolean | number | str
       const max = family === 4 ? 32 : 128;
       // 下限是 1 而不是 0：proxy-addr 對 `/0` 直接丟 `invalid range on address`
       // （`range <= 0` 就拒），所以 `0.0.0.0/0` 這種「我要信任全部」的直覺寫法必須在
-      // 這裡就擋掉並指向正確的寫法，不能讓它變成 fastify 建構子的英文例外（審查實測）。
+      // 這裡就擋掉並指向正確的寫法，不能讓它變成 fastify 建構子的英文例外。
       if (!/^\d+$/.test(prefix) || bits < 1 || bits > max) {
         throw new Error(
           `設定錯誤：TRUST_PROXY 的「${entry}」網段長度必須是 1-${max} 的整數（要信任任何來源請直接寫 TRUST_PROXY=true）`
@@ -105,9 +105,9 @@ export function parseTrustProxy(raw: string | undefined): boolean | number | str
   return normalized;
 }
 /**
- * #187 B18：`PASSWORD_LOGIN_FORCE_ENABLE`。`trim` 後不分大小寫：`true` → 強制開啟帳密登入；未設／空／`false` → 不強制；其他值
+ * #187：`PASSWORD_LOGIN_FORCE_ENABLE`。`trim` 後不分大小寫：`true` → 強制開啟帳密登入；未設／空／`false` → 不強制；其他值
  * （`1`、`yes`、`on`…）**擋啟動**——救援是在最慌的時候做的，「以為開了、實際沒開」不可以靜默發生。大小寫與空值的處理比照
- * `parseTrustProxy`，但不接受它的數字與清單形（spec §2.8、gate r4-M2）。只影響「受不受理帳密」，不寫回 DB。
+ * `parseTrustProxy`，但不接受它的數字與清單形。只影響「受不受理帳密」，不寫回 DB。
  */
 export function parsePasswordLoginForceEnable(raw: string | undefined): boolean {
   if (raw === undefined) return false;
@@ -123,24 +123,24 @@ export interface AppConfig {
   cookieSecure: boolean;
   /** fastify 的 `trustProxy` 選項（issue #13）。預設 `false`，見 `parseTrustProxy`。 */
   trustProxy: boolean | number | string[];
-  /** #175 §6.10：pg-pool 的 `max`（預設 10＝pg-pool 自己的預設，行為不變）。 */
+  /** #175：pg-pool 的 `max`（預設 10＝pg-pool 自己的預設，行為不變）。 */
   databasePoolMax: number;
   /**
-   * #175 §6.10：pg-pool 的 `connectionTimeoutMillis`（預設 10000）。借連線逾時以 reject 丟給等待者，經全域
+   * #175：pg-pool 的 `connectionTimeoutMillis`（預設 10000）。借連線逾時以 reject 丟給等待者，經全域
    * `setErrorHandler` 以 error 級記 `unhandled error`、回 500——`pool.on("error")` 收不到它。不取代 S14。
    */
   databasePoolConnectionTimeoutMs: number;
   insecureHttpWarning: boolean;
-  /** env bootstrap admin（spec rev 5.7 / §14.2）：兩者必為同時存在或同時不存在（見下方
+  /** env bootstrap admin：兩者必為同時存在或同時不存在（見下方
    * loadConfig 的 fail-fast 檢查），這兩個欄位永遠同時 defined 或同時 undefined，不會
    * 半套。是否真的據此建立帳號、以及「僅首次初始化生效」的判斷，交給執行期的
    * `initializeInstance`（見 `auth/bootstrap.ts`）——loadConfig 本身不碰 DB。 */
   adminEmail?: string;
   adminPassword?: string;
-  /** #187 B18：env 強制開啟帳密登入（救援）。有效值＝DB 值 OR 這個（`auth/password-login.ts` 的 `effectivePasswordLogin`）。 */
+  /** #187：env 強制開啟帳密登入（救援）。有效值＝DB 值 OR 這個（`auth/password-login.ts` 的 `effectivePasswordLogin`）。 */
   passwordLoginForceEnable: boolean;
   /**
-   * #272 §7.5：e2e 測試縫——`KNOTEBOOK_E2E_TEST_HOOKS=1` **且** `PUBLIC_URL` 的 hostname 是 localhost／127.0.0.1／[::1]。
+   * #272：e2e 測試縫——`KNOTEBOOK_E2E_TEST_HOOKS=1` **且** `PUBLIC_URL` 的 hostname 是 localhost／127.0.0.1／[::1]。
    * 成立時 `app.ts` 註冊 `PUT /api/admin/test/version-auto-wait`、`index.ts` 把自動切版掃描間隔壓成 1 秒。
    */
   testHooks: boolean;
@@ -161,14 +161,14 @@ export function loadConfig(env: NodeJS.ProcessEnv, cpuProbe?: CpuProbe): AppConf
   const publicUrl = new URL(r.data.PUBLIC_URL);
   if (!["http:", "https:"].includes(publicUrl.protocol))
     throw new Error("PUBLIC_URL 必須是 http/https URL");
-  // spec rev 5.6：非 localhost 的 http:// PUBLIC_URL 不再拒絕啟動——trusted-LAN
+  // 非 localhost 的 http:// PUBLIC_URL 不再拒絕啟動——trusted-LAN
   // plain-http 是支援的部署拓撲之一（bind 0.0.0.0，PUBLIC_URL=http://<lan-ip>:3000）。
   // 改成回傳 insecureHttpWarning=true，讓 index.ts 在啟動時印一次醒目警告；
   // cookieSecure 的推導不變（http 一律 non-Secure，不論 host）。
   const isLocalHttp = publicUrl.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(publicUrl.hostname);
   const insecureHttpWarning = publicUrl.protocol === "http:" && !isLocalHttp;
 
-  // spec rev 5.7：ADMIN_EMAIL/ADMIN_PASSWORD 只設其中一個 → 半套設定必為誤設，
+  // ADMIN_EMAIL/ADMIN_PASSWORD 只設其中一個 → 半套設定必為誤設，
   // 啟動時 fail-fast（兩者是成對欄位，不像一般獨立可選欄位）。
   const adminEmail = r.data.ADMIN_EMAIL;
   const adminPassword = r.data.ADMIN_PASSWORD;
@@ -199,7 +199,7 @@ export function loadConfig(env: NodeJS.ProcessEnv, cpuProbe?: CpuProbe): AppConf
   const databasePoolMax = positiveInt("DATABASE_POOL_MAX", r.data.DATABASE_POOL_MAX, 10);
   const databasePoolConnectionTimeoutMs = positiveInt("DATABASE_POOL_CONNECTION_TIMEOUT_MS", r.data.DATABASE_POOL_CONNECTION_TIMEOUT_MS, 10_000, 2_147_483_647);
 
-  // #272 §7.5：與上方 isLocalHttp 同一張 loopback 名單（hostname 層，不看 scheme）。
+  // #272：與上方 isLocalHttp 同一張 loopback 名單（hostname 層，不看 scheme）。
   const testHooksRequested = r.data.KNOTEBOOK_E2E_TEST_HOOKS === "1";
   const testHooksLoopback = ["localhost", "127.0.0.1", "[::1]"].includes(publicUrl.hostname);
   const testHooks = testHooksRequested && testHooksLoopback;
@@ -220,7 +220,7 @@ export function loadConfig(env: NodeJS.ProcessEnv, cpuProbe?: CpuProbe): AppConf
 }
 
 /**
- * D12（#107）：OAuth／API token 的 **issuer 唯一取值處**。
+ * #107：OAuth／API token 的 **issuer 唯一取值處**。
  *
  * `WWW-Authenticate` 的 `resource_metadata`、以及 #132 的 OAuth 元資料與端點 URL
  * 全部從這裡取，不要各自寫 `config.publicUrl.origin`——寫成 `.href` 會多帶一個尾斜線
@@ -236,7 +236,7 @@ export function publicUrlIssuer(publicUrl: URL): string {
 }
 
 /**
- * D12：`PUBLIC_URL` 帶了 origin 以外的成分時的啟動警告訊息。回 `null`＝不必警告。
+ * `PUBLIC_URL` 帶了 origin 以外的成分時的啟動警告訊息。回 `null`＝不必警告。
  *
  * **刻意不 fail-fast**：比照上面 `insecureHttpWarning` 的既有慣例（非 localhost 的
  * http PUBLIC_URL 只警告不拒絕），避免多一條破壞性變更。
@@ -273,7 +273,7 @@ export function publicUrlPathWarning(publicUrl: URL): string | null {
 }
 
 /**
- * #272 §7.5：e2e 測試縫的啟動警告。開著＝提醒這是測試疊（測試專用路由已註冊、掃描每秒一次）；被忽略＝提醒設了卻沒生效。
+ * #272：e2e 測試縫的啟動警告。開著＝提醒這是測試疊（測試專用路由已註冊、掃描每秒一次）；被忽略＝提醒設了卻沒生效。
  * 回 null＝不必警告。訊息維持編譯期常數（理由同 `publicUrlPathWarning`）。
  */
 export function testHooksStartupWarning(config: Pick<AppConfig, "testHooks" | "testHooksIgnored">): string | null {

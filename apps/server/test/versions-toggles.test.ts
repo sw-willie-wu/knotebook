@@ -1,4 +1,4 @@
-// 自動儲存三層開關與站台清除設定（spec 2026-10-09 §6.7、§6.8、Review Focus RF4）。開關「下一次載入才生效」由 Task 12 驗。
+// 自動儲存三層開關與站台清除設定。開關「下一次載入才生效」由其他測試驗。
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -12,7 +12,7 @@ async function call(app: FastifyInstance, method: "GET" | "PATCH" | "POST", url:
   return app.inject({ method, url, ...(who ? { cookies: await cookieOf(who) } : {}), ...(payload !== undefined ? { payload: payload as object } : {}) });
 }
 
-describe("站台設定 /api/admin/versions/settings（§6.7）", () => {
+describe("站台設定 /api/admin/versions/settings", () => {
   it("只有站台管理員；GET 預設 7／30／開；PATCH 單欄合併；違反 1 ≤ F ≤ D ≤ 3650 → 400 且不改；非整數、空 body、多欄 → 400", async () => {
     const { app, db } = await buildTestApp();
     const admin = await seedUser(db, { isAdmin: true });
@@ -78,7 +78,7 @@ describe("站台設定 /api/admin/versions/settings（§6.7）", () => {
   });
 });
 
-describe("個人開關 PATCH /api/auth/profile（§6.8）", () => {
+describe("個人開關 PATCH /api/auth/profile", () => {
   it("只帶 autoVersions：純 UPDATE、回寫入後的 UserDto、/me 立刻反映、連改 6 次不消耗改名額度", async () => {
     const { app, db } = await buildTestApp();
     const u = await seedUser(db);
@@ -94,7 +94,7 @@ describe("個人開關 PATCH /api/auth/profile（§6.8）", () => {
     expect((await call(app, "PATCH", "/api/auth/profile", u.id, { handle: `${u.handle}-x` })).statusCode).toBe(200); // 額度沒被吃
   });
 
-  it("RF4：autoVersions 與不合法／已被占用的 handle 一起送 → 400／409，auto_versions 不變；兩欄都合法 → 同一交易都生效", async () => {
+  it("autoVersions 與不合法／已被占用的 handle 一起送 → 400／409，auto_versions 不變；兩欄都合法 → 同一交易都生效", async () => {
     const { app, db } = await buildTestApp();
     const u = await seedUser(db);
     const other = await seedUser(db);
@@ -125,7 +125,7 @@ describe("個人開關 PATCH /api/auth/profile（§6.8）", () => {
   });
 });
 
-describe("群組開關 PATCH /api/groups/:id（§6.8）", () => {
+describe("群組開關 PATCH /api/groups/:id", () => {
   it("manageGroup 才能改；只帶 autoVersions 可；空 body 400；GroupDto 與 GET /api/groups 帶 autoVersions；POST /api/groups 仍只收 name", async () => {
     const { app, db } = await buildTestApp();
     const admin = await seedUser(db);

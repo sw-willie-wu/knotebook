@@ -35,7 +35,7 @@ const MEMBER_G = groupDto({ id: "g-member", name: "RD Weekly" }, memberRole());
 const CUSTOM_G = groupDto({ id: "g-custom", name: "Book club" }, customRole({ name: "Reader" }));
 const NULL_G = groupDto({ id: "g-null", name: "Orphan" }, null);
 
-describe("SettingsGroupsOverview（#247 §5.5，唯讀）", () => {
+describe("SettingsGroupsOverview（#247，唯讀）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
   });
@@ -78,14 +78,14 @@ describe("SettingsGroupsOverview（#247 §5.5，唯讀）", () => {
     expect(pillsOf(row)).toEqual(["Read"]);
   });
 
-  it("沒有任何連結、沒有任何按鈕（無 ⋮、無「新增群組」、群組名不是連結；W11／W26）", async () => {
+  it("沒有任何連結、沒有任何按鈕（無 ⋮、無「新增群組」、群組名不是連結）", async () => {
     renderOverview([ADMIN_G, MEMBER_G]);
     await screen.findByText("WRATB");
     expect(screen.queryAllByRole("link")).toHaveLength(0);
     expect(screen.queryAllByRole("button")).toHaveLength(0);
   });
 
-  it("表名 Groups；欄名 Group／My role／Permissions（spec 2026-10-13 settings-table §3 #11）", async () => {
+  it("表名 Groups；欄名 Group／My role／Permissions", async () => {
     renderOverview([ADMIN_G, MEMBER_G]);
     const table = await screen.findByRole("table", { name: "Groups" });
     expect(within(table).getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual(["Group", "My role", "Permissions"]);

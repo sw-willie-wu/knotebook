@@ -1,5 +1,5 @@
 /**
- * `/` 選單「連結」項的插入對話框（issue #99，design §6／§6.1）。
+ * `/` 選單「連結」項的插入對話框（issue #99）。
  *
  * 主要行為（送出/取消/驗證/a11y）用**未掛進 DOM**的真 `BlockNoteEditor`
  * （`BlockNoteEditor.create({ schema: noteSchema })`，同 `markdown-link.test.ts` 的
@@ -8,7 +8,7 @@
  * `open` 恆為 `true`（`onOpenChange` 只是 spy，不接回 state），Dialog 不會真的
  * unmount，`editor.focus()`（掛在 `onCloseAutoFocus`）不會被呼叫，不必 stub 它。
  *
- * 焦點回歸（fix round 1 Important 1）另開一個 describe，**掛真 DOM**
+ * 焦點回歸另開一個 describe，**掛真 DOM**
  * （`editor.mount(container)`，同 `NoteEditorView.test.tsx` 的 `mountedEditor()`
  * 既有慣例）＋一個持有 `open` state 的 controlled wrapper，讓 Dialog 真的會
  * unmount——只斷言 spy 被呼叫過**不是結果**，這裡改斷言 `document.activeElement`
@@ -73,7 +73,7 @@ describe("LinkDialog", () => {
     expect(screen.getByText(i18n.t("note.link.invalidUrl"))).toBeInTheDocument();
   });
 
-  it("網址欄前段被尾端比對吃掉（藏著 ) [y](真正網址 這種形狀）→ 不呼叫 onSubmit，顯示 invalidUrl（複核 fix round 3 Minor 1）", () => {
+  it("網址欄前段被尾端比對吃掉（藏著 ) [y](真正網址 這種形狀）→ 不呼叫 onSubmit，顯示 invalidUrl", () => {
     const onSubmit = vi.fn();
     renderDialog({ open: true, onOpenChange: vi.fn(), onSubmit });
 
@@ -100,7 +100,7 @@ describe("LinkDialog", () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
-  it("顯示文字留空＋合法網址 → onSubmit 收到 text === href（D15 的 fallback）", () => {
+  it("顯示文字留空＋合法網址 → onSubmit 收到 text === href（fallback）", () => {
     const onSubmit = vi.fn();
     renderDialog({ open: true, onOpenChange: vi.fn(), onSubmit });
 
@@ -129,7 +129,7 @@ describe("LinkDialog", () => {
 });
 
 /**
- * 焦點回歸（fix round 1 Important 1）：舊版本只斷言 `editor.focus` 這個 spy 被呼叫
+ * 焦點回歸：舊版本只斷言 `editor.focus` 這個 spy 被呼叫
  * 一次，沒斷言真的有沒有生效——實測（掛真編輯器＋真元件、不 stub `.focus`）三條關閉
  * 路徑全部失敗（`document.activeElement` 停在 `<body>`）。改成 `onCloseAutoFocus`
  * 之後這裡直接量真實結果，不再信任 spy。

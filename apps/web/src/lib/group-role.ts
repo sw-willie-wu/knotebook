@@ -1,9 +1,9 @@
 import type { GroupDto, GroupRoleDto } from "@knotebook/shared";
 
 /**
- * #175 §2.11／Q19：角色的顯示名。內建兩個走 i18n（`groups.role.admin`／`groups.role.member`——DB 裡內建角色 `name` 恆 NULL）；
+ * #175：角色的顯示名。內建兩個走 i18n（`groups.role.admin`／`groups.role.member`——DB 裡內建角色 `name` 恆 NULL）；
  * 自訂角色用它自己的 `name`。**不得**寫成 `` t(`groups.role.${role}`) ``——`myRole` 是物件，樣板字串會渲染出
- * `groups.role.[object Object]`，tsc 與 lint 都逼不出來（gate r3 M-4；`SettingsGroupsOverview.test.tsx` 的三形案守）。
+ * `groups.role.[object Object]`，tsc 與 lint 都逼不出來（`SettingsGroupsOverview.test.tsx` 的三形案守）。
  */
 export function roleLabel(t: (key: string) => string, role: Pick<GroupRoleDto, "builtin" | "name">): string {
   if (role.builtin === "admin") return t("groups.role.admin");
@@ -11,7 +11,7 @@ export function roleLabel(t: (key: string) => string, role: Pick<GroupRoleDto, "
   return role.name ?? "";
 }
 
-/** 與側欄群組「＋」同一條規則（`NoteList`）：角色同時有新建與編輯。PR-2c 批次目的地框共用。 */
+/** 與側欄群組「＋」同一條規則（`NoteList`）：角色同時有新建與編輯。選取模式的批次目的地框共用。 */
 export function canCreateAndEdit(group: GroupDto): boolean {
   return group.myRole?.permissions.create === true && group.myRole.permissions.edit === true;
 }

@@ -13,7 +13,7 @@ import { expandFolderChain, indexFolders } from "./folder-index";
 
 /**
  * 字元集與 server `apps/server/src/folders/names.ts` 的 `CONTROL_CHAR_RE` 相同：C0、DEL＋C1、U+2028–2029、U+202A–202E、U+2066–2069
- * （plan 讀碼發現 18）。以 code point 比對（不寫成含控制字元的正規式，`no-control-regex` 不收）。落單代理與 NFC 由 server 判。
+ * 。以 code point 比對（不寫成含控制字元的正規式，`no-control-regex` 不收）。落單代理與 NFC 由 server 判。
  */
 function hasControlChar(value: string): boolean {
   for (const ch of value) {
@@ -35,10 +35,10 @@ type FolderNameDialogProps = {
 } & ({ mode: "create"; parent: FolderCreateParent } | { mode: "rename"; folder: FolderDto; stack?: StackRenameHooks });
 
 /**
- * 新增／重新命名資料夾（資料夾 spec §6.6，比照 `GroupNameDialog`：只在開啟時掛載、關閉還焦點）。
+ * 新增／重新命名資料夾（比照 `GroupNameDialog`：只在開啟時掛載、關閉還焦點）。
  * 名稱檢查順序照 server：trim → 字元集 → 以 code point 計 1–80；送出 trim 後的字串。錯誤（含 409 撞名）留在框內 `role="alert"`。
- * create 成功：parent 是資料夾 → 它與祖先寫成展開；parent 是群組空間 → 展開該群組（spec §6.8；新資料夾本身沒有鍵＝展開）。
- * rename 帶 `stack`（疊資料夾建好後，§6.13 第 6 步）：開啟時全選預設名；關閉時 `stack.onClosed` 恰一次（送出成功＝送出的名字，
+ * create 成功：parent 是資料夾 → 它與祖先寫成展開；parent 是群組空間 → 展開該群組（新資料夾本身沒有鍵＝展開）。
+ * rename 帶 `stack`（疊資料夾建好後）：開啟時全選預設名；關閉時 `stack.onClosed` 恰一次（送出成功＝送出的名字，
  * 取消／Esc＝原名）；關閉焦點先試 `stack.focusTarget()`。不帶 `stack` 的行為不變。
  * 只准被 FolderLazy 鏈與測試 import。
  */
@@ -60,7 +60,7 @@ export function FolderNameDialog(props: FolderNameDialogProps) {
     [selectOnOpen],
   );
   const closedReportedRef = useRef(false);
-  /** 改名 PATCH 進行中：此時關框（Esc 等）不回報，交給 handleSubmit 依結果回報（spec §6.13 第 6 步：名稱用最後的名字）。 */
+  /** 改名 PATCH 進行中：此時關框（Esc 等）不回報，交給 handleSubmit 依結果回報（名稱用最後的名字）。 */
   const renamingRef = useRef(false);
   /** 框已被要求關閉（Esc／取消）：改名在進行中失敗時以原名回報。 */
   const closeRequestedRef = useRef(false);
@@ -90,7 +90,7 @@ export function FolderNameDialog(props: FolderNameDialogProps) {
     event.preventDefault();
     if (trimmed.length === 0 || invalid !== null || pending) return;
     setError(null);
-    // 疊資料夾改名沿用預設名（最常見：直接按 Enter）：不送 PATCH，直接關框並回報（總管裁定，省一次寫入）。
+    // 疊資料夾改名沿用預設名（最常見：直接按 Enter）：不送 PATCH，直接關框並回報（省一次寫入）。
     if (props.mode === "rename" && stack !== undefined && trimmed === props.folder.name) {
       reportClosed(trimmed);
       onOpenChange(false);
@@ -131,7 +131,7 @@ export function FolderNameDialog(props: FolderNameDialogProps) {
         // 只有標題與一個欄位，沒有另外的說明句；明示沒有描述（不放與標題相同的 sr-only 描述，避免讀屏唸兩次）。
         aria-describedby={undefined}
         onCloseAutoFocus={(event) => {
-          // 疊資料夾：沒有觸發鈕可還，焦點回新資料夾列（關閉當下才解析，§6.6）。
+          // 疊資料夾：沒有觸發鈕可還，焦點回新資料夾列（關閉當下才解析）。
           const stackTarget = stack?.focusTarget();
           const target = stackTarget?.isConnected ? stackTarget : returnFocusRef?.current;
           if (!target?.isConnected) return;

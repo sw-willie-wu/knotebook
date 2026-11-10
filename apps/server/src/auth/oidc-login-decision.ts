@@ -1,10 +1,10 @@
 import type { AuthProviderPublicDto } from "@knotebook/shared";
 import { excludeSameIssuerProviders } from "./issuer.js";
 
-// #187 §7.4：SSO 登入的純決策（取代 Plan 5 的 `auth/oidc-decision.ts`）。不碰 DB；執行層是 `auth/tx/oidc-login.ts`。
-// B3：IdP 的「email 已驗證」旗標不參與任何判斷，claims 型別上就沒有這個欄位（認人只靠 (issuer, sub)、接既有帳號要證明本人）。
-// ⚠ 本檔註解不得出現那個 claim 的字面名稱：spec §14.1 第 20 條要求 apps/server/src 零命中（含註解）。
-// B14：證明本人之前不判停用、不判 B2——兩者延到 `auth/tx/link-identity.ts` 的鎖內。B15：login 不帶任何清旗標的訊號。
+// #187：SSO 登入的純決策。不碰 DB；執行層是 `auth/tx/oidc-login.ts`。
+// IdP 的「email 已驗證」旗標不參與任何判斷，claims 型別上就沒有這個欄位（認人只靠 (issuer, sub)、接既有帳號要證明本人）。
+// ⚠ 本檔註解不得出現那個 claim 的字面名稱：第 20 條要求 apps/server/src 零命中（含註解）。
+// 證明本人之前不判停用、不判「同帳號同 issuer 只能連一個 sub」——兩者延到 `auth/tx/link-identity.ts` 的鎖內。login 不帶任何清旗標的訊號。
 
 /** `email` 已過 `normalizeEmail`（callback 進門）。`preferredUsername` 只當建帳當下的 handle 候選（#122）。 */
 export interface OidcClaims {
@@ -40,12 +40,12 @@ export type OidcDecision =
   | { kind: "reject"; code: OidcRejectCode };
 
 /**
- * 1. 身分命中 → 停用 ? account_disabled : login（已連結的身分不看自動建帳開關，W21）。
+ * 1. 身分命中 → 停用 ? account_disabled : login（已連結的身分不看自動建帳開關）。
  * 2. email 為 null → oidc_email_missing（建帳與比對都需要 email）。
  * 3. lower(email) 多列（大小寫重複的舊列）→ oidc_conflict（不猜）。
  * 4. 恰一列 → methods（password＝有密碼；providers＝已連結且啟用中、且 effective issuer 不等於 claims.issuer）；兩者皆空 → oidc_link_no_proof_method；否則 confirm_link
- *    （不看自動建帳開關：沒有建新帳號）。**不判停用、不判 B2**（B14）。
- * 5. 無列 → 該服務沒開自動建帳 ? registration_disabled : create（錯誤碼沿用，PR-C S3）。
+ *    （不看自動建帳開關：沒有建新帳號）。**不判停用、不判「同 issuer 已有別的 sub」**。
+ * 5. 無列 → 該服務沒開自動建帳 ? registration_disabled : create（錯誤碼沿用）。
  */
 export function decideOidcLogin(
   claims: OidcClaims,
@@ -60,9 +60,9 @@ export function decideOidcLogin(
   if (byEmailUsers.length > 1) return { kind: "reject", code: "oidc_conflict" };
   const existing = byEmailUsers[0];
   if (existing !== undefined) {
-    // B14（fix round 1 裁定 A）：排除 effective issuer 與本次登入同 issuer 的 provider。本次 claims 必經某個 issuer＝claims.issuer
+    // 排除 effective issuer 與本次登入同 issuer 的 provider。本次 claims 必經某個 issuer＝claims.issuer
     // 的 provider 進來；目標帳號若已有該 issuer 的身分，把它列成證明方法就等於在證明前告訴對方「這帳號已連過這個 IdP」。
-    // 排除不損功能：用同 issuer 證明，§7.5.4 必然 identity_already_linked。排除後兩者皆空 → 走下一行的 no_proof_method。
+    // 排除不損功能：用同 issuer 證明必然得到 identity_already_linked。排除後兩者皆空 → 走下一行的 no_proof_method。
     // 與 GET pending、SSO 證明起點共用同一個排除函式（`auth/issuer.ts`，寬鬆的 issuerKey 比對）。
     const providers = excludeSameIssuerProviders(existing.linkedProviders, claims.issuer);
     const methods: ProofMethods = { password: existing.hasPassword, providers };
@@ -70,7 +70,7 @@ export function decideOidcLogin(
     return { kind: "confirm_link", userId: existing.id, methods };
   }
   if (!autoCreateEnabled) return { kind: "reject", code: "registration_disabled" };
-  // `||`：IdP 可能回 `name: ""`（沿用 Plan 5 的理由——空字串顯示名沒有補救路徑）。
+  // `||`：IdP 可能回 `name: ""`（空字串顯示名沒有補救路徑）。
   const displayName = claims.name || claims.email.split("@")[0] || claims.email;
   return { kind: "create", email: claims.email, displayName, preferredUsername: claims.preferredUsername };
 }

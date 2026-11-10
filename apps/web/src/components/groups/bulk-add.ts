@@ -5,7 +5,7 @@ import { PIECE_RE, SEGMENT_SEPARATOR_RE } from "@/lib/email-list";
 /**
  * 群組成員的批次加入（一次加很多人；純前端、沿用單人的 `PUT /api/groups/:id/members`）。
  * 是**一次性的複製**：從別的群組匯入後，兩邊的名單各自獨立，之後不會同步。
- * 每次的人數不設上限（Willie 2026-10-28 裁定）；`user_not_found` 會透露帳號是否存在、server 沒有逐人節流，
+ * 每次的人數不設上限；`user_not_found` 會透露帳號是否存在、server 沒有逐人節流，
  * 這兩點記在 docs/known-limitations.md。
  * 只被 `GroupMembersSection`／`BulkAddDialog`（lazy 的 GroupSections chunk）與測試 import。
  */

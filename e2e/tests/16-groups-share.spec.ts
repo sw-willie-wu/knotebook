@@ -2,17 +2,17 @@ import { expect, test, type Browser, type BrowserContext, type Locator, type Pag
 import { ADMIN, createNote, createUserViaInvite, editorLocator, loginAs, openGroupPanel, randomEmail, showSidebarTab } from "./helpers.js";
 
 /**
- * #175 PR2（spec §12.3 第 16 條，改寫自 #103 PR3 版）：移入群組與複製到個人。
+ * #175（改寫自 #103 版）：移入群組與複製到個人。
  * A 建群組、從設定加 B（內建一般成員）→ A 建個人筆記（打字＋**真上傳**一張圖）、逐人分享給 C、開公開連結 →
  * C 開著那篇 → A 從 ⋮「Move to…」第二層選單選群組把它移進群組（確認框列出 C、說公開連結會關）→
  * A 的網址列變 `/g/<group id>/<slug>`、面板換成群組版；C ≤10 秒被踢回首頁；公開網址 404 →
  * B 開**舊的** `/n/<A handle>/<slug>` → 網址列變 `/g/…`、內容正確 → B 在 ⋮「Copy to… → My notes」→ toast「Open copy」→
  * 副本頁的圖是**新的**上傳網址、真的載得出來 → A 從 ⋮「Delete」刪群組筆記（原圖的上傳端點 403）→ B 重整副本頁，圖仍載得出來。
  *
- * 不斷言 A 搬完的角色（主檔規格落差 17：create-only 角色搬完是 viewer；A 是群組建立者＝內建管理員，本支不測
- * create-only——那條由 server Task 3 案 9 與 web Task 9 案 14 守）。v2 沒有「移出群組」（W4），舊版的移出段整段刪除。
+ * 不斷言 A 搬完的角色（create-only 角色搬完是 viewer；A 是群組建立者＝內建管理員，本支不測
+ * create-only——那條由 server 案 9 與 web 案 14 守）。v2 沒有「移出群組」，舊版的移出段整段刪除。
  * 斷言形沿用 03（10 秒 SLA、exact toast）、11（真上傳、`naturalWidth` 輪詢、公開端點 `toPass`）、15（設定加成員）。
- * 收尾以全刪模式（`{ mode: "delete" }`）刪掉這支建的群組——群組裡還有筆記也刪得掉（#175 PR4）。主體中途失敗時
+ * 收尾以全刪模式（`{ mode: "delete" }`）刪掉這支建的群組——群組裡還有筆記也刪得掉（#175）。主體中途失敗時
  * 清理的錯誤被吞（不蓋掉原始失敗）；主體通過時清理失敗照常讓測試紅。
  */
 
@@ -31,7 +31,7 @@ const PNG_1X1 = Buffer.from(
  * 判斷使用者是不是正往子選單走（`pointerDirRef` 只在父選單內的 pointermove 更新，`lastPointerXRef` 初值 0，
  * 所以從 ⋮ 鈕第一次移進父選單那一下必記成 `right`）。1280 寬的視窗裡 ⋮ 貼右緣，子選單碰撞翻到**左側**
  * （`data-side="left"`）——瞬移離開觸發項時方向 `right` ≠ 子選單側 `left`，Radix 判定「沒往子選單走」→ 焦點回父選單 →
- * 子選單 `onFocusOutside` 關掉、項目被卸載，click 無限重試到測試逾時（CI run 37732016391 就是這樣卡滿 180 秒）。
+ * 子選單 `onFocusOutside` 關掉、項目被卸載，click 無限重試到測試逾時（會卡滿 180 秒）。
  * 真人的滑鼠是連續移動，離開觸發項前最後幾筆 pointermove 就在觸發項內、方向正確，幾乎不會遇到（除非極快地一甩就離開觸發項；最壞也只是子選單關掉、再 hover 一次就開）。
  * 所以這裡分段移動（`steps`）模擬真人：第一段仍落在觸發項內，把方向更新成實際往子選單的方向，之後才離開觸發項。
  */
@@ -59,7 +59,7 @@ async function groupIdNamed(context: BrowserContext, name: string): Promise<stri
 }
 
 /**
- * 刪掉名為 `name` 的群組（final review T5-M4）。走 API 而不是 15 的 UI 路徑（側欄 ⋮ → Delete group）：
+ * 刪掉名為 `name` 的群組。走 API 而不是 15 的 UI 路徑（側欄 ⋮ → Delete group）：
  * 這段在 `finally` 裡跑，失敗時頁面可能停在任何狀態，UI 步驟不可靠。回傳是否找到並刪掉。
  */
 async function deleteGroupNamed(context: BrowserContext, name: string): Promise<boolean> {

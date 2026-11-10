@@ -1,12 +1,12 @@
 import Anthropic from "@anthropic-ai/sdk";
 
 /**
- * Upstream 串流薄層（Task 5，spec §13.2/§13.5-1）：兩個 provider 型別（openai_compatible／
+ * Upstream 串流薄層：兩個 provider 型別（openai_compatible／
  * anthropic）各一支函式，統一吐出「純 text delta」的 `AsyncIterable<string>`——呼叫端
  * （`routes/ai.ts` 的 `POST /api/ai` handler）完全不需要知道底層是 vLLM 風格的 SSE 逐行解析
  * 還是 `@anthropic-ai/sdk` 的事件物件，只管 `for await` 拿 delta 文字。
  *
- * `redirect: "manual"`（openai_compatible 分支）沿用 Task 4 審查 I-4 的約定：undici 對跨網域
+ * `redirect: "manual"`（openai_compatible 分支）的理由：undici 對跨網域
  * 轉址只會剝掉 `Authorization`/`Cookie`，這裡帶的是自訂 `authorization: Bearer ...` header，
  * 3xx 若被追蹤會把它原樣送去第三方主機。手動模式下 3xx 直接落入 `!res.ok`（`res.ok` 只認
  * 2xx），統一映射成 `UpstreamError`，不外洩任何憑證。
@@ -33,7 +33,7 @@ export interface UpstreamHandle {
   abort(): void;
 }
 
-/** `renderUserTemplate` 的三個變數（#263 §4.3）。非 Instruct 動作的 `instruction`／`focus` 一律傳空字串。 */
+/** `renderUserTemplate` 的三個變數（#263）。非 Instruct 動作的 `instruction`／`focus` 一律傳空字串。 */
 export interface TemplateVars {
   text: string;
   instruction: string;
@@ -43,9 +43,9 @@ export interface TemplateVars {
 const PLACEHOLDER_RE = /\{\{(text|instruction|focus)\}\}/g;
 
 /**
- * 佔位符代入（spec §13.5-1；#263 §4.3 起三個佔位符）。**單次**正則掃過整個 template 一次替換完——代入值裡就算含字面
+ * 佔位符代入（#263 起三個佔位符）。**單次**正則掃過整個 template 一次替換完——代入值裡就算含字面
  * `{{instruction}}`，也不會在下一輪被展開（三次 `replaceAll` 依序代入會）。只做代入、不知道動作種類；Instruct 的固定標記
- * 由呼叫端（`routes/ai.ts`）先包好再傳進來（§4.2）。
+ * 由呼叫端（`routes/ai.ts`）先包好再傳進來。
  *
  * 替換端用**函式**形式：JS 對「替換字串」會解讀 `$&`／`$$`／`` $` ``／`$'`／`$<name>`，使用者選取的文字若剛好含這些字元組合，
  * 字串形式會靜默吃掉或扭曲它們；函式回傳值不做任何解讀，逐字元原樣貼回。
@@ -104,7 +104,7 @@ interface OpenAiChatCompletionChunk {
 /**
  * openai_compatible（vLLM 等）串流：`POST {baseUrl}/chat/completions`，`stream: true`。逐行
  * 解析 `data: ...`，只取 `choices[0].delta.content`——`reasoning_content`/`thinking` 這類欄位
- * 存在也完全丟棄，不拼進輸出（spec §8）。`data: [DONE]` 視為正常收流結束（不是錯誤）。
+ * 存在也完全丟棄，不拼進輸出。`data: [DONE]` 視為正常收流結束（不是錯誤）。
  */
 export function streamOpenAiCompatible(opts: OpenAiCompatibleOpts): UpstreamHandle {
   const controller = new AbortController();
@@ -150,7 +150,7 @@ export function streamOpenAiCompatible(opts: OpenAiCompatibleOpts): UpstreamHand
         try {
           parsed = JSON.parse(payload) as OpenAiChatCompletionChunk;
         } catch {
-          // 非預期的畸形行（不是我們定義的錯誤場景，spec 未要求特判）：忽略、繼續解析下一行，
+          // 非預期的畸形行（不是我們定義的錯誤場景）：忽略、繼續解析下一行，
           // 不讓整個串流因單行壞資料而中斷。
           continue;
         }
@@ -175,12 +175,12 @@ interface AnthropicOpts {
 }
 
 // anthropic Messages API 要求 max_tokens；AI 快速動作（重寫/翻譯/摘要/續寫）皆是短中篇文字
-// 轉換，不是開放式長文生成，4096 足夠且不過度浪費（brief 未指定精確值，此為保守預設）。
+// 轉換，不是開放式長文生成，4096 足夠且不過度浪費（此為保守預設）。
 const ANTHROPIC_MAX_TOKENS = 4096;
 
 /**
  * anthropic 串流：`@anthropic-ai/sdk` 的 `client.messages.stream(...)`——認證（`x-api-key`）與
- * `anthropic-version` header 由 SDK 自帶，不必手動組 header（交接約定）。只轉發
+ * `anthropic-version` header 由 SDK 自帶，不必手動組 header。只轉發
  * `content_block_delta` 事件裡 `delta.type === "text_delta"` 的 `.text`；其餘事件類型
  * （`thinking_delta`、`message_start`……）一律忽略，不落進輸出。
  *
@@ -188,8 +188,8 @@ const ANTHROPIC_MAX_TOKENS = 4096;
  * `UpstreamError`——呼叫端（route handler）的 catch-all 對任何錯誤型別一視同仁（記 log、送
  * 固定文案的 SSE error 事件），不需要每個 provider 分支各自維持同一套錯誤型別契約。
  *
- * **fix round 1 I-1（安全，審查者用真 SDK + 302 repro 實測）**：`fetchOptions: { redirect:
- * "manual" }`——沿用 Task 4 審查 I-4 的理由（undici 對跨網域轉址只剝 `Authorization`/
+ * **安全（用真 SDK + 302 重現過）**：`fetchOptions: { redirect:
+ * "manual" }`——理由同上（undici 對跨網域轉址只剝 `Authorization`/
  * `Cookie`，SDK 自帶的 `x-api-key` 不在那個剝除清單內，惡意/被劫持的 upstream 若回 302 會把
  * 明文 key 原樣送去轉址目標）。實測：預設（無此選項）302 會讓 attacker 端收到明文 key；加了
  * `redirect:"manual"` 後零外送——手動模式下 3xx 直接變成 SDK 的 `APIError`，被上層 catch-all

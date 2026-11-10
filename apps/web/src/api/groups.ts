@@ -3,11 +3,11 @@ import type { DeleteGroupBody, GroupDto, GroupMemberDto, GroupRoleDto, GroupRole
 import { api } from "./client";
 
 /**
- * 群組資料層（#103 PR2；#175 PR1 起成員改掛角色 id、加 `GET …/roles`）。全部端點都是
+ * 群組資料層（#103；#175 起成員改掛角色 id、加 `GET …/roles`）。全部端點都是
  * session-only（PAT／MCP 打不到，`routes/groups.ts`）。
  *
  * **invalidate 慣例**：任何群組 mutation 成功後同時 invalidate `['groups']` 與 `['notes']`——
- * 側欄的分段是「這篇筆記的 `group.id` 在不在 `useGroups()` 裡」（spec §8.2）與筆記清單
+ * 側欄的分段是「這篇筆記的 `group.id` 在不在 `useGroups()` 裡」與筆記清單
  * 交叉決定的：改名會改 `note.group.name`、退出群組會讓群組筆記從清單消失。兩把都不失效，
  * 畫面會停在舊分段。`['groups']` 是 `groupMembersKey(id)`＝`['groups', id, 'members']` 與
  * `groupRolesKey(id)`＝`['groups', id, 'roles']` 的**前綴**，一次 invalidate 連成員名單與角色
@@ -18,9 +18,9 @@ import { api } from "./client";
  * 三者都不以 `['notes']` 開頭，上面那兩把碰不到；而群組異動不動文件，`onDocUpdate` 也不會
  * 觸發。不失效的話：改名 → 正開著的那篇群組筆記的 `note.group.name` 停在舊值；改角色 → 改到
  * **自己**的角色時（非最後一位管理員把自己降成一般成員），開著那篇的 `note.permissions`
- * （⋮ 的刪除項、公開連結開關）停在舊角色，多顯示 server 會 403 的項目（Task 11 review r1 M-4）。#175 PR3 的改角色旗標、刪角色同理（`useUpdateRole`／`useDeleteRole`）。
+ * （⋮ 的刪除項、公開連結開關）停在舊角色，多顯示 server 會 403 的項目。#175 的改角色旗標、刪角色同理（`useUpdateRole`／`useDeleteRole`）。
  *
- * **刪群組**（#175 PR4）：必填模式 `DeleteGroupBody`——轉移給一位內建管理員（筆記變他的個人筆記）或全刪。
+ * **刪群組**（#175）：必填模式 `DeleteGroupBody`——轉移給一位內建管理員（筆記變他的個人筆記）或全刪。
  * 失效順序：單篇三把 key（開著的群組筆記要重抓成個人形或 404）→ `['public-link']`（轉移清掉公開連結，值會變）
  * → `['groups']`／`['notes']`。不碰 `['shares']`：兩模式都不產生逐人分享（v1 刪群組會把成員物化成逐人分享
  * 才需要先等 shares，v2 已推翻）。全部不 await：開著的查詢可能 404＋預設 retry，回饋不得被拖慢。
@@ -55,8 +55,8 @@ export function useGroupMembers(groupId: string, options: { enabled?: boolean } 
 }
 
 /**
- * #175 `GET /api/groups/:id/roles`（Q18：任一成員可讀；排序見 plan Task 7 的 `GET …/roles`）。
- * PR3 起含自訂角色（內建兩個在前、其餘依名稱）——成員表與加人表單的角色下拉要拿**角色 id**（gate r2 M-7：兩位管理員、
+ * #175 `GET /api/groups/:id/roles`（任一成員可讀；排序見 `groups/queries.ts`）。
+ * 含自訂角色（內建兩個在前、其餘依名稱）——成員表與加人表單的角色下拉要拿**角色 id**（兩位管理員、
  * 沒有一般成員的群組，一般成員角色的 id 只拿得到這裡）。
  */
 export function useGroupRoles(groupId: string): UseQueryResult<GroupRoleDto[]> {
@@ -72,9 +72,9 @@ export function useInvalidateGroupsAndNotes() {
   return () => {
     void queryClient.invalidateQueries({ queryKey: GROUPS_QUERY_KEY });
     void queryClient.invalidateQueries({ queryKey: ["notes"] });
-    // D-W9：角色旗標變了，誰看得到群組垃圾桶也跟著變
+    // 角色旗標變了，誰看得到群組垃圾桶也跟著變
     void queryClient.invalidateQueries({ queryKey: ["trash"] });
-    // 資料夾 spec §6.15：刪群組轉移會建資料夾、移人／退出讓群組資料夾消失、角色變了 permissions 也變
+    // 資料夾：刪群組轉移會建資料夾、移人／退出讓群組資料夾消失、角色變了 permissions 也變
     void queryClient.invalidateQueries({ queryKey: ["folders"] });
   };
 }
@@ -111,10 +111,10 @@ export function useRenameGroup() {
 }
 
 /**
- * #175 PR4：刪群組必填模式（`DeleteGroupBody`）。204 無 body；錯誤（409 `not_admin`、409 `server_busy`、404 群組已不在…）由呼叫端 toast。
+ * #175：刪群組必填模式（`DeleteGroupBody`）。204 無 body；錯誤（409 `not_admin`、409 `server_busy`、404 群組已不在…）由呼叫端 toast。
  * 失效：單篇三把（轉移後開著的群組筆記要重抓成個人形——transferTo 經轉址拿到 `/n/` 形、其他人拿到 404；全刪後拿到 404）
- * → `['public-link']`（轉移清掉公開連結，Willie 2026-10-02）→ `['groups']`／`['notes']`。不碰 `['shares']`：兩模式都不產生逐人分享
- * （v1 先 await shares，是因為 v1 刪群組把成員物化成逐人分享——D8，v2 已推翻）。全部不 await：開著的查詢可能 404＋retry。
+ * → `['public-link']`（轉移清掉公開連結）→ `['groups']`／`['notes']`。不碰 `['shares']`：兩模式都不產生逐人分享
+ * （v1 先 await shares，是因為 v1 刪群組把成員物化成逐人分享，v2 已不這樣做）。全部不 await：開著的查詢可能 404＋retry。
  */
 export function useDeleteGroup() {
   const queryClient = useQueryClient();
@@ -130,7 +130,7 @@ export function useDeleteGroup() {
   });
 }
 
-/** 只新增（409 `already_member`，不 upsert——S1 的守法，spec r1 C）。`roleId` 未給就不送鍵
+/** 只新增（409 `already_member`，不 upsert）。`roleId` 未給就不送鍵
  * （server body `.strict()`，未給＝內建一般成員；這裡明確不把 undefined 放進物件）。 */
 export function useAddMember(groupId: string) {
   const invalidate = useInvalidateGroupsAndNotes();
@@ -180,7 +180,7 @@ export function useRemoveMember(groupId: string) {
 }
 
 /**
- * #175 PR3：角色 CRUD（`manageGroup`；spec §6.7）。建立不影響任何人的存取（沒有人掛新角色），只失效兩把 key；
+ * #175：角色 CRUD（`manageGroup`）。建立不影響任何人的存取（沒有人掛新角色），只失效兩把 key；
  * 改與刪會改到「掛這個角色的人」的 `permissions`——可能就是自己——所以比照 `useSetMemberRole` 另外失效單篇筆記
  * 三把 key（見檔頭）。`['groups']` 前綴同時涵蓋 `groupRolesKey(id)`，角色頁跟著重抓。
  */
@@ -196,7 +196,7 @@ export function useCreateRole(groupId: string) {
 /**
  * body 只帶有給的鍵（`JSON.stringify` 丟掉 undefined）；server `.strict()`，`permissions` 給就要六鍵全給、不得帶 `read`。
  *
- * #247 §6.3（W28：toggle 按下即生效）：
+ * #247（toggle 按下即生效）：
  * - **`onSettled` 回傳 `['groups']` 失效的 promise**——TanStack Query 會等它結束才把 mutation 轉成 settled，所以呼叫端
  *   `isPending` 涵蓋整個 refetch（角色卡「一卡一在飛」靠這條：不再 pending 時快取必為真值）。`['groups']` 是
  *   `groupRolesKey(id)` 的前綴。失敗也走這裡：refetch 讓 switch 彈回 server 值。
@@ -216,16 +216,16 @@ export function useUpdateRole(groupId: string) {
       queryClient.setQueryData<GroupRoleDto[]>(groupRolesKey(groupId), (rows) => rows?.map((row) => (row.id === updated.id ? updated : row)));
       void invalidateSingleNoteKeys(queryClient);
       void queryClient.invalidateQueries({ queryKey: ["notes"] });
-      // D-W9：不經 useInvalidateGroupsAndNotes，另外失效垃圾桶（edit／delete 旗標決定誰看得到群組垃圾桶）
+      // 不經 useInvalidateGroupsAndNotes，另外失效垃圾桶（edit／delete 旗標決定誰看得到群組垃圾桶）
       void queryClient.invalidateQueries({ queryKey: ["trash"] });
-      // 資料夾 spec §6.15：群組資料夾的 permissions 跟著角色旗標變
+      // 資料夾：群組資料夾的 permissions 跟著角色旗標變
       void queryClient.invalidateQueries({ queryKey: ["folders"] });
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: GROUPS_QUERY_KEY }),
   });
 }
 
-/** 刪自訂角色：持有者改掛內建一般成員（Q8）——他們的 `permissions` 會變，失效同 `useUpdateRole`。 */
+/** 刪自訂角色：持有者改掛內建一般成員——他們的 `permissions` 會變，失效同 `useUpdateRole`。 */
 export function useDeleteRole(groupId: string) {
   const queryClient = useQueryClient();
   const invalidate = useInvalidateGroupsAndNotes();

@@ -123,7 +123,7 @@ describe("#388 登出只作廢這台裝置", () => {
     expect(await sessionIdsOf(db, u.id)).toEqual([sidOf(a2), sidOf(b), testSessionId(u.id)].sort());
   });
 
-  it("瀏覽器帶著別的帳號 V 的 cookie 登入：V 那一列不動（#187 RF4）", async () => {
+  it("瀏覽器帶著別的帳號 V 的 cookie 登入：V 那一列不動（#187）", async () => {
     const { app, db } = await buildTestApp();
     const v = await insertPasswordUser(db);
     const u = await insertPasswordUser(db);

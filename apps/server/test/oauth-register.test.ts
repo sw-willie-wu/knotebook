@@ -1,7 +1,7 @@
 /**
- * #132 Task 4：`POST /oauth/register`（DCR，§5.2）。
+ * #132：`POST /oauth/register`（DCR）。
  *
- * 這一族守的是：①loopback-only（D10——無認證的 DCR 若收遠端 redirect，任何人都能註冊
+ * 這一族守的是：①loopback-only（無認證的 DCR 若收遠端 redirect，任何人都能註冊
  * 好聽的名字做一鍵釣魚）；②不支援的 metadata 一律回絕而不是默默接受；③`client_name`
  * 黑名單；④進表前先跑 I5；⑤限流與 content-type 都走 RFC 形。
  */
@@ -17,7 +17,7 @@ async function register(app: TestApp["app"], body: object) {
   return app.inject({ method: "POST", url: "/oauth/register", payload: body });
 }
 
-describe("POST /oauth/register（§5.2）", () => {
+describe("POST /oauth/register", () => {
   it("201 回註冊結果，不發 secret，欄位固定", async () => {
     const { app, close } = await buildTestApp();
     try {

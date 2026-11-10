@@ -1,6 +1,6 @@
 /**
- * bulk transfer spec 2026-11-02 §9.4、§9.5；plan PR-2 T8（M9–M11）、T13（X1–X6）。Willie 2026-11-04 第三輪：筆記動過就 409，
- * 合併、存版、衝突與重試的 M1–M8f 已隨程式刪除（「動過就拒」的案在 `transfer-write-reread.test.ts`）。
+ * bulk transfer 合併（M9–M11、X1–X6）。筆記動過就 409，
+ * 合併、存版、衝突與重試的案已隨程式刪除（「動過就拒」的案在 `transfer-write-reread.test.ts`）。
  */
 import { describe, expect, it } from "vitest";
 import { eq, isNull } from "drizzle-orm";
@@ -28,7 +28,7 @@ async function scene(opts: Opts = {}, md = PARAS(6)) {
 const versionsOf = (ctx: CollabTestCtx, noteId: string) => ctx.db.select().from(noteVersions).where(eq(noteVersions.noteId, noteId));
 
 describe("M9–M11", () => {
-  it("M9 只 mount 兩次（scratch＋fork，沒有重試；判「動過沒」用結構比對、不 mount，審查 I2）；合併前 inFlight 0（冷筆記與剛寫過的熱筆記）", async () => {
+  it("M9 只 mount 兩次（scratch＋fork，沒有重試；判「動過沒」用結構比對、不 mount）；合併前 inFlight 0（冷筆記與剛寫過的熱筆記）", async () => {
     const inFlight: number[] = [];
     const s = await scene({ editingTestHooks: { beforeMerge: async () => void inFlight.push(testEditingRuntime.inFlight) } });
     for (const label of ["cold", "hot"]) {
@@ -77,7 +77,7 @@ describe("M9–M11", () => {
   });
 });
 
-describe("X1–X6（§14.4 守衛；plan T13）", () => {
+describe("X1–X6（守衛）", () => {
   const filesOfExport = async (s: Awaited<ReturnType<typeof scene>>) => {
     const ex = await exportRaw(s.ctx.baseUrl, s.bulk.token);
     expect(ex.status).toBe(200);
@@ -121,7 +121,7 @@ describe("X1–X6（§14.4 守衛；plan T13）", () => {
   });
 
   it("X3 HTML 註解五形（註解行後不空行接 heading／bullet／quote／code fence／表格 → 各成一段純文字）＋行內 `a <!-- c --> b` → `a  b`、那顆換 id", async () => {
-    // 五形各自一區（中間夾著沒改的段 S0–S4；同一區裡連著兩組「註解＋下一行」會併成一段，見 X3b）
+    // 五形各自一區（中間夾著沒改的段 S0–S4；同一區裡連著兩組「註解＋下一行」會併成一段）
     const s = await scene({}, "S0\n\nS1\n\nS2\n\nS3\n\nS4\n\nInline target");
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
     const idsBefore = await topIdsOf(s.ctx, s.note.id);
@@ -173,7 +173,7 @@ describe("X1–X6（§14.4 守衛；plan T13）", () => {
     ]);
   });
 
-  it("X4（known-limitation F31）改帶段落子的 bullet → 寫回後巢狀消失、子段落成頂層", async () => {
+  it("X4（已知限制）改帶段落子的 bullet → 寫回後巢狀消失、子段落成頂層", async () => {
     const s = await scene();
     const nid = (await seedNote(s.ctx.db, { ownerId: s.u.id }, { title: "X" })).id;
     await seedBlocks(s.ctx.db, nid, [{ type: "bulletListItem", content: "a", children: [{ type: "paragraph", content: "child" }] }, { type: "paragraph", content: "after" }]);
@@ -182,7 +182,7 @@ describe("X1–X6（§14.4 守衛；plan T13）", () => {
     expect((await liveBlocks(s.ctx, nid)).map(b => `${b.type}:${b.text}:${b.children}`)).toEqual(["bulletListItem:a2:0", "paragraph:child:0", "paragraph:after:0"]);
   });
 
-  it("X5（known-limitation E14）toggle 改內容 → 寫回後變 bullet", async () => {
+  it("X5（已知限制）toggle 改內容 → 寫回後變 bullet", async () => {
     const s = await scene();
     const nid = (await seedNote(s.ctx.db, { ownerId: s.u.id }, { title: "X" })).id;
     await seedBlocks(s.ctx.db, nid, [{ type: "toggleListItem", content: "t1" }, { type: "toggleListItem", content: "t2" }]);

@@ -1,6 +1,6 @@
 /**
- * #181 PR-2a T11：共編與垃圾桶（spec 2026-10-21 §6.4、§6.4.1、§6.4.3、A2-1 共編面）。
- * 一律接真 hooks（`createCollabHooks`）：預設 noop hooks 的 DELETE 不開閘門、不踢線，還原也不收門（global constraints H7）。
+ * #181：共編與垃圾桶。
+ * 一律接真 hooks（`createCollabHooks`）：預設 noop hooks 的 DELETE 不開閘門、不踢線，還原也不收門。
  */
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
@@ -84,7 +84,7 @@ describe("#181 共編與垃圾桶", () => {
     } finally {
       s.close();
     }
-    // 測試直開（繞過 withDirectConnection 的重確認）：模擬閘門後零星抵達的 store（§6.4.1）。
+    // 測試直開（繞過 withDirectConnection 的重確認）：模擬閘門後零星抵達的 store。
     const direct = await ctx.collab.hocuspocus.openDirectConnection(note.id, { userId: owner.id });
     await direct.transact(doc => {
       Y.applyUpdate(doc, Y.encodeStateAsUpdate(src));

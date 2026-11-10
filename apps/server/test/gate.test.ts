@@ -221,7 +221,7 @@ describe("UserGate", () => {
 });
 
 describe("UserGate.checkUser（#107：token 路徑的使用者狀態閘）", () => {
-  it("D3：tokenVersion 改變不影響（改密碼不作廢 API token）", async () => {
+  it("tokenVersion 改變不影響（改密碼不作廢 API token）", async () => {
     const { db } = await freshDb();
     const u = await insertUser(db, { tokenVersion: 3 });
     const gate = new UserGate(db);

@@ -1,4 +1,4 @@
-// 版本歷史 REST（spec 2026-10-09 §6、§11.2「REST 矩陣」「手動儲存」「PATCH／DELETE」、Review Focus RF1／RF2）。
+// 版本歷史 REST（REST 矩陣、手動儲存、PATCH／DELETE）。
 import { describe, expect, it } from "vitest";
 import { eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -35,7 +35,7 @@ async function restSetup(over: Parameters<typeof buildTestApp>[0] = {}) {
   return { app, db, owner, note, setContent, base };
 }
 
-describe("權限矩陣（§6 開頭、§9）", () => {
+describe("權限矩陣（開頭）", () => {
   it("owner／editor／群組 editor 可讀可寫；viewer 403；看不到 404；未登入 401；PAT 401", async () => {
     const s = await restSetup();
     expect((await call(s.app, "POST", s.base, s.owner.id, {})).statusCode).toBe(201); // 先有 v1
@@ -72,7 +72,7 @@ describe("權限矩陣（§6 開頭、§9）", () => {
     expect((await call(s.app, "POST", `${s.base}/1/apply`, s.owner.id, { versionId: v1.id, discardUnsaved: false })).statusCode).toBe(404);
   });
 
-  it("M5：角色檢查排在扣桶之前——viewer 對每支寫入連打 3 次（桶上限 2）每次都是 403 不是 429，且不耗 owner 的桶", async () => {
+  it("角色檢查排在扣桶之前——viewer 對每支寫入連打 3 次（桶上限 2）每次都是 403 不是 429，且不耗 owner 的桶", async () => {
     const s = await restSetup({ limiters: freshLimiters({ edit: new FixedWindowLimiter({ limit: 2, windowMs: 60_000 }) }) });
     for (const [method, url, body] of [["POST", s.base, {}], ["PATCH", `${s.base}/1`, { name: "x" }], ["DELETE", `${s.base}/1`, undefined]] as const) {
       const viewer = await seedUser(s.db); // 桶以 userId 為鍵：每支各用一個 viewer，單支路由的對調也抓得到
@@ -106,7 +106,7 @@ describe("參數驗證（不變量 S）", () => {
   });
 });
 
-describe("GET 清單與快照（§6.1、§6.2）", () => {
+describe("GET 清單與快照", () => {
   it("新到舊、游標分頁、nextBefore 恰好在最後一頁為 null；editors 帶 handle（刪除的使用者為空字串）；current", async () => {
     const s = await restSetup();
     const fp = versionFingerprint(paraDoc(["版本一的內容"]).getXmlFragment(YDOC_FRAGMENT));
@@ -134,7 +134,7 @@ describe("GET 清單與快照（§6.1、§6.2）", () => {
     expect(p3.versions.map((v: { seq: number }) => v.seq)).toEqual([1]);
     expect(p3.nextBefore).toBeNull();
     const exact = (await call(s.app, "GET", `${s.base}?limit=5`, s.owner.id)).json();
-    expect(exact.nextBefore).toBeNull(); // 剛好整頁不多給空頁游標（起草裁定 10）
+    expect(exact.nextBefore).toBeNull(); // 剛好整頁不多給空頁游標
     await s.setContent("內容變了");
     expect((await call(s.app, "GET", s.base, s.owner.id)).json().current.dirty).toBe(true);
   });
@@ -236,7 +236,7 @@ describe("GET 清單與快照（§6.1、§6.2）", () => {
   });
 });
 
-describe("POST 手動儲存（§6.3）", () => {
+describe("POST 手動儲存", () => {
   it("沒有基底且乾淨 → 201 新版；乾淨且有基底 → 201 upgraded（總數不變）；dirty → 新版", async () => {
     const s = await restSetup();
     const a = await call(s.app, "POST", s.base, s.owner.id, { name: "首版" });
@@ -257,7 +257,7 @@ describe("POST 手動儲存（§6.3）", () => {
     expect(r.json()).toMatchObject({ seq: 1, upgraded: false });
   });
 
-  it("RF1：名稱規則——只有空白 → null；120 code point 收、121 拒；NUL／落單代理 400（不是 500）；body 形狀錯 400", async () => {
+  it("名稱規則——只有空白 → null；120 code point 收、121 拒；NUL／落單代理 400（不是 500）；body 形狀錯 400", async () => {
     const s = await restSetup();
     const smile = String.fromCodePoint(0x1f600);
     expect((await call(s.app, "POST", s.base, s.owner.id, { name: " 　 " })).json().name).toBeNull();
@@ -291,7 +291,7 @@ describe("POST 手動儲存（§6.3）", () => {
   });
 });
 
-describe("PATCH／DELETE（§6.5、§6.6）", () => {
+describe("PATCH／DELETE", () => {
   it("PATCH 自動版本 → 轉手動；{name:null} 清名稱仍是手動；不存在 → 404", async () => {
     const s = await restSetup();
     await s.db.insert(noteVersions).values({ noteId: s.note.id, seq: 1, ydoc: Buffer.from([0]), kind: "auto" });
@@ -315,7 +315,7 @@ describe("PATCH／DELETE（§6.5、§6.6）", () => {
   });
 });
 
-describe("POST apply（§6.4）× 真 collab", () => {
+describe("POST apply × 真 collab", () => {
   async function collabSetup(opts: Parameters<typeof buildCollabTestApp>[0] = {}) {
     const ctx = await buildCollabTestApp(opts);
     const u = await ctx.createUser({ email: "a@example.com", password: "correct-horse-battery" });
@@ -333,7 +333,7 @@ describe("POST apply（§6.4）× 真 collab", () => {
     return { ctx, u, note, session, base, unloaded, setContent, post, v1: v1!, v2: v2! };
   }
 
-  it("200 { current }；RF2 大寫 versionId 視同同一版；versionId 對不上 409；seq 不存在 404；body 錯 400", async () => {
+  it("200 { current }；大寫 versionId 視同同一版；versionId 對不上 409；seq 不存在 404；body 錯 400", async () => {
     const s = await collabSetup();
     const ok = await s.post(`${s.base}/1/apply`, { versionId: s.v1.id.toUpperCase(), discardUnsaved: false });
     expect(ok.status).toBe(200);
@@ -362,7 +362,7 @@ describe("POST apply（§6.4）× 真 collab", () => {
     const client = await s.session.connect(s.note.id);
     deleteV1 = async () => { await s.ctx.db.delete(noteVersions).where(sql`note_versions.note_id = ${s.note.id} and note_versions.seq = 1`); };
     const r = await s.post(`${s.base}/1/apply`, { versionId: s.v1.id, discardUnsaved: false });
-    expect((await r.json()).current).toMatchObject({ baseSeq: null, dirty: true }); // 起草裁定 12：套用完成後的實際 current
+    expect((await r.json()).current).toMatchObject({ baseSeq: null, dirty: true }); // 套用完成後的實際 current
     deleteV1 = null;
     client.disconnect();
     await s.unloaded();

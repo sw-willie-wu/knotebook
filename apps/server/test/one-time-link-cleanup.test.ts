@@ -1,6 +1,6 @@
 /**
- * #286 spec §3.7：`deleteEndedOneTimeLinks` 只刪「結束（用掉／撤銷／過期）超過 30 天」的列，且不等別人的列鎖。
- * 每列各用一位新使用者（避開 I3 的 partial unique index）。
+ * #286：`deleteEndedOneTimeLinks` 只刪「結束（用掉／撤銷／過期）超過 30 天」的列，且不等別人的列鎖。
+ * 每列各用一位新使用者（避開 partial unique index）。
  */
 import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
@@ -24,7 +24,7 @@ async function remaining(pool: Pool): Promise<string[]> {
   return (await pool.query(`select id from one_time_links`)).rows.map((r: { id: string }) => r.id).sort();
 }
 
-describe("deleteEndedOneTimeLinks（spec §3.7）", () => {
+describe("deleteEndedOneTimeLinks", () => {
   it("K1：結束時間＝coalesce(used_at, revoked_at, expires_at)，超過 30 天才刪", async () => {
     const { db, pool } = await freshDb();
     const ago = (s: string) => `now() - interval '${s}'`;

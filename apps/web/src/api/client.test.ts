@@ -170,7 +170,7 @@ describe("api()", () => {
     expect(err.storage).toEqual({ incomingBytes: null });
   });
 
-  it("RF5：storage 形狀不對（usedBytes 是字串）→ 整個不收，storage 為 undefined", async () => {
+  it("storage 形狀不對（usedBytes 是字串）→ 整個不收，storage 為 undefined", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(fakeResponse({
       ok: false, status: 409,
       json: () => Promise.resolve({ error: { code: "storage_quota_exceeded", message: "x" }, storage: { incomingBytes: 1, usedBytes: "600", quotaBytes: 1000 } }),
@@ -189,7 +189,7 @@ describe("api()", () => {
     expect(err.storage).toBeUndefined();
   });
 
-  it("CL-T1 404 in_trash：收頂層 noteId（spec §6.7）", async () => {
+  it("CL-T1 404 in_trash：收頂層 noteId", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(fakeResponse({
       ok: false, status: 404,
       json: () => Promise.resolve({ error: { code: "in_trash", message: "x" }, noteId: "abc" }),

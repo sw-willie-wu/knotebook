@@ -5,7 +5,7 @@ import { collabUndoManager } from "@/collab/undo";
 type AnyEditor = BlockNoteEditor<any, any, any>;
 
 /**
- * 結構操作自成一個撤銷步（spec §7.4）：前後各 `stopCapturing()`，不跟前後的打字併成同一步。
+ * 結構操作自成一個撤銷步：前後各 `stopCapturing()`，不跟前後的打字併成同一步。
  * 非共編編輯器（`history` extension）沒有 UndoManager，只跑 `run`。
  */
 export function asUndoStep<T>(editor: AnyEditor, run: () => T): T {

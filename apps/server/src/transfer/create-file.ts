@@ -1,12 +1,12 @@
 /**
- * bulk transfer spec 2026-11-02 §10：沒有 `id` 的檔＝新增筆記（plan PR-2 T10）。這裡是兩支純判斷：去重鍵 `fileShaOf`、落點
+ * bulk transfer：沒有 `id` 的檔＝新增筆記。這裡是兩支純判斷：去重鍵 `fileShaOf`、落點
  * `resolveCreateDest`。佇列、扣桶、建列與 `transfer_creates` 的 upsert 在 `NoteWriteService.createFromFile`。
  *
  * 落點（照順序）：`shared` 範圍 → 403（只含分享給你的筆記的權杖不能建）；給了 `folder_id` → 看不到 → 404 `folder_not_found`、
- * 在分享給你的空間 → 403（F23：不能放新筆記）、群組資料夾 → 要 `canCreate` 且 `canEdit`；沒給 → 範圍最上層（folder → 該資料夾；
+ * 在分享給你的空間 → 403（不能放新筆記）、群組資料夾 → 要 `canCreate` 且 `canEdit`；沒給 → 範圍最上層（folder → 該資料夾；
  * group → 群組最上層〔要 `canCreate`〕；all／personal → 我的筆記最上層）。目的地不在範圍（folder 範圍要在子樹、group 範圍要在該
  * 群組、personal 範圍要在個人空間）→ 403。判「在不在子樹」用路由已取的 `visibleTree` 經 `consistentTree`、沿 `parentId` 往上走，
- * 不另寫可見性 SQL（plan 不變量 1）。
+ * 不另寫可見性 SQL。
  */
 import type { BulkRange } from "../auth/transfer-token.js";
 import type { Db } from "../db/index.js";
@@ -24,7 +24,7 @@ export const SHARED_FOLDER_CREATE_FORBIDDEN_MESSAGE = "New notes can't go in you
 /** 同 REST `POST /api/notes` 的群組新建判準句。 */
 export const GROUP_CREATE_FORBIDDEN_MESSAGE = "Your role in this group can't create notes.";
 
-/** §10、§21 D13：`HMAC-SHA256(K, user_id ‖ 正規化後整個檔)`。正規化＝`normalizeBody(整個檔)`（呼叫端做）。 */
+/** `HMAC-SHA256(K, user_id ‖ 正規化後整個檔)`。正規化＝`normalizeBody(整個檔)`（呼叫端做）。 */
 export function fileShaOf(key: Buffer, userId: string, normalizedFile: string): Buffer {
   return hmacOf(key, Buffer.from(userId, "utf8"), normalizedFile);
 }

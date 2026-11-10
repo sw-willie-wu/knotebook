@@ -1,7 +1,7 @@
 import { AI_SSE_EVENTS, type AiActionDto } from "@knotebook/shared";
 import { api, ApiFail } from "./client";
 
-/** `GET /api/ai/actions`（Task 4）：可解析的 AI 動作清單。走一般 `api()`（JSON 契約）。 */
+/** `GET /api/ai/actions`：可解析的 AI 動作清單。走一般 `api()`（JSON 契約）。 */
 export function fetchAiActions(): Promise<AiActionDto[]> {
   return api<{ actions: AiActionDto[] }>("/api/ai/actions").then((body) => body.actions);
 }
@@ -45,14 +45,14 @@ function parseSseFrame(frame: string): { event: string; data: unknown } | null {
 }
 
 /**
- * `POST /api/ai` 的手寫 SSE client（spec §13.2/§13.5-1，Task 5 wire 契約）。
+ * `POST /api/ai` 的手寫 SSE client。
  *
  * **不走 `api()`**：`api()` 假設回應是單一 JSON body，非 2xx 才走它的錯誤解析——這裡的
  * 2xx 回應是一段 `text/event-stream`，得自己用 `fetch` + `ReadableStream` 手動收流。但
  * `api()` 幫忙補的兩件事仍要自己帶：
  * - `Content-Type: application/json`——漏這個 header，server 的 `app.ts` 全域 CSRF hook
  *   會直接 415 擋下（而且 fetch 完全被 stub 掉的單元測試測不出這個坑，只有手動對真
- *   server 驗收才會炸，見 brief）。
+ *   server 驗收才會炸）。
  * - `credentials: "include"`——沒有它，session cookie 不會隨請求送出，pre-stream 授權檢查
  *   一律 401。
  *
@@ -81,7 +81,7 @@ export async function streamAiAction(
       action_id: opts.actionId,
       note_id: opts.noteId,
       text: opts.text,
-      // #263 §4.3：只有 Instruct 帶這兩欄；非 Instruct 帶了（含空字串）server 會回 400，所以沒傳就不出現。
+      // #263：只有 Instruct 帶這兩欄；非 Instruct 帶了（含空字串）server 會回 400，所以沒傳就不出現。
       ...(opts.instruction !== undefined ? { instruction: opts.instruction } : {}),
       ...(opts.focus !== undefined ? { focus: opts.focus } : {}),
     }),

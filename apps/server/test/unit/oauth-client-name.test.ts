@@ -1,5 +1,5 @@
 /**
- * #132：`client_name` 的黑名單（§5.2）。這是 D10（loopback-only）之外唯一的釣魚防線——
+ * #132：`client_name` 的黑名單。這是 loopback-only 之外唯一的釣魚防線——
  * 擋的是能把同意頁那行「名稱未經驗證」旁註在視覺上推走的字元。
  */
 import { describe, expect, it } from "vitest";

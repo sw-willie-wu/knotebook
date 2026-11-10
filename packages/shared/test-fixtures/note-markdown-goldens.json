@@ -31,7 +31,7 @@
     {
       "id": "G0-media",
       "roundTrip": "text",
-      "note": "file 與隱藏預覽的圖片讀成連結、寫回成「段落＋連結」，再讀字面相同、結構不同（現行行為，gate r2 q3）。",
+      "note": "file 與隱藏預覽的圖片讀成連結、寫回成「段落＋連結」，再讀字面相同、結構不同（現行行為）。",
       "blocks": [
         { "id": "g0m-img", "type": "image", "props": { "name": "pic", "url": "/api/uploads/u0" } },
         { "id": "g0m-img2", "type": "image", "props": { "name": "pic2", "caption": "cap", "url": "/api/uploads/u0" } },
@@ -130,7 +130,7 @@
     {
       "id": "G1-cols-spec",
       "roundTrip": "exact",
-      "note": "spec §11.1 的範例，markdown 逐字照 plan Task 2。",
+      "note": "docs/ai-editing.md「Columns」段的範例形（圖片欄＋標題段落欄），markdown 逐字釘住。",
       "blocks": [
         {
           "id": "g1s-r",
@@ -385,7 +385,7 @@
     {
       "id": "G2-img-in-toggle-heading",
       "roundTrip": "exact",
-      "note": "寫回時 core 把 <details> 內的圖片網址絕對化，靠 relativizeSiteUploads 還原（Task 3／4）。",
+      "note": "寫回時 core 把 <details> 內的圖片網址絕對化，靠 relativizeSiteUploads 還原。",
       "blocks": [
         {
           "id": "g2t-h",
@@ -481,7 +481,7 @@
     {
       "id": "G3-table-colspan-partial",
       "roundTrip": "exact",
-      "note": "合併格只設一欄寬：讀出 colwidth=\"120,\"；寫回靠 normalizeTableWidths（Task 3）把空段存成未設。",
+      "note": "合併格只設一欄寬：讀出 colwidth=\"120,\"；寫回靠 normalizeTableWidths 把空段存成未設。",
       "blocks": [
         {
           "id": "g3p-table",

@@ -92,7 +92,7 @@ interface SidebarContentProps {
   onQueryChange: (query: string) => void;
   /** 搜尋框 ref——**兩個實例（靜態卡／抽屜）各傳自己的 ref 物件**，不得共用：
    * 共用同一個物件的話，抽屜 unmount 時 React 會把它清成 null，Ctrl+K 從此
-   * 靜默失效（spec §3a）。 */
+   * 靜默失效。 */
   searchRef: RefObject<HTMLInputElement | null>;
   onCreateNote: (groupId?: string, folderId?: string) => void;
   newNotePending: boolean;
@@ -105,7 +105,7 @@ interface SidebarContentProps {
  * 目前 tab 住在 `SidebarTabProvider`（靜態卡與抽屜兩份實例共用一份）。wrapper（靜態
  * `<aside>` 卡或抽屜 Content）由呼叫端提供——兩個 wrapper 都必須給
  * `flex flex-col` 脈絡，否則清單容器的 `min-h-0 flex-1 overflow-y-auto` 失去
- * 約束（spec §3a 邊界定案）。 */
+ * 約束。 */
 function SidebarContent({
   query,
   onQueryChange,
@@ -115,13 +115,13 @@ function SidebarContent({
   shortcutBadge,
 }: SidebarContentProps) {
   const { t } = useTranslation();
-  // 靜態卡與抽屜各自一份 `useId`，tab／tabpanel 的 id 才不會撞（spec §5.5）。
+  // 靜態卡與抽屜各自一份 `useId`，tab／tabpanel 的 id 才不會撞。
   const idBase = useId();
   const { tab } = useSidebarTabState();
   const { updateSelection } = useSidebarTabActions();
   // 空白也算搜尋中（同改版前的判準）。
   const searching = query.length > 0;
-  // spec §6.10.2：開始搜尋也離開選取模式（兩份實例都跑，冪等）。
+  // 開始搜尋也離開選取模式（兩份實例都跑，冪等）。
   useEffect(() => {
     if (searching) updateSelection({ type: "end" });
   }, [searching, updateSelection]);
@@ -218,7 +218,7 @@ function SidebarContent({
 
 interface AppShellProps {
   children: ReactNode;
-  /** #229：簡報模式時整個背景不可互動（spec §6.6-7）；簡報層是 AppShell 的兄弟、不在它底下。 */
+  /** #229：簡報模式時整個背景不可互動；簡報層是 AppShell 的兄弟、不在它底下。 */
   inert?: boolean;
 }
 
@@ -270,7 +270,7 @@ interface AppShellProps {
  * `actionsRef` 給抽屜 Esc 用；`AppShell` 隨
  * 首頁↔筆記頁重掛（各自渲染一份），tab 靠 localStorage 在重掛間帶回，切 tab 不重繪 `AppShell` 本身。
  *
- * 側欄寬度（Task 4）：靜態卡寬度是 `<aside style={{ width }}>` 的 React state，範圍
+ * 側欄寬度：靜態卡寬度是 `<aside style={{ width }}>` 的 React state，範圍
  * 200–480、預設 256（＝改版前的 `w-64`），存在 localStorage（`sidebar-width.ts`）。下限讓
  * 群組內筆記列還留得下約 3 個中文字；上限不相對視窗——窄視窗下拉到最寬會擠壓內文，
  * 雙擊把手即回 256。把手（共用的 `PaneResizeHandle`，`edge="right"`）是 `<aside>` 內
@@ -318,7 +318,7 @@ export function AppShell({ children, inert }: AppShellProps) {
   drawerOpenRef.current = drawerOpen;
   const tabActionsRef = useRef<SidebarTabActions | null>(null);
 
-  // 快捷鍵介紹頁（Ctrl/Cmd+/ 或使用者選單）的開關：state 在這裡（K1），內容 lazy（`ShortcutsDialog`）。
+  // 快捷鍵介紹頁（Ctrl/Cmd+/ 或使用者選單）的開關：state 在這裡，內容 lazy（`ShortcutsDialog`）。
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const shortcutsOpenRef = useRef(shortcutsOpen);
   shortcutsOpenRef.current = shortcutsOpen;
@@ -334,7 +334,7 @@ export function AppShell({ children, inert }: AppShellProps) {
     [],
   );
 
-  // Ctrl/Cmd+/ 開關快捷鍵介紹頁（與下面的 Ctrl+K 是兩支獨立的 effect，互不改動）。判準與讓路（plan K3／K4）：
+  // Ctrl/Cmd+/ 開關快捷鍵介紹頁（與下面的 Ctrl+K 是兩支獨立的 effect，互不改動）。判準與讓路：
   // - `(ctrl || meta) && !alt && key === "/"`，不看 shift（德文等配置的 `/` 本身要按 Shift，排除會讓那些鍵盤打不開）；`!alt` 比照 NotePage 的 Ctrl+S。
   // - `repeat` 不理；`defaultPrevented` 不理（別人已處理，比照下面 Ctrl+K）。
   // - 快捷鍵頁已開 → preventDefault＋關（切換）。
@@ -362,8 +362,8 @@ export function AppShell({ children, inert }: AppShellProps) {
   // Ctrl/Cmd+, 打開設定（與使用者選單的「設定」項走同一條路：`openSettings`，帶 backgroundLocation）。規則同上面的 Ctrl+/：
   // `(ctrl || meta) && !alt && !shift && key === ","`、不理 repeat／defaultPrevented；其他對話框（側欄抽屜除外）或選單開著——
   // 含設定 modal 本身、快捷鍵頁、簡報層——就放棄、不 preventDefault（設定已開著時什麼都不做）。
-  // 查證（2026-11-02）：BlockNote 0.52／tiptap 3／prosemirror 的 dist 都沒有綁任何標點鍵（`Mod-,` 不存在），Chromium 不保留 Ctrl+,；
-  // Mac 的 ⌘, 在 Safari 是原生的偏好設定、頁面可能攔不到；Mac Chrome、Firefox 也一樣未驗（⌘／ 同）——全部列入手測，Willie 測後再定。handler 讀 ref（navigate／location 每次 render 都換）。
+  // 查證：BlockNote 0.52／tiptap 3／prosemirror 的 dist 都沒有綁任何標點鍵（`Mod-,` 不存在），Chromium 不保留 Ctrl+,；
+  // Mac 的 ⌘, 在 Safari 是原生的偏好設定、頁面可能攔不到；Mac Chrome、Firefox 也一樣未驗（⌘／ 同）——全部列入手測，測後再定。handler 讀 ref（navigate／location 每次 render 都換）。
   const settingsRouteRef = useRef({ navigate, location });
   settingsRouteRef.current = { navigate, location };
   useEffect(() => {
@@ -441,7 +441,7 @@ export function AppShell({ children, inert }: AppShellProps) {
   }, []);
 
   /** 建立筆記並導向。`groupId` 給群組段的「＋」（#103，server 預設 editor）、群組資料夾要同時帶；`folderId` 給資料夾列的「＋」
-   * （資料夾 spec §6.4），成功後該資料夾與祖先寫成展開（§6.8）。body 只帶有給的鍵（都沒有＝不帶 body，同現行）。
+   * ，成功後該資料夾與祖先寫成展開。body 只帶有給的鍵（都沒有＝不帶 body，同現行）。
    * 失敗一律 toast（含群組剛被刪的 404 `group_not_found`）；資料夾錯誤帶 `max`，`folder_not_found` 另重抓資料夾清單。 */
   async function handleNewNote(groupId?: string, folderId?: string): Promise<void> {
     const body = {
@@ -470,7 +470,7 @@ export function AppShell({ children, inert }: AppShellProps) {
   };
 
   return (
-    // 高度/捲動鏈（PR2（BC2 卡片版面）起）：三個面板要各自固定高度、內文獨立捲動，
+    // 高度/捲動鏈（卡片版面）：三個面板要各自固定高度、內文獨立捲動，
     // 頁面本身不得整體捲動。`min-h-screen` 只設下限——內容一旦比視口高，這個 row
     // 容器（連帶 `main`）就會跟著撐高，逼出**文件層級**的捲動，下游各卡片的
     // `overflow-y-auto` 因此永遠沒機會真的裁切。必須 `h-screen`（鎖視口）＋
@@ -510,7 +510,7 @@ export function AppShell({ children, inert }: AppShellProps) {
                   data-sidebar-drawer=""
                   data-sidebar-instance=""
                   // 底色與 flex 脈絡缺一不可：沒底色透出 overlay 的黑、沒 flex-col 則
-                  // SidebarContent 的 min-h-0 flex-1 清單失去約束（spec §3a）。貼齊
+                  // SidebarContent 的 min-h-0 flex-1 清單失去約束。貼齊
                   // 左緣故意不用 cardSurface 的圓角——抽屜不是卡片。
                   className="fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-border bg-card outline-none"
                   // Radix 在 document capture 先處理 Esc：選取中先結束選取、抽屜不關。真瀏覽器在這個 listener 與 React 的

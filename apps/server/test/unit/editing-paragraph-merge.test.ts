@@ -1,8 +1,8 @@
 /**
- * 全分支審查複審 I-B／複審二：引言、標題、summary 底下的多段落，BlockNote 0.52 自己併（`mergeParagraphs`，迴圈裡 `innerHTML +=`）是平方成長——
+ * 引言、標題、summary 底下的多段落，BlockNote 0.52 自己併（`mergeParagraphs`，迴圈裡 `innerHTML +=`）是平方成長——
  * 一個引言裡 2 000 段約 21 秒。`premergeInto` 在交給它之前用同一個規則一次併好。
  *
- * 等價：逐案比對併過與沒併過的 HTML，`tryParseHTMLToBlocks` 出來的 blocks（拿掉隨機 id）必須相同。涵蓋範圍＝下面列的形狀：審查第二輪的
+ * 等價：逐案比對併過與沒併過的 HTML，`tryParseHTMLToBlocks` 出來的 blocks（拿掉隨機 id）必須相同。涵蓋範圍＝下面列的形狀：
  * 70 形（`REVIEW_CASES`，原樣照抄；其中段落裡又有段落的 5 形改成驗「整筆拒絕」，不在等價範圍）加本檔原有各形。不是對任意 HTML 的證明。
  */
 import { describe, expect, it } from "vitest";
@@ -29,7 +29,7 @@ async function withEditor<T>(fn: (ed: EditorSession["editor"]) => T): Promise<T>
     s.close();
   }
 }
-/** 語法檢查過的 HTML（過不了就用原字串，同審查探針）。 */
+/** 語法檢查過的 HTML（過不了就用原字串）。 */
 const htmlOf = (md: string) => {
   const s = checkNoteMarkdownSyntax(md, "top");
   return s.ok ? s.html : md;
@@ -42,7 +42,7 @@ const blocksOf = (ed: EditorSession["editor"], html: string): string => {
   }
 };
 
-// ---- 審查第二輪的 70 形（`scratchpad/ffrv2/zz-ffrv2-fixed.test.ts` 原樣） ----
+// ---- 70 種形狀 ----
 const REVIEW_CASES: Record<string, string> = {
   c01_md_two: "> a\n>\n> b",
   c02_ws_edges: "<blockquote><p>a </p><p> b</p></blockquote>",
@@ -121,7 +121,7 @@ Object.assign(REVIEW_CASES, {
 /** 段落裡又有段落：在 `parseMarkdownForNote` 整筆拒絕（`nested_paragraph`），不比等價。 */
 const NESTED_P = new Set(["c24_button_nested_first", "c25_button_nested_later", "c26_marquee", "c27_foreignobject", "c28_mtext"]);
 
-/** 本檔原有各形與複審二補的形：[名稱, markdown, 併過之後 HTML 應該有變]。 */
+/** 本檔各形：[名稱, markdown, 併過之後 HTML 應該有變]。 */
 const CASES: Array<[string, string, boolean]> = [
   ["兩段", "> a\n>\n> b", true],
   ["行內格式", "> **bold** x _i_ ~~s~~ `c`\n>\n> [link](http://example.com) and **b _bi_**", true],
@@ -143,18 +143,18 @@ const CASES: Array<[string, string, boolean]> = [
   ["其他內容不受重新序列化影響", "```\n\ncode & <x> \"q\"\n```\n\n<pre>\nlead</pre>\n\n> a&nbsp;&amp;\n>\n> &lt;b&gt; <!-- c -->\n\n| h | i |\n|---|---|\n| 1 | 2 |\n\n![alt](/api/uploads/x)\n\n```mermaid\ngraph TD; A-->B\n```", true],
   ["引言裡的圖與連結", `> a\n>\n> ![alt](/api/uploads/x)\n>\n> [[A]] and [x](/notes/${ID})`, true],
   ["單段（不用併）", "> only one", false],
-  // #398（全分支審查 ffrv3 x13／x14／x17）：`<plaintext>` 讓序列化後重新剖析不等價——有它就不預先併。
+  // #398：`<plaintext>` 讓序列化後重新剖析不等價——有它就不預先併。
   ["<plaintext> 在引言之後（不預先併）", "> a\n>\n> b\n\n<plaintext>z", false],
   ["<plaintext> 在引言第二段裡（不預先併）", "<blockquote><p>a</p><p>b<plaintext>z</p></blockquote>", false],
   ["<plaintext> 在標題之後（不預先併）", "<h2><p>a</p><p>b</p></h2>\n\ntext\n\n<plaintext>z <b>y</b>", false],
-  ["多行 HTML 的空白（複審二 2a）", "<blockquote>\n<p>a</p>\n<p>b</p>\n</blockquote>", true],
-  ["多行 HTML 段落後接行內元素（複審二 2a）", "<blockquote>\n<p>a</p>\n<p>b</p>\n<em>x</em>\n</blockquote>", true],
-  ["figcaption 裡的引言（不碰，複審二 2b）", '<figure><img src="/api/uploads/x"><figcaption><blockquote><p>a</p>\n<p>b</p></blockquote></figcaption></figure>', false],
+  ["多行 HTML 的空白", "<blockquote>\n<p>a</p>\n<p>b</p>\n</blockquote>", true],
+  ["多行 HTML 段落後接行內元素", "<blockquote>\n<p>a</p>\n<p>b</p>\n<em>x</em>\n</blockquote>", true],
+  ["figcaption 裡的引言（不碰）", '<figure><img src="/api/uploads/x"><figcaption><blockquote><p>a</p>\n<p>b</p></blockquote></figcaption></figure>', false],
   ["引言裡帶 data-content-type 的子元素（照樣併）", '<blockquote><p><span data-content-type="zzz">y</span></p><p>b</p></blockquote>', true],
   ["不在 details 裡的 summary 底下的引言（併引言）", "<summary><blockquote><p>a</p><p>b</p></blockquote></summary>", true],
 ];
 
-describe("premergeInto：併過與沒併過，blocks 相同（審查 70 形）", () => {
+describe("premergeInto：併過與沒併過，blocks 相同（70 形）", () => {
   for (const [name, md] of Object.entries(REVIEW_CASES)) {
     if (NESTED_P.has(name)) continue;
     it(name, async () => {
@@ -203,21 +203,21 @@ describe("premergeInto：併過與沒併過，blocks 相同（本檔各形）", 
 const ps = (n: number, pre = "q") => Array.from({ length: n }, (_, k) => `<p>${pre}${k}</p>`).join("");
 const mdq = (n: number) => Array.from({ length: n }, (_, k) => `> q${k}\n>`).join("\n");
 /**
- * 修前（審查第一、二輪實測）2 000 段約 20–27 秒、而且平方的形。修後量表上段數的 1/8 與全部，比例 < 24（線性約 8–16、平方約 64，審查 r7 m6、
- * r8 m3：不比絕對毫秒；`expectLinear`）；全部的低於 250 ms 直接算過，另有 10 秒的絕對上限。
+ * 修前實測 2 000 段約 20–27 秒、而且平方的形。修後量表上段數的 1/8 與全部，比例 < 24（線性約 8–16、平方約 64）、
+ * 不比絕對毫秒；`expectLinear`）；全部的低於 250 ms 直接算過，另有 10 秒的絕對上限。
  */
 const SLOW: Array<[string, (n: number) => string, number, "ok" | "nested_paragraph"]> = [
   ["引言 2 000 段（Markdown）", n => mdq(n), 2000, "ok"],
   ["<h2> 底下 2 000 段", n => "<h2>" + ps(n, "h") + "</h2>", 2000, "ok"],
   ["<details><summary> 底下 2 000 段", n => "<details><summary>" + ps(n, "s") + "</summary>\n\nchild\n\n</details>", 2000, "ok"],
-  ["全文某處出現字串 data-content-type（複審二 1a）", n => "This note talks about data-content-type attributes.\n\n" + mdq(n), 2000, "ok"],
-  ["外層包 <pre>（複審二 1b）", n => "<pre><blockquote>" + ps(n) + "</blockquote></pre>", 2000, "ok"],
-  ["外層包 <pre><code>（複審二 1b）", n => "<pre><code><blockquote>" + ps(n) + "</blockquote></code></pre>", 2000, "ok"],
-  ["不在 details 裡的 <summary>（複審二 1c）", n => "<summary><blockquote>" + ps(n) + "</blockquote></summary>", 2000, "ok"],
+  ["全文某處出現字串 data-content-type", n => "This note talks about data-content-type attributes.\n\n" + mdq(n), 2000, "ok"],
+  ["外層包 <pre>", n => "<pre><blockquote>" + ps(n) + "</blockquote></pre>", 2000, "ok"],
+  ["外層包 <pre><code>", n => "<pre><code><blockquote>" + ps(n) + "</blockquote></code></pre>", 2000, "ok"],
+  ["不在 details 裡的 <summary>", n => "<summary><blockquote>" + ps(n) + "</blockquote></summary>", 2000, "ok"],
   ["引言裡帶 data-content-type 的子元素", n => '<blockquote><p><span data-content-type="zzz">y</span></p>' + ps(n) + "</blockquote>", 2000, "ok"],
-  ["頂層 <p> 經 <button> 巢 1 000 段（複審二 3）", n => "<p>a<button>" + ps(n) + "</button></p>", 1000, "nested_paragraph"],
-  ["頂層 <p> 經 <math><mtext> 巢 1 000 段（複審二 3）", n => "<p>a<math><mtext>" + ps(n) + "</mtext></math></p>", 1000, "nested_paragraph"],
-  ["引言裡 <p> 經 <button> 巢 2 000 段（複審二 3）", n => "<blockquote><p>a<button>" + ps(n) + "</button></p><p>z</p></blockquote>", 2000, "nested_paragraph"],
+  ["頂層 <p> 經 <button> 巢 1 000 段", n => "<p>a<button>" + ps(n) + "</button></p>", 1000, "nested_paragraph"],
+  ["頂層 <p> 經 <math><mtext> 巢 1 000 段", n => "<p>a<math><mtext>" + ps(n) + "</mtext></math></p>", 1000, "nested_paragraph"],
+  ["引言裡 <p> 經 <button> 巢 2 000 段", n => "<blockquote><p>a<button>" + ps(n) + "</button></p><p>z</p></blockquote>", 2000, "nested_paragraph"],
 ];
 describe("耗時：修前 20 秒以上、平方的形，修後線性", () => {
   for (const [name, mdOf, size, want] of SLOW) {
@@ -239,7 +239,7 @@ describe("耗時：修前 20 秒以上、平方的形，修後線性", () => {
   }
 });
 
-describe("巢狀深度上限（複審二 4）", () => {
+describe("巢狀深度上限", () => {
   const bq = (d: number) => "<blockquote><p>a</p>".repeat(d) + "</blockquote>".repeat(d);
   it(`DOM 深度恰 ${MAX_HTML_DEPTH} 可寫、${MAX_HTML_DEPTH + 1} 被拒（引言每層 1、裡面的 <p> 再 1：d 層引言＝深度 d＋1）`, async () => {
     expect(MAX_HTML_DEPTH).toBe(128);

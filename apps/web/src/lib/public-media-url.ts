@@ -2,13 +2,13 @@ import { safeMediaUrl } from "./media-url";
 import { publicNoteApiPath, type PublicNoteRef } from "./public-note-ref";
 
 /**
- * 公開唯讀頁（`/p/:token` 與 `/p/:handle/:slug`，#72／#122 PR3）的 `resolveFileUrl`
+ * 公開唯讀頁（`/p/:token` 與 `/p/:handle/:slug`，#72／#122）的 `resolveFileUrl`
  * 映射：自家上傳的相對網址 `/api/uploads/:id` 改指到免登入的
  * `<publicNoteApiPath(ref)>/uploads/:id`——匿名訪客沒有 session，原網址必 401；
  * 公開端點授權「這篇筆記自己的 blob」。兩形的網址前綴由 {@link publicNoteApiPath}
  * 依形組出（唯一組字點）。
  *
- * **走 resolveFileUrl、不改寫 blocks**（spec A2 定案）：collab 模式下內容就是
+ * **走 resolveFileUrl、不改寫 blocks**：collab 模式下內容就是
  * Y.Doc，改 blocks＝對唯讀頁寫入。
  *
  * 判斷順序：先過 {@link safeMediaUrl}（#12 的渲染端守衛——映射不得成為它的繞道），

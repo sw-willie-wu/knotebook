@@ -4,7 +4,7 @@ import { useState, type CSSProperties } from "react";
  * 版本面板（`md+` 右欄）的寬度：常數、夾值、localStorage 讀寫，結構比照 `components/sidebar-width.ts`。
  * 窄螢幕（`<md`）的底部浮出卡片不吃這裡。
  *
- * 範圍 240–560、預設 320（＝改版前的 `md:w-80`）——Willie 2026-10-14 核可（#274）。
+ * 範圍 240–560、預設 320（＝改版前的 `md:w-80`；#274）。
  * 鍵與側欄分開（`sidebar.width`），兩欄各記各的。
  */
 export const VERSIONS_PANEL_WIDTH_DEFAULT = 320;

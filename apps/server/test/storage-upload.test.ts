@@ -1,5 +1,5 @@
 /**
- * 上傳的配額（spec 2026-10-08 §6.3、§8.1；§11.1 S2、S3（上傳形）、S4、S5（上傳形）、S14（上傳形）、S15(a)）。
+ * 上傳的配額（S3（上傳形）、S4、S5（上傳形）、S14（上傳形）、S15(a)）。
  */
 import http from "node:http";
 import type { AddressInfo } from "node:net";
@@ -23,7 +23,7 @@ vi.mock("../src/storage/tx/quota.js", async () => ({
 const rowsOf = async (db: Awaited<ReturnType<typeof buildTestApp>>["db"], noteId: string) =>
   db.select({ size: uploads.size }).from(uploads).where(eq(uploads.noteId, noteId));
 
-describe("上傳：配額判定（S2）", () => {
+describe("上傳：配額判定", () => {
   it("方案 1000：600 → 201；600 → 409（owner 看得到三數）、磁碟無新檔、無新列；400 → 201（等於上限）；之後 preHandler 409（incomingBytes null）", async () => {
     const { app, db, uploadsDir } = await buildTestApp();
     const u = await seedUser(db);
@@ -153,7 +153,7 @@ describe("上傳：無上限與已超額（S4、S5 上傳形）", () => {
     for (let i = 0; i < 3; i++) expect((await upload(app, n.id, u.id, 5 * 1024 * 1024)).statusCode).toBe(201);
   });
 
-  it("S5：直插使 used > quota → 上傳 409；大附件的筆記移到垃圾桶仍 409（垃圾桶照算，D-W4）；永久刪除後可再上傳", async () => {
+  it("S5：直插使 used > quota → 上傳 409；大附件的筆記移到垃圾桶仍 409（垃圾桶照算）；永久刪除後可再上傳", async () => {
     const { app, db, uploadsDir } = await buildTestApp();
     const u = await seedUser(db);
     await giveUserQuota(db, u.id, 1000);
@@ -189,7 +189,7 @@ describe("上傳：busy 映射與真逾時（S14 上傳形、S15(a)）", () => {
     });
   }
 
-  it("交易內任何其他拋出（非 pg 錯誤）→ 500，檔一樣 unlink（M4）", async () => {
+  it("交易內任何其他拋出（非 pg 錯誤）→ 500，檔一樣 unlink", async () => {
     const { app, db, uploadsDir } = await buildTestApp({
       groupTestHook: async point => { if (point === "storage-space-locked") throw new Error("boom"); },
     });

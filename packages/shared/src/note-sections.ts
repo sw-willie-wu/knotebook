@@ -14,12 +14,12 @@ export interface SectionInfo {
   blockIds: string[];
 }
 
-/** 頂層 bnBlock：`blockContainer` 與 `columnList`（spec §11.4）。名稱沿用，語意擴大。 */
+/** 頂層 bnBlock：`blockContainer` 與 `columnList`。名稱沿用，語意擴大。 */
 export function topLevelContainers(fragment: Y.XmlFragment): Y.XmlElement[] {
   const group = fragment.get(0);
   if (!(group instanceof Y.XmlElement) || group.nodeName !== "blockGroup") return [];
   const out: Y.XmlElement[] = [];
-  // #398 審查 C1：Y 型別的 `get(i)` 每次從頭走（O(i)），索引迴圈是平方——`x<br>`×4.9 萬的段落有約 10 萬個子節點；一律 `toArray()` 一次走完。
+  // #398：Y 型別的 `get(i)` 每次從頭走（O(i)），索引迴圈是平方——`x<br>`×4.9 萬的段落有約 10 萬個子節點；一律 `toArray()` 一次走完。
   for (const child of group.toArray()) {
     if (child instanceof Y.XmlElement && (child.nodeName === "blockContainer" || child.nodeName === "columnList")) out.push(child);
   }
@@ -34,7 +34,7 @@ function blockContent(container: Y.XmlElement): Y.XmlElement | null {
 
 /**
  * 純文字：XmlText 走 delta 的 insert 串接（toString 會把 mark 印成 XML 標籤）。
- * #93 §4.1：**迭代**（顯式 stack）——巢狀深度是 client 可控的，遞迴版在深文件上 RangeError，
+ * #93：**迭代**（顯式 stack）——巢狀深度是 client 可控的，遞迴版在深文件上 RangeError，
  * 而 `sectionize` 會被全文索引在每次落盤時呼叫。子節點**反序**推入，pop 出來就是前序（＝遞迴版的串接順序）；
  * 只收 `XmlText | XmlElement`（`Y.XmlHook` 是 `YMap` 子類，同遞迴版被濾掉）。輸出與遞迴版逐位元組相同
  * （`note-sections.test.ts` 的 T1 對照遞迴參考實作）。

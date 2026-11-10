@@ -65,7 +65,7 @@ async function interleave<T, U>(b: Built, first: () => Promise<T>, second: () =>
   }
 }
 
-describe("GET /api/admin/auth/settings（#187 §9.5）", () => {
+describe("GET /api/admin/auth/settings（#187）", () => {
   it("只給站台管理員（GET 與 PATCH）", async () => {
     const b = await adminApp();
     await expectAdminOnly(b.app, b.db, "GET", "/api/admin/auth/settings");
@@ -85,7 +85,7 @@ describe("GET /api/admin/auth/settings（#187 §9.5）", () => {
     expect((await get(forced)).json()).toMatchObject({ passwordLoginEnabled: false, passwordLoginForced: true });
   });
 
-  it("§14.1-28 usersWithoutSso：有身分但其 provider 停用 → 計入；無斜線身分＋尾斜線 provider 且 resolved_issuer 已寫 → 不計；停用帳號不計", async () => {
+  it("usersWithoutSso：有身分但其 provider 停用 → 計入；無斜線身分＋尾斜線 provider 且 resolved_issuer 已寫 → 不計；停用帳號不計", async () => {
     const b = await adminApp();
     await seedAuthProvider(b.db, { issuerUrl: A });
     await seedAuthProvider(b.db, { issuerUrl: "https://off.example", enabled: false, clientSecret: null });
@@ -111,7 +111,7 @@ describe("GET /api/admin/auth/settings（#187 §9.5）", () => {
   });
 });
 
-describe("PATCH /api/admin/auth/settings（#187 §9.5、B19、§14.1-24）", () => {
+describe("PATCH /api/admin/auth/settings（#187）", () => {
   it("body：{} → 400；多欄 → 400；非 boolean → 400", async () => {
     const b = await adminApp();
     for (const body of [{}, { registrationEnabled: true, x: 1 }, { passwordLoginEnabled: "false" }]) {
@@ -119,7 +119,7 @@ describe("PATCH /api/admin/auth/settings（#187 §9.5、B19、§14.1-24）", () 
     }
   });
 
-  it("只改 registrationEnabled → 200、回 GET 同形；不驗 B19（⑩：DB 已關、管理員無 SSO 也 200，DB 值仍關）", async () => {
+  it("只改 registrationEnabled → 200、回 GET 同形；不驗防自鎖守衛（DB 已關、管理員無 SSO 也 200，DB 值仍關）", async () => {
     const b = await adminApp();
     await b.db.update(siteSettings).set({ passwordLoginEnabled: false });
     const res = await patch(b, { registrationEnabled: false });
@@ -165,7 +165,7 @@ describe("PATCH /api/admin/auth/settings（#187 §9.5、B19、§14.1-24）", () 
     expect((await patch(b, { passwordLoginEnabled: false })).json().error.code).toBe("admin_sso_link_required");
   });
 
-  it("RF3：一次改兩個、帳密那半被擋 → 409，註冊開關也不變（整筆回滾）", async () => {
+  it("一次改兩個、帳密那半被擋 → 409，註冊開關也不變（整筆回滾）", async () => {
     const b = await adminApp();
     await seedAuthProvider(b.db, { issuerUrl: A });
     const res = await patch(b, { registrationEnabled: false, passwordLoginEnabled: false });
@@ -173,7 +173,7 @@ describe("PATCH /api/admin/auth/settings（#187 §9.5、B19、§14.1-24）", () 
     expect(await dbSettings(b)).toMatchObject({ registrationEnabled: true, passwordLoginEnabled: true });
   });
 
-  it("RF2／B25：以密碼 session 關閉後，同一個 session 仍有效、可再開回；開回後密碼登入成功", async () => {
+  it("以密碼 session 關閉後，同一個 session 仍有效、可再開回；開回後密碼登入成功", async () => {
     const b = await adminApp();
     await seedAuthProvider(b.db, { issuerUrl: A });
     const pw = await insertPasswordUser(b.db, { password: "correct-horse-battery-staple" });
@@ -200,7 +200,7 @@ describe("PATCH /api/admin/auth/settings（#187 §9.5、B19、§14.1-24）", () 
     expect(lines.map(l => l.obj)).toEqual([expect.objectContaining({ userId: b.admin.id, passwordLoginEnabled: false, passwordLoginForced: false })]);
   });
 
-  it("讀不到 site_settings 列 → 500＋log.error（§4.3；gate r1-t1-9 M5）", async () => {
+  it("讀不到 site_settings 列 → 500＋log.error", async () => {
     const logs = captureLogs();
     const b = await adminApp({}, logs.options);
     await b.db.delete(siteSettings);
@@ -218,7 +218,7 @@ describe("PATCH /api/admin/auth/settings（#187 §9.5、B19、§14.1-24）", () 
     expect(res.json()).toMatchObject({ passwordLoginEnabled: false, passwordLoginImpact: { actingAdminHasSso: true, usersWithoutSso: 0 } });
   });
 
-  it("§14.1-28：actingAdminHasSso=false ⇔ 關閉 PATCH 回 admin_sso_link_required（同一個函式，逐格一致）", async () => {
+  it("actingAdminHasSso=false ⇔ 關閉 PATCH 回 admin_sso_link_required（同一個函式，逐格一致）", async () => {
     const cells: Array<[string, (b: Built) => Promise<void>]> = [
       ["無身分", async () => {}],
       ["身分的 provider 停用", async b => { await seedAuthProvider(b.db, { issuerUrl: B, enabled: false, clientSecret: null }); await identity(b.db, b.admin.id, B, "x"); }],
@@ -241,8 +241,8 @@ describe("PATCH /api/admin/auth/settings（#187 §9.5、B19、§14.1-24）", () 
   });
 });
 
-describe("並發（#187 C25、C28；B27）", () => {
-  it("P4 lost update（gate r1-t1-9 I1）：另一連線持鎖把 registration_enabled 改 false（未提交）→ 這邊只改 passwordLoginEnabled:true 等它提交 → registration 仍 false", async () => {
+describe("並發（#187）", () => {
+  it("P4 lost update：另一連線持鎖把 registration_enabled 改 false（未提交）→ 這邊只改 passwordLoginEnabled:true 等它提交 → registration 仍 false", async () => {
     const b = await adminApp();
     const holder = await holderFor(b.db);
     try {
@@ -259,7 +259,7 @@ describe("並發（#187 C25、C28；B27）", () => {
     expect(await dbSettings(b)).toMatchObject({ registrationEnabled: false, passwordLoginEnabled: true });
   });
 
-  it("C25(c)：另一連線停用最後一個 provider（持 B27 鎖、未提交）→ 關閉帳密等它提交 → 409 sso_provider_required", async () => {
+  it("另一連線停用最後一個 provider（持站台設定列鎖、未提交）→ 關閉帳密等它提交 → 409 sso_provider_required", async () => {
     const b = await adminApp();
     const p = await seedAuthProvider(b.db, { issuerUrl: A });
     await identity(b.db, b.admin.id, A, "a");
@@ -278,7 +278,7 @@ describe("並發（#187 C25、C28；B27）", () => {
     expect((await dbSettings(b)).passwordLoginEnabled).toBe(true);
   });
 
-  it("C28(i)：關閉先拿到鎖（未提交）→ 解除「有密碼＋最後一個身分」等它提交 → 讀到關 → 409 last_login_method", async () => {
+  it("關閉先拿到鎖（未提交）→ 解除「有密碼＋最後一個身分」等它提交 → 讀到關 → 409 last_login_method", async () => {
     const b = await adminApp();
     await seedAuthProvider(b.db, { issuerUrl: A });
     const u = await insertPasswordUser(b.db);
@@ -299,7 +299,7 @@ describe("並發（#187 C25、C28；B27）", () => {
     }
   });
 
-  it("C28(ii)：解除先拿到 FOR SHARE（未提交、已刪管理員唯一身分）→ 關閉等它提交 → P2 看得到身分已刪 → 409 admin_sso_link_required", async () => {
+  it("解除先拿到 FOR SHARE（未提交、已刪管理員唯一身分）→ 關閉等它提交 → 防自鎖判斷看得到身分已刪 → 409 admin_sso_link_required", async () => {
     const b = await adminApp();
     await seedAuthProvider(b.db, { issuerUrl: A });
     const idA = await identity(b.db, b.admin.id, A, "admin-a");
@@ -320,8 +320,8 @@ describe("並發（#187 C25、C28；B27）", () => {
   });
 });
 
-describe("並發：兩邊都是真路由（C25、C28、P4；holder 只持表鎖、不模擬任何一方）", () => {
-  it("C25(a) 真形：settings PATCH 關閉先拿到 B27 鎖 → provider PATCH 停用最後一個 provider 等它提交 → 409 sso_provider_required", async () => {
+describe("並發：兩邊都是真路由（holder 只持表鎖、不模擬任何一方）", () => {
+  it("真形：settings PATCH 關閉先拿到站台設定列鎖 → provider PATCH 停用最後一個 provider 等它提交 → 409 sso_provider_required", async () => {
     const b = await adminApp();
     const p = await seedAuthProvider(b.db, { issuerUrl: A });
     await identity(b.db, b.admin.id, A, "a");
@@ -333,7 +333,7 @@ describe("並發：兩邊都是真路由（C25、C28、P4；holder 只持表鎖�
     expect((await b.db.execute<{ n: number }>(sql`select count(*)::int as n from auth_providers where enabled`)).rows[0]!.n).toBe(1);
   });
 
-  it("C25(b) 真形：DB 關；provider PATCH 停用 p1 先拿到鎖 → 另一個停用 p2 等它提交 → 409，終態 p2 仍啟用", async () => {
+  it("真形：DB 關；provider PATCH 停用 p1 先拿到鎖 → 另一個停用 p2 等它提交 → 409，終態 p2 仍啟用", async () => {
     const b = await adminApp();
     const p1 = await seedAuthProvider(b.db, { issuerUrl: A });
     const p2 = await seedAuthProvider(b.db, { issuerUrl: B });
@@ -348,7 +348,7 @@ describe("並發：兩邊都是真路由（C25、C28、P4；holder 只持表鎖�
     expect(enabled).toEqual([p2.id]);
   });
 
-  it("C25(c) 真形：provider PATCH 停用最後一個先拿到鎖（DB 開、不驗）→ settings PATCH 關閉等它提交 → 409 sso_provider_required", async () => {
+  it("真形：provider PATCH 停用最後一個先拿到鎖（DB 開、不驗）→ settings PATCH 關閉等它提交 → 409 sso_provider_required", async () => {
     const b = await adminApp();
     const p = await seedAuthProvider(b.db, { issuerUrl: A });
     await identity(b.db, b.admin.id, A, "a");
@@ -373,7 +373,7 @@ describe("並發：兩邊都是真路由（C25、C28、P4；holder 只持表鎖�
     expect(await dbSettings(b)).toMatchObject({ registrationEnabled: false, passwordLoginEnabled: true });
   });
 
-  it("C28(i) 真形：settings PATCH 關閉先拿到鎖 → 解除「有密碼＋最後一個身分」等它提交 → 讀到關 → 409 last_login_method", async () => {
+  it("真形：settings PATCH 關閉先拿到鎖 → 解除「有密碼＋最後一個身分」等它提交 → 讀到關 → 409 last_login_method", async () => {
     const b = await adminApp();
     await seedAuthProvider(b.db, { issuerUrl: A });
     await identity(b.db, b.admin.id, A, "admin-a");
@@ -390,7 +390,7 @@ describe("並發：兩邊都是真路由（C25、C28、P4；holder 只持表鎖�
     expect(unlink.json().error.code).toBe("last_login_method");
   });
 
-  it("C28(ii) 真形：解除（管理員有密碼、刪唯一身分）先拿到 FOR SHARE → settings PATCH 關閉等它提交 → 409 admin_sso_link_required", async () => {
+  it("真形：解除（管理員有密碼、刪唯一身分）先拿到 FOR SHARE → settings PATCH 關閉等它提交 → 409 admin_sso_link_required", async () => {
     const b = await adminApp();
     await seedAuthProvider(b.db, { issuerUrl: A });
     await b.db.update(users).set({ passwordHash: "not-a-real-hash" }).where(sql`id = ${b.admin.id}`);

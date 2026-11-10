@@ -1,4 +1,4 @@
--- 全文搜尋（spec 2026-10-08-93 §3；檔名編號＝合併當下的下一號）：兩張表＋三條 CHECK＋一個索引。單一交易（drizzle migrator 整批），無非交易式 DDL（migrate.test.ts 有輔助 grep）。不回填：Y.Doc 是 bytea，SQL 解不開；回填在 app 啟動後背景跑（spec §6）。
+-- 全文搜尋（#93；檔名編號＝合併當下的下一號）：兩張表＋三條 CHECK＋一個索引。單一交易（drizzle migrator 整批），無非交易式 DDL（migrate.test.ts 有輔助 grep）。不回填：Y.Doc 是 bytea，SQL 解不開；回填在 app 啟動後背景跑。
 CREATE TABLE "note_search_sections" (
 	"id" bigint PRIMARY KEY GENERATED ALWAYS AS IDENTITY (sequence name "note_search_sections_id_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 9223372036854775807 START WITH 1 CACHE 1),
 	"note_id" uuid NOT NULL,

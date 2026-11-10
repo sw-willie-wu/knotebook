@@ -19,11 +19,19 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ### Changed
 
+- **Removing a member asks for confirmation.** The trash button in a group's member table and in a note's share panel used to remove the person at once; now it first shows a confirmation with their email. In a group, removing yourself says you will lose access and can't add yourself back, and takes you out of the group's panel the way **Leave group** does. The last Admin's button stays disabled (#395).
 - **Signing out signs out only that browser, and its cookie stops working on the server.** Before, signing out only cleared the cookie in the browser, so a copy of it kept working for up to 7 days, and the only way to end a session was to change the password, which signed out every browser. Now each sign-in is a session the server keeps, and signing out (or signing in to the same account again in the same browser) deletes it: the account's other browsers stay signed in, and a note the signed-out browser still had open stops accepting its edits within seconds. Changing or adding a password still signs out every other browser, resetting it with a link signs out every other browser too, and disabling an account ends all of its sessions. Expired sessions are deleted as people sign in.
 
 ### Removed
 
 - The import of `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET` on first start, a stopgap left over from the sign-in providers of v0.6 (#187).
+
+### Fixed
+
+- When a public link is revoked while it is being presented and the page changes to "This link doesn't exist or is no longer active", the address no longer keeps `?present` and the slide part (`#/…`); they are removed without adding a history entry (#234).
+- **The move-into-group confirmation now says the note's version history is cleared, and the copy confirmations say it isn't copied.** Both the single-note and the multi-select dialogs, in English and Chinese (#246).
+- The remaining failure logs of the SSO callback (code exchange, userinfo, account lookup retry, unexpected errors) and of a failed first-start administrator setup no longer write the whole error, which for a database error could include the user's email, subject or password hash; they log a short summary instead (#211). One of them, the account lookup retry that still fails, now logs at error level instead of warn. The self-hosting guide now says how to leave the quoted values (`DETAIL`) out of PostgreSQL's own error log.
+- **Pasting several paragraphs into the middle of a paragraph no longer converts the ordinary links to notes that were already in it.** Only the links you paste become links to notes; an ordinary link to a note's address after the cursor, which ends up in the second half of the split paragraph, now stays an ordinary link. The same goes for pasting copied table cells into a table: ordinary links to notes in cells the paste didn't fill stay ordinary links (#353).
 
 ## [0.15.0] - 2026-11-10
 

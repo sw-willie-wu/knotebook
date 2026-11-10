@@ -74,7 +74,7 @@ describe("api/versions", () => {
     expect(versionSnapshotKey(NOTE, V1)).toEqual(["note-versions", NOTE, V1]);
   });
 
-  it("invalidate ['notes'] 會重抓清單、不會重抓快照（spec §11.3）", async () => {
+  it("invalidate ['notes'] 會重抓清單、不會重抓快照", async () => {
     const { calls, queryClient, wrapper } = setup((url) => {
       if (url === `/api/notes/${NOTE}/versions?limit=50`) return fakeResponse(200, listBody());
       if (url === `/api/notes/${NOTE}/versions/1`) return fakeResponse(200, SNAP(V1));
@@ -91,7 +91,7 @@ describe("api/versions", () => {
     expect(calls.filter((c) => c.endsWith("/versions/1")).length).toBe(before.snap);
   });
 
-  it("同 seq、不同 id → 不命中快取，各打一次（§9 會讓同一個 seq 指向不同內容）", async () => {
+  it("同 seq、不同 id → 不命中快取，各打一次（搬移會讓同一個 seq 指向不同內容）", async () => {
     let served = V1;
     const { calls, wrapper } = setup((url) => {
       if (url === `/api/notes/${NOTE}/versions/1`) return fakeResponse(200, SNAP(served));

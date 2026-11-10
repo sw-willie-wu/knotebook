@@ -7,7 +7,7 @@ import { TRASH_SETTINGS_QUERY_KEY } from "@/api/trash";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { SiteTrashGroup } from "./SettingsTrashSection";
 
-// 站台垃圾桶設定（#181 §6.9；PR-2b T7）。單獨渲染 `SiteTrashGroup`，查詢一律經垃圾桶 region 圈定；整頁排列在 SettingsStorageSection.test.tsx 的 SS-T1。
+// 站台垃圾桶設定（#181）。單獨渲染 `SiteTrashGroup`，查詢一律經垃圾桶 region 圈定；整頁排列在 SettingsStorageSection.test.tsx 的 SS-T1。
 
 const URL_ = "/api/admin/trash/settings";
 const EN_DESCRIPTION =
@@ -56,7 +56,7 @@ const area = () => within(screen.getByRole("region", { name: i18n.t("admin.trash
 const daysField = () => area().getByLabelText("Days to keep");
 const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
 
-describe("SiteTrashGroup（站台垃圾桶設定，#181 §6.9）", () => {
+describe("SiteTrashGroup（站台垃圾桶設定，#181）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -213,7 +213,7 @@ describe("SiteTrashGroup（站台垃圾桶設定，#181 §6.9）", () => {
     expect(area().queryByRole("switch")).not.toBeInTheDocument();
   });
 
-  it("ST-7 zh-TW 說明句逐字＝總管裁定的精確版（從下一次檢查開始刪除、每次最多 2,000 篇）", async () => {
+  it("ST-7 zh-TW 說明句逐字＝精確版（從下一次檢查開始刪除、每次最多 2,000 篇）", async () => {
     await i18n.changeLanguage("zh-TW");
     setup({ settings: { retentionDays: 7 } });
     await screen.findByRole("switch", { name: "自動永久刪除" });

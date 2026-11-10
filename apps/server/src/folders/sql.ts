@@ -1,7 +1,7 @@
 /**
- * 資料夾的 SQL 片段（spec docs/superpowers/specs/2026-10-22-folders-design.md §5.4、§5.5、§5.8）。只組不執行、每次呼叫現造，
+ * 資料夾的 SQL 片段。只組不執行、每次呼叫現造，
  * 不 import `Db`。遞迴 CTE 各用自己的名字（`kf_*`），同一句裡並用也不撞名。
- * 成環由結構鎖內的應用層擋（§5.4），DB 不守；每支遞迴 CTE 另以 `FOLDER_CTE_DEPTH_LIMIT` 封頂，萬一出現環也會結束。
+ * 成環由結構鎖內的應用層擋，DB 不守；每支遞迴 CTE 另以 `FOLDER_CTE_DEPTH_LIMIT` 封頂，萬一出現環也會結束。
  */
 import { sql, type SQL } from "drizzle-orm";
 import { FOLDER_DEPTH_MAX } from "@knotebook/shared";
@@ -19,7 +19,7 @@ const LIMIT = (): SQL => sql.raw(String(FOLDER_CTE_DEPTH_LIMIT));
 
 /**
  * 外層筆記的 `folder_id` 引用：相關子查詢裡一律帶表名字面。drizzle 0.44 在單表 SELECT 把直接插進 template 的欄位渲染成裸
- * `"folder_id"`（單表 UPDATE 則帶表名；memory g:drizzle-query-builder-gotchas）。
+ * `"folder_id"`（單表 UPDATE 則帶表名）。
  */
 export const NOTES_FOLDER_ID = (): SQL => sql.raw('"notes"."folder_id"');
 

@@ -66,7 +66,7 @@ describe("GroupNameDialog", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it("RF1：全空白不送出（建立鈕 disabled、submit 無 fetch）；server 400 invalid_name → 對話框內 alert、不關閉", async () => {
+  it("全空白不送出（建立鈕 disabled、submit 無 fetch）；server 400 invalid_name → 對話框內 alert、不關閉", async () => {
     const calls = stubFetch(() => fakeResponse(400, { error: { code: "invalid_name", message: "x" } }));
     const { onOpenChange } = renderCreate();
     const input = screen.getByLabelText("Group name");

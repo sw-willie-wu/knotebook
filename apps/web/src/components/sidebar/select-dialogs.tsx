@@ -6,9 +6,9 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import type { DestTarget } from "./destination-level";
 
 /**
- * 一般 tab 選取模式的移入群組／複製確認框（#181 PR-2c，spec §6.11；複製先確認是 Willie 裁定 Q2）。複數版移入確認框是通用句，
- * 不預查每篇的分享與公開連結（plan 讀碼發現 7）。篇數由呼叫端在目的地選定那一刻快照（讀碼發現 19）。
- * PR-3b-2（資料夾 spec §6.10）：目的地名稱換成完整路徑（`destinationPathLabel`，根層＝空間名）；另加刪資料夾的彙總確認框。
+ * 一般 tab 選取模式的移入群組／複製確認框（#181，複製也先跳確認框，因為複製會多出一份、不直接執行）。複數版移入確認框是通用句，
+ * 不預查每篇的分享與公開連結。篇數由呼叫端在目的地選定那一刻快照。
+ * 目的地名稱換成完整路徑（`destinationPathLabel`，根層＝空間名）；另加刪資料夾的彙總確認框。
  * **送出中（`progress` 非 null）框開到批次結束**：送出與取消 disabled、框內顯示進度；✕（`DialogPrimitive.Close`）、Esc 與點框外
  * 都經 Dialog root 的 `onOpenChange(false)`，這裡一律忽略（不改 `ui/dialog.tsx`）。批次結束由呼叫端把 `open` 設 false。
  * 只准經 `SelectLazy` 引用。
@@ -95,12 +95,13 @@ export function MoveConfirmDialog({ count, groupName, ...rest }: ConfirmProps & 
         <li>{t("select.moveClosesPublicLinks")}</li>
         <li>{t("select.moveUrlChange")}</li>
         <li>{t("select.moveOwnership")}</li>
+        <li>{t("select.moveClearsVersions")}</li>
       </ul>
     </ConfirmShell>
   );
 }
 
-/** 複製確認框的鈕字與說明（spec §6.10「執行」）：建立副本、我的筆記（根層照現行、資料夾帶完整路徑）、群組（完整路徑）。 */
+/** 複製確認框的鈕字與說明：建立副本、我的筆記（根層照現行、資料夾帶完整路徑）、群組（完整路徑）。 */
 function copyCopy(t: (key: string, options?: Record<string, unknown>) => string, count: number, target: DestTarget, pathLabel: string) {
   if (target.kind === "makeCopy") return { label: t("share.move.copyHereSubmit"), lead: t("select.copyLeadMakeCopy", { count }) };
   if (target.space.kind === "group") return { label: t("share.move.copySubmit"), lead: t("select.copyLead", { count, group: pathLabel }) };
@@ -116,7 +117,7 @@ export function CopyConfirmDialog({ count, target, pathLabel, ...rest }: Confirm
 }
 
 /**
- * 選了資料夾按「刪除」的彙總確認框（資料夾 spec §6.10 m7）：標題資料夾數、內文會進垃圾桶的篇數（各資料夾子樹活筆記的聯集）、
+ * 選了資料夾按「刪除」的彙總確認框：標題資料夾數、內文會進垃圾桶的篇數（各資料夾子樹活筆記的聯集）、
  * 另選了筆記時加一句（也在可及描述裡）；與我共享 tab 是「移除」（資料夾只是自己的分類，筆記回最上層）。數字由呼叫端在開框那一刻快照。
  * 送出中規則同 `ConfirmShell`（框開到批次結束）。
  */

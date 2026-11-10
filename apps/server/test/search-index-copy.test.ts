@@ -1,6 +1,6 @@
 /**
- * #93 §5.4：複製在**同一交易**內寫索引（S10、RF5 複製）。
- * rollback 證明（m-X6）：`afterWriteForTest` 在索引列與狀態列**已寫入之後**丟例外——`note-copy-files-copied` 在索引之前
+ * #93：複製在**同一交易**內寫索引。
+ * rollback 證明：`afterWriteForTest` 在索引列與狀態列**已寫入之後**丟例外——`note-copy-files-copied` 在索引之前
  * 觸發，證明不了「已寫入的索引列被 rollback」。
  */
 import { describe, expect, it } from "vitest";
@@ -14,7 +14,7 @@ import { indexRows, seedNoteState, stateRow } from "./search-helpers.js";
 const copy = async (app: Awaited<ReturnType<typeof buildTestApp>>["app"], noteId: string, userId: string) =>
   app.inject({ method: "POST", url: `/api/notes/${noteId}/copy`, cookies: await cookieOf(userId), payload: {} });
 
-describe("S10 複製", () => {
+describe("複製", () => {
   it("複製有內容的筆記 → 新筆記立即可搜、source_version = 1", async () => {
     const { app, db } = await buildTestApp();
     const u = await seedUser(db);
@@ -40,7 +40,7 @@ describe("S10 複製", () => {
     expect(await db.select().from(noteSearchState).where(ne(noteSearchState.noteId, src.id))).toEqual([]);
   });
 
-  it("RF5：複製一篇從沒開過（沒有 note_states）的筆記 → 201、新筆記有狀態列、0 個 section 列", async () => {
+  it("複製一篇從沒開過（沒有 note_states）的筆記 → 201、新筆記有狀態列、0 個 section 列", async () => {
     const { app, db } = await buildTestApp();
     const u = await seedUser(db);
     const src = await seedNote(db, { ownerId: u.id }, { title: "Never opened" });

@@ -1,6 +1,6 @@
 /**
- * #200 spec §6、§9.3 M1–M3（M2a 的確定性並發與 M4 log 在 `mcp-transfer-flow.test.ts`）。
- * harness：`buildTestApp`（無 collab）——`create_transfer_token` 在部署形態閘門外（spec §6.1），無 collab 的 app 也有它。
+ * #200–M3（M2a 的確定性並發與 M4 log 在 `mcp-transfer-flow.test.ts`）。
+ * harness：`buildTestApp`（無 collab）——`create_transfer_token` 在部署形態閘門外，無 collab 的 app 也有它。
  * PUBLIC_URL 刻意設成與 inject 的 Host（`localhost:80`）不同的 https origin，證明 `url`／`curl` 取自 PUBLIC_URL。
  */
 import { randomUUID } from "node:crypto";
@@ -47,7 +47,7 @@ async function toolsOf(app: Parameters<typeof mcpPost>[0], opts: { token?: strin
   return res.json().result.tools as Array<{ name: string; description: string; inputSchema: { properties: Record<string, { enum?: string[]; description?: string }> } }>;
 }
 
-describe("M1：tools/list（spec §6.1）", () => {
+describe("M1：tools/list", () => {
   it("讀寫憑證：有 create_transfer_token、purpose enum 兩值、讀寫版描述", async () => {
     const { app, db } = await buildTestApp({ config });
     const o = await ownerWithPat(db);
@@ -56,7 +56,7 @@ describe("M1：tools/list（spec §6.1）", () => {
     expect(tool!.description).toBe(CREATE_TRANSFER_TOKEN_DESCRIPTION_RW);
     expect(tool!.inputSchema.properties.purpose!.enum).toEqual(["upload", "download"]);
     expect(Object.keys(tool!.inputSchema.properties).sort()).toEqual(["note_id", "purpose"]);
-    // 上傳只存一張圖、要 edit_note 引用才進筆記（#200 PR1 終審 I-1）——連舊的過度宣稱一起釘，加回去會紅。
+    // 上傳只存一張圖、要 edit_note 引用才進筆記（#200）——連舊的過度宣稱一起釘，加回去會紅。
     expect(tool!.inputSchema.properties.purpose!.description).toBe(
       "`upload` stores one image for the note (then reference it with edit_note); `download` fetches its images."
     );
@@ -68,7 +68,7 @@ describe("M1：tools/list（spec §6.1）", () => {
     const o = await ownerWithPat(db, "notes:read");
     const tool = (await toolsOf(app, { token: o.pat })).find(t => t.name === "create_transfer_token");
     expect(tool!.description).toBe(CREATE_TRANSFER_TOKEN_DESCRIPTION_RO);
-    // 唯讀版描述本來就含 "uploaded"（"any image uploaded to that note"，spec §6.5）——要擋的是「描述 upload 這個 purpose」：
+    // 唯讀版描述本來就含 "uploaded"（"any image uploaded to that note"）——要擋的是「描述 upload 這個 purpose」：
     expect(tool!.description).not.toContain("`upload`");
     expect(tool!.description).not.toContain("upload an image");
     expect(tool!.inputSchema.properties.purpose!.enum).toEqual(["download"]);
@@ -97,7 +97,7 @@ describe("M1：tools/list（spec §6.1）", () => {
   });
 });
 
-describe("M2：create_transfer_token 的流程（spec §6.3、§6.4）", () => {
+describe("M2：create_transfer_token 的流程", () => {
   it("upload 正路：url／curl／next 逐字；noteId 小寫（輸入大寫）；expiresAt ≈ now＋10 分；method POST", async () => {
     const { app, db } = await buildTestApp({ config });
     const o = await ownerWithPat(db);
@@ -113,10 +113,10 @@ describe("M2：create_transfer_token 的流程（spec §6.3、§6.4）", () => {
     expect(p.url).toBe(`${ORIGIN}/api/notes/${o.noteId}/uploads`);
     expect(p.curl).toBe(`curl -sS -X POST -H "Authorization: Bearer ${p.token}" -F "file=@<path-to-image>" "${ORIGIN}/api/notes/${o.noteId}/uploads"`);
     expect(p.next).toBe(UPLOAD_NEXT);
-    // bearerMiss 的 429 取代的是 401，token 可能早已用過——只能說「這次被拒不會用掉它」（終審 Minor 1）。
+    // bearerMiss 的 429 取代的是 401，token 可能早已用過——只能說「這次被拒不會用掉它」。
     expect(UPLOAD_NEXT).toContain("A 403 or 429 doesn't use the token up");
     expect(UPLOAD_NEXT).not.toContain("leaves the token unused");
-    // 全文逐字＝#200 spec §6.4 定稿（含儲存配額那棒加入的兩句 409，位置在 404 那句之後、413／415 那句之前）。
+    // 全文逐字＝#200 定稿（含儲存配額加入的兩句 409，位置在 404 那句之後、413／415 那句之前）。
     expect(UPLOAD_NEXT).toBe(
       "The reply is JSON `{id, url}`. Put the image in the note with edit_note using markdown `![description](url)`, with " +
         "`url` exactly as returned (`/api/uploads/<id>`, relative). The token is good for one upload until `expiresAt`. A 401 " +
@@ -140,7 +140,7 @@ describe("M2：create_transfer_token 的流程（spec §6.3、§6.4）", () => {
     expect(p.url).toBe(`${ORIGIN}/api/uploads/<upload_id>`);
     expect(p.curl).toBe(`curl -sS -H "Authorization: Bearer ${p.token}" -o <output-file> "${ORIGIN}/api/uploads/<upload_id>"`);
     expect(p.next).toBe(DOWNLOAD_NEXT);
-    // describe 承諾「what its status codes mean」：GET 答得出的 401／403／404／429 都要講到（終審 I-2）。
+    // describe 承諾「what its status codes mean」：GET 答得出的 401／403／404／429 都要講到。
     for (const code of ["401", "403", "404", "429"]) expect(DOWNLOAD_NEXT).toContain(`A ${code} `);
   });
 
@@ -179,7 +179,7 @@ describe("M2：create_transfer_token 的流程（spec §6.3、§6.4）", () => {
   });
 
   // 守檔頭「流程順序是契約」的 ①→②：upload 先扣 tokenWrite、再查筆記權限——所以對看不到的筆記簽 upload 也會扣。
-  // `requireWriteScope` 挪到 `resolveNoteAccess` 之後，none 就在扣之前 return，下面第二發會成功（突變實測見 #200 PR1 Task 7 回報）。
+  // `requireWriteScope` 挪到 `resolveNoteAccess` 之後，none 就在扣之前 return，下面第二發會成功（突變實測見 #200 回報）。
   it("upload 對看不到的筆記：not_found，但 tokenWrite 已扣（limit:1 → 接著對自己的筆記 upload 被 too_many_requests）", async () => {
     const tokenWrite = new FixedWindowLimiter({ limit: 1, windowMs: 600_000 });
     const { app, db } = await buildTestApp({ config, limiters: freshLimiters({ tokenWrite }) });
@@ -272,7 +272,7 @@ describe("M2：create_transfer_token 的流程（spec §6.3、§6.4）", () => {
   });
 });
 
-describe("③a 儲存配額「已滿」預檢（#200 spec §6.3-3a；儲存配額 spec §8.3-3）", () => {
+describe("③a 儲存配額「已滿」預檢（#200）", () => {
   const GIB2 = 2 ** 31;
   const rowCount = async (db: Awaited<ReturnType<typeof buildTestApp>>["db"]) => (await db.select({ id: transferTokens.id }).from(transferTokens)).length;
 
@@ -355,7 +355,7 @@ describe("③a 儲存配額「已滿」預檢（#200 spec §6.3-3a；儲存配�
   });
 });
 
-describe("M3：清理（spec §4.6）", () => {
+describe("M3：清理", () => {
   it("一列已過期 → 下一次成功簽發後消失（fire-and-forget，等它）；未過期的留著", async () => {
     const { app, db } = await buildTestApp({ config });
     const o = await ownerWithPat(db);

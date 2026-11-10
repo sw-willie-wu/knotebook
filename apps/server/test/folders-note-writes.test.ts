@@ -1,6 +1,5 @@
 /**
- * 資料夾 PR-3a T10：建立、複製、移入群組帶資料夾（spec docs/superpowers/specs/2026-10-22-folders-design.md §5.7.6、§5.7.7、
- * §5.4「複製帶資料夾」（I-1）與「移入群組帶資料夾」、§5.1 M5（KF001）、§5.5 I2、A3-6（server 面）、A3-10 ②、D13）。
+ * 資料夾：建立、複製、移入群組帶資料夾（複製帶資料夾與移入群組帶資料夾、KF001、入口順序）。
  */
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
@@ -65,7 +64,7 @@ function armedHook() {
   };
 }
 
-/** 自訂角色「只能讀＋建」（create-only，D13：不能放進群組資料夾）加進群組。 */
+/** 自訂角色「只能讀＋建」（create-only，不能放進群組資料夾）加進群組。 */
 async function createOnlyMember(db: Db, groupId: string): Promise<SeededUser> {
   const u = await seedUser(db);
   const roleId = await seedRole(db, groupId, `co-${u.id.slice(0, 8)}`, { canRead: true, canCreate: true });
@@ -120,7 +119,7 @@ describe("POST /api/notes 帶 folderId", () => {
     expect(b.folderId).toBe(F);
     expect((await noteFolderCols(pool, b.id))?.folder_id).toBe(F);
 
-    // 不帶 folderId：根層（FN-8 既有行為）
+    // 不帶 folderId：根層（既有行為）
     const root = okDto(await post(app, u.id, { title: "FN1 root" }), 201);
     expect(root.folderId).toBeNull();
     expect((await noteFolderCols(pool, root.id))?.folder_id).toBeNull();
@@ -159,7 +158,7 @@ describe("POST /api/notes 帶 folderId", () => {
     expect(await countTitled(pool, "FN1 content kf001")).toBe(0);
   });
 
-  it("FN-2 群組：{groupId, 該群組資料夾} 201；一致性錯 400；看不到 404 且與不存在逐位元組相同（A3-10 ②）；可見性先於群組判準；create-only 根層 201、資料夾 403", async () => {
+  it("FN-2 群組：{groupId, 該群組資料夾} 201；一致性錯 400；看不到 404 且與不存在逐位元組相同；可見性先於群組判準；create-only 根層 201、資料夾 403", async () => {
     const { app, db } = await buildTestApp();
     const pool = db.$client;
     const s = await sixRoleScene(db);
@@ -199,7 +198,7 @@ describe("POST /api/notes 帶 folderId", () => {
     expect(failed(await post(app, s.member.id, { groupId: G, folderId: RANDOM_UUID }), 404, "folder_not_found")).toBe(hidden);
     expect(failed(await post(app, s.member.id, { folderId: XF }), 404, "folder_not_found")).toBe(hidden);
     expect(messageOf(await post(app, s.member.id, { groupId: G, folderId: XF }))).toBe(FOLDER_NOT_FOUND);
-    // 可見性先於群組判準（§5.5 I2）：非成員 → folder_not_found（不是 group_not_found）；readOnly 看不到 H 的資料夾 → 404（不是 403）
+    // 可見性先於群組判準：非成員 → folder_not_found（不是 group_not_found）；readOnly 看不到 H 的資料夾 → 404（不是 403）
     expect(failed(await post(app, s.outsider.id, { groupId: G, folderId: GF }), 404, "folder_not_found")).toBe(hidden);
     expect(failed(await post(app, s.readOnly.id, { groupId: G, folderId: HF }), 404, "folder_not_found")).toBe(hidden);
 
@@ -216,7 +215,7 @@ describe("POST /api/notes 帶 folderId", () => {
     expect(messageOf(eo)).toBe("Your role in this group can't create notes.");
   });
 
-  it("FN-3 消失與非 UUID：縫裡轉移群組 → 404 folder_not_found；資料夾已換空間（KF001，M5）→ 404；個人資料夾在 INSERT 前被刪 → 404；\"x\" 與隨機 uuid 逐位元組相同", async () => {
+  it("FN-3 消失與非 UUID：縫裡轉移群組 → 404 folder_not_found；資料夾已換空間→ 404；個人資料夾在 INSERT 前被刪 → 404；\"x\" 與隨機 uuid 逐位元組相同", async () => {
     const seam = armedHook();
     const createHooks: NoteCreateHooks = {};
     const { app, db } = await buildTestApp({ groupTestHook: seam.hook, noteCreateHooks: createHooks });
@@ -283,7 +282,7 @@ describe("POST /api/notes/:id/copy 帶 folderId", () => {
     expect(dup.folderId).toBe(F1);
     expect((await noteFolderCols(pool, dup.id))?.folder_id).toBe(F1);
 
-    // 不帶 folderId：根層（FN-8 既有行為）
+    // 不帶 folderId：根層（既有行為）
     const plain = okDto(await copy(app, u.id, n, {}), 201);
     expect(plain.folderId).toBeNull();
     expect((await noteFolderCols(pool, plain.id))?.folder_id).toBeNull();
@@ -331,7 +330,7 @@ describe("POST /api/notes/:id/copy 帶 folderId", () => {
     expect(okDto(await copy(app, co.id, gn, { groupId: G }), 201).folderId).toBeNull();
   });
 
-  it("FN-5 複製的鎖序（I-1）：群組目標 groups KS → 資料夾 KS → 來源 KS；個人目標 資料夾 KS → 來源 KS", async () => {
+  it("FN-5 複製的鎖序：群組目標 groups KS → 資料夾 KS → 來源 KS；個人目標 資料夾 KS → 來源 KS", async () => {
     const { db, pool } = await freshDb();
     const queries: string[] = [];
     const logged = drizzle(pool, { logger: { logQuery: (q: string) => queries.push(q) } }) as unknown as Db;
@@ -342,7 +341,7 @@ describe("POST /api/notes/:id/copy 帶 folderId", () => {
         ...input, copy: doc, uploadsDir: tmpdir(), copiedFileIds: [], searchExtract: extractForIndex(doc.doc), lockTimeoutMs: 5000,
       }));
       const all = queries.filter(q => !TXN_CONTROL.test(q.trim())).filter(q => ROW_LOCK.test(q.trim()));
-      // 到讀來源（第一句 notes 列鎖）為止；之後的是全文索引對新副本取的鎖（`replaceNoteSearchIndexInTx`），不在 I-1 範圍。
+      // 到讀來源（第一句 notes 列鎖）為止；之後的是全文索引對新副本取的鎖（`replaceNoteSearchIndexInTx`），不在這條鎖序的範圍。
       const locks = all.slice(0, all.findIndex(q => / from "notes" /.test(q)) + 1);
       return { out, locks };
     };
@@ -408,7 +407,7 @@ describe("POST /api/notes/:id/copy 帶 folderId", () => {
 });
 
 describe("POST /api/notes/:id/move 帶 folderId", () => {
-  it("FN-7 移入群組資料夾（A3-6）：200、folderId、分享／公開／版本清空、updated_at 不變；不帶 folderId → 根層；一致性 400；看不到 404；create-only 403", async () => {
+  it("FN-7 移入群組資料夾：200、folderId、分享／公開／版本清空、updated_at 不變；不帶 folderId → 根層；一致性 400；看不到 404；create-only 403", async () => {
     const { app, db } = await buildTestApp();
     const pool = db.$client;
     const o = await seedUser(db);

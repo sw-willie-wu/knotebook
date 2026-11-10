@@ -9,10 +9,10 @@ import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { AppRoutes } from "@/App";
 import LoginPage from "./LoginPage";
 
-// LoginPage（Plan 5 Task 10；#187 Task 4 改多 provider）：react-query `['auth-config']` 讀
+// LoginPage（#187 改多 provider）：react-query `['auth-config']` 讀
 // `GET /api/auth/config`，`providers` 每個渲染一顆 SSO 入口
 // （純 `<a href="/api/auth/oidc/login/<id>">`，全頁跳轉，不走 `api()`——見 client.ts；
-// 302 鏈須由瀏覽器頂層導航承載，spec §14.4）。`?error=` 走既有
+// 302 鏈須由瀏覽器頂層導航承載）。`?error=` 走既有
 // `t(`errors.${code}`, {defaultValue: t("errors.fallback")})` 機制，渲染在既有
 // `role="alert"` 區。fetch 樁慣例比照 `SettingsUsersSection.test.tsx:89-101`
 // （`vi.stubGlobal("fetch", …)`＋`afterEach` `vi.unstubAllGlobals()`）；不引 msw。
@@ -76,7 +76,7 @@ function renderAt(
   return queryClient;
 }
 
-describe("LoginPage（Plan 5 Task 10：SSO 入口＋?error= 映射）", () => {
+describe("LoginPage（SSO 入口＋?error= 映射）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -101,7 +101,7 @@ describe("LoginPage（Plan 5 Task 10：SSO 入口＋?error= 映射）", () => {
     ]);
   });
 
-  it("HTML 形的顯示名渲染成字面（escapeValue:false 下仍只進文字節點，r1-M6）", async () => {
+  it("HTML 形的顯示名渲染成字面（escapeValue:false 下仍只進文字節點）", async () => {
     const evil = '<img src=x onerror="alert(1)">';
     renderAt(
       "/login",
@@ -135,7 +135,7 @@ describe("LoginPage（Plan 5 Task 10：SSO 入口＋?error= 映射）", () => {
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("An unexpected error occurred."));
   });
 
-  // fix round 1 MAJOR-1：`?error=` 是任意 query string，直接餵給 `t()` 曾實測炸出
+  // `?error=` 是任意 query string，直接餵給 `t()` 曾實測炸出
   // 兩種問題——`__proto__` 命中 `Object.prototype` 繼承屬性；`constructor` 讓 `t()`
   // 解析出 `errors` 物件的 `constructor`（一個 function）當翻譯結果，塞進 JSX 會是
   // 「Functions are not valid as a React child」執行期錯誤（`render()` 本身就會拋出，
@@ -155,7 +155,7 @@ describe("LoginPage（Plan 5 Task 10：SSO 入口＋?error= 映射）", () => {
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("An unexpected error occurred."));
   });
 
-  // fix round 1 NIT-6：`?error=` 帶進來的訊息現在直接餵進 `errorMessage` state 的
+  // `?error=` 帶進來的訊息現在直接餵進 `errorMessage` state 的
   // 初始值，因此 `handleSubmit` 一開頭既有的 `setErrorMessage(null)` 會自然蓋掉它——
   // 重新送出表單、進入等待回應的空窗期，畫面上不該閃回這則跟本次提交無關的舊 OIDC
   // 錯誤。用一個可控制何時 resolve 的 login 端點驗證「送出當下（回應還沒回來）」這個
@@ -215,9 +215,9 @@ describe("LoginPage（Plan 5 Task 10：SSO 入口＋?error= 映射）", () => {
 //
 // ⚠ 代價要講清楚：本族**證明不了**「導過去之後那條路由在真實樹裡渲染得出來」——
 // navigate 之後會經過 RequireAuth／ChangePasswordGate，本族一概繞過（catch-all 探針
-// 什麼路徑都接）。那一段由 Task 7 的 e2e 覆蓋。特別是 mustChangePassword:true 的人
+// 什麼路徑都接）。那一段由 e2e 覆蓋。特別是 mustChangePassword:true 的人
 // 帶著 next 登入時，gate 會把他攔去 /change-password、改完落 `/`，next 靜默遺失——
-// 那是 spec 明載接受的限制，不是本族的漏測。
+// 那是已接受的限制，不是本族的漏測。
 //
 // ⚠ queryClient.invalidateQueries({ queryKey: SESSION_QUERY_KEY }) 在這個 harness 裡
 // **不會**打 /api/auth/me：TanStack v5 的 refetchType 預設 "active"，而這裡沒有任何
@@ -340,7 +340,7 @@ describe("#131 登入後導回 next", () => {
   });
 
   it("next 內含百分比編碼 → 只解一次，逐字導過去（多解一次就會變 mojibake）", async () => {
-    // 這是與 Task 3 產生端的接縫：guards 餵的是 location.pathname，而**它本身就是**
+    // 這是與產生端的接縫：guards 餵的是 location.pathname，而**它本身就是**
     // 百分比編碼形（#122 之後 /n/<handle>/<slug> 的 slug 常常是 %E7%AD%86… 這種），
     // 所以 guards 送出來的 next 值裡 % 已經被編成 %25。這裡若多做一次
     // decodeURIComponent，七個純 ASCII 的案子都察覺不到，只有這一案會紅。
@@ -432,7 +432,7 @@ describe("#131 登入後導回 next", () => {
 const PROVIDERS: AuthProviderPublicDto[] = [{ id: "11111111-1111-1111-1111-111111111111", displayName: "GitLab", icon: { type: "builtin", name: "gitlab" } }];
 const NO_METHODS_TEXT = "There's no way to sign in right now. Please contact the site administrator.";
 
-describe("LoginPage——#187 PR3：帳密開關、註冊鈕、零方法", () => {
+describe("LoginPage——#187：帳密開關、註冊鈕、零方法", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -452,7 +452,7 @@ describe("LoginPage——#187 PR3：帳密開關、註冊鈕、零方法", () =>
     expect(await screen.findByText(NO_METHODS_TEXT)).toBeInTheDocument();
   });
 
-  it("有 provider＋帳密關 → 沒有說明文字（gate r1-t10-17 M5）", async () => {
+  it("有 provider＋帳密關 → 沒有說明文字", async () => {
     renderAt("/login", fetchMockWithAuthConfig({ providers: PROVIDERS, registration: { enabled: true, providerIds: PROVIDERS.map(p => p.id) }, passwordLogin: { enabled: false }, autoVersionsEnabled: true }));
     await screen.findByRole("link", { name: "Sign in with GitLab" });
     expect(screen.queryByText(NO_METHODS_TEXT)).not.toBeInTheDocument();
@@ -495,7 +495,7 @@ describe("LoginPage——#187 PR3：帳密開關、註冊鈕、零方法", () =>
     expect(screen.queryByRole("link", { name: "Create an account" })).not.toBeInTheDocument();
   });
 
-  it("RF5：/api/auth/config 失敗（500）→ 帳密表單照常顯示", async () => {
+  it("/api/auth/config 失敗（500）→ 帳密表單照常顯示", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       if (String(input) === "/api/auth/config") {
         return Promise.resolve(fakeResponse({ ok: false, status: 500, json: () => Promise.resolve({ error: { code: "internal", message: "x" } }) }));
@@ -529,7 +529,7 @@ describe("LoginPage——#187 PR3：帳密開關、註冊鈕、零方法", () =>
     renderAt("/login?error=registration_disabled", fetchMockWithAuthConfig({ providers: PROVIDERS, registration: { enabled: false, providerIds: [] }, passwordLogin: { enabled: false }, autoVersionsEnabled: true }));
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("New accounts can't be created this way right now."));
   });
-  describe("註冊入口（PR-C §3.8、C-15）", () => {
+  describe("註冊入口", () => {
     const [A] = TWO.providers;
     const cfg = (registrationEnabled: boolean, passwordEnabled: boolean, providerIds: string[]): AuthConfigDto => ({
       providers: TWO.providers,
@@ -571,7 +571,7 @@ describe("LoginPage——#187 PR3：帳密開關、註冊鈕、零方法", () =>
       await screen.findByRole("link", { name: "Sign in with GitLab" });
       expect(screen.queryByRole("link", REGISTER)).not.toBeInTheDocument();
     });
-    it("LG6（N6）：沒有 providerIds 鍵 → 視同 []：帳密自助可用有註冊鈕、不拋錯；自助關沒有", async () => {
+    it("LG6：沒有 providerIds 鍵 → 視同 []：帳密自助可用有註冊鈕、不拋錯；自助關沒有", async () => {
       const noKey = (enabled: boolean) => ({ providers: TWO.providers, registration: { enabled }, passwordLogin: { enabled: true }, autoVersionsEnabled: true }) as unknown as AuthConfigDto;
       await settled(noKey(true));
       expect(await screen.findByRole("link", REGISTER)).toBeInTheDocument();
@@ -587,13 +587,13 @@ describe("LoginPage——#187 PR3：帳密開關、註冊鈕、零方法", () =>
         throw new Error(`unexpected fetch: ${String(input)}`);
       });
       const queryClient = renderAt("/login", fetchMock);
-      // 不用 Sign in 鈕當等待點：它在載入中就出現（RF5 案）。
+      // 不用 Sign in 鈕當等待點：它在載入中就出現。
       await waitFor(() => expect(queryClient.getQueryState(["auth-config"])?.status).toBe("error"));
       expect(screen.queryByRole("link", REGISTER)).not.toBeInTheDocument();
     });
   });
 
-  it("provider-icon V1：每顆 SSO 鈕在文字前有圖示（內建／上傳）、icon null 不渲染；可及名稱與文字不變", async () => {
+  it("provider-icon：每顆 SSO 鈕在文字前有圖示（內建／上傳）、icon null 不渲染；可及名稱與文字不變", async () => {
     const corpUrl = "/api/auth/providers/22222222-2222-2222-2222-222222222222/icon?v=4";
     renderAt(
       "/login",

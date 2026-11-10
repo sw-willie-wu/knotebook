@@ -1,4 +1,4 @@
--- #181 PR-2d：notes:delete scope——三條 scope CHECK 放寬成五形（新增讀寫刪除、讀寫搬移刪除）；不改任何既有值，既有憑證不取得 notes:delete。編號 0035：0034 由 feat/folders 的 0034_folders 佔用（合流前本分支跳號）。
+-- #181：notes:delete scope——三條 scope CHECK 放寬成五形（新增讀寫刪除、讀寫搬移刪除）；不改任何既有值，既有憑證不取得 notes:delete。編號 0035：0034 由 feat/folders 的 0034_folders 佔用（合流前本分支跳號）。
 ALTER TABLE "api_tokens" DROP CONSTRAINT "api_tokens_scope_chk";--> statement-breakpoint
 ALTER TABLE "oauth_codes" DROP CONSTRAINT "oauth_codes_scope_chk";--> statement-breakpoint
 ALTER TABLE "oauth_requests" DROP CONSTRAINT "oauth_requests_scope_chk";--> statement-breakpoint

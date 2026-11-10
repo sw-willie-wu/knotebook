@@ -1,5 +1,5 @@
 /**
- * #269：站內連結的**唯一判準**與 wikilink 純函式（spec 2026-10-13 site-links §4.2、§6）。
+ * #269：站內連結的**唯一判準**與 wikilink 純函式。
  * client（編輯器外掛、input rule、貼上、站內 AI）、server（MCP／REST 寫入、MCP 讀出、轉換工作）都只呼叫這裡；
  * 不准在別處另寫一份「這是不是站內網址」的判斷——兩份會漂。
  *
@@ -9,7 +9,7 @@
 import { extractRefUuid, normalizeHandle, normalizeSlug } from "./index.js";
 import { UUID_RE } from "./note-markdown.js";
 
-/** 段落錨點的區塊 id 形（同 `SECTION_ID_RE`）。不合格的值在所有讀端一律當 `""`（§4.1）。 */
+/** 段落錨點的區塊 id 形（同 `SECTION_ID_RE`）。不合格的值在所有讀端一律當 `""`。 */
 export const BLOCK_ANCHOR_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
 export function normalizeAnchor(value: unknown): string {
@@ -29,7 +29,7 @@ export interface SiteNoteHref {
 const ABSOLUTE_HTTP_RE = /^https?:/i;
 
 /**
- * §6.1 規則（依序，任一不符 → null）。`siteOrigin`：web＝`window.location.origin`；server＝PUBLIC_URL 的 origin。
+ * 規則（依序，任一不符 → null）。`siteOrigin`：web＝`window.location.origin`；server＝PUBLIC_URL 的 origin。
  * 判準寫成正面條件：只收列舉的三形，其餘一律 null（不逐一排除壞形）。
  */
 export function parseSiteNoteHref(href: string, siteOrigin: string): SiteNoteHref | null {
@@ -39,14 +39,14 @@ export function parseSiteNoteHref(href: string, siteOrigin: string): SiteNoteHre
   let u: URL;
   try {
     // 非根相對的一律不給 base 剖析：`https:n/x`、`https:/n/x`、`HTTPS:../n/x` 帶 base 時會被當成同 scheme 的相對網址
-    // 解析到本站（瀏覽器在別的頁面上會解到別處），§6.1-2 只收真正的絕對網址。
+    // 解析到本站（瀏覽器在別的頁面上會解到別處），所以只收真正的絕對網址。
     u = rootRelative ? new URL(href, siteOrigin) : new URL(href);
   } catch {
     return null;
   }
   if (u.origin !== siteOrigin) return null;
   if (u.username !== "" || u.password !== "" || u.search !== "") return null;
-  // `URL` 對 `?` 結尾（空 query）給 `search === ""`——A5 要擋「帶 query」，空 query 也是 query。
+  // `URL` 對 `?` 結尾（空 query）給 `search === ""`——要擋「帶 query」，空 query 也是 query。
   if (href.includes("?")) return null;
   let anchorBlockId = "";
   if (u.hash !== "") {
@@ -91,21 +91,21 @@ export interface SiteLinkTarget {
   title: string;
 }
 
-/** §6.3：逐字 `===`，不 trim、不轉大小寫。`snapshotTitle` 取原文字（A3）。 */
+/** 逐字 `===`，不 trim、不轉大小寫。`snapshotTitle` 取原文字。 */
 export function wikilinkPropsFromLink(input: { text: string; href: string; target: SiteLinkTarget; anchorBlockId: string }): WikilinkProps {
   const { text, href, target, anchorBlockId } = input;
   const label = text === "" || text === target.title || text === href ? "" : text;
   return { targetNoteId: target.id.toLowerCase(), snapshotTitle: text !== "" ? text : target.title, label, anchorBlockId };
 }
 
-/** §4.2：`label` 非空用 label；否則可用的現行標題，沒有就 `snapshotTitle`。可能為空字串。 */
+/** `label` 非空用 label；否則可用的現行標題，沒有就 `snapshotTitle`。可能為空字串。 */
 export function wikilinkDisplayText(props: Partial<WikilinkProps>, liveTitle?: string): string {
   const label = typeof props.label === "string" ? props.label : "";
   if (label !== "") return label;
   return liveTitle ?? (typeof props.snapshotTitle === "string" ? props.snapshotTitle : "");
 }
 
-/** 永不為空的版本：顯示文字為空時退到 `wikilinkHref`（§7.3 匯出、§13.2 diff 單位的後備鏈終點）。 */
+/** 永不為空的版本：顯示文字為空時退到 `wikilinkHref`（匯出、版本 diff 單位的後備鏈終點）。 */
 export function wikilinkVisibleText(props: Partial<WikilinkProps>, liveTitle?: string): string {
   return wikilinkDisplayText(props, liveTitle) || wikilinkHref(String(props.targetNoteId ?? ""), normalizeAnchor(props.anchorBlockId));
 }
@@ -118,7 +118,7 @@ export interface SiteLinkCandidate {
   ownerHandle: string | null;
 }
 
-/** §6.5：同步比對（server 預取的可見清單、web 的 `["notes"]` 快取共用）。轉址表／prev_slug／legacy slug 一律不命中（N1）。 */
+/** 同步比對（server 預取的可見清單、web 的 `["notes"]` 快取共用）。轉址表／prev_slug／legacy slug 一律不命中。 */
 export function resolveFromList<T extends SiteLinkCandidate>(path: SiteNotePath, list: readonly T[]): T | null {
   switch (path.kind) {
     case "n":
@@ -141,7 +141,7 @@ export function targetFromList(path: SiteNotePath, list: readonly SiteLinkCandid
   return hit ? { id: hit.id, title: hit.title } : undefined;
 }
 
-/** link 內所有 text 片段串接（樣式丟棄，§6.3、§17-1）。 */
+/** link 內所有 text 片段串接（樣式丟棄）。 */
 export function linkText(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
@@ -179,7 +179,7 @@ function mapTableContent(content: { type: "tableContent"; rows?: Array<{ cells?:
 }
 
 /**
- * §6.2 的走訪器（`rebindWikilinks` 與 `convertSiteLinks` 共用）：inline 陣列 content（`isInlineType` 有給時要它為真）、
+ * 走訪器（`rebindWikilinks` 與 `convertSiteLinks` 共用）：inline 陣列 content（`isInlineType` 有給時要它為真）、
  * `tableContent` 的每個 cell（兩種形，不看 `isInlineType`）、`children` 遞迴。copy-on-write：`map` 回同一陣列就不換外層。
  */
 export function mapInlineArrays<B>(blocks: B[], map: InlineArrayMapper, isInlineType?: (type: string) => boolean): B[] {
@@ -230,7 +230,7 @@ function convertInline(inline: unknown[], resolve: SiteLinkResolve, siteOrigin: 
   return changed ? out : inline;
 }
 
-/** 一個 block 的 `content`（inline 陣列或 `tableContent`）上做 §6.2 的轉換；沒有變動回原物件。 */
+/** 一個 block 的 `content`（inline 陣列或 `tableContent`）上做站內連結轉換；沒有變動回原物件。 */
 export function convertSiteLinksInContent(content: unknown, resolve: SiteLinkResolve, siteOrigin: string, stats: ConvertStats): unknown {
   if (Array.isArray(content)) return convertInline(content, resolve, siteOrigin, stats);
   if (content && typeof content === "object" && (content as { type?: unknown }).type === "tableContent") {
@@ -239,7 +239,7 @@ export function convertSiteLinksInContent(content: unknown, resolve: SiteLinkRes
   return content;
 }
 
-/** §6.2：block JSON 陣列 → `[轉換後, { converted, unresolved }]`。輸入不改寫。 */
+/** block JSON 陣列 → `[轉換後, { converted, unresolved }]`。輸入不改寫。 */
 export function convertSiteLinks<B>(blocks: B[], resolve: SiteLinkResolve, siteOrigin: string): [B[], ConvertStats] {
   const stats: ConvertStats = { converted: 0, unresolved: 0 };
   const out = mapInlineArrays(blocks, (inline) => convertInline(inline, resolve, siteOrigin, stats));
@@ -247,7 +247,7 @@ export function convertSiteLinks<B>(blocks: B[], resolve: SiteLinkResolve, siteO
 }
 
 /**
- * RF1：連結文字的 markdown 跳脫（`\ ` ` * _ [ ] ~` 前加反斜線）。實測段落與表格 cell 都能逐字往返；`<`、`&` **刻意不收**——
+ * 連結文字的 markdown 跳脫（`\ ` ` * _ [ ] ~` 前加反斜線）。實測段落與表格 cell 都能逐字往返；`<`、`&` **刻意不收**——
  * BlockNote 的 markdown→HTML 剖析會把 `\<` 的反斜線留下來（`\<d\>` 讀回 `\<d>`），`&amp;` 不跳脫反而原樣往返。
  * **只用在要變成 markdown 的文字上**（`note-markdown-read.ts` 的 markdown 分支；站內 AI 的 markdown 匯出）；原始 HTML 輸出不得跳脫。
  */
@@ -256,13 +256,13 @@ export function escapeLinkText(text: string): string {
 }
 
 /**
- * MCP 讀（§9.1）與站內 AI（§9.4）的匯出副本改寫：wikilink → `{ type:"link", href: wikilinkHref, content:[顯示文字] }`。
+ * MCP 讀與站內 AI 的匯出副本改寫：wikilink → `{ type:"link", href: wikilinkHref, content:[顯示文字] }`。
  * 顯示文字＝`wikilinkVisibleText(props, titleOf(id))`——`titleOf` 只給讀者看得到的目標，看不到的退到 `snapshotTitle`。
- * 輸入不改寫（copy-on-write）；不依賴 `toExternalHTML` 的形，所以 PR1／PR2 任一狀態下 MCP 讀出的形都相同。
- * ⚠ RF1：顯示文字**不在這裡跳脫**——同一份副本在 server 的讀路徑上，上色區塊會走原始 HTML 輸出（`note-markdown-read.ts` 的
- * `toBlockHTML`），HTML 不需要也不會反跳脫 markdown（Task 6 審查 r0 I1）。跳脫做在真正變成 markdown 的那一步：
- * `note-markdown-read.ts` 的 markdown 分支呼叫 `escapeLinkText`，只做這一次。server 讀路徑與站內 AI（§9.4，web 的 `ai/note-markdown.ts`）
- * 都走同一支 `blocksToNoteMarkdown`，呼叫端**不得**另行跳脫，否則會跳脫兩次（spec 2026-10-21 columns-layout §11.6 M-4）。
+ * 輸入不改寫（copy-on-write）；不依賴 `toExternalHTML` 的形，所以 MCP 讀出的形不受它影響。
+ * ⚠ 顯示文字**不在這裡跳脫**——同一份副本在 server 的讀路徑上，上色區塊會走原始 HTML 輸出（`note-markdown-read.ts` 的
+ * `toBlockHTML`），HTML 不需要也不會反跳脫 markdown。跳脫做在真正變成 markdown 的那一步：
+ * `note-markdown-read.ts` 的 markdown 分支呼叫 `escapeLinkText`，只做這一次。server 讀路徑與站內 AI（web 的 `ai/note-markdown.ts`）
+ * 都走同一支 `blocksToNoteMarkdown`，呼叫端**不得**另行跳脫，否則會跳脫兩次。
  */
 export function wikilinksToLinks<B>(blocks: readonly B[], titleOf: (id: string) => string | undefined): B[] {
   const rewrite: InlineArrayMapper = (inline) => {

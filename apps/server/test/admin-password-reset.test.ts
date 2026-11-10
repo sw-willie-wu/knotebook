@@ -1,5 +1,5 @@
 /**
- * #286 管理員端：產生／取消重設密碼連結（spec §4.2）、`AdminUserDto` 兩欄、log 與錯誤遮蔽（§3.8）、清理掛點（§3.7）。
+ * #286 管理員端：產生／取消重設密碼連結、`AdminUserDto` 兩欄、log 與錯誤遮蔽、清理掛點。
  * 停用連帶撤銷在 `admin-users.test.ts` 的停用段。
  */
 import { randomUUID } from "node:crypto";
@@ -274,7 +274,7 @@ describe("POST /api/admin/users/:id/password-reset", () => {
     expect(gone).toBe(true);
   });
 
-  // spec §3.5／§4.6：產生先鎖 users 列。沒有這把鎖時，產生讀到「未停用」後停用才 commit，INSERT 的 FK 只取 KEY SHARE
+  // 產生先鎖 users 列。沒有這把鎖時，產生讀到「未停用」後停用才 commit，INSERT 的 FK 只取 KEY SHARE
   // 不被擋 → 停用帳號留下一支有效連結（重新啟用即可用）。
   it("G12：產生與停用並發——raw client 持 users 列鎖時停用，產生被擋，放行後 409 user_disabled、不插列", async () => {
     const { app, db, cookies } = await setup();
@@ -297,7 +297,7 @@ describe("POST /api/admin/users/:id/password-reset", () => {
     expect(await allLinks(db)).toHaveLength(0);
   });
 
-  // 同一人並發產生兩支：users 列鎖讓兩發排隊，後一發把前一支標為取代，不撞 I3 的 partial unique index。
+  // 同一人並發產生兩支：users 列鎖讓兩發排隊，後一發把前一支標為取代，不撞 partial unique index。
   // 交錯：raw client 以 SHARE MODE 鎖住 one_time_links，兩發都卡在撤銷那句之前——鎖是 NO KEY UPDATE 時第二發卡在 users 列；
   // 鎖若弱成 FOR SHARE，兩發都會拿到列鎖、各自 INSERT，後到的撞 23505 → 500。
   it("G13：同一人並發產生兩支 → 兩發都 201、最後恰一支有效", async () => {
@@ -383,7 +383,7 @@ describe("DELETE /api/admin/users/:id/password-reset", () => {
   });
 });
 
-describe("AdminUserDto 的 hasPassword／passwordResetExpiresAt（G8）", () => {
+describe("AdminUserDto 的 hasPassword／passwordResetExpiresAt", () => {
   type Dto = { id: string; hasPassword: boolean; passwordResetExpiresAt: string | null };
 
   async function listed(app: FastifyInstance, cookies: Record<string, string>): Promise<Map<string, Dto>> {

@@ -11,7 +11,7 @@ import { personalNote } from "@/test/select-fixtures";
 import { AppErrorBoundary } from "./ErrorBoundary";
 import { NoteList } from "./NoteList";
 
-// 資料夾對話框的 lazy chunk（FolderLazy）載入失敗（plan T3 FD11，mock 做法照 AppShell.select-lazy-error.test.tsx）：
+// 資料夾對話框的 lazy chunk（FolderLazy）載入失敗（mock 做法照 AppShell.select-lazy-error.test.tsx）：
 // `vi.mock` 整檔生效，所以獨立成檔。字串包也讓它失敗（同一個 chunk 的另一個 import 不得繞過 factory 載入真模組）。
 vi.mock("@/components/sidebar/FolderLazy", () =>
   Promise.reject(new TypeError("Failed to fetch dynamically imported module: http://localhost/assets/FolderLazy-abc.js")),
@@ -54,7 +54,7 @@ describe("NoteList — 資料夾對話框 chunk 載入失敗", () => {
     __resetFolderSortForTests();
   });
 
-  it("FD11 重載額度已用完：按 New folder 後 tabpanel 內出現看得見的 inline 錯誤（外框 className 恰為 p-2，不是 hidden）", async () => {
+  it("重載額度已用完：按 New folder 後 tabpanel 內出現看得見的 inline 錯誤（外框 className 恰為 p-2，不是 hidden）", async () => {
     sessionStorage.setItem(FOLDER_FLAG, "1");
     render(
       <AppErrorBoundary reload={vi.fn()}>

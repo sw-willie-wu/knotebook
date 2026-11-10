@@ -40,7 +40,7 @@ function renderPage(usage: StorageUsageDto) {
 const row = (kind: string) => screen.getByTestId(`by-kind-${kind}`);
 const barWidth = (kind: string) => (screen.getByTestId(`by-kind-bar-${kind}`) as HTMLElement).style.width;
 
-describe("SettingsStorageUsageSection（#247 §5.4）", () => {
+describe("SettingsStorageUsageSection（#247）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
   });
@@ -48,7 +48,7 @@ describe("SettingsStorageUsageSection（#247 §5.4）", () => {
     vi.unstubAllGlobals();
   });
 
-  it("「依類型」五列恆在、順序固定（含 0 的列，W30）", async () => {
+  it("「依類型」五列恆在、順序固定（含 0 的列）", async () => {
     renderPage({ usedBytes: 3 * MiB, quotaBytes: null, planName: "Big", byKind: { image: 3 * MiB, audio: 0, video: 0, document: 0, other: 0 } });
     expect(await screen.findByRole("heading", { level: 2, name: "By type" })).toBeInTheDocument();
     // 區塊標題在載入中就已渲染（列要等 /api/storage 回來）——先等列出現再數

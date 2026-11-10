@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import { getNoteWidth, setNoteWidth, subscribeNoteWidth, useNoteWidth } from "./note-width";
 
-/** #297 §4.1：站內寬度——模組層 Map 是同分頁真相，localStorage 盡力寫、`storage` 事件同步他分頁。 */
+/** #297：站內寬度——模組層 Map 是同分頁真相，localStorage 盡力寫、`storage` 事件同步他分頁。 */
 describe("note-width（站內每篇寬度）", () => {
   beforeEach(() => localStorage.clear());
   afterEach(() => vi.restoreAllMocks());

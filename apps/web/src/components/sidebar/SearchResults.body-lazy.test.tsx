@@ -10,7 +10,7 @@ import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 import { SearchResults } from "./SearchResults";
 
 /**
- * #93 PR2 T5 S5／S9：內文區的 lazy chunk 什麼時候載入。lazy 是模組級單例、`vi.mock` 的 factory 只跑一次，
+ * #93：內文區的 lazy chunk 什麼時候載入。lazy 是模組級單例、`vi.mock` 的 factory 只跑一次，
  * 所以本檔的案**有順序**：先驗「不載」的三種字，再驗「2 個字就先載 chunk、還沒發請求」，最後才驗會載的 `" ab "`。
  */
 const flags = vi.hoisted(() => ({ bodySearchLoaded: false }));

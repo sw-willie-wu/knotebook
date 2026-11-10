@@ -5,12 +5,12 @@ import { insertWikilink } from "./spec.js";
 
 /**
  * late-bound 編輯器參照。`NoteEditor.tsx` 的 `buildNoteEditorOptions` 是純函式，在
- * `useCreateBlockNote` 真正建出 editor **之前**就會被呼叫（Task 3 brief「editor 閉包
+ * `useCreateBlockNote` 真正建出 editor **之前**就會被呼叫（「editor 閉包
  * 時序」陷阱）；`[[` 觸發的 `handleTextInput` 與這裡的選單 item handler 都只在使用者
  * 真的互動時才會執行，所以只能透過這個 ref 在「事件當下」讀取當時的 editor 實例，
  * 不能在 `buildNoteEditorOptions` 呼叫當下就把 editor 閉包進去（那時它還不存在）。
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 編輯器泛型三元組在這裡無法具體化（跨 Task 2/3/14 共用，型別具體化需要 `noteSchema`，但 `wikilink/*` 不能反向 import `@/collab/schema`，見 spec.tsx 檔頭說明），走 repo 慣例用 any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 編輯器泛型三元組在這裡無法具體化（多處共用，型別具體化需要 `noteSchema`，但 `wikilink/*` 不能反向 import `@/collab/schema`，見 spec.tsx 檔頭說明），走 repo 慣例用 any
 export type EditorRef = { current: BlockNoteEditor<any, any, any> | null };
 
 /** `@/components/ui/toast` 的 `toast()` 最小介面——只用到 `title`。 */

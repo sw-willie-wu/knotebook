@@ -21,7 +21,7 @@ import { removeBlocksKeepColumns } from "@/collab/columns/keep-columns";
 import { blockIdsForMenuDelete } from "@/collab/columns/selection-delete";
 import { absoluteUrl, blockLinkUrl, copyBlockLink } from "@/lib/copy-block-link";
 
-/** #269 §10.3(a)：這篇筆記的 canonical 路徑（`canonicalNotePath(note)`）——NoteEditorView 提供；沒有（null）就不顯示複製項。 */
+/** #269：這篇筆記的 canonical 路徑（`canonicalNotePath(note)`）——NoteEditorView 提供；沒有（null）就不顯示複製項。 */
 export const NotePathContext = createContext<string | null>(null);
 
 function CopyBlockLinkItem() {
@@ -38,7 +38,7 @@ function CopyBlockLinkItem() {
   );
 }
 
-/** 「刪除」項：刪哪些 block 見 `collab/columns/selection-delete.ts`，刪除走 D25 helper（不收欄）。 */
+/** 「刪除」項：刪哪些 block 見 `collab/columns/selection-delete.ts`，刪除走 `keep-columns.ts` 的 helper（不收欄）。 */
 function KeepColumnsDeleteItem({ children }: { children: ReactNode }) {
   const Components = useComponentsContext()!;
   const editor = useBlockNoteEditor();
@@ -54,7 +54,7 @@ function KeepColumnsDeleteItem({ children }: { children: ReactNode }) {
   );
 }
 
-/** 「取消並排」項（spec §7.2）：block 是某欄的直接子 block 才顯示。 */
+/** 「取消並排」項：block 是某欄的直接子 block 才顯示。 */
 function UngroupColumnsItem() {
   const Components = useComponentsContext()!;
   const editor = useBlockNoteEditor();
@@ -94,7 +94,7 @@ function hasColumnAncestor(editor: BlockNoteEditor<any, any, any>, blockId: stri
 
 /**
  * 模組層常數元件（身分穩定）：SideMenuController 以元件身分決定要不要重掛。
- * 欄內只放 ⋮⋮（spec §17 #3，Willie 2026-10-22）：欄的選單以欄左緣定位、落在 24px 溝裡，兩顆鈕（48px）會蓋進前一欄。
+ * 欄內只放 ⋮⋮：欄的選單以欄左緣定位、落在 24px 溝裡，兩顆鈕（48px）會蓋進前一欄。
  */
 export function KnotebookSideMenu(props: SideMenuProps) {
   const editor = useBlockNoteEditor();

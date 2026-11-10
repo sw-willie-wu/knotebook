@@ -1,5 +1,5 @@
 /**
- * bulk transfer plan PR-2 T14（spec §19.2、§21 D17）：檔案寫回的耗時、事件迴圈停頓、端到端 HTTP、持續負載。**不進 CI**
+ * bulk transfer：檔案寫回的耗時、事件迴圈停頓、端到端 HTTP、持續負載。**不進 CI**
  * （檔名是 `.bench.ts`，不在任何 vitest 設定的 include 裡）。要真 DB 與 collab server，所以跑在 vitest 裡（`buildCollabTestApp`）：
  *   apps/server 下放一份只 include 本檔的 vitest 設定（不進版控），`TEST_DATABASE_URL=… BENCH_PART=matrix|http|sustained
  *   BENCH_ENV=A|B BENCH_OUT=<輸出檔> [RUNS=30] vitest run --config <那份設定>`。
@@ -7,7 +7,7 @@
  * - matrix：擬真混合筆記（同 `transfer-export.bench.ts` 的 `mixed`）20／200／1 000／2 000 顆 × 1／5／20 區 × 冷／熱 × 有無衝突；
  *   每格 RUNS 次。一次＝下載（不計時）→（有衝突時先由「人」改掉第一區的那顆）→ 計時 `PUT /api/transfer/notes`（`app.inject`：
  *   含路由、讀檔、可見性查詢、log，不含網路）。`transferWrite`／`tokenRead`／`contentRead` 換成不限流的實例（量耗時，不是量桶；
- *   不改任何常數）。分段時間用既有的 `editingTestHooks`（`beforeMerge`／`beforeRecord`／`afterRecord`）打點（第三輪：寫回不再存版，`beforeCut` 已刪；「有衝突」那幾格現在量的是 409 note_changed 的路徑），
+ *   不改任何常數）。分段時間用既有的 `editingTestHooks`（`beforeMerge`／`beforeRecord`／`afterRecord`）打點（寫回不再存版，`beforeCut` 已刪；「有衝突」那幾格現在量的是 409 note_changed 的路徑），
  *   不改 src。
  * - http：規則格（1 000 顆、5 區、熱、有衝突）走真 HTTP（`node:http`）。
  * - sustained：同一使用者每 2 s 一發、連續 180 s 寫回 1 000 顆、5 區、熱、有衝突的筆記，`transferWrite` 用預設值（30／60 s）；
@@ -38,7 +38,7 @@ const N = (t: string): Block => ({ type: "numberedListItem", content: t });
 const H = (t: string): Block => ({ type: "heading", content: t, props: { level: 2 } });
 const CODE = (t: string): Block => ({ type: "codeBlock", props: { language: "js" }, content: t });
 const TBL = (rows: unknown[]): Block => ({ type: "table", content: { type: "tableContent", rows } });
-/** 同 `transfer-export.bench.ts`（spike S5）的擬真混合。 */
+/** 同 `transfer-export.bench.ts`的擬真混合。 */
 function mixed(n: number): Block[] {
   return Array.from({ length: n }, (_, i) => {
     if (i % 10 === 0) return H(`Section ${i / 10}`);
@@ -77,7 +77,7 @@ const marks: Array<{ name: string; t: number }> = [];
 const mark = (name: string) => async () => void marks.push({ name, t: perf.now() });
 const unbounded = () => new FixedWindowLimiter({ limit: () => Number.MAX_SAFE_INTEGER, windowMs: 60_000 });
 
-/** 1 ms timer 的最大間隔（同 PR-1 bench）＋停頓結束的時刻（歸到哪一段）＋ELD p99＋ELU。 */
+/** 1 ms timer 的最大間隔（同匯出 bench）＋停頓結束的時刻（歸到哪一段）＋ELD p99＋ELU。 */
 async function measured<T>(fn: () => Promise<T>) {
   const h = monitorEventLoopDelay({ resolution: 1 });
   h.enable();
@@ -175,7 +175,7 @@ async function humanTouch(ctx: CollabTestCtx, noteId: string, firstLine: string,
 
 async function matrix() {
   const s = await makeScene({ limiters: { transferWrite: unbounded(), tokenRead: unbounded(), contentRead: unbounded() } });
-  out(`# T14 matrix  env=${ENV}  node=${process.version}  RUNS=${RUNS}  ${ENV === "B" ? "（2 vCPU／4 GiB 參考環境：容器層級限制）" : ""}`);
+  out(`# transfer-write matrix  env=${ENV}  node=${process.version}  RUNS=${RUNS}  ${ENV === "B" ? "（2 vCPU／4 GiB 參考環境：容器層級限制）" : ""}`);
   out("| 顆 | 區（實際） | 冷熱 | 衝突 | 耗時 p50/p95/max ms | 最長停頓 p50/p95/max ms | ELD p99 max ms | ELU 平均 | 停頓最大的那段 | 結果 |");
   out("|---|---|---|---|---|---|---|---|---|---|");
   for (const n of SIZES) {
@@ -242,7 +242,7 @@ async function httpPart() {
     statuses.set(r?.status ?? 0, (statuses.get(r?.status ?? 0) ?? 0) + 1);
   }
   client.disconnect();
-  out(`# T14 http  env=${ENV}  RUNS=${RUNS}${ENV === "B" ? "  （2 vCPU／4 GiB 參考環境：容器層級限制）" : ""}`);
+  out(`# transfer-write http  env=${ENV}  RUNS=${RUNS}${ENV === "B" ? "  （2 vCPU／4 GiB 參考環境：容器層級限制）" : ""}`);
   out(`規則格（1 000 顆、5 區、熱、有衝突）真 HTTP PUT：${fmt(tot)} ms；狀態 ${[...statuses].map(([k, v]) => `${k}×${v}`).join(" ")}`);
   appendFileSync(`${OUT}.jsonl`, `${JSON.stringify({ env: ENV, part: "http", tot: stat(tot), statuses: Object.fromEntries(statuses) })}\n`, "utf8");
   await s.ctx.destroy();
@@ -288,7 +288,7 @@ async function sustained() {
   A.disconnect();
   B2.disconnect();
   const st = (a: number[]) => `p50 ${f1(pct(a, 50))} / p95 ${f1(pct(a, 95))} / max ${f1(a.length ? Math.max(...a) : NaN)} ms（n=${a.length}）`;
-  out(`# T14 sustained  env=${ENV}  （transferWrite＝預設值 ${TRANSFER_WRITE_LIMIT.limit}／${TRANSFER_WRITE_LIMIT.windowMs / 1000} s）${ENV === "B" ? "  （2 vCPU／4 GiB 參考環境：容器層級限制）" : ""}`);
+  out(`# transfer-write sustained  env=${ENV}  （transferWrite＝預設值 ${TRANSFER_WRITE_LIMIT.limit}／${TRANSFER_WRITE_LIMIT.windowMs / 1000} s）${ENV === "B" ? "  （2 vCPU／4 GiB 參考環境：容器層級限制）" : ""}`);
   out(`共編 A→B 延遲 基線（30 s 無寫回）：${st(base)}`);
   out(`共編 A→B 延遲 寫回中（180 s、每 2 s 一發）：${st(lat)}；p95 增量 ${f1(pct(lat, 95) - pct(base, 95))} ms`);
   const by = new Map<string, number>();
@@ -316,7 +316,7 @@ async function sustained() {
   await s.ctx.destroy();
 }
 
-it(`T14 bench ${PART}`, async () => {
+it(`transfer-write bench ${PART}`, async () => {
   writeFileSync(`${OUT}.started`, new Date().toISOString(), "utf8");
   if (PART === "matrix") await matrix();
   else if (PART === "http") await httpPart();

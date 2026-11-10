@@ -12,7 +12,7 @@ import { highlightTitle, searchMetaLineClass, searchTitleLineClass, SearchRow } 
 import { noteLocationLabel, type LocationContext } from "./tree";
 
 /**
- * #93 PR2：側欄搜尋的合併結果列表（lazy chunk 內，唯一入口 `BodySearchLazy.tsx`）。標題命中（`titleNotes`，client 對清單算的）與內文命中
+ * #93：側欄搜尋的合併結果列表（lazy chunk 內，唯一入口 `BodySearchLazy.tsx`）。標題命中（`titleNotes`，client 對清單算的）與內文命中
  * （server）合成**一個列表**，**每個含查詢字的段落各列一項**（server 每個段落只回第一個命中，所以一項＝一個段落、不是每一次出現；
  * 一個段落裡出現好幾次還是一項，點了跳到第一個；server 每篇最多回 3 個段落。`mergeSearchRows` 去重後 `flattenRows` 攤平；一篇 3 個段落就 3 項，每項重複標題與路徑）：
  * 三行＝筆記標題、資料夾路徑、命中片段；只有標題命中的篇是兩行（標題、路徑）、點了開筆記不帶查詢字。外殼 `BodySearchResults` 接 hook；`BodySearchView` 只吃 state（測試直接餵 state）。

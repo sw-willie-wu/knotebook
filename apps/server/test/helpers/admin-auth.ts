@@ -7,7 +7,7 @@ import { authProviders } from "../../src/db/schema.js";
 import { buildTestApp, type TestApp } from "../helpers.js";
 import { cookieOf, seedUser, type SeededUser } from "../group-helpers.js";
 
-/** #187 PR2：建 app＋一個站台管理員（無密碼、直接簽 session）。 */
+/** #187：建 app＋一個站台管理員（無密碼、直接簽 session）。 */
 export async function adminApp(
   overrides: Partial<AppDeps> = {},
   options: BuildAppOptions = {},

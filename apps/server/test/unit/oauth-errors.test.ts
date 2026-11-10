@@ -28,7 +28,7 @@ describe("isOauthScopedPath", () => {
 
 describe("FORM_EXEMPT_ROUTES", () => {
   // `routeOptions.url` 在 prefix plugin 內回**含 prefix** 的完整路徑。寫成不含
-  // prefix 的 `/token`，Task 7 的 form 端點會永遠吃 415。
+  // prefix 的 `/token`，form 端點會永遠吃 415。
   it("鍵是含 prefix 的完整路徑", () => {
     expect(FORM_EXEMPT_ROUTES.has("POST /oauth/token")).toBe(true);
     expect(FORM_EXEMPT_ROUTES.has("POST /token")).toBe(false);

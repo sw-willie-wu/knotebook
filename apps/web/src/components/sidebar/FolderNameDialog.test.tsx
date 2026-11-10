@@ -105,7 +105,7 @@ describe("FolderNameDialog", () => {
     expect((posted(calls)[0]!.body as { name: string }).name).toBe(emoji);
   });
 
-  it("FN3 字中控制字元（C0、U+2028、bidi）→ 行內錯誤逐字、不送；首尾的控制字元 trim 後可送", async () => {
+  it("FN3 字中控制字元（U+2028、bidi）→ 行內錯誤逐字、不送；首尾的控制字元 trim 後可送", async () => {
     const calls = stubFolders();
     renderDialog({ mode: "create", parent: PERSONAL });
     for (const bad of ["A\u0007B", "A\u2028B", "A\u202EB"]) {
@@ -193,7 +193,7 @@ describe("FolderNameDialog", () => {
   });
 });
 
-/** 疊資料夾改名形（資料夾 spec §6.6、§6.13 第 6 步；PR-3c T5）。 */
+/** 疊資料夾改名形。 */
 describe("FolderNameDialog 疊資料夾改名", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");

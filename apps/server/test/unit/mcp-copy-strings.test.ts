@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { UPLOAD_LIMIT } from "../../src/http/rate-limit.js";
 import { copyUploadLimitMessage, copyQuotaVisibleMessage } from "../../src/mcp/tools/copy-note.js";
 
-describe("U7 copy_note 字串內插", () => {
+describe("copy_note 字串內插", () => {
   it("upload 上限句的數字＝傳入的上限（#397：現讀當下的桶）", () => {
     expect(copyUploadLimitMessage(12)).toContain("12 files per 10 minutes");
   });

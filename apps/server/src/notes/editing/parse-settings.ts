@@ -35,7 +35,7 @@ export const DEFAULT_PARSE_WORKER_MEMORY_MB = SITE_LIMITS.parseWorkerMemoryMb.de
 export const DEFAULT_PARSE_TIMEOUT_MS = SITE_LIMITS.parseTimeoutMs.default;
 /**
  * 排隊等待預設＝{@link QUEUE_WAIT_TIMEOUT_FACTOR} × 時限＋{@link QUEUE_WAIT_SLACK_MS}（沒設 `PARSE_QUEUE_WAIT_MS` 時跟著 `PARSE_TIMEOUT_MS` 走；
- * 預設時限下＝45 秒）。理由（審查 r4 I4）：一件工作最長可以跑 4 × 時限（批次寫回的規劃：3 × 的檔案預算＋1 × 給整篇比對；讀出與套用的轉換
+ * 預設時限下＝45 秒）。理由：一件工作最長可以跑 4 × 時限（批次寫回的規劃：3 × 的檔案預算＋1 × 給整篇比對；讀出與套用的轉換
  * 是 3 ×），排在一件跑滿時限的工作後面的人仍要輪得到，不能被它擋到 503。只有 1 個 worker 時，前面若有兩件以上同時跑滿才會等不到。
  */
 export const QUEUE_WAIT_TIMEOUT_FACTOR = 4;

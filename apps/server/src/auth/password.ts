@@ -55,7 +55,7 @@ export async function verifyPassword(hash: string, password: string): Promise<bo
       return await argon2.verify(hash, password);
     } catch (err) {
       // Non-HashBusyError exceptions (e.g., invalid hash format) return false
-      // instead of propagating to avoid 500 errors or existence oracles in Task 9
+      // instead of propagating to avoid 500 errors or existence oracles in the login route
       if (err instanceof HashBusyError) {
         throw err;
       }

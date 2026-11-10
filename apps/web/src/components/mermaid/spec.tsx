@@ -43,7 +43,7 @@ export function MermaidExternalHTML({ code }: { code: string }): JSX.Element {
 
 /**
  * ⚠ **這裡刻意沒有 `parse` 規則。** 曾經有一條（接管
- * `<pre><code class="language-mermaid">`），2026-08-28 審查實測證明它**永遠不會被呼叫**：
+ * `<pre><code class="language-mermaid">`），實測證明它**永遠不會被呼叫**：
  * BlockNote 內建 codeBlock 的 `pre` 解析規則優先序更高，HTML 貼上路徑一律先變成
  * `codeBlock(language="mermaid")`。當時那條規則有 6 條測試全綠，但它們是直接呼叫匯出函式、
  * 完全不經過 BlockNote——典型的假綠。真正在做轉換的是 `collab/mermaid-paste.ts`（blocks 層），
@@ -59,7 +59,7 @@ type MermaidRenderProps = ReactCustomBlockRenderProps<typeof mermaidBlockConfig>
 
 /**
  * 寫回原始碼。**`updateBlock` 會拋**：共編時遠端把這個 block 刪掉，而本地正好開著原始碼，
- * Esc／失焦提交就會撞到 `Block with ID … not found`（審查實測）。例外從 React 事件 handler
+ * Esc／失焦提交就會撞到 `Block with ID … not found`。例外從 React 事件 handler
  * 拋出去對使用者是「剛打的東西無聲消失」，所以這裡吞掉——block 都不在了，沒有地方可寫。
  * 同 `collab/mermaid-paste.ts` 對 `replaceBlocks` 的既有處理。
  */

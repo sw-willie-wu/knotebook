@@ -1,5 +1,5 @@
 /**
- * #181 §6.6：保留期清理的排程常數。文件寫了具體時間（docs/self-hosting.md 的 Trash 節與升級段、docs/known-limitations.md、
+ * #181：保留期清理的排程常數。文件寫了具體時間（docs/self-hosting.md 的 Trash 節與升級段、docs/known-limitations.md、
  * docs/api.md、CHANGELOG 的 Upgrade notes），改常數要一起改文件。
  */
 import { describe, expect, it } from "vitest";

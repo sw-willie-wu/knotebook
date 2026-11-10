@@ -9,7 +9,7 @@ import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { AppRoutes } from "@/App";
 import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
-// 密碼三形（#187 §8.5；#247 起在「登入」頁 `/settings/login`＝`SettingsLoginSection`）：`hasPassword === false`
+// 密碼三形（#187；#247 起在「登入」頁 `/settings/login`＝`SettingsLoginSection`）：`hasPassword === false`
 // → 不渲染 `ChangePasswordForm`；帳密登入有效值開時改渲染「加上密碼」表單、關時只有說明。
 // 帳戶資訊頁（`SettingsAccountSection`）只剩顯示名稱與網址名稱。
 // 走真正的 `AppRoutes`（同 SettingsModal.test.tsx/SettingsUsersSection.test.tsx 慣例，
@@ -135,7 +135,7 @@ describe("SettingsLoginSection（hasPassword／帳密登入有效值 三形）",
     expect(screen.queryByRole("heading", { name: "Change your password" })).not.toBeInTheDocument();
   });
 
-  it("hasPassword:false＋有效值關 → 只有說明、沒有表單（B22）", async () => {
+  it("hasPassword:false＋有效值關 → 只有說明、沒有表單", async () => {
     renderLoginSettings(SSO_ONLY_USER, false);
     expect(await screen.findByText("This site only allows signing in through a sign-in service right now.")).toBeInTheDocument();
     expect(screen.queryByLabelText("New password")).not.toBeInTheDocument();
@@ -150,13 +150,13 @@ describe("SettingsLoginSection（hasPassword／帳密登入有效值 三形）",
 });
 
 /**
- * #122 PR1 Task 5：帳號區的使用者名（handle）欄。
+ * #122：帳號區的使用者名（handle）欄。
  * - 兩個分支（有密碼／SSO-only）都要渲染——OIDC 使用者正是 handle 派生自
- *   preferred_username、最可能想改名的族群（plan gate M5：早退分支要重構）。
+ *   preferred_username、最可能想改名的族群（早退分支要重構）。
  * - 成功後 invalidateQueries **全清**（handle 已反正規化進未來的 NoteDto，改名罕見、全清最保險）。
- * - 警語含 /n/、/p/ 網址形＝刻意提前（PR2/3 緊隨，文案一次寫全——非 drift）。
+ * - 警語含 /n/、/p/ 網址形＝刻意提前（對應功能緊隨上線，文案一次寫全——非 drift）。
  */
-describe("SettingsAccountSection——使用者名欄（#122 Task 5）", () => {
+describe("SettingsAccountSection——使用者名欄（#122）", () => {
   const HANDLE_WARNING =
     "The name used in your public links (/p/<handle>/…). It appears in every /n/ and /p/ link you share (token links don't include it). After a rename those links stop working immediately, and the old name is freed: anyone, including you, can take it. If someone else takes it, an old link that matches one of their notes leads to their note.";
 
@@ -170,7 +170,7 @@ describe("SettingsAccountSection——使用者名欄（#122 Task 5）", () => {
   });
 
   function renderWithProfilePatch(user: UserDto, patchResponse: () => Response) {
-    // 可變的 me 樁（突變審查 F1）：/api/auth/me 讀 userRef.current——成功案把它翻成
+    // 可變的 me 樁：/api/auth/me 讀 userRef.current——成功案把它翻成
     // 新值，才能斷言「全清 refetch 後畫面顯示新 handle」；固定樁下那個宣稱是假的。
     const userRef = { current: user };
     const patchBodies: unknown[] = [];
@@ -208,14 +208,14 @@ describe("SettingsAccountSection——使用者名欄（#122 Task 5）", () => {
     expect(screen.getByText(HANDLE_WARNING)).toBeInTheDocument();
   });
 
-  it("SSO-only（hasPassword=false）也看得到、可編輯（早退分支已重構——plan gate M5）", async () => {
+  it("SSO-only（hasPassword=false）也看得到、可編輯（早退分支已重構）", async () => {
     renderWithProfilePatch(SSO_ONLY_USER, () => fakeResponse({ ok: true, status: 200 }));
     const input = (await screen.findByLabelText("URL name")) as HTMLInputElement;
     expect(input.value).toBe("tester");
     expect(input).not.toBeDisabled();
   });
 
-  it("帳戶資訊頁只有顯示名稱與網址名稱兩區塊（密碼、登入方式、token、用量都搬走了，#247 §5.2）", async () => {
+  it("帳戶資訊頁只有顯示名稱與網址名稱兩區塊（密碼、登入方式、token、用量都搬走了，#247）", async () => {
     vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const res = baseFetchHandlers(PASSWORD_USER)(String(input), (init?.method ?? "GET").toUpperCase());
       if (res) return Promise.resolve(res);
@@ -249,10 +249,10 @@ describe("SettingsAccountSection——使用者名欄（#122 Task 5）", () => {
     expect(patchBodies[0]).toEqual({ handle: "new-me" }); // 正規化（小寫）後送出
     await waitFor(() => expect(invalidateSpy).toHaveBeenCalled());
     expect(invalidateSpy.mock.calls.some((args) => args.length === 0 || args[0] === undefined)).toBe(true);
-    // 顯示新值（突變審查 F1）：靠 setValue(null) 回「顯示現值」＋setQueryData 寫入的新
+    // 顯示新值：靠 setValue(null) 回「顯示現值」＋setQueryData 寫入的新
     // session——少了 setValue(null) 欄位會停在原文 "New-Me" 而紅
     await waitFor(() => expect(input.value).toBe("new-me"));
-    await screen.findByText("URL name saved."); // 成功 toast（F2）
+    await screen.findByText("URL name saved."); // 成功 toast
   });
 
   it("M1 釘：PATCH 落地即 setQueryData 更新 session——/me refetch **尚未回應**時也顯示新值（不閃回舊名一個 RTT）", async () => {
@@ -326,7 +326,7 @@ describe("SettingsAccountSection——使用者名欄（#122 Task 5）", () => {
     await waitFor(() => expect(screen.getByText("That URL name is already taken.")).toBeInTheDocument());
   });
 
-  it("429 too_many_requests → 顯示對應文案（plan gate 注意事項 8）", async () => {
+  it("429 too_many_requests → 顯示對應文案", async () => {
     renderWithProfilePatch(PASSWORD_USER, () =>
       fakeResponse({ ok: false, status: 429, json: () => Promise.resolve({ error: { code: "too_many_requests", message: "x" } }) }),
     );
@@ -336,7 +336,7 @@ describe("SettingsAccountSection——使用者名欄（#122 Task 5）", () => {
     await waitFor(() => expect(screen.getByText("Too many requests. Please slow down.")).toBeInTheDocument());
   });
 
-  it("非法格式：前端就地呈現、不打 API（plan gate m3）", async () => {
+  it("非法格式：前端就地呈現、不打 API", async () => {
     const { fetchMock } = renderWithProfilePatch(PASSWORD_USER, () => fakeResponse({ ok: true, status: 200 }));
     const input = await screen.findByLabelText("URL name");
     fireEvent.change(input, { target: { value: "Bad Name!" } });
@@ -350,7 +350,7 @@ describe("SettingsAccountSection——使用者名欄（#122 Task 5）", () => {
   });
 });
 
-describe("SetPasswordForm（#187 §8.4）", () => {
+describe("SetPasswordForm（#187）", () => {
   beforeEach(async () => { await i18n.changeLanguage("en"); dismissAllToasts(); });
   afterEach(() => vi.unstubAllGlobals());
 
@@ -419,7 +419,7 @@ describe("SetPasswordForm（#187 §8.4）", () => {
   });
 });
 
-describe("SetPasswordForm——送出後的狀態切換（#187 §8.4）", () => {
+describe("SetPasswordForm——送出後的狀態切換（#187）", () => {
   beforeEach(async () => { await i18n.changeLanguage("en"); dismissAllToasts(); });
   afterEach(() => vi.unstubAllGlobals());
 
@@ -513,7 +513,7 @@ function renderAutoVersions({ user, siteOn, profileReply }: { user: UserDto; sit
   return calls;
 }
 
-describe("帳號頁 × 自動儲存版本（spec §6.8、§8.5）", () => {
+describe("帳號頁 × 自動儲存版本", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -561,7 +561,7 @@ describe("帳號頁 × 自動儲存版本（spec §6.8、§8.5）", () => {
   });
 });
 
-describe("SettingsAccountSection——顯示名稱（#247 §5.2、§9.3）", () => {
+describe("SettingsAccountSection——顯示名稱（#247）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();

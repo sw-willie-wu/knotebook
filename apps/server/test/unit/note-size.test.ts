@@ -1,6 +1,6 @@
 /**
  * 筆記大小上限（`notes/note-size.ts`）：依結果判斷的規則（`capBlocks`＋`measureTrial` 的四個數；API／MCP／批次寫回／撤回／套用版本／複製用）、
- * 審查 r6 的五種繞法與 r5 的兩種、設定。瀏覽器的協作更新不在 server 檢查（網頁編輯器自己擋）。
+ * 七種繞法、設定。瀏覽器的協作更新不在 server 檢查（網頁編輯器自己擋）。
  */
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
@@ -122,7 +122,7 @@ describe("liveContentBytes／measureTrial：還在的內容用 Yjs 的編碼器�
   });
 });
 
-describe("審查 r6 的五種繞法：在超過上限的筆記上一律擋", () => {
+describe("五種繞法：在超過上限的筆記上一律擋", () => {
   it("1 重複的刪除範圍（同一段刪 40 次，聲稱刪了 4 MB）＋插入 1 MiB", () => {
     const { doc, cap } = overCap();
     let u = client(doc)(d => text(d, 5).insert(0, "Z".repeat(MiB)));
@@ -198,7 +198,7 @@ describe("審查 r6 的五種繞法：在超過上限的筆記上一律擋", () 
   });
 });
 
-describe("審查 r5 的兩種：刪 1 個字＋大屬性、大連結格式", () => {
+describe("另兩種：刪 1 個字＋大屬性、大連結格式", () => {
   it("刪 1 個字＋設 4 MiB 的屬性 → 擋", () => {
     const { doc, cap } = overCap();
     const u = client(doc)(d => {
@@ -235,7 +235,7 @@ describe("超過上限的筆記：正常的刪減與改寫照樣接受，加內�
     expect(m.liveAfter).toBe(m.liveBefore);
     expect(capBlocks(measure(doc, u), cap)).toBe(false);
   });
-  it("刪一大段＋打幾個字（審查 r6 m1）→ 接受", () => {
+  it("刪一大段＋打幾個字→ 接受", () => {
     const { doc, cap } = overCap();
     const u = client(doc)(d => {
       text(d, 0).delete(0, 90_000);

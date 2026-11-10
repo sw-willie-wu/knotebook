@@ -1,7 +1,7 @@
 /**
- * #175 §6.5 (2)、B10：複製的 Y.Doc 處理（純函式，不碰 DB／檔案）。clone 頂層節點進全新 Y.Doc（clientID 不同、被刪
- * 文字不在 update 裡、屬性與 block id 保留——spec §2.8【驗】），並收集 `url` 屬性**恰為** `/api/uploads/<uuid>` 的
- * XmlElement（同一個 id 可能有多個節點，RF2）。已知不改寫（§15 第 9 條）：文字 link mark 裡的上傳網址、同源絕對網址。
+ * #175：複製的 Y.Doc 處理（純函式，不碰 DB／檔案）。clone 頂層節點進全新 Y.Doc（clientID 不同、被刪
+ * 文字不在 update 裡、屬性與 block id 保留），並收集 `url` 屬性**恰為** `/api/uploads/<uuid>` 的
+ * XmlElement（同一個 id 可能有多個節點）。已知不改寫：文字 link mark 裡的上傳網址、同源絕對網址。
  * 走訪比照 `collab/store.ts` 的 `collectUnsafeUrlFindings`（顯式 stack、只展開 XmlElement／XmlFragment）。
  */
 import * as Y from "yjs";

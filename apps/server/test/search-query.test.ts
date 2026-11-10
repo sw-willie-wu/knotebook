@@ -1,5 +1,5 @@
 /**
- * #93 §7：查詢（M1 排序、M2 可見性、M4 字面比對、matches、S18 隔離等級與快照、非 ASCII／窗口、回填前只中標題）。函式層——MCP 輸出在
+ * #93：查詢（M1 排序、M2 可見性、M4 字面比對、matches、S18 隔離等級與快照、非 ASCII／窗口、回填前只中標題）。函式層——MCP 輸出在
  * `test/mcp-search.test.ts`。
  */
 import { describe, expect, it } from "vitest";
@@ -85,7 +85,7 @@ describe("M2 可見性（索引列與權限無關，可見性只來自三支 uni
 
     const g2 = await seedGroup(db, "G2", [{ userId: a.id, role: "admin" }]);
     const g2n = await seedIndexedNote(db, { groupId: g2.id }, "g2", [{ id: "p", text: `g2 ${Q}` }]);
-    await db.insert(noteShares).values({ noteId: g2n.id, userId: c.id, role: "viewer" }); // S5 破裂形：群組筆記上的殘留分享列
+    await db.insert(noteShares).values({ noteId: g2n.id, userId: c.id, role: "viewer" }); // 群組筆記上的殘留分享列
     expect(await check(c.id)).toEqual([]);
 
     const moved = await seedIndexedNote(db, { ownerId: a.id }, "m", [{ id: "p", text: `moved ${Q}` }]);
@@ -165,7 +165,7 @@ describe("matches 第二句", () => {
   });
 });
 
-describe("S18 隔離等級（I-1、m-A1）", () => {
+describe("S18 隔離等級", () => {
   it("runNoteSearchInTx 之後同一交易內 transaction_isolation＝repeatable read、read_only＝on", async () => {
     const { db } = await freshDb();
     const u = await seedUser(db);
@@ -214,7 +214,7 @@ describe("S18 隔離等級（I-1、m-A1）", () => {
   });
 });
 
-describe("非 ASCII 與窗口（libc locale，spec §7.5）", () => {
+describe("非 ASCII 與窗口（libc locale）", () => {
   it("CJK 子字串；西里爾字母大小寫不敏感；字面的反斜線與引號；emoji 包圍的命中窗口以 code point 計、沒有孤立代理", async () => {
     const { db } = await freshDb();
     const u = await seedUser(db);
@@ -252,7 +252,7 @@ describe("回填前只中標題（description 的 after-an-upgrade 句的守衛�
   });
 });
 
-// ─── #93 PR2 T1：bodyOnly（D3）與 keyset 分頁（D12） ───────────────────────────────────────────────
+// ─── #93：bodyOnly 與 keyset 分頁 ───────────────────────────────────────────────
 
 /** 微秒精度直設 updated_at（`at()` 走 JS Date，只有毫秒）。 */
 const atUs = (db: Db, id: string, iso: string) => db.execute(sql`update notes set updated_at = ${iso}::timestamptz where id = ${id}::uuid`);
@@ -280,7 +280,7 @@ async function pageAll(db: Db, userId: string, query: string, limit: number, bod
 }
 const P = [{ id: "p", text: "nothing here" }];
 
-describe("Q bodyOnly 與 keyset 分頁（#93 PR2）", () => {
+describe("Q bodyOnly 與 keyset 分頁（#93）", () => {
   it("Q1 bodyOnly：只中標題／兩者／只中內文 → 回後兩篇、both 在前；不帶 → 三篇", async () => {
     const { db } = await freshDb();
     const u = await seedUser(db);

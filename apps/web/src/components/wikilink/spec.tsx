@@ -19,7 +19,7 @@ type WikilinkRenderProps = ReactCustomInlineContentRenderProps<typeof wikilinkCo
 
 /**
  * 樣式（issue #153、#269）：活連結＝主題色＋實線底線（與外部連結同一套），**刻意不帶外連圖示**（同分頁導航）；
- * 斷鏈＝muted＋虛線底線、不套主題色。⚠ 顏色寫 `text-(--color-brand)` 而**不是** `text-brand`（理由見 memory knotebook-link-styling：
+ * 斷鏈＝muted＋虛線底線、不套主題色。⚠ 顏色寫 `text-(--color-brand)` 而**不是** `text-brand`（理由：
  * `.bn-root.dark` 會把巢狀的 `--brand` 重設回 indigo；`--color-brand` 只宣告在 `@theme inline`，`theme.link-guard.test.ts` 守）。
  */
 const LIVE_LINK_CLASS = "cursor-pointer text-(--color-brand) underline";
@@ -27,12 +27,12 @@ const BROKEN_CLASS = "cursor-pointer border-b border-dashed border-muted-foregro
 
 /**
  * `toExternalHTML`——headless 匯出（`blocksToHTMLLossy`／markdown、`toClipboard`）。**必須是無副作用的純 FC，只讀 props**：headless
- * 匯出下沒有 React context（任何 hook 都會炸）。#269 §7.3：輸出 `<a href="/notes/<id>[#b-…]">label || snapshotTitle || href</a>`
+ * 匯出下沒有 React context（任何 hook 都會炸）。#269：輸出 `<a href="/notes/<id>[#b-…]">label || snapshotTitle || href</a>`
  * （包在一層 `<span>` 裡，理由見函式內；與 shared headless spec 同形；`collab/schema.test.ts` 的 parity 案守）。現行標題由呼叫端在匯出副本上換入（`wikilinksToLinks`）。
  */
 function WikilinkExternalHTML({ inlineContent }: WikilinkRenderProps) {
   // 不可接 contentRef：wikilink 是 atom（content:"none"），接了會讓 renderHTML 回 contentDOM，
-  // 站內複製的 serializeForClipboard 就拋 RangeError「Content hole not allowed in a leaf node spec」、剪貼簿被清空（#269 Task 2）。
+  // 站內複製的 serializeForClipboard 就拋 RangeError「Content hole not allowed in a leaf node spec」、剪貼簿被清空（#269）。
   // 外層 `<span>` 不可省：renderHTML 把 `data-inline-content-type` 等屬性寫在根元素上；根若是 `<a href>`，站內貼上（PM raw parse）
   // 時 link mark 的 `a[href]` 規則先於 wikilink 規則命中，貼出來變成一般連結（`wikilink-props.facts.test.tsx` 的站內複製貼上案守）。
   const { targetNoteId, anchorBlockId } = inlineContent.props;
@@ -45,19 +45,19 @@ function WikilinkExternalHTML({ inlineContent }: WikilinkRenderProps) {
   );
 }
 
-/** §7.1：依情境分派。hook 不能條件式呼叫，所以 member／public 是兩個元件——public **不呼叫** `useNotes()`。 */
+/** 依情境分派。hook 不能條件式呼叫，所以 member／public 是兩個元件——public **不呼叫** `useNotes()`。 */
 export function WikilinkInline(props: WikilinkRenderProps) {
   const mode = useContext(WikilinkContext);
   return mode.mode === "public" ? <PublicWikilink {...props} links={mode.links} /> : <MemberWikilink {...props} />;
 }
 
 /**
- * §7.2 member（編輯頁、viewer、版本預覽）。三態：
+ * member（編輯頁、viewer、版本預覽）。三態：
  * 1. 清單未到／失敗（`isPending || !data`）：`<a href=/notes/<id>[#b-…]>`、文字 `label || snapshotTitle`。**列表查詢失敗也併進這一態**——
  *    沒有足夠資訊斷言目標不存在，放行導航、讓筆記頁自己處理 404。
  * 2. 命中：`<a href=canonical[#b-…]>`、文字 `label || 現行標題`。
  * 3. 清單到了卻沒有這個 id（已刪或無權）：`<span>` 斷鏈樣式、文字 `label || snapshotTitle`；點擊 toast。
- * 點擊一律跳轉（可編輯也是）；可編輯時工具列由 hover／觸控長按開（rev 7，`useToolbarTriggers`；鍵盤開不到，已知限制）。
+ * 點擊一律跳轉（可編輯也是）；可編輯時工具列由 hover／觸控長按開（`useToolbarTriggers`；鍵盤開不到，已知限制）。
  */
 function MemberWikilink({ inlineContent, contentRef, editor, updateInlineContent }: WikilinkRenderProps) {
   const notesQuery = useNotes();
@@ -124,7 +124,7 @@ function MemberWikilink({ inlineContent, contentRef, editor, updateInlineContent
 }
 
 /**
- * §11.2 公開頁：`links`（公開 payload，只含有自訂公開網址的目標）有此 id ⇒ `<a href=/p/…[#b-…]>`、文字 `label || 公開標題`；
+ * 公開頁：`links`（公開 payload，只含有自訂公開網址的目標）有此 id ⇒ `<a href=/p/…[#b-…]>`、文字 `label || 公開標題`；
  * 沒有、但有錨點且本頁有該 id 的區塊 ⇒ 同篇錨點 `<a href=#b-…>`（不論本頁是 token 形或自訂網址）；其餘 ⇒ 純文字。
  */
 function PublicWikilink({ inlineContent, contentRef, editor, links }: WikilinkRenderProps & { links: ReadonlyMap<string, PublicLinkDto> }) {
@@ -158,7 +158,7 @@ export const wikilinkSpec = createReactInlineContentSpec(wikilinkConfig, {
 });
 
 /**
- * 插入一個 wikilink + 補一個 trailing space（不補的話使用者接著打的字會黏在 atom node 上）。#269 §8.7：`label`／`anchorBlockId`
+ * 插入一個 wikilink + 補一個 trailing space（不補的話使用者接著打的字會黏在 atom node 上）。#269：`label`／`anchorBlockId`
  * 選配、預設空字串。`editor` 型別故意寫 `BlockNoteEditor<any,any,any>`（防循環 import，見檔頭）。
  */
 export function insertWikilink(

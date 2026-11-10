@@ -1,8 +1,8 @@
 /**
- * bulk transfer plan T11（spec §22「一篇內讓出點的實際效果要在 PR-1 量」、§25.5）：單篇匯出器的耗時與事件迴圈停頓。
+ * bulk transfer：單篇匯出器的耗時與事件迴圈停頓。
  * **不進 CI**。用法（apps/server）：`pnpm exec tsx test/bench/transfer-export.bench.ts > <out.txt>`
  *
- * 矩陣：擬真混合筆記 20／200／1 000／2 000 顆（照 spike `spk-s5.mts` 的 `mixed`）× RUNS 次；兩組：
+ * 矩陣：擬真混合筆記 20／200／1 000／2 000 顆 × RUNS 次；兩組：
  * - yield：預設讓出（mount 後、整篇匯出後各一次，逐顆匯出每 50 顆或距上次 ≥ 20 ms 一次；每次讓出＝連續兩次 `setImmediate`，
  *   理由見 `export-note.ts` 的 `defaultYield`）
  * - noyield：`yieldFn` 換成只等 microtask 的 no-op（≈ 不讓出）
@@ -26,7 +26,7 @@ const H = (t: string): Block => ({ type: "heading", content: t, props: { level: 
 const CODE = (t: string): Block => ({ type: "codeBlock", props: { language: "js" }, content: t });
 const TBL = (rows: unknown[]): Block => ({ type: "table", content: { type: "tableContent", rows } });
 
-/** spike S5 的擬真混合：每 10 顆一個 heading，其餘段落／bullet／numbered 輪替，偶爾 code、table。 */
+/** 擬真混合：每 10 顆一個 heading，其餘段落／bullet／numbered 輪替，偶爾 code、table。 */
 function mixed(n: number): Block[] {
   return Array.from({ length: n }, (_, i) => {
     if (i % 10 === 0) return H(`Section ${i / 10}`);

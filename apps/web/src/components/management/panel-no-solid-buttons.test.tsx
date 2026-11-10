@@ -11,14 +11,14 @@ import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 import { siteLimitChange, siteLimitsDto } from "@/test/site-limits-fixtures";
 
 /**
- * #247 §4.8、§11.1：三個管理面板的右卡內不出現實心鈕（brandDeep／brandSolid／default）。渲染期掃描——
+ * #247：三個管理面板的右卡內不出現實心鈕（brandDeep／brandSolid／default）。渲染期掃描——
  * 每頁以真 AppRoutes 渲染、fixture 給到最大權限，等內容載入後取 [data-management-content] 內所有
  * `button`、`a[class]`、`[role="button"]`。由面板開出的巢狀對話框（送出鈕照原規則用 brandDeep）是 portal，
  * 本來就渲染在 content 之外；再過濾 `closest('[role="dialog"]')` 是面板本身的，只是保險。
  * 逐 token 精確比對：`hover:bg-brand-deep`、`bg-brand-soft`、`data-[state=checked]:bg-brand` 是別的 token，不受影響。
  * `minButtons` 防空真：該頁至少要掃到這麼多個面板層元素（button／a[class]／role=button）。
  *
- * Part 3 已擴充：PANEL_PAGES 尾端加了群組四頁、站台六頁（端點 fixture 在 `PANEL3_GETS`，由 panelFetch 精確比對 URL）。
+ * PANEL_PAGES 尾端加了群組四頁、站台六頁（端點 fixture 在 `PANEL3_GETS`，由 panelFetch 精確比對 URL）。
  */
 const SOLID_TOKENS = ["bg-brand-deep", "bg-brand", "bg-primary", "bg-destructive"];
 
@@ -173,7 +173,7 @@ export const PANEL_PAGES: PanelPageCase[] = [
   { name: "個人：帳戶資訊", path: "/settings/account", ready: () => screen.findByRole("button", { name: "Save URL name" }), minButtons: 2 },
   { name: "個人：登入（有密碼）", path: "/settings/login", ready: () => loginReady("Change password"), minButtons: 3 },
   { name: "個人：登入（SSO-only）", path: "/settings/login", user: SSO_ADMIN, ready: () => loginReady("Add password"), minButtons: 3 },
-  { name: "個人：授權", path: "/settings/authorization", ready: () => screen.findByText("Script"), minButtons: 7 }, // token 區三顆（建立＋列內鉛筆＋紅垃圾桶，#247 Task 16 起；之前是建立＋改名＋撤銷，數目相同）＋MCP 教學三顆「Copy」＋一個 docs 外連 <a class>
+  { name: "個人：授權", path: "/settings/authorization", ready: () => screen.findByText("Script"), minButtons: 7 }, // token 區三顆（建立＋列內鉛筆＋紅垃圾桶，#247；之前是建立＋改名＋撤銷，數目相同）＋MCP 教學三顆「Copy」＋一個 docs 外連 <a class>
   // 開關只看 config；用量那組（無 button，但同頁）要等 `/api/storage` 到才算載完。
   { name: "個人：儲存空間", path: "/settings/storage", ready: async () => { await screen.findByRole("switch"); return screen.findByText(/\(Basic\)/); }, minButtons: 1 },
   { name: "個人：群組", path: "/settings/groups", ready: async () => within(await screen.findByRole("dialog")).findByText("Team Alpha"), minButtons: 0 }, // 背景 NoteList 側欄也有同名群組
@@ -183,14 +183,14 @@ export const PANEL_PAGES: PanelPageCase[] = [
   { name: "群組：儲存空間", path: `/groups/${GROUP_ID}/storage`, ready: () => screen.findByText("@admin"), minButtons: 1 }, // 實測 1：自動版本 switch
   { name: "群組：關於", path: `/groups/${GROUP_ID}/about`, ready: async () => { await screen.findByRole("button", { name: "Delete group" }); return screen.findByRole("button", { name: "Leave group" }); }, minButtons: 3 }, // 實測 3：Save name、Leave group、Delete group（Leave 等成員清單到、且非唯一管理員才出現）
   { name: "站台：使用者", path: "/admin/users", ready: async () => { await screen.findByText("b@example.com"); return screen.findByText("Alice"); }, minButtons: 7 }, // 實測 7：Create invitation＋兩列重設鈕＋兩列啟用 switch＋兩列撤銷垃圾桶（邀請表兩列 pending）
-  { name: "站台：群組", path: "/admin/groups", ready: () => screen.findByRole("combobox", { name: "Storage plan for Team Alpha" }), minButtons: 0 }, // 實測 0：只有方案下拉（spec §7.0 不改、沒有刪除鈕），0 是真值
+  { name: "站台：群組", path: "/admin/groups", ready: () => screen.findByRole("combobox", { name: "Storage plan for Team Alpha" }), minButtons: 0 }, // 實測 0：只有方案下拉（沒有刪除鈕），0 是真值
   { name: "站台：登入", path: "/admin/login", ready: adminLoginReady, minButtons: 11 }, // 實測 11：兩個存取 switch、「登入期限與 token」組的 Save（兩項都在預設，沒有恢復預設鈕）、Add sign-in service、列內自動建帳 switch、插頭／鉛筆／圖示／紅垃圾桶、啟用 switch、明細區 Copy
   { name: "站台：儲存方案", path: "/admin/storage", ready: async () => { await screen.findByRole("button", { name: "Edit Basic" }); await screen.findByLabelText("Keep all for (days)"); return screen.findByRole("switch", { name: "Delete automatically" }); }, minButtons: 8 }, // 實測 8：New plan、Edit／Delete Basic、Save defaults、自動版本 switch、版本設定 Save、垃圾桶開關、垃圾桶 Save
   { name: "站台：AI 代理", path: "/admin/ai", ready: adminAiReady, minButtons: 15 }, // 實測 15：供應商（Add provider＋插頭／鉛筆／垃圾桶＋switch）、模型（Add model＋switch＋鉛筆／垃圾桶）、動作（Add action＋上移／下移＋switch＋鉛筆／垃圾桶）
   { name: "站台：站台限制", path: "/admin/limits", ready: async () => within(await screen.findByRole("region", { name: "Rate limits" })).findByRole("button", { name: "Save" }), minButtons: 5 }, // 實測 5：三個區塊各一顆 Save、解析 worker 數的 Back to auto、寫筆記內容次數的 Restore default
 ];
 
-describe("面板內無實心鈕（#247 §4.8、§11.1；渲染期）", () => {
+describe("面板內無實心鈕（#247、渲染期）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
   });

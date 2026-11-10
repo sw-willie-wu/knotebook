@@ -1,5 +1,5 @@
 /**
- * #269 §12：升級後一次性把既有筆記裡的站內一般連結轉成 wikilink（含表格）。每篇整段在 `writes.runExclusive` 內（共用寫入佇列）：
+ * #269：升級後一次性把既有筆記裡的站內一般連結轉成 wikilink（含表格）。每篇整段在 `writes.runExclusive` 內（共用寫入佇列）：
  * 1 fork → 2 預掃（純 Yjs）→ 3 解析（mount 前、可查 DB）→ 4 存版本「連結轉換前」（直接 versions.cutIfDirty，**不得** writes.saveVersion）
  * → 5 headless 只改含可解連結的 block（block id 全數保留）→ 6 mergeDiff（`source:"link-convert"`、不帶 userId、expectFingerprint＝整篇）
  * → 7 `note_links` 只增補寫（每篇標 done 前一律執行）→ 8 UPDATE 標記。
@@ -84,7 +84,7 @@ type AnyBlock = { id: string; content?: unknown; children?: AnyBlock[] } & Recor
 
 /**
  * 步 5：lease 紀律同 `prepareEdit`（持 lease 不再取 lease）。只對「自己的 content 有可解站內連結」的 block 呼叫 `updateBlock(id, { content })`
- * ——block id 全數保留、沒動到的 block 一個 Y 位元組都不變（R1：只動含連結的 block 把正規化範圍壓到最小）。
+ * ——block id 全數保留、沒動到的 block 一個 Y 位元組都不變（只動含連結的 block 把正規化範圍壓到最小）。
  */
 export async function prepareLinkConversion(
   deps: ApplyDeps,
@@ -119,7 +119,7 @@ export async function prepareLinkConversion(
 async function backfillNoteLinks(db: Db, noteId: string, scope: SiteLinkScope, doc: Y.Doc): Promise<void> {
   const norm = normalizeLinkTargets(noteId, extractLinkTargets(doc).slice(0, MAX_LINK_TARGETS));
   if (!norm.ok || norm.targets.length === 0) return;
-  // #181：群組分支刻意不排除垃圾桶目標（spec §6.2-4：目標在垃圾桶照記，還原後反向連結仍在）——勿補 deleted_at 條件。
+  // #181：群組分支刻意不排除垃圾桶目標（目標在垃圾桶照記，還原後反向連結仍在）——勿補 deleted_at 條件。
   const allowed =
     scope.kind === "user"
       ? (await visibleTitlesByIds(db, scope.userId, norm.targets)).map(t => t.id)
@@ -147,7 +147,7 @@ async function cutBeforeConversion(deps: LinkConversionDeps, noteId: string): Pr
 async function processNote(deps: LinkConversionDeps, applyDeps: ApplyDeps, noteId: string, signal: AbortSignal, stage: { name: string }): Promise<NoteOutcome> {
   if (signal.aborted) return { kind: "aborted" }; // 等佇列期間收到關機：什麼都不做
   stage.name = "scope";
-  // #181 §6.2-6：垃圾桶筆記視同 deleted、跳過（列留在原狀態（pending／retry），還原後下次啟動那輪再處理；與 `scanDue` 一致）。
+  // #181：垃圾桶筆記視同 deleted、跳過（列留在原狀態（pending／retry），還原後下次啟動那輪再處理；與 `scanDue` 一致）。
   const [meta] = await deps.db.select({ ownerId: notes.ownerId, groupId: notes.groupId }).from(notes).where(and(eq(notes.id, noteId), isNull(notes.deletedAt))).limit(1);
   if (!meta) return { kind: "deleted" };
   const scope: SiteLinkScope = meta.groupId !== null ? { kind: "group", groupId: meta.groupId } : { kind: "user", userId: meta.ownerId! };
@@ -180,7 +180,7 @@ async function processNote(deps: LinkConversionDeps, applyDeps: ApplyDeps, noteI
     const cut = await cutBeforeConversion(deps, noteId);
     if (cut === "deleted") return { kind: "deleted" };
     if (cut === "retry") {
-      // spec §12.5（plan gate r1 M3）：非例外的 retry 也記一行 warn；不記 href／標題／文字。
+      // 非例外的 retry 也記一行 warn；不記 href／標題／文字。
       deps.log.warn({ noteId, stage: stage.name, err: "version-skipped" }, "站內連結轉換：單篇失敗");
       return { kind: "retry" }; // 沒存成版本就不轉換
     }
@@ -197,7 +197,7 @@ async function processNote(deps: LinkConversionDeps, applyDeps: ApplyDeps, noteI
     try {
       await mergeDiff(applyDeps, noteId, ctx, { targetIds: null, expectFingerprint: f.whole, anchorId: null, diff: prepared.diff, afterIds: [] });
     } catch (err) {
-      // #181 §6.2-11：合併前一刻被移入垃圾桶（或正被移入）→ 同步 1 的 deleted（列留原狀態，還原後下次啟動再處理）。
+      // #181：合併前一刻被移入垃圾桶（或正被移入）→ 同步 1 的 deleted（列留原狀態，還原後下次啟動再處理）。
       if (err instanceof NoteGoneError) return { kind: "deleted" };
       if (err instanceof FingerprintMismatch) continue; // 從步 1 重來一次；再不符 ⇒ retry
       throw err;
@@ -206,7 +206,7 @@ async function processNote(deps: LinkConversionDeps, applyDeps: ApplyDeps, noteI
     await backfillNoteLinks(deps.db, noteId, scope, f.fork); // 合併成功：用合併後的 fork（同 apply-version.ts）
     return { kind: "done", converted: prepared.converted, unresolved };
   }
-  // 指紋兩次不符（spec §12.5，plan gate r1 M3）：非例外的 retry 也記 warn。
+  // 指紋兩次不符：非例外的 retry 也記 warn。
   deps.log.warn({ noteId, stage: "merge", err: "fingerprint-mismatch" }, "站內連結轉換：單篇失敗");
   return { kind: "retry" };
 }
@@ -235,7 +235,7 @@ async function record(deps: LinkConversionDeps, row: { noteId: string; attempts:
 }
 
 /**
- * spec §12.5（日誌不記 href、標題、文字）：例外只記**類別名＋錯誤碼**。不可整個 `err` 交給 logger——drizzle 把任何查詢錯誤包成
+ * 日誌不記 href、標題、文字：例外只記**類別名＋錯誤碼**。不可整個 `err` 交給 logger——drizzle 把任何查詢錯誤包成
  * `DrizzleQueryError`，message 內嵌 `params`（解析階段是連結剖出的 handle／slug，切版階段是整份 Yjs 更新＝筆記明文），pg 錯誤的
  * `detail` 也可能帶值。錯誤碼取 `err.code`，沒有再取 `err.cause.code`（pg 的 SQLSTATE、node 的 `ECONNREFUSED` 這類）。
  */

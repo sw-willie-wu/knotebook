@@ -11,8 +11,8 @@ export interface AiSnapshot {
 
 /**
  * 一次撈齊 models 與 providers（各一次 SELECT）供 `resolveActionModel` 純記憶體判定用
- * （spec §13.2「helper 吃一次撈齊快照」）——`GET /api/ai/actions`（本檔呼叫端）與
- * `POST /api/ai`（Task 5）共用同一份快照/同一支判定函式，禁止各自逐 action 查詢
+ * ——`GET /api/ai/actions`（本檔呼叫端）與
+ * `POST /api/ai` 共用同一份快照/同一支判定函式，禁止各自逐 action 查詢
  * （同 12.3「禁止逐 target resolveRole」同族反模式）。兩個 SELECT 並行執行，互不相依。
  */
 export async function loadAiSnapshot(db: Db): Promise<AiSnapshot> {
@@ -21,20 +21,20 @@ export async function loadAiSnapshot(db: Db): Promise<AiSnapshot> {
 }
 
 /**
- * 模型解析（spec §13.2，純記憶體、不打 DB）：
+ * 模型解析（純記憶體、不打 DB）：
  * 1. `action.modelId` 綁定的 model 存在、`enabled`、且其 provider 亦 `enabled` → 直接用它
  *    （不與任何回退候選比較——即使有其他 model 是 `isDefault`，綁定可用就優先用綁定的）。
  * 2. 否則（含綁定 model 不存在／disabled／provider disabled）回退：`purpose === "chat"`
  *    且 `enabled` 的 model，其 provider 亦 `enabled`，取 `ORDER BY isDefault DESC,
  *    createdAt ASC, id ASC` 排序後第一筆。`isDefault` 只是排序偏好，不是可用性開關
- *    （spec §13.2 三輪 gate MAJOR-1：無 default／default 被停用或刪除都不得讓 AI
+ *    （無 default／default 被停用或刪除都不得讓 AI
  *    靜默消失）。
  * 3. 全無可用候選 → `null`。
  *
- * 一併回傳 `provider`（與 `model.providerId` 保證一致）——POST 端（Task 5）不得再查一次，
+ * 一併回傳 `provider`（與 `model.providerId` 保證一致）——POST 端不得再查一次，
  * 防止兩處各自查詢導致的「解析結果」與「實際打的 provider」不同源漂移。
  *
- * 降級集合（`AiRuntime.degraded`）**不參與**此判定（spec §13.2 明訂）：降級是「可行動
+ * 降級集合（`AiRuntime.degraded`）**不參與**此判定：降級是「可行動
  * 錯誤」，不因此悄悄改選另一個 model——呼叫端（admin test 端點／`POST /api/ai`）自行
  * 用降級集合判斷是否要打 upstream。
  */

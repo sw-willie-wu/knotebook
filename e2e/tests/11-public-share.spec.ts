@@ -2,17 +2,17 @@ import { test, expect, type APIRequestContext, type Page } from "@playwright/tes
 import { ADMIN, createNote, editorLocator, loginAs } from "./helpers.js";
 
 /**
- * #72 公開分享連結（spec §6 的 e2e）＋#122 PR3 公開別名段：owner 建筆記＋圖
+ * #72 公開分享連結（e2e）＋#122 公開別名段：owner 建筆記＋圖
  * （**真上傳**）→ 開公開 → 關 owner 分頁 → 免登入 context 看到內容與圖 →
  * 設別名 → 免登入走 /p/<handle>/<slug>（含 by-path 圖端點）→ 撤別名（token 仍活）
  * → 重生後舊連結 404 → 撤銷後失效卡。
  *
- * ⚠ 「關 owner 分頁」是**場景步驟，不是被驗證的行為**（審查 M1）：內容落盤可能來自
+ * ⚠ 「關 owner 分頁」是**場景步驟，不是被驗證的行為**：內容落盤可能來自
  * 一般的 2 秒 debounce flush、也可能來自最後連線關閉的 flush，本測試不區分——
  * 「內容（含圖的 URL）真的持久化了」由下面的輪詢斷言守（ydoc 解碼後含上傳網址），
  * 哪條 flush 路徑把它送進 DB 不在本測試的守備範圍。
  *
- * - 圖**必走 FilePanel Upload tab 的 `setInputFiles` 真上傳**（spec 明文禁用 Embed
+ * - 圖**必走 FilePanel Upload tab 的 `setInputFiles` 真上傳**（禁用 Embed
  *   繞過：Embed 強制絕對網址、正好落在 publicMediaUrl「同源絕對網址不映射」的
  *   known-limitation 上，匿名端看圖的斷言必紅——用 Embed 等於把本測試最重要的
  *   斷言弄成必然失敗、誘發弱化）。
@@ -40,7 +40,7 @@ async function openShareDialog(page: Page) {
 
 /** 從 ShareDialog 讀公開連結（radio 已在「公開」態時）。
  *
- * ⚠ 2026-09-17 介面改版後，匿名態的輸入框**只放 token**，`/p/` 前綴是旁邊的一段
+ * ⚠ 介面改版後，匿名態的輸入框**只放 token**，`/p/` 前綴是旁邊的一段
  * 文字（兩種型態共用「前綴 ＋ 輸入框」的形狀，見 `ShareDialog.tsx` 的
  * `PublicLinkPanel`）。所以這裡讀到的是裸 token，網址要自己組回去——改版前
  * 讀到的是整條網址，那個假設已經不成立。 */
@@ -54,7 +54,7 @@ async function readPublicUrl(dialog: ReturnType<Page["getByRole"]>, page: Page):
 
 function tokenOf(publicUrl: string): string {
   const token = publicUrl.slice(publicUrl.lastIndexOf("/p/") + 3);
-  // 驗形在 helper 本身（plan T6）：本檔現有兩段別名形網址，餵錯進來會切出
+  // 驗形在 helper 本身：本檔現有兩段別名形網址，餵錯進來會切出
   // "<handle>/<slug>"——別讓它靜默流進後續請求。
   expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
   return token;
@@ -64,7 +64,7 @@ function tokenOf(publicUrl: string): string {
  *
  * OFF 態的輸入框放 slug（可編輯），前綴 `/p/<handle>/` 是旁邊的一段文字——
  * 與 `readPublicUrl`（ON 態、輸入框放裸 token）分屬兩種型態，不共用同一支
- * helper（呼叫端 2026-09-17 交辦明令：另開一支，別硬塞進 `readPublicUrl`）。
+ * helper（另開一支，別硬塞進 `readPublicUrl`）。
  * 回傳**路徑**（不含 origin）：呼叫端只拿它餵 `page.goto` 與切出 `<handle>/<slug>`
  * 這段 API ref，不像 `readPublicUrl` 的呼叫點需要組完整網址。 */
 async function readAliasPath(dialog: ReturnType<Page["getByRole"]>): Promise<string> {
@@ -74,10 +74,10 @@ async function readAliasPath(dialog: ReturnType<Page["getByRole"]>): Promise<str
   return `${prefix}${slug}`;
 }
 
-/** 公開內容端點路徑的唯一組字點（#122 PR3：本檔原有兩處硬編字串，改集中；
+/** 公開內容端點路徑的唯一組字點（#122：本檔原有兩處硬編字串，改集中；
  * `ref` 可為 token 或 `<handle>/<slug>` 兩段形——別名段的圖 src 也走這裡）。
  * ⚠ e2e 刻意不共用 web 端的組字模組（`lib/public-note-ref.ts`；e2e package 無
- * workspace 依賴、rsync 不帶 dist——與 gate r3-M 對 shared 的裁決同理），自組一份。 */
+ * workspace 依賴、rsync 不帶 dist——同理），自組一份。 */
 function publicNoteApi(ref: string): string {
   return `/api/public/notes/${ref}`;
 }
@@ -140,7 +140,7 @@ test("owner 開公開 → 免登入看到內容與圖 → 重生舊連結死 →
       expect(res.status()).toBe(200);
       const body = (await res.json()) as { title: string; ydoc: string };
       expect(body.title).toBe(title);
-      // 判別性守衛（審查 M2）：Yjs 把 XML attribute 字串**原文**編進 update（本機
+      // 判別性守衛：Yjs 把 XML attribute 字串**原文**編進 update（本機
       // 實測核實），所以「解碼後含上傳網址」＝圖的 URL 真的持久化了。只斷長度的話，
       // 上傳往返超過 2 秒時中間那次 debounce flush（image block 還沒有 url）就足以
       // 讓輪詢提前放行，匿名頁吃到 stale 快照、看圖斷言誤紅。
@@ -163,7 +163,7 @@ test("owner 開公開 → 免登入看到內容與圖 → 重生舊連結死 →
     // 未登入不重導：仍在 /p/ 網址上。
     expect(new URL(anonPage.url()).pathname).toBe(`/p/${token}`);
 
-    // ── owner：設公開別名（Willie 2026-09-17 介面改版：匿名 toggle 取代舊的
+    // ── owner：設公開別名（介面改版：匿名 toggle 取代舊的
     //    「公開別名欄位」＋「Remove custom URL」鈕）→ 無痕開 /p/<handle>/<slug>
     //    → 撤別名（開回匿名 toggle） ──────────────────────────────────────
     const ownerPage2 = await ownerContext.newPage();
@@ -194,7 +194,7 @@ test("owner 開公開 → 免登入看到內容與圖 → 重生舊連結死 →
     // 追上使用者剛存的值）——鈕重新變回 disabled 就是完成訊號，不必另外輪詢 API。
     await expect(saveButton).toBeDisabled({ timeout: 10_000 });
 
-    // 別名網址**從 UI 讀出**（gate r3-M 的既有裁決沿用：禁 import shared 的
+    // 別名網址**從 UI 讀出**（沿用既有做法：禁 import shared 的
     // publicAliasPath、禁自拼 handle）：`readAliasPath` 讀前綴 span＋輸入框現值。
     const aliasPath = await readAliasPath(dialog);
     const aliasRef = aliasPath.slice("/p/".length); // "<handle>/<slug>"——API 組字回 helper

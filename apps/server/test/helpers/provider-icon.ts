@@ -6,7 +6,7 @@ import type { Db } from "../../src/db/index.js";
 import { authProviders } from "../../src/db/schema.js";
 import { seedAuthProvider } from "./oidc-provider.js";
 
-/** 嵌在測試圖檔裡的可辨識字串：任何清單回應出現它＝圖檔本體出線（spec §5.3、§8.1 S7）。 */
+/** 嵌在測試圖檔裡的可辨識字串：任何清單回應出現它＝圖檔本體出線。 */
 export const ICON_MARKER = "KNB-ICON-MARKER";
 
 /** PNG 簽章＋標記＋填充，總長 `size`（server 只看檔頭、不解碼）。`size` 至少 8＋標記長。 */
@@ -30,7 +30,7 @@ export interface IconCase {
   version: number;
 }
 
-/** spec §5.2 對照表的**手寫**形——刻意不呼叫 `resolveProviderIcon`（那是被測物，呼叫它＝套套邏輯）。 */
+/** provider 圖示對照表的**手寫**形——刻意不呼叫 `resolveProviderIcon`（那是被測物，呼叫它＝套套邏輯）。 */
 export function expectedIcon(c: Pick<IconCase, "id" | "template" | "kind" | "version">): ProviderIconDto {
   switch (c.kind) {
     case "template":
@@ -66,7 +66,7 @@ export async function seedIconMatrix(db: Db): Promise<IconCase[]> {
   return out;
 }
 
-/** 回應本體不得含圖檔位元組或內部欄名（spec §5.3：清單 SELECT 不選 icon_data／icon_mime）。 */
+/** 回應本體不得含圖檔位元組或內部欄名（清單 SELECT 不選 icon_data／icon_mime）。 */
 export function expectNoIconBytes(body: string): void {
   expect(body).not.toContain(ICON_MARKER);
   expect(body).not.toContain('"Buffer"');

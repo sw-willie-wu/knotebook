@@ -3,15 +3,15 @@ import { CODE_BLOCK_BASE_OPTIONS, mermaidBlockConfig } from "@knotebook/shared";
 import { noteSchema } from "@/collab/schema";
 
 /**
- * #229 簡報專用匯出 schema（spec §5.2、A6）——只給 headless 匯出用，絕不掛到編輯器上。
+ * #229 簡報專用匯出 schema——只給 headless 匯出用，絕不掛到編輯器上。
  * 與 noteSchema 的差異只有三處（其餘沿用；parity 測試在 schema.test.ts）：
  * 1. mermaid：`toExternalHTML` 換成純 DOM 的 `div[data-kn-mermaid]`＋`textContent = code`（不經 React；
  *    與 shared `createHeadlessNoteSchema` 同手法，`note-schema-config.ts:89-98`）——codeBlock(language=mermaid)
- *    仍是 `<pre><code>`，不靠 data-language 猜（§2.6-9）。
+ *    仍是 `<pre><code>`，不靠 data-language 猜。
  * 2. 檔案類四種：在既有 `withGuardedExternalHTML`（`props.url` 先過 safeMediaUrl）外再包一層，把帶網址的那個
- *    元素標上 `data-kn-media=""`——消毒前就存在，消毒白名單放行，後處理靠它分辨檔案連結與文字連結（§5.2-2）。
+ *    元素標上 `data-kn-media=""`——消毒前就存在，消毒白名單放行，後處理靠它分辨檔案連結與文字連結。
  * 3. codeBlock：不上色的 `createCodeBlockSpec(CODE_BLOCK_BASE_OPTIONS)`（同 server headless），不經
- *    `lib/code-highlight.ts` 的 highlighter（§5.2-3；Q1）。
+ *    `lib/code-highlight.ts` 的 highlighter。
  */
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 泛型三元組（repo 慣例，同 shared note-schema-config.ts）

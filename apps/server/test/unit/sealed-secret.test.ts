@@ -4,7 +4,7 @@ import { decryptApiKey, encryptApiKey } from "../../src/ai/crypto.js";
 
 const S = "a".repeat(64);
 
-describe("lib/sealed-secret（#187 §5.1）", () => {
+describe("lib/sealed-secret（#187）", () => {
   it("往返；格式是 EncryptedApiKey v2 的五欄（v=2、keyId 8 hex、iv 12 bytes）", () => {
     const sealed = sealSecret(S, "oidc-client-secret", "s3cret", "oidc-client-secret:v1:p1");
     expect(Object.keys(sealed).sort()).toEqual(["ct", "iv", "keyId", "tag", "v"]);

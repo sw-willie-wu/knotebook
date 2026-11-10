@@ -6,8 +6,8 @@ import i18n from "@/i18n";
 import { ShortcutsContent } from "./ShortcutsLazy";
 
 /**
- * 快捷鍵介紹頁的內容（plan 2026-11-02-shortcuts-modal T4，Willie 2026-11-02 改版後）：左卡列分類、右卡只顯示所選分類；
- * 分類／條目依站台 AI 能力篩選、Mac 與其他平台的鍵面、報讀器友善的鍵名與分隔符、左卡底部的提示句（沒有「重看導覽」，D8）、
+ * 快捷鍵介紹頁的內容：左卡列分類、右卡只顯示所選分類；
+ * 分類／條目依站台 AI 能力篩選、Mac 與其他平台的鍵面、報讀器友善的鍵名與分隔符、左卡底部的提示句（沒有「重看導覽」）、
  * 選分類的焦點與窄螢幕兩層切換（比照設定的 ManagementShell）。
  *
  * matchMedia：`test/setup.ts` 的全域 stub 恆回 matches:false——對 `(min-width: 768px)` 來說＝窄視窗；寬視窗案自己 stub。
@@ -95,7 +95,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("站台能力（K8）：分類", () => {
+describe("站台能力：分類", () => {
   it("C1 AI 回 []：左欄是去掉 AI 的那些分類，依序", async () => {
     stubActions([]);
     renderContent();
@@ -231,7 +231,7 @@ describe("分類切換（左卡項次＋右卡內容）", () => {
   });
 });
 
-describe("鍵面（K9）", () => {
+describe("鍵面", () => {
   beforeEach(() => stubActions([]));
 
   it("C4 Win32：search 列的 <kbd> 依序是 Ctrl、K；組合鍵之間的「+」是 aria-hidden", async () => {
@@ -311,7 +311,7 @@ describe("鍵面（K9）", () => {
   });
 });
 
-describe("提示句（D8）", () => {
+describe("提示句", () => {
   it("C6 左卡底部的提示句含 “to open this page” 與 <kbd>/</kbd>；提示句裡沒有按鈕（沒有「重看導覽」）", async () => {
     stubActions([]);
     renderContent();

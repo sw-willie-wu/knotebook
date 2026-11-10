@@ -1,5 +1,5 @@
 /**
- * 側欄搜尋「內文符合」區的 lazy 模組唯一入口（#93 PR2，D18：新功能預設 lazy，`scripts/check-bundle-size.mjs`）：
+ * 側欄搜尋「內文符合」區的 lazy 模組唯一入口（#93，新功能預設 lazy，`scripts/check-bundle-size.mjs`）：
  * `BodySearchResults`（連同查詢 hook `api/search.ts`、片段處理、點擊處理）只在搜尋字過了 `bodySearchGate`（至少 2 個字、不超過 200）時才下載。
  * **只准用 `lazy(() => import("@/components/sidebar/BodySearchLazy"))` 引用**——靜態 import 會把整個內文區併回首包。
  * 呼叫端只有 `SearchResults`（靜態卡與抽屜兩份 `SidebarContent` 各掛一份），掛載點包 `SidebarLazyBoundary chunk="bodySearch"`。

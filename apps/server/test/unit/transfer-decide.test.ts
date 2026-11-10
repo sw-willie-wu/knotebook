@@ -4,7 +4,7 @@ import { anchors, decide, matchesBase } from "../../src/transfer/decide.js";
 import type { Region } from "../../src/transfer/regions.js";
 
 /**
- * bulk transfer spec §9.4；plan PR-2 T6（K1、K4、K5、K7、K8）。Willie 2026-11-04 第三輪：筆記自下載後動過就 409 `note_changed`，
+ * bulk transfer 判定（K1、K4、K5、K7、K8）。筆記自下載後動過就 409 `note_changed`，
  * `decide` 只在「現況＝基底」時被呼叫（`matchesBase`，MB）——外來 block、倖存者不見或被改、定位點全消失、衝突那幾組案已隨程式刪除。
  */
 
@@ -126,7 +126,7 @@ describe("K5 stripStart", () => {
   });
 });
 
-describe("K8 效能：索引只建一次（審查 Important 1）", () => {
+describe("K8 效能：索引只建一次", () => {
   it("8 000 顆、4 000 區（插入／改寫／刪除交錯）decide < 500 ms", () => {
     const names = Array.from({ length: 8000 }, (_, i) => `b${i}`);
     const S = segsOf(...names);
@@ -143,7 +143,7 @@ describe("K8 效能：索引只建一次（審查 Important 1）", () => {
   });
 });
 
-describe("K7 刪除區錨點（gate r2 m-8；rev 4）", () => {
+describe("K7 刪除區錨點", () => {
   it("(a) 有 P → P after", () => {
     const S = segsOf("A", "B", "C");
     expect(decide(S, [region(S, "delete", [1], 0, 2)], curOf(S), sameWith([]))[0]!.anchor).toEqual({ block_id: "A", position: "after" });

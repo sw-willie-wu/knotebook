@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useCreatePublicLink, useDeletePublicLink, useSetPublicWidth, type PublicLinkDto } from "./public-link";
 
 /**
- * #122 PR3 Task 2：public-link 快取的兩個 mutation 寫入點（plan gate M4／r5-m1 的
+ * #122：public-link 快取的兩個 mutation 寫入點（
  * 故障形——這兩點寫錯不會讓任何 render 測試紅，只會讓 ShareDialog 的公開連結列或
  * 別名列「憑空消失/殘留」）：
  * - 撤公開（DELETE）：204 無 body，快取必須寫 `{token: null, slug: null}` **兩鍵**
@@ -57,7 +57,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("public-link 快取寫入點（#122 PR3）", () => {
+describe("public-link 快取寫入點（#122）", () => {
   it("撤公開（DELETE 204 無 body）→ 快取寫 {token: null, slug: null} 兩鍵——別名不殘留", async () => {
     const { queryClient, getByText } = setup(() => fakeResponse(204));
     fireEvent.click(getByText("del"));

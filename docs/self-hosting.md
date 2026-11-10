@@ -111,6 +111,8 @@ A host firewall between the bridge and PostgreSQL has to let the connection thro
 
 **Backups.** The `docker compose exec -T db pg_dump …` commands elsewhere in this guide are for the bundled database. With your own PostgreSQL, run `pg_dump` against it directly, for example `pg_dump '<your DATABASE_URL>' > knotebook-backup.sql`, with a `pg_dump` of the same major version as the server or newer — one from an older major version refuses (`aborting because of server version mismatch`).
 
+**Database logs.** When PostgreSQL rejects a statement, its own error log can quote the values involved: a unique violation writes the duplicate key in `DETAIL`, a check violation writes the whole row. `log_error_verbosity = terse` leaves `DETAIL` out of PostgreSQL's own log; it doesn't change what Knotebook logs. Set it if you ship that log to another system. It needs a superuser: put it in `postgresql.conf` or run `ALTER SYSTEM SET log_error_verbosity = 'terse';` and then `SELECT pg_reload_conf();`.
+
 **Versions.** From an empty database, every migration runs and the server starts and signs in on the stock `postgres:16` (16.15) and `postgres:17` (17.11) images, without pgvector; the bundled database and the test suites use PostgreSQL 17 (`pgvector/pgvector:pg17`). Older versions haven't been tried.
 
 ## Using `docker run` with your own PostgreSQL

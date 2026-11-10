@@ -16,7 +16,7 @@ import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
  * `location.key`）的整合守門——**在 /notes/:ref 的錯誤畫面上開、關設定 modal，
  * 不得觸發 reload**。
  *
- * 機制（審查探針三步實測數據，改壞會直接對不上）：
+ * 機制（三步實測數據，改壞會直接對不上）：
  * - 初始 /notes/my-note：location.key=`default`、params.ref=`my-note`
  * - 開設定 modal：主樹 `<Routes location={backgroundLocation}>` 覆寫 context，
  *   NoteRoute 讀到的是被保存的背景 location——key **仍 `default`**、ref 不變，
@@ -174,7 +174,7 @@ function renderNoteRoute(initialEntry = "/notes/my-note") {
 
 /** DropdownMenuTrigger（UserMenu）只掛 onPointerDown，純 fireEvent.click 開不了
  * （SettingsModal.test.tsx 既有註解）。錯誤畫面（B）包完整 AppShell，UserMenu
- * 可正常互動——審查探針已實測。 */
+ * 可正常互動（已實測）。 */
 function openUserMenu(userDisplayName: string): void {
   fireEvent.pointerDown(screen.getByRole("button", { name: userDisplayName }), { button: 0 });
 }
@@ -223,7 +223,7 @@ describe("resetKey 選型守門——錯誤畫面上開/關設定 modal 不觸�
   // 走首次路徑 → 經真實 App.tsx 接線的**預設** seam（location.reload()）自動 reload
   // 恰一次＋停在載入畫面。seam 或 stubGlobal 行為若哪天斷了，此案先紅，主案的
   // 「spy=0」才不會淪為守著空氣的負向斷言。
-  // 前提：jsdom 預設 navigator.onLine === true（審查實測）——主案突變能紅、本案能
+  // 前提：jsdom 預設 navigator.onLine === true——主案突變能紅、本案能
   // reload 都依賴它；若 jsdom 改預設，離線分支會讓兩案假綠/假紅，先查這條。
   it("positive control：旗標不種 → 真實接線的預設 seam 自動 reload 恰一次＋載入畫面", async () => {
     const reload = stubLocationReload();
@@ -240,7 +240,7 @@ describe("resetKey 選型守門——錯誤畫面上開/關設定 modal 不觸�
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
-  // 第二個 control（#69 審查補）：上面那案證明 componentDidCatch → 預設 seam 活著，
+  // 第二個 control：上面那案證明 componentDidCatch → 預設 seam 活著，
   // 主案守的卻是 componentDidUpdate → 預設 seam ——單元層案 8a 走的是注入 prop。
   // 若有人把 componentDidUpdate 改成直接呼叫 window.location.reload()（繞過
   // doReload），主案會靜靜退化成恆真而上面的 control 照樣綠。這一案封住交集：
@@ -263,7 +263,7 @@ describe("resetKey 選型守門——錯誤畫面上開/關設定 modal 不觸�
 
     await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
     expect(reload).toHaveBeenCalledTimes(1);
-    // 旗標不被清（導航觸發的 reload 不清旗標——spec §resetKey；落地若又失敗直接進 B）
+    // 旗標不被清（導航觸發的 reload 不清旗標；落地若又失敗直接進 B）
     expect(sessionStorage.getItem(FLAG_KEY)).not.toBeNull();
     // #122 附註：側欄連結如今是 /n/ 新形——本案順帶就是「舊形→新形跨 pattern 換頁」
     // 的 resetKey 守門（ref → handle/slug，鍵必變 → reload 恰一次）。

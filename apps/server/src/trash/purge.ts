@@ -1,5 +1,5 @@
 /**
- * #181 §6.6：保留期清理。每輪最多 `maxBatches` 批，每批 `purgeExpiredBatchInTx`（SKIP LOCKED，到期判斷全在 DB 端）→ commit 後才刪磁碟檔。
+ * #181：保留期清理。每輪最多 `maxBatches` 批，每批 `purgeExpiredBatchInTx`（SKIP LOCKED，到期判斷全在 DB 端）→ commit 後才刪磁碟檔。
  * 保留天數 NULL＝不自動刪。進行中再呼叫、或 `stop()` 之後，一律回 0。
  */
 import type { FastifyBaseLogger } from "fastify";

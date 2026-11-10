@@ -7,10 +7,10 @@ import { canUnlinkIdentity, enabledProvidersWithIssuer, usableIdentityIds } from
 export const IDENTITY_NOT_FOUND_MESSAGE = "No sign-in method with that id.";
 
 /**
- * #187 交易表 P2（spec §8.2）。鎖序（B16、C28）：①users `FOR NO KEY UPDATE`（序列化同一人的並發解除與加密碼，C10）②**之後**
- * `site_settings FOR SHARE`（與 B27 的站台設定寫入互斥：關閉帳密先拿到鎖 → 這裡讀到關、密碼不算數；這裡先拿到 → 關閉的 P2
- * 看得到身分已刪）。讀不到列＝開（B17），回 `settingsMissing` 讓呼叫端 log。INV-7 的判斷與 GET 的 `unlinkable` 同一組函式。
- * 同交易清掉吻合的 `users.oidc_*`（r1-I2：否則 §10.3 補登會讓已解除的身分復活）。不撤 session。
+ * #187 交易表 P2。鎖序：①users `FOR NO KEY UPDATE`（序列化同一人的並發解除與加密碼）②**之後**
+ * `site_settings FOR SHARE`（與站台設定寫入互斥：關閉帳密先拿到鎖 → 這裡讀到關、密碼不算數；這裡先拿到 → 關閉的防自鎖判斷
+ * 看得到身分已刪）。讀不到列＝開，回 `settingsMissing` 讓呼叫端 log。解除連結的判斷與 GET 的 `unlinkable` 同一組函式。
+ * 同交易清掉吻合的 `users.oidc_*`（否則開機時的舊欄補登會讓已解除的身分復活）。不撤 session。
  */
 export async function unlinkIdentityInTx(tx: Tx, input: { userId: string; identityId: string }): Promise<{ settingsMissing: boolean }> {
   const [me] = await tx.select({ passwordHash: users.passwordHash }).from(users).where(eq(users.id, input.userId)).for("no key update");

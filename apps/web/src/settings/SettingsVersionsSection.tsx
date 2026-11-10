@@ -44,7 +44,7 @@ function SiteSwitchGroup({ data }: { data: VersionSettingsDto }) {
 }
 
 /**
- * 自動存版等待＋保留天數（#272 §8）：三個整數欄共用一顆「儲存」。輸入框 `null`＝顯示 server 值（同 `HandleSection`）。
+ * 自動存版等待＋保留天數（#272）：三個整數欄共用一顆「儲存」。輸入框 `null`＝顯示 server 值（同 `HandleSection`）。
  * 驗證先等待、再天數，只顯示第一個不合格者。等待的說明句帶 server 值，放在表單下方（放在單一欄下會讓三欄輸入框對不齊）。
  */
 function RetentionGroup({ data }: { data: VersionSettingsDto }) {
@@ -156,7 +156,7 @@ function RetentionGroup({ data }: { data: VersionSettingsDto }) {
 }
 
 /**
- * 站台版本設定（spec §6.7、§8.5）：「版本歷史」（站台自動開關，立即生效）＋「保留政策」。#247 §7.0 起嵌在站台管理的
+ * 站台版本設定：「版本歷史」（站台自動開關，立即生效）＋「保留政策」。#247 起嵌在站台管理的
  * 「儲存方案」頁（`SettingsStorageSection` 的 `SettingsPage` 裡、方案表之後），不再有自己的頁首——整段嵌進去會疊出兩個頁首。
  * 載入中／錯誤各以一個 `SettingsGroup` 呈現。
  */

@@ -70,7 +70,7 @@ function renderPanel(doc = new Y.Doc()) {
 }
 const state = () => JSON.parse(screen.getByTestId("state").textContent!);
 
-describe("VersionsPanel（spec §8.2）", () => {
+describe("VersionsPanel", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     window.localStorage.clear();
@@ -158,7 +158,7 @@ describe("VersionsPanel（spec §8.2）", () => {
     expect(state().preview).toEqual(vtarget(2));
   });
 
-  it("Task 19：再點已選中的那一列 → 離開預覽（toggle）；再點一次又進預覽", async () => {
+  it("再點已選中的那一列 → 離開預覽（toggle）；再點一次又進預覽", async () => {
     stub({ [FIRST]: { versions: [v(2), v(1)], current: cur({ baseSeq: 2, nextSeq: 3 }), nextBefore: null } });
     renderPanel();
     const row1 = await screen.findByRole("button", { name: vrow(1) });
@@ -171,7 +171,7 @@ describe("VersionsPanel（spec §8.2）", () => {
     expect(state().preview).toEqual(vtarget(1));
   });
 
-  it("Task 19：點清單空白處（<ul> 本身）→ 離開預覽；點列、點 ⋯ 都不算空白（不離開）", async () => {
+  it("點清單空白處（<ul> 本身）→ 離開預覽；點列、點 ⋯ 都不算空白（不離開）", async () => {
     stub({ [FIRST]: { versions: [v(2), v(1)], current: cur({ baseSeq: 2, nextSeq: 3 }), nextBefore: null } });
     renderPanel();
     fireEvent.click(await screen.findByRole("button", { name: vrow(1) }));
@@ -185,7 +185,7 @@ describe("VersionsPanel（spec §8.2）", () => {
     // 點 <li> 列與 ⋯ 之間的空隙也不算（target 是 <li> 不是 <ul>）。
     fireEvent.click(screen.getByRole("button", { name: vrow(1) }).closest("li")!);
     expect(state().preview).toEqual(vtarget(2));
-    // 按下與放開都在 <ul> 本身才算點空白（review M-1）。
+    // 按下與放開都在 <ul> 本身才算點空白。
     const list = screen.getByRole("list");
     fireEvent.pointerDown(list);
     fireEvent.click(list);
@@ -193,7 +193,7 @@ describe("VersionsPanel（spec §8.2）", () => {
     expect(state().mode).toBe("panel");
   });
 
-  it("Task 19 review M-1：在列上按下、拖到列間縫放開（click 派到 <ul>）→ 不離開預覽；之後單獨一發 click 到 <ul> 也不算", async () => {
+  it("在列上按下、拖到列間縫放開（click 派到 <ul>）→ 不離開預覽；之後單獨一發 click 到 <ul> 也不算", async () => {
     stub({ [FIRST]: { versions: [v(2), v(1)], current: cur({ baseSeq: 2, nextSeq: 3 }), nextBefore: null } });
     renderPanel();
     const row1 = await screen.findByRole("button", { name: vrow(1) });
@@ -209,7 +209,7 @@ describe("VersionsPanel（spec §8.2）", () => {
     expect(state().preview).toEqual(vtarget(1));
   });
 
-  it("Task 19：面板 ✕ 關面板 → 一併離開預覽", async () => {
+  it("面板 ✕ 關面板 → 一併離開預覽", async () => {
     stub({ [FIRST]: { versions: [v(1)], current: cur({ baseSeq: 1, nextSeq: 2 }), nextBefore: null } });
     renderPanel();
     fireEvent.click(await screen.findByRole("button", { name: vrow(1) }));
@@ -306,7 +306,7 @@ describe("VersionsPanel（spec §8.2）", () => {
     const { doc, queryClient } = renderPanel();
     await screen.findByTestId("versions-current");
     await waitFor(() => expect(calls.filter((c) => c === FIRST)).toHaveLength(1));
-    // 不開 shouldAdvanceTime（gate r1 M-2：真實時間會以 20 ms 為單位推假時鐘，「999 ms 時仍是 1 次」會間歇紅）。
+    // 不開 shouldAdvanceTime（真實時間會以 20 ms 為單位推假時鐘，「999 ms 時仍是 1 次」會間歇紅）。
     // 清單落地後才切 fake、推到 1000 後切回真 timer 再 waitFor（react-query 的通知排程走 setTimeout）。
     vi.useFakeTimers();
     doc.getText("t").insert(0, "a");
@@ -489,7 +489,7 @@ describe("VersionsPanel（spec §8.2）", () => {
     expect(within(screen.getByTestId("versions-current")).getByText(`Based on ${vlabel(9)} · no changes`)).toBeInTheDocument();
   });
 
-  it("#258 M1：切篩選的瞬間（新鍵還沒資料）「目前狀態」副標與儲存鈕不消失，改讀另一個篩選已快取的 current；新資料到了以新的為準", async () => {
+  it("#258：切篩選的瞬間（新鍵還沒資料）「目前狀態」副標與儲存鈕不消失，改讀另一個篩選已快取的 current；新資料到了以新的為準", async () => {
     let release!: () => void;
     const body = (current: VersionCurrentDto, versions: VersionDto[]): VersionListDto => ({ versions, current, nextBefore: null });
     vi.stubGlobal(
@@ -536,7 +536,7 @@ describe("VersionsPanel（spec §8.2）", () => {
     expect(within(screen.getByTestId("versions-footer")).getByRole("button", { name: "Save current version" })).toBeDisabled();
   });
 
-  it("#272 D13（案 28／29 的 web 面）：列第二行——cookie 與網頁 AI 寫入只列 handle；token 寫入列「handle (agent)」", async () => {
+  it("#272（案 28／29 的 web 面）：列第二行——cookie 與網頁 AI 寫入只列 handle；token 寫入列「handle (agent)」", async () => {
     stub({
       [FIRST]: {
         versions: [v(2, { editors: [{ handle: "ann", agentLabel: null }] }), v(1, { editors: [{ handle: "ann", agentLabel: "Claude Code" }] })],
@@ -551,7 +551,7 @@ describe("VersionsPanel（spec §8.2）", () => {
     expect(screen.getByRole("button", { name: vrow(1) })).toHaveTextContent("ann (Claude Code) ·");
   });
 
-  it("#272 D12：沿自的那一版已刪 →「推名 (短 id) (deleted)」（不用原名）；升級前就已刪 →「a deleted version」；目前狀態同規則", async () => {
+  it("#272：沿自的那一版已刪 →「推名 (短 id) (deleted)」（不用原名）；升級前就已刪 →「a deleted version」；目前狀態同規則", async () => {
     stub({
       [FIRST]: {
         versions: [

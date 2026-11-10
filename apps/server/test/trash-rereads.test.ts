@@ -1,8 +1,8 @@
 /**
- * #181 PR-2a T4：交易內存活重讀（spec §6.2-11 表前五列、A2-16 的循序案）。在「授權之後、交易之前」的測試縫裡以
- * `trashNotesInTx` 把筆記移入垃圾桶——繞過路由授權（M-E）——再讓操作跑完：回該處原本的 not_found，筆記沒被改到。
+ * #181：交易內存活重讀（表前五列的循序案）。在「授權之後、交易之前」的測試縫裡以
+ * `trashNotesInTx` 把筆記移入垃圾桶——繞過路由授權——再讓操作跑完：回該處原本的 not_found，筆記沒被改到。
  * 每案配一個對照：同一縫裡不移入 → 操作照常成功（縫本身沒弄壞流程）。
- * T5（後半）：改標題、公開連結五支、切版（`cutVersionInTx`）、掃描（`scanDue`）、連結轉換（含 backfill 群組分支照記，M10）。
+ * T5（後半）：改標題、公開連結五支、切版（`cutVersionInTx`）、掃描（`scanDue`）、連結轉換（含 backfill 群組分支照記）。
  */
 import { describe, expect, it, vi } from "vitest";
 import { eq, sql } from "drizzle-orm";
@@ -226,7 +226,7 @@ const conversionOf = async (db: Db, id: string) =>
 const linkTargetsOf = async (db: Db, id: string) =>
   (await db.select({ t: noteLinks.targetNoteId }).from(noteLinks).where(eq(noteLinks.sourceNoteId, id))).map(r => r.t).sort();
 
-describe("#181 T5 交易內存活重讀（下）：改標題、公開連結、切版、掃描、連結轉換", () => {
+describe("#181 交易內存活重讀（下）：改標題、公開連結、切版、掃描、連結轉換", () => {
   for (const trash of [true, false]) {
     const tag = trash ? "UPDATE 前移入 → 404 not_found（不是 409），title／slug／updated_at 不變" : "對照：縫裡不移入 → 200，標題改了";
     it(`RR-RN 改標題 REST（slugUpdateTestHook）：${tag}`, async () => {
@@ -429,7 +429,7 @@ describe("#181 T5 交易內存活重讀（下）：改標題、公開連結、�
     });
   }
 
-  it("RR-LC2 backfill 群組分支照記（M10）：群組筆記 S 的 wikilink 指向同群組垃圾桶筆記 T → note_links 有 (S,T)、S 標 done", async () => {
+  it("RR-LC2 backfill 群組分支照記：群組筆記 S 的 wikilink 指向同群組垃圾桶筆記 T → note_links 有 (S,T)、S 標 done", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await seedUser(ctx.db);
     const g = await seedGroup(ctx.db, "G", [{ userId: owner.id, role: "admin" }]);

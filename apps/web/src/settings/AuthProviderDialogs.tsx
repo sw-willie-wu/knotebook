@@ -16,7 +16,7 @@ const SELECT_CLASS =
   "h-8 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none " +
   "focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
 
-/** W1：範本只預填 issuer 與顯示名（GitLab 可改成自架網址）。Microsoft 不做（W17）。 */
+/** 範本只預填 issuer 與顯示名（GitLab 可改成自架網址）。Microsoft 不做。 */
 const TEMPLATE_DEFAULTS: Record<AuthProviderTemplate, { displayName: string; issuerUrl: string }> = {
   gitlab: { displayName: "GitLab", issuerUrl: "https://gitlab.com" },
   google: { displayName: "Google", issuerUrl: "https://accounts.google.com" },
@@ -127,7 +127,7 @@ function ProbeResult({ probe }: { probe: ProbeState }) {
   );
 }
 
-/** 建立後的設定步驟（§9.4）：貼回呼網址、scope、confidential＋client_secret_post、填 client ID（缺才有）、填 secret、測試、啟用。 */
+/** 建立後的設定步驟：貼回呼網址、scope、confidential＋client_secret_post、填 client ID（缺才有）、填 secret、測試、啟用。 */
 function SetupSteps({ provider, onDone }: { provider: AdminAuthProviderDto; onDone: () => void }) {
   const { t } = useTranslation();
   const titleRef = useRef<HTMLHeadingElement>(null);
@@ -238,7 +238,7 @@ export function CreateProviderDialog() {
     if (Object.keys(errors).length > 0) return;
     try {
       // secret 空字串＝不帶這個鍵（之後可用「編輯」補）；有內容就**原樣**送出——server 不 trim secret（IdP 給的就是那串），
-      // web 也不 trim（gate r1-t8-12 Minor 3）。只有空白的已在上面擋成欄位錯誤（不默默丟掉）。
+      // web 也不 trim。只有空白的已在上面擋成欄位錯誤（不默默丟掉）。
       setCreated(
         await create.mutateAsync({
           template,
@@ -373,7 +373,7 @@ export function CreateProviderDialog() {
   );
 }
 
-/** 開 dialog 當下的欄位值——PATCH 只送與它不同的欄位（fix round 1 I1）。 */
+/** 開 dialog 當下的欄位值——PATCH 只送與它不同的欄位。 */
 interface EditBaseline {
   displayName: string;
   issuerUrl: string;
@@ -389,13 +389,13 @@ const baselineOf = (provider: AdminAuthProviderDto): EditBaseline => ({
 });
 
 /**
- * 編輯（§9.4）：secret **唯寫**——欄位永遠從空白開始、`hasSecret` 時以 placeholder 說明「已儲存、留空不變」；留空送出時
- * PATCH body **沒有** `clientSecret` 鍵（RF5；空字串 server 會 400，且「不改」與「清除」是兩件事、不提供清除）。
+ * 編輯：secret **唯寫**——欄位永遠從空白開始、`hasSecret` 時以 placeholder 說明「已儲存、留空不變」；留空送出時
+ * PATCH body **沒有** `clientSecret` 鍵（空字串 server 會 400，且「不改」與「清除」是兩件事、不提供清除）。
  * PATCH **只送改過的欄位**（與開 dialog 當下的值比）：沒碰 issuer 就不帶 issuer——否則另一位管理員剛改過 issuer 時，這邊帶著
- * 舊 issuer 送出會被 §5.2 的 CASE 當成「改 issuer」，把對方的 issuer 改回去、清掉對方剛存的 secret 並停用；也不留 from==to 的稽核行。
+ * 舊 issuer 送出會被 server 的 CASE 當成「改 issuer」，把對方的 issuer 改回去、清掉對方剛存的 secret 並停用；也不留 from==to 的稽核行。
  * 什麼都沒改就不發請求、直接關閉。任何關閉都清掉 secret 欄。
- * 改 issuer 時依畫面上的開關值決定自動建帳（PR-C）：開著就先問，三鈕：關掉並儲存／保持開啟並儲存／取消；本來關就明帶 false（fail-closed）。
- * issuer 沒變不帶此欄。server 不強制改值（S6、U4）。
+ * 改 issuer 時依畫面上的開關值決定自動建帳：開著就先問，三鈕：關掉並儲存／保持開啟並儲存／取消；本來關就明帶 false（fail-closed）。
+ * issuer 沒變不帶此欄。server 不強制改值。
  */
 export function EditProviderDialog({ provider }: { provider: AdminAuthProviderDto }) {
   const { t } = useTranslation();
@@ -431,10 +431,10 @@ export function EditProviderDialog({ provider }: { provider: AdminAuthProviderDt
   }
 
   // 「有沒有改」一律拿**原始輸入**與 baseline 比（送出時才 trim）：env 匯入的 issuer 可能帶尾端空白，拿 trim 後的值比會讓
-  // 什麼都沒動的存檔也送出 issuer → server 依 §5.2 清 secret 並停用。
+  // 什麼都沒動的存檔也送出 issuer → server 清 secret 並停用。
   const issuerChanged = issuerUrl !== baseline.issuerUrl;
   const secretEntered = clientSecret !== "";
-  // §5.2：改 issuer 會清 secret（除非同一次帶了新 secret）並停用；停用中的服務沒有「會停用」可說（fix round 1 Minor 2）。
+  // 改 issuer 會清 secret（除非同一次帶了新 secret）並停用；停用中的服務沒有「會停用」可說。
   const issuerWarning = !issuerChanged
     ? null
     : provider.hasSecret && !secretEntered
@@ -474,10 +474,10 @@ export function EditProviderDialog({ provider }: { provider: AdminAuthProviderDt
     }
     if (issuerChanged) {
       if (provider.autoCreateEnabled) {
-        setConfirmBody(body); // 先不送（S6）
+        setConfirmBody(body); // 先不送
         return;
       }
-      body.autoCreateEnabled = false; // M2：沒問過就關（fail-closed）
+      body.autoCreateEnabled = false; // 沒問過就關（fail-closed）
     }
     await send(body);
   }
@@ -493,7 +493,7 @@ export function EditProviderDialog({ provider }: { provider: AdminAuthProviderDt
     }
   }
 
-  // M3：按任一儲存鈕先關確認框再送；錯誤顯示在編輯對話框，送出中由儲存鈕的 disabled 擋重送。
+  // 按任一儲存鈕先關確認框再送；錯誤顯示在編輯對話框，送出中由儲存鈕的 disabled 擋重送。
   function confirmAndSend(autoCreateEnabled: boolean): void {
     const body = confirmBody;
     if (body === null) return;

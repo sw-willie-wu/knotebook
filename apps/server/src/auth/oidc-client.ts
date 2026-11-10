@@ -1,6 +1,6 @@
 // OIDC client 封裝（openid-client v6）——per-app-instance（嚴禁 module 單例：AppDeps.limiters
-// 同款理由，§14.3）。唯一職責＝lazy discovery + 三態快取；不碰 authorization
-// URL 組裝（auth/oidc-authorize.ts）、不碰 token/userinfo 交換（Task 9 callback route 的職責）。
+// 同款理由）。唯一職責＝lazy discovery + 三態快取；不碰 authorization
+// URL 組裝（auth/oidc-authorize.ts）、不碰 token/userinfo 交換（callback route 的職責）。
 
 import * as client from "openid-client";
 import type { AppConfig } from "../config.js";
@@ -48,13 +48,13 @@ export interface OidcClientSettings {
 
 export interface OidcRuntimeOptions {
   /** customFetch seam（測試注入 mock IdP）——型別直接用 v6 的 CustomFetch（自訂簽章有
-   * strictFunctionTypes 摩擦；plan-gate 一輪 MINOR-8）。 */
+   * strictFunctionTypes 摩擦）。 */
   fetch?: client.CustomFetch;
 }
 
 export interface OidcRuntime {
   /**
-   * lazy discovery 三態（§14.3）：
+   * lazy discovery 三態：
    * 1. 網路/協定失敗 → 不快取，throw `OidcUnavailableError`（下次呼叫重試）。
    * 2. 成功但不可用（缺 `jwks_uri`／`id_token_signing_alg_values_supported` 無非對稱
    *    演算法）→ 不快取，throw `OidcUnavailableError`（IdP 修好即恢復）。
@@ -69,7 +69,7 @@ export interface OidcRuntime {
 /** ID token 簽章演算法字首——RS/ES/PS 開頭視為非對稱（RSA/ECDSA/RSASSA-PSS 家族）。 */
 const ASYMMETRIC_ALG_PREFIXES = ["RS", "ES", "PS"];
 
-/** 缺欄位（`undefined`）視為含 RS256，不擋（§14.3：多數 IdP 省略這個 optional 欄位時
+/** 缺欄位（`undefined`）視為含 RS256，不擋（多數 IdP 省略這個 optional 欄位時
  * 仍支援 RS256，不該因為欄位缺席就整組判定不可用）。 */
 function hasAsymmetricSigningAlg(algs: readonly string[] | undefined): boolean {
   if (algs === undefined) return true;
@@ -77,7 +77,7 @@ function hasAsymmetricSigningAlg(algs: readonly string[] | undefined): boolean {
 }
 
 /**
- * discovery 結果的可用性檢查（§14.3「成功但不可用」＋r3-M3 的 issuer 長度）。runtime（登入路徑）與 `probeOidcIssuer`
+ * discovery 結果的可用性檢查（「成功但不可用」與 issuer 長度）。runtime（登入路徑）與 `probeOidcIssuer`
  * （管理頁的測試連線／先試探）**共用這一個函式**——兩條路徑的判準不得分歧，否則管理頁說「連線成功」、登入卻 `oidc_unavailable`。
  */
 function assertUsableMetadata(metadata: client.ServerMetadata, issuerUrl: string): void {
@@ -85,12 +85,12 @@ function assertUsableMetadata(metadata: client.ServerMetadata, issuerUrl: string
     throw new OidcUnavailableError(`OIDC issuer metadata 不可用（issuer=${safeTarget(issuerUrl)}）：缺 jwks_uri 或無非對稱簽章演算法`);
   }
   if (metadata.issuer.length > MAX_ISSUER_LENGTH) {
-    // r3-M3：identity 存的 issuer 與 pending cookie 的大小上界都靠這個上限；`auth_providers` 的 CHECK 只管管理員輸入的字面。
+    // identity 存的 issuer 與 pending cookie 的大小上界都靠這個上限；`auth_providers` 的 CHECK 只管管理員輸入的字面。
     throw new OidcUnavailableError(`OIDC issuer 過長（${metadata.issuer.length} > ${MAX_ISSUER_LENGTH}）`);
   }
 }
 
-/** http issuer（trusted-LAN）要明傳 `allowInsecureRequests`（§14.3 MAJOR-1）；測試注入 fetch。runtime 與 probe 共用。 */
+/** http issuer（trusted-LAN）要明傳 `allowInsecureRequests`；測試注入 fetch。runtime 與 probe 共用。 */
 function discoveryOptionsFor(issuerUrl: URL, fetch: client.CustomFetch | undefined): client.DiscoveryRequestOptions {
   const execute: Array<(config: client.Configuration) => void> = [];
   if (issuerUrl.protocol === "http:") execute.push(client.allowInsecureRequests);
@@ -113,12 +113,12 @@ export function createOidcRuntime(oidc: OidcClientSettings, opts: OidcRuntimeOpt
 
     // v6 預設 tlsOnly：issuer 為 http: 時（trusted-LAN 內網自架 IdP 拓撲，同
     // `config.ts` 的 insecureHttpWarning 精神）discovery 本身與後續請求都必須明傳
-    // `allowInsecureRequests`，否則直接 throw（§14.3 MAJOR-1）；共用 `discoveryOptionsFor`。
+    // `allowInsecureRequests`，否則直接 throw；共用 `discoveryOptionsFor`。
     const discoveryOptions = discoveryOptionsFor(issuerUrl, opts.fetch);
 
     let configuration: client.Configuration;
     try {
-      // client 認證明傳 ClientSecretPost（§14.3）——不依賴 discovery 自動推導
+      // client 認證明傳 ClientSecretPost——不依賴 discovery 自動推導
       // token_endpoint_auth_method。
       configuration = await client.discovery(
         issuerUrl,
@@ -133,14 +133,14 @@ export function createOidcRuntime(oidc: OidcClientSettings, opts: OidcRuntimeOpt
 
     // discovery 呼叫本身已透過 discoveryOptions 傳入同一個 fetch；這裡再顯式設一次
     // `configuration[client.customFetch]`，確保這個 Configuration 之後的所有個別請求
-    // （token/userinfo/jwks，Task 9 消費）也走同一個 mock（§14.3 逐字：discovery 呼叫
+    // （token/userinfo/jwks，callback 用）也走同一個 mock（discovery 呼叫
     // 本身亦需傳同一 fetch）。
     if (opts.fetch) configuration[client.customFetch] = opts.fetch;
 
     assertUsableMetadata(configuration.serverMetadata(), oidc.issuerUrl);
 
     // 前置檢查通過才開啟——啟用後每次 id_token 驗證都會強制要求非對稱簽章，缺前置
-    // 檢查會讓「開啟後才發現不可用」延後到 callback 路徑才炸開（§14.3 MAJOR-2/二輪 MAJOR-1）。
+    // 檢查會讓「開啟後才發現不可用」延後到 callback 路徑才炸開。
     client.enableNonRepudiationChecks(configuration);
 
     return configuration;
@@ -168,10 +168,9 @@ export function createOidcRuntime(oidc: OidcClientSettings, opts: OidcRuntimeOpt
 }
 
 /**
- * #187 PR2 §9.2：管理頁的「測試連線」與「先試探」——**只做 discovery**：client 認證用 `client.None()`、不解也不送 client
- * secret（spec §5.2「測試連線只做 discovery、不送 secret」）、不打 token endpoint、不經 registry 的快取（§6「/test 不經
- * registry、不寫快取」）。可用性判準與登入路徑共用 `assertUsableMetadata`。失敗一律 `OidcUnavailableError`。
- * ⚠ 驗不到 client id／secret 對不對（IdP 只有在真的換 token 時才會說）——文案要寫明（spec §9.2）。
+ * #187：管理頁的「測試連線」與「先試探」——**只做 discovery**：client 認證用 `client.None()`、不解也不送 client
+ * secret、不打 token endpoint、不經 registry 的快取、不寫快取。可用性判準與登入路徑共用 `assertUsableMetadata`。失敗一律 `OidcUnavailableError`。
+ * ⚠ 驗不到 client id／secret 對不對（IdP 只有在真的換 token 時才會說）——文案要寫明。
  */
 export async function probeOidcIssuer(issuerUrl: string, opts: OidcRuntimeOptions = {}): Promise<client.ServerMetadata> {
   let url: URL;
@@ -196,7 +195,7 @@ export async function probeOidcIssuer(issuerUrl: string, opts: OidcRuntimeOption
 const PROBE_CLIENT_ID = "knotebook-discovery-probe";
 
 /**
- * #187 §7.1：login、callback、SSO 證明起點共用的**唯一** helper（管理頁顯示的 callbackUrl 也由它組，PR2）。legacy provider（env
+ * #187：login、callback、SSO 證明起點共用的**唯一** helper（管理頁顯示的 callbackUrl 也由它組）。legacy provider（env
  * 匯入）沿用舊路徑——IdP 端已註冊的回呼網址不必改；其餘一個 provider 一條。`new URL(絕對路徑, publicUrl)` 會丟掉 PUBLIC_URL 的
  * sub-path（`publicUrlPathWarning` 的提醒）。
  */
@@ -205,7 +204,7 @@ export function oidcRedirectUri(config: Pick<AppConfig, "publicUrl">, provider: 
   return new URL(path, config.publicUrl).href;
 }
 
-/** r3-M3：`user_identities.issuer`／`auth_providers.resolved_issuer` 的上界（與 0014 的 CHECK 同值）。 */
+/** `user_identities.issuer`／`auth_providers.resolved_issuer` 的上界（與 0014 的 CHECK 同值）。 */
 export const MAX_ISSUER_LENGTH = 512;
 
 export interface OidcRuntimeKey {
@@ -216,15 +215,15 @@ export interface OidcRuntimeKey {
 }
 
 /**
- * #187 §6：per-app 的 runtime 表（嚴禁 module 單例，同 `createOidcRuntime`）。失效鍵 `(id, configVersion)`——
+ * #187：per-app 的 runtime 表（嚴禁 module 單例，同 `createOidcRuntime`）。失效鍵 `(id, configVersion)`——
  * 登入路徑本來就要讀 provider 列，版本順手比對，所以 `invalidate` 漏叫也會自癒；issuer／client id 一併比對是防禦縱深
- * （PR2 的 PATCH 改它們必 +1 版本，§5.2）。`loadSecret` 只在建新 runtime 時呼叫；它失敗（secret 為 NULL、解不開）
- * 一律變成 `OidcUnavailableError`、不快取。`/test` 走 `probe`、不經快取（§6）。
+ * （PATCH 改它們必 +1 版本）。`loadSecret` 只在建新 runtime 時呼叫；它失敗（secret 為 NULL、解不開）
+ * 一律變成 `OidcUnavailableError`、不快取。`/test` 走 `probe`、不經快取。
  */
 export interface OidcRuntimeRegistry {
   get(key: OidcRuntimeKey, loadSecret: () => Promise<string>): Promise<client.Configuration>;
   invalidate(id: string): void;
-  /** #187 PR2：`probeOidcIssuer` 掛上本 registry 的 `opts.fetch`（測試注入縫只有一個）。**不讀不寫快取**——與 `get` 無關。 */
+  /** #187：`probeOidcIssuer` 掛上本 registry 的 `opts.fetch`（測試注入縫只有一個）。**不讀不寫快取**——與 `get` 無關。 */
   probe(issuerUrl: string): Promise<client.ServerMetadata>;
 }
 

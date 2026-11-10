@@ -50,7 +50,7 @@ export type GroupTransferKind = "move" | "copy";
 export type FolderRef = { id: string; path: string };
 
 /**
- * 目標（資料夾 spec §6.11.2、§6.11.3）：
+ * 目標：
  * - `group`：移入群組／複製到群組，`folder` 不給＝群組根層；
  * - `inPlace`：群組筆記「建立副本」（落在來源同一資料夾）；
  * - `duplicate`：自己的個人筆記「建立副本」（落在來源同一資料夾）；
@@ -70,7 +70,7 @@ export interface GroupTransferPick {
 
 /**
  * ⋮ 子選單選定的目的地（非 drill 項）。groups／index 在 `GroupTransferMenuItems` 裡算（只在選單開著時掛載），隨 pick 傳出：
- * `NoteMenuCore` 頂層不訂閱 `useGroups`／`useFolders`（總管裁定 2026-10-29 M1）。
+ * `NoteMenuCore` 頂層不訂閱 `useGroups`／`useFolders`。
  */
 export interface DestinationPick {
   kind: GroupTransferKind;
@@ -79,7 +79,7 @@ export interface DestinationPick {
   index: FolderIndex;
 }
 
-/** 移動、複製各一份所在層（spec §6.11.4）；`NoteMenuCore` 持有，選單關閉時回到這個值。 */
+/** 移動、複製各一份所在層；`NoteMenuCore` 持有，選單關閉時回到這個值。 */
 export type DestPaths = Readonly<Record<GroupTransferKind, readonly DestPathStep[]>>;
 const NO_STEPS: readonly DestPathStep[] = [];
 export const EMPTY_DEST_PATHS: DestPaths = { move: NO_STEPS, copy: NO_STEPS };
@@ -92,7 +92,7 @@ function folderRef(target: Extract<DestTarget, { kind: "place" }>, index: Folder
 }
 
 /**
- * 同空間移動（spec §6.11.3）：移動、且目的地與這篇的移動來源（`noteDestSource`）上半部同一空間——自己的個人筆記放進我的筆記、
+ * 同空間移動：移動、且目的地與這篇的移動來源（`noteDestSource`）上半部同一空間——自己的個人筆記放進我的筆記、
  * 群組筆記放進本群組、共享筆記放進自己的共享私人資料夾；判準與選取模式共用 `isSameSpace`。呼叫端不跳確認、直接 PUT。
  */
 export function isSameSpaceMove(note: NoteDto, pick: DestinationPick): boolean {
@@ -100,7 +100,7 @@ export function isSameSpaceMove(note: NoteDto, pick: DestinationPick): boolean {
 }
 
 /**
- * 子選單選定的 `DestTarget` → 確認框目標（spec §6.11.2、§6.11.3）。**null＝同空間移動，或到不了的分支（找不到群組）**：
+ * 子選單選定的 `DestTarget` → 確認框目標。**null＝同空間移動，或到不了的分支（找不到群組）**：
  * 呼叫端用 `isSameSpaceMove` 分辨——同空間移動直接 `placeNoteWithUndo`、不跳確認（個人筆記放進我的筆記、群組筆記放進本群組、
  * 共享筆記放進自己的共享私人資料夾），其餘什麼都不做。
  * - 「建立副本」：個人筆記＝`duplicate`；群組筆記＝`inPlace`（本群組，落在來源同一資料夾，見 `copyRequest`）。
@@ -138,9 +138,9 @@ interface LevelNav {
 }
 
 /**
- * 就地展開形的層內容（spec §6.11.1、§6.11.4、§6.16）：每個 `DestItem` 一個選單項，分隔線＝`DropdownMenuSeparator`。
+ * 就地展開形的層內容：每個 `DestItem` 一個選單項，分隔線＝`DropdownMenuSeparator`。
  * 只在展開時掛載，期間持續存在（**不以 path 當 key**）；換層後（掛載後 path 改變）把焦點交給新層第一個未停用的項目
- * （第二層起即「返回」；總管裁定 2026-10-29 m1、m1-1、M3）。
+ * （第二層起即「返回」）。
  * 返回項前導 `ChevronLeft` 圖示（`aria-hidden`）、可及名稱是「返回」；帶 `>` 的項目可及名稱＝「{{name}}，開啟下一層」。
  */
 function DestinationLevelItems({
@@ -284,9 +284,9 @@ interface CascadeProps {
 type DrillItem = Extract<DestItem, { kind: "folder" | "space" }> & { drill: DestPathStep };
 
 /**
- * 層疊形（寬且可 hover，spec F23、§6.11.4）的「移動到…／複製到…」那一層：受控 Radix `Sub`，內容是第一層（`CascadeItems`）。
+ * 層疊形（寬且可 hover）的「移動到…／複製到…」那一層：受控 Radix `Sub`，內容是第一層（`CascadeItems`）。
  * - Esc：Radix 的 SubContent 對 Esc 呼叫的是 root 的 onClose（整個選單關掉，實測），所以自己接——`preventDefault`、只收這一層、
- *   焦點回觸發項（總管裁定 ②；各層的 `CascadeSub` 同法）。
+ *   焦點回觸發項（各層的 `CascadeSub` 同法）。
  * - ArrowLeft 不攔：Radix 內建在 `SubContent` 上收起該層、焦點回觸發項。
  * - `SubContent` 走 Portal（見 `ui/dropdown-menu.tsx`），不被父層 `overflow-hidden` 裁掉，貼近視窗邊緣時 Radix 自動翻邊。
  */
@@ -303,7 +303,7 @@ function CascadeRoot({
   const contentRef = useRef<HTMLDivElement>(null);
   // 焦點所在的項目被卸載（資料夾晚到時一般項換成 SubTrigger、資料夾被刪連子選單一起消失）時焦點會掉到 body，鍵盤就出不了選單：
   // 每次 render 後檢查，掉了就交給這一層的內容（Radix 再交給第一個可聚焦項）。必須是 useEffect：useLayoutEffect 時 Radix 的
-  // collection 還留著剛卸載的項目，focusFirst 會在 null 上呼叫 focus（審查三引擎實測）。子層 `CascadeSub` 同法，子層的 effect 先跑。
+  // collection 還留著剛卸載的項目，focusFirst 會在 null 上呼叫 focus（三引擎實測）。子層 `CascadeSub` 同法，子層的 effect 先跑。
   useEffect(() => {
     if (open && document.activeElement === document.body) contentRef.current?.focus();
   });
@@ -329,7 +329,7 @@ function CascadeRoot({
 }
 
 /**
- * 層疊的一層：`buildDestinationLevel` 去掉「返回」（spec §6.11.1：寬形沒有返回，往旁層疊本身就是回上一層的路）。
+ * 層疊的一層：`buildDestinationLevel` 去掉「返回」（寬形沒有返回，往旁層疊本身就是回上一層的路）。
  * 有下一層的項目＝`CascadeSub`；其餘＝一般項（前導圖示、反灰、選定即回報）。
  */
 function CascadeItems({ source, path, index, onPick }: CascadeProps & { path: readonly DestPathStep[] }) {
@@ -356,7 +356,7 @@ function CascadeItems({ source, path, index, onPick }: CascadeProps & { path: re
 
 /**
  * 層疊的下一層：受控 Radix `Sub`。觸發項不設 `aria-label`——可及名稱＝項目文字（資料夾或空間名），有子選單由 Radix 的
- * `aria-haspopup`／`aria-expanded` 表達（總管裁定 ③；窄形逐層的「，開啟下一層」不用在這裡）；右側箭頭是 `DropdownMenuSubTrigger`
+ * `aria-haspopup`／`aria-expanded` 表達（窄形逐層的「，開啟下一層」不用在這裡）；右側箭頭是 `DropdownMenuSubTrigger`
  * 自帶的那一顆。Esc 同 `CascadeRoot`（只收這一層、焦點回這個觸發項）。內容只在打開時掛載（Radix `Presence`），遞迴不會預先展開整棵樹。
  */
 function CascadeSub({ item, source, path, index, onPick }: CascadeProps & { item: DrillItem; path: readonly DestPathStep[] }) {
@@ -390,11 +390,11 @@ function CascadeSub({ item, source, path, index, onPick }: CascadeProps & { item
 }
 
 /**
- * ⋮ 選單的「移動到…」「複製到…」兩個子選單項（#216；資料夾 spec §6.11）。內容是逐層目的地清單（`buildDestinationLevel`，
+ * ⋮ 選單的「移動到…」「複製到…」兩個子選單項（#216）。內容是逐層目的地清單（`buildDestinationLevel`，
  * 規則全在 `components/sidebar/destination-level.ts`），群組＝`useGroups()`、資料夾＝`useFolders()`：還沒到時先列不需要資料夾的項目
- * （群組不帶 `>`），到了再補。第一層為空（`isEmptyDestination`）的那一組整項不渲染（I2）。
+ * （群組不帶 `>`），到了再補。第一層為空（`isEmptyDestination`）的那一組整項不渲染。
  * 兩種形態（判準 `lib/wide-pointer.ts`）：寬且可 hover＝往旁層疊的 Radix 巢狀子選單（`CascadeRoot`）；窄或觸控＝就地展開逐層（`GroupInline`）。
- * 選單開著時跨過判準 → `onModeChange`，呼叫端關掉整個選單（spec §6.11.4；總管裁定 ④）。
+ * 選單開著時跨過判準 → `onModeChange`，呼叫端關掉整個選單。
  * 選定非 `>` 項只回報（`onPick`）：同空間移動或確認框由呼叫端決定（`transferTargetOf`）。
  */
 export function GroupTransferMenuItems({
@@ -415,7 +415,7 @@ export function GroupTransferMenuItems({
   /** 就地展開形兩組各自的所在層（`NoteMenuCore` 持有，選單關閉時重設）。層疊形不用它。 */
   paths: DestPaths;
   onPathChange: (kind: GroupTransferKind, path: readonly DestPathStep[]) => void;
-  /** 掛載後寬窄判準翻轉時呼叫一次（spec §6.11.4「選單開著時跨過判準」）；NoteMenuCore 收到就關整個選單並重設 expanded／paths。 */
+  /** 掛載後寬窄判準翻轉時呼叫一次（選單開著時跨過判準）；NoteMenuCore 收到就關整個選單並重設 expanded／paths。 */
   onModeChange: () => void;
 }) {
   const { t } = useTranslation();
@@ -423,7 +423,7 @@ export function GroupTransferMenuItems({
   const foldersQuery = useFolders();
   const groups = groupsQuery.data ?? NO_GROUPS;
   const index = useMemo(() => indexFolders(foldersQuery.data ?? NO_FOLDERS), [foldersQuery.data]);
-  // 窄視窗或觸控 -> 就地向下展開（手風琴）；寬且可 hover -> 往旁層疊（Willie 2026-10-08、2026-10-31；判準見 `lib/wide-pointer.ts`）。
+  // 窄視窗或觸控 -> 就地向下展開（手風琴）；寬且可 hover -> 往旁層疊（判準見 `lib/wide-pointer.ts`）。
   const wide = useWidePointer();
   const inline = !wide;
   // 掛載後判準翻轉（拖視窗寬度、外接滑鼠、平板轉向）-> 通知呼叫端關整個選單；掛載當下不呼叫。
@@ -501,7 +501,7 @@ export function GroupTransferMenuItems({
 }
 
 /**
- * 選定群組後的確認框（原行內確認的 Dialog 版，文案與規則不變）。PR1 交接的不變量：
+ * 選定群組後的確認框（原行內確認的 Dialog 版，文案與規則不變）。不變量：
  * - **移動**（`MoveDialog`）確認列出會失去存取的逐人分享對象、有 token 時說公開連結會關、恆說網址會變與擁有權移交；提交鈕
  *   `destructive`。**shares 與 public-link 兩支都成功之前提交鈕停用**（資料不明時文案會低報被移除的人）。
  *   shares／public-link 的查詢**只由 `MoveDialog` 發**（複製不需要，且在群組筆記／別人分享給我的筆記上會 403 重試）。
@@ -512,7 +512,7 @@ export function GroupTransferMenuItems({
  * - **複製**（`CopyDialog`）確認「原筆記不變」，提交鈕 `outline`；成功 toast 附「前往副本」（altText 鍵 `share.move.openCopyAlt`）。
  * - 失敗一律 toast（`folderErrorMessage`，帶 `max`）並關框——選單已關，沒有別處可放行內訊息。送出中（含送出前檢查）鈕停用、
  *   框不可關閉，避免重送出第二份副本。
- * - 資料夾（資料夾 spec §5.7.6 n6）：「建立副本」（`duplicate`／`inPlace`）帶來源的 `folderId`（來自快取），收到 404
+ * - 資料夾：「建立副本」（`duplicate`／`inPlace`）帶來源的 `folderId`（來自快取），收到 404
  *   `folder_not_found` → 不帶 `folderId` 重送一次、落在根層並換成 `copiedAtTopLevel` toast；使用者明選的資料夾（`group`／
  *   `personal` 的 `folder`）404 → 不重試、錯誤 toast。兩者都 `invalidateFolderRelated` 讓樹重抓。
  * - 關框後焦點回 `returnFocusRef`（呼叫端的 ⋮ 觸發鈕）：Radix 的還焦點靠 `DialogTrigger`，這裡沒有，會掉到 body。
@@ -559,7 +559,7 @@ interface TransferDialogProps {
 function MoveDialog({ note, target, onClose, returnFocusRef }: TransferDialogProps) {
   const group = target.type === "group" ? target.group : null;
   const folder = target.type === "group" ? target.folder : undefined;
-  // 目的地名稱：群組名；選了群組資料夾時換成完整路徑（spec §6.11.2）。
+  // 目的地名稱：群組名；選了群組資料夾時換成完整路徑。
   const destination = folder?.path ?? group?.name ?? "";
   const { t, i18n } = useTranslation();
   const sharesQuery = useShares(note.id);
@@ -617,6 +617,7 @@ function MoveDialog({ note, target, onClose, returnFocusRef }: TransferDialogPro
         {token && <li>{t("share.move.moveClosesPublicLink")}</li>}
         <li>{t("share.move.moveUrlChange")}</li>
         <li>{t("share.move.moveOwnership")}</li>
+        <li>{t("share.move.moveClearsVersions")}</li>
       </ul>
     </DialogShell>
   );
@@ -625,7 +626,7 @@ function MoveDialog({ note, target, onClose, returnFocusRef }: TransferDialogPro
 type CopyInput = { groupId?: string; folderId?: string };
 
 /**
- * `POST /copy` 的 body（根層一律不帶 `folderId`，spec §6.11.3）＋ n6 退回用的 body（只有「建立副本」且來源在資料夾裡才有）。
+ * `POST /copy` 的 body（根層一律不帶 `folderId`）＋ 退回用的 body（只有「建立副本」且來源在資料夾裡才有）。
  * 「建立副本」落在來源同一資料夾；共享筆記複製到我的筆記不帶自己的共享放置（`note.folderId` 是呼叫者視角的放置）。
  */
 function copyRequest(note: NoteDto, target: TransferTarget): { input: CopyInput; fallback: CopyInput | null } {
@@ -651,7 +652,7 @@ function CopyDialog({ note, target, onClose, returnFocusRef }: TransferDialogPro
       : target.type === "personal"
         ? t("share.move.copyPersonalSubmit")
         : t("share.move.copyHereSubmit");
-  // 「會在「X」建立副本」：X＝群組名，選了資料夾時換成完整路徑（spec §6.11.3 n7）。
+  // 「會在「X」建立副本」：X＝群組名，選了資料夾時換成完整路徑。
   const lead =
     target.type === "group"
       ? t("share.move.copyLead", { group: target.folder?.path ?? target.group.name })
@@ -674,7 +675,7 @@ function CopyDialog({ note, target, onClose, returnFocusRef }: TransferDialogPro
       try {
         created = await copy.mutateAsync(request.input);
       } catch (err) {
-        // n6：只有「建立副本」帶的快取 folderId 失效才自動退回根層重送一次；明選的資料夾不重試（往外丟）。
+        // 只有「建立副本」帶的快取 folderId 失效才自動退回根層重送一次；明選的資料夾不重試（往外丟）。
         if (request.fallback === null || !isFolderNotFound(err)) throw err;
         invalidateFolderRelated(queryClient);
         created = await copy.mutateAsync(request.fallback);

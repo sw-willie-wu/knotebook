@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as shared from "./index.js";
 import { unescapeAttributeAngles } from "./serialized-html.js";
 
-// 屬性值的 `<`／`>` 序列化差異（Chromium 151／Firefox 153／WebKit 26.5 跳脫、jsdom 30 不跳脫；並排 PR-2 T5 探針實測）：兩種輸入都要得到 jsdom 的形。
+// 屬性值的 `<`／`>` 序列化差異（Chromium 151／Firefox 153／WebKit 26.5 跳脫、jsdom 30 不跳脫）：兩種輸入都要得到 jsdom 的形。
 describe("unescapeAttributeAngles", () => {
   it("UA1 瀏覽器形的屬性值換回字面，與 jsdom 形相同（golden G2-img-escape）", () => {
     const browser = '<figure><img alt="a &quot;b&quot; &amp; &lt;c&gt;" src="/api/uploads/u5?a=1&amp;b=2" width="300"><figcaption>x &amp; "y"</figcaption></figure>';

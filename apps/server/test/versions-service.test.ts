@@ -41,7 +41,7 @@ async function setup(opts: { group?: boolean; autoWaitMs?: number } = {}) {
   return { db, u, note, host, warns, svc, load, setNow };
 }
 
-describe("noteLoaded（§4.5）", () => {
+describe("noteLoaded", () => {
   it("先同步抓 loadFingerprint 再讀 DB：await 期間文件被改，loadFingerprint 仍是呼叫當下那份", async () => {
     const s = await setup();
     const doc = paraDoc(["原文"]);
@@ -53,7 +53,7 @@ describe("noteLoaded（§4.5）", () => {
     expect(s.svc.debugState(s.note.id)).toMatchObject({ initialized: true, loadFingerprint: before, baseFingerprint: null, autoEnabled: true });
   });
 
-  it("讀基底、空間鍵與 A13 開關：個人 u:<owner>；群組 g:<group>；站台關或空間關 → autoEnabled false", async () => {
+  it("讀基底、空間鍵與自動儲存開關：個人 u:<owner>；群組 g:<group>；站台關或空間關 → autoEnabled false", async () => {
     const s = await setup();
     await s.db.update(notes).set({ versionBaseSeq: 3, versionBaseFingerprint: "abc" }).where(eq(notes.id, s.note.id));
     await s.load(paraDoc(["x"]));
@@ -113,7 +113,7 @@ describe("noteLoaded（§4.5）", () => {
   });
 });
 
-describe("noteChanged（§5.2）", () => {
+describe("noteChanged", () => {
   it("依 (userId, agentLabel) 去重、保留首次出現順序", async () => {
     const s = await setup();
     await s.load(paraDoc(["x"]));
@@ -127,7 +127,7 @@ describe("noteChanged（§5.2）", () => {
   });
 });
 
-describe("cutIfDirty／isDirty（§5.3）", () => {
+describe("cutIfDirty／isDirty", () => {
   it("未初始化 → { skipped: uninitialized }、isDirty true（Map 有條目但 noteLoaded 沒跑完）", async () => {
     const s = await setup();
     const doc = paraDoc(["x"]);
@@ -198,7 +198,7 @@ describe("cutIfDirty／isDirty（§5.3）", () => {
     const v1doc = new Y.Doc();
     Y.applyUpdate(v1doc, v1!.ydoc);
     await s.db.update(notes).set({ versionBaseSeq: 1, versionBaseFingerprint: vfp(v1doc) }).where(eq(notes.id, s.note.id));
-    s.svc.endApply(s.note.id, { seq: 1, fingerprint: vfp(v1doc) }); // 模擬套用 v1 後（內容細節由 Task 8 驗）
+    s.svc.endApply(s.note.id, { seq: 1, fingerprint: vfp(v1doc) }); // 模擬套用 v1 後（內容細節由其他測試驗）
     expect(await cut("3")).toMatchObject({ row: { seq: 3, baseSeq: 1 } });
     expect(await cut("4")).toMatchObject({ row: { seq: 4, baseSeq: null } });
   });
@@ -225,7 +225,7 @@ describe("cutIfDirty／isDirty（§5.3）", () => {
     const v3 = (await versionsOf(s.db, s.note.id))[2]!;
     expect([v3.baseSeq, v3.baseVersionId]).toEqual([1, v1!.id]);
     expect(await baseVersionIdOf(s.db, s.note.id)).toBe(v3.id);
-    // 切版當下基底列已不存在 → base_seq 與 base_version_id 都不填（Task 14b 規則，spec §15-2）
+    // 切版當下基底列已不存在 → base_seq 與 base_version_id 都不填
     await s.db.update(notes).set({ versionBaseSeq: 1, versionBaseFingerprint: vfp(v1doc), versionBaseVersionId: v1!.id }).where(eq(notes.id, s.note.id));
     s.svc.endApply(s.note.id, { seq: 1, fingerprint: vfp(v1doc) });
     await s.db.delete(noteVersions).where(sql`note_versions.note_id = ${s.note.id} and note_versions.seq = 1`);
@@ -239,7 +239,7 @@ describe("cutIfDirty／isDirty（§5.3）", () => {
     expect(await baseVersionIdOf(s.db, s.note.id)).toBeNull();
   });
 
-  it("m2：setVersionBase 的 EXISTS 同時比對 id——seq 被重用（同 seq 換了一列）後，過期的 (seq, 舊 versionId) 不設基底", async () => {
+  it("setVersionBase 的 EXISTS 同時比對 id——seq 被重用（同 seq 換了一列）後，過期的 (seq, 舊 versionId) 不設基底", async () => {
     const s = await setup();
     const doc = paraDoc(["a"]);
     await s.load(doc);
@@ -257,7 +257,7 @@ describe("cutIfDirty／isDirty（§5.3）", () => {
     expect(await setVersionBase(s.db, s.note.id, 1, "fp", "00000000-0000-4000-8000-000000000001")).toBe(true);
   });
 
-  it("RF5：刪掉最新的非基底版後再切——依剩下的最新判斷，配號不重用", async () => {
+  it("刪掉最新的非基底版後再切——依剩下的最新判斷，配號不重用", async () => {
     const s = await setup();
     const doc = paraDoc(["a"]);
     await s.load(doc);
@@ -343,7 +343,7 @@ describe("cutIfDirty／isDirty（§5.3）", () => {
     expect(await s.svc.cutIfDirty(s.note.id, doc, { kind: "manual", transient: doc })).toEqual({ skipped: "note-deleted" });
   });
 
-  it("文件已載入但 Map 沒條目（§9 空窗期）→ uninitialized，即使帶了 transient", async () => {
+  it("文件已載入但 Map 沒條目（空窗期）→ uninitialized，即使帶了 transient", async () => {
     const s = await setup();
     const doc = paraDoc(["a"]);
     s.host.docs.set(s.note.id, doc);
@@ -351,7 +351,7 @@ describe("cutIfDirty／isDirty（§5.3）", () => {
   });
 });
 
-describe("relocated／forget（§9）", () => {
+describe("relocated／forget", () => {
   it("relocated：載入中的筆記立刻有 initialized:false 條目，重跑 noteLoaded 後以新空間初始化；沒載入的只清掉", async () => {
     const s = await setup();
     const doc = paraDoc(["a"]);
@@ -380,7 +380,7 @@ describe("docFor／currentOf", () => {
     expect(await s.svc.currentOf(s.note.id)).toEqual({ baseSeq: null, dirty: false, nextSeq: 1, autoEnabled: true });
   });
 
-  it("載入中：用活文件；autoEnabled 取這個載入週期的值（A13：DB 改了不影響）", async () => {
+  it("載入中：用活文件；autoEnabled 取這個載入週期的值（DB 改了不影響）", async () => {
     const s = await setup();
     const doc = paraDoc(["a"]);
     await s.load(doc);
@@ -398,7 +398,7 @@ describe("docFor／currentOf", () => {
   });
 });
 
-describe("pruneNote／sweep（§10.2）", () => {
+describe("pruneNote／sweep", () => {
   it("切版後清除：依 F／D 刪自動版本，留手動、基底、最新；改名成手動的不刪", async () => {
     const s = await setup();
     const doc = paraDoc(["a"]);
@@ -414,7 +414,7 @@ describe("pruneNote／sweep（§10.2）", () => {
     expect((await versionsOf(s.db, s.note.id)).map(v => v.seq)).toEqual([2, 3, 4]); // v1 與 v3 同週、v3 較新
   });
 
-  it("sweep：游標續掃、一輪 0 筆就歸零（批次 100；250 篇的版本由 Task 13 驗）", async () => {
+  it("sweep：游標續掃、一輪 0 筆就歸零（批次 100；250 篇的版本另有案驗）", async () => {
     const s = await setup();
     const doc = paraDoc(["a"]);
     await s.load(doc);
@@ -433,7 +433,7 @@ describe("pruneNote／sweep（§10.2）", () => {
   });
 });
 
-describe("#272 待切寫入（noteStored，spec §6）", () => {
+describe("#272 待切寫入（noteStored）", () => {
   const human = (userId: string) => ({ userId });
   const asJson = (userId: string, agentLabel: string | null = null) => ({ user_id: userId, agent_label: agentLabel });
   const direct = (source: "ai-edit" | "version-apply", userId: string, agentLabel: string | null, applied: boolean) =>
@@ -486,7 +486,7 @@ describe("#272 待切寫入（noteStored，spec §6）", () => {
     expect(await pendingOf(s.db, s.note.id)).toMatchObject({ at: new Date(T0 + 2000), editors: [asJson(s.u.id), asJson(u2.id)] });
   });
 
-  it("案 4：ai-edit applied → 待切 editors 含 {userId, agentLabel}、不出版；applied=false 同人的落盤（寫入者不進名單，起草裁定 22）", async () => {
+  it("案 4：ai-edit applied → 待切 editors 含 {userId, agentLabel}、不出版；applied=false 同人的落盤（寫入者不進名單）", async () => {
     const s = await setup();
     const u2 = await seedUser(s.db);
     const doc = paraDoc(["a"]);

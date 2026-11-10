@@ -1,6 +1,6 @@
 /**
- * #285 管理員邀請 API（spec §5.2）：建立（A1–A3、A5、A8–A10）、列表（A6）、撤銷（A7）。
- * 非 admin／未登入的 403／401 併在 `admin-users.test.ts` 的 requireAdmin 清單（A4）。
+ * #285 管理員邀請 API：建立（A1–A3、A5、A8–A10）、列表（A6）、撤銷（A7）。
+ * 非 admin／未登入的 403／401 併在 `admin-users.test.ts` 的 requireAdmin 清單。
  * 每案各建一個 app（fresh DB）；造列一律 raw SQL，`created_at` 與 `expires_at` 以 SQL 同推（`one_time_links_expiry_chk`）。
  */
 import { randomUUID } from "node:crypto";

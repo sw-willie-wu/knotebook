@@ -1,5 +1,5 @@
 // 未 mount 的 collaborative editor 是空文件（by-id 操作 throw），所以每個 session 都要 mount 進 jsdom；
-// mount 過的 editor 即使 unmount 也殘留約 0.53 MB/顆、GC 收不回（spike）。對策：每 N 次 mount 或 heap
+// mount 過的 editor 即使 unmount 也殘留約 0.53 MB/顆、GC 收不回。對策：每 N 次 mount 或 heap
 // 較基線 +64 MiB 就重建 window——只在 in-flight 歸零時重建，旗標一設下新 session 就排隊等。這道防線
 // 壓不住（單顆行程的常駐量仍漲）時的退路是把整個 runtime 搬進 worker_threads，讓行程可整個換掉。
 // ⚠ `acquire()` 不可重入：持有 lease 期間不得再 `acquire()`／`EditorSession.open()`。重建旗標一設下，
@@ -116,7 +116,7 @@ export class EditingRuntime {
   }
 
   installGlobals(): void {
-    // #398 審查 C1：拿掉 jsdom 在大的子節點清單上的三處平方（活清單立即重算、插入／移除時多算的索引；見 `jsdom-perf.ts`）。
+    // #398：拿掉 jsdom 在大的子節點清單上的三處平方（活清單立即重算、插入／移除時多算的索引；見 `jsdom-perf.ts`）。
     if (!patchJsdomForLargeTrees()) console.warn("EditingRuntime: could not patch jsdom for large node lists; exporting large paragraphs may be slow");
     this.dom?.window.close();
     const dom = new JSDOM("", { url: this.baseUrl });
@@ -166,7 +166,7 @@ export class EditingRuntime {
 
   private maybeRebuild(): void {
     if (!this.pending || this.inFlightCount > 0) return;
-    // installGlobals() 若 throw（m3）：pending 與 waiters 一定要在 finally 放掉，否則所有排隊中
+    // installGlobals() 若 throw：pending 與 waiters 一定要在 finally 放掉，否則所有排隊中
     // 與之後的 acquire() 永遠不會 settle（整台 server 的 AI 編輯靜默停擺）。錯誤不吞：console.error
     // 留痕（同 collab/hooks-impl.ts 慣例），下一次 mount 會因全域仍是舊/壞的狀態再次冒出問題。
     const waiters = this.waiters;

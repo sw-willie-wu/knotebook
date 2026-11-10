@@ -44,7 +44,7 @@ function file(name: string, type: string): File {
   return new File([new Uint8Array([1])], name, { type });
 }
 
-describe("noteSchema（Plan 3 Task 14：image block 恢復啟用）", () => {
+describe("noteSchema（image block 啟用）", () => {
   it("有 image block", () => {
     expect(Object.keys(noteSchema.blockSpecs)).toContain("image");
     expect("image" in noteSchema.blockSchema).toBe(true);
@@ -70,11 +70,11 @@ describe("noteSchema（Plan 3 Task 14：image block 恢復啟用）", () => {
   });
 });
 
-// Plan 3：`wikilink` inline content spec 掛載——防的正是「傳 `inlineContentSpecs` 忘了
+// `wikilink` inline content spec 掛載——防的正是「傳 `inlineContentSpecs` 忘了
 // spread `defaultInlineContentSpecs`」這個陷阱（見 schema.ts 頂端註解）：一旦漏掉，
 // `text`/`link` 會從 `noteSchema.inlineContentSpecs` 靜默消失，但不會有任何型別或
 // 執行期錯誤——只有這種明確列舉 key 的測試才擋得住。
-describe("noteSchema（Plan 3 wikilink inline content 掛載）", () => {
+describe("noteSchema（wikilink inline content 掛載）", () => {
   it("預設 inline content（text/link）全數保留，且新增了 wikilink", () => {
     expect(Object.keys(noteSchema.inlineContentSpecs).sort()).toEqual(
       [...Object.keys(defaultInlineContentSpecs), "wikilink"].sort(),
@@ -109,7 +109,7 @@ describe("containsMediaDataUrl", () => {
   });
 });
 
-describe("classifyMediaTransfer（§12.4 四規則）", () => {
+describe("classifyMediaTransfer（四規則）", () => {
   describe("規則①：data URL → \"dataUrl\"", () => {
     it("text/html 片段帶 data URL（從網頁複製圖片常見形狀）", () => {
       expect(classifyMediaTransfer(transfer({ html: '<img src="data:image/png;base64,AAA">' }))).toBe("dataUrl");
@@ -284,7 +284,7 @@ describe("檔案類 block 的 toExternalHTML 走媒體 URL 守衛（issue #43）
 
   /** 假 block 帶上 `type`/`id`/`children`——被委派的原實作（`createBlockSpec` 回傳的
    * toExternalHTML，內含 `wrapInBlockStructure`）會讀 `block.type` 吐成
-   * `data-content-type`，只給 props 的話產出的 DOM 跟 production 形狀對不上（審查指出）。 */
+   * `data-content-type`，只給 props 的話產出的 DOM 跟 production 形狀對不上。 */
   function block(type: string, url: string, overrides: Record<string, unknown> = {}): Record<string, unknown> {
     return {
       type,
@@ -337,7 +337,7 @@ describe("檔案類 block 的 toExternalHTML 走媒體 URL 守衛（issue #43）
     expect(dom).toBeInstanceOf(HTMLElement);
   });
 
-  it("showPreview:false（<a href> 分支）一樣被守（審查補：守衛在分支之前，兩條出口都要釘）", () => {
+  it("showPreview:false（<a href> 分支）一樣被守（守衛在分支之前，兩條出口都要釘）", () => {
     const { dom } = specs.video.implementation.toExternalHTML(
       block("video", "javascript:alert(1)", { showPreview: false }),
       {},
@@ -367,10 +367,10 @@ describe("檔案類 block 的 toExternalHTML 走媒體 URL 守衛（issue #43）
 });
 
 /**
- * issue #43 的匯出鏈釘（審查指出：上面那組只釘 spec 本體——若上游匯出器改讀別的
+ * issue #43 的匯出鏈釘（上面那組只釘 spec 本體——若上游匯出器改讀別的
  * 註冊表而非編輯器 schema 的 blockSpecs，上面全綠而洞悄悄回來）。用真編輯器 + 真匯出
  * 鏈（`blocksToMarkdownLossy`，複製到外部的 markdown 也走 external HTML）驗到底。送 AI 走 `ai/note-markdown.ts`
- * 的 headless 序列化，那條的守衛由 `ai/note-markdown.test.ts` W5 釘。
+ * 的 headless 序列化，那條的守衛由 `ai/note-markdown.test.ts` 釘。
  *
  * 這條釘的是「匯出器讀編輯器的 schema」這一半；另一半「`buildNoteEditorOptions`
  * 交付的就是 `noteSchema` 本尊」由 `NoteEditor.test.ts` 的接線釘負責（本測試自己
@@ -500,7 +500,7 @@ const FIXTURE: PartialBlock<any, any, any>[] = [
   { type: "paragraph", content: [{ type: "text", text: "前面 ", styles: {} }, { type: "wikilink", props: { targetNoteId: "11111111-1111-4111-8111-111111111111", snapshotTitle: "目標筆記" } }, { type: "text", text: " 後面 ", styles: {} }, { type: "text", text: "粗體", styles: { bold: true } }] },
   { type: "mermaid", props: { code: "graph TD\n  A-->B" } },
   // props 全不給，逼兩份 schema 的 propSchema default 值一起吃到——上面那筆有給 `code`，
-  // 兩份 schema 的 default 分歧時剛好蓋掉這條差異，parity 會假綠（reviewer 實測）。
+  // 兩份 schema 的 default 分歧時剛好蓋掉這條差異，parity 會假綠（實測）。
   { type: "mermaid" },
   { type: "codeBlock", props: { language: "typescript" }, content: "const a = 1;" },
   { type: "image", props: { url: "/api/uploads/abc123", name: "pic" } },
@@ -516,7 +516,7 @@ describe("#269：wikilink 新 props", () => {
     }
   });
 
-  it("事實（spec §4.1【推】→【驗】）：非預設值輸出成 data-label／data-anchor-block-id；預設值不輸出；同屬性從 HTML 讀回", () => {
+  it("事實：非預設值輸出成 data-label／data-anchor-block-id；預設值不輸出；同屬性從 HTML 讀回", () => {
     const editor = BlockNoteEditor.create({ schema: noteSchema });
     const id = "11111111-1111-4111-8111-111111111111";
     const html = editor.blocksToHTMLLossy([
@@ -566,7 +566,7 @@ describe("#106 parity：headless schema 與 noteSchema 匯出逐位元組相同"
   });
 });
 
-describe("並排節點（spec §5.1）", () => {
+describe("並排節點", () => {
   type Blk = { id: string; type: string; props: Record<string, unknown>; content?: unknown; children: Blk[] };
   const allTypes = (bs: Blk[]): string[] => bs.flatMap((b) => [b.type, ...allTypes(b.children)]);
   const textOf = (b: Blk) => (Array.isArray(b.content) ? b.content.map((c: { text?: string }) => c.text).join("") : "");
@@ -601,7 +601,7 @@ describe("並排節點（spec §5.1）", () => {
     expect(cols.map((c) => c.getAttribute("data-id"))).toEqual(["rc0", "rc1"]);
   });
 
-  it("S3 external HTML：web 與 headless 相同；列與欄只帶 §11.1 的屬性、依序", () => {
+  it("S3 external HTML：web 與 headless 相同；列與欄只帶讀出正規形的屬性、依序", () => {
     const ROW = row([[P("a", "a1")], [P("b", "b1")]], "r", [1.5, 1]);
     const web = BlockNoteEditor.create({ schema: noteSchema }) as AnyEditor;
     const headless = BlockNoteEditor.create({ schema: createHeadlessNoteSchema(window.location.href) }) as AnyEditor;
@@ -636,18 +636,18 @@ describe("並排節點（spec §5.1）", () => {
     it.each([
       ["單欄外部形", '<div data-kb-columns style="display:flex;gap:16px"><div data-kb-column style="flex:1"><p>X</p></div></div>'],
       ["孤立欄", '<div data-kb-column style="flex:1"><p>X</p></div>'],
-    ])("%s → 一般段落、不長出列（讀碼發現 1）", (_name, html) => {
+    ])("%s → 一般段落、不長出列", (_name, html) => {
       const bs = parse(html);
       expect(allTypes(bs)).not.toContain("columnList");
       expect(allTypes(bs)).not.toContain("column");
       expect(bs.filter((b) => b.type === "paragraph" && textOf(b) === "X")).toHaveLength(1);
     });
 
-    it("只有 display:flex 的 div 不是列（spec §11.10）", () => {
+    it("只有 display:flex 的 div 不是列", () => {
       expect(allTypes(parse('<div style="display:flex"><div><p>A</p></div><div><p>B</p></div></div>'))).not.toContain("columnList");
     });
 
-    it("站內形兩欄 → 一列，id 與寬度保留（T1-M16）", () => {
+    it("站內形兩欄 → 一列，id 與寬度保留", () => {
       const bs = parse('<div data-node-type="columnList" data-id="R"><div data-node-type="column" data-id="C0" style="flex:3 1 0"><p>A</p></div><div data-node-type="column"><p>B</p></div></div>');
       expect(bs.map((b) => b.type)).toEqual(["columnList"]);
       expect(bs[0]!.id).toBe("R");
@@ -684,7 +684,7 @@ describe("並排節點（spec §5.1）", () => {
     editor._tiptapEditor.commands.setNodeSelection(rowPos);
     const html = view.serializeForClipboard(view.state.selection.content()).dom.innerHTML;
     editor.setTextCursorPosition("z9", "end");
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Plugin.key 與 props.handleDOMEvents 的型別不公開（同探針 paste7.mjs）
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Plugin.key 與 props.handleDOMEvents 的型別不公開
     for (const plugin of view.state.plugins.filter((p) => (p as any).key.startsWith("uniqueID"))) (plugin.props.handleDOMEvents as any).paste(view, new Event("paste"));
     editor.pasteHTML(html, true);
     const rows = (editor.document as Blk[]).filter((b) => b.type === "columnList");

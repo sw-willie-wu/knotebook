@@ -8,7 +8,7 @@ import { Toaster, dismissAllToasts } from "@/components/ui/toast";
 import { VersionsProvider, useVersions, useVersionsController } from "@/lib/versions-context";
 import { useApplyFlow } from "./use-apply-flow";
 
-// useApplyFlow × controller 的 `onApplied`（Task 10 fix round 1）：只在套用成功、且 mutateAsync resolve 之後通知；
+// useApplyFlow × controller 的 `onApplied`：只在套用成功、且 mutateAsync resolve 之後通知；
 // 通知本身出錯不得把成功變成錯誤 toast（它排在 closeDialog／stopPreview 之後）。
 const NOTE = "n1";
 const V1: VersionDto = { id: vid(1), seq: 1, kind: "manual", name: null, editors: [], baseSeq: null, base: null, createdAt: "2026-10-09T00:00:00.000Z" };
@@ -54,7 +54,7 @@ function jsonResponse(status: number, body: unknown): Response {
   return { ok: status < 400, status, json: () => Promise.resolve(body) } as Response;
 }
 
-describe("useApplyFlow × onApplied（Task 10 fix round 1）", () => {
+describe("useApplyFlow × onApplied", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -138,7 +138,7 @@ describe("useApplyFlow × onApplied（Task 10 fix round 1）", () => {
     expect(screen.queryByText(i18n.t("errors.fallback"))).not.toBeInTheDocument();
   });
 
-  it("requestApply 連點（Task 9 minor）：進行中的第二次直接 return——fetchCurrent 與 apply 各只打一次；結束後可再套用", async () => {
+  it("requestApply 連點：進行中的第二次直接 return——fetchCurrent 與 apply 各只打一次；結束後可再套用", async () => {
     const calls: string[] = [];
     const pending: Array<(r: Response) => void> = [];
     vi.stubGlobal(

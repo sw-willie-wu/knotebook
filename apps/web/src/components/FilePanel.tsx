@@ -13,12 +13,12 @@ import { isAllowedEmbedUrl } from "@/lib/media-url";
 const IMAGE_BLOCK_TYPE = "image";
 
 /**
- * image block 專屬的自家 Upload tab（spec §12.4、上輪審查者的 Important）。
+ * image block 專屬的自家 Upload tab。
  *
  * **刻意不用 `editor.uploadFile`**：`@blocknote/react` 內建的 `UploadTab` 呼叫
  * `editor.uploadFile(file, blockId)`——這裡的 `blockId` 是**使用者已經存在的 block**
  * （FilePanel 的「換檔」流程：先有一個 image/file/... block，使用者點開它換一個檔案），
- * 不是貼上/拖放時 `handleFileInsertion` 建的 placeholder block。但 Task 13 的
+ * 不是貼上/拖放時 `handleFileInsertion` 建的 placeholder block。但
  * `createUploadFile`（給 `buildNoteEditorOptions` 的 `uploadFile` 選項用）失敗時會把
  * `blockId` 對應的 block **整個刪掉**——那段清除邏輯的前提是「這個 block 是失敗上傳
  * 自己建的 placeholder，反正使用者還沒看到內容」，套在「使用者刻意留著、想換檔」的
@@ -52,7 +52,7 @@ function UploadTab({ noteId, blockId }: { noteId: string; blockId: string }) {
           // `postUpload` 這段等待期間，使用者可能已經把這個 block 刪掉（連帶
           // `FilePanelExtension` 因文件變動 `closeMenu()`、面板關閉但這個 promise
           // continuation 仍會跑）——`editor.updateBlock` 對著不存在的 id 會直接
-          // throw，這裡跟 Task 13 `createUploadFile` 的清除邏輯同一個防線：
+          // throw，這裡跟 `createUploadFile` 的清除邏輯同一個防線：
           // 先確認 block 還在才動手。
           try {
             if (editor.getBlock(blockId)) {
@@ -64,15 +64,15 @@ function UploadTab({ noteId, blockId }: { noteId: string; blockId: string }) {
         },
         (err: unknown) => {
           setUploading(false);
-          // 審查修復（Important 2）：`postUpload` 前驗（檔案太大）reject 是最常見的
-          // 失敗案例，`errors.file_too_large` 兩語系文案已經存在（Task 13/11+）——
+          // `postUpload` 前驗（檔案太大）reject 是最常見的
+          // 失敗案例，`errors.file_too_large` 兩語系文案已經存在——
           // 通用文案「請再試一次」套在這種情形上是誤導的（原檔案再試一次還是太大，
           // 永遠不會成功）。`err instanceof ApiFail` 且 `errors.<code>` 查得到就用它
           // （`defaultValue` 保底：不是 `ApiFail`、或是查不到的陌生 code，才落回這裡
           // 唯一的通用文案 `note.filePanel.upload.error`）。
           const code = err instanceof ApiFail ? err.code : undefined;
           const title = code ? t(`errors.${code}`, { defaultValue: t("note.filePanel.upload.error") }) : t("note.filePanel.upload.error");
-          // spec §9.1：配額 409 的行內錯誤與 toast 同文案（主句＋說明句）。
+          // 配額 409 的行內錯誤與 toast 同文案（主句＋說明句）。
           setError(err instanceof ApiFail && code === "storage_quota_exceeded" ? { title, detail: storageQuotaDescription(err, t) } : { title });
         },
       );
@@ -167,7 +167,7 @@ function EmbedTab({ blockId }: { blockId: string }) {
 }
 
 /**
- * 建出交給 `<FilePanelController filePanel={...}>` 的元件（Task 14）。
+ * 建出交給 `<FilePanelController filePanel={...}>` 的元件。
  *
  * `FilePanelProps` 只有 `blockId`（`@blocknote/react` 的型別）——`noteId` 得靠這層
  * closure 帶進去。呼叫端（`NoteEditor.tsx`）**必須**把回傳值 `useMemo` 起來、只在

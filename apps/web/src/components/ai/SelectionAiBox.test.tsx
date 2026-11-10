@@ -68,7 +68,7 @@ async function finish(call: AiCall, text: string): Promise<void> {
   await waitFor(() => expect(session.state.phase).not.toBe("streaming"));
 }
 
-describe("SelectionAiBox（#263 §5.3、§5.4）", () => {
+describe("SelectionAiBox（#263）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
   });
@@ -128,7 +128,7 @@ describe("SelectionAiBox（#263 §5.3、§5.4）", () => {
     expect(ai.calls).toHaveLength(0);
   });
 
-  it("RF2：超過 500 code point 不能再輸入（emoji 以 1 計、不切半個）", async () => {
+  it("超過 500 code point 不能再輸入（emoji 以 1 計、不切半個）", async () => {
     await mount();
     const region = await openViaToolbar();
     const input = within(region).getByRole<HTMLTextAreaElement>("textbox");
@@ -184,7 +184,7 @@ describe("SelectionAiBox（#263 §5.3、§5.4）", () => {
     expect(document.activeElement).toBe(screen.getByTestId("selection-ai-box"));
   });
 
-  it("RF2：只有空白（含全形空白 U+3000、tab）的指令按 Enter 不送出", async () => {
+  it("只有空白（含全形空白 U+3000、tab）的指令按 Enter 不送出", async () => {
     const { ai } = await mount();
     const region = await openViaToolbar();
     const input = within(region).getByRole("textbox");
@@ -250,7 +250,7 @@ describe("SelectionAiBox（#263 §5.3、§5.4）", () => {
     expect(session.state.phase).toBe("idle");
   });
 
-  it("RF4：錨點區塊被刪 → 框仍在（沿用上一次位置）、顯示「原文已變更」、只剩捨棄", async () => {
+  it("錨點區塊被刪 → 框仍在（沿用上一次位置）、顯示「原文已變更」、只剩捨棄", async () => {
     await mount();
     const region = await openViaToolbar("p2", 0, 6);
     act(() => {
@@ -291,7 +291,7 @@ describe("SelectionAiBox（#263 §5.3、§5.4）", () => {
     expect(region).toHaveClass("max-w-[calc(100vw-16px)]");
   });
 
-  it("BX1（spec §7.5）：錨點擴大成整列 → 寬度量列節點（[data-node-type=columnList][data-id]）＋左右外框", async () => {
+  it("錨點擴大成整列 → 寬度量列節點（[data-node-type=columnList][data-id]）＋左右外框", async () => {
     vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
       return this.matches('[data-node-type="columnList"][data-id="r"]') ? new DOMRect(0, 0, 600, 24) : new DOMRect(0, 0, 0, 0);
     });

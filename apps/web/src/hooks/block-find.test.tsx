@@ -8,7 +8,7 @@ import { clearSearchMark } from "./search-mark";
 import { findMatchBlock, sectionUnits } from "./block-find";
 
 /**
- * #93 PR2：點片段跳到命中的 block。DOM 照 BlockNote 的形（`VersionPreview.tsx` 的實測註解）：
+ * #93：點片段跳到命中的 block。DOM 照 BlockNote 的形（`VersionPreview.tsx` 的實測註解）：
  * `.bn-editor > .bn-block-group > .bn-block-outer[data-id] > .bn-block > .bn-block-content[data-content-type] > .bn-inline-content`，
  * 巢狀子 block 在 `.bn-block > .bn-block-group > .bn-block-outer`；並排列是 `.bn-block-group` 下的 `[data-node-type="columnList"]`。
  */
@@ -126,7 +126,7 @@ describe("findMatchBlock", () => {
   });
 });
 
-describe("收合的 toggle（I1）", () => {
+describe("收合的 toggle", () => {
   const T = (id: string, text: string, toggle: "open" | "collapsed", children: B[]): B => ({ id, type: "toggleListItem", text, toggle, children });
 
   it("T1 命中在收合 toggle 的子項（可多層）→ 回最外層收合的 toggle，不是被藏起來的子項", () => {
@@ -148,7 +148,7 @@ describe("收合的 toggle（I1）", () => {
   });
 });
 
-describe("表格與 mermaid（I2）", () => {
+describe("表格與 mermaid", () => {
   it("TB1 表格格子是 <td><p>、沒有 .bn-inline-content：命中回表格那顆 block", () => {
     root = buildRoot([
       H("h1", 1, "One"),
@@ -164,8 +164,8 @@ describe("表格與 mermaid（I2）", () => {
   });
 });
 
-describe("重複 id 的段（M4）", () => {
-  it("D1 同 id 的 heading 出現第二次 → 只取第一段（server 只收第一段）", () => {
+describe("重複 id 的段", () => {
+  it("同 id 的 heading 出現第二次 → 只取第一段（server 只收第一段）", () => {
     root = buildRoot([H("dup", 1, "One"), P("a", "first"), H("dup", 1, "One again"), P("b", "second needle")]);
     expect(sectionUnits(root, "dup")!.map(idOf)).toEqual(["dup", "a"]);
     expect(findMatchBlock(root, "dup", "needle")).toBeNull();
@@ -433,7 +433,7 @@ describe("搜尋跳轉的常駐標記", () => {
     } finally {
       vi.unstubAllGlobals();
     }
-    // 注意：這一段只是字串層的輔助；主守衛是 e2e 44 的 E11b（reduce 那一輪）在真瀏覽器裡取樣底色。
+    // 注意：這一段只是字串層的輔助；主守衛是 e2e 44（reduce 那一輪）在真瀏覽器裡取樣底色。
     // CSS：reduced-motion 區塊裡關動畫的規則必須排除 .kn-anchor-mark（不能選到它），且 mark 規則本身有 animation
     const css = indexCssRaw.replace(/\r\n/g, "\n");
     const start = css.indexOf("@media (prefers-reduced-motion: reduce) {\n  .kn-anchor-flash");
@@ -623,7 +623,7 @@ describe("useBlockAnchor 讀 navigation state（別篇／整頁載入）", () =>
   });
 });
 
-describe("搜尋標記的取消：等就緒期間（I1）與 Esc 的例外（I2、M3）", () => {
+describe("搜尋標記的取消：等就緒期間與 Esc 的例外（M3）", () => {
   beforeEach(() => {
     Element.prototype.scrollIntoView = vi.fn();
   });

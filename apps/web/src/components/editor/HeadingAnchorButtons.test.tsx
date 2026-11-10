@@ -5,7 +5,7 @@ import i18n from "@/i18n";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { HeadingAnchorButtons } from "./HeadingAnchorButtons";
 
-// spec 2026-10-13 site-links §10.3(b)。DOM 照 BlockNote 的結構手造：.bn-block-outer[data-id] > .bn-block > .bn-block-content[data-content-type] > .bn-inline-content。
+// DOM 照 BlockNote 的結構手造：.bn-block-outer[data-id] > .bn-block > .bn-block-content[data-content-type] > .bn-inline-content。
 const BLOCKS = `
   <div class="bn-block-outer" data-id="h1"><div class="bn-block"><div class="bn-block-content" data-content-type="heading"><h2 class="bn-inline-content">Title</h2></div></div></div>
   <div class="bn-block-outer" data-id="p1"><div class="bn-block"><div class="bn-block-content" data-content-type="paragraph"><p class="bn-inline-content">Body</p></div></div></div>
@@ -115,7 +115,7 @@ describe("#269 標題「#」鈕", () => {
     expect(screen.queryByRole("button", { name: "Copy link to this section" })).not.toBeInTheDocument();
   });
 
-  it("HA1 並排的欄內標題（spec 2026-10-21 columns-layout §7.5）→ 沒有 #；從頂層標題移過去 → 收起", () => {
+  it("並排的欄內標題→ 沒有 #；從頂層標題移過去 → 收起", () => {
     render(<Host />);
     fireEvent.pointerOver(screen.getByText("InColumn"));
     expect(screen.queryByRole("button", { name: "Copy link to this section" })).not.toBeInTheDocument();

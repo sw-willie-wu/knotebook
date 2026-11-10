@@ -3,18 +3,18 @@ import type { Awareness } from "y-protocols/awareness";
 import { PRESENCE_FIELD, type AvatarRef, type Role, type UserPresenceField } from "@knotebook/shared";
 
 /**
- * #293 §8.1：本分頁在這條連線的 awareness 寫 `knotebook` 欄（BlockNote 擁有 `user`，這裡不碰）。
+ * #293：本分頁在這條連線的 awareness 寫 `knotebook` 欄（BlockNote 擁有 `user`，這裡不碰）。
  *
  * 另訂 provider 的兩個事件，補 y-protocols／Hocuspocus 重連時的兩個洞（y-protocols `applyAwarenessUpdate`
  * 只收 `currClock < clock` 的狀態）：
  * - `authenticated`（每次連上都發）：provider `onOpen` 重送的本機狀態沿用舊 clock；server 在舊連線關閉時
  *   已 `removeAwarenessStates`（@hocuspocus/server `Document.removeConnection`）但 clock 沒加，同 clock 的重送被忽略、
- *   要等 15 s renew。這裡同值重寫一次（clock＋1），server 收為 `updated`，此人立即回到別人的頭像列（測試 LF9）。
+ *   要等 15 s renew。這裡同值重寫一次（clock＋1），server 收為 `updated`，此人立即回到別人的頭像列（有測試釘住）。
  * - `close`：provider `onClose` 只刪遠端 state、不刪 meta clock（@hocuspocus/provider 4.5.0 `HocuspocusProvider.onClose`；
  *   它的 listener 先於 `close` 事件轉發註冊，收到時 state 已刪），重連後 server 以同 clock 送來的現況被本機忽略。
- *   這裡刪掉本機以外、已沒有 state 的遠端 meta，讓現況被當成 `added` 收下（測試 LF11 與其對照案）。
+ *   這裡刪掉本機以外、已沒有 state 的遠端 meta，讓現況被當成 `added` 收下（有測試與其對照案）。
  *
- * 值 effect 以「本機現有的欄位值」去重：重連時 role 會走 owner→null→owner、StrictMode 會掛兩次，deps 回到原值時不重寫（LF4、LF12）。
+ * 值 effect 以「本機現有的欄位值」去重：重連時 role 會走 owner→null→owner、StrictMode 會掛兩次，deps 回到原值時不重寫。
  *
  * 只寫 awareness，不碰 connect／disconnect 與 useCollab 的重啟排程。
  */
@@ -72,11 +72,11 @@ export function useLocalPresenceField(input: {
     if (!provider?.on || awareness === null) return;
     const onAuthenticated = () => {
       const current: unknown = awareness.getLocalState()?.[PRESENCE_FIELD];
-      // 同值、clock＋1：重連後 server 才會接受（gate r1 I-1）
+      // 同值、clock＋1：重連後 server 才會接受
       if (current !== undefined) awareness.setLocalStateField(PRESENCE_FIELD, current);
     };
     const onClose = () => {
-      // 重連後才收得下同 clock 的現況（gate r2 m1）
+      // 重連後才收得下同 clock 的現況
       for (const id of [...awareness.meta.keys()]) {
         if (id !== awareness.clientID && !awareness.states.has(id)) awareness.meta.delete(id);
       }

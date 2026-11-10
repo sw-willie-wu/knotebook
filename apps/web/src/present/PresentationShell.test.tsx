@@ -73,7 +73,7 @@ function renderShell(
 const loc = () => screen.getByTestId("loc").textContent;
 const pressEsc = () => fireEvent.keyDown(document, { key: "Escape" });
 
-describe("PresentationShell（spec §6.1、§6.3-4、§6.6、§6.7）", () => {
+describe("PresentationShell", () => {
   let fake: FakeFullscreen | null = null;
 
   beforeEach(async () => {
@@ -134,7 +134,7 @@ describe("PresentationShell（spec §6.1、§6.3-4、§6.6、§6.7）", () => {
     expect(nav.fn).toHaveBeenCalledTimes(1);
   });
 
-  it("全螢幕中 Esc 不離開；退出後 300 ms 內忽略；超過才離開（§6.6-1）", async () => {
+  it("全螢幕中 Esc 不離開；退出後 300 ms 內忽略；超過才離開", async () => {
     fake = installFakeFullscreen();
     renderShell(["/n/tester/my-note?present"]);
     enterPresentationFullscreen();
@@ -192,7 +192,7 @@ describe("PresentationShell（spec §6.1、§6.3-4、§6.6、§6.7）", () => {
     expect(screen.getByRole("dialog", { name: "Untitled — presentation" })).toBeInTheDocument();
   });
 
-  it("正規化（§6.4-1、F14）：?present&hash=true#/x → ?present#/x，state 原樣保留", async () => {
+  it("正規化：?present&hash=true#/x → ?present#/x，state 原樣保留", async () => {
     renderShell([{ pathname: "/n/tester/my-note", search: "?present&hash=true", hash: "#/x", state: { knotebookPresentPushed: true } }]);
     await waitFor(() => expect(loc()).toBe('/n/tester/my-note?present#/x|{"knotebookPresentPushed":true}'));
     expect(nav.fn).toHaveBeenCalledWith(
@@ -207,12 +207,12 @@ describe("PresentationShell（spec §6.1、§6.3-4、§6.6、§6.7）", () => {
     expect(screen.queryByRole("button", { name: "Full screen" })).toBeNull();
   });
 
-  it("全螢幕鈕：mousedown 不搶焦點、點擊後焦點回根；圖示／標籤隨全螢幕狀態換（§6.7）", async () => {
+  it("全螢幕鈕：mousedown 不搶焦點、點擊後焦點回根；圖示／標籤隨全螢幕狀態換", async () => {
     fake = installFakeFullscreen();
     renderShell(["/n/tester/my-note?present"]);
     const button = screen.getByRole("button", { name: "Full screen" });
     expect(fireEvent.mouseDown(button)).toBe(false); // defaultPrevented
-    button.focus(); // 鍵盤路徑：Tab 到按鈕再 Enter（jsdom 的 click 不移動焦點，先手動聚焦才量得到「還給根」，r1-p2 MINOR 6）
+    button.focus(); // 鍵盤路徑：Tab 到按鈕再 Enter（jsdom 的 click 不移動焦點，先手動聚焦才量得到「還給根」）
     fireEvent.click(button);
     expect(fake.requestFullscreen).toHaveBeenCalledTimes(1);
     expect(document.activeElement).toBe(screen.getByRole("dialog"));
@@ -229,7 +229,7 @@ describe("PresentationShell（spec §6.1、§6.3-4、§6.6、§6.7）", () => {
     expect(fake.requestFullscreen).not.toHaveBeenCalled();
   });
 
-  it("卸載型呼叫點：網址仍含 present 時卸載不退全螢幕；不含才退（§6.5）", async () => {
+  it("卸載型呼叫點：網址仍含 present 時卸載不退全螢幕；不含才退", async () => {
     fake = installFakeFullscreen();
     const first = renderShell(["/n/tester/my-note?present"]);
     enterPresentationFullscreen();
@@ -243,11 +243,11 @@ describe("PresentationShell（spec §6.1、§6.3-4、§6.6、§6.7）", () => {
     expect(fake.exitFullscreen).toHaveBeenCalledTimes(1);
   });
 
-  it("工具列閒置 2 s 淡出、滑鼠移動浮現（§6.7）", () => {
+  it("工具列閒置 2 s 淡出、滑鼠移動浮現", () => {
     vi.useFakeTimers();
     renderShell(["/n/tester/my-note?present"]);
     const toolbar = screen.getByRole("button", { name: "Exit presentation" }).parentElement!;
-    // classList 比對（className 恆含 hover:opacity-100／focus-within:opacity-100，toContain 是空斷言，r1-p2 MINOR 5）
+    // classList 比對（className 恆含 hover:opacity-100／focus-within:opacity-100，toContain 是空斷言）
     expect(toolbar.classList.contains("opacity-100")).toBe(true);
     act(() => vi.advanceTimersByTime(2000));
     expect(toolbar.classList.contains("opacity-0")).toBe(true);
@@ -257,7 +257,7 @@ describe("PresentationShell（spec §6.1、§6.3-4、§6.6、§6.7）", () => {
   });
 });
 
-describe("PresentationErrorBoundary（公開頁簡報的錯誤邊界，spec §6.2 末段）", () => {
+describe("PresentationErrorBoundary（公開頁簡報的錯誤邊界）", () => {
   function Boom(): never {
     throw new Error("failed to fetch dynamically imported module: /assets/PresentationOverlay-x.js");
   }

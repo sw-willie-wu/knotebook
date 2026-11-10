@@ -21,8 +21,8 @@ let session!: AiSessionValue;
 let editor: AnyEditor;
 
 /**
- * 照 `SelectionAiBox`（Task 11）的條件掛 `SelectionAiResult`：`phase === "done"` 才渲染，`anchorOk` 由活動錨點的 `verifyAnchor` 算、
- * 隨每次 editor 交易重算（框裡用同一個 useEditorState 形）。Task 11 再經真正的框重驗一次。
+ * 照 `SelectionAiBox` 的條件掛 `SelectionAiResult`：`phase === "done"` 才渲染，`anchorOk` 由活動錨點的 `verifyAnchor` 算、
+ * 隨每次 editor 交易重算（框裡用同一個 useEditorState 形）。另由真正的框重驗一次。
  */
 function ResultHost() {
   session = useAiSession();
@@ -58,7 +58,7 @@ async function runToDone(ai: { calls: AiCall[] }, actionId: string, result: stri
 
 const docText = () => JSON.stringify(editor.document);
 
-describe("SelectionAiResult（#263 §5.4 預覽態，真的 lazy 模組）", () => {
+describe("SelectionAiResult（#263 預覽態，真的 lazy 模組）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
   });

@@ -1,7 +1,7 @@
 /**
  * 圖片格式偵測——只信任檔案內容本身（magic bytes），不信任任何呼叫端聲稱的副檔名
  * 或 `Content-Type`：上傳者可任意偽造這兩者，唯有實際 bytes 無法偽造（偽造了就不是
- * 該格式的合法檔案，解碼會失敗）。Task 10a/10b 的上傳路由用本函式的回傳值決定
+ * 該格式的合法檔案，解碼會失敗）。上傳路由用本函式的回傳值決定
  * 實際存檔用的副檔名／回應的 `Content-Type`，不採用請求端送來的值。
  */
 export type ImageMimeType = "image/png" | "image/jpeg" | "image/gif" | "image/webp";

@@ -3,7 +3,7 @@ import type { FolderDto, NoteDto } from "@knotebook/shared";
 import { liveNotesUnder, subtreeFolderIds, type FolderIndex, type FolderSpaceKey } from "./folder-index";
 
 /**
- * 刪除／移除資料夾確認框的純函式（資料夾 spec §6.6、plan 讀碼發現 15）。只准被 FolderLazy 鏈與測試 import。
+ * 刪除／移除資料夾確認框的純函式。只准被 FolderLazy 鏈與測試 import。
  * 篇數＝快取中落在子樹、而且空間相符的活筆記（client 端算，server 是權威）。
  */
 
@@ -14,7 +14,7 @@ export interface FolderDeleteFacts {
   subfolders: number;
   liveNotes: NoteDto[];
   shared: boolean;
-  /** 開著的那篇在子樹裡（讀碼發現 11）。 */
+  /** 開著的那篇在子樹裡。 */
   containsOpen: boolean;
 }
 
@@ -41,7 +41,7 @@ function joinParts(parts: readonly string[]): string {
 }
 
 /**
- * 內文：依 §6.6 與讀碼發現 15 串段。`retentionDays`：number＝天數、null＝不會自動清除、undefined＝還沒載到（用通用句）。
+ * 內文：分段串起。`retentionDays`：number＝天數、null＝不會自動清除、undefined＝還沒載到（用通用句）。
  * 一句裡有子資料夾數、篇數、天數三個會變形的數量，所以拆成各帶自己 `count` 的段再串。
  */
 export function folderDeleteBody(facts: FolderDeleteFacts, retentionDays: number | null | undefined, t: Translate): string {

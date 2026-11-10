@@ -13,7 +13,7 @@ import { collabUndoManager } from "@/collab/undo";
 import { Toaster } from "@/components/ui/toast";
 import { OWNER_PERMS } from "@/test/fixtures";
 
-// spec 2026-10-13 site-links §7.4、§7.6、§15.1 W2／W11（工具列那一列）。真編輯器（共編組態，同 collab/undo.test.tsx 建法）＋BlockNoteView。
+// W2／W11（工具列那一列）。真編輯器（共編組態，同 collab/undo.test.tsx 建法）＋BlockNoteView。
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 泛型三元組，走 repo 慣例
 type AnyEditor = BlockNoteEditor<any, any, any>;
@@ -79,21 +79,21 @@ const editorHasFocus = (editor: AnyEditor) => editor._tiptapEditor.view.dom.cont
 const MOUSE = { pointerType: "mouse" } as const;
 const TOUCH = { pointerType: "touch", clientX: 10, clientY: 10 } as const;
 const queryToolbar = () => screen.queryByRole("dialog", { name: "Note link" });
-/** 滑鼠 hover（rev 7）：開啟延遲 250 ms，`findByRole` 的等待涵蓋它。 */
+/** 滑鼠 hover：開啟延遲 250 ms，`findByRole` 的等待涵蓋它。 */
 async function openToolbar(name: string) {
   fireEvent.pointerEnter(screen.getByRole("link", { name }), MOUSE);
   return screen.findByRole("dialog", { name: "Note link" });
 }
 /** 讓出真實計時器一段時間（Radix 的 pointerdown 監聽、FocusScope 卸載時的焦點處理都在 setTimeout(0) 裡）。 */
 const settle = (ms = 0) => act(() => new Promise<void>((resolve) => setTimeout(resolve, ms)));
-/** 斷言失敗時也要卸載（m6）：先 RTL `cleanup()` 卸掉 React root，再清 body 裡殘留的 portal。 */
+/** 斷言失敗時也要卸載：先 RTL `cleanup()` 卸掉 React root，再清 body 裡殘留的 portal。 */
 function teardown() {
   cleanup();
   vi.unstubAllGlobals();
   document.body.replaceChildren();
 }
 
-describe("#269 W2 wikilink 小工具列（rev 7：hover／觸控長按開；點擊直接跳轉）", () => {
+describe("#269 W2 wikilink 小工具列（hover／觸控長按開；點擊直接跳轉）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
@@ -423,7 +423,7 @@ describe("#269 W2 wikilink 小工具列（rev 7：hover／觸控長按開；點�
 });
 
 /**
- * W11（§7.6 工具列那一列）：各一下 Ctrl+Z（UndoManager.undo）還原。量測紀律：每個動作之前 `stopCapturing()`（＝使用者停頓 >500ms，
+ * W11（工具列那一列）：各一下 Ctrl+Z（UndoManager.undo）還原。量測紀律：每個動作之前 `stopCapturing()`（＝使用者停頓 >500ms，
  * 量「規則語意本身」），不用 fake timers。MEASURED 是【推】假說——實測不同就照實改並回報（文件依實測寫條件句）。
  */
 const MEASURED = { editText: true, changeTarget: true, remove: true } as const;

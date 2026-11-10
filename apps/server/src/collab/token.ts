@@ -22,9 +22,9 @@ function collabKey(secret: string): Uint8Array {
 
 /**
  * 簽發 collab token：claims 含 noteId/role/tv/sid，供 Hocuspocus `onAuthenticate`
- * （Task 5）與之後的 `onTokenSync` 重驗權限用。**`role:'none'` 也可以簽**——
+ * 與之後的 `onTokenSync` 重驗權限用。**`role:'none'` 也可以簽**——
  * `POST /api/notes/:id/collab-token` 對無權限的使用者一律回 200 + 這種 token
- * （spec §5/§8-2 的關鍵契約，見 `routes/notes.ts`），不是簽發失敗。
+ * （關鍵契約，見 `routes/notes.ts`），不是簽發失敗。
  */
 export async function signCollabToken(appSecret: string, claims: CollabTokenClaims): Promise<string> {
   const key = collabKey(appSecret);
@@ -56,7 +56,7 @@ export async function verifyCollabToken(appSecret: string, token: string): Promi
 }
 
 /**
- * #269 §5.1-2：`POST /api/notes/:id/collab-token` 的 body 選配；`noteSchemaVersion` 缺席或不是整數 ⇒ 0。
+ * #269：`POST /api/notes/:id/collab-token` 的 body 選配；`noteSchemaVersion` 缺席或不是整數 ⇒ 0。
  * 端點仍對所有人回 200（不洩漏契約不變），版本不符由 onAuthenticate 拒。
  */
 export function schemaVersionFromBody(body: unknown): number {

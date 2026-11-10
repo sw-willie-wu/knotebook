@@ -24,7 +24,7 @@ import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
  * lazy 第一次動態 import 時執行並把它設成 true，所以這條把「本案是第一個觸發者」的順序
  * 假設變成會紅的斷言。⚠ 不能改用「render 後此刻不是錯誤畫面」當前置斷言：/admin 在
  * RequireAuth 底下、要等非同步的 /api/auth/me，render 當下**必然**不是錯誤畫面，不論 lazy
- * 是否已載入過（審查實測：admin 的 ok 案移到 throw 案前＋beacon 錯放，admin 案照綠）。
+ * 是否已載入過（admin 的 ok 案移到 throw 案前＋beacon 錯放，admin 案照綠）。
  */
 
 // vi.mock 是 hoisted 的——共享狀態走 vi.hoisted；模式要在 mock 元件函式本體內讀

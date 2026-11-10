@@ -1,6 +1,5 @@
 /**
- * 資料夾 PR-3a T8：`DELETE /api/folders/:id`（spec docs/superpowers/specs/2026-10-22-folders-design.md §5.7.4〔M1、M2、M15、【推-1】〕、
- * §5.8「資料夾被刪」、§5.6、A3-4、A3-15）。
+ * 資料夾：`DELETE /api/folders/:id`（只刪空資料夾、資料夾被刪、角色展開表）。
  */
 import { performance } from "node:perf_hooks";
 import { describe, expect, it, vi } from "vitest";
@@ -164,7 +163,7 @@ describe("DELETE /api/folders/:id", () => {
     expect(await folderRow(pool, O)).toBeDefined();
   });
 
-  it("FD-2 還原照路徑重建（A3-4 的復原等價）：R›X›Y 重建、筆記回到各自位置；沒有筆記的空子資料夾不回來", async () => {
+  it("FD-2 還原照路徑重建：R›X›Y 重建、筆記回到各自位置；沒有筆記的空子資料夾不回來", async () => {
     const { app, db } = await buildTestApp();
     const pool = db.$client;
     const u = await seedUser(db);
@@ -487,7 +486,7 @@ describe("DELETE /api/folders/:id", () => {
     expect(gqs.findIndex(x => x.includes("pg_advisory_xact_lock"))).toBeGreaterThan(0);
   });
 
-  it("FD-B 大子樹（M15）：1200 篇照樣全進垃圾桶；直呼時任一句的參數數 ≤ 每批上限 + 10；1000 篇量時間", async () => {
+  it("FD-B 大子樹：1200 篇照樣全進垃圾桶；直呼時任一句的參數數 ≤ 每批上限 + 10；1000 篇量時間", async () => {
     const { app, db } = await buildTestApp();
     const pool = db.$client;
 
@@ -575,7 +574,7 @@ describe("DELETE /api/folders/:id", () => {
   });
 });
 
-/** 資料夾 PR-3c T1：只刪空資料夾（spec §5.7.4「只刪空資料夾」、§5.11、§6.18）。 */
+/** 資料夾：只刪空資料夾。 */
 describe("DELETE /api/folders/:id { onlyIfEmpty }", () => {
   const NOT_EMPTY = "The folder isn't empty, so it wasn't deleted.";
   const ONLY = { onlyIfEmpty: true } as const;

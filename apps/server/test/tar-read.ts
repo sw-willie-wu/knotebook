@@ -1,5 +1,5 @@
 /**
- * 測試用的 tar.gz 讀取器（unit 與整合共用；bulk transfer plan T7）。懂 pax `path`（`x` 型標頭）；ustar 以外的型別丟錯。
+ * 測試用的 tar.gz 讀取器（unit 與整合共用）。懂 pax `path`（`x` 型標頭）；ustar 以外的型別丟錯。
  * `readTarGz`：gzip 必須完整、tar 必須有結尾的兩個零區塊，否則 throw（中止的串流就是這樣認出來的）。
  */
 import zlib from "node:zlib";

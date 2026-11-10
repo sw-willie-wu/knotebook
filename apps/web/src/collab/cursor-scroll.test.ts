@@ -7,7 +7,7 @@ import { YDOC_FRAGMENT } from "@knotebook/shared";
 import { noteSchema } from "./schema";
 import { createCursorScroller, cursorHeadPosition } from "./cursor-scroll";
 
-// 真編輯器＋真 Y.Doc（plan H7；`collabEditor` 照 `undo.test.tsx`、掛載照 `code-block-caret.test.ts`）：
+// 真編輯器＋真 Y.Doc（`collabEditor` 照 `undo.test.tsx`、掛載照 `code-block-caret.test.ts`）：
 // 換算吃的是 ySync 的 binding.mapping，只在 view 掛上、Y 內容畫進 PM 之後才有，mock 量不到。
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 泛型三元組，repo 慣例
@@ -57,7 +57,7 @@ const THREE = [
   { type: "paragraph", content: "第三段" },
 ];
 
-describe("cursor-scroll：遠端游標換算與捲動（#293 §9.4）", () => {
+describe("cursor-scroll：遠端游標換算與捲動（#293）", () => {
   let editor: AnyEditor;
   let doc: Y.Doc;
   let div: HTMLDivElement;
@@ -82,7 +82,7 @@ describe("cursor-scroll：遠端游標換算與捲動（#293 §9.4）", () => {
     div = undefined as never;
   });
 
-  it("CS1：head 換算成本機 PM 位置（P2）", async () => {
+  it("CS1：head 換算成本機 PM 位置", async () => {
     const text = await mountWithThree();
     const pos = cursorHeadPosition(editor, { anchor: rel(text, 0), head: rel(text, 2) });
     expect(pos).not.toBeNull();

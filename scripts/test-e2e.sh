@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # scripts/test-e2e.sh
 #
-# E2E（Playwright，Plan 5 Task 11）需要真的連到 Docker daemon 起 compose 疊——docker
-# 只存在於 WSL，Windows host 沒有 docker CLI（plan-gate 一輪 MAJOR-7）。跟
+# E2E（Playwright）需要真的連到 Docker daemon 起 compose 疊——docker
+# 只存在於 WSL，Windows host 沒有 docker CLI。跟
 # scripts/test-integration.sh 同款理由與形狀：把這份 repo（Windows 檔案系統，WSL 看到
 # 的 /mnt/c/...）留在原地對它跑 pnpm install 落入 9p 掛載的極慢 I/O，所以先單向同步到
 # WSL 原生 ext4（$HOME/knotebook）再裝、再跑。
@@ -15,8 +15,8 @@
 #   bash scripts/test-e2e.sh
 #
 # 埠註記：`-p knotebook-e2e`（e2e/package.json 的 stack:up/stack:down）已把這座疊跟
-# WSL 裡可能同時掛著的 demo 疊（專案名 knotebook、port 8006）隔開；e2e 疊用 3100
-# （app）/9400（fake-idp）不會跟 demo 相撞，兩者可在同一個 WSL 並存，不必先關 demo。
+# WSL 裡可能同時掛著的另一個 compose 專案（專案名 knotebook、port 3000）隔開；e2e 疊用 3100
+# （app）/9400（fake-idp）不會跟它相撞，兩者可在同一個 WSL 並存，不必先關它。
 
 set -euo pipefail
 

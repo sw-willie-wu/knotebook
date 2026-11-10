@@ -1,5 +1,5 @@
 /**
- * bulk transfer spec 2026-11-02 §9.3-2～-8：找出 agent 改到的區（plan PR-2 T4；§0.1-2、-3）。純函式＋注入的邊界回呼——
+ * bulk transfer：找出 agent 改到的區。純函式＋注入的邊界回呼——
  * 不碰編輯器、不碰 DB；邊界 parse 由呼叫端在 scratch session 內做（`makeBoundaryCheck` 是判準本體，生產與單元測試共用）。
  *
  * 規則（照順序）：① 本文整份空白、或拿掉閉合 HTML 註解後空白 → `empty_content` ② 段「行配對到」＝每行都配到且配對連續
@@ -8,7 +8,7 @@
  * `checkBoundary`；false → 段併入區。上下各驗一次，**只跑一輪、不迭代**（段併入不改變相鄰段的緊鄰行）⑤ 相鄰「改了」段＋夾著
  * 或貼著的插入行合成區；區文字＝前一個沒改的段之後到後一個沒改的段之前的 agent 行，去頭尾空行 ⑥ 三種區；沒有基底段且文字空
  * → 不算區 ⑦ 區文字拿掉閉合註解後只剩空白：插入區丟掉、改寫區當刪除區 ⑧ 文件順序；`prevSeg`／`nextSeg`＝前後最近一個沒改的段。
- * 「區文字 parse 成 `empty_content`、但 strip 後還有字」（§9.3-6，整篇 400）不在這裡判——要 parse 才知道，`sync-plan.ts` 判。
+ * 「區文字 parse 成 `empty_content`、但 strip 後還有字」（整篇 400）不在這裡判——要 parse 才知道，`sync-plan.ts` 判。
  */
 import { markdownToHTML, type PartialBlock } from "@blocknote/core";
 import type { TransferSegment } from "../db/schema.js";
@@ -17,7 +17,7 @@ import { lineKey } from "./normalize.js";
 import { YIELD_AFTER_MS, yieldToLoop } from "./yield.js";
 
 export type BoundarySide = "before" | "after";
-/** 生產＝scratch session 內 parse；回 true＝邊界成立（k 不併）。parse 失敗必須回 false（§9.3-3，gate r5 I-1）。 */
+/** 生產＝scratch session 內 parse；回 true＝邊界成立（k 不併）。parse 失敗必須回 false。 */
 export type CheckBoundary = (kText: string, adjText: string, side: BoundarySide) => Promise<boolean>;
 
 export interface Region {
@@ -32,7 +32,7 @@ export interface Region {
   prevSeg: number;
   nextSeg: number;
 }
-/** `fence`：未閉合的那一行用的 fence 記號（``` 或 ~~~，原樣幾個字元），給訊息用（8000 探索測試 E）。 */
+/** `fence`：未閉合的那一行用的 fence 記號（``` 或 ~~~，原樣幾個字元），給訊息用。 */
 export type RegionsResult = { ok: true; regions: Region[]; boundaryChecks: number } | { ok: false; code: "empty_content" } | { ok: false; code: "unclosed_fence"; fence: string } | { ok: false; code: "too_complex" };
 /**
  * #398：未閉合 fence 的判斷（{@link trailingOpenFenceLine}）由呼叫端給——生產上在 parse worker 裡跑（`runtime.parser.openFenceLine`）：
@@ -42,13 +42,13 @@ export type RegionsResult = { ok: true; regions: Region[]; boundaryChecks: numbe
 export type OpenFenceLine = (lines: readonly string[]) => Promise<number | null | "too_complex">;
 
 /**
- * 總管裁示（審查 m3，複審改裁）：agent **新增或改過**的一行開了 code fence、而且一路延伸到檔尾沒有收尾 → 整篇 400、什麼都不寫
- * （比照未閉合 `<!--`，§9.3-6）。整檔 parse 時它會吞掉到檔尾的內容，但區偵測是逐區、一輪、按文字觸發的，寫回的結果會與 agent 檔
- * 「整份讀起來」的樣子不一致。**開頭那一行落在沒改的段裡就放行**：PR-1 的匯出器不跳脫，段落文字本身是 ``` 的筆記會照字匯出成
- * 一行（E6），原檔重送或只改別段都不能因此被拒。判斷以 repo 實際的 parser 為準（`markdownToHTML`，即 `parseMarkdownForNote`
- * 的第一步），不手寫 fence 規則：見 `trailingOpenFenceLine`。路由映 400 `invalid_body` 並帶這句（HTTP 層，#372 起英文，T8 接）。
+ * agent **新增或改過**的一行開了 code fence、而且一路延伸到檔尾沒有收尾 → 整篇 400、什麼都不寫
+ * （比照未閉合 `<!--`）。整檔 parse 時它會吞掉到檔尾的內容，但區偵測是逐區、一輪、按文字觸發的，寫回的結果會與 agent 檔
+ * 「整份讀起來」的樣子不一致。**開頭那一行落在沒改的段裡就放行**：早期版本的匯出器不跳脫，段落文字本身是 ``` 的筆記會照字匯出成
+ * 一行，原檔重送或只改別段都不能因此被拒。判斷以 repo 實際的 parser 為準（`markdownToHTML`，即 `parseMarkdownForNote`
+ * 的第一步），不手寫 fence 規則：見 `trailingOpenFenceLine`。路由映 400 `invalid_body` 並帶這句（HTTP 層，#372 起英文）。
  */
-/** 8000 探索測試 E：訊息照實際用的 fence 記號寫（``` 或 ~~~），不一律寫 ```。 */
+/** 訊息照實際用的 fence 記號寫（``` 或 ~~~），不一律寫 ```。 */
 export const unclosedFenceMessage = (fence: string): string =>
   `A line you added or changed opens a code block with ${fence} that is never closed, so everything from that line to the end of the file counts as code. Add a closing ${fence} (or use inline \`code\`) and send the file again.`;
 export const UNCLOSED_FENCE_MESSAGE = unclosedFenceMessage("```");
@@ -56,7 +56,7 @@ export const UNCLOSED_FENCE_MESSAGE = unclosedFenceMessage("```");
 const FENCE_SENTINEL = "kn-fence-sentinel-3f9c2a7e";
 /** `trailingOpenFenceLine` 認得的開頭行形（它回的那一行必定符合；預篩用同一條，所以預篩是精確的）。 */
 const FENCE_LIKE = /^\s*(`{3,}|~{3,})/;
-/** 測試用計數：整檔 fence 判斷實際丟給 parser 幾次（複審 F3）。 */
+/** 測試用計數：整檔 fence 判斷實際丟給 parser 幾次。 */
 export const fenceParseStats = { calls: 0 };
 const NL = "\n";
 const unescapeHtml = (s: string) => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&amp;/g, "&");
@@ -82,7 +82,7 @@ export function trailingOpenFenceLine(lines: readonly string[]): number | null {
 
 /** 拿掉所有**閉合**的 `<!--…-->`（純文字處理，不懂 markdown）；未閉合的 `<!--` 原樣留著。 */
 export function stripClosedComments(s: string): string {
-  // #398 審查 I1：原本是 `s.replace(/<!--[\s\S]*?-->/g, "")`——沒收尾的 `<!--` 每個都往後掃到檔尾才失敗，`<!--`×6.5 萬（260 KB）
+  // #398：原本是 `s.replace(/<!--[\s\S]*?-->/g, "")`——沒收尾的 `<!--` 每個都往後掃到檔尾才失敗，`<!--`×6.5 萬（260 KB）
   // 主執行緒停 4 秒。改成 indexOf 一路往前（線性），結果相同：每個 `<!--` 配它之後（不重疊）的第一個 `-->`；某個 `<!--` 之後已經
   // 沒有 `-->`，之後的 `<!--` 也一定沒有，就此停。
   let out = "";
@@ -101,7 +101,7 @@ export function stripClosedComments(s: string): string {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 泛型三元組，走 repo 慣例（同 session.ts）
 type AnyPartialBlock = PartialBlock<any, any, any>;
 
-/** 比較用：去掉 `id`（遞迴）、忽略 `numberedListItem` 的 `props.start`（E13）。 */
+/** 比較用：去掉 `id`（遞迴）、忽略 `numberedListItem` 的 `props.start`。 */
 function comparable(b: unknown): unknown {
   if (Array.isArray(b)) return b.map(comparable);
   if (b === null || typeof b !== "object") return b;
@@ -120,7 +120,7 @@ function comparable(b: unknown): unknown {
 }
 
 /**
- * §9.3-3 的判準：parse(k＋相接文字)，取對應 k 的那幾顆——**取 parse(k) 的顆數**（spike S2：攤平子 block 的 1 id 段逐顆匯出
+ * 判準：parse(k＋相接文字)，取對應 k 的那幾顆——**取 parse(k) 的顆數**（攤平子 block 的 1 id 段逐顆匯出
  * parse 成 2 顆）；相接在後從頭取、在前從尾取——與 parse(k) 比（去 `id`、忽略 numbered 的 `start`）。任一 parse 失敗 → false。
  * `parse` 回 null＝失敗（`parseMarkdownForNote` 的 error）。
  */
@@ -138,7 +138,7 @@ export function makeBoundaryCheck(parse: (markdown: string) => AnyPartialBlock[]
 }
 
 const blank = (l: string | undefined): boolean => l === undefined || lineKey(l) === "";
-/** #398 審查 C2：邊界檢查相接的那串超過這麼多字元（UTF-16）就不解析、直接當那段改過。 */
+/** #398：邊界檢查相接的那串超過這麼多字元（UTF-16）就不解析、直接當那段改過。 */
 export const BOUNDARY_ADJ_MAX_CHARS = 4 * 1024;
 
 export async function findRegions(
@@ -183,7 +183,7 @@ export async function findRegions(
   // ④ 邊界驗證（一輪；用 ② 的結果，不迭代）
   const unchanged = matched.slice();
   let boundaryChecks = 0;
-  // #398 審查 C2：相接的那串（連續非空行）一次算好起訖與長度（線性；原本每段各往上／往下掃一次，段多、串長時是平方），
+  // #398：相接的那串（連續非空行）一次算好起訖與長度（線性；原本每段各往上／往下掃一次，段多、串長時是平方），
   // 而且太長（> `BOUNDARY_ADJ_MAX_CHARS`）就不解析、直接當「改過」——否則每段都把整串丟去解析一次，一個檔可以花掉幾小時的 worker 時間。
   // 當成改過的後果只是那段會被重寫（id 換新），內容照檔案。
   const isBlank = new Uint8Array(M);
@@ -238,8 +238,8 @@ export async function findRegions(
     return seenLines ? { a0: M, a1: M - 1 } : { a0: 0, a1: -1 };
   });
 
-  // 未閉合 fence（審查 m3）：開頭那一行不在任何沒改的段裡（＝agent 新增或改過）才拒絕。
-  // 精確預篩（複審 F3）：沒改的段以外沒有任何一行像 fence 開頭 → 結果必定是放行，不必整檔丟給 parser（它對 `*a _b` 交錯這類輸入
+  // 未閉合 fence：開頭那一行不在任何沒改的段裡（＝agent 新增或改過）才拒絕。
+  // 精確預篩：沒改的段以外沒有任何一行像 fence 開頭 → 結果必定是放行，不必整檔丟給 parser（它對 `*a _b` 交錯這類輸入
   // 是平方級）。真的 parse 了就補一次時間預算讓出。
   const inUnchanged = new Uint8Array(M);
   for (let k = 0; k < S; k++) {

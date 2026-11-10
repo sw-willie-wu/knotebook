@@ -20,7 +20,7 @@ const PASTED_SOURCE = "```mermaid\ngraph LR\n    P[Pasted] --> Q[Diagram]\n```\n
 const BEACON_HOST = "beacon.invalid";
 /**
  * 三條 directive 攻擊面寫在同一張圖裡：themeCSS 的 CSS 資源、htmlLabels 打開後的
- * `<img srcset>`、以及 `fontFamily` 夾帶宣告（第 4 輪審查實測 fontFamily 那條會連外）。
+ * `<img srcset>`、以及 `fontFamily` 夾帶宣告（實測 fontFamily 那條會連外）。
  */
 const BEACON_DIAGRAM = [
   `%%{init: {"themeCSS": "* { background: url(http://${BEACON_HOST}/css.png) }", "htmlLabels": true, "fontFamily": "monospace; background-image: url(http://${BEACON_HOST}/ff.png)"}}%%`,
@@ -202,7 +202,7 @@ test("#344 並排欄裡的遠處圖：一樣捲到之前不畫（欄的 overflow
   await loginAs(page, ADMIN.email, ADMIN.password);
   await createNote(page, `E2E mermaid lazy columns ${Date.now()}`);
   const filler = (from: number, n: number) => Array.from({ length: n }, (_, i) => `Column filler ${from + i}\n`);
-  // 34-columns 的 §11.1 正規形：右欄一長串文字後面才是圖。
+  // 34-columns 的正規形：右欄一長串文字後面才是圖。
   const column = (body: string) => ['<div data-kb-column style="flex:1">', "", body, "", "</div>"];
   await pasteMarkdown(
     page,
@@ -322,7 +322,7 @@ test("貼上帶 text/html 的 ```mermaid（從 GitHub README／AI 對話複製�
   // 為什麼要有這一條：`docs/diagrams.md` 主打的情境是「從 AI 對話或 GitHub README 複製」，
   // 那種剪貼簿**同時帶 text/plain 與 text/html**，走的是 `collab/paste.ts` 的**預設 handler**
   // 出口（`decideMarkdownPaste` 回 null），跟上面那條純文字走的是不同分支。單元測試用假的
-  // `defaultPasteHandler` 只能驗接線，真剪貼簿的形狀只有這裡驗得到（第 2 輪審查 N-11）。
+  // `defaultPasteHandler` 只能驗接線，真剪貼簿的形狀只有這裡驗得到。
   await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: "http://localhost:3100" });
 
   await loginAs(page, ADMIN.email, ADMIN.password);
@@ -350,9 +350,9 @@ test("貼上帶 text/html 的 ```mermaid（從 GitHub README／AI 對話複製�
 });
 
 test("圖表的 init directive 不能讓瀏覽器對外部主機發請求", async ({ page }) => {
-  // ⚠ 這條**只有真瀏覽器驗得到**，而且是三輪審查裡最重要的一條（第 3 輪 I-A／I-B）：
+  // ⚠ 這條**只有真瀏覽器驗得到**，而且是其中最重要的一條：
   // `mermaid.render()` 會把圖（含 `<style>`）插進活的 document 做文字量測，瀏覽器當場
-  // 套用 CSS 並發出請求——輸出端再怎麼清洗都**來不及**（審查者實測：渲染後完全不把 SVG
+  // 套用 CSS 並發出請求——輸出端再怎麼清洗都**來不及**（實測：渲染後完全不把 SVG
   // 插進頁面，themeCSS 裡的 url() 照樣命中）。擋得住的是 `lib/mermaid.ts` 的 `secure`
   // 鎖定清單：themeCSS／htmlLabels／flowchart 不接受圖裡的 directive 覆寫。
   const requested: string[] = [];
@@ -383,7 +383,7 @@ test("圖表的 init directive 不能讓瀏覽器對外部主機發請求", asyn
 test("合法的多行 label 照常畫出來（不得被圖片守衛誤擋）", async ({ page }) => {
   // mermaid 的 lexer 會把雙引號字串裡的換行轉成 `<br/>`，所以這是**合法**語法。
   // 前一版在 render 之前解析原始碼的預檢會把它誤判成「解不出來」而擋掉，並且顯示
-  // 「這張圖引用了外部圖片」——一張根本沒有 img 的圖（第 6 輪審查實證）。改成攔
+  // 「這張圖引用了外部圖片」——一張根本沒有 img 的圖。改成攔
   // `new Image()` 之後，判斷只看實際要發出去的 URL，這一類誤擋整個消失。
   await loginAs(page, ADMIN.email, ADMIN.password);
   await createNote(page, `E2E mermaid multiline label ${Date.now()}`);
@@ -403,7 +403,7 @@ test("合法的多行 label 照常畫出來（不得被圖片守衛誤擋）", a
 });
 
 test("click X href 的圖照常畫出來，連結保留", async ({ page }) => {
-  // 審查期間曾經有一版把 SVG `<a href>` 當成外部資源擋掉，於是任何有 `click X href`
+  // 曾經有一版把 SVG `<a href>` 當成外部資源擋掉，於是任何有 `click X href`
   // 的圖**整張畫不出來**、還顯示一段對不上的錯誤訊息。從 GitHub README 貼進來的圖很常
   // 帶這一行，這條守著它。
   await loginAs(page, ADMIN.email, ADMIN.password);

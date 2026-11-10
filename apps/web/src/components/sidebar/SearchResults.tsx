@@ -15,11 +15,11 @@ import { indexFolders } from "@/components/sidebar/folder-index";
 import { SidebarLazyBoundary } from "@/components/sidebar/SidebarLazyBoundary";
 import { noteLocationLabel, type LocationContext } from "@/components/sidebar/tree";
 
-// 內文區（#93 PR2）整塊在 lazy chunk（D18）；唯一入口見 BodySearchLazy.tsx。
+// 內文區（#93）整塊在 lazy chunk；唯一入口見 BodySearchLazy.tsx。
 const BodySearchResults = lazy(() => import("@/components/sidebar/BodySearchLazy").then((m) => ({ default: m.BodySearchResults })));
 
 /**
- * 標題裡第一個命中的子字串包 `<mark>`（spec §5.4）。`toLowerCase()` 會改變長度的標題
+ * 標題裡第一個命中的子字串包 `<mark>`。`toLowerCase()` 會改變長度的標題
  * （如 `İ`→`i̇`）位置對不回原字串——此時不標、照原字顯示；找不到也照原字。
  */
 export function highlightTitle(title: string, lowerQuery: string): ReactNode {
@@ -36,7 +36,7 @@ export function highlightTitle(title: string, lowerQuery: string): ReactNode {
 }
 
 /**
- * 搜尋結果每項的「筆記標題」與「位置」兩行共用的樣式（Willie 2026-11-03：第一行與第二行同一個 style，灰色小字）。
+ * 搜尋結果每項的「筆記標題」與「位置」兩行共用的樣式（第一行與第二行同一個 style，灰色小字）。
  * 目前開著的那一項（底色 `bg-brand-soft`）與 hover 時改用 `text-brand-on-soft`：灰字疊在 brand-soft 上只有 4.17:1（hover 的 strong 底 3.94:1），
  * 達不到 AA 的 4.5:1；on-soft 在亮色 6.3–6.6:1、暗色 6.9–8.0:1。所在的 `<a>`／Link 要帶 `group`。
  */
@@ -44,7 +44,7 @@ export function searchMetaLineClass(active: boolean): string {
   return cn("truncate text-[11px]", active ? "text-brand-on-soft" : "text-muted-foreground group-hover:text-brand-on-soft");
 }
 
-/** 標題行＝meta 行加粗（Willie 2026-11-03：所有搜尋結果項的標題行粗體；位置行不粗，其餘 class 與位置行相同）。 */
+/** 標題行＝meta 行加粗（所有搜尋結果項的標題行粗體；位置行不粗，其餘 class 與位置行相同）。 */
 export function searchTitleLineClass(active: boolean): string {
   return cn(searchMetaLineClass(active), "font-semibold");
 }
@@ -123,11 +123,11 @@ function TitleRows({
 /** 搜尋視圖：標題小寫子字串、跨所有 tab 的扁平清單（server 順序），標題命中的列兩行（標題＋位置）。
  * 比對一律字面子字串（不經正規式）。
  *
- * #93 PR2：gate 是 search 時，整個清單交給 lazy 的 `BodySearchLazy`（標題命中與內文命中合成一個列表，每個含查詢字的段落一項，
+ * #93：gate 是 search 時，整個清單交給 lazy 的 `BodySearchLazy`（標題命中與內文命中合成一個列表，每個含查詢字的段落一項，
  * 每項三行：標題、位置、片段）；chunk 載入中先顯示標題命中的列。計數那行（`role="status"`）留在容器外：內文結果回來且不是 stale 時是列出的
  * 項數（「N results」），其餘（pending、stale、error、chunk 載入中）是標題命中的篇數（「N title matches」）；項數由內文區 `onStatus` 回報。
  * 防抖與 gate 在這裡（首包）：本元件在搜尋字從空變非空時才掛載，那時通常只有 1 個字（tooShort，不發）；lazy 元件之後掛掛卸卸
- * 都只吃 `debounced` 這個 prop，不會一掛載就用當下的字發請求（plan gate r2 I2）。要不要掛 lazy 看**當下**的字，發不發看 `debounced`
+ * 都只吃 `debounced` 這個 prop，不會一掛載就用當下的字發請求。要不要掛 lazy 看**當下**的字，發不發看 `debounced`
  * ——chunk 下載與防抖同時進行。已知例外：整段字一次貼進空的搜尋框，掛載時 `debounced` 就是那段字，立刻發一次。
  * noMatch：gate 不是 search（只打空白、1 個字、太長）時只看標題；gate 是 search 時由內文區在「內文查詢已成功回空」後顯示。
  * `/api/notes` 載入中或失敗時（下面的提前 return）內文區也不出現——刻意的，內文區要用清單做交叉比對。 */
@@ -164,7 +164,7 @@ export function SearchResults({ query }: { query: string }) {
   const lowerQuery = query.toLowerCase();
   const results = notesQuery.data.filter((note) => note.title.toLowerCase().includes(lowerQuery));
   const groupIds = new Set((groupsQuery.data ?? []).map((group) => group.id));
-  // 不等 ["folders"]：沒到時路徑行只缺資料夾段（讀碼發現 3）。
+  // 不等 ["folders"]：沒到時路徑行只缺資料夾段。
   const location = { groupIds, folders: folderIndex };
 
   const statusText =

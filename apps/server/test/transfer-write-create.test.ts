@@ -1,5 +1,5 @@
 /**
- * bulk transfer spec 2026-11-02 §10、§11；plan PR-2 T10（CR1–CR13）：沒有 `id` 的檔＝新增筆記、`transfer_creates` 去重、落點。
+ * bulk transfer（CR1–CR13）：沒有 `id` 的檔＝新增筆記、`transfer_creates` 去重、落點。
  */
 import { describe, expect, it } from "vitest";
 import { and, eq, isNull, sql } from "drizzle-orm";
@@ -37,7 +37,7 @@ const createsOf = (ctx: CollabTestCtx) => ctx.db.select().from(transferCreates);
 const noteRow = async (ctx: CollabTestCtx, id: string) => (await ctx.db.select().from(notes).where(eq(notes.id, id)))[0]!;
 const norm = (s: string) => s.replace(/\n+$/, "");
 
-describe("新增（§10）", () => {
+describe("新增", () => {
   it("CR1 有 knotebook: 無 id → 201、內容＝本文、標題＝title；沒有 title 行 → Untitled＋untitled-<uuid8>；整檔沒有 frontmatter → 201", async () => {
     const s = await scene();
     const r = await bulkPut(s.ctx.app, s.bulk.token, fileOf({ title: "Fresh" }, "Para A\n\nPara B"));
@@ -176,7 +176,7 @@ describe("新增（§10）", () => {
     expect(await noteRow(sAll.ctx, (rG.json() as { id: string }).id)).toMatchObject({ ownerId: null, groupId: g.id, folderId: null });
   });
 
-  it("CR8b（PR-3 T7 實機回補）front matter 只有 title＋folder_id、沒有 knotebook:／id: 行 → 不算 front matter：Untitled、建在權杖範圍最上層、那幾行進了內文；加上 knotebook: 行的同一份 → 照 title／folder_id", async () => {
+  it("CR8bfront matter 只有 title＋folder_id、沒有 knotebook:／id: 行 → 不算 front matter：Untitled、建在權杖範圍最上層、那幾行進了內文；加上 knotebook: 行的同一份 → 照 title／folder_id", async () => {
     const s = await scene();
     const top = await seedFolder(s.ctx.db, { personal: s.u.id });
     const sub = await seedFolder(s.ctx.db, { personal: s.u.id }, { parentId: top.id });
@@ -247,7 +247,7 @@ describe("新增（§10）", () => {
     const r6 = await bulkPut(s.ctx.app, gb.token, fileOf({ title: "COF", folder_id: gf.id }, "cof"));
     expect(r6.statusCode).toBe(403);
     expect(errOf(r6)).toEqual({ code: "forbidden", message: NOTE_FOLDER_ROLE_FORBIDDEN_MESSAGE });
-    // 唯讀角色（PR-3 T3 補）：群組範圍、不給 folder_id → 群組最上層不能建立
+    // 唯讀角色：群組範圍、不給 folder_id → 群組最上層不能建立
     const g2 = await seedGroup(s.ctx.db, "G2", [{ userId: s.u.id, role: "member" }]);
     await setMemberRole(s.ctx.db, g2.id, s.u.id, await seedRole(s.ctx.db, g2.id, "read-only", { canRead: true }));
     const pat5 = await seedTokenForUser(s.ctx.db, s.u.id, "notes:read notes:write");
@@ -260,7 +260,7 @@ describe("新增（§10）", () => {
 
   it("CR10 解析失敗（unsupported_color）→ 400、notes 不多、transfer_creates 不多", async () => {
     const s = await scene();
-    // 先有一篇（旁觀者）：解析失敗時沒有新筆記可指，T10-M5「仍寫去重列」要有一篇既有筆記才寫得出來（否則被 FK 擋成等價）
+    // 先有一篇（旁觀者）：解析失敗時沒有新筆記可指，「仍寫去重列」要有一篇既有筆記才寫得出來（否則被 FK 擋成等價）
     await seedNote(s.ctx.db, { ownerId: s.u.id }, { title: "Existing" });
     const r = await bulkPut(s.ctx.app, s.bulk.token, fileOf({ title: "Bad" }, 'x <span style="color:#ff6600">orange-ish</span>'));
     expect(r.statusCode).toBe(400);
@@ -269,7 +269,7 @@ describe("新增（§10）", () => {
     expect(await createsOf(s.ctx)).toHaveLength(0);
   });
 
-  it("CR10b（全分支審查 I2，取代審查 m2）解析失敗也扣 transferWrite（解析之前扣，同 edit_note）：limit 1 → 壞色值的新增 400 → 合法的新增 429、沒建", async () => {
+  it("CR10b解析失敗也扣 transferWrite（解析之前扣，同 edit_note）：limit 1 → 壞色值的新增 400 → 合法的新增 429、沒建", async () => {
     const s = await scene({ limiters: { transferWrite: new FixedWindowLimiter({ limit: 1, windowMs: 60_000 }) } });
     const bad = await bulkPut(s.ctx.app, s.bulk.token, fileOf({ title: "Bad" }, 'x <span style="color:#ff6600">orange-ish</span>'));
     expect(bad.statusCode).toBe(400);
@@ -279,7 +279,7 @@ describe("新增（§10）", () => {
     expect(await liveNotes(s.ctx)).toHaveLength(0);
   });
 
-  it("CR10c（全分支審查 I2；審查探針是約 1 MB、2.7 萬段，I2(c) 起寫回上限 256 KiB，改成上限內的 2 萬段）→ 400 too_many_blocks、預判擋下（不進完整解析）、扣 transferWrite；連四發都不讓事件迴圈卡住 1 秒以上", async () => {
+  it("CR10c（寫回上限 256 KiB 內的 2 萬段）→ 400 too_many_blocks、預判擋下（不進完整解析）、扣 transferWrite；連四發都不讓事件迴圈卡住 1 秒以上", async () => {
     const transferWrite = new FixedWindowLimiter({ limit: 4, windowMs: 60_000 });
     const s = await scene({ limiters: { transferWrite } });
     for (let i = 0; i < 4; i++) {
@@ -297,7 +297,7 @@ describe("新增（§10）", () => {
       clearInterval(iv);
       expect(r.statusCode, `#${i}`).toBe(400);
       expect(errOf(r).code, `#${i}`).toBe("too_many_blocks");
-      // 審查實測未修前（約 1 MB、2.7 萬段）每發 ~3 s；預判後的剩餘成本是 body 解碼、frontmatter、HMAC、逐行掃描。
+      // 修前實測（約 1 MB、2.7 萬段）每發 ~3 s；預判後的剩餘成本是 body 解碼、frontmatter、HMAC、逐行掃描。
       expect(maxGap, `#${i} 事件迴圈最長停頓`).toBeLessThan(1_000);
     }
     expect(transferWrite.isBlocked(s.u.id)).toBe(true);
@@ -314,7 +314,7 @@ describe("新增（§10）", () => {
     expect(await liveNotes(s.ctx)).toHaveLength(1);
   });
 
-  it("CR11b（審查 M2；全分支審查 I2 起是先扣再解析）額度用完時，去重沒命中的新檔直接 429、不先解析：解析會失敗的檔也回 429（不是 400）；去重命中的重送仍 200", async () => {
+  it("CR11b（先扣再解析）額度用完時，去重沒命中的新檔直接 429、不先解析：解析會失敗的檔也回 429（不是 400）；去重命中的重送仍 200", async () => {
     const s = await scene({ limiters: { transferWrite: new FixedWindowLimiter({ limit: 1, windowMs: 60_000 }) } });
     const first = fileOf({ title: "1" }, "one");
     expect((await bulkPut(s.ctx.app, s.bulk.token, first)).statusCode).toBe(201);

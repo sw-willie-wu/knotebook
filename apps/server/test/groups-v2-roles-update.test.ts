@@ -1,7 +1,7 @@
 /**
- * #175 PR3 Task 3：`PATCH`／`DELETE /api/groups/:id/roles/:roleId`（spec §6 T12／T13、§6.7、§7；閱讀恆真＝spec 疑點 10；
- * 旗標不蘊含＝spec 疑點 11；內建管理員不可改、內建一般成員只准改旗標＝Q10；刪自訂角色持有者改掛內建一般成員＝Q8）。
- * 自訂角色一律以 `POST …/roles` 建，或 `seedRole(…, { canRead: true, … })` 明寫可讀（plan 複驗第 14 條）。
+ * #175：`PATCH`／`DELETE /api/groups/:id/roles/:roleId`（T12／T13；閱讀恆真；
+ * 旗標不蘊含；內建管理員不可改、內建一般成員只准改旗標；刪自訂角色持有者改掛內建一般成員）。
+ * 自訂角色一律以 `POST …/roles` 建，或 `seedRole(…, { canRead: true, … })` 明寫可讀。
  * 回讀一律走 `GET …/roles`／`GET …/members`；踢線看 spy 的 `onGroupAccessChanged`。
  */
 import { describe, expect, it } from "vitest";
@@ -64,7 +64,7 @@ async function setup() {
   return { app, db, spy, a, b, c, g, groupNotes, adminCookies, createRole, patch, del, roles, members, memberOf, kickCall };
 }
 
-describe("#175 PR3 PATCH／DELETE …/roles/:roleId：授權", () => {
+describe("#175 PATCH／DELETE …/roles/:roleId：授權", () => {
   it("PATCH 授權矩陣：401／404×3（逐位元組相同）／403／200／站台 admin 200", async () => {
     const { app, db } = await buildTestApp({ collabHooks: spyCollabHooks() });
     await runGroupAuthMatrix(app, db, {
@@ -109,7 +109,7 @@ describe("#175 PR3 PATCH／DELETE …/roles/:roleId：授權", () => {
     expect((await roles()).map(r => r.builtin ?? r.name)).toEqual(["admin", "member", "Doorman", "Renamer"]);
   });
 
-  it("§5.5：身為內建一般成員的站台 admin → PATCH 200、DELETE 204", async () => {
+  it("身為內建一般成員的站台 admin → PATCH 200、DELETE 204", async () => {
     const { app, db } = await buildTestApp({ collabHooks: spyCollabHooks() });
     const owner = await seedUser(db);
     const siteAdmin = await seedUser(db, { isAdmin: true });
@@ -126,7 +126,7 @@ describe("#175 PR3 PATCH／DELETE …/roles/:roleId：授權", () => {
   });
 });
 
-describe("#175 PR3 PATCH …/roles/:roleId（T12）", () => {
+describe("#175 PATCH …/roles/:roleId（T12）", () => {
   it("改自訂角色：改名＋改旗標一起 → 200、body 為新值；改成 create-only → 200；GET 回讀一致；memberCount＝實際掛的人數", async () => {
     const { db, g, b, c, patch, roles, createRole } = await setup();
     const role = await createRole("Editors", { ...NONE, edit: true });
@@ -150,7 +150,7 @@ describe("#175 PR3 PATCH …/roles/:roleId（T12）", () => {
     expect((await roles()).find(r => r.id === role.id)).toEqual(createOnly.json());
   });
 
-  it("RF1 自撞：Reader 改名 READER → 200（只撞自己）；Writer 改名 reader → 409 role_name_taken 且名稱不變；改名 管理員 → 409", async () => {
+  it("自撞：Reader 改名 READER → 200（只撞自己）；Writer 改名 reader → 409 role_name_taken 且名稱不變；改名 管理員 → 409", async () => {
     const { patch, roles, createRole } = await setup();
     const reader = await createRole("Reader", NONE);
     const writer = await createRole("Writer", { ...NONE, edit: true });
@@ -179,7 +179,7 @@ describe("#175 PR3 PATCH …/roles/:roleId（T12）", () => {
     expect((await roles()).find(r => r.id === g.adminRoleId)).toEqual(before);
   });
 
-  it("內建一般成員（Q10）：改旗標（拿掉新建）→ 200；改名 → 409 builtin_role；回讀名稱仍 null", async () => {
+  it("內建一般成員：改旗標（拿掉新建）→ 200；改名 → 409 builtin_role；回讀名稱仍 null", async () => {
     const { g, patch, roles } = await setup();
     const res = await patch(g.memberRoleId, { permissions: { ...NONE, edit: true } });
     expect(res.statusCode, res.body).toBe(200);
@@ -241,7 +241,7 @@ describe("#175 PR3 PATCH …/roles/:roleId（T12）", () => {
     expect((elsewhere.json() as GroupRoleDto[]).find(r => r.id === otherRole)?.name).toBe("Elsewhere");
   });
 
-  it("踢線（§7、§12.1）：只改 delete／managePublicLink／manageMembers／manageGroup、只改名、送同值 → 0 次；edit 關／開 → 各恰 1 次（群組兩篇, [B, C]）；沒有人掛的角色改 edit → 0 次", async () => {
+  it("踢線：只改 delete／managePublicLink／manageMembers／manageGroup、只改名、送同值 → 0 次；edit 關／開 → 各恰 1 次（群組兩篇, [B, C]）；沒有人掛的角色改 edit → 0 次", async () => {
     const { db, g, b, c, spy, groupNotes, patch, createRole, kickCall } = await setup();
     const writers = await createRole("Writers", { ...NONE, edit: true });
     await setMemberRole(db, g.id, b.id, writers.id);
@@ -270,7 +270,7 @@ describe("#175 PR3 PATCH …/roles/:roleId（T12）", () => {
     expect(spy.onGroupAccessChanged).toHaveBeenCalledTimes(2);
   });
 
-  it("RF3：把內建一般成員的編輯與新建關掉 → 200、read 仍 true、踢線（群組兩篇, [B, C]）恰 1 次，內建管理員 A 不在名單", async () => {
+  it("把內建一般成員的編輯與新建關掉 → 200、read 仍 true、踢線（群組兩篇, [B, C]）恰 1 次，內建管理員 A 不在名單", async () => {
     const { g, a, b, c, spy, groupNotes, patch, roles, kickCall } = await setup();
     const res = await patch(g.memberRoleId, { permissions: NONE });
     expect(res.statusCode, res.body).toBe(200);
@@ -283,8 +283,8 @@ describe("#175 PR3 PATCH …/roles/:roleId（T12）", () => {
   });
 });
 
-describe("#175 PR3 DELETE …/roles/:roleId（T13）", () => {
-  it("刪自訂角色（Q8）：持有者 B、C 改掛內建一般成員、角色消失、踢線（群組兩篇, [B, C]）恰 1 次；刪沒人掛的 → 204、不踢；同名可再建", async () => {
+describe("#175 DELETE …/roles/:roleId（T13）", () => {
+  it("刪自訂角色：持有者 B、C 改掛內建一般成員、角色消失、踢線（群組兩篇, [B, C]）恰 1 次；刪沒人掛的 → 204、不踢；同名可再建", async () => {
     const { db, g, b, c, spy, groupNotes, del, roles, memberOf, createRole, kickCall, app, adminCookies } = await setup();
     const readers = await createRole("Readers", NONE);
     await setMemberRole(db, g.id, b.id, readers.id);
@@ -334,7 +334,7 @@ describe("#175 PR3 DELETE …/roles/:roleId（T13）", () => {
     expect((list.json() as GroupRoleDto[]).map(r => r.id)).toContain(otherRole);
   });
 
-  it("S1 不受影響：刪掉自訂角色、改掉內建一般成員旗標之後，唯一的內建管理員 A 仍是內建管理員", async () => {
+  it("不受影響：刪掉自訂角色、改掉內建一般成員旗標之後，唯一的內建管理員 A 仍是內建管理員", async () => {
     const { db, g, a, b, del, patch, memberOf, createRole } = await setup();
     const custom = await createRole("Temp", { ...NONE, edit: true });
     await setMemberRole(db, g.id, b.id, custom.id);

@@ -3,7 +3,7 @@ import { publicNoteApiPath, publicNoteQueryKey, publicRefIdentity } from "./publ
 
 const TOKEN = "abcDEF123_-".repeat(4).slice(0, 43);
 
-describe("publicNoteApiPath（#122 PR3：兩形 API 網址的唯一組字點）", () => {
+describe("publicNoteApiPath（#122：兩形 API 網址的唯一組字點）", () => {
   it("token 形 → /api/public/notes/<token>", () => {
     expect(publicNoteApiPath({ kind: "token", token: TOKEN })).toBe(`/api/public/notes/${TOKEN}`);
   });

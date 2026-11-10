@@ -61,7 +61,7 @@ describe("#386 REST", () => {
     expect((await restEdit(s.ctx.app, s.pat.token, id, { op: "replace_all", markdown: "ra1  \nra2", if_match: c.fingerprint })).statusCode).toBe(201);
     c = await contentOf(s.ctx.app, id, s.pat.token);
     expect(c.markdown).toBe("ra1\\\nra2\n");
-    // CRLF（審查 M4）：段落尾不留空白、換行後不多空白
+    // CRLF：段落尾不留空白、換行後不多空白
     expect((await restEdit(s.ctx.app, s.pat.token, id, { op: "replace_all", markdown: "p\r\n\r\nc1\r\nc2\r\n", if_match: c.fingerprint })).statusCode).toBe(201);
     expect((await contentOf(s.ctx.app, id, s.pat.token)).markdown).toBe("p\n\nc1\\\nc2\n");
   });

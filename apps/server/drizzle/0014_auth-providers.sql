@@ -1,4 +1,4 @@
--- #187 PR1（spec §11）：多 provider 登入的資料模型。單一交易（drizzle migrator 整批），無非交易式 DDL（migrate.test.ts 有輔助 grep）。
+-- #187：多 provider 登入的資料模型。單一交易（drizzle migrator 整批），無非交易式 DDL（migrate.test.ts 有輔助 grep）。
 CREATE TABLE "auth_providers" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"template" text NOT NULL,
@@ -38,7 +38,7 @@ CREATE UNIQUE INDEX "user_identities_issuer_sub_idx" ON "user_identities" USING 
 --> statement-breakpoint
 CREATE INDEX "user_identities_user_idx" ON "user_identities" USING btree ("user_id");
 --> statement-breakpoint
--- §11 第 3 步：既有綁定（含過去 verified-email 自動合併出來的）照舊有效；半套列不搬；users_oidc_idx 保證不撞。
+-- 既有綁定（含過去 verified-email 自動合併出來的）照舊有效；半套列不搬；users_oidc_idx 保證不撞。
 INSERT INTO "user_identities" ("user_id", "issuer", "sub", "created_at")
   SELECT "id", "oidc_issuer", "oidc_sub", "created_at" FROM "users" WHERE "oidc_issuer" IS NOT NULL AND "oidc_sub" IS NOT NULL;
 --> statement-breakpoint
@@ -51,5 +51,5 @@ CREATE TABLE "site_settings" (
 	CONSTRAINT "site_settings_singleton_chk" CHECK ("site_settings"."singleton")
 );
 --> statement-breakpoint
--- §11 第 4 步：registration_enabled、password_login_enabled 都吃 DEFAULT true（W23／W24），不看 instance_setup。
+-- registration_enabled、password_login_enabled 都吃 DEFAULT true，不看 instance_setup。
 INSERT INTO "site_settings" ("singleton") VALUES (true);

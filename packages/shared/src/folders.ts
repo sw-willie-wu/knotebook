@@ -1,8 +1,8 @@
-// 資料夾（spec docs/superpowers/specs/2026-10-22-folders-design.md §5.3、§5.11）。
-// `NoteDto.folderId`／`sizeBytes` 在 T4 加、`TrashItemDto.folderPath` 在 T7 加（各自與 server 同一個 task，避免 shared 先改、server 編不過）。
+// 資料夾。
+// `NoteDto.folderId`／`sizeBytes`、`TrashItemDto.folderPath` 與 server 的對應欄位同時加（避免 shared 先改、server 編不過）。
 
 export const FOLDER_NAME_MAX = 80;
-export const FOLDER_DEPTH_MAX = 5;          // 根層資料夾為第 1 層（D2）
+export const FOLDER_DEPTH_MAX = 5;          // 根層資料夾為第 1 層
 export const FOLDERS_PER_SPACE_MAX = 1000;
 
 export type FolderKind = "personal" | "group" | "shared";

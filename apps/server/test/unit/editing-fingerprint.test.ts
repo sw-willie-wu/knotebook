@@ -19,7 +19,7 @@ async function docWith(blocks: Array<Record<string, unknown>>): Promise<Y.Doc> {
 const COL = (id: string, children: Array<Record<string, unknown>>, width = 1) => ({ id, type: "column", props: { width }, children });
 const ROW = (id: string, cols: Array<Record<string, unknown>>) => ({ id, type: "columnList", children: cols });
 const para = (id: string, text: string) => ({ id, type: "paragraph", content: text });
-// 在未改 topLevelContainers 的碼上實跑取得（T2 Step 1）
+// 在未改 topLevelContainers 的碼上實跑取得
 const GOLDEN_OUTLINE = [["_top", 0, "e3b0c44298fc1c14"], ["ha", 12, "70cfcd4d638d7496"], ["hb", 4, "69c7d471720fc8fd"]];
 const GOLDEN_WHOLE = "02384cdbb1c6229a";
 const GOLDEN_BLOCKS = [
@@ -32,7 +32,7 @@ const GOLDEN_BLOCKS = [
 ];
 
 describe("fingerprint", () => {
-  it("F0：不含並排的既有文件指紋逐位元組不變（spec §11.4 golden）", async () => {
+  it("F0：不含並排的既有文件指紋逐位元組不變（golden）", async () => {
     const doc = await docWith(GOLDEN_BLOCKS);
     const { outline, whole } = outlineOf(doc.getXmlFragment(YDOC_FRAGMENT));
     expect(outline.map(o => [o.sectionId, o.chars, o.fingerprint])).toEqual(GOLDEN_OUTLINE);

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { SIZE_PX_MAX, SIZE_PX_MIN, clampSizePx, isSizePx } from "./note-sizes.js";
 
-// spec 2026-10-21 columns-layout §11.1 I6：圖片寬度、表格欄寬一律 [32, 4000] 的整數 px。
+// 圖片寬度、表格欄寬一律 [32, 4000] 的整數 px。
 
 describe("SZ1 clampSizePx：非有限數或 ≤ 0 → null；否則四捨五入後夾 [32, 4000]", () => {
   it.each<[number, number | null]>([

@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { ADMIN, createUserViaInvite, loginAs, randomEmail } from "./helpers.js";
 
 /**
- * #286 管理員重設密碼（spec §10.2 新 spec 五步）：
+ * #286 管理員重設密碼（五步）：
  * 1. admin 以邀請建一位帳密使用者（`createUserViaInvite`，帳號不帶 `must_change_password`）；
  * 2. 該使用者的 context B 登入、直接建一支 PAT，
  *    以無 cookie 的 context 帶 Bearer 打 `GET /api/notes` → 200；

@@ -1,9 +1,9 @@
 /**
- * #175 PR3 Task 3：角色變動（T12／T13）與成員異動（T9／T10）的交錯（Review Focus RF2；spec §11 鎖序「成員／角色變動＝
+ * #175：角色變動（T12／T13）與成員異動（T9／T10）的交錯（鎖序「成員／角色變動＝
  * groups 一把」）。照 `groups-members.test.ts` C2 的形：先發的請求在測試縫（鎖已取得、寫入之前）發出第二個請求，並以
  * `waitForBlockedOrSettled`（`pg_stat_activity` 的 Lock 等待）證明第二個請求確實在等鎖（有連線處於 Lock 等待；不靠時序）。當時唯一被持有的列鎖是 groups 列，但 helper 只數 Lock 等待、分不出是哪一把。
  *
- * 末段「groups FOR KEY SHARE」一案釘的是跨 PR 前提：PR2 的移動路徑讀成員資格前只對 groups 列取 `FOR KEY SHARE`，
+ * 末段「groups FOR KEY SHARE」一案釘的是跨功能前提：移動路徑讀成員資格前只對 groups 列取 `FOR KEY SHARE`，
  * 它的正確性靠「所有改 `group_members` 或角色旗標的寫入都先 `lockGroup`（groups FOR UPDATE，與 KEY SHARE 互斥）」。
  */
 import { describe, expect, it } from "vitest";
@@ -50,7 +50,7 @@ async function raceScene(at: GroupRacePoint) {
   return { app: built.app, a, b, d, g, x, race, state, cookies: await cookieOf(a.id) };
 }
 
-describe("#175 PR3 RF2：刪自訂角色 vs 把人掛上該角色（同一把 groups 列鎖序列化）", () => {
+describe("#175：刪自訂角色 vs 把人掛上該角色（同一把 groups 列鎖序列化）", () => {
   it("R1（T10 先）：換 B 到 X 停在寫入前時發出 DELETE X → PATCH 200、DELETE 204；B 最後被改掛內建一般成員，X 不在了", async () => {
     const { app, b, g, x, race, state, cookies } = await raceScene("group-members-checked");
     race.fire = () => app.inject({ method: "DELETE", url: `/api/groups/${g.id}/roles/${x}`, cookies });
@@ -90,7 +90,7 @@ describe("#175 PR3 RF2：刪自訂角色 vs 把人掛上該角色（同一把 gr
   });
 });
 
-describe("#175 PR3 跨 PR 前提：改角色／成員的寫入都先 lockGroup（groups FOR UPDATE）", () => {
+describe("#175 跨 PR 前提：改角色／成員的寫入都先 lockGroup（groups FOR UPDATE）", () => {
   it("另一條交易對 groups 列持 FOR KEY SHARE 時，PATCH／DELETE 角色與 PUT／PATCH／DELETE 成員都卡住，對方 commit 後才完成", async () => {
     const { app, db } = await buildTestApp({ collabHooks: spyCollabHooks() });
     const pool = db.$client;

@@ -18,7 +18,7 @@ const WEB_ROOT = process.cwd();
 const WEB_SRC = join(WEB_ROOT, "src");
 const SHARED_SRC = join(WEB_ROOT, "..", "..", "packages", "shared", "src");
 const NEEDLE = "/api/avatars";
-/** 實數 244（2026-10-22，含 index.html 為 245）的 80%。 */
+/** 實數 244（含 index.html 為 245）的 80%。 */
 const MIN_WEB_FILES = 196;
 const SOURCE_RE = /\.(?:tsx?|m?js|css|html)$/;
 

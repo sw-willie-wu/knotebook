@@ -250,19 +250,19 @@ describe("LoginThrottle", () => {
       const now = 1000;
       const throttle = new LoginThrottle({ now: () => now });
 
-      // Record 5 failures on account1 + IP1
+      // Record 5 failures on account1 + 192.168.1.1
       for (let i = 0; i < 5; i++) {
         throttle.recordFailure("account1", "192.168.1.1");
       }
 
-      // account1 on IP1 should be blocked
+      // account1 on 192.168.1.1 should be blocked
       let result = throttle.checkAllowed("account1", "192.168.1.1");
       expect(result.allowed).toBe(false);
 
       // Record success for account1
       throttle.recordSuccess("account1", "192.168.1.1");
 
-      // account1 on IP1 should still be blocked (IP counter preserved)
+      // account1 on 192.168.1.1 should still be blocked (IP counter preserved)
       result = throttle.checkAllowed("account1", "192.168.1.1");
       expect(result.allowed).toBe(false);
 
@@ -270,7 +270,7 @@ describe("LoginThrottle", () => {
       result = throttle.checkAllowed("account1", "192.168.1.2");
       expect(result.allowed).toBe(true);
 
-      // account2 on same IP1 should still be blocked (IP counter preserved)
+      // account2 on same 192.168.1.1 should still be blocked (IP counter preserved)
       result = throttle.checkAllowed("account2", "192.168.1.1");
       expect(result.allowed).toBe(false);
       expect(result.retryAfterMs).toBe(2000);
@@ -285,18 +285,18 @@ describe("LoginThrottle", () => {
         throttle.recordFailure("user1", "192.168.1.1");
       }
 
-      // Should be blocked on IP1
+      // Should be blocked on 192.168.1.1
       let result = throttle.checkAllowed("user1", "192.168.1.1");
       expect(result.allowed).toBe(false);
 
       // Record success
       throttle.recordSuccess("user1", "192.168.1.1");
 
-      // Account counter cleared, so user1 on a different IP2 should be allowed
+      // Account counter cleared, so user1 on a different 192.168.1.2 should be allowed
       result = throttle.checkAllowed("user1", "192.168.1.2");
       expect(result.allowed).toBe(true);
 
-      // Can fail 4 more times on IP2 before blocking again
+      // Can fail 4 more times on 192.168.1.2 before blocking again
       for (let i = 0; i < 4; i++) {
         throttle.recordFailure("user1", "192.168.1.2");
         result = throttle.checkAllowed("user1", "192.168.1.2");
@@ -314,12 +314,12 @@ describe("LoginThrottle", () => {
       const now = 1000;
       const throttle = new LoginThrottle({ now: () => now });
 
-      // user1 fails 5 times on IP1
+      // user1 fails 5 times on 192.168.1.1
       for (let i = 0; i < 5; i++) {
         throttle.recordFailure("user1", "192.168.1.1");
       }
 
-      // user2 fails 5 times on IP2
+      // user2 fails 5 times on 192.168.1.2
       for (let i = 0; i < 5; i++) {
         throttle.recordFailure("user2", "192.168.1.2");
       }
@@ -327,11 +327,11 @@ describe("LoginThrottle", () => {
       // recordSuccess for user1/IP1
       throttle.recordSuccess("user1", "192.168.1.1");
 
-      // user1 on IP1 should still be blocked (IP counter preserved)
+      // user1 on 192.168.1.1 should still be blocked (IP counter preserved)
       let result = throttle.checkAllowed("user1", "192.168.1.1");
       expect(result.allowed).toBe(false);
 
-      // user1 on a different IP3 should be allowed (account counter cleared)
+      // user1 on a different 192.168.1.3 should be allowed (account counter cleared)
       result = throttle.checkAllowed("user1", "192.168.1.3");
       expect(result.allowed).toBe(true);
 
@@ -532,7 +532,7 @@ describe("LoginThrottle", () => {
   });
 });
 
-// Plan 4 Task 5：POST /api/ai 節流參數形狀（比照 http/rate-limit.ts 其餘 *_LIMIT 匯出常數的
+// POST /api/ai 節流參數形狀（比照 http/rate-limit.ts 其餘 *_LIMIT 匯出常數的
 // 驗證慣例）——鎖住「每分鐘 30 次」這個具體數字，不讓它被無感改動。
 describe("AI_LIMIT", () => {
   it("形狀：limit=30、windowMs=60_000（每分鐘 30 次）", () => {
@@ -555,7 +555,7 @@ describe("AI_LIMIT", () => {
   });
 });
 
-// #286 spec §3.6：重設連結的兩顆桶，鎖住具體數字。
+// #286：重設連結的兩顆桶，鎖住具體數字。
 describe("ONE_TIME_LINK_MISS_LIMIT／ONE_TIME_LINK_ATTEMPT_LIMIT", () => {
   it("miss 桶：每分鐘 30 次（key=ip）", () => {
     expect(ONE_TIME_LINK_MISS_LIMIT).toEqual({ limit: 30, windowMs: 60_000 });
@@ -604,7 +604,7 @@ describe("FixedWindowLimiter.isBlocked（#72：不計數的預檢）", () => {
   });
 });
 
-describe("FixedWindowLimiter 函式額度與 retryAfterMs（bulk transfer spec §12.3）", () => {
+describe("FixedWindowLimiter 函式額度與 retryAfterMs", () => {
   afterEach(() => {
     vi.useRealTimers();
   });
@@ -669,12 +669,12 @@ describe("FixedWindowLimiter 函式額度與 retryAfterMs（bulk transfer spec �
     expect(TRANSFER_EXPORT_LIMIT).toEqual({ limit: 10, windowMs: 3_600_000 });
   });
 
-  it("L6 TRANSFER_WRITE_LIMIT：每分鐘 30 次（bulk transfer PR-2 T1；數字的複核在 T14，implementer 不改）", () => {
+  it("L6 TRANSFER_WRITE_LIMIT：每分鐘 30 次", () => {
     expect(TRANSFER_WRITE_LIMIT).toEqual({ limit: 30, windowMs: 60_000 });
   });
 });
 
-describe("FixedWindowLimiter.consumeTicket／refund（全分支審查 I2：寫回解析前扣、零區退回；複審 Minor 2：退回要對到同一個視窗）", () => {
+describe("FixedWindowLimiter.consumeTicket／refund（寫回解析前扣、零區退回；退回要對到同一個視窗）", () => {
   afterEach(() => vi.useRealTimers());
 
   it("R1 退回目前視窗的一次：limit 1 扣滿 → refund(那次的 ticket) → 再扣一次放行", () => {

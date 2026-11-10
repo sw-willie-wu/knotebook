@@ -4,7 +4,7 @@ import {
   formatColumnWidth, parseColumnFlex,
 } from "./columns.js";
 
-// spec 2026-10-21 columns-layout §5.1、§5.3、§11.1；node 環境，不掛編輯器（掛編輯器的案在 web collab/schema.test.ts）。
+// node 環境，不掛編輯器（掛編輯器的案在 web collab/schema.test.ts）。
 
 describe("C1 formatColumnWidth：夾 [0.1, 10]、兩位小數、去尾端 0", () => {
   it.each([
@@ -24,14 +24,14 @@ describe("C2 parseColumnFlex：只認 flex 屬性的第一個數字", () => {
   });
 });
 
-describe("C3 外部 HTML 開頭標籤（spec §11.1 規則 1）", () => {
+describe("C3 外部 HTML 開頭標籤（規則 1）", () => {
   it("columnOpenTag 與 COLUMNS_OPEN_TAG 逐字", () => {
     expect(columnOpenTag(1.5)).toBe('<div data-kb-column style="flex:1.5">');
     expect(COLUMNS_OPEN_TAG).toBe('<div data-kb-columns style="display:flex;gap:16px">');
   });
 });
 
-describe("C4 節點字串守衛（spec §5.3）", () => {
+describe("C4 節點字串守衛", () => {
   it("型別集合、name、group、content、propSchema", () => {
     expect([...COLUMN_BLOCK_TYPES].sort()).toEqual(["column", "columnList"]);
     expect(ColumnListNode.name).toBe("columnList");

@@ -23,7 +23,7 @@ function fakeRequest(): {
   return { request: { raw } as unknown as FastifyRequest, raw };
 }
 
-describe("drainWithCap（安全 backlog ③，spec §13.2）", () => {
+describe("drainWithCap（安全 backlog ③）", () => {
   it("累計位元組數 <= cap（MAX_UPLOAD_BYTES * 2）：不 destroy() 底層連線", () => {
     const { request, raw } = fakeRequest();
     drainWithCap(request);

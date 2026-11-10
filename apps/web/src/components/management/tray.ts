@@ -1,7 +1,7 @@
 import { cn } from "@/lib/utils";
 
 /**
- * 管理面板托盤（#247 §4.3）的 class：頁底色 45%＋毛玻璃，陰影只在這一層；卡本身不投影。
+ * 管理面板托盤（#247）的 class：頁底色 45%＋毛玻璃，陰影只在這一層；卡本身不投影。
  * `ManagementShell`（站台管理／群組／設定）與快捷鍵介紹頁（`ShortcutsDialog`）共用，改托盤只動這裡。
  */
 export const managementTray =

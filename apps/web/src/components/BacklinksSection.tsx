@@ -6,8 +6,8 @@ import { BACKLINKS_SCROLL_ROW, SIDEBAR_ROW_HEIGHT } from "@/components/ui/rows";
 import { cn } from "@/lib/utils";
 
 /**
- * 內文卡頁尾——「N 篇筆記提及」＋來源 chips（spec §12.3 UI）。掛在
- * `NoteEditor` 的 `footerSlot`（由 `NotePage` 組裝），讀 Task 6a 的
+ * 內文卡頁尾——「N 篇筆記提及」＋來源 chips（UI）。掛在
+ * `NoteEditor` 的 `footerSlot`（由 `NotePage` 組裝），讀
  * `GET /api/notes/:id/backlinks`（經 `useBacklinks`，React Query 開啟筆記時
  * fetch + 預設 focus refetch）。
  *
@@ -32,7 +32,7 @@ import { cn } from "@/lib/utils";
  * **對齊補償一定要做在 chips 這一側**（早期版本把 `mb-2.5` 加在標籤上）：那是把
  * 「標籤＋chips」整組往上拉，於是整條 backlinks 列與側欄帳號列的內容不再共線
  * （`ui/rows.ts` 的等高守衛只看盒高，抓不到），而且 0 筆、根本沒有捲軸時標籤照樣
- * 偏上——兩點都在 PR #90 的審查實測中出現過。
+ * 偏上——兩點都在 PR #90 實測中出現過。
  *
  * 捲軸落在 `py-2` 的留白裡，而**內文卡本身是 `overflow-hidden`**——捲軸底距卡片
  * 裁切邊只剩 2.0px，那 2px 就是全部餘裕：收成 `py-1.5` 會一點餘裕都不剩（捲軸底
