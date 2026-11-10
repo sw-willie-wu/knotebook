@@ -5,7 +5,7 @@ import { loadConfig, publicUrlIssuer, publicUrlPathWarning, testHooksStartupWarn
 import { createDb } from "./db/index.js";
 import { createPool } from "./db/pool.js";
 import { runMigrations } from "./db/migrate.js";
-import { initializeInstance } from "./auth/bootstrap.js";
+import { initializeInstance, logInitFailure } from "./auth/bootstrap.js";
 import { backfillLegacyOidcIdentities } from "./auth/legacy-identities.js";
 import { warnPasswordLoginAtBoot } from "./auth/password-login.js";
 import { backfillHandleRegistry } from "./auth/handle.js";
@@ -127,7 +127,7 @@ async function main(): Promise<void> {
       config.adminEmail && config.adminPassword ? { email: config.adminEmail, password: config.adminPassword } : undefined
     );
   } catch (err) {
-    logger.error({ err }, "instance initialization failed");
+    logInitFailure(logger, err); // #211：不記整個 err（DrizzleQueryError 的 params 帶管理員 email 與密碼雜湊）
     process.exit(1);
   }
 

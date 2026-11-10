@@ -3,7 +3,8 @@ import * as client from "openid-client";
 import { normalizeEmail, OIDC_STATE_COOKIE, safeNextPath } from "@knotebook/shared";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
-import { isUniqueViolation } from "../db/pg-errors.js";
+import { isUniqueViolation, pgErrorSummary } from "../db/pg-errors.js";
+import { redactDbError } from "../lib/redact-db-error.js";
 import { UUID_RE } from "../notes/service.js";
 import { unsealOidcState } from "../auth/oidc-state.js";
 import { clearOidcStateCookie, setOidcStateCookie, startAuthorization } from "../auth/oidc-authorize.js";
@@ -20,6 +21,17 @@ import { startSession } from "../auth/sessions.js";
 import type { CollabHooks } from "../collab/hooks.js";
 import { touchLastLogin } from "../auth/last-login.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
+
+
+/**
+ * #211：callback 的非預期失敗不記整個 err。DB 錯誤（SQLSTATE 形的 5 碼 code；DrizzleQueryError 的 params 可能含 sub／email）
+ * 走 `redactDbError`；其餘只記 `fetchErrorSummary` 摘要。
+ */
+function logOidcFailure(log: FastifyRequest["log"], err: unknown, context: string, msg: string): void {
+  const { code } = pgErrorSummary(err);
+  if (code !== null && /^[0-9A-Z]{5}$/.test(code)) redactDbError(log, err, context);
+  else log.error(oidcErrorLogFields(err), msg);
+}
 
 /** r3-M3：IdP claim 的長度上限——pending cookie 的大小上界靠它（§7.5.1）。 */
 export const MAX_EMAIL_CLAIM_LENGTH = 254;
@@ -147,7 +159,7 @@ export function oidcRoutes(deps: OidcRouteDeps) {
           pkceCodeVerifier: payload.codeVerifier,
         });
       } catch (err) {
-        request.log.warn({ err }, "OIDC code 交換失敗");
+        request.log.warn(oidcErrorLogFields(err), "OIDC code 交換失敗");
         return reply.redirect(failLocation("oidc_exchange_failed"));
       }
       const idTokenClaims = tokens.claims();
@@ -167,7 +179,7 @@ export function oidcRoutes(deps: OidcRouteDeps) {
         try {
           userinfo = await client.fetchUserInfo(configuration, tokens.access_token, sub);
         } catch (err) {
-          request.log.warn({ err }, "OIDC userinfo 取得失敗");
+          request.log.warn(oidcErrorLogFields(err), "OIDC userinfo 取得失敗");
           return reply.redirect(failLocation("oidc_exchange_failed"));
         }
         email = nonEmptyClaim(userinfo.email);
@@ -241,7 +253,7 @@ export function oidcRoutes(deps: OidcRouteDeps) {
         try {
           resolved = await runLogin();
         } catch (err2) {
-          request.log.warn({ err: err2 }, "OIDC 帳號解析 race 重查後仍失敗");
+          logOidcFailure(request.log, err2, "OIDC 帳號解析 race 重查", "OIDC 帳號解析 race 重查後仍失敗");
           return reply.redirect(failLocation("oidc_exchange_failed"));
         }
       }
@@ -279,7 +291,7 @@ export function oidcRoutes(deps: OidcRouteDeps) {
       await startSession(deps, request, reply, { userId: outcome.userId, tv: outcome.tokenVersion });
       return reply.redirect(nextPath ?? "/");
     } catch (err) {
-      request.log.error({ err }, "OIDC callback 發生未預期錯誤");
+      logOidcFailure(request.log, err, "OIDC callback", "OIDC callback 發生未預期錯誤");
       return reply.redirect(failLocation("oidc_exchange_failed"));
     }
   }

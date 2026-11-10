@@ -20,6 +20,10 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 - The import of `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET` on first start, a stopgap left over from the sign-in providers of v0.6 (#187).
 
+### Fixed
+
+- The remaining failure logs of the SSO callback (code exchange, userinfo, account lookup retry, unexpected errors) and of a failed first-start administrator setup no longer write the whole error, which for a database error could include the user's email, subject or password hash; they log a short summary instead (#211). One of them, the account lookup retry that still fails, now logs at error level instead of warn. The self-hosting guide now says how to leave the quoted values (`DETAIL`) out of PostgreSQL's own error log.
+
 ## [0.15.0] - 2026-11-10
 
 ### Upgrade notes
