@@ -70,9 +70,10 @@ const COLORED =
   "# Colors\n\n" +
   'plain <span style="color:red">red</span> and <span style="color:blue;background-color:yellow">both</span>\n\n' +
   '<p data-background-color="yellow" data-text-color="purple">whole paragraph</p>\n\n' +
-  '<table><tr><th>h1</th><th>h2</th></tr><tr><td data-background-color="blue">c</td><td>d</td></tr></table>\n\n' +
+  'hex <span style="color:#ff6600">o</span>\n\n' +
+  '<table><tr><th>h1</th><th>h2</th></tr><tr><td data-background-color="blue">c</td><td data-background-color="#00ff00">d</td></tr></table>\n\n' +
   "# Other\n\nplain";
-const BAD = 'x <span style="color:#ff6600">orange-ish</span>';
+const BAD = 'x <span style="color:tomato">orange-ish</span>';
 
 const expectListsPalette = (message: string | undefined) => {
   for (const c of PALETTE_COLORS) expect(message).toContain(c);
@@ -145,6 +146,8 @@ describe("#222 讀取帶出顏色，讀 → replace_section 寫回 → 再讀一
     expect(md1).toContain('\nplain <span style="color:red">red</span> and <span style="color:blue;background-color:yellow">both</span>\n');
     expect(md1).toContain('<p data-background-color="yellow" data-text-color="purple">whole paragraph</p>');
     expect(md1).toContain('<td data-background-color="blue">c</td>');
+    expect(md1).toContain('hex <span style="color:#ff6600">o</span>');
+    expect(md1).toContain('<td data-background-color="#00ff00">d</td>');
     expect(md1).not.toContain("| ---");
 
     payloadOf(await callTool(s.ctx.app, s.token, "edit_note", { note_id: noteId, op: "replace_section", section_id: await colorsId(), markdown: md1, if_match: r1.section.fingerprint }));

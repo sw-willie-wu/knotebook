@@ -172,7 +172,7 @@ describe("W8 400 整篇不寫（拿掉守衛會落到 500 那幾條：NUL／落�
       ["id 非 uuid", fm("id", "not-a-uuid"), "invalid_body"],
       ["有 id 無 base", lines.filter(l => !l.startsWith("base: ")).join("\n"), "invalid_body"],
       ["重複 title 行", d.text.replace(/^(title: .*)$/m, '$1\ntitle: "again"'), "invalid_body"],
-      ["unsupported_color", editBody(d.text, b => b.replace("B", 'x <span style="color:#ff6600">o</span>')), "unsupported_color"],
+      ["unsupported_color", editBody(d.text, b => b.replace("B", 'x <span style="color:tomato">o</span>')), "unsupported_color"],
       ["empty_content 整份空白", editBody(d.text, () => "   "), "empty_content"],
       ["只剩註解", editBody(d.text, () => "<!-- a -->\n\n<!-- b -->"), "empty_content"],
       ["未閉合 <!--", editBody(d.text, b => b.replace("B", "<!--\nB")), "empty_content"],
@@ -273,7 +273,7 @@ describe("W9–W12 權限、範圍、額度、佇列", () => {
     await seedMd(s.ctx.db, n2.id, "Second note para");
     const d1 = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
     const d2 = await downloadNote(s.ctx.app, s.bulk.token, n2.id);
-    const bad = await bulkPut(s.ctx.app, s.bulk.token, editBody(d1.text, b => b.replace("Para 1", 'x <span style="color:#ff6600">orange-ish</span>')));
+    const bad = await bulkPut(s.ctx.app, s.bulk.token, editBody(d1.text, b => b.replace("Para 1", 'x <span style="color:tomato">orange-ish</span>')));
     expect(bad.statusCode).toBe(400);
     expect(errOf(bad).code).toBe("unsupported_color");
     expect(transferWrite.isBlocked(s.u.id)).toBe(true);

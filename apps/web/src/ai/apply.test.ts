@@ -428,10 +428,12 @@ describe("AI 套用鏈（spec §13.3）", () => {
     expect(integrity(editor)).toEqual(clean);
   });
 
-  // T6 review r1 M2：同 MCP（#222），不在色盤的色值整筆拒絕
-  it("GA-C1：文字色是 #hex（parse 成 rgb()）→ unsupported_color", () => {
+  // 同 MCP：色碼收下並正規化，不是色盤名也不是色碼的值整筆拒絕
+  it("GA-C1：文字色是 #hex（parse 成 rgb()）→ 收下，prepared 的行內 textColor 是 #ff0000", () => {
     const editor = mountedEditor([P("別動我")]);
-    expect(prepareAiResult(editor, '<span style="color:#ff0000">x</span>', { notes: [], placement: "top" })).toEqual({ invalid: "unsupported_color" });
+    const ok = prepareAiResult(editor, '<span style="color:#ff0000">x</span>', { notes: [], placement: "top" });
+    expect("blocks" in ok && JSON.stringify(ok.blocks[0]!.content)).toContain('"textColor":"#ff0000"');
+    expect(prepareAiResult(editor, '<span style="color:tomato">x</span>', { notes: [], placement: "top" })).toEqual({ invalid: "unsupported_color" });
   });
 
   it("GA-C2：底色是 CSS 合法但不在色盤的色名 → unsupported_color；色盤內的色名照收", () => {

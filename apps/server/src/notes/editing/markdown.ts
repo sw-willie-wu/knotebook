@@ -4,11 +4,11 @@ import {
   MAX_HTML_DEPTH,
   checkNoteMarkdownSyntax,
   convertSiteLinks,
-  findDisallowedColor,
   findParseGuardFailure,
   findStructureError,
   htmlDepth,
   isBlankParseResult,
+  normalizeNoteColors,
   normalizeTableWidths,
   plainParagraphFloor,
   premergeParagraphs,
@@ -116,8 +116,8 @@ export function parseMarkdownForNote(editor: BlockNoteEditor<any, any, any>, mar
   if (!walk(parsed)) return { error: "unsupported_block", detail: "unknown_block" };
   const shape = findStructureError(parsed, "top");
   if (shape !== null) return { error: shape };
-  // #222：色值只收內建色名（shared 的 `findDisallowedColor`），其他值整筆拒絕——同白名單，不靜默剝除。
-  if (findDisallowedColor(parsed) !== null) return { error: "unsupported_color" };
+  // #378：色值收內建色名與色碼，就地正規化成小寫 `#rrggbb`，其他整筆拒絕（不靜默剝除）。
+  if (normalizeNoteColors(parsed) !== null) return { error: "unsupported_color" };
   if (isBlankParseResult(parsed)) {
     // 未閉合 `<!--` 吞掉一切 → 照舊 empty_content、帶成因（8000 探索測試 E）。會被丟掉的元素在 parse 前就整筆拒絕了（見 DROPPED_TAGS）。
     return UNCLOSED_COMMENT.test(markdown) ? { error: "empty_content", detail: "unclosed_comment" } : { error: "empty_content" };
