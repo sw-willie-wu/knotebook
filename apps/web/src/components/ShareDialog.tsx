@@ -81,7 +81,7 @@ function ShareRow({ noteId, share }: { noteId: string; share: ShareDto }) {
   const putShare = usePutShare(noteId);
   const deleteShare = useDeleteShare(noteId);
   const myUserId = useSession().user?.id;
-  // #395：移除先行內確認（比照「改成私人」的 D3 確認列）
+  // #395：移除前先在列內確認（與「改成私人」的確認列同一種樣式）
   const [confirmingRemove, setConfirmingRemove] = useState(false);
   const trashRef = useRef<HTMLButtonElement>(null);
 
