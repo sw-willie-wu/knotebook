@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { AdminAuthProviderDto } from "@knotebook/shared";
+import { SITE_LIMIT_KEYS, SITE_LIMITS, type AdminAuthProviderDto, type SiteLimitItemDto, type SiteLimitKey, type SiteLimitsDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { copyText } from "@/lib/clipboard";
@@ -54,12 +54,26 @@ const CUSTOM: AdminAuthProviderDto = {
   icon: { type: "builtin", name: "gitlab" },
 };
 
+/** 站台限制：「登入期限與 token」組只用到這兩項；其餘 15 項在這一頁不畫，給預設值即可。 */
+const LIMITS: SiteLimitsDto = {
+  items: SITE_LIMIT_KEYS.map((key): SiteLimitItemDto => {
+    const def = SITE_LIMITS[key].default;
+    return { key, value: def === "auto" ? 4 : def, source: "default", locked: false, stored: null };
+  }),
+  machine: { cpus: 8, cpuSource: "os", memoryBytes: 16 * 1024 ** 3, memorySource: "cgroup-v2" },
+  changes: [],
+};
+const limitsWith = (key: SiteLimitKey, patch: Partial<SiteLimitItemDto>): SiteLimitsDto => ({
+  ...LIMITS,
+  items: LIMITS.items.map((item) => (item.key === key ? { ...item, ...patch } : item)),
+});
+
 /** 回 Promise＝延後回應（測「進行中」狀態用）。 */
 type Handler = (method: string, url: string, body: unknown) => Response | Promise<Response> | null;
 
 /** 有狀態的假 server：GET 列表回目前的 `providers`；`on()` 掛額外端點；`calls` 記每一次請求。 */
 function fakeServer(initial: AdminAuthProviderDto[]) {
-  const state = { providers: [...initial] };
+  const state = { providers: [...initial], limits: LIMITS };
   const calls: Array<{ method: string; url: string; body: unknown }> = [];
   const handlers: Handler[] = [];
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -75,6 +89,7 @@ function fakeServer(initial: AdminAuthProviderDto[]) {
     if (method === "GET" && url === "/api/admin/auth/settings") {
       return fakeResponse(200, { registrationEnabled: true, passwordLoginEnabled: true, passwordLoginForced: false, passwordLoginImpact: { usersWithoutSso: 0, actingAdminHasSso: true, enabledProviders: 1 } });
     }
+    if (method === "GET" && url === "/api/admin/limits") return fakeResponse(200, state.limits);
     const impact = /^\/api\/admin\/auth\/providers\/([^/]+)\/impact$/.exec(url);
     if (method === "GET" && impact) {
       return fakeResponse(200, { linkedUsers: impact[1] === LEGACY.id ? 11 : 0, lockedOutUsers: 0, issuerResolved: true, actingAdminLockedOut: false });
@@ -590,6 +605,91 @@ describe("client ID 尚未填入（#299）", () => {
     await waitFor(() => expect(details("No ID SSO").getByText("x")).toBeInTheDocument());
     expect(details("No ID SSO").queryByText(/No client ID yet/)).toBeNull();
     expect(details("No ID SSO").queryByText(/Connection OK/)).toBeNull();
+  });
+});
+
+describe("登入期限與 token 組", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const group = async () => {
+    const region = within(await screen.findByRole("region", { name: "Session and tokens" }));
+    const input = (name: string) => region.getByLabelText(name, { selector: "input" });
+    return { ...region, input };
+  };
+  const patches = (server: ReturnType<typeof fakeServer>) => server.calls.filter((c) => c.method === "PATCH" && c.url === "/api/admin/limits");
+
+  it("登入服務表之外多一組：登入有效期以小時顯示、兩列各有小字，登入服務表照在", async () => {
+    renderSection(fakeServer([CUSTOM]).fetchMock);
+    const g = await group();
+    expect(g.input("Web sign-in lasts")).toHaveValue("168");
+    expect(g.input("Active API tokens per person")).toHaveValue("20");
+    expect(g.getByText(/Only affects people who sign in afterwards/)).toBeInTheDocument();
+    expect(g.getByText(/Lowering it does not revoke existing tokens/)).toBeInTheDocument();
+    expect(g.getAllByRole("group").map((r) => r.getAttribute("data-limit-key"))).toEqual(["sessionTtlSeconds", "apiTokensPerUser"]);
+    expect(await screen.findByRole("table", { name: "Sign-in services" })).toBeInTheDocument();
+  });
+
+  it("位置：在「允許自行註冊」開關之後、登入服務表之前", async () => {
+    renderSection(fakeServer([CUSTOM]).fetchMock);
+    const region = await screen.findByRole("region", { name: "Session and tokens" });
+    const access = await screen.findByRole("switch", { name: "Allow self-registration with a password" });
+    const table = await screen.findByRole("table", { name: "Sign-in services" });
+    expect(access.compareDocumentPosition(region) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(region.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("改成 24 小時儲存 → PATCH 只送被改的那一項、以秒計", async () => {
+    const server = fakeServer([CUSTOM]);
+    server.on((method, url) => (method === "PATCH" && url === "/api/admin/limits" ? fakeResponse(200, server.state.limits) : null));
+    renderSection(server.fetchMock);
+    const g = await group();
+    fireEvent.change(g.input("Web sign-in lasts"), { target: { value: "24" } });
+    fireEvent.click(g.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(patches(server)).toHaveLength(1));
+    expect(patches(server)[0]!.body).toEqual({ set: { sessionTtlSeconds: 86400 } });
+  });
+
+  it("已調整的 token 上限有「Restore default」，按下送 null", async () => {
+    const server = fakeServer([CUSTOM]);
+    server.state.limits = limitsWith("apiTokensPerUser", { value: 5, source: "admin", stored: 5 });
+    server.on((method, url) => (method === "PATCH" && url === "/api/admin/limits" ? fakeResponse(200, LIMITS) : null));
+    renderSection(server.fetchMock);
+    const g = await group();
+    expect(g.input("Active API tokens per person")).toHaveValue("5");
+    fireEvent.click(g.getByRole("button", { name: "Restore default" }));
+    await waitFor(() => expect(patches(server)).toHaveLength(1));
+    expect(patches(server)[0]!.body).toEqual({ set: { apiTokensPerUser: null } });
+  });
+
+  it("超出範圍（0 小時）→ 不送、顯示範圍錯誤", async () => {
+    const server = fakeServer([CUSTOM]);
+    renderSection(server.fetchMock);
+    const g = await group();
+    fireEvent.change(g.input("Web sign-in lasts"), { target: { value: "0" } });
+    fireEvent.click(g.getByRole("button", { name: "Save" }));
+    expect(await g.findByRole("alert")).toHaveTextContent(/Enter a whole number from 1 to 720/);
+    expect(patches(server)).toHaveLength(0);
+  });
+
+  it("中文標題「登入期限與 token」", async () => {
+    await i18n.changeLanguage("zh-TW");
+    renderSection(fakeServer([CUSTOM]).fetchMock);
+    const region = within(await screen.findByRole("region", { name: "登入期限與 token" }));
+    expect(region.getByText(/只影響之後新登入的人/)).toBeInTheDocument();
+    expect(region.getByText(/調低不會撤銷既有 token/)).toBeInTheDocument();
+  });
+
+  it("載入失敗：顯示伺服器錯誤文案（跟站台限制分頁同一套），不是通用訊息", async () => {
+    const server = fakeServer([CUSTOM]);
+    server.on((method, url) => (method === "GET" && url === "/api/admin/limits" ? fakeResponse(500, { error: { code: "limit_locked_by_env", message: "x" } }) : null));
+    renderSection(server.fetchMock);
+    expect(await screen.findByText(i18n.t("errors.limit_locked_by_env"))).toBeInTheDocument();
   });
 });
 

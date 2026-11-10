@@ -27,7 +27,7 @@ const MiB = 1024 * 1024;
 const GiB = 1024 * MiB;
 
 /** 伺服器錯誤：`limit_locked_by_env` 有自己的文案；`invalid_body` 一律「數值不在可調範圍內」，不轉譯英文 message。 */
-function serverErrorMessage(t: TFunction, err: unknown): string {
+export function serverErrorMessage(t: TFunction, err: unknown): string {
   if (err instanceof ApiFail) {
     if (err.code === "limit_locked_by_env") return t("errors.limit_locked_by_env");
     if (err.code === "invalid_body") return t("admin.limits.invalidRange");
