@@ -4,6 +4,7 @@
  * **寫入**（{@link findDisallowedColor}）：markdown 解析出來的 block 裡，`textColor`／`backgroundColor`
  * 只收編輯器內建的 10 種色名（{@link PALETTE_COLORS}）。其他值（`#hex`、`rgb()`、CSS 合法但不在色盤的
  * 名稱、大小寫不符的 data-*）BlockNote 照樣存進 JSON，但編輯器畫面上不顯示——所以整筆拒絕，不靜默剝除。
+ * 色碼判準見 {@link canonicalColor}。
  * ⚠ 走訪是**迭代**的（顯式堆疊）：巢狀深度由呼叫端的 markdown 決定，不能遞迴。
  */
 export const PALETTE_COLORS = ["default", "gray", "brown", "red", "orange", "yellow", "green", "blue", "purple", "pink"] as const;
@@ -12,6 +13,45 @@ const COLOR_KEYS = ["textColor", "backgroundColor"] as const;
 
 /** 讀寫兩端共用的判準：值是色盤裡的名稱（`default` 也算）。 */
 export const isPaletteColor = (v: unknown): v is string => typeof v === "string" && PALETTE.has(v);
+
+/** 自訂色的正規形：小寫 `#rrggbb`。 */
+export const CUSTOM_COLOR_RE = /^#[0-9a-f]{6}$/;
+export const isCustomColor = (v: unknown): v is string => typeof v === "string" && CUSTOM_COLOR_RE.test(v);
+/** 會顯示出顏色的值：色盤名（不含 `default`）或正規形色碼。 */
+export const isShownColor = (v: unknown): v is string => v !== "default" && (isPaletteColor(v) || isCustomColor(v));
+
+const HEX_RE = /^#([0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
+const RGB_RE = /^rgb\([ \t\n\r\f]*(\d+(?:\.\d+)?)[ \t\n\r\f]*,[ \t\n\r\f]*(\d+(?:\.\d+)?)[ \t\n\r\f]*,[ \t\n\r\f]*(\d+(?:\.\d+)?)[ \t\n\r\f]*\)$/;
+
+/** 把輸入正規化：色盤名原樣；`#rgb`／`#rrggbb`（含滿值 alpha）／`rgb(r, g, b)` → 小寫 `#rrggbb`；其餘 `null`。 */
+export function canonicalColor(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  if (isPaletteColor(v)) return v;
+  const h = HEX_RE.exec(v);
+  if (h) {
+    let d = h[1]!.toLowerCase();
+    if (d.length === 4) {
+      if (d[3] !== "f") return null;
+      d = d.slice(0, 3);
+    } else if (d.length === 8) {
+      if (d.slice(6) !== "ff") return null;
+      d = d.slice(0, 6);
+    }
+    if (d.length === 3) d = d[0]! + d[0]! + d[1]! + d[1]! + d[2]! + d[2]!;
+    return `#${d}`;
+  }
+  const m = RGB_RE.exec(v);
+  if (m) {
+    let out = "#";
+    for (const s of [m[1]!, m[2]!, m[3]!]) {
+      const n = Number(s);
+      if (!(n >= 0 && n <= 255)) return null;
+      out += Math.round(n).toString(16).padStart(2, "0");
+    }
+    return out;
+  }
+  return null;
+}
 
 function badColorIn(rec: unknown): string | null {
   if (rec === null || typeof rec !== "object") return null;
