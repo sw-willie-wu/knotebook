@@ -1,5 +1,9 @@
 export type ColorSection = "text" | "background";
-export type ColorTarget = { kind: "inline" } | { kind: "block"; blockId: string };
+export type ColorTarget =
+  | { kind: "inline" }
+  | { kind: "block"; blockId: string }
+  | { kind: "cell"; blockId: string; rowIndex: number; colIndex: number }
+  | { kind: "rowcol"; blockId: string; orientation: "row" | "column"; index: number };
 
 export interface PanelRequest {
   section: ColorSection;
