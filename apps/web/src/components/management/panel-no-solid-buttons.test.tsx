@@ -8,6 +8,7 @@ import { ThemeProvider } from "@/theme";
 import { AppRoutes } from "@/App";
 import { adminRole, customRole, groupDto, memberRole } from "@/test/fixtures";
 import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
+import { siteLimitChange, siteLimitsDto } from "@/test/site-limits-fixtures";
 
 /**
  * #247 §4.8、§11.1：三個管理面板的右卡內不出現實心鈕（brandDeep／brandSolid／default）。渲染期掃描——
@@ -50,31 +51,14 @@ const PLAN = { id: "11111111-1111-4111-8111-111111111111", name: "Basic", quotaB
 const PLAN_STORAGE = { planId: PLAN.id, planName: "Basic", usedBytes: 0, quotaBytes: 2147483648 };
 const PROVIDER_ID = "22222222-2222-4222-8222-222222222222";
 /** 站台限制：17 項齊全；兩項已調整（各多一顆「恢復預設」／「改回自動」）、一項 env 鎖住、修改紀錄一列。 */
-const SITE_LIMITS_FIXTURE: SiteLimitsDto = {
-  items: [
-    { key: "uploadMaxBytes", value: 10485760, source: "default", locked: false, stored: null },
-    { key: "noteMaxBytes", value: 5242881, source: "env", locked: true, stored: 2097152 },
-    { key: "parseWorkers", value: 2, source: "admin", locked: false, stored: 2, autoValue: 4, autoSource: "cpu" },
-    { key: "parseWorkerMemoryMb", value: 1024, source: "default", locked: false, stored: null },
-    { key: "parseTimeoutMs", value: 10000, source: "default", locked: false, stored: null },
-    { key: "parseQueueWaitMs", value: 45000, source: "auto", locked: false, stored: null, autoValue: 45000 },
-    { key: "rateTokenRead", value: 300, source: "default", locked: false, stored: null },
-    { key: "rateTokenWrite", value: 60, source: "default", locked: false, stored: null },
-    { key: "rateContentRead", value: 120, source: "default", locked: false, stored: null },
-    { key: "rateEdit", value: 20, source: "admin", locked: false, stored: 20 },
-    { key: "rateSearch", value: 60, source: "default", locked: false, stored: null },
-    { key: "rateUpload", value: 120, source: "default", locked: false, stored: null },
-    { key: "rateAi", value: 30, source: "default", locked: false, stored: null },
-    { key: "rateTransferExport", value: 10, source: "default", locked: false, stored: null },
-    { key: "rateTransferWrite", value: 30, source: "default", locked: false, stored: null },
-    { key: "sessionTtlSeconds", value: 604800, source: "default", locked: false, stored: null },
-    { key: "apiTokensPerUser", value: 20, source: "default", locked: false, stored: null },
-  ],
-  machine: { cpus: 8, cpuSource: "os", memoryBytes: 17179869184, memorySource: "cgroup-v2" },
-  changes: [
-    { id: "c-1", key: "rateEdit", oldValue: null, newValue: 20, oldEffective: 30, newEffective: 20, actor: { id: "u-admin", email: "admin@example.com", displayName: "Admin" }, changedAt: T },
-  ],
-};
+const SITE_LIMITS_FIXTURE: SiteLimitsDto = siteLimitsDto(
+  {
+    noteMaxBytes: { value: 5242881, source: "env", locked: true, stored: 2097152 },
+    parseWorkers: { value: 2, source: "admin", stored: 2 },
+    rateEdit: { value: 20, source: "admin", stored: 20 },
+  },
+  { changes: [siteLimitChange()] },
+);
 /** 群組／站台十頁的最大權限 fixture（admin、canManageGroup／canManageMembers 皆 true、各表至少一列）。 */
 const PANEL3_GETS: Record<string, unknown> = {
   [`/api/groups/${GROUP_ID}/members`]: [

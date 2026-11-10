@@ -296,7 +296,8 @@
         "parseWorkerMemoryMb": "調低後，整段密集格式（量過的要 640–768 MiB）與巢狀很深的格式可能被拒，大筆記的讀出也可能因記憶體不足失敗；worker 也會更常換新，處理速度可能變慢。",
         "parseQueueWaitMs": "比「4 × 解析時限＋5 秒」短時，排在一件慢工作後面的請求可能先收到忙碌錯誤。"
       },
-      "machine": "這台伺服器：{{cpus}} 個 CPU、{{memory}} GiB 記憶體（{{source}}）",
+      "machine_one": "這台伺服器：{{count}} 個 CPU、{{memory}} GiB 記憶體（{{source}}）",
+      "machine_other": "這台伺服器：{{count}} 個 CPU、{{memory}} GiB 記憶體（{{source}}）",
       "memoryWarning_one": "可能超過記憶體：約需 {{needed}} MB（{{count}} 個 worker × ({{memoryMb}} + 150) MB ＋ 1000 MB，再加 20%），假設 PostgreSQL 跑在同一台。仍可儲存。",
       "memoryWarning_other": "可能超過記憶體：約需 {{needed}} MB（{{count}} 個 worker × ({{memoryMb}} + 150) MB ＋ 1000 MB，再加 20%），假設 PostgreSQL 跑在同一台。仍可儲存。",
       "changes": {

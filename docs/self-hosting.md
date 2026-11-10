@@ -180,7 +180,7 @@ Besides these five, the other limits that a site admin can adjust (upload size, 
 
 A site admin can adjust 17 limits in the browser, in **Site admin → Site limits** (15 of them) and **Site admin → Sign-in → Session and tokens** (2). A change takes effect right away, without restarting the server; nothing is cut or revoked because of it. Each row shows its default, its range and where its value comes from: the default, a value an admin saved, or — for the number of parse workers and the longest wait for a worker — an automatic value (a setting an environment variable sets shows as locked). Each section has one **Save** button that sends only the rows that changed, and a row's **Restore default** (for the two automatic settings, **Back to auto**) removes the saved value. The page also lists the 50 most recent changes: when, who (the account's email, or a note that the account no longer exists), which setting, and the old and new values.
 
-Apart from the number of parse workers, the memory per worker and the sign-in period, a limit can only be lowered: the largest value the page takes is the default (45 seconds for the longest wait for a worker). Values are whole numbers in the unit the page shows (MiB, seconds, hours or times).
+Apart from the number of parse workers, the memory per worker and the sign-in period, a limit can only be lowered: the largest value the page takes is the default (45 seconds for the longest wait for a worker). Values are whole numbers in the unit the page shows (MiB, seconds, hours, or a count).
 
 | Setting | Default | Range on the page | Applies | Where |
 |---|---|---|---|---|

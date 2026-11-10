@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { SITE_LIMIT_KEYS, SITE_LIMITS, type SiteLimitChangeDto, type SiteLimitItemDto, type SiteLimitKey, type SiteLimitsDto } from "@knotebook/shared";
+import { SITE_LIMIT_KEYS, type SiteLimitChangeDto, type SiteLimitsDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
-import { SettingsLimitsSection } from "./SettingsLimitsSection";
+import { SITE_LIMITS_QUERY_KEY } from "@/api/siteLimits";
+import { siteLimitsDto } from "@/test/site-limits-fixtures";
+import { categoryKeys, PAGE_CATEGORIES, SettingsLimitsSection } from "./SettingsLimitsSection";
 
 const URL_ = "/api/admin/limits";
 const GiB = 1024 ** 3;
@@ -13,36 +15,20 @@ function res(status: number, body: unknown): Response {
   return { ok: status < 400, status, json: () => Promise.resolve(body) } as unknown as Response;
 }
 
-/** 17 項都在預設／自動的一份 DTO；`patch` 逐項覆寫。 */
-function dto(patch: Partial<Record<SiteLimitKey, Partial<SiteLimitItemDto>>> = {}, rest: Partial<Omit<SiteLimitsDto, "items">> = {}): SiteLimitsDto {
-  const items = SITE_LIMIT_KEYS.map((key): SiteLimitItemDto => {
-    const def = SITE_LIMITS[key].default;
-    const base: SiteLimitItemDto =
-      key === "parseWorkers"
-        ? { key, value: 4, source: "auto", locked: false, stored: null, autoValue: 4, autoSource: "cpu" }
-        : key === "parseQueueWaitMs"
-          ? { key, value: 45_000, source: "auto", locked: false, stored: null, autoValue: 45_000 }
-          : { key, value: def as number, source: "default", locked: false, stored: null };
-    return { ...base, ...patch[key] };
-  });
-  return {
-    items,
-    machine: { cpus: 8, cpuSource: "os", memoryBytes: 16 * GiB, memorySource: "cgroup-v2" },
-    changes: [],
-    ...rest,
-  };
-}
+const dto = siteLimitsDto;
 
 interface Server {
   data: SiteLimitsDto;
   patch?: (body: unknown) => Response | Promise<Response>;
+  /** 設成真值後，之後的 GET 回 500。 */
+  failGet?: boolean;
 }
 
 function setup(server: Server) {
   const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const method = (init?.method ?? "GET").toUpperCase();
-    if (url === URL_ && method === "GET") return Promise.resolve(res(200, server.data));
+    if (url === URL_ && method === "GET") return Promise.resolve(server.failGet ? res(500, { error: { code: "internal", message: "x" } }) : res(200, server.data));
     if (url === URL_ && method === "PATCH") {
       const body = JSON.parse(String(init?.body)) as unknown;
       return Promise.resolve(server.patch ? server.patch(body) : res(200, server.data));
@@ -62,7 +48,7 @@ function setup(server: Server) {
     fetchMock.mock.calls
       .filter(([u, i]) => String(u) === URL_ && ((i as RequestInit | undefined)?.method ?? "GET").toUpperCase() === "PATCH")
       .map(([, i]) => JSON.parse(String((i as RequestInit).body)) as unknown);
-  return { fetchMock, patches };
+  return { fetchMock, patches, queryClient };
 }
 
 const block = (name: string) => within(screen.getByRole("region", { name }));
@@ -398,6 +384,21 @@ describe("SettingsLimitsSection（站台限制分頁）", () => {
     expect(screen.queryByText(/^May exceed memory/)).not.toBeInTheDocument(); // 4 × (1024 + 150) + 1000 再加 20% 遠低於 16 GiB
   });
 
+  it("只有 1 個 CPU → 單數「1 CPU」", async () => {
+    setup({ data: dto({}, { machine: { cpus: 1, cpuSource: "os", memoryBytes: 16 * GiB, memorySource: "os" } }) });
+    await loaded();
+    expect(block("Parse workers").getByText("This server: 1 CPU, 16 GiB memory (os)")).toBeInTheDocument();
+  });
+
+  it("說明文字與「調低後…」都掛在輸入框的 aria-describedby；記憶體警告是 status", async () => {
+    setup({ data: dto({ parseWorkers: { value: 1, autoValue: 1, autoSource: "memory" } }, { machine: { cpus: 8, cpuSource: "os", memoryBytes: 2 * GiB, memorySource: "os" } }) });
+    await loaded();
+    expect(field("Memory per worker")).toHaveAccessibleDescription(/Memory each worker may use./);
+    expect(field("Memory per worker")).toHaveAccessibleDescription(/Lowering this may reject densely formatted content/);
+    fireEvent.change(field("Memory per worker"), { target: { value: "512" } });
+    expect(block("Parse workers").getByRole("status")).toHaveTextContent(/^May exceed memory/);
+  });
+
   it("解析 worker 區塊頂端（zh）", async () => {
     await i18n.changeLanguage("zh-TW");
     setup({ data: dto({}, { machine: { cpus: 6, cpuSource: "os", memoryBytes: 12 * GiB, memorySource: "cgroup-v1" } }) });
@@ -428,6 +429,26 @@ describe("SettingsLimitsSection（站台限制分頁）", () => {
     expect(text[2]).toContain("auto (45 seconds) → 30 seconds");
     expect(text[3]).toContain("bogusKey");
     expect(text[3]).toContain("7 → 1234567");
+  });
+
+  it("已有資料時背景重抓失敗：輸入到一半的內容與各區塊都還在，不換成錯誤", async () => {
+    const server: Server = { data: dto() };
+    const { queryClient } = setup(server);
+    await loaded();
+    fireEvent.change(field("Note size limit"), { target: { value: "3" } });
+    server.failGet = true;
+    await queryClient.refetchQueries({ queryKey: SITE_LIMITS_QUERY_KEY });
+    await waitFor(() => expect(queryClient.getQueryState(SITE_LIMITS_QUERY_KEY)?.fetchStatus).toBe("idle"));
+    expect(queryClient.getQueryState(SITE_LIMITS_QUERY_KEY)?.status).toBe("error");
+    expect(field("Note size limit")).toHaveValue("3");
+    expect(screen.getByRole("region", { name: "Parse workers" })).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("兩個分頁的 key 合起來剛好是整份註冊表、互不重疊", () => {
+    const keys = [...categoryKeys("signIn"), ...PAGE_CATEGORIES.flatMap((category) => categoryKeys(category))];
+    expect(new Set(keys).size).toBe(keys.length);
+    expect([...keys].sort()).toEqual([...SITE_LIMIT_KEYS].sort());
   });
 
   it("沒有修改紀錄 → 「還沒有修改」", async () => {

@@ -1,6 +1,6 @@
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { AdminAuthProbeResultDto, AdminAuthProviderDto, SiteLimitKey } from "@knotebook/shared";
+import type { AdminAuthProbeResultDto, AdminAuthProviderDto } from "@knotebook/shared";
 import { useSiteLimits } from "@/api/siteLimits";
 import {
   useAdminAuthProviders,
@@ -31,11 +31,9 @@ import { authErrorMessage } from "./auth-error-message";
 import { CreateProviderDialog, EditProviderDialog } from "./AuthProviderDialogs";
 import { ProviderIconDialog } from "./ProviderIconDialog";
 import { SettingsGroup, SettingsPage } from "./SettingsLayout";
-import { serverErrorMessage, SiteLimitsGroup } from "./SettingsLimitsSection";
+import { categoryKeys, serverErrorMessage, SiteLimitsGroup } from "./SettingsLimitsSection";
 import { SiteAccessSettings } from "./SiteAccessSettings";
 import "@/i18n/management-strings";
-
-const SIGN_IN_LIMIT_KEYS: readonly SiteLimitKey[] = ["sessionTtlSeconds", "apiTokensPerUser"];
 
 /** 「登入期限與 token」：網頁登入有效期（以小時填）與每人有效 API token 上限，沿用站台限制分頁的列與儲存邏輯。 */
 function SessionAndTokensGroup() {
@@ -49,7 +47,8 @@ function SessionAndTokensGroup() {
       </SettingsGroup>
     );
   }
-  if (query.isError) {
+  // 只在沒有資料時換成錯誤文字：有舊資料時背景重抓失敗，不能把輸入到一半的內容整組拆掉。
+  if (query.data === undefined) {
     return (
       <SettingsGroup title={title}>
         <p role="alert" className="text-sm text-destructive">
@@ -58,7 +57,7 @@ function SessionAndTokensGroup() {
       </SettingsGroup>
     );
   }
-  return <SiteLimitsGroup title={title} keys={SIGN_IN_LIMIT_KEYS} data={query.data} />;
+  return <SiteLimitsGroup title={title} keys={categoryKeys("signIn")} data={query.data} />;
 }
 
 /** 停用前確認（W11：停用前提示受影響人數）。人數是開 dialog 當下的快照（§9.3）。 */

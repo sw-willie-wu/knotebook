@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { SITE_LIMIT_KEYS, SITE_LIMITS, type AdminAuthProviderDto, type SiteLimitItemDto, type SiteLimitsDto } from "@knotebook/shared";
+import type { AdminAuthProviderDto, SiteLimitsDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { clickOutside } from "@/test/outside-click";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { copyText } from "@/lib/clipboard";
+import { siteLimitsDto } from "@/test/site-limits-fixtures";
 import { SettingsAuthSection } from "./SettingsAuthSection";
 
 vi.mock("@/lib/clipboard", () => ({ copyText: vi.fn(async () => true) }));
@@ -38,14 +39,7 @@ const LIVE: AdminAuthProviderDto = {
 };
 
 /** 站台限制 17 項都在預設的一份回應，讓「登入期限與 token」組跟真實頁面一樣畫出來。 */
-const LIMITS: SiteLimitsDto = {
-  items: SITE_LIMIT_KEYS.map((key): SiteLimitItemDto => {
-    const def = SITE_LIMITS[key].default;
-    return { key, value: def === "auto" ? 4 : def, source: "default", locked: false, stored: null };
-  }),
-  machine: { cpus: 8, cpuSource: "os", memoryBytes: 16 * 1024 ** 3, memorySource: "cgroup-v2" },
-  changes: [],
-};
+const LIMITS: SiteLimitsDto = siteLimitsDto();
 
 type Handler = (method: string, url: string, body: unknown) => Response | Promise<Response> | null;
 function fakeServer(initial: AdminAuthProviderDto[]) {

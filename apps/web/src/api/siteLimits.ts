@@ -16,6 +16,8 @@ export function useUpdateSiteLimits(): UseMutationResult<SiteLimitsDto, unknown,
     mutationFn: (body: SiteLimitsPatchBody) => api<SiteLimitsDto>("/api/admin/limits", { method: "PATCH", body: JSON.stringify(body) }),
     onSuccess: (updated) => {
       queryClient.setQueryData(SITE_LIMITS_QUERY_KEY, updated);
+      // 兩次儲存的回應可能亂序到達，舊的快照會蓋掉新的：寫入後再重抓一次，以伺服器現況為準。
+      void queryClient.invalidateQueries({ queryKey: SITE_LIMITS_QUERY_KEY });
       void queryClient.invalidateQueries({ queryKey: AUTH_CONFIG_QUERY_KEY });
     },
   });

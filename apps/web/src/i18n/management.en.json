@@ -296,7 +296,8 @@
         "parseWorkerMemoryMb": "Lowering this may reject densely formatted content (measured at 640–768 MiB) and deeply nested formatting, and reading large notes can fail for lack of memory. Workers are also replaced more often, which can slow processing.",
         "parseQueueWaitMs": "If this is shorter than 4 × the parse time limit + 5 seconds, a request queued behind a slow job can get a busy error first."
       },
-      "machine": "This server: {{cpus}} CPUs, {{memory}} GiB memory ({{source}})",
+      "machine_one": "This server: {{count}} CPU, {{memory}} GiB memory ({{source}})",
+      "machine_other": "This server: {{count}} CPUs, {{memory}} GiB memory ({{source}})",
       "memoryWarning_one": "May exceed memory: about {{needed}} MB needed ({{count}} worker × ({{memoryMb}} + 150) MB + 1000 MB, plus 20%), assuming PostgreSQL runs on the same machine. You can still save.",
       "memoryWarning_other": "May exceed memory: about {{needed}} MB needed ({{count}} workers × ({{memoryMb}} + 150) MB + 1000 MB, plus 20%), assuming PostgreSQL runs on the same machine. You can still save.",
       "changes": {

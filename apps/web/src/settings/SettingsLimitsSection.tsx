@@ -21,7 +21,7 @@ import { effectiveWorkers, estimateParseMemoryMb, fromInput, toInput } from "./s
 import "@/i18n/management-strings";
 
 /** 這一頁的分類（`signIn` 在「登入」分頁）；註冊表裡沒有項目的分類不畫。 */
-const PAGE_CATEGORIES: readonly SiteLimitCategory[] = ["uploadsNotes", "parseWorkers", "rateLimits", "bulkTransfer"];
+export const PAGE_CATEGORIES: readonly SiteLimitCategory[] = ["uploadsNotes", "parseWorkers", "rateLimits", "bulkTransfer"];
 
 const MiB = 1024 * 1024;
 const GiB = 1024 * MiB;
@@ -36,7 +36,8 @@ export function serverErrorMessage(t: TFunction, err: unknown): string {
   return t("errors.fallback");
 }
 
-function categoryKeys(category: SiteLimitCategory): SiteLimitKey[] {
+/** 某分類在註冊表裡的 key（依註冊表順序）；「站台限制」與「登入」兩個分頁都由此取各自的區塊。 */
+export function categoryKeys(category: SiteLimitCategory): SiteLimitKey[] {
   return SITE_LIMIT_KEYS.filter((key) => SITE_LIMITS[key].category === category);
 }
 
@@ -63,7 +64,7 @@ function MemoryWarning({ data, draftOf }: { data: SiteLimitsDto; draftOf: (item:
   const needed = estimateParseMemoryMb(workers, memoryMb);
   if (needed <= data.machine.memoryBytes / MiB) return null;
   return (
-    <p className="text-sm text-amber-700 dark:text-amber-400">
+    <p role="status" className="text-sm text-amber-700 dark:text-amber-400">
       {t("admin.limits.memoryWarning", { needed: Math.round(needed), count: workers, memoryMb })}
     </p>
   );
@@ -73,7 +74,7 @@ function MachineLine({ machine }: { machine: SiteLimitsDto["machine"] }) {
   const { t } = useTranslation();
   const gib = machine.memoryBytes / GiB;
   const memory = Number.isInteger(gib) ? String(gib) : gib.toFixed(1);
-  return <p className="text-sm text-muted-foreground">{t("admin.limits.machine", { cpus: machine.cpus, memory, source: machine.memorySource })}</p>;
+  return <p className="text-sm text-muted-foreground">{t("admin.limits.machine", { count: machine.cpus, memory, source: machine.memorySource })}</p>;
 }
 
 /**
@@ -274,7 +275,7 @@ export function SettingsLimitsSection() {
         <p className="text-sm text-muted-foreground">{t("app.loading")}</p>
       </SettingsGroup>
     );
-  } else if (query.isError) {
+  } else if (query.data === undefined) {
     body = (
       <SettingsGroup>
         <p role="alert" className="text-sm text-destructive">

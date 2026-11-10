@@ -104,6 +104,8 @@ export function SiteLimitRow({ item, draft, onDraft, onReset, disabled, error }:
   const hintId = `${baseId}-hint`;
   const errorId = `${baseId}-error`;
   const autoId = `${baseId}-auto`;
+  const descriptionId = `${baseId}-description`;
+  const consequenceId = `${baseId}-consequence`;
   const { key } = item;
   const def = siteLimitDef(key);
   const autoCapable = def.default === "auto";
@@ -136,7 +138,9 @@ export function SiteLimitRow({ item, draft, onDraft, onReset, disabled, error }:
 
   const noteId = (index: number) => `${baseId}-note-${index}`;
   const describedBy = [
+    descriptionId,
     hintId,
+    ...(CONSEQUENCE_KEYS.has(key) ? [consequenceId] : []),
     ...(autoLabel !== null ? [autoId] : []),
     ...notes.map((_, index) => noteId(index)),
     ...(error ? [errorId] : []),
@@ -149,7 +153,9 @@ export function SiteLimitRow({ item, draft, onDraft, onReset, disabled, error }:
           <label id={labelId} htmlFor={inputId} className="text-sm font-medium">
             {t(`admin.limits.items.${key}.label`)}
           </label>
-          <p className="text-sm text-muted-foreground">{t(`admin.limits.items.${key}.description`)}</p>
+          <p id={descriptionId} className="text-sm text-muted-foreground">
+            {t(`admin.limits.items.${key}.description`)}
+          </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <Input
@@ -169,7 +175,11 @@ export function SiteLimitRow({ item, draft, onDraft, onReset, disabled, error }:
       <p id={hintId} className="text-xs text-muted-foreground">
         {hintText(t, key)}
       </p>
-      {CONSEQUENCE_KEYS.has(key) && <p className="text-xs text-muted-foreground">{t(`admin.limits.consequences.${key}`)}</p>}
+      {CONSEQUENCE_KEYS.has(key) && (
+        <p id={consequenceId} className="text-xs text-muted-foreground">
+          {t(`admin.limits.consequences.${key}`)}
+        </p>
+      )}
       {autoLabel !== null && (
         <p id={autoId} className="text-xs text-muted-foreground">
           {autoLabel}

@@ -45,10 +45,14 @@ afterEach(() => {
 });
 
 describe("站台限制 API hooks", () => {
-  it("GET /api/admin/limits；PATCH 成功後 cache 是回傳值，並失效 ['auth-config']", async () => {
+  it("GET /api/admin/limits；PATCH 成功後 cache 是回傳值，並失效 ['auth-config'] 與站台限制自己", async () => {
+    let saved = false;
     const calls = stubFetch({
-      "GET /api/admin/limits": () => fakeResponse(200, dto(30, null)),
-      "PATCH /api/admin/limits": () => fakeResponse(200, dto(10, 10)),
+      "GET /api/admin/limits": () => fakeResponse(200, saved ? dto(10, 10) : dto(30, null)),
+      "PATCH /api/admin/limits": () => {
+        saved = true;
+        return fakeResponse(200, dto(10, 10));
+      },
     });
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const read = renderHook(() => useSiteLimits(), { wrapper: wrapper(qc) });
@@ -56,8 +60,10 @@ describe("站台限制 API hooks", () => {
     const spy = vi.spyOn(qc, "invalidateQueries");
     const write = renderHook(() => useUpdateSiteLimits(), { wrapper: wrapper(qc) });
     await write.result.current.mutateAsync({ set: { rateEdit: 10 } });
-    expect(calls.at(-1)).toEqual({ method: "PATCH", url: "/api/admin/limits", body: { set: { rateEdit: 10 } } });
+    expect(calls.find((c) => c.method === "PATCH")).toEqual({ method: "PATCH", url: "/api/admin/limits", body: { set: { rateEdit: 10 } } });
     expect(qc.getQueryData(SITE_LIMITS_QUERY_KEY)).toEqual(dto(10, 10));
     expect(spy).toHaveBeenCalledWith({ queryKey: AUTH_CONFIG_QUERY_KEY });
+    expect(spy).toHaveBeenCalledWith({ queryKey: SITE_LIMITS_QUERY_KEY });
+    await waitFor(() => expect(calls.filter((c) => c.method === "GET")).toHaveLength(2));
   });
 });

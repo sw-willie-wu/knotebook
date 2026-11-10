@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { SITE_LIMIT_KEYS, SITE_LIMITS, type AdminAuthProviderDto, type SiteLimitItemDto, type SiteLimitKey, type SiteLimitsDto } from "@knotebook/shared";
+import type { AdminAuthProviderDto, SiteLimitItemDto, SiteLimitKey, SiteLimitsDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { copyText } from "@/lib/clipboard";
+import { SITE_LIMITS_QUERY_KEY } from "@/api/siteLimits";
+import { siteLimitsDto } from "@/test/site-limits-fixtures";
 import { SettingsAuthSection } from "./SettingsAuthSection";
 
 vi.mock("@/lib/clipboard", () => ({ copyText: vi.fn(async () => true) }));
@@ -54,15 +56,8 @@ const CUSTOM: AdminAuthProviderDto = {
   icon: { type: "builtin", name: "gitlab" },
 };
 
-/** 站台限制：「登入期限與 token」組只用到這兩項；其餘 15 項在這一頁不畫，給預設值即可。 */
-const LIMITS: SiteLimitsDto = {
-  items: SITE_LIMIT_KEYS.map((key): SiteLimitItemDto => {
-    const def = SITE_LIMITS[key].default;
-    return { key, value: def === "auto" ? 4 : def, source: "default", locked: false, stored: null };
-  }),
-  machine: { cpus: 8, cpuSource: "os", memoryBytes: 16 * 1024 ** 3, memorySource: "cgroup-v2" },
-  changes: [],
-};
+/** 站台限制：「登入期限與 token」組只用到這兩項，其餘照實放著。 */
+const LIMITS: SiteLimitsDto = siteLimitsDto();
 const limitsWith = (key: SiteLimitKey, patch: Partial<SiteLimitItemDto>): SiteLimitsDto => ({
   ...LIMITS,
   items: LIMITS.items.map((item) => (item.key === key ? { ...item, ...patch } : item)),
@@ -101,12 +96,14 @@ function fakeServer(initial: AdminAuthProviderDto[]) {
 
 function renderSection(fetchMock: ReturnType<typeof vi.fn>) {
   vi.stubGlobal("fetch", fetchMock);
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <QueryClientProvider client={queryClient}>
       <SettingsAuthSection />
       <Toaster />
     </QueryClientProvider>,
   );
+  return queryClient;
 }
 
 /** 一個登入服務＝以顯示名為名的資料列＋緊接的「＜名稱＞ details」明細列（spec 2026-10-13 settings-table §3 #4）。 */
@@ -675,6 +672,20 @@ describe("登入期限與 token 組", () => {
     fireEvent.click(g.getByRole("button", { name: "Save" }));
     expect(await g.findByRole("alert")).toHaveTextContent(/Enter a whole number from 1 to 720/);
     expect(patches(server)).toHaveLength(0);
+  });
+
+  it("已有資料時背景重抓失敗：輸入到一半的內容與整組都還在，不換成錯誤", async () => {
+    const server = fakeServer([CUSTOM]);
+    const queryClient = renderSection(server.fetchMock);
+    const g = await group();
+    fireEvent.change(g.input("Web sign-in lasts"), { target: { value: "24" } });
+    server.on((method, url) => (method === "GET" && url === "/api/admin/limits" ? fakeResponse(500, { error: { code: "internal", message: "x" } }) : null));
+    await queryClient.refetchQueries({ queryKey: SITE_LIMITS_QUERY_KEY });
+    await waitFor(() => expect(queryClient.getQueryState(SITE_LIMITS_QUERY_KEY)?.fetchStatus).toBe("idle"));
+    expect(queryClient.getQueryState(SITE_LIMITS_QUERY_KEY)?.status).toBe("error");
+    expect(screen.getByRole("region", { name: "Session and tokens" })).toBeInTheDocument();
+    expect(g.input("Web sign-in lasts")).toHaveValue("24");
+    expect(g.queryByRole("alert")).toBeNull();
   });
 
   it("中文標題「登入期限與 token」", async () => {
