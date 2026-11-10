@@ -13,6 +13,7 @@ import {
   useComponentsContext,
   useDictionary,
   useExtensionState,
+  type FloatingUIOptions,
   type SideMenuProps,
 } from "@blocknote/react";
 import { COLUMN_TYPE } from "@knotebook/shared";
@@ -83,6 +84,15 @@ export function KnotebookDragHandleMenu() {
   );
 }
 
+/**
+ * 給 `SideMenuController` 的 `floatingUIOptions`：⋮⋮ 外面那層 popover（floating-ui 的 div，與 ⋮⋮ 同大小、z-index 20）掛 data 屬性，
+ * 拖放中才關得到它的指標命中（`index.css` 的 `.kb-dragging`）。模組層常數：`SideMenuController` 的 `useMemo` 依賴它的身分。
+ * 不放 `style`：`SideMenuController` 是 `{ style: { zIndex: 20 }, ...elementProps }`，傳了 `style` 就整個蓋掉 z-index。
+ */
+export const SIDE_MENU_FLOATING_OPTIONS: Partial<FloatingUIOptions> = {
+  elementProps: { "data-kb-side-menu-popover": "" } as FloatingUIOptions["elementProps"],
+};
+
 /** block 在某欄裡（任一層祖先是 column，含欄內巢狀子 block）。 */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 泛型三元組（repo 慣例）
 function hasColumnAncestor(editor: BlockNoteEditor<any, any, any>, blockId: string): boolean {
@@ -101,9 +111,12 @@ export function KnotebookSideMenu(props: SideMenuProps) {
   const block = useExtensionState(SideMenuExtension, { editor, selector: (state) => state?.block });
   if (block !== undefined && hasColumnAncestor(editor, block.id)) {
     return (
-      <SideMenu {...props}>
-        <DragHandleButton {...props} dragHandleMenu={KnotebookDragHandleMenu} />
-      </SideMenu>
+      // 外包一層標記：`SideMenu` 的根 className 寫死、不收 props，拖放中關指標命中（`index.css` 的 `.kb-dragging`）要靠這個選得到。
+      <div data-kb-column-side-menu="">
+        <SideMenu {...props}>
+          <DragHandleButton {...props} dragHandleMenu={KnotebookDragHandleMenu} />
+        </SideMenu>
+      </div>
     );
   }
   return <SideMenu {...props} dragHandleMenu={KnotebookDragHandleMenu} />;

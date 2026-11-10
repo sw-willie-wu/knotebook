@@ -298,7 +298,8 @@
     "columns": {
       "slashTitle": "並排 {{n}} 欄",
       "slashSubtext": "把內容分成左右並排的幾欄",
-      "ungroup": "取消並排"
+      "ungroup": "取消並排",
+      "resize": "調整欄寬"
     }
   },
   "login": {
