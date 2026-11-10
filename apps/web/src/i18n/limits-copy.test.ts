@@ -82,7 +82,7 @@ describe("主檔", () => {
 const LABELS: Record<string, [string, string]> = {
   uploadMaxBytes: ["Upload size limit", "上傳檔案大小上限"],
   noteMaxBytes: ["Note size limit", "筆記大小上限"],
-  parseWorkers: ["Parse workers", "解析 worker 數"],
+  parseWorkers: ["Number of parse workers","解析 worker 數"],
   parseWorkerMemoryMb: ["Memory per worker", "每個 worker 記憶體上限"],
   parseTimeoutMs: ["Parse time limit", "解析時限"],
   parseQueueWaitMs: ["Longest wait for a worker", "排隊最長等待"],

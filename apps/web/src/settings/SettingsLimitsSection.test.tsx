@@ -93,7 +93,7 @@ describe("SettingsLimitsSection（站台限制分頁）", () => {
     await loaded();
     expect(row("Note size limit").getByText("Default 5 MiB · Range 1–5 MiB")).toBeInTheDocument();
     expect(row("Parse time limit").getByText("Default 10 seconds · Range 4–10 seconds")).toBeInTheDocument();
-    expect(row("Parse workers").getByText("Default auto · Range 1–4 workers")).toBeInTheDocument();
+    expect(row("Number of parse workers").getByText("Default auto · Range 1–4 workers")).toBeInTheDocument();
     expect(row("API and MCP reads").getByText("Default 300 times · Range 30–300 times · per minute")).toBeInTheDocument();
     expect(row("API and MCP writes").getByText("Default 60 times · Range 6–60 times · per 10 minutes")).toBeInTheDocument();
     expect(row("Bulk downloads").getByText("Default 10 times · Range 1–10 times · per hour")).toBeInTheDocument();
@@ -148,19 +148,19 @@ describe("SettingsLimitsSection（站台限制分頁）", () => {
   it("env 的 worker 數 8（env 可給、超出管理頁範圍）→ 顯示 8、單位是 workers、標超出範圍", async () => {
     setup({ data: dto({ parseWorkers: { value: 8, source: "env", locked: true } }) });
     await loaded();
-    expect(field("Parse workers")).toHaveValue("8");
-    expect(row("Parse workers").getByText("workers")).toBeInTheDocument();
-    expect(row("Parse workers").queryByText("times")).not.toBeInTheDocument();
-    expect(row("Parse workers").getByText("Outside the range this page can set.")).toBeInTheDocument();
+    expect(field("Number of parse workers")).toHaveValue("8");
+    expect(row("Number of parse workers").getByText("workers")).toBeInTheDocument();
+    expect(row("Number of parse workers").queryByText("times")).not.toBeInTheDocument();
+    expect(row("Number of parse workers").getByText("Outside the range this page can set.")).toBeInTheDocument();
   });
 
   it("單位分單複數：值是 1 時框旁是單數", async () => {
     setup({ data: dto({ parseWorkers: { value: 1, source: "admin", stored: 1 }, rateTransferExport: { value: 1, source: "admin", stored: 1 } }) });
     await loaded();
-    expect(row("Parse workers").getByText("worker")).toBeInTheDocument();
+    expect(row("Number of parse workers").getByText("worker")).toBeInTheDocument();
     expect(row("Bulk downloads").getByText("time")).toBeInTheDocument();
-    fireEvent.change(field("Parse workers"), { target: { value: "3" } });
-    expect(row("Parse workers").getByText("workers")).toBeInTheDocument();
+    fireEvent.change(field("Number of parse workers"), { target: { value: "3" } });
+    expect(row("Number of parse workers").getByText("workers")).toBeInTheDocument();
   });
 
   it("env 鎖住但管理頁也存了值 → 「管理頁存的值 X 不會生效」", async () => {
@@ -182,13 +182,13 @@ describe("SettingsLimitsSection（站台限制分頁）", () => {
   it("自動項：輸入框空白、placeholder 是自動值、標「自動：N（依 CPU）」", async () => {
     setup({ data: dto() });
     await loaded();
-    expect(field("Parse workers")).toHaveValue("");
-    expect(field("Parse workers")).toHaveAttribute("placeholder", "4");
-    expect(row("Parse workers").getByText("Auto: 4 (based on CPUs)")).toBeInTheDocument();
+    expect(field("Number of parse workers")).toHaveValue("");
+    expect(field("Number of parse workers")).toHaveAttribute("placeholder", "4");
+    expect(row("Number of parse workers").getByText("Auto: 4 (based on CPUs)")).toBeInTheDocument();
     expect(field("Longest wait for a worker")).toHaveValue("");
     expect(field("Longest wait for a worker")).toHaveAttribute("placeholder", "45");
     expect(row("Longest wait for a worker").getByText("Auto: 45 seconds")).toBeInTheDocument();
-    expect(field("Parse workers")).toHaveAccessibleDescription(/Auto: 4 \(based on CPUs\)/);
+    expect(field("Number of parse workers")).toHaveAccessibleDescription(/Auto: 4 \(based on CPUs\)/);
   });
 
   it("自動值沒對齊輸入刻度 → 不放 placeholder，原值寫在「自動：…」", async () => {
@@ -201,7 +201,7 @@ describe("SettingsLimitsSection（站台限制分頁）", () => {
   it("自動項依記憶體 → 「依記憶體」", async () => {
     setup({ data: dto({ parseWorkers: { value: 2, autoValue: 2, autoSource: "memory" } }) });
     await loaded();
-    expect(row("Parse workers").getByText("Auto: 2 (based on memory)")).toBeInTheDocument();
+    expect(row("Number of parse workers").getByText("Auto: 2 (based on memory)")).toBeInTheDocument();
   });
 
   it("storedIgnored → 「存的值 X 超出目前範圍，未套用」", async () => {
@@ -241,8 +241,8 @@ describe("SettingsLimitsSection（站台限制分頁）", () => {
   it("自動項打了值又清空 → 不送那個 key、沒有錯誤；只送變更過的 key（以 API 單位）", async () => {
     const { patches } = setup({ data: dto() });
     await loaded();
-    fireEvent.change(field("Parse workers"), { target: { value: "2" } });
-    fireEvent.change(field("Parse workers"), { target: { value: "" } });
+    fireEvent.change(field("Number of parse workers"), { target: { value: "2" } });
+    fireEvent.change(field("Number of parse workers"), { target: { value: "" } });
     fireEvent.change(field("Parse time limit"), { target: { value: "8" } });
     fireEvent.click(block("Parse workers").getByRole("button", { name: "Save" }));
     await waitFor(() => expect(patches()).toEqual([{ set: { parseTimeoutMs: 8_000 } }]));
@@ -253,8 +253,8 @@ describe("SettingsLimitsSection（站台限制分頁）", () => {
   it("已調整的自動項清空後儲存 → 送 null（改回自動）、沒有驗證錯誤", async () => {
     const { patches } = setup({ data: dto({ parseWorkers: { value: 2, source: "admin", stored: 2 } }) });
     await loaded();
-    expect(field("Parse workers")).toHaveValue("2");
-    fireEvent.change(field("Parse workers"), { target: { value: "" } });
+    expect(field("Number of parse workers")).toHaveValue("2");
+    fireEvent.change(field("Number of parse workers"), { target: { value: "" } });
     fireEvent.click(block("Parse workers").getByRole("button", { name: "Save" }));
     await waitFor(() => expect(patches()).toEqual([{ set: { parseWorkers: null } }]));
     expect(block("Parse workers").queryByRole("alert")).not.toBeInTheDocument();
@@ -274,7 +274,7 @@ describe("SettingsLimitsSection（站台限制分頁）", () => {
   it("自動項輸入了值 → 送那個值", async () => {
     const { patches } = setup({ data: dto() });
     await loaded();
-    fireEvent.change(field("Parse workers"), { target: { value: "2" } });
+    fireEvent.change(field("Number of parse workers"), { target: { value: "2" } });
     fireEvent.click(block("Parse workers").getByRole("button", { name: "Save" }));
     await waitFor(() => expect(patches()).toEqual([{ set: { parseWorkers: 2 } }]));
   });
@@ -289,11 +289,11 @@ describe("SettingsLimitsSection（站台限制分頁）", () => {
     await loaded();
     expect(row("Searches").getByText("Adjusted")).toBeInTheDocument();
     expect(field("Searches")).toHaveValue("30");
-    expect(row("Parse workers").queryByRole("button", { name: "Restore default" })).not.toBeInTheDocument();
+    expect(row("Number of parse workers").queryByRole("button", { name: "Restore default" })).not.toBeInTheDocument();
     expect(row("Note size limit").queryByRole("button")).not.toBeInTheDocument();
     fireEvent.click(row("Searches").getByRole("button", { name: "Restore default" }));
     await waitFor(() => expect(patches()).toEqual([{ set: { rateSearch: null } }]));
-    fireEvent.click(row("Parse workers").getByRole("button", { name: "Back to auto" }));
+    fireEvent.click(row("Number of parse workers").getByRole("button", { name: "Back to auto" }));
     await waitFor(() => expect(patches()).toEqual([{ set: { rateSearch: null } }, { set: { parseWorkers: null } }]));
   });
 
@@ -373,7 +373,7 @@ describe("SettingsLimitsSection（站台限制分頁）", () => {
     expect(row("Parse time limit").getByText(/^Lowering this may reject writes of densely formatted content/)).toBeInTheDocument();
     expect(row("Memory per worker").getByText(/^Lowering this may reject densely formatted content \(measured at 640–768 MiB\)/)).toBeInTheDocument();
     expect(row("Longest wait for a worker").getByText(/^If this is shorter than 4 × the parse time limit \+ 5 seconds/)).toBeInTheDocument();
-    expect(row("Parse workers").queryByText(/^Lowering this/)).not.toBeInTheDocument();
+    expect(row("Number of parse workers").queryByText(/^Lowering this/)).not.toBeInTheDocument();
     expect(row("Note size limit").queryByText(/^Lowering this/)).not.toBeInTheDocument();
   });
 
@@ -424,7 +424,7 @@ describe("SettingsLimitsSection（站台限制分頁）", () => {
     expect(text[0]).toContain("Note size limit");
     expect(text[0]).toContain("default (5 MiB) → 2 MiB");
     expect(text[1]).toContain("Account no longer exists");
-    expect(text[1]).toContain("Parse workers");
+    expect(text[1]).toContain("Number of parse workers");
     expect(text[1]).toContain("2 workers → auto (4 workers)");
     expect(text[2]).toContain("auto (45 seconds) → 30 seconds");
     expect(text[3]).toContain("bogusKey");

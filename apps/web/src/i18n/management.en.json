@@ -188,7 +188,7 @@
           "description": "Largest size of one note's content. Applies to the next write."
         },
         "parseWorkers": {
-          "label": "Parse workers",
+          "label": "Number of parse workers",
           "description": "How many workers, at the same time, turn Markdown written over the API or MCP into note content and turn notes into Markdown for reading. Leave empty to size it automatically from this server."
         },
         "parseWorkerMemoryMb": {

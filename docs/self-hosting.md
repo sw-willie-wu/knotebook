@@ -188,7 +188,7 @@ Apart from the number of parse workers, the memory per worker and the sign-in pe
 |---|---|---|---|---|
 | Upload size limit | 10 MiB | 1–10 MiB | the next upload | Site limits |
 | Note size limit | 5 MiB | 1–5 MiB | the next write's check | Site limits |
-| Parse workers | automatic (see [Parse workers](#parse-workers)) | 1–4 | right away: workers start or stop, a busy one stops when its job is done | Site limits |
+| Number of parse workers | automatic (see [Parse workers](#parse-workers)) | 1–4 | right away: workers start or stop, a busy one stops when its job is done | Site limits |
 | Memory per worker | 1024 MiB | 512–3072 MiB | all existing workers are replaced (an idle one at once, a busy one when its job is done) | Site limits |
 | Parse time limit | 10 seconds | 4–10 seconds | jobs handed to a worker afterwards | Site limits |
 | Longest wait for a worker | automatic: 4 × the time limit + 5 seconds (45 seconds by default) | 5–45 seconds | jobs that start waiting afterwards | Site limits |

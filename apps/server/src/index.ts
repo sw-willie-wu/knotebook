@@ -18,6 +18,7 @@ import { buildApp } from "./app.js";
 import { createAiRuntime, selfCheckAiKeys } from "./ai/runtime.js";
 import { backfillSearchIndex } from "./notes/search-index.js";
 import { logNotesOverCap, watchNotesOverCap } from "./notes/note-size-startup.js";
+import { redactDbError } from "./lib/redact-db-error.js";
 import { SiteLimits } from "./site-limits/store.js";
 import { parseSettingsLogFields } from "./site-limits/boot-log.js";
 
@@ -115,7 +116,9 @@ async function main(): Promise<void> {
   try {
     siteLimits = await SiteLimits.load(db, { limitEnv: config.limitEnv, machine: config.machine, log: logger });
   } catch (err) {
-    logger.error({ err }, "site limits load failed — check DATABASE_URL and that migration 0039 (site_limits) ran");
+    // 不記整個 err（DrizzleQueryError 的 message 與 params 帶查詢參數）；只記 SQLSTATE／constraint
+    redactDbError(logger, err, "載入站台限制");
+    logger.error("請確認 DATABASE_URL 可連線，且 migration 0039（site_limits）已執行");
     process.exit(1);
   }
   // #398／#397：markdown 解析 worker 的生效值（各值的 `from`：env／admin（管理頁）／default／auto；worker 數自動時依 CPU 與記憶體
