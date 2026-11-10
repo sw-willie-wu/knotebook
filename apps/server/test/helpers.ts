@@ -341,8 +341,14 @@ export function freshLimiters(overrides: Partial<Limiters> = {}): Partial<Limite
  * 相反：runtime 沒有跨測試會互相汙染的計數語意，而每個測試各建一份 jsdom 就是每次
  * `installGlobals()` 重掛全域 window／document——同檔案內先前建好的 editor 會被抽掉腳下的
  * window（Task 2 的 m2 觀察），且每份殘留約 0.53 MB。
+ *
+ * #397：pool 的設定取站台預設（在任何 DB 之前建，所以用 `SiteLimits.defaults`），而且**永遠不跟著任何 app 的 `siteLimits` 改**——
+ * 它跨多個 app 共用，一個 app 的 PATCH 不能改到別的測試的 pool。`buildTestApp`／`buildCollabTestApp` 在 `editing` 是它（含沒給、
+ * 預設用它）時拒絕 `editingFollowsSiteLimits: true`；要測 pool 跟著改的測試自己建 runtime。
  */
-export const testEditingRuntime = createEditingRuntime(testConfig);
+export const testEditingRuntime = createEditingRuntime(testConfig, SiteLimits.defaults({ machine: testConfig.machine }).parseLimits());
+
+const SHARED_RUNTIME_FOLLOW_ERROR = "testEditingRuntime is shared; pass your own editing runtime to follow site limits";
 
 /**
  * 建一個掛好預設 deps（freshDb + 真 UserGate/LoginThrottle + noop collab hooks）的
@@ -359,6 +365,7 @@ export const testEditingRuntime = createEditingRuntime(testConfig);
  * 這三樣在其餘 `overrides` 之後才放，不會再被蓋掉——鎖定狀態（`config.limitEnv`）與 DB 都只有一個來源。
  */
 export async function buildTestApp(overrides: Partial<AppDeps> = {}, options: BuildAppOptions = {}): Promise<TestApp> {
+  if (overrides.editing === testEditingRuntime && overrides.editingFollowsSiteLimits === true) throw new Error(SHARED_RUNTIME_FOLLOW_ERROR);
   const { config: configOverride, db: dbOverride, siteLimits: siteLimitsOverride, ...rest } = overrides;
   const config = configOverride ?? testConfig;
   const fresh = dbOverride ? null : await freshDb();
@@ -521,10 +528,17 @@ export async function buildCollabTestApp(
     db?: Db;
     /** #398：換掉共用的 `testEditingRuntime`（例：小時限、小排隊上限的 parse pool）。由呼叫端自己 `close()`。 */
     editing?: EditingRuntime;
+    /**
+     * #397：`editing` 跟著這個 app 的 `siteLimits` 改（語意見 `AppDeps.editingFollowsSiteLimits`）。只能配自己建的 runtime：
+     * `editing` 沒給或就是 `testEditingRuntime` 時給 `true` 直接丟錯（共用的 runtime 不能被任何一個 app 改設定）。
+     */
+    editingFollowsSiteLimits?: boolean;
     /** #397：換掉 harness 自己 `load` 的那份（預設用本 app 的 `config`／`db` 載入，見 `buildTestApp`）。 */
     siteLimits?: SiteLimits;
   } = {}
 ): Promise<CollabTestCtx> {
+  const editing = opts.editing ?? testEditingRuntime;
+  if (editing === testEditingRuntime && opts.editingFollowsSiteLimits === true) throw new Error(SHARED_RUNTIME_FOLLOW_ERROR);
   // #397 §13.4：先決定 app 實際用的 `config`、`db`，再用這兩樣 `load`（同 `buildTestApp`）。
   const config = opts.config ?? testConfig;
   const { db } = opts.db ? { db: opts.db } : await freshDb();
@@ -559,7 +573,8 @@ export async function buildCollabTestApp(
     throttle: new LoginThrottle(),
     collabHooks: opts.collabHooks ? opts.collabHooks(collab, collabLog) : noopCollabHooks,
     collab,
-    editing: opts.editing ?? testEditingRuntime,
+    editing,
+    editingFollowsSiteLimits: opts.editingFollowsSiteLimits === true,
     limiters: freshLimiters(opts.limiters),
     editingTestHooks: opts.editingTestHooks,
     shownLinks: opts.shownLinks,

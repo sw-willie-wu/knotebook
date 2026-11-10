@@ -1,11 +1,12 @@
 /**
- * #398：parse worker 的四個站台設定（環境變數 `PARSE_WORKERS`、`PARSE_WORKER_MEMORY_MB`、`PARSE_TIMEOUT_MS`、`PARSE_QUEUE_WAIT_MS`）
- * 的預設、範圍、CPU 與記憶體偵測。`config.ts` 開機時呼叫 {@link resolveParseSettings}；pool 吃 {@link ParseLimits}（`ParsePool.configure`
- * 可在執行期換，給 #397 的管理頁用）。換算方法與建議值表在 `docs/self-hosting.md`「Parse workers」。
+ * #398：parse worker 的四個設定（{@link ParseLimits}）——預設、環境變數（`PARSE_WORKERS`、`PARSE_WORKER_MEMORY_MB`、`PARSE_TIMEOUT_MS`、
+ * `PARSE_QUEUE_WAIT_MS`）的解析與範圍、CPU 與記憶體偵測。`config.ts` 開機時呼叫 {@link parseEnvLimits}（env 有設的值）與
+ * {@link detectMachine}（機器資訊）；生效值（env＞管理頁存的值＞預設／自動）由 `SiteLimits` 算（`site-limits/`，#397），
+ * pool 吃 `SiteLimits.parseLimits()`。換算方法與建議值表在 `docs/self-hosting.md`「Parse workers」。
  */
 import { readFileSync } from "node:fs";
 import { availableParallelism, totalmem } from "node:os";
-import { AUTO_PARSE_WORKERS_MAX, PARSE_MEMORY_SHARE, SITE_LIMITS, defaultParseWorkers, memoryParseWorkers } from "@knotebook/shared";
+import { AUTO_PARSE_WORKERS_MAX, PARSE_MEMORY_SHARE, SITE_LIMITS, defaultParseWorkers, memoryParseWorkers, siteLimitDef, type SiteLimitKey } from "@knotebook/shared";
 import type { LimitEnv, MachineInfo } from "../../site-limits/types.js";
 
 // #397 §6.3：自動推算的純函式與常數搬到 shared（前端公式警告共用）；這裡 re-export，server 既有的 import 不必改。
@@ -117,33 +118,28 @@ export function detectMemoryLimit(probe: CpuProbe = {}): { bytes: number; source
   return { bytes: (probe.totalmem ?? totalmem)(), source: "os" };
 }
 
-export interface ResolvedParseSettings extends ParseLimits {
-  /** 每個值是環境變數給的還是預設（`workers` 的預設是推算的）。 */
-  from: Record<keyof ParseLimits, "env" | "default">;
-  /** worker 數怎麼來的：環境變數、依 CPU、或依記憶體（兩者推算取小，記憶體那邊比較小時是 `memory`）。 */
-  workersSource: "env" | "cpu" | "memory";
-  cpus: number;
-  cpuSource: CpuSource;
-  /** 偵測到的可用記憶體（bytes）與來源。 */
-  memoryBytes: number;
-  memorySource: MemorySource;
-}
+/** 四項在站台限制註冊表裡的 key。 */
+const ENV_LIMIT_KEYS = { workers: "parseWorkers", workerMemoryMb: "parseWorkerMemoryMb", timeoutMs: "parseTimeoutMs", queueWaitMs: "parseQueueWaitMs" } as const satisfies Record<keyof ParseLimits, SiteLimitKey>;
+type ParseLimitKey = (typeof ENV_LIMIT_KEYS)[keyof ParseLimits];
 
-const ENV_NAMES: Record<keyof ParseLimits, string> = {
-  workers: "PARSE_WORKERS",
-  workerMemoryMb: "PARSE_WORKER_MEMORY_MB",
-  timeoutMs: "PARSE_TIMEOUT_MS",
-  queueWaitMs: "PARSE_QUEUE_WAIT_MS",
-};
+/** 解析 pool 的四個站台限制 key（`buildApp` 據此判斷 `siteLimits.onChange` 要不要 `configure` pool）。 */
+export const PARSE_LIMIT_KEYS: readonly ParseLimitKey[] = Object.freeze(Object.values(ENV_LIMIT_KEYS));
 
-const ENV_LIMIT_KEYS = { workers: "parseWorkers", workerMemoryMb: "parseWorkerMemoryMb", timeoutMs: "parseTimeoutMs", queueWaitMs: "parseQueueWaitMs" } as const;
+/** 四項的 env 名，取自註冊表（`siteLimitDef(key).env`），不另寫一份。 */
+const ENV_NAMES = Object.fromEntries(
+  (Object.keys(ENV_LIMIT_KEYS) as Array<keyof ParseLimits>).map(key => {
+    const env = siteLimitDef(ENV_LIMIT_KEYS[key]).env;
+    if (env === undefined) throw new Error(`parse-settings: registry entry ${ENV_LIMIT_KEYS[key]} has no env`);
+    return [key, env];
+  })
+) as Record<keyof ParseLimits, string>;
 
 /**
- * #397：四個 `PARSE_*` 環境變數 → 站台限制 key 的值（只放有設的；空字串＝沒設）。不合法（非整數、超出 {@link PARSE_LIMIT_RANGES}）
- * 丟 `設定錯誤：…`（開機 fail fast）。
+ * #397：四個 `PARSE_*` 環境變數 → 站台限制 key 的值（只放有設的；空字串＝沒設；前後空白容許）。不合法（非整數、超出
+ * {@link PARSE_LIMIT_RANGES}）丟 `設定錯誤：…`（開機 fail fast）。
  */
-export function parseEnvLimits(env: NodeJS.ProcessEnv): Pick<LimitEnv, "parseWorkers" | "parseWorkerMemoryMb" | "parseTimeoutMs" | "parseQueueWaitMs"> {
-  const out: Pick<LimitEnv, "parseWorkers" | "parseWorkerMemoryMb" | "parseTimeoutMs" | "parseQueueWaitMs"> = {};
+export function parseEnvLimits(env: NodeJS.ProcessEnv): Pick<LimitEnv, ParseLimitKey> {
+  const out: Pick<LimitEnv, ParseLimitKey> = {};
   for (const key of Object.keys(ENV_NAMES) as Array<keyof ParseLimits>) {
     const raw = env[ENV_NAMES[key]];
     if (raw === undefined || raw === "") continue;
@@ -160,35 +156,4 @@ export function detectMachine(probe?: CpuProbe): MachineInfo {
   const { cpus, source } = detectCpuCount(probe);
   const memory = detectMemoryLimit(probe);
   return { cpus, cpuSource: source, memoryBytes: memory.bytes, memorySource: memory.source };
-}
-
-/** 環境變數 → 生效值。不合法（非整數、超出 {@link PARSE_LIMIT_RANGES}）丟 `設定錯誤：…`（開機 fail fast）；空字串＝沒設。 */
-export function resolveParseSettings(env: NodeJS.ProcessEnv, probe?: CpuProbe): ResolvedParseSettings {
-  const { cpus, source } = detectCpuCount(probe);
-  const memory = detectMemoryLimit(probe);
-  const defaults: ParseLimits = {
-    workers: defaultParseWorkers(cpus),
-    workerMemoryMb: DEFAULT_PARSE_WORKER_MEMORY_MB,
-    timeoutMs: DEFAULT_PARSE_TIMEOUT_MS,
-    queueWaitMs: DEFAULT_PARSE_QUEUE_WAIT_MS,
-  };
-  const out = { ...defaults };
-  const from = { workers: "default", workerMemoryMb: "default", timeoutMs: "default", queueWaitMs: "default" } as ResolvedParseSettings["from"];
-  const fromEnv = parseEnvLimits(env);
-  for (const key of Object.keys(ENV_NAMES) as Array<keyof ParseLimits>) {
-    const value = fromEnv[ENV_LIMIT_KEYS[key]];
-    if (value === undefined) continue;
-    out[key] = value;
-    from[key] = "env";
-  }
-  // 排隊等待的預設跟著生效的時限走（見 DEFAULT_PARSE_QUEUE_WAIT_MS）。
-  if (from.queueWaitMs === "default") out.queueWaitMs = Math.min(PARSE_LIMIT_RANGES.queueWaitMs.max, QUEUE_WAIT_TIMEOUT_FACTOR * out.timeoutMs + QUEUE_WAIT_SLACK_MS);
-  // worker 數的預設：依 CPU 與依記憶體（用生效的每個 worker 上限算）取小。明設 `PARSE_WORKERS` 就照它。
-  let workersSource: ResolvedParseSettings["workersSource"] = "env";
-  if (from.workers === "default") {
-    const byMemory = memoryParseWorkers(memory.bytes, out.workerMemoryMb);
-    workersSource = byMemory < out.workers ? "memory" : "cpu";
-    out.workers = Math.min(out.workers, byMemory);
-  }
-  return { ...out, from, workersSource, cpus, cpuSource: source, memoryBytes: memory.bytes, memorySource: memory.source };
 }

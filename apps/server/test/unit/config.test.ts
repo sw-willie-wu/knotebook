@@ -25,9 +25,7 @@ describe("loadConfig", () => {
       databasePoolConnectionTimeoutMs: 10000,
       testHooks: false,
       testHooksIgnored: false,
-      // #398：parse worker 設定（worker 數依這台機器的 CPU 推算，見 parse-settings.test.ts）
-      parse: expect.objectContaining({ workerMemoryMb: 1024, timeoutMs: 10000, queueWaitMs: 45000 }),
-      // #397：env 設的站台限制、機器資訊
+      // #397：env 設的站台限制、機器資訊（解析 worker 的生效值由 SiteLimits 算，不在 config 裡）
       limitEnv: {},
       machine: expect.objectContaining({ cpus: expect.any(Number) }),
     });

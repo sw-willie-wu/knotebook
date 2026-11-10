@@ -16,6 +16,7 @@ import { patchJsdomForLargeTrees } from "./jsdom-perf.js";
 import { DOC_INLINE_MAX_BYTES, DOC_TIMEOUT_FACTOR, docWeight, executeDocOp, type AskFn, type DocOp, type DocOpOf, type DocResults, type DocTooComplex } from "./doc-jobs.js";
 import { InlineMarkdownParser, type MarkdownParser } from "./parse-core.js";
 import { ParsePool, type PoolLog } from "./parse-pool.js";
+import type { ParseLimits } from "./parse-settings.js";
 
 export interface EditingRuntimeOptions {
   baseUrl: string;
@@ -182,10 +183,13 @@ export class EditingRuntime {
   }
 }
 
-/** 生產（`buildApp`）與整合測試的 runtime：解析一律走 worker pool（#398，設定取自 `config.parse`）。`close()` 收掉 pool。 */
-export function createEditingRuntime(config: AppConfig, log?: PoolLog): EditingRuntime {
+/**
+ * 生產（`buildApp`）與整合測試的 runtime：解析一律走 worker pool（#398）。`limits` 是 pool 的初始設定（`buildApp` 傳
+ * `siteLimits.parseLimits()`；之後的變動由 `buildApp` 訂閱 `siteLimits.onChange` 再 `configure`）。`close()` 收掉 pool。
+ */
+export function createEditingRuntime(config: AppConfig, limits: ParseLimits, log?: PoolLog): EditingRuntime {
   const baseUrl = `${publicUrlIssuer(config.publicUrl)}/`;
-  const { workers, workerMemoryMb, timeoutMs, queueWaitMs } = config.parse;
+  const { workers, workerMemoryMb, timeoutMs, queueWaitMs } = limits;
   const rt = new EditingRuntime({ baseUrl, parser: new ParsePool({ baseUrl, workers, workerMemoryMb, timeoutMs, queueWaitMs, log }) });
   rt.installGlobals();
   return rt;

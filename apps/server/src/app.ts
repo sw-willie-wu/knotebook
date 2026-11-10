@@ -70,6 +70,7 @@ import { createOidcRuntimeRegistry, type OidcRuntimeRegistry } from "./auth/oidc
 import type { OidcTestHook } from "./auth/oidc-test-hook.js";
 import type { AdminTestHook } from "./auth/admin-test-hook.js";
 import { createEditingRuntime, type EditingRuntime } from "./notes/editing/runtime.js";
+import { PARSE_LIMIT_KEYS } from "./notes/editing/parse-settings.js";
 import type { EditingTestHooks } from "./notes/editing/apply.js";
 import { PresenceRegistry, type PresenceOptions } from "./notes/editing/presence.js";
 import { NoteWriteService } from "./notes/editing/write-service.js";
@@ -146,6 +147,11 @@ export interface AppDeps {
    * 整合測試注入共用的 `testEditingRuntime`（`test/helpers.ts`），避免每個 app 各建一份。
    */
   editing?: EditingRuntime;
+  /**
+   * #397：注入的 `editing` 要不要跟著這個 app 的 `siteLimits` 改解析 pool 的設定（訂閱 `onChange`、`onClose` 解除）。
+   * **預設不訂閱**：注入者自己管那份 runtime。`buildApp` 自己建的 runtime 不看這個旗標，一律訂閱。
+   */
+  editingFollowsSiteLimits?: boolean;
   /**
    * 節流器（29 顆，型別 `Limiters` 在 `http/limiters.ts`）。**選配、可只給幾顆**：`buildApp` 以 `mergeLimiters` 合併——
    * 20 顆固定的桶由 `buildFixedLimiters()` 建，9 顆站台可調的桶由 `buildAdjustableLimiters(deps.siteLimits)` 建
@@ -751,12 +757,23 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   // 瀏覽器嗅探在那些 process 裡失守）。有 collab 就一定有 runtime，兩者同生同滅＝路由要嘛
   // 兩個依賴都在、要嘛整條不註冊（見 `notesRoutes` 內的註冊閘門）。
   const ownEditing = deps.collab !== undefined && deps.editing === undefined;
-  const editing = deps.collab ? (deps.editing ?? createEditingRuntime(deps.config, app.log)) : undefined;
-  // #398：自己建的 runtime 帶著解析的 worker pool，關 app 時一併終止（注入的那份由注入者管——整合測試的共用 runtime 跨多個 app）。
-  if (ownEditing && editing) {
-    app.addHook("onClose", async () => {
-      await editing.close();
-    });
+  const editing = deps.collab ? (deps.editing ?? createEditingRuntime(deps.config, deps.siteLimits.parseLimits(), app.log)) : undefined;
+  if (editing) {
+    // #397：解析 pool 跟著站台限制改——自己建的 runtime 一律訂閱；注入的只在 `editingFollowsSiteLimits` 時訂閱（注入者自己管那份
+    // runtime，整合測試的共用 runtime 跨多個 app，不能被任何一個 app 改設定）。四項（含連帶變的自動值）任一有變才 `configure`。
+    const offSiteLimits =
+      ownEditing || deps.editingFollowsSiteLimits === true
+        ? deps.siteLimits.onChange(keys => {
+            if (PARSE_LIMIT_KEYS.some(k => keys.has(k))) editing.parser.configure?.(deps.siteLimits.parseLimits());
+          })
+        : null;
+    // #398：自己建的 runtime 帶著解析的 worker pool，關 app 時一併終止（注入的那份由注入者管）。先解除訂閱再關。
+    if (offSiteLimits !== null || ownEditing) {
+      app.addHook("onClose", async () => {
+        offSiteLimits?.();
+        if (ownEditing) await editing.close();
+      });
+    }
   }
 
   // #138：AI presence。沒有 collab 時建的是全 no-op 空殼（每個方法都會在 `hocuspocus`
