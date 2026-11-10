@@ -3,7 +3,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import type { GroupDto, GroupRoleDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { dismissAllToasts } from "@/components/ui/toast";
-import { ADMIN_ROLE, GROUP_ADMIN, GROUP_CO_ADMIN, GROUP_MEMBER, ME, MEMBER_ROLE, ROLES, callsTo, fail, fakeResponse, groupFetch, member, ok, renderGroupRoute } from "./group-test-utils";
+import { ADMIN_ROLE, BG_NOTE, GROUP_ADMIN, GROUP_CO_ADMIN, GROUP_MEMBER, ME, MEMBER_ROLE, ROLES, callsTo, fail, fakeResponse, groupFetch, locationText, member, ok, renderGroupRoute } from "./group-test-utils";
 
 // 群組 modal「成員」（`/groups/:id`，#247 §6.2）：案子逐案搬自 main 版 `settings/SettingsGroupDetailSection.test.tsx`
 // （#103 spec §8.4；#175 spec §8.5）。背景側欄的群組分段吃同一份 `useGroups()` 快取會渲染同樣的群組名字——
@@ -251,9 +251,9 @@ describe("GroupMembersSection（/groups/:id，#247 §6.2）", () => {
     await waitFor(() => expect(callsTo(fetchMock, "PATCH", patchUrl)).toHaveLength(1));
     expect(JSON.parse(String(callsTo(fetchMock, "PATCH", patchUrl)[0].body))).toEqual({ roleId: ADMIN_ROLE.id });
 
-    // 移除：無確認對話框，點了就直接 DELETE。
+    // 移除：先出確認（#395），確認後才 DELETE。
     fireEvent.click(within(dialog).getByRole("button", { name: "Remove bob@example.com" }));
-    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Remove member?" })).getByRole("button", { name: "Remove" }));
     await waitFor(() => expect(callsTo(fetchMock, "DELETE", `/api/groups/${GROUP_CO_ADMIN.id}/members/u-bob`)).toHaveLength(1));
     await waitFor(() => expect(within(dialog).queryByText("bob@example.com")).not.toBeInTheDocument());
   });
@@ -339,6 +339,77 @@ describe("GroupMembersSection（/groups/:id，#247 §6.2）", () => {
     expect(within(dialog2).queryByLabelText(/Role for/)).not.toBeInTheDocument();
     expect(within(dialog2).queryByRole("button", { name: /Remove/ })).not.toBeInTheDocument();
     expect(within(dialog2).queryByLabelText("Email address")).not.toBeInTheDocument();
+  });
+
+  describe("#395 移除成員的二次確認", () => {
+    const BOB = member("u-bob", "bob@example.com", "Bob", MEMBER_ROLE);
+    const bobUrl = `/api/groups/${GROUP_CO_ADMIN.id}/members/u-bob`;
+    const meUrl = `/api/groups/${GROUP_CO_ADMIN.id}/members/${ME.id}`;
+
+    function setup(entry: string | { pathname: string; state?: unknown } = `/groups/${GROUP_CO_ADMIN.id}`) {
+      let members = [member(ME.id, ME.email, "Me", ADMIN_ROLE), member("u-co", "co@example.com", "Co", ADMIN_ROLE), BOB];
+      const fetchMock = groupFetch(() => [GROUP_CO_ADMIN], () => members, (url, method) => {
+        if (method === "DELETE" && (url === bobUrl || url === meUrl)) {
+          members = members.filter((m) => `/api/groups/${GROUP_CO_ADMIN.id}/members/${m.userId}` !== url);
+          return fakeResponse({ ok: true, status: 204 });
+        }
+        return null;
+      });
+      renderGroupRoute(entry, fetchMock);
+      return fetchMock;
+    }
+
+    it("按垃圾桶先出確認、帶被移除者的 email；取消不送 DELETE、成員仍在", async () => {
+      const fetchMock = setup();
+      const dialog = await screen.findByRole("dialog", { name: GROUP_CO_ADMIN.name });
+      fireEvent.click(await within(dialog).findByRole("button", { name: "Remove bob@example.com" }));
+
+      const confirm = await screen.findByRole("dialog", { name: "Remove member?" });
+      expect(within(confirm).getByText(/bob@example\.com/)).toBeInTheDocument();
+      expect(within(confirm).queryByText(/cannot add yourself back/)).not.toBeInTheDocument();
+      expect(callsTo(fetchMock, "DELETE", bobUrl)).toHaveLength(0);
+
+      fireEvent.click(within(confirm).getByRole("button", { name: "Cancel" }));
+      await waitFor(() => expect(screen.queryByRole("dialog", { name: "Remove member?" })).not.toBeInTheDocument());
+      expect(callsTo(fetchMock, "DELETE", bobUrl)).toHaveLength(0);
+      expect(within(dialog).getByText("bob@example.com")).toBeInTheDocument();
+    });
+
+    it("確認才送 DELETE；名單更新", async () => {
+      const fetchMock = setup();
+      const dialog = await screen.findByRole("dialog", { name: GROUP_CO_ADMIN.name });
+      fireEvent.click(await within(dialog).findByRole("button", { name: "Remove bob@example.com" }));
+      fireEvent.click(within(await screen.findByRole("dialog", { name: "Remove member?" })).getByRole("button", { name: "Remove" }));
+
+      await waitFor(() => expect(callsTo(fetchMock, "DELETE", bobUrl)).toHaveLength(1));
+      await waitFor(() => expect(within(dialog).queryByText("bob@example.com")).not.toBeInTheDocument());
+      expect(callsTo(fetchMock, "DELETE", meUrl)).toHaveLength(0);
+    });
+
+    it("移除自己：文字講明失去存取權、與一般移除不同；確認後 DELETE 自己並回背景頁", async () => {
+      const fetchMock = setup({ pathname: `/groups/${GROUP_CO_ADMIN.id}`, state: { backgroundLocation: BG_NOTE } });
+      const dialog = await screen.findByRole("dialog", { name: GROUP_CO_ADMIN.name });
+      fireEvent.click(await within(dialog).findByRole("button", { name: "Remove me@example.com" }));
+
+      const confirm = await screen.findByRole("dialog", { name: "Remove yourself?" });
+      expect(within(confirm).getByText(/You \(me@example\.com\) will lose access to the notes in "Team Alpha"/)).toBeInTheDocument();
+      expect(within(confirm).getByText(/me@example\.com/)).toBeInTheDocument();
+      expect(callsTo(fetchMock, "DELETE", meUrl)).toHaveLength(0);
+
+      fireEvent.click(within(confirm).getByRole("button", { name: "Remove me" }));
+      await waitFor(() => expect(callsTo(fetchMock, "DELETE", meUrl)).toHaveLength(1));
+      await waitFor(() => expect(locationText().startsWith(`${BG_NOTE.pathname}|`)).toBe(true));
+    });
+
+    it("移除自己按取消：不送 DELETE、位置不變", async () => {
+      const fetchMock = setup({ pathname: `/groups/${GROUP_CO_ADMIN.id}`, state: { backgroundLocation: BG_NOTE } });
+      const dialog = await screen.findByRole("dialog", { name: GROUP_CO_ADMIN.name });
+      fireEvent.click(await within(dialog).findByRole("button", { name: "Remove me@example.com" }));
+      fireEvent.click(within(await screen.findByRole("dialog", { name: "Remove yourself?" })).getByRole("button", { name: "Cancel" }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(callsTo(fetchMock, "DELETE", meUrl)).toHaveLength(0);
+      expect(locationText().startsWith(`/groups/${GROUP_CO_ADMIN.id}|`)).toBe(true);
+    });
   });
 
   it("M8 最後一位管理員的移除鈕：點了不送 DELETE（aria-disabled 擋下）", async () => {

@@ -19,7 +19,7 @@ describe("present-url", () => {
   });
 
   it.each([
-    ["?present", ""], ["?present&a=1", "?a=1"], ["?a=1&present&b=2", "?a=1&b=2"], ["", ""],
+    ["?present", ""], ["?present&a=1", "?a=1"], ["?present&x=1", "?x=1"], ["?a=1&present&b=2", "?a=1&b=2"], ["", ""],
   ])("searchWithoutPresent(%j) → %j", (search, expected) => {
     expect(searchWithoutPresent(search)).toBe(expected);
   });

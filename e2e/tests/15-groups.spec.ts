@@ -109,6 +109,10 @@ test("群組：建立 → 群組建筆記（/g/ 網址）→ 設定加人 → �
     // ── A：側欄群組 ⋮ →「Members & settings」（群組面板）→ 移除 B ──────────────
     await openGroupPanel(adminPage, groupName);
     await adminPage.getByRole("button", { name: `Remove ${secondEmail}` }).click();
+    // #395：移除先有確認對話框
+    await adminPage.getByRole("dialog", { name: "Remove member?" }).getByRole("button", { name: "Remove", exact: true }).click();
+    // 確認對話框開著時外層面板是 aria-hidden，toHaveCount(0) 會提早過：先等對話框收起。
+    await expect(adminPage.getByRole("dialog", { name: "Remove member?" })).toHaveCount(0);
     // 等那顆移除鈕消失＝那一列已移除。移除鈕自 #183 起是圖示鈕，email 只在它的 aria-label
     // （「Remove <email>」）裡、不在可見文字裡；用可及名稱找它，對到的就是那一列的操作。
     await expect(adminPage.getByRole("button", { name: `Remove ${secondEmail}` })).toHaveCount(0);

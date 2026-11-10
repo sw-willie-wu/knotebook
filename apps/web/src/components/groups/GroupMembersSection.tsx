@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type ClipboardEvent, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
+import { useLocation, useNavigate, type Location } from "react-router";
 import { normalizeEmail, type GroupDto, type GroupMemberDto, type GroupRoleDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
 import {
@@ -8,6 +9,9 @@ import {
 import { useSession } from "@/auth/useSession";
 import { SettingsTable, type SettingsTableColumn, type SettingsTableRow } from "@/components/management/SettingsTable";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
 import { Trash } from "@/components/ui/icons";
 import { RowIconButton } from "@/components/ui/row-icon-button";
 import { toast } from "@/components/ui/toast";
@@ -15,6 +19,7 @@ import { UserEmailCombobox } from "@/components/UserEmailCombobox";
 import { roleLabel } from "@/lib/group-role";
 import { SettingsGroup, SettingsPage } from "@/settings/SettingsLayout";
 import { useGroupOutlet } from "./group-outlet";
+import { afterLeaveTarget } from "./GroupAboutSection";
 import { BulkAddDialog, type BulkAddMode, type BulkAddState } from "./BulkAddDialog";
 import { parseEmailList, runBulkAdd, type BulkAddOutcome, type BulkAddResult } from "./bulk-add";
 
@@ -75,6 +80,10 @@ function MembersSection({ group, canManageMembers }: { group: GroupDto; canManag
   const emailHintId = useId();
   const invalidateAfterBulk = useInvalidateGroupsAndNotes();
   const myUserId = useSession().user?.id;
+  const navigate = useNavigate();
+  const backgroundLocation = (useLocation().state as { backgroundLocation?: Location } | null)?.backgroundLocation;
+  // #395：按垃圾桶先確認（比照 #247 退出群組的確認對話框）；null＝沒有在確認
+  const [pendingRemove, setPendingRemove] = useState<GroupMemberDto | null>(null);
 
   // 卸載（關掉群組 modal、換頁）＝停止：正在送的那一筆跑完就不再送
   useEffect(() => {
@@ -98,10 +107,14 @@ function MembersSection({ group, canManageMembers }: { group: GroupDto; canManag
     }
   }
 
+  /** 確認後才送。移除的是自己＝退出群組：成功後照退出的去處（`afterLeaveTarget`）離開成員頁。 */
   async function handleRemove(member: GroupMemberDto): Promise<void> {
     try {
       await removeMember.mutateAsync(member.userId);
+      setPendingRemove(null);
+      if (member.userId === myUserId) navigate(afterLeaveTarget(group.id, backgroundLocation));
     } catch (err) {
+      setPendingRemove(null);
       toast({ title: errorMessage(t, err), variant: "destructive" });
     }
   }
@@ -263,7 +276,7 @@ function MembersSection({ group, canManageMembers }: { group: GroupDto; canManag
           softDisabled={locked}
           softDisabledReason={t("groups.detail.lastAdminHint")}
           disabled={removeMember.isPending}
-          onClick={() => void handleRemove(member)}
+          onClick={() => setPendingRemove(member)}
         />
       ) : undefined,
     };
@@ -280,6 +293,39 @@ function MembersSection({ group, canManageMembers }: { group: GroupDto; canManag
       ) : (
         <SettingsTable label={t("groups.nav.members")} nameColumn="email" columns={columns} rows={rows} />
       )}
+
+      <Dialog open={pendingRemove !== null} onOpenChange={(open) => { if (!open) setPendingRemove(null); }}>
+        {pendingRemove && (
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>
+                {pendingRemove.userId === myUserId ? t("groups.removeMember.selfTitle") : t("groups.removeMember.title")}
+              </DialogTitle>
+              <DialogDescription>
+                {t(pendingRemove.userId === myUserId ? "groups.removeMember.selfDescription" : "groups.removeMember.description", {
+                  email: pendingRemove.email,
+                  name: group.name,
+                })}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <DialogClose asChild>
+                <Button type="button" variant="outline">
+                  {t("home.cancel")}
+                </Button>
+              </DialogClose>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={removeMember.isPending}
+                onClick={() => void handleRemove(pendingRemove)}
+              >
+                {pendingRemove.userId === myUserId ? t("groups.removeMember.selfConfirm") : t("groups.removeMember.confirm")}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        )}
+      </Dialog>
 
       {/* 最後一位管理員的提示：移除鈕是 `aria-disabled`（`title` 浮得出來），但角色下拉仍是原生 disabled、
           `title` 浮不出來——所以照留看得見的文字。 */}
