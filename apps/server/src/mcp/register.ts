@@ -13,7 +13,7 @@
  * `{list_notes, read_note_outline, read_note_section, search_notes}`）、
  * `mcp-tools-list.test.ts`（`{edit_note, create_note}`）；#200 起該集合是
  * `{create_note, create_transfer_token, edit_note}`；#180 起加 `copy_note`、`move_note_to_group`，#200 再加 `read_note_image`，集合是
- * `{copy_note, create_note, create_transfer_token, edit_note, move_note_to_group, read_note_image}`；#181 加 `list_trash`、`delete_note`、`restore_note`；資料夾功能加 `list_folders`、`create_folder`、`rename_folder`、`move_folder`、`move_note_to_folder`、`delete_folder`；bulk transfer功能加 `create_bulk_transfer_token`。
+ * `{copy_note, create_note, create_transfer_token, edit_note, move_note_to_group, read_note_image}`；#181 加 `list_trash`、`delete_note`、`restore_note`；資料夾功能加 `list_folders`、`create_folder`、`rename_folder`、`move_folder`、`move_note_to_folder`、`delete_folder`；bulk transfer功能加 `open_notes_as_files`。
  * **新增工具時要一併把它加進其中一個名字集合，否則等於沒有守衛。**
  *
  * ⚠ 新增工具一律 `z.object(<shape>).strict()` 註冊；`test/unit/mcp-register.test.ts`（U-F1，覆蓋 authKind × scope × 有無 collab 的十二種組合）的名字常數也要補——它會紅。
@@ -28,7 +28,7 @@
  * 也不要掛一支只會回半套答案的工具（照抄 `routes/notes.ts` 對內容端點的既有判準）。判準存在
  * `canRead` 變數，#93 起 search_notes 的變體（description 與 `sectionId` 的說明）也看它。
  * `list_notes`／`search_notes` 只查 DB，永遠註冊；`read_note_image`（#200）只讀 DB 與磁碟，同樣在閘門外、任何憑證都註冊；
- * `list_trash`（#181）只查 DB，同上。`create_bulk_transfer_token`（bulk transfer）在閘門**內**：它簽的權杖拿去匯出要 mount（判準：要不要讀 live doc）。
+ * `list_trash`（#181）只查 DB，同上。`open_notes_as_files`（bulk transfer）在閘門**內**：它簽的權杖拿去匯出要 mount（判準：要不要讀 live doc）。
  * **這道閘門由兩案守**（都是無 collab 的 app，斷名字集合）：`test/mcp-tools-list.test.ts` 的 D-A 案（讀寫憑證；標題含「D-M 不進閘門，D-A」）、
  * `test/mcp-create-note.test.ts` 的 D-M 案（讀寫搬移憑證，比 D-A 多 `move_note_to_group`；標題含「（D-M）」）。`create_note`／`copy_note`／
  * `move_note_to_group` 都在閘門外；`delete_note`／`restore_note`（#181）同樣在閘門外。
@@ -55,13 +55,13 @@ import {
 } from "./tools/read-note-section.js";
 import { searchNotes, searchNotesDescription, searchNotesInput, searchNotesOutputFor } from "./tools/search-notes.js";
 import {
-  CREATE_BULK_TRANSFER_TOKEN_DESCRIPTION_RO,
-  CREATE_BULK_TRANSFER_TOKEN_DESCRIPTION_RW,
-  createBulkTransferToken,
-  createBulkTransferTokenInput,
-  createBulkTransferTokenOutputRo,
-  createBulkTransferTokenOutputRw,
-} from "./tools/create-bulk-transfer-token.js";
+  OPEN_NOTES_AS_FILES_DESCRIPTION_RO,
+  OPEN_NOTES_AS_FILES_DESCRIPTION_RW,
+  openNotesAsFiles,
+  openNotesAsFilesInput,
+  openNotesAsFilesOutputRo,
+  openNotesAsFilesOutputRw,
+} from "./tools/open-notes-as-files.js";
 import { EDIT_NOTE_DESCRIPTION, editNote, editNoteInput, editNoteOutput } from "./tools/edit-note.js";
 import { CREATE_NOTE_DESCRIPTION, createNote, createNoteInput, createNoteOutput } from "./tools/create-note.js";
 import {
@@ -108,6 +108,14 @@ import {
 } from "./tools/move-note-to-folder.js";
 import { DELETE_FOLDER_DESCRIPTION, deleteFolderInput, deleteFolderOutput, deleteFolderTool } from "./tools/delete-folder.js";
 import { canDeleteNotes, canMoveNotes, canWriteNotes } from "./write-scope.js";
+
+/**
+ * `open_notes_as_files` 在不在這一發的清單上：token 路徑（簽的權杖要綁母憑證）且 collab＋editing 都在（匯出要讀 live doc）。
+ * 註冊與 `routes/mcp.ts` 挑 instructions 共用這一支，清單上沒有這支工具時 instructions 就不會提它。
+ */
+export function hasOpenNotesAsFiles(ctx: Pick<McpToolCtx, "authKind" | "collab" | "editing">): boolean {
+  return ctx.authKind === "token" && Boolean(ctx.collab && ctx.editing);
+}
 
 export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
   // 唯讀工具的最低 scope 都是 `notes:read`，而 `authenticateAny` 已經保證
@@ -253,18 +261,19 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
     }
   }
 
-  // bulk transfer：`create_bulk_transfer_token` 只在 token 路徑（要綁母憑證）、且 collab＋editing 都在（canRead；
-  // 匯出要 mount）時註冊——閘門內。描述與輸出依 `canWrite` 二選一（與 handler 算 `access` 同一支 `canWriteNotes`）。
-  // 守衛：集合＝`mcp-tools-list`、`unit/mcp-register`（U-F1）；描述與輸出鍵＝`mcp-bulk-transfer-token.test.ts` B7(c)。
-  if (ctx.authKind === "token" && canRead) {
+  // bulk transfer：`open_notes_as_files` 只在 token 路徑（要綁母憑證）、且 collab＋editing 都在（canRead；
+  // 匯出要 mount）時註冊——閘門內，判準是 `hasOpenNotesAsFiles`（`routes/mcp.ts` 挑 instructions 用同一支）。
+  // 描述與輸出依 `canWrite` 二選一（與 handler 算 `access` 同一支 `canWriteNotes`）。
+  // 守衛：集合＝`mcp-tools-list`、`unit/mcp-register`（U-F1）；描述與輸出鍵＝`mcp-open-notes-as-files.test.ts` B7(c)。
+  if (hasOpenNotesAsFiles(ctx)) {
     server.registerTool(
-      "create_bulk_transfer_token",
+      "open_notes_as_files",
       {
-        description: canWrite ? CREATE_BULK_TRANSFER_TOKEN_DESCRIPTION_RW : CREATE_BULK_TRANSFER_TOKEN_DESCRIPTION_RO,
-        inputSchema: z.object(createBulkTransferTokenInput).strict(),
-        outputSchema: canWrite ? createBulkTransferTokenOutputRw : createBulkTransferTokenOutputRo,
+        description: canWrite ? OPEN_NOTES_AS_FILES_DESCRIPTION_RW : OPEN_NOTES_AS_FILES_DESCRIPTION_RO,
+        inputSchema: z.object(openNotesAsFilesInput).strict(),
+        outputSchema: canWrite ? openNotesAsFilesOutputRw : openNotesAsFilesOutputRo,
       },
-      async args => runTool("create_bulk_transfer_token", ctx, () => createBulkTransferToken(args, ctx))
+      async args => runTool("open_notes_as_files", ctx, () => openNotesAsFiles(args, ctx))
     );
   }
 

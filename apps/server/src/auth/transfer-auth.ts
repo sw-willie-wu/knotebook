@@ -16,7 +16,7 @@ export const TRANSFER_INVALID_MESSAGE = "The transfer token is invalid, expired 
 /** 有效形的 `knb_` PAT／OAuth access 打這兩支端點時的專屬訊息。 */
 export const TRANSFER_PAT_MESSAGE = "This endpoint doesn't accept API tokens. Get a transfer token from the MCP tool create_transfer_token.";
 /** bulk transfer：bulk 端點的一般 PAT 401 另立一句（上一句指名 create_transfer_token，用在這裡會指錯工具）。 */
-export const BULK_TRANSFER_PAT_MESSAGE = "This endpoint doesn't accept API tokens. Get a transfer token from the MCP tool create_bulk_transfer_token.";
+export const BULK_TRANSFER_PAT_MESSAGE = "This endpoint doesn't accept API tokens. Get a transfer token from the MCP tool open_notes_as_files.";
 /** bulk transfer：沒帶 `Authorization` 的 401（bulk 端點不回退 cookie）。 */
 export const BULK_TRANSFER_REQUIRED_MESSAGE = "A transfer token is required.";
 /**
@@ -24,7 +24,7 @@ export const BULK_TRANSFER_REQUIRED_MESSAGE = "A transfer token is required.";
  * 使用者閘門不過〔停權、必須改密碼〕）同形同字。**不含「已使用」**：bulk 權杖到期前可重用；#200 的
  * `TRANSFER_INVALID_MESSAGE` 不動（`require()` 與 `routes/uploads.ts` 的已消費分支仍用它）。
  */
-export const BULK_TRANSFER_INVALID_MESSAGE = "The transfer token is invalid, expired or revoked. Get a new one from the MCP tool create_bulk_transfer_token.";
+export const BULK_TRANSFER_INVALID_MESSAGE = "The transfer token is invalid, expired or revoked. Get a new one from the MCP tool open_notes_as_files.";
 /** 用途不符（upload／download 打 bulk 端點、bulk 打 upload／download 端點）的 403，兩邊同字。 */
 export const TRANSFER_PURPOSE_MESSAGE = "This transfer token can't be used for this action.";
 

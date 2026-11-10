@@ -1,6 +1,6 @@
 /**
- * bulk transfer：`create_bulk_transfer_token`——簽一支 30 分鐘的 bulk 權杖，讓模型用 shell `curl`
- * 一次下載看得到的筆記成 `.tar.gz`、單篇重抓、或自行撤銷。
+ * bulk transfer：`open_notes_as_files`——簽一支 30 分鐘的 bulk 權杖，讓模型用 shell `curl`
+ * 一次下載看得到的筆記成 `.tar.gz`、單篇重抓、送回改過的檔、或自行撤銷。
  *
  * **流程順序是契約**：① 接線檢查 ② 至多給一個範圍（在 handler 判，input 不准 refine：`inputSchema.properties`
  * 會靜默變空）③ `group_id` 可讀（`loadCreateTarget`，同 list_folders）④ `folder_id` 看得到（`resolveFolderAccess`；看不到在
@@ -37,12 +37,12 @@ import { REVOKED_MESSAGE } from "./create-transfer-token.js";
 import type { McpToolCtx } from "../context.js";
 
 /** RW description：母憑證有 `notes:write`（`canWriteNotes`）時註冊這份。 */
-export const CREATE_BULK_TRANSFER_TOKEN_DESCRIPTION_RW =
-  "Get a short-lived token that lets shell commands read and write many notes as files. One download gives you, as a .tar.gz of markdown files in the same folders as the sidebar, every note you can see outside the trash, or only your own notes, notes shared with you, one group's or one folder's; each file you change goes back in its own request. Sending back a file changes the note only in the blocks where your copy differs from what you downloaded. If the note has changed since your download, a changed file is refused and nothing is written: fetch that note again and redo your changes in the new copy. A file with no `id` in its front matter creates a new note. Leaving a file out, or deleting it, deletes nothing. The token works until `expiresAt`, at most 30 minutes; the result has ready `curl` commands: send the token only to those addresses, in the `Authorization` header.";
+export const OPEN_NOTES_AS_FILES_DESCRIPTION_RW =
+  "Get a short-lived token that lets shell commands read and write one or many notes as files. One download gives you, as a .tar.gz of markdown files in the same folders as the sidebar, every note you can see outside the trash, or only your own notes, notes shared with you, one group's or one folder's; another command fetches the latest copy of one of them; each file you change goes back in its own request. Sending back a file changes the note only in the blocks where your copy differs from what you downloaded. If the note has changed since your download, a changed file is refused and nothing is written: fetch that note again and redo your changes in the new copy. A file with no `id` in its front matter creates a new note. Leaving a file out, or deleting it, deletes nothing. The token works until `expiresAt`, at most 30 minutes; the result has ready `curl` commands: send the token only to those addresses, in the `Authorization` header.";
 
 /** RO description。 */
-export const CREATE_BULK_TRANSFER_TOKEN_DESCRIPTION_RO =
-  "Get a short-lived token that lets shell commands download many notes as files. One download gives you, as a .tar.gz of markdown files in the same folders as the sidebar, every note you can see outside the trash, or only your own notes, notes shared with you, one group's or one folder's; another command fetches the latest copy of one of them. This credential can't send notes back. The token works until `expiresAt`, at most 30 minutes; the result has ready `curl` commands: send the token only to those addresses, in the `Authorization` header.";
+export const OPEN_NOTES_AS_FILES_DESCRIPTION_RO =
+  "Get a short-lived token that lets shell commands download one or many notes as files. One download gives you, as a .tar.gz of markdown files in the same folders as the sidebar, every note you can see outside the trash, or only your own notes, notes shared with you, one group's or one folder's; another command fetches the latest copy of one of them. This credential can't send notes back. The token works until `expiresAt`, at most 30 minutes; the result has ready `curl` commands: send the token only to those addresses, in the `Authorization` header.";
 
 /** 輸入的三句 `.describe()`。 */
 export const BULK_SPACE_DESCRIBE =
@@ -54,25 +54,25 @@ export const BULK_FOLDER_ID_DESCRIBE =
 
 /** RO 的 `next`。 */
 export const BULK_NEXT_RO =
-  "Run `export.curl`; it unpacks the notes into a `knotebook` folder. Each note is a markdown file whose front matter, between the `---` lines at the top, holds its `id`, `role` and `base`. Moving, renaming or deleting a file doesn't move, rename or delete the note. `.knotebook/manifest.json` lists each folder's `id` and each note's file. On Windows, run these commands in Git Bash or WSL: they are POSIX shell commands, and the Windows `tar.exe` skips files whose names it can't represent; compare with the manifest to check none is missing. If the download stops partway, run `export.curl` again — but first move or rename the `knotebook` folder: the download writes over its files, including ones you changed, and a file under a note's old name stays. Fetch the latest copy of one note with `note.curl`. If a command fails, curl exits with an error, and the server's JSON reply is in the output file or printed. A 401 means the token can't be used: ask for a new one. A 403 means this token, or your role in that note, doesn't allow it. A 404 means the note is gone or you can't see it. A 413 `too_many_notes` means the download is too big: ask for a token with `space`, `group_id` or `folder_id`. A 429 means too many requests: wait the seconds in `Retry-After`, then send the same request again. When you are done, run `revoke.curl`.";
+  "Run `export.curl`; it unpacks the notes into a `knotebook` folder. To work on one note, you can skip the download: fetch it with `note.curl` and the note's id. Each note is a markdown file whose front matter, between the `---` lines at the top, holds its `id`, `role` and `base`. Moving, renaming or deleting a file doesn't move, rename or delete the note. `.knotebook/manifest.json` lists each folder's `id` and each note's file. On Windows, run these commands in Git Bash or WSL: they are POSIX shell commands, and the Windows `tar.exe` skips files whose names it can't represent; compare with the manifest to check none is missing. If the download stops partway, run `export.curl` again — but first move or rename the `knotebook` folder: the download writes over its files, including ones you changed, and a file under a note's old name stays. Fetch the latest copy of one note with `note.curl`. If a command fails, curl exits with an error, and the server's JSON reply is in the output file or printed. A 401 means the token can't be used: ask for a new one. A 403 means this token, or your role in that note, doesn't allow it. A 404 means the note is gone or you can't see it. A 413 `too_many_notes` means the download is too big: ask for a token with `space`, `group_id` or `folder_id`. A 429 means too many requests: wait the seconds in `Retry-After`, then send the same request again. When you are done, run `revoke.curl`.";
 
 /** RW 的 `next`（503 句的主詞是 the server——新增筆記撞可重試交易錯誤也回 503，那時還沒有 the note；
  * 實機回補：新增檔的 front matter 要有 `knotebook:` 行 `title`／`folder_id` 才算〔`transfer/frontmatter.ts` 的辨識，
  * `transfer-write-create.test.ts`〕；JSON 回覆是「usually」印出——Windows 的 curl 對 413 偶爾 exit 56、連線先被重設〔實機 14-413-tally〕）。 */
 export const BULK_NEXT_RW =
-  "Run `export.curl`; it unpacks the notes into a `knotebook` folder. Each note is a markdown file whose front matter, between the `---` lines at the top, holds its `id`, `role` and `base`: leave those as they are. Change `title` there to rename the note. Moving or renaming a file, or deleting it, doesn't move, rename or delete the note. `.knotebook/manifest.json` lists each folder's `id` and each note's file. On Windows, run these commands in Git Bash or WSL: they are POSIX shell commands, and the Windows `tar.exe` skips files whose names it can't represent; `.knotebook/manifest.json` lists every file, so you can check none is missing. If the download stops partway, run `export.curl` again — but first move or rename the `knotebook` folder: the download writes over its files, including ones you changed and haven't sent back, and a file under a note's old name stays. Edit the markdown in the form read_note_section returns — HTML comments are dropped, and text after one, on its line and on the lines right below it, becomes plain text that can run on into the text after a later comment; leave a blank line after each comment, with nothing after it on its line, to keep the lines below it as markdown — then send each file you changed with `write.curl`, one file per request. If a command fails, curl exits with an error, and the server's JSON reply is usually in the output file or printed; `note.curl` writes over its output file even when it fails, so never point it at a copy you still need. If the note has changed since your download, a changed file is refused with a 409 `base_unavailable` whose `reason` is `note_changed`, and nothing is written: fetch that note again with `note.curl`, redo your changes in the new copy, and send that. Once a file's changes have been written, that copy can't carry more changes: to change the note again, fetch it with `note.curl` and edit the new copy. Sending the same file again returns `unchanged` once everything in it has been applied. A file with no `id` creates a new note; its `title` and `folder_id` count only in front matter at the top that has a `knotebook:` line, as downloaded files do — otherwise that front matter becomes note text. To change it again, fetch it with `note.curl` and the reply's `id`. If you're not sure a new note was created, send the same file again: while this token works, an identical file returns the note it created. A new note goes into the folder given as `folder_id` in its front matter, or else to the top of this token's folder or group, or of your own notes; a token for only notes shared with you can't create notes. A 400 means nothing was written; its `code` says why. A 401 means the token can't be used: ask for a new one. A 403 means this token, or your role in that note, doesn't allow it. A 404 means the note, or the `folder_id` folder, is gone or you can't see it. A 409 `base_unavailable` means this copy can't be written back, and the reply's `reason` says why (`note_changed`, `already_sent`, `other_note`, `expired` or `reverted`): keep your changes, fetch the note again with `note.curl` and redo them in the new copy. A 409 `not_mergeable` means this note can't be written back as a file: change it with edit_note. A note marked `tooLargeToSend` in the manifest downloads as a file too big to send back: change it with edit_note. A 413 `content_too_large` means the file is too big to send; a 413 `too_many_notes` means the download is too big: ask for a token with `space`, `group_id` or `folder_id`. A 429 means too many requests: wait the seconds in `Retry-After`, then send the same request again. A 503 means the server was busy: try again shortly. When you are done, run `revoke.curl`.";
+  "Run `export.curl`; it unpacks the notes into a `knotebook` folder. To work on one note, you can skip the download: fetch it with `note.curl` and the note's id. Each note is a markdown file whose front matter, between the `---` lines at the top, holds its `id`, `role` and `base`: leave those as they are. Change `title` there to rename the note. Moving or renaming a file, or deleting it, doesn't move, rename or delete the note. `.knotebook/manifest.json` lists each folder's `id` and each note's file. On Windows, run these commands in Git Bash or WSL: they are POSIX shell commands, and the Windows `tar.exe` skips files whose names it can't represent; `.knotebook/manifest.json` lists every file, so you can check none is missing. If the download stops partway, run `export.curl` again — but first move or rename the `knotebook` folder: the download writes over its files, including ones you changed and haven't sent back, and a file under a note's old name stays. Edit the markdown in the form read_note_section returns — HTML comments are dropped, and text after one, on its line and on the lines right below it, becomes plain text that can run on into the text after a later comment; leave a blank line after each comment, with nothing after it on its line, to keep the lines below it as markdown — then send each file you changed with `write.curl`, one file per request. If a command fails, curl exits with an error, and the server's JSON reply is usually in the output file or printed; `note.curl` writes over its output file even when it fails, so never point it at a copy you still need. If the note has changed since your download, a changed file is refused with a 409 `base_unavailable` whose `reason` is `note_changed`, and nothing is written: fetch that note again with `note.curl`, redo your changes in the new copy, and send that. Once a file's changes have been written, that copy can't carry more changes: to change the note again, fetch it with `note.curl` and edit the new copy. Sending the same file again returns `unchanged` once everything in it has been applied. A file with no `id` creates a new note; its `title` and `folder_id` count only in front matter at the top that has a `knotebook:` line, as downloaded files do — otherwise that front matter becomes note text. To change it again, fetch it with `note.curl` and the reply's `id`. If you're not sure a new note was created, send the same file again: while this token works, an identical file returns the note it created. A new note goes into the folder given as `folder_id` in its front matter, or else to the top of this token's folder or group, or of your own notes; a token for only notes shared with you can't create notes. A 400 means nothing was written; its `code` says why. A 401 means the token can't be used: ask for a new one. A 403 means this token, or your role in that note, doesn't allow it. A 404 means the note, or the `folder_id` folder, is gone or you can't see it. A 409 `base_unavailable` means this copy can't be written back, and the reply's `reason` says why (`note_changed`, `already_sent`, `other_note`, `expired` or `reverted`): keep your changes, fetch the note again with `note.curl` and redo them in the new copy. A 409 `not_mergeable` means this note can't be written back as a file: change it with edit_note. A note marked `tooLargeToSend` in the manifest downloads as a file too big to send back: change it with edit_note. A 413 `content_too_large` means the file is too big to send: change that note with edit_note; a 413 `too_many_notes` means the download is too big: ask for a token with `space`, `group_id` or `folder_id`. A 429 means too many requests: wait the seconds in `Retry-After`, then send the same request again. A 503 means the server was busy: try again shortly. When you are done, run `revoke.curl`.";
 
 /** 字面見 `bulk-transfer-strings.test.ts` S3。比照 `folder-messages.ts` 的「so nothing was …」句式。 */
 export const BULK_RANGE_AMBIGUOUS_MESSAGE = "Pass at most one of `space`, `group_id` and `folder_id`, so no token was created.";
 /**
  * 全文見 `bulk-transfer-strings.test.ts` S3。「3」「30」是寫死的字面值：與 `MAX_ACTIVE_BULK_TOKENS`／`BULK_TRANSFER_TTL_MINUTES` 的對齊由
- * `bulk-transfer-strings.test.ts` S3 與 `mcp-bulk-transfer-token.test.ts` B5（第 4 支被拒）守。
+ * `bulk-transfer-strings.test.ts` S3 與 `mcp-open-notes-as-files.test.ts` B5（第 4 支被拒）守。
  */
 export const TOO_MANY_BULK_TOKENS_MESSAGE =
   "This credential already has 3 bulk transfer tokens that haven't expired. Wait for one to expire (within 30 minutes), or run the `revoke.curl` of one you no longer need, before asking for another.";
 
-/** 註冊為 `z.object(createBulkTransferTokenInput).strict()`；「至多一個」在 handler 判（不准 refine）。 */
-export const createBulkTransferTokenInput = {
+/** 註冊為 `z.object(openNotesAsFilesInput).strict()`；「至多一個」在 handler 判（不准 refine）。 */
+export const openNotesAsFilesInput = {
   space: z.enum(["personal", "shared"]).optional().describe(BULK_SPACE_DESCRIBE),
   group_id: GROUP_ID.optional().describe(BULK_GROUP_ID_DESCRIBE),
   folder_id: FOLDER_ID.optional().describe(BULK_FOLDER_ID_DESCRIBE),
@@ -80,7 +80,7 @@ export const createBulkTransferTokenInput = {
 
 const urlCurl = z.object({ url: z.string(), curl: z.string() });
 /** 輸出（RO：沒有 `write`）。 */
-export const createBulkTransferTokenOutputRo = {
+export const openNotesAsFilesOutputRo = {
   token: z.string(),
   expiresAt: z.string().describe("When the token stops working (ISO 8601)."),
   access: z.enum(["read", "write"]),
@@ -90,18 +90,18 @@ export const createBulkTransferTokenOutputRo = {
   next: z.string().describe("How to use the commands, and what their status codes mean."),
 };
 /** 輸出（RW：RO 再加 `write`；鍵序固定）。 */
-export const createBulkTransferTokenOutputRw = {
-  token: createBulkTransferTokenOutputRo.token,
-  expiresAt: createBulkTransferTokenOutputRo.expiresAt,
-  access: createBulkTransferTokenOutputRo.access,
+export const openNotesAsFilesOutputRw = {
+  token: openNotesAsFilesOutputRo.token,
+  expiresAt: openNotesAsFilesOutputRo.expiresAt,
+  access: openNotesAsFilesOutputRo.access,
   export: urlCurl,
   note: urlCurl,
   write: urlCurl,
   revoke: urlCurl,
-  next: createBulkTransferTokenOutputRo.next,
+  next: openNotesAsFilesOutputRo.next,
 };
 
-export interface CreateBulkTransferTokenArgs {
+export interface OpenNotesAsFilesArgs {
   space?: "personal" | "shared";
   group_id?: string;
   folder_id?: string;
@@ -123,10 +123,10 @@ export function bulkCurls(origin: string, token: string) {
   };
 }
 
-export async function createBulkTransferToken(args: CreateBulkTransferTokenArgs, ctx: McpToolCtx): Promise<CallToolResult> {
+export async function openNotesAsFiles(args: OpenNotesAsFilesArgs, ctx: McpToolCtx): Promise<CallToolResult> {
   const parentTokenId = ctx.tokenId;
   // ① `register.ts` 只在 token 路徑註冊；到得了這裡卻沒有母憑證＝接線錯了，交給 runTool 的 internal。
-  if (ctx.authKind !== "token" || parentTokenId === null) throw new Error("create_bulk_transfer_token 只在 token 路徑註冊");
+  if (ctx.authKind !== "token" || parentTokenId === null) throw new Error("open_notes_as_files 只在 token 路徑註冊");
 
   // ② 至多一個範圍。
   const given = [args.space, args.group_id, args.folder_id].filter(v => v !== undefined).length;
