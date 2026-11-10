@@ -10,10 +10,15 @@
  *    對方同時在那些 block 打的字會消失。拆成兩次，每次 diff 只碰一處。兩次之間不呼叫 `stopCapturing`，UndoManager 把兩筆併成一步。
  * 3. 兩筆都不帶 `uiEvent`（PasteRule 只在 `uiEvent === "drop"` 時對 diff 範圍跑 paste rule，會把中間 block 的網址轉成連結）、
  *    都帶 `preventAutolink`（autolink 對任何改文件的交易都跑；搬移沒有新打的字）。
+ *
+ * 另外兩支接線：DropCursor 的 hook（`computeDropPosition`，拖曳中畫的線與放下時同一個判斷），以及落在欄與欄之間的拖放
+ * （`withGutterFileDrop`，掛在 `handleDOMEvents.drop`）。
  */
-import { removeAndInsertBlocks, type BlockNoteEditor } from "@blocknote/core";
+import { removeAndInsertBlocks, type BlockNoteEditor, type ComputeDropPositionContext } from "@blocknote/core";
 import { COLUMN_LIST_TYPE, COLUMN_TYPE } from "@knotebook/shared";
 import type { EditorView } from "prosemirror-view";
+import { TEXT_REPRESENTATION_MIME_TYPES } from "@/collab/schema";
+import type { EditorRef } from "@/components/wikilink/menu";
 import { dragMoves, edgeTargetAt, insideAny, isEmptyParagraph, type DraggedBlocks, type EdgeTarget } from "./drag-geometry";
 import { draggedBlocksOf } from "./drag-source";
 import { buildInsert, textSelectionNear, type InsertPlan } from "./edge-drop-insert";
@@ -239,4 +244,117 @@ export function emptyColumnDrop(editor: AnyEditor | null, view: EditorView, even
 
   const xNodes = flattenX(x.map((hit) => hit.node));
   return commitMove(editor, view, dragged.ids, () => ({ kind: "replaceEmpty", columnId, emptyId, xNodes }));
+}
+
+type DropPos = ComputeDropPositionContext["defaultPosition"];
+
+/**
+ * core DropCursor 的 hook：與 `edgeDrop` 呼叫同一支 `edgeTargetAt`，畫的線與放下的結果一致。直線 → 目標左／右緣的直線
+ * （`pos` 是頂層 Y 或目標欄之前，core 以 `nodeDOM(pos)` 的框畫線）；其餘照 core 的預設位置，放進空欄也照畫橫線。
+ * 不回 null：null 會讓 core 整個不畫線。
+ */
+export function computeDropPosition(ctx: ComputeDropPositionContext): DropPos {
+  const view = ctx.view as unknown as EditorView;
+  const target = edgeTargetAt(view, ctx.event, draggedBlocksOf(view));
+  if (!target) return ctx.defaultPosition;
+  return { pos: target.pos, orientation: target.side === "left" ? "block-vertical-left" : "block-vertical-right" };
+}
+
+/** 同 core `fileDropExtension`：`dataTransfer.types` 依 core 的已知型別順序，第一個命中的是 `Files`（文字表示都不在）。 */
+function firstKnownTypeIsFiles(event: DragEvent): boolean {
+  const types = Array.from(event.dataTransfer?.types ?? []);
+  return types.includes("Files") && !TEXT_REPRESENTATION_MIME_TYPES.some((type) => types.includes(type));
+}
+
+const distance = (value: number, from: number, to: number): number => (value < from ? from - value : value > to ? value - to : 0);
+
+/**
+ * 落點的位置父節點是 `columnList`（溝裡、欄與欄之間）→ 最近的欄裡、垂直最近的直接子 block 的框；其餘 null。
+ * 欄先比水平距離、相同再比垂直距離：並排的列各欄 x 範圍不同，看 x 就分得出；堆疊的列各欄 x 範圍相同，要靠 y 分。
+ * 框取 `nodeDOM`（block 的 `.bn-block-outer`，就是 core `handleFileInsertion` 以 `[data-id]` 查到、拿來判斷前／後的那個元素）。
+ */
+function gutterTargetRect(view: EditorView, event: DragEvent): DOMRect | null {
+  let pos: number | undefined;
+  try {
+    pos = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos;
+  } catch {
+    return null;
+  }
+  if (pos === undefined) return null;
+  const $pos = view.state.doc.resolve(pos);
+  const rowNode = $pos.parent;
+  if (rowNode.type.name !== COLUMN_LIST_TYPE) return null;
+  const { clientX: x, clientY: y } = event;
+  const column = nearestChild(view, rowNode, $pos.start(), (rect) => [distance(x, rect.left, rect.right), distance(y, rect.top, rect.bottom)]);
+  if (!column) return null;
+  return nearestChild(view, column.node, column.pos + 1, (rect) => [distance(y, rect.top, rect.bottom)])?.rect ?? null;
+}
+
+/** 依序比較，前面的項不同就以它決定。 */
+function closer(a: readonly number[], b: readonly number[]): boolean {
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i]! < b[i]!;
+  return false;
+}
+
+/** `parent` 的子節點裡（`start`＝第一個子節點的位置），`dist(畫面上的框)` 依序比較最小的那個；完全相同取前面的。 */
+function nearestChild(
+  view: EditorView,
+  parent: PMNode,
+  start: number,
+  dist: (rect: DOMRect) => readonly number[],
+): { node: PMNode; pos: number; rect: DOMRect } | null {
+  let best: { node: PMNode; pos: number; rect: DOMRect; d: readonly number[] } | null = null;
+  let pos = start;
+  for (let i = 0; i < parent.childCount; i++) {
+    const node = parent.child(i);
+    const el = view.nodeDOM(pos);
+    if (el instanceof HTMLElement) {
+      const rect = el.getBoundingClientRect();
+      const d = dist(rect);
+      if (!best || closer(d, best.d)) best = { node, pos, rect, d };
+    }
+    pos += node.nodeSize;
+  }
+  return best;
+}
+
+/**
+ * 事件座標改到 B 的框內：x 取水平中央，y 留在原本那一側的半邊（上半 → 上四分之一處、下半 → 下四分之一處），
+ * core 以 B 的中線決定插在 B 之前或之後，結果與指標在 B 旁邊時相同。原生 DragEvent 的座標是 prototype 上的 getter，
+ * 在事件本身定義同名屬性就蓋得過。
+ */
+function moveInto(event: DragEvent, rect: DOMRect): void {
+  const mid = (rect.top + rect.bottom) / 2;
+  const y = event.clientY < mid ? (rect.top + mid) / 2 : (mid + rect.bottom) / 2;
+  Object.defineProperty(event, "clientX", { value: (rect.left + rect.right) / 2, configurable: true });
+  Object.defineProperty(event, "clientY", { value: y, configurable: true });
+}
+
+/**
+ * 包住 `handleDOMEvents.drop`，處理落在欄與欄之間的拖放。溝裡的位置父節點是 `columnList`，那裡放不下任何 block：
+ * - ⋮⋮ 拖曳（`view.dragging` 有值）、這次不是直線 → 先把座標改到最近欄的最近 block 再交給內層。要在內層之前：
+ *   內層的 `withColumnsDropPoint` 一進來就記落點，PM 預設的 drop 之後也讀同一份座標。直線（`edgeTargetAt` 有目標）不改，
+ *   拖曳中畫出的直線與放下的結果才一致。
+ * - 只帶檔案的拖放 → 內層先跑（媒體阻擋優先，被擋的就不處理）；內層回 false 才改座標，並回 false 讓 core 的
+ *   `fileDropExtension` 照常插入與上傳，插入點落在那個 block 之前或之後。
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- handler 的 view 型別各處不同（`unknown`／EditorView），這裡只轉手
+export function withGutterFileDrop<T extends { drop: (view: any, e: DragEvent) => boolean }>(editorRef: EditorRef, events: T): T {
+  return {
+    ...events,
+    drop: (view: EditorView | null, event: DragEvent) => {
+      const editor = editorRef.current;
+      const usable = !!view && !!editor && editor.isEditable && view.editable;
+      if (usable && view.dragging != null && edgeTargetAt(view, event, draggedBlocksOf(view)) === null) {
+        const rect = gutterTargetRect(view, event);
+        if (rect) moveInto(event, rect);
+      }
+      if (events.drop(view, event)) return true;
+      if (usable && view.dragging == null && firstKnownTypeIsFiles(event)) {
+        const rect = gutterTargetRect(view, event);
+        if (rect) moveInto(event, rect);
+      }
+      return false;
+    },
+  };
 }

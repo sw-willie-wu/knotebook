@@ -16,6 +16,7 @@ import { createExtension, type ExtensionOptions } from "@blocknote/core";
 import { COLUMN_LIST_TYPE, COLUMN_TYPE } from "@knotebook/shared";
 import { Decoration, DecorationSet } from "prosemirror-view";
 import { createPmPlugin } from "../pm-plugin";
+import { attachDragSourceRecorder } from "./drag-source";
 import { attachColumnImageResize } from "./image-resize";
 import { columnKindOf, shouldStack, type ColumnKind, type PMNodeLike } from "./layout";
 
@@ -149,7 +150,11 @@ function createStackingPlugin(): never {
 export const columnsLayoutExtension = createExtension(({ editor }: ExtensionOptions<undefined>) => ({
   key: "knotebookColumnsLayout",
   prosemirrorPlugins: [createStackingPlugin()],
-  mount: ({ dom, signal }: { dom: HTMLElement; signal: AbortSignal }) => attachColumnImageResize(editor, dom, signal),
+  mount: ({ dom, signal }: { dom: HTMLElement; signal: AbortSignal }) => {
+    attachColumnImageResize(editor, dom, signal);
+    // 拖曳來源記錄器跟著編輯器的 mount／unmount（signal）走：凡是用 `noteSchema` 的編輯器都有，唯讀時記 null。
+    attachDragSourceRecorder(editor, dom, signal);
+  },
 }))();
 
 interface BlockSpecLike {

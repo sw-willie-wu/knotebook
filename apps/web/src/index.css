@@ -919,6 +919,18 @@ input[name="share-access"] {
 .bn-editor .bn-block-column [data-file-block] .bn-visual-media {
   max-width: 100%;
 }
+/* 拖放進行中（`kb-dragging` 由 components/editor/use-drag-active-class.ts 掛在欄上），⋮⋮ 與分隔線都在 view.dom 外、
+   沒有人對 dragover 呼叫 preventDefault，指標停在上面時 drop 不被接受（外部檔案會被瀏覽器直接開啟）。關掉它們的命中，
+   讓事件落到底下的編輯器。pointer-events 會繼承，但子元素明寫 auto 時蓋得掉外層的 none，所以命中元素本身與子孫都要列：
+   side menu 的 popover（KnotebookSideMenu.tsx 的 SIDE_MENU_FLOATING_OPTIONS）、欄內 ⋮⋮ 的外包層、分隔線浮層。
+   未分層：分隔線帶 Tailwind 的 pointer-events-auto（在 @layer utilities），未分層的樣式才贏得過。 */
+.kb-dragging [data-kb-side-menu-popover],
+.kb-dragging [data-kb-side-menu-popover] *,
+.kb-dragging [data-kb-column-side-menu],
+.kb-dragging [data-kb-column-side-menu] *,
+.kb-dragging .kb-column-dividers,
+.kb-dragging .kb-column-dividers [role="separator"],
+.kb-dragging .kb-column-dividers * { pointer-events: none; }
 
 /* 版本預覽 diff（spec §8.4）：左邊 3px 色條＋淡底。顏色只在 diff 預覽內（D7「唯一的顏色是綠點」的例外）。
    選擇器掛在 .kb-diff（DiffEditor 的 wrapper）之下，活編輯器不受影響。字面色、不碰 --brand（#154：.bn-root 內 brand token 會被重設）。

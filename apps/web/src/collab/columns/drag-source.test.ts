@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- 測試直接摸 PM 的 view（型別在 apps/web 拿不到） */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { P, mountEditor, row, startBlockDrag, type PartialBlockLike } from "@/test/columns-fixtures";
-import { attachDragSourceRecorder, clearDraggedBlocks, draggedBlocksOf } from "./drag-source";
+import * as dragSource from "./drag-source";
+import { clearDraggedBlocks, draggedBlocksOf } from "./drag-source";
 
 let cleanups: Array<() => void> = [];
 afterEach(() => {
@@ -10,13 +11,11 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-/** 掛編輯器並掛上記錄器；回傳的 `controller` 在 afterEach abort。 */
+/** 掛編輯器。記錄器由列的版面 extension 在 mount 時掛上（用 `noteSchema` 的編輯器都有），unmount 時跟著拆掉。 */
 function mount(content: PartialBlockLike[]) {
   const mounted = mountEditor(content);
-  const controller = new AbortController();
-  attachDragSourceRecorder(mounted.editor, mounted.editor.domElement!, controller.signal);
-  cleanups.push(mounted.destroy, () => controller.abort());
-  return { ...mounted, controller, view: mounted.editor.prosemirrorView as any };
+  cleanups.push(mounted.destroy);
+  return { ...mounted, view: mounted.editor.prosemirrorView as any };
 }
 
 const fire = (target: EventTarget, type: string) => target.dispatchEvent(new Event(type, { bubbles: true, cancelable: true }));
@@ -69,14 +68,37 @@ describe("DS 拖曳來源記錄器", () => {
     expect(draggedBlocksOf(view)).toBeNull();
   });
 
-  it("DS5 signal abort 之後 dragstart、dragend 都不再處理", () => {
-    const { editor, view, controller } = mount([P("x", "x1"), P("y", "y1")]);
+  it("DS5 記錄器的 document 監聽帶 mount 的 signal；unmount 之後 signal 已 abort、dragstart 不再記", () => {
+    // document 上還有 core 的其他 dragstart／dragend 監聽，只看記錄器自己那次呼叫期間註冊的。
+    const add = vi.spyOn(document, "addEventListener");
+    const original = dragSource.attachDragSourceRecorder;
+    let mountSignal: AbortSignal | undefined;
+    let registered: Array<[string, AddEventListenerOptions | undefined]> = [];
+    vi.spyOn(dragSource, "attachDragSourceRecorder").mockImplementation((editor, dom, signal) => {
+      const before = add.mock.calls.length;
+      original(editor, dom, signal);
+      mountSignal = signal;
+      registered = add.mock.calls.slice(before).map(([type, , options]) => [type, options as AddEventListenerOptions | undefined]);
+    });
+    const mounted = mountEditor([P("x", "x1"), P("y", "y1")]);
+    const { editor } = mounted;
+    const view = editor.prosemirrorView as any;
+    const host = editor.domElement!.parentElement!;
+    expect(mountSignal).toBeInstanceOf(AbortSignal); // 前提：mount 時掛了記錄器
+    expect(registered.map(([type]) => type)).toEqual(["dragstart", "dragend"]);
+    for (const [, options] of registered) expect(options?.signal).toBe(mountSignal);
     startBlockDrag(editor, "x1");
-    controller.abort();
-    startBlockDrag(editor, "y1");
-    expect(draggedBlocksOf(view)).toEqual({ ids: ["x1"], kind: "node", hasRows: false });
-    fire(document, "dragend");
-    expect(draggedBlocksOf(view)).toEqual({ ids: ["x1"], kind: "node", hasRows: false });
+    expect(draggedBlocksOf(view)).not.toBeNull(); // 對照：mount 中有記
+    clearDraggedBlocks(view);
+    mounted.destroy();
+    expect(mountSignal!.aborted).toBe(true);
+    // unmount 後 `editor.domElement` 不在，光看這一句會空真；承重的是上面的 signal 斷言。
+    const source = document.createElement("div");
+    host.appendChild(source);
+    cleanups.push(() => source.remove());
+    expect(source.isConnected).toBe(true);
+    fire(source, "dragstart");
+    expect(draggedBlocksOf(view)).toBeNull();
   });
 
   it("DS6 dragstart 被 preventDefault → 記 null（蓋掉之前的記錄）", () => {
