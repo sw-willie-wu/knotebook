@@ -67,7 +67,7 @@ describe("parse worker（真的執行緒）", () => {
   }, 120_000);
 
   it("錯誤碼與成因照舊從 worker 回來（unsupported_color、nested_paragraph、too_deep）", async () => {
-    expect(await pool.parse(req('x <span style="color:#ff6600">o</span>'))).toEqual({ error: "unsupported_color" });
+    expect(await pool.parse(req('x <span style="color:tomato">o</span>'))).toEqual({ error: "unsupported_color" });
     expect(await pool.parse(req("<p>a<button><p>b</p></button></p>"))).toEqual({ error: "unsupported_block", detail: "nested_paragraph" });
     expect(await pool.parse(req("<blockquote><p>a</p>".repeat(128) + "</blockquote>".repeat(128)))).toEqual({ error: "unsupported_block", detail: "too_deep" });
   }, 60_000);

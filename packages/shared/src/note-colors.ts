@@ -1,10 +1,10 @@
 /**
- * #222：MCP／REST 讀寫筆記的文字色／底色——色盤與寫入檢查（讀出在 `note-markdown-read.ts`）。
+ * #222／#378：MCP／REST 讀寫筆記的文字色／底色——色盤、色碼判準與寫入正規化（讀出在 `note-markdown-read.ts`）。
  *
- * **寫入**（{@link findDisallowedColor}）：markdown 解析出來的 block 裡，`textColor`／`backgroundColor`
- * 只收編輯器內建的 10 種色名（{@link PALETTE_COLORS}）。其他值（`#hex`、`rgb()`、CSS 合法但不在色盤的
- * 名稱、大小寫不符的 data-*）BlockNote 照樣存進 JSON，但編輯器畫面上不顯示——所以整筆拒絕，不靜默剝除。
- * 色碼判準見 {@link canonicalColor}。
+ * **寫入**（{@link normalizeNoteColors}）：markdown 解析出來的 block 裡，`textColor`／`backgroundColor`
+ * 只收編輯器內建的 10 種色名（{@link PALETTE_COLORS}）與不透明色碼，色碼就地正規化成小寫 `#rrggbb`。
+ * 其他值（CSS 合法但不在色盤的名稱、帶透明度的色碼、大小寫不符的 data-*）BlockNote 照樣存進 JSON，
+ * 但編輯器畫面上不顯示——所以整筆拒絕，不靜默剝除。色碼判準見 {@link canonicalColor}。
  * ⚠ 走訪是**迭代**的（顯式堆疊）：巢狀深度由呼叫端的 markdown 決定，不能遞迴。
  */
 export const PALETTE_COLORS = ["default", "gray", "brown", "red", "orange", "yellow", "green", "blue", "purple", "pink"] as const;
@@ -53,20 +53,27 @@ export function canonicalColor(v: unknown): string | null {
   return null;
 }
 
-function badColorIn(rec: unknown): string | null {
+/** 把 `rec` 上的色值就地換成正規形；遇到不收的值回 `String(原值)`。 */
+function normalizeColorsIn(rec: unknown): string | null {
   if (rec === null || typeof rec !== "object") return null;
+  const r = rec as Record<string, unknown>;
   for (const k of COLOR_KEYS) {
-    const v = (rec as Record<string, unknown>)[k];
-    if (v !== undefined && !isPaletteColor(v)) return String(v);
+    const v = r[k];
+    if (v === undefined) continue;
+    const c = canonicalColor(v);
+    if (c === null) return String(v);
+    r[k] = c;
   }
   return null;
 }
 
 /**
- * 回傳 blocks 裡任一個不在色盤的色值（找不到回 `null`）。看三處：block 的 `props`、行內 text 的
- * `styles`（含連結內的 text）、表格儲存格的 `props` 與其行內內容。不保證回的是文件順序上的第一個。
+ * 就地把 blocks 裡每個 `textColor`／`backgroundColor` 換成 {@link canonicalColor} 的結果；遇到不收的值
+ * 回 `String(原值)`（呼叫端整筆拒絕），全部收下回 `null`。看三處：block 的 `props`、行內 text 的
+ * `styles`（含連結內的 text）、表格儲存格的 `props` 與其行內內容。回傳的不保證是文件順序上的第一個；
+ * 回非 `null` 時 blocks 可能已被改了一部分，呼叫端要丟掉不用。
  */
-export function findDisallowedColor(blocks: readonly unknown[]): string | null {
+export function normalizeNoteColors(blocks: readonly unknown[]): string | null {
   const stack: unknown[] = [];
   const pushAll = (xs: readonly unknown[]) => {
     for (const x of xs) stack.push(x); // 不用 push(...xs)：超大陣列展開成參數會爆堆疊
@@ -80,7 +87,7 @@ export function findDisallowedColor(blocks: readonly unknown[]): string | null {
       continue;
     }
     const o = n as { props?: unknown; styles?: unknown; content?: unknown; children?: unknown };
-    const hit = badColorIn(o.props) ?? badColorIn(o.styles);
+    const hit = normalizeColorsIn(o.props) ?? normalizeColorsIn(o.styles);
     if (hit !== null) return hit;
     if (Array.isArray(o.content)) pushAll(o.content);
     else if (o.content !== null && typeof o.content === "object") {

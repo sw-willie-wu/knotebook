@@ -4,10 +4,10 @@ import {
   COLUMN_TYPE,
   checkNoteMarkdownSyntax,
   convertSiteLinks,
-  findDisallowedColor,
   findParseGuardFailure,
   findStructureError,
   isBlankParseResult,
+  normalizeNoteColors,
   normalizeTableWidths,
   premergedHtml,
   rebindWikilinks,
@@ -78,8 +78,8 @@ export function prepareAiResult(
   const parsed = relativizeSiteUploads(normalizeTableWidths(restoreMermaidBlocks(raw)), new URL(document.baseURI).origin);
   const shape = findStructureError(parsed, deps.placement);
   if (shape !== null) return { invalid: shape };
-  // #222：同 MCP，色值只收內建色名，其他值整筆拒絕（編輯器畫面不顯示，不能靜默存進去）
-  if (findDisallowedColor(parsed) !== null) return { invalid: "unsupported_color" };
+  // #378：同 MCP，色值收內建色名與色碼，就地正規化成小寫 `#rrggbb`，其他整筆拒絕（編輯器畫面不顯示，不能靜默存進去）
+  if (normalizeNoteColors(parsed) !== null) return { invalid: "unsupported_color" };
   if (isBlankParseResult(parsed)) return { empty: true };
   const [rebound, unboundCount] = rebindWikilinks(
     parsed,

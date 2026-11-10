@@ -8,8 +8,9 @@ import { ADMIN, createNote, createUserViaInvite, editorLocator, loginAs, randomE
  *   （`red`）的對照元素維持內建值（防止「全部變成同一色」的假綠）。
  * - C8：C7 全程不得出現任何 `securitypolicyviolation`（自訂色碼的規則是 JS 動態插入的，不可靠 inline style 或 `unsafe-inline`）。
  * - C12：同一個 context 的兩個分頁開同一篇筆記；A 貼上自訂色碼後，B 不重新整理就要顯示出來（遠端共編者套的色碼不會經過本機操作）。
+ * - C9：用 API token 經 REST 寫入以 `style` 表示的十六進位色碼（短形、大寫），開著的編輯器不重新整理就顯示，且存成小寫 `#rrggbb`。
  *
- * 色碼是怎麼放進筆記的：本檔只關心「已經在文件裡」的色碼如何顯示，所以用貼上 HTML 放（`pasteHtml`）。
+ * 色碼是怎麼放進筆記的：除 C9（走 REST API）外，本檔只關心「已經在文件裡」的色碼如何顯示，所以用貼上 HTML 放（`pasteHtml`）。
  * 貼上走合成的 `ClipboardEvent("paste")`＋真的 `DataTransfer`，只放 `text/html`：
  * - 不經瀏覽器 async clipboard（寫入時 Chromium 會消毒 HTML，`data-*` 之類的屬性不保證留得下來），也不需要剪貼簿授權；
  * - 不放 `text/plain`：編輯器的貼上流程會優先把純文字當 markdown 解析，HTML 就沒機會被處理。
@@ -257,5 +258,82 @@ test("C12 兩個分頁開同一篇筆記：A 貼上自訂色碼，B 不重新整
     await expect(editorB.locator(`[data-style-type="textColor"][data-value="${CUSTOM}"]`).filter({ hasText: /^y$/ }).first()).toHaveCSS("color", RGB_CUSTOM, { timeout: 10_000 });
   } finally {
     await context.close();
+  }
+});
+
+test("C9 API 用 token 以 style 寫入色碼：網頁不重整就顯示，且存成小寫 #rrggbb", async ({ browser, baseURL }) => {
+  test.setTimeout(120_000);
+  // 新帳號：建 token 的額度（每人每小時 10 次）是 per user，不吃 admin 的。
+  const adminContext = await browser.newContext();
+  const userContext = await browser.newContext();
+  let anonymous: BrowserContext | undefined;
+  let tokenId: string | undefined;
+  const page = await userContext.newPage();
+  try {
+    const adminPage = await adminContext.newPage();
+    await loginAs(adminPage, ADMIN.email, ADMIN.password);
+    await expect(adminPage).toHaveURL(/\/$/);
+    const email = randomEmail();
+    const password = "e2e-colors-api-pw";
+    await createUserViaInvite(adminPage, { email, password, displayName: "E2E Colors Api" });
+
+    await loginAs(page, email, password);
+    const title = `E2E colors api ${Date.now()}`;
+    await createNote(page, title);
+    const noteUrl = page.url();
+
+    // API token（照 45-bulk-transfer）：notes:read notes:write，結束時撤掉。
+    const created = await page.request.post("/api/auth/tokens", {
+      data: { name: `e2e-colors-${Date.now()}`, scope: "notes:read notes:write", expiresInDays: 30 },
+    });
+    expect(created.status(), await created.text()).toBe(201);
+    const body = (await created.json()) as { id: string; token: string };
+    tokenId = body.id;
+    const token = body.token;
+    expect(token).toMatch(/^knb_/);
+
+    // 回到筆記並等編輯器掛上（命中即隱含已連線且首次同步完成）。
+    await page.goto(noteUrl);
+    const editor = editorLocator(page);
+    await editor.waitFor();
+
+    // 無 cookie 的 context：用瀏覽器 context 會因 session cookie 而通過，對 Bearer 沒有鑑別力。
+    anonymous = await browser.newContext();
+    const api = anonymous.request;
+    const auth = { Authorization: `Bearer ${token}` };
+    const listRes = await api.get(`${baseURL}/api/notes`, { headers: auth });
+    expect(listRes.status()).toBe(200);
+    const notes = (await listRes.json()) as Array<{ id: string; title: string }>;
+    const mine = notes.find((n) => n.title === title)!;
+    expect(mine).toBeTruthy();
+
+    // 短形、大寫的色碼經 style 寫入：parser 先換成 rgb(255, 102, 0)，寫入端再正規化成 #ff6600。
+    const res = await api.post(`${baseURL}/api/notes/${mine.id}/edits`, {
+      headers: auth,
+      data: { op: "append", markdown: '<span style="color:#F60">c9</span>' },
+    });
+    expect(res.status()).toBe(201);
+
+    // 寫入後 token 的遠端游標落在這次寫下的第一個字前面。ProseMirror 把 widget 包進「後面那個字」的
+    // mark 裡，所以游標（含名牌文字）會畫在色彩 span 裡面，span 的 textContent 不會剛好是 "c9"。
+    // 這裡用子字串找 span，再扣掉 widget 比對 span 自己的文字：整段 "c9" 都被上色，不是只有一部分。
+    const colored = editor.locator('[data-style-type="textColor"]').filter({ hasText: "c9" }).first();
+    await expect(colored).toHaveCSS("color", RGB_CUSTOM, { timeout: 10_000 });
+    await expect(colored).toHaveAttribute("data-value", CUSTOM);
+    const ownText = () =>
+      colored.evaluate((el) => {
+        const copy = el.cloneNode(true) as Element;
+        copy.querySelectorAll(".ProseMirror-widget").forEach((w) => w.remove());
+        return copy.textContent;
+      });
+    await expect.poll(ownText).toBe("c9");
+  } finally {
+    try {
+      if (tokenId) await page.request.delete(`/api/auth/tokens/${tokenId}`);
+    } finally {
+      await anonymous?.close();
+      await userContext.close();
+      await adminContext.close();
+    }
   }
 });

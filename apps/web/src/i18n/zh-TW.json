@@ -902,7 +902,7 @@
     "section_not_found": "找不到該段落，請重新讀取筆記。",
     "fingerprint_mismatch": "筆記內容在這段期間被修改過，請重新讀取後再試。",
     "unsupported_block": "內容含有這篇筆記無法儲存的部分。",
-    "unsupported_color": "內容用了編輯器沒有的顏色，請改用內建的色名。",
+    "unsupported_color": "內容用了編輯器無法顯示的顏色，請改用內建色名或 #rrggbb 色碼。",
     "unsupported_columns": "AI 改寫失敗，筆記沒有更新。",
     "unsupported_size": "AI 改寫失敗，筆記沒有更新。",
     "empty_content": "內容是空的。",

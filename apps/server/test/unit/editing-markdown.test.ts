@@ -157,7 +157,7 @@ describe("parseMarkdownForNote", () => {
   });
   it("GM-ORD：孤立 column 與不在色盤的顏色同一筆 → unsupported_columns（結構檢查在顏色之前）", async () => {
     await withSession(ed => {
-      const bad = [{ id: "c", type: "column", props: { width: 1 }, children: [{ id: "p", type: "paragraph", content: [{ type: "text", text: "x", styles: { textColor: "#ff0000" } }] }] }];
+      const bad = [{ id: "c", type: "column", props: { width: 1 }, children: [{ id: "p", type: "paragraph", content: [{ type: "text", text: "x", styles: { textColor: "tomato" } }] }] }];
       const spy = vi.spyOn(ed, "tryParseHTMLToBlocks").mockReturnValue(bad as never);
       try {
         expect(parseMarkdownForNote(ed, "x", notes, ORIGIN)).toEqual(COLS);
@@ -206,7 +206,7 @@ describe("parseMarkdownForNote", () => {
   });
   it("GM12：不在色盤的顏色與 display:flex 的 div 同一筆 → unsupported_columns（語法檢查在顏色之前）", async () => {
     await withSession(ed => {
-      const md = 'x <span style="color:#ff0000">r</span>\n\n<div style="display:flex"><div><p>L</p></div><div><p>R</p></div></div>';
+      const md = 'x <span style="color:tomato">r</span>\n\n<div style="display:flex"><div><p>L</p></div><div><p>R</p></div></div>';
       expect(parseMarkdownForNote(ed, md, notes, ORIGIN)).toEqual(COLS);
     });
   });
@@ -240,7 +240,7 @@ describe("parseMarkdownForNote", () => {
       expect(cols[0]!.children!.map(k => k.type)).toEqual(["mermaid", "image"]);
       const para = cols[1]!.children!.find(k => k.type === "paragraph")!;
       expect((para.content as Array<{ type: string }>).filter(n => n.type === "wikilink")).toHaveLength(2);
-      expect(parseMarkdownForNote(ed, ROW2.replace("型號：x", '<span style="color:#ff0000">r</span>'), notes, ORIGIN)).toEqual({ error: "unsupported_color" });
+      expect(parseMarkdownForNote(ed, ROW2.replace("型號：x", '<span style="color:tomato">r</span>'), notes, ORIGIN)).toEqual({ error: "unsupported_color" });
     });
   });
   it("GM-THROW：core parse 丟例外的輸入（編輯器內部形 data-content-type）→ unsupported_block，不往外拋", async () => {
