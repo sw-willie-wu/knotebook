@@ -284,7 +284,7 @@ test("C9 API 用 token 以 style 寫入色碼：網頁不重整就顯示，且�
 
     // API token（照 45-bulk-transfer）：notes:read notes:write，結束時撤掉。
     const created = await page.request.post("/api/auth/tokens", {
-      data: { name: `e2e-colors-${Date.now()}`, scope: "notes:read notes:write", expiresInDays: 1 },
+      data: { name: `e2e-colors-${Date.now()}`, scope: "notes:read notes:write", expiresInDays: 30 },
     });
     expect(created.status(), await created.text()).toBe(201);
     const body = (await created.json()) as { id: string; token: string };
