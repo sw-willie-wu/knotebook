@@ -26,7 +26,7 @@ export function spaceLockKey(space: StorageSpace): string {
 
 /**
  * `coalesce(sum(uploads.size), 0)::bigint`，以 `mapWith(Number)` 轉回 number（node-postgres 的 int8 是字串——spec §4.3 m8）。
- * **每次呼叫現造**（drizzle 的 SQL 片段不得跨查詢重用——[[g:drizzle-query-builder-gotchas]]）。
+ * **每次呼叫現造**（drizzle 的 SQL 片段不得跨查詢重用）。
  */
 export function sumUploadSizeSql(): SQL<number> {
   return sql<number>`coalesce(sum(${uploads.size}), 0)::bigint`.mapWith(Number);

@@ -214,7 +214,7 @@ export default function LoginPage() {
         )}
 
         {passwordSignup && (
-          // #187 spec §3.1 S1（Willie 原話「註冊」鈕）→ outline 按鈕（總管裁定疑點 12）；不得是實心鈕——頁面的唯一實心鈕是「Sign in」。
+          // #187 spec §3.1 S1（「註冊」鈕）→ outline 按鈕；不得是實心鈕——頁面的唯一實心鈕是「Sign in」。
           <Button asChild variant="outline" size="lg" className="w-full">
             <Link to={registerHref}>{t("login.register")}</Link>
           </Button>

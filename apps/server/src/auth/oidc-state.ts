@@ -33,7 +33,7 @@ export type OidcStateIntent = {
    * `MAX_NEXT_PATH_LENGTH` = 2048）。spec §5.3.3 原本要求再壓到 512、理由是 cookie 的
    * 4 KB 上限，實測不成立（2048 字元的 next 封章後 `name=value` 是 3049 bytes、含屬性
    * 3115，臨界值 2834 字元——Plan 5 時的量測；#187 加 providerId／configVersion／intent 後 `name=value` 實測 3165），那道關只會把 513–2048 的合法路徑在 SSO 線靜默丟掉。
-   * Willie 2026-09-03 裁決拿掉。守衛見 `test/oidc-login.test.ts` 的兩案分工註解。
+   * 已拿掉。守衛見 `test/oidc-login.test.ts` 的兩案分工註解。
    */
   next?: string;
 } | {

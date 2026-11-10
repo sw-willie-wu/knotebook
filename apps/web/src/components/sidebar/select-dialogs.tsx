@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import type { DestTarget } from "./destination-level";
 
 /**
- * 一般 tab 選取模式的移入群組／複製確認框（#181 PR-2c，spec §6.11；複製先確認是 Willie 裁定 Q2）。複數版移入確認框是通用句，
+ * 一般 tab 選取模式的移入群組／複製確認框（#181 PR-2c，spec §6.11；複製也先跳確認框，因為複製會多出一份、不直接執行）。複數版移入確認框是通用句，
  * 不預查每篇的分享與公開連結（plan 讀碼發現 7）。篇數由呼叫端在目的地選定那一刻快照（讀碼發現 19）。
  * PR-3b-2（資料夾 spec §6.10）：目的地名稱換成完整路徑（`destinationPathLabel`，根層＝空間名）；另加刪資料夾的彙總確認框。
  * **送出中（`progress` 非 null）框開到批次結束**：送出與取消 disabled、框內顯示進度；✕（`DialogPrimitive.Close`）、Esc 與點框外

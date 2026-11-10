@@ -204,7 +204,7 @@ export function useSidebarDrag(args: {
     const entry = noteId === null ? undefined : lookup.notes.get(noteId);
     // placeable＝canDragNote（buildDropLookup 依樹上的空間算）。
     if (noteId === null || entry === undefined || !entry.placeable) return;
-    // 只加自訂型別、不清原生資料；effectAllowed 保留 copy／link 再加 move（總管裁定 2026-10-30 Q4）。
+    // 只加自訂型別、不清原生資料；effectAllowed 保留 copy／link 再加 move。
     event.dataTransfer.setData(DRAG_NOTE_MIME, noteId);
     event.dataTransfer.effectAllowed = "all";
     const source: DragSource = { noteId, space: entry.space, folderId: entry.folderId, title: entry.title };

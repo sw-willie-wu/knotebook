@@ -160,9 +160,9 @@ export type CreateFromFileOutcome =
   | { ok: false; kind: "folder_gone" | "busy" | "internal" };
 
 /**
- * 409 `base_unavailable` 的成因（回應的 `error.reason`；8000 探索測試 D，Willie 2026-11-04）：`already_sent`＝這份副本已用其他內容
+ * 409 `base_unavailable` 的成因（回應的 `error.reason`；探索測試 D）：`already_sent`＝這份副本已用其他內容
  * 送回過；`other_note`＝`base` 屬於別篇或別人；`expired`＝伺服器已沒有這份基底（裁掉、過期）或金鑰換過；`note_changed`＝這篇筆記在下載
- * 之後被改過（標題或內文，Willie 2026-11-04 第三輪：不再三方合併）；`reverted`＝這份檔寫回的紀錄已被撤回（`applied_edit_ids`）。
+ * 之後被改過（標題或內文，不再三方合併）；`reverted`＝這份檔寫回的紀錄已被撤回（`applied_edit_ids`）。
  */
 export type BaseUnavailableReason = "already_sent" | "other_note" | "expired" | "note_changed" | "reverted";
 
@@ -404,7 +404,7 @@ export class NoteWriteService {
   }
 
   /**
-   * bulk transfer spec 2026-11-02 §9.2、§9.5（plan PR-2 T8／T9）：檔案寫回一篇既有筆記。Willie 2026-11-04 第三輪：**筆記自下載後只要
+   * bulk transfer spec 2026-11-02 §9.2、§9.5（plan PR-2 T8／T9）：檔案寫回一篇既有筆記。**筆記自下載後只要
    * 被動過（標題或內文），一律 409 `note_changed`，不再三方合併**。全在一次 `queue.run(noteId)` 內（F14；與 edit_note、撤回、套用版本
    * 串行）；進佇列前只預取候選集合與 agentLabel（同 `applyToNote`）。順序：
    * ① 查基底（key＋user＋note）→ 查無 → `other_note`／`expired`；`key_id` 不符 → `expired`
@@ -413,7 +413,7 @@ export class NoteWriteService {
    *    否則當沒改（這幾個成因先於 `note_changed`：筆記是被這份副本自己改的）
    * ③ 檔案與這份副本相同（本文：下載時的 `body_sha`，或②寫回的那份；標題：`applied_title_sha ?? title_sha`）→ `unchanged`、扣
    *    `tokenRead`——不管筆記有沒有被別人動過 ④ 本文有改、筆記不可寫回（段表 null）→ `not_mergeable`
-   * ⑤ 寫回額度 `transferWrite`（不足 → 429）：沒改的檔不碰（8000 探索測試 N5）；本文有改 → ⑦ 解析之前扣（全分支審查 I2：解析失敗也算），
+   * ⑤ 寫回額度 `transferWrite`（不足 → 429）：沒改的檔不碰（探索測試 N5）；本文有改 → ⑦ 解析之前扣（全分支審查 I2：解析失敗也算），
    *    零區退回（審查 M1，淨值不扣）；只改標題 → ⑨ 改名之前扣
    * ⑥ 筆記動過沒（內容比對，不看 `updated_at`）：現行標題的 HMAC ≠ 這份副本的標題 → `note_changed`；再 fork（live 文件就 fork 它）比內文：
    *    段表非 null → 頂層 id 與單顆指紋（整個 block 子樹的文字與屬性）要與基底段表逐顆相等（`matchesBase`；審查 I2：不再整篇匯出比，
@@ -425,7 +425,7 @@ export class NoteWriteService {
    *    重來（重新 fork、重新判），最多 3 次 ⑧ 紀錄交易（`recordFileSyncInTx`，交易外 `redactDbError`）→ `updateNoteLinks`
    * ⑨ 改名（T9）：`renameNoteTitle` 帶 `expectTitle`＝⑥ 讀到的現行標題（檢查與改名同一句 UPDATE）⑩ presence。
    * 帶內容參數的 DB 呼叫（紀錄、改名）錯誤一律經 `redactDbError`（plan 不變量 9）。
-   * 已知縫（不修，總管 2026-11-04 接受）：① 只改標題時，⑥ 的內文判斷與 ⑨ 的改名不在同一個交易（內文在 Yjs、標題在 DB），中間瀏覽器
+   * 已知縫（不修）：① 只改標題時，⑥ 的內文判斷與 ⑨ 的改名不在同一個交易（內文在 Yjs、標題在 DB），中間瀏覽器
    * 打的字不擋改名 ② 寫回本文期間（⑥ 讀完標題之後、合併之前）別人改了標題，而檔案沒改標題：本文照寫，偵測不到這次改名（審查 M2）。
    */
   async syncFile(log: FastifyBaseLogger, input: SyncFileInput): Promise<SyncFileOutcome> {
@@ -474,7 +474,7 @@ export class NoteWriteService {
     let bodyChanged: boolean;
     if (applied === null) bodyChanged = !bodySha.equals(Buffer.from(base.bodySha));
     else if (bodySha.equals(applied)) {
-      // 同檔重送：這份檔寫回的紀錄若有任一列已撤回，內容已不是「都套用了」→ 409 reverted（8000 探索測試 C）。
+      // 同檔重送：這份檔寫回的紀錄若有任一列已撤回，內容已不是「都套用了」→ 409 reverted（探索測試 C）。
       const ids = base.appliedEditIds ?? [];
       if (ids.length > 0) {
         const [rev] = await db.select({ id: noteAiEdits.id }).from(noteAiEdits).where(and(inArray(noteAiEdits.id, ids), isNotNull(noteAiEdits.revertedAt))).limit(1);
@@ -495,7 +495,7 @@ export class NoteWriteService {
     }
     if (bodyChanged && base.segments === null) return { ok: false, kind: "not_mergeable" };
     // 寫回額度（`transferWrite`）：本文有改 → 解析前扣（全分支審查 I2，解析失敗也算）、零區退回；只改標題 → 改名前扣。
-    // 沒改的檔不碰這顆（8000 探索測試 N5），零區的檔淨值不扣（審查 M1）——但額度用完時本文有改的檔一律 429，連零區也是（判零區要先解析）。
+    // 沒改的檔不碰這顆（探索測試 N5），零區的檔淨值不扣（審查 M1）——但額度用完時本文有改的檔一律 429，連零區也是（判零區要先解析）。
     // 走到這裡一定是 `applied === null`：寫回過本文的副本（applied 非 null）只有「同檔重送且標題沒改」會往下，而那時兩者都沒改、上面已回。
 
     const noteChanged: SyncFileOutcome = { ok: false, kind: "base_unavailable", reason: "note_changed" };
@@ -691,7 +691,7 @@ export class NoteWriteService {
       if (!input.limiters.tokenRead.consume(k)) return { ok: false, kind: "rate_limited", retryAfterMs: input.limiters.tokenRead.retryAfterMs(k) };
       return { ok: true, created: false, noteId: hit.noteId, unboundWikilinks: 0 };
     }
-    // 去重沒命中＝真的要建 → 先扣寫回額度、再解析（全分支審查 I2；取代審查 M2「只看不扣、解析成功才扣」與總管 m2）：解析失敗（400）
+    // 去重沒命中＝真的要建 → 先扣寫回額度、再解析（全分支審查 I2；取代審查 M2「只看不扣、解析成功才扣」）：解析失敗（400）
     // 也算一次，同 edit_note 先扣 `edit` 再解析——否則解析失敗的檔不花任何額度，每發都能讓伺服器同步解析一整份大檔。解析失敗不留筆記、不寫去重列。
     if (!input.limiters.transferWrite.consume(input.userId)) return { ok: false, kind: "rate_limited", retryAfterMs: input.limiters.transferWrite.retryAfterMs(input.userId) };
     const pre = await this.prepareContent(log, { userId: input.userId, tokenId: input.tokenId, content: input.body });

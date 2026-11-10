@@ -40,7 +40,7 @@ const NotePage = lazy(() => import("./pages/NotePage"));
  *   開 modal 時外框立刻出現都靠它，只有內容區等 chunk）；
  * - 登入流程的五頁：註冊、帳號連結、重設密碼（#286）、強制改密碼、OAuth 同意頁。
  *
- * **登入頁（`LoginPage`）與登入服務圖示刻意留在首包**（Willie 裁示：登入頁的圖示要立即
+ * **登入頁（`LoginPage`）與登入服務圖示刻意留在首包**（登入頁的圖示要立即
  * 出現）。首頁也留：登入後第一個畫面。
  *
  * 錯誤處理一律走 #66 那套 `LazyRouteErrorBoundary`（自動 reload 一次＋手動重試），各 route

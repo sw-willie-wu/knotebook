@@ -35,7 +35,7 @@ const UNSTORABLE = /[\0]|\p{Surrogate}/u;
 
 /**
  * 方案名稱：trim（含全形空白）後 1..40 個 **code point**（與 DB `char_length` 同單位——不得用 `.length`，astral 字元算兩個）；
- * 含 NUL 或落單代理一律拒（PG 存不下 → 22021，[[g:pg-unstorable-strings-drizzle-tx]]）。不合法回 null。
+ * 含 NUL 或落單代理一律拒（PG 存不下 → 22021）。不合法回 null。
  */
 export function validatePlanName(raw: string): string | null {
   const name = raw.trim();

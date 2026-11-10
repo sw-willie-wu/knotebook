@@ -161,7 +161,7 @@ describe("#108 create_note", () => {
     expect(note.lastEdited).toBeNull();
   });
 
-  // #145：issue 的原始症狀在測試層的直接反例——demo 實測用 `create_note` 帶
+  // #145：issue 的原始症狀在測試層的直接反例——實機測試用 `create_note` 帶
   // `title: "#108 PR3 實機驗證 2026-09-14"` 建出來的筆記網址是 `untitled-c2af7053`。
   // 派生在建列的同一發裡完成，所以**同一次回應**的 `slug`／`url` 就是最終值，不需要第二次寫入。
   it("#145：帶 title → 同一次回應的 slug 與 url 就是派生形（不是 untitled-<8hex>）", async () => {

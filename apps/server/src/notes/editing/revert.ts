@@ -71,7 +71,7 @@ export async function revertEdit(deps: ApplyDeps, input: { noteId: string; editI
   if (!row) return { ok: false, code: "not_found" };
   if (row.op === "revert" || row.revertedAt !== null) return { ok: false, code: "already_reverted" };
   const anchor = row.anchor as Anchor | null;
-  // 總管追加 T11-2：file_sync 刪除形的佔位空段落，只有在「同一篇沒有其他未撤回的列也用它當 anchor」時才刪——在取 lease 之前查好。
+  // file_sync 刪除形的佔位空段落，只有在「同一篇沒有其他未撤回的列也用它當 anchor」時才刪——在取 lease 之前查好。
   const othersShareAnchor =
     row.op === "file_sync" && anchor?.placeholder === true
       ? (

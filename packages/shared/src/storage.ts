@@ -47,7 +47,7 @@ const DOCUMENT_MIMES = new Set([
 ]);
 
 /**
- * mime → 類型（spec #247 §9.1）。正規化（取 `;` 前、trim、小寫）是 spec 未寫、刻意加的（總管裁定 5）。分類規則只有這一份：server 以 `GROUP BY uploads.mime` 取各 mime 的總和後在 JS 端歸類，
+ * mime → 類型（spec #247 §9.1）。正規化（取 `;` 前、trim、小寫）是 spec 未寫、刻意加的。分類規則只有這一份：server 以 `GROUP BY uploads.mime` 取各 mime 的總和後在 JS 端歸類，
  * 不在 SQL 重寫一次。先取 `;` 前的部分、trim、轉小寫（`text/plain; charset=utf-8`、`IMAGE/PNG` 照常歸類）。
  */
 export function kindOfMime(mime: string): StorageKind {
@@ -127,7 +127,7 @@ export interface StorageQuotaErrorDetail {
 /**
  * 位元組數的人類可讀形（儲存配額 spec §8.3-3 MCP 訊息、§9.1 web 顯示共用）。
  * 1024 進位、B／KB／MB／GB／TB；未滿 1 KB 印整數（`512 B`）；其餘四捨五入到一位小數，結果是整數就不帶 `.0`
- * （`2 GB`、`500 MB`；`1.2 GB`——Willie 2026-10-08）；TB 以上仍以 TB 表示。
+ * （`2 GB`、`500 MB`；`1.2 GB`）；TB 以上仍以 TB 表示。
  * 四捨五入後若恰好進到下一個單位（例：1048575 → 1023.999… KB → 「1024 KB」），改用下一個單位（「1 MB」）。
  */
 const BYTE_UNITS = ["KB", "MB", "GB", "TB"] as const;

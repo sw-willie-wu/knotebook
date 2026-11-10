@@ -11,7 +11,7 @@ import type { SelectionNode } from "@/lib/sidebar-selection";
  * 一般 tab 選取模式的批次執行（#181 PR-2c，spec §6.11「執行」、D-M4）。只准被 SelectLazy 鏈與測試 import。
  * - 不用 mutation hook：批次要能跑完整輪，即使中途動作列或抽屜卸載（換頁、關抽屜、Done）；結果由呼叫端依 session 決定要不要套用。
  * - 依序（await 完一篇才送下一篇）：不開批次端點（spec §6.11），沿用單篇端點的交易、權限與容量檢查；依序才停得住、才回報得出「已完成幾篇」。
- * - 分類（Willie 裁定）：403、404 `not_found` → 略過、繼續；其餘（429、404 `group_not_found`、409、400、5xx、網路錯誤、
+ * - 分類：403、404 `not_found` → 略過、繼續；其餘（429、404 `group_not_found`、409、400、5xx、網路錯誤、
  *   非 JSON 的 `internal`）→ 停下。move 的 409 `conflict`（授權之後、上鎖之前歸屬變了）是窄競態：停下安全、不掉資料。
  *   404 `folder_not_found`：刪資料夾時略過（要刪的已不在）；其餘一律停下（例如明選的目的地資料夾已不在，spec §6.10），見 `classifyBatchError`。
  * - 複製扣寫入節流（`limiters.edit` 30 次／60 秒，有附件再扣 upload 桶）：一次複製約 30 篇以上會撞 429 而停下。
@@ -20,7 +20,7 @@ import type { SelectionNode } from "@/lib/sidebar-selection";
  */
 
 /**
- * 403、404 not_found → 略過；其餘 → 停下（讀碼發現 13，Willie 裁定）。
+ * 403、404 not_found → 略過；其餘 → 停下（讀碼發現 13）。
  * 404 `folder_not_found`：`folderGone: "skip"` 時略過（只給刪資料夾：要刪的已不在）；預設停下（明選的目的地不在了，spec §6.10）。
  */
 export function classifyBatchError(err: unknown, opts: { folderGone?: "skip" | "stop" } = {}): "skip" | "stop" {

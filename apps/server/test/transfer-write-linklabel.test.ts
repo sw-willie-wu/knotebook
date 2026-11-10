@@ -1,6 +1,6 @@
 /**
- * 8000 第三輪探索測試 F1：沒有自訂文字的 wikilink（顯示目標的現行標題）——下載後目標改名，在舊副本裡改含那個連結的段落再寫回，
- * 連結文字不得被凍結成自訂文字（`transfer/link-texts.ts`）。L1–L4 是總管指定的四案；L5 是這版之前下載的副本（基底沒有 `links`）。
+ * 第三輪探索測試 F1：沒有自訂文字的 wikilink（顯示目標的現行標題）——下載後目標改名，在舊副本裡改含那個連結的段落再寫回，
+ * 連結文字不得被凍結成自訂文字（`transfer/link-texts.ts`）。L1–L4 四案；L5 是這版之前下載的副本（基底沒有 `links`）。
  */
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";

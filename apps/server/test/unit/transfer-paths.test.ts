@@ -62,7 +62,7 @@ describe("sanitizeSegment 規則 1：非法字元 → _", () => {
   ])("%j → %j", (raw, want) => {
     expect(sanitizeSegment(raw)).toBe(want);
   });
-  it("N1（8000 探索測試）shell 在雙引號內仍會展開的 `$`、反引號、`!` → _；標題與資料夾名都是", () => {
+  it("N1（探索測試）shell 在雙引號內仍會展開的 `$`、反引號、`!` → _；標題與資料夾名都是", () => {
     const shell = ["$", "`", "!"];
     for (const raw of ["$(touch x)", "`id`", "$HOME", "a!b", "${PATH}", "$(echo PWNED>>pwned.txt)"]) {
       for (const out of [sanitizeSegment(raw), sanitizeTitle(raw)]) for (const c of shell) expect(out, `${raw} → ${out}`).not.toContain(c);
@@ -107,7 +107,7 @@ describe("sanitizeSegment 規則 2–6", () => {
   it("P4 規則 4：開頭 . → _（只換第一個）", () => {
     expect(sanitizeSegment(".git")).toBe("_git");
     expect(sanitizeSegment(".")).toBe("_");
-    // N9（8000 探索測試，docs/mcp.md 照這幾形寫）：`..` → `_`（第一個點換掉、尾端的點去掉）；`.knotebook` → `_knotebook`；
+    // N9（探索測試，docs/mcp.md 照這幾形寫）：`..` → `_`（第一個點換掉、尾端的點去掉）；`.knotebook` → `_knotebook`；
     // 標題 `.`、`..`、`...` 清洗後只剩 `_` → Untitled
     expect(sanitizeSegment("..")).toBe("_");
     expect(sanitizeSegment(".knotebook")).toBe("_knotebook");
@@ -434,7 +434,7 @@ describe("buildLayout 範圍縮小：命名在完整集合上算、再依範圍�
   });
 });
 
-describe("檔名開頭的空白（known-limitations；8000 探索測試 I）", () => {
+describe("檔名開頭的空白（known-limitations；探索測試 I）", () => {
   it("開頭的空白保留、結尾的空白去掉", () => {
     expect(sanitizeTitle("  前後空白  ")).toBe("  前後空白");
   });

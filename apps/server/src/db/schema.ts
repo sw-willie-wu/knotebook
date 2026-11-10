@@ -274,7 +274,7 @@ export const groups = pgTable("groups", {
  * #175（migration 0012）：群組角色。七旗標（spec §4.1）；內建兩個（`builtin` = admin／member，`name` 恆 NULL，
  * 顯示名走 i18n——Q19），自訂角色（`builtin` NULL、`name` 必填，`POST /api/groups/:id/roles` 建立，#175 PR3）。五條 CHECK：`builtin` 值域；
  * S8 的名稱兩條（內建恰無名、自訂恰有名；名稱 1..40 字）；S8／S10 的旗標兩條（內建管理員七旗標全真；四個筆記旗標
- * ⇒ 閱讀）——「新建 ⇒ 編輯」在 0013 拿掉（#175 PR3，Willie 裁決：自訂角色怎麼組合由管理者決定）。0013 拿掉 `group_roles_create_needs_edit_chk` 後實質不可逆：一旦有人建了 create-only 角色，要加回這條 CHECK 必須先修正那些資料。兩個管理旗標彼此獨立、也不蘊含閱讀（gate r2 M-4）——刻意沒有 CHECK。
+ * ⇒ 閱讀）——「新建 ⇒ 編輯」在 0013 拿掉（#175 PR3，自訂角色怎麼組合由管理者決定）。0013 拿掉 `group_roles_create_needs_edit_chk` 後實質不可逆：一旦有人建了 create-only 角色，要加回這條 CHECK 必須先修正那些資料。兩個管理旗標彼此獨立、也不蘊含閱讀（gate r2 M-4）——刻意沒有 CHECK。
  * `(group_id, id)` 唯一索引是 `group_members` 複合 FK 的目標（S7：成員的角色屬同一群組）。
  */
 export const groupRoles = pgTable("group_roles", {
@@ -975,7 +975,7 @@ export type TransferSegment = { ids: string[]; fps: string[]; start: number; cou
 
 /**
  * bulk transfer spec 2026-11-02 §8.2：每次下載一篇存一列「加鹽 HMAC 行雜湊＋段表」的基底，供寫回（PR-2）用。
- * Willie 2026-11-04 第三輪起**不再三方合併**：筆記自下載後被動過（標題 HMAC ≠ 這份副本的標題；段表非 null → 頂層 id 與單顆指紋要與
+ * **不再三方合併**：筆記自下載後被動過（標題 HMAC ≠ 這份副本的標題；段表非 null → 頂層 id 與單顆指紋要與
  * `segments` 逐顆相等，段表 null → 整篇匯出的 HMAC 要等於 `body_sha`）→ 409 `base_unavailable`、reason `note_changed`，要重新下載；
  * 沒被動過才用行雜湊 diff 出這份副本改了哪幾段、只寫那幾段（`NoteWriteService.syncFile` 的 ⑥⑦）。
  *
@@ -1005,7 +1005,7 @@ export const transferBases = pgTable(
     appliedBodySha: bytea("applied_body_sha"),
     /**
      * 寫回這份檔時記下的 `note_ai_edits`（file_sync）列 id（裁切後仍存活的；零區＝空陣列）。同檔重送時，其中任一列已撤回
-     * （`reverted_at` 非 null）→ 409 `base_unavailable`、reason `reverted`，不再回 unchanged（8000 探索測試 C，Willie 2026-11-04）。
+     * （`reverted_at` 非 null）→ 409 `base_unavailable`、reason `reverted`，不再回 unchanged（探索測試 C）。
      * 不設 FK：列被裁切或刪掉時 id 只是查不到，照「沒撤回」處理。
      */
     appliedEditIds: uuid("applied_edit_ids").array(),

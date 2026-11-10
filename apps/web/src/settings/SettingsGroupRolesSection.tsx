@@ -57,7 +57,7 @@ const NO_FLAGS: GroupRoleFlags = {
 };
 
 /**
- * 一列「旗標名＋switch」。**契約：旗標彼此不連動**（Willie 裁決；spec 疑點 11）——`onChange` 只准改這一列自己的那一鍵。
+ * 一列「旗標名＋switch」。**契約：旗標彼此不連動**（spec 疑點 11）——`onChange` 只准改這一列自己的那一鍵。
  * `softDisabled`＝pending 期間的停用：`aria-disabled`＋視覺停用，**不用原生 `disabled`**（按下那顆若變 disabled，
  * 鍵盤焦點會掉到 body，#247 §6.3）；`onChange` 是否忽略由呼叫端決定。
  */

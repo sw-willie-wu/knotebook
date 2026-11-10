@@ -41,7 +41,7 @@ export function SidebarFooter({
   if (searching) return newNote;
   if (tab !== "trash" && selection.active) {
     // 寬螢幕（PR-3b-3，資料夾 spec F26）：動作列在標題列（`SelectHeader` 的工具列），底部什麼都不顯示。
-    // 清單可視高度因此多約一列：捲在最底附近時進入選取會位移約一列（總管裁定接受，不留同高空白）。
+    // 清單可視高度因此多約一列：捲在最底附近時進入選取會位移約一列（不留同高空白）。
     // 跨判準時兩處各自依判準掛／卸，同一份實例同時只有一個 `SelectActionBar`。
     if (wide) return null;
     // 佔位與動作列同高；chunk 失敗時錯誤＋重試由清單那份（同一個 chunk）顯示，這裡隱藏。

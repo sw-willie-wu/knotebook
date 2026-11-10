@@ -5,7 +5,7 @@ import { EditorSession } from "../../src/notes/editing/session.js";
 import { syntaxCheckRoot } from "@knotebook/shared";
 import { DROPPED_SELECTOR, DROPPED_TAGS, hasDroppedElement, parseMarkdownForNote } from "../../src/notes/editing/markdown.js";
 
-/** 8000 探索測試 E：`parseMarkdownForNote` 的失敗成因（`detail`），與「會被丟掉的元素不論在哪都整筆拒絕」（審查裁示）。 */
+/** 探索測試 E：`parseMarkdownForNote` 的失敗成因（`detail`），與「會被丟掉的元素不論在哪都整筆拒絕」（審查裁示）。 */
 const rt = new EditingRuntime({ baseUrl: "http://localhost/" });
 rt.installGlobals();
 async function parse(md: string) {

@@ -176,7 +176,7 @@ describe("AppShell 側欄寬度把手", () => {
   });
 
   it("把手的線：平常透明、hover 不畫線，只在鍵盤聚焦與拖曳中出線（class／attribute 契約，不是行為斷言）", async () => {
-    // Willie 2026-09-30 裁決：hover 只換游標、不畫線。jsdom 沒有 CSS，只能釘 class 字串與屬性。
+    // hover 只換游標、不畫線。jsdom 沒有 CSS，只能釘 class 字串與屬性。
     const { handle } = await renderShell();
     const line = handle.firstElementChild;
     if (!line) throw new Error("resize handle has no line element");

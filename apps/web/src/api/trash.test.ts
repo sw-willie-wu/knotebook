@@ -288,7 +288,7 @@ describe("useRestoreTrash／usePurgeTrash", () => {
   });
 });
 
-// 資料夾 PR-3b-2 T7（spec §6.8 還原後展開；總管裁定 I4、I-A）：還原照原路徑重建的資料夾與祖先要展開。
+// 資料夾 PR-3b-2 T7（spec §6.8 還原後展開）：還原照原路徑重建的資料夾與祖先要展開。
 describe("useRestoreTrash × 還原後展開", () => {
   const CHAIN = folderChain("R", 3); // R1 ⊃ R2 ⊃ R3
   const inFolder = (id: string, folderId: string): NoteDto => ({ ...note(id), folderId });

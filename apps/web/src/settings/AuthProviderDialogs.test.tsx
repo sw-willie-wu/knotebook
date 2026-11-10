@@ -87,7 +87,7 @@ describe("新增登入服務 dialog（#187 §9.4）", () => {
     vi.unstubAllGlobals();
   });
 
-  it("點對話框外面不關閉、已填內容仍在（Willie 回報：隨便點周圍就關、已填內容全丟）", async () => {
+  it("點對話框外面不關閉、已填內容仍在（使用者回報：隨便點周圍就關、已填內容全丟）", async () => {
     const server = fakeServer([]);
     renderSection(server.fetchMock);
     const dialog = await openCreate();

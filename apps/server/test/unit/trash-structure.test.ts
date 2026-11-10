@@ -103,7 +103,7 @@ const REGISTRY: Record<string, Disposition> = {
   // excludes：檔案寫回讀現行標題（判 note_changed，帶 deleted_at IS NULL）。
   "notes/editing/write-service.ts": { excludes: 1, includes: 1, why: "帶 content 建立失敗清掉剛建的列" },
   // excludes：存活 meta；includes：backfill 群組分支。
-  "notes/link-conversion.ts": { excludes: 1, includes: 1, why: "目標在垃圾桶照記（§6.2-4；總管裁定 M10）" },
+  "notes/link-conversion.ts": { excludes: 1, includes: 1, why: "目標在垃圾桶照記（§6.2-4）" },
   "notes/links.ts": { excludes: 3 },
   "notes/list-query.ts": { excludes: 3 },
   // GET :ref／by-path 重讀／搬移後／還原後都在閘口後；routes/notes.ts POST 帶 content 的建立後重讀不經閘口，

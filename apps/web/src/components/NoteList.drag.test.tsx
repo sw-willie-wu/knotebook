@@ -608,7 +608,7 @@ describe("NoteList 疊資料夾（PR-3c T5）", () => {
     expect(previewOf(inst("static"))).toBeNull();
     expect(screen.queryByText(/Created/)).toBeNull();
 
-    // 沿用預設名按 Save：不送 PATCH（總管裁定），關框後照樣出成功 toast。
+    // 沿用預設名按 Save：不送 PATCH，關框後照樣出成功 toast。
     fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
 
     expect(await screen.findByText("Created “New folder” with 2 notes", { exact: true })).toBeInTheDocument();

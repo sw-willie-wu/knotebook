@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
  * （`settings/SettingsModal`、`groups/GroupModal`、`admin/AdminModal`）只算 `onOpenChange`
  * 並把 boundary＋Suspense＋`<Outlet/>` 當 children 傳進來。
  *
- * 窄視窗（< md，§4.6，Willie W32）是**雙層**：一次只顯示一張卡，`layer` 決定是項次層還是內容層；
+ * 窄視窗（< md，§4.6）是**雙層**：一次只顯示一張卡，`layer` 決定是項次層還是內容層；
  * `md:` 以上兩卡恆顯示、`layer` 無作用。兩卡的基底 class 不帶 `flex`，display 全由 layer class
  * 決定、`cn` 合併時放最後（§4.2）——基底若帶 `flex`，twMerge 會把它與 `hidden` 合併成後者，
  * 但只要有人改成字串串接，`flex hidden` 並存、被隱藏的卡就會露出來（測試釘「被隱藏的卡不含裸 flex」）。

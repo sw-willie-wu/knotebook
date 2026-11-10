@@ -1,5 +1,5 @@
 /**
- * bulk transfer spec 2026-11-02 §9.4、§9.5；plan PR-2 T8（M9–M11）、T13（X1–X6）。Willie 2026-11-04 第三輪：筆記動過就 409，
+ * bulk transfer spec 2026-11-02 §9.4、§9.5；plan PR-2 T8（M9–M11）、T13（X1–X6）。筆記動過就 409，
  * 合併、存版、衝突與重試的 M1–M8f 已隨程式刪除（「動過就拒」的案在 `transfer-write-reread.test.ts`）。
  */
 import { describe, expect, it } from "vitest";

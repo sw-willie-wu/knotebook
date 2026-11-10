@@ -58,7 +58,7 @@ export const EDIT_NOTE_DESCRIPTION =
   // ⚠ #146：**不是 owner**。撤回端點 `POST /api/notes/:id/edits/:editId/revert` 的角色閘門是
   //   `role === "none"` → 404、`role === "viewer"` → 403（`routes/notes.ts`），**editor 撤得回**。
   //   而「can undo it」不得寫成無條件——條件全文在下面 `editId` 的 `.describe()`。
-  // #180：主詞收窄成 `A change to the content`——為了不把 rename 包進去（[[g:model-facing-string-claims]] 限定詞兩方向）。
+  // #180：主詞收窄成 `A change to the content`——為了不把 rename 包進去（限定詞兩方向都要查）。
   // #381：rename 也要 `if_match`（標題指紋），刪掉「the last title written wins」——MCP rename 不再蓋掉它沒看過的標題
   //   （網頁改標題仍是 last-write-wins，但那不是這支工具的行為，這裡不講）。
   "edit_note reply; the title's (`titleFingerprint`) from read_note_outline or a previous rename's reply. " +

@@ -40,11 +40,11 @@ const BASE_RE = /^[0-9a-f]{16}$/;
 const UNSTORABLE = /[\0]|\p{Surrogate}/u;
 
 const bad = (message: string): ReadFile => ({ kind: "error", message });
-/** 認得 front matter 的行（8000 探索測試 N7：冒號前可以有空白或 tab，`id :` 也算；`base:` 也算，好讓「有 base 沒 id」能被擋下）。 */
+/** 認得 front matter 的行（探索測試 N7：冒號前可以有空白或 tab，`id :` 也算；`base:` 也算，好讓「有 base 沒 id」能被擋下）。 */
 const MARKER_LINE = /^(?:knotebook|id|base)[ \t]*:/;
-/** 8000 探索測試 N7：有 `base` 卻沒有（認得出的）`id`——當成新檔會多建一篇，改回 400。 */
+/** 探索測試 N7：有 `base` 卻沒有（認得出的）`id`——當成新檔會多建一篇，改回 400。 */
 export const BASE_WITHOUT_ID_MESSAGE = "The front matter has a base but no id. This is a downloaded file: keep its original id line and send it again.";
-/** 8000 探索測試 B（HTTP 層，#372 起英文）；審查 M5：觸發條件含 `base:` 與冒號前的空白（`MARKER_LINE`）。 */
+/** 探索測試 B（HTTP 層，#372 起英文）；審查 M5：觸發條件含 `base:` 與冒號前的空白（`MARKER_LINE`）。 */
 export const UNCLOSED_FRONT_MATTER_MESSAGE =
   "The front matter has no closing `---`: the file starts with `---` and has a `knotebook:`, `id:` or `base:` line (spaces allowed before the colon) in its first 200 lines, but no `---` line closes it.";
 
@@ -68,7 +68,7 @@ export function readNoteFile(text: string): ReadFile {
       }
     }
     if (end !== -1 && !lines.slice(1, end).some(l => MARKER_LINE.test(l))) end = -1;
-    // 8000 探索測試 B：開頭 `---`、前 FRONTMATTER_SCAN_LINES 行內有 `knotebook:`／`id:`、卻找不到收尾的 `---` → 400（不再把整檔當內文、
+    // 探索測試 B：開頭 `---`、前 FRONTMATTER_SCAN_LINES 行內有 `knotebook:`／`id:`、卻找不到收尾的 `---` → 400（不再把整檔當內文、
     // 誤建一篇新筆記，或把 front matter 寫進既有筆記）。
     else if (end === -1 && lines.slice(1, limit).some(l => MARKER_LINE.test(l))) return bad(UNCLOSED_FRONT_MATTER_MESSAGE);
   }

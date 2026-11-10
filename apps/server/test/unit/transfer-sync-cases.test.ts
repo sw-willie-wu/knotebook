@@ -49,7 +49,7 @@ async function run(blocks: unknown[], edit: (body: string) => string, human: ((e
   const live = forkOf(doc);
   if (human) await withEditor(rt, live, human);
   const agent = edit(b.body);
-  // 同 `syncFileInQueue` ⑦：現況與基底段表逐顆不符 → 整篇 409 `note_changed`、不規劃也不套用（Willie 2026-11-04 第三輪）。
+  // 同 `syncFileInQueue` ⑦：現況與基底段表逐顆不符 → 整篇 409 `note_changed`、不規劃也不套用。
   if (!matchesBase(b.base.segments, topLevelSnapshot(live.getXmlFragment(YDOC_FRAGMENT)))) return { error: "note_changed", final: null, eqAgent: false, kept: [], marks: [], top: topOf(live), baseIds: b.ids };
   const planned = await planInMemory(rt, b, agent, forkOf(live), opts);
   if (!planned.ok) return { error: planned.code, final: null, eqAgent: false, kept: [], marks: [], top: topOf(live), baseIds: b.ids };
@@ -189,7 +189,7 @@ describe("§25.3 子 block（6 案）", () => {
   });
 });
 
-describe("動過就 409（Willie 2026-11-04 第三輪；取代 §25.3 並行 9 案的合併）", () => {
+describe("動過就 409（取代 §25.3 並行 9 案的合併）", () => {
   // 記憶體版只驗結構判準（`matchesBase`）；整篇匯出判準與合併時的整篇指紋在 `transfer-write-reread.test.ts`（整合）。
   it("C22 形：人改第 5 段、agent 改第 2 段 → note_changed、現況不動", async () => {
     const o = await run(PS, w => w.replace("p1", "p1-agent"), ed => ed.updateBlock(ed.document[4]!.id, { content: "p4-human" }));

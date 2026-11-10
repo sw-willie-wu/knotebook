@@ -58,7 +58,7 @@ async function renamesOf(db: Db, userId: string): Promise<number> {
 describe("deriveHandle（候選序＋探測；spec §2b）", () => {
   it("候選序：preferred_username 優先於 email local-part", async () => {
     const { db } = await freshDb();
-    expect(await deriveHandle(db, ["Cool.Name", "willie.wu@x.example".split("@")[0]], "11111111-aaaa-4bbb-8ccc-000000000001")).toBe(
+    expect(await deriveHandle(db, ["Cool.Name", "alice.lee@x.example".split("@")[0]], "11111111-aaaa-4bbb-8ccc-000000000001")).toBe(
       "cool-name",
     );
   });
@@ -66,13 +66,13 @@ describe("deriveHandle（候選序＋探測；spec §2b）", () => {
   it("四分支退位：沒給／空字串／全非 ASCII（轉完全空）／uuid 形（截斷前判）→ 退 email local-part", async () => {
     const { db } = await freshDb();
     const uuid = "22222222-aaaa-4bbb-8ccc-000000000002";
-    expect(await deriveHandle(db, [undefined, "willie"], uuid)).toBe("willie");
-    expect(await deriveHandle(db, ["", "willie"], uuid)).toBe("willie");
-    expect(await deriveHandle(db, ["日本語", "willie"], uuid)).toBe("willie");
-    expect(await deriveHandle(db, ["550e8400-e29b-41d4-a716-446655440000", "willie"], uuid)).toBe("willie");
+    expect(await deriveHandle(db, [undefined, "alice"], uuid)).toBe("alice");
+    expect(await deriveHandle(db, ["", "alice"], uuid)).toBe("alice");
+    expect(await deriveHandle(db, ["日本語", "alice"], uuid)).toBe("alice");
+    expect(await deriveHandle(db, ["550e8400-e29b-41d4-a716-446655440000", "alice"], uuid)).toBe("alice");
     // 部分 ASCII 的候選**不**退位——非 ASCII 字元段轉 dash 後的殘餘是合法候選
     // （spec §2b 管線語意：只有「空/uuid 形」才落到下一候選）
-    expect(await deriveHandle(db, ["Ünsal", "willie"], uuid)).toBe("nsal");
+    expect(await deriveHandle(db, ["Ünsal", "alice"], uuid)).toBe("nsal");
   });
 
   it("全候選皆敗 → user-<uuid8>", async () => {
@@ -89,11 +89,11 @@ describe("deriveHandle（候選序＋探測；spec §2b）", () => {
       { id: uuid2, email: "seed-b@x.example", displayName: "S2", handle: "seed-holder-b" },
     ]);
     await db.insert(handles).values([
-      { handle: "willie", userId: uuid, state: "live" },
-      { handle: "willie-2", userId: uuid2, state: "live" },
+      { handle: "alice", userId: uuid, state: "live" },
+      { handle: "alice-2", userId: uuid2, state: "live" },
     ]);
     // 兩列 live 都占位——探測必須跳過兩者落到 -3
-    expect(await deriveHandle(db, ["willie"], uuid)).toBe("willie-3");
+    expect(await deriveHandle(db, ["alice"], uuid)).toBe("alice-3");
   });
 
   it("探測上限 20 → 退 user-<uuid8>（寫入放大上界）", async () => {

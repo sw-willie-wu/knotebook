@@ -137,7 +137,7 @@ export function expandFolderChain(index: FolderIndex, folderId: string): void {
 }
 
 /**
- * 還原後展開（資料夾 spec §6.8；總管裁定 2026-10-29 I4、I-A）：還原照原路徑重建資料夾，被還原那幾篇所在的資料夾與祖先寫成展開。
+ * 還原後展開（資料夾 spec §6.8）：還原照原路徑重建資料夾，被還原那幾篇所在的資料夾與祖先寫成展開。
  * - 沒有任何非 null 的 `folderId` → 不發請求。
  * - 一律 `fetchQuery`（staleTime 0）拿新清單：垃圾桶 tab 時 `["folders"]` 沒有 observer，`invalidateQueries` 不會重抓、快取裡沒有
  *   新重建的資料夾。呼叫端必須放在 `invalidateTrashRelated` **之後**：有 observer 時那邊已觸發 refetch，這一發併進同一個請求（只打一次）。

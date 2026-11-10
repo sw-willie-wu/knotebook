@@ -38,7 +38,7 @@ import { ExportSlot } from "../transfer/export-slot.js";
 import { EXPORT_BUSY_RETRY_AFTER_S, TRANSFER_EXPORT_MAX_NOTES, streamExport, type ExportTestHooks } from "../transfer/export-stream.js";
 import { inRangeIds, layoutOf, rangeGone, visibleNotes, visibleTree } from "../transfer/range.js";
 
-/** spec §5.5（定案，Willie 2026-11-03）：範圍物件（群組、資料夾）使用時已看不到。 */
+/** spec §5.5（定案）：範圍物件（群組、資料夾）使用時已看不到。 */
 export const RANGE_GONE_MESSAGE = "The group or folder this transfer token covers is no longer visible to you.";
 export const NOT_IN_RANGE_MESSAGE = "This note isn't in this transfer token's range.";
 export const TRANSFER_NOTE_NOT_FOUND_MESSAGE = "No note with that id.";
@@ -61,7 +61,7 @@ export type TransferTestHooks = ExportTestHooks & WriteTestHooks;
 
 /** spec §12.2：HTTP 層訊息（PR-3 T3 定稿；#372 起英文；字面見 `test/unit/bulk-transfer-http-messages.test.ts`）。 */
 /**
- * 檔案寫回／新增的 400 訊息（HTTP 層，#372 起英文；8000 探索測試 E）：依錯誤碼與成因（`detail`、未閉合的 `fence`）說清楚是哪一種。
+ * 檔案寫回／新增的 400 訊息（HTTP 層，#372 起英文；探索測試 E）：依錯誤碼與成因（`detail`、未閉合的 `fence`）說清楚是哪一種。
  * 色值、並排、尺寸三碼沿用 REST 的既有訊息（`parseErrorMessage`）。
  */
 export function transferParseMessage(code: ErrorCode, detail?: ParseDetail, fence?: string): string {
@@ -83,7 +83,7 @@ export function transferParseMessage(code: ErrorCode, detail?: ParseDetail, fenc
   return parseErrorMessage(code, "Couldn't apply the file.");
 }
 
-/** 409 `base_unavailable` 的訊息，依 `error.reason`（8000 探索測試 D；Willie 2026-11-04 第三輪：不再合併，`note_changed` 取代 `anchors_gone`）。 */
+/** 409 `base_unavailable` 的訊息，依 `error.reason`（探索測試 D；不再合併，`note_changed` 取代 `anchors_gone`）。 */
 export const BASE_UNAVAILABLE_MESSAGES: Record<BaseUnavailableReason, string> = {
   already_sent: "Can't write back with this copy: it has already been sent back with different content. Download the note again and make your changes there.",
   other_note: "Can't write back with this copy: its base belongs to another note or another user. Download the note again and make your changes there.",
@@ -104,7 +104,7 @@ export interface TransferRouteDeps {
     bearerMiss: FixedWindowLimiter;
     contentRead: FixedWindowLimiter;
     transferExport: FixedWindowLimiter;
-    /** 寫回：只在佇列內、判定檔案有改之後才扣（plan 不變量 13；8000 探索測試 N5：沒改的檔不受寫回額度影響），解析之前扣（全分支審查 I2）。 */
+    /** 寫回：只在佇列內、判定檔案有改之後才扣（plan 不變量 13；探索測試 N5：沒改的檔不受寫回額度影響），解析之前扣（全分支審查 I2）。 */
     transferWrite: FixedWindowLimiter;
     /** 與 MCP／REST 的 Bearer 讀取同一顆（key `token:${userId}`）：零區、同檔重送、去重命中扣這顆。 */
     tokenRead: FixedWindowLimiter;
@@ -339,7 +339,7 @@ export function transferRoutes(deps: TransferRouteDeps) {
         });
         if (!out.ok) {
           if (out.kind === "base_unavailable") {
-            // 8000 探索測試 D：409 多帶 `error.reason`（成因；值見 `BaseUnavailableReason`），訊息依成因。log 照 ⑪ 不加鍵。
+            // 探索測試 D：409 多帶 `error.reason`（成因；值見 `BaseUnavailableReason`），訊息依成因。log 照 ⑪ 不加鍵。
             logLine("base_unavailable");
             return reply.code(409).send({ error: { code: "base_unavailable", message: BASE_UNAVAILABLE_MESSAGES[out.reason], reason: out.reason } });
           }

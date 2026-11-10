@@ -39,11 +39,10 @@ import { cn } from "@/lib/utils";
  * 在 `tone="page"` 時 44px，`tone="outline"` 的設定面板內仍是 32px）、`AuthorizePage.tsx`（OAuth 授權）的按鈕
  * （含登入頁每顆 SSO 鈕與「註冊新帳號」）都用 `lg`，輸入框以 `className="h-11"` 跟著拉高，卡片裡同一欄的控制項等高。
  * 勾選框與勾選列（授權頁的 scope 勾選）不放大。
- * 理由：同款卡片頁一律 44px，頁面之間跳轉不換尺寸（AuthorizePage 的卡片是 `max-w-md`，依 Willie 點名納入）；登入頁是每天都會經過、只為了按一顆鈕的整頁（觸控目標），
+ * 理由：同款卡片頁一律 44px，頁面之間跳轉不換尺寸（AuthorizePage 的卡片是 `max-w-md`，一併納入）；登入頁是每天都會經過、只為了按一顆鈕的整頁（觸控目標），
  * 32px 太難快速點中。頁面上沒有任何 32px 控制項與這些 `lg` 控制項同列，所以不違背「同列等高」。
  * 電腦與手機同一尺寸，不做斷點縮回。
- * 字級：`lg` 是 16px（`text-base`），比卡片內標籤與輸入框文字（14px）大一號，是刻意的
- * （Willie 2026-10-27 看過畫面定案）。
+ * 字級：`lg` 是 16px（`text-base`），比卡片內標籤與輸入框文字（14px）大一號，是刻意的。
  * ⚠ `lg` 只准出現在上述頁面，守衛 `ui/button.lg-scope.guard.test.ts` 有兩道：`LG_SIZE` 檢查
  * 恰好這些頁直接寫了 `size="lg"`（多一頁或少一頁都會紅）；`LG_LITERAL` 擋任何其他地方的 `"lg"` 字串字面
  * （`ChangePasswordForm.tsx` 以 tone 條件式寫 `lg`，只在這一道的允許清單裡）。
@@ -93,7 +92,7 @@ import { cn } from "@/lib/utils";
  *   6.69–8.96。⚠ 調整任何色票明度後要重量——`brandSolid` 淺色最低只有 4.53，
  *   離 AA 門檻 4.5 剩 0.03，往亮調一點就會掉下去。
  *
- * ⚠ **列內的危險動作一律是紅色的垃圾桶圖示鈕**（`text-destructive`、hover `bg-destructive/10`；會跳確認框的也一樣紅——Willie 2026-10-11 W20，取代 2026-09-16 的『列內刪除不塗紅』）。當年的反例是『每列一顆紅字文字鈕』，清單有幾列就紅幾次、整頁在喊；現在是 32px 內的小圖示，看得出危險又不吵。`destructive` 變體仍只給確認對話框那一顆。
+ * ⚠ **列內的危險動作一律是紅色的垃圾桶圖示鈕**（`text-destructive`、hover `bg-destructive/10`；會跳確認框的也一樣紅——取代 2026-09-16 的『列內刪除不塗紅』）。當年的反例是『每列一顆紅字文字鈕』，清單有幾列就紅幾次、整頁在喊；現在是 32px 內的小圖示，看得出危險又不吵。`destructive` 變體仍只給確認對話框那一顆。
  *
  * **`outline` 按下態的對比**（深色模式 `--brand-fg` 近黑字壓在混了 15% 黑的 `--brand-deep` 上）：六色票 4.43–5.83（最低是 rose 4.43，低於 AA 4.5）；淺色模式白字只會更高（實測 8.64–9.04）。量法：oklch→sRGB→WCAG 相對亮度（#247 Part 2 計畫 Task 2 的腳本）。
  *
@@ -115,7 +114,7 @@ const buttonVariants = cva(
         // 深色模式下是 #0e1013，而對話框是 `--popover`（#22252c）、卡片是 `--card`（#1a1d23）——
         // 用頁底色等於在比它亮的表面上畫一塊更暗的方塊，看起來就是一顆黑底鈕（使用者回報
         // 「複製連結按鈕是黑底也很怪」）。透明底讓它永遠貼合所在表面，hover 改由 `brand-deep` 填色（見下）。
-        // #247 §4.8（Willie W17）：hover 填 brand-deep 白字、按下再深一階。按下態用 color-mix 混 15% 黑
+        // #247 §4.8：hover 填 brand-deep 白字、按下再深一階。按下態用 color-mix 混 15% 黑
         // ——`active:bg-brand-deep/85` 是混**透明**，疊在卡面上反而變淺，不用。Tailwind 4.3.3 的編譯產物
         // 自帶 `@supports (color: color-mix(...))` 分支，不支援的環境退回 `--brand-deep` 平塗。
         outline:

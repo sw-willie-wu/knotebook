@@ -1,7 +1,7 @@
 /**
  * bulk transfer spec 2026-11-02 §9.4：判定每一區（純函式；只用 id 與 `same` 回呼，不 mount）。plan PR-2 T6。
  *
- * **前提**（呼叫端 `NoteWriteService.syncFile` 先驗，Willie 2026-11-04 第三輪：不再三方合併）：筆記自下載後沒有被動過——
+ * **前提**（呼叫端 `NoteWriteService.syncFile` 先驗，不再三方合併）：筆記自下載後沒有被動過——
  * 現況頂層與基底段表逐顆相同（id、單顆指紋、順序）。動過就整篇 409 `note_changed`，走不到這裡。所以每區的基底 block 都在、
  * 都沒被改，現況也沒有基底以外的 block。唯一例外（審查 M1）：基底 0 顆、現況恰一顆空段落（`isLoneEmptyParagraph`）——只有一個插入區、
  * 放在文件開頭，`applySync` 把那顆當正規化出的空段落換掉。
@@ -20,7 +20,7 @@ import type { TransferSegment } from "../db/schema.js";
 import type { Region } from "./regions.js";
 
 export type Mark = "applied" | "same";
-/** `placeholder`：刪光時補的那顆空段落（只由 `applySync` 的 toEmpty 設；總管追加 T11-1）。 */
+/** `placeholder`：刪光時補的那顆空段落（只由 `applySync` 的 toEmpty 設）。 */
 export type Anchor = { block_id: string; position: "before" | "after"; placeholder?: boolean };
 export type Place = { ref: string; where: "before" | "after" } | { start: true } | { replaceSurvivors: true };
 

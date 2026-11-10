@@ -1884,7 +1884,7 @@ describe("0012_groups-v2（#175）", () => {
 });
 
 /**
- * #175 PR3：0013_role-create-without-edit——拿掉 `group_roles_create_needs_edit_chk`（Willie 2026-10-01 裁決：新建不蘊含編輯）。
+ * #175 PR3：0013_role-create-without-edit——拿掉 `group_roles_create_needs_edit_chk`（新建不蘊含編輯）。
  */
 describe("0013_role-create-without-edit（#175 PR3）", () => {
   it("0012 擋 create-only 角色；0013 之後放行，其餘 CHECK 仍在", async () => {

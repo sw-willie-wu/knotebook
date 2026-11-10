@@ -7,7 +7,7 @@ import { isLoneEmptyParagraph } from "../../src/transfer/decide.js";
 import { docWith, forkOf, withEditor } from "./fixtures/transfer-sync.js";
 
 /**
- * 審查 I2（Willie 2026-11-04 第三輪）：寫回判「筆記動過沒」改用結構比對——頂層 id＋單顆指紋（`topLevelSnapshot`）。這裡確認單顆指紋
+ * 審查 I2：寫回判「筆記動過沒」改用結構比對——頂層 id＋單顆指紋（`topLevelSnapshot`）。這裡確認單顆指紋
  * 涵蓋整個 block 子樹的文字與屬性（巢狀清單、toggle 子層、表格儲存格、並排、行內樣式、block 屬性）；以及 M1 的 `isLoneEmptyParagraph`。
  */
 

@@ -1,5 +1,5 @@
 /**
- * bulk transfer plan PR-2 T14（總管裁示 3）：寫回單篇的**細分段同步耗時**——找出 ≥ 100 ms 的同步段。**不進 CI**、不改 src：
+ * bulk transfer plan PR-2 T14：寫回單篇的**細分段同步耗時**——找出 ≥ 100 ms 的同步段。**不進 CI**、不改 src：
  * 用 `vi.mock` 把寫回路徑上會跨模組呼叫的函式包一層計時（同步函式＝那一段就是一次同步停頓；非同步函式記牆鐘），
  * `EditorSession.open`（mount）與 `diffSince` 直接在類別上換掉。用法同 `transfer-write.bench.ts`（`BENCH_OUT`、`RUNS`、
  * `SIZES`、`REGIONS`），輸出每個函式在每次寫回裡的最大值與 p95。

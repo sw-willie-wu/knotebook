@@ -148,7 +148,7 @@ export async function streamExport(p: StreamExportParams): Promise<void> {
         written++;
         bases.push(nf.base);
         if (!nf.mergeable) notMergeable++;
-        // 8000 探索測試 H：檔案比寫回上限（`TRANSFER_WRITE_BODY_LIMIT`，256 KiB）還大 → `tooLargeToSend: true`（照 `mergeable: false` 只在例外時帶鍵）。
+        // 探索測試 H：檔案比寫回上限（`TRANSFER_WRITE_BODY_LIMIT`，256 KiB）還大 → `tooLargeToSend: true`（照 `mergeable: false` 只在例外時帶鍵）。
         manifestNotes.push({
           path, id, role: row.role,
           ...(nf.mergeable ? {} : { mergeable: false as const }),

@@ -57,8 +57,8 @@ describe("auth/oidc-client：oidcRedirectUri（login、callback、SSO 證明起�
   });
 
   it("publicUrl 帶 port → 保留 port", () => {
-    expect(oidcRedirectUri(config("http://192.168.3.22:8006"), PER_PROVIDER)).toBe(
-      "http://192.168.3.22:8006/api/auth/oidc/callback/p1"
+    expect(oidcRedirectUri(config("http://192.168.1.50:3000"), PER_PROVIDER)).toBe(
+      "http://192.168.1.50:3000/api/auth/oidc/callback/p1"
     );
   });
 

@@ -15,8 +15,8 @@
 #   bash scripts/test-e2e.sh
 #
 # 埠註記：`-p knotebook-e2e`（e2e/package.json 的 stack:up/stack:down）已把這座疊跟
-# WSL 裡可能同時掛著的 demo 疊（專案名 knotebook、port 8006）隔開；e2e 疊用 3100
-# （app）/9400（fake-idp）不會跟 demo 相撞，兩者可在同一個 WSL 並存，不必先關 demo。
+# WSL 裡可能同時掛著的另一個 compose 專案（專案名 knotebook、port 3000）隔開；e2e 疊用 3100
+# （app）/9400（fake-idp）不會跟它相撞，兩者可在同一個 WSL 並存，不必先關它。
 
 set -euo pipefail
 

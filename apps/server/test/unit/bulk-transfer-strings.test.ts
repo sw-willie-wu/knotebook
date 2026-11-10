@@ -92,7 +92,7 @@ describe("create_bulk_transfer_token 的模型面字串", () => {
     expect(BULK_NEXT_RW.match(/\b\d+\b/g)?.filter(n => !["400", "401", "403", "404", "409", "413", "429", "503"].includes(n)) ?? []).toEqual([]);
   });
 
-  it("S8（Willie 2026-11-04 第三輪：不再合併）RW 字串講「動過就拒、重新下載重做」，不再提合併、衝突、存版或舊成因", () => {
+  it("S8（不再合併）RW 字串講「動過就拒、重新下載重做」，不再提合併、衝突、存版或舊成因", () => {
     for (const s of [CREATE_BULK_TRANSFER_TOKEN_DESCRIPTION_RW, BULK_NEXT_RW]) {
       // `not_mergeable` 是錯誤碼（照舊），所以「merge」用字邊界比。
       expect(s).not.toMatch(/\bmerg(?:e|ed|es|ing)\b/);

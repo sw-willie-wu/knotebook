@@ -193,7 +193,7 @@ describe("#175 PR3 角色變更的踢線（spec §7，真連線）", () => {
     await waitFor("仍可寫：寫入傳到管理員那邊", 10_000, () => text(adminClient.doc).includes("still-writable"));
   });
 
-  it("create-only 角色帶 content 建立群組筆記（Willie 2026-10-01 裁決：允許，投稿者形）：201 viewer、內容在，之後的寫入傳不過去", async () => {
+  it("create-only 角色帶 content 建立群組筆記（允許，投稿者形）：201 viewer、內容在，之後的寫入傳不過去", async () => {
     const ctx = await buildApp();
     const admin = await user(ctx, "admin-r4@example.com");
     const member = await user(ctx, "m-r4@example.com");

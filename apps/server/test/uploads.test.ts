@@ -266,7 +266,7 @@ describe("CSRF hook：multipart 上傳路由豁免 + Origin 驗證（Task 10a，
     it("同 host 不同 port（都非 80/443）→ 403（LAN 形狀下 port 差異不可被忽略）", async () => {
       const { app } = await buildTestApp();
       const res = await postUpload(app, FAKE_NOTE_ID, singleFileBody(PNG_BYTES), {
-        headers: { origin: "http://192.168.3.22:9999", host: "192.168.3.22:8006" },
+        headers: { origin: "http://192.168.1.50:9999", host: "192.168.1.50:3000" },
       });
       expect(res.statusCode).toBe(403);
       expect(res.json().error.code).toBe("forbidden");
@@ -281,7 +281,7 @@ describe("CSRF hook：multipart 上傳路由豁免 + Origin 驗證（Task 10a，
       expect(res.json().error.code).toBe("forbidden");
     });
 
-    it("含 port 的 LAN 形狀（192.168.x.x:8006）Origin 與 host 相符 → 通過 CSRF 閘門，走到真實路由（登入+真筆記後 201）", async () => {
+    it("含 port 的 LAN 形狀（192.168.x.x:3000）Origin 與 host 相符 → 通過 CSRF 閘門，走到真實路由（登入+真筆記後 201）", async () => {
       const { app, db } = await buildTestApp();
       const owner = await insertUser(db, { email: "owner-lan@example.com" });
       const cookie = await cookieFor(owner.id);
@@ -289,7 +289,7 @@ describe("CSRF hook：multipart 上傳路由豁免 + Origin 驗證（Task 10a，
 
       const res = await postUpload(app, note.id, singleFileBody(PNG_BYTES), {
         cookie,
-        headers: { origin: "http://192.168.3.22:8006", host: "192.168.3.22:8006" },
+        headers: { origin: "http://192.168.1.50:3000", host: "192.168.1.50:3000" },
       });
       expect(res.statusCode).toBe(201);
     });

@@ -55,7 +55,7 @@ export interface ExportNoteOptions {
 }
 
 /**
- * 寫回時判「筆記自下載後動過沒」用（Willie 2026-11-04 第三輪）：只出整篇本文，與 `exportNoteForTransfer` 的 `body` 同一條組字——
+ * 寫回時判「筆記自下載後動過沒」用：只出整篇本文，與 `exportNoteForTransfer` 的 `body` 同一條組字——
  * 頂層零顆 → `""`、不 mount；否則 mount 一次、`toNoteMarkdown` 整篇（`transfer-write-reread.test.ts` E0 釘逐位元組相同）。
  * 持 lease 期間零 DB；`titles` 由呼叫端在 mount 前查好。
  */
@@ -100,7 +100,7 @@ export async function exportNoteForTransfer(
     const lines = bodyLines(normalizeBody(body));
     const types = top.map(b => b.type as string);
     // mount 改了頂層 id（例如文件裡有重複的頂層 id，BlockNote mount 時會換掉重複的那個）：段表的 id／指紋對不上現況，
-    // 降級成不可寫回——本文照出（讀取不受影響），`segments: null`（manifest 標 `mergeable: false`）。總管裁示（T1–T6 審查 m5）。
+    // 降級成不可寫回——本文照出（讀取不受影響），`segments: null`（manifest 標 `mergeable: false`）。
     if (top.length !== ids.length || top.some((b, i) => b.id !== ids[i])) {
       return { body, lines, ids, fps, types, segments: null, lineKinds: lineKindsOf(null, types, lines.length), stats: { groupCalls: 0, capHits: 0, groupUsedWhilePerMatched: 0, yields } };
     }

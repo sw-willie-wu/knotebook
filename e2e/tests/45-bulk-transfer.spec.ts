@@ -13,7 +13,7 @@ import { ADMIN, createUserViaInvite, editorLocator, loginAs, randomEmail, waitFo
  *   撤掉自己的權杖（一支 PAT 同時最多 3 張）。整檔只有 E5 打整包。標記字串一律隨機（重跑、髒疊不撞名）。
  *
  * 每案的順序寫死（gate r2 N1）：① bulk 權杖單篇下載一次（拿 `base`）② A 在瀏覽器改 ③ 輪詢到 server 已有 A 的字 ④ `PUT`（E5 是整包）。
- * Willie 2026-11-04 第三輪（筆記動過就 409 note_changed）：E1–E3 的 ④ 改成預期 409；E1、E2 之後重新下載一次再寫回；E4 改成 ②③ 在 ① 之前。
+ * 規則改成「筆記動過就 409 note_changed」之後：E1–E3 的 ④ 改成預期 409；E1、E2 之後重新下載一次再寫回；E4 改成 ②③ 在 ① 之前。
  * ⚠ ③ **不准用 `GET /api/transfer/notes/:id`**：那支每呼叫一次就寫一列基底（每 (user, note) 只留 10 列，會把 ① 的基底擠掉）。
  *   改用 A 的 cookie 打 `GET /api/notes/:id/content`——`loadNoteDoc` 有 live doc 就 fork live（不讀落盤的 `note_states`）、不寫基底、
  *   cookie 讀者不 touch presence；吃 `contentRead`，所以間隔 400 ms。
@@ -214,7 +214,7 @@ async function typeAtEndOf(para: string, text: string, newParagraph = false): Pr
   await page.keyboard.type(text);
 }
 
-/** ④' 寫回、預期被拒：409 base_unavailable、reason note_changed（Willie 2026-11-04 第三輪：筆記動過就拒）。 */
+/** ④' 寫回、預期被拒：409 base_unavailable、reason note_changed（筆記動過就拒）。 */
 async function writeBackRefused(c: Case, file: string): Promise<void> {
   const res = await c.bulk.put(`${origin}/api/transfer/notes`, {
     headers: { ...c.auth, "Content-Type": "text/markdown; charset=utf-8" },

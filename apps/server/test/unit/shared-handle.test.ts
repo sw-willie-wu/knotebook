@@ -10,7 +10,7 @@ import { normalizeHandle, validateHandle } from "@knotebook/shared";
  */
 describe("normalizeHandle（ASCII lowercase，僅 A-Z→a-z）", () => {
   it("大寫 ASCII 轉小寫", () => {
-    expect(normalizeHandle("WiLLie-Wu2")).toBe("willie-wu2");
+    expect(normalizeHandle("AliCe-Lee2")).toBe("alice-lee2");
   });
 
   it("非 ASCII 字元原樣保留（不 transliterate——交給 validateHandle 拒收）", () => {
@@ -24,18 +24,18 @@ describe("normalizeHandle（ASCII lowercase，僅 A-Z→a-z）", () => {
   });
 
   it("不 trim 空白（意圖釘）：空白原樣保留，由 validateHandle 的 charset 拒收", () => {
-    expect(normalizeHandle(" Willie ")).toBe(" willie ");
-    expect(validateHandle(normalizeHandle(" Willie "))).toBe("charset");
+    expect(normalizeHandle(" Alice ")).toBe(" alice ");
+    expect(validateHandle(normalizeHandle(" Alice "))).toBe("charset");
   });
 
   it("normalize→validate 組合：大寫輸入經正規化後合法", () => {
-    expect(validateHandle(normalizeHandle("WILLIE-Wu2"))).toBeNull();
+    expect(validateHandle(normalizeHandle("ALICE-Lee2"))).toBeNull();
   });
 });
 
 describe("validateHandle（1–32、^[a-z0-9-]+$、dash 規則、非 uuid 形；無保留字單）", () => {
   it("合法：小寫英數與中段連字號", () => {
-    expect(validateHandle("willie-wu")).toBeNull();
+    expect(validateHandle("alice-lee")).toBeNull();
     expect(validateHandle("a")).toBeNull();
     expect(validateHandle("user-3f2a9c1d")).toBeNull(); // DB default 兜底形必須合法
     expect(validateHandle("a".repeat(32))).toBeNull();
@@ -53,10 +53,10 @@ describe("validateHandle（1–32、^[a-z0-9-]+$、dash 規則、非 uuid 形；
 
   it("charset：非 ASCII、底線、點、空白、大寫（未正規化）皆拒", () => {
     expect(validateHandle("ünsal")).toBe("charset");
-    expect(validateHandle("willie_wu")).toBe("charset");
-    expect(validateHandle("willie.wu")).toBe("charset");
-    expect(validateHandle("willie wu")).toBe("charset");
-    expect(validateHandle("Willie")).toBe("charset");
+    expect(validateHandle("alice_lee")).toBe("charset");
+    expect(validateHandle("alice.lee")).toBe("charset");
+    expect(validateHandle("alice lee")).toBe("charset");
+    expect(validateHandle("Alice")).toBe("charset");
     // İ 經錯誤的 Unicode lowercase 產生的 combining mark 形也在 charset 這關被擋
     expect(validateHandle("i̇stanbul")).toBe("charset");
   });

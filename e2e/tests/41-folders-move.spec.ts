@@ -203,7 +203,7 @@ test("41-2 寬形層疊鍵盤：ArrowRight 開子選單與下一層（Move here 
   await expect(fItem).toBeFocused();
   await expect(moveHere).toHaveCount(0);
 
-  // ── 再進 F 那一層 → Esc 只收 F 那一層（總管裁定 ②）→ 再 Esc 收「Move to…」、主選單仍開 → 第三下才關整個選單 ────
+  // ── 再進 F 那一層 → Esc 只收 F 那一層→ 再 Esc 收「Move to…」、主選單仍開 → 第三下才關整個選單 ────
   await page.keyboard.press("ArrowRight");
   await expect(moveHere).toBeFocused();
   await page.keyboard.press("Escape");

@@ -9,12 +9,12 @@ import { MAX_ISSUER_LENGTH } from "./oidc-client.js";
 //   `new URL` 會把大寫 scheme 正規化掉，不能拿它判 scheme。長度 ≤ 512：JS `.length`（UTF-16）≥ code point 數，用它比較只會更嚴。
 // - 顯示名：CHECK 是 `char_length` 1..40——code point 計數；JS `.length` 對 emoji 會算成 2，所以用 `[...s].length`。
 // - client id：`char_length` 1..512，同上。
-// 另擋 NUL 與落單代理（[[g:pg-unstorable-strings-drizzle-tx]]：NUL 進 text 欄 22021 → 500）。字串一律先 trim 再驗、再存。
+// 另擋 NUL 與落單代理（NUL 進 text 欄 22021 → 500）。字串一律先 trim 再驗、再存。
 
 const UNSTORABLE = /[\0]|\p{Surrogate}/u;
 const ISSUER_SCHEME = /^https?:\/\//;
 const codePoints = (s: string): number => [...s].length;
-/** NUL 與落單代理進 PG text 欄會 22021／22P05 → 500（[[g:pg-unstorable-strings-drizzle-tx]]）。#187 PR3 註冊的顯示名也用它。 */
+/** NUL 與落單代理進 PG text 欄會 22021／22P05 → 500。#187 PR3 註冊的顯示名也用它。 */
 export function isStorableText(s: string): boolean {
   return !UNSTORABLE.test(s);
 }

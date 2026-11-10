@@ -3,7 +3,7 @@ import zhTW from "./zh-TW.json";
 import en from "./en.json";
 import managementZhTW from "./management.zh-TW.json";
 
-/** spec rev 8 §3.1 D7、§8.2–§8.5 的字面（Willie 逐題定案）；#272 起 vN → 「名稱 (短 id)」（spec 2026-10-13 §10.4）。改這些字串＝改產品決定，先問 Willie。 */
+/** spec rev 8 §3.1 D7、§8.2–§8.5 的字面；#272 起 vN → 「名稱 (短 id)」（spec 2026-10-13 §10.4）。改這些字串＝改產品決定，先與維護者確認。 */
 const SPEC_COPY: Record<string, string> = {
   "versions.save": "儲存當前版本",
   "versions.dialog.saveTitle": "儲存當前版本",
@@ -15,7 +15,7 @@ const SPEC_COPY: Record<string, string> = {
   "versions.toast.saved": "已存為 {{label}}",
   "versions.toast.upgraded": "內容與 {{label}} 相同，已將它設為手動版本",
   "versions.toast.applied": "已套用 {{label}}",
-  // #258（Willie 2026-10-11）：「目前狀態」副標只看 baseSeq／dirty；列的來源字樣改「沿自」。
+  // #258：「目前狀態」副標只看 baseSeq／dirty；列的來源字樣改「沿自」。
   "versions.current.noBase": "沒有基底版本",
   "versions.current.clean": "沿自 {{label}} · 無修改",
   "versions.current.dirty": "沿自 {{label}} · 有未儲存的修改",

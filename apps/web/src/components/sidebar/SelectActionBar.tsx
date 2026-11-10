@@ -69,8 +69,7 @@ import { buildTabNodes, noteSpaceKey } from "./tree";
  * - 複製到：選了資料夾 → disabled（D14）；選定後一律先 `CopyConfirmDialog` → `copyNotesInOrder`。
  * - 刪除：含資料夾 → 先開彙總確認框（開框那一刻快照篇數）→ `deleteTargetsInOrder`（資料夾先、筆記後）；只有筆記 → 不確認（D-W7）。
  *   與我共享 tab 是「移除」：一般 toast、沒有復原。
- * - 執行：依序呼叫單篇端點（`lib/select-batch.ts`）；403／404 `not_found` 略過、其餘停下。停下後留在選取、只留下還沒處理的
- *   （Willie 裁定 Q4）；成功離開選取。結果一則 toast；停在 404 `folder_not_found` 另失效資料夾快取。
+ * - 執行：依序呼叫單篇端點（`lib/select-batch.ts`）；403／404 `not_found` 略過、其餘停下。停下後留在選取、只留下還沒處理的項目；成功則離開選取。結果一則 toast；停在 404 `folder_not_found` 另失效資料夾快取。
  * - 快照（讀碼發現 19）：目的地選定那一刻記下要送的項與篇數，確認框與執行都用它（送出中清單重抓，篇數不會倒數）。
  * - 焦點交接（讀碼發現 18）：選了目的地，目的地框不還焦點、交給確認框自己的自動聚焦（同空間沒有確認框，由收尾處理）；取消才還給開框鈕。
  *   確認框送出後開到批次結束（進行中忽略所有關閉要求）；收尾的焦點只在焦點仍在本實例、確認框內或 body 時才搬（同 `TrashFooter.finish`）。
@@ -83,7 +82,7 @@ import { buildTabNodes, noteSpaceKey } from "./tree";
  * - 兩種形（PR-3b-3，資料夾 spec F25、F26）：`bar`＝窄螢幕底部列（`SidebarFooter` 掛；進度句在列上；「移動到」與「複製到」同為 outline 文字鈕）；
  *   `toolbar`＝寬螢幕標題列裡的三顆 24px 圖示鈕（`SelectHeader` 掛；進度由它顯示在數量位）。兩形都包在 `data-select-action-bar` 容器裡，
  *   目的地框、確認框、`runBatch`、各鈕出現與停用的判斷完全共用。
- * - 反灰原因（讀碼發現 6、總管裁定 ⑤）：跨群組的「移動到」、選了資料夾的「複製到」不設 `disabled`（`disabled:pointer-events-none` 會讓
+ * - 反灰原因（讀碼發現 6）：跨群組的「移動到」、選了資料夾的「複製到」不設 `disabled`（`disabled:pointer-events-none` 會讓
  *   hover 提示出不來），改 `aria-disabled`＋`title`＝原因＋`aria-describedby`，點了不執行；`bar` 形另出同字 toast（觸控看不到 hover）。
  *   優先序（gate r1 m5）：執行中（`disabled`）＞反灰原因（`aria-disabled`）＞沒有可處理的項目／第一層為空（`disabled`）。
  */
@@ -559,7 +558,7 @@ export function SelectActionBar({ layout = "bar" }: { layout?: "bar" | "toolbar"
       ? t("select.removeSelectedFolders", { count: targets.filter(isFolder).length })
       : t("select.deleteSelected", { count: targets.length });
 
-  /** 點了反灰原因的鈕：不執行；寬形靠 hover 提示（title），窄形（多半是觸控）出同字 toast（總管裁定 ⑤）。 */
+  /** 點了反灰原因的鈕：不執行；寬形靠 hover 提示（title），窄形（多半是觸控）出同字 toast。 */
   function showReason(reason: string | null): void {
     if (reason !== null && layout === "bar") toast({ title: reason });
   }

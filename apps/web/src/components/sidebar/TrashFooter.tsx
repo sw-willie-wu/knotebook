@@ -13,7 +13,7 @@ import { PurgeConfirmDialog, toastTrashFailure, toastTrashResult } from "@/compo
 /**
  * 垃圾桶 tab 的側欄底部（`SidebarFooter` 經 `TrashLazy` 延遲載入）：保留天數說明（spec §6.10.1）；選取模式換成動作列（spec §6.10.2）。
  * 兩者在同一個 lazy 元件裡切換：各自一個 lazy 的話，第一次進選取時動作列還要再 suspend 一次、先閃一下佔位。
- * 寬螢幕（`useWidePointer`，PR-3b-3，spec §6.10.2 rev 4.3）選取中底部什麼都不顯示（保留天數說明也不出現，總管裁定 ⑧）：
+ * 寬螢幕（`useWidePointer`，PR-3b-3，spec §6.10.2 rev 4.3）選取中底部什麼都不顯示（保留天數說明也不出現）：
  * 動作在 `TrashPanel` 標題列的 `TrashWideToolbar`。
  */
 export function TrashFooter() {
@@ -159,7 +159,7 @@ export function useTrashSelectionActions(): {
   return { selectedIds, disabled, busy, onRestore, onPurge, purgeDialog };
 }
 
-/** 窄形：底部動作列「還原」（主色，總管裁定 ⑩）「永久刪除」（紅字），各帶圖示。 */
+/** 窄形：底部動作列「還原」（主色）「永久刪除」（紅字），各帶圖示。 */
 function TrashActionBar() {
   const { t } = useTranslation();
   const { disabled, onRestore, onPurge, purgeDialog } = useTrashSelectionActions();

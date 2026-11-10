@@ -112,7 +112,7 @@ export async function moveNoteToGroupInTx(tx: Tx, input: MoveNoteInput, hook?: G
   await tx.update(uploads).set({ chargedToId: input.userId }).where(eq(uploads.noteId, input.noteId));
 
   await recordRedirectsInTx(tx, [userNotePath(input.userHandle, row.slug)], input.noteId);
-  // 版本歷史 §9：個人時期的版本與編輯者名單不隨搬移暴露給群組編輯者（Willie 裁決）——清空、計數歸零、基底清空；不建任何版本（D9）。
+  // 版本歷史 §9：個人時期的版本與編輯者名單不隨搬移暴露給群組編輯者——清空、計數歸零、基底清空；不建任何版本（D9）。
   await resetNoteVersionsInTx(tx, { noteId: input.noteId });
   return { removedShareUserIds: removed.map(r => r.userId) };
 }

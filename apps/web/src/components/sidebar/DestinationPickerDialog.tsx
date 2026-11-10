@@ -21,8 +21,7 @@ function errorMessage(t: Translate, err: unknown): string {
  * 一次只顯示**一層**：項目由 `buildDestinationLevel`（§6.11.1，與筆記 ⋮ 的逐層子選單共用）產生，path 由呼叫端持有，
  * 傳進來的是這一層的 `level` 與它的識別 `levelKey`。每項一顆按鈕（不做 tree 方向鍵，鍵盤用 Tab 走）：
  * 帶 `>` 的項目＝`onDrill`（框內換成下一層）、「返回」＝`onBack`、其他＝`onPick`（選定目的地）。
- * 只有 `levelKey` 變了（換層）才把清單捲回頂端、焦點給新層第一個未停用的項目（整層都反灰時給 footer 的 Cancel）；同一層重繪（資料夾重抓）不搬
- *（總管裁定 2026-10-29 M2、M3）。
+ * 只有 `levelKey` 變了（換層）才把清單捲回頂端、焦點給新層第一個未停用的項目（整層都反灰時給 footer 的 Cancel）；同一層重繪（資料夾重抓）不搬動。
  * 選了就呼叫 `onPick`，關框與焦點交接由呼叫端決定（選了交給確認框、取消才還給開框鈕）。只准經 `SelectLazy` 引用。
  */
 export function DestinationPickerDialog({
@@ -45,7 +44,7 @@ export function DestinationPickerDialog({
   hasFolders: boolean;
   /** null＝群組載入中。 */
   level: readonly DestItem[] | null;
-  /** 目前這一層的識別（path 序列化，例如 JSON.stringify(path)）；只有它變了才搬焦點與捲回頂端（總管裁定 2026-10-29 M2）。 */
+  /** 目前這一層的識別（path 序列化，例如 JSON.stringify(path)）；只有它變了才搬焦點與捲回頂端。 */
   levelKey: string;
   error: unknown;
   open: boolean;

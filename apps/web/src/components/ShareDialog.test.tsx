@@ -75,7 +75,7 @@ async function openDialog() {
 }
 
 /** 切到「限定成員」層級，讓掛在它底下的情境面板（成員名單／加人表單）出現。
- * 新資訊架構下這是進入該面板前必經的一步（Willie 2026-09-17 產品決定）。radio 要等
+ * 新資訊架構下這是進入該面板前必經的一步。radio 要等
  * latch 完成才會可按（`disabled={!latched || busy}`），所以先等它解除禁用再點。 */
 async function selectMembers() {
   const radio = await screen.findByRole("radio", { name: /Members only/ });
@@ -162,7 +162,7 @@ describe("ShareDialog", () => {
 
     renderDialog();
     await openDialog();
-    // 加人表單掛在「限定成員」情境面板底下（新 IA，Willie 2026-09-17 產品決定）。
+    // 加人表單掛在「限定成員」情境面板底下（新 IA）。
     await selectMembers();
 
     fireEvent.change(screen.getByLabelText("Email address"), { target: { value: "bob@example.com" } });
@@ -683,7 +683,7 @@ describe("ShareDialog 三態（#72）", () => {
   });
 });
 
-// ──────────────── 公開連結面板：匿名 toggle（Willie 2026-09-17 產品決定） ────────────────
+// ──────────────── 公開連結面板：匿名 toggle ────────────────
 // 取代舊「token 唯讀連結」＋「公開別名欄位」兩區塊：一個匿名 toggle＋一條連結＋最多
 // 三顆鈕。模式由既有資料推導（slug null＝匿名 ON、slug 有值＝匿名 OFF），不是另開
 // 一份 state——見 ShareDialog.tsx `PublicLinkPanel` 頂端 JSDoc。

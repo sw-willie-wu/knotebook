@@ -488,7 +488,7 @@ test("C7 側邊把手（§17 #3 的 PR-1 部分、§13.2）：第 2 欄的 ⋮�
     if (!aligned) test.info().annotations.push({ type: "spec-17-3", description: "side menu never aligned with the hovered block (see failure message)" });
   }
   const { menu, block } = aligned!;
-  // 欄內只留 ⋮⋮（Willie 2026-10-22）：兩顆鈕共 48px，比 24px 的溝寬。
+  // 欄內只留 ⋮⋮：兩顆鈕共 48px，比 24px 的溝寬。
   await expect(addBlock).toBeHidden();
   const col1 = (await row.locator(COL).nth(0).boundingBox())!;
   const col2 = (await row.locator(COL).nth(1).boundingBox())!;

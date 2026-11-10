@@ -43,7 +43,7 @@ const UNKNOWN_ACKNOWLEDGED = [
   // 檔，內容是完整的 MIT（"The MIT License (MIT)" + 標準 "Permission is hereby granted,
   // free of charge" 條款，Copyright 2019-present Fabio Spampinato, Andrew Maney）。
   // 也就是說這是 **metadata 缺漏，不是授權不明**。MIT 與本專案（MIT）相容且無傳染性。
-  // 2026-08-27 人工核對 khroma@2.1.0 的 license 檔全文後由 Willie 核可。
+  // 2026-08-27 人工核對 khroma@2.1.0 的 license 檔全文後核可。
   // ⚠ 升級 mermaid 導致 khroma 換版時，要重新確認新版仍附 MIT license 檔。
   'khroma',
 ];

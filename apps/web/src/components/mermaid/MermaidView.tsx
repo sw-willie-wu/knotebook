@@ -213,7 +213,7 @@ export function MermaidView({ code, editable, theme, onChange }: MermaidViewProp
   //
   // 位置：**疊在方塊內的右上角**（`index.css` 的 `.block-control` 負責絕對定位，與 codeBlock
   // 的語言下拉同一條規則；外層要 `relative` 當它的 containing block）。#111 曾在方塊外面上方
-  // 留一條 `h-7` 保留列放它，2026-10-15 定案拿掉（沒 hover 就是隱形、不擋內容，不必留距離）。
+  // 留一條 `h-7` 保留列放它，後來拿掉（沒 hover 就是隱形、不擋內容，不必留距離）。
   // 疊上去之後與編輯鈕的**重疊**是刻意的，重疊區的點擊歸這顆鈕：
   //   - 可編輯：兩顆做的是同一件事（`startEditing`），點到哪顆結果都一樣。
   //   - 唯讀：底下是不可點的 `<div>`，沒有東西被攔。

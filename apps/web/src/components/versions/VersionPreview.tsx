@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils";
 import { ComparePicker } from "./ComparePicker";
 
 /**
- * 並排的門檻（content box 寬，`useContainerWidth` 量；final §14-6，Willie 裁定 720）。門檻的唯一來源：
+ * 並排的門檻（content box 寬，`useContainerWidth` 量；final §14-6，定為 720）。門檻的唯一來源：
  * 不到門檻就不走並排渲染（只有單欄），所以並排的 grid 一律兩欄、不另用容器查詢。
  */
 const SPLIT_MIN_WIDTH = 720;

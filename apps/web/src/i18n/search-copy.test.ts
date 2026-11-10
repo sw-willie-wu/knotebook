@@ -4,8 +4,8 @@ import zhTW from "./zh-TW.json";
 import en from "./en.json";
 
 /**
- * #93 PR2 側欄搜內文的文案（zh-TW 字面，plan T4 字串表）。改這些字串＝改產品決定，先問 Willie。
- * 草稿階段：Willie 定稿前照 plan 的草案釘；定稿後只改這張表與兩個 json。
+ * #93 PR2 側欄搜內文的文案（zh-TW 字面，plan T4 字串表）。改這些字串＝改產品決定，先與維護者確認。
+ * 草稿階段：定稿前照 plan 的草案釘；定稿後只改這張表與兩個 json。
  */
 const SPEC_COPY: Record<string, string> = {
   "sidebar.titleMatches_one": "標題符合 · {{count}} 篇",

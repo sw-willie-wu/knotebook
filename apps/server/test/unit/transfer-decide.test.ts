@@ -4,7 +4,7 @@ import { anchors, decide, matchesBase } from "../../src/transfer/decide.js";
 import type { Region } from "../../src/transfer/regions.js";
 
 /**
- * bulk transfer spec §9.4；plan PR-2 T6（K1、K4、K5、K7、K8）。Willie 2026-11-04 第三輪：筆記自下載後動過就 409 `note_changed`，
+ * bulk transfer spec §9.4；plan PR-2 T6（K1、K4、K5、K7、K8）。筆記自下載後動過就 409 `note_changed`，
  * `decide` 只在「現況＝基底」時被呼叫（`matchesBase`，MB）——外來 block、倖存者不見或被改、定位點全消失、衝突那幾組案已隨程式刪除。
  */
 

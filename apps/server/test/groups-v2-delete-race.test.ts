@@ -501,7 +501,7 @@ describe("#175 PR4 全刪 × 上傳（C22，Task 2 review r1 M1）", () => {
 });
 
 describe("#175 PR4 別名 PUT 授權之後群組被轉移、接手者重開公開連結（C21）", () => {
-  // 轉移已清 token（Willie 裁決），兩方形（只轉移）被既有述詞 `public_token IS NOT NULL` 擋下；要接手者重開 token 的三方形
+  // 轉移已清 token，兩方形（只轉移）被既有述詞 `public_token IS NOT NULL` 擋下；要接手者重開 token 的三方形
   // 才會讓舊述詞 `group_id IS NULL` 放行、把前成員選的名字寫進接手者的 `/p/<B>/…` 命名空間（plan Task 7、gate r1 W4）。
   it("C21 別名 PUT 授權之後（public-link-authorized）：群組被轉移給 B、B 重新開公開連結 → M 遲到的別名 PUT 400 invalid_body；B 那篇的 public_slug 仍 NULL、token 是 B 剛開的那個", async () => {
     const state: {

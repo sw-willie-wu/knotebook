@@ -103,7 +103,7 @@ describe("parseAuthorizationHeader", () => {
 });
 
 describe("buildBearerChallenge", () => {
-  const issuer = "http://192.168.3.22:8006";
+  const issuer = "http://192.168.1.50:3000";
   const prm = `resource_metadata="${issuer}/.well-known/oauth-protected-resource/api/mcp"`;
 
   it("無憑證形：帶 scope 與 resource_metadata、不帶 error", () => {

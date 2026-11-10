@@ -452,14 +452,14 @@ export async function openedSubmenu(page: Page, trigger: Locator): Promise<Locat
   return menu;
 }
 
-/** 窄形逐層換層項的可及名稱尾綴（`folders.dest.openLevel`「{{name}}, open」）；寬形層疊的 SubTrigger 不帶（總管裁定 ③）。 */
+/** 窄形逐層換層項的可及名稱尾綴（`folders.dest.openLevel`「{{name}}, open」）；寬形層疊的 SubTrigger 不帶。 */
 const OPEN_LEVEL_SUFFIX = ", open";
 
 /**
  * 資料夾 PR-3b-2／3b-3：⋮ 開著時點「Move to…」／「Copy to…」，再依序點 `steps`（可及名稱 exact；換層項照窄形寫成「X, open」）。
  * 形態看觸發項：
  * - 寬且可 hover（`aria-haspopup="menu"`）＝往旁層疊：觸發項是 Radix `SubTrigger`，每一步以 `clickMenuItemByPointer` 分段移過去、限定在
- *   目前這一層；寬形的 SubTrigger 不帶「, open」（總管裁定 ③），所以把尾綴去掉再找，點了等它 `aria-expanded="true"`、下一步改在它打開的
+ *   目前這一層；寬形的 SubTrigger 不帶「, open」，所以把尾綴去掉再找，點了等它 `aria-expanded="true"`、下一步改在它打開的
  *   那一層找（沒有「Back」可等）。
  * - 窄或觸控＝就地展開逐層：直接點縮排項（同一個 menu）。「X, open」點了等新的一層換上來才點下一步——錨點是「剛點的那項不見了」
  *   （舊層整層換掉；只看「Back」從第二層起就是空等，舊層本來就有 Back），再確認新層有「Back」（第二層起恆第一項；返回的圖示是

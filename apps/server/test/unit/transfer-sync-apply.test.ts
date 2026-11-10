@@ -15,7 +15,7 @@ vi.mock("../../src/transfer/yield.js", async importOriginal => {
 
 /**
  * bulk transfer spec §9.4-4、§9.5 第 6 步；plan PR-2 T7（AP1–AP9）。合併用記憶體 `Y.applyUpdate`（同 spike）。
- * Willie 2026-11-04 第三輪：筆記動過就 409，`applySync` 只在現況＝基底時被呼叫——「人」先改過現況的案（衝突、外來 block、倖存者不見、
+ * 筆記動過就 409，`applySync` 只在現況＝基底時被呼叫——「人」先改過現況的案（衝突、外來 block、倖存者不見、
  * 刪光補空段落、same 鏈尾、多區同一接點、AP8b）已隨合併刪除。
  */
 

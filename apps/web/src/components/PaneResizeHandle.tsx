@@ -102,7 +102,7 @@ export function PaneResizeHandle({
         onChange(clamp(next), true);
       }}
     >
-      {/* 視覺（Willie 2026-09-30 裁決）：平常透明（側欄：就是頁底色的那條間距；版本面板：卡片底色）；hover **只換游標**
+      {/* 視覺：平常透明（側欄：就是頁底色的那條間距；版本面板：卡片底色）；hover **只換游標**
           （col-resize）、不畫線；拖曳中與鍵盤聚焦才出現 ring 色的線。class 必須以完整字面出現
           （Tailwind 靜態掃描），不得樣板化。 */}
       <div

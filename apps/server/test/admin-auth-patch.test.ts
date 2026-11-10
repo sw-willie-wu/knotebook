@@ -357,7 +357,7 @@ describe("PATCH autoCreateEnabled（PR-C C-9、C-10）", () => {
   });
 });
 
-// 總管裁定（Task 3 審查 m1）：寫密文欄的那一句若遇非預期 DB 錯誤，全域 error handler 記整個 err——drizzle 0.44 的
+// 寫密文欄的那一句若遇非預期 DB 錯誤，全域 error handler 記整個 err——drizzle 0.44 的
 // `DrizzleQueryError` 把 params（含 jsonb 的 ct／iv／tag）串進 message 也掛成屬性。用真的 trigger 讓 INSERT／UPDATE 失敗
 // （SQLSTATE P0001，不是任何已知的 CHECK／唯一鍵），走真實的 drizzle 錯誤形，不靠假物件。
 describe("寫 client secret 時遇非預期 DB 錯誤：回 500、log 不帶密文", () => {

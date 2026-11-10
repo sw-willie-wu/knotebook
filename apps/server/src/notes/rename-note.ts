@@ -8,7 +8,7 @@
  * 前置條件：`input.access.role !== "none"` 且 `input.access.permissions.edit` 已驗。
  * 0 列時補一句 `select id, title`：列不在 → `gone`；列在 → `ownership_changed`（授權後歸屬變了——即今天 `ownershipChanged` 的查詢）
  * ——#381 起，傳了 `expectTitleFingerprint` 或 `expectTitle` 且標題已不是 pre-read 那一個時改回 `title_changed`。
- * `expectTitle`（只有 bulk transfer 的檔案寫回傳，Willie 2026-11-04 第三輪）：現行標題必須**等於**它才改——pre-read 不等 → `title_changed`；
+ * `expectTitle`（只有 bulk transfer 的檔案寫回傳）：現行標題必須**等於**它才改——pre-read 不等 → `title_changed`；
  * 之後與 `expectTitleFingerprint` 走同一道條件式 UPDATE（WHERE `title = pre.title`，此時 pre.title 就是 expectTitle）與同一句 0 列補查。
  * 兩者都不傳（REST PATCH）＝ UPDATE 語句與 #381 之前同形。
  * 語句形狀守衛＝`test/notes-slug.test.ts` 的「語句形狀守衛」案（格 2 恰一次 pre-read、恰一條 UPDATE、0 條刪轉址）。

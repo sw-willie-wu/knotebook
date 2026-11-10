@@ -9,7 +9,7 @@ const ISSUER = "http://host";
 
 describe("canonicalResource", () => {
   it("是 issuer 加上 /api/mcp，無尾斜線", () => {
-    expect(canonicalResource("http://host:8006")).toBe("http://host:8006/api/mcp");
+    expect(canonicalResource("http://host:3000")).toBe("http://host:3000/api/mcp");
   });
 });
 
@@ -48,7 +48,7 @@ describe("isCanonicalResource", () => {
 
   it("拒絕不同 host、不同 port 與非 URL", () => {
     expect(isCanonicalResource("http://other/api/mcp", ISSUER)).toBe(false);
-    expect(isCanonicalResource("http://host:8006/api/mcp", ISSUER)).toBe(false);
+    expect(isCanonicalResource("http://host:3000/api/mcp", ISSUER)).toBe(false);
     expect(isCanonicalResource("not a url", ISSUER)).toBe(false);
   });
 

@@ -1,7 +1,7 @@
 /**
- * 批次寫回「下載後筆記被動過 → 409 note_changed」（Willie 2026-11-04 第三輪：不再三方合併）。
+ * 批次寫回「下載後筆記被動過 → 409 note_changed」（不再三方合併）。
  * E0：同一篇沒動過的筆記重複匯出逐位元組相同（冷筆記、live 文件已載入記憶體）——`note_changed` 的判斷以此為前提。
- * NC1–NC9：總管指定的九案；NC10–NC12：檢查與套用之間的插隊（TOCTOU）、寫回額度（N5）、front matter（N7）。
+ * NC1–NC9：九案；NC10–NC12：檢查與套用之間的插隊（TOCTOU）、寫回額度（N5）、front matter（N7）。
  */
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
@@ -124,7 +124,7 @@ async function expectNoteChanged(s: Scene, token: string, text: string, base: st
   return md0;
 }
 
-describe("NC 下載後筆記動過 → 409 note_changed（Willie 2026-11-04 第三輪）", () => {
+describe("NC 下載後筆記動過 → 409 note_changed", () => {
   it("NC1 下載後別人用 MCP edit_note 改了別章 → 送回（改第一章）409 note_changed、筆記不變；重新下載重做 → 200", async () => {
     const s = await scene();
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
@@ -432,7 +432,7 @@ describe("NC10 檢查之後、合併之前插隊（TOCTOU）", () => {
   });
 });
 
-describe("NC11 寫回額度只看有改的檔（8000 探索測試 N5）", () => {
+describe("NC11 寫回額度只看有改的檔（探索測試 N5）", () => {
   it("transferWrite 用完：沒改的檔 → 200 unchanged（扣 tokenRead）；有改的檔 → 429；新增檔重送（去重命中）→ 200", async () => {
     const transferWrite = new FixedWindowLimiter({ limit: 1, windowMs: 60_000 });
     const s = await scene({ limiters: { transferWrite } }, "Para 0\n\nPara 1");
@@ -483,7 +483,7 @@ describe("NC20 零區（位元組有變、決策全是 same）＝unchanged（審
   });
 });
 
-describe("NC12 front matter（8000 探索測試 N7）", () => {
+describe("NC12 front matter（探索測試 N7）", () => {
   it("`id :`／`base :`（冒號前有空白）→ 寫回原筆記、不建新筆記；有 base 沒 id → 400、什麼都沒建", async () => {
     const s = await scene({}, "Para 0\n\nPara 1");
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);

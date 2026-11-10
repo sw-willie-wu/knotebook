@@ -113,7 +113,7 @@ export function useRenameGroup() {
 /**
  * #175 PR4：刪群組必填模式（`DeleteGroupBody`）。204 無 body；錯誤（409 `not_admin`、409 `server_busy`、404 群組已不在…）由呼叫端 toast。
  * 失效：單篇三把（轉移後開著的群組筆記要重抓成個人形——transferTo 經轉址拿到 `/n/` 形、其他人拿到 404；全刪後拿到 404）
- * → `['public-link']`（轉移清掉公開連結，Willie 2026-10-02）→ `['groups']`／`['notes']`。不碰 `['shares']`：兩模式都不產生逐人分享
+ * → `['public-link']`（轉移清掉公開連結）→ `['groups']`／`['notes']`。不碰 `['shares']`：兩模式都不產生逐人分享
  * （v1 先 await shares，是因為 v1 刪群組把成員物化成逐人分享——D8，v2 已推翻）。全部不 await：開著的查詢可能 404＋retry。
  */
 export function useDeleteGroup() {

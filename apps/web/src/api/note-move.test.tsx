@@ -122,7 +122,7 @@ afterEach(() => {
 
 describe("useMoveNoteToGroup", () => {
   it("移動成功：快取寫入序＝shares→public-link→note（三次同步、之間無 await；不變量①⑥）", async () => {
-    // 搬完以回應為準、不假設 editor（Willie 裁決：create-only 搬完可能是 viewer）
+    // 搬完以回應為準、不假設 editor（create-only 搬完可能是 viewer）
     const moved = noteDto({ groupId: GID, ownerId: "u9", role: "viewer", permissions: { moveToGroup: false, edit: false } as never });
     const f = setupFetch({ ...baseHandlers, [`POST ${NOTE_URL}/move`]: () => fakeResponse(200, moved) });
     const client = makeClient();

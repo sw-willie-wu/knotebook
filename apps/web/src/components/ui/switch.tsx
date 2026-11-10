@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
  * 的測試都要改成 `getByRole("switch", …)`（2026-09-17 全站 checkbox 換 toggle
  * 那次改動，`ShareDialog.test.tsx`／`SettingsAiSection.test.tsx` 踩過這個雷）。
  *
- * 尺寸（#247 §4.9，Willie W25 全站細版）：軌道 26×14px（`h-3.5 w-[26px]`）、滑塊 10px、
+ * 尺寸（#247 §4.9，全站細版）：軌道 26×14px（`h-3.5 w-[26px]`）、滑塊 10px、
  * 開啟位移 12px。比 `button.tsx` 定的 32px 控制項高度矮很多——刻意的，toggle 本體視覺上
  * 本來就該比方塊按鈕小；**點擊目標**就是 Radix 渲染的那顆 `<button>` 本身。
  *

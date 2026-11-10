@@ -72,7 +72,7 @@ export interface PlanSyncInput {
 
 /** `unclosed_fence`：檔案層級有未閉合的 code fence（審查 m3，`regions.ts` 的 `UNCLOSED_FENCE_MESSAGE`）；其餘是 parse 的錯誤碼。 */
 export type PlanSyncError = ParseError | "unclosed_fence";
-/** 失敗形：`detail`＝parse 成因（`ParseDetail`）；`fence`＝未閉合的 fence 記號。只給 HTTP 層挑訊息（8000 探索測試 E）。 */
+/** 失敗形：`detail`＝parse 成因（`ParseDetail`）；`fence`＝未閉合的 fence 記號。只給 HTTP 層挑訊息（探索測試 E）。 */
 export type PlanSyncFailure = { ok: false; code: PlanSyncError; detail?: ParseDetail; fence?: string };
 
 class TooComplexAbort extends Error {}

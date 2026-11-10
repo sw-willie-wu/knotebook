@@ -6,7 +6,7 @@
  * - 有 markdown 表達不了的顏色（整段／清單項／標題／引言的 block 色、表格儲存格色）→ 整個節點輸出成
  *   寫入端認得的 HTML（`data-text-color`／`data-background-color`）；整張清單或整張表格一起。
  * - 只有行內顏色（文字色／文字底色）→ 節點維持 markdown，有色那一段寫成 `<span style="color:NAME">…</span>`
- *   夾在 markdown 裡（#222 Willie 要求：讓弱模型讀寫的 HTML 越少越好；見 {@link tokenizeInlineColors}）。
+ *   夾在 markdown 裡（#222：讓弱模型讀寫的 HTML 越少越好；見 {@link tokenizeInlineColors}）。
  * - 其餘相鄰節點照舊交給同一支 HTML → markdown。
  * 並排 PR-2（spec 2026-10-21 columns-layout §11.1／§11.2）再加三類：頂層的列（`div[data-kb-columns]`、不帶
  * `data-nesting-level`）輸出成 div 形、每一欄的內容以同一套分類序列化（{@link rowMarkdown}）；有寬度的圖片、
@@ -352,7 +352,7 @@ const MD_ESCAPABLE = "\\`*_{}[]()#+-.!~|>";
  * `_` 只在兩側不都是 `\w`（ASCII 英數字或 `_`）時——與 parser 判字中底線的規則相同，所以 `snake_case`、`a__b` 不動；
  * `~` 只在連著另一個 `~` 或在這段文字的頭尾時（只有 `~~` 是刪除線）；
  * `\` 只在後面接著可跳脫的字元或在這段文字結尾時（`C:\Users` 不動）。`<` 不在此列（#379）。
- * Willie 筆記的實例：斜體裡的字面 `**` 與反引號原樣讀出，寫回時 parser 把它們配成新的強調與 code，一輪走樣一次。
+ * 實際筆記的實例：斜體裡的字面 `**` 與反引號原樣讀出，寫回時 parser 把它們配成新的強調與 code，一輪走樣一次。
  */
 function escapeMarkdownText(s: string): string {
   let out = "";

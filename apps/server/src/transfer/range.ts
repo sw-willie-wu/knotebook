@@ -2,7 +2,7 @@
  * bulk transfer spec 2026-11-02 §5.5、§6.2、§11：範圍解析。**可見性只來自既有查詢**（plan §1-5）：筆記＝`visibleNoteBranches`、
  * 資料夾＝`listVisibleFolders`、群組＝`listMyGroupsQuery`（JS 濾 `canRead`）、群組範圍的可讀判準＝`loadCreateTarget(...)?.canRead`。
  *
- * 呼叫約定（T1–T6 審查 I1；plan 檔末「總管追加」）：`buildLayout` 一律吃讀者可見的**完整集合**，命名在完整集合上算、
+ * 呼叫約定（T1–T6 審查 I1）：`buildLayout` 一律吃讀者可見的**完整集合**，命名在完整集合上算、
  * 輸出依範圍篩——範圍縮小時路徑不變。範圍內的篇數＝`layout.files.size`。
  * 範圍物件（群組、資料夾）使用時已看不到 → `gone`，呼叫端回 403（spec §5.5 定案）；必須在 `buildLayout` 之前判。
  */

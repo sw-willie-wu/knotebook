@@ -94,7 +94,7 @@ function hasColumnAncestor(editor: BlockNoteEditor<any, any, any>, blockId: stri
 
 /**
  * 模組層常數元件（身分穩定）：SideMenuController 以元件身分決定要不要重掛。
- * 欄內只放 ⋮⋮（spec §17 #3，Willie 2026-10-22）：欄的選單以欄左緣定位、落在 24px 溝裡，兩顆鈕（48px）會蓋進前一欄。
+ * 欄內只放 ⋮⋮（spec §17 #3）：欄的選單以欄左緣定位、落在 24px 溝裡，兩顆鈕（48px）會蓋進前一欄。
  */
 export function KnotebookSideMenu(props: SideMenuProps) {
   const editor = useBlockNoteEditor();

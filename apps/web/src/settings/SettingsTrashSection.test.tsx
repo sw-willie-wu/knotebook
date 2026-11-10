@@ -213,7 +213,7 @@ describe("SiteTrashGroup（站台垃圾桶設定，#181 §6.9）", () => {
     expect(area().queryByRole("switch")).not.toBeInTheDocument();
   });
 
-  it("ST-7 zh-TW 說明句逐字＝總管裁定的精確版（從下一次檢查開始刪除、每次最多 2,000 篇）", async () => {
+  it("ST-7 zh-TW 說明句逐字＝精確版（從下一次檢查開始刪除、每次最多 2,000 篇）", async () => {
     await i18n.changeLanguage("zh-TW");
     setup({ settings: { retentionDays: 7 } });
     await screen.findByRole("switch", { name: "自動永久刪除" });

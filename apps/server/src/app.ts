@@ -388,7 +388,7 @@ function isTextBodyExemptRoute(request: FastifyRequest): boolean {
 /**
  * multipart 豁免路由的 CSRF 防線：Origin 驗證（spec §12.4）。比較對象是
  * `new URL(origin).host` 與 **`request.host`**——不是 `hostname`：後者剝除 port，會讓
- * LAN 形狀（`192.168.3.22:8006`）與 dev（`localhost:5173`）全部誤判不符。
+ * LAN 形狀（`192.168.1.50:3000`）與 dev（`localhost:5173`）全部誤判不符。
  *
  * `Origin: "null"`（沙箱化 iframe 等情境瀏覽器字面送出的字串 "null"）與任何無法用
  * `new URL()` 解析的 Origin 值一律視為不符——保守以對，不放行無法驗證的來源。

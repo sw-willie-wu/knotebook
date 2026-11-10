@@ -25,7 +25,7 @@ const schema = z.object({
   TRUST_PROXY: z.string().min(1).optional().or(z.literal("").transform(() => undefined)),
   // #187 B18：帳密登入的救援開關。值的語法（只收 true／false，不分大小寫）在 parsePasswordLoginForceEnable 手動驗證。
   PASSWORD_LOGIN_FORCE_ENABLE: z.string().optional(),
-  // #175 §6.10：pool 保險絲（Willie 2026-09-30 Q24）。值的語法（正整數）在 loadConfig 手動驗證，錯誤訊息要點名。
+  // #175 §6.10：pool 保險絲。值的語法（正整數）在 loadConfig 手動驗證，錯誤訊息要點名。
   DATABASE_POOL_MAX: z.string().min(1).optional().or(z.literal("").transform(() => undefined)),
   DATABASE_POOL_CONNECTION_TIMEOUT_MS: z.string().min(1).optional().or(z.literal("").transform(() => undefined)),
   // #272 §7.5：e2e 測試縫。只認字面 "1"；只在 loopback 部署生效（見 loadConfig）。刻意不寫進 .env.example 與 self-hosting 文件。

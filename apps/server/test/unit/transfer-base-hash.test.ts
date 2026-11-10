@@ -117,16 +117,16 @@ describe("H5 newBaseKey／newSalt", () => {
 });
 
 describe("H6 writeNoteFile", () => {
-  const fm = (title: string) => ({ id: "3f2c0e1a-0000-4000-8000-000000000001", title, role: "editor", base: "7d41c0b2e9a85f13", url: "/n/willie/meeting-notes" });
+  const fm = (title: string) => ({ id: "3f2c0e1a-0000-4000-8000-000000000001", title, role: "editor", base: "7d41c0b2e9a85f13", url: "/n/alice/meeting-notes" });
 
   it("8 行 frontmatter，鍵序逐字照 §6.4；本文原樣接上", () => {
     const out = writeNoteFile(fm("會議紀錄"), "# H\n\nbody  \n");
     expect(out).toBe(
-      "---\nknotebook: 1\nid: 3f2c0e1a-0000-4000-8000-000000000001\ntitle: \"會議紀錄\"\nrole: editor\nbase: 7d41c0b2e9a85f13\nurl: /n/willie/meeting-notes\n---\n# H\n\nbody  \n",
+      "---\nknotebook: 1\nid: 3f2c0e1a-0000-4000-8000-000000000001\ntitle: \"會議紀錄\"\nrole: editor\nbase: 7d41c0b2e9a85f13\nurl: /n/alice/meeting-notes\n---\n# H\n\nbody  \n",
     );
     expect(TRANSFER_FILE_VERSION).toBe(1);
     expect(writeNoteFile(fm("x"), "")).toBe(
-      "---\nknotebook: 1\nid: 3f2c0e1a-0000-4000-8000-000000000001\ntitle: \"x\"\nrole: editor\nbase: 7d41c0b2e9a85f13\nurl: /n/willie/meeting-notes\n---\n",
+      "---\nknotebook: 1\nid: 3f2c0e1a-0000-4000-8000-000000000001\ntitle: \"x\"\nrole: editor\nbase: 7d41c0b2e9a85f13\nurl: /n/alice/meeting-notes\n---\n",
     );
   });
 

@@ -45,7 +45,7 @@ export type MermaidTheme = "light" | "dark";
  * mermaid 需要一個 id 來當 DOM 元素 id 與 SVG 內部 id 的前綴。
  *
  * ⚠ **刻意不用 `crypto.randomUUID`**：本專案的正當拓撲包含 LAN plain-http
- * （非 secure context，例如 `http://192.168.3.22:8006`），那裡 `crypto.randomUUID`
+ * （非 secure context，例如 `http://192.168.1.50:3000`），那裡 `crypto.randomUUID`
  * **不存在**，呼叫會直接 TypeError；而 jsdom／Node 有 polyfill，所以單元測試抓不到。
  * `ui/toast.tsx` 已經為同一個原因改用模組層級遞增計數器，這裡沿用同一手法。
  * id 只需要在單一 document 內唯一，無安全需求。

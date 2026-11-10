@@ -163,7 +163,7 @@ test("owner 開公開 → 免登入看到內容與圖 → 重生舊連結死 →
     // 未登入不重導：仍在 /p/ 網址上。
     expect(new URL(anonPage.url()).pathname).toBe(`/p/${token}`);
 
-    // ── owner：設公開別名（Willie 2026-09-17 介面改版：匿名 toggle 取代舊的
+    // ── owner：設公開別名（介面改版：匿名 toggle 取代舊的
     //    「公開別名欄位」＋「Remove custom URL」鈕）→ 無痕開 /p/<handle>/<slug>
     //    → 撤別名（開回匿名 toggle） ──────────────────────────────────────
     const ownerPage2 = await ownerContext.newPage();

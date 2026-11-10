@@ -8,7 +8,7 @@
  * - `priority: 1000`：要先於 core `KeyboardShortcutsExtension`（50）的 Backspace／Delete 鏈；條件不成立一律回 false 交還 core。
  * - 位置條件成立後先試 `undoInputRule`（排在空欄特例之前）：core 的 Backspace 鏈第一步就是它，我們搶在前面接手就得自己先試，否則剛觸發的 input rule
  *   撤不回、反而被搬走。
- * - Delete 端排除程式碼區塊（總管裁定）：交還 core 自己的程式碼區塊 Delete（空程式碼區塊會被刪掉並收欄）；P6b 的吞掉也不含它。
+ * - Delete 端排除程式碼區塊：交還 core 自己的程式碼區塊 Delete（空程式碼區塊會被刪掉並收欄）；P6b 的吞掉也不含它。
  * - 測試必須用真 keydown（`view.someProp("handleKeyDown", …)`）；`commands.keyboardShortcut()` 會把多 step 交易重播、量到假象。
  *
  * tiptap 的回呼只給 tiptap 編輯器；`transact`／`asUndoStep` 要 BlockNote 編輯器，從 `editorRef` 取（同 markdown-link）。

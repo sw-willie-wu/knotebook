@@ -157,7 +157,7 @@ describe("versions-context", () => {
     expect(result.current.onlyChanges).toBe(false);
   });
 
-  it("換筆記：窄視窗整頁（sheet）照舊關閉（Willie 2026-10-11 裁定；只有寬版面板保留）", () => {
+  it("換筆記：窄視窗整頁（sheet）照舊關閉（只有寬版面板保留）", () => {
     mm.set(true);
     const { result, rerender } = renderHook(({ id }: { id: string }) => useVersionsController({ noteId: id, enabled: true }), { initialProps: { id: "n1" } });
     act(() => {

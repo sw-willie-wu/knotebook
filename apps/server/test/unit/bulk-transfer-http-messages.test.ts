@@ -87,7 +87,7 @@ describe("bulk transfer 的 HTTP 層訊息（字面）", () => {
   });
 });
 
-describe("H3 檔案寫回的 400 訊息依成因（8000 探索測試 E）", () => {
+describe("H3 檔案寫回的 400 訊息依成因（探索測試 E）", () => {
   it("unsupported_block 三種成因、empty_content 兩種、too_many_blocks 帶上限、未閉合 fence 照實際記號", () => {
     expect(transferParseMessage("unsupported_block", "event_attr")).toBe("The file has HTML with an event attribute (such as onerror or onclick), which can't be stored in a note, so nothing was written.");
     expect(transferParseMessage("unsupported_block", "editor_internal")).toBe("The file has HTML the editor uses internally (such as an element with data-content-type), which can't be stored in a note, so nothing was written.");

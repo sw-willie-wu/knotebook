@@ -70,7 +70,7 @@ export interface GroupTransferPick {
 
 /**
  * ⋮ 子選單選定的目的地（非 drill 項）。groups／index 在 `GroupTransferMenuItems` 裡算（只在選單開著時掛載），隨 pick 傳出：
- * `NoteMenuCore` 頂層不訂閱 `useGroups`／`useFolders`（總管裁定 2026-10-29 M1）。
+ * `NoteMenuCore` 頂層不訂閱 `useGroups`／`useFolders`。
  */
 export interface DestinationPick {
   kind: GroupTransferKind;
@@ -140,7 +140,7 @@ interface LevelNav {
 /**
  * 就地展開形的層內容（spec §6.11.1、§6.11.4、§6.16）：每個 `DestItem` 一個選單項，分隔線＝`DropdownMenuSeparator`。
  * 只在展開時掛載，期間持續存在（**不以 path 當 key**）；換層後（掛載後 path 改變）把焦點交給新層第一個未停用的項目
- * （第二層起即「返回」；總管裁定 2026-10-29 m1、m1-1、M3）。
+ * （第二層起即「返回」）。
  * 返回項前導 `ChevronLeft` 圖示（`aria-hidden`）、可及名稱是「返回」；帶 `>` 的項目可及名稱＝「{{name}}，開啟下一層」。
  */
 function DestinationLevelItems({
@@ -286,7 +286,7 @@ type DrillItem = Extract<DestItem, { kind: "folder" | "space" }> & { drill: Dest
 /**
  * 層疊形（寬且可 hover，spec F23、§6.11.4）的「移動到…／複製到…」那一層：受控 Radix `Sub`，內容是第一層（`CascadeItems`）。
  * - Esc：Radix 的 SubContent 對 Esc 呼叫的是 root 的 onClose（整個選單關掉，實測），所以自己接——`preventDefault`、只收這一層、
- *   焦點回觸發項（總管裁定 ②；各層的 `CascadeSub` 同法）。
+ *   焦點回觸發項（各層的 `CascadeSub` 同法）。
  * - ArrowLeft 不攔：Radix 內建在 `SubContent` 上收起該層、焦點回觸發項。
  * - `SubContent` 走 Portal（見 `ui/dropdown-menu.tsx`），不被父層 `overflow-hidden` 裁掉，貼近視窗邊緣時 Radix 自動翻邊。
  */
@@ -356,7 +356,7 @@ function CascadeItems({ source, path, index, onPick }: CascadeProps & { path: re
 
 /**
  * 層疊的下一層：受控 Radix `Sub`。觸發項不設 `aria-label`——可及名稱＝項目文字（資料夾或空間名），有子選單由 Radix 的
- * `aria-haspopup`／`aria-expanded` 表達（總管裁定 ③；窄形逐層的「，開啟下一層」不用在這裡）；右側箭頭是 `DropdownMenuSubTrigger`
+ * `aria-haspopup`／`aria-expanded` 表達（窄形逐層的「，開啟下一層」不用在這裡）；右側箭頭是 `DropdownMenuSubTrigger`
  * 自帶的那一顆。Esc 同 `CascadeRoot`（只收這一層、焦點回這個觸發項）。內容只在打開時掛載（Radix `Presence`），遞迴不會預先展開整棵樹。
  */
 function CascadeSub({ item, source, path, index, onPick }: CascadeProps & { item: DrillItem; path: readonly DestPathStep[] }) {
@@ -394,7 +394,7 @@ function CascadeSub({ item, source, path, index, onPick }: CascadeProps & { item
  * 規則全在 `components/sidebar/destination-level.ts`），群組＝`useGroups()`、資料夾＝`useFolders()`：還沒到時先列不需要資料夾的項目
  * （群組不帶 `>`），到了再補。第一層為空（`isEmptyDestination`）的那一組整項不渲染（I2）。
  * 兩種形態（判準 `lib/wide-pointer.ts`）：寬且可 hover＝往旁層疊的 Radix 巢狀子選單（`CascadeRoot`）；窄或觸控＝就地展開逐層（`GroupInline`）。
- * 選單開著時跨過判準 → `onModeChange`，呼叫端關掉整個選單（spec §6.11.4；總管裁定 ④）。
+ * 選單開著時跨過判準 → `onModeChange`，呼叫端關掉整個選單（spec §6.11.4）。
  * 選定非 `>` 項只回報（`onPick`）：同空間移動或確認框由呼叫端決定（`transferTargetOf`）。
  */
 export function GroupTransferMenuItems({
@@ -423,7 +423,7 @@ export function GroupTransferMenuItems({
   const foldersQuery = useFolders();
   const groups = groupsQuery.data ?? NO_GROUPS;
   const index = useMemo(() => indexFolders(foldersQuery.data ?? NO_FOLDERS), [foldersQuery.data]);
-  // 窄視窗或觸控 -> 就地向下展開（手風琴）；寬且可 hover -> 往旁層疊（Willie 2026-10-08、2026-10-31；判準見 `lib/wide-pointer.ts`）。
+  // 窄視窗或觸控 -> 就地向下展開（手風琴）；寬且可 hover -> 往旁層疊（判準見 `lib/wide-pointer.ts`）。
   const wide = useWidePointer();
   const inline = !wide;
   // 掛載後判準翻轉（拖視窗寬度、外接滑鼠、平板轉向）-> 通知呼叫端關整個選單；掛載當下不呼叫。

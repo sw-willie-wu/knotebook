@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
- * #247 §4.5（Willie W24）：三個管理面板內的說明文字**不限寬**——面板內容樹不得出現 `max-w-prose`
+ * #247 §4.5：三個管理面板內的說明文字**不限寬**——面板內容樹不得出現 `max-w-prose`
  * （連同它的搭檔 `text-justify hyphens-auto`）。對**原始文字含註解**掃描（比照 card.guard.test.ts）：
  * 字樣常先被抄進註解再被抄回 class；§4.5 也要求相關註解一併改寫。
  * 掃描集（spec §11.1）：settings/*.tsx、components/management/*.tsx、components/groups/Group*.tsx、

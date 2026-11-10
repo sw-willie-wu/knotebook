@@ -4,7 +4,7 @@
  *
  * **流程順序是契約**（plan T8）：① 接線檢查 ② 至多給一個範圍（在 handler 判，input 不准 refine：`inputSchema.properties`
  * 會靜默變空）③ `group_id` 可讀（`loadCreateTarget`，同 list_folders）④ `folder_id` 看得到（`resolveFolderAccess`；看不到在
- * MCP 一律 `not_found`，spec §5.2-3 定案〔Willie 2026-11-03〕）⑤ `access` 依母憑證當下 scope ⑥ 交易外算明文與雜湊 ⑦ 交易（S14）⑧ 交易外清理。
+ * MCP 一律 `not_found`，spec §5.2-3 定案）⑤ `access` 依母憑證當下 scope ⑥ 交易外算明文與雜湊 ⑦ 交易（S14）⑧ 交易外清理。
  * 不扣任何桶（MCP 端點已扣 `tokenRead`，spec §5.2 末）；不 touch presence。
  *
  * 描述與輸出依母憑證二選一（PR-2 T12）：有 `notes:write`（`canWriteNotes`）→ RW description、RW 輸出（多 `write`）、RW `next`；
@@ -56,7 +56,7 @@ export const BULK_FOLDER_ID_DESCRIBE =
 export const BULK_NEXT_RO =
   "Run `export.curl`; it unpacks the notes into a `knotebook` folder. Each note is a markdown file whose front matter, between the `---` lines at the top, holds its `id`, `role` and `base`. Moving, renaming or deleting a file doesn't move, rename or delete the note. `.knotebook/manifest.json` lists each folder's `id` and each note's file. On Windows, run these commands in Git Bash or WSL: they are POSIX shell commands, and the Windows `tar.exe` skips files whose names it can't represent; compare with the manifest to check none is missing. If the download stops partway, run `export.curl` again — but first move or rename the `knotebook` folder: the download writes over its files, including ones you changed, and a file under a note's old name stays. Fetch the latest copy of one note with `note.curl`. If a command fails, curl exits with an error, and the server's JSON reply is in the output file or printed. A 401 means the token can't be used: ask for a new one. A 403 means this token, or your role in that note, doesn't allow it. A 404 means the note is gone or you can't see it. A 413 `too_many_notes` means the download is too big: ask for a token with `space`, `group_id` or `folder_id`. A 429 means too many requests: wait the seconds in `Retry-After`, then send the same request again. When you are done, run `revoke.curl`.";
 
-/** spec §14.2「RW `next`」逐字（rev 9 起含 HTML 註解那句的改寫，R22／PR-2 T13 X3b 反例；PR-3 T3：503 句的主詞改成 the server——新增筆記撞可重試交易錯誤也回 503，那時還沒有 the note，總管裁示 2026-11-03；
+/** spec §14.2「RW `next`」逐字（rev 9 起含 HTML 註解那句的改寫，R22／PR-2 T13 X3b 反例；PR-3 T3：503 句的主詞改成 the server——新增筆記撞可重試交易錯誤也回 503，那時還沒有 the note；
  * PR-3 T7 實機回補：新增檔的 front matter 要有 `knotebook:` 行 `title`／`folder_id` 才算〔`transfer/frontmatter.ts` 的辨識，
  * `transfer-write-create.test.ts` CR8b〕；JSON 回覆是「usually」印出——Windows 的 curl 對 413 偶爾 exit 56、連線先被重設〔實機 14-413-tally〕）。 */
 export const BULK_NEXT_RW =

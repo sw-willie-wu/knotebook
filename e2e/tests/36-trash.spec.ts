@@ -32,7 +32,7 @@ const RUN = Date.now();
 const PASSWORD = "e2e-trash-user-pw";
 const NOTE_TITLE = { name: "Note title" } as const;
 const TRASH_HEADER = /^Trash · \d+ notes?$/;
-/** ceil、最小 1：沒有「不到 1 天」（總管裁定 2026-10-22）。 */
+/** ceil、最小 1：沒有「不到 1 天」。 */
 const DAYS_LEFT = /^\d+ days? left$/;
 const LINK_INVALID = "This link is invalid or the note doesn't exist.";
 /**

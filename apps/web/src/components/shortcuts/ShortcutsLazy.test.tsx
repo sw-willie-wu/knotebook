@@ -6,7 +6,7 @@ import i18n from "@/i18n";
 import { ShortcutsContent } from "./ShortcutsLazy";
 
 /**
- * 快捷鍵介紹頁的內容（plan 2026-11-02-shortcuts-modal T4，Willie 2026-11-02 改版後）：左卡列分類、右卡只顯示所選分類；
+ * 快捷鍵介紹頁的內容（plan 2026-11-02-shortcuts-modal T4）：左卡列分類、右卡只顯示所選分類；
  * 分類／條目依站台 AI 能力篩選、Mac 與其他平台的鍵面、報讀器友善的鍵名與分隔符、左卡底部的提示句（沒有「重看導覽」，D8）、
  * 選分類的焦點與窄螢幕兩層切換（比照設定的 ManagementShell）。
  *

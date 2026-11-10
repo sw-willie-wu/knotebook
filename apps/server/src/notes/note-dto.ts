@@ -105,7 +105,7 @@ export async function viewerFolderIdFor(
 
 /**
  * 清單的 `sizeBytes`（spec D11 A）：Yjs 狀態位元組＋附件總和。兩個相關子查詢的外層欄寫成帶表名的字面——直接插 `${notes.id}`
- * 在單表 select 會渲染成裸 `"id"`，`uploads u` 子查詢裡的裸 `"id"` 解析成 `u.id`、靜默算錯（memory `g:drizzle-query-builder-gotchas`）；
+ * 在單表 select 會渲染成裸 `"id"`，`uploads u` 子查詢裡的裸 `"id"` 解析成 `u.id`、靜默算錯；
  * 今天的三支都是 JOIN 形（會帶表名），字面讓它不依賴這件事。每次呼叫現造。
  */
 export function noteSizeBytesSql(): SQL.Aliased<number> {

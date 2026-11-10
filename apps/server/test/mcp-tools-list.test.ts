@@ -191,7 +191,7 @@ describe("#108 tools/list", () => {
   });
 
   // #175 PR5：create_note 的模型面字串（G1／D2／D3／G2／T1）逐字在 wire 上，被撤掉的舊說法一句都不在
-  // （[[g:model-facing-string-claims]]：改寫一句，兩個方向各查一次——該在的在、該撤的撤）。
+  // （改寫一句，兩個方向各查一次——該在的在、該撤的撤）。
   // 字面值寫死在這裡，與 `docs/mcp.md` 的定稿句對照（docs 在此檔外，本檔不比對 docs；實作時以腳本逐字比對過 `docs/mcp.md` 與 `create-note.ts`）。
   // 比的是 JSON.parse 之後的字串（模型看到的），並另外以 `JSON.stringify(s).slice(1, -1)` 比原始 body，
   // 確認 wire 上的逃脫形與預期一致（`—`、反引號、`'` 在 JSON 裡是否被逃脫）。

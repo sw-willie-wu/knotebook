@@ -518,7 +518,7 @@ describe("E14–E17：not mergeable、標頭、presence、live", () => {
     expect(b2!.segments).not.toBeNull();
   });
 
-  it("E14b（8000 探索測試 H；全分支審查 I2(c) 起門檻 256 KiB）檔案超過寫回上限 → manifest 該項 tooLargeToSend:true；剛好在上限內的與一般檔沒有這個鍵", async () => {
+  it("E14b（探索測試 H；全分支審查 I2(c) 起門檻 256 KiB）檔案超過寫回上限 → manifest 該項 tooLargeToSend:true；剛好在上限內的與一般檔沒有這個鍵", async () => {
     const ctx = await buildCollabTestApp();
     const { u, b } = await userWithBulk(ctx);
     const big = await seedNote(ctx.db, { ownerId: u.id }, { title: "big" });

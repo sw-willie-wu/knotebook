@@ -4,7 +4,7 @@
 // CI bundle 尺寸檢查（issue #19）：`pnpm build` 之後對 apps/web/dist/assets 驗兩件事——
 //   1. entry chunk（index-<hash>.js）的未壓縮尺寸 ≤ MAX_ENTRY_BYTES。lazy split 前
 //      entry 是 1,629 KB（BlockNote＋共編整條鏈都在首包）；切出去後 ~540 KB。上限取
-//      750 KiB（原 700 KB，2026-10-26 Willie 調高，理由見常數註解）：任何「把
+//      750 KiB（原 700 KB，後調高，理由見常數註解）：任何「把
 //      NotePage/BlockNote 又靜態 import 回首包」的迴歸（+1MB 級）仍必然撞牆。
 //   2. NotePage 的 lazy chunk（NotePage-<hash>.js）存在——entry 上限擋「胖回去」，
 //      這條擋「切分本身被拿掉」（若某天 rollup 改了 chunk 命名慣例，這裡會紅，
@@ -27,7 +27,7 @@ import { pathToFileURL } from 'node:url';
 
 // #201（2026-10-07）：#187 登入服務圖示曾讓首包到 725,101 bytes、上限暫調 720 KiB；站台管理、
 // 設定 modal 各區、登入流程四頁（註冊／帳號連結／改密碼／OAuth 同意）改 lazy 後首包約 616 KB，上限調回 700 KiB。
-// 2026-10-26 Willie 調到 750 KiB：讓垃圾桶、資料夾、選取模式能合流（合流後約 718 KB）；新功能仍預設 lazy，多出的空間是緩衝。
+// 調到 750 KiB：讓垃圾桶、資料夾、選取模式能合流（合流後約 718 KB）；新功能仍預設 lazy，多出的空間是緩衝。
 export const MAX_ENTRY_BYTES = 750 * 1024;
 export const ENTRY_RE = /^index-[A-Za-z0-9_-]+\.js$/;
 export const NOTEPAGE_RE = /^NotePage-[A-Za-z0-9_-]+\.js$/;

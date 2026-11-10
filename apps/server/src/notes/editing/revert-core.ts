@@ -8,7 +8,7 @@ import { fingerprintForIds } from "./fingerprint.js";
 import type { EditingRuntime } from "./runtime.js";
 import { EditorSession, replaceBlocksFresh } from "./session.js";
 
-/** `placeholder`：bulk transfer 刪光時補的那顆空段落（`sync-apply.ts` 的 toEmpty；總管追加 T11-1）。 */
+/** `placeholder`：bulk transfer 刪光時補的那顆空段落（`sync-apply.ts` 的 toEmpty）。 */
 export type Anchor = { block_id: string; position: "before" | "after"; placeholder?: boolean };
 
 /**
@@ -118,7 +118,7 @@ export async function prepareRevertOnFork(
       case "insert_after": case "append": revertInsert(); break;
       case "delete_section": revertDelete(isEmpty => anchor!.position === "before" && isEmpty); break;
       case "file_sync": {
-        // 刪除形：規則③ 三條件同時成立才刪 anchor（總管追加 T11-2）——是佔位、仍是空段落、沒有其他未撤回的列共用它。
+        // 刪除形：規則③ 三條件同時成立才刪 anchor——是佔位、仍是空段落、沒有其他未撤回的列共用它。
         // 不是佔位的 anchor 一律不刪（PR3b：使用者自己寫的空段落被當成 N anchor）。
         if (isDeleteShape({ op: row.op, anchor })) revertDelete(isEmpty => anchor!.placeholder === true && isEmpty && !othersShareAnchor);
         else if (before.length > 0) revertReplace();

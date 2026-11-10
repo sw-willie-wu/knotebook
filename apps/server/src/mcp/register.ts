@@ -186,7 +186,7 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
   // #241（原 #180 W15／spec §4.7 只套三支）：**所有工具**都以 `.strict()` 物件註冊——raw shape 會**靜默丟掉**未知鍵
   // （spec F60 實測）：用舊鍵 `groupId` 呼叫 `create_note` 會被當成「沒給群組」建成個人筆記；`edit_note` 的 `append`
   // 帶拼錯的 `ifMatch` 會跳過指紋比對照寫。strict 後回 SDK 輸入驗證錯誤、什麼都沒做；`tools/list` 的 JSON 與 raw shape
-  // 逐字相同（F60），`inputSchema.properties` 不會空掉（裸 `ZodObject`，[[g:mcp-typescript-sdk-gotchas]] 第 1 節）。
+  // 逐字相同（F60），`inputSchema.properties` 不會空掉（裸 `ZodObject`）。
   // 守衛＝`test/unit/mcp-register.test.ts`（U-F1，實際註冊物的結構）與 `mcp-tools-list.test.ts` 的 X-241（wire）；
   // 另有 `mcp-groups.test.ts` M-G1、`mcp-edit-note.test.ts` E-241。
   if (canWrite) {

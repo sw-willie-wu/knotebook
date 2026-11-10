@@ -90,7 +90,7 @@ export function isSameSpace(target: DestTarget, source: DestSource): boolean {
   return target.kind === "place" && source.current !== null && spaceKey(target.space) === spaceKey(source.current);
 }
 
-/** 「整項不渲染／disabled」的唯一判準（總管裁定 2026-10-29 I2）。 */
+/** 「整項不渲染／disabled」的唯一判準。 */
 export function isEmptyDestination(source: DestSource, index: FolderIndex, t: Translate): boolean {
   return buildDestinationLevel({ source, path: [], index, t }).length === 0;
 }

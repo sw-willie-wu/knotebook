@@ -139,7 +139,7 @@ export async function mergeDiff(
     if (multi) {
       if (input.targetIds !== null) throw new Error("mergeDiff：多期望不收 targetIds（接線錯）");
       if (!checkExpectations(fragment, input.expectEach ?? [], input.anchorIds ?? [])) throw new FingerprintMismatch();
-      // 檔案寫回（Willie 2026-11-04 第三輪）：多期望再加整篇指紋——現況與規劃時的 fork 整篇相同才合併（`expectEach` 不管多出來的 block）。
+      // 檔案寫回：多期望再加整篇指紋——現況與規劃時的 fork 整篇相同才合併（`expectEach` 不管多出來的 block）。
       if (input.expectFingerprint !== null && outlineOf(fragment).whole !== input.expectFingerprint) throw new FingerprintMismatch();
     } else if (input.expectFingerprint !== null) {
       const live = input.targetIds === null ? outlineOf(fragment).whole : fingerprintForIds(fragment, input.targetIds);

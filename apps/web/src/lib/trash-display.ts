@@ -9,7 +9,7 @@ type Translate = (key: string, options?: Record<string, unknown>) => string;
 export const DAY_MS = 86_400_000;
 
 /**
- * 「剩 N 天」：N＝max(1, ⌈(purgeAt − now)／1 天⌉)（總管裁定 2026-10-22：沒有「不到 1 天」）——剛移入（保留 7 天）是「剩 7 天」，
+ * 「剩 N 天」：N＝max(1, ⌈(purgeAt − now)／1 天⌉)（沒有「不到 1 天」）——剛移入（保留 7 天）是「剩 7 天」，
  * 與底部說明一致；不到一天、或已過 purgeAt 等下一輪清理，都是「剩 1 天」。null＝保留天數為 NULL（不自動刪）。
  */
 export function remainingLabel(purgeAt: string | null, now: number, t: Translate): string | null {

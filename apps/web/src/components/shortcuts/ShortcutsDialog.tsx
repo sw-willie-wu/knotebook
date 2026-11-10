@@ -19,7 +19,7 @@ const FALLBACK_CARD = cn(cardSurface, "min-w-0 flex-1 overflow-y-auto p-8 pt-12"
 
 /**
  * 快捷鍵介紹頁的對話框外殼（Ctrl+/ 或使用者選單「快捷鍵介紹」；開關 state 與監聽器在 `AppShell`，K1）。
- * 版面沿用設定的托盤＋兩張卡（左：分類、右：所選分類的條目；Willie 2026-11-02 改版），兩張卡在 lazy chunk 裡（`ShortcutsLazy`）。
+ * 版面沿用設定的托盤＋兩張卡（左：分類、右：所選分類的條目），兩張卡在 lazy chunk 裡（`ShortcutsLazy`）。
  * 這裡持有的是「不依賴 chunk」的部分：Dialog、sr-only 的標題與描述（對話框的名稱）、✕、托盤、焦點進出。
  *
  * 焦點（K11）：

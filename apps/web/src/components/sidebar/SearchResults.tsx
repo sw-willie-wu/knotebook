@@ -36,7 +36,7 @@ export function highlightTitle(title: string, lowerQuery: string): ReactNode {
 }
 
 /**
- * 搜尋結果每項的「筆記標題」與「位置」兩行共用的樣式（Willie 2026-11-03：第一行與第二行同一個 style，灰色小字）。
+ * 搜尋結果每項的「筆記標題」與「位置」兩行共用的樣式（第一行與第二行同一個 style，灰色小字）。
  * 目前開著的那一項（底色 `bg-brand-soft`）與 hover 時改用 `text-brand-on-soft`：灰字疊在 brand-soft 上只有 4.17:1（hover 的 strong 底 3.94:1），
  * 達不到 AA 的 4.5:1；on-soft 在亮色 6.3–6.6:1、暗色 6.9–8.0:1。所在的 `<a>`／Link 要帶 `group`。
  */
@@ -44,7 +44,7 @@ export function searchMetaLineClass(active: boolean): string {
   return cn("truncate text-[11px]", active ? "text-brand-on-soft" : "text-muted-foreground group-hover:text-brand-on-soft");
 }
 
-/** 標題行＝meta 行加粗（Willie 2026-11-03：所有搜尋結果項的標題行粗體；位置行不粗，其餘 class 與位置行相同）。 */
+/** 標題行＝meta 行加粗（所有搜尋結果項的標題行粗體；位置行不粗，其餘 class 與位置行相同）。 */
 export function searchTitleLineClass(active: boolean): string {
   return cn(searchMetaLineClass(active), "font-semibold");
 }

@@ -67,7 +67,7 @@ function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string
 /** 分享角色徽章——只給非 owner（editor/viewer）的筆記顯示；owner 自己的筆記不需要
  * 徽章（列表本身已隱含「這是你的」），'none' 理論上不會出現在 GET /api/notes 的
  * 結果裡（server 只回傳使用者有權限看的筆記）。PR2：側欄改小字化，不再是 pill。
- * #182（Willie 2026-10-02）：群組筆記（`group` 非 null）一律不標——角色看群組面板的成員表（筆記頁頁首徽章不再顯示角色，#335）；
+ * #182：群組筆記（`group` 非 null）一律不標——角色看群組面板的成員表（筆記頁頁首徽章不再顯示角色，#335）；
  * 只有逐人分享給我的個人筆記保留。 */
 export function RoleBadge({ role, group }: { role: NoteDto["role"]; group: NoteDto["group"] }) {
   const { t } = useTranslation();
@@ -104,7 +104,7 @@ function NoteRow({ note, variant, location }: NoteRowProps) {
         variant === "recent" ? "pl-2" : "h-11 md:h-7",
         variant === "plain" && "pl-2",
         variant === "group" && "pl-3",
-        // #247 §4.10（Willie W18）：非 active 的列走主題色四態（與管理面板左卡項次同）：平常無底、hover
+        // #247 §4.10：非 active 的列走主題色四態（與管理面板左卡項次同）：平常無底、hover
         // `bg-brand-soft`、按下 `active:bg-brand-soft-strong`、selected `bg-brand-soft`。
         // active 時 hover 要再深一階：twMerge 對同一個 variant 群組（`hover:bg-*`）互斥，後面這個 class
         // 會蓋掉前面的 `hover:bg-brand-soft`——所以這裡必須走 `cn(...)`，不能字串串接。
@@ -462,7 +462,7 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
       if (groupsQuery.isPending) return <p className={MESSAGE_CLASS}>{t("app.loading")}</p>;
       // 背景 refetch 失敗時 data 仍是上一次成功的群組：錯誤句與快取清單並列，不把群組藏掉。
       if (groupsQuery.isError && groupsQuery.data === undefined) return groupsAlert;
-      // 零群組：只放說明文字、不放「新增群組」鈕——新增一律走標題列「＋」（總管裁定 2026-10-21，避免兩顆同名鈕）。
+      // 零群組：只放說明文字、不放「新增群組」鈕——新增一律走標題列「＋」（避免兩顆同名鈕）。
       if (groups.length === 0) {
         return (
           <>

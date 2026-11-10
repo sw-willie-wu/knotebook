@@ -58,7 +58,7 @@ const TOO_MANY_REQUESTS_MESSAGE = "Too many requests. Wait a moment and try agai
 
 const MAX_DERIVE_ATTEMPTS = 3;
 
-// 上限（總管裁定疑點 4）：email 對齊 SSO 那條的 254（`routes/oidc.ts` 的 `MAX_EMAIL_CLAIM_LENGTH`），以 JS `.length` 計；
+// 上限：email 對齊 SSO 那條的 254（`routes/oidc.ts` 的 `MAX_EMAIL_CLAIM_LENGTH`），以 JS `.length` 計；
 // 顯示名 100 個 code point。以 refine 給自訂訊息（`sendInvalidBody` 只取自訂 issue 的訊息）。註冊與接受邀請共用（#285 spec §5.3）。
 const emailField = z
   .string()
@@ -325,7 +325,7 @@ export function accountRoutes(deps: AccountRouteDeps) {
       return reply.code(204).send();
     });
 
-    // §8.4（S3，推翻 W3）：純 SSO 帳號加上密碼。不要求近期登入（B12，總管裁決；已知限制寫明）。session-only。
+    // §8.4（S3，推翻 W3）：純 SSO 帳號加上密碼。不要求近期登入（B12；已知限制寫明）。session-only。
     app.post("/api/auth/password/set", { preHandler: app.authenticate }, async (request, reply) => {
       const parsed = z.object({ newPassword: z.string() }).strict().safeParse(request.body);
       if (!parsed.success) return sendInvalidBody(reply, parsed.error);

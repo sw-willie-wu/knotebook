@@ -36,7 +36,7 @@ async function redirectsOf(db: Db): Promise<Array<{ oldPath: string; noteId: str
 }
 
 describe("#175 PR4 transferGroupInTx（T6）", () => {
-  it("轉移：每篇 owner＝transferTo、group_id NULL、slug 保留或 -N、slug_is_custom 不變、prev_slug NULL、public_token NULL、public_slug NULL（Willie 2026-10-02 裁決：轉移清公開連結，C1／W1）、legacy_slug 不變、updated_at 不動；轉址恰每篇一列 /g/<g 小寫>/<舊 slug>；群組／角色／成員消失；AI 紀錄／links／uploads／note_states 跟著 UUID；回傳 noteIds 與 memberIds", async () => {
+  it("轉移：每篇 owner＝transferTo、group_id NULL、slug 保留或 -N、slug_is_custom 不變、prev_slug NULL、public_token NULL、public_slug NULL（轉移清公開連結，C1／W1）、legacy_slug 不變、updated_at 不動；轉址恰每篇一列 /g/<g 小寫>/<舊 slug>；群組／角色／成員消失；AI 紀錄／links／uploads／note_states 跟著 UUID；回傳 noteIds 與 memberIds", async () => {
     const { db } = await buildTestApp();
     const pool = db.$client;
     const [a, b, c] = await Promise.all([seedUser(db), seedUser(db), seedUser(db)]);

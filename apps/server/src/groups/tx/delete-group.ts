@@ -59,7 +59,7 @@ export interface GroupDeletionResult {
  *   → 資料夾（§5.9-4、5）：群組有資料夾、或垃圾桶裡有帶快照的根層筆記 → transferTo 個人根層建新頂層（群組名經 loose 正規化、加尾碼）；
  *     群組有資料夾 → **單一一句** `UPDATE folders` 把整棵改成 transferTo 的個人資料夾、群組根層資料夾掛到新頂層下（trigger 2 在句末檢查整棵）
  *   → 每篇 writeSlugInTx（scope＝transferTo 個人、base＝舊 slug，B6）：同一句 UPDATE 換歸屬、清 prev（B12）、處理位置（§5.9-6）
- *     ——同一句清 public_token／public_slug（Willie 2026-10-02 裁決，比照 move.ts；轉移後是未分享的個人筆記；不扣 publicLink 桶）、
+ *     ——同一句清 public_token／public_slug（比照 move.ts；轉移後是未分享的個人筆記；不扣 publicLink 桶）、
  *     slug_is_custom 不動、updated_at 不動（§9.2）
  *   → recordRedirectsInTx：只替現行 slug 寫 `/g/<g>/<舊 slug>`（B12）
  *   → DELETE groups（角色、成員 CASCADE；資料夾已不屬於群組）

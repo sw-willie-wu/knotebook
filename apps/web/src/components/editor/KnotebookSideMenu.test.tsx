@@ -265,7 +265,7 @@ describe("T6 ⋮⋮「取消並排」（spec §7.2）", () => {
   });
 });
 
-describe("C7 欄內的側邊選單只留 ⋮⋮（spec §17 #3，Willie 2026-10-22）", () => {
+describe("C7 欄內的側邊選單只留 ⋮⋮（spec §17 #3）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
   });

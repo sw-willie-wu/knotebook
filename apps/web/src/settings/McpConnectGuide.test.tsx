@@ -36,10 +36,10 @@ describe("mcp-snippets（純函式）", () => {
   });
 
   it("Desktop：header 值放 env（args 不含空白的 Bearer 值），http:// 才加 --allow-http", () => {
-    const http = parseDesktop(buildDesktopSnippet("http://kb.lan:8006"));
+    const http = parseDesktop(buildDesktopSnippet("http://kb.lan:3000"));
     expect(http).toEqual({
       command: "npx",
-      args: ["-y", "mcp-remote", "http://kb.lan:8006/api/mcp", "--header", "Authorization:${AUTH_HEADER}", "--allow-http"],
+      args: ["-y", "mcp-remote", "http://kb.lan:3000/api/mcp", "--header", "Authorization:${AUTH_HEADER}", "--allow-http"],
       env: { AUTH_HEADER: "Bearer <YOUR_TOKEN>" },
     });
     expect(http.args.some((a) => a.includes(" "))).toBe(false);

@@ -131,7 +131,7 @@ export function withoutTransition(revealEl: HTMLElement, run: () => void): void 
     run();
   } finally {
     // S5（gate r2-p2 與 Task 8 重跑，各 3 次取最大）實測 posControl=3、none=0、wrapNoReflow=0：reveal 6.0.2 的 slide() 改完 class 會讀 offsetWidth／offsetHeight，
-    // 等於替我們 reflow；純 DOM 不 reflow 是會轉場的。這行是不依賴 reveal 內部實作的防線（總管裁定保留）。升 reveal 版本要重跑 S5。
+    // 等於替我們 reflow；純 DOM 不 reflow 是會轉場的。這行是不依賴 reveal 內部實作的防線。升 reveal 版本要重跑 S5。
     void revealEl.offsetHeight;
     revealEl.classList.remove(NO_TRANSITION_CLASS);
   }

@@ -225,7 +225,7 @@ describe("GET /api/auth/oidc/login（legacy 入口，#187 B13）", () => {
 //
 // 判準只有一道：safeNextPath（與 web 端同一支，含 2048 上限）。**刻意沒有第二道長度
 // 關**——spec §5.3.3 原本要求再壓到 512、理由是 sealed cookie 的 4 KB 限制，實測不成立
-// （見下方「封章後的 cookie 位元組」那案），Willie 2026-09-03 裁決拿掉。
+// （見下方「封章後的 cookie 位元組」那案），已拿掉。
 describe("#131 login 端點的 next", () => {
   /** 走一次 login，回傳封進 cookie 的 next（沒有就是 undefined）與兩種 cookie 位元組數。 */
   async function loginWithNext(

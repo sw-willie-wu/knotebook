@@ -162,7 +162,7 @@ describe("R3 裁切到 100", () => {
   });
 });
 
-// ── T11：file_sync 列的撤回（§13、§0.1-14、總管追加 T11 1–4）──────────────────────────────
+// ── T11：file_sync 列的撤回（§13、§0.1-14）──────────────────────────────
 type Opts = Parameters<typeof buildCollabTestApp>[0];
 type EditItem = { id: string; op: string; revertable: boolean; revertedAt: string | null };
 async function writeScene(md: string, opts: Opts = {}) {

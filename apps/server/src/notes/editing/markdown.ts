@@ -25,7 +25,7 @@ import type { VisibleNoteTarget } from "./candidates.js";
 export const MAX_BLOCKS = 2000;
 export type ParseError = "unsupported_block" | "unsupported_color" | "unsupported_columns" | "unsupported_size" | "empty_content" | "too_many_blocks";
 /**
- * 錯誤碼之外的成因（8000 探索測試 E；只給 HTTP 層的檔案寫回挑訊息用，MCP 的英文訊息不看它）：`event_attr`＝帶事件屬性
+ * 錯誤碼之外的成因（探索測試 E；只給 HTTP 層的檔案寫回挑訊息用，MCP 的英文訊息不看它）：`event_attr`＝帶事件屬性
  * （onerror 之類）的 HTML；`editor_internal`＝編輯器內部用的 HTML（core parse 丟例外）；`unknown_block`＝parse 出不認得的 block；
  * `dropped_element`＝含 parser 會連內容整個丟掉的元素（`DROPPED_TAGS`），不論在哪；`unclosed_comment`＝`<!--` 沒收尾、吞掉後面；
  * `nested_paragraph`＝段落裡又有段落（經 `<button>`、`<marquee>`、`<svg>` 的 foreignObject、`<math>` 的 mtext 之類）；`too_deep`＝HTML 或
@@ -35,7 +35,7 @@ export type ParseError = "unsupported_block" | "unsupported_color" | "unsupporte
 export type ParseDetail = "event_attr" | "editor_internal" | "unknown_block" | "dropped_element" | "unclosed_comment" | "nested_paragraph" | "too_deep" | "too_complex";
 export type ParseFailure = { error: ParseError; detail?: ParseDetail };
 /**
- * parser 會連裡面的字整個丟掉、不留任何東西的元素（8000 探索測試 E＋審查裁示、第二輪 F2 加 noscript／title／template）：出現在任何
+ * parser 會連裡面的字整個丟掉、不留任何東西的元素（探索測試 E＋審查裁示、第二輪 F2 加 noscript／title／template）：出現在任何
  * 位置都整筆回 `unsupported_block`，比照事件屬性，不靜默拿掉。在 DOM 上找（`syntaxCheckRoot`，同語法檢查的片段情境），所以 HTML
  * 註解裡的 `<script>`、code 裡跳脫成 `&lt;script` 的字都不算。`<embed>` 不在內：它會 parse 成 file block，不會被丟。
  * 這份清單是唯一來源：DOM 的 selector 與字串預篩（F6）都從它產生。
@@ -119,7 +119,7 @@ export function parseMarkdownForNote(editor: BlockNoteEditor<any, any, any>, mar
   // #222：色值只收內建色名（shared 的 `findDisallowedColor`），其他值整筆拒絕——同白名單，不靜默剝除。
   if (findDisallowedColor(parsed) !== null) return { error: "unsupported_color" };
   if (isBlankParseResult(parsed)) {
-    // 未閉合 `<!--` 吞掉一切 → 照舊 empty_content、帶成因（8000 探索測試 E）。會被丟掉的元素在 parse 前就整筆拒絕了（見 DROPPED_TAGS）。
+    // 未閉合 `<!--` 吞掉一切 → 照舊 empty_content、帶成因（探索測試 E）。會被丟掉的元素在 parse 前就整筆拒絕了（見 DROPPED_TAGS）。
     return UNCLOSED_COMMENT.test(markdown) ? { error: "empty_content", detail: "unclosed_comment" } : { error: "empty_content" };
   }
   const count = (bs: AnyPartialBlock[]): number => bs.reduce((n, b) => n + 1 + (b.children ? count(b.children as AnyPartialBlock[]) : 0), 0);

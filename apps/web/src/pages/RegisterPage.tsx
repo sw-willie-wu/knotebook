@@ -34,7 +34,7 @@ export default function RegisterPage() {
 
 /** email／顯示名上限與密碼檢查，一般註冊與邀請註冊共用；回錯誤文字或 null。 */
 function validateRegistration(t: TFunction, v: { email: string; displayName: string; password: string; confirm: string }): string | null {
-  // 上限與 server 同一組常數（總管裁定疑點 4）：email 以 trim 後的 `.length` 計、顯示名以 code point 計。
+  // 上限與 server 同一組常數：email 以 trim 後的 `.length` 計、顯示名以 code point 計。
   if (v.email.trim().length > MAX_REGISTER_EMAIL_LENGTH) return t("register.emailTooLong", { max: MAX_REGISTER_EMAIL_LENGTH });
   if ([...v.displayName.trim()].length > MAX_REGISTER_DISPLAY_NAME_LENGTH) return t("register.displayNameTooLong", { max: MAX_REGISTER_DISPLAY_NAME_LENGTH });
   if (v.password.length < MIN_PASSWORD_LENGTH) return t("errors.password_too_short");

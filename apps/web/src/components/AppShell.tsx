@@ -363,7 +363,7 @@ export function AppShell({ children, inert }: AppShellProps) {
   // `(ctrl || meta) && !alt && !shift && key === ","`、不理 repeat／defaultPrevented；其他對話框（側欄抽屜除外）或選單開著——
   // 含設定 modal 本身、快捷鍵頁、簡報層——就放棄、不 preventDefault（設定已開著時什麼都不做）。
   // 查證（2026-11-02）：BlockNote 0.52／tiptap 3／prosemirror 的 dist 都沒有綁任何標點鍵（`Mod-,` 不存在），Chromium 不保留 Ctrl+,；
-  // Mac 的 ⌘, 在 Safari 是原生的偏好設定、頁面可能攔不到；Mac Chrome、Firefox 也一樣未驗（⌘／ 同）——全部列入手測，Willie 測後再定。handler 讀 ref（navigate／location 每次 render 都換）。
+  // Mac 的 ⌘, 在 Safari 是原生的偏好設定、頁面可能攔不到；Mac Chrome、Firefox 也一樣未驗（⌘／ 同）——全部列入手測，測後再定。handler 讀 ref（navigate／location 每次 render 都換）。
   const settingsRouteRef = useRef({ navigate, location });
   settingsRouteRef.current = { navigate, location };
   useEffect(() => {

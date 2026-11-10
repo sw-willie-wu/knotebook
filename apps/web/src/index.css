@@ -620,7 +620,7 @@ input[name="share-access"] {
       （headless Chromium 151、900px 寬實量：控制項下緣距方塊上緣 31px、程式碼內容從 28px
       開始；截圖上與第一行字形不重疊）。
       #111 曾把它搬到方塊**外面**的上方、為此在 block content 上留一條 1.75rem 的保留列
-      （＝mermaid 那條 `h-7`）；2026-10-15 定案拿掉保留列：沒 hover 時隱形、不擋內容，
+      （＝mermaid 那條 `h-7`）；後來拿掉保留列：沒 hover 時隱形、不擋內容，
       不必替它多佔一段高度。
    2. **何時現身**：hover 整個 block（滑鼠）、`[data-caret-inside]`（游標在這塊程式碼裡，由
       `collab/code-block-caret.ts` 的 decoration 掛上——觸控沒有 hover，點進程式碼就靠這條
@@ -1021,7 +1021,7 @@ input[name="share-access"] {
 }
 /* 一般錨點的 2 s 高亮在 reduced-motion 下不動畫、靜態底色。搜尋標記（.kn-anchor-mark）刻意不在這裡關動畫：它是「你要找的字在這裡」的
    定位提示，只閃 2 次、頻率遠低於每秒 3 次（WCAG 2.3.1 閃光門檻），而且最後停在亮的；關掉動畫就只剩一個恆亮的底色，使用者看不出
-   是跳轉的結果（Willie 2026-11-03 在系統關閉動畫的機器上回報「沒有閃兩下、是恆亮」）。 */
+   是跳轉的結果（曾有使用者在系統關閉動畫的機器上回報「沒有閃兩下、是恆亮」）。 */
 @media (prefers-reduced-motion: reduce) {
   .kn-anchor-flash:not(.kn-anchor-mark):not(.kn-anchor-pending) {
     animation: none;

@@ -8,7 +8,7 @@ import { ADMIN, createUserViaInvite, editorLocator, loginAs, openGroupPanel, ran
  * Public link、記下公開網址 → A 從群組面板加 B（內建一般成員）→ B 開 X（徽章 Editor）→ A 側欄 G1 ⋮ → Delete group，
  * 對話框預設「Give them to an admin」、接手者是 A → 確認 → B 10 秒內被踢回首頁、側欄沒有 X 也沒有 G1 →
  * A 的「My notes」出現 X；開舊的 `/g/` 網址收斂成 `/n/<A>/<slug>`、內容還在 → A 的分享面板是個人形、Private 已勾
- * （Willie 2026-10-02 裁決：轉移清掉公開連結）→ 匿名開舊公開網址顯示失效文案。
+ * （轉移清掉公開連結）→ 匿名開舊公開網址顯示失效文案。
  *
  * 全刪段：A 建群組 G2、在 G2 建筆記 Y、加 B → B 開 Y → A 側欄 G2 ⋮ → Delete group → 選「Delete everything」、
  * 確認鈕在勾「I understand…」之前不能按 → 勾、按 → B 10 秒內「This note has been deleted.」→ A 側欄沒有 G2、

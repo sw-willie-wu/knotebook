@@ -13,7 +13,7 @@ function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string
 
 /**
  * 站台管理的群組列表（`/admin/groups`，spec §9.3、A9）：站上所有群組（`GET /api/admin/groups`，不論是不是成員）＋成員數、
- * 建立時間、儲存用量、方案下拉（即存）。**群組名一律純文字**（Willie 2026-10-08）：站台管理員在這裡管方案，不看群組成員與
+ * 建立時間、儲存用量、方案下拉（即存）。**群組名一律純文字**：站台管理員在這裡管方案，不看群組成員與
  * 詳情——spec §9.3 M2 的「名稱連到 `/settings/groups/:id`」作廢。只經 `components/admin/AdminSections` 匯出（#247：站台管理 modal 的區塊 chunk）。
  * 表格（spec 2026-10-13 settings-table §3 #6）：名稱｜成員｜建立｜儲存（保留紅色）｜方案。群組名可重複：方案下拉以
  * `aria-describedby` 指到該列建立時間（id 依群組 id），同名的列才分得出來。

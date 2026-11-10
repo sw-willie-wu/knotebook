@@ -53,7 +53,7 @@ export function baseLabelOrDeleted(t: TFunction, base: VersionBaseRefDto | null)
 }
 
 /**
- * 「目前狀態」副標三種（#258，Willie 2026-10-11）：只看 `baseSeq`／`dirty`，**不看清單**——清單可能被「僅手動」篩過。
+ * 「目前狀態」副標三種（#258）：只看 `baseSeq`／`dirty`，**不看清單**——清單可能被「僅手動」篩過。
  * #272：基底以 `current.base` 顯示（基底不在這一頁也有名稱；已刪除時標「(deleted)」）。
  */
 export function currentSubtitle(t: TFunction, current: VersionCurrentDto): string {

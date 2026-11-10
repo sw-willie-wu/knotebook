@@ -28,7 +28,7 @@ let toasts: ToastItem[] = [];
 const listeners = new Set<Listener>();
 
 // id 產生器：不用 crypto.randomUUID——非 secure context（LAN plain-http，
-// rev 5.6 正當拓撲，如 http://192.168.3.22:8006）不存在該 API，會令每次
+// rev 5.6 正當拓撲，如 http://192.168.1.50:3000）不存在該 API，會令每次
 // toast() 拋 TypeError；jsdom/Node 有 polyfill 所以測試抓不到。id 只需
 // session 內唯一供 dismiss 比對，無安全需求，模組層級遞增計數器即可。
 let toastIdSeq = 0;

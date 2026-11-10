@@ -1187,8 +1187,7 @@ describe("NotePage", () => {
 
   it("slug 變更（快取回寫）→ 收斂 effect 更新網址（A3 移轉的正向面）", async () => {
     // 這一案守「收斂 effect 是**資料變動驅動**」（deps 少了 note 這裡必紅）。
-    // 內部自訂網址的 UI 入口（ShareDialog 的 SlugField）已下架（Willie 2026-09-17
-    // 產品決定，見 ShareDialog.tsx 頂層說明）——slug 改變現在只可能來自標題重新
+    // 內部自訂網址的 UI 入口（ShareDialog 的 SlugField）已下架（見 ShareDialog.tsx 頂層說明）——slug 改變現在只可能來自標題重新
     // 派生（#145）或其他寫入路徑，這裡改用 setQueryData 直接模擬「常駐層 note
     // 換了新 slug」，同款手法見上面 A1 案（`queryClient.setQueryData(["note", …])`）。
     stubTwoNotes();

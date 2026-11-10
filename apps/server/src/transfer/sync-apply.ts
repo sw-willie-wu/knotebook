@@ -2,7 +2,7 @@
  * bulk transfer spec 2026-11-02 §9.4-4、§9.5 第 6 步：mount fork **一次**、照決策套用、取 diff（plan PR-2 T7）。
  * **持 fork lease、零 DB**；與 scratch 規劃（`sync-plan.ts`）先後、不巢狀。
  *
- * 前提同 `decide.ts`：呼叫端已確認筆記自下載後沒有被動過（現況頂層與基底段表逐顆相同；Willie 2026-11-04 第三輪）。
+ * 前提同 `decide.ts`：呼叫端已確認筆記自下載後沒有被動過（現況頂層與基底段表逐顆相同）。
  *
  * 順序：讓出一次（T14：mount 是一整段同步，不接在規劃尾段後面）→ mount → 無條件讓出一次（同 PR-1）→ ① 所有非 `same` 的插入與改寫（文件順序）：改寫在第一顆基底
  * block 之前 `insertBlocks(parsed)` 再 `removeBlocks(基底那幾顆)`；插入區照 `place`（`P` 之後、`N` 之前、文件開頭）
@@ -87,7 +87,7 @@ export async function applySync(
   const { regions, decisions, parsed } = plan;
   const perRegion: Applied["perRegion"] = regions.map(() => ({ beforeBlocks: [], afterIds: [], anchor: null }));
 
-  // T14（總管裁示 3）：mount 之前先讓出一次——fork 的 mount 是一整段同步（2 vCPU 參考環境 2 000 顆約 230–380 ms，切不開），
+  // T14：mount 之前先讓出一次——fork 的 mount 是一整段同步（2 vCPU 參考環境 2 000 顆約 230–380 ms，切不開），
   // 不讓出的話它會接在規劃的尾段（scratch unmount、decide）後面成一段更長的停頓。mount 之後那次讓出照舊。
   await yieldFn();
   const s = await EditorSession.open(runtime, fork);
@@ -177,7 +177,7 @@ export async function applySync(
     }
     if (toEmpty.length > 0) {
       // 最後一次移除換成一顆空段落（結果頂層永不為空，`apply.ts` delete_section 的形）；這些區都以它為 anchor（before）。
-      // 總管追加 T11-1：記成佔位（`placeholder: true`）。空段落落在第一個被換掉的 block 的位置：文件順序第一個區的倖存者在它
+      // 記成佔位（`placeholder: true`）。空段落落在第一個被換掉的 block 的位置：文件順序第一個區的倖存者在它
       // 「之前」（before），其餘區在它「之後」（after）——撤回時才插得回原順序（3 區以上亂序撤回只近似，known-limitations）。
       const ids = toEmpty.flatMap(ri => decisions[ri]!.survivors);
       const empty = ed.replaceBlocks(ids, [{ type: "paragraph" }]).insertedBlocks[0]!;

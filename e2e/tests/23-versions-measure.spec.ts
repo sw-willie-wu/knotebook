@@ -7,7 +7,7 @@ import { ADMIN, editorLocator, loginAs, setAutoWait, waitForEditorSelection } fr
 /**
  * 量測（不是功能斷言）：spec §13-9【推】舊筆記第一下按鍵／開了就關是否多切一版；§13-5【推】2000 區塊在真瀏覽器的預覽耗時。
  * 數字印成 `MEASURE-…` 行，由 Task 16 寫進文件。§13-9 的期望（不多切）是 spec D9 的產品要求——成立就留著當守衛；
- * 不成立就是發現，停下交 Willie（見 plan Task 15 Step 4）。
+ * 不成立就是發現，停下回報（見 plan Task 15 Step 4）。
  */
 const COMPOSE = ["compose", "-p", "knotebook-e2e", "-f", "../docker-compose.yml", "-f", "../docker-compose.e2e.yml"];
 const ORIGIN = "http://localhost:3100";

@@ -17,7 +17,7 @@ describe("storage 常數（spec §4.1、§7.4、A3）", () => {
   });
 });
 
-describe("formatBytes（1024 進位；整數不帶 .0、其餘一位小數——Willie 2026-10-08；server 的 MCP 訊息與 web 共用這一份）", () => {
+describe("formatBytes（1024 進位；整數不帶 .0、其餘一位小數；server 的 MCP 訊息與 web 共用這一份）", () => {
   it("0 → 0 B", () => expect(formatBytes(0)).toBe("0 B"));
   it("1023 → 1023 B（未滿 1 KB 印整數）", () => expect(formatBytes(1023)).toBe("1023 B"));
   it("1024 → 1 KB（整數不帶 .0）", () => expect(formatBytes(1024)).toBe("1 KB"));

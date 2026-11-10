@@ -233,7 +233,7 @@ describe("⋮ 選單：移動／複製到群組（#216）", () => {
     expect(copy.querySelector('svg[data-icon="chevron-right"]')).not.toBeNull();
   });
 
-  // 選項矩陣（Willie 2026-10-08）。
+  // 選項矩陣。
   it("矩陣：自己的個人筆記 -> 移動＝候選群組；複製＝建立副本＋候選群組（create＋edit）", async () => {
     stub({ groups: [GROUP_A, GROUP_B, GROUP_C] });
     renderMenu();
@@ -920,7 +920,7 @@ describe("⋮ 逐層子選單（PR-3b-2 T4）", () => {
   }
 
   // PR-3b-3 T3：寬形改成層疊（Radix 巢狀子選單，下方「寬螢幕層疊」describe 的 WC 案）；原本這裡的 flyout 逐層案（NM-D1–D7、D9、D13–D17）
-  // 已刪或改寫成 WC 案／窄形案。這裡留與形態無關、在寬形照綠的案（同空間移動、反灰、確認框、前導圖示）；寬形 SubTrigger 不帶「, open」（總管裁定 ③）。
+  // 已刪或改寫成 WC 案／窄形案。這裡留與形態無關、在寬形照綠的案（同空間移動、反灰、確認框、前導圖示）；寬形 SubTrigger 不帶「, open」。
   it("NM-D8 點「B」（沒有子資料夾）→ 選單關、不開確認框、PUT {folderId:B}、toast「Moved to “B”」", async () => {
     const s = stub(BASE_SERVER);
     renderMenu();
@@ -1218,8 +1218,8 @@ describe("⋮ 逐層子選單（PR-3b-2 T4）", () => {
   });
 
   // PR-3b-3 T3（資料夾 spec F23、§6.11.1、§6.11.4、§6.14）：寬螢幕（≥48rem 且可 hover）＝往旁層疊的 Radix 巢狀子選單。
-  // 有子資料夾的項目＝SubTrigger（可及名稱＝項目文字，不帶「, open」：總管裁定 ③），展開後第一項「Move here／Copy here」、群組第一項「Top level」；
-  // 沒有「Back」；層數照實際樹（總管裁定 ①）；Esc 只收一層（②）；選單開著時跨過寬窄判準 → 整個選單關（④）。
+  // 有子資料夾的項目＝SubTrigger（可及名稱＝項目文字，不帶「, open」），展開後第一項「Move here／Copy here」、群組第一項「Top level」；
+  // 沒有「Back」；層數照實際樹；Esc 只收一層（②）；選單開著時跨過寬窄判準 → 整個選單關（④）。
   describe("寬螢幕層疊（PR-3b-3）", () => {
     const GF1 = groupFolder({ id: "GF1", name: "GF1", groupId: GG, parentId: "GF" });
     /** 個人 A ⊃ A1、B；群組 G 有 GF ⊃ GF1；H 沒有資料夾。 */

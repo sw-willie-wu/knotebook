@@ -254,7 +254,7 @@ describe("W9–W12 權限、範圍、額度、佇列", () => {
     expect(await liveMarkdown(s.ctx, n2.id)).toBe(before);
   });
 
-  it("W10b（8000 探索測試 N5，取代 T8-M8 的預檢）桶滿時「同檔重送」仍 200 unchanged（寫回額度只看有改的檔）；同一份副本改別的內容 → 409 already_sent", async () => {
+  it("W10b（探索測試 N5，取代 T8-M8 的預檢）桶滿時「同檔重送」仍 200 unchanged（寫回額度只看有改的檔）；同一份副本改別的內容 → 409 already_sent", async () => {
     const transferWrite = new FixedWindowLimiter({ limit: 1, windowMs: 60_000 });
     const s = await scene({ limiters: { transferWrite } });
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
@@ -581,7 +581,7 @@ describe("W18 寫回與新增在回覆之前已經建好全文索引（PR-3 合�
   });
 });
 
-describe("Z 下載後筆記被換過 → 409 note_changed（Willie 2026-11-04 第三輪：取代 anchors_gone，動過就拒）", () => {
+describe("Z 下載後筆記被換過 → 409 note_changed（取代 anchors_gone，動過就拒）", () => {
   /** REST `replace_section`（PAT）：把 outline[1]（第一個 heading 那段）整段換成 markdown → 所有 block 換新 id。 */
   async function replaceSection(s: Awaited<ReturnType<typeof scene>>, markdown: string) {
     const c = (await getContent(s.ctx.app, s.note.id, s.pat.token)).json() as { outline: Array<{ sectionId: string; fingerprint: string }> };
@@ -681,7 +681,7 @@ describe("Z 下載後筆記被換過 → 409 note_changed（Willie 2026-11-04 �
   });
 });
 
-describe("X8000 探索測試 A–E（Willie 2026-11-04 第二輪；A 組第三輪改成 note_changed）", () => {
+describe("X 探索測試 A–E（A 組第三輪改成 note_changed）", () => {
   const CH = "# 第一章\n\n段落 A1\n\n## 1.1 小節\n\n段落 B1\n\n# 第二章\n\n段落 C1\n\n* 清單一\n* 清單二\n\n# 第三章\n\n段落 D1";
   const versions = (ctx: CollabTestCtx, noteId: string) => ctx.db.select().from(noteVersions).where(eq(noteVersions.noteId, noteId));
   /** REST edit_note 的 replace_section／delete_section（PAT），以 heading 找那一段。 */

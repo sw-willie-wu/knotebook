@@ -229,7 +229,7 @@ describe("#175 PR4 DELETE /api/groups/:id：轉移（T6）", () => {
     }
   });
 
-  it("轉移清掉公開連結（Willie 2026-10-02）：匿名 GET /api/public/notes/<token> 轉移前 200、轉移後 404，body 與從沒存在過的 token 逐位元組相同；該篇附件的公開端點 /api/public/notes/<token>/uploads/<id> 轉移後也 404", async () => {
+  it("轉移清掉公開連結：匿名 GET /api/public/notes/<token> 轉移前 200、轉移後 404，body 與從沒存在過的 token 逐位元組相同；該篇附件的公開端點 /api/public/notes/<token>/uploads/<id> 轉移後也 404", async () => {
     const { app, db, uploadsDir } = await buildTestApp({ collabHooks: spyCollabHooks() });
     const [a, b] = await Promise.all([seedUser(db), seedUser(db)]);
     const g = await seedGroup(db, "G", [{ userId: a.id, role: "admin" }, { userId: b.id, role: "admin" }]);

@@ -39,7 +39,7 @@ describe("copyText", () => {
     stubClipboard(null);
     const execCommand = stubExecCommand(true);
 
-    await expect(copyText("http://192.168.0.2:8006/notes/x")).resolves.toBe(true);
+    await expect(copyText("http://192.168.0.2:3000/notes/x")).resolves.toBe(true);
     expect(execCommand).toHaveBeenCalledWith("copy");
   });
 

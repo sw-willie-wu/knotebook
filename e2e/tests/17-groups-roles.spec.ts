@@ -110,7 +110,7 @@ test("群組角色：新增自訂角色 → 改成員角色即時變唯讀 → �
     await expect(userPage.getByRole("status").filter({ hasText: /^Read-only/ })).toBeVisible({ timeout: 10_000 });
     await expect(userEditable).toHaveCount(0, { timeout: 10_000 });
     // spec 字面的「⋮ 沒有刪除」（#181 起選單項是 Delete）：**這條沒有鑑別力**——內建一般成員本來就沒有刪除旗標，第 4 步 B 的 ⋮ 裡
-    // 就已經沒有 Delete；Reader 前後都一樣。Willie 2026-10-01 裁決照 spec 保留（主檔 spec 疑點 8）。
+    // 就已經沒有 Delete；Reader 前後都一樣。照 spec 保留（主檔 spec 疑點 8）。
     await userPage.getByRole("button", { name: "More", exact: true }).click();
     await expect(userPage.getByRole("menuitem", { name: "Delete" })).toHaveCount(0);
     await userPage.keyboard.press("Escape");

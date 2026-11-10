@@ -211,7 +211,7 @@ describe("筆記內連結的樣式（issue #153）", () => {
   });
 
   describe("#156：圖示判準要與瀏覽器的 URL 剖析一致（選擇器拿去真的比對 href）", () => {
-    // 站在一個 http 頁面上（demo 是明文 http；https 頁面見下方 SAME_SCHEME 的說明）。
+    // 站在一個 http 頁面上（明文 http 部署也是這個形；https 頁面見下方 SAME_SCHEME 的說明）。
     const PAGE = "http://knotebook.local/n/some-note";
     // 一律從 index.css 現行的選擇器拿（去掉 `.bn-editor ` 祖先與 `::after`），不自抄一份。
     const iconMatches = (href: string) => {

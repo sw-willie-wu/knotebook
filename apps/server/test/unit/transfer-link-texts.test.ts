@@ -3,7 +3,7 @@ import { EditingRuntime } from "../../src/notes/editing/runtime.js";
 import { exportedLinkTextOf, keepLabelFree, labelFreeLinkTexts, linkTextHash } from "../../src/transfer/link-texts.js";
 import { TEST_KEY, TEST_SALT, docWith, forkOf, makeBaseInMemory, planInMemory } from "./fixtures/transfer-sync.js";
 
-/** 8000 第三輪探索測試 F1：沒有自訂文字的 wikilink 在寫回時不被凍結成自訂文字（`transfer/link-texts.ts`）。 */
+/** 第三輪探索測試 F1：沒有自訂文字的 wikilink 在寫回時不被凍結成自訂文字（`transfer/link-texts.ts`）。 */
 
 const rt = new EditingRuntime({ baseUrl: "http://localhost/" });
 rt.installGlobals();

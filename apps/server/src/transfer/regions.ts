@@ -32,7 +32,7 @@ export interface Region {
   prevSeg: number;
   nextSeg: number;
 }
-/** `fence`：未閉合的那一行用的 fence 記號（``` 或 ~~~，原樣幾個字元），給訊息用（8000 探索測試 E）。 */
+/** `fence`：未閉合的那一行用的 fence 記號（``` 或 ~~~，原樣幾個字元），給訊息用（探索測試 E）。 */
 export type RegionsResult = { ok: true; regions: Region[]; boundaryChecks: number } | { ok: false; code: "empty_content" } | { ok: false; code: "unclosed_fence"; fence: string } | { ok: false; code: "too_complex" };
 /**
  * #398：未閉合 fence 的判斷（{@link trailingOpenFenceLine}）由呼叫端給——生產上在 parse worker 裡跑（`runtime.parser.openFenceLine`）：
@@ -42,13 +42,13 @@ export type RegionsResult = { ok: true; regions: Region[]; boundaryChecks: numbe
 export type OpenFenceLine = (lines: readonly string[]) => Promise<number | null | "too_complex">;
 
 /**
- * 總管裁示（審查 m3，複審改裁）：agent **新增或改過**的一行開了 code fence、而且一路延伸到檔尾沒有收尾 → 整篇 400、什麼都不寫
+ * agent **新增或改過**的一行開了 code fence、而且一路延伸到檔尾沒有收尾 → 整篇 400、什麼都不寫
  * （比照未閉合 `<!--`，§9.3-6）。整檔 parse 時它會吞掉到檔尾的內容，但區偵測是逐區、一輪、按文字觸發的，寫回的結果會與 agent 檔
  * 「整份讀起來」的樣子不一致。**開頭那一行落在沒改的段裡就放行**：PR-1 的匯出器不跳脫，段落文字本身是 ``` 的筆記會照字匯出成
  * 一行（E6），原檔重送或只改別段都不能因此被拒。判斷以 repo 實際的 parser 為準（`markdownToHTML`，即 `parseMarkdownForNote`
  * 的第一步），不手寫 fence 規則：見 `trailingOpenFenceLine`。路由映 400 `invalid_body` 並帶這句（HTTP 層，#372 起英文，T8 接）。
  */
-/** 8000 探索測試 E：訊息照實際用的 fence 記號寫（``` 或 ~~~），不一律寫 ```。 */
+/** 探索測試 E：訊息照實際用的 fence 記號寫（``` 或 ~~~），不一律寫 ```。 */
 export const unclosedFenceMessage = (fence: string): string =>
   `A line you added or changed opens a code block with ${fence} that is never closed, so everything from that line to the end of the file counts as code. Add a closing ${fence} (or use inline \`code\`) and send the file again.`;
 export const UNCLOSED_FENCE_MESSAGE = unclosedFenceMessage("```");

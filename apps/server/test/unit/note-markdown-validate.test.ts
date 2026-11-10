@@ -210,7 +210,7 @@ describe("片段情境：檢查看到的 DOM 與剖析一致", () => {
     expect(chk(`<${t}>\n\n${ROW2}`)).toMatchObject({ ok: true });
   });
 
-  // 對照（Willie 指定）：檢查的 root 裡看到的頂層列（各列欄數）與帶寬圖片數，必須等於 BlockNote 實際剖析出的
+  // 對照：檢查的 root 裡看到的頂層列（各列欄數）與帶寬圖片數，必須等於 BlockNote 實際剖析出的
   // 頂層 columnList（各列欄數）與帶 previewWidth 的 image 數。BlockNote 日後改了建樹情境，這裡會先紅。
   it.each(LEADS.flatMap(t => [[t, "ROW2", ROW2], [t, "ROW3_FIG", ROW3_FIG]] as const))("CTX-CMP：開頭 <%s> 接 %s → 檢查看到的＝剖析出的", async (t, _name, body) => {
     const html = markdownToHTML(`<${t}>\n\n${body}`);
@@ -261,7 +261,7 @@ describe("拒絕：S10、placement、順序", () => {
   });
 });
 
-// final review Nit 1（總管裁定）：HTML 帶事件處理屬性（`onerror` 等）→ `unsupported_block`，在並排與尺寸檢查之前。
+// final review Nit 1：HTML 帶事件處理屬性（`onerror` 等）→ `unsupported_block`，在並排與尺寸檢查之前。
 // 碼用 unsupported_block：unsupported_columns 的訊息是「layout or editor-internal HTML」，事件處理屬性兩者都不是。
 describe("事件處理屬性", () => {
   const BLOCK = { ok: false, error: "unsupported_block" } as const;

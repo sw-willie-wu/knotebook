@@ -76,7 +76,7 @@ describe("W3 帳號頁的儲存空間", () => {
     expect(screen.getByText("Limit reached — no new attachments can be added")).toHaveClass("text-destructive");
   });
 
-  it("恰好等於上限：也警示（Willie 2026-10-08，起草裁定 4）", async () => {
+  it("恰好等於上限：也警示（起草裁定 4）", async () => {
     renderAt("/settings/storage", (url) => (url === "/api/groups" ? fakeResponse(200, []) : url === "/api/storage" ? fakeResponse(200, usage({ usedBytes: 1048576, quotaBytes: 1048576 })) : null));
     await waitFor(() => expect(screen.getByTestId("storage-usage")).toHaveTextContent("1 MB of 1 MB (Basic)"));
     expect(screen.getByTestId("storage-usage")).toHaveClass("text-destructive");

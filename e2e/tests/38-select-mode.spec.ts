@@ -205,7 +205,7 @@ test("A2c-4：群組 tab 勾一篇群組筆記 → 有「Move to」；複製到�
   const picker = page.getByRole("dialog", { name: "Copy to" });
   const myNotesTarget = picker.getByRole("button", { name: "My notes", exact: true });
   await expect(myNotesTarget).toBeVisible();
-  // 上半部（目前的群組）第一顆是「Make a copy」；分隔線之後的下半部第一顆是個人目的地，叫「My notes」（命名統一，Willie Q5；舊名不再出現）。
+  // 上半部（目前的群組）第一顆是「Make a copy」；分隔線之後的下半部第一顆是個人目的地，叫「My notes」（命名統一；舊名不再出現）。
   const targets = picker.getByRole("list").getByRole("button");
   await expect(targets.first()).toHaveAccessibleName("Make a copy");
   await expect(targets.nth(1)).toHaveAccessibleName("My notes");
@@ -415,7 +415,7 @@ test("A2c-8（寬形 1280）：清單捲在中段時進入選取模式，捲動�
   const myNotes = await showSidebarTab(page, "My notes");
   await expect(noteLink(myNotes, titles[0]!)).toBeVisible({ timeout: 15_000 });
   const list = sidebar.locator("[data-sidebar-list]");
-  // 寬形進入選取時底部（New note）不顯示、清單可視高度多約一列，可捲範圍隨之縮小：捲在最底會被瀏覽器夾回（總管裁定接受，
+  // 寬形進入選取時底部（New note）不顯示、清單可視高度多約一列，可捲範圍隨之縮小：捲在最底會被瀏覽器夾回（已知取捨，
   // Review Focus 8），所以寬形驗「捲在中段」。可捲範圍要遠大於一列，中段才不會落進被縮掉的那一段。
   await expect.poll(() => list.evaluate((el) => el.scrollHeight - el.clientHeight)).toBeGreaterThan(200);
   await list.evaluate((el) => {

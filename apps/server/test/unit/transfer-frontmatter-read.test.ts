@@ -51,7 +51,7 @@ describe("F3 辨識", () => {
     const text = "---\ntitle: x\n---\nbody";
     expect(readNoteFile(text)).toEqual({ kind: "new", title: undefined, folderId: undefined, body: normalizeBody(text) });
   });
-  it(`第 ${FRONTMATTER_SCAN_LINES} 行的 --- 算 frontmatter；第 ${FRONTMATTER_SCAN_LINES + 1} 行才出現 → 掃描範圍內沒有收尾 → 400（8000 探索測試 B）`, () => {
+  it(`第 ${FRONTMATTER_SCAN_LINES} 行的 --- 算 frontmatter；第 ${FRONTMATTER_SCAN_LINES + 1} 行才出現 → 掃描範圍內沒有收尾 → 400（探索測試 B）`, () => {
     const filler = (n: number) => Array.from({ length: n }, (_, i) => `x${i}: y`);
     // 1 起算：第 1 行 `---`、第 2 行 id、第 3 行 base、filler、第 N 行 `---`
     const at = (n: number) => ["---", `id: ${ID}`, `base: ${BASE}`, ...filler(n - 4), "---", "body"].join("\n");
@@ -59,7 +59,7 @@ describe("F3 辨識", () => {
     const late = at(FRONTMATTER_SCAN_LINES + 1);
     expect(errOf(readNoteFile(late))).toBe(UNCLOSED_FRONT_MATTER_MESSAGE);
   });
-  it("F3b（8000 探索測試 B）開頭 --- 與 knotebook:／id: 卻沒有收尾 → error；開頭 --- 但沒有 knotebook:／id:、也沒收尾 → 整檔是本文；開頭不是 --- → 本文", () => {
+  it("F3b（探索測試 B）開頭 --- 與 knotebook:／id: 卻沒有收尾 → error；開頭 --- 但沒有 knotebook:／id:、也沒收尾 → 整檔是本文；開頭不是 --- → 本文", () => {
     expect(errOf(readNoteFile("---\nknotebook: 1\ntitle: T\nbody line"))).toBe(UNCLOSED_FRONT_MATTER_MESSAGE);
     expect(errOf(readNoteFile(`---\nid: ${ID}\nbase: ${BASE}\nbody`))).toBe(UNCLOSED_FRONT_MATTER_MESSAGE);
     const hr = "---\nplain text after a rule";
@@ -88,14 +88,14 @@ describe("F4 必要鍵", () => {
   it("大寫 uuid 的 id → 接受並轉小寫", () => {
     expect(readNoteFile(file([`id: ${ID.toUpperCase()}`, `base: ${BASE}`]))).toMatchObject({ kind: "existing", id: ID });
   });
-  it("N7（8000 探索測試）沒 id 有 base → error（不再當新檔、多建一篇）；只有 base 行也認得是 front matter", () => {
+  it("N7（探索測試）沒 id 有 base → error（不再當新檔、多建一篇）；只有 base 行也認得是 front matter", () => {
     expect(errOf(readNoteFile(file(["knotebook: 1", `base: ${BASE}`])))).toBe(BASE_WITHOUT_ID_MESSAGE);
     expect(errOf(readNoteFile(file([`base: ${BASE}`, 'title: "T"'])))).toBe(BASE_WITHOUT_ID_MESSAGE);
     // id 行認不出來（鍵名打錯）也一樣
     expect(errOf(readNoteFile(file(["knotebook: 1", `ld: ${ID}`, `base: ${BASE}`])))).toBe(BASE_WITHOUT_ID_MESSAGE);
     expect(BASE_WITHOUT_ID_MESSAGE).toBe("The front matter has a base but no id. This is a downloaded file: keep its original id line and send it again.");
   });
-  it("N7（8000 探索測試）冒號前有空白或 tab：`id :`、`base :`、`title\\t:` 照常讀成既有筆記", () => {
+  it("N7（探索測試）冒號前有空白或 tab：`id :`、`base :`、`title\\t:` 照常讀成既有筆記", () => {
     expect(readNoteFile(file(["knotebook: 1", `id : ${ID}`, `base : ${BASE}`, 'title\t: "T"']))).toEqual({ kind: "existing", id: ID, base: BASE, title: "T", body: "x" });
     // 只有 `id :` 能辨識的 front matter（沒有 knotebook 行）也認得
     expect(readNoteFile(file([`id  : ${ID}`, `base: ${BASE}`])).kind).toBe("existing");

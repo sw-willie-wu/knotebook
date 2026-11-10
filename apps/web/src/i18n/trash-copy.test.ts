@@ -5,8 +5,8 @@ import en from "./en.json";
 import managementZhTW from "./management.zh-TW.json";
 
 /**
- * #181 垃圾桶文案＝spec 2026-10-21 §6.12／§6.9／§6.5 的字面（zh-TW）。改這些字串＝改產品決定，先問 Willie。
- * 兩處偏離 spec 字面（總管裁定 2026-10-22）：沒有「不到 1 天」；站台說明句改精確版（每次最多 2,000 篇）。
+ * #181 垃圾桶文案＝spec 2026-10-21 §6.12／§6.9／§6.5 的字面（zh-TW）。改這些字串＝改產品決定，先與維護者確認。
+ * 兩處偏離 spec 字面：沒有「不到 1 天」；站台說明句改精確版（每次最多 2,000 篇）。
  */
 const SPEC_COPY: Record<string, string> = {
   "sidebar.trash": "垃圾桶",
@@ -68,7 +68,7 @@ describe("TC2 刪除確認框的文案已移除（spec §6.12：移到垃圾桶�
   }
 });
 
-describe("TC3 個人目的地與區標統一叫「我的筆記」（Willie 2026-10-26：tab 分頁跟選單統一名稱）", () => {
+describe("TC3 個人目的地與區標統一叫「我的筆記」（tab 分頁跟選單統一名稱）", () => {
   for (const key of ["note.menu.personalSpace", "trash.sectionPersonal"]) {
     it(`${key} 兩個語系都已刪除（改用 sidebar.myNotes）`, () => {
       expect(get(en, key)).toBeUndefined();

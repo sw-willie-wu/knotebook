@@ -12,7 +12,7 @@ import { useAssignGroupPlan } from "@/api/adminStorage";
 import { ADMIN_GROUPS_QUERY_KEY, ADMIN_STORAGE_PLANS_QUERY_KEY, STORAGE_USAGE_QUERY_KEY, groupStorageKey } from "@/api/storage";
 import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
-// W5／W6（spec §11.5）：/admin/groups。群組名一律純文字（Willie 2026-10-08：站台管理員管方案、不看群組成員與詳情）。
+// W5／W6（spec §11.5）：/admin/groups。群組名一律純文字（站台管理員管方案、不看群組成員與詳情）。
 
 function res(status: number, body?: unknown): Response {
   return { ok: status < 400, status, json: () => (body === undefined ? Promise.reject(new Error("no body")) : Promise.resolve(body)) } as unknown as Response;
@@ -94,7 +94,7 @@ describe("W5 /admin/groups", () => {
     expect(within(table).getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual(["Name", "Members", "Created", "Storage", "Plan"]);
   });
 
-  it("群組名一律純文字、不打任何成員／角色／群組用量端點（Willie 2026-10-08）", async () => {
+  it("群組名一律純文字、不打任何成員／角色／群組用量端點", async () => {
     const fetchMock = renderGroups([ALPHA, BETA]);
     for (const g of [ALPHA, BETA]) {
       // 以下拉定位列：下拉出現＝方案清單已到，本頁 query 都已落地；若名稱格會變成連結，此刻一定已是

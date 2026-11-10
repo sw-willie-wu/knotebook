@@ -210,9 +210,9 @@ describe("parseTrustProxy（issue #13）", () => {
 
 describe("D12：OAuth issuer 取 origin、PUBLIC_URL 帶其他成分只警告", () => {
   it("publicUrlIssuer：保留 port、丟掉 path／query／fragment／userinfo，scheme 與 host 小寫", () => {
-    // port 是這個 repo 最常見的自架形（demo 就是 http://192.168.3.22:8006）——
+    // port 是這個 repo 最常見的自架形（例如 http://192.168.1.50:3000）——
     // 手工組 issuer 的實作（protocol + "//" + hostname）會在這裡紅。
-    expect(publicUrlIssuer(new URL("http://192.168.3.22:8006/knb"))).toBe("http://192.168.3.22:8006");
+    expect(publicUrlIssuer(new URL("http://192.168.1.50:3000/knb"))).toBe("http://192.168.1.50:3000");
     expect(publicUrlIssuer(new URL("https://example.com/knb?q=1#f"))).toBe("https://example.com");
     expect(publicUrlIssuer(new URL("https://u:p@example.com/knb"))).toBe("https://example.com");
     expect(publicUrlIssuer(new URL("HTTPS://Notes.Example.com"))).toBe("https://notes.example.com");
@@ -223,7 +223,7 @@ describe("D12：OAuth issuer 取 origin、PUBLIC_URL 帶其他成分只警告", 
   it("publicUrlPathWarning：純 origin（含尾斜線、含 port）不警告", () => {
     expect(publicUrlPathWarning(new URL("https://notes.example.com"))).toBeNull();
     expect(publicUrlPathWarning(new URL("https://notes.example.com/"))).toBeNull();
-    expect(publicUrlPathWarning(new URL("http://192.168.3.22:8006/"))).toBeNull();
+    expect(publicUrlPathWarning(new URL("http://192.168.1.50:3000/"))).toBeNull();
   });
 
   it("publicUrlPathWarning：path／query／fragment／userinfo 都要警告（都是被 origin 丟掉的成分）", () => {

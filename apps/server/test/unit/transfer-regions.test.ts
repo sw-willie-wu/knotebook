@@ -135,7 +135,7 @@ describe("R3b 觸發條件按文字定義、只跑一輪（審查 m3 釘住現�
   });
 });
 
-describe("未閉合的 code fence（總管裁示，審查 m3）", () => {
+describe("未閉合的 code fence（審查 m3）", () => {
   it("0 行分隔清單上方加一行未閉合 ``` → 整篇 unclosed_fence（不只把貼著的那一項併進區）", async () => {
     const b = await base([P("Z"), BL("a"), BL("b"), BL("c")]);
     expect(b.lines).toEqual(["Z", "", "* a", "* b", "* c"]);

@@ -125,11 +125,11 @@ export class FixedWindowLimiter {
   }
 
   /**
-   * #175 PR2 T4（M-1，Willie 裁決）：一次扣 `n` 個單位——複製筆記依「會被複製的附件數」扣 upload 桶。
+   * #175 PR2 T4（M-1）：一次扣 `n` 個單位——複製筆記依「會被複製的附件數」扣 upload 桶。
    * 與 `consume` 刻意不同：**額度不足時一個都不扣**（回 false、計數不動）。`consume` 的「拒絕也計數」對單次請求是
    * 懲罰持續重試；照搬到 n 個單位的話，一次被拒的大複製就會把整個視窗剩下的上傳額度吃光，連一般上傳都被擋。
    * `n <= 0` 恆放行且不開新視窗（零個附件的複製不碰這個桶）。
-   * `n > limit`（T4 review r2 I-1，總管裁定 (a)）：夾到整窗額度——只要求一個**空窗**（count 0），放行後吃滿整窗。
+   * `n > limit`（T4 review r2 I-1）：夾到整窗額度——只要求一個**空窗**（count 0），放行後吃滿整窗。
    * 否則 `count + n > limit` 對任何視窗都成立，附件張數超過整窗額度的筆記會永遠複製不了，卻回「請稍後再試」。
    * 夾住後這種大複製每個視窗最多一發（同窗內一般上傳也被擋到窗尾）；它仍受 edit 桶節流。
    * 「要先花約 n／limit 個視窗才傳得上去」只在附件由複製者自己上傳時成立；能看到筆記的成員（含只讀）可複製別人累積的
@@ -277,7 +277,7 @@ export const CONTENT_READ_LIMIT = { limit: 120, windowMs: 60_000 } as const;
 /**
  * #93 §8.6：全文搜尋（MCP `search_notes`；PR2 的 `GET /api/search` 也吃這一顆），key=userId。
  * 不與 `CONTENT_READ_LIMIT` 共用：搜尋的成本隨「呼叫者看得見的內文總量」成長，與「讀一篇」不同；共用會讓 AI 分頁讀取
- * 與側欄打字互相餓死（spec §8.6，Q1 總管裁示）。
+ * 與側欄打字互相餓死（spec §8.6）。
  */
 export const SEARCH_LIMIT = { limit: 60, windowMs: 60_000 } as const;
 

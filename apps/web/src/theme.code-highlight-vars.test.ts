@@ -266,7 +266,7 @@ describe("codeBlock 底色覆寫", () => {
 
     // **一條規則兩個選擇器**，不是兩邊各抄一份。前一版是「各寫一份、測試逐項對值」，結果把
     // `rounded-sm` 抄成 `0.125rem`——那是 Tailwind **v3** 的值，v4 的 `rounded-sm` 是
-    // `0.25rem`，圓角就差一半（Willie 實測看出來的）。人工換算沒了，這一族的漂移才真的沒了。
+    // `0.25rem`，圓角就差一半（實測看出來的）。人工換算沒了，這一族的漂移才真的沒了。
     const shared = allRules().find((r) => /\.block-control\b/.test(r.selector));
     expect(shared, "index.css 缺 `.block-control` 共用規則").toBeDefined();
     expect(

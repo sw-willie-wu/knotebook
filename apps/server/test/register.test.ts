@@ -70,7 +70,7 @@ describe("POST /api/auth/register（#187 §9.1、B9）", () => {
     expect(await db.select().from(users).where(eq(users.email, "bob@x.example"))).toEqual([]);
   });
 
-  it("疑點 4 上限（總管裁定）：email 255 字元 → 400（英文訊息）、254 → 201；顯示名 101 個 code point → 400、100 個 → 201", async () => {
+  it("疑點 4 上限：email 255 字元 → 400（英文訊息）、254 → 201；顯示名 101 個 code point → 400、100 個 → 201", async () => {
     const { app, db } = await buildTestApp();
     const emailOf = (n: number) => `${"a".repeat(n - "@example.com".length)}@example.com`;
     const long = await register(app, { email: emailOf(255), password: PW });

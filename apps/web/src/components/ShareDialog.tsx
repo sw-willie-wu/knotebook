@@ -53,7 +53,7 @@ const SELECT_CLASS =
   "focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
 
 /**
- * 分享面板的一組設定＝**一件事**。內部自訂網址下架後（Willie 2026-09-17）面板只剩
+ * 分享面板的一組設定＝**一件事**。內部自訂網址下架之後，面板只剩
  * 「存取權」一組，這裡只負責標題與上下留白（原本多組時靠外層 `divide-y` 長出髮絲線，
  * 現在單組已不需要）。
  *
@@ -431,7 +431,7 @@ function AccessSection({ note }: { note: NoteDto }) {
           「這些設定屬於我剛剛選的那個」才看得出來，同時畫面上的輸入框也少一半。
           ⚠ 副作用：私人狀態下不再直接出現邀請表單（要先選「限定成員」）——
           `e2e/tests/03-share-revoke.spec.ts` 因此多一步點選，那條刻意的捷徑
-          由 Willie 2026-09-17 裁定換掉。 */}
+          已換掉。 */}
       {latched && selection === "members" && (
         <div className="rounded-md bg-muted/40 p-3">
           <SharesSection noteId={note.id} title={t("share.membersPanelTitle")} />
@@ -580,7 +580,7 @@ function generateValidatedRandomSlug(): string | null {
 }
 
 /**
- * 公開連結面板（Willie 2026-09-17 產品決定，取代舊「token 唯讀連結」＋「公開別名
+ * 公開連結面板（取代舊「token 唯讀連結」＋「公開別名
  * 欄位」兩個並列區塊）：**一個匿名 toggle ＋ 一條連結 ＋ 最多三顆鈕**（`allowAlias`
  * 為 false——群組筆記，W7——時沒有 toggle，只有連結＋兩顆鈕）。只在有 token 時渲染
  * （個人呼叫端鎖在 `selection === "public" && token` 內；群組呼叫端鎖在 `token` 內）。
@@ -978,7 +978,7 @@ export function ShareDialog({ note }: ShareDialogProps) {
           <DialogDescription>{isGroupNote ? t("share.groupNote.description") : t("share.description")}</DialogDescription>
         </DialogHeader>
         {/* 內部自訂網址（原「連結」區塊：CopyLinkButton／SlugField）已下架
-            （Willie 2026-09-17 產品決定）——要連到某篇筆記用 `[[標題]]` wikilink（#269 起貼站內網址也會自動變成 wikilink）；要連到某一段，用拖曳把手選單的「複製段落連結」或標題旁的「#」，
+            ——要連到某篇筆記用 `[[標題]]` wikilink（#269 起貼站內網址也會自動變成 wikilink）；要連到某一段，用拖曳把手選單的「複製段落連結」或標題旁的「#」，
             協作者本來就會在自己的側欄（與我共享或群組 tab）看到那篇筆記，不需要傳連結。
             #175：個人與群組筆記各自一個面板；個人筆記只有存取權區塊；「移動／複製到群組」自 #216 起
             改放 ⋮ 選單（`NoteMenu` + `share/GroupTransfer.tsx`）。面板開著時個人↔群組可能互換（PR4 轉移等）；

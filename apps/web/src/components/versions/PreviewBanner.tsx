@@ -25,7 +25,7 @@ const MODE_BUTTON = `h-7 w-7 shrink-0 ${TINT_HOVER_CLASS}`;
  * 預覽實際是並排時（controller 的 `splitActive`，由 `VersionPreview` 回報）停用。用 `aria-disabled` 而不是 `disabled`：
  * `disabled:pointer-events-none` 會讓 `title` 浮不出來，說明就看不到了；點擊在 handler 裡擋掉。
  * `iconOnly`（橫幅傳 true，Task 19）：圖示鈕，名稱放 `aria-label`＋`title`（平時是名稱、停用時換成說明）。
- * 窄視窗整頁不傳：保留文字鈕——觸控沒有 hover，看不到 `title`（Task 19 review M-3，總管裁定）。
+ * 窄視窗整頁不傳：保留文字鈕——觸控沒有 hover，看不到 `title`（Task 19 review M-3）。
  */
 export function OnlyChangesToggle({ iconOnly = false }: { iconOnly?: boolean }) {
   const { t } = useTranslation();

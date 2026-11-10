@@ -21,7 +21,7 @@ import { visibleShortcuts, type KeyToken, type ShortcutCategory, type ShortcutEn
  * 組合鍵之間的「+」與多種按法之間的「／」也 `aria-hidden`，旁邊的 sr-only 依條目的 `sep` 讀「或」（同一件事的不同按法）
  * 或「、」（各是不同動作）。
  *
- * 版面（Willie 2026-11-02 改版，推翻 spec §4.1「單卡」）：跟設定同一套兩塊 panel——左卡列分類、右卡**只顯示所選分類**；窄螢幕（< md）
+ * 版面（推翻 spec §4.1「單卡」）：跟設定同一套兩塊 panel——左卡列分類、右卡**只顯示所選分類**；窄螢幕（< md）
  * 一次只顯示一塊（左＝分類層、右＝內容層，右卡的返回鈕回左）。不走 route（K2），所以左欄是 state 驅動的按鈕（`aria-current`），
  * 不是 `ManagementShell` 的 NavLink；托盤、卡面、項次 class 與設定共用（`management/tray.ts`、`ui/card.ts`）。
  *
