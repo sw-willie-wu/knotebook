@@ -35,14 +35,14 @@ describe("公開分享的純函式（#72）", () => {
     expect(redactPublicTokens("/api/notes/abc")).toBe("/api/notes/abc");
     expect(redactPublicTokens("/pnot-a-prefix")).toBe("/pnot-a-prefix");
     expect(redactPublicTokens("/")).toBe("/");
-    // 洩漏變體（審查真 socket 實測）：重複開頭斜線與大小寫變體，SPA fallback 照樣
+    // 洩漏變體（真 socket 實測）：重複開頭斜線與大小寫變體，SPA fallback 照樣
     // 200，遮罩必須吃得下。
     expect(redactPublicTokens(`//p/${t}`)).toBe("/p/:token");
     expect(redactPublicTokens(`/P/${t}`)).toBe("/p/:token");
     expect(redactPublicTokens(`//api/public/notes/${t}`)).toBe("/api/public/notes/:token");
   });
 
-  it("redactPublicTokens 兩段形（#122 PR3 別名）：第一段被過寬遮罩涵蓋，結果形釘住", () => {
+  it("redactPublicTokens 兩段形（#122 別名）：第一段被過寬遮罩涵蓋，結果形釘住", () => {
     // 別名形第一段是 handle 非 token——過寬遮罩「方向安全」（多遮無害），但結果形
     // 要釘：未來若有人把遮罩改成「只遮 43 字元段」，token 形不受影響、這裡先紅，
     // 提醒他別名形的第一段會開始以原文進 log（handle 非機密，但遮罩收窄是個需要

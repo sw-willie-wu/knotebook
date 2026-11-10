@@ -1,5 +1,5 @@
 /**
- * 資料夾名稱（spec docs/superpowers/specs/2026-10-22-folders-design.md §5.3）。純函式。
+ * 資料夾名稱。純函式。
  * 長度一律以 code point 計（與 DB `length()` 同單位，比照 `validateGroupName`）。
  */
 import { FOLDER_NAME_MAX } from "@knotebook/shared";
@@ -21,7 +21,7 @@ function truncateCodePoints(s: string, max: number): string {
   return cps.length <= max ? s : cps.slice(0, max).join("").trimEnd();
 }
 
-/** 使用者輸入（§5.3）：hasUnstorableChar → trim → 拒收上列控制字元 → NFC → 1–80 code point。 */
+/** 使用者輸入：hasUnstorableChar → trim → 拒收上列控制字元 → NFC → 1–80 code point。 */
 export function normalizeFolderName(raw: string): FolderNameResult {
   if (hasUnstorableChar(raw)) return { ok: false, reason: "unstorable" };
   const trimmed = raw.trim();
@@ -32,7 +32,7 @@ export function normalizeFolderName(raw: string): FolderNameResult {
   return { ok: true, name };
 }
 
-/** 系統代建（§5.3 r3 m-5）：去落單代理與上列控制字元 → NFC → trim → 空字串用 fallback → 截到 80 code point。永不失敗。 */
+/** 系統代建：去落單代理與上列控制字元 → NFC → trim → 空字串用 fallback → 截到 80 code point。永不失敗。 */
 export function normalizeFolderNameLoose(raw: string, fallback: string): string {
   const cleaned = raw.replace(LONE_SURROGATE_RE_G, "").replace(CONTROL_CHAR_RE_G, "").normalize("NFC").trim();
   return truncateCodePoints(cleaned === "" ? fallback : cleaned, FOLDER_NAME_MAX);
@@ -45,7 +45,7 @@ export function folderNameWithSuffix(base: string, n: number): string {
   return `${truncateCodePoints(base, FOLDER_NAME_MAX - Array.from(suffix).length)}${suffix}`;
 }
 
-/** 刪群組轉移的固定名（§5.9-4、r3 n-5）：`Accept-Language` 第一個語言標籤以 zh 開頭 →「群組」，其他（含沒帶）→「Group」。 */
+/** 刪群組轉移的固定名：`Accept-Language` 第一個語言標籤以 zh 開頭 →「群組」，其他（含沒帶）→「Group」。 */
 export function fallbackGroupFolderName(acceptLanguage: string | undefined): string {
   const first = (acceptLanguage ?? "").split(",")[0]!.trim().toLowerCase();
   return first.startsWith("zh") ? "群組" : "Group";

@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 
 /**
- * #200 spec §4.1：transfer token 的明文格式。
+ * #200：transfer token 的明文格式。
  *
  * transfer token 是 MCP 工具 `create_transfer_token` 簽給**模型**的短命、單篇、單用途憑證，模型用 `curl` 帶它打
  * `POST /api/notes/:id/uploads`／`GET /api/uploads/:id`（`auth/transfer-auth.ts`）。落庫只存 `hashToken()`。
@@ -13,7 +13,7 @@ import { randomBytes } from "node:crypto";
 export const TRANSFER_TOKEN_PREFIX = "knbt_";
 
 /**
- * spec §4.3a：每支母憑證同時在外的**未消費、未過期** upload token 上限。只算 upload（download 不寫磁碟，受
+ * 每支母憑證同時在外的**未消費、未過期** upload token 上限。只算 upload（download 不寫磁碟，受
  * `contentRead` 約束）。消費前被拒（403／429，及配額落地後第 4a 步的 409 空間已滿）的
  * token 仍佔名額直到過期。與 `tokenWrite`（速率）是兩件事。
  */
@@ -22,21 +22,21 @@ export const MAX_PENDING_UPLOAD_TOKENS = 5;
 export type TransferPurpose = "upload" | "download";
 
 /**
- * bulk transfer spec 2026-11-02 §5.2-4：每支母憑證同時在外的**未過期** bulk 權杖上限（upload／download 不佔）。
+ * bulk transfer：每支母憑證同時在外的**未過期** bulk 權杖上限（upload／download 不佔）。
  * `TOO_MANY_BULK_TOKENS_MESSAGE` 的「3」是寫死的字面值，對齊由 `bulk-transfer-strings.test.ts` S3 守。
  */
 export const MAX_ACTIVE_BULK_TOKENS = 3;
 
-/** bulk transfer spec §5.1、§21 D3：bulk 權杖的壽命上限（另不超過母憑證到期）。 */
+/** bulk transfer：bulk 權杖的壽命上限（另不超過母憑證到期）。 */
 export const BULK_TRANSFER_TTL_MINUTES = 30;
 
 /**
- * bulk transfer spec 2026-11-02 §5.1：`purpose='bulk'` 列的 `access`——簽發當下母憑證有 `notes:write` → `write`。
+ * bulk transfer：`purpose='bulk'` 列的 `access`——簽發當下母憑證有 `notes:write` → `write`。
  */
 export type BulkAccess = "read" | "write";
 
 /**
- * bulk transfer spec 2026-11-02 §5.1：`purpose='bulk'` 列的 `range`（jsonb）。id 一律小寫；範圍在每次使用時重算（§5.5）。
+ * bulk transfer：`purpose='bulk'` 列的 `range`（jsonb）。id 一律小寫；範圍在每次使用時重算。
  */
 export type BulkRange =
   | { kind: "all" }
@@ -55,7 +55,7 @@ export function isTransferTokenShape(token: string): boolean {
 }
 
 /**
- * 簽發交易的兩種「預期內」DB 錯誤（spec §4.2），呼叫端在交易外依約束名映射：
+ * 簽發交易的兩種「預期內」DB 錯誤，呼叫端在交易外依約束名映射：
  * - note FK（23503）：`resolveNoteAccess` 之後、INSERT 之前筆記被刪 → `not_found`。
  * - expiry CHECK（23514）：母憑證恰在 `now()` 到期，`least(…)` 給出 ≤ `created_at` 的值 → 視同 revoked。
  * 值抄自 migration SQL（drizzle 生成的實名）；`test/migrate.test.ts` 的 cascade 案與 `transfer-token-issue.test.ts` 釘住。

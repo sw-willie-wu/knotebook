@@ -1,5 +1,5 @@
 /**
- * #175 PR3 Task 2：`POST /api/groups/:id/roles`（spec §6.7；閱讀恆真＝spec 疑點 10；旗標不蘊含＝spec 疑點 11）。
+ * #175：`POST /api/groups/:id/roles`（閱讀恆真；旗標不蘊含）。
  * 回讀一律走 `GET /api/groups/:id/roles`。
  */
 import { describe, expect, it } from "vitest";
@@ -32,7 +32,7 @@ async function setup() {
   return { app, db, spy, admin, member, g, post, roles };
 }
 
-describe("#175 PR3 POST /api/groups/:id/roles", () => {
+describe("#175 POST /api/groups/:id/roles", () => {
   it("授權矩陣：401／404×3（逐位元組相同）／403／201／站台 admin 201", async () => {
     const { app, db } = await buildTestApp({ collabHooks: spyCollabHooks() });
     await runGroupAuthMatrix(app, db, {
@@ -64,7 +64,7 @@ describe("#175 PR3 POST /api/groups/:id/roles", () => {
     expect((await roles()).map(r => r.builtin ?? r.name)).toEqual(["admin", "member", "alpha", "Beta", "Reviewers"]);
   });
 
-  it("RF5：六旗標全關 → 201，存成「只能閱讀」（read true、其餘 false）", async () => {
+  it("六旗標全關 → 201，存成「只能閱讀」（read true、其餘 false）", async () => {
     const { post, roles } = await setup();
     const res = await post({ name: "Readers", permissions: NONE });
     expect(res.statusCode).toBe(201);
@@ -102,7 +102,7 @@ describe("#175 PR3 POST /api/groups/:id/roles", () => {
     expect(list.find(r => r.id === m1.json().id)?.permissions).toMatchObject({ manageGroup: false, manageMembers: true });
   });
 
-  it("RF1 名稱：trim／大小寫／NFC 撞名與保留名 → 409 role_name_taken；'Admins' 可以建", async () => {
+  it("名稱：trim／大小寫／NFC 撞名與保留名 → 409 role_name_taken；'Admins' 可以建", async () => {
     const { post, roles } = await setup();
     const reader = await post({ name: " Reader ", permissions: NONE });
     expect(reader.statusCode).toBe(201);
@@ -169,7 +169,7 @@ describe("#175 PR3 POST /api/groups/:id/roles", () => {
     expect(res.json().error.code).toBe("forbidden");
   });
 
-  it("§5.5：身為內建一般成員的站台 admin → 201", async () => {
+  it("身為內建一般成員的站台 admin → 201", async () => {
     const { app, db } = await buildTestApp({ collabHooks: spyCollabHooks() });
     const owner = await seedUser(db);
     const siteAdmin = await seedUser(db, { isAdmin: true });
@@ -181,7 +181,7 @@ describe("#175 PR3 POST /api/groups/:id/roles", () => {
     expect(res.json()).toMatchObject({ builtin: null, name: "ByAdmin", memberCount: 0 });
   });
 
-  it("不踢線：連建數個角色後 onGroupAccessChanged 呼叫 0 次（§7：建立角色沒有人掛它）", async () => {
+  it("不踢線：連建數個角色後 onGroupAccessChanged 呼叫 0 次（建立角色沒有人掛它）", async () => {
     const { post, spy } = await setup();
     expect((await post({ name: "A", permissions: NONE })).statusCode).toBe(201);
     expect((await post({ name: "B", permissions: { ...NONE, edit: true, create: true } })).statusCode).toBe(201);

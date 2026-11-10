@@ -2,53 +2,53 @@
  * #103／#175 的群組測試注入縫（比照 `slugUpdateTestHook`／`noteCreateHooks`）：生產不注入＝零成本。
  * 每個點都標在兩步之間的窗口——「鎖已取得、寫入尚未發生」，或「授權之後、取列／寫入之前」——整合測試在那裡
  * 讓另一條請求插進來（`test/groups-v2-race.test.ts`、`groups-members.test.ts`、`groups-v2-notes-write.test.ts`、
- * `groups-v2-urls.test.ts`），把 spec gate 實跑過的交錯形變成決定性的測試。
+ * `groups-v2-urls.test.ts`），把會出問題的交錯形變成決定性的測試。
  */
 export type GroupRacePoint =
   /** `GET /api/notes/:ref`：授權之後、取列之前。 */
   | "ref-authorized"
   /** `POST /api/notes {groupId}` 與 MCP `create_note {groupId}`：成員與 `can_create` 檢查之後、建立筆記之前（#103 的 `PUT …/group` 換群組也用過這個點，那支端點 #175 已移除）。 */
   | "membership-checked"
-  /** `PUT /api/notes/:id/shares`：授權之後、交易之前（#175：S5 的「授權後被移進群組」窗）。 */
+  /** `PUT /api/notes/:id/shares`：授權之後、交易之前（#175：「授權後被移進群組」窗）。 */
   | "share-authorized"
-  /** public-link 的 token PUT、別名 PUT 與寬度 PUT（#297），及 token DELETE、別名 DELETE（#181）：授權之後、UPDATE 之前（#175 C13／C14）。 */
+  /** public-link 的 token PUT、別名 PUT 與寬度 PUT（#297），及 token DELETE、別名 DELETE（#181）：授權之後、UPDATE 之前（#175）。 */
   | "public-link-authorized"
   /** `PUT /api/notes/:id/shares`：`FOR SHARE` 讀到 `group_id IS NULL` 之後、upsert 之前。 */
   | "share-group-checked"
   /**
-   * #175 PR3 T12／T13（`groups/tx/roles.ts`）：`lockGroup` 鎖住 `groups` 列、角色已查到且通過內建檢查之後，
+   * #175（`groups/tx/roles.ts`）：`lockGroup` 鎖住 `groups` 列、角色已查到且通過內建檢查之後，
    * 寫入 `group_roles`／`group_members` 之前。
    */
   | "group-roles-checked"
   /**
    * T9／T10／T11（`groups/tx/members.ts`）：`lockGroup` 鎖住 `groups` 列、完成該支的檢查之後、寫入 `group_members` 之前。
    * 檢查各支不同：T9 只解析角色（`already_member` 由之後的 INSERT 判定）；T10 解析新角色、確認成員，從內建管理員換走時
-   * 做 S1 計數——角色不變時提早回傳、不經過此點；T11 確認成員，移的是內建管理員時做 S1 計數。
+   * 做管理員計數——角色不變時提早回傳、不經過此點；T11 確認成員，移的是內建管理員時做管理員計數。
    */
   | "group-members-checked"
-  /** #175 PR2 T3（`notes/tx/move.ts`）：(0) `FOR UPDATE` 鎖住筆記列、(1) 目標群組檢查通過之後、刪逐人分享之前。 */
+  /** #175（`notes/tx/move.ts`）：(0) `FOR UPDATE` 鎖住筆記列、(1) 目標群組檢查通過之後、刪逐人分享之前。 */
   | "note-move-locked"
-  /** #175 PR2 T3：每輪 slug 探測之後、savepoint 寫入之前（ctx.slug＝本輪候選）。 */
+  /** #175：每輪 slug 探測之後、savepoint 寫入之前（ctx.slug＝本輪候選）。 */
   | "note-move-slug-candidate"
-  /** #175 PR2 T4（`notes/tx/copy.ts`，只在目標是群組時）：(g) 目標 `groups` 列 `FOR KEY SHARE`＋成員重驗通過之後、鎖來源之前。 */
+  /** #175（`notes/tx/copy.ts`，只在目標是群組時）：(g) 目標 `groups` 列 `FOR KEY SHARE`＋成員重驗通過之後、鎖來源之前。 */
   | "note-copy-target-locked"
-  /** #175 PR2 T4（`notes/tx/copy.ts`）：(0) `FOR KEY SHARE` 鎖住來源之後（目標是群組時 (g) 也已持鎖）、讀附件與建副本之前。 */
+  /** #175（`notes/tx/copy.ts`）：(0) `FOR KEY SHARE` 鎖住來源之後（目標是群組時 (g) 也已持鎖）、讀附件與建副本之前。 */
   | "note-copy-locked"
   /**
-   * #175 PR2 T4；儲存配額起：附件檔已複製（`copyFile` 迴圈之後）、取空間鎖與建副本之前（ctx.noteId＝**來源**——副本此時還沒建）；
+   * #175；儲存配額起：附件檔已複製（`copyFile` 迴圈之後）、取空間鎖與建副本之前（ctx.noteId＝**來源**——副本此時還沒建）；
    * 測試在這裡丟錯模擬失敗。
    */
   | "note-copy-files-copied"
-  /** #175 PR2：by-path 兩形（/n/、/g/）取到列之後、授權（`authorizeRow`）之前——「取列後被移動」的窗。 */
+  /** #175：by-path 兩形（/n/、/g/）取到列之後、授權（`authorizeRow`）之前——「取列後被移動」的窗。 */
   | "path-resolved"
-  /** #175 PR4 T6（`groups/tx/delete-group.ts` `transferGroupInTx`）：每篇的每輪 slug 探測之後、savepoint 寫入之前（ctx.noteId、ctx.slug＝本輪候選）。 */
+  /** #175（`groups/tx/delete-group.ts` `transferGroupInTx`）：每篇的每輪 slug 探測之後、savepoint 寫入之前（ctx.noteId、ctx.slug＝本輪候選）。 */
   | "group-transfer-slug-candidate"
-  /** #175 PR4 `DELETE /api/groups/:id` 全刪模式（路由，**交易外**）：P0 的 gate 全部開完之後、`BEGIN` 之前——「gate 之後才進群組」（L \ P0，C12）與 C17 的窗。 */
+  /** #175 `DELETE /api/groups/:id` 全刪模式（路由，**交易外**）：gate 全部開完之後、`BEGIN` 之前——「gate 之後才進群組」與「另一位管理員的轉移先完成」的窗。 */
   | "group-delete-gated"
   /** 刪群組（`groups/tx/delete-group.ts`）：T6 轉移＝`lockGroup`＋transferTo 檢查通過之後、取成員與筆記之前；T7 全刪＝`lockGroup` 之後、取 L 之前。 */
   | "group-delete-locked"
   /**
-   * 儲存配額（spec §5.3 第 4a 步）：`assertSpaceRoomInTx` 取得空間 advisory 鎖、`lock_timeout` 已復原之後，讀配額與 SUM 之前。
+   * 儲存配額（第 4a 步）：`assertSpaceRoomInTx` 取得空間 advisory 鎖、`lock_timeout` 已復原之後，讀配額與 SUM 之前。
    * 四支白名單交易（上傳 U-tx、T3 移動、T4 複製、T6 轉移）都經過它；ctx 由呼叫端帶（上傳 `{noteId}`、移動 `{noteId, groupId}`、
    * 複製 `{noteId: 來源, groupId?: 目標群組}`、轉移 `{groupId: 被刪的群組}`）。
    */

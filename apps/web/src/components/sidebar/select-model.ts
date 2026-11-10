@@ -8,7 +8,7 @@ import { isInSubtree, liveNotesUnder, type FolderIndex } from "./folder-index";
 import { noteBucket, noteSpaceKey, type SidebarNode } from "./tree";
 
 /**
- * 一般 tab 選取模式的純函式（#181 PR-2c，spec §6.11、§9-4、§9-7；資料夾 spec §6.10 的「可見列」）。
+ * 一般 tab 選取模式的純函式（#181）。
  * 只准被 SelectLazy 鏈與測試 import（首包上限）。
  */
 
@@ -18,8 +18,8 @@ export type SelectableTab = "recent" | "myNotes" | "workspace" | "shared";
 export type SelectActionId = "move" | "copy" | "delete";
 
 /**
- * spec §6.11 的表（D-M3、D-W6）＋資料夾 spec §6.10：群組 tab、與我共享加 "move"（資料夾目的地）；最近不給（F10）。
- * 與我共享的 "delete" 只在選取（去重後）非空且全是資料夾時渲染（移除資料夾；共享筆記本身不能刪，D-M3）。
+ * 各 tab 可用的批次動作：群組 tab、與我共享加 "move"（資料夾目的地）；最近不給。
+ * 與我共享的 "delete" 只在選取（去重後）非空且全是資料夾時渲染（移除資料夾；共享筆記本身不能刪）。
  */
 export const SELECT_ACTIONS: Readonly<Record<SelectableTab, readonly SelectActionId[]>> = {
   recent: ["copy", "delete"],
@@ -28,7 +28,7 @@ export const SELECT_ACTIONS: Readonly<Record<SelectableTab, readonly SelectActio
   shared: ["move", "copy", "delete"],
 };
 
-// ── PR-3b-2：資料夾與筆記同列選取（資料夾 spec §6.10） ──
+// ── 資料夾與筆記同列選取 ──
 
 /** 選取的一項：筆記或資料夾（群組列不可勾）。 */
 export type SelectionTarget = { kind: "note"; note: NoteDto } | { kind: "folder"; folder: FolderDto };
@@ -64,7 +64,7 @@ export function selectedTargets(nodes: readonly SidebarNode[], keys: ReadonlySet
 }
 
 /**
- * 送出前去重（spec §6.10）：祖先資料夾也被選的項目拿掉（它會跟著祖先一起動），不算略過。
+ * 送出前去重：祖先資料夾也被選的項目拿掉（它會跟著祖先一起動），不算略過。
  * 筆記看 `folderId` 落在哪個已選資料夾的子樹；資料夾看自己的祖先鏈（不含自己）。
  */
 export function dedupeByAncestor(targets: readonly SelectionTarget[], index: FolderIndex): SelectionTarget[] {
@@ -83,7 +83,7 @@ export interface Eligibility {
   foldersBlocked: number;
 }
 
-/** move 的筆記判準依 tab（spec §6.10）：我的筆記＝自己的個人筆記；群組 tab＝`edit`（§5.6 放置權）；與我共享＝全部；最近（沒有「移動到」）照 PR-2c。 */
+/** move 的筆記判準依 tab：我的筆記＝自己的個人筆記；群組 tab＝`edit`（放置權）；與我共享＝全部；最近沒有「移動到」。 */
 function canMoveNote(tab: SelectableTab, note: NoteDto): boolean {
   if (tab === "workspace") return note.permissions.edit;
   if (tab === "shared") return true;
@@ -91,11 +91,11 @@ function canMoveNote(tab: SelectableTab, note: NoteDto): boolean {
 }
 
 /**
- * 預先排除（spec §6.10）：
+ * 預先排除：
  * move：myNotes 筆記＝`moveToGroup && groupId === null`；workspace 筆記＝`permissions.edit`；shared 筆記恆可；資料夾＝`permissions.manage`。
- * copy：只看筆記（有資料夾時呼叫端整顆 disabled，D14）；資料夾不進 eligible、也不計略過。
+ * copy：只看筆記（有資料夾時呼叫端整顆 disabled）；資料夾不進 eligible、也不計略過。
  * delete：筆記＝`permissions.delete`；資料夾要 `manage`（否則 foldersSkipped），子樹有活筆記（liveNotesUnder）且 `!deleteNotes` → foldersBlocked；
- * shared tab 的筆記一律 notesSkipped（D-M3）。eligible 維持輸入順序。
+ * shared tab 的筆記一律 notesSkipped。eligible 維持輸入順序。
  */
 export function partitionTargets(
   action: SelectActionId,
@@ -144,7 +144,7 @@ function targetGroupId(target: SelectionTarget, groupIds: ReadonlySet<string>): 
 }
 
 /**
- * spec §6.10「批次的目的地」＋D18 ①②：回 DestSource；workspace 的 move 跨兩個以上群組回 "mixedGroups"。不判空（I2）：呼叫端用 T2 的 isEmptyDestination。
+ * 批次的目的地：回 DestSource；workspace 的 move 跨兩個以上群組回 "mixedGroups"。不判空：呼叫端用 isEmptyDestination。
  * current：myNotes→個人；shared→共享私人（copy 沒有上半部）；workspace→eligible 全在同一群組 G 時 G（G 要在 groups 裡；copy 另要 G 是 `canCreateAndEdit`）；recent→無。
  * makeCopy：只 copy、且有上半部時。others：move 只有 myNotes 列候選群組；copy＝myNotes→候選群組、workspace 單一群組→個人＋其他候選群組、其餘→個人＋候選群組。
  * locations＝eligible 各自位置（筆記 `folderId`、資料夾 `parentId`）；movingFolders＝eligible 中的資料夾（只 move）。
@@ -174,7 +174,7 @@ export function batchDestSource(input: {
     const [groupId] = [...ids];
     if (groupId === undefined) return mode === "move" ? { ...noUpper, others: [] } : { ...noUpper, others: [PERSONAL_SPACE, ...candidates] };
     const group = groups.find((candidate) => candidate.id === groupId);
-    // G 不在 groups（清單未到或剛被移出）→ 沒有上半部：不出空群組名（同 requireName 的立場，T5 審查 m2）。
+    // G 不在 groups（清單未到或剛被移出）→ 沒有上半部：不出空群組名（同 requireName 的立場）。
     if (group === undefined) return mode === "move" ? { ...noUpper, others: [] } : { ...noUpper, others: [PERSONAL_SPACE, ...candidates] };
     const space: DestSpace = { kind: "group", groupId, name: group.name };
     if (mode === "move") return { ...base, current: space, makeCopy: false, others: [] };
@@ -201,7 +201,7 @@ export interface ResultTally {
   /** 同空間＝destinationShortLabel；跨空間／複製＝destinationPathLabel。 */
   destinationName: string | null;
   sameSpace: boolean;
-  /** I-B：move／copy 的目的地（delete 為 null）；copySource＝批次的 current 空間（建立副本的結果句用）。 */
+  /** move／copy 的目的地（delete 為 null）；copySource＝批次的 current 空間（建立副本的結果句用）。 */
   destination: DestTarget | null;
   copySource: DestSpace | null;
 }
@@ -233,7 +233,7 @@ function copyTitle(tally: ResultTally, destination: DestTarget, done: number, t:
 }
 
 /**
- * 結果 toast 標題（spec §6.10、§6.16）。全部完成數 0 → `noneDone`（notesSkipped > 0）或 `noneDoneItems`，再接資料夾後綴。
+ * 結果 toast 標題。全部完成數 0 → `noneDone`（notesSkipped > 0）或 `noneDoneItems`，再接資料夾後綴。
  * 否則動作句＋依序 `skippedSuffix`、`foldersSkippedSuffix`、`foldersBlockedSuffix`、`foldersGoneSuffix`（各自 > 0 才接）。
  * move／copy 沒有 destination、或 makeCopy 沒有 copySource → throw（契約錯誤，不出空名稱）。
  */

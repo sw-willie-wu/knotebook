@@ -60,7 +60,7 @@ async function fillAndSubmit(values: { email: string; displayName?: string; pass
   fireEvent.click(screen.getByRole("button", { name: "Create account" }));
 }
 
-describe("RegisterPage（#187 §9.4、S2）", () => {
+describe("RegisterPage（#187）", () => {
   beforeEach(async () => { await i18n.changeLanguage("en"); });
   afterEach(() => vi.unstubAllGlobals());
 
@@ -108,7 +108,7 @@ describe("RegisterPage（#187 §9.4、S2）", () => {
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/n/alice/x"));
   });
 
-  it("疑點 4 上限：email 超過 254 字元、顯示名超過 100 個 code point → 就地錯誤、不送出；恰 100 個 code point → 送出", async () => {
+  it("上限：email 超過 254 字元、顯示名超過 100 個 code point → 就地錯誤、不送出；恰 100 個 code point → 送出", async () => {
     const { calls } = setup("/register", OPEN);
     await fillAndSubmit({ email: `${"a".repeat(243)}@example.com`, password: "correct-horse-battery", confirm: "correct-horse-battery" });
     expect(await screen.findByRole("alert")).toHaveTextContent("Email can be at most 254 characters.");
@@ -117,7 +117,7 @@ describe("RegisterPage（#187 §9.4、S2）", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create account" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Display name can be at most 100 characters.");
     expect(calls.some(c => c.url === "/api/auth/register")).toBe(false);
-    // 恰 100 個 code point（200 個 UTF-16 單位）要送得出去——以 UTF-16 計會把 51–100 個 emoji 誤擋（gate r2 N1）。
+    // 恰 100 個 code point（200 個 UTF-16 單位）要送得出去——以 UTF-16 計會把 51–100 個 emoji 誤擋。
     fireEvent.change(screen.getByLabelText("Display name (optional)"), { target: { value: "😀".repeat(100) } });
     fireEvent.click(screen.getByRole("button", { name: "Create account" }));
     await waitFor(() => expect(calls.some(c => c.url === "/api/auth/register")).toBe(true));
@@ -208,7 +208,7 @@ describe("RegisterPage（#187 §9.4、S2）", () => {
     expect(screen.queryByTestId("location")).not.toBeInTheDocument();
   });
 
-  it("RG2：帳密登入有效值關、服務會建帳 → 導回 /login；沒有帳密表單、沒有 SSO 註冊鈕（B21）", async () => {
+  it("RG2：帳密登入有效值關、服務會建帳 → 導回 /login；沒有帳密表單、沒有 SSO 註冊鈕", async () => {
     setup("/register", { ...OPEN, passwordLogin: { enabled: false } });
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/login"));
     expect(screen.queryByLabelText("Email")).not.toBeInTheDocument();
@@ -231,11 +231,11 @@ describe("RegisterPage（#187 §9.4、S2）", () => {
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/n\/alice\/x$/));
   });
 
-  it("已登入者打開 /register → 導 /（r2-N7）", async () => {
+  it("已登入者打開 /register → 導 /", async () => {
     setup("/register", OPEN, { me: USER });
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/$/));
   });
-  describe("註冊入口（PR-C §3.8、C-15）", () => {
+  describe("註冊入口", () => {
     const A = "11111111-1111-4111-8111-111111111111";
     const B = "22222222-2222-4222-8222-222222222222";
     const TWO_P: AuthConfigDto["providers"] = [
@@ -286,7 +286,7 @@ describe("RegisterPage（#187 §9.4、S2）", () => {
       expect(await screen.findByLabelText("Email")).toBeInTheDocument();
       expect(screen.queryByRole("link", { name: /^Sign up with/ })).not.toBeInTheDocument();
     });
-    it("RG7（N6）：沒有 providerIds 鍵 → 視同 []：有表單、沒有 Sign up with、不拋錯", async () => {
+    it("RG7：沒有 providerIds 鍵 → 視同 []：有表單、沒有 Sign up with、不拋錯", async () => {
       const noKey = { providers: TWO_P, registration: { enabled: true }, passwordLogin: { enabled: true }, autoVersionsEnabled: true } as unknown as AuthConfigDto;
       const { queryClient } = setup("/register", noKey);
       await waitFor(() => expect(queryClient.getQueryData(AUTH_CONFIG_QUERY_KEY)).toEqual(noKey));
@@ -296,7 +296,7 @@ describe("RegisterPage（#187 §9.4、S2）", () => {
   });
 });
 
-describe("邀請模式（#285 B-18）", () => {
+describe("邀請模式（#285）", () => {
   const KEY = "knotebook:invite-token";
   const TOKEN = "knbi_X";
   const EXPIRES_AT = "2026-10-30T08:00:00.000Z";
@@ -510,7 +510,7 @@ describe("邀請模式（#285 B-18）", () => {
     expect(screen.queryByText("Couldn't load your session.")).not.toBeInTheDocument();
   });
 
-  it("n-3 非表單畫面（載入錯誤、已登入、失效、帳密關閉）都有 h1「Create an account」", async () => {
+  it("非表單畫面（載入錯誤、已登入、失效、帳密關閉）都有 h1「Create an account」", async () => {
     const heading = () => screen.getByRole("heading", { level: 1, name: "Create an account" });
     const first = setupInvite(`/register#invite=${TOKEN}`, { me: () => fail(500, "internal") });
     await screen.findByRole("button", { name: "Try again" });
@@ -653,8 +653,8 @@ describe("邀請模式（#285 B-18）", () => {
     const SIGNED_IN = "You're signed in as new@example.com. Sign out to use this invitation.";
     expect(screen.getByText(SIGNED_IN)).toBeInTheDocument();
     expect(fullPath()).not.toBe("/");
-    // 本案（fragment 來源）守 M7（已登入先 Navigate）：router 的更新在 transition 裡，晚一步的導向要等它落地才看得到。
-    // M6（token 晚到）在這裡殺不到（清 fragment 的 navigate 會把路徑蓋回來），由下一案（storage 來源）守。
+    // 本案（fragment 來源）守「已登入先 Navigate」：router 的更新在 transition 裡，晚一步的導向要等它落地才看得到。
+    // 「token 晚到」在這裡殺不到（清 fragment 的 navigate 會把路徑蓋回來），由下一案（storage 來源）守。
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 100));
     });
@@ -663,8 +663,8 @@ describe("邀請模式（#285 B-18）", () => {
   });
 
   it("V11 同步取得（storage 來源）：沒有 fragment、鍵已存在、session 快取已是已登入 → 不會被導去 /", async () => {
-    // 守 M6（token 晚到、第一次 render 為 null 而先 Navigate("/")）：fragment 來源的案子會被「清 fragment 的 navigate」
-    // 蓋掉晚一步的誤導向，這條沒有 fragment，沒有東西蓋。（M7 由上一案守。）
+    // 守「token 晚到、第一次 render 為 null 而先 Navigate("/")」：fragment 來源的案子會被「清 fragment 的 navigate」
+    // 蓋掉晚一步的誤導向，這條沒有 fragment，沒有東西蓋。（「已登入先 Navigate」由上一案守。）
     sessionStorage.setItem(KEY, TOKEN);
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     queryClient.setQueryData(SESSION_QUERY_KEY, USER);

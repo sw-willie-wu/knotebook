@@ -2,14 +2,14 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { ADMIN, createUserViaInvite, loginAs, randomEmail } from "./helpers.js";
 
 /**
- * #93 PR2：側欄搜尋的合併結果列表（真瀏覽器；標題命中與內文命中一個列表，**每處內文命中各一項**、三行：標題／資料夾路徑／片段）。
- * 點該項 → 開筆記、捲到該段落範圍內**第一個含查詢字的 block**、捲到畫面**中間**並高亮（閃的是那個 block，不是段落標題；2026-11-03 Willie 回饋）。E1 寬螢幕從首頁 Ctrl+K 搜、點片段；
+ * #93：側欄搜尋的合併結果列表（真瀏覽器；標題命中與內文命中一個列表，**每處內文命中各一項**、三行：標題／資料夾路徑／片段）。
+ * 點該項 → 開筆記、捲到該段落範圍內**第一個含查詢字的 block**、捲到畫面**中間**並高亮（閃的是那個 block，不是段落標題）。E1 寬螢幕從首頁 Ctrl+K 搜、點片段；
  * E1b 巢狀標題（片段的段落標題是 `#` Top，但閃的是 `##` Sub 底下含字的那一行）；E2 同篇只捲動、不重載、上一頁回得去；E3／E4 窄螢幕抽屜
  * （別篇／同篇）點片段都關抽屜；E5 版面（共用捲動容器）與「載入更多」；E6 別篇、命中在長段落深處；E9 一篇多處命中列多項、點第 2 項跳到第 2 處
  * 並落在視窗中段；E10 block 比視窗高時對準它自己那一行；E11 常駐標記（恆亮、Esc 與清空搜尋字取消）。
  *
  * - e2e package 不 import `@knotebook/shared`，網址自組（同 27-site-links 檔頭）。
- * - 每個 test 用自己的新使用者：search 桶每人每分 60 次，與 UI 共用（plan gate M12）；ADMIN 只發邀請。
+ * - 每個 test 用自己的新使用者：search 桶每人每分 60 次，與 UI 共用；ADMIN 只發邀請。
  * - 筆記一律以 `POST /api/notes` 帶 markdown 建（帶內容才扣 edit 桶 30／分）；索引有延遲，先輪詢 `GET /api/search` 等到命中再打字。
  * - 整頁載入筆記頁後先等「Note title」標題框再碰側欄（lazy NotePage 的 fallback 自帶一份 AppShell，會換殼）；點擊導覽後 `waitForURL`
  *   之後再等新頁專屬的狀態（標題框的值、高亮浮層），不只等網址。
@@ -140,7 +140,7 @@ test("E1＋E2：寬螢幕從首頁 Ctrl+K 搜 → 點片段捲到 Gamma 並高�
   await expect(block(page, hitId)).toBeInViewport();
   await expectBlockCentered(page, hitId);
 
-  // E2：同篇——先回到沒有 hash 的網址（頁首），再從側欄點同一個片段
+  // 同篇——先回到沒有 hash 的網址（頁首），再從側欄點同一個片段
   await page.goto(pathOf(a));
   await expect(titleBox(page)).toHaveValue(a.title, { timeout: 15_000 });
   await expect(block(page, hitId)).not.toBeInViewport();
@@ -225,7 +225,7 @@ test("E3＋E4 窄螢幕抽屜：別篇與同篇的片段點了都關抽屜、捲
   await expect(block(page, hitId)).toBeInViewport({ timeout: 15_000 });
   await expectAnchorFlash(page, hitId);
 
-  // E4：在 A 頁面（頁首），點 A 自己的片段——pathname 不變，抽屜照樣關
+  // 在 A 頁面（頁首），點 A 自己的片段——pathname 不變，抽屜照樣關
   await page.goto(pathOf(a));
   await expect(titleBox(page)).toHaveValue(a.title, { timeout: 15_000 });
   await expect(block(page, hitId)).not.toBeInViewport();
@@ -541,10 +541,10 @@ test("E11 常駐標記：閃兩下後恆亮（3 s 後還在）→ Esc 消失；�
   await expectAnchorFlash(page, hitId);
   expect(await mark.evaluate((el) => getComputedStyle(el).backgroundColor)).not.toMatch(/rgba\(0, 0, 0, 0\)|transparent/);
 
-  // 首頁進來的第一次跳轉換了殼（首頁 AppShell → 筆記頁 AppShell），搜尋字不重設（#369 I3：query 住在 App 層）
+  // 首頁進來的第一次跳轉換了殼（首頁 AppShell → 筆記頁 AppShell），搜尋字不重設（#369：query 住在 App 層）
   await expect(sidebar.getByRole("textbox", { name: "Search notes" })).toHaveValue(kk);
 
-  // 焦點在編輯器裡按 Esc（真的 BlockNote：OverrideEscape 先 blur、再 preventDefault）：一下就消失，不用按兩次（#369 I2）
+  // 焦點在編輯器裡按 Esc（真的 BlockNote：OverrideEscape 先 blur、再 preventDefault）：一下就消失，不用按兩次（#369）
   await page.locator(".bn-editor").first().click();
   await page.keyboard.press("Escape");
   await expect(mark).toHaveCount(0);

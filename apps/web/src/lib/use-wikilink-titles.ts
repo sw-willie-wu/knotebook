@@ -26,7 +26,7 @@ export function wikilinkIdsIn(blocks: readonly DiffBlock[] | null | undefined, o
 const noop = () => () => {};
 
 /**
- * #269 §13.2：diff 預覽的 `titleOf`。被動訂閱 `["notes"]` 快取（不發請求；沒有 QueryClientProvider 時為空），只投影 a∪b 的 id，
+ * #269：diff 預覽的 `titleOf`。被動訂閱 `["notes"]` 快取（不發請求；沒有 QueryClientProvider 時為空），只投影 a∪b 的 id，
  * 以排序後的 `[id, title]` 序列化字串當值相等的鍵——清單重抓但相關標題沒變時回同一個函式，`renderDiff` 的 useMemo 不重算、
  * `DiffEditor` 不重建（VersionPreview 的「不跳頂」要求）；冷快取到貨時鍵變一次、預覽重繪一次。
  * id 比對用 `sameNoteId`（舊文件的 `targetNoteId` 可能存大寫）；回傳函式以文件裡的原字串查。

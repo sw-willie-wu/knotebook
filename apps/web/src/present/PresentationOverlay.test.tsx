@@ -138,7 +138,7 @@ describe("PresentationOverlay（fake reveal）", () => {
     document.documentElement.classList.remove("dark");
   });
 
-  it("初始化：自建 .reveal > .slides、設定照 A3、沒有任何 id／data-id（A11）", async () => {
+  it("初始化：自建 .reveal > .slides、設定照 `reveal-config`、沒有任何 id／data-id", async () => {
     setup();
     const deck = await ready();
     expect(deck.el.className).toContain("reveal");
@@ -289,13 +289,13 @@ describe("PresentationOverlay（fake reveal）", () => {
     expect(FakeReveal.instances).toHaveLength(1);
   });
 
-  it("RF2：深連結到縱向投影片 → slide(h, v) 的 v 為 1", async () => {
+  it("深連結到縱向投影片 → slide(h, v) 的 v 為 1", async () => {
     setup({ entry: `${BASE}?present#/a2` });
     const deck = await ready();
     expect(deck.slide).toHaveBeenCalledWith(1, 1);
   });
 
-  it.each(["#/%E0%A4%A", "#/nope", "#/", "#/1", "#/2/0", "#x"])("RF1：hash %s 找不到投影片 → 不 throw、明確 slide(0, 0) 回封面、仍 ready", async (hash) => {
+  it.each(["#/%E0%A4%A", "#/nope", "#/", "#/1", "#/2/0", "#x"])("hash %s 找不到投影片 → 不 throw、明確 slide(0, 0) 回封面、仍 ready", async (hash) => {
     setup({ entry: `${BASE}?present${hash}` });
     const deck = await ready();
     expect(deck.slide).toHaveBeenCalledWith(0, 0);
@@ -311,7 +311,7 @@ describe("PresentationOverlay（fake reveal）", () => {
     expect(nav.fn).toHaveBeenLastCalledWith({ pathname: BASE, search: "?present", hash: "#/b" }, { replace: true, state: null });
   });
 
-  it("test 19：首次建置後含 wikilink 的封面 DOM 有 wikilink 文字（匯出在 microtask，§5.1-6）", async () => {
+  it("test 19：首次建置後含 wikilink 的封面 DOM 有 wikilink 文字（匯出在 microtask）", async () => {
     setup();
     await ready();
     expect(slideEl("_title").textContent).toContain("Meeting Notes");
@@ -325,8 +325,8 @@ describe("PresentationOverlay（fake reveal）", () => {
     expect(slideEl("_title").querySelector("a")!.textContent).toBe("Renamed meeting");
   });
 
-  it("#269 Task 16 m1：文件存大寫 targetNoteId、['notes'] 快取是小寫 id ⇒ 命中（可點的連結＋現行標題），不是斷鏈", async () => {
-    // 必須含 a–f：全數字 id 的 toUpperCase() 不變，測不出大小寫（Task 16 M6 的教訓）。
+  it("#269：文件存大寫 targetNoteId、['notes'] 快取是小寫 id ⇒ 命中（可點的連結＋現行標題），不是斷鏈", async () => {
+    // 必須含 a–f：全數字 id 的 toUpperCase() 不變，測不出大小寫。
     const hex = "abcdef12-3456-4789-8abc-def123456789";
     expect(hex.toUpperCase()).not.toBe(hex);
     const note: NoteDto = { id: hex, title: "Renamed meeting", ownerId: "u1", role: "owner", createdAt: "", updatedAt: "", slug: "renamed", slugIsCustom: false, prevSlug: null, ownerHandle: "tester", lastEdited: null, group: null, groupId: null, folderId: null, permissions: OWNER_PERMS };
@@ -429,7 +429,7 @@ describe("PresentationOverlay（fake reveal）", () => {
     await waitFor(() => expect(slideEl("b").textContent).toContain("B changed"));
     expect(slideEl("a2").querySelector(".kn-slide-body")!.firstChild).toBe(a2Body);
     expect(scrollSet).not.toHaveBeenCalled();
-    // §7.1-4：結構沒變 → 只 syncSlide 有變的那張、不 sync（r1-p2 MINOR 7）
+    // 結構沒變 → 只 syncSlide 有變的那張、不 sync
     expect(deck.syncSlide).toHaveBeenCalledWith(slideEl("b"));
     expect(deck.sync).not.toHaveBeenCalled();
 
@@ -459,7 +459,7 @@ describe("PresentationOverlay（fake reveal）", () => {
     expect(deck.destroy).not.toHaveBeenCalled(); // 不重建 reveal
   });
 
-  it("主題切換 → mermaid 以新主題重畫（§5.3、§10-3）", async () => {
+  it("主題切換 → mermaid 以新主題重畫", async () => {
     setup({ props: { variant: "public", doc: makeDoc([{ id: "m", type: "mermaid", props: { code: "graph TD" } }]), title: "T", publicRef: { kind: "token", token: "t" } } });
     await ready();
     await waitFor(() => expect(mermaid.renderMermaid).toHaveBeenCalledWith("graph TD", "light"));
@@ -469,7 +469,7 @@ describe("PresentationOverlay（fake reveal）", () => {
     expect(mermaid.renderMermaid).toHaveBeenLastCalledWith("graph TD", "dark");
   });
 
-  it("mermaid 世代號：先發的晚回 → 丟掉，DOM 是後發的結果（§5.3「每張世代號，舊結果丟」，r1-p2 MINOR 8）", async () => {
+  it("mermaid 世代號：先發的晚回 → 丟掉，DOM 是後發的結果（每張世代號，舊結果丟）", async () => {
     let resolveFirst: (value: { ok: true; svg: string }) => void = () => {};
     mermaid.renderMermaid
       .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve; }))

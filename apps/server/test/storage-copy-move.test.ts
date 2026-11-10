@@ -1,6 +1,5 @@
 /**
- * 複製與移入群組的配額（spec 2026-10-08 §6.4、§6.5、§8.1；§11.1 S5（複製／移入）、S6、S7、S14（複製／移動）、S15(b)；
- * Review Focus RF2、RF5）。
+ * 複製與移入群組的配額（複製／移入、S14（複製／移動）、S15(b)）。
  */
 import { describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
@@ -25,7 +24,7 @@ async function srcWith(db: TestApp["db"], uploadsDir: string, owner: { ownerId: 
   return { id: n.id, uploadIds: ids };
 }
 
-describe("複製（S6、S5 複製形、RF2、RF5）", () => {
+describe("複製", () => {
   it("到已滿個人空間（有附件）→ 預檢 409（incomingBytes null、owner 看得到三數）；不建筆記、磁碟無新檔、不扣 upload 桶", async () => {
     // upload 桶只給 1 張：被拒後桶裡那 1 張還在，才證明預檢在 consumeMany 之前。
     const uploadBucket = new FixedWindowLimiter({ limit: 1, windowMs: 600_000 });
@@ -78,7 +77,7 @@ describe("複製（S6、S5 複製形、RF2、RF5）", () => {
     expect(await filesIn(uploadsDir)).toEqual(filesBefore);
   });
 
-  it("磁碟遺失的附件不計 incoming：恰好因此放得下 → 201（S6）", async () => {
+  it("磁碟遺失的附件不計 incoming：恰好因此放得下 → 201", async () => {
     const { app, db, uploadsDir } = await buildTestApp();
     const a = await seedUser(db);
     await giveUserQuota(db, a.id, 1000);
@@ -92,7 +91,7 @@ describe("複製（S6、S5 複製形、RF2、RF5）", () => {
     expect(await usedOf(db.$client, { kind: "user", id: a.id })).toBe(900);
   });
 
-  it("RF5：來源文件引用同一附件兩次、剩餘恰好一份 → 201（incoming 只算一次）", async () => {
+  it("來源文件引用同一附件兩次、剩餘恰好一份 → 201（incoming 只算一次）", async () => {
     const { app, db, uploadsDir } = await buildTestApp();
     const a = await seedUser(db);
     await giveUserQuota(db, a.id, 600);
@@ -104,7 +103,7 @@ describe("複製（S6、S5 複製形、RF2、RF5）", () => {
     expect(await usedOf(db.$client, { kind: "user", id: a.id })).toBe(600);
   });
 
-  it("RF2：配額 0 的空間、與已超額的空間——無附件的複製都 201（預檢只在有附件要複製時做）", async () => {
+  it("配額 0 的空間、與已超額的空間——無附件的複製都 201（預檢只在有附件要複製時做）", async () => {
     const { app, db, uploadsDir } = await buildTestApp();
     const [z, over] = await Promise.all([seedUser(db), seedUser(db)]);
     await giveUserQuota(db, z.id, 0);
@@ -118,7 +117,7 @@ describe("複製（S6、S5 複製形、RF2、RF5）", () => {
   });
 });
 
-describe("移入群組（S7、S5 移入形）", () => {
+describe("移入群組（移入形）", () => {
   it("移進已滿群組（有附件）→ 409；owner／shares／轉址／slug 全不變", async () => {
     const { app, db, uploadsDir } = await buildTestApp();
     const [o, s] = await Promise.all([seedUser(db), seedUser(db)]);
@@ -198,7 +197,7 @@ describe("busy 映射（S14 複製／移動形）與 S15(b)", () => {
         const c = await holder.pool!.connect();
         try {
           await c.query("begin");
-          // holder 自己的等待設上限：若副本的 slug 寫入跑到空間鎖之前（Q-S7 被破壞），副本未 commit 的 'plan' 已在，這句等複製、
+          // holder 自己的等待設上限：若副本的 slug 寫入跑到空間鎖之前（鎖序被破壞），副本未 commit 的 'plan' 已在，這句等複製、
           // 複製又在縫上等這個 hook——JS 層互等、PG 偵測不到（突變實測：卡到測試逾時）。設上限後 2 s 即 55P03，案子快速紅。
           await c.query("set local lock_timeout = '2000ms'");
           await c.query("insert into notes (owner_id, slug, title) values ($1, 'plan', 'Other')", [holder.ownerId]);

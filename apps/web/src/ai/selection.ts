@@ -30,9 +30,9 @@ export function anchorRange(doc: PMNode, blockIds: readonly string[]): BlockRang
 }
 
 /**
- * 「內建工具列此刻會不會出現」（#263 S2）。**照抄**上游 `FormattingToolbarExtension.shouldShow`（BlockNote 0.52.1
+ * 「內建工具列此刻會不會出現」（#263）。**照抄**上游 `FormattingToolbarExtension.shouldShow`（BlockNote 0.52.1
  * `extensions/FormattingToolbar/FormattingToolbar.ts`，閉包私有、不可引用）的三個條件：選取非空、TextSelection 須含文字、不跨 code 節點；
- * NodeSelection／CellSelection 與上游一樣回 true。D12 自動關閉用它判「使用者做出了非空選取」；**不得**改用工具列 store
+ * NodeSelection／CellSelection 與上游一樣回 true。框的自動關閉用它判「使用者做出了非空選取」；**不得**改用工具列 store
  * （store 在 pointerdown 期間恆為 false，pointerup 寫回 true 時不再有 selection change，滑鼠拖選會漏）。
  */
 export function toolbarWouldShow({ doc, selection }: PMLike): boolean {
@@ -47,8 +47,8 @@ export function toolbarWouldShow({ doc, selection }: PMLike): boolean {
 }
 
 /**
- * 選取是否整個落在錨點範圍內（#263 §5.2；D12 自動關閉與工具列壓制共用的唯一判斷）。部分重疊算不在範圍內。
- * RF1：Ctrl+A 的 AllSelection 是 from=0、to=doc.content.size，落在根 blockGroup 的開合 token 上，比首區塊的 posBefore（=1）還外面——
+ * 選取是否整個落在錨點範圍內（#263；框的自動關閉與工具列壓制共用的唯一判斷）。部分重疊算不在範圍內。
+ * Ctrl+A 的 AllSelection 是 from=0、to=doc.content.size，落在根 blockGroup 的開合 token 上，比首區塊的 posBefore（=1）還外面——
  * 先夾回根 blockGroup 的內容區 [1, doc.content.size − 1] 再比，否則全選開的框永遠「不在範圍內」。
  */
 export function selectionInsideAnchor({ doc, selection }: PMLike, blockIds: readonly string[]): boolean {
@@ -60,8 +60,8 @@ export function selectionInsideAnchor({ doc, selection }: PMLike, blockIds: read
 }
 
 /**
- * `textBetween` 的 leaf 文字：wikilink 寫成 `[顯示文字](/notes/<id>[#b-…])`（#269 §9.4，與送出的 markdown 一致；`titleOf` 給現行標題，
- * 缺席時 `label || snapshotTitle`，再空退到 href；顯示文字經 `escapeLinkText` 跳脫，同送出的 markdown——RF1）、硬換行寫成 `\n`，其餘取 textContent。
+ * `textBetween` 的 leaf 文字：wikilink 寫成 `[顯示文字](/notes/<id>[#b-…])`（#269，與送出的 markdown 一致；`titleOf` 給現行標題，
+ * 缺席時 `label || snapshotTitle`，再空退到 href；顯示文字經 `escapeLinkText` 跳脫，同送出的 markdown）、硬換行寫成 `\n`，其餘取 textContent。
  */
 export function leafText(node: PMNode, titleOf?: (id: string) => string | undefined): string {
   if (node.type.name === "wikilink") {
@@ -74,8 +74,8 @@ export function leafText(node: PMNode, titleOf?: (id: string) => string | undefi
 }
 
 /**
- * `open()` 的 focus（#263 §5.2、D8）：選取恰好涵蓋錨點區塊的全部文字 → `""`；否則取選取文字（區塊間以 `\n` 分隔、leaf 輸出其文字），
- * 以 code point 截到 2000。「恰好涵蓋」以「選取文字＝錨點全文」判——三擊整段、跨區塊整段拖選、Ctrl+A 都成立（探針實測三形相等）。
+ * `open()` 的 focus（#263）：選取恰好涵蓋錨點區塊的全部文字 → `""`；否則取選取文字（區塊間以 `\n` 分隔、leaf 輸出其文字），
+ * 以 code point 截到 2000。「恰好涵蓋」以「選取文字＝錨點全文」判——三擊整段、跨區塊整段拖選、Ctrl+A 都成立（實測三形相等）。
  */
 export function selectionFocus({ doc, selection }: PMLike, blockIds: readonly string[], titleOf?: (id: string) => string | undefined): string {
   const leaf = (node: PMNode) => leafText(node, titleOf);

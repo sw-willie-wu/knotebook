@@ -1,5 +1,5 @@
 /**
- * #93 §5.1／§5.2：索引寫入交易（S3、S4、S5、S10 一般路徑、S12、RF5）。
+ * #93：索引寫入交易。
  * 被測方一律是真的 `writeSearchIndex`；holder 只扮演「另一方」（DELETE、note_states 改寫）。
  */
 import { describe, expect, it } from "vitest";
@@ -65,7 +65,7 @@ describe("S3／S4：首建與版本", () => {
     expect(await stateRow(db, n.id)).toMatchObject({ sourceVersion: 3, indexedUnits: "version two bravo".length, capped: false });
   });
 
-  it("RF5：空內容（0 列）→ written、狀態列一列、0 個 section 列、indexed_units 0、不 capped；之後有內容也照寫", async () => {
+  it("空內容（0 列）→ written、狀態列一列、0 個 section 列、indexed_units 0、不 capped；之後有內容也照寫", async () => {
     const { db } = await freshDb();
     const u = await seedUser(db);
     const n = await seedNote(db, { ownerId: u.id });
@@ -95,7 +95,7 @@ describe("S3／S4：首建與版本", () => {
     expect(await stateRow(db, n.id)).toMatchObject({ indexedUnits: units, capped: true });
   });
 
-  it("I-1：rows 不變、只有 capped 翻轉 → written（不是 unchanged），狀態列 capped 跟著變（2000↔2001 段；空筆記→含空 id container）", async () => {
+  it("rows 不變、只有 capped 翻轉 → written（不是 unchanged），狀態列 capped 跟著變（2000↔2001 段；空筆記→含空 id container）", async () => {
     const { db } = await freshDb();
     const u = await seedUser(db);
     const n = await seedNote(db, { ownerId: u.id });
@@ -126,15 +126,15 @@ describe("S5：與刪筆記的鎖序", () => {
     const { db } = await freshDb();
     const u = await seedUser(db);
     const n = await seedNote(db, { ownerId: u.id });
-    await markTrashed(db.$client, n.id, u.id); // 索引寫入不看 deleted_at（spec §6.2-11 includes）：垃圾桶筆記照樣索引
+    await markTrashed(db.$client, n.id, u.id); // 索引寫入不看 deleted_at（includes）：垃圾桶筆記照樣索引
     await seedNoteState(db, n.id, searchDoc(V1), 1);
     await writeSearchIndex(db, n.id, 1, extractOf(V1)); // 狀態列已存在：第 2 步的 ON CONFLICT DO NOTHING 不觸發 FK 檢查
     await setNoteState(db, n.id, searchDoc(V2), 2);
     const gate = makeGate();
-    // 停在第 3 步之後＝已持 notes KEY SHARE 與狀態列 FOR UPDATE（plan 裁定）：拿掉第 1 步時，本交易持狀態列鎖、DELETE 持 notes 列，
-    // DELETE 的 cascade 已鎖住 sections 列、等狀態列；放行後第 5 步刪 sections 列等 DELETE——走到真正的環（突變 M3 實測：40P01，
+    // 停在第 3 步之後＝已持 notes KEY SHARE 與狀態列 FOR UPDATE：拿掉第 1 步時，本交易持狀態列鎖、DELETE 持 notes 列，
+    // DELETE 的 cascade 已鎖住 sections 列、等狀態列；放行後第 5 步刪 sections 列等 DELETE——走到真正的環（突變實測：40P01，
     // 環閉合在 `delete from note_search_sections`，當時是 DELETE 回 500；#181 起同一個 `deleteNotesInTx` 由永久刪除呼叫）。停在第 2 步之前也紅得了（不持鎖 → DELETE 不被擋 → "settled"），
-    // 但那只證明「沒擋住」，沒走到上面 M3 實測的死結路徑。
+    // 但那只證明「沒擋住」，沒走到上面實測的死結路徑。
     const w = writeSearchIndex(db, n.id, 2, extractOf(V2), { hooks: { afterVersionReadForTest: gate.wait } });
     await gate.reached;
     const purge = db.transaction(tx => purgeTrashedNotesInTx(tx, { ids: [n.id], by: u.id }));
@@ -205,7 +205,7 @@ describe("S12：回填與即時落盤交錯（兩個具名停點）", () => {
     expect((await stateRow(db, n.id))!.sourceVersion).toBe(2);
   });
 
-  it("案 C（m1）：note_states.version 被往回寫（小於狀態列 source_version）→ 照寫、warn 一行", async () => {
+  it("案 C：note_states.version 被往回寫（小於狀態列 source_version）→ 照寫、warn 一行", async () => {
     const { db } = await freshDb();
     const u = await seedUser(db);
     const n = await seedNote(db, { ownerId: u.id });
@@ -220,7 +220,7 @@ describe("S12：回填與即時落盤交錯（兩個具名停點）", () => {
   });
 });
 
-describe("S10 一般寫入路徑的 rollback（m-X6）", () => {
+describe("S10 一般寫入路徑的 rollback", () => {
   it("afterWriteForTest 在 INSERT 與狀態列 UPDATE 之後丟例外 → 例外冒出、舊的索引列與狀態列原樣", async () => {
     const { db } = await freshDb();
     const u = await seedUser(db);
@@ -236,7 +236,7 @@ describe("S10 一般寫入路徑的 rollback（m-X6）", () => {
   });
 });
 
-describe("bumpSearchIndexVersion（§5.2）", () => {
+describe("bumpSearchIndexVersion", () => {
   it("只在 hash／extractor 相符且 source_version 較小時推進；不符回 0", async () => {
     const { db } = await freshDb();
     const u = await seedUser(db);

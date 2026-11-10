@@ -19,12 +19,12 @@ import type {
 import { api } from "./client";
 
 /**
- * 版本歷史資料層（spec §6、§8.4）。
+ * 版本歷史資料層。
  *
  * **兩把前綴、刻意分開**：清單在 `['notes', id, 'versions', 'list', 篩選]`（前綴 `['notes', id, 'versions']`）——筆記清單的任何 `invalidateQueries(['notes'])`
- * （建立／改名／刪除／搬移，`api/notes.ts`、`api/note-move.ts`）都會順帶重抓它，這是要的（搬移會清空版本，spec §9）。
- * 快照在獨立前綴 `['note-versions', noteId, id]`：以 **`id`**（不是 seq）為鍵——§9 搬移清空後同一個 seq 會指向
- * 不同內容；同一個 id 的內容永不變，所以 `staleTime: Infinity`、也不被 `['notes']` 的 invalidate 掃到（spec §6.2、§8.4）。
+ * （建立／改名／刪除／搬移，`api/notes.ts`、`api/note-move.ts`）都會順帶重抓它，這是要的（搬移會清空版本）。
+ * 快照在獨立前綴 `['note-versions', noteId, id]`：以 **`id`**（不是 seq）為鍵——搬移清空版本後同一個 seq 會指向
+ * 不同內容；同一個 id 的內容永不變，所以 `staleTime: Infinity`、也不被 `['notes']` 的 invalidate 掃到。
  */
 export const VERSIONS_PAGE_SIZE = 50;
 
@@ -41,7 +41,7 @@ export function versionListKey(noteId: string, kind: VersionKindFilter) {
   return [...versionsKey(noteId), "list", kind] as const;
 }
 
-/** 「目前狀態」的單發重抓（起草裁定 16）。掛在清單 key 之下，清單 invalidate 一併涵蓋。 */
+/** 「目前狀態」的單發重抓。掛在清單 key 之下，清單 invalidate 一併涵蓋。 */
 export function versionCurrentKey(noteId: string) {
   return ["notes", noteId, "versions", "current"] as const;
 }
@@ -50,10 +50,10 @@ export function versionSnapshotKey(noteId: string, id: string) {
   return ["note-versions", noteId, id] as const;
 }
 
-/** 預覽／比較對象。`seq` 拿快照、`id` 防搬移後同號不同版；`name` 是選取當下的名稱（清單裡沒有它時顯示用，#272 §10.3）。 */
+/** 預覽／比較對象。`seq` 拿快照、`id` 防搬移後同號不同版；`name` 是選取當下的名稱（清單裡沒有它時顯示用，#272）。 */
 export type VersionTarget = { seq: number; id: string; name: string | null };
 
-/** 快照回應的 `id` 與清單列不同（中途被 §9 清空重編）——丟棄、不進快取。 */
+/** 快照回應的 `id` 與清單列不同（中途被搬移清空重編）——丟棄、不進快取。 */
 export class VersionSnapshotMismatch extends Error {
   constructor() {
     super("version snapshot id mismatch");
@@ -109,7 +109,7 @@ export function deleteVersion(noteId: string, seq: number): Promise<void> {
   return api<void>(`${base(noteId)}/${seq}`, { method: "DELETE" });
 }
 
-/** 按「套用」前一律重抓（spec §8.2 末段）：`staleTime: 0` 讓 fetchQuery 永遠真的打一次。 */
+/** 按「套用」前一律重抓：`staleTime: 0` 讓 fetchQuery 永遠真的打一次。 */
 export function fetchCurrent(queryClient: QueryClient, noteId: string): Promise<VersionCurrentDto> {
   return queryClient.fetchQuery({
     queryKey: versionCurrentKey(noteId),

@@ -113,11 +113,11 @@ describe("convertPastedMermaidBlocks", () => {
     expect(vi.mocked(replaceBlocksKeepColumns)).toHaveBeenCalledTimes(2);
   });
 
-  describe("真編輯器（D25）", () => {
+  describe("真編輯器", () => {
     let destroy: (() => void) | undefined;
     afterEach(() => destroy?.());
 
-    // 同列另一欄是空的：core 的 fixColumnList 會刪掉所有空欄、把剩一欄的列攤平——D25 不收。
+    // 同列另一欄是空的：core 的 fixColumnList 會刪掉所有空欄、把剩一欄的列攤平——程式發動的移除不走這條。
     it("MP1：欄內唯一 block 是 ```mermaid codeBlock → 轉成 mermaid、列仍兩欄", () => {
       const m = mountEditor([
         P("x", "x"),

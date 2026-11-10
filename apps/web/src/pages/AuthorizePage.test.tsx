@@ -127,7 +127,7 @@ describe("AuthorizePage", () => {
     expect(expectCardControls44(undefined, "button.underline")).toBe(2);
   });
 
-  // I-3：route 掛哪一層要有守衛。兩案分別殺「移到 RequireAuth 外」與「移到 ChangePasswordGate 外」。
+  // route 掛哪一層要有守衛。兩案分別殺「移到 RequireAuth 外」與「移到 ChangePasswordGate 外」。
   it("未登入 → /login?next=%2Fauthorize%3Freq%3Dabc（含 query，#131 才接得回來）", async () => {
     vi.stubGlobal("fetch", mockFetch(okRequest));
     renderAt("/authorize?req=abc", () => errorResponse(401, "unauthorized"));
@@ -289,7 +289,7 @@ describe("AuthorizePage", () => {
   });
 });
 
-// #239 W1（spec §9.2）：逐項勾選、預設勾選（W4'／W8）、連動、比既有權限窄的提示。
+// #239：逐項勾選、預設勾選、連動、比既有權限窄的提示。
 describe("AuthorizePage #239 逐項勾選", () => {
   const RWM = "notes:read notes:write notes:move" as const;
   const RW = "notes:read notes:write" as const;
@@ -443,7 +443,7 @@ describe("AuthorizePage #239 逐項勾選", () => {
   });
 });
 
-// #181 PR-2d（spec §6.8.2）：第三框「刪除」——client 沒要求不渲染、預設不勾、取消編輯一起清、既有權限取交集。
+// #181：第三框「刪除」——client 沒要求不渲染、預設不勾、取消編輯一起清、既有權限取交集。
 describe("AuthorizePage #181 刪除勾選", () => {
   const R = "notes:read" as const;
   const RW = "notes:read notes:write" as const;
@@ -453,7 +453,7 @@ describe("AuthorizePage #181 刪除勾選", () => {
   const EDIT = "Create and edit notes";
   const MOVE = "Move or copy notes into groups";
   const DELETE = "Move notes to the trash and restore them";
-  // 刪除框的常駐說明＝S2＋「需同時勾選編輯」一句（fix round 1 m1，比照搬移說明的結尾）。兩語系逐字釘。
+  // 刪除框的常駐說明＝基本說明＋「需同時勾選編輯」一句（比照搬移說明的結尾）。兩語系逐字釘。
   const DELETE_HINT_EN =
     "Can't delete notes permanently, but notes left in the trash can still be deleted permanently later, by the site's trash setting or by someone in the web app. Requires \"Create and edit notes\".";
   const DELETE_HINT_ZH =

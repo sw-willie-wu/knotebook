@@ -91,7 +91,7 @@ describe("collabReducer — token-role", () => {
     expect(collabReducer(RECONNECTING_ONCE, tokenRole("viewer"))).toBe(RECONNECTING_ONCE);
   });
 
-  it("connected(editor) + token-role 'viewer' → 留在 connected 但角色降為 viewer（N4）", () => {
+  it("connected(editor) + token-role 'viewer' → 留在 connected 但角色降為 viewer", () => {
     expect(collabReducer(connected("editor"), tokenRole("viewer"))).toEqual(connected("viewer"));
   });
 

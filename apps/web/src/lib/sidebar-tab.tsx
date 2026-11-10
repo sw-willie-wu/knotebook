@@ -16,10 +16,10 @@ import { EMPTY_SELECTION, reduceSelection, type SelectionOp, type SidebarSelecti
 /**
  * 側欄 tab 的狀態、記憶與兩個 context（`sidebar-drawer.ts` 同理由放 `lib/`，避開循環 import）。
  *
- * - 為什麼拆兩個 context（spec §5.3）：`AppShell` 以 `children` 渲染筆記頁，筆記頁若消費含 state 的
+ * - 為什麼拆兩個 context：`AppShell` 以 `children` 渲染筆記頁，筆記頁若消費含 state 的
  *   context，每次切 tab 都會重繪整頁。`SidebarTabActionsContext` 只放穩定的函式（整個生命週期同一個
  *   物件），筆記頁只用它；`SidebarTabStateContext` 放目前 tab 與選取，只有側欄元件消費。
- * - 選取狀態也在這裡（spec §6.10.2 M6）：靜態卡與抽屜兩份要看到同一份；actions 只放穩定函式，勾選不讓
+ * - 選取狀態也在這裡：靜態卡與抽屜兩份要看到同一份；actions 只放穩定函式，勾選不讓
  *   `children` 重繪。切 tab、抽屜 Esc（`actionsRef`，`AppShell` 用）與開始搜尋都會結束選取。
  * - `showTab` 讀 ref 而不是把抽屜 context 放進依賴：`AppShell` 的 `SidebarDrawerContext.Provider value`
  *   每次 render 都是新物件，進依賴的話 actions 會跟著換物件。
@@ -52,7 +52,7 @@ export function writeSidebarTab(tab: SidebarTab): void {
 }
 
 export interface SidebarTabActions {
-  /** 換到別的 tab 時另外結束選取（spec §6.10.2「切 tab 離開」）；點目前那顆不結束。 */
+  /** 換到別的 tab 時另外結束選取；點目前那顆不結束。 */
   showTab: (tab: SidebarTab) => void;
   updateSelection: (op: SelectionOp) => void;
   /** 在選取模式就結束並回 true；否則回 false、不動 state。抽屜 Esc 用。 */

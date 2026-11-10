@@ -2,7 +2,7 @@ import { useCallback, useSyncExternalStore } from "react";
 import { NOTE_WIDTHS, type NoteWidth } from "@knotebook/shared";
 
 /**
- * #297 §4.1：站內內文寬度——每人（這台瀏覽器）每篇各自記，鍵 `note.width.<小寫 noteId>`，
+ * #297：站內內文寬度——每人（這台瀏覽器）每篇各自記，鍵 `note.width.<小寫 noteId>`，
  * 值 `"wide"`／`"full"`（標準＝沒有鍵）。
  *
  * 同分頁的真相是模組層的 `values` Map：第一次讀某篇時由 localStorage 種入；寫入先更新 Map、

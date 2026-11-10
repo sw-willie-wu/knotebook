@@ -161,6 +161,14 @@
         "name": "Ungroup columns",
         "desc": "In the ⋮⋮ menu next to a paragraph, choose “Ungroup columns” to put the columns back in a stack."
       },
+      "columnsDragBeside": {
+        "name": "Drag ⋮⋮ to a block's left or right edge",
+        "desc": "Drop it on another block's left or right edge to put the two side by side. Undo once (Ctrl+Z, ⌘Z on a Mac) to put them back."
+      },
+      "columnResizeKeys": {
+        "name": "Resize columns (divider focused)",
+        "desc": "With the divider between two columns focused, the right arrow makes the left column wider and the right one narrower; the left arrow does the opposite. Back in the note, undo once (Ctrl+Z, ⌘Z on a Mac) to undo several quick presses."
+      },
       "selectEsc": {
         "name": "Leave select mode",
         "desc": "Works when the focus is in the sidebar or nowhere in particular. It does nothing while you are typing in a note or another text box."

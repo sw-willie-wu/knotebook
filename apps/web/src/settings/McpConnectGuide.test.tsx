@@ -36,10 +36,10 @@ describe("mcp-snippets（純函式）", () => {
   });
 
   it("Desktop：header 值放 env（args 不含空白的 Bearer 值），http:// 才加 --allow-http", () => {
-    const http = parseDesktop(buildDesktopSnippet("http://kb.lan:8006"));
+    const http = parseDesktop(buildDesktopSnippet("http://kb.lan:3000"));
     expect(http).toEqual({
       command: "npx",
-      args: ["-y", "mcp-remote", "http://kb.lan:8006/api/mcp", "--header", "Authorization:${AUTH_HEADER}", "--allow-http"],
+      args: ["-y", "mcp-remote", "http://kb.lan:3000/api/mcp", "--header", "Authorization:${AUTH_HEADER}", "--allow-http"],
       env: { AUTH_HEADER: "Bearer <YOUR_TOKEN>" },
     });
     expect(http.args.some((a) => a.includes(" "))).toBe(false);
@@ -75,7 +75,7 @@ describe("mcp-snippets（純函式）", () => {
   });
 });
 
-describe("McpConnectGuide（#247 §5.3）", () => {
+describe("McpConnectGuide（#247）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -189,7 +189,7 @@ describe("McpConnectGuide（#247 §5.3）", () => {
     });
   });
 
-  it("兩個 h3 依序為 OAuth、PAT；不再有編號；清單不縮排（W24）：https 2 個、http 1 個", () => {
+  it("兩個 h3 依序為 OAuth、PAT；不再有編號；清單不縮排：https 2 個、http 1 個", () => {
     const { container, unmount } = render(<McpConnectGuide origin={HTTPS} />);
     expect(screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual([
       i18n.t("settings.authorization.mcp.oauthTitle"),

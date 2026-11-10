@@ -7,7 +7,7 @@ function Boom(): never {
   throw new TypeError("Failed to fetch dynamically imported module: /assets/VersionsLazy-abc.js");
 }
 
-describe("VersionsLazyBoundary（起草裁定 23）", () => {
+describe("VersionsLazyBoundary", () => {
   afterEach(() => {
     sessionStorage.clear();
     vi.restoreAllMocks();
@@ -42,7 +42,7 @@ describe("VersionsLazyBoundary（起草裁定 23）", () => {
     expect(container.querySelector("main")).toBeNull();
   });
 
-  it("M-5（gate r2）：非 chunk 的 render 錯誤 → 顯示版本歷史自己的文案（不是 app.noteCrash 的「筆記崩潰」），且錯誤畫面包在呼叫端給的外框 class 裡；正常態沒有那層外框", async () => {
+  it("非 chunk 的 render 錯誤 → 顯示版本歷史自己的文案（不是 app.noteCrash 的「筆記崩潰」），且錯誤畫面包在呼叫端給的外框 class 裡；正常態沒有那層外框", async () => {
     await i18n.changeLanguage("en");
     vi.spyOn(console, "error").mockImplementation(() => {});
     function Crash(): never {

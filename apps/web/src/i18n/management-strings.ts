@@ -5,7 +5,7 @@ import zhTW from "./management.zh-TW.json";
 /**
  * 站台管理（`admin.*`）與設定（`settings.*`）的 lazy 字串包（首包瘦身）：設定各區塊、站台管理各區塊、群組儲存區、
  * SettingsTable、授權頁的 ScopeChecksField 等 lazy 鏈各自 import 本檔，模組頂層註冊一次（冪等；deep merge、不覆寫主檔既有鍵）。
- * 主檔 `en.json`／`zh-TW.json` 只留首包就會用到的 15 個鍵：`admin.nav.{label,users,groups,storage,ai,auth}`（AdminModal）、
+ * 主檔 `en.json`／`zh-TW.json` 只留首包就會用到的 16 個鍵：`admin.nav.{label,users,groups,storage,ai,auth,limits}`（AdminModal）、
  * `settings.{entry,title,description}`、`settings.nav.{account,login,authorization,groups,storage,about}`（UserMenu、SettingsModal）。
  * ⚠ 不准從首包任何檔 import（scripts/check-bundle-size.mjs 的 MANAGEMENT_I18N_MARKERS 會紅）。
  * ⚠ 每個用到被搬走鍵的非測試檔都要自己 import 本檔（不靠某個「錨點」模組帶進來——使用者可以不開設定直達 AuthorizePage 等頁）；

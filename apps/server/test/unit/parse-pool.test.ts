@@ -204,21 +204,92 @@ describe("ParsePool（假 worker）", () => {
     expect(spawned).toHaveLength(2);
   });
 
-  it("configure：worker 數調大立即開、調小收閒置的；時限立即生效；記憶體套用在之後開的", async () => {
+  it("configure：worker 數調大立即開、調小收閒置的；時限立即生效；記憶體變了就全部換新", async () => {
     const pool = mk({ workers: 1 });
     spawned[0]!.ready();
     pool.configure({ workers: 3, workerMemoryMb: 256, timeoutMs: 100 });
-    expect(spawned).toHaveLength(3);
-    expect(spawned.map(w => w.memoryMb)).toEqual([512, 256, 256]);
+    // 記憶體變了：閒置的舊 worker（512）立即收掉，fill() 再用新上限開滿 3 個
+    expect(spawned[0]!.terminated).toBe(true);
+    expect(spawned).toHaveLength(4);
+    expect(spawned.map(w => w.memoryMb)).toEqual([512, 256, 256, 256]);
     expect(pool.limits).toMatchObject({ workers: 3, workerMemoryMb: 256, timeoutMs: 100 });
-    spawned[1]!.ready();
-    spawned[2]!.ready();
+    for (const w of spawned.slice(1)) w.ready();
     pool.configure({ workers: 1 });
-    expect(spawned.filter(w => w.terminated)).toHaveLength(2);
+    // 只改 worker 數：留下第一個（spawned[1]），另外兩個閒置的收掉
+    expect(spawned.map(w => w.terminated)).toEqual([true, false, true, true]);
     expect(pool.stats().workers).toBe(1);
     const r = pool.parse(req("u"));
+    expect(spawned[1]!.inbox).toHaveLength(1);
     vi.advanceTimersByTime(100);
     await expect(r).resolves.toEqual(TOO_COMPLEX);
+  });
+
+  it("configure 改記憶體上限 → 閒置的 worker 全部換新，新開的用新上限", () => {
+    const pool = mk({ workers: 2, workerMemoryMb: 1024 });
+    for (const w of spawned) w.ready();
+    pool.configure({ workerMemoryMb: 512 });
+    expect(spawned.slice(0, 2).map(w => w.terminated)).toEqual([true, true]);
+    expect(spawn).toHaveBeenCalledTimes(4);
+    expect(spawned.slice(2).map(w => w.memoryMb)).toEqual([512, 512]);
+    expect(pool.stats().workers).toBe(2);
+  });
+
+  it("configure 改記憶體上限 → 忙的 worker 做完手上那件才收；閒的立即收；新開的用新上限", async () => {
+    const pool = mk({ workers: 2, workerMemoryMb: 1024 });
+    for (const w of spawned) w.ready();
+    const r = pool.parse(req("u", "busy"));
+    r.catch(() => {}); // 前面的斷言先紅時，afterEach 的 close() 會 reject 它
+    expect(spawned[0]!.inbox.map(mdOf)).toEqual(["busy"]);
+    pool.configure({ workerMemoryMb: 512 });
+    expect(spawned[0]!.terminated).toBe(false);
+    expect(spawned[1]!.terminated).toBe(true);
+    expect(spawned.slice(2).map(w => w.memoryMb)).toEqual([512, 512]);
+    spawned[0]!.reply("busy");
+    await expect(r).resolves.toMatchObject({ blocks: [{ type: "paragraph", content: "busy" }] });
+    expect(spawned[0]!.terminated).toBe(true);
+    // 新的兩個已經補滿：舊的收掉時不再多開
+    expect(spawn).toHaveBeenCalledTimes(4);
+    expect(pool.stats()).toMatchObject({ workers: 2, recycled: 0 });
+  });
+
+  it("configure 給同樣的記憶體上限 → 不換 worker", () => {
+    const pool = mk({ workerMemoryMb: 1024 });
+    for (const w of spawned) w.ready();
+    pool.configure({ workerMemoryMb: 1024 });
+    expect(spawn).toHaveBeenCalledTimes(2);
+    expect(spawned.some(w => w.terminated)).toBe(false);
+  });
+
+  it("spawn 失敗退避中改記憶體上限 → 活著的舊 worker 立即收掉；退避結束後補開的都用新上限", () => {
+    const pool = mk({ workers: 2, workerMemoryMb: 1024 });
+    spawned[0]!.ready();
+    spawned[1]!.emit("exit", 1); // 還沒 ready 就掛掉：退避計時開始
+    pool.configure({ workerMemoryMb: 512 });
+    expect(spawned).toHaveLength(2); // 退避中 fill() 不開
+    vi.advanceTimersByTime(1_000);
+    // spawnSlot 讀的是目前的設定，所以退避後補開的一定是新上限
+    expect(spawned.length).toBeGreaterThan(2);
+    for (const w of spawned.slice(2)) expect(w.memoryMb).toBe(512);
+    // 活著的舊 worker（1024）在 configure 時就被收掉，不會留到 500 件或 heap 過高才換
+    expect(spawned[0]!.terminated).toBe(true);
+    expect(spawned).toHaveLength(4);
+    expect(pool.stats().workers).toBe(2);
+  });
+
+  it("configure 換時限與排隊等待：timeoutMs() 立即是新值；之後排進來的工作照新的排隊等待逾時", async () => {
+    const pool = mk({ workers: 1, timeoutMs: 10_000, queueWaitMs: 45_000 });
+    pool.configure({ timeoutMs: 5_000, queueWaitMs: 25_000 });
+    expect(pool.timeoutMs()).toBe(5_000);
+    let rejected: unknown = null;
+    const waiting = pool.parse(req("u")).catch((e: unknown) => {
+      rejected = e;
+    });
+    vi.advanceTimersByTime(24_999);
+    await flush();
+    expect(rejected).toBeNull();
+    vi.advanceTimersByTime(1);
+    await waiting;
+    expect(rejected).toBeInstanceOf(ParserBusyError);
   });
 
   it("未閉合 fence 判斷（openFenceLine）走同一條：送 kind fence、回 fence 的結果；與同一人的解析共用每人的上限；逾時 → \"too_complex\"", async () => {
@@ -239,7 +310,7 @@ describe("ParsePool（假 worker）", () => {
     await expect(slow).resolves.toBe("too_complex");
   });
 
-  it("#398 C2 檔案總預算：時限取單次時限與剩下預算的小者；做完扣掉實際時間；用完之後的解析不送進 worker、直接 too_complex", async () => {
+  it("#398 檔案總預算：時限取單次時限與剩下預算的小者；做完扣掉實際時間；用完之後的解析不送進 worker、直接 too_complex", async () => {
     const pool = mk({ workers: 1, timeoutMs: 5_000 });
     spawned[0]!.ready();
     const budget = { remainingMs: 1_200 };
@@ -262,7 +333,7 @@ describe("ParsePool（假 worker）", () => {
     expect(pool.fileBudget()).toEqual({ remainingMs: 15_000 });
   });
 
-  it("#398 M4 排隊上限：佇列滿 PARSE_QUEUE_MAX 筆，再來的直接 ParserBusyError（不等逾時）", async () => {
+  it("#398 排隊上限：佇列滿 PARSE_QUEUE_MAX 筆，再來的直接 ParserBusyError（不等逾時）", async () => {
     const pool = mk({ workers: 1 });
     const queued = Array.from({ length: PARSE_QUEUE_MAX }, (_, i) => pool.parse(req(`u${i}`)));
     await expect(pool.parse(req("late"))).rejects.toBeInstanceOf(ParserBusyError);

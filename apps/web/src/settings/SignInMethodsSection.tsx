@@ -16,8 +16,8 @@ import { ProviderIcon } from "@/components/ProviderIcon";
 import "@/i18n/management-strings";
 
 /**
- * `?link_error=` 白名單（#187 §9.4）＋cookie 解開後 `failLocation` 會發的兩碼（`oidc_state_mismatch`、`oidc_claim_too_long`——
- * 同 PR1 對 `/link-account` 的 final review M2；plan spec 疑點 13）。白名單外一律 fallback（任意 query 不得直接餵 i18next）。
+ * `?link_error=` 白名單（#187）＋cookie 解開後 `failLocation` 會發的兩碼（`oidc_state_mismatch`、`oidc_claim_too_long`——
+ * 同 `/link-account`）。白名單外一律 fallback（任意 query 不得直接餵 i18next）。
  */
 const LINK_ERROR_CODES = new Set<string>([
   "identity_taken", "identity_already_linked", "oidc_link_session_mismatch", "account_disabled",
@@ -32,11 +32,11 @@ function issuerHost(issuer: string): string {
   }
 }
 
-/** §5.4：以 host 標示的列（服務已刪或停用中）一律通用圖示。 */
+/** 以 host 標示的列（服務已刪或停用中）一律通用圖示。 */
 const HOST_ROW_ICON: ProviderIconDto = { type: "builtin", name: "generic" };
 
 /**
- * 解除連結（#247 §4.9：列尾紅垃圾桶 icon 鈕，確認框照舊）。不可解除時 softDisabled＋原因（spec 2026-10-13 settings-table §2.7：
+ * 解除連結（#247：列尾紅垃圾桶 icon 鈕，確認框照舊）。不可解除時 softDisabled＋原因（
  * 有理由要讓人看見的不可用），並以 `aria-describedby` 指向主欄副標裡看得見的同一段原因（`hintId`）。
  */
 function UnlinkButton({ identity, names, hintId }: { identity: IdentityDto; names: string; hintId: string }) {
@@ -85,8 +85,8 @@ function UnlinkButton({ identity, names, hintId }: { identity: IdentityDto; name
 }
 
 /**
- * #187 §8.5「登入方式」群組。解除鈕的可否由 server 的 `unlinkable` 決定（B24：web 不自己推 INV-7）。
- * 表格（spec 2026-10-13 settings-table §3 #10）：服務（圖示、名稱；副標＝提示行、`unknownProvider` 行）｜連結於｜最後使用｜操作（解除連結）。
+ * #187「登入方式」群組。解除鈕的可否由 server 的 `unlinkable` 決定（web 不自己推）。
+ * 表格：服務（圖示、名稱；副標＝提示行、`unknownProvider` 行）｜連結於｜最後使用｜操作（解除連結）。
  */
 export function SignInMethodsSection() {
   const { t } = useTranslation();
@@ -104,7 +104,7 @@ export function SignInMethodsSection() {
       const code = LINK_ERROR_CODES.has(linkError) ? linkError : "fallback";
       toast({ title: t(`errors.${code}`, { defaultValue: t("errors.fallback") }), variant: "destructive" });
     }
-    // 只刪這兩個一次性鍵（§8.5），其餘參數原封不動。
+    // 只刪這兩個一次性鍵，其餘參數原封不動。
     const params = new URLSearchParams(searchParams);
     params.delete("linked");
     params.delete("link_error");
@@ -131,9 +131,9 @@ export function SignInMethodsSection() {
   ];
   const rows: SettingsTableRow[] = (identities.data?.identities ?? []).map(identity => {
     const hintId = `${baseId}-${identity.id}-hint`;
-    // provider 顯示名是管理員輸入：只進文字節點，不當 i18n 插值參數。對不到啟用中 provider：issuer host（§8.5）。
+    // provider 顯示名是管理員輸入：只進文字節點，不當 i18n 插值參數。對不到啟用中 provider：issuer host。
     const names = identity.providers.length > 0 ? identity.providers.map(p => p.displayName).join(" / ") : issuerHost(identity.issuer);
-    // §5.4：多個時取第一個（server 已依 sort_order, created_at, id 排序，auth/sign-in-methods.ts）。
+    // 多個時取第一個（server 已依 sort_order, created_at, id 排序，auth/sign-in-methods.ts）。
     // ⚠ 不得寫成 `identity.providers[0]?.icon ?? HOST_ROW_ICON`——`??` 會把「不顯示」（null）吞成通用圖示。
     const first = identity.providers[0];
     const rowIcon = first === undefined ? HOST_ROW_ICON : first.icon;

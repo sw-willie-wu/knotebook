@@ -5,8 +5,8 @@ import { SettingsPage } from "./SettingsLayout";
 import "@/i18n/management-strings";
 
 /**
- * 個人設定「授權」（`/settings/authorization`，#247 §5.3）：API token（含 OAuth 授權的 app，同一份清單）
- * ＋「用 MCP 連接 Claude」教學。OAuth「已授權應用」列表本次不做，也不預留標題（§1.3）。
+ * 個人設定「授權」（`/settings/authorization`，#247）：API token（含 OAuth 授權的 app，同一份清單）
+ * ＋「用 MCP 連接 Claude」教學。OAuth「已授權應用」列表本次不做，也不預留標題。
  * SSO-only 帳號同樣看得到——他們沒有密碼，更需要 token 這條路。
  */
 export function SettingsAuthorizationSection() {

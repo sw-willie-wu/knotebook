@@ -2,11 +2,11 @@ import { expect, test } from "@playwright/test";
 import { ADMIN, createNote, createUserViaInvite, editorLocator, loginAs, openGroupPanel, randomEmail, showSidebarTab } from "./helpers.js";
 
 /**
- * #175 群組 v2（spec §12.3 第 15 條，PR1 改寫自 #103 版）：A 建群組 → A 在群組建筆記（群組持有、
+ * #175 群組 v2（改寫自 #103 版）：A 建群組 → A 在群組建筆記（群組持有、
  * 網址 `/g/<group_id>/<slug>`）→ 分享面板是群組版（無 radio、只說明＋連到群組設定）→ A 從側欄群組 ⋮ →
  *『成員與設定』（群組面板）以 email 加 B（內建一般成員）→ B 側欄看得到（B 自建的群組排在前：群組依角色排）、能編輯（共編互見）、也有分享鈕 → A 移除 B → B 連線
  * 被踢、該篇從 B 的側欄消失 → A 開刪除群組對話框：兩模式、預設「轉移給管理員」→ Cancel → 群組與該篇仍在
- * （PR4 起非空群組也刪得掉，真的刪除由 18-groups-delete 測）。
+ * （非空群組也刪得掉，真的刪除由 18-groups-delete 測）。
  * 斷言形沿用 03-share-revoke（兩個 context、邀請建第二使用者、10 秒 SLA、exact toast）。
  * 群組與筆記留著不清：e2e 疊每次 `stack:down -v` 重置。
  */
@@ -54,7 +54,7 @@ test("群組：建立 → 群組建筆記（/g/ 網址）→ 設定加人 → �
     const groupSection = sidebar.locator(`[data-node-kind="group"]`).filter({ has: adminPage.getByRole("button", { name: groupName, exact: true }) });
     await expect(groupSection.getByRole("link", { name: title })).toBeVisible();
 
-    // ── A：分享面板是群組版（§8.4）：沒有 radio、沒有加人表單，只說明存取由角色決定 ──────
+    // ── A：分享面板是群組版：沒有 radio、沒有加人表單，只說明存取由角色決定 ──────
     await adminPage.getByRole("button", { name: "Share", exact: true }).click();
     const shareDialog = adminPage.getByRole("dialog", { name: "Share note" });
     await expect(shareDialog.getByText(/every member whose role can read has access/)).toBeVisible();
@@ -98,7 +98,7 @@ test("群組：建立 → 群組建筆記（/g/ 網址）→ 設定加人 → �
     const userBadge = userPage.getByRole("status").filter({ hasText: /^Connected/ });
     await expect(userBadge).toBeVisible({ timeout: 15_000 });
     await expect(userBadge).toHaveText("Connected"); // 內建一般成員 → editor：#335 起徽章只寫「Connected」，不帶角色
-    // Q14：群組筆記的讀者也有分享鈕（群組版面板只說明＋連到群組設定）
+    // 群組筆記的讀者也有分享鈕（群組版面板只說明＋連到群組設定）
     await expect(userPage.getByRole("button", { name: "Share", exact: true })).toBeVisible();
 
     const sentence = `typed by member ${Date.now()}`;
@@ -109,6 +109,10 @@ test("群組：建立 → 群組建筆記（/g/ 網址）→ 設定加人 → �
     // ── A：側欄群組 ⋮ →「Members & settings」（群組面板）→ 移除 B ──────────────
     await openGroupPanel(adminPage, groupName);
     await adminPage.getByRole("button", { name: `Remove ${secondEmail}` }).click();
+    // #395：移除先有確認對話框
+    await adminPage.getByRole("dialog", { name: "Remove member?" }).getByRole("button", { name: "Remove", exact: true }).click();
+    // 確認對話框開著時外層面板是 aria-hidden，toHaveCount(0) 會提早過：先等對話框收起。
+    await expect(adminPage.getByRole("dialog", { name: "Remove member?" })).toHaveCount(0);
     // 等那顆移除鈕消失＝那一列已移除。移除鈕自 #183 起是圖示鈕，email 只在它的 aria-label
     // （「Remove <email>」）裡、不在可見文字裡；用可及名稱找它，對到的就是那一列的操作。
     await expect(adminPage.getByRole("button", { name: `Remove ${secondEmail}` })).toHaveCount(0);
@@ -129,7 +133,7 @@ test("群組：建立 → 群組建筆記（/g/ 網址）→ 設定加人 → �
     await sidebar.getByRole("button", { name: `Group actions for ${groupName}` }).click();
     await adminPage.getByRole("menuitem", { name: "Delete group" }).click();
     const deleteDialog = adminPage.getByRole("dialog", { name: "Delete group?" });
-    // §8.6 PR4：兩模式、預設轉移（不丟資料的那條）。
+    // 兩模式、預設轉移（不丟資料的那條）。
     await expect(deleteDialog.getByRole("radio", { name: "Give them to an admin" })).toBeChecked();
     await expect(deleteDialog.getByRole("radio", { name: "Delete everything" })).not.toBeChecked();
     await deleteDialog.getByRole("button", { name: "Cancel", exact: true }).click();

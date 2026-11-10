@@ -1,9 +1,9 @@
 /**
- * #181 spec §6.8.1 `list_trash`：呼叫者有垃圾桶權（D-W9）的垃圾桶筆記——與 `GET /api/trash` 同一支查詢（`trash/list.ts`）。
- * 資料夾 PR-3d（folders spec §5.12）起每頁至多 `MCP_PAGE_MAX` 項、依 wire 預算可能更少（`pageCutShort`），以 `cursor`／`nextCursor`
- * 翻頁（keyset＝毫秒 `deleted_at` DESC, id DESC，與 REST 同鍵，Q3）；每項帶 `folderPath`。讀取類：不做 scope 檢查、不扣桶（同 `list_notes`）。
+ * #181 `list_trash`：呼叫者有垃圾桶權的垃圾桶筆記——與 `GET /api/trash` 同一支查詢（`trash/list.ts`）。
+ * 每頁至多 `MCP_PAGE_MAX` 項、依 wire 預算可能更少（`pageCutShort`），以 `cursor`／`nextCursor`
+ * 翻頁（keyset＝毫秒 `deleted_at` DESC, id DESC，與 REST 同鍵）；每項帶 `folderPath`。讀取類：不做 scope 檢查、不扣桶（同 `list_notes`）。
  *
- * 輸出是物件不是陣列（spec §9-11）：只增不改——`truncated` 的名字不改，意思是「還有下一頁」（≡ `nextCursor !== null`）。
+ * 輸出是物件不是陣列：只增不改——`truncated` 的名字不改，意思是「還有下一頁」（≡ `nextCursor !== null`）。
  * 回給模型的標題、刪除者名、群組名一律 `truncateText`（逃脫後計），路徑走 `truncateFolderPath`，只在真的截時才帶 `*Truncated: true`。
  * 本檔的 `deletedAt:`／`deletedBy:` 是 outputSchema 與 DTO 映射（讀取），已登記在 `trash-structure.test.ts` 守衛二。
  */
@@ -34,7 +34,7 @@ export const LIST_TRASH_DESCRIPTION =
   "`purgeAt` is when a note becomes due to be deleted permanently under the site's current trash setting " +
   "(an admin can change it, which moves every note's date), or null when this site doesn't empty the trash on its own at the moment.";
 
-/** 資料夾 PR-3d：`list_trash` 的 `.describe()`（逐字照 plan「待確認字串」；`nextCursor` 那句在 `paging-strings.ts`）。 */
+/** `list_trash` 的 `.describe()`（`nextCursor` 那句在 `paging-strings.ts`）。 */
 export const LT_CURSOR_DESCRIBE = "Opaque cursor from a previous call's `nextCursor`. Omit it to start with the newest.";
 export const LT_TRUNCATED_DESCRIBE = "True when more notes follow this page — the same as `nextCursor` not being null.";
 
@@ -136,7 +136,7 @@ export async function listTrash(args: { cursor?: string }, ctx: McpToolCtx): Pro
   if (settings === undefined) throw new Error(SITE_SETTINGS_MISSING_MESSAGE);
   const page = await listTrashPage(ctx.db, ctx.userId, settings.retentionDays, { limit: MCP_PAGE_MAX, after });
   const items = page.items.map(toTrashItemForModel);
-  // 依 wire 成本截頁（spec §5.12）：截了就從被收的最後一項接著翻；沒截而查詢還有下一列就從這頁最後一項接著翻。
+  // 依 wire 成本截頁：截了就從被收的最後一項接著翻；沒截而查詢還有下一列就從這頁最後一項接著翻。
   const kept = countWithinWireBudget(items.map(wireCost), TRASH_BASE_COST);
   const cut = kept < items.length;
   const lastKey = cut ? page.keys[kept - 1] : page.hasMore ? page.keys[page.keys.length - 1] : undefined;

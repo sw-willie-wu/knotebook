@@ -60,7 +60,7 @@ describe("POST /api/notes/:id/collab-token", () => {
     }
   });
 
-  it("有 session 但無權限（陌生人）→ 200 + role:'none'（絕不 403/404，spec §8-2 關鍵契約）", async () => {
+  it("有 session 但無權限（陌生人）→ 200 + role:'none'（絕不 403/404，關鍵契約）", async () => {
     const { app, db } = await buildTestApp();
     const owner = await insertUser(db, { email: "owner-ct2@example.com" });
     const stranger = await insertUser(db, { email: "stranger-ct2@example.com" });
@@ -160,7 +160,7 @@ describe("POST /api/notes/:id/collab-token", () => {
     expect(body.retryAfterMs).toBeUndefined();
   });
 
-  it("#240 R6 大寫 id 簽出的 token，claims.noteId 是小寫", async () => {
+  it("#240 大寫 id 簽出的 token，claims.noteId 是小寫", async () => {
     const { app, db } = await buildTestApp();
     const owner = await insertUser(db, { email: "owner-r6@example.com" });
     const cookie = await cookieFor(owner.id);

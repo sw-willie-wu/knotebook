@@ -3,7 +3,7 @@ import { avatarUrl, parseAvatarRef } from "./avatar.js";
 
 const id = "0f0e1d2c-3b4a-4958-8677-665544332211";
 
-describe("avatarUrl（SH3）", () => {
+describe("avatarUrl", () => {
   it("帶 ?v= 版本", () => {
     expect(avatarUrl(id, 3)).toBe(`/api/avatars/${id}?v=3`);
   });
@@ -12,7 +12,7 @@ describe("avatarUrl（SH3）", () => {
   });
 });
 
-describe("parseAvatarRef 合法（SH4）", () => {
+describe("parseAvatarRef 合法", () => {
   it("小寫 uuid 原樣", () => {
     expect(parseAvatarRef({ id, v: 1 })).toEqual({ id, v: 1 });
   });
@@ -26,7 +26,7 @@ describe("parseAvatarRef 合法（SH4）", () => {
   });
 });
 
-describe("parseAvatarRef 一律 null（SH5）", () => {
+describe("parseAvatarRef 一律 null", () => {
   it.each<[string, unknown]>([
     ["https 網址", "https://example.com/a.png"],
     ["javascript:", "javascript:alert(1)"],

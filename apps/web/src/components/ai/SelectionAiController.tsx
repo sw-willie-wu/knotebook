@@ -13,12 +13,19 @@ import { AiToolbar } from "./AiToolbar";
 import { SelectionAiBox } from "./SelectionAiBox";
 
 /**
- * 框選 AI 的掛載點（#263 §5.3）：`NoteEditor` 把它當 `NoteEditorView` 的 children 傳進 `<BlockNoteView>`，它是 **formatting toolbar
+ * 格式工具列外面那層 floating-ui 元素（包住工具列的 div，z-index 40）的標記：拖放中關得到它的指標命中（`index.css` 的 `.kb-dragging`）。
+ * ⋮⋮ 拖曳開始時 core 選取被拖的 block，工具列出現在它正上方；不關的話，放開在工具列上時 drop 會被它接走。
+ * 不放 `style`：`FormattingToolbarController` 是 `{ style: { zIndex: 40 }, ...elementProps }`，傳了 `style` 就整個蓋掉 z-index。
+ */
+export const FORMATTING_TOOLBAR_ELEMENT_PROPS = { "data-kb-formatting-toolbar-popover": "" } as FloatingUIOptions["elementProps"];
+
+/**
+ * 框選 AI 的掛載點（#263）：`NoteEditor` 把它當 `NoteEditorView` 的 children 傳進 `<BlockNoteView>`，它是 **formatting toolbar
  * controller 與 `SelectionAiBox` 的唯一擁有者**——`NoteEditorView` 不碰 AI context。
  *
- * 工具列壓制（D12）：`toolbarOpen = toolbarStoreOpen && !(boxOpen && selectionInsideTarget)`。`toolbarStoreOpen` 是上游 store
- * （pointerdown 期間恆為 false），**只用於這條壓制公式**；D12 的自動關閉用 `ai/selection.ts` 的 `toolbarWouldShow`（在 AiSession 裡）。
- * 覆寫 `useFloatingOptions.open` 即可收起：GenericPopover 以 floating 的 open 決定掛不掛（jsdom 探針實測，收合有約 270ms 轉場）。
+ * 工具列壓制：`toolbarOpen = toolbarStoreOpen && !(boxOpen && selectionInsideTarget)`。`toolbarStoreOpen` 是上游 store
+ * （pointerdown 期間恆為 false），**只用於這條壓制公式**；框的自動關閉用 `ai/selection.ts` 的 `toolbarWouldShow`（在 AiSession 裡）。
+ * 覆寫 `useFloatingOptions.open` 即可收起：GenericPopover 以 floating 的 open 決定掛不掛（jsdom 實測，收合有約 270ms 轉場）。
  */
 export function SelectionAiController() {
   const editor = useBlockNoteEditor();
@@ -33,7 +40,10 @@ export function SelectionAiController() {
   });
   const toolbarOpen = toolbarStoreOpen && !(boxOpen && insideTarget);
   // FormattingToolbarController 內部的 useMemo 以這個物件的身分為依賴——每次 render 新建會讓它每次重算。
-  const floatingUIOptions = useMemo<FloatingUIOptions>(() => ({ useFloatingOptions: { open: toolbarOpen } }), [toolbarOpen]);
+  const floatingUIOptions = useMemo<FloatingUIOptions>(
+    () => ({ useFloatingOptions: { open: toolbarOpen }, elementProps: FORMATTING_TOOLBAR_ELEMENT_PROPS }),
+    [toolbarOpen],
+  );
 
   return (
     <>

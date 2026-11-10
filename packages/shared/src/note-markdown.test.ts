@@ -25,7 +25,7 @@ describe("restoreMermaidBlocks", () => {
     expect(out[1]!.type).toBe("codeBlock");
     expect((out[2] as { children: Array<{ type: string }> }).children[0]!.type).toBe("mermaid");
   });
-  it("NM-COL1（並排 §11.11）：columnList → column → codeBlock(mermaid) 也還原成 mermaid", () => {
+  it("NM-COL1：columnList → column → codeBlock(mermaid) 也還原成 mermaid", () => {
     const out = restoreMermaidBlocks([
       { type: "columnList", children: [
         { type: "column", props: { width: 1 }, children: [{ type: "codeBlock", props: { language: "mermaid" }, content: [{ type: "text", text: "graph TD" }] }] },
@@ -78,7 +78,7 @@ describe("rebindWikilinks（唯一命中才綁）", () => {
     expect((blocks[0] as { content: Array<{ type: string }> }).content[0]!.type).toBe("text");
     expect(unbound).toBe(0);
   });
-  it("NM-COL2（並排 §11.11）：欄內段落的 [[A]] 也綁、unbound 0", () => {
+  it("NM-COL2：欄內段落的 [[A]] 也綁、unbound 0", () => {
     const [blocks, unbound] = rebindWikilinks(
       [{ type: "columnList", children: [
         { type: "column", props: { width: 1 }, children: [{ type: "paragraph", content: [{ type: "text", text: "[[A]]", styles: {} }], children: [] }] },

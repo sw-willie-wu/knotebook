@@ -6,13 +6,13 @@ import { buildCollabTestApp } from "./helpers.js";
 
 const PASSWORD = "correct-horse-battery";
 
-// Task 5 把 onAuthenticate 換成真驗證後，本檔一律走不帶 override 的 `connect()`
+// onAuthenticate 換成真驗證後，本檔一律走不帶 override 的 `connect()`
 // （經 `POST /api/notes/:id/collab-token` 取真 token）；索引以 userId 辨識（不再是
-// Task 1 spike 那種「token 字面值即 userId」的過渡形狀），需要兩個不同身分的地方改用
+// 「token 字面值即 userId」的過渡形狀），需要兩個不同身分的地方改用
 // 兩個真實使用者（owner + share 出去的 editor）。
 
 // 只在本檔用來辨識「這則 CLOSE 是我們主動送的」。真正的撤權 reason 常數（
-// COLLAB_CLOSE_REVOKED 等）由 Task 2 定義、Task 6 消費。
+// COLLAB_CLOSE_REVOKED 等）由 collab 常數定義、撤權流程消費。
 const TEST_CLOSE_REASON = "knotebook:test-closed";
 
 /**
@@ -55,7 +55,7 @@ describe("Hocuspocus v4 × Fastify 共編同步", () => {
     expect(b.doc.getXmlFragment(YDOC_FRAGMENT).toString()).toBe("<paragraph>hello from A</paragraph>");
   });
 
-  it("連線索引隨連線建立/中斷增減（Task 5/6 撤權的地基）", async () => {
+  it("連線索引隨連線建立/中斷增減（撤權的地基）", async () => {
     const ctx = await buildCollabTestApp();
     const alice = await ctx.createUser({ email: "alice@example.com", password: PASSWORD });
     const bob = await ctx.createUser({ email: "bob@example.com", password: PASSWORD });
@@ -100,7 +100,7 @@ describe("Hocuspocus v4 × Fastify 共編同步", () => {
 
     // 索引裡剩下的必須是**活著**的那條：拿它關線，client 要真的收得到。若索引誤留舊的
     // （已從 document 移除的）handle，`Connection.close` 的 hasConnection 守衛會讓它靜靜
-    // 什麼都不做——撤權就會漏掉一個還在編輯的使用者（Task 6 的失效模式）。
+    // 什麼都不做——撤權就會漏掉一個還在編輯的使用者。
     const handle = [...ctx.collab.connectionsOfNote(note.id)][0];
     handle.close(TEST_CLOSE_REASON);
 
@@ -118,7 +118,7 @@ describe("Hocuspocus v4 × Fastify 共編同步", () => {
     await session.connect(note.id);
     const handle = [...ctx.collab.connectionsOf(alice.id)][0];
 
-    // 同一連線登記兩個回呼：兩個都必須被觸發（Task 6 的 deadline 在 5s 內可能重覆
+    // 同一連線登記兩個回呼：兩個都必須被觸發（deadline 在 5s 內可能重覆
     // 登記，若實作用「單一 cb 覆寫」會讓第一個 timer 永不解除、誤殺已重驗成功者）。
     let first = 0;
     let second = 0;

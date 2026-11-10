@@ -13,11 +13,11 @@ import { cn } from "@/lib/utils";
 export const OFFLINE_WARN_MS = 3_000;
 
 /**
- * 6 個 phase（#269 加 `outdated`：中性灰點、不升級成離線警示）→ i18n key ＋ 點色（PR2 D.2：離開 pill 徽章，改成「狀態點＋文字」的
+ * 6 個 phase（#269 加 `outdated`：中性灰點、不升級成離線警示）→ i18n key ＋ 點色（離開 pill 徽章，改成「狀態點＋文字」的
  * 精簡形，色彩訊號集中在點上——`PHASE_STYLES` 因此由原本「2 類 className」（預設灰／
  * 警示紅）擴為「點色映射」，5 個 phase 文案分支與 #48 的計時邏輯完全零改動）。
  * `connected` 用字面值 `oklch(0.8 0.17 152)`（≈ #4ade80）而不是 Tailwind class：
- * PR3 才接主題色系統，這裡的狀態綠是跟主題無關的語意色，先用字面值頂著。
+ * 這裡的狀態綠是跟主題無關的語意色，用字面值。
  */
 const PHASE_STYLES: Record<CollabState["phase"], { key: string; dotClassName: string; dotStyle?: CSSProperties }> = {
   connecting: { key: "note.connection.connecting", dotClassName: "bg-muted-foreground" },
@@ -32,7 +32,7 @@ const PHASE_STYLES: Record<CollabState["phase"], { key: string; dotClassName: st
  * 編輯頁頁頭的連線狀態徽章：顯示 `collabReducer` 的 phase（#335：不再帶角色）。
  * 連上時——能編輯的角色（owner／editor）只顯示「已連線」；不能編輯的角色（viewer／none）
  * 改顯示「唯讀」取代「已連線」（連上即顯示，不等 synced），點維持綠色（內容仍是即時的）。
- * N4 降級除了 toast 之外，仍有這個持續存在的視覺線索。角色本身不在徽章上出現（要看自己的角色：
+ * 降級除了 toast 之外，仍有這個持續存在的視覺線索。角色本身不在徽章上出現（要看自己的角色：
  * 側欄「與我共享」列表的 Editor／Viewer 標示、群組筆記看群組面板的成員表；頭像名單不列自己）；
  * 窄視窗與螢幕閱讀器也不再讀出角色——能不能編輯已由「唯讀」與編輯器本身表達。
  *
@@ -70,7 +70,7 @@ export function ConnectionBadge({
   // 「還不能用」已經持續超過門檻。用 timer 而非「進相位的時刻」相減，才能在跨過門檻的
   // 當下觸發一次 re-render（否則畫面要等下一次不相關的 render 才升級）。
   //
-  // ⚠ **「還不能用」＝非 connected，或 connected 但還沒 synced**（審查兩位獨立指出）：
+  // ⚠ **「還不能用」＝非 connected，或 connected 但還沒 synced**：
   // `onAuthenticated` 就進 `connected`，但 `provider.synced` 要再一個 round trip；若
   // server 的 `onLoadDocument` 慢或丟錯，會永久卡在「已連線」配一篇空白唯讀
   // 筆記。只看 phase 的話這一格永遠不升級——正是 #48 要消滅的形狀，只是方向反過來。

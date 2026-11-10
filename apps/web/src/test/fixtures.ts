@@ -1,7 +1,7 @@
 import type { GroupDto, GroupRoleDto, NotePermissions } from "@knotebook/shared";
 
 /**
- * #175 PR1：web 測試 fixture 的共用形（plan Task 11 Step 3）。`NoteDto.permissions` 與
+ * #175：web 測試 fixture 的共用形。`NoteDto.permissions` 與
  * `GroupDto.myRole`（物件）是 #175 新增／改形的欄位，逐檔手抄容易抄錯形——集中在這裡。
  *
  * 各 permissions 形對應 server `notes/service.ts` 的三件組（owner／逐人分享 editor／viewer）；
@@ -86,7 +86,7 @@ export function groupDto(base: { id: string; name: string; createdAt?: string },
   };
 }
 
-/** #175 PR3：自訂角色（預設六個可設旗標全關＝只能閱讀、沒人掛）。 */
+/** #175：自訂角色（預設六個可設旗標全關＝只能閱讀、沒人掛）。 */
 export function customRole(overrides: Partial<GroupRoleDto> = {}): GroupRoleDto {
   return {
     id: "r-custom",

@@ -18,7 +18,7 @@ import { __resetFolderSortForTests, setFolderSort } from "@/components/sidebar/f
 import { FOLDER_LIST_EMPTY, folderDto, groupFolder, sharedFolder } from "@/test/folder-fixtures";
 import { groupNote as selGroupNote, personalNote, sharedNote } from "@/test/select-fixtures";
 
-// `sidebar.tab`／`sidebar.collapsed.*`（含 collapse store 的記憶體覆蓋層）會往外流到同檔後面的案（亂序跑時尤其），檔案頂層清（plan I3）。
+// `sidebar.tab`／`sidebar.collapsed.*`（含 collapse store 的記憶體覆蓋層）會往外流到同檔後面的案（亂序跑時尤其），檔案頂層清。
 afterEach(() => {
   localStorage.clear();
   __resetCollapseForTests();
@@ -36,7 +36,7 @@ function SetActive({ id }: { id: string }) {
 
 // 跟 App.test.tsx / guards.test.tsx 同一套約定：mock 全域 fetch，讓真正的
 // useNotes()（react-query）打到假回應，而不是 mock hook 本身——這樣測到的是
-// NoteList 與 Task 10 hooks 真實串接後的行為。
+// NoteList 與 hooks 真實串接後的行為。
 
 interface FakeResponseInit {
   ok: boolean;
@@ -171,18 +171,18 @@ function groupNote(
   };
 }
 
-/** 群組筆記、我是 A 成員（管理員角色 → editor）→ A 群組（spec §8.2 第 1 列）。 */
+/** 群組筆記、我是 A 成員（管理員角色 → editor）→ A 群組。 */
 const MY_GROUP_NOTE: NoteDto = groupNote(
   { id: "44444444-4444-4444-4444-444444444444", title: "Mine In A", slug: "mine-in-a", groupId: GROUP_A.id, groupName: GROUP_A.name },
   "editor",
 );
-/** 群組筆記、我的角色只能讀 → A 群組，不標角色（§8.2 第 1 列）。 */
+/** 群組筆記、我的角色只能讀 → A 群組，不標角色。 */
 const OTHERS_GROUP_NOTE: NoteDto = groupNote(
   { id: "55555555-5555-5555-5555-555555555555", title: "Theirs In A", slug: "theirs-in-a", groupId: GROUP_A.id, groupName: GROUP_A.name },
   "viewer",
   { ...VIEWER_PERMS },
 );
-/** 群組筆記、但那個群組不在 useGroups() 裡（剛被移出、清單未 refetch）→ 與我共享（兜底，§8.2 第 2 列）。 */
+/** 群組筆記、但那個群組不在 useGroups() 裡（剛被移出、清單未 refetch）→ 與我共享（兜底）。 */
 const ORPHAN_GROUP_NOTE: NoteDto = groupNote(
   { id: "66666666-6666-6666-6666-666666666666", title: "Orphan", slug: "orphan", groupId: "99999999-9999-9999-9999-999999999999", groupName: "Gone" },
   "editor",
@@ -311,7 +311,7 @@ describe("NoteList", () => {
     expect(touchRow.closest("li")).toHaveClass("h-11", "md:h-7");
     // 觸控目標是 <Link> 不是 <li>：li 撐 44 高但 items-center 下錨點只有內容高
     // （~20px），上下各 12px 是死區——Link 要 self-stretch 吃滿列高才是真的 44px
-    // 目標（審查抓到的「宣稱到不了的行為」形）。
+    // 目標（「宣稱到不了的行為」形）。
     expect(touchRow).toHaveClass("self-stretch", "flex", "items-center");
   });
 
@@ -342,7 +342,7 @@ describe("NoteList", () => {
     expect(within(panel()).getByRole("link", { name: "Third Owner Note" })).not.toHaveAttribute("aria-current");
   });
 
-  // PR3：active 列跟主題色，且 hover 態要一起換成 brand（B3——twMerge 讓後出的
+  // active 列跟主題色，且 hover 態要一起換成 brand（twMerge 讓後出的
   // hover:bg-brand-soft-strong 蓋掉 hover:bg-brand-soft，同一個 variant 群組互斥）。
   // 握把：class 掛在 <li>，不是 <a>，因此用 getByRole("link").closest("li") 取。
   it("active 列套用主題色 tint（bg-brand-soft/text-brand-on-soft/hover:bg-brand-soft-strong）", async () => {
@@ -398,7 +398,7 @@ describe("NoteList", () => {
   });
 
   it("active 以 id 為錨：**同一棵樹**上 title/slug 全變（模擬改標題後清單更新）→ 高亮不掉、恰一個", async () => {
-    // 「跨 pattern 換頁」案延 Task 5b（plan gate m17——/n/ route 屆時才存在）。
+    // 「跨 pattern 換頁」案待 /n/ route 存在後再補。
     stubNotesFetch([OWNER_NOTE, SHARED_NOTE]);
     const { queryClient } = renderNoteList({}, { activeId: OWNER_NOTE.id });
     await within(panel()).findByRole("link", { current: "page" });
@@ -413,10 +413,10 @@ describe("NoteList", () => {
     expect(current[0]).toHaveAccessibleName("Renamed Entirely");
   });
 
-  // ── tab 標題列（spec §5.1-4／§5.2） ──
+  // ── tab 標題列 ──
 
   describe("NL1 標題列", () => {
-    // PR-2c 起四個一般 tab 的標題列都多一顆「Select」（選取模式本身見 sidebar/SelectPanel.test.tsx）。
+    // 四個一般 tab 的標題列都多一顆「Select」（選取模式本身見 sidebar/SelectPanel.test.tsx）。
     it("我的筆記：標題＋「Select」＋常駐的「New personal note」鈕（不浮出）", async () => {
       stubNotesFetch([OWNER_NOTE]);
       renderNoteList();
@@ -439,7 +439,7 @@ describe("NoteList", () => {
       expect(within(header()).getAllByRole("button")[0]).toHaveAccessibleName("Select");
     });
 
-    // FR-S1（資料夾 PR-3b-2 T7；spec §6.1）：與我共享多一顆「New folder」，排在 Select 之後。
+    // 與我共享多一顆「New folder」，排在 Select 之後。
     it("最近：標題列只有「Select」；與我共享：「Select」＋「New folder」", async () => {
       stubNotesFetch([OWNER_NOTE, SHARED_NOTE]);
       renderNoteList({}, { tab: "recent" });
@@ -513,7 +513,7 @@ describe("NoteList", () => {
   });
 
   describe("NL4 群組", () => {
-    it("群組節點依 groups 順序；群組列不標角色；#175 §8.2：我的角色在群組內的筆記落群組", async () => {
+    it("群組節點依 groups 順序；群組列不標角色；#175：我的角色在群組內的筆記落群組", async () => {
       stubNotesFetch([OWNER_NOTE, MY_GROUP_NOTE, OTHERS_GROUP_NOTE, SHARED_NOTE, ORPHAN_GROUP_NOTE], [GROUP_B, GROUP_A]);
       renderNoteList({}, { tab: "workspace" });
 
@@ -554,7 +554,7 @@ describe("NoteList", () => {
       expect(within(panel()).getByRole("link", { name: "Mine In A" })).toBeInTheDocument();
     });
 
-    it("RF4：localStorage 拋錯（隱私模式）→ 側欄照常、預設展開、本次 session 仍能折疊", async () => {
+    it("localStorage 拋錯（隱私模式）→ 側欄照常、預設展開、本次 session 仍能折疊", async () => {
       const getItem = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
         throw new Error("SecurityError");
       });
@@ -598,13 +598,13 @@ describe("NoteList", () => {
       expect(group).toContainElement(guide);
       expect(row).toHaveClass("pl-3", "pr-2");
       expect(row).not.toHaveClass("pl-6");
-      // 群組節點直接掛在清單的 ul 底下，沒有 pl-4 外包（讀碼發現 10）。
+      // 群組節點直接掛在清單的 ul 底下，沒有 pl-4 外包。
       expect(group.parentElement?.tagName).toBe("UL");
       expect(group.parentElement).not.toHaveClass("pl-4");
       expect(group.parentElement?.parentElement).toBe(list().firstElementChild);
     });
 
-    it("#247 §4.10：群組列 hover 是品牌 tint，不是中性灰", async () => {
+    it("#247：群組列 hover 是品牌 tint，不是中性灰", async () => {
       stubNotesFetch([MY_GROUP_NOTE], [GROUP_A]);
       renderNoteList({}, { tab: "workspace" });
       await within(panel()).findByRole("button", { name: "Workshop A" });
@@ -685,7 +685,7 @@ describe("NoteList", () => {
       );
     });
 
-    it("群組列「＋」→ onCreateNote(群組 id)；群組取名「My notes」時與標題列的「＋」可及名稱不同（#103 PR3）", async () => {
+    it("群組列「＋」→ onCreateNote(群組 id)；群組取名「My notes」時與標題列的「＋」可及名稱不同（#103）", async () => {
       const onCreateNote = vi.fn();
       const lookalike: GroupDto = { ...GROUP_A, name: "My notes" };
       stubNotesFetch([OWNER_NOTE], [lookalike]);
@@ -697,7 +697,7 @@ describe("NoteList", () => {
       expect(within(header()).queryByRole("button", { name: "New personal note" })).toBeNull();
     });
 
-    it("#175 §8.2：群組列「＋」只在能建立且能編輯時渲染——不能建立的角色沒有「＋」，⋮ 照舊", async () => {
+    it("#175：群組列「＋」只在能建立且能編輯時渲染——不能建立的角色沒有「＋」，⋮ 照舊", async () => {
       // 自訂角色「讀者」：只有 read。一般成員（內建）有 create——兩個群組並排，各看各的角色。
       const readerRole = memberRole({
         id: "r-reader",
@@ -720,7 +720,7 @@ describe("NoteList", () => {
       expect(onCreateNote).toHaveBeenLastCalledWith(memberGroup.id);
     });
 
-    it("#175 PR3（spec 疑點 11）：能新建但不能編輯的角色沒有「＋」——建出來的是自己也改不了的空白筆記；⋮ 照舊", async () => {
+    it("#175：能新建但不能編輯的角色沒有「＋」——建出來的是自己也改不了的空白筆記；⋮ 照舊", async () => {
       const creatorRole = memberRole({
         id: "r-creator",
         builtin: null,
@@ -1215,7 +1215,7 @@ describe("筆記列 ⋮", () => {
     expect(screen.getByTestId("location")).toHaveTextContent(/^\/somewhere\|null$/);
   });
 
-  it("NM-T7 別篇：按 toast 的 Undo → 送 restore、網址不變（不是開著的那篇，不導過去）", async () => {
+  it("別篇：按 toast 的 Undo → 送 restore、網址不變（不是開著的那篇，不導過去）", async () => {
     const { calls } = renderRowMenu(null);
     const menu = await openRowMenu(await ownerRowTrigger());
     fireEvent.click(within(menu).getByRole("menuitem", { name: "Delete" }));
@@ -1304,8 +1304,8 @@ describe("筆記列 ⋮", () => {
     expect(calls).toContain(`DELETE /api/notes/${OWNER_NOTE.id}`);
   });
 
-  // #175 §8.3（gate r1 B-N10）：側欄 ⋮ 與頁首共用 NoteMenuCore，但清單列的 `permissions` 來自
-  // `GET /api/notes` 的 grouped 支欄位（規格落差 4）——另一條資料路徑，所以在清單列上各釘一次。
+  // #175：側欄 ⋮ 與頁首共用 NoteMenuCore，但清單列的 `permissions` 來自
+  // `GET /api/notes` 的 grouped 支欄位——另一條資料路徑，所以在清單列上各釘一次。
   it("#175：群組筆記列（role editor、permissions.delete true）的 ⋮ 有「Delete」，按下打 DELETE", async () => {
     const deletable = groupNote(
       { id: "77777777-7777-7777-7777-777777777777", title: "Group Deletable", slug: "group-deletable", groupId: GROUP_A.id, groupName: GROUP_A.name },
@@ -1339,7 +1339,7 @@ describe("筆記列 ⋮", () => {
   });
 });
 
-// ── 資料夾樹（資料夾 PR-3b-1 T2；spec §6.2、§6.3、§6.4、§6.8、§6.9、§6.14）
+// ── 資料夾樹
 describe("NoteList × 資料夾", () => {
   const G: GroupDto = groupDto({ id: "G", name: "G" }, adminRole());
   const FOLDERS: FolderDto[] = [
@@ -1589,7 +1589,7 @@ describe("NoteList × 資料夾", () => {
   });
 });
 
-// ── 新增資料夾入口（資料夾 PR-3b-1 T3；spec §6.1、§6.3）
+// ── 新增資料夾入口
 describe("NoteList × 新增資料夾", () => {
   const G: GroupDto = groupDto({ id: "G", name: "G" }, adminRole());
   const R: GroupDto = groupDto({ id: "R", name: "R" }, customRole());
@@ -1631,7 +1631,7 @@ describe("NoteList × 新增資料夾", () => {
     vi.unstubAllGlobals();
   });
 
-  it("FR12 我的筆記標題列依序 Select、New folder、New personal note；New folder 帶 folder-plus 圖示、24px；與我共享 Select、New folder（PR-3b-2 T7）；群組 Select、New group", async () => {
+  it("FR12 我的筆記標題列依序 Select、New folder、New personal note；New folder 帶 folder-plus 圖示、24px；與我共享 Select、New folder；群組 Select、New group", async () => {
     stubCreate();
     renderNoteList();
     await within(panel()).findByRole("link", { name: OWNER_NOTE.title });

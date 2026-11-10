@@ -1,17 +1,16 @@
 import { createHash } from "node:crypto";
 import { SignJWT, jwtVerify } from "jose";
 import { eq } from "drizzle-orm";
-import { SESSION_COOKIE } from "@knotebook/shared";
+import { SESSION_COOKIE, SITE_LIMITS } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
 import { sessions, users } from "../db/schema.js";
 import { BoundedMap } from "../lib/bounded-map.js";
 
-// 唯一定義處：session JWT 的 exp 與 session cookie 的 maxAge（見 `cookies.ts` 的
-// `setSessionCookie`）必須同源，不要各自寫死「7 天」——改這裡即可同時影響兩者。
-export const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
-// jose 的 duration 字串只認 "<數字><單位>"（s/m/h/d/w/y），這裡用 "s"（秒）而非 "7d"，
-// 讓字串直接由上面那個以秒為單位的常數算出，避免兩處各自寫一份「7 天」的字面量。
-const SESSION_TTL = `${SESSION_TTL_SECONDS}s`;
+// 網頁登入有效期的**預設值**（註冊表 `sessionTtlSeconds` 的 default，7 天）。實際簽發用的有效期由管理員調整（#397）：
+// 每次簽發 session 時讀一次 `siteLimits.get("sessionTtlSeconds")`，同一個值傳給 `signSession`（JWT 的 exp）、
+// `setSessionCookie`（cookie 的 maxAge）與 `newSessionValues`（`sessions.expires_at`），見 `auth/sessions.ts`。
+// 簽發路徑不用這個常數。
+export const SESSION_TTL_SECONDS = SITE_LIMITS.sessionTtlSeconds.default;
 
 function sessionKey(secret: string): Uint8Array {
   return createHash("sha256").update(`${secret}:session`).digest();
@@ -24,14 +23,17 @@ export const SID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
  * 只簽 JWT，**不建 sessions 列**——登入路徑一律先建列再簽：一般登入走 `auth/sessions.ts` 的 `startSession`，改密碼／加上密碼／
  * 重設密碼在各自的交易裡換列（`auth/tx/change-password.ts`、`auth/tx/password-reset.ts`）後走 `setSessionCookieFor`。
  * `sid` 是 `sessions.id`（#388）：沒有對應列的 JWT 過不了 `UserGate.check`。
+ * `ttlSeconds` 必須跟建那一列（`newSessionValues`）與 cookie 的 maxAge 用同一個值（#397）：列比 JWT 先到期的話，
+ * `UserGate.check` 會判 revoked，使用者在 cookie 到期前就被登出。
  */
-export async function signSession(secret: string, payload: { userId: string; tv: number; sid: string }): Promise<string> {
+export async function signSession(secret: string, payload: { userId: string; tv: number; sid: string }, ttlSeconds: number): Promise<string> {
   const key = sessionKey(secret);
   return new SignJWT({ tv: payload.tv, sid: payload.sid })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(payload.userId)
     .setIssuedAt()
-    .setExpirationTime(SESSION_TTL)
+    // jose 的 duration 字串只認 "<數字><單位>"；用秒，直接由傳入的秒數組出。
+    .setExpirationTime(`${ttlSeconds}s`)
     .sign(key);
 }
 
@@ -56,12 +58,12 @@ export interface GateUser {
   handle: string;
   displayName: string;
   isAdmin: boolean;
-  /** 首登強制改密碼旗標（spec rev 5.7）——`GET /api/auth/me` 直接回傳 `request.user`
+  /** 首登強制改密碼旗標——`GET /api/auth/me` 直接回傳 `request.user`
    * （見 app.ts 的 `authenticate`），故此欄位需在此就撈出，login 回應才有得帶。 */
   mustChangePassword: boolean;
-  /** OIDC-only 帳號為 false（=`password_hash IS NULL`）——spec §14.4。 */
+  /** OIDC-only 帳號為 false（=`password_hash IS NULL`）。 */
   hasPassword: boolean;
-  /** 版本歷史 §6.8：`/api/auth/me` 直接回 `request.user`，此欄必須在 Gate 層就撈。 */
+  /** 版本歷史：`/api/auth/me` 直接回 `request.user`，此欄必須在 Gate 層就撈。 */
   autoVersions: boolean;
 }
 
@@ -116,7 +118,7 @@ const CACHE_TTL_MS = 60_000;
 /**
  * 使用者狀態閘：查 users 表判斷 token 是否仍有效（tokenVersion 相符、未被停用）。
  *
- * 內建 LRU-ish 快取（依插入順序淘汰即可，見任務規格）：上限 maxEntries，TTL 60s。
+ * 內建 LRU-ish 快取（依插入順序淘汰即可）：上限 maxEntries，TTL 60s。
  * `invalidate(userId)` 同步刪除快取條目——這是即時撤銷（改密碼、停權等）的主路徑；
  * TTL 只是保底，確保即使漏呼叫 invalidate，最多 60 秒後也會反映最新 DB 狀態。
  *
@@ -175,7 +177,7 @@ export class UserGate {
   /**
    * #107：token 路徑（Bearer）的使用者狀態閘。與 `check()` **共用同一條 fetch／
    * 快取／generation-counter 路徑**（`getRow`），差別只在評估時**不比對
-   * tokenVersion**——D3：改密碼不作廢 API token（比照 GitHub PAT），撤銷靠設定頁
+   * tokenVersion**——改密碼不作廢 API token（比照 GitHub PAT），撤銷靠設定頁
    * 逐支撤或 admin 停權。
    *
    * 實作上是「把列自己的 tokenVersion 傳給 evaluate」＝那個比較恆真，於是只剩
@@ -287,7 +289,7 @@ export class UserGate {
 /**
  * cookie session 的解析，**不送回應**——回 null＝這個請求沒有有效 session（無 cookie、簽章壞、沒有 `sid` 的舊 JWT、tokenVersion 不符、
  * 停用、帳號不在、session 列已刪或已過期）。
- * 自 `app.ts` 抽出（#187 §8.1：手動連結的 callback 必須維持「一律 302」，不能掛 `authenticate` preHandler，只借它的核心）。
+ * 自 `app.ts` 抽出（#187：手動連結的 callback 必須維持「一律 302」，不能掛 `authenticate` preHandler，只借它的核心）。
  */
 export async function resolveSessionUser(
   cookies: Record<string, string | undefined>,

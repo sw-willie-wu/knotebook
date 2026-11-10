@@ -13,9 +13,9 @@ function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string
 }
 
 /**
- * 設定裡的「儲存空間」群組（spec §9.2）：個人（帳號頁）與群組（群組詳情、manageGroup）共用。三態：
+ * 設定裡的「儲存空間」群組：個人（帳號頁）與群組（群組詳情、manageGroup）共用。三態：
  * 有上限「已使用 X／Y（方案）」、無上限「已使用 X（無上限，方案）」、已達上限（用量 >= 上限：警示色＋「已達上限，無法再新增附件」）。
- * 只顯示、不能改方案（D3）。載入成功時末尾一行靜態說明「垃圾桶裡的筆記也計入用量」（#181 D-W4；不另算垃圾桶占多少）。
+ * 只顯示、不能改方案。載入成功時末尾一行靜態說明「垃圾桶裡的筆記也計入用量」（#181；不另算垃圾桶占多少）。
  */
 export function StorageUsageGroup({ title, query }: { title: string; query: UseQueryResult<StorageUsageDto> }) {
   const { t } = useTranslation();

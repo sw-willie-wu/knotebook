@@ -6,8 +6,7 @@ import "@/i18n";
 import { BlockAnchorContext, type BlockAnchorApi } from "./block-anchor-context";
 import { useWikilinkActivate } from "@/components/wikilink/useWikilinkClick";
 
-// spec 2026-10-13 site-links §10.2、§15.1 W8；Review Focus RF4。Host 照真實掛載：member 用**真的 useCollab**＋假 provider
-// （memory knotebook-review-probe-fidelity-lessons），root 在 doc 存在時才有這篇的區塊。
+// W8。Host 照真實掛載：member 用**真的 useCollab**＋假 provider，root 在 doc 存在時才有這篇的區塊。
 
 interface FakeProvider {
   emit(event: string, payload: unknown): void;
@@ -51,7 +50,7 @@ const commits: Array<{ noteId: string | undefined; synced: boolean; docNull: boo
 /**
  * NotePage 的形：同一個實例、noteId 由解析層給（轉場中 undefined）；錨點走**正式的** `useMemberBlockAnchor`（NotePage 呼叫的同一支）。
  * 區塊只在**這一篇同步之後**才出現——真實頁面上 B 的 Y.Doc 在 provider 同步前是空的，BlockNote 沒有任何區塊可渲染
- * （plan gate r1 I2：先前「doc 有了就渲染」讓殘值 commit 也找得到區塊，跨篇案分不出對錯）。
+ * （先前「doc 有了就渲染」讓殘值 commit 也找得到區塊，跨篇案分不出對錯）。
  */
 function MemberHost({ noteId, rootKey = 0, presenting = false }: { noteId: string | undefined; rootKey?: number; presenting?: boolean }) {
   navigate = useNavigate();
@@ -138,7 +137,7 @@ describe("#269 blockIdFromHash／scrollToBlock", () => {
   }
   const overlaysIn = (root: HTMLElement) => root.querySelectorAll(`.${ANCHOR_FLASH_CLASS}`);
 
-  it("找得到：捲＋高亮浮層蓋住該區塊（座標由 rect 換算）、掛在 ProseMirror 管轄外的文章欄、區塊本身不改屬性；RF4 巢狀區塊也找得到", () => {
+  it("找得到：捲＋高亮浮層蓋住該區塊（座標由 rect 換算）、掛在 ProseMirror 管轄外的文章欄、區塊本身不改屬性；巢狀區塊也找得到", () => {
     const { root, column, target } = pageLikeRoot();
     scrollToBlock(root, "deep");
     expect(scrolls).toEqual(["n:deep"]);
@@ -234,11 +233,11 @@ describe("#269 W8 useBlockAnchor（member：真的 useCollab）", () => {
     expect(commits.some((c) => c.noteId === B && c.synced && c.docNull)).toBe(true);
     expect(scrolls).toEqual([]);
     act(() => providerAt(0).emit("synced", { state: true })); // A 的舊 provider 遲到的 synced：synced 變 true、syncedFor 仍 null
-    // 這一發是**假 provider 製造的分辨條件**（plan gate r2 I1）：假 provider 的 destroy 不清監聽器，所以被拆掉的 A 仍能送出 "synced"；
+    // 這一發是**假 provider 製造的分辨條件**：假 provider 的 destroy 不清監聽器，所以被拆掉的 A 仍能送出 "synced"；
     // useCollab 的 `setSynced(true)` 沒有 `disposed` 守衛（`setSyncedFor` 有）⇒ `synced` 為真、`syncedFor` 仍是 null。看 synced 的實作在這裡
     // 就消耗、B 的區塊還沒渲染、MutationObserver 2 s 後放棄 ⇒ scrolls 為空；看 syncedFor 的實作等到 syncedFor === B 才消耗 ⇒ 恰捲一次。
     // 產品上到不了這一步：真的 `HocuspocusProvider.destroy()` 會 removeAllListeners（useCollab 的 cleanup 同步呼叫它）。只走殘值 commit 那條路
-    // 時兩者等價（pending 設定與 synced 歸零在同一次批次更新）——`syncedFor` 在產品上是防禦性條件（spec rev 5）。
+    // 時兩者等價（pending 設定與 synced 歸零在同一次批次更新）——`syncedFor` 在產品上是防禦性條件。
     // 真計時器：等超過 ANCHOR_WAIT_MS 才讓 B 同步。
     await act(async () => {
       await new Promise((r) => setTimeout(r, ANCHOR_WAIT_MS + 300));
@@ -310,7 +309,7 @@ describe("#269 W8 useBlockAnchor（member：真的 useCollab）", () => {
     expect(scrolls).toEqual([]);
   });
 
-  it("§10.1 簡報播放中（presenting）冷開 /notes/B?present#b-x：同步後也不捲", () => {
+  it("簡報播放中（presenting）冷開 /notes/B?present#b-x：同步後也不捲", () => {
     render(
       <MemoryRouter initialEntries={["/notes/B?present#b-x"]}>
         <MemberHost noteId={B} presenting />
@@ -348,7 +347,7 @@ describe("#269 W8 useBlockAnchor（公開頁）", () => {
     expect(scrolls).toEqual(["path:h/b:x"]);
   });
 
-  it("§10.1 簡報播放中（ignore）冷開 …?present#b-x：不設定、不捲", () => {
+  it("簡報播放中（ignore）冷開 …?present#b-x：不設定、不捲", () => {
     function PresentingHost() {
       const [root, setRoot] = useState<HTMLElement | null>(null);
       useBlockAnchor({ noteKey: "path:h/b", ready: true, root, ignore: true, currentNoteId: null });

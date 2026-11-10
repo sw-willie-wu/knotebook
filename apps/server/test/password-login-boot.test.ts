@@ -12,7 +12,7 @@ import { seedAuthProvider } from "./helpers/oidc-provider.js";
 
 const fakeLogger = () => ({ warn: vi.fn(), error: vi.fn() });
 
-describe("warnPasswordLoginAtBoot（#187 §10.4：不擋啟動，只寫 log）", () => {
+describe("warnPasswordLoginAtBoot（#187：不擋啟動，只寫 log）", () => {
   it("預設（DB 開、env 未設）→ 一行都不印", async () => {
     const { db } = await buildTestApp();
     const logger = fakeLogger();
@@ -36,7 +36,7 @@ describe("warnPasswordLoginAtBoot（#187 §10.4：不擋啟動，只寫 log）",
     expect(on.warn.mock.calls).toEqual([[PASSWORD_LOGIN_FORCED_NOOP_LOG]]);
   });
 
-  it("有效值關＋零個啟用 provider（只可能是手改 DB，INV-8）→ error 一行；有啟用 provider 時不印", async () => {
+  it("有效值關＋零個啟用 provider（只可能是手改 DB）→ error 一行；有啟用 provider 時不印", async () => {
     const { db } = await buildTestApp();
     await db.update(siteSettings).set({ passwordLoginEnabled: false });
     const none = fakeLogger();

@@ -18,7 +18,7 @@ describe("collab token jwt", () => {
     expect(result).toEqual({ noteId: "note-1", userId: "user-1", role: "editor", tv: 3, sid: SID, sv: 0 });
   });
 
-  it("role:'none' 可簽可驗（§11.5-1：無權限使用者也拿得到合法 token）", async () => {
+  it("role:'none' 可簽可驗（無權限使用者也拿得到合法 token）", async () => {
     const token = await signCollabToken(secret, { noteId: "note-1", userId: "user-1", role: "none", tv: 0, sid: SID, sv: 0 });
     const result = await verifyCollabToken(secret, token);
     expect(result).toEqual({ noteId: "note-1", userId: "user-1", role: "none", tv: 0, sid: SID, sv: 0 });
@@ -140,7 +140,7 @@ describe("FixedWindowLimiter", () => {
     expect(limiter.consume("k")).toBe(false);
   });
 
-  it("consumeMany n > limit（T4 review r2 I-1）：夾到整窗額度——只在空窗放行並扣滿；同窗再發拒絕且不扣；下一窗再放行", () => {
+  it("consumeMany n > limit：夾到整窗額度——只在空窗放行並扣滿；同窗再發拒絕且不扣；下一窗再放行", () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
     const limiter = new FixedWindowLimiter({ limit: 5, windowMs: 1_000 });

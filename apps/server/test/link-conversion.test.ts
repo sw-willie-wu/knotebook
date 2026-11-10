@@ -10,7 +10,6 @@ import { loadDoc, seedDoc, wikilinkDoc } from "./copy-helpers.js";
 import { seedGroup, seedNote, seedShare } from "./group-helpers.js";
 import { seedOldNote, versionsOf } from "./version-helpers.js";
 
-// spec 2026-10-13 site-links §12、§15.2 I3；Review Focus RF5。
 const PASSWORD = "correct-horse-battery";
 const ORIGIN = testConfig.publicUrl.origin;
 
@@ -54,13 +53,13 @@ function versionDoc(row: { ydoc: Uint8Array }): Y.Doc {
   Y.applyUpdate(d, new Uint8Array(row.ydoc));
   return d;
 }
-/** 收 warn 的 log（M3：非例外的 retry 也要有一行 warn）。 */
+/** 收 warn 的 log（非例外的 retry 也要有一行 warn）。 */
 function spyLog(): { log: LinkConversionDeps["log"]; warns: Array<Record<string, unknown>> } {
   const warns: Array<Record<string, unknown>> = [];
   return { warns, log: { info: () => {}, warn: (o: object) => void warns.push(o as Record<string, unknown>), error: () => {} } };
 }
 
-describe("#269 I3 一次性站內連結轉換", () => {
+describe("#269 一次性站內連結轉換", () => {
   it("個人筆記：owner 看得到的轉、看不到的留、表格轉、樣式丟；先存「連結轉換前」；note_links 只增；不落款、不寫 AI 紀錄；未動的 block 不重寫；標 done", async () => {
     const ctx = await buildCollabTestApp();
     const alice = await ctx.createUser({ email: "lc-a@example.com", password: PASSWORD });
@@ -96,7 +95,7 @@ describe("#269 I3 一次性站內連結轉換", () => {
     ]);
     expect(linkHrefs(doc)).toEqual([`/notes/${secret.id}`]);
     expect(itemIdOf(doc, 0)).toBe(untouchedBefore);
-    // plan gate r1 I1：只斷言 manual 列（spec §15.2 I3／M5：不斷言轉換後的切版時機——#272 前離線即切 auto、#272 後交給掃描器）。
+    // 只斷言 manual 列（不斷言轉換後的切版時機——#272 前離線即切 auto、#272 後交給掃描器）。
     const manual = (await versionsOf(ctx.db, host.id)).filter(v => v.kind === "manual");
     expect(manual.map(v => v.name)).toEqual([LINK_CONVERSION_VERSION_NAME]);
     // 那一版是轉換「前」切的：快照裡沒有 wikilink、仍是原本的一般連結。
@@ -111,7 +110,7 @@ describe("#269 I3 一次性站內連結轉換", () => {
     expect(summary).toMatchObject({ scanned: 1, notesConverted: 1, linksConverted: 4, unresolved: 1, retry: 0, failed: 0 });
   });
 
-  it("群組筆記：只轉目標在同一群組的連結；他群組與 /n/ 個人筆記留（E9'）", async () => {
+  it("群組筆記：只轉目標在同一群組的連結；他群組與 /n/ 個人筆記留", async () => {
     const ctx = await buildCollabTestApp();
     const alice = await ctx.createUser({ email: "lc-g@example.com", password: PASSWORD });
     const g = await seedGroup(ctx.db, "G", [{ userId: alice.id, role: "admin" }]);
@@ -131,7 +130,7 @@ describe("#269 I3 一次性站內連結轉換", () => {
     expect([otherGroup.id, personal.id].every(id => !wikilinks(doc).some(w => w.targetNoteId === id))).toBe(true);
   });
 
-  it("「連結轉換前」：基底同內容且使用者已命名 → 名字不變、不多一列（O8）；基底沒名字 → 換成「連結轉換前」", async () => {
+  it("「連結轉換前」：基底同內容且使用者已命名 → 名字不變、不多一列；基底沒名字 → 換成「連結轉換前」", async () => {
     const ctx = await buildCollabTestApp();
     const alice = await ctx.createUser({ email: "lc-v@example.com", password: PASSWORD });
     const a = await seedNote(ctx.db, { ownerId: alice.id }, { title: "A" });
@@ -144,12 +143,12 @@ describe("#269 I3 一次性站內連結轉換", () => {
     const versions = depsOf(ctx).versions;
     for (const [n, name] of [[named, "My name"], [unnamed, null]] as const) {
       const { doc, transient } = await versions.docFor(n.id);
-      // PF-W2：兩篇都用 manual（unnamed 帶 name: null）——未載入筆記的無基底 auto 一律判 clean 回 null，前置會失敗。
+      // 兩篇都用 manual（unnamed 帶 name: null）——未載入筆記的無基底 auto 一律判 clean 回 null，前置會失敗。
       const r = await versions.cutIfDirty(n.id, doc, { kind: "manual", name, transient });
       expect(r && "row" in r).toBe(true);
     }
     await run(ctx);
-    // plan gate r1 I1：只看 manual 列（轉換後的 auto 切版時機不斷言）；manual 那一列的快照仍是一般連結。
+    // 只看 manual 列（轉換後的 auto 切版時機不斷言）；manual 那一列的快照仍是一般連結。
     const manualOf = async (id: string) => (await versionsOf(ctx.db, id)).filter(v => v.kind === "manual");
     const namedManual = await manualOf(named.id);
     expect(namedManual.map(v => v.name)).toEqual(["My name"]);
@@ -167,7 +166,7 @@ describe("#269 I3 一次性站內連結轉換", () => {
     await seedOldNote(ctx.db, host.id, `[x](/notes/${a.id})`);
     await pending(ctx, host.id);
     await run(ctx);
-    // PF-W3：已 done 的列不再是候選——同樣狀態再跑一輪，一篇都不碰。
+    // 已 done 的列不再是候選——同樣狀態再跑一輪，一篇都不碰。
     expect((await run(ctx)).scanned).toBe(0);
     const versionsAfterFirst = await versionsOf(ctx.db, host.id);
     const bytes1 = Buffer.from(Y.encodeStateAsUpdate((await loadDoc(ctx.db, host.id))!)).toString("base64");
@@ -177,7 +176,7 @@ describe("#269 I3 一次性站內連結轉換", () => {
     expect(Buffer.from(Y.encodeStateAsUpdate((await loadDoc(ctx.db, host.id))!)).toString("base64")).toBe(bytes1);
     expect(await linksOf(ctx, host.id)).toEqual([a.id]);
     expect(second).toMatchObject({ scanned: 1, notesConverted: 0, linksConverted: 0 });
-    // plan gate r1 I1：第二輪沒有站內一般連結 ⇒ 不再存版本——比前後，不斷言總數（第一輪之後的 auto 切版依 #272 是否已 merge 而不同）。
+    // 第二輪沒有站內一般連結 ⇒ 不再存版本——比前後，不斷言總數（第一輪之後的 auto 切版依 #272 是否已 merge 而不同）。
     const versionsAfterSecond = await versionsOf(ctx.db, host.id);
     expect(versionsAfterSecond.map(v => v.id)).toEqual(versionsAfterFirst.map(v => v.id));
     expect(versionsAfterSecond.filter(v => v.name === LINK_CONVERSION_VERSION_NAME)).toHaveLength(1);
@@ -199,7 +198,7 @@ describe("#269 I3 一次性站內連結轉換", () => {
       editingTestHooks: {
         beforeMerge: async () => {
           mergeAttempts += 1;
-          // 合併前在活文件插一段：整篇指紋必不符（apply-version 的 r4 實跑結論）。
+          // 合併前在活文件插一段：整篇指紋必不符（apply-version 的實測結論）。
           const direct = await ctxRef!.collab.hocuspocus.openDirectConnection(target, { userId: aliceId });
           await direct.transact(doc => {
             const g = doc.getXmlFragment(YDOC_FRAGMENT).get(0) as Y.XmlElement;
@@ -222,11 +221,11 @@ describe("#269 I3 一次性站內連結轉換", () => {
     await pending(ctx, host.id);
     const spy = spyLog();
     await run(ctx, { ...depsOf(ctx), log: spy.log });
-    // spec §12.3-6：指紋不符「從步 1 重來一次」——恰好合併兩次（不重來、或重來兩次以上都紅）。
+    // 指紋不符「從步 1 重來一次」——恰好合併兩次（不重來、或重來兩次以上都紅）。
     expect(mergeAttempts).toBe(2);
     expect(await statusOf(ctx, host.id)).toMatchObject({ status: "retry", attempts: 1 });
     expect(wikilinks((await loadDoc(ctx.db, host.id))!)).toEqual([]);
-    // M3（spec §12.5）：非例外的 retry 也有一行 warn，形狀只有 { noteId, stage, err }（不含 href／標題／文字）。
+    // 非例外的 retry 也有一行 warn，形狀只有 { noteId, stage, err }（不含 href／標題／文字）。
     expect(spy.warns).toEqual([{ noteId: host.id, stage: "merge", err: "fingerprint-mismatch" }]);
   });
 
@@ -241,7 +240,7 @@ describe("#269 I3 一次性站內連結轉換", () => {
     const spy = spyLog();
     await run(ctx, { ...real, log: spy.log, versions: { docFor: real.versions.docFor, cutIfDirty: async () => ({ skipped: "uninitialized" as const }) } });
     expect(await statusOf(ctx, h1.id)).toMatchObject({ status: "retry", attempts: 1 });
-    expect(spy.warns).toEqual([{ noteId: h1.id, stage: "version", err: "version-skipped" }]); // M3
+    expect(spy.warns).toEqual([{ noteId: h1.id, stage: "version", err: "version-skipped" }]);
 
     const throwing = { ...real, versions: { docFor: real.versions.docFor, cutIfDirty: async () => { throw new Error("boom"); } } };
     await run(ctx, throwing);
@@ -252,7 +251,7 @@ describe("#269 I3 一次性站內連結轉換", () => {
     expect(fourth.scanned).toBe(0);
   });
 
-  it("PF-W4：attempts 已達 3 的 retry 列（手寫）不是候選——不處理、狀態不變、內容不變", async () => {
+  it("attempts 已達 3 的 retry 列（手寫）不是候選——不處理、狀態不變、內容不變", async () => {
     const ctx = await buildCollabTestApp();
     const alice = await ctx.createUser({ email: "lc-m@example.com", password: PASSWORD });
     const a = await seedNote(ctx.db, { ownerId: alice.id }, { title: "A" });
@@ -290,7 +289,7 @@ describe("#269 I3 一次性站內連結轉換", () => {
     expect(wikilinks((await loadDoc(ctx.db, host.id))!)).toEqual([]);
   });
 
-  it("migration 之後才建立的筆記（沒有列）永遠不被處理、不切「連結轉換前」（N2）", async () => {
+  it("migration 之後才建立的筆記（沒有列）永遠不被處理、不切「連結轉換前」", async () => {
     const ctx = await buildCollabTestApp();
     const alice = await ctx.createUser({ email: "lc-n@example.com", password: PASSWORD });
     const a = await seedNote(ctx.db, { ownerId: alice.id }, { title: "A" });
@@ -302,7 +301,7 @@ describe("#269 I3 一次性站內連結轉換", () => {
     expect(await versionsOf(ctx.db, late.id)).toEqual([]);
   });
 
-  it("RF5：指向自己的站內一般連結 → 轉成自連結 wikilink；note_links 不寫自己；標 done", async () => {
+  it("指向自己的站內一般連結 → 轉成自連結 wikilink；note_links 不寫自己；標 done", async () => {
     const ctx = await buildCollabTestApp();
     const alice = await ctx.createUser({ email: "lc-s@example.com", password: PASSWORD });
     const self = await seedNote(ctx.db, { ownerId: alice.id }, { title: "Self", slug: "self" });
@@ -315,7 +314,7 @@ describe("#269 I3 一次性站內連結轉換", () => {
     expect(await statusOf(ctx, self.id)).toMatchObject({ status: "done", converted: 2 });
   });
 
-  it("§12.5：切版階段 DB 出錯——真 pino 輸出的「單篇失敗」只有 noteId／stage／錯誤類別與 SQLSTATE，不含筆記文字與查詢參數", async () => {
+  it("切版階段 DB 出錯——真 pino 輸出的「單篇失敗」只有 noteId／stage／錯誤類別與 SQLSTATE，不含筆記文字與查詢參數", async () => {
     const ctx = await buildCollabTestApp();
     const alice = await ctx.createUser({ email: "lc-l@example.com", password: PASSWORD });
     const a = await seedNote(ctx.db, { ownerId: alice.id }, { title: "A" });

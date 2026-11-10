@@ -1,5 +1,5 @@
 /**
- * 資料夾 PR-3d（folders spec §5.12、§5.7.1）`create_folder`。服務層（`folders/service.ts` 的 `createFolder`）負責入口順序、
+ * 資料夾：`create_folder`。服務層（`folders/service.ts` 的 `createFolder`）負責入口順序、
  * 扣 `folder` 桶、縫、交易與重判；這裡只做 scope、名稱的英文預判、位置參數、錯誤映射與回應組裝。
  * 服務層 deps 與「成功後以 list_folders 的形重讀」在 `mcp/folder-service.ts`；本檔另 export 三支資料夾寫入工具共用的輸出 schema。
  */
@@ -16,7 +16,7 @@ import { toolError } from "../tool-result.js";
 import { requireWriteScope } from "../write-scope.js";
 import type { McpToolCtx } from "../context.js";
 
-/** D-CF（逐字照 plan「待確認字串」）。 */
+/** `create_folder` 的工具說明。 */
 export const CREATE_FOLDER_DESCRIPTION =
   "Create a folder: inside one you can see with `parent_id`, at the top level of one of your groups with `group_id`, " +
   "at the top level of your folders for notes others shared with you with `shared: true`, or at the top level of your personal folders " +
@@ -34,7 +34,7 @@ export const CF_SHARED = "True to create the folder at the top level of your fol
 /** 三支資料夾寫入工具的輸出說明。 */
 export const FOLDER_REPLY_DESCRIBE = "The folder, in the same shape list_folders returns.";
 
-/** 註冊為 `z.object(createFolderInput).strict()`。`name` 的 1000 只防超長輸入，真正的上限由服務層判（超過 → FM6）。 */
+/** 註冊為 `z.object(createFolderInput).strict()`。`name` 的 1000 只防超長輸入，真正的上限由服務層判（超過 → 名稱長度錯誤）。 */
 export const createFolderInput = {
   name: z.string().max(1000).describe(CF_NAME),
   parent_id: FOLDER_ID.optional().describe(CF_PARENT),

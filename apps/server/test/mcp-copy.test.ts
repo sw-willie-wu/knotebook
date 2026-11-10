@@ -1,7 +1,7 @@
 /**
- * #180 spec §10.4：MCP `copy_note`（C1–C13）＋ M-G2（copy 半）＋ Review Focus RF1（大寫 group_id）、RF3（同群組內複製）。
+ * #180：MCP `copy_note`（C1–C13）＋ M-G2（copy 半）。
  * 無 collab 的案用 `buildTestApp`（它回 `uploadsDir`，可數磁碟檔）；C3 要 live doc，用 `buildCollabTestApp`。
- * 模型面字串一律寫字面值（spec §6.6 逐字）。
+ * 模型面字串一律寫字面值。
  */
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
@@ -20,13 +20,14 @@ import { searchDoc } from "./search-doc.js";
 import { COPY_NEEDS_MOVE_MESSAGE } from "../src/mcp/tools/copy-note.js";
 
 const RW = "notes:read notes:write" as const;
-/** #239：帶 `group_id` 的 copy_note（成功與失敗皆是）要 notes:move——這些案改用讀寫搬移憑證，期望值不動（spec §11.2 M1）。 */
+/** #239：帶 `group_id` 的 copy_note（成功與失敗皆是）要 notes:move——這些案改用讀寫搬移憑證，期望值不動。 */
 const RWM = "notes:read notes:write notes:move" as const;
 const GROUP_NO_CREATE = "No group with that id among your groups where your role can create notes.";
 const WRITE_RATE = "Too many note writes right now. Wait a moment before writing again.";
 const TOKEN_RATE = "Too many writes with this credential right now. Wait a few minutes before writing again.";
+// #397：訊息說的是擋下這次請求的那顆桶的當下上限；C8 注入的桶 limit 是 1。
 const UPLOAD_LIMIT_MSG =
-  "Copying this note's images would go over your upload limit (120 files per 10 minutes, copies included), so nothing was copied. Wait a few minutes and try again.";
+  "Copying this note's images would go over your upload limit (1 files per 10 minutes, copies included), so nothing was copied. Wait a few minutes and try again.";
 const BUSY = "The server was busy, so no copy was made. Try again in a moment.";
 const TAIL = "A site admin can assign a larger storage plan; deleting notes that have images also frees space.";
 
@@ -329,7 +330,7 @@ describe("#180 copy_note", () => {
     expect(r.content[0]!.text).toContain("groupId");
   });
 
-  it("RF1-copy 大寫 group_id → 成功；owner.id、url、DB group_id 都是小寫", async () => {
+  it("大寫 group_id → 成功；owner.id、url、DB group_id 都是小寫", async () => {
     const { app, db } = await buildTestApp();
     const me = await seedUser(db);
     const g = await seedGroup(db, "Team", [{ userId: me.id, role: "member" }]);
@@ -342,7 +343,7 @@ describe("#180 copy_note", () => {
     expect(row!.groupId).toBe(g.id);
   });
 
-  it("RF3 同群組內複製：群組筆記 → 同群組 → 新群組筆記、slug 去重 -2、原篇不動", async () => {
+  it("同群組內複製：群組筆記 → 同群組 → 新群組筆記、slug 去重 -2、原篇不動", async () => {
     const { app, db } = await buildTestApp();
     const me = await seedUser(db);
     const g = await seedGroup(db, "Team", [{ userId: me.id, role: "member" }]);
@@ -356,8 +357,8 @@ describe("#180 copy_note", () => {
     expect(orig).toMatchObject({ slug: "plan", groupId: g.id, title: "Plan" });
   });
 
-  // #239：(a) 這一版只在 canMove 時出現（spec §7.5(a)）——改用讀寫搬移憑證，字串期望值不動；讀寫版的 (b)(c) 由 mcp-tools-list 的 M1b 釘。
-  it("C13 模型面字串 wire 斷言（spec §6.6 全部）", async () => {
+  // #239：(a) 這一版只在 canMove 時出現——改用讀寫搬移憑證，字串期望值不動；讀寫版的 (b)(c) 由 mcp-tools-list 釘。
+  it("C13 模型面字串 wire 斷言（全部）", async () => {
     const { app, db } = await buildTestApp();
     const me = await seedUser(db);
     const { token } = await seedTokenForUser(db, me.id, RWM);
@@ -377,7 +378,7 @@ describe("#180 copy_note", () => {
     expect(tool.inputSchema.properties.group_id!.description).toBe(GID);
     expect(tool.inputSchema.properties.note_id!.description).toBe(NID);
     expect(tool.outputSchema.properties.note!.description).toBe(OUT);
-    expect(Object.keys(tool.inputSchema.properties).sort()).toEqual(["folder_id", "group_id", "note_id"]); // 資料夾 PR-3d T7：多 folder_id
+    expect(Object.keys(tool.inputSchema.properties).sort()).toEqual(["folder_id", "group_id", "note_id"]); // 資料夾：多 folder_id
     for (const s of [DESC, GID, OUT]) expect(res.body).toContain(JSON.stringify(s).slice(1, -1));
   });
 

@@ -7,7 +7,7 @@ import { PRESENCE_FIELD, type AvatarRef, type Role } from "@knotebook/shared";
 import { resetLocalPresenceFieldForTest, useLocalPresenceField } from "./local-field";
 import { fakeProvider, type FakeProvider } from "./test-awareness";
 
-// #293 §8.1：本分頁的 `knotebook` 欄；重連（authenticated）同值重寫、斷線（close）清遠端舊 meta。
+// #293：本分頁的 `knotebook` 欄；重連（authenticated）同值重寫、斷線（close）清遠端舊 meta。
 
 const UUID = "0f8fad5b-d9cb-469f-a165-70867728950e";
 const awarenesses: Awareness[] = [];

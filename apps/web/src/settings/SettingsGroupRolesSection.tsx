@@ -33,7 +33,7 @@ import { SettingsGroup, SettingsPage } from "./SettingsLayout";
 
 type TFn = (key: string, opts?: Record<string, unknown>) => string;
 
-/** 角色端點的 400 `invalid_name` 要講角色名稱的長度（1–40），不是 `errors.invalid_name` 那句群組名稱（主檔 spec 疑點 1）。 */
+/** 角色端點的 400 `invalid_name` 要講角色名稱的長度（1–40），不是 `errors.invalid_name` 那句群組名稱。 */
 function roleErrorMessage(t: TFn, err: unknown): string {
   if (err instanceof ApiFail) {
     if (err.code === "invalid_name") return t("groups.roles.invalidName");
@@ -57,9 +57,9 @@ const NO_FLAGS: GroupRoleFlags = {
 };
 
 /**
- * 一列「旗標名＋switch」。**契約：旗標彼此不連動**（Willie 裁決；spec 疑點 11）——`onChange` 只准改這一列自己的那一鍵。
+ * 一列「旗標名＋switch」。**契約：旗標彼此不連動**——`onChange` 只准改這一列自己的那一鍵。
  * `softDisabled`＝pending 期間的停用：`aria-disabled`＋視覺停用，**不用原生 `disabled`**（按下那顆若變 disabled，
- * 鍵盤焦點會掉到 body，#247 §6.3）；`onChange` 是否忽略由呼叫端決定。
+ * 鍵盤焦點會掉到 body，#247）；`onChange` 是否忽略由呼叫端決定。
  */
 function FlagSwitchRow({
   flag,
@@ -95,7 +95,7 @@ function FlagSwitchRow({
   );
 }
 
-/** 刪自訂角色：紅垃圾桶（§4.9）→ 確認對話框（destructive）。失敗 toast 並關閉。 */
+/** 刪自訂角色：紅垃圾桶→ 確認對話框（destructive）。失敗 toast 並關閉。 */
 function DeleteRoleButton({ groupId, role, label }: { groupId: string; role: GroupRoleDto; label: string }) {
   const { t } = useTranslation();
   const deleteRole = useDeleteRole(groupId);
@@ -140,14 +140,14 @@ function DeleteRoleButton({ groupId, role, label }: { groupId: string; role: Gro
 }
 
 /**
- * 一張角色卡（#247 §6.3，W28：按下即生效）。
+ * 一張角色卡（#247：按下即生效）。
  * - 六個 switch 按下就送 `PATCH …/roles/:roleId`，body 一律六鍵：取**當下快取**（`role` prop＝`useGroupRoles` 的資料）的六鍵、只翻目標鍵。
  * - **一張卡同時只有一發**：本卡自己的 `useUpdateRole` 實例 `isPending` 期間，六個 switch 全 `aria-disabled`、按了直接 return；
  *   `checked` 取這一發的 `variables.permissions`（被按的那顆立刻顯示新值）；`variables.permissions` 缺席（改名那一發）時取快取值。
  *   pending 涵蓋 `onSettled` 的 refetch（見 `useUpdateRole`），所以不再 pending 時快取必為真值。
  * - 失敗：不回滾（沒有樂觀寫入）；refetch 讓 switch 彈回 server 值，卡內 `role="alert"` 直到下一次按下。
- * - 內建管理員卡鎖定（原生 disabled＋說明，S8）；沒有 `canManageGroup` 時全部唯讀。
- * - 自訂角色卡右上：鉛筆（行內改名，送 `{ name }`）＋紅垃圾桶（刪除，確認框）。內建一般成員不能改名、不能刪（Q10）。
+ * - 內建管理員卡鎖定（原生 disabled＋說明）；沒有 `canManageGroup` 時全部唯讀。
+ * - 自訂角色卡右上：鉛筆（行內改名，送 `{ name }`）＋紅垃圾桶（刪除，確認框）。內建一般成員不能改名、不能刪。
  */
 function RoleCard({ groupId, role, canManage }: { groupId: string; role: GroupRoleDto; canManage: boolean }) {
   const { t } = useTranslation();
@@ -207,7 +207,7 @@ function RoleCard({ groupId, role, canManage }: { groupId: string; role: GroupRo
               onChange={(event) => setName(event.target.value)}
               className="w-48"
             />
-            {/* 存檔／取消是表單最右的 icon 鈕（spec 2026-10-13 settings-table §2.6、§3 角色卡：勾＝存檔、叉＝取消）。
+            {/* 存檔／取消是表單最右的 icon 鈕（角色卡：勾＝存檔、叉＝取消）。
                 沒有 Esc 取消：Radix Dialog 在 capture 階段吃 Escape 會關整個面板（同 ApiTokensSection 的行內編輯）。 */}
             <div className="ml-auto flex shrink-0 items-center gap-1">
               <RowIconButton
@@ -243,7 +243,7 @@ function RoleCard({ groupId, role, canManage }: { groupId: string; role: GroupRo
           />
         ))}
       </div>
-      {/* #181 §6.10.7：能刪不能編輯＝刪掉的自己救不回。只提示、不阻擋；pending 時以送出的值判斷。
+      {/* #181：能刪不能編輯＝刪掉的自己救不回。只提示、不阻擋；pending 時以送出的值判斷。
           唯讀視角（沒有 canManageGroup）也顯示是刻意的：掛這個角色的成員自己會被這個後果影響。 */}
       {!isAdmin && shown.delete && !shown.edit && (
         <p className="mt-2 text-xs text-muted-foreground">{t("groups.roles.deleteWithoutEditHint")}</p>
@@ -263,7 +263,7 @@ function RoleCard({ groupId, role, canManage }: { groupId: string; role: GroupRo
   );
 }
 
-/** 新增角色（`canManageGroup`）：名稱＋六個 switch（初值全關＝只能閱讀；不連動）。成功關閉、失敗留著顯示 alert。對話框內的送出鈕照舊 `brandDeep`（§4.8 的例外只管右卡）。 */
+/** 新增角色（`canManageGroup`）：名稱＋六個 switch（初值全關＝只能閱讀；不連動）。成功關閉、失敗留著顯示 alert。對話框內的送出鈕照舊 `brandDeep`（例外只管右卡）。 */
 function NewRoleDialog({ groupId, open, onOpenChange }: { groupId: string; open: boolean; onOpenChange: (open: boolean) => void }) {
   const { t } = useTranslation();
   const createRole = useCreateRole(groupId);
@@ -334,7 +334,7 @@ function NewRoleDialog({ groupId, open, onOpenChange }: { groupId: string; open:
   );
 }
 
-/** 頁首「新增角色」：面板層級動作，`outline`（#247 §4.8，W16——面板右卡不放實心鈕）。 */
+/** 頁首「新增角色」：面板層級動作，`outline`（#247：面板右卡不放實心鈕）。 */
 function NewRoleButton({ groupId }: { groupId: string }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -363,7 +363,7 @@ function RolesPage({ group }: { group: GroupDto }) {
     >
       <SettingsGroup>
         <p className="text-sm text-muted-foreground">{t("groups.roles.readAlways")}</p>
-        {/* 有資料就畫資料：refetch 失敗（isError 但 data 仍在）時不把整片卡換成錯誤字（Review Focus 1）。 */}
+        {/* 有資料就畫資料：refetch 失敗（isError 但 data 仍在）時不把整片卡換成錯誤字。 */}
         {roles === undefined ? (
           rolesQuery.isPending ? (
             <p className="mt-3 text-sm text-muted-foreground">{t("app.loading")}</p>
@@ -375,7 +375,7 @@ function RolesPage({ group }: { group: GroupDto }) {
         ) : (
           <ul className="mt-3 space-y-3">
             {roles.map((role) => (
-              // key 只用 role.id：refetch 回來卡不重掛，mutation 實例與卡內 alert 才不會一起消失（§6.3）。
+              // key 只用 role.id：refetch 回來卡不重掛，mutation 實例與卡內 alert 才不會一起消失。
               <li key={role.id}>
                 <RoleCard groupId={group.id} role={role} canManage={canManage} />
               </li>
@@ -398,8 +398,8 @@ function RolesPage({ group }: { group: GroupDto }) {
 }
 
 /**
- * 群組 modal「角色」（`/groups/:id/roles`，#247 §6.3；前身 #175 spec §8.5）。群組由 `GroupModal` 經 Outlet context 給。
- * 每個角色都能閱讀（沒有閱讀開關）；六個旗標彼此不連動；沒有 `canManageGroup` 的成員看唯讀視角（Q18）。
+ * 群組 modal「角色」（`/groups/:id/roles`，#247；前身 #175）。群組由 `GroupModal` 經 Outlet context 給。
+ * 每個角色都能閱讀（沒有閱讀開關）；六個旗標彼此不連動；沒有 `canManageGroup` 的成員看唯讀視角。
  */
 export function SettingsGroupRolesSection() {
   const group = useGroupOutlet();

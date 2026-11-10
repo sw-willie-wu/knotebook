@@ -16,7 +16,7 @@ import {
 import { api, ApiFail } from "@/api/client";
 import { COLLAB_CLOSE_CLIENT_OUTDATED, collabReducer, INITIAL_COLLAB_STATE, stopsReconnect, type CollabEvent, type CollabState } from "./connection";
 
-/** `POST /api/notes/:id/collab-token` 的回應形狀（Task 4）。 */
+/** `POST /api/notes/:id/collab-token` 的回應形狀。 */
 export interface CollabTokenResponse {
   token: string;
   /** 權威角色來源。**絕不解 JWT**——那是 server 與 Hocuspocus 之間的憑證。 */
@@ -34,7 +34,7 @@ export function collabUrl(location: { protocol: string; host: string } = window.
 
 /**
  * token function 的**有上限**退避重試表（ms）。5xx／429／網路錯誤走這條——這些都是
- * 「暫時取不到 token」而**不是**授權失敗，不可據此把使用者踢出或登出（spec N7）。
+ * 「暫時取不到 token」而**不是**授權失敗，不可據此把使用者踢出或登出。
  * 401 例外：那是 session 真的沒了，直接走登出流程、不重試。
  *
  * 定義移到 shared（issue #40）：它是跨端契約的一半——server 的撤權重驗 deadline
@@ -55,14 +55,14 @@ const RECONNECT_FALLBACK_MS = 1_000;
  * 為什麼需要這一層：`fetchTokenWithRetries` 用完 `TOKEN_RETRY_DELAYS_MS` 就會丟錯，而
  * provider 收到 token function 的錯誤只會 `permissionDeniedHandler`——**socket 不關、也不會
  * 再取一次 token**。server 對 `onAuthenticate` 的 throw 同樣**不關 socket 也不重連**。我們又
- * 刻意不把那一則 `authenticationFailed` 當成撤權（N7／issue #35），於是狀態機收不到任何
+ * 刻意不把那一則 `authenticationFailed` 當成撤權（issue #35），於是狀態機收不到任何
  * 事件：畫面停在「連線中」，server 恢復了也不會自己好，只能重整。
  *
  * 間隔比 token 退避表長一個量級：那一輪（7.5 秒）已經證明「不是一時抖動」，再用秒級頻率去
  * 敲一個正在壞的 server 只會加重它的負擔。最後一格重複使用，也就是**永遠會再試**——自我修復
  * 的重點是寧可慢也不要停。
  *
- * ⚠ 上限訂在 60 秒、而且**要抖動**（審查算過）：collab-token 的限流是 **per-user、跨分頁跨筆記
+ * ⚠ 上限訂在 60 秒、而且**要抖動**：collab-token 的限流是 **per-user、跨分頁跨筆記
  * 共用一個桶**（60 次/分鐘，見 `routes/notes.ts` 的說明），而每一輪重啟會重跑一次 token 退避表
  * ＝最多 5 發請求。固定間隔 30 秒的話，8 個分頁的穩態就是 64 req/min——**使用者會把自己的額度
  * 永久打爆，server 好了也連不回來**。而且觸發事件（server 重啟）是全分頁同時的，沒有抖動就會
@@ -94,9 +94,9 @@ function jittered(delay: number): number {
  * 留著旗標的代價：**socket 已開、但認證尚未完成**的那個窗口內（例如 token 還在退避重試的
  * 7.5 秒），第一則底層 close 會被多吞一次——而那一吞緊接著就是一發 connect()，且 `"close"`
  * 監聽器進那個分支就會把旗標清掉，不會變成重連迴圈。認證一成功 `onAuthenticated` 就把旗標
- * 清掉了，所以「保險絲救回連線之後」並不是這個窗口（審查訂正）。
+ * 清掉了，所以「保險絲救回連線之後」並不是這個窗口。
  *
- * ⚠ 病灶只是「清旗標」那一行，**guard 本身要留著**（審查指出，我第一版連 guard 一起拿掉了）：
+ * ⚠ 病灶只是「清旗標」那一行，**guard 本身要留著**（我第一版連 guard 一起拿掉了）：
  * close 準時回來時 swallow 分支已經把旗標清成 false 並發過 connect()，這時保險絲若還照發一發，
  * `HocuspocusProviderWebsocket.connect()` 會 `cancelWebsocketRetry()` 並開一條新的 retry chain、
  * 順手 `cleanupWebSocket()` 掉正在建立中的那條 socket ⇒ **任何耗時超過 1 秒的重連都會被自己的
@@ -115,7 +115,7 @@ function restartConnection(provider: HocuspocusProvider, pendingReconnectRef: { 
 
 /**
  * 這個錯誤值不值得重試。`api()` 對網路失敗／非 JSON 2xx 丟的是**原生 Error 而非
- * `ApiFail`**（Task 10 接縫註記③），那類一律視為暫時性；`ApiFail` 則只有 429 與
+ * `ApiFail`**，那類一律視為暫時性；`ApiFail` 則只有 429 與
  * 5xx 可重試。
  */
 function isRetryableTokenError(err: unknown): boolean {
@@ -124,7 +124,7 @@ function isRetryableTokenError(err: unknown): boolean {
 }
 
 /**
- * 文件 update 合併成一次通知的等待時間（#106 spec §10）。
+ * 文件 update 合併成一次通知的等待時間（#106）。
  *
  * 呼叫端據此重抓 note（頁首「最後編輯」住在 `NoteDto.lastEdited`），而 server 的
  * `last_edited_*` 是 `onStoreDocument` 落盤之後才寫——落盤 debounce 2s（`maxDebounce` 10s，
@@ -164,7 +164,7 @@ export interface UseCollabOptions {
   onUnauthorized: () => void;
   /**
    * 這篇筆記的文件被改了（別人——真人或 AI——或自己這個分頁）時的通知，已 debounce
-   * （`DOC_UPDATE_DEBOUNCE_MS`），首次同步那一批不算。spec §10 把「失效 note query」寫在
+   * （`DOC_UPDATE_DEBOUNCE_MS`），首次同步那一批不算。「失效 note query」看似該寫在
    * 這個 hook 裡，本實作只負責偵測與 debounce，失效由呼叫端做——這個 hook **不碰
    * router／query cache**（同 `onUnauthorized`）。
    */
@@ -186,7 +186,7 @@ export interface UseCollabResult {
    */
   synced: boolean;
   /**
-   * #269 §10.2：**這一篇**同步過的 note id（provider 的 `"synced"` 設成該 effect 捕獲的 noteId；effect 開頭與 cleanup 清成 null）。
+   * #269：**這一篇**同步過的 note id（provider 的 `"synced"` 設成該 effect 捕獲的 noteId；effect 開頭與 cleanup 清成 null）。
    * 段落錨點的消耗條件看它而不是 `synced`：`synced` 只在新筆記的連線 effect 開頭重設（noteId 變 undefined 時早退），A → B 的第一個
    * commit 會帶著 A 的 `synced === true`。
    */
@@ -197,7 +197,7 @@ export interface UseCollabResult {
  * 建立並管理單一筆記的 Hocuspocus 連線，把 provider 的事件翻譯成 `collabReducer`
  * 的事件、再把 reducer 的狀態翻回 provider 的動作（disconnect／connect）。
  *
- * **N7（不可違反，違反即撤權失效）**：這裡**不傳 `websocketProvider`**。provider
+ * **不可違反，違反即撤權失效**：這裡**不傳 `websocketProvider`**。provider
  * 沒收到現成的 socket 就會自己建一條（`manageSocket = true`）並自動 `attach()`；
  * 共用一條 socket 會讓 `provider.disconnect()` 變成 no-op，撤權流程整條斷掉。
  * 同理**絕不開 `sessionAwareness`**——server 端的連線索引以
@@ -298,9 +298,9 @@ export function useCollab({ noteId, onUnauthorized, onDocUpdate }: UseCollabOpti
      * 「這一條連線最近一次 token function 是以丟錯收場的」。provider 在 `getToken()`
      * 丟錯時會直接呼叫 `permissionDeniedHandler`（見 @hocuspocus/provider 的 `sendToken`），
      * 於是 `authenticationFailed` 也會為我方的 5xx/網路失敗而發——那不是 server 的授權
-     * 裁決，不得據此把人踢出（spec N7）。兩者共用同一個事件名，只有我們自己分得出來。
+     * 裁決，不得據此把人踢出。兩者共用同一個事件名，只有我們自己分得出來。
      *
-     * ⚠ **它必須是 effect 內的局部變數，不能是 hook 層的 `useRef`**（審查指出）：
+     * ⚠ **它必須是 effect 內的局部變數，不能是 hook 層的 `useRef`**：
      * 舊的那條連線被 `destroy()` 之後，它那一發還在退避中的 token 請求（最長 7.5 秒）
      * 仍會丟錯回來。若旗標是共用的，那一丟會把它設回 `true`，而舊 provider 的
      * `authenticationFailed` 已因 `removeAllListeners()` 無人接收、永遠不會把它清掉；
@@ -312,7 +312,7 @@ export function useCollab({ noteId, onUnauthorized, onDocUpdate }: UseCollabOpti
      * 「最近一次 token 失敗是終局的」——401（session 沒了，已走登出流程）與 404（筆記不在了，
      * 已收斂 deleted）。這兩種再排重啟只是對一個已經有結論的狀態多打一發 collab-token。
      * 實務上呼叫端緊接著就導頁卸載，但「終態不再重連」這個不變量不該押在呼叫端的行為上
-     * （審查指出）。
+     * 。
      */
     let tokenFailureFinal = false;
     /** issue #39 的重啟退避走到第幾格。與 `tokenFetchFailed` 同理由：每條連線各持一份。 */
@@ -322,7 +322,7 @@ export function useCollab({ noteId, onUnauthorized, onDocUpdate }: UseCollabOpti
     const fetchTokenWithRetries = async (): Promise<string> => {
       for (let attempt = 0; ; attempt += 1) {
         try {
-          // #269 §5.1-1：帶 note schema 版本（build 時由 shared 常數編進 bundle）；server 簽進 token 的 `sv`，握手時比對。
+          // #269：帶 note schema 版本（build 時由 shared 常數編進 bundle）；server 簽進 token 的 `sv`，握手時比對。
           const body = await api<CollabTokenResponse>(`/api/notes/${encodeURIComponent(noteId)}/collab-token`, {
             method: "POST",
             body: JSON.stringify({ noteSchemaVersion: NOTE_SCHEMA_VERSION }),
@@ -350,7 +350,7 @@ export function useCollab({ noteId, onUnauthorized, onDocUpdate }: UseCollabOpti
           if (err instanceof ApiFail && err.status === 404) {
             // 保險絲：目前的 server 契約下這條不會發生（token endpoint 對無權限／
             // 已刪除的筆記一律回 200 + role 'none'，見 routes/notes.ts 的說明），
-            // 但 spec §5 明訂「重連時 API 404 → deleted」，契約若改動也要正確收斂。
+            // 但「重連時 API 404 → deleted」的契約若改動也要正確收斂。
             // 同 issue #36：遲到的 404 屬於**上一篇**筆記，不得把新筆記打成 deleted。
             tokenFailureFinal = true;
             if (!disposed) dispatch({ type: "close", reason: COLLAB_CLOSE_NOTE_DELETED });
@@ -387,7 +387,7 @@ export function useCollab({ noteId, onUnauthorized, onDocUpdate }: UseCollabOpti
         pendingReconnectRef.current = false;
         // 認證成功＝這條連線活著，issue #39 的重啟退避從頭算起。
         restartAttempt = 0;
-        // ⚠ 還排著的那次重啟要一起收掉（審查指出）：拒連在 t=0 排了 5 秒後的重啟，而
+        // ⚠ 還排著的那次重啟要一起收掉：拒連在 t=0 排了 5 秒後的重啟，而
         // server 其實 1 秒後就恢復、provider 內建退避在 t=2 秒就連上了——留著的話，t=5 秒
         // 那顆 timer 會把一條健康的連線拆掉重來，還多花一次 collab-token 的額度（那是
         // per-user 跨分頁共用的）。使用者看不到（自家 close 會被 pendingReconnectRef 吞掉），
@@ -424,7 +424,7 @@ export function useCollab({ noteId, onUnauthorized, onDocUpdate }: UseCollabOpti
     // false→true 邊緣 emit，handler 因此**只設 true、從不設回 false**（見
     // UseCollabResult.synced 的 sticky 說明）。cleanup 由 `provider.destroy()` 的
     // removeAllListeners 一併帶走，比照本檔既有的 close／authenticationFailed 訂閱。
-    // #106 spec §10：文件 update（遠端或本地）→ debounce → 通知呼叫端（它據此失效 note query）。
+    // #106：文件 update（遠端或本地）→ debounce → 通知呼叫端（它據此失效 note query）。
     // ⚠ **掛在 "synced" 裡，不是 effect 本體**：初次同步那一批 update 掛在本體的話一開頁就
     // 白白失效一次 note query。`"synced"` 只在 false→true 邊緣 emit（見上一段），`??=` 讓
     // 重連不會重複掛。守衛＝本檔測試的「首次同步那一批不算」。
@@ -455,7 +455,7 @@ export function useCollab({ noteId, onUnauthorized, onDocUpdate }: UseCollabOpti
       if (tokenFetchFailed) {
         // 這一則是我們自家 token function 丟錯換來的，不是授權裁決：401 已經走過
         // `onUnauthorized`、404 已經自己收斂 deleted，其餘（5xx/網路）是暫時性的，一律
-        // 不得踢人（N7）。
+        // 不得踢人。
         //
         // 但也不能就這樣算了（issue #39）：此刻 socket 開著卻沒通過認證，provider 不會再取
         // 一次 token，狀態機也收不到任何事件——不排一次重啟的話這條連線就是靜默死掉，
@@ -472,7 +472,7 @@ export function useCollab({ noteId, onUnauthorized, onDocUpdate }: UseCollabOpti
 
       // issue #35：拒連理由分兩桶，處置完全不同（見 `@knotebook/shared` 那組常數的註解）。
       // A 桶＝授權裁決，照舊翻成 close 事件走既有的終態／二擊語意。
-      // #269 §5.2：舊分頁閘門。不是授權裁決、也不是「暫時性」——重試永遠拿到同樣的結論，所以不進 B 桶的重啟，
+      // #269：舊分頁閘門。不是授權裁決、也不是「暫時性」——重試永遠拿到同樣的結論，所以不進 B 桶的重啟，
       // 翻成 close 事件進 `outdated`（停重啟＋disconnect 由下方 stopsReconnect 那支 effect 做）。
       if (wire === COLLAB_REJECT_CLIENT_OUTDATED) {
         dispatch({ type: "close", reason: COLLAB_CLOSE_CLIENT_OUTDATED });
@@ -501,7 +501,7 @@ export function useCollab({ noteId, onUnauthorized, onDocUpdate }: UseCollabOpti
       scheduleRestart();
     });
 
-    // 終態分支（下面那個 effect）用它把重啟整條掐掉。**必須有這道閘門**（審查指出）：
+    // 終態分支（下面那個 effect）用它把重啟整條掐掉。**必須有這道閘門**：
     // 401 與 404 兩支都會 rethrow ⇒ `tokenFetchFailed` ⇒ `authenticationFailed` ⇒ 照排一次
     // 重啟，於是「狀態機已宣告終態」的連線還會被 timer 重新拉起來、對一篇已經沒有權限或
     // 已刪除的筆記再打一發 collab-token。實務上被 NotePage 的導頁卸載擋住，但 `useCollab`

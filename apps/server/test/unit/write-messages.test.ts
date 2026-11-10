@@ -1,4 +1,4 @@
-// 並排 PR-2（spec §11.3 錯誤訊息）：兩個新碼的 MCP 訊息逐字釘住。REST 那兩句由整合測試 mcp-write-guards GW2、GW3 逐字比對。
+// 並排（錯誤訊息）：兩個新碼的 MCP 訊息逐字釘住。REST 那兩句由整合測試 mcp-write-guards 逐字比對。
 import { describe, expect, it } from "vitest";
 import { ERROR_CODES } from "@knotebook/shared";
 import { writeFailureMessage } from "../../src/mcp/write-messages.js";
@@ -13,12 +13,12 @@ describe("writeFailureMessage：並排與尺寸", () => {
     );
   });
 
-  it("WM2：unsupported_size 不提表格格子裡的圖片（格子圖片 PR-4 才收，免得模型被引去寫）", () => {
+  it("WM2：unsupported_size 不提表格格子裡的圖片（格子裡的圖片寬度還不支援，免得模型被引去寫）", () => {
     expect(writeFailureMessage("unsupported_size")).not.toContain("table cell");
   });
 
-  // T4 審查 Minor-1：舊句在可到達的情形下是假的——帶 data-node-type 的非並排元素（S10）也回 unsupported_columns，
-  // 表格格子裡帶寬的圖片照「figure 內的 img」改寫仍被拒（S8 格子分支），模型會原地打轉。
+  // 舊句在可到達的情形下是假的——帶 data-node-type 的非並排元素也回 unsupported_columns，
+  // 表格格子裡帶寬的圖片照「figure 內的 img」改寫仍被拒（格子分支），模型會原地打轉。
   it("WM4：舊句的兩個假敘述不在", () => {
     expect(writeFailureMessage("unsupported_columns")).not.toContain("has side-by-side columns");
     expect(writeFailureMessage("unsupported_size")).not.toContain("on the <img> inside <figure>,");

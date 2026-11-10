@@ -1,6 +1,6 @@
 import { COVER_ID } from "./slides";
 
-/** §7.2 只需要章與張的 id 結構（`Section` 與 deck DOM 的結構都符合）。 */
+/** 重新定位只需要章與張的 id 結構（`Section` 與 deck DOM 的結構都符合）。 */
 export interface SlideStructure {
   id: string;
   slides: readonly { id: string }[];
@@ -15,7 +15,7 @@ export function locateSlide(sections: readonly SlideStructure[], id: string): { 
 }
 
 /**
- * 更新後的新位置（spec §7.2）：①目前那張仍在 → 它；②舊結構中緊接在它之前的那一張（同章上一張；
+ * 更新後的新位置：①目前那張仍在 → 它；②舊結構中緊接在它之前的那一張（同章上一張；
  * 章首則上一章最後一張）仍在 → 它；③舊結構中它所屬那章的第一張仍在 → 它；④封面。
  * 回傳新結構裡的 (h, v) 與那一張的 id（不回傳舊數字——突變「回傳舊 (h,v)」由結構前移／後移兩案擋）。
  */

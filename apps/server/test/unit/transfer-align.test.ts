@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { GROUP_EXPORT_CAP, alignSegments, lineKindsOf, listFamily, type AlignSeg } from "../../src/transfer/align.js";
 
-/** bulk transfer spec §6.4-2～-5（E12、E13、E16、E17）；合成的整篇行 W、逐顆行 P、型別，不需編輯器。 */
+/** bulk transfer 對齊；合成的整篇行 W、逐顆行 P、型別，不需編輯器。 */
 
 const P_ = "paragraph";
 const BUL = "bulletListItem";
@@ -122,7 +122,7 @@ describe("alignSegments", () => {
     expect(calls.filter(c => c.startsWith("0-"))).toEqual(["0-11", "0-10", "0-9"]);
   });
 
-  it("U-A9 回溯觸發群組（k13 形）：第 0 顆逐顆比得上、後面接不下去 → 群組 (0,1) 才成", () => {
+  it("U-A9 回溯觸發群組：第 0 顆逐顆比得上、後面接不下去 → 群組 (0,1) 才成", () => {
     const r = alignSegments(["* a", "x", "* b"], [["* a"], ["* b"]], [BUL, BUL], (i, j) => (i === 0 && j === 1 ? ["* a", "x", "* b"] : ["nope"]));
     expect(r.segs).toEqual([{ idx: [0, 1], start: 0, count: 3 }]);
     expect(r.stats.groupUsedWhilePerMatched).toBe(1);

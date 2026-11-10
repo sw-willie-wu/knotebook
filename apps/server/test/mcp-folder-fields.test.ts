@@ -1,7 +1,7 @@
 /**
- * 資料夾 PR-3d T2（plan docs/superpowers/plans/2026-10-28-folders-pr3d.md）：筆記結果帶 `folder`（呼叫者視角，AG-F1）。
+ * 資料夾：筆記結果帶 `folder`（呼叫者視角，AG-F1）。
  * NF＝三種空間、AF1＝被分享者看不到擁有者的資料夾、AF2＝單篇回應、AF3＝名稱截斷、AF4＝名稱查不到、AF5＝鏡像、AF6＝describe 字串；
- * LF1＝T1 骨架的兩支查詢（`loadFolderNames`／`loadFolderPath`）對真 DB。
+ * LF1＝兩支查詢（`loadFolderNames`／`loadFolderPath`）對真 DB。
  */
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
@@ -222,7 +222,7 @@ describe("AF6 describe 字串（NS-F）", () => {
   });
 });
 
-describe("LF1 loadFolderNames／loadFolderPath（T1 骨架的查詢）對真 DB", () => {
+describe("LF1 loadFolderNames／loadFolderPath對真 DB", () => {
   it("名稱：空集合／全 null 不查、去重、查無的 id 不在 Map；路徑：根 → 葉、單層、查無 → null", async () => {
     const ctx = await buildCollabTestApp();
     const u = await seedUser(ctx.db);

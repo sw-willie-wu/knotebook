@@ -1,5 +1,5 @@
 /**
- * bulk transfer plan PR-2 T14（總管裁示 3）：寫回單篇的**細分段同步耗時**——找出 ≥ 100 ms 的同步段。**不進 CI**、不改 src：
+ * bulk transfer：寫回單篇的**細分段同步耗時**——找出 ≥ 100 ms 的同步段。**不進 CI**、不改 src：
  * 用 `vi.mock` 把寫回路徑上會跨模組呼叫的函式包一層計時（同步函式＝那一段就是一次同步停頓；非同步函式記牆鐘），
  * `EditorSession.open`（mount）與 `diffSince` 直接在類別上換掉。用法同 `transfer-write.bench.ts`（`BENCH_OUT`、`RUNS`、
  * `SIZES`、`REGIONS`），輸出每個函式在每次寫回裡的最大值與 p95。
@@ -140,14 +140,14 @@ function mixed(n: number): Block[] {
 }
 const pct = (a: number[], p: number) => [...a].sort((x, y) => x - y)[Math.max(0, Math.ceil((p / 100) * a.length) - 1)]!;
 
-it("T14 phases", async () => {
+it("transfer-write phases", async () => {
   const unbounded = () => new FixedWindowLimiter({ limit: () => Number.MAX_SAFE_INTEGER, windowMs: 60_000 });
   const ctx = await buildCollabTestApp({ limiters: { transferWrite: unbounded(), tokenRead: unbounded(), contentRead: unbounded() } });
   const email = "phases@example.com";
   const u = await ctx.createUser({ email, password: "correct-horse-battery" });
   const pat = await seedTokenForUser(ctx.db, u.id, "notes:read notes:write");
   const bulk = await issueBulkDirect(ctx.db, pat.tokenId, { access: "write" });
-  out(`# T14 phases env=${process.env.BENCH_ENV ?? "A"} node=${process.version} RUNS=${RUNS}`);
+  out(`# transfer-write phases env=${process.env.BENCH_ENV ?? "A"} node=${process.version} RUNS=${RUNS}`);
   for (const n of SIZES) {
     for (const k of REGIONS) {
       for (const conflict of [false, true]) {

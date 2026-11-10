@@ -6,7 +6,7 @@ import { useIsNarrow, useVersions } from "@/lib/versions-context";
 import { cn } from "@/lib/utils";
 
 /**
- * 右下角泡泡容器（spec 2026-10-09 §8.1）。#263 起 AI 泡泡拿掉（改由框選 AI 框處理），容器裡只剩歷史泡泡；容器留著，因為定位與捲動淡出都掛在它上面。
+ * 右下角泡泡容器。#263 起 AI 泡泡拿掉（改由框選 AI 框處理），容器裡只剩歷史泡泡；容器留著，因為定位與捲動淡出都掛在它上面。
  *
  * 位置沿用 #115 的值：`<md` 距右下 20px、`md+` 24px。捲動淡出：scroll 不冒泡，掛 window 的 **capture** 監聽才收得到內文捲動容器；
  * 只在泡泡渲染時掛（effect guard 與渲染守門同一個條件）。鍵盤焦點落在泡泡上時強制現形。

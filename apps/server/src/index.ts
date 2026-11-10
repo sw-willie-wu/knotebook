@@ -5,7 +5,7 @@ import { loadConfig, publicUrlIssuer, publicUrlPathWarning, testHooksStartupWarn
 import { createDb } from "./db/index.js";
 import { createPool } from "./db/pool.js";
 import { runMigrations } from "./db/migrate.js";
-import { initializeInstance } from "./auth/bootstrap.js";
+import { initializeInstance, logInitFailure } from "./auth/bootstrap.js";
 import { backfillLegacyOidcIdentities } from "./auth/legacy-identities.js";
 import { warnPasswordLoginAtBoot } from "./auth/password-login.js";
 import { backfillHandleRegistry } from "./auth/handle.js";
@@ -17,7 +17,10 @@ import { SCAN_STOP_GRACE_MS } from "./collab/versions.js";
 import { buildApp } from "./app.js";
 import { createAiRuntime, selfCheckAiKeys } from "./ai/runtime.js";
 import { backfillSearchIndex } from "./notes/search-index.js";
-import { logNotesOverCap } from "./notes/note-size-startup.js";
+import { logNotesOverCap, watchNotesOverCap } from "./notes/note-size-startup.js";
+import { redactDbError } from "./lib/redact-db-error.js";
+import { SiteLimits } from "./site-limits/store.js";
+import { parseSettingsLogFields } from "./site-limits/boot-log.js";
 
 // 獨立的 pino instance：`initializeInstance` 與 migration 皆在 `buildApp()` 之前就要跑
 // （見下方 main() 的呼叫順序），此時還沒有 Fastify app、也就還沒有 `app.log` 可用——
@@ -28,8 +31,8 @@ import { logNotesOverCap } from "./notes/note-size-startup.js";
 const logger = pino();
 
 /**
- * 關機時等背景工作停下的共用上限（`SCAN_STOP_GRACE_MS`＝2 s，與 app.ts 的三個 onClose 共用）：#272 §7.4 自動切版掃描、
- * #269 §12.1 站內連結轉換——並行、共用這一份寬限。#181 §6.6 垃圾桶清理在 app.ts 的 onClose（`collab.destroy()` 之後）停，另有同值上限。
+ * 關機時等背景工作停下的共用上限（`SCAN_STOP_GRACE_MS`＝2 s，與 app.ts 的三個 onClose 共用）：#272 自動切版掃描、
+ * #269 站內連結轉換——並行、共用這一份寬限。#181 垃圾桶清理在 app.ts 的 onClose（`collab.destroy()` 之後）停，另有同值上限。
  * timer unref：不撐住行程。
  */
 const stopGrace = (): Promise<void> => new Promise(resolve => setTimeout(resolve, SCAN_STOP_GRACE_MS).unref());
@@ -37,7 +40,7 @@ const stopGrace = (): Promise<void> => new Promise(resolve => setTimeout(resolve
 async function main(): Promise<void> {
   const config = loadConfig(process.env);
 
-  // spec rev 5.6：trusted-LAN plain-http 是支援的拓撲之一（PUBLIC_URL=http://<lan-ip>:3000，
+  // trusted-LAN plain-http 是支援的拓撲之一（PUBLIC_URL=http://<lan-ip>:3000，
   // 不再拒絕啟動——見 config.ts 的 insecureHttpWarning 推導）。啟動時印一次警告，讓維運者
   // 自行評估風險；不在這裡擋下啟動，決定權留給使用者。
   //
@@ -45,20 +48,13 @@ async function main(): Promise<void> {
   // （那樣只會變成 JSON 字串裡的跳脫 `\n`，在 `docker compose logs` 之類的原始輸出裡
   // 讀起來反而更雜）。改用一行大寫、講重點的 `msg`，細節放進結構化欄位；
   // docs/self-hosting.md 對應說明也要講「一行 JSON 警告」而非「多行橫幅」，見那邊的用字。
-  // issue #13 審查：`PUBLIC_URL` 是 https 就代表**前面一定有一層反代**（app 自己從不終結
+  // issue #13：`PUBLIC_URL` 是 https 就代表**前面一定有一層反代**（app 自己從不終結
   // TLS，見 docs/self-hosting.md），而 TRUST_PROXY 沒開的話 `request.ip` 會是那層反代的
   // 位址 ⇒ 全站共用同一份 per-IP 額度，任何人連錯幾次密碼就把所有人一起鎖進退避窗口。
   //
   // 這道啟動期檢查刻意**不依賴請求裡有沒有轉發 header**：nginx 預設不送
   // `X-Forwarded-For`，只靠請求期那道警告會漏掉最需要被提醒的那群人。
   logger.info({ trustProxy: config.trustProxy }, "trustProxy setting in effect");
-  // #398：markdown 解析 worker 的生效值（各值來自環境變數或預設；worker 數的預設依 CPU 與記憶體推算取小，
-  // `workersSource` 說是哪一個：env／cpu／memory），連同偵測到的 CPU 數、記憶體（MiB）與各自的來源（cgroup-v2／cgroup-v1／os）。
-  {
-    const { workers, workersSource, workerMemoryMb, timeoutMs, queueWaitMs, from, cpus, cpuSource, memoryBytes, memorySource } = config.parse;
-    const memoryMb = Math.round(memoryBytes / 2 ** 20);
-    logger.info({ workers, workersSource, workerMemoryMb, timeoutMs, queueWaitMs, from, cpus, cpuSource, memoryMb, memorySource }, "parse worker settings in effect");
-  }
 
   if (!config.trustProxy && config.publicUrl.protocol === "https:") {
     logger.warn(
@@ -82,11 +78,11 @@ async function main(): Promise<void> {
     );
   }
 
-  // #272 §7.5：e2e 測試縫開著（或被忽略）時印一次警告。
+  // #272：e2e 測試縫開著（或被忽略）時印一次警告。
   const testHooksWarning = testHooksStartupWarning(config);
   if (testHooksWarning !== null) logger.warn({ publicUrl: config.publicUrl.href }, testHooksWarning);
 
-  // D12（#107）：帶 path 的 PUBLIC_URL 只警告不擋——API token 的 WWW-Authenticate
+  // #107：帶 path 的 PUBLIC_URL 只警告不擋——API token 的 WWW-Authenticate
   // 與 OAuth 端點一律用 origin 組字，見 config.ts 的 publicUrlPathWarning。
   const pathWarning = publicUrlPathWarning(config.publicUrl);
   if (pathWarning !== null) {
@@ -114,7 +110,23 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // spec §14.2：setup token 流程已退役，實例初始化唯一路徑是 `initializeInstance`
+  // #397：站台限制（env＞管理頁存的值＞預設／自動）。migration 之後、`buildApp` 之前載入，經 `AppDeps.siteLimits` 傳入；
+  // 讀不到 DB → 開機失敗（同 migration）。`limitEnv` 必須就是 `config.limitEnv`（鎖定狀態唯一來源）。
+  let siteLimits: SiteLimits;
+  try {
+    siteLimits = await SiteLimits.load(db, { limitEnv: config.limitEnv, machine: config.machine, log: logger });
+  } catch (err) {
+    // 不記整個 err（DrizzleQueryError 的 message 與 params 帶查詢參數）；只記 SQLSTATE／constraint
+    redactDbError(logger, err, "載入站台限制");
+    logger.error("請確認 DATABASE_URL 可連線，且 migration 0039（site_limits）已執行");
+    process.exit(1);
+  }
+  // #398／#397：markdown 解析 worker 的生效值（各值的 `from`：env／admin（管理頁）／default／auto；worker 數自動時依 CPU 與記憶體
+  // 推算取小，`workersSource` 說是哪一個：env／admin／cpu／memory），連同偵測到的 CPU 數、記憶體（MiB）與各自的來源（cgroup-v2／cgroup-v1／os）。
+  // 欄位的組法在 `site-limits/boot-log.ts`（單元測試：test/unit/site-limits-boot-log.test.ts）。
+  logger.info(parseSettingsLogFields(siteLimits), "parse worker settings in effect");
+
+  // setup token 流程已退役，實例初始化唯一路徑是 `initializeInstance`
   // （env-only）。`config.ts` 的 loadConfig 已保證 ADMIN_EMAIL/ADMIN_PASSWORD 兩者
   // 同時 defined 或同時 undefined，這裡只是把 AppConfig 的兩個扁平欄位組回
   // `initializeInstance` 要的 envAdmin 物件形狀。未初始化且無 envAdmin 時
@@ -127,21 +139,23 @@ async function main(): Promise<void> {
       config.adminEmail && config.adminPassword ? { email: config.adminEmail, password: config.adminPassword } : undefined
     );
   } catch (err) {
-    logger.error({ err }, "instance initialization failed");
+    logInitFailure(logger, err); // 不記整個 err（DrizzleQueryError 的 params 帶管理員 email 與密碼雜湊）
     process.exit(1);
   }
 
-  // #187 §10.3：舊欄冪等補登。**在 listen 之前**——補登要比任何登入請求先跑完（結構守衛：test/unit/config.test.ts）。
+  // #187：舊欄冪等補登。**在 listen 之前**——補登要比任何登入請求先跑完（結構守衛：test/unit/config.test.ts）。
   await backfillLegacyOidcIdentities(db, logger);
-  // #187 §10.4：帳密登入開關的開機提醒（env 救援仍開著、或「關閉＋零個啟用 provider」）。只寫 log、不擋啟動；在 listen 之前。
+  // #187：帳密登入開關的開機提醒（env 救援仍開著、或「關閉＋零個啟用 provider」）。只寫 log、不擋啟動；在 listen 之前。
   await warnPasswordLoginAtBoot(db, config, logger);
 
   // #122：handle registry 冪等補登（回滾窗期由舊碼建立、無 registry 列的帳號；先清掉退回舊版（#291 之前）期間留下的 released 列）。
-  // **必須在 `app.listen` 之前**——否則補登與首個改名請求可交錯（spec §2a；
+  // **必須在 `app.listen` 之前**——否則補登與首個改名請求可交錯（
   // handle.test.ts 的結構守衛釘住這個順序）。
   await backfillHandleRegistry(db, logger);
   // 筆記大小上限（`NOTE_MAX_BYTES`）：記下已經超過的筆記（篇數與 id，不記標題）。
-  await logNotesOverCap(db, config.noteMaxBytes, logger);
+  await logNotesOverCap(db, siteLimits.get("noteMaxBytes"), logger);
+  // 管理員改了 `noteMaxBytes`（#397）：重記一次超過新上限的筆記。只在這裡訂閱（`buildApp` 不訂閱）。
+  watchNotesOverCap(siteLimits, db, logger);
 
   const gate = new UserGate(db);
   const throttle = new LoginThrottle();
@@ -152,7 +166,7 @@ async function main(): Promise<void> {
   // （`http/rate-limit.ts` 的 COLLAB_TOKEN_LIMIT/SLUG_PATCH_LIMIT）。
   const collab = createCollabServer({ db, config, gate, log: logger });
 
-  // SPA fallback（Task 9，spec §11.5）：docker build 把前端建置產物放在 `web-dist`
+  // SPA fallback：docker build 把前端建置產物放在 `web-dist`
   // （`process.cwd()` 相對——container 的 WORKDIR，見 Dockerfile）。啟動時檢查目錄
   // 是否存在——不存在（例如純 API 部署、還沒 build 前端）就 warn 後不傳 webDist，
   // `buildApp` 會維持未命中路由一律 JSON 404 的既有行為，不因為缺目錄而啟動失敗。
@@ -162,7 +176,7 @@ async function main(): Promise<void> {
     logger.warn({ webDistCandidate }, "web-dist 目錄不存在——停用 SPA fallback，未命中路由一律回 JSON 404");
   }
 
-  // Task 9：上傳檔案存放目錄。單一 `uploadsDir` 常數同時餵 `mkdirSync` 與
+  // 上傳檔案存放目錄。單一 `uploadsDir` 常數同時餵 `mkdirSync` 與
   // `AppDeps.uploadsDir`——避免兩個獨立字面量各自打一次 `path.resolve(...)`
   // 而漂移不同步。`mkdirSync(..., {recursive:true})` 確保目錄存在（冪等，容器
   // 重啟／全新 volume 皆可），實際「是否真的可寫」的探測交給 `buildApp` 內部
@@ -170,7 +184,7 @@ async function main(): Promise<void> {
   const uploadsDir = path.resolve(process.cwd(), "uploads");
   mkdirSync(uploadsDir, { recursive: true });
 
-  // Plan 4（spec §13）：AI 執行期狀態 + 啟動自檢——在 `buildApp()` 之前建好，讓每個
+  // AI 執行期狀態 + 啟動自檢——在 `buildApp()` 之前建好，讓每個
   // 已設定 API key 的 enabled provider 在服務開始接請求前就先驗過一次「目前這把
   // APP_SECRET 解得開」，壞掉的（例如 APP_SECRET 被更換過）直接進 `degraded`，不必
   // 等到第一次真的呼叫該 provider 才發現。失敗不擋啟動——降級是「該 provider 暫時
@@ -182,6 +196,7 @@ async function main(): Promise<void> {
     {
       config,
       db,
+      siteLimits,
       gate,
       throttle,
       collabHooks: createCollabHooks(collab, logger),
@@ -190,7 +205,7 @@ async function main(): Promise<void> {
       ai,
       startVersionSweep: true,
       startTrashPurge: true,
-      // #272 §7.5：e2e 測試縫開著時每秒掃一次（X 也會被壓成秒，見 routes/test-hooks.ts）。
+      // #272：e2e 測試縫開著時每秒掃一次（X 也會被壓成秒，見 routes/test-hooks.ts）。
       ...(config.testHooks ? { versionAutoScanIntervalMs: 1000 } : {}),
     },
     { webDist }
@@ -203,7 +218,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // #93 §6.3：全文索引回填——**在 listen 之後**、背景跑（spec §6.1 偏離 C：與即時落盤交錯不會算錯，擺在 listen 之前
+  // #93：全文索引回填——**在 listen 之後**、背景跑（與即時落盤交錯不會算錯，擺在 listen 之前
   // 會讓升級後第一次啟動等全部筆記解碼完才開始服務）。可續、可中止；關機 handler 第一步 abort。
   // 結構守衛：test/unit/search-backfill-wiring.test.ts。
   const backfillAbort = new AbortController();
@@ -211,7 +226,7 @@ async function main(): Promise<void> {
     logger.error({ err }, "全文索引回填中止"),
   );
 
-  // #269 §12.1：一次性站內連結轉換——與回填並列、listen 之後，再延遲 30 s（unref timer）。結構守衛：test/unit/search-backfill-wiring.test.ts。
+  // #269：一次性站內連結轉換——與回填並列、listen 之後，再延遲 30 s（unref timer）。結構守衛：test/unit/search-backfill-wiring.test.ts。
   app.linkConversion.start();
 
   // Graceful shutdown：`docker compose stop`/`down`（以及手動 Ctrl-C）送的都是
@@ -233,8 +248,8 @@ async function main(): Promise<void> {
     process.once(sig, () => {
       backfillAbort.abort();
       // 兩個背景工作並行停、共用一份 2 s 寬限，再落盤關閉——卡在列鎖或 DB 的那一篇不得吃掉 docker stop 的寬限期（留給 collab 落盤）：
-      // #272 §7.4 自動切版掃描（進行中那一輪做完手上那一篇就停；collab 關閉時的 flushPendingStores 讓未落盤的變動照常寫進待切，
-      // 重啟後掃描器接手）；#269 §12.1 站內連結轉換（在拆掉 Hocuspocus 之前停止開新直連並等在途合併）。
+      // #272 自動切版掃描（進行中那一輪做完手上那一篇就停；collab 關閉時的 flushPendingStores 讓未落盤的變動照常寫進待切，
+      // 重啟後掃描器接手）；#269 站內連結轉換（在拆掉 Hocuspocus 之前停止開新直連並等在途合併）。
       void Promise.race([Promise.all([collab.versions.stopScan(), app.linkConversion.stop()]), stopGrace()])
         .then(() => collab.destroy())
         .then(() => app.close())

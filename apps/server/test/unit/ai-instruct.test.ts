@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { checkInstructFields, INSTRUCT_GUARD_PROMPT, MARKUP_GUARD_PROMPT, withInstructGuard, withMarkupGuard, wrapInstructVars } from "../../src/ai/instruct.js";
 
-// 並排 PR-2（Q4）：每個站內 AI 動作的 system prompt 前面都放這段，管理員改不掉。
+// 並排：每個站內 AI 動作的 system prompt 前面都放這段，管理員改不掉。
 describe("MARKUP_GUARD_PROMPT／withMarkupGuard", () => {
   it("MG1：講到並排的外層與欄標籤、圖片的 width、表格的 colwidth", () => {
     expect(MARKUP_GUARD_PROMPT).toContain("data-kb-columns");
     expect(MARKUP_GUARD_PROMPT).toContain("<div data-kb-column ");
     expect(MARKUP_GUARD_PROMPT).toContain("width");
     expect(MARKUP_GUARD_PROMPT).toContain("colwidth");
-    // 整段逐字（T9＋T10 審查 r1 M-3：只釘片段時刪掉「</div> 收尾行」那半句照綠）；docs/ai.md 的轉述以此為準
+    // 整段逐字（只釘片段時刪掉「</div> 收尾行」那半句照綠）；docs/ai.md 的轉述以此為準
     expect(MARKUP_GUARD_PROMPT).toBe(
       [
         "The note content you are given is Markdown and may include HTML that the editor uses for side-by-side columns and for sizes. Wherever your reply keeps that content, keep its HTML as it is:",
@@ -24,7 +24,7 @@ describe("MARKUP_GUARD_PROMPT／withMarkupGuard", () => {
   });
 });
 
-describe("Instruct 守門（#263 §4.2）", () => {
+describe("Instruct 守門（#263）", () => {
   it("守門文字引用三個固定標記名", () => {
     for (const tag of ["<text>", "<selected>", "<instruction>"]) expect(INSTRUCT_GUARD_PROMPT).toContain(tag);
   });
@@ -44,14 +44,14 @@ describe("Instruct 守門（#263 §4.2）", () => {
   });
 });
 
-describe("checkInstructFields（#263 §4.3 矩陣的純函式半邊）", () => {
-  it("Instruct：缺、空字串、只有空白（含全形空白 U+3000、tab）→ 失敗（RF2）", () => {
+describe("checkInstructFields（#263 矩陣的純函式半邊）", () => {
+  it("Instruct：缺、空字串、只有空白（含全形空白 U+3000、tab）→ 失敗", () => {
     for (const instruction of [undefined, "", "   ", "　\t "]) {
       expect(checkInstructFields(true, instruction, undefined).ok).toBe(false);
     }
   });
 
-  it("Instruct：trim 後 500 code point 通過、501 失敗；500 個 emoji（1000 個 UTF-16 單位）通過（RF2）", () => {
+  it("Instruct：trim 後 500 code point 通過、501 失敗；500 個 emoji（1000 個 UTF-16 單位）通過", () => {
     expect(checkInstructFields(true, `  ${"字".repeat(500)}  `, undefined)).toEqual({ ok: true, instruct: { instruction: "字".repeat(500) } });
     expect(checkInstructFields(true, "字".repeat(501), undefined).ok).toBe(false);
     expect(checkInstructFields(true, "😀".repeat(500), undefined).ok).toBe(true);

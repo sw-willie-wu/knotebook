@@ -1,9 +1,9 @@
 /**
- * #108 §8.1 D31／M15 的單元那一半：`toolError()` 是**我們自己產生的**工具錯誤（D12 的 (4b)）
+ * #108 的單元那一半：`toolError()` 是**我們自己產生的**工具錯誤（(4b)）
  * 唯一的建構點，`content[0].text` 必須逐字是 `structuredContent` 的鏡像。
  *
  * ⚠ SDK 自產的四條路徑（未知工具名／輸入 schema 不符／輸出驗證失敗／未捕捉例外）不在這裡，
- * 也攔不到——它們沒有 `code`、沒有 `structuredContent`（D12 的 (4a)）。
+ * 也攔不到——它們沒有 `code`、沒有 `structuredContent`（(4a)）。
  */
 import { describe, expect, it } from "vitest";
 import { ERROR_CODES } from "@knotebook/shared";
@@ -33,7 +33,7 @@ describe("#108 toolError", () => {
     expect(result.content[0]!.text).toBe(JSON.stringify(result.structuredContent));
   });
 
-  it("code 逐字沿用 ERROR_CODES（M4：錯誤碼單一真相）", () => {
+  it("code 逐字沿用 ERROR_CODES（錯誤碼單一真相）", () => {
     for (const code of ["not_found", "forbidden", "section_not_found", "too_many_requests", "invalid_body", "internal"] as const) {
       const result = toolError(code, "x");
       expect(ERROR_CODES).toContain(result.structuredContent!.code);
@@ -48,7 +48,7 @@ describe("#108 toolError", () => {
   });
 });
 
-describe("#200 toolResultWithImage（§7.4）", () => {
+describe("#200 toolResultWithImage", () => {
   it("content[0] 鏡像 structuredContent、content[1] 是 image、structuredContent 不含 data；CallToolResultSchema 驗得過", () => {
     const meta = { noteId: "n", uploadId: "u", mimeType: "image/png", bytes: 3 };
     const r = toolResultWithImage(meta, { data: Buffer.from([1, 2, 3]).toString("base64"), mimeType: "image/png" });

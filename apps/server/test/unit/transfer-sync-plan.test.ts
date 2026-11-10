@@ -5,7 +5,7 @@ import { normalizeBody } from "../../src/transfer/normalize.js";
 import { yieldToLoop } from "../../src/transfer/yield.js";
 import { docWith, forkOf, makeBaseInMemory, planInMemory } from "./fixtures/transfer-sync.js";
 
-/** bulk transfer spec §9.3-6、§9.4、§9.5 第 1–4 步；plan PR-2 T6（P1–P7）。 */
+/** bulk transfer 的同步計畫（P1–P7）。 */
 
 const rt = new EditingRuntime({ baseUrl: "http://localhost/" });
 rt.installGlobals();
@@ -63,7 +63,7 @@ describe("P2／P3 parse 失敗 → 整篇不寫", () => {
   });
 });
 
-describe("P3b 檔案層級未閉合的 code fence → 整篇不寫（審查 m3）", () => {
+describe("P3b 檔案層級未閉合的 code fence → 整篇不寫", () => {
   it("0 行分隔清單上方加一行未閉合 ``` → { ok: false, code: unclosed_fence }、只 mount 一次、lease 已還", async () => {
     const doc = await docWith(rt, [P("Z"), { type: "bulletListItem", content: "a" }, { type: "bulletListItem", content: "b" }]);
     const b = await makeBaseInMemory(rt, doc);
@@ -72,7 +72,7 @@ describe("P3b 檔案層級未閉合的 code fence → 整篇不寫（審查 m3�
   });
 });
 
-describe("P4 same 判準（第三輪：「人先改過、檔案做同樣修改」與「倖存者全不見」的形已隨合併刪除，現況＝基底才會規劃）", () => {
+describe("P4 same 判準（「人先改過、檔案做同樣修改」與「倖存者全不見」的形已隨合併刪除，現況＝基底才會規劃）", () => {
   it("沒有人改、agent 只換寫法（`*` → `-`）→ same（非衝突的區也先判 same，id 不換）", async () => {
     const doc = await docWith(rt, [P("A"), { type: "bulletListItem", content: "item" }, P("C")]);
     const b = await makeBaseInMemory(rt, doc);
@@ -87,7 +87,7 @@ describe("P4 same 判準（第三輪：「人先改過、檔案做同樣修改�
   });
 });
 
-describe("P5 預解析 numbered 在清單中間的改寫 → start 被拿掉（E18）", () => {
+describe("P5 預解析 numbered 在清單中間的改寫 → start 被拿掉", () => {
   it("改第 2 項 → stripStart、預解析沒有 start；清單第一項 → 保留", async () => {
     const doc = await docWith(rt, [NL("a"), NL("b"), NL("c")]);
     const b = await makeBaseInMemory(rt, doc);
@@ -112,7 +112,7 @@ describe("P6／P7 讓出", () => {
     expect(r.plan.regions).toHaveLength(5);
     expect(yields).toBeGreaterThanOrEqual(5);
   });
-  it("P6c 確定性：每次讀時鐘前進 25 ms → open 之後 1 次＋每區 parse 之後 1 次＋每區寫進 scratch 之後 1 次（複審：取代牆鐘門檻）", async () => {
+  it("P6c 確定性：每次讀時鐘前進 25 ms → open 之後 1 次＋每區 parse 之後 1 次＋每區寫進 scratch 之後 1 次（取代牆鐘門檻）", async () => {
     const doc = await docWith(rt, Array.from({ length: 10 }, (_, i) => P(`p${i}`)));
     const b = await makeBaseInMemory(rt, doc);
     const body = Array.from({ length: 10 }, (_, i) => (i % 2 === 0 ? `p${i} changed` : `p${i}`)).join("\n\n");
@@ -179,7 +179,7 @@ describe("#398：未閉合 fence 的判斷也經 runtime.parser（生產＝parse
   });
 });
 
-describe("#398 審查 C2：邊界檢查的解析回太複雜 → 整檔太複雜（不把它當「邊界不成立」繼續解析下一段）", () => {
+describe("#398：邊界檢查的解析回太複雜 → 整檔太複雜（不把它當「邊界不成立」繼續解析下一段）", () => {
   it("10 段黏在一行下面、每次解析都回 too_complex → planSync 回 unsupported_block／too_complex，解析只做了 1 次", async () => {
     let calls = 0;
     const inline = new EditingRuntime({ baseUrl: "http://localhost/" });

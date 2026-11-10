@@ -7,7 +7,7 @@ import { IMG, P, row, shape, withChildren } from "@/test/columns-fixtures";
 import { useAiSession, type AiSessionValue } from "./AiSession";
 import { SelectionAiController } from "./SelectionAiController";
 
-// D25：工具列的檔案刪除鈕換成自家版（`KnotebookFileDeleteButton`），刪欄內的圖不收欄。掛法照 `SelectionAiController.test.tsx`。
+// 工具列的檔案刪除鈕換成自家版（`KnotebookFileDeleteButton`），刪欄內的圖不收欄。掛法照 `SelectionAiController.test.tsx`。
 
 const REWRITE: AiActionDto = { id: REWRITE_ACTION_ID, name: "Rewrite", applyMode: "direct", kind: "quick" };
 
@@ -36,7 +36,7 @@ async function mount(doc: unknown[]): Promise<AnyEditor> {
   return editor;
 }
 
-describe("AiToolbar 檔案刪除鈕（D25）", () => {
+describe("AiToolbar 檔案刪除鈕", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
   });
@@ -73,7 +73,7 @@ describe("AiToolbar 檔案刪除鈕（D25）", () => {
   });
 });
 
-// 並排 PR-2（spec §7.5、Q7）：跨欄或含整列的選取照常出 AI 鈕，`open()` 把錨點擴大成整列（AiSession.test AO*）。
+// 並排：跨欄或含整列的選取照常出 AI 鈕，`open()` 把錨點擴大成整列（AiSession.test AO*）。
 const TWO = () => [P("x", "x"), row([[P("a", "a1")], [P("b", "b1"), P("q", "q1")]], "r"), P("z", "z")];
 const THREE = () => [P("x", "x"), row([[P("a", "a1")], [P("b", "b1")], [P("c", "c1")]], "r"), P("z", "z")];
 const NESTED = () => [P("x", "x"), row([[P("a", "a1")], [withChildren(P("p", "p1"), [P("c", "c1")])]], "r"), P("z", "z")];
@@ -101,7 +101,7 @@ describe("AiToolbar AI 鈕與並排（擴大成整列）", () => {
     expect(session.state.phase).toBe("input");
   });
 
-  it("AX5 完全在單一欄內（b..q）→ AI 鈕照常出現、按下開框", async () => {
+  it("完全在單一欄內（b..q）→ AI 鈕照常出現、按下開框", async () => {
     const editor = await mount(TWO());
     act(() => {
       editor.setSelection("b1", "q1");

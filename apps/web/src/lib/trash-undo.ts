@@ -16,9 +16,9 @@ function errorMessage(t: Translate, err: unknown): string {
 }
 
 /**
- * 「已移到垃圾桶」toast（spec §6.10.4／§6.10.7）。`reopen`＝原本開著那篇——復原成功後導回它的 canonical 路徑。
- * 復原鈕的 handler 只用參數捕捉的 queryClient／navigate 與 api/trash.ts 的純函式：toast 常在選單卸載後才被按（讀碼發現 5）。
- * 後四欄給 PR-2c 多選刪除用，不給＝單篇的行為。
+ * 「已移到垃圾桶」toast。`reopen`＝原本開著那篇——復原成功後導回它的 canonical 路徑。
+ * 復原鈕的 handler 只用參數捕捉的 queryClient／navigate 與 api/trash.ts 的純函式：toast 常在選單卸載後才被按。
+ * 後四欄給多選刪除用，不給＝單篇的行為。
  */
 export function showTrashedToast(args: {
   notes: ReadonlyArray<Pick<NoteDto, "id" | "group" | "permissions">>;
@@ -33,13 +33,13 @@ export function showTrashedToast(args: {
   variant?: "default" | "destructive";
   /** 給了就覆蓋由 `reopen` 推算的那篇（`reopen` 只在單篇時推出它）。 */
   reopenId?: string | null;
-  /** 沒有 DTO、只有 id 的那幾篇（刪資料夾回的 `trashedNoteIds`）：併進復原的 id（去重），不參與 §6.10.7 判準（plan 讀碼發現 12）。 */
+  /** 沒有 DTO、只有 id 的那幾篇（刪資料夾回的 `trashedNoteIds`）：併進復原的 id（去重），不參與「整批都能自己還原」的判準。 */
   undoIds?: readonly string[];
 }): void {
   const { notes, queryClient, navigate, t, reopen, description, variant } = args;
   const title = args.title ?? t("trash.moved");
   if (!notes.every(canRestoreAfterTrash)) {
-    // 群組筆記只有刪除權、沒有編輯權：自己還原不了，只說明誰可以（spec §6.10.7）。
+    // 群組筆記只有刪除權、沒有編輯權：自己還原不了，只說明誰可以。
     const hint = t("trash.movedNoUndoHint");
     toast({ title, description: description === undefined ? hint : `${description} ${hint}`, variant });
     return;
@@ -57,7 +57,7 @@ export function showTrashedToast(args: {
   });
 }
 
-/** 復原：還原 `ids`、toast 結果；`reopenId` 在 restored 裡才導回它。seed 必須早於 navigate（讀碼發現 27）。 */
+/** 復原：還原 `ids`、toast 結果；`reopenId` 在 restored 裡才導回它。seed 必須早於 navigate。 */
 export async function undoTrash(args: {
   ids: readonly string[];
   queryClient: QueryClient;
@@ -66,7 +66,7 @@ export async function undoTrash(args: {
   reopenId: string | null;
 }): Promise<void> {
   const { ids, queryClient, navigate, t, reopenId } = args;
-  // 已還原的那幾篇（成功＝全部、分批中途失敗＝已成功各批）：finally 失效之後拿去展開所在資料夾（資料夾 spec §6.8）。
+  // 已還原的那幾篇（成功＝全部、分批中途失敗＝已成功各批）：finally 失效之後拿去展開所在資料夾。
   let restored: NoteDto[] = [];
   try {
     const result = await restoreTrashIds(ids);
@@ -79,7 +79,7 @@ export async function undoTrash(args: {
     const back = reopenId !== null ? result.restored.find((note) => note.id === reopenId) : undefined;
     if (back) void navigate(canonicalNotePath(back));
   } catch (err) {
-    // 分批中途失敗（多選刪除、刪資料夾一次復原整批才會走到）：已成功的那幾篇照樣蓋回常駐層，並回報已還原幾篇（資料夾 spec §6.6 M15）。
+    // 分批中途失敗（多選刪除、刪資料夾一次復原整批才會走到）：已成功的那幾篇照樣蓋回常駐層，並回報已還原幾篇。
     restored = partialRestored(err);
     seedRestoredNotes(queryClient, restored);
     toast({

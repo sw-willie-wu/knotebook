@@ -4,8 +4,8 @@ import zhTW from "./zh-TW.json";
 import en from "./en.json";
 
 /**
- * #93 PR2 側欄搜內文的文案（zh-TW 字面，plan T4 字串表）。改這些字串＝改產品決定，先問 Willie。
- * 草稿階段：Willie 定稿前照 plan 的草案釘；定稿後只改這張表與兩個 json。
+ * #93 側欄搜內文的文案（zh-TW 字面）。改這些字串＝改產品決定，先與維護者確認。
+ * 草稿階段：文案未最終確定前釘草案；確定後只改這張表與兩個 json。
  */
 const SPEC_COPY: Record<string, string> = {
   "sidebar.titleMatches_one": "標題符合 · {{count}} 篇",
@@ -60,7 +60,7 @@ describe("SC3 en 有同一組新 key，且文案不暗示總命中數", () => {
   });
 });
 
-describe("SC2 舊的 searchResults 已移除（D2：改叫「標題符合」）", () => {
+describe("SC2 舊的 searchResults 已移除（改叫「標題符合」）", () => {
   for (const key of ["sidebar.searchResults_one", "sidebar.searchResults_other", "sidebar.bodyMatchesHeading", "sidebar.bodyMatchesCount_one", "sidebar.bodyMatchesCount_other"]) {
     it(key, () => {
       expect(get(en, key)).toBeUndefined();

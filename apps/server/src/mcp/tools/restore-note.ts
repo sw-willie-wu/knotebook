@@ -1,8 +1,8 @@
 /**
- * #181 spec §6.8.1 `restore_note(note_id)`：從垃圾桶還原（同 REST `POST /api/trash/restore` 的權限與服務函式，D-W1a 要 notes:delete）。
- * 只經 `trash/service.ts` 的 `restoreTrashed`（AG2 的預判在服務層；不直呼交易本體）。流程順序是契約：`requireDeleteScope`（第一個動作）
- * → `resolveTrashedNoteAccess`（沒有垃圾桶權、不存在、活筆記 → not_found，同一句）→ edit 桶（REST 不扣，讀碼發現 10）→ `restoreTrashed`
- * （可重試的交易錯誤 → server_busy；沒還原到 → not_found）→ `rereadOwnOrGroupNote`（落空 → not_found，讀碼發現 7）。
+ * #181 `restore_note(note_id)`：從垃圾桶還原（同 REST `POST /api/trash/restore` 的權限與服務函式，要 notes:delete）。
+ * 只經 `trash/service.ts` 的 `restoreTrashed`（預判在服務層；不直呼交易本體）。流程順序是契約：`requireDeleteScope`（第一個動作）
+ * → `resolveTrashedNoteAccess`（沒有垃圾桶權、不存在、活筆記 → not_found，同一句）→ edit 桶（REST 不扣）→ `restoreTrashed`
+ * （可重試的交易錯誤 → server_busy；沒還原到 → not_found）→ `rereadOwnOrGroupNote`（落空 → not_found）。
  */
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { isRetryableTxError } from "../../db/pg-errors.js";
@@ -21,7 +21,7 @@ export const RESTORE_NOTE_DESCRIPTION =
   "kept while in the trash work again. A note whose group was deleted with its notes handed over to one of its admins comes back as " +
   "that admin's personal note, with a different owner and URL — see `url` in the reply. Works on notes in your trash: your own " +
   "personal notes, and notes of groups where your role can both edit and delete notes. " +
-  // 資料夾 PR-3d（RN+）：講的是 list_trash 的 folderPath。
+  // 資料夾（RN+）：講的是 list_trash 的 folderPath。
   "It usually goes back into the folder that list_trash shows as its `folderPath`, re-creating folders on that path that are missing. " +
   "Replies with the note in the same shape list_notes returns.";
 
@@ -30,7 +30,7 @@ export const restoreNoteInput = {
 };
 export const restoreNoteOutput = { note: noteSummarySchema.describe("The note after it was restored, in the same shape list_notes returns.") };
 
-/** AG2：沒有垃圾桶權、不存在、不在垃圾桶、已永久刪除、還原後重讀落空同一句。 */
+/** 沒有垃圾桶權、不存在、不在垃圾桶、已永久刪除、還原後重讀落空同一句。 */
 export const RESTORE_NOT_FOUND_MESSAGE =
   "No note with that id in a trash you can restore from. For example, it may not exist, may not be in the trash, may have been " +
   "deleted permanently, may be someone else's, may belong to a group you aren't in, or may be in the trash of a group where your " +

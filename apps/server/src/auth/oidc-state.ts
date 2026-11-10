@@ -1,20 +1,20 @@
 import { sealCookieJson, unsealCookieJson } from "./sealed-cookie.js";
 
-// OIDC state cookie 的 seal/unseal（spec §14.3）——密封 authorization request 期間需要
+// OIDC state cookie 的 seal/unseal——密封 authorization request 期間需要
 // 跨 redirect 存活的一次性資料（state/nonce/PKCE code_verifier），比照 `ai/crypto.ts` 的
 // sha256 namespace 衍生慣例（`:ai-key`）與 `auth/session.ts`（`:session`）：同一個
 // APP_SECRET 用不同 namespace 字尾衍生出互不相通的用途專屬金鑰。
 // #187 起封章本體在 `auth/sealed-cookie.ts`（格式不變；namespace `oidc-state`）。
-// #187 §7.3：payload 綁「發出它的 provider」（`providerId`）與當下的設定版本（`configVersion`），並帶 `intent`——callback
-// 據此判斷 cookie 是否屬於這條 provider 路徑、設定是否在登入途中變了（C5）。三欄缺任何一個＝部署前封的舊 cookie，unseal 回 null
-// （在飛的登入失敗一次，§17 第 12 條）。intent 是 "login"／"prove"（SSO 證明，§7.5.3）／"link"（設定頁手動連結，§8.1）。
+// #187：payload 綁「發出它的 provider」（`providerId`）與當下的設定版本（`configVersion`），並帶 `intent`——callback
+// 據此判斷 cookie 是否屬於這條 provider 路徑、設定是否在登入途中變了。三欄缺任何一個＝部署前封的舊 cookie，unseal 回 null
+// （在飛的登入失敗一次）。intent 是 "login"／"prove"（SSO 證明）／"link"（設定頁手動連結）。
 
 export interface OidcStateBase {
   state: string;
   nonce: string;
   codeVerifier: string;
   /** epoch 秒。由 server 端驗證（`payload.exp <= now` → null）——cookie 的 `maxAge`
-   * 只是瀏覽器端約束，不可信任（§14.3 MAJOR-4）。 */
+   * 只是瀏覽器端約束，不可信任。 */
   exp: number;
   /** #187：發出這顆 cookie 的 provider id（小寫 uuid）。 */
   providerId: string;
@@ -26,19 +26,19 @@ export type OidcStateIntent = {
   intent: "login";
   /**
    * #131：登入完成後要回去的站內路徑。由 login 端點寫入（已過 `safeNextPath`），callback
-   * 端（Task 6 起）**unseal 後再驗一次**才使用——封章保證「這是我們封的」，不保證它現在
+   * 端**unseal 後再驗一次**才使用——封章保證「這是我們封的」，不保證它現在
    * 仍安全（判準日後收緊時，還在飛的舊 cookie 是用舊判準封的）。
    *
    * ⚠ **沒有第二道長度上限**：唯一的關是 `safeNextPath`（`packages/shared` 的
-   * `MAX_NEXT_PATH_LENGTH` = 2048）。spec §5.3.3 原本要求再壓到 512、理由是 cookie 的
-   * 4 KB 上限，實測不成立（2048 字元的 next 封章後 `name=value` 是 3049 bytes、含屬性
-   * 3115，臨界值 2834 字元——Plan 5 時的量測；#187 加 providerId／configVersion／intent 後 `name=value` 實測 3165），那道關只會把 513–2048 的合法路徑在 SSO 線靜默丟掉。
-   * Willie 2026-09-03 裁決拿掉。守衛見 `test/oidc-login.test.ts` 的兩案分工註解。
+   * `MAX_NEXT_PATH_LENGTH` = 2048）。曾經再壓到 512、理由是 cookie 的
+   * 4 KB 上限，量過不成立（2048 字元的 next 封章後 `name=value` 是 3049 bytes、含屬性
+   * 3115，臨界值 2834 字元；#187 加 providerId／configVersion／intent 後 `name=value` 實測 3165），那道關只會把 513–2048 的合法路徑在 SSO 線靜默丟掉。
+   * 已拿掉。守衛見 `test/oidc-login.test.ts` 的兩案分工註解。
    */
   next?: string;
 } | {
   /**
-   * #187 §7.5.3 SSO 證明（第二段 OIDC 往返）：`pendingId`／`proveUserId` 綁回發起時的那顆 pending-link cookie，callback 比對不符
+   * #187 SSO 證明（第二段 OIDC 往返）：`pendingId`／`proveUserId` 綁回發起時的那顆 pending-link cookie，callback 比對不符
    * → `oidc_link_expired`。**沒有 `next`**——完成後要回去的路徑留在 pending cookie 裡（unseal 時即使 payload 帶了 next 也丟掉）。
    */
   intent: "prove";
@@ -46,8 +46,8 @@ export type OidcStateIntent = {
   proveUserId: string;
 } | {
   /**
-   * #187 §7.6／§8.1 設定頁的手動連結：`linkUserId`＝發起者。callback 以「目前 session 的使用者 === linkUserId」判斷，
-   * 不符 → `oidc_link_session_mismatch`。**沒有 `next`**——完成後一律回 `/settings/login`（#247 §9.9）（unseal 時即使帶了 next 也丟掉）。
+   * #187 設定頁的手動連結：`linkUserId`＝發起者。callback 以「目前 session 的使用者 === linkUserId」判斷，
+   * 不符 → `oidc_link_session_mismatch`。**沒有 `next`**——完成後一律回 `/settings/login`（#247）（unseal 時即使帶了 next 也丟掉）。
    */
   intent: "link";
   linkUserId: string;
@@ -76,7 +76,7 @@ export function sealOidcState(appSecret: string, payload: OidcStatePayload): str
  *
  * 「消費後重放」不在此模組的職責內——server 端無已消費 state 集合，一次性語意由
  * callback route 的 clearCookie + exp 短 TTL + IdP authorization code 本身的單次消費
- * 共同承擔（見 spec §14.7）。
+ * 共同承擔。
  */
 export function unsealOidcState(appSecret: string, sealed: string, nowEpochSeconds: number): OidcStatePayload | null {
   const parsed = unsealCookieJson(appSecret, "oidc-state", sealed);
@@ -99,17 +99,17 @@ export function unsealOidcState(appSecret: string, sealed: string, nowEpochSecon
   // ⚠ 別簡化成 `if (nextValue && typeof nextValue !== "string")`：那樣 null 會漏（空字串
   // 被放過是**對的**，`""` 本來就是合法字串）。守衛：unit 的「next 是 null」那案。
   const p = parsed as Record<string, unknown>;
-  // #187 §7.3：providerId／configVersion／intent 是新必要欄位——缺的就是部署前封的舊 cookie（在飛的登入失敗一次，§17 第 12 條）。
+  // #187：providerId／configVersion／intent 是新必要欄位——缺的就是部署前封的舊 cookie（在飛的登入失敗一次）。
   if (typeof p.providerId !== "string" || !Number.isInteger(p.configVersion)) return null;
   if (p.intent === "prove") {
-    // SSO 證明（§7.5.3）：不帶 next（next 留在 pending cookie）；pendingId／proveUserId 綁回當下那顆 pending。
+    // SSO 證明：不帶 next（next 留在 pending cookie）；pendingId／proveUserId 綁回當下那顆 pending。
     if (typeof p.pendingId !== "string" || typeof p.proveUserId !== "string") return null;
     const { next, ...rest } = p;
     void next;
     return (rest.exp as number) <= nowEpochSeconds ? null : (rest as unknown as OidcStatePayload);
   }
   if (p.intent === "link") {
-    // 手動連結（§8.1）：不帶 next；linkUserId 必須是字串。
+    // 手動連結：不帶 next；linkUserId 必須是字串。
     if (typeof p.linkUserId !== "string") return null;
     const { next, ...rest } = p;
     void next;

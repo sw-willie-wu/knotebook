@@ -8,7 +8,7 @@ import { LONG_PRESS_MS } from "@/lib/long-press";
 import { PresenceAvatars, type PresenceAvatarsProps } from "./PresenceAvatars";
 import { agentState, fakeProvider, removeRemote, setRemote, userState } from "./test-awareness";
 
-// #293 §9.2／§9.3／§12：頁頭頭像列。Host 照 NotePage 的 `<header className="@container …">` 掛法（H7）。
+// #293：頁頭頭像列。Host 照 NotePage 的 `<header className="@container …">` 掛法。
 
 let frames: FrameRequestCallback[] = [];
 const awarenesses: Awareness[] = [];
@@ -158,7 +158,7 @@ describe("PresenceAvatars", () => {
     expect(screen.getByRole("button", { name: "王小明，檢視者，目前沒有游標位置" })).toBeInTheDocument();
   });
 
-  it("PA3 Tooltip：focus 與 hover 都開；按鈕上沒有 aria-describedby（P8）", async () => {
+  it("PA3 Tooltip：focus 與 hover 都開；按鈕上沒有 aria-describedby", async () => {
     const aw = newAwareness();
     setRemote(aw, 10, userState("u-a", "Ann", { cursor: cur("a") }));
     mount(aw);
@@ -218,7 +218,7 @@ describe("PresenceAvatars", () => {
     expect(caught.errors).toEqual([]);
   });
 
-  it("PA5 點頭像、在頭像上按 Enter、pointerdown 都不開選單（I-A）", () => {
+  it("PA5 點頭像、在頭像上按 Enter、pointerdown 都不開選單", () => {
     const aw = newAwareness();
     setRemote(aw, 10, userState("u-a", "Ann", { cursor: cur("a") }));
     setRemote(aw, 11, userState("u-b", "Bob"));
@@ -495,7 +495,7 @@ describe("PresenceAvatars", () => {
       expect(screen.getByRole("tooltip")).toBeInTheDocument();
     });
 
-    it("PA9 (c0)(c) blur 解除抑制且不留下 tooltip；再聚焦是新的聚焦", () => {
+    it("PA9(c) blur 解除抑制且不留下 tooltip；再聚焦是新的聚焦", () => {
       const ann = pressAndEscape();
       act(() => {
         ann.blur();
@@ -507,7 +507,7 @@ describe("PresenceAvatars", () => {
       expect(screen.getByRole("tooltip")).toBeInTheDocument();
     });
 
-    it("PA9 (d0)(d) pointerdown 解除抑制且不留下 tooltip；hover 再開", () => {
+    it("PA9(d) pointerdown 解除抑制且不留下 tooltip；hover 再開", () => {
       const ann = pressAndEscape();
       fireEvent.pointerDown(ann, { pointerType: "mouse", button: 0 });
       expect(screen.queryByRole("tooltip")).toBeNull();

@@ -1,5 +1,5 @@
 /**
- * bulk transfer spec 2026-11-02 §7、§8：單篇下載 `GET /api/transfer/notes/:id` 與自行撤銷（plan T9 N1–N13）。
+ * bulk transfer：單篇下載 `GET /api/transfer/notes/:id` 與自行撤銷。
  */
 import { randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
@@ -7,7 +7,7 @@ import { eq, sql } from "drizzle-orm";
 import { canonicalNotePath } from "@knotebook/shared";
 import { folders, notes, transferBases } from "../src/db/schema.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
-import { TOO_MANY_BULK_TOKENS_MESSAGE } from "../src/mcp/tools/create-bulk-transfer-token.js";
+import { TOO_MANY_BULK_TOKENS_MESSAGE } from "../src/mcp/tools/open-notes-as-files.js";
 import { readNoteContent } from "../src/notes/editing/read.js";
 import { presenceClientId } from "../src/notes/editing/presence.js";
 import { NOT_IN_RANGE_MESSAGE, RANGE_GONE_MESSAGE, TRANSFER_NOTE_NOT_FOUND_MESSAGE } from "../src/routes/transfer.js";
@@ -112,7 +112,7 @@ describe("單篇下載", () => {
     expect(String(r.headers["retry-after"])).toMatch(/^[1-9]\d*$/);
   });
 
-  it("N4b HEAD /api/transfer/notes/:id → 404、不扣 contentRead（exposeHeadRoute: false，審查 m6）", async () => {
+  it("N4b HEAD /api/transfer/notes/:id → 404、不扣 contentRead（exposeHeadRoute: false）", async () => {
     const ctx = await buildCollabTestApp({ limiters: { contentRead: new FixedWindowLimiter({ limit: 1, windowMs: 60_000 }) } });
     const u = await seedUser(ctx.db);
     const pat = await seedTokenForUser(ctx.db, u.id, "notes:read");
@@ -199,9 +199,9 @@ describe("單篇下載", () => {
     const p2 = await seedTokenForUser(ctx.db, u.id, "notes:read");
     const ts = [];
     for (let i = 0; i < 3; i++) ts.push(await issueBulkDirect(ctx.db, p2.tokenId));
-    expect((await callTool(ctx.app, p2.token, "create_bulk_transfer_token", {})).structuredContent).toEqual({ code: "too_many_requests", message: TOO_MANY_BULK_TOKENS_MESSAGE });
+    expect((await callTool(ctx.app, p2.token, "open_notes_as_files", {})).structuredContent).toEqual({ code: "too_many_requests", message: TOO_MANY_BULK_TOKENS_MESSAGE });
     expect((await bulkDelete(ctx.app, ts[0]!.token)).statusCode).toBe(204);
-    expect((await callTool(ctx.app, p2.token, "create_bulk_transfer_token", {})).isError).toBeUndefined();
+    expect((await callTool(ctx.app, p2.token, "open_notes_as_files", {})).isError).toBeUndefined();
   });
 
   it("N11 兩位讀者抓同一篇 → 兩列 salt 不同、line_hashes 不同", async () => {
@@ -221,7 +221,7 @@ describe("單篇下載", () => {
     expect(a!.lineHashes.equals(c!.lineHashes)).toBe(false);
   });
 
-  it("N12 PR-2 起有寫回路由：PUT /api/transfer/notes 不帶 body → 不是 404（回 400）、帶 text/markdown → 不是 415；基底沒變", async () => {
+  it("N12 有寫回路由：PUT /api/transfer/notes 不帶 body → 不是 404（回 400）、帶 text/markdown → 不是 415；基底沒變", async () => {
     const ctx = await buildCollabTestApp();
     const u = await seedUser(ctx.db);
     const pat = await seedTokenForUser(ctx.db, u.id, "notes:read notes:write");

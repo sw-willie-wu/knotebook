@@ -2,8 +2,8 @@ import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 /**
- * 權限 pill（#247：個人設定的群組總覽、token 權限、Part 3 的群組角色）。**只列有的**，沒有的不顯示、不打叉。
- * `destructive`＝不可逆後果的權限（token 的「搬移」，§5.3）。`data-pill` 是測試取 pill 的握把。
+ * 權限 pill（#247：個人設定的群組總覽、token 權限、群組角色）。**只列有的**，沒有的不顯示、不打叉。
+ * `destructive`＝不可逆後果的權限（token 的「搬移」）。`data-pill` 是測試取 pill 的握把。
  */
 export function Pill({ tone = "default", children }: { tone?: "default" | "destructive"; children: ReactNode }) {
   return (

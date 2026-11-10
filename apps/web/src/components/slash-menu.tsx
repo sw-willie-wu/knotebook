@@ -53,7 +53,7 @@ export function buildSlashMenuItems(
     icon: <Link className="h-4 w-4" />,
     onItemClick: onInsertLink,
   };
-  // 並排 N 欄（spec 2026-10-21 columns-layout §7.1-②）：游標在欄內、表格內、子 block 內時不列（getSlashItems 每次查詢都重算）。
+  // 並排 N 欄：游標在欄內、表格內、子 block 內時不列（getSlashItems 每次查詢都重算）。
   // 插值變數刻意不叫 `count`，免得 i18next 去找複數鍵。
   const columnItems: DefaultReactSuggestionItem[] = canInsertColumns(editor)
     ? ([2, 3, 4] as const).map((n) => ({
@@ -69,7 +69,7 @@ export function buildSlashMenuItems(
   // ⚠ 不能單純 push 到最後：選單只在「這一項的 group 跟上一項不同」時才畫分組標題，
   // 而內建順序是 …Advanced → Media → Others。塞在最尾會讓畫面上出現**第二個**同名
   // 分組標題。插到最後一個同 group 的項目後面，才會併進既有那一組。兩個自訂項都走
-  // 這條邏輯、都插在同一個 group 裡（INV-5）。
+  // 這條邏輯、都插在同一個 group 裡。
   const lastInGroup = defaults.map((entry) => entry.group).lastIndexOf(group);
   if (lastInGroup === -1) return [...defaults, mermaidItem, linkItem, ...columnItems];
   return [...defaults.slice(0, lastInGroup + 1), mermaidItem, linkItem, ...columnItems, ...defaults.slice(lastInGroup + 1)];

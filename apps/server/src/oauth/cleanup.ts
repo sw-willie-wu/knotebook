@@ -4,7 +4,7 @@ import type { Db } from "../db/index.js";
 import { apiTokens, oauthClients, oauthCodes, oauthRequests } from "../db/schema.js";
 
 /**
- * I5：唯一的清理點，五條 DELETE。
+ * 唯一的清理點，五條 DELETE。
  *
  * **性質：沒有排程**——只在每次 DCR（`POST /oauth/register`）、authorize（`GET /oauth/authorize`）、
  * decision（`POST /api/oauth/decision`）、`/oauth/token` 換發**成功**（authorization_code grant）、

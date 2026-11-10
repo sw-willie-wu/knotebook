@@ -24,7 +24,7 @@ function run(html: string, ctx: PostprocessContext) {
 
 const WIKILINK = '<p>see <span data-inline-content-type="wikilink" data-target-note-id="n 1" data-snapshot-title="Old &lt;b&gt;title"><span>[[Old]]</span></span></p>';
 
-describe("postprocessSlide（spec §5.3）", () => {
+describe("postprocessSlide", () => {
   beforeEach(() => renderMermaid.mockReset());
 
   it("所有 img/video/audio[src] 走 resolveMedia（公開變體映射到公開端點）", () => {
@@ -41,7 +41,7 @@ describe("postprocessSlide（spec §5.3）", () => {
     expect(text.getAttribute("href")).toBe("/api/uploads/g");
   });
 
-  it("文字連結：http(s)、mailto、相對留下；#… 拿掉 href（reveal 會攔截當跳頁，§2.11-15）；其他 scheme 拿掉", () => {
+  it("文字連結：http(s)、mailto、相對留下；#… 拿掉 href（reveal 會攔截當跳頁）；其他 scheme 拿掉", () => {
     const { host } = run('<a href="https://e/x">1</a><a href="mailto:a@b">2</a><a href="/n/a/b">3</a><a href="#/abc">4</a><a href="ftp://e">5</a>', member());
     expect(Array.from(host.querySelectorAll("a")).map((a) => a.getAttribute("href"))).toEqual(["https://e/x", "mailto:a@b", "/n/a/b", null, null]);
   });
@@ -70,7 +70,7 @@ describe("postprocessSlide（spec §5.3）", () => {
     expect(host.querySelector("details")!.hasAttribute("open")).toBe(true);
   });
 
-  it("table 外包 div.kn-present-table[data-prevent-swipe]（§6.8 ①）", () => {
+  it("table 外包 div.kn-present-table[data-prevent-swipe]（①）", () => {
     const { host } = run("<table><tbody><tr><td>c</td></tr></tbody></table>", member());
     const wrap = host.querySelector("table")!.parentElement!;
     expect(wrap.className).toBe("kn-present-table");
@@ -118,7 +118,7 @@ describe("postprocessSlide（spec §5.3）", () => {
   });
 
   const WL = (attrs: string) => `<p><span data-inline-content-type="wikilink" data-target-note-id="n1" data-snapshot-title="Snap"${attrs}><a href="/notes/n1">x</a></span></p>`;
-  it("#269 §11.4 member：命中 → 文字 label 優先、href＝canonical＋#b-錨點；未就緒 → /notes/<id>＋錨點、label 優先；斷鏈 → label 優先的純文字", () => {
+  it("#269 member：命中 → 文字 label 優先、href＝canonical＋#b-錨點；未就緒 → /notes/<id>＋錨點、label 優先；斷鏈 → label 優先的純文字", () => {
     const found = member(() => ({ kind: "found", href: "/n/h/x", title: "Live" }));
     let a = run(WL(' data-label="L" data-anchor-block-id="b1"'), found).host.querySelector("a")!;
     expect([a.getAttribute("href"), a.textContent]).toEqual(["/n/h/x#b-b1", "L"]);
@@ -129,7 +129,7 @@ describe("postprocessSlide（spec §5.3）", () => {
     const span = run(WL(' data-label="L"'), member(() => ({ kind: "broken" }))).host.querySelector(".kn-present-wikilink-broken")!;
     expect(span.textContent).toBe("L");
   });
-  it("#269 §11.4 public：純文字 label || snapshotTitle（O6：不連公開目標）", () => {
+  it("#269 public：純文字 label || snapshotTitle（不連公開目標）", () => {
     expect(run(WL(' data-label="L"'), publicCtx).host.textContent).toBe("L");
     expect(run(WL(""), publicCtx).host.textContent).toBe("Snap");
     expect(run(WL(' data-label="L"'), publicCtx).host.querySelector("a")).toBeNull();

@@ -1,4 +1,4 @@
-/** 版本歷史 §6.7：站台清除天數、自動儲存總開關與自動存版等待（#272 §8）（`requireAdmin`）。PATCH 走 `updateVersionSettingsInTx`（S14：callback 整段是 xInTx）。 */
+/** 版本歷史：站台清除天數、自動儲存總開關與自動存版等待（#272）（`requireAdmin`）。PATCH 走 `updateVersionSettingsInTx`（S14：callback 整段是 xInTx）。 */
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
@@ -15,7 +15,7 @@ const settingsPatchSchema = z
     keepAllDays: z.number().int().optional(),
     dailyUntilDays: z.number().int().optional(),
     autoVersionsEnabled: z.boolean().optional(),
-    // #272 §8：範圍外 → 自訂 issue，回範圍句；非整數、非數字是 zod 內建 issue → sendInvalidBody 換成 "Invalid request body."。
+    // #272：範圍外 → 自訂 issue，回範圍句；非整數、非數字是 zod 內建 issue → sendInvalidBody 換成 "Invalid request body."。
     autoWaitMinutes: z
       .number()
       .int()

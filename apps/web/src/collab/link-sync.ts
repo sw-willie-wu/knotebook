@@ -5,7 +5,7 @@ import { toast } from "@/components/ui/toast";
 import i18n from "@/i18n";
 import { canEdit, type CollabState } from "./connection";
 
-/** Y.Doc 內容變動（含遠端）後，等這麼久沒有新變動才重算＋提交（spec §12.3）。 */
+/** Y.Doc 內容變動（含遠端）後，等這麼久沒有新變動才重算＋提交。 */
 const DEBOUNCE_MS = 2_000;
 /** 409 `not_loaded` 的唯一一次重試延遲。 */
 const NOT_LOADED_RETRY_MS = 1_000;
@@ -14,7 +14,7 @@ const INITIAL_BACKOFF_MS = 1_000;
 const MAX_BACKOFF_MS = 60_000;
 
 /** `@/api/client` 的 `api()` 最小介面——工廠吃這個型別而非直接 import 該函式本體，
- * 讓測試可以注入 fake fetch/timer 等價物（brief：「純 TS 工廠，fake fetch/timer 可單測」）。 */
+ * 讓測試可以注入 fake fetch/timer 等價物。 */
 export type LinkSyncApiFn = <T>(path: string, init?: RequestInit) => Promise<T>;
 
 export interface CreateLinkSyncOptions {
@@ -39,7 +39,7 @@ export interface LinkSync {
 // `UUID_RE` 與 `extractLinkTargets` 住 `@knotebook/shared`；server 的
 // `notes/service.ts:15` 另有一份同 pattern（刻意不共用）。
 
-/** 三態閂（spec §12.3）：`"none"` 正常運作；`"403"`／`"400"` 各自暫停提交，直到對應的
+/** 三態閂：`"none"` 正常運作；`"403"`／`"400"` 各自暫停提交，直到對應的
  * 解閂條件成立（見 `createLinkSync` 內 `onCollabState`／`attemptSubmit` 的判定）。 */
 type Latch = "none" | "403" | "400";
 
@@ -54,7 +54,7 @@ interface RetryState {
 }
 
 /**
- * wikilink 連結索引提交器（spec §12.3 client 段）——純 TS 狀態機，不碰 DOM／React。
+ * wikilink 連結索引提交器（client 段）——純 TS 狀態機，不碰 DOM／React。
  *
  * 核心流程：`doc` 的 `update` 事件（含遠端）debounce {@link DEBOUNCE_MS} 後重算目標
  * 集合並嘗試提交；`onSynced()`（provider 的 `synced` 事件，唯一輸入）重置「上次成功
@@ -82,7 +82,7 @@ export function createLinkSync({ noteId, doc, api }: CreateLinkSyncOptions): Lin
    * applyUpdate 進來）——這時若被 debounce 搶跑，算出來的集合直接是空陣列，等同一次
    * `POST` 就把這篇筆記既有的所有連結**全部清空**，而使用者的編輯內容其實根本沒變。
    * 因此在第一次 `onSynced()` 之前，debounce 觸發的 `attemptSubmit` 一律不送——第一次
-   * 提交必須是由 `onSynced()` 本身觸發的那一次（見 brief「synced 後提交一次」；
+   * 提交必須是由 `onSynced()` 本身觸發的那一次（
    * `start()` 本身不觸發提交），確保送出的第一筆一定是同步完成後的完整集合。 */
   let hasSyncedOnce = false;
 
@@ -271,7 +271,7 @@ export function createLinkSync({ noteId, doc, api }: CreateLinkSyncOptions): Lin
       if (!started) return;
       hasSyncedOnce = true;
       // 每次 synced（含重連）都要重置快取，讓重算後的集合視為「有變動」而重送一次
-      // ——即使跟上次成功提交的內容完全相同（spec：「重連必重送一次」）。
+      // ——即使跟上次成功提交的內容完全相同（重連必重送一次）。
       lastSubmittedKey = null;
       if (debounceTimer) {
         clearTimeout(debounceTimer);

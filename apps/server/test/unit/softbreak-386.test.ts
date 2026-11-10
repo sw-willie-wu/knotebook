@@ -99,7 +99,7 @@ describe("#386 寫入：段落內換行後不多空白", () => {
     expect(textOf((await parse("L1<br>L2"))[0]!.content)).toBe("L1\nL2");
   });
 
-  // 審查 M3：原文手寫的 <pre> 裡換行有意義，`<br>` 後的 `\n` 不拿掉（換行數與修改前相同）。
+  // 原文手寫的 <pre> 裡換行有意義，`<br>` 後的 `\n` 不拿掉（換行數與修改前相同）。
   it("手寫 <pre> 裡 <br> 後的換行照留", async () => {
     const [p] = await parse("<pre>a<br>\nb</pre>");
     expect(textOf(p!.content)).toBe("a\n\n\nb");
@@ -110,7 +110,7 @@ describe("#386 寫入：段落內換行後不多空白", () => {
     expect(textOf((await parse("<pre>x</pre>\n\nL1\nL2"))[1]!.content)).toBe("L1\nL2");
   });
 
-  // 審查 M4：CRLF／CR 在入口換成 LF，`\r` 不再變成行尾空白。
+  // CRLF／CR 在入口換成 LF，`\r` 不再變成行尾空白。
   it.each([
     ["CRLF 軟換行", "L1\r\nL2", ["L1\nL2"]],
     ["CRLF \\ 換行", "L1\\\r\nL2", ["L1\nL2"]],
@@ -203,7 +203,7 @@ describe("#386 讀出 → 原樣寫回穩定", () => {
     expect(await readMd(d2)).toBe(md1);
   });
 
-  // 審查 I1：換行佔位符要是整份 HTML（含網址）裡沒有的單一字元——舊版用重複的 ⸂、只比文字，會跟相鄰字元重疊、換進網址裡。
+  // 換行佔位符要是整份 HTML（含網址）裡沒有的單一字元——舊版用重複的 ⸂、只比文字，會跟相鄰字元重疊、換進網址裡。
   // U+E000 是現在第一個候選字元，⸂ 是舊版的佔位符。
   it.each([
     ["佔位符候選字元緊接換行前（段落）", [{ type: "paragraph", content: [{ type: "text", text: "\n b", styles: {} }] }]],
@@ -253,7 +253,7 @@ describe("#386 讀出 → 原樣寫回穩定", () => {
   });
 });
 
-// Willie 2026-11-05：樣式從空白開始（`<strong> b</strong>`）轉換器寫成 `** b**`，寫回變字面——讀出端把樣式開頭與結尾的空白移到
+// 樣式從空白開始（`<strong> b</strong>`）轉換器寫成 `** b**`，寫回變字面——讀出端把樣式開頭與結尾的空白移到
 // 標記外面。字不變（每個字的樣式除了那格空白都不變）、讀出 → 寫回 → 再讀逐字相同，寫回一次之後 blocks 也穩定。
 describe("樣式開頭、結尾的空白移到強調標記外面", () => {
   /** 字與每個字的樣式（空白字元的樣式不比：移出去後那格空白不帶樣式）。 */
@@ -287,7 +287,7 @@ describe("樣式開頭、結尾的空白移到強調標記外面", () => {
   });
 });
 
-// Willie 筆記上經 edit_note 重現三次的實例（2026-11-05）：引言裡粗體緊接 inline code、粗體跨換行、換行後多一格空白。
+// 實際筆記上經 edit_note 重現三次的實例：引言裡粗體緊接 inline code、粗體跨換行、換行後多一格空白。
 describe("實例：引言裡的粗體＋inline code＋換行往返", () => {
   const B = { bold: true };
   const C = { code: true };
@@ -307,7 +307,7 @@ describe("實例：引言裡的粗體＋inline code＋換行往返", () => {
     { type: "text", text: " ", styles: {} },
     ...TAIL,
   ];
-  /** 上面那份經修好前的讀出原樣寫回一次後存成的形：斜體吃進了字面的 `**`、`\n` 與下一個 code 的反引號（Willie 筆記現在的樣子）。 */
+  /** 上面那份經修好前的讀出原樣寫回一次後存成的形：斜體吃進了字面的 `**`、`\n` 與下一個 code 的反引號（該筆記現在的樣子）。 */
   const CORRUPTED = [
     { type: "text", text: "test 跟 lint 沒有", styles: B },
     { type: "text", text: " ", styles: {} },
@@ -347,9 +347,9 @@ describe("實例：引言裡的粗體＋inline code＋換行往返", () => {
     expect(r.b2).toEqual(r.b1);
   });
 
-  it("Willie 讀到的 markdown 原樣寫回 → 之後讀出、寫回不再變（不再一輪多一個 *、不會變成清單）", async () => {
-    const WILLIE = "> **test 跟 lint 沒有** `soft_`** 開關，是刻意的。**\\\n>  其他每一道預設都是硬的，需要過渡期才調軟 —— 而且 `soft_*` 一開就是所有分支一起軟化，**包含發版 tag**。\n";
-    const d1 = await docWith(await parse(WILLIE));
+  it("實際讀到的 markdown 原樣寫回 → 之後讀出、寫回不再變（不再一輪多一個 *、不會變成清單）", async () => {
+    const REAL_NOTE = "> **test 跟 lint 沒有** `soft_`** 開關，是刻意的。**\\\n>  其他每一道預設都是硬的，需要過渡期才調軟 —— 而且 `soft_*` 一開就是所有分支一起軟化，**包含發版 tag**。\n";
+    const d1 = await docWith(await parse(REAL_NOTE));
     const md1 = await readMd(d1);
     const d2 = await docWith(await parse(md1));
     const md2 = await readMd(d2);

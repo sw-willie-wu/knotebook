@@ -22,7 +22,7 @@ import { normalizeAnchor, wikilinkHref, wikilinkVisibleText } from "./site-link.
 
 export const MERMAID_LANGUAGE = "mermaid";
 export const mermaidBlockConfig = { type: MERMAID_LANGUAGE, content: "none", propSchema: { code: { default: "" } } } as const;
-// #269 §4.1：`label` 空 ⇒ 顯示目標現行標題（跟著改名）；`anchorBlockId` 空 ⇒ 整篇，否則目標筆記內區塊 id（BLOCK_ANCHOR_RE，
+// #269：`label` 空 ⇒ 顯示目標現行標題（跟著改名）；`anchorBlockId` 空 ⇒ 整篇，否則目標筆記內區塊 id（BLOCK_ANCHOR_RE，
 // 不合格的值讀端一律當空）。改這裡＝改 note schema：同步升 `note-schema-version.ts` 的 NOTE_SCHEMA_VERSION（digest 守衛會紅）。
 export const wikilinkConfig = {
   type: "wikilink",
@@ -67,7 +67,7 @@ function resolvesToHttp(raw: string, base?: string): boolean {
 /** 嵌入（iframe／外部圖）只收絕對 http(s)：刻意不補 scheme、不吃 base（web media-url.test.ts:21-23 釘住）。 */
 export function isAllowedEmbedUrl(raw: string): boolean { return resolvesToHttp(raw, undefined); }
 // base 必填：shared 沒有 window；web 的包裝補 window.location.href、server 傳 jsdom 的 url（PUBLIC_URL origin）。
-// base 錯了會把相對的 /api/uploads/<id> 消毒成 about:blank（spec round 7 C-2）。
+// base 錯了會把相對的 /api/uploads/<id> 消毒成 about:blank。
 export function isSafeMediaUrl(raw: string, base: string): boolean { return raw === "" ? true : resolvesToHttp(raw, base); }
 export function safeMediaUrl(raw: string, base: string): string { return isSafeMediaUrl(raw, base) ? raw : BLOCKED_MEDIA_URL; }
 
@@ -107,7 +107,7 @@ export function createHeadlessNoteSchema(base: string) {
   })(); // createBlockSpec 回 factory；createInlineContentSpec 直接回 spec（0.52.1 d.ts 核實）
   const wikilinkSpec = createInlineContentSpec(wikilinkConfig, {
     render: () => ({ dom: document.createElement("span") }),
-    // #269 §7.3：與 web spec 同形——`<span><a href="/notes/<id>[#b-…]">label || snapshotTitle || href</a></span>`
+    // #269：與 web spec 同形——`<span><a href="/notes/<id>[#b-…]">label || snapshotTitle || href</a></span>`
     // （外層 span 的理由見 web `components/wikilink/spec.tsx` 的 `WikilinkExternalHTML`）。
     toExternalHTML: ic => {
       const span = document.createElement("span");

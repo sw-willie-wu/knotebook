@@ -1,11 +1,11 @@
 /**
- * 資料夾的「空間」與結構鎖鍵（spec docs/superpowers/specs/2026-10-22-folders-design.md §5.4）。純資料，沒有 DB 存取。
+ * 資料夾的「空間」與結構鎖鍵。純資料，沒有 DB 存取。
  */
 import type { FolderSpaceDto } from "@knotebook/shared";
 
 export type FolderSpace = { kind: "personal"; ownerId: string } | { kind: "shared"; ownerId: string } | { kind: "group"; groupId: string };
 
-/** `knotebook.folders:<kind>:<id 小寫>`（§5.4 N2；前綴比照 `storage/space.ts` 的 `knotebook.storage:`，不共用 key 空間）。 */
+/** `knotebook.folders:<kind>:<id 小寫>`（前綴比照 `storage/space.ts` 的 `knotebook.storage:`，不共用 key 空間）。 */
 export function folderSpaceLockKey(space: FolderSpace): string {
   const id = space.kind === "group" ? space.groupId : space.ownerId;
   return `knotebook.folders:${space.kind}:${id.toLowerCase()}`;
@@ -36,7 +36,7 @@ export function sameFolderSpace(a: FolderSpace, b: FolderSpace): boolean {
   return folderSpaceLockKey(a) === folderSpaceLockKey(b);
 }
 
-/** 建立／複製帶資料夾的空間一致性（spec §5.7.6 第 2 步）：群組資料夾要給同一個 groupId（比較前轉小寫）；個人資料夾不能帶 groupId；shared 一律不行。 */
+/** 建立／複製帶資料夾的空間一致性：群組資料夾要給同一個 groupId（比較前轉小寫）；個人資料夾不能帶 groupId；shared 一律不行。 */
 export function newNoteFolderConsistent(space: FolderSpace, groupId: string | undefined): boolean {
   return space.kind === "group"
     ? groupId !== undefined && groupId.toLowerCase() === space.groupId

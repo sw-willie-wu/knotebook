@@ -12,7 +12,7 @@ import {
 const U = "0b6f3a2e-1c4d-4e5f-8a9b-0c1d2e3f4a5b";
 const G = "ffffffff-1c4d-4e5f-8a9b-0c1d2e3f4a5b";
 
-describe("SP-1 結構鎖鍵（spec §5.4 N2）", () => {
+describe("SP-1 結構鎖鍵", () => {
   it("大寫 id 與小寫 id 同鍵", () => {
     expect(folderSpaceLockKey({ kind: "personal", ownerId: U.toUpperCase() })).toBe(
       folderSpaceLockKey({ kind: "personal", ownerId: U }),
@@ -61,7 +61,7 @@ describe("SP-2 列與筆記的空間", () => {
     expect(sameFolderSpace({ kind: "group", groupId: G }, { kind: "group", groupId: G })).toBe(true);
     expect(sameFolderSpace({ kind: "group", groupId: G }, { kind: "group", groupId: U })).toBe(false);
   });
-  it("newNoteFolderConsistent：群組資料夾要同一個 groupId（不分大小寫）；個人資料夾不帶 groupId；shared 一律不行（資料夾 PR-3d T7）", () => {
+  it("newNoteFolderConsistent：群組資料夾要同一個 groupId（不分大小寫）；個人資料夾不帶 groupId；shared 一律不行", () => {
     expect(newNoteFolderConsistent({ kind: "group", groupId: G }, G)).toBe(true);
     expect(newNoteFolderConsistent({ kind: "group", groupId: G }, G.toUpperCase())).toBe(true);
     expect(newNoteFolderConsistent({ kind: "group", groupId: G }, U)).toBe(false);

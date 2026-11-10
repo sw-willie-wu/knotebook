@@ -14,7 +14,7 @@ function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string
   return t("errors.fallback");
 }
 
-/** 站台管理表格的用量格（使用者表、群組表共用）：「X of Y」／「X (no limit)」；已達上限（>=）→ 警示色（起草裁定 4）。 */
+/** 站台管理表格的用量格（使用者表、群組表共用）：「X of Y」／「X (no limit)」；已達上限（>=）→ 警示色。 */
 export function StorageCell({ storage }: { storage: { usedBytes: number; quotaBytes: number | null } }) {
   const { t } = useTranslation();
   const text =
@@ -25,9 +25,9 @@ export function StorageCell({ storage }: { storage: { usedBytes: number; quotaBy
 }
 
 /**
- * 方案下拉，選了即存（spec §9.3「下拉即存，失敗 toast」）。受控於 server 值：失敗時不必回滾，畫面自然停在原方案。
- * 方案清單還沒到 → 只顯示方案名（起草裁定 11）。目前方案不在清單裡（清單快取比列舊）→ 補一個該方案的 option，
- * 否則瀏覽器會把第一個選項顯示成目前值、使用者一碰就改錯（RF4）。
+ * 方案下拉，選了即存（失敗 toast）。受控於 server 值：失敗時不必回滾，畫面自然停在原方案。
+ * 方案清單還沒到 → 只顯示方案名。目前方案不在清單裡（清單快取比列舊）→ 補一個該方案的 option，
+ * 否則瀏覽器會把第一個選項顯示成目前值、使用者一碰就改錯。
  */
 export function PlanSelect({ label, describedBy, planId, planName, plans, onAssign }: {
   label: string;

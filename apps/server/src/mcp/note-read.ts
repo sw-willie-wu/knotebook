@@ -1,22 +1,22 @@
 /**
  * #108：兩支內容工具（`read_note_outline`／`read_note_section`）共用的前置。
  *
- * **三步的順序是契約**：L3 角色（`resolveRole`）→ `contentRead` 桶 → presence。
+ * **三步的順序是契約**：角色（`resolveRole`）→ `contentRead` 桶 → presence。
  * 桶排在角色**之後**，所以 `role === "none"` 的「找不到」**不啃桶**（與 REST 的
  * `GET /api/notes/:id/content` 同紀律）；presence 排在最後，被 429 擋下的請求
- * 一個痕跡都不留（M6）。收在同一支是為了讓這個順序只有一份實作。
+ * 一個痕跡都不留。收在同一支是為了讓這個順序只有一份實作。
  *
  * **三道順序各有一個守衛，三條突變都實跑過**（`mcp-content.test.ts`）：
  * 把 `consume` 移到 `resolveRole` 之前 → 案 31 前半紅；把 presence 移到 `consume` 之前 →
  * 案 31 後半（429 那一發的 awareness clock）紅；把 presence 移到 `role === "none"` 的
  * early return 之前 → 「拒絕路徑不 touch presence」那一案紅。
- * ⚠ **第三道守的是 M2 與 M6 的交界**：`touch` 只看文件有沒有載入、**不看角色**——順序寫反，
+ * ⚠ **第三道守的是「找不到不洩漏」與「拒絕路徑不 touch presence」的交界**：`touch` 只看文件有沒有載入、**不看角色**——順序寫反，
  * 任何持 PAT 的人只要猜得到 note id，就能讓自己的名牌出現在真正協作者的畫面上。
  *
- * ⚠ `role === "none"` 一律當「找不到」，訊息不得洩漏「存在但你沒權限」（M2／案 17）。
+ * ⚠ `role === "none"` 一律當「找不到」，訊息不得洩漏「存在但你沒權限」（案 17）。
  * ⚠ presence 目標一律走既有的 `presenceTargetForRead(...)`，**不得自組 `PresenceTarget`
- *   字面量**（M8 的讀取側）。顯示名走 `presenceIdentity(...)`——**server 端 presence 顯示名的
- *   唯一組字點**（#108 PR2 收成一份；`presence.ts` 的原文措辭準確，這裡不是複製貼上）。
+ *   字面量**。顯示名走 `presenceIdentity(...)`——**server 端 presence 顯示名的
+ *   唯一組字點**（#108 收成一份；`presence.ts` 的原文措辭準確，這裡不是複製貼上）。
  *   web 端 `LastEditedLabel.tsx`／`AiEditsDialog.tsx` 各自另有一份同形的
  *   `${byHandle} (${agentLabel})`——那兩處是**修改紀錄的顯示**，不是 presence，故意不共用這支。
  *   「它組得對不對」的唯一守衛仍是 `mcp-content.test.ts` 的 presence 那一案。
@@ -101,7 +101,7 @@ export async function authorizeNoteRead(
   if (!ctx.limiters.contentRead.consume(ctx.userId)) {
     return { ok: false, error: toolError("too_many_requests", READ_RATE_LIMITED_MESSAGE) };
   }
-  // cookie session（`tokenId` 為 null）不現身：那是使用者本人在用瀏覽器，規格 §12.2 明講
+  // cookie session（`tokenId` 為 null）不現身：那是使用者本人在用瀏覽器，
   // 不設 presence。`touch` 內部只對已載入的文件動作，沒人在線時是 no-op，讀路徑「零副作用」
   // 的不變量仍成立（#387 的行程內記憶體記錄除外：讀到的連結文字記在 `NoteWriteService.shownLinks`，不落 DB、不動文件）。
   if (ctx.tokenId !== null) {

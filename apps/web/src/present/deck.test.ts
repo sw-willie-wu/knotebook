@@ -30,7 +30,7 @@ function shape(slidesEl: HTMLElement): string {
 }
 
 describe("applyRenderedDeck", () => {
-  it("初次：單張章是頂層 section、多張章包 kn-present-stack；沒有任何 id／data-id（A11）", () => {
+  it("初次：單張章是頂層 section、多張章包 kn-present-stack；沒有任何 id／data-id", () => {
     const dom = createDeckDom();
     const result = applyRenderedDeck(dom, rendered("_:_title|a:a1,a2|b:b1"));
     expect(shape(dom.slidesEl)).toBe("_title [a1,a2] b1");
@@ -59,7 +59,7 @@ describe("applyRenderedDeck", () => {
     expect(dom.els.get("a2")!.body.textContent).toBe("a2@1");
   });
 
-  it("在目前那張之前插一章：沿用的元素不離開文件（起草裁定 10）", () => {
+  it("在目前那張之前插一章：沿用的元素不離開文件", () => {
     const dom = createDeckDom();
     document.body.append(dom.revealEl);
     try {
@@ -129,7 +129,7 @@ describe("media、轉場", () => {
   });
 });
 
-describe("data-prevent-swipe（§6.8 ②）", () => {
+describe("data-prevent-swipe（②）", () => {
   afterEach(() => vi.unstubAllGlobals());
 
   function sized(scrollHeight: number, clientHeight: number): HTMLElement {

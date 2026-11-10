@@ -35,10 +35,10 @@ export interface ApplyDeps {
   /** 套回的目標位置（{@link anchorPlacement}）：`"nested"` 時 AI 結果不得含並排。 */
   placement: MarkdownPlacement;
 }
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote Block 的泛型三元組，走 repo 慣例用 any（同 ApplyOutcome 的 M-2 說明）
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote Block 的泛型三元組，走 repo 慣例用 any（同 ApplyOutcome 的說明）
 type AnyBlock = Block<any, any, any>;
 
-/** #263 §5.2 第 1 步的產物：預覽（`buildPreview` 的 after）與寫入（`applyAiResult`）用**同一個** `blocks` 陣列。 */
+/** #263 第 1 步的產物：預覽（`buildPreview` 的 after）與寫入（`applyAiResult`）用**同一個** `blocks` 陣列。 */
 export interface PreparedResult {
   blocks: AnyBlock[];
   unboundCount: number;
@@ -50,7 +50,7 @@ function hasColumnBlock(blocks: readonly { type?: string; children?: readonly an
 }
 
 /**
- * 語法檢查（並排 PR-2，與 MCP 同一套 S1–S10）→ 解析前的保護（#398，與 server 同一套：巢狀深度、段落裡的段落 → `unsupported_block`；
+ * 語法檢查（與 MCP 同一套）→ 解析前的保護（#398，與 server 同一套：巢狀深度、段落裡的段落 → `unsupported_block`；
  * 引言／標題／summary 的多段落先併）→ parse → mermaid 還原 → 欄寬正規化 → 站內上傳網址還原相對形 → 結構檢查
  * → 色值（#222）→ 空結果判定（同 server 的順序）→ 重綁 wikilink（#263 從 `applyAiResult` 抽出的純函式，不碰文件）。兩道檢查不過、或 parse 丟例外，回 `{ invalid: 碼 }`。空字串／純空白回 `{ empty: true }`：
  * parse `""` 回單一空段落而不是 `[]`（`@knotebook/shared` 的 `isBlankParseResult` 實測註記），
@@ -74,7 +74,7 @@ export function prepareAiResult(
     return { invalid: "unsupported_block" };
   }
   // 同 server 管線：mermaid 還原（```mermaid 的 codeBlock → mermaid block，含欄內）→ 欄寬正規化 → 站內上傳網址還原相對形。
-  // 讀碼發現 15：parse 所用 DOM 的 base（瀏覽器＝`window.location`）；`deps.siteOrigin` 是站內連結判準，不混用
+  // parse 所用 DOM 的 base（瀏覽器＝`window.location`）；`deps.siteOrigin` 是站內連結判準，不混用
   const parsed = relativizeSiteUploads(normalizeTableWidths(restoreMermaidBlocks(raw)), new URL(document.baseURI).origin);
   const shape = findStructureError(parsed, deps.placement);
   if (shape !== null) return { invalid: shape };
@@ -86,22 +86,22 @@ export function prepareAiResult(
     [...deps.notes],
     (type) => editor.schema.blockSchema[type]?.content === "inline",
   );
-  // #269 §8.6：站內連結 → wikilink，只以已載入的快取解析（沒有後備，§17-14）。預覽與寫入仍是同一份 blocks。
+  // #269：站內連結 → wikilink，只以已載入的快取解析（沒有後備）。預覽與寫入仍是同一份 blocks。
   const [blocks] = convertSiteLinks(rebound, (_href, p) => targetFromList(p.path, deps.notes) ?? null, deps.siteOrigin ?? window.location.origin);
   return { blocks, unboundCount };
 }
 
 export type ApplyOutcome =
-  // fix round 1 M-2：`replacedSnapshot` 是 `AnyEditor.getBlock()` 拿到的 `Block<any,any,any>`（含本專案 wikilink inline content 的實際形狀）。
+  // `replacedSnapshot` 是 `AnyEditor.getBlock()` 拿到的 `Block<any,any,any>`（含本專案 wikilink inline content 的實際形狀）。
   | { ok: true; insertedIds: string[]; replacedSnapshot: AnyBlock[] }
   | { ok: false; reason: "missing" | "changed" };
 
 /**
- * 框選錨點「擴大成整列」的觸發條件（{@link expandAnchorForColumns}，spec §7.5、Q7）：選取含欄／列本身（跨欄、從列外選進列）、或各 block 不在同一欄
- * （從欄內選到列外，core 的清單裡沒有欄節點，見 selection-delete.test.ts C8）→ true。
+ * 框選錨點「擴大成整列」的觸發條件（{@link expandAnchorForColumns}）：選取含欄／列本身（跨欄、從列外選進列）、或各 block 不在同一欄
+ * （從欄內選到列外，core 的清單裡沒有欄節點，見 selection-delete.test.ts）→ true。
  * 完全在單一欄內、或不碰並排 → false。
  * 只比首尾兩個 block 的所在欄：core 的清單是文件順序上連續的一段，跨過整列時清單裡會有那個列（上一行已擋），
- * 所以首尾同欄（或都不在欄內）時中間的 block 也一樣（每個 block 都查會是 O(N²)，final review r2 m-2）。
+ * 所以首尾同欄（或都不在欄內）時中間的 block 也一樣（每個 block 都查會是 O(N²)）。
  */
 export function selectionTouchesColumns(editor: Pick<AnyEditor, "getParentBlock">, blocks: readonly AnyBlock[]): boolean {
   if (blocks.length === 0) return false;
@@ -127,7 +127,7 @@ export function expandAnchorForColumns(editor: Pick<AnyEditor, "getParentBlock">
   return [...ids];
 }
 
-/** 錨點每個 block 都在頂層 → "top"；否則 "nested"（Q6：欄內與縮排子 block 都算）。 */
+/** 錨點每個 block 都在頂層 → "top"；否則 "nested"（欄內與縮排子 block 都算）。 */
 export function anchorPlacement(editor: Pick<AnyEditor, "getParentBlock">, blockIds: readonly string[]): MarkdownPlacement {
   return blockIds.every((id) => editor.getParentBlock(id) === undefined) ? "top" : "nested";
 }
@@ -145,11 +145,11 @@ export function hasNonTextBlock(editor: AnyEditor, blockIds: string[]): boolean 
   return false;
 }
 
-/** 守門→取代：**全程同步、無 await**（spec §13.3）。寫入的是 `prepared.blocks` 本身（#263：與預覽同一份）；走 D25 helper，欄內套用不收欄。 */
+/** 守門→取代：**全程同步、無 await**。寫入的是 `prepared.blocks` 本身（#263：與預覽同一份）；走 `keep-columns.ts` 的 helper，欄內套用不收欄。 */
 export function applyAiResult(editor: AnyEditor, anchor: AiAnchor, prepared: PreparedResult): ApplyOutcome {
   const verdict = verifyAnchor(editor, anchor);
   if (verdict !== "ok") return { ok: false, reason: verdict };
-  // 守門只比內容不比位置：預覽期間錨點被縮排或搬進欄時，以「現在」的位置重驗結構（Q6），否則會寫出巢狀列、弄壞 id
+  // 守門只比內容不比位置：預覽期間錨點被縮排或搬進欄時，以「現在」的位置重驗結構，否則會寫出巢狀列、弄壞 id
   if (findStructureError(prepared.blocks, anchorPlacement(editor, anchor.blockIds)) !== null) return { ok: false, reason: "changed" };
   // 守門已保證所有 blockIds 存在（否則已提早 return "missing"），這裡的 `!` 只是把已驗證的事實告訴型別系統。
   const replacedSnapshot = anchor.blockIds.map((id) => editor.getBlock(id)!);
@@ -160,13 +160,13 @@ export function applyAiResult(editor: AnyEditor, anchor: AiAnchor, prepared: Pre
 
 export type RevertOutcome = "ok" | "stale";
 
-/** spec §13.3 單一規則：插入 ids「任一消失**或**快照字串已變」→ stale，一律在這裡判——
+/** 單一規則：插入 ids「任一消失**或**快照字串已變」→ stale，一律在這裡判——
  * 不拆給面板（拆開＝面板忘了做就靜默覆蓋他人編輯）。insertedAnchor＝applyAiResult 成功後
  * 呼叫端**立刻** captureAnchor(editor, noteId, out.insertedIds) 存下的錨點。 */
 export function revertAiResult(
   editor: AnyEditor,
   insertedAnchor: AiAnchor,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 同 ApplyOutcome.replacedSnapshot（M-2），BlockNote Block 的泛型三元組走 repo 慣例用 any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 同 ApplyOutcome.replacedSnapshot，BlockNote Block 的泛型三元組走 repo 慣例用 any
   replacedSnapshot: Block<any, any, any>[],
 ): RevertOutcome {
   if (verifyAnchor(editor, insertedAnchor) !== "ok") return "stale";

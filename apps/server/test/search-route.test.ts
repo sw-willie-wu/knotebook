@@ -1,5 +1,5 @@
 /**
- * #93 PR2 §9.1：`GET /api/search`（R1–R13）。查詢本體（排序、可見性、keyset 細節）在 `search-query.test.ts`；這裡驗 HTTP 層：
+ * #93：`GET /api/search`（R1–R13）。查詢本體（排序、可見性、keyset 細節）在 `search-query.test.ts`；這裡驗 HTTP 層：
  * 驗證、trim、DTO 形、截斷、可見性、folderId 視角、限流（與 MCP 共用）、token、`match=body`、分頁與游標竄改。
  */
 import { describe, expect, it } from "vitest";
@@ -134,7 +134,7 @@ describe("R5 截斷與片段長度", () => {
     expect(s.snippet.length).toBeLessThanOrEqual(160);
   });
 
-  it("含 emoji 的查詢：命中段以 code point 計（qlen），命中後的連續空白照樣壓成一個（審查 m2）", async () => {
+  it("含 emoji 的查詢：命中段以 code point 計（qlen），命中後的連續空白照樣壓成一個", async () => {
     const { app, db } = await buildTestApp();
     const u = await seedUser(db);
     const auth = await asUser(u.id);

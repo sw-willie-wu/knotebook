@@ -54,7 +54,7 @@ async function insertModel(db: Db, providerId: string, overrides: Partial<typeof
   return row;
 }
 
-describe("GET /api/ai/actions（一般 session，spec §13.2）", () => {
+describe("GET /api/ai/actions（一般 session）", () => {
   it("未登入 → 401", async () => {
     const { app } = await buildTestApp();
     const res = await app.inject({ method: "GET", url: "/api/ai/actions" });

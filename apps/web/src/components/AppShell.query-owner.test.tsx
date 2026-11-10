@@ -14,7 +14,7 @@ import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 import { AppShell } from "./AppShell";
 
 /**
- * #369 審查 I1：側欄搜尋字住在 App 層（跨首頁／筆記頁換殼保留），所以它屬於某個使用者——登出、換人登入後不能留給下一個人
+ * #369：側欄搜尋字住在 App 層（跨首頁／筆記頁換殼保留），所以它屬於某個使用者——登出、換人登入後不能留給下一個人
  * （否則 B 的首頁搜尋框帶著 A 的字、還以 B 的身分送 body search）。AppShell 掛載且 session 有人時 `claim(user.id)`。
  */
 const user = (id: string) => ({ id, email: `${id}@example.com`, handle: id, displayName: id, isAdmin: false, mustChangePassword: false, hasPassword: true, autoVersions: true }) as UserDto;
@@ -29,7 +29,7 @@ function Harness() {
 }
 const box = () => screen.getAllByRole("textbox", { name: "Search notes" })[0] as HTMLInputElement;
 
-describe("搜尋字的擁有者（#369 I1）", () => {
+describe("搜尋字的擁有者（#369）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();

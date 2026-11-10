@@ -1,4 +1,4 @@
-// 版本歷史整合測試的共用縫（spec 2026-10-09 §11.2）。文件一律以「BlockNote 形」手造（blockGroup > blockContainer(id) > paragraph > XmlText），
+// 版本歷史整合測試的共用縫。文件一律以「BlockNote 形」手造（blockGroup > blockContainer(id) > paragraph > XmlText），
 // 不 mount 編輯器——版本服務只讀 Yjs 結構，造法與內容指紋無關。例外：`seedOldNote` 模擬「瀏覽器寫過的舊筆記」，走 EditorSession。
 import { randomUUID } from "node:crypto";
 import { asc, eq } from "drizzle-orm";
@@ -31,7 +31,7 @@ export function paraDoc(texts: string[]): Y.Doc {
   return doc;
 }
 
-/** 5000 層巢狀（每層 blockContainer > [paragraph, blockGroup]）：`canonicalizeNode` 的遞迴在這個深度 RangeError（r3 實跑）。 */
+/** 5000 層巢狀（每層 blockContainer > [paragraph, blockGroup]）：`canonicalizeNode` 的遞迴在這個深度 RangeError。 */
 export function deepDoc(depth: number): Y.Doc {
   const doc = new Y.Doc();
   const g = new Y.XmlElement("blockGroup");
@@ -93,7 +93,7 @@ export async function pendingOf(db: Db, noteId: string): Promise<Pending> {
   return r!;
 }
 
-/** #272：`notes.version_base_version_id`（目前基底那一版的 uuid；D12）。 */
+/** #272：`notes.version_base_version_id`（目前基底那一版的 uuid）。 */
 export async function baseVersionIdOf(db: Db, noteId: string): Promise<string | null> {
   const [r] = await db.select({ id: notes.versionBaseVersionId }).from(notes).where(eq(notes.id, noteId));
   return r!.id;

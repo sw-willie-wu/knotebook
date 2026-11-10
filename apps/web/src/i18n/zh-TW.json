@@ -76,6 +76,9 @@
     "noShares": "尚未與任何人分享。",
     "roleLabel": "{{email}} 的角色",
     "remove": "移除 {{email}}",
+    "removeConfirm": "要把 {{email}} 從這篇筆記移除嗎？對方將失去這篇筆記的存取權。",
+    "removeSelfConfirm": "要把你自己（{{email}}）從這篇筆記移除嗎？你將失去這篇筆記的存取權，且無法自行加回。",
+    "removeConfirmButton": "移除",
     "emailPlaceholder": "電子郵件地址",
     "newRoleLabel": "新分享的角色",
     "add": "新增",
@@ -138,13 +141,14 @@
       "moveClosesPublicLink": "公開連結會被關閉。",
       "moveUrlChange": "網址會改為 /g/…，舊網址一個月內自動轉到新網址。",
       "moveOwnership": "你將不再是擁有者，權限改由你在群組的角色決定。",
+      "moveClearsVersions": "版本歷史會被清空，且無法復原。",
       "moveSubmit": "移進群組",
-      "copyLead": "會在「{{group}}」建立副本，原筆記不變；AI 修改紀錄與反向連結不會帶過去。",
+      "copyLead": "會在「{{group}}」建立副本，原筆記不變；AI 修改紀錄、版本歷史與反向連結不會帶過去。",
       "copySubmit": "複製到群組",
       "copyHereSubmit": "建立副本",
       "copyPersonalSubmit": "複製到我的筆記",
-      "copyLeadInPlace": "這會在「{{group}}」裡、原筆記旁建立一份副本；原筆記維持不變。AI 修改紀錄與反向連結不會一併複製。",
-      "copyLeadPersonal": "這會在你自己的筆記中建立一份副本；原筆記維持不變。AI 修改紀錄與反向連結不會一併複製。",
+      "copyLeadInPlace": "這會在「{{group}}」裡、原筆記旁建立一份副本；原筆記維持不變。AI 修改紀錄、版本歷史與反向連結不會一併複製。",
+      "copyLeadPersonal": "這會在你自己的筆記中建立一份副本；原筆記維持不變。AI 修改紀錄、版本歷史與反向連結不會一併複製。",
       "movedToGroup": "已移到「{{group}}」",
       "copiedToGroup": "已複製到「{{group}}」",
       "copiedToPersonal": "已複製到我的筆記",
@@ -294,7 +298,8 @@
     "columns": {
       "slashTitle": "並排 {{n}} 欄",
       "slashSubtext": "把內容分成左右並排的幾欄",
-      "ungroup": "取消並排"
+      "ungroup": "取消並排",
+      "resize": "調整欄寬"
     }
   },
   "login": {
@@ -390,7 +395,8 @@
       "groups": "群組",
       "storage": "儲存方案",
       "ai": "AI 代理",
-      "auth": "登入"
+      "auth": "登入",
+      "limits": "站台限制"
     }
   },
   "theme": {
@@ -505,6 +511,14 @@
       "acknowledge": "我了解筆記會永久刪除",
       "adminsUnavailable": "無法載入群組的管理員。",
       "confirm": "刪除群組"
+    },
+    "removeMember": {
+      "title": "移除成員？",
+      "description": "{{email}} 將失去「{{name}}」中筆記的存取權。",
+      "confirm": "移除",
+      "selfTitle": "移除你自己？",
+      "selfDescription": "你（{{email}}）將失去「{{name}}」中筆記的存取權，且無法自行加回。",
+      "selfConfirm": "移除自己"
     },
     "leave": {
       "title": "退出群組？",
@@ -978,6 +992,7 @@
     "folder_not_empty": "資料夾裡還有其他內容，沒有刪除。",
     "too_complex": "這篇筆記太大或太複雜，伺服器無法在限制內讀出。",
     "note_too_large": "這次修改會讓筆記超過大小上限，所以沒有存下來。",
+    "limit_locked_by_env": "這一項由伺服器的 .env 設定，請改 .env 並重啟伺服器。",
     "password_not_set": "這個帳號只透過登入服務登入，沒有可重設的密碼。",
     "user_disabled": "這個帳號已停用，請先啟用再重設密碼。",
     "empty_result": "AI 回傳了空結果。",

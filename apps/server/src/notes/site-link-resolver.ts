@@ -1,9 +1,9 @@
 /**
- * #269 §6.6：轉換工作的站內網址解析——在 mount **之前**、可以查 DB（不持 lease）。以 href 為鍵 memo；回 DB 現值 `{ id, title }`。
+ * #269：轉換工作的站內網址解析——在 mount **之前**、可以查 DB（不持 lease）。以 href 為鍵 memo；回 DB 現值 `{ id, title }`。
  * - `{ kind: "user", userId }`（個人筆記的 owner）：路徑 → 候選 id（`/n/`、`/g/` 走 `resolveNotePath`——含轉址表與 prev_slug；
  *   `/notes/<ref>` 走 `resolveNoteIdFromRef`——含 legacy slug）→ `resolveNoteAccess(owner, id).role !== "none"` 才收。
- * - `{ kind: "group", groupId }`（群組筆記，E9'）：同樣找候選，只收 `target.group_id === groupId`，不做使用者授權。
- * - #181 §6.2-6（rev 4.2）：候選在垃圾桶裡 → null（兩種範圍都先判）。判在 `lookup` 回傳前、不在 `where`／`byId` 加條件——
+ * - `{ kind: "group", groupId }`（群組筆記）：同樣找候選，只收 `target.group_id === groupId`，不做使用者授權。
+ * - #181：候選在垃圾桶裡 → null（兩種範圍都先判）。判在 `lookup` 回傳前、不在 `where`／`byId` 加條件——
  *   那會改變 `resolveNotePath` 的查找序（精確 slug 命中的垃圾桶筆記被濾掉後往轉址表、prev_slug 解到另一篇）。
  */
 import { eq, sql } from "drizzle-orm";

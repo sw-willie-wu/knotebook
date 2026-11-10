@@ -1,6 +1,6 @@
 /**
  * 筆記大小上限（`notes/note-size.ts`）：依結果判斷的規則（`capBlocks`＋`measureTrial` 的四個數；API／MCP／批次寫回／撤回／套用版本／複製用）、
- * 審查 r6 的五種繞法與 r5 的兩種、設定。瀏覽器的協作更新不在 server 檢查（網頁編輯器自己擋）。
+ * 七種繞法、設定。瀏覽器的協作更新不在 server 檢查（網頁編輯器自己擋）。
  */
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
@@ -122,7 +122,7 @@ describe("liveContentBytes／measureTrial：還在的內容用 Yjs 的編碼器�
   });
 });
 
-describe("審查 r6 的五種繞法：在超過上限的筆記上一律擋", () => {
+describe("五種繞法：在超過上限的筆記上一律擋", () => {
   it("1 重複的刪除範圍（同一段刪 40 次，聲稱刪了 4 MB）＋插入 1 MiB", () => {
     const { doc, cap } = overCap();
     let u = client(doc)(d => text(d, 5).insert(0, "Z".repeat(MiB)));
@@ -198,7 +198,7 @@ describe("審查 r6 的五種繞法：在超過上限的筆記上一律擋", () 
   });
 });
 
-describe("審查 r5 的兩種：刪 1 個字＋大屬性、大連結格式", () => {
+describe("另兩種：刪 1 個字＋大屬性、大連結格式", () => {
   it("刪 1 個字＋設 4 MiB 的屬性 → 擋", () => {
     const { doc, cap } = overCap();
     const u = client(doc)(d => {
@@ -235,7 +235,7 @@ describe("超過上限的筆記：正常的刪減與改寫照樣接受，加內�
     expect(m.liveAfter).toBe(m.liveBefore);
     expect(capBlocks(measure(doc, u), cap)).toBe(false);
   });
-  it("刪一大段＋打幾個字（審查 r6 m1）→ 接受", () => {
+  it("刪一大段＋打幾個字→ 接受", () => {
     const { doc, cap } = overCap();
     const u = client(doc)(d => {
       text(d, 0).delete(0, 90_000);
@@ -259,9 +259,9 @@ describe("NOTE_MAX_BYTES 設定", () => {
   const base = { DATABASE_URL: "postgres://u:p@localhost:5432/db", APP_SECRET: "a".repeat(64), PUBLIC_URL: "http://localhost:3000" };
   it("預設 5 MiB；正整數可設；空字串＝未設；0、負數、小數、非數字、超過 1 GiB → 開機失敗", () => {
     expect(DEFAULT_NOTE_MAX_BYTES).toBe(5_242_880);
-    expect(loadConfig(base).noteMaxBytes).toBe(5_242_880);
-    expect(loadConfig({ ...base, NOTE_MAX_BYTES: "1048576" }).noteMaxBytes).toBe(1_048_576);
-    expect(loadConfig({ ...base, NOTE_MAX_BYTES: "" }).noteMaxBytes, "空字串＝未設").toBe(5_242_880);
+    expect(loadConfig(base).limitEnv.noteMaxBytes, "沒設＝undefined").toBeUndefined();
+    expect(loadConfig({ ...base, NOTE_MAX_BYTES: "1048576" }).limitEnv.noteMaxBytes).toBe(1_048_576);
+    expect(loadConfig({ ...base, NOTE_MAX_BYTES: "" }).limitEnv.noteMaxBytes, "空字串＝未設").toBeUndefined();
     for (const bad of ["0", "-1", "1.5", "abc", String(1024 ** 3 + 1)]) expect(() => loadConfig({ ...base, NOTE_MAX_BYTES: bad }), bad).toThrow(/NOTE_MAX_BYTES/);
   });
 });

@@ -1,8 +1,8 @@
 /**
- * 快捷鍵介紹頁的條目資料與站台能力篩選（plan 2026-11-02-shortcuts-modal）。
+ * 快捷鍵介紹頁的條目資料與站台能力篩選。
  *
  * ⚠ 只准被 `ShortcutsLazy.tsx` 與測試 import（首包上限：清單資料不進首包）。
- * ⚠ 這裡的每個 id 都要有一支在真瀏覽器跑過的 e2e，test 名稱尾端帶 `[sc:<id>]`（K15；`shortcut-e2e-coverage.test.ts` 雙向核對）；
+ * ⚠ 這裡的每個 id 都要有一支在真瀏覽器跑過的 e2e，test 名稱尾端帶 `[sc:<id>]`（`shortcut-e2e-coverage.test.ts` 雙向核對）；
  *   說明文字（`i18n/shortcuts.*.json` 的 `items.<id>.desc`）只寫 e2e 量到的行為。見 e2e/tests/43-shortcuts.spec.ts。
  */
 export const SHORTCUT_CATEGORIES = ["global", "typing", "markdown", "formatting", "columns", "sidebar", "presentation", "ai", "mouse"] as const;
@@ -43,7 +43,7 @@ export interface ShortcutEntry {
   keys: readonly ShortcutKeys[];
   /** Mac 另列（redo 只列 ⌘⇧Z）。 */
   macKeys?: readonly ShortcutKeys[];
-  /** keys 有兩個以上時必填：or＝同一件事的不同按法；pair＝各按法是不同動作（K9）。 */
+  /** keys 有兩個以上時必填：or＝同一件事的不同按法；pair＝各按法是不同動作。 */
   sep?: "or" | "pair";
   requires?: SiteCapability;
 }
@@ -90,6 +90,8 @@ export const SHORTCUTS: readonly ShortcutEntry[] = [
   { id: "columnBackspace", category: "columns", keys: [combo("Backspace")] },
   { id: "columnDelete", category: "columns", keys: [combo("Delete")] },
   { id: "columnUngroup", category: "columns", keys: [action] },
+  { id: "columnsDragBeside", category: "columns", keys: [action] },
+  { id: "columnResizeKeys", category: "columns", keys: [combo("ArrowLeft"), combo("ArrowRight")], sep: "pair" },
   // 側欄（選取模式）
   { id: "selectEsc", category: "sidebar", keys: [combo("Esc")] },
   { id: "selectRange", category: "sidebar", keys: [combo("Shift", "Click")] },

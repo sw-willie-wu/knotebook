@@ -17,7 +17,7 @@ const notes = [
 
 // ⚠ 每一處 `EditorSession.open` 都要 `try { … } finally { s.close() }`：`close()` 是唯一釋放 runtime
 // lease 的路徑，這裡的 `rt` 又是模組層共用的，回呼一 throw 就永久佔掉一個 in-flight 名額
-// （`session.ts` 的 m3 不變量）。**斷言失敗本身就是 throw**，所以「先 close 再 expect」不是替代方案。
+// （`session.ts`）。**斷言失敗本身就是 throw**，所以「先 close 再 expect」不是替代方案。
 const withSession = async (fn: (ed: EditorSession["editor"]) => void) => {
   const s = await EditorSession.open(rt, new Y.Doc());
   try {
@@ -46,7 +46,7 @@ const readMd = async (doc: Y.Doc) => {
 };
 const goldens = JSON.parse(readFileSync(new URL("../../../../packages/shared/test-fixtures/note-markdown-goldens.json", import.meta.url), "utf8")) as { cases: Array<{ id: string; markdown: string }> };
 const golden = (id: string): string => goldens.cases.find(c => c.id === id)!.markdown;
-/** spec §11.1 的範例（＝golden G1-cols-spec 的 markdown）。 */
+/** 範例（＝golden G1-cols-spec 的 markdown）。 */
 const ROW2 =
   '<div data-kb-columns style="display:flex;gap:16px">\n<div data-kb-column style="flex:1">\n\n<figure><img alt="A 點" src="/api/uploads/u1" width="300"></figure>\n\n</div>\n' +
   '<div data-kb-column style="flex:1.5">\n\n## 設備規格\n\n型號：x\n\n</div>\n</div>\n';
@@ -75,14 +75,14 @@ describe("parseMarkdownForNote", () => {
       // BlockNote 對未知 HTML 元素通常降級為 paragraph；本案釘住「若 parse 產出的 type 不在 schema
       // 白名單 → unsupported_block」，用收窄白名單的假 editor 來驗。真 schema ＝ defaultBlockSpecs
       // 全集＋mermaid／codeBlock（見 shared 的 createHeadlessNoteSchema），markdown/HTML parser 產得
-      // 出來的 type 一定在裡面——所以**整合層只造得出 parse 丟例外那一種**（見下面 GM-THROW 與 mcp-write-guards GW5），那邊的清單要誠實寫明不驗，別硬塞。
+      // 出來的 type 一定在裡面——所以**整合層只造得出 parse 丟例外那一種**（見下面 GM-THROW 與 mcp-write-guards），那邊的清單要誠實寫明不驗，別硬塞。
       const narrowed = { ...ed, schema: { blockSchema: { paragraph: ed.schema.blockSchema.paragraph } }, tryParseHTMLToBlocks: ed.tryParseHTMLToBlocks.bind(ed) } as unknown as typeof ed;
       expect(parseMarkdownForNote(narrowed, "# heading", notes, ORIGIN)).toEqual({ error: "unsupported_block", detail: "unknown_block" });
       expect("error" in r ? r.error : "ok").not.toBe("unsupported_block"); // 真 schema 下純 HTML 不會炸成 500
     });
   });
 
-  // ── 並排與尺寸的寫入驗證（PR-2；spec §11.3）：語法檢查 → parse → 結構檢查，不合格整筆拒絕 ──
+  // ── 並排與尺寸的寫入驗證：語法檢查 → parse → 結構檢查，不合格整筆拒絕 ──
   type B = { type: string; props?: Record<string, unknown>; content?: unknown; children?: B[] };
   const okBlocks = (r: ReturnType<typeof parseMarkdownForNote>): B[] => {
     if ("error" in r) throw new Error(r.error);
@@ -94,7 +94,7 @@ describe("parseMarkdownForNote", () => {
   const rowShape = (bs: B[]) =>
     bs.map(b => ({ type: b.type, cols: (b.children ?? []).map(c => ({ type: c.type, width: c.props?.width, kids: (c.children ?? []).map(k => [k.type, k.props?.previewWidth]) })) }));
 
-  it("GM1：正規形兩欄（spec §11.1 範例）→ 一列兩欄、寬 [1, 1.5]、左欄圖片 previewWidth 300、右欄 [heading, paragraph]", async () => {
+  it("GM1：正規形兩欄（範例）→ 一列兩欄、寬 [1, 1.5]、左欄圖片 previewWidth 300、右欄 [heading, paragraph]", async () => {
     await withSession(ed => {
       const bs = okBlocks(parseMarkdownForNote(ed, ROW2, notes, ORIGIN));
       expect(bs.map(b => b.type)).toEqual(["columnList"]);
@@ -116,13 +116,13 @@ describe("parseMarkdownForNote", () => {
       expect(parseMarkdownForNote(ed, siteForm, notes, ORIGIN)).toEqual(COLS);
     });
   });
-  it("GM4：單欄外部形 → unsupported_columns（PR-1 時攤平成一般段落）", async () => {
+  it("GM4：單欄外部形 → unsupported_columns（舊版攤平成一般段落）", async () => {
     await withSession(ed => {
       const one = `<div data-kb-columns style="display:flex;gap:16px">\n<div data-kb-column style="flex:1">\n\nonly\n\n</div>\n</div>`;
       expect(parseMarkdownForNote(ed, one, notes, ORIGIN)).toEqual(COLS);
     });
   });
-  it("GM5：只有 display:flex 的版面 → unsupported_columns（PR-1 時接受並攤平）", async () => {
+  it("GM5：只有 display:flex 的版面 → unsupported_columns（舊版接受並攤平）", async () => {
     await withSession(ed => {
       expect(parseMarkdownForNote(ed, `<div style="display:flex"><div><p>L</p></div><div><p>R</p></div></div>`, notes, ORIGIN)).toEqual(COLS);
     });
@@ -230,7 +230,7 @@ describe("parseMarkdownForNote", () => {
       expect(top[0]!.props?.url).toBe(UP);
     });
   });
-  it("GM14（§11.11）：欄內的 [[…]] 與站內連結都綁成 wikilink、mermaid 還原；欄內不在色盤的顏色 → unsupported_color", async () => {
+  it("GM14：欄內的 [[…]] 與站內連結都綁成 wikilink、mermaid 還原；欄內不在色盤的顏色 → unsupported_color", async () => {
     await withSession(ed => {
       const md = ROW2.replace("<figure>", "```mermaid\ngraph TD\n```\n\n<figure>").replace("型號：x", "[[A]] [x](/notes/11111111-1111-4111-8111-111111111111)");
       const r = parseMarkdownForNote(ed, md, notes, ORIGIN);
@@ -256,7 +256,7 @@ describe("parseMarkdownForNote", () => {
       }
     });
   });
-  // final review Nit 1：帶事件處理屬性的 HTML 在 core parse 之前就整筆拒絕（unsupported_block），不進 `tryParseHTMLToBlocks`
+  // 帶事件處理屬性的 HTML 在 core parse 之前就整筆拒絕（unsupported_block），不進 `tryParseHTMLToBlocks`
   it("GM-EH：<details> 內、figure 內的 <img onerror> → unsupported_block，core parse 沒被呼叫", async () => {
     await withSession(ed => {
       const parse = vi.spyOn(ed, "tryParseHTMLToBlocks");
@@ -275,8 +275,8 @@ describe("parseMarkdownForNote", () => {
       }
     });
   });
-  // T4 審查 Minor-2：core 對合法內容開始丟例外時（例如升級 BlockNote 後），維運要看得到——warn 一筆，帶例外的類名與 stack 的呼叫框。
-  // final review Nit 5：不帶 message（PM 的錯誤訊息可能拼進內容片段），也不帶筆記內容。
+  // core 對合法內容開始丟例外時（例如升級 BlockNote 後），維運要看得到——warn 一筆，帶例外的類名與 stack 的呼叫框。
+  // 不帶 message（PM 的錯誤訊息可能拼進內容片段），也不帶筆記內容。
   it("GM-THROW-LOG：parse 例外轉成 unsupported_block 時 console.warn 一次，帶 name 與 stack 呼叫框、不含 message 與 markdown 內容；正常 parse 不 warn", async () => {
     await withSession(ed => {
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -300,7 +300,7 @@ describe("parseMarkdownForNote", () => {
         expect(parseMarkdownForNote(ed, '<div data-content-type="paragraph">SECRET-NOTE-TEXT</div>', notes, ORIGIN)).toEqual({ error: "unsupported_block", detail: "editor_internal" });
         expect(warn).toHaveBeenCalledTimes(2);
         expect(JSON.stringify(warn.mock.calls[1])).not.toContain("SECRET-NOTE-TEXT");
-        // cleanup r2 Nit 2：多行 message 裡以「    at 」開頭的行不得被當成呼叫框記下
+        // 多行 message 裡以「    at 」開頭的行不得被當成呼叫框記下
         const tricky = new Error("first\n    at SECRET-LINE (x)");
         parse.mockImplementationOnce(() => {
           throw tricky;
@@ -390,7 +390,7 @@ describe("parseMarkdownForNote", () => {
     });
   });
 
-  describe("#269 站內連結 → wikilink（§8.5、§9.2）", () => {
+  describe("#269 站內連結 → wikilink", () => {
     const wl = (r: ReturnType<typeof parseMarkdownForNote>) => {
       if ("error" in r) throw new Error(r.error);
       return r.blocks;
@@ -453,10 +453,10 @@ describe("parseMarkdownForNote", () => {
   });
 });
 
-// #269 Task 6 RF1：讀出（readNoteContentFromDoc → wikilinksToLinks〔不跳脫〕→ shared note-markdown-read.ts 的 markdown 分支以 `escapeLinkText`
+// #269：讀出（readNoteContentFromDoc → wikilinksToLinks〔不跳脫〕→ shared note-markdown-read.ts 的 markdown 分支以 `escapeLinkText`
 // 跳脫站內連結文字、上色區塊的原始 HTML 分支不跳脫 → BlockNote markdown）再寫回（parseMarkdownForNote）的往返——BlockNote 的
 // 匯出本身不跳脫文字；這裡用真編輯器量往返結果。
-describe("#269 RF1：wikilink 讀出→寫回，label 逐字相同（段落與表格 cell）", () => {
+describe("#269：wikilink 讀出→寫回，label 逐字相同（段落與表格 cell）", () => {
   const ID = notes[0]!.id;
   const wlNode = (label: string) => ({ type: "wikilink", props: { targetNoteId: ID, snapshotTitle: "snap", label, anchorBlockId: "" } });
   const labelsOf = (blocks: unknown) => [...JSON.stringify(blocks).matchAll(/"label":("(?:[^"\\]|\\.)*")/g)].map(m => JSON.parse(m[1]!) as string);
@@ -492,7 +492,7 @@ describe("#269 RF1：wikilink 讀出→寫回，label 逐字相同（段落與�
     expect(r.md2).toBe(r.md1);
   });
 
-  // 審查 r0 I1：上色區塊整塊以原始 HTML 讀出，裡面的連結文字**不得**跳脫（HTML 寫回不反跳脫，會一輪多一層反斜線）。
+  // 上色區塊整塊以原始 HTML 讀出，裡面的連結文字**不得**跳脫（HTML 寫回不反跳脫，會一輪多一層反斜線）。
   // 中間夾一個無色段落：文件有顏色時無色節點走 `flush()` 的 markdown 分支——那條分支的跳脫也在這一案觀測。
   it.each(SIX)("HTML 形（底色段落、文字色段落、有上色 cell 的表格）＋夾在中間的無色段落：%s", async text => {
     const r = await roundTripTwice([

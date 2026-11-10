@@ -5,7 +5,7 @@ import { markTrashed } from "./trash-helpers.js";
 
 const PASSWORD = "correct-horse-battery";
 
-/** #181 §6.4：真 hooks（global constraints H7），雖然這兩案只直接呼叫 `ctx.collab`。 */
+/** #181：真 hooks，雖然這兩案只直接呼叫 `ctx.collab`。 */
 function buildApp(): Promise<CollabTestCtx> {
   return buildCollabTestApp({ collabHooks: (server, log) => createCollabHooks(server, log) });
 }
@@ -23,7 +23,7 @@ describe("#181 共編刪除閘門與垃圾桶", () => {
     expect(ctx.collab.isDeleting(note.id)).toBe(false);
   });
 
-  it("CG2：releaseDeletingGate 對垃圾桶筆記不收門（M-D）；活筆記照收", async () => {
+  it("CG2：releaseDeletingGate 對垃圾桶筆記不收門；活筆記照收", async () => {
     const ctx = await buildApp();
     const owner = await ctx.createUser({ email: "owner-cg2@example.com", password: PASSWORD });
     const trashed = await ctx.createNote(owner.id);

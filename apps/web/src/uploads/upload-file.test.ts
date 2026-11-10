@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BlockNoteEditor } from "@blocknote/core";
-import { MAX_UPLOAD_BYTES } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
 import { removeBlocksKeepColumns } from "@/collab/columns/keep-columns";
 import { IMG, P, mountEditor, row, shape } from "@/test/columns-fixtures";
@@ -39,10 +38,12 @@ function file(name = "a.png", type = "image/png", parts: BlobPart[] = [new Uint8
   return new File(parts, name, { type });
 }
 
-/** 建一個「聲稱」超過 `MAX_UPLOAD_BYTES` 的 File——不真的配置那麼多記憶體。 */
-function oversizedFile(): File {
+const ONE_MIB = 1048576;
+
+/** 建一個「聲稱」大小為 `size` 位元組的 File——不真的配置那麼多記憶體。 */
+function fileOfSize(size: number): File {
   const f = file();
-  Object.defineProperty(f, "size", { value: MAX_UPLOAD_BYTES + 1 });
+  Object.defineProperty(f, "size", { value: size });
   return f;
 }
 
@@ -79,15 +80,37 @@ describe("postUpload", () => {
     expect(url).toBe(`/api/notes/${encodeURIComponent("weird/id with space")}/uploads`);
   });
 
-  it("前驗：檔案超過 MAX_UPLOAD_BYTES → 直接丟 ApiFail(413, file_too_large)，不發請求", async () => {
+  it("前驗：檔案超過傳入的上限 → 直接丟 ApiFail(413, file_too_large)，不發請求", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(postUpload("note-1", oversizedFile())).rejects.toMatchObject({
+    await expect(postUpload("note-1", fileOfSize(ONE_MIB * 1.5), ONE_MIB)).rejects.toMatchObject({
       status: 413,
       code: "file_too_large",
     });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("前驗：剛好等於上限 → 照發", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      fakeResponse({ ok: true, status: 201, json: () => Promise.resolve({ id: "u1", url: "/api/uploads/u1" }) }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await postUpload("note-1", fileOfSize(ONE_MIB), ONE_MIB);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("沒給上限 → 不前驗，大檔照發", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      fakeResponse({ ok: true, status: 201, json: () => Promise.resolve({ id: "u1", url: "/api/uploads/u1" }) }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await postUpload("note-1", fileOfSize(ONE_MIB * 1.5));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("server 端回應非 2xx → reject ApiFail（低階函式可 reject）", async () => {
@@ -101,7 +124,7 @@ describe("postUpload", () => {
 });
 
 describe("createUploadFile", () => {
-  // toastOncePerCode 的去重 Map 是 module 級的（brief 明訂），跨測試共用同一份——
+  // toastOncePerCode 的去重 Map 是 module 級的，跨測試共用同一份——
   // 若每個測試都把假時鐘釘在同一個絕對時間點（例如都歸零），前一個測試對同一個 code
   // 留下的時間戳跟下一個測試的「now」會相等或極接近，`now - last < 5000` 恆成立，
   // 下一個測試永遠被當成還在去重窗口內、假紅到看不出真正的行為（實測踩過）。改成每個
@@ -148,6 +171,59 @@ describe("createUploadFile", () => {
     await flushMacrotask();
     expect(toastMock).not.toHaveBeenCalled();
     expect(vi.mocked(removeBlocksKeepColumns)).not.toHaveBeenCalled();
+  });
+
+  it("maxUploadBytes getter 回 1 MiB：擋 1.5 MiB 的檔，不發請求，回傳空字串並 toast file_too_large", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const uploadFile = createUploadFile({
+      noteId: "note-1",
+      editorRef: { current: fakeEditor(new Set(["b1"])) },
+      translate,
+      maxUploadBytes: () => ONE_MIB,
+    });
+
+    await expect(uploadFile(fileOfSize(ONE_MIB * 1.5), "b1")).resolves.toBe("");
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(toastMock).toHaveBeenCalledWith({ title: "t:errors.file_too_large" });
+  });
+
+  it("maxUploadBytes getter 回 undefined：不前驗，照發", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      fakeResponse({ ok: true, status: 201, json: () => Promise.resolve({ id: "u1", url: "/api/uploads/u1" }) }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const uploadFile = createUploadFile({
+      noteId: "note-1",
+      editorRef: { current: fakeEditor(new Set(["b1"])) },
+      translate,
+      maxUploadBytes: () => undefined,
+    });
+
+    await expect(uploadFile(fileOfSize(ONE_MIB * 1.5), "b1")).resolves.toBe("/api/uploads/u1");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("maxUploadBytes getter 每次上傳當下才讀：同一支 uploadFile，值變了下一次就用新值", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      fakeResponse({ ok: true, status: 201, json: () => Promise.resolve({ id: "u1", url: "/api/uploads/u1" }) }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    let limit: number | undefined = ONE_MIB;
+    const uploadFile = createUploadFile({
+      noteId: "note-1",
+      editorRef: { current: fakeEditor(new Set(["b1"])) },
+      translate,
+      maxUploadBytes: () => limit,
+    });
+
+    await expect(uploadFile(fileOfSize(ONE_MIB * 1.5), "b1")).resolves.toBe("");
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    limit = ONE_MIB * 2;
+    await expect(uploadFile(fileOfSize(ONE_MIB * 1.5), "b1")).resolves.toBe("/api/uploads/u1");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("失敗（4xx）：絕不 reject，回傳空字串 sentinel", async () => {
@@ -319,7 +395,7 @@ describe("createUploadFile", () => {
     expect(toastMock).toHaveBeenCalledWith({ title: "t:errors.storage_quota_exceeded", description: "t:storage.quotaFullGeneric" });
   });
 
-  it("RF5：usedBytes 有、quotaBytes 為 null → 不印半套數字，退回通用文案", async () => {
+  it("usedBytes 有、quotaBytes 為 null → 不印半套數字，退回通用文案", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(quota409({ incomingBytes: 700, usedBytes: 5, quotaBytes: null })));
     const uploadFile = createUploadFile({ noteId: "note-1", editorRef: { current: fakeEditor(new Set(["b1"])) }, translate: translateWithOpts });
     await uploadFile(file(), "b1");
@@ -340,7 +416,7 @@ describe("createUploadFile", () => {
   });
 });
 
-describe("createUploadFile 真編輯器（D25）", () => {
+describe("createUploadFile 真編輯器", () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it("UP1：欄內的圖片 placeholder 上傳失敗 → macrotask 後該欄剩空段落、列仍在", async () => {

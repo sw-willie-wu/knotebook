@@ -26,7 +26,7 @@ async function cookieFor(userId: string): Promise<string> {
 /**
  * `linkSyncGate` 恆回 `{ ok: true, clock }`——`buildTestApp` 是整包替換 `collabHooks`
  * （非局部 patch），故一律從 `noopCollabHooks` spread 出去，確保 `onShareChanged` 等其他
- * 成員維持 no-op（brief 契約：測試 stub 一律「完整 CollabHooks spread」）。`clock` 用
+ * 成員維持 no-op（測試 stub 一律「完整 CollabHooks spread」）。`clock` 用
  * getter 而非固定值，讓同一個 app 實例可以在單一測試內模擬 client 陸續送出不同 clock
  * 的多次提交（LWW／no-op／並發等情境都需要這個彈性）。
  */
@@ -204,7 +204,7 @@ describe("POST /api/notes/:id/links", () => {
     // 從這裡開始包 try/finally：任何一個斷言失敗都必須確保 A 被釋放、兩個請求都真的跑完
     // ——否則失敗時 A 會永遠卡在 `await aDeferred`（交易不 commit、不 rollback），佔用
     // pool 的一條連線，直接拖累同檔案下一個測試的 `freshDb()`（`CREATE DATABASE` 等不到
-    // 連線而 hang）。這不是假設：C1 review 要求的 mutation 驗證（UPDATE 移到交易最後）
+    // 連線而 hang）。這不是假設：mutation 驗證（UPDATE 移到交易最後）
     // 跑過一次，親眼看到這個 hang（下一個 test 卡滿 180s hookTimeout）才補上這段防禦。
     try {
       // 給 B 一段寬裕的時間嘗試推進——B 若真的被 A 的列鎖卡在自己的 UPDATE 上，這段等待
@@ -448,7 +448,7 @@ describe("GET /api/notes/:id/backlinks", () => {
     expect(ownerRes.statusCode).toBe(200);
     const ownerRows = ownerRes.json().backlinks as Array<{ id: string; ownerHandle: string }>;
     expect(ownerRows.map(b => b.id).sort()).toEqual([ownedSource.id, sharedSource.id].sort());
-    // ownerHandle 必須是**來源筆記 owner** 的、不是請求者的（突變審查 F1：兩支 union 的
+    // ownerHandle 必須是**來源筆記 owner** 的、不是請求者的（兩支 union 的
     // JOIN 若誤綁請求者，sharedSource 這列會回 owner.handle——stranger ≠ 請求者才殺得掉）
     expect(ownerRows.find(b => b.id === ownedSource.id)?.ownerHandle).toBe(owner.handle);
     expect(ownerRows.find(b => b.id === sharedSource.id)?.ownerHandle).toBe(stranger.handle);

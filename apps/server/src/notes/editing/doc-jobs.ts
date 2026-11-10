@@ -80,7 +80,7 @@ export interface DocPost {
   linkTargets: string[];
   /**
    * 筆記大小：基底與「基底＋diff」的狀態位元組數（＝`note_states.ydoc`）與還在的內容位元組數（`measureTrial`）。主執行緒據以擋「長過上限」
-   * （`notes/note-size.ts` 的 `capBlocks`，依結果判斷，審查 r6）。
+   * （`notes/note-size.ts` 的 `capBlocks`，依結果判斷）。
    */
   size: SizeMeasure;
   /** 合併時活文件若已被別人改過，哪些改動算衝突（`live-watch.ts`）。 */
@@ -208,7 +208,7 @@ function postOf(fork: Y.Doc, base: ReturnType<typeof baseOf>, diff: Uint8Array, 
   try {
     versionFp = versionFingerprint(fragment);
   } catch {
-    versionFp = null; // 版本歷史 A14 (3) 保證不丟例外，這裡仍防禦性包住（同舊 `mergeDiff`）
+    versionFp = null; // 版本歷史的指紋保證不丟例外，這裡仍防禦性包住（同舊 `mergeDiff`）
   }
   const merged = outlineOf(fragment);
   const firstAfter = afterIds[0];
@@ -260,7 +260,7 @@ export async function editOnFork(
     switch (op) {
       case "replace_all": {
         beforeBlocks = isEmptyDoc ? [] : top;
-        afterIds = replaceBlocksFresh(ed, top.map(b => b.id), blocks).map(b => b.id); // 審查 C1：先插後刪（見 `replaceBlocksFresh`）
+        afterIds = replaceBlocksFresh(ed, top.map(b => b.id), blocks).map(b => b.id); // 先插後刪（見 `replaceBlocksFresh`）
         break;
       }
       case "replace_section": {
@@ -377,7 +377,7 @@ async function syncPlanOp(runtime: EditingRuntime, op: SyncPlanDocOp, ask: AskFn
     if (!hmacOf(key, salt, nowBody).equals(Buffer.from(op.baseBodySha))) return { kind: "note_changed", budgetLeft: left() };
   }
   if (op.body === null || op.segments === null) return { kind: "body_checked", budgetLeft: left() };
-  // 全分支審查 I2：寫回額度在解析之前扣（重試時主執行緒不再扣）。
+  // 寫回額度在解析之前扣（重試時主執行緒不再扣）。
   if (!((await ask({ kind: "charge" })) as boolean)) return { kind: "rate_limited", budgetLeft: left() };
   const planned = await planSync(runtime, {
     owner: op.owner,

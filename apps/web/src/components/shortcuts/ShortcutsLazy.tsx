@@ -14,21 +14,21 @@ import { visibleShortcuts, type KeyToken, type ShortcutCategory, type ShortcutEn
 /**
  * 快捷鍵介紹頁的內容（lazy chunk，第一次打開才下載；外殼見 `ShortcutsDialog`）。
  *
- * 清單資料在 `shortcut-list.ts`，字串在 `i18n/shortcuts.*.json`（由上面那行 import 註冊）。站台能力（K8）：
+ * 清單資料在 `shortcut-list.ts`，字串在 `i18n/shortcuts.*.json`（由上面那行 import 註冊）。站台能力：
  * `["ai-actions"]` 查詢有資料才列 AI 段；有 `kind === "instruct"` 的動作才列「送出指令」。載入中、錯誤、空陣列一律視為都沒有。
  *
- * 鍵面（K9）：Mac 顯示 ⌘ ⇧ ⌥，其他平台 Ctrl Shift Alt。符號鍵 `aria-hidden`、旁邊放 sr-only 名稱（報讀器讀不出 ⌘ ⇧ ↑ 的意義）；
+ * 鍵面：Mac 顯示 ⌘ ⇧ ⌥，其他平台 Ctrl Shift Alt。符號鍵 `aria-hidden`、旁邊放 sr-only 名稱（報讀器讀不出 ⌘ ⇧ ↑ 的意義）；
  * 組合鍵之間的「+」與多種按法之間的「／」也 `aria-hidden`，旁邊的 sr-only 依條目的 `sep` 讀「或」（同一件事的不同按法）
  * 或「、」（各是不同動作）。
  *
- * 版面（Willie 2026-11-02 改版，推翻 spec §4.1「單卡」）：跟設定同一套兩塊 panel——左卡列分類、右卡**只顯示所選分類**；窄螢幕（< md）
- * 一次只顯示一塊（左＝分類層、右＝內容層，右卡的返回鈕回左）。不走 route（K2），所以左欄是 state 驅動的按鈕（`aria-current`），
+ * 版面（不是單卡）：跟設定同一套兩塊 panel——左卡列分類、右卡**只顯示所選分類**；窄螢幕（< md）
+ * 一次只顯示一塊（左＝分類層、右＝內容層，右卡的返回鈕回左）。不走 route，所以左欄是 state 驅動的按鈕（`aria-current`），
  * 不是 `ManagementShell` 的 NavLink；托盤、卡面、項次 class 與設定共用（`management/tray.ts`、`ui/card.ts`）。
  *
- * 焦點（比照設定 §4.7）：開啟落在右卡內容區（可聚焦的捲動容器，PageDown 立刻能捲）；寬螢幕選分類後焦點留在被點的項次
+ * 焦點（比照設定）：開啟落在右卡內容區（可聚焦的捲動容器，PageDown 立刻能捲）；寬螢幕選分類後焦點留在被點的項次
  * （`aria-current` 與右卡的 region 名稱＝分類名，報讀器據此知道內容換了）；窄螢幕選分類後焦點移進內容區、返回後回到目前項次。
  *
- * PR-A 的「重看導覽」鈕加在左卡底部 `<div data-shortcuts-footer>` 裡、提示句的右側（本 PR 不放，D8）。
+ * 「重看導覽」鈕要放在左卡底部 `<div data-shortcuts-footer>` 裡、提示句的右側（目前還沒有）。
  */
 
 type TFn = (key: string) => string;
@@ -123,7 +123,7 @@ function OneKeys({ keys, mac, t, withSpace }: { keys: ShortcutKeys; mac: boolean
   return null;
 }
 
-/** 一條的所有按法，多種按法之間放分隔（K9）。 */
+/** 一條的所有按法，多種按法之間放分隔。 */
 function EntryKeys({ entry, mac, t }: { entry: ShortcutEntry; mac: boolean; t: TFn }) {
   const list = mac && entry.macKeys ? entry.macKeys : entry.keys;
   if (list.every((k) => k.kind === "action")) return null;
@@ -234,7 +234,7 @@ export function ShortcutsContent() {
             </button>
           ))}
         </nav>
-        {/* PR-A 的「重看導覽」鈕加在這個 div 裡、提示句的右側（variant="outline"）。 */}
+        {/* 「重看導覽」鈕要放在這個 div 裡、提示句的右側（variant="outline"）。 */}
         <div data-shortcuts-footer className="mt-auto flex flex-wrap items-center gap-2 border-t border-border px-1 pt-3 text-xs text-muted-foreground">
           <p>
             <Trans

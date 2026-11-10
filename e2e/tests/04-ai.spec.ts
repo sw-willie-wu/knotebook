@@ -2,7 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { ADMIN, adminNav, createNote, editorLocator, loginAs, openSelectionAiBox, openSiteAdmin, waitForEditorSelection } from "./helpers.js";
 
 /**
- * §14.5 流程 4（#263 改版）：站台管理 modal（`/admin/ai`）建 provider（指向 ai-stub）＋ model → 框選文字 → 工具列 AI 鈕開框 →
+ * 流程 4（#263 改版）：站台管理 modal（`/admin/ai`）建 provider（指向 ai-stub）＋ model → 框選文字 → 工具列 AI 鈕開框 →
  * 自由指令（Instruct）→ 串流 → diff 預覽 → 套用（框關閉）→ Ctrl+Z；chip（direct 的 Rewrite）自動套用 → 還原；守門（ai-stub 拉長串流、
  * 第二個 context 改錨點 → 框顯示「原文已變更」、沒有套用鈕、direct 自動套用失敗的 toast；同一支順帶驗串流中捲走後、完成時焦點移進框
  * 不把筆記捲回去）。
@@ -11,7 +11,7 @@ import { ADMIN, adminNav, createNote, editorLocator, loginAs, openSelectionAiBox
  * FINAL_CONTENT。auto 解析 model 靠 `apps/server/src/ai/resolve.ts` 的排序取第一筆；本檔全程只建這一顆 enabled 的 chat model。
  * 三支測試 `serial`：第一支建 provider，第二支沿用 `/fast`，第三支把它改成 `/slow`。
  *
- * 內建 Rewrite 新安裝預設是 preview（#263 後續，2026-10-13）。第二、三支要的是 direct 自動套用（＋還原、＋套用撞守門的 toast），
+ * 內建 Rewrite 新安裝預設是 preview（#263）。第二、三支要的是 direct 自動套用（＋還原、＋套用撞守門的 toast），
  * 所以各自先以 admin API 把 Rewrite 改成 direct（`setRewriteApplyMode`）；第一次改之前記下原值，`afterAll` 改回那個原值（不寫死 preview）。
  */
 
@@ -35,7 +35,7 @@ async function leaveAdmin(page: Page): Promise<void> {
 }
 
 /**
- * 供應商表（spec 2026-10-13 settings-table §3 #1）：一個供應商＝以名稱為名的資料列；金鑰說明、測試結果與模型子表在緊接的
+ * 供應商表：一個供應商＝以名稱為名的資料列；金鑰說明、測試結果與模型子表在緊接的
  * 「＜名稱＞ details」明細列。列名一律 exact（Playwright 的 name 預設是子字串比對，「X」會命中「X details」）。
  */
 function providerRowLocator(page: Page, name: string) {
@@ -152,7 +152,7 @@ test("建 provider/model → 框選 → 指令 → 串流不洩漏 reasoning →
     await expect(apply).toBeEnabled();
     await apply.click();
 
-    // ── 手動套用 → 框關閉（S1）；Ctrl+Z 還原（undo 生命線 #97）──
+    // ── 手動套用 → 框關閉；Ctrl+Z 還原（undo 生命線 #97）──
     await expect(box).toBeHidden();
     await expect(editor).toContainText(REWRITTEN_TEXT);
     await expect(editor).not.toContainText(original);
@@ -257,7 +257,7 @@ test("守門：provider 改指向 /slow → 串流中第二個 context 改錨點
     // ── 框：串流中就顯示「原文已變更」；串流結束時自動套用撞守門 → toast，框裡沒有套用鈕、只剩捨棄 ──
     await expect(box.getByText(STALE_TEXT, { exact: true })).toBeVisible();
 
-    // ── 串流中把筆記捲到底（框捲出可視範圍）；完成時焦點移進框容器（焦點原在框內的取消鈕）用 preventScroll，捲動位置不得變（§5.3）──
+    // ── 串流中把筆記捲到底（框捲出可視範圍）；完成時焦點移進框容器（焦點原在框內的取消鈕）用 preventScroll，捲動位置不得變──
     const scrolled = await noteScroll(ownerPage, "nearBottom");
     await expect(box.getByText("Generating…", { exact: true })).toBeVisible(); // 前提：捲動發生在串流完成之前
     expect(scrolled.boxBottom).not.toBeNull();
@@ -266,7 +266,7 @@ test("守門：provider 改指向 /slow → 串流中第二個 context 改錨點
     await expect(box).toBeFocused(); // 完成時焦點確實移進了框容器（不然「沒捲動」不證明什麼）
     expect(await noteScroll(ownerPage)).toMatchObject({ scrollTop: scrolled.scrollTop, windowScrollY: scrolled.windowScrollY });
     await expect(box.getByRole("button", { name: "Apply", exact: true })).toHaveCount(0);
-    await expect(box.getByRole("button", { name: "Retry", exact: true })).toHaveCount(0); // 錨點已變：重試也收掉（§5.2）
+    await expect(box.getByRole("button", { name: "Retry", exact: true })).toHaveCount(0); // 錨點已變：重試也收掉
     await expect(box.getByRole("button", { name: "Discard", exact: true })).toBeVisible();
     await expect(ownerEditor).toContainText(editedMarker);
     await expect(ownerEditor).not.toContainText(REWRITTEN_TEXT);

@@ -1,7 +1,7 @@
 /**
- * #180 spec §10.2：`edit_note` 的 `rename`（R1–R12）＋ Review Focus RF2。collab app（`edit_note` 在 collab 閘門內）。
- * #381：rename 必帶 `if_match`＝標題指紋（`read_note_outline` 的 `titleFingerprint`）；R14–R18。
- * 模型面字串一律寫字面值（spec §4.3 逐字）。
+ * #180：`edit_note` 的 `rename`（R1–R12）。collab app（`edit_note` 在 collab 閘門內）。
+ * #381：rename 必帶 `if_match`＝標題指紋（`read_note_outline` 的 `titleFingerprint`）。
+ * 模型面字串一律寫字面值。
  */
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
@@ -25,7 +25,7 @@ const INVALID_TAIL =
   "replace_section, insert_after and delete_section need `section_id`; every operation except delete_section and rename needs " +
   "`markdown`; every operation except append needs `if_match` (for rename, the title's `titleFingerprint`); rename needs `title`, " +
   "and no other operation takes it. Fields that do not belong to the operation are rejected.";
-/** #381：標題指紋不符（spec：工具層錯誤、英文；同其他 op 的 `fingerprint_mismatch` 碼）。 */
+/** #381：標題指紋不符（工具層錯誤、英文；同其他 op 的 `fingerprint_mismatch` 碼）。 */
 const RENAME_MISMATCH =
   "`if_match` is not the fingerprint of the note's current title — most likely the title was changed after you got that " +
   "fingerprint — so the note was not renamed. Call read_note_outline to see the current title and its `titleFingerprint`, " +
@@ -269,7 +269,7 @@ describe("#180 edit_note rename", () => {
     expect(Object.keys(ra.structuredContent!).sort()).toEqual(["editId", "fingerprint", "outline", "unboundWikilinks"]);
   });
 
-  it("RF2 邊界標題：同標題 → 網址不變；撞同範圍另一篇 → -2；純標點 → untitled 形", async () => {
+  it("邊界標題：同標題 → 網址不變；撞同範圍另一篇 → -2；純標點 → untitled 形", async () => {
     const ctx = await buildCollabTestApp();
     const me = await seedUser(ctx.db);
     await seedNote(ctx.db, { ownerId: me.id }, { title: "Taken", slug: "taken" });

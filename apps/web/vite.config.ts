@@ -4,7 +4,7 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vitest/config";
 
-// #247 §9.7：關於頁的版本號。讀 apps/web/package.json 的 version（release 流程本來就會改它），
+// #247：關於頁的版本號。讀 apps/web/package.json 的 version（release 流程本來就會改它），
 // 以 define 注入成編譯期常數；vitest 走同一份設定，測試環境同樣有定義。型別宣告在 src/vite-env.d.ts。
 const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as { version: string };
 

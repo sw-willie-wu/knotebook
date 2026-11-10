@@ -1,5 +1,5 @@
 /**
- * `live-watch.ts`（審查 r4 I1）：套用期間活文件被改了哪些頂層 block；合併時只在改到這次寫入在意的 block 時才算衝突。
+ * `live-watch.ts`：套用期間活文件被改了哪些頂層 block；合併時只在改到這次寫入在意的 block 時才算衝突。
  * 文件用真的編輯器建（BlockNote 的 blockGroup／blockContainer 結構），「瀏覽器」是另一份文件、改完把 update 套進活文件。
  */
 import { describe, expect, it } from "vitest";
@@ -116,7 +116,7 @@ describe("LiveWatch", () => {
 });
 
 /**
- * 合併後的內容（審查 r5 I3、m6）：真的 editOp（worker 同一支）＋真的 LiveWatch；瀏覽器在 AI 做事期間改活文件，守衛放行就合併，比對最後的
+ * 合併後的內容：真的 editOp（worker 同一支）＋真的 LiveWatch；瀏覽器在 AI 做事期間改活文件，守衛放行就合併，比對最後的
  * markdown 與順序——不只看 conflicts 的回傳值。
  */
 describe("守衛放行後合併的內容", () => {
@@ -155,7 +155,7 @@ describe("守衛放行後合併的內容", () => {
     expect(r.markdown).toBe("# A\n\na1 text EDITED\n\na2 text\n\n# B\n\nAI-NEW\n\n# C\n\nc1 text\n");
   });
 
-  it("在 B 標題正前方（A 段末尾）插一段：合併，那段留在 A、在 # B 之前（審查 r5 I3：不被排到 AI 新內容後面搬進 B）——跑 10 次（每次 client id 不同）", async () => {
+  it("在 B 標題正前方（A 段末尾）插一段：合併，那段留在 A、在 # B 之前（不被排到 AI 新內容後面搬進 B）——跑 10 次（每次 client id 不同）", async () => {
     for (let i = 0; i < 10; i++) {
       const r = await scenario(ed => ed.insertBlocks([P("USER-NEW")] as never, ed.document[3]!.id, "before"));
       expect(r.conflict).toBe(false);

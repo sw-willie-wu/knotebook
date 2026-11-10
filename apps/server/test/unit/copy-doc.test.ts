@@ -1,5 +1,5 @@
 /**
- * #175 PR2 T4：複製的 Y.Doc 處理（`notes/copy-doc.ts`，純 Yjs、不碰 DB）。整合面在 `test/groups-v2-copy.test.ts`。
+ * #175：複製的 Y.Doc 處理（`notes/copy-doc.ts`，純 Yjs、不碰 DB）。整合面在 `test/groups-v2-copy.test.ts`。
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -23,14 +23,14 @@ function docWith(urls: string[]): Y.Doc {
   return doc;
 }
 
-describe("cloneForCopy／rewriteUploadUrls（#175 §6.5 (2)、B10）", () => {
+describe("cloneForCopy／rewriteUploadUrls（#175）", () => {
   it("clone 後 XML 逐字相同、是不同的 Y.Doc（clientID 不同）", () => {
     const src = docWith([`/api/uploads/${U1}`, "https://example.com/a.png"]);
     const { doc } = cloneForCopy(src);
     expect(doc.getXmlFragment(YDOC_FRAGMENT).toString()).toBe(src.getXmlFragment(YDOC_FRAGMENT).toString());
     expect(doc.clientID).not.toBe(src.clientID);
   });
-  it("只收 url 恰為 /api/uploads/<uuid> 的節點；巢狀也收；同 id 多節點歸同一組（RF2）；大寫 uuid 正規化成小寫鍵", () => {
+  it("只收 url 恰為 /api/uploads/<uuid> 的節點；巢狀也收；同 id 多節點歸同一組；大寫 uuid 正規化成小寫鍵", () => {
     const src = docWith([`/api/uploads/${U1}`, `/api/uploads/${U1}`, `/api/uploads/${U2.toUpperCase()}`,
       "https://example.com/a.png", `https://host/api/uploads/${U1}`, `/api/uploads/${U1}?x=1`, "/api/uploads/not-a-uuid"]);
     const { uploadNodes } = cloneForCopy(src);
@@ -48,7 +48,7 @@ describe("cloneForCopy／rewriteUploadUrls（#175 §6.5 (2)、B10）", () => {
     expect(xml).toContain(`/api/uploads/${U2}`);
     expect(src.getXmlFragment(YDOC_FRAGMENT).toString()).toBe(before);
   });
-  it("空文件：clone 出空文件、沒有附件（RF3 的單元半邊）", () => {
+  it("空文件：clone 出空文件、沒有附件", () => {
     const { doc, uploadNodes } = cloneForCopy(new Y.Doc());
     expect(doc.getXmlFragment(YDOC_FRAGMENT).length).toBe(0);
     expect(uploadNodes.size).toBe(0);

@@ -1,6 +1,6 @@
 /**
- * #181 PR-2a T8：`DELETE /api/notes/:id` 改成移入垃圾桶（spec §6.3.2）、單篇讀取三形的 `in_trash`（§6.7）、
- * 直連寫入的 `gone` 映射（§6.2-11，讀碼發現 6）。
+ * #181：`DELETE /api/notes/:id` 改成移入垃圾桶、單篇讀取三形的 `in_trash`、
+ * 直連寫入的 `gone` 映射。
  */
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -37,7 +37,7 @@ function gateHooks() {
   return { hooks: { ...spyCollabHooks(), beforeNoteDeleted }, beforeNoteDeleted, release };
 }
 
-describe("D1 移入（A2-1 server 面）", () => {
+describe("D1 移入", () => {
   it("owner DELETE → 204；deleted_at 非 NULL、deleted_by＝owner；附件列與磁碟檔都在；清單不列；GET :id 404 in_trash＋noteId", async () => {
     const { app, db, uploadsDir } = await buildTestApp();
     const owner = await seedUser(db);
@@ -164,7 +164,7 @@ describe("D3 閘門：結果不是 trashed 一律 release", () => {
   });
 });
 
-describe("D7 服務函式收大寫 id（PR-2d 的 MCP 等呼叫端不一定先轉小寫）", () => {
+describe("D7 服務函式收大寫 id（MCP 等呼叫端不一定先轉小寫）", () => {
   it("trashNote 傳大寫 id → trashed、閘門開在小寫 id 上且不 release、deleted_at 非 NULL", async () => {
     const g = gateHooks();
     const { db, uploadsDir } = await buildTestApp({ collabHooks: g.hooks });
@@ -179,7 +179,7 @@ describe("D7 服務函式收大寫 id（PR-2d 的 MCP 等呼叫端不一定先�
   });
 });
 
-describe("D4 in_trash 三形與 AG2", () => {
+describe("D4 in_trash 三形", () => {
   it("群組垃圾桶筆記：admin、editDelete 得 in_trash；member、deleteOnly、editOnly、readOnly、outsider 得 not_found（與不存在逐位元組相同）；大寫 uuid 的 noteId 回小寫", async () => {
     const { app, db } = await buildTestApp();
     const s = await sixRoleScene(db);
@@ -243,7 +243,7 @@ async function stateOf(pool: Pool, noteId: string): Promise<{ ydoc: string; vers
 }
 const aiEditCount = async (db: Db, noteId: string) => (await db.select({ id: noteAiEdits.id }).from(noteAiEdits).where(eq(noteAiEdits.noteId, noteId))).length;
 
-/** D5 的前置：活筆記＋一則 AI 修改紀錄＋一版版本＋一把 PAT；文件卸載後才回（`note_states` 從此不再動）。 */
+/** 前置：活筆記＋一則 AI 修改紀錄＋一版版本＋一把 PAT；文件卸載後才回（`note_states` 從此不再動）。 */
 async function goneScene() {
   const ctx = await buildCollabTestApp();
   const owner = await seedUser(ctx.db);
@@ -338,7 +338,7 @@ describe("D6 連結轉換：合併前一刻被移入 → NoteGoneError 收成 de
 });
 
 // docs/known-limitations.md「A note in the trash still holds its URL and its custom public URL」與 api.md Trash 段靠這兩案釘。
-describe("D8 垃圾桶期間 slug 與公開別名仍佔用（§6.1）", () => {
+describe("D8 垃圾桶期間 slug 與公開別名仍佔用", () => {
   it("移入後同一 owner 建同標題筆記 → slug 得 -2；垃圾桶那篇的 slug 不變", async () => {
     const { app, db } = await buildTestApp();
     const owner = await seedUser(db);

@@ -1,5 +1,5 @@
 /**
- * 儲存配額的非交易讀（spec 2026-10-08 §5.4）。收 `Db`／`DbOrTx`、會借 pool——**只准在交易外呼叫**（S14）。
+ * 儲存配額的非交易讀。收 `Db`／`DbOrTx`、會借 pool——**只准在交易外呼叫**（S14）。
  * 不在 `tx/` 目錄：它們不是交易本體。
  */
 import { eq, sql } from "drizzle-orm";
@@ -30,7 +30,7 @@ export async function readSpaceUsage(db: DbOrTx, space: StorageSpace): Promise<S
 }
 
 /**
- * #247 §9.1：空間內上傳依 mime 分組加總，JS 端以 shared 的 `kindOfMime` 歸類（分類規則只有一份）。只給兩支用量 GET 用——
+ * #247：空間內上傳依 mime 分組加總，JS 端以 shared 的 `kindOfMime` 歸類（分類規則只有一份）。只給兩支用量 GET 用——
  * **不得**搬進 `readSpaceUsage`：那句也是上傳 preHandler 與複製的「已滿」預檢（熱路徑），不加 GROUP BY。
  */
 export async function readSpaceUsageByKind(db: DbOrTx, space: StorageSpace): Promise<StorageByKind> {
@@ -46,7 +46,7 @@ export async function readSpaceUsageByKind(db: DbOrTx, space: StorageSpace): Pro
 }
 
 /**
- * #247 §9.2（rev 9）：群組筆記的附件依**佔用者**（`uploads.charged_to_id`：把位元組帶進群組空間的人——直接上傳＝上傳者，
+ * #247：群組筆記的附件依**佔用者**（`uploads.charged_to_id`：把位元組帶進群組空間的人——直接上傳＝上傳者，
  * 移入／複製進群組＝執行者）分組。佔用者帳號已刪除（on delete set null）或回滾到 v0.9 期間新建的列（NULL）彙總成
  * `userId: null` 一列——**不**用 `COALESCE(charged_to_id, uploader_id)`：佔用者已刪而上傳者仍在時會錯算給上傳者。
  * 不看是否仍是成員（已離開的人照列）。只回 bytes > 0；bytes 降冪，同 bytes 依 charged_to_id 升冪、null 最後。
@@ -65,8 +65,8 @@ export async function readGroupUsageByMember(db: DbOrTx, groupId: string): Promi
 }
 
 /**
- * 能否檢視該空間的用量數字（spec §5.4、§8.1 Q3）：個人＝本人或站台 admin；群組＝`groupAccess(...).manageGroup`（已含非成員的站台 admin）。
- * 刪群組・轉移的「接收者本人或站台 admin」就是個人空間這條（§8.1 轉移那格）。
+ * 能否檢視該空間的用量數字：個人＝本人或站台 admin；群組＝`groupAccess(...).manageGroup`（已含非成員的站台 admin）。
+ * 刪群組・轉移的「接收者本人或站台 admin」就是個人空間這條（轉移那格）。
  * `user.id` 來自 DB（恆小寫）；`space.id` 可能是路由傳入的原值，故以小寫比。
  */
 export async function canViewSpaceUsage(db: Db, user: { id: string; isAdmin: boolean }, space: StorageSpace): Promise<boolean> {
@@ -74,7 +74,7 @@ export async function canViewSpaceUsage(db: Db, user: { id: string; isAdmin: boo
   return (await groupAccess(db, space.id, user))?.manageGroup === true;
 }
 
-/** 交易內判定被拒後（rollback 之後、交易外）組 409 的 `storage` 欄（§8.1）。可見性判定的 TOCTOU 可接受（m10）。 */
+/** 交易內判定被拒後（rollback 之後、交易外）組 409 的 `storage` 欄。可見性判定的 TOCTOU 可接受。 */
 export async function quotaErrorDetail(db: Db, user: { id: string; isAdmin: boolean }, err: StorageQuotaExceeded): Promise<StorageQuotaErrorDetail> {
   return (await canViewSpaceUsage(db, user, err.space))
     ? { incomingBytes: err.incomingBytes, usedBytes: err.usedBytes, quotaBytes: err.quotaBytes }
@@ -88,7 +88,7 @@ export async function precheckDetail(db: Db, user: { id: string; isAdmin: boolea
     : { incomingBytes: null };
 }
 
-/** 「已滿」：有上限且 used ≥ quota（上傳 preHandler、複製 3a 的同一判準——spec §6.3-1、§6.4-3a）。 */
+/** 「已滿」：有上限且 used ≥ quota（上傳 preHandler、複製 3a 的同一判準）。 */
 export function isSpaceFull(usage: SpaceUsage | null): usage is SpaceUsage & { quotaBytes: number } {
   return usage !== null && usage.quotaBytes !== null && usage.usedBytes >= usage.quotaBytes;
 }

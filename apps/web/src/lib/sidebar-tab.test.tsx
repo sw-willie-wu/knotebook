@@ -284,7 +284,7 @@ function SelectionProbe() {
   );
 }
 
-describe("選取狀態（spec §6.10.2）", () => {
+describe("選取狀態", () => {
   function startWithA() {
     render(
       <SidebarTabProvider>

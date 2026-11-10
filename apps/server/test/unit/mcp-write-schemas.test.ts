@@ -1,8 +1,8 @@
 /**
- * #108 PR2：寫入工具的 schema 與 REST 的**同一份** schema 對得起來（M14／D-N／D-K）。
+ * #108：寫入工具的 schema 與 REST 的**同一份** schema 對得起來（M14）。
  *
  * 本檔放寫入工具 schema 的同源斷言：op 集合的兩邊、M14 的 identity 斷言（21b(i)）與行為探針
- * （21b(ii)），以及 #180 起各新工具輸入欄位的 identity（U1／U2-x）。
+ * （21b(ii)），以及 #180 起各新工具輸入欄位的 identity。
  *
  * ⚠ **`op` 是唯一沒有共用物件的欄位**：REST 那邊是五個 `z.literal`（`discriminatedUnion` 的
  * 判別鍵），MCP 這邊要的是一個帶 `.describe()` 的 `z.enum`（raw shape 表達不了 union）。
@@ -32,7 +32,7 @@ import { readNoteSectionOutput } from "../../src/mcp/tools/read-note-section.js"
 
 /** 寫死一份（不是從實作導出來的）——否則兩邊一起改就一起綠。 */
 const OPS = ["replace_all", "replace_section", "insert_after", "append", "delete_section"];
-/** #180 W8：MCP 多一個 op（REST 五 ∪ {rename}）。**刻意不相等**——REST `/edits` 不加 rename 是對 D18 的刻意偏離（spec §4.6：rename 不進 `note_ai_edits`、REST 已有 PATCH、MCP 加 op 比另開工具便宜）。日後別「修正」成兩邊相等。 */
+/** #180：MCP 多一個 op（REST 五 ∪ {rename}）。**刻意不相等**——REST `/edits` 不加 rename 是刻意的差異（rename 不進 `note_ai_edits`、REST 已有 PATCH、MCP 加 op 比另開工具便宜）。日後別「修正」成兩邊相等。 */
 const MCP_OPS = [...OPS, "rename"];
 
 describe("#108 寫入 schema 的兩邊", () => {
@@ -41,7 +41,7 @@ describe("#108 寫入 schema 的兩邊", () => {
     expect(editBodySchema.options.map(o => o.shape.op.value)).toEqual(OPS);
   });
 
-  it("edit_note 的 op enum ＝ REST 五 ∪ {rename}（W8）；mcpEditBodySchema 的 literal ＝ MCP_OPS 且前五支就是 editBodySchema 的同一批物件", () => {
+  it("edit_note 的 op enum ＝ REST 五 ∪ {rename}；mcpEditBodySchema 的 literal ＝ MCP_OPS 且前五支就是 editBodySchema 的同一批物件", () => {
     expect(editNoteInput.op.options).toEqual(MCP_OPS);
     expect(mcpEditBodySchema.options.map(o => o.shape.op.value)).toEqual(MCP_OPS);
     for (let i = 0; i < OPS.length; i += 1) expect(mcpEditBodySchema.options[i]).toBe(editBodySchema.options[i]);
@@ -53,10 +53,10 @@ describe("#108 寫入 schema 的兩邊", () => {
  * **同一份物件參考**，不是「兩邊碰巧寫出同樣的規則」。
  *
  * zod 3.25.76 的 `.describe()` 對任何型別都是 `new This({ ...this._def, description })`——
- * description 以外的 `_def` 屬性與被呼叫端同一份參考（P7 的機制）：
+ * description 以外的 `_def` 屬性與被呼叫端同一份參考：
  * - 選配欄位（`markdown`／`if_match`／`section_id`／`title`／`content`）建法固定成
  *   `BASE.optional().describe(...)`：`.optional()` 包一層 `ZodOptional`，`_def.innerType`
- *   就是 `BASE` 本身，`.describe()` 之後這個參考不變（P7）——直接 `toBe` 最乾淨。
+ *   就是 `BASE` 本身，`.describe()` 之後這個參考不變——直接 `toBe` 最乾淨。
  * - 必填欄位（`note_id`）沒有 `.optional()`，直接 `NOTE_ID.describe(...)`：沒有
  *   `innerType` 可比，但剝掉 `description` 之後剩下的 `_def`（`schema`／`effect` 等）
  *   與 `NOTE_ID._def`（同樣剝掉 description）逐一都是同一份參考，`toEqual` 遞迴比對時
@@ -80,7 +80,7 @@ describe("#108 M14：raw shape 六個欄位與 notes/schemas.ts 的 base 同源�
     expectSameSchema(editNoteInput.note_id, NOTE_ID);
   });
 
-  it("#180：editNoteInput.title 與 TITLE 同源；PATCH 的 updateBodyObject.title 與 TITLE 同源（W16）", () => {
+  it("#180：editNoteInput.title 與 TITLE 同源；PATCH 的 updateBodyObject.title 與 TITLE 同源", () => {
     expectSameSchema(editNoteInput.title, TITLE);
     expectSameSchema(updateBodyObject.shape.title, TITLE);
   });
@@ -91,13 +91,13 @@ describe("#108 M14：raw shape 六個欄位與 notes/schemas.ts 的 base 同源�
     expectSameSchema(createNoteInput.group_id, GROUP_ID);
   });
 
-  it("#175 PR5：REST createBodySchema 的 groupId 與 GROUP_ID 同源（D18：寫入側不發明第二套契約）", () => {
+  it("#175：REST createBodySchema 的 groupId 與 GROUP_ID 同源（寫入側不發明第二套契約）", () => {
     expectSameSchema(createBodySchema.shape.groupId, GROUP_ID);
     expectSameSchema(createBodySchema.shape.title, TITLE);
     expectSameSchema(createBodySchema.shape.content, MD);
   });
 
-  it("#175 PR5：GROUP_ID 收大小寫 uuid、拒非 uuid 與空字串", () => {
+  it("#175：GROUP_ID 收大小寫 uuid、拒非 uuid 與空字串", () => {
     expect(GROUP_ID.safeParse(randomUUID()).success).toBe(true);
     expect(GROUP_ID.safeParse(randomUUID().toUpperCase()).success).toBe(true);
     for (const bad of ["", "not-a-uuid", `${randomUUID()}x`, randomUUID().replace(/-/g, "")]) expect(GROUP_ID.safeParse(bad).success).toBe(false);
@@ -122,15 +122,15 @@ describe("#108 M14：raw shape 六個欄位與 notes/schemas.ts 的 base 同源�
  * `z.object(createNoteInput)` 這兩個物件本身，不是呼叫 `editNote()`／`createNote()`。
  *
  * ⚠ **NUL 與空 title 兩發的「同一份 payload 經 tools/call 打進去」後半，移到
- * `test/mcp-write-guards.test.ts`**（本檔實作時的自我修正，不是 brief 原樣）：brief 原文把
- * 這半段也放在本檔，但那半需要 `buildCollabTestApp()`（真 DB），而 `vitest.unit.config.ts`
+ * `test/mcp-write-guards.test.ts`**：
+ * 那半需要 `buildCollabTestApp()`（真 DB），而 `vitest.unit.config.ts`
  * 刻意不帶 `globalSetup`——那份 config 的檔頭逐字「確保 unit 測試絕不啟動 testcontainers」，
  * 是這個 repo 對「跑 `test:unit` 永遠不用 docker」的既有承諾（`package.json` 的
  * `test:unit` 腳本、以及本機測試慣例都靠它）。實測過：不手動設 `TEST_DATABASE_URL` 直接
  * `pnpm --filter @knotebook/server test:unit` 時，那半段會炸
  * 「TEST_DATABASE_URL 未設定」，把這份「本檔＝快、免 docker」的承諾打破。schema 層
  * safeParse 那一半（不需要 DB）留在這裡；HTTP 那一半搬進 `mcp-write-guards.test.ts`
- * （已經是本棒的整合測試檔），案號與斷言內容一字不改。
+ * （已經是整合測試檔）。
  */
 describe("#108 M14：21b(ii) 的行為探針", () => {
   it("markdown 262 145 code unit：z.object(editNoteInput) 直接 safeParse 拒絕，issue 指到 markdown", () => {
@@ -175,8 +175,8 @@ describe("#222 顏色在工具說明裡", () => {
   });
 });
 
-// 並排 PR-2（spec 2026-10-21 columns-layout §11.5）：並排的正規標籤與欄數、尺寸的形與範圍要寫在工具說明裡；
-// 尺寸句不提表格格子裡的圖片（Q3）。wire 上的整句逐字在 mcp-tools-list.test.ts。
+// 並排：並排的正規標籤與欄數、尺寸的形與範圍要寫在工具說明裡；
+// 尺寸句不提表格格子裡的圖片。wire 上的整句逐字在 mcp-tools-list.test.ts。
 describe("並排與尺寸在工具說明裡", () => {
   it("edit_note 的 markdown 說明：外層與欄的正規標籤、2 到 4 欄、figure 內的 width、第一列的 colwidth、32 到 4000", () => {
     const d = editNoteInput.markdown.description ?? "";
@@ -220,7 +220,7 @@ describe("#180 U2-d：move_note_to_group 的輸入與 notes/schemas.ts 同源", 
   });
 });
 
-describe("資料夾 PR-3d T7：四支工具的 folder_id 與 FOLDER_ID 同源", () => {
+describe("資料夾：四支工具的 folder_id 與 FOLDER_ID 同源", () => {
   it("create_note／copy_note（兩版）／move_note_to_group 的 folder_id（optional）、move_note_to_folder 的 folder_id（nullable，必給）↔ FOLDER_ID；copy 兩版說明各自", () => {
     for (const field of [createNoteInput.folder_id, copyNoteInput.folder_id, copyNoteInputNoMove.folder_id, moveNoteToGroupInput.folder_id]) {
       expect(field).toBeInstanceOf(z.ZodOptional);
@@ -234,7 +234,7 @@ describe("資料夾 PR-3d T7：四支工具的 folder_id 與 FOLDER_ID 同源", 
   });
 });
 
-describe("資料夾 PR-3d T8：delete_folder 的輸入", () => {
+describe("資料夾：delete_folder 的輸入", () => {
   it("輸入鍵恰好只有 folder_id（MCP 不提供「只刪空資料夾」之類的選項），且必填、與 FOLDER_ID 同源", () => {
     expect(Object.keys(deleteFolderInput)).toEqual(["folder_id"]);
     expect(deleteFolderInput.folder_id).not.toBeInstanceOf(z.ZodOptional);

@@ -10,7 +10,7 @@ export function validPlanName(raw: string): string | null {
 export type QuotaUnit = "MB" | "GB";
 const UNIT_BYTES: Record<QuotaUnit, number> = { MB: 1024 ** 2, GB: 1024 ** 3 };
 
-/** 「數字＋單位」→ bytes（1024 進位，spec Q2）。只收無號十進位（`12`、`1.5`）；其餘（空、負、指數、逗號）與超過 2^50 一律 null。 */
+/** 「數字＋單位」→ bytes（1024 進位）。只收無號十進位（`12`、`1.5`）；其餘（空、負、指數、逗號）與超過 2^50 一律 null。 */
 export function quotaBytesFromInput(raw: string, unit: QuotaUnit): number | null {
   const s = raw.trim();
   if (!/^\d+(\.\d+)?$/.test(s)) return null;

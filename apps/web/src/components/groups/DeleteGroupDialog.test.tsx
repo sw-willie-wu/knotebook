@@ -38,7 +38,7 @@ const inGroup = (id: string) => trashItem({ id, title: id, group: { id: GROUP.id
 const OTHER_GROUP_TRASH = trashItem({ id: "t-other", title: "t-other", group: { id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", name: "Other" } });
 const PERSONAL_TRASH = trashItem({ id: "t-mine", title: "t-mine" });
 
-/** 能管群組、能刪但不能編輯（自訂角色）：看不到群組垃圾桶（spec §6.5 ①）。 */
+/** 能管群組、能刪但不能編輯（自訂角色）：看不到群組垃圾桶（①）。 */
 const NO_TRASH_GROUP: GroupDto = groupDto(
   { id: GROUP.id, name: GROUP.name },
   customRole({ permissions: { ...customRole().permissions, manageGroup: true, edit: false, delete: true } }),
@@ -104,7 +104,7 @@ async function settled(queryClient: QueryClient, key: readonly string[]): Promis
 const deleteCalls = (calls: Calls) => calls.filter((c) => c.method === "DELETE");
 const confirmButton = () => screen.getByRole("button", { name: "Delete group" });
 
-describe("DeleteGroupDialog（#175 PR4，spec §8.6）", () => {
+describe("DeleteGroupDialog（#175）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -290,7 +290,7 @@ async function adminsLoaded(): Promise<void> {
 }
 const toDeleteMode = () => fireEvent.click(screen.getByRole("radio", { name: "Delete everything" }));
 
-describe("DeleteGroupDialog：垃圾桶篇數與轉移說明（#181 PR-2b T8，spec §6.5）", () => {
+describe("DeleteGroupDialog：垃圾桶篇數與轉移說明（#181）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -323,7 +323,7 @@ describe("DeleteGroupDialog：垃圾桶篇數與轉移說明（#181 PR-2b T8，s
   });
 
   it("DG-T3 能管群組、能刪但不能編輯（看不到群組垃圾桶）：不帶數字——轉移「The group's notes will become…」＋垃圾桶句；全刪「(including those in its trash)」", async () => {
-    // server 對這種角色不回群組垃圾桶的項目（spec §6.3.1），清單裡只有自己的個人項目
+    // server 對這種角色不回群組垃圾桶的項目，清單裡只有自己的個人項目
     const { queryClient } = renderDialog({ group: NO_TRASH_GROUP, trash: () => fakeResponse(200, trashList([PERSONAL_TRASH])) });
     await adminsLoaded();
     await settled(queryClient, ["notes"]);
@@ -452,8 +452,8 @@ describe("DeleteGroupDialog：垃圾桶篇數與轉移說明（#181 PR-2b T8，s
   });
 });
 
-// 資料夾 PR-3b-2 T7（spec §6.16 最後一列、§6.12 D5）：轉移模式、群組有資料夾時多一句去向說明。
-describe("DeleteGroupDialog：群組資料夾的轉移說明（資料夾 spec §6.16）", () => {
+// 資料夾（最後一列）：轉移模式、群組有資料夾時多一句去向說明。
+describe("DeleteGroupDialog：群組資料夾的轉移說明", () => {
   const OTHER_GROUP_ID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
   const FOLDERS_NOTE_EN = "The group's folders move into Me's notes, under a folder named after the group.";
   const FOLDERS_NOTE_ZH = "群組的資料夾會放進 Me 的「我的筆記」，在一個以群組名命名的資料夾底下。";

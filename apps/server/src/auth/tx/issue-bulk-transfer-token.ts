@@ -25,10 +25,10 @@ export interface IssueBulkTransferTokenSeam {
 export type IssueBulkTransferTokenResult = { kind: "issued"; id: string; expiresAt: Date } | { kind: "revoked" } | { kind: "too_many_active" };
 
 /**
- * bulk transfer spec 2026-11-02 §5.2-4：簽發一支 bulk 權杖。三句（比照 `issueTransferTokenInTx`）：
+ * bulk transfer：簽發一支 bulk 權杖。三句（比照 `issueTransferTokenInTx`）：
  * ① 鎖母列 `FOR NO KEY UPDATE`——序列化同一支母憑證的簽發，② 的計數因此不會兩邊都讀到 2；0 列＝認證後母憑證被撤銷。
  * ② 數這支母憑證「未過期」的 bulk 權杖（`purpose = 'bulk'`；upload／download 不佔名額）；≥ `maxActive` → too_many_active。
- * ③ INSERT：`note_id` 不給、`access`／`range` 落庫，`expires_at = least(now() + ttl, 母憑證到期)`（§21 D3）。
+ * ③ INSERT：`note_id` 不給、`access`／`range` 落庫，`expires_at = least(now() + ttl, 母憑證到期)`。
  * 母憑證恰在 `now()` 到期撞 `transfer_tokens_expiry_chk` 由呼叫端在交易外映射。
  */
 export async function issueBulkTransferTokenInTx(tx: Tx, input: IssueBulkTransferTokenInput, seam?: IssueBulkTransferTokenSeam): Promise<IssueBulkTransferTokenResult> {

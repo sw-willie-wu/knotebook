@@ -49,7 +49,7 @@ describe("側欄帳號列與 backlinks 列等高", () => {
     expect(SIDEBAR_ROW_HEIGHT).toBe(ROW_HEIGHT_LITERAL);
   });
 
-  it("(a2) BACKLINKS_SCROLL_ROW 字面固定，且容器高＝列高＋捲軸高", () => {
+  it(" BACKLINKS_SCROLL_ROW 字面固定，且容器高＝列高＋捲軸高", () => {
     // 字面釘死：消費端的斷言是 `toHaveClass(...BACKLINKS_SCROLL_ROW.split(" "))`，
     // 期望值從常數推導，改常數不會讓那邊紅（同義反覆）——鑑別力全靠這一條。
     expect(BACKLINKS_SCROLL_ROW).toBe("h-[42px] -mb-1.5 scrollbar-x-thin");

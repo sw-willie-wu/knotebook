@@ -1,6 +1,6 @@
 /**
- * #386 第二輪審查：讀出 → 寫回往返的其餘破口——收合清單／收合標題的文字（I-1）、有顏色的粗斜體邊緣空白（I-2）、
- * 換行後與區塊開頭的區塊標記（I-4）、跳脫規則的邊界（M-a／M-b）、表格欄寬（M-e）。共用的寫入／讀出路徑同 `softbreak-386.test.ts`。
+ * #386：讀出 → 寫回往返的其餘破口——收合清單／收合標題的文字（I-1）、有顏色的粗斜體邊緣空白（I-2）、
+ * 換行後與區塊開頭的區塊標記、跳脫規則的邊界（M-a／M-b）、表格欄寬（M-e）。共用的寫入／讀出路徑同 `softbreak-386.test.ts`。
  */
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
@@ -163,7 +163,7 @@ describe("I-4b 區塊開頭的標記字元跳脫", () => {
 /** 行內文字（去掉開頭的空白：段落開頭的空白寫回本來就會掉，見 known-limitations）。 */
 const lead = (bs: Blk[]): string => (Array.isArray(bs[0]?.content) ? (bs[0]!.content as Inline[]).map(c => c.text ?? "").join("") : "").replace(/^\s+/, "");
 
-describe("第三輪 I-1 前導空白之後的區塊標記也跳", () => {
+describe("前導空白之後的區塊標記也跳", () => {
   it.each([[" # x"], ["  - x"], [" ---"], ["   1. x"], [" # x"], ["\t+ x"], [" > x"]])("段落 %j → 寫回仍是一段、字不變（開頭空白除外）", async text => {
     const r = await loop([P(T("lead")), P(T(text))]);
     expect(r.b1.map(b => b.type)).toEqual(["paragraph", "paragraph"]);
@@ -183,7 +183,7 @@ describe("第三輪 I-1 前導空白之後的區塊標記也跳", () => {
   });
 });
 
-describe("第三輪 M-1 清單項目底下的子段落也套用區塊開頭跳脫", () => {
+describe("清單項目底下的子段落也套用區塊開頭跳脫", () => {
   it.each([["- c"], ["# c"], ["> c"], ["1. c"]])("收合清單項目 t 的子段落 %j → 寫回子段落文字不變", async text => {
     const r = await loop([{ type: "toggleListItem", content: [T("t")], children: [P(T(text))] }]);
     const kids = r.b1[0]!.children ?? [];
@@ -201,7 +201,7 @@ describe("第三輪 M-1 清單項目底下的子段落也套用區塊開頭跳�
   });
 });
 
-describe("第三輪 M-2 段落開頭／結尾的換行", () => {
+describe("段落開頭／結尾的換行", () => {
   it.each([
     ["開頭", "\nx", "<br>x"],
     ["結尾", "a\n", "a<br>"],

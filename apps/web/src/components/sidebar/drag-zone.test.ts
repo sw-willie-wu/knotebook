@@ -23,7 +23,7 @@ import { indexFolders } from "./folder-index";
 import { buildTabNodes } from "./tree";
 
 /**
- * 拖曳的區域落點、可拖判準、疊資料夾取名（資料夾 spec §6.13；PR-3c T2）。
+ * 拖曳的區域落點、可拖判準、疊資料夾取名。
  * fixture：個人 F ⊃ F1、X ⊃ Z、空資料夾 E、鏈 C1 ⊃ … ⊃ C5；根層筆記 A、R、O（folderId 指向不存在的資料夾）；F 裡 N1、N2；Z 裡 Z1；
  * C4 裡 B4、C5 裡 B5；群組 G（edit）有 GF、根層 g1、GF 裡 g2、唯讀 gr；群組 H 有 HF、h1；共享 SF、共享筆記 s1、兜底群組筆記 sg（群組 K 不在 groupIds）。
  * 樹一律以 buildTabNodes 建再 buildDropLookup，不手寫 lookup。斷言形 `[zone kind, 落點 folderId, scope 鍵, row, hold]`。

@@ -5,6 +5,7 @@ import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
 import { sessions } from "../db/schema.js";
 import type { CollabHooks } from "../collab/hooks.js";
+import type { SiteLimits } from "../site-limits/store.js";
 import { setSessionCookie } from "./cookies.js";
 import { signSession, verifySession, type UserGate } from "./session.js";
 import { newSessionValues } from "./tx/sessions.js";
@@ -26,6 +27,8 @@ export interface SessionDeps {
   db: Db;
   config: AppConfig;
   gate: UserGate;
+  /** #397：網頁登入有效期（`sessionTtlSeconds`）每次簽發時讀一次。 */
+  siteLimits: SiteLimits;
 }
 
 /**
@@ -42,19 +45,23 @@ export interface StartSessionDeps extends SessionDeps {
 }
 
 /** 建一列 session，回 `sid`。 */
-export async function insertSession(db: Db, userId: string): Promise<string> {
-  const [row] = await db.insert(sessions).values(newSessionValues(userId)).returning({ id: sessions.id });
+export async function insertSession(db: Db, userId: string, ttlSeconds: number): Promise<string> {
+  const [row] = await db.insert(sessions).values(newSessionValues(userId, ttlSeconds)).returning({ id: sessions.id });
   return row!.id;
 }
 
-/** 簽 session JWT（帶 `sid`）並發 cookie。列必須已經建好。 */
+/**
+ * 簽 session JWT（帶 `sid`）並發 cookie。列必須已經建好；`session.ttlSeconds` 必須是建那一列時用的同一個值（#397），
+ * JWT 的 exp、cookie 的 maxAge 與列的 `expires_at` 才會一致。
+ */
 export async function setSessionCookieFor(
   reply: FastifyReply,
   config: AppConfig,
-  session: { userId: string; tv: number; sid: string },
+  session: { userId: string; tv: number; sid: string; ttlSeconds: number },
 ): Promise<void> {
-  const jwt = await signSession(config.appSecret, session);
-  setSessionCookie(reply, config, jwt);
+  const { ttlSeconds, ...payload } = session;
+  const jwt = await signSession(config.appSecret, payload, ttlSeconds);
+  setSessionCookie(reply, config, jwt, ttlSeconds);
 }
 
 /**
@@ -98,7 +105,7 @@ export async function deleteSessionFromCookie(
  * 再建列、簽、發 cookie，最後機會性清過期列（fire-and-forget，失敗只 warn——比照 `transfer-cleanup.ts`。沒有排程：登入是最自然
  * 的時機，每次登入最多清一批，積壓會隨之後的登入清完）。
  *
- * 只限同一個帳號：#187 的 RF4（`oidc-pending.test.ts`）定過「瀏覽器已登入另一個帳號 V，完成連結登入目標帳號後，V 的 session
+ * 只限同一個帳號：`oidc-pending.test.ts` 釘過「瀏覽器已登入另一個帳號 V，完成連結登入目標帳號後，V 的 session
  * 不受影響」。那張別人的 cookie 在這台瀏覽器上會被新 cookie 蓋掉，但它的列（與副本）照舊留到 V 自己登出或過期。
  *
  * **延遲重驗舊 session 的共編連線**（與登出的立即重驗不同）：同一台瀏覽器重登時，舊分頁若立刻被要求重驗，它取 token 可能早於
@@ -114,13 +121,15 @@ export async function startSession(
   reply: FastifyReply,
   user: { userId: string; tv: number },
 ): Promise<void> {
+  // 有效期只讀這一次：列、JWT、cookie 用同一個值，不會因為簽發途中管理員改了設定而不一致（#397）。
+  const ttlSeconds = deps.siteLimits.get("sessionTtlSeconds");
   const replaced = await deleteSessionFromCookie(deps, request, user.userId);
   if (replaced) {
     const timer = setTimeout(() => deps.collabHooks.onSessionRevoked(replaced.userId, replaced.sid), deps.reloginReverifyDelayMs ?? RELOGIN_REVERIFY_DELAY_MS);
     timer.unref();
   }
-  const sid = await insertSession(deps.db, user.userId);
-  await setSessionCookieFor(reply, deps.config, { ...user, sid });
+  const sid = await insertSession(deps.db, user.userId, ttlSeconds);
+  await setSessionCookieFor(reply, deps.config, { ...user, sid, ttlSeconds });
   void deleteExpiredSessions(deps.db).catch((err: unknown) => {
     request.log.warn({ err }, "failed to delete expired sessions");
   });

@@ -115,7 +115,7 @@ DropdownMenuCheckboxItem.displayName = DropdownMenuPrimitive.CheckboxItem.displa
  * Radix 原生 RadioItem 的最小包裝：只留 `role="menuitemradio"` / `aria-checked`
  * 語意所需的行為 class（cursor/select/outline），**刻意不套用**
  * `DropdownMenuItem`／`DropdownMenuCheckboxItem` 那套 padding/flex/indicator
- * 預設樣式——PR3 主題色選擇器把它渲染成 16px 純色圓點，外觀完全交給呼叫端
+ * 預設樣式——主題色選擇器把它渲染成 16px 純色圓點，外觀完全交給呼叫端
  * `className`（見 `UserMenu.tsx`）。`aria-checked` 由 Radix 依
  * `DropdownMenuRadioGroup` 的 `value` 與本項的 `value` 是否相等自動算出，不需要
  * 手動傳。

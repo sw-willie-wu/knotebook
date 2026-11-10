@@ -1,4 +1,4 @@
-/** #247 §9.6：派生規則只有 shared 一份——server 必須重新匯出同一個函式與 regex（不是複製一份）。 */
+/** #247：派生規則只有 shared 一份——server 必須重新匯出同一個函式與 regex（不是複製一份）。 */
 import { describe, expect, it } from "vitest";
 import * as shared from "@knotebook/shared";
 import { AGENT_LABEL_RE, deriveAgentLabel } from "../../src/auth/agent-label.js";

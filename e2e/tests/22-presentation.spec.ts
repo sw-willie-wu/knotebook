@@ -3,13 +3,13 @@ import { expect, test, type Browser, type Page } from "@playwright/test";
 import { ADMIN, clickEndOfParagraph, createNote, editorLocator, loginAs, waitForEditorSelection } from "./helpers.js";
 
 /**
- * #229 簡報模式（spec §13.4）：E1 入口與導覽、E2 即時更新保位、E3 公開連結、E4 CSP、E5 改名不斷簡報、
+ * #229 簡報模式：E1 入口與導覽、E2 即時更新保位、E3 公開連結、E4 CSP、E5 改名不斷簡報、
  * E6 觸控（CDP Input.dispatchTouchEvent）、E7 側欄進入。
  *
- * - 「目前投影片」一律讀 DOM：`.reveal .slides section.present[data-kn-slide-id]`（reveal 實例不外露；起草裁定 8）。
+ * - 「目前投影片」一律讀 DOM：`.reveal .slides section.present[data-kn-slide-id]`（reveal 實例不外露）。
  * - 內容用貼上 markdown 建（14-table-hover 的手法）：標題 → `##`／`###`，表格 → markdown table。
- * - 全螢幕：headless chromium 的行為見 S7（Step 2）；「瀏覽器吃掉 Esc」以 `document.exitFullscreen()` 模擬，之後等 > 300 ms
- *   （防連退窗口，§6.6-1）再按 Esc。
+ * - 全螢幕：headless chromium 下的行為；「瀏覽器吃掉 Esc」以 `document.exitFullscreen()` 模擬，之後等 > 300 ms
+ *   （防連退窗口）再按 Esc。
  */
 
 const ORIGIN = "http://localhost:3100";
@@ -52,10 +52,10 @@ async function leaveFullscreenLikeBrowserEsc(page: Page): Promise<void> {
   await page.evaluate(async () => {
     if (document.fullscreenElement) await document.exitFullscreen();
   });
-  await page.waitForTimeout(350); // §6.6-1 的 300 ms 防連退窗口
+  await page.waitForTimeout(350); // 300 ms 防連退窗口
 }
 
-/** 觸控手勢（spec §13.4 E6：CDP Input.dispatchTouchEvent）。 */
+/** 觸控手勢（CDP Input.dispatchTouchEvent）。 */
 async function swipe(page: Page, from: { x: number; y: number }, to: { x: number; y: number }): Promise<void> {
   const cdp = await page.context().newCDPSession(page);
   const steps = 10;
@@ -123,7 +123,7 @@ test("E1：⋮ 進入、換頁寫 hash 不增 history、O 總覽／Esc 只關總
   const { context, page } = await adminPageWithNote(browser, title, DECK);
   try {
     await expect(editorLocator(page).getByText("b2 text")).toBeVisible({ timeout: 15_000 });
-    // spec §13.4-1「剛打的字還在」：進入簡報前另外打一段，回來後斷言它還在（r2-p3 MINOR 6）
+    // 進入簡報前另外打一段，回來後斷言它還在
     await editorLocator(page).getByText("b2 text").click();
     await page.keyboard.press("End");
     await waitForEditorSelection(page); // click→End 後等 PM 讀回選取再打字（helpers 註解：不等會打在點擊處）
@@ -131,14 +131,14 @@ test("E1：⋮ 進入、換頁寫 hash 不增 history、O 總覽／Esc 只關總
     await expect(editorLocator(page).getByText("b2 text typed-before-present")).toBeVisible();
     await page.evaluate(() => { (document.querySelector('[data-testid="note-editor"]') as HTMLElement & { __kn?: number }).__kn = 1; });
 
-    // S8（§2.6-15【推】）：編輯器 block 帶 data-id；簡報的 <section> 不帶 id／data-id（A11）。
+    // 編輯器 block 帶 data-id；簡報的 <section> 不帶 id／data-id。
     expect(await page.locator('[data-testid="note-editor"] [data-id]').count()).toBeGreaterThan(0);
 
     await presentFromHeaderMenu(page, title);
     expect(new URL(page.url()).search).toBe("?present");
     expect(await page.locator(".reveal .slides section[id], .reveal .slides section[data-id]").count()).toBe(0);
 
-    // S7（Step 2 判準）：分支 A＝headless chromium 真的進全螢幕。
+    // 分支 A＝headless chromium 真的進全螢幕。
     await expect.poll(() => page.evaluate(() => document.fullscreenElement !== null)).toBe(true);
 
     const historyLength = await page.evaluate(() => history.length);
@@ -165,7 +165,7 @@ test("E1：⋮ 進入、換頁寫 hash 不增 history、O 總覽／Esc 只關總
     await expect(editorLocator(page).getByText("b2 text typed-before-present")).toBeVisible();
     expect(await page.evaluate(() => (document.querySelector('[data-testid="note-editor"]') as HTMLElement & { __kn?: number }).__kn)).toBe(1);
 
-    // §12【推】的佐證（不是【驗】：沒斷言 reveal.css 的 html／body overflow 規則真的套用）：列印媒體下內文仍看得到。
+    // 旁證（不是驗證：沒斷言 reveal.css 的 html／body overflow 規則真的套用）：列印媒體下內文仍看得到。
     await page.emulateMedia({ media: "print" });
     await expect(editorLocator(page).getByText("b2 text")).toBeVisible();
     await page.emulateMedia({ media: "screen" });
@@ -235,11 +235,11 @@ test("E2：A 播放中、B 編輯——A 3 s 內看到變動且停在同一張�
     await expect(pageA.locator(".reveal .slides").getByText("alpha text plus")).toBeAttached({ timeout: 3_000 });
     expect(await currentSlideId(pageA)).toBe(b2);
 
-    // B 把 A 目前那張的起始標題（### Section B2）改成段落（Q2 的解讀）→ 那張消失 → A 到前一張（Chapter B）
+    // B 把 A 目前那張的起始標題（### Section B2）改成段落→ 那張消失 → A 到前一張（Chapter B）
     await editorLocator(pageB).getByText("Section B2").click();
     await pageB.keyboard.press("Home");
     await waitForEditorSelection(pageB);
-    // S-E2：當初記「Ctrl+Alt+0 在 headless chromium 約五成不生效（B 端標題仍是 heading）」，改成在 block 開頭按 Backspace（BlockNote 會把
+    // 當初記「Ctrl+Alt+0 在 headless chromium 約五成不生效（B 端標題仍是 heading）」，改成在 block 開頭按 Backspace（BlockNote 會把
     // 非段落 block 轉成段落）。那個症狀多半就是上面這個競態：快捷鍵吃的是 PM 的 state.selection，還停在前一段（alpha text plus，本來就是段落）
     // 時 Ctrl+Alt+0 等於沒做——Backspace 一樣會落在舊位置，所以光換鍵不能修，要靠上一行的等待（讀碼推論，未重跑 Ctrl+Alt+0 驗證；Backspace 保留）。
     await pageB.keyboard.press("Backspace");
@@ -261,7 +261,7 @@ test("E3：匿名開公開連結簡報——wikilink 純文字、圖片載得出
     const owner = await ownerContext.newPage();
     await loginAs(owner, ADMIN.email, ADMIN.password);
     const stamp = String(Date.now());
-    const targetTitle = `E2E wikitarget ${stamp}`; // 查詢只打 stamp：髒疊上舊的 wikitarget 筆記不會被選到（r1-p3 MINOR 1）
+    const targetTitle = `E2E wikitarget ${stamp}`; // 查詢只打 stamp：髒疊上舊的 wikitarget 筆記不會被選到
     await createNote(owner, targetTitle);
     const title = `E2E present public ${Date.now()}`;
     await createNote(owner, title);
@@ -277,14 +277,14 @@ test("E3：匿名開公開連結簡報——wikilink 純文字、圖片載得出
     await pasteMarkdown(owner, ["## Slide One", "", "one text", "", `![pic](${imageUrl})`, "", "## Slide Two", "", "two text", ""].join("\n"));
     await expect(editorLocator(owner).getByText("two text")).toBeVisible({ timeout: 15_000 });
 
-    // wikilink：在 Slide Two 內文後打 [[ ＋目標標題前綴，選第一個建議（Step 2 S-E3 判準）
+    // wikilink：在 Slide Two 內文後打 [[ ＋目標標題前綴，選第一個建議
     await editorLocator(owner).getByText("two text").click();
     await owner.keyboard.press("End");
     await waitForEditorSelection(owner);
     await owner.keyboard.type(" see [[");
     await owner.keyboard.type(stamp);
     await expect(owner.locator(".bn-suggestion-menu")).toBeVisible({ timeout: 10_000 });
-    // 先等 target 出現在選單裡：['notes'] 快取還沒收到它時，第一項會是「建立並連結」（r2-p3 MINOR 5）
+    // 先等 target 出現在選單裡：['notes'] 快取還沒收到它時，第一項會是「建立並連結」
     await expect(owner.locator(".bn-suggestion-menu").getByText(targetTitle, { exact: true })).toBeVisible({ timeout: 10_000 });
     await owner.keyboard.press("Enter");
     // #269 E6：給這個 wikilink 一段自己的文字（label），公開簡報要顯示 label、且仍是純文字
@@ -333,7 +333,7 @@ test("E3：匿名開公開連結簡報——wikilink 純文字、圖片載得出
     await anon.keyboard.press("ArrowRight");
     await expect.poll(() => currentSlideId(anon)).toBe(twoId);
     // 編輯器此時沒焦點（Share 對話框 Escape 後焦點在 Share 鈕）：點擊的 focus 會排 PM 的 20 ms selectionToDOM，可能把 End 拉回點擊處
-    // （CI run 42676630643 兩次都打成 "one updated text"）——clickEndOfParagraph 確認游標真的在這段的尾端，見 helpers.ts。
+    // （兩次都打成 "one updated text"）——clickEndOfParagraph 確認游標真的在這段的尾端，見 helpers.ts。
     await clickEndOfParagraph(owner, editorLocator(owner).getByText("one text"));
     await owner.keyboard.type(" updated");
     await expect(async () => {
@@ -342,7 +342,7 @@ test("E3：匿名開公開連結簡報——wikilink 純文字、圖片載得出
     }).toPass({ timeout: 30_000 });
     expect(await currentSlideId(anon)).toBe(twoId);
 
-    // 匿名直接開 /p/<token>?present（spec §13.4 E3 原文；r1-p3 MINOR 2）
+    // 匿名直接開 /p/<token>?present（E3 原文）
     await anon.goto(`/p/${token}?present`);
     await expect(anon.locator(".reveal.ready")).toBeVisible({ timeout: 15_000 });
     expect(new URL(anon.url()).search).toBe("?present");
@@ -389,8 +389,8 @@ test("E4：簡報 chunk／CSS、mermaid、程式碼、總覽、全螢幕切換 �
   await source.press("Escape");
   await expect(editor.locator("svg[aria-roledescription]").first()).toBeVisible({ timeout: 20_000 });
 
-  // 影片（spec §13.4 E4 明列；r1-p3 M4）：video 沒有上傳路徑，只能 embed 網址——用同源、剛上傳的 png（只要求載入不觸發
-  // CSP、不要求能播；media-src 是 'self' http: https:）。面板是本 app 的 components/FilePanel.tsx（見 Step 2 S-E4）。
+  // 影片（E4 明列）：video 沒有上傳路徑，只能 embed 網址——用同源、剛上傳的 png（只要求載入不觸發
+  // CSP、不要求能播；media-src 是 'self' http: https:）。面板是本 app 的 components/FilePanel.tsx。
   const noteId = await noteIdFromUrl(page);
   const upload = await page.request.post(`/api/notes/${noteId}/uploads`, {
     headers: { Origin: ORIGIN },
@@ -496,7 +496,7 @@ test("E6：觸控——未溢出的投影片滑動換頁；溢出的投影片與
 
     const page = await mobile.newPage();
     await loginAs(page, ADMIN.email, ADMIN.password);
-    // 圖片回應掛住，走到 Picture 之後才放行（§6.8 的 img load 重算）——用 deferred 控制，不假設時間（r1-p3 MINOR 6）
+    // 圖片回應掛住，走到 Picture 之後才放行（img load 重算）——用 deferred 控制，不假設時間
     let releaseImage: () => void = () => {};
     const imageGate = new Promise<void>((resolve) => {
       releaseImage = resolve;

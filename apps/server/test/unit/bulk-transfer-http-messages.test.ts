@@ -29,7 +29,7 @@ import {
 import { UNCLOSED_FENCE_MESSAGE, unclosedFenceMessage } from "../../src/transfer/regions.js";
 
 /**
- * bulk transfer spec §12.2（HTTP 層訊息、英文碼；#372 起訊息也是英文）；PR-3 plan T3、§0.1-5 守衛第一層：以**字面字串**釘住 bulk 端點的 HTTP 層與 auth 層
+ * bulk transfer 的 HTTP 層訊息（英文碼；#372 起訊息也是英文）：守衛第一層，以**字面字串**釘住 bulk 端點的 HTTP 層與 auth 層
  * 訊息常數（agent 經 curl 讀到的就是 JSON 的 `message`）。「哪條路由用哪個常數」由整合測試匯入常數比對（第二層，各案名帶常數名）。
  * 行內字面（不是常數）的句子——「You don't have edit access to this note.」「This token's scope doesn't allow this action.」
  * 「The server is busy. Try again in a moment.」「Too many requests. Wait a moment and try again.」「Not signed in.」（bulk 端點收到非 Bearer
@@ -40,12 +40,12 @@ import { UNCLOSED_FENCE_MESSAGE, unclosedFenceMessage } from "../../src/transfer
  */
 describe("bulk transfer 的 HTTP 層訊息（字面）", () => {
   it("H1 auth 層：bulk 專用句與 #200 句分開", () => {
-    expect(BULK_TRANSFER_INVALID_MESSAGE).toBe("The transfer token is invalid, expired or revoked. Get a new one from the MCP tool create_bulk_transfer_token.");
+    expect(BULK_TRANSFER_INVALID_MESSAGE).toBe("The transfer token is invalid, expired or revoked. Get a new one from the MCP tool open_notes_as_files.");
     expect(BULK_TRANSFER_INVALID_MESSAGE).not.toContain("used");
     expect(BULK_TRANSFER_REQUIRED_MESSAGE).toBe("A transfer token is required.");
-    expect(BULK_TRANSFER_PAT_MESSAGE).toBe("This endpoint doesn't accept API tokens. Get a transfer token from the MCP tool create_bulk_transfer_token.");
+    expect(BULK_TRANSFER_PAT_MESSAGE).toBe("This endpoint doesn't accept API tokens. Get a transfer token from the MCP tool open_notes_as_files.");
     expect(TRANSFER_PURPOSE_MESSAGE).toBe("This transfer token can't be used for this action.");
-    // #200 的兩句：本 PR 不動（W11）；#372 改英文
+    // #200 的兩句：本 PR 不動；#372 改英文
     expect(TRANSFER_INVALID_MESSAGE).toBe("The transfer token is invalid, expired or already used.");
     expect(TRANSFER_PAT_MESSAGE).toBe("This endpoint doesn't accept API tokens. Get a transfer token from the MCP tool create_transfer_token.");
   });
@@ -65,7 +65,7 @@ describe("bulk transfer 的 HTTP 層訊息（字面）", () => {
       note_changed: "Can't write back with this copy: the note has changed (its title or text) since you downloaded it. Download this note again (the note command), redo your changes in the new copy and send that.",
       reverted: "Can't write back with this copy: the changes it wrote back have been reverted. Download the note again and make your changes there.",
     });
-    // 第三輪不再合併：任何一句都不得再說「合併」（#372 起英文：merge），也不得留下舊成因 anchors_gone。
+    // 不再合併：任何一句都不得再說「合併」（#372 起英文：merge），也不得留下舊成因 anchors_gone。
     for (const m of Object.values(BASE_UNAVAILABLE_MESSAGES)) expect(m).not.toMatch(/merg/i);
     expect(Object.keys(BASE_UNAVAILABLE_MESSAGES)).not.toContain("anchors_gone");
     expect(NOT_MERGEABLE_MESSAGE).toBe("This note can't be written back from a file. Change it with edit_note instead.");
@@ -87,7 +87,7 @@ describe("bulk transfer 的 HTTP 層訊息（字面）", () => {
   });
 });
 
-describe("H3 檔案寫回的 400 訊息依成因（8000 探索測試 E）", () => {
+describe("H3 檔案寫回的 400 訊息依成因", () => {
   it("unsupported_block 三種成因、empty_content 兩種、too_many_blocks 帶上限、未閉合 fence 照實際記號", () => {
     expect(transferParseMessage("unsupported_block", "event_attr")).toBe("The file has HTML with an event attribute (such as onerror or onclick), which can't be stored in a note, so nothing was written.");
     expect(transferParseMessage("unsupported_block", "editor_internal")).toBe("The file has HTML the editor uses internally (such as an element with data-content-type), which can't be stored in a note, so nothing was written.");

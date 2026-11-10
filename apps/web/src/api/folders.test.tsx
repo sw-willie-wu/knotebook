@@ -208,7 +208,7 @@ describe("api/folders 放置與搬資料夾", () => {
   });
 });
 
-describe("api/folders 只刪空資料夾（PR-3c）", () => {
+describe("api/folders 只刪空資料夾", () => {
   it("FA-D1 deleteFolderRequest(\"f\") 不帶 body 與 Content-Type；帶 { onlyIfEmpty: true } → body 恰為 {\"onlyIfEmpty\":true}", async () => {
     const inits: RequestInit[] = [];
     vi.stubGlobal(

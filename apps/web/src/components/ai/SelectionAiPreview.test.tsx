@@ -15,7 +15,7 @@ function makePreview(afterText: string): AiPreview {
   return { before: [para("a1", "original middle sentence")], after: [para("n1", afterText)], noChange: false };
 }
 
-describe("SelectionAiPreview（#263 §5.4）", () => {
+describe("SelectionAiPreview（#263）", () => {
   it("只渲染被改的區塊，每塊照 diff 標記（added／deleted／changed）", async () => {
     render(
       <ThemeProvider>
@@ -98,7 +98,7 @@ describe("SelectionAiPreview（#263 §5.4）", () => {
     expect(block).not.toHaveTextContent("Other");
   });
 
-  it("PV1（並排 PR-2 擴大成整列）：before／after 都是一列（右欄 b → B）→ 渲染不丟例外、看得到 B、onReady 被呼叫", async () => {
+  it("並排擴大成整列：before／after 都是一列（右欄 b → B）→ 渲染不丟例外、看得到 B、onReady 被呼叫", async () => {
     const twoCols = (id: string, left: DiffBlock, right: DiffBlock): DiffBlock => ({
       id,
       type: "columnList",
@@ -125,7 +125,7 @@ describe("SelectionAiPreview（#263 §5.4）", () => {
   });
 });
 
-describe("index.css：框選 AI 預覽的樣式規則（#263 §5.3、§5.4）", () => {
+describe("index.css：框選 AI 預覽的樣式規則（#263）", () => {
   const css = readFileSync(`${process.cwd()}/src/index.css`, "utf8");
   it("沒有上下文塊的淡色規則（#263 後續：預覽不再帶前後上下文，surround 已移除）", () => {
     expect(css).not.toContain('data-diff="surround"');

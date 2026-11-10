@@ -1,5 +1,5 @@
 /**
- * #93 PR2：搜尋命中的**唯一**比對規則——片段／標題標亮（`highlightTitle`、`displaySnippet`）與「點片段跳到命中的 block」
+ * #93：搜尋命中的**唯一**比對規則——片段／標題標亮（`highlightTitle`、`displaySnippet`）與「點片段跳到命中的 block」
  * （`hooks/block-find.ts`）都走 `foldedIndexOf`，所以「片段上標亮的字」與「實際跳到的 block」不會分家。
  *
  * 規則＝server 的規則：server 比對是 `position(lower(q) in lower(body))`（`notes/search-sql.ts`），沒有 NFKC／全半形折疊；

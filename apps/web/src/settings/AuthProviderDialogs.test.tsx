@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { AdminAuthProviderDto } from "@knotebook/shared";
+import type { AdminAuthProviderDto, SiteLimitsDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { clickOutside } from "@/test/outside-click";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { copyText } from "@/lib/clipboard";
+import { siteLimitsDto } from "@/test/site-limits-fixtures";
 import { SettingsAuthSection } from "./SettingsAuthSection";
 
 vi.mock("@/lib/clipboard", () => ({ copyText: vi.fn(async () => true) }));
@@ -37,6 +38,9 @@ const LIVE: AdminAuthProviderDto = {
   icon: { type: "builtin", name: "generic" },
 };
 
+/** 站台限制 17 項都在預設的一份回應，讓「登入期限與 token」組跟真實頁面一樣畫出來。 */
+const LIMITS: SiteLimitsDto = siteLimitsDto();
+
 type Handler = (method: string, url: string, body: unknown) => Response | Promise<Response> | null;
 function fakeServer(initial: AdminAuthProviderDto[]) {
   const state = { providers: [...initial] };
@@ -55,6 +59,7 @@ function fakeServer(initial: AdminAuthProviderDto[]) {
     if (method === "GET" && url === "/api/admin/auth/settings") {
       return fakeResponse(200, { registrationEnabled: true, passwordLoginEnabled: true, passwordLoginForced: false, passwordLoginImpact: { usersWithoutSso: 0, actingAdminHasSso: true, enabledProviders: 1 } });
     }
+    if (method === "GET" && url === "/api/admin/limits") return fakeResponse(200, LIMITS);
     throw new Error(`unexpected fetch: ${method} ${url}`);
   });
   return { state, calls, fetchMock, on: (handler: Handler) => handlers.push(handler) };
@@ -77,7 +82,7 @@ async function openCreate() {
   return within(await screen.findByRole("dialog", { name: "Add sign-in service" }));
 }
 
-describe("新增登入服務 dialog（#187 §9.4）", () => {
+describe("新增登入服務 dialog（#187）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -87,7 +92,7 @@ describe("新增登入服務 dialog（#187 §9.4）", () => {
     vi.unstubAllGlobals();
   });
 
-  it("點對話框外面不關閉、已填內容仍在（Willie 回報：隨便點周圍就關、已填內容全丟）", async () => {
+  it("點對話框外面不關閉、已填內容仍在（使用者回報：隨便點周圍就關、已填內容全丟）", async () => {
     const server = fakeServer([]);
     renderSection(server.fetchMock);
     const dialog = await openCreate();
@@ -98,7 +103,7 @@ describe("新增登入服務 dialog（#187 §9.4）", () => {
     expect(dialog.getByLabelText("Display name")).toHaveValue("Keep me");
   });
 
-  it("零個服務時也看得到「新增」鈕（空狀態＋新增，r2-N7）", async () => {
+  it("零個服務時也看得到「新增」鈕（空狀態＋新增）", async () => {
     renderSection(fakeServer([]).fetchMock);
     await waitFor(() => expect(screen.getByText("No sign-in services yet.")).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "Add sign-in service" })).toBeInTheDocument();
@@ -249,7 +254,7 @@ describe("新增登入服務 dialog（#187 §9.4）", () => {
   });
 });
 
-describe("編輯登入服務 dialog（#187 §9.4、§5.2）", () => {
+describe("編輯登入服務 dialog（#187）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -259,7 +264,7 @@ describe("編輯登入服務 dialog（#187 §9.4、§5.2）", () => {
   });
 
   async function openEdit() {
-    // 登入服務是以顯示名為名的資料列（spec 2026-10-13 settings-table §3 #4）；Edit 與開關都在這一列。
+    // 登入服務是以顯示名為名的資料列；Edit 與開關都在這一列。
     const row = within(await screen.findByRole("row", { name: "Corp SSO" }));
     fireEvent.click(row.getByRole("button", { name: "Edit" }));
     return { row, dialog: within(await screen.findByRole("dialog", { name: "Edit sign-in service" })) };
@@ -274,7 +279,7 @@ describe("編輯登入服務 dialog（#187 §9.4、§5.2）", () => {
     expect(dialog.getByLabelText("Display name")).toHaveValue("Edited name");
   });
 
-  it("RF5 只改顯示名：不出現警示；PATCH body 只有 displayName（不帶原 issuer、沒有 clientSecret 鍵）；secret 欄是唯寫（空白＋已儲存提示）", async () => {
+  it("只改顯示名：不出現警示；PATCH body 只有 displayName（不帶原 issuer、沒有 clientSecret 鍵）；secret 欄是唯寫（空白＋已儲存提示）", async () => {
     const server = fakeServer([LIVE]);
     server.on((method, url, body) => {
       if (method !== "PATCH" || url !== `/api/admin/auth/providers/${LIVE.id}`) return null;
@@ -291,7 +296,7 @@ describe("編輯登入服務 dialog（#187 §9.4、§5.2）", () => {
     expect(dialog.queryByText(/Changing the issuer/)).toBeNull();
     fireEvent.click(dialog.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    // fix round 1 I1：只送改過的欄位——帶著舊 issuer 送出，並發時會被 §5.2 當成「改 issuer」而把別人的改動蓋回去。
+    // 只送改過的欄位——帶著舊 issuer 送出，並發時會被當成「改 issuer」而把別人的改動蓋回去。
     expect(server.calls.find(c => c.method === "PATCH")!.body).toEqual({ displayName: "Corp SSO 2" });
   });
 
@@ -565,7 +570,7 @@ describe("client ID 選填（#299）", () => {
     expect(server.calls.find(c => c.method === "PATCH")!.body).toEqual({ clientId: "x" });
   });
 
-  it("W5 有 client ID 的服務把欄位清空 → 欄位錯誤「Enter a client ID.」、不發請求；輸入框有 aria-required", async () => {
+  it("有 client ID 的服務把欄位清空 → 欄位錯誤「Enter a client ID.」、不發請求；輸入框有 aria-required", async () => {
     const { server, dialog } = await openEditOf(LIVE);
     const input = dialog.getByLabelText("Client ID");
     expect(input).toHaveAttribute("aria-required", "true");
@@ -576,7 +581,7 @@ describe("client ID 選填（#299）", () => {
   });
 });
 
-describe("改 issuer 的自動建帳確認框（PR-C C-14）", () => {
+describe("改 issuer 的自動建帳確認框", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();

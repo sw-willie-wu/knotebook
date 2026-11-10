@@ -28,7 +28,7 @@ async function holderFor(db: TestApp["db"]): Promise<Client> {
   return holder;
 }
 
-describe("POST /api/auth/password/set（#187 §8.4、B12）", () => {
+describe("POST /api/auth/password/set（#187）", () => {
   it("純 SSO 成功 → 204、bump token_version、本人新 cookie 有效、舊 cookie 失效；之後可用密碼登入；onUserRevoked 一次", async () => {
     const collabHooks = spyCollabHooks();
     const { app, db } = await buildTestApp({ collabHooks });
@@ -63,7 +63,7 @@ describe("POST /api/auth/password/set（#187 §8.4、B12）", () => {
     expect((await setPw(app, await cookieOf(u.id), { newPassword: "short" })).json().error.code).toBe("password_too_short");
     expect((await setPw(app, await cookieOf(u.id), { newPassword: NEW_PW, extra: 1 })).json().error.code).toBe("invalid_body");
     expect((await app.inject({ method: "POST", url: "/api/auth/password/set", payload: { newPassword: NEW_PW } })).statusCode).toBe(401);
-    // 有效 PAT（scope 足以通過 authenticateAny）、不帶 cookie：401 只能來自「只認 session」（Task 7 review r0 I1 同型）。
+    // 有效 PAT（scope 足以通過 authenticateAny）、不帶 cookie：401 只能來自「只認 session」。
     const { token } = await seedTokenForUser(db, u.id);
     expect(
       (await app.inject({ method: "POST", url: "/api/auth/password/set", headers: bearer(token), payload: { newPassword: NEW_PW } })).statusCode,
@@ -79,7 +79,7 @@ describe("POST /api/auth/password/set（#187 §8.4、B12）", () => {
     expect(row!.h).toBeNull();
   });
 
-  it("B22：有效值關 → 403 password_login_disabled（不 hash）；env 強制＋DB 關 → 204（看有效值，gate r4-M6）", async () => {
+  it("B22：有效值關 → 403 password_login_disabled（不 hash）；env 強制＋DB 關 → 204（看有效值）", async () => {
     const { app, db } = await buildTestApp();
     const u = await seedUser(db);
     await db.update(siteSettings).set({ passwordLoginEnabled: false });

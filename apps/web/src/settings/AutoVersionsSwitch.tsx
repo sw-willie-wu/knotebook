@@ -2,7 +2,7 @@ import { useTranslation } from "react-i18next";
 import { Switch } from "@/components/ui/switch";
 
 /**
- * 「自動儲存版本」開關列（帳號頁、群組詳情共用；spec §8.5）。立即生效＝`ui/switch`（`role="switch"`）。
+ * 「自動儲存版本」開關列（帳號頁、群組詳情共用）。立即生效＝`ui/switch`（`role="switch"`）。
  * disabled 的理由一律用看得見的文字（`disabled:pointer-events-none` 讓 title 浮不出來）。
  */
 export function AutoVersionsSwitch({

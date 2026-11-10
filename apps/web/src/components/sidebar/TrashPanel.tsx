@@ -19,14 +19,14 @@ import { EmptyTrashDialog, PurgeConfirmDialog, toastTrashFailure, toastTrashResu
 import { TrashWideToolbar } from "@/components/sidebar/TrashFooter";
 
 /**
- * 垃圾桶 tab 的面板（spec 2026-10-21 §6.10.1、§6.10.3）：`AppShell` 在 tab 為 `trash` 時放進 tabpanel，取代 `NoteList`。
- * - 列**不是連結**：垃圾桶裡的筆記不能開（非目標「預覽」，§2.2）；只有 hover 浮出的「還原」與 ⋮（還原／永久刪除）。
+ * 垃圾桶 tab 的面板：`AppShell` 在 tab 為 `trash` 時放進 tabpanel，取代 `NoteList`。
+ * - 列**不是連結**：垃圾桶裡的筆記不能開（非目標「預覽」）；只有 hover 浮出的「還原」與 ⋮（還原／永久刪除）。
  * - 兩區「個人」「群組」（某區 0 篇整區不渲染），區內照 server 的順序（`deleted_at DESC`）。
- * - 標題列動作照 `tabSpec("trash").actions` 渲染（spec §9-3）。
- * - 清空＝把**清單上**的 id 全部送 purge（spec §6.3.4-5）：之後才移入的不受影響；超過 200 由 `purgeTrashIds` 分批。
+ * - 標題列動作照 `tabSpec("trash").actions` 渲染。
+ * - 清空＝把**清單上**的 id 全部送 purge：之後才移入的不受影響；超過 200 由 `purgeTrashIds` 分批。
  * - 確認框成敗都關，結果走 toast（`trash-dialogs.tsx`）。動作完成後焦點回清單容器（被處理的列會卸載）。
- * - 選取模式（spec §6.10.2）：狀態在 `SidebarTabProvider`（靜態卡與抽屜兩份共用）；列換成整列 `<label>`＋勾選框、不渲染「還原」與 ⋮。
- *   標題列分兩形（`useWidePointer`，PR-3b-3，rev 4.3）：窄＝「已選 N 篇」＋全選＋完成，還原／永久刪除的動作列在底部
+ * - 選取模式：狀態在 `SidebarTabProvider`（靜態卡與抽屜兩份共用）；列換成整列 `<label>`＋勾選框、不渲染「還原」與 ⋮。
+ *   標題列分兩形（`useWidePointer`）：窄＝「已選 N 篇」＋全選＋完成，還原／永久刪除的動作列在底部
  *   （`TrashFooter.tsx` 的 `TrashActionBar`）；寬＝一列 ✕（結束選取，「完成」的角色）＋三態全選框＋「已選 N 篇」＋`TrashWideToolbar`
  *   （兩顆圖示鈕與永久刪除確認框，只在選取中掛載），底部不顯示。
  *   焦點只由發起的那一份實例移動（`focusAfterRef`）。
@@ -59,7 +59,7 @@ function TrashRow({ item, now, actions }: { item: TrashItemDto; now: number; act
       {/* 兩行一律 <div>（同 NoteList 最近 tab 的兩行列）。 */}
       <div className="min-w-0 flex-1">
         <div className="truncate">{item.title}</div>
-        {/* 位置段太長被截斷時，title 給完整路徑（資料夾 spec §6.9）；根層不帶。 */}
+        {/* 位置段太長被截斷時，title 給完整路徑；根層不帶。 */}
         <div className="mt-0.5 truncate text-[11px] text-muted-foreground" title={trashLocationLine(item) || undefined}>
           {trashDetailLine(item, { now, t, locale })}
         </div>
@@ -119,8 +119,8 @@ function TrashRow({ item, now, actions }: { item: TrashItemDto; now: number; act
 }
 
 /**
- * 選取模式的列：整列是 `<label>`，點文字或勾選框都切換（spec §6.10.2）。
- * memo：勾一列時其他列不重繪、不重算日期（final review M-1）——`now`／`onToggle` 由 `TrashPanel` 保持穩定。
+ * 選取模式的列：整列是 `<label>`，點文字或勾選框都切換。
+ * memo：勾一列時其他列不重繪、不重算日期——`now`／`onToggle` 由 `TrashPanel` 保持穩定。
  */
 const SelectableTrashRow = memo(function SelectableTrashRow({
   item,
@@ -224,7 +224,7 @@ export function TrashPanel() {
     (target === "done" ? doneButtonRef : selectButtonRef).current?.focus();
   }, [selection.active]);
 
-  // 選取中跨過寬窄判準（Review Focus 1；比照 SelectHeader）：標題列換形，焦點所在的鈕（完成、✕、圖示鈕…）卸載，焦點會掉到 body。
+  // 選取中跨過寬窄判準（比照 SelectHeader）：標題列換形，焦點所在的鈕（完成、✕、圖示鈕…）卸載，焦點會掉到 body。
   // render 時（舊 DOM 還在）記下焦點是否在本實例的標題列裡；換形後焦點落在 body 就交給新形的 doneButtonRef（寬＝✕、窄＝完成）。
   const focusInHeaderRef = useRef(false);
   focusInHeaderRef.current = headerRef.current?.contains(document.activeElement) ?? false;
@@ -237,8 +237,7 @@ export function TrashPanel() {
   }, [wide]);
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
-    // 從 portal（寬形 TrashWideToolbar 的永久刪除確認框）經 React 樹冒泡上來的按鍵不處理：確認框內的 Esc 只關框、不結束選取
-    // （plan gate r1 I2 ①）。
+    // 從 portal（寬形 TrashWideToolbar 的永久刪除確認框）經 React 樹冒泡上來的按鍵不處理：確認框內的 Esc 只關框、不結束選取。
     if (!event.currentTarget.contains(event.target as Node)) return;
     // 靜態卡的 Esc。抽屜裡的 Esc 由 AppShell 的 onEscapeKeyDown（document capture）結束選取並交焦點；真瀏覽器在那之後、
     // React 的 onKeyDown 之前就 commit，勾選框已卸載，這裡收不到。
@@ -247,7 +246,7 @@ export function TrashPanel() {
     if (endSelectionIfActive()) event.preventDefault(); // 這一下 Esc 只結束選取（搜尋標記的 Esc 監聽看到 defaultPrevented 就讓路）
   }
 
-  // 穩定（清單重抓才換）：選取列 memo 靠它（final review M-1）。
+  // 穩定（清單重抓才換）：選取列 memo 靠它。
   const toggleRow = useCallback(
     (key: string, shiftKey: boolean): void => {
       const { order } = splitTrashSections(trash.data?.items ?? []);
@@ -488,7 +487,7 @@ export function TrashPanel() {
       <PurgeConfirmDialog
         count={1}
         open={purgeId !== null}
-        // 列的還原送出中也 disabled：`exclusive` 會吞掉這一下（final review N-4）。
+        // 列的還原送出中也 disabled：`exclusive` 會吞掉這一下。
         pending={purge.isPending || restore.isPending}
         onConfirm={() => {
           if (purgeId === null) return;

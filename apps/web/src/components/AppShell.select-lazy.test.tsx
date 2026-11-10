@@ -11,7 +11,7 @@ import { personalNote } from "@/test/select-fixtures";
 import { AppShell } from "./AppShell";
 import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
-// 一般 tab 選取模式的 lazy chunk（SelectLazy）還沒到時，AppShell 裡清單與底部的佔位（#181 PR-2c T6 AL1）：讓 SelectLazy 的
+// 一般 tab 選取模式的 lazy chunk（SelectLazy）還沒到時，AppShell 裡清單與底部的佔位（#181）：讓 SelectLazy 的
 // 載入卡在手動放行的 promise 上（照 AppShell.trash-lazy.test.tsx）。
 // ⚠ gate 只擋得住 SidebarFooter 與 NoteList 的第一支 import（標題列）：NoteList 同一次 render 對 SelectLazy 發兩支 `import()`，
 // vitest 3.2.7 同一個 importer 的並發 import 有一支繞過 factory、直接載真模組（同 AppShell.select-lazy-error.test.tsx 檔頭），
@@ -80,7 +80,7 @@ describe("AppShell — 一般 tab 選取 chunk 載入中的佔位", () => {
     vi.unstubAllGlobals();
   });
 
-  it("AL1 chunk 還沒到：清單是平常的列、底部是同高空位（沒有 New note）；放行後換成勾選框與動作列", async () => {
+  it("chunk 還沒到：清單是平常的列、底部是同高空位（沒有 New note）；放行後換成勾選框與動作列", async () => {
     stubFetch();
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>

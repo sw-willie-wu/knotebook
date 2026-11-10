@@ -9,7 +9,7 @@ import selectEnRaw from "./select.en.json?raw";
 import selectZhTWRaw from "./select.zh-TW.json?raw";
 
 /**
- * #181 PR-2c 一般 tab 選取模式的 lazy 字串包（`select.*`，只由 SelectLazy 鏈經 `select-strings.ts` 註冊）。
+ * #181 一般 tab 選取模式的 lazy 字串包（`select.*`，只由 SelectLazy 鏈經 `select-strings.ts` 註冊）。
  * 主 JSON 的 parity（`index.test.ts`）不涵蓋這兩檔，所以 parity、逐字、與主檔不重疊、無重複鍵都在這裡。
  */
 
@@ -59,7 +59,7 @@ describe("SC1 select 包：兩語系鍵集合相同、頂層只有 select", () =
   });
 });
 
-describe("SC2 spec §6.11／§6.12 字面（zh-TW）", () => {
+describe("SC2 選取模式文案字面（zh-TW）", () => {
   const SPEC_COPY: Record<string, string> = {
     "select.selected_other": "已選 {{count}} 項",
     "select.moveTo": "移動到",
@@ -72,7 +72,7 @@ describe("SC2 spec §6.11／§6.12 字面（zh-TW）", () => {
   }
 });
 
-/** 資料夾 spec §6.10、§6.16 的逐字字串（PR-3b-2 T5；zh-TW 的 `_one`／`_other` 同字）。 */
+/** 資料夾選取模式的逐字字串（zh-TW 的 `_one`／`_other` 同字）。 */
 const FOLDER_SPEC_ZH: Record<string, string> = {
   acrossGroups: "選取的筆記分屬不同群組，無法一起移動",
   foldersOnlyWithinSpace: "資料夾只能在同一個空間內移動",
@@ -111,7 +111,7 @@ const FOLDER_SPEC_EN: Record<string, string> = {
   foldersGoneSuffix_other: ", {{count}} folders no longer exist",
 };
 
-describe("SC7 資料夾 spec 逐字（PR-3b-2）", () => {
+describe("SC7 資料夾逐字", () => {
   it.each(Object.entries(FOLDER_SPEC_ZH))("zh-TW select.%s", (key, text) => {
     expect(get(selectZhTW, `select.${key}`)).toBe(text);
   });

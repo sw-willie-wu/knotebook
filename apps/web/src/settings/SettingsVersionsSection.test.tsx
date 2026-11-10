@@ -9,7 +9,7 @@ import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { AppRoutes } from "@/App";
 import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
-// 站台版本設定（spec §6.7、§8.5；#247 §7.0 起嵌在 `/admin/storage` 方案頁、方案表之後）：走真的 AppRoutes（站台管理 modal＋AdminSections lazy chunk），
+// 站台版本設定（#247 起嵌在 `/admin/storage` 方案頁、方案表之後）：走真的 AppRoutes（站台管理 modal＋AdminSections lazy chunk），
 // 形比照 SettingsStorageSection.test.tsx。
 
 function res(status: number, body?: unknown): Response {
@@ -41,7 +41,7 @@ function stubAdmin({ settings, patchStatus }: { settings: VersionSettingsDto; pa
       if (url === "/api/notes" && method === "GET") return Promise.resolve(res(200, []));
       if (url === "/api/admin/storage-plans" && method === "GET") return Promise.resolve(res(200, { plans: [], defaults: { userPlanId: "", groupPlanId: "" } }));
       if (url === "/api/admin/versions/settings" && method === "GET") return Promise.resolve(res(200, settings));
-      // 同頁的垃圾桶設定（#181 §6.9）：沒有它會進錯誤態、多出一個 role=alert
+      // 同頁的垃圾桶設定（#181）：沒有它會進錯誤態、多出一個 role=alert
       if (url === "/api/admin/trash/settings" && method === "GET") return Promise.resolve(res(200, { retentionDays: 7 }));
       if (url === "/api/admin/versions/settings" && method === "PATCH") {
         if (patchStatus !== undefined && patchStatus >= 400) {
@@ -71,10 +71,10 @@ function renderAt(path: string) {
 }
 
 const SETTINGS: VersionSettingsDto = { keepAllDays: 7, dailyUntilDays: 30, autoVersionsEnabled: true, autoWaitMinutes: 7 };
-/** 同頁還有垃圾桶設定的「Save」——以版本保留群組的 region 圈定（gate r2 I-B）。 */
+/** 同頁還有垃圾桶設定的「Save」——以版本保留群組的 region 圈定。 */
 const versionsSave = () => within(screen.getByRole("region", { name: "Keeping automatic versions" })).getByRole("button", { name: "Save" });
 
-describe("站台版本設定（/admin/storage 內，#247 §7.0）", () => {
+describe("站台版本設定（/admin/storage 內，#247）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -84,7 +84,7 @@ describe("站台版本設定（/admin/storage 內，#247 §7.0）", () => {
     vi.unstubAllGlobals();
   });
 
-  it("V1 頁首只有方案頁一個（h1 Storage plans）；版本設定是 h2「Version history」區塊，接在方案表之後；沒有「How notes keep their versions on this site.」；說明含「版本不佔額度」", async () => {
+  it("頁首只有方案頁一個（h1 Storage plans）；版本設定是 h2「Version history」區塊，接在方案表之後；沒有「How notes keep their versions on this site.」；說明含「版本不佔額度」", async () => {
     stubAdmin({ settings: SETTINGS });
     renderAt("/admin/storage");
     await screen.findByRole("switch", { name: "Automatic versions" });
@@ -116,7 +116,7 @@ describe("站台版本設定（/admin/storage 內，#247 §7.0）", () => {
     const calls = stubAdmin({ settings: SETTINGS });
     const { queryClient } = renderAt("/admin/storage");
     const sw = await screen.findByRole("switch", { name: "Automatic versions" });
-    // gate r1 I-6：/admin/storage 上沒有任何元件訂閱 ['auth-config']，invalidate 只標 stale、不發請求——
+    // /admin/storage 上沒有任何元件訂閱 ['auth-config']，invalidate 只標 stale、不發請求——
     // 不能等 GET /api/auth/config。先種一份快取，再斷言它被標成 invalidated。
     queryClient.setQueryData(["auth-config"], AUTH_CONFIG);
     expect(queryClient.getQueryState(["auth-config"])?.isInvalidated).toBe(false);
@@ -197,7 +197,7 @@ describe("站台版本設定（/admin/storage 內，#247 §7.0）", () => {
     expect(calls.find((c) => c.method === "PATCH")?.body).toEqual({ autoWaitMinutes: 12, keepAllDays: 7, dailyUntilDays: 30 });
   });
 
-  it("RF4：前後空白與前導零照收（「 9 」→ 9、「05」→ 5）；全形「５」→ waitInvalid、不送", async () => {
+  it("前後空白與前導零照收（「 9 」→ 9、「05」→ 5）；全形「５」→ waitInvalid、不送", async () => {
     const calls = stubAdmin({ settings: SETTINGS });
     renderAt("/admin/storage");
     const wait = await screen.findByLabelText("Wait before saving automatically (minutes)");

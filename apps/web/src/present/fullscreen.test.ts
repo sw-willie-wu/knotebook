@@ -50,7 +50,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("present/fullscreen（spec §6.5）", () => {
+describe("present/fullscreen", () => {
   it("在使用者事件內同步呼叫 requestFullscreen；成功後 isOwnedFullscreen 為真", async () => {
     const fake = makeFakeDocument();
     const fs = await load(fake);
@@ -85,7 +85,7 @@ describe("present/fullscreen（spec §6.5）", () => {
     expect(fake.doc.exitFullscreen).not.toHaveBeenCalled();
   });
 
-  it("pending 中退出、請求被拒之前影片先進全螢幕 → 不退那支影片（只處理我們要的整份文件，gate r2-p2 補案）", async () => {
+  it("pending 中退出、請求被拒之前影片先進全螢幕 → 不退那支影片（只處理我們要的整份文件）", async () => {
     const fake = makeFakeDocument();
     const fs = await load(fake);
     fs.enterPresentationFullscreen();
@@ -185,7 +185,7 @@ describe("present/fullscreen（spec §6.5）", () => {
     expect(seen).toEqual([true, false]);
   });
 
-  it("subscribeFullscreen：離開事件的通知發出時，msSinceFullscreenExit 已是有限值（補案：M5 在上一案測不出，因為 fake 先改 fullscreenElement）", async () => {
+  it("subscribeFullscreen：離開事件的通知發出時，msSinceFullscreenExit 已是有限值（補案：上一案測不出，因為 fake 先改 fullscreenElement）", async () => {
     const fake = makeFakeDocument();
     const fs = await load(fake);
     const seen: number[] = [];

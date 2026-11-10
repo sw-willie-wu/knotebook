@@ -31,7 +31,7 @@ const upload = async (app: FastifyInstance, noteId: string, userId: string) =>
     payload: pngMultipart(),
   });
 
-/** 等到這個測試 DB 上至少有 `n` 條連線在等鎖，或 `other` 已結束（同 C22 的 `waitForWaiters`）。 */
+/** 等到這個測試 DB 上至少有 `n` 條連線在等鎖，或 `other` 已結束（同 `groups-v2-delete-race.test.ts` 的 `waitForWaiters`）。 */
 async function waitForWaiters(pool: Pool, n: number, other?: Promise<unknown>, timeoutMs = 5_000): Promise<"blocked" | "settled"> {
   let settled = false;
   void other?.then(() => { settled = true; }, () => { settled = true; });

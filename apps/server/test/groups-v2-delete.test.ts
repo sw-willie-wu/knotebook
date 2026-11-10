@@ -1,5 +1,5 @@
 /**
- * #175 PR4（spec §6.8、§6.7 DELETE 列）：`DELETE /api/groups/:id` 必填 body 的兩種模式（HTTP 功能面）。
+ * #175（DELETE 列）：`DELETE /api/groups/:id` 必填 body 的兩種模式（HTTP 功能面）。
  *   `{mode:"transfer", transferTo}`（T6）：筆記全數改成 transferTo（該群組的內建管理員）的個人筆記、`/g/` 舊網址轉址、清公開連結；
  *     commit 後 `onGroupAccessChanged(noteIds, 成員 − transferTo)`、`onGroupAccessChanged(noteIds, [transferTo])`（筆記非空才呼叫）。
  *   `{mode:"delete"}`（T7）：交易外取 P0、每篇開 gate（`beforeNoteDeleted`）、`group-delete-gated` 縫、交易；失敗（含 TxAbort、40P01）
@@ -50,7 +50,7 @@ const NOT_ADMIN_BODY = { error: { code: "not_admin", message: NOT_ADMIN_MESSAGE 
 const SERVER_BUSY_BODY = { error: { code: "server_busy", message: "The server is busy. Try again in a moment." } };
 const GROUP_NOT_FOUND_BODY = { error: { code: "not_found", message: "No group with that id." } };
 
-describe("#175 PR4 DELETE /api/groups/:id：授權與 body", () => {
+describe("#175 DELETE /api/groups/:id：授權與 body", () => {
   it("授權矩陣・delete 模式（payload {mode:'delete'}）：member 403、admin／站台 admin 204；非成員／非 UUID／不存在 404 逐位元組相同", async () => {
     const { app, db } = await buildTestApp({ collabHooks: spyCollabHooks() });
     await runGroupAuthMatrix(app, db, {
@@ -93,7 +93,7 @@ describe("#175 PR4 DELETE /api/groups/:id：授權與 body", () => {
     expect(await db.select().from(groups).where(eq(groups.id, g.id))).toHaveLength(1);
   });
 
-  it("RF6／body：無 body、{}、{mode:'bogus'}、{mode:'transfer'}（缺 transferTo）、{mode:'delete', transferTo}（多餘鍵）、{mode:'transfer', transferTo: 1} → 400 invalid_body；群組與筆記原封不動；member 送壞 body 仍是 403（授權先於 body）", async () => {
+  it("body：無 body、{}、{mode:'bogus'}、{mode:'transfer'}（缺 transferTo）、{mode:'delete', transferTo}（多餘鍵）、{mode:'transfer', transferTo: 1} → 400 invalid_body；群組與筆記原封不動；member 送壞 body 仍是 403（授權先於 body）", async () => {
     const { hooks, gates } = gatedHooks();
     const { app, db } = await buildTestApp({ collabHooks: hooks });
     const [admin, member] = await Promise.all([seedUser(db), seedUser(db)]);
@@ -149,7 +149,7 @@ describe("#175 PR4 DELETE /api/groups/:id：授權與 body", () => {
   });
 });
 
-describe("#175 PR4 DELETE /api/groups/:id：轉移（T6）", () => {
+describe("#175 DELETE /api/groups/:id：轉移（T6）", () => {
   it("轉移給另一位管理員：204 空 body；筆記成為 B 的個人筆記；GET /api/notes：B 看得到、role owner、groupId null；C（一般成員）看不到；onGroupAccessChanged 恰兩次：(全部筆記, 成員−B)、(全部筆記, [B])；beforeNoteDeleted 沒被呼叫", async () => {
     const { hooks, gates } = gatedHooks();
     const { app, db } = await buildTestApp({ collabHooks: hooks });
@@ -210,7 +210,7 @@ describe("#175 PR4 DELETE /api/groups/:id：轉移（T6）", () => {
     expect(ctxs).toEqual([{ point: "group-delete-gated", groupId: h.id }, { point: "group-delete-locked", groupId: h.id }, { point: "folder-structure-locked", groupId: h.id }]);
   });
 
-  it("RF4：舊 /g/ 網址——B（transferTo）GET by-group-path 200、ownerHandle＝B、groupId null（轉址命中）；A（原管理員、非 transferTo）與 C → 404，body 與從沒存在過的 /g/<隨機 uuid>/<slug> 逐位元組相同", async () => {
+  it("舊 /g/ 網址——B（transferTo）GET by-group-path 200、ownerHandle＝B、groupId null（轉址命中）；A（原管理員、非 transferTo）與 C → 404，body 與從沒存在過的 /g/<隨機 uuid>/<slug> 逐位元組相同", async () => {
     const { app, db } = await buildTestApp({ collabHooks: spyCollabHooks() });
     const [a, b, c] = await Promise.all([seedUser(db), seedUser(db), seedUser(db)]);
     const g = await seedGroup(db, "G", [{ userId: a.id, role: "admin" }, { userId: b.id, role: "admin" }, { userId: c.id, role: "member" }]);
@@ -229,7 +229,7 @@ describe("#175 PR4 DELETE /api/groups/:id：轉移（T6）", () => {
     }
   });
 
-  it("轉移清掉公開連結（Willie 2026-10-02）：匿名 GET /api/public/notes/<token> 轉移前 200、轉移後 404，body 與從沒存在過的 token 逐位元組相同；該篇附件的公開端點 /api/public/notes/<token>/uploads/<id> 轉移後也 404", async () => {
+  it("轉移清掉公開連結：匿名 GET /api/public/notes/<token> 轉移前 200、轉移後 404，body 與從沒存在過的 token 逐位元組相同；該篇附件的公開端點 /api/public/notes/<token>/uploads/<id> 轉移後也 404", async () => {
     const { app, db, uploadsDir } = await buildTestApp({ collabHooks: spyCollabHooks() });
     const [a, b] = await Promise.all([seedUser(db), seedUser(db)]);
     const g = await seedGroup(db, "G", [{ userId: a.id, role: "admin" }, { userId: b.id, role: "admin" }]);
@@ -254,7 +254,7 @@ describe("#175 PR4 DELETE /api/groups/:id：轉移（T6）", () => {
     expect((await db.$client.query("select public_width from notes where id = $1", [n.id])).rows).toEqual([{ public_width: "full" }]);
   });
 
-  it("Q15：轉移給自己（呼叫者是內建管理員）→ 204、呼叫者成為 owner", async () => {
+  it("轉移給自己（呼叫者是內建管理員）→ 204、呼叫者成為 owner", async () => {
     const { app, db } = await buildTestApp({ collabHooks: spyCollabHooks() });
     const [a, m] = await Promise.all([seedUser(db), seedUser(db)]);
     const g = await seedGroup(db, "G", [{ userId: a.id, role: "admin" }, { userId: m.id, role: "member" }]);
@@ -274,7 +274,7 @@ describe("#175 PR4 DELETE /api/groups/:id：轉移（T6）", () => {
     expect(await db.select().from(groups).where(eq(groups.id, g.id))).toEqual([]);
   });
 
-  it("RF3：transferTo 的舊轉址被活網址遮蔽——/n/<B>/x 原本轉到 X（B 先前移進別的群組的筆記），轉移後群組筆記 Y 在 B 範圍拿到 x → by-path /n/<B>/x 回 Y", async () => {
+  it("transferTo 的舊轉址被活網址遮蔽——/n/<B>/x 原本轉到 X（B 先前移進別的群組的筆記），轉移後群組筆記 Y 在 B 範圍拿到 x → by-path /n/<B>/x 回 Y", async () => {
     const { app, db } = await buildTestApp({ collabHooks: spyCollabHooks() });
     const [a, b] = await Promise.all([seedUser(db), seedUser(db)]);
     const h = await seedGroup(db, "H", [{ userId: b.id, role: "member" }]);
@@ -296,7 +296,7 @@ describe("#175 PR4 DELETE /api/groups/:id：轉移（T6）", () => {
   });
 });
 
-describe("#175 PR4 DELETE /api/groups/:id：全刪（T7）", () => {
+describe("#175 DELETE /api/groups/:id：全刪（T7）", () => {
   it("全刪：204；P0 每篇各呼叫一次 beforeNoteDeleted、沒有 release；L＝P0 時不呼叫 onGroupAccessChanged；筆記、群組消失", async () => {
     const { hooks, gates } = gatedHooks();
     const { app, db } = await buildTestApp({ collabHooks: hooks });
@@ -315,7 +315,7 @@ describe("#175 PR4 DELETE /api/groups/:id：全刪（T7）", () => {
     expect(await db.select().from(groups).where(eq(groups.id, g.id))).toEqual([]);
   });
 
-  it("RF5：全刪有附件、與別人個人筆記互相連結的群組——uploads 列與磁碟檔都消失（其中一個磁碟檔事先刪掉也照樣 204）；p→g1、g1→p 兩條 note_links 都消失、p 仍在；p 的 GET …/backlinks 刪前列出 g1、刪後不列", async () => {
+  it("全刪有附件、與別人個人筆記互相連結的群組——uploads 列與磁碟檔都消失（其中一個磁碟檔事先刪掉也照樣 204）；p→g1、g1→p 兩條 note_links 都消失、p 仍在；p 的 GET …/backlinks 刪前列出 g1、刪後不列", async () => {
     const { app, db, uploadsDir } = await buildTestApp({ collabHooks: spyCollabHooks() });
     const [a, c] = await Promise.all([seedUser(db), seedUser(db)]);
     const g = await seedGroup(db, "G", [{ userId: a.id, role: "admin" }, { userId: c.id, role: "member" }]);
@@ -380,7 +380,7 @@ describe("#175 PR4 DELETE /api/groups/:id：全刪（T7）", () => {
     expect(await db.select().from(groups).where(eq(groups.id, g.id))).toHaveLength(1);
   });
 
-  it("全刪：其中一篇的 beforeNoteDeleted reject（契約外）→ 500、其餘已開的 gate 都 release、不進交易、筆記與群組原封不動（spec 疑點 Q5 的 allSettled）", async () => {
+  it("全刪：其中一篇的 beforeNoteDeleted reject（契約外）→ 500、其餘已開的 gate 都 release、不進交易、筆記與群組原封不動（allSettled）", async () => {
     const recorded: GroupRacePoint[] = [];
     const released: string[] = [];
     const holder: { bad?: string } = {};
@@ -439,7 +439,7 @@ describe("#175 PR4 DELETE /api/groups/:id：全刪（T7）", () => {
   });
 });
 
-describe("#175 PR4 DELETE /api/groups/:id：兩模式共通", () => {
+describe("#175 DELETE /api/groups/:id：兩模式共通", () => {
   it("空群組：兩模式各 204；不呼叫 onGroupAccessChanged／beforeNoteDeleted", async () => {
     const { hooks, gates } = gatedHooks();
     const { app, db } = await buildTestApp({ collabHooks: hooks });

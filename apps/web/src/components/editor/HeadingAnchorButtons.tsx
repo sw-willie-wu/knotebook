@@ -6,7 +6,7 @@ const HEADING_SELF = ':scope > .bn-block > .bn-block-content[data-content-type="
 const HEADING_TEXT = ":scope > .bn-block > .bn-block-content > .bn-inline-content";
 
 /**
- * 從事件目標往上找最近的 `.bn-block-outer`：自己是標題 ⇒ 那顆；是別種區塊、或在並排的欄內（spec 2026-10-21 columns-layout §7.5）⇒ null（隱藏）；
+ * 從事件目標往上找最近的 `.bn-block-outer`：自己是標題 ⇒ 那顆；是別種區塊、或在並排的欄內⇒ null（隱藏）；
  * 不在任何區塊裡（例如 # 鈕本身）⇒ undefined（不變）。
  */
 function headingOuterOf(node: EventTarget | Node | null): HTMLElement | null | undefined {
@@ -21,9 +21,9 @@ type Size = { width: number; height: number };
 
 /**
  * 「#」放在標題文字**右側**（相對 `container`）。不放左側：可編輯時 BlockNote 側邊選單（`+`／`⠿`，z-index 20）正好蓋在區塊左緣外，
- * 「#」看得到、點不到（task-15 審查 r0 I-1，headed 瀏覽器實測）。
+ * 「#」看得到、點不到（headed 瀏覽器實測）。
  * - 垂直：在文字**首行**置中——首行取 Range 的第一個 client rect；空標題（沒有文字片段）退回整個 inline box。
- * - 水平：不超出欄位右緣（`left ≤ 欄寬 − 鈕寬`）；文字頂到右緣時不讓「#」撐出橫向捲動（審查 r1 m1：公開頁 `<md` 量到 1px 溢出）。
+ * - 水平：不超出欄位右緣（`left ≤ 欄寬 − 鈕寬`）；文字頂到右緣時不讓「#」撐出橫向捲動（公開頁 `<md` 量到 1px 溢出）。
  */
 function placeOf(outer: HTMLElement, container: HTMLElement, button: Size): { top: number; left: number } {
   const box = container.getBoundingClientRect();
@@ -41,9 +41,9 @@ function placeOf(outer: HTMLElement, container: HTMLElement, button: Size): { to
 type Target = { outer: HTMLElement; id: string; top: number; left: number };
 
 /**
- * #269 §10.3(b)：標題旁 hover「#」鈕（editor、viewer、公開頁都有）。疊在編輯欄的 `relative` wrapper（`container`）上；pointer 進入、或選取
+ * #269：標題旁 hover「#」鈕（editor、viewer、公開頁都有）。疊在編輯欄的 `relative` wrapper（`container`）上；pointer 進入、或選取
  * 游標落在標題區塊時顯示，pointer 離開整個欄位時隱藏。複製 `location.origin + location.pathname + "#b-" + id`（公開頁即公開網址）。
- * 觸控沒有 hover（§17-6）。
+ * 觸控沒有 hover。
  */
 export function HeadingAnchorButtons({ container, linkBase }: { container: HTMLElement | null; linkBase?: () => string }) {
   const { t } = useTranslation();

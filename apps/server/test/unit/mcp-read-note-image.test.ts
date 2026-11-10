@@ -1,4 +1,4 @@
-/** #200 §7.2：upload_id 收裸 UUID 或恰為 /api/uploads/<uuid>，transform 成小寫裸 id；其餘形與 NUL 拒絕。 */
+/** #200：upload_id 收裸 UUID 或恰為 /api/uploads/<uuid>，transform 成小寫裸 id；其餘形與 NUL 拒絕。 */
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { UPLOAD_ID } from "../../src/mcp/tools/read-note-image.js";

@@ -1,8 +1,8 @@
 /**
- * #175 PR2 T4（spec §6.5）：`POST /api/notes/:id/copy`——個人→群組、群組→個人（與個人→個人）的複製。
+ * #175：`POST /api/notes/:id/copy`——個人→群組、群組→個人（與個人→個人）的複製。
  * 真共編連線的「有人在線、未落盤編輯」案在 `groups-v2-revocation.test.ts` 檔尾。
- * C19a／C19b／C19c（review r1 I-1）：交易第一步對目標 groups 取 KEY SHARE＋重驗成員——複製∥移除成員兩種先後、同群組複製
- * ∥「groups FOR UPDATE → 該群組筆記 FOR UPDATE」（PR4 全刪的形）不死結。C19d（review r2 M-2）：201 的 role／permissions
+ * C19a／C19b／C19c：交易第一步對目標 groups 取 KEY SHARE＋重驗成員——複製∥移除成員兩種先後、同群組複製
+ * ∥「groups FOR UPDATE → 該群組筆記 FOR UPDATE」（全刪的形）不死結。C19d：201 的 role／permissions
  * 取 (g) 交易內讀到的旗標，降級落在路由檢查與 (g) 之間時回降級後的值。
  */
 import { readFile, readdir } from "node:fs/promises";
@@ -33,7 +33,7 @@ const filesIn = async (dir: string): Promise<string[]> => (await readdir(dir)).s
 const uploadsOf = (db: Db, noteId: string) =>
   db.select({ id: uploads.id, uploaderId: uploads.uploaderId, mime: uploads.mime, size: uploads.size }).from(uploads).where(eq(uploads.noteId, noteId));
 
-describe("#175 PR2 POST /api/notes/:id/copy（T4）", () => {
+describe("#175 POST /api/notes/:id/copy（T4）", () => {
   it("個人→群組：201 群組形 DTO；note_states version 1、XML 只差改寫的網址；本站附件換新 id 與新檔、外部圖與他篇附件原樣；不帶 AI 紀錄／shares／token／別名／prev／legacy／last_edited；副本 updated_at 晚於來源", async () => {
     const { app, db, uploadsDir } = await buildTestApp();
     const [owner, c] = await Promise.all([seedUser(db), seedUser(db)]);
@@ -65,7 +65,7 @@ describe("#175 PR2 POST /api/notes/:id/copy（T4）", () => {
     expect(body.id).not.toBe(src.id);
     const copyId = body.id as string;
 
-    // 副本的附件：恰兩列（u1、u2 各一，RF2：u1 被引用兩次也只一份），uploader＝呼叫者、mime／size 同來源，新檔 bytes 同來源。
+    // 副本的附件：恰兩列（u1、u2 各一：u1 被引用兩次也只一份），uploader＝呼叫者、mime／size 同來源，新檔 bytes 同來源。
     const rows = await uploadsOf(db, copyId);
     expect(rows).toHaveLength(2);
     const bySize = new Map(rows.map(r => [r.size, r]));
@@ -100,7 +100,7 @@ describe("#175 PR2 POST /api/notes/:id/copy（T4）", () => {
       owner_id: null, group_id: g.id, public_token: null, public_slug: null, prev_slug: null, legacy_slug: null, slug_is_custom: false,
       last_edited_at: null, last_edited_by: null,
     });
-    // PR2 Task 6 review（D5／D6）：副本是新筆記，`updated_at` 取 DB default——晚於來源（MCP `list_notes` 說明依賴）。
+    // 副本是新筆記，`updated_at` 取 DB default——晚於來源（MCP `list_notes` 說明依賴）。
     const { rows: [cmp] } = await db.$client.query<{ later: boolean }>(
       "select (select updated_at from notes where id = $1) > (select updated_at from notes where id = $2) as later",
       [copyId, src.id],
@@ -187,7 +187,7 @@ describe("#175 PR2 POST /api/notes/:id/copy（T4）", () => {
     expect(await noteCount(db)).toBe(before);
   });
 
-  it("複製到群組撞名：beforeInsert 搶插 → savepoint 重試成功（gate r1 I2），201", async () => {
+  it("複製到群組撞名：beforeInsert 搶插 → savepoint 重試成功，201", async () => {
     const holder: { db?: Db; groupId?: string; candidates: string[] } = { candidates: [] };
     const { app, db } = await buildTestApp({
       noteCreateHooks: {
@@ -267,7 +267,7 @@ describe("#175 PR2 POST /api/notes/:id/copy（T4）", () => {
     expect((await app.inject({ method: "GET", url: `/api/uploads/${n1!.id}`, cookies: await cookieOf(owner.id) })).statusCode).toBe(200);
   });
 
-  it("M1：複製持鎖期間，來源的一般 UPDATE（last_edited_at）不被擋", async () => {
+  it("複製持鎖期間，來源的一般 UPDATE（last_edited_at）不被擋", async () => {
     const holder: { db?: Db; srcId?: string; upd?: Promise<"done">; outcome?: string } = {};
     const { app, db } = await buildTestApp({
       groupTestHook: async point => {
@@ -342,7 +342,7 @@ describe("#175 PR2 POST /api/notes/:id/copy（T4）", () => {
     expect(xml).toContain(hidden.id);
   });
 
-  it("RF3：從沒開過的筆記（無 note_states）→ 201、副本有一列 note_states（version 1、空文件）", async () => {
+  it("從沒開過的筆記（無 note_states）→ 201、副本有一列 note_states（version 1、空文件）", async () => {
     const { app, db } = await buildTestApp();
     const owner = await seedUser(db);
     const src = await seedNote(db, { ownerId: owner.id }, { title: "Never opened" });
@@ -356,7 +356,7 @@ describe("#175 PR2 POST /api/notes/:id/copy（T4）", () => {
     expect(xmlOf((await loadDoc(db, copyId))!)).toBe("");
   });
 
-  it("RF4：來源附件列在、磁碟檔不在 → 201；該節點保留原網址、不建它的 uploads 列；其他附件照常複製", async () => {
+  it("來源附件列在、磁碟檔不在 → 201；該節點保留原網址、不建它的 uploads 列；其他附件照常複製", async () => {
     const { app, db, uploadsDir } = await buildTestApp();
     const owner = await seedUser(db);
     const src = await seedNote(db, { ownerId: owner.id }, { title: "Plan" });
@@ -413,7 +413,7 @@ describe("#175 PR2 POST /api/notes/:id/copy（T4）", () => {
     expect(upload.consume(owner.id)).toBe(false);
   });
 
-  it("upload 桶（M-1）：依會被複製的附件數扣（他篇附件、外部圖不算）；額度不夠 → 429 too_many_requests、不建列不落檔、被拒的那發不記帳", async () => {
+  it("upload 桶：依會被複製的附件數扣（他篇附件、外部圖不算）；額度不夠 → 429 too_many_requests、不建列不落檔、被拒的那發不記帳", async () => {
     const upload = new FixedWindowLimiter({ limit: 3, windowMs: 600_000 });
     const { app, db, uploadsDir } = await buildTestApp({ limiters: freshLimiters({ upload }) });
     const owner = await seedUser(db);
@@ -438,7 +438,7 @@ describe("#175 PR2 POST /api/notes/:id/copy（T4）", () => {
     expect(upload.consume(owner.id)).toBe(false);
   });
 
-  it("upload 桶（review r2 I-1）：附件張數 > 整窗額度 → 新視窗第一發 201（夾到整窗、扣滿），同窗緊接再複製 429、不建列", async () => {
+  it("upload 桶：附件張數 > 整窗額度 → 新視窗第一發 201（夾到整窗、扣滿），同窗緊接再複製 429、不建列", async () => {
     const upload = new FixedWindowLimiter({ limit: 2, windowMs: 600_000 });
     const { app, db, uploadsDir } = await buildTestApp({ limiters: freshLimiters({ upload }) });
     const owner = await seedUser(db);
@@ -459,7 +459,7 @@ describe("#175 PR2 POST /api/notes/:id/copy（T4）", () => {
     expect(upload.consume(owner.id)).toBe(false); // 第一發已扣滿整窗
   });
 
-  it("upload 桶（M-1）：沒有要複製的附件（只有他篇附件與外部圖）→ 不碰 upload 桶", async () => {
+  it("upload 桶：沒有要複製的附件（只有他篇附件與外部圖）→ 不碰 upload 桶", async () => {
     const upload = new FixedWindowLimiter({ limit: 1, windowMs: 600_000 });
     const { app, db, uploadsDir } = await buildTestApp({ limiters: freshLimiters({ upload }) });
     const owner = await seedUser(db);
@@ -473,7 +473,7 @@ describe("#175 PR2 POST /api/notes/:id/copy（T4）", () => {
     expect(upload.consume(owner.id)).toBe(true); // 額度 1 還在
   });
 
-  it("複製不踢任何人（§7）：onGroupAccessChanged、onShareChanged 都沒被呼叫", async () => {
+  it("複製不踢任何人：onGroupAccessChanged、onShareChanged 都沒被呼叫", async () => {
     const spy = spyCollabHooks();
     const { app, db } = await buildTestApp({ collabHooks: spy });
     const [owner, c] = await Promise.all([seedUser(db), seedUser(db)]);
@@ -507,7 +507,7 @@ describe("#175 PR2 POST /api/notes/:id/copy（T4）", () => {
   });
 });
 
-describe("#175 PR2 複製 × 群組鎖（C19a／C19b／C19c，review r1 I-1）", () => {
+describe("#175 複製 × 群組鎖（C19a／C19b／C19c）", () => {
   const membersOf = async (db: Db, groupId: string, userId: string): Promise<number> =>
     (await db.$client.query<{ n: number }>("select count(*)::int as n from group_members where group_id = $1 and user_id = $2", [groupId, userId])).rows[0]!.n;
   const notesInGroup = async (db: Db, groupId: string): Promise<string[]> =>
@@ -530,8 +530,8 @@ describe("#175 PR2 複製 × 群組鎖（C19a／C19b／C19c，review r1 I-1）",
     const res = await copy(app, src.id, m.id, { groupId: g.id });
     const removed = await holder.rm!;
 
-    // 拿掉 (g) 的 KEY SHARE（突變實測）：來源的 KEY SHARE 不擋 lockGroup → 本行紅（settled）。整個拿掉 (g) 時 review r1
-    // 實驗 A 看到的終態是移除 204 先落地、複製照樣 201——非成員在群組裡建出了筆記。
+    // 拿掉 (g) 的 KEY SHARE（突變實測）：來源的 KEY SHARE 不擋 lockGroup → 本行紅（settled）。整個拿掉 (g) 時
+    // 看到的終態是移除 204 先落地、複製照樣 201——非成員在群組裡建出了筆記。
     expect(holder.interleave).toBe("blocked");
     expect(res.statusCode).toBe(201);
     expect(removed.statusCode).toBe(204);
@@ -571,7 +571,7 @@ describe("#175 PR2 複製 × 群組鎖（C19a／C19b／C19c，review r1 I-1）",
     expect(await filesIn(uploadsDir)).toEqual(filesBefore);
   });
 
-  it("C19d（review r2 M-2）降級先鎖（group-members-checked）→ 複製的路由檢查讀到降級前的 admin 而通過，(g) 等降級 commit 後重讀 → 201 的 role／permissions 是降級後的 member 值，與 GET 副本一致", async () => {
+  it("C19d 降級先鎖（group-members-checked）→ 複製的路由檢查讀到降級前的 admin 而通過，(g) 等降級 commit 後重讀 → 201 的 role／permissions 是降級後的 member 值，與 GET 副本一致", async () => {
     const holder: { pool?: Db["$client"]; fire?: () => Promise<LightMyRequestResponse>; second?: Promise<LightMyRequestResponse>; interleave?: string } = {};
     const { app, db } = await buildTestApp({
       groupTestHook: async point => {
@@ -601,7 +601,7 @@ describe("#175 PR2 複製 × 群組鎖（C19a／C19b／C19c，review r1 I-1）",
     expect(got.json().permissions).toEqual(copied.json().permissions);
   });
 
-  it("C19b 同群組複製（來源與目標都在 G）持 (g) 時，另一交易「groups FOR UPDATE → G 的筆記 FOR UPDATE」（PR4 全刪的形）→ 對方等複製 commit（blocked）、兩邊都完成、沒有 40P01", async () => {
+  it("C19b 同群組複製（來源與目標都在 G）持 (g) 時，另一交易「groups FOR UPDATE → G 的筆記 FOR UPDATE」（刪群組・全刪的形）→ 對方等複製 commit（blocked）、兩邊都完成、沒有 40P01", async () => {
     const holder: { db?: Db; groupId?: string; other?: Promise<string>; interleave?: string } = {};
     const { app, db } = await buildTestApp({
       groupTestHook: async point => {

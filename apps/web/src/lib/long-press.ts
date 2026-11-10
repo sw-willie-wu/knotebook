@@ -1,5 +1,5 @@
 /**
- * 觸控長按偵測（spec 2026-10-13 site-links rev 7 §7.4）：wikilink 與一般連結共用。只看 `pointerType === "touch"`（不看螢幕寬）。
+ * 觸控長按偵測：wikilink 與一般連結共用。只看 `pointerType === "touch"`（不看螢幕寬）。
  * - 按住 `LONG_PRESS_MS` 不動 ⇒ 成立；手指移動超過 `LONG_PRESS_SLOP_PX`、提早放開或 pointercancel（捲動）⇒ 取消。
  * - Android 在長按當下發 `contextmenu`：按壓中收到就攔下並立刻成立（系統的長按門檻可能比 500 ms 短）。滑鼠右鍵不在按壓中，不攔。
  * - 成立後放開時瀏覽器可能補發 mousedown／mouseup／click：`suppressing()` 為真期間由呼叫端攔掉，下一次 pointerdown 或吃掉 click 後解除。

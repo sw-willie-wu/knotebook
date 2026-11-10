@@ -14,7 +14,7 @@ import { securityHeaders } from "../../src/http/security-headers.js";
  *   script-src）→ 防線靜默失效。逐條釘值。
  * - **directive 被收緊**（img/media）→ 已出貨的功能靜默變破圖：外部圖片以 URL 內嵌、
  *   audio/video/file block **只有** embed-by-URL（見 docs/known-limitations.md）。
- *   #94 的安全政策定案（`lib/mermaid.ts` 檔頭）也明講圖表可引用遠端圖片。
+ *   #94 的安全政策（`lib/mermaid.ts` 檔頭）也明講圖表可引用遠端圖片。
  *
  * 期望值刻意**不從被測程式碼推導**：hash 在測試裡用 node:crypto 自己算一份當 oracle。
  */
@@ -106,10 +106,10 @@ describe("securityHeaders（issue #101）", () => {
     // SVG、BlockNote 浮層都在注入 inline style。至少擋掉外部 stylesheet。
     expect(directive(csp, "style-src")).toBe("'self' 'unsafe-inline'");
 
-    // 放寬的那半（issue #101 定案，守 #94 的政策）：收緊會讓已出貨的功能靜默變破圖。
+    // 放寬的那半（#101，守 #94 的政策）：收緊會讓已出貨的功能靜默變破圖。
     // img：外部圖片以 URL 內嵌（圖片 block 的 Embed 分頁、從網頁直接拖圖、mermaid 的
     // `A@{ img: … }`）。media：audio/video block **只有** embed-by-URL，沒有上傳路徑。
-    // ⚠ **http: 不能少**（gate 審查抓到）：`lib/media-url.ts` 的守衛對 http/https 都放行，
+    // ⚠ **http: 不能少**：`lib/media-url.ts` 的守衛對 http/https 都放行，
     // 而 `docs/self-hosting.md` 的 topology (a) 就是純 http 的信任 LAN 部署。只放 https:
     // 的話，LAN 自架者既有筆記裡的 `http://intranet/logo.png` 會靜默變破圖（https 部署
     // 上這些本來就被 mixed-content 擋掉，所以受害的只有 http 部署）。

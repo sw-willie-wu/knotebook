@@ -34,7 +34,7 @@ describe("正式 build 走 worker", () => {
       const { loadConfig } = await import(${url("config.js")});
       const { createEditingRuntime } = await import(${url("notes/editing/runtime.js")});
       const config = loadConfig({ DATABASE_URL: "postgres://u:p@localhost:5432/db", APP_SECRET: "a".repeat(64), PUBLIC_URL: "http://localhost:3000", PARSE_WORKERS: "1" });
-      const rt = createEditingRuntime(config);
+      const rt = createEditingRuntime(config, { workers: 1, workerMemoryMb: 1024, timeoutMs: 10000, queueWaitMs: 45000 });
       const r = await rt.parser.parse({ owner: "u", markdown: "# t\\n\\nhello **b**", candidates: [], siteOrigin: "http://localhost:3000" });
       console.log(JSON.stringify({ pool: rt.parser.constructor.name, spawned: rt.parser.stats().spawned, types: r.blocks.map(b => b.type) }));
       await rt.close();

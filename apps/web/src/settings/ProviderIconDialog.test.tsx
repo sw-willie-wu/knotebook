@@ -104,7 +104,7 @@ function chooseFile(dialog: HTMLElement, file: File): void {
 const pngFile = (bytes = 64) => new File([new Uint8Array(bytes)], "logo.png", { type: "image/png" });
 const mutations = (calls: Call[]) => calls.filter(c => c.method !== "GET");
 
-describe("ProviderIconDialog（spec §6.3、§8.2 W2）", () => {
+describe("ProviderIconDialog", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
   });
@@ -173,7 +173,7 @@ describe("ProviderIconDialog（spec §6.3、§8.2 W2）", () => {
     const file = (put!.body as FormData).get("file") as File;
     expect(file.name).toBe("icon.png");
     expect(file.type).toBe("image/png");
-    // 送出的是縮圖結果（替身 toBlob 回 8 位元組），不是 64 位元組的原檔（D7）。
+    // 送出的是縮圖結果（替身 toBlob 回 8 位元組），不是 64 位元組的原檔。
     expect(file.size).toBe(PNG_MAGIC.length);
     expect(mutations(calls)).toHaveLength(1);
     expect(queryClient.getQueryState(ADMIN_AUTH_PROVIDERS_QUERY_KEY)?.isInvalidated).toBe(true);
@@ -272,7 +272,7 @@ describe("ProviderIconDialog（spec §6.3、§8.2 W2）", () => {
     expect(mutations(calls)).toEqual([]);
   });
 
-  it("無變更按儲存 → 關閉、不送請求（Q6）；目前是 upload 且未選新檔 → 儲存可按、關閉、不送請求", async () => {
+  it("無變更按儲存 → 關閉、不送請求；目前是 upload 且未選新檔 → 儲存可按、關閉、不送請求", async () => {
     for (const provider of [BASE, UPLOADED]) {
       const { calls } = setup(provider);
       const dialog = await openDialog();
@@ -284,7 +284,7 @@ describe("ProviderIconDialog（spec §6.3、§8.2 W2）", () => {
     }
   });
 
-  it("選上傳、目前不是 upload、尚未選檔 → 儲存 disabled（Q6）", async () => {
+  it("選上傳、目前不是 upload、尚未選檔 → 儲存 disabled", async () => {
     setup(BASE);
     const dialog = await openDialog();
     fireEvent.click(radio(dialog, "Upload an image"));
@@ -292,7 +292,7 @@ describe("ProviderIconDialog（spec §6.3、§8.2 W2）", () => {
     expect(within(dialog).getByRole("button", { name: "Choose image…" })).toBeEnabled();
   });
 
-  it("RF5 競態：選檔後縮圖未完成就取消 → 再打開 → 縮圖才完成：舊結果丟棄（無預覽、未建 blob:）、上傳選項未選檔時儲存 disabled、不送 PUT", async () => {
+  it("競態：選檔後縮圖未完成就取消 → 再打開 → 縮圖才完成：舊結果丟棄（無預覽、未建 blob:）、上傳選項未選檔時儲存 disabled、不送 PUT", async () => {
     const { drawImage } = stubDecoder({ width: 64, height: 64 });
     let release!: () => void;
     const gate = new Promise<void>(resolve => {
@@ -326,7 +326,7 @@ describe("ProviderIconDialog（spec §6.3、§8.2 W2）", () => {
     expect(mutations(calls)).toEqual([]);
   });
 
-  it("RF5：選上傳並選好檔、或碰到錯誤 → 取消 → 再打開：選中回到目前的 iconKind、沒有舊預覽、沒有舊錯誤；按儲存不送請求", async () => {
+  it("選上傳並選好檔、或碰到錯誤 → 取消 → 再打開：選中回到目前的 iconKind、沒有舊預覽、沒有舊錯誤；按儲存不送請求", async () => {
     stubDecoder({ width: 64, height: 64 });
     const { calls } = setup(BASE);
     let dialog = await openDialog();
@@ -345,7 +345,7 @@ describe("ProviderIconDialog（spec §6.3、§8.2 W2）", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(mutations(calls)).toEqual([]);
   });
-  it("上傳儲存中：Cancel 停用、Esc 與右上 X 都關不掉；PUT 回來後等列表重抓完才關；重開選中 Upload，直接按 Save 不送請求（I1）", async () => {
+  it("上傳儲存中：Cancel 停用、Esc 與右上 X 都關不掉；PUT 回來後等列表重抓完才關；重開選中 Upload，直接按 Save 不送請求", async () => {
     stubDecoder({ width: 64, height: 64 });
     let releasePut!: () => void;
     const putGate = new Promise<void>(resolve => {
@@ -395,7 +395,7 @@ describe("ProviderIconDialog（spec §6.3、§8.2 W2）", () => {
 
     releaseGet();
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    // 重開：列表已是 upload 版，選中的是 Upload；什麼都不動按 Save → 不送任何請求、關閉（守住 I1：不會送 PATCH 清掉剛上傳的圖）。
+    // 重開：列表已是 upload 版，選中的是 Upload；什麼都不動按 Save → 不送任何請求、關閉（守住：不會送 PATCH 清掉剛上傳的圖）。
     const reopened = await openDialog();
     expect(radio(reopened, "Upload an image")).toBeChecked();
     const afterOpen = calls.length;

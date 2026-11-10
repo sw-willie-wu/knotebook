@@ -1,7 +1,7 @@
 import { createContext, useContext } from "react";
 
 /**
- * 快捷鍵介紹頁的開關（Ctrl+/ 的監聽器與 state 在 `AppShell`，K1；這裡只放 context 宣告，比照 `sidebar-drawer.ts`，
+ * 快捷鍵介紹頁的開關（Ctrl+/ 的監聽器與 state 在 `AppShell`；這裡只放 context 宣告，比照 `sidebar-drawer.ts`，
  * 讓 `UserMenu` 不必 import `AppShell.tsx`——AppShell→SidebarContent→UserMenu→AppShell 的循環）。
  */
 export interface ShortcutsDialogApi {

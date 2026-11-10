@@ -5,7 +5,7 @@ import i18n from "@/i18n";
 import { ShortcutsDialog } from "./ShortcutsDialog";
 
 /**
- * 快捷鍵介紹頁的對話框外殼（plan 2026-11-02-shortcuts-modal T5）：lazy 邊界、名稱與描述（sr-only 的 DialogTitle／Description）、焦點（開啟聚焦內容區、
+ * 快捷鍵介紹頁的對話框外殼：lazy 邊界、名稱與描述（sr-only 的 DialogTitle／Description）、焦點（開啟聚焦內容區、
  * Tab 在內容區與 ✕ 之間循環、關閉還焦點）。內容元件換成替身——它自己的行為在 ShortcutsLazy.test.tsx，與外殼合起來的行為在 ShortcutsDialog.panel.test.tsx。
  *
  * ⚠⚠ D1 必須是本檔第一個 `it`：`vi.mock` 的 factory 一個檔只執行一次，`React.lazy` 的結果又永久快取
@@ -17,7 +17,7 @@ const mockState = vi.hoisted(() => ({ loaded: false }));
 
 vi.mock("@/components/shortcuts/ShortcutsLazy", () => {
   mockState.loaded = true;
-  // 替身只重現外殼依賴的契約：一個 `[data-shortcuts-content]` 的可聚焦內容區；不得含別的可聚焦元素（D7：否則它不再是最後一個 tabbable）。
+  // 替身只重現外殼依賴的契約：一個 `[data-shortcuts-content]` 的可聚焦內容區；不得含別的可聚焦元素（否則它不再是最後一個 tabbable）。
   // 真內容元件的版面、分類切換與焦點在 ShortcutsLazy.test.tsx 與 ShortcutsDialog.panel.test.tsx。
   return {
     ShortcutsContent: () => (

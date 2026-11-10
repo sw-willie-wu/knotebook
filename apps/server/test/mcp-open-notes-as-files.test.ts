@@ -1,5 +1,5 @@
 /**
- * bulk transfer spec 2026-11-02 §5.1、§5.2、§14：`create_bulk_transfer_token`（PR-1 plan T8 B1–B12；PR-2 plan T12 改 B7、B10，加 B13）。
+ * bulk transfer：`open_notes_as_files`（B7、B10、B13）。
  */
 import { randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
@@ -14,24 +14,24 @@ import {
   BULK_NEXT_RO,
   BULK_NEXT_RW,
   BULK_RANGE_AMBIGUOUS_MESSAGE,
-  CREATE_BULK_TRANSFER_TOKEN_DESCRIPTION_RO,
-  CREATE_BULK_TRANSFER_TOKEN_DESCRIPTION_RW,
+  OPEN_NOTES_AS_FILES_DESCRIPTION_RO,
+  OPEN_NOTES_AS_FILES_DESCRIPTION_RW,
   TOO_MANY_BULK_TOKENS_MESSAGE,
   bulkCurls,
-} from "../src/mcp/tools/create-bulk-transfer-token.js";
+} from "../src/mcp/tools/open-notes-as-files.js";
 import { REVOKED_MESSAGE } from "../src/mcp/tools/create-transfer-token.js";
 import { buildCollabTestApp, buildTestApp } from "./helpers.js";
 import { seedTokenForUser } from "./editing-helpers.js";
 import { cookieOf, seedGroup, seedNote, seedRole, seedUser, setMemberRole, waitForBlockedOrSettled } from "./group-helpers.js";
 import { seedFolder } from "./folder-helpers.js";
-import { mcpPost, rpc } from "./mcp-helpers.js";
+import { INITIALIZE, mcpPost, rpc } from "./mcp-helpers.js";
 import { expireToken, issueDirect } from "./transfer-helpers.js";
 import { callTool, exportRaw, issueBulkDirect, liveMarkdown, seedMd } from "./bulk-transfer-helpers.js";
 import { readTarGz } from "./tar-read.js";
 
 const ORIGIN = "https://kb.example.test:8443";
 const config = loadConfig({ DATABASE_URL: "postgres://u:p@localhost:5432/test", APP_SECRET: "a".repeat(64), PUBLIC_URL: `${ORIGIN}/` });
-const TOOL = "create_bulk_transfer_token";
+const TOOL = "open_notes_as_files";
 const RO = "notes:read" as const;
 const RW = "notes:read notes:write" as const;
 const RWMD = "notes:read notes:write notes:move notes:delete" as const;
@@ -55,7 +55,7 @@ async function toolList(app: Parameters<typeof mcpPost>[0], opts: { token?: stri
   }>;
 }
 
-describe("B1：五種範圍與 access 落庫（spec §5.1）", () => {
+describe("B1：五種範圍與 access 落庫", () => {
   it("{}→all、space personal／shared、group_id（大寫輸入落小寫）、folder_id；note_id NULL、purpose bulk", async () => {
     const ctx = await buildCollabTestApp({ config });
     const u = await seedUser(ctx.db);
@@ -111,7 +111,7 @@ describe("B2：範圍至多給一個", () => {
   });
 });
 
-describe("B3：group_id 要 can_read（spec §5.2-3）", () => {
+describe("B3：group_id 要 can_read", () => {
   it("非成員、canRead:false 角色、隨機 uuid → group_not_found 逐位元組相同；create-only 角色 → 成功", async () => {
     const ctx = await buildCollabTestApp({ config });
     const u = await seedUser(ctx.db);
@@ -131,7 +131,7 @@ describe("B3：group_id 要 can_read（spec §5.2-3）", () => {
   });
 });
 
-describe("B4：folder_id 看不到 → not_found（spec §5.2-3 定案）", () => {
+describe("B4：folder_id 看不到 → not_found", () => {
   it("別人的個人資料夾、隨機 uuid → not_found＋FOLDER_NOT_FOUND_MESSAGE，與 rename_folder 同一個 uuid 的錯誤逐位元組相同；自己的 shared 資料夾、可讀群組的資料夾 → 成功", async () => {
     const ctx = await buildCollabTestApp({ config });
     const u = await seedUser(ctx.db);
@@ -151,7 +151,7 @@ describe("B4：folder_id 看不到 → not_found（spec §5.2-3 定案）", () =
   });
 });
 
-describe("B5：每支母憑證至多 3 支未過期（spec §5.2-4）", () => {
+describe("B5：每支母憑證至多 3 支未過期", () => {
   it("3 支成功、第 4 支 too_many_requests；過期一支後第 4 支成功；另一支母憑證不受影響；upload／download 不佔名額", async () => {
     const ctx = await buildCollabTestApp({ config });
     const u = await seedUser(ctx.db);
@@ -176,7 +176,7 @@ describe("B5：每支母憑證至多 3 支未過期（spec §5.2-4）", () => {
   });
 });
 
-describe("B6：TTL（spec §21 D3）", () => {
+describe("B6：TTL", () => {
   it("expiresAt − DB now ∈ [29:50, 30:10]；母憑證 5 分後到期 → 截在母憑證到期", async () => {
     const ctx = await buildCollabTestApp({ config });
     const u = await seedUser(ctx.db);
@@ -197,7 +197,7 @@ describe("B6：TTL（spec §21 D3）", () => {
   });
 });
 
-describe("B7：註冊（spec §5.2-1、§14.1；PR-2 依 canWrite 二選一）", () => {
+describe("B7：註冊（依 canWrite 二選一）", () => {
   it("(a) session 沒有 (b) 無 collab＋讀寫 token 沒有 (c) 唯讀 → RO description、讀寫／讀寫搬移刪除 → RW description；outputSchema 的 properties RW 多 `write` (d) properties 恰三鍵、additionalProperties false", async () => {
     const ctx = await buildCollabTestApp({ config });
     const u = await seedUser(ctx.db);
@@ -205,9 +205,9 @@ describe("B7：註冊（spec §5.2-1、§14.1；PR-2 依 canWrite 二選一）",
     expect((await toolList(ctx.app, { cookie })).map(t => t.name)).not.toContain(TOOL);
     const OUT_RO = ["access", "expiresAt", "export", "next", "note", "revoke", "token"];
     for (const [scope, desc, out] of [
-      [RO, CREATE_BULK_TRANSFER_TOKEN_DESCRIPTION_RO, OUT_RO],
-      [RW, CREATE_BULK_TRANSFER_TOKEN_DESCRIPTION_RW, [...OUT_RO, "write"].sort()],
-      [RWMD, CREATE_BULK_TRANSFER_TOKEN_DESCRIPTION_RW, [...OUT_RO, "write"].sort()],
+      [RO, OPEN_NOTES_AS_FILES_DESCRIPTION_RO, OUT_RO],
+      [RW, OPEN_NOTES_AS_FILES_DESCRIPTION_RW, [...OUT_RO, "write"].sort()],
+      [RWMD, OPEN_NOTES_AS_FILES_DESCRIPTION_RW, [...OUT_RO, "write"].sort()],
     ] as const) {
       const { token } = await seedTokenForUser(ctx.db, u.id, scope);
       const tool = (await toolList(ctx.app, { token })).find(t => t.name === TOOL);
@@ -221,6 +221,45 @@ describe("B7：註冊（spec §5.2-1、§14.1；PR-2 依 canWrite 二選一）",
     const v = await seedUser(plain.db);
     const { token } = await seedTokenForUser(plain.db, v.id, RW);
     expect((await toolList(plain.app, { token })).map(t => t.name)).not.toContain(TOOL);
+  });
+});
+
+describe("#417：instructions 只在清單上有 open_notes_as_files 時提它，讀寫／唯讀各一句", () => {
+  const HINT_RW = "If you have a shell, use open_notes_as_files to change much of a note, or many notes.";
+  const HINT_RO = "If you have a shell, use open_notes_as_files to read many or whole notes.";
+  async function instructionsOf(app: Parameters<typeof mcpPost>[0], opts: { token?: string; cookie?: string }): Promise<string> {
+    const res = await mcpPost(app, INITIALIZE, opts);
+    expect(res.statusCode).toBe(200);
+    return res.json().result.instructions as string;
+  }
+
+  it("collab：唯讀 token → 讀的那句；讀寫／讀寫搬移刪除 token → 改的那句；session → 都沒有；無 collab 的讀寫／唯讀 token → 都沒有；四形 ≤ 1000", async () => {
+    const ctx = await buildCollabTestApp({ config });
+    const u = await seedUser(ctx.db);
+    for (const [scope, hint, other] of [
+      [RO, HINT_RO, HINT_RW],
+      [RW, HINT_RW, HINT_RO],
+      [RWMD, HINT_RW, HINT_RO],
+    ] as const) {
+      const { token } = await seedTokenForUser(ctx.db, u.id, scope);
+      // 前提：清單上真的有它。
+      expect((await toolList(ctx.app, { token })).map(t => t.name), scope).toContain(TOOL);
+      const text = await instructionsOf(ctx.app, { token });
+      expect(text, scope).toContain(hint);
+      expect(text, scope).not.toContain(other);
+      expect(text.length, scope).toBeLessThanOrEqual(1000);
+    }
+    const cookie = (await cookieOf(u.id))[SESSION_COOKIE]!;
+    expect((await toolList(ctx.app, { cookie })).map(t => t.name)).not.toContain(TOOL);
+    expect(await instructionsOf(ctx.app, { cookie })).not.toContain(TOOL);
+
+    const plain = await buildTestApp();
+    const v = await seedUser(plain.db);
+    for (const scope of [RO, RW] as const) {
+      const { token } = await seedTokenForUser(plain.db, v.id, scope);
+      expect((await toolList(plain.app, { token })).map(t => t.name), scope).not.toContain(TOOL);
+      expect(await instructionsOf(plain.app, { token }), scope).not.toContain(TOOL);
+    }
   });
 });
 
@@ -245,7 +284,7 @@ describe("B9：同一母憑證並發簽發——① 鎖母列序列化計數", (
     const pool = ctx.db.$client;
     const u = await seedUser(ctx.db);
     const a = await seedTokenForUser(ctx.db, u.id, RO);
-    // 暖身：讓 touchLastUsed（api_tokens 的 UPDATE）先做完，否則會被當成第二發 blocked 的假證據（同 mcp-transfer-flow M2a）。
+    // 暖身：讓 touchLastUsed（api_tokens 的 UPDATE）先做完，否則會被當成第二發 blocked 的假證據（同 mcp-transfer-flow）。
     expect((await mcpPost(ctx.app, rpc("tools/list"), { token: a.token })).statusCode).toBe(200);
     for (let i = 0; i < 2; i++) await issueBulkDirect(ctx.db, a.tokenId);
     let calls = 0;
@@ -265,7 +304,7 @@ describe("B9：同一母憑證並發簽發——① 鎖母列序列化計數", (
   });
 });
 
-describe("B10：輸出形與 curl（spec §14.2、§14.3）", () => {
+describe("B10：輸出形與 curl", () => {
   const checkCurls = (sc: Record<string, unknown>, keys: readonly ("export" | "note" | "write" | "revoke")[]) => {
     const t = sc.token as string;
     expect(t.startsWith("knbt_")).toBe(true);

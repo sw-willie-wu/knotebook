@@ -1,4 +1,4 @@
-// §9：複製不帶版本、搬到群組與刪群組轉移清空版本（零版本、基底 NULL、計數 0），載入中的筆記重建狀態；搬移 × 切版交錯（r5 I-2）。
+// 複製不帶版本、搬到群組與刪群組轉移清空版本（零版本、基底 NULL、計數 0），載入中的筆記重建狀態；搬移 × 切版交錯。
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -144,7 +144,7 @@ describe("載入中的筆記（真 collab）", () => {
     expect((await snap.json()).id).toBe(rows[0]!.id);
   });
 
-  it("沒有基底的筆記：搬移持列鎖時自動切版卡在等鎖 → 搬移 commit 後它因 spaceKey 對不上 rollback → 零版本（r5 I-2）", async () => {
+  it("沒有基底的筆記：搬移持列鎖時自動切版卡在等鎖 → 搬移 commit 後它因 spaceKey 對不上 rollback → 零版本", async () => {
     let release: () => void = () => {};
     const gate = new Promise<void>(r => { release = r; });
     let paused: () => void = () => {};

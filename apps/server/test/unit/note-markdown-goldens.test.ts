@@ -1,4 +1,4 @@
-// 讀路徑 markdown 的 golden（spec §11.2 末段、§13.1）：同一份 blocks 在 server 與 web（PR-2 Task 5）讀出逐位元組相同。
+// 讀路徑 markdown 的 golden：同一份 blocks 在 server 與 web 讀出逐位元組相同。
 // 輸入一律先寫進編輯器，再拿 `ed.document`（完整 blocks，與真實讀路徑同形）去序列化——external HTML 的 data-* 順序跟著 props 鍵序走。
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -54,7 +54,7 @@ describe("note-markdown goldens（讀出）", () => {
     expect(md, `${c.id} 實際：${JSON.stringify(md)}`).toBe(c.markdown);
   });
 
-  // spec §11.1 規則 1–7：列的 markdown＝外層行＋各欄（開標籤、空行、欄內容單獨序列化、空行、</div>）＋ </div>。
+  // 並排列的 markdown 形：列的 markdown＝外層行＋各欄（開標籤、空行、欄內容單獨序列化、空行、</div>）＋ </div>。
   it.each(["G1-cols-3", "G1-cols-4", "G1-cols-mixed"])("GC：%s 由欄內容單獨序列化組出", async id => {
     const c = byId(id);
     const doc = await docWith(c.blocks);
@@ -107,7 +107,7 @@ describe("note-markdown goldens（讀出）", () => {
     expect(ctl.filter((_, i) => i !== ti)).toEqual(plain.filter((_, i) => i !== ti));
   });
 
-  // gate r2 Important-1：#222 以來經 MCP 往返存下的 NaN 欄寬（JSON 寫不出 NaN，以程式造）。
+  // #222 以來經 MCP 往返存下的 NaN 欄寬（JSON 寫不出 NaN，以程式造）。
   it("G3-nan-legacy：既存 NaN 欄寬讀成空段，與 G3-table-colored-merged 逐字相同", async () => {
     const base = byId("G3-table-colored-merged");
     const blocks = structuredClone(base.blocks);
@@ -121,7 +121,7 @@ describe("note-markdown goldens（讀出）", () => {
   });
 });
 
-// spec §13.1 round-trip：每個 golden 的 markdown 原樣寫回（parseMarkdownForNote，候選清單一律 []，與讀出端不轉換一致）→ 寫進新文件 → 再讀。
+// round-trip：每個 golden 的 markdown 原樣寫回（parseMarkdownForNote，候選清單一律 []，與讀出端不轉換一致）→ 寫進新文件 → 再讀。
 const ORIGIN = "http://localhost";
 /** 去掉 id 的 block JSON。 */
 const shape = (blocks: unknown): string => JSON.stringify(blocks, (k, v) => (k === "id" ? undefined : v));

@@ -7,7 +7,7 @@ import { Button } from "./button";
 
 // 精簡版 shadcn toast：Radix Toast 原語 + 一個模組層級的 pub/sub store 給
 // `toast()` 這個 imperative API 用（元件樹任何地方呼叫都能推新 toast），
-// 不搬 shadcn 完整版的 reducer/action 那一套——Task 11+ 目前只需要「顯示一則
+// 不搬 shadcn 完整版的 reducer/action 那一套——目前只需要「顯示一則
 // 訊息、可帶 variant、會自動消失」。
 
 export type ToastVariant = "default" | "destructive";
@@ -18,7 +18,7 @@ export interface ToastItem {
   description?: string;
   variant?: ToastVariant;
   durationMs?: number;
-  /** 動作鈕（#175 PR2「前往副本」）。點擊先跑 onClick、再由 Radix 關閉該 toast。 */
+  /** 動作鈕（#175「前往副本」）。點擊先跑 onClick、再由 Radix 關閉該 toast。 */
   action?: { label: string; onClick: () => void; /** 給無法操作 toast 的螢幕閱讀器使用者；未填時用 label。 */ altText?: string };
 }
 
@@ -28,7 +28,7 @@ let toasts: ToastItem[] = [];
 const listeners = new Set<Listener>();
 
 // id 產生器：不用 crypto.randomUUID——非 secure context（LAN plain-http，
-// rev 5.6 正當拓撲，如 http://192.168.3.22:8006）不存在該 API，會令每次
+// 正當拓撲，如 http://192.168.1.50:3000）不存在該 API，會令每次
 // toast() 拋 TypeError；jsdom/Node 有 polyfill 所以測試抓不到。id 只需
 // session 內唯一供 dismiss 比對，無安全需求，模組層級遞增計數器即可。
 let toastIdSeq = 0;
@@ -75,7 +75,7 @@ export function useToasts(): ToastItem[] {
 // portal 進去；抽屜關了（節點卸載）就清掉、viewport 回原處。toast 本身的狀態與計時器在 Toaster 底下的 Radix
 // Toast 元件裡，viewport 換位置不會重設它們。
 // 但 viewport 換位置會讓每則 toast 重新登記成最上層的 DismissableLayer：開抽屜前就在的 toast 會吃掉抽屜裡的第一下
-// Esc（關 toast、抽屜不關），與抽屜開著時才跳的 toast 一樣（e2e 38 A2c-7）。
+// Esc（關 toast、抽屜不關），與抽屜開著時才跳的 toast 一樣（e2e 38）。
 
 let viewportHost: HTMLElement | null = null;
 const viewportHostListeners = new Set<() => void>();

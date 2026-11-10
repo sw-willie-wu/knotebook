@@ -58,7 +58,7 @@ describe("buildApp", () => {
     expect(res.json()).toEqual({ ok: true });
   });
 
-  // Mandatory item 1（第二輪審查備忘）：content-type 守衛必須放行無 body 的變更請求
+  // content-type 守衛必須放行無 body 的變更請求
   // （例如 POST /logout 不會帶 Content-Type/body），不能一律要求 application/json——
   // 否則所有無 body 的變更端點都會被誤判 415。
   it("變更請求無 body（如 POST /logout 不帶 Content-Type）→ 放行，不觸發 415", async () => {

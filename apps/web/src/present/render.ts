@@ -8,12 +8,12 @@ import { sanitizeSlideFragment } from "./sanitize";
 import { postprocessSlide, type MermaidJob, type PostprocessContext } from "./postprocess";
 
 /**
- * #229 匯出管線（spec §5.1）：Y.Doc → blocks → noteToSlides → 每張 blocksToHTMLLossy（同張一次，清單才正確合成）
+ * #229 匯出管線：Y.Doc → blocks → noteToSlides → 每張 blocksToHTMLLossy（同張一次，清單才正確合成）
  * → `<template>` → 消毒 → 後處理。封面以 textContent 建 `<h1>`。
  *
- * ⚠ **時機（§5.1-6）**：`createExportEditor`／`renderDeck` 只准在 `setTimeout`／`queueMicrotask` 的 callback 裡
+ * ⚠ **時機**：`createExportEditor`／`renderDeck` 只准在 `setTimeout`／`queueMicrotask` 的 callback 裡
  * 呼叫，**不得**在 render、useMemo、useLayoutEffect、useEffect 本體內——wikilink 的 toExternalHTML 走
- * flushSync（§2.6-10），React 19 在 passive effect 裡呼叫 flushSync 不會同步渲染（Task 5 S2 實測：effect 本體匯出
+ * flushSync，React 19 在 passive effect 裡呼叫 flushSync 不會同步渲染（實測：effect 本體匯出
  * 得 `<p><span></span></p>` 並有 1 則 flushSync 警告；microtask／timeout 得完整 wikilink）。
  */
 export function createExportEditor() {
@@ -25,9 +25,9 @@ export type ExportEditor = ReturnType<typeof createExportEditor>;
 export interface RenderedSlide {
   id: string;
   kind: SlideKind;
-  /** 只有標題（heading 張沒有其他 block、或封面沒有非空白內容）→ 垂直置中（§10-6）。 */
+  /** 只有標題（heading 張沒有其他 block、或封面沒有非空白內容）→ 垂直置中。 */
   titleOnly: boolean;
-  /** 內容比對鍵（§7.1-3：以該張 blocks 的 JSON 字串比；封面另含標題）。 */
+  /** 內容比對鍵（以該張 blocks 的 JSON 字串比；封面另含標題）。 */
   key: string;
   /** null＝key 與上一版相同，沿用既有 DOM。 */
   content: { fragment: DocumentFragment; mermaid: MermaidJob[] } | null;

@@ -8,9 +8,9 @@ import { SettingsGroup, SettingsPage } from "./SettingsLayout";
 import "@/i18n/management-strings";
 
 /**
- * 個人設定「群組」（`/settings/groups`，#247 §5.5）：**唯讀總覽**——我有幾個群組、在每個群組的角色與權限。
- * 沒有任何動作鈕、沒有 ⋮、群組名不是連結（W11：面板之間不互相連結；W26：建立與管理都從側欄）。
- * 資料就是 `useGroups()`（與側欄同一份快取）。表格（spec 2026-10-13 settings-table §3 #11）：群組｜我的角色｜權限（Pill 群）。
+ * 個人設定「群組」（`/settings/groups`，#247）：**唯讀總覽**——我有幾個群組、在每個群組的角色與權限。
+ * 沒有任何動作鈕、沒有 ⋮、群組名不是連結（面板之間不互相連結；建立與管理都從側欄）。
+ * 資料就是 `useGroups()`（與側欄同一份快取）。表格：群組｜我的角色｜權限（Pill 群）。
  *
  * `myRole` 型別可為 null（非成員的站台 admin，只出現在 `PATCH /api/groups/:id` 的回應，`useGroups()`
  * 實際碰不到）——型別上仍處理：角色欄「—」、只有「閱讀」pill。`roleLabel` 不收 null，所以先判。

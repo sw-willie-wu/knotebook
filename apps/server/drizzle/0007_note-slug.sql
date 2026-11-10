@@ -1,4 +1,4 @@
--- #122 PR2（spec §3a 六步序；drizzle-kit generate 草稿經手改——generate 的一句式會在
+-- #122（六步序；drizzle-kit generate 草稿經手改——generate 的一句式會在
 -- SET NOT NULL 前對既有列直接套隨機 default，標題派生的 auto slug 就沒了；六步順序
 -- **不得重排**：②快照必在⑥trigger 之前（先建 trigger 會炸掉快照 UPDATE 自身）、
 -- ③drop 全域索引必在④backfill 之前（多 owner 同標題在舊全域唯一索引下第二列必炸）。
@@ -14,7 +14,7 @@ ALTER TABLE "notes" ADD COLUMN "legacy_slug" text;--> statement-breakpoint
 UPDATE "notes" SET "slug_is_custom" = ("slug" IS NOT NULL), "legacy_slug" = "slug";--> statement-breakpoint
 -- ③舊全域唯一索引先退場（④的 per-user backfill 允許跨 owner 同名）
 DROP INDEX "notes_slug_idx";--> statement-breakpoint
--- ④backfill（spec §3a 分岔政策就地寫死）：**SQL 版只處理 ASCII**——PG regex 無
+-- ④backfill（分岔政策就地寫死）：**SQL 版只處理 ASCII**——PG regex 無
 -- \p{L}\p{M}、glibc lower 與 JS 在 İ 等案分岔，不追 JS 語意：標題含任何非 ASCII 字元
 -- → 一律退 'untitled'（＋去重尾碼）；純 ASCII 標題 → 與 shared 的 autoSlugFromTitle
 -- 產物**必須全等**（migrate.test.ts 的 SQL/TS 雙實作對照守著）。管線順序同 TS：

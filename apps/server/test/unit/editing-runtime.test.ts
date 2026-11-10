@@ -66,7 +66,7 @@ describe("EditingRuntime", () => {
     expect(rt.rebuilds).toBe(1);
   });
 
-  // I-1：兩個 lease 同時持有時，先釋放的那個不能觸發重建——它一走就會把另一個還在用的 window 關掉。
+  // 兩個 lease 同時持有時，先釋放的那個不能觸發重建——它一走就會把另一個還在用的 window 關掉。
   // 只有等 in-flight 真的歸零（兩個都 release）才可以重建。把 runtime.ts 的
   // `|| this.inFlightCount > 0` 拿掉會讓這個案子在 a.release() 那一步就提早重建，本案變紅（已手動驗證）。
   it("兩個 lease 同時持有時，其中一個 release 不會提前重建；全部釋放才重建", async () => {
@@ -84,9 +84,9 @@ describe("EditingRuntime", () => {
     expect(rt.rebuildPending).toBe(false);
   });
 
-  // I-2：重建不能只是計數器跳——window 真的要換掉、舊的真的要關閉，否則 mount 造成的記憶體殘留
+  // 重建不能只是計數器跳——window 真的要換掉、舊的真的要關閉，否則 mount 造成的記憶體殘留
   // 完全不會回收（這個模組存在的唯一理由）。把 runtime.ts 的 installGlobals()／window.close() 拿掉
-  // 會讓本案變紅（已手動驗證，見 task-2-report.md）。
+  // 會讓本案變紅（已手動驗證）。
   it("重建真的換了 window、真的關閉了舊的 window（不只是計數器跳）", async () => {
     const rt = new EditingRuntime({ baseUrl: "http://localhost/", rebuildEvery: 1 });
     rt.installGlobals();
@@ -100,7 +100,7 @@ describe("EditingRuntime", () => {
     expect(beforeWindow.document).toBeUndefined();
   });
 
-  // I-2：mountsSinceRebuild 沒歸零的話，重建後立刻再 mount 一次就會因為殘留計數再度達標而誤判 pending。
+  // mountsSinceRebuild 沒歸零的話，重建後立刻再 mount 一次就會因為殘留計數再度達標而誤判 pending。
   // 把 runtime.ts 的 `this.mountsSinceRebuild = 0` 拿掉會讓本案變紅（已手動驗證）。
   it("重建後 mountsSinceRebuild 歸零：緊接著再 mount 一次不會又觸發 pending", async () => {
     const rt = new EditingRuntime({ baseUrl: "http://localhost/", rebuildEvery: 2 });
@@ -114,7 +114,7 @@ describe("EditingRuntime", () => {
     expect(rt.rebuildPending).toBe(false);
   });
 
-  // m3：installGlobals() 在重建路徑 throw（這裡借用 readHeapUsed 的注入點模擬）時，pending 與
+  // installGlobals() 在重建路徑 throw（這裡借用 readHeapUsed 的注入點模擬）時，pending 與
   // waiters 仍要放掉，否則後面所有 acquire() 永遠不會 settle（整台 server 的 AI 編輯靜默停擺）。
   it("installGlobals() 在重建時 throw 不會造成永久 hang：pending 清空、waiters 照樣放行、錯誤有留痕", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});

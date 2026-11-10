@@ -1,9 +1,9 @@
 /**
- * #108 §8.7 `create_note`：建一篇新筆記。與 `POST /api/notes` 的 body 同物件（`TITLE`／`MD`／`GROUP_ID`）、同驗證規則、
- * 同管線；鍵名依 MCP 輸入一律 snake_case（W15）——REST 是 `groupId`、這裡是 `group_id`，這是對 D18 的鍵名偏離（#180 spec §4.7）。
- * 除鍵名外仍守 D18（寫入側不發明第二套契約）——`content` 逐字重用 `MD`、`title` 逐字重用 `TITLE`（M14）。
+ * #108 `create_note`：建一篇新筆記。與 `POST /api/notes` 的 body 同物件（`TITLE`／`MD`／`GROUP_ID`）、同驗證規則、
+ * 同管線；鍵名依 MCP 輸入一律 snake_case——REST 是 `groupId`、這裡是 `group_id`，這是刻意的鍵名差異（#180）。
+ * 除鍵名外，寫入側不發明第二套契約——`content` 逐字重用 `MD`、`title` 逐字重用 `TITLE`。
  *
- * ⚠ **這支工具不進部署形態閘門**（裁決 D-M）：判準是「要不要讀 live doc」。不帶 `content` 時
+ * ⚠ **這支工具不進部署形態閘門**：判準是「要不要讀 live doc」。不帶 `content` 時
  * 它只建一列（`notes/create.ts`；帶 `title` 時多一次——最壞每輪 20 次、最多 5 輪——scope 範圍
  * （個人＝owner、群組＝該群組）的 slug 探測查詢，#145），完全不碰 live doc；而 REST 的 `POST /api/notes` 本來就無條件註冊、帶
  * content 而沒有 collab 時回 `400 invalid_body`。所以它在 `register.ts` 的閘門**外面**註冊，
@@ -17,7 +17,7 @@
  * ⚠ **佇列逾時的答案是 `internal` 不是 `server_busy`**（`docs/ai-editing.md` 逐字，與 REST 的
  * 500 對等）：`createWithContent` 的 catch 刻意不分辨例外型別，刪掉剛建的列後回 `kind:"internal"`。
  * ⚠ **`edit` 桶只在帶 `content` 時扣**（與 REST 同）；但 `tokenWrite` **一律**扣——
- * `requireWriteScope()` 是單一入口，不因為「這一發沒有內容」而繞過（規格 §8.8 的對照表）。
+ * `requireWriteScope()` 是單一入口，不因為「這一發沒有內容」而繞過。
  *
  * `url` 走 `canonicalNotePath`，與 `list_notes`／`search_notes` 是**同一個組字點**（`dto.ts`）。
  */
@@ -47,13 +47,13 @@ import { noteTooLargeMessage } from "../../notes/note-size.js";
 import type { McpToolCtx } from "../context.js";
 
 /** 模型看得到的字串一律英文（同 `docs/`；不是 UI 文案，不走 i18n）。 */
-// ⚠ #175 PR5：G1／D2／D3 三句逐字取自 `docs/mcp.md` 的 `create_note` 段（先寫文件、再照抄，spec §9.2），
-//   差異只有三種：① G1 句首主詞（「`create_note` creates」→「Create」）；② D2／D3 的句首銜接
+// ⚠ #175：三句逐字取自 `docs/mcp.md` 的 `create_note` 段（先寫文件、再照抄），
+//   差異只有三種：① 第一句句首主詞（「`create_note` creates」→「Create」）；② 後兩句的句首銜接
 //   （「Leave `content` out for」→「or leave it out for」、「Its `id` is what you pass to」→「The reply carries the
 //   new note's `id` — pass it to」）；③ `edit_note`／`read_note_outline` 去反引號（本檔既有工具名不加反引號）。
-// ⚠ D2／D3 的 edit_note 承諾**收窄到 `role` 允許時**：群組的 create-only 角色（能建不能編，0013 起）建出的筆記
+// ⚠ 關於 edit_note 的承諾**收窄到 `role` 允許時**：群組的 create-only 角色（能建不能編，0013 起）建出的筆記
 //   `role` 是 `viewer`，`edit_note` 對它一律 `forbidden`（`edit-note.ts` 的 viewer 分支）——「可以之後 edit_note」
-//   對它是假話，gate r1 I-1。
+//   對它是假話。
 export const CREATE_NOTE_DESCRIPTION =
   "Create a new note — yours, or in one of your groups when you pass `group_id`. Pass `content` to fill it in at the same time, " +
   "or leave it out for an empty note, which edit_note can fill in later if the reply's `role` is `owner` or `editor`. " +
@@ -68,12 +68,12 @@ export const CREATE_NOTE_DESCRIPTION =
   //   ⚠ **限定到 `content` 那條路**：不帶 `content` 的建立只建一列（`notes/create.ts`，不經
   //   `applyEdit`）——不留 `note_ai_edits`
   //   列、沒有 editId、**沒有任何東西撤得回**。寫成「Creating a note is recorded…」是對模型說謊，
-  //   而模型會照它決定「先建空筆記再 edit_note」安不安全（本檔一度那樣寫，審查抓到）。
+  //   而模型會照它決定「先建空筆記再 edit_note」安不安全（本檔一度那樣寫）。
   "— and its `url`, the note's page as a site-relative path: put this site's own address in front " +
   "of it before handing it to anyone. Filling it in with `content` is recorded like any other write " +
   "that changes a note's content, and can usually be undone.";
 
-/** CN_FOLDER（資料夾 PR-3d，逐字照 plan「待確認字串」）。 */
+/** 帶資料夾時的說明句。 */
 export const CN_FOLDER =
   "The id of a folder to create the note in, from list_folders; leave it out for the top level. One of your personal folders makes a " +
   "personal note, so leave out `group_id`; one of a group's folders needs that group's id as `group_id` and a role there that can both " +
@@ -85,8 +85,8 @@ export const createNoteInput = {
     //   ① 前面多一句「The note's title.」②去掉 markdown 粗體 ③去掉 `title` 兩側的
     //   backtick ④開頭用祈使的「Leave it out」（而非「Leave out `title`」）
     //   ⑤ `edit_note` 兩側不加反引號（`.describe()` 依本檔慣例；docs 有）。
-    //   #175 PR5：去重範圍片語（「…against the other notes in the same place — your personal notes, or that
-    //   group's notes — with a numeric suffix」，T1）與 docs 及 spec §9.2 逐字相同，不在上述五項差異內。
+    //   #175：去重範圍片語（「…against the other notes in the same place — your personal notes, or that
+    //   group's notes — with a numeric suffix」，T1）與 docs 逐字相同，不在上述五項差異內。
     //   「same place」的範圍＝`SlugScope`（個人＝owner 自己的筆記、群組＝該群組的筆記），由
     //   `notes/slug.ts` 的 `probeUniqueSlug` 述詞決定（`owner_id = me` 或 `group_id = g`，不含分享給你的筆記）。
     //   ⚠ 不准壓短：「沒給 title → untitled-…」這種縮寫會讓模型反推「給了就跟標題走」，
@@ -101,10 +101,10 @@ export const createNoteInput = {
         "word, or a uuid, or a title ending in one. Pass a title if you know it; edit_note's `rename` can change it later " +
         "when the reply's `role` is `owner` or `editor`.",
     ),
-  // ⚠ #175 PR5：G2 逐字取自 `docs/mcp.md` `group_id` bullet 的第二到第五句（「Pass the id of one of your
+  // ⚠ #175：逐字取自 `docs/mcp.md` `group_id` bullet 的第二到第五句（「Pass the id of one of your
   //   groups…」→ `.describe()` 句首改「The id of one of your groups…」，唯一差異）。bullet 其餘句子（id 去哪找、
   //   兩種拒絕、非 uuid 的輸入檢查）是文件對人說的，不放進模型面字串。
-  //   `GROUP_ID` 與 REST `createBodySchema.groupId` 是同一個物件（D18／M14；`mcp-write-schemas.test.ts` 釘同源）。
+  //   `GROUP_ID` 與 REST `createBodySchema.groupId` 是同一個物件（`mcp-write-schemas.test.ts` 釘同源）。
   group_id: GROUP_ID.optional().describe(
     "The id of one of your groups where your role lets you create notes. The note then belongs to the group, " +
       "not to you. Leave it out for a personal note. If your role there can create notes but not edit them, " +
@@ -129,7 +129,7 @@ export interface CreateNoteArgs {
   folder_id?: string;
 }
 
-/** spec §9.2 兩句專用訊息（逐字；`docs/mcp.md` Errors 段描述同一條件）。**不得**重用 `NOTE_NOT_FOUND_MESSAGE`——
+/** 兩句專用訊息（逐字；`docs/mcp.md` Errors 段描述同一條件）。**不得**重用 `NOTE_NOT_FOUND_MESSAGE`——
  *  那句談「筆記」，這裡談「群組」，且兩種 404（非成員／不存在）必須逐位元組相同。 */
 const GROUP_NOT_FOUND_MESSAGE = "No group with that id among the groups you belong to.";
 const CREATE_IN_GROUP_FORBIDDEN_MESSAGE = "Your role in that group can't create notes. Leave out `group_id` to create a personal note.";
@@ -139,13 +139,13 @@ const NO_CONTENT_SUPPORT_MESSAGE =
 const CREATE_FAILED_MESSAGE = "The note could not be created and nothing was stored. Try again.";
 
 export async function createNote(args: CreateNoteArgs, ctx: McpToolCtx): Promise<CallToolResult> {
-  // 1. §10.2 D23／M13：scope、session 跳過、`tokenWrite` 三件事的**單一入口**。
+  // 1. scope、session 跳過、`tokenWrite` 三件事的**單一入口**。
   //    ⚠ **不帶 `content` 的呼叫一樣走它**——`tokenWrite` 因此照扣，與 REST 的 `POST /api/notes`
   //    一致（那邊由 preHandler 依宣告的 `notes:write` 扣，不看有沒有 content）。
-  //    實測（2026-09-08，`tokenWrite` 覆寫成 `limit: 1`）：第一發不帶 content 的 `create_note`
+  //    實測（`tokenWrite` 覆寫成 `limit: 1`）：第一發不帶 content 的 `create_note`
   //    成功、**第二發就 `too_many_requests`**。
   //    ⚠ **誠實：本檔沒有守衛**——整支拿掉這兩行，`mcp-create-note` 六案全綠（突變實測）。
-  //    守衛是 Task 4 的案 32（`tokenWrite` 桶兩支工具各跑一次）。
+  //    守衛是案 32（`tokenWrite` 桶兩支工具各跑一次）。
   const denied = requireWriteScope(ctx);
   if (denied !== null) return denied;
 
@@ -155,21 +155,21 @@ export async function createNote(args: CreateNoteArgs, ctx: McpToolCtx): Promise
   //    ⚠ **帶 `content` 時順序是硬要求**：`available` 閘門 → 扣 `edit` 桶 → **才**輪到任何
   //    DB 寫入或 slug 探測（不帶 `content` 的分支不過任何閘門，見步驟 5）。原本這個位置只是
   //    在組一個 values 物件（純物件、零查詢）所以擺在閘門之前無妨；`insertNoteWithAutoSlug`
-  //    會發探測查詢，搬到這裡就讓「這個部署不支援 content」的拒絕路徑開始打 DB（違反 M6：
-  //    拒絕零副作用）。守衛分兩種形，**實測（2026-09-15）**：
+  //    會發探測查詢，搬到這裡就讓「這個部署不支援 content」的拒絕路徑開始打 DB（違反
+  //    拒絕零副作用）。守衛分兩種形，**實測**：
   //    (a) 整支呼叫搬上來 → 既有的**列數**斷言就抓得到：D-M（`countNotes` 2≠1）、案 21 與
   //        案 28(b)（零新增列 1≠0）三案連同下面那一案共 4 條紅。
   //    (b) **只把探測搬上來、INSERT 留在閘門之後** → 整包 925 案只有
   //        `mcp-create-note.test.ts` 那一案紅（`probes()` 半邊，0→1）。
 
-  // 2a. #175 PR5 群組目標（§9.3）。**順序是契約**：群組檢查 → `available` → 扣 `edit` 桶（與 REST `POST /api/notes`
+  // 2a. #175 群組目標。**順序是契約**：群組檢查 → `available` → 扣 `edit` 桶（與 REST `POST /api/notes`
   //    對齊：兩種拒絕零副作用、不啃 `edit` 桶；`tokenWrite` 已在上面照扣）。成員資格／新建旗標判準是
-  //    `notes/create-target.ts` 的**同一份**實作（REST 兩個呼叫點與這裡共用）。交易外查（C8：撤旗標與建立之間
-  //    不保證，spec §15 第 5 條）。
-  //    非成員（含站台 admin，§5.5 無豁免）與不存在同一條 `group_not_found`；成員但沒有新建旗標 → `forbidden`。
+  //    `notes/create-target.ts` 的**同一份**實作（REST 兩個呼叫點與這裡共用）。交易外查（撤旗標與建立之間
+  //    不保證，第 5 條）。
+  //    非成員（含站台 admin，無豁免）與不存在同一條 `group_not_found`；成員但沒有新建旗標 → `forbidden`。
   //    `role` 照旗標算、不假設 editor：0013 起 create-only 角色（能建不能編）得 `viewer`。
-  // 2b. 資料夾 PR-3d（spec §5.7.6、§5.5 I2，與 REST `POST /api/notes` 同順序）：資料夾可見性（看不到＝不存在，FM1）→
-  //    空間一致性（FM14）→ 下面既有的群組判準 → 群組資料夾另要 `can_edit`（FM13，D13）。都在任何寫入之前。
+  // 2b. 資料夾（與 REST `POST /api/notes` 同順序）：資料夾可見性（看不到＝不存在）→
+  //    空間一致性→ 下面既有的群組判準 → 群組資料夾另要 `can_edit`。都在任何寫入之前。
   let folderId: string | null = null;
   if (args.folder_id !== undefined) {
     const folder = await resolveFolderAccess(ctx.db, ctx.userId, args.folder_id);
@@ -190,8 +190,8 @@ export async function createNote(args: CreateNoteArgs, ctx: McpToolCtx): Promise
     target = { scope: { ownerId: ctx.userId }, ownerHandle: ctx.userHandle, groupName: null, role: "owner" };
   }
   // 建列失敗（兩條路共用；與 REST `sendCreateInsertFailure` 同判準）。建列在 service 的 try 之外，所以原樣拋到這裡：
-  // - 可重試錯誤（40P01／40001／55P03）→ server_busy，不論帶不帶資料夾（plan 讀碼發現 9；原本是 internal）。
-  // - 帶資料夾：確認之後資料夾被刪（`notes_folder_fk`）、換了空間（KF001：群組剛被轉移）、或群組被刪（群組 FK 可能先報）→ 與看不到同形（FM1）。
+  // - 可重試錯誤（40P01／40001／55P03）→ server_busy，不論帶不帶資料夾（原本是 internal）。
+  // - 帶資料夾：確認之後資料夾被刪（`notes_folder_fk`）、換了空間（群組剛被轉移）、或群組被刪（群組 FK 可能先報）→ 與看不到同形。
   // - 不帶資料夾：檢查之後群組被刪 → FK 23503 → group_not_found。**只在群組分支映射**——個人分支的 23503 只可能來自
   //   `owner_id → users`，而 `src/` 內沒有硬刪 users 的路徑，不擴大映射面。
   const mapCreateInsertFailure = (err: unknown): CallToolResult => {
@@ -202,14 +202,14 @@ export async function createNote(args: CreateNoteArgs, ctx: McpToolCtx): Promise
   };
 
   if (args.content !== undefined) {
-    // 3. 沒有協作元件就沒有「內容」這回事（同 REST 的 400，D-M）。**排在扣 `edit` 桶之前**：
-    //    這一發從來不會走到寫入管線，不該啃桶（M6：拒絕零副作用）。
+    // 3. 沒有協作元件就沒有「內容」這回事（同 REST 的 400）。**排在扣 `edit` 桶之前**：
+    //    這一發從來不會走到寫入管線，不該啃桶（拒絕零副作用）。
     //    守衛＝`mcp-create-note.test.ts` 的 D-M 那一案最後兩行：那個 app 的 `edit` 桶由測試
     //    自己持有（`freshLimiters({ edit })`），所以「還剩幾格」直接數得出來——**「這個部署上
-    //    `edit` 桶沒有第二個消費端」不等於觀察不到**（本檔一度這樣自陳，審查推翻）。
+    //    `edit` 桶沒有第二個消費端」不等於觀察不到**。
     //    突變實測（兩行對調）：那一案紅，`expected 29 to be 30`。
     if (!ctx.writes.available) return toolError("invalid_body", NO_CONTENT_SUPPORT_MESSAGE);
-    // 4. `edit` 桶只有帶 `content` 這條路吃（規格 §8.8），且排在**任何 mount 之前**。桶 key 是裸 userId。
+    // 4. `edit` 桶只有帶 `content` 這條路吃，且排在**任何 mount 之前**。桶 key 是裸 userId。
     if (!ctx.limiters.edit.consume(ctx.userId)) return toolError("too_many_requests", WRITE_RATE_LIMITED_MESSAGE);
 
     let out;

@@ -240,7 +240,7 @@ describe("normalizeNoteColors：逐一走訪、不遞迴", () => {
     expect(normalizeNoteColors(table({ type: "tableCell", props: { backgroundColor: "red" }, content: [] }))).toBeNull();
   });
 
-  it("FC-COL1（並排 §11.11）：欄內段落的壞色值也找得到", () => {
+  it("並排：欄內段落的壞色值也找得到", () => {
     const row = (styles: Record<string, unknown>) => [{ type: "columnList", props: {}, content: undefined, children: [
       { type: "column", props: { width: 1 }, children: [{ type: "paragraph", props: {}, content: [{ type: "text", text: "a", styles: {} }], children: [] }] },
       { type: "column", props: { width: 1 }, children: [{ type: "paragraph", props: {}, content: [{ type: "text", text: "b", styles }], children: [] }] },
@@ -432,7 +432,7 @@ describe("讀取：blocksToNoteMarkdown", () => {
     // ⚠ 這份的往返本身不一致（空段落寫回被丟），但那是 #222 之前就有的 markdown 行為：無色的空段落一樣。
   });
 
-  // #222 r2 審查 I2：空儲存格與空段落不同——解析器保留 `<td data-background-color="red"></td>`，所以它的顏色要帶出。
+  // #222：空儲存格與空段落不同——解析器保留 `<td data-background-color="red"></td>`，所以它的顏色要帶出。
   it("I2：空的有色表格儲存格保留顏色、往返一致", async () => {
     const doc = await docWith([{ type: "table", content: { type: "tableContent", rows: [{ cells: [{ type: "tableCell", content: [], props: { backgroundColor: "red" } }, "b"] }] } }]);
     const md1 = await readMd(doc);
@@ -442,8 +442,8 @@ describe("讀取：blocksToNoteMarkdown", () => {
     expect(await readMd(await docWith(blocks))).toBe(md1);
   });
 
-  // #222 r2 審查 m2：沒有文字的媒體 block（無 caption 的圖片）有內容，底色要帶出。
-  it("m2：無 caption 的有色圖片保留底色、往返一致", async () => {
+  // #222：沒有文字的媒體 block（無 caption 的圖片）有內容，底色要帶出。
+  it("無 caption 的有色圖片保留底色、往返一致", async () => {
     const doc = await docWith([{ type: "image", props: { url: "http://localhost/api/uploads/x.png", backgroundColor: "red" } }]);
     const md1 = await readMd(doc);
     expect(md1).toContain(`data-background-color="red"`);
@@ -519,9 +519,9 @@ describe("讀 → 原樣寫回 → 再讀：一致且顏色不流失", () => {
 
 const md1Of = (ed: Ed) => blocksToNoteMarkdown(ed, ed.document);
 
-describe("並排（spec §11.1）", () => {
-  // 逐字形由 note-markdown-goldens 的 G1-* 釘住；這裡只看讀出是 div 形、兩欄文字各在一處。
-  it("CL1：含列的 blocks 讀成 §11.1 的 div 形", async () => {
+describe("並排", () => {
+  // 逐字形由 note-markdown-goldens 釘住；這裡只看讀出是 div 形、兩欄文字各在一處。
+  it("含列的 blocks 讀成並排的 div 形", async () => {
     const md = await withSession(ed => {
       const blocks = [{
         id: "r", type: "columnList", children: [

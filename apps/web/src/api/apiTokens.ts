@@ -20,7 +20,7 @@ export interface CreateApiTokenInput {
 }
 
 /**
- * `POST /api/auth/tokens`。回應含明文 `token`，**只有這一次**（I2）——呼叫端要自己
+ * `POST /api/auth/tokens`。回應含明文 `token`，**只有這一次**——呼叫端要自己
  * 把它顯示出來，這裡不寫進 query cache（列表永遠是重抓的）。注意 `useMutation` 仍會把
  * 201 body 留在 mutation cache（預設 gcTime 5 分鐘）——同一個 JS heap，不是安全邊界。
  */
@@ -58,7 +58,7 @@ export function useUpdateApiToken() {
   });
 }
 
-/** `DELETE /api/auth/tokens/:id`（D9：撤銷＝硬刪，立即失效）。 */
+/** `DELETE /api/auth/tokens/:id`（撤銷＝硬刪，立即失效）。 */
 export function useRevokeApiToken() {
   const queryClient = useQueryClient();
   return useMutation({

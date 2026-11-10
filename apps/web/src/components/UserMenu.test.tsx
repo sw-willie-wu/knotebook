@@ -8,7 +8,7 @@ import { ThemeProvider } from "@/theme";
 import { ShortcutsDialogContext, type ShortcutsDialogApi } from "@/lib/shortcuts-dialog";
 import { UserMenu } from "./UserMenu";
 
-// PR3 主題色選擇器：六個 RadioItem 渲染／role=menuitemradio／aria-checked、
+// 主題色選擇器：六個 RadioItem 渲染／role=menuitemradio／aria-checked、
 // 點選→data-accent＋localStorage＋選單不關閉、鍵盤方向鍵移動焦點。
 // 本檔現在也涵蓋 #78（選中改點內勾——ItemIndicator 只在 checked 渲染 Check，
 // 與焦點態的 ring 是正交維度）與 #79（主題色群組補 aria-labelledby 可及名稱）。
@@ -77,7 +77,7 @@ async function openMenu(): Promise<void> {
   await waitFor(() => expect(screen.getByRole("menu")).toBeInTheDocument());
 }
 
-describe("UserMenu 主題色選擇器（PR3）", () => {
+describe("UserMenu 主題色選擇器", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     window.localStorage.removeItem(ACCENT_STORAGE_KEY);
@@ -110,7 +110,7 @@ describe("UserMenu 主題色選擇器（PR3）", () => {
     }
   });
 
-  // B1（Wave 2 Review A blocking）：wrapper 的 outline-none 清掉了瀏覽器原生
+  // wrapper 的 outline-none 清掉了瀏覽器原生
   // focus ring，鍵盤在六點間移動時畫面必須靠 data-[highlighted]:ring-foreground
   // 補上可見指示——jsdom 不套用 CSS，這裡只能釘 class 字面量存在，行為級（真的
   // 顯示出一圈）留給視覺驗證。
@@ -140,7 +140,7 @@ describe("UserMenu 主題色選擇器（PR3）", () => {
 
   // 這裡只驗證 document.activeElement 有沒有真的移動；移動當下畫面上是否看得見
   // （data-[highlighted]:ring-foreground，補償 wrapper 的 outline-none）是另一條
-  // class 字面量案的職責，見上方 B1 那條測試。
+  // class 字面量案的職責，見上方那條測試。
   it("鍵盤 ArrowDown 依 DOM 序移動焦點（視覺上橫排，鍵盤仍走選單原生的上下）", async () => {
     renderMenu();
     await openMenu();
@@ -267,7 +267,7 @@ describe("UserMenu 站台管理入口", () => {
     vi.unstubAllGlobals();
   });
 
-  it("admin：看得到「Site admin」；點了導 /admin/users，state 帶 backgroundLocation（#247 §5.7：站台管理是 modal）", async () => {
+  it("admin：看得到「Site admin」；點了導 /admin/users，state 帶 backgroundLocation（#247：站台管理是 modal）", async () => {
     stubFetchAs(ADMIN);
     renderMenuWithProbe();
     await openMenu();
@@ -298,7 +298,7 @@ describe("UserMenu 站台管理入口", () => {
   });
 });
 
-describe("UserMenu「快捷鍵介紹」項（plan 2026-11-02-shortcuts-modal T7）", () => {
+describe("UserMenu「快捷鍵介紹」項", () => {
   const ADMIN_USER: UserDto = { ...USER, isAdmin: true };
 
   beforeEach(async () => {

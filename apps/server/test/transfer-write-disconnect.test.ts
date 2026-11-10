@@ -1,6 +1,6 @@
 /**
- * bulk transfer plan PR-2 §0.1-11、T8（D1–D5）：S14 斷線語意——用戶端斷線**不中止寫回**、只記 `clientClosed`；偵測只掛
- * `reply.raw` 的 close（T1 探針：PUT 上 `request.raw` 的 close 在 body 讀完時就觸發）。真 HTTP（`putRaw`），不用 inject。
+ * bulk transfer：S14 斷線語意——用戶端斷線**不中止寫回**、只記 `clientClosed`；偵測只掛
+ * `reply.raw` 的 close（PUT 上 `request.raw` 的 close 在 body 讀完時就觸發）。真 HTTP（`putRaw`），不用 inject。
  */
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
@@ -49,7 +49,7 @@ describe("S14 斷線語意", () => {
     let handlers = 0;
     const s = await scene({
       // 占位的第一發停在 afterRecord（已合併、紀錄已寫、仍在佇列內）：第二份副本在這時才下載（含第一發的修改），所以它排在
-      // 佇列裡、之後真的寫入（審查 M7；第三輪規則下，在第一發寫入之前下載的副本會被判 note_changed）。
+      // 佇列裡、之後真的寫入（現行規則下，在第一發寫入之前下載的副本會被判 note_changed）。
       editingTestHooks: {
         afterRecord: async () => {
           if (!holding) return;

@@ -38,16 +38,16 @@ export function sendLoginThrottled(reply: FastifyReply, retryAfterMs: number): F
 }
 
 /**
- * 儲存配額 409（spec §8.1）：`{ error: { code: "storage_quota_exceeded", message }, storage: detail }`——頂層額外欄位的第二個
+ * 儲存配額 409：`{ error: { code: "storage_quota_exceeded", message }, storage: detail }`——頂層額外欄位的第二個
  * 出口（先例 `sendLoginThrottled`）。`detail` 的數字可見性由呼叫端在交易外決定（`storage/usage.ts` 的 `quotaErrorDetail`）。
- * 上傳路徑的兩處 409（讀 body 之前的預檢、交易內判定）刻意同碼同形、不可分辨（跨 spec 契約，#200 §2.7(3)）——不得加任何旗標欄。
+ * 上傳路徑的兩處 409（讀 body 之前的預檢、交易內判定）刻意同碼同形、不可分辨（#200 的契約）——不得加任何旗標欄。
  * `message` 與 `StorageQuotaExceeded`（`storage/tx/quota.ts`）共用 `storage/space.ts` 的常數——上傳 preHandler 預檢（沒有 exception 物件）與交易內判定吐同一句（守衛：`storage-quota-structure.test.ts` ⑦）。
  */
 export function sendStorageQuotaExceeded(reply: FastifyReply, detail: StorageQuotaErrorDetail): FastifyReply {
   return reply.code(409).send({ error: { code: "storage_quota_exceeded", message: STORAGE_QUOTA_EXCEEDED_MESSAGE }, storage: detail });
 }
 
-/** #181 §6.7：404 in_trash——頂層第三個額外欄位出口（先例 sendLoginThrottled／sendStorageQuotaExceeded）。只給有垃圾桶權的人。 */
+/** #181：404 in_trash——頂層第三個額外欄位出口（先例 sendLoginThrottled／sendStorageQuotaExceeded）。只給有垃圾桶權的人。 */
 export function sendInTrash(reply: FastifyReply, noteId: string): FastifyReply {
   return reply.code(404).send({ error: { code: "in_trash", message: "This note is in the trash." }, noteId });
 }

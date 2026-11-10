@@ -12,7 +12,7 @@ import {
 
 const one = (data: Buffer, opts?: { filename?: string; contentType?: string }) => multipartBody([iconFile(data, opts)]);
 
-describe("PUT /api/admin/auth/providers/:id/icon（spec §4.2、§8.1 S1–S4）", () => {
+describe("PUT /api/admin/auth/providers/:id/icon", () => {
   it("S1：未登入 401、一般使用者（真 session）403、管理員的有效 PAT 401；DB 不變", async () => {
     const { app, db, admin } = await adminApp();
     const p = await seedAuthProvider(db, { issuerUrl: "https://a.example" });
@@ -45,7 +45,7 @@ describe("PUT /api/admin/auth/providers/:id/icon（spec §4.2、§8.1 S1–S4）
     expect(row).toMatchObject({ iconKind: "upload", iconMime: "image/png", iconVersion: 1, configVersion: before!.configVersion, enabled: before!.enabled });
     expect(Buffer.compare(row!.iconData!, exact)).toBe(0);
 
-    // PUT 再一次：後到者的圖與 version 勝（spec §7.2 PUT ∥ PUT 的序列形）。
+    // PUT 再一次：後到者的圖與 version 勝（PUT ∥ PUT 的序列形）。
     const again = await putIcon(app, p.id, one(JPEG_BYTES, { filename: "b.jpg", contentType: "image/jpeg" }), { cookies });
     expect(again.json().icon).toEqual({ type: "upload", url: `/api/auth/providers/${p.id}/icon?v=2` });
     expect(await providerRow(db, p.id)).toMatchObject({ iconMime: "image/jpeg", iconVersion: 2 });
@@ -98,7 +98,7 @@ describe("PUT /api/admin/auth/providers/:id/icon（spec §4.2、§8.1 S1–S4）
     }
   });
 
-  it("RF2：兩個 file part 只看第一個——先 GIF 後 PNG → 415；先 PNG 後 GIF → 200 且存的是第一個", async () => {
+  it("兩個 file part 只看第一個——先 GIF 後 PNG → 415；先 PNG 後 GIF → 200 且存的是第一個", async () => {
     const { app, db, cookies } = await adminApp();
     const p = await seedAuthProvider(db, { issuerUrl: "https://a.example" });
     const gifFirst = multipartBody([iconFile(GIF_BYTES, { filename: "a.gif" }), iconFile(pngBytes(), { filename: "b.png" })]);
@@ -109,7 +109,7 @@ describe("PUT /api/admin/auth/providers/:id/icon（spec §4.2、§8.1 S1–S4）
     expect(Buffer.compare((await providerRow(db, p.id))!.iconData!, first)).toBe(0);
   });
 
-  it("§7.2 PUT ∥ DELETE：holder（扮演別的管理員的刪除）持列鎖 → PUT 真的卡在 UPDATE → holder 刪列提交 → PUT 404、無列", async () => {
+  it("PUT ∥ DELETE：holder（扮演別的管理員的刪除）持列鎖 → PUT 真的卡在 UPDATE → holder 刪列提交 → PUT 404、無列", async () => {
     const { app, db, cookies } = await adminApp();
     const p = await seedAuthProvider(db, { issuerUrl: "https://a.example", enabled: false });
     const [{ current_database: dbName }] = (await db.execute<{ current_database: string }>(sql`select current_database()`)).rows;
@@ -133,7 +133,7 @@ describe("PUT /api/admin/auth/providers/:id/icon（spec §4.2、§8.1 S1–S4）
     expect(await providerRow(db, p.id)).toBeUndefined();
   });
 
-  it("非預期 DB 錯誤經 redactDbError：500，log 不含圖檔位元組（params 帶整個圖檔，spec §4.2 第 7 步）", async () => {
+  it("非預期 DB 錯誤經 redactDbError：500，log 不含圖檔位元組（params 帶整個圖檔）", async () => {
     const logs = captureLogs();
     const { app, db, cookies } = await adminApp({}, logs.options);
     const p = await seedAuthProvider(db, { issuerUrl: "https://a.example" });

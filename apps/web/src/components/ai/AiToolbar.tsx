@@ -6,15 +6,15 @@ import { KnotebookColorStyleButton } from "@/components/editor/colors/KnotebookC
 import { useAiSession } from "./AiSession";
 
 /**
- * 自訂 formatting toolbar（#263 §5.1）：`getFormattingToolbarItems()` 的預設按鈕原樣復原，尾端追加一顆 AI icon 鈕——按下開框選 AI 框
+ * 自訂 formatting toolbar（#263）：`getFormattingToolbarItems()` 的預設按鈕原樣復原，尾端追加一顆 AI icon 鈕——按下開框選 AI 框
  * （`session.open()`），工具列那排由框取代（壓制在 `SelectionAiController`）。舊版的下拉清單整段拿掉：它用 `position:absolute` 畫在
- * `.bn-toolbar` 裡，而 mantine 的 `.bn-toolbar` 是 `overflow-x:auto`，展開就變成工具列的垂直溢出（spec §1）。
+ * `.bn-toolbar` 裡，而 mantine 的 `.bn-toolbar` 是 `overflow-x:auto`，展開就變成工具列的垂直溢出。
  *
  * 顯示條件：可編輯、有可用動作、且 `getSelection()` 不是 undefined——NodeSelection（選到圖片／檔案區塊）時它回 undefined，
- * 不渲染 AI 項，避免按了沒反應的死鈕；跨欄或含整列的選取照常渲染（`open()` 把錨點擴大成整列，spec §7.5）。串流中停用（S2）。`useAiSession()` 能直接用：toolbar 經 `editor.portalElement` 的 React portal
+ * 不渲染 AI 項，避免按了沒反應的死鈕；跨欄或含整列的選取照常渲染（`open()` 把錨點擴大成整列）。串流中停用。`useAiSession()` 能直接用：toolbar 經 `editor.portalElement` 的 React portal
  * 渲染，context 穿透 portal。
  *
- * 預設按鈕中的檔案刪除鈕（key `fileDeleteButton`）換成自家版：原生的走 `editor.removeBlocks`，刪欄內的圖會收欄（D25）。
+ * 預設按鈕中的檔案刪除鈕（key `fileDeleteButton`）換成自家版：原生的走 `editor.removeBlocks`，刪欄內的圖會收欄。
  * 顏色鈕（key `colorStyleButton`）也換成自家版：10 種內建色之外每段多一個「自訂…」，可套任意色碼（#378）。
  */
 export function AiToolbar() {

@@ -29,7 +29,7 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
         "建立 SSO 服務",
       )
     ).json() as { id: string }).id;
-    // 建立時一律停用、不自動建帳（spec §9.2／U3）；secret 已隨建立送出，這裡直接啟用並打開自動建帳。
+    // 建立時一律停用、不自動建帳；secret 已隨建立送出，這裡直接啟用並打開自動建帳。
     await check(await api.patch(`/api/admin/auth/providers/${id}`, { data: { enabled: true, autoCreateEnabled: true } }), "啟用 SSO 服務");
   } finally {
     await api.dispose();

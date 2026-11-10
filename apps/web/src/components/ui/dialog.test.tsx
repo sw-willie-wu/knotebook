@@ -81,7 +81,7 @@ describe("DialogContent dismissOnOutside", () => {
   });
 });
 
-describe("DialogContent size（#247 §4.1）", () => {
+describe("DialogContent size（#247）", () => {
   it("預設 size：恰一顆內建 Close（行為零變的基準）", async () => {
     render(<Harness />);
     await settle();
@@ -97,7 +97,7 @@ describe("DialogContent size（#247 §4.1）", () => {
     expect(screen.queryAllByRole("button", { name: "Close" })).toHaveLength(0);
   });
 
-  it('size="panel"：透明外框、§4.6 窄視窗寬高＋§4.1 的 md: clamp', async () => {
+  it('size="panel"：透明外框、窄視窗寬高＋md: clamp', async () => {
     render(<Harness size="panel" />);
     const dialog = await screen.findByRole("dialog");
     expect(dialog).toHaveClass(

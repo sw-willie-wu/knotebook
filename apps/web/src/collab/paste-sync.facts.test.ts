@@ -2,9 +2,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { BlockNoteEditor } from "@blocknote/core";
 import { noteSchema } from "./schema";
 
-// spec 2026-10-13 site-links §8.3【推】→【驗】：BlockNote 的 paste 同步走 `view.pasteHTML/pasteText`；tiptap Link 的 `handlePaste`
-// （選取上貼網址）與 paste rule 都在同一次 dispatch 內完成 ⇒ 呼叫返回時文件已是最終形。Task 12 的貼上轉換以此為前提。
-// 量到哪一形不同步：照實改期望值並回報——Task 12 要在那一形另補偵測。
+// 已驗證：BlockNote 的 paste 同步走 `view.pasteHTML/pasteText`；tiptap Link 的 `handlePaste`
+// （選取上貼網址）與 paste rule 都在同一次 dispatch 內完成 ⇒ 呼叫返回時文件已是最終形。貼上轉換以此為前提。
+// 量到哪一形不同步：照實改期望值並回報——貼上轉換要在那一形另補偵測。
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 泛型三元組，走 repo 慣例
 type AnyEditor = BlockNoteEditor<any, any, any>;

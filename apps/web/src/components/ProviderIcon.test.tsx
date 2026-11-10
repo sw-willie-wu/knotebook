@@ -7,7 +7,7 @@ import { ProviderIcon } from "./ProviderIcon";
 const URL_V1 = "/api/auth/providers/11111111-1111-4111-8111-111111111111/icon?v=1";
 const URL_V2 = "/api/auth/providers/11111111-1111-4111-8111-111111111111/icon?v=2";
 
-describe("ProviderIcon（spec §6.1、§8.2 W1）", () => {
+describe("ProviderIcon", () => {
   it("builtin 三名各渲染對應 SVG：data-provider-icon、aria-hidden、focusable=false、16px、沒有任何文字內容", () => {
     for (const name of ["gitlab", "google", "generic"] as const) {
       const { container, unmount } = render(<ProviderIcon icon={{ type: "builtin", name }} />);
@@ -77,7 +77,7 @@ describe("ProviderIcon（spec §6.1、§8.2 W1）", () => {
     expect(container.querySelector("svg")).toHaveAttribute("data-provider-icon", "generic");
   });
 
-  it("RF4：失敗後 DTO 換成新網址（換圖、?v= 遞增）→ 重新顯示 <img>；回到已失敗的網址 → 仍是通用圖示", () => {
+  it("失敗後 DTO 換成新網址（換圖、?v= 遞增）→ 重新顯示 <img>；回到已失敗的網址 → 仍是通用圖示", () => {
     const { container, rerender } = render(<ProviderIcon icon={{ type: "upload", url: URL_V1 }} />);
     fireEvent.error(container.querySelector("img")!);
     rerender(<ProviderIcon icon={{ type: "upload", url: URL_V2 }} />);

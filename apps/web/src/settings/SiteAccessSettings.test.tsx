@@ -49,7 +49,7 @@ function setup(initial: AdminAuthSettingsDto, onPatch: (body: Record<string, boo
 }
 const pwSwitch = () => screen.getByRole("switch", { name: "Allow password sign-in" });
 
-describe("SiteAccessSettings（#187 §9.4、§9.5）", () => {
+describe("SiteAccessSettings（#187）", () => {
   beforeEach(async () => { await i18n.changeLanguage("en"); dismissAllToasts(); });
   afterEach(() => vi.unstubAllGlobals());
 

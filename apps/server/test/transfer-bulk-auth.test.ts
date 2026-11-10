@@ -1,5 +1,5 @@
 /**
- * bulk transfer spec 2026-11-02 §5.3：`transferAuth.requireBulk("read")`（plan T9 A1–A12）。矩陣在單篇 GET 上全跑、DELETE 抽三案。
+ * bulk transfer：`transferAuth.requireBulk("read")`。矩陣在單篇 GET 上全跑、DELETE 抽三案。
  */
 import { describe, expect, it } from "vitest";
 import { eq, sql } from "drizzle-orm";
@@ -36,7 +36,7 @@ describe("requireBulk：A 矩陣（GET /api/transfer/notes/:id）", () => {
       const r = await bulkGet(s.ctx.app, s.url, undefined, { cookies });
       expect(r.statusCode, `#${i}`).toBe(401);
       expect(errOf(r), `#${i}`).toEqual({ code: "unauthorized", message: BULK_TRANSFER_REQUIRED_MESSAGE });
-      // docs/api.md：bulk 端點沒帶 Authorization 也回 challenge（PR-3 審查 m5）
+      // docs/api.md：bulk 端點沒帶 Authorization 也回 challenge
       const ch = String(r.headers["www-authenticate"] ?? "");
       expect(ch, `#${i}`).toContain('realm="knotebook-transfer"');
       expect(ch, `#${i}`).not.toContain("error=");
@@ -57,7 +57,7 @@ describe("requireBulk：A 矩陣（GET /api/transfer/notes/:id）", () => {
     expect((await basic()).statusCode).toBe(429);
   });
 
-  it("A3 有效的 knb_ PAT → 401＋BULK_TRANSFER_PAT_MESSAGE；A4 knbt_ 亂碼 → 401＋BULK_TRANSFER_INVALID_MESSAGE（PR-3 W11：不是 #200 的 TRANSFER_INVALID_MESSAGE）、challenge 含 invalid_token；A11 body 是 JSON", async () => {
+  it("A3 有效的 knb_ PAT → 401＋BULK_TRANSFER_PAT_MESSAGE；A4 knbt_ 亂碼 → 401＋BULK_TRANSFER_INVALID_MESSAGE（不是 #200 的 TRANSFER_INVALID_MESSAGE）、challenge 含 invalid_token；A11 body 是 JSON", async () => {
     const s = await scene();
     const a3 = await bulkGet(s.ctx.app, s.url, s.pat.token);
     expect(a3.statusCode).toBe(401);

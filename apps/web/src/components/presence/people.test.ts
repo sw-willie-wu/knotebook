@@ -12,7 +12,7 @@ import {
 } from "./people";
 import { agentState, userState } from "./test-awareness";
 
-// #293 §9.1／§9.2：名單、合併、排序、簽章、容量、首字。me＝"u-me"、本分頁 clientID＝1。
+// #293：名單、合併、排序、簽章、容量、首字。me＝"u-me"、本分頁 clientID＝1。
 const ME = "u-me";
 const MY_CLIENT = 1;
 const UUID = "0f8fad5b-d9cb-469f-a165-70867728950e";
@@ -150,7 +150,7 @@ describe("presencePeople", () => {
 });
 
 describe("presenceCursor", () => {
-  it("PC1 取有 cursor 且 since 最大者；AI 取該 clientID；不存在 → null", () => {
+  it("取有 cursor 且 since 最大者；AI 取該 clientID；不存在 → null", () => {
     const c10 = { anchor: { c: 10 }, head: { c: 10 } };
     const c11 = { anchor: { c: 11 }, head: { c: 11 } };
     const one = new Map<number, unknown>([
@@ -175,7 +175,7 @@ function user(id: string): PresencePerson {
 }
 
 describe("orderBySeen", () => {
-  it("OS1 依進場序；離開即移除；再回來排最後", () => {
+  it("依進場序；離開即移除；再回來排最後", () => {
     const [a, b, c] = [user("a"), user("b"), user("c")];
     let r = orderBySeen(new Map(), [b, a], 0);
     expect(r.people.map((p) => p.key)).toEqual(["user:b", "user:a"]);
@@ -189,7 +189,7 @@ describe("orderBySeen", () => {
 });
 
 describe("presenceSignature", () => {
-  it("SG1 游標位置不算；有無游標、名字、角色、頭貼 v、人數都算", () => {
+  it("游標位置不算；有無游標、名字、角色、頭貼 v、人數都算", () => {
     const sig = (entries: [number, unknown][]) => presenceSignature(people(entries));
     const base = sig([[10, userState("u-a", "Ann", { role: "editor", cursor: CURSOR, avatar: { id: UUID, v: 1 } })]]);
     expect(
@@ -218,7 +218,7 @@ describe("presenceLayout", () => {
     [5, 5, 0, 1, 4],
     [6, 4, 2, 1, 5],
     [9, 4, 5, 1, 8],
-  ])("PL1 total=%i → 寬 %i/%i、窄 %i/%i", (total, ws, wm, ns, nm) => {
+  ])("total=%i → 寬 %i/%i、窄 %i/%i", (total, ws, wm, ns, nm) => {
     expect(presenceLayout(total)).toEqual({ wide: { shown: ws, more: wm }, narrow: { shown: ns, more: nm } });
   });
 });
@@ -232,18 +232,18 @@ describe("firstGrapheme", () => {
     ["  ", "?"],
     ["", "?"],
     [" bob", "B"],
-  ])("FG1 %j → %j", (name, expected) => {
+  ])("%j → %j", (name, expected) => {
     expect(firstGrapheme(name)).toBe(expected);
   });
 
-  // #293 T5 r1 I2：開頭的 bidi／格式字元看不見，首字取第一個看得見的字素。
+  // #293：開頭的 bidi／格式字元看不見，首字取第一個看得見的字素。
   it.each([
     [String.fromCharCode(0x202e) + "Ann", "A"],
     [String.fromCharCode(0x200f, 0x2066) + "bob", "B"],
     [String.fromCharCode(0xfeff, 0x200b) + "王", "王"],
     [String.fromCharCode(0x200b), "?"],
     [String.fromCharCode(0x202e, 0x3000, 0x200e), "?"],
-  ])("FG2 開頭不可見字元 %j → %j", (name, expected) => {
+  ])("開頭不可見字元 %j → %j", (name, expected) => {
     expect(firstGrapheme(name)).toBe(expected);
   });
 });

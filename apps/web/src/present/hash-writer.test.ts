@@ -6,7 +6,7 @@ function location(pathname: string, hash = "", key = "k1", state: unknown = null
   return { pathname, search: "?present", hash, key, state };
 }
 
-describe("createHashWriter（spec §6.4-5）", () => {
+describe("createHashWriter", () => {
   it("以最新 location 寫 #/<id>：replace、保留 search 與 state", () => {
     const navigate = vi.fn();
     const latest = location("/n/a/b", "", "k1", { knotebookPresentPushed: true });

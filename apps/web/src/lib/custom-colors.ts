@@ -24,8 +24,8 @@ export function customColorSelectors(kind: CustomColorKind, prop: CustomColorPro
     return [sel, `.kn-present ${sel}`];
   }
   const attr = ATTR[prop];
-  // 兩條 `.kn-present` 規則與 present.css 的內建色規則同形，當保險保留；
-  // 簡報畫面由 e2e 46 的案例 7 涵蓋。
+  // `.kn-present` 開頭的規則（行內與區塊各一條）與 present.css 的內建色規則同形，
+  // 簡報畫面上自訂色的特定度因此跟內建色一樣；當保險保留。
   return [
     `[${attr}="${hex}"]`,
     `.bn-block:has(> .bn-block-content[${attr}="${hex}"])`,

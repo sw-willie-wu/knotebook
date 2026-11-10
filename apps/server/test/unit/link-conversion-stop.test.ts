@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createLinkConversion, type LinkConversionDeps } from "../../src/notes/link-conversion.js";
 
-// spec 2026-10-13 site-links §12.1：stop() 永不 reject——SIGTERM 鏈的 Promise.race 若被它的拒絕帶走，會跳過 collab.destroy()（丟掉人的待落盤編輯）。
+// stop() 永不 reject——SIGTERM 鏈的 Promise.race 若被它的拒絕帶走，會跳過 collab.destroy()（丟掉人的待落盤編輯）。
 // 這裡讓 `running` 本身拒絕（log.info 與 log.error 都丟錯），stop() 仍要 resolve。
 describe("#269 createLinkConversion().stop()", () => {
   afterEach(() => vi.useRealTimers());

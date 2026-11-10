@@ -1,5 +1,5 @@
 /**
- * 公開頁的網址把手（#122 PR3 Task 4）：`/p/:token`（#72 單段）與
+ * 公開頁的網址把手（#122）：`/p/:token`（#72 單段）與
  * `/p/:handle/:slug`（別名雙段）兩形共用同一組頁面/編輯器/圖源映射，元件間傳遞
  * 的是這個判別聯集，**不是**裸 token 字串——依形組 API 網址收斂在
  * {@link publicNoteApiPath}（意圖：頁面 query 與 publicMediaUrl 都吃它；「只有
@@ -26,7 +26,7 @@ export function publicNoteApiPath(ref: PublicNoteRef): string {
 }
 
 /**
- * 依形分岔的 react-query key（plan gate m6）：兩形**不得共 key**——共了的話從
+ * 依形分岔的 react-query key：兩形**不得共 key**——共了的話從
  * token 頁導去別名頁會拿到殘留快取（不同權限判定路徑的內容彼此冒充）。段落逐值
  * 展開（不塞整個 ref 物件——物件識別不穩定會讓快取永遠 miss）。
  */
@@ -38,7 +38,7 @@ export function publicNoteQueryKey(ref: PublicNoteRef): readonly string[] {
 }
 
 /**
- * 公開 ref 的逐值識別字串（兩形前綴不同）：`PublicNoteEditor` 的編輯器重建 deps 與段落錨點（#269 §10.2）的 `noteKey`
+ * 公開 ref 的逐值識別字串（兩形前綴不同）：`PublicNoteEditor` 的編輯器重建 deps 與段落錨點（#269）的 `noteKey`
  * 共用這一支——不放 ref 物件本身（物件識別不穩定），也不各寫一份字面。
  */
 export function publicRefIdentity(ref: PublicNoteRef): string {

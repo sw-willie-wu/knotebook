@@ -17,10 +17,10 @@ import { P, row, shape, withChildren, type AnyEditor, type PartialBlockLike } fr
 import { KnotebookSideMenu, NotePathContext } from "./KnotebookSideMenu";
 import { HeadingAnchorButtons } from "./HeadingAnchorButtons";
 
-// spec 2026-10-13 site-links §10.3(a)：拖曳把手選單＝四個預設項＋「複製段落連結」。jsdom 沒有 elementsFromPoint：
+// 拖曳把手選單＝四個預設項＋「複製段落連結」。jsdom 沒有 elementsFromPoint：
 // 墊一支回傳該段落的 elementsFromPoint，再對編輯器發一次真的 mousemove，讓 BlockNote 的 SideMenuView 自己算出 state。
 // 不直接 `store.setState`：那樣 SideMenuView 內部的 state 仍是 undefined，點把手時 `freezeMenu()` 拋
-// `Cannot set properties of undefined (setting 'show')`（起草時實跑，vitest 記成 unhandled error、exit 1）。
+// `Cannot set properties of undefined (setting 'show')`（vitest 記成 unhandled error、exit 1）。
 
 describe("#269 KnotebookDragHandleMenu", () => {
   const writeText = vi.fn<(text: string) => Promise<void>>(() => Promise.resolve());
@@ -106,7 +106,7 @@ describe("#269 KnotebookDragHandleMenu", () => {
   });
 });
 
-describe("D25 側選單「Delete」不收欄", () => {
+describe("側選單「Delete」不收欄", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
   });
@@ -151,16 +151,16 @@ describe("D25 側選單「Delete」不收欄", () => {
   it("SM2：跨兩欄選取後對 a 刪除 → 整個選取（a 與 b）被刪、列仍兩欄", async () => {
     const editor = mount(R2());
     act(() => editor.setSelection("a1", "b1"));
-    // SM2a（事實釘）：跨欄選取的 blocks 第 2 項是 column 節點本身。
+    // 事實釘：跨欄選取的 blocks 第 2 項是 column 節點本身。
     expect(editor.getSelection()!.blocks.map((b) => b.type)).toEqual(["paragraph", "column"]);
     await deleteVia(editor, "a", "a1");
     expect(shape(editor)).toBe("paragraph:x  ROW[COL(paragraph) | COL(paragraph)]  paragraph:z");
   });
 
-  // T3c（spec §5.4 調整 2 補充）：跨欄選取只刪選取範圍、點第 2 欄以後或列內的 block 也算多選。
+  // 跨欄選取只刪選取範圍、點第 2 欄以後或列內的 block 也算多選。
   const C1 = () => [P("x", "x"), row([[P("a", "a1")], [P("b", "b1"), P("q", "q1")]], "r"), P("z", "z")];
 
-  it("SM2b：同一選取下對 b 刪除 → 展開後的集合含 b，刪 a 與 b（R1）", async () => {
+  it("SM2b：同一選取下對 b 刪除 → 展開後的集合含 b，刪 a 與 b", async () => {
     const editor = mount(R2());
     act(() => editor.setSelection("a1", "b1"));
     await deleteVia(editor, "b", "b1");
@@ -174,7 +174,7 @@ describe("D25 側選單「Delete」不收欄", () => {
     expect(shape(editor)).toBe("paragraph:x  ROW[COL(paragraph) | COL(paragraph:q)]  paragraph:z");
   });
 
-  it("SM2d：[a｜b｜c] 選 a→b 後對 a 刪除 → 三欄都在、前兩欄補空段落（C4）", async () => {
+  it("SM2d：[a｜b｜c] 選 a→b 後對 a 刪除 → 三欄都在、前兩欄補空段落", async () => {
     const editor = mount([P("x", "x"), row([[P("a", "a1")], [P("b", "b1")], [P("c", "c1")]], "r"), P("z", "z")]);
     act(() => editor.setSelection("a1", "b1"));
     await deleteVia(editor, "a", "a1");
@@ -188,7 +188,7 @@ describe("D25 側選單「Delete」不收欄", () => {
     expect(shape(editor)).toBe("ROW[COL(paragraph) | COL(paragraph:q)]  paragraph:z");
   });
 
-  it("SM2f：同 SM2e 的選取對 a 刪除 → 同 SM2e（R3）", async () => {
+  it("SM2f：同 SM2e 的選取對 a 刪除 → 同 SM2e", async () => {
     const editor = mount(C1());
     act(() => editor.setSelection("x", "b1"));
     await deleteVia(editor, "a", "a1");
@@ -202,14 +202,14 @@ describe("D25 側選單「Delete」不收欄", () => {
     expect(shape(editor)).toBe("paragraph:x  ROW[COL(paragraph) | COL(paragraph:q)]  paragraph:z");
   });
 
-  it("SM2h：從列上方選到列下方（x→z）後對列內的 a 刪除 → 整列連 x、z 刪掉（C10-a）", async () => {
+  it("SM2h：從列上方選到列下方（x→z）後對列內的 a 刪除 → 整列連 x、z 刪掉", async () => {
     const editor = mount(R2());
     act(() => editor.setSelection("x", "z"));
     await deleteVia(editor, "a", "a1");
     expect(shape(editor)).toBe("paragraph");
   });
 
-  it("SM2i：一般筆記（沒有並排）選 a→b 後對 a 刪除 → 刪整個選取，同 core（SD4 N5）", async () => {
+  it("SM2i：一般筆記（沒有並排）選 a→b 後對 a 刪除 → 刪整個選取，同 core", async () => {
     const editor = mount([P("a", "a1"), P("b", "b1"), P("c", "c1")]);
     act(() => editor.setSelection("a1", "b1"));
     await deleteVia(editor, "a", "a1");
@@ -217,7 +217,7 @@ describe("D25 側選單「Delete」不收欄", () => {
   });
 });
 
-describe("T6 ⋮⋮「取消並排」（spec §7.2）", () => {
+describe("T6 ⋮⋮「取消並排」", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
   });
@@ -268,7 +268,7 @@ describe("T6 ⋮⋮「取消並排」（spec §7.2）", () => {
   });
 });
 
-describe("C7 欄內的側邊選單只留 ⋮⋮（spec §17 #3，Willie 2026-10-22）", () => {
+describe("C7 欄內的側邊選單只留 ⋮⋮", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
   });

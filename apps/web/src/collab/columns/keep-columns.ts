@@ -1,7 +1,7 @@
 import { removeAndInsertBlocks, type Block, type BlockIdentifier, type BlockNoteEditor, type PartialBlock } from "@blocknote/core";
 
 /**
- * D25（spec 2026-10-21 columns-layout §5.4 調整 2、§5.5）：**我們程式發動的**移除／取代一律走這裡，不收欄、不攤平。
+ * **我們程式發動的**移除／取代一律走這裡，不收欄、不攤平。
  * core 的 `editor.removeBlocks`／`replaceBlocks` 預設跑 `fixColumnList`：移光某欄 → 欄被拿掉、剩一欄的列被攤平成一般 block。
  * 改用 `removeAndInsertBlocks(…, { fixColumns: false })`，列與欄數不變；被移光的欄由 PM 的 replace fitter 補一個空段落。
  * 七處：AI 套用、AI 撤回、mermaid 貼上轉換、上傳失敗清 placeholder、側選單「刪除」、自家檔案刪除鈕、`AiToolbar` 把原生刪除鈕換成自家版

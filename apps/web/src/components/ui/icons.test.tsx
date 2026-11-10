@@ -46,10 +46,10 @@ describe("icons", () => {
     ["key-round", KeyRound],
     ["arrow-up", ArrowUp],
     ["arrow-down", ArrowDown],
-    // IC1 垃圾桶的「還原」與「選取」（#181 PR-2b）
+    // 垃圾桶的「還原」與「選取」（#181）
     ["restore", RotateCcw],
     ["select", SquareCheck],
-    // 資料夾列、資料夾 ⋮、GroupMenu（資料夾 PR-3b-1）
+    // 資料夾列、資料夾 ⋮、GroupMenu
     ["folder", Folder],
     ["folder-plus", FolderPlus],
     ["file-plus", FilePlus],
@@ -64,7 +64,7 @@ describe("icons", () => {
     expect(svg).toHaveAttribute("aria-hidden", "true");
     expect(svg).toHaveClass("h-4", "w-4");
   });
-  it('Pencil 帶 data-icon="pencil"、預設 aria-hidden、吃 className（#247 §4.9 編輯鈕）', () => {
+  it('Pencil 帶 data-icon="pencil"、預設 aria-hidden、吃 className（#247 編輯鈕）', () => {
     const { container } = render(<Pencil className="h-4 w-4" />);
     const svg = container.querySelector("svg");
     expect(svg).toHaveAttribute("data-icon", "pencil");
