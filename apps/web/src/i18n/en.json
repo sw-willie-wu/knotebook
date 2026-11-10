@@ -406,6 +406,17 @@
     "rose": "Rose",
     "gold": "Gold"
   },
+  "colors": {
+    "custom": "Custom…",
+    "back": "Back",
+    "hex_label": "Hex color",
+    "hex_placeholder": "#ff6600",
+    "hex_invalid": "Enter a color as #rgb or #rrggbb",
+    "apply": "Apply",
+    "recent": "Recent",
+    "saturation_label": "Saturation and brightness",
+    "hue_label": "Hue"
+  },
   "folders": {
     "menu": {
       "label": "Folder menu for {{name}}",

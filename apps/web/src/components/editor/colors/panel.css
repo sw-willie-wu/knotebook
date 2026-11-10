@@ -1,0 +1,9 @@
+/* 自訂色面板裡的 react-colorful 指標：縮小一些，白框外加一圈細暗邊，淺色底上也看得到。
+   多帶面板 class 讓特異度高過 react-colorful 執行時注入的同名規則。 */
+.kb-color-panel .react-colorful__pointer {
+  width: 20px;
+  height: 20px;
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 0.35),
+    0 1px 3px rgb(0 0 0 / 0.3);
+}
