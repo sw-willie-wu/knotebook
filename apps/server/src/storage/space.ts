@@ -1,5 +1,5 @@
 /**
- * 儲存配額的「空間」（spec 2026-10-08 §5.2）：個人空間＝某使用者的個人筆記全體，群組空間＝某群組的筆記全體。
+ * 儲存配額的「空間」：個人空間＝某使用者的個人筆記全體，群組空間＝某群組的筆記全體。
  * 純資料與「只組不執行」的 SQL 片段——沒有 DB 存取，`tx/` 與非 tx 模組都可 import。
  */
 import { eq, sql, type SQL } from "drizzle-orm";
@@ -17,7 +17,7 @@ export function spaceOfNote(n: { ownerId: string | null; groupId: string | null 
 }
 
 /**
- * advisory 鎖鍵的字串（spec §5.2；SQL 端 `hashtextextended(<本字串>, 0)`）。id 一律小寫（Review Focus RF1：同一個 UUID 的大小寫
+ * advisory 鎖鍵的字串（SQL 端 `hashtextextended(<本字串>, 0)`）。id 一律小寫（同一個 UUID 的大小寫
  * 變體必須是同一把鎖）。碰撞只會多序列化、不影響正確性。
  */
 export function spaceLockKey(space: StorageSpace): string {
@@ -25,14 +25,14 @@ export function spaceLockKey(space: StorageSpace): string {
 }
 
 /**
- * `coalesce(sum(uploads.size), 0)::bigint`，以 `mapWith(Number)` 轉回 number（node-postgres 的 int8 是字串——spec §4.3 m8）。
+ * `coalesce(sum(uploads.size), 0)::bigint`，以 `mapWith(Number)` 轉回 number（node-postgres 的 int8 是字串）。
  * **每次呼叫現造**（drizzle 的 SQL 片段不得跨查詢重用）。
  */
 export function sumUploadSizeSql(): SQL<number> {
   return sql<number>`coalesce(sum(${uploads.size}), 0)::bigint`.mapWith(Number);
 }
 
-/** 「屬於這個空間的筆記」述詞（JOIN notes 後用）：個人走 `notes_owner_idx`，群組走 `notes_group_slug_idx`（S9 以 EXPLAIN 驗）。 */
+/** 「屬於這個空間的筆記」述詞（JOIN notes 後用）：個人走 `notes_owner_idx`，群組走 `notes_group_slug_idx`（以 EXPLAIN 驗）。 */
 export function spaceNotesWhere(space: StorageSpace): SQL {
   return space.kind === "user" ? eq(notes.ownerId, space.id) : eq(notes.groupId, space.id);
 }

@@ -1,5 +1,5 @@
 /**
- * bulk transfer spec 2026-11-02 §9.3-1：agent 行雜湊＋逐行 diff（plan PR-2 §0.1-1；自寫 Myers，不引套件）。
+ * bulk transfer：agent 行雜湊＋逐行 diff（自寫 Myers，不引套件）。
  *
  * 基底只有每行 8 bytes 的 HMAC（`transfer_bases.line_hashes`），沒有原文，所以 diff 在**雜湊空間**做。agent 每行算兩份雜湊
  * （原文鍵、編號正規化鍵），都用**該基底列的鹽**、同一支 `hmacOf`／`lineKey`／`normalizeNumbered`（不變量 2：另寫一份正規化
@@ -30,7 +30,7 @@ export interface AgentLines {
 }
 
 export const DIFF_MAX_D = 2000;
-/** 全域 Myers 步數 ≤ `DIFF_WORK_MAX_FACTOR·(N+M)·maxD`（plan §0.1-1 ⑤）。 */
+/** 全域 Myers 步數 ≤ `DIFF_WORK_MAX_FACTOR·(N+M)·maxD`（⑤）。 */
 export const DIFF_WORK_MAX_FACTOR = 4;
 export const DIFF_DEPTH_MAX = 32;
 
@@ -41,7 +41,7 @@ export interface LineDiff {
   overflow: boolean;
   /** 錨點數（所有層加總）。 */
   anchored: number;
-  /** 所有退化子區段內、剝完該子區段共同前後綴之後、沒配到的**基底**行數總和（plan §0.1-1 ④，定義寫死）。 */
+  /** 所有退化子區段內、剝完該子區段共同前後綴之後、沒配到的**基底**行數總和（④，定義寫死）。 */
   degradedLines: number;
   /** 測試用：撞到哪一道上限（先撞到的那道；沒撞不帶）。 */
   capHit?: "work" | "depth";
@@ -173,7 +173,7 @@ function backtrack(trace: Int32Array[], dEnd: number, n: number, m: number, aLo:
   return out;
 }
 
-/** 子區段內的錨點（plan §0.1-1 ③）：兩邊唯一的等價行對，依 agent 位置取嚴格遞增的 LIS。回 `[i, j]` 依文件順序。 */
+/** 子區段內的錨點（③）：兩邊唯一的等價行對，依 agent 位置取嚴格遞增的 LIS。回 `[i, j]` 依文件順序。 */
 function findAnchors(c: Ctx, aLo: number, aHi: number, bLo: number, bHi: number): Array<[number, number]> {
   const baseCount = new Map<number, number>();
   for (let i = aLo; i < aHi; i++) baseCount.set(c.baseId[i]!, (baseCount.get(c.baseId[i]!) ?? 0) + 1);
@@ -197,7 +197,7 @@ function findAnchors(c: Ctx, aLo: number, aHi: number, bLo: number, bHi: number)
     cand.push([i, j]);
     perAgent.set(j, (perAgent.get(j) ?? 0) + 1);
   }
-  // 同一個 agent 行同時是兩個基底鍵的候選（kind 0 與 kind 1 的雜湊相同）→ 兩者都不當錨點（gate r2 m-2）。
+  // 同一個 agent 行同時是兩個基底鍵的候選（kind 0 與 kind 1 的雜湊相同）→ 兩者都不當錨點。
   const uniq = cand.filter(([, j]) => perAgent.get(j) === 1);
   // patience：tails[len] ＝長度 len+1 的遞增子序列中結尾最小者在 uniq 的索引；prev 回溯。
   const tails: number[] = [];

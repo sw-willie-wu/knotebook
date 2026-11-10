@@ -1,10 +1,10 @@
 /**
- * 自動版本的分層稀疏清除（spec 2026-10-09-note-versions-design.md §10.1）。純函式，時間一律外部注入——檔內不得呼叫
+ * 自動版本的分層稀疏清除。純函式，時間一律外部注入——檔內不得呼叫
  * `Date.now()`／`new Date()`（`version-policy.test.ts` 有源碼守衛），同 `backup-policy.ts` 的慣例。
  *
  * 永遠留：手動版本、基底那版、最新一版（seq 最大）。其餘自動版本依 `age = now − createdAt` 分三個區間：
  *   age < F 天：全留；F ≤ age < D：**只在這個區間的候選之間**每個 UTC 日曆日留 createdAt 最新一筆；age ≥ D：**只在這個區間的候選之間**
- *   每個 UTC 週（週一 00:00 起）留最新一筆。同 createdAt 留 seq 大者。UTC 切桶是設計選擇（PR2 的 docs/versions.md 會寫）。
+ *   每個 UTC 週（週一 00:00 起）留最新一筆。同 createdAt 留 seq 大者。UTC 切桶是設計選擇（見 docs/versions.md）。
  * age 為負（時鐘回撥）算在 F 內。
  */
 export interface VersionPolicyRow {

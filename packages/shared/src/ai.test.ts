@@ -5,7 +5,7 @@ import {
   REWRITE_ACTION_ID, SUMMARIZE_ACTION_ID, TRANSLATE_ACTION_ID, aiActionKind, codePointLength, truncateCodePoints,
 } from "./ai.js";
 
-describe("AI 動作常數（#263 spec §4.1、§4.3）", () => {
+describe("AI 動作常數（#263）", () => {
   it("內建五個 id：既有四個值不變、Instruct 是固定的小寫 uuid、順序固定且不重複", () => {
     expect([REWRITE_ACTION_ID, TRANSLATE_ACTION_ID, SUMMARIZE_ACTION_ID, CONTINUE_WRITING_ACTION_ID]).toEqual([
       "ab0a1517-bec1-4709-b13f-756548375b86",
@@ -39,7 +39,7 @@ describe("AI 動作常數（#263 spec §4.1、§4.3）", () => {
     expect(truncateCodePoints("", 0)).toBe("");
   });
 
-  it("錯誤碼 instruct_preview_only 在 ERROR_CODES（§4.4）", () => {
+  it("錯誤碼 instruct_preview_only 在 ERROR_CODES", () => {
     expect(ERROR_CODES).toContain("instruct_preview_only");
   });
 });

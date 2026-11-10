@@ -3,16 +3,16 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { ADMIN, createNote, editorLocator, loginAs, noteIdFromUrl, randomEmail, reEscape, waitForEditorSelection } from "./helpers.js";
 
 /**
- * 並排排版 PR-1（columns-layout spec §13.2 的 PR-1 部分、§17 #1／#2／#3 側邊把手、plan Review Focus 4）：
- * C1 `/grid`、C2 D24＋撤銷、C3 D25＋取消並排、C4 堆疊、C5 寬表格、C6 欄內圖片把手、C7 側邊把手、C8 拖出唯一 block、
+ * 並排排版（側邊把手）：
+ * C1 `/grid`、C2 欄首／欄尾鍵＋撤銷、C3 取消並排、C4 堆疊、C5 寬表格、C6 欄內圖片把手、C7 側邊把手、C8 拖出唯一 block、
  * C9 公開頁／簡報／版本、C10 外部 HTML 不成列。
  *
- * - 內容一律貼 §11.1 正規形的 markdown（純文字剪貼簿 → `collab/paste.ts` 接手 → `pasteMarkdown`；同 22-presentation）。
+ * - 內容一律貼正規形的 markdown（純文字剪貼簿 → `collab/paste.ts` 接手 → `pasteMarkdown`；同 22-presentation）。
  * - 文件形狀讀主編輯器的 ProseMirror 文件（`docShape`，格式同 web 的 `test/columns-fixtures.ts` 的 `shape`）：
  *   `paragraph:x  ROW[COL(paragraph:a) | COL(paragraph)]  paragraph:z`（`paragraph` 無文字＝空段落）。
  * - e2e 不能 import web：堆疊門檻自算（`collab/columns/layout.ts` 的 COLUMN_MIN_TEXT_PX／COLUMN_GAP_PX，兩邊要一起改）。
  * - 每案收 `pageerror`，案尾斷言沒有（`ResizeObserver loop` 是瀏覽器已知的良性訊息，排除）。
- * - §17 的結果寫進 `test.info().annotations`（spec-17-1、spec-17-3），C4 的 768 寬、C5 的捲動量、C10 剪貼簿讀回的 HTML 也記（stack-768、review-focus-4、external-html）。
+ * - 量測結果寫進 `test.info().annotations`（grid-menu-space、side-menu-alignment），C4 的 768 寬、C5 的捲動量、C10 剪貼簿讀回的 HTML 也記（stack-768、stacked-rows、external-html）。
  */
 
 const RUN = Date.now();
@@ -40,7 +40,7 @@ async function startNote(page: Page, label: string, creds: { email: string; pass
   return errors;
 }
 
-/** §11.1 正規形的一列（各欄 `flex:1`）。 */
+/** 正規形的一列（各欄 `flex:1`）。 */
 function columnsMarkdown(cols: string[]): string {
   return [
     '<div data-kb-columns style="display:flex;gap:16px">',
@@ -226,7 +226,7 @@ async function saveVersion(page: Page, name: string): Promise<void> {
   await expect(dialog).not.toBeVisible();
 }
 
-test("C1 /grid（§17 #1、驗收 3）：/grid 列出 2／3／4 欄；/grid 3 只剩 3 欄（空白關選單則改 /grid3）；Enter 建 3 欄、游標在第 1 欄", async ({ page }) => {
+test("C1 /grid：/grid 列出 2／3／4 欄；/grid 3 只剩 3 欄（空白關選單則改 /grid3）；Enter 建 3 欄、游標在第 1 欄", async ({ page }) => {
   test.setTimeout(90_000);
   const errors = await startNote(page, "grid");
   const editor = editorLocator(page);
@@ -247,12 +247,12 @@ test("C1 /grid（§17 #1、驗收 3）：/grid 列出 2／3／4 欄；/grid 3 �
   let outcome = "";
   await expect.poll(async () => (outcome = await menuState()), { timeout: 5_000 }).toMatch(/^(closed|3 columns)$/);
   if (outcome === "closed") {
-    test.info().annotations.push({ type: "spec-17-1", description: "space closes menu" });
+    test.info().annotations.push({ type: "grid-menu-space", description: "space closes menu" });
     await clearTyped(page, "/grid 3");
     await page.keyboard.type("/grid3");
     await expect.poll(menuState).toBe("3 columns");
   } else {
-    test.info().annotations.push({ type: "spec-17-1", description: "space keeps menu open" });
+    test.info().annotations.push({ type: "grid-menu-space", description: "space keeps menu open" });
   }
   await page.keyboard.press("Enter");
 
@@ -267,7 +267,7 @@ test("C1 /grid（§17 #1、驗收 3）：/grid 列出 2／3／4 欄；/grid 3 �
   expectNoPageErrors(errors);
 });
 
-test("C2 D24 與撤銷（驗收 4、5）：[a｜b] 在 b 開頭 Backspace → 攤平成 a b、中間沒有空段落；Ctrl+Z 一次 → 列回來", async ({ page }) => {
+test("C2 與撤銷：[a｜b] 在 b 開頭 Backspace → 攤平成 a b、中間沒有空段落；Ctrl+Z 一次 → 列回來", async ({ page }) => {
   test.setTimeout(90_000);
   const errors = await startNote(page, "d24");
   const editor = editorLocator(page);
@@ -285,7 +285,7 @@ test("C2 D24 與撤銷（驗收 4、5）：[a｜b] 在 b 開頭 Backspace → �
   expectNoPageErrors(errors);
 });
 
-test("C3 D25（驗收 3）：工具列刪掉欄內的圖 → 列不變、左欄留一個空段落；⋮⋮「Ungroup columns」→ 列攤平、r 還在", async ({ page }) => {
+test("C3：工具列刪掉欄內的圖 → 列不變、左欄留一個空段落；⋮⋮「Ungroup columns」→ 列攤平、r 還在", async ({ page }) => {
   test.setTimeout(90_000);
   const errors = await startNote(page, "d25");
   const editor = editorLocator(page);
@@ -310,7 +310,7 @@ test("C3 D25（驗收 3）：工具列刪掉欄內的圖 → 列不變、左欄�
   expectNoPageErrors(errors);
 });
 
-test("C4 堆疊（驗收 6、§13.2）：1440／1024 並排、390 堆疊、768 依實際；每個寬度整頁沒有水平捲動", async ({ page }) => {
+test("C4 堆疊：1440／1024 並排、390 堆疊、768 依實際；每個寬度整頁沒有水平捲動", async ({ page }) => {
   test.setTimeout(120_000);
   const errors = await startNote(page, "stack");
   await pasteMarkdown(page, rowDoc(["left text", "right text"]));
@@ -356,7 +356,7 @@ test("C4 堆疊（驗收 6、§13.2）：1440／1024 並排、390 堆疊、768 �
   expectNoPageErrors(errors);
 });
 
-test("C5 寬表格（Review Focus 4）：左欄 6 欄長字串表格、390 寬 → 整頁不出水平捲動、表格在欄內捲動", async ({ page }) => {
+test("C5 寬表格：左欄 6 欄長字串表格、390 寬 → 整頁不出水平捲動、表格在欄內捲動", async ({ page }) => {
   test.setTimeout(90_000);
   const errors = await startNote(page, "wide-table");
   const cells = (r: string) => `| ${Array.from({ length: 6 }, (_, i) => `${r}LongCellContent${i + 1}WithoutAnyBreaks`).join(" | ")} |`;
@@ -410,12 +410,12 @@ test("C5 寬表格（Review Focus 4）：左欄 6 欄長字串表格、390 寬 �
     await page.mouse.wheel(300, 0);
     await expect.poll(async () => (record.scrollLeft = await target.evaluate((el) => el.scrollLeft))).toBeGreaterThan(0);
   } finally {
-    test.info().annotations.push({ type: "review-focus-4", description: JSON.stringify(record) });
+    test.info().annotations.push({ type: "stacked-rows", description: JSON.stringify(record) });
   }
   expectNoPageErrors(errors);
 });
 
-test("C6 欄內圖片（§17 #2）：圖寬不超過欄；右把手往右拖 400px 仍夾在欄寬、寫入的 data-preview-width ≤ 欄寬；往左拖 50px 變小", async ({ page }) => {
+test("C6 欄內圖片：圖寬不超過欄；右把手往右拖 400px 仍夾在欄寬、寫入的 data-preview-width ≤ 欄寬；往左拖 50px 變小", async ({ page }) => {
   test.setTimeout(120_000);
   await page.setViewportSize({ width: 1440, height: 900 });
   const errors = await startNote(page, "image");
@@ -456,7 +456,7 @@ test("C6 欄內圖片（§17 #2）：圖寬不超過欄；右把手往右拖 400
   expectNoPageErrors(errors);
 });
 
-test("C7 側邊把手（§17 #3 的 PR-1 部分、§13.2）：第 2 欄的 ⋮⋮ 落在溝裡、不蓋進第 1 欄", async ({ page }) => {
+test("C7 側邊把手：第 2 欄的 ⋮⋮ 落在溝裡、不蓋進第 1 欄", async ({ page }) => {
   test.setTimeout(90_000);
   await page.setViewportSize({ width: 1440, height: 900 });
   const errors = await startNote(page, "side-menu");
@@ -485,7 +485,7 @@ test("C7 側邊把手（§17 #3 的 PR-1 部分、§13.2）：第 2 欄的 ⋮�
   try {
     aligned = await hoverForSideMenu(page, "second column");
   } finally {
-    if (!aligned) test.info().annotations.push({ type: "spec-17-3", description: "side menu never aligned with the hovered block (see failure message)" });
+    if (!aligned) test.info().annotations.push({ type: "side-menu-alignment", description: "side menu never aligned with the hovered block (see failure message)" });
   }
   const { menu, block } = aligned!;
   // 欄內只留 ⋮⋮：兩顆鈕共 48px，比 24px 的溝寬。
@@ -500,14 +500,14 @@ test("C7 側邊把手（§17 #3 的 PR-1 部分、§13.2）：第 2 欄的 ⋮�
     sideMenuTop: menu.y,
     blockTop: block.y,
   };
-  test.info().annotations.push({ type: "spec-17-3", description: JSON.stringify(measured) });
+  test.info().annotations.push({ type: "side-menu-alignment", description: JSON.stringify(measured) });
   expect(measured.sideMenuRight).toBeLessThanOrEqual(measured.col2Left + 2);
   expect(measured.sideMenuRight).toBeGreaterThan(measured.col1Right - 2);
   expect(measured.sideMenuLeft).toBeGreaterThanOrEqual(measured.col1Right - 2);
   expectNoPageErrors(errors);
 });
 
-test("C8 拖出唯一 block（§13.2、§5.4 M）：[a｜b] 拖 b 到 z 下方 → 仍兩欄、第 2 欄空段落；[a｜b｜c] 同動作 → 剩 a、c 兩欄", async ({ page }) => {
+test("C8 拖出唯一 block：[a｜b] 拖 b 到 z 下方 → 仍兩欄、第 2 欄空段落；[a｜b｜c] 同動作 → 剩 a、c 兩欄", async ({ page }) => {
   test.setTimeout(120_000);
   const errors = await startNote(page, "drag-two");
   await pasteMarkdown(page, rowDoc(["a", "b"]));
@@ -539,7 +539,7 @@ async function startSurfacesNote(
   return { errors, left, right };
 }
 
-test("C9a 公開頁（驗收 9、§11.7）：匿名開公開連結 → 有一列兩欄、兩欄文字都在", async ({ page, browser, request }) => {
+test("C9a 公開頁：匿名開公開連結 → 有一列兩欄、兩欄文字都在", async ({ page, browser, request }) => {
   // 用新註冊的帳號：public-link 的 PUT 每人 10 次/10 分鐘，整套序跑到這裡 admin 已被用滿 → 429（同 31-note-width E3）。
   const creds = { email: randomEmail(), password: "e2e-columns-pw" };
   expect((await request.post("/api/auth/register", { data: creds })).status()).toBe(201);
@@ -580,7 +580,7 @@ test("C9a 公開頁（驗收 9、§11.7）：匿名開公開連結 → 有一列
   expectNoPageErrors(errors);
 });
 
-test("C9b 簡報（驗收 9、§11.8）：封面的列保留正規 style；390 寬開 → data-stacked，1440 寬重新進入 → 沒有", async ({ page }) => {
+test("C9b 簡報：封面的列保留正規 style；390 寬開 → data-stacked，1440 寬重新進入 → 沒有", async ({ page }) => {
   const { errors, left, right } = await startSurfacesNote(page, "present");
   const noteUrl = page.url();
   const slideRow = page.locator("section.present [data-kb-columns]");
@@ -610,7 +610,7 @@ test("C9b 簡報（驗收 9、§11.8）：封面的列保留正規 style；390 �
   expectNoPageErrors(errors);
 });
 
-test("C9c 版本（驗收 9、§11.9）：手動存版 → 改右欄 → split view 兩側列 y 差 ≤ 1px；單欄＋只看變更不出錯", async ({ page }) => {
+test("C9c 版本：手動存版 → 改右欄 → split view 兩側列 y 差 ≤ 1px；單欄＋只看變更不出錯", async ({ page }) => {
   await page.setViewportSize({ width: 1400, height: 900 }); // 1400 開面板：預覽區夠寬，自動 split（同 22-versions）
   const { errors, left, right } = await startSurfacesNote(page, "versions");
   await caretIn(page, left, "End");
@@ -645,7 +645,7 @@ test("C9c 版本（驗收 9、§11.9）：手動存版 → 改右欄 → split v
   const single = page.getByTestId("diff-single");
   await expect(single).toBeVisible();
   await expect(single.locator(ROW)).toHaveCount(1);
-  // final review M-1：data-diff 直接寫在 PM 管的欄 DOM 上，真瀏覽器裡不得被重繪掉（值照 T9：欄本身 context、欄內改過的段落 changed）。
+  // data-diff 直接寫在 PM 管的欄 DOM 上，真瀏覽器裡不得被重繪掉（欄本身 context、欄內改過的段落 changed）。
   await expect(single.locator(`${ROW} > ${COL}`)).toHaveCount(2);
   await expect(single.locator(`${ROW} > ${COL}[data-diff="context"]`)).toHaveCount(2);
   await expect(single.locator(`${COL}[data-diff="context"] .bn-block-outer[data-diff="changed"]`, { hasText: right })).toHaveCount(1);
@@ -653,7 +653,7 @@ test("C9c 版本（驗收 9、§11.9）：手動存版 → 改右欄 → split v
   expectNoPageErrors(errors);
 });
 
-test("C10 外部 HTML 不成列（§11.10）：剪貼簿 text/html 是沒有 data-kb-* 的並列 div（帶 display:flex 與不帶各一次）→ 貼上後都沒有 columnList", async ({ page }) => {
+test("C10 外部 HTML 不成列：剪貼簿 text/html 是沒有 data-kb-* 的並列 div（帶 display:flex 與不帶各一次）→ 貼上後都沒有 columnList", async ({ page }) => {
   test.setTimeout(90_000);
   const errors = await startNote(page, "external-html");
   const editor = editorLocator(page);

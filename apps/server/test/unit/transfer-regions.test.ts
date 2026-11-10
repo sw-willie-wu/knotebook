@@ -6,7 +6,7 @@ import { TRANSFER_SHAPES } from "./fixtures/transfer-shapes.js";
 import { docWith, makeBaseInMemory, realBoundaryCheck, regionsOf, type InMemoryBase } from "./fixtures/transfer-sync.js";
 import { expectLinear } from "../perf-helpers.js";
 
-/** bulk transfer spec §9.3-2～-8、§18.1「區偵測」；plan PR-2 §0.1-2、-3、T4（R1–R10）。 */
+/** bulk transfer 的區偵測（R1–R10）。 */
 
 const rt = new EditingRuntime({ baseUrl: "http://localhost/" });
 rt.installGlobals();
@@ -27,12 +27,12 @@ const ok = <T extends { ok: boolean }>(r: T): Extract<T, { ok: true }> => {
   return r as Extract<T, { ok: true }>;
 };
 
-describe("R1 §9.3-3 邊界表（真 parser；true＝不併）", () => {
+describe("R1 邊界表（真 parser；true＝不併）", () => {
   const TEXT = "文字";
   const blocks: Record<string, unknown> = {
     paragraph: P("Para"),
     quote: { type: "quote", content: "q" },
-    // spec 表的 image 是 markdown 形（沒有說明、沒有寬度 → `![](…)`）；有說明或寬度的匯出成 `<figure>` HTML，另列兩案（實測不併）
+    // image 的標準形是 markdown 形（沒有說明、沒有寬度 → `![](…)`）；有說明或寬度的匯出成 `<figure>` HTML，另列兩案（實測不併）
     image: { type: "image", props: { url: "/api/uploads/u1" } },
     figure: { type: "image", props: { url: "/api/uploads/u1", caption: "cap" } },
     heading: { type: "heading", content: "H", props: { level: 2 } },
@@ -126,7 +126,7 @@ describe("R3 不迭代", () => {
   });
 });
 
-describe("R3b 觸發條件按文字定義、只跑一輪（審查 m3 釘住現行行為）", () => {
+describe("R3b 觸發條件按文字定義、只跑一輪（釘住現行行為）", () => {
   it("0 行分隔清單：a 後面貼一行縮排文字 → a 併入；b 也被觸發（緊鄰行不是基底緊鄰行的配對），但獨立判、不因 a 併入而連鎖", async () => {
     const b = await base([BL("a"), BL("b"), BL("c")]);
     const r = ok(await regionsOf(rt, b, "* a\n  more\n* b\n* c"));
@@ -135,7 +135,7 @@ describe("R3b 觸發條件按文字定義、只跑一輪（審查 m3 釘住現�
   });
 });
 
-describe("未閉合的 code fence（審查 m3）", () => {
+describe("未閉合的 code fence", () => {
   it("0 行分隔清單上方加一行未閉合 ``` → 整篇 unclosed_fence（不只把貼著的那一項併進區）", async () => {
     const b = await base([P("Z"), BL("a"), BL("b"), BL("c")]);
     expect(b.lines).toEqual(["Z", "", "* a", "* b", "* c"]);
@@ -163,7 +163,7 @@ describe("未閉合的 code fence（審查 m3）", () => {
     expect(summary(b, ok(await regionsOf(rt, b, "A\n\n```\n\nB2")).regions)).toEqual([{ kind: "rewrite", idx: [2], text: "B2" }]);
   });
   // 預篩之後，上一案（E6）根本不會 parse；這案讓「改過的行像 fence」通過預篩、但未閉合的開頭仍在沒改的段裡（~~~x 在 ``` 的 code 裡
-  // 不收尾）→ 走到「開頭那一行在不在沒改的段」那一條判斷（MF1 的守衛）。
+  // 不收尾）→ 走到「開頭那一行在不在沒改的段」那一條判斷。
   it("E6＋改過的行像 fence 但不改變未閉合狀態（B → ~~~x）→ 有 parse、放行（開頭仍在沒改的段）", async () => {
     const b = await legacyFenceBase();
     fenceParseStats.calls = 0;
@@ -227,7 +227,7 @@ describe("R5 空段落段不驗邊界", () => {
     expect(summary(b, r.regions)).toEqual([{ kind: "insert", idx: [], text: "X" }]);
     expect(r.boundaryChecks).toBe(0);
   });
-  it("空 heading、空 check 不是空行（§0.1-3 的反例證明）", async () => {
+  it("空 heading、空 check 不是空行（反例證明）", async () => {
     expect(await exportOf({ type: "heading", content: "", props: { level: 1 } })).not.toBe("");
     expect(await exportOf({ type: "checkListItem", content: "", props: { checked: false } })).not.toBe("");
   });
@@ -305,7 +305,7 @@ describe("R8 numbered", () => {
   });
 });
 
-describe("R9 溢位（gate r1 I6）", () => {
+describe("R9 溢位", () => {
   const blocks = [P("X0"), P("S"), P("S"), P("X1"), ...Array.from({ length: 6 }, (_, i) => P(`U${i}`))];
   const agentBody = ["Y0", "S", "S", "Y1", ...Array.from({ length: 6 }, (_, i) => `U${i}`)].join("\n\n");
   it("沒溢位：只有改了的段成區（兩區）", async () => {
@@ -338,7 +338,7 @@ describe("R9 溢位（gate r1 I6）", () => {
   });
 });
 
-describe("R10 只匯出空行的型別（gate r1 m22）", () => {
+describe("R10 只匯出空行的型別", () => {
   it("129 形：逐段匯出為 [] 或全是空行的段，block 型別全是 paragraph", async () => {
     let seen = 0;
     for (const shape of TRANSFER_SHAPES) {
@@ -354,7 +354,7 @@ describe("R10 只匯出空行的型別（gate r1 m22）", () => {
   }, 120_000);
 });
 
-describe("#398 審查 C2／I1：邊界檢查的上限、註解剝除線性", () => {
+describe("#398：邊界檢查的上限、註解剝除線性", () => {
   it("相接那串超過 4 096 字（BOUNDARY_ADJ_MAX_CHARS）→ 不解析、那段當改過；剛好 4 096 字 → 照常解析", async () => {
     expect(BOUNDARY_ADJ_MAX_CHARS).toBe(4 * 1024);
     const b = await base([P("A"), P("B")]);

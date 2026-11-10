@@ -97,7 +97,7 @@ function TrashForm({ data }: { data: TrashSettingsDto }) {
 }
 
 /**
- * 站台垃圾桶設定（#181 §6.9）：嵌在站台管理「儲存方案」頁、版本設定之後。開關「自動永久刪除」＋保留天數（1–3650）＋「儲存」。
+ * 站台垃圾桶設定（#181）：嵌在站台管理「儲存方案」頁、版本設定之後。開關「自動永久刪除」＋保留天數（1–3650）＋「儲存」。
  * 說明句寫「每小時檢查一次」「每次最多 2,000 篇」——對應 server `trash/purge.ts` 的 `TRASH_PURGE_INTERVAL_MS`（60 分）與
  * `TRASH_PURGE_BATCH × TRASH_PURGE_MAX_BATCHES`（100 × 20）。三態都以同標題的 region 呈現（同頁另有一顆「儲存」）。
  */

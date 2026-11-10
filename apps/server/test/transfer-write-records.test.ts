@@ -1,6 +1,6 @@
 /**
- * bulk transfer spec 2026-11-02 §9.5 第 8 步、§13；plan PR-2 §0.1-6、-7、T7（R1–R3b）：檔案寫回的紀錄交易（`recordFileSyncInTx`）。
- * T11（R4–R7c、反例二兩序、PR3b）：`file_sync` 列經 REST 的列出與撤回。
+ * bulk transfer（R1–R3b）：檔案寫回的紀錄交易（`recordFileSyncInTx`）。
+ * T11（R4–R7c、反例二兩序）：`file_sync` 列經 REST 的列出與撤回。
  */
 import { describe, expect, it } from "vitest";
 import { eq, sql } from "drizzle-orm";
@@ -101,7 +101,7 @@ describe("R1 三種列＋基底更新", () => {
   });
 });
 
-describe("R2 同一個交易（gate r1 I3：失敗點在 INSERT 之後）", () => {
+describe("R2 同一個交易（失敗點在 INSERT 之後）", () => {
   it("transfer_bases 的 before update trigger 丟錯 → 這篇 note_ai_edits 0 列、applied_body_sha 仍 NULL", async () => {
     const s = await scene();
     await s.db.execute(sql.raw(`create function kn_r2_fail() returns trigger language plpgsql as $$ begin raise exception 'r2 boom'; end $$`));
@@ -162,7 +162,7 @@ describe("R3 裁切到 100", () => {
   });
 });
 
-// ── T11：file_sync 列的撤回（§13、§0.1-14）──────────────────────────────
+// ── T11：file_sync 列的撤回──────────────────────────────
 type Opts = Parameters<typeof buildCollabTestApp>[0];
 type EditItem = { id: string; op: string; revertable: boolean; revertedAt: string | null };
 async function writeScene(md: string, opts: Opts = {}) {
@@ -184,7 +184,7 @@ const PARAS5 = "Para 0\n\nPara 1\n\nPara 2\n\nPara 3\n\nPara 4";
 const threeRegions = (b: string) => b.replace("Para 1", "Rewritten").replace("Para 3\n\n", "").replace(/\n*$/, "\n\nInserted\n");
 const errCode = (r: { json(): unknown }) => (r.json() as { error: { code: string } }).error.code;
 
-describe("T11 撤回 file_sync", () => {
+describe("撤回 file_sync", () => {
   it("R4 三列經 GET …/edits 列出、op file_sync、revertable；R5 逐列撤回：改寫還原、刪除插回（再撤 → already_reverted）、插入移除 → 回到原文", async () => {
     const s = await writeScene(PARAS5);
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
@@ -257,7 +257,7 @@ describe("T11 撤回 file_sync", () => {
     expect((await s.md()).split("Para 3").length - 1).toBe(1);
   });
 
-  it("PR3b（審查 M3，純基底形）：基底 [B, 空段落, A, C]、檔案刪 A → anchor＝使用者自己的空段落（after，非佔位）→ 撤回後 A 回到它後面、空段落仍在", async () => {
+  it("PR3b（純基底形）：基底 [B, 空段落, A, C]、檔案刪 A → anchor＝使用者自己的空段落（after，非佔位）→ 撤回後 A 回到它後面、空段落仍在", async () => {
     const s = await writeScene("");
     await seedBlocks(s.ctx.db, s.note.id, [{ type: "paragraph", content: "B" }, { type: "paragraph" }, { type: "paragraph", content: "A" }, { type: "paragraph", content: "C" }]);
     const [, userEmpty] = await s.top();

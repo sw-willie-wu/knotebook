@@ -8,11 +8,11 @@ import { ComparePicker } from "./ComparePicker";
 import { PRESSED_CLASS, TINT_HOVER_CLASS } from "./version-labels";
 import { useTargetLabel } from "./use-target-label";
 
-/** 模式鈕共用的圖示鈕形（spec §8.4 rev 10 追記：`size="icon"`、`h-7 w-7`，名稱放 `aria-label`＋`title`，hover 看得到）。 */
+/** 模式鈕共用的圖示鈕形（`size="icon"`、`h-7 w-7`，名稱放 `aria-label`＋`title`，hover 看得到）。 */
 const MODE_BUTTON = `h-7 w-7 shrink-0 ${TINT_HOVER_CLASS}`;
 
 /**
- * 頁首下方的預覽橫幅（spec §8.4【rev 10】＋ rev 10 追記 2026-10-10）：
+ * 頁首下方的預覽橫幅：
  * 「正在預覽 名稱 (短 id) ｜（單欄時：左下拉 → 右下拉）｜……｜ 並排 單欄 只看差異」——三顆是圖示鈕，包成一組 `ml-auto` 靠右。
  * **橫幅不放 ✕**：離開預覽＝Esc（掛在 NotePage）、面板清單點空白處、再點已選中的列、關面板（`close()` 一併離開預覽）。
  * 時間與 editors 不放（面板列已有）、沒有「比較對象」標籤；底色 `bg-brand-soft`（品牌色 tint；`--primary` 是中性近黑，不能用）。
@@ -21,16 +21,16 @@ const MODE_BUTTON = `h-7 w-7 shrink-0 ${TINT_HOVER_CLASS}`;
  * `narrow`：窄視窗整頁沒有並排，並排／單欄兩顆鈕不渲染；預覽區不到 `SPLIT_MIN_WIDTH`（controller 的 `previewWide` 為 false）時也不渲染。
  */
 /**
- * 「只看差異」開關（橫幅與整頁共用，final M-1）。它只作用在單欄（spec §8.4）：
+ * 「只看差異」開關（橫幅與整頁共用）。它只作用在單欄：
  * 預覽實際是並排時（controller 的 `splitActive`，由 `VersionPreview` 回報）停用。用 `aria-disabled` 而不是 `disabled`：
  * `disabled:pointer-events-none` 會讓 `title` 浮不出來，說明就看不到了；點擊在 handler 裡擋掉。
- * `iconOnly`（橫幅傳 true，Task 19）：圖示鈕，名稱放 `aria-label`＋`title`（平時是名稱、停用時換成說明）。
- * 窄視窗整頁不傳：保留文字鈕——觸控沒有 hover，看不到 `title`（Task 19 review M-3）。
+ * `iconOnly`（橫幅傳 true）：圖示鈕，名稱放 `aria-label`＋`title`（平時是名稱、停用時換成說明）。
+ * 窄視窗整頁不傳：保留文字鈕——觸控沒有 hover，看不到 `title`。
  */
 export function OnlyChangesToggle({ iconOnly = false }: { iconOnly?: boolean }) {
   const { t } = useTranslation();
   const { onlyChanges, setOnlyChanges, splitActive } = useVersions();
-  // `title` 觸控看不到、報讀器不一定念：停用時另掛一段 sr-only 說明給 aria-describedby（final fix 2 N-B）。
+  // `title` 觸控看不到、報讀器不一定念：停用時另掛一段 sr-only 說明給 aria-describedby。
   const hintId = useId();
   const label = t("versions.preview.onlyChanges");
   const hint = t("versions.preview.onlyChangesSplitHint");
@@ -70,7 +70,7 @@ export function PreviewBanner({ narrow = false }: { narrow?: boolean }) {
   return (
     <div data-testid="preview-banner" className="flex flex-nowrap items-center gap-2 border-b border-border bg-brand-soft px-5 py-2 text-xs">
       <span className="min-w-0 truncate font-medium" title={label}>{t("versions.preview.banner", { label })}</span>
-      {/* 比較對象（rev 10）：並排時兩個下拉是兩欄的標頭，橫幅只在單欄時放「左 → 右」。 */}
+      {/* 比較對象：並排時兩個下拉是兩欄的標頭，橫幅只在單欄時放「左 → 右」。 */}
       {!splitActive && (
         <>
           <ComparePicker side="left" />
@@ -83,7 +83,7 @@ export function PreviewBanner({ narrow = false }: { narrow?: boolean }) {
       <div className="ml-auto flex shrink-0 items-center gap-1">
         {!narrow && previewWide && (
           <>
-            {/* final §14-6：預覽區不夠寬（previewWide=false）就沒有並排，兩顆都不渲染。按下態看實際生效的版面（`splitActive`）：
+            {/* 預覽區不夠寬（previewWide=false）就沒有並排，兩顆都不渲染。按下態看實際生效的版面（`splitActive`）：
                 auto 時以自動選到的那顆為按下，手動選後就是選的那顆；不會兩顆都沒按下。 */}
             <Button
               type="button"

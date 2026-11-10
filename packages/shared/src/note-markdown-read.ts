@@ -8,12 +8,12 @@
  * - 只有行內顏色（文字色／文字底色）→ 節點維持 markdown，有色那一段寫成 `<span style="color:NAME">…</span>`
  *   夾在 markdown 裡（#222：讓弱模型讀寫的 HTML 越少越好；見 {@link tokenizeInlineColors}）。
  * - 其餘相鄰節點照舊交給同一支 HTML → markdown。
- * 並排 PR-2（spec 2026-10-21 columns-layout §11.1／§11.2）再加三類：頂層的列（`div[data-kb-columns]`、不帶
+ * 並排再加三類：頂層的列（`div[data-kb-columns]`、不帶
  * `data-nesting-level`）輸出成 div 形、每一欄的內容以同一套分類序列化（{@link rowMarkdown}）；有寬度的圖片、
  * 有欄寬的表格（節點本身或後代）整個節點輸出成 HTML，寬度夾回 [32, 4000]（{@link normalizeSizes}）。
  * #386 再加三件（{@link prepareForMarkdown}）：段落內換行寫不回成 `\` 換行的（後一行開頭是空白或標點，或在清單項目／表格儲存格／
  * 標題裡）讀出成行內 `<br>`；粗體等行內樣式開頭、結尾的空白移到樣式外面；文字裡 parser 會當成標記的字元與區塊開頭的標記加反斜線。
- * 整份沒有任何顏色、並排、寬度，而且上面這些都沒有動到任何東西（沒有要跳脫的字元——含站內連結文字（#269 RF1，見
+ * 整份沒有任何顏色、並排、寬度，而且上面這些都沒有動到任何東西（沒有要跳脫的字元——含站內連結文字（#269，見
  * {@link escapeNoteLinkText}）——、沒有要改寫的換行、沒有樣式邊緣空白）時直接回 `cleanHTMLToMarkdown(html)`——與 `blocksToMarkdownLossy` 位元組相同。
  * 以「頂層節點」為單位的理由：外部 HTML 已經做完 BlockNote 的攤平（非清單的子 block 被拉到頂層），
  * 用同一份切，攤平行為與純 markdown 路徑一致，讀 → 寫回 → 再讀才會穩定。
@@ -56,8 +56,8 @@ const isFileBlock = (el: Element): boolean => el.hasAttribute("data-url") && (el
 const shown = (v: string | null): v is string => v !== null && v !== "default" && isPaletteColor(v);
 /**
  * 沒有文字也沒有媒體／表格的 block（例如上了底色的空段落）：`<p data-background-color="red"></p>` 寫回時
- * 解析器會把空 `<p>` 丟掉，往返就不一致——所以它的顏色不帶出，讀出與無色相同（#222 審查 I1）。
- * 表格儲存格例外：空的 `<td data-background-color="red"></td>` 解析器會保留（r2 審查 I2 實測），顏色照帶。
+ * 解析器會把空 `<p>` 丟掉，往返就不一致——所以它的顏色不帶出，讀出與無色相同（#222）。
+ * 表格儲存格例外：空的 `<td data-background-color="red"></td>` 解析器會保留，顏色照帶。
  */
 const hasContent = (el: Element): boolean => el.matches("td,th") || (el.textContent ?? "").trim() !== "" || el.matches("img,video,audio,table") || el.querySelector("img,video,audio,table") !== null;
 const blockColorShown = (el: Element, a: (typeof BLOCK_COLOR_ATTRS)[number]): boolean => !isFileBlock(el) && shown(el.getAttribute(a)) && hasContent(el);
@@ -67,7 +67,7 @@ const elementsOf = (root: Element): Element[] => [root, ...Array.from(root.query
 const hasBlockColor = (root: Element): boolean => elementsOf(root).some(el => !colorStyleType(el) && BLOCK_COLOR_ATTRS.some(a => blockColorShown(el, a)));
 const colorSpans = (root: Element): Element[] => elementsOf(root).filter(el => colorStyleType(el) && shown(el.getAttribute("data-value")));
 
-/** 頂層的列；帶 `data-nesting-level` 的（段落底下縮排的列）不合法，照一般節點攤平（spec §11.2）。 */
+/** 頂層的列；帶 `data-nesting-level` 的（段落底下縮排的列）不合法，照一般節點攤平。 */
 const isRow = (el: Element): boolean => el.matches("div[data-kb-columns]") && !el.hasAttribute("data-nesting-level");
 /**
  * 有寬度的圖片的寬度（已夾回）；不是或取不到 → null。精確值在 `data-preview-width`——無說明時掛在 `img`、
@@ -88,7 +88,7 @@ const isSizedTable = (el: Element): boolean =>
 const hasSizes = (root: Element): boolean => elementsOf(root).some(el => imageWidth(el) !== null || isSizedTable(el));
 
 /**
- * 寬度改寫成 §11.1 的形：有寬度的圖片 → `<figure[ data-background-color]><img[ alt] src width>[<figcaption>]</figure>`
+ * 寬度改寫成讀出的正規形：有寬度的圖片 → `<figure[ data-background-color]><img[ alt] src width>[<figcaption>]</figure>`
  * （底色一律掛在 figure、其餘屬性全剝；alt 空或等於說明時不帶）；所有表格的 colwidth 逐段夾回，有欄寬的表格
  * 第 2 列起不帶 colwidth（其他表格第 2 列起的全空段照留）。
  */
@@ -129,7 +129,7 @@ function normalizeSizes(box: Element): void {
 
 /**
  * 就地改寫 `box` 的後代成寫入端認得的形：顏色 span → `style="color:X"`（字色＋底色合成一個）、block 色留 data-*、
- * 剝雜訊、寬度正規化、拆掉任何深度的 `data-kb-*` 外殼（HTML 輸出不帶並排標記，spec §11.2）。
+ * 剝雜訊、寬度正規化、拆掉任何深度的 `data-kb-*` 外殼（HTML 輸出不帶並排標記）。
  */
 function rewrite(box: Element): void {
   normalizeSizes(box);
@@ -220,10 +220,10 @@ function tokenizeInlineColors(root: Element, tokens: Map<string, string>): void 
 }
 
 /**
- * #269 RF1：要交給 `cleanHTMLToMarkdown` 的節點裡，站內連結（`a[href^="/notes/"]`，`wikilinksToLinks` 的產物與未轉換的
+ * #269：要交給 `cleanHTMLToMarkdown` 的節點裡，站內連結（`a[href^="/notes/"]`，`wikilinksToLinks` 的產物與未轉換的
  * `/notes/…` 一般連結）的文字做 markdown 跳脫（shared `escapeLinkText`）——BlockNote 的 HTML → markdown 完全不跳脫文字，
  * `[\[Draft\] …]` 這種連結文字不跳脫就寫不回來。**只在 markdown 分支呼叫**：`toBlockHTML`（上色區塊 → 原始 HTML）
- * 寫回時不做 markdown 反跳脫，跳脫了反而每往返一次多一層反斜線（Task 6 審查 r0 I1）。回傳是否改了任何文字。
+ * 寫回時不做 markdown 反跳脫，跳脫了反而每往返一次多一層反斜線。回傳是否改了任何文字。
  * 必須排在 `tokenizeInlineColors` 之後（有色 span 已拆成佔位符；佔位符字元不在跳脫集合內）。
  */
 function escapeNoteLinkText(root: Node): boolean {
@@ -266,7 +266,7 @@ function hoistEmphasisWhitespace(root: ParentNode): boolean {
   for (const el of Array.from(root.querySelectorAll("strong,b,em,i,s,del"))) {
     for (const first of [true, false]) {
       const t = edgeText(el, first);
-      // #398 審查 I1：尾端用 `/[ \t]+$/` 是平方（每個空白位置都往後掃完整段空白再失敗；10 萬個空白接一個字 2.7 秒，讀出在主執行緒）——
+      // #398：尾端用 `/[ \t]+$/` 是平方（每個空白位置都往後掃完整段空白再失敗；10 萬個空白接一個字 2.7 秒，讀出在主執行緒）——
       // 兩端都改成數字元（線性）。
       const ws0 = t === null ? 0 : edgeBlankLength(t.data, first);
       if (t === null || ws0 === 0) continue;
@@ -300,7 +300,7 @@ function spacedAfter(br: Element): boolean {
   return next !== null && next.nodeType === 3 && /^[ \t]/.test(next.nodeValue ?? "");
 }
 /**
- * 換行的下一個兄弟是不是以 ASCII 標點、或「數字＋`.`／`)`」開頭的文字（審查 I-4a）。`\` 換行之後的那一行若以 `- `、`+ `、`1. `、
+ * 換行的下一個兄弟是不是以 ASCII 標點、或「數字＋`.`／`)`」開頭的文字。`\` 換行之後的那一行若以 `- `、`+ `、`1. `、
  * `# `、`> `、`---`、`===`、`|`、`<div>` 之類開頭，parser 會在那裡斷段、開清單、把上一行變標題——所以這種換行寫成行內 `<br>`，
  * 那段文字留在同一行。只看標點開頭是刻意放寬（`(注意)` 也走 `<br>`）：比逐一列出 parser 的區塊規則穩。
  */
@@ -325,7 +325,7 @@ function blockishAfter(br: Element): boolean {
 function tokenizeInlineBreaks(root: ParentNode, placeholder: string): number {
   let n = 0;
   for (const br of Array.from(root.querySelectorAll("br"))) {
-    const atEdge = br.previousSibling === null || br.nextSibling === null; // 段落開頭／結尾的換行：轉換器把 `\` 形整個丟掉（審查 M-2）
+    const atEdge = br.previousSibling === null || br.nextSibling === null; // 段落開頭／結尾的換行：轉換器把 `\` 形整個丟掉
     if (!atEdge && !br.closest("li,td,th,h1,h2,h3,h4,h5,h6") && !spacedAfter(br) && !blockishAfter(br)) continue;
     br.replaceWith(document.createTextNode(placeholder));
     n += 1;
@@ -334,8 +334,8 @@ function tokenizeInlineBreaks(root: ParentNode, placeholder: string): number {
 }
 /**
  * 換行佔位符：整份 HTML（含網址與屬性）與文字裡都沒出現過的字元 c（從私用區 U+E000 往上找），重複四次。轉回 `<br>` 時是對整份
- * markdown 取代，所以 c 必須全篇沒有：佔位符若出現在網址裡、或跟文件裡同一個字元相鄰重疊，就會換錯地方（審查 I1）。c 全篇沒有時，
- * 相鄰兩個佔位符 c×8 也照樣切成兩個。重複四次是讓它與 `<br>` 等寬：表格的欄寬是轉換器照佔位符的字數排的（審查 M-e）。
+ * markdown 取代，所以 c 必須全篇沒有：佔位符若出現在網址裡、或跟文件裡同一個字元相鄰重疊，就會換錯地方。c 全篇沒有時，
+ * 相鄰兩個佔位符 c×8 也照樣切成兩個。重複四次是讓它與 `<br>` 等寬：表格的欄寬是轉換器照佔位符的字數排的。
  * 轉換器原樣保留私用區字元。私用區的字全被用掉（實際上不會發生）回 null：不改寫換行。
  */
 function uniquePlaceholder(haystack: string): string | null {
@@ -371,7 +371,7 @@ function escapeMarkdownText(s: string): string {
 }
 /**
  * 會寫成 markdown 行內文字的 block（外部 HTML 的段落、清單項目、儲存格、標題、引言）。收合清單／收合標題的文字在 `<summary>` 裡的
- * `<li>`／`<p>`／`<h*>` 中，這裡已涵蓋（審查 I-1：之前錯在把 summary 整個排除）。
+ * `<li>`／`<p>`／`<h*>` 中，這裡已涵蓋（之前錯在把 summary 整個排除）。
  */
 const MD_TEXT_BLOCKS = "p,li,td,th,h1,h2,h3,h4,h5,h6,blockquote";
 /**
@@ -395,11 +395,11 @@ function escapeTextNodes(root: ParentNode): boolean {
 }
 
 /**
- * 一行開頭的區塊標記（審查 I-4b）：段落、引言的第一段文字開頭若是 parser 的區塊標記，第一個字前加反斜線，讓它留在原段落。只跳到
+ * 一行開頭的區塊標記：段落、引言的第一段文字開頭若是 parser 的區塊標記，第一個字前加反斜線，讓它留在原段落。只跳到
  * parser 真的會認的形（規則照 BlockNote markdown parser 的區塊判斷）：`#`～`######` 後接空白或結尾（標題）、`>`（引言，後面接什麼都算）、
  * `-`／`+` 後接空白或結尾（清單）、數字＋`.`／`)` 後接空白或結尾（編號清單）、三個以上 `-`（可夾空白，分隔線）。`*`、`_`、`` ` ``、`~`
  * 已在 {@link escapeMarkdownText} 一律或在頭尾跳脫；`-1`、`#tag`、`1.5` 這類 parser 不認的不跳。`<` 開頭的 HTML 區塊不在此列（#379）。
- * 「後接結尾」是因為下一個節點（例如移出粗體的空白）可能接著是空白。前導空白（含 NBSP）之後的標記也算：轉換器會剝掉開頭空白（審查 I-1）。
+ * 「後接結尾」是因為下一個節點（例如移出粗體的空白）可能接著是空白。前導空白（含 NBSP）之後的標記也算：轉換器會剝掉開頭空白。
  * 清單項目底下的子段落（含收合清單的子 block）也套用——它們是子區塊、parser 照區塊解析；只有項目自己的行內內容不套用（{@link isItemInline}）。
  */
 const BLOCK_MARK = /^(?:#{1,6}(?=\s|$)|>|[-+](?=\s|$)|-\s*-\s*-[-\s]*$)/;
@@ -432,8 +432,8 @@ function escapeBlockStarts(root: ParentNode): boolean {
     const first = b.firstChild;
     if (first === null || first.nodeType !== 3) continue;
     const t = first as Text;
-    // 反斜線插在前導空白之後（轉換器會剝掉段落開頭的空白，剝完標記就在行首；parser 的清單、分隔線、引言規則本來也容許前導空白
-    // ——審查 I-1）；編號清單插在數字後、跳脫 `.`／`)`（`\1` 不是跳脫）
+    // 反斜線插在前導空白之後（轉換器會剝掉段落開頭的空白，剝完標記就在行首；parser 的清單、分隔線、引言規則本來也容許前導空白）；
+    // 編號清單插在數字後、跳脫 `.`／`)`（`\1` 不是跳脫）
     const lead = /^\s*/.exec(t.data)![0].length;
     const rest = t.data.slice(lead);
     const num = ORDERED_NUM.exec(rest);
@@ -498,7 +498,7 @@ function serializeNodes(nodes: Node[], ctx: Ctx): string {
     run.push(n);
   });
   flush();
-  // #398 審查 I1：不用 `/\n+$/`（沒錨定開頭，code block 裡 10 萬個換行接一個字就 2.9 秒）——從尾端數。
+  // #398：不用 `/\n+$/`（沒錨定開頭，code block 裡 10 萬個換行接一個字就 2.9 秒）——從尾端數。
   return parts
     .map(p => {
       let end = p.length;
@@ -509,7 +509,7 @@ function serializeNodes(nodes: Node[], ctx: Ctx): string {
     .join("\n\n");
 }
 
-/** spec §11.1 規則 1–7：外層行、每欄「開標籤、空行、欄內容、空行、`</div>`」（空欄沒有內容那兩行）、`</div>`。 */
+/** 並排列的 markdown 形：外層行、每欄「開標籤、空行、欄內容、空行、`</div>`」（空欄沒有內容那兩行）、`</div>`。 */
 function rowMarkdown(row: Element, ctx: Ctx): string {
   const lines = [COLUMNS_OPEN_TAG];
   for (const col of Array.from(row.children).filter(c => c.matches("div[data-kb-column]"))) {

@@ -41,7 +41,7 @@ function provider(overrides: Partial<AiProviderRow> = {}): AiProviderRow {
   };
 }
 
-describe("checkProviderKeys（純函式，spec §13）", () => {
+describe("checkProviderKeys（純函式）", () => {
   it("api_key_encrypted 為 NULL → 跳過，不降級、不 log", () => {
     const runtime = createAiRuntime();
     const log = fakeLog();
@@ -106,7 +106,7 @@ describe("checkProviderKeys（純函式，spec §13）", () => {
     expect(log.warn).toHaveBeenCalledTimes(1);
   });
 
-  // fix round 1（I-1）：`apiKeyEncrypted` 為 `undefined`（非 `null`）——`== null` 修復前
+  // `apiKeyEncrypted` 為 `undefined`（非 `null`）——`== null` 修復前
   // 用的是 `=== null`，會漏接 undefined、直接掉進 `decryptApiKey` 讀 `payload.keyId`
   // 炸裸 TypeError（不是 AiKeyDecryptError，會被上面「非 AiKeyDecryptError 一律往外
   // 丟」的 tripwire 整個丟出這個函式）。
@@ -118,7 +118,7 @@ describe("checkProviderKeys（純函式，spec §13）", () => {
     expect(log.warn).not.toHaveBeenCalled();
   });
 
-  // fix round 1（I-1）：`apiKeyEncrypted` 是完全不是物件的壞資料（DB 被手動改壞、或
+  // `apiKeyEncrypted` 是完全不是物件的壞資料（DB 被手動改壞、或
   // 未來欄位格式演進中的過渡資料）——必須走「降級」路徑，不可讓 `decryptApiKey` 拋出
   // 的裸 TypeError 逃出 `checkProviderKeys`（進而讓呼叫端 `selfCheckAiKeys`/`index.ts`
   // 的開機流程被單一壞資料列拖垮，見 crypto.ts 對應修法註解）。
@@ -126,7 +126,7 @@ describe("checkProviderKeys（純函式，spec §13）", () => {
     const runtime = createAiRuntime();
     const log = fakeLog();
     expect(() =>
-      // Task 4 交接：schema.ts 的 apiKeyEncrypted 已加 `.$type<EncryptedApiKey>()`（純型別，見
+      // schema.ts 的 apiKeyEncrypted 已加 `.$type<EncryptedApiKey>()`（純型別，見
       // db/schema.ts 註解），這裡刻意模擬「執行期壞資料」（DB 被手動改壞的情境），型別上
       // 本來就不合法——`as unknown as EncryptedApiKey` 是唯一正確的繞過方式，不是型別錯誤。
       checkProviderKeys([provider({ id: "provider-corrupt", apiKeyEncrypted: "not-an-object" as unknown as EncryptedApiKey })], secret, runtime, log)
@@ -135,7 +135,7 @@ describe("checkProviderKeys（純函式，spec §13）", () => {
     expect(log.warn).toHaveBeenCalledTimes(1);
   });
 
-  // fix round 1（I-2）：密文格式版本欄位 `v` 不是 1（例如未來格式升級留下的舊密文，或
+  // 密文格式版本欄位 `v` 不是 1（例如未來格式升級留下的舊密文，或
   // 被竄改的版本號）——同樣走降級路徑，不悄悄用 v1 語意解出一個「碰巧解得動」但語意
   // 不保證正確的結果。
   it("api_key_encrypted 的 v 不是 1 → 不炸、正常降級 + log.warn", () => {

@@ -38,12 +38,12 @@ import { expandFolderChain, indexFolders, type FolderIndex, type FolderSpaceKey 
 import type { SidebarNode } from "./tree";
 
 /**
- * 側欄拖曳的接線（資料夾 spec §6.13；PR-3c T4）：掛在 `[data-sidebar-list]` 容器上的事件委派。
- * 「啟用」＝容器的 dragstart 是否接手（寫自訂型別、開拖曳狀態）；不接手時原生連結拖曳照現行（讀碼發現 6）。
+ * 側欄拖曳的接線：掛在 `[data-sidebar-list]` 容器上的事件委派。
+ * 「啟用」＝容器的 dragstart 是否接手（寫自訂型別、開拖曳狀態）；不接手時原生連結拖曳照現行。
  * 首包模組：不 import 字串包。
  */
 
-/** 落點範圍提示：比 `bg-brand-soft` 更淡的主色底＋主色外框（spec §6.13、§6.14；T4 Step 6 量過六色 × 淺深）。 */
+/** 落點範圍提示：比 `bg-brand-soft` 更淡的主色底＋主色外框（量過六色 × 淺深）。 */
 export const DROP_SCOPE_CLASS = "bg-brand/8 ring-1 ring-inset ring-brand";
 
 /** `(hover: hover) and (pointer: fine)`；訂閱 change（比照 lib/wide-pointer 的 useWidePointer）。 */
@@ -105,7 +105,7 @@ export function useSidebarDrag(args: {
   // groupIds 與建樹的 groups 同源（NoteList 的 groupsQuery.data）。
   const lookup = useMemo(() => (nodes === null || dragTab === null ? null : buildDropLookup(nodes, dragTab, groupIds)), [nodes, dragTab, groupIds]);
   const enabled = isDragEnabled({ finePointer, tab, selectionActive: selection.active, creating: view.creating !== null, nodesReady: nodes !== null });
-  /** 計時到點時讀的最新 lookup／索引／t：計時起算時捕捉的是舊的 onHold（T3），疊資料夾要以當下的樹重判。 */
+  /** 計時到點時讀的最新 lookup／索引／t：計時起算時捕捉的是舊的 onHold，疊資料夾要以當下的樹重判。 */
   const latestRef = useRef<{ lookup: DropLookup | null; folderIndex: FolderIndex; t: typeof t }>({ lookup, folderIndex, t });
   useEffect(() => {
     latestRef.current = { lookup, folderIndex, t };
@@ -123,8 +123,8 @@ export function useSidebarDrag(args: {
   }, []);
 
   /**
-   * 計時到點：彈簧＝展開（寫折疊鍵，§6.8；拖曳結束不收回）；疊資料夾＝出預覽（§6.13 第 2 步）。
-   * 同一列的 hold 從非 null 變 null 時舊計時照跑（T3）：出預覽前以當下的 lookup 重判 B 仍可疊（可放置、同空間、同一層、深度 < 5）。
+   * 計時到點：彈簧＝展開（寫折疊鍵，拖曳結束不收回）；疊資料夾＝出預覽。
+   * 同一列的 hold 從非 null 變 null 時舊計時照跑：出預覽前以當下的 lookup 重判 B 仍可疊（可放置、同空間、同一層、深度 < 5）。
    */
   const onHold = (hold: HoldAction) => {
     if (hold.kind === "spring") {

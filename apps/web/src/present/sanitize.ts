@@ -2,19 +2,19 @@ import DOMPurify, { type Config } from "dompurify";
 import { COLUMN_WIDTH_MAX, COLUMN_WIDTH_MIN, COLUMNS_STYLE } from "@knotebook/shared";
 
 /**
- * #229 簡報投影片的消毒器（spec §5.4-3，承重守衛）。
+ * #229 簡報投影片的消毒器（承重守衛）。
  *
- * 四層保證（§5.4）：①BlockNote 以 DOM API 產生 HTML，文字一律是文字節點；②`<template>` 解析成 inert
+ * 四層保證：①BlockNote 以 DOM API 產生 HTML，文字一律是文字節點；②`<template>` 解析成 inert
  * fragment；③**這裡**：DOMPurify 私有實例、白名單逐鍵寫死；④唯一的 `innerHTML` 是 mermaid SVG，信任
  * `lib/mermaid.ts` 的鎖定設定、在消毒之後產生（postprocess.ts）。③的 `style` 只在並排的列與欄上、且逐字是正規形時保留
- * （columns-layout spec §11.8），其他元素照舊剝。
+ * ，其他元素照舊剝。
  *
- * - 私有實例（§2.13-7）：mermaid 11 在 DOMPurify **預設單例**上掛常駐 hook，我們的 hook 若掛單例會反過來
+ * - 私有實例：mermaid 11 在 DOMPurify **預設單例**上掛常駐 hook，我們的 hook 若掛單例會反過來
  *   影響 mermaid 的淨化。本檔只准 `DOMPurify(window)`；源碼守衛在 sanitize.test.ts。
  * - hook 在**模組頂層**註冊一次（在函式內 addHook 會每次呼叫疊一層；守衛在 sanitize.hooks.test.ts）。
- * - 元素 hook 先於屬性 hook（§2.13-6）：input 的去留在 `uponSanitizeElement` 決定。
- * - `ADD_URI_SAFE_ATTR`（§2.13-2）：白名單 data-* 不是 URL，值不得走 URI 檢查（"Meeting: notes" 會被刪）。
- * - 小寫 `data:` 是 DOMPurify 自己放行（DATA_URI_TAGS）、要由我們擋的那一形（§2.13-3／-8）。
+ * - 元素 hook 先於屬性 hook：input 的去留在 `uponSanitizeElement` 決定。
+ * - `ADD_URI_SAFE_ATTR`：白名單 data-* 不是 URL，值不得走 URI 檢查（"Meeting: notes" 會被刪）。
+ * - 小寫 `data:` 是 DOMPurify 自己放行（DATA_URI_TAGS）、要由我們擋的那一形。
  */
 const ALLOWED_DATA = [
   "data-text-color", "data-background-color", "data-style-type", "data-value",
@@ -37,7 +37,7 @@ function canonicalColumnsStyle(el: Element, value: string): boolean {
 
 const purify = DOMPurify(window);
 
-// 型別寫成 Config＋RETURN_DOM_FRAGMENT（`as const` 的唯讀陣列不能給 Config 的可變陣列，gate r1-p1 實跑 tsc）。
+// 型別寫成 Config＋RETURN_DOM_FRAGMENT（`as const` 的唯讀陣列不能給 Config 的可變陣列，tsc 會擋）。
 const CFG: Config & { RETURN_DOM_FRAGMENT: true } = {
   ALLOWED_TAGS: ["p", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "blockquote", "pre", "code",
     "strong", "b", "em", "i", "u", "s", "del", "span", "a", "br", "table", "colgroup", "col", "thead", "tbody",

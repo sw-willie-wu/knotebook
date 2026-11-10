@@ -6,7 +6,7 @@
  * （`.ProseMirror` 那個 contenteditable），不是 block——block 是焦點元素的**後代**，`:focus-within`
  * 只往祖先方向成立，所以永遠不匹配（Chrome 實測：游標點進程式碼後 `document.activeElement` 是
  * `.bn-editor`，block content `.matches(":focus-within")` 為 false）。觸控裝置沒有 hover，語言下拉
- * 要叫得出來只能靠這條（control 搬進方塊內之後的定案）。
+ * 要叫得出來只能靠這條（control 搬進方塊內之後）。
  *
  * 只在**可編輯且編輯器有焦點**時掛：唯讀頁沒有可選的語言（下拉是 disabled 的純文字標籤），
  * 失焦後游標還留在原處，不該讓控制項一直浮在那塊程式碼上。焦點翻面時 tiptap 的 focusEvents
@@ -17,7 +17,7 @@
 import { Extension } from "@tiptap/core";
 // ⚠ 這份 prosemirror-view 必須與 BlockNote／`@tiptap/pm` 用的是**同一份**：`package.json` 的範圍刻意照抄 BlockNote 宣告的
 // （不釘死，釘死反而在 BlockNote 解到新版時保證分岔）。分岔時 view 端 `DecorationGroup.from` 的 instanceof 判斷不認這裡的
-// DecorationSet，整個編輯器 mount 會丟 TypeError（審查時實測：`reading 'localsInner'`）——本檔的測試掛真編輯器，會先紅。
+// DecorationSet，整個編輯器 mount 會丟 TypeError（實測：`reading 'localsInner'`）——本檔的測試掛真編輯器，會先紅。
 import { Decoration, DecorationSet } from "prosemirror-view";
 import { createPmPlugin } from "./pm-plugin";
 

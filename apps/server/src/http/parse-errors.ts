@@ -12,7 +12,7 @@ export const PARSER_BUSY_RETRY_AFTER_S = 5;
 export const PARSER_BUSY_MESSAGE = "The server is busy processing other writes. Try again in a moment.";
 /** 讀出的轉換排不進 parse worker（`/content`、兩個 409 的 `current`、單篇下載與整包匯出）。 */
 export const READ_BUSY_MESSAGE = "The server is busy processing other requests. Try again in a moment.";
-/** 500 `too_complex`：把寫入或撤回套進一篇既有筆記的轉換在 parse worker 裡逾時或用完記憶體——是筆記本身太大或太複雜，不是寫入的內容（審查 r4 M4）。 */
+/** 500 `too_complex`：把寫入或撤回套進一篇既有筆記的轉換在 parse worker 裡逾時或用完記憶體——是筆記本身太大或太複雜，不是寫入的內容。 */
 export const NOTE_WRITE_TOO_COMPLEX_MESSAGE = "This note is too large or too complex to change within the server's time and memory limits, so nothing was written. Retrying won't help; split the note to keep editing it this way.";
 /** 500 `too_complex`：讀出一篇筆記的轉換在 parse worker 裡逾時或用完記憶體。 */
 export const READ_TOO_COMPLEX_MESSAGE = "This note is too large or too complex to read within the server's time and memory limits.";

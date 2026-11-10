@@ -1,4 +1,4 @@
-/** #181 §6.9：垃圾桶保留天數（`requireAdmin`）。PATCH 走 `updateTrashSettingsInTx`（S14：callback 整段是 xInTx）。 */
+/** #181：垃圾桶保留天數（`requireAdmin`）。PATCH 走 `updateTrashSettingsInTx`（S14：callback 整段是 xInTx）。 */
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { eq } from "drizzle-orm";

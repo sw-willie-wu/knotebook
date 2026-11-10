@@ -1,5 +1,5 @@
 /**
- * #181 PR-2a T11：群組與垃圾桶（spec 2026-10-21 §6.5、A2-8 server 面、A2-10、A2-11 群組面、A2-12 server 面）。
+ * #181：群組與垃圾桶。
  * 造垃圾桶狀態一律打 `DELETE /api/notes/:id`；只有「把刪除時刻往前推」直改 DB（證明保留期照原刪除時間算）。
  */
 import { randomBytes, randomUUID } from "node:crypto";
@@ -46,7 +46,7 @@ async function expect204(res: Promise<LightMyRequestResponse>): Promise<void> {
   expect(r.statusCode, r.body).toBe(204);
 }
 
-describe("G1 刪群組・轉移（§6.5、Review Focus 5）", () => {
+describe("G1 刪群組・轉移", () => {
   it("垃圾桶裡的群組筆記成為接收者的個人筆記、仍在垃圾桶（刪除時刻／刪除者不變、公開連結清掉）；接收者還原後是沒有分享的個人筆記", async () => {
     const { app, db } = await buildTestApp();
     const s = await sixRoleScene(db);
@@ -97,7 +97,7 @@ describe("G1 刪群組・轉移（§6.5、Review Focus 5）", () => {
   });
 });
 
-describe("G2 刪群組・全刪（D-W3）", () => {
+describe("G2 刪群組・全刪", () => {
   it("活筆記與垃圾桶裡的群組筆記連同附件列、磁碟檔一起不在；別處的垃圾桶筆記不受影響", async () => {
     const { app, db, uploadsDir } = await buildTestApp();
     const admin = await seedUser(db);
@@ -129,7 +129,7 @@ describe("G2 刪群組・全刪（D-W3）", () => {
   });
 });
 
-describe("G3 角色即時（§6.5）", () => {
+describe("G3 角色即時", () => {
   it("編輯＋刪除角色列得到 → 拿掉刪除旗標立刻列不到、restore 得 not_found；改成拿掉編輯旗標同樣；旗標都回來又列得到、可還原", async () => {
     const { app, db } = await buildTestApp();
     const s = await sixRoleScene(db);
@@ -156,7 +156,7 @@ describe("G3 角色即時（§6.5）", () => {
   });
 });
 
-describe("G4 能刪不能編輯（A2-12 的 server 面）", () => {
+describe("G4 能刪不能編輯", () => {
   it("deleteOnly 移入群組筆記 → 204；他的垃圾桶沒有它、restore 得 not_found；管理員列得到並能還原", async () => {
     const { app, db } = await buildTestApp();
     const s = await sixRoleScene(db);
@@ -179,7 +179,7 @@ describe("G4 能刪不能編輯（A2-12 的 server 面）", () => {
   });
 });
 
-describe("G5 容量（A2-10）", () => {
+describe("G5 容量", () => {
   it("個人與群組各一篇附件筆記：移入後用量（現場 SUM 與兩支用量端點）不變；永久刪除後減少", async () => {
     const { app, db, uploadsDir } = await buildTestApp();
     const u = await seedUser(db);
@@ -208,7 +208,7 @@ describe("G5 容量（A2-10）", () => {
   });
 });
 
-describe("G6 群組筆記的公開連結（A2-11 群組面）", () => {
+describe("G6 群組筆記的公開連結", () => {
   it("管理員移入 → 公開 token 404；另一位編輯＋刪除成員還原 → 公開 token 200、欄位未被改", async () => {
     const { app, db } = await buildTestApp();
     const s = await sixRoleScene(db);

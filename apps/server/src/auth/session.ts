@@ -56,12 +56,12 @@ export interface GateUser {
   handle: string;
   displayName: string;
   isAdmin: boolean;
-  /** 首登強制改密碼旗標（spec rev 5.7）——`GET /api/auth/me` 直接回傳 `request.user`
+  /** 首登強制改密碼旗標——`GET /api/auth/me` 直接回傳 `request.user`
    * （見 app.ts 的 `authenticate`），故此欄位需在此就撈出，login 回應才有得帶。 */
   mustChangePassword: boolean;
-  /** OIDC-only 帳號為 false（=`password_hash IS NULL`）——spec §14.4。 */
+  /** OIDC-only 帳號為 false（=`password_hash IS NULL`）。 */
   hasPassword: boolean;
-  /** 版本歷史 §6.8：`/api/auth/me` 直接回 `request.user`，此欄必須在 Gate 層就撈。 */
+  /** 版本歷史：`/api/auth/me` 直接回 `request.user`，此欄必須在 Gate 層就撈。 */
   autoVersions: boolean;
 }
 
@@ -116,7 +116,7 @@ const CACHE_TTL_MS = 60_000;
 /**
  * 使用者狀態閘：查 users 表判斷 token 是否仍有效（tokenVersion 相符、未被停用）。
  *
- * 內建 LRU-ish 快取（依插入順序淘汰即可，見任務規格）：上限 maxEntries，TTL 60s。
+ * 內建 LRU-ish 快取（依插入順序淘汰即可）：上限 maxEntries，TTL 60s。
  * `invalidate(userId)` 同步刪除快取條目——這是即時撤銷（改密碼、停權等）的主路徑；
  * TTL 只是保底，確保即使漏呼叫 invalidate，最多 60 秒後也會反映最新 DB 狀態。
  *
@@ -175,7 +175,7 @@ export class UserGate {
   /**
    * #107：token 路徑（Bearer）的使用者狀態閘。與 `check()` **共用同一條 fetch／
    * 快取／generation-counter 路徑**（`getRow`），差別只在評估時**不比對
-   * tokenVersion**——D3：改密碼不作廢 API token（比照 GitHub PAT），撤銷靠設定頁
+   * tokenVersion**——改密碼不作廢 API token（比照 GitHub PAT），撤銷靠設定頁
    * 逐支撤或 admin 停權。
    *
    * 實作上是「把列自己的 tokenVersion 傳給 evaluate」＝那個比較恆真，於是只剩
@@ -287,7 +287,7 @@ export class UserGate {
 /**
  * cookie session 的解析，**不送回應**——回 null＝這個請求沒有有效 session（無 cookie、簽章壞、沒有 `sid` 的舊 JWT、tokenVersion 不符、
  * 停用、帳號不在、session 列已刪或已過期）。
- * 自 `app.ts` 抽出（#187 §8.1：手動連結的 callback 必須維持「一律 302」，不能掛 `authenticate` preHandler，只借它的核心）。
+ * 自 `app.ts` 抽出（#187：手動連結的 callback 必須維持「一律 302」，不能掛 `authenticate` preHandler，只借它的核心）。
  */
 export async function resolveSessionUser(
   cookies: Record<string, string | undefined>,

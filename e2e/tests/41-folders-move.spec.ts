@@ -19,14 +19,14 @@ import {
 } from "./helpers.js";
 
 /**
- * 資料夾 PR-3b-2（spec §6.18 e2e 列中本 PR 的部分；A3-3、A3-6、A3-12、A3-18、§6.14）：⋮「Move to…／Copy to…」逐層子選單、
+ * 資料夾（e2e 列中本 PR 的部分）：⋮「Move to…／Copy to…」逐層子選單、
  * 選取模式的批次移動、與我共享的私人資料夾、群組 tab 跨群組、刪群組的資料夾說明。
  * 每個 test 以 `createUserViaInvite` 開自己的使用者並登入它（資料夾排在根層筆記前、預設展開，留在共用的 ADMIN 帳號會改變其他 spec
  * 的可見列）；ADMIN 只發邀請。資料以 API 建（建筆記不帶 content 不吃寫入節流；本檔只複製 2 篇），建完 `goto("/")` 讓側欄重抓——
- * 只有 41-3 的群組資料夾照 brief 用群組列「New folder in」建。負向斷言前先等正向錨點；toast 斷言錨定全字。
- * 不斷言子選單換層後的焦點（M7），只有 41-2 照 A3-18 斷鍵盤進層後的聚焦。
+ * 只有 41-3 的群組資料夾用群組列「New folder in」建。負向斷言前先等正向錨點；toast 斷言錨定全字。
+ * 不斷言子選單換層後的焦點，只有 41-2 斷鍵盤進層後的聚焦。
  *
- * PR-3b-3（spec §6.18 rev 5.4 句、A3-19；寬窄判準見 helpers 的 `expectWidePointer`）：e2e 預設視窗 1280 落在寬——⋮ 的「Move to…／
+ * （寬窄判準見 helpers 的 `expectWidePointer`）：e2e 預設視窗 1280 落在寬——⋮ 的「Move to…／
  * Copy to…」是往旁層疊的 Radix 巢狀子選單（SubTrigger 不帶「, open」、沒有「Back」）、選取工具列在標題列；41-6、41-12 用 390 走窄形。
  * 41-10～41-13 是本 PR 新增。點 `aria-disabled` 的鈕一律 `click({ force: true })`（Playwright 的 click 會等 enabled，aria-disabled 算停用）。
  */

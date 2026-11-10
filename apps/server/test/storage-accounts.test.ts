@@ -1,6 +1,6 @@
 /**
  * 使用者與群組的方案指派、四條建帳路徑的預設、site_settings 缺列的契約變更、建帳／建群組撞已刪預設的映射
- * （spec 2026-10-08 §4.2、§7.2、§10；§11.1 S11、S12（使用者）、S13、S14（構造錯誤））。
+ * （使用者、S14（構造錯誤））。
  */
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
@@ -33,7 +33,7 @@ const planOfUser = async (db: B["db"], id: string) => (await db.select({ p: user
 const logText = (lines: Array<{ msg?: string; obj: Record<string, unknown> }>) =>
   JSON.stringify(lines, (_k, v: unknown) => (v instanceof Error ? { ...v, message: v.message, stack: v.stack, cause: v.cause } : v));
 
-describe("AdminUserDto.storage 與指派（S12、S13）", () => {
+describe("AdminUserDto.storage 與指派", () => {
   it("GET /api/admin/users 每列帶 storage 四欄（typeof number）；停權使用者照常顯示用量", async () => {
     const b = await adminApp();
     const u = await seedUser(b.db, { disabled: true });
@@ -57,7 +57,7 @@ describe("AdminUserDto.storage 與指派（S12、S13）", () => {
     expect(row.storage).toEqual({ planId: p, planName: "NewDefault", usedBytes: 0, quotaBytes: 77 });
   });
 
-  it("PATCH /api/admin/users/:id/storage-plan：200 AdminUserDto；停權者可改（S13）；使用者不存在／非 UUID → 404 user_not_found；方案不存在／非 UUID → 404 storage_plan_not_found；大寫 UUID 可；只限站台 admin", async () => {
+  it("PATCH /api/admin/users/:id/storage-plan：200 AdminUserDto；停權者可改；使用者不存在／非 UUID → 404 user_not_found；方案不存在／非 UUID → 404 storage_plan_not_found；大寫 UUID 可；只限站台 admin", async () => {
     const b = await adminApp();
     const u = await seedUser(b.db, { disabled: true });
     const p = await seedPlan(b.db, "P", null);
@@ -77,7 +77,7 @@ describe("AdminUserDto.storage 與指派（S12、S13）", () => {
   });
 });
 
-describe("四條建帳路徑都吃到「當下的」使用者預設；既有不變（S11）", () => {
+describe("四條建帳路徑都吃到「當下的」使用者預設；既有不變", () => {
   it("接受邀請、register、OIDC 自動建帳、bootstrap", async () => {
     const b = await adminApp();
     const basic = await basicPlanId(b.db);
@@ -109,7 +109,7 @@ describe("四條建帳路徑都吃到「當下的」使用者預設；既有不�
   });
 });
 
-describe("site_settings 沒有列（§4.2 契約變更）", () => {
+describe("site_settings 沒有列（契約變更）", () => {
   it("接受邀請 → 500 且 log.error 含 SITE_SETTINGS_MISSING_MESSAGE、log 不帶密碼雜湊、不留帳號與 handle 列、邀請未用；POST /api/groups → 500＋同一句 log、不留群組", async () => {
     const logs = captureLogs();
     const b = await adminApp({}, logs.options);
@@ -141,7 +141,7 @@ describe("site_settings 沒有列（§4.2 契約變更）", () => {
   });
 });
 
-describe("建帳／建群組撞已刪的預設方案 → 409 server_busy（§10 m9；以 trigger 構造的 23503）", () => {
+describe("建帳／建群組撞已刪的預設方案 → 409 server_busy（以 trigger 構造的 23503）", () => {
   it("接受邀請：users_storage_plan_fk → 409 server_busy；其他名字的 23503 照舊 500、log 只記遮蔽後的摘要（不帶密碼雜湊）", async () => {
     const logs = captureLogs();
     const b = await adminApp({}, logs.options);

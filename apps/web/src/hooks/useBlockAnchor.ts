@@ -6,7 +6,7 @@ import { findMatchBlock, topUnits } from "./block-find";
 import { onSearchMarkClear, watchSearchEscape } from "./search-mark";
 
 /**
- * #93 PR2：側欄搜尋點片段時，router navigation state 帶的查詢字（`navigate(href, { state: { kbFind } })`）。不進網址，免得複製出去的連結被污染。
+ * #93：側欄搜尋點片段時，router navigation state 帶的查詢字（`navigate(href, { state: { kbFind } })`）。不進網址，免得複製出去的連結被污染。
  * 注意 state 存在 `history.state`：重新整理後瀏覽器仍帶著它，所以重整會再跳一次（與 `#b-` 重整會再捲一次同形）。
  */
 export const FIND_STATE_KEY = "kbFind";
@@ -16,7 +16,7 @@ export function findTextFromState(state: unknown): string | null {
   return typeof v === "string" && v !== "" ? v : null;
 }
 
-/** §10.2：找不到區塊時 MutationObserver 等的上限；高亮的時間。 */
+/** 找不到區塊時 MutationObserver 等的上限；高亮的時間。 */
 export const ANCHOR_WAIT_MS = 2_000;
 export const ANCHOR_FLASH_MS = 2_000;
 /** 高亮浮層的 class（動畫在 index.css）與屬性（值＝區塊 id，e2e 以它定位）。 */
@@ -243,12 +243,12 @@ function runScroll(root: HTMLElement, resolve: () => Resolved, align: ScrollLogi
 }
 
 /**
- * 在 root 內（任何深度——RF4）找 `.bn-block-outer[data-id="<id>"]`（重複 id 取第一個）；找到就 `scrollIntoView({ block: "start" })`（帶 `findText` 時為 `"center"`）
+ * 在 root 內（任何深度）找 `.bn-block-outer[data-id="<id>"]`（重複 id 取第一個）；找到就 `scrollIntoView({ block: "start" })`（帶 `findText` 時為 `"center"`）
  * ＋高亮 2 s（ProseMirror 管轄外的浮層，見 `overlayHost`；動畫結束或 2 s 後移除——`prefers-reduced-motion` 沒有動畫，靠計時器）；
  * 找不到用 MutationObserver 等最多 2 s，仍無 ⇒ 不捲、不報錯（停頂端）。id 已過 BLOCK_ANCHOR_RE，不需要 CSS.escape。
  * 回傳取消（清 observer 與計時器、移除浮層）；同一篇再要求錨點時呼叫端先取消上一個，所以畫面上最多一個浮層。
  *
- * `findText`（#93 PR2，側欄搜尋點片段）：段落標題 `blockId` 就緒後，改捲到**該段落範圍內第一個含 `findText` 的 block**（`findMatchBlock`，
+ * `findText`（#93，側欄搜尋點片段）：段落標題 `blockId` 就緒後，改捲到**該段落範圍內第一個含 `findText` 的 block**（`findMatchBlock`，
  * 比對規則與片段標亮同一支）並高亮它；範圍內找不到 ⇒ 照舊停在段落標題。`blockId` 是 `_top`（筆記開頭、沒有標題）時，編輯器掛上後找；
  * 找不到 ⇒ 捲回頂端。
  */
@@ -273,10 +273,10 @@ export function scrollToBlock(root: HTMLElement, blockId: string, findText?: str
 }
 
 /**
- * member 的消耗條件（§10.2）：**這一篇**同步過了（`syncedFor === noteId`），不看 `synced`——A → B 的第一個 commit 帶著 A 的 `synced`
+ * member 的消耗條件：**這一篇**同步過了（`syncedFor === noteId`），不看 `synced`——A → B 的第一個 commit 帶著 A 的 `synced`
  * 殘值。產品上那個殘值 commit 與 `synced` 等價（pending 的設定與 `setSynced(false)` 落在同一批更新）；被拆掉的舊 provider 也送不出遲到的
  * `"synced"`（真的 `HocuspocusProvider.destroy()` 會 `removeAllListeners`，useCollab 的 cleanup 在 `disposed = true` 後同步呼叫它）。
- * 所以 `syncedFor` 是 spec rev 5 定的**防禦性**逐篇就緒條件：不依賴 provider 監聽器的拆除紀律。W8 跨篇案能分出它與 `synced` 的差別，
+ * 所以 `syncedFor` 是**防禦性**的逐篇就緒條件：不依賴 provider 監聽器的拆除紀律。跨篇案能分出它與 `synced` 的差別，
  * 靠的是假 provider 的 `destroy` 不清監聽器（測試裡才有的遲到事件）。
  */
 export function memberAnchorReady(s: { syncedFor: string | null; noteId: string | undefined }): boolean {
@@ -285,13 +285,13 @@ export function memberAnchorReady(s: { syncedFor: string | null; noteId: string 
 
 export interface MemberBlockAnchorOptions {
   noteId: string | undefined;
-  /** useCollab 的回傳（`synced` 刻意傳進來但不用——§15.4 的突變「改回只看 synced」就是把下面的 ready 換成它）。 */
+  /** useCollab 的回傳（`synced` 刻意傳進來但不用——突變測試「改回只看 synced」就是把下面的 ready 換成它）。 */
   collab: { synced: boolean; syncedFor: string | null };
   root: HTMLElement | null;
   presenting: boolean;
 }
 
-/** NotePage 的段落錨點組合（plan gate r1 I2：抽成正式 hook，NotePage 與 W8 的 Host 呼叫同一支）。 */
+/** NotePage 的段落錨點組合（抽成正式 hook，NotePage 與測試的 Host 呼叫同一支）。 */
 export function useMemberBlockAnchor(opts: MemberBlockAnchorOptions): BlockAnchorApi {
   return useBlockAnchor({
     noteKey: opts.noteId,
@@ -315,7 +315,7 @@ export interface UseBlockAnchorOptions {
 }
 
 /**
- * #269 §10.2：每篇一個「待處理錨點」。設定只有兩種時機——首次掛載／`noteKey` 改變時讀當下的 `location.hash`、或 `requestAnchor`。
+ * #269：每篇一個「待處理錨點」。設定只有兩種時機——首次掛載／`noteKey` 改變時讀當下的 `location.hash`、或 `requestAnchor`。
  * 不看 `location.key`、不看 navigation type；其他 location 變化（同篇 REPLACE／POP、modal、query）都不設定 ⇒ 不重捲、不重閃。
  * NotePage 不隨筆記重掛（App.tsx 共用實例），所以「noteKey 改變」而非「掛載」才是跨篇的觸發點。
  */

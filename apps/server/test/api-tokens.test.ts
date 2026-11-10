@@ -1,8 +1,8 @@
 /**
- * #130 Task 10：PAT 管理端點（`routes/api-tokens.ts`）。
+ * #130：PAT 管理端點（`routes/api-tokens.ts`）。
  *
- * 這一族守的是：①明文只出現一次、DB 只存 sha256（I2）；②I1 額度述詞的形狀（過期 PAT
- * 不計、oauth 計）；③I5 ⑤ 的機會性清理；④撤銷＝硬刪且跨使用者同形 404（D9）；
+ * 這一族守的是：①明文只出現一次、DB 只存 sha256；②I1 額度述詞的形狀（過期 PAT
+ * 不計、oauth 計）；③I5 ⑤ 的機會性清理；④撤銷＝硬刪且跨使用者同形 404；
  * ⑤四條端點是 cookie 專用——token 不能簽發、改名、改權限或撤銷 token。
  */
 import { describe, expect, it } from "vitest";
@@ -21,7 +21,7 @@ import { buildTestApp, freshLimiters, insertPasswordUser, signTestSession } from
  * PAT 管理端點是 **cookie 專用**，所以每個案子都需要一個已登入的會話。
  * cookie 用 repo 慣例直接簽（見 test/admin-ai.test.ts 的 cookieFor），不跑登入流程——
  * `mustChangePassword: true` 那一案跑真登入會卡在首登強改密流程。帳號用
- * `insertPasswordUser` 建（有真密碼，D3 那一案要用它改密碼）。
+ * `insertPasswordUser` 建（有真密碼，改密碼那一案要用它）。
  */
 async function signedInApp(
   over: { overrides?: Partial<AppDeps>; mustChangePassword?: boolean; password?: string } = {}
@@ -56,7 +56,7 @@ describe("PAT 管理端點", () => {
     expect(res.statusCode).toBe(201);
     const body = res.json();
     expect(body.name).toBe("Claude Desktop"); // 前後空白落庫前 trim
-    expect(body.agentLabel).toBe("claude"); // 建立當下也要有派生值——下一棒的列表就是拿這個回應直接更新
+    expect(body.agentLabel).toBe("claude"); // 建立當下也要有派生值——列表就是拿這個回應直接更新
     expect(body.token).toMatch(/^knb_[A-Za-z0-9_-]{43}$/);
     expect(body.scope).toBe("notes:read notes:write"); // 落庫形是集合
     expect(body.expiresAt).toBeNull();
@@ -165,7 +165,7 @@ describe("PAT 管理端點", () => {
   it("I5 ⑤：建立時順手清掉過期超過 30 天的 PAT，未滿 30 天的留著；oauth grant 不清", async () => {
     const { app, db, cookie, userId } = await signedInApp();
     // oauth grant 的 access 過期不代表授權失效（refresh 不到期）——#132 落地後這是
-    // 唯一擋住「連 oauth 一起清」的防線，spec I5 ⑤ 逐字寫了 kind='pat'。
+    // 唯一擋住「連 oauth 一起清」的防線，查詢條件逐字寫了 kind='pat'。
     await db.insert(oauthClients).values({ clientId: "c-old", clientName: "C", redirectUris: ["http://127.0.0.1:1/cb"] });
     await db.insert(apiTokens).values({
       userId,
@@ -309,7 +309,7 @@ describe("PAT 管理端點", () => {
     expect(list.json().tokens.map((t: { name: string }) => t.name)).toEqual(["second", "first"]);
   });
 
-  it("D3：改密碼之後既有 token 仍然有效", async () => {
+  it("改密碼之後既有 token 仍然有效", async () => {
     const { app, cookie, password } = await signedInApp({ password: "correct-horse-battery" });
     const { token } = (await create(app, cookie, READ_FOREVER)).json();
     const changed = await app.inject({
@@ -329,7 +329,7 @@ describe("PAT 管理端點", () => {
     const cases = [
       ["GET", "/api/auth/tokens"],
       ["POST", "/api/auth/tokens"],
-      // #106 D7：改名也不例外——一支外洩的 token 若能替自己改 agent 名稱，名牌上顯示的
+      // #106：改名也不例外——一支外洩的 token 若能替自己改 agent 名稱，名牌上顯示的
       // 就不再是使用者授權的那個身分。
       ["PATCH", `/api/auth/tokens/${created.id}`],
       // #239：PATCH 也能改權限；Bearer 若打得到，外洩的讀寫 token 就能替自己升成搬移。
@@ -352,7 +352,7 @@ describe("PAT 管理端點", () => {
 });
 
 /**
- * #106 D7（spec §8）：`PATCH /api/auth/tokens/:id` 改 agent 顯示名稱。
+ * #106：`PATCH /api/auth/tokens/:id` 改 agent 顯示名稱。
  *
  * 這一族守的是：①列表每列都有 `agentLabel`，欄位 NULL 時回派生值、有值時回覆寫；
  * ②不變量 S（`AGENT_LABEL_RE` ∪ null 才進 UPDATE、body `.strict()`）；③`null` 是
@@ -434,7 +434,7 @@ describe("PATCH /api/auth/tokens/:id（agent 名稱）", () => {
         })
       ).json().agentLabel
     ).toBe("renamed");
-    // I-2：字元集要與 DB 端的 CHECK（`api_tokens_agent_label_chk`）逐字同形——這裡用一個
+    // 字元集要與 DB 端的 CHECK（`api_tokens_agent_label_chk`）逐字同形——這裡用一個
     // 同時含底線與點的值，確保兩邊都真的收這兩個字元（放在下面「重設回 NULL」之前，
     // 否則會被那個空值斷言蓋過去）。
     expect(
@@ -556,7 +556,7 @@ describe("#239 POST scope", () => {
 const RWD = "notes:read notes:write notes:delete";
 const RWMD = "notes:read notes:write notes:move notes:delete";
 
-describe("#181 PR-2d scope（notes:delete）", () => {
+describe("#181 scope（notes:delete）", () => {
   it("POST 收讀寫刪除、讀寫搬移刪除：201，回應、列、GET 列表皆原值；缺 write 的刪除 → 400", async () => {
     const { app, db, cookie } = await signedInApp();
     const ids: Record<string, string> = {};
@@ -629,7 +629,7 @@ describe("#239 PATCH scope", () => {
       expect(bad.statusCode, scope).toBe(400);
       expect(bad.json().error.message, scope).toBe("Invalid scope.");
     }
-    // 其餘兩類訊息（spec §6.2）：agentLabel 不合 → "Invalid agentLabel."；空物件 → "Invalid request body."。
+    // 其餘兩類訊息：agentLabel 不合 → "Invalid agentLabel."；空物件 → "Invalid request body."。
     expect((await patch(app, cookie, id, { agentLabel: "bad label!" })).json().error.message).toBe("Invalid agentLabel.");
     expect((await patch(app, cookie, id, {})).json().error.message).toBe("Invalid request body.");
   });
@@ -659,7 +659,7 @@ describe("#239 PATCH scope", () => {
     expect((await patch(app, cookie, row!.id, { scope: RWM })).statusCode).toBe(403);
     expect((await patch(app, cookie, row!.id, { agentLabel: "bot" })).statusCode).toBe(200);
   });
-  it("改完下一個請求生效：同一支 token 的 tools/list 12 ↔ 13，讀寫刪除 15（buildTestApp 無共編，spec §7.1；#181 起含 list_trash；資料夾 PR-3d 起含 list_folders 與四支資料夾寫入工具，T8 起讀寫刪除另含 delete_folder）", async () => {
+  it("改完下一個請求生效：同一支 token 的 tools/list 12 ↔ 13，讀寫刪除 15（buildTestApp 無共編，#181 起含 list_trash；資料夾功能加入後含 list_folders 與四支資料夾寫入工具，T8 起讀寫刪除另含 delete_folder）", async () => {
     const { app, cookie } = await signedInApp();
     const created = (await create(app, cookie, { name: "live", scope: "notes:read notes:write", expiresInDays: null })).json();
     const count = async () => ((await mcpPost(app, rpc("tools/list"), { token: created.token })).json().result.tools as unknown[]).length;
@@ -668,7 +668,7 @@ describe("#239 PATCH scope", () => {
     expect(await count()).toBe(13);
     await patch(app, cookie, created.id, { scope: "notes:read notes:write" });
     expect(await count()).toBe(12);
-    // #181：RW → RWD 同樣下一個請求生效（多 delete_note、restore_note；資料夾 PR-3d T8 起再多 delete_folder）。
+    // #181：RW → RWD 同樣下一個請求生效（多 delete_note、restore_note；資料夾功能加入後再多 delete_folder）。
     await patch(app, cookie, created.id, { scope: RWD });
     expect(await count()).toBe(15);
   });

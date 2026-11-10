@@ -3,7 +3,7 @@ import zhTW from "./zh-TW.json";
 import en from "./en.json";
 import managementZhTW from "./management.zh-TW.json";
 
-/** spec rev 8 §3.1 D7、§8.2–§8.5 的字面；#272 起 vN → 「名稱 (短 id)」（spec 2026-10-13 §10.4）。改這些字串＝改產品決定，先與維護者確認。 */
+/** 版本歷史文案的字面；#272 起 vN → 「名稱 (短 id)」。改這些字串＝改產品決定，先與維護者確認。 */
 const SPEC_COPY: Record<string, string> = {
   "versions.save": "儲存當前版本",
   "versions.dialog.saveTitle": "儲存當前版本",
@@ -24,7 +24,7 @@ const SPEC_COPY: Record<string, string> = {
   "versions.siteOff": "站台已關閉自動儲存",
   "versions.title": "版本歷史",
   "note.menu.versions": "版本歷史",
-  // gate r1 M-8：§3.1 D7、§8.3、§8.4 的其餘字面
+  // 其餘字面
   "versions.currentLabel": "目前狀態",
   // #258：只有自動版本的列標「自動存檔」pill；清單加「全部／僅手動」篩選
   "versions.autoBadge": "自動存檔",
@@ -32,7 +32,7 @@ const SPEC_COPY: Record<string, string> = {
   "versions.filter.manual": "僅手動",
   "versions.filter.emptyManual": "沒有手動儲存的版本",
   "versions.applySeq": "套用 {{label}}",
-  // rev 10（§8.4【rev 10】）：橫幅拿掉時間／editors／「比較對象」標籤；比較對象改左右一對下拉
+  // 橫幅拿掉時間／editors／「比較對象」標籤；比較對象改左右一對下拉
   "versions.preview.banner": "正在預覽 {{label}}",
   "versions.preview.leftPicker": "左側版本",
   "versions.preview.rightPicker": "右側版本",
@@ -48,11 +48,11 @@ const SPEC_COPY: Record<string, string> = {
   "groups.autoVersions.title": "自動儲存版本",
   "versions.sheet.back": "返回",
   "versions.sheet.backToList": "清單",
-  // Task 11 裁定（避免與比較對象「前一版」同名）：底部導覽鈕不沿用 brief 的「上一版」「下一版」
+  // 避免與比較對象「前一版」同名：底部導覽鈕不用「上一版」「下一版」
   "versions.sheet.prev": "較舊的版本",
-  // Task 11 裁定（避免與比較對象同名）
+  // 裁定（避免與比較對象同名）
   "versions.sheet.next": "較新的版本",
-  // #272 D12：基底版已刪除
+  // #272：基底版已刪除
   "versions.deletedSuffix": "{{label}}（已刪除）",
   "versions.deletedVersion": "已刪除的版本",
 };
@@ -61,14 +61,14 @@ function get(obj: unknown, path: string): unknown {
   return path.split(".").reduce<unknown>((o, k) => (o && typeof o === "object" ? (o as Record<string, unknown>)[k] : undefined), obj);
 }
 
-describe("版本歷史文案＝spec 字面（zh-TW）", () => {
+describe("版本歷史文案字面（zh-TW）", () => {
   for (const [key, text] of Object.entries(SPEC_COPY)) {
     // settings.*／admin.* 的字串在 lazy 包（management.*.json），其餘在主檔。
     it(key, () => expect(get(key.startsWith("settings.") || key.startsWith("admin.") ? managementZhTW : zhTW, key)).toBe(text));
   }
 });
 
-/** spec rev 10 §8.4【rev 10】明列刪除的鍵（「前一版」概念、「vs 空文件」、「比較對象」標籤、純文字欄標頭）與 #258 刪除的鍵：兩個語系都不得殘留。 */
+/** 明列刪除的鍵（「前一版」概念、「vs 空文件」、「比較對象」標籤、純文字欄標頭）與 #258 刪除的鍵：兩個語系都不得殘留。 */
 const REMOVED_KEYS = [
   "versions.preview.compareLabel",
   "versions.preview.comparePrevious",
@@ -76,7 +76,7 @@ const REMOVED_KEYS = [
   "versions.preview.vsEmpty",
   "versions.preview.leftLabel",
   "versions.preview.rightLabelCurrent",
-  // Task 19：橫幅不再有 ✕。
+  // 橫幅不再有 ✕。
   "versions.preview.close",
   // #258：列不再標手動／自動文字、不再有基底綠點；「目前狀態」不再看清單第一筆。
   "versions.kind.manual",

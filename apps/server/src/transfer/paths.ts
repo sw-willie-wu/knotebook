@@ -1,10 +1,10 @@
 /**
- * bulk transfer spec 2026-11-02 §6.2、§6.3：下載包的目錄配置與檔名（純函式，不碰 DB）。
+ * bulk transfer：下載包的目錄配置與檔名（純函式，不碰 DB）。
  *
- * - 頂層三目錄固定英文（§21 D7）；範圍縮小時路徑不變：命名在完整可見集合上算、再依範圍篩（見 `buildLayout`）。
+ * - 頂層三目錄固定英文；範圍縮小時路徑不變：命名在完整可見集合上算、再依範圍篩（見 `buildLayout`）。
  * - 檔名只是外觀：寫回只認 frontmatter 的 `id`。路徑長度不保證在 Windows 260 內。
- * - 標題經 `sanitizeTitle`；資料夾名、群組名經 `sanitizeSegment`（plan §0.1-5、gate r1 m10）。
- * - 判重（§6.3-7、-9；plan §0.1-6）：每個目錄一個 casefold 鍵集合；**先配檔案、再配資料夾**（撞名時資料夾讓）；
+ * - 標題經 `sanitizeTitle`；資料夾名、群組名經 `sanitizeSegment`。
+ * - 判重：每個目錄一個 casefold 鍵集合；**先配檔案、再配資料夾**（撞名時資料夾讓）；
  *   同類依 `createdAt`、`id` 排序，撞名時在基名後加 ` (n)`（n 從 2 起找第一個空位）。檔與資料夾同一個命名空間。
  * - 排序：`dirs` 以完整路徑的 code unit 序（JS `<`）。
  */
@@ -14,20 +14,20 @@ import type { BulkRange } from "../auth/transfer-token.js";
 export const TOP_DIRS = { personal: "My notes", group: "Groups", shared: "Shared with me" } as const;
 export type TopDirKey = keyof typeof TOP_DIRS;
 
-/** §6.3-6：每段最多幾個 code point（截完再 trimEnd；尾碼另計）。 */
+/** 每段最多幾個 code point（截完再 trimEnd；尾碼另計）。 */
 export const SEGMENT_MAX = 64;
 
 /**
- * §6.3-1：換成 `_` 的字元——`< > : " / \ | ? *`、C0（U+0000–001F）、DEL、bidi 控制（U+202A–202E、U+2066–2069）、
- * 零寬（U+200B–200F、U+FEFF）；再加 `$`、反引號、`!`（探索測試 N1：`next` 叫模型把路徑填進雙引號裡的 `"<file>"`，
+ * 換成 `_` 的字元——`< > : " / \ | ? *`、C0（U+0000–001F）、DEL、bidi 控制（U+202A–202E、U+2066–2069）、
+ * 零寬（U+200B–200F、U+FEFF）；再加 `$`、反引號、`!`（`next` 叫模型把路徑填進雙引號裡的 `"<file>"`，
  * 這三個字元在雙引號內仍會被 shell 展開——`$(…)`、反引號會執行指令，`$VAR` 會被換掉，`!` 在互動 bash 是歷史展開）。
  */
 const ILLEGAL = /[<>:"/\\|?*$`!\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069\u200b-\u200f\ufeff]/gu;
-/** §6.3-3：Windows 保留名（不分大小寫、含帶副檔名形）。 */
+/** Windows 保留名（不分大小寫、含帶副檔名形）。 */
 const RESERVED = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$/i;
 
 /**
- * §6.3 規則 1–6（不含規則 8），順序寫死：① NFC ② 非法字元 → `_` ③ 開頭 `.` → `_` ④ 截到 64 code point（不切代理對）
+ * 規則 1–6（不含規則 8），順序寫死：① NFC ② 非法字元 → `_` ③ 開頭 `.` → `_` ④ 截到 64 code point（不切代理對）
  * 後 trimEnd ⑤ 去尾端 `.` 與空白、空了 → `_` ⑥ 保留名前加 `_`。
  */
 export function sanitizeSegment(raw: string): string {
@@ -42,13 +42,13 @@ export function sanitizeSegment(raw: string): string {
   return s;
 }
 
-/** `sanitizeSegment`＋§6.3-8：清洗後空或只由 `_` 組成 → `Untitled`。 */
+/** `sanitizeSegment` 之後：清洗後空或只由 `_` 組成 → `Untitled`。 */
 export function sanitizeTitle(raw: string): string {
   const s = sanitizeSegment(raw);
   return /^_+$/.test(s) ? "Untitled" : s;
 }
 
-/** §6.3-7 的判重鍵：NFC 後以 `toUpperCase().toLowerCase()` 近似 casefold（`ß`→`ss` 會多判重，無害）。 */
+/** 判重鍵：NFC 後以 `toUpperCase().toLowerCase()` 近似 casefold（`ß`→`ss` 會多判重，無害）。 */
 export function casefoldKey(s: string): string {
   return s.normalize("NFC").toUpperCase().toLowerCase();
 }
@@ -114,14 +114,14 @@ function within(node: DirNode, anc: DirNode): boolean {
 }
 
 /**
- * **命名一律在完整的可見集合上算，再依範圍篩輸出**（plan §0.1-5；T1–T6 審查 I1）：範圍縮小時，範圍內每一項的路徑與
+ * **命名一律在完整的可見集合上算，再依範圍篩輸出**：範圍縮小時，範圍內每一項的路徑與
  * `all` 那份逐字相同（同名群組、清洗後撞名、規則 9 都一樣）——否則先抓全部、再抓某個群組的 agent，會讓兩篇不同的筆記
  * 落到同一個本機路徑而靜默覆蓋。
  *
- * 呼叫端（T9／T10）一律傳**讀者可見的完整集合**：全部可見筆記的中繼資料（`all` 範圍那一支查詢）、全部可見資料夾、
+ * 呼叫端（單篇下載與整包匯出）一律傳**讀者可見的完整集合**：全部可見筆記的中繼資料（`all` 範圍那一支查詢）、全部可見資料夾、
  * 全部可讀群組；`range` 決定輸出哪些。範圍所指的群組／資料夾不在輸入裡 → 丟錯（呼叫端先判「範圍已看不到」→ 403）。
  *
- * 範圍涵蓋（plan §0.1-5）：`all`＝三個頂層目錄與全部；`personal`／`shared`＝該頂層目錄與其下；`group`＝`Groups`＋該群組
+ * 範圍涵蓋：`all`＝三個頂層目錄與全部；`personal`／`shared`＝該頂層目錄與其下；`group`＝`Groups`＋該群組
  * 目錄與其下；`folder`＝該資料夾的祖先鏈（含頂層目錄與群組目錄）＋子樹，筆記只取放在子樹裡的（shared 筆記看讀者的 placement）。
  */
 export function buildLayout(input: { notes: LayoutNote[]; folders: LayoutFolder[]; groups: LayoutGroup[]; range: BulkRange }): Layout {

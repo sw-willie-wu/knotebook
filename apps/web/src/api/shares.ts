@@ -19,7 +19,7 @@ export function useShares(noteId: string): UseQueryResult<ShareDto[]> {
 /**
  * `PUT /api/notes/:id/shares`——新增分享與改角色共用同一支（upsert 語意，見
  * server 端 `onConflictDoUpdate`）。body 用 **email**，不是 userId（server 靠
- * email 查目標使用者；契約逐字見 task brief／routes/notes.ts 的
+ * email 查目標使用者；契約見 routes/notes.ts 的
  * `putShareBodySchema`）。
  */
 export function usePutShare(noteId: string) {
@@ -38,7 +38,7 @@ export function usePutShare(noteId: string) {
 
 /**
  * `DELETE /api/notes/:id/shares/:userId`——移除分享（撤權）。server 端會呼叫
- * `onShareChanged` 觸發 Task 13 的共編重驗；client 這裡除了打這支 API、
+ * `onShareChanged` 觸發共編重驗；client 這裡除了打這支 API、
  * invalidate 分享名單快取之外不需要再做任何事——被撤權那位使用者的畫面反應
  * 是他自己那台 client 的 `useCollab` 狀態機負責的（見 NotePage 的終態處理）。
  */

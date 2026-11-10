@@ -1,11 +1,11 @@
 /**
- * #132：D10 的兩個判準——DCR 收件（loopback-only）與授權時的比對（port 忽略）。
+ * #132：兩個判準——DCR 收件（loopback-only）與授權時的比對（port 忽略）。
  * 這兩支是釣魚防線的一半，邊界要逐格釘住。
  */
 import { describe, expect, it } from "vitest";
 import { isLoopbackRedirectUri, matchesLoopbackRedirect } from "../../src/oauth/redirect.js";
 
-describe("isLoopbackRedirectUri（DCR 的收件判準，D10）", () => {
+describe("isLoopbackRedirectUri（DCR 的收件判準）", () => {
   it("接受三種 loopback host，任意 port 與 path", () => {
     expect(isLoopbackRedirectUri("http://localhost/cb")).toBe(true);
     expect(isLoopbackRedirectUri("http://127.0.0.1:1234/cb")).toBe(true);
@@ -62,7 +62,7 @@ describe("matchesLoopbackRedirect（授權時的比對，port 忽略）", () => 
   });
 
   // 「逐字相等」要真的逐字：大小寫案殺掉 toLowerCase 突變，前綴案殺掉 startsWith
-  // 突變（後者等於把註冊的 /cb 放寬成接受 /cbx，D10 的比對基礎就鬆掉一格）。
+  // 突變（後者等於把註冊的 /cb 放寬成接受 /cbx，比對基礎就鬆掉一格）。
   it("path 不同不相符，且逐字比對（大小寫敏感、非前綴）", () => {
     expect(matchesLoopbackRedirect("http://127.0.0.1:1234/cb", "http://127.0.0.1:1234/other")).toBe(false);
     expect(matchesLoopbackRedirect("http://127.0.0.1/cb", "http://127.0.0.1/CB")).toBe(false);
@@ -91,7 +91,7 @@ describe("matchesLoopbackRedirect（授權時的比對，port 忽略）", () => 
   });
 
   // 百分號編碼的 %00 可合法註冊，而裸 NUL 的 pathname 正規化後與它相等——放行等於
-  // 讓 raw actual 落庫再炸 500（Task 5 存的是這個 actual 值）。
+  // 讓 raw actual 落庫再炸 500（存的是這個 actual 值）。
   it("任一側含 NUL 或落單代理都不相符（即使正規化後看起來相等）", () => {
     expect(matchesLoopbackRedirect("http://127.0.0.1/cb%00", "http://127.0.0.1/cb\u0000")).toBe(false);
     expect(matchesLoopbackRedirect("http://127.0.0.1/cb\u0000", "http://127.0.0.1/cb%00")).toBe(false);

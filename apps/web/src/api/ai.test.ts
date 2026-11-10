@@ -3,9 +3,9 @@ import { ApiFail } from "./client";
 import { streamAiAction } from "./ai";
 
 /**
- * `POST /api/ai` 的手寫 SSE client（spec §13.2/§13.5-1）。`fetch` 整個被 stub 掉，
+ * `POST /api/ai` 的手寫 SSE client。`fetch` 整個被 stub 掉，
  * 用一個真的 `ReadableStream<Uint8Array>` 模擬 server 端 `raw.write("event: ...\ndata:
- * ...\n\n")` 的位元組流——包含跨 chunk 斷行的情形（M3 的核心風險：`event: delta\n` 跟
+ * ...\n\n")` 的位元組流——包含跨 chunk 斷行的情形（核心風險：`event: delta\n` 跟
  * `data: {...}\n\n` 被切在兩次 `reader.read()` 裡）。
  */
 
@@ -158,7 +158,7 @@ describe("streamAiAction（手寫 SSE client）", () => {
     expect(init.signal).toBe(controller.signal);
   });
 
-  it("送出的 init 帶 Content-Type: application/json 與 credentials: include（M3 護欄）", async () => {
+  it("送出的 init 帶 Content-Type: application/json 與 credentials: include", async () => {
     const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(() =>
       Promise.resolve(fakeResponse({ ok: true, status: 200, body: sseBody(["event: done\ndata: {}\n\n"]) })),
     );

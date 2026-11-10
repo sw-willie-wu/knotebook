@@ -1,16 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { canonicalColumnsLine, normalizeTableWidths, relativizeSiteUploads } from "./note-markdown-write.js";
 
-// spec 2026-10-21 columns-layout §11.3（寫入）。node 環境：只測不需要 DOM 的三支；語法檢查（需要 DOM）在 server
+// 並排的寫入。node 環境：只測不需要 DOM 的三支；語法檢查（需要 DOM）在 server
 // `test/unit/note-markdown-validate.test.ts`。
 
-describe("CL1 canonicalColumnsLine：逐字等於正規行才算", () => {
+describe("canonicalColumnsLine：逐字等於正規行才算", () => {
   it("外層行 → list；欄行 → { width }", () => {
     expect(canonicalColumnsLine('<div data-kb-columns style="display:flex;gap:16px">')).toBe("list");
     expect(canonicalColumnsLine('<div data-kb-column style="flex:1.5">')).toEqual({ width: 1.5 });
   });
 
-  it("行尾一個 \\r 照收（Q10）", () => {
+  it("行尾一個 \\r 照收", () => {
     expect(canonicalColumnsLine('<div data-kb-columns style="display:flex;gap:16px">\r')).toBe("list");
     expect(canonicalColumnsLine('<div data-kb-column style="flex:1.5">\r')).toEqual({ width: 1.5 });
   });
@@ -47,7 +47,7 @@ const table = (columnWidths: unknown[]) => ({ type: "table", props: {}, content:
 const para = (children: unknown[] = []) => ({ type: "paragraph", props: {}, content: [], children });
 const widthsOf = (b: unknown): unknown[] => (b as { content: { columnWidths: unknown[] } }).content.columnWidths;
 
-describe("NT1 normalizeTableWidths：非正有限數 → undefined", () => {
+describe("normalizeTableWidths：非正有限數 → undefined", () => {
   it("[120, NaN, 80] → [120, undefined, 80]", () => {
     const out = normalizeTableWidths([table([120, NaN, 80])]);
     expect(widthsOf(out[0])).toEqual([120, undefined, 80]);
@@ -87,7 +87,7 @@ const U = "00000000-0000-4000-8000-000000000001";
 const media = (type: string, url: string, children: unknown[] = []) => ({ type, props: { url, name: "n" }, children });
 const urlOf = (b: unknown): unknown => (b as { props: { url: unknown } }).props.url;
 
-describe("RS1 relativizeSiteUploads：同 origin 的 /api/uploads/<uuid> 還原成相對形", () => {
+describe("relativizeSiteUploads：同 origin 的 /api/uploads/<uuid> 還原成相對形", () => {
   const BASE = "http://localhost";
 
   it("頂層 image", () => {

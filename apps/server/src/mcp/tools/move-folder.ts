@@ -1,5 +1,5 @@
 /**
- * 資料夾 PR-3d（folders spec §5.12、§5.7.3）`move_folder`：同空間內搬移（含整棵子樹）。服務層 `updateFolder` 負責入口順序
+ * 資料夾：`move_folder`：同空間內搬移（含整棵子樹）。服務層 `updateFolder` 負責入口順序
  * （看不到的父層先回 404，看得到但跨空間才 400）、成環、深度與交易。
  */
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -11,7 +11,7 @@ import { folderReply, folderServiceDeps } from "../folder-service.js";
 import { requireWriteScope } from "../write-scope.js";
 import type { McpToolCtx } from "../context.js";
 
-/** D-MF（逐字照 plan「待確認字串」）。 */
+/** `move_folder` 的工具說明。 */
 export const MOVE_FOLDER_DESCRIPTION =
   "Move a folder you can see, with everything in it, into another folder of the same space, or to the top level of its space with `parent_id: null`. " +
   "A folder can't move to another space — out of your personal folders, out of its group, or out of your folders for notes shared with you — " +

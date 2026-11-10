@@ -10,7 +10,7 @@ import { AppErrorBoundary } from "./ErrorBoundary";
 import { AppShell } from "./AppShell";
 import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
-// 垃圾桶 tab 的 lazy chunk（TrashLazy）載入失敗（T9 fix r2 I-1）：只有垃圾桶那塊出錯，側欄其餘與頁面照常，不冒到 AppErrorBoundary。
+// 垃圾桶 tab 的 lazy chunk（TrashLazy）載入失敗：只有垃圾桶那塊出錯，側欄其餘與頁面照常，不冒到 AppErrorBoundary。
 // 錯誤訊息照 Chromium 的裸動態 import 失敗措辭（ErrorBoundary.tsx 的 CHUNK_ERROR_PATTERNS）；vitest 把 factory 的 reject 包成
 // 「error when mocking a module」、原錯誤放 `cause`——`isChunkLoadError` 本來就查 cause 一層，所以照樣判成 chunk 錯誤。
 

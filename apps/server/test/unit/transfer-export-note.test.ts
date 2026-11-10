@@ -10,7 +10,7 @@ import { EditorSession } from "../../src/notes/editing/session.js";
 import { exportNoteForTransfer } from "../../src/transfer/export-note.js";
 import { SHAPE_LINK_TARGET, SHAPE_TITLES, TRANSFER_SHAPES, type ShapeBlock } from "./fixtures/transfer-shapes.js";
 
-/** bulk transfer spec §6.4-1、-5、-6、§6.6-4；plan T6（X1–X9）。 */
+/** bulk transfer 單篇匯出（X1–X9）。 */
 
 const rt = new EditingRuntime({ baseUrl: "http://localhost/" });
 rt.installGlobals();
@@ -41,7 +41,7 @@ describe("exportNoteForTransfer：129 形", () => {
   });
 
   it.each(TRANSFER_SHAPES.map(s => [`[${s.group}] ${s.name}`, s] as const))(
-    "X1／X2／X3／X5 %s：段表與統計逐形等於 spike、本文＝MCP 讀出、指紋＝逐 id、一次 mount",
+    "X1／X2／X3／X5 %s：段表與統計逐形相符、本文＝MCP 讀出、指紋＝逐 id、一次 mount",
     async (_label, shape) => {
       const doc = await docWith(shape.blocks);
       const m0 = rt.mounts;
@@ -219,7 +219,7 @@ function probeTitles(onFirstGet: () => void): ReadonlyMap<string, string> {
   })(SHAPE_TITLES);
 }
 
-describe("預設讓出真的跨過 timers＋poll（m3 的兩次 setImmediate）", () => {
+describe("預設讓出真的跨過 timers＋poll（兩次 setImmediate）", () => {
   it("Y1 從 I/O 回呼接著跑：mount 後第一次讓出期間，事先到期的 setTimeout(0) 先跑（在整篇匯出之前）", async () => {
     const doc = await docWith(byName("wikilink in para + bullet").blocks);
     let fired = false;

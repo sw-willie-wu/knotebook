@@ -1,5 +1,5 @@
 /**
- * #286 spec §3.1、§3.4：一次性連結的明文格式與有效述詞。純函式，無 DB。
+ * #286：一次性連結的明文格式與有效述詞。純函式，無 DB。
  *
  * 守衛重點：`knbp_` 的第 4 字元是 `p` 不是 `_`，所以 `isAccessTokenShape("knbp_…")` 為假（同 `knbr_`／`knbt_`）；
  * 有效述詞只在 `auth/one-time-link.ts` 組，這裡用 `PgDialect` 釘住它產出的 SQL。
@@ -20,7 +20,7 @@ import {
 
 const dialect = new PgDialect();
 
-describe("一次性連結 token 明文格式（spec §3.1）", () => {
+describe("一次性連結 token 明文格式", () => {
   it("U1：knbp_ + 43 字元 base64url（共 48），每次都不同", () => {
     const a = generateOneTimeToken("password_reset");
     const b = generateOneTimeToken("password_reset");
@@ -74,7 +74,7 @@ describe("一次性連結 token 明文格式（spec §3.1）", () => {
   });
 });
 
-describe("一次性連結的 SQL 述詞（spec §3.4、§4.2 N-3）", () => {
+describe("一次性連結的 SQL 述詞", () => {
   it("U4：activeOneTimeLink＝kind 相符、未用、未撤銷、expires_at > now()；kind 走參數", () => {
     const q = dialect.sqlToQuery(activeOneTimeLink("password_reset"));
     expect(q.sql).toBe(

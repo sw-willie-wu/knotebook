@@ -1,14 +1,14 @@
 /**
- * #180 spec §3.2：移入群組的本體——REST `POST /api/notes/:id/move` 與 MCP `move_note_to_group` 共用。
+ * #180：移入群組的本體——REST `POST /api/notes/:id/move` 與 MCP `move_note_to_group` 共用。
  * 入口 `noteId.toLowerCase()`（MCP 的 `NOTE_ID` 與 REST 的 app 層 `lowercaseUuidParams` 送進來已是小寫；這裡保留作防禦——
- * 踢線與 live doc 以小寫字串為鍵，gate r1 I1）。順序逐條＝原路由（F26）：`resolveNoteAccess` → `none` →
+ * 踢線與 live doc 以小寫字串為鍵）。順序逐條＝原路由：`resolveNoteAccess` → `none` →
  * `!permissions.moveToGroup` → `UUID_RE.test(groupId)`（MCP 的 GROUP_ID 已擋非 uuid，這一關對 MCP 永不觸發，留著為 REST）→
  * `groupId.toLowerCase()` → 交易 → catch 分類（`TxAbort`（含 `StorageQuotaExceeded`）→ `aborted`、FK → `group_not_found`
  * （防禦縱深）、`isRetryableTxError` → `busy`、其餘 rethrow）→ **commit 成功後**依序：`versions.relocated([noteId])`（版本歷史
- * §9：重建載入中筆記的版本狀態；commit 失敗的 catch 分支不呼叫）→ 踢線（被清分享者 ∪ 呼叫者）→ `moved`。
+ * 重建載入中筆記的版本狀態；commit 失敗的 catch 分支不呼叫）→ 踢線（被清分享者 ∪ 呼叫者）→ `moved`。
  * 交易內清版本由 `notes/tx/move.ts` 的 `resetNoteVersionsInTx` 自動跟著走。
- * 資料夾 PR-3a（spec §5.7.7、§5.5 I2）：帶 `folderId` 時，在 UUID 判斷之後依序判可見性（非 UUID／看不到 → 404 `folder_not_found`）
- * 與空間（不是 `groupId` 那個群組的資料夾 → 400 `folder_cross_space`），都以 `aborted` 回（outcome 聯集不變）；`can_edit`（D13）
+ * 資料夾：帶 `folderId` 時，在 UUID 判斷之後依序判可見性（非 UUID／看不到 → 404 `folder_not_found`）
+ * 與空間（不是 `groupId` 那個群組的資料夾 → 400 `folder_cross_space`），都以 `aborted` 回（outcome 聯集不變）；`can_edit`
  * 與資料夾鎖在交易內判。
  * 含 `.transaction(` ⇒ 在 S14 的 `ROUTE_FILES`。
  */
@@ -35,7 +35,7 @@ export type MoveOutcome =
   | { kind: "moved" }
   /** `resolveNoteAccess` 為 none。 */
   | { kind: "not_found" }
-  /** `!permissions.moveToGroup`（只有個人筆記的 owner 為真，F28）。 */
+  /** `!permissions.moveToGroup`（只有個人筆記的 owner 為真）。 */
   | { kind: "forbidden" }
   /** 非 UUID，或交易外 FK 23503（防禦縱深）。 */
   | { kind: "group_not_found" }
@@ -71,9 +71,9 @@ export async function moveNoteToGroup(
     await deps.groupTestHook?.("note-move-authorized", { noteId });
     moved = await deps.db.transaction(tx => moveNoteToGroupInTx(tx, txInput, deps.groupTestHook));
   } catch (err) {
-    // 先判子類（StorageQuotaExceeded extends TxAbort）：呼叫端要先判子類才拿得到數字；數字可見性在交易外判（儲存配額 §8.1）。
+    // 先判子類（StorageQuotaExceeded extends TxAbort）：呼叫端要先判子類才拿得到數字；數字可見性在交易外判。
     if (err instanceof TxAbort) return { kind: "aborted", err };
-    // 防禦縱深（資料夾 PR-3a）：目標資料夾在交易內已持 KEY SHARE 並判過群組，UPDATE 撞不到 `notes_folder_fk`／KF001；撞到與看不到同形。
+    // 防禦縱深：目標資料夾在交易內已持 KEY SHARE 並判過群組，UPDATE 撞不到 `notes_folder_fk`／KF001；撞到與看不到同形。
     if (isNoteFolderSpaceViolation(err) || foreignKeyViolationConstraint(err) === "notes_folder_fk") {
       return { kind: "aborted", err: new TxAbort(404, "folder_not_found", FOLDER_NOT_FOUND_MESSAGE) };
     }
@@ -81,7 +81,7 @@ export async function moveNoteToGroup(
     // `uploads.charged_to_id` → users 的 FK（(3a) 寫入移入者）：只有移入者帳號在交易中被硬刪才會撞——`src/` 目前沒有硬刪使用者的路徑。
     // 兩者撞到都回同一條 group_not_found（catch 在交易外）。
     if (isForeignKeyViolation(err)) return { kind: "group_not_found" };
-    // 儲存配額 §6.9：空間鎖逾時（55P03）／死結（40P01，含既有 T3×T6 在 note_redirects 的形）／40001 → busy（REST 409 server_busy）。
+    // 儲存配額：空間鎖逾時（55P03）／死結（40P01，含既有 T3×T6 在 note_redirects 的形）／40001 → busy（REST 409 server_busy）。
     if (isRetryableTxError(err)) return { kind: "busy" };
     throw err;
   }

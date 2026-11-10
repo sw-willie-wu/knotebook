@@ -1,8 +1,8 @@
 /**
- * bulk transfer spec 2026-11-02 §6.6-1：全站同時 1 個整包匯出。每個 `transferRoutes` 實例一個（＝每個 app 一個，測試互不污染）。
+ * bulk transfer：全站同時 1 個整包匯出。每個 `transferRoutes` 實例一個（＝每個 app 一個，測試互不污染）。
  *
  * `tryAcquire()` 回一個**只能放一次**的 release 函式（拿不到回 null）。刻意不做成 slot 上的 `release()`：持有者重複放行時，
- * 若別人已經拿到，slot 層的 release 會把別人的放掉（偏離 plan T10 的 `tryAcquire(): boolean`／`release()` 形，理由同此）。
+ * 若別人已經拿到，slot 層的 release 會把別人的放掉（所以不用 `tryAcquire(): boolean`／`release()` 形）。
  */
 export class ExportSlot {
   private holder: symbol | null = null;

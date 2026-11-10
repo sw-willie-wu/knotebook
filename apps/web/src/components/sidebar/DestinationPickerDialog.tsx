@@ -17,8 +17,8 @@ function errorMessage(t: Translate, err: unknown): string {
 }
 
 /**
- * 選取模式「移動到」「複製到」的目的地選擇框（資料夾 spec §6.10「批次的目的地」F16；沿用 PR-2c 的框）。
- * 一次只顯示**一層**：項目由 `buildDestinationLevel`（§6.11.1，與筆記 ⋮ 的逐層子選單共用）產生，path 由呼叫端持有，
+ * 選取模式「移動到」「複製到」的目的地選擇框（批次的目的地）。
+ * 一次只顯示**一層**：項目由 `buildDestinationLevel`（與筆記 ⋮ 的逐層子選單共用）產生，path 由呼叫端持有，
  * 傳進來的是這一層的 `level` 與它的識別 `levelKey`。每項一顆按鈕（不做 tree 方向鍵，鍵盤用 Tab 走）：
  * 帶 `>` 的項目＝`onDrill`（框內換成下一層）、「返回」＝`onBack`、其他＝`onPick`（選定目的地）。
  * 只有 `levelKey` 變了（換層）才把清單捲回頂端、焦點給新層第一個未停用的項目（整層都反灰時給 footer 的 Cancel）；同一層重繪（資料夾重抓）不搬動。

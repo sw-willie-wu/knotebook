@@ -12,7 +12,7 @@ export const HOVER_CLOSE_MS = 250;
 type Source = "hover" | "press";
 
 /**
- * rev 7 §7.4：可編輯時 wikilink 工具列的兩個開法——滑鼠 hover（延遲開、移出延遲關、移進工具列或焦點在工具列裡不關）、
+ * 可編輯時 wikilink 工具列的兩個開法——滑鼠 hover（延遲開、移出延遲關、移進工具列或焦點在工具列裡不關）、
  * 觸控長按（`lib/long-press.ts`）。點擊不開（直接跳轉，見 `useWikilinkClick`）。鍵盤開不到（列為已知限制）。
  * 都不搶焦點；hover 移出造成的關閉不把焦點拉回編輯器（`shouldRestoreFocus`）。
  */

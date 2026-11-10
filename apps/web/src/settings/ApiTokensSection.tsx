@@ -50,7 +50,7 @@ const SELECT_CLASS =
   "h-8 shrink-0 rounded-md border border-input bg-background px-2 text-sm shadow-sm focus-visible:outline-none " +
   "focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
 
-/** 撤銷確認（比照 SettingsAiSection 的 DeleteProviderDialog）。觸發鈕是列尾的紅垃圾桶 `RowIconButton`（spec 2026-10-13 settings-table §2.7）。 */
+/** 撤銷確認（比照 SettingsAiSection 的 DeleteProviderDialog）。觸發鈕是列尾的紅垃圾桶 `RowIconButton`。 */
 function RevokeDialog({ token }: { token: ApiTokenDto }) {
   const { t } = useTranslation();
   const revoke = useRevokeApiToken();
@@ -99,7 +99,7 @@ function CreateTokenDialog() {
   const create = useCreateApiToken();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
-  // #239 W7'／#181：開關預設都關（＝唯讀）；#247 W22 起用 toggle（ScopeTogglesField）。
+  // #239／#181：開關預設都關（＝唯讀）；#247 起用 toggle（ScopeTogglesField）。
   const [checks, setChecks] = useState<ScopeChecks>({ write: false, move: false, delete: false });
   const [expiresInDays, setExpiresInDays] = useState<CreateApiTokenInput["expiresInDays"]>(null);
   const [issued, setIssued] = useState<string | null>(null);
@@ -140,8 +140,8 @@ function CreateTokenDialog() {
       <DialogContent
         // 表單畫面與明文畫面都擋點外面（表單型一律擋）。
         dismissOnOutside={false}
-        // 明文只出現這一次（I2）：明文畫面擋掉 Esc 與點外面，誤觸會讓這支 token 直接報銷
-        // （還吃掉 I1 的 20 額度）。只留 Done 與右上 X 這兩個明確的關閉動作。
+        // 明文只出現這一次：明文畫面擋掉 Esc 與點外面，誤觸會讓這支 token 直接報銷
+        // （還吃掉 20 個憑證額度）。只留 Done 與右上 X 這兩個明確的關閉動作。
         // 加了 dismissOnOutside 後，點外面已被它全程擋下；下方 onPointerDownOutside 與它重疊，
         // 只剩 onEscapeKeyDown 那支有獨立作用（表單畫面 Esc 仍可關、明文畫面 Esc 擋住）。
         onEscapeKeyDown={event => {
@@ -282,7 +282,7 @@ function tokenDates(token: ApiTokenDto, t: (key: string, opts?: Record<string, u
 }
 
 /**
- * 行內編輯的表單（§5.3；放進 `SettingsTable` 的 editing 列：主欄保留、其餘欄合併成這一格，spec 2026-10-13 settings-table §2.6）。
+ * 行內編輯的表單（放進 `SettingsTable` 的 editing 列：主欄保留、其餘欄合併成這一格）。
  * 名稱不可改，只有 label 一個輸入框＋三個權限 toggle。label 改了才帶 `agentLabel`（清空＝`null`：把欄位清成 NULL、回到派生值；
  * server 的 `AGENT_LABEL_RE` 也不收空字串）、權限改了才帶 `scope`；都沒改就直接回顯示態。存檔／取消是表單最右的兩顆 icon 鈕（勾、叉）。
  * Enter＝儲存。**沒有 Esc 取消**：這一列坐在設定面板的 `DialogContent` 裡，Radix 在 document 的 capture 階段
@@ -366,11 +366,11 @@ function TokenEditForm({ token, onDone }: { token: ApiTokenDto; onDone: () => vo
 }
 
 /**
- * 設定→授權的「API token」段（#107；#247 §5.3 起是表格＋行內編輯；spec 2026-10-13 settings-table §3 #9 起是 `SettingsTable`）。
+ * 設定→授權的「API token」段（#107；#247 起是表格＋行內編輯；#9 起是 `SettingsTable`）。
  *
  * **位置**：與 `HandleSection` 同層、在 `hasPassword` 三元式**之外**——SSO-only
  * 帳號也要能建 PAT（他們沒有密碼可用，更需要 token 這條路）。
- * 「一次只編一列」：`editingId` 持有正在編的那列；其餘列的鉛筆 softDisabled＋原因（可聚焦，spec §2.7）。
+ * 「一次只編一列」：`editingId` 持有正在編的那列；其餘列的鉛筆 softDisabled＋原因（可聚焦）。
  * 欄：名稱（kind 標籤；副標＝建立日、oauth 的「未驗證名稱」）｜Label（派生值灰字）｜權限｜最後使用｜到期（過期紅；oauth 列以 `displayExpiry` 計算，#298）｜操作（編輯、撤銷）。
  */
 export function ApiTokensSection() {
@@ -391,7 +391,7 @@ export function ApiTokensSection() {
   ];
   const rows: SettingsTableRow[] = (tokens.data ?? []).map(token => {
     const dates = tokenDates(token, t, i18n.language);
-    // 灰字＝顯示的是從名稱派生的值（§5.3、§9.6）。接受的誤判：手動設成恰等於派生值時也灰——對外效果相同。
+    // 灰字＝顯示的是從名稱派生的值。接受的誤判：手動設成恰等於派生值時也灰——對外效果相同。
     const derived = token.agentLabel === deriveAgentLabel(token.name);
     return {
       id: token.id,

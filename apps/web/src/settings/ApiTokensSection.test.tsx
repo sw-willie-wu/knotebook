@@ -1,5 +1,5 @@
 /**
- * #130 Task 11：設定→帳號的「API token」段。
+ * #130：設定→帳號的「API token」段。
  *
  * 沿用 SettingsAccountSection.test.tsx 的 render helper 形：走真 AppRoutes、stub fetch、
  * retry: false、掛 Toaster。fetch 樁對未預期 URL 一律 throw——那是「元件多打了一發
@@ -154,8 +154,8 @@ describe("ApiTokensSection", () => {
     expect(screen.queryByText(i18n.t("settings.account.apiTokensEmpty"))).not.toBeInTheDocument();
   });
 
-  it("只填名稱就送出 → scope 預設 read、expiresInDays 預設 null（D4：PAT 預設不到期）", async () => {
-    // D4 在前端的唯一落點就是這兩個預設值；建立成功案把兩個 select 都顯式改掉，守不到。
+  it("只填名稱就送出 → scope 預設 read、expiresInDays 預設 null（PAT 預設不到期）", async () => {
+    // 這條規則在前端的唯一落點就是這兩個預設值；建立成功案把兩個 select 都顯式改掉，守不到。
     const created = { ...PAT_ROW, id: "t-d", name: "D", token: "knb_" + "y".repeat(43) };
     const { calls } = renderSettings(PASSWORD_USER, [], (url, method) =>
       url === "/api/auth/tokens" && method === "POST"
@@ -163,7 +163,7 @@ describe("ApiTokensSection", () => {
         : null
     );
     fireEvent.click(await screen.findByRole("button", { name: i18n.t("settings.account.apiTokensCreate") }));
-    // #239 W7'：兩個開關預設都關，且都在「Access」那一組裡（#247 W22：建立對話框改用 toggle）。
+    // #239'：兩個開關預設都關，且都在「Access」那一組裡（#247：建立對話框改用 toggle）。
     const access = screen.getByRole("group", { name: i18n.t("settings.account.apiTokensScopeLabel") });
     expect(within(access).getByRole("switch",{ name: i18n.t("settings.account.apiTokensScopeEdit") })).not.toBeChecked();
     expect(within(access).getByRole("switch",{ name: i18n.t("settings.account.apiTokensScopeMove") })).not.toBeChecked();
@@ -187,14 +187,14 @@ describe("ApiTokensSection", () => {
     expect(await screen.findByText("Claude Code")).toBeInTheDocument();
     const oauthName = screen.getByText("Claude Code");
     expect(oauthName).toHaveAttribute("dir", "ltr");
-    expect(oauthName).toHaveClass("[unicode-bidi:isolate]"); // spec §9.3：dir 與 isolate 樣式都要
+    expect(oauthName).toHaveClass("[unicode-bidi:isolate]"); // dir 與 isolate 樣式都要
     // pat 列的名稱同樣要 bidi 隔離——名稱是使用者輸入，不只 oauth 列是外部字串
     expect(screen.getByText("Script")).toHaveAttribute("dir", "ltr");
     expect(screen.getByText("Script")).toHaveClass("[unicode-bidi:isolate]");
     expect(screen.getAllByText(i18n.t("settings.account.apiTokensUnverifiedName"))).toHaveLength(1);
   });
 
-  it("列表：過期的列標示 Expired（danger 語氣，spec 2026-10-13 settings-table §3 #9「保留過期紅色」），不到期的列標示 No expiry", async () => {
+  it("列表：過期的列標示 Expired（danger 語氣，#9「保留過期紅色」），不到期的列標示 No expiry", async () => {
     const expiredRow: ApiTokenDto = { ...PAT_ROW, id: "t-exp", name: "Old", expiresAt: "2020-01-01T00:00:00.000Z" };
     renderSettings(PASSWORD_USER, [PAT_ROW, expiredRow]);
     expect(await screen.findByText(i18n.t("settings.account.apiTokensExpired"))).toHaveClass("text-destructive");
@@ -251,7 +251,7 @@ describe("ApiTokensSection", () => {
     });
   });
 
-  it("表名 API tokens；欄名 Name／Label／Permissions／Last used／Expires／Actions（spec §3 #9）；列名＝token 名", async () => {
+  it("表名 API tokens；欄名 Name／Label／Permissions／Last used／Expires／Actions；列名＝token 名", async () => {
     renderSettings(PASSWORD_USER, [PAT_ROW, OAUTH_ROW]);
     const table = await screen.findByRole("table", { name: "API tokens" });
     expect(within(table).getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual([
@@ -402,14 +402,14 @@ describe("ApiTokensSection", () => {
     await waitFor(() =>
       expect(screen.queryByLabelText(i18n.t("settings.account.apiTokensValueLabel"))).not.toBeInTheDocument()
     );
-    // 重開：明文不殘留、name 清空（I2 的行為守衛）
+    // 重開：明文不殘留、name 清空（行為守衛）
     fireEvent.click(screen.getByRole("button", { name: i18n.t("settings.account.apiTokensCreate") }));
     expect(screen.queryByLabelText(i18n.t("settings.account.apiTokensValueLabel"))).not.toBeInTheDocument();
     expect(screen.getByLabelText(i18n.t("settings.account.apiTokensNameLabel"))).toHaveValue("");
   });
 });
 
-describe("ApiTokensSection 表格與行內編輯（#247 §5.3、W22）", () => {
+describe("ApiTokensSection 表格與行內編輯（#247）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -423,7 +423,7 @@ describe("ApiTokensSection 表格與行內編輯（#247 §5.3、W22）", () => {
   const WRITER: ApiTokenDto = { ...PAT_ROW, id: "t-w", name: "n8n bot", agentLabel: "n8n", scope: "notes:read notes:write" };
   const ROWS = [OVERRIDE, DERIVED, WRITER];
 
-  /** token 表的列名＝token 名（spec 2026-10-13 settings-table §3 #9）。 */
+  /** token 表的列名＝token 名。 */
   const rowOf = (name: string) => screen.getByRole("row", { name });
   const pills = (row: HTMLElement) => Array.from(row.querySelectorAll("[data-pill]")).map((p) => p.textContent);
 
@@ -459,7 +459,7 @@ describe("ApiTokensSection 表格與行內編輯（#247 §5.3、W22）", () => {
     expect(within(rowOf("Claude Code laptop")).getByText("claude-laptop")).not.toHaveClass("text-muted-foreground");
   });
 
-  it("鉛筆 → 編輯態：主欄保留、其餘欄合併成一格表單（spec §2.6）、只有 label 一個輸入框（名稱不可改）；存檔／取消是 icon 鈕（無可見文字）在表單最右；其他列鉛筆 softDisabled＋原因", async () => {
+  it("鉛筆 → 編輯態：主欄保留、其餘欄合併成一格表單、只有 label 一個輸入框（名稱不可改）；存檔／取消是 icon 鈕（無可見文字）在表單最右；其他列鉛筆 softDisabled＋原因", async () => {
     withPatch(ok);
     await screen.findByText("Claude Desktop");
     fireEvent.click(within(rowOf("Claude Desktop")).getByRole("button", { name: "Edit" }));
@@ -472,7 +472,7 @@ describe("ApiTokensSection 表格與行內編輯（#247 §5.3、W22）", () => {
     expect(within(row).getAllByRole("textbox")).toHaveLength(1);
     const input = within(row).getByRole("textbox", { name: "Label" });
     expect(input).toHaveValue("claude");
-    expect(input).toHaveFocus(); // autoFocus 是 TokenEditForm 自己的（SettingsTable 不管焦點，spec §2.6「保留現有鍵盤行為」）
+    expect(input).toHaveFocus(); // autoFocus 是 TokenEditForm 自己的（SettingsTable 不管焦點，保留現有鍵盤行為）
     expect(within(row).getByText("1–32 letters, digits, . _ or -. Leave empty to go back to “claude”, derived from the name.")).toBeInTheDocument();
     const save = within(row).getByRole("button", { name: "Save" });
     const cancel = within(row).getByRole("button", { name: "Cancel" });
@@ -486,7 +486,7 @@ describe("ApiTokensSection 表格與行內編輯（#247 §5.3、W22）", () => {
     expect(other).not.toHaveAttribute("tabindex");
   });
 
-  it("T-RF5 鎖定中的鉛筆：可聚焦；按下（鍵盤 Enter／Space 也是觸發 click）不進編輯、不搶走正在編的那一列", async () => {
+  it("鎖定中的鉛筆：可聚焦；按下（鍵盤 Enter／Space 也是觸發 click）不進編輯、不搶走正在編的那一列", async () => {
     withPatch(ok);
     await screen.findByText("Claude Desktop");
     fireEvent.click(within(rowOf("Claude Desktop")).getByRole("button", { name: "Edit" }));
@@ -557,7 +557,7 @@ describe("ApiTokensSection 表格與行內編輯（#247 §5.3、W22）", () => {
     await waitFor(() => expect(bodies).toEqual([{ id: "t-o", body: { agentLabel: null } }]));
   });
 
-  it("存檔請求在飛時：輸入框與存檔／取消鈕都原生 disabled（暫時性不可用，spec §2.7）；回應落地後回顯示態", async () => {
+  it("存檔請求在飛時：輸入框與存檔／取消鈕都原生 disabled（暫時性不可用）；回應落地後回顯示態", async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
@@ -638,7 +638,7 @@ describe("ApiTokensSection 表格與行內編輯（#247 §5.3、W22）", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
-  it("撤銷是列尾的 Revoke 鈕，確認框照舊（外觀由 RowIconButton 自己的測試守，spec §5.2）", async () => {
+  it("撤銷是列尾的 Revoke 鈕，確認框照舊（外觀由 RowIconButton 自己的測試守）", async () => {
     withPatch(ok);
     await screen.findByText("n8n bot");
     const trash = within(rowOf("n8n bot")).getByRole("button", { name: "Revoke" });
@@ -665,7 +665,7 @@ describe("ApiTokensSection 表格與行內編輯（#247 §5.3、W22）", () => {
   });
 });
 
-// #181 PR-2d（spec §6.8.2）：第三個 toggle「刪除」（notes:delete）——建立、pill、行內編輯。
+// #181：第三個 toggle「刪除」（notes:delete）——建立、pill、行內編輯。
 describe("ApiTokensSection #181 刪除 toggle", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
@@ -679,7 +679,7 @@ describe("ApiTokensSection #181 刪除 toggle", () => {
   const RWMD = "notes:read notes:write notes:move notes:delete";
   const EDIT = "Create and edit notes";
   const DELETE = "Move notes to the trash and restore them";
-  // 刪除 toggle 的說明＝S2＋「需同時勾選編輯」一句（fix round 1 m1，比照搬移說明的結尾）。
+  // 刪除 toggle 的說明＝S2＋「需同時勾選編輯」一句（比照搬移說明的結尾）。
   const DELETE_HINT_EN =
     "Can't delete notes permanently, but notes left in the trash can still be deleted permanently later, by the site's trash setting or by someone in the web app. Requires \"Create and edit notes\".";
   const DELETE_HINT_ZH =

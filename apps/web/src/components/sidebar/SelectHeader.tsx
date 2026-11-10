@@ -18,14 +18,14 @@ import type { SidebarNode } from "./tree";
 const OPEN_TOAST = 'li[data-swipe-direction][data-state="open"]';
 
 /**
- * 一般 tab 選取模式的標題列（#181 PR-2c，spec §6.11；class 同 `TrashPanel.renderHeader` 的選取支）。兩種形（`useWidePointer`，PR-3b-3，資料夾 spec F26）：
+ * 一般 tab 選取模式的標題列（#181，class 同 `TrashPanel.renderHeader` 的選取支）。兩種形（`useWidePointer`）：
  * - 窄：「已選 N 項」＋全選／取消全選＋完成；動作列在底部（`SidebarFooter`）。
  * - 寬：一列——✕（結束選取，就是「完成」的角色：`onMounted` 交它、Esc 規則不變）＋三態全選框＋數量位（批次執行中換成進度 status）＋
  *   `SelectActionBar` 的 `toolbar` 形；底部不顯示。
- * 「全選」只勾畫面上看得見的列（資料夾列與筆記列都算；收合的群組／資料夾的子樹不算，資料夾 spec §6.10）、不清掉先前在收合子樹裡勾的；
+ * 「全選」只勾畫面上看得見的列（資料夾列與筆記列都算；收合的群組／資料夾的子樹不算）、不清掉先前在收合子樹裡勾的；
  * 「取消全選」（三態框全勾時點下去）清掉全部、含收合子樹裡勾的。
- * 「已選 N 項」＝資料夾與筆記合計、不看收合、不去重（去重在送出前，§6.10）。
- * 「全選／取消全選／完成／結束選取」沿用首包的 `trash.*` 字串（鍵名前綴不準，但改名要動首包兩語系與 PR-2b 測試）。
+ * 「已選 N 項」＝資料夾與筆記合計、不看收合、不去重（去重在送出前）。
+ * 「全選／取消全選／完成／結束選取」沿用首包的 `trash.*` 字串（鍵名前綴不準，但改名要動首包兩語系與垃圾桶的測試）。
  * 只准經 `SelectLazy` 引用。
  */
 export function SelectHeader({
@@ -60,7 +60,7 @@ export function SelectHeader({
     onMountedRef.current(doneRef.current);
   }, []);
 
-  // 選取中跨過寬窄判準（Review Focus 1；T4 review m1）：焦點所在的鈕（✕、圖示鈕、完成…）隨換形卸載，焦點會掉到 body。
+  // 選取中跨過寬窄判準：焦點所在的鈕（✕、圖示鈕、完成…）隨換形卸載，焦點會掉到 body。
   // render 時（舊 DOM 還在）記下焦點是否在本實例的標題列裡；換形後焦點落在 body 就交給新形的 doneRef（寬＝✕、窄＝完成）。
   const focusInHeaderRef = useRef(false);
   const header = rootRef.current?.closest("[data-sidebar-header]") ?? null;
@@ -73,7 +73,7 @@ export function SelectHeader({
     if (focusInHeaderRef.current && (active === null || active === document.body)) doneRef.current?.focus();
   }, [wide]);
 
-  // Esc（plan 讀碼發現 20）：選取模式在使用者離開側欄時不會結束，所以 document 層監聽要有範圍，下列全部成立才動作。
+  // Esc：選取模式在使用者離開側欄時不會結束，所以 document 層監聽要有範圍，下列全部成立才動作。
   useEffect(() => {
     /** 本次按鍵在 window capture（最早）時是否有開著的 toast：真瀏覽器在 listener 之間跑 microtask，到 bubble 時 toast 可能已關。 */
     let toastOpenAt: Event | null = null;

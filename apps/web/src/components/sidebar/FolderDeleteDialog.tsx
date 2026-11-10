@@ -22,8 +22,8 @@ const EMPTY_NOTES: NoteDto[] = [];
 const EMPTY_FOLDERS: FolderDto[] = [];
 
 /**
- * 刪除／移除資料夾確認框（資料夾 spec §6.6，F6：一律跳）。篇數與子資料夾數由快取即時算；保留天數取 `useTrash()`（未載到用通用句）。
- * 送出中兩鈕 disabled、忽略關閉要求（同 `select-dialogs.tsx`）。開著的那篇在子樹裡（讀碼發現 11）：送出前設 NotePage 的
+ * 刪除／移除資料夾確認框（一律跳）。篇數與子資料夾數由快取即時算；保留天數取 `useTrash()`（未載到用通用句）。
+ * 送出中兩鈕 disabled、忽略關閉要求（同 `select-dialogs.tsx`）。開著的那篇在子樹裡：送出前設 NotePage 的
  * `leavingRef`，成功導回首頁（只有資料夾這一則 toast）、「復原」導回那篇；失敗且非終態撥回、終態導回首頁。成敗都關框。
  * 只准被 FolderLazy 鏈與測試 import。
  */

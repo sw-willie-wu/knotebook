@@ -27,7 +27,7 @@ const MIN_EXPECTED_DEPENDENCY_COUNT = 20;
 
 // 授權豁免清單：預設留空。若要豁免某個 GPL 系列套件，加入套件名稱字串，並在旁以
 // 行內註解附上理由與審查依據，例如：
-//   const EXEMPTIONS = ['some-lgpl-lib' /* 僅建置期工具，不隨產出物散布，法務 2026-08-06 核准 */];
+//   const EXEMPTIONS = ['some-lgpl-lib' /* 僅建置期工具，不隨產出物散布，法務核准 */];
 // 不得只是把套件名稱塞進陣列就算數——理由是必要的，且必須經人工審查。
 /** @type {string[]} */
 const EXEMPTIONS = [];
@@ -43,7 +43,7 @@ const UNKNOWN_ACKNOWLEDGED = [
   // 檔，內容是完整的 MIT（"The MIT License (MIT)" + 標準 "Permission is hereby granted,
   // free of charge" 條款，Copyright 2019-present Fabio Spampinato, Andrew Maney）。
   // 也就是說這是 **metadata 缺漏，不是授權不明**。MIT 與本專案（MIT）相容且無傳染性。
-  // 2026-08-27 人工核對 khroma@2.1.0 的 license 檔全文後核可。
+  // 人工核對 khroma@2.1.0 的 license 檔全文後核可。
   // ⚠ 升級 mermaid 導致 khroma 換版時，要重新確認新版仍附 MIT license 檔。
   'khroma',
 ];

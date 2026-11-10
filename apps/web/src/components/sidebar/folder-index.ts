@@ -4,13 +4,13 @@ import { fetchFolders, FOLDERS_QUERY_KEY } from "@/api/folders";
 import { setCollapsed } from "./collapse";
 
 /**
- * 資料夾索引（資料夾 spec §6.2）：`GET /api/folders` 一次回全部、不是樹序，client 依 `parentId` 組。
+ * 資料夾索引：`GET /api/folders` 一次回全部、不是樹序，client 依 `parentId` 組。
  * 首包模組：不 import 字串包、不 import `tree.ts`（排筆記與判筆記空間放 `tree.ts`，模組相依單向）。
  * 兜底：`parentId` 不在清單、或父子空間不同 → 當根層資料夾；成環（server 已防，壞資料才會有）→ 從環的入口斷開、那個資料夾當根層，
  * 環上的資料夾與筆記照樣看得到。樹、路徑行、展開鏈都查同一張 `parentOf`，三者一致；走訪另以 visited 防禦。
  */
 
-/** 資料夾名稱排序與「名稱」排序共用（spec §6.2）。 */
+/** 資料夾名稱排序與「名稱」排序共用。 */
 export const FOLDER_COLLATOR = new Intl.Collator("zh-Hant", { numeric: true, sensitivity: "base" });
 
 export type FolderSpaceKey = "personal" | "shared" | `group:${string}`;
@@ -36,7 +36,7 @@ function effectiveParentId(byId: ReadonlyMap<string, FolderDto>, folder: FolderD
   return parent !== undefined && spaceKeyOf(parent.space) === spaceKeyOf(folder.space) ? parent.id : null;
 }
 
-/** parentId 不在清單、或父子空間不同 → 當根層（兜底，讀碼發現 4）；成環 → 在第一個重複的資料夾斷開、它當根層。 */
+/** parentId 不在清單、或父子空間不同 → 當根層（兜底）；成環 → 在第一個重複的資料夾斷開、它當根層。 */
 export function indexFolders(folders: readonly FolderDto[]): FolderIndex {
   const byId = new Map<string, FolderDto>(folders.map((folder) => [folder.id, folder]));
   const parents = new Map<string, string | null>();
@@ -125,7 +125,7 @@ export function liveNotesUnder(
   });
 }
 
-/** 自己與祖先寫成展開（setCollapsed(`folder:<id>`, false)，spec §6.8）。id 不在索引 → 只展開自己。 */
+/** 自己與祖先寫成展開（setCollapsed(`folder:<id>`, false)）。id 不在索引 → 只展開自己。 */
 export function expandFolderChain(index: FolderIndex, folderId: string): void {
   const visited = new Set<string>();
   let id: string | null = folderId;
@@ -137,7 +137,7 @@ export function expandFolderChain(index: FolderIndex, folderId: string): void {
 }
 
 /**
- * 還原後展開（資料夾 spec §6.8）：還原照原路徑重建資料夾，被還原那幾篇所在的資料夾與祖先寫成展開。
+ * 還原後展開：還原照原路徑重建資料夾，被還原那幾篇所在的資料夾與祖先寫成展開。
  * - 沒有任何非 null 的 `folderId` → 不發請求。
  * - 一律 `fetchQuery`（staleTime 0）拿新清單：垃圾桶 tab 時 `["folders"]` 沒有 observer，`invalidateQueries` 不會重抓、快取裡沒有
  *   新重建的資料夾。呼叫端必須放在 `invalidateTrashRelated` **之後**：有 observer 時那邊已觸發 refetch，這一發併進同一個請求（只打一次）。

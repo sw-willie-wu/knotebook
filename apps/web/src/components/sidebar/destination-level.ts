@@ -3,7 +3,7 @@ import { canCreateAndEdit } from "@/lib/group-role";
 import { folderDepth, folderPath, isInSubtree, spaceKeyOf, subtreeHeight, type FolderIndex, type FolderSpaceKey } from "./folder-index";
 
 /**
- * 逐層目的地清單（資料夾 spec §6.11.1；⋮「移動到…／複製到…」子選單與選取模式目的地框共用）。
+ * 逐層目的地清單（⋮「移動到…／複製到…」子選單與選取模式目的地框共用）。
  * 首包模組：不 import 字串包（字串全在主檔 `folders.dest.*`、`note.menu.makeCopy`、`sidebar.*`）、不 import sidebar 畫面模組。
  * 一次只產一層：path 空＝第一層（上半部＝目前空間、分隔線、下半部＝其他空間）；點進空間或資料夾逐層堆疊。
  */
@@ -57,7 +57,7 @@ function groupSpace(group: GroupDto): DestSpace {
 }
 
 /**
- * 單篇（spec §6.11.2、§6.11.3 兩張表）。恆回 DestSource（不判空：判空要 index，呼叫端用 `isEmptyDestination`）。
+ * 單篇（兩張表）。恆回 DestSource（不判空：判空要 index，呼叫端用 `isEmptyDestination`）。
  * groups＝useGroups() 的資料（未到給 []）；候選群組＝`canCreateAndEdit`，順序照 groups。
  */
 export function noteDestSource(note: NoteDto, mode: DestMode, groups: readonly GroupDto[]): DestSource {
@@ -71,7 +71,7 @@ export function noteDestSource(note: NoteDto, mode: DestMode, groups: readonly G
     const groupId = note.groupId;
     const own = groups.find((group) => group.id === groupId);
     const ownSpace: DestSpace = { kind: "group", groupId, name: own?.name ?? note.group?.name ?? "" };
-    // 群組筆記不能離開群組；本群組內移動的判準＝permissions.edit（§5.6 放置權）。
+    // 群組筆記不能離開群組；本群組內移動的判準＝permissions.edit（放置權）。
     if (mode === "move") return { ...base, current: note.permissions.edit ? ownSpace : null, makeCopy: false, others: [] };
     const others = [PERSONAL, ...candidates.filter((group) => group.id !== groupId).map(groupSpace)];
     const ownIsCandidate = own !== undefined && canCreateAndEdit(own);
@@ -174,7 +174,7 @@ function firstLevel(source: DestSource, index: FolderIndex, t: Translate): DestI
     if (!source.locations.every((location) => location === null)) upper.push(rootItem(source, index, current, t));
     for (const folder of index.children(spaceKey(current), null)) upper.push(folderItem(source, index, current, folder, t));
   }
-  // 資料夾只能在同一個空間內移動（D4）：批次搬資料夾時下半部空間反灰、不能點進。
+  // 資料夾只能在同一個空間內移動：批次搬資料夾時下半部空間反灰、不能點進。
   const crossSpace = source.mode === "move" && source.movingFolders.length > 0;
   const lower = source.others.map((space) =>
     withDrill(
@@ -254,7 +254,7 @@ export function buildDestinationLevel(input: {
 
 /**
  * path 裡仍有效的前綴。`buildDestinationLevel` 遇到失效的步（資料夾被刪、群組不見）會**靜默截斷**到最後一個有效的前綴，
- * 所以「目前在第幾層」不能看 `path.length`（T2 交接）：「返回」「點進」一律從這個前綴接，「返回」才恰好退一個看得到的層。
+ * 所以「目前在第幾層」不能看 `path.length`：「返回」「點進」一律從這個前綴接，「返回」才恰好退一個看得到的層。
  * 判法：第 k 層建出來的「返回」下一項（空間層＝根目錄、資料夾層＝移動到這裡／複製到這裡）就是第 k 步本身。
  * ⋮ 的逐層子選單（`GroupTransfer`）與選取模式的目的地框（`SelectActionBar`）共用。
  */

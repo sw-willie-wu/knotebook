@@ -1,9 +1,9 @@
 /**
- * #398 審查 C1（續）：會被接受的重內容（一個段落裡幾萬個行內節點）在主執行緒上不能平方。
+ * #398：會被接受的重內容（一個段落裡幾萬個行內節點）在主執行緒上不能平方。
  * - Y 型別不用 `get(i)` 索引走訪（`note-sections.ts`、`same-canonical.ts`、`decide.ts`）。
  * - jsdom 的三處平方（`jsdom-perf.ts`）：語意不變、而且線性。
  * - 換掉一大段內容用「先插後刪」（`replaceBlocksFresh`），結果與 `replaceBlocks` 相同。
- * 只擋「平方回來」，不量絕對速度（審查 r7 m6、r8 m3）：同一形量 N/8 與 N，比例 < 24（線性約 8–16、平方約 64；`expectLinear`），N 很快時
+ * 只擋「平方回來」，不量絕對速度：同一形量 N/8 與 N，比例 < 24（線性約 8–16、平方約 64；`expectLinear`），N 很快時
  * 直接算過，另有寬鬆的絕對上限（平方時是十幾秒到幾十秒）。量測之間重用建好的文件，不重複解析。
  */
 import { describe, expect, it } from "vitest";
@@ -47,7 +47,7 @@ async function docOfBlocks(blocks: unknown[]): Promise<Y.Doc> {
 }
 const docOf = async (md: string): Promise<Y.Doc> => docOfBlocks(await parse(md));
 
-describe("Y 型別走訪是線性的（審查 C1：`get(i)` 每次從頭走）", () => {
+describe("Y 型別走訪是線性的（`get(i)` 每次從頭走）", () => {
   it("`x<br>`×1 500 與 ×1.2 萬的段落（約 2.4 萬個子節點）：outlineOf／topLevelSnapshot／canonicalize／sameCanonicalOf 線性（平方時 1–5 秒）", async () => {
     const docs = new Map<number, Y.Doc>();
     for (const n of [1_500, 12_000]) docs.set(n, await docOf("x<br>".repeat(n)));
@@ -68,7 +68,7 @@ describe("Y 型別走訪是線性的（審查 C1：`get(i)` 每次從頭走）",
   }, 240_000);
 });
 
-describe("isLoneEmptyParagraph 走訪段落的子節點是線性的（審查 r8 m4：要真的走完，形是一個段落裡幾萬個空的 XmlText）", () => {
+describe("isLoneEmptyParagraph 走訪段落的子節點是線性的（要真的走完，形是一個段落裡幾萬個空的 XmlText）", () => {
   it("2 500 與 2 萬個空 XmlText 的段落：結果是 true，而且線性（`get(i)` 時平方）", async () => {
     const docs = new Map<number, Y.XmlFragment>();
     for (const n of [2_500, 20_000]) {
@@ -93,7 +93,7 @@ describe("isLoneEmptyParagraph 走訪段落的子節點是線性的（審查 r8 
   }, 240_000);
 });
 
-describe("jsdom 修補（審查 C1：活清單立即重算、插入／移除時多算的索引）", () => {
+describe("jsdom 修補（活清單立即重算、插入／移除時多算的索引）", () => {
   it("修補生效", () => {
     expect(patchJsdomForLargeTrees()).toBe(true);
   });
@@ -169,7 +169,7 @@ describe("jsdom 修補（審查 C1：活清單立即重算、插入／移除時�
   }, 240_000);
 });
 
-describe("replaceBlocksFresh（審查 C1：先插後刪）", () => {
+describe("replaceBlocksFresh（先插後刪）", () => {
   it("結果與 replaceBlocks 相同（文件、插入的 id）", async () => {
     for (const [from, to] of [["# A\n\nb\n\nc", "x\n\n- y\n\nz"], ["a\n\nb\n\nc", ""], ["a\n\nb", "**c**"]] as const) {
       // （換成空、文件因此變空的形不比：編輯器會正規化出一顆新 id 的空段落，兩邊 id 本來就不同；正式路徑不會換成空——
@@ -233,7 +233,7 @@ describe("replaceBlocksFresh（審查 C1：先插後刪）", () => {
   }, 360_000);
 });
 
-describe("主執行緒上的字串處理是線性的（審查 I1）", () => {
+describe("主執行緒上的字串處理是線性的", () => {
   it("normalizeBody：換行×3.125／25 萬接一個字，線性（原本的 `/\n+$/` 25 萬約 20 秒），結果不變", async () => {
     await expectLinear("normalizeBody", n => {
       const s = "a" + "\n".repeat(n) + "b\n\n\n";

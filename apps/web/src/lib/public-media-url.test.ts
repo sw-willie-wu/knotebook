@@ -42,7 +42,7 @@ describe("publicMediaUrl token 形（#72：公開頁的 resolveFileUrl 映射）
   });
 });
 
-describe("publicMediaUrl 別名形（#122 PR3：/p/<handle>/<slug> 的 by-path 變體）", () => {
+describe("publicMediaUrl 別名形（#122：/p/<handle>/<slug> 的 by-path 變體）", () => {
   const resolve = publicMediaUrl({ kind: "path", handle: "alice", slug: "my-doc" });
 
   it("自家上傳網址 → by-path 圖端點（前綴由 publicNoteApiPath 依形組出）", () => {

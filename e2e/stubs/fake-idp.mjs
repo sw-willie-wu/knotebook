@@ -3,12 +3,12 @@
 // 零依賴（僅 node: 內建模組）OIDC IdP stub，跑在 compose 的獨立容器（見
 // ../../docker-compose.e2e.yml 的 fake-idp 服務）。
 //
-// #187 PR2（spec §14.3、r2-M10）：同一個 process 掛兩個 issuer——
+// #187：同一個 process 掛兩個 issuer——
 //   - 根：`http://fake-idp:9400`（`e2e/global-setup.ts` 以管理 API 建成名為「SSO」的服務，05 用它）
 //   - 路徑形：`http://fake-idp:9400/b`（19 在 /admin/auth 建的第二個服務用它）
 // 各自的 discovery 文件、iss、authorize／token／userinfo／jwks 路徑、**各自的簽章金鑰**與一次性狀態；**共用**同一組
 // client id／secret；control endpoint 每個 issuer 一個（`/control/next-login`、`/b/control/next-login`）。
-// stub 回報的 issuer 與 provider 填的字串完全一致（帶 path 時尾斜線不一致會 throw，r1 B.4）。
+// stub 回報的 issuer 與 provider 填的字串完全一致（帶 path 時尾斜線不一致會 throw）。
 //
 // 與 apps/server/test/helpers/fake-idp.ts（in-process CustomFetch harness）不同物：那支是測試進程內直接攔截 fetch，
 // 這支是真的開 socket、走真實 HTTP；這裡不驗 redirect_uri 綁定（那支才有）。
@@ -73,7 +73,7 @@ function createIssuer(prefix, kid) {
         response_types_supported: ["code"],
         subject_types_supported: ["public"],
         code_challenge_methods_supported: ["S256"],
-        // #187 PR2：宣告 client_secret_post（Knotebook 一律用它），否則「測試連線」會出 client_secret_post_not_advertised 提醒。
+        // #187：宣告 client_secret_post（Knotebook 一律用它），否則「測試連線」會出 client_secret_post_not_advertised 提醒。
         token_endpoint_auth_methods_supported: ["client_secret_post"],
       });
       return true;

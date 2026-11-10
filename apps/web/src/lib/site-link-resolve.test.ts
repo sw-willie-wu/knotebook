@@ -15,7 +15,7 @@ describe("#269 resolveFromCache", () => {
   });
 });
 
-describe("#269 resolveViaServer（§6.5 三支端點、寫入者權限、非 200 一律 null）", () => {
+describe("#269 resolveViaServer（三支端點、寫入者權限、非 200 一律 null）", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.useRealTimers();

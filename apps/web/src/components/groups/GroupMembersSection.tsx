@@ -32,7 +32,7 @@ const SELECT_CLASS =
   "h-8 shrink-0 rounded-md border border-input bg-background px-2 text-sm shadow-sm focus-visible:outline-none " +
   "focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
 
-/** 名單裡掛內建管理員角色的人數（spec §8.5「看 `builtin === "admin"` 計數」）。 */
+/** 名單裡掛內建管理員角色的人數（看 `builtin === "admin"` 計數）。 */
 function countAdmins(members: GroupMemberDto[]): number {
   return members.filter((member) => member.builtin === "admin").length;
 }
@@ -43,10 +43,10 @@ function memberRoleLabel(t: (key: string) => string, roles: GroupRoleDto[], memb
 }
 
 /**
- * 成員表（spec 2026-10-13 settings-table §3 #8）：名稱｜Email｜角色（`canManageMembers` 時是下拉，否則純文字）｜操作（移除；只在有管理權時有這欄）。
+ * 成員表：名稱｜Email｜角色（`canManageMembers` 時是下拉，否則純文字）｜操作（移除；只在有管理權時有這欄）。
  * 列名以 email 為準（`nameColumn="email"`）；移除鈕與角色下拉的名稱也帶 email（各自的 aria-label）。最後一位管理員那列：角色下拉原生 disabled＋title、
- * 移除鈕 softDisabled＋原因（spec §2.7）。角色下拉的選項與送出的值都是 `GET …/roles` 的**角色 id**（spec §8.5；gate r2 M-7：
- * 兩位管理員、沒有一般成員的群組，一般成員角色的 id 只拿得到那裡）。下拉列全部角色、含內建管理員（不防升權，Q9）。
+ * 移除鈕 softDisabled＋原因。角色下拉的選項與送出的值都是 `GET …/roles` 的**角色 id**（
+ * 兩位管理員、沒有一般成員的群組，一般成員角色的 id 只拿得到那裡）。下拉列全部角色、含內建管理員（不防升權）。
  * #183：很長的 email 交給表格的 text 欄（wrap-anywhere、14ch 下限）與框內橫向捲動，不再把面板撐寬；移除鈕的可見文字不帶 email。
  */
 function MembersSection({ group, canManageMembers }: { group: GroupDto; canManageMembers: boolean }) {
@@ -229,7 +229,7 @@ function MembersSection({ group, canManageMembers }: { group: GroupDto; canManag
       id: member.userId,
       primary: { name: member.displayName },
       cells: {
-        // A8：成員彼此看得到 email——要收回就刪這一欄（連同 nameColumn 改回主欄；server 建議的 ① 同群組成員也要一起收，見 routes/users.ts）
+        // 成員彼此看得到 email——要收回就刪這一欄（連同 nameColumn 改回主欄；server 建議的 ① 同群組成員也要一起收，見 routes/users.ts）
         email: { content: member.email, tone: "muted" },
         role: canManageMembers ? (
           <select
@@ -368,8 +368,8 @@ function MembersSection({ group, canManageMembers }: { group: GroupDto; canManag
 }
 
 /**
- * 群組 modal「成員」（`/groups/:id`，#247 §6.2）：成員表（`canManageMembers` 有角色下拉、紅垃圾桶移除、加人；否則唯讀）。
- * 最後一位管理員那列：角色下拉 disabled、移除鈕 `aria-disabled`＋`opacity-40`＋`title`（§4.9）。名稱、用量、危險區不在這頁。
+ * 群組 modal「成員」（`/groups/:id`，#247）：成員表（`canManageMembers` 有角色下拉、紅垃圾桶移除、加人；否則唯讀）。
+ * 最後一位管理員那列：角色下拉 disabled、移除鈕 `aria-disabled`＋`opacity-40`＋`title`。名稱、用量、危險區不在這頁。
  */
 export function GroupMembersSection() {
   const { t } = useTranslation();

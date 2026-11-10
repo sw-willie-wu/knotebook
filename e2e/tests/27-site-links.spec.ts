@@ -3,13 +3,13 @@ import { expect, test, type Browser, type BrowserContext, type Frame, type Locat
 import { ADMIN, createNote, createUserViaInvite, editorLocator, loginAs, noteIdFromUrl, randomEmail, reEscape, showSidebarTab, waitForEditorSelection } from "./helpers.js";
 
 /**
- * #269 站內連結（spec §15.3）：E1 點擊語意（讀者／編輯者都同分頁跳轉、修飾鍵新分頁、編輯者 hover 出工具列）、E2 段落錨點、E3 複製入口、
- * E4 三條寫入路徑轉 wikilink＋反向連結、E5 公開頁。E6（#352）是拖放進編輯器的站內連結；#269 spec 的 E6 在 22-presentation.spec.ts。
- * C1–C3 是前面 task 留給真瀏覽器確認的項目（選取含 wikilink 的複製／拖曳、A 工具列開著時 hover 到 B、過期分頁）；
- * C4 是 rev 7 的觸控（wikilink 與一般連結：長按出工具列、短按跳轉）。
+ * #269 站內連結：E1 點擊語意（讀者／編輯者都同分頁跳轉、修飾鍵新分頁、編輯者 hover 出工具列）、E2 段落錨點、E3 複製入口、
+ * E4 三條寫入路徑轉 wikilink＋反向連結、E5 公開頁。E6（#352）是拖放進編輯器的站內連結；#269 的觸控案在 22-presentation.spec.ts 的 E6。
+ * C1–C3 是留給真瀏覽器確認的項目（選取含 wikilink 的複製／拖曳、A 工具列開著時 hover 到 B、過期分頁）；
+ * C4 是觸控（wikilink 與一般連結：長按出工具列、短按跳轉）。
  *
  * - wikilink 一律以 `[data-inline-content-type="wikilink"]` 定位（BlockNote 對 inline content 外層加的屬性）。
- * - e2e package 不 import `@knotebook/shared`（rsync 不帶 dist；同 11-public-share 檔頭的裁決），網址自組。
+ * - e2e package 不 import `@knotebook/shared`（rsync 不帶 dist；同 11-public-share 檔頭的說明），網址自組。
  * - 唯讀的編輯器（viewer、公開頁）沒有 `contenteditable="true"`，`editorLocator` 找不到——那些情境以頁面容器為範圍。
  */
 
@@ -134,9 +134,9 @@ async function backlinkIds(page: Page, noteId: string): Promise<string[]> {
 }
 
 /**
- * 段落錨點的高亮（#269 §10.2）：useBlockAnchor 在 ProseMirror 管轄外疊一層 `.kn-anchor-flash[data-anchor-flash="<id>"]` 浮層。
+ * 段落錨點的高亮（#269）：useBlockAnchor 在 ProseMirror 管轄外疊一層 `.kn-anchor-flash[data-anchor-flash="<id>"]` 浮層。
  * 斷言：浮層出現、蓋在該區塊上（±1px）、在可編輯 DOM 之外、有動畫；300 ms 後仍在（舊作法把屬性掛在 `.bn-block-outer` 上，可編輯時
- * ProseMirror 約 70 ms 內就把那個元素換掉、高亮跟著消失——Task 19 探針實測）。
+ * ProseMirror 約 70 ms 內就把那個元素換掉、高亮跟著消失——實測）。
  */
 async function expectAnchorFlash(page: Page, blockId: string): Promise<void> {
   const overlay = page.locator(`.kn-anchor-flash[data-anchor-flash="${blockId}"]`);
@@ -203,7 +203,7 @@ test("E1：讀者一般點擊同分頁導航；Ctrl+Click 與中鍵開新分頁�
     await admin.keyboard.press("Escape");
     await expect(adminToolbar).not.toBeVisible();
 
-    // 編輯者：Ctrl/Cmd+Click（contenteditable 內的 contentEditable=false 島——spec §7.2【推】的量測點）⇒ 新分頁、原分頁不動
+    // 編輯者：Ctrl/Cmd+Click（contenteditable 內的 contentEditable=false 島——量測點）⇒ 新分頁、原分頁不動
     // （滑鼠停在連結上，hover 工具列可能出現——那是 hover 的行為，不在這裡斷言）
     // 雲端偶發等不到新分頁（run 40182358217：trace 裡點擊落在 <a> 上、點擊後編輯器失焦，卻沒有 page 事件；根因未明）。
     // 只在失敗時輸出診斷（console＋test-results 下的 e1-ctrl-click-diagnostics.txt）：page／popup／導航事件、點擊事件有沒有到、
@@ -277,7 +277,7 @@ test("E1：讀者一般點擊同分頁導航；Ctrl+Click 與中鍵開新分頁�
     expect(admin.url()).toBe(sourceUrl);
     await editorCtrlPage.close();
 
-    // 編輯者：一般點擊同分頁跳轉（rev 7：不再是「點擊開工具列」）
+    // 編輯者：一般點擊同分頁跳轉（不再是「點擊開工具列」）
     const adminPagesBefore = adminContext.pages().length;
     await adminLink.locator("a").click();
     await admin.waitForURL((u) => u.pathname === targetPath, { timeout: 15_000 });
@@ -290,7 +290,7 @@ test("E1：讀者一般點擊同分頁導航；Ctrl+Click 與中鍵開新分頁�
     const link = vp.locator(`[data-testid="note-editor"] ${WIKILINK} a`, { hasText: targetTitle });
     await expect(link).toHaveAttribute("href", targetPath, { timeout: 10_000 });
 
-    // Ctrl/Cmd+Click：新分頁、原分頁不動（修飾鍵實測——見 Step 5）
+    // Ctrl/Cmd+Click：新分頁、原分頁不動（修飾鍵實測）
     const ctrlPagePromise = viewer.context.waitForEvent("page", { timeout: 10_000 });
     await link.click({ modifiers: ["ControlOrMeta"] });
     const ctrlPage = await ctrlPagePromise;
@@ -356,7 +356,7 @@ test("E2：開 #b-<id> 捲到並高亮；不存在的 id 停頂端無錯；?pres
     await missing.close();
     await cold.close();
 
-    // 簡報播放中（?present）忽略 #b-（spec §10.1）：底下的筆記不捲。守衛是 not.toBeInViewport（para 35 在 40 段裡，不捲就在視窗外）；
+    // 簡報播放中（?present）忽略 #b-：底下的筆記不捲。守衛是 not.toBeInViewport（para 35 在 40 段裡，不捲就在視窗外）；
     // 不斷高亮浮層——等了 1.5 s，就算錨點被消耗、浮層也可能已到期移除，0 個證明不了什麼。
     const present = await context.newPage();
     await present.goto(`${noteUrl}?present#b-${targetId}`);
@@ -367,7 +367,7 @@ test("E2：開 #b-<id> 捲到並高亮；不存在的 id 停頂端無錯；?pres
     await expect(presentTarget).not.toBeInViewport();
     await present.close();
 
-    // 同篇錨點：文首加一個指向本篇 para 35 的連結（自連結轉換，RF5 的 client 半），編輯模式直接點（rev 7）
+    // 同篇錨點：文首加一個指向本篇 para 35 的連結（自連結轉換），編輯模式直接點
     await editorLocator(page).getByText("para 1", { exact: true }).click();
     await page.keyboard.press("Home");
     await waitForEditorSelection(page);
@@ -383,7 +383,7 @@ test("E2：開 #b-<id> 捲到並高亮；不存在的 id 停頂端無錯；?pres
     await expectAnchorFlash(page, targetId);
     expect(await page.evaluate(() => (window as unknown as { __kbMarker?: number }).__kbMarker)).toBe(1);
 
-    // 上一頁回到點擊前（PUSH，不是 REPLACE——T9-M4 的觀察點）且仍不重載
+    // 上一頁回到點擊前（PUSH，不是 REPLACE）且仍不重載
     await page.goBack();
     await page.waitForURL((u) => u.pathname === notePath && u.hash === "", { timeout: 10_000 });
     expect(await page.evaluate(() => (window as unknown as { __kbMarker?: number }).__kbMarker)).toBe(1);
@@ -417,11 +417,11 @@ test("E3：拖曳把手「Copy link to block」與標題「#」寫入剪貼簿�
     await expect(admin.getByText("Block link copied", { exact: true }).first()).toBeVisible();
     expect(await readClipboard(admin)).toBe(`${ORIGIN}${notePath}#b-${paraId}`);
 
-    // 標題「#」（編輯者；Task 15 I1 把它搬到文字右側，避開側邊選單）
+    // 標題「#」（編輯者；它在文字右側，避開側邊選單）
     await blockOuter(admin, "Copy heading").hover();
     const hash = admin.getByRole("button", { name: "Copy link to this section" });
     await expect(hash).toBeVisible();
-    // 幾何（Task 15 m2）：「#」在標題文字首行垂直置中、在文字右側
+    // 幾何：「#」在標題文字首行垂直置中、在文字右側
     const geo = await headingButtonGeometry(blockOuter(admin, "Copy heading"));
     expect(Math.abs(geo.buttonMid - geo.lineMid)).toBeLessThanOrEqual(1);
     expect(geo.buttonLeft).toBeGreaterThanOrEqual(geo.lineRight);
@@ -440,7 +440,7 @@ test("E3：拖曳把手「Copy link to block」與標題「#」寫入剪貼簿�
     await blockOuterIn(viewerEditor, "copy para").hover();
     await expect(vp.getByRole("button", { name: "Open block menu" })).toHaveCount(0);
 
-    // 編輯者：「#」顯示中、標題被刪掉（游標不動）⇒「#」收起（Task 15 m3）
+    // 編輯者：「#」顯示中、標題被刪掉（游標不動）⇒「#」收起
     await blockOuter(admin, "Copy heading").hover();
     await expect(hash).toBeVisible();
     await editorLocator(admin).evaluate((el, text) => {
@@ -576,7 +576,7 @@ test("E5：公開頁——自訂網址目標可點且導到 /p/…；非公開�
       if (new URL(r.url()).pathname === "/api/notes") apiNotesHits.push(r.url());
     });
 
-    // 冷開公開頁的 #b-<id>：捲到並高亮（Task 14 的公開頁接線）
+    // 冷開公開頁的 #b-<id>：捲到並高亮（公開頁接線）
     await anon.goto(`/p/${token}#b-${anchorId}`);
     const coldTarget = anon.locator(`.bn-block-outer[data-id="${anchorId}"]`);
     await expectAnchorFlash(anon, anchorId);
@@ -592,7 +592,7 @@ test("E5：公開頁——自訂網址目標可點且導到 /p/…；非公開�
       await expect(scope.filter({ hasText: text }).locator("a")).toHaveCount(0);
     }
 
-    // 公開頁的標題「#」：複製公開網址＋錨點（Task 15）
+    // 公開頁的標題「#」：複製公開網址＋錨點
     await grantClipboard(anon);
     await blockOuterIn(anon.locator("body"), "Pub heading").hover();
     await anon.getByRole("button", { name: "Copy link to this section" }).click();

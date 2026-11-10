@@ -61,11 +61,11 @@ function renderAt(path: string, queryClient = new QueryClient({ defaultOptions: 
 const loc = () => screen.getByTestId("loc").textContent;
 /** `button.tsx` 的實心變體（default／destructive／brandSolid／brandDeep）的底色 class——同 `SettingsGroupRolesSection.test.tsx:91` 的判法。 */
 const SOLID_BG = /(^|\s)bg-(primary|destructive|brand|brand-deep)(\s|$)/;
-/** errors.oidc_link_expired 的英文（Task 1）。LoginPage 掛載時會以 replace 把 ?error= 從網址清掉，所以「導到 /login?error=…」
- * 只能用「登入頁顯示了這則文案、網址最後是 /login」來斷言（gate r1 t8-13 I2）。 */
+/** errors.oidc_link_expired 的英文。LoginPage 掛載時會以 replace 把 ?error= 從網址清掉，所以「導到 /login?error=…」
+ * 只能用「登入頁顯示了這則文案、網址最後是 /login」來斷言。 */
 const LINK_EXPIRED_TEXT = "This linking request has expired or was replaced. Please sign in again.";
 
-describe("LinkAccountPage（#187 §9.4 /link-account）", () => {
+describe("LinkAccountPage（#187 /link-account）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -84,7 +84,7 @@ describe("LinkAccountPage（#187 §9.4 /link-account）", () => {
     expect(screen.getByRole("button", { name: "Confirm with password and link" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Confirm by signing in with GitLab" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
-    // 一個畫面至多一顆實心鈕（button.tsx 檔頭規範；gate r1 t8-13 M4）：只有密碼確認是實心，SSO 與取消是 outline。
+    // 一個畫面至多一顆實心鈕（button.tsx 檔頭規範）：只有密碼確認是實心，SSO 與取消是 outline。
     const solid = screen.getAllByRole("button").filter(b => SOLID_BG.test(b.className));
     expect(solid.map(b => b.textContent)).toEqual(["Confirm with password and link"]);
   });
@@ -199,7 +199,7 @@ describe("LinkAccountPage（#187 §9.4 /link-account）", () => {
     await waitFor(() => expect(loc()).toBe("/link-account"));
   });
 
-  it("?error=oidc_state_mismatch／oidc_claim_too_long（M2）→ 顯示各自的文案、不是 fallback", async () => {
+  it("?error=oidc_state_mismatch／oidc_claim_too_long→ 顯示各自的文案、不是 fallback", async () => {
     for (const [code, text] of [
       ["oidc_state_mismatch", "Your sign-in session expired or is invalid. Please try signing in again."],
       ["oidc_claim_too_long", "Your identity provider sent an email address or account ID that is too long to use."],
@@ -217,7 +217,7 @@ describe("LinkAccountPage（#187 §9.4 /link-account）", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("An unexpected error occurred.");
   });
 
-  it("RF5：沒有 pending（401）→ 安靜導 /login、不送任何 confirm；帶著 ?error=oidc_link_expired 時一起轉（r3-N6）", async () => {
+  it("沒有 pending（401）→ 安靜導 /login、不送任何 confirm；帶著 ?error=oidc_link_expired 時一起轉", async () => {
     for (const [path, expectAlert] of [["/link-account", false], ["/link-account?error=oidc_link_expired", true]] as const) {
       const calls = mockFetch({
         "GET /api/auth/oidc/pending": () => err(401, "unauthorized"),
@@ -226,7 +226,7 @@ describe("LinkAccountPage（#187 §9.4 /link-account）", () => {
       renderAt(path);
       expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument();
       if (expectAlert) {
-        // 一起轉過去的 ?error= 由 LoginPage 顯示——網址上的 error 會被它以 replace 清掉，所以斷言文案（gate r1 t8-13 I2）。
+        // 一起轉過去的 ?error= 由 LoginPage 顯示——網址上的 error 會被它以 replace 清掉，所以斷言文案。
         expect(await screen.findByRole("alert")).toHaveTextContent(LINK_EXPIRED_TEXT);
       } else {
         expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -237,7 +237,7 @@ describe("LinkAccountPage（#187 §9.4 /link-account）", () => {
     }
   });
 
-  it("RF3w：provider 已被刪（providerDisplayName null）→ 以通用名稱顯示；HTML 形的 provider 名渲染成字面", async () => {
+  it("provider 已被刪（providerDisplayName null）→ 以通用名稱顯示；HTML 形的 provider 名渲染成字面", async () => {
     const evil = '<img src=x onerror="alert(1)">';
     mockFetch({ "GET /api/auth/oidc/pending": () => fakeResponse(200, { ...PENDING, providerDisplayName: null, methods: { password: false, providers: [{ id: "22222222-2222-2222-2222-222222222222", displayName: evil }] } }) });
     renderAt("/link-account");
@@ -246,7 +246,7 @@ describe("LinkAccountPage（#187 §9.4 /link-account）", () => {
     expect(document.querySelector("img[src='x']")).toBeNull();
   });
 
-  it("fix r1 I1：GET pending 回 409 oidc_link_expired（帳號已刪／email 已改）→ 導 /login、登入頁顯示該文案，不停在 Loading", async () => {
+  it("GET pending 回 409 oidc_link_expired（帳號已刪／email 已改）→ 導 /login、登入頁顯示該文案，不停在 Loading", async () => {
     const calls = mockFetch({
       "GET /api/auth/oidc/pending": () => err(409, "oidc_link_expired"),
       "GET /api/auth/config": () => fakeResponse(200, { providers: [], registration: { enabled: true, providerIds: [] }, passwordLogin: { enabled: true } }),
@@ -258,7 +258,7 @@ describe("LinkAccountPage（#187 §9.4 /link-account）", () => {
     expect(calls.some(c => c.method === "POST")).toBe(false);
   });
 
-  it("fix r1 M-b：先密碼 429（附倒數）再按 SSO 且 prove 失敗 → 只顯示 prove 的錯誤，不殘留倒數", async () => {
+  it("先密碼 429（附倒數）再按 SSO 且 prove 失敗 → 只顯示 prove 的錯誤，不殘留倒數", async () => {
     mockFetch({
       "GET /api/auth/oidc/pending": () => fakeResponse(200, PENDING),
       "POST /api/auth/oidc/pending/confirm": () => err(429, "too_many_attempts", { retryAfterMs: 4200 }),
@@ -273,7 +273,7 @@ describe("LinkAccountPage（#187 §9.4 /link-account）", () => {
     expect(screen.getByRole("alert")).not.toHaveTextContent("Try again in");
   });
 
-  it("fix r1 M-c：GET pending 遇到 401／409 以外的失敗（500、網路錯誤）→ 顯示通用錯誤與 outline 的「回登入頁」，不停在 Loading", async () => {
+  it("GET pending 遇到 401／409 以外的失敗（500、網路錯誤）→ 顯示通用錯誤與 outline 的「回登入頁」，不停在 Loading", async () => {
     for (const fail of [() => err(500, "internal"), () => Promise.reject(new TypeError("Failed to fetch"))]) {
       mockFetch({
         "GET /api/auth/oidc/pending": fail,
@@ -291,7 +291,7 @@ describe("LinkAccountPage（#187 §9.4 /link-account）", () => {
       cleanup();
     }
   });
-  it("provider-icon V3：「Confirm by signing in with X」鈕文字前有圖示；icon null 不渲染", async () => {
+  it("provider-icon：「Confirm by signing in with X」鈕文字前有圖示；icon null 不渲染", async () => {
     mockFetch({
       "GET /api/auth/oidc/pending": () =>
         fakeResponse(200, {

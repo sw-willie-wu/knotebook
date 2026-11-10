@@ -112,7 +112,7 @@ describe("ShareDialog", () => {
 
     renderDialog();
     expect(screen.getByRole("button", { name: "Share" })).toBeInTheDocument();
-    // PR3：分享 icon 鈕跟主題色（N7——class 必須落在 Button 本身，不是掛在 icon 上）。
+    // 分享 icon 鈕跟主題色（class 必須落在 Button 本身，不是掛在 icon 上）。
     expect(screen.getByRole("button", { name: "Share" })).toHaveClass("text-brand", "hover:text-brand");
 
     await openDialog();
@@ -343,7 +343,7 @@ const PUBLIC_WIDTH_URL = `/api/notes/${NOTE.id}/public-width`;
 function stubRoutedFetch(opts: {
   shares?: ShareDto[];
   token?: string | null;
-  /** 公開別名（#122 PR3）：與 token 同屬可變狀態（PUT/DELETE …/slug 會改它）。 */
+  /** 公開別名（#122）：與 token 同屬可變狀態（PUT/DELETE …/slug 會改它）。 */
   slug?: string | null;
   /** 公開頁寬度（可變狀態：PUT …/public-width 會改它）。 */
   width?: NoteWidth;
@@ -442,7 +442,7 @@ describe("ShareDialog 三態（#72）", () => {
     await openDialog();
 
     // shares 已回、public-link 仍懸置：任何 radio 都不得選中（jsdom 單階段 mock 會
-    // 假綠的正是這裡——spec B4 指名的兩階段要求）。
+    // 假綠的正是這裡——兩階段要求）。
     for (const radio of screen.getAllByRole("radio")) {
       expect(radio).not.toBeChecked();
     }
@@ -589,7 +589,7 @@ describe("ShareDialog 三態（#72）", () => {
   });
 
 
-  it("選「限定成員」→ 發 DELETE public-link 且成員名單不動（plan RED 2——這條就是撤銷路徑的功能本身）", async () => {
+  it("選「限定成員」→ 發 DELETE public-link 且成員名單不動（這條就是撤銷路徑的功能本身）", async () => {
     const stub = stubRoutedFetch({ shares: [SHARE], token: TOKEN });
     renderDialog();
     await openDialog();
@@ -784,11 +784,11 @@ describe("ShareDialog 公開連結面板：匿名 toggle", () => {
     expect(secondValue).not.toBe(firstValue);
   });
 
-  // B1（審查修正，2026-09-17）：OFF 態按「重新產生」以前只換 slug、沒換 token——
+  // OFF 態按「重新產生」以前只換 slug、沒換 token——
   // 使用者設了自訂公開網址之後，外洩的 /p/<token> 連結就再也沒有輪替的入口，
   // 而按鈕明明寫著「重新產生」。修正後兩者要**同時**換：先 PUT public-link（換
   // token）再 PUT slug（換 slug），且新 slug 不等於舊 slug。
-  it("B1：OFF 態按「重新產生」→ 同時 PUT public-link（換 token）與 PUT slug（換 slug），新 slug ≠ 舊 slug", async () => {
+  it("OFF 態按「重新產生」→ 同時 PUT public-link（換 token）與 PUT slug（換 slug），新 slug ≠ 舊 slug", async () => {
     const { stub } = await openPublicDialog({ shares: [], token: TOKEN, slug: "old-alias" });
 
     fireEvent.click(screen.getByRole("button", { name: "Regenerate link" }));
@@ -921,10 +921,10 @@ describe("ShareDialog 公開連結面板：匿名 toggle", () => {
   });
 });
 
-// A2（突變審）＋plan「confirmHint 文案」：token 在場的私人確認列必須提到公開連結
-// （含自訂公開網址）——這句是 #122 PR3 的交付物，砍掉 token 分支塌回 confirmHint
+// 突變＋「confirmHint 文案」：token 在場的私人確認列必須提到公開連結
+// （含自訂公開網址）——這句是 #122 的交付物，砍掉 token 分支塌回 confirmHint
 // 的突變在這裡紅。
-describe("私人確認流文案（#122 PR3 擴字）", () => {
+describe("私人確認流文案（#122 擴字）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -981,7 +981,7 @@ describe("ShareDialog 觸發鈕圖示（依分享狀態，#72 UI 收尾）", () 
 
     await waitFor(() => expect(triggerButton()).toHaveAttribute("title", "Private — only you have access"));
     expect(triggerButton()).toHaveAccessibleName("Share");
-    // I2：title／可及名稱只斷「有沒有變」，斷不到「變成哪一個」——把 TriggerIcon
+    // title／可及名稱只斷「有沒有變」，斷不到「變成哪一個」——把 TriggerIcon
     // 退化成固定 Share 也會全綠。實際斷圖示本身（data-icon，見 ui/icons.tsx）。
     expect(triggerButton().querySelector("svg")).toHaveAttribute("data-icon", "lock");
   });
@@ -1021,9 +1021,9 @@ describe("ShareDialog 觸發鈕圖示（依分享狀態，#72 UI 收尾）", () 
   });
 });
 
-// ---- 群組筆記（#175 §8.4）----
+// ---- 群組筆記（#175）----
 // 群組筆記沒有逐人分享（S5）、存取由群組角色決定：面板只有一行說明＋「群組設定」連結，
-// 能管公開連結的角色才看得到公開連結開關（無別名，W7）。分享鈕看 `permissions.read`（Q14）。
+// 能管公開連結的角色才看得到公開連結開關（無別名）。分享鈕看 `permissions.read`。
 
 const GROUP_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
 /** 群組筆記的一般成員：read／edit、不能管公開連結。`ownerHandle`／`ownerId` 為 null（群組持有）。 */
@@ -1036,7 +1036,7 @@ const GROUP_NOTE: NoteDto = {
   group: { id: GROUP_ID, name: "Workshop A" },
   permissions: { ...EDITOR_PERMS },
 };
-/** 群組管理員：`managePublicLink`（與 delete／changeSlug）為真；`manageShares`／`moveToGroup` 恆 false（S5、W4）。 */
+/** 群組管理員：`managePublicLink`（與 delete／changeSlug）為真；`manageShares`／`moveToGroup` 恆 false（S5）。 */
 const GROUP_NOTE_ADMIN: NoteDto = {
   ...GROUP_NOTE,
   permissions: { ...EDITOR_PERMS, delete: true, managePublicLink: true, changeSlug: true },
@@ -1105,7 +1105,7 @@ function expectGroupPanelShape() {
   return link;
 }
 
-describe("群組筆記（#175 §8.4）", () => {
+describe("群組筆記（#175）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -1130,7 +1130,7 @@ describe("群組筆記（#175 §8.4）", () => {
     expect(calls.filter((c) => c.url.includes("/public-link"))).toEqual([]);
   });
 
-  it("只讀角色（read 真、edit 假）：同樣看得到分享鈕與群組版面板（Q14）、零 fetch", async () => {
+  it("只讀角色（read 真、edit 假）：同樣看得到分享鈕與群組版面板、零 fetch", async () => {
     const calls = stubGroupNoteFetch();
     renderDialog({ ...GROUP_NOTE, role: "viewer", permissions: { ...VIEWER_PERMS } });
     await openGroupDialog();
@@ -1287,12 +1287,12 @@ describe("群組筆記（#175 §8.4）", () => {
   });
 });
 
-// ──────────────── #175 PR2：#170 latch（搬入群組列 #216 起在 ⋮ 選單） ────────────────
+// ──────────────── #175：#170 latch（搬入群組列 #216 起在 ⋮ 選單） ────────────────
 
 const okResponse = (body: unknown, status = 200) =>
   fakeResponse({ ok: true, status, json: () => Promise.resolve(body) });
 
-describe("#175 PR2", () => {
+describe("#175", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -1303,7 +1303,7 @@ describe("#175 PR2", () => {
     vi.unstubAllGlobals();
   });
 
-  it("#170：面板開著時筆記從群組形變回個人形（PR4 轉移的形）、['shares'] 快取是移動時寫的 []、server 的 shares 晚到 → radio 在新資料到之前不 latch；到之後落在「限定成員」", async () => {
+  it("#170：面板開著時筆記從群組形變回個人形（刪群組轉移的形）、['shares'] 快取是移動時寫的 []、server 的 shares 晚到 → radio 在新資料到之前不 latch；到之後落在「限定成員」", async () => {
     const stub = stubRoutedFetch({ shares: [SHARE], token: null, pending: [SHARES_URL] });
     const queryClient = renderDialog(GROUP_NOTE);
     await openGroupDialog();

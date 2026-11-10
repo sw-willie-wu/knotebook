@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { act, render } from "@testing-library/react";
 import { SidebarQueryProvider, useSidebarQuery } from "./sidebar-query";
 
-describe("SidebarQueryProvider（#369 I3）", () => {
+describe("SidebarQueryProvider（#369）", () => {
   let api!: ReturnType<typeof useSidebarQuery>;
   function Probe({ tag }: { tag: string }) {
     api = useSidebarQuery();

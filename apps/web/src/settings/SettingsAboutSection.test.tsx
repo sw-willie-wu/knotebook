@@ -5,7 +5,7 @@ import pkg from "../../package.json";
 import { SettingsAboutSection } from "./SettingsAboutSection";
 import { DOCS_URL, LICENSE_URL, REPO_URL } from "./about-links";
 
-describe("SettingsAboutSection（#247 §5.6）", () => {
+describe("SettingsAboutSection（#247）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
   });

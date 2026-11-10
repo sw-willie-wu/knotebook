@@ -3,8 +3,8 @@ import { AGENT_LABEL_RE, deriveAgentLabel } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
 import { apiTokens } from "../db/schema.js";
 
-/** #106 D7（spec §8）：現值＝`api_tokens.agent_label ?? deriveAgentLabel(name)`。派生規則本體在 `@knotebook/shared`
- * （`packages/shared/src/agent-label.ts`，#247 §9.6 搬過去讓 web 共用），這裡重新匯出同一個參考，既有 import 不必改。
+/** #106：現值＝`api_tokens.agent_label ?? deriveAgentLabel(name)`。派生規則本體在 `@knotebook/shared`
+ * （`packages/shared/src/agent-label.ts`，#247 搬過去讓 web 共用），這裡重新匯出同一個參考，既有 import 不必改。
  * `agentLabelOf` 是**純述詞**（`listEdits` 一次 JOIN 撈最多 100 列，逐列查 DB 就是 N+1），`currentAgentLabel` 是它的查詢殼。 */
 export { AGENT_LABEL_RE, deriveAgentLabel };
 

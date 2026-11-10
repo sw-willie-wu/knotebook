@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { ADMIN, createUserViaInvite, editorLocator, loginAs, openGroupPanel, randomEmail, showSidebarTab } from "./helpers.js";
 
 /**
- * #175 群組 v2 PR4（spec §12.3 第 18 條）：刪群組的兩個模式。
+ * #175 群組 v2：刪群組的兩個模式。
  *
  * 轉移段：A 建第二使用者 B → A 建群組 G1、在 G1 建筆記 X、打一句字、記下 `/g/` 網址 → A 在群組版分享面板打開
  * Public link、記下公開網址 → A 從群組面板加 B（內建一般成員）→ B 開 X（徽章 Editor）→ A 側欄 G1 ⋮ → Delete group，

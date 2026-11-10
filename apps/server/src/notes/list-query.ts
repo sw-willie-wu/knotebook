@@ -2,9 +2,9 @@
 // 可見性語意（owned ∪ shared ∪ grouped）**只能有一份**——抄第二份的漂移沒有任何測試抓得到。
 // ⚠ 其餘四份可見性查詢刻意不吃這支工廠（欄位集不同）：`notes/editing/candidates.ts` 的
 // `visibleNoteTargets()`、`notes/service.ts` 的 `loadNoteAudience()`、`notes/links.ts` 的 `fetchBacklinks()`、
-// `notes/tx/write-links.ts` 的 `writeLinksInTx()`——各自手寫群組分支（#175 §5.3；連同本檔共五份，
-// 不統一列在 spec §15 第 6 條）。
-// 垃圾桶筆記一律排除（#181 §6.2-3）：三支各在 `and(...)` 裡帶 `deleted_at IS NULL`。
+// `notes/tx/write-links.ts` 的 `writeLinksInTx()`——各自手寫群組分支（#175；連同本檔共五份，
+// 刻意不統一）。
+// 垃圾桶筆記一律排除（#181）：三支各在 `and(...)` 裡帶 `deleted_at IS NULL`。
 import { and, eq, isNull, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { DbOrTx } from "../db/tx.js";
@@ -25,7 +25,7 @@ export const lastEditedSelection = {
 
 /**
  * 固定的基礎欄位集＝`GET /api/notes` 今天那一組（MCP 端只取其中一部分，多取幾欄不影響它自己的 DTO）。
- * `ownerHandle` 包成 `sql<string | null>`（#175 §5.3）：drizzle 的 set operator 要求後面各支的列型別可指派給
+ * `ownerHandle` 包成 `sql<string | null>`（#175）：drizzle 的 set operator 要求後面各支的列型別可指派給
  * **第一支**（owned），而 grouped 支 LEFT JOIN users 輸出 NULL——第一支的型別必須是可為 null 的那個。
  * 每次呼叫現造（不提成模組常數：builder 單次使用）。
  */
@@ -45,8 +45,8 @@ function baseColumns() {
 }
 
 /**
- * 群組四欄：owned／shared 兩支恆 NULL（`owner_id = $u` 與 `group_id IS NULL` 結構上排除群組筆記；S5 破了時
- * 非成員也不該拿到群組名，S4）；grouped 支輸出群組 id／名稱與呼叫者角色的兩個筆記旗標（`accessFromListRow`
+ * 群組四欄：owned／shared 兩支恆 NULL（`owner_id = $u` 與 `group_id IS NULL` 結構上排除群組筆記；群組筆記殘留分享列時
+ * 非成員也不該拿到群組名）；grouped 支輸出群組 id／名稱與呼叫者角色的兩個筆記旗標（`accessFromListRow`
  * 組 `permissions` 用——read／edit 由 `role` 推得，不另帶）。`sql<… | null>` 的理由同 `ownerHandle`。
  */
 function nullGroupColumns() {
@@ -67,7 +67,7 @@ function groupColumns() {
 }
 
 /**
- * 位置欄（呼叫者視角，AG-F1；spec M9）：**不放進 `baseColumns()`**——共用欄位集只有一份運算式，放進去 shared 支就會輸出擁有者的
+ * 位置欄（呼叫者視角）：**不放進 `baseColumns()`**——共用欄位集只有一份運算式，放進去 shared 支就會輸出擁有者的
  * `notes.folder_id`。owned、grouped 支＝`notes.folder_id`；shared 支＝呼叫者自己的放置（LEFT JOIN `note_placements (note, $u)`）。
  */
 function ownFolderColumn() {
@@ -78,9 +78,9 @@ function placementFolderColumn() {
 }
 
 /**
- * 呼叫者看得見的筆記＝owned ∪ shared ∪ grouped，三支**結構性互斥**（#175 §5.3）：owned＝`owner_id = $u`；
+ * 呼叫者看得見的筆記＝owned ∪ shared ∪ grouped，三支**結構性互斥**（#175）：owned＝`owner_id = $u`；
  * shared＝`group_id IS NULL` 且有 `note_shares(note, $u)` 且 `owner_id <> $u`；grouped＝`group_id IS NOT NULL`
- * （INNER JOIN `group_members` 已隱含）且角色 `can_read`。群組筆記上若有殘留分享列（S5 破裂），shared 支
+ * （INNER JOIN `group_members` 已隱含）且角色 `can_read`。群組筆記上若有殘留分享列（群組筆記不該有分享列），shared 支
  * 以 `group_id IS NULL` 明寫排除——不靠 `owner_id <> $u` 對 NULL 求值剛好為假。群組筆記沒有 owner：
  * grouped 支的 users 是 LEFT JOIN（`ownerHandle` 為 NULL）。
  * grouped 支的 `role`＝`CASE WHEN can_edit THEN 'editor' ELSE 'viewer' END`，與 `roleFromGroupFlags` 同規則

@@ -1,5 +1,5 @@
 /**
- * #130 Task 4：API token 的明文格式（`auth/api-token.ts`）與 `WWW-Authenticate`
+ * #130：API token 的明文格式（`auth/api-token.ts`）與 `WWW-Authenticate`
  * 的組字（`auth/challenge.ts`）。兩者都是純函式，無 DB、無 fastify。
  *
  * 這一族的守衛重點有兩個：①`knbr_` 不是 `knb_` 的延長，所以把 refresh token 當
@@ -75,7 +75,7 @@ describe("parseAuthorizationHeader", () => {
 
   it("非 Bearer scheme／空值／只有 scheme → other-scheme（challenge 不帶 error）", () => {
     // RFC 6750 §3：unsupported authentication method 時 SHOULD NOT 帶 error code，
-    // 與「Bearer 但 token 壞掉」（§3.1 要 invalid_token）是不同的形狀，故三態分開。
+    // 與「Bearer 但 token 壞掉」（要 invalid_token）是不同的形狀，故三態分開。
     expect(parseAuthorizationHeader("Basic dXNlcjpwdw==")).toEqual({ kind: "other-scheme" });
     expect(parseAuthorizationHeader("")).toEqual({ kind: "other-scheme" });
     expect(parseAuthorizationHeader("   ")).toEqual({ kind: "other-scheme" });

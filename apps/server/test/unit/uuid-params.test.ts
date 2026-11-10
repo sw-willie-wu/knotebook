@@ -8,7 +8,7 @@ const run = async (params: Record<string, unknown>) => {
   return params;
 };
 
-describe("#240 U-240r：lowercaseUuidParams", () => {
+describe("#240：lowercaseUuidParams", () => {
   it("名單恰為 id、userId", () => {
     expect([...LOWERCASED_PARAMS]).toEqual(["id", "userId"]);
   });

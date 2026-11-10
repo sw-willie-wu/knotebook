@@ -1,4 +1,4 @@
-/** #181 PR-2a T10：`/api/admin/trash/settings`（spec §6.9、A2-9）。 */
+/** #181：`/api/admin/trash/settings`。 */
 import { describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import { siteSettings } from "../src/db/schema.js";
@@ -25,7 +25,7 @@ describe("AS1 讀與改", () => {
   });
 });
 
-describe("AS2 權限與輸入驗證（A2-9）", () => {
+describe("AS2 權限與輸入驗證", () => {
   it("非管理員 403、未登入 401（GET 與 PATCH）", async () => {
     const b = await adminApp();
     await expectAdminOnly(b.app, b.db, "GET", URL_);

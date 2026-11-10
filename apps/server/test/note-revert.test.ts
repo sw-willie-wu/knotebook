@@ -18,7 +18,7 @@ const looseLimiters = () => ({
   tokenWrite: new FixedWindowLimiter({ limit: 1_000, windowMs: 600_000 }),
 });
 // ⚠ 兩個 heading **同級**：`## B` 會被 `sectionize()` 併進 A 段，`outline[2]` 變 undefined
-// （見 Global Constraints 的 heading 條；#136 Task 4 踩過同一格）。
+// （見 Global Constraints 的 heading 條；#136 踩過同一格）。
 async function setup(md = "# A\n\n第一段\n\n# B\n\n第二段", opts: Parameters<typeof buildCollabTestApp>[0] = {}) {
   const ctx = await buildCollabTestApp(opts);
   const u = await ctx.createUser({ email: "a@example.com", password: PASSWORD });
@@ -41,7 +41,7 @@ const cookieFor = async (userId: string) => `${SESSION_COOKIE}=${await signTestS
 /** server 上那份 live doc 的文字（斷言併發時**一律看這個**，不看 client.doc——client 的改動要經 WS 才到 server）。 */
 const serverText = (s: Setup) => docText(s.ctx.collab.hocuspocus.documents.get(s.note.id)!);
 /** 模擬人在瀏覽器編輯。`try { … } finally { close() }` 是硬性的——testEditingRuntime 是模組層單例，
- *  漏 close 就永久洩漏一個 in-flight 名額，重建旗標一設就整支測試檔無訊息逾時（session.ts 的 m3 不變量）。 */
+ *  漏 close 就永久洩漏一個 in-flight 名額，重建旗標一設就整支測試檔無訊息逾時（session.ts）。 */
 async function humanEdit(s: Setup, fn: (ed: EditorSession["editor"]) => void) {
   const ses = await EditorSession.open(testEditingRuntime, s.client.doc);
   try {
@@ -223,7 +223,7 @@ describe("撤回", () => {
     const s = await setup();
     const target = await s.ctx.createNote(s.u.id, "目標");
     expect((await s.post({ op: "append", markdown: "看 [[目標]]" })).statusCode).toBe(201);
-    // ⚠ `/backlinks` 是 **cookie-only**（`app.authenticate`，不在 #107 D2 的 Bearer 允許清單上）
+    // ⚠ `/backlinks` 是 **cookie-only**（`app.authenticate`，不在 #107 的 Bearer 允許清單上）
     // ——用 Bearer 會拿到 401、`body.backlinks` 是 undefined（同 note-edits.test.ts 的兩處）。
     const back = async () => {
       const res = await s.ctx.app.inject({ method: "GET", url: `/api/notes/${target.id}/backlinks`, headers: { cookie: await cookieFor(s.u.id) } });
@@ -285,7 +285,7 @@ describe("撤回", () => {
     for (const body of [{ op: "replace_all", markdown: "X" }, { op: "insert_after", section_id: "_top", markdown: "X" }, { op: "append", markdown: "X" }]) {
       const e = await setup("");
       const c0 = await e.content();
-      // ⚠ 三個 op 的 `if_match` **不是同一個指紋**（Task 1 的 D2 是同一格）：`replace_all`／`append`
+      // ⚠ 三個 op 的 `if_match` **不是同一個指紋**：`replace_all`／`append`
       // 的 `targetIds` 是 null＝比對**整篇**指紋，`insert_after _top` 比的是那一段的指紋。真空文件
       // 上兩者必不相等（段指紋＝`EMPTY_SECTION_FINGERPRINT`；整篇＝把段指紋串起來再 hash 一次），
       // 所以三個共用一個值會讓 `replace_all` 拿到 409。核對照樣有做，只是各自用對的基線。
@@ -392,7 +392,7 @@ describe("撤回", () => {
     expect(s.ctx.collab.hocuspocus.documents.size).toBe(0); // GET /edits 走讀路徑，不得讓文件重新載入
   });
 
-  it("D7：使用者改過 agent 名稱之後，GET /edits 的既有列跟著顯示新名字（現值＝覆寫優先，不是寫入時快照）", async () => {
+  it("使用者改過 agent 名稱之後，GET /edits 的既有列跟著顯示新名字（現值＝覆寫優先，不是寫入時快照）", async () => {
     // ⚠ 這一案是 `listEdits` 那條 `agentLabelOf({ agentLabel: e.tokenLabel, … })` 的**唯一**守衛：
     // 實測把它改成忽略 `tokenLabel`（等同 #138 之前的純派生形），既有的 note-edits／note-revert
     // 32 案全綠。上面那案守的是「token 被刪 → 回落快照」，與這裡的「token 還在、名字被改」是
@@ -412,7 +412,7 @@ describe("撤回", () => {
   });
 
   it("/revert 的四格：不存在／別篇筆記／格式錯與含 NUL 的 editId → 404（不是 500）；viewer → 403 且什麼都沒動", async () => {
-    // plan gate r2 I-E：`/revert` 原本一個拒絕案都沒有，違反本 plan 自己的全域限制
+    // `/revert` 原本一個拒絕案都沒有，違反全域限制
     // （每個端點都要有一案「含 NUL → 該端點的正常錯誤形，不是 500」）。`/revert` **沒有 body**，
     // 所以不變量 S 落在**路徑參數**上：`editId` 走路由的 `UUID_RE` 守衛，正常形是 404 `not_found`。
     const s = await setup();
@@ -452,7 +452,7 @@ describe("撤回", () => {
   });
 
   it("GET /edits 的守衛：非成員 → 404；角色檢查之後才消耗 CONTENT_READ_LIMIT；耗盡 → 429", async () => {
-    // plan gate r2 Minor-5：這條路由宣稱三道守衛（scope、角色、限流）卻一個斷言都沒有。
+    // 這條路由宣稱三道守衛（scope、角色、限流）卻一個斷言都沒有。
     // **scope 那道刻意不另造案**：它是 `authenticateAny("notes:read")` 的共用機制，已由
     // `api-token-auth.test.ts` 的「read token 打 POST /api/notes → 403 insufficient_scope」釘住，
     // 而本檔的 token 一律含 `notes:read`，造不出有意義的變體。這裡守角色與限流兩道。

@@ -101,7 +101,7 @@ describe("copyText", () => {
   });
 
   /**
-   * PR2 D.4：host 選擇器擴為 `[role="dialog"],[role="menu"]`——內文卡的 ⋮ 選單
+   * D.4：host 選擇器擴為 `[role="dialog"],[role="menu"]`——內文卡的 ⋮ 選單
    * （Radix DropdownMenu，`role="menu"`）跟 dialog 是同一套 focus-trap surface。
    * 鏡像上面 dialog 那一案的寫法，換成 `role="menu"` 容器，沒有這條，擴充的分支
    * 零守衛（改壞了/沒改都測不出來）。

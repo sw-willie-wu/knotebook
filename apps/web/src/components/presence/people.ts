@@ -8,7 +8,7 @@ import {
 } from "@knotebook/shared";
 
 /**
- * #293 §9.1：頁頭頭像列的名單（純函式，不碰 React）。awareness 是 client 自報，
+ * #293：頁頭頭像列的名單（純函式，不碰 React）。awareness 是 client 自報，
  * 這裡每一格都當不可信：`knotebook` 欄只收 `v === 1`、角色只收白名單、頭貼一律過 `parseAvatarRef`、
  * 顏色一律自己算（不讀 `state.user.color`）。
  */
@@ -70,7 +70,7 @@ function higherRole(a: PresenceRole | null, b: PresenceRole | null): PresenceRol
   return ROLE_RANK[a] >= ROLE_RANK[b] ? a : b;
 }
 
-/** 單一 awareness 狀態 → 一筆；該略過的回 null（spec §9.1 1–3）。 */
+/** 單一 awareness 狀態 → 一筆；該略過的回 null（1–3）。 */
 function parseEntry(clientId: number, state: unknown, myClientId: number, myUserId: string): Entry | null {
   if (clientId === myClientId) return null;
   if (typeof state !== "object" || state === null) return null;
@@ -123,7 +123,7 @@ function entries(states: ReadonlyMap<number, unknown>, myClientId: number, myUse
   return out;
 }
 
-/** spec §9.1 1–4：略過自己的 clientID、`state` 非物件、`user.id === myUserId`、既無字串 `user.id` 也無 agent 標記者；AI 以 clientID 為一項；人以 user id 合併。回傳依 key 字典序（排序由 orderBySeen 負責）。 */
+/** 1–4：略過自己的 clientID、`state` 非物件、`user.id === myUserId`、既無字串 `user.id` 也無 agent 標記者；AI 以 clientID 為一項；人以 user id 合併。回傳依 key 字典序（排序由 orderBySeen 負責）。 */
 export function presencePeople(states: ReadonlyMap<number, unknown>, myClientId: number, myUserId: string): PresencePerson[] {
   const people = new Map<PresenceKey, PresencePerson>();
   const latest = new Map<PresenceKey, UserEntry>();
@@ -169,7 +169,7 @@ export function presenceCursor(
   return best?.cursor ?? null;
 }
 
-/** spec §9.1-5：先來的在左；離開即移除；再回來排最後。 */
+/** 先來的在左；離開即移除；再回來排最後。 */
 export function orderBySeen(
   seen: ReadonlyMap<PresenceKey, number>,
   people: readonly PresencePerson[],
@@ -190,7 +190,7 @@ export function orderBySeen(
   return { seen: next, people: ordered, nextSeq: seq };
 }
 
-/** spec §9.1-6：鍵、名字、角色、頭貼 id／v、有沒有游標（布林）。游標位置不在內。 */
+/** 鍵、名字、角色、頭貼 id／v、有沒有游標（布林）。游標位置不在內。 */
 export function presenceSignature(people: readonly PresencePerson[]): string {
   return JSON.stringify(
     people.map((p) =>

@@ -6,7 +6,7 @@ import { bodySearchGate } from "@/components/sidebar/body-search-gate";
 import { ApiFail, api } from "./client";
 
 /**
- * #93 PR2：`GET /api/search`。**只被內文區的 lazy chunk import**（`components/sidebar/BodySearchLazy.tsx`）。
+ * #93：`GET /api/search`。**只被內文區的 lazy chunk import**（`components/sidebar/BodySearchLazy.tsx`）。
  * `URLSearchParams` 組參數（`q` 可能含 `&`、`#`、`%`）。
  */
 export function fetchNoteSearch(
@@ -44,7 +44,7 @@ type SearchPage = NoteSearchResultDto & { forQuery: string };
 const isRateLimited = (err: unknown) => err instanceof ApiFail && err.status === 429;
 
 /**
- * 內文區的查詢。`query`＝當下（trim 後）的搜尋字、`debounced`＝防抖後的字——防抖在首包的 `SearchResults`（plan gate r2 I2），
+ * 內文區的查詢。`query`＝當下（trim 後）的搜尋字、`debounced`＝防抖後的字——防抖在首包的 `SearchResults`，
  * 這裡只吃 prop，元件掛掛卸卸不會重發。
  * - key 帶目前使用者的 id（同 `api/users.ts`：登出不清快取，換人登入不會讀到上一個人的結果）；id 直接讀 session 快取、不訂閱。
  * - `retry: false`：失敗就顯示一行錯誤；search 桶與 MCP 共用每分 60 次，自動重試只會更快撞到 429。

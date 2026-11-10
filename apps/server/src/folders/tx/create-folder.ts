@@ -1,6 +1,6 @@
 /**
- * 建立資料夾的交易本體（spec docs/superpowers/specs/2026-10-22-folders-design.md §5.7.1；§5.4 表第 1、2 列）。S14：只收 `tx`／純資料／測試縫。
- * 順序：（群組空間）groups KS → 結構鎖 →（父資料夾形）父列 KS → 依 §5.5 重判可見性、同空間、管理權 → 深度 → 數量 → INSERT。
+ * 建立資料夾的交易本體（表第 1、2 列）。S14：只收 `tx`／純資料／測試縫。
+ * 順序：（群組空間）groups KS → 結構鎖 →（父資料夾形）父列 KS → 重判可見性、同空間、管理權（與服務層同一個入口順序） → 深度 → 數量 → INSERT。
  * 失敗一律 throw `TxAbort`。同層撞名的 23505 不在這裡接（交易已 abort），交給服務層映射 409 `folder_name_taken`。
  * 呼叫端一律 READ COMMITTED（結構鎖之後的下一句才拿新快照，見 `lock.ts` 檔頭）。
  * 錯誤訊息在 `../messages.ts`（服務層的交易外快速路徑 import 同一份，404／403 逐位元組相同）。
@@ -40,7 +40,7 @@ export async function createFolderInTx(
 ): Promise<{ row: FolderRow; permissions: FolderPermissionsDto }> {
   const { target } = input;
   const space = target.space;
-  // 以資料夾 id 進來 → folder_not_found；以群組 id 進來 → group_not_found（§5.4 n-2）。
+  // 以資料夾 id 進來 → folder_not_found；以群組 id 進來 → group_not_found（n-2）。
   const notFound = (): TxAbort =>
     target.kind === "parent"
       ? new TxAbort(404, "folder_not_found", FOLDER_NOT_FOUND_MESSAGE)

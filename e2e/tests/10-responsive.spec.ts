@@ -7,7 +7,7 @@ import { ADMIN, adminNav, createNote, editorLocator, loginAs, openSelectionAiBox
  * 佈局策略：provider/model 的建立與筆記內容輸入都在**預設 1280 視窗**完成（站台
  * 管理 modal 的表單在 390 下擁擠，且不是本檔要驗的東西），然後 `setViewportSize(390×844)`
  * 驗窄視窗行為。AI provider **自建**（流程照 04-ai 的建置段）——不依賴 04 殘留
- * 狀態（plan gate M4）。
+ * 狀態。
  *
  * 自建 provider 讓工具列的 AI 鈕出現（動作清單非空），並勾「Default model」：本檔跑一次 Instruct 到結果態，auto 解析要選到這顆
  * 指向 `/fast` 的 model（全套順序下 04 留下的 provider 已被改指 `/slow`，同 25 的說法）。
@@ -24,7 +24,7 @@ async function openAiSettings(page: Page): Promise<void> {
   await adminNav(page, "AI agents");
 }
 
-/** 供應商的明細列（spec 2026-10-13 settings-table §3 #1：「＜名稱＞ details」，模型子表與「Add model」在這裡；同 04-ai）。 */
+/** 供應商的明細列（「＜名稱＞ details」，模型子表與「Add model」在這裡；同 04-ai）。 */
 function providerDetailsLocator(page: Page, name: string) {
   return page.getByRole("row", { name: `${name} details`, exact: true });
 }

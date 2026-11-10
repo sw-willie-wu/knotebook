@@ -1,6 +1,6 @@
-// 版本歷史 × AI／MCP／REST 寫入（#272 spec 2026-10-13 §4.2、§12.1 案 19、28、29、D10：AI／直寫前後不再立刻切版，只記成待切，
+// 版本歷史 × AI／MCP／REST 寫入（#272 案 19、28、29：AI／直寫前後不再立刻切版，只記成待切，
 // 停手 X 後由掃描器切——人與 AI 在同一段安靜期內就在同一版。本檔的 harness 把 X 壓成 0，掃描一律手動呼叫 `scanDue()`）。
-// 前 spec 2026-10-09 D9 的 create_note、§7-3 落款閘門、拆分後的守衛照舊。
+// 先前的 create_note、落款閘門、拆分後的守衛照舊。
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import * as Y from "yjs";
@@ -37,8 +37,8 @@ async function typeFirst(ctx: CollabTestCtx, noteId: string, client: TestClient,
   await waitFor("server 收到", 5_000, () => until(docText(ctx.collab.hocuspocus.documents.get(noteId)!)));
 }
 
-describe("#272：AI 寫入不再立刻切版（D2）", () => {
-  it("人工未存＋AI 寫入 → 當下 0 版；離開後掃描 → 1 版，人與 AI 同一版、內容含兩邊（M10：寫前切版回來會多一版）", async () => {
+describe("#272：AI 寫入不再立刻切版", () => {
+  it("人工未存＋AI 寫入 → 當下 0 版；離開後掃描 → 1 版，人與 AI 同一版、內容含兩邊（寫前切版回來會多一版）", async () => {
     const s = await setup();
     const client = await seedContent(s.ctx, s.session, s.note.id, "人打的未存內容");
     expect((await s.edit({ op: "append", markdown: "AI 加的一段" })).statusCode).toBe(201);
@@ -115,7 +115,7 @@ describe("#272：AI 寫入不再立刻切版（D2）", () => {
   });
 });
 
-describe("案 19：create_note 帶 content（前 spec D9）", () => {
+describe("案 19：create_note 帶 content", () => {
   it("POST /api/notes 帶 content（token）→ 當下 0 版、待切的參考指紋＝真空；掃描後 1 版、editors 只有 AI", async () => {
     const s = await setup();
     const res = await s.ctx.app.inject({ method: "POST", url: "/api/notes", headers: bearer(s.token), payload: { title: "新", content: "AI 建的筆記內容" } });
@@ -132,7 +132,7 @@ describe("案 19：create_note 帶 content（前 spec D9）", () => {
   });
 });
 
-describe("D13：編輯者歸屬（spec §1.4）", () => {
+describe("編輯者歸屬", () => {
   it("案 28：人在 WS 編輯（框選 AI 框的結果也走這條）＋cookie POST /edits → 掃描後該版 editors 只有 {user_id, agent_label: null}", async () => {
     const s = await setup();
     const client = await seedContent(s.ctx, s.session, s.note.id, "人在瀏覽器打的");
@@ -163,7 +163,7 @@ describe("D13：編輯者歸屬（spec §1.4）", () => {
   });
 });
 
-describe("D10：AI 修改紀錄不變（spec §1.4）", () => {
+describe("AI 修改紀錄不變", () => {
   it("有人工待切時撤回一筆 AI 修改 → 當下不增版；有 op='revert' 列、原列 reverted_at 有值；待切 editors 多了撤回者", async () => {
     const s = await setup();
     const client = await seedContent(s.ctx, s.session, s.note.id, "撤回測試原文");
@@ -191,7 +191,7 @@ describe("D10：AI 修改紀錄不變（spec §1.4）", () => {
   });
 });
 
-describe("§7-3 落款閘門：直連一律看 applied", () => {
+describe("落款閘門：直連一律看 applied", () => {
   it("version-apply：applied=false 不落款；applied=true 落款寫人、token 與 agent label 為 null", async () => {
     const s = await setup();
     const client = await seedContent(s.ctx, s.session, s.note.id, "落款測試內容");

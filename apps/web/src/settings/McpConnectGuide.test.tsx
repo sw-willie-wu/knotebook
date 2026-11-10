@@ -75,7 +75,7 @@ describe("mcp-snippets（純函式）", () => {
   });
 });
 
-describe("McpConnectGuide（#247 §5.3）", () => {
+describe("McpConnectGuide（#247）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -189,7 +189,7 @@ describe("McpConnectGuide（#247 §5.3）", () => {
     });
   });
 
-  it("兩個 h3 依序為 OAuth、PAT；不再有編號；清單不縮排（W24）：https 2 個、http 1 個", () => {
+  it("兩個 h3 依序為 OAuth、PAT；不再有編號；清單不縮排：https 2 個、http 1 個", () => {
     const { container, unmount } = render(<McpConnectGuide origin={HTTPS} />);
     expect(screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual([
       i18n.t("settings.authorization.mcp.oauthTitle"),

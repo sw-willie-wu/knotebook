@@ -8,8 +8,8 @@ import { toast } from "@/components/ui/toast";
 import { splitTrashSections, trashResultMessage } from "@/lib/trash-display";
 
 /**
- * 垃圾桶的確認框與結果 toast（spec 2026-10-21 §6.10.3）。還原不確認；永久刪除（單篇、多選）與清空才確認。
- * 呼叫端在 `onConfirm` 的 mutation **成敗都關框**、結果一律走 toast（讀碼發現 23：失敗時清單重抓，
+ * 垃圾桶的確認框與結果 toast。還原不確認；永久刪除（單篇、多選）與清空才確認。
+ * 呼叫端在 `onConfirm` 的 mutation **成敗都關框**、結果一律走 toast（失敗時清單重抓，
  * 框內篇數會當著使用者的面改掉）。
  */
 
@@ -104,7 +104,7 @@ export function toastTrashResult(kind: TrashKind, result: TrashResult, t: Transl
 }
 
 /**
- * 失敗：標題 `errors.<code>`；分批中途失敗（之前的批已成功）時描述報已完成篇數（讀碼發現 23）。
+ * 失敗：標題 `errors.<code>`；分批中途失敗（之前的批已成功）時描述報已完成篇數。
  * 第一批就失敗＝什麼都沒做，不加「已還原 0 篇」。
  */
 export function toastTrashFailure(kind: TrashKind, err: unknown, t: Translate): void {

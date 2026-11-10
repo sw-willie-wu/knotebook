@@ -1,12 +1,12 @@
 /**
- * #269 §8.4／§6.5：client 寫入路徑的站內連結轉換。
+ * #269：client 寫入路徑的站內連結轉換。
  * - `createSiteLinkConvertExtension`：tiptap extension，`appendTransaction` 收本地 transaction 的 link `AddMarkStep`（autolink、
  *   連結對話框的 `createLink`、link toolbar 改網址）——掛在 `NoteEditor` 的 `_tiptapOptions.extensions`。貼上（含選取上貼網址、
  *   裸網址的 paste rule）不歸它：一次貼上只由貼上 hook 處理（見 `isForeign`、`pastingRefs`）；拖放也不歸它（#352，見下）。
  * - `createSiteLinkPasteHook`：`createMarkdownPasteHandler` 的掛點——貼上的出口返回後，對前後文件的 diff 範圍呼叫 `convertSiteLinksInRange`。
  * - `withSiteLinkDrop`（#352）：`handleDOMEvents.drop` 的最外層——從編輯器外拖進來的放下，在 microtask 裡對放下範圍呼叫
  *   `convertSiteLinksInRange`。範圍由上面那個外掛在拖放期間記錄（`droppingRefs`、`recordDropRange`）；外掛本身仍不轉拖放的 link。
- * - 非同步後備：快取解析不到的站內網址問 server（A6：每次動作 ≤20 個相異 href、單發 5 s），成功後一筆 transaction 套用。
+ * - 非同步後備：快取解析不到的站內網址問 server（每次動作 ≤20 個相異 href、單發 5 s），成功後一筆 transaction 套用。
  * 所有轉換 transaction 帶 meta `knotebook:siteLinkConvert`；外掛看到它或 `y-sync$`（遠端、撤銷／重做）一律跳過。
  */
 import { Extension } from "@tiptap/core";
@@ -59,13 +59,13 @@ function convertLinks(tr: Any, links: readonly SiteLinkRange[], env: SiteLinkEnv
 }
 
 /**
- * 不當成本地動作處理的 tr（§8.4）：
+ * 不當成本地動作處理的 tr：
  * - `y-sync$`（遠端更新、y-undo 撤銷／重做）、`knotebook:siteLinkConvert`（轉換本身）；
  * - 拖放（drop）：prosemirror-view 的 drop handler 對那筆 tr 設 `uiEvent: "drop"`；外部拖進的純文字網址由 tiptap 的 paste rule
  *   （`pasteRulesPlugin` 對 drop 也跑）在**另一筆附加的** tr 加 link mark。一次拖放只歸 drop hook（`withSiteLinkDrop`，#352）——
  *   外掛也收的話，快取未命中時同一個連結會排兩次後備。
  * - 貼上（`uiEvent: "paste"`，prosemirror-view 的 `doPaste`）：一次貼上只歸一個擁有者——由 `createSiteLinkPasteHook` 對前後 diff
- *   範圍轉換；外掛若也收 paste rule 附加的 link，快取未命中時同一個連結會排兩次後備（A6 上限翻倍、§7.6 撤銷後可能被晚到的第二發轉回）。
+ *   範圍轉換；外掛若也收 paste rule 附加的 link，快取未命中時同一個連結會排兩次後備（上限翻倍、撤銷後可能被晚到的第二發轉回）。
  */
 function isForeign(tr: Any): boolean {
   const ui = tr.getMeta("uiEvent");
@@ -144,7 +144,7 @@ export function createSiteLinkConvertExtension({ envRef }: { envRef: SiteLinkEnv
   });
 }
 
-/** 貼上（§8.3）：新文件 `[from, to]` 內的站內連結；同步可解者一筆 transaction 換掉，其餘排後備。整段不拋錯（呼叫端另有 try/catch）。 */
+/** 貼上：新文件 `[from, to]` 內的站內連結；同步可解者一筆 transaction 換掉，其餘排後備。整段不拋錯（呼叫端另有 try/catch）。 */
 export function convertSiteLinksInRange(editor: AnyEditor, from: number, to: number, env: SiteLinkEnv): void {
   const view = editor._tiptapEditor.view;
   const links = collectSiteLinks(view.state.doc, [{ from, to }], env.origin);
@@ -154,7 +154,7 @@ export function convertSiteLinksInRange(editor: AnyEditor, from: number, to: num
 }
 
 /**
- * §6.5 後備：相異 href 最多 20 個、各自問 server（逾時 5 s 在 `resolveViaServer` 內）；成功者**一筆** transaction、只在仍存在的
+ * 後備：相異 href 最多 20 個、各自問 server（逾時 5 s 在 `resolveViaServer` 內）；成功者**一筆** transaction、只在仍存在的
  * `blockIds` 內找「href 與文字都相同」的連結換掉；都找不到（文件已被改）就放棄。回傳換掉的個數。
  */
 export async function runFallbackConversion(
@@ -189,7 +189,7 @@ export async function runFallbackConversion(
 }
 
 /**
- * §8.3：貼上前後的文件 diff 範圍（不依 block id——行內貼上不換 block id 也抓得到，補 mermaid 快照法的盲點）。
+ * 貼上前後的文件 diff 範圍（不依 block id——行內貼上不換 block id 也抓得到，補 mermaid 快照法的盲點）。
  * - 重複內容時 `findDiffEnd` 會往前多吃（貼上的內容與相鄰的既有內容相同 ⇒ 結尾的 a 或 b 側退到起點之前），照 ProseMirror
  *   慣例（prosemirror-view 的 `findDiff`）以貼上前的游標 `pref` 消歧：落在重疊區內就把起點退到 `pref`，範圍長度＝新舊大小差。
  *   不消歧的話，在既有同內容的**前方**貼上會轉到既有那份、貼上那份留一般連結。

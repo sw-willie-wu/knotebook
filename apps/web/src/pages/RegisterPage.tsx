@@ -14,17 +14,17 @@ import { INVITE_TOKEN_KEY } from "@/auth/resetTokenStorage";
 import { useOneTimeLinkToken } from "@/auth/useOneTimeLinkToken";
 
 /**
- * #187 §9.4 `/register`（S2）。與 `/login` 同層、在 `RequireAuth` 之外；已登入者導 `next`（經 safeNextPath）或 `/`（r2-N7）。
+ * #187 `/register`。與 `/login` 同層、在 `RequireAuth` 之外；已登入者導 `next`（經 safeNextPath）或 `/`。
  * 一般模式（`OpenRegistration`）只做帳密自助註冊（SSO 首登建帳走登入頁的 SSO 鈕，這裡不列）：
  * - 帳密自助註冊不可用（`registration.enabled` 且帳密有效值開才可用）→ 導回 `/login`（保留 next）；
  * - 設定或 session 讀不到（載入中或失敗）→ 照常顯示表單，不導走（server 是最終裁決）。
- * 成功（201，B9 成功即登入）→ 寫 session 快取、導向 `safeNextPath(?next=)` 或 `/`。
+ * 成功（201，成功即登入）→ 寫 session 快取、導向 `safeNextPath(?next=)` 或 `/`。
  *
  * #285 邀請模式：網址帶 `#invite=…`（或同分頁重新整理後 sessionStorage 還有）時進 `InviteRegistration`，在
  * `OpenRegistration` 之前分流，不看上面的一般模式條件（自助註冊關閉也不導走）。導向因此只能放在 `OpenRegistration` 內。
  * 邀請模式的 token 處理（同步取得、fragment 由 router 清、只在未登入時寫 storage、成功／無效／卸載刪鍵、
  * 啟動清理在 `auth/resetTokenStorage.ts` 的表）全在共用 hook `useOneTimeLinkToken`。
- * 已登入要先登出（spec §8-6）：避免管理員在自己的瀏覽器測連結時，被換成新帳號。
+ * 已登入要先登出：避免管理員在自己的瀏覽器測連結時，被換成新帳號。
  */
 export default function RegisterPage() {
   const { user, query, logout } = useSession();
@@ -148,7 +148,7 @@ interface InviteRegistrationProps {
   logout: () => Promise<void>;
 }
 
-/** #285 §6.2 邀請模式。inspect／accept 的 token 只走 POST body，不進 queryKey。 */
+/** #285 邀請模式。inspect／accept 的 token 只走 POST body，不進 queryKey。 */
 function InviteRegistration({ token, forget, user, sessionError, refetch, logout }: InviteRegistrationProps) {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
@@ -210,7 +210,7 @@ function InviteRegistration({ token, forget, user, sessionError, refetch, logout
     </p>
   );
 
-  // 成功後 accepted 先於 session 快取更新：不會閃出「你已登入」，也不理 `?next`（N-7）。
+  // 成功後 accepted 先於 session 快取更新：不會閃出「你已登入」，也不理 `?next`。
   if (accepted) return <Navigate to="/" replace />;
 
   if (sessionError !== null && user === undefined) {

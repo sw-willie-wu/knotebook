@@ -4,7 +4,7 @@ import { buildRevealConfig, configMatches, htmlHasPrintClasses, LOCKED_CONFIG_KE
 const handlers = { onEsc: vi.fn(), onF: vi.fn(), onO: vi.fn() };
 
 describe("buildRevealConfig（A3 逐鍵）", () => {
-  it("鎖定值逐字照 spec A3", () => {
+  it("鎖定值逐字釘住", () => {
     const config = buildRevealConfig(handlers);
     expect(config).toMatchObject({
       embedded: true, disableLayout: true, hash: false, history: false, respondToHashChanges: false,
@@ -19,19 +19,19 @@ describe("buildRevealConfig（A3 逐鍵）", () => {
     expect((config.keyboard as Record<number, unknown>)[79]).toBe(handlers.onO);
   });
 
-  it("LOCKED_CONFIG_KEYS＝A3 的全部鍵（§6.4-3）", () => {
+  it("LOCKED_CONFIG_KEYS＝A3 的全部鍵", () => {
     expect([...LOCKED_CONFIG_KEYS].sort()).toEqual(Object.keys(buildRevealConfig(handlers)).sort());
   });
 
   it.each([
     [{ altKey: true }, false], [{ ctrlKey: true }, false], [{ metaKey: true }, false], [{ shiftKey: true }, true], [{}, true],
-  ])("keyboardCondition(%j) → %s（Alt／Ctrl／Meta 一律不處理，§2.11-4 的 Alt 漏洞）", (init, expected) => {
+  ])("keyboardCondition(%j) → %s（Alt／Ctrl／Meta 一律不處理，Alt 漏洞）", (init, expected) => {
     const condition = buildRevealConfig(handlers).keyboardCondition as (event: KeyboardEvent) => boolean;
     expect(condition(new KeyboardEvent("keydown", init))).toBe(expected);
   });
 });
 
-describe("configMatches（§6.4-3：getConfig() 逐鍵核對）", () => {
+describe("configMatches（getConfig() 逐鍵核對）", () => {
   it("同一份 → true", () => {
     const config = buildRevealConfig(handlers);
     expect(configMatches({ ...config, unrelated: 1 }, config)).toBe(true);

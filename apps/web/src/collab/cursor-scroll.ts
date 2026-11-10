@@ -3,7 +3,7 @@ import { relativePositionToAbsolutePosition } from "y-prosemirror";
 import type { BlockNoteEditor } from "@blocknote/core";
 
 /**
- * #293 §9.4：點頭像捲到對方游標。
+ * #293：點頭像捲到對方游標。
  *
  * 換算照 y-prosemirror 1.3.7 `plugins/cursor-plugin.js` 的 `createDecorations`（遠端游標就是這樣畫出來的）：
  * 同一個 `ySync` plugin state、同一支 `relativePositionToAbsolutePosition`、同一組早退條件。

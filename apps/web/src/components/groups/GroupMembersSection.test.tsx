@@ -5,8 +5,8 @@ import i18n from "@/i18n";
 import { dismissAllToasts } from "@/components/ui/toast";
 import { ADMIN_ROLE, GROUP_ADMIN, GROUP_CO_ADMIN, GROUP_MEMBER, ME, MEMBER_ROLE, ROLES, callsTo, fail, fakeResponse, groupFetch, member, ok, renderGroupRoute } from "./group-test-utils";
 
-// 群組 modal「成員」（`/groups/:id`，#247 §6.2）：案子逐案搬自 main 版 `settings/SettingsGroupDetailSection.test.tsx`
-// （#103 spec §8.4；#175 spec §8.5）。背景側欄的群組分段吃同一份 `useGroups()` 快取會渲染同樣的群組名字——
+// 群組 modal「成員」（`/groups/:id`，#247）：案子逐案搬自 main 版 `settings/SettingsGroupDetailSection.test.tsx`
+// （#103；#175）。背景側欄的群組分段吃同一份 `useGroups()` 快取會渲染同樣的群組名字——
 // 一律 `within(dialog)` 才不誤命中背景層。
 
 /** 角色下拉的選項（value、顯示文字）。 */
@@ -21,7 +21,7 @@ const ROLE_OPTIONS: Array<[string, string]> = [
   [MEMBER_ROLE.id, "Member"],
 ];
 
-describe("GroupMembersSection（/groups/:id，#247 §6.2）", () => {
+describe("GroupMembersSection（/groups/:id，#247）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -39,7 +39,7 @@ describe("GroupMembersSection（/groups/:id，#247 §6.2）", () => {
     expect(table.style.getPropertyValue("--kb-table-cols")).toBe("minmax(14ch,1fr) minmax(14ch,1.5fr) max-content 2.75rem");
   });
 
-  it("canManageMembers：成員表有 email（A8）、角色下拉（選項來自 GET …/roles）、移除鈕；加人表單", async () => {
+  it("canManageMembers：成員表有 email、角色下拉（選項來自 GET …/roles）、移除鈕；加人表單", async () => {
     const group = { ...GROUP_ADMIN };
     const members = [member(ME.id, ME.email, "Me", ADMIN_ROLE), member("u-bob", "bob@example.com", "Bob", MEMBER_ROLE)];
     const fetchMock = groupFetch(() => [GROUP_ADMIN], () => members, (url, method) => {
@@ -70,8 +70,8 @@ describe("GroupMembersSection（/groups/:id，#247 §6.2）", () => {
     expect(within(dialog).getByRole("button", { name: "Add" })).toBeInTheDocument();
   });
 
-  it("#183 長 email：列名＝email（spec 2026-10-13 settings-table §3 #8）、移除鈕的可見文字不含 email（可及名稱帶 email）；表名 Members、欄名 Name／Email／Role／Actions", async () => {
-    // 欄寬（wrap-anywhere、14ch 下限、框內橫向捲動）由 SettingsTable.test.tsx 與 e2e 26-settings-tables 守（spec §5.1、§5.3）。
+  it("#183 長 email：列名＝email、移除鈕的可見文字不含 email（可及名稱帶 email）；表名 Members、欄名 Name／Email／Role／Actions", async () => {
+    // 欄寬（wrap-anywhere、14ch 下限、框內橫向捲動）由 SettingsTable.test.tsx 與 e2e 26-settings-tables 守。
     const LONG = "e2e-24c8c7dd-e54e-4237-9f72-a87df48a3fc2@e2e.local";
     renderGroupRoute(
       `/groups/${GROUP_CO_ADMIN.id}`,
@@ -258,7 +258,7 @@ describe("GroupMembersSection（/groups/:id，#247 §6.2）", () => {
     await waitFor(() => expect(within(dialog).queryByText("bob@example.com")).not.toBeInTheDocument());
   });
 
-  it("#175 gate r2 M-7：兩位管理員、沒有一般成員的群組，把其中一位降成一般成員 → PATCH body 是 {roleId: 一般成員角色 id}", async () => {
+  it("#175：兩位管理員、沒有一般成員的群組，把其中一位降成一般成員 → PATCH body 是 {roleId: 一般成員角色 id}", async () => {
     let members = [member(ME.id, ME.email, "Me", ADMIN_ROLE), member("u-bob", "bob@example.com", "Bob", ADMIN_ROLE)];
     const fetchMock = groupFetch(() => [GROUP_CO_ADMIN], () => members, (url, method) => {
       if (url === `/api/groups/${GROUP_CO_ADMIN.id}/members/u-bob` && method === "PATCH") {
@@ -303,7 +303,7 @@ describe("GroupMembersSection（/groups/:id，#247 §6.2）", () => {
     // 成員表無控制項：沒有角色下拉、沒有移除鈕；角色以純文字顯示。
     expect(within(dialog).queryByLabelText(/Role for/)).not.toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: /Remove/ })).not.toBeInTheDocument();
-    // 無管理權：角色欄是純文字（spec §3 #8 的 fixed），以列名（email）取列、以格的可及名稱找角色。
+    // 無管理權：角色欄是純文字（fixed），以列名（email）取列、以格的可及名稱找角色。
     const rowOf = (email: string) => within(within(dialog).getByRole("row", { name: email }));
     expect(rowOf("admin2@example.com").getByRole("cell", { name: "Admin" })).toBeInTheDocument();
     expect(rowOf("me@example.com").getByRole("cell", { name: "Member" })).toBeInTheDocument();
@@ -341,7 +341,7 @@ describe("GroupMembersSection（/groups/:id，#247 §6.2）", () => {
     expect(within(dialog2).queryByLabelText("Email address")).not.toBeInTheDocument();
   });
 
-  it("M8 最後一位管理員的移除鈕：點了不送 DELETE（aria-disabled 擋下）", async () => {
+  it("最後一位管理員的移除鈕：點了不送 DELETE（aria-disabled 擋下）", async () => {
     const fetchMock = groupFetch(() => [GROUP_ADMIN], () => [member(ME.id, ME.email, "Me", ADMIN_ROLE), member("u-bob", "bob@example.com", "Bob", MEMBER_ROLE)]);
     renderGroupRoute(`/groups/${GROUP_ADMIN.id}`, fetchMock);
     const dialog = await screen.findByRole("dialog", { name: GROUP_ADMIN.name });

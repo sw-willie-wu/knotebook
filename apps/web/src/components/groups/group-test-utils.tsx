@@ -11,8 +11,8 @@ import { adminRole, groupDto, memberRole } from "@/test/fixtures";
 import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 /**
- * 群組 modal（`/groups/:id/*`，#247 §6）測試共用：真 `AppRoutes`＋`MemoryRouter`＋fetch 分派（慣例：未列的請求 throw）。
- * 形照舊的群組詳情頁測試（main @ 666dbd6，#247 前的 settings 版）。背景 `HomePage` 也吃 `useGroups()`，查詢一律
+ * 群組 modal（`/groups/:id/*`，#247）測試共用：真 `AppRoutes`＋`MemoryRouter`＋fetch 分派（慣例：未列的請求 throw）。
+ * 形照舊的群組詳情頁測試（#247 前的 settings 版）。背景 `HomePage` 也吃 `useGroups()`，查詢一律
  * `within(dialog)`。
  */
 export function fakeResponse({ ok: okFlag, status, json }: { ok: boolean; status: number; json?: () => Promise<unknown> }): Response {
@@ -52,7 +52,7 @@ export function member(userId: string, email: string, displayName: string, role:
 
 export type Handler = (url: string, method: string, init: RequestInit | undefined) => Response | Promise<Response> | null;
 
-/** 群組用量的預設回應（#247 §9.2 的 `GroupStorageUsageDto`）。 */
+/** 群組用量的預設回應（#247 的 `GroupStorageUsageDto`）。 */
 export const EMPTY_GROUP_USAGE = {
   usedBytes: 0,
   quotaBytes: 2147483648,
@@ -122,7 +122,7 @@ export function renderGroupRoute(entry: string | { pathname: string; state?: unk
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <ThemeProvider>
         <MemoryRouter initialEntries={[entry]}>
-          {/* 同 `App()`：ActiveNoteProvider 包住 AppRoutes——退出／刪除後導回背景筆記頁時 NotePage 要它（#247 §6.5） */}
+          {/* 同 `App()`：ActiveNoteProvider 包住 AppRoutes——退出／刪除後導回背景筆記頁時 NotePage 要它（#247） */}
           <ActiveNoteProvider>
             <LocationProbe />
             <AppRoutes />

@@ -1,6 +1,6 @@
 /**
- * 資料夾的服務層（spec docs/superpowers/specs/2026-10-22-folders-design.md §5.5、§5.7、§5.11）：REST 與 PR-3d 的 MCP 共用的唯一入口。
- * 每支的形一律是「名稱 → 交易外快速判（§5.5 I2 入口順序）→ 扣 `folder` 桶 → 縫 → 交易（`folders/tx/*`，S14：callback 整段一個
+ * 資料夾的服務層：REST 與 MCP 共用的唯一入口。
+ * 每支的形一律是「名稱 → 交易外快速判（入口順序）→ 扣 `folder` 桶 → 縫 → 交易（`folders/tx/*`，S14：callback 整段一個
  * `xInTx`）→ catch 映射」。失敗一律回 HTTP 對應的錯誤形（REST 直接送；MCP 之後以 code 映射）。HTTP 層訊息英文（#372）。
  * 含 `.transaction(` ⇒ 在 S14 的 `ROUTE_FILES`（④ 計數）。
  */
@@ -55,7 +55,7 @@ export interface FolderServiceDeps {
   limiters: { folder: FixedWindowLimiter };
 }
 
-/** 一律回 HTTP 對應的錯誤形（REST 直接送，PR-3d 的 MCP 以 code 映射）。 */
+/** 一律回 HTTP 對應的錯誤形（REST 直接送，MCP 以 code 映射）。 */
 export interface FolderFailure { kind: "error"; status: 400 | 403 | 404 | 409 | 429; code: ErrorCode; message: string }
 
 const fail = (status: FolderFailure["status"], code: ErrorCode, message: string): FolderFailure => ({ kind: "error", status, code, message });
@@ -65,8 +65,8 @@ export async function listFolders(db: Db, userId: string): Promise<FolderDto[]> 
 }
 
 /**
- * 建立（§5.7.1）。id（`parent.folderId`、`space.groupId`）由呼叫端轉小寫；這裡只驗 UUID 形。
- * 順序（§5.5 I2）：名稱 → 位置的可見性（404）→ 管理權（403）→ 扣 `folder` 桶 → `folder-authorized` 縫 → 交易（重判全部）。
+ * 建立。id（`parent.folderId`、`space.groupId`）由呼叫端轉小寫；這裡只驗 UUID 形。
+ * 順序：名稱 → 位置的可見性（404）→ 管理權（403）→ 扣 `folder` 桶 → `folder-authorized` 縫 → 交易（重判全部）。
  */
 export async function createFolder(
   deps: FolderServiceDeps,
@@ -88,7 +88,7 @@ export async function createFolder(
     const requested = input.parent.space;
     let space: FolderSpace;
     if (requested.kind === "group") {
-      // 非 UUID／不存在／非成員／角色無閱讀 → 同一個 404（S4 同形，m1）。
+      // 非 UUID／不存在／非成員／角色無閱讀 → 同一個 404（同形）。
       if (!UUID_RE.test(requested.groupId)) return fail(404, "group_not_found", GROUP_NOT_FOUND_MESSAGE);
       space = { kind: "group", groupId: requested.groupId };
       const m = await loadCreateTarget(deps.db, input.by, requested.groupId);
@@ -114,7 +114,7 @@ export async function createFolder(
     if (err instanceof TxAbort) return fail(err.status as FolderFailure["status"], err.errCode, err.message);
     if (uniqueViolationConstraint(err) === "folders_sibling_name_idx") return fail(409, "folder_name_taken", FOLDER_NAME_TAKEN_MESSAGE);
     if (isRetryableTxError(err)) return fail(409, "server_busy", SERVER_BUSY_MESSAGE);
-    // 防禦縱深：父子空間 trigger（KF002）只在預讀之後空間被改時才可能觸發，與看不到同形。
+    // 防禦縱深：父子空間 trigger 只在預讀之後空間被改時才可能觸發，與看不到同形。
     if (isFolderSpaceViolation(err)) return fail(404, "folder_not_found", FOLDER_NOT_FOUND_MESSAGE);
     throw err;
   }
@@ -122,8 +122,8 @@ export async function createFolder(
 }
 
 /**
- * 改名／搬移（§5.7.2、§5.7.3；只限同空間）。`folderId` 由 app 層 `lowercaseUuidParams`、`parentId` 由路由轉小寫；這裡只驗 UUID 形。
- * 順序（§5.7.3、§5.5 I2）：名稱 → 自己的可見性（404）→ 新父層的可見性（非 UUID 或看不到 → 404）→ 同空間（400）→ 管理權（403）
+ * 改名／搬移（只限同空間）。`folderId` 由 app 層 `lowercaseUuidParams`、`parentId` 由路由轉小寫；這裡只驗 UUID 形。
+ * 順序：名稱 → 自己的可見性（404）→ 新父層的可見性（非 UUID 或看不到 → 404）→ 同空間（400）→ 管理權（403）
  * → 扣 `folder` 桶 → `folder-authorized` 縫 → 交易（重判全部，再成環、深度、撞名）。
  */
 export async function updateFolder(
@@ -176,12 +176,12 @@ export async function updateFolder(
 }
 
 /**
- * 刪資料夾（§5.7.4）。`folderId` 由 app 層 `lowercaseUuidParams` 轉小寫；這裡只驗 UUID 形。
- * 順序：可見性（404）→ 管理權（403）→（個人／群組）預讀子樹活筆記（述詞，M15），非空且無刪除權 → 403 `folder_delete_blocked`
+ * 刪資料夾。`folderId` 由 app 層 `lowercaseUuidParams` 轉小寫；這裡只驗 UUID 形。
+ * 順序：可見性（404）→ 管理權（403）→（個人／群組）預讀子樹活筆記（述詞），非空且無刪除權 → 403 `folder_delete_blocked`
  * → 扣 `folder` 桶 → `folder-authorized` 縫 → 對預讀到的每篇開共編閘門 → `folder-delete-gated` 縫 → 交易 →
- * **不論成功或失敗**全部 `release()`（M1：預讀後才搬出子樹的不收門會擋新連線到 TTL；`releaseDeletingGate` 只收活筆記）。
- * 共享私人：筆記不動（放置 CASCADE），不預讀、不開閘門（F7）。
- * `onlyIfEmpty`（§5.7.4「只刪空資料夾」）：預讀到活筆記 → 409 `folder_not_empty`（排在 `folder_delete_blocked` 之前，不扣桶、
+ * **不論成功或失敗**全部 `release()`（預讀後才搬出子樹的不收門會擋新連線到 TTL；`releaseDeletingGate` 只收活筆記）。
+ * 共享私人：筆記不動（放置 CASCADE），不預讀、不開閘門。
+ * `onlyIfEmpty`（只刪空資料夾）：預讀到活筆記 → 409 `folder_not_empty`（排在 `folder_delete_blocked` 之前，不扣桶、
  * 不開閘門）；過了這裡預讀必為空，所以一律不開閘門。子資料夾與放置只由交易內判（權威）。
  */
 export async function deleteFolder(
@@ -241,8 +241,8 @@ export async function deleteFolder(
 }
 
 /**
- * 把筆記放進／移出資料夾（§5.7.5）。`noteId` 由 app 層 `lowercaseUuidParams`、`folderId` 由路由轉小寫；這裡只驗 UUID 形。
- * 順序（§5.5：筆記授權排在資料夾之前）：筆記授權（404／群組筆記無編輯權 403）→ 模式 → 資料夾可見性（404）→ 空間（400）
+ * 把筆記放進／移出資料夾。`noteId` 由 app 層 `lowercaseUuidParams`、`folderId` 由路由轉小寫；這裡只驗 UUID 形。
+ * 順序（筆記授權排在資料夾之前）：筆記授權（404／群組筆記無編輯權 403）→ 模式 → 資料夾可見性（404）→ 空間（400）
  * → 扣 `folder` 桶 → `note-folder-authorized` 縫 → 交易（重判全部）→ 回呼叫者視角的 `NoteDto`。
  */
 export async function placeNote(
@@ -276,10 +276,10 @@ export async function placeNote(
     await deps.db.transaction(tx => placeNoteInTx(tx, txInput, deps.groupTestHook));
   } catch (err) {
     if (err instanceof TxAbort) return fail(err.status as FolderFailure["status"], err.errCode, err.message);
-    // r3 m-7：交易內重判之後、upsert 之前被撤分享（撤分享不鎖 notes）→ 與看不到這篇同形。
+    // 交易內重判之後、upsert 之前被撤分享（撤分享不鎖 notes）→ 與看不到這篇同形。
     const fk = foreignKeyViolationConstraint(err);
     if (fk === "note_placements_share_fk") return fail(404, "not_found", NOTE_NOT_FOUND_MESSAGE);
-    // 防禦縱深：資料夾已在交易內 KS 鎖住並判過空間；FK／trigger（KF001／KF003）只在那之外的漂移才觸發，與看不到同形。
+    // 防禦縱深：資料夾已在交易內 KS 鎖住並判過空間；FK／trigger 只在那之外的漂移才觸發，與看不到同形。
     if (fk === "notes_folder_fk" || fk === "note_placements_folder_id_folders_id_fk" || isFolderSpaceViolation(err)) {
       return fail(404, "folder_not_found", FOLDER_NOT_FOUND_MESSAGE);
     }

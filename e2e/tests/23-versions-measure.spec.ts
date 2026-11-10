@@ -5,9 +5,9 @@ import { test, expect, type APIRequestContext, type Page } from "@playwright/tes
 import { ADMIN, editorLocator, loginAs, setAutoWait, waitForEditorSelection } from "./helpers.js";
 
 /**
- * 量測（不是功能斷言）：spec §13-9【推】舊筆記第一下按鍵／開了就關是否多切一版；§13-5【推】2000 區塊在真瀏覽器的預覽耗時。
- * 數字印成 `MEASURE-…` 行，由 Task 16 寫進文件。§13-9 的期望（不多切）是 spec D9 的產品要求——成立就留著當守衛；
- * 不成立就是發現，停下回報（見 plan Task 15 Step 4）。
+ * 量測（不是功能斷言）：舊筆記第一下按鍵／開了就關是否多切一版；2000 區塊在真瀏覽器的預覽耗時。
+ * 數字印成 `MEASURE-…` 行，寫進文件。期望（不多切）是產品要求——成立就留著當守衛；
+ * 不成立就是發現，停下回報。
  */
 const COMPOSE = ["compose", "-p", "knotebook-e2e", "-f", "../docker-compose.yml", "-f", "../docker-compose.e2e.yml"];
 const ORIGIN = "http://localhost:3100";
@@ -54,7 +54,7 @@ async function openAndWait(page: Page, path: string) {
   await editorLocator(page).waitFor({ timeout: 15_000 });
 }
 
-test("23a §13-9：舊 schema 形的筆記——開了就關、在 heading／paragraph／清單項各打一字再刪、圖片 caption 改了再清空，各多切幾版", async ({ page }) => {
+test("23a：舊 schema 形的筆記——開了就關、在 heading／paragraph／清單項各打一字再刪、圖片 caption 改了再清空，各多切幾版", async ({ page }) => {
   // 四輪 roundTrip（加開了就關一輪）各含載入／離開與 settle 等待（#272 起穩定窗 6 s），留餘裕。
   test.setTimeout(240_000);
   await loginAs(page, ADMIN.email, ADMIN.password);
@@ -129,7 +129,7 @@ test("23a §13-9：舊 schema 形的筆記——開了就關、在 heading／par
   expect(typeDelete).toBe(0);
 });
 
-test("23b §13-5：2000 區塊筆記，點版本列到 diff 標記出現的耗時（真瀏覽器）", async ({ page }) => {
+test("23b：2000 區塊筆記，點版本列到 diff 標記出現的耗時（真瀏覽器）", async ({ page }) => {
   test.setTimeout(180_000);
   await page.setViewportSize({ width: 1400, height: 900 });
   await loginAs(page, ADMIN.email, ADMIN.password);
@@ -149,7 +149,7 @@ test("23b §13-5：2000 區塊筆記，點版本列到 diff 標記出現的耗�
   await expect(dialog).not.toBeVisible();
   await page.getByTestId("versions-bubble").click();
   const panel = page.getByTestId("versions-panel");
-  // 點 created 而不是剛存的那一版：rev 10 起比較是左右一對，點列只換左邊、右邊預設是目前狀態（Current state）。剛存的那一版
+  // 點 created 而不是剛存的那一版：比較是左右一對，點列只換左邊、右邊預設是目前狀態（Current state）。剛存的那一版
   // 內容與目前狀態相同，兩邊沒有差異；created（建立時的內容）與目前狀態差在第 0 段。
   const row = panel.getByRole("button", { name: /^created \(/ });
   await expect(row).toBeVisible({ timeout: 15_000 });

@@ -1,7 +1,7 @@
 /**
  * #285 V5：`must_change_password` 沒有寫入端——server 原始碼（剝掉註解後）不得出現把它設成 true 的寫法。
  * 註冊、接受邀請、OIDC 自動建帳、env bootstrap 皆為 false；只剩舊版代建、尚未改密碼的帳號帶著 true。
- * 保留的消費端（`ChangePasswordGate`、改密碼清旗標等）見 spec §2-4，不在此掃描。
+ * 保留的消費端（`ChangePasswordGate`、改密碼清旗標等）不在此掃描。
  * 抓得到：drizzle 欄位 `mustChangePassword: true`（key 可帶引號）、`mustChangePassword: sql\`true\``（不分大小寫）、
  * 裸 SQL 字面 `must_change_password = true`。
  * 抓不到：變數間接（`const v = true`）、raw SQL 的 INSERT 欄位清單／別的 UPDATE 寫法、字串拼接；

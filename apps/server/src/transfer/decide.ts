@@ -1,16 +1,16 @@
 /**
- * bulk transfer spec 2026-11-02 §9.4：判定每一區（純函式；只用 id 與 `same` 回呼，不 mount）。plan PR-2 T6。
+ * bulk transfer：判定每一區（純函式；只用 id 與 `same` 回呼，不 mount）。
  *
  * **前提**（呼叫端 `NoteWriteService.syncFile` 先驗，不再三方合併）：筆記自下載後沒有被動過——
  * 現況頂層與基底段表逐顆相同（id、單顆指紋、順序）。動過就整篇 409 `note_changed`，走不到這裡。所以每區的基底 block 都在、
- * 都沒被改，現況也沒有基底以外的 block。唯一例外（審查 M1）：基底 0 顆、現況恰一顆空段落（`isLoneEmptyParagraph`）——只有一個插入區、
+ * 都沒被改，現況也沒有基底以外的 block。唯一例外：基底 0 顆、現況恰一顆空段落（`isLoneEmptyParagraph`）——只有一個插入區、
  * 放在文件開頭，`applySync` 把那顆當正規化出的空段落換掉。
  *
  * - 決策：改寫——預解析＝基底那幾顆（`same`，canonical 逐顆相等）→ `same`（不寫、id 不換）；否則 `applied`。刪除、插入 → `applied`。
  * - 錨點 `P`／`N`：往前（後）最近一個 agent 沒改的段，取其最後（第一）顆；**0 行段不當錨點**。
  * - 放置：改寫 → 第一顆基底 block 之前（套用時插入新的、再移除基底那幾顆）；插入 → `P` 之後、無則 `N` 之前、都無則文件開頭。
- *   `stripStart`＝插入點前一顆是 numbered 且預解析第一顆是 numbered（§9.4-2，E18）。
- * - 刪除區的錨點（守 spec §9.4-4）：`P` after、無則 `N` before（`P`、`N` 都不在任何區裡，不會被這次移除）；都沒有 → 往外掃現況
+ *   `stripStart`＝插入點前一顆是 numbered 且預解析第一顆是 numbered。
+ * - 刪除區的錨點：`P` after、無則 `N` before（`P`、`N` 都不在任何區裡，不會被這次移除）；都沒有 → 往外掃現況
  *   鄰居，排除「本次要移除的 block」（所有非 `same` 改寫區與刪除區的基底 block）。找不到：其餘區都是 `same`／刪除、且現況頂層
  *   全部要移除（結果真的會變空）→ `replaceWithEmpty`；否則 `deferred`（`applySync` 在插入與改寫之後、合併之前找實際鄰居）。
  */
@@ -50,7 +50,7 @@ export function matchesBase(segments: readonly TransferSegment[], cur: { ids: re
 }
 
 /**
- * 審查 M1：頂層恰一顆、沒有子層的空段落（沒有字；打過字又刪光留下的空文字節點也算空）。基底 0 顆（從未開過的筆記）而現況是這形，
+ * 頂層恰一顆、沒有子層的空段落（沒有字；打過字又刪光留下的空文字節點也算空）。基底 0 顆（從未開過的筆記）而現況是這形，
  * 是瀏覽器打開時正規化出來的，呼叫端當「沒動過」。段落的屬性（顏色、對齊）不看。
  */
 export function isLoneEmptyParagraph(fragment: Y.XmlFragment): boolean {
@@ -60,14 +60,14 @@ export function isLoneEmptyParagraph(fragment: Y.XmlFragment): boolean {
   if (c.length !== 1) return false;
   const p = c.get(0);
   if (!(p instanceof Y.XmlElement) || p.nodeName !== "paragraph") return false;
-  // #398 審查 C1：Y 型別的 `get(i)` 每次從頭走（O(i)），索引迴圈是平方——`x<br>`×4.9 萬的段落有約 10 萬個子節點；一律 `toArray()` 一次走完。
+  // #398：Y 型別的 `get(i)` 每次從頭走（O(i)），索引迴圈是平方——`x<br>`×4.9 萬的段落有約 10 萬個子節點；一律 `toArray()` 一次走完。
   for (const t of p.toArray()) {
     if (!(t instanceof Y.XmlText) || t.length !== 0) return false;
   }
   return true;
 }
 
-/** 每區的錨點 `P`／`N`（§9.4-2）：前（後）最近一個不在任何區裡、非 0 行的段的最後（第一）顆。 */
+/** 每區的錨點 `P`／`N`：前（後）最近一個不在任何區裡、非 0 行的段的最後（第一）顆。 */
 export function anchors(segments: TransferSegment[], regions: Region[]): Array<{ P: string | null; N: string | null }> {
   const inRegion = new Set<number>(regions.flatMap(r => r.segIdx));
   const usable = (k: number) => !inRegion.has(k) && segments[k]!.count > 0;
@@ -88,7 +88,7 @@ export function chainKeyOf(place: Place): string | null {
   return "start" in place ? "start" : null;
 }
 
-/** §9.4-2（E18）：插入點前一顆是 numbered 且預解析第一顆是 numbered → 拿掉預解析第一顆的 `start`。`sync-plan.ts` 套用、`decide` 記錄，同一支。 */
+/** 插入點前一顆是 numbered 且預解析第一顆是 numbered → 拿掉預解析第一顆的 `start`。`sync-plan.ts` 套用、`decide` 記錄，同一支。 */
 export function shouldStripStart(prevType: string | null, firstType: string | undefined): boolean {
   return prevType === "numberedListItem" && firstType === "numberedListItem";
 }

@@ -28,7 +28,7 @@ function renderAt(entry: { pathname: string; state?: unknown }) {
 
 const BG = { pathname: "/n/tester/my-note", search: "", hash: "", state: null, key: "bg" } as Location;
 
-describe("LegacyGroupRedirect（#247 §5.1）", () => {
+describe("LegacyGroupRedirect（#247）", () => {
   it("/settings/groups/:id → /groups/:id，參數代入、replace", async () => {
     renderAt({ pathname: "/settings/groups/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" });
     await waitFor(() => expect(screen.getByTestId("probe")).toHaveTextContent("/groups/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"));

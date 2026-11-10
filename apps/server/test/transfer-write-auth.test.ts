@@ -1,6 +1,6 @@
 /**
- * bulk transfer spec 2026-11-02 §5.3（write）、§9.1、§15：`PUT /api/transfer/notes` 的認證與 body 外殼（plan PR-2 T1 W-A1–W-A10）。
- * 只斷言在讀入 frontmatter **之前**就決定的出口；T1 的 handler 解碼成功後回佔位 400（T8 起換成寫回）。
+ * bulk transfer（write）：`PUT /api/transfer/notes` 的認證與 body 外殼（W-A1–W-A10）。
+ * 只斷言在讀入 frontmatter **之前**就決定的出口；handler 解碼成功後即進入寫回。
  */
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
@@ -55,7 +55,7 @@ describe("requireBulk(\"write\")：W-A 矩陣", () => {
     expect(r.headers["www-authenticate"]).toBeUndefined();
   });
 
-  // 上一案的母憑證本身也沒有 notes:write，scope 檢查單獨就擋得下——這案讓母憑證有 notes:write，只剩 `access` 承重（T1-M1 實測存活後補）。
+  // 上一案的母憑證本身也沒有 notes:write，scope 檢查單獨就擋得下——這案讓母憑證有 notes:write，只剩 `access` 承重。
   it("W-A3c access='read' 的 bulk、母憑證有 notes:write → 仍 403 insufficient_scope（權杖本身的 access 承重）", async () => {
     const s = await scene({ parentScope: "notes:read notes:write", access: "read" });
     const r = await bulkPut(s.ctx.app, s.bulk.token, FILE);
@@ -105,7 +105,7 @@ describe("body 外殼：415／Origin／413／UTF-8", () => {
     expect((await basesOf(s.ctx.db)).length).toBe(before);
   });
 
-  it("W-A7 text/markdown＋Origin: https://evil.example → 403「Origin check failed」；同一請求不帶 Origin → 通過 onRequest（T10 起是新增 → 201）", async () => {
+  it("W-A7 text/markdown＋Origin: https://evil.example → 403「Origin check failed」；同一請求不帶 Origin → 通過 onRequest（新增 → 201）", async () => {
     const s = await scene();
     const bad = await bulkPut(s.ctx.app, s.bulk.token, FILE, { origin: "https://evil.example" });
     expect(bad.statusCode).toBe(403);
@@ -114,7 +114,7 @@ describe("body 外殼：415／Origin／413／UTF-8", () => {
     expect(good.statusCode).toBe(201);
   });
 
-  it("W-A8（全分支審查 I2(c) 起 256 KiB，同 WRITE_BODY_LIMIT）body 256 KiB＋1 byte → 413 content_too_large；恰 256 KiB → 201 寫入", async () => {
+  it("W-A8（256 KiB，同 WRITE_BODY_LIMIT）body 256 KiB＋1 byte → 413 content_too_large；恰 256 KiB → 201 寫入", async () => {
     const s = await scene();
     expect(TRANSFER_WRITE_BODY_LIMIT).toBe(262_144);
     expect(TRANSFER_WRITE_BODY_LIMIT).toBe(WRITE_BODY_LIMIT);

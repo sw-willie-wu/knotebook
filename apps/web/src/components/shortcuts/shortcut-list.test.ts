@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { SHORTCUT_CATEGORIES, SHORTCUTS, visibleShortcuts } from "./shortcut-list";
 
 /**
- * 條目資料與篩選（plan 2026-11-02-shortcuts-modal T3）。
+ * 條目資料與篩選。
  * 「清單 id ⇔ e2e 標籤」的雙向核對在 shortcut-e2e-coverage.test.ts（T9）；這裡只守資料形與站台能力篩選。
  */
 

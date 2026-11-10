@@ -29,7 +29,7 @@ const getIds = (app: TestApp["app"], cookies: Record<string, string>) => app.inj
 const unlink = (app: TestApp["app"], cookies: Record<string, string>, id: string) =>
   app.inject({ method: "DELETE", url: `/api/auth/identities/${id}`, cookies });
 
-describe("GET /api/auth/identities（#187 §8.3）", () => {
+describe("GET /api/auth/identities（#187）", () => {
   it("回 identities（providers、unlinkable、不含 sub）、linkable、hasPassword、passwordLoginEnabled（有效值）", async () => {
     const { app, db } = await buildTestApp();
     const pa = await seedAuthProvider(db, { issuerUrl: A, displayName: "A", template: "gitlab" });
@@ -48,15 +48,15 @@ describe("GET /api/auth/identities（#187 §8.3）", () => {
     expect(body).toMatchObject({ hasPassword: true, passwordLoginEnabled: true });
   });
 
-  it("r2-N6：Bearer（PAT）→ 401；未登入 → 401", async () => {
+  it("Bearer（PAT）→ 401；未登入 → 401", async () => {
     const { app, db } = await buildTestApp();
     expect((await app.inject({ method: "GET", url: "/api/auth/identities" })).statusCode).toBe(401);
-    // 有效 PAT（scope 足以通過 authenticateAny）、不帶 cookie：401 只能來自「只認 session」（Task 7 review r0 I1 同型）。
+    // 有效 PAT（scope 足以通過 authenticateAny）、不帶 cookie：401 只能來自「只認 session」。
     const { token } = await seedTokenForUser(db, (await seedUser(db)).id);
     expect((await app.inject({ method: "GET", url: "/api/auth/identities", headers: bearer(token) })).statusCode).toBe(401);
   });
 
-  it("r1-I1 尾斜線形：provider 填 `https://a.example/`、identity 為無斜線——resolved_issuer 寫入前不對、寫入後對", async () => {
+  it("尾斜線形：provider 填 `https://a.example/`、identity 為無斜線——resolved_issuer 寫入前不對、寫入後對", async () => {
     const { app, db } = await buildTestApp();
     const p = await seedAuthProvider(db, { issuerUrl: `${A}/`, displayName: "A" });
     const u = await seedUser(db);
@@ -82,7 +82,7 @@ describe("GET /api/auth/identities（#187 §8.3）", () => {
   });
 });
 
-describe("unlinkable 與 DELETE 逐格一致（#187 §14.1-25、B24）", () => {
+describe("unlinkable 與 DELETE 逐格一致（#187）", () => {
   // 每格：目標身分在 A（A 啟用）。cells＝密碼 × DB 值 × 第二身分（無／B 啟用／B 停用）。
   const cells: Array<[boolean, boolean, "none" | "enabled" | "disabled", boolean]> = [];
   for (const hasPassword of [false, true]) {
@@ -111,7 +111,7 @@ describe("unlinkable 與 DELETE 逐格一致（#187 §14.1-25、B24）", () => {
     if (!expected) expect(res.json().error.code).toBe("last_login_method");
   });
 
-  it("env 強制＋DB 關、有密碼＋一個身分 → 仍 409（INV-7 看 DB 值，不看 env）", async () => {
+  it("env 強制＋DB 關、有密碼＋一個身分 → 仍 409（解除連結的判斷看 DB 值，不看 env）", async () => {
     const { app, db } = await buildTestApp({ config: { ...testConfig, passwordLoginForceEnable: true } });
     await seedAuthProvider(db, { issuerUrl: A });
     const u = await insertPasswordUser(db);
@@ -123,7 +123,7 @@ describe("unlinkable 與 DELETE 逐格一致（#187 §14.1-25、B24）", () => {
   });
 });
 
-describe("DELETE /api/auth/identities/:id（#187 §8.2）", () => {
+describe("DELETE /api/auth/identities/:id（#187）", () => {
   it("不屬本人、不存在、非 UUID → 404 not_found；身分不動", async () => {
     const { app, db } = await buildTestApp();
     await seedAuthProvider(db, { issuerUrl: A });
@@ -139,7 +139,7 @@ describe("DELETE /api/auth/identities/:id（#187 §8.2）", () => {
     expect(await identitiesOf(db, other.id)).toEqual([{ issuer: A, sub: "so" }]);
   });
 
-  it("RF4：路徑 id 大寫 → 與小寫同義（204、身分刪掉）", async () => {
+  it("路徑 id 大寫 → 與小寫同義（204、身分刪掉）", async () => {
     const { app, db } = await buildTestApp();
     await seedAuthProvider(db, { issuerUrl: A });
     const u = await insertPasswordUser(db);
@@ -148,7 +148,7 @@ describe("DELETE /api/auth/identities/:id（#187 §8.2）", () => {
     expect(await identitiesOf(db, u.id)).toEqual([]);
   });
 
-  it("同交易清掉吻合的 users.oidc_*；§14.1-16：之後跑 §10.3 補登不會讓它復活（不吻合的舊欄不動）", async () => {
+  it("同交易清掉吻合的 users.oidc_*；之後跑開機補登不會讓它復活（不吻合的舊欄不動）", async () => {
     const { app, db } = await buildTestApp();
     await seedAuthProvider(db, { issuerUrl: A });
     const u = await insertPasswordUser(db);
@@ -204,9 +204,9 @@ describe("DELETE /api/auth/identities/:id（#187 §8.2）", () => {
     expect(await identitiesOf(db, u.id)).toEqual([{ issuer: B, sub: "sb" }]);
   });
 
-  // 這案不呼叫 P2（holder 以手打 SQL 擺出解除交易的鎖足跡）：守的只是 r3-N10「登入影響 0 列照樣簽 session」。
+  // 這案不呼叫防自鎖的第二關（holder 以手打 SQL 擺出解除交易的鎖足跡）：守的只是「登入影響 0 列照樣簽 session」。
   // P2 與登入的真並發（C24）見下一案。
-  it("r3-N10：登入撞上解除已刪未提交的身分 → 等它提交、0 列照樣簽 session", async () => {
+  it("登入撞上解除已刪未提交的身分 → 等它提交、0 列照樣簽 session", async () => {
     const t = await buildOidcApp({ providers: [{ key: "a", issuerUrl: A }] });
     const u = await insertPasswordUser(t.db);
     const idA = await identity(t.db, u.id, A, "sa");

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # scripts/test-e2e.sh
 #
-# E2E（Playwright，Plan 5 Task 11）需要真的連到 Docker daemon 起 compose 疊——docker
-# 只存在於 WSL，Windows host 沒有 docker CLI（plan-gate 一輪 MAJOR-7）。跟
+# E2E（Playwright）需要真的連到 Docker daemon 起 compose 疊——docker
+# 只存在於 WSL，Windows host 沒有 docker CLI。跟
 # scripts/test-integration.sh 同款理由與形狀：把這份 repo（Windows 檔案系統，WSL 看到
 # 的 /mnt/c/...）留在原地對它跑 pnpm install 落入 9p 掛載的極慢 I/O，所以先單向同步到
 # WSL 原生 ext4（$HOME/knotebook）再裝、再跑。

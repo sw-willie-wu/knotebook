@@ -57,7 +57,7 @@ import { useFolderSortOf } from "./folder-sort";
 import { buildTabNodes, noteSpaceKey } from "./tree";
 
 /**
- * 一般 tab 選取模式的動作列（#181 PR-2c，spec §6.11；資料夾 spec §6.10）。只准經 `SelectLazy` 引用。
+ * 一般 tab 選取模式的動作列（#181）。只准經 `SelectLazy` 引用。
  * - 動作表（`SELECT_ACTIONS`）：我的筆記、群組 tab、與我共享「移動到／複製到／刪除」，最近「複製到／刪除」；與我共享的刪除鈕＝「移除選取的資料夾」，
  *   只在選取（去重後）非空且全是資料夾時才渲染。
  * - 選取（資料夾與筆記同列）：`selectedTargets` → `dedupeByAncestor`（祖先也被選的不送、不算略過）→ 依動作 `partitionTargets` 預先排除
@@ -66,25 +66,25 @@ import { buildTabNodes, noteSpaceKey } from "./tree";
  *   群組 tab 選取分屬多個群組、或第一層為空（`isEmptyDestination`）→ disabled。選定後：同空間（`isSameSpace`）不確認、`placeTargetsInOrder`、
  *   結果 toast 帶「復原」（`undoPlacements`，依序送回原處；停下報已移回幾項）、目標資料夾展開；跨空間（只會是我的筆記 → 群組）先
  *   `MoveConfirmDialog`（完整路徑）→ `moveNotesInOrder`，沒有復原。
- * - 複製到：選了資料夾 → disabled（D14）；選定後一律先 `CopyConfirmDialog` → `copyNotesInOrder`。
- * - 刪除：含資料夾 → 先開彙總確認框（開框那一刻快照篇數）→ `deleteTargetsInOrder`（資料夾先、筆記後）；只有筆記 → 不確認（D-W7）。
+ * - 複製到：選了資料夾 → disabled；選定後一律先 `CopyConfirmDialog` → `copyNotesInOrder`。
+ * - 刪除：含資料夾 → 先開彙總確認框（開框那一刻快照篇數）→ `deleteTargetsInOrder`（資料夾先、筆記後）；只有筆記 → 不確認。
  *   與我共享 tab 是「移除」：一般 toast、沒有復原。
  * - 執行：依序呼叫單篇端點（`lib/select-batch.ts`）；403／404 `not_found` 略過、其餘停下。停下後留在選取、只留下還沒處理的項目；成功則離開選取。結果一則 toast；停在 404 `folder_not_found` 另失效資料夾快取。
- * - 快照（讀碼發現 19）：目的地選定那一刻記下要送的項與篇數，確認框與執行都用它（送出中清單重抓，篇數不會倒數）。
- * - 焦點交接（讀碼發現 18）：選了目的地，目的地框不還焦點、交給確認框自己的自動聚焦（同空間沒有確認框，由收尾處理）；取消才還給開框鈕。
+ * - 快照：目的地選定那一刻記下要送的項與篇數，確認框與執行都用它（送出中清單重抓，篇數不會倒數）。
+ * - 焦點交接：選了目的地，目的地框不還焦點、交給確認框自己的自動聚焦（同空間沒有確認框，由收尾處理）；取消才還給開框鈕。
  *   確認框送出後開到批次結束（進行中忽略所有關閉要求）；收尾的焦點只在焦點仍在本實例、確認框內或 body 時才搬（同 `TrashFooter.finish`）。
  * - 進行中：執行狀態在 provider 層的 `select-run` store，所有動作列（含重開抽屜、Done→Select 後新掛的）都顯示進度、三顆鈕 disabled。
  *   選取結果只在 session 沒換時套用（抽屜關掉、動作列卸載也照套；使用者中途結束又重開就不覆蓋新的選取）。
- * - 開著的那篇（讀碼發現 11）：直接選的排到筆記段最後；在某個要刪的**個人／群組**資料夾子樹裡 → 那個資料夾排到資料夾段最後。送它前設
+ * - 開著的那篇：直接選的排到筆記段最後；在某個要刪的**個人／群組**資料夾子樹裡 → 那個資料夾排到資料夾段最後。送它前設
  *   NotePage 的 `leavingRef`；成功導回首頁、「復原」導回它；失敗非終態撥回、終態導回首頁（不補單篇路徑的 `note.deleted` toast：批次只出一則）。
- *   與我共享的移除不設、不離場（讀碼發現 10：筆記只是回最上層）。
- * - §6.10.7：整批都能自己還原才帶「復原」（`showTrashedToast`；資料夾帶走的篇併進 `undoIds`），否則帶說明句。
- * - 兩種形（PR-3b-3，資料夾 spec F25、F26）：`bar`＝窄螢幕底部列（`SidebarFooter` 掛；進度句在列上；「移動到」與「複製到」同為 outline 文字鈕）；
+ *   與我共享的移除不設、不離場（筆記只是回最上層）。
+ * - 整批都能自己還原才帶「復原」（`showTrashedToast`；資料夾帶走的篇併進 `undoIds`），否則帶說明句。
+ * - 兩種形：`bar`＝窄螢幕底部列（`SidebarFooter` 掛；進度句在列上；「移動到」與「複製到」同為 outline 文字鈕）；
  *   `toolbar`＝寬螢幕標題列裡的三顆 24px 圖示鈕（`SelectHeader` 掛；進度由它顯示在數量位）。兩形都包在 `data-select-action-bar` 容器裡，
  *   目的地框、確認框、`runBatch`、各鈕出現與停用的判斷完全共用。
- * - 反灰原因（讀碼發現 6）：跨群組的「移動到」、選了資料夾的「複製到」不設 `disabled`（`disabled:pointer-events-none` 會讓
+ * - 反灰原因：跨群組的「移動到」、選了資料夾的「複製到」不設 `disabled`（`disabled:pointer-events-none` 會讓
  *   hover 提示出不來），改 `aria-disabled`＋`title`＝原因＋`aria-describedby`，點了不執行；`bar` 形另出同字 toast（觸控看不到 hover）。
- *   優先序（gate r1 m5）：執行中（`disabled`）＞反灰原因（`aria-disabled`）＞沒有可處理的項目／第一層為空（`disabled`）。
+ *   優先序：執行中（`disabled`）＞反灰原因（`aria-disabled`）＞沒有可處理的項目／第一層為空（`disabled`）。
  */
 
 type Translate = (key: string, options?: Record<string, unknown>) => string;
@@ -94,7 +94,7 @@ type Stopped = BatchOutcome<unknown>["stopped"];
 /**
  * 「移動到」「複製到」：側欄最窄 200px（卡片內約 182px）也要和 36px 的刪除鈕排進同一列——`min-w-0` 讓 flex 子項能縮到比內容窄、
  * `px-1.5 gap-1.5` 省寬、字 `truncate`（DOM 裡仍是全文，可及名稱不受影響；`title` 給看得到截字的人）。不加的話刪除鈕會被擠出卡片、
- * 落到側欄寬度把手底下（T5 review r1 I1，真 Chromium 量測）。按鈕列是 `@container`：列寬不到 14.5rem（字級 16 時側欄約 250px 以下）時拿掉
+ * 落到側欄寬度把手底下（真 Chromium 量測）。按鈕列是 `@container`：列寬不到 14.5rem（字級 16 時側欄約 250px 以下）時拿掉
  * 兩顆的圖示，把位置讓給字（實測帶圖示時 en 要列寬 ≥ 14rem 才不截字，字級 16、20 皆同；多留 0.5rem）。
  * `aria-disabled:` 開頭的是反灰原因的樣子（看起來停用、hover／按下不變色）：兩顆恆帶、不依條件加（兩顆的 className 相同，e2e 41-12 依此斷言）。
  */
@@ -131,7 +131,7 @@ function stoppedCopy(t: Translate, stopped: Stopped, done: number, items: boolea
 }
 
 /**
- * 同空間批次的「復原」（D18 ③）：依序送回原處；全部成功不另出 toast（清單即時歸位），停下 → 錯誤 toast＋已移回幾項。
+ * 同空間批次的「復原」：依序送回原處；全部成功不另出 toast（清單即時歸位），停下 → 錯誤 toast＋已移回幾項。
  * toast 的 handler 只用參數捕捉的值：按「復原」時動作列常已卸載（同 `lib/trash-undo.ts`）。
  */
 async function undoBatchPlacement(done: readonly PlacedItem[], queryClient: QueryClient, t: Translate): Promise<void> {
@@ -168,7 +168,7 @@ export function SelectActionBar({ layout = "bar" }: { layout?: "bar" | "toolbar"
   const groupsQuery = useGroups();
   const foldersQuery = useFolders();
   const sortOf = useFolderSortOf();
-  // 與畫面上的樹同序（讀碼發現 7：批次依樹序送出）。
+  // 與畫面上的樹同序（批次依樹序送出）。
   const folderIndex = useMemo(() => indexFolders(foldersQuery.data ?? []), [foldersQuery.data]);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -249,7 +249,7 @@ export function SelectActionBar({ layout = "bar" }: { layout?: "bar" | "toolbar"
     let focusTo: "select" | "opener" | null = null;
     try {
       const { stopped, afterSelection } = await execute((processed) => updateSelectRun(actions, processed));
-      // 明選的資料夾（或要搬的資料夾）已不在：樹要重抓（spec §6.15）。
+      // 明選的資料夾（或要搬的資料夾）已不在：樹要重抓。
       if (stopped !== null && isFolderNotFound(stopped.cause)) invalidateFolderRelated(queryClient);
       // 守衛在選取結果套用前判斷（成功會結束選取、本元件隨之卸載）；搬焦點在收尾之後（確認框已關、開框鈕已恢復可用）。
       if (mayReclaimFocus(shell, confirmContentRef.current)) focusTo = stopped ? "opener" : "select";
@@ -268,7 +268,7 @@ export function SelectActionBar({ layout = "bar" }: { layout?: "bar" | "toolbar"
     else if (focusTo === "opener" && opener?.isConnected) opener.focus();
   }
 
-  /** 同空間（進資料夾、回根目錄）：不確認；結果 toast 帶「復原」；正向移動成功後展開目標資料夾（比照 ⋮，M9）。 */
+  /** 同空間（進資料夾、回根目錄）：不確認；結果 toast 帶「復原」；正向移動成功後展開目標資料夾（比照 ⋮）。 */
   function runPlace(target: PlaceTarget, items: SelectionTarget[], pre: Eligibility, index: FolderIndex, opener: HTMLElement | null): void {
     const folderId = target.folder?.id ?? null;
     void runBatch({
@@ -402,7 +402,7 @@ export function SelectActionBar({ layout = "bar" }: { layout?: "bar" | "toolbar"
           onProgress,
           beforeEach: (target) => {
             const page = controlsRef.current;
-            // 中途在同一個 NotePage 換到別篇：leavingRef 已屬於那一篇，不能設（T5 review r1 M1）。
+            // 中途在同一個 NotePage 換到別篇：leavingRef 已屬於那一篇，不能設。
             if (isLeaving(target) && page?.noteId === openId) page.leavingRef.current = true;
           },
           afterFailure: (target) => {
@@ -540,7 +540,7 @@ export function SelectActionBar({ layout = "bar" }: { layout?: "bar" | "toolbar"
   }
 
   // ── 鈕 ──
-  // 反灰原因（檔頭）：有原因且不在執行中 → aria-disabled（不設 disabled）；執行中一律真的 disabled（優先序 gate r1 m5）。
+  // 反灰原因（檔頭）：有原因且不在執行中 → aria-disabled（不設 disabled）；執行中一律真的 disabled（這條優先）。
   const moveReason = moveSource === "mixedGroups" ? t("select.acrossGroups") : null;
   const copyReason = targets.some(isFolder) ? t("select.foldersCantCopy") : null;
   const moveSoftDisabled = !busy && moveReason !== null;
@@ -551,7 +551,7 @@ export function SelectActionBar({ layout = "bar" }: { layout?: "bar" | "toolbar"
       (moveElig.eligible.length === 0 ||
         (moveSource !== "mixedGroups" && levelReady("move") && isEmptyDestination(moveSource, folderIndex, t))));
   const copyDisabled = busy || (!copySoftDisabled && copyElig.eligible.length === 0);
-  // 與我共享：只有「移除選取的資料夾」，選取（去重後）非空且全是資料夾才渲染（D-M3）。
+  // 與我共享：只有「移除選取的資料夾」，選取（去重後）非空且全是資料夾才渲染。
   const showDelete = available.includes("delete") && (tab !== "shared" || (deduped.length > 0 && deduped.every(isFolder)));
   const deleteLabel =
     tab === "shared"
@@ -629,7 +629,7 @@ export function SelectActionBar({ layout = "bar" }: { layout?: "bar" | "toolbar"
           </p>
         )}
         <div className="@container flex gap-1">
-          {/* 「移動到」與「複製到」同為 outline（F25：選取模式沒有唯一主角，不用主色）。 */}
+          {/* 「移動到」與「複製到」同為 outline（選取模式沒有唯一主角，不用主色）。 */}
           {available.includes("move") && (
             <Button type="button" variant="outline" className={ACTION_TEXT_BUTTON} {...moveProps}>
               <FolderInput aria-hidden="true" className={ACTION_ICON} />

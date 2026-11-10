@@ -5,13 +5,13 @@ import { DIFF_DEPTH_MAX, DIFF_MAX_D, DIFF_WORK_MAX_FACTOR, diffLines, hashAgentL
 import { bodyLines } from "../../src/transfer/normalize.js";
 import { yieldToLoop } from "../../src/transfer/yield.js";
 
-// D13：把 yieldToLoop 包成計數的 spy（內部仍呼叫原函式），證明不傳 yieldFn 時真的用它（gate r2 m-9）。
+// 把 yieldToLoop 包成計數的 spy（內部仍呼叫原函式），證明不傳 yieldFn 時真的用它。
 vi.mock("../../src/transfer/yield.js", async importOriginal => {
   const m = await importOriginal<typeof import("../../src/transfer/yield.js")>();
   return { ...m, yieldToLoop: vi.fn(m.yieldToLoop) };
 });
 
-/** bulk transfer spec §9.3-1；plan PR-2 §0.1-1、T3（D1–D16）。 */
+/** bulk transfer 的逐行 diff。 */
 
 const KEY = deriveTransferKey("line-diff-test-secret");
 const SALT = newSalt();
@@ -45,7 +45,7 @@ const clock = (step: number) => {
   return () => (t += step);
 };
 
-describe("D1 hashAgentLines 與 PR-1 baseHashes 一致", () => {
+describe("D1 hashAgentLines 與 baseHashes 一致", () => {
   it("同本文、同鹽：kind 0 的行 raw＝基底 8 bytes；kind 1 的行 num＝基底 8 bytes", async () => {
     const lines = ["# H", "", "1. a", "2. b  ", "```", "1. code", "```", "tail\u00a0"];
     const kinds = [0, 0, 1, 1, 0, 0, 0, 0];
@@ -62,7 +62,7 @@ describe("D2 等價", () => {
   it("kind 1 的 `3. x` 對 agent `5. x` 配得上；kind 0（code 裡）配不上", async () => {
     expect(pairs(await run(["3. x"], ["5. x"], {}, [1]))).toEqual([0]);
     expect(pairs(await run(["3. x"], ["5. x"], {}, [0]))).toEqual([-1]);
-    // kind 0 的 `1. x` 對 `5. x`：agent 的編號正規化雜湊恰等於基底原文雜湊——只有「kind 0 比 raw」才擋得下（T3-M1）
+    // kind 0 的 `1. x` 對 `5. x`：agent 的編號正規化雜湊恰等於基底原文雜湊——只有「kind 0 比 raw」才擋得下
     expect(pairs(await run(["1. x"], ["5. x"], {}, [0]))).toEqual([-1]);
   });
   it("行尾空白／NBSP／U+3000 差異配得上（trimEnd）", async () => {
@@ -177,7 +177,7 @@ describe("D6 規模與邊界", () => {
   }, 30_000);
 });
 
-describe("D9 錨點保住沒改的行（gate r1 I6、r2 I-1）", () => {
+describe("D9 錨點保住沒改的行", () => {
   const B = uniq(200);
   it("D9a 兩端各改 30 行（各自 D＝60 > 10、退化）、中段 140 行沒改 → 中段照原位配、degradedLines＝60", async () => {
     const A = B.map((l, i) => (i < 30 || i >= 170 ? `${l} changed` : l));
@@ -229,7 +229,7 @@ describe("D12 錨點交叉（agent 把兩段對調）", () => {
   });
 });
 
-/** plan T3 D14 的產生器：每層的錨點 c_k 只在第 k 層唯一 → 逼出深度 K。 */
+/** 深度測試的產生器：每層的錨點 c_k 只在第 k 層唯一 → 逼出深度 K。 */
 function gen(K: number, maxD: number): { X: string[]; Y: string[] } {
   let X = Array.from({ length: maxD + 1 }, (_, i) => `bx${i}`);
   let Y = Array.from({ length: maxD + 1 }, (_, i) => `ay${i}`);
@@ -241,7 +241,7 @@ function gen(K: number, maxD: number): { X: string[]; Y: string[] } {
   return { X, Y };
 }
 
-describe("D14 對抗形的上限（gate r2 m-2；rev 4 拆兩發）", () => {
+describe("D14 對抗形的上限（拆兩發）", () => {
   it("前提：上限全開時 gen(K, 10) 真的逼到 K 層", async () => {
     for (const K of [1, 2, 5, 12]) {
       const { X, Y } = gen(K, 10);
@@ -287,7 +287,7 @@ describe("D15 kind 撞雜湊", () => {
   });
 });
 
-describe("D16 讓出按時間預算（rev 4）", () => {
+describe("D16 讓出按時間預算", () => {
   // 1 000 個非空子區段：唯一的 u_i 是錨點、之間各夾一行被改的 A_i（maxD 1 讓頂層溢位）。
   const B: string[] = [];
   const A: string[] = [];

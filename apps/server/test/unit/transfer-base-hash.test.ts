@@ -4,7 +4,7 @@ import { bodyLines, lineKey, normalizeBody, normalizeNumbered } from "../../src/
 import { LINE_HASH_BYTES, baseHashes, deriveTransferKey, hmacOf, newBaseKey, newSalt, transferKeyId } from "../../src/transfer/base-hash.js";
 import { TRANSFER_FILE_VERSION, writeNoteFile } from "../../src/transfer/frontmatter.js";
 
-/** bulk transfer spec §6.4（frontmatter）、§8.1–§8.2（HMAC＋鹽、key_id）、§9.1（正規化）、§9.3-1（編號正規化）。 */
+/** bulk transfer 的基底雜湊：frontmatter、HMAC＋鹽、key_id、正規化、編號正規化。 */
 
 describe("H1 normalizeBody", () => {
   it.each([
@@ -105,7 +105,7 @@ describe("H4 transferKeyId", () => {
 });
 
 describe("H5 newBaseKey／newSalt", () => {
-  it("newBaseKey 是 16 hex（PR-2 的格式守衛靠它）、每次不同；newSalt 16 bytes", () => {
+  it("newBaseKey 是 16 hex（寫回的格式守衛靠它）、每次不同；newSalt 16 bytes", () => {
     const a = newBaseKey();
     const b = newBaseKey();
     expect(a).toMatch(/^[0-9a-f]{16}$/);
@@ -119,7 +119,7 @@ describe("H5 newBaseKey／newSalt", () => {
 describe("H6 writeNoteFile", () => {
   const fm = (title: string) => ({ id: "3f2c0e1a-0000-4000-8000-000000000001", title, role: "editor", base: "7d41c0b2e9a85f13", url: "/n/alice/meeting-notes" });
 
-  it("8 行 frontmatter，鍵序逐字照 §6.4；本文原樣接上", () => {
+  it("8 行 frontmatter，鍵序固定；本文原樣接上", () => {
     const out = writeNoteFile(fm("會議紀錄"), "# H\n\nbody  \n");
     expect(out).toBe(
       "---\nknotebook: 1\nid: 3f2c0e1a-0000-4000-8000-000000000001\ntitle: \"會議紀錄\"\nrole: editor\nbase: 7d41c0b2e9a85f13\nurl: /n/alice/meeting-notes\n---\n# H\n\nbody  \n",

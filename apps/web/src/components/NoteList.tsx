@@ -29,14 +29,14 @@ import { tabSpec, type HeaderActionId } from "@/components/sidebar/tab-specs";
 import { DROP_SCOPE_CLASS, useSidebarDrag } from "@/components/sidebar/useSidebarDrag";
 import { buildTabNodes, hasSelectableNodes, noteLocationLabel, noteSpaceKey, type LocationContext, type SidebarNode } from "@/components/sidebar/tree";
 
-// 一般 tab 選取模式（PR-2c）：只准經 SelectLazy 這個 lazy 入口（首包上限）。兩個掛點共用同一個 chunk。
+// 一般 tab 選取模式：只准經 SelectLazy 這個 lazy 入口（首包上限）。兩個掛點共用同一個 chunk。
 const SelectHeader = lazy(() => import("@/components/sidebar/SelectLazy").then((m) => ({ default: m.SelectHeader })));
 const SelectableTree = lazy(() => import("@/components/sidebar/SelectLazy").then((m) => ({ default: m.SelectableTree })));
 // 資料夾對話框（新增／改名／刪除）：只准經 FolderLazy 這個 lazy 入口（首包上限）。
 const FolderDialogs = lazy(() => import("@/components/sidebar/FolderLazy").then((m) => ({ default: m.FolderDialogs })));
 
 /**
- * 疊資料夾建好後的改名框（資料夾 spec §6.6、§6.13 第 6 步）：`onClosed` 在關閉時以最後的名字呼叫恰一次（送出＝送出的名字、取消＝原名）；
+ * 疊資料夾建好後的改名框：`onClosed` 在關閉時以最後的名字呼叫恰一次（送出＝送出的名字、取消＝原名）；
  * `focusTarget` 在關閉當下才解析（新資料夾列是重抓後才出現的）。
  */
 export interface StackRenameHooks {
@@ -44,7 +44,7 @@ export interface StackRenameHooks {
   focusTarget: () => HTMLElement | null;
 }
 
-/** 資料夾對話框的請求（host 在每份 NoteList 實例各一份；T4 的資料夾 ⋮ 也經 `NodeContext.openFolderDialog` 開框）。 */
+/** 資料夾對話框的請求（host 在每份 NoteList 實例各一份；資料夾 ⋮ 也經 `NodeContext.openFolderDialog` 開框）。 */
 export type FolderDialogRequest =
   | { kind: "create"; parent: { folderId: string } | { space: FolderSpaceDto } }
   | { kind: "rename"; folder: FolderDto; stack?: StackRenameHooks }
@@ -66,7 +66,7 @@ function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string
 
 /** 分享角色徽章——只給非 owner（editor/viewer）的筆記顯示；owner 自己的筆記不需要
  * 徽章（列表本身已隱含「這是你的」），'none' 理論上不會出現在 GET /api/notes 的
- * 結果裡（server 只回傳使用者有權限看的筆記）。PR2：側欄改小字化，不再是 pill。
+ * 結果裡（server 只回傳使用者有權限看的筆記）。側欄是小字，不是 pill。
  * #182：群組筆記（`group` 非 null）一律不標——角色看群組面板的成員表（筆記頁頁首徽章不再顯示角色，#335）；
  * 只有逐人分享給我的個人筆記保留。 */
 export function RoleBadge({ role, group }: { role: NoteDto["role"]; group: NoteDto["group"] }) {
@@ -104,7 +104,7 @@ function NoteRow({ note, variant, location }: NoteRowProps) {
         variant === "recent" ? "pl-2" : "h-11 md:h-7",
         variant === "plain" && "pl-2",
         variant === "group" && "pl-3",
-        // #247 §4.10：非 active 的列走主題色四態（與管理面板左卡項次同）：平常無底、hover
+        // #247：非 active 的列走主題色四態（與管理面板左卡項次同）：平常無底、hover
         // `bg-brand-soft`、按下 `active:bg-brand-soft-strong`、selected `bg-brand-soft`。
         // active 時 hover 要再深一階：twMerge 對同一個 variant 群組（`hover:bg-*`）互斥，後面這個 class
         // 會蓋掉前面的 `hover:bg-brand-soft`——所以這裡必須走 `cn(...)`，不能字串串接。
@@ -117,10 +117,10 @@ function NoteRow({ note, variant, location }: NoteRowProps) {
       <Link
         to={canonicalNotePath(note)}
         onClick={(event) => {
-          // 樂觀 set 僅限 plain left-click（spec m5-7 逐字：擋 meta/ctrl/shift）：
+          // 樂觀 set 僅限 plain left-click（擋 meta/ctrl/shift）：
           // 那些組合是「開新分頁/視窗」——本頁不導航，樂觀 set 會把高亮留在沒開的
           // 那篇。中鍵不觸發 onClick（auxclick），天然排除。alt＋左鍵（部分瀏覽器
-          // 是下載、同樣不導航）**已知未涵蓋**——spec 未列，暫不偏離。
+          // 是下載、同樣不導航）**已知未涵蓋**。
           if (event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey) {
             setActiveNoteId(note.id);
           }
@@ -147,7 +147,7 @@ function NoteRow({ note, variant, location }: NoteRowProps) {
   );
 }
 
-/** 最近 tab 的第二行：太長時 CSS truncate，`title` 給完整路徑（資料夾 spec §6.9）。 */
+/** 最近 tab 的第二行：太長時 CSS truncate，`title` 給完整路徑。 */
 function LocationLine({ label }: { label: string }) {
   return (
     <div className="mt-0.5 truncate text-[11px] text-muted-foreground" title={label}>
@@ -157,7 +157,7 @@ function LocationLine({ label }: { label: string }) {
 }
 
 /** 標題列／群組列右側的 24px「＋」圖示鈕。tab 標題列的常駐；群組列的帶 `reveal="grouprow"`
- * （列 hover 或列內有 `:focus-visible` 才顯示——鍵盤 tab 到它時一定看得見（P19）；滑鼠點過留下的
+ * （列 hover 或列內有 `:focus-visible` 才顯示——鍵盤 tab 到它時一定看得見；滑鼠點過留下的
  * 焦點不算（不是 focus-within））。 */
 function HeaderActionButton({
   label,
@@ -171,7 +171,7 @@ function HeaderActionButton({
   /** `currentTarget` 給開框的呼叫端當還焦點的對象。 */
   onClick: (event: MouseEvent<HTMLButtonElement>) => void;
   disabled?: boolean;
-  /** 群組標題列「＋」用：讓新增群組對話框關閉時把焦點還回來（P17）。 */
+  /** 群組標題列「＋」用：讓新增群組對話框關閉時把焦點還回來。 */
   buttonRef?: RefObject<HTMLButtonElement | null>;
   reveal?: RevealScope;
   /** 預設「＋」；「新增資料夾」傳 `FolderPlus`。 */
@@ -187,7 +187,7 @@ function HeaderActionButton({
       title={label}
       onClick={onClick}
       disabled={disabled}
-      // 24px（spec §8.1；P21）。hover 浮出與觸控（`hover: none`）常駐見 `ui/reveal.ts`。
+      // 24px。hover 浮出與觸控（`hover: none`）常駐見 `ui/reveal.ts`。
       className={cn("h-6 w-6 shrink-0", reveal && hoverReveal(reveal))}
     >
       <Icon aria-hidden="true" className="h-3.5 w-3.5" />
@@ -228,7 +228,7 @@ function GroupNode({ node, ctx }: { node: Extract<SidebarNode, { kind: "group" }
     >
       <div className="group/grouprow flex h-7 items-center gap-0.5 rounded-md hover:bg-brand-soft active:bg-brand-soft-strong">
         <GroupRowButton name={group.name} open={open} onToggle={toggle} />
-        {/* 資料夾 spec §6.3、N7：能編輯群組筆記才能建資料夾；排在「＋」之前（稿 `Workshop`，讀碼發現 19）。 */}
+        {/* 資料夾：能編輯群組筆記才能建資料夾；排在「＋」之前（稿 `Workshop`）。 */}
         {group.myRole?.permissions.edit && (
           <HeaderActionButton
             reveal="grouprow"
@@ -237,8 +237,8 @@ function GroupNode({ node, ctx }: { node: Extract<SidebarNode, { kind: "group" }
             onClick={(event) => ctx.openFolderDialog({ kind: "create", parent: { space: { kind: "group", groupId: group.id } } }, event.currentTarget)}
           />
         )}
-        {/* #175 §8.2＋PR3：「＋」只在我的角色能在這個群組建立**且能編輯**筆記時渲染——能建不能改的人建出來的是
-            自己也改不了的空白筆記（spec 疑點 11；他仍可經移入／複製把筆記放進群組，PR2）；`myRole` null＝防禦，不渲染。 */}
+        {/* #175：「＋」只在我的角色能在這個群組建立**且能編輯**筆記時渲染——能建不能改的人建出來的是
+            自己也改不了的空白筆記（他仍可經移入／複製把筆記放進群組）；`myRole` null＝防禦，不渲染。 */}
         {group.myRole?.permissions.create && group.myRole.permissions.edit && (
           <HeaderActionButton
             reveal="grouprow"
@@ -258,14 +258,14 @@ function GroupNode({ node, ctx }: { node: Extract<SidebarNode, { kind: "group" }
   );
 }
 
-/** 群組資料夾的 groupId（建立筆記時要同時帶，讀碼發現 1-①）；個人／共享資料夾 → undefined。 */
+/** 群組資料夾的 groupId（建立筆記時要同時帶）；個人／共享資料夾 → undefined。 */
 function groupIdOf(folder: FolderDto): string | undefined {
   return folder.space.kind === "group" ? folder.space.groupId : undefined;
 }
 
 /**
- * 資料夾節點（資料夾 spec §6.3）：折疊主鈕見 `FolderRowButton`，子節點掛導引線（同 `GroupNode`）。折疊鍵 `folder:<id>`
- * 是 `sidebar/collapse.ts` 的共用 store。「沒有筆記」只在沒有任何子節點時出現（只有子資料夾時不說）。⋮ 在 T4。
+ * 資料夾節點：折疊主鈕見 `FolderRowButton`，子節點掛導引線（同 `GroupNode`）。折疊鍵 `folder:<id>`
+ * 是 `sidebar/collapse.ts` 的共用 store。「沒有筆記」只在沒有任何子節點時出現（只有子資料夾時不說）。⋮ 見 `FolderMenu`。
  */
 function FolderNode({ node, ctx }: { node: Extract<SidebarNode, { kind: "folder" }>; ctx: NodeContext }) {
   const { t } = useTranslation();
@@ -358,7 +358,7 @@ const MESSAGE_CLASS = "p-2 text-sm text-muted-foreground";
  * 資料到了再歸位。搜尋由 `sidebar/SearchResults` 負責。
  * tabpanel 的 `tabIndex={0}` 在 `AppShell`（WAI-ARIA APG：面板第一個有內容的元素不可聚焦時，Tab 要能停在面板上）。
  *
- * 選取模式（PR-2c，spec §6.11）：標題列「選取」由這裡渲染；進入後標題列內容換成 lazy 的 `SelectHeader`、清單內容換成
+ * 選取模式：標題列「選取」由這裡渲染；進入後標題列內容換成 lazy 的 `SelectHeader`、清單內容換成
  * `SelectableTree`（`SelectLazy` chunk，fallback 是平常的名稱與列）。捲動容器 `[data-sidebar-list]` 不換（捲動位置不跳）。
  * `nodes`／`groupIds` 以 `useMemo` 穩定，選取列的 memo 才有效。焦點只由發起的那一份實例移動（`focusAfterRef`：進入→「完成」、
  * 離開→「選取」）。Esc 由 `SelectHeader` 在 document 層處理（本元件不掛）。群組折疊與選取樹共用 `sidebar/collapse.ts`。
@@ -381,9 +381,9 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
 
   const spec = tabSpec(tab);
   const groups = groupsQuery.data ?? EMPTY_GROUPS;
-  // memo（plan gate r1 I2）：不 memo 的話每次勾選都換 `nodes`／`groupIds`，選取樹的 `onToggle` 隨之換、所有列重繪。
+  // memo：不 memo 的話每次勾選都換 `nodes`／`groupIds`，選取樹的 `onToggle` 隨之換、所有列重繪。
   const groupIds = useMemo<ReadonlySet<string>>(() => new Set((groupsQuery.data ?? EMPTY_GROUPS).map((group) => group.id)), [groupsQuery.data]);
-  // 讀碼發現 3：我的筆記／群組／與我共享等 `["folders"]`（不先平鋪再跳）；失敗且沒有舊資料 → 空索引（筆記落根層）＋錯誤列。最近 tab 不等。
+  // 我的筆記／群組／與我共享等 `["folders"]`（不先平鋪再跳）；失敗且沒有舊資料 → 空索引（筆記落根層）＋錯誤列。最近 tab 不等。
   const waitFolders = tab !== "recent" && tab !== "trash";
   const folderIndex = useMemo(() => indexFolders(foldersQuery.data ?? EMPTY_FOLDERS), [foldersQuery.data]);
   const location = useMemo<LocationContext>(() => ({ groupIds, folders: folderIndex }), [groupIds, folderIndex]);
@@ -400,7 +400,7 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
     folderOpenerRef.current = opener;
     setFolderRequest(request);
   };
-  // 拖曳（資料夾 spec §6.13）：容器事件委派；兩份實例共用 drag-session 的狀態，只有發起的那一份驅動。
+  // 拖曳：容器事件委派；兩份實例共用 drag-session 的狀態，只有發起的那一份驅動。
   const drag = useSidebarDrag({ tab, nodes, groupIds, folderIndex, openFolderDialog });
   const listDropScoped = drag.view.scope === "list";
   const stackState = drag.view.creating ?? drag.view.preview;
@@ -506,7 +506,7 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
           />
         );
       case "newFolder":
-        // 我的筆記與與我共享宣告這個動作（資料夾 spec §6.1）：建在該 tab 的空間根層。
+        // 我的筆記與與我共享宣告這個動作：建在該 tab 的空間根層。
         return (
           <HeaderActionButton
             key={action}
@@ -594,9 +594,9 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
           </>
         )}
       </div>
-      {/* `key={tab}`：切 tab 換新元素，捲動位置回頂端（spec §5.3）。進出選取模式不換（捲動位置不跳）。 */}
-      {/* 安全網（讀碼發現 10）：橫向裁切放在內層包層——放在清單本身會因另一軸是 `overflow-y-auto` 算成 `hidden`，仍可被捲動橫移。 */}
-      {/* 拖曳的 dragstart／dragover／drop／dragend 都委派在這個容器（spec §6.13）；包層 `min-h-full`：清單下方空白也算根目錄的標示範圍。 */}
+      {/* `key={tab}`：切 tab 換新元素，捲動位置回頂端。進出選取模式不換（捲動位置不跳）。 */}
+      {/* 安全網：橫向裁切放在內層包層——放在清單本身會因另一軸是 `overflow-y-auto` 算成 `hidden`，仍可被捲動橫移。 */}
+      {/* 拖曳的 dragstart／dragover／drop／dragend 都委派在這個容器；包層 `min-h-full`：清單下方空白也算根目錄的標示範圍。 */}
       <div key={tab} data-sidebar-list="" className="min-h-0 flex-1 overflow-y-auto" {...drag.containerProps}>
         <div
           data-drop-scope={listDropScoped ? "" : undefined}

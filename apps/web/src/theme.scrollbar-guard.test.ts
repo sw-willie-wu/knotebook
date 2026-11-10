@@ -77,7 +77,7 @@ describe("滾動條 @supports guard 結構", () => {
     expect(inside, "guard 內應設 scrollbar-width").toContain("scrollbar-width:");
     expect(inside, "guard 內應設 scrollbar-color").toContain("scrollbar-color:");
     // Firefox 這條也要吃共用的那份值（issue #111）——否則「一份值」名不副實：
-    // 這裡寫死一個顏色，Firefox 的捲軸就會與 Chromium 那條各走各的（gate 審查
+    // 這裡寫死一個顏色，Firefox 的捲軸就會與 Chromium 那條各走各的（
     // 突變實測：改成字面 rgba 原本全綠）。
     expect(inside, "Firefox 分支的 thumb 顏色要走 --scrollbar-thumb").toContain("var(--scrollbar-thumb)");
 
@@ -93,7 +93,7 @@ describe("滾動條 @supports guard 結構", () => {
     // 區塊內，且選擇器含 `::picker(select)`。只看選擇器字串的話，
     // `.some-panel, .x::picker(select) { scrollbar-width: thin }` 這種寫法會連著把
     // `.some-panel`（真元素）放行——那個元素的 ::-webkit-scrollbar 樣式就被 Chromium
-    // 靜默停用，正是本檔存在的理由（gate 審查突變實測抓到）。
+    // 靜默停用，正是本檔存在的理由。
     const baseSelect = extractBlock(outside, /@supports\s*\(\s*appearance:\s*base-select\s*\)\s*\{/);
     const rulesOf = (css: string) =>
       [...css.matchAll(/([^{}]*)\{([^}]*)\}/g)].map((m) => ({ selector: m[1]!.trim(), body: m[2]! }));
@@ -110,7 +110,7 @@ describe("滾動條 @supports guard 結構", () => {
     // ⚠ 必須把逗號清單**拆開逐一**檢查：只要「整串裡有出現 ::picker(select)」就放行的
     // 話，`.some-panel, .x::picker(select) { scrollbar-width: thin }` 會把真元素
     // `.some-panel` 一起夾帶進來，而它的 ::-webkit-scrollbar 樣式就被 Chromium 靜默
-    // 停用——正是本檔存在的唯一理由（第二輪 gate 審查突變實測抓到）。
+    // 停用——正是本檔存在的唯一理由。
     const insideBaseSelect = rulesOf(baseSelect).filter(
       (r) =>
         /scrollbar-(?:width|color):/.test(r.body) &&

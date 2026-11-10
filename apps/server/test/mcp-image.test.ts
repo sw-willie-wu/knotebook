@@ -1,6 +1,6 @@
 /**
- * #200 §9.3：MCP `read_note_image`（M1 讀圖半、M5、M6）＋ Review Focus RF4（大寫 note_id）。
- * 模型面字串寫字面值（#200 §7.2、§7.3 逐字；<MAX> = 5242880）。
+ * #200：MCP `read_note_image`（M1 讀圖半、M5、M6）。
+ * 模型面字串寫字面值（#200、<MAX> = 5242880）。
  */
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
@@ -22,10 +22,10 @@ const DESC_TOKEN =
   "Look at an image in a note. Pass the id from `/api/uploads/<id>` in read_note_section's markdown. Images up to 5242880 bytes come back as an image; larger ones are refused — download those with create_transfer_token instead.";
 const DESC_SESSION =
   "Look at an image in a note. Pass the id from `/api/uploads/<id>` in read_note_section's markdown. Images up to 5242880 bytes come back as an image; larger ones are refused.";
-/** 並排 PR-2（spec §11.5）：有寬度的圖片也讀成 `<figure>`；不提表格格子（Q3）；位址以舉例寫（舊的絕對網址也含 id）。 */
+/** 並排：有寬度的圖片也讀成 `<figure>`；不提表格格子；位址以舉例寫（舊的絕對網址也含 id）。 */
 const SECTION_SENTENCE =
   "An uploaded image's address contains its upload id, for example `/api/uploads/<id>` in `![name](/api/uploads/<id>)` or, for an image with a caption or shown at a set width, in `<figure><img … src=\"/api/uploads/<id>\" …>…</figure>`; see them with read_note_image.";
-/** 並排 PR-2 之前的句子：只講到有說明的 figure，有寬度的圖片上線後就不完整。 */
+/** 並排功能加入前的句子：只講到有說明的 figure，有寬度的圖片上線後就不完整。 */
 const OLD_SECTION_SENTENCE =
   "Uploaded images appear as `![name](/api/uploads/<id>)`, or inside `<figure><img src=\"/api/uploads/<id>\">…</figure>` when captioned; see them with read_note_image.";
 
@@ -126,7 +126,7 @@ describe("#200 read_note_image", () => {
     expect((await read(app, token, n.id, id)).structuredContent!.code).toBe("too_many_requests");
   });
 
-  it("M5 Q3 放寬：別篇的上傳、讀得到那一篇 → 成功且 noteId 是上傳所屬；讀不到那一篇 → 與查無逐位元組相同", async () => {
+  it("M5 放寬：別篇的上傳、讀得到那一篇 → 成功且 noteId 是上傳所屬；讀不到那一篇 → 與查無逐位元組相同", async () => {
     const { app, db, uploadsDir } = await buildTestApp();
     const [me, other] = await Promise.all([seedUser(db), seedUser(db)]);
     const a = await seedNote(db, { ownerId: me.id });
@@ -140,7 +140,7 @@ describe("#200 read_note_image", () => {
     expect(ok.structuredContent).toMatchObject({ noteId: b.id, uploadId: inB });
     const denied = await read(app, token, a.id, inC);
     expect(denied.structuredContent).toEqual({ code: "not_found", message: NOT_READABLE });
-    // #200 §7.3-4：超過上限時回的 noteId 是**上傳所屬**的那一篇（download token 綁在那一篇），不是傳進來的 note_id。
+    // #200：超過上限時回的 noteId 是**上傳所屬**的那一篇（download token 綁在那一篇），不是傳進來的 note_id。
     const [bigInB] = await db.insert(uploads).values({ noteId: b.id, uploaderId: other.id, mime: "image/png", size: MAX + 1 }).returning({ id: uploads.id });
     const over = await read(app, token, a.id, bigInB!.id);
     expect(over.structuredContent).toMatchObject({ code: "file_too_large", noteId: b.id, bytes: MAX + 1 });
@@ -150,7 +150,7 @@ describe("#200 read_note_image", () => {
     expect((await read(app, token, a.id, bigInC!.id)).structuredContent).toEqual({ code: "not_found", message: NOT_READABLE });
   });
 
-  it("RF4 大寫 note_id：上傳屬於該篇 → 成功、noteId 是小寫", async () => {
+  it("大寫 note_id：上傳屬於該篇 → 成功、noteId 是小寫", async () => {
     const { app, db, uploadsDir } = await buildTestApp();
     const me = await seedUser(db);
     const n = await seedNote(db, { ownerId: me.id });
@@ -161,7 +161,7 @@ describe("#200 read_note_image", () => {
     expect(r.structuredContent).toMatchObject({ noteId: n.id });
   });
 
-  it("M6 read_note_section 讀回三種形：無 caption → ![name](/api/uploads/<id>)；有 caption → <figure><img …src=…><figcaption>；有寬度 → <figure><img … width>（並排 PR-2）；§7.6 句在 wire 上", async () => {
+  it("M6 read_note_section 讀回三種形：無 caption → ![name](/api/uploads/<id>)；有 caption → <figure><img …src=…><figcaption>；有寬度 → <figure><img … width>；句在 wire 上", async () => {
     const ctx = await buildCollabTestApp();
     const me = await seedUser(ctx.db);
     const n = await seedNote(ctx.db, { ownerId: me.id });
@@ -195,7 +195,7 @@ describe("#200 read_note_image", () => {
     expect(res.body).toContain(JSON.stringify(SECTION_SENTENCE).slice(1, -1));
   });
 
-  it("M6b 並排 PR-2 之前的圖片句不在 wire 上（讀寫、唯讀 token 與 session 都查）", async () => {
+  it("M6b 並排功能加入前的圖片句不在 wire 上（讀寫、唯讀 token 與 session 都查）", async () => {
     const ctx = await buildCollabTestApp();
     const me = await seedUser(ctx.db);
     const auths = [

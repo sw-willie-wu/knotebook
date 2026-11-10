@@ -13,7 +13,7 @@ import { ThemeProvider } from "@/theme";
 import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 /**
- * #263 AI 框測試的共用 Host（spec §7；memory knotebook-review-probe-fidelity-lessons）：照 `NoteEditor.tsx` 的真實掛載鏈——
+ * #263 AI 框測試的共用 Host：照 `NoteEditor.tsx` 的真實掛載鏈——
  * `AiSessionProvider`（:450）包 `NoteEditorView`（:476），AI 元件是 `<BlockNoteView>` 的 children（:561-585），`editor.portalElement`
  * 由 BlockNoteView 掛上。外層 `MemoryRouter`＋`QueryClientProvider`：wikilink inline 用到 `useNavigate`／`useNotes`；`ThemeProvider`：預覽的 `DiffEditor` 用到 `useTheme`。
  * 不是 `NoteEditor` 本體——`NoteEditor` 自己 `useCreateBlockNote` 建 editor，測試拿不到實例去設選取。
@@ -129,7 +129,7 @@ export function renderAiHost(props: AiHostProps) {
   return { ...result, queryClient, rerenderHost: (overrides: Partial<AiHostProps>) => result.rerender(tree({ ...props, ...overrides })) };
 }
 
-/** 區塊內文的起點（`blockContainer` 的 posBefore＋2，探針實測）。 */
+/** 區塊內文的起點（`blockContainer` 的 posBefore＋2）。 */
 export function contentStart(editor: AnyEditor, blockId: string): number {
   const info = getNodeById(blockId, editor.prosemirrorState.doc);
   if (!info) throw new Error(`找不到區塊 ${blockId}`);

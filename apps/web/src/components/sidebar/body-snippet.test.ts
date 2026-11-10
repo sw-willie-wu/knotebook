@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { displaySnippet } from "./body-snippet";
 
-describe("displaySnippet（D5：命中前只留約 12 個字）", () => {
+describe("displaySnippet（命中前只留約 12 個字）", () => {
   it("命中在前 12 字內 → 原樣", () => {
     expect(displaySnippet("abcdefghijk needle tail", "needle")).toBe("abcdefghijk needle tail"); // 命中前恰 12 個
     expect(displaySnippet("needle first", "needle")).toBe("needle first");

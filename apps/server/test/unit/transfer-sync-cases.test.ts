@@ -9,9 +9,9 @@ import { bodyLines, normalizeBody } from "../../src/transfer/normalize.js";
 import { applyInMemory, docWith, forkOf, makeBaseInMemory, planInMemory, topOf, withEditor } from "./fixtures/transfer-sync.js";
 
 /**
- * bulk transfer spec 2026-11-02 §25.3（spike S3 `spk-s3.mts` 的 37 案）＋溢位與重送情境（plan PR-2 T13；O1–O5、O3b）。
+ * bulk transfer 同步案例（37 案）＋溢位與重送情境。
  * 記憶體夾具（H6）：基底 → 「人」改現況 → agent 改檔 → 規劃＋一次 mount 套用＋`Y.applyUpdate` 合併。每案斷言
- * 「寫回後整篇匯出」「留下的基底 id（以基底頂層的序號表示）」「決策標記」。§25.3「比預期好」的那 1 案（C04）照表斷言 `same`。
+ * 「寫回後整篇匯出」「留下的基底 id（以基底頂層的序號表示）」「決策標記」。「比預期好」的那 1 案（C04）照表斷言 `same`。
  * 標題寫「known-limitation」的案是照實釘住的已知限制：日後若改善，要改這些案。
  */
 
@@ -69,7 +69,7 @@ async function run(blocks: unknown[], edit: (body: string) => string, human: ((e
 }
 const NB = [N("a"), N("b"), N("c"), N("d")];
 const N12 = many(12, i => N(`n${i + 1}`, i === 8 ? { children: [B("child")] } : {}));
-/** 頂端插 `1. new`、其餘重編號；`reindent` 時兩位數項的子行補一格縮排（spike m1）。 */
+/** 頂端插 `1. new`、其餘重編號；`reindent` 時兩位數項的子行補一格縮排。 */
 const renum = (reindent: boolean) => (w: string) => {
   const o: string[] = ["1. new"];
   let cur = 0;
@@ -85,7 +85,7 @@ const renum = (reindent: boolean) => (w: string) => {
 const PS = many(6, i => P(`p${i}`));
 const all = (n: number) => many(n, i => i) as number[];
 
-describe("§25.3 numbered（9 案）", () => {
+describe("numbered（9 案）", () => {
   it("C01 中間插一項並重編號 → 只有插入區、其餘 id 不變、結果＝agent 檔", async () => {
     const o = await run(NB, () => "1. a\n2. new\n3. b\n4. c\n5. d");
     expect(o).toMatchObject({ eqAgent: true, kept: [0, 1, 2, 3], marks: ["insert:applied"] });
@@ -115,7 +115,7 @@ describe("§25.3 numbered（9 案）", () => {
     const o = await run([N("a", { props: { start: 5 } }), N("b")], w => w.replace("5. a", "1. a"));
     expect(o).toMatchObject({ kept: [0, 1], marks: [] });
   });
-  it("C07 numbered 項改成行首仍是數字的內容 → 只那一項改（§22 第 4 條）", async () => {
+  it("C07 numbered 項改成行首仍是數字的內容 → 只那一項改", async () => {
     const o = await run(NB, w => w.replace("3. c", "3. 2024 年"));
     expect(o).toMatchObject({ eqAgent: true, kept: [0, 1, 3], marks: ["rewrite:applied"] });
   });
@@ -130,7 +130,7 @@ describe("§25.3 numbered（9 案）", () => {
   });
 });
 
-describe("§25.3 空行與空段落（6 案）", () => {
+describe("空行與空段落（6 案）", () => {
   it("C10 A、空段落、B：收掉多餘空行 → 空段落被刪（⑱）", async () => {
     const o = await run([P("A"), E(), P("B")], w => w.replace(/\n{3,}/g, "\n\n"));
     expect(o).toMatchObject({ kept: [0, 2], marks: ["delete:applied"] });
@@ -160,7 +160,7 @@ describe("§25.3 空行與空段落（6 案）", () => {
   });
 });
 
-describe("§25.3 子 block（6 案）", () => {
+describe("子 block（6 案）", () => {
   it("C16 bullet 下新增子項 → 父項一區改寫、id 換新、結果＝agent 檔", async () => {
     const o = await run([B("a"), B("b")], w => w.replace("* a\n", "* a\n  * child\n"));
     expect(o).toMatchObject({ eqAgent: true, kept: [1], marks: ["rewrite:applied"] });
@@ -173,7 +173,7 @@ describe("§25.3 子 block（6 案）", () => {
     const o = await run([B("a", { children: [B("x")] }), B("b")], w => w.replace("  * x", "* x"));
     expect(o).toMatchObject({ eqAgent: true, kept: [1] });
   });
-  it("C19（known-limitation F31）改帶段落子的 bullet 本身 → 子段落攤平成頂層、巢狀消失", async () => {
+  it("C19（已知限制）改帶段落子的 bullet 本身 → 子段落攤平成頂層、巢狀消失", async () => {
     const o = await run([B("a", { children: [P("child")] }), P("after")], w => w.replace("* a", "* a2"));
     expect(o.kept).toEqual([1]);
     expect(o.top.map(x => `${x.type}:${x.text}`)).toEqual(["bulletListItem:a2", "paragraph:child", "paragraph:after"]);
@@ -182,14 +182,14 @@ describe("§25.3 子 block（6 案）", () => {
     const o = await run([B("a", red), B("b"), B("c"), P("after")], w => w.replace("<p>b</p>", "<p>b2</p>"));
     expect(o).toMatchObject({ eqAgent: true, kept: [3], marks: ["rewrite:applied"] });
   });
-  it("C21（known-limitation E14）toggle 改內容 → 變 bullet", async () => {
+  it("C21（已知限制）toggle 改內容 → 變 bullet", async () => {
     const o = await run([T("t1"), T("t2")], w => w.replace("* t1", "* t1x"));
     expect(o.kept).toEqual([1]);
     expect(o.top[0]).toMatchObject({ type: "bulletListItem", text: "t1x" });
   });
 });
 
-describe("動過就 409（取代 §25.3 並行 9 案的合併）", () => {
+describe("動過就 409（取代並行 9 案的合併）", () => {
   // 記憶體版只驗結構判準（`matchesBase`）；整篇匯出判準與合併時的整篇指紋在 `transfer-write-reread.test.ts`（整合）。
   it("C22 形：人改第 5 段、agent 改第 2 段 → note_changed、現況不動", async () => {
     const o = await run(PS, w => w.replace("p1", "p1-agent"), ed => ed.updateBlock(ed.document[4]!.id, { content: "p4-human" }));
@@ -214,7 +214,7 @@ describe("動過就 409（取代 §25.3 並行 9 案的合併）", () => {
   });
 });
 
-describe("§25.3 其他（7 案）", () => {
+describe("其他（7 案）", () => {
   it("C31（known-limitation ⑫）重複行：刪的是第一顆", async () => {
     const o = await run([P("dup"), P("x"), P("dup")], w => w.replace("dup\n\nx\n\n", "x\n\n"));
     expect(o.kept).toEqual([1, 2]);
@@ -236,19 +236,19 @@ describe("§25.3 其他（7 案）", () => {
     const o = await run([P("A"), P("B")], w => w.replace("A\n", "A\nmore\n"));
     expect(o).toMatchObject({ kept: [1], marks: ["rewrite:applied"] });
   });
-  // spike 當時（25.2-③）這兩案整篇 400；spec §9.3-6（gate r5 I-1）改成：只剩閉合註解的插入區不算區、改寫區當刪除區。照現行 spec 斷言。
-  it("C36 新插 `<!-- todo -->` 自成一段 → 不算區（同只插空行）：零區、id 不變（§9.3-6）", async () => {
+  // 這兩案曾經整篇 400；現行規則是：只剩閉合註解的插入區不算區、改寫區當刪除區。照現行規則斷言。
+  it("C36 新插 `<!-- todo -->` 自成一段 → 不算區（同只插空行）：零區、id 不變", async () => {
     const o = await run([P("A"), P("B")], w => w.replace("A\n\nB", "A\n\n<!-- todo -->\n\nB"));
     expect(o).toMatchObject({ error: null, kept: [0, 1], marks: [] });
   });
-  it("C37 把段落改成只剩 HTML 註解 → 改寫區當刪除區：那段刪除（§9.3-6）", async () => {
+  it("C37 把段落改成只剩 HTML 註解 → 改寫區當刪除區：那段刪除", async () => {
     const o = await run([P("A"), P("B")], w => w.replace("A\n\nB", "<!-- A -->\n\nB"));
     expect(o).toMatchObject({ error: null, kept: [1], marks: ["delete:applied"] });
     expect(o.top.map(x => x.text)).toEqual(["B"]);
   });
 });
 
-describe("溢位與重複段（O2b、O2c、O5b；O1–O5、O3b 的「別人也改了」形已隨合併刪除）", () => {
+describe("溢位與重複段（O2b、O2c、O5b；其餘「別人也改了」形已隨合併刪除）", () => {
   const PARAS = (n: number, f: (i: number) => string = i => `Para ${i}`) => many(n, i => P(f(i)));
   it("O5b（known-limitations：重複段）兩顆相鄰、檔案只留一顆 → 留第一顆；C31 是反例（中間的段還在時留的是第二顆）", async () => {
     const o = await run([P("x"), P("dup"), P("dup"), P("y")], w => w.replace("dup\n\ndup", "dup"));
@@ -261,7 +261,7 @@ describe("溢位與重複段（O2b、O2c、O5b；O1–O5、O3b 的「別人也�
     expect(o.kept.filter(i => i >= 12 && i <= 14)).toEqual([]);
     expect(o.top.filter(x => x.type === "divider")).toHaveLength(3);
   });
-  it("O2c（M-1 對照）同樣三顆重複段，但周圍有沒改的唯一行 → 配得到、id 不變（只有周圍整段也都改了才可能配不到）", async () => {
+  it("O2c（對照）同樣三顆重複段，但周圍有沒改的唯一行 → 配得到、id 不變（只有周圍整段也都改了才可能配不到）", async () => {
     const blocks = [...PARAS(12, i => `A${i}`), P("anchor-before"), P("dup"), P("dup"), P("dup"), P("anchor-after"), ...PARAS(12, i => `B${i}`)];
     const o = await run(blocks, w => w.replace(/\n+$/, "").split("\n\n").map(p => (/^[AB]\d/.test(p) ? `${p}x` : p)).join("\n\n"), null, { maxD: 10 });
     expect(o.kept).toEqual([12, 13, 14, 15, 16]);

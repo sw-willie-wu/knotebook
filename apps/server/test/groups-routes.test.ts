@@ -20,7 +20,7 @@ const MEMBER_PERMISSIONS = {
 } as const;
 
 describe("#103／#175 POST／GET /api/groups", () => {
-  it("POST：201 GroupDto（myRole＝內建管理員物件、兩個 canManage* 為真、名稱 trim）；同交易建兩個內建角色、建立者掛 admin（S2）；created_by=我；未登入 401", async () => {
+  it("POST：201 GroupDto（myRole＝內建管理員物件、兩個 canManage* 為真、名稱 trim）；同交易建兩個內建角色、建立者掛 admin；created_by=我；未登入 401", async () => {
     const { app, db } = await buildTestApp({ collabHooks: spyCollabHooks() });
     const me = await seedUser(db);
     const res = await app.inject({ method: "POST", url: "/api/groups", cookies: await cookieOf(me.id), payload: { name: "  Design  " } });
@@ -53,7 +53,7 @@ describe("#103／#175 POST／GET /api/groups", () => {
     expect((await app.inject({ method: "GET", url: "/api/groups" })).statusCode).toBe(401);
   });
 
-  it("RF1：名稱邊界——NUL／落單代理／全空白／81 字元 → 400 invalid_name（不是 500）；80 個 emoji 接受；型別錯／多欄 → 400 invalid_body", async () => {
+  it("名稱邊界——NUL／落單代理／全空白／81 字元 → 400 invalid_name（不是 500）；80 個 emoji 接受；型別錯／多欄 → 400 invalid_body", async () => {
     const { app, db } = await buildTestApp({ collabHooks: spyCollabHooks() });
     const me = await seedUser(db);
     const cookies = await cookieOf(me.id);
@@ -90,7 +90,7 @@ describe("#103／#175 POST／GET /api/groups", () => {
     expect(list.map(g => g.id)).toEqual([alpha.id, same2.id, same1.id]);
     const s1 = list.find(g => g.id === same1.id)!;
     expect(s1.myRole).toEqual({ id: same1.memberRoleId, builtin: "member", name: null, memberCount: 2, permissions: MEMBER_PERMISSIONS });
-    // 站台 admin（§5.5）：角色是一般成員，兩個 canManage* 仍為真。
+    // 站台 admin：角色是一般成員，兩個 canManage* 仍為真。
     expect(s1).toMatchObject({ canManageMembers: true, canManageGroup: true });
     expect(list.find(g => g.id === same2.id)!.myRole).toMatchObject({ id: same2.adminRoleId, builtin: "admin", memberCount: 1 });
 
@@ -162,7 +162,7 @@ describe("#103／#175 PATCH /api/groups/:id 與 GET …/members", () => {
     expect(bySite.json()).toMatchObject({ name: "Site", myRole: null, canManageMembers: true, canManageGroup: true });
   });
 
-  it("§5.5（gate r2 M-3）：身為一般成員的站台 admin 可改名與加人（角色旗標 OR 站台 admin，不只看是否成員）", async () => {
+  it("身為一般成員的站台 admin 可改名與加人（角色旗標 OR 站台 admin，不只看是否成員）", async () => {
     const { app, db } = await buildTestApp({ collabHooks: spyCollabHooks() });
     const admin = await seedUser(db);
     const site = await seedUser(db, { isAdmin: true });
@@ -186,7 +186,7 @@ describe("#103／#175 PATCH /api/groups/:id 與 GET …/members", () => {
     });
   });
 
-  it("GET …/members：內建管理員在前、再依 displayName、再依 userId；每列 { userId, email, displayName, roleId, builtin }（A8）", async () => {
+  it("GET …/members：內建管理員在前、再依 displayName、再依 userId；每列 { userId, email, displayName, roleId, builtin }", async () => {
     const { app, db } = await buildTestApp({ collabHooks: spyCollabHooks() });
     const zed = await seedUser(db, { displayName: "Zed" });
     const amy1 = await seedUser(db, { displayName: "Amy" });
@@ -208,7 +208,7 @@ describe("#103／#175 PATCH /api/groups/:id 與 GET …/members", () => {
     expect(Object.keys(rows[3]!).sort()).toEqual(["builtin", "displayName", "email", "roleId", "userId"]);
   });
 
-  it("【驗】§4.1：GET /api/groups 走 group_members_user_idx；「群組內所有筆記」走 notes_group_slug_idx", async () => {
+  it("索引：GET /api/groups 走 group_members_user_idx；「群組內所有筆記」走 notes_group_slug_idx", async () => {
     const { db } = await buildTestApp({ collabHooks: spyCollabHooks() });
     const { userId } = await seedPlannerData(db.$client);
     expect(await planOf(db.$client, listMyGroupsQuery(db, userId).toSQL())).toContain("group_members_user_idx");
@@ -216,7 +216,7 @@ describe("#103／#175 PATCH /api/groups/:id 與 GET …/members", () => {
   });
 });
 
-describe("#175 GET /api/groups/:id/roles（PR1 唯讀；規格落差 13）", () => {
+describe("#175 GET /api/groups/:id/roles（唯讀）", () => {
   it("授權矩陣：成員即可讀、非成員站台 admin 也可讀；非成員／非 UUID／不存在 404 逐位元組相同", async () => {
     const { app, db } = await buildTestApp({ collabHooks: spyCollabHooks() });
     await runGroupAuthMatrix(app, db, {

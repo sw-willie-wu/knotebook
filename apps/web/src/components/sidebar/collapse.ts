@@ -3,12 +3,12 @@ import { useCallback, useSyncExternalStore } from "react";
 /**
  * 側欄群組的折疊狀態：模組層的小 store（`useSyncExternalStore`），NoteList 的靜態卡、抽屜與選取樹共用。
  * 原本每份實例各自 `useState`（初值讀 localStorage 一次）；選取模式的「全選」與 Shift 範圍要以「畫面上可見的列」計
- * （資料夾 spec §6.10），標題列得知道哪些群組收合，所以改成共用。副作用：靜態卡與抽屜的折疊即時同步。
+ * ，標題列得知道哪些群組收合，所以改成共用。副作用：靜態卡與抽屜的折疊即時同步。
  * 記憶體覆蓋層**先查**：Safari 私密模式或配額滿時 `getItem` 正常、`setItem` 丟例外——若「能讀就讀 localStorage」，
  * 切換會被讀回的舊值吃掉、群組永遠收不起來。寫入失敗才記進覆蓋層（只活在本次 session），寫入成功就刪掉該鍵。
  */
 
-/** 折疊狀態的 localStorage 鍵前綴：`sidebar.collapsed.group:<id>`，值 "1"＝收合、缺鍵＝展開（spec §9-9）；資料夾是 `sidebar.collapsed.folder:<id>`（資料夾 spec §6.8）。 */
+/** 折疊狀態的 localStorage 鍵前綴：`sidebar.collapsed.group:<id>`，值 "1"＝收合、缺鍵＝展開；資料夾是 `sidebar.collapsed.folder:<id>`。 */
 export const COLLAPSE_STORAGE_PREFIX = "sidebar.collapsed.";
 export type SidebarSectionKey = `group:${string}` | `folder:${string}`;
 

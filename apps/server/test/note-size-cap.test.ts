@@ -192,7 +192,7 @@ describe("瀏覽器的協作更新不在 server 檢查（網頁編輯器在貼�
   }, 60_000);
 });
 
-describe("刪減與等量改寫一律接受（依結果判斷：還在的內容沒變多、狀態一次長不超過 SLACK，審查 r4 I3、r6）", () => {
+describe("刪減與等量改寫一律接受（依結果判斷：還在的內容沒變多、狀態一次長不超過 SLACK）", () => {
   it("超過上限的筆記：把一段改成短一點的字（狀態可能因結構成本變大）→ REST 201、MCP 照樣成功", async () => {
     const s = await scene();
     await seedMd(s.ctx.db, s.note.id, "# A\n\n" + paras(220, "a") + "\n\n# B\n\nhello wonderful world");
@@ -206,7 +206,7 @@ describe("刪減與等量改寫一律接受（依結果判斷：還在的內容�
     await s.ctx.destroy();
   });
 
-  it("被 413 擋下的複製不吃 edit 額度（審查 r4 M7）：連續 35 次被擋之後，上限內的複製照樣 201", async () => {
+  it("被 413 擋下的複製不吃 edit 額度：連續 35 次被擋之後，上限內的複製照樣 201", async () => {
     const s = await scene();
     await seedMd(s.ctx.db, s.note.id, BIG);
     const small = await seedNote(s.ctx.db, { ownerId: s.u.id }, { title: "S" });

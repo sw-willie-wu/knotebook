@@ -1,12 +1,12 @@
 import { COLLAB_CLOSE_NOTE_DELETED, COLLAB_CLOSE_REVOKED, type Role } from "@knotebook/shared";
 
 /**
- * #269 §5.2：client 內部的 close reason（server 不送）——`useCollab` 收到 wire `client-outdated` 時翻成這個 close 事件。
+ * #269：client 內部的 close reason（server 不送）——`useCollab` 收到 wire `client-outdated` 時翻成這個 close 事件。
  */
 export const COLLAB_CLOSE_CLIENT_OUTDATED = "knotebook:client-outdated";
 
 /**
- * 共編連線狀態（spec §5 client 端 + N4/N7，逐字）。
+ * 共編連線狀態（client 端，逐字）。
  *
  * - `connecting`：尚未（或暫時未）連上。provider 內建退避重連中，非終態。
  * - `connected`：已通過 `onAuthenticate`；`role` 來自**最近一次 token endpoint 回應的
@@ -20,7 +20,7 @@ export type CollabState =
   | { phase: "reconnecting-once" }
   | { phase: "kicked" }
   | { phase: "deleted" }
-  /** #269 §5.2：這個分頁的 bundle 與 server 的 note schema 版本不同——唯讀、提示重整。**不是終態**（不 toast、不導頁）。 */
+  /** #269：這個分頁的 bundle 與 server 的 note schema 版本不同——唯讀、提示重整。**不是終態**（不 toast、不導頁）。 */
   | { phase: "outdated" };
 
 /**
@@ -44,7 +44,7 @@ export function isTerminal(state: CollabState): boolean {
 }
 
 /**
- * #269 §5.2：不再重連、內容唯讀的狀態——終態加上 `outdated`。⚠ `outdated` **不得**加進 `isTerminal`：那會觸發 NotePage 的
+ * #269：不再重連、內容唯讀的狀態——終態加上 `outdated`。⚠ `outdated` **不得**加進 `isTerminal`：那會觸發 NotePage 的
  * toast＋導回 `/`。停重啟、`disconnect()`、編輯器／標題／版本／簡報編輯入口唯讀一律看這裡。
  */
 export function stopsReconnect(state: CollabState): boolean {
@@ -57,7 +57,7 @@ export function canEdit(role: Role): boolean {
 }
 
 /**
- * 共編連線狀態機（純函式，spec §5 的轉移表逐條落地）。
+ * 共編連線狀態機（純函式，轉移表逐條落地）。
  *
  * 判定順序即為優先序，順序本身是契約的一部分：
  *
@@ -78,7 +78,7 @@ export function canEdit(role: Role): boolean {
  *    - `reconnecting-once` + `'none'` → `kicked`。**這是撤權流程實際會走的那條路**：
  *      重連時 server 的 `onAuthenticate` 對 `'none'` token 是丟 permission-denied
  *      而不是再送一則 CLOSE(REVOKED)，所以第二擊多半由我們自己取回的 role 判定。
- *    - `connected` → 就地換角色，**留在 connected**（N4 降級：editor→viewer 只是
+ *    - `connected` → 就地換角色，**留在 connected**（降級：editor→viewer 只是
  *      `editor.isEditable=false` + toast，連線不斷）。`'none'` 也照樣留在 connected
  *      （角色 `'none'` ⇒ `canEdit` 為 false ⇒ 唯讀），踢出與否交給 server 的
  *      REVOKED close 裁決——client 不自行推斷授權結果。

@@ -32,13 +32,13 @@ const THEMES: Theme[] = ["light", "dark", "system"];
 /**
  * 顯示 displayName、語言切換（en/zh-TW）、主題切換（light/dark/system）、
  * 設定入口（所有人皆可見，開 `/settings/account`，帶目前 location 當
- * `backgroundLocation`——設定總 modal，spec §13.4）、站台管理入口（admin only，
- * 導站台管理 modal `/admin/users`，帶 `backgroundLocation`（#247 §5.7））、登出。
+ * `backgroundLocation`——設定總 modal）、站台管理入口（admin only，
+ * 導站台管理 modal `/admin/users`，帶 `backgroundLocation`（#247））、登出。
  * 未登入（`user` 為 `null`/`undefined`）時不渲染任何東西——這個元件只掛在
  * `<RequireAuth>` 底下的頁面，理論上此時一定已登入，但保留這道防呆，
  * 避免元件被單獨挪用到未受保護的頁面時炸掉。
  *
- * PR2（側欄卡 D.5）：觸發鈕改成整列（圓形首字 avatar＋displayName＋齒輪），
+ * 觸發鈕是整列（圓形首字 avatar＋displayName＋齒輪），
  * 而不是只有文字的 `Button`。**e2e 名稱保護**：觸發鈕本身設
  * `aria-label={user.displayName}`，覆蓋掉子樹（avatar／文字／齒輪）自然算出的
  * accessible name；avatar 與齒輪都標 `aria-hidden="true"`，確保
@@ -53,7 +53,7 @@ export function UserMenu() {
   const { release } = useSidebarQuery();
   const { theme, setTheme, accent, setAccent } = useTheme();
   const accentLabelId = useId();
-  // 快捷鍵介紹項（plan T7）：這幾個 hook 必須在 `if (!user) return null` 之前。
+  // 快捷鍵介紹項：這幾個 hook 必須在 `if (!user) return null` 之前。
   const shortcuts = useShortcutsDialog();
   const mac = isMacPlatform();
   const [menuOpen, setMenuOpen] = useState(false);

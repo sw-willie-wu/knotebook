@@ -5,13 +5,13 @@ import { expandFolderChain, type FolderIndex } from "@/components/sidebar/folder
 import { toast } from "@/components/ui/toast";
 
 /**
- * ⋮「移動到…」的同空間移動（資料夾 spec §6.11.2「選定後」；PR-3c 拖曳也走同一則 toast，§6.13）。
+ * ⋮「移動到…」的同空間移動（側欄拖曳也走同一則 toast）。
  * 首包模組：不 import 字串包（`folders.movedTo`、`trash.undo` 都在主檔）。
  */
 
 type Translate = (key: string, options?: Record<string, unknown>) => string;
 
-/** 404 `folder_not_found`＝快取裡的資料夾已不在：失效 folders／notes 讓樹重抓（spec §6.15）。 */
+/** 404 `folder_not_found`＝快取裡的資料夾已不在：失效 folders／notes 讓樹重抓。 */
 function invalidateIfFolderGone(queryClient: QueryClient, err: unknown): void {
   if (isFolderNotFound(err)) invalidateFolderRelated(queryClient);
 }
@@ -22,11 +22,11 @@ function setCachedFolderId(queryClient: QueryClient, noteId: string, folderId: s
 }
 
 /**
- * spec §6.11.2 同空間移動：PUT → applyPlacedNote → expandFolderChain(目標) → toast「已移到「name」」＋「復原」。
+ * 同空間移動：PUT → applyPlacedNote → expandFolderChain(目標) → toast「已移到「name」」＋「復原」。
  * 復原：PUT 回 from；成功不另出 toast（清單即時歸位）、失敗出 folderErrorMessage 錯誤 toast、不重試。
  * 失敗：folderErrorMessage 錯誤 toast；404 folder_not_found 另 invalidateFolderRelated。
  * toast 的 handler 只用參數捕捉的值：按「復原」時選單常已卸載（同 `lib/trash-undo.ts`）。
- * optimistic（拖曳，§6.13；⋮ 不帶）：PUT 前取消 ["notes"]（exact：不動版本面板的 ["notes", id, "versions"]）的進行中請求、記下該篇原本的
+ * optimistic（拖曳，⋮ 不帶）：PUT 前取消 ["notes"]（exact：不動版本面板的 ["notes", id, "versions"]）的進行中請求、記下該篇原本的
  * folderId、換成目標並展開目標鏈（放到收合的資料夾上時筆記不會先消失）；失敗只把該篇的 folderId 還原（PUT 期間別的寫入不被蓋掉），再走上述錯誤路徑。
  */
 export async function placeNoteWithUndo(args: {

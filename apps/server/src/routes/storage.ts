@@ -1,7 +1,7 @@
 /**
- * 儲存用量檢視（spec 2026-10-08 §7.3；#247 §9.1、§9.2）：使用者看自己的個人空間；**群組的任何成員**（不論旗標，含非成員的站台 admin）
+ * 儲存用量檢視（#247）：使用者看自己的個人空間；**群組的任何成員**（不論旗標，含非成員的站台 admin）
  * 看群組空間——#247 起放寬（原本只限 manageGroup）。單句讀、不開交易。群組授權與 routes/groups.ts 一致：`groupAccess` 回 null →
- * 404 not_found（GROUP_NOT_FOUND_MESSAGE；非成員／不存在／id 不合法三者逐位元組同形，S4）；本檔沒有 403 分支。
+ * 404 not_found（GROUP_NOT_FOUND_MESSAGE；非成員／不存在／id 不合法三者逐位元組同形）；本檔沒有 403 分支。
  * 錯誤詳情裡要不要附用量數字另由 `storage/usage.ts` 的 `canViewSpaceUsage` 決定（manageGroup），與這支 GET 無關。
  */
 import type { FastifyInstance } from "fastify";

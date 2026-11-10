@@ -80,7 +80,7 @@ function renderAt(initialPath: string, fetchMock: ReturnType<typeof vi.fn>, quer
   return queryClient;
 }
 
-describe("ChangePasswordPage（spec rev 5.7）", () => {
+describe("ChangePasswordPage", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -173,7 +173,7 @@ describe("ChangePasswordPage（spec rev 5.7）", () => {
     // session cookie（見該檔說明）——使用者並未被登出。之後的 GET /api/auth/me（本頁
     // `invalidateQueries` 觸發的 refetch）理應回 200，且 mustChangePassword 已被
     // server 清成 false。這裡用一個 closure 旗標模擬這個狀態轉換，而不是直接 mock 死
-    // 「改密碼後 401」——那樣測的是與 production 相反的行為（round 1 review 指出的
+    // 「改密碼後 401」——那樣測的是與 production 相反的行為（曾經
     // test-integrity 問題）。
     let mustChange = true;
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -251,7 +251,7 @@ describe("ChangePasswordPage（spec rev 5.7）", () => {
   });
 });
 
-describe("ChangePasswordPage——#187 B23 說明句", () => {
+describe("ChangePasswordPage——#187 說明句", () => {
   beforeEach(async () => { await i18n.changeLanguage("en"); dismissAllToasts(); });
   afterEach(() => vi.unstubAllGlobals());
 
@@ -266,7 +266,7 @@ describe("ChangePasswordPage——#187 B23 說明句", () => {
       throw new Error(`unexpected fetch: ${method} ${url}`);
     });
 
-  it("帳密登入有效值關 → 顯示 B23 句", async () => {
+  it("帳密登入有效值關 → 顯示說明句", async () => {
     renderAt("/change-password", fetchWithConfig(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ providers: [], registration: { enabled: true, providerIds: [] }, passwordLogin: { enabled: false } }) })));
     expect(await screen.findByText(B23)).toBeInTheDocument();
   });
@@ -274,7 +274,7 @@ describe("ChangePasswordPage——#187 B23 說明句", () => {
   it("有效值開 → 沒有那句", async () => {
     const queryClient = renderAt("/change-password", fetchWithConfig(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ providers: [], registration: { enabled: true, providerIds: [] }, passwordLogin: { enabled: true } }) })));
     await screen.findByRole("heading", { name: "Change your password" });
-    // 「不存在」斷言的等待點：config 已落地進 query cache（否則 B23 句本來就還沒出現，斷言空真）。
+    // 「不存在」斷言的等待點：config 已落地進 query cache（否則說明句本來就還沒出現，斷言空真）。
     await waitFor(() => expect(queryClient.getQueryData(["auth-config"])).toBeDefined());
     expect(screen.queryByText(B23)).not.toBeInTheDocument();
   });

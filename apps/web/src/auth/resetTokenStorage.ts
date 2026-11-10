@@ -1,5 +1,5 @@
 /**
- * 一次性連結頁（網址帶一次性 token 的頁）暫存 token 的 sessionStorage 鍵與通用的頁表（spec §3.2）。
+ * 一次性連結頁（網址帶一次性 token 的頁）暫存 token 的 sessionStorage 鍵與通用的頁表。
  * 目前有 #286 重設密碼與 #285 邀請註冊（`/register`）兩頁，各一列在 `ONE_TIME_TOKEN_PAGES`。檔名沿用 #286 起的名稱。
  *
  * 這支模組刻意不在 lazy chunk 裡：`main.tsx` 在 render 前呼叫 `clearStaleOneTimeTokens`。頁面自己在已登入、

@@ -1,5 +1,5 @@
 /**
- * 「用 MCP 連接 Claude」的設定片段（#247 §5.3）：PAT 兩段＋OAuth 兩段。純函式，輸入是站台 origin（`window.location.origin`）；
+ * 「用 MCP 連接 Claude」的設定片段（#247）：PAT 兩段＋OAuth 兩段。純函式，輸入是站台 origin（`window.location.origin`）；
  * token 位置一律 `<YOUR_TOKEN>` 佔位，**不帶入任何 token 值**。
  * OAuth 片段只在 https 顯示（`oauthAvailable`，#159）；寫法是實測過的（Windows Desktop）。
  * ⚠ 這是 user-facing 文件敘述：改片段前先實連一次，並同步 docs/mcp.md How to connect。

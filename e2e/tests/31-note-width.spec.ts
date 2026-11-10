@@ -3,10 +3,10 @@ import { ADMIN, createNote, editorLocator, loginAs, randomEmail } from "./helper
 
 /**
  * #297 內文欄三段寬度（真瀏覽器量測）：
- * - E1 站內：頁首寬度選單切標準／寬／全寬，多個視窗寬下欄寬＝`expected()`（spec §3 的 clamp 公式，代入實量的 W）；重整後仍記得。
- * - E2 頁首（Review Focus 5）：768 px × {預設側欄, 320 px 側欄} × {en, zh-TW} 頁首不被裁、寬度鈕隱藏；
+ * - E1 站內：頁首寬度選單切標準／寬／全寬，多個視窗寬下欄寬＝`expected()`（clamp 公式，代入實量的 W）；重整後仍記得。
+ * - E2 頁首：768 px × {預設側欄, 320 px 側欄} × {en, zh-TW} 頁首不被裁、寬度鈕隱藏；
  *   寬度鈕恰在頁首 content box ≥ 696 px（`@min-[43.5rem]`）時出現，門檻兩側各量一格，⋮ 都不被裁。
- * - E3 公開頁（spec §8 e2e）：owner 在分享對話框設全寬 → 匿名讀者的欄寬＝W、超過標準上限 1056。
+ * - E3 公開頁（e2e）：owner 在分享對話框設全寬 → 匿名讀者的欄寬＝W、超過標準上限 1056。
  *
  * W＝欄的父層（捲動容器，無 padding）的 clientWidth：max-width 的百分比以它解析；以實量 W 對公式，捲軸只改變 W、不影響判定。
  * 每次量測印一行 `MEASURE …`。
@@ -14,7 +14,7 @@ import { ADMIN, createNote, editorLocator, loginAs, randomEmail } from "./helper
 
 const RUN_ID = Date.now();
 
-/** spec §3：標準 clamp(42.5rem,85%,66rem)、寬 clamp(42.5rem,92.5%,88rem)、全寬不設上限；再被 w-full 夾在 W 以內。 */
+/** 標準 clamp(42.5rem,85%,66rem)、寬 clamp(42.5rem,92.5%,88rem)、全寬不設上限；再被 w-full 夾在 W 以內。 */
 const CLAMP = { standard: { ratio: 0.85, cap: 1056 }, wide: { ratio: 0.925, cap: 1408 } } as const;
 type Mode = "standard" | "wide" | "full";
 function expected(mode: Mode, W: number): number {

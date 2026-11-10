@@ -1,5 +1,5 @@
 /**
- * #93 §8.3：摘錄演算法（MCP 與 PR2 的 REST 共用；成本函式由呼叫端給——MCP 用 JSON 逃脫後成本，REST 用 code unit）。
+ * #93：摘錄演算法（MCP 與 REST 共用；成本函式由呼叫端給——MCP 用 JSON 逃脫後成本，REST 用 code unit）。
  * 輸入是 SQL 回的窗口（`notes/search-sql.ts`：命中前 40、命中、命中後 160 個 code point）。以 code point 走訪
  * （`Array.from`，與 PG 的 substr 同單位），所以不會切出半個代理對。預算 B＝max−2（預留前後兩個 `…`，U+2026 成本 1）：
  *   1. 命中段先選（逐 code point 加到用完 B）——**命中起點一定在摘錄裡**；命中成本 ≤ B 時整段入選。
@@ -7,7 +7,7 @@
  *   3. 剩餘預算全部給後文（含前文沒用完的）；命中段沒選完時不加後文（否則會跳過命中的後半）。
  *   4. 前後文的連續空白（含 \n）壓成一個空格；命中段本身不壓（保持 body 原文）。
  *   5. 摘錄起點之前還有字 → 前綴 `…`；終點之後還有字 → 後綴 `…`。結果成本 ≤ max。
- * 保證只在「lower() 不改變長度」時成立（libc locale；ICU 下窗口可能偏移幾個字元，spec §7.5）——模型面字串只說 near the first hit。
+ * 保證只在「lower() 不改變長度」時成立（libc locale；ICU 下窗口可能偏移幾個字元）——模型面字串只說 near the first hit。
  */
 const WS = /\s/u;
 

@@ -7,7 +7,7 @@ import { attachTestElementRenderer } from "@/test/element-renderer";
 import { collabUndoManager } from "./undo";
 import { runFallbackConversion, type FallbackRequest, type SiteLinkEnv, type SiteLinkEnvRef } from "./site-link-convert";
 
-// #352 spec 2026-10-30-drop-site-links-design §6.1：以 `buildNoteEditorOptions` 掛真編輯器（產品碼原樣），送真 DOM `drop` 事件。
+// #352：以 `buildNoteEditorOptions` 掛真編輯器（產品碼原樣），送真 DOM `drop` 事件。
 // toast 換成 spy（同 `components/NoteEditor.test.ts`）：媒體阻擋會呼叫它。
 const toastMock = vi.hoisted(() => vi.fn());
 vi.mock("@/components/ui/toast", () => ({ toast: toastMock }));
@@ -93,7 +93,7 @@ function dropOn(
   v.dom.dispatchEvent(event);
 }
 
-/** 每次 drop 之後都要清 microtask 再做下一步（spec §3 前提）。 */
+/** 每次 drop 之後都要清 microtask 再做下一步（前提）。 */
 async function flush(): Promise<void> {
   for (let i = 0; i < 6; i++) await Promise.resolve();
   await new Promise((r) => setTimeout(r, 0));
@@ -136,7 +136,7 @@ afterEach(() => {
   }
 });
 
-describe("#352 drop hook（spec §6.1）", () => {
+describe("#352 drop hook", () => {
   it("DL1：側欄 <a> 形（html＋plain＋uri-list）命中 → 恰一個 wikilink（label 空）、沒有一般連結、不排後備", async () => {
     const env = mkEnv();
     const { editor } = mount(env);
@@ -420,7 +420,7 @@ describe("#352 drop hook（spec §6.1）", () => {
     dropOn(editor, 5, MEDIA);
   }
 
-  it("DLp1：drop tr 的最後一個 StepMap 不止一段（setNodeMarkup）→ 記 null、不轉（spec §3.1）", async () => {
+  it("DLp1：drop tr 的最後一個 StepMap 不止一段（setNodeMarkup）→ 記 null、不轉", async () => {
     const { editor } = mount(mkEnv());
     editor.replaceBlocks(editor.document, [{ type: "paragraph", content: ["AAA ", L("H")] }]);
     const v = view(editor);
@@ -451,7 +451,7 @@ describe("#352 drop hook（spec §6.1）", () => {
 });
 
 /**
- * DL11（spec §4；量法依 knotebook-editor-undo-measurement：共編組態、不用 fake timers、`stopCapturing()` 只放在 drop 之前）。
+ * DL11（量法：共編組態、不用 fake timers、`stopCapturing()` 只放在 drop 之前）。
  * 量到的結果即斷言；後備兩列比照 `site-link-convert.test.tsx` 的 W11，改由 drop 觸發。
  */
 const MEASURED_DROP = { undoRemovesWholeDrop: true, fallbackAfterPauseRevertsToLink: true, fallbackImmediateRemovesAll: true } as const;

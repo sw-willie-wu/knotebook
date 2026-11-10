@@ -33,8 +33,8 @@ export function PaneResizeHandle({
 }) {
   // `latest`：拖曳中最後一次算出的寬度。放開時寫入 localStorage 用它，不用 render 閉包裡的 `width`——
   // 真瀏覽器裡 pointermove（連續事件）的 state 更新不保證在 pointerup（離散事件）handler 之前 commit，
-  // 讀 `width` 可能存到上一格（gate r1 M1）。未在瀏覽器量過；jsdom 的 fireEvent 每發都包 act，
-  // 兩種寫法在 jsdom 下行為相同、單元測試分不出來（突變 A7 實跑全綠），只能靠手動清單驗。
+  // 讀 `width` 可能存到上一格。未在瀏覽器量過；jsdom 的 fireEvent 每發都包 act，
+  // 兩種寫法在 jsdom 下行為相同、單元測試分不出來（突變實測全綠），只能靠手動清單驗。
   const dragRef = useRef<{ startX: number; startWidth: number; latest: number } | null>(null);
   const [dragging, setDragging] = useState(false);
   // 往外拖＝變寬：right 緣 +dx、left 緣 −dx。

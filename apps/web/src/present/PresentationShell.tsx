@@ -17,26 +17,26 @@ import {
 } from "./present-url";
 
 /**
- * #229 簡報外殼（spec §6.1）——入口側、全頁唯一一個、**不** import reveal。
- * - 全視窗 `role="dialog" aria-modal`、`z-[60]`（高於抽屜與 dialog 的 z-50、低於 toast 的 z-[100]，§6.6-8）；
- *   存在時 AppShell 的 Ctrl+K 放棄（`[role="dialog"]` 判斷，§2.4-1）。
- * - 載入、錯誤、chunk 失敗、config 拒絕都是外殼的內容；任何狀態下 × 與 Esc 都能離開（§17-8）。
+ * #229 簡報外殼——入口側、全頁唯一一個、**不** import reveal。
+ * - 全視窗 `role="dialog" aria-modal`、`z-[60]`（高於抽屜與 dialog 的 z-50、低於 toast 的 z-[100]）；
+ *   存在時 AppShell 的 Ctrl+K 放棄（`[role="dialog"]` 判斷）。
+ * - 載入、錯誤、chunk 失敗、config 拒絕都是外殼的內容；任何狀態下 × 與 Esc 都能離開。
  * - 任何時刻只有一個 Esc 入口：reveal 宣告就緒（onRevealReady(true)）之前由外殼的 document 監聽處理，
  *   之後由 reveal 的 keyboard[27] 呼叫同一個 onEsc；離開冪等（leftRef）。
- * - 掛上後正規化查詢字串成恰好 `?present`（§6.4-1、F14），導覽在途時延後（同 NotePage 收斂的守衛）。
- * - 卸載時走卸載型全螢幕呼叫點（讀真實網址，§6.5）。
+ * - 掛上後正規化查詢字串成恰好 `?present`，導覽在途時延後（同 NotePage 收斂的守衛）。
+ * - 卸載時走卸載型全螢幕呼叫點（讀真實網址）。
  */
 export const ESC_AFTER_FULLSCREEN_EXIT_MS = 300;
 const TOOLBAR_IDLE_MS = 2000;
 
 export interface PresentationShellContextValue {
-  /** overlay 在 initialize resolve 且未拆時送 true、拆除時（只有送過 true 的那份）送 false（§6.9）。 */
+  /** overlay 在 initialize resolve 且未拆時送 true、拆除時（只有送過 true 的那份）送 false。 */
   onRevealReady(ready: boolean): void;
   /** reveal 的 keyboard[27]（總覽開著時 overlay 自己先關總覽）。 */
   onEsc(): void;
-  /** 無法播放（§6.4-1 查詢字串斷言、§6.4-3 config 核對）：外殼切錯誤態、卸載 overlay。 */
+  /** 無法播放（查詢字串斷言、config 核對）：外殼切錯誤態、卸載 overlay。 */
   onFatal(messageKey: string): void;
-  /** F 鍵與全螢幕鈕（§6.6-2）。 */
+  /** F 鍵與全螢幕鈕。 */
   toggleFullscreen(): void;
 }
 
@@ -54,7 +54,7 @@ export interface PresentationShellProps {
   title: string;
   status: PresentationShellStatus;
   errorMessage?: string;
-  /** 工具列左側插槽（已登入：連線徽章，A9）。 */
+  /** 工具列左側插槽（已登入：連線徽章）。 */
   toolbarExtra?: ReactNode;
   /** 只在 status === "ready" 且沒有 fatal 時渲染（播放態：lazy 的 PresentationOverlay）。 */
   children?: ReactNode;
@@ -79,7 +79,7 @@ export function PresentationShell({ title, status, errorMessage, toolbarExtra, c
   const leave = useCallback(() => {
     if (leftRef.current) return;
     leftRef.current = true;
-    exitOwnedFullscreen(); // §6.5 呼叫點 1：導頁之前
+    exitOwnedFullscreen(); // 導頁之前
     const { location: latest, navigate: go } = latestRef.current;
     if (wasPresentPushed(latest.state)) void go(-1);
     else void go({ pathname: latest.pathname, search: searchWithoutPresent(latest.search), hash: "" }, { replace: true });
@@ -87,7 +87,7 @@ export function PresentationShell({ title, status, errorMessage, toolbarExtra, c
 
   const onEsc = useCallback(() => {
     if (document.fullscreenElement) return; // 瀏覽器正在用這一下 Esc 退全螢幕
-    if (msSinceFullscreenExit() < ESC_AFTER_FULLSCREEN_EXIT_MS) return; // 兩種事件順序都只退一段（§6.6-1）
+    if (msSinceFullscreenExit() < ESC_AFTER_FULLSCREEN_EXIT_MS) return; // 兩種事件順序都只退一段
     leave();
   }, [leave]);
 
@@ -147,7 +147,7 @@ export function PresentationShell({ title, status, errorMessage, toolbarExtra, c
 
   const ownedFullscreen = useSyncExternalStore(subscribeFullscreen, isOwnedFullscreen, () => false);
   const fullscreenEnabled = document.fullscreenEnabled === true;
-  const keepFocus = (event: ReactMouseEvent) => event.preventDefault(); // §6.7：滑鼠點擊不移動焦點
+  const keepFocus = (event: ReactMouseEvent) => event.preventDefault(); // 滑鼠點擊不移動焦點
   const label = title.trim() === "" ? t("note.titlePlaceholder") : title;
   const errorText = fatalKey !== null ? t(fatalKey) : status === "error" ? errorMessage : undefined;
 
@@ -162,7 +162,7 @@ export function PresentationShell({ title, status, errorMessage, toolbarExtra, c
         onMouseMove={wake}
         className="fixed inset-0 z-[60] flex flex-col bg-card text-foreground outline-none"
       >
-        {/* 閒置淡出（§6.7）：spec 寫 focus-visible 浮現；這裡用 focus-within——鍵盤焦點在任一顆按鈕上時整列都浮現，範圍較寬、符合意圖。 */}
+        {/* 閒置淡出：不用 focus-visible 浮現；這裡用 focus-within——鍵盤焦點在任一顆按鈕上時整列都浮現，範圍較寬、符合意圖。 */}
         <div
           className={cn(
             "absolute right-3 top-3 z-10 flex items-center gap-2 transition-opacity hover:opacity-100 focus-within:opacity-100",
@@ -210,8 +210,8 @@ interface PresentationErrorBoundaryProps {
 }
 
 /**
- * 公開頁簡報的錯誤邊界（spec §6.2 末段）：公開頁不用 chunk 自動 reload 額度，錯誤文字＋手動重試（整頁 reload）。
- * 離開由外殼的 × 與 Esc 提供。文案沿用 public.loadError／app.retry（起草裁定 5）。
+ * 公開頁簡報的錯誤邊界：公開頁不用 chunk 自動 reload 額度，錯誤文字＋手動重試（整頁 reload）。
+ * 離開由外殼的 × 與 Esc 提供。文案沿用 public.loadError／app.retry。
  */
 export class PresentationErrorBoundary extends Component<PresentationErrorBoundaryProps, { hasError: boolean }> {
   state = { hasError: false };

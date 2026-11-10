@@ -1,9 +1,9 @@
 /**
- * #229 簡報切頁（spec §4）：純函式，不碰 DOM、不碰 Y.Doc。
+ * #229 簡報切頁：純函式，不碰 DOM、不碰 Y.Doc。
  *
- * 相對層級（D2、E1、F3）：頂層 heading 中最小的 level＝L1（章，橫向），大於 L1 的最小 level＝L2
+ * 相對層級：頂層 heading 中最小的 level＝L1（章，橫向），大於 L1 的最小 level＝L2
  * （節，縱向；可能不存在）；更深的標題留在頁內。divider 另開一章（divider 本身不放進 blocks）。
- * 只看頂層 block，子 block 跟父 block 走。封面章永遠在、ID 恆為 `_title`（§4.1）。
+ * 只看頂層 block，子 block 跟父 block 走。封面章永遠在、ID 恆為 `_title`。
  * 空頁（kind 不是 heading／cover 且所有 block 都是空白段落）略過；章首被略過時章 ID 跟著換。
  */
 export const COVER_ID = "_title";

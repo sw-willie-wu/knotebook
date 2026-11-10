@@ -1,10 +1,10 @@
 /**
- * bulk transfer spec 2026-11-02 §5.5、§6.2、§11：範圍解析。**可見性只來自既有查詢**（plan §1-5）：筆記＝`visibleNoteBranches`、
+ * bulk transfer：範圍解析。**可見性只來自既有查詢**：筆記＝`visibleNoteBranches`、
  * 資料夾＝`listVisibleFolders`、群組＝`listMyGroupsQuery`（JS 濾 `canRead`）、群組範圍的可讀判準＝`loadCreateTarget(...)?.canRead`。
  *
- * 呼叫約定（T1–T6 審查 I1）：`buildLayout` 一律吃讀者可見的**完整集合**，命名在完整集合上算、
+ * 呼叫約定：`buildLayout` 一律吃讀者可見的**完整集合**，命名在完整集合上算、
  * 輸出依範圍篩——範圍縮小時路徑不變。範圍內的篇數＝`layout.files.size`。
- * 範圍物件（群組、資料夾）使用時已看不到 → `gone`，呼叫端回 403（spec §5.5 定案）；必須在 `buildLayout` 之前判。
+ * 範圍物件（群組、資料夾）使用時已看不到 → `gone`，呼叫端回 403；必須在 `buildLayout` 之前判。
  */
 import { inArray, type SQL } from "drizzle-orm";
 import { unionAll } from "drizzle-orm/pg-core";
@@ -66,7 +66,7 @@ export async function visibleTree(db: DbOrTx, userId: string): Promise<{ folders
 }
 
 /**
- * 範圍物件此刻還看不看得到（§0.1-3）。`all`／`personal`／`shared` 恆在。群組與資料夾另外要在 `tree`（經 `consistentTree`
+ * 範圍物件此刻還看不看得到。`all`／`personal`／`shared` 恆在。群組與資料夾另外要在 `tree`（經 `consistentTree`
  * 之後）裡——否則 `buildLayout` 會因範圍物件不在輸入而丟錯；兩次查詢之間群組權限變動的那一瞬間一律當「看不到」。
  */
 export async function rangeGone(db: DbOrTx, userId: string, range: BulkRange, tree: { folders: LayoutFolder[]; groups: LayoutGroup[] }): Promise<boolean> {
@@ -80,7 +80,7 @@ export async function rangeGone(db: DbOrTx, userId: string, range: BulkRange, tr
 }
 
 /**
- * 讓「資料夾、群組、筆記」三支查詢之間的競態不變成 500（T7–T11 審查 m1）：`listVisibleFolders`、`listMyGroupsQuery`、
+ * 讓「資料夾、群組、筆記」三支查詢之間的競態不變成 500：`listVisibleFolders`、`listMyGroupsQuery`、
  * `visibleNotes` 各自一句、中間隔著 await，途中被加進（或移出）群組 G 時，可能出現「G 的資料夾或筆記在、G 不在」。
  * 這裡把群組不在清單裡的群組資料夾濾掉（筆記另由 `consistentNotes` 濾）——那一瞬間的變動在下一次下載就會收斂。
  */

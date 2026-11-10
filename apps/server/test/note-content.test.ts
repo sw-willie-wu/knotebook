@@ -117,7 +117,7 @@ describe("GET /api/notes/:id/content", () => {
     expect(body.fingerprint).toMatch(/^[0-9a-f]{16}$/);
     // 大綱是對外 DTO（`NoteOutlineEntry`）：內部的 blockIds 不得外洩
     expect(body.outline.every((o: Record<string, unknown>) => o.blockIds === undefined)).toBe(true);
-    // 每一列的 fingerprint 是**該段自己的**指紋，不是整篇 fingerprint 的複製（Task 3
+    // 每一列的 fingerprint 是**該段自己的**指紋，不是整篇 fingerprint 的複製（
     // `fingerprint.ts` 檔頭明令禁止的退化：不符時退回整篇指紋）——三段內容互異，指紋
     // 也必須互異；且沒有任何一列會恰好等於整篇 fingerprint（#137 的條件更新拿這個欄位
     // 當基準，這裡沒守到就是編出來的假指紋）。
@@ -133,7 +133,7 @@ describe("GET /api/notes/:id/content", () => {
     // 段落端點回的指紋要與大綱那一列的指紋是同一個值（不是另外重算出來的巧合相等）。
     expect(sec.section.fingerprint).toBe(body.outline[2].fingerprint);
     expect(sec.outline).toBeUndefined();
-    // 段落形不帶整篇 outline，同樣不該帶整篇 fingerprint／假的 lastEdited——spec §5 的鍵只有
+    // 段落形不帶整篇 outline，同樣不該帶整篇 fingerprint／假的 lastEdited——段落形回應的鍵只有
     // `section`（見上）與 `lastEdited`。
     expect(sec.fingerprint).toBeUndefined();
     // #137：`lastEdited` 已是真值，不能再斷言恆 null（這篇剛被人編輯過，落盤一落地就變人形落款

@@ -10,7 +10,7 @@ import type { NoteWidth } from "@knotebook/shared";
  * `components/note-width.ts`，公開頁寬度來自公開端點的 `width`。
  *
  * 歷史：#88 曾讓頁首（標題列）／頁尾（backlinks strip）也套這條欄做三線對齊；
- * #115 版面改版定案「頁首/頁尾回滿卡寬（置左置右）」，對齊機制連同
+ * #115 版面改版改成「頁首/頁尾回滿卡寬（置左置右）」，對齊機制連同
  * `ARTICLE_COLUMN_INSET` 一併拆除——把欄加回頁首/頁尾是刻意拆掉的行為，
  * `article-column.guard.test.ts` (d) 有反向守衛。
  */

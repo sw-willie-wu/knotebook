@@ -23,7 +23,7 @@ const LIST_CLASS = "list-none space-y-4 pl-0";
 const HEADING_CLASS = "text-sm font-semibold";
 
 /**
- * 「用 MCP 連接 Claude」（#247 §5.3、W10；#298 分兩段）：本站端點，然後「方式一：OAuth 授權」與「方式二：個人 token」
+ * 「用 MCP 連接 Claude」（#247；#298 分兩段）：本站端點，然後「方式一：OAuth 授權」與「方式二：個人 token」
  * 兩段，各有 Claude Code／Claude Desktop 片段（組裝在 `mcp-snippets.ts`；PAT 片段的 token 位置一律 `<YOUR_TOKEN>` 佔位，
  * **不自動帶入任何 token 值**），最後一句權限對照（與 docs/mcp.md 工具表同步）。
  * OAuth 只在 https 站台顯示（#159）：http 時那一段只剩標題與一行說明。`origin` 選填，預設 `window.location.origin`

@@ -7,24 +7,24 @@ import { cn } from "@/lib/utils";
  * AI 設定的 provider/model/action enabled、群組角色的權限旗標）。表單欄位那種「按下送出才生效」的
  * 布林設定請用同目錄的 `Checkbox`，不要用這顆——語意不同，見兩檔案各自的
  * JSDoc（`settings/SettingsAiSection.tsx` 的 isDefault vs enabled 分野）。
- * 例外：建立 API token 對話框的「編輯」「搬移」用這顆、按送出才生效——#247 W22 的明文例外（與行內編輯共用
+ * 例外：建立 API token 對話框的「編輯」「搬移」用這顆、按送出才生效——#247 的明文例外（與行內編輯共用
  * `settings/ScopeTogglesField.tsx`，同一組控制項不在兩處長成兩種樣子）。
- * 例外二：站台垃圾桶設定的「自動永久刪除」（`settings/SettingsTrashSection.tsx`）用這顆、按「儲存」才生效——#181 §6.9
- * 指定「開關」，即時送出預設 7 天可能在一小時內清掉一批舊垃圾（PR-2b 讀碼發現 25）。
+ * 例外二：站台垃圾桶設定的「自動永久刪除」（`settings/SettingsTrashSection.tsx`）用這顆、按「儲存」才生效——#181
+ * 指定「開關」，即時送出預設 7 天可能在一小時內清掉一批舊垃圾。
  * 例外三：新增角色對話框的六個權限旗標（`settings/SettingsGroupRolesSection.tsx` 的 `NewRoleDialog`）用這顆、按「建立」才生效——
  * 與角色卡（按下即生效）共用 `FlagSwitchRow`，同一組控制項不在兩處長成兩種樣子。
  *
  * ⚠ **可及性角色是 `role="switch"`，不是 `role="checkbox"`**——原生
  * `<input type="checkbox">` 換成這顆之後，任何用 `getByRole("checkbox", …)` 找它
- * 的測試都要改成 `getByRole("switch", …)`（2026-09-17 全站 checkbox 換 toggle
+ * 的測試都要改成 `getByRole("switch", …)`（全站 checkbox 換 toggle
  * 那次改動，`ShareDialog.test.tsx`／`SettingsAiSection.test.tsx` 踩過這個雷）。
  *
- * 尺寸（#247 §4.9，全站細版）：軌道 26×14px（`h-3.5 w-[26px]`）、滑塊 10px、
+ * 尺寸（#247，全站細版）：軌道 26×14px（`h-3.5 w-[26px]`）、滑塊 10px、
  * 開啟位移 12px。比 `button.tsx` 定的 32px 控制項高度矮很多——刻意的，toggle 本體視覺上
  * 本來就該比方塊按鈕小；**點擊目標**就是 Radix 渲染的那顆 `<button>` 本身。
  *
  * 開啟態用主題色 `bg-brand`、關閉態 `bg-input`。`tone="destructive"` 時開啟態改
- * `bg-destructive`（token 的「搬移」權限：不可逆的後果，#247 §5.3）。focus 樣式比照 `button.tsx`。
+ * `bg-destructive`（token 的「搬移」權限：不可逆的後果，#247）。focus 樣式比照 `button.tsx`。
  */
 export const Switch = forwardRef<
   ElementRef<typeof SwitchPrimitive.Root>,

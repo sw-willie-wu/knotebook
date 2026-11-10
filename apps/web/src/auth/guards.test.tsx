@@ -23,7 +23,7 @@ function fakeResponse({ ok, status, json }: FakeResponseInit): Response {
 }
 
 /** 已登入，且可指定 `mustChangePassword`——給 `ChangePasswordGate`
- * （spec rev 5.7）測試用。 */
+ * 測試用。 */
 function mockFetchMustChangePassword(mustChangePassword: boolean) {
   return vi.fn((input: RequestInfo | URL) => {
     const url = String(input);
@@ -211,7 +211,7 @@ describe("session query 出錯（非 401）", () => {
   });
 });
 
-describe("ChangePasswordGate（spec rev 5.7）", () => {
+describe("ChangePasswordGate", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
@@ -248,7 +248,7 @@ describe("ChangePasswordGate（spec rev 5.7）", () => {
 //
 // 這一族守的是「使用者本來要開的那一頁」有沒有被交給登入頁。逐字斷言整串 query 是
 // 重點：pathname+search 必須恰好 encode 一次，內含的 ?、& 與 % 才不會被當成 /login
-// 自己的參數（LoginPage 那頭，Task 4 起，用 searchParams.get("next") 解一次拿回原字串）。
+// 自己的參數（LoginPage 那頭，用 searchParams.get("next") 解一次拿回原字串）。
 
 /** 落在 /login 時把完整 location 印成單一 text node，讓斷言可以逐字 toBe。 */
 function LoginProbe() {
@@ -329,7 +329,7 @@ describe("#131 未登入導向帶 next", () => {
     // 「/n/alice/筆記」在 web 端的樣子。**漏編**會讓 server 端 searchParams.get("next")
     // 一次就解出裸的 CJK，過不了 safeNextPath 的可見 ASCII 檢查；**雙重編碼**則會讓
     // next 變成 %252F… 開頭，解出來首字元不是 /、同樣被擋。兩種錯法都由下面這條逐字
-    // 斷言接住——這一案是 Task 2 那條字元檢查在 web 端的另一端。
+    // 斷言接住——這一案是字元檢查在 web 端的另一端。
     // ⚠ 不可改用裸 CJK 路徑來測：MemoryRouter 不會替你編碼，那是真實瀏覽器產不出來
     // 的狀態，測出來的結論會是誤導。
     vi.stubGlobal("fetch", mockFetchUnauthenticated());

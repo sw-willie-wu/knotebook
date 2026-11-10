@@ -8,12 +8,12 @@ export function absoluteUrl(path: string, origin: string = window.location.origi
   return new URL(path, origin).href;
 }
 
-/** #269 §10.1：段落連結＝`<筆記網址>#b-<區塊id>`。 */
+/** #269：段落連結＝`<筆記網址>#b-<區塊id>`。 */
 export function blockLinkUrl(base: string, blockId: string): string {
   return `${base}#b-${blockId}`;
 }
 
-/** §10.3：寫進剪貼簿；成功 toast「已複製段落連結」、失敗 toast 錯誤。 */
+/** 寫進剪貼簿；成功 toast「已複製段落連結」、失敗 toast 錯誤。 */
 export async function copyBlockLink(url: string, t: (key: string) => string): Promise<void> {
   try {
     await navigator.clipboard.writeText(url);

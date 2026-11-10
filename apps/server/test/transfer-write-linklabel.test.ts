@@ -1,5 +1,5 @@
 /**
- * 第三輪探索測試 F1：沒有自訂文字的 wikilink（顯示目標的現行標題）——下載後目標改名，在舊副本裡改含那個連結的段落再寫回，
+ * 沒有自訂文字的 wikilink（顯示目標的現行標題）——下載後目標改名，在舊副本裡改含那個連結的段落再寫回，
  * 連結文字不得被凍結成自訂文字（`transfer/link-texts.ts`）。L1–L4 四案；L5 是這版之前下載的副本（基底沒有 `links`）。
  */
 import { describe, expect, it } from "vitest";
@@ -41,7 +41,7 @@ async function scene(label = "") {
 }
 const href = (id: string) => `/notes/${id}`;
 
-describe("F1 寫回時保住「沒有自訂文字」的 wikilink", () => {
+describe("寫回時保住「沒有自訂文字」的 wikilink", () => {
   it("L1 下載 → 目標改名 → 舊副本改含連結的段落（連結文字沒動）→ 200 applied、label 仍空、顯示現行標題；之後再改名仍跟著變", async () => {
     const s = await scene();
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);

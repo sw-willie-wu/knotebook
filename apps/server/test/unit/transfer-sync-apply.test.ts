@@ -14,9 +14,9 @@ vi.mock("../../src/transfer/yield.js", async importOriginal => {
 });
 
 /**
- * bulk transfer spec §9.4-4、§9.5 第 6 步；plan PR-2 T7（AP1–AP9）。合併用記憶體 `Y.applyUpdate`（同 spike）。
+ * bulk transfer 套用（AP1–AP9）。合併用記憶體 `Y.applyUpdate`。
  * 筆記動過就 409，`applySync` 只在現況＝基底時被呼叫——「人」先改過現況的案（衝突、外來 block、倖存者不見、
- * 刪光補空段落、same 鏈尾、多區同一接點、AP8b）已隨合併刪除。
+ * 刪光補空段落、same 鏈尾、多區同一接點）已隨合併刪除。
  */
 
 const rt = new EditingRuntime({ baseUrl: "http://localhost/" });
@@ -74,7 +74,7 @@ describe("AP3 刪除區 anchor", () => {
   });
 });
 
-describe("防守（審查 Important 2）", () => {
+describe("防守", () => {
   it("插入的 block 不在頂層 → applySync 在 diffSince 之前 throw（什麼都沒合併）", async () => {
     const doc = await docWith(rt, [{ type: "bulletListItem", content: "a", children: [P("child")] }, P("B")]);
     const b = await makeBaseInMemory(rt, doc);
@@ -147,7 +147,7 @@ describe("AP5／AP9 讓出", () => {
   });
 });
 
-describe("紀錄列（fileSyncRows；R1 的列數前提）", () => {
+describe("紀錄列（fileSyncRows 的列數前提）", () => {
   it("same 區不記；改寫列 anchor null＋after 非空；刪除列帶 anchor＋after 空；指紋＝合併後 afterGroups", async () => {
     const { b, live } = await scene([P("A"), { type: "bulletListItem", content: "item" }, P("B"), P("C"), P("X"), P("D"), P("E")]);
     const r = await applyInMemory(rt, b, "A\n\n- item\n\nB\n\nC2\n\nX\n\nE", live);
@@ -163,7 +163,7 @@ describe("紀錄列（fileSyncRows；R1 的列數前提）", () => {
   });
 });
 
-describe("AP8 空筆記（gate r1 I5）", () => {
+describe("AP8 空筆記", () => {
   it("零顆頂層的 fork＋agent 寫兩段 → 結果恰兩顆（沒有多餘空段落）、紀錄形為插入列", async () => {
     const empty = new Y.Doc();
     const b = await makeBaseInMemory(rt, empty);

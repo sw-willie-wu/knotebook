@@ -21,7 +21,7 @@ import type { FolderDto } from "@knotebook/shared";
 import { __resetFolderSortForTests } from "@/components/sidebar/folder-sort";
 import { mockWidePointer } from "@/test/wide-pointer";
 
-// 一般 tab 選取模式的動作列、目的地框、確認框與三種流程（#181 PR-2c T5，SA1–SA24b；PR-3b-2 T6b 改寫部分案並加資料夾 SAf1–SAf16）。
+// 一般 tab 選取模式的動作列、目的地框、確認框與三種流程（#181，SA1–SA24b；含資料夾 SAf1–SAf16）。
 // 兩份外殼（同 AppShell 的靜態卡與抽屜）共用同一份選取；動作一律從第二份（shell 1）發起，找錯外殼焦點就會落到第一份。
 
 afterEach(() => {
@@ -51,7 +51,7 @@ const P2 = personalNote({ id: "p2", title: "p2" });
 const P3 = personalNote({ id: "p3", title: "p3" });
 const GA1 = groupNote({ id: "ga1", title: "ga1", group: GA });
 const GA2 = groupNote({ id: "ga2", title: "ga2", group: GA });
-/** 能刪不能編輯（§6.10.7）。 */
+/** 能刪不能編輯。 */
 const GA3 = groupNote({ id: "ga3", title: "ga3", group: GA, edit: false });
 /** 不能刪。 */
 const GA4 = groupNote({ id: "ga4", title: "ga4", group: GA, delete: false });
@@ -316,7 +316,7 @@ async function pickDestination(name: string): Promise<HTMLElement> {
   return screen.findByRole("dialog", { name: /^(Move into group|Copy to my notes|Copy into group|Make a copy)$/ });
 }
 
-describe("SelectActionBar（PR-2c T5）", () => {
+describe("SelectActionBar", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -352,7 +352,7 @@ describe("SelectActionBar（PR-2c T5）", () => {
       expect(del.className).not.toContain("brand-deep");
       expect(del.className).not.toContain("hover:border-transparent");
       expect(within(shell(1)).queryByRole("button", { name: "New note" })).toBeNull();
-      // 版面契約（T5 review r1 I1；真瀏覽器量測見報告）：兩顆文字鈕能縮（min-w-0）、字截斷但 DOM 仍是全文（可及名稱完整）、title 給全文。
+      // 版面契約（真瀏覽器量測見報告）：兩顆文字鈕能縮（min-w-0）、字截斷但 DOM 仍是全文（可及名稱完整）、title 給全文。
       for (const name of ["Move to", "Copy to"]) {
         const button = barButton(name);
         expect(button).toHaveClass("min-w-0", "flex-1", "px-1.5");
@@ -365,7 +365,7 @@ describe("SelectActionBar（PR-2c T5）", () => {
       expect(del).toHaveClass("w-9", "shrink-0");
     });
 
-    // PR-3b-2 改寫（SAf1）：群組、與我共享加 Move to；與我共享的刪除鈕只在選取全是資料夾時才有（0 項時沒有）。
+    // SAf1：群組、與我共享加 Move to；與我共享的刪除鈕只在選取全是資料夾時才有（0 項時沒有）。
     it.each([
       ["recent" as const, ["Copy to", "Delete 0 selected items"]],
       ["workspace" as const, ["Move to", "Copy to", "Delete 0 selected items"]],
@@ -481,7 +481,7 @@ describe("SelectActionBar（PR-2c T5）", () => {
     await waitFor(() => expect(selecting()).toBe(false));
   });
 
-  // PR-3b-2 改寫：群組 tab 單一群組 A 的「複製到」上半部是 A 自己（建立副本），下半部不再列 A → 改從我的筆記複製到 A（同一組確認字與 body）。
+  // 群組 tab 單一群組 A 的「複製到」上半部是 A 自己（建立副本），下半部不再列 A → 改從我的筆記複製到 A（同一組確認字與 body）。
   it("SA5 複製到群組：body {groupId}、toast", async () => {
     const server = stubServer();
     renderShells();
@@ -569,7 +569,7 @@ describe("SelectActionBar（PR-2c T5）", () => {
     expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument();
   });
 
-  it("SA10 混一篇能刪不能編輯 → 沒有 Undo、帶說明句（A2-12）", async () => {
+  it("SA10 混一篇能刪不能編輯 → 沒有 Undo、帶說明句", async () => {
     stubServer();
     renderShells({ tab: "workspace" });
     await enterSelecting();
@@ -709,7 +709,7 @@ describe("SelectActionBar（PR-2c T5）", () => {
       expect(document.querySelectorAll("li[data-swipe-direction]")).toHaveLength(1);
     });
 
-    it("SA14b 批次中途在同一個 NotePage 換到別篇：送原那篇時不設（已屬於新篇的）leavingRef、成功後不導回首頁（T5 review r1 M1）", async () => {
+    it("SA14b 批次中途在同一個 NotePage 換到別篇：送原那篇時不設（已屬於新篇的）leavingRef、成功後不導回首頁", async () => {
       const server = stubServer();
       const releaseP1 = server.hold("DELETE /api/notes/p1");
       const { controls, leavingRef } = controlsFor({ phase: "connected", role: "owner" });
@@ -1052,7 +1052,7 @@ describe("SelectActionBar（PR-2c T5）", () => {
   });
 });
 
-// ── PR-3b-2 T6b：資料夾與筆記同列的動作（資料夾 spec §6.10；SAf1–SAf16） ──
+// ── 資料夾與筆記同列的動作（SAf1–SAf16） ──
 
 /** 我的筆記：A（p1、p2）、A1、B 三個根層資料夾；p3、p4 在根層。群組 G（admin）有資料夾 GF、GF2。 */
 const FG: GroupDto = groupDto({ id: "G", name: "G" }, adminRole());
@@ -1085,7 +1085,7 @@ const levelNames = (picker: HTMLElement) =>
   );
 const barNames = () => within(bar()).getAllByRole("button", { hidden: true }).map((b) => b.getAttribute("aria-label") ?? b.textContent);
 const openToasts = () => document.querySelectorAll('li[data-swipe-direction][data-state="open"]');
-/** aria-describedby 指到的元素的字（`toHaveAccessibleDescription` 在描述元素不存在時會退回 title，守不住 sr-only 那份；T4 review m3）。 */
+/** aria-describedby 指到的元素的字（`toHaveAccessibleDescription` 在描述元素不存在時會退回 title，守不住 sr-only 那份）。 */
 const describedText = (el: HTMLElement) => document.getElementById(el.getAttribute("aria-describedby") ?? "")?.textContent ?? null;
 
 async function waitFolders(...ids: string[]): Promise<void> {
@@ -1094,7 +1094,7 @@ async function waitFolders(...ids: string[]): Promise<void> {
   });
 }
 
-describe("SelectActionBar（PR-3b-2 T6b：資料夾）", () => {
+describe("SelectActionBar（資料夾）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -1245,7 +1245,7 @@ describe("SelectActionBar（PR-3b-2 T6b：資料夾）", () => {
     expect(within(picker).getByRole("button", { name: "G" })).toBeDisabled();
   });
 
-  // PR-3b-3 T4 改寫：反灰原因改 aria-disabled（不是 disabled，hover 提示才出得來；讀碼發現 6）。
+  // 反灰原因改 aria-disabled（不是 disabled，hover 提示才出得來）。
   it("SAf7 群組 tab 跨群組：Move to aria-disabled＋title／可及描述「…different groups…」；Copy to 可按、第一層沒有 Make a copy", async () => {
     const g1 = groupNote({ id: "g1", title: "g1", group: FG });
     const h1 = groupNote({ id: "h1", title: "h1", group: FH });
@@ -1389,7 +1389,7 @@ describe("SelectActionBar（PR-3b-2 T6b：資料夾）", () => {
     expect(server.keys()).toEqual(["DELETE /api/folders/B", "DELETE /api/notes/p3"]);
   });
 
-  // PR-3b-3 T4 改寫：同 SAf7，反灰原因改 aria-disabled。
+  // 同 SAf7，反灰原因改 aria-disabled。
   it("SAf13 複製：勾資料夾 → Copy to aria-disabled＋「Folders can't be copied」；只勾 p1（在 A）→ Make a copy → copyLeadMakeCopy → body {folderId:A}", async () => {
     const server = stubServer(MY);
     renderShells();
@@ -1451,7 +1451,7 @@ describe("SelectActionBar（PR-3b-2 T6b：資料夾）", () => {
     await waitFor(() => expect(checkedIds()).toEqual(["p4"]));
   });
 
-  it("SAf17 在 A › X1 時 X1 被刪（folders 重抓）→ 顯示 A 那層；按 Back 恰退一層到第一層（比照 NM-D14）", async () => {
+  it("SAf17 在 A › X1 時 X1 被刪（folders 重抓）→ 顯示 A 那層；按 Back 恰退一層到第一層（比照 NM-I7）", async () => {
     const A = folderDto({ id: "A", name: "A" });
     const X1 = folderDto({ id: "X1", name: "X1", parentId: "A" });
     const X2 = folderDto({ id: "X2", name: "X2", parentId: "X1" });
@@ -1535,7 +1535,7 @@ describe("SelectActionBar（PR-3b-2 T6b：資料夾）", () => {
   });
 });
 
-// ── PR-3b-3 T4：寬螢幕一列工具列、窄形「移動到」outline、反灰原因（資料夾 spec F25、F26、§6.10；SB1–SB10） ──
+// ── 寬螢幕一列工具列、窄形「移動到」outline、反灰原因（SB1–SB10） ──
 // 元件測試預設是窄（jsdom 的 matchMedia 恆 false）；寬形一律 `mockWidePointer(true)`。動作一律從 shell 1 發起。
 
 const exitButton = (index = 1) => within(shellHeader(index)).queryByRole("button", { name: "Exit selection", hidden: true });
@@ -1565,7 +1565,7 @@ async function enterWide(index = 1): Promise<void> {
 
 const enterForm = (form: "narrow" | "wide") => (form === "wide" ? enterWide() : enterSelecting());
 
-describe("寬螢幕一列工具列（PR-3b-3）", () => {
+describe("寬螢幕一列工具列", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -1690,7 +1690,7 @@ describe("寬螢幕一列工具列（PR-3b-3）", () => {
     await waitFor(() => expect(box("p1")).not.toBeNull());
     expect(allState()).toBe("none");
     expect(selectAllBox()).toHaveAttribute("title", "Select all");
-    // 外層 24px 那格也帶同字 title（框旁滑過也有提示；T4 review m6）。
+    // 外層 24px 那格也帶同字 title（框旁滑過也有提示）。
     expect(selectAllBox().parentElement?.parentElement).toHaveAttribute("title", "Select all");
     tick("p3");
     expect(allState()).toBe("some");
@@ -1716,7 +1716,7 @@ describe("寬螢幕一列工具列（PR-3b-3）", () => {
     expect(selectedKeys()).toEqual(["folder:A", "note:p1", "note:p3"]);
   });
 
-  it("SB4 寬：群組 tab 群組全收合（沒有可見列）→ 全選框 disabled；展開後可按（T4 review m2）", async () => {
+  it("SB4 寬：群組 tab 群組全收合（沒有可見列）→ 全選框 disabled；展開後可按", async () => {
     mockWidePointer(true);
     stubServer({ notes: [groupNote({ id: "g1", title: "g1", group: FG })], groups: [FG], folders: [] });
     renderShells({ tab: "workspace" });
@@ -1752,7 +1752,7 @@ describe("寬螢幕一列工具列（PR-3b-3）", () => {
     fireEvent.click(selectButton(1) as HTMLElement);
     await waitFor(() => expect(exitButton()).not.toBeNull());
     await waitFor(() => expect(bar()).not.toBeNull());
-    // select-run 以 actions 為鍵：舊那輪還在跑，新選取的數量位仍是進度（gate r2 I-a）。
+    // select-run 以 actions 為鍵：舊那輪還在跑，新選取的數量位仍是進度。
     expect(within(shellHeader(1)).getByRole("status")).toHaveTextContent("Working… 0 of 2");
     for (const name of ["Move to", "Copy to", "Delete 0 selected items"]) expect(barButton(name)).toBeDisabled();
 
@@ -1788,7 +1788,7 @@ describe("寬螢幕一列工具列（PR-3b-3）", () => {
     expect(selectedKeys()).toEqual(["note:p1"]);
   });
 
-  it("SB6b 選取中跨判準、焦點在標題列的鈕上：✕ → 翻窄 → 焦點在「完成」；完成 → 翻寬 → 焦點在 ✕（不掉到 body；T4 review m1）", async () => {
+  it("SB6b 選取中跨判準、焦點在標題列的鈕上：✕ → 翻窄 → 焦點在「完成」；完成 → 翻寬 → 焦點在 ✕（不掉到 body）", async () => {
     const mq = mockWidePointer(true);
     stubServer();
     renderShells();
@@ -1827,7 +1827,7 @@ describe("寬螢幕一列工具列（PR-3b-3）", () => {
     expect(shellHeader(1).contains(document.activeElement)).toBe(true);
   });
 
-  it("SB8 窄：Move to 不是主色（沒有 bg-brand*）、class 與 Copy to 相同（F25）", async () => {
+  it("SB8 窄：Move to 不是主色（沒有 bg-brand*）、class 與 Copy to 相同", async () => {
     stubServer();
     renderShells();
     await enterSelecting();

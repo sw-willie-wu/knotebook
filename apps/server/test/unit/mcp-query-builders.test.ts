@@ -1,7 +1,7 @@
 /**
  * #108：`mcp/queries.ts` 的「每次呼叫現造一組 branch select」守衛。
  *
- * **為什麼需要它**（plan Step 1 實跑）：drizzle 的 select builder 是**可變且單次使用**的。
+ * **為什麼需要它**：drizzle 的 select builder 是**可變且單次使用**的。
  * 同一組 `owned`／`shared` 拿去組第二個 `unionAll(...)`，產出的是一個多一段 `union all`
  * 的畸形查詢，**不丟例外**；而且污染是**回溯的**——建完第二個之後，回頭對第一個 query
  * 物件 `toSQL()` 也變成畸形形。
@@ -108,8 +108,8 @@ describe("#93 notes/search-sql", () => {
     expect(sql).not.toContain("50%");
     expect(params).toContain("50%");
   });
-  // #93 PR2 T1：bodyOnly／page 兩個選項
-  it("U0 不帶新選項的 toSQL() 與 PR2 之前抓的 golden 逐位元組相同（不變量 1：MCP 的 SQL 不變）", () => {
+  // #93：bodyOnly／page 兩個選項
+  it("U0 不帶新選項的 toSQL() 與加分頁之前抓的 golden 逐位元組相同（不變量 1：MCP 的 SQL 不變）", () => {
     const { sql, params } = buildFullTextQuery(db, { userId: GOLDEN_USER, query: "q", limit: 20 }).toSQL();
     expect(sql).toBe(GOLDEN_SQL);
     expect(params).toEqual(GOLDEN_PARAMS);

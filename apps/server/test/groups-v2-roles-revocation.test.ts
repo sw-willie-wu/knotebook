@@ -1,7 +1,7 @@
 /**
- * #175 PR3 §7 的端到端踢線（角色變更）：全部走真路由（`onGroupAccessChanged` 只在路由裡被呼叫）＋真 CollabHooks。
- * 自訂角色一律以 `POST /api/groups/:id/roles` 建（閱讀恆真，不經 `seedRole` 的 `canRead: false` 預設——PR3 plan 複驗第 14 條）。
- * 連線、寫入、等待的形照抄 `groups-v2-revocation.test.ts`（PR1；該檔不改）。
+ * #175 的端到端踢線（角色變更）：全部走真路由（`onGroupAccessChanged` 只在路由裡被呼叫）＋真 CollabHooks。
+ * 自訂角色一律以 `POST /api/groups/:id/roles` 建（閱讀恆真，不經 `seedRole` 的 `canRead: false` 預設）。
+ * 連線、寫入、等待的形照抄 `groups-v2-revocation.test.ts`（該檔不改）。
  *
  * 等待與負向斷言的判定責任（每案在案內再寫一次）：
  * - 「重驗發生了」一律用 `armTokenSync` 的確定性等待（回呼在 server `onTokenSync` 的 `finally`、`setReadOnly` 之後）——
@@ -114,7 +114,7 @@ function serverConn(ctx: CollabTestCtx, noteId: string, userId: string) {
   return conn;
 }
 
-describe("#175 PR3 角色變更的踢線（spec §7，真連線）", () => {
+describe("#175 角色變更的踢線（真連線）", () => {
   it("改角色旗標 edit:false：持有者續留但變唯讀（寫入不再傳到管理員那邊）", async () => {
     const ctx = await buildApp();
     const admin = await user(ctx, "admin-r1@example.com");

@@ -1,7 +1,7 @@
 /**
- * #180 spec §4.1／§4.3：MCP 側必填矩陣 `mcpEditBodySchema`（REST 五支＋`RENAME_BRANCH`）與 `invalidBodyMessage` 全文。
+ * #180：MCP 側必填矩陣 `mcpEditBodySchema`（REST 五支＋`RENAME_BRANCH`）與 `invalidBodyMessage` 全文。
  * #381：rename 改成必帶 `if_match`（標題指紋 `titleFingerprint`）。
- * 字串寫字面值（不 import 實作常數以外的字串）——字面值才釘得住 spec。
+ * 字串寫字面值（不 import 實作常數以外的字串）——字面值才釘得住規格。
  */
 import { describe, expect, it } from "vitest";
 import { mcpEditBodySchema, invalidBodyMessage } from "../../src/mcp/tools/edit-note.js";
@@ -51,7 +51,7 @@ describe("U3 mcpEditBodySchema 矩陣", () => {
   });
 });
 
-describe("U4 invalidBodyMessage 全文（spec §4.3）", () => {
+describe("U4 invalidBodyMessage 全文", () => {
   it("rename 缺 title：Check: title. ＋ 全文尾段逐字", () => {
     expect(invalidBodyMessage("rename", [{ path: ["title"] }])).toBe(
       "This `rename` call does not match what that operation needs. Check: title. replace_section, insert_after and " +

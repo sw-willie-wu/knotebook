@@ -7,8 +7,8 @@ import { isLoneEmptyParagraph } from "../../src/transfer/decide.js";
 import { docWith, forkOf, withEditor } from "./fixtures/transfer-sync.js";
 
 /**
- * 審查 I2：寫回判「筆記動過沒」改用結構比對——頂層 id＋單顆指紋（`topLevelSnapshot`）。這裡確認單顆指紋
- * 涵蓋整個 block 子樹的文字與屬性（巢狀清單、toggle 子層、表格儲存格、並排、行內樣式、block 屬性）；以及 M1 的 `isLoneEmptyParagraph`。
+ * 寫回判「筆記動過沒」改用結構比對——頂層 id＋單顆指紋（`topLevelSnapshot`）。這裡確認單顆指紋
+ * 涵蓋整個 block 子樹的文字與屬性（巢狀清單、toggle 子層、表格儲存格、並排、行內樣式、block 屬性）；以及 `isLoneEmptyParagraph`。
  */
 
 const rt = new EditingRuntime({ baseUrl: "http://localhost/" });
@@ -69,7 +69,7 @@ describe("SC1 單顆指紋涵蓋整個子樹", () => {
   });
 });
 
-describe("SC2 isLoneEmptyParagraph（審查 M1）", () => {
+describe("SC2 isLoneEmptyParagraph", () => {
   const frag = async (blocks: unknown[], edit?: (ed: Ed) => void) => {
     const doc = await docWith(rt, blocks);
     if (edit) await withEditor(rt, doc, edit);

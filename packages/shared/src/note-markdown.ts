@@ -65,7 +65,7 @@ function rebindInline(content: AnyInline[], notes: WikilinkTarget[]): [AnyInline
 }
 
 /**
- * #269 §6.2：走訪改用 `mapInlineArrays`——**表格格子裡的 `[[…]]` 也綁、也計入 unbound**（舊版只走 `content === "inline"`
+ * #269：走訪改用 `mapInlineArrays`——**表格格子裡的 `[[…]]` 也綁、也計入 unbound**（舊版只走 `content === "inline"`
  * 的 block，表格整個漏掉）。`isInlineType` 仍只管一般 block；表格格子一律走。
  */
 export function rebindWikilinks<B>(blocks: B[], notes: WikilinkTarget[], isInlineType: (type: string) => boolean): [B[], number] {

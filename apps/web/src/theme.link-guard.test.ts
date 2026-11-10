@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
  *   一共十二種情況裡，圖示與文字顏色就開始各走各的。
  * - **圖示整個不見**：`content: ""` 的 inline-block 沒有 `width`/`height` 就是一個
  *   0×0 的盒子，拿掉 `display: inline-block` 亦然——兩種都不會報錯、也不會讓任何
- *   其他測試變紅（審查實測：刪掉那兩行尺寸，本檔原本 6/6 照綠）。
+ *   其他測試變紅（刪掉那兩行尺寸，本檔原本 6/6 照綠）。
  * - **`--color-brand` 被宣告在 `:root` 以外**（例如有人在 `.dark` 裡補一行）⇒ 深色
  *   模式下編輯器內的 `.bn-root.dark` 會再次奪回它，主題色又退回 indigo，也就是
  *   靜默復原 #153 繞過的那個 bug。`theme.accent-vars.test.ts` 的 (d) 只要求它在
@@ -120,14 +120,14 @@ describe("筆記內連結的樣式（issue #153）", () => {
   it("圖示要真的畫得出來、也要真的有留白：inline-block ＋ 尺寸與兩側 margin 皆非零", () => {
     const { body } = afterRule()[0]!;
     // `content: ""` 的替代內容是空的，所以盒子大小完全由 width/height 決定——兩者任一
-    // 缺席（或被寫成 0）圖示就**完全不見**，而其他每一條斷言都還是綠的（審查實測）。
+    // 缺席（或被寫成 0）圖示就**完全不見**，而其他每一條斷言都還是綠的。
     expect(body, "圖示盒子要 inline-block（inline 的 width/height 無效）").toMatch(
       /display:\s*inline-block/,
     );
     // 一律判 `parseFloat(…) > 0`：一次關掉 `0`／`0px`／`0.0em`／`-0px`，以及 `auto`／
     // `max-content`／`initial` 這些 `parseFloat` 給 `NaN` 的形（`auto` 在這裡渲染出來與
     // `0.0em` 逐像素相同，是這條真正要擋的東西）。**取最後一個命中**——CSS 取最後一條，
-    // 只看第一個的話在區塊尾端補 `width: 0` 就全綠（審查實測）。
+    // 只看第一個的話在區塊尾端補 `width: 0` 就全綠。
     const declaration = (prop: string) =>
       [...body.matchAll(new RegExp(`(?:^|[;{])\\s*${prop}:\\s*([^;]+)`, "g"))].at(-1)?.[1]?.trim();
 

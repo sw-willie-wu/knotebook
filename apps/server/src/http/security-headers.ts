@@ -12,7 +12,7 @@ import { createHash } from "node:crypto";
 /**
  * `<script>` 開標籤沒有 `src=` 的那些（＝內文會被瀏覽器執行的 inline script）。
  *
- * ⚠ 已知限制（gate 審查實測）：開標籤的**屬性值裡若含 `>`**，`[^>]*` 會在那裡就收尾，
+ * ⚠ 已知限制：開標籤的**屬性值裡若含 `>`**，`[^>]*` 會在那裡就收尾，
  * 於是抓到的「內文」是錯的——`<script data-x="a>b">CODE</script>` 擷取到的是
  * `b">CODE`，**真正的 CODE 沒被 hash**，那段 script 會被 CSP 擋掉。方向是 fail-closed
  * （擋掉、不是放行），`e2e/09-csp` 的零 violation 斷言接得住，但別以為它「只會多算不會
@@ -39,10 +39,10 @@ function inlineScriptHashes(html: string): string[] {
 }
 
 /**
- * 政策的**放寬**那半是 issue #101 的定案，不是疏漏——收緊會讓已出貨的功能靜默變破圖：
+ * 政策的**放寬**那半是刻意的（issue #101），不是疏漏——收緊會讓已出貨的功能靜默變破圖：
  *
  * - `img-src`：外部圖片以 URL 內嵌是支援行為（圖片 block 的 Embed 分頁、從網頁直接拖圖），
- *   mermaid 的 `A@{ img: … }` 同理——#94 的安全政策定案就是「與筆記內容對齊」，當時為此
+ *   mermaid 的 `A@{ img: … }` 同理——#94 的安全政策就是「與筆記內容對齊」，當時為此
  *   移除整套「不得外連」機制。CSP 分不出「使用者自己貼的圖」與「被注入的
  *   `themeCSS: url(…)`」，所以這是政策選擇而不是技術調參。
  * - `media-src`：audio／video block **只有** embed-by-URL（沒有上傳路徑，見

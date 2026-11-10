@@ -1,15 +1,15 @@
 /**
- * #108 PR2 Task 3：`create_note`（規格 §8.7、§14.4 案 21／21a／21b／28(b)、裁決 D-M）。
+ * #108：`create_note`（案 21／21a／21b／28(b)、D-M）。
  *
  * ⚠ **D-M 那一案走 `buildTestApp`（無 collab），其餘走 `buildCollabTestApp`**——`create_note`
  * 是唯一**不**進部署形態閘門的工具：不帶 `content` 時它只 insert 一列，完全不碰 live doc，
  * 而 REST 的 `POST /api/notes` 本來就無條件註冊、帶 content 而沒有 collab 時回 400
- * （`routes/notes.ts`：「This deployment cannot create a note with content. …」）。MCP 照抄它就是 D18 的對等（#372 起兩邊同一句開頭）。
+ * （`routes/notes.ts`：「This deployment cannot create a note with content. …」）。MCP 照抄它就是與 REST 對等（#372 起兩邊同一句開頭）。
  * ⚠ **每一案都用讀寫憑證**：唯讀憑證在**註冊時**就被過濾掉 `create_note`，用它寫這一族會得到
  * 一個與被測對象無關的綠（唯讀側的斷言是 `mcp-tools-list.test.ts` 案 8 的事）。
  *
  * ⚠ `callTool`／`payloadOf`／`errorOf` 與 `mcp-edit-note.test.ts` 的同名 helper 是**第四份**
- * （同樣的理由：`test/mcp-helpers.ts` 不在本棒的觸及面內，各自只有幾行）。
+ * （同樣的理由：各自只有幾行，沒有收進 `test/mcp-helpers.ts`）。
  */
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
@@ -57,7 +57,7 @@ async function callTool(app: FastifyInstance, token: string, name: string, args:
   return { status: res.statusCode, result: res.json().result };
 }
 
-/** 成功呼叫的 `structuredContent`（順手守住 M10 的鏡像等式）。 */
+/** 成功呼叫的 `structuredContent`（順手守住鏡像等式）。 */
 function payloadOf(call: ToolCall): { note: NoteSummary } {
   expect(call.status).toBe(200);
   expect(call.result.isError).toBeUndefined();
@@ -100,10 +100,10 @@ async function scene(opts: Parameters<typeof buildCollabTestApp>[0] = {}): Promi
 describe("#108 create_note", () => {
   // 案 21：「解析在建列**之前**」是逐字寫下的契約（`write-service.ts` 的 docstring），所以壞
   // content 一列都不會建。
-  // ⚠ **plan 寫的測資（「含不支援的 block」→ `unsupported_block`）的白名單分支在整合層造不出來**，理由與
+  // ⚠ **原先設想的測資（「含不支援的 block」→ `unsupported_block`）的白名單分支在整合層造不出來**，理由與
   //   `note-edits.test.ts` 的「拒絕案假綠守衛」寫過的相同：headless schema ＝ `defaultBlockSpecs`
   //   全集＋mermaid／codeBlock，**BlockNote 的 markdown parser 產得出來的 type 一定在白名單裡**。
-  //   `unsupported_block` 這個碼本身從 markdown 到得了，但走的是別條分支：core parse 丟例外（並排 PR-2，見 mcp-write-guards GW5）
+  //   `unsupported_block` 這個碼本身從 markdown 到得了，但走的是別條分支：core parse 丟例外（見 mcp-write-guards）
   //   與帶事件處理屬性的 HTML（語法檢查）。白名單那條分支由
   //   `test/unit/editing-markdown.test.ts` 以收窄的假 schema 驗。這裡改用**同一條管線上到得了**
   //   的 `empty_content`（與 REST 的 `note-create-content.test.ts` 第二案同一份測資），
@@ -152,7 +152,7 @@ describe("#108 create_note", () => {
     //   `CREATE_NOTE_DESCRIPTION` 的末句因此限定到帶 `content` 那條路——原本寫成「Creating a
     //   note is recorded and can be undone like any other write.」是對模型說謊，而模型會照它
     //   決定「先建空筆記再 edit_note」安不安全。**本行守的是那個事實**（文案本身的逐字檢查歸
-    //   Task 5 的列舉句實打）。
+    //   列舉句實打）。
     // ⚠ **它必須排在下面那行 `lastEdited` 之前**：兩者會被同一種迴歸（讓這條路也走
     //   `createWithContent`）一起打紅，而 vitest 在第一個失敗就中止整個 `it`——排在後面的話，
     //   紅的訊息會是「`lastEdited` 不是 null」，指不到「多了一列可撤回紀錄」這個病因。
@@ -162,7 +162,7 @@ describe("#108 create_note", () => {
   });
 
   // #145：issue 的原始症狀在測試層的直接反例——實機測試用 `create_note` 帶
-  // `title: "#108 PR3 實機驗證 2026-09-14"` 建出來的筆記網址是 `untitled-c2af7053`。
+  // `title: "#108 實機驗證 …"` 建出來的筆記網址是 `untitled-c2af7053`。
   // 派生在建列的同一發裡完成，所以**同一次回應**的 `slug`／`url` 就是最終值，不需要第二次寫入。
   it("#145：帶 title → 同一次回應的 slug 與 url 就是派生形（不是 untitled-<8hex>）", async () => {
     const s = await scene();
@@ -218,7 +218,7 @@ describe("#108 create_note", () => {
   //   立刻 resolve `"ok"`，沒有任何併發者拿得到它。所以這裡直接從 `beforeMerge`（我們自己的
   //   注入縫）把那顆例外丟出來，走的是同一條 catch。
   //   順帶：`docs/ai-editing.md` 逐字寫的「including waiting too long for the queue」描述的是
-  //   一條到不了的路徑（已回報 controller，本棒不改那句）。
+  //   一條到不了的路徑。
   it("帶 content 時 beforeMerge 丟 QueueBusyError → internal 不是 server_busy，且剛建的列已被刪（案 28(b)）", async () => {
     const s = await scene({ editingTestHooks: { beforeMerge: async () => { throw new QueueBusyError(); } } });
     const err = errorOf(await createNote(s.ctx.app, s.token, { title: "T", content: "內容" }));
@@ -226,12 +226,12 @@ describe("#108 create_note", () => {
     expect(await countNotes(s.ctx.db, s.ownerId)).toBe(0);
   });
 
-  // 裁決 D-M：判準是「這支工具要不要讀 live doc」，不是「它比較像哪一支」。
+  // 判準是「這支工具要不要讀 live doc」，不是「它比較像哪一支」。
   // ⚠ 用**讀寫**憑證（唯讀憑證看不到 `create_note`，那樣寫這一案恆綠且與 D-M 無關）。
   // ⚠ **`edit` 桶由測試自己持有**（`freshLimiters({ edit })`）：唯一到得了「`available` 為假」
   //   那個分支的部署形態就是這個 app，而它上面 `edit` 桶**沒有第二個消費端**——但那不代表
   //   觀察不到。桶握在測試手上，直接數它剩幾格就是判準（見本案最後兩行）。
-  it("無 collab 的 app：tools/list 含 create_note（#175 PR5：三欄），不帶 content 可用、帶 content → invalid_body 零新增列且不啃 edit 桶（D-M）", async () => {
+  it("無 collab 的 app：tools/list 含 create_note（#175：三欄），不帶 content 可用、帶 content → invalid_body 零新增列且不啃 edit 桶（D-M）", async () => {
     const edit = new FixedWindowLimiter(EDIT_LIMIT);
     const { app, db } = await buildTestApp({ limiters: freshLimiters({ edit }) });
     const [user] = await db.insert(users).values({ email: `p-${randomUUID()}@example.com`, displayName: "P" }).returning();
@@ -245,21 +245,21 @@ describe("#108 create_note", () => {
     expect(names).toContain("create_note");
     // 讀 live doc 的三支在這個部署形態上整條不宣告——`create_note` 是它們的反例，所以
     // 這一行順帶釘住「它真的在閘門外」。#200：create_transfer_token 也在閘門外（token 限定）；read_note_image 亦然（任何憑證）。#180：copy_note、move_note_to_group 也在閘門外。
-    // 資料夾 PR-3d：list_folders 只查 DB，也在閘門外（任何憑證）；三支資料夾寫入工具與 move_note_to_folder（T7）同樣在閘門外（notes:write）。
+    // 資料夾：list_folders 只查 DB，也在閘門外（任何憑證）；三支資料夾寫入工具與 move_note_to_folder 同樣在閘門外（notes:write）。
     expect(names).toEqual(["copy_note", "create_folder", "create_note", "create_transfer_token", "list_folders", "list_notes", "list_trash", "move_folder", "move_note_to_folder", "move_note_to_group", "read_note_image", "rename_folder", "search_notes"]);
 
-    // P6：`inputSchema` **只能傳 raw shape 或裸 `ZodObject`（`.strict()` 亦可）**——傳 `ZodEffects`／union 時公告出去的 JSON Schema 會靜默變成
+    // `inputSchema` **只能傳 raw shape 或裸 `ZodObject`（`.strict()` 亦可）**——傳 `ZodEffects`／union 時公告出去的 JSON Schema 會靜默變成
     // `{"type":"object","properties":{}}`（模型看不到任何欄位），而本檔另外五案（全部都自己
-    // 送對參數）**照樣全綠**。這一行是那個症狀在 `create_note` 上唯一的守衛（`edit_note` 是 S1）。
-    // ⚠ **「傳錯」在這支工具上是哪一種形，是量出來的，不是照抄 P6**（2026-09-08 實跑）：
+    // 送對參數）**照樣全綠**。這一行是那個症狀在 `create_note` 上唯一的守衛（`edit_note` 的守衛在 `mcp-edit-note.test.ts`）。
+    // ⚠ **「傳錯」在這支工具上是哪一種形，是量出來的，不是照抄別處的**：
     //   - `z.object(createNoteInput)`（純 `ZodObject`）→ 公告的 schema **與 raw shape 逐位元組
-    //     相同**（entry 都是 1995）。**這條突變殺不掉**——P6 量的是 `z.discriminatedUnion`。
+    //     相同**（entry 都是 1995）。**這條突變殺不掉**——那邊量的是 `z.discriminatedUnion`。
     //   - `z.object(createNoteInput).refine(…)`（`ZodEffects`）→ **properties 真的空掉**
     //     （entry 1995 → 1467），而且**只有本行紅**（`expected [] to deeply equal
     //     [ 'content', 'title' ]`），`mcp-create-note` 另外五案 ＋ `mcp-edit-note` 12 案全綠。
     //   也就是本行守的是 `ZodEffects`／union 那一族，不是「所有非 raw shape 的寫法」。
     const entry = tools.find(t => t.name === "create_note")!;
-    // #180 W15：鍵名改 `group_id`（MCP 輸入一律 snake_case）；鍵數不變。資料夾 PR-3d T7：多 `folder_id`。
+    // #180：鍵名改 `group_id`（MCP 輸入一律 snake_case）；鍵數不變。資料夾：多 `folder_id`。
     expect(Object.keys(entry.inputSchema.properties ?? {}).sort()).toEqual(["content", "folder_id", "group_id", "title"]);
 
     const { note } = payloadOf(await createNote(app, token));
@@ -279,10 +279,10 @@ describe("#108 create_note", () => {
     expect(left, "帶 content 的 invalid_body 與不帶 content 的成功建立都不得消耗 edit 桶").toBe(EDIT_LIMIT.limit);
   });
 
-  // #175 PR5：群組檢查排在 `available` **之前**（與 REST `POST /api/notes` 同序）。無 collab 的 app 上，
+  // #175：群組檢查排在 `available` **之前**（與 REST `POST /api/notes` 同序）。無 collab 的 app 上，
   // 帶 content 的 `create_note` 本來回 `invalid_body`；若再帶一個非成員的 `groupId`，答案必須是
   // `group_not_found`（群組存在與否的判斷不得被「這個部署不支援 content」蓋掉），且零新增列、不啃 edit 桶。
-  it("無 collab 的 app：帶 content ＋ 非成員 groupId → group_not_found（群組檢查在 available 之前），零新增列、不啃 edit 桶（#175 PR5）", async () => {
+  it("無 collab 的 app：帶 content ＋ 非成員 groupId → group_not_found（群組檢查在 available 之前），零新增列、不啃 edit 桶（#175）", async () => {
     const edit = new FixedWindowLimiter(EDIT_LIMIT);
     const { app, db } = await buildTestApp({ limiters: freshLimiters({ edit }) });
     const [me, other] = await Promise.all([seedUser(db), seedUser(db)]);
@@ -299,10 +299,10 @@ describe("#108 create_note", () => {
   });
 
   // #145 ＋ M6（拒絕零副作用）：`insertNoteWithAutoSlug` 會發探測查詢，所以它**不能**擺在
-  // `ctx.writes.available` 閘門之前（本棒之前那個位置只是在組一個 values 物件，純物件、零
+  // `ctx.writes.available` 閘門之前（組 values 物件那種純物件、零
   // 查詢，擺在閘門前無妨）。搬回去的話「這個部署不支援 content」的拒絕路徑就開始打 DB。
   //
-  // ⚠ **這一案守的是哪一形，是量出來的**（2026-09-15 實測，兩發突變）：
+  // ⚠ **這一案守的是哪一形，是量出來的**（實測，兩發突變）：
   //   (a) **整支呼叫**搬到閘門之前 → 4 failed / 4 passed，紅的是 D-M 的 `countNotes`
   //       （`expected 2 to be 1`）、案 21 與案 28(b) 的零新增列（`expected 1 to be +0`），
   //       **再加本案的 `probes()`**。也就是說既有的列數斷言**抓得到**這一形——原本這裡寫
@@ -328,7 +328,7 @@ describe("#108 create_note", () => {
     expect(probes()).toHaveLength(0);
     expect(noteInserts()).toHaveLength(0);
 
-    // **自我驗證刻意排在後面**（與 `notes-slug.test.ts` 語句形狀案的 N3 規矩相反，理由是
+    // **自我驗證刻意排在後面**（與 `notes-slug.test.ts` 語句形狀案的規矩相反，理由是
     // 「失配時誰會先紅」）：那一案兩半各自發請求、各自數自己那批 query，regex 失配時「恰 0」
     // 那半**真空通過**而「恰 1」那半**會紅**，所以「恰 1」必須排前面。這裡「恰 0」那半是
     // **拒絕路徑**（本來就不該有 query），失配時它同樣真空通過、不會失敗 ⇒ vitest 不會提前
@@ -343,8 +343,8 @@ describe("#108 create_note", () => {
   // 案 P：`create_note` **不 touch presence**——`routes/notes.ts` 搬進 service 的那段註解逐字
   // 「另外三條寫入路徑都 touch，只有它不 touch 是刻意的——不要當成漏接補上去」。
   //
-  // ⚠⚠ **誠實：這一案抓不到「有人把 touch 補回去」，plan 的突變預期不成立**（實跑推翻）。
-  //   plan 寫「加上 `presence?.touch(...)` → 案 P 必須紅」；2026-09-08 在
+  // ⚠⚠ **誠實：這一案抓不到「有人把 touch 補回去」，原先預期的突變不成立**（實跑推翻）。
+  //   原先預期「加上 `presence?.touch(...)` → 案 P 必須紅」；實際在
   //   `createWithContent` 的 `applyEdit` 成功之後補上
   //   `this.touch(note.id, …, presenceTargetForWrite("replace_all", result.afterBlockIds))`
   //   → **59 案全綠**。

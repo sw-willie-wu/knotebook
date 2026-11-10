@@ -11,13 +11,13 @@ import { SESSION_QUERY_KEY } from "@/auth/useSession";
 import { ProviderIcon } from "@/components/ProviderIcon";
 
 /** SSO 入口的前綴；完整網址＝前綴＋provider id。⚠ 測試刻意**另寫一份字面**——那一族斷言的是本頁對
- * `GET /api/auth/oidc/login/:providerId` 的產出契約（#187 §9.4）。 */
+ * `GET /api/auth/oidc/login/:providerId` 的產出契約（#187）。 */
 const OIDC_LOGIN_PREFIX = "/api/auth/oidc/login/";
 
 /**
  * `POST /api/auth/login` 表單。成功 → 把回傳的 UserDto 直接寫進 `['me']` query
  * cache（不用等下一次 refetch）再導向 **`safeNextPath(?next=)` 或 `/`**（#131：
- * `useSessionGate` 把人踢來這裡時會帶上 `?next=<原本要去的頁>`；§11.3 的「login 成功
+ * `useSessionGate` 把人踢來這裡時會帶上 `?next=<原本要去的頁>`；「login 成功
  * 導 `/`」現在是沒有合法 next 時的 fallback）。
  *
  * 429 `too_many_attempts`：ApiFail 上會附 `retryAfterMs`（見 client.ts），換算成
@@ -26,14 +26,14 @@ const OIDC_LOGIN_PREFIX = "/api/auth/oidc/login/";
  * 才退回 `errors.fallback`；非 ApiFail（網路失敗等，見 client.ts 說明）一律視為
  * `errors.fallback`，不能直接讀 `.code`（raw Error 沒有這個欄位）。
  *
- * OIDC（Plan 5 §14.4；#187 起多 provider）：`['auth-config']` 讀 `GET /api/auth/config`（免認證），
+ * OIDC（#187 起多 provider）：`['auth-config']` 讀 `GET /api/auth/config`（免認證），
  * `providers` 每個一顆 `<a href="/api/auth/oidc/login/<id>">`，渲染在表單下方。入口是純
  * `<a>`——**不**走 `api()`/`fetch`：`/api/auth/oidc/login/<id>`
  * 會 302 到 IdP，再 302 回 callback，整條鏈要由瀏覽器的頂層導航
  * 承載（`fetch` 的 redirect 語意與 cookie 寫入時機都不對，見 client.ts 的
  * `credentials:'include'`/manual redirect 說明），因此刻意繞過既有的 `api()` 入口。
  *
- * #187 PR3：帳密表單隨 `passwordLogin.enabled`（有效值）顯示；帳密自助註冊可用（`registration.enabled` 且帳密有效值開）時，
+ * #187：帳密表單隨 `passwordLogin.enabled`（有效值）顯示；帳密自助註冊可用（`registration.enabled` 且帳密有效值開）時，
  * 才有 outline 的「註冊新帳號」鈕（帶 next）；SSO 首登建帳只經上面的 SSO 鈕，不經註冊頁。
  *
  * `?error=<code>`（OIDC 失敗時 callback route 會把使用者導回 `/login?error=<code>`）
@@ -45,7 +45,7 @@ const OIDC_LOGIN_PREFIX = "/api/auth/oidc/login/";
  * `searchParams` 重算的 `queryErrorMessage`，用 `errorMessage ?? queryErrorMessage`
  * 疊加顯示），使用者重新送出表單、進入 `submitting` 等待回應那段空窗期
  * （`errorMessage` 已被清 `null`，新結果還沒回來）會讓這個舊的 OIDC 錯誤文案
- * 重新浮現，跟這次全新的提交無關，會誤導使用者（fix round 1 NIT-6）。
+ * 重新浮現，跟這次全新的提交無關，會誤導使用者。
  *
  * **`code` 是任意 query string，不可信任**：餵進 `t()` 前先過 shared `ERROR_CODES`
  * 白名單，不在集合內一律視為 `fallback`——`t(\`errors.${arbitraryUserInput}\`)`
@@ -53,7 +53,7 @@ const OIDC_LOGIN_PREFIX = "/api/auth/oidc/login/";
  * `Object.prototype` 繼承屬性、i18next 對非預期 key 型別的內部行為不可控；
  * `?error=constructor` 解析出 `errors` 物件的 `constructor`（`Object` function）
  * 當作翻譯結果，塞進 JSX 會是「Functions are not valid as a React child」執行期
- * 錯誤（fix round 1 MAJOR-1）。白名單擋下後，`code` 只可能是 `ERROR_CODES` 成員或
+ * 錯誤。白名單擋下後，`code` 只可能是 `ERROR_CODES` 成員或
  * 字面 `"fallback"`，兩者都是 `errors.*` 底下貨真價實存在的字串 key。
  *
  * 消化完後立刻用 `setSearchParams(…, {replace:true})` 清掉 URL 上的 `error` 參數
@@ -68,7 +68,7 @@ export default function LoginPage() {
 
   // #131：`?next=` 是「登入完要回哪」——由 `useSessionGate` 在把人踢來這裡時寫上。
   // **一律先過 `safeNextPath`**（同一支函式 server 端也用）：不合法就當作沒有，落 `/`。
-  // 這裡驗過之後 SSO 連結才轉交給 server，而 server（#131 Task 5 起）會**再驗一次**
+  // 這裡驗過之後 SSO 連結才轉交給 server，而 server（#131）會**再驗一次**
   // ——那條路徑上使用者可以自己直接打 `/api/auth/oidc/login?next=…`，不經過這個頁面。
   //
   // 與上面 `?error=` 的惰性採樣**刻意相反**：`next` 不是一次性的（沒有「被新提交蓋掉」
@@ -77,7 +77,7 @@ export default function LoginPage() {
   const nextPath = safeNextPath(searchParams.get("next"));
 
   // SSO 入口的 href：`next` 合法時把它轉交給 server。這個組法是本頁對
-  // `GET /api/auth/oidc/login/:providerId` 的產出契約，#131 Task 5 的 server 端要消費它。
+  // `GET /api/auth/oidc/login/:providerId` 的產出契約，#131 的 server 端要消費它。
   const ssoHref = (providerId: string): string => {
     const base = `${OIDC_LOGIN_PREFIX}${encodeURIComponent(providerId)}`;
     return nextPath === null ? base : `${base}?next=${encodeURIComponent(nextPath)}`;
@@ -85,7 +85,7 @@ export default function LoginPage() {
 
   const authConfigQuery = useAuthConfig();
 
-  // #187 W24：帳密表單只在有效值為真時顯示；設定讀不到（載入中或失敗）時照常顯示——讀不到設定不能把人擋在外面（RF5，同 B17 的
+  // #187：帳密表單只在有效值為真時顯示；設定讀不到（載入中或失敗）時照常顯示——讀不到設定不能把人擋在外面（同「讀不到列視同開啟」的
   // fail-open）；server 若真的關閉，送出會回 403 並顯示 errors.password_login_disabled。
   const passwordLoginEnabled = authConfigQuery.data?.passwordLogin.enabled !== false;
   const providers = authConfigQuery.data?.providers ?? [];
@@ -195,7 +195,7 @@ export default function LoginPage() {
           <>
             {passwordLoginEnabled && <div className="border-t" aria-hidden="true" />}
             {providers.map((provider) => (
-              // displayName 是管理員輸入：t() 插值後只進文字節點（escapeValue:false，r1-M6）。
+              // displayName 是管理員輸入：t() 插值後只進文字節點（escapeValue:false）。
               <Button key={provider.id} asChild variant="outline" size="lg" className="w-full">
                 <a href={ssoHref(provider.id)}>
                   <ProviderIcon icon={provider.icon} />
@@ -207,14 +207,14 @@ export default function LoginPage() {
         )}
 
         {authConfigQuery.data !== undefined && !passwordLoginEnabled && providers.length === 0 && (
-          // 只可能是手改 DB（INV-8：關閉帳密需要至少一個啟用中的登入服務）。
+          // 只可能是手改 DB（關閉帳密需要至少一個啟用中的登入服務）。
           <p role="status" className="text-sm text-muted-foreground">
             {t("login.noMethods")}
           </p>
         )}
 
         {passwordSignup && (
-          // #187 spec §3.1 S1（「註冊」鈕）→ outline 按鈕；不得是實心鈕——頁面的唯一實心鈕是「Sign in」。
+          // #187（「註冊」鈕）→ outline 按鈕；不得是實心鈕——頁面的唯一實心鈕是「Sign in」。
           <Button asChild variant="outline" size="lg" className="w-full">
             <Link to={registerHref}>{t("login.register")}</Link>
           </Button>

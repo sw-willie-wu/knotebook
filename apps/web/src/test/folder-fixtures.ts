@@ -1,6 +1,6 @@
 import type { FolderDto, FolderListDto, FolderPermissionsDto, FolderSpaceDto } from "@knotebook/shared";
 
-/** 資料夾 fixture（資料夾 PR-3b）。permissions 依 space 給 PR-3a 交付的值（personal 全真；shared 不能建筆記、刪＝只移除）。 */
+/** 資料夾 fixture。permissions 依 space 給的值（personal 全真；shared 不能建筆記、刪＝只移除）。 */
 
 export const FOLDER_LIST_EMPTY: FolderListDto = { folders: [] };
 

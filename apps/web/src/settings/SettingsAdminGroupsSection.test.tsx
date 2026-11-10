@@ -12,7 +12,7 @@ import { useAssignGroupPlan } from "@/api/adminStorage";
 import { ADMIN_GROUPS_QUERY_KEY, ADMIN_STORAGE_PLANS_QUERY_KEY, STORAGE_USAGE_QUERY_KEY, groupStorageKey } from "@/api/storage";
 import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
-// W5／W6（spec §11.5）：/admin/groups。群組名一律純文字（站台管理員管方案、不看群組成員與詳情）。
+// /admin/groups。群組名一律純文字（站台管理員管方案、不看群組成員與詳情）。
 
 function res(status: number, body?: unknown): Response {
   return { ok: status < 400, status, json: () => (body === undefined ? Promise.reject(new Error("no body")) : Promise.resolve(body)) } as unknown as Response;
@@ -56,7 +56,7 @@ function renderGroups(rows: AdminGroupDto[], extra: Handler = () => null) {
   );
   return fetchMock;
 }
-/** 等該列的方案下拉出現（＝方案清單已到）再以列名取列（spec 2026-10-13 settings-table §3 #6：列名＝群組名）。 */
+/** 等該列的方案下拉出現（＝方案清單已到）再以列名取列（列名＝群組名）。 */
 const rowByDropdown = async (name: string) => {
   await screen.findByRole("combobox", { name: `Storage plan for ${name}` });
   return screen.getByRole("row", { name });
@@ -71,7 +71,7 @@ const patchUrl = (g: AdminGroupDto) => `/api/admin/groups/${g.id}/storage-plan`;
 /** 讓還在路上的 promise／react-query 通知落地（負向斷言前用）。 */
 const flush = async () => { for (let i = 0; i < 5; i++) await act(async () => { await new Promise((r) => setTimeout(r, 0)); }); };
 
-describe("W5 /admin/groups", () => {
+describe("/admin/groups", () => {
   beforeEach(async () => { await i18n.changeLanguage("en"); dismissAllToasts(); });
   afterEach(() => { vi.unstubAllGlobals(); });
 
@@ -79,7 +79,7 @@ describe("W5 /admin/groups", () => {
     renderGroups([ALPHA, BETA]);
     expect(await screen.findByRole("heading", { level: 1, name: "Groups" })).toBeInTheDocument();
     const beta = await rowByDropdown("Beta");
-    // 依格的可及名稱（＝內容）查，不依欄序號（spec 2026-10-13 settings-table §5.2；欄序由下一案的欄名陣列守）。
+    // 依格的可及名稱（＝內容）查，不依欄序號（欄序由下一案的欄名陣列守）。
     for (const text of ["Beta", "1", new Date(T).toLocaleDateString("en"), "3 MB of 2 MB"]) {
       expect(within(beta).getByRole("cell", { name: text })).toBeInTheDocument();
     }
@@ -88,7 +88,7 @@ describe("W5 /admin/groups", () => {
     expect(within(await rowByDropdown("Alpha")).getByText("1 MB of 2 GB")).not.toHaveClass("text-destructive");
   });
 
-  it("表名 Groups、欄名 Name／Members／Created／Storage／Plan（spec 2026-10-13 settings-table §3 #6）", async () => {
+  it("表名 Groups、欄名 Name／Members／Created／Storage／Plan", async () => {
     renderGroups([ALPHA, BETA]);
     const table = await screen.findByRole("table", { name: "Groups" });
     expect(within(table).getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual(["Name", "Members", "Created", "Storage", "Plan"]);
@@ -157,7 +157,7 @@ describe("W5 /admin/groups", () => {
     await waitFor(() => expect(plansGets(fetchMock)).toBeGreaterThanOrEqual(2));
   });
 
-  it("RF4：列上的方案不在清單裡 → 下拉仍顯示該方案（補一個 option），不是清單第一個", async () => {
+  it("列上的方案不在清單裡 → 下拉仍顯示該方案（補一個 option），不是清單第一個", async () => {
     const NEWPLAN_ID = "99999999-9999-4999-8999-999999999999";
     const row: AdminGroupDto = { ...ALPHA, storage: { planId: NEWPLAN_ID, planName: "Brand new", usedBytes: 0, quotaBytes: 1048576 } };
     renderGroups([row]);

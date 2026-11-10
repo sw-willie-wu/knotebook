@@ -12,7 +12,7 @@ import { hashPassword } from "../src/auth/password.js";
 import { createAiRuntime } from "../src/ai/runtime.js";
 
 /**
- * `ADMIN_EMAIL`/`ADMIN_PASSWORD` env bootstrap（spec rev 5.7 / §14.2：setup token 已
+ * `ADMIN_EMAIL`/`ADMIN_PASSWORD` env bootstrap（setup token 已
  * 退役，`initializeInstance` 是實例初始化的唯一路徑）整合測試專用 harness：不透過
  * `buildTestApp()`——那個 helper 刻意不呼叫 `initializeInstance`（見該函式說明），這裡
  * 需要「先對同一個 db 跑帶 envAdmin 的 `initializeInstance`，再拿同一個 db 建 app」這種
@@ -41,8 +41,8 @@ async function buildAppWithEnvAdmin(envAdmin?: { email: string; password: string
 
 const ENV_ADMIN = { email: "boss@example.com", password: "correct-horse-battery" };
 
-describe("ADMIN_EMAIL/ADMIN_PASSWORD env bootstrap admin（spec rev 5.7 / §14.2）", () => {
-  it("空 DB + 雙 env → 啟動後該帳號可登入、isAdmin、mustChangePassword=false（#187 W6：env 管理員不強改密碼）", async () => {
+describe("ADMIN_EMAIL/ADMIN_PASSWORD env bootstrap admin", () => {
+  it("空 DB + 雙 env → 啟動後該帳號可登入、isAdmin、mustChangePassword=false（#187：env 管理員不強改密碼）", async () => {
     const { app, db } = await buildAppWithEnvAdmin(ENV_ADMIN);
 
     const [dbUser] = await db.select().from(users).where(eq(users.email, ENV_ADMIN.email));
@@ -87,7 +87,7 @@ describe("ADMIN_EMAIL/ADMIN_PASSWORD env bootstrap admin（spec rev 5.7 / §14.2
     expect(res.json()).toHaveProperty("token");
   });
 
-  it("大寫 ADMIN_EMAIL → DB 存小寫（spec §14.3 單一漏斗）", async () => {
+  it("大寫 ADMIN_EMAIL → DB 存小寫（單一漏斗）", async () => {
     const { db } = await freshDb();
     await initializeInstance(db, { email: "BOSS-UPPER@Example.COM", password: "correct-horse-battery" });
 

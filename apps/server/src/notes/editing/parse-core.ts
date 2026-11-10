@@ -24,7 +24,7 @@ export interface ParseRequest {
   budget?: ParseBudget;
 }
 /**
- * #398 審查 C2：一個檔的 worker 時間總預算（毫秒，會被扣）。批次寫回一個檔要解析很多次（邊界、各區、fence 判斷，指紋不符時整套重來），
+ * #398：一個檔的 worker 時間總預算（毫秒，會被扣）。批次寫回一個檔要解析很多次（邊界、各區、fence 判斷，指紋不符時整套重來），
  * 每次各有時限還不夠——預算用完，之後的解析不送進 worker、直接回太複雜；送進去的那次時限也不超過剩下的預算。
  */
 export interface ParseBudget {

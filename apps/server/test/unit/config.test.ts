@@ -52,7 +52,7 @@ describe("loadConfig", () => {
     const { PUBLIC_URL, ...rest } = valid;
     expect(() => loadConfig(rest)).toThrow(/PUBLIC_URL/);
   });
-  it("http 非 localhost → 接受但 insecureHttpWarning=true，cookieSecure 仍為 false（trusted-LAN 拓撲，spec rev 5.6）", () => {
+  it("http 非 localhost → 接受但 insecureHttpWarning=true，cookieSecure 仍為 false（trusted-LAN 拓撲）", () => {
     const config = loadConfig({ ...valid, PUBLIC_URL: "http://notes.example.com" });
     expect(config.insecureHttpWarning).toBe(true);
     expect(config.cookieSecure).toBe(false);
@@ -66,7 +66,7 @@ describe("loadConfig", () => {
   it("無 scheme → throw", () => {
     expect(() => loadConfig({ ...valid, PUBLIC_URL: "localhost:3000" })).toThrow(/http\/https/);
   });
-  describe("ADMIN_EMAIL / ADMIN_PASSWORD（env bootstrap admin，spec rev 5.7）", () => {
+  describe("ADMIN_EMAIL / ADMIN_PASSWORD（env bootstrap admin）", () => {
     it("皆未設 → 通過，adminEmail/adminPassword 皆 undefined", () => {
       const config = loadConfig(valid);
       expect(config.adminEmail).toBeUndefined();
@@ -161,7 +161,7 @@ describe("parseTrustProxy（issue #13）", () => {
     expect(parseTrustProxy("fd00::/64")).toEqual(["fd00::/64"]);
   });
 
-  // ⚠ 這條是本組測試裡唯一擋得住「我們自己驗過、fastify 卻不收」的形狀。審查實測抓到
+  // ⚠ 這條是本組測試裡唯一擋得住「我們自己驗過、fastify 卻不收」的形狀。實測抓到
   // 兩個真例：具名網段沒轉小寫（proxy-addr 用精確比對，`Loopback` 直接丟
   // `invalid IP address`）、以及 `/0`（proxy-addr 的 `range <= 0` 一律拒）。兩者都會在
   // `buildApp` 的 Fastify 建構子炸掉，訊息還指不出是哪個環境變數——形同 fail-fast 破功。
@@ -208,7 +208,7 @@ describe("parseTrustProxy（issue #13）", () => {
   });
 });
 
-describe("D12：OAuth issuer 取 origin、PUBLIC_URL 帶其他成分只警告", () => {
+describe("OAuth issuer 取 origin、PUBLIC_URL 帶其他成分只警告", () => {
   it("publicUrlIssuer：保留 port、丟掉 path／query／fragment／userinfo，scheme 與 host 小寫", () => {
     // port 是這個 repo 最常見的自架形（例如 http://192.168.1.50:3000）——
     // 手工組 issuer 的實作（protocol + "//" + hostname）會在這裡紅。
@@ -285,7 +285,7 @@ describe("D12：OAuth issuer 取 origin、PUBLIC_URL 帶其他成分只警告", 
     expect(callAt, "警告要在 listen 之前印出來").toBeLessThan(listenAt);
   });
 
-  it("結構守衛（#187 §10.3）：index.ts 的舊欄補登呼叫在 initializeInstance 之後、listen 之前", () => {
+  it("結構守衛（#187）：index.ts 的舊欄補登呼叫在 initializeInstance 之後、listen 之前", () => {
     const src = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../src/index.ts"), "utf8");
     // 錨定呼叫點字面（含引數開頭），不是函式名——只找名字會先命中檔頭 import。
     const initAt = src.indexOf("await initializeInstance(");
@@ -297,7 +297,7 @@ describe("D12：OAuth issuer 取 origin、PUBLIC_URL 帶其他成分只警告", 
   });
 });
 
-describe("PASSWORD_LOGIN_FORCE_ENABLE（#187 B18、§14.1-27）", () => {
+describe("PASSWORD_LOGIN_FORCE_ENABLE（#187）", () => {
   it.each([
     [undefined, false],
     ["", false],
@@ -321,7 +321,7 @@ describe("PASSWORD_LOGIN_FORCE_ENABLE（#187 B18、§14.1-27）", () => {
     expect(() => loadConfig({ ...valid, PASSWORD_LOGIN_FORCE_ENABLE: "yes" })).toThrow(/PASSWORD_LOGIN_FORCE_ENABLE/);
   });
 
-  it("結構守衛（§10.4）：開機檢查在 §10.3 補登之後、listen 之前", () => {
+  it("結構守衛：開機檢查在舊欄補登之後、listen 之前", () => {
     const src = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../src/index.ts"), "utf8");
     const backfillAt = src.indexOf("await backfillLegacyOidcIdentities(db");
     const checkAt = src.indexOf("await warnPasswordLoginAtBoot(db");
@@ -341,7 +341,7 @@ describe("#269 結構守衛：app.ts 的轉換工作 onClose", () => {
   });
 });
 
-describe("KNOTEBOOK_E2E_TEST_HOOKS（#272 §7.5，案 27）", () => {
+describe("KNOTEBOOK_E2E_TEST_HOOKS（#272，案 27）", () => {
   const pick = (c: AppConfig) => ({ testHooks: c.testHooks, testHooksIgnored: c.testHooksIgnored });
   const local = { ...valid, PUBLIC_URL: "http://localhost:3100" };
 
@@ -381,8 +381,8 @@ describe("KNOTEBOOK_E2E_TEST_HOOKS（#272 §7.5，案 27）", () => {
     expect(stopAt, "關機要呼叫 collab.versions.stopScan()").toBeGreaterThan(-1);
     expect(destroyAt, "關機要呼叫 collab.destroy()").toBeGreaterThan(-1);
     expect(stopAt, "stopScan 要在 collab.destroy() 之前").toBeLessThan(destroyAt);
-    // plan gate r1 M5：等掃描停下有 2 s 上限（卡住的那一篇不得吃掉 docker stop 的寬限期，留給 collab 落盤）。
-    // #269 併線（plan Task 8 Step 5）：與站內連結轉換的 stop 並行、共用同一份 2 s 寬限。
+    // 等掃描停下有 2 s 上限（卡住的那一篇不得吃掉 docker stop 的寬限期，留給 collab 落盤）。
+    // #269 併線：與站內連結轉換的 stop 並行、共用同一份 2 s 寬限。
     expect(handler).toMatch(/Promise\.race\(\[Promise\.all\(\[collab\.versions\.stopScan\(\), app\.linkConversion\.stop\(\)\]\), stopGrace\(\)\]\)/);
   });
 

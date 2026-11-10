@@ -26,7 +26,7 @@ import { usePresentEntry } from "@/present/usePresentEntry";
 const NO_LINKS: readonly PublicLinkDto[] = [];
 
 /**
- * 公開唯讀頁（#72 Task 3；#122 PR3 起雙形）：`/p/:token` 與 `/p/:handle/:slug`
+ * 公開唯讀頁（#72；#122 起雙形）：`/p/:token` 與 `/p/:handle/:slug`
  * 共用本頁。**免登入**：兩條路由都掛在 RequireAuth 外（App.tsx），整頁零 auth
  * 相依——不打 `/api/auth/me`、不掛 AppShell、不掛 useCollab（內容是快照，落後
  * 量級 debounce 2s／上限 10s，記 known-limitations）。
@@ -43,7 +43,7 @@ export default function PublicNotePage() {
   const params = useParams<{ token?: string; handle?: string; slug?: string }>();
   const { t } = useTranslation();
 
-  // #229：簡報模式（spec §6.1、§8）。location 取本頁自己的 useLocation()。
+  // #229：簡報模式。location 取本頁自己的 useLocation()。
   const location = useLocation();
   const presenting = isPresentingSearch(location.search);
   const { presentHere } = usePresentEntry();
@@ -73,21 +73,21 @@ export default function PublicNotePage() {
   // 吃進 error 態誤標成連結問題。
   const doc = useMemo(() => (query.data ? decodePublicYdoc(query.data.ydoc) : null), [query.data]);
 
-  // #269 §10.2：公開頁的段落錨點——noteKey＝公開 ref 的識別字串（與 PublicNoteEditor 共用 publicRefIdentity）；ready＝doc 解碼完成。
+  // #269：公開頁的段落錨點——noteKey＝公開 ref 的識別字串（與 PublicNoteEditor 共用 publicRefIdentity）；ready＝doc 解碼完成。
   const [anchorRoot, setAnchorRoot] = useState<HTMLElement | null>(null);
   const publicKey = publicRefIdentity(publicRef);
   const blockAnchor = useBlockAnchor({ noteKey: publicKey, ready: doc !== null, root: anchorRoot, ignore: presenting, currentNoteId: null });
-  // #269 §10.3(b)：標題「#」鈕疊在文章欄 wrapper（`relative`）上。
+  // #269：標題「#」鈕疊在文章欄 wrapper（`relative`）上。
   const [columnEl, setColumnEl] = useState<HTMLElement | null>(null);
 
-  // 背景 refetch（react-query 預設 focus/reconnect 會重抓）失敗的呈現規則（讀碼審查
-  // 抓到的皺褶）：404 → **翻成失效卡**，即使手上還有內容——這是撤銷的即時傳播，正在
+  // 背景 refetch（react-query 預設 focus/reconnect 會重抓）失敗的呈現規則：
+  // 404 → **翻成失效卡**，即使手上還有內容——這是撤銷的即時傳播，正在
   // 看的人回到分頁就該知道連結死了；**非 404 且已有內容 → 繼續渲染既有快照**——
   // 一時的網路失敗不該把看到一半的內容整卡換成錯誤文案（query.data 在 refetch 失敗
   // 時仍保留），下次 refetch 成功自癒。
   const notFound = query.isError && query.error instanceof ApiFail && query.error.status === 404;
 
-  // #229 §6.5 呼叫點：重抓到 404（撤銷）→ 頁面切失效卡、外殼不掛，先退出我們要的全螢幕。
+  // #229 呼叫點：重抓到 404（撤銷）→ 頁面切失效卡、外殼不掛，先退出我們要的全螢幕。
   useEffect(() => {
     if (notFound) exitOwnedFullscreen();
   }, [notFound]);
@@ -149,7 +149,7 @@ export default function PublicNotePage() {
     );
   }
 
-  // #229：外殼在 presenting 且不是 404 時掛（§6.1）；非 404 失敗且已有資料 → 續渲快照，外殼與簡報層不動（§8-2）。
+  // #229：外殼在 presenting 且不是 404 時掛；非 404 失敗且已有資料 → 續渲快照，外殼與簡報層不動。
   const shellMounted = presenting && !notFound;
   const presentStatus: PresentationShellStatus = query.isPending ? "loading" : query.isError && !query.data ? "error" : "ready";
   const presentError =

@@ -1,7 +1,7 @@
 /**
- * #175 T9／T10／T11（§6.7、S1、§7）：成員異動的交易本體。三支都以 `lockGroup` 開頭、S1 以另一條敘述 `countAdmins`
+ * #175 T9／T10／T11：成員異動的交易本體。三支都以 `lockGroup` 開頭、管理員計數以另一條敘述 `countAdmins`
  * 計數（見 `groups/queries.ts` 檔頭）。本檔不 import `Db`、不接 `deps`；測試縫 `hook` 是型別明示的參數（S14 允許）——
- * S1 的並發測試靠它在「鎖已取得、寫入尚未發生」時讓第二個請求撞上同一把鎖。業務拒絕一律 throw `TxAbort`。
+ * 管理員不變量的並發測試靠它在「鎖已取得、寫入尚未發生」時讓第二個請求撞上同一把鎖。業務拒絕一律 throw `TxAbort`。
  */
 import { and, eq } from "drizzle-orm";
 import type { Tx } from "../../db/tx.js";
@@ -37,8 +37,8 @@ export async function addMemberInTx(
 }
 
 /**
- * T10：換角色（Q9 不防升權：含授予／收回內建管理員、含自己）。唯一硬限制 S1：目前持內建管理員、要換成別的角色、
- * 而且他是最後一位 → 409。角色沒變 → no-op（不 UPDATE、`noteIds` 為 null＝不踢線，比照 v1 F-1「值沒變就不踢」）。
+ * T10：換角色（不防升權：含授予／收回內建管理員、含自己）。唯一硬限制：每群組至少一位內建管理員；目前持內建管理員、要換成別的角色、
+ * 而且他是最後一位 → 409。角色沒變 → no-op（不 UPDATE、`noteIds` 為 null＝不踢線：值沒變就不踢）。
  */
 export async function setMemberRoleInTx(
   tx: Tx,
@@ -66,7 +66,7 @@ export async function setMemberRoleInTx(
   return { member, noteIds: (await groupNoteIdsQuery(tx, input.groupId)).map(r => r.id) };
 }
 
-/** T11：移人／退出（S1）。回群組所有筆記的 id（commit 後踢線：群組所有筆記 × 那一人，§7）。 */
+/** T11：移人／退出。回群組所有筆記的 id（commit 後踢線：群組所有筆記 × 那一人）。 */
 export async function removeMemberInTx(
   tx: Tx,
   input: { groupId: string; targetUserId: string },

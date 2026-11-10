@@ -5,7 +5,7 @@ import { EditorSession } from "../../src/notes/editing/session.js";
 import { syntaxCheckRoot } from "@knotebook/shared";
 import { DROPPED_SELECTOR, DROPPED_TAGS, hasDroppedElement, parseMarkdownForNote } from "../../src/notes/editing/markdown.js";
 
-/** 探索測試 E：`parseMarkdownForNote` 的失敗成因（`detail`），與「會被丟掉的元素不論在哪都整筆拒絕」（審查裁示）。 */
+/** `parseMarkdownForNote` 的失敗成因（`detail`），與「會被丟掉的元素不論在哪都整筆拒絕」。 */
 const rt = new EditingRuntime({ baseUrl: "http://localhost/" });
 rt.installGlobals();
 async function parse(md: string) {
@@ -40,7 +40,7 @@ describe("parse 失敗成因", () => {
     for (const md of cases) expect(await parse(md), md).toEqual(DROPPED);
   });
   it("HTML 註解裡、code 裡的 <script> 不算；<embed> 會 parse 成 file block、不拒絕", async () => {
-    expect(await parse("<!-- <script>x</script> -->")).toEqual({ error: "empty_content" }); // R5
+    expect(await parse("<!-- <script>x</script> -->")).toEqual({ error: "empty_content" });
     for (const md of ["para <!-- <script>x</script> -->", "`<script>x</script>`", "```html\n<script>x</script>\n```"]) expect("error" in (await parse(md)), md).toBe(false);
     // 這個 parser 不認 `\<` 跳脫：`\<script>` 照樣是元素（以前悄悄丟掉、留下反斜線），現在整筆拒絕
     expect(await parse("\\<script>x")).toEqual(DROPPED);
@@ -55,7 +55,7 @@ describe("parse 失敗成因", () => {
   });
 });
 
-describe("字串預篩不改變結果（審查 F6）", () => {
+describe("字串預篩不改變結果", () => {
   // 預篩只是捷徑：每一形都拿「直接建 DOM 查 DROPPED_SELECTOR」對照，兩者必須相同
   const inputs = [
     "<p><script>x</script></p>", "<p><SCRIPT>x</SCRIPT></p>", "<p><ScRiPt src=x></p>", "<p><Title>t</Title></p>", "<TEMPLATE>t</TEMPLATE>", "<p><NoScript>n</NoScript></p>",

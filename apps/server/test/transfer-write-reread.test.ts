@@ -1,7 +1,7 @@
 /**
  * 批次寫回「下載後筆記被動過 → 409 note_changed」（不再三方合併）。
  * E0：同一篇沒動過的筆記重複匯出逐位元組相同（冷筆記、live 文件已載入記憶體）——`note_changed` 的判斷以此為前提。
- * NC1–NC9：九案；NC10–NC12：檢查與套用之間的插隊（TOCTOU）、寫回額度（N5）、front matter（N7）。
+ * NC1–NC9：九案；NC10–NC12：檢查與套用之間的插隊（TOCTOU）、寫回額度、front matter。
  */
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
@@ -152,7 +152,7 @@ describe("NC 下載後筆記動過 → 409 note_changed", () => {
     expect(await titleOf(s.ctx, s.note.id)).toBe("Renamed by edit_note");
   });
 
-  it("NC3（N2）相鄰 X、Y：副本 A 先寫回改 X → 副本 B 改 X 與 Y（同一區）→ 409、X 只有一份", async () => {
+  it("NC3 相鄰 X、Y：副本 A 先寫回改 X → 副本 B 改 X 與 Y（同一區）→ 409、X 只有一份", async () => {
     const s = await scene({}, "段落 X\n\n段落 Y\n\n段落 Z");
     const pat2 = await seedTokenForUser(s.ctx.db, s.u.id, "notes:read notes:write");
     const b2 = await issueBulkDirect(s.ctx.db, pat2.tokenId, { access: "write" });
@@ -164,7 +164,7 @@ describe("NC 下載後筆記動過 → 409 note_changed", () => {
     expect(md.split("段落 X").length - 1).toBe(1);
   });
 
-  it("NC4（N3）插入：edit_note 換掉第二章 → 送舊副本在 C1 後插一段 → 409（不再插到別章）", async () => {
+  it("NC4 插入：edit_note 換掉第二章 → 送舊副本在 C1 後插一段 → 409（不再插到別章）", async () => {
     const s = await scene();
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
     await mcpSectionEdit(s, "第二章", "replace_section", "# 第二章\n\n段落 C1 AI 改過\n\n* 清單一\n* 清單二");
@@ -172,7 +172,7 @@ describe("NC 下載後筆記動過 → 409 note_changed", () => {
     expect(md).not.toContain("檔案新插的段");
   });
 
-  it("NC5（N4）刪除：edit_note 改過那一段 → 送舊副本刪掉它 → 409（不再回 unchanged／same）、那段還在", async () => {
+  it("NC5 刪除：edit_note 改過那一段 → 送舊副本刪掉它 → 409（不再回 unchanged／same）、那段還在", async () => {
     const s = await scene();
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
     await mcpSectionEdit(s, "第三章", "replace_section", "# 第三章\n\n段落 D1 被改");
@@ -270,7 +270,7 @@ describe("NC13 匯出相同、結構不同", () => {
   });
 });
 
-describe("NC14／NC15 「動過」只看這篇自己的內容（審查 I2：結構比對，不照匯出比）", () => {
+describe("NC14／NC15 「動過」只看這篇自己的內容（結構比對，不照匯出比）", () => {
   for (const change of ["rename", "invisible"] as const) {
     it(`NC14 連到別篇的 wikilink（沒有自訂文字、顯示對方現行標題）：對方${change === "rename" ? "改名" : "變成看不到（進垃圾桶）"} → 不算動過、改別段的檔 200；wikilink 那顆 id 與屬性不變`, async () => {
       const s = await scene({}, "");
@@ -311,7 +311,7 @@ describe("NC14／NC15 「動過」只看這篇自己的內容（審查 I2：結�
   });
 });
 
-describe("NC16 寫回過本文的副本不再收標題修改（審查 I1）", () => {
+describe("NC16 寫回過本文的副本不再收標題修改", () => {
   it("副本寫回 Para 0 → 別人改 Para 2 → 同一份檔只改 title 再送 → 409 already_sent、標題不變、別人的修改在", async () => {
     const s = await scene({}, "Para 0\n\nPara 1\n\nPara 2");
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
@@ -328,7 +328,7 @@ describe("NC16 寫回過本文的副本不再收標題修改（審查 I1）", ()
   });
 });
 
-describe("NC17 基底 0 顆、現況恰一顆空段落（審查 M1：瀏覽器打開會正規化出來）", () => {
+describe("NC17 基底 0 顆、現況恰一顆空段落（瀏覽器打開會正規化出來）", () => {
   const loneEmpty = (s: Scene, typed: boolean) =>
     humanEdit(s.ctx, s.note.id, ed => {
       ed.insertBlocks([{ type: "paragraph", content: typed ? "typed" : "" }], ed.document[0]!.id, "after");
@@ -359,7 +359,7 @@ describe("NC17 基底 0 顆、現況恰一顆空段落（審查 M1：瀏覽器�
 });
 
 describe("NC19 段表 null（mergeable: false）只改標題：退回整篇匯出比對", () => {
-  it("下載後別人改了內文 → 只改 title 的檔 409、標題不變；沒人改 → renamed（RN8 對照）", async () => {
+  it("下載後別人改了內文 → 只改 title 的檔 409、標題不變；沒人改 → renamed（對照）", async () => {
     const s = await scene({ transferTestHooks: { forceUnmergeable: () => true } }, "Para 0\n\nPara 1");
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
     await humanEdit(s.ctx, s.note.id, ed => ed.updateBlock(ed.document[1]!.id, { content: "Para 1 human" }));
@@ -367,7 +367,7 @@ describe("NC19 段表 null（mergeable: false）只改標題：退回整篇匯�
     const d2 = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
     expect((await bulkPut(s.ctx.app, s.bulk.token, renameIn(d2.text, "Renamed unmergeable"))).json()).toMatchObject({ result: "renamed" });
   });
-  it("（審查 I1，docs 寫明的例外）含 wikilink 的 mergeable:false 筆記：連到的筆記改名 → 這篇的匯出變了 → 只改 title 的檔 409", async () => {
+  it("（docs 寫明的例外）含 wikilink 的 mergeable:false 筆記：連到的筆記改名 → 這篇的匯出變了 → 只改 title 的檔 409", async () => {
     const s = await scene({ transferTestHooks: { forceUnmergeable: () => true } }, "");
     const target = await seedNote(s.ctx.db, { ownerId: s.u.id }, { title: "Target before" });
     await seedBlocks(s.ctx.db, s.note.id, [
@@ -432,7 +432,7 @@ describe("NC10 檢查之後、合併之前插隊（TOCTOU）", () => {
   });
 });
 
-describe("NC11 寫回額度只看有改的檔（探索測試 N5）", () => {
+describe("NC11 寫回額度只看有改的檔", () => {
   it("transferWrite 用完：沒改的檔 → 200 unchanged（扣 tokenRead）；有改的檔 → 429；新增檔重送（去重命中）→ 200", async () => {
     const transferWrite = new FixedWindowLimiter({ limit: 1, windowMs: 60_000 });
     const s = await scene({ limiters: { transferWrite } }, "Para 0\n\nPara 1");
@@ -454,8 +454,8 @@ describe("NC11 寫回額度只看有改的檔（探索測試 N5）", () => {
   });
 });
 
-describe("NC20 零區（位元組有變、決策全是 same）＝unchanged（審查 M1）", () => {
-  it("（全分支審查 I2 起）只加空行 → 200 unchanged、applied_body_sha 不寫、寫回額度退回；額度用完時同一個檔 → 429（判零區要先解析，解析前就扣）", async () => {
+describe("NC20 零區（位元組有變、決策全是 same）＝unchanged", () => {
+  it("只加空行 → 200 unchanged、applied_body_sha 不寫、寫回額度退回；額度用完時同一個檔 → 429（判零區要先解析，解析前就扣）", async () => {
     const transferWrite = new FixedWindowLimiter({ limit: 1, windowMs: 60_000 });
     const s = await scene({ limiters: { transferWrite } }, "Para 0\n\nPara 1");
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
@@ -483,7 +483,7 @@ describe("NC20 零區（位元組有變、決策全是 same）＝unchanged（審
   });
 });
 
-describe("NC12 front matter（探索測試 N7）", () => {
+describe("NC12 front matter", () => {
   it("`id :`／`base :`（冒號前有空白）→ 寫回原筆記、不建新筆記；有 base 沒 id → 400、什麼都沒建", async () => {
     const s = await scene({}, "Para 0\n\nPara 1");
     const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);

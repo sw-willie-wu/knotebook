@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { COLUMN_GAP_PX, COLUMN_MIN_IMAGE_PX, COLUMN_MIN_TEXT_PX } from "./layout";
 
 /**
- * `index.css` 並排段落的源碼守衛（spec 2026-10-21 columns-layout §6）。BlockNote 的 CSS 在 lazy chunk、晚於 `index.css`，
+ * `index.css` 並排段落的源碼守衛。BlockNote 的 CSS 在 lazy chunk、晚於 `index.css`，
  * 兩邊都未分層——不錨 `.bn-editor` 的覆寫同特異度必輸、靜默不生效且 jsdom 全綠；數值要與 `layout.ts` 的常數同一份。
  * 守不到的：規則有沒有真的進 build 產物（Lightning CSS 會靜默丟掉解析不了的選擇器）——build 後 grep `dist/assets/*.css`。
  */
@@ -59,7 +59,7 @@ describe("index.css 並排段落", () => {
     }
   });
 
-  it("CSS2b 欄只歸零左右 padding、上下照 core 的 12px（spec §6）：欄規則不得有 `padding`／`padding-block` 等其他 padding 宣告", () => {
+  it("CSS2b 欄只歸零左右 padding、上下照 core 的 12px：欄規則不得有 `padding`／`padding-block` 等其他 padding 宣告", () => {
     const actual = declarations(block(RULES[1][0]) ?? "");
     expect(Object.keys(actual).filter((prop) => prop.startsWith("padding"))).toEqual(["padding-inline"]);
   });

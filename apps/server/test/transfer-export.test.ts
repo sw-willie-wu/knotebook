@@ -1,5 +1,5 @@
 /**
- * bulk transfer spec 2026-11-02 §5.6、§6、§12：整包匯出 `GET /api/transfer/export`（plan T10 E1–E21）。一律走真 HTTP（`exportRaw`）。
+ * bulk transfer：整包匯出 `GET /api/transfer/export`。一律走真 HTTP（`exportRaw`）。
  */
 import http from "node:http";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -255,7 +255,7 @@ describe("E5–E7b、E18：413、全站 1 個、桶", () => {
     expect((await exportRaw(ctx.baseUrl, B.b.token)).status).toBe(200);
   });
 
-  it("E18 範圍物件已看不到（group 權杖、已退群）→ 403 RANGE_GONE、未扣桶；另一位使用者的匯出占著 slot 時仍回 403 不是 429（gone 在拿 slot 之前判，審查 m4）", async () => {
+  it("E18 範圍物件已看不到（group 權杖、已退群）→ 403 RANGE_GONE、未扣桶；另一位使用者的匯出占著 slot 時仍回 403 不是 429（gone 在拿 slot 之前判）", async () => {
     const g = gate();
     let held = false;
     const hooks: ExportTestHooks = {
@@ -289,7 +289,7 @@ describe("E5–E7b、E18：413、全站 1 個、桶", () => {
     expect((await exportRaw(ctx.baseUrl, await tokenFor(ctx, u.id))).status).toBe(200);
   });
 
-  it("E22 串流本體在 writeHead 之前丟錯 → 斷線、slot 仍放；照樣記一行 info（鍵集合同 E21、outcome aborted）、onExportEnd(aborted)（審查 m2、複審 F4）", async () => {
+  it("E22 串流本體在 writeHead 之前丟錯 → 斷線、slot 仍放；照樣記一行 info（鍵集合同 E21、outcome aborted）、onExportEnd(aborted)", async () => {
     let boom = true;
     let called = false;
     const chunks: string[] = [];
@@ -325,7 +325,7 @@ describe("E5–E7b、E18：413、全站 1 個、桶", () => {
     expect((await exportRaw(ctx.baseUrl, await tokenFor(ctx, v.id))).status).toBe(200);
   });
 
-  it("E23 HEAD /api/transfer/export → 404、不扣桶、不拿 slot（exposeHeadRoute: false，審查 m6）", async () => {
+  it("E23 HEAD /api/transfer/export → 404、不扣桶、不拿 slot（exposeHeadRoute: false）", async () => {
     const ctx = await buildCollabTestApp({ limiters: { transferExport: new FixedWindowLimiter({ limit: 1, windowMs: 3_600_000 }) } });
     const { b } = await userWithBulk(ctx);
     const h = await ctx.app.inject({ method: "HEAD", url: "/api/transfer/export", headers: { authorization: `Bearer ${b.token}` } });
@@ -518,7 +518,7 @@ describe("E14–E17：not mergeable、標頭、presence、live", () => {
     expect(b2!.segments).not.toBeNull();
   });
 
-  it("E14b（探索測試 H；全分支審查 I2(c) 起門檻 256 KiB）檔案超過寫回上限 → manifest 該項 tooLargeToSend:true；剛好在上限內的與一般檔沒有這個鍵", async () => {
+  it("E14b（門檻 256 KiB）檔案超過寫回上限 → manifest 該項 tooLargeToSend:true；剛好在上限內的與一般檔沒有這個鍵", async () => {
     const ctx = await buildCollabTestApp();
     const { u, b } = await userWithBulk(ctx);
     const big = await seedNote(ctx.db, { ownerId: u.id }, { title: "big" });

@@ -2,10 +2,10 @@ import { test, expect } from "@playwright/test";
 import { ADMIN, createNote, loginAs, openSiteAdmin, randomEmail } from "./helpers.js";
 
 /**
- * §14.5 流程 3：admin 於站台管理頁建邀請連結（UI 全程，#285）→ 第二使用者（獨立 browser
+ * admin 於站台管理頁建邀請連結（UI 全程，#285）→ 第二使用者（獨立 browser
  * context）開連結、自己填 email 與密碼建帳並登入（不強制改密碼）→ admin 建筆記並分享給他
  * → 他開啟可見 → admin 撤銷 → **≤10 秒**他的頁面出現 `note.accessRevoked` toast
- * 文案＋被導回 `/`（§10 SLA 的機器斷言）。
+ * 文案＋被導回 `/`（SLA 的機器斷言）。
  *
  * 建邀請走站台管理 modal（`/admin/users`），從 `UserMenu` 的「Site admin」入口進去
  * （走真實入口，不 `page.goto` 深連結），完成後按 Esc 關掉回 `/`。
@@ -81,7 +81,7 @@ test("admin 建第二使用者 → 分享筆記 → 撤銷 → SLA 內失去存�
     // `authenticationFailed`，`useCollab` 現在接了並翻成同一套二擊語意，同樣收斂到
     // 下面那組斷言）——但這道屏障仍然保留：它讓這一支 spec 釘的是「已連線後收到
     // 應用層 CLOSE(REVOKED)」那條主路徑，而不是隨機落在兩條之一。
-    // `ConnectionBadge`（`role="status"`）是 T12 交接記錄的真訊號：
+    // `ConnectionBadge`（`role="status"`）是真訊號：
     // 等它顯示「Read-only」（#335：viewer 連上後徽章只寫「唯讀」；順帶釘住角色＝viewer，分享表單預設角色）。
     // regex 錨定開頭（同 helpers.ts `createNote` 的屏障）：字串形式是大小寫不敏感的
     // 子字串比對，未來若出現「Disconnected」之類的文案會誤中。
@@ -92,7 +92,7 @@ test("admin 建第二使用者 → 分享筆記 → 撤銷 → SLA 內失去存�
     await shareDialog.getByRole("button", { name: `Remove ${secondEmail}` }).click();
     await expect(shareDialog.getByText(secondEmail)).not.toBeVisible();
 
-    // ── §10 SLA：≤10 秒，第二使用者頁面出現 accessRevoked toast＋被導回 "/" ──
+    // ── 撤銷 SLA：≤10 秒，第二使用者頁面出現 accessRevoked toast＋被導回 "/" ──
     // Radix Toast 額外渲染一個 `role="status"` live-region 播報「Notification …」
     // 跟真正的 toast 文案共用子字串——`exact:true` 只匹配
     // 真正的 ToastTitle 節點。

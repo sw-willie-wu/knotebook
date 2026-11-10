@@ -59,7 +59,7 @@ describe("FC1 folders 包：兩語系鍵集合相同、頂層只有 folderDialog
   });
 });
 
-describe("FC2 spec §6.6／§6.16 字面", () => {
+describe("FC2 資料夾文案字面", () => {
   const ZH: Record<string, string> = {
     "folderDialogs.renameTitle": "重新命名資料夾",
     "folderDialogs.nameLabel": "資料夾名稱",

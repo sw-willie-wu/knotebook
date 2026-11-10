@@ -1,4 +1,4 @@
-/** 頭貼參照：awareness 與 DTO 只傳這個，不傳網址（spec §8）。 */
+/** 頭貼參照：awareness 與 DTO 只傳這個，不傳網址。 */
 export interface AvatarRef {
   id: string;
   v: number;
@@ -20,7 +20,7 @@ export function parseAvatarRef(x: unknown): AvatarRef | null {
 }
 
 /**
- * 站內頭貼讀圖網址（帶 `?v=` 版本）——全 repo 唯一組出它的地方（AG1；web 的 `<img>` 只經它）。id 經 encodeURIComponent。
+ * 站內頭貼讀圖網址（帶 `?v=` 版本）——全 repo 唯一組出它的地方（web 的 `<img>` 只經它）。id 經 encodeURIComponent。
  * id 須是 `parseAvatarRef` 通過的 UUID 或 server DTO 的 uuid（呼叫端只能拿 `AvatarRef`）；本函式不驗，
  * 因為 `.`／`..` 不會被編碼，亂傳會組出退一層的站內路徑。
  */

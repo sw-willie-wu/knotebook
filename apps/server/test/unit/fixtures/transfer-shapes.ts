@@ -1,6 +1,5 @@
-// 由 scratchpad 的 wb1-gen-shapes.py 自動產生（不要手改）：形取自 docs/superpowers/plans/2026-11-02-bulk-transfer-ref/spk-shapes.mts
-// （gate r3 exp1 的 66 形＋r4 的 35 新形＋spike 的 28 形），預期段表與統計取自同目錄 spk-s1-tableNorm.out.txt（表格填充正規化版，129／129 OK）。
-// bulk transfer spec §6.4-2～-5、§25.1；plan T6 Step 1。
+// 由產生器腳本自動產生（不要手改；產生器不在 repo）：寫回時段表對齊的對照形
+// （129 形），預期段表與統計取自表格填充正規化版的實跑輸出（129／129 OK）。
 
 export type ShapeBlock = Record<string, unknown>;
 type Inline = string | ReadonlyArray<Record<string, unknown>>;
@@ -24,7 +23,7 @@ const WL = [
 const ner = <X>(n: number, f: (i: number) => X): X[] => Array.from({ length: n }, (_, i) => f(i));
 const blue = { props: { textColor: "blue" } };
 
-/** wikilink 形的目標（spike 的 TITLES）：看得到時的現行標題。 */
+/** wikilink 形的目標：看得到時的現行標題。 */
 export const SHAPE_LINK_TARGET = "11111111-1111-4111-8111-111111111111";
 export const SHAPE_TITLES: ReadonlyMap<string, string> = new Map([[SHAPE_LINK_TARGET, "Other note"]]);
 

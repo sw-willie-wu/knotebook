@@ -88,7 +88,7 @@ import type { UndoManager } from "yjs";
  * 正規化（補回空段落、重產 block id），y-prosemirror 的 sync plugin 隨即把這個差異
  * 以 `ySyncPluginKey`——也就是 `UndoManager` 追蹤的那個 origin——寫回 Y.Doc，
  * `afterTransactionHandler` 於是當成「使用者又編輯了」而 `clear(false, true)`
- * 清掉整個 redoStack（真瀏覽器探針實測，約在 undo 後 12ms）。
+ * 清掉整個 redoStack（真瀏覽器實測，約在 undo 後 12ms）。
  * 那是 library 層的問題、與本檔無關（本檔修正之前 undo/redo 是整組死的），
  * 三條可能的修法都會動到共編 undo 語意或需要上游配合——完整分析在 issue #100。
  */
@@ -220,7 +220,7 @@ const DENORMALIZE_ORIGIN = "knotebook:undo-denormalize";
  * afterTransaction，而 #97 的病灶正是這條訂閱會在 view 重掛被拆。訂閱死掉的窗口
  * 內若有遠端更新「就地沾染」殘渣節點，identity 比對擋不住（節點沒被換掉）——
  * re-arm＝可能存在過這種窗口，一律作廢，劣化方向是已文件化的「平行空 block」，
- * fail-safe（第二輪審查 I1 的探針實證過不作廢會把遠端內容連坐刪掉）。
+ * fail-safe（實測過不作廢會把遠端內容連坐刪掉）。
  */
 const guardedManagers = new WeakMap<UndoManager, () => void>();
 
@@ -236,8 +236,8 @@ const guardedManagers = new WeakMap<UndoManager, () => void>();
  *    再 redo。不清的話 redo 恢復的內容會與殘渣並列成**兩個平行 blockGroup**
  *    （不合法結構，PM 只渲染第一個，看起來像 redo 沒生效）。
  *
- *    ⚠ 殘渣的鑑別**不能**用「fragment 長得像預設空文件」（第一版就是這樣寫、被審查
- *    抓到 Critical）：那個結構可能是**本來就存在的活 baseline**——重開一篇曾被撤空
+ *    ⚠ 殘渣的鑑別**不能**用「fragment 長得像預設空文件」（第一版就是這樣寫，
+ *    出過嚴重的錯）：那個結構可能是**本來就存在的活 baseline**——重開一篇曾被撤空
  *    的筆記後，殘渣已持久化、使用者的新編輯以它為 parent；或同 session 撤空後又
  *    打了字再 undo。此時 redo 項目的 parent 就是它，刪掉它會讓 yjs 的 `redoItem`
  *    對「已刪除且不在 redo 集合裡的 parent」直接回 null（yjs 13.6.32
@@ -273,7 +273,7 @@ export function guardEmptyDocNormalization(manager: UndoManager): void {
     // 兩份 y-prosemirror 實例，PluginKey 身分比對會靜默失敗（同 collabUndoManager
     // 不 import yUndoPluginKey 的理由）。
     const isSyncWriteback = (transaction.origin as { key?: string } | null)?.key === "y-sync$";
-    // 判別式三條件是合取的防線，承重情形各不同（審查實測釘過）：使用者「清空筆記」
+    // 判別式三條件是合取的防線，承重情形各不同（實測釘過）：使用者「清空筆記」
     // 的回寫實際是被**第三條件**擋下的（那筆回寫發生當下 paragraph 還帶著空的
     // text 節點、不是預設空文件形）；deleteSet 條件擋的是「刪除＋重建成空文件形」
     // 的合成回寫；origin 條件擋非 sync 來源的純插入（例如未來 server seed）。
@@ -282,7 +282,7 @@ export function guardEmptyDocNormalization(manager: UndoManager): void {
     // 第四條件 `changedParentTypes.size > 0`：**這筆必須真的有插入**。yjs 對 no-op
     // 的 transact 一樣會發 afterTransaction（PM/Y 已一致時 sync plugin 的回寫就是
     // no-op），沒有這條的話，只要 fragment 當下長得像空文件形，no-op 也會命中、
-    // 把「活的 baseline」誤記成殘渣——正是 C1 那條資料遺失的另一個入口。
+    // 把「活的 baseline」誤記成殘渣——正是先前那條資料遺失的另一個入口。
     if (
       isSyncWriteback &&
       transaction.changedParentTypes.size > 0 &&
@@ -305,7 +305,7 @@ export function guardEmptyDocNormalization(manager: UndoManager): void {
     // 三重門。**承重的是「有記錄」**（記錄的建立與作廢已保證它只可能指向純殘渣；
     // 死窗口由 re-arm 作廢補上）；redoStack 門與 identity 門是縱深防禦——訂閱
     // 活著時任何換掉/擠開節點的變更都會先走作廢分支，所以它們在已知路徑上到
-    // 不了，突變測試殺不掉它們是**預期的**（第二輪審查 I2 核實過），別因此拆掉。
+    // 不了，突變測試殺不掉它們是**預期的**（核實過），別因此拆掉。
     if (pendingResidue !== null && manager.redoStack.length > 0 && fragment.length === 1 && fragment.get(0) === pendingResidue) {
       manager.doc.transact(() => { fragment.delete(0, 1); }, DENORMALIZE_ORIGIN);
     }

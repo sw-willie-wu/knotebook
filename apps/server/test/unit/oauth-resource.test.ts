@@ -1,5 +1,5 @@
 /**
- * #132：canonical resource identifier（D11）的比對判準。authorize 的 T2 與
+ * #132：canonical resource identifier 的比對判準。authorize 的 T2 與
  * `/oauth/token` 的兩個 grant 分支共用這一支，所以它的邊界要逐格釘住。
  */
 import { describe, expect, it } from "vitest";

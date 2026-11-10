@@ -18,9 +18,9 @@ import { __resetCollapseForTests } from "@/components/sidebar/collapse";
 import { clickOutside } from "@/test/outside-click";
 import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
-// 側欄 tab 與 AppShell 的接線（plan T2）。骨架抄 AppShell.test.tsx 的「#115 側欄抽屜」describe。
+// 側欄 tab 與 AppShell 的接線。骨架抄 AppShell.test.tsx 的「#115 側欄抽屜」describe。
 
-// `sidebar.tab` 會往外流到同檔後面的案，檔案頂層清（plan I3）。
+// `sidebar.tab` 會往外流到同檔後面的案，檔案頂層清。
 afterEach(() => {
   localStorage.clear();
 });
@@ -77,7 +77,7 @@ function stubFetchWithNotes(notes: NoteDto[], trash: TrashItemDto[] = []) {
       if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
       if (url === "/api/notes" && method === "GET") return Promise.resolve(fakeResponse(notes));
       if (url === "/api/trash" && method === "GET") return Promise.resolve(fakeResponse(trashList(trash)));
-      // #93 PR2：搜尋字 ≥ 2 個字時側欄內文區會打 /api/search（回空）。
+      // #93：搜尋字 ≥ 2 個字時側欄內文區會打 /api/search（回空）。
       if (url.startsWith("/api/search?")) return Promise.resolve(new Response(JSON.stringify({ hits: [], nextCursor: null }), { status: 200, headers: { "Content-Type": "application/json" } }));
       throw new Error(`unexpected fetch: ${method} ${url}`);
     }),
@@ -208,7 +208,7 @@ describe("AppShell — 側欄 tab 接線", () => {
     for (const name of ["Groups", "Shared with me", "Recent"]) {
       fireEvent.click(within(aside()).getByRole("tab", { name }));
     }
-    // 搜尋輸入這兩行守的是 plan 讀碼發現 3：抽屜 context 每次 render 換新物件時，`showTab` 不可依賴 drawer（依賴它就會讓 actions 捛物件、Counter 重跑）。
+    // 搜尋輸入這兩行守的是：抽屜 context 每次 render 換新物件時，`showTab` 不可依賴 drawer（依賴它就會讓 actions 捛物件、Counter 重跑）。
     const input = within(aside()).getByRole("textbox", { name: "Search notes" });
     fireEvent.change(input, { target: { value: "tab" } });
     fireEvent.change(input, { target: { value: "" } });
@@ -254,7 +254,7 @@ describe("AppShell — 側欄 tab 接線", () => {
     expect(screen.getByRole("tab", { name: "My notes" })).toHaveAttribute("aria-selected", "false");
   });
 
-  it("AS7 建筆記不切 tab（spec §5.3）", async () => {
+  it("AS7 建筆記不切 tab", async () => {
     stubFetchWithNotes([NOTE]);
     renderShell();
     fireEvent.click(await screen.findByRole("tab", { name: "Recent" }));
@@ -283,7 +283,7 @@ describe("AppShell — 側欄 tab 接線", () => {
     fireEvent.click(await within(aside()).findByRole("tab", { name: "Recent" }));
     const panel = within(aside()).getByRole("tabpanel");
     expect(await within(panel).findByText("No notes yet.")).toBeInTheDocument();
-    // 面板內沒有任何可聚焦元素（PR-2c 起標題列有「Select」，0 篇時 disabled、不可聚焦）。
+    // 面板內沒有任何可聚焦元素（標題列有「Select」，0 篇時 disabled、不可聚焦）。
     expect(panel.querySelector("a, button:not(:disabled), input, [tabindex]")).toBeNull();
     expect(within(panel).getByRole("button", { name: "Select" })).toBeDisabled();
     expect(panel).toHaveAttribute("tabindex", "0");
@@ -296,12 +296,12 @@ describe("AppShell — 側欄 tab 接線", () => {
     expect(within(aside()).getByRole("tabpanel")).toHaveAttribute("tabindex", "0");
   });
 
-  it("AS10 開始搜尋結束選取（spec §6.10.2）：靜態搜尋框打字 → 選取結束；清空搜尋後仍不在選取", async () => {
+  it("AS10 開始搜尋結束選取：靜態搜尋框打字 → 選取結束；清空搜尋後仍不在選取", async () => {
     stubFetchWithNotes([NOTE]);
     renderShell(<SelectionProbe />);
     fireEvent.click(await screen.findByTestId("start-select"));
     expect(screen.getByTestId("selecting")).toHaveTextContent("true");
-    // PR-2c：我的筆記 tab 真的換成 lazy 的選取標題列與勾選樹，等它到（不然 Suspense 在斷言之後才 resolve）。
+    // 我的筆記 tab 真的換成 lazy 的選取標題列與勾選樹，等它到（不然 Suspense 在斷言之後才 resolve）。
     await within(aside()).findByText("0 selected");
 
     const input = within(aside()).getByRole("textbox", { name: "Search notes" });
@@ -328,7 +328,7 @@ describe("AppShell — 側欄 tab 接線", () => {
     await within(drawer).findByText("0 selected");
 
     // 本案同時經過抽屜 Radix 的 Esc（document capture，flushSync 結束選取並 preventDefault）與 `SelectHeader` 的 document
-    // bubble 監聽：後者看到 defaultPrevented（而且已隨選取結束卸載）不動作；靜態卡那份在窄螢幕也因看不見不動作（plan 讀碼發現 20）。
+    // bubble 監聽：後者看到 defaultPrevented（而且已隨選取結束卸載）不動作；靜態卡那份在窄螢幕也因看不見不動作。
     fireEvent.keyDown(document.activeElement ?? drawer, { key: "Escape" });
     await act(async () => {});
     expect(screen.getByRole("dialog", { name: "Navigation" })).toBe(drawer);
@@ -388,7 +388,7 @@ describe("AppShell — 側欄 tab 接線", () => {
     expect(within(trashHeader(aside())).getByText("1 selected", { exact: true })).toBeInTheDocument();
   });
 
-  it("SM13 勾選不重繪 children（spec §5.10）：進垃圾桶、Select、勾三篇、Done，只消費 actions 的子樹不重跑", async () => {
+  it("SM13 勾選不重繪 children：進垃圾桶、Select、勾三篇、Done，只消費 actions 的子樹不重跑", async () => {
     stubFetchWithNotes([NOTE], TRASH);
     let renders = 0;
     const seen: SidebarTabActions[] = [];
@@ -532,10 +532,10 @@ function SelectionProbe() {
 }
 
 /**
- * 一般 tab 批次動作進行中關掉抽屜（#181 PR-2c T5，SA23／SA23b，plan gate r2 m-D、Rev 4 裁定 2）：抽屜內的動作列卸載，
+ * 一般 tab 批次動作進行中關掉抽屜（#181，SA23／SA23b）：抽屜內的動作列卸載，
  * 批次照跑；選取結果看 session（不看掛載）照套；重開抽屜新掛的動作列看得到進行中那輪。
  */
-describe("AppShell — 批次進行中關掉抽屜（PR-2c T5）", () => {
+describe("AppShell — 批次進行中關掉抽屜", () => {
   const notes = ["n1", "n2", "n3"].map((id) => ({ ...NOTE, id, title: id, slug: id }));
 
   function stubBatchServer(opts: { failSecond?: boolean } = {}) {
@@ -667,8 +667,8 @@ describe("AppShell — 批次進行中關掉抽屜（PR-2c T5）", () => {
   });
 });
 
-/** 一般 tab 選取模式與 AppShell 的接線（#181 PR-2c T6，spec §6.10.2 M6、§5.10、抽屜 Esc）。 */
-describe("AppShell — 一般 tab 選取模式（PR-2c T6）", () => {
+/** 一般 tab 選取模式與 AppShell 的接線（#181，抽屜 Esc）。 */
+describe("AppShell — 一般 tab 選取模式", () => {
   const notes = ["p1", "p2", "p3"].map((id) => personalNote({ id, title: id }));
   const header = (container: HTMLElement) => container.querySelector("[data-sidebar-header]") as HTMLElement;
   const noteBox = (container: HTMLElement, id: string) =>
@@ -706,7 +706,7 @@ describe("AppShell — 一般 tab 選取模式（PR-2c T6）", () => {
     expect(within(header(drawer)).getByText("1 selected", { exact: true })).toBeInTheDocument();
   });
 
-  it("AS-S2 不重繪 children（spec §5.10）：Select、勾三篇、Done，只消費 actions 的子樹不重跑", async () => {
+  it("AS-S2 不重繪 children：Select、勾三篇、Done，只消費 actions 的子樹不重跑", async () => {
     stubFetchWithNotes(notes);
     let renders = 0;
     const seen: SidebarTabActions[] = [];

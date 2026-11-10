@@ -1,7 +1,7 @@
 /**
- * bulk transfer spec 2026-11-02 §6.4、§6.6-4：單篇匯出器——本文（＝MCP 讀出）＋段表＋每行的比對種類。
+ * bulk transfer：單篇匯出器——本文（＝MCP 讀出）＋段表＋每行的比對種類。
  *
- * 流程（plan T6；不變量 3、4）：
+ * 流程（不變量 3、4）：
  * ① 不持 lease：`topLevelFingerprints` 一次走完頂層取 id 與指紋（未 mount 的結構；mount 會正規化空文件）。零顆 → 空本文、
  *    零段、**不 mount**（同 `readNoteContentFromDoc`）。
  * ② `EditorSession.open` **一次**；mount 後頂層 id 不等於 ① → 降級：本文照出、`segments: null`（不可寫回），不丟錯。
@@ -32,7 +32,7 @@ export interface ExportedNote {
   ids: string[];
   fps: string[];
   types: string[];
-  /** null＝段表對不上（§6.4-5，不可用檔案寫回）。 */
+  /** null＝段表對不上（不可用檔案寫回）。 */
   segments: TransferSegment[] | null;
   lineKinds: number[];
   stats: AlignStats & { yields: number };
@@ -48,7 +48,7 @@ export interface ExportNoteOptions {
   /** 測試縫：段表強制 null（生產不傳）。 */
   forceUnmergeable?: boolean;
   /**
-   * F1：給了就在每段記 `links`——段裡每個沒有自訂文字的 wikilink 匯出時用的文字，經這支算成雜湊（`linkTextHash` 綁好金鑰與鹽），
+   * 給了就在每段記 `links`——段裡每個沒有自訂文字的 wikilink 匯出時用的文字，經這支算成雜湊（`linkTextHash` 綁好金鑰與鹽），
    * 去重；沒有這種連結的段不帶 `links`。不給（例如只要本文的呼叫端）就不記。
    */
   linkHash?: (targetId: string, text: string) => string;
@@ -89,7 +89,7 @@ export async function exportNoteForTransfer(
 
   const s = await EditorSession.open(runtime, doc);
   try {
-    // 停頓的大宗是 mount 與整篇匯出（T7–T11 審查 m3 實測：mount 約 170 ms、整篇約 230 ms、DP 2–3 ms），各在之後讓出一次。
+    // 停頓的大宗是 mount 與整篇匯出（mount 約 170 ms、整篇約 230 ms、DP 2–3 ms），各在之後讓出一次。
     let yields = 0;
     await yieldFn();
     yields++;

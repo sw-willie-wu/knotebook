@@ -11,7 +11,7 @@ beforeAll(() => {
   editor = BlockNoteEditor.create({ schema: noteSchema }) as BlockNoteEditor<any, any, any>;
 });
 
-/** spec §2.10「必須觸發」8 案，逐字比對——不是「有 link 就好」。
+/** 「必須觸發」8 案，逐字比對——不是「有 link 就好」。
  *
  * `# 標題裡的 [a](…)` 這一案：`text` 來自 `$from.parent`，**一般打字路徑到不了**這個
  * 形狀（`# ` 一打完空格就先被 heading input rule 吃掉，變成 heading block，真編輯器
@@ -35,9 +35,9 @@ describe("resolveTrailingMarkdownLink 必須觸發", () => {
   });
 });
 
-/** spec §2.10「必須不觸發」。前三案在補 null 防呆前會丟 TypeError（image 沒有 content
+/** 「必須不觸發」。前三案在補 null 防呆前會丟 TypeError（image 沒有 content
  * 欄位、空顯示文字的 paragraph content 是空陣列、table 的 content 是物件）——它們是
- * 「判準寫成正面條件」（spec D4）的證據，不是形式主義。 */
+ * 「判準寫成正面條件」的證據，不是形式主義。 */
 describe("resolveTrailingMarkdownLink 必須不觸發", () => {
   it.each([
     ["![a](https://x.com/i.png)"], // image block，無 content 欄位
@@ -59,17 +59,17 @@ describe("resolveTrailingMarkdownLink 必須不觸發", () => {
 });
 
 /**
- * INV-3（code block／行內 code 內不套用）：這件事目前天然成立，靠的是「我們用
- * `addInputRules()` 而不是手寫 `editorProps.handleTextInput`」（D5——tiptap 的
- * `inputRulesPlugin` 自帶 code 跳過，四條入口全經過，見 spec §2.5）。這裡守的是
+ * code block／行內 code 內不套用：這件事目前天然成立，靠的是「我們用
+ * `addInputRules()` 而不是手寫 `editorProps.handleTextInput`」（tiptap 的
+ * `inputRulesPlugin` 自帶 code 跳過，四條入口全經過）。這裡守的是
  * 一條**結構性**事實：本檔用了 `addInputRules`，且不含 `handleTextInput` 的掛載形。
  *
- * ⚠ 判準不能寫成「不得出現 `handleTextInput` 這個字串」——Step 7 的 handler 註解
- * 逐字含它（在解釋偏移量為什麼隨入口而異），那樣寫對自己的成品就必紅。定案用
+ * ⚠ 判準不能寫成「不得出現 `handleTextInput` 這個字串」——handler 註解
+ * 逐字含它（在解釋偏移量為什麼隨入口而異），那樣寫對自己的成品就必紅。這裡改用
  * `/handleTextInput\s*[:(]/`：只命中「掛載形」（物件屬性 `handleTextInput:` 或函式呼叫
  * `handleTextInput(`），不命中反引號包住的散文引用。
  */
-describe("INV-3 結構守衛：本檔用 addInputRules 而不是手寫 handleTextInput", () => {
+describe("結構守衛：本檔用 addInputRules 而不是手寫 handleTextInput", () => {
   // `import.meta.url` 在 vitest 的轉換環境下不保證是 file: scheme（實測會炸
   // "The URL must be of scheme file"），改用 `process.cwd()` 組路徑——同檔案
   // `paste.subset.test.ts` 讀 node_modules 原始碼用的就是這個既有慣例。

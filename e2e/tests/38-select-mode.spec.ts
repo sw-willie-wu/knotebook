@@ -13,7 +13,7 @@ import {
 } from "./helpers.js";
 
 /**
- * #181 垃圾桶 PR-2c：一般 tab 的選取模式（spec 2026-10-21 §6.11；plan 2026-10-25-trash-pr2c 的 A2c-2～A2c-8、A2-12 多選面）。
+ * #181 垃圾桶：一般 tab 的選取模式（A2c-2～A2c-8、A2-12 多選面）。
  * 1. 我的筆記 Shift 範圍選三篇 → 移動到群組（確認框焦點在框內、送出後焦點回「Select」）。
  * 2. 群組 tab 勾一篇群組筆記 → 有「Move to」（群組沒有資料夾、筆記在根層 → 停用）；複製到「My notes」（先確認）。
  * 3. 勾兩篇刪除（不確認）→ toast「Undo」整批復原。
@@ -22,7 +22,7 @@ import {
  * 6. 最近 tab 沒有「Move to」；與我共享 tab 有「Copy to」與「Move to」（沒有共享資料夾 → 停用）、沒有刪除鈕。
  * 7. 390 寬抽屜：動作列排得進抽屜；Esc 只結束選取、抽屜不關、焦點回抽屜內的「Select」。
  * 8. 進入選取不改清單的捲動位置：寬形（底部不顯示）捲在中段；窄形抽屜（底部換成同高的動作列）捲到底。
- * 資料夾 PR-3b-3：e2e 預設視窗 1280 落在寬形——動作列（`[data-select-action-bar]`）在標題列、鈕的可及名稱不變，所以 1–6、9 照舊；
+ * e2e 預設視窗 1280 落在寬形——動作列（`[data-select-action-bar]`）在標題列、鈕的可及名稱不變，所以 1–6、9 照舊；
  * 7 與 8 的窄形版是 390。
  * 9. Esc 的範圍：焦點在 body（滑鼠點過勾選框再點主內容區）時結束選取；在標題框裡不結束；開著 toast 時第一下只關 toast。
  *
@@ -198,7 +198,7 @@ test("A2c-4：群組 tab 勾一篇群組筆記 → 有「Move to」；複製到�
   await expect(panel.getByText("1 selected", { exact: true })).toBeVisible();
   const copyTo = actionBar(page).getByRole("button", { name: "Copy to", exact: true });
   await expect(copyTo).toBeEnabled();
-  // 資料夾 PR-3b-2：群組有「移動到」（只在本群組的資料夾間移動）。這個群組沒有資料夾、筆記在根層 → 第一層是空的 → 停用。
+  // 群組有「移動到」（只在本群組的資料夾間移動）。這個群組沒有資料夾、筆記在根層 → 第一層是空的 → 停用。
   await expect(actionBar(page).getByRole("button", { name: "Move to", exact: true })).toBeDisabled();
 
   await copyTo.click();
@@ -378,7 +378,7 @@ test("A2c-7：390 寬抽屜——動作列排得進抽屜；Esc 只結束選取�
   await toggleSelectedNote(panel, title);
   const bar = actionBar(page, drawer);
   await expect(bar).toBeVisible();
-  // 三顆鈕都在抽屜的框內（T5 review r1 I1：刪除鈕曾被擠出卡片）；頁面不橫捲。
+  // 三顆鈕都在抽屜的框內（刪除鈕曾被擠出卡片）；頁面不橫捲。
   const drawerBox = await drawer.boundingBox();
   expect(drawerBox).not.toBeNull();
   for (const name of ["Move to", "Copy to", "Delete 1 selected item"]) {
@@ -416,7 +416,7 @@ test("A2c-8（寬形 1280）：清單捲在中段時進入選取模式，捲動�
   await expect(noteLink(myNotes, titles[0]!)).toBeVisible({ timeout: 15_000 });
   const list = sidebar.locator("[data-sidebar-list]");
   // 寬形進入選取時底部（New note）不顯示、清單可視高度多約一列，可捲範圍隨之縮小：捲在最底會被瀏覽器夾回（已知取捨，
-  // Review Focus 8），所以寬形驗「捲在中段」。可捲範圍要遠大於一列，中段才不會落進被縮掉的那一段。
+  // 所以寬形驗「捲在中段」。可捲範圍要遠大於一列，中段才不會落進被縮掉的那一段。
   await expect.poll(() => list.evaluate((el) => el.scrollHeight - el.clientHeight)).toBeGreaterThan(200);
   await list.evaluate((el) => {
     el.scrollTop = Math.round((el.scrollHeight - el.clientHeight) / 2);

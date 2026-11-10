@@ -1,5 +1,5 @@
 /**
- * #180 spec §3.1：PATCH 格 2（title-only）的本體，REST `PATCH /api/notes/:id` 與 MCP `edit_note` 的 `rename` 共用。
+ * #180：PATCH 格 2（title-only）的本體，REST `PATCH /api/notes/:id` 與 MCP `edit_note` 的 `rename` 共用。
  * 從 `routes/notes.ts` 格 2 **原樣搬家**：pre-read 本列 `title, slug_is_custom` → `needsAuto` → 迴圈（重試耗盡退
  * `fallbackAutoSlug`、要 auto 時 `deriveUniqueAutoSlug`、否則 `autoSlugFromTitle` 佔位）→ `await hook?.(auto)` →
  * **單句** UPDATE（`updated_at`＝`UPDATED_AT_NOW`、`slug = case when slug_is_custom then slug else $auto end`、scope 述詞＝授權當下歸屬）。
@@ -49,7 +49,7 @@ export async function renameNoteTitle(
   const { noteId: id, access, title, expectTitleFingerprint: expect, expectTitle } = input;
   const guarded = expect !== undefined || expectTitle !== undefined;
   const slugScope: SlugScope = access.groupId !== null ? { groupId: access.groupId } : { ownerId: access.ownerId! };
-  // #181 §6.2-11：三句都排除垃圾桶筆記——在垃圾桶裡＝列不在 → `gone`。
+  // #181：三句都排除垃圾桶筆記——在垃圾桶裡＝列不在 → `gone`。
   const [pre] = await db.select({ title: notes.title, slugIsCustom: notes.slugIsCustom }).from(notes).where(and(eq(notes.id, id), isNull(notes.deletedAt))).limit(1);
   if (!pre) return { kind: "gone" };
   // #381 (1)
@@ -59,7 +59,7 @@ export async function renameNoteTitle(
 
   let updated: typeof notes.$inferSelect | undefined;
   for (let attempt = 1; ; attempt++) {
-    // 候選來源三分支（原註解照搬）：重試耗盡 → uuid8 退位；要走 auto（或重試中）→ 在歸屬範圍內探測（RF5）；
+    // 候選來源三分支（原註解照搬）：重試耗盡 → uuid8 退位；要走 auto（或重試中）→ 在歸屬範圍內探測；
     // custom=true → CASE 會保留現行 slug、$auto 只是佔位，傳未探測候選即可
     // ——若 pre-read 後被併發翻回 auto（罕見競態），只有恰好撞索引才落到重試路徑
     // 重新探測；沒撞就直接寫入未探測候選（仍唯一，可接受）。

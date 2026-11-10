@@ -15,14 +15,14 @@ import {
 } from "./helpers.js";
 
 /**
- * #181 垃圾桶 PR-2b（spec 2026-10-21 §6.14 e2e 段；A2-1、A2-2、A2-3、A2-11、A2-12）：
+ * #181 垃圾桶（e2e 段；A2-1、A2-2、A2-3、A2-11、A2-12）：
  * 1. 頁首 ⋮「Delete」不確認、toast「Undo」回到該篇且可共編；側欄 ⋮ 再移入 → 垃圾桶 tab 個人區、「剩 N 天」、底部天數。
  * 2. 公開連結在垃圾桶期間 404，從垃圾桶列「還原」後恢復。
  * 3. 選取模式：Shift 範圍選三篇還原；勾兩篇永久刪除（確認框）後原網址連結無效。
  * 4. 390 寬抽屜：選取中按 Esc 只結束選取、焦點回抽屜內的「選取」鈕；確認框 Esc 只關框（jsdom 對這條假綠過，只有真瀏覽器守得住）。
  * 5. 群組：「只能刪」成員移入 → toast 沒有「Undo」、看不到群組垃圾桶、原網址無效；「編輯＋刪除」成員看得到、從卡片還原。
  * 6. 390 寬抽屜：在抽屜裡把別篇移入 → toast 以 role 找得到（抽屜開著時 toast 搬進抽屜，不在 aria-hidden 的背景裡）、按它的 Undo 抽屜不關、該篇回來。
- * 7. 資料夾 PR-3b-3（寬螢幕 1280）：選取模式是標題列一列——✕、三態全選框、已選篇數、還原／永久刪除圖示鈕；底部的保留天數說明不顯示。
+ * 7. 資料夾（寬螢幕 1280）：選取模式是標題列一列——✕、三態全選框、已選篇數、還原／永久刪除圖示鈕；底部的保留天數說明不顯示。
  *    A2-3 也跑在寬形（Restore／Delete permanently 的可及名稱兩形相同）；390 的兩案是窄形。
  *
  * 共用疊：別的 spec（例如 16）會在 admin 的垃圾桶留下項目，所以不斷言總數、列一律以本檔的標題（帶 RUN）定位。
@@ -98,7 +98,7 @@ test("A2-1／A2-2：頁首 ⋮ 移入不確認、toast 復原回到該篇可共�
   await expect(editor).toContainText(word);
   await expect(badge).toBeVisible();
 
-  // ── A2-2：側欄 ⋮ 再移入同一篇（開著的那篇：同樣回首頁）→ 垃圾桶 tab ─────────────────
+  // ── 側欄 ⋮ 再移入同一篇（開著的那篇：同樣回首頁）→ 垃圾桶 tab ─────────────────
   const sidebar = page.getByRole("complementary");
   await showSidebarTab(page, "My notes");
   await moveNoteToTrashFromSidebar(page, title);
@@ -107,7 +107,7 @@ test("A2-1／A2-2：頁首 ⋮ 移入不確認、toast 復原回到該篇可共�
   const row = trashRow(panel, title, "My notes");
   await expect(row).toBeVisible();
   await expect(row.getByText(DAYS_LEFT)).toBeVisible();
-  await expect(row.getByRole("link")).toHaveCount(0); // 垃圾桶列不是連結（spec §6.10.1）
+  await expect(row.getByRole("link")).toHaveCount(0); // 垃圾桶列不是連結
   await expect(sidebar.getByTestId("trash-footer")).toHaveText(/Permanently deleted \d+ days? after deletion|isn't emptied automatically/);
 
   // My notes 沒有它：tab 一次只渲染一份清單，先等正向錨點（同測試先建的 keep）到了才斷負向
@@ -334,7 +334,7 @@ test("寬螢幕（1280）垃圾桶選取工具列：✕ 聚焦、底部說明不
   const [w1, w2] = [1, 2].map((i) => `E2E Trash Wide${i} ${RUN}`) as [string, string];
   // 留在垃圾桶的一篇：還原後垃圾桶不是空的，「Select」仍可按（空垃圾桶時它停用、焦點交不過去）。
   const stay = `E2E Trash Wide Stay ${RUN}`;
-  // 新使用者（gate r2 I-c）：垃圾桶裡只有本案的三篇，全選框的三態不受別的 spec 留在 admin 垃圾桶的項目影響。
+  // 新使用者：垃圾桶裡只有本案的三篇，全選框的三態不受別的 spec 留在 admin 垃圾桶的項目影響。
   const user = { email: randomEmail(), password: PASSWORD };
   const adminContext = await browser.newContext();
   try {
@@ -405,7 +405,7 @@ async function createRole(page: Page, name: string, flags: ReadonlyArray<"Edit" 
     await flagSwitch.click();
     await expect(flagSwitch).toBeChecked();
   }
-  // §6.10.7：勾了刪除、沒勾編輯 → 提示（只提示、不阻擋）
+  // 勾了刪除、沒勾編輯 → 提示（只提示、不阻擋）
   const deleteOnly = flags.includes("Delete") && !flags.includes("Edit");
   await expect(dialog.getByText(DELETE_WITHOUT_EDIT_HINT, { exact: true })).toHaveCount(deleteOnly ? 1 : 0);
   await dialog.getByRole("button", { name: "Create", exact: true }).click();

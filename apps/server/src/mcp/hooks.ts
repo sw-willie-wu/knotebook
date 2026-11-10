@@ -6,23 +6,23 @@ import type { IssueBulkTransferTokenSeam } from "../auth/tx/issue-bulk-transfer-
 import type { IssueTransferTokenSeam } from "../auth/tx/issue-transfer-token.js";
 
 export interface McpTestHooks {
-  /** 計數 seam（M1(a)）：`finally` 裡 `await server.close()` **之後**呼叫，每發請求恰一次。 */
+  /** 計數 seam：`finally` 裡 `await server.close()` **之後**呼叫，每發請求恰一次。 */
   afterClose?: () => void;
   /**
-   * 故障注入 seam（M1(a)）：`Response` 已具現成 status／headers／text **之後**、`reply.send`
+   * 故障注入 seam：`Response` 已具現成 status／headers／text **之後**、`reply.send`
    * **之前**呼叫。丟出去的例外走我們自己的 `finally`，SDK 攔不到。
    *
    * ⚠ 它是 **app 級的單一函式，每一發請求都會被呼叫**——要「只在第 N 發丟」是**測試自己**
    * 在 hook 裡數第幾發，不是 handler 的責任。
    */
   beforeReply?: () => void;
-  /** 故障注入 seam（M15／案 29d）：每支工具 handler 進入時、在 `runTool()` 的 try 內呼叫，帶工具名。 */
+  /** 故障注入 seam：每支工具 handler 進入時、在 `runTool()` 的 try 內呼叫，帶工具名。 */
   beforeTool?: (name: string) => void;
   /**
-   * #200 spec §4.2：簽發交易的測試縫，原樣傳進 `issueTransferTokenInTx`（S14 ⑤：以屬性存取傳入
+   * #200：簽發交易的測試縫，原樣傳進 `issueTransferTokenInTx`（S14 ⑤：以屬性存取傳入
    * `ctx.hooks?.issueTransferToken`）。`beforeLock`／`afterCount` 的語意見該型別。
    */
   issueTransferToken?: IssueTransferTokenSeam;
-  /** bulk transfer spec §5.2-4：`issueBulkTransferTokenInTx` 的測試縫（S14 ⑤：以屬性存取傳入）。 */
+  /** bulk transfer：`issueBulkTransferTokenInTx` 的測試縫（S14 ⑤：以屬性存取傳入）。 */
   issueBulkTransferToken?: IssueBulkTransferTokenSeam;
 }

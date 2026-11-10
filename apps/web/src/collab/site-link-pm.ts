@@ -1,11 +1,11 @@
 import { parseSiteNoteHref, wikilinkPropsFromLink, type SiteLinkTarget, type SiteNoteHref } from "@knotebook/shared";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- ProseMirror Node／Transaction 型別在 apps/web 值層級拿不到（memory knotebook-markdown-link-rule）
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- ProseMirror Node／Transaction 型別在 apps/web 值層級拿不到
 type Any = any;
 
 /** 轉換本身那筆 transaction 的 meta——外掛看到它就跳過（不自我遞迴）。 */
 export const SITE_LINK_CONVERT_META = "knotebook:siteLinkConvert";
-/** y-prosemirror 的 sync plugin key 字串（`ySyncPluginKey.key`）。以字串比對：pnpm 可能給出兩份 y-prosemirror（memory knotebook-collab-undo）。 */
+/** y-prosemirror 的 sync plugin key 字串（`ySyncPluginKey.key`）。以字串比對：pnpm 可能給出兩份 y-prosemirror。 */
 export const Y_SYNC_META = "y-sync$";
 
 export interface SiteLinkRange {
@@ -88,7 +88,7 @@ export function addedLinkRanges(trs: readonly Any[]): Array<{ from: number; to: 
   return out;
 }
 
-/** 由後往前把 `pick` 給得出目標的連結換成 wikilink（屬性照 §6.3 規則）；回傳沒換的（排後備用）。`links` 必須取自 `tr.doc`。 */
+/** 由後往前把 `pick` 給得出目標的連結換成 wikilink（屬性照 `site-link.ts` 的 label 規則）；回傳沒換的（排後備用）。`links` 必須取自 `tr.doc`。 */
 export function replaceSiteLinks(tr: Any, links: readonly SiteLinkRange[], pick: (link: SiteLinkRange) => SiteLinkTarget | null): SiteLinkRange[] {
   const left: SiteLinkRange[] = [];
   const type = tr.doc.type.schema.nodes.wikilink;

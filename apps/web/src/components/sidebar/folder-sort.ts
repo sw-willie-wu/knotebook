@@ -1,15 +1,15 @@
 import { useSyncExternalStore } from "react";
 
 /**
- * 每個資料夾的筆記排序（資料夾 spec §6.7）：模組層小 store，結構同 `collapse.ts`——靜態卡、抽屜、選取樹共用，
+ * 每個資料夾的筆記排序：模組層小 store，結構同 `collapse.ts`——靜態卡、抽屜、選取樹共用，
  * 記憶體覆蓋層**先查**（`setItem` 丟例外時寫進覆蓋層，否則讀回的舊值會蓋掉剛選的排序）。首包模組：不 import `tree.ts`。
  */
 
 export type FolderSort = "name" | "recent" | "size";
 
-/** spec §6.7：`sidebar.sort.folder:<id>`。 */
+/** `sidebar.sort.folder:<id>`。 */
 export const FOLDER_SORT_PREFIX = "sidebar.sort.folder:";
-/** D10、稿 FolderMenu 勾的是最近修改。 */
+/** 預設：最近修改。 */
 export const DEFAULT_FOLDER_SORT: FolderSort = "recent";
 
 const overlay = new Map<string, FolderSort>();

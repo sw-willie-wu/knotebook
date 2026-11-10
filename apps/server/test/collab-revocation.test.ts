@@ -53,23 +53,23 @@ async function fetchToken(session: HttpSession, noteId: string): Promise<string>
 }
 
 /**
- * 撤權 SLA（spec §10：撤銷分享 ≤10 秒）的端對端驗證。所有「撤權後多久生效」的斷言一律
- * ≤10s——這是對外承諾的上限；實際機制（§7 的機制列）是「requestToken + 5s deadline」，
+ * 撤權 SLA（撤銷分享 ≤10 秒）的端對端驗證。所有「撤權後多久生效」的斷言一律
+ * ≤10s——這是對外承諾的上限；實際機制（機制列）是「requestToken + 5s deadline」，
  * 正常路徑遠快於此。
  */
-describe("撤權 SLA：CollabHooks（Task 6）", () => {
-  it("撤銷分享：被撤者收 CLOSE(revoked) 且其後編輯不落盤；同文件另一 editor 不受影響（N1：不得全 note 廣播）", async () => {
+describe("撤權 SLA：CollabHooks", () => {
+  it("撤銷分享：被撤者收 CLOSE(revoked) 且其後編輯不落盤；同文件另一 editor 不受影響（不得全 note 廣播）", async () => {
     const ctx = await buildApp();
-    const owner = await ctx.createUser({ email: "owner-rev1@example.com", password: PASSWORD });
-    const victim = await ctx.createUser({ email: "victim-rev1@example.com", password: PASSWORD });
-    const bystander = await ctx.createUser({ email: "bystander-rev1@example.com", password: PASSWORD });
+    const owner = await ctx.createUser({ email: "owner-case1@example.com", password: PASSWORD });
+    const victim = await ctx.createUser({ email: "victim-case1@example.com", password: PASSWORD });
+    const bystander = await ctx.createUser({ email: "bystander-case1@example.com", password: PASSWORD });
     const note = await ctx.createNote(owner.id);
     await ctx.share(note.id, victim.id, "editor");
     await ctx.share(note.id, bystander.id, "editor");
 
-    const ownerSession = await ctx.loginAs("owner-rev1@example.com", PASSWORD);
-    const victimSession = await ctx.loginAs("victim-rev1@example.com", PASSWORD);
-    const bystanderSession = await ctx.loginAs("bystander-rev1@example.com", PASSWORD);
+    const ownerSession = await ctx.loginAs("owner-case1@example.com", PASSWORD);
+    const victimSession = await ctx.loginAs("victim-case1@example.com", PASSWORD);
+    const bystanderSession = await ctx.loginAs("bystander-case1@example.com", PASSWORD);
 
     const ownerClient = await ownerSession.connect(note.id);
     const victimClient = await victimSession.connect(note.id);
@@ -105,13 +105,13 @@ describe("撤權 SLA：CollabHooks（Task 6）", () => {
 
   it("不合作的 client（完成 auth 後對 token 請求毫無回應）：5s deadline 到期即被 close(revoked)", async () => {
     const ctx = await buildApp();
-    const owner = await ctx.createUser({ email: "owner-rev2@example.com", password: PASSWORD });
-    const victim = await ctx.createUser({ email: "victim-rev2@example.com", password: PASSWORD });
+    const owner = await ctx.createUser({ email: "owner-case2@example.com", password: PASSWORD });
+    const victim = await ctx.createUser({ email: "victim-case2@example.com", password: PASSWORD });
     const note = await ctx.createNote(owner.id);
     await ctx.share(note.id, victim.id, "editor");
 
-    const ownerSession = await ctx.loginAs("owner-rev2@example.com", PASSWORD);
-    const victimSession = await ctx.loginAs("victim-rev2@example.com", PASSWORD);
+    const ownerSession = await ctx.loginAs("owner-case2@example.com", PASSWORD);
+    const victimSession = await ctx.loginAs("victim-case2@example.com", PASSWORD);
 
     // 首次（連線用）token 正常取得；之後 server 端 requestToken 觸發的每一次呼叫都回一個
     // **永不 resolve** 的 promise——provider 因此永遠不會送出 AuthenticationMessage，等同
@@ -151,13 +151,13 @@ describe("撤權 SLA：CollabHooks（Task 6）", () => {
     // 「我好好的怎麼突然被踢出來」最常見的來源是這條路，不是握手——docs 的排錯指引叫維護者
     // grep `"cause"`，那就必須 grep 得到它。
     const ctx = await buildApp();
-    const owner = await ctx.createUser({ email: "owner-rev9@example.com", password: PASSWORD });
-    const editorUser = await ctx.createUser({ email: "editor-rev9@example.com", password: PASSWORD });
+    const owner = await ctx.createUser({ email: "owner-case9@example.com", password: PASSWORD });
+    const editorUser = await ctx.createUser({ email: "editor-case9@example.com", password: PASSWORD });
     const note = await ctx.createNote(owner.id);
     await ctx.share(note.id, editorUser.id, "editor");
 
-    const ownerSession = await ctx.loginAs("owner-rev9@example.com", PASSWORD);
-    const editorSession = await ctx.loginAs("editor-rev9@example.com", PASSWORD);
+    const ownerSession = await ctx.loginAs("owner-case9@example.com", PASSWORD);
+    const editorSession = await ctx.loginAs("editor-case9@example.com", PASSWORD);
     const editorClient = await editorSession.connect(note.id);
 
     const del = await ownerSession.fetch(`/api/notes/${note.id}/shares/${editorUser.id}`, { method: "DELETE" });
@@ -173,17 +173,17 @@ describe("撤權 SLA：CollabHooks（Task 6）", () => {
 
   it("停用使用者：該 user 在兩篇不同筆記上的連線皆被剝離（跨文件）", async () => {
     const ctx = await buildApp();
-    await ctx.createUser({ email: "admin-rev3@example.com", password: PASSWORD, isAdmin: true });
-    const owner = await ctx.createUser({ email: "owner-rev3@example.com", password: PASSWORD });
-    const target = await ctx.createUser({ email: "target-rev3@example.com", password: PASSWORD });
+    await ctx.createUser({ email: "admin-case3@example.com", password: PASSWORD, isAdmin: true });
+    const owner = await ctx.createUser({ email: "owner-case3@example.com", password: PASSWORD });
+    const target = await ctx.createUser({ email: "target-case3@example.com", password: PASSWORD });
     // 一篇自己的、一篇被分享的——跨文件才測得出 onUserRevoked 走的是 connectionsOf(userId)
     // 而非某一份文件的連線清單。
     const ownNote = await ctx.createNote(target.id);
     const sharedNote = await ctx.createNote(owner.id);
     await ctx.share(sharedNote.id, target.id, "editor");
 
-    const adminSession = await ctx.loginAs("admin-rev3@example.com", PASSWORD);
-    const targetSession = await ctx.loginAs("target-rev3@example.com", PASSWORD);
+    const adminSession = await ctx.loginAs("admin-case3@example.com", PASSWORD);
+    const targetSession = await ctx.loginAs("target-case3@example.com", PASSWORD);
 
     const ownClient = await targetSession.connect(ownNote.id);
     const sharedClient = await targetSession.connect(sharedNote.id);
@@ -207,14 +207,14 @@ describe("撤權 SLA：CollabHooks（Task 6）", () => {
     await waitFor("兩條連線都已從索引移除", 10_000, () => ctx.collab.connectionsOf(target.id).size === 0);
   });
 
-  it("C14（#286 A-8）：以重設連結設定新密碼 → 該使用者既有的共編連線在 10 秒內被 close(knotebook:revoked)", async () => {
+  it("#286：以重設連結設定新密碼 → 該使用者既有的共編連線在 10 秒內被 close(knotebook:revoked)", async () => {
     const ctx = await buildApp();
-    await ctx.createUser({ email: "admin-rev14@example.com", password: PASSWORD, isAdmin: true });
-    const target = await ctx.createUser({ email: "target-rev14@example.com", password: PASSWORD });
+    await ctx.createUser({ email: "admin-case14@example.com", password: PASSWORD, isAdmin: true });
+    const target = await ctx.createUser({ email: "target-case14@example.com", password: PASSWORD });
     const note = await ctx.createNote(target.id);
 
-    const adminSession = await ctx.loginAs("admin-rev14@example.com", PASSWORD);
-    const targetSession = await ctx.loginAs("target-rev14@example.com", PASSWORD);
+    const adminSession = await ctx.loginAs("admin-case14@example.com", PASSWORD);
+    const targetSession = await ctx.loginAs("target-case14@example.com", PASSWORD);
     const client = await targetSession.connect(note.id);
     expect(ctx.collab.connectionsOf(target.id).size).toBe(1);
 
@@ -243,13 +243,13 @@ describe("撤權 SLA：CollabHooks（Task 6）", () => {
 
   it("token endpoint 暫時 5xx：client 重試期間 server 未收到重驗結果也不誤殺（deadline 內回來即撤銷 timer）", async () => {
     const ctx = await buildApp();
-    const owner = await ctx.createUser({ email: "owner-rev4@example.com", password: PASSWORD });
-    const editorUser = await ctx.createUser({ email: "editor-rev4@example.com", password: PASSWORD });
+    const owner = await ctx.createUser({ email: "owner-case4@example.com", password: PASSWORD });
+    const editorUser = await ctx.createUser({ email: "editor-case4@example.com", password: PASSWORD });
     const note = await ctx.createNote(owner.id);
     await ctx.share(note.id, editorUser.id, "editor");
 
-    const ownerSession = await ctx.loginAs("owner-rev4@example.com", PASSWORD);
-    const editorSession = await ctx.loginAs("editor-rev4@example.com", PASSWORD);
+    const ownerSession = await ctx.loginAs("owner-case4@example.com", PASSWORD);
+    const editorSession = await ctx.loginAs("editor-case4@example.com", PASSWORD);
 
     // 重驗時的第一次取 token 模擬撞上 5xx：client 的重試策略是等 1.5s 再打一次（真的再打
     // 一次 endpoint）。1.5s < 5s deadline，這條連線的權限其實完全沒變，不得被關掉。
@@ -271,7 +271,7 @@ describe("撤權 SLA：CollabHooks（Task 6）", () => {
     // 純粹用來把這條連線推進「requestToken + deadline」的流程。
     const putRes = await ownerSession.fetch(`/api/notes/${note.id}/shares`, {
       method: "PUT",
-      body: JSON.stringify({ email: "editor-rev4@example.com", role: "editor" }),
+      body: JSON.stringify({ email: "editor-case4@example.com", role: "editor" }),
     });
     expect(putRes.status).toBe(200);
 
@@ -290,13 +290,13 @@ describe("撤權 SLA：CollabHooks（Task 6）", () => {
 
   it("limiter 邊界：該 user 已用掉 59/60 次 collab-token 配額，撤權重驗仍在 deadline 內完成（不被節流拖垮）", async () => {
     const ctx = await buildApp();
-    const owner = await ctx.createUser({ email: "owner-rev5@example.com", password: PASSWORD });
-    const victim = await ctx.createUser({ email: "victim-rev5@example.com", password: PASSWORD });
+    const owner = await ctx.createUser({ email: "owner-case5@example.com", password: PASSWORD });
+    const victim = await ctx.createUser({ email: "victim-case5@example.com", password: PASSWORD });
     const note = await ctx.createNote(owner.id);
     await ctx.share(note.id, victim.id, "editor");
 
-    const ownerSession = await ctx.loginAs("owner-rev5@example.com", PASSWORD);
-    const victimSession = await ctx.loginAs("victim-rev5@example.com", PASSWORD);
+    const ownerSession = await ctx.loginAs("owner-case5@example.com", PASSWORD);
+    const victimSession = await ctx.loginAs("victim-case5@example.com", PASSWORD);
 
     // 連線本身耗掉第 1 次配額。
     const victimClient = await victimSession.connect(note.id);
@@ -327,13 +327,13 @@ describe("撤權 SLA：CollabHooks（Task 6）", () => {
 
   it("刪除筆記：連線者收 CLOSE(note-deleted)、DELETE 於 SLA 內回 204、刪除中重連被拒、刪後 token 200+role:'none' 但無法連線、GET 404", async () => {
     const ctx = await buildApp();
-    const owner = await ctx.createUser({ email: "owner-rev6@example.com", password: PASSWORD });
-    const editorUser = await ctx.createUser({ email: "editor-rev6@example.com", password: PASSWORD });
+    const owner = await ctx.createUser({ email: "owner-case6@example.com", password: PASSWORD });
+    const editorUser = await ctx.createUser({ email: "editor-case6@example.com", password: PASSWORD });
     const note = await ctx.createNote(owner.id);
     await ctx.share(note.id, editorUser.id, "editor");
 
-    const ownerSession = await ctx.loginAs("owner-rev6@example.com", PASSWORD);
-    const editorSession = await ctx.loginAs("editor-rev6@example.com", PASSWORD);
+    const ownerSession = await ctx.loginAs("owner-case6@example.com", PASSWORD);
+    const editorSession = await ctx.loginAs("editor-case6@example.com", PASSWORD);
 
     const ownerClient = await ownerSession.connect(note.id);
     const editorClient = await editorSession.connect(note.id);
@@ -365,7 +365,7 @@ describe("撤權 SLA：CollabHooks（Task 6）", () => {
     // 因此這裡測到的是同一個閘門、同一條拒絕路徑。
     await expect(editorSession.connect(note.id)).rejects.toThrow(COLLAB_REJECT_NOTE_DELETING);
 
-    // §5 契約：token endpoint 對「有 session、但對該 note 無權限（含已刪除）」一律
+    // 契約：token endpoint 對「有 session、但對該 note 無權限（含已刪除）」一律
     // 200 + role:'none'，絕不回錯誤狀態（不當權限探測 oracle）。
     const tokenRes = await editorSession.fetch(`/api/notes/${note.id}/collab-token`, COLLAB_TOKEN_INIT);
     expect(tokenRes.status).toBe(200);

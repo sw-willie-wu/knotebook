@@ -64,7 +64,7 @@ describe("ShownLinkTexts", () => {
     expect(["1", "3", "4"].map(t => m.has("u1", T, t))).toEqual([true, true, true]);
   });
 
-  it("每個帳號有自己的上限：超過只丟這個帳號自己最舊的，別的帳號（即使更舊）不受影響（審查 m1）", () => {
+  it("每個帳號有自己的上限：超過只丟這個帳號自己最舊的，別的帳號（即使更舊）不受影響", () => {
     const m = new ShownLinkTexts({ max: 100, perUserMax: 2 });
     m.record("u2", { free: [[T, "a"]], custom: [] });
     m.record("u1", { free: [[T, "1"], [T, "2"]], custom: [] });
@@ -76,7 +76,7 @@ describe("ShownLinkTexts", () => {
 });
 
 describe("ShownLinkTexts.keepLabelFree", () => {
-  it("清掉讀到過的文字的 label、換上現行標題，並回報被清掉的 (目標, 原文字)；沒讀到過的、別人讀到的不動（第二輪 m-b）", () => {
+  it("清掉讀到過的文字的 label、換上現行標題，並回報被清掉的 (目標, 原文字)；沒讀到過的、別人讀到的不動", () => {
     const m = new ShownLinkTexts();
     m.record("u1", { free: [[T, "Old"]], custom: [] });
     const wl = (label: string) => ({ type: "wikilink", props: { targetNoteId: T, snapshotTitle: label, label, anchorBlockId: "" } });

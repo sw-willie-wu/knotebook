@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 
 /**
- * 「目前開啟中的筆記」單一真相（#122 spec §3b M4-6：廢掉 URL 判斷）。
+ * 「目前開啟中的筆記」單一真相（#122-6：廢掉 URL 判斷）。
  *
  * 為什麼不能從網址推：slug 會隨標題重算，網址要等存檔回來、NotePage 收斂 effect 才換
  * （#122 當時用 `history.replaceState`、router 的 location/params 根本不動；#179 起改走
@@ -15,7 +15,7 @@ import { createContext, useCallback, useContext, useMemo, useState, type ReactNo
  * - `NotePage` 解析成功後 set（**最終校正點**：直接進網址/書籤的路徑晚幀亮——體感
  *   取捨明記；也校正樂觀誤 set）。卸載時**條件清除**（current === 自己才清——換頁
  *   時新頁的 set 可能先於舊頁的 cleanup 跑）；
- * - `NotePage` 的 404 出口 set(null)（A6：清掉指向解析失敗那篇的樂觀殘留）。
+ * - `NotePage` 的 404 出口 set(null)（清掉指向解析失敗那篇的樂觀殘留）。
  *
  * 公開頁（/p/…）在 provider 樹內但**不消費也不 set**——匿名頁沒有側欄。
  */

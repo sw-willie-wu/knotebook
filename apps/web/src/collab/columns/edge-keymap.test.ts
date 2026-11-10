@@ -4,7 +4,7 @@ import { collabUndoManager } from "@/collab/undo";
 import { CB, H, IMG, P, cursorOf, integrity, mountEditor, pressKey, row, shape, textPos, withChildren, type AnyEditor, type PartialBlockLike } from "@/test/columns-fixtures";
 import { createColumnEdgeKeymapExtension } from "./edge-keymap";
 
-// spec §5.4 鍵盤表與調整 1（D24）、讀碼發現 11。期望值逐字取自探針 d24r8.mjs／d24code-excl.mjs／extra-core.mjs 的輸出；
+// 鍵盤表。期望值逐字取自實際按鍵的輸出；
 // 鍵盤一律真 keydown（pressKey），不用 commands.keyboardShortcut()。
 
 const cleanups: (() => void)[] = [];
@@ -38,7 +38,7 @@ const moveKey = (id: string, key: "ArrowUp" | "ArrowDown"): Act => (editor) => {
 };
 const select = (editor: AnyEditor, w1: string, o1: number, w2: string, o2: number) =>
   editor._tiptapEditor.commands.setTextSelection({ from: textPos(editor, w1, o1), to: textPos(editor, w2, o2) });
-/** 瀏覽器的預設輸入：沒有外掛接手 handleTextInput 時以 insertText 補上（探針 extra-core.mjs 同法）。 */
+/** 瀏覽器的預設輸入：沒有外掛接手 handleTextInput 時以 insertText 補上（同法）。 */
 const typeText = (editor: AnyEditor, text: string) => {
   const view = editor.prosemirrorView!;
   const { from, to } = view.state.selection;
@@ -79,7 +79,7 @@ const TABLE: [string, () => PartialBlockLike[], Act, string, string | null][] = 
   ["P11", () => W([[P("a", "a1")], [withChildren(P("b", "b1"), [P("k", "k1")])]]), bs("b1"), "paragraph:x  paragraph:a  paragraph:b{paragraph:k}  paragraph:z", "b@0"],
   // 欄內 block 的子 block 開頭 BS 不是欄首：交還 core（k 升成 b 的同層）。
   ["P11k", () => W([[P("a", "a1")], [withChildren(P("b", "b1"), [P("k", "k1")])]]), bs("k1"), "paragraph:x  ROW[COL(paragraph:a) | COL(paragraph:b,paragraph:k)]  paragraph:z", "k@0"],
-  // 以下四案不是欄首／欄尾：交還 core（自補，守 D24 的位置條件）。P1m／P5m 在 PM 沒有 keymap 接手（瀏覽器原生刪字），
+  // 以下四案不是欄首／欄尾：交還 core（守欄首／欄尾的位置條件）。P1m／P5m 在 PM 沒有 keymap 接手（瀏覽器原生刪字），
   // jsdom 沒有原生行為，所以文件不變。
   ["P3c", () => W([[P("a", "a1")], [P("b", "b1"), P("q", "q1")]]), bs("q1"), "paragraph:x  ROW[COL(paragraph:a) | COL(paragraph:bq)]  paragraph:z", "bq@1"],
   ["P5g", () => W([[P("a", "a1"), P("q", "q1")], [P("b", "b1")]]), del("a1"), "paragraph:x  ROW[COL(paragraph:aq) | COL(paragraph:b)]  paragraph:z", "aq@1"],
@@ -111,7 +111,7 @@ const TABLE: [string, () => PartialBlockLike[], Act, string, string | null][] = 
   ["E4", () => W([[P("a", "a1")], [E("e2")], [E("e3")]]), bs("e3"), "paragraph:x  ROW[COL(paragraph:a) | COL(paragraph)]  paragraph:z", "paragraph@0"],
   ["E5", () => W([[E("e1")], [E("e2")]]), bs("e2"), "paragraph:x  paragraph  paragraph:z", "paragraph@0"],
   ["E6", () => W([[IMG("i1", 300)], [E("e2")]]), bs("e2"), "paragraph:x  image  paragraph:z", "image@0"],
-  // 收欄後游標目標是圖片（非 textblock）：選到圖片本身，不跑到列下方（審查 m-2，探針 rv-t4 PR1／PR2）。
+  // 收欄後游標目標是圖片（非 textblock）：選到圖片本身，不跑到列下方。
   ["E3img", () => W([[E("e1")], [IMG("i1", 300)]]), bs("e1"), "paragraph:x  image  paragraph:z", "image@0"],
   ["E10img", () => W([[E("e1")], [IMG("i1", 300)]]), del("e1"), "paragraph:x  image  paragraph:z", "image@0"],
   ["E7", () => W([[IMG("i1", 300)], [P("b", "b1")]]), bs("b1"), "paragraph:x  image  paragraph:b  paragraph:z", "b@0"],
@@ -180,7 +180,7 @@ const TABLE: [string, () => PartialBlockLike[], Act, string, string | null][] = 
   ],
 ];
 
-describe("K-TABLE §5.4 鍵盤矩陣（D24＋core）", () => {
+describe("K-TABLE 鍵盤矩陣（欄邊鍵盤處理＋core）", () => {
   it.each(TABLE)("%s", (_name, content, act, expected, cursor) => {
     const editor = mount(content());
     const before = shape(editor);
@@ -239,7 +239,7 @@ describe("K-INPUTRULE 剛觸發的 input rule 先被 Backspace 撤銷", () => {
       },
     });
 
-  it("[a｜空] 規則剛把那欄清成空欄 → Backspace 撤銷規則得 [a｜>>]、不收欄（審查 m-1，探針 rv-t4 PR3）", () => {
+  it("[a｜空] 規則剛把那欄清成空欄 → Backspace 撤銷規則得 [a｜>>]、不收欄", () => {
     const editor = mount(W([[P("a", "a1")], [E("e2")]]), { extra: [doubleGt()] });
     editor.setTextCursorPosition("e2", "start");
     const view = editor.prosemirrorView!;
@@ -264,7 +264,7 @@ describe("K-INPUTRULE 剛觸發的 input rule 先被 Backspace 撤銷", () => {
   });
 });
 
-describe("K-UNDO-COLLAB D24 的搬移自成一個撤銷步（共編 UndoManager）", () => {
+describe("K-UNDO-COLLAB 欄邊鍵盤處理的搬移自成一個撤銷步（共編 UndoManager）", () => {
   it("打字後不 stopCapturing 立刻 Backspace、再立刻打字 → undo 依序只還原後打的字、搬移、先打的字", () => {
     const editor = mount(W([[P("a", "a1")], [P("b", "b1")]]), { collab: true });
     const manager = collabUndoManager(editor)!;
@@ -286,7 +286,7 @@ describe("K-UNDO-COLLAB D24 的搬移自成一個撤銷步（共編 UndoManager�
   });
 });
 
-describe("K-WHOLE 選取完整跨過整列再刪除（Review Focus 2）", () => {
+describe("K-WHOLE 選取完整跨過整列再刪除", () => {
   it("[xx, [aa｜bb], zz] 從 xx 中間選到 zz 中間 → Backspace：列消失、前後段落照 core 合併、文件合法", () => {
     const editor = mount([P("xx", "x0"), row([[P("aa", "a1")], [P("bb", "b1")]], "r"), P("zz", "z9")]);
     select(editor, "xx", 1, "zz", 1);
@@ -297,7 +297,7 @@ describe("K-WHOLE 選取完整跨過整列再刪除（Review Focus 2）", () => 
   });
 });
 
-describe("K-MOUNT 列開頭的文件 mount 後不點擊直接按鍵（T2 審查提醒）", () => {
+describe("K-MOUNT 列開頭的文件 mount 後不點擊直接按鍵", () => {
   it.each(["Backspace", "Delete"])("%s：選取落在 column 裡（非 textblock）→ 不丟錯、不改文件", (key) => {
     const editor = mount([row([[P("a", "a1")], [P("b", "b1")]], "r"), Z()], { collab: true });
     const before = shape(editor);
@@ -306,12 +306,12 @@ describe("K-MOUNT 列開頭的文件 mount 後不點擊直接按鍵（T2 審查�
     expect(shape(editor)).toBe(before);
   });
 
-  it("Delete：TextSelection 落在欄內表格節點結尾（parent 是 table、非 textblock）→ D24 不接手，結果與不裝 D24 的 core 相同", () => {
+  it("Delete：TextSelection 落在欄內表格節點結尾（parent 是 table、非 textblock）→ 欄邊鍵盤處理不接手，結果與不裝它的 core 相同", () => {
     const table: PartialBlockLike = { id: "t1", type: "table", content: { type: "tableContent", rows: [{ cells: ["c1", "c2"] }] } };
     const run = (editor: AnyEditor) => {
       const view = editor.prosemirrorView!;
       const t = findTable(editor);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- TextSelection 從現行選取的 constructor 取（讀碼發現 13）
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- TextSelection 從現行選取的 constructor 取
       const Sel = view.state.selection.constructor as any;
       view.dispatch(view.state.tr.setSelection(Sel.create(view.state.doc, t.pos + t.size - 1)));
       expect(view.state.selection.$from.parent.type.name).toBe("table");
@@ -338,7 +338,7 @@ describe("K-NOREF editorRef 還沒設好（current 為 null）", () => {
   it.each([
     ["Backspace", "b1", "start", "paragraph:x  paragraph:a  paragraph  paragraph:b  paragraph:z / b@0"],
     ["Delete", "a1", "end", "paragraph:x  paragraph:a  paragraph  paragraph:b  paragraph:z / b@0"],
-  ] as const)("%s：D24 不接手、不丟錯，結果是 core 的", (key, id, where, expected) => {
+  ] as const)("%s：欄邊鍵盤處理不接手、不丟錯，結果是 core 的", (key, id, where, expected) => {
     const m = mountEditor(W([[P("a", "a1")], [P("b", "b1")]]), { extensions: [createColumnEdgeKeymapExtension({ editorRef: { current: null } })] });
     cleanups.push(m.destroy);
     m.editor.setTextCursorPosition(id, where);

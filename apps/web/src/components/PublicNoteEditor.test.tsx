@@ -11,12 +11,12 @@ import { ThemeProvider } from "@/theme";
 import type { PublicNoteRef } from "@/lib/public-note-ref";
 import { PublicNoteEditor } from "./PublicNoteEditor";
 
-// spec 2026-10-13 site-links §11.2、§11.3、§15.1 W5、§15.2 I4（web 半）。**沒有 QueryClientProvider**：任何 useNotes 呼叫都會直接拋錯。
+// **沒有 QueryClientProvider**：任何 useNotes 呼叫都會直接拋錯。
 
 const PUB = "11111111-1111-4111-8111-111111111111";
 const PRIV = "22222222-2222-4222-8222-222222222222";
 
-/** `pubTarget`：第一個 wikilink 的 targetNoteId——預設小寫；Task 7 審查帶過來的案傳大寫（舊文件可能存大寫 id）。 */
+/** `pubTarget`：第一個 wikilink 的 targetNoteId——預設小寫；另有案傳大寫（舊文件可能存大寫 id）。 */
 function docWith(pubTarget: string = PUB): Y.Doc {
   const doc = new Y.Doc();
   blocksToYXmlFragment(
@@ -81,8 +81,8 @@ describe("#269 公開頁渲染 wikilink", () => {
     });
   }
 
-  it("Task 7 審查：文件存大寫 targetNoteId、payload 回 DB 正規化的小寫 id ⇒ 仍連到公開目標（不退成純文字）", async () => {
-    // 必須含 a–f：PUB 全是數字，toUpperCase() 不變，測不出大小寫（T16-M6 首跑存活即因此）。
+  it("文件存大寫 targetNoteId、payload 回 DB 正規化的小寫 id ⇒ 仍連到公開目標（不退成純文字）", async () => {
+    // 必須含 a–f：PUB 全是數字，toUpperCase() 不變，測不出大小寫（首次突變驗證存活即因此）。
     const hexId = "abcdef12-3456-4789-8abc-def123456789";
     expect(hexId.toUpperCase()).not.toBe(hexId);
     renderPublic({ kind: "token", token: "t".repeat(43) }, [{ id: hexId, title: "Public Title", path: "/p/alice/pub" }], docWith(hexId.toUpperCase()));
@@ -92,7 +92,7 @@ describe("#269 公開頁渲染 wikilink", () => {
   });
 });
 
-describe("並排 PR-1 公開頁（spec 2026-10-21 columns-layout §11.7）", () => {
+describe("並排公開頁", () => {
   // 可手動觸發的 ResizeObserver 替身（同 collab/columns/layout-extension.test.ts）：只觸發 observe 了該元素的那個 observer。
   const instances: Array<{ targets: Set<Element>; callback: ResizeObserverCallback }> = [];
   class FakeResizeObserver {
@@ -118,7 +118,7 @@ describe("並排 PR-1 公開頁（spec 2026-10-21 columns-layout §11.7）", () 
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("PUB1 Y.Doc 含一列 → 畫出列與兩欄、唯讀；列寬 300 → 整列堆疊（版面外掛在公開頁也生效）", async () => {
+  it("Y.Doc 含一列 → 畫出列與兩欄、唯讀；列寬 300 → 整列堆疊（版面外掛在公開頁也生效）", async () => {
     const doc = new Y.Doc();
     blocksToYXmlFragment(
       BlockNoteEditor.create({ schema: noteSchema }),

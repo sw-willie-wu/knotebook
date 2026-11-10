@@ -20,7 +20,7 @@ async function impact(built: Built, id: string) {
   return { status: res.statusCode, body: res.json() };
 }
 
-describe("GET /api/admin/auth/providers/:id/impact（#187 §9.3；PR3 起「無密碼」＝沒有密碼或帳密開關的 DB 值為關）", () => {
+describe("GET /api/admin/auth/providers/:id/impact（#187；「無密碼」＝沒有密碼或帳密開關的 DB 值為關）", () => {
   it("只給站台管理員", async () => {
     const built = await adminApp();
     const a = await seedAuthProvider(built.db, { issuerUrl: IA });
@@ -49,7 +49,7 @@ describe("GET /api/admin/auth/providers/:id/impact（#187 §9.3；PR3 起「無�
     expect((await impact(built, a.id)).body).toEqual({ linkedUsers: 3, lockedOutUsers: 2, issuerResolved: true, actingAdminLockedOut: false });
   });
 
-  it("同一個帳號在這個 issuer 只算一次（補登可能留下同 issuer 兩個 sub，r2-N4）", async () => {
+  it("同一個帳號在這個 issuer 只算一次（補登可能留下同 issuer 兩個 sub）", async () => {
     const built = await adminApp();
     const a = await seedAuthProvider(built.db, { issuerUrl: IA, resolvedIssuer: IA });
     const u = await seedUser(built.db);
@@ -58,7 +58,7 @@ describe("GET /api/admin/auth/providers/:id/impact（#187 §9.3；PR3 起「無�
     expect((await impact(built, a.id)).body).toEqual({ linkedUsers: 1, lockedOutUsers: 1, issuerResolved: true, actingAdminLockedOut: false });
   });
 
-  it("RF2 兩個啟用中的服務指向同一個 issuer：停用其中一個，只連這個 issuer 的純 SSO 帳號仍可用另一個 → 不算 locked", async () => {
+  it("兩個啟用中的服務指向同一個 issuer：停用其中一個，只連這個 issuer 的純 SSO 帳號仍可用另一個 → 不算 locked", async () => {
     const built = await adminApp();
     const a = await seedAuthProvider(built.db, { issuerUrl: IA, resolvedIssuer: IA });
     await seedAuthProvider(built.db, { issuerUrl: IA, resolvedIssuer: IA, clientId: "second-client" });
@@ -69,8 +69,8 @@ describe("GET /api/admin/auth/providers/:id/impact（#187 §9.3；PR3 起「無�
 
   it.each([
     ["尾斜線形", "https://gitlab.example/"],
-    ["大寫 host 形（gate r1-t1-7 M7）", "https://GitLab.Example"],
-  ])("§14.1-12 %s：resolved_issuer 為 NULL 時對不上（issuerResolved=false、0 人）；測試連線寫入後對上", async (_name, typed) => {
+    ["大寫 host 形", "https://GitLab.Example"],
+  ])("%s：resolved_issuer 為 NULL 時對不上（issuerResolved=false、0 人）；測試連線寫入後對上", async (_name, typed) => {
     const idp = createFakeIdp("https://gitlab.example");
     const built = await adminApp({ oidcRegistry: createOidcRuntimeRegistry({ fetch: idp.fetch }) });
     const p = await seedAuthProvider(built.db, { issuerUrl: typed });
@@ -81,7 +81,7 @@ describe("GET /api/admin/auth/providers/:id/impact（#187 §9.3；PR3 起「無�
     expect((await impact(built, p.id)).body).toEqual({ linkedUsers: 1, lockedOutUsers: 1, issuerResolved: true, actingAdminLockedOut: false });
   });
 
-  it("RF4i 大寫 uuid 路徑同義；不存在 → 404；非 uuid → 404", async () => {
+  it("大寫 uuid 路徑同義；不存在 → 404；非 uuid → 404", async () => {
     const built = await adminApp();
     const a = await seedAuthProvider(built.db, { issuerUrl: IA });
     expect((await impact(built, a.id.toUpperCase())).status).toBe(200);
@@ -89,7 +89,7 @@ describe("GET /api/admin/auth/providers/:id/impact（#187 §9.3；PR3 起「無�
     expect((await impact(built, "zzz")).status).toBe(404);
   });
 
-  it("停用帳號不論有沒有密碼都不計（§9.3「未停用的帳號數」）", async () => {
+  it("停用帳號不論有沒有密碼都不計（只數未停用的帳號）", async () => {
     const built = await adminApp();
     const a = await seedAuthProvider(built.db, { issuerUrl: IA, resolvedIssuer: IA });
     const u = await insertPasswordUser(built.db);
@@ -99,7 +99,7 @@ describe("GET /api/admin/auth/providers/:id/impact（#187 §9.3；PR3 起「無�
   });
 });
 
-describe("PR3 W24：locked-out 看 DB 值、actingAdminLockedOut（#187 §9.3 rev 10、§14.1-28）", () => {
+describe("locked-out 看 DB 值、actingAdminLockedOut（#187）", () => {
   it("同一組 fixture：有密碼＋只有這個服務的身分——DB 開不計、DB 關計入；env 強制不影響（看 DB 值）", async () => {
     for (const forced of [false, true]) {
       const built = await adminApp({ config: { ...testConfig, passwordLoginForceEnable: forced } });

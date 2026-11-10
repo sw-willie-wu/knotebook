@@ -17,7 +17,7 @@ import { stackFolderName } from "@/components/sidebar/drag-zone";
 import { toast } from "@/components/ui/toast";
 
 /**
- * 疊資料夾的三發、補償、復原與兩句 toast（資料夾 spec §6.13「疊資料夾」第 5–8 步；D17 定案 B）。
+ * 疊資料夾的三發、補償、復原與兩句 toast。
  * lazy 模組：只准 `import("@/lib/stack-folder")`（useSidebarDrag 在 dragstart 預載、drop 時 await）；字串在 folders.*.json。
  */
 
@@ -143,7 +143,7 @@ export async function undoStackFolder(args: { folderId: string; a: StackNote; b:
   invalidateFolderRelated(queryClient);
 }
 
-/** 改名框關閉後（spec §6.13 第 6 步）：toast「已建立「name」並放入 2 篇筆記」＋「復原」。handler 只用參數捕捉的值。 */
+/** 改名框關閉後：toast「已建立「name」並放入 2 篇筆記」＋「復原」。handler 只用參數捕捉的值。 */
 export function showStackCreatedToast(args: { folderId: string; name: string; a: StackNote; b: StackNote; queryClient: QueryClient; t: Translate }): void {
   const { folderId, name, a, b, queryClient, t } = args;
   toast({

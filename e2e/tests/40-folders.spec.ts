@@ -16,9 +16,9 @@ import {
 } from "./helpers.js";
 
 /**
- * 資料夾 PR-3b-1（spec §6.18 e2e 列中本 PR 的部分；A3-1、A3-2、A3-4、A3-5、A3-8、§6.14）。
+ * 資料夾（e2e 列中本 PR 的部分）。
  * 每個 test 以 `createUserViaInvite` 開自己的使用者並登入它：資料夾排在根層筆記前、預設展開，留在共用的 ADMIN 帳號會改變其他 spec
- * 的可見列（plan M-8）。ADMIN 只用來發邀請。整頁載入筆記頁後碰側欄前先等「Note title」（lazy NotePage 的 fallback 會換殼）；
+ * 的可見列。ADMIN 只用來發邀請。整頁載入筆記頁後碰側欄前先等「Note title」（lazy NotePage 的 fallback 會換殼）；
  * 負向斷言前先等正向錨點；toast 斷言錨定全字。
  */
 
@@ -86,7 +86,7 @@ test("40-1 個人資料夾全流程：建資料夾與子資料夾、在子資料
   await search.fill("");
   panel = await showSidebarTab(page, "My notes");
 
-  // ── 改名：先 Esc 取消 → 焦點回 S 的 ⋮（T4 審查 M-2 的長期守衛）→ 再改名成 T ──────
+  // ── 改名：先 Esc 取消 → 焦點回 S 的 ⋮（長期守衛）→ 再改名成 T ──────
   await folderMenuItem(page, panel, S, "Rename");
   const renameDialog = page.getByRole("dialog", { name: "Rename folder", exact: true });
   const renameInput = renameDialog.getByRole("textbox", { name: "Folder name", exact: true });

@@ -11,7 +11,7 @@ import {
   type SettingsTableRow,
 } from "./SettingsTable";
 
-// spec 2026-10-13 settings-table §5.1。jsdom 不排版：版面一律以 class／inline style 斷言（只有本檔准這樣寫，§5.1 末），
+// jsdom 不排版：版面一律以 class／inline style 斷言（只有本檔准這樣寫），
 // 真實幾何由 e2e 26-settings-tables 量。ResizeObserver 在 test/setup.ts 是什麼都不做的假建構子——要驗溢出的案自己換成 FakeResizeObserver。
 
 class FakeResizeObserver {
@@ -77,7 +77,7 @@ const tableNamed = (name = "Things") => screen.getByRole("table", { name });
 const headersOf = (table: HTMLElement) =>
   within(table).getAllByRole("columnheader").filter((cell) => cell.closest('[role="table"]') === table);
 
-describe("SettingsTable（spec §2、§5.1）", () => {
+describe("SettingsTable", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
   });
@@ -86,11 +86,11 @@ describe("SettingsTable（spec §2、§5.1）", () => {
     vi.restoreAllMocks();
   });
 
-  it("§2.2 欄位強制順序：亂序宣告 → 照「主欄→資訊欄（保留宣告順序）→可編輯欄→操作→啟用」排，並 console.error", () => {
+  it("欄位強制順序：亂序宣告 → 照「主欄→資訊欄（保留宣告順序）→可編輯欄→操作→啟用」排，並 console.error", () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     render(<SettingsTable label="Things" columns={[ENABLED, ROLE, SIZE, ACTIONS, EMAIL, NAME]} rows={[row("a", "Alpha")]} />);
     expect(headersOf(tableNamed()).map((cell) => cell.textContent)).toEqual(["Name", "Size", "Email", "Role", "Actions", "Enabled"]);
-    expect(spy).toHaveBeenCalledWith(expect.stringContaining("§2.2"));
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining("欄位宣告順序"));
     expect(within(screen.getByRole("row", { name: "Alpha" })).getAllByRole("cell").map((cell) => cell.textContent)).toEqual([
       "Alpha",
       "1 MB",
@@ -119,7 +119,7 @@ describe("SettingsTable（spec §2、§5.1）", () => {
     expect(spy.mock.calls.filter(([message]) => String(message).includes("grow"))).toHaveLength(3);
   });
 
-  it("§2.2 照規則宣告 → 不 console.error；orderSettingsTableColumns 原樣回傳", () => {
+  it("照規則宣告 → 不 console.error；orderSettingsTableColumns 原樣回傳", () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     render(<SettingsTable label="Things" columns={ALL} rows={[row("a", "Alpha")]} />);
     expect(spy).not.toHaveBeenCalled();
@@ -132,14 +132,14 @@ describe("SettingsTable（spec §2、§5.1）", () => {
     ["actions 是最後一欄（1 鈕）", [NAME, EMAIL, { ...ACTIONS, buttons: 1 }], "minmax(14ch,2fr) minmax(14ch,1fr) 2.75rem"],
     ["4 鈕、後面還有 enabled → 不加", [NAME, { ...ACTIONS, buttons: 4 }, ENABLED], "minmax(14ch,2fr) 8.75rem 3.5rem"],
     ["沒有 actions／enabled", [NAME, SIZE, ROLE], "minmax(14ch,2fr) max-content max-content"],
-  ] as const)("§2.1 --kb-table-cols：%s", (_case, columns, expected) => {
+  ] as const)("--kb-table-cols：%s", (_case, columns, expected) => {
     render(<SettingsTable label="Things" columns={[...columns]} rows={[row("a", "Alpha")]} />);
     expect(tableNamed().style.getPropertyValue("--kb-table-cols")).toBe(expected);
     expect(settingsTableTracks(orderSettingsTableColumns([...columns]))).toBe(expected);
     expect(tableNamed()).toHaveClass("grid", "grid-cols-(--kb-table-cols)", "gap-x-3", "text-sm");
   });
 
-  it("§2.8／§2.9 列名＝主欄名稱；開關名稱＝「Enabled ＜列名＞」，aria-labelledby 指向表頭 columnheader 與名稱文字", () => {
+  it("列名＝主欄名稱；開關名稱＝「Enabled ＜列名＞」，aria-labelledby 指向表頭 columnheader 與名稱文字", () => {
     render(<SettingsTable label="Things" columns={ALL} rows={[row("a", "Alpha"), row("b", "Beta")]} />);
     expect(screen.getByRole("row", { name: "Alpha" })).toBeInTheDocument();
     const toggle = within(screen.getByRole("row", { name: "Beta" })).getByRole("switch", { name: "Enabled Beta" });
@@ -148,14 +148,14 @@ describe("SettingsTable（spec §2、§5.1）", () => {
     expect(document.getElementById(nameRef!)).toHaveTextContent(/^Beta$/);
   });
 
-  it("§2.1 nameColumn＝非主欄（email）：列名、開關名稱、明細列名稱都用該欄文字", () => {
+  it("nameColumn＝非主欄（email）：列名、開關名稱、明細列名稱都用該欄文字", () => {
     render(<SettingsTable label="Things" nameColumn="email" columns={ALL} rows={[row("a", "Alpha", { detail: "notes" })]} />);
     const dataRow = screen.getByRole("row", { name: "a@example.com" });
     expect(within(dataRow).getByRole("switch", { name: "Enabled a@example.com" })).toBeInTheDocument();
     expect(screen.getByRole("row", { name: "a@example.com details" })).toBeInTheDocument();
   });
 
-  it("§2.1 nameColumn 那一格不是純文字 → 開發模式 console.error", () => {
+  it("nameColumn 那一格不是純文字 → 開發模式 console.error", () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     render(
       <SettingsTable label="Things" nameColumn="email" columns={ALL} rows={[row("a", "Alpha", { cells: { email: <b>a@example.com</b> } })]} />,
@@ -163,7 +163,7 @@ describe("SettingsTable（spec §2、§5.1）", () => {
     expect(spy).toHaveBeenCalledWith(expect.stringContaining("nameColumn"));
   });
 
-  it("§2.1 rows=[] → 只有 empty 文字，沒有 table、沒有捲動框；title／titleAction 仍在", () => {
+  it("rows=[] → 只有 empty 文字，沒有 table、沒有捲動框；title／titleAction 仍在", () => {
     render(
       <SettingsTable
         label="Things"
@@ -181,13 +181,13 @@ describe("SettingsTable（spec §2、§5.1）", () => {
     expect(screen.getByRole("button", { name: "Add model" })).toBeInTheDocument();
   });
 
-  it("§2.1 有資料列時 title／titleAction 也渲染", () => {
+  it("有資料列時 title／titleAction 也渲染", () => {
     render(<SettingsTable label="Things" columns={ALL} rows={[row("a", "Alpha")]} title="Models" titleAction={<button type="button">Add model</button>} />);
     expect(screen.getByText("Models")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add model" })).toBeInTheDocument();
   });
 
-  it("§2.5 明細列與錯誤列：獨立 row（不是 subgrid）、名稱「＜列名＞ details／error」、cell aria-colspan＝欄數；錯誤列在明細列之前、內容 role=alert；下框線只畫在一組的最後一列", () => {
+  it("明細列與錯誤列：獨立 row（不是 subgrid）、名稱「＜列名＞ details／error」、cell aria-colspan＝欄數；錯誤列在明細列之前、內容 role=alert；下框線只畫在一組的最後一列", () => {
     render(
       <SettingsTable
         label="Things"
@@ -214,16 +214,16 @@ describe("SettingsTable（spec §2、§5.1）", () => {
     expect(screen.getByRole("row", { name: "Beta" })).toHaveClass("border-b", "border-border");
   });
 
-  it("§2.5 明細／錯誤列的名稱後綴走 i18n（zh-TW：明細／錯誤）", async () => {
+  it("明細／錯誤列的名稱後綴走 i18n（zh-TW：明細／錯誤）", async () => {
     await i18n.changeLanguage("zh-TW");
     render(<SettingsTable label="Things" columns={ALL} rows={[row("a", "Alpha", { detail: "notes", error: "x" })]} />);
     expect(screen.getByRole("row", { name: "Alpha 明細" })).toBeInTheDocument();
     expect(screen.getByRole("row", { name: "Alpha 錯誤" })).toBeInTheDocument();
   });
 
-  it("§2.6 editing：主欄 cell 保留、其餘欄合併成一格（aria-colspan＝欄數−1、grid-column 2/-1）放呼叫端的表單、整列 bg-brand-soft、sticky 主欄是不透明疊色、其他欄（含開關）不顯示", () => {
-    // autoFocus 與 Enter 送出是呼叫端表單自己的行為（spec §2.6「保留現有鍵盤行為」），元件不轉手也不攔——
-    // 這兩條由 token 頁的測試守（Task 6「鉛筆 → 編輯態…」的 toHaveFocus、「清空 label…Enter＝儲存」），這裡只驗結構。
+  it("editing：主欄 cell 保留、其餘欄合併成一格（aria-colspan＝欄數−1、grid-column 2/-1）放呼叫端的表單、整列 bg-brand-soft、sticky 主欄是不透明疊色、其他欄（含開關）不顯示", () => {
+    // autoFocus 與 Enter 送出是呼叫端表單自己的行為，元件不轉手也不攔——
+    // 這兩條由 token 頁的測試守（「鉛筆 → 編輯態…」的 toHaveFocus、「清空 label…Enter＝儲存」），這裡只驗結構。
     render(
       <SettingsTable
         label="Things"
@@ -243,7 +243,7 @@ describe("SettingsTable（spec §2、§5.1）", () => {
     expect(within(editingRow).queryByRole("switch")).toBeNull();
   });
 
-  it("§2.1 主欄名稱字重由呼叫端決定（weight），元件預設一般字重、不替任何表加粗", () => {
+  it("主欄名稱字重由呼叫端決定（weight），元件預設一般字重、不替任何表加粗", () => {
     render(
       <SettingsTable
         label="Things"
@@ -261,7 +261,7 @@ describe("SettingsTable（spec §2、§5.1）", () => {
     expect(nameOf("Semi")).toHaveClass("font-semibold");
   });
 
-  it("§2.4 頂層表：捲動框 role=region（名＝label）、overflow-x-auto＋scroll-ps；只在溢出時 tabIndex=0、有焦點時不移除；--kb-sticky-w 取表頭主欄的 borderBoxSize（保留小數）", () => {
+  it("頂層表：捲動框 role=region（名＝label）、overflow-x-auto＋scroll-ps；只在溢出時 tabIndex=0、有焦點時不移除；--kb-sticky-w 取表頭主欄的 borderBoxSize（保留小數）", () => {
     vi.stubGlobal("ResizeObserver", FakeResizeObserver);
     FakeResizeObserver.instances = [];
     render(<SettingsTable label="Things" columns={ALL} rows={[row("a", "Alpha")]} />);
@@ -285,7 +285,7 @@ describe("SettingsTable（spec §2、§5.1）", () => {
     expect(box).not.toHaveAttribute("tabindex");
   });
 
-  it("§2.4 主欄右緣分隔線只在捲動框溢出時畫：捲動框 data-overflowing 隨溢出切換，sticky 格（表頭與資料列）只在它底下才有 border-r", () => {
+  it("主欄右緣分隔線只在捲動框溢出時畫：捲動框 data-overflowing 隨溢出切換，sticky 格（表頭與資料列）只在它底下才有 border-r", () => {
     vi.stubGlobal("ResizeObserver", FakeResizeObserver);
     FakeResizeObserver.instances = [];
     render(<SettingsTable label="Things" columns={ALL} rows={[row("a", "Alpha")]} />);
@@ -309,7 +309,7 @@ describe("SettingsTable（spec §2、§5.1）", () => {
     expect(box).not.toHaveAttribute("data-overflowing");
   });
 
-  it("§2.4 --kb-sticky-w 只取 sticky 格那筆 entry 的 borderBoxSize：掛載時與只有捲動框／表頭列變動的回呼，都不以 getBoundingClientRect（受 transform 縮放）寫入或覆蓋", () => {
+  it("--kb-sticky-w 只取 sticky 格那筆 entry 的 borderBoxSize：掛載時與只有捲動框／表頭列變動的回呼，都不以 getBoundingClientRect（受 transform 縮放）寫入或覆蓋", () => {
     vi.stubGlobal("ResizeObserver", FakeResizeObserver);
     FakeResizeObserver.instances = [];
     // 模擬 Dialog 開啟動畫 zoom-in-95 期間：getBoundingClientRect 量到的是縮放後的 95% 寬。
@@ -324,7 +324,7 @@ describe("SettingsTable（spec §2、§5.1）", () => {
     expect(box.style.getPropertyValue("--kb-sticky-w")).toBe("123.25px");
   });
 
-  it("§2.4 主欄的欄 id 換掉（表頭主欄格換成新節點）→ ResizeObserver 重新訂閱新節點、斷開舊的", () => {
+  it("主欄的欄 id 換掉（表頭主欄格換成新節點）→ ResizeObserver 重新訂閱新節點、斷開舊的", () => {
     vi.stubGlobal("ResizeObserver", FakeResizeObserver);
     FakeResizeObserver.instances = [];
     const { rerender } = render(<SettingsTable label="Things" columns={ALL} rows={[row("a", "Alpha")]} />);
@@ -335,7 +335,7 @@ describe("SettingsTable（spec §2、§5.1）", () => {
     expect(first.targets).toHaveLength(0);
   });
 
-  it("§2.4 聚焦補捲：焦點目標左緣壓在 sticky 主欄右緣之下 → scrollLeft 往左補（進位成整數）；沒壓到、或焦點在主欄格裡 → 不動", () => {
+  it("聚焦補捲：焦點目標左緣壓在 sticky 主欄右緣之下 → scrollLeft 往左補（進位成整數）；沒壓到、或焦點在主欄格裡 → 不動", () => {
     const badgeRow = row("a", "Alpha", { primary: { name: "Alpha", badges: <button type="button">Badge</button> } });
     render(<SettingsTable label="Things" columns={ALL} rows={[badgeRow]} />);
     const box = screen.getByRole("region", { name: "Things" });
@@ -365,7 +365,7 @@ describe("SettingsTable（spec §2、§5.1）", () => {
     expect(scrollLeft).toBe(241);
   });
 
-  it("§2.4 聚焦補捲只補頂層資料列：明細列與子表列裡的按鈕左緣在 sticky 右緣左側也不動 scrollLeft（它們沒有 sticky 格、完全可見；補捲會讓滑鼠點擊落空）", () => {
+  it("聚焦補捲只補頂層資料列：明細列與子表列裡的按鈕左緣在 sticky 右緣左側也不動 scrollLeft（它們沒有 sticky 格、完全可見；補捲會讓滑鼠點擊落空）", () => {
     const detailRow = row("a", "Alpha", {
       detail: (
         <>
@@ -395,7 +395,7 @@ describe("SettingsTable（spec §2、§5.1）", () => {
     expect(scrollLeft).toBe(136);
   });
 
-  it("§2.4 聚焦補捲只管捲動框內的焦點：列上 portal 到 body 的控制項（對話框）取得焦點時，React onFocus 冒泡上來也不動 scrollLeft", () => {
+  it("聚焦補捲只管捲動框內的焦點：列上 portal 到 body 的控制項（對話框）取得焦點時，React onFocus 冒泡上來也不動 scrollLeft", () => {
     const portalRow = row("a", "Alpha", {
       actions: createPortal(
         <button type="button" aria-label="Dialog field">
@@ -419,7 +419,7 @@ describe("SettingsTable（spec §2、§5.1）", () => {
     expect(box.contains(dialogField)).toBe(false);
   });
 
-  it("§2.4／§2.5 主欄 sticky（表頭格與資料列主欄格：left-0、z-[1]、不透明 bg-card、右緣框線只在溢出時，見下一案）；nested 子表不 sticky、沒有捲動框、表頭列 sr-only、主欄內容 pl-4、標題列 pl-7", () => {
+  it("主欄 sticky（表頭格與資料列主欄格：left-0、z-[1]、不透明 bg-card、右緣框線只在溢出時，見下一案）；nested 子表不 sticky、沒有捲動框、表頭列 sr-only、主欄內容 pl-4、標題列 pl-7", () => {
     render(
       <>
         <SettingsTable label="Top" columns={ALL} rows={[row("a", "Alpha")]} />
@@ -438,11 +438,11 @@ describe("SettingsTable（spec §2、§5.1）", () => {
     expect(subHeader.parentElement).toHaveClass("sr-only");
     expect(subCell.firstElementChild).toHaveClass("pl-4");
     expect(screen.getByText("Models").parentElement).toHaveClass("pl-7");
-    // 子表最後一列不畫下框線（由外層明細列畫，spec §2.3）。
+    // 子表最後一列不畫下框線（由外層明細列畫）。
     expect(screen.getByRole("row", { name: "Model one" })).not.toHaveClass("border-b");
   });
 
-  it("§2.3 列是 subgrid、不設 items-center／gap／水平內距；cell 撐滿（flex items-center），內容包成單一 flex-1 min-w-0 子元素；操作欄靠右（justify-end gap-1）、啟用欄置中設在子元素上", () => {
+  it("列是 subgrid、不設 items-center／gap／水平內距；cell 撐滿（flex items-center），內容包成單一 flex-1 min-w-0 子元素；操作欄靠右（justify-end gap-1）、啟用欄置中設在子元素上", () => {
     render(<SettingsTable label="Things" columns={ALL} rows={[row("a", "Alpha")]} />);
     const dataRow = screen.getByRole("row", { name: "Alpha" });
     expect(dataRow).toHaveClass("col-span-full", "grid", "grid-cols-subgrid");
@@ -462,7 +462,7 @@ describe("SettingsTable（spec §2、§5.1）", () => {
     expect(cells[3]!.firstElementChild).toHaveClass("whitespace-nowrap");
   });
 
-  it("§2.3 內距只在儲存格：第一格 pl-3、資料列 py-2.5、表頭 py-2；最後一格 pr-3，但最後一格是 enabled 時不加；表頭 text-xs 灰、啟用置中、操作靠右且 sr-only", () => {
+  it("內距只在儲存格：第一格 pl-3、資料列 py-2.5、表頭 py-2；最後一格 pr-3，但最後一格是 enabled 時不加；表頭 text-xs 灰、啟用置中、操作靠右且 sr-only", () => {
     render(
       <>
         <SettingsTable label="Things" columns={ALL} rows={[row("a", "Alpha")]} />
@@ -482,7 +482,7 @@ describe("SettingsTable（spec §2、§5.1）", () => {
     expect(within(headers[5]!).getByText("Actions")).toHaveClass("sr-only");
   });
 
-  it("§2.1 cell 的 tone：muted 灰、danger 紅（設在內容子元素上）", () => {
+  it("cell 的 tone：muted 灰、danger 紅（設在內容子元素上）", () => {
     render(
       <SettingsTable
         label="Things"
@@ -494,7 +494,7 @@ describe("SettingsTable（spec §2、§5.1）", () => {
     expect(screen.getByText("a@example.com")).toHaveClass("text-muted-foreground");
   });
 
-  it("RF1 名稱含方向覆寫字元：名稱 dir=ltr＋unicode-bidi:isolate，標籤與副標是另外的元素；列名、明細列名稱與開關名稱是原字串", () => {
+  it("名稱含方向覆寫字元：名稱 dir=ltr＋unicode-bidi:isolate，標籤與副標是另外的元素；列名、明細列名稱與開關名稱是原字串", () => {
     const name = "\u202Etxt.exe";
     render(
       <SettingsTable
@@ -521,7 +521,7 @@ describe("SettingsTable（spec §2、§5.1）", () => {
     expect(screen.getByRole("switch", { name: `Enabled ${name}` })).toBeInTheDocument();
   });
 
-  it("RF2 同名的兩列：各自的列名 id、開關、明細列只指向自己那一列", () => {
+  it("同名的兩列：各自的列名 id、開關、明細列只指向自己那一列", () => {
     render(<SettingsTable label="Things" columns={ALL} rows={[row("a", "Dup", { detail: "first" }), row("b", "Dup", { detail: "second" })]} />);
     const [first, second] = screen.getAllByRole("row", { name: "Dup" });
     expect(first!.getAttribute("aria-labelledby")).not.toBe(second!.getAttribute("aria-labelledby"));
@@ -536,7 +536,7 @@ describe("SettingsTable（spec §2、§5.1）", () => {
     expect(screen.getAllByRole("row", { name: "Dup details" }).map((detail) => detail.textContent)).toEqual(["first", "second"]);
   });
 
-  it("RF3 表格在載入完成後才出現：ResizeObserver 這時才掛上、溢出時捲動框可聚焦；歸零時換成 empty、不留明細列、ResizeObserver 斷開", () => {
+  it("表格在載入完成後才出現：ResizeObserver 這時才掛上、溢出時捲動框可聚焦；歸零時換成 empty、不留明細列、ResizeObserver 斷開", () => {
     vi.stubGlobal("ResizeObserver", FakeResizeObserver);
     FakeResizeObserver.instances = [];
     const { rerender } = render(<SettingsTable label="Things" columns={ALL} rows={[]} empty="Nothing" />);

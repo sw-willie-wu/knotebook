@@ -16,7 +16,7 @@ function build(language = "en", publicRef: PublicNoteRef = { kind: "token", toke
   return { doc, awareness, options: buildReadonlyNoteEditorOptions({ doc, awareness, publicRef, language }) };
 }
 
-describe("buildReadonlyNoteEditorOptions（#72＋#122 PR3：公開唯讀頁兩形的編輯器選項）", () => {
+describe("buildReadonlyNoteEditorOptions（#72＋#122：公開唯讀頁兩形的編輯器選項）", () => {
   it("fragment 用 shared 的 YDOC_FRAGMENT 本尊（寫錯名字的症狀是空白頁零錯誤——store.ts 檔頭警告過的雷）", () => {
     const { doc, options } = build();
     expect(options.collaboration.fragment).toBe(doc.getXmlFragment(YDOC_FRAGMENT));
@@ -28,7 +28,7 @@ describe("buildReadonlyNoteEditorOptions（#72＋#122 PR3：公開唯讀頁兩�
     expect(options.schema).toBe(noteSchema);
   });
 
-  it("provider 是 { awareness } 裸物件、就是傳進來那顆 local Awareness（Task 0 spike 定案：不掛 HocuspocusProvider）", () => {
+  it("provider 是 { awareness } 裸物件、就是傳進來那顆 local Awareness（不掛 HocuspocusProvider）", () => {
     const { awareness, options } = build();
     expect(options.collaboration.provider).toEqual({ awareness });
     expect(options.collaboration.provider.awareness).toBe(awareness);
@@ -54,7 +54,7 @@ describe("buildReadonlyNoteEditorOptions（#72＋#122 PR3：公開唯讀頁兩�
     await expect(options.resolveFileUrl!("javascript:alert(1)")).resolves.toBe(BLOCKED_MEDIA_URL);
   });
 
-  it("resolveFileUrl 別名形（#122 PR3）：依 publicRef 映射到 by-path 圖端點", async () => {
+  it("resolveFileUrl 別名形（#122）：依 publicRef 映射到 by-path 圖端點", async () => {
     const { options } = build("en", { kind: "path", handle: "alice", slug: "my-doc" });
     await expect(options.resolveFileUrl!("/api/uploads/abc")).resolves.toBe(
       "/api/public/notes/alice/my-doc/uploads/abc",
@@ -68,7 +68,7 @@ describe("buildReadonlyNoteEditorOptions（#72＋#122 PR3：公開唯讀頁兩�
     expect(keys).not.toContain("_tiptapOptions");
   });
 
-  // issue #99 INV-6：公開唯讀頁不得出現 markdown 連結 input rule（也不得出現 `/` 選單）。
+  // issue #99：公開唯讀頁不得出現 markdown 連結 input rule（也不得出現 `/` 選單）。
   // 這條掛在 `_tiptapOptions.extensions` 上——上面那條「keys 不含 _tiptapOptions」已經
   // 蘊含它，這裡另立一條斷言是為了讓「這條守衛要求什麼」在原始碼層級直接可見（不依賴
   // 讀者自己推導「沒有 _tiptapOptions ⇒ 沒有 extensions」這一步）。

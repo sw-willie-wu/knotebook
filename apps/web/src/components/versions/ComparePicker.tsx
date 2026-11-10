@@ -19,7 +19,7 @@ import { useTargetLabel } from "./use-target-label";
 const CURRENT = "current";
 
 /**
- * 比較對象的一邊（spec §8.4【rev 10】）：左＝預覽的那一版（`preview`，選了＝`startPreview`，與面板點列同義）、
+ * 比較對象的一邊：左＝預覽的那一版（`preview`，選了＝`startPreview`，與面板點列同義）、
  * 右＝`compareRight`（預設「目前狀態」，選了＝`setCompareRight`）。diff 方向固定左→右，選到左新右舊就是反向 diff、不自動換邊。
  * 選項：左＝已載入清單的所有版本；右＝「目前狀態」＋所有版本。清單還有下一頁時底部一項「載入更早的版本」：
  * `preventDefault` 讓選單不關、接 `fetchNextPage`；失敗不自動重抓（使用者可再按）。
@@ -28,8 +28,8 @@ const CURRENT = "current";
 export function ComparePicker({ side }: { side: "left" | "right" }) {
   const { t } = useTranslation();
   const { noteId, preview, compareRight, kindFilter, startPreview, setCompareRight } = useVersions();
-  // 選項跟著清單篩選（#258）。觸發鈕（#272 D5）顯示「名稱 (短 id)」：清單裡有這一版就用清單那一列（改名立刻反映，RF1），
-  // 被篩掉時用選取時記下的 `target.name`（`useTargetLabel`）。長名稱截斷、完整標籤放 title（原 C1：不把橫幅撐出單排）。
+  // 選項跟著清單篩選（#258）。觸發鈕（#272）顯示「名稱 (短 id)」：清單裡有這一版就用清單那一列（改名立刻反映），
+  // 被篩掉時用選取時記下的 `target.name`（`useTargetLabel`）。長名稱截斷、完整標籤放 title（不把橫幅撐出單排）。
   const list = useVersionList(noteId ?? "", preview !== null, kindFilter);
   const rows = list.data?.pages.flatMap((p) => p.versions) ?? [];
   const target = side === "left" ? preview : compareRight;
@@ -38,7 +38,7 @@ export function ComparePicker({ side }: { side: "left" | "right" }) {
   const label = target === CURRENT ? t("versions.preview.currentOption") : targetLabel;
 
   const choose = (next: string) => {
-    // 重選已勾的那一項＝什麼都不做（不重新取樣「目前狀態」、不重建預覽；review N-3）。
+    // 重選已勾的那一項＝什麼都不做（不重新取樣「目前狀態」、不重建預覽）。
     if (next === value) return;
     if (next === CURRENT) {
       setCompareRight(CURRENT);

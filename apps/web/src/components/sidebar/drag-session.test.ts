@@ -25,7 +25,7 @@ afterEach(() => {
 });
 
 /**
- * 拖曳狀態 store（資料夾 spec §6.13「離開樹容器的判定」「事件順序與狀態清理」「兩個 0.5 秒計時怎麼算」；PR-3c T3）。
+ * 拖曳狀態 store（離開樹容器的判定、事件順序與狀態清理、兩個 0.5 秒計時怎麼算）。
  * DragOverResult 一律手造；容器照真實 DOM 形：`[data-sidebar-instance]` 裡的 `[data-sidebar-list]`（beginDrag 收的是後者）。
  */
 

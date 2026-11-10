@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-// spec §13.1「hook 只註冊一次」：連續呼叫兩次，`uponSanitizeAttribute` hook 每個屬性只被呼叫一次。
+// 連續呼叫兩次，`uponSanitizeAttribute` hook 每個屬性只被呼叫一次。
 const calls = vi.hoisted(() => ({ attr: [] as string[] }));
 
 vi.mock("dompurify", async (importOriginal) => {

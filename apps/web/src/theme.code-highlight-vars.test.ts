@@ -148,7 +148,7 @@ describe("codeBlock 底色覆寫", () => {
    *
    * `select:not(:disabled)` 是**基底態**的寫法，但字面上含 `:disabled`——三處依選擇器
    * 挑規則的地方（基底態、hover/focus、disabled）都得先剝掉，否則會挑到錯的規則而**假紅**
-   * （第四輪 gate 突變實測：只有 baseRules 剝、另外兩處沒剝，套件仍會紅在別條）。
+   * （突變實測：只有 baseRules 剝、另外兩處沒剝，套件仍會紅在別條）。
    */
   function stateOf(selector: string): string {
     return selector.replace(/:not\([^)]*\)/g, "");
@@ -184,16 +184,16 @@ describe("codeBlock 底色覆寫", () => {
     for (const rule of rules) {
       // 錨檢查跟底色那條同理由：內建 select 規則同樣在 lazy chunk、載入晚於 index.css，
       // 掉了 .bn-editor 錨就同 specificity 必輸、內建那套（#fff、左上角、隱形）靜默
-      // 回來（審查突變實測：沒有這條斷言時拿掉錨 4 測試全綠）。
+      // 回來（沒有這條斷言時拿掉錨 4 測試全綠）。
       expect(rule.selector, `少了 .bn-editor 錨：${rule.selector}`).toMatch(/\.bn-editor\s/);
       expect(rule.body, `不得留下寫死色：${rule.selector}`).not.toContain("#fff");
     }
 
     // ⚠ 這一段必須釘在**基底態**（沒有任何狀態偽類）且**作用於 select 本身**的規則上。
-    // 兩輪 gate 各抓到一種放寬後的假綠：
-    //   第一輪：對所有含 `select` 的規則做 `some(/color:\s*var\(--/)`——`background-color`、
+    // 放寬後會出現兩種假綠：
+    //   對所有含 `select` 的規則做 `some(/color:\s*var\(--/)`——`background-color`、
     //           `border-color`、甚至 picker 的 `scrollbar-color` 都命中。
-    //   第二輪：只排除 option／picker 還不夠——把顏色只寫在 `select:disabled` 上照樣
+    //   只排除 option／picker 還不夠——把顏色只寫在 `select:disabled` 上照樣
     //           通過，但**可編輯**筆記上的下拉已經退回內建 `color:#fff`（淺色底＝白字
     //           白底，正是 #96 的病灶）。
     const baseRules = rules.filter((r) => {
@@ -226,13 +226,13 @@ describe("codeBlock 底色覆寫", () => {
     // 退回外上緣（#111 的 bottom:100%／bottom-full）或負 top 都是回到方塊外面。
     expect(apply.some((t) => /^(?:bottom-|-top-|-right-)/.test(t)), `不得把控制項推出方塊：${apply.join(" ")}`).toBe(false);
     for (const rule of selectRules()) {
-      // ⚠ 邊界 `(?:^|[;{])\s*`：裸 regex 會被 `margin-bottom`／`margin-top` 之類餵飽（#111 第四輪 gate 突變實測）。
+      // ⚠ 邊界 `(?:^|[;{])\s*`：裸 regex 會被 `margin-bottom`／`margin-top` 之類餵飽（#111）。
       expect(rule.body, `select 規則不得再用 bottom 定位：${rule.selector}`).not.toMatch(/(?:^|[;{])\s*bottom:/);
       expect(rule.body, `select 規則不得用負 top 把它推到方塊外：${rule.selector}`).not.toMatch(/(?:^|[;{])\s*top:\s*-/);
     }
 
     // `left:auto` 不可省：內建的 `left:18px` 還在，少了它下拉會從左緣 ＋18px 撐到右上角，
-    // 整條蓋在第一行程式碼上（2026-10-15 headless Chromium 151 實測，見 index.css 註解）。
+    // 整條蓋在第一行程式碼上（headless Chromium 151 實測，見 index.css 註解）。
     expect(idle!.body, "缺 left:auto——內建的 left:18px 會把下拉撐成一整條").toMatch(/(?:^|[;{])\s*left:\s*auto/);
 
     // 寬度下限：原生 select 的寬度跟著目前選到的標籤走（`C` 36px ↔ `Markdown` 86px），
@@ -243,14 +243,14 @@ describe("codeBlock 底色覆寫", () => {
     // 而它右錨定，右緣不動。
     // ⚠ 邊界要寫成 `[;{])\s*`（不是 `[;{]\s*)`）：body 的第一條宣告前面是換行＋縮排，
     // 前者才吃得到。同形的錯在 `carriesColor` 那條也犯過（寫死 width 當第一條宣告時
-    // 這條原本全綠通過，第三輪 gate 突變實測抓到）。
+    // 這條原本全綠通過）。
     expect(idle!.body, "不得寫死 width：換字型／更長的語言名會變成靜默截斷").not.toMatch(
       /(?:^|[;{])\s*width:/,
     );
     expect(idle!.body, "有了 min-width 就不該再用 overflow:hidden 去藏溢出").not.toMatch(/overflow:\s*hidden/);
   });
 
-  it("沒有保留列（2026-10-15 拿掉 #111 的 1.75rem）：codeBlock 不再 margin-top、mermaid 不再有 h-7 那列", () => {
+  it("沒有保留列（#111 的 1.75rem 已拿掉）：codeBlock 不再 margin-top、mermaid 不再有 h-7 那列", () => {
     // 控制項疊在方塊內、平常隱形，不必替它多佔一段高度。兩側都要拿掉——只拿一邊就是兩種 block 間距不一。
     for (const rule of codeBlockRules()) {
       expect(rule.body, `codeBlock 不得再讓出保留列：${rule.selector}`).not.toMatch(/(?:^|[;{])\s*margin-top:/);
@@ -496,7 +496,7 @@ describe("codeBlock 底色覆寫", () => {
     expect(disabled, "缺 select:disabled 的覆寫——唯讀時會是個點不動的按鈕外框").toBeDefined();
     expect(disabled!.selector, `少了 .bn-editor 錨：${disabled!.selector}`).toMatch(/^\.bn-editor\s/);
     expect(disabled!.body).toMatch(/border-color:\s*transparent/);
-    // 底色**不得**拆掉（2026-10-15 起）：標籤疊在程式碼上，muted 字直接壓在淺色
+    // 底色**不得**拆掉：標籤疊在程式碼上，muted 字直接壓在淺色
     // `--code-background` 上只有 4.45:1（< 4.5），留著 `.block-control` 的實底才過。
     expect(disabled!.body, "唯讀標籤疊在程式碼上，不得拆掉實底").not.toMatch(/background(?:-color)?:/);
   });

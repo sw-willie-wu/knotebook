@@ -5,8 +5,8 @@ import en from "./en.json";
 import managementZhTW from "./management.zh-TW.json";
 
 /**
- * #181 垃圾桶文案＝spec 2026-10-21 §6.12／§6.9／§6.5 的字面（zh-TW）。改這些字串＝改產品決定，先與維護者確認。
- * 兩處偏離 spec 字面：沒有「不到 1 天」；站台說明句改精確版（每次最多 2,000 篇）。
+ * #181 垃圾桶文案的字面（zh-TW）。改這些字串＝改產品決定，先與維護者確認。
+ * 兩處刻意的寫法：沒有「不到 1 天」；站台說明句改精確版（每次最多 2,000 篇）。
  */
 const SPEC_COPY: Record<string, string> = {
   "sidebar.trash": "垃圾桶",
@@ -33,7 +33,7 @@ function get(obj: unknown, path: string): unknown {
   return path.split(".").reduce<unknown>((o, k) => (o && typeof o === "object" ? (o as Record<string, unknown>)[k] : undefined), obj);
 }
 
-describe("TC1 垃圾桶文案＝spec 字面（zh-TW）", () => {
+describe("TC1 垃圾桶文案字面（zh-TW）", () => {
   for (const [key, text] of Object.entries(SPEC_COPY)) {
     // admin.*／settings.* 的字串在 lazy 包（management.*.json），其餘在主檔。
     it(key, () => expect(get(key.startsWith("admin.") ? managementZhTW : zhTW, key)).toBe(text));
@@ -59,7 +59,7 @@ describe("TC1 垃圾桶文案＝spec 字面（zh-TW）", () => {
   });
 });
 
-describe("TC2 刪除確認框的文案已移除（spec §6.12：移到垃圾桶不確認）", () => {
+describe("TC2 刪除確認框的文案已移除（移到垃圾桶不確認）", () => {
   for (const key of ["home.deleteTitle", "home.deleteDescription", "home.delete"]) {
     it(key, () => {
       expect(get(en, key)).toBeUndefined();

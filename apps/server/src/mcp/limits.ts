@@ -1,9 +1,9 @@
 /**
- * #108 §8.1「回應大小上限表」的**唯一**落點（M16）。本表的數字只在這裡出現一次。
+ * #108「回應大小上限表」的**唯一**落點。本表的數字只在這裡出現一次。
  *
  * `N ＝ 262 144`（一次 wire 回應的上限）**不在這裡**：它是**哨兵不是目標值**——破了代表
- * 下面某條逐欄上限漏接，而不是「該調大 N」。它的落點是 `test/mcp-size.test.ts`（Task 5）。
- * ⚠ 量的對象是 **wire 回應**不是 payload：D11 的鏡像讓同一份 payload 在回應裡出現兩次
+ * 下面某條逐欄上限漏接，而不是「該調大 N」。它的落點是 `test/mcp-size.test.ts`。
+ * ⚠ 量的對象是 **wire 回應**不是 payload：鏡像讓同一份 payload 在回應裡出現兩次
  * （第二次還被 JSON 逃脫），`wire ≈ 2.1 × payload`——改量 payload 會讓這筆成本消失在哨兵眼前。
  */
 
@@ -14,31 +14,31 @@
 export const MCP_TEXT_MAX = 200;
 /** 任何 outline／sections 陣列一次最多幾筆；也是 `list_notes` 的每頁上限。 */
 export const MCP_PAGE_MAX = 100;
-/** `read_note_section` 的 `markdown` 一次最多幾個 code unit（D15）。 */
+/** `read_note_section` 的 `markdown` 一次最多幾個 code unit。 */
 export const MCP_SECTION_CHARS = 4000;
-/** #93 §8.3：`search_notes` 摘錄的上限——JSON 逃脫後（同 MCP_TEXT_MAX 的計法）。預算 158＋前後各一個 `…`。 */
+/** #93：`search_notes` 摘錄的上限——JSON 逃脫後（同 MCP_TEXT_MAX 的計法）。預算 158＋前後各一個 `…`。 */
 export const MCP_SNIPPET_MAX = 160;
 
 /**
- * #93 §8.4：`search_notes` 一次回應的 **生產端目標值**（wire，UTF-16 code unit）。⚠ 與測試端的哨兵 N（262 144，
+ * #93：`search_notes` 一次回應的 **生產端目標值**（wire，UTF-16 code unit）。⚠ 與測試端的哨兵 N（262 144，
  * `test/mcp-size.test.ts` 的 `MCP_MAX_WIRE`）不是同一件事：N 是「破了代表逐欄上限漏接」，這裡是 search_notes 主動
  * 停止加入 matches 的門檻；差額 22 144 留給 JSON-RPC 信封與 `id`。
  */
 export const MCP_SEARCH_WIRE_BUDGET = 240_000;
 
 /*
- * 資料夾 PR-3d（spec docs/superpowers/specs/2026-10-22-folders-design.md §5.12「回應大小」）。每項最壞 wire（鏡像兩份＋每項兩個逗號），
- * 2026-10-30 以 `test/mcp-size.test.ts` 實測定稿（`[案 11c 每項]` 那幾行 log，delete_folder 例外：取 `[案 11c]` 行的整個回應 wire；
- * 與 plan `2026-10-28-folders-pr3d.md` 讀碼發現 1–3 的探針值逐位相同，delete_folder 除外，見該項）。群組名最壞是 67 個 `"`＋13 個 U+0001（80 code point）：
+ * 資料夾的回應大小。每項最壞 wire（鏡像兩份＋每項兩個逗號），
+ * 以 `test/mcp-size.test.ts` 實測定稿（`[案 11c 每項]` 那幾行 log，delete_folder 例外：取 `[案 11c]` 行的整個回應 wire；
+ * 與推導值逐位相同，delete_folder 除外，見該項）。群組名最壞是 67 個 `"`＋13 個 U+0001（80 code point）：
  *   - 路徑最壞：5 段、原長 [33, 40, 40, 40, 41] 個 `"`（末段截成 40，成本恰 400）→ 增量 1 286（案 (vii) 的 `folderPath`）。
- *     6 層 × 80 個 `"` 截後只留 4 段（1 080）是探針值，未實測。
+ *     6 層 × 80 個 `"` 截後只留 4 段（1 080）是推導值，未實測。
  *   - `list_notes` 一篇 2 895，預算 240 000 的第一頁 82 篇（案 (viii)①）；`list_trash` 一項 3 761、第一頁 63 項（案 (vii) 群組名 67＋13 那發）；
  *     `list_folders` 一項 2 563（案 (viii)③；240 000 ÷ 2 563 ≈ 93 項是算的，一頁只有 50）；`read_note_outline` 的 `folder` 增量 1 378
  *     （對「沒有這個鍵」；對 `folder: null` 是 1 348，案 (viii)⑥）；`delete_folder` 回應（100 個 id、`deletedFolderCount` 兩位數）整個回應 wire 8 376
- *     （案 (viii)⑤ 的 `[案 11c]` 行，含 JSON-RPC 信封；`[案 11c 每項]` 印的 payload 鏡像兩份是 8 284；探針 8 380 是四位數的 `deletedFolderCount`）。
+ *     （案 (viii)⑤ 的 `[案 11c]` 行，含 JSON-RPC 信封；`[案 11c 每項]` 印的 payload 鏡像兩份是 8 284；推導值 8 380 是四位數的 `deletedFolderCount`）。
  */
 
-/** spec §5.12：回給模型的資料夾名（`folder.name`、`list_folders` 的 `name`、路徑的每一段）——JSON 逃脫後 code unit，`truncateText` 計法。
+/** 回給模型的資料夾名（`folder.name`、`list_folders` 的 `name`、路徑的每一段）——JSON 逃脫後 code unit，`truncateText` 計法。
  *  80 code point 以內、不需逃脫的字（含中文）都不截；`"`／`\`／emoji 這類每字成本 ≥ 2 的才可能被截。 */
 export const MCP_FOLDER_NAME_MAX = 80;
 /** 路徑的成本＝陣列 JSON 去掉兩端方括號的長度（Σ(段的逃脫後長度＋2)＋段數−1）；超過時從根端整段省略、至少留 1 段。 */
@@ -71,7 +71,7 @@ function stepAt(s: string, i: number): { cost: number; width: 1 | 2 } {
   return isPair ? { cost: 2, width: 2 } : { cost: escapedUnitCost(code), width: 1 };
 }
 
-/** #93 §8.3：字串 JSON 逃脫後的長度（不含兩端引號）——與 {@link truncateText} 同一套計價（`stepAt`）。 */
+/** #93：字串 JSON 逃脫後的長度（不含兩端引號）——與 {@link truncateText} 同一套計價（`stepAt`）。 */
 export function escapedLength(s: string): number {
   let cost = 0;
   for (let i = 0; i < s.length; ) {
@@ -85,7 +85,7 @@ export function escapedLength(s: string): number {
 /**
  * 截到「**JSON 逃脫後**最多 `max` 個 code unit」（#177）——`JSON.stringify(text).length - 2 ≤ max` 是這支的
  * 不變量。**切的是原字串**，預算算的是逃脫後的成本：一個字元要嘛整個留下、要嘛整個不留，不會切出半個
- * `\u0001`。為什麼是逃脫後：wire 回應裡同一欄出現兩次（structuredContent ＋ 鏡像 text，見檔頭），C0
+ * `\u0001`。為什麼是逃脫後：wire 回應裡同一欄出現兩次（structuredContent ＋ 鏡像 text，見檔頭）
  * 一個字在 wire 上佔 13（`\u0001` ＋ `\\u0001`）、`"`／`\` 佔 6，按原長度截的話合規內容就推得破 N。
  * 不需要逃脫的文字成本＝原長度，行為與 #177 之前逐位相同（純 ASCII 恰好 200 個照樣不截）。
  *
@@ -123,10 +123,10 @@ export function truncateCodeUnits(s: string, max: number): { text: string; trunc
 }
 
 /**
- * #200 §7.5／#180 spec §9-0：`read_note_image` 原樣回傳的最大原始位元組數。**定為 5 MiB。**
- * 依據：#200 §8 spike（2026-10-10，Claude Code 2.1.295，`MAX_MCP_OUTPUT_TOKENS` 未設）：PNG 16 KiB～10 MiB 全數送達且模型念得出標記，
+ * #200／#180：`read_note_image` 原樣回傳的最大原始位元組數。**定為 5 MiB。**
+ * 依據：#200 實測（Claude Code 2.1.295，`MAX_MCP_OUTPUT_TOKENS` 未設）：PNG 16 KiB～10 MiB 全數送達且模型念得出標記，
  * JPEG／GIF／WebP 原檔都過；形 (i)（outputSchema＋structuredContent＋image block）與 (ii) 都看得到 → 照形 (i)。
- * 5 MiB 的 base64 ＝ 6 990 508 字元，wire 約 6 990 942（spike `wire.txt`）——遠大於 `MCP_MAX_WIRE`（262 144）：
+ * 5 MiB 的 base64 ＝ 6 990 508 字元，wire 約 6 990 942——遠大於 `MCP_MAX_WIRE`（262 144）：
  * image block 是那個哨兵的**唯一豁免**，由本常數單獨管（`test/mcp-size.test.ts` 案 (vi)）。
  */
 export const MCP_IMAGE_MAX_BYTES = 5_242_880;

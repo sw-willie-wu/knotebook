@@ -65,7 +65,7 @@ function dragEvent(data: DataTransfer): DragEvent {
 
 const translate = (key: string) => `t:${key}`;
 
-describe("createMediaBlockingDOMEvents（§12.4 貼上／拖放攔截）", () => {
+describe("createMediaBlockingDOMEvents（貼上／拖放攔截）", () => {
   beforeEach(() => {
     toastMock.mockClear();
   });
@@ -181,7 +181,7 @@ describe("buildNoteEditorOptions", () => {
     expect(options.collaboration.fragment).not.toBe(doc.getXmlFragment("default"));
   });
 
-  it("schema 含 image block（Plan 3 Task 14 起恢復啟用）", () => {
+  it("schema 含 image block", () => {
     expect(Object.keys(build().schema.blockSpecs)).toContain("image");
   });
 
@@ -192,14 +192,14 @@ describe("buildNoteEditorOptions", () => {
     expect(build().schema).toBe(noteSchema);
   });
 
-  it("uploadFile 選項有掛上去（Task 13，接 createUploadFile）", () => {
+  it("uploadFile 選項有掛上去（接 createUploadFile）", () => {
     expect(typeof build().uploadFile).toBe("function");
   });
 
   /**
    * `pasteHandler` 是 markdown 貼上修法（#27／#28）唯一通到使用者的那條線——沒有這條
    * 斷言的話，把 `buildNoteEditorOptions` 裡那一行刪掉，整套測試仍然全綠而修法靜默
-   * 失效（審查實測指出的缺口）。這裡連行為一起釘：CRLF 的 markdown 要被接手。
+   * 失效。這裡連行為一起釘：CRLF 的 markdown 要被接手。
    */
   it("pasteHandler 有掛上去，且真的會接手 markdown 貼上（#27／#28）", () => {
     const CRLF_MARKDOWN = "# 標題\r\n\r\n- 一\r\n- 二\r\n";
@@ -276,7 +276,7 @@ describe("buildNoteEditorOptions", () => {
    * issue #99 的接線釘：`_tiptapOptions.extensions` 是**唯一**通到使用者的那條線——
    * 沒有這條斷言的話，把 `buildNoteEditorOptions` 裡那一行 `extensions: […]` 刪掉，
    * 整套測試（含 `markdown-link.rule.test.tsx`，它掛的是自己另外建的編輯器，不是
-   * `buildNoteEditorOptions` 的產物）依然全綠，功能在真實 app 裡卻是死的（審查抓到
+   * `buildNoteEditorOptions` 的產物）依然全綠，功能在真實 app 裡卻是死的（曾經發生
    * 的缺口）。這裡直接釘住 extension 真的在陣列裡（用 `Extension.create` 賦的
    * `name` 識別，不靠陣列 identity 或長度）。
    */
@@ -293,14 +293,14 @@ describe("buildNoteEditorOptions", () => {
     expect(extensions.map((ext: { name: string }) => ext.name)).toContain("knotebookCodeBlockCaret");
   });
 
-  // 同上：`edge-keymap.test.ts` 掛的是自己建的編輯器（D24 欄首 Backspace／欄尾 Delete）。
-  it("_tiptapOptions.extensions 掛了並排的欄首／欄尾鍵 extension（D24）", () => {
+  // 同上：`edge-keymap.test.ts` 掛的是自己建的編輯器（欄首 Backspace／欄尾 Delete）。
+  it("_tiptapOptions.extensions 掛了並排的欄首／欄尾鍵 extension", () => {
     const extensions = build()._tiptapOptions.extensions;
     expect(extensions.map((ext: { name: string }) => ext.name)).toContain("knotebookColumnEdgeKeys");
   });
 
-  // 同上：`paste-rule.test.ts` 掛的是自己建的編輯器（§5.4 調整 3 貼上的列）。
-  it("_tiptapOptions.extensions 掛了並排的貼上規則 extension（§5.4 調整 3）", () => {
+  // 同上：`paste-rule.test.ts` 掛的是自己建的編輯器（調整 3 貼上的列）。
+  it("_tiptapOptions.extensions 掛了並排的貼上規則 extension（調整 3）", () => {
     const extensions = build()._tiptapOptions.extensions;
     expect(extensions.map((ext: { name: string }) => ext.name)).toContain("knotebookColumnsPaste");
   });
@@ -320,7 +320,7 @@ describe("buildNoteEditorOptions", () => {
     expect(takeDropPoint()).toBe(9);
   });
 
-  it("組合後的 drop：posAtCoords 丟例外 → 媒體阻擋照樣生效、落點為 null（final review M-3）", () => {
+  it("組合後的 drop：posAtCoords 丟例外 → 媒體阻擋照樣生效、落點為 null", () => {
     const view = {
       posAtCoords: vi.fn(() => {
         throw new Error("posAtCoords failed");
@@ -334,7 +334,7 @@ describe("buildNoteEditorOptions", () => {
     expect(takeDropPoint()).toBeNull();
   });
 
-  // #352 DL10：最外層的 `withSiteLinkDrop` 啟用時（可編輯、env 在、沒有 dragging）仍回傳內層結果；它的判斷拋錯也不擋內層。
+  // #352：最外層的 `withSiteLinkDrop` 啟用時（可編輯、env 在、沒有 dragging）仍回傳內層結果；它的判斷拋錯也不擋內層。
   // 上面三案的 env 是 null、view 是 null 或只有 posAtCoords，hook 不啟用——這裡另組一個 env 非 null 的 builder。
   const buildWithSiteLinks = () =>
     buildNoteEditorOptions({
@@ -390,7 +390,7 @@ describe("buildNoteEditorOptions", () => {
     expect(editorProps.handleDOMEvents.paste(null, blocked)).toBe(true);
   });
 
-  // spec 點名的假綠高危案例：早前這裡只驗過「有檔案就一律擋」，跟 §12.4 現行語意（純
+  // 假綠高危案例：早前這裡只驗過「有檔案就一律擋」，跟現行語意（純
   // image 檔要放行）完全脫節，紅了也測不出來。改成兩條，涵蓋放行與攔截各一個真實
   // File 形狀，確保掛在 `_tiptapOptions.editorProps.handleDOMEvents` 上的**同一個函式
   // 參照**真的接到了 `classifyMediaTransfer` 的規則。
@@ -421,7 +421,7 @@ describe("buildNoteEditorOptions", () => {
   });
 });
 
-// ── `[[` 觸發偵測（handleTextInput，Task 3 §12.2 recipe）─────────────────────────
+// ── `[[` 觸發偵測（handleTextInput）─────────────────────────
 //
 // **mount harness**：`BlockNoteEditor.create` 後必須 `editor.mount(掛在
 // document.body 的元素)`，headless 下 `openSuggestionMenu` 會直接 early-return
@@ -597,7 +597,7 @@ describe("buildNoteEditorOptions 的 [[ 觸發偵測（handleTextInput）", () =
   });
 });
 
-// ── uploadFile 真的接上 handleFileInsertion（Task 13）───────────────────────────
+// ── uploadFile 真的接上 handleFileInsertion ───────────────────────────
 //
 // `handleFileInsertion` 不是 `@blocknote/core` 的公開匯出，唯一「真的走它」的辦法是
 // mount 編輯器後派發真的 `paste` DOM 事件，讓 BlockNote 自己的 paste 外掛
@@ -614,7 +614,7 @@ describe("buildNoteEditorOptions 的 [[ 觸發偵測（handleTextInput）", () =
 // editor.uploadFile(...)` resolve 後的**微任務續體**——都在我們自己這邊等待期間，用
 // 一個真的 `setTimeout(resolve, 0)` 就能把兩者一起沖掉（微任務保證先跑完）。清除本身
 // 是**另一個**排在後面的 macrotask，因此驗證「block 被清掉」要多等一輪。
-describe("buildNoteEditorOptions 的 uploadFile 真接線（handleFileInsertion，Task 13）", () => {
+describe("buildNoteEditorOptions 的 uploadFile 真接線（handleFileInsertion）", () => {
   let doc: Y.Doc;
   let editorRef: EditorRef;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 測試用編輯器，走 repo 慣例的 BlockNoteEditor<any,any,any>
@@ -683,7 +683,7 @@ describe("buildNoteEditorOptions 的 uploadFile 真接線（handleFileInsertion�
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
 
-  it("成功：貼上圖片檔案真的觸發 uploadFile，block 拿到回傳的 url（Task 14 起 image 已進 schema，placeholder 真的是 image block）", async () => {
+  it("成功：貼上圖片檔案真的觸發 uploadFile，block 拿到回傳的 url（image 已在 schema，placeholder 真的是 image block）", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       fakeResponse({ ok: true, status: 201, json: () => Promise.resolve({ id: "u1", url: "/api/uploads/u1" }) }),
     );
@@ -733,7 +733,7 @@ describe("buildNoteEditorOptions 的 uploadFile 真接線（handleFileInsertion�
   });
 });
 
-// ── issue #99：`insertLinkAtSavedSelection`（fix round 1 Important 2）─────────────
+// ── issue #99：`insertLinkAtSavedSelection` ─────────────
 //
 // 舊版把「還原 selection 再 createLink」直接寫在 `NoteEditor` 元件內的
 // `handleLinkInsert` 閉包裡，整條 `NoteEditor` 接線層零覆蓋——三發突變（刪掉
@@ -767,7 +767,7 @@ describe("insertLinkAtSavedSelection", () => {
     insertLinkAtSavedSelection(editor, savedSelection, { text: "x", href: "https://example.com" });
 
     // 沒有還原的話（`editor.createLink` 直接打在「當下」selection＝段落尾端）
-    // 這裡會是 "hello worldx"——這正是審查者拿掉還原那一行實測到的錯誤形狀。
+    // 這裡會是 "hello worldx"——這正是拿掉還原那一行時實測到的錯誤形狀。
     expect(editor.transact((tr) => tr.doc.textContent)).toBe("hello xworld");
     // 位置對了還不夠——連 mark 本身也要確認真的落在文件裡、href 是對的。
     const hasLink = editor.transact((tr) => {
@@ -809,7 +809,7 @@ describe("NoteEditor JSX：<LinkDialog> 掛載守衛", () => {
 
 // ── issue #99：`useLinkMenuState` 的 `getSlashItems` 身分不變 ─────────────────────
 //
-// brief／design §6 明講的具名交付項：「測試要釘的是 dialog 開關前後 getSlashItems
+// 具名要求：「測試要釘的是 dialog 開關前後 getSlashItems
 // 身分不變」。抽成 `useLinkMenuState` 之後用 `renderHook` 直接驗證這個
 // hooks-composition 事實，不必掛 BlockNote。
 describe("useLinkMenuState", () => {
@@ -880,7 +880,7 @@ describe("useLinkMenuState", () => {
   });
 });
 
-describe("lateBoundTranslate（RF1：late-bound 包裝必須轉傳插值參數）", () => {
+describe("lateBoundTranslate（late-bound 包裝必須轉傳插值參數）", () => {
   it("轉傳 opts，且每次呼叫讀 ref 的當下值", () => {
     const ref: { current: (key: string, opts?: Record<string, unknown>) => string } = {
       current: (key, opts) => `a:${key}:${JSON.stringify(opts ?? null)}`,

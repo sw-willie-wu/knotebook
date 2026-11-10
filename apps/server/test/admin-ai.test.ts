@@ -173,7 +173,7 @@ describe("providers CRUD", () => {
     expect(res.json().providers.find((p: { name: string }) => p.name === "P1")).toMatchObject({ hasKey: true });
   });
 
-  it("PATCH 給 apiKey 覆寫後從 degraded 移除（自檢成功即移除，§10 不重啟生效）", async () => {
+  it("PATCH 給 apiKey 覆寫後從 degraded 移除（自檢成功即移除，不重啟生效）", async () => {
     const runtime = createAiRuntime();
     const { app, db } = await buildTestApp({ ai: runtime });
     const admin = await insertUser(db, { isAdmin: true, email: "admin-p4@example.com" });
@@ -335,7 +335,7 @@ describe("providers CRUD", () => {
     expect(JSON.stringify(line!.obj)).not.toContain("pass");
     expect(JSON.stringify(line!.obj)).not.toContain("secret");
 
-    // ⚠ **網址看起來沒變也要記**（審查指出，這是 round 2 的核心修法）：觸發條件若退回
+    // ⚠ **網址看起來沒變也要記**（這是核心修法）：觸發條件若退回
     // 「跟 `existing` 不同才記」，攻擊者持續送 no-op PATCH 的那個競態下會一行都不輸出
     // ——而 docs 說那行 log 是「唯一可信的痕跡」，要抓的正是那個姿勢。
     lines.length = 0;
@@ -350,12 +350,12 @@ describe("providers CRUD", () => {
   });
 
   it("併發：攻擊者的 no-op PATCH 排在受害者之後，也偷不到那把剛輸入的金鑰（TOCTOU 回歸釘）", async () => {
-    // 審查實測抓到的繞過：handler 先 SELECT 舊網址、再 UPDATE，中間沒有交易。攻擊者持續送
+    // 曾有的繞過：handler 先 SELECT 舊網址、再 UPDATE，中間沒有交易。攻擊者持續送
     // `{baseUrl: EVIL}`（讀到的舊值就是 EVIL ⇒ 判定沒變 ⇒ 不清金鑰，但 base_url = EVIL 照
     // 寫），只要有一發的 SELECT 落在受害者「改回正確網址＋重新輸入金鑰」的 UPDATE 之前、
     // UPDATE 落在之後，最終列就是「攻擊者的網址 ＋ 受害者剛輸入的金鑰」。
     //
-    // ⚠ 這裡**不用併發去賭那個窗口**（審查算過：以舊碼 7% 的命中率下界，12 輪全 miss 的
+    // ⚠ 這裡**不用併發去賭那個窗口**（算過：以舊碼 7% 的命中率下界，12 輪全 miss 的
     // 機率有四成——那根釘子有四成機會抓不到它專門要抓的回歸）。改成自己持有行鎖，把兩者
     // 的順序釘死：攻擊者的 UPDATE 必然排在受害者 commit 之後。舊寫法（Node 端比對）在這個
     // 順序下**必然**漏，因為它的 SELECT 不受行鎖阻擋，讀到的是受害者寫入前的舊值。
@@ -390,7 +390,7 @@ describe("providers CRUD", () => {
       });
       await new Promise(resolve => setTimeout(resolve, 500));
 
-      // ⚠ 證明攻擊者那一發真的卡在行鎖上（審查指出）：少了這道斷言，慢機器上 500ms 不夠
+      // ⚠ 證明攻擊者那一發真的卡在行鎖上：少了這道斷言，慢機器上 500ms 不夠
       // 時它的 SELECT 會跑在受害者 commit 之後 ⇒ 讀到 GOOD ⇒ 判定有變 ⇒ 連舊碼都會通過，
       // 這根釘子就不再測它要測的回歸了。被鎖擋住這件事本身就證明 SELECT 已經跑完。
       const pending = Symbol("pending");
@@ -558,7 +558,7 @@ describe("providers CRUD", () => {
     expect(lines.length).toBeGreaterThan(0);
   });
 
-  // fix round 1（I-2）：空 body `{}` 全欄位皆 optional，未過濾直接 `.set({})` 會被
+  // 空 body `{}` 全欄位皆 optional，未過濾直接 `.set({})` 會被
   // drizzle 0.44 同步 throw "No values to set"，逃出 handler 變成裸 500。
   it("PATCH 空 body {} → 400 invalid_body（非 500）", async () => {
     const { app, db } = await buildTestApp();
@@ -757,12 +757,12 @@ describe("models CRUD", () => {
     expect(row1.isDefault).toBe(false);
   });
 
-  // fix round 1（I-1 迴歸釘）：PATCH 一個不存在的 id 且帶 `{isDefault:true}`——修法前
+  // PATCH 一個不存在的 id 且帶 `{isDefault:true}`——修法前
   // 的順序（交易內先無條件 unset 同 purpose 其他列，之後才發現 target 不存在）會讓
   // 這種完全找不到目標的請求，靜默把既有的 default 偏好清空後才回 404，且交易仍
   // commit（找不到列不是例外，不觸發 rollback）。必須是：整個請求無效果，404，
   // 既有 default 原封不動。
-  it("PATCH 不存在的 id + {isDefault:true} → 404，且不動既有 default（I-1 迴歸）", async () => {
+  it("PATCH 不存在的 id + {isDefault:true} → 404，且不動既有 default（迴歸）", async () => {
     const { app, db } = await buildTestApp();
     const admin = await insertUser(db, { isAdmin: true, email: "admin-m7@example.com" });
     const cookie = await cookieFor(admin.id);
@@ -782,7 +782,7 @@ describe("models CRUD", () => {
     expect(row.isDefault).toBe(true);
   });
 
-  // fix round 1（I-2）：models PATCH 空 body {} → 400（同 providers PATCH 理由）。
+  // models PATCH 空 body {} → 400（同 providers PATCH 理由）。
   it("PATCH 空 body {} → 400 invalid_body（非 500）", async () => {
     const { app, db } = await buildTestApp();
     const admin = await insertUser(db, { isAdmin: true, email: "admin-m8@example.com" });
@@ -800,7 +800,7 @@ describe("models CRUD", () => {
     expect(res.json()).toMatchObject({ error: { code: "invalid_body" } });
   });
 
-  // fix round 1（I-3-2）：合法 uuid 格式但不存在的 providerId——驗證 `isForeignKeyViolation`
+  // 合法 uuid 格式但不存在的 providerId——驗證 `isForeignKeyViolation`
   // 真的接得住 drizzle 0.44 包裝過的 pg 錯誤（`DrizzleQueryError`，原始錯誤落在 `.cause`），
   // 不是只在裸 `DatabaseError` 形狀下才生效。
   it("POST 帶不存在的 providerId（合法 uuid）→ 400 invalid_body（非 500）", async () => {
@@ -927,7 +927,7 @@ describe("actions CRUD", () => {
     expect(res.json()).toMatchObject({ error: { code: "invalid_body" } });
   });
 
-  // fix round 1（I-3-2）：合法 uuid 格式但不存在的 modelId——同 models POST 的
+  // 合法 uuid 格式但不存在的 modelId——同 models POST 的
   // `isForeignKeyViolation` 解包驗證，這裡驗的是 actions 表另一個 FK（`model_id`）。
   it("POST 帶不存在的 modelId（合法 uuid）→ 400 invalid_body（非 500）", async () => {
     const { app, db } = await buildTestApp();
@@ -950,7 +950,7 @@ describe("actions CRUD", () => {
     expect(res.json()).toMatchObject({ error: { code: "invalid_body" } });
   });
 
-  // fix round 1（I-2）：actions PATCH 空 body {} → 400（同 providers/models PATCH 理由）。
+  // actions PATCH 空 body {} → 400（同 providers/models PATCH 理由）。
   it("PATCH 空 body {} → 400 invalid_body（非 500）", async () => {
     const { app, db } = await buildTestApp();
     const admin = await insertUser(db, { isAdmin: true, email: "admin-a8@example.com" });

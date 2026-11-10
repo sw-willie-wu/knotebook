@@ -1,8 +1,8 @@
 import { COLUMN_LIST_TYPE, COLUMN_TYPE } from "@knotebook/shared";
 
 /**
- * 並排排版的位置判斷（純函式；D24 keymap 用，PR-2／PR-3 的驗證與拖放也會用）。
- * PM 的 Node／ResolvedPos 型別在 apps/web 值層級拿不到（讀碼發現 13），這裡用只列出用得到欄位的寬鬆型別。
+ * 並排排版的位置判斷（純函式；`edge-keymap.ts` 用，驗證與拖放也會用）。
+ * PM 的 Node／ResolvedPos 型別在 apps/web 值層級拿不到，這裡用只列出用得到欄位的寬鬆型別。
  */
 
 export interface PMNodeLike {

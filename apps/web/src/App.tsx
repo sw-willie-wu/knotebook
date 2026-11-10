@@ -72,7 +72,7 @@ const SettingsAboutSection = lazy(() =>
   import("./settings/SettingsAboutSection").then(m => ({ default: m.SettingsAboutSection })),
 );
 /**
- * #247 §6.1：群組 modal 的四個區塊來自同一個聚合模組 `components/groups/GroupSections`（一個 chunk）；外殼 `GroupModal` 在首包。
+ * #247：群組 modal 的四個區塊來自同一個聚合模組 `components/groups/GroupSections`（一個 chunk）；外殼 `GroupModal` 在首包。
  */
 const GroupMembersSection = lazy(() =>
   import("./components/groups/GroupSections").then(m => ({ default: m.GroupMembersSection })),
@@ -87,7 +87,7 @@ const GroupAboutSection = lazy(() =>
   import("./components/groups/GroupSections").then(m => ({ default: m.GroupAboutSection })),
 );
 /**
- * #247 §7.1：站台管理 modal 的五個區塊來自同一個聚合模組 `components/admin/AdminSections`（一個 chunk）；外殼 `AdminModal` 在首包。
+ * #247：站台管理 modal 的五個區塊來自同一個聚合模組 `components/admin/AdminSections`（一個 chunk）；外殼 `AdminModal` 在首包。
  */
 const AdminUsersSection = lazy(() => import("./components/admin/AdminSections").then(m => ({ default: m.AdminUsersSection })));
 const AdminGroupsSection = lazy(() => import("./components/admin/AdminSections").then(m => ({ default: m.AdminGroupsSection })));
@@ -143,7 +143,7 @@ function NoteRoute() {
   // #122：兩條 route（舊形 /notes/:ref、新形 /n/:handle/:slug）共用本元件與 NotePage
   // ——resetKey 依形取（同一篇筆記的不變量：舊形是 ref、新形是 handle/slug 對）。
   // #175：第三形 `/g/:groupId/:slug`（群組筆記）——鍵取 `g:${groupId}/${slug}`。`g:` 前綴是
-  // **防禦性設計、無案守著**（群組 id 是 uuid、handle 不可能等於它，單靠內容就分得開；審查實測
+  // **防禦性設計、無案守著**（群組 id 是 uuid、handle 不可能等於它，單靠內容就分得開；實測
   // 拿掉前綴全綠）。control 4 守的是「第三形有自己的鍵」（拿掉整個第三形分支會紅），不是前綴。
   const { ref, handle, groupId, slug } = useParams();
   const resetKey =
@@ -163,7 +163,7 @@ function NoteRoute() {
 }
 
 /**
- * `/p/:token` 的 route element（#72 Task 3）：**專屬** fallback／錯誤邊界——
+ * `/p/:token` 的 route element（#72）：**專屬** fallback／錯誤邊界——
  * NotePageFallback／NoteRouteErrorBoundary 都包 AppShell（打 `/api/auth/me`、露側欄），
  * 匿名頁不得重用（理由與零 fetch 守衛見 PublicNoteShell.tsx／App.publicRoute.test.tsx）。
  * 不掛 ChunkLoadBeacon／自動 reload 額度：那套旗標機制是 NotePage 專屬，公開頁用
@@ -180,7 +180,7 @@ function PublicNoteRoute() {
 }
 
 /**
- * 兩棵 `<Routes>` 並列（spec §13.4，逐字落地——改這段前先讀那節，尤其
+ * 兩棵 `<Routes>` 並列（改這段前先讀下面，尤其
  * modal-over-background 機制那段）：
  *
  * - **主樹**：render 背景頁，吃 `<Routes location={state?.backgroundLocation ?? location}>`
@@ -225,7 +225,7 @@ function PublicNoteRoute() {
  * 與 <ChangePasswordGate> 底下，即使 <RequireAdmin> 自己也有未登入判斷（見
  * guards.tsx），這裡是雙保險而非依賴它獨立生效。
  *
- * `/change-password`（spec rev 5.7）巢狀在 <RequireAuth> 底下、但刻意掛在
+ * `/change-password` 巢狀在 <RequireAuth> 底下、但刻意掛在
  * <ChangePasswordGate> **外面**（與它平行，不是它的 <Outlet/> 子路由）——這條路由本身
  * 就是 `mustChangePassword` 使用者被導去的目的地，若巢狀在 gate 裡面會造成「導向自己」
  * 的迴圈。<ChangePasswordGate> 包住 <RequireAuth> 底下除 /change-password 外的
@@ -244,7 +244,7 @@ export function AppRoutes() {
     <RealLocationContext.Provider value={realLocation}>
       <Routes location={state?.backgroundLocation ?? location}>
         <Route path="/login" element={<LoginPage />} />
-        {/* #187 PR3：與 /login 同層、在 RequireAuth 之外；已登入者由頁面自己導向 next（經 safeNextPath）或 /。 */}
+        {/* #187：與 /login 同層、在 RequireAuth 之外；已登入者由頁面自己導向 next（經 safeNextPath）或 /。 */}
         <Route
           path="/register"
           element={
@@ -253,7 +253,7 @@ export function AppRoutes() {
             </LazyPageRoute>
           }
         />
-        {/* #187：與 /login 同層、在 RequireAuth 之外——只看 pending cookie（§9.4 r2-N7）。 */}
+        {/* #187：與 /login 同層、在 RequireAuth 之外——只看 pending cookie。 */}
         <Route
           path="/link-account"
           element={
@@ -271,11 +271,11 @@ export function AppRoutes() {
             </LazyPageRoute>
           }
         />
-        {/* #72：公開分享頁與 /login 同層、排在 RequireAuth **之前**（D2 定案）——
+        {/* #72：公開分享頁與 /login 同層、排在 RequireAuth **之前**——
             匿名訪客免登入直達；shared 的 EXCLUDED_PREFIXES（#131 起搬離 spa.ts）不含
             /p，SPA fallback 照常服務這條路徑（noindex 標頭在 server 端，前綴比對天然
             涵蓋兩段形）。
-            #122 PR3：別名雙段形與 token 單段形以**段數**區分，共用同一個 route
+            #122：別名雙段形與 token 單段形以**段數**區分，共用同一個 route
             element——形的判別在 PublicNotePage 的 useParams。 */}
         <Route path="/p/:token" element={<PublicNoteRoute />} />
         <Route path="/p/:handle/:slug" element={<PublicNoteRoute />} />
@@ -305,7 +305,7 @@ export function AppRoutes() {
                 被 `/*` catch-all 吃掉；route 承接測試釘住）。 */}
             <Route path="/notes/:ref" element={<NoteRoute />} />
             <Route path="/n/:handle/:slug" element={<NoteRoute />} />
-            {/* #175：群組筆記 `/g/<group_id>/<slug>`（§8.1）——同一個 NoteRoute/NotePage；
+            {/* #175：群組筆記 `/g/<group_id>/<slug>`——同一個 NoteRoute/NotePage；
                 只掛主樹（第二棵樹只管三個面板：/settings/*、/groups/*、/admin/*）。承接由 App.resetKey.test control 4 釘住。 */}
             <Route path="/g/:groupId/:slug" element={<NoteRoute />} />
             <Route path="/*" element={<HomePage />} />
@@ -318,18 +318,18 @@ export function AppRoutes() {
         <Route element={<RequireAuth />}>
           <Route element={<ChangePasswordGate />}>
             <Route element={<SettingsModal />}>
-              {/* Dialog 外殼＝layout route，項次切換不重掛（#247 §5.1：六項） */}
+              {/* Dialog 外殼＝layout route，項次切換不重掛（#247：六項） */}
               <Route path="/settings/account" element={<SettingsAccountSection />} />
-              {/* #247 §5.2／§5.3：密碼＋已連結登入方式（OIDC 連結回程落點，§9.9）／API token */}
+              {/* #247：密碼＋已連結登入方式（OIDC 連結回程落點）／API token */}
               <Route path="/settings/login" element={<SettingsLoginSection />} />
               <Route path="/settings/authorization" element={<SettingsAuthorizationSection />} />
-              {/* #247 §5.4：個人儲存空間（用量／依類型／版本歷史） */}
+              {/* #247：個人儲存空間（用量／依類型／版本歷史） */}
               <Route path="/settings/storage" element={<SettingsStorageUsageSection />} />
               {/* #247：群組唯讀總覽（所有登入者） */}
               <Route path="/settings/groups" element={<SettingsGroupsOverview />} />
               <Route path="/settings/about" element={<SettingsAboutSection />} />
             </Route>
-            {/* #247 §6：群組 modal（所有登入者，不在 RequireAdmin 底下）。`/groups/:id` 本身是「成員」項次；
+            {/* #247：群組 modal（所有登入者，不在 RequireAdmin 底下）。`/groups/:id` 本身是「成員」項次；
                 未知子路徑在 modal 內轉回 `/groups/:id`（GroupSubpathRedirect）。主樹對 /groups/* 落在 `/*` 的 HomePage。 */}
             <Route path="/groups/:id" element={<GroupModal />}>
               <Route index element={<GroupMembersSection />} />
@@ -338,7 +338,7 @@ export function AppRoutes() {
               <Route path="about" element={<GroupAboutSection />} />
               <Route path="*" element={<GroupSubpathRedirect />} />
             </Route>
-            {/* #247 §7：站台管理 modal。轉址掛在 AdminModal 外（不閃 modal）、RequireAdmin 內（非 admin 直接導 /，不先轉一次）。
+            {/* #247：站台管理 modal。轉址掛在 AdminModal 外（不閃 modal）、RequireAdmin 內（非 admin 直接導 /，不先轉一次）。
                 RequireAdmin 巢狀在 ChangePasswordGate 底下（先強制改密、再判 admin）。主樹對 /admin/* 落在 `/*` 的 HomePage。 */}
             <Route element={<RequireAdmin />}>
               <Route path="/admin" element={<Navigate to="/admin/users" replace />} />
@@ -354,12 +354,12 @@ export function AppRoutes() {
               <Route path="/admin/*" element={<Navigate to="/admin/users" replace />} />
             </Route>
           </Route>
-          {/* #247 §5.1：舊群組網址（書籤、尚未改到的呼叫點）轉到群組 modal。掛在 ChangePasswordGate 與 SettingsModal 外——
+          {/* #247：舊群組網址（書籤、尚未改到的呼叫點）轉到群組 modal。掛在 ChangePasswordGate 與 SettingsModal 外——
               不先閃設定面板；轉傳 location.state（LegacyGroupRedirect 內）才不會丟掉 backgroundLocation。 */}
           <Route path="/settings/groups/:id" element={<LegacyGroupRedirect suffix="" />} />
           <Route path="/settings/groups/:id/roles" element={<LegacyGroupRedirect suffix="/roles" />} />
           {/* 轉址一律掛在 SettingsModal **外面**、RequireAuth 裡面（不先閃一下 modal；目的地自己的守衛照常判）。
-              `/settings` → 第一個項次（#247 §5.1）。舊網址 `/settings/users`、`/settings/ai`（書籤、舊文件連結）：
+              `/settings` → 第一個項次（#247）。舊網址 `/settings/users`、`/settings/ai`（書籤、舊文件連結）：
               站台管理搬到 /admin/* 後轉址過去，admin 與否交給 /admin 那邊的 RequireAdmin 判。 */}
           <Route path="/settings" element={<Navigate to="/settings/account" replace />} />
           <Route path="/settings/users" element={<Navigate to="/admin/users" replace />} />

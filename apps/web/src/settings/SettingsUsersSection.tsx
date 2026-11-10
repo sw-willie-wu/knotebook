@@ -58,9 +58,9 @@ const SELECT_CLASS =
   "focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
 
 /**
- * 角色下拉（#247 §7.0，W27：管理員／一般；升級送 `promote`、降級送 `demote`）。
+ * 角色下拉（#247：管理員／一般；升級送 `promote`、降級送 `demote`）。
  * 自己那列 disabled＋`title`（server 另以 400 `cannot_demote_self` 把關）；pending 時 disabled 並顯示剛選的值；
- * 失敗（含 409 `last_site_admin`）下拉自然留在原值（受控於列資料），錯誤交給上層的錯誤列（spec 2026-10-13 settings-table §2.5 末）。
+ * 失敗（含 409 `last_site_admin`）下拉自然留在原值（受控於列資料），錯誤交給上層的錯誤列。
  */
 function UserRoleSelect({ row, isSelf, onError }: { row: AdminUserDto; isSelf: boolean; onError: (message: string | null) => void }) {
   const { t } = useTranslation();
@@ -99,7 +99,7 @@ function UserRoleSelect({ row, isSelf, onError }: { row: AdminUserDto; isSelf: b
 }
 
 /**
- * 啟用 toggle（#247 §7.0）：關 → 先開確認框（停用會踢掉線上 session）、確認才送 `disable`；開 → 直接送 `enable`。
+ * 啟用 toggle（#247）：關 → 先開確認框（停用會踢掉線上 session）、確認才送 `disable`；開 → 直接送 `enable`。
  * 自己那列照常渲染、恆為開，但 `aria-disabled`＋`title`、不送請求；server 的 `cannot_disable_self` 照舊是最後防線。
  * 失敗：toggle 受控於列資料、自然彈回，錯誤交給上層的錯誤列。可及名稱「Enabled ＜email＞」由表格的 aria-labelledby 給。
  */
@@ -176,13 +176,13 @@ function UserEnabledSwitch({
 }
 
 /**
- * 站台管理 modal 的使用者區（`/admin/users`，#247 §7.0）。歷程：Task 15 獨立頁 → Plan 4 併進設定 modal →
- * 2026-09-30 獨立頁 `/admin/*` → #247 起是站台管理 modal 的第一項（`AdminSections` 聚合 chunk）。
- * 頁首的「建立邀請」是面板層級動作，`outline`（§4.8）；它開出的對話框內送出鈕照舊 `brandDeep`。
+ * 站台管理 modal 的使用者區（`/admin/users`，#247）。歷程：獨立頁 → 併進設定 modal →
+ * 獨立頁 `/admin/*` → #247 起是站台管理 modal 的第一項（`AdminSections` 聚合 chunk）。
+ * 頁首的「建立邀請」是面板層級動作，`outline`；它開出的對話框內送出鈕照舊 `brandDeep`。
  *
- * 使用者表（spec 2026-10-13 settings-table §3 #5）：使用者（名稱、@handle 副標）｜Email｜儲存｜最後活動（#267 的渲染原樣沿用）｜角色｜方案｜操作（重設密碼鈕，#286）｜啟用；使用者表下方是邀請表（#285，`InvitesGroup`）；
+ * 使用者表：使用者（名稱、@handle 副標）｜Email｜儲存｜最後活動（#267 的渲染原樣沿用）｜角色｜方案｜操作（重設密碼鈕，#286）｜啟用；使用者表下方是邀請表（#285，`InvitesGroup`）；
  * 列名與開關名稱都用 email（`nameColumn`）。角色變更與啟用切換的錯誤走錯誤列，狀態以使用者 id 為鍵存在這裡。
- * - 方案下拉即存、失敗 toast（spec §9.3，`PlanSelect`）；停權者照樣可改（S13）。
+ * - 方案下拉即存、失敗 toast（`PlanSelect`）；停權者照樣可改。
  * - 標題列的建立鈕走 `SettingsPage` 的 `action` 插槽（見 `SettingsLayout.tsx`）。
  */
 export function SettingsUsersSection() {
@@ -235,7 +235,7 @@ export function SettingsUsersSection() {
           />
         ),
       },
-      // hasPassword 為假時元件回 null（R4），cell 照樣渲染
+      // hasPassword 為假時元件回 null，cell 照樣渲染
       actions: <PasswordResetAction row={row} onError={(message) => setRowError(row.id, message)} />,
       enabled: (labelledBy) => (
         <UserEnabledSwitch row={row} isSelf={isSelf} labelledBy={labelledBy} onError={(message) => setRowError(row.id, message)} />

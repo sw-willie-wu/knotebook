@@ -1,8 +1,8 @@
 /**
- * #108 D-C：`McpServer` 的三個宣告字串。
+ * #108：`McpServer` 的三個宣告字串。
  *
  * ⚠ `MCP_SERVER_VERSION` 這條**守不到 dist／`/out` 佈局**——它只證明「在 `src` 下解析得到
- * `apps/server/package.json`」。deploy 根目錄那一份是 plan 階段一次性人工驗證過的，沒有
+ * `apps/server/package.json`」。deploy 根目錄那一份是一次性人工驗證過的，沒有
  * 持續守衛（誰改了 `docker/Dockerfile` 的 deploy 形或把 `mcp/` 搬深一層，都不會有東西變紅）。
  */
 import { describe, expect, it } from "vitest";
@@ -28,7 +28,7 @@ describe("#108 MCP server-info", () => {
     expect(MCP_SERVER_VERSION).toMatch(/^\d+\.\d+\.\d+/);
   });
 
-  // #108 D-Q：兩支是**二選一**不是相加，所以兩支都要各自量、各自過禁令詞。
+  // #108：兩支是**二選一**不是相加，所以兩支都要各自量、各自過禁令詞。
   // ⚠ 餘裕還剩多少**只有 `server-info.ts` 的檔內註解一份**——這裡刻意不再抄一次數字
   //   （#146：抄的那份寫「約 20」，實際是 40，早就過期了）。撞牆時先縮字，不要調大這個上限。
   it.each([
@@ -43,15 +43,15 @@ describe("#108 MCP server-info", () => {
   it.each([
     ["讀寫", true],
     ["唯讀", false],
-  ])("instructions（%s 憑證）不含 §15.3 的禁令詞（不得暗示指紋是「讀過了嗎」的檢查）", (_label, canWrite) => {
-    // ⚠ 這個正則必須與 Task 5 掃 `apps/server/src/mcp/` 的那組 grep 同源。
+  ])("instructions（%s 憑證）不含禁令詞（不得暗示指紋是「讀過了嗎」的檢查）", (_label, canWrite) => {
+    // ⚠ 這個正則必須與掃 `apps/server/src/mcp/` 的那組 grep 同源。
     expect(mcpInstructions(canWrite as boolean)).not.toMatch(
       /without reading|has not read|cannot .*overwrite|must .*read|requires .*read|only after reading/i
     );
   });
 
   // 「二選一」本身：兩支共用同一段 BASE，尾巴不同。寫成同一個常數兩邊都回的話，只有這一案紅。
-  it("兩支 instructions 共用同一段開頭、尾巴不同（D-Q）", () => {
+  it("兩支 instructions 共用同一段開頭、尾巴不同", () => {
     const rw = mcpInstructions(true);
     const ro = mcpInstructions(false);
     expect(rw).not.toBe(ro);
@@ -70,7 +70,7 @@ describe("#108 MCP server-info", () => {
     expect(text).toContain("Notes you can see include ones shared with you and your groups' notes:");
     expect(text).toContain("result carries `owner` and `role` so you can tell whose content you are reading.");
     expect(text).not.toContain("ones other people shared with you");
-    // #175 §9.1：欄位改名成 `owner`——舊名留在 instructions 裡就是叫模型去讀一把不存在的鍵。
+    // #175：欄位改名成 `owner`——舊名留在 instructions 裡就是叫模型去讀一把不存在的鍵。
     expect(text).not.toContain("ownerHandle");
   });
 
@@ -95,7 +95,7 @@ describe("#108 MCP server-info", () => {
   });
 });
 
-describe("#180 U5：讀寫版 instructions 改為 six ops", () => {
+describe("#180：讀寫版 instructions 改為 six ops", () => {
   // #381：rename 也要 `if_match` 了——句子改成「all but append need」，舊句「append and rename」釘不在。
   it("含「six ops; all but append need `if_match`」、不含「five ops」與「all but append and rename」；唯讀版不動", () => {
     const rw = mcpInstructions(true);
@@ -106,7 +106,7 @@ describe("#180 U5：讀寫版 instructions 改為 six ops", () => {
   });
 });
 
-// #181 N1：垃圾桶句進兩版共用的 BASE（list_trash 唯讀憑證也有）；換預算縮掉的兩處舊字一起釘「不在」。
+// #181：垃圾桶句進兩版共用的 BASE（list_trash 唯讀憑證也有）；換預算縮掉的兩處舊字一起釘「不在」。
 // 不依 notes:delete 分版——兩支工具可能不存在，所以兩版都不得提它們的名字。
 describe("#181：instructions 的垃圾桶句", () => {
   it.each([
@@ -122,9 +122,9 @@ describe("#181：instructions 的垃圾桶句", () => {
   });
 });
 
-// 資料夾 PR-3d（plan Q2）：資料夾句進兩版共用的 BASE（list_folders 任何憑證都註冊）；換預算刪掉的 outline 上限句一起釘「不在」
+// 資料夾：資料夾句進兩版共用的 BASE（list_folders 任何憑證都註冊）；換預算刪掉的 outline 上限句一起釘「不在」
 // （上限仍在 read_note_outline 的 description）。資料夾寫入工具可能不存在（唯讀、沒 notes:delete），所以兩版都不得提它們的名字。
-describe("bulk transfer PR-3 T4：instructions 第一句只講工具", () => {
+describe("bulk transfer：instructions 第一句只講工具", () => {
   it.each([
     ["讀寫", true],
     ["唯讀", false],
@@ -135,7 +135,7 @@ describe("bulk transfer PR-3 T4：instructions 第一句只講工具", () => {
   });
 });
 
-describe("資料夾 PR-3d：instructions 的資料夾句", () => {
+describe("資料夾：instructions 的資料夾句", () => {
   it.each([
     ["讀寫", true],
     ["唯讀", false],

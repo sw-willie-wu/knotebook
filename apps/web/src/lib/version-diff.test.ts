@@ -13,7 +13,7 @@ const img = (id: string, url: string): DiffBlock => ({ id, type: "image", props:
 /** 只取一層的 (key, mark) 對，方便讀。 */
 const marksOf = (a: DiffBlock[], b: DiffBlock[]) => diffBlocks(a, b).map((e) => [e.key, markOf(e)]);
 
-describe("diffBlocks（spec §8.4）", () => {
+describe("diffBlocks", () => {
   it("新增：只在 b 的區塊 → added，順序依 b", () => {
     expect(marksOf([p("A", "a")], [p("A", "a"), p("B", "b")])).toEqual([
       ["A", "context"],
@@ -54,7 +54,7 @@ describe("diffBlocks（spec §8.4）", () => {
     expect(first.moved).toBe(true);
   });
 
-  it("父刪子升：跨層搬移顯示為刪除＋新增（§13-7）；P 前面沒有存活區塊 → 刪除放開頭（§8.4-2）；渲染 id 全部唯一", () => {
+  it("父刪子升：跨層搬移顯示為刪除＋新增；P 前面沒有存活區塊 → 刪除放開頭；渲染 id 全部唯一", () => {
     const a = [p("P", "父", [p("C", "子")])];
     const b = [p("C", "子")];
     const entries = diffBlocks(a, b);
@@ -96,7 +96,7 @@ describe("diffBlocks（spec §8.4）", () => {
     ];
     const { blocks } = renderDiff(diffBlocks(a, b));
     const content = blocks[0].content as Array<Record<string, unknown>>;
-    // #269 §13.2：變動區塊內的 wikilink 以文字（label || 標題 || snapshotTitle || href）呈現，重組成 link 外觀。
+    // #269：變動區塊內的 wikilink 以文字（label || 標題 || snapshotTitle || href）呈現，重組成 link 外觀。
     expect(content[0]).toEqual({ type: "link", href: "/notes/n2", content: [{ type: "text", text: "T", styles: {} }] });
     expect(content).toContainEqual({ type: "link", href: "https://x.test", content: [{ type: "text", text: "這", styles: { backgroundColor: "green" } }] });
   });
@@ -128,7 +128,7 @@ describe("diffBlocks（spec §8.4）", () => {
     expect(Object.fromEntries(right)).toEqual({ M: "moved", A: "changed", N: "added" });
   });
 
-  it("RF1：缺 id 與同一層重複的 id 不 throw；同一層重複出現的 id **全部**不配對（含第一次出現的那顆），渲染 id 全唯一", () => {
+  it("缺 id 與同一層重複的 id 不 throw；同一層重複出現的 id **全部**不配對（含第一次出現的那顆），渲染 id 全唯一", () => {
     const noId: DiffBlock = { type: "paragraph", props: {}, content: [], children: [] };
     const a = [p("A", "a"), p("A", "a 重複"), noId];
     const b = [p("A", "a"), p("A", "又重複"), { ...noId }];
@@ -141,7 +141,7 @@ describe("diffBlocks（spec §8.4）", () => {
     expect(entries.filter((e) => markOf(e) === "deleted")).toHaveLength(3);
   });
 
-  it("RF1 對照：同一個 id 只在一側重複時，另一側那顆也不配對（重複判定是逐側、逐層）", () => {
+  it("對照：同一個 id 只在一側重複時，另一側那顆也不配對（重複判定是逐側、逐層）", () => {
     const entries = diffBlocks([p("A", "a")], [p("A", "a"), p("A", "a2")]);
     expect(entries.map(markOf).sort()).toEqual(["added", "added", "deleted"]);
   });
@@ -164,7 +164,7 @@ const gibberish = (seed: number, len = 40): string => {
 const words = (seed: number, n = 8): string => (gibberish(seed, 5 * n).match(/.{5}/g) ?? []).join(" ");
 const h =(id: string, text: string): DiffBlock => ({ id, type: "heading", props: { level: 1 }, content: [{ type: "text", text, styles: {} }], children: [] });
 
-describe("diffBlocks 配對的內容後備（spec rev 11 §8.4 規則 1a／1b／1c）", () => {
+describe("diffBlocks 配對的內容後備（規則 1a／1b／1c）", () => {
   it("1a 讓位＋1b：在區塊開頭按 Enter（舊 id 留在新的空白區塊、原文字換新 id）→ 只有新區塊是 added，原文字 context、沒有 deleted", () => {
     const entries = diffBlocks([p("id1", "first"), p("id2", "hello")], [p("id1", "first"), p("id2", "new"), p("id3", "hello")]);
     expect(entries.map((e) => [e.key, markOf(e)])).toEqual([
@@ -220,7 +220,7 @@ describe("diffBlocks 配對的內容後備（spec rev 11 §8.4 規則 1a／1b／
   });
 
   // 以下兩段取自 docs/known-limitations.md：同主題、措辭相近但講的是兩件事。字元 bigram Dice 0.603（舊定義會誤配），
-  // token bigram Dice 0.415——是該檔 229 段兩兩配對中最高的一對（review I-1／M-3：守門檻與 token 化）。
+  // token bigram Dice 0.415——是該檔 229 段兩兩配對中最高的一對（守門檻與 token 化）。
   const SIGNIN_SERVICE =
     "Turning a sign-in service off doesn't sign anyone out. People who signed in through it keep their session until it expires, and their API tokens and connected apps keep working (a token created without an expiry keeps working until it's revoked). Deleting the service doesn't change that either. To cut someone off right away, disable their account in Site admin → Users — that stops their sessions and tokens too.";
   const SIGNIN_PASSWORD =
@@ -285,7 +285,7 @@ describe("diffBlocks 配對的內容後備（spec rev 11 §8.4 規則 1a／1b／
     expect(entries.map((e) => [e.key, markOf(e), e.before?.id])).toEqual([["id1", "changed", "id1"]]);
   });
 
-  it("RF1 不變：b 側兩顆同 id 同文字、缺 id 的同文字區塊 → 文字相同也不配對", () => {
+  it("不變：b 側兩顆同 id 同文字、缺 id 的同文字區塊 → 文字相同也不配對", () => {
     const dup = diffBlocks([p("id1", "same text")], [p("id9", "same text"), p("id9", "same text")]);
     expect(dup.map(markOf).sort()).toEqual(["added", "added", "deleted"]);
     const noId: DiffBlock = { type: "paragraph", props: { textAlignment: "left" }, content: [{ type: "text", text: "same text", styles: {} }], children: [] };
@@ -296,7 +296,7 @@ describe("diffBlocks 配對的內容後備（spec rev 11 §8.4 規則 1a／1b／
   });
 
   it("型別守衛：paragraph 與 heading 文字相同 → 1b（shallow 含 type）與 1c（type 須相同）都不配 → 刪除＋新增", () => {
-    // 文字 ≥ 4 個 token，1c 真的會比到（不看 type 的話 Dice＝1 就配了；fix2 review M-B2）。
+    // 文字 ≥ 4 個 token，1c 真的會比到（不看 type 的話 Dice＝1 就配了）。
     const text = "The quick brown fox jumps over the lazy dog";
     expect(marksOf([p("id1", text)], [h("id2", text)])).toEqual([
       ["diff-del-1", "deleted"],
@@ -313,7 +313,7 @@ describe("diffBlocks 配對的內容後備（spec rev 11 §8.4 規則 1a／1b／
   });
 
   it("1a 讓位連鎖：後面那對讓位後釋出的內容才讓前面那對讓位（要重跑到不再有新的讓位）", () => {
-    // 第一輪：id2（w→x）的舊內容 w 在 b 池（id3）→ 讓位，b 池多了 x；第二輪：id1（x→y）的舊內容 x 這時才在 b 池 → 讓位。
+    // id2（w→x）的舊內容 w 在 b 池（id3）→ 讓位，b 池多了 x；第二輪：id1（x→y）的舊內容 x 這時才在 b 池 → 讓位。
     const entries = diffBlocks([p("id1", "x"), p("id2", "w")], [p("id1", "y"), p("id2", "x"), p("id3", "w")]);
     expect(entries.map((e) => [e.key, markOf(e), e.before?.id])).toEqual([
       ["id1", "added", undefined],
@@ -322,7 +322,7 @@ describe("diffBlocks 配對的內容後備（spec rev 11 §8.4 規則 1a／1b／
     ]);
   });
 
-  it("1a 讓位比個數：同層有重複內容、己側還有別顆能接走時不讓位 → 不交叉配對、沒有假 moved（review M-1）", () => {
+  it("1a 讓位比個數：同層有重複內容、己側還有別顆能接走時不讓位 → 不交叉配對、沒有假 moved", () => {
     const entries = diffBlocks([p("id1", "hello world"), p("id5", "hello world")], [p("id1", "hello world!"), p("id6", "hello world")]);
     expect(entries.map((e) => [e.key, e.status, e.moved, e.before?.id])).toEqual([
       ["id1", "changed", false, "id1"],
@@ -330,7 +330,7 @@ describe("diffBlocks 配對的內容後備（spec rev 11 §8.4 規則 1a／1b／
     ]);
   });
 
-  it("空的文字型區塊照常配對但不標 moved：刪一顆空行＋別處新增空行 → 兩顆空行配成 unchanged、moved=false（review M-2／修正輪 2）", () => {
+  it("空的文字型區塊照常配對但不標 moved：刪一顆空行＋別處新增空行 → 兩顆空行配成 unchanged、moved=false", () => {
     const entries = diffBlocks([p("id1", ""), p("id2", "alpha"), p("id3", "beta")], [p("id2", "alpha"), p("id3", "beta"), p("id9", "")]);
     expect(entries.map((e) => [e.key, e.status, e.moved, e.before?.id])).toEqual([
       ["id2", "unchanged", false, "id2"],
@@ -339,7 +339,7 @@ describe("diffBlocks 配對的內容後備（spec rev 11 §8.4 規則 1a／1b／
     ]);
   });
 
-  it("在文末空段落打字（BlockNote 補一顆新的空段落）→ 新字 added、空段落 unchanged 且不 moved、沒有 deleted（修正輪 2）", () => {
+  it("在文末空段落打字（BlockNote 補一顆新的空段落）→ 新字 added、空段落 unchanged 且不 moved、沒有 deleted", () => {
     const entries = diffBlocks([p("id1", "hello"), p("id2", "")], [p("id1", "hello"), p("id2", "new text"), p("id3", "")]);
     expect(entries.map((e) => [e.key, e.status, e.moved, e.before?.id])).toEqual([
       ["id1", "unchanged", false, "id1"],
@@ -348,7 +348,7 @@ describe("diffBlocks 配對的內容後備（spec rev 11 §8.4 規則 1a／1b／
     ]);
   });
 
-  it("空行對子先排除再算 LIS：空行移到前面不會把唯一的非空對子擠出 LIS 標成 moved（fix2 review M-B1）", () => {
+  it("空行對子先排除再算 LIS：空行移到前面不會把唯一的非空對子擠出 LIS 標成 moved", () => {
     // 若空行也進 LIS（a 索引序列 [1, 2, 0]），LIS 是兩顆空行、x 會被標 moved；先排除則 x 單獨成 LIS。
     const entries = diffBlocks([p("x", "keep me"), p("e", ""), p("f", "")], [p("e2", ""), p("f2", ""), p("x", "keep me")]);
     expect(entries.map((e) => [e.key, e.status, e.moved, e.before?.id])).toEqual([
@@ -358,7 +358,7 @@ describe("diffBlocks 配對的內容後備（spec rev 11 §8.4 規則 1a／1b／
     ]);
   });
 
-  it("刪除錨點跳過靠內容配起來的空行：刪掉「空行＋下一段」、別處新增空行 → 被刪段落仍在原處（Title 之後），不跑到文末（fix2 review I-A）", () => {
+  it("刪除錨點跳過靠內容配起來的空行：刪掉「空行＋下一段」、別處新增空行 → 被刪段落仍在原處（Title 之後），不跑到文末", () => {
     const a = [p("h", "Title"), p("e1", ""), p("d", "This paragraph gets deleted"), p("k1", "keep one"), p("k2", "keep two"), p("t", "")];
     const b = [p("h", "Title"), p("k1", "keep one"), p("k2", "keep two"), p("n", ""), p("t", "")];
     expect(diffBlocks(a, b).map((e) => [e.key, e.status, e.before?.id])).toEqual([
@@ -407,7 +407,7 @@ describe("diffBlocks 配對的內容後備（spec rev 11 §8.4 規則 1a／1b／
   });
 });
 
-describe("splitRows（spec rev 12 §8.4 並排逐區塊對齊）", () => {
+describe("splitRows（並排逐區塊對齊）", () => {
   const rowsOf = (a: DiffBlock[], b: DiffBlock[]) => splitRows(a, b, diffBlocks(a, b));
   const textOfP = (blk: DiffBlock) => (blk.content as Array<{ text: string }>)[0].text;
   /** 不變量：left／right 各自（忽略 null）嚴格遞增，且 a、b 每個索引各恰出現一次。 */
@@ -491,7 +491,7 @@ describe("splitRows（spec rev 12 §8.4 並排逐區塊對齊）", () => {
     checkInvariants(a, b, rows);
   });
 
-  it("review I-1：第一段開頭按 Enter＋文末空段打字 → 遠處配到的空行對子不搶錨列，alpha／beta／gamma 各自左右同列", () => {
+  it("第一段開頭按 Enter＋文末空段打字 → 遠處配到的空行對子不搶錨列，alpha／beta／gamma 各自左右同列", () => {
     // a＝存版時：三段＋文末空段 T；b＝現在：第一段開頭按 Enter（舊 id 1 留在空段、alpha 換新 id X）、在 T 打字、又多一個空段 M。
     const a = [p("1", "alpha"), p("2", "beta"), p("3", "gamma"), p("T", "")];
     const b = [p("1", ""), p("X", "alpha"), p("2", "beta"), p("3", "gamma"), p("T", "tail"), p("M", "")];
@@ -570,7 +570,7 @@ describe("splitRows（spec rev 12 §8.4 並排逐區塊對齊）", () => {
   });
 });
 
-describe("#269 W9 wikilink 的 diff（§13.2）", () => {
+describe("#269 wikilink 的 diff", () => {
   const ID1 = "11111111-1111-4111-8111-111111111111";
   const ID2 = "22222222-2222-4222-8222-222222222222";
   const wl = (props: Record<string, string>) => ({ type: "wikilink", props: { targetNoteId: ID1, snapshotTitle: "", label: "", anchorBlockId: "", ...props } });
@@ -666,12 +666,12 @@ describe("#269 W9 wikilink 的 diff（§13.2）", () => {
   });
 });
 
-describe("並排的 diff（columns-layout spec §11.9）：列配列、欄依 id 配欄、欄層不收合", () => {
-  // fixture 形同探針 vd-plan.mts；期望值是探針 VD=fixed 的輸出。
+describe("並排的 diff：列配列、欄依 id 配欄、欄層不收合", () => {
+  // 期望值是 fixture 實際跑出的輸出。
   const P = (text: string, id: string): DiffBlock => ({ id, type: "paragraph", props: {}, content: [{ type: "text", text, styles: {} }], children: [] });
   const col = (id: string, kids: DiffBlock[], width = 1): DiffBlock => ({ id, type: "column", props: { width }, children: kids });
   const row = (id: string, cols: DiffBlock[]): DiffBlock => ({ id, type: "columnList", props: {}, children: cols });
-  /** 探針的 show：每個 entry 一行 `key status[/moved] type`，子層縮兩格。 */
+  /** 輸出的 show：每個 entry 一行 `key status[/moved] type`，子層縮兩格。 */
   const show = (es: DiffEntry[], d = 0): string[] =>
     es.flatMap((e) => [`${"  ".repeat(d)}${e.key} ${e.status}${e.moved ? "/moved" : ""} ${(e.after ?? e.before)!.type}`, ...show(e.children, d + 1)]);
   const base = () => [P("x", "x0"), row("r", [col("c0", [P("a", "a1")]), col("c1", [P("b", "b1")])]), P("z", "z9")];

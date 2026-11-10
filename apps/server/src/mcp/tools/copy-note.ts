@@ -1,7 +1,7 @@
 /**
- * #180 spec §6：`copy_note(note_id, group_id?)`。行為照 REST `POST /api/notes/:id/copy`（共用 `notes/copy-note.ts`）。
- * 在 `register.ts` 的 collab 閘門**外**（REST 複製無條件註冊；`loadNoteDoc` 無 collab 時讀 `note_states`，F35），以 `.strict()` 註冊。
- * 三本節流帳（§6.4）：`tokenWrite`（token 才有，`requireWriteScope`；帶 `group_id` 時改 `requireMoveScope`，#239）→ `edit`（共用函式內）→ `upload`（依附件數，共用函式內）。
+ * #180：`copy_note(note_id, group_id?)`。行為照 REST `POST /api/notes/:id/copy`（共用 `notes/copy-note.ts`）。
+ * 在 `register.ts` 的 collab 閘門**外**（REST 複製無條件註冊；`loadNoteDoc` 無 collab 時讀 `note_states`），以 `.strict()` 註冊。
+ * 三本節流帳：`tokenWrite`（token 才有，`requireWriteScope`；帶 `group_id` 時改 `requireMoveScope`，#239）→ `edit`（共用函式內）→ `upload`（依附件數，共用函式內）。
  * 配額可見性：`canViewSpaceUsage`；`isAdmin` 照 `create-transfer-token.ts` 的作法只在被拒這一刻讀一次（ctx 沒有它）。
  */
 import { eq } from "drizzle-orm";
@@ -38,11 +38,11 @@ export const COPY_GROUP_ID_DESCRIBE =
   "The id of one of your groups where your role lets you create notes; the copy then belongs to the group. Leave it out to copy " +
   "into your personal notes. A group's id is the `id` in the `owner` of its notes in list_notes or search_notes.";
 
-/** CP-F（資料夾 PR-3d，逐字照 plan「待確認字串」）：讀寫搬移與 session 的版本。 */
+/** CP-F：讀寫搬移與 session 的版本。 */
 export const COPY_FOLDER_ID_DESCRIBE =
   "The id of a folder to put the copy in, from list_folders; leave it out for the top level. One of your personal folders for a copy " +
   "of your own (leave out `group_id`), or one of the folders of the group you pass as `group_id`, where your role must also be able to edit notes.";
-/** CP-F0：讀寫無搬移憑證的版本（spec M11 末句：不提群組資料夾）。 */
+/** CP-F0：讀寫無搬移憑證的版本（不提群組資料夾）。 */
 export const COPY_FOLDER_ID_DESCRIBE_NO_MOVE =
   "The id of one of your personal folders to put the copy in, from list_folders; leave it out for the top level of your personal notes.";
 
@@ -53,7 +53,7 @@ export const copyNoteInput = {
 };
 
 /**
- * #239 spec §7.5(b)，474 字元：讀寫無搬移憑證（`!canMoveNotes`）的版本，`register.ts` 依 `canMove` 二選一。
+ * #239，474 字元：讀寫無搬移憑證（`!canMoveNotes`）的版本，`register.ts` 依 `canMove` 二選一。
  * 與 COPY_NOTE_DESCRIPTION 只差首句與句尾 role 那句。不寫「this credential doesn't have it」：使用者事後升權、
  * client 未重開時快取的仍是這一版，那句會變假；本句任何時候都真。
  */
@@ -63,12 +63,12 @@ export const COPY_NOTE_DESCRIPTION_NO_MOVE =
   "separately. Per-person shares, the public link and the edit history are not copied, and making the copy isn't recorded in any " +
   "note's history. The reply is the new note in the shape list_notes returns.";
 
-/** spec §7.5(c)，199 字元。不寫「this credential doesn't have it」：升權未重開時快取的仍是這版（理由同上）。 */
+/** 199 字元。不寫「this credential doesn't have it」：升權未重開時快取的仍是這版（理由同上）。 */
 export const COPY_GROUP_ID_DESCRIBE_NO_MOVE =
   "Copying into a group needs a credential with the notes:move scope. Leave this out to copy into your personal notes. " +
   "A group's id is the `id` in the `owner` of its notes in list_notes or search_notes.";
 
-/** #239：讀寫無搬移憑證的 input 形——只換 `group_id`（與資料夾 PR-3d 的 `folder_id`）的說明，型別與 `copyNoteInput` 相同。 */
+/** #239：讀寫無搬移憑證的 input 形——只換 `group_id`（與資料夾的 `folder_id`）的說明，型別與 `copyNoteInput` 相同。 */
 export const copyNoteInputNoMove = {
   ...copyNoteInput,
   group_id: GROUP_ID.optional().describe(COPY_GROUP_ID_DESCRIBE_NO_MOVE),
@@ -76,7 +76,7 @@ export const copyNoteInputNoMove = {
 };
 
 /**
- * spec §7.5(d)，#247 §12 改寫後 319 字元（原 331）。HTTP 上可達（讀寫憑證的清單上有 copy_note，帶 group_id 呼叫）；守衛＝`test/mcp-copy.test.ts` 的 #239 M3。
+ * #247 改寫後 319 字元（原 331）。HTTP 上可達（讀寫憑證的清單上有 copy_note，帶 group_id 呼叫）；守衛＝`test/mcp-copy.test.ts` 的 #239 M3。
  * 處置＝在「設定 → 授權」的 token 列上以鉛筆開啟搬移權。結尾是「then try again」不是「reconnect」：copy_note 已在清單上、
  * scope 每請求重讀（`requireMoveScope`），開啟後下一發帶 group_id 就會過，不必重連。
  */
@@ -86,12 +86,12 @@ export const COPY_NEEDS_MOVE_MESSAGE =
   "credential via the pencil on its row in Settings → Authorization, then try again.";
 export const copyNoteOutput = { note: noteSummarySchema.describe("The new copy, in the same shape list_notes returns.") };
 
-/** spec §6.6（`too_many_requests`）：數字由 `UPLOAD_LIMIT` 內插，不手抄（U7 守）。 */
+/** `too_many_requests`：數字由 `UPLOAD_LIMIT` 內插，不手抄。 */
 export const COPY_UPLOAD_LIMIT_MESSAGE =
   `Copying this note's images would go over your upload limit (${UPLOAD_LIMIT.limit} files per ${UPLOAD_LIMIT.windowMs / 60_000} minutes, ` +
   "copies included), so nothing was copied. Wait a few minutes and try again.";
 export const COPY_BUSY_MESSAGE = "The server was busy, so no copy was made. Try again in a moment.";
-/** 不可見形只會是群組（個人空間對本人恆可見，F37）。 */
+/** 不可見形只會是群組（個人空間對本人恆可見）。 */
 export const COPY_QUOTA_HIDDEN_MESSAGE =
   "The group's storage space has no room for this note's images, so the note was not copied. Ask a site admin for more space.";
 
@@ -123,10 +123,10 @@ export interface CopyNoteArgs {
 }
 
 export async function copyNoteTool(args: CopyNoteArgs, ctx: McpToolCtx): Promise<CallToolResult> {
-  // 資料夾 PR-3d（spec M11，plan 讀碼發現 7）：帶 folder_id 時，交易外先判資料夾可見性與空間一致性（純讀、不扣任何桶），
+  // 資料夾：帶 folder_id 時，交易外先判資料夾可見性與空間一致性（純讀、不扣任何桶），
   // 排在下面的 scope 檢查**之前**，也在查筆記（copyNote 的 resolveNoteAccess）**之前**——看不到的群組資料夾對讀寫無搬移憑證回
-  // not_found＋FM1，不是 insufficient_scope；看不到的筆記＋看不到的資料夾回的是資料夾句。所以帶 folder_id 時的錯誤優先序與 REST
-  // `POST /api/notes/:id/copy` 不同（REST 先判筆記、再判資料夾，且沒有 scope 檢查）。copyNote 內部照 PR-3a 順序重判一次。
+  // not_found，不是 insufficient_scope；看不到的筆記＋看不到的資料夾回的是資料夾句。所以帶 folder_id 時的錯誤優先序與 REST
+  // `POST /api/notes/:id/copy` 不同（REST 先判筆記、再判資料夾，且沒有 scope 檢查）。copyNote 內部照 REST 的順序重判一次。
   if (args.folder_id !== undefined) {
     const folder = await resolveFolderAccess(ctx.db, ctx.userId, args.folder_id);
     if (folder === null) return toolError("not_found", FOLDER_NOT_FOUND_MESSAGE);
@@ -166,7 +166,7 @@ export async function copyNoteTool(args: CopyNoteArgs, ctx: McpToolCtx): Promise
       if (err instanceof StorageQuotaExceeded) return quotaError(ctx, err.space, err.usedBytes, err.quotaBytes, err.incomingBytes);
       if (err.errCode === "not_found") return toolError("not_found", NOTE_NOT_FOUND_MESSAGE);
       if (err.errCode === "group_not_found") return toolError("group_not_found", GROUP_NO_CREATE_MESSAGE);
-      // 資料夾 PR-3a 起 copyNote 另以 aborted 回三碼（交易外預判與 `notes/tx/copy.ts` 的重判；plan 讀碼發現 10）。
+      // 資料夾功能加入後 copyNote 另以 aborted 回三碼（交易外預判與 `notes/tx/copy.ts` 的重判）。
       if (err.errCode === "folder_not_found") return toolError("not_found", FOLDER_NOT_FOUND_MESSAGE);
       if (err.errCode === "folder_cross_space") return toolError("invalid_body", NEW_NOTE_FOLDER_CROSS_SPACE_MESSAGE);
       if (err.errCode === "forbidden") return toolError("forbidden", FOLDER_NEEDS_EDIT_MESSAGE);

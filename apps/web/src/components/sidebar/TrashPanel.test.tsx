@@ -20,7 +20,7 @@ vi.mock("@/lib/trash-display", async (importOriginal) => {
   return { ...actual, trashDetailLine: vi.fn(actual.trashDetailLine) };
 });
 
-// 垃圾桶 tab 的面板（平常）、確認框（plan T4）；選取模式（plan T5 SM*，動作列在 SidebarFooter.test.tsx）。
+// 垃圾桶 tab 的面板（平常）、確認框；選取模式（SM*，動作列在 SidebarFooter.test.tsx）。
 
 afterEach(() => {
   localStorage.clear();
@@ -264,7 +264,7 @@ describe("TrashPanel（平常）", () => {
     fireEvent.click(screen.getByTestId("toggle-p1"));
     expect(screen.getByTestId("selected-count")).toHaveTextContent("1");
 
-    // T5 起選取模式的標題列換成「已選」：「選取」鈕已卸載，再按也送不出 start。
+    // 選取模式的標題列換成「已選」：「選取」鈕已卸載，再按也送不出 start。
     expect(select.isConnected).toBe(false);
     expect(within(header()).queryByRole("button", { name: "Select" })).toBeNull();
     fireEvent.click(select);
@@ -317,7 +317,7 @@ describe("TrashPanel（平常）", () => {
     }
   });
 
-  // 資料夾 PR-3b-2 T7（spec §6.9「太長：title 給完整路徑」）：第二行元素帶位置段的 title；根層（位置段空）不帶。
+  // 資料夾：第二行元素帶位置段的 title；根層（位置段空）不帶。
   it("TP-F1 個人 [A, B]：第二行文字照舊、該元素 title「A › B」", async () => {
     stubServer({ items: [PF, P1] });
     renderPanel();
@@ -689,7 +689,7 @@ describe("TrashPanel（平常）", () => {
     }
   });
 
-  it("TC4 zh-TW：個人區的區標與清單名稱是「我的筆記」（與側欄 tab 同名）", async () => {
+  it("zh-TW：個人區的區標與清單名稱是「我的筆記」（與側欄 tab 同名）", async () => {
     await i18n.changeLanguage("zh-TW");
     try {
       stubServer({ items: [P1, W1] });
@@ -702,7 +702,7 @@ describe("TrashPanel（平常）", () => {
     }
   });
 
-  // final review N-4：列的還原送出中，確認框的「永久刪除」若可按會被 `exclusive` 靜默吞掉——改成 disabled。
+  // 列的還原送出中，確認框的「永久刪除」若可按會被 `exclusive` 靜默吞掉——改成 disabled。
   it("TP13 列的還原送出中：單篇永久刪除框的確認鈕 disabled、按了不送；還原回來後可按、送一次", async () => {
     let release!: () => void;
     const hold = new Promise<void>((resolve) => {
@@ -872,7 +872,7 @@ describe("TrashPanel（選取模式）", () => {
   it("SM6 Esc：回平常標題列、勾選框消失、焦點在 Select", async () => {
     await renderSelecting();
     fireEvent.click(checkbox("p1"));
-    // M2：這一下 Esc 只結束選取——preventDefault（fireEvent 回 false），搜尋標記的 Esc 監聽看到 defaultPrevented 就讓路
+    // 這一下 Esc 只結束選取——preventDefault（fireEvent 回 false），搜尋標記的 Esc 監聽看到 defaultPrevented 就讓路
     expect(fireEvent.keyDown(checkbox("p1"), { key: "Escape" })).toBe(false);
     const select = within(header()).getByRole("button", { name: "Select" });
     expect(select).toHaveFocus();
@@ -933,7 +933,7 @@ describe("TrashPanel（選取模式）", () => {
     expect(within(header()).getByRole("button", { name: "Select all" })).toBeDisabled();
   });
 
-  // final review M-1：1000 篇時每勾一列都重繪全部列＋重算日期。只有勾選狀態變了的列重算第二行。
+  // 1000 篇時每勾一列都重繪全部列＋重算日期。只有勾選狀態變了的列重算第二行。
   it("SM16 勾一列只重算那一列；Shift 範圍只重算新勾的列", async () => {
     await renderSelecting();
     const detailCalls = vi.mocked(trashDetailLine);

@@ -1,6 +1,6 @@
 /**
- * 刪群組・轉移的配額（spec 2026-10-08 §6.6、§8.1；§11.1 S8、S3（轉移形）、S5（轉移形）、S14（刪群組））；
- * 另有 Q-S7 的縫順序／advisory 鎖探測，與轉移路由的 `storageLockTimeoutMs` 透傳（比照上傳的 S15(a)）。
+ * 刪群組・轉移的配額（S3（轉移形）、S5（轉移形）、S14（刪群組））；
+ * 另有 Q-S7 的縫順序／advisory 鎖探測，與轉移路由的 `storageLockTimeoutMs` 透傳（比照上傳）。
  */
 import { describe, expect, it, vi } from "vitest";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
@@ -21,7 +21,7 @@ const deleteAll = async (app: FastifyInstance, groupId: string, userId: string) 
   app.inject({ method: "DELETE", url: `/api/groups/${groupId}`, cookies: await cookieOf(userId), payload: { mode: "delete" } });
 const groupExists = async (pool: import("pg").Pool, id: string) => (await pool.query("select count(*)::int n from groups where id = $1", [id])).rows[0].n === 1;
 
-describe("轉移（S8、S3、S5）", () => {
+describe("轉移（S3、S5）", () => {
   it("接收者放不下 → 409，什麼都不發生（群組、筆記歸屬、轉址都原封）", async () => {
     const { app, db, uploadsDir } = await buildTestApp();
     const b = await seedUser(db);

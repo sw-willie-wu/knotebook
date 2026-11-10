@@ -126,8 +126,8 @@ describe("TitleInput", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("存檔成功後把回應寫回 ['note', note.id] 快取，且**不自己動網址**（A3：收斂交 NotePage effect）", async () => {
-    // 「存檔後網址更新」的行為覆蓋**移轉**至 NotePage 的收斂 effect 測試（M16：
+  it("存檔成功後把回應寫回 ['note', note.id] 快取，且**不自己動網址**（收斂交 NotePage effect）", async () => {
+    // 「存檔後網址更新」的行為覆蓋**移轉**至 NotePage 的收斂 effect 測試（
     // NotePage.test 的「以舊形 uuid ref 開頁…replace 成新形 canonical」＋閘門案承接；#179 起收斂走
     // router navigate）。本檔沒掛 router：元件若改用 useNavigate 會直接 throw，這裡只守 window.history。
     vi.stubGlobal(
@@ -240,9 +240,9 @@ describe("TitleInput", () => {
     fireEvent.change(input, { target: { value: "Saved and more" } });
     settle(patchOk("Saved", "saved"));
 
-    // 完成訊號＝**快取回寫已發生**（A3 後本元件不動網址；快取寫入在回應處理的最後
+    // 完成訊號＝**快取回寫已發生**（本元件不動網址；快取寫入在回應處理的最後
     // 一步，等到它＝整條成功路徑跑完），再斷輸入框沒被回音蓋掉——同步斷言會落在
-    // settle 的 microtask 鏈之前，變成恆真空轉（讀碼審 M3 抓到的形）。
+    // settle 的 microtask 鏈之前，變成恆真空轉（讀碼審抓到的形）。
     await waitFor(() => expect(queryClient.getQueryData<NoteDto>(["note", NOTE.id])?.title).toBe("Saved"));
     expect(input).toHaveValue("Saved and more");
   });

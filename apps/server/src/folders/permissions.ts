@@ -1,5 +1,5 @@
 /**
- * 資料夾權限（spec docs/superpowers/specs/2026-10-22-folders-design.md §5.5、§5.6；D13）。純函式。
+ * 資料夾權限。純函式。
  */
 import type { FolderPermissionsDto } from "@knotebook/shared";
 import type { FolderSpace } from "./space.js";

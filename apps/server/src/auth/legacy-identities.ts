@@ -3,9 +3,9 @@ import type pino from "pino";
 import type { Db } from "../db/index.js";
 
 /**
- * #187 §10.3：舊欄冪等補登。回滾到 v0.5 或滾動部署時舊碼會寫 `users.oidc_*`（含 verified-email 自動合併與建帳）；0014 不會重跑，
- * 所以每次開機收斂一次。不鎖 users（C16）；事後回查「舊欄指向的身分屬別人」→ warn、不改資料（也可能產生違反 B2 的列，r2-N4）。
- * PR3 的解除連結會同交易清掉吻合的舊欄，所以補登不會讓已解除的身分復活（§8.2）。
+ * #187：舊欄冪等補登。回滾到 v0.5 或滾動部署時舊碼會寫 `users.oidc_*`（含 verified-email 自動合併與建帳）；0014 不會重跑，
+ * 所以每次開機收斂一次。不鎖 users；事後回查「舊欄指向的身分屬別人」→ warn、不改資料（也可能產生同一帳號在同一 issuer 下有兩個 sub 的列）。
+ * 解除連結會同交易清掉吻合的舊欄，所以補登不會讓已解除的身分復活。
  */
 export async function backfillLegacyOidcIdentities(db: Db, logger: pino.Logger): Promise<{ inserted: number; conflicts: number }> {
   const inserted = await db.execute(sql`

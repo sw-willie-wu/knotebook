@@ -126,7 +126,7 @@ interface PersonButtonProps {
 function PersonButton({ person, className, suppressed, onUnsuppress, onScroll, onLongPress }: PersonButtonProps) {
   const { t } = useTranslation();
   const buttonRef = useRef<HTMLButtonElement>(null);
-  // 受控：Radix 的開關意圖照收，抑制只遮住顯示（spec §12 n6）。
+  // 受控：Radix 的開關意圖照收，抑制只遮住顯示。
   const [tipOpen, setTipOpen] = useState(false);
   const longPressRef = useRef(onLongPress);
   longPressRef.current = onLongPress;
@@ -203,8 +203,8 @@ function MoreButton({
 }
 
 /**
- * #293 §9.2／§9.3／§12：頁頭頭像列。只有我、或非 connected → 不渲染任何節點。不加 `aria-live`（AG5）。
- * 選單的 Trigger 是不包住任何頭像的隱藏兄弟節點（I-A）；選單只由 +N 與長按以受控 `open` 打開。
+ * #293：頁頭頭像列。只有我、或非 connected → 不渲染任何節點。不加 `aria-live`。
+ * 選單的 Trigger 是不包住任何頭像的隱藏兄弟節點；選單只由 +N 與長按以受控 `open` 打開。
  */
 export function PresenceAvatars({ provider, connected, myUserId, scrollerRef }: PresenceAvatarsProps) {
   const { t } = useTranslation();
@@ -234,7 +234,7 @@ export function PresenceAvatars({ provider, connected, myUserId, scrollerRef }: 
   };
   const unsuppress = () => setSuppressedKey(null);
   // `onOpenAutoFocus` 是 Radix Menu 2.1.24 的私有 prop：DropdownMenu 的型別沒公開，執行期原樣傳到 FocusScope
-  // （`react-menu dist/index.mjs:179`、`:266`）。長按聚焦到該列靠它；升 Radix 後 PA9／PA10 會先紅。
+  // （`react-menu dist/index.mjs:179`、`:266`）。長按聚焦到該列靠它；升 Radix 後對應的測試會先紅。
   const openAutoFocus: object = {
     onOpenAutoFocus: (e: Event) => {
       const opener = openerRef.current?.opener;
@@ -279,7 +279,7 @@ export function PresenceAvatars({ provider, connected, myUserId, scrollerRef }: 
               const buttons = [...(groupRef.current?.querySelectorAll<HTMLElement>("button") ?? [])];
               const target = focusable(current.el) ? current.el : buttons.find(focusable);
               if (!target) return;
-              // 長按開的（觸控）：抑制實際拿到焦點的那顆頭像的 Tooltip（n6）。
+              // 長按開的（觸控）：抑制實際拿到焦點的那顆頭像的 Tooltip。
               const key = target.dataset.personKey as PresenceKey | undefined;
               if (current.opener !== "more" && key) setSuppressedKey(key);
               target.focus({ preventScroll: true });

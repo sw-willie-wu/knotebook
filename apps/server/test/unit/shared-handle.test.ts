@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { normalizeHandle, validateHandle } from "@knotebook/shared";
 
 /**
- * #122 PR1 Task 1：handle 驗證與正規化（spec §2b）。
+ * #122：handle 驗證與正規化。
  *
- * 與 slug 的關鍵差異（spec 明文）：**ASCII-only**——handle 是身分識別，跨鍵盤可
+ * 與 slug 的關鍵差異：**ASCII-only**——handle 是身分識別，跨鍵盤可
  * 輸入性與避免 IDN 同形混淆優先於在地化；正規化只做 A-Z→a-z 的碼位映射，**不
  * transliterate、不用 normalizeSlug**（其 Unicode lowercase 會產生 combining mark）。
  */
@@ -72,7 +72,7 @@ describe("validateHandle（1–32、^[a-z0-9-]+$、dash 規則、非 uuid 形；
     expect(validateHandle("550e8400-e29b-41d4-a716-446655440000")).not.toBeNull();
   });
 
-  it("反向釘（plan m4）：handle **無保留字單**——api/new/settings/admin/login 都是合法 handle（spec 的否定性決定：handle 恆在 /n/ /p/ 第二段，零路由衝突面）", () => {
+  it("反向釘：handle **無保留字單**——api/new/settings/admin/login 都是合法 handle（刻意不設：handle 恆在 /n/ /p/ 第二段，零路由衝突面）", () => {
     for (const word of ["api", "new", "settings", "admin", "login", "notes", "p", "n", "g", "u"]) {
       expect(validateHandle(word), word).toBeNull();
     }

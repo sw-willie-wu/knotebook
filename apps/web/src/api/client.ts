@@ -7,15 +7,15 @@ import type { ErrorCode, StorageQuotaErrorDetail } from "@knotebook/shared";
  * - `message`：server 回的 `error.message`；同上退回時給通用訊息。
  * - `retryAfterMs`：僅登入 429（`too_many_attempts`）會在 body 頂層附這個欄位；
  *   有值才賦值，其餘情況維持 `undefined`。刻意不放進 constructor 參數列——
- *   這個型別是 Task 11+ 逐字依賴的介面，constructor 簽章不可變動。
+ *   很多呼叫端依賴這個 constructor 簽章，不可變動。
  * - `storage`：僅 409 `storage_quota_exceeded` 會在 body 頂層附這個欄位（`incomingBytes` 恆在，`usedBytes`／`quotaBytes` 依可見性）；逐欄驗型別，不合就整個不收。
  * - `noteId`：僅 404 `in_trash` 會在 body 頂層附這個欄位（#181）。
  */
 export class ApiFail extends Error {
   public retryAfterMs?: number;
-  /** 409 `storage_quota_exceeded` 的頂層 `storage`（spec §8.1）；形狀不合（或別的碼）一律不收——web 只取已知欄位。 */
+  /** 409 `storage_quota_exceeded` 的頂層 `storage`；形狀不合（或別的碼）一律不收——web 只取已知欄位。 */
   public storage?: StorageQuotaErrorDetail;
-  /** 僅 404 `in_trash` 的頂層 `noteId`（spec §6.7）；型別不是字串就不收。 */
+  /** 僅 404 `in_trash` 的頂層 `noteId`；型別不是字串就不收。 */
   public noteId?: string;
 
   constructor(
@@ -78,7 +78,7 @@ const SAFE_METHODS = new Set(["GET", "HEAD"]);
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const method = (init.method ?? "GET").toUpperCase();
   const headers = new Headers(init.headers);
-  // `FormData` body（uploads，Task 13）：**不**補 `Content-Type`。瀏覽器的 `fetch`
+  // `FormData` body（uploads）：**不**補 `Content-Type`。瀏覽器的 `fetch`
   // 對 `FormData` body 會自己算出 `multipart/form-data; boundary=...` 並設定—— 若我們
   // 搶先補上不帶 boundary 的 `application/json`（或任何值），server 端的
   // `@fastify/multipart` 解析器會直接判定格式錯誤，整個上傳都收不到檔案。

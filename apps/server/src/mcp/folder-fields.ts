@@ -1,5 +1,5 @@
 /**
- * 資料夾 PR-3d（spec §5.12）：回給模型的資料夾欄位——輸入 id 的驗證、名稱與路徑的截斷、名稱與路徑的查詢。
+ * 資料夾：回給模型的資料夾欄位——輸入 id 的驗證、名稱與路徑的截斷、名稱與路徑的查詢。
  * 截斷一律走 `limits.ts` 的逃脫後計價（`truncateText`／`escapedLength`），旗標只在真的截時才有鍵。
  */
 import { inArray, sql } from "drizzle-orm";
@@ -12,7 +12,7 @@ import { noNul } from "../notes/schemas.js";
 import { UUID_RE } from "../notes/service.js";
 import { MCP_FOLDER_NAME_MAX, MCP_FOLDER_PATH_MAX, MCP_TEXT_MAX, escapedLength, truncateText } from "./limits.js";
 
-/** 與 `NOTE_ID`（notes/schemas.ts）同形，各自一份物件：非 UUID 是輸入驗證錯誤（plan 讀碼發現 12）。 */
+/** 與 `NOTE_ID`（notes/schemas.ts）同形，各自一份物件：非 UUID 是輸入驗證錯誤。 */
 export const FOLDER_ID = z.string().regex(UUID_RE).refine(noNul).transform(s => s.toLowerCase());
 
 export const folderRefSchema = z.object({
@@ -28,7 +28,7 @@ export function folderRefForModel(id: string, name: string): FolderRefForModel {
 }
 
 /**
- * `list_folders` 的一項（spec §5.12）。personal／shared 不輸出 owner id（只有本人看得到，同 REST 的 `toFolderSpaceDto`）；
+ * `list_folders` 的一項。personal／shared 不輸出 owner id（只有本人看得到，同 REST 的 `toFolderSpaceDto`）；
  * 群組名照群組 `owner.name` 的上限截（`MCP_TEXT_MAX`）。（作者決定）不帶 `permissions`／`createdAt`。
  */
 export const folderForModelSchema = z.object({
@@ -99,7 +99,7 @@ export function truncateFolderPath(names: readonly string[]): { path: string[]; 
 
 /**
  * 一句 `select id, name from folders where id in (…)`；null／重複 id 先濾掉；空集合不發查詢。
- * 不判可見性：呼叫端傳的是對呼叫者可見的 `viewerFolderId`（plan 讀碼發現 5）。查不到的 id 不在 Map 裡（兩句之間被刪）。
+ * 不判可見性：呼叫端傳的是對呼叫者可見的 `viewerFolderId`。查不到的 id 不在 Map 裡（兩句之間被刪）。
  */
 export async function loadFolderNames(db: DbOrTx, ids: readonly (string | null)[]): Promise<Map<string, string>> {
   const wanted = [...new Set(ids.filter((id): id is string => id !== null))];

@@ -11,7 +11,7 @@ import {
 } from "../../src/transfer/paths.js";
 import type { BulkRange } from "../../src/auth/transfer-token.js";
 
-/** bulk transfer spec §6.2、§6.3；plan §0.1-5、-6。 */
+/** bulk transfer 的檔案路徑。 */
 
 const T0 = new Date("2026-01-01T00:00:00Z");
 const at = (s: number) => new Date(T0.getTime() + s * 1000);
@@ -62,7 +62,7 @@ describe("sanitizeSegment 規則 1：非法字元 → _", () => {
   ])("%j → %j", (raw, want) => {
     expect(sanitizeSegment(raw)).toBe(want);
   });
-  it("N1（探索測試）shell 在雙引號內仍會展開的 `$`、反引號、`!` → _；標題與資料夾名都是", () => {
+  it("shell 在雙引號內仍會展開的 `$`、反引號、`!` → _；標題與資料夾名都是", () => {
     const shell = ["$", "`", "!"];
     for (const raw of ["$(touch x)", "`id`", "$HOME", "a!b", "${PATH}", "$(echo PWNED>>pwned.txt)"]) {
       for (const out of [sanitizeSegment(raw), sanitizeTitle(raw)]) for (const c of shell) expect(out, `${raw} → ${out}`).not.toContain(c);
@@ -107,7 +107,7 @@ describe("sanitizeSegment 規則 2–6", () => {
   it("P4 規則 4：開頭 . → _（只換第一個）", () => {
     expect(sanitizeSegment(".git")).toBe("_git");
     expect(sanitizeSegment(".")).toBe("_");
-    // N9（探索測試，docs/mcp.md 照這幾形寫）：`..` → `_`（第一個點換掉、尾端的點去掉）；`.knotebook` → `_knotebook`；
+    // （docs/mcp.md 照這幾形寫）：`..` → `_`（第一個點換掉、尾端的點去掉）；`.knotebook` → `_knotebook`；
     // 標題 `.`、`..`、`...` 清洗後只剩 `_` → Untitled
     expect(sanitizeSegment("..")).toBe("_");
     expect(sanitizeSegment(".knotebook")).toBe("_knotebook");
@@ -306,7 +306,7 @@ describe("buildLayout 配置（P10–P12）", () => {
     expect(sub.dirs.map(d => d.path)).toEqual(["My notes", "My notes/L1", "My notes/L1/L2", "My notes/L1/L2/L3", "My notes/L1/L2/L3/L4", "My notes/L1/L2/L3/L4/L5"]);
   });
 
-  it("群組名清洗（gate r1 m10）：/ 不多一層、.. → _、CON → _CON；資料夾名 a/b 不多一層", () => {
+  it("群組名清洗：/ 不多一層、.. → _、CON → _CON；資料夾名 a/b 不多一層", () => {
     const w = world();
     const L = buildLayout({ notes: [w.nSlashG], folders: [w.pSlash], groups: [w.gSlash, w.gDots, w.gCon], range: ALL });
     expect(L.files.get(w.nSlashG.id)).toBe("Groups/a_b/在 a_b 群組.md");
@@ -323,7 +323,7 @@ describe("buildLayout 配置（P10–P12）", () => {
   });
 });
 
-describe("buildLayout 範圍縮小：命名在完整集合上算、再依範圍篩（spec §6.2；T1–T6 審查 I1）", () => {
+describe("buildLayout 範圍縮小：命名在完整集合上算、再依範圍篩", () => {
   /** 會讓「只看範圍內的同層」算出不同名字的三形：同名群組、清洗後撞名的資料夾、規則 9（祖先層的筆記 x 與資料夾 x.md）。 */
   function world() {
     seq = 5000;
@@ -434,7 +434,7 @@ describe("buildLayout 範圍縮小：命名在完整集合上算、再依範圍�
   });
 });
 
-describe("檔名開頭的空白（known-limitations；探索測試 I）", () => {
+describe("檔名開頭的空白（known-limitations）", () => {
   it("開頭的空白保留、結尾的空白去掉", () => {
     expect(sanitizeTitle("  前後空白  ")).toBe("  前後空白");
   });

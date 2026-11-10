@@ -188,7 +188,7 @@ vi.mock("@/components/ui/toast", async (importOriginal) => {
   return { ...actual, toast: vi.fn(actual.toast) };
 });
 
-describe("expandAfterRestore（資料夾 spec §6.8 還原後展開）", () => {
+describe("expandAfterRestore（資料夾還原後展開）", () => {
   function json(body: unknown, status = 200): Response {
     return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
   }

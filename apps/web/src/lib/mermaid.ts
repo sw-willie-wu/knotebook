@@ -100,7 +100,7 @@ function cacheKey(code: string, theme: MermaidTheme): string {
  * lookbehind `(?<!…)`：後者 Safari 16.4 才支援，而 Vite 的預設 target 含 safari16，寫在 `new RegExp`
  * 字串裡也不會被轉譯，舊 Safari 會在快取命中時丟 SyntaxError、元件直接崩掉。
  *
- * 殘留（審查實測 22 種圖）：
+ * 殘留（實測 22 種圖）：
  * - 圖的**文字**裡若剛好寫著同一個 id（例如 label 叫 `mermaid-3`），那段字也會被換掉——只影響顯示文字。
  * - 有幾種圖另有 mermaid **全域計數器**產生、不帶 `mermaid-N` 前綴的 id：sankey 的 `node-N`／
  *   `linearGradient-N`、sequence 的 `actorN`／`root-N`、architecture 的 `IconifyId…`。這些不改寫，
@@ -233,14 +233,14 @@ const LOCKED_CONFIG_KEYS = [
   // `%%{init:{"fontFamily":"monospace; background-image: url(http://…)"}}%%` 會發出請求。
   "fontFamily",
   "altFontFamily",
-  // ⚠ **不要**連 `themeVariables` 一起鎖（第 5 輪審查實測）。上面說的複製發生在
+  // ⚠ **不要**連 `themeVariables` 一起鎖。上面說的複製發生在
   // `sanitizeDirective()` 之後，但**在 `updateCurrentConfig()` 裡那支吃 `secure` 清單的
   // `sanitize()` 之前**——兩句話講的是兩個不同函式，不衝突。因為後者會遞迴進物件，
   // 光鎖 `fontFamily` 就已經把 `themeVariables.fontFamily` 那個副本刪掉了；`themeVariables` 其餘的值另有 mermaid
   // 自己的字元集檢查（`^[\d "#%(),.;A-Za-z]+$`，沒有 `:` 與 `/`，構不出 scheme）。
   // 鎖住只會讓官方文件教的 `%%{init:{"theme":"base","themeVariables":{…}}}%%` 靜默失效。
   // ⚠ 不要把整個 `flowchart` 鎖起來：mermaid 的 `sanitize()` 會**遞迴進物件**用同一份
-  // 清單，巢狀的 `flowchart.htmlLabels` 已經被上面的 `htmlLabels` 涵蓋（第 4 輪實測）。
+  // 清單，巢狀的 `flowchart.htmlLabels` 已經被上面的 `htmlLabels` 涵蓋。
   // 鎖整個物件只會讓 `flowchart.curve`／`nodeSpacing` 這類**合法**的 directive 被靜默忽略。
 ] as const;
 
@@ -262,7 +262,7 @@ const LOCKED_CONFIG_KEYS = [
  * `click X callback` 綁成真的 DOM handler 用的，不呼叫就等於這個能力不存在。
  *
  * ⚠ **這裡曾經有一整套「不讓圖表發出任何跨源請求」的機制**（攔 `new Image()`／
- * `setAttribute`／`insertBefore`、輸出端清洗、render 序列化與逾時），八輪審查、六種
+ * `setAttribute`／`insertBefore`、輸出端清洗、render 序列化與逾時），補過六種
  * 繞法之後拆掉了。拆掉的理由不是「擋不完」，是**這個 app 本來就允許筆記嵌入任意
  * 遠端圖片**——同一個能力用圖片 block 三秒就做得到，只對 mermaid 立更嚴的規矩既擋不到
  * 攻擊者，還讓 `click X href` 的圖畫不出來、合法的多行 label 被誤擋。要加回來之前，
@@ -335,7 +335,7 @@ export async function renderMermaid(
 
       // ⚠ **不必（也不再）先 `parse()`**——靠的是 `mermaidConfig` 的 `suppressErrorRendering: true`。
       // 預設（false）時 `render()` 語法錯會把一張「Syntax error in text」的錯誤圖**留在
-      // `document.body`**，逃出元件邊界、掛在頁面底部，重繪一次多一張（2026-08-27 在瀏覽器上
+      // `document.body`**，逃出元件邊界、掛在頁面底部，重繪一次多一張（在瀏覽器上
       // 才看到；當時的修法是先 `parse()` 擋掉）。開了 `suppressErrorRendering` 之後，mermaid
       // 11.17 在 parse 失敗與 draw 失敗兩條路徑上都先移除它插在 body 的暫時容器再 throw，
       // 錯誤由我們自己的錯誤態呈現（訊息 ＋ 原始碼）。`render()` 內部本來就會 parse 一次，

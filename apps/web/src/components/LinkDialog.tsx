@@ -14,9 +14,9 @@ export interface LinkDialogProps {
 }
 
 /**
- * `/` 選單「連結」項的插入對話框（issue #99，design §6／§6.1）。兩欄：顯示文字、網址。
+ * `/` 選單「連結」項的插入對話框（issue #99）。兩欄：顯示文字、網址。
  *
- * ⚠ **不自己判網址**：網址驗證共用 Task 2 的裁決函式 `resolveTrailingMarkdownLink`——
+ * ⚠ **不自己判網址**：網址驗證共用 `resolveTrailingMarkdownLink`——
  * 組 `[x](網址)` 去驗（顯示文字用佔位符 `x`，使用者填的顯示文字完全不進這段
  * markdown），否則文字裡的 `]`／`*`／反引號都要跳脫，等於在 UI 層重寫一份 markdown
  * escaper。因此 `editor` 是必要 prop，不是可選的裝飾。
@@ -25,7 +25,7 @@ export interface LinkDialogProps {
  * 「選單開關 state」與「還原 selection 再落地」的所在，見該檔接線）。這裡只負責把
  * `{ text, href }` 交出去。
  *
- * ⚠ **顯示文字留空時用 `href` 頂上**（design §6 D15）：`editor.createLink(href, "")`
+ * ⚠ **顯示文字留空時用 `href` 頂上**：`editor.createLink(href, "")`
  * 的第二參數 falsy 時走 `addMark(r, i)`，而 `/` 選單的 selection 是 collapsed
  * （`r === i`）⇒ 零 step、對話框關掉、畫面什麼都沒發生——這是靜默失敗，必須在
  * 送出前擋掉，不是防禦性寫法。
@@ -63,12 +63,12 @@ export function LinkDialog({ editor, open, onOpenChange, onSubmit }: LinkDialogP
     event.preventDefault();
     const trimmedUrl = url.trim();
     const hit = resolveTrailingMarkdownLink(editor, `[x](${trimmedUrl})`);
-    // ⚠ `resolveTrailingMarkdownLink` 的判準是**尾端比對**（design §4 第 7 步：
+    // ⚠ `resolveTrailingMarkdownLink` 的判準是**尾端比對**（
     // `textBefore.endsWith(recon)`），不是「整段等於」。這裡餵給它的 textBefore 就是
     // `[x](${trimmedUrl})` 本身，所以只要網址欄裡藏著自己的 `)` 加另一段
     // `[y](真正網址`，尾端仍能拼出一個合法連結、`hit` 不是 null，但 `hit.href` 是
     // 「藏在後半段」的那個網址，不是使用者以為自己填的那一整串。不比對回去就會
-    // 靜默插出一個 使用者沒打算給的 href（複核 fix round 3 Minor 1）。
+    // 靜默插出一個 使用者沒打算給的 href。
     if (!hit || hit.href !== trimmedUrl) {
       setError(t("note.link.invalidUrl"));
       return;

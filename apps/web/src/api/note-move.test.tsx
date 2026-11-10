@@ -8,7 +8,7 @@ import { usePublicLink } from "./public-link";
 import { useShares } from "./shares";
 
 /**
- * #175 PR2 Task 8：移動／複製／送出前檢查三支 hook 的快取契約。renderHook 本體掛 `useShares`＋`usePublicLink`
+ * #175：移動／複製／送出前檢查三支 hook 的快取契約。renderHook 本體掛 `useShares`＋`usePublicLink`
  * 兩個 observer——沒有 active observer 時 `invalidateQueries` 只標 stale、不重抓、promise 立即 resolve，
  * 「先 await 重抓」與「重抓掛起」都造不出來。
  */
@@ -82,7 +82,7 @@ function setupFetch(handlers: Record<string, () => Response>) {
 
 const KEY_OF: Record<GateName, unknown[]> = { shares: ["shares", ID], public: ["public-link", ID] };
 
-/** 放行 name 那一支並等它重抓完成（fetchStatus idle）、再讓出一個 macrotask。抓得到「只等一支就寫」的錯誤實作，主要靠 waitFor 約 50ms 的輪詢給了它提早寫入的時間（讓出 macrotask 只是多一層）；延遲 ≥ 50ms 才寫的錯誤形從外部分辨不出，r3 審查實測過、接受。 */
+/** 放行 name 那一支並等它重抓完成（fetchStatus idle）、再讓出一個 macrotask。抓得到「只等一支就寫」的錯誤實作，主要靠 waitFor 約 50ms 的輪詢給了它提早寫入的時間（讓出 macrotask 只是多一層）；延遲 ≥ 50ms 才寫的錯誤形從外部分辨不出，已接受這個限制。 */
 async function releaseAndSettle(client: QueryClient, f: { release: (n: GateName) => void }, name: GateName) {
   f.release(name);
   await waitFor(() => expect(client.getQueryState(KEY_OF[name])?.fetchStatus).toBe("idle"));
@@ -219,7 +219,7 @@ describe("useMoveNoteToGroup", () => {
   });
 });
 
-describe("applyMovedNote／refetchAfterFailure（PR-2c 批次共用）", () => {
+describe("applyMovedNote／refetchAfterFailure（批次共用）", () => {
   it("AM1 applyMovedNote：shares＝[]、public-link 清 token／slug、note 寫入；順序 shares → public-link → note；失效 ['notes']", () => {
     const client = makeClient();
     client.setQueryData(["shares", ID], [SHARE]);
@@ -360,7 +360,7 @@ describe("useConfirmNoteStillPersonal", () => {
     expect(settled).toBeUndefined();
 
     // 只放行一支並等它完成：另一支仍掛著，note 仍不得被寫、promise 仍未 resolve
-    // （少等任一支＝PR1 交接不變量⑥「閃一下公開」，會在此紅）
+    // （少等任一支＝「閃一下公開」，會在此紅）
     await releaseAndSettle(client, f, first);
     expect(client.getQueryData(["note", ID])).toBeUndefined();
     expect(setSpy).not.toHaveBeenCalled();
@@ -375,7 +375,7 @@ describe("useConfirmNoteStillPersonal", () => {
     for (const k of [["shares", ID], ["public-link", ID]]) {
       expect(keys).toContainEqual(k);
     }
-    // false 路徑也要失效列表／解析層／群組（M-1）
+    // false 路徑也要失效列表／解析層／群組
     for (const k of ["notes", "note-by-path", "note-by-group-path", "groups"]) {
       expect(keys).toContainEqual([k]);
     }

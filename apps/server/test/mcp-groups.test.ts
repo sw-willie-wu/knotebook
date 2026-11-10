@@ -1,5 +1,5 @@
 /**
- * #175 §9：MCP 對群組筆記（Q23：PR1 就要讀得到、`edit_note` 改得動）。harness 照 mcp-notes／mcp-content 兩檔。
+ * #175：MCP 對群組筆記（讀得到、`edit_note` 改得動）。harness 照 mcp-notes／mcp-content 兩檔。
  */
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
@@ -119,9 +119,9 @@ describe("#175 read_note_outline／edit_note 的群組筆記（需 collab）", (
   });
 });
 
-// ───────────────────────────── #175 PR5：create_note {group_id}（spec §9.3、§12.1、Q23） ─────────────────────────────
+// ───────────────────────────── #175：create_note {group_id} ─────────────────────────────
 
-/** spec §9.2 兩句專用訊息，逐字（測試**不**從實作 import——字面值才釘得住 spec）。 */
+/** 兩句專用訊息，逐字（測試**不**從實作 import——字面值才釘得住規格）。 */
 const E1_GROUP_NOT_FOUND = "No group with that id among the groups you belong to.";
 const E2_CREATE_FORBIDDEN = "Your role in that group can't create notes. Leave out `group_id` to create a personal note.";
 const RW = "notes:read notes:write" as const;
@@ -153,22 +153,22 @@ function cellsLeft(limiter: FixedWindowLimiter, userId: string): number {
   return n;
 }
 
-describe("#175 PR5 create_note {group_id}", () => {
+describe("#175 create_note {group_id}", () => {
   it("A 一般成員：群組列、owner＝群組、url /g/、role editor；slug 去重範圍＝該群組（不對稱測資：個人那發另得 plan-3）", async () => {
     const { app, db } = await buildTestApp();
     const me = await seedUser(db);
     const g = await seedGroup(db, "Team", [{ userId: me.id, role: "member" }]);
     await seedNote(db, { groupId: g.id }, { title: "Plan", slug: "plan" });
     await seedNote(db, { ownerId: me.id }, { title: "Plan", slug: "plan" });
-    await seedNote(db, { ownerId: me.id }, { title: "Plan 2", slug: "plan-2" });
+    await seedNote(db, { ownerId: me.id }, { title: "Roadmap 2", slug: "roadmap-2" });
     const { token } = await seedTokenForUser(db, me.id, RW);
 
     const inGroup = await createdNote(app, token, { title: "Plan", group_id: g.id });
     const [row] = await db.select().from(notes).where(eq(notes.id, inGroup.id));
     expect(row!.groupId).toBe(g.id);
     expect(row!.ownerId).toBeNull();
-    expect(inGroup.slug).toBe("plan-2");
-    expect(inGroup.url).toBe(`/g/${g.id}/plan-2`);
+    expect(inGroup.slug).toBe("roadmap-2");
+    expect(inGroup.url).toBe(`/g/${g.id}/roadmap-2`);
     expect(inGroup.role).toBe("editor");
     expect(inGroup.owner).toEqual({ kind: "group", id: g.id, name: "Team" });
 
@@ -178,7 +178,7 @@ describe("#175 PR5 create_note {group_id}", () => {
     expect(personal.owner).toEqual({ kind: "user", handle: me.handle });
   });
 
-  it("A2 反向：個人有 plan、群組沒有任何筆記 → 群組那發 slug 就是 plan（個人筆記不佔群組範圍）", async () => {
+  it("反向：個人有 plan、群組沒有任何筆記 → 群組那發 slug 就是 plan（個人筆記不佔群組範圍）", async () => {
     const { app, db } = await buildTestApp();
     const me = await seedUser(db);
     const g = await seedGroup(db, "Team", [{ userId: me.id, role: "member" }]);
@@ -259,7 +259,7 @@ describe("#175 PR5 create_note {group_id}", () => {
     expect(JSON.stringify(nonMember.structuredContent)).toBe(JSON.stringify(missing.structuredContent));
   });
 
-  it("E 是成員但角色沒有新建旗標：零新增列、edit 桶不啃、forbidden＋E2", async () => {
+  it("E 是成員但角色沒有新建旗標：零新增列、edit 桶不啃、forbidden", async () => {
     const edit = new FixedWindowLimiter(EDIT_LIMIT);
     const ctx = await buildCollabTestApp({ limiters: { edit } });
     const me = await seedUser(ctx.db);
@@ -277,7 +277,7 @@ describe("#175 PR5 create_note {group_id}", () => {
     expect(r.structuredContent!.message).toBe(E2_CREATE_FORBIDDEN);
   });
 
-  it("F 站台 admin 非成員：與一般非成員／不存在的 uuid 的 structuredContent 逐位元組相同（§5.5 無豁免）", async () => {
+  it("F 站台 admin 非成員：與一般非成員／不存在的 uuid 的 structuredContent 逐位元組相同（無豁免）", async () => {
     const { app, db } = await buildTestApp();
     const [admin, plain, other] = await Promise.all([seedUser(db, { isAdmin: true }), seedUser(db), seedUser(db)]);
     const foreign = await seedGroup(db, "Foreign", [{ userId: other.id, role: "admin" }]);
@@ -309,7 +309,7 @@ describe("#175 PR5 create_note {group_id}", () => {
   });
 
   it("H 成員檢查之後群組被刪（membership-checked 縫）：不帶與帶 content 都回 group_not_found＋E1（不是 internal）、零新增列", async () => {
-    // 刪空群組：PR1 起只有空群組可刪，本案群組無筆記。hook 拿 db 的方式：app 建好才有 db，所以用 holder。
+    // 刪空群組：只有空群組可刪，本案群組無筆記。hook 拿 db 的方式：app 建好才有 db，所以用 holder。
     const holder: { db?: Db } = {};
     const hook: GroupTestHook = async (point, hctx) => {
       if (point === "membership-checked") await holder.db!.delete(groups).where(eq(groups.id, hctx.groupId!));
@@ -351,7 +351,7 @@ describe("#175 PR5 create_note {group_id}", () => {
   });
 });
 
-// ───────────────────────────── #180 W15：create_note 改鍵名 group_id（spec §4.7、§10.5a） ─────────────────────────────
+// ───────────────────────────── #180：create_note 改鍵名 group_id ─────────────────────────────
 
 describe("#180 create_note 的 group_id 與 strict 註冊", () => {
   it("M-G1 用舊鍵 groupId（合法群組 id）→ 先斷零新增筆記，再斷 SDK 輸入驗證錯誤（isError、無 code、訊息含 groupId）", async () => {
@@ -381,7 +381,7 @@ describe("#180 create_note 的 group_id 與 strict 註冊", () => {
   });
 });
 
-// ───────────────────────────── #239 W9：notes:move 不管 create_note／edit_note（spec §11.2 M6） ─────────────────────────────
+// ───────────────────────────── #239 W9：notes:move 不管 create_note／edit_note ─────────────────────────────
 
 describe("#239 W9：notes:move 不管 create_note／edit_note", () => {
   it("讀寫無搬移憑證：create_note {group_id} 成功、owner 是群組；edit_note append 群組筆記成功", async () => {

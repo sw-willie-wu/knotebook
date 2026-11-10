@@ -1,10 +1,10 @@
 /**
- * `CollabHooks` 的 Plan 2 實作——撤權 SLA（spec §10：撤銷分享 ≤10 秒；§7 是機制列，
- * 釘的是「定向重驗 + 5s deadline」本身）的核心。
+ * `CollabHooks` 的實作——撤權 SLA（撤銷分享 ≤10 秒；機制是
+ * 「定向重驗 + 5s deadline」）的核心。
  *
  * 機制只有兩件事：
  *   1. **重驗（reverify）**：對受影響的連線送 `requestToken()`，並掛一個 5s deadline。
- *      client 若回送 token，`onTokenSync`（Task 5）會重跑 `resolveRole` + `gate.check`
+ *      client 若回送 token，`onTokenSync` 會重跑 `resolveRole` + `gate.check`
  *      決定續留、降級唯讀或關閉，同時觸發 `onNextTokenSync` 回呼撤銷 deadline；client
  *      若不回應（離線、卡住、惡意），deadline 到期就直接關閉——「沒有查證就不放行」。
  *   2. **刪除閘門**：移入垃圾桶或刪除筆記前先擋掉新連線、關閉既有連線、把文件 flush + unload，讓
@@ -79,9 +79,9 @@ export function createCollabHooks(server: CollabServer, log: CollabHooksLogger =
   /**
    * 每篇筆記目前武裝中的閘門 TTL timer，連同它屬於哪一道門（epoch）。
    *
-   * **重新開閘門前要先清掉舊的**（審查 round 3）：刪除失敗後 5 秒重試成功的話，第一次那個
+   * **重新開閘門前要先清掉舊的**：刪除失敗後 5 秒重試成功的話，第一次那個
    * timer 會在 120 秒整點把**第二次**的閘門提早打開，而那個縫隙裡重連的協作者聽到的會是
-   * 「你已失去存取權」。epoch 則保證 `release()` 不會清掉別人的 timer（審查 round 4）。
+   * 「你已失去存取權」。epoch 則保證 `release()` 不會清掉別人的 timer。
    */
   const gateTimers = new Map<string, { timer: ReturnType<typeof setTimeout>; epoch: number }>();
   /**
@@ -101,19 +101,19 @@ export function createCollabHooks(server: CollabServer, log: CollabHooksLogger =
     for (const c of conns) {
       // ⚠ **不變式：deadline timer 必須在任何可能拋錯的呼叫之前武裝。** 一次例外絕不能
       // 留下「既沒被重驗、也沒被關閉」的連線——那是 fail-open，已撤權者可以無限期繼續
-      // 編輯（還只留下一行 log），正是本 task 存在的理由。先武裝再送 requestToken 是
+      // 編輯（還只留下一行 log），這段程式就是為了擋這個。先武裝再送 requestToken 是
       // 安全的：若 send 真的失敗，該連線在 v4 裡已經自我關閉，屆時 timer fire 到的是一條
       // 已關閉的連線＝冪等 no-op（`Connection.close` 的 `hasConnection` 守衛）。
       const t = setTimeout(() => {
         // timer 的 callback 跑在沒有呼叫者的 macrotask 裡：例外逸出會直接讓 process
         // 掛掉（比照 server.ts 對 upgrade listener 的處理），一律接住並記錄。
         try {
-          // ⚠ 這一則必須留下訊號（issue #37／審查 round 3）：deadline 到期是**合法使用者
+          // ⚠ 這一則必須留下訊號（issue #37）：deadline 到期是**合法使用者
           // 最可能被誤踢**的路徑（他的 client 只是剛好卡在 token 退避裡沒能在 5 秒內回話），
           // 而使用者看到的是「你已失去存取權」。欄位比照 server.ts 的 `logReject`，
           // phase 另立 `deadline`——它不是握手被拒，也不是重驗有了結論。
           //
-          // ⚠ 但**只有這條連線還在索引裡才算數**（審查指出）：timer 對已關閉的連線 fire 是
+          // ⚠ 但**只有這條連線還在索引裡才算數**：timer 對已關閉的連線 fire 是
           // 安全的 no-op（見上面的說明），使用者自己關掉分頁也會走到這裡——照記的話，排錯
           // 指引最倚重的那一行會指著一個根本沒被踢的人說「他是被踢的」。
           const stillConnected = server.connectionsOfNote(c.noteId).has(c);
@@ -158,7 +158,7 @@ export function createCollabHooks(server: CollabServer, log: CollabHooksLogger =
 
   return {
     /**
-     * N1：只重驗「該 note ∩ 該 user」的連線，**不得**對整份文件廣播——同文件其他協作者
+     * 只重驗「該 note ∩ 該 user」的連線，**不得**對整份文件廣播——同文件其他協作者
      * 的權限沒有變化，無故要他們重新出示 token 會製造無謂的 token endpoint 尖峰（還會
      * 撞上 per-user 節流），且任何一次 client 沒回應都可能誤殺一條合法連線。
      */
@@ -189,7 +189,7 @@ export function createCollabHooks(server: CollabServer, log: CollabHooksLogger =
     },
 
     /**
-     * #103 §7：只重驗「noteIds ∩ userIds」的連線（比照 `onShareChanged` 的 N1：不對整份文件廣播）。
+     * #103：只重驗「noteIds ∩ userIds」的連線（比照 `onShareChanged`：不對整份文件廣播）。
      * 兩個名單先各自去重；日誌只記數量（名單長度由群組大小決定，不讓單行大小隨之成長）。
      */
     onGroupAccessChanged(noteIds: readonly string[], userIds: readonly string[]): void {
@@ -208,23 +208,23 @@ export function createCollabHooks(server: CollabServer, log: CollabHooksLogger =
     /**
      * 刪除筆記前的清場：擋新連線 → 關既有連線 → flush → unload → 輪詢確認。
      *
-     * ⚠ 刻意**偏離** spec §7 字面上的 `closeConnections`：v4 的 `closeConnections()` 是以
+     * ⚠ 刻意**不用** `closeConnections`：v4 的 `closeConnections()` 是以
      * `ResetConnection` 關閉，語意等同「叫 provider 立刻重連」；而此刻刪除交易尚未
      * commit、筆記還在，重連會通過授權並讓文件重新進 `server.documents`，輪詢永遠不會
-     * 收斂、DELETE 請求掛死。這裡改用「閘門 + 逐連線 close」保留 §7 的意圖（所有人都該
-     * 離開）而不製造活鎖。
+     * 收斂、DELETE 請求掛死。這裡改用「閘門 + 逐連線 close」：所有人都離開，
+     * 又不製造活鎖。
      *
      * ⚠ 這個機制**不保證**「刪除前絕對沒有任何 update 被套用」：`connected` 的
      * deleting 重查只能擋下「還沒被登記進索引」的連線，擋不掉它在 onAuthenticate 通過後、
      * connected 抵達前那段時間從佇列 drain 出來、已經套用進 Y.Doc 的 update。真正的
-     * 資料面保證來自兩件事：刪除本身是一個交易，以及 Task 7 的 `onStoreDocument` 見到
+     * 資料面保證來自兩件事：刪除本身是一個交易，以及 `collab/store.ts` 的 `onStoreDocument` 見到
      * 筆記已不存在就丟棄該次寫入——所以即使有落單的 update，也不會在筆記永久刪除後復活。
      * #181：移到垃圾桶（`DELETE /api/notes/:id`）之後列還在，落單的 store **會寫進**垃圾桶筆記——
-     * 那是移入前一刻的內容，還原後看得到（spec §6.4.1）；它不會讓筆記回到清單（`deleted_at` 不變）。
+     * 那是移入前一刻的內容，還原後看得到；它不會讓筆記回到清單（`deleted_at` 不變）。
      */
     async beforeNoteDeleted(noteId: string): Promise<NoteDeleteGate> {
       // 先關門：此後 onAuthenticate / connected / onTokenSync 三處都會拒絕這篇筆記
-      // （Task 5 已實作），下面的清掃才不會邊掃邊有新連線補進來。
+      // ，下面的清掃才不會邊掃邊有新連線補進來。
       const epoch = await server.markDeleting(noteId);
 
       const previous = gateTimers.get(noteId);
@@ -282,7 +282,7 @@ export function createCollabHooks(server: CollabServer, log: CollabHooksLogger =
         if (server.hocuspocus.documents.has(noteId)) {
           // 逾時（上限 5s）：記錯後**放行**，絕不無限等——DELETE 掛死對使用者是更嚴重的
           // 故障。之後抵達的 store：移入垃圾桶時照寫進垃圾桶筆記（內容不丟、不復活到清單）；
-          // 永久刪除時由 Task 7 的「筆記不存在就丟棄 store」兜底。
+          // 永久刪除時由 `onStoreDocument` 的「筆記不存在就丟棄 store」兜底。
           log.error({ noteId }, "collab beforeNoteDeleted：文件在期限內未 unload，仍繼續刪除（之後的 store：移入垃圾桶照寫、永久刪除丟棄）");
         }
       } catch (error) {
@@ -294,7 +294,7 @@ export function createCollabHooks(server: CollabServer, log: CollabHooksLogger =
       return gate;
     },
 
-    /** #181 §6.4.3：還原 commit 後收掉閘門，連同 TTL timer。日誌只記 `{ name, code }` 與數量（不記原始 err、不記 id 清單）。 */
+    /** #181：還原 commit 後收掉閘門，連同 TTL timer。日誌只記 `{ name, code }` 與數量（不記原始 err、不記 id 清單）。 */
     onNotesRestored(noteIds: readonly string[]): void {
       try {
         for (const id of new Set(noteIds)) {

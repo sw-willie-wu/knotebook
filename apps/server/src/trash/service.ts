@@ -1,5 +1,5 @@
 /**
- * #181 垃圾桶的服務層（spec 2026-10-21 §6.3.2–§6.3.4）：REST 與 PR-2d 的 MCP 共用的唯一入口（gate r1 I4）。
+ * #181 垃圾桶的服務層：REST 與 MCP 共用的唯一入口。
  * 每支的形一律是「共編閘門／預判 → 交易（`notes/tx/trash.ts`，S14：callback 整段一個 `xInTx`）→ commit 後的 hook／刪檔」；
  * 交易本體只收 `tx` 與純資料，閘門、刪檔、`onNotesRestored` 都在這裡、在交易之外。
  */
@@ -25,7 +25,7 @@ import { deleteUploadFiles, type UploadDeleteLogger } from "../uploads/service.j
 export interface TrashServiceDeps {
   db: Db;
   collabHooks: CollabHooks;
-  /** 永久刪除 commit 後刪附件檔用（T9）；移入不刪檔。 */
+  /** 永久刪除 commit 後刪附件檔用；移入不刪檔。 */
   uploadsDir: string;
   /** 還原照路徑重建取結構鎖的等待上限（ms），透傳自 `AppDeps.storageLockTimeoutMs`。 */
   storageLockTimeoutMs: number;
@@ -35,8 +35,8 @@ export interface TrashServiceDeps {
 export type TrashNoteOutcome = "trashed" | "not_found" | "forbidden";
 
 /**
- * 單篇移入（spec §6.3.2 第 2～4 步）：`beforeNoteDeleted`（交易外）→ `trashNotesInTx` → 結果不是 trashed、或交易 throw，一律 `gate.release()`（throw 時 release 後原樣再丟）。
- * 呼叫端先做自己的授權與錯誤形（REST：`resolveNoteAccess` none → 404、無刪除權 → 403；PR-2d 的 MCP：not_found／forbidden）；本函式在交易內再判一次（TOCTOU）。
+ * 單篇移入：`beforeNoteDeleted`（交易外）→ `trashNotesInTx` → 結果不是 trashed、或交易 throw，一律 `gate.release()`（throw 時 release 後原樣再丟）。
+ * 呼叫端先做自己的授權與錯誤形（REST：`resolveNoteAccess` none → 404、無刪除權 → 403；MCP：not_found／forbidden）；本函式在交易內再判一次（TOCTOU）。
  * `noteId` 須已過 UUID；這裡一律轉小寫（交易本體的結果陣列是小寫 id，大寫輸入不轉會在移入成功後誤判成 not_found 並收門）。
  * release 在回傳之前同步呼叫（不延到呼叫端回應之後）。
  */
@@ -60,8 +60,8 @@ export async function trashNote(deps: TrashServiceDeps, input: { noteId: string;
 export interface TrashBatchResult { done: string[]; skipped: TrashSkipDto[] }
 
 /**
- * 預判（spec §6.3.3-1、§6.3.4-1）：逐 id `resolveTrashedNoteAccess`，false（不存在、活筆記、沒有垃圾桶權）→ 不進交易、記
- * `not_found`。**這是守 AG2 的承重點**：交易本體的分類順序對任意 id 是存在性 oracle，只能收這裡放行的 id。
+ * 預判：逐 id `resolveTrashedNoteAccess`，false（不存在、活筆記、沒有垃圾桶權）→ 不進交易、記
+ * `not_found`。**這是承重點**：交易本體的分類順序對任意 id 是存在性 oracle，只能收這裡放行的 id。
  */
 async function prejudge(db: Db, input: { ids: readonly string[]; by: string }): Promise<{ ok: string[]; denied: Set<string> }> {
   const ok: string[] = [];
@@ -88,10 +88,10 @@ function mergeSkipped(ids: readonly string[], denied: ReadonlySet<string>, inTx:
 }
 
 /**
- * 還原（spec §6.3.3）。ids：已過 UUID_RE、已轉小寫、已去重（呼叫端負責）。預判 → `restoreNotesInTx`（鎖內重判）→ commit 後
+ * 還原。ids：已過 UUID_RE、已轉小寫、已去重（呼叫端負責）。預判 → `restoreNotesInTx`（鎖內重判）→ commit 後
  * **同步** `onNotesRestored(done)`（只傳實際還原的 id、中間不 await；done 為空不呼叫）。`done`、`skipped` 照輸入順序。
- * 不檢查容量（§6.3.3-5）。預判全數略過 → 不開交易。
- * 資料夾（spec 2026-10-22 §5.8-1）：交易外不持鎖預讀這批筆記的群組與空間，交給交易照序取 groups KS 與結構鎖；預讀之後歸屬才變的
+ * 不檢查容量。預判全數略過 → 不開交易。
+ * 資料夾：交易外不持鎖預讀這批筆記的群組與空間，交給交易照序取 groups KS 與結構鎖；預讀之後歸屬才變的
  * 那篇在交易內不重建。
  */
 export async function restoreTrashed(deps: TrashServiceDeps, input: { ids: readonly string[]; by: string }): Promise<TrashBatchResult> {
@@ -119,8 +119,8 @@ export async function restoreTrashed(deps: TrashServiceDeps, input: { ids: reado
 }
 
 /**
- * 永久刪除（spec §6.3.4）。ids 的前提同 `restoreTrashed`。預判 → `purgeTrashedNotesInTx`（活筆記一律不刪，AG5）→ commit 後
- * `deleteUploadFiles`（best-effort；交易 throw 時一個檔都不刪）。不開共編閘門（§6.3.4-4）。預判全數略過 → 不開交易。
+ * 永久刪除。ids 的前提同 `restoreTrashed`。預判 → `purgeTrashedNotesInTx`（活筆記一律不刪）→ commit 後
+ * `deleteUploadFiles`（best-effort；交易 throw 時一個檔都不刪）。不開共編閘門。預判全數略過 → 不開交易。
  */
 export async function purgeTrashed(
   deps: TrashServiceDeps,

@@ -12,7 +12,7 @@ import { EditorSession, replaceBlocksFresh } from "./session.js";
 export type Anchor = { block_id: string; position: "before" | "after"; placeholder?: boolean };
 
 /**
- * 「是不是刪除形」的**唯一一支**（bulk transfer plan §0.1-14、gate r1 I2）：`delete_section`，或 `file_sync` 且有 anchor（刪除區）。
+ * 「是不是刪除形」的**唯一一支**：`delete_section`，或 `file_sync` 且有 anchor（刪除區）。
  * 四處共用：`editRevertable` 的分支、`listEdits` 的 `before_blocks` id 投影（SQL `case` 是同一條件的 SQL 版）、`revertEdit` 的
  * `isDelete`（決定 `editRevertable` 的 `beforeIds` 與 `mergeDiff` 的 `anchorId`）、`prepareRevert` 的分派。
  */
@@ -95,10 +95,10 @@ export async function prepareRevertOnFork(
     const removedSnapshot: AnyBlock[] = row.afterBlockIds.map(id => ed.getBlock(id)).filter((b): b is AnyBlock => b !== undefined); // 移除前先快照
     let reinsertedIds: string[] = [];
     const wouldBeEmpty = (removing: string[]) => ed.document.every(b => removing.includes(b.id));
-    // 三種列形的撤回（`file_sync` 依列形共用這三支，plan T11）：
+    // 三種列形的撤回（`file_sync` 依列形共用這三支）：
     const revertReplace = () => {
       if (before.length === 0 && wouldBeEmpty(row.afterBlockIds)) ed.replaceBlocks(row.afterBlockIds, [{ type: "paragraph" }]); // 永不為空；id 不記
-      else reinsertedIds = replaceBlocksFresh(ed, row.afterBlockIds, before).map(b => b.id); // #398 審查 C1：先插後刪（見 `replaceBlocksFresh`）
+      else reinsertedIds = replaceBlocksFresh(ed, row.afterBlockIds, before).map(b => b.id); // #398：先插後刪（見 `replaceBlocksFresh`）
     };
     const revertInsert = () => {
       // ⚠ 存活突變：把這裡改成無條件 `ed.removeBlocks(row.afterBlockIds)`（拿掉「會變空就補一顆
@@ -119,7 +119,7 @@ export async function prepareRevertOnFork(
       case "delete_section": revertDelete(isEmpty => anchor!.position === "before" && isEmpty); break;
       case "file_sync": {
         // 刪除形：規則③ 三條件同時成立才刪 anchor——是佔位、仍是空段落、沒有其他未撤回的列共用它。
-        // 不是佔位的 anchor 一律不刪（PR3b：使用者自己寫的空段落被當成 N anchor）。
+        // 不是佔位的 anchor 一律不刪（使用者自己寫的空段落被當成 N anchor）。
         if (isDeleteShape({ op: row.op, anchor })) revertDelete(isEmpty => anchor!.placeholder === true && isEmpty && !othersShareAnchor);
         else if (before.length > 0) revertReplace();
         else revertInsert();

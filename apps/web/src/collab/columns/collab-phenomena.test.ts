@@ -10,8 +10,8 @@ import { createColumnEdgeKeymapExtension } from "./edge-keymap";
 import { removeBlocksKeepColumns } from "./keep-columns";
 import { findNodeById } from "./position";
 
-// spec §13.1「雙用戶端（記錄現象）」、§5.5（D17、D25）。被測的是 y-prosemirror 與 core 的合併行為，不是本 PR 的碼——
-// 「已知限制 D17」的案把實測值寫死；其餘（spec 的「安全」）紅了就是回歸。手法同 probe-collab/collab.mjs。
+// 雙用戶端（記錄現象）。被測的是 y-prosemirror 與 core 的合併行為，不是並排功能本身的碼——
+// 「已知限制」的案把實測值寫死；其餘（標為「安全」的）紅了就是回歸。手法同 probe-collab/collab.mjs。
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -20,7 +20,7 @@ afterEach(() => {
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 50));
 
-/** 兩顆共編編輯器（都掛 D24），各自一份 Y.Doc，經 `Y.applyUpdate` 互傳。 */
+/** 兩顆共編編輯器（都掛欄首／欄尾鍵位），各自一份 Y.Doc，經 `Y.applyUpdate` 互傳。 */
 async function collabPair(initial: PartialBlockLike[]) {
   const d1 = new Y.Doc();
   const d2 = new Y.Doc();
@@ -92,7 +92,7 @@ const typeInCell = (editor: AnyEditor, index: number, text: string) => {
     if (n.type.name === "tableCell" || n.type.name === "tableHeader") cells.push(pos);
   });
   const pos = cells[index]!;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Selection 類別從現行選取的 constructor 取（讀碼發現 13）
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Selection 類別從現行選取的 constructor 取
   const Sel = view.state.selection.constructor as any;
   const end = Sel.near(view.state.doc.resolve(pos + view.state.doc.nodeAt(pos)!.nodeSize - 1), -1);
   view.dispatch(view.state.tr.setSelection(end).insertText(text));
@@ -101,7 +101,7 @@ const typeInCell = (editor: AnyEditor, index: number, text: string) => {
 const CLEAN = { dupIds: 0, nullIds: 0, nestedRows: 0, valid: true };
 const AB = () => [P("x", "x0"), row([[P("a", "a1")], [P("b", "b1")]], "r"), P("z", "z9")];
 
-describe("雙用戶端（記錄現象，spec §13.1、§5.5）", () => {
+describe("雙用戶端（記錄現象）", () => {
   it("CO1（安全）：A 在第 1 欄打字、B 在第 2 欄結尾 Enter 再打字 → 兩邊都保有兩人的字、列仍是合法兩欄", async () => {
     const { a, b, sync } = await collabPair(AB());
     typeAtEnd(a, "a1", "AAA");
@@ -118,7 +118,7 @@ describe("雙用戶端（記錄現象，spec §13.1、§5.5）", () => {
     expect(shape(b)).toBe(shape(a));
   });
 
-  it("CO2（已知限制 D17）：A 在第 1 欄打字、B 同時在 b 開頭 Backspace（D24 攤平）→ A 的字消失", async () => {
+  it("CO2（已知限制）：A 在第 1 欄打字、B 同時在 b 開頭 Backspace（攤平）→ A 的字消失", async () => {
     const { a, b, sync } = await collabPair(AB());
     typeAtEnd(a, "a1", "AAA");
     b.setTextCursorPosition("b1", "start");
@@ -133,7 +133,7 @@ describe("雙用戶端（記錄現象，spec §13.1、§5.5）", () => {
     expect(shape(b)).toBe(shape(a));
   });
 
-  it("CO3（已知限制 D17）：同一欄兩個 block 被兩人分別刪掉（D25 方式）→ 整列被 y-prosemirror 刪掉", async () => {
+  it("CO3（已知限制）：同一欄兩個 block 被兩人分別刪掉 → 整列被 y-prosemirror 刪掉", async () => {
     const { a, b, sync } = await collabPair([P("x", "x0"), row([[P("a", "a1"), P("q", "q1")], [P("b", "b1")]], "r"), P("z", "z9")]);
     removeBlocksKeepColumns(a, ["a1"]);
     removeBlocksKeepColumns(b, ["q1"]);

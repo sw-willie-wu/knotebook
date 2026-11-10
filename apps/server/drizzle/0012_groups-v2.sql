@@ -1,4 +1,4 @@
--- #175 群組 v2（spec §10.2）：drizzle-kit 兩段產出後人工重排（plan Task 1 Step 3）。單一交易（drizzle migrator 的整批交易）；見 migrate.test.ts 的輔助 grep。
+-- #175 群組 v2：drizzle-kit 兩段產出後人工重排。單一交易（drizzle migrator 的整批交易）；見 migrate.test.ts 的輔助 grep。
 -- 步驟 1：group_roles（七旗標、六條 CHECK、三把唯一索引）
 CREATE TABLE "group_roles" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
@@ -38,7 +38,7 @@ ALTER TABLE "group_members" ADD CONSTRAINT "group_members_role_fk" FOREIGN KEY (
 CREATE INDEX "group_members_role_idx" ON "group_members" USING btree ("role_id");--> statement-breakpoint
 ALTER TABLE "group_members" DROP CONSTRAINT "group_members_role_chk";--> statement-breakpoint
 ALTER TABLE "group_members" DROP COLUMN "role";--> statement-breakpoint
--- 步驟 4：note_redirects＋既有群組筆記的現行 slug 轉址（Q6；用轉換前的 owner handle；不寫 prev_slug 路徑）
+-- 步驟 4：note_redirects＋既有群組筆記的現行 slug 轉址（用轉換前的 owner handle；不寫 prev_slug 路徑）
 CREATE TABLE "note_redirects" (
 	"old_path" text PRIMARY KEY NOT NULL,
 	"note_id" uuid NOT NULL,
@@ -53,10 +53,10 @@ INSERT INTO "note_redirects" ("old_path", "note_id", "expires_at")
 SELECT '/n/' || u."handle" || '/' || n."slug", n."id", now() + interval '1 month'
 FROM "notes" AS n JOIN "users" AS u ON u."id" = n."owner_id"
 WHERE n."group_id" IS NOT NULL;--> statement-breakpoint
--- 步驟 5：S5 殘留與群組筆記的公開別名
+-- 步驟 5：群組筆記上殘留的分享列與公開別名
 DELETE FROM "note_shares" AS s USING "notes" AS n WHERE n."id" = s."note_id" AND n."group_id" IS NOT NULL;--> statement-breakpoint
 UPDATE "notes" SET "public_slug" = NULL WHERE "group_id" IS NOT NULL AND "public_slug" IS NOT NULL;--> statement-breakpoint
--- 步驟 6：擁有權轉移（必須在去重之前——gate r1 I1／F2）
+-- 步驟 6：擁有權轉移（必須在去重之前）
 ALTER TABLE "notes" ALTER COLUMN "owner_id" DROP NOT NULL;--> statement-breakpoint
 UPDATE "notes" SET "owner_id" = NULL, "prev_slug" = NULL WHERE "group_id" IS NOT NULL;--> statement-breakpoint
 -- 步驟 7：群組內 slug 去重（基底＝現行 slug；-2..-21；重截 ≤60；退 untitled-<uuid8>）

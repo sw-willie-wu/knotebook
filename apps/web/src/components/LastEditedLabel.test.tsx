@@ -1,5 +1,5 @@
 /**
- * #138 Task 4：頁首的「最後編輯」標籤。
+ * #138：頁首的「最後編輯」標籤。
  *
  * ⚠ 時間一律用**既有的絕對日期格式**（`ApiTokensSection.tsx` 的 `formatDate` 同款
  * `toLocaleDateString(i18n.language)`）——repo 裡沒有任何 `Intl.RelativeTimeFormat`
@@ -77,7 +77,7 @@ describe("LastEditedLabel", () => {
     expect(open).toHaveBeenCalledTimes(1);
   });
 
-  // review r1 minor-2：窄視窗要跟同一個 header 裡的 ConnectionBadge 一致——
+  // 窄視窗要跟同一個 header 裡的 ConnectionBadge 一致——
   // max-md:sr-only（螢幕閱讀器讀得到、視覺隱藏），不是 hidden（display:none 整個
   // 從無障礙樹消失）；斷點也是 md，不是 sm。兩形（人形 span、AI 形 button）都要守。
   it("窄視窗：max-md:sr-only（非 hidden），兩形都要守", () => {

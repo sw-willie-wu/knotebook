@@ -1,13 +1,13 @@
 /**
- * 刪資料夾的交易本體（spec docs/superpowers/specs/2026-10-22-folders-design.md §5.7.4、§5.8；§5.4 表「刪資料夾」三列）。
- * S14：只收 `tx`／純資料／測試縫。共編閘門由服務層在交易外開、交易後全收（M1）。
+ * 刪資料夾的交易本體（表「刪資料夾」三列）。
+ * S14：只收 `tx`／純資料／測試縫。共編閘門由服務層在交易外開、交易後全收。
  * 順序：（群組空間）groups KS → 結構鎖 → 子樹資料夾 FU（依 id）→ 重判可見性與管理權 →
  * - 共享私人：`DELETE` root（子資料夾 CASCADE、放置 CASCADE），不經垃圾桶；
- * - 個人／群組：**一段式**依 id 鎖子樹全部筆記（不分狀態，m5）→ 活筆記 ⊄ 已開閘門 → 409 → 活筆記每
- *   `DELETE_FOLDER_TRASH_CHUNK` 篇一批 `trashNotesInTx`（`forbidden` → 403、`notFound` → 409，M2；全有全無）→
+ * - 個人／群組：**一段式**依 id 鎖子樹全部筆記（不分狀態）→ 活筆記 ⊄ 已開閘門 → 409 → 活筆記每
+ *   `DELETE_FOLDER_TRASH_CHUNK` 篇一批 `trashNotesInTx`（`forbidden` → 403、`notFound` → 409；全有全無）→
  *   刷新子樹垃圾桶筆記的路徑快照 → `DELETE` root（子資料夾 CASCADE、筆記 `folder_id` SET NULL）。
- * 子樹一律以述詞（`subtreeFolderIdsSql`）選，不把 id 陣列塞進 `IN`（M15）。失敗一律 throw `TxAbort`。
- * `onlyIfEmpty`（§5.7.4「只刪空資料夾」，鎖序不變、不另取鎖）：重判之後子樹不只 root → 409 `folder_not_empty`；共享私人
+ * 子樹一律以述詞（`subtreeFolderIdsSql`）選，不把 id 陣列塞進 `IN`。失敗一律 throw `TxAbort`。
+ * `onlyIfEmpty`（只刪空資料夾，鎖序不變、不另取鎖）：重判之後子樹不只 root → 409 `folder_not_empty`；共享私人
  * root 有放置 → 409；個人／群組鎖到的筆記有活的 → 409（排在「活筆記 ⊄ 已開閘門」之前）。垃圾桶筆記不算內容。
  * 呼叫端一律 READ COMMITTED（`lock.ts` 檔頭）。
  */
@@ -37,11 +37,11 @@ export interface DeleteFolderInput {
   /** 交易外預讀並已開閘門的活筆記 id（升冪）。 */
   gatedNoteIds: readonly string[];
   lockTimeoutMs: number;
-  /** 只刪空資料夾（§5.7.4）；省略＝false。 */
+  /** 只刪空資料夾；省略＝false。 */
   onlyIfEmpty?: boolean;
 }
 
-/** trashNotesInTx 每批的 id 數（M15：避開協定參數上限）。 */
+/** trashNotesInTx 每批的 id 數（避開協定參數上限）。 */
 export const DELETE_FOLDER_TRASH_CHUNK = 1000;
 
 export async function deleteFolderInTx(tx: Tx, input: DeleteFolderInput, hook?: GroupTestHook): Promise<FolderDeleteResultDto> {
@@ -82,7 +82,7 @@ export async function deleteFolderInTx(tx: Tx, input: DeleteFolderInput, hook?: 
     return { trashedNoteIds: [], deletedFolderIds };
   }
 
-  // 一段式（m5）：活筆記與垃圾桶筆記同一句、依 id 鎖；等鎖後重評 WHERE，剛被搬出子樹的不會被鎖進來。
+  // 一段式：活筆記與垃圾桶筆記同一句、依 id 鎖；等鎖後重評 WHERE，剛被搬出子樹的不會被鎖進來。
   const locked = await tx
     .select({ id: notes.id, live: sql<boolean>`${notes.deletedAt} is null` })
     .from(notes)
@@ -100,11 +100,11 @@ export async function deleteFolderInTx(tx: Tx, input: DeleteFolderInput, hook?: 
   for (let i = 0; i < live.length; i += DELETE_FOLDER_TRASH_CHUNK) {
     const out = await trashNotesInTx(tx, { ids: live.slice(i, i + DELETE_FOLDER_TRASH_CHUNK), by: input.by });
     if (out.forbidden.length > 0) throw new TxAbort(403, "folder_delete_blocked", FOLDER_DELETE_BLOCKED_MESSAGE);
-    // M2：這批已在本交易鎖住，notFound 只剩「重判之後角色才被改掉」；照略過會讓下面的 DELETE 把活筆記 SET NULL 到根層。
+    // 這批已在本交易鎖住，notFound 只剩「重判之後角色才被改掉」；照略過會讓下面的 DELETE 把活筆記 SET NULL 到根層。
     if (out.notFound.length > 0) throw changed();
   }
 
-  // §5.8：子樹裡的垃圾桶筆記（含剛移入的）快照刷新成刪除當下的路徑；之後 `folder_id` 被 SET NULL。
+  // 子樹裡的垃圾桶筆記（含剛移入的）快照刷新成刪除當下的路徑；之後 `folder_id` 被 SET NULL。
   await tx
     .update(notes)
     .set({ trashFolderPath: folderPathJsonSql(NOTES_FOLDER_ID()) })

@@ -26,14 +26,14 @@ const throwingFetch: CustomFetch = async () => {
 };
 
 /**
- * state payload 的 next。Task 11 起 `OidcStatePayload` 是聯集（prove 形沒有 next），直接讀 `p.next` 在
- * `tsconfig.test.json` 下是 TS2339——一律經這個收窄 helper（gate r2 t8-14 I1）。
+ * state payload 的 next。`OidcStatePayload` 是聯集（prove 形沒有 next），直接讀 `p.next` 在
+ * `tsconfig.test.json` 下是 TS2339——一律經這個收窄 helper。
  */
 function nextOf(p: OidcStatePayload | null): string | undefined {
   return p !== null && p.intent === "login" ? p.next : undefined;
 }
 
-describe("GET /api/auth/oidc/login（legacy 入口，#187 B13）", () => {
+describe("GET /api/auth/oidc/login（legacy 入口，#187）", () => {
   it("沒有 legacy provider（舊回呼網址的那一個）→ 302 /login?error=oidc_unavailable；legacy provider 停用 → 同", async () => {
     const { app, db } = await buildTestApp();
     const res = await app.inject({ method: "GET", url: "/api/auth/oidc/login" });
@@ -62,26 +62,26 @@ describe("GET /api/auth/oidc/login（legacy 入口，#187 B13）", () => {
     expect(location.searchParams.get("nonce")).toBeTruthy();
     expect(location.searchParams.get("code_challenge_method")).toBe("S256");
     expect(location.searchParams.get("code_challenge")).toBeTruthy();
-    // #187 §7.1／§14.1-13：legacy provider 沿用舊回呼網址（IdP 端已註冊的那條不必改）。
+    // #187：legacy provider 沿用舊回呼網址（IdP 端已註冊的那條不必改）。
     expect(location.searchParams.get("redirect_uri")).toBe("http://localhost:3000/api/auth/oidc/callback");
 
     const cookie = res.cookies.find(c => c.name === OIDC_STATE_COOKIE);
     expect(cookie).toBeDefined();
     expect(cookie?.httpOnly).toBe(true);
     expect(cookie?.path).toBe("/api/auth/oidc");
-    // MINOR-3（審查 fix round 1）：sameSite/maxAge 先前未被斷言——把其中一個改成
+    // sameSite/maxAge 先前未被斷言——把其中一個改成
     // "none"／改掉秒數（例如 5），既有測試矩陣仍全綠，等於這兩個屬性沒被任何測試守住。
     expect(cookie?.sameSite).toBe("Lax");
     expect(cookie?.maxAge).toBe(600);
 
-    // MINOR-4（審查 fix round 1）：cookie 密封值 ↔ authorize URL 一致——回讀密封的
+    // cookie 密封值 ↔ authorize URL 一致——回讀密封的
     // state/nonce，須與 302 location 的 query 相等，證明兩者確實來自同一次產生。
     const nowEpochSeconds = Math.floor(Date.now() / 1000);
     const sealedPayload = unsealOidcState(config.appSecret, cookie!.value, nowEpochSeconds);
     expect(sealedPayload).not.toBeNull();
     expect(sealedPayload?.state).toBe(location.searchParams.get("state"));
     expect(sealedPayload?.nonce).toBe(location.searchParams.get("nonce"));
-    // #187 §7.3：cookie 綁發出它的 provider 與當下的設定版本；PR1 的 login 一律 intent "login"。
+    // #187：cookie 綁發出它的 provider 與當下的設定版本；login 一律 intent "login"。
     expect(sealedPayload).toMatchObject({ providerId: provider.id, configVersion: 1, intent: "login" });
 
     // 不可預測性：第二次請求必須產生不同的 state（不是固定值/可預測序列）。
@@ -151,7 +151,7 @@ describe("GET /api/auth/oidc/login（legacy 入口，#187 B13）", () => {
   });
 
   it("resolved_issuer 寫回失敗（DB 錯誤）→ 盡力而為：登入照常 302 至 IdP、記一筆 warn（只帶 provider id 與錯誤訊息），不是 oidc_unavailable", async () => {
-    // #187 Task 8（Task 3 審查遺留）：providerConfiguration 的寫回失敗不得變成登入失敗。login 路徑上唯一的 UPDATE 就是
+    // #187：providerConfiguration 的寫回失敗不得變成登入失敗。login 路徑上唯一的 UPDATE 就是
     // recordResolvedIssuer——讓 app 用的 db 的 update 一律 throw，其餘照常。
     const { db } = await freshDb();
     const failingUpdates = new Proxy(db, {
@@ -189,7 +189,7 @@ describe("GET /api/auth/oidc/login（legacy 入口，#187 B13）", () => {
     let res: Awaited<ReturnType<typeof app.inject>> | undefined;
     for (let i = 0; i < 31; i += 1) {
       res = await app.inject({ method: "GET", url: "/api/auth/oidc/login" });
-      // MINOR-5（審查 fix round 1）：只釘住第 31 發只證明「額度真的有上限」，沒證明
+      // 只釘住第 31 發只證明「額度真的有上限」，沒證明
       // 「上限剛好是 30」——這裡額外釘住第 30 發仍成功 302 至 IdP，才真的鎖住「限額恰為 OIDC_LIMIT=30」。
       if (i === 29) {
         expect(res.statusCode).toBe(302);
@@ -224,7 +224,7 @@ describe("GET /api/auth/oidc/login（legacy 入口，#187 B13）", () => {
 // ── #131：login 端點收 ?next=，封進 state cookie ─────────────────────────────
 //
 // 判準只有一道：safeNextPath（與 web 端同一支，含 2048 上限）。**刻意沒有第二道長度
-// 關**——spec §5.3.3 原本要求再壓到 512、理由是 sealed cookie 的 4 KB 限制，實測不成立
+// 關**——原本曾想再壓到 512、理由是 sealed cookie 的 4 KB 限制，實測不成立
 // （見下方「封章後的 cookie 位元組」那案），已拿掉。
 describe("#131 login 端點的 next", () => {
   /** 走一次 login，回傳封進 cookie 的 next（沒有就是 undefined）與兩種 cookie 位元組數。 */
@@ -285,7 +285,7 @@ describe("#131 login 端點的 next", () => {
 
   it("封章後的 cookie 位元組：最壞情況（2048 字元 next）仍遠低於瀏覽器的 4 KB", async () => {
     // 「server 端不需要第二道長度關」這個決策的**量測**守衛。#187 加了 providerId／configVersion／intent 三欄後
-    // 最壞實測 3165 bytes（`name=value`；與 `auth/oidc-state.ts` 的註解同一個量測；Plan 5 時是 3049）——仍低於 3500。
+    // 最壞實測 3165 bytes（`name=value`；與 `auth/oidc-state.ts` 的註解同一個量測）——仍低於 3500。
     const worstCaseNext = "/" + "a".repeat(MAX_NEXT_PATH_LENGTH - 1);
     const { next, cookieBytes, setCookieBytes } = await loginWithNext(
       `/api/auth/oidc/login?next=${encodeURIComponent(worstCaseNext)}`,
@@ -306,9 +306,9 @@ describe("#131 login 端點的 next", () => {
     expect(await sealedNextOf("/api/auth/oidc/login")).toBeUndefined();
   });
 
-  // 五個導回 /login?error=… 的早退出口一律不帶 next（spec round 10 定案：設定錯誤路徑，使用者從 client 重新發起即可；
-  // #187 §7.2 多了「provider id 不是 UUID」那一個）。下面五案一案對一條【推：把任何一條改成帶 next，恰有對應那一案紅——
-  // implementer 以突變確認，見 Step 10 M6】。
+  // 五個導回 /login?error=… 的早退出口一律不帶 next（設定錯誤路徑，使用者從 client 重新發起即可；
+  // #187 多了「provider id 不是 UUID」那一個）。下面五案一案對一條【推：把任何一條改成帶 next，恰有對應那一案紅——
+  // 以突變確認】。
   it("早退不帶 next：沒有 legacy provider", async () => {
     const { app } = await buildTestApp();
     const res = await app.inject({ method: "GET", url: "/api/auth/oidc/login?next=%2Fn%2Falice%2Fmy-note" });
@@ -338,7 +338,7 @@ describe("#131 login 端點的 next", () => {
   it("早退不帶 next：組 authorization URL 失敗（外層 catch）", async () => {
     // metadata 缺 authorization_endpoint 時 getConfiguration **會成功**（它只檢查 jwks_uri 與簽章演算法），要到
     // buildAuthorizationUrl 才拋錯——這是本 harness 造得出來、到得了外層 catch 的路徑。⚠ 本案只斷言「導回且不帶 next」，
-    // **沒有**斷言走的是哪個分支；「確實是外層 catch」是用突變驗的（Step 10 M6）。
+    // **沒有**斷言走的是哪個分支；「確實是外層 catch」是用突變驗的。
     const fakeIdp = createFakeIdp(ISSUER_URL);
     fakeIdp.omitFromMetadata(["authorization_endpoint"]);
     const { app } = await legacyOidcApp(fakeIdp.fetch, ISSUER_URL);

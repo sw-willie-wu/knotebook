@@ -11,7 +11,7 @@
 }
 
 :root {
-  --background: oklch(0.967 0.003 264); /* #f3f4f6 頁底（PR2：卡片浮在更深的底上，淺色頁底改淺灰） */
+  --background: oklch(0.967 0.003 264); /* #f3f4f6 頁底（卡片浮在更深的底上，淺色頁底改淺灰） */
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0); /* #ffffff（不變） */
   --card-foreground: oklch(0.145 0 0);
@@ -23,7 +23,7 @@
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
   --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.94 0.004 264); /* #eaebee（PR2：原 0.97 在新頁底 0.967 上 hover 差 0.003 等於無回饋，調深一階） */
+  --accent: oklch(0.94 0.004 264); /* #eaebee（原 0.97 在新頁底 0.967 上 hover 差 0.003 等於無回饋，調深一階） */
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.985 0 0);
@@ -88,9 +88,9 @@
    守衛：`theme.accent-vars.test.ts` 的 (h)——任何宣告主題變數的規則，選擇器清單裡每一項
    都必須是以 `:root`／`html` 起頭的單一複合選擇器。 */
 :root.dark {
-  --background: oklch(0.172 0.007 258.4); /* #0e1013 頁底（PR2：卡片浮在更深的底上） */
+  --background: oklch(0.172 0.007 258.4); /* #0e1013 頁底（卡片浮在更深的底上） */
   --foreground: oklch(0.982 0.002 247.8); /* #f8f9fa */
-  --card: oklch(0.230 0.012 264.3); /* #1a1d23（PR2：原 0.264，卡面比頁底亮一階） */
+  --card: oklch(0.230 0.012 264.3); /* #1a1d23（原 0.264，卡面比頁底亮一階） */
   --card-foreground: oklch(0.982 0.002 247.8); /* #f8f9fa */
   --popover: oklch(0.264 0.014 267); /* #22252c */
   --popover-foreground: oklch(0.982 0.002 247.8); /* #f8f9fa */
@@ -314,7 +314,7 @@ body {
   /* 2px 透明 border＋content-box clip：thumb 視覺 6px、hover 命中區維持 10px。 */
   --scrollbar-thumb-inset: 2px;
 
-  /* 55%/75% 是對比與低調間的折衷（獨立審查實測 40% 靜止態對比僅 1.69:1）。 */
+  /* 55%/75% 是對比與低調間的折衷（40% 時靜止態對比僅 1.69:1）。 */
   --scrollbar-thumb: color-mix(in oklab, var(--muted-foreground) 55%, transparent);
   --scrollbar-thumb-hover: color-mix(in oklab, var(--muted-foreground) 75%, transparent);
 }
@@ -397,7 +397,7 @@ input[name="share-access"] {
 }
 
 .dark .bn-root[data-color-scheme="dark"] {
-  --bn-colors-editor-background: var(--color-card); /* PR2：編輯器坐在內文卡上，不是頁底 */
+  --bn-colors-editor-background: var(--color-card); /* 編輯器坐在內文卡上，不是頁底 */
   --bn-colors-editor-text: var(--color-foreground);
   --bn-colors-menu-background: var(--color-popover);
   --bn-colors-menu-text: var(--color-popover-foreground);
@@ -459,7 +459,7 @@ input[name="share-access"] {
   text-decoration-line: underline;
 }
 
-/* rev 7（site-links §7.4）：可編輯時觸控長按連結＝開工具列，關掉 iOS 的長按連結選單；唯讀（contenteditable="false"）保留系統選單。
+/* 可編輯時觸控長按連結＝開工具列，關掉 iOS 的長按連結選單；唯讀（contenteditable="false"）保留系統選單。
    套到可編輯編輯器裡所有 `<a>`（一般連結、wikilink，也含 mermaid 圖裡的連結）；Android 的 contextmenu 由 JS 攔（`lib/long-press.ts`）。
    不改成 link 屬性選擇器：`theme.link-guard.test.ts` 規定那種規則恰好兩條。 */
 .bn-editor[contenteditable="true"] a {
@@ -543,7 +543,7 @@ input[name="share-access"] {
    `white-space: pre-wrap`（BlockNote 內建），使用者打的空白都被保留，成了唯一
    可以無限拉伸的伸縮點。
 
-   實測（I7 重量，2026-09-17，**headed** chromium、`file://` 靜態頁、
+   實測（**headed** chromium、`file://` 靜態頁、
    `ARTICLE_COLUMN` 的兩個邊界欄寬 clamp(42.5rem,85%,66rem)——680px 與
    1056px；量法：中英混排段落夾一個不能斷的長識別字，取同一行內連續空白字元
    range 的 `getBoundingClientRect().width` 最大值）：
@@ -607,7 +607,7 @@ input[name="share-access"] {
   border: 1px solid var(--color-border);
 }
 
-/* 語言下拉的閉合態（issue #96 的顏色 → issue #111 的樣式 → 2026-10-15 搬進方塊內）。
+/* 語言下拉的閉合態（issue #96 的顏色 → issue #111 的樣式 → 搬進方塊內）。
    目標是**與 mermaid 的控制鈕同一套邏輯**（`MermaidView.tsx`）：疊在方塊**內的右上角**、
    平常隱形，hover 到整個 block、游標在這塊程式碼裡、或鍵盤聚焦下拉本身才現身。
 
@@ -646,7 +646,7 @@ input[name="share-access"] {
 .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select {
   /* ⚠ **`left:auto` 不可省**。`top`／`right` 由 `.block-control` 給，但內建還有一條
      `left:18px`；少了這行，left 與 right 同時生效、寬度跟著撐開——控制項從方塊左緣 ＋18px
-     一路橫到右上角，整條蓋在第一行程式碼上（2026-10-15 headless Chromium 151 實測：在
+     一路橫到右上角，整條蓋在第一行程式碼上（headless Chromium 151 實測：在
      真實元素的規則上拿掉 `left`，下拉寬 556px、左距 19px）。靜默失敗，守衛釘一條。 */
   left: auto;
   opacity: 0;
@@ -666,7 +666,7 @@ input[name="share-access"] {
   /* 長相與位置不在這裡：與 mermaid 那顆鈕共用下面的 `.block-control`（一份真相）。 */
 }
 
-/* ── Block 控制項的共用視覺與位置（issue #111 → 2026-10-15 搬進方塊內）──────────
+/* ── Block 控制項的共用視覺與位置（issue #111 → 搬進方塊內）──────────
    兩個消費端，一條規則：
      - mermaid 的「編輯／顯示原始碼」鈕（`MermaidView.tsx`，掛 class）
      - codeBlock 的語言下拉（BlockNote 內建 render 出來的原生 `<select>`，我們拿不到
@@ -781,14 +781,14 @@ input[name="share-access"] {
   }
 
   /* 唯讀（disabled）時箭頭一併退場：邊框已由上方的 `:disabled` 規則拆掉（底色刻意留著，
-     理由見該規則），箭頭留著的話 hover 出現的仍是「一顆不能按的下拉」——#111 定案唯讀是純文字
-     語言標籤（公開唯讀頁實看回報的形）。`display:none` 不違反上方「用 opacity
+     理由見該規則），箭頭留著的話 hover 出現的仍是「一顆不能按的下拉」——唯讀時語言標籤是純文字
+     （#111）。`display:none` 不違反上方「用 opacity
      別用 display」的規矩：那條管的是控制項的 Tab 可及性，這裡藏的是**偽元素**、
      且 disabled 的 select 本就不進 Tab 順序。⚠ 蓋不到 Firefox：它無 base-select、
      select 是 OS 原生 widget、原生箭頭仍在（已知殘留——要蓋得對 :disabled 另加
      appearance:none，會與 base-select 這條打架，不值得）。順帶把單一文字項貼回
      右緣（space-between 在單項下退化成 flex-start，箭頭走了會露出 min-width 撐出
-     的空白；mermaid 唯讀鈕是貼右的，#111「同位置」定案）。 */
+     的空白；mermaid 唯讀鈕是貼右的，兩者同位置，#111）。 */
   .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select:disabled {
     justify-content: flex-end;
   }
@@ -804,7 +804,7 @@ input[name="share-access"] {
   }
 
   /* 清單展開中，下拉本體保持現身、點得到。base-select 一展開就把焦點移進被選中的 `<option>`，
-     select 本身不再 `:focus`，而 `:focus-within` 在它身上也不成立（2026-10-15 headless Chromium 151
+     select 本身不再 `:focus`，而 `:focus-within` 在它身上也不成立（headless Chromium 151
      觸控模擬實測：tap 下拉後 activeElement 是 OPTION、select 的 :focus／:focus-within 都是 false、
      :open 是 true）。點下拉那一刻編輯器 blur、caret 屬性拿掉，手指／滑鼠一離開 block，少了這條
      下拉就淡出並變回 pointer-events:none，清單卻還開著。滑鼠 click 與鍵盤 Enter／Space 展開也一樣
@@ -841,8 +841,8 @@ input[name="share-access"] {
      （`--scrollbar-thumb`，與全域捲軸共用，見檔案前段）。
 
      ⚠ 為什麼這裡用標準屬性、而不是像全域那組用 `::-webkit-scrollbar` 偽元素：
-     `::picker(select)::-webkit-scrollbar` 這條鏈**瀏覽器吃得到**（Chrome 152 實測：
-     注入探針後 thumb 立刻改色改寬），但 **Tailwind v4 的 Lightning CSS 解析不了它，
+     `::picker(select)::-webkit-scrollbar` 這條鏈**瀏覽器吃得到**（Chrome 152 上
+     注入這條規則後 thumb 立刻改色改寬），但 **Tailwind v4 的 Lightning CSS 解析不了它，
      整條規則在 build 就被丟掉**（實測 dist 出現 0 次，連 `cssMinify:false` 也一樣
      ——是 Tailwind 的處理階段丟的，不是壓縮器）。所以那條路在這個管線裡送不出去。
 
@@ -881,7 +881,7 @@ input[name="share-access"] {
   }
 }
 
-/* ── 並排排版（spec 2026-10-21 columns-layout §6、§8）─────────────────────────
+/* ── 並排排版 ─────────────────────────
    列＝core 的 .bn-block-column-list（flex），欄＝.bn-block-column（inline style 的 flex:N 1 0 是欄寬比例，這裡不碰）。
    全部錨 .bn-editor 提高特異度：BlockNote 的 CSS 在 lazy chunk、晚於本檔，兩邊都未分層，同特異度我們必輸，
    而且靜默不生效、jsdom 全綠——是否出貨靠 build 後 grep dist/assets/*.css（data-stacked、data-kb-col-kind）。
@@ -920,16 +920,16 @@ input[name="share-access"] {
   max-width: 100%;
 }
 
-/* 版本預覽 diff（spec §8.4）：左邊 3px 色條＋淡底。顏色只在 diff 預覽內（D7「唯一的顏色是綠點」的例外）。
+/* 版本預覽 diff：左邊 3px 色條＋淡底。顏色只在 diff 預覽內。
    選擇器掛在 .kb-diff（DiffEditor 的 wrapper）之下，活編輯器不受影響。字面色、不碰 --brand（#154：.bn-root 內 brand token 會被重設）。
-   `data-diff` 貼在 `.bn-block-outer[data-id]`，`.bn-block` 是它的直接子（Task 8 Step 1 探針印出的 DOM）；並排的欄與列也貼（見下方那組）。
+   `data-diff` 貼在 `.bn-block-outer[data-id]`，`.bn-block` 是它的直接子；並排的欄與列也貼（見下方那組）。
    未分層：與 BlockNote 自己未分層的 CSS 同層比特性。 */
 .kb-diff [data-diff="added"] > .bn-block { border-left: 3px solid oklch(0.72 0.17 152); background: oklch(0.72 0.17 152 / 0.12); }
 .kb-diff [data-diff="deleted"] > .bn-block { border-left: 3px solid oklch(0.63 0.2 25); background: oklch(0.63 0.2 25 / 0.1); text-decoration: line-through; opacity: 0.85; }
 .kb-diff [data-diff="changed"] > .bn-block { border-left: 3px solid oklch(0.8 0.15 85); background: oklch(0.8 0.15 85 / 0.1); }
 .kb-diff [data-diff="moved"] > .bn-block { border-left: 3px dashed oklch(0.65 0.02 260); }
 .kb-diff [data-diff="collapsed"] > .bn-block { color: var(--muted-foreground); font-style: italic; }
-/* 並排的欄與列（columns-layout spec §11.9）：`data-diff` 直接貼在欄／列元素上，它們沒有 `.bn-block` 子層（欄的子節點就是
+/* 並排的欄與列：`data-diff` 直接貼在欄／列元素上，它們沒有 `.bn-block` 子層（欄的子節點就是
    `.bn-block-outer`），上面的 `> .bn-block` 套不到，所以色條畫在元素本身。欄用 inset 陰影＋淡底；列的增刪與移動用虛線外框。
    欄的 moved 虛線畫不出 inset 陰影，改實線同色。
    標記過的欄留 8px 起始內距，色條不壓欄內首字：上面並排段把欄的 padding-inline 歸零（`.bn-editor .bn-block-column:first-child`
@@ -945,8 +945,8 @@ input[name="share-access"] {
 .kb-diff [data-node-type="columnList"][data-diff="deleted"] { outline: 1px dashed oklch(0.63 0.2 25); outline-offset: 4px; }
 .kb-diff [data-node-type="columnList"][data-diff="moved"] { outline: 1px dashed oklch(0.65 0.02 260); outline-offset: 4px; }
 
-/* #263 框選 AI 框的預覽（spec 2026-10-12 §5.3、§5.4；只含被改的區塊，前後上下文 2026-10-13 拿掉）。
-   預覽寬度＝區塊寬度（D7，換行時機與正文一致）：框內唯讀編輯器左右內距歸零，蓋過上游裸 `.bn-editor`（(0,1,0)）與上面窄視窗的
+/* #263 框選 AI 框的預覽（只含被改的區塊，不帶前後上下文）。
+   預覽寬度＝區塊寬度（換行時機與正文一致）：框內唯讀編輯器左右內距歸零，蓋過上游裸 `.bn-editor`（(0,1,0)）與上面窄視窗的
    `.bn-editor.bn-editor`（(0,2,0)）——這裡 (0,3,0)。`.kb-ai-preview` 是 SelectionAiResult 在 DiffEditor 外面包的一層（DiffEditor 的根
    寫死 `.kb-diff`），所以只能用後代選擇器。
    色條改 inset box-shadow：border-left 會吃掉 3px 文字欄、換行就跟正文不同；`.kb-ai-preview .kb-diff [data-diff=…] > .bn-block` 是
@@ -957,7 +957,7 @@ input[name="share-access"] {
 .kb-ai-preview .kb-diff [data-diff="changed"] > .bn-block { border-left: 0; box-shadow: inset 3px 0 0 oklch(0.8 0.15 85); }
 .kb-ai-preview .kb-diff [data-diff="moved"] > .bn-block { border-left: 0; box-shadow: inset 3px 0 0 oklch(0.65 0.02 260); }
 
-/* 並排兩欄（final fix 2）：欄寬只有文章欄的一半左右（1400px 視窗約 363px），上方「內文左右對齊」那組 justify 在這麼窄的欄裡
+/* 並排兩欄：欄寬只有文章欄的一半左右（1400px 視窗約 363px），上方「內文左右對齊」那組 justify 在這麼窄的欄裡
    會把字距拉開（真瀏覽器截圖 11）。只在並排容器 `.kb-diff-split`（VersionPreview 的 diff-split）之下把**沒自訂對齊**的區塊改回
    left（BlockNote 預設）；使用者挑過對齊的區塊帶 `data-text-alignment`，不匹配，照舊。特性與 justify 那組同為 (0,4,0)，
    靠出現在它之後勝出——不得把這段搬到 justify 規則之前（`VersionPreview.test.tsx` 釘住順序）。單欄 diff 與活編輯器同寬，照舊 justify。 */
@@ -966,7 +966,7 @@ input[name="share-access"] {
   hyphens: manual;
 }
 
-/* 並排逐區塊對齊（spec rev 12 §8.4）：VersionPreview 以 inline margin-top 把兩欄同列的頂層區塊推到同一高度。
+/* 並排逐區塊對齊：VersionPreview 以 inline margin-top 把兩欄同列的頂層區塊推到同一高度。
    BlockNote 的 `.bn-block-outer{transition:margin .2s}` 會讓這些 margin 用 0.2s 動畫長出來——期間位置一直在變，
    ResizeObserver 每幀觸發、e2e 量到的是半途值；並排容器內關掉。 */
 .kb-diff-split .bn-block-outer {
@@ -981,7 +981,7 @@ input[name="share-access"] {
   background: repeating-linear-gradient(45deg, transparent 0 6px, oklch(0.6 0.02 260 / 0.12) 6px 12px);
 }
 
-/* #269 §10.2：段落錨點的短暫高亮（useBlockAnchor 在 ProseMirror 管轄外疊一層 .kn-anchor-flash 浮層蓋住該區塊，2 s 後移除——不掛在
+/* #269：段落錨點的短暫高亮（useBlockAnchor 在 ProseMirror 管轄外疊一層 .kn-anchor-flash 浮層蓋住該區塊，2 s 後移除——不掛在
    .bn-block-outer 上：可編輯時 ProseMirror 會重繪被改屬性的節點、高亮跟著消失）。主題色用 --color-brand（理由見 wikilink/spec.tsx 與
    theme.link-guard.test.ts）；prefers-reduced-motion 時不動畫、靜態底色。浮層不吃指標事件。 */
 @keyframes kn-anchor-flash {
