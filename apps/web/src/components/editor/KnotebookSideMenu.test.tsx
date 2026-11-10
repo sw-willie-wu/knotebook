@@ -10,6 +10,9 @@ import { BlockNoteView } from "@blocknote/mantine";
 import i18n from "@/i18n";
 import { noteSchema } from "@/collab/schema";
 import { Toaster } from "@/components/ui/toast";
+import { resetCustomColorsForTest } from "@/lib/custom-colors";
+import { resetRecentColorsForTest } from "@/lib/recent-colors";
+import { layoutHostTrigger, waitForMenuShown } from "@/test/color-menu-host";
 import { P, row, shape, withChildren, type AnyEditor, type PartialBlockLike } from "@/test/columns-fixtures";
 import { KnotebookSideMenu, NotePathContext } from "./KnotebookSideMenu";
 import { HeadingAnchorButtons } from "./HeadingAnchorButtons";
@@ -331,5 +334,239 @@ describe("C7 欄內的側邊選單只留 ⋮⋮（spec §17 #3，Willie 2026-10-
     expect(screen.getByText("Ungroup columns")).toBeInTheDocument();
     expect(screen.getByText("Colors")).toBeInTheDocument();
     expect(screen.getByText("Copy link to block")).toBeInTheDocument();
+  });
+});
+
+describe("⋮⋮ 的顏色子選單與自訂色面板", () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    resetRecentColorsForTest();
+    await i18n.changeLanguage("en");
+  });
+  afterEach(() => {
+    resetCustomColorsForTest();
+    Reflect.deleteProperty(document, "elementsFromPoint");
+    Reflect.deleteProperty(document, "elementFromPoint");
+  });
+
+  function mount(content: PartialBlockLike[]): AnyEditor {
+    const editor = BlockNoteEditor.create({ schema: noteSchema, initialContent: content as never }) as AnyEditor;
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter>
+          <NotePathContext.Provider value="/n/h/note">
+            <BlockNoteView editor={editor} editable sideMenu={false}>
+              <SideMenuController sideMenu={KnotebookSideMenu} />
+            </BlockNoteView>
+          </NotePathContext.Provider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    return editor;
+  }
+
+  const handle = () => screen.getByLabelText("Open block menu");
+  const handleMenu = () => document.querySelector<HTMLElement>(".bn-drag-handle-menu");
+  const colorsItem = () => document.querySelector<HTMLElement>('[data-kb-color-return="dh-colors"]');
+  const item = (test: string) => document.querySelector<HTMLElement>(`[data-test="${test}"]`);
+  const panel = () => document.querySelector<HTMLElement>(".bn-drag-handle-menu .kb-color-panel");
+  const hexInput = () => screen.getByRole("textbox", { name: "Hex color", hidden: true }) as HTMLInputElement;
+  const button = (name: string) => screen.getByRole("button", { name, hidden: true }) as HTMLButtonElement;
+
+  /** 讓 SideMenuView 指向文字為 `text` 的 block，等 ⋮⋮ 出現。 */
+  async function hover(editor: AnyEditor, text: string, id: string): Promise<void> {
+    const el = screen.getByText(text);
+    Object.defineProperty(document, "elementsFromPoint", { configurable: true, value: () => [el] });
+    // 表格的欄寬調整外掛在 mousemove 時呼叫 posAtCoords，要用到 jsdom 沒有的 elementFromPoint
+    Object.defineProperty(document, "elementFromPoint", { configurable: true, value: () => el });
+    act(() => {
+      fireEvent.mouseMove(el, { clientX: 0, clientY: 0 });
+    });
+    expect(editor.getExtension(SideMenuExtension)!.store.state?.block?.id).toBe(id);
+    await screen.findByLabelText("Open block menu");
+  }
+
+  /** 點 ⋮⋮ 開選單，等選單掛上，並讓 Mantine 開選單時排的初始聚焦計時器跑完。 */
+  async function openHandleMenu(): Promise<void> {
+    fireEvent.click(handle());
+    expect(await screen.findByText("Delete")).toBeInTheDocument();
+    await act(() => new Promise<void>((r) => setTimeout(r, 0)));
+  }
+
+  /** 從「Colors」以鍵盤（→）開子選單，等文字段或底色段的「自訂…」出現。 */
+  async function openColorsSub(): Promise<void> {
+    const colors = colorsItem()!;
+    colors.focus();
+    fireEvent.keyDown(colors, { key: "ArrowRight" });
+    await waitFor(() => expect(item("text-color-custom") ?? item("background-color-custom")).not.toBeNull());
+  }
+
+  /** 開 ⋮⋮ → Colors → 該段的「自訂…」（`detail` 0＝鍵盤啟動），等面板掛上。 */
+  async function openPanel(section: "text" | "background"): Promise<void> {
+    await openHandleMenu();
+    await openColorsSub();
+    fireEvent.click(item(`${section}-color-custom`)!, { detail: 0 });
+    await waitFor(() => expect(panel()).not.toBeNull());
+  }
+
+  /** 把手選單已關：dropdown 不在；⋮⋮ 若還在則 aria-expanded 為 false（套色改了文件之後 side menu 可能整個收起）。 */
+  async function expectMenuClosed(): Promise<void> {
+    await waitFor(() => {
+      expect(handleMenu()).toBeNull();
+      expect(screen.queryByLabelText("Open block menu")?.getAttribute("aria-expanded") ?? "false").toBe("false");
+    });
+  }
+
+  /** 等 lazy 載入的 react-colorful 掛好。 */
+  async function sliders(): Promise<void> {
+    await waitFor(() => expect(screen.getAllByRole("slider", { hidden: true })).toHaveLength(2));
+  }
+
+  const TABLE = (id: string): PartialBlockLike =>
+    ({ id, type: "table", content: { type: "tableContent", rows: [{ cells: ["cell a", "cell b"] }] } }) as PartialBlockLike;
+
+  it("DH1：段落的 ⋮⋮ → Colors → 子選單有 Text、Background 兩段與兩個「Custom…」；其他項照舊", async () => {
+    const editor = mount([P("x", "x"), P("target", "t1")]);
+    await hover(editor, "target", "t1");
+    await openHandleMenu();
+    expect(screen.getByText("Copy link to block")).toBeInTheDocument();
+    expect(colorsItem()).toHaveTextContent("Colors");
+    await openColorsSub();
+    expect(screen.getByText("Text")).toBeInTheDocument();
+    expect(screen.getByText("Background")).toBeInTheDocument();
+    expect(item("text-color-custom")).toHaveTextContent("Custom…");
+    expect(item("background-color-custom")).toHaveTextContent("Custom…");
+    expect(document.querySelectorAll('[data-test^="text-color-"]')).toHaveLength(11);
+    expect(document.querySelectorAll('[data-test^="background-color-"]')).toHaveLength(11);
+  });
+
+  it("DH1：子選單的內建色 red（底色）→ 套到該 block、選單關", async () => {
+    const editor = mount([P("x", "x"), P("target", "t1")]);
+    await hover(editor, "target", "t1");
+    await openHandleMenu();
+    await openColorsSub();
+    fireEvent.click(item("background-color-red")!);
+    expect(editor.getBlock("t1")!.props.backgroundColor).toBe("red");
+    await expectMenuClosed();
+  });
+
+  it("DH2：表格的 ⋮⋮ → Colors → 只有 Text 段，沒有任何 background-color-* 項", async () => {
+    const editor = mount([P("x", "x"), TABLE("tb")]);
+    // 前提：表格 block 有 textColor、沒有 backgroundColor
+    expect(Object.keys(editor.getBlock("tb")!.props)).toContain("textColor");
+    expect(Object.keys(editor.getBlock("tb")!.props)).not.toContain("backgroundColor");
+    await hover(editor, "cell a", "tb");
+    await openHandleMenu();
+    await openColorsSub();
+    expect(document.querySelectorAll('[data-test^="text-color-"]')).toHaveLength(11);
+    expect(document.querySelectorAll('[data-test^="background-color-"]')).toHaveLength(0);
+    expect(screen.queryByText("Background")).toBeNull();
+  });
+
+  it("DH3：沒有顏色 prop 的 block（codeBlock）→ ⋮⋮ 選單沒有 Colors", async () => {
+    const editor = mount([P("x", "x"), { id: "cb", type: "codeBlock", content: "let code" } as PartialBlockLike]);
+    // 前提：codeBlock 既沒有 textColor 也沒有 backgroundColor
+    expect(Object.keys(editor.getBlock("cb")!.props)).not.toContain("textColor");
+    expect(Object.keys(editor.getBlock("cb")!.props)).not.toContain("backgroundColor");
+    await hover(editor, "let code", "cb");
+    await openHandleMenu();
+    expect(colorsItem()).toBeNull();
+    expect(screen.queryByText("Colors")).toBeNull();
+  });
+
+  it("DH4：Custom… → 把手選單仍開、內容換成面板；輸入 #00ff00 按 Apply → 該 block 底色寫入、選單關", async () => {
+    const editor = mount([P("x", "x"), P("target", "t1")]);
+    await hover(editor, "target", "t1");
+    await openPanel("background");
+    expect(handle()).toHaveAttribute("aria-expanded", "true");
+    expect(handleMenu()!.contains(panel())).toBe(true);
+    expect(screen.queryByText("Delete")).toBeNull();
+    fireEvent.change(hexInput(), { target: { value: "#00ff00" } });
+    fireEvent.click(button("Apply"));
+    expect(editor.getBlock("t1")!.props.backgroundColor).toBe("#00ff00");
+    await expectMenuClosed();
+  });
+
+  it("DH5：沒有最近色時，面板最後一個 Apply 按 Tab 繞回 Back，把手選單不關", async () => {
+    const editor = mount([P("x", "x"), P("target", "t1")]);
+    await hover(editor, "target", "t1");
+    const restore = layoutHostTrigger(handle());
+    try {
+      await openPanel("text");
+      await waitForMenuShown(() => handleMenu()!);
+      await sliders();
+      fireEvent.change(hexInput(), { target: { value: "#00ff00" } });
+      const apply = button("Apply");
+      const back = button("Back");
+      expect(apply).toBeEnabled();
+      expect(screen.queryAllByRole("button", { name: /^#/, hidden: true })).toHaveLength(0);
+      apply.focus();
+      expect(fireEvent.keyDown(apply, { key: "Tab" })).toBe(false);
+      expect(document.activeElement).toBe(back);
+      expect(handle()).toHaveAttribute("aria-expanded", "true");
+      back.focus();
+      expect(fireEvent.keyDown(back, { key: "Tab", shiftKey: true })).toBe(false);
+      expect(document.activeElement).toBe(apply);
+      await act(() => new Promise<void>((r) => setTimeout(r, 400)));
+      expect(handle()).toHaveAttribute("aria-expanded", "true");
+      expect(panel()).not.toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("DH6：面板開著時該 block 被刪掉 → 不丟例外、文件裡沒有寫入 #00ff00、選單關", async () => {
+    const editor = mount([P("x", "x"), P("target", "t1")]);
+    await hover(editor, "target", "t1");
+    await openPanel("background");
+    fireEvent.change(hexInput(), { target: { value: "#00ff00" } });
+    act(() => editor.removeBlocks(["t1"]));
+    expect(editor.getBlock("t1")).toBeUndefined();
+    await act(() => new Promise<void>((r) => setTimeout(r, 50)));
+    // 選單開著時 side menu 是凍結的，block 被刪掉後 ⋮⋮ 與面板都還在
+    expect(panel()).not.toBeNull();
+    expect(handle()).toHaveAttribute("aria-expanded", "true");
+    expect(() => fireEvent.click(button("Apply"))).not.toThrow();
+    await expectMenuClosed();
+    expect(JSON.stringify(editor.document)).not.toContain("#00ff00");
+  });
+
+  it("DH7：面板的 Back → 回到把手選單的項目列表，焦點在「Colors」", async () => {
+    const editor = mount([P("x", "x"), P("target", "t1")]);
+    await hover(editor, "target", "t1");
+    await openPanel("text");
+    fireEvent.click(button("Back"));
+    await waitFor(() => expect(document.activeElement).toBe(colorsItem()));
+    expect(panel()).toBeNull();
+    expect(screen.getByText("Delete")).toBeInTheDocument();
+    expect(handle()).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("DH8：block 底色是 #ff6600 → 子選單的底色段「Custom…」打勾、default 不打勾；開面板時色碼框是 #ff6600", async () => {
+    const editor = mount([P("x", "x"), { ...P("target", "t1"), props: { backgroundColor: "#ff6600" } } as PartialBlockLike]);
+    expect(editor.getBlock("t1")!.props.backgroundColor).toBe("#ff6600");
+    await hover(editor, "target", "t1");
+    await openHandleMenu();
+    await openColorsSub();
+    // Menu.Item 打勾時右側是勾號 svg，沒打勾時是 `.bn-tick-space` 佔位
+    const isChecked = (el: Element) => el.querySelector(".bn-tick-space") === null && el.querySelector("svg") !== null;
+    expect(isChecked(item("background-color-custom")!)).toBe(true);
+    expect(isChecked(item("background-color-default")!)).toBe(false);
+    fireEvent.click(item("background-color-custom")!, { detail: 0 });
+    await waitFor(() => expect(panel()).not.toBeNull());
+    expect(hexInput().value).toBe("#ff6600");
+  });
+
+  it("DH9：面板開著時按 Escape 關掉把手選單，再開一次 → 回到項目列表，不是面板", async () => {
+    const editor = mount([P("x", "x"), P("target", "t1")]);
+    await hover(editor, "target", "t1");
+    await openPanel("text");
+    fireEvent.keyDown(hexInput(), { key: "Escape" });
+    await expectMenuClosed();
+    await act(() => new Promise<void>((r) => setTimeout(r, 400)));
+    await hover(editor, "target", "t1");
+    await openHandleMenu();
+    expect(panel()).toBeNull();
+    expect(colorsItem()).not.toBeNull();
   });
 });
