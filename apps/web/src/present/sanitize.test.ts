@@ -82,7 +82,7 @@ describe("sanitizeSlideFragment：危險內容（spec §13.1）", () => {
   });
 });
 
-describe("sanitizeSlideFragment：要留下的（spec §13.1）", () => {
+describe("sanitizeSlideFragment：要留下的內容", () => {
   it('data-snapshot-title="Meeting: notes" 保留原值（ADD_URI_SAFE_ATTR，§2.13-2）', () => {
     const span = clean('<span data-inline-content-type="wikilink" data-target-note-id="n1" data-snapshot-title="Meeting: notes">x</span>').querySelector("span")!;
     expect(span.getAttribute("data-snapshot-title")).toBe("Meeting: notes");
@@ -108,6 +108,18 @@ describe("sanitizeSlideFragment：要留下的（spec §13.1）", () => {
     expect(p.getAttribute("data-background-color")).toBe("blue");
     expect(p.getAttribute("data-text-alignment")).toBe("center");
     expect(host.querySelector("span")!.getAttribute("data-value")).toBe("red");
+  });
+
+  it("自訂色碼（#rrggbb）的 data-text-color／data-style-type／data-value 原值保留，style 照舊剝", () => {
+    const host = clean(
+      '<p data-text-color="#ff6600" style="color:#ff6600">a <span data-style-type="textColor" data-value="#ff6600" style="color: rgb(255, 102, 0)">x</span></p>',
+    );
+    const p = host.querySelector("p")!;
+    const span = host.querySelector("span")!;
+    expect(p.getAttribute("data-text-color")).toBe("#ff6600");
+    expect(span.getAttribute("data-style-type")).toBe("textColor");
+    expect(span.getAttribute("data-value")).toBe("#ff6600");
+    expect(host.querySelector("[style]")).toBeNull();
   });
 
   it("http(s)、mailto、相對網址的 href 保留；https src 保留", () => {
