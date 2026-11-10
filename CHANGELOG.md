@@ -20,6 +20,10 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 - The import of `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET` on first start, a stopgap left over from the sign-in providers of v0.6 (#187).
 
+### Fixed
+
+- **The move-into-group confirmation now says the note's version history is cleared, and the copy confirmations say it isn't copied.** Both the single-note and the multi-select dialogs, in English and Chinese (#246).
+
 ## [0.15.0] - 2026-11-10
 
 ### Upgrade notes
