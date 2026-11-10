@@ -83,10 +83,14 @@ async function hoverCell(editor: AnyEditor, text: string): Promise<void> {
   await waitFor(() => expect(rowHandle()).not.toBeNull());
 }
 
-/** 點把手開根選單，等 dropdown 掛上並讓 Mantine 開選單時排的初始聚焦計時器跑完。 */
+/**
+ * 點把手開根選單，等這個把手自己的 dropdown 掛上，並讓 Mantine 開選單時排的初始聚焦計時器跑完。
+ * 要等 `menuOf(trigger)`，不能只等任一個 `.bn-table-handle-menu`：另一個把手淡出時留下的 HTML 複本也帶這個 class，
+ * 會在自己的 dropdown 掛上之前就讓等待成立。
+ */
 async function openMenu(trigger: HTMLElement): Promise<void> {
   fireEvent.click(trigger);
-  await waitFor(() => expect(tableMenu()).not.toBeNull());
+  await waitFor(() => expect(menuOf(trigger)).not.toBeNull());
   await wait(0);
 }
 
@@ -146,8 +150,9 @@ describe("表格把手的顏色選單", () => {
     await waitFor(() => expect(cellHandles().length).toBeGreaterThan(0));
     await wait(50);
     expect(cellHandles()).toHaveLength(1);
-    await openMenu(cellHandles()[0]!);
-    const menu = tableMenu()!;
+    const cellTrigger = cellHandles()[0]!;
+    await openMenu(cellTrigger);
+    const menu = menuOf(cellTrigger)!;
     expect(within(menu).getAllByRole("menuitem", { hidden: true }).map((el) => el.textContent)).toEqual(["Colors"]);
     expect(within(menu).queryByText("Split cell")).toBeNull();
     expect(colorsItem()).not.toBeNull();
@@ -156,8 +161,9 @@ describe("表格把手的顏色選單", () => {
   it("TM1 列把手選單：Delete row、Add row above、Add row below、Colors，沒有標題列／欄切換", async () => {
     const editor = mount();
     await hoverCell(editor, "a1");
-    await openMenu(rowHandle()!);
-    const texts = within(tableMenu()!)
+    const rowTrigger = rowHandle()!;
+    await openMenu(rowTrigger);
+    const texts = within(menuOf(rowTrigger)!)
       .getAllByRole("menuitem", { hidden: true })
       .map((el) => el.textContent);
     expect(texts).toEqual(["Delete row", "Add row above", "Add row below", "Colors"]);
@@ -168,10 +174,12 @@ describe("表格把手的顏色選單", () => {
   it("TM2 列把手的 dropdown 有 bn-table-handle-menu、沒有 bn-menu-dropdown；儲存格選單兩者都有", async () => {
     const editor = mount();
     await hoverCell(editor, "a1");
-    await openMenu(rowHandle()!);
-    expect(tableMenu()!.classList.contains("bn-table-handle-menu")).toBe(true);
-    expect(tableMenu()!.classList.contains("bn-menu-dropdown")).toBe(false);
-    fireEvent.keyDown(tableMenu()!, { key: "Escape" });
+    const rowTrigger = rowHandle()!;
+    await openMenu(rowTrigger);
+    const rowMenu = menuOf(rowTrigger)!;
+    expect(rowMenu.classList.contains("bn-table-handle-menu")).toBe(true);
+    expect(rowMenu.classList.contains("bn-menu-dropdown")).toBe(false);
+    fireEvent.keyDown(rowMenu, { key: "Escape" });
     await expectMenuClosed(rowHandle);
     await wait(400);
     await hoverCell(editor, "a1");
