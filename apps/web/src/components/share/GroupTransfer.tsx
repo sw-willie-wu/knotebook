@@ -617,6 +617,7 @@ function MoveDialog({ note, target, onClose, returnFocusRef }: TransferDialogPro
         {token && <li>{t("share.move.moveClosesPublicLink")}</li>}
         <li>{t("share.move.moveUrlChange")}</li>
         <li>{t("share.move.moveOwnership")}</li>
+        <li>{t("share.move.moveClearsVersions")}</li>
       </ul>
     </DialogShell>
   );

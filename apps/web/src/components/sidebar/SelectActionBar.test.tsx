@@ -401,6 +401,7 @@ describe("SelectActionBar（PR-2c T5）", () => {
       "Any public links are turned off.",
       "Their addresses change to /g/…; the old addresses forward to the new ones for a month.",
       "You will no longer own them — what you can do with them then depends on your role in the group.",
+      "Their version history is cleared and doesn't come back.",
     ]);
     const submit = within(confirm).getByRole("button", { name: "Move into group" });
     expect(submit).toHaveClass("bg-destructive");
@@ -471,7 +472,7 @@ describe("SelectActionBar（PR-2c T5）", () => {
     const confirm = await pickDestination("My notes");
     expect(confirm).toHaveAccessibleName("Copy to my notes");
     expect(confirm).toHaveAccessibleDescription(
-      "This creates a copy in My notes; the original stays as it is. AI edit history and backlinks are not copied.",
+      "This creates a copy in My notes; the original stays as it is. AI edit history, version history and backlinks are not copied.",
     );
     const submit = within(confirm).getByRole("button", { name: "Copy to my notes" });
     expect(submit).not.toHaveClass("bg-destructive");
@@ -491,7 +492,7 @@ describe("SelectActionBar（PR-2c T5）", () => {
     const confirm = await pickDestination("A");
     expect(confirm).toHaveAccessibleName("Copy into group");
     expect(confirm).toHaveAccessibleDescription(
-      'This creates 2 copies in "A"; the originals stay as they are. AI edit history and backlinks are not copied.',
+      'This creates 2 copies in "A"; the originals stay as they are. AI edit history, version history and backlinks are not copied.',
     );
     fireEvent.click(within(confirm).getByRole("button", { name: "Copy into group" }));
     expect(await screen.findByText('Copied 2 notes into "A"', { exact: true })).toBeInTheDocument();
@@ -1407,7 +1408,7 @@ describe("SelectActionBar（PR-3b-2 T6b：資料夾）", () => {
     fireEvent.click(within(picker).getByRole("button", { name: "Make a copy" }));
     const confirm = await screen.findByRole("dialog", { name: "Make a copy" });
     expect(confirm).toHaveAccessibleDescription(
-      "This creates a copy where the original is; the original stays as it is. AI edit history and backlinks are not copied.",
+      "This creates a copy where the original is; the original stays as it is. AI edit history, version history and backlinks are not copied.",
     );
     fireEvent.click(within(confirm).getByRole("button", { name: "Make a copy" }));
     expect(await screen.findByText("Copied 1 note to My notes", { exact: true })).toBeInTheDocument();
