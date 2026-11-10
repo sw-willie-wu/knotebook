@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useLocation } from "react-router";
 import {
@@ -13,6 +13,7 @@ import {
 } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
 import { useDeleteShare, usePutShare, useShares } from "@/api/shares";
+import { useSession } from "@/auth/useSession";
 import {
   useClearPublicSlug,
   useCreatePublicLink,
@@ -79,6 +80,10 @@ function ShareRow({ noteId, share }: { noteId: string; share: ShareDto }) {
   const { t } = useTranslation();
   const putShare = usePutShare(noteId);
   const deleteShare = useDeleteShare(noteId);
+  const myUserId = useSession().user?.id;
+  // #395：移除先行內確認（比照「改成私人」的 D3 確認列）
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
+  const trashRef = useRef<HTMLButtonElement>(null);
 
   async function handleRoleChange(role: ShareRole): Promise<void> {
     try {
@@ -92,12 +97,13 @@ function ShareRow({ noteId, share }: { noteId: string; share: ShareDto }) {
     try {
       await deleteShare.mutateAsync(share.userId);
     } catch (err) {
+      setConfirmingRemove(false);
       toast({ title: errorMessage(t, err), variant: "destructive" });
     }
   }
 
   return (
-    <li className="flex items-center gap-2">
+    <li className="flex flex-wrap items-center gap-2">
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium">{share.displayName}</p>
         <p className="truncate text-xs text-muted-foreground">{share.email}</p>
@@ -113,15 +119,35 @@ function ShareRow({ noteId, share }: { noteId: string; share: ShareDto }) {
         <option value="editor">{t("roles.editor")}</option>
       </select>
       <Button
+        ref={trashRef}
         type="button"
         variant="ghost"
         size="icon"
         aria-label={t("share.remove", { email: share.email })}
         disabled={deleteShare.isPending}
-        onClick={() => void handleRemove()}
+        onClick={() => setConfirmingRemove(true)}
       >
         <Trash className="h-4 w-4" />
       </Button>
+      {confirmingRemove && (
+        // role="alert"：同「改成私人」的確認列——破壞性確認憑空長出來，要告知鍵盤／AT 使用者。
+        <div role="alert" className="w-full space-y-2 rounded-md border border-destructive/40 p-2">
+          <p className="text-sm break-words">
+            {t(share.userId === myUserId ? "share.removeSelfConfirm" : "share.removeConfirm", { email: share.email })}
+          </p>
+          <div className="flex gap-2">
+            <Button type="button" variant="destructive" size="sm" disabled={deleteShare.isPending} onClick={() => void handleRemove()}>
+              {t("share.removeConfirmButton")}
+            </Button>
+            <Button type="button" variant="outline" size="sm" disabled={deleteShare.isPending} onClick={() => {
+                setConfirmingRemove(false);
+                trashRef.current?.focus(); // 確認列卸載，焦點不能掉到 body
+              }}>
+              {t("home.cancel")}
+            </Button>
+          </div>
+        </div>
+      )}
     </li>
   );
 }

@@ -14,6 +14,7 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ### Changed
 
+- **Removing a member asks for confirmation.** The trash button in a group's member table and in a note's share panel used to remove the person at once; now it first shows a confirmation with their email. In a group, removing yourself says you will lose access and can't add yourself back, and takes you out of the group's panel the way **Leave group** does. The last Admin's button stays disabled (#395).
 - **Signing out signs out only that browser, and its cookie stops working on the server.** Before, signing out only cleared the cookie in the browser, so a copy of it kept working for up to 7 days, and the only way to end a session was to change the password, which signed out every browser. Now each sign-in is a session the server keeps, and signing out (or signing in to the same account again in the same browser) deletes it: the account's other browsers stay signed in, and a note the signed-out browser still had open stops accepting its edits within seconds. Changing or adding a password still signs out every other browser, resetting it with a link signs out every other browser too, and disabling an account ends all of its sessions. Expired sessions are deleted as people sign in.
 
 ### Removed

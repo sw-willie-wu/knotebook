@@ -76,6 +76,9 @@
     "noShares": "尚未與任何人分享。",
     "roleLabel": "{{email}} 的角色",
     "remove": "移除 {{email}}",
+    "removeConfirm": "要把 {{email}} 從這篇筆記移除嗎？對方將失去這篇筆記的存取權。",
+    "removeSelfConfirm": "要把你自己（{{email}}）從這篇筆記移除嗎？你將失去這篇筆記的存取權，且無法自行加回。",
+    "removeConfirmButton": "移除",
     "emailPlaceholder": "電子郵件地址",
     "newRoleLabel": "新分享的角色",
     "add": "新增",
@@ -494,6 +497,14 @@
       "acknowledge": "我了解筆記會永久刪除",
       "adminsUnavailable": "無法載入群組的管理員。",
       "confirm": "刪除群組"
+    },
+    "removeMember": {
+      "title": "移除成員？",
+      "description": "{{email}} 將失去「{{name}}」中筆記的存取權。",
+      "confirm": "移除",
+      "selfTitle": "移除你自己？",
+      "selfDescription": "你（{{email}}）將失去「{{name}}」中筆記的存取權，且無法自行加回。",
+      "selfConfirm": "移除自己"
     },
     "leave": {
       "title": "退出群組？",

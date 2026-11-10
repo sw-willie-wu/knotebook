@@ -90,7 +90,11 @@ test("admin 建第二使用者 → 分享筆記 → 撤銷 → SLA 內失去存�
 
     // ── admin 撤銷（DELETE share）──────────────────────────────────
     await shareDialog.getByRole("button", { name: `Remove ${secondEmail}` }).click();
-    await expect(shareDialog.getByText(secondEmail)).not.toBeVisible();
+    // #395：移除先有行內確認
+    await shareDialog.getByRole("alert").getByRole("button", { name: "Remove", exact: true }).click();
+    // 等那一列的移除鈕消失（確認列的文字也含 email，getByText 會 strict-mode 雙命中）
+    await expect(shareDialog.getByRole("button", { name: `Remove ${secondEmail}` })).toHaveCount(0);
+    await expect(shareDialog.getByText(secondEmail, { exact: true })).not.toBeVisible();
 
     // ── §10 SLA：≤10 秒，第二使用者頁面出現 accessRevoked toast＋被導回 "/" ──
     // Radix Toast 額外渲染一個 `role="status"` live-region 播報「Notification …」
