@@ -390,7 +390,8 @@
       "groups": "群組",
       "storage": "儲存方案",
       "ai": "AI 代理",
-      "auth": "登入"
+      "auth": "登入",
+      "limits": "站台限制"
     }
   },
   "theme": {

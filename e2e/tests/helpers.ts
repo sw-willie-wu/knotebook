@@ -269,13 +269,14 @@ export async function openSiteAdmin(page: Page): Promise<Locator> {
 }
 
 /** 站台管理 modal 左卡項次（nav 的可及名稱＝面板標題「Site admin」）。 */
-export async function adminNav(page: Page, item: "Users" | "Groups" | "Sign-in" | "Storage plans" | "AI agents"): Promise<void> {
+export async function adminNav(page: Page, item: "Users" | "Groups" | "Sign-in" | "Storage plans" | "AI agents" | "Site limits"): Promise<void> {
   const urls = {
     Users: /\/admin\/users$/,
     Groups: /\/admin\/groups$/,
     "Sign-in": /\/admin\/login$/,
     "Storage plans": /\/admin\/storage$/,
     "AI agents": /\/admin\/ai$/,
+    "Site limits": /\/admin\/limits$/,
   };
   await page.getByRole("navigation", { name: "Site admin" }).getByRole("link", { name: item, exact: true }).click();
   await expect(page).toHaveURL(urls[item]);

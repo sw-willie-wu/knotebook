@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { BlockNoteEditor } from "@blocknote/core";
 import { BlockNoteContext } from "@blocknote/react";
-import { MAX_UPLOAD_BYTES } from "@knotebook/shared";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { AuthConfigDto } from "@knotebook/shared";
+import { AUTH_CONFIG_QUERY_KEY } from "@/api/authConfig";
 import i18n from "@/i18n";
 import { noteSchema } from "@/collab/schema";
 import { createFilePanel } from "./FilePanel";
@@ -24,25 +26,46 @@ function insertBlock(editor: BlockNoteEditor<any, any, any>, type: string): stri
   return editor.insertBlocks([{ type } as never], first, "after")[0]!.id;
 }
 
+/** 面板的上傳 tab 讀 `useAuthConfig()`：測試用的 config 預先放進快取，前驗上限才不必等 fetch。 */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 同上
-function renderPanel(editor: BlockNoteEditor<any, any, any>, noteId: string, blockId: string) {
+function renderPanel(editor: BlockNoteEditor<any, any, any>, noteId: string, blockId: string, config: Partial<AuthConfigDto> = {}) {
   const MyFilePanel = createFilePanel(noteId);
-  return render(
-    <BlockNoteContext.Provider value={{ editor }}>
-      <MyFilePanel blockId={blockId} />
-    </BlockNoteContext.Provider>,
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  queryClient.setQueryData(AUTH_CONFIG_QUERY_KEY, config);
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <BlockNoteContext.Provider value={{ editor }}>
+        <MyFilePanel blockId={blockId} />
+      </BlockNoteContext.Provider>
+    </QueryClientProvider>,
   );
+  return { ...view, queryClient };
+}
+
+/** `fetch` 樁：`GET /api/auth/config` 回 `config`，其餘（上傳）交給 `upload`；回傳 `upload`，斷言只數上傳端點。 */
+function stubFetch(upload: ReturnType<typeof vi.fn>, config: Partial<AuthConfigDto> | (() => Partial<AuthConfigDto>) = {}) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((url: string, init?: RequestInit) =>
+      url === "/api/auth/config"
+        ? Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(typeof config === "function" ? config() : config) }))
+        : upload(url, init),
+    ),
+  );
+  return upload;
 }
 
 function pngFile(name = "a.png"): File {
   return new File([new Uint8Array([1, 2, 3])], name, { type: "image/png" });
 }
 
-/** 建一個「聲稱」超過 `MAX_UPLOAD_BYTES` 的 File——不真的配置那麼多記憶體（同
- * `upload-file.test.ts` 的 `oversizedFile` 手法）。 */
-function oversizedPngFile(): File {
+const ONE_MIB = 1048576;
+
+/** 建一個「聲稱」大小為 `size` 位元組的 File——不真的配置那麼多記憶體（同
+ * `upload-file.test.ts` 的 `fileOfSize` 手法）。 */
+function pngFileOfSize(size: number): File {
   const f = pngFile();
-  Object.defineProperty(f, "size", { value: MAX_UPLOAD_BYTES + 1 });
+  Object.defineProperty(f, "size", { value: size });
   return f;
 }
 
@@ -93,7 +116,7 @@ describe("FilePanel（Task 14：image block 恢復＋自家 Upload/Embed tab）"
       const fetchMock = vi
         .fn()
         .mockResolvedValue(fakeResponse({ ok: true, status: 201, json: () => Promise.resolve({ id: "u1", url: "/api/uploads/u1" }) }));
-      vi.stubGlobal("fetch", fetchMock);
+      stubFetch(fetchMock);
 
       const blockId = insertBlock(editor, "image");
       renderPanel(editor, "note-1", blockId);
@@ -119,7 +142,7 @@ describe("FilePanel（Task 14：image block 恢復＋自家 Upload/Embed tab）"
           json: () => Promise.resolve({ error: { code: "unsupported_media_type", message: "nope" } }),
         }),
       );
-      vi.stubGlobal("fetch", fetchMock);
+      stubFetch(fetchMock);
 
       const blockId = insertBlock(editor, "image");
       renderPanel(editor, "note-1", blockId);
@@ -140,7 +163,7 @@ describe("FilePanel（Task 14：image block 恢復＋自家 Upload/Embed tab）"
     });
 
     it("上傳被配額拒（帶數字）：行內兩行——「Storage is full」＋用量句；block 不動", async () => {
-      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(fakeResponse({
+      stubFetch(vi.fn().mockResolvedValue(fakeResponse({
         ok: false, status: 409,
         json: () => Promise.resolve({ error: { code: "storage_quota_exceeded", message: "x" }, storage: { incomingBytes: 3, usedBytes: 1572864, quotaBytes: 1048576 } }),
       })));
@@ -153,7 +176,7 @@ describe("FilePanel（Task 14：image block 恢復＋自家 Upload/Embed tab）"
     });
 
     it("上傳被配額拒（沒數字）：行內用通用句", async () => {
-      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(fakeResponse({
+      stubFetch(vi.fn().mockResolvedValue(fakeResponse({
         ok: false, status: 409,
         json: () => Promise.resolve({ error: { code: "storage_quota_exceeded", message: "x" }, storage: { incomingBytes: null } }),
       })));
@@ -164,28 +187,65 @@ describe("FilePanel（Task 14：image block 恢復＋自家 Upload/Embed tab）"
       expect(screen.getByRole("alert")).toHaveTextContent("This space has no room for the file. Ask its owner or a site admin.");
     });
 
-    it("上傳失敗（檔案過大，client 前驗 reject，不打 fetch）：顯示 errors.file_too_large，不是誤導的通用「請再試一次」", async () => {
-      const fetchMock = vi.fn();
-      vi.stubGlobal("fetch", fetchMock);
+    it("上傳失敗（檔案超過 config 的 maxUploadBytes，client 前驗 reject，不打上傳端點）：顯示 errors.file_too_large，不是誤導的通用「請再試一次」", async () => {
+      const config = { maxUploadBytes: ONE_MIB };
+      const uploadMock = stubFetch(vi.fn(), config);
 
       const blockId = insertBlock(editor, "image");
-      renderPanel(editor, "note-1", blockId);
+      renderPanel(editor, "note-1", blockId, config);
 
       const input = screen.getByLabelText("Choose an image file to upload");
-      fireEvent.change(input, { target: { files: [oversizedPngFile()] } });
+      fireEvent.change(input, { target: { files: [pngFileOfSize(ONE_MIB * 1.5)] } });
 
       await waitFor(() => {
         expect(screen.getByRole("alert")).toHaveTextContent("That file is too large to upload.");
       });
-      expect(fetchMock).not.toHaveBeenCalled();
+      expect(uploadMock).not.toHaveBeenCalled();
       expect((editor.getBlock(blockId)!.props as Record<string, unknown>).url).toBe("");
     });
 
-    it("上傳失敗（非 ApiFail，例如網路層例外）：落回通用文案", async () => {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn().mockRejectedValue(new TypeError("Failed to fetch")),
+    it("config 沒有 maxUploadBytes：不前驗，大檔照發上傳", async () => {
+      const uploadMock = stubFetch(
+        vi.fn().mockResolvedValue(fakeResponse({ ok: true, status: 201, json: () => Promise.resolve({ id: "u1", url: "/api/uploads/u1" }) })),
+        {},
       );
+
+      const blockId = insertBlock(editor, "image");
+      renderPanel(editor, "note-1", blockId, {});
+
+      fireEvent.change(screen.getByLabelText("Choose an image file to upload"), { target: { files: [pngFileOfSize(ONE_MIB * 1.5)] } });
+
+      await waitFor(() => {
+        expect((editor.getBlock(blockId)!.props as Record<string, unknown>).url).toBe("/api/uploads/u1");
+      });
+      expect(uploadMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("上限變了不必重掛：config 快取更新後，同一個面板下一次選檔就用新上限", async () => {
+      let serverLimit = ONE_MIB; // 掛載時的重抓也讀得到「server 現在的值」，不會把快取蓋回舊值
+      const uploadMock = stubFetch(
+        vi.fn().mockResolvedValue(fakeResponse({ ok: true, status: 201, json: () => Promise.resolve({ id: "u1", url: "/api/uploads/u1" }) })),
+        () => ({ maxUploadBytes: serverLimit }),
+      );
+      const blockId = insertBlock(editor, "image");
+      const { queryClient } = renderPanel(editor, "note-1", blockId, { maxUploadBytes: ONE_MIB });
+      const input = screen.getByLabelText("Choose an image file to upload");
+
+      fireEvent.change(input, { target: { files: [pngFileOfSize(ONE_MIB * 1.5)] } });
+      await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("That file is too large to upload."));
+      expect(uploadMock).not.toHaveBeenCalled();
+
+      serverLimit = ONE_MIB * 2;
+      await act(async () => {
+        queryClient.setQueryData(AUTH_CONFIG_QUERY_KEY, { maxUploadBytes: serverLimit });
+        await new Promise(resolve => setTimeout(resolve, 0));
+      });
+      fireEvent.change(input, { target: { files: [pngFileOfSize(ONE_MIB * 1.5)] } });
+      await waitFor(() => expect(uploadMock).toHaveBeenCalledTimes(1));
+    });
+
+    it("上傳失敗（非 ApiFail，例如網路層例外）：落回通用文案", async () => {
+      stubFetch(vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
 
       const blockId = insertBlock(editor, "image");
       renderPanel(editor, "note-1", blockId);

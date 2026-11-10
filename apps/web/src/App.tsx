@@ -35,7 +35,7 @@ const NotePage = lazy(() => import("./pages/NotePage"));
 
 /**
  * #201：首包又長到逼近 700 KiB 上限，把「不是每次都會用到」的頁面也切出去——
- * - 站台管理 modal 的五個區塊（聚合模組 `components/admin/AdminSections`，一個 chunk；外殼 `AdminModal` 在首包，#247）；
+ * - 站台管理 modal 的六個區塊（聚合模組 `components/admin/AdminSections`，一個 chunk；外殼 `AdminModal` 在首包，#247）；
  * - 設定 modal 的六個頁面與群組 modal 的區塊（#247；後者共用一個 chunk，見 `GroupMembersSection` 那段）（外殼 `SettingsModal`／`GroupModal` 留在首包：modal-over-background 機制與
  *   開 modal 時外框立刻出現都靠它，只有內容區等 chunk）；
  * - 登入流程的五頁：註冊、帳號連結、重設密碼（#286）、強制改密碼、OAuth 同意頁。
@@ -87,13 +87,14 @@ const GroupAboutSection = lazy(() =>
   import("./components/groups/GroupSections").then(m => ({ default: m.GroupAboutSection })),
 );
 /**
- * #247 §7.1：站台管理 modal 的五個區塊來自同一個聚合模組 `components/admin/AdminSections`（一個 chunk）；外殼 `AdminModal` 在首包。
+ * #247 §7.1：站台管理 modal 的六個區塊來自同一個聚合模組 `components/admin/AdminSections`（一個 chunk）；外殼 `AdminModal` 在首包。
  */
 const AdminUsersSection = lazy(() => import("./components/admin/AdminSections").then(m => ({ default: m.AdminUsersSection })));
 const AdminGroupsSection = lazy(() => import("./components/admin/AdminSections").then(m => ({ default: m.AdminGroupsSection })));
 const AdminLoginSection = lazy(() => import("./components/admin/AdminSections").then(m => ({ default: m.AdminLoginSection })));
 const AdminStorageSection = lazy(() => import("./components/admin/AdminSections").then(m => ({ default: m.AdminStorageSection })));
 const AdminAiSection = lazy(() => import("./components/admin/AdminSections").then(m => ({ default: m.AdminAiSection })));
+const AdminLimitsSection = lazy(() => import("./components/admin/AdminSections").then(m => ({ default: m.AdminLimitsSection })));
 
 /**
  * 整頁 lazy route 的 element 外包（#201）：boundary＋Suspense＋beacon，結構與 NoteRoute 同款
@@ -350,6 +351,7 @@ export function AppRoutes() {
                 <Route path="/admin/login" element={<AdminLoginSection />} />
                 <Route path="/admin/storage" element={<AdminStorageSection />} />
                 <Route path="/admin/ai" element={<AdminAiSection />} />
+                <Route path="/admin/limits" element={<AdminLimitsSection />} />
               </Route>
               <Route path="/admin/*" element={<Navigate to="/admin/users" replace />} />
             </Route>

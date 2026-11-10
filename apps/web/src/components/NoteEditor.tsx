@@ -131,6 +131,8 @@ export interface NoteEditorOptionsInput {
    * 上限（已提示），這次不放。late-bound（上限設定在編輯器建立之後才載入）。省略＝不檢查。
    */
   sizeGuard?: (incomingBytes: number) => boolean;
+  /** 單檔上傳上限（位元組）的 getter：上傳前驗在每次上傳當下才讀（late-bound：設定在編輯器建立之後才載入、可被調整）。省略或回傳 `undefined`＝不前驗。 */
+  maxUploadBytes?: () => number | undefined;
 }
 
 /**
@@ -151,6 +153,7 @@ export function buildNoteEditorOptions({
   siteLinks,
   canSendCursor,
   sizeGuard,
+  maxUploadBytes,
 }: NoteEditorOptionsInput) {
   return withCollaboration({
     // schema／字典／collaboration（fragment 名、provider 形狀）抽在共用底層——公開
@@ -166,7 +169,7 @@ export function buildNoteEditorOptions({
     // BlockNote 自己的 paste/drop 外掛會呼叫 `handleFileInsertion`，進而呼叫這裡的
     // `uploadFile`——`createUploadFile` 保證絕不 reject（見該模組檔頭），失敗時自行
     // toast + 清除 placeholder block，`handleFileInsertion` 完全不必知道失敗發生過。
-    uploadFile: createUploadFile({ noteId, editorRef, translate }),
+    uploadFile: createUploadFile({ noteId, editorRef, translate, maxUploadBytes }),
     // issue #12：渲染端的 URL 守衛。UI 的 Embed tab 早就擋過一次危險 scheme，但筆記內容是
     // Yjs 文件——**任何有 editor 權限的協作者都能直接寫 block props**，繞過整條 UI。BlockNote
     // 對 image/video/audio 的預覽、以及工具列的「開啟／下載」按鈕，都會先過 `resolveFileUrl`
@@ -368,6 +371,8 @@ export interface NoteEditorProps {
   notePath?: string;
   /** 筆記大小上限（server `NOTE_MAX_BYTES`，`GET /api/auth/config`）：貼上、拖放、站內 AI 套用之前的檢查。還沒載入＝不檢查。 */
   noteMaxBytes?: number;
+  /** 單檔上傳上限（`GET /api/auth/config` 的 `maxUploadBytes`）：貼上、拖放圖片的上傳前驗。還沒載入＝不前驗。 */
+  maxUploadBytes?: number;
 }
 
 /**
@@ -401,6 +406,7 @@ export function NoteEditor({
   onCursorScroller,
   notePath,
   noteMaxBytes,
+  maxUploadBytes,
 }: NoteEditorProps) {
   const { t, i18n } = useTranslation();
   const [columnEl, setColumnEl] = useState<HTMLElement | null>(null);
@@ -438,6 +444,9 @@ export function NoteEditor({
   // 上限與文件都經 ref 讀當下的值（編輯器建立時就固定的閉包）。
   const noteMaxBytesRef = useRef(noteMaxBytes);
   noteMaxBytesRef.current = noteMaxBytes;
+  // 上傳前驗的上限同理：`uploadFile` 在編輯器建立時就固定，直接傳值會停在第一次 render 的值。
+  const maxUploadBytesRef = useRef(maxUploadBytes);
+  maxUploadBytesRef.current = maxUploadBytes;
   const docRef = useRef(doc);
   docRef.current = doc;
   const [sizeGuard] = useState(() =>
@@ -475,6 +484,7 @@ export function NoteEditor({
       siteLinks: siteLinksRef,
       canSendCursor: () => editableRef.current,
       sizeGuard,
+      maxUploadBytes: () => maxUploadBytesRef.current,
     }),
     // 語言不進 deps：字典只在建立時讀一次，換語言要重開頁面才生效（換成
     // 「重建 editor」的代價是共編綁定重掛，不值得）。noteId 同理不進 deps——`useCollab`

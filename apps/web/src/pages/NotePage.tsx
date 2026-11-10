@@ -372,7 +372,9 @@ export default function NotePage() {
   });
   // 筆記大小上限（server `NOTE_MAX_BYTES`）：編輯器在貼上、拖放、站內 AI 套用之前自己擋（`lib/note-size-guard.ts`）；已經超過的筆記
   // 給一個不擋編輯的提示（同步後算一次，之後節流重算）。
-  const noteMaxBytes = useAuthConfig().data?.noteMaxBytes;
+  const authConfigData = useAuthConfig().data;
+  const noteMaxBytes = authConfigData?.noteMaxBytes;
+  const maxUploadBytes = authConfigData?.maxUploadBytes;
   const overLimit = useNoteOverLimit(doc, noteMaxBytes, noteId !== undefined && syncedFor === noteId);
 
   // #293 §9.4：scroller 存 ref（函式不能進 setState；頭像列只在點擊當下讀，讀碼發現 9）。
@@ -790,6 +792,7 @@ export default function NotePage() {
             onCursorScroller={handleCursorScroller}
             notePath={canonicalNotePath(note)}
             noteMaxBytes={noteMaxBytes}
+            maxUploadBytes={maxUploadBytes}
             headerSlot={
               // #115：頁首滿卡寬（置左置右）——單層 header 自己就是內容列，標題貼左、
               // 控制項貼右；`px-5`（20px）與 `<md` 的內文左緣共線。#88 的文章欄對齊

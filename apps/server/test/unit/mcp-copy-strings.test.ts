@@ -7,7 +7,7 @@ describe("U7 copy_note 字串內插", () => {
   it("upload 上限句的數字＝傳入的上限（#397：現讀當下的桶）", () => {
     expect(copyUploadLimitMessage(12)).toContain("12 files per 10 minutes");
   });
-  it("傳 UPLOAD_LIMIT.limit → 全文等於 c4e012a 的那句（今天 120 檔／10 分）", () => {
+  it("傳 UPLOAD_LIMIT.limit → 預設上限的完整句子（120 檔／10 分鐘）", () => {
     expect(copyUploadLimitMessage(UPLOAD_LIMIT.limit)).toBe(
       "Copying this note's images would go over your upload limit (120 files per 10 minutes, copies included), so nothing was copied. Wait a few minutes and try again."
     );
