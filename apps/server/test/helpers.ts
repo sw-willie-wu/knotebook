@@ -16,7 +16,7 @@ import { loadConfig, type AppConfig } from "../src/config.js";
 import { buildApp, type AppDeps, type BuildAppOptions } from "../src/app.js";
 import { signSession, UserGate } from "../src/auth/session.js";
 import { LoginThrottle } from "../src/auth/rate-limit.js";
-import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, EDIT_LIMIT, FixedWindowLimiter, FOLDER_LIMIT, OIDC_LIMIT, ONE_TIME_LINK_ATTEMPT_LIMIT, ONE_TIME_LINK_MISS_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, PUBLIC_WIDTH_LIMIT, REGISTER_LIMIT, SEARCH_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_RENAME_LIMIT, TOKEN_WRITE_LIMIT, TRANSFER_EXPORT_LIMIT, TRANSFER_WRITE_LIMIT, UPLOAD_LIMIT, USER_SUGGEST_LIMIT } from "../src/http/rate-limit.js";
+import { buildFixedLimiters, type Limiters } from "../src/http/limiters.js";
 import { hashPassword } from "../src/auth/password.js";
 import { noopCollabHooks, type CollabHooks } from "../src/collab/hooks.js";
 import type { CollabHooksLogger } from "../src/collab/hooks-impl.js";
@@ -316,8 +316,8 @@ export function withTestRoutes(app: FastifyInstance): FastifyInstance {
 // 是 in-memory Map，若在此改成 module-level 常數並跨測試共用，不同測試檔案／不同
 // buildTestApp() 呼叫之間的請求計數會互相汙染——例如本檔 Task 4 的「61 次觸發 429」
 // 測試會被同一份 map 上其他測試先前已消耗掉的計數影響，導致隨執行順序隨機紅綠。
-// 數值沿用 `buildApp` 未收到 overrides 時的生產預設（見 `http/rate-limit.ts` 匯出的
-// `COLLAB_TOKEN_LIMIT`/`SLUG_PATCH_LIMIT`），讓測試環境的節流行為與生產一致。
+// 只含 20 顆固定的桶（`buildFixedLimiters()`，數值同生產）加上 overrides；9 顆站台可調的桶不在這裡，
+// 由 `buildApp` 用該 app 的 `deps.siteLimits` 補（#397 §7.6），讓測試環境的節流行為與生產一致。
 //
 // `overrides` 讓單一測試只換掉它要驗的那一顆桶（例如
 // `{ bearerMiss: new FixedWindowLimiter({ limit: 3, windowMs: 60_000 }) }`），不必手打
@@ -327,41 +327,9 @@ export function withTestRoutes(app: FastifyInstance): FastifyInstance {
 // `{ publicMiss: overrides.publicMiss, … }`：沒被指定的鍵會拿到 explicit `undefined`
 // 蓋掉這裡的預設值（tsconfig 沒開 `exactOptionalPropertyTypes`，TS 不擋），執行時是
 // `undefined.consume`。
-export function freshLimiters(
-  overrides: Partial<NonNullable<AppDeps["limiters"]>> = {}
-): NonNullable<AppDeps["limiters"]> {
-  return {
-    collabToken: new FixedWindowLimiter(COLLAB_TOKEN_LIMIT),
-    slugPatch: new FixedWindowLimiter(SLUG_PATCH_LIMIT),
-    upload: new FixedWindowLimiter(UPLOAD_LIMIT),
-    ai: new FixedWindowLimiter(AI_LIMIT),
-    oidcLogin: new FixedWindowLimiter(OIDC_LIMIT),
-    oidcCallback: new FixedWindowLimiter(OIDC_LIMIT),
-    publicLink: new FixedWindowLimiter(PUBLIC_LINK_LIMIT),
-    publicWidth: new FixedWindowLimiter(PUBLIC_WIDTH_LIMIT),
-    publicMiss: new FixedWindowLimiter(PUBLIC_MISS_LIMIT),
-    publicNote: new FixedWindowLimiter(PUBLIC_NOTE_LIMIT),
-    publicUpload: new FixedWindowLimiter(PUBLIC_UPLOAD_LIMIT),
-    tokenRead: new FixedWindowLimiter(TOKEN_READ_LIMIT),
-    tokenWrite: new FixedWindowLimiter(TOKEN_WRITE_LIMIT),
-    bearerMiss: new FixedWindowLimiter(BEARER_MISS_LIMIT),
-    patCreate: new FixedWindowLimiter(PAT_CREATE_LIMIT),
-    tokenRename: new FixedWindowLimiter(TOKEN_RENAME_LIMIT),
-    dcr: new FixedWindowLimiter(DCR_LIMIT),
-    authorize: new FixedWindowLimiter(AUTHORIZE_LIMIT),
-    tokenEndpoint: new FixedWindowLimiter(TOKEN_ENDPOINT_LIMIT),
-    contentRead: new FixedWindowLimiter(CONTENT_READ_LIMIT),
-    search: new FixedWindowLimiter(SEARCH_LIMIT),
-    transferExport: new FixedWindowLimiter(TRANSFER_EXPORT_LIMIT),
-    transferWrite: new FixedWindowLimiter(TRANSFER_WRITE_LIMIT),
-    userSuggest: new FixedWindowLimiter(USER_SUGGEST_LIMIT),
-    edit: new FixedWindowLimiter(EDIT_LIMIT),
-    folder: new FixedWindowLimiter(FOLDER_LIMIT),
-    register: new FixedWindowLimiter(REGISTER_LIMIT),
-    oneTimeLinkMiss: new FixedWindowLimiter(ONE_TIME_LINK_MISS_LIMIT),
-    oneTimeLinkAttempt: new FixedWindowLimiter(ONE_TIME_LINK_ATTEMPT_LIMIT),
-    ...overrides,
-  };
+export function freshLimiters(overrides: Partial<Limiters> = {}): Partial<Limiters> {
+  // #397 §7.6：只含 20 顆固定的桶＋覆寫；9 顆可調的由 `buildApp` 用該 app 的 `deps.siteLimits` 補（沒被覆寫的才補）。
+  return { ...buildFixedLimiters(), ...overrides };
 }
 
 /**
@@ -507,7 +475,7 @@ export async function buildCollabTestApp(
   opts: {
     collabHooks?: (server: CollabServer, log: CollabHooksLogger) => CollabHooks;
     /** 只換掉要驗的那一顆桶（其餘走 `freshLimiters` 預設）——⚠ 整包轉傳，別逐鍵展開，理由見 `freshLimiters`。 */
-    limiters?: Partial<NonNullable<AppDeps["limiters"]>>;
+    limiters?: Partial<Limiters>;
     /** #180：PATCH／MCP rename 的 slug 候選縫，語意見 `AppDeps.slugUpdateTestHook`。 */
     slugUpdateTestHook?: AppDeps["slugUpdateTestHook"];
     /** #180：建立／複製路徑的 slug 縫，語意見 `AppDeps.noteCreateHooks`。 */

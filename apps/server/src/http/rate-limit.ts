@@ -3,22 +3,26 @@
  * spec §5/§11.4）。與 `auth/rate-limit.ts` 的 `LoginThrottle`（帳號+IP 雙軌、指數退避）
  * 是兩套不同語意，不共用實作：這裡只要「每個 key 在固定長度的視窗內最多 N 次」。
  *
- * **生產預設值唯一真相來源**：`buildApp`（未收到 `AppDeps.limiters` 時的內建預設）與
- * `test/helpers.ts`（`buildTestApp`/`buildCollabTestApp` 注入的每次全新實例）都從這裡
- * 匯出的 `COLLAB_TOKEN_LIMIT`/`SLUG_PATCH_LIMIT` 取值，不各自重複寫一份數字字面量。
+ * **生產預設值唯一真相來源**：`http/limiters.ts` 的 `buildFixedLimiters()`（20 顆固定的桶）與
+ * `buildAdjustableLimiters()`（9 顆站台可調的桶，`limit` 現讀 `SiteLimits`、`windowMs` 取這裡的常數）都從這裡
+ * 匯出的常數取值；`buildApp` 與 `test/helpers.ts` 都走它們，不各自重複寫一份數字字面量。
  *
  * 站台管理調整額度的接點（bulk transfer spec §12.3）：`limit` 傳函式就每次現讀（`consume`／`consumeMany`／
  * `isBlocked` 每次呼叫都重讀）；既有呼叫點傳數字不變。`retryAfterMs` 回「這個 key 的視窗還剩幾毫秒」，給
  * `Retry-After` 用（`retryAfterSeconds` 換成秒）。
  */
+import { SITE_LIMITS } from "@knotebook/shared";
 import { BoundedMap, DEFAULT_MAX_KEYS } from "../lib/bounded-map.js";
+
+// #397：9 顆站台管理可調的桶（註冊表 `rate*` 項）的 `limit` 取註冊表的預設，`windowMs` 留字面（視窗不可調，測試比對兩者相等）。
+// 生產與測試 harness 的實際建構在 `http/limiters.ts`（`limit` 現讀 `SiteLimits`）。
 
 export const COLLAB_TOKEN_LIMIT = { limit: 60, windowMs: 60_000 } as const;
 export const SLUG_PATCH_LIMIT = { limit: 10, windowMs: 600_000 } as const;
 /** Plan 3 Task 10b：`POST /api/notes/:id/uploads` 節流（key=userId，同 collabToken/slugPatch 慣例）。 */
-export const UPLOAD_LIMIT = { limit: 120, windowMs: 600_000 } as const;
+export const UPLOAD_LIMIT = { limit: SITE_LIMITS.rateUpload.default, windowMs: 600_000 } as const;
 /** Plan 4 Task 5：`POST /api/ai` 節流（key=userId，同 collabToken/slugPatch/upload 慣例）。 */
-export const AI_LIMIT = { limit: 30, windowMs: 60_000 } as const;
+export const AI_LIMIT = { limit: SITE_LIMITS.rateAi.default, windowMs: 60_000 } as const;
 /**
  * Plan 5 Task 8：OIDC 端點的節流額度（key=request.ip——這兩條路由發生在登入之前，無
  * userId 可用；比照 AI_LIMIT 的數值與視窗長度）。
@@ -101,6 +105,11 @@ export class FixedWindowLimiter {
     this.limitOf = typeof limit === "function" ? limit : () => limit;
     this.windowMs = opts.windowMs;
     this.windows = new BoundedMap<Window>(opts.maxKeys ?? DEFAULT_MAX_KEYS);
+  }
+
+  /** #397：目前的上限（函式形的 `limit` 現讀）。MCP `copy_note` 的訊息說的是擋下這次請求的那顆桶，故讀桶本身。 */
+  currentLimit(): number {
+    return this.limitOf();
   }
 
   consume(key: string): boolean {
@@ -201,8 +210,8 @@ export function retryAfterSeconds(ms: number): number {
  * `tokenWrite`。扣點在 scope 檢查**通過之後**——403 `insufficient_scope` 不啃桶
  * （與 BEARER_MISS 同紀律）。
  */
-export const TOKEN_READ_LIMIT = { limit: 300, windowMs: 60_000 } as const;
-export const TOKEN_WRITE_LIMIT = { limit: 60, windowMs: 600_000 } as const;
+export const TOKEN_READ_LIMIT = { limit: SITE_LIMITS.rateTokenRead.default, windowMs: 60_000 } as const;
+export const TOKEN_WRITE_LIMIT = { limit: SITE_LIMITS.rateTokenWrite.default, windowMs: 600_000 } as const;
 
 /**
  * #107：無效 Bearer 的節流（key=`request.ip`）。
@@ -272,27 +281,27 @@ export const TOKEN_ENDPOINT_LIMIT = { limit: 60, windowMs: 60_000 } as const;
  * 懲罰到自己）。120/min 對照 `TOKEN_READ_LIMIT`（300/min）：內容讀取比 metadata 重
  * （要 fork 文件、mount 一次 BlockNote），所以另設一顆更緊的桶。
  */
-export const CONTENT_READ_LIMIT = { limit: 120, windowMs: 60_000 } as const;
+export const CONTENT_READ_LIMIT = { limit: SITE_LIMITS.rateContentRead.default, windowMs: 60_000 } as const;
 
 /**
  * #93 §8.6：全文搜尋（MCP `search_notes`；PR2 的 `GET /api/search` 也吃這一顆），key=userId。
  * 不與 `CONTENT_READ_LIMIT` 共用：搜尋的成本隨「呼叫者看得見的內文總量」成長，與「讀一篇」不同；共用會讓 AI 分頁讀取
  * 與側欄打字互相餓死（spec §8.6，Q1 總管裁示）。
  */
-export const SEARCH_LIMIT = { limit: 60, windowMs: 60_000 } as const;
+export const SEARCH_LIMIT = { limit: SITE_LIMITS.rateSearch.default, windowMs: 60_000 } as const;
 
 /**
  * bulk transfer spec §12.1：整包匯出 `GET /api/transfer/export`（key=userId）。整包認證後才扣（plan §0.1-14：拿到
  * 全站 slot 才扣）；另有全站同時 1 個（`transfer/export-slot.ts`）；`Retry-After` 由 `retryAfterMs` 算。
  */
-export const TRANSFER_EXPORT_LIMIT = { limit: 10, windowMs: 3_600_000 } as const;
+export const TRANSFER_EXPORT_LIMIT = { limit: SITE_LIMITS.rateTransferExport.default, windowMs: 3_600_000 } as const;
 
 /**
  * bulk transfer spec §12.1、§12.3：檔案寫回 `PUT /api/transfer/notes`（key=userId）。只在「有區要套用」「只改名」「要新建」時扣
  * 一個單位，**在佇列內扣**；進佇列前只做不計數的 `isBlocked` 預檢；零區、同檔重送、新增去重命中不扣這顆、改扣 `tokenRead`
  * （plan PR-2 不變量 13）。數字待 D17 寫回量測複核（plan T14）。生產預設以函式建（每次現讀，§12.3 的接點）。
  */
-export const TRANSFER_WRITE_LIMIT = { limit: 30, windowMs: 60_000 } as const;
+export const TRANSFER_WRITE_LIMIT = { limit: SITE_LIMITS.rateTransferWrite.default, windowMs: 60_000 } as const;
 
 /**
  * #106 寫入端（`POST /api/notes/:id/edits`、`POST …/edits/:editId/revert`、
@@ -300,7 +309,7 @@ export const TRANSFER_WRITE_LIMIT = { limit: 30, windowMs: 60_000 } as const;
  * `CONTENT_READ_LIMIT` 的理由）。比讀取緊得多：每一次寫入都要 fork、mount 一次
  * BlockNote、開一次直連並落盤。
  */
-export const EDIT_LIMIT = { limit: 30, windowMs: 60_000 } as const;
+export const EDIT_LIMIT = { limit: SITE_LIMITS.rateEdit.default, windowMs: 60_000 } as const;
 
 /**
  * 資料夾寫入（`folders/service.ts` 四支：`POST /api/folders`、`PATCH /api/folders/:id`、`DELETE /api/folders/:id`、

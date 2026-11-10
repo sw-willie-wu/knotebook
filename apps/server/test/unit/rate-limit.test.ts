@@ -1,15 +1,48 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
+import { siteLimitDef, type SiteLimitKey } from "@knotebook/shared";
 import { LoginThrottle } from "../../src/auth/rate-limit.js";
 import {
   AI_LIMIT,
+  CONTENT_READ_LIMIT,
+  EDIT_LIMIT,
   FixedWindowLimiter,
   FOLDER_LIMIT,
   ONE_TIME_LINK_ATTEMPT_LIMIT,
   ONE_TIME_LINK_MISS_LIMIT,
+  SEARCH_LIMIT,
+  TOKEN_READ_LIMIT,
+  TOKEN_WRITE_LIMIT,
   TRANSFER_EXPORT_LIMIT,
   TRANSFER_WRITE_LIMIT,
+  UPLOAD_LIMIT,
   retryAfterSeconds,
 } from "../../src/http/rate-limit.js";
+
+describe("#397 S7：9 個可調桶的常數與註冊表一致", () => {
+  const pairs: Array<[SiteLimitKey, { readonly limit: number; readonly windowMs: number }]> = [
+    ["rateTokenRead", TOKEN_READ_LIMIT],
+    ["rateTokenWrite", TOKEN_WRITE_LIMIT],
+    ["rateContentRead", CONTENT_READ_LIMIT],
+    ["rateEdit", EDIT_LIMIT],
+    ["rateSearch", SEARCH_LIMIT],
+    ["rateUpload", UPLOAD_LIMIT],
+    ["rateAi", AI_LIMIT],
+    ["rateTransferExport", TRANSFER_EXPORT_LIMIT],
+    ["rateTransferWrite", TRANSFER_WRITE_LIMIT],
+  ];
+  it.each(pairs)("%s：windowMs 與 limit 等於註冊表", (k, c) => {
+    expect(c.windowMs).toBe(siteLimitDef(k).windowMs);
+    expect(c.limit).toBe(siteLimitDef(k).default);
+  });
+  it("currentLimit() 回現讀的上限（數字與函式兩種）", () => {
+    let n = 5;
+    expect(new FixedWindowLimiter({ limit: 7, windowMs: 1_000 }).currentLimit()).toBe(7);
+    const l = new FixedWindowLimiter({ limit: () => n, windowMs: 1_000 });
+    expect(l.currentLimit()).toBe(5);
+    n = 9;
+    expect(l.currentLimit()).toBe(9);
+  });
+});
 
 describe("LoginThrottle key 上限（issue #15）", () => {
   /** 每次用不同帳號，讓斷言只反映 IP 那一軌。 */

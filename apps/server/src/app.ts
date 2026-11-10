@@ -57,7 +57,7 @@ import { BODY_TOO_LARGE_MESSAGE, sendError } from "./http/errors.js";
 // #108：`stripDefaultPort` 搬到 `http/origin.ts`（與 `mcpOriginAllowed` 同一個葉節點模組，
 // 兩種比較語意的差別寫在該檔檔頭）。
 import { stripDefaultPort } from "./http/origin.js";
-import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, EDIT_LIMIT, FixedWindowLimiter, FOLDER_LIMIT, OIDC_LIMIT, ONE_TIME_LINK_ATTEMPT_LIMIT, ONE_TIME_LINK_MISS_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, PUBLIC_WIDTH_LIMIT, REGISTER_LIMIT, SEARCH_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_RENAME_LIMIT, TOKEN_WRITE_LIMIT, TRANSFER_EXPORT_LIMIT, TRANSFER_WRITE_LIMIT, UPLOAD_LIMIT, USER_SUGGEST_LIMIT } from "./http/rate-limit.js";
+import { buildAdjustableLimiters, buildFixedLimiters, mergeLimiters, type Limiters } from "./http/limiters.js";
 import { FORM_EXEMPT_ROUTES, isOauthScopedPath, sendOauthError } from "./http/oauth-errors.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { oauthMetadataRoutes } from "./routes/oauth-metadata.js";
@@ -147,65 +147,14 @@ export interface AppDeps {
    */
   editing?: EditingRuntime;
   /**
-   * per-user 固定視窗節流器（Task 4：collab-token；Task 8：slug PATCH；Task 10b：
-   * uploads）。**選配**：`index.ts` 的 `AppDeps` 物件字面值不在 Task 4 的 Files 內，
-   * 必填會讓 Task 4–6 之間 `pnpm -r build` 全紅（vitest 不做型檢，會綠色假象）。未傳時
-   * `buildApp` 內建生產預設（見 `COLLAB_TOKEN_LIMIT`/`SLUG_PATCH_LIMIT`/`UPLOAD_LIMIT`，
-   * `http/rate-limit.ts`）。
+   * 節流器（29 顆，型別 `Limiters` 在 `http/limiters.ts`）。**選配、可只給幾顆**：`buildApp` 以 `mergeLimiters` 合併——
+   * 20 顆固定的桶由 `buildFixedLimiters()` 建，9 顆站台可調的桶由 `buildAdjustableLimiters(deps.siteLimits)` 建
+   * （`limit` 現讀這個 app 的 `siteLimits`，#397 §7.6）；這裡給的桶（值不是 `undefined`）蓋掉對應的那顆。
    *
-   * `buildTestApp`/`buildCollabTestApp`（`test/helpers.ts`）每次呼叫一律注入**全新
-   * 實例**——嚴禁 module 單例，否則不同測試檔案共享同一份計數會互相汙染。
+   * `buildTestApp`/`buildCollabTestApp`（`test/helpers.ts`）經 `freshLimiters` 注入 20 顆全新固定桶＋測試覆寫——
+   * 嚴禁 module 單例，否則不同測試檔案共享同一份計數會互相汙染。
    */
-  limiters?: {
-    collabToken: FixedWindowLimiter;
-    slugPatch: FixedWindowLimiter;
-    upload: FixedWindowLimiter;
-    ai: FixedWindowLimiter;
-    /** OIDC login 與 callback 各自一份額度（issue #16），見 `OIDC_LIMIT` 註解。 */
-    oidcLogin: FixedWindowLimiter;
-    oidcCallback: FixedWindowLimiter;
-    /** #72：public-link 管理端 PUT/DELETE（key=userId；GET 不吃桶，見 PUBLIC_LINK_LIMIT）。 */
-    publicLink: FixedWindowLimiter;
-    /** #297：`PUT …/public-width`（key=userId；解析 body 與授權之後才扣，與 publicLink 分開，見 PUBLIC_WIDTH_LIMIT）。 */
-    publicWidth: FixedWindowLimiter;
-    /** #72 公開端點雙桶（miss=ip／hit=ip:token，語意見 PUBLIC_MISS_LIMIT 註解）。 */
-    publicMiss: FixedWindowLimiter;
-    publicNote: FixedWindowLimiter;
-    publicUpload: FixedWindowLimiter;
-    /** #107：Bearer token 路徑（key=`token:${userId}`），session 路徑不吃桶。 */
-    tokenRead: FixedWindowLimiter;
-    tokenWrite: FixedWindowLimiter;
-    /** #107：無效 Bearer（key=ip）——consume 的觸發集合見 `BEARER_MISS_LIMIT` 註解。 */
-    bearerMiss: FixedWindowLimiter;
-    /** #107：`POST /api/auth/tokens`（key=userId）。 */
-    patCreate: FixedWindowLimiter;
-    /** #106 D7：`PATCH /api/auth/tokens/:id` 改 agent 名稱（key=userId，見 `TOKEN_RENAME_LIMIT`）。 */
-    tokenRename: FixedWindowLimiter;
-    /** #132：DCR／authorize／token 三個無認證端點（key=ip）。 */
-    dcr: FixedWindowLimiter;
-    authorize: FixedWindowLimiter;
-    tokenEndpoint: FixedWindowLimiter;
-    /** #106：`GET /api/notes/:id/content`（key=userId；角色檢查後才消耗，見 `CONTENT_READ_LIMIT`）。 */
-    contentRead: FixedWindowLimiter;
-    /** #93：全文搜尋（key=userId，見 `SEARCH_LIMIT`）。 */
-    search: FixedWindowLimiter;
-    /** bulk §12.1：整包匯出（key=userId，見 TRANSFER_EXPORT_LIMIT）。 */
-    transferExport: FixedWindowLimiter;
-    /** bulk §12.1：檔案寫回（key=userId，見 TRANSFER_WRITE_LIMIT；在佇列內扣）。 */
-    transferWrite: FixedWindowLimiter;
-    /** `GET /api/users/suggest`（key=userId，見 `USER_SUGGEST_LIMIT`）。 */
-    userSuggest: FixedWindowLimiter;
-    /** #106 寫入端：`POST /api/notes/:id/edits`、`POST /api/notes` 帶 `content`（key=userId，見 `EDIT_LIMIT`）。 */
-    edit: FixedWindowLimiter;
-    /** 資料夾寫入（`folders/service.ts` 四支，REST 與 MCP 共用；key=userId，見 `FOLDER_LIMIT`——不與 `edit` 共桶）。 */
-    folder: FixedWindowLimiter;
-    /** #187 §9.1：帳密註冊（key=ip）。 */
-    register: FixedWindowLimiter;
-    /** #286／#285：重設連結與邀請的 inspect／完成（四個無登入端點、跨 kind 共用）的無效 token（key=ip；失敗才扣，見 `ONE_TIME_LINK_MISS_LIMIT`）。 */
-    oneTimeLinkMiss: FixedWindowLimiter;
-    /** #286／#285：每支一次性連結（重設、邀請）的完成／接受嘗試（key=`link:${id}`；帳密開才扣、inspect 不扣，見 `ONE_TIME_LINK_ATTEMPT_LIMIT`）。 */
-    oneTimeLinkAttempt: FixedWindowLimiter;
-  };
+  limiters?: Partial<Limiters>;
   /**
    * #106（#137）：寫入路徑的測試注入縫（比照 `linkSyncTestHooks`）——`beforeMerge`／
    * `beforeRecord`／`afterRecord`／`beforeRevertRecord` 分別在「合併之前」「寫紀錄之前」「紀錄之後、連結之前」「寫撤回紀錄之前」
@@ -705,42 +654,11 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
 
   app.get("/healthz", async () => ({ ok: true }));
 
-  // 未收到 AppDeps.limiters 時的生產預設（`buildTestApp`/`buildCollabTestApp` 一律自己
-  // 注入全新實例，不會走到這裡；見 AppDeps.limiters 的說明）。
-  const limiters =
-    deps.limiters ??
-    ({
-      collabToken: new FixedWindowLimiter(COLLAB_TOKEN_LIMIT),
-      slugPatch: new FixedWindowLimiter(SLUG_PATCH_LIMIT),
-      upload: new FixedWindowLimiter(UPLOAD_LIMIT),
-      ai: new FixedWindowLimiter(AI_LIMIT),
-      oidcLogin: new FixedWindowLimiter(OIDC_LIMIT),
-      oidcCallback: new FixedWindowLimiter(OIDC_LIMIT),
-      publicLink: new FixedWindowLimiter(PUBLIC_LINK_LIMIT),
-      publicWidth: new FixedWindowLimiter(PUBLIC_WIDTH_LIMIT),
-      publicMiss: new FixedWindowLimiter(PUBLIC_MISS_LIMIT),
-      publicNote: new FixedWindowLimiter(PUBLIC_NOTE_LIMIT),
-      publicUpload: new FixedWindowLimiter(PUBLIC_UPLOAD_LIMIT),
-      tokenRead: new FixedWindowLimiter(TOKEN_READ_LIMIT),
-      tokenWrite: new FixedWindowLimiter(TOKEN_WRITE_LIMIT),
-      bearerMiss: new FixedWindowLimiter(BEARER_MISS_LIMIT),
-      patCreate: new FixedWindowLimiter(PAT_CREATE_LIMIT),
-      tokenRename: new FixedWindowLimiter(TOKEN_RENAME_LIMIT),
-      dcr: new FixedWindowLimiter(DCR_LIMIT),
-      authorize: new FixedWindowLimiter(AUTHORIZE_LIMIT),
-      tokenEndpoint: new FixedWindowLimiter(TOKEN_ENDPOINT_LIMIT),
-      contentRead: new FixedWindowLimiter(CONTENT_READ_LIMIT),
-      search: new FixedWindowLimiter(SEARCH_LIMIT),
-      transferExport: new FixedWindowLimiter(TRANSFER_EXPORT_LIMIT),
-      // §12.3 的接點：limit 以函式建，每次現讀（站台管理調整額度的 UI 在 PR-3 之後）。
-      transferWrite: new FixedWindowLimiter({ limit: () => TRANSFER_WRITE_LIMIT.limit, windowMs: TRANSFER_WRITE_LIMIT.windowMs }),
-      userSuggest: new FixedWindowLimiter(USER_SUGGEST_LIMIT),
-      edit: new FixedWindowLimiter(EDIT_LIMIT),
-      folder: new FixedWindowLimiter(FOLDER_LIMIT),
-      register: new FixedWindowLimiter(REGISTER_LIMIT),
-      oneTimeLinkMiss: new FixedWindowLimiter(ONE_TIME_LINK_MISS_LIMIT),
-      oneTimeLinkAttempt: new FixedWindowLimiter(ONE_TIME_LINK_ATTEMPT_LIMIT),
-    } satisfies NonNullable<AppDeps["limiters"]>);
+  // 29 顆節流桶：20 顆固定的＋9 顆可調的（`limit` 現讀這個 app 的 `deps.siteLimits`，#397 §7.6）；測試只覆寫它要驗的那幾顆。
+  const limiters = mergeLimiters(
+    { ...buildFixedLimiters(), ...buildAdjustableLimiters(deps.siteLimits) } satisfies Limiters,
+    deps.limiters
+  );
   const storageLockTimeoutMs = deps.storageLockTimeoutMs ?? DEFAULT_STORAGE_LOCK_TIMEOUT_MS;
   // 版本歷史：有 collab 就用它那份（已 bind hocuspocus）；沒有 collab（buildTestApp）另建一份未綁定的——REST 讀 note_states 當暫時狀態。
   const versions = deps.collab?.versions ?? createVersionService({ db: deps.db, log: app.log });
