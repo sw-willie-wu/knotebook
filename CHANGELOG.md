@@ -16,6 +16,10 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 - **Signing out signs out only that browser, and its cookie stops working on the server.** Before, signing out only cleared the cookie in the browser, so a copy of it kept working for up to 7 days, and the only way to end a session was to change the password, which signed out every browser. Now each sign-in is a session the server keeps, and signing out (or signing in to the same account again in the same browser) deletes it: the account's other browsers stay signed in, and a note the signed-out browser still had open stops accepting its edits within seconds. Changing or adding a password still signs out every other browser, resetting it with a link signs out every other browser too, and disabling an account ends all of its sessions. Expired sessions are deleted as people sign in.
 
+### Fixed
+
+- When a public link is revoked while it is being presented and the page changes to "This link doesn't exist or is no longer active", the address no longer keeps `?present` and the slide part (`#/…`); they are removed without adding a history entry (#234).
+
 ### Removed
 
 - The import of `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET` on first start, a stopgap left over from the sign-in providers of v0.6 (#187).
