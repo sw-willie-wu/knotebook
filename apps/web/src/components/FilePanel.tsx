@@ -2,6 +2,7 @@ import { useCallback, useState, type ChangeEvent, type FC, type KeyboardEvent } 
 import { useTranslation } from "react-i18next";
 import { filenameFromURL } from "@blocknote/core";
 import { useBlockNoteEditor, type FilePanelProps } from "@blocknote/react";
+import { useAuthConfig } from "@/api/authConfig";
 import { ApiFail } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +31,8 @@ function UploadTab({ noteId, blockId }: { noteId: string; blockId: string }) {
   const editor = useBlockNoteEditor<any, any, any>();
   const [error, setError] = useState<{ title: string; detail?: string } | null>(null);
   const [uploading, setUploading] = useState(false);
+  // 上傳前驗的上限取自 server config；還沒載入就不前驗（交給 server 擋）。
+  const maxUploadBytes = useAuthConfig().data?.maxUploadBytes;
 
   const handleChange = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
@@ -43,7 +46,7 @@ function UploadTab({ noteId, blockId }: { noteId: string; blockId: string }) {
 
       setError(null);
       setUploading(true);
-      postUpload(noteId, file).then(
+      postUpload(noteId, file, maxUploadBytes).then(
         ({ url }) => {
           setUploading(false);
           // `postUpload` 這段等待期間，使用者可能已經把這個 block 刪掉（連帶
@@ -74,7 +77,7 @@ function UploadTab({ noteId, blockId }: { noteId: string; blockId: string }) {
         },
       );
     },
-    [noteId, blockId, editor, t],
+    [noteId, blockId, editor, t, maxUploadBytes],
   );
 
   return (
