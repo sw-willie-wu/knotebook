@@ -94,7 +94,7 @@ Read the full [self-hosting guide](docs/self-hosting.md) before running anywhere
 - [Version history](docs/versions.md) — when a note's versions are saved, previewing, comparing and applying them, who can see them, how long automatic versions are kept, and the three switches that turn automatic versions off.
 - [AI quick actions](docs/ai.md) — admin setup guide (under **Site admin → AI agents**) for AI providers/models/actions, key encryption, and how quick actions behave in the editor.
 - [Diagrams (Mermaid)](docs/diagrams.md) — inserting, editing and pasting Mermaid diagrams, what copying one out produces, and the on-demand loading and rendering lockdown behind them.
-- [Side-by-side columns](docs/columns.md) — putting blocks next to each other in rows of two to four columns made with `/grid`, how rows stack on narrow screens, removing columns with the keyboard or **Ungroup columns**, copying and pasting rows, and undo.
+- [Side-by-side columns](docs/columns.md) — putting blocks next to each other in rows of two to four columns made with `/grid` or by dragging a block beside another, how rows stack on narrow screens, removing columns with the keyboard or **Ungroup columns**, copying and pasting rows, and undo.
 - [Known limitations](docs/known-limitations.md) — the full list of known rough edges and deliberate trade-offs.
 - [Restoring note content from a backup](docs/backup-restore.md) — runbook for restoring `note_states` from a snapshot or `pg_dump`.
 - [Releasing](docs/releasing.md) — for maintainers: preparing a release pull request with `pnpm release:prepare`, and what the Release workflow does after it is merged (the tag, the GitHub Release and the Docker images).

@@ -12,13 +12,20 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 - **Everyone has to sign in again once after upgrading.** Signing in now records a session on the server, and cookies from before the upgrade don't name one, so they count as signed out. API tokens and connected apps keep working. **Migration 0038** only adds the `sessions` table; rolling back leaves it in place, and the previous version doesn't read it. See [Self-hosting](docs/self-hosting.md#upgrading-and-rolling-back).
 - **The `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET` variables are no longer imported.** A site that goes straight from v0.5 or earlier to this version gets no "SSO" sign-in service from them: upgrade to 0.15.x first so they are imported (all three must be set on that first start and valid: an issuer starting with lowercase `http://` or `https://`, without a username or password, and an issuer and client ID of at most 512 characters each, as the 0.15 documentation describes; otherwise nothing is imported and they are never read again), or set the identity provider up in Site admin → Sign-in after upgrading. The three lines in `.env` can be deleted; if they are left there they are ignored and the server starts as usual. Sign-in services that were already imported are not touched, and keep their old callback URL.
 
+### Added
+
+- **Drag blocks side by side.** Drag a block by its ⋮⋮ to the left or right edge of another block to make a row of two columns, or onto the edge of a block in a row of fewer than four columns to add a column next to it. When every column of the resulting row holds a single picture, the columns are sized so the pictures come out the same height. One Ctrl+Z undoes the drop. See [Side-by-side columns](docs/columns.md) and [Known limitations](docs/known-limitations.md#side-by-side-columns).
+
 ### Changed
 
+- **Dragging a block into an empty column replaces the column's empty paragraph.** Before, the empty paragraph stayed next to the block you dropped.
 - **Removing a member asks for confirmation.** The trash button in a group's member table and in a note's share panel used to remove the person at once; now it first shows a confirmation with their email. In a group, removing yourself says you will lose access and can't add yourself back, and takes you out of the group's panel the way **Leave group** does. The last Admin's button stays disabled (#395).
 - **Signing out signs out only that browser, and its cookie stops working on the server.** Before, signing out only cleared the cookie in the browser, so a copy of it kept working for up to 7 days, and the only way to end a session was to change the password, which signed out every browser. Now each sign-in is a session the server keeps, and signing out (or signing in to the same account again in the same browser) deletes it: the account's other browsers stay signed in, and a note the signed-out browser still had open stops accepting its edits within seconds. Changing or adding a password still signs out every other browser, resetting it with a link signs out every other browser too, and disabling an account ends all of its sessions. Expired sessions are deleted as people sign in.
 
 ### Fixed
 
+- **Dropping into the gap between two columns works.** A file dragged from the desktop into the gap could fail to be added, a block dragged there by its ⋮⋮ didn't drop, and a file dropped on a column's ⋮⋮ opened in the browser and left the note. Now a file lands next to the nearest block, and a block goes into one of the columns.
+- **Releasing a ⋮⋮ drag over the formatting toolbar now drops the block.** The toolbar briefly appears above the dragged block when the drag starts and took the drop, so a quick drag released over it did nothing.
 - When a public link is revoked while it is being presented and the page changes to "This link doesn't exist or is no longer active", the address no longer keeps `?present` and the slide part (`#/…`); they are removed without adding a history entry (#234).
 
 ### Removed

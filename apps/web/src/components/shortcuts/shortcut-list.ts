@@ -90,6 +90,7 @@ export const SHORTCUTS: readonly ShortcutEntry[] = [
   { id: "columnBackspace", category: "columns", keys: [combo("Backspace")] },
   { id: "columnDelete", category: "columns", keys: [combo("Delete")] },
   { id: "columnUngroup", category: "columns", keys: [action] },
+  { id: "columnsDragBeside", category: "columns", keys: [action] },
   // 側欄（選取模式）
   { id: "selectEsc", category: "sidebar", keys: [combo("Esc")] },
   { id: "selectRange", category: "sidebar", keys: [combo("Shift", "Click")] },

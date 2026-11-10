@@ -18,6 +18,30 @@ never nested.
 **Put any block in a column** — text, headings, lists, images, code, tables, diagrams. A table too
 wide for its column scrolls sideways inside the column.
 
+**Drag blocks side by side.** Grab a block's ⋮⋮ and move it to the left or right edge of another
+block: the drop guide turns into a vertical line, and releasing there puts the two next to each other
+in a new row. Releasing on the edge of a block that is already in a row adds a new column next to
+that block's column, on the side you chose. If you dragged several selected blocks from the same column, or from outside any row, they all go into
+the new column in their order; a selection that spans columns moves the ordinary way. When the new row would be the last block of the note, an empty
+paragraph is added after it. The cursor goes to the start of the dragged block's text, or, when the
+first dragged block is an image, to the next text block after it. One Ctrl+Z undoes the whole drop.
+
+- A row has at most four columns: on a row of four, no vertical guide appears and the drop is an
+  ordinary move.
+- Dragging the only block out of a column leaves an empty paragraph in that column; the column stays.
+- When each column of the new row, or of the row you add a column to, holds a single picture that
+  shows its preview and has loaded — for example when you drag one picture beside another — the
+  columns are given widths in proportion to the pictures' own proportions, so that they come out the
+  same height. A small picture is not enlarged: it keeps its own width and
+  the other pictures still come out the same height. This is worked out once, when you drop.
+- Holding Ctrl (⌥ on a Mac) to copy, dragging a selected piece of text, and dropping something from
+  outside the note don't make columns.
+- Dragging an image that is already selected, by the image itself, moves it like an ordinary block
+  without making a row; use its ⋮⋮ for that.
+- Dropping a block onto the empty paragraph of an empty column puts it there in place of the
+  paragraph, instead of leaving the paragraph beside it.
+- Dropping a file between two columns adds it next to the block nearest to where you let go.
+
 **Blocks in a column have no `+` button.** Their side menu shows only ⋮⋮, because the space between
 columns is too narrow for both buttons. To add a block in a column, press Enter at the end of a block
 there (or with an image selected, press Enter to add a paragraph below it in the same column), or
@@ -92,4 +116,6 @@ you selected there; a result for it that contains columns is refused, because ro
 ## Undo
 
 Creating a row, ungrouping one, and each Backspace or Delete above that moves a block or removes a
-column is a single step: one Ctrl+Z undoes it. So is each resize of an image inside a column.
+column is a single step: one Ctrl+Z undoes it. So is each resize of an image inside a column, and
+so is each ⋮⋮ drop that makes a row or a column, or that replaces an empty column's paragraph, even
+when it also moves the block out of where it was.

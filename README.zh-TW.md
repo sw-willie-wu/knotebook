@@ -96,7 +96,7 @@ Knotebook 是一套開源、可自行架設的 Notion/HackMD 風格協作筆記�
 - [版本歷史](docs/versions.md)——筆記的版本何時儲存、預覽／比較與套用版本、誰看得到、自動版本保留多久，以及關閉自動版本的三個開關。
 - [AI 快速動作](docs/ai.md)——管理員設定指南（位於**站台管理 → AI 代理**），涵蓋 AI 供應商／模型／動作、金鑰加密，以及快速動作在編輯器中的行為。
 - [圖表（Mermaid）](docs/diagrams.md)——插入、編輯與貼上 Mermaid 圖表、把圖表複製出去會得到什麼，以及其背後的隨需載入與渲染安全鎖定機制。
-- [並排](docs/columns.md)——用 `/grid` 建立兩到四欄的並排、把 block 左右並排、窄螢幕上整列堆疊、用鍵盤或「取消並排」拆掉欄、複製貼上整列，以及撤銷。
+- [並排](docs/columns.md)——用 `/grid` 或拖曳 ⋮⋮ 建立兩到四欄的並排、把 block 左右並排、窄螢幕上整列堆疊、用鍵盤或「取消並排」拆掉欄、複製貼上整列，以及撤銷。
 - [已知限制](docs/known-limitations.md)——已知的粗糙之處與刻意取捨的完整清單。
 - [從備份還原筆記內容](docs/backup-restore.md)——從快照或 `pg_dump` 還原 `note_states` 的操作手冊。
 - [發版流程](docs/releasing.md)——給維護者：用 `pnpm release:prepare` 準備發版 PR，以及 merge 後 Release workflow 自動做的事（tag、GitHub Release 與 Docker 映像）。
