@@ -1092,7 +1092,7 @@ export const oneTimeLinks = pgTable(
  *
  * - 驗證＝簽章＋`tv`＋這列存在、屬於該使用者、`expires_at` 未過（`UserGate.check`）。登出刪這一列＝只有這台裝置失效。
  * - `id` 是 `gen_random_uuid()`（隨機 v4）；JWT 本身有簽章，光知道 id 也偽造不出 cookie。
- * - `expires_at` 與 JWT 的 `exp` 同值（`SESSION_TTL_SECONDS`），不滑動。過期列由 `deleteExpiredSessions` 機會性清掉（發 session 後
+ * - `expires_at` 與 JWT 的 `exp` 同值（簽發當下的 `sessionTtlSeconds`，#397），不滑動。過期列由 `deleteExpiredSessions` 機會性清掉（發 session 後
  *   fire-and-forget，比照 `transfer-cleanup.ts`）。
  * - 刪使用者串刪；停用帳號在同一交易刪光（`disable-user.ts`）；改密碼／加密碼／重設密碼在 bump tv 的同一交易刪光再建新的一列
  *   （`auth/tx/sessions.ts` 的 `replaceUserSessionsInTx`，經 `change-password.ts`／`password-reset.ts`）。

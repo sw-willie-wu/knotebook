@@ -737,11 +737,11 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   // #187：registry 是 per-app 實例（嚴禁 module 單例，同 limiters）。callback 需要 db（帳號解析交易）與 gate（建帳後 invalidate）。
   const oidcRegistry = deps.oidcRegistry ?? createOidcRuntimeRegistry();
   void app.register(
-    oidcRoutes({ config: deps.config, db: deps.db, gate: deps.gate, collabHooks: deps.collabHooks, reloginReverifyDelayMs: deps.reloginReverifyDelayMs, registry: oidcRegistry, limiters: { oidcLogin: limiters.oidcLogin, oidcCallback: limiters.oidcCallback }, oidcTestHook: deps.oidcTestHook }),
+    oidcRoutes({ config: deps.config, db: deps.db, siteLimits: deps.siteLimits, gate: deps.gate, collabHooks: deps.collabHooks, reloginReverifyDelayMs: deps.reloginReverifyDelayMs, registry: oidcRegistry, limiters: { oidcLogin: limiters.oidcLogin, oidcCallback: limiters.oidcCallback }, oidcTestHook: deps.oidcTestHook }),
   );
   // #187 §7.5：`/link-account` 頁的 API（GET／confirm／cancel；Task 11 加 prove 起點）。密碼證明與登入共用 `deps.throttle`。
   void app.register(
-    oidcPendingRoutes({ config: deps.config, db: deps.db, gate: deps.gate, collabHooks: deps.collabHooks, reloginReverifyDelayMs: deps.reloginReverifyDelayMs, throttle: deps.throttle, registry: oidcRegistry, limiters: { oidcLogin: limiters.oidcLogin }, oidcTestHook: deps.oidcTestHook }),
+    oidcPendingRoutes({ config: deps.config, db: deps.db, siteLimits: deps.siteLimits, gate: deps.gate, collabHooks: deps.collabHooks, reloginReverifyDelayMs: deps.reloginReverifyDelayMs, throttle: deps.throttle, registry: oidcRegistry, limiters: { oidcLogin: limiters.oidcLogin }, oidcTestHook: deps.oidcTestHook }),
   );
   // #187 §7.6：設定頁的手動連結起點（callback 在 oidcRoutes 的 intent: "link" 分支）。
   void app.register(oidcLinkRoutes({ db: deps.db, config: deps.config, registry: oidcRegistry, limiters: { oidcLogin: limiters.oidcLogin } }));
@@ -852,6 +852,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     accountRoutes({
       db: deps.db,
       config: deps.config,
+      siteLimits: deps.siteLimits,
       gate: deps.gate,
       collabHooks: deps.collabHooks,
       reloginReverifyDelayMs: deps.reloginReverifyDelayMs,
@@ -863,6 +864,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     passwordResetRoutes({
       db: deps.db,
       config: deps.config,
+      siteLimits: deps.siteLimits,
       gate: deps.gate,
       collabHooks: deps.collabHooks,
       limiters: { oneTimeLinkMiss: limiters.oneTimeLinkMiss, oneTimeLinkAttempt: limiters.oneTimeLinkAttempt },

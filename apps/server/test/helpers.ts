@@ -9,7 +9,7 @@ import type { FastifyInstance } from "fastify";
 import { HocuspocusProvider, HocuspocusProviderWebsocket } from "@hocuspocus/provider";
 import { WebSocket as WsWebSocket } from "ws";
 import * as Y from "yjs";
-import { NOTE_SCHEMA_VERSION, SESSION_COOKIE, type Role } from "@knotebook/shared";
+import { NOTE_SCHEMA_VERSION, SESSION_COOKIE, SITE_LIMITS, type Role } from "@knotebook/shared";
 import { createDb, type Db } from "../src/db/index.js";
 import { runMigrations } from "../src/db/migrate.js";
 import { loadConfig, type AppConfig } from "../src/config.js";
@@ -152,9 +152,12 @@ export function testSessionId(userId: string): string {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 }
 
+/** #397：測試直接簽 session JWT、直接建 session 列時用的有效期＝註冊表的預設（7 天）。 */
+export const TEST_SESSION_TTL = SITE_LIMITS.sessionTtlSeconds.default;
+
 /** #388：簽一張綁「測試預設 session」的 session JWT（cookie 值）——取代以前各測試檔的 `signSession(testConfig.appSecret, { userId, tv })`。 */
 export function signTestSession(payload: { userId: string; tv: number }): Promise<string> {
-  return signSession(testConfig.appSecret, { ...payload, sid: testSessionId(payload.userId) });
+  return signSession(testConfig.appSecret, { ...payload, sid: testSessionId(payload.userId) }, TEST_SESSION_TTL);
 }
 
 const drizzleDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
