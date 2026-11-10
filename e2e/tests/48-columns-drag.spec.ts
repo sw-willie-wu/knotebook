@@ -3,7 +3,8 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { ADMIN, clickEndOfParagraph, createNote, editorLocator, loginAs, noteIdFromUrl, reEscape, waitForEditorSelection } from "./helpers.js";
 
 /**
- * 並排的拖曳：⋮⋮ 拖到 block 左右緣建列、加欄，拖曳中的直線提示，自動等高，溝裡的檔案拖放，拖放中 ⋮⋮ 不吃指標。真滑鼠、1440×900。
+ * 並排的拖曳：⋮⋮ 拖到 block 左右緣建列、加欄，拖曳中的直線提示，自動等高，溝裡的檔案拖放，拖放中 ⋮⋮ 不吃指標；
+ * 欄間分隔線調寬（滑鼠、鍵盤）、欄內圖片拉寬時擠壓其他欄，分隔線與 ⋮⋮、選單、表格延伸鈕的命中關係。真滑鼠、1440×900。
  *
  * - 內容一律貼 markdown（純文字剪貼簿 → `collab/paste.ts` 接手，同 34-columns）；文件形狀讀主編輯器的 ProseMirror 文件（`docShape`，
  *   格式 `paragraph:x  ROW[COL(paragraph:a) | COL(paragraph)]  paragraph:z`，`paragraph` 無文字＝空段落）。
@@ -492,7 +493,9 @@ test("P3 排序不誤觸：同一欄內與頂層各一次 ⋮⋮ 往下拖，指
   await installDragoverProbe();
   await expect.poll(() => docShape(page), { timeout: 15_000 }).toContain("ROW[COL(paragraph:a,paragraph:q) | COL(paragraph:b)]");
   let { cols } = await rowGeometry(page);
-  await dragBlockBelow(page, "a", "q", watch);
+  // 欄內的 ⋮⋮ 只有 16px 寬、右緣貼著第 1 欄左緣：按下後先往左下移，前幾步才在框外。
+  const q = (await blockOuter(page, "q").boundingBox())!;
+  await dragHandleTo(page, blockOuter(page, "a"), "a", { x: q.x + q.width / 2, y: q.y + q.height * 0.75 }, { nudge: { x: -10, y: 10 }, watch });
   await expect.poll(() => docShape(page)).toContain("paragraph:x  ROW[COL(paragraph:q,paragraph:a) | COL(paragraph:b)]  paragraph:z");
   expect(seen.length).toBe(21);
   let tagged = seen.filter((s) => s.updated).map((s) => ({ ...s, region: regionOf(cols, s.at) }));
@@ -509,7 +512,9 @@ test("P3 排序不誤觸：同一欄內與頂層各一次 ⋮⋮ 往下拖，指
   await installDragoverProbe();
   await expect.poll(() => docShape(page), { timeout: 15_000 }).toContain("ROW[COL(paragraph:b) | COL(paragraph:a,paragraph:q)]");
   ({ cols } = await rowGeometry(page));
-  await dragBlockBelow(page, "a", "q", watch);
+  // ⋮⋮ 在溝的右側 16px：同樣先往左下移，前幾步才在溝裡。
+  const q2 = (await blockOuter(page, "q").boundingBox())!;
+  await dragHandleTo(page, blockOuter(page, "a"), "a", { x: q2.x + q2.width / 2, y: q2.y + q2.height * 0.75 }, { nudge: { x: -10, y: 10 }, watch });
   await expect.poll(() => docShape(page)).toContain("paragraph:x  ROW[COL(paragraph:b) | COL(paragraph:q,paragraph:a)]  paragraph:z");
   expect(seen.length).toBe(21);
   tagged = seen.filter((s) => s.updated).map((s) => ({ ...s, region: regionOf(cols, s.at) }));
@@ -1002,5 +1007,604 @@ test("R5 x y z 拖 z 到正上方 y 的左緣（格式工具列蓋在上面）�
   expect(seen.onToolbar, "放開點不命中工具列").toBe(false);
   expect(record.events.drop, "有 drop").toBeGreaterThanOrEqual(1);
   expect(record.after).toContain("paragraph:x  ROW[COL(paragraph:z) | COL(paragraph:y)]");
+  expectNoPageErrors(errors);
+});
+
+// ─── 分隔線調寬、欄內圖片擴欄 ───────────────────────────────────────────────────────────────
+
+/** 欄間分隔線（頁面上還有側欄的 `Resize sidebar` 分隔線，所以限在浮層裡）。 */
+const DIVIDER = '.kb-column-dividers [role="separator"]';
+
+function divider(page: Page, index = 0): Locator {
+  return page.locator(DIVIDER).nth(index);
+}
+
+/** 主編輯器第一個列每一欄的文件欄寬（column 節點的 `width`）。 */
+async function docWidths(page: Page): Promise<number[]> {
+  return editorLocator(page).evaluate((el) => {
+    type PmNode = { type: { name: string }; attrs: { width?: number }; childCount: number; child(i: number): PmNode };
+    type View = { state: { doc: { descendants(f: (n: PmNode) => boolean | void): void } } };
+    const view = (el as Element & { editor?: { view?: View } }).editor!.view!;
+    let widths: number[] | null = null;
+    view.state.doc.descendants((n) => {
+      if (widths) return false;
+      if (n.type.name !== "columnList") return true;
+      widths = Array.from({ length: n.childCount }, (_, i) => Number(n.child(i).attrs.width));
+      return false;
+    });
+    return widths ?? [];
+  });
+}
+
+/** 從現在起數主編輯器 Y.Doc 的 update 事件（y-prosemirror 綁定的那份；本地交易與遠端更新都算）。重複呼叫會歸零。 */
+async function resetYUpdates(page: Page): Promise<void> {
+  await editorLocator(page).evaluate((el) => {
+    type YDoc = { on(ev: "update", f: () => void): void };
+    type Plugin = { key: string; getState(s: unknown): { doc?: YDoc } | undefined };
+    const view = (el as Element & { editor?: { view?: { state: { plugins: Plugin[] } } } }).editor!.view!;
+    const w = window as unknown as { kbYUpdates?: number; kbYDoc?: YDoc };
+    w.kbYUpdates = 0;
+    const doc = view.state.plugins.find((p) => String(p.key).startsWith("y-sync$"))!.getState(view.state)!.doc!;
+    if (w.kbYDoc === doc) return;
+    w.kbYDoc = doc;
+    doc.on("update", () => void (w.kbYUpdates = (w.kbYUpdates ?? 0) + 1));
+  });
+}
+
+const yUpdates = (page: Page) => page.evaluate(() => (window as unknown as { kbYUpdates?: number }).kbYUpdates ?? 0);
+
+/** 拖分隔線時的旁觀狀態：body 的 user-select、拖曳中的分隔線數、預覽樣式表數。 */
+async function dragState(page: Page): Promise<{ userSelect: string; dragging: number; preview: number }> {
+  return page.evaluate(
+    (sel) => ({
+      userSelect: document.body.style.userSelect,
+      dragging: document.querySelectorAll(`${sel}[data-dragging]`).length,
+      preview: document.querySelectorAll("style[data-kb-col-preview]").length,
+    }),
+    DIVIDER,
+  );
+}
+
+const IDLE = { userSelect: "", dragging: 0, preview: 0 };
+
+/**
+ * 按住第 `index` 條分隔線命中區的中心、以 10 步水平移 `dx` 再放開；放開前呼叫 `beforeUp`。按下前先在命中區上移一下：
+ * 分隔線在 `pointerenter` 時重量位置，位置變了的那一下 `pointerdown` 不開始拖曳。
+ */
+async function dragDivider(page: Page, dx: number, opts: { index?: number; beforeUp?: () => Promise<void> } = {}): Promise<void> {
+  const box = (await divider(page, opts.index).boundingBox())!;
+  const start = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  await page.mouse.move(start.x, start.y - 2);
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await moveInSteps(page, start, { x: start.x + dx, y: start.y }, 10);
+  await opts.beforeUp?.();
+  await page.mouse.up();
+}
+
+type HitKind = { separator: boolean; sideMenuButton: boolean; menuItem: string | null; extend: boolean; desc: string };
+
+/** `p` 命中的元素是哪一種：欄間分隔線、欄內 ⋮⋮ 按鈕、`/` 選單項（回它的文字）、表格「加一欄」延伸鈕；`desc` 是標籤與 class。 */
+async function hitKind(page: Page, p: Point): Promise<HitKind> {
+  return page.evaluate(
+    ({ pt, sel }) => {
+      const el = document.elementFromPoint(pt.x, pt.y);
+      const item = el?.closest(".bn-suggestion-menu-item");
+      const cls = el ? (el.getAttribute("class") ?? "") : "";
+      return {
+        separator: !!el?.closest(sel),
+        sideMenuButton: !!el?.closest("[data-kb-column-side-menu] button"),
+        menuItem: item ? (item.textContent ?? "").trim() : null,
+        extend: !!el?.closest(".bn-extend-button-add-remove-columns"),
+        desc: el ? `${el.tagName.toLowerCase()}.${cls.slice(0, 60)}` : "none",
+      };
+    },
+    { pt: p, sel: DIVIDER },
+  );
+}
+
+/** 第一個列兩欄的像素寬比例：左／(左＋右)。 */
+async function leftShare(page: Page): Promise<number> {
+  const { cols } = await rowGeometry(page);
+  return cols[0]!.width / (cols[0]!.width + cols[1]!.width);
+}
+
+/** 帶寬度的圖片（貼上後成為 `previewWidth`）。 */
+function figure(url: string, width: number): string {
+  return `<figure><img alt="pic" src="${url}" width="${width}"></figure>`;
+}
+
+const toRect = (b: { x: number; y: number; width: number; height: number }): Rect => ({ x: b.x, y: b.y, width: b.width, height: b.height });
+
+const inlineOf = (page: Page, text: string): Locator => blockOuter(page, text).locator(".bn-inline-content").first();
+
+test("P6 [文字｜文字] 拖分隔線到左欄碰 200px 停住、放開只寫一次欄寬，不點回編輯器直接 Ctrl+Z 還原；[圖｜文字] 拉窄圖片欄 → 圖變小，拖回 → 長回 previewWidth", async ({ page }) => {
+  test.setTimeout(150_000);
+  const errors = await startNote(page, "p6");
+  await pasteMarkdown(page, rowDoc(["a", "b"]));
+  await expect.poll(() => docShape(page), { timeout: 15_000 }).toContain("paragraph:x  ROW[COL(paragraph:a) | COL(paragraph:b)]  paragraph:z");
+  await expect(divider(page)).toHaveCount(1);
+  expect(await docWidths(page)).toEqual([1, 1]);
+  const before = (await rowGeometry(page)).cols;
+  const record: Record<string, unknown> = { before };
+
+  // 貼上的交易都落定才開始數 Y update：隔 300ms 讀兩次文件形狀相同。
+  await expect
+    .poll(async () => {
+      const first = await docShape(page);
+      await page.waitForTimeout(300);
+      return first === (await docShape(page));
+    })
+    .toBe(true);
+  // 往左拖超過左欄能讓的寬度：左欄停在文字欄最小寬度 200px。
+  await resetYUpdates(page);
+  await dragDivider(page, -(before[0]!.width - 200) - 150, {
+    beforeUp: async () => {
+      const during = { cols: (await rowGeometry(page)).cols, widths: await docWidths(page), updates: await yUpdates(page), state: await dragState(page) };
+      record.during = during;
+      expect(during.widths, "拖曳中文件不變").toEqual([1, 1]);
+      expect(during.updates, "拖曳中沒有 Y update").toBe(0);
+      expect(during.state, "拖曳中 body 不能選字、預覽表在").toEqual({ userSelect: "none", dragging: 1, preview: 1 });
+      expect(during.cols[0]!.width, "左欄停在 200px").toBeGreaterThanOrEqual(199);
+      expect(during.cols[0]!.width).toBeLessThanOrEqual(201);
+    },
+  });
+  await expect.poll(() => docWidths(page)).not.toEqual([1, 1]);
+  const written = await docWidths(page);
+  const after = (await rowGeometry(page)).cols;
+  record.written = written;
+  record.after = after;
+  expect(written[0]!).toBeLessThan(written[1]!);
+  expect(Math.round((written[0]! + written[1]!) * 100) / 100).toBe(2);
+  expect(after[0]!.width, "放開後左欄仍是 200px").toBeGreaterThanOrEqual(199);
+  expect(after[0]!.width).toBeLessThanOrEqual(201);
+  expect(await dragState(page), "放開後清掉預覽與 user-select").toEqual(IDLE);
+  // 寫入只發生一次：放開那一下一個 Y update，之後沒有再改。
+  await page.waitForTimeout(500);
+  record.updates = await yUpdates(page);
+  expect(record.updates, "放開後恰一次 Y update").toBe(1);
+  expect(await docWidths(page)).toEqual(written);
+
+  // 分隔線按下時不搶焦點：不點回編輯器，Ctrl+Z 直接撤銷這次調寬。
+  record.focusInEditor = await editorLocator(page).evaluate((el) => el.contains(document.activeElement));
+  expect(record.focusInEditor, "拖完焦點仍在編輯器").toBe(true);
+  await page.keyboard.press("Control+z");
+  await expect.poll(() => docWidths(page)).toEqual([1, 1]);
+  await expect.poll(() => leftShare(page)).toBeCloseTo(0.5, 2);
+
+  // [圖｜文字]：圖片寬 300（previewWidth），左欄拉到約 150px → 圖片跟著變窄；拖回原寬 → 圖片長回 300。
+  await createNote(page, `E2E columns drag p6-image ${RUN}`);
+  const url = await uploadPng(page, 600, 300);
+  await pasteMarkdown(page, rowDoc([figure(url, 300), "right text"]));
+  await expect.poll(() => docShape(page), { timeout: 15_000 }).toContain("ROW[COL(image) | COL(paragraph:right text)]");
+  const img = editorLocator(page).locator(`img[src*="${url}"]`);
+  await waitImageLoaded(img);
+  const imageBlock = editorLocator(page).locator('[data-content-type="image"]');
+  await expect(imageBlock).toHaveAttribute("data-preview-width", "300");
+  await expect(divider(page)).toHaveCount(1);
+  const imgBefore = (await img.boundingBox())!.width;
+  const colBefore = (await rowGeometry(page)).cols[0]!.width;
+  const image: Record<string, unknown> = { imgBefore, colBefore };
+  record.image = image;
+  expect(Math.abs(imgBefore - 300), "前提：圖片顯示 300px").toBeLessThanOrEqual(0.5);
+  expect(colBefore, "前提：左欄比圖片寬").toBeGreaterThan(300);
+
+  await dragDivider(page, 150 - colBefore);
+  await expect.poll(async () => (await rowGeometry(page)).cols[0]!.width).toBeLessThan(160);
+  image.narrowCol = (await rowGeometry(page)).cols[0]!.width;
+  image.narrowImg = (await img.boundingBox())!.width;
+  expect(image.narrowImg as number, "欄變窄、圖片跟著變窄").toBeLessThan(imgBefore);
+  expect(image.narrowImg as number).toBeLessThanOrEqual((image.narrowCol as number) + 0.5);
+  await expect(imageBlock, "previewWidth 不變").toHaveAttribute("data-preview-width", "300");
+
+  await dragDivider(page, colBefore - (image.narrowCol as number));
+  await expect.poll(async () => Math.abs((await rowGeometry(page)).cols[0]!.width - colBefore)).toBeLessThanOrEqual(1);
+  await expect.poll(async () => Math.abs((await img.boundingBox())!.width - 300), { message: "圖片長回 previewWidth" }).toBeLessThanOrEqual(0.5);
+  image.backImg = (await img.boundingBox())!.width;
+  test.info().annotations.push({ type: "divider-drag-measurements", description: JSON.stringify(record) });
+  expectNoPageErrors(errors);
+});
+
+test("P6b 列上方的圖片晚載入、把列往下推（columnEl 高度不變）→ 分隔線跟著下移、仍貼左欄右緣；在原位置按下不開始拖曳、點回內文游標進得去", async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = await startNote(page, "p6b");
+  const url = await uploadPng(page, 400, 200);
+  // 圖片的回應由測試放行：放行前量一次版面（圖片還沒有高度），放行後再量。
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => (release = resolve));
+  await page.route(
+    (u) => u.pathname === url,
+    async (route) => {
+      await released;
+      await route.continue();
+    },
+  );
+  await pasteMarkdown(page, [`![late](${url})`, "", columnsMarkdown(["a", "b"]), ""].join("\n"));
+  await expect.poll(() => docShape(page), { timeout: 15_000 }).toContain("image  ROW[COL(paragraph:a) | COL(paragraph:b)]");
+  await expect(divider(page)).toHaveCount(1);
+  // 滑鼠移開：滑過分隔線會觸發它的重量，這裡要量的是 ResizeObserver 自己跟上。
+  await page.mouse.move(5, 5);
+  const measure = () =>
+    page.evaluate((sel) => {
+      const r = (e: Element | null | undefined) => {
+        const b = e!.getBoundingClientRect();
+        return { x: b.x, y: b.y, width: b.width, height: b.height };
+      };
+      const row = document.querySelector('[data-node-type="columnList"]');
+      return {
+        sep: r(document.querySelector(sel)),
+        row: r(row),
+        col1: r(row!.querySelector('[data-node-type="column"]')),
+        columnEl: r(document.querySelector(".kb-column-dividers")!.parentElement),
+        natural: (document.querySelector(".bn-editor img") as HTMLImageElement | null)?.naturalWidth ?? -1,
+      };
+    }, DIVIDER);
+  const before = await measure();
+  expect(before.natural, "前提：圖片還沒載入").toBe(0);
+  expect(Math.abs(before.sep.x - (before.col1.x + before.col1.width))).toBeLessThanOrEqual(1);
+
+  release();
+  await waitImageLoaded(editorLocator(page).locator(`img[src*="${url}"]`));
+  await expect.poll(async () => (await measure()).row.y - before.row.y, { message: "前提：列被圖片往下推" }).toBeGreaterThan(100);
+  let after = await measure();
+  try {
+    await expect(async () => {
+      after = await measure();
+      expect(Math.abs(after.sep.x - (after.col1.x + after.col1.width)), JSON.stringify(after)).toBeLessThanOrEqual(1);
+      expect(Math.abs(after.sep.y - after.row.y), JSON.stringify(after)).toBeLessThanOrEqual(1);
+      expect(after.sep.width).toBe(8);
+    }).toPass({ timeout: 5_000 });
+  } finally {
+    test.info().annotations.push({ type: "late-image-divider", description: JSON.stringify({ before, after }) });
+  }
+  expect(Math.abs(after.columnEl.height - before.columnEl.height), "前提：columnEl 高度不變").toBeLessThanOrEqual(0.5);
+
+  // 分隔線原本的位置現在是圖片那一段：不命中分隔線，按下也不開始拖曳。
+  const old = { x: before.sep.x + before.sep.width / 2, y: before.sep.y + before.sep.height / 2 };
+  expect((await hitKind(page, old)).separator, "原位置不再命中分隔線").toBe(false);
+  await page.mouse.move(old.x, old.y);
+  await page.mouse.down();
+  const pressed = await dragState(page);
+  await page.mouse.up();
+  expect(pressed, "在原位置按下沒有開始拖分隔線").toEqual(IDLE);
+
+  // 那一下選取了圖片，圖片工具列蓋在左欄上方，所以點右欄的內文。
+  await clickEndOfParagraph(page, inlineOf(page, "b"));
+  expect(await dragState(page)).toEqual(IDLE);
+  expect(await docWidths(page)).toEqual([1, 1]);
+  expectNoPageErrors(errors);
+});
+
+test("P7 聚焦分隔線按 → 兩次 → 左欄比例增約 10%、右欄變窄；回到編輯器 Ctrl+Z 一次還原；← 一次 → 左欄比例減約 5% [sc:columnResizeKeys]", async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = await startNote(page, "p7");
+  await pasteMarkdown(page, rowDoc(["a", "b"]));
+  await expect.poll(() => docShape(page), { timeout: 15_000 }).toContain("ROW[COL(paragraph:a) | COL(paragraph:b)]");
+  await expect(divider(page)).toHaveCount(1);
+  const share0 = await leftShare(page);
+  const right0 = (await rowGeometry(page)).cols[1]!.width;
+  expect(share0).toBeCloseTo(0.5, 2);
+
+  await divider(page).focus();
+  // 兩次之間不等待：落在撤銷的合併時間窗內。
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(() => leftShare(page)).toBeGreaterThan(share0 + 0.09);
+  const share2 = await leftShare(page);
+  expect(Math.abs(share2 - share0 - 0.1), `左欄比例 ${share0} → ${share2}`).toBeLessThanOrEqual(0.01);
+  expect((await rowGeometry(page)).cols[1]!.width, "右欄變窄").toBeLessThan(right0);
+  const written = await docWidths(page);
+  expect(written).not.toEqual([1, 1]);
+
+  await clickEndOfParagraph(page, inlineOf(page, "a"));
+  await page.keyboard.press("Control+z");
+  await expect.poll(() => docWidths(page), { message: "一次 Ctrl+Z 還原兩次按鍵" }).toEqual([1, 1]);
+  await expect.poll(() => leftShare(page)).toBeCloseTo(0.5, 2);
+
+  await divider(page).focus();
+  await page.keyboard.press("ArrowLeft");
+  await expect.poll(() => leftShare(page)).toBeLessThan(share0 - 0.04);
+  const shareLeft = await leftShare(page);
+  expect(Math.abs(share0 - shareLeft - 0.05), `左欄比例 ${share0} → ${shareLeft}`).toBeLessThanOrEqual(0.01);
+  test.info().annotations.push({ type: "divider-keyboard", description: JSON.stringify({ share0, share2, written, shareLeft }) });
+  expectNoPageErrors(errors);
+});
+
+test("P8 [圖｜文字] 拉圖右把手：先在欄內變大，超過欄寬後文字欄變窄、到 200px 停住；放開後 Ctrl+Z 一次還原圖寬與欄寬", async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = await startNote(page, "p8");
+  const url = await uploadPng(page, 1200, 300);
+  await pasteMarkdown(page, rowDoc([figure(url, 200), "right text"]));
+  await expect.poll(() => docShape(page), { timeout: 15_000 }).toContain("ROW[COL(image) | COL(paragraph:right text)]");
+  const img = editorLocator(page).locator(`img[src*="${url}"]`);
+  await waitImageLoaded(img);
+  const imageBlock = editorLocator(page).locator('[data-content-type="image"]');
+  await expect(imageBlock).toHaveAttribute("data-preview-width", "200");
+  const before = (await rowGeometry(page)).cols;
+  const ck = await imageBlock.evaluate((el) => (el.closest(".bn-block-content") as HTMLElement).clientWidth);
+  const record: Record<string, unknown> = { before, ck };
+  const snap = async () => ({ img: (await img.boundingBox())!.width, cols: (await rowGeometry(page)).cols });
+
+  try {
+    await img.hover();
+    const handle = imageBlock.locator(".bn-resize-handle").nth(1); // 第二個是右把手
+    await expect(handle).toBeVisible();
+    const h = (await handle.boundingBox())!;
+    const start = { x: h.x + h.width / 2, y: h.y + h.height / 2 };
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+
+    // 欄內：+40 → 圖片 240、欄寬不變。
+    const inside = { x: start.x + 40, y: start.y };
+    await moveInSteps(page, start, inside, 5);
+    const step1 = await snap();
+    record.inside = step1;
+    expect(Math.abs(step1.img - 240), "欄內先變大").toBeLessThanOrEqual(1);
+    expect(Math.abs(step1.cols[1]!.width - before[1]!.width), "欄內時文字欄不變").toBeLessThanOrEqual(0.5);
+
+    // 超過可用寬 60px：文字欄讓出 60px。
+    const over = { x: start.x + (ck - 200) + 60, y: start.y };
+    await moveInSteps(page, inside, over, 10);
+    const step2 = await snap();
+    record.over = step2;
+    expect(step2.cols[1]!.width, "超過欄寬後文字欄變窄").toBeLessThan(before[1]!.width - 50);
+    expect(step2.cols[0]!.width, "圖片欄變寬").toBeGreaterThan(before[0]!.width + 50);
+
+    // 再往右拉很遠：文字欄停在 200px；再拉也不變。
+    const far = { x: over.x + 600, y: start.y };
+    await moveInSteps(page, over, far, 10);
+    const step3 = await snap();
+    await moveInSteps(page, far, { x: far.x + 100, y: start.y }, 2);
+    const step4 = await snap();
+    record.far = { step3, step4 };
+    expect(step3.cols[1]!.width, "文字欄停在 200px").toBeGreaterThanOrEqual(199);
+    expect(step3.cols[1]!.width).toBeLessThanOrEqual(201);
+    expect(Math.abs(step4.img - step3.img), "再拉也不變").toBeLessThanOrEqual(0.5);
+    await page.mouse.up();
+
+    await expect.poll(() => docWidths(page)).not.toEqual([1, 1]);
+    const written = { widths: await docWidths(page), previewWidth: await imageBlock.getAttribute("data-preview-width") };
+    record.written = written;
+    expect(Math.abs(Number(written.previewWidth) - step4.img), "寫入的 previewWidth＝放開時的圖寬").toBeLessThanOrEqual(1);
+    const afterUp = (await rowGeometry(page)).cols;
+    expect(afterUp[1]!.width, "放開後文字欄仍是 200px").toBeGreaterThanOrEqual(199);
+    expect(afterUp[1]!.width).toBeLessThanOrEqual(201);
+  } finally {
+    test.info().annotations.push({ type: "image-expands-column", description: JSON.stringify(record) });
+  }
+
+  await clickEndOfParagraph(page, inlineOf(page, "right text"));
+  await page.keyboard.press("Control+z");
+  await expect.poll(() => docWidths(page), { message: "一次 Ctrl+Z 還原欄寬" }).toEqual([1, 1]);
+  await expect(imageBlock, "同一次 Ctrl+Z 還原圖寬").toHaveAttribute("data-preview-width", "200");
+  await expect.poll(async () => Math.abs((await img.boundingBox())!.width - 200)).toBeLessThanOrEqual(0.5);
+  expectNoPageErrors(errors);
+});
+
+test("P9 分隔線與第 2 欄 ⋮⋮：按鈕寬 ≤ 16、兩者不重疊、⋮⋮ 右緣貼右欄左緣；⋮⋮ 顯示中命中區仍命中分隔線、拖得動；⋮⋮ 點得到也拖得動", async ({ page }) => {
+  test.setTimeout(150_000);
+  const errors = await startNote(page, "p9");
+  await pasteMarkdown(page, rowDoc(["a", "b"]));
+  await expect.poll(() => docShape(page), { timeout: 15_000 }).toContain("paragraph:x  ROW[COL(paragraph:a) | COL(paragraph:b)]  paragraph:z");
+  await expect(divider(page)).toHaveCount(1);
+  const v: Record<string, unknown> = {};
+  try {
+    const { menu } = await hoverForSideMenu(page, blockOuter(page, "b"), "b");
+    const button = page.locator("[data-kb-column-side-menu]").getByRole("button", { name: "Open block menu" });
+    await expect(button).toBeVisible();
+    const btn = toRect((await button.boundingBox())!);
+    const sep = toRect((await divider(page).boundingBox())!);
+    const { row, cols } = await rowGeometry(page);
+    const midY = row.y + row.height / 2;
+    // 命中區每一個像素欄各量一點（命中區中心是 +4）。
+    const hits: Array<{ p: Point } & HitKind> = [];
+    for (let dx = 0.5; dx < sep.width; dx++) {
+      const p = { x: sep.x + dx, y: midY };
+      hits.push({ p, ...(await hitKind(page, p)) });
+    }
+    Object.assign(v, { btn, sideMenu: menu, sep, cols, hits });
+    expect(btn.width, "⋮⋮ 按鈕寬 ≤ 16").toBeLessThanOrEqual(16.01);
+    expect(Math.abs(sep.x - (cols[0]!.x + cols[0]!.width)), "命中區左緣＝左欄右緣").toBeLessThanOrEqual(1);
+    expect(sep.width).toBe(8);
+    expect(Math.abs(menu.x + menu.width - cols[1]!.x), "⋮⋮ 右緣貼右欄左緣").toBeLessThanOrEqual(1);
+    // side menu 的 popover 以整數像素的 translate 定位（floating-ui 依 devicePixelRatio 捨入），相對的 columnEl 左緣帶小數時，
+    // ⋮⋮ 會比右欄左緣再往左最多 0.5px，蓋到命中區最右邊那一個像素欄（side menu 的 z-index 高於分隔線浮層）。
+    expect(btn.x, "⋮⋮ 按鈕最多蓋到命中區 0.5px").toBeGreaterThanOrEqual(sep.x + sep.width - 0.5);
+    for (const h of hits.slice(0, -1)) expect(h.separator, `⋮⋮ 顯示中命中區 ${JSON.stringify(h)}`).toBe(true);
+  } finally {
+    test.info().annotations.push({ type: "divider-vs-side-menu", description: JSON.stringify(v) });
+    console.log("P9=" + JSON.stringify(v));
+  }
+
+  // ⋮⋮ 顯示中，在命中區按下拖得動。先把滑鼠移進命中區，確認 ⋮⋮ 仍在畫面上。
+  const band = (await divider(page).boundingBox())!;
+  await page.mouse.move(band.x + band.width / 2, band.y + band.height / 2);
+  await expect(page.locator("[data-kb-column-side-menu]").getByRole("button", { name: "Open block menu" })).toBeVisible();
+  await dragDivider(page, -60);
+  await expect.poll(() => docWidths(page)).not.toEqual([1, 1]);
+  await clickEndOfParagraph(page, inlineOf(page, "a"));
+  await page.keyboard.press("Control+z");
+  await expect.poll(() => docWidths(page)).toEqual([1, 1]);
+
+  // ⋮⋮ 點得到：選單打開。
+  await hoverForSideMenu(page, blockOuter(page, "b"), "b");
+  await page.locator("[data-kb-column-side-menu]").getByRole("button", { name: "Open block menu" }).click();
+  await expect(page.getByRole("menuitem", { name: "Ungroup columns" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("menuitem", { name: "Ungroup columns" })).toBeHidden();
+
+  // ⋮⋮ 拖得動：b 拖到 z 下方。
+  await dragBlockBelow(page, "b", "z");
+  await expect.poll(() => docShape(page)).toContain("ROW[COL(paragraph:a) | COL(paragraph)]  paragraph:z  paragraph:b");
+  expect(await docWidths(page)).toEqual([1, 1]);
+  expectNoPageErrors(errors);
+});
+
+test("P9b 第 1 欄靠右的 block 打 / 讓選單蓋住溝：命中區那一點命中選單項，點下 → 選單項生效、沒有開始拖分隔線", async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = await startNote(page, "p9b");
+  // 第 2 欄放六段，列（也就是分隔線命中區）比選單項所在的高度還高。
+  await pasteMarkdown(page, rowDoc(["a", "b\n\nb2\n\nb3\n\nb4\n\nb5\n\nb6"]));
+  await expect
+    .poll(() => docShape(page), { timeout: 15_000 })
+    .toContain("ROW[COL(paragraph:a) | COL(paragraph:b,paragraph:b2,paragraph:b3,paragraph:b4,paragraph:b5,paragraph:b6)]");
+  await expect(divider(page)).toHaveCount(1);
+  const { cols } = await rowGeometry(page);
+  const col1Right = cols[0]!.x + cols[0]!.width;
+  await clickEndOfParagraph(page, inlineOf(page, "a"));
+  // 打字讓游標靠近第 1 欄右緣（不換行），選單從游標往右展開就會蓋到溝。
+  const caret = () =>
+    page.evaluate(() => {
+      const r = window.getSelection()!.getRangeAt(0).getBoundingClientRect();
+      return { x: r.x, y: r.y };
+    });
+  const y0 = (await caret()).y;
+  for (let i = 0; i < 120 && (await caret()).x < col1Right - 120; i++) await page.keyboard.type("m");
+  expect(Math.abs((await caret()).y - y0), "前提：沒有換行").toBeLessThanOrEqual(1);
+  await page.keyboard.type(" /heading");
+  const item = page.locator(".bn-suggestion-menu-item").filter({ hasText: "Heading 1" }).first();
+  await expect(item).toBeVisible();
+  const box = toRect((await item.boundingBox())!);
+  const sep = toRect((await divider(page).boundingBox())!);
+  const p = { x: sep.x + sep.width / 2, y: box.y + box.height / 2 };
+  const hit = await hitKind(page, p);
+  test.info().annotations.push({ type: "slash-menu-over-divider", description: JSON.stringify({ item: box, sep, p, hit }) });
+  expect(box.x <= p.x && p.x <= box.x + box.width, `前提：選單項蓋住命中區 ${JSON.stringify({ box, sep })}`).toBe(true);
+  expect(p.y >= sep.y && p.y <= sep.y + sep.height, `前提：量的點在命中區的高度內 ${JSON.stringify({ p, sep })}`).toBe(true);
+  expect(hit.separator, "命中的不是分隔線").toBe(false);
+  expect(hit.menuItem, `命中選單項 ${hit.desc}`).toContain("Heading 1");
+
+  await page.mouse.move(p.x, p.y);
+  await page.mouse.down();
+  const pressed = await dragState(page);
+  await page.mouse.up();
+  expect(pressed, "沒有開始拖分隔線").toEqual(IDLE);
+  // 選單關掉後，同一點命中的是分隔線：剛才命中選單項是因為選單蓋在上面，不是那一點本來就沒有分隔線。
+  await expect(item).toBeHidden();
+  await expect.poll(async () => (await hitKind(page, p)).separator, { message: "選單關掉後同一點命中分隔線" }).toBe(true);
+  // 段落有字時，選單項在它後面插入新的標題 block。
+  await expect.poll(() => docShape(page)).toMatch(/ROW\[COL\(paragraph:am+ ?,heading\) \| COL\(paragraph:b,paragraph:b2/);
+  expect(await docWidths(page)).toEqual([1, 1]);
+  expectNoPageErrors(errors);
+});
+
+test("P9c 第 1 欄的表格 hover 出「加一欄」延伸鈕：量它與分隔線命中區的關係（有重疊就斷言重疊處命中延伸鈕）；點下 → 表格多一欄、沒有開始拖分隔線", async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = await startNote(page, "p9c");
+  // 欄寬給得比欄寬大：表格撐到欄內能放的最寬，延伸鈕最靠近溝。
+  const table = '<table><tr><th colwidth="300">h1</th><th colwidth="300">h2</th></tr><tr><td>c1</td><td>c2</td></tr></table>';
+  await pasteMarkdown(page, rowDoc([table, "b"]));
+  await expect.poll(() => docShape(page), { timeout: 15_000 }).toContain("ROW[COL(table:h1h2c1c2) | COL(paragraph:b)]");
+  await expect(divider(page)).toHaveCount(1);
+  const headerCells = () => editorLocator(page).locator(`${ROW} table tr`).first().locator("th, td").count();
+  expect(await headerCells()).toBe(2);
+  await editorLocator(page).locator(`${ROW} table tr`).last().locator("td").last().hover();
+  const extend = page.locator(".bn-extend-button-add-remove-columns");
+  await expect(extend).toBeVisible();
+  const ext = toRect((await extend.boundingBox())!);
+  const sep = toRect((await divider(page).boundingBox())!);
+  const { cols } = await rowGeometry(page);
+  const y = ext.y + ext.height / 2;
+  // 延伸鈕與命中區的水平交集；沒有交集時量命中區在延伸鈕那一列高度的命中結果。
+  const overlap = { from: Math.max(ext.x, sep.x), to: Math.min(ext.x + ext.width, sep.x + sep.width) };
+  const overlaps = overlap.to - overlap.from > 0.5;
+  const probe = overlaps ? { x: (overlap.from + overlap.to) / 2, y } : { x: sep.x + sep.width / 2, y };
+  const hit = await hitKind(page, probe);
+  const record = { ext, sep, col1: cols[0], overlap, overlaps, probe, hit };
+  test.info().annotations.push({ type: "table-extend-vs-divider", description: JSON.stringify(record) });
+  console.log("P9c=" + JSON.stringify(record));
+  if (overlaps) expect(hit.extend, `重疊處命中延伸鈕 ${hit.desc}`).toBe(true);
+  else expect(hit.separator, `延伸鈕沒蓋到溝時，命中區仍命中分隔線 ${hit.desc}`).toBe(true);
+
+  const target = overlaps ? probe : { x: ext.x + ext.width / 2, y };
+  await page.mouse.move(target.x, target.y);
+  await page.mouse.down();
+  const pressed = await dragState(page);
+  await page.mouse.up();
+  expect(pressed, "沒有開始拖分隔線").toEqual(IDLE);
+  await expect.poll(headerCells, { message: "表格多一欄" }).toBe(3);
+  expect(await docWidths(page)).toEqual([1, 1]);
+  expectNoPageErrors(errors);
+});
+
+test("P10b 溝裡的檔案（分隔線命中區）：命中區中心先命中分隔線，dragenter 之後同一點命中編輯器、dragover 被接受，放下 → 圖片進最近的欄、網址不變", async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = await startNote(page, "p10b");
+  await pasteMarkdown(page, rowDoc(["a", "b"]));
+  await expect.poll(() => docShape(page), { timeout: 15_000 }).toContain("ROW[COL(paragraph:a) | COL(paragraph:b)]");
+  await expect(divider(page)).toHaveCount(1);
+  const url = page.url();
+  // 滑鼠移開：⋮⋮ 不顯示，命中區那一點只有分隔線。
+  await page.mouse.move(5, 5);
+  const sep = toRect((await divider(page).boundingBox())!);
+  const b = (await blockOuter(page, "b").boundingBox())!;
+  const p = { x: sep.x + 4, y: b.y + b.height / 2 };
+  const before = await hitKind(page, p);
+  expect(before.separator, `前提：命中區中心命中分隔線 ${before.desc}`).toBe(true);
+
+  const { cols } = await rowGeometry(page);
+  const result = await dropFileAt(page, p, grayPng(40, 40));
+  expect(result.pos, "放下前 posAtCoords 有結果").not.toBeNull();
+  const expected = expectedColumns(cols, p, result.pos!);
+  test.info().annotations.push({ type: "gutter-file-drop-on-divider", description: JSON.stringify({ p, sep, cols, expected, result }) });
+  expect(expected.length, `預期的欄 ${JSON.stringify(result.pos)}`).toBeGreaterThan(0);
+  expect(result.afterEnterInEditor, `dragenter 之後命中 ${result.afterEnter}`).toBe(true);
+  expect(result.overPrevented, "dragover 被接受").toBe(true);
+  await expect.poll(() => docShape(page), { timeout: 15_000 }).toMatch(/ROW\[COL\([^)]*image[^)]*\) \| COL\(paragraph:b\)\]|ROW\[COL\(paragraph:a\) \| COL\([^)]*image[^)]*\)\]/);
+  const columns = columnsOf(await docShape(page));
+  expect(expected, `圖片所在的欄 ${JSON.stringify(columns)}`).toContain(columns.findIndex((c) => c.includes("image")));
+  expect(page.url()).toBe(url);
+  expectNoPageErrors(errors);
+});
+
+/** 欄開標籤的正規形（shared `canonicalColumnsLine`；e2e 不能 import shared，兩邊要一起改）。 */
+const COLUMNS_OPEN_TAG = '<div data-kb-columns style="display:flex;gap:16px">';
+const COLUMN_LINE_RE = /^<div data-kb-column style="flex:((?:0|[1-9][0-9]?)(?:\.[0-9]{1,2})?)">$/;
+
+test("P11 拖分隔線後 REST 讀出：欄開標籤是正規形、值＝文件欄寬；原樣 replace_all 寫回 → 201、欄寬不變、再讀逐字相同", async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = await startNote(page, "p11");
+  const noteId = await noteIdFromUrl(page);
+  await pasteMarkdown(page, rowDoc(["a", "b"]));
+  await expect.poll(() => docShape(page), { timeout: 15_000 }).toContain("ROW[COL(paragraph:a) | COL(paragraph:b)]");
+  await expect(divider(page)).toHaveCount(1);
+  await dragDivider(page, -150);
+  await expect.poll(() => docWidths(page)).not.toEqual([1, 1]);
+  const widths = await docWidths(page);
+
+  type Content = { markdown: string; fingerprint: string };
+  const read = async (): Promise<Content> => {
+    const res = await page.request.get(`/api/notes/${noteId}/content`);
+    expect(res.status(), await res.text()).toBe(200);
+    return (await res.json()) as Content;
+  };
+  const columnLines = (md: string) => md.split("\n").filter((l) => l.startsWith("<div data-kb-column"));
+  // 調寬經共編送到 server 有時間差：讀到的欄寬等於文件的值才算 server 看到了。
+  let original!: Content;
+  await expect(async () => {
+    original = await read();
+    expect(columnLines(original.markdown).slice(1).map((l) => Number(COLUMN_LINE_RE.exec(l)?.[1]))).toEqual(widths);
+  }).toPass({ timeout: 20_000 });
+  const lines = columnLines(original.markdown);
+  test.info().annotations.push({ type: "columns-markdown-after-resize", description: JSON.stringify({ widths, lines }) });
+  expect(lines).toHaveLength(3);
+  expect(lines[0]).toBe(COLUMNS_OPEN_TAG);
+  for (const l of lines.slice(1)) {
+    const m = COLUMN_LINE_RE.exec(l);
+    expect(m, `正規形 ${l}`).not.toBeNull();
+    expect(Number(m![1])).toBeGreaterThanOrEqual(0.1);
+    expect(Number(m![1])).toBeLessThanOrEqual(10);
+  }
+
+  const rowIdBefore = await editorLocator(page).locator(ROW).first().getAttribute("data-id");
+  const same = await page.request.post(`/api/notes/${noteId}/edits`, {
+    headers: { Origin: originOf(page) },
+    data: { op: "replace_all", markdown: original.markdown, if_match: original.fingerprint },
+  });
+  expect(same.status(), await same.text()).toBe(201);
+  // replace_all 換掉每個 block 的 id：列的 data-id 換掉＝頁面收到這次寫入。
+  await expect.poll(() => editorLocator(page).locator(ROW).first().getAttribute("data-id"), { timeout: 10_000 }).not.toBe(rowIdBefore);
+  expect(await docWidths(page)).toEqual(widths);
+  expect((await read()).markdown).toBe(original.markdown);
   expectNoPageErrors(errors);
 });

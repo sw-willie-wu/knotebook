@@ -91,6 +91,7 @@ export const SHORTCUTS: readonly ShortcutEntry[] = [
   { id: "columnDelete", category: "columns", keys: [combo("Delete")] },
   { id: "columnUngroup", category: "columns", keys: [action] },
   { id: "columnsDragBeside", category: "columns", keys: [action] },
+  { id: "columnResizeKeys", category: "columns", keys: [combo("ArrowLeft"), combo("ArrowRight")], sep: "pair" },
   // 側欄（選取模式）
   { id: "selectEsc", category: "sidebar", keys: [combo("Esc")] },
   { id: "selectRange", category: "sidebar", keys: [combo("Shift", "Click")] },

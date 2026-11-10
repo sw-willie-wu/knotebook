@@ -10,6 +10,8 @@ import * as edgeDropModule from "./edge-drop";
 import { createColumnEdgeKeymapExtension } from "./edge-keymap";
 import { removeBlocksKeepColumns } from "./keep-columns";
 import { findNodeById } from "./position";
+import { writeColumnWidths } from "./width-preview";
+import { dividerResize, ratiosFromPixels } from "./widths";
 
 // 媒體阻擋會呼叫 toast；完整選項的編輯器（`buildNoteEditorOptions`）才有，換成 spy 免得碰到真的 UI。
 const toastMock = vi.hoisted(() => vi.fn());
@@ -412,5 +414,62 @@ describe("雙用戶端：⋮⋮ 拖放時對方同時打字（B 以完整選項�
     expectSameAndClean(a, b);
     const sourceColumnText = rowBlock(a, "r").children[1]!.children.map((block) => (block.content ?? []).map((c) => c.text).join("")).join("|");
     console.log("CO11 source", JSON.stringify({ shape: shape(a), holder: blockHolding(a, "AAA"), sourceColumnText }));
+  });
+});
+
+// ─── 分隔線放開與對方同時編輯 ───────────────────────────────────────────────────────────
+
+/**
+ * 放開第 `index` 條分隔線：照分隔線元件放開時的算法（`dividerResize` 夾最小寬度 → `ratiosFromPixels` 只讓被拖的兩欄吸收捨入差
+ * → `writeColumnWidths` 只寫有變的欄、自成一個撤銷步）。`px` 是按下時量到的各欄像素寬，最小寬度都是文字欄的 200px。
+ * 回傳寫進文件的整列比例。
+ */
+function releaseDivider(editor: AnyEditor, rowId: string, px: readonly number[], index: number, delta: number): number[] {
+  const [left, right] = dividerResize(px[index]!, px[index + 1]!, 200, 200, delta);
+  const next = [...px];
+  next[index] = left;
+  next[index + 1] = right;
+  const ratios = ratiosFromPixels(next, [index, index + 1]);
+  expect(writeColumnWidths(editor, rowId, ratios)).toBe(true);
+  return ratios;
+}
+
+describe("雙用戶端：分隔線放開時對方同時編輯", () => {
+  it("CO8（安全）：B 放開分隔線寫欄寬，A 同時在兩欄打字 → 兩人的字都在、欄寬是 B 寫的值", async () => {
+    const { a, b, sync } = await collabPair(AB());
+    typeAtEnd(a, "a1", "AAA");
+    typeAtEnd(a, "b1", "BBB");
+    const written = releaseDivider(b, "r", [500, 500], 0, 200);
+    expect(written).toEqual([1.4, 0.6]);
+    expect(widthsOf(b, "r")).toEqual(written);
+    expect(widthsOf(a, "r")).toEqual([1, 1]);
+    await sync();
+    expectSameAndClean(a, b);
+    for (const e of [a, b]) {
+      expect(shape(e)).toBe("paragraph:x  ROW[COL(paragraph:aAAA) | COL(paragraph:bBBB)]  paragraph:z");
+      expect(widthsOf(e, "r")).toEqual(written);
+    }
+  });
+
+  // 記錄（jsdom 實測）：兩人都寫到中間那欄，合併後中間那欄取其中一人的值（Y 的屬性衝突以 clientID 決定），另外兩欄各自保留
+  // 寫它的人的值，所以總和可能不等於欄數。每欄仍在合法範圍內，讀出寫回 markdown 不會被拒。
+  it("CO9（記錄）：A、B 同時調同一列不同對的分隔線 → 兩邊相同、每欄在 [0.1, 10]，記下合併後的欄寬與總和", async () => {
+    const pair = await collabPair([P("x", "x0"), row([[P("a", "a1")], [P("b", "b1")], [P("c", "c1")]], "r"), P("z", "z9")]);
+    const { a, b } = pair;
+    const fromA = releaseDivider(a, "r", [300, 300, 300], 0, 60);
+    const fromB = releaseDivider(b, "r", [300, 300, 300], 1, 80);
+    expect(fromA).toEqual([1.2, 0.8, 1]);
+    expect(fromB).toEqual([1, 1.27, 0.73]);
+    await pair.sync();
+    expectSameAndClean(a, b);
+    const merged = widthsOf(a, "r");
+    expect(widthsOf(b, "r")).toEqual(merged);
+    expect(merged).toHaveLength(3);
+    for (const w of merged) {
+      expect(w).toBeGreaterThanOrEqual(0.1);
+      expect(w).toBeLessThanOrEqual(10);
+    }
+    const sum = Math.round(merged.reduce((s, w) => s + w, 0) * 100) / 100;
+    console.log("CO9", JSON.stringify({ fromA, fromB, merged, sum }));
   });
 });
