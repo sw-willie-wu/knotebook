@@ -3,6 +3,7 @@ import {
   CUSTOM_COLORS_STYLE_ID,
   customColorSelectors,
   ensureCustomColor,
+  installCustomColors,
   resetCustomColorsForTest,
 } from "./custom-colors";
 
@@ -86,5 +87,73 @@ describe("ensureCustomColor (#378)", () => {
     expect(sels).toContain('[data-text-color="#ff6600"]');
     expect(sels).toContain('.kn-present [data-text-color="#ff6600"]');
     expect(sels.some((s) => s.includes(":has("))).toBe(false);
+  });
+});
+
+const flush = async () => {
+  await Promise.resolve();
+  await Promise.resolve();
+};
+const OBSERVER_KEY = Symbol.for("knotebook.customColors.observer");
+
+describe("installCustomColors (#378)", () => {
+  it("OB1 安裝前已存在的色碼元素，安裝時全量掃描登記", () => {
+    document.body.innerHTML = '<span data-style-type="textColor" data-value="#ff6600">x</span>';
+    installCustomColors();
+    expect(selectors()).toContain('[data-style-type="textColor"][data-value="#ff6600"]');
+  });
+
+  it("OB2 安裝後直接掛上 body 的裸 span 也登記（元素本身要比對選擇器）", async () => {
+    installCustomColors();
+    const span = document.createElement("span");
+    span.setAttribute("data-style-type", "textColor");
+    span.setAttribute("data-value", "#ff6600");
+    document.body.append(span);
+    await flush();
+    expect(selectors()).toContain('[data-style-type="textColor"][data-value="#ff6600"]');
+  });
+
+  it("OB3 安裝後掛上含 block 色碼後代的容器，登記 block 規則", async () => {
+    installCustomColors();
+    const div = document.createElement("div");
+    div.innerHTML = '<p data-text-color="#00ff00"></p>';
+    document.body.append(div);
+    await flush();
+    expect(selectors()).toContain('[data-text-color="#00ff00"]');
+  });
+
+  it("OB4 屬性改成色碼時登記；非顏色的 data-value 不登記", async () => {
+    document.body.innerHTML =
+      '<p id="p" data-background-color="red"></p><span id="l" data-style-type="link" data-value="#123456"></span>';
+    installCustomColors();
+    expect(styleEl()?.sheet?.cssRules.length ?? 0).toBe(0);
+    document.getElementById("p")!.setAttribute("data-background-color", "#0000ff");
+    document.getElementById("l")!.setAttribute("data-value", "#abcdef");
+    await flush();
+    const sels = selectors();
+    expect(sels).toContain('[data-background-color="#0000ff"]');
+    expect(sels.some((s) => s.includes("#123456") || s.includes("#abcdef"))).toBe(false);
+  });
+
+  it("OB4b 非正規形的屬性值不登記", async () => {
+    installCustomColors();
+    const p = document.createElement("p");
+    p.setAttribute("data-text-color", "#FF6600");
+    document.body.append(p);
+    await flush();
+    expect(styleEl()?.sheet?.cssRules.length ?? 0).toBe(0);
+  });
+
+  it("OB5 連裝兩次：只有一個 style，且重裝會斷開舊 observer", () => {
+    document.body.innerHTML = '<span data-style-type="textColor" data-value="#ff6600">x</span>';
+    const spy = vi.spyOn(MutationObserver.prototype, "disconnect");
+    installCustomColors();
+    const first = (document as unknown as Record<symbol, unknown>)[OBSERVER_KEY];
+    expect(first).toBeTruthy();
+    spy.mockClear();
+    installCustomColors();
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect((document as unknown as Record<symbol, unknown>)[OBSERVER_KEY]).not.toBe(first);
+    expect(document.querySelectorAll(`#${CUSTOM_COLORS_STYLE_ID}`)).toHaveLength(1);
   });
 });
