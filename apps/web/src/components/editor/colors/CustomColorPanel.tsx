@@ -1,4 +1,16 @@
-import { lazy, Suspense, useCallback, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type Ref } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type FocusEvent,
+  type KeyboardEvent,
+  type Ref,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { isCustomColor } from "@knotebook/shared";
 import { Button } from "@/components/ui/button";
@@ -13,7 +25,58 @@ interface CustomColorPanelProps {
   request: PanelRequest;
   onBack(): void;
   onApply(hex: string): void;
+  /** dropdown 外面還有一層會在重繪時重新搶焦點的 focus trap（格式工具列）時設為 true，見 `usePinnedFocus`。 */
+  pinFocus?: boolean;
   ref?: Ref<HTMLDivElement>;
+}
+
+const AUTOFOCUS = "data-autofocus";
+
+/**
+ * 讓外層 Mantine `useFocusTrap` 重新聚焦時落在面板裡目前有焦點的元素上。
+ *
+ * BlockNote 格式工具列的根節點用 `useFocusTrap`，工具列每次重繪都換一個合併 ref，trap 因此先收到 null 再收到節點；
+ * 收到 null 只是清掉記住的節點，每次收到節點就排一個 `focusNode`：把焦點移到工具列內第一個 `[data-autofocus]`（沒有就是第一個可 Tab 的元素）。共編者在選取之前打字會讓選取重映射、
+ * 工具列跟著重繪，焦點就從色碼框被移走，之後打的字不會進色碼框。`focusNode` 先找 `[data-autofocus]`，
+ * 所以把這個屬性放在目前有焦點的元素上，搶焦點就變成對同一個元素 `.focus()`，焦點與游標位置都不動。
+ * 選單 dropdown 自己的初始聚焦佔位元素也帶這個屬性，而且排在面板前面，面板有焦點時要先拿掉它，離開面板或卸載時放回。
+ * 拖曳把手與表格把手的選單不在這種 trap 裡，不需要這段。
+ */
+function usePinnedFocus(enabled: boolean, rootRef: { current: HTMLDivElement | null }) {
+  const state = useRef<{ marked: HTMLElement | null; stripped: HTMLElement[] }>({ marked: null, stripped: [] });
+
+  const release = useCallback(() => {
+    const { marked, stripped } = state.current;
+    marked?.removeAttribute(AUTOFOCUS);
+    for (const el of stripped) el.setAttribute(AUTOFOCUS, "true");
+    state.current = { marked: null, stripped: [] };
+  }, []);
+
+  useEffect(() => release, [release]);
+
+  if (!enabled) return {};
+  return {
+    onFocus: (e: FocusEvent<HTMLDivElement>) => {
+      const root = rootRef.current;
+      const target = e.target;
+      if (!root) return;
+      const s = state.current;
+      if (s.marked && s.marked !== target) s.marked.removeAttribute(AUTOFOCUS);
+      root
+        .closest("[data-menu-dropdown]")
+        ?.querySelectorAll<HTMLElement>(`[${AUTOFOCUS}]`)
+        .forEach((el) => {
+          if (root.contains(el)) return;
+          el.removeAttribute(AUTOFOCUS);
+          s.stripped.push(el);
+        });
+      target.setAttribute(AUTOFOCUS, "");
+      s.marked = target;
+    },
+    onBlur: (e: FocusEvent<HTMLDivElement>) => {
+      if (!rootRef.current?.contains(e.relatedTarget as Node | null)) release();
+    },
+  };
 }
 
 /** 開面板時色碼框的初始值：目前的自訂色，沒有就用上次套用的，再沒有就只放 `#`。 */
@@ -27,7 +90,7 @@ function initialHex(current: string): string {
  * 拖曳或輸入只改面板裡的預覽；按「套用」、在色碼框按 Enter、點最近用過的色塊才呼叫 `onApply`。
  * 按鈕都是一般 `<button>`，不是 Menu.Item：Menu.Item 的 tabIndex 是 -1，Tab 走不到。
  */
-export function CustomColorPanel({ request, onBack, onApply, ref }: CustomColorPanelProps) {
+export function CustomColorPanel({ request, onBack, onApply, pinFocus = false, ref }: CustomColorPanelProps) {
   const { t } = useTranslation();
   const errorId = useId();
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -38,6 +101,7 @@ export function CustomColorPanel({ request, onBack, onApply, ref }: CustomColorP
   const parsed = parseHexInput(text);
   // 只有 `#` 或空白時是還沒輸入，不標錯；但仍不能套用。
   const invalid = parsed === null && text.trim() !== "" && text.trim() !== "#";
+  const pinned = usePinnedFocus(pinFocus, rootRef);
 
   // 被點的「自訂…」隨項目列表卸載，焦點會掉到 body；根選單把 dropdown 外的 keydown 當成點外面而關閉，
   // 所以掛上時一定把焦點放進面板。滑鼠、觸控板或鍵盤開啟時放到色碼框；觸控時放在面板根，不叫出螢幕鍵盤。
@@ -81,6 +145,7 @@ export function CustomColorPanel({ request, onBack, onApply, ref }: CustomColorP
       className="kb-color-panel flex w-[208px] flex-col gap-2 bg-(--bn-colors-menu-background) p-1 text-(--bn-colors-menu-text) outline-none"
       tabIndex={-1}
       onKeyDown={onKeyDown}
+      {...pinned}
     >
       <Button type="button" variant="ghost" size="sm" className="self-start" onClick={onBack}>
         <span aria-hidden="true">←</span>

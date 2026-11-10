@@ -22,8 +22,9 @@ export function useColorMenu(): ColorMenuApi | null {
  * 放在顏色選單根 dropdown 裡的內容：平常顯示 children（項目列表），`openPanel` 之後整個換成自訂色面板。
  * 面板要開在根 dropdown 而不是子選單：子選單是 hover 開關，拖曳方塊或在色碼框打字時指標一移開就會關掉。
  * dropdown 關閉時本元件跟著卸載，下次開選單一定回到項目列表。
+ * `pinFocus` 只有格式工具列傳：工具列的 focus trap 每次重繪都會重新搶焦點，面板要把焦點釘在原處（見 `CustomColorPanel`）。
  */
-export function ColorMenuBody({ children }: { children: ReactNode }) {
+export function ColorMenuBody({ children, pinFocus = false }: { children: ReactNode; pinFocus?: boolean }) {
   const editor = useBlockNoteEditor();
   const menu = useMenuContext();
   const [view, setView] = useState<"items" | PanelRequest>("items");
@@ -66,7 +67,13 @@ export function ColorMenuBody({ children }: { children: ReactNode }) {
       {view === "items" ? (
         children
       ) : (
-        <CustomColorPanel ref={panelRef} request={view} onBack={api.back} onApply={(hex) => onApply(view, hex)} />
+        <CustomColorPanel
+          ref={panelRef}
+          request={view}
+          pinFocus={pinFocus}
+          onBack={api.back}
+          onApply={(hex) => onApply(view, hex)}
+        />
       )}
     </ColorMenuContext.Provider>
   );

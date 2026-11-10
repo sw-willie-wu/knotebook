@@ -1,5 +1,5 @@
 import { expect, test, type BrowserContext, type Locator, type Page } from "@playwright/test";
-import { ADMIN, createNote, createUserViaInvite, editorLocator, loginAs, randomEmail } from "./helpers.js";
+import { ADMIN, createNote, createUserViaInvite, editorLocator, loginAs, randomEmail, waitForEditorSelection } from "./helpers.js";
 
 /**
  * 自訂色碼（任意 #rrggbb 的文字色與底色）的顯示面 e2e。
@@ -9,6 +9,8 @@ import { ADMIN, createNote, createUserViaInvite, editorLocator, loginAs, randomE
  * - C8：C7 全程不得出現任何 `securitypolicyviolation`（自訂色碼的規則是 JS 動態插入的，不可靠 inline style 或 `unsafe-inline`）。
  * - C12：同一個 context 的兩個分頁開同一篇筆記；A 貼上自訂色碼後，B 不重新整理就要顯示出來（遠端共編者套的色碼不會經過本機操作）。
  * - C9：用 API token 經 REST 寫入以 `style` 表示的十六進位色碼（短形、大寫），開著的編輯器不重新整理就顯示，且存成小寫 `#rrggbb`。
+ * - C14：格式工具列的自訂色面板開著、正在打色碼時，另一個分頁在選取之前插入一段：色碼框的焦點不被工具列搶走，打完按 Enter 套到原本的選取；
+ *   同時量面板沒有橫向捲軸、選色方塊不超出面板。
  *
  * 色碼是怎麼放進筆記的：除 C9（走 REST API）外，本檔只關心「已經在文件裡」的色碼如何顯示，所以用貼上 HTML 放（`pasteHtml`）。
  * 貼上走合成的 `ClipboardEvent("paste")`＋真的 `DataTransfer`，只放 `text/html`：
@@ -335,5 +337,106 @@ test("C9 API 用 token 以 style 寫入色碼：網頁不重整就顯示，且�
       await userContext.close();
       await adminContext.close();
     }
+  }
+});
+
+test("C14 工具列自訂色面板打色碼時，另一個分頁在選取之前插入一段：焦點留在色碼框，Enter 套到原選取", async ({ browser }) => {
+  test.setTimeout(120_000);
+  const context = await browser.newContext();
+  try {
+    const pageA = await context.newPage();
+    await loginAs(pageA, ADMIN.email, ADMIN.password);
+    await expect(pageA).toHaveURL(/\/$/);
+    const title = `E2E colors toolbar focus ${Date.now()}`;
+    await createNote(pageA, title);
+    const editorA = editorLocator(pageA);
+    await editorA.click();
+    await pageA.keyboard.type("top");
+    await pageA.keyboard.press("Enter");
+    await pageA.keyboard.type("target text");
+
+    // 同一個 context 共用 cookie，不必再登入。等 B 載入完成、連上共編、看到 A 打的內容。
+    const pageB = await context.newPage();
+    await pageB.goto(pageA.url());
+    await expect(pageB.getByLabel("Note title")).toHaveValue(title, { timeout: 15_000 });
+    await expect(pageB.getByRole("status").filter({ hasText: /^Connected/ })).toBeVisible({ timeout: 15_000 });
+    const editorB = editorLocator(pageB);
+    // A 的遠端游標（含名牌文字）畫在 `target text` 段尾，所以用子字串比對。
+    await expect(editorB.locator(".bn-block-content", { hasText: "target text" })).toBeVisible({ timeout: 10_000 });
+
+    // A：三擊選取整段 `target text` → 真滑鼠點顏色鈕 → 「自訂…」，焦點進色碼框。
+    await editorA.getByText("target text", { exact: true }).click({ clickCount: 3 });
+    await pageA.locator('.bn-formatting-toolbar [data-test="colors"]').click();
+    await pageA.locator('[data-test="text-color-custom"]').click();
+    const panel = pageA.locator(".bn-formatting-toolbar .kb-color-panel");
+    await expect(panel).toBeVisible();
+    await expect(panel.locator(".react-colorful")).toBeVisible();
+    const hex = pageA.getByRole("textbox", { name: "Hex color" });
+    await expect(hex).toBeFocused();
+
+    // 面板寬度：dropdown 不出現橫向捲軸，選色方塊左右都在面板內；色值在 0%（方塊與色相的左端）時指標也不超出面板。
+    const dropdown = pageA.locator(".bn-formatting-toolbar .bn-color-picker-dropdown");
+    const metrics = await dropdown.evaluate((el) => {
+      const panelBox = el.querySelector(".kb-color-panel")!.getBoundingClientRect();
+      const pickerBox = el.querySelector(".react-colorful")!.getBoundingClientRect();
+      const pointers = Array.from(el.querySelectorAll(".react-colorful__pointer")).map((p) => p.getBoundingClientRect());
+      return {
+        scrollWidth: el.scrollWidth,
+        clientWidth: el.clientWidth,
+        panelLeft: panelBox.left,
+        panelRight: panelBox.right,
+        pickerLeft: pickerBox.left,
+        pickerRight: pickerBox.right,
+        pointerLeft: Math.min(...pointers.map((r) => r.left)),
+        pointerRight: Math.max(...pointers.map((r) => r.right)),
+      };
+    });
+    console.log(`MEASURE C14 ${JSON.stringify(metrics)}`);
+    await pageA.screenshot({ path: test.info().outputPath("c14-panel.png") });
+    expect(metrics.scrollWidth, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.clientWidth);
+    expect(metrics.pickerLeft, JSON.stringify(metrics)).toBeGreaterThanOrEqual(metrics.panelLeft);
+    expect(metrics.pickerRight, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.panelRight);
+    expect(metrics.pointerLeft, JSON.stringify(metrics)).toBeGreaterThanOrEqual(metrics.panelLeft);
+    expect(metrics.pointerRight, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.panelRight);
+
+    // 面板一開，色碼框裡是 `#`（沒有自訂色也沒有最近用過）；全選後打，蓋掉它。
+    await pageA.keyboard.press("Control+A");
+    await pageA.keyboard.type("#ff6");
+    await expect(hex).toHaveValue("#ff6");
+
+    // B：在第一段開頭打 zz 再按 Enter，新段落插在 A 的選取上方，A 的選取被重映射、工具列重繪。
+    await editorB.getByText("top", { exact: true }).click();
+    await pageB.keyboard.press("Home");
+    await waitForEditorSelection(pageB);
+    await pageB.keyboard.type("zz");
+    await pageB.keyboard.press("Enter");
+
+    await expect(editorA.getByText("zz", { exact: true })).toBeVisible({ timeout: 10_000 });
+    // 工具列重繪後 Mantine focus trap 的重新聚焦排在 setTimeout 裡，多等一下再看焦點。
+    await pageA.waitForTimeout(300);
+    expect(await hex.evaluate((el) => el === document.activeElement)).toBe(true);
+    await expect(panel).toBeVisible();
+
+    await pageA.keyboard.type("600");
+    await expect(hex).toHaveValue("#ff6600");
+    await pageA.keyboard.press("Enter");
+    await expect(panel).toHaveCount(0);
+
+    const colored = editorA.locator('[data-style-type="textColor"][data-value="#ff6600"]').filter({ hasText: /^target text$/ });
+    await expect(colored).toHaveCSS("color", RGB_CUSTOM, { timeout: 10_000 });
+    // B 的遠端游標（含名牌文字）畫在 `top` 開頭，比對前扣掉 widget。
+    const blockTexts = () =>
+      editorA.evaluate((root) =>
+        Array.from(root.querySelectorAll(".bn-block-content"))
+          .map((el) => {
+            const copy = el.cloneNode(true) as Element;
+            copy.querySelectorAll(".ProseMirror-widget").forEach((w) => w.remove());
+            return copy.textContent ?? "";
+          })
+          .filter((text) => text !== ""),
+      );
+    await expect.poll(blockTexts).toEqual(["zz", "top", "target text"]);
+  } finally {
+    await context.close();
   }
 });
