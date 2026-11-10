@@ -34,7 +34,8 @@ describe("#239 W3", () => {
     expect(MOVE_NEEDS_MOVE_MESSAGE).toContain(`turn on "${MOVE}"`);
     expect(DELETE_SCOPE_MESSAGE).toContain(`turn on "${DELETE}"`);
     expect(INSUFFICIENT_SCOPE_MESSAGE).toContain(`"${EDIT}"`);
-    expect(mcpInstructions(false)).toContain(`"${EDIT}"`);
+    expect(mcpInstructions(false, false)).toContain(`"${EDIT}"`);
+    expect(mcpInstructions(false, true)).toContain(`"${EDIT}"`);
   });
   it("說明文字引用的名稱與標籤逐字一致", () => {
     expect(en.settings.account.apiTokensScopeMoveHint).toContain(`"${EDIT}"`);

@@ -113,7 +113,7 @@ async function setupCase(label: string, n: number, opts: { extra?: string; open?
 
   const res = await anon.request.post(`${origin}/api/mcp`, {
     headers: { Authorization: `Bearer ${pat}`, Accept: "application/json, text/event-stream", "Content-Type": "application/json" },
-    data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "create_bulk_transfer_token", arguments: { folder_id: folderId } } },
+    data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "open_notes_as_files", arguments: { folder_id: folderId } } },
   });
   expect(res.status()).toBe(200);
   const rpc = (await res.json()) as { result?: { isError?: boolean; structuredContent?: { token: string; access: string } } };

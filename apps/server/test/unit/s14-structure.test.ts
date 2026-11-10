@@ -111,7 +111,7 @@ const ARG_BANNED: Array<[string, RegExp]> = [
   ["閉包 function", /\bfunction\b/],
   ...HELPERS,
 ];
-const ROUTE_FILES = ["routes/notes.ts", "routes/groups.ts", "notes/links.ts", "routes/oidc.ts", "routes/oidc-pending.ts", "routes/admin-auth.ts", "routes/account.ts", "notes/search-index.ts", "notes/search-query.ts", "mcp/tools/create-transfer-token.ts", "mcp/tools/create-bulk-transfer-token.ts", "routes/uploads.ts", "collab/versions.ts", "routes/admin-versions.ts", "notes/copy-note.ts", "notes/move-note.ts", "routes/admin-password-reset.ts", "routes/password-reset.ts", "trash/service.ts", "routes/admin-trash.ts", "trash/purge.ts", "folders/service.ts", "notes/editing/write-service.ts"];
+const ROUTE_FILES = ["routes/notes.ts", "routes/groups.ts", "notes/links.ts", "routes/oidc.ts", "routes/oidc-pending.ts", "routes/admin-auth.ts", "routes/account.ts", "notes/search-index.ts", "notes/search-query.ts", "mcp/tools/create-transfer-token.ts", "mcp/tools/open-notes-as-files.ts", "routes/uploads.ts", "collab/versions.ts", "routes/admin-versions.ts", "notes/copy-note.ts", "notes/move-note.ts", "routes/admin-password-reset.ts", "routes/password-reset.ts", "trash/service.ts", "routes/admin-trash.ts", "trash/purge.ts", "folders/service.ts", "notes/editing/write-service.ts"];
 
 describe("S14 結構性守衛（#175）", () => {
   const files = walk(SRC);
@@ -190,7 +190,7 @@ describe("S14 結構性守衛（#175）", () => {
       { f: "notes/search-index.ts", all: 1, inTx: 1 }, // 全文索引寫入（#93）
       { f: "notes/search-query.ts", all: 1, inTx: 1 }, // 搜尋快照讀取（#93）
       { f: "mcp/tools/create-transfer-token.ts", all: 1, inTx: 1 }, // #200 簽發
-      { f: "mcp/tools/create-bulk-transfer-token.ts", all: 1, inTx: 1 }, // bulk transfer 簽發
+      { f: "mcp/tools/open-notes-as-files.ts", all: 1, inTx: 1 }, // bulk transfer 簽發
       { f: "routes/uploads.ts", all: 1, inTx: 1 }, // 儲存配額 U-tx（insertUploadInTx）
       { f: "collab/versions.ts", all: 1, inTx: 1 }, // 版本歷史：切版（cutVersionInTx）
       { f: "routes/admin-versions.ts", all: 1, inTx: 1 }, // 版本歷史：站台清除設定（updateVersionSettingsInTx）

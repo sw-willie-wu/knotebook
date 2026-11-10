@@ -56,17 +56,17 @@ export const MCP_MAX_WIRE = 262_144;
  * 向上取整到 1024 的倍數，再 ×1.3（「schema 與 `.describe()` 正常增修」的餘地），進位到百位。
  * 形狀比照 `scripts/check-bundle-size.mjs` 的 `MAX_ENTRY_BYTES`。
  *
- * **目前的基線**：讀寫搬移刪除憑證二十支 wire ＝ 62 353（門檻 78 600 的 79.3%）；對照組：讀寫刪除十九支 58 940、
- * 讀寫搬移十七支 55 263、讀寫十六支 51 850、唯讀九支 26 346。照配方重推是 62 464 × 1.3 ＝ 81 203.2 → 81 300，
+ * **目前的基線**（#417 實測）：讀寫搬移刪除憑證二十支 wire ＝ 63 199（門檻 78 600 的 80.4%）；對照組：讀寫刪除十九支 59 786、
+ * 讀寫搬移十七支 56 109、讀寫十六支 52 696、唯讀九支 26 534。照配方重推是 63 488 × 1.3 ＝ 82 534.4 → 82 600，
  * 但規則是破了才重訂：門檻不動，直到真的有工具或 schema 讓某個憑證的 wire 破線。重訂時回頭把「為什麼增加」
  * 查清楚，連同推導一起更新這段，不是逕自調大。案 11b 每次跑都 `console.log` 印出當下的值，對照組與百分比
  * 刻意不抄在別處。
  *
- * **什麼樣的迴歸會撞牆**：任何一支工具的 description 或 schema 加長 `N_LIST_MAX − W + 100` ＝ 16 347 字元
+ * **什麼樣的迴歸會撞牆**：任何一支工具的 description 或 schema 加長 `N_LIST_MAX − W + 100` ＝ 15 501 字元
  * （接在句尾）就會紅（`expected … to be less than or equal to 78600`）。`tools/list` 的 schema 只進脈絡一份，
  * 加長多少 wire 就多長多少，不是 ×2.1 的鏡像效應。撞牆時**先問「這段字非進 schema 不可嗎」**：
  * `tools/list` 的每一個位元組每一次連線都進模型脈絡，而 `instructions` 與 `docs/mcp.md` 是更便宜的落點。
- * 另一個提醒：`create_bulk_transfer_token` 的回應 wire 是 9 202（案 11c，餘裕 ×28.5）。
+ * 另一個提醒：`open_notes_as_files` 的回應 wire 是 10 296（案 11c，餘裕 ×25.5；#417 實測）。
  */
 export const N_LIST_MAX = 78_600;
 
@@ -359,7 +359,7 @@ describe("#108 單次回應大小（案 11c）", () => {
     await callWire(ctx.app, rwToken, "(i) create_transfer_token upload", "create_transfer_token", { note_id: note.id, purpose: "upload" });
     await callWire(ctx.app, rwToken, "(i) create_transfer_token download", "create_transfer_token", { note_id: note.id, purpose: "download" });
     // bulk transfer：回應不帶標題或內容（權杖、三組 curl、固定的 `next`），量的是「它也在 N 以內」。
-    await callWire(ctx.app, rwToken, "(i) create_bulk_transfer_token", "create_bulk_transfer_token", {});
+    await callWire(ctx.app, rwToken, "(i) open_notes_as_files", "open_notes_as_files", {});
     // #180：copy_note 的最壞形＝副本 title 截斷＋titleTruncated（同 create_note）；來源就是這篇 260 000 字元標題的筆記。
     await callWire(ctx.app, rwToken, "(i) copy_note", "copy_note", { note_id: note.id });
     // #180：move_note_to_group 的最壞形＝搬後 title 截斷＋群組 owner。先建一個群組，把這篇病態筆記搬進去。

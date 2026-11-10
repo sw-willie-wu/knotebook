@@ -41,10 +41,13 @@ export const versionReadFailed = pkg.failed;
  * 只描述**這個憑證真的用得到的東西**。英文——與 `docs/` 及工具 `.describe()` 同語言；
  * 它進的是模型脈絡不是 UI，不走 i18n。
  *
- * ⚠ **兩支尾巴是二選一，不是相加**（#108）。讀寫那支實測 **983** 字元，餘裕 **17**；唯讀那支實測 **995**，餘裕 **5**
+ * ⚠ **兩支尾巴是二選一，不是相加**（#108）。#417 起每支再依 `open_notes_as_files` 在不在清單上分兩形，共四形，實測：
+ * 讀寫＋檔案 **997**（餘裕 **3**）、讀寫 **911**、唯讀＋檔案 **997**（餘裕 **3**）、唯讀 **923**。
+ * （#417：BASE 刪「list_notes returns at most 100 notes per call, search_notes at most 50.」−72——兩個上限都在各自 `limit` 的
+ * `.describe()`〔`1 to 100`／`1 to 50`〕，同 outline 上限句的處理；換出的空間給 FILES_HINT_*〔讀寫 +86、唯讀 +74〕。之前 983／995）
  * （#381：WRITE 刪 ` and rename` −11，只影響讀寫那支；之前 994／995）
  * （bulk transfer：第一句「Reading is always sectioned: no tool returns a whole note.」改成「Tools read notes in sections: none
- * returns a whole note.」−2——token＋collab 部署有 `create_bulk_transfer_token`，模型照它的 curl 拿得到整篇檔，所以「讀取一律分段」對
+ * returns a whole note.」−2——token＋collab 部署有 `open_notes_as_files`，模型照它的 curl 拿得到整篇檔，所以「讀取一律分段」對
  * 「讀筆記」這件事不再是全稱；新句只講工具，三種部署形〔token＋collab、session、無 collab〕都成立。之前 996／997）
  * （資料夾：刪 outline 上限句 −37、BASE 尾端補資料夾句（含換行）+58；之前 975／976。刪掉的上限仍在 `read_note_outline`
  * 的 description（`At most ${MCP_PAGE_MAX} sections per call`）。資料夾句只提 `list_folders`——它任何憑證都註冊，所以兩版共用、
@@ -61,17 +64,16 @@ export const versionReadFailed = pkg.failed;
  * 「約 20」，現在改成指回本行）。餘裕從 40 掉到 17 是 #146 換掉最後一句的代價，同時把 BASE
  * 縮了 23 字元（`for one section's text`／刪 `Also,`／`a single response`）——**下次撞牆先縮字，
  * 不要調大上限**（它保護的是模型脈絡）。#103 再用掉 11 字元（可見性句涵蓋群組）；#175 還回 7 字元。
- * 量法：`mcpInstructions(true).length`／`(false)`。
+ * 量法：`mcpInstructions(canWrite, openNotesAsFiles).length`，四種組合各量一次。
  * ⚠ **對唯讀憑證不得描述它沒有的工具**——與「不宣告我們做不到的 capability」同一個原則；
  * 而且 `insufficient_scope` 在 HTTP 上是死碼（`write-scope.ts` 檔頭），**唯讀版這段處置字樣
  * 是這個意圖唯一到得了模型的落點**。守衛＝`mcp-edit-note.test.ts` ＋ 本檔的單元案。
- * ⚠ **改了一個字就要重量**（兩支各自都有 ≤ 1000 的斷言，且各自都要過禁令詞正則）。
+ * ⚠ **改了一個字就要重量**（四形各自都有 ≤ 1000 的斷言，且各自都要過禁令詞正則）。
  */
 const BASE_INSTRUCTIONS = `Knotebook notes over MCP. Tools read notes in sections: none returns a whole
 note. Call read_note_outline first to see a note's sections, then
 read_note_section for one section's text, 4000 characters per call — page with \`offset\`
-until \`truncated\` is false. list_notes returns at most 100 notes per call, search_notes at most
-50.
+until \`truncated\` is false.
 Headings and titles are cut at 200 characters as written in JSON. What is capped is a single response,
 not the total you can read. Notes you can see include ones shared with you and your groups' notes: each
 result carries \`owner\` and \`role\` so you can tell whose content you are reading.
@@ -106,6 +108,16 @@ const WRITE_INSTRUCTIONS =
   "A successful write that changes a note's content is recorded, and can usually be undone.";
 
 /**
+ * #417：`open_notes_as_files` 在清單上時才接的一句（`hasOpenNotesAsFiles`：token 路徑＋collab＋editing），依憑證二選一。
+ * 讀寫版接在 WRITE 之後：工具簽的權杖 `access` 是 `write`（同一支 `canWriteNotes`），export／note 拿得到整篇檔、write 送回改過的檔，
+ * 所以「改一篇的大量文字或很多篇」都走得通；個別筆記送不回去的情形（角色不能編輯、`tooLargeToSend`、`not_mergeable`）由工具的
+ * `next` 逐條說明——這裡只給「什麼時候該用它」。
+ * 唯讀版接在 READ_ONLY 之前：權杖 `access` 是 `read`，只講讀（整篇、很多篇）；寫回在這一版不存在，不得提。
+ */
+const FILES_HINT_WRITE = "If you have a shell, use open_notes_as_files to change much of a note, or many notes.";
+const FILES_HINT_READ_ONLY = "If you have a shell, use open_notes_as_files to read many or whole notes.";
+
+/**
  * 唯讀憑證的尾段——**刻意不提寫入工具的名字**，只講怎麼取得寫入權。
  * #247：處置是在「設定 → 授權」的 token 列上（鉛筆→行內編輯）開啟編輯權、再重新連線——`tools.listChanged` 是
  * `false`，client 不會自己重抓清單，升權後要重連才看得到寫入工具。引號內＝token 列與建立對話框上 toggle 的
@@ -116,7 +128,13 @@ const READ_ONLY_INSTRUCTIONS =
   "This credential is read-only, so there are no tools here that change anything. To let it " +
   'write, ask the user to turn on "Create and edit notes" (notes:write) for this credential via the pencil on its row in Settings → Authorization, then reconnect so the writing tools appear.';
 
-/** 每發請求依憑證挑一支（`routes/mcp.ts` 用 `canWriteNotes(...)` 判，與註冊時過濾同一份判準）。 */
-export function mcpInstructions(canWrite: boolean): string {
-  return `${BASE_INSTRUCTIONS} ${canWrite ? WRITE_INSTRUCTIONS : READ_ONLY_INSTRUCTIONS}`;
+/**
+ * 每發請求依憑證挑一支（`routes/mcp.ts` 用 `canWriteNotes(...)` 判 `canWrite`、`hasOpenNotesAsFiles(...)` 判 `openNotesAsFiles`，
+ * 都與註冊時過濾同一份判準）。
+ */
+export function mcpInstructions(canWrite: boolean, openNotesAsFiles: boolean): string {
+  const tail = canWrite
+    ? openNotesAsFiles ? `${WRITE_INSTRUCTIONS} ${FILES_HINT_WRITE}` : WRITE_INSTRUCTIONS
+    : openNotesAsFiles ? `${FILES_HINT_READ_ONLY} ${READ_ONLY_INSTRUCTIONS}` : READ_ONLY_INSTRUCTIONS;
+  return `${BASE_INSTRUCTIONS} ${tail}`;
 }
