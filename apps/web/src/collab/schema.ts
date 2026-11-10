@@ -121,7 +121,7 @@ const MEDIA_DATA_URL_TEXT_FORMATS = ["text/html", "text/plain", "text/markdown",
  * import 型的 parity 測試來守住這條同步關係；升級 `@blocknote/core` 版本時記得
  * 回頭比對這份原始碼路徑。
  */
-const TEXT_REPRESENTATION_MIME_TYPES = [
+export const TEXT_REPRESENTATION_MIME_TYPES = [
   "vscode-editor-data",
   "blocknote/html",
   "text/markdown",

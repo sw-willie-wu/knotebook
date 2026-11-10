@@ -415,7 +415,7 @@ test("C5 寬表格（Review Focus 4）：左欄 6 欄長字串表格、390 寬 �
   expectNoPageErrors(errors);
 });
 
-test("C6 欄內圖片（§17 #2）：圖寬不超過欄；右把手往右拖 400px 仍夾在欄寬、寫入的 data-preview-width ≤ 欄寬；往左拖 50px 變小", async ({ page }) => {
+test("C6 欄內圖片：圖寬不超過欄；右把手往右拖 400px → 圖片欄變寬、文字欄讓出寬度但不小於 200px、寫入的 data-preview-width＝圖片顯示寬；往左拖 50px 圖片變小、欄寬不縮回", async ({ page }) => {
   test.setTimeout(120_000);
   await page.setViewportSize({ width: 1440, height: 900 });
   const errors = await startNote(page, "image");
@@ -427,9 +427,12 @@ test("C6 欄內圖片（§17 #2）：圖寬不超過欄；右把手往右拖 400
   const img = imageBlock.locator(`img[src*="${url}"]`);
   await waitImageLoaded(img);
 
+  const rightCol = editorLocator(page).locator(`${ROW} ${COL}`).nth(1);
   const colWidth = async () => (await leftCol.boundingBox())!.width;
-  const colClientWidth = () => leftCol.evaluate((el) => (el as HTMLElement).clientWidth);
+  const rightWidth = async () => (await rightCol.boundingBox())!.width;
   expect((await img.boundingBox())!.width).toBeLessThanOrEqual((await colWidth()) + 0.5);
+  const leftBefore = await colWidth();
+  const rightBefore = await rightWidth();
 
   const dragRightHandle = async (dx: number) => {
     await img.hover();
@@ -448,11 +451,21 @@ test("C6 欄內圖片（§17 #2）：圖寬不超過欄；右把手往右拖 400
   await dragRightHandle(400);
   await expect(imageBlock).toHaveAttribute("data-preview-width", /^\d+$/);
   const widened = await previewWidth();
-  expect(widened).toBeLessThanOrEqual(Math.round(await colClientWidth()));
-  expect((await img.boundingBox())!.width).toBeLessThanOrEqual((await colWidth()) + 0.5);
+  const imgWidened = (await img.boundingBox())!.width;
+  const leftWidened = await colWidth();
+  const rightWidened = await rightWidth();
+  test.info().annotations.push({ type: "image-expands-column", description: JSON.stringify({ leftBefore, rightBefore, widened, imgWidened, leftWidened, rightWidened }) });
+  // 圖片超過原欄寬時圖片欄跟著變寬、文字欄讓出寬度，但不小於文字欄最小寬度。
+  expect(leftWidened, "圖片欄變寬").toBeGreaterThan(leftBefore + 50);
+  expect(rightWidened, "文字欄讓出寬度").toBeLessThan(rightBefore - 50);
+  expect(rightWidened, "文字欄不小於 200px").toBeGreaterThanOrEqual(COLUMN_MIN_TEXT_PX - 1);
+  expect(Math.abs(widened - imgWidened), "data-preview-width＝圖片顯示寬").toBeLessThanOrEqual(1);
+  expect(imgWidened).toBeLessThanOrEqual(leftWidened + 0.5);
 
+  // 縮小圖片只改圖、不把欄縮回去。
   await dragRightHandle(-50);
   await expect.poll(previewWidth).toBeLessThan(widened);
+  expect(Math.abs((await colWidth()) - leftWidened), "欄寬不縮回").toBeLessThanOrEqual(1);
   expectNoPageErrors(errors);
 });
 

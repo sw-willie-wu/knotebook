@@ -26,6 +26,8 @@ import { useCreateNote, useNotes } from "@/api/notes";
 import { classifyMediaTransfer, type BlockedTransferReason } from "@/collab/schema";
 import { createCodeBlockCaretExtension } from "@/collab/code-block-caret";
 import { createColumnEdgeKeymapExtension } from "@/collab/columns/edge-keymap";
+import { clearDraggedBlocks } from "@/collab/columns/drag-source";
+import { computeDropPosition, edgeDrop, emptyColumnDrop, withGutterFileDrop } from "@/collab/columns/edge-drop";
 import { createColumnsPasteExtension, withColumnsDropPoint } from "@/collab/columns/paste-rule";
 import { buildCollabEditorBase } from "@/collab/editor-options";
 import { createMarkdownLinkExtension } from "@/collab/markdown-link";
@@ -51,8 +53,10 @@ import { useVersions } from "@/lib/versions-context";
 import { VERSIONS_ERROR_FRAME, VersionsLazyBoundary } from "@/components/versions/VersionsLazyBoundary";
 import { useVersionsPanelWidth } from "@/components/versions/versions-panel-width";
 import { SelectionAiController } from "@/components/ai/SelectionAiController";
-import { KnotebookSideMenu, NotePathContext } from "@/components/editor/KnotebookSideMenu";
+import { KnotebookSideMenu, NotePathContext, SIDE_MENU_FLOATING_OPTIONS } from "@/components/editor/KnotebookSideMenu";
+import { useDragActiveClass } from "@/components/editor/use-drag-active-class";
 import { HeadingAnchorButtons } from "@/components/editor/HeadingAnchorButtons";
+import { ColumnDividers } from "@/components/editor/ColumnDividers";
 import { LinkLongPress } from "@/components/LinkLongPress";
 
 const VersionsPanel = lazy(() =>
@@ -152,6 +156,7 @@ export function buildNoteEditorOptions({
   canSendCursor,
   sizeGuard,
 }: NoteEditorOptionsInput) {
+  const sizeHandlers = createNoteSizePasteHandlers(sizeGuard ?? (() => false));
   return withCollaboration({
     // schema／字典／collaboration（fragment 名、provider 形狀）抽在共用底層——公開
     // 唯讀頁（#72 `buildReadonlyNoteEditorOptions`）用同一份，兩邊不各寫一份。
@@ -180,6 +185,8 @@ export function buildNoteEditorOptions({
     // 貼上 markdown 的兩個 Windows 破口（CRLF 不被解析、從 VS Code 貼會變成程式碼
     // 區塊）——判斷與理由都在 `@/collab/paste`，這裡只負責接線。
     pasteHandler: createMarkdownPasteHandler(createSiteLinkPasteHook(siteLinks)),
+    // ⋮⋮ 拖到 block 左右緣時畫直線；與下面 `handleDrop` 的 `edgeDrop` 用同一個判斷（`@/collab/columns/edge-drop`）。
+    dropCursor: { hooks: { computeDropPosition } },
     _tiptapOptions: {
       // issue #99：手打 markdown 連結語法（`[文字](網址)`）自動轉成真連結；#269 §8.4：站內連結 → wikilink（link AddMarkStep
       // 外掛）。裁決與判準理由分別在 `@/collab/markdown-link`、`@/collab/site-link-convert`——這裡只負責接線。
@@ -194,11 +201,21 @@ export function buildNoteEditorOptions({
         createColumnsPasteExtension(),
       ],
       editorProps: {
-        // drop：最外層先由 `withSiteLinkDrop` 判斷要不要轉站內連結（#352），再記落點（給上面那條貼上規則判斷位置），再走媒體阻擋。
-        handleDOMEvents: withSiteLinkDrop(siteLinks, editorRef, withColumnsDropPoint(createMediaBlockingDOMEvents(translate))),
+        // drop：最外層先由 `withSiteLinkDrop` 判斷要不要轉站內連結（#352）；再由 `withGutterFileDrop` 把落在欄與欄之間的拖放
+        // 改到最近欄的最近 block（⋮⋮ 拖曳在記落點之前改，檔案在媒體阻擋之後改）；再記落點（給上面那條貼上規則判斷位置），再走媒體阻擋。
+        handleDOMEvents: withSiteLinkDrop(siteLinks, editorRef, withGutterFileDrop(editorRef, withColumnsDropPoint(createMediaBlockingDOMEvents(translate)))),
         // 筆記大小上限的前端檢查：貼上、拖放在解析好（slice）、插入之前估成長，超過上限就不放（`lib/note-size-guard.ts`）。直接傳入的
         // editorProps 比外掛先被問到；回傳 false 照常往下（BlockNote、並排的貼上規則）。
-        ...createNoteSizePasteHandlers(sizeGuard ?? (() => false)),
+        handlePaste: sizeHandlers.handlePaste,
+        // ⋮⋮ 拖曳放下：先問直線放置（建列、加欄），再問橫線放進空欄，都不接手才做大小上限的檢查（搬移不增加內容，接手時不必估）。
+        // 不論誰接手，跑完都清掉 dragstart 記下的被拖 block，下一次拖放不會讀到這次的。
+        handleDrop: (view, event, slice, moved) => {
+          try {
+            return edgeDrop(editorRef.current, view, event) || emptyColumnDrop(editorRef.current, view, event, slice) || sizeHandlers.handleDrop(view, event, slice, moved);
+          } finally {
+            clearDraggedBlocks(view);
+          }
+        },
         // `[[` 觸發偵測（Task 3 §12.2 recipe）。這裡刻意**不**倚賴 `SuggestionMenu`
         // extension 自己對多字元 trigger 的內建偵測：它算的是
         // `textBetween(from - trigger.length, from) + text` 再與 trigger 嚴格相等，
@@ -404,6 +421,8 @@ export function NoteEditor({
 }: NoteEditorProps) {
   const { t, i18n } = useTranslation();
   const [columnEl, setColumnEl] = useState<HTMLElement | null>(null);
+  // 任何拖放進行中，欄上掛 class，⋮⋮ 等編輯器外的浮層不吃指標，drop 才落得到底下的編輯器（規則在 `index.css`）。
+  useDragActiveClass(columnEl);
   const { resolvedTheme } = useTheme();
   const { panelOpen } = useVersions();
   // #274：版本面板寬度。state 放在面板與錯誤外框的最近共同祖先（下方列容器），以 CSS 變數往下傳。
@@ -593,6 +612,8 @@ export function NoteEditor({
                 <SelectionAiController />
               </NoteEditorView>
               <HeadingAnchorButtons container={columnEl} />
+              {/* 欄間分隔線（拖曳／鍵盤調欄寬）只在可編輯時掛；唯讀時沒有東西可調。 */}
+              {editable && <ColumnDividers container={columnEl} editor={editor} />}
             </div>
           </div>
           {hasPreview && (
@@ -691,7 +712,7 @@ export function NoteEditorView({ editor, editable, theme, noteId, getItems, getS
       >
         <SuggestionMenuController triggerCharacter="[[" getItems={getItems} />
         <SuggestionMenuController triggerCharacter="/" getItems={getSlashItems} />
-        <SideMenuController sideMenu={KnotebookSideMenu} />
+        <SideMenuController sideMenu={KnotebookSideMenu} floatingUIOptions={SIDE_MENU_FLOATING_OPTIONS} />
         <FilePanelController filePanel={filePanel} />
         {/* rev 7：觸控長按一般連結 ⇒ BlockNote 原生連結工具列（wikilink 的長按在它自己的元件裡）。 */}
         <LinkLongPress />

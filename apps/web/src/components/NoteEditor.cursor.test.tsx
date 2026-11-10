@@ -15,6 +15,12 @@ import { setRemote } from "@/components/presence/test-awareness";
 import { NoteEditor } from "./NoteEditor";
 import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
+// 分隔線浮層換成探針：這裡只驗 NoteEditor 依 editable 掛或不掛它（浮層本身的行為在 ColumnDividers.test.tsx）。
+vi.mock("@/components/editor/ColumnDividers", async () => {
+  const { createElement } = await import("react");
+  return { ColumnDividers: () => createElement("div", { "data-testid": "column-dividers-probe" }) };
+});
+
 // #293 §9.4：`NoteEditor` 的 `onCursorScroller` 接線。掛真 `<NoteEditor>`（Host 照 `NoteEditor.layout.test.tsx`）。
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 泛型三元組，repo 慣例
@@ -295,6 +301,18 @@ describe("NoteEditor：唯讀者不送游標（#293 T6b）", () => {
     setEditable(true);
     focusAndSelect();
     expect(localCursor(awareness)).not.toBeNull();
+    awareness.destroy();
+    doc.destroy();
+  });
+
+  it("CD1：欄間分隔線浮層只在可編輯時掛上；切成唯讀就拿掉，切回可編輯再掛上", async () => {
+    const { doc, awareness, setEditable } = await mount(true);
+    expect(screen.getByTestId("column-dividers-probe")).toBeInTheDocument();
+    expect(screen.getByTestId("article-column")).toContainElement(screen.getByTestId("column-dividers-probe"));
+    setEditable(false);
+    expect(screen.queryByTestId("column-dividers-probe")).toBeNull();
+    setEditable(true);
+    expect(screen.getByTestId("column-dividers-probe")).toBeInTheDocument();
     awareness.destroy();
     doc.destroy();
   });
