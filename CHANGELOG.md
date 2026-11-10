@@ -15,6 +15,7 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 ### Added
 
 - **Drag blocks side by side.** Drag a block by its ⋮⋮ to the left or right edge of another block to make a row of two columns, or onto the edge of a block in a row of fewer than four columns to add a column next to it. When every column of the resulting row holds a single picture, the columns are sized so the pictures come out the same height. One Ctrl+Z undoes the drop. See [Side-by-side columns](docs/columns.md) and [Known limitations](docs/known-limitations.md#side-by-side-columns).
+- **Resize columns by dragging the divider between them, or with ← / → on the focused divider** (5% of the row per press; quick presses undo together). Widening an image in a column past the column's width now widens the column and squeezes the other columns, down to 200 pixels, or 96 for a column that holds only images. The ⋮⋮ inside a column is 16 pixels wide, and the keyboard shortcut list has an entry for the divider keys. A file dropped on a divider is added next to the nearest block, as anywhere else in the gap.
 
 ### Changed
 

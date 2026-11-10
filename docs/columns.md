@@ -28,7 +28,7 @@ first dragged block is an image, to the next text block after it. One Ctrl+Z und
 
 - A row has at most four columns: on a row of four, no vertical guide appears and the drop is an
   ordinary move.
-- Dragging the only block out of a column leaves an empty paragraph in that column; the column stays.
+- Dragging the only block out of a column to make a row or add a column leaves an empty paragraph in that column; the column stays.
 - When each column of the new row, or of the row you add a column to, holds a single picture that
   shows its preview and has loaded — for example when you drag one picture beside another — the
   columns are given widths in proportion to the pictures' own proportions, so that they come out the
@@ -41,6 +41,18 @@ first dragged block is an image, to the next text block after it. One Ctrl+Z und
 - Dropping a block onto the empty paragraph of an empty column puts it there in place of the
   paragraph, instead of leaving the paragraph beside it.
 - Dropping a file between two columns adds it next to the block nearest to where you let go.
+
+**Resize columns.** Between two side-by-side columns there is a divider: a thin strip at the left edge
+of the gap, 8 pixels wide (24 on a touch screen, where it fills the gap). It is drawn only between
+columns that sit next to each other, not in a row that has stacked. Drag it to change how wide the two
+columns on either side are: the preview follows the pointer, and the widths are written once when you
+let go. The other columns keep their widths. A column can't be made narrower than its minimum, 200
+pixels, or 96 for a column that holds only images. Dragging a divider doesn't take the cursor out of
+the note, so Ctrl+Z right after letting go undoes the resize.
+
+With the keyboard, move the focus to a divider with Tab (the dividers come after the note's text; inside the note, Tab indents the block); ← and → change the left column's width by 5% of the row's width, not counting the gaps between columns, for each
+press, and the right column takes the difference. Presses made in quick succession are undone together
+with one Ctrl+Z. The divider has the focus, not the note, so click back into the note first.
 
 **Blocks in a column have no `+` button.** Their side menu shows only ⋮⋮, because the space between
 columns is too narrow for both buttons. To add a block in a column, press Enter at the end of a block
@@ -59,7 +71,10 @@ note's width (Standard, Wide, Full width).
 
 **Images keep their own width.** An image in a column keeps the width you gave it. When the column is
 narrower than the image, the image is only shown smaller, and grows back when there is room again.
-Dragging an image's resize handle inside a column stops at the column's width.
+Dragging an image's resize handle past the room it has in its column makes the column wider and
+squeezes the other columns, down to their minimum widths — 200 pixels, or 96 for a column that holds only images; the
+image can't get wider than that allows. In a row that has stacked, the image stops at the row's width. Making an image smaller doesn't make its column narrower
+again: drag the divider for that.
 
 Rows show the same way on a note's public page, in presentations and in version comparisons (see
 [Known limitations](./known-limitations.md#side-by-side-columns) for how presentations and
@@ -116,6 +131,7 @@ you selected there; a result for it that contains columns is refused, because ro
 ## Undo
 
 Creating a row, ungrouping one, and each Backspace or Delete above that moves a block or removes a
-column is a single step: one Ctrl+Z undoes it. So is each resize of an image inside a column, and
-so is each ⋮⋮ drop that makes a row or a column, or that replaces an empty column's paragraph, even
+column is a single step: one Ctrl+Z undoes it. So is each resize of an image inside a column (including
+the column widths it changes), each drag of a divider, and
+each ⋮⋮ drop that makes a row or a column, or that replaces an empty column's paragraph, even
 when it also moves the block out of where it was.
