@@ -1,6 +1,6 @@
 import { vi, describe, it, expect, afterEach } from "vitest";
 import { eq } from "drizzle-orm";
-import { SESSION_COOKIE } from "@knotebook/shared";
+import { SESSION_COOKIE, MAX_UPLOAD_BYTES } from "@knotebook/shared";
 import { buildTestApp, testConfig, signTestSession } from "./helpers.js";
 import { users, siteSettings } from "../src/db/schema.js";
 import { seedAuthProvider } from "./helpers/oidc-provider.js";
@@ -68,7 +68,7 @@ describe("GET /api/auth/config", () => {
     const { app } = await buildTestApp();
     const res = await app.inject({ method: "GET", url: "/api/auth/config" });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ providers: [], registration: { enabled: true, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true, noteMaxBytes: DEFAULT_NOTE_MAX_BYTES });
+    expect(res.json()).toEqual({ providers: [], registration: { enabled: true, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true, noteMaxBytes: DEFAULT_NOTE_MAX_BYTES, maxUploadBytes: MAX_UPLOAD_BYTES });
   });
 
   it("只列啟用中的 provider、依 sort_order 排；不含 issuer／client id／secret", async () => {
@@ -77,12 +77,12 @@ describe("GET /api/auth/config", () => {
     const a = await seedAuthProvider(db, { issuerUrl: "https://a.example", displayName: "A", sortOrder: 1 });
     await seedAuthProvider(db, { issuerUrl: "https://off.example", displayName: "Off", enabled: false });
     const res = await app.inject({ method: "GET", url: "/api/auth/config" });
-    expect(res.json()).toEqual({ providers: [{ id: a.id, displayName: "A", icon: GENERIC }, { id: b.id, displayName: "B", icon: GENERIC }], registration: { enabled: true, providerIds: [a.id, b.id] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true, noteMaxBytes: DEFAULT_NOTE_MAX_BYTES });
+    expect(res.json()).toEqual({ providers: [{ id: a.id, displayName: "A", icon: GENERIC }, { id: b.id, displayName: "B", icon: GENERIC }], registration: { enabled: true, providerIds: [a.id, b.id] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true, noteMaxBytes: DEFAULT_NOTE_MAX_BYTES, maxUploadBytes: MAX_UPLOAD_BYTES });
     expect(res.body).not.toMatch(/a\.example|test-client|"ct"/);
   });
 
   it("noteMaxBytes＝設定的 NOTE_MAX_BYTES（網頁編輯器的筆記大小上限檢查用）", async () => {
-    const { app } = await buildTestApp({ config: { ...testConfig, noteMaxBytes: 123_456 } });
+    const { app } = await buildTestApp({ config: { ...testConfig, limitEnv: { noteMaxBytes: 123_456 } } });
     const res = await app.inject({ method: "GET", url: "/api/auth/config" });
     expect(res.json().noteMaxBytes).toBe(123_456);
   });
@@ -91,7 +91,7 @@ describe("GET /api/auth/config", () => {
     const { app, db } = await buildTestApp();
     await db.update(siteSettings).set({ registrationEnabled: false });
     const res = await app.inject({ method: "GET", url: "/api/auth/config" });
-    expect(res.json()).toEqual({ providers: [], registration: { enabled: false, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true, noteMaxBytes: DEFAULT_NOTE_MAX_BYTES });
+    expect(res.json()).toEqual({ providers: [], registration: { enabled: false, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true, noteMaxBytes: DEFAULT_NOTE_MAX_BYTES, maxUploadBytes: MAX_UPLOAD_BYTES });
   });
 
   it("site_settings 讀不到列 → registration.enabled false＋error log", async () => {
@@ -112,7 +112,7 @@ describe("GET /api/auth/config", () => {
     );
     await db.delete(siteSettings);
     const res = await app.inject({ method: "GET", url: "/api/auth/config" });
-    expect(res.json()).toEqual({ providers: [], registration: { enabled: false, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true, noteMaxBytes: DEFAULT_NOTE_MAX_BYTES });
+    expect(res.json()).toEqual({ providers: [], registration: { enabled: false, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true, noteMaxBytes: DEFAULT_NOTE_MAX_BYTES, maxUploadBytes: MAX_UPLOAD_BYTES });
     expect(logged.some((a) => a.some((x) => typeof x === "string" && x.includes("site_settings")))).toBe(true);
     expect(logged.some((a) => a.some((x) => typeof x === "string" && x.includes("帳密登入視同開啟")))).toBe(true);
   });

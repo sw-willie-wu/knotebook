@@ -8,7 +8,8 @@ import { publicUrlIssuer, type AppConfig } from "../config.js";
 import { apiTokens, oauthClients, oauthCodes, oauthRequests } from "../db/schema.js";
 import { sendError } from "../http/errors.js";
 import { hashToken } from "../auth/api-token.js";
-import { countBillableGrants, TOKEN_LIMIT_PER_USER } from "../auth/grant-quota.js";
+import { countBillableGrants } from "../auth/grant-quota.js";
+import type { SiteLimits } from "../site-limits/store.js";
 import { matchesLoopbackRedirect } from "../oauth/redirect.js";
 import { runOauthCleanup } from "../oauth/cleanup.js";
 
@@ -46,6 +47,7 @@ function buildRedirect(redirectUri: string, issuer: string, params: Record<strin
 export interface OauthApiRouteDeps {
   db: Db;
   config: AppConfig;
+  siteLimits: SiteLimits;
 }
 
 /**
@@ -137,8 +139,9 @@ export function oauthApiRoutes(deps: OauthApiRouteDeps) {
       }
 
       const userId = request.user!.id;
-      if ((await countBillableGrants(deps.db, userId, pending.clientId)) >= TOKEN_LIMIT_PER_USER) {
-        return sendError(reply, 409, "token_limit", `You already have the maximum of ${TOKEN_LIMIT_PER_USER} active tokens. Revoke one first.`);
+      const tokenLimit = deps.siteLimits.get("apiTokensPerUser");
+      if ((await countBillableGrants(deps.db, userId, pending.clientId)) >= tokenLimit) {
+        return sendError(reply, 409, "token_limit", `You already have the maximum of ${tokenLimit} active tokens. Revoke one first.`);
       }
 
       // #239：授予值＝要求 ∩ 勾選。超出 pending 的 body 被夾回、不報錯。

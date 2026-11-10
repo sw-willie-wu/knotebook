@@ -10,7 +10,8 @@ import { generateAccessToken, hashToken } from "../auth/api-token.js";
 import { AGENT_LABEL_RE, agentLabelOf } from "../auth/agent-label.js";
 import { UUID_RE } from "../notes/service.js";
 import { runOauthCleanup } from "../oauth/cleanup.js";
-import { countBillableGrants, TOKEN_LIMIT_PER_USER } from "../auth/grant-quota.js";
+import { countBillableGrants } from "../auth/grant-quota.js";
+import type { SiteLimits } from "../site-limits/store.js";
 
 const createBodySchema = z.object({
   name: z.string().trim().min(1).max(64),
@@ -49,6 +50,7 @@ function toDto(row: typeof apiTokens.$inferSelect): ApiTokenDto {
 
 export interface ApiTokensRouteDeps {
   db: Db;
+  siteLimits: SiteLimits;
   limiters: { patCreate: FixedWindowLimiter; tokenRename: FixedWindowLimiter };
 }
 
@@ -89,8 +91,9 @@ export function apiTokensRoutes(deps: ApiTokensRouteDeps) {
 
       // 建 PAT 是六個清理時機之一（五條 DELETE 的說明見 oauth/cleanup.ts）。
       await runOauthCleanup(deps.db);
-      if ((await countBillableGrants(deps.db, userId)) >= TOKEN_LIMIT_PER_USER) {
-        return sendError(reply, 409, "token_limit", `You already have the maximum of ${TOKEN_LIMIT_PER_USER} active tokens. Revoke one first.`);
+      const tokenLimit = deps.siteLimits.get("apiTokensPerUser");
+      if ((await countBillableGrants(deps.db, userId)) >= tokenLimit) {
+        return sendError(reply, 409, "token_limit", `You already have the maximum of ${tokenLimit} active tokens. Revoke one first.`);
       }
 
       const plaintext = generateAccessToken();

@@ -131,12 +131,12 @@ describe("時限、記憶體上限、主執行緒不被卡住", () => {
 });
 
 describe("createEditingRuntime", () => {
-  it("生產與整合測試的 runtime 一律用 worker pool（設定取自 config.parse），close 收掉", async () => {
-    const config = loadConfig({ DATABASE_URL: "postgres://u:p@localhost:5432/db", APP_SECRET: "a".repeat(64), PUBLIC_URL: "http://localhost:3000", PARSE_WORKERS: "1", PARSE_TIMEOUT_MS: "7000" });
-    const runtime = createEditingRuntime(config);
+  it("生產與整合測試的 runtime 一律用 worker pool（設定取自傳入的 ParseLimits），close 收掉", async () => {
+    const config = loadConfig({ DATABASE_URL: "postgres://u:p@localhost:5432/db", APP_SECRET: "a".repeat(64), PUBLIC_URL: "http://localhost:3000" });
+    const runtime = createEditingRuntime(config, { workers: 1, workerMemoryMb: 768, timeoutMs: 7_000, queueWaitMs: 33_000 });
     try {
       expect(runtime.parser).toBeInstanceOf(ParsePool);
-      expect((runtime.parser as ParsePool).limits).toMatchObject({ workers: 1, timeoutMs: 7_000 });
+      expect((runtime.parser as ParsePool).limits).toEqual({ workers: 1, workerMemoryMb: 768, timeoutMs: 7_000, queueWaitMs: 33_000 });
       expect(await runtime.parser.parse(req("hello"))).toMatchObject({ unbound: 0 });
     } finally {
       await runtime.close();

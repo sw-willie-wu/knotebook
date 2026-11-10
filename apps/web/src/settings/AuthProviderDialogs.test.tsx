@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { AdminAuthProviderDto } from "@knotebook/shared";
+import type { AdminAuthProviderDto, SiteLimitsDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { clickOutside } from "@/test/outside-click";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { copyText } from "@/lib/clipboard";
+import { siteLimitsDto } from "@/test/site-limits-fixtures";
 import { SettingsAuthSection } from "./SettingsAuthSection";
 
 vi.mock("@/lib/clipboard", () => ({ copyText: vi.fn(async () => true) }));
@@ -37,6 +38,9 @@ const LIVE: AdminAuthProviderDto = {
   icon: { type: "builtin", name: "generic" },
 };
 
+/** 站台限制 17 項都在預設的一份回應，讓「登入期限與 token」組跟真實頁面一樣畫出來。 */
+const LIMITS: SiteLimitsDto = siteLimitsDto();
+
 type Handler = (method: string, url: string, body: unknown) => Response | Promise<Response> | null;
 function fakeServer(initial: AdminAuthProviderDto[]) {
   const state = { providers: [...initial] };
@@ -55,6 +59,7 @@ function fakeServer(initial: AdminAuthProviderDto[]) {
     if (method === "GET" && url === "/api/admin/auth/settings") {
       return fakeResponse(200, { registrationEnabled: true, passwordLoginEnabled: true, passwordLoginForced: false, passwordLoginImpact: { usersWithoutSso: 0, actingAdminHasSso: true, enabledProviders: 1 } });
     }
+    if (method === "GET" && url === "/api/admin/limits") return fakeResponse(200, LIMITS);
     throw new Error(`unexpected fetch: ${method} ${url}`);
   });
   return { state, calls, fetchMock, on: (handler: Handler) => handlers.push(handler) };

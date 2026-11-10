@@ -3,6 +3,7 @@ import * as client from "openid-client";
 import { normalizeEmail, OIDC_STATE_COOKIE, safeNextPath } from "@knotebook/shared";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
+import type { SiteLimits } from "../site-limits/store.js";
 import { isUniqueViolation, pgErrorSummary } from "../db/pg-errors.js";
 import { redactDbError } from "../lib/redact-db-error.js";
 import { UUID_RE } from "../notes/service.js";
@@ -36,6 +37,7 @@ export const MAX_SUB_CLAIM_LENGTH = 255;
 export interface OidcRouteDeps {
   config: AppConfig;
   db: Db;
+  siteLimits: SiteLimits;
   gate: UserGate;
   /** #388：同帳號重登後延遲重驗舊 session 的共編連線（`startSession`）。 */
   collabHooks: CollabHooks;

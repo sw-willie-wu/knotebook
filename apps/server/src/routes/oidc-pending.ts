@@ -4,6 +4,7 @@ import { eq, sql } from "drizzle-orm";
 import { normalizeEmail, safeNextPath, type OidcRedirectDto, type PendingLinkConfirmDto, type PendingLinkDto, type UserDto } from "@knotebook/shared";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
+import type { SiteLimits } from "../site-limits/store.js";
 import { authProviders, users } from "../db/schema.js";
 import { sendError, sendLoginThrottled } from "../http/errors.js";
 import { TxAbort } from "../http/tx-abort.js";
@@ -32,6 +33,7 @@ const proveBodySchema = z.object({ pendingId: z.string() }).strict();
 export interface OidcPendingRouteDeps {
   config: AppConfig;
   db: Db;
+  siteLimits: SiteLimits;
   gate: UserGate;
   /** #388：同帳號重登後延遲重驗舊 session 的共編連線（`startSession`）。 */
   collabHooks: CollabHooks;

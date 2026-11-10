@@ -168,6 +168,156 @@
       "copyFailed": "Couldn't copy automatically — select the link above and copy it by hand.",
       "done": "Done"
     },
+    "limits": {
+      "title": "Site limits",
+      "description": "Changes take effect right away. Settings made in the server's .env file are locked here; change them in .env and restart the server.",
+      "categories": {
+        "uploadsNotes": "Uploads and notes",
+        "parseWorkers": "Parse workers",
+        "rateLimits": "Rate limits",
+        "bulkTransfer": "Bulk transfer",
+        "signIn": "Session and tokens"
+      },
+      "items": {
+        "uploadMaxBytes": {
+          "label": "Upload size limit",
+          "description": "Largest file a person can upload. Applies to the next upload."
+        },
+        "noteMaxBytes": {
+          "label": "Note size limit",
+          "description": "Largest size of one note's content. Applies to the next write."
+        },
+        "parseWorkers": {
+          "label": "Number of parse workers",
+          "description": "How many workers, at the same time, turn Markdown written over the API or MCP into note content and turn notes into Markdown for reading. Leave empty to size it automatically from this server."
+        },
+        "parseWorkerMemoryMb": {
+          "label": "Memory per worker",
+          "description": "Memory each worker may use. A worker that grows past half of this is replaced."
+        },
+        "parseTimeoutMs": {
+          "label": "Parse time limit",
+          "description": "Longest time one conversion may run before it is stopped."
+        },
+        "parseQueueWaitMs": {
+          "label": "Longest wait for a worker",
+          "description": "Longest a request waits for a free worker before getting a busy error. Leave empty to set it automatically from the time limit."
+        },
+        "rateTokenRead": {
+          "label": "API and MCP reads",
+          "description": "Read requests allowed per person with an API token or MCP."
+        },
+        "rateTokenWrite": {
+          "label": "API and MCP writes",
+          "description": "Write requests allowed per person with an API token or MCP."
+        },
+        "rateContentRead": {
+          "label": "Note content reads",
+          "description": "Note content reads allowed per person."
+        },
+        "rateEdit": {
+          "label": "Note content writes",
+          "description": "Note content writes allowed per person. Creating a note with content, copying a note, MCP delete and restore, and saving or restoring a version also count against this budget."
+        },
+        "rateSearch": {
+          "label": "Searches",
+          "description": "Full-text searches allowed per person."
+        },
+        "rateUpload": {
+          "label": "Uploads and copies",
+          "description": "Files uploaded per person. Copying a note counts each attached file it copies; a copy with no attachments doesn't count."
+        },
+        "rateAi": {
+          "label": "AI actions",
+          "description": "In-app AI requests allowed per person."
+        },
+        "rateTransferExport": {
+          "label": "Bulk downloads",
+          "description": "Bulk downloads allowed per person."
+        },
+        "rateTransferWrite": {
+          "label": "Bulk write-backs",
+          "description": "Bulk write-back requests allowed per person."
+        },
+        "sessionTtlSeconds": {
+          "label": "Web sign-in lasts",
+          "description": "How long a web sign-in stays valid. Only affects people who sign in afterwards."
+        },
+        "apiTokensPerUser": {
+          "label": "Active API tokens per person",
+          "description": "Most active API tokens one person can hold. Lowering it does not revoke existing tokens."
+        }
+      },
+      "units": {
+        "mib": "MiB",
+        "seconds_one": "second",
+        "seconds_other": "seconds",
+        "hours_one": "hour",
+        "hours_other": "hours",
+        "count_one": "time",
+        "count_other": "times",
+        "workers_one": "worker",
+        "workers_other": "workers",
+        "tokens_one": "token",
+        "tokens_other": "tokens",
+        "bytes_one": "byte",
+        "bytes_other": "bytes",
+        "ms": "ms"
+      },
+      "defaultAndRange": "Default {{default}} · Range {{min}}–{{max}}",
+      "defaultAndRangeWindow": "Default {{default}} · Range {{min}}–{{max}} · per {{window}}",
+      "defaultAuto": "auto",
+      "window": {
+        "minutes_one": "minute",
+        "minutes_other": "{{count}} minutes",
+        "hours_one": "hour",
+        "hours_other": "{{count}} hours"
+      },
+      "status": {
+        "auto": "Auto: {{value}} ({{source}})",
+        "autoSourceCpu": "based on CPUs",
+        "autoSourceMemory": "based on memory",
+        "autoPlain": "Auto: {{value}}",
+        "adjusted": "Adjusted",
+        "lockedByEnv": "Set by {{env}} in .env. To change it, edit .env and restart the server.",
+        "outOfRange": "Outside the range this page can set.",
+        "storedNotApplied": "The value saved on this page ({{value}}) is not applied.",
+        "storedIgnored": "The saved value {{value}} is outside the current range and is not applied."
+      },
+      "actions": {
+        "resetDefault": "Restore default",
+        "resetAuto": "Back to auto",
+        "save": "Save",
+        "saving": "Saving…",
+        "saved": "Saved."
+      },
+      "consequences": {
+        "parseTimeoutMs": "Lowering this may reject writes of densely formatted content (for example text broken up by many line breaks). Reads and bulk downloads allow 3 times this limit, so a very low value can make large notes unreadable.",
+        "parseWorkerMemoryMb": "Lowering this may reject densely formatted content (measured at 640–768 MiB) and deeply nested formatting, and reading large notes can fail for lack of memory. Workers are also replaced more often, which can slow processing.",
+        "parseQueueWaitMs": "If this is shorter than 4 × the parse time limit + 5 seconds, a request queued behind a slow job can get a busy error first."
+      },
+      "machine_one": "This server: {{count}} CPU, {{memory}} GiB memory ({{source}})",
+      "machine_other": "This server: {{count}} CPUs, {{memory}} GiB memory ({{source}})",
+      "memoryWarning_one": "May exceed memory: about {{needed}} MB needed ({{count}} worker × ({{memoryMb}} + 150) MB + 1000 MB, plus 20%), assuming PostgreSQL runs on the same machine. You can still save.",
+      "memoryWarning_other": "May exceed memory: about {{needed}} MB needed ({{count}} workers × ({{memoryMb}} + 150) MB + 1000 MB, plus 20%), assuming PostgreSQL runs on the same machine. You can still save.",
+      "changes": {
+        "heading": "Recent changes",
+        "empty": "No changes yet.",
+        "time": "When",
+        "actor": "Who",
+        "item": "Setting",
+        "change": "Change",
+        "actorGone": "Account no longer exists",
+        "toDefault": "default ({{value}})",
+        "toAuto": "auto ({{value}})",
+        "arrow": "{{from}} → {{to}}"
+      },
+      "validation": {
+        "notInteger": "Enter a whole number.",
+        "outOfRange": "Enter a whole number from {{min}} to {{max}}."
+      },
+      "invalidRange": "A value is outside the range that can be set."
+    },
     "invites": {
       "create": "Create invitation",
       "createTitle": "Create an invitation",

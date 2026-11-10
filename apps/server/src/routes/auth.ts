@@ -5,6 +5,7 @@ import { MAX_REGISTER_DISPLAY_NAME_LENGTH, SESSION_COOKIE, normalizeEmail, norma
 import { sendError, sendLoginThrottled } from "../http/errors.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
+import type { SiteLimits } from "../site-limits/store.js";
 import { authProviders, handleRenames, handles, siteSettings, users } from "../db/schema.js";
 import { UUID_RE } from "../notes/service.js";
 import { uniqueViolationConstraint } from "../db/pg-errors.js";
@@ -41,6 +42,7 @@ const passwordBodySchema = z.object({
 export interface AuthRouteDeps {
   db: Db;
   config: AppConfig;
+  siteLimits: SiteLimits;
   gate: UserGate;
   throttle: LoginThrottle;
   collabHooks: CollabHooks;
@@ -76,7 +78,8 @@ export function authRoutes(deps: AuthRouteDeps) {
         passwordLogin: { enabled: passwordLoginEnabled },
         autoVersionsEnabled: versionsRow?.v ?? true,
         // 網頁編輯器的筆記大小上限檢查（貼上、拖放、站內 AI 套用之前；協作更新不在 server 檢查）。
-        noteMaxBytes: deps.config.noteMaxBytes,
+        noteMaxBytes: deps.siteLimits.get("noteMaxBytes"),
+        maxUploadBytes: deps.siteLimits.get("uploadMaxBytes"),
       };
     });
 
@@ -376,7 +379,9 @@ export function authRoutes(deps: AuthRouteDeps) {
       // false，改完後一律 false——這是「自己主動改過密碼」這件事本身帶來的效果，不需要
       // 額外判斷原本的值。
       // #388：同一交易裡刪光這個使用者的 session 列（其他裝置）、為本機建新的一列——「保留這台、踢掉其他台」。
-      const input = { userId, passwordHash: newPasswordHash };
+      // #397：有效期在交易前讀一次，新列與交易後重簽的 cookie／JWT 用同一個值。
+      const ttlSeconds = deps.siteLimits.get("sessionTtlSeconds");
+      const input = { userId, passwordHash: newPasswordHash, ttlSeconds };
       const updated = await deps.db.transaction(tx => changePasswordInTx(tx, input));
       if (updated === null) return sendError(reply, 401, "unauthorized", "Not signed in."); // 帳號在請求途中被刪
 
@@ -389,7 +394,7 @@ export function authRoutes(deps: AuthRouteDeps) {
       // 重簽自己這個 request 的 cookie（帶 DB 端算出的新 tokenVersion，而非應用層快照
       // +1 的值——兩者在並發情境下可能不同，必須用 UPDATE ... RETURNING 拿到的真值，
       // 與上面新建的 session 列），確保改密碼的本人不會被自己剛剛觸發的 tokenVersion bump 給登出。
-      await setSessionCookieFor(reply, deps.config, { userId, tv: updated.tokenVersion, sid: updated.sessionId });
+      await setSessionCookieFor(reply, deps.config, { userId, tv: updated.tokenVersion, sid: updated.sessionId, ttlSeconds });
 
       return reply.code(204).send();
     });

@@ -1,4 +1,4 @@
-import { MAX_UPLOAD_BYTES, formatBytes } from "@knotebook/shared";
+import { formatBytes } from "@knotebook/shared";
 import { api, ApiFail } from "@/api/client";
 import { removeBlocksKeepColumns } from "@/collab/columns/keep-columns";
 import { toast } from "@/components/ui/toast";
@@ -11,13 +11,18 @@ import type { EditorRef } from "@/components/wikilink/menu";
  *
  * `noteId` 經 `encodeURIComponent`——`api/notes.ts`（`useNote`/`useBacklinks` 等）既有慣例。
  *
- * client 端前驗：檔案大小超過 `MAX_UPLOAD_BYTES` 時直接丟 `ApiFail(413, "file_too_large", …)`、
- * **不發請求**——大檔案沒必要先把整包 bytes 送到 server 才被拒絕；413 的 code 跟 server
- * 端 uploads 路由真的因為 `truncated` 而拒絕時完全一致，呼叫端（`createUploadFile`）不必
- * 分辨「是 client 前驗擋下還是 server 擋下」。
+ * client 端前驗：上限取自 `/api/auth/config` 的 `maxUploadBytes`（由呼叫端傳入 `maxBytes`），
+ * 拿不到（還沒載入、或 server 沒給）就不前驗，交給 server 擋。檔案大小超過上限時直接丟
+ * `ApiFail(413, "file_too_large", …)`、**不發請求**——大檔案沒必要先把整包 bytes 送到 server
+ * 才被拒絕；413 的 code 跟 server 端 uploads 路由真的因為 `truncated` 而拒絕時完全一致，
+ * 呼叫端（`createUploadFile`）不必分辨「是 client 前驗擋下還是 server 擋下」。
  */
-export async function postUpload(noteId: string, file: File): Promise<{ id: string; url: string }> {
-  if (file.size > MAX_UPLOAD_BYTES) {
+export async function postUpload(
+  noteId: string,
+  file: File,
+  maxBytes?: number,
+): Promise<{ id: string; url: string }> {
+  if (maxBytes !== undefined && file.size > maxBytes) {
     throw new ApiFail(413, "file_too_large", "client-side precheck");
   }
   const fd = new FormData();
@@ -68,6 +73,9 @@ export interface CreateUploadFileOptions {
    * 失敗時清除 placeholder block 必須讀取「當下」的 editor 實例。 */
   editorRef: EditorRef;
   translate: Translate;
+  /** late-bound 上傳上限（位元組）：`createUploadFile` 在編輯器建立時就固定成閉包，而 config 是之後才載入、
+   * 還可能被管理員調整，所以每次上傳當下才呼叫它讀「當下」的值。回傳 `undefined`＝不前驗。省略＝不前驗。 */
+  maxUploadBytes?: () => number | undefined;
 }
 
 /**
@@ -97,10 +105,10 @@ export interface CreateUploadFileOptions {
 export function createUploadFile(
   opts: CreateUploadFileOptions,
 ): (file: File, blockId?: string) => Promise<string> {
-  const { noteId, editorRef, translate } = opts;
+  const { noteId, editorRef, translate, maxUploadBytes } = opts;
   return async (file, blockId) => {
     try {
-      const { url } = await postUpload(noteId, file);
+      const { url } = await postUpload(noteId, file, maxUploadBytes?.());
       return url;
     } catch (err) {
       toastOncePerCode(err, translate);

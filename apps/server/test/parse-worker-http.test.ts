@@ -22,6 +22,7 @@ import { ParsePool } from "../src/notes/editing/parse-pool.js";
 import type { ParseLimits } from "../src/notes/editing/parse-settings.js";
 import { createEditingRuntime, type EditingRuntime } from "../src/notes/editing/runtime.js";
 import { transferParseMessage } from "../src/routes/transfer.js";
+import { SiteLimits } from "../src/site-limits/store.js";
 import { buildCollabTestApp, signTestSession, testConfig, testEditingRuntime, type TestClient } from "./helpers.js";
 import { bearer, docText, getContent, seedContent, seedTokenForUser, waitFor } from "./editing-helpers.js";
 import { seedNote, seedUser } from "./group-helpers.js";
@@ -44,7 +45,10 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
  */
 let shared: EditingRuntime | undefined;
 async function runtimeWith(limits: Partial<Pick<ParseLimits, "workers" | "timeoutMs" | "queueWaitMs">> = {}): Promise<EditingRuntime> {
-  shared ??= createEditingRuntime(loadConfig({ DATABASE_URL: "postgres://u:p@localhost:5432/db", APP_SECRET: testConfig.appSecret, PUBLIC_URL: "http://localhost:3000", PARSE_WORKERS: "2", PARSE_TIMEOUT_MS: "60000" }));
+  if (shared === undefined) {
+    const c = loadConfig({ DATABASE_URL: "postgres://u:p@localhost:5432/db", APP_SECRET: testConfig.appSecret, PUBLIC_URL: "http://localhost:3000", PARSE_WORKERS: "2", PARSE_TIMEOUT_MS: "60000" });
+    shared = createEditingRuntime(c, SiteLimits.defaults({ limitEnv: c.limitEnv, machine: c.machine }).parseLimits());
+  }
   const pool = shared.parser as ParsePool;
   pool.configure({ workers: 2, timeoutMs: 60_000, queueWaitMs: 20_000, ...limits });
   await until("parse worker ready", () => pool.stats().ready >= pool.limits.workers);

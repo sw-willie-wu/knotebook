@@ -25,10 +25,9 @@ describe("loadConfig", () => {
       databasePoolConnectionTimeoutMs: 10000,
       testHooks: false,
       testHooksIgnored: false,
-      // #398：parse worker 設定（worker 數依這台機器的 CPU 推算，見 parse-settings.test.ts）
-      parse: expect.objectContaining({ workerMemoryMb: 1024, timeoutMs: 10000, queueWaitMs: 45000 }),
-      // 筆記大小上限（`NOTE_MAX_BYTES`，預設 5 MiB；見 note-size.test.ts）
-      noteMaxBytes: 5_242_880,
+      // #397：env 設的站台限制、機器資訊（解析 worker 的生效值由 SiteLimits 算，不在 config 裡）
+      limitEnv: {},
+      machine: expect.objectContaining({ cpus: expect.any(Number) }),
     });
   });
   it("#175 pool 保險絲：兩個 env 覆寫；空字串視同未設；非正整數 → throw", () => {

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation, type Location } from "react-router";
-import type { UserDto } from "@knotebook/shared";
+import type { SiteLimitsDto, UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ActiveNoteProvider } from "@/lib/active-note";
 import { ThemeProvider } from "@/theme";
@@ -19,6 +19,8 @@ function fakeResponse(status: number, body?: unknown): Response {
 const ADMIN_USER: UserDto = { id: "u-admin", email: "admin@example.com", handle: "admin", displayName: "Admin", isAdmin: true, mustChangePassword: false, hasPassword: true, autoVersions: true };
 const PLAIN_USER: UserDto = { ...ADMIN_USER, id: "u-plain", handle: "plain", displayName: "Plain", isAdmin: false };
 const BG = { pathname: "/n/admin/some-note", search: "", hash: "", state: null, key: "bg1" } as Location;
+/** 站台限制頁只驗「點了換成該區塊」，不需要任何項目。 */
+const SITE_LIMITS_EMPTY: SiteLimitsDto = { items: [], machine: { cpus: 2, cpuSource: "os", memoryBytes: 2 * 1024 ** 3, memorySource: "os" }, changes: [] };
 
 function mockFetch(getUser: () => UserDto | null) {
   return vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -38,6 +40,7 @@ function mockFetch(getUser: () => UserDto | null) {
     if (url === "/api/admin/storage-plans" && method === "GET") return Promise.resolve(fakeResponse(200, { plans: [], defaults: { userPlanId: "", groupPlanId: "" } }));
     if (url === "/api/admin/versions/settings" && method === "GET") return Promise.resolve(fakeResponse(200, { keepAllDays: 7, dailyUntilDays: 30, autoVersionsEnabled: true, autoWaitMinutes: 5 }));
     if (url === "/api/admin/trash/settings" && method === "GET") return Promise.resolve(fakeResponse(200, { retentionDays: 7 }));
+    if (url === "/api/admin/limits" && method === "GET") return Promise.resolve(fakeResponse(200, SITE_LIMITS_EMPTY));
     if (url.startsWith("/api/admin/ai/") && method === "GET") {
       const key = url.slice("/api/admin/ai/".length);
       return Promise.resolve(fakeResponse(200, { [key]: [] }));
@@ -115,7 +118,7 @@ describe("AdminModal（/admin/*，#247）", () => {
     vi.unstubAllGlobals();
   });
 
-  it("M1 五項（nav 可及名稱 Site admin）：Users／Groups／Sign-in／Storage plans／AI agents；沒有「Back to notes」；/admin/users 是 aria-current", async () => {
+  it("M1 六項（nav 可及名稱 Site admin）：Users／Groups／Sign-in／Storage plans／AI agents／Site limits；沒有「Back to notes」；/admin/users 是 aria-current", async () => {
     renderAt("/admin/users", mockFetch(() => ADMIN_USER));
     const dialog = await screen.findByRole("dialog", { name: "Site admin" });
     const nav = within(dialog).getByRole("navigation", { name: "Site admin" });
@@ -125,6 +128,7 @@ describe("AdminModal（/admin/*，#247）", () => {
       ["Sign-in", "/admin/login"],
       ["Storage plans", "/admin/storage"],
       ["AI agents", "/admin/ai"],
+      ["Site limits", "/admin/limits"],
     ]);
     expect(within(nav).getByRole("link", { name: "Users" })).toHaveAttribute("aria-current", "page");
     expect(screen.queryByRole("link", { name: "Back to notes" })).not.toBeInTheDocument();
@@ -195,7 +199,7 @@ describe("AdminModal（/admin/*，#247）", () => {
     await waitFor(() => expect(path()).toBe(BG.pathname));
   });
 
-  it("M7 各項次的內容：Groups／Sign-in／Storage plans／AI agents 點了都換成該區塊（h1）", async () => {
+  it("M7 各項次的內容：Groups／Sign-in／Storage plans／AI agents／Site limits 點了都換成該區塊（h1）", async () => {
     renderAt("/admin/users", mockFetch(() => ADMIN_USER));
     const dialog = await screen.findByRole("dialog", { name: "Site admin" });
     const nav = within(within(dialog).getByRole("navigation", { name: "Site admin" }));
@@ -204,6 +208,7 @@ describe("AdminModal（/admin/*，#247）", () => {
       ["Sign-in", "/admin/login", "Sign-in"],
       ["Storage plans", "/admin/storage", "Storage plans"],
       ["AI agents", "/admin/ai", "AI providers & actions"],
+      ["Site limits", "/admin/limits", "Site limits"],
     ] as const) {
       fireEvent.click(nav.getByRole("link", { name: link }));
       await waitFor(() => expect(path()).toBe(url));

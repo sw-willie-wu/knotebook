@@ -24,6 +24,7 @@ import {
   COLLAB_TOKEN_INIT,
   insertPasswordUser,
   signTestSession,
+  TEST_SESSION_TTL,
   testConfig,
   testSessionId,
   type HttpSession,
@@ -158,7 +159,7 @@ describe("#388 登出只作廢這台裝置", () => {
     const { app, db } = await buildTestApp();
     const u = await insertPasswordUser(db);
     const b = await login(app, u.email);
-    const forged = await signSession("f".repeat(64), { userId: u.id, tv: 0, sid: sidOf(b) });
+    const forged = await signSession("f".repeat(64), { userId: u.id, tv: 0, sid: sidOf(b) }, TEST_SESSION_TTL);
     expect(await logout(app, forged)).toEqual({ status: 204, cleared: true });
     expect(await me(app, b)).toBe(200);
   });
@@ -178,7 +179,7 @@ describe("#388 舊格式與失效的 JWT", () => {
   it("sid 不是 uuid 形狀 → 401（不是 500）", async () => {
     const { app, db } = await buildTestApp();
     const u = await insertPasswordUser(db);
-    const bad = await signSession(testConfig.appSecret, { userId: u.id, tv: 0, sid: "not-a-uuid" });
+    const bad = await signSession(testConfig.appSecret, { userId: u.id, tv: 0, sid: "not-a-uuid" }, TEST_SESSION_TTL);
     expect(await me(app, bad)).toBe(401);
   });
 
@@ -186,18 +187,18 @@ describe("#388 舊格式與失效的 JWT", () => {
     const { app, db } = await buildTestApp();
     const u = await insertPasswordUser(db);
     const other = await insertPasswordUser(db);
-    const cross = await signSession(testConfig.appSecret, { userId: u.id, tv: 0, sid: testSessionId(other.id) });
+    const cross = await signSession(testConfig.appSecret, { userId: u.id, tv: 0, sid: testSessionId(other.id) }, TEST_SESSION_TTL);
     expect(await me(app, cross)).toBe(401);
   });
 
   it("列過期（JWT 本身還沒過期）→ 401；下一次有人登入時過期列被清掉，沒過期的列不動", async () => {
     const { app, db } = await buildTestApp();
     const u = await insertPasswordUser(db);
-    const sid = await insertSession(db, u.id);
-    const cookie = await signSession(testConfig.appSecret, { userId: u.id, tv: 0, sid });
+    const sid = await insertSession(db, u.id, TEST_SESSION_TTL);
+    const cookie = await signSession(testConfig.appSecret, { userId: u.id, tv: 0, sid }, TEST_SESSION_TTL);
     // 對照：另一列沒過期的照常可用（下面的 401 是過期造成的，不是這種簽法本身不行）。
-    const liveSid = await insertSession(db, u.id);
-    expect(await me(app, await signSession(testConfig.appSecret, { userId: u.id, tv: 0, sid: liveSid }))).toBe(200);
+    const liveSid = await insertSession(db, u.id, TEST_SESSION_TTL);
+    expect(await me(app, await signSession(testConfig.appSecret, { userId: u.id, tv: 0, sid: liveSid }, TEST_SESSION_TTL))).toBe(200);
     // expires_at 在正式碼裡不會變（不滑動），這裡直接改 DB 模擬「已過期」；先改再打，不經 gate 的快取。
     await db.update(sessions).set({ expiresAt: sql`now() - interval '1 minute'` }).where(eq(sessions.id, sid));
     expect(await me(app, cookie)).toBe(401);
@@ -228,7 +229,7 @@ describe("#388 改密碼／加上密碼／停用", () => {
     expect(await me(app, b)).toBe(401);
     expect(await sessionIdsOf(db, u.id)).toEqual([sidOf(a2)]);
     // 舊 tv 被 bump 只是其中一道；就算把 tv 對上，被刪的列也進不來。
-    const bSameTv = await signSession(testConfig.appSecret, { userId: u.id, tv: (decodeJwt(a2).tv as number), sid: sidOf(b) });
+    const bSameTv = await signSession(testConfig.appSecret, { userId: u.id, tv: (decodeJwt(a2).tv as number), sid: sidOf(b) }, TEST_SESSION_TTL);
     expect(await me(app, bSameTv)).toBe(401);
   });
 
@@ -283,10 +284,10 @@ describe("#388 改密碼／加上密碼／停用", () => {
   it("加上密碼（純 SSO 帳號）：本機換新的一列；其他裝置的列全刪", async () => {
     const { app, db } = await buildTestApp();
     const [u] = await db.insert(users).values({ email: "sso-388@example.com", displayName: "S", passwordHash: null }).returning();
-    const sidA = await insertSession(db, u!.id);
-    const sidB = await insertSession(db, u!.id);
-    const a = await signSession(testConfig.appSecret, { userId: u!.id, tv: 0, sid: sidA });
-    const b = await signSession(testConfig.appSecret, { userId: u!.id, tv: 0, sid: sidB });
+    const sidA = await insertSession(db, u!.id, TEST_SESSION_TTL);
+    const sidB = await insertSession(db, u!.id, TEST_SESSION_TTL);
+    const a = await signSession(testConfig.appSecret, { userId: u!.id, tv: 0, sid: sidA }, TEST_SESSION_TTL);
+    const b = await signSession(testConfig.appSecret, { userId: u!.id, tv: 0, sid: sidB }, TEST_SESSION_TTL);
     const res = await app.inject({ method: "POST", url: "/api/auth/password/set", cookies: { [SESSION_COOKIE]: a }, payload: { newPassword: NEW_PASSWORD } });
     expect(res.statusCode, res.body).toBe(204);
     const a2 = res.cookies.find(c => c.name === SESSION_COOKIE)!.value;

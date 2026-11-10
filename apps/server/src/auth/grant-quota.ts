@@ -2,9 +2,6 @@ import { and, eq, sql } from "drizzle-orm";
 import type { Db } from "../db/index.js";
 import { apiTokens } from "../db/schema.js";
 
-/** 每位使用者計入額度的 grant 上限。 */
-export const TOKEN_LIMIT_PER_USER = 20;
-
 /**
  * 這個查詢在 `/oauth/token` 內是在 transaction 裡跑的，所以參數型別要同時吃 `Db` 與
  * drizzle 的 transaction handle——`Db` 的 `.transaction()` callback 參數型別即是後者。

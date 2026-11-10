@@ -9,14 +9,14 @@ import type { FastifyInstance } from "fastify";
 import { HocuspocusProvider, HocuspocusProviderWebsocket } from "@hocuspocus/provider";
 import { WebSocket as WsWebSocket } from "ws";
 import * as Y from "yjs";
-import { NOTE_SCHEMA_VERSION, SESSION_COOKIE, type Role } from "@knotebook/shared";
+import { NOTE_SCHEMA_VERSION, SESSION_COOKIE, SITE_LIMITS, type Role } from "@knotebook/shared";
 import { createDb, type Db } from "../src/db/index.js";
 import { runMigrations } from "../src/db/migrate.js";
 import { loadConfig, type AppConfig } from "../src/config.js";
 import { buildApp, type AppDeps, type BuildAppOptions } from "../src/app.js";
 import { signSession, UserGate } from "../src/auth/session.js";
 import { LoginThrottle } from "../src/auth/rate-limit.js";
-import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, EDIT_LIMIT, FixedWindowLimiter, FOLDER_LIMIT, OIDC_LIMIT, ONE_TIME_LINK_ATTEMPT_LIMIT, ONE_TIME_LINK_MISS_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, PUBLIC_WIDTH_LIMIT, REGISTER_LIMIT, SEARCH_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_RENAME_LIMIT, TOKEN_WRITE_LIMIT, TRANSFER_EXPORT_LIMIT, TRANSFER_WRITE_LIMIT, UPLOAD_LIMIT, USER_SUGGEST_LIMIT } from "../src/http/rate-limit.js";
+import { buildFixedLimiters, type Limiters } from "../src/http/limiters.js";
 import { hashPassword } from "../src/auth/password.js";
 import { noopCollabHooks, type CollabHooks } from "../src/collab/hooks.js";
 import type { CollabHooksLogger } from "../src/collab/hooks-impl.js";
@@ -24,6 +24,7 @@ import { COLLAB_PATH, createCollabServer, type CollabDeps, type CollabServer } f
 import { notes, noteShares, users } from "../src/db/schema.js";
 import { createAiRuntime } from "../src/ai/runtime.js";
 import { createEditingRuntime, type EditingRuntime } from "../src/notes/editing/runtime.js";
+import { SiteLimits, type SiteLimitsLog } from "../src/site-limits/store.js";
 
 export interface FreshDb {
   db: Db;
@@ -151,9 +152,12 @@ export function testSessionId(userId: string): string {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 }
 
+/** #397：測試直接簽 session JWT、直接建 session 列時用的有效期＝註冊表的預設（7 天）。 */
+export const TEST_SESSION_TTL = SITE_LIMITS.sessionTtlSeconds.default;
+
 /** #388：簽一張綁「測試預設 session」的 session JWT（cookie 值）——取代以前各測試檔的 `signSession(testConfig.appSecret, { userId, tv })`。 */
 export function signTestSession(payload: { userId: string; tv: number }): Promise<string> {
-  return signSession(testConfig.appSecret, { ...payload, sid: testSessionId(payload.userId) });
+  return signSession(testConfig.appSecret, { ...payload, sid: testSessionId(payload.userId) }, TEST_SESSION_TTL);
 }
 
 const drizzleDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
@@ -283,9 +287,17 @@ export interface TestApp {
   db: Db;
   /** 實際掛進 app 的 uploadsDir——測試用它直接檢查磁碟狀態（例如 413 不落檔、GET 磁碟無檔 404 的 fixture）。 */
   uploadsDir: string;
-  /** 手動關閉底層 pool（非測試情境用）。在 test 內呼叫 buildTestApp() 不必自己叫這個——已用 onTestFinished 自動掛好（見 freshDb）。 */
+  /** #397：app 實際在用的 `SiteLimits`（綁這個 app 的 `db` 與 `config.limitEnv`，見 `buildTestApp`）。 */
+  siteLimits: SiteLimits;
+  /**
+   * 手動關閉底層 pool（非測試情境用）。在 test 內呼叫 buildTestApp() 不必自己叫這個——已用 onTestFinished 自動掛好（見 freshDb）。
+   * 覆寫了 `db` 時 harness 不建 DB，這支是 no-op（覆寫的 DB 由建它的呼叫端自己關）。
+   */
   close: () => Promise<void>;
 }
+
+/** #397：harness `SiteLimits.load` 用的 logger（不合格的列只 warn，測試輸出降噪）。 */
+const silentLog: SiteLimitsLog = { warn: () => {}, error: () => {} };
 
 /**
  * 掛幾條只給測試用的探針路由，供需要驗證 `authenticate`/`requireAdmin` decorator
@@ -307,8 +319,8 @@ export function withTestRoutes(app: FastifyInstance): FastifyInstance {
 // 是 in-memory Map，若在此改成 module-level 常數並跨測試共用，不同測試檔案／不同
 // buildTestApp() 呼叫之間的請求計數會互相汙染——例如「61 次觸發 429」
 // 測試會被同一份 map 上其他測試先前已消耗掉的計數影響，導致隨執行順序隨機紅綠。
-// 數值沿用 `buildApp` 未收到 overrides 時的生產預設（見 `http/rate-limit.ts` 匯出的
-// `COLLAB_TOKEN_LIMIT`/`SLUG_PATCH_LIMIT`），讓測試環境的節流行為與生產一致。
+// 只含 20 顆固定的桶（`buildFixedLimiters()`，數值同生產）加上 overrides；9 顆站台可調的桶不在這裡，
+// 由 `buildApp` 用該 app 的 `deps.siteLimits` 補（#397），讓測試環境的節流行為與生產一致。
 //
 // `overrides` 讓單一測試只換掉它要驗的那一顆桶（例如
 // `{ bearerMiss: new FixedWindowLimiter({ limit: 3, windowMs: 60_000 }) }`），不必手打
@@ -318,41 +330,9 @@ export function withTestRoutes(app: FastifyInstance): FastifyInstance {
 // `{ publicMiss: overrides.publicMiss, … }`：沒被指定的鍵會拿到 explicit `undefined`
 // 蓋掉這裡的預設值（tsconfig 沒開 `exactOptionalPropertyTypes`，TS 不擋），執行時是
 // `undefined.consume`。
-export function freshLimiters(
-  overrides: Partial<NonNullable<AppDeps["limiters"]>> = {}
-): NonNullable<AppDeps["limiters"]> {
-  return {
-    collabToken: new FixedWindowLimiter(COLLAB_TOKEN_LIMIT),
-    slugPatch: new FixedWindowLimiter(SLUG_PATCH_LIMIT),
-    upload: new FixedWindowLimiter(UPLOAD_LIMIT),
-    ai: new FixedWindowLimiter(AI_LIMIT),
-    oidcLogin: new FixedWindowLimiter(OIDC_LIMIT),
-    oidcCallback: new FixedWindowLimiter(OIDC_LIMIT),
-    publicLink: new FixedWindowLimiter(PUBLIC_LINK_LIMIT),
-    publicWidth: new FixedWindowLimiter(PUBLIC_WIDTH_LIMIT),
-    publicMiss: new FixedWindowLimiter(PUBLIC_MISS_LIMIT),
-    publicNote: new FixedWindowLimiter(PUBLIC_NOTE_LIMIT),
-    publicUpload: new FixedWindowLimiter(PUBLIC_UPLOAD_LIMIT),
-    tokenRead: new FixedWindowLimiter(TOKEN_READ_LIMIT),
-    tokenWrite: new FixedWindowLimiter(TOKEN_WRITE_LIMIT),
-    bearerMiss: new FixedWindowLimiter(BEARER_MISS_LIMIT),
-    patCreate: new FixedWindowLimiter(PAT_CREATE_LIMIT),
-    tokenRename: new FixedWindowLimiter(TOKEN_RENAME_LIMIT),
-    dcr: new FixedWindowLimiter(DCR_LIMIT),
-    authorize: new FixedWindowLimiter(AUTHORIZE_LIMIT),
-    tokenEndpoint: new FixedWindowLimiter(TOKEN_ENDPOINT_LIMIT),
-    contentRead: new FixedWindowLimiter(CONTENT_READ_LIMIT),
-    search: new FixedWindowLimiter(SEARCH_LIMIT),
-    transferExport: new FixedWindowLimiter(TRANSFER_EXPORT_LIMIT),
-    transferWrite: new FixedWindowLimiter(TRANSFER_WRITE_LIMIT),
-    userSuggest: new FixedWindowLimiter(USER_SUGGEST_LIMIT),
-    edit: new FixedWindowLimiter(EDIT_LIMIT),
-    folder: new FixedWindowLimiter(FOLDER_LIMIT),
-    register: new FixedWindowLimiter(REGISTER_LIMIT),
-    oneTimeLinkMiss: new FixedWindowLimiter(ONE_TIME_LINK_MISS_LIMIT),
-    oneTimeLinkAttempt: new FixedWindowLimiter(ONE_TIME_LINK_ATTEMPT_LIMIT),
-    ...overrides,
-  };
+export function freshLimiters(overrides: Partial<Limiters> = {}): Partial<Limiters> {
+  // #397：只含 20 顆固定的桶＋覆寫；9 顆可調的由 `buildApp` 用該 app 的 `deps.siteLimits` 補（沒被覆寫的才補）。
+  return { ...buildFixedLimiters(), ...overrides };
 }
 
 /**
@@ -361,8 +341,14 @@ export function freshLimiters(
  * 相反：runtime 沒有跨測試會互相汙染的計數語意，而每個測試各建一份 jsdom 就是每次
  * `installGlobals()` 重掛全域 window／document——同檔案內先前建好的 editor 會被抽掉腳下的
  * window，且每份殘留約 0.53 MB。
+ *
+ * #397：pool 的設定取站台預設（在任何 DB 之前建，所以用 `SiteLimits.defaults`），而且**永遠不跟著任何 app 的 `siteLimits` 改**——
+ * 它跨多個 app 共用，一個 app 的 PATCH 不能改到別的測試的 pool。`buildTestApp`／`buildCollabTestApp` 在 `editing` 是它（含沒給、
+ * 預設用它）時拒絕 `editingFollowsSiteLimits: true`；要測 pool 跟著改的測試自己建 runtime。
  */
-export const testEditingRuntime = createEditingRuntime(testConfig);
+export const testEditingRuntime = createEditingRuntime(testConfig, SiteLimits.defaults({ machine: testConfig.machine }).parseLimits());
+
+const SHARED_RUNTIME_FOLLOW_ERROR = "testEditingRuntime is shared; pass your own editing runtime to follow site limits";
 
 /**
  * 建一個掛好預設 deps（freshDb + 真 UserGate/LoginThrottle + noop collab hooks）的
@@ -374,25 +360,34 @@ export const testEditingRuntime = createEditingRuntime(testConfig);
  *
  * logger 預設關閉（測試輸出降噪），可用 `options.logger` 覆寫回開（例如要除錯某個
  * 測試的實際請求日誌時）。
+ *
+ * #397：先決定 app 實際用的 `config`、`db`，再用這兩樣 `SiteLimits.load` 一份（`overrides.siteLimits` 有給就照用）；
+ * 這三樣在其餘 `overrides` 之後才放，不會再被蓋掉——鎖定狀態（`config.limitEnv`）與 DB 都只有一個來源。
  */
 export async function buildTestApp(overrides: Partial<AppDeps> = {}, options: BuildAppOptions = {}): Promise<TestApp> {
-  const { db, close } = await freshDb();
+  if (overrides.editing === testEditingRuntime && overrides.editingFollowsSiteLimits === true) throw new Error(SHARED_RUNTIME_FOLLOW_ERROR);
+  const { config: configOverride, db: dbOverride, siteLimits: siteLimitsOverride, ...rest } = overrides;
+  const config = configOverride ?? testConfig;
+  const fresh = dbOverride ? null : await freshDb();
+  const db = dbOverride ?? fresh!.db;
+  const close = fresh?.close ?? (async () => {});
+  const siteLimits = siteLimitsOverride ?? (await SiteLimits.load(db, { limitEnv: config.limitEnv, machine: config.machine, log: silentLog }));
   const deps: AppDeps = {
-    config: testConfig,
-    db,
     gate: new UserGate(db),
     throttle: new LoginThrottle(),
     collabHooks: noopCollabHooks,
     limiters: freshLimiters(),
     uploadsDir: freshUploadsDir(),
     ai: createAiRuntime(),
-    ...overrides,
+    ...rest,
+    config,
+    db,
+    siteLimits,
   };
   const app = buildApp(deps, { logger: false, ...options });
-  // 回傳 deps.db／deps.uploadsDir（而非上面本地變數）——若呼叫方透過 overrides
-  // 換掉了它們，回傳值必須與 app 實際在用的一致，否則呼叫方用回傳值操作會跟 app
-  // 內部狀態不同步。
-  return { app, db: deps.db, uploadsDir: deps.uploadsDir, close };
+  // 回傳 deps.uploadsDir（而非預設值）——若呼叫方透過 overrides 換掉了它，回傳值必須與 app 實際在用的一致，
+  // 否則呼叫方用回傳值操作會跟 app 內部狀態不同步。`db`／`siteLimits` 上面已決定、就是 app 在用的那份。
+  return { app, db, uploadsDir: deps.uploadsDir, siteLimits, close };
 }
 
 // ───────────────────────────── 共編（Hocuspocus）測試 harness ─────────────────────────────
@@ -465,6 +460,8 @@ export interface CollabTestCtx {
   /** bulk transfer：app 用的同一個 `UserGate`（停權後要 `invalidate` 才即時生效，同生產的停權路徑）。 */
   gate: UserGate;
   db: Db;
+  /** #397：app 實際在用的 `SiteLimits`（綁這個 app 的 `db` 與 `config.limitEnv`）。共用 DB 的兩個 app 各自一份。 */
+  siteLimits: SiteLimits;
   /** #180：實際掛進 app 的 uploadsDir（磁碟斷言用）。 */
   uploadsDir: string;
   createUser(opts: { email: string; password: string; isAdmin?: boolean }): Promise<{ id: string }>;
@@ -487,7 +484,7 @@ export async function buildCollabTestApp(
   opts: {
     collabHooks?: (server: CollabServer, log: CollabHooksLogger) => CollabHooks;
     /** 只換掉要驗的那一顆桶（其餘走 `freshLimiters` 預設）——⚠ 整包轉傳，別逐鍵展開，理由見 `freshLimiters`。 */
-    limiters?: Partial<NonNullable<AppDeps["limiters"]>>;
+    limiters?: Partial<Limiters>;
     /** #180：PATCH／MCP rename 的 slug 候選縫，語意見 `AppDeps.slugUpdateTestHook`。 */
     slugUpdateTestHook?: AppDeps["slugUpdateTestHook"];
     /** #180：建立／複製路徑的 slug 縫，語意見 `AppDeps.noteCreateHooks`。 */
@@ -530,9 +527,21 @@ export async function buildCollabTestApp(
     db?: Db;
     /** #398：換掉共用的 `testEditingRuntime`（例：小時限、小排隊上限的 parse pool）。由呼叫端自己 `close()`。 */
     editing?: EditingRuntime;
+    /**
+     * #397：`editing` 跟著這個 app 的 `siteLimits` 改（語意見 `AppDeps.editingFollowsSiteLimits`）。只能配自己建的 runtime：
+     * `editing` 沒給或就是 `testEditingRuntime` 時給 `true` 直接丟錯（共用的 runtime 不能被任何一個 app 改設定）。
+     */
+    editingFollowsSiteLimits?: boolean;
+    /** #397：換掉 harness 自己 `load` 的那份（預設用本 app 的 `config`／`db` 載入，見 `buildTestApp`）。 */
+    siteLimits?: SiteLimits;
   } = {}
 ): Promise<CollabTestCtx> {
+  const editing = opts.editing ?? testEditingRuntime;
+  if (editing === testEditingRuntime && opts.editingFollowsSiteLimits === true) throw new Error(SHARED_RUNTIME_FOLLOW_ERROR);
+  // #397：先決定 app 實際用的 `config`、`db`，再用這兩樣 `load`（同 `buildTestApp`）。
+  const config = opts.config ?? testConfig;
   const { db } = opts.db ? { db: opts.db } : await freshDb();
+  const siteLimits = opts.siteLimits ?? (await SiteLimits.load(db, { limitEnv: config.limitEnv, machine: config.machine, log: silentLog }));
   const gate = new UserGate(db);
   // 測試注入縫：見 `CollabTestCtx.breakGate`。包在 harness 裡（而不是每個測試各自 monkey-patch）
   // 是為了讓「怎麼弄壞 gate」只有一份定義。
@@ -552,17 +561,19 @@ export async function buildCollabTestApp(
     warn: (obj: object, msg: string) => collabLogs.push({ level: "warn", obj: { ...obj }, msg }),
     error: (obj: object, msg: string) => collabLogs.push({ level: "error", obj: { ...obj }, msg }),
   };
-  const collab = createCollabServer({ db, config: opts.config ?? testConfig, gate, log: collabLog, storeSearchHooks: opts.storeSearchHooks, versionAutoWaitMs: opts.versionAutoWaitMs, lastActiveOptions: opts.lastActiveOptions });
+  const collab = createCollabServer({ db, config, gate, log: collabLog, storeSearchHooks: opts.storeSearchHooks, versionAutoWaitMs: opts.versionAutoWaitMs, lastActiveOptions: opts.lastActiveOptions });
 
   const uploadsDir = freshUploadsDir();
   const deps: AppDeps = {
-    config: opts.config ?? testConfig,
+    config,
     db,
+    siteLimits,
     gate,
     throttle: new LoginThrottle(),
     collabHooks: opts.collabHooks ? opts.collabHooks(collab, collabLog) : noopCollabHooks,
     collab,
-    editing: opts.editing ?? testEditingRuntime,
+    editing,
+    editingFollowsSiteLimits: opts.editingFollowsSiteLimits === true,
     limiters: freshLimiters(opts.limiters),
     editingTestHooks: opts.editingTestHooks,
     shownLinks: opts.shownLinks,
@@ -752,7 +763,7 @@ export async function buildCollabTestApp(
     return session;
   }
 
-  return { baseUrl, app, collab, collabLogs, breakGate, gate, db, uploadsDir, createUser, createNote, share, loginAs, destroy };
+  return { baseUrl, app, collab, collabLogs, breakGate, gate, db, siteLimits, uploadsDir, createUser, createNote, share, loginAs, destroy };
 }
 
 /**

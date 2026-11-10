@@ -13,6 +13,7 @@ import {
 } from "@knotebook/shared";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
+import type { SiteLimits } from "../site-limits/store.js";
 import { oneTimeLinks, userIdentities, users } from "../db/schema.js";
 import { UUID_RE } from "../notes/service.js";
 import { foreignKeyViolationConstraint, notNullViolationColumn, uniqueViolationConstraint } from "../db/pg-errors.js";
@@ -47,6 +48,7 @@ import { SITE_SETTINGS_MISSING_MESSAGE } from "../auth/tx/admin-site-settings.js
 export interface AccountRouteDeps {
   db: Db;
   config: AppConfig;
+  siteLimits: SiteLimits;
   gate: UserGate;
   collabHooks: CollabHooks;
   limiters: { register: FixedWindowLimiter; oneTimeLinkMiss: FixedWindowLimiter; oneTimeLinkAttempt: FixedWindowLimiter };
@@ -345,13 +347,15 @@ export function accountRoutes(deps: AccountRouteDeps) {
       const userId = request.user!.id;
       // 單句條件 UPDATE（雙送出第二次 0 列）；token_version 在 SQL 端 +1（同改密碼的理由）。與解除連結以 users 列鎖序列化。
       // #388：命中才在同一交易裡換 session 列（刪光、本機換新的一列；同改密碼，見 `auth/tx/change-password.ts`）。
-      const input = { userId, passwordHash };
+      // #397：有效期在交易前讀一次，新列與交易後重簽的 cookie／JWT 用同一個值。
+      const ttlSeconds = deps.siteLimits.get("sessionTtlSeconds");
+      const input = { userId, passwordHash, ttlSeconds };
       const updated = await deps.db.transaction(tx => setPasswordInTx(tx, input));
       if (updated === null) return sendError(reply, 409, "password_already_set", "This account already has a password. Change it instead.");
       // 同改密碼：讓其他裝置的舊 session 失效、重簽本人。
       deps.gate.invalidate(userId);
       deps.collabHooks.onUserRevoked(userId);
-      await setSessionCookieFor(reply, deps.config, { userId, tv: updated.tokenVersion, sid: updated.sessionId });
+      await setSessionCookieFor(reply, deps.config, { userId, tv: updated.tokenVersion, sid: updated.sessionId, ttlSeconds });
       return reply.code(204).send();
     });
   };

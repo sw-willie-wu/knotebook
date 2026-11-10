@@ -111,7 +111,7 @@ const ARG_BANNED: Array<[string, RegExp]> = [
   ["閉包 function", /\bfunction\b/],
   ...HELPERS,
 ];
-const ROUTE_FILES = ["routes/notes.ts", "routes/groups.ts", "notes/links.ts", "routes/oidc.ts", "routes/oidc-pending.ts", "routes/admin-auth.ts", "routes/account.ts", "notes/search-index.ts", "notes/search-query.ts", "mcp/tools/create-transfer-token.ts", "mcp/tools/open-notes-as-files.ts", "routes/uploads.ts", "collab/versions.ts", "routes/admin-versions.ts", "notes/copy-note.ts", "notes/move-note.ts", "routes/admin-password-reset.ts", "routes/password-reset.ts", "trash/service.ts", "routes/admin-trash.ts", "trash/purge.ts", "folders/service.ts", "notes/editing/write-service.ts"];
+const ROUTE_FILES = ["routes/notes.ts", "routes/groups.ts", "notes/links.ts", "routes/oidc.ts", "routes/oidc-pending.ts", "routes/admin-auth.ts", "routes/account.ts", "notes/search-index.ts", "notes/search-query.ts", "mcp/tools/create-transfer-token.ts", "mcp/tools/open-notes-as-files.ts", "routes/uploads.ts", "collab/versions.ts", "routes/admin-versions.ts", "notes/copy-note.ts", "notes/move-note.ts", "routes/admin-password-reset.ts", "routes/password-reset.ts", "trash/service.ts", "routes/admin-trash.ts", "trash/purge.ts", "folders/service.ts", "notes/editing/write-service.ts", "site-limits/store.ts"];
 
 describe("S14 結構性守衛（#175）", () => {
   const files = walk(SRC);
@@ -145,6 +145,7 @@ describe("S14 結構性守衛（#175）", () => {
         "uploads/tx/insert-upload.ts",
         "storage/tx/quota.ts",
         "transfer/tx/record-file-sync.ts",
+        "auth/tx/admin-site-limits.ts",
       ]),
     );
   });
@@ -203,6 +204,7 @@ describe("S14 結構性守衛（#175）", () => {
       { f: "trash/purge.ts", all: 1, inTx: 1 }, // #181 保留期清理一批（purgeExpiredBatchInTx）
       { f: "folders/service.ts", all: 4, inTx: 4 }, // 資料夾 T5 建立（createFolderInTx）、T6 改名／搬移（updateFolderInTx）、T8 刪除（deleteFolderInTx）、T9 放置（placeNoteInTx）
       { f: "notes/editing/write-service.ts", all: 1, inTx: 1 }, // bulk transfer：syncFile 的紀錄交易（recordFileSyncInTx）
+      { f: "site-limits/store.ts", all: 1, inTx: 1 }, // #397 站台限制 PATCH（updateSiteLimitsInTx）
     ]);
   });
 

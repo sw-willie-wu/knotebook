@@ -59,9 +59,9 @@ const VERSION_1 = vi.hoisted(() => ({
   createdAt: "2026-01-01T00:00:00.000Z",
 }));
 // #293：替身交給 NotePage 的 scroller（`onCursorScroller`）；預設 null＝同真編輯器尚未交出。
-const editorMock = vi.hoisted(() => ({ scroller: null as null | ((c: unknown) => boolean), noteMaxBytes: undefined as number | undefined }));
-/** `GET /api/auth/config` 回的 `noteMaxBytes`（筆記大小上限）；undefined＝回應不帶這個欄位。 */
-const siteConfig = vi.hoisted(() => ({ noteMaxBytes: undefined as number | undefined }));
+const editorMock = vi.hoisted(() => ({ scroller: null as null | ((c: unknown) => boolean), noteMaxBytes: undefined as number | undefined, maxUploadBytes: undefined as number | undefined }));
+/** `GET /api/auth/config` 回的 `noteMaxBytes`（筆記大小上限）、`maxUploadBytes`（單檔上傳上限）；undefined＝回應不帶這個欄位。 */
+const siteConfig = vi.hoisted(() => ({ noteMaxBytes: undefined as number | undefined, maxUploadBytes: undefined as number | undefined }));
 // #297：`mock-column` 用真的 `useNoteWidth(noteId)`，P3 靠它驗 NotePage 交給頁首選單與編輯器的是同一個 id。
 vi.mock("@/components/NoteEditor", async () => {
   const React = await import("react");
@@ -75,6 +75,7 @@ vi.mock("@/components/NoteEditor", async () => {
     previewSlot,
     onCursorScroller,
     noteMaxBytes,
+    maxUploadBytes,
   }: {
     editable: boolean;
     noteId: string;
@@ -83,8 +84,10 @@ vi.mock("@/components/NoteEditor", async () => {
     previewSlot?: ReactNode;
     onCursorScroller?: (s: unknown) => void;
     noteMaxBytes?: number;
+    maxUploadBytes?: number;
   }) {
     editorMock.noteMaxBytes = noteMaxBytes;
+    editorMock.maxUploadBytes = maxUploadBytes;
     const versions = useVersions();
     const [width] = useNoteWidth(noteId);
     React.useEffect(() => {
@@ -268,7 +271,7 @@ function mockFetch(
       return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(USER) }));
     }
     if (url === "/api/auth/config") {
-      const body = { providers: [], registration: { enabled: true, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true, ...(siteConfig.noteMaxBytes === undefined ? {} : { noteMaxBytes: siteConfig.noteMaxBytes }) };
+      const body = { providers: [], registration: { enabled: true, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true, ...(siteConfig.noteMaxBytes === undefined ? {} : { noteMaxBytes: siteConfig.noteMaxBytes }), ...(siteConfig.maxUploadBytes === undefined ? {} : { maxUploadBytes: siteConfig.maxUploadBytes }) };
       return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(body) }));
     }
     if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
@@ -420,7 +423,9 @@ describe("NotePage", () => {
     // 上一案 NotePage 的回呼會殘留在 hoisted 物件上——不清的話「等到回呼出現」會立刻拿到舊頁的那支。
     collab.onUnauthorized = undefined;
     siteConfig.noteMaxBytes = undefined;
+    siteConfig.maxUploadBytes = undefined;
     editorMock.noteMaxBytes = undefined;
+    editorMock.maxUploadBytes = undefined;
     window.history.replaceState(null, "", "/");
     // toast store 是模組層級的，不歸零的話上一個測試的 toast 會留在畫面上。
     dismissAllToasts();
@@ -430,6 +435,15 @@ describe("NotePage", () => {
     collab.doc.destroy();
     vi.unstubAllGlobals();
     navSpy.current = undefined;
+    siteConfig.maxUploadBytes = undefined;
+  });
+
+  it("設定的 maxUploadBytes（GET /api/auth/config）交給編輯器（貼上、拖放圖片的上傳前驗用）", async () => {
+    siteConfig.maxUploadBytes = 654_321;
+    vi.stubGlobal("fetch", mockFetch());
+    collab.provider.synced = true;
+    renderNotePage("my-note");
+    await waitFor(() => expect(editorMock.maxUploadBytes).toBe(654_321));
   });
 
   it("以舊形 uuid ref 開頁：解析出筆記、把網址 replace 成新形 canonical、掛上編輯器", async () => {

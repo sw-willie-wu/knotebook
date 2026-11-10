@@ -17,7 +17,10 @@ import { SCAN_STOP_GRACE_MS } from "./collab/versions.js";
 import { buildApp } from "./app.js";
 import { createAiRuntime, selfCheckAiKeys } from "./ai/runtime.js";
 import { backfillSearchIndex } from "./notes/search-index.js";
-import { logNotesOverCap } from "./notes/note-size-startup.js";
+import { logNotesOverCap, watchNotesOverCap } from "./notes/note-size-startup.js";
+import { redactDbError } from "./lib/redact-db-error.js";
+import { SiteLimits } from "./site-limits/store.js";
+import { parseSettingsLogFields } from "./site-limits/boot-log.js";
 
 // 獨立的 pino instance：`initializeInstance` 與 migration 皆在 `buildApp()` 之前就要跑
 // （見下方 main() 的呼叫順序），此時還沒有 Fastify app、也就還沒有 `app.log` 可用——
@@ -52,13 +55,6 @@ async function main(): Promise<void> {
   // 這道啟動期檢查刻意**不依賴請求裡有沒有轉發 header**：nginx 預設不送
   // `X-Forwarded-For`，只靠請求期那道警告會漏掉最需要被提醒的那群人。
   logger.info({ trustProxy: config.trustProxy }, "trustProxy setting in effect");
-  // #398：markdown 解析 worker 的生效值（各值來自環境變數或預設；worker 數的預設依 CPU 與記憶體推算取小，
-  // `workersSource` 說是哪一個：env／cpu／memory），連同偵測到的 CPU 數、記憶體（MiB）與各自的來源（cgroup-v2／cgroup-v1／os）。
-  {
-    const { workers, workersSource, workerMemoryMb, timeoutMs, queueWaitMs, from, cpus, cpuSource, memoryBytes, memorySource } = config.parse;
-    const memoryMb = Math.round(memoryBytes / 2 ** 20);
-    logger.info({ workers, workersSource, workerMemoryMb, timeoutMs, queueWaitMs, from, cpus, cpuSource, memoryMb, memorySource }, "parse worker settings in effect");
-  }
 
   if (!config.trustProxy && config.publicUrl.protocol === "https:") {
     logger.warn(
@@ -114,6 +110,22 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  // #397：站台限制（env＞管理頁存的值＞預設／自動）。migration 之後、`buildApp` 之前載入，經 `AppDeps.siteLimits` 傳入；
+  // 讀不到 DB → 開機失敗（同 migration）。`limitEnv` 必須就是 `config.limitEnv`（鎖定狀態唯一來源）。
+  let siteLimits: SiteLimits;
+  try {
+    siteLimits = await SiteLimits.load(db, { limitEnv: config.limitEnv, machine: config.machine, log: logger });
+  } catch (err) {
+    // 不記整個 err（DrizzleQueryError 的 message 與 params 帶查詢參數）；只記 SQLSTATE／constraint
+    redactDbError(logger, err, "載入站台限制");
+    logger.error("請確認 DATABASE_URL 可連線，且 migration 0039（site_limits）已執行");
+    process.exit(1);
+  }
+  // #398／#397：markdown 解析 worker 的生效值（各值的 `from`：env／admin（管理頁）／default／auto；worker 數自動時依 CPU 與記憶體
+  // 推算取小，`workersSource` 說是哪一個：env／admin／cpu／memory），連同偵測到的 CPU 數、記憶體（MiB）與各自的來源（cgroup-v2／cgroup-v1／os）。
+  // 欄位的組法在 `site-limits/boot-log.ts`（單元測試：test/unit/site-limits-boot-log.test.ts）。
+  logger.info(parseSettingsLogFields(siteLimits), "parse worker settings in effect");
+
   // setup token 流程已退役，實例初始化唯一路徑是 `initializeInstance`
   // （env-only）。`config.ts` 的 loadConfig 已保證 ADMIN_EMAIL/ADMIN_PASSWORD 兩者
   // 同時 defined 或同時 undefined，這裡只是把 AppConfig 的兩個扁平欄位組回
@@ -141,7 +153,9 @@ async function main(): Promise<void> {
   // handle.test.ts 的結構守衛釘住這個順序）。
   await backfillHandleRegistry(db, logger);
   // 筆記大小上限（`NOTE_MAX_BYTES`）：記下已經超過的筆記（篇數與 id，不記標題）。
-  await logNotesOverCap(db, config.noteMaxBytes, logger);
+  await logNotesOverCap(db, siteLimits.get("noteMaxBytes"), logger);
+  // 管理員改了 `noteMaxBytes`（#397）：重記一次超過新上限的筆記。只在這裡訂閱（`buildApp` 不訂閱）。
+  watchNotesOverCap(siteLimits, db, logger);
 
   const gate = new UserGate(db);
   const throttle = new LoginThrottle();
@@ -182,6 +196,7 @@ async function main(): Promise<void> {
     {
       config,
       db,
+      siteLimits,
       gate,
       throttle,
       collabHooks: createCollabHooks(collab, logger),

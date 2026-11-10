@@ -1,6 +1,7 @@
 export { YDOC_FRAGMENT } from "./ydoc.js";
 import type { ProviderIconDto, ProviderIconKind } from "./provider-icon.js";
 import type { AiActionKind } from "./ai.js";
+import { SITE_LIMITS } from "./site-limits.js";
 
 export const SESSION_COOKIE = "knotebook_session";
 
@@ -79,6 +80,11 @@ export interface AuthConfigDto {
    * 不在 server 檢查），已超過的筆記顯示提示。server 一律回傳；選填只是讓沒有這個欄位的回應（測試替身、舊 server）照常可用＝不檢查。
    */
   noteMaxBytes?: number;
+  /**
+   * 圖片上傳單檔大小上限（bytes，站台限制 `uploadMaxBytes`，管理員可調）。網頁在上傳前據此自己擋。server 一律回傳；選填只是讓沒有這個欄位的回應
+   * （測試替身、舊 server）照常可用＝不前驗。
+   */
+  maxUploadBytes?: number;
 }
 
 /** #187：一個啟用中的單一登入服務（登入頁按鈕、連結頁的證明方式）。只曝光 id、顯示名與圖示——issuer／client id 不出線。 */
@@ -356,7 +362,7 @@ export interface BacklinkDto {
 }
 
 /** 圖片上傳單檔大小上限（bytes）：10 MiB，超過回 `file_too_large`（413）。 */
-export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+export const MAX_UPLOAD_BYTES = SITE_LIMITS.uploadMaxBytes.default;
 
 /** 單次 `POST /api/notes/:id/links` 提交的 target 集合上限（去重、過濾 self-link 正規化後計；超過回 400 `invalid_body`）。 */
 export const MAX_LINK_TARGETS = 1000;
@@ -582,6 +588,8 @@ export const ERROR_CODES = [
   "too_complex",
   // `note_too_large`＝413（MCP 工具錯誤同名）：這次修改會讓筆記的大小（Yjs 狀態的位元組數）超過 `NOTE_MAX_BYTES`，而且比修改前大；details 帶 `limitBytes`。
   "note_too_large",
+  // `limit_locked_by_env`＝409：管理頁要改的站台限制被伺服器的環境變數鎖住（#397）。
+  "limit_locked_by_env",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
@@ -1327,3 +1335,5 @@ export * from "./trash.js";
 export * from "./folders.js";
 export * from "./presence.js";
 export * from "./avatar.js";
+export * from "./site-limits.js";
+export * from "./parse-auto.js";

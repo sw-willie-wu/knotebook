@@ -5,6 +5,7 @@ import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
 import { sessions } from "../db/schema.js";
 import type { CollabHooks } from "../collab/hooks.js";
+import type { SiteLimits } from "../site-limits/store.js";
 import { setSessionCookie } from "./cookies.js";
 import { signSession, verifySession, type UserGate } from "./session.js";
 import { newSessionValues } from "./tx/sessions.js";
@@ -26,6 +27,8 @@ export interface SessionDeps {
   db: Db;
   config: AppConfig;
   gate: UserGate;
+  /** #397：網頁登入有效期（`sessionTtlSeconds`）每次簽發時讀一次。 */
+  siteLimits: SiteLimits;
 }
 
 /**
@@ -42,19 +45,23 @@ export interface StartSessionDeps extends SessionDeps {
 }
 
 /** 建一列 session，回 `sid`。 */
-export async function insertSession(db: Db, userId: string): Promise<string> {
-  const [row] = await db.insert(sessions).values(newSessionValues(userId)).returning({ id: sessions.id });
+export async function insertSession(db: Db, userId: string, ttlSeconds: number): Promise<string> {
+  const [row] = await db.insert(sessions).values(newSessionValues(userId, ttlSeconds)).returning({ id: sessions.id });
   return row!.id;
 }
 
-/** 簽 session JWT（帶 `sid`）並發 cookie。列必須已經建好。 */
+/**
+ * 簽 session JWT（帶 `sid`）並發 cookie。列必須已經建好；`session.ttlSeconds` 必須是建那一列時用的同一個值（#397），
+ * JWT 的 exp、cookie 的 maxAge 與列的 `expires_at` 才會一致。
+ */
 export async function setSessionCookieFor(
   reply: FastifyReply,
   config: AppConfig,
-  session: { userId: string; tv: number; sid: string },
+  session: { userId: string; tv: number; sid: string; ttlSeconds: number },
 ): Promise<void> {
-  const jwt = await signSession(config.appSecret, session);
-  setSessionCookie(reply, config, jwt);
+  const { ttlSeconds, ...payload } = session;
+  const jwt = await signSession(config.appSecret, payload, ttlSeconds);
+  setSessionCookie(reply, config, jwt, ttlSeconds);
 }
 
 /**
@@ -114,13 +121,15 @@ export async function startSession(
   reply: FastifyReply,
   user: { userId: string; tv: number },
 ): Promise<void> {
+  // 有效期只讀這一次：列、JWT、cookie 用同一個值，不會因為簽發途中管理員改了設定而不一致（#397）。
+  const ttlSeconds = deps.siteLimits.get("sessionTtlSeconds");
   const replaced = await deleteSessionFromCookie(deps, request, user.userId);
   if (replaced) {
     const timer = setTimeout(() => deps.collabHooks.onSessionRevoked(replaced.userId, replaced.sid), deps.reloginReverifyDelayMs ?? RELOGIN_REVERIFY_DELAY_MS);
     timer.unref();
   }
-  const sid = await insertSession(deps.db, user.userId);
-  await setSessionCookieFor(reply, deps.config, { ...user, sid });
+  const sid = await insertSession(deps.db, user.userId, ttlSeconds);
+  await setSessionCookieFor(reply, deps.config, { ...user, sid, ttlSeconds });
   void deleteExpiredSessions(deps.db).catch((err: unknown) => {
     request.log.warn({ err }, "failed to delete expired sessions");
   });

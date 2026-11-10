@@ -194,8 +194,8 @@ export interface NoteWriteServiceDeps {
   renameHook?: (candidate: string) => void | Promise<void>;
   /** #387：讀者讀到過、寫入者寫過的連結文字（測試注入用；未傳＝本 service 自建一份）。 */
   shownLinks?: ShownLinkTexts;
-  /** 筆記大小上限（`config.noteMaxBytes`；未傳＝不擋，只給直接 new 本 service 的測試）。 */
-  noteMaxBytes?: number;
+  /** 筆記大小上限（現讀 `siteLimits` 的生效值；未傳＝不擋，只給直接 new 本 service 的測試）。 */
+  noteMaxBytes?: () => number;
 }
 
 export class NoteWriteService {
@@ -217,9 +217,9 @@ export class NoteWriteService {
     this.shownLinks = deps.shownLinks ?? new ShownLinkTexts();
   }
 
-  /** 筆記大小上限（`config.noteMaxBytes`）：MCP 的複製也用同一個值。 */
+  /** 筆記大小上限（`siteLimits` 的生效值）：MCP 的複製也用同一個值。 */
   get noteMaxBytes(): number | undefined {
-    return this.deps.noteMaxBytes;
+    return this.deps.noteMaxBytes?.();
   }
 
   /** collab ＋ editing 都在＝這個部署寫得動內容（同 `routes/notes.ts` 的既有註冊閘門判準）。 */
@@ -235,7 +235,9 @@ export class NoteWriteService {
   private applyDeps(log: FastifyBaseLogger): ApplyDeps {
     const { collab, editing } = this.deps;
     if (!collab || !editing) throw new Error("NoteWriteService：此部署沒有 collab／editing，呼叫端必須先檢查 available");
-    return { db: this.deps.db, collab, editing, log, testHooks: this.deps.testHooks, versions: this.deps.versions, shownLinks: this.shownLinks, ...(this.deps.noteMaxBytes !== undefined ? { noteMaxBytes: this.deps.noteMaxBytes } : {}) };
+    // 一次寫入（含 `mergeAtBase` 重來）用開始時讀到的上限：這個物件在寫入開始時建一次。
+    const noteMaxBytes = this.deps.noteMaxBytes?.();
+    return { db: this.deps.db, collab, editing, log, testHooks: this.deps.testHooks, versions: this.deps.versions, shownLinks: this.shownLinks, ...(noteMaxBytes !== undefined ? { noteMaxBytes } : {}) };
   }
 
   /**

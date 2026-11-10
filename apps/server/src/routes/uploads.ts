@@ -10,6 +10,7 @@ import { sendError, sendStorageQuotaExceeded } from "../http/errors.js";
 import { TxAbort } from "../http/tx-abort.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
+import type { SiteLimits } from "../site-limits/store.js";
 import { isForeignKeyViolation, isRetryableTxError } from "../db/pg-errors.js";
 import { transferTokens, uploads } from "../db/schema.js";
 import type { GroupTestHook } from "../groups/test-hook.js";
@@ -25,6 +26,7 @@ import { insertUploadInTx } from "../uploads/tx/insert-upload.js";
 export interface UploadsRouteDeps {
   db: Db;
   config: AppConfig;
+  siteLimits: SiteLimits;
   /** #200：transfer token 路徑的 `checkUser`（停權／需改密碼）。 */
   gate: UserGate;
   /**
@@ -161,7 +163,7 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
       let sawFile = false;
 
       try {
-        for await (const part of request.parts()) {
+        for await (const part of request.parts({ limits: { fileSize: deps.siteLimits.get("uploadMaxBytes") } })) {
           if (part.type !== "file") continue; // field part 在 yield 時已由 busboy 完整消費，不需額外動作。
           if (!sawFile) {
             sawFile = true;

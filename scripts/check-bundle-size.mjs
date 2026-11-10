@@ -45,8 +45,8 @@ export const MERMAID_RE = /^mermaid\.core-[A-Za-z0-9_-]+\.js$/;
 // vite.config.ts 的 chunkFileNames：shiki 套件入口檔叫 index.mjs，Rollup 預設以檔名
 // 命名 chunk 會產出第二個 index-<hash>.js、撞上上面 ENTRY_RE 的「恰一個 entry」偵測。
 export const SHIKI_RE = /^shiki-[A-Za-z0-9_-]+\.js$/;
-// issue #201／#247：站台管理 modal 的五個區塊（users／groups／login／storage＋版本設定／ai）必須是自己的 lazy chunk——
-// 大多數使用者從不打開它。App.tsx 的五個 `lazy(() => import("./components/admin/AdminSections"))` 是唯一允許 import 它的地方；
+// issue #201／#247：站台管理 modal 的六個區塊（users／groups／login／storage＋版本設定／ai／limits）必須是自己的 lazy chunk——
+// 大多數使用者從不打開它。App.tsx 的六個 `lazy(() => import("./components/admin/AdminSections"))` 是唯一允許 import 它的地方；
 // 外殼 `AdminModal` 在首包。判準同 mermaid：任何對 AdminSections 或它重新匯出之區塊的靜態 import，都會讓 Rollup 把它們
 // 併回 entry，這個 chunk 隨即消失。
 export const ADMINSECTIONS_RE = /^AdminSections-[A-Za-z0-9_-]+\.js$/;

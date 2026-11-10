@@ -25,8 +25,9 @@ const RWM = "notes:read notes:write notes:move" as const;
 const GROUP_NO_CREATE = "No group with that id among your groups where your role can create notes.";
 const WRITE_RATE = "Too many note writes right now. Wait a moment before writing again.";
 const TOKEN_RATE = "Too many writes with this credential right now. Wait a few minutes before writing again.";
+// #397：訊息說的是擋下這次請求的那顆桶的當下上限；C8 注入的桶 limit 是 1。
 const UPLOAD_LIMIT_MSG =
-  "Copying this note's images would go over your upload limit (120 files per 10 minutes, copies included), so nothing was copied. Wait a few minutes and try again.";
+  "Copying this note's images would go over your upload limit (1 files per 10 minutes, copies included), so nothing was copied. Wait a few minutes and try again.";
 const BUSY = "The server was busy, so no copy was made. Try again in a moment.";
 const TAIL = "A site admin can assign a larger storage plan; deleting notes that have images also frees space.";
 

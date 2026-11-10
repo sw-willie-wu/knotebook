@@ -394,7 +394,8 @@
       "groups": "群組",
       "storage": "儲存方案",
       "ai": "AI 代理",
-      "auth": "登入"
+      "auth": "登入",
+      "limits": "站台限制"
     }
   },
   "theme": {
@@ -979,6 +980,7 @@
     "folder_not_empty": "資料夾裡還有其他內容，沒有刪除。",
     "too_complex": "這篇筆記太大或太複雜，伺服器無法在限制內讀出。",
     "note_too_large": "這次修改會讓筆記超過大小上限，所以沒有存下來。",
+    "limit_locked_by_env": "這一項由伺服器的 .env 設定，請改 .env 並重啟伺服器。",
     "password_not_set": "這個帳號只透過登入服務登入，沒有可重設的密碼。",
     "user_disabled": "這個帳號已停用，請先啟用再重設密碼。",
     "empty_result": "AI 回傳了空結果。",

@@ -1090,7 +1090,7 @@ export const oneTimeLinks = pgTable(
  *
  * - 驗證＝簽章＋`tv`＋這列存在、屬於該使用者、`expires_at` 未過（`UserGate.check`）。登出刪這一列＝只有這台裝置失效。
  * - `id` 是 `gen_random_uuid()`（隨機 v4）；JWT 本身有簽章，光知道 id 也偽造不出 cookie。
- * - `expires_at` 與 JWT 的 `exp` 同值（`SESSION_TTL_SECONDS`），不滑動。過期列由 `deleteExpiredSessions` 機會性清掉（發 session 後
+ * - `expires_at` 與 JWT 的 `exp` 同值（簽發當下的 `sessionTtlSeconds`，#397），不滑動。過期列由 `deleteExpiredSessions` 機會性清掉（發 session 後
  *   fire-and-forget，比照 `transfer-cleanup.ts`）。
  * - 刪使用者串刪；停用帳號在同一交易刪光（`disable-user.ts`）；改密碼／加密碼／重設密碼在 bump tv 的同一交易刪光再建新的一列
  *   （`auth/tx/sessions.ts` 的 `replaceUserSessionsInTx`，經 `change-password.ts`／`password-reset.ts`）。
@@ -1107,4 +1107,48 @@ export const sessions = pgTable(
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   },
   t => [index("sessions_user_idx").on(t.userId), index("sessions_expires_idx").on(t.expiresAt)],
+);
+
+/**
+ * #397（migration 0039）：站台限制在管理頁存的值（`site-limits/store.ts` 的 `SiteLimits`）。key 是註冊表（shared `SITE_LIMITS`）的 key。
+ *
+ * - **沒有列＝用預設（或自動推算）**；「恢復預設」＝刪列，所以「自動」不需要特殊值。
+ * - 範圍不在 DB 驗（新增項目不必 migration）：寫入前 `SiteLimits.update` 驗、載入時 `resolveSnapshot` 再驗一次；
+ *   越界、沒對齊或註冊表沒有的 key 的列不套用、也不刪（降版再升版、範圍放寬時又會合法）。
+ * - 生效值優先序：env ＞ 這張表的列 ＞ 預設／自動。env 有設時列照留，只是不生效。
+ */
+export const siteLimits = pgTable(
+  "site_limits",
+  {
+    key: text().primaryKey(),
+    value: integer().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  t => [
+    check("site_limits_key_chk", sql`${t.key} ~ '^[a-zA-Z][a-zA-Z0-9]{0,63}$'`),
+    check("site_limits_value_chk", sql`${t.value} >= 0`),
+  ],
+);
+
+/**
+ * #397（migration 0039）：站台限制的修改紀錄。只有存的值真的變了的 key 才寫一列（`auth/tx/admin-site-limits.ts`）；
+ * 自動項連帶變的不另寫。同一次修改的多列 `changed_at` 相同（`now()`＝交易開始時間），UI 用它分組。不清理。
+ *
+ * - `old_value`／`new_value`：改前／改後存的值，NULL＝預設／自動（沒有列）。
+ * - `old_effective`／`new_effective`：改前／改後的生效值（預設或自動推算出的數字）。
+ * - `key` 不設外鍵：項目日後可能從註冊表拿掉，紀錄要留。`actor_user_id` 刪使用者時設 NULL。
+ */
+export const siteLimitChanges = pgTable(
+  "site_limit_changes",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    key: text().notNull(),
+    oldValue: integer("old_value"),
+    newValue: integer("new_value"),
+    oldEffective: integer("old_effective").notNull(),
+    newEffective: integer("new_effective").notNull(),
+    actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    changedAt: timestamp("changed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  t => [index("site_limit_changes_changed_at_idx").on(t.changedAt.desc())],
 );

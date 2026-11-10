@@ -8,7 +8,7 @@ import Fastify, {
 import fastifyCookie from "@fastify/cookie";
 import fastifyMultipart from "@fastify/multipart";
 import fastifyFormbody from "@fastify/formbody";
-import { MAX_UPLOAD_BYTES, type ErrorCode, type RequiredScope, type TokenScope } from "@knotebook/shared";
+import { SITE_LIMITS, type ErrorCode, type RequiredScope, type TokenScope } from "@knotebook/shared";
 import { publicUrlIssuer, type AppConfig } from "./config.js";
 import type { Db } from "./db/index.js";
 import { resolveSessionUser as resolveSessionUserFromCookies, type GateUser, type ResolvedSession, type UserGate } from "./auth/session.js";
@@ -36,6 +36,7 @@ import { storageRoutes } from "./routes/storage.js";
 import { adminAiRoutes } from "./routes/admin-ai.js";
 import { adminAuthRoutes } from "./routes/admin-auth.js";
 import { adminVersionsRoutes } from "./routes/admin-versions.js";
+import { adminLimitsRoutes } from "./routes/admin-limits.js";
 import { adminTrashRoutes } from "./routes/admin-trash.js";
 import { testHookRoutes } from "./routes/test-hooks.js";
 import { accountRoutes } from "./routes/account.js";
@@ -56,7 +57,7 @@ import { BODY_TOO_LARGE_MESSAGE, sendError } from "./http/errors.js";
 // #108：`stripDefaultPort` 搬到 `http/origin.ts`（與 `mcpOriginAllowed` 同一個葉節點模組，
 // 兩種比較語意的差別寫在該檔檔頭）。
 import { stripDefaultPort } from "./http/origin.js";
-import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, EDIT_LIMIT, FixedWindowLimiter, FOLDER_LIMIT, OIDC_LIMIT, ONE_TIME_LINK_ATTEMPT_LIMIT, ONE_TIME_LINK_MISS_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, PUBLIC_WIDTH_LIMIT, REGISTER_LIMIT, SEARCH_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_RENAME_LIMIT, TOKEN_WRITE_LIMIT, TRANSFER_EXPORT_LIMIT, TRANSFER_WRITE_LIMIT, UPLOAD_LIMIT, USER_SUGGEST_LIMIT } from "./http/rate-limit.js";
+import { buildAdjustableLimiters, buildFixedLimiters, mergeLimiters, type Limiters } from "./http/limiters.js";
 import { FORM_EXEMPT_ROUTES, isOauthScopedPath, sendOauthError } from "./http/oauth-errors.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { oauthMetadataRoutes } from "./routes/oauth-metadata.js";
@@ -69,6 +70,7 @@ import { createOidcRuntimeRegistry, type OidcRuntimeRegistry } from "./auth/oidc
 import type { OidcTestHook } from "./auth/oidc-test-hook.js";
 import type { AdminTestHook } from "./auth/admin-test-hook.js";
 import { createEditingRuntime, type EditingRuntime } from "./notes/editing/runtime.js";
+import { PARSE_LIMIT_KEYS } from "./notes/editing/parse-settings.js";
 import type { EditingTestHooks } from "./notes/editing/apply.js";
 import { PresenceRegistry, type PresenceOptions } from "./notes/editing/presence.js";
 import { NoteWriteService } from "./notes/editing/write-service.js";
@@ -79,6 +81,7 @@ import type { NoteCreateHooks } from "./notes/create.js";
 import type { GroupTestHook } from "./groups/test-hook.js";
 import type { SearchIndexHooks } from "./notes/tx/search-index.js";
 import { DEFAULT_STORAGE_LOCK_TIMEOUT_MS } from "./storage/tx/quota.js";
+import type { SiteLimits } from "./site-limits/store.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -122,6 +125,12 @@ declare module "fastify" {
 export interface AppDeps {
   config: AppConfig;
   db: Db;
+  /**
+   * #397：站台限制的生效值（env＞`site_limits` 的列＞預設／自動）。**必填**，讓編譯器列出所有組 `AppDeps` 的地方。
+   * `index.ts` 在 migration 之後用 `SiteLimits.load(db, { limitEnv: config.limitEnv, … })` 建；必須綁同一個 `db`、同一份
+   * `config.limitEnv`（鎖定狀態唯一來源）。直接呼叫 `buildApp` 的測試用 `SiteLimits.defaults(…)`。
+   */
+  siteLimits: SiteLimits;
   gate: UserGate;
   throttle: LoginThrottle;
   collabHooks: CollabHooks;
@@ -139,63 +148,19 @@ export interface AppDeps {
    */
   editing?: EditingRuntime;
   /**
-   * per-user 固定視窗節流器（collab-token、slug PATCH、uploads）。**選配**：未傳時
-   * `buildApp` 內建生產預設（見 `COLLAB_TOKEN_LIMIT`/`SLUG_PATCH_LIMIT`/`UPLOAD_LIMIT`，
-   * `http/rate-limit.ts`）。
-   *
-   * `buildTestApp`/`buildCollabTestApp`（`test/helpers.ts`）每次呼叫一律注入**全新
-   * 實例**——嚴禁 module 單例，否則不同測試檔案共享同一份計數會互相汙染。
+   * #397：注入的 `editing` 要不要跟著這個 app 的 `siteLimits` 改解析 pool 的設定（訂閱 `onChange`、`onClose` 解除）。
+   * **預設不訂閱**：注入者自己管那份 runtime。`buildApp` 自己建的 runtime 不看這個旗標，一律訂閱。
    */
-  limiters?: {
-    collabToken: FixedWindowLimiter;
-    slugPatch: FixedWindowLimiter;
-    upload: FixedWindowLimiter;
-    ai: FixedWindowLimiter;
-    /** OIDC login 與 callback 各自一份額度（issue #16），見 `OIDC_LIMIT` 註解。 */
-    oidcLogin: FixedWindowLimiter;
-    oidcCallback: FixedWindowLimiter;
-    /** #72：public-link 管理端 PUT/DELETE（key=userId；GET 不吃桶，見 PUBLIC_LINK_LIMIT）。 */
-    publicLink: FixedWindowLimiter;
-    /** #297：`PUT …/public-width`（key=userId；解析 body 與授權之後才扣，與 publicLink 分開，見 PUBLIC_WIDTH_LIMIT）。 */
-    publicWidth: FixedWindowLimiter;
-    /** #72 公開端點雙桶（miss=ip／hit=ip:token，語意見 PUBLIC_MISS_LIMIT 註解）。 */
-    publicMiss: FixedWindowLimiter;
-    publicNote: FixedWindowLimiter;
-    publicUpload: FixedWindowLimiter;
-    /** #107：Bearer token 路徑（key=`token:${userId}`），session 路徑不吃桶。 */
-    tokenRead: FixedWindowLimiter;
-    tokenWrite: FixedWindowLimiter;
-    /** #107：無效 Bearer（key=ip）——consume 的觸發集合見 `BEARER_MISS_LIMIT` 註解。 */
-    bearerMiss: FixedWindowLimiter;
-    /** #107：`POST /api/auth/tokens`（key=userId）。 */
-    patCreate: FixedWindowLimiter;
-    /** #106：`PATCH /api/auth/tokens/:id` 改 agent 名稱（key=userId，見 `TOKEN_RENAME_LIMIT`）。 */
-    tokenRename: FixedWindowLimiter;
-    /** #132：DCR／authorize／token 三個無認證端點（key=ip）。 */
-    dcr: FixedWindowLimiter;
-    authorize: FixedWindowLimiter;
-    tokenEndpoint: FixedWindowLimiter;
-    /** #106：`GET /api/notes/:id/content`（key=userId；角色檢查後才消耗，見 `CONTENT_READ_LIMIT`）。 */
-    contentRead: FixedWindowLimiter;
-    /** #93：全文搜尋（key=userId，見 `SEARCH_LIMIT`）。 */
-    search: FixedWindowLimiter;
-    /** 整包匯出（key=userId，見 TRANSFER_EXPORT_LIMIT）。 */
-    transferExport: FixedWindowLimiter;
-    /** 檔案寫回（key=userId，見 TRANSFER_WRITE_LIMIT；在佇列內扣）。 */
-    transferWrite: FixedWindowLimiter;
-    /** `GET /api/users/suggest`（key=userId，見 `USER_SUGGEST_LIMIT`）。 */
-    userSuggest: FixedWindowLimiter;
-    /** #106 寫入端：`POST /api/notes/:id/edits`、`POST /api/notes` 帶 `content`（key=userId，見 `EDIT_LIMIT`）。 */
-    edit: FixedWindowLimiter;
-    /** 資料夾寫入（`folders/service.ts` 四支，REST 與 MCP 共用；key=userId，見 `FOLDER_LIMIT`——不與 `edit` 共桶）。 */
-    folder: FixedWindowLimiter;
-    /** #187：帳密註冊（key=ip）。 */
-    register: FixedWindowLimiter;
-    /** #286／#285：重設連結與邀請的 inspect／完成（四個無登入端點、跨 kind 共用）的無效 token（key=ip；失敗才扣，見 `ONE_TIME_LINK_MISS_LIMIT`）。 */
-    oneTimeLinkMiss: FixedWindowLimiter;
-    /** #286／#285：每支一次性連結（重設、邀請）的完成／接受嘗試（key=`link:${id}`；帳密開才扣、inspect 不扣，見 `ONE_TIME_LINK_ATTEMPT_LIMIT`）。 */
-    oneTimeLinkAttempt: FixedWindowLimiter;
-  };
+  editingFollowsSiteLimits?: boolean;
+  /**
+   * 節流器（29 顆，型別 `Limiters` 在 `http/limiters.ts`）。**選配、可只給幾顆**：`buildApp` 以 `mergeLimiters` 合併——
+   * 20 顆固定的桶由 `buildFixedLimiters()` 建，9 顆站台可調的桶由 `buildAdjustableLimiters(deps.siteLimits)` 建
+   * （`limit` 現讀這個 app 的 `siteLimits`，#397）；這裡給的桶（值不是 `undefined`）蓋掉對應的那顆。
+   *
+   * `buildTestApp`/`buildCollabTestApp`（`test/helpers.ts`）經 `freshLimiters` 注入 20 顆全新固定桶＋測試覆寫——
+   * 嚴禁 module 單例，否則不同測試檔案共享同一份計數會互相汙染。
+   */
+  limiters?: Partial<Limiters>;
   /**
    * #106（#137）：寫入路徑的測試注入縫（比照 `linkSyncTestHooks`）——`beforeMerge`／
    * `beforeRecord`／`afterRecord`／`beforeRevertRecord` 分別在「合併之前」「寫紀錄之前」「紀錄之後、連結之前」「寫撤回紀錄之前」
@@ -529,7 +494,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   // 仍 415）就是靠「parser 全域可用」這個前提才具備 mutation 鑑別力（見該測試檔說明），
   // 註冊位置一旦挪動，測試看起來還是綠，但鑑別力已經悄悄消失。
   //
-  // `limits`：`fileSize` 用 `MAX_UPLOAD_BYTES`（10 MiB）；`parts`/`fields`/
+  // `limits`：`fileSize` 用註冊表的上傳上限最大值（10 MiB；實際上限在 `routes/uploads.ts` 每次請求現讀 `siteLimits`）；`parts`/`fields`/
   // `fieldSize` 是防病態 multipart body 的粗閘（32 parts、16 fields、每個 field 1 KiB）。
   // 刻意**不設 `limits.files`**——`routes/uploads.ts` 自己處理「多個 file part 只取
   // 第一個，其餘 drain」；設了 `files` 上限會讓外掛在偵測到第二個 file part 時自己
@@ -541,7 +506,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   // （那個錯誤沒有我們要的錯誤碼語意，且會在其他 file part 還沒處理完時就中斷整個
   // `parts()` 迭代，讓「其餘 drain」做不到）。
   void app.register(fastifyMultipart, {
-    limits: { fileSize: MAX_UPLOAD_BYTES, parts: 32, fields: 16, fieldSize: 1024 },
+    limits: { fileSize: SITE_LIMITS.uploadMaxBytes.max, parts: 32, fields: 16, fieldSize: 1024 },
     throwFileSizeLimit: false,
   });
 
@@ -691,42 +656,11 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
 
   app.get("/healthz", async () => ({ ok: true }));
 
-  // 未收到 AppDeps.limiters 時的生產預設（`buildTestApp`/`buildCollabTestApp` 一律自己
-  // 注入全新實例，不會走到這裡；見 AppDeps.limiters 的說明）。
-  const limiters =
-    deps.limiters ??
-    ({
-      collabToken: new FixedWindowLimiter(COLLAB_TOKEN_LIMIT),
-      slugPatch: new FixedWindowLimiter(SLUG_PATCH_LIMIT),
-      upload: new FixedWindowLimiter(UPLOAD_LIMIT),
-      ai: new FixedWindowLimiter(AI_LIMIT),
-      oidcLogin: new FixedWindowLimiter(OIDC_LIMIT),
-      oidcCallback: new FixedWindowLimiter(OIDC_LIMIT),
-      publicLink: new FixedWindowLimiter(PUBLIC_LINK_LIMIT),
-      publicWidth: new FixedWindowLimiter(PUBLIC_WIDTH_LIMIT),
-      publicMiss: new FixedWindowLimiter(PUBLIC_MISS_LIMIT),
-      publicNote: new FixedWindowLimiter(PUBLIC_NOTE_LIMIT),
-      publicUpload: new FixedWindowLimiter(PUBLIC_UPLOAD_LIMIT),
-      tokenRead: new FixedWindowLimiter(TOKEN_READ_LIMIT),
-      tokenWrite: new FixedWindowLimiter(TOKEN_WRITE_LIMIT),
-      bearerMiss: new FixedWindowLimiter(BEARER_MISS_LIMIT),
-      patCreate: new FixedWindowLimiter(PAT_CREATE_LIMIT),
-      tokenRename: new FixedWindowLimiter(TOKEN_RENAME_LIMIT),
-      dcr: new FixedWindowLimiter(DCR_LIMIT),
-      authorize: new FixedWindowLimiter(AUTHORIZE_LIMIT),
-      tokenEndpoint: new FixedWindowLimiter(TOKEN_ENDPOINT_LIMIT),
-      contentRead: new FixedWindowLimiter(CONTENT_READ_LIMIT),
-      search: new FixedWindowLimiter(SEARCH_LIMIT),
-      transferExport: new FixedWindowLimiter(TRANSFER_EXPORT_LIMIT),
-      // 接點：limit 以函式建，每次現讀（留給站台管理調整額度）。
-      transferWrite: new FixedWindowLimiter({ limit: () => TRANSFER_WRITE_LIMIT.limit, windowMs: TRANSFER_WRITE_LIMIT.windowMs }),
-      userSuggest: new FixedWindowLimiter(USER_SUGGEST_LIMIT),
-      edit: new FixedWindowLimiter(EDIT_LIMIT),
-      folder: new FixedWindowLimiter(FOLDER_LIMIT),
-      register: new FixedWindowLimiter(REGISTER_LIMIT),
-      oneTimeLinkMiss: new FixedWindowLimiter(ONE_TIME_LINK_MISS_LIMIT),
-      oneTimeLinkAttempt: new FixedWindowLimiter(ONE_TIME_LINK_ATTEMPT_LIMIT),
-    } satisfies NonNullable<AppDeps["limiters"]>);
+  // 29 顆節流桶：20 顆固定的＋9 顆可調的（`limit` 現讀這個 app 的 `deps.siteLimits`，#397）；測試只覆寫它要驗的那幾顆。
+  const limiters = mergeLimiters(
+    { ...buildFixedLimiters(), ...buildAdjustableLimiters(deps.siteLimits) } satisfies Limiters,
+    deps.limiters
+  );
   const storageLockTimeoutMs = deps.storageLockTimeoutMs ?? DEFAULT_STORAGE_LOCK_TIMEOUT_MS;
   // 版本歷史：有 collab 就用它那份（已 bind hocuspocus）；沒有 collab（buildTestApp）另建一份未綁定的——REST 讀 note_states 當暫時狀態。
   const versions = deps.collab?.versions ?? createVersionService({ db: deps.db, log: app.log });
@@ -793,23 +727,23 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   app.addHook("preValidation", lowercaseUuidParams);
 
   void app.register(
-    authRoutes({ db: deps.db, config: deps.config, gate: deps.gate, throttle: deps.throttle, collabHooks: deps.collabHooks, reloginReverifyDelayMs: deps.reloginReverifyDelayMs })
+    authRoutes({ db: deps.db, config: deps.config, siteLimits: deps.siteLimits, gate: deps.gate, throttle: deps.throttle, collabHooks: deps.collabHooks, reloginReverifyDelayMs: deps.reloginReverifyDelayMs })
   );
   // #107：PAT 管理端點——cookie 專用（token 不能簽發或撤銷 token），見 routes/api-tokens.ts 檔頭。
   void app.register(
-    apiTokensRoutes({ db: deps.db, limiters: { patCreate: limiters.patCreate, tokenRename: limiters.tokenRename } })
+    apiTokensRoutes({ db: deps.db, siteLimits: deps.siteLimits, limiters: { patCreate: limiters.patCreate, tokenRename: limiters.tokenRename } })
   );
   // #132：同意頁的站內端點（cookie session、站內錯誤形），與 RFC 形的 /oauth 分開。
-  void app.register(oauthApiRoutes({ db: deps.db, config: deps.config }));
+  void app.register(oauthApiRoutes({ db: deps.db, config: deps.config, siteLimits: deps.siteLimits }));
 
   // #187：registry 是 per-app 實例（嚴禁 module 單例，同 limiters）。callback 需要 db（帳號解析交易）與 gate（建帳後 invalidate）。
   const oidcRegistry = deps.oidcRegistry ?? createOidcRuntimeRegistry();
   void app.register(
-    oidcRoutes({ config: deps.config, db: deps.db, gate: deps.gate, collabHooks: deps.collabHooks, reloginReverifyDelayMs: deps.reloginReverifyDelayMs, registry: oidcRegistry, limiters: { oidcLogin: limiters.oidcLogin, oidcCallback: limiters.oidcCallback }, oidcTestHook: deps.oidcTestHook }),
+    oidcRoutes({ config: deps.config, db: deps.db, siteLimits: deps.siteLimits, gate: deps.gate, collabHooks: deps.collabHooks, reloginReverifyDelayMs: deps.reloginReverifyDelayMs, registry: oidcRegistry, limiters: { oidcLogin: limiters.oidcLogin, oidcCallback: limiters.oidcCallback }, oidcTestHook: deps.oidcTestHook }),
   );
   // #187：`/link-account` 頁的 API（GET／confirm／cancel、prove 起點）。密碼證明與登入共用 `deps.throttle`。
   void app.register(
-    oidcPendingRoutes({ config: deps.config, db: deps.db, gate: deps.gate, collabHooks: deps.collabHooks, reloginReverifyDelayMs: deps.reloginReverifyDelayMs, throttle: deps.throttle, registry: oidcRegistry, limiters: { oidcLogin: limiters.oidcLogin }, oidcTestHook: deps.oidcTestHook }),
+    oidcPendingRoutes({ config: deps.config, db: deps.db, siteLimits: deps.siteLimits, gate: deps.gate, collabHooks: deps.collabHooks, reloginReverifyDelayMs: deps.reloginReverifyDelayMs, throttle: deps.throttle, registry: oidcRegistry, limiters: { oidcLogin: limiters.oidcLogin }, oidcTestHook: deps.oidcTestHook }),
   );
   // #187：設定頁的手動連結起點（callback 在 oidcRoutes 的 intent: "link" 分支）。
   void app.register(oidcLinkRoutes({ db: deps.db, config: deps.config, registry: oidcRegistry, limiters: { oidcLogin: limiters.oidcLogin } }));
@@ -819,12 +753,23 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   // 瀏覽器嗅探在那些 process 裡失守）。有 collab 就一定有 runtime，兩者同生同滅＝路由要嘛
   // 兩個依賴都在、要嘛整條不註冊（見 `notesRoutes` 內的註冊閘門）。
   const ownEditing = deps.collab !== undefined && deps.editing === undefined;
-  const editing = deps.collab ? (deps.editing ?? createEditingRuntime(deps.config, app.log)) : undefined;
-  // #398：自己建的 runtime 帶著解析的 worker pool，關 app 時一併終止（注入的那份由注入者管——整合測試的共用 runtime 跨多個 app）。
-  if (ownEditing && editing) {
-    app.addHook("onClose", async () => {
-      await editing.close();
-    });
+  const editing = deps.collab ? (deps.editing ?? createEditingRuntime(deps.config, deps.siteLimits.parseLimits(), app.log)) : undefined;
+  if (editing) {
+    // #397：解析 pool 跟著站台限制改——自己建的 runtime 一律訂閱；注入的只在 `editingFollowsSiteLimits` 時訂閱（注入者自己管那份
+    // runtime，整合測試的共用 runtime 跨多個 app，不能被任何一個 app 改設定）。四項（含連帶變的自動值）任一有變才 `configure`。
+    const offSiteLimits =
+      ownEditing || deps.editingFollowsSiteLimits === true
+        ? deps.siteLimits.onChange(keys => {
+            if (PARSE_LIMIT_KEYS.some(k => keys.has(k))) editing.parser.configure?.(deps.siteLimits.parseLimits());
+          })
+        : null;
+    // #398：自己建的 runtime 帶著解析的 worker pool，關 app 時一併終止（注入的那份由注入者管）。先解除訂閱再關。
+    if (offSiteLimits !== null || ownEditing) {
+      app.addHook("onClose", async () => {
+        offSiteLimits?.();
+        if (ownEditing) await editing.close();
+      });
+    }
   }
 
   // #138：AI presence。沒有 collab 時建的是全 no-op 空殼（每個方法都會在 `hocuspocus`
@@ -849,7 +794,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     versions,
     renameHook: deps.slugUpdateTestHook,
     shownLinks: deps.shownLinks,
-    noteMaxBytes: deps.config.noteMaxBytes,
+    noteMaxBytes: () => deps.siteLimits.get("noteMaxBytes"),
   });
 
   // #269：必用同一個 `writes`（共用佇列，與 MCP 寫入、套用版本、手動存版串行）。只建、不啟動——`index.ts` listen 之後才 start()，
@@ -868,6 +813,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       db: deps.db,
       collabHooks: deps.collabHooks,
       config: deps.config,
+      siteLimits: deps.siteLimits,
       collab: deps.collab,
       editing,
       limiters,
@@ -910,6 +856,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   void app.register(adminVersionsRoutes({ db: deps.db }));
   // #181：垃圾桶保留天數。
   void app.register(adminTrashRoutes({ db: deps.db }));
+  void app.register(adminLimitsRoutes({ db: deps.db, siteLimits: deps.siteLimits }));
   // #272：e2e 測試縫（只在 KNOTEBOOK_E2E_TEST_HOOKS=1 且 PUBLIC_URL 是 loopback 時；見 config.ts 的 `testHooks`）。
   if (deps.config.testHooks) void app.register(testHookRoutes({ versions }));
   // #187：註冊、個人設定的登入方式與加上密碼。
@@ -918,6 +865,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     accountRoutes({
       db: deps.db,
       config: deps.config,
+      siteLimits: deps.siteLimits,
       gate: deps.gate,
       collabHooks: deps.collabHooks,
       reloginReverifyDelayMs: deps.reloginReverifyDelayMs,
@@ -929,6 +877,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     passwordResetRoutes({
       db: deps.db,
       config: deps.config,
+      siteLimits: deps.siteLimits,
       gate: deps.gate,
       collabHooks: deps.collabHooks,
       limiters: { oneTimeLinkMiss: limiters.oneTimeLinkMiss, oneTimeLinkAttempt: limiters.oneTimeLinkAttempt },
@@ -945,6 +894,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     uploadsRoutes({
       db: deps.db,
       config: deps.config,
+      siteLimits: deps.siteLimits,
       gate: deps.gate,
       // #200：bearerMiss／tokenRead 與 authenticateAny 是**同一個實例**（同一本帳由物件同一性成立）。
       limiters: { upload: limiters.upload, bearerMiss: limiters.bearerMiss, tokenRead: limiters.tokenRead },
@@ -1003,6 +953,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     oauthRoutes({
       db: deps.db,
       config: deps.config,
+      siteLimits: deps.siteLimits,
       gate: deps.gate,
       limiters: { dcr: limiters.dcr, authorize: limiters.authorize, tokenEndpoint: limiters.tokenEndpoint },
     }),

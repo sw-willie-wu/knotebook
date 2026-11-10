@@ -1,3 +1,5 @@
+import { useState, type ReactNode } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { BlockNoteEditor, SuggestionMenu } from "@blocknote/core";
@@ -50,6 +52,12 @@ async function getItems(): Promise<DefaultReactSuggestionItem[]> {
   return [];
 }
 
+/** 自家 FilePanel 讀 `useAuthConfig()`，需要 QueryClientProvider；config 回不帶 `maxUploadBytes` 的設定（不前驗）。 */
+function QueryWrapper({ children }: { children: ReactNode }) {
+  const [client] = useState(() => new QueryClient({ defaultOptions: { queries: { retry: false } } }));
+  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+}
+
 describe("NoteEditorView（filePanel={false} + useMemo 接線）", () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 同上
   let editor: BlockNoteEditor<any, any, any>;
@@ -58,16 +66,21 @@ describe("NoteEditorView（filePanel={false} + useMemo 接線）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     ({ editor, container } = mountedEditor());
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({}) } as unknown as Response),
+    );
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     editor.unmount();
     container.remove();
   });
 
   it("filePanel={false} 關掉內建面板：開啟 FilePanel 時畫面上只有 1 個 tablist（我們自家那個，不是內建又多一個）", () => {
     const blockId = insertImageBlock(editor);
-    render(<NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />);
+    render(<NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />, { wrapper: QueryWrapper });
 
     act(() => {
       editor.getExtension(FilePanelExtension)!.showMenu(blockId);
@@ -80,6 +93,7 @@ describe("NoteEditorView（filePanel={false} + useMemo 接線）", () => {
     const blockId = insertImageBlock(editor);
     const { rerender } = render(
       <NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />,
+      { wrapper: QueryWrapper },
     );
 
     act(() => {

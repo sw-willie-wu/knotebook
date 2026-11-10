@@ -9,7 +9,8 @@ import { apiTokens, oauthClients, oauthCodes, oauthRequests, users } from "../db
 import { isForeignKeyViolation, uniqueViolationConstraint } from "../db/pg-errors.js";
 import type { UserGate } from "../auth/session.js";
 import { generateAccessToken, generateRefreshToken, hashToken, REFRESH_TOKEN_PREFIX } from "../auth/api-token.js";
-import { countBillableGrants, TOKEN_LIMIT_PER_USER } from "../auth/grant-quota.js";
+import { countBillableGrants } from "../auth/grant-quota.js";
+import type { SiteLimits } from "../site-limits/store.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
 import { BODY_TOO_LARGE_MESSAGE } from "../http/errors.js";
 import { sendOauthError } from "../http/oauth-errors.js";
@@ -23,6 +24,7 @@ import { DEFAULT_CLIENT_NAME, hasUnsafeClientNameChar } from "../oauth/client-na
 export interface OauthRouteDeps {
   db: Db;
   config: AppConfig;
+  siteLimits: SiteLimits;
   gate: UserGate;
   limiters: { dcr: FixedWindowLimiter; authorize: FixedWindowLimiter; tokenEndpoint: FixedWindowLimiter };
 }
@@ -403,8 +405,9 @@ export function oauthRoutes(deps: OauthRouteDeps) {
               .returning({ agentLabel: apiTokens.agentLabel });
             // ⚠ 這一條 throw 是承重的：它讓上面那筆 DELETE 一起 ROLLBACK。改成
             // 回傳值就會提交刪除卻不發 token，把使用者既有的授權吞掉。
-            if ((await countBillableGrants(tx, consumed.userId)) >= TOKEN_LIMIT_PER_USER) {
-              throw new OauthGrantError("invalid_grant", `Token limit reached: you already have ${TOKEN_LIMIT_PER_USER} active tokens. Revoke one first.`);
+            const tokenLimit = deps.siteLimits.get("apiTokensPerUser");
+            if ((await countBillableGrants(tx, consumed.userId)) >= tokenLimit) {
+              throw new OauthGrantError("invalid_grant", `Token limit reached: you already have ${tokenLimit} active tokens. Revoke one first.`);
             }
 
             const [client] = await tx.select().from(oauthClients).where(eq(oauthClients.clientId, consumed.clientId));

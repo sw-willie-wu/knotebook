@@ -23,8 +23,14 @@
  *   256 KiB 筆記解析完 heap 約 470 MiB）——誤判的代價只是多開一個 worker（約 0.5 秒），做完的那件不受影響。
  * - 閒置的 worker `unref()`（不讓程序為它多留），解析中的 `ref()`。`close()` 終止全部（`buildApp` 的 `onClose`）。
  *
- * 四個設定（`ParseLimits`）開機時由環境變數決定（`parse-settings.ts`）；{@link ParsePool.configure} 可在執行期改（#397 管理頁用）：
- * 時限與排隊等待立即生效、worker 數增減立即開／收（忙的做完才收）、記憶體上限套用在之後開的 worker。
+ * 四個設定（`ParseLimits`）的初始值由建 pool 的人給（`createEditingRuntime`：生產取 `SiteLimits.parseLimits()`）；
+ * {@link ParsePool.configure} 在執行期換（#397：`buildApp` 訂閱 `siteLimits.onChange`，管理頁一改就套用）：
+ * - 時限只套之後交給 worker 的工作、排隊等待只套之後排進來的工作（已在跑、已在排的照舊）。
+ * - worker 數增加立即開；減少時超出的閒置或啟動中 worker 立即收、忙的做完手上那件才收。
+ * - 記憶體上限變了 → 現有 worker **全部**換新（閒置與啟動中的立即收、忙的做完手上那件才收），`fill()` 用新上限補開：只套在之後開的
+ *   worker 的話，舊的要等滿 {@link RECYCLE_AFTER_PARSES} 筆或 heap 過高才換，改了看不到效果。換新期間正在收尾的舊 worker 與新開的
+ *   會短暫同時存在（舊的做完那件就收）。spawn 失敗正在退避時舊的照樣收掉、退避結束才補開（`spawnSlot` 讀的是當下的設定，補開的
+ *   一定是新上限）。
  */
 import { Worker } from "node:worker_threads";
 import { createRequire } from "node:module";
@@ -138,7 +144,7 @@ interface Slot {
   state: "starting" | "idle" | "busy" | "gone";
   task: Task | null;
   timer: ReturnType<typeof setTimeout> | null;
-  /** 這個 slot 做完手上的就收掉（worker 數調小、或解析滿 {@link RECYCLE_AFTER_PARSES} 筆）。 */
+  /** 這個 slot 做完手上的就收掉（worker 數調小、記憶體上限換了、解析滿 {@link RECYCLE_AFTER_PARSES} 筆、或 heap 用量過高）。 */
   retire: boolean;
   parses: number;
 }
@@ -197,11 +203,15 @@ export class ParsePool implements MarkdownParser {
     };
   }
 
-  /** 執行期換設定（#397）：時限與排隊等待立即生效（已在跑／已在排的照舊）；worker 數增減立即開／收；記憶體上限套用在之後開的 worker。 */
+  /**
+   * 執行期換設定（#397）：時限與排隊等待立即生效（已在跑／已在排的照舊）；worker 數增減立即開／收；記憶體上限跟現在不同就把現有
+   * worker 全部收掉（忙的做完手上那件才收）、用新上限補開（見檔頭）。給一樣的記憶體上限不換。
+   */
   configure(next: Partial<ParseLimits>): void {
+    const memoryChanged = next.workerMemoryMb !== undefined && next.workerMemoryMb !== this.limitsNow.workerMemoryMb;
     this.limitsNow = { ...this.limitsNow, ...next };
     const live = [...this.slots].filter(s => s.state !== "gone" && !s.retire);
-    for (const s of live.slice(this.limitsNow.workers)) this.retireSlot(s);
+    for (const s of memoryChanged ? live : live.slice(this.limitsNow.workers)) this.retireSlot(s);
     this.fill();
   }
 

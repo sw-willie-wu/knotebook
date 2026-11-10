@@ -1,8 +1,13 @@
-/** #398：parse worker 的站台設定（環境變數）——解析、範圍驗證、預設推算、CPU 偵測（cgroup 讀取可注入）。 */
+/**
+ * #398：parse worker 的四個設定——環境變數的解析與範圍驗證、預設常數、CPU 與記憶體偵測（cgroup 讀取可注入）。生效值（env＞管理頁＞
+ * 預設／自動）的推算在 `site-limits-resolve.test.ts`；這裡只留一條從 `loadConfig` 到 `SiteLimits.parseLimits()` 的串接。
+ */
+import { SITE_LIMITS, siteLimitDef } from "@knotebook/shared";
 import { PARSE_FILE_BUDGET_FACTOR } from "../../src/notes/editing/parse-core.js";
 import { DOC_TIMEOUT_FACTOR } from "../../src/notes/editing/doc-jobs.js";
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "../../src/config.js";
+import { SiteLimits } from "../../src/site-limits/store.js";
 import {
   AUTO_PARSE_WORKERS_MAX,
   DEFAULT_PARSE_QUEUE_WAIT_MS,
@@ -11,9 +16,10 @@ import {
   PARSE_LIMIT_RANGES,
   defaultParseWorkers,
   detectCpuCount,
+  detectMachine,
   detectMemoryLimit,
   memoryParseWorkers,
-  resolveParseSettings,
+  parseEnvLimits,
   type CpuProbe,
 } from "../../src/notes/editing/parse-settings.js";
 
@@ -75,57 +81,42 @@ describe("memoryParseWorkers", () => {
   });
 });
 
-describe("resolveParseSettings", () => {
-  it("worker 數預設＝依 CPU 與依記憶體取小；記憶體比較小時來源是 memory（用生效的 PARSE_WORKER_MEMORY_MB 算）", () => {
-    const cg = (cpu: string, mem: string) => files({ "/sys/fs/cgroup/cpu.max": cpu, "/sys/fs/cgroup/memory.max": mem });
-    // 8 CPU、2 GiB：CPU 說 4、記憶體說 1 → 1（memory）
-    expect(resolveParseSettings({}, cg("800000 100000", String(2 * GiB)))).toMatchObject({ workers: 1, workersSource: "memory", memoryBytes: 2 * GiB, memorySource: "cgroup-v2", cpus: 8 });
-    // 4 CPU、16 GiB：CPU 說 3、記憶體說 8 → 3（cpu）
-    expect(resolveParseSettings({}, cg("400000 100000", String(16 * GiB)))).toMatchObject({ workers: 3, workersSource: "cpu" });
-    // 4 CPU、4 GiB、每個 worker 512：記憶體說 4 → 3（cpu）；每個 2048：記憶體說 1 → 1（memory）
-    expect(resolveParseSettings({ PARSE_WORKER_MEMORY_MB: "512" }, cg("400000 100000", String(4 * GiB)))).toMatchObject({ workers: 3, workersSource: "cpu" });
-    expect(resolveParseSettings({ PARSE_WORKER_MEMORY_MB: "2048" }, cg("400000 100000", String(4 * GiB)))).toMatchObject({ workers: 1, workersSource: "memory" });
-    // 兩者相等 → cpu
-    expect(resolveParseSettings({}, cg("300000 100000", String(4 * GiB)))).toMatchObject({ workers: 2, workersSource: "cpu" });
-    // 明設 PARSE_WORKERS 就照它（記憶體再小也一樣）
-    expect(resolveParseSettings({ PARSE_WORKERS: "6" }, cg("800000 100000", String(GiB)))).toMatchObject({ workers: 6, workersSource: "env" });
+describe("parseEnvLimits／detectMachine（#397）", () => {
+  it("只放有設的；空字串＝沒設；前後空白容許", () => {
+    expect(parseEnvLimits({})).toEqual({});
+    expect(parseEnvLimits({ PARSE_WORKERS: "", PARSE_TIMEOUT_MS: "20000" })).toEqual({ parseTimeoutMs: 20000 });
+    expect(parseEnvLimits({ PARSE_WORKER_MEMORY_MB: "2048", PARSE_QUEUE_WAIT_MS: "7000", PARSE_WORKERS: "3" })).toEqual({ parseWorkers: 3, parseWorkerMemoryMb: 2048, parseQueueWaitMs: 7000 });
+    expect(parseEnvLimits({ PARSE_WORKERS: "3", PARSE_WORKER_MEMORY_MB: " 768 ", PARSE_TIMEOUT_MS: "4000", PARSE_QUEUE_WAIT_MS: "" })).toEqual({ parseWorkers: 3, parseWorkerMemoryMb: 768, parseTimeoutMs: 4000 });
   });
-  it("都沒設 → 預設；worker 數依偵測到的 CPU；from 全是 default", () => {
-    const r = resolveParseSettings({}, files({ "/sys/fs/cgroup/cpu.max": "200000 100000" }));
-    expect(r).toEqual({
-      workers: 1,
-      workerMemoryMb: DEFAULT_PARSE_WORKER_MEMORY_MB,
-      timeoutMs: DEFAULT_PARSE_TIMEOUT_MS,
-      queueWaitMs: DEFAULT_PARSE_QUEUE_WAIT_MS,
-      from: { workers: "default", workerMemoryMb: "default", timeoutMs: "default", queueWaitMs: "default" },
-      workersSource: "cpu",
-      cpus: 2,
-      cpuSource: "cgroup-v2",
-      memoryBytes: 64 * GiB,
-      memorySource: "os",
-    });
-  });
-  it("環境變數覆寫（空字串＝沒設；前後空白容許）", () => {
-    const r = resolveParseSettings({ PARSE_WORKERS: "3", PARSE_WORKER_MEMORY_MB: " 768 ", PARSE_TIMEOUT_MS: "4000", PARSE_QUEUE_WAIT_MS: "" }, files({}, 8));
-    // 排隊等待沒設：跟著生效的時限走（4 × 4000 + 5000）
-    expect(r).toMatchObject({ workers: 3, workerMemoryMb: 768, timeoutMs: 4000, queueWaitMs: 21_000 });
-    expect(r.from).toEqual({ workers: "env", workerMemoryMb: "env", timeoutMs: "env", queueWaitMs: "default" });
-    expect(r.workersSource).toBe("env");
+  it("env 名取自註冊表：每個 PARSE_* 都對到同名 env 的那一項", () => {
+    for (const [key, value] of [["parseWorkers", 3], ["parseWorkerMemoryMb", 768], ["parseTimeoutMs", 4000], ["parseQueueWaitMs", 7000]] as const) {
+      expect(parseEnvLimits({ [siteLimitDef(key).env!]: String(value) }), key).toEqual({ [key]: value });
+    }
   });
   it("範圍兩端收、超出一格就丟（訊息帶變數名、範圍與原值）", () => {
-    const names = { workers: "PARSE_WORKERS", workerMemoryMb: "PARSE_WORKER_MEMORY_MB", timeoutMs: "PARSE_TIMEOUT_MS", queueWaitMs: "PARSE_QUEUE_WAIT_MS" } as const;
-    for (const [key, name] of Object.entries(names) as Array<[keyof typeof names, string]>) {
+    const names = { workers: ["PARSE_WORKERS", "parseWorkers"], workerMemoryMb: ["PARSE_WORKER_MEMORY_MB", "parseWorkerMemoryMb"], timeoutMs: ["PARSE_TIMEOUT_MS", "parseTimeoutMs"], queueWaitMs: ["PARSE_QUEUE_WAIT_MS", "parseQueueWaitMs"] } as const;
+    for (const [key, [name, siteKey]] of Object.entries(names) as Array<[keyof typeof names, (typeof names)[keyof typeof names]]>) {
       const { min, max } = PARSE_LIMIT_RANGES[key];
-      expect(resolveParseSettings({ [name]: String(min) }, files({}))[key]).toBe(min);
-      expect(resolveParseSettings({ [name]: String(max) }, files({}))[key]).toBe(max);
+      expect(parseEnvLimits({ [name]: String(min) })[siteKey]).toBe(min);
+      expect(parseEnvLimits({ [name]: String(max) })[siteKey]).toBe(max);
       for (const bad of [String(min - 1), String(max + 1), "1.5", "abc", "-3", "1e3", "0x10"]) {
-        expect(() => resolveParseSettings({ [name]: bad }, files({})), `${name}=${bad}`).toThrow(new RegExp(`${name} 必須是 ${min} 到 ${max} 的整數`));
+        expect(() => parseEnvLimits({ [name]: bad }), `${name}=${bad}`).toThrow(`設定錯誤：${name} 必須是 ${min} 到 ${max} 的整數：${bad}`);
       }
     }
   });
-  it("loadConfig 帶出 parse（含注入的 CPU 偵測）；非法值讓 loadConfig 丟（開機 fail fast）", () => {
-    expect(loadConfig({ ...valid, PARSE_TIMEOUT_MS: "3000" }, files({}, 5)).parse).toMatchObject({ workers: 4, workersSource: "cpu", timeoutMs: 3000, cpus: 5, cpuSource: "os", memorySource: "os" });
-    expect(loadConfig(valid, files({}, 5, 2 * GiB)).parse).toMatchObject({ workers: 1, workersSource: "memory" });
+  it("detectMachine 沿用 cpu／記憶體偵測", () => {
+    expect(detectMachine(files({ "/sys/fs/cgroup/cpu.max": "200000 100000", "/sys/fs/cgroup/memory.max": String(2 * GiB) }))).toEqual({ cpus: 2, cpuSource: "cgroup-v2", memoryBytes: 2 * GiB, memorySource: "cgroup-v2" });
+    expect(detectMachine(files({}, 8, 16 * GiB))).toEqual({ cpus: 8, cpuSource: "os", memoryBytes: 16 * GiB, memorySource: "os" });
+  });
+  it("loadConfig 帶出 limitEnv 與 machine（含注入的偵測），生效值由 SiteLimits 從這兩樣算；非法值讓 loadConfig 丟（開機 fail fast）", () => {
+    const c = loadConfig({ ...valid, PARSE_TIMEOUT_MS: "3000" }, files({}, 5));
+    expect(c.limitEnv).toEqual({ parseTimeoutMs: 3000 });
+    expect(c.machine).toEqual({ cpus: 5, cpuSource: "os", memoryBytes: 64 * GiB, memorySource: "os" });
+    // env 的時限低於管理頁範圍照用；排隊等待自動跟著它（4 × 3000 + 5000）；worker 數依 CPU（5 − 1）
+    expect(SiteLimits.defaults({ limitEnv: c.limitEnv, machine: c.machine }).parseLimits()).toEqual({ workers: 4, workerMemoryMb: DEFAULT_PARSE_WORKER_MEMORY_MB, timeoutMs: 3000, queueWaitMs: 17_000 });
+    // 2 GiB：依記憶體只放得下 1 個 1024 MiB 的 worker
+    const small = loadConfig(valid, files({}, 5, 2 * GiB));
+    expect(SiteLimits.defaults({ limitEnv: small.limitEnv, machine: small.machine }).parseLimits().workers).toBe(1);
     expect(() => loadConfig({ ...valid, PARSE_WORKERS: "0" })).toThrow(/設定錯誤：PARSE_WORKERS/);
   });
 });
@@ -135,7 +126,9 @@ describe("排隊等待的預設", () => {
     expect(DEFAULT_PARSE_QUEUE_WAIT_MS).toBe(45_000);
     expect(DEFAULT_PARSE_QUEUE_WAIT_MS).toBeGreaterThan((PARSE_FILE_BUDGET_FACTOR + 1) * DEFAULT_PARSE_TIMEOUT_MS);
     expect(DEFAULT_PARSE_QUEUE_WAIT_MS).toBeGreaterThan(DOC_TIMEOUT_FACTOR * DEFAULT_PARSE_TIMEOUT_MS);
-    expect(resolveParseSettings({ PARSE_TIMEOUT_MS: "30000" }).queueWaitMs).toBe(125_000);
-    expect(resolveParseSettings({ PARSE_TIMEOUT_MS: "30000", PARSE_QUEUE_WAIT_MS: "1000" }).queueWaitMs).toBe(1000);
+    expect(DEFAULT_PARSE_TIMEOUT_MS).toBe(SITE_LIMITS.parseTimeoutMs.default);
+    const machine = detectMachine(files({}, 8));
+    expect(SiteLimits.defaults({ limitEnv: { parseTimeoutMs: 30_000 }, machine }).parseLimits().queueWaitMs).toBe(125_000);
+    expect(SiteLimits.defaults({ limitEnv: { parseTimeoutMs: 30_000, parseQueueWaitMs: 1000 }, machine }).parseLimits().queueWaitMs).toBe(1000);
   });
 });

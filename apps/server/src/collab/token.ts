@@ -4,7 +4,7 @@ import { COLLAB_TOKEN_TTL_SECONDS, type CollabTokenClaims, type Role } from "@kn
 import { SID_RE } from "../auth/session.js";
 
 // jose 的 duration 字串只認 "<數字><單位>"（s/m/h/d/w/y）——比照 `auth/session.ts` 的
-// SESSION_TTL 模式，直接由 shared 那個以秒為單位的常數算出，不在這裡另寫一份字面量。
+// `signSession`（`${ttlSeconds}s`），直接由 shared 那個以秒為單位的常數算出，不在這裡另寫一份字面量。
 const COLLAB_TOKEN_TTL = `${COLLAB_TOKEN_TTL_SECONDS}s`;
 
 const ROLES: readonly Role[] = ["owner", "editor", "viewer", "none"];

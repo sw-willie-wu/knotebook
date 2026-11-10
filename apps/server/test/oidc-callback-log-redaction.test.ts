@@ -160,4 +160,12 @@ describe("開機建管理員失敗的 log（#211）", () => {
     const catchAt = src.indexOf("catch (err)", src.indexOf("await initializeInstance("));
     expect(src.slice(catchAt, src.indexOf("process.exit(1)", catchAt))).toContain("logInitFailure(logger, err)");
   });
+
+  it("結構守衛：index.ts 載入站台限制失敗走 redactDbError，不記整個 err", () => {
+    const src = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../src/index.ts"), "utf8");
+    const catchAt = src.indexOf("catch (err)", src.indexOf("await SiteLimits.load("));
+    const block = src.slice(catchAt, src.indexOf("process.exit(1)", catchAt));
+    expect(block).toContain("redactDbError(logger, err,");
+    expect(block).not.toMatch(/\{\s*err\s*\}/);
+  });
 });
