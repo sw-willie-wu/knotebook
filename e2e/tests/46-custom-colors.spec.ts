@@ -24,6 +24,16 @@ import {
  * - C11c：工具列（一般文字選取與表格儲存格選取）與拖曳把手的面板裡用真鍵盤 Tab／Shift+Tab 在面板內繞回，選單不關、不打字進筆記。
  * - C13：帶自訂行內色與 block 底色的段落複製貼上到另一份筆記，顏色相同。
  *
+ * 表格（滑鼠停在儲存格上出現的儲存格把手 ▾，與列／欄把手 ⋮⋮ 的選單）：
+ * - C4a：儲存格把手套自訂底色，只有那一格上色，重新整理後仍在。
+ * - C4b：列把手套自訂字色，整列每一格都換色，另一列不變。
+ * - C4c：列／欄把手選單的項目恰為刪除、兩個新增、Colors；新增一列、刪除一欄照常；畫面上只有一組把手。
+ *   關掉列選單後馬上開儲存格選單，經 aria-controls 只查到儲存格選單（只有 Colors）。
+ * - C4d：儲存格把手的面板開著時，另一個分頁刪掉整張表：面板跟著表格消失、什麼都沒寫入，頁面不丟例外。
+ * - C11a／C11b（儲存格把手）：同拖曳把手的 C11a／C11b，入口換成儲存格把手。
+ * 表格把手的選單一律經觸發鈕的 `aria-controls` 找：BlockNote 的把手浮層在淡出期間會顯示它最後一次開著時的
+ * HTML 複本（可能含剛關掉的選單），整頁查 class 會同時查到那份複本。
+ *
  * 顯示面：
  * - C7：同一份筆記在編輯器、公開頁、版本預覽、簡報四個面，自訂色碼的 computed 色值都要對，且內建色名
  *   （`red`）的對照元素維持內建值（防止「全部變成同一色」的假綠）。
@@ -525,8 +535,11 @@ async function selectText(page: Page, text: string, from: number, to: number): P
     // 上一次的選取還在：工具列可能正好蓋在要點的那一段上。等焦點回到編輯器（套用後是 setTimeout 才還焦點），
     // 選取還沒收起才按方向鍵收起，再等工具列消失
     await expect.poll(() => editorLocator(page).evaluate((el) => el.contains(document.activeElement))).toBe(true);
-    if (await hasRange()) await page.keyboard.press("ArrowRight");
-    await expect(toolbar).toBeHidden();
+    // 焦點回到編輯器時，選取範圍可能晚一點才畫回 DOM：這一輪看到的還是收起的，工具列卻還開著，就再看一次
+    await expect(async () => {
+      if (await hasRange()) await page.keyboard.press("ArrowRight");
+      await expect(toolbar).toBeHidden({ timeout: 1_000 });
+    }).toPass({ timeout: 10_000 });
   }
   await clickEndOfParagraph(page, paragraph(page, text));
   await page.keyboard.press("Home");
@@ -1044,6 +1057,319 @@ test("C13 帶自訂行內色與 block 底色的段落複製貼上到另一份筆
     await page.reload();
     await expect(page.getByLabel("Note title")).toHaveValue(targetTitle, { timeout: 15_000 });
     await expect.poll(probe, { timeout: 15_000 }).toEqual(expected);
+  } finally {
+    await context.close();
+  }
+});
+
+// ── 表格 ───────────────────────────────────────────────────────────────────
+
+/** 2×2 表格：第一列 a1、b1，第二列 a2、b2。 */
+const TABLE_HTML = "<table><tr><td>a1</td><td>b1</td></tr><tr><td>a2</td><td>b2</td></tr></table>";
+
+/** 新筆記貼上 2×2 表格。 */
+async function startTableNote(browser: Browser, name: string): Promise<{ context: BrowserContext; page: Page; title: string }> {
+  const started = await startColorNote(browser, name, []);
+  await pasteHtml(started.page, TABLE_HTML);
+  const cells = editorLocator(started.page).locator("td");
+  await expect(cells).toHaveCount(4);
+  await expect(cells.nth(3)).toHaveText("b2");
+  return started;
+}
+
+/** 文字剛好是 `text` 的那一格。 */
+function tableCell(page: Page, text: string): Locator {
+  return editorLocator(page).locator("td").filter({ hasText: new RegExp(`^${reEscape(text)}$`) }).first();
+}
+
+/** 每一列各格的文字（扣掉遠端游標的 widget）。 */
+function tableTexts(page: Page): Promise<string[][]> {
+  return editorLocator(page)
+    .locator("tr")
+    .evaluateAll((rows) =>
+      rows.map((tr) =>
+        Array.from(tr.querySelectorAll("td")).map((td) => {
+          const copy = td.cloneNode(true) as Element;
+          copy.querySelectorAll(".ProseMirror-widget").forEach((w) => w.remove());
+          return copy.textContent ?? "";
+        }),
+      ),
+    );
+}
+
+const cellHandle = (page: Page) => page.locator("button.bn-table-cell-handle");
+// 列把手與欄把手是同一個元件，欄把手以 transform 轉 90 度
+const rowHandle = (page: Page) => page.locator('.bn-table-handle:not([style*="rotate"])');
+const columnHandle = (page: Page) => page.locator('.bn-table-handle[style*="rotate"]');
+
+type Box = { x: number; y: number; width: number; height: number };
+const overlapsX = (a: Box, b: Box) => a.x < b.x + b.width && b.x < a.x + a.width;
+const overlapsY = (a: Box, b: Box) => a.y < b.y + b.height && b.y < a.y + a.height;
+
+/**
+ * 滑鼠移到 `text` 那一格，等儲存格把手、列把手、欄把手各剛好一個，且都對齊那一格。
+ * boundingBox 在對到多個元素時會丟例外（重試到只剩一個）：把手浮層淡出時的複本也會被重試掉。
+ */
+async function hoverCell(page: Page, text: string): Promise<Locator> {
+  const cell = tableCell(page, text);
+  await cell.hover();
+  await expect(async () => {
+    const box = (await cell.boundingBox({ timeout: 1_000 }))!;
+    const handle = await cellHandle(page).boundingBox({ timeout: 1_000 });
+    const row = await rowHandle(page).boundingBox({ timeout: 1_000 });
+    const column = await columnHandle(page).boundingBox({ timeout: 1_000 });
+    const all = JSON.stringify({ box, handle, row, column });
+    expect(handle && overlapsX(handle, box) && overlapsY(handle, box), `cell handle ${all}`).toBe(true);
+    expect(row && overlapsY(row, box), `row handle ${all}`).toBe(true);
+    expect(column && overlapsX(column, box), `column handle ${all}`).toBe(true);
+  }).toPass({ timeout: 5_000 });
+  return cell;
+}
+
+/** 以真滑鼠點把手開根選單，回傳這個把手自己的 dropdown（觸發鈕的 `aria-controls` 指向它）。 */
+async function openTableMenu(page: Page, trigger: Locator): Promise<Locator> {
+  await trigger.click();
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  const id = await trigger.getAttribute("aria-controls");
+  expect(id, "trigger aria-controls").toBeTruthy();
+  const menu = page.locator(`[id="${id}"]`);
+  await expect(menu).toBeVisible();
+  return menu;
+}
+
+/** 表格選單 → hover「Colors」開子選單 → 點該段的「Custom…」，回傳面板。 */
+async function openTablePanel(menu: Locator, section: "text" | "background"): Promise<Locator> {
+  await menu.getByRole("menuitem", { name: "Colors", exact: true }).hover();
+  const custom = menu.locator(`[data-test="${section}-color-custom"]`);
+  await expect(custom).toBeVisible();
+  await custom.click();
+  const panel = menu.locator(".kb-color-panel");
+  await expect(panel).toBeVisible();
+  await expect(panel.locator(".react-colorful")).toBeVisible();
+  return panel;
+}
+
+const panelHex = (panel: Locator) => panel.getByRole("textbox", { name: "Hex color" });
+const panelApply = (panel: Locator) => panel.getByRole("button", { name: "Apply", exact: true });
+
+test("C4a 儲存格把手：Colors → Background → Custom… 套 #ff6600，只有那一格上底色，重新整理後仍在", async ({ browser }) => {
+  test.setTimeout(120_000);
+  const { context, page, title } = await startTableNote(browser, "cell bg");
+  try {
+    await hoverCell(page, "b1");
+    const menu = await openTableMenu(page, cellHandle(page));
+    // 儲存格選單只有 Colors 一項（拆格沒開）
+    await expect(menu.getByRole("menuitem")).toHaveText(["Colors"]);
+    const panel = await openTablePanel(menu, "background");
+    await panelHex(panel).fill(CUSTOM);
+    await panelApply(panel).click();
+    await expect(panel).toHaveCount(0);
+    await expect(page.locator(".kb-color-panel")).toHaveCount(0);
+
+    const editor = editorLocator(page);
+    await expect(tableCell(page, "b1")).toHaveAttribute("data-background-color", CUSTOM);
+    await expect(tableCell(page, "b1")).toHaveCSS("background-color", RGB_CUSTOM, { timeout: 10_000 });
+    await expect(editor.locator("td[data-background-color]")).toHaveCount(1);
+
+    await page.reload();
+    await expect(page.getByLabel("Note title")).toHaveValue(title, { timeout: 15_000 });
+    await expect(tableCell(page, "b1")).toHaveCSS("background-color", RGB_CUSTOM, { timeout: 15_000 });
+    await expect(editor.locator("td[data-background-color]")).toHaveCount(1);
+  } finally {
+    await context.close();
+  }
+});
+
+test("C4b 列把手：Colors → Text → Custom… 套 #0000ff，整列每一格都換字色，另一列不變", async ({ browser }) => {
+  test.setTimeout(120_000);
+  const blue = "#0000ff";
+  const { context, page } = await startTableNote(browser, "row text");
+  try {
+    const before = await tableCell(page, "a2").evaluate((el) => getComputedStyle(el).color);
+    expect(before).not.toBe("rgb(0, 0, 255)");
+
+    await hoverCell(page, "a1");
+    const menu = await openTableMenu(page, rowHandle(page));
+    const panel = await openTablePanel(menu, "text");
+    await panelHex(panel).fill(blue);
+    await panelApply(panel).click();
+    await expect(panel).toHaveCount(0);
+
+    for (const text of ["a1", "b1"]) {
+      await expect(tableCell(page, text)).toHaveAttribute("data-text-color", blue);
+      await expect(tableCell(page, text), `${text} 的字色`).toHaveCSS("color", "rgb(0, 0, 255)", { timeout: 10_000 });
+    }
+    for (const text of ["a2", "b2"]) {
+      await expect(tableCell(page, text)).not.toHaveAttribute("data-text-color");
+      await expect(tableCell(page, text), `${text} 的字色`).toHaveCSS("color", before);
+    }
+  } finally {
+    await context.close();
+  }
+});
+
+test("C4c 列／欄把手選單：項目恰為刪除、兩個新增、Colors；新增一列、刪除一欄照常；畫面上只有一組把手", async ({ browser }) => {
+  test.setTimeout(120_000);
+  const { context, page } = await startTableNote(browser, "row col");
+  try {
+    await hoverCell(page, "a1");
+    // 只有一組把手：內建的表格把手若沒關掉，會再疊一組
+    await expect(cellHandle(page)).toHaveCount(1);
+    await expect(page.locator(".bn-table-handle")).toHaveCount(2);
+    await expect(rowHandle(page)).toHaveCount(1);
+    await expect(columnHandle(page)).toHaveCount(1);
+
+    // 關掉列選單後馬上開儲存格選單：列把手浮層淡出期間 DOM 裡還有一份列選單的複本，經 aria-controls 只查到儲存格選單
+    const peek = await openTableMenu(page, rowHandle(page));
+    await expect(peek.getByRole("menuitem")).toHaveText(["Delete row", "Add row above", "Add row below", "Colors"]);
+    await page.keyboard.press("Escape");
+    await expect(rowHandle(page)).toHaveAttribute("aria-expanded", "false");
+    await expect(cellHandle(page)).toHaveCount(1);
+    const cellMenu = await openTableMenu(page, cellHandle(page));
+    await expect(cellMenu.getByRole("menuitem")).toHaveText(["Colors"]);
+    await page.keyboard.press("Escape");
+    await expect(cellHandle(page)).toHaveAttribute("aria-expanded", "false");
+
+    // 新增一列（在第一列下方）
+    await hoverCell(page, "a1");
+    const rowMenu = await openTableMenu(page, rowHandle(page));
+    await expect(rowMenu.getByRole("menuitem")).toHaveText(["Delete row", "Add row above", "Add row below", "Colors"]);
+    await rowMenu.getByRole("menuitem", { name: "Add row below", exact: true }).click();
+    await expect.poll(() => tableTexts(page)).toEqual([["a1", "b1"], ["", ""], ["a2", "b2"]]);
+
+    // 刪除第二欄
+    await hoverCell(page, "b2");
+    const columnMenu = await openTableMenu(page, columnHandle(page));
+    await expect(columnMenu.getByRole("menuitem")).toHaveText(["Delete column", "Add column left", "Add column right", "Colors"]);
+    await columnMenu.getByRole("menuitem", { name: "Delete column", exact: true }).click();
+    await expect.poll(() => tableTexts(page)).toEqual([["a1"], [""], ["a2"]]);
+
+    // 改完表格，把手仍只有一組
+    await hoverCell(page, "a2");
+    await expect(cellHandle(page)).toHaveCount(1);
+    await expect(page.locator(".bn-table-handle")).toHaveCount(2);
+  } finally {
+    await context.close();
+  }
+});
+
+test("C4d 儲存格把手的面板開著時，另一個分頁刪掉整張表：面板跟著表格消失、什麼都沒寫入，頁面不丟例外", async ({ browser }) => {
+  test.setTimeout(120_000);
+  const { context, page: pageA, title } = await startTableNote(browser, "cell remote delete");
+  const errors: string[] = [];
+  pageA.on("pageerror", (error) => errors.push(error.message));
+  try {
+    // 同一個 context 共用 cookie，不必再登入。等 B 載入完成、連上共編、看到表格。
+    const pageB = await context.newPage();
+    pageB.on("pageerror", (error) => errors.push(`B: ${error.message}`));
+    await pageB.goto(pageA.url());
+    await expect(pageB.getByLabel("Note title")).toHaveValue(title, { timeout: 15_000 });
+    await expect(pageB.getByRole("status").filter({ hasText: /^Connected/ })).toBeVisible({ timeout: 15_000 });
+    const editorB = editorLocator(pageB);
+    await expect(editorB.locator("td")).toHaveCount(4, { timeout: 10_000 });
+
+    // A：儲存格把手開到自訂面板，打好色碼但還沒套用
+    await hoverCell(pageA, "b1");
+    const menu = await openTableMenu(pageA, cellHandle(pageA));
+    const panel = await openTablePanel(menu, "background");
+    await panelHex(panel).fill(CUSTOM);
+    await expect(panelApply(panel)).toBeEnabled();
+
+    // B：表格的拖曳把手選單 → Delete，整張表從文件裡拿掉
+    const tableB = editorB.locator(".bn-block-content", { has: pageB.locator("table") }).first();
+    await editorB.locator("td", { hasText: "a2" }).first().hover();
+    const handle = pageB.getByRole("button", { name: "Open block menu" });
+    await expect(handle).toBeVisible();
+    await expect(async () => {
+      const side = await pageB.locator(".bn-side-menu").boundingBox();
+      const box = await tableB.boundingBox();
+      expect(side && box && overlapsY(side, box), JSON.stringify({ side, box })).toBe(true);
+    }).toPass({ timeout: 5_000 });
+    await handle.click();
+    const blockMenu = pageB.locator(".bn-drag-handle-menu");
+    await expect(blockMenu).toBeVisible();
+    await blockMenu.getByRole("menuitem", { name: "Delete", exact: true }).click();
+    await expect(editorB.locator("table")).toHaveCount(0);
+
+    // A：表格消失，把手與面板跟著卸載
+    await expect(editorLocator(pageA).locator("table")).toHaveCount(0, { timeout: 10_000 });
+    await expect(pageA.locator(".kb-color-panel")).toHaveCount(0, { timeout: 10_000 });
+    // 什麼都沒寫入：每隔 200 ms 讀一次、讀滿三次，每次兩頁都沒有表格、也沒有這個底色
+    const reads: number[][] = [];
+    await expect
+      .poll(
+        async () => {
+          reads.push(await Promise.all([pageA, pageB].map((p) => editorLocator(p).locator(`table, [data-background-color="${CUSTOM}"]`).count())));
+          return reads.length >= 3 ? reads : "reading";
+        },
+        { intervals: [200] },
+      )
+      .toEqual([[0, 0], [0, 0], [0, 0]]);
+    expect(errors).toEqual([]);
+  } finally {
+    await context.close();
+  }
+});
+
+test("C11a 儲存格把手的面板：在飽和度方塊按下、拖到面板外 150 px 停住再放開，面板仍在、值已變、Apply 生效", async ({ browser }) => {
+  test.setTimeout(120_000);
+  const { context, page } = await startTableNote(browser, "cell drag outside");
+  try {
+    await hoverCell(page, "a1");
+    const menu = await openTableMenu(page, cellHandle(page));
+    const panel = await openTablePanel(menu, "background");
+    const sat = (await panel.locator(".react-colorful__saturation").boundingBox())!;
+    const box = (await panel.boundingBox())!;
+    const y = sat.y + sat.height * 0.5;
+    // 往右拖出面板 160 px；右邊放不下就往左
+    const outsideX = box.x + box.width + 160 < WIDE.width - 10 ? box.x + box.width + 160 : box.x - 160;
+    await page.mouse.move(sat.x + sat.width * 0.6, sat.y + sat.height * 0.4);
+    await page.mouse.down();
+    await page.mouse.move(sat.x + sat.width * 0.3, y, { steps: 5 });
+    await expect.poll(() => panelHex(panel).inputValue()).toMatch(/^#[0-9a-f]{6}$/);
+    // 面板內拖到的值；拖出面板後指標仍被追蹤，飽和度貼到邊（0% 或 100%），值要再變
+    const inside = await panelHex(panel).inputValue();
+    await page.mouse.move(outsideX, y, { steps: 10 });
+    // 停得比子選單的關閉延遲久：面板若放在 hover 開關的子選單裡，這段時間就會被關掉
+    await page.waitForTimeout(500);
+    await page.mouse.up();
+
+    await expect(panel).toBeVisible();
+    await expect.poll(() => panelHex(panel).inputValue()).toMatch(/^#[0-9a-f]{6}$/);
+    const dragged = await panelHex(panel).inputValue();
+    expect(dragged).not.toBe(inside);
+    await panelApply(panel).click();
+    await expect(panel).toHaveCount(0);
+    await expect(tableCell(page, "a1")).toHaveAttribute("data-background-color", dragged);
+    await expect(tableCell(page, "a1")).toHaveCSS("background-color", hexToRgb(dragged), { timeout: 10_000 });
+  } finally {
+    await context.close();
+  }
+});
+
+test("C11b 儲存格把手的面板：打色碼到一半把滑鼠移到編輯器另一端停住，再打完按 Enter，套上完整色碼", async ({ browser }) => {
+  test.setTimeout(120_000);
+  const { context, page } = await startTableNote(browser, "cell type move");
+  try {
+    await hoverCell(page, "a1");
+    const menu = await openTableMenu(page, cellHandle(page));
+    const panel = await openTablePanel(menu, "text");
+    await panelHex(panel).click();
+    await page.keyboard.press("Control+A");
+    await page.keyboard.type("#ff6");
+    await expect(panelHex(panel)).toHaveValue("#ff6");
+
+    const editorBox = (await editorLocator(page).boundingBox())!;
+    await page.mouse.move(editorBox.x + editorBox.width - 10, editorBox.y + editorBox.height - 5, { steps: 10 });
+    await page.waitForTimeout(500);
+    await expect(panel).toBeVisible();
+
+    await page.keyboard.type("600");
+    await expect(panelHex(panel)).toHaveValue("#ff6600");
+    await page.keyboard.press("Enter");
+    await expect(panel).toHaveCount(0);
+    await expect(tableCell(page, "a1")).toHaveAttribute("data-text-color", CUSTOM);
+    await expect(tableCell(page, "a1")).toHaveCSS("color", RGB_CUSTOM, { timeout: 10_000 });
   } finally {
     await context.close();
   }
