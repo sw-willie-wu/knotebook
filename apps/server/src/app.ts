@@ -729,10 +729,10 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   );
   // #107：PAT 管理端點——cookie 專用（token 不能簽發或撤銷 token），見 routes/api-tokens.ts 檔頭。
   void app.register(
-    apiTokensRoutes({ db: deps.db, limiters: { patCreate: limiters.patCreate, tokenRename: limiters.tokenRename } })
+    apiTokensRoutes({ db: deps.db, siteLimits: deps.siteLimits, limiters: { patCreate: limiters.patCreate, tokenRename: limiters.tokenRename } })
   );
   // #132：同意頁的站內端點（cookie session、站內錯誤形），與 RFC 形的 /oauth 分開。
-  void app.register(oauthApiRoutes({ db: deps.db, config: deps.config }));
+  void app.register(oauthApiRoutes({ db: deps.db, config: deps.config, siteLimits: deps.siteLimits }));
 
   // #187：registry 是 per-app 實例（嚴禁 module 單例，同 limiters）。callback 需要 db（帳號解析交易）與 gate（建帳後 invalidate）。
   const oidcRegistry = deps.oidcRegistry ?? createOidcRuntimeRegistry();
@@ -938,6 +938,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     oauthRoutes({
       db: deps.db,
       config: deps.config,
+      siteLimits: deps.siteLimits,
       gate: deps.gate,
       limiters: { dcr: limiters.dcr, authorize: limiters.authorize, tokenEndpoint: limiters.tokenEndpoint },
     }),
