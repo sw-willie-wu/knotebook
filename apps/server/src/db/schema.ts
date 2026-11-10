@@ -1110,3 +1110,47 @@ export const sessions = pgTable(
   },
   t => [index("sessions_user_idx").on(t.userId), index("sessions_expires_idx").on(t.expiresAt)],
 );
+
+/**
+ * #397（migration 0039）：站台限制在管理頁存的值（`site-limits/store.ts` 的 `SiteLimits`）。key 是註冊表（shared `SITE_LIMITS`）的 key。
+ *
+ * - **沒有列＝用預設（或自動推算）**；「恢復預設」＝刪列，所以「自動」不需要特殊值。
+ * - 範圍不在 DB 驗（新增項目不必 migration）：寫入前 `SiteLimits.update` 驗、載入時 `resolveSnapshot` 再驗一次；
+ *   越界、沒對齊或註冊表沒有的 key 的列不套用、也不刪（降版再升版、範圍放寬時又會合法）。
+ * - 生效值優先序：env ＞ 這張表的列 ＞ 預設／自動。env 有設時列照留，只是不生效。
+ */
+export const siteLimits = pgTable(
+  "site_limits",
+  {
+    key: text().primaryKey(),
+    value: integer().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  t => [
+    check("site_limits_key_chk", sql`${t.key} ~ '^[a-zA-Z][a-zA-Z0-9]{0,63}$'`),
+    check("site_limits_value_chk", sql`${t.value} >= 0`),
+  ],
+);
+
+/**
+ * #397（migration 0039）：站台限制的修改紀錄。只有存的值真的變了的 key 才寫一列（`auth/tx/admin-site-limits.ts`）；
+ * 自動項連帶變的不另寫。同一次修改的多列 `changed_at` 相同（`now()`＝交易開始時間），UI 用它分組。不清理。
+ *
+ * - `old_value`／`new_value`：改前／改後存的值，NULL＝預設／自動（沒有列）。
+ * - `old_effective`／`new_effective`：改前／改後的生效值（預設或自動推算出的數字）。
+ * - `key` 不設外鍵：項目日後可能從註冊表拿掉，紀錄要留。`actor_user_id` 刪使用者時設 NULL。
+ */
+export const siteLimitChanges = pgTable(
+  "site_limit_changes",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    key: text().notNull(),
+    oldValue: integer("old_value"),
+    newValue: integer("new_value"),
+    oldEffective: integer("old_effective").notNull(),
+    newEffective: integer("new_effective").notNull(),
+    actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    changedAt: timestamp("changed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  t => [index("site_limit_changes_changed_at_idx").on(t.changedAt.desc())],
+);
