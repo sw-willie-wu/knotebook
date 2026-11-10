@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
-import type { ApiTokenDto, GroupDto, IdentitiesDto, StorageUsageDto, UserDto } from "@knotebook/shared";
+import type { ApiTokenDto, GroupDto, IdentitiesDto, SiteLimitsDto, StorageUsageDto, UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
 import { AppRoutes } from "@/App";
@@ -17,7 +17,7 @@ import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
  * 逐 token 精確比對：`hover:bg-brand-deep`、`bg-brand-soft`、`data-[state=checked]:bg-brand` 是別的 token，不受影響。
  * `minButtons` 防空真：該頁至少要掃到這麼多個面板層元素（button／a[class]／role=button）。
  *
- * Part 3 已擴充：PANEL_PAGES 尾端加了群組四頁、站台五頁（端點 fixture 在 `PANEL3_GETS`，由 panelFetch 精確比對 URL）。
+ * Part 3 已擴充：PANEL_PAGES 尾端加了群組四頁、站台六頁（端點 fixture 在 `PANEL3_GETS`，由 panelFetch 精確比對 URL）。
  */
 const SOLID_TOKENS = ["bg-brand-deep", "bg-brand", "bg-primary", "bg-destructive"];
 
@@ -49,7 +49,33 @@ const T = "2026-01-01T00:00:00.000Z";
 const PLAN = { id: "11111111-1111-4111-8111-111111111111", name: "Basic", quotaBytes: 2147483648, userCount: 1, groupCount: 1, overQuotaCount: 0, isDefaultForUsers: true, isDefaultForGroups: true, createdAt: T, updatedAt: T };
 const PLAN_STORAGE = { planId: PLAN.id, planName: "Basic", usedBytes: 0, quotaBytes: 2147483648 };
 const PROVIDER_ID = "22222222-2222-4222-8222-222222222222";
-/** 群組／站台九頁的最大權限 fixture（admin、canManageGroup／canManageMembers 皆 true、各表至少一列）。 */
+/** 站台限制：17 項齊全；兩項已調整（各多一顆「恢復預設」／「改回自動」）、一項 env 鎖住、修改紀錄一列。 */
+const SITE_LIMITS_FIXTURE: SiteLimitsDto = {
+  items: [
+    { key: "uploadMaxBytes", value: 10485760, source: "default", locked: false, stored: null },
+    { key: "noteMaxBytes", value: 5242881, source: "env", locked: true, stored: 2097152 },
+    { key: "parseWorkers", value: 2, source: "admin", locked: false, stored: 2, autoValue: 4, autoSource: "cpu" },
+    { key: "parseWorkerMemoryMb", value: 1024, source: "default", locked: false, stored: null },
+    { key: "parseTimeoutMs", value: 10000, source: "default", locked: false, stored: null },
+    { key: "parseQueueWaitMs", value: 45000, source: "auto", locked: false, stored: null, autoValue: 45000 },
+    { key: "rateTokenRead", value: 300, source: "default", locked: false, stored: null },
+    { key: "rateTokenWrite", value: 60, source: "default", locked: false, stored: null },
+    { key: "rateContentRead", value: 120, source: "default", locked: false, stored: null },
+    { key: "rateEdit", value: 20, source: "admin", locked: false, stored: 20 },
+    { key: "rateSearch", value: 60, source: "default", locked: false, stored: null },
+    { key: "rateUpload", value: 120, source: "default", locked: false, stored: null },
+    { key: "rateAi", value: 30, source: "default", locked: false, stored: null },
+    { key: "rateTransferExport", value: 10, source: "default", locked: false, stored: null },
+    { key: "rateTransferWrite", value: 30, source: "default", locked: false, stored: null },
+    { key: "sessionTtlSeconds", value: 604800, source: "default", locked: false, stored: null },
+    { key: "apiTokensPerUser", value: 20, source: "default", locked: false, stored: null },
+  ],
+  machine: { cpus: 8, cpuSource: "os", memoryBytes: 17179869184, memorySource: "cgroup-v2" },
+  changes: [
+    { id: "c-1", key: "rateEdit", oldValue: null, newValue: 20, oldEffective: 30, newEffective: 20, actor: { id: "u-admin", email: "admin@example.com", displayName: "Admin" }, changedAt: T },
+  ],
+};
+/** 群組／站台十頁的最大權限 fixture（admin、canManageGroup／canManageMembers 皆 true、各表至少一列）。 */
 const PANEL3_GETS: Record<string, unknown> = {
   [`/api/groups/${GROUP_ID}/members`]: [
     { userId: "u-admin", email: "admin@example.com", displayName: "Admin", roleId: "r-admin", builtin: "admin" },
@@ -87,6 +113,7 @@ const PANEL3_GETS: Record<string, unknown> = {
   "/api/admin/ai/providers": { providers: [{ id: "p1", name: "Claude", type: "anthropic", baseUrl: "https://api.anthropic.com", enabled: true, hasKey: true, degraded: false, createdAt: T }] },
   "/api/admin/ai/models": { models: [{ id: "m1", providerId: "p1", modelId: "claude", displayName: "Claude Sonnet", purpose: "chat", isDefault: true, enabled: true, createdAt: T }] },
   "/api/admin/ai/actions": { actions: [{ id: "a1", name: "Custom action", systemPrompt: "x", userTemplate: "{{text}}", modelId: null, applyMode: "preview", sortOrder: 1, enabled: true, builtin: false, kind: "quick" }] },
+  "/api/admin/limits": SITE_LIMITS_FIXTURE,
 };
 
 function json(body: unknown): Response {
@@ -174,6 +201,7 @@ export const PANEL_PAGES: PanelPageCase[] = [
   { name: "站台：登入", path: "/admin/login", ready: adminLoginReady, minButtons: 10 }, // 實測 10：兩個存取 switch、Add sign-in service、列內自動建帳 switch、插頭／鉛筆／圖示／紅垃圾桶、啟用 switch、明細區 Copy
   { name: "站台：儲存方案", path: "/admin/storage", ready: async () => { await screen.findByRole("button", { name: "Edit Basic" }); await screen.findByLabelText("Keep all for (days)"); return screen.findByRole("switch", { name: "Delete automatically" }); }, minButtons: 8 }, // 實測 8：New plan、Edit／Delete Basic、Save defaults、自動版本 switch、版本設定 Save、垃圾桶開關、垃圾桶 Save
   { name: "站台：AI 代理", path: "/admin/ai", ready: adminAiReady, minButtons: 15 }, // 實測 15：供應商（Add provider＋插頭／鉛筆／垃圾桶＋switch）、模型（Add model＋switch＋鉛筆／垃圾桶）、動作（Add action＋上移／下移＋switch＋鉛筆／垃圾桶）
+  { name: "站台：站台限制", path: "/admin/limits", ready: async () => within(await screen.findByRole("region", { name: "Rate limits" })).findByRole("button", { name: "Save" }), minButtons: 5 }, // 實測 5：三個區塊各一顆 Save、解析 worker 數的 Back to auto、寫筆記內容次數的 Restore default
 ];
 
 describe("面板內無實心鈕（#247 §4.8、§11.1；渲染期）", () => {
