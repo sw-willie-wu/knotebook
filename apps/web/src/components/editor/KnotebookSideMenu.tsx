@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next";
 import type { BlockNoteEditor } from "@blocknote/core";
 import { SideMenuExtension } from "@blocknote/core/extensions";
 import {
-  BlockColorsItem,
   DragHandleButton,
   DragHandleMenu,
   SideMenu,
@@ -21,6 +20,8 @@ import { isInColumn, ungroupColumns } from "@/collab/columns/commands";
 import { removeBlocksKeepColumns } from "@/collab/columns/keep-columns";
 import { blockIdsForMenuDelete } from "@/collab/columns/selection-delete";
 import { absoluteUrl, blockLinkUrl, copyBlockLink } from "@/lib/copy-block-link";
+import { ColorMenuBody } from "./colors/ColorMenuBody";
+import { KnotebookBlockColorsItem } from "./colors/KnotebookBlockColorsItem";
 
 /** #269：這篇筆記的 canonical 路徑（`canonicalNotePath(note)`）——NoteEditorView 提供；沒有（null）就不顯示複製項。 */
 export const NotePathContext = createContext<string | null>(null);
@@ -69,17 +70,23 @@ function UngroupColumnsItem() {
   );
 }
 
-/** 預設的四項（@blocknote/react 的 DragHandleMenu 預設 children，逐項照列；刪除項換成不收欄的版本）＋取消並排＋複製段落連結。 */
+/**
+ * 預設的四項（@blocknote/react 的 DragHandleMenu 預設 children，逐項照列；刪除項換成不收欄的版本、顏色項換成多了
+ * 「自訂…」的版本）＋取消並排＋複製段落連結。整個內容包在 `ColorMenuBody` 裡：顏色子選單的「自訂…」把這個
+ * dropdown 的內容換成自訂色面板。
+ */
 export function KnotebookDragHandleMenu() {
   const dict = useDictionary();
   return (
     <DragHandleMenu>
-      <KeepColumnsDeleteItem>{dict.drag_handle.delete_menuitem}</KeepColumnsDeleteItem>
-      <UngroupColumnsItem />
-      <BlockColorsItem>{dict.drag_handle.colors_menuitem}</BlockColorsItem>
-      <TableRowHeaderItem>{dict.drag_handle.header_row_menuitem}</TableRowHeaderItem>
-      <TableColumnHeaderItem>{dict.drag_handle.header_column_menuitem}</TableColumnHeaderItem>
-      <CopyBlockLinkItem />
+      <ColorMenuBody>
+        <KeepColumnsDeleteItem>{dict.drag_handle.delete_menuitem}</KeepColumnsDeleteItem>
+        <UngroupColumnsItem />
+        <KnotebookBlockColorsItem>{dict.drag_handle.colors_menuitem}</KnotebookBlockColorsItem>
+        <TableRowHeaderItem>{dict.drag_handle.header_row_menuitem}</TableRowHeaderItem>
+        <TableColumnHeaderItem>{dict.drag_handle.header_column_menuitem}</TableColumnHeaderItem>
+        <CopyBlockLinkItem />
+      </ColorMenuBody>
     </DragHandleMenu>
   );
 }

@@ -81,11 +81,11 @@ export const editNoteInput = {
     .describe("What to do. `replace_section`, `insert_after` and `delete_section` need `section_id`; `append` may omit `if_match`; `rename` takes `title` and `if_match` and nothing else."),
   section_id: SEC.optional()
     .describe("Which section to act on, from read_note_outline. Required for replace_section, insert_after and delete_section."),
-  // #222：色名取自 PALETTE_COLORS（單一真相）；寫法與「讀回同形」在 shared 的 note-colors／note-markdown-read 與 docs/ai-editing.md#colors 有測試守。
+  // #378：色名取自 PALETTE_COLORS（單一真相），#rgb／#rrggbb 是文件教的色碼寫法，完整的收拒規則在 shared 的 `canonicalColor`；寫法與「讀回同形」在 shared 的 note-colors／note-markdown-read 與 docs/ai-editing.md#colors 有測試守。
   markdown: MD.optional().describe(
     "The new markdown. Required for every operation except delete_section and rename. Colors are HTML, as read_note_section " +
       `returns them: colored text is <span style="color:red">…</span> inside the markdown; a block's own color is ` +
-      `e.g. <p data-background-color="yellow">…</p>. Only these names are accepted: ${PALETTE_COLORS.join(", ")}. ` +
+      `e.g. <p data-background-color="yellow">…</p>. For a color, use one of these names: ${PALETTE_COLORS.join(", ")}, or a hex color such as #ff6600 (written #rgb or #rrggbb). ` +
       // 並排（docs/ai-editing.md#columns／#sizes）：「Writes take 2 to 4」刻意只講寫入——讀出可能有 5 欄以上；
       // 尺寸句不提表格格子裡的圖片（格子裡的圖片寬度還不支援）；showPreview 關閉的圖片不讀出寬度，所以主詞是「shown at a set width」。
       `Side-by-side columns are HTML, exactly as read_note_section returns them: <div data-kb-columns style="display:flex;gap:16px"> holding ` +

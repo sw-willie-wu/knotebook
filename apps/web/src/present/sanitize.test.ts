@@ -110,6 +110,18 @@ describe("sanitizeSlideFragment：要留下的", () => {
     expect(host.querySelector("span")!.getAttribute("data-value")).toBe("red");
   });
 
+  it("自訂色碼（#rrggbb）的 data-text-color／data-style-type／data-value 原值保留，style 照舊剝", () => {
+    const host = clean(
+      '<p data-text-color="#ff6600" style="color:#ff6600">a <span data-style-type="textColor" data-value="#ff6600" style="color: rgb(255, 102, 0)">x</span></p>',
+    );
+    const p = host.querySelector("p")!;
+    const span = host.querySelector("span")!;
+    expect(p.getAttribute("data-text-color")).toBe("#ff6600");
+    expect(span.getAttribute("data-style-type")).toBe("textColor");
+    expect(span.getAttribute("data-value")).toBe("#ff6600");
+    expect(host.querySelector("[style]")).toBeNull();
+  });
+
   it("http(s)、mailto、相對網址的 href 保留；https src 保留", () => {
     const host = clean('<a href="https://e/x">1</a><a href="mailto:a@b">2</a><a href="/n/a/b">3</a><img src="https://e/i.png" alt="i">');
     expect(Array.from(host.querySelectorAll("a")).map((a) => a.getAttribute("href"))).toEqual(["https://e/x", "mailto:a@b", "/n/a/b"]);

@@ -262,7 +262,7 @@ describe("新增", () => {
     const s = await scene();
     // 先有一篇（旁觀者）：解析失敗時沒有新筆記可指，「仍寫去重列」要有一篇既有筆記才寫得出來（否則被 FK 擋成等價）
     await seedNote(s.ctx.db, { ownerId: s.u.id }, { title: "Existing" });
-    const r = await bulkPut(s.ctx.app, s.bulk.token, fileOf({ title: "Bad" }, 'x <span style="color:#ff6600">orange-ish</span>'));
+    const r = await bulkPut(s.ctx.app, s.bulk.token, fileOf({ title: "Bad" }, 'x <span style="color:tomato">orange-ish</span>'));
     expect(r.statusCode).toBe(400);
     expect(errOf(r).code).toBe("unsupported_color");
     expect(await s.ctx.db.select().from(notes)).toHaveLength(1);
@@ -271,7 +271,7 @@ describe("新增", () => {
 
   it("CR10b解析失敗也扣 transferWrite（解析之前扣，同 edit_note）：limit 1 → 壞色值的新增 400 → 合法的新增 429、沒建", async () => {
     const s = await scene({ limiters: { transferWrite: new FixedWindowLimiter({ limit: 1, windowMs: 60_000 }) } });
-    const bad = await bulkPut(s.ctx.app, s.bulk.token, fileOf({ title: "Bad" }, 'x <span style="color:#ff6600">orange-ish</span>'));
+    const bad = await bulkPut(s.ctx.app, s.bulk.token, fileOf({ title: "Bad" }, 'x <span style="color:tomato">orange-ish</span>'));
     expect(bad.statusCode).toBe(400);
     expect(errOf(bad).code).toBe("unsupported_color");
     const good = await bulkPut(s.ctx.app, s.bulk.token, fileOf({ title: "Good" }, "good body"));
@@ -318,7 +318,7 @@ describe("新增", () => {
     const s = await scene({ limiters: { transferWrite: new FixedWindowLimiter({ limit: 1, windowMs: 60_000 }) } });
     const first = fileOf({ title: "1" }, "one");
     expect((await bulkPut(s.ctx.app, s.bulk.token, first)).statusCode).toBe(201);
-    const bad = await bulkPut(s.ctx.app, s.bulk.token, fileOf({ title: "Bad" }, 'x <span style="color:#ff6600">orange-ish</span>'));
+    const bad = await bulkPut(s.ctx.app, s.bulk.token, fileOf({ title: "Bad" }, 'x <span style="color:tomato">orange-ish</span>'));
     expect(bad.statusCode).toBe(429);
     expect(errOf(bad).code).toBe("too_many_requests");
     expect(bad.headers["retry-after"]).toBeDefined();

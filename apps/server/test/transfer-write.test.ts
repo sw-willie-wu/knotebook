@@ -95,6 +95,25 @@ describe("W1–W7 狀態表", () => {
     expect((await bulkPut(s.ctx.app, s.bulk.token, editBody(d2.text, () => "Changed para"))).statusCode).toBe(200);
   });
 
+  it("色碼：上傳 #F60 → 下載回小寫 #ff6600；原上傳檔與重新下載的檔重送都判 unchanged", async () => {
+    const s = await scene();
+    const d = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
+    const addColor = (b: string) => b.replace("Para 1", 'Para <span style="color:#F60">1</span>');
+    const put = await bulkPut(s.ctx.app, s.bulk.token, editBody(d.text, addColor));
+    expect(put.statusCode).toBe(200);
+    expect(put.json()).toMatchObject({ result: "applied", applied: 1 });
+    const d2 = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
+    expect(d2.body).toContain('<span style="color:#ff6600">1</span>');
+    expect(d2.body).not.toContain("#F60");
+    const rowsBefore = (await edits(s.ctx, s.note.id)).length;
+    // 重新下載的副本把色碼改回上傳時的寫法（大寫短寫）：位元組與本文雜湊都跟下載的不同，要靠解析後的正規形比對才判得出沒有新改動。
+    const again = await bulkPut(s.ctx.app, s.bulk.token, editBody(d2.text, b => b.replace("#ff6600", "#F60")));
+    expect(again.statusCode, again.body).toBe(200);
+    expect(again.json()).toMatchObject({ applied: 0 });
+    expect((again.json() as { same: number }).same).toBeGreaterThanOrEqual(1);
+    expect((await edits(s.ctx, s.note.id)).length).toBe(rowsBefore);
+  });
+
   it("409 三形：別人的 base、別篇的 base → reason other_note；不存在的 16 hex → expired（各帶對應訊息）", async () => {
     const s = await scene();
     const other = await seedNote(s.ctx.db, { ownerId: s.u.id }, { title: "Other" });
@@ -172,7 +191,7 @@ describe("W8 400 整篇不寫（拿掉守衛會落到 500 那幾條：NUL／落�
       ["id 非 uuid", fm("id", "not-a-uuid"), "invalid_body"],
       ["有 id 無 base", lines.filter(l => !l.startsWith("base: ")).join("\n"), "invalid_body"],
       ["重複 title 行", d.text.replace(/^(title: .*)$/m, '$1\ntitle: "again"'), "invalid_body"],
-      ["unsupported_color", editBody(d.text, b => b.replace("B", 'x <span style="color:#ff6600">o</span>')), "unsupported_color"],
+      ["unsupported_color", editBody(d.text, b => b.replace("B", 'x <span style="color:tomato">o</span>')), "unsupported_color"],
       ["empty_content 整份空白", editBody(d.text, () => "   "), "empty_content"],
       ["只剩註解", editBody(d.text, () => "<!-- a -->\n\n<!-- b -->"), "empty_content"],
       ["未閉合 <!--", editBody(d.text, b => b.replace("B", "<!--\nB")), "empty_content"],
@@ -273,7 +292,7 @@ describe("W9–W12 權限、範圍、額度、佇列", () => {
     await seedMd(s.ctx.db, n2.id, "Second note para");
     const d1 = await downloadNote(s.ctx.app, s.bulk.token, s.note.id);
     const d2 = await downloadNote(s.ctx.app, s.bulk.token, n2.id);
-    const bad = await bulkPut(s.ctx.app, s.bulk.token, editBody(d1.text, b => b.replace("Para 1", 'x <span style="color:#ff6600">orange-ish</span>')));
+    const bad = await bulkPut(s.ctx.app, s.bulk.token, editBody(d1.text, b => b.replace("Para 1", 'x <span style="color:tomato">orange-ish</span>')));
     expect(bad.statusCode).toBe(400);
     expect(errOf(bad).code).toBe("unsupported_color");
     expect(transferWrite.isBlocked(s.u.id)).toBe(true);

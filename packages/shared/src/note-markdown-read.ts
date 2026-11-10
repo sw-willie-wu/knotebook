@@ -1,5 +1,5 @@
 /**
- * #222：MCP／REST 讀出筆記、站內 AI 送出的 markdown（server 與 web 共用；寫入的色值檢查是 `findDisallowedColor`）。
+ * #222：MCP／REST 讀出筆記、站內 AI 送出的 markdown（server 與 web 共用；寫入的色值檢查是 `normalizeNoteColors`）。
  *
  * **讀取**（{@link blocksToNoteMarkdown}）：`blocksToMarkdownLossy` ＝ 外部 HTML → markdown，
  * 顏色在 HTML → markdown 那一步全丟。這裡改成：先拿同一份外部 HTML，逐個**頂層節點**判斷——
@@ -23,7 +23,7 @@
 import { cleanHTMLToMarkdown } from "@blocknote/core";
 import type { BlockNoteEditor } from "@blocknote/core";
 import { COLUMNS_OPEN_TAG, columnOpenTag, parseColumnFlex } from "./columns.js";
-import { isPaletteColor } from "./note-colors.js";
+import { isShownColor } from "./note-colors.js";
 import { clampSizePx } from "./note-sizes.js";
 import { unescapeAttributeAngles } from "./serialized-html.js";
 import { escapeLinkText } from "./site-link.js";
@@ -31,7 +31,7 @@ import { escapeLinkText } from "./site-link.js";
 const STYLE_CSS = { textColor: "color", backgroundColor: "background-color" } as const;
 const BLOCK_COLOR_ATTRS = ["data-text-color", "data-background-color"] as const;
 /**
- * 編輯器內部用、寫入端不需要的屬性：留著只是讓模型讀到雜訊（`style` 是 rgb 版的顏色，寫入端會拒）。
+ * 編輯器內部用、寫入端不需要的屬性：留著只是讓模型讀到雜訊（`style` 是 rgb 版的顏色；寫入端會把顏色正規化成 `#rrggbb`，讀出用的是下面的 `data-*`／`<span style>` 正規形）。
  * `data-level`／`data-url`／`data-start` 與標籤（`<h2>`）、`src`、`<ol start>` 重複；拿掉後往返仍一致（單元測試的往返 fixture 守）。
  */
 const NOISE_ATTRS = ["class", "classname", "style", "data-editable", "data-nesting-level", "data-inline-content-type", "target", "rel", "data-level", "data-url", "data-start"];
@@ -52,8 +52,8 @@ const colorStyleType = (el: Element): keyof typeof STYLE_CSS | null => {
  * 連結，HTML 也還原不回檔案 block，所以它的底色不帶出（與 #222 之前相同）。
  */
 const isFileBlock = (el: Element): boolean => el.hasAttribute("data-url") && (el.tagName === "A" || el.tagName === "DIV");
-/** 會在編輯器畫面上顯示的顏色：色盤裡、且不是 `default`。#222 之前存進去的非色盤值編輯器本來就不顯示，當成沒有顏色。 */
-const shown = (v: string | null): v is string => v !== null && v !== "default" && isPaletteColor(v);
+/** 會在編輯器畫面上顯示的顏色：色盤名（不含 `default`）或小寫 `#rrggbb`。其他值（大寫色碼、`rgb()`、非色盤名）編輯器不顯示，當成沒有顏色。 */
+const shown = (v: string | null): v is string => v !== null && isShownColor(v);
 /**
  * 沒有文字也沒有媒體／表格的 block（例如上了底色的空段落）：`<p data-background-color="red"></p>` 寫回時
  * 解析器會把空 `<p>` 丟掉，往返就不一致——所以它的顏色不帶出，讀出與無色相同（#222）。

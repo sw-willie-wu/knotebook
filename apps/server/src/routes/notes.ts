@@ -121,8 +121,8 @@ function sendCreateInsertFailure(reply: FastifyReply, err: unknown, withFolder: 
   return null;
 }
 
-/** #222：`unsupported_color` 的 400 訊息列出可用色名（`POST /api/notes` 帶 content 與 `POST …/edits` 共用）。 */
-const UNSUPPORTED_COLOR_MESSAGE = `That markdown uses a color this editor cannot show, so nothing was written. Colors must be one of: ${PALETTE_COLORS.join(", ")}.`;
+/** #378：`unsupported_color` 的 400 訊息列出可用色名與色碼寫法（`POST /api/notes` 帶 content 與 `POST …/edits` 共用）。 */
+const UNSUPPORTED_COLOR_MESSAGE = `That markdown uses a color this editor cannot show, so nothing was written. Use one of: ${PALETTE_COLORS.join(", ")}, or a hex color written #rgb or #rrggbb, such as #ff6600.`;
 /**
  * 並排：`unsupported_columns`／`unsupported_size` 的 400 訊息（兩條寫入路徑共用）。與 MCP 的
  * `writeFailureMessage` 同一套觸發條件：columns 也涵蓋 display:flex／grid 的 div 與 data-node-type；size 不邀請寫格子圖片。

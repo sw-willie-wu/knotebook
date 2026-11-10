@@ -17,6 +17,7 @@ import {
   FilePanelController,
   SideMenuController,
   SuggestionMenuController,
+  TableHandlesController,
   useCreateBlockNote,
   type DefaultReactSuggestionItem,
 } from "@blocknote/react";
@@ -55,6 +56,7 @@ import { useVersionsPanelWidth } from "@/components/versions/versions-panel-widt
 import { SelectionAiController } from "@/components/ai/SelectionAiController";
 import { KnotebookSideMenu, NotePathContext, SIDE_MENU_FLOATING_OPTIONS } from "@/components/editor/KnotebookSideMenu";
 import { useDragActiveClass } from "@/components/editor/use-drag-active-class";
+import { KnotebookTableCellButton, KnotebookTableHandle } from "@/components/editor/colors/KnotebookTableMenus";
 import { HeadingAnchorButtons } from "@/components/editor/HeadingAnchorButtons";
 import { ColumnDividers } from "@/components/editor/ColumnDividers";
 import { LinkLongPress } from "@/components/LinkLongPress";
@@ -719,10 +721,13 @@ export function NoteEditorView({ editor, editable, theme, noteId, getItems, getS
         slashMenu={false}
         // #269：關掉內建側邊選單，自掛一份（拖曳把手選單多一項「複製段落連結」）。不明確設 false 會疊兩份。
         sideMenu={false}
+        // 關掉內建的表格把手，自掛一份：儲存格與列／欄把手的顏色選單多了「自訂…」。不明確設 false 會疊兩份把手。
+        tableHandles={false}
       >
         <SuggestionMenuController triggerCharacter="[[" getItems={getItems} />
         <SuggestionMenuController triggerCharacter="/" getItems={getSlashItems} />
         <SideMenuController sideMenu={KnotebookSideMenu} floatingUIOptions={SIDE_MENU_FLOATING_OPTIONS} />
+        <TableHandlesController tableHandle={KnotebookTableHandle} tableCellHandle={KnotebookTableCellButton} />
         <FilePanelController filePanel={filePanel} />
         {/* 觸控長按一般連結 ⇒ BlockNote 原生連結工具列（wikilink 的長按在它自己的元件裡）。 */}
         <LinkLongPress />

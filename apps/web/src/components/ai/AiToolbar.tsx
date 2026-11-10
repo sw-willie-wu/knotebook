@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import { getFormattingToolbarItems, useBlockNoteEditor, useComponentsContext, useEditorState } from "@blocknote/react";
 import { Sparkles } from "@/components/ui/icons";
 import { KnotebookFileDeleteButton } from "@/components/editor/KnotebookFileDeleteButton";
+import { KnotebookColorStyleButton } from "@/components/editor/colors/KnotebookColorStyleButton";
 import { useAiSession } from "./AiSession";
 
 /**
@@ -14,6 +15,7 @@ import { useAiSession } from "./AiSession";
  * 渲染，context 穿透 portal。
  *
  * 預設按鈕中的檔案刪除鈕（key `fileDeleteButton`）換成自家版：原生的走 `editor.removeBlocks`，刪欄內的圖會收欄。
+ * 顏色鈕（key `colorStyleButton`）也換成自家版：10 種內建色之外每段多一個「自訂…」，可套任意色碼（#378）。
  */
 export function AiToolbar() {
   const Components = useComponentsContext()!;
@@ -27,7 +29,15 @@ export function AiToolbar() {
 
   return (
     <Components.FormattingToolbar.Root className="bn-toolbar bn-formatting-toolbar">
-      {getFormattingToolbarItems().map((el) => (el.key === "fileDeleteButton" ? <KnotebookFileDeleteButton key="fileDeleteButton" /> : el))}
+      {getFormattingToolbarItems().map((el) =>
+        el.key === "fileDeleteButton" ? (
+          <KnotebookFileDeleteButton key="fileDeleteButton" />
+        ) : el.key === "colorStyleButton" ? (
+          <KnotebookColorStyleButton key="colorStyleButton" />
+        ) : (
+          el
+        ),
+      )}
       {editable && actions.length > 0 && hasBlockSelection && (
         <Components.FormattingToolbar.Button
           mainTooltip={t("ai.toolbar.trigger")}

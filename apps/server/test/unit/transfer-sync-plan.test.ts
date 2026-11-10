@@ -53,7 +53,7 @@ describe("P2／P3 parse 失敗 → 整篇不寫", () => {
   it("P2 改寫區 parse 失敗（unsupported_color）→ { ok: false }", async () => {
     const doc = await docWith(rt, [P("A"), P("B")]);
     const b = await makeBaseInMemory(rt, doc);
-    expect(await planInMemory(rt, b, 'A\n\nx <span style="color:#ff6600">orange-ish</span>', forkOf(doc))).toMatchObject({ ok: false, code: "unsupported_color" });
+    expect(await planInMemory(rt, b, 'A\n\nx <span style="color:tomato">orange-ish</span>', forkOf(doc))).toMatchObject({ ok: false, code: "unsupported_color" });
   });
   it("P3 未閉合 `<!--` 貼在沒改的段上方 → empty_content；改寫一段並在前一行加未閉合 `<!--` → empty_content", async () => {
     const doc = await docWith(rt, [P("A"), P("B")]);

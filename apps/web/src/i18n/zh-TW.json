@@ -412,6 +412,17 @@
     "rose": "玫瑰",
     "gold": "金"
   },
+  "colors": {
+    "custom": "自訂…",
+    "back": "返回",
+    "hex_label": "色碼",
+    "hex_placeholder": "#ff6600",
+    "hex_invalid": "請輸入 #rgb 或 #rrggbb 格式的色碼",
+    "apply": "套用",
+    "recent": "最近用過",
+    "saturation_label": "飽和度與亮度",
+    "hue_label": "色相"
+  },
   "folders": {
     "menu": {
       "label": "{{name}} 的資料夾選單",
@@ -916,7 +927,7 @@
     "section_not_found": "找不到該段落，請重新讀取筆記。",
     "fingerprint_mismatch": "筆記內容在這段期間被修改過，請重新讀取後再試。",
     "unsupported_block": "內容含有這篇筆記無法儲存的部分。",
-    "unsupported_color": "內容用了編輯器沒有的顏色，請改用內建的色名。",
+    "unsupported_color": "內容用了編輯器無法顯示的顏色，請改用內建色名或 #rrggbb 色碼。",
     "unsupported_columns": "AI 改寫失敗，筆記沒有更新。",
     "unsupported_size": "AI 改寫失敗，筆記沒有更新。",
     "empty_content": "內容是空的。",

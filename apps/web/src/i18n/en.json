@@ -412,6 +412,17 @@
     "rose": "Rose",
     "gold": "Gold"
   },
+  "colors": {
+    "custom": "Custom…",
+    "back": "Back",
+    "hex_label": "Hex color",
+    "hex_placeholder": "#ff6600",
+    "hex_invalid": "Enter a color as #rgb or #rrggbb",
+    "apply": "Apply",
+    "recent": "Recent",
+    "saturation_label": "Saturation and brightness",
+    "hue_label": "Hue"
+  },
   "folders": {
     "menu": {
       "label": "Folder menu for {{name}}",
@@ -916,7 +927,7 @@
     "section_not_found": "That section no longer exists — reload the note.",
     "fingerprint_mismatch": "The note changed while you were editing it. Reload and try again.",
     "unsupported_block": "That content contains something this note can't store.",
-    "unsupported_color": "That content uses a color the editor doesn't have. Use one of the built-in color names.",
+    "unsupported_color": "That content uses a color the editor can't show. Use a built-in color name or a hex color such as #ff6600.",
     "unsupported_columns": "The AI edit failed; the note was not changed.",
     "unsupported_size": "The AI edit failed; the note was not changed.",
     "empty_content": "The content is empty.",

@@ -30,8 +30,8 @@ export function writeFailureMessage(code: ParseError | "empty_section", detail?:
       if (detail === "too_complex") return "That markdown is too complex to process within the server's time and memory limits, so nothing was written. Split it into smaller writes or simplify its formatting.";
       return "That markdown contains something this editor cannot store. Plain markdown — headings, text, lists, code, tables — works.";
     case "unsupported_color":
-      // #222：色名清單取自 `PALETTE_COLORS`（單一真相），不手抄。
-      return `That markdown uses a color this editor cannot show, so nothing was written. Colors must be one of: ${PALETTE_COLORS.join(", ")}.`;
+      // #378：色名清單取自 `PALETTE_COLORS`（單一真相），不手抄；#rgb／#rrggbb 是文件教的色碼寫法（寫入端正規化成小寫 #rrggbb）；完整的收拒規則在 shared 的 `canonicalColor`。
+      return `That markdown uses a color this editor cannot show, so nothing was written. Use one of: ${PALETTE_COLORS.join(", ")}, or a hex color written #rgb or #rrggbb, such as #ff6600.`;
     case "unsupported_columns":
       // 並排。觸發的不只並排：只有 display:flex／grid 的 div、任何帶 data-node-type 的元素也回這碼，
       // 所以主詞是「版面或編輯器內部的 HTML」，不說「那段有並排」。

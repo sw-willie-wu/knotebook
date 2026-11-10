@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
 import { clearStaleOneTimeTokens } from "./auth/resetTokenStorage";
+import { installCustomColors } from "./lib/custom-colors";
 import "./i18n";
 import "./index.css";
 // 側欄 logo 的 K 用 Playfair Display 700 italic；K 是拉丁字元，latin 子集即足，
@@ -15,6 +16,9 @@ const queryClient = new QueryClient();
 
 // #286：整頁離開一次性連結頁時 React cleanup 不會跑，暫存的 token 在下一次載入時清掉（見該模組）。
 clearStaleOneTimeTokens(window.location.pathname);
+
+// #378：筆記裡的自訂色碼沒有預先寫好的 CSS，要在 React 渲染出內容之前就開始觀察 DOM。
+installCustomColors();
 
 const rootElement = document.getElementById("root");
 if (!rootElement) throw new Error("#root element not found");
