@@ -29,6 +29,9 @@ describe("loadConfig", () => {
       parse: expect.objectContaining({ workerMemoryMb: 1024, timeoutMs: 10000, queueWaitMs: 45000 }),
       // 筆記大小上限（`NOTE_MAX_BYTES`，預設 5 MiB；見 note-size.test.ts）
       noteMaxBytes: 5_242_880,
+      // #397：env 設的站台限制、機器資訊
+      limitEnv: {},
+      machine: expect.objectContaining({ cpus: expect.any(Number) }),
     });
   });
   it("#175 pool 保險絲：兩個 env 覆寫；空字串視同未設；非正整數 → throw", () => {

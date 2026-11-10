@@ -6,6 +6,7 @@
 import { readFileSync } from "node:fs";
 import { availableParallelism, totalmem } from "node:os";
 import { AUTO_PARSE_WORKERS_MAX, PARSE_MEMORY_SHARE, SITE_LIMITS, defaultParseWorkers, memoryParseWorkers } from "@knotebook/shared";
+import type { LimitEnv, MachineInfo } from "../../site-limits/types.js";
 
 // #397 §6.3：自動推算的純函式與常數搬到 shared（前端公式警告共用）；這裡 re-export，server 既有的 import 不必改。
 export { AUTO_PARSE_WORKERS_MAX, PARSE_MEMORY_SHARE, defaultParseWorkers, memoryParseWorkers };
@@ -135,6 +136,32 @@ const ENV_NAMES: Record<keyof ParseLimits, string> = {
   queueWaitMs: "PARSE_QUEUE_WAIT_MS",
 };
 
+const ENV_LIMIT_KEYS = { workers: "parseWorkers", workerMemoryMb: "parseWorkerMemoryMb", timeoutMs: "parseTimeoutMs", queueWaitMs: "parseQueueWaitMs" } as const;
+
+/**
+ * #397：四個 `PARSE_*` 環境變數 → 站台限制 key 的值（只放有設的；空字串＝沒設）。不合法（非整數、超出 {@link PARSE_LIMIT_RANGES}）
+ * 丟 `設定錯誤：…`（開機 fail fast）。
+ */
+export function parseEnvLimits(env: NodeJS.ProcessEnv): Pick<LimitEnv, "parseWorkers" | "parseWorkerMemoryMb" | "parseTimeoutMs" | "parseQueueWaitMs"> {
+  const out: Pick<LimitEnv, "parseWorkers" | "parseWorkerMemoryMb" | "parseTimeoutMs" | "parseQueueWaitMs"> = {};
+  for (const key of Object.keys(ENV_NAMES) as Array<keyof ParseLimits>) {
+    const raw = env[ENV_NAMES[key]];
+    if (raw === undefined || raw === "") continue;
+    const { min, max } = PARSE_LIMIT_RANGES[key];
+    const value = /^\d+$/.test(raw.trim()) ? Number(raw.trim()) : NaN;
+    if (!Number.isSafeInteger(value) || value < min || value > max) throw new Error(`設定錯誤：${ENV_NAMES[key]} 必須是 ${min} 到 ${max} 的整數：${raw}`);
+    out[ENV_LIMIT_KEYS[key]] = value;
+  }
+  return out;
+}
+
+/** #397：偵測這個程序能用的 CPU 與記憶體。 */
+export function detectMachine(probe?: CpuProbe): MachineInfo {
+  const { cpus, source } = detectCpuCount(probe);
+  const memory = detectMemoryLimit(probe);
+  return { cpus, cpuSource: source, memoryBytes: memory.bytes, memorySource: memory.source };
+}
+
 /** 環境變數 → 生效值。不合法（非整數、超出 {@link PARSE_LIMIT_RANGES}）丟 `設定錯誤：…`（開機 fail fast）；空字串＝沒設。 */
 export function resolveParseSettings(env: NodeJS.ProcessEnv, probe?: CpuProbe): ResolvedParseSettings {
   const { cpus, source } = detectCpuCount(probe);
@@ -147,12 +174,10 @@ export function resolveParseSettings(env: NodeJS.ProcessEnv, probe?: CpuProbe): 
   };
   const out = { ...defaults };
   const from = { workers: "default", workerMemoryMb: "default", timeoutMs: "default", queueWaitMs: "default" } as ResolvedParseSettings["from"];
+  const fromEnv = parseEnvLimits(env);
   for (const key of Object.keys(ENV_NAMES) as Array<keyof ParseLimits>) {
-    const raw = env[ENV_NAMES[key]];
-    if (raw === undefined || raw === "") continue;
-    const { min, max } = PARSE_LIMIT_RANGES[key];
-    const value = /^\d+$/.test(raw.trim()) ? Number(raw.trim()) : NaN;
-    if (!Number.isSafeInteger(value) || value < min || value > max) throw new Error(`設定錯誤：${ENV_NAMES[key]} 必須是 ${min} 到 ${max} 的整數：${raw}`);
+    const value = fromEnv[ENV_LIMIT_KEYS[key]];
+    if (value === undefined) continue;
     out[key] = value;
     from[key] = "env";
   }

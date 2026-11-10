@@ -1,7 +1,8 @@
 import { isIP } from "node:net";
 import { z } from "zod";
 import { MIN_PASSWORD_LENGTH } from "./auth/constants.js";
-import { resolveParseSettings, type CpuProbe, type ResolvedParseSettings } from "./notes/editing/parse-settings.js";
+import { detectMachine, parseEnvLimits, resolveParseSettings, type CpuProbe, type ResolvedParseSettings } from "./notes/editing/parse-settings.js";
+import type { LimitEnv, MachineInfo } from "./site-limits/types.js";
 import { DEFAULT_NOTE_MAX_BYTES, NOTE_MAX_BYTES_MAX } from "./notes/note-size.js";
 const schema = z.object({
   DATABASE_URL: z.string().url("DATABASE_URL 必須是有效的 PostgreSQL URL（如 postgres://user:pass@host:5432/dbname）").refine(
@@ -155,6 +156,10 @@ export interface AppConfig {
    * **唯一的來源**：路由、MCP、批次寫回、協作都從這裡拿（下一版搬進站台設定 #397）。
    */
   noteMaxBytes: number;
+  /** #397：env 有設的站台限制值（只放有設的；沒有 env 的項目永遠不在）。範圍照各 env 舊驗證，不受管理頁範圍限制。 */
+  limitEnv: LimitEnv;
+  /** #397：偵測到的 CPU 與記憶體（自動推算與管理頁顯示用）。 */
+  machine: MachineInfo;
 }
 /** `cpuProbe`：測試縫（CPU 偵測讀的 cgroup 檔與 `availableParallelism`，見 `parse-settings.ts`）。 */
 export function loadConfig(env: NodeJS.ProcessEnv, cpuProbe?: CpuProbe): AppConfig {
@@ -209,13 +214,16 @@ export function loadConfig(env: NodeJS.ProcessEnv, cpuProbe?: CpuProbe): AppConf
   const parse = resolveParseSettings(env, cpuProbe);
   // 空字串視同未設（同其他選配的數字設定）。
   const noteMaxBytes = positiveInt("NOTE_MAX_BYTES", env.NOTE_MAX_BYTES === "" ? undefined : env.NOTE_MAX_BYTES, DEFAULT_NOTE_MAX_BYTES, NOTE_MAX_BYTES_MAX);
+  const limitEnv: LimitEnv = { ...parseEnvLimits(env) };
+  if (env.NOTE_MAX_BYTES !== undefined && env.NOTE_MAX_BYTES !== "") limitEnv.noteMaxBytes = noteMaxBytes;
+  const machine = detectMachine(cpuProbe);
 
   return { databaseUrl: r.data.DATABASE_URL, appSecret: r.data.APP_SECRET, publicUrl,
            cookieSecure: publicUrl.protocol === "https:", insecureHttpWarning,
            trustProxy: parseTrustProxy(r.data.TRUST_PROXY),
            passwordLoginForceEnable: parsePasswordLoginForceEnable(r.data.PASSWORD_LOGIN_FORCE_ENABLE),
            databasePoolMax, databasePoolConnectionTimeoutMs,
-           adminEmail, adminPassword, testHooks, testHooksIgnored, parse, noteMaxBytes };
+           adminEmail, adminPassword, testHooks, testHooksIgnored, parse, noteMaxBytes, limitEnv, machine };
 }
 
 /**

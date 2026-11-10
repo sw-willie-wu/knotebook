@@ -11,8 +11,10 @@ import {
   PARSE_LIMIT_RANGES,
   defaultParseWorkers,
   detectCpuCount,
+  detectMachine,
   detectMemoryLimit,
   memoryParseWorkers,
+  parseEnvLimits,
   resolveParseSettings,
   type CpuProbe,
 } from "../../src/notes/editing/parse-settings.js";
@@ -137,5 +139,20 @@ describe("排隊等待的預設（審查 r4 I4）", () => {
     expect(DEFAULT_PARSE_QUEUE_WAIT_MS).toBeGreaterThan(DOC_TIMEOUT_FACTOR * DEFAULT_PARSE_TIMEOUT_MS);
     expect(resolveParseSettings({ PARSE_TIMEOUT_MS: "30000" }).queueWaitMs).toBe(125_000);
     expect(resolveParseSettings({ PARSE_TIMEOUT_MS: "30000", PARSE_QUEUE_WAIT_MS: "1000" }).queueWaitMs).toBe(1000);
+  });
+});
+
+describe("parseEnvLimits／detectMachine（#397）", () => {
+  it("只放有設的；空字串＝沒設；訊息與 resolveParseSettings 一字不差", () => {
+    expect(parseEnvLimits({})).toEqual({});
+    expect(parseEnvLimits({ PARSE_WORKERS: "", PARSE_TIMEOUT_MS: "20000" })).toEqual({ parseTimeoutMs: 20000 });
+    expect(parseEnvLimits({ PARSE_WORKER_MEMORY_MB: "2048", PARSE_QUEUE_WAIT_MS: "7000", PARSE_WORKERS: "3" })).toEqual({ parseWorkers: 3, parseWorkerMemoryMb: 2048, parseQueueWaitMs: 7000 });
+    for (const [env, bad, min, max] of [["PARSE_WORKERS", "0", 1, 32], ["PARSE_WORKER_MEMORY_MB", "127", 128, 16_384], ["PARSE_TIMEOUT_MS", "1.5", 100, 2_147_483_647], ["PARSE_QUEUE_WAIT_MS", "abc", 100, 2_147_483_647]] as const) {
+      expect(() => parseEnvLimits({ [env]: bad }), env).toThrow(`設定錯誤：${env} 必須是 ${min} 到 ${max} 的整數：${bad}`);
+    }
+  });
+  it("detectMachine 沿用 cpu／記憶體偵測", () => {
+    expect(detectMachine(files({ "/sys/fs/cgroup/cpu.max": "200000 100000", "/sys/fs/cgroup/memory.max": String(2 * GiB) }))).toEqual({ cpus: 2, cpuSource: "cgroup-v2", memoryBytes: 2 * GiB, memorySource: "cgroup-v2" });
+    expect(detectMachine(files({}, 8, 16 * GiB))).toEqual({ cpus: 8, cpuSource: "os", memoryBytes: 16 * GiB, memorySource: "os" });
   });
 });
