@@ -406,6 +406,17 @@
     "rose": "玫瑰",
     "gold": "金"
   },
+  "colors": {
+    "custom": "自訂…",
+    "back": "返回",
+    "hex_label": "色碼",
+    "hex_placeholder": "#ff6600",
+    "hex_invalid": "請輸入 #rgb 或 #rrggbb 格式的色碼",
+    "apply": "套用",
+    "recent": "最近用過",
+    "saturation_label": "飽和度與亮度",
+    "hue_label": "色相"
+  },
   "folders": {
     "menu": {
       "label": "{{name}} 的資料夾選單",
