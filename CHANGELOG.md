@@ -20,6 +20,10 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 - The import of `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET` on first start, a stopgap left over from the sign-in providers of v0.6 (#187).
 
+### Fixed
+
+- **Pasting several paragraphs into the middle of a paragraph no longer converts the ordinary links to notes that were already in it.** Only the links you paste become links to notes; an ordinary link to a note's address after the cursor, which ends up in the second half of the split paragraph, now stays an ordinary link. The same goes for pasting copied table cells into a table: ordinary links to notes in cells the paste didn't fill stay ordinary links (#353).
+
 ## [0.15.0] - 2026-11-10
 
 ### Upgrade notes

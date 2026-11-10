@@ -3,7 +3,8 @@
  * - `createSiteLinkConvertExtension`：tiptap extension，`appendTransaction` 收本地 transaction 的 link `AddMarkStep`（autolink、
  *   連結對話框的 `createLink`、link toolbar 改網址）——掛在 `NoteEditor` 的 `_tiptapOptions.extensions`。貼上（含選取上貼網址、
  *   裸網址的 paste rule）不歸它：一次貼上只由貼上 hook 處理（見 `isForeign`、`pastingRefs`）；拖放也不歸它（#352，見下）。
- * - `createSiteLinkPasteHook`：`createMarkdownPasteHandler` 的掛點——貼上的出口返回後，對前後文件的 diff 範圍呼叫 `convertSiteLinksInRange`。
+ * - `createSiteLinkPasteHook`：`createMarkdownPasteHandler` 的掛點——貼上的出口返回後，對這次貼上改動的範圍呼叫 `convertSiteLinksInRange`。
+ *   範圍由上面那個外掛在貼上期間記錄（`pastingRefs`、`recordPasteRanges`，#353）。
  * - `withSiteLinkDrop`（#352）：`handleDOMEvents.drop` 的最外層——從編輯器外拖進來的放下，在 microtask 裡對放下範圍呼叫
  *   `convertSiteLinksInRange`。範圍由上面那個外掛在拖放期間記錄（`droppingRefs`、`recordDropRange`）；外掛本身仍不轉拖放的 link。
  * - 非同步後備：快取解析不到的站內網址問 server（A6：每次動作 ≤20 個相異 href、單發 5 s），成功後一筆 transaction 套用。
@@ -64,7 +65,7 @@ function convertLinks(tr: Any, links: readonly SiteLinkRange[], env: SiteLinkEnv
  * - 拖放（drop）：prosemirror-view 的 drop handler 對那筆 tr 設 `uiEvent: "drop"`；外部拖進的純文字網址由 tiptap 的 paste rule
  *   （`pasteRulesPlugin` 對 drop 也跑）在**另一筆附加的** tr 加 link mark。一次拖放只歸 drop hook（`withSiteLinkDrop`，#352）——
  *   外掛也收的話，快取未命中時同一個連結會排兩次後備。
- * - 貼上（`uiEvent: "paste"`，prosemirror-view 的 `doPaste`）：一次貼上只歸一個擁有者——由 `createSiteLinkPasteHook` 對前後 diff
+ * - 貼上（`uiEvent: "paste"`，prosemirror-view 的 `doPaste`）：一次貼上只歸一個擁有者——由 `createSiteLinkPasteHook` 對貼上插入的
  *   範圍轉換；外掛若也收 paste rule 附加的 link，快取未命中時同一個連結會排兩次後備（A6 上限翻倍、§7.6 撤銷後可能被晚到的第二發轉回）。
  */
 function isForeign(tr: Any): boolean {
@@ -94,21 +95,57 @@ export function appendSiteLinkConversion(trs: readonly Any[], state: Any, env: S
   return convertLinks(state.tr, links, env);
 }
 
+type PmRange = { from: number; to: number };
+
 /**
  * 貼上進行中（`createSiteLinkPasteHook` 的 `before` → `after`）的 envRef：這段期間外掛不收任何 tr，該次貼上一律由 hook 處理。
  * `uiEvent: "paste"` 擋不到「選取上貼網址」：Link 的 `handlePaste` 用 `commands.setMark` 自己 dispatch，那筆 tr 不帶 uiEvent。
+ * 值是這次貼上改動的範圍（`recordPasteRanges`），映射到目前的文件。
  * `after` 沒被呼叫（出口拋錯）時由 microtask 收回——貼上整段是同步的，microtask 一定在它之後。
  */
-const pastingRefs = new WeakSet<SiteLinkEnvRef>();
+const pastingRefs = new WeakMap<SiteLinkEnvRef, PmRange[]>();
+const mapRange = (mapping: Any, r: PmRange): PmRange => ({ from: mapping.map(r.from, -1), to: mapping.map(r.to, 1) });
 
-type DropRange = { from: number; to: number };
+/**
+ * #353：貼上期間記下每一筆**根** tr（不帶 `appendedTransaction` meta）每個 step 改動的新範圍，並映射過其後的每一筆 tr。根 tr 是貼上本身：
+ * prosemirror-view `doPaste` 的 paste tr（`uiEvent: "paste"`）、Link 的 `handlePaste` 在選取上貼網址的 `setMark`（mark step 沒有
+ * StepMap，取它的 `from`／`to`）、prosemirror-tables 的 `handlePaste` 把複製的格子貼進表格（只換被貼到的格子），以及貼上 mermaid 的
+ * 轉換（只換貼上的那個區塊）。外掛附加的 tr（UniqueID、paste rule…）只映射、不記。`handlePaste` 擋下貼上（例如筆記大小上限）就沒有
+ * 任何 tr、什麼都不記。
+ * - 不用前後文件的 diff：段中貼上多段時被切開那段的後半換了 block id，`findDiffEnd` 停在段尾，範圍蓋到既有內容。
+ * - 不用「貼上前選取＋尺寸差」：貼上的最後一段是另一層的 textblock（例如巢狀清單項）時，PM 的 Fitter 以 ReplaceAroundStep 把游標後的
+ *   既有行內內容搬進那一項，插入的內容被它隔成兩段——StepMap 的兩段正好不含它；格選取的 from／to 也只是其中一格。
+ */
+function recordPasteRanges(trs: readonly Any[], envRef: SiteLinkEnvRef): void {
+  const recorded = pastingRefs.get(envRef);
+  if (!recorded) return;
+  let ranges: PmRange[] = recorded;
+  for (const tr of trs) {
+    const mapping = tr.mapping;
+    ranges = ranges.map((r) => mapRange(mapping, r));
+    if (tr.getMeta("appendedTransaction") !== undefined) continue;
+    (tr.steps as readonly Any[]).forEach((step, i) => {
+      const rest = tr.mapping.slice(i + 1);
+      const json = step.toJSON();
+      if (json?.stepType === "addMark" || json?.stepType === "removeMark") {
+        if (json.from < json.to) ranges.push(mapRange(rest, { from: json.from, to: json.to }));
+        return;
+      }
+      // 只刪不插的段（newStart === newEnd）不記：新文件裡沒有它的內容。
+      (tr.mapping.maps[i] as Any).forEach((_oldStart: number, _oldEnd: number, newStart: number, newEnd: number) => {
+        if (newStart < newEnd) ranges.push(mapRange(rest, { from: newStart, to: newEnd }));
+      });
+    });
+  }
+  pastingRefs.set(envRef, ranges);
+}
 
 /**
  * 拖放進行中（`withSiteLinkDrop` 的 before → after）的放下範圍；null＝還沒看到 drop tr、或不轉。
  * 不放 plugin state：plugin state 沒有重設點，下一次沒有 drop tr 的放下（媒體阻擋、Files、只有 uri-list）會讀到上一次的範圍。
  * before 覆寫成 null、after（與 before 的 catch）刪除，兩道互為備援。
  */
-const droppingRefs = new WeakMap<SiteLinkEnvRef, DropRange | null>();
+const droppingRefs = new WeakMap<SiteLinkEnvRef, PmRange | null>();
 
 /** 外掛 `appendTransaction` 先呼叫：拖放期間記下 drop tr 插入的範圍，並映射過其後的每一筆 tr（paste rule、UniqueID、fixTables…）。 */
 function recordDropRange(trs: readonly Any[], envRef: SiteLinkEnvRef): void {
@@ -118,7 +155,7 @@ function recordDropRange(trs: readonly Any[], envRef: SiteLinkEnvRef): void {
     if (tr.getMeta("uiEvent") === "drop") {
       // 同 prosemirror-view handleDrop 算 `end` 的方式：最後一個 step 的 StepMap。不是恰好一段就不轉（往不轉的方向錯）。
       const maps = tr.mapping.maps as readonly Any[];
-      const segments: DropRange[] = [];
+      const segments: PmRange[] = [];
       maps[maps.length - 1]?.forEach((_oldStart: number, _oldEnd: number, newStart: number, newEnd: number) => segments.push({ from: newStart, to: newEnd }));
       r = segments.length === 1 ? segments[0]! : null;
     } else if (r) {
@@ -136,6 +173,7 @@ export function createSiteLinkConvertExtension({ envRef }: { envRef: SiteLinkEnv
         createPmPlugin({
           appendTransaction: (trs, _old, state) => {
             recordDropRange(trs, envRef);
+            recordPasteRanges(trs, envRef);
             return pastingRefs.has(envRef) ? null : appendSiteLinkConversion(trs, state, envRef.current);
           },
         }) as never,
@@ -144,10 +182,10 @@ export function createSiteLinkConvertExtension({ envRef }: { envRef: SiteLinkEnv
   });
 }
 
-/** 貼上（§8.3）：新文件 `[from, to]` 內的站內連結；同步可解者一筆 transaction 換掉，其餘排後備。整段不拋錯（呼叫端另有 try/catch）。 */
-export function convertSiteLinksInRange(editor: AnyEditor, from: number, to: number, env: SiteLinkEnv): void {
+/** 貼上／拖放：新文件 `ranges` 內的站內連結；同步可解者一筆 transaction 換掉，其餘排後備。整段不拋錯（呼叫端另有 try/catch）。 */
+export function convertSiteLinksInRange(editor: AnyEditor, ranges: ReadonlyArray<PmRange>, env: SiteLinkEnv): void {
   const view = editor._tiptapEditor.view;
-  const links = collectSiteLinks(view.state.doc, [{ from, to }], env.origin);
+  const links = collectSiteLinks(view.state.doc, ranges, env.origin);
   if (links.length === 0) return;
   const tr = convertLinks(view.state.tr, links, env);
   if (tr) view.dispatch(tr);
@@ -189,51 +227,31 @@ export async function runFallbackConversion(
 }
 
 /**
- * §8.3：貼上前後的文件 diff 範圍（不依 block id——行內貼上不換 block id 也抓得到，補 mermaid 快照法的盲點）。
- * - 重複內容時 `findDiffEnd` 會往前多吃（貼上的內容與相鄰的既有內容相同 ⇒ 結尾的 a 或 b 側退到起點之前），照 ProseMirror
- *   慣例（prosemirror-view 的 `findDiff`）以貼上前的游標 `pref` 消歧：落在重疊區內就把起點退到 `pref`，範圍長度＝新舊大小差。
- *   不消歧的話，在既有同內容的**前方**貼上會轉到既有那份、貼上那份留一般連結。
- * - 正規化成 `from ≤ to`；只剩刪除（`from === to`）就不轉：新文件裡沒有新內容，而 `collectSiteLinks` 的點範圍含端點，
- *   交進去會把緊鄰的既有站內連結收進來。
+ * 貼上的站內連結轉換（#269）：轉換範圍＝這次貼上改動的內容（不依 block id——行內貼上不換 block id 也抓得到，補 mermaid 快照法的盲點）。
+ * - 範圍是 `recordPasteRanges` 記下的各段（#353；為什麼不用 diff、不用選取見該函式）。重複內容（貼上的與相鄰的既有內容相同）也不會認錯份。
+ * - 空範圍（只剩刪除）不轉：新文件裡沒有新內容，而 `collectSiteLinks` 的點範圍含端點，交進去會把緊鄰的既有站內連結收進來。
  */
 export function createSiteLinkPasteHook(envRef: SiteLinkEnvRef): PasteConversionHook {
   return {
-    before: (editor) => {
-      const state = (editor as AnyEditor)._tiptapEditor.view.state;
-      pastingRefs.add(envRef);
+    before: () => {
+      pastingRefs.set(envRef, []);
       queueMicrotask(() => pastingRefs.delete(envRef));
-      return { doc: state.doc, pref: state.selection.from as number };
+      return true; // 快照本身不需要內容（範圍由外掛記錄）；`undefined` 會讓 paste.ts 略過 after
     },
-    after: (editor, snapshot) => {
+    after: (editor) => {
+      const recorded = pastingRefs.get(envRef) ?? [];
       pastingRefs.delete(envRef);
       const env = envRef.current;
       if (!env) return;
-      const ed = editor as AnyEditor;
-      const { doc: before, pref } = snapshot as { doc: Any; pref: number };
-      const after = ed._tiptapEditor.view.state.doc;
-      let start: number | null = before.content.findDiffStart(after.content);
-      if (start === null || start === undefined) return;
-      const end: { a: number; b: number } | null = before.content.findDiffEnd(after.content);
-      let endB = end ? end.b : after.content.size;
-      const endA = end ? end.a : before.content.size;
-      // 同 prosemirror-view `findDiff` 的兩個分支（只取本處用得到的 endB；`endA` 之後不再用）
-      if (endA < start && before.content.size < after.content.size) {
-        start -= pref <= start && pref >= endA ? start - pref : 0;
-        endB = start + (endB - endA);
-      } else if (endB < start) {
-        start -= pref <= start && pref >= endB ? start - pref : 0;
-        endB = start;
-      }
-      const from = Math.min(start, endB);
-      const to = Math.max(start, endB);
-      if (from === to) return;
-      convertSiteLinksInRange(ed, from, to, env);
+      const ranges = recorded.filter((r) => r.from < r.to);
+      if (ranges.length === 0) return;
+      convertSiteLinksInRange(editor as AnyEditor, ranges, env);
     },
   };
 }
 
 function afterDrop(envRef: SiteLinkEnvRef, editorRef: EditorRef): void {
-  let range: DropRange | null | undefined;
+  let range: PmRange | null | undefined;
   try {
     range = droppingRefs.get(envRef);
   } finally {
@@ -245,7 +263,7 @@ function afterDrop(envRef: SiteLinkEnvRef, editorRef: EditorRef): void {
     const env = envRef.current;
     const editor = editorRef.current;
     // 同 `runFallbackConversion`：編輯器已 unmount 時 `view` 是 stub，靠 `headless` 判斷。
-    if (env && editor && !editor.headless) convertSiteLinksInRange(editor, range.from, range.to, env);
+    if (env && editor && !editor.headless) convertSiteLinksInRange(editor, [range], env);
   } catch (err) {
     console.warn("[site-link] drop conversion failed", err);
   }
