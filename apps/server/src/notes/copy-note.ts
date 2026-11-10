@@ -49,7 +49,7 @@ export interface CopyNoteDeps {
   storageLockTimeoutMs: number;
   /** 與上傳端點、REST 複製**同一實例**（F40）。 */
   limiters: { edit: FixedWindowLimiter; upload: FixedWindowLimiter };
-  /** 筆記大小上限（`config.noteMaxBytes`）；不給＝不擋。 */
+  /** 筆記大小上限（呼叫端傳入的當下生效值）；不給＝不擋。 */
   noteMaxBytes?: number;
   groupTestHook?: GroupTestHook;
   noteCreateHooks?: NoteCreateHooks;
@@ -114,7 +114,7 @@ export async function copyNote(
 
   const { doc: snapshot } = await loadNoteDoc({ db: deps.db, collab: deps.collab }, sourceId);
   const copy = cloneForCopy(snapshot);
-  // 筆記大小上限（`config.noteMaxBytes`）：副本是新筆記，比 0 大又超過上限就不建。附件網址在交易內改寫，大小差可忽略。
+  // 筆記大小上限（呼叫端傳入的值）：副本是新筆記，比 0 大又超過上限就不建。附件網址在交易內改寫，大小差可忽略。
   const cap = deps.noteMaxBytes;
   if (cap !== undefined) {
     const size = Y.encodeStateAsUpdate(copy.doc).byteLength;

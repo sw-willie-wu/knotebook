@@ -259,9 +259,9 @@ describe("NOTE_MAX_BYTES 設定", () => {
   const base = { DATABASE_URL: "postgres://u:p@localhost:5432/db", APP_SECRET: "a".repeat(64), PUBLIC_URL: "http://localhost:3000" };
   it("預設 5 MiB；正整數可設；空字串＝未設；0、負數、小數、非數字、超過 1 GiB → 開機失敗", () => {
     expect(DEFAULT_NOTE_MAX_BYTES).toBe(5_242_880);
-    expect(loadConfig(base).noteMaxBytes).toBe(5_242_880);
-    expect(loadConfig({ ...base, NOTE_MAX_BYTES: "1048576" }).noteMaxBytes).toBe(1_048_576);
-    expect(loadConfig({ ...base, NOTE_MAX_BYTES: "" }).noteMaxBytes, "空字串＝未設").toBe(5_242_880);
+    expect(loadConfig(base).limitEnv.noteMaxBytes, "沒設＝undefined").toBeUndefined();
+    expect(loadConfig({ ...base, NOTE_MAX_BYTES: "1048576" }).limitEnv.noteMaxBytes).toBe(1_048_576);
+    expect(loadConfig({ ...base, NOTE_MAX_BYTES: "" }).limitEnv.noteMaxBytes, "空字串＝未設").toBeUndefined();
     for (const bad of ["0", "-1", "1.5", "abc", String(1024 ** 3 + 1)]) expect(() => loadConfig({ ...base, NOTE_MAX_BYTES: bad }), bad).toThrow(/NOTE_MAX_BYTES/);
   });
 });

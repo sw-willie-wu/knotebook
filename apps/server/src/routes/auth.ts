@@ -5,6 +5,7 @@ import { MAX_REGISTER_DISPLAY_NAME_LENGTH, SESSION_COOKIE, normalizeEmail, norma
 import { sendError, sendLoginThrottled } from "../http/errors.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
+import type { SiteLimits } from "../site-limits/store.js";
 import { authProviders, handleRenames, handles, siteSettings, users } from "../db/schema.js";
 import { UUID_RE } from "../notes/service.js";
 import { uniqueViolationConstraint } from "../db/pg-errors.js";
@@ -41,6 +42,7 @@ const passwordBodySchema = z.object({
 export interface AuthRouteDeps {
   db: Db;
   config: AppConfig;
+  siteLimits: SiteLimits;
   gate: UserGate;
   throttle: LoginThrottle;
   collabHooks: CollabHooks;
@@ -76,7 +78,8 @@ export function authRoutes(deps: AuthRouteDeps) {
         passwordLogin: { enabled: passwordLoginEnabled },
         autoVersionsEnabled: versionsRow?.v ?? true,
         // 網頁編輯器的筆記大小上限檢查（貼上、拖放、站內 AI 套用之前；協作更新不在 server 檢查）。
-        noteMaxBytes: deps.config.noteMaxBytes,
+        noteMaxBytes: deps.siteLimits.get("noteMaxBytes"),
+        maxUploadBytes: deps.siteLimits.get("uploadMaxBytes"),
       };
     });
 

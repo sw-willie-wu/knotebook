@@ -25,6 +25,7 @@ import { NOTE_WRITE_TOO_COMPLEX_MESSAGE, sendDocReadError, sendParserBusy, TOO_C
 import type { ParseDetail } from "../notes/editing/markdown.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
+import type { SiteLimits } from "../site-limits/store.js";
 import { groups, notePlacements, noteShares, notes, users } from "../db/schema.js";
 import type { GroupTestHook } from "../groups/test-hook.js";
 import { TxAbort } from "../http/tx-abort.js";
@@ -158,6 +159,7 @@ export interface NotesRouteDeps {
   db: Db;
   collabHooks: CollabHooks;
   config: AppConfig;
+  siteLimits: SiteLimits;
   /**
    * #106：`GET /api/notes/:id/content` 的兩個依賴。**兩者皆選配、且缺一條路由就不註冊**
    * （見 `register` 內的閘門）——`buildTestApp` 那種無 collab 的 app 連這條路由都沒有。
@@ -1065,7 +1067,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
       const out = await copyNote(
         {
           db: deps.db, collab: deps.collab, log: request.log, uploadsDir: deps.uploadsDir, storageLockTimeoutMs: deps.storageLockTimeoutMs,
-          limiters: { edit: deps.limiters.edit, upload: deps.limiters.upload }, noteMaxBytes: deps.config.noteMaxBytes,
+          limiters: { edit: deps.limiters.edit, upload: deps.limiters.upload }, noteMaxBytes: deps.siteLimits.get("noteMaxBytes"),
           groupTestHook: deps.groupTestHook, noteCreateHooks: deps.noteCreateHooks, searchIndexHooks: deps.searchIndexHooks,
         },
         {

@@ -8,7 +8,7 @@ import Fastify, {
 import fastifyCookie from "@fastify/cookie";
 import fastifyMultipart from "@fastify/multipart";
 import fastifyFormbody from "@fastify/formbody";
-import { MAX_UPLOAD_BYTES, type ErrorCode, type RequiredScope, type TokenScope } from "@knotebook/shared";
+import { SITE_LIMITS, type ErrorCode, type RequiredScope, type TokenScope } from "@knotebook/shared";
 import { publicUrlIssuer, type AppConfig } from "./config.js";
 import type { Db } from "./db/index.js";
 import { resolveSessionUser as resolveSessionUserFromCookies, type GateUser, type ResolvedSession, type UserGate } from "./auth/session.js";
@@ -490,7 +490,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   // 仍 415）就是靠「parser 全域可用」這個前提才具備 mutation 鑑別力（見該測試檔說明），
   // 註冊位置一旦挪動，測試看起來還是綠，但鑑別力已經悄悄消失。
   //
-  // `limits`（spec §12.4）：`fileSize` 用 `MAX_UPLOAD_BYTES`（10 MiB）；`parts`/`fields`/
+  // `limits`：`fileSize` 用註冊表的上傳上限最大值（10 MiB；實際上限在 `routes/uploads.ts` 每次請求現讀 `siteLimits`）；`parts`/`fields`/
   // `fieldSize` 是防病態 multipart body 的粗閘（32 parts、16 fields、每個 field 1 KiB）。
   // 刻意**不設 `limits.files`**——`routes/uploads.ts` 自己處理「多個 file part 只取
   // 第一個，其餘 drain」；設了 `files` 上限會讓外掛在偵測到第二個 file part 時自己
@@ -502,7 +502,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   // （那個錯誤沒有我們要的錯誤碼語意，且會在其他 file part 還沒處理完時就中斷整個
   // `parts()` 迭代，讓「其餘 drain」做不到）。
   void app.register(fastifyMultipart, {
-    limits: { fileSize: MAX_UPLOAD_BYTES, parts: 32, fields: 16, fieldSize: 1024 },
+    limits: { fileSize: SITE_LIMITS.uploadMaxBytes.max, parts: 32, fields: 16, fieldSize: 1024 },
     throwFileSizeLimit: false,
   });
 
@@ -725,7 +725,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   app.addHook("preValidation", lowercaseUuidParams);
 
   void app.register(
-    authRoutes({ db: deps.db, config: deps.config, gate: deps.gate, throttle: deps.throttle, collabHooks: deps.collabHooks, reloginReverifyDelayMs: deps.reloginReverifyDelayMs })
+    authRoutes({ db: deps.db, config: deps.config, siteLimits: deps.siteLimits, gate: deps.gate, throttle: deps.throttle, collabHooks: deps.collabHooks, reloginReverifyDelayMs: deps.reloginReverifyDelayMs })
   );
   // #107：PAT 管理端點——cookie 專用（token 不能簽發或撤銷 token），見 routes/api-tokens.ts 檔頭。
   void app.register(
@@ -781,7 +781,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     versions,
     renameHook: deps.slugUpdateTestHook,
     shownLinks: deps.shownLinks,
-    noteMaxBytes: deps.config.noteMaxBytes,
+    noteMaxBytes: () => deps.siteLimits.get("noteMaxBytes"),
   });
 
   // #269 §12.1：必用同一個 `writes`（共用佇列，與 MCP 寫入、套用版本、手動存版串行）。只建、不啟動——`index.ts` listen 之後才 start()，
@@ -800,6 +800,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       db: deps.db,
       collabHooks: deps.collabHooks,
       config: deps.config,
+      siteLimits: deps.siteLimits,
       collab: deps.collab,
       editing,
       limiters,
@@ -878,6 +879,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     uploadsRoutes({
       db: deps.db,
       config: deps.config,
+      siteLimits: deps.siteLimits,
       gate: deps.gate,
       // #200：bearerMiss／tokenRead 與 authenticateAny 是**同一個實例**（同一本帳由物件同一性成立）。
       limiters: { upload: limiters.upload, bearerMiss: limiters.bearerMiss, tokenRead: limiters.tokenRead },

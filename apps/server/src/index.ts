@@ -17,7 +17,7 @@ import { SCAN_STOP_GRACE_MS } from "./collab/versions.js";
 import { buildApp } from "./app.js";
 import { createAiRuntime, selfCheckAiKeys } from "./ai/runtime.js";
 import { backfillSearchIndex } from "./notes/search-index.js";
-import { logNotesOverCap } from "./notes/note-size-startup.js";
+import { logNotesOverCap, watchNotesOverCap } from "./notes/note-size-startup.js";
 import { SiteLimits } from "./site-limits/store.js";
 import { parseSettingsLogFields } from "./site-limits/boot-log.js";
 
@@ -150,7 +150,9 @@ async function main(): Promise<void> {
   // handle.test.ts 的結構守衛釘住這個順序）。
   await backfillHandleRegistry(db, logger);
   // 筆記大小上限（`NOTE_MAX_BYTES`）：記下已經超過的筆記（篇數與 id，不記標題）。
-  await logNotesOverCap(db, config.noteMaxBytes, logger);
+  await logNotesOverCap(db, siteLimits.get("noteMaxBytes"), logger);
+  // 管理員改了 `noteMaxBytes`（#397）：重記一次超過新上限的筆記。只在這裡訂閱（`buildApp` 不訂閱）。
+  watchNotesOverCap(siteLimits, db, logger);
 
   const gate = new UserGate(db);
   const throttle = new LoginThrottle();
