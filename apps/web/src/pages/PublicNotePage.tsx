@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Link, useLocation, useParams } from "react-router";
+import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import type { PublicLinkDto, PublicNoteDto } from "@knotebook/shared";
 import { api, ApiFail } from "@/api/client";
@@ -19,7 +19,7 @@ import { Presentation } from "@/components/ui/icons";
 import { exitOwnedFullscreen } from "@/present/fullscreen";
 import { LazyPresentation } from "@/present/lazy";
 import { PresentationErrorBoundary, PresentationShell, type PresentationShellStatus } from "@/present/PresentationShell";
-import { exitFullscreenIfLeftPresentation, isPresentingSearch } from "@/present/present-url";
+import { exitFullscreenIfLeftPresentation, isPresentingSearch, searchWithoutPresent } from "@/present/present-url";
 import { usePresentEntry } from "@/present/usePresentEntry";
 
 /** #269：舊 server 沒帶 `links` 時的後備——模組層常數，identity 穩定，PublicNoteEditor 的 links Map 不會每次 render 重建。 */
@@ -45,6 +45,7 @@ export default function PublicNotePage() {
 
   // #229：簡報模式（spec §6.1、§8）。location 取本頁自己的 useLocation()。
   const location = useLocation();
+  const navigate = useNavigate();
   const presenting = isPresentingSearch(location.search);
   const { presentHere } = usePresentEntry();
 
@@ -91,6 +92,13 @@ export default function PublicNotePage() {
   useEffect(() => {
     if (notFound) exitOwnedFullscreen();
   }, [notFound]);
+  // #234：失效卡不該帶著 ?present 與投影片 hash——replace 拿掉（不新增歷史），其他 query 保留。
+  // 404 之後才導到 ?present 的網址也要拿掉，所以 deps 含 location。
+  useEffect(() => {
+    if (notFound && isPresentingSearch(location.search)) {
+      void navigate({ pathname: location.pathname, search: searchWithoutPresent(location.search), hash: "" }, { replace: true });
+    }
+  }, [notFound, location.pathname, location.search, navigate]);
   // 卸載型呼叫點（讀真實網址）。
   useEffect(() => () => exitFullscreenIfLeftPresentation(), []);
 
