@@ -298,7 +298,8 @@
     "columns": {
       "slashTitle": "{{n}} columns",
       "slashSubtext": "Place blocks side by side",
-      "ungroup": "Ungroup columns"
+      "ungroup": "Ungroup columns",
+      "resize": "Resize columns"
     }
   },
   "login": {

@@ -56,6 +56,7 @@ import { SelectionAiController } from "@/components/ai/SelectionAiController";
 import { KnotebookSideMenu, NotePathContext, SIDE_MENU_FLOATING_OPTIONS } from "@/components/editor/KnotebookSideMenu";
 import { useDragActiveClass } from "@/components/editor/use-drag-active-class";
 import { HeadingAnchorButtons } from "@/components/editor/HeadingAnchorButtons";
+import { ColumnDividers } from "@/components/editor/ColumnDividers";
 import { LinkLongPress } from "@/components/LinkLongPress";
 
 const VersionsPanel = lazy(() =>
@@ -611,6 +612,8 @@ export function NoteEditor({
                 <SelectionAiController />
               </NoteEditorView>
               <HeadingAnchorButtons container={columnEl} />
+              {/* 欄間分隔線（拖曳／鍵盤調欄寬）只在可編輯時掛；唯讀時沒有東西可調。 */}
+              {editable && <ColumnDividers container={columnEl} editor={editor} />}
             </div>
           </div>
           {hasPreview && (

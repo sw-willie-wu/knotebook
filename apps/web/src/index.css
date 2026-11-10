@@ -937,6 +937,57 @@ input[name="share-access"] {
 .kb-dragging .kb-column-dividers [role="separator"],
 .kb-dragging .kb-column-dividers * { pointer-events: none; }
 
+/* 欄內的 ⋮⋮ 縮成 16px 寬、貼著右欄左緣（side menu 以 left-start 定位，右緣對齊 block 左緣，外框變窄就往右縮），
+   溝的左側 8px 留給分隔線（components/editor/ColumnDividers.tsx）。要縮的是實際的命中目標：mantine 的 ActionIcon
+   自己有 24px 寬（--ai-size），svg 由 `.bn-side-menu .mantine-UnstyledButton-root:not(.mantine-Menu-item) svg`
+   (0,3,1) 定成 22px；只縮外框的話按鈕照樣溢出、蓋到分隔線（side menu 的 z-index 20 高於分隔線浮層的 5）。
+   BlockNote 的 CSS 在 lazy chunk、晚於本檔，這幾條的特異度都要高過 mantine 的對應規則，否則靜默失效（build 後 grep
+   dist/assets/*.css 的 data-kb-column-side-menu）。 */
+.bn-container [data-kb-column-side-menu] .bn-side-menu {
+  width: 16px;
+}
+.bn-container [data-kb-column-side-menu] .bn-side-menu .mantine-UnstyledButton-root:not(.mantine-Menu-item) {
+  width: 16px;
+  min-width: 16px;
+  padding: 0;
+  overflow: hidden;
+}
+.bn-container [data-kb-column-side-menu] .bn-side-menu .mantine-UnstyledButton-root:not(.mantine-Menu-item) svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* 分隔線：命中區是溝左側 8px（觸控時佔滿溝），直線畫在溝的正中央（命中區左緣＝左欄右緣，往右半個溝寬）。
+   平常不顯示，hover、鍵盤聚焦、拖曳中才出現；觸控沒有 hover，以淡色常顯（data-touch）。直線本身不吃指標。
+   這裡不寫 pointer-events：分隔線靠 Tailwind 的 pointer-events-auto 吃指標，拖放中由上面那條 .kb-dragging 規則關掉。 */
+.kb-column-dividers [role="separator"]::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(12px - 0.5px);
+  width: 1px;
+  background-color: var(--muted-foreground);
+  opacity: 0;
+  pointer-events: none;
+}
+.kb-column-dividers [role="separator"][data-touch]::after {
+  opacity: 0.35;
+}
+.kb-column-dividers [role="separator"]:hover::after,
+.kb-column-dividers [role="separator"]:focus-visible::after,
+.kb-column-dividers [role="separator"][data-dragging]::after {
+  opacity: 1;
+}
+.kb-column-dividers [role="separator"]:focus {
+  outline: none;
+}
+.kb-column-dividers [role="separator"]:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 0;
+  border-radius: 2px;
+}
+
 /* 版本預覽 diff（spec §8.4）：左邊 3px 色條＋淡底。顏色只在 diff 預覽內（D7「唯一的顏色是綠點」的例外）。
    選擇器掛在 .kb-diff（DiffEditor 的 wrapper）之下，活編輯器不受影響。字面色、不碰 --brand（#154：.bn-root 內 brand token 會被重設）。
    `data-diff` 貼在 `.bn-block-outer[data-id]`，`.bn-block` 是它的直接子（Task 8 Step 1 探針印出的 DOM）；並排的欄與列也貼（見下方那組）。
