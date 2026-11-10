@@ -86,7 +86,7 @@ export const COPY_NEEDS_MOVE_MESSAGE =
   "credential via the pencil on its row in Settings → Authorization, then try again.";
 export const copyNoteOutput = { note: noteSummarySchema.describe("The new copy, in the same shape list_notes returns.") };
 
-/** spec §6.6（`too_many_requests`）：上限由呼叫端傳入（#397：擋下這次請求那顆桶的當下上限，`FixedWindowLimiter.currentLimit()`）；視窗長度仍由 `UPLOAD_LIMIT` 內插，不手抄（U7 守）。 */
+/** `too_many_requests`：上限由呼叫端傳入（#397：擋下這次請求那顆桶的當下上限，`FixedWindowLimiter.currentLimit()`）；視窗長度仍由 `UPLOAD_LIMIT` 內插，不手抄。 */
 export function copyUploadLimitMessage(limit: number): string {
   return (
     `Copying this note's images would go over your upload limit (${limit} files per ${UPLOAD_LIMIT.windowMs / 60_000} minutes, ` +

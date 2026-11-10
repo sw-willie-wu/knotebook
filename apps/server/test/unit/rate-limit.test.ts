@@ -18,7 +18,7 @@ import {
   retryAfterSeconds,
 } from "../../src/http/rate-limit.js";
 
-describe("#397 S7：9 個可調桶的常數與註冊表一致", () => {
+describe("#397：9 個可調桶的常數與註冊表一致", () => {
   const pairs: Array<[SiteLimitKey, { readonly limit: number; readonly windowMs: number }]> = [
     ["rateTokenRead", TOKEN_READ_LIMIT],
     ["rateTokenWrite", TOKEN_WRITE_LIMIT],

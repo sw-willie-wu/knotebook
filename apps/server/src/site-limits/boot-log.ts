@@ -1,5 +1,5 @@
 /**
- * #398／#397 §6.3：開機 log「parse worker settings in effect」的欄位（純函式；`index.ts` 在 `SiteLimits.load` 之後呼叫）。
+ * #398／#397：開機 log「parse worker settings in effect」的欄位（純函式；`index.ts` 在 `SiteLimits.load` 之後呼叫）。
  * 欄位名照 #398 的舊 log：`workers, workersSource, workerMemoryMb, timeoutMs, queueWaitMs, from, cpus, cpuSource, memoryMb, memorySource`。
  */
 import type { SiteLimitItemDto, SiteLimitKey, SiteLimitSource } from "@knotebook/shared";

@@ -1,5 +1,5 @@
 /**
- * #397 S4（spec §6.4、§6.5、§8.2-2～5、§13.1 `update` 的驗證、§13.2 修改紀錄／並行／載入）：
+ * #397：`update` 的驗證、修改紀錄、並行與載入：
  * `SiteLimits.load`／`update` 接拋棄式 DB。actor 一律是本測試在同一個 DB 建的 admin（`site_limit_changes.actor_user_id`
  * 有外鍵）；只有「交易失敗」案刻意用不存在的 uuid。
  */
@@ -62,7 +62,7 @@ async function caught(p: Promise<unknown>): Promise<unknown> {
   throw new Error("expected update to reject");
 }
 
-describe("SiteLimits.update 的驗證（spec §6.4、§8.2-2／3）", () => {
+describe("SiteLimits.update 的驗證", () => {
   it("update 擋越界／沒對齊／env 鎖，且什麼都不寫", async () => {
     const { db, admin, s } = await setup();
     const range = await caught(s.update(admin.id, { rateEdit: 2 }));
@@ -98,7 +98,7 @@ describe("SiteLimits.update 的驗證（spec §6.4、§8.2-2／3）", () => {
     expect(await countRows(db)).toEqual({ limits: 0, changes: 0 });
   });
 
-  it("單一輪驗證（spec §6.4，r2 m4）", async () => {
+  it("單一輪驗證", async () => {
     const { db, admin, s } = await setup();
     const e = await caught(s.update(admin.id, { noteMaxBytes: 1048577, rateEdit: 2 }));
     expect(e).toBeInstanceOf(LimitStepError);
@@ -116,7 +116,7 @@ describe("SiteLimits.update 的驗證（spec §6.4、§8.2-2／3）", () => {
   });
 });
 
-describe("SiteLimits.update 的寫入與修改紀錄（spec §8.2-4／5、§13.2）", () => {
+describe("SiteLimits.update 的寫入與修改紀錄", () => {
   it("寫入＋紀錄", async () => {
     const { db, admin, s } = await setup();
     const [bystander] = await db
@@ -159,7 +159,7 @@ describe("SiteLimits.update 的寫入與修改紀錄（spec §8.2-4／5、§13.2
     expect(bFinal).toEqual(bystander);
   });
 
-  it("存成等於預設的值（Review Focus 2）", async () => {
+  it("存成等於預設的值", async () => {
     const { db, admin, s } = await setup();
     const calls: Array<ReadonlySet<SiteLimitKey>> = [];
     s.onChange(keys => void calls.push(keys));
@@ -210,7 +210,7 @@ describe("SiteLimits.update 的寫入與修改紀錄（spec §8.2-4／5、§13.2
     expect(second).toBe(2);
   });
 
-  it("交易失敗：鎖放掉、記憶體不動（spec §6.5）", async () => {
+  it("交易失敗：鎖放掉、記憶體不動", async () => {
     const { db, admin, s } = await setup();
     const err = (await caught(s.update("00000000-0000-0000-0000-000000000000", { rateEdit: 10 }))) as { code?: string; cause?: { code?: string } };
     expect(err.code ?? err.cause?.code, "actor 外鍵 23503").toBe("23503");
@@ -256,7 +256,7 @@ describe("SiteLimits.update 的寫入與修改紀錄（spec §8.2-4／5、§13.2
   });
 });
 
-describe("SiteLimits.load（spec §6.4、§13.2 載入）", () => {
+describe("SiteLimits.load", () => {
   it("load 忽略越界與未知列", async () => {
     const { db } = await freshDb();
     const admin = await insertAdmin(db);

@@ -1,4 +1,4 @@
-/** #180 spec §6.6 U7：copyUploadLimitMessage(limit) 的上限由呼叫端傳入、視窗長度由 UPLOAD_LIMIT 內插（不手抄）；copy 配額可見形用 formatBytes。 */
+/** #180：copyUploadLimitMessage(limit) 的上限由呼叫端傳入、視窗長度由 UPLOAD_LIMIT 內插（不手抄）；copy 配額可見形用 formatBytes。 */
 import { describe, expect, it } from "vitest";
 import { UPLOAD_LIMIT } from "../../src/http/rate-limit.js";
 import { copyUploadLimitMessage, copyQuotaVisibleMessage } from "../../src/mcp/tools/copy-note.js";

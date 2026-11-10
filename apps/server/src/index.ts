@@ -109,7 +109,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // #397 §6.1：站台限制（env＞管理頁存的值＞預設／自動）。migration 之後、`buildApp` 之前載入，經 `AppDeps.siteLimits` 傳入；
+  // #397：站台限制（env＞管理頁存的值＞預設／自動）。migration 之後、`buildApp` 之前載入，經 `AppDeps.siteLimits` 傳入；
   // 讀不到 DB → 開機失敗（同 migration）。`limitEnv` 必須就是 `config.limitEnv`（鎖定狀態唯一來源）。
   let siteLimits: SiteLimits;
   try {
@@ -118,7 +118,7 @@ async function main(): Promise<void> {
     logger.error({ err }, "site limits load failed — check DATABASE_URL and that migration 0039 (site_limits) ran");
     process.exit(1);
   }
-  // #398／#397 §6.3：markdown 解析 worker 的生效值（各值的 `from`：env／admin（管理頁）／default／auto；worker 數自動時依 CPU 與記憶體
+  // #398／#397：markdown 解析 worker 的生效值（各值的 `from`：env／admin（管理頁）／default／auto；worker 數自動時依 CPU 與記憶體
   // 推算取小，`workersSource` 說是哪一個：env／admin／cpu／memory），連同偵測到的 CPU 數、記憶體（MiB）與各自的來源（cgroup-v2／cgroup-v1／os）。
   // 欄位的組法在 `site-limits/boot-log.ts`（單元測試：test/unit/site-limits-boot-log.test.ts）。
   logger.info(parseSettingsLogFields(siteLimits), "parse worker settings in effect");

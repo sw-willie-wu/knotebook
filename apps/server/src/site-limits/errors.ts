@@ -1,4 +1,4 @@
-/** #397 §6.1／§11：`SiteLimits.update` 的驗證錯誤；路由對應成 HTTP（§8.2）。訊息一律英文（#372）。 */
+/** #397：`SiteLimits.update` 的驗證錯誤；路由對應成 HTTP。訊息一律英文（#372）。 */
 import { siteLimitDef, siteLimitStep, type SiteLimitKey } from "@knotebook/shared";
 
 /** → 409 limit_locked_by_env */

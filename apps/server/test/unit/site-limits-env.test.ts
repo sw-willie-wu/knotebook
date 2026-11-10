@@ -6,7 +6,7 @@ const base = { DATABASE_URL: "postgres://u:p@localhost:5432/db", APP_SECRET: "a"
 const withEnv = SITE_LIMIT_KEYS.filter(k => siteLimitDef(k).env);
 const ALL_ENV = { NOTE_MAX_BYTES: "2097152", PARSE_WORKERS: "2", PARSE_WORKER_MEMORY_MB: "512", PARSE_TIMEOUT_MS: "5000", PARSE_QUEUE_WAIT_MS: "5000" };
 
-describe("loadConfig 的 limitEnv（#397 §3.1）", () => {
+describe("loadConfig 的 limitEnv（#397）", () => {
   it("每個有 env 的項目：設了 → limitEnv 有；空字串 → 沒有", () => {
     expect(withEnv.length).toBe(5);
     for (const key of withEnv) {

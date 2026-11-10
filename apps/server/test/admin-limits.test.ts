@@ -1,4 +1,4 @@
-/** #397 S6：`GET／PATCH /api/admin/limits`（spec §8、§11）。 */
+/** #397：`GET／PATCH /api/admin/limits`。 */
 import { describe, expect, it } from "vitest";
 import { desc } from "drizzle-orm";
 import { SITE_LIMIT_KEYS, SITE_LIMITS, siteLimitStep, type SiteLimitKey, type SiteLimitsDto } from "@knotebook/shared";

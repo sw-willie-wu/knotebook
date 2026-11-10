@@ -6,7 +6,7 @@ import type { MachineInfo } from "../../src/site-limits/types.js";
 const GiB = 2 ** 30;
 const machine: MachineInfo = { cpus: 4, cpuSource: "os", memoryBytes: 16 * GiB, memorySource: "os" };
 
-describe("parseSettingsLogFields（開機 log「parse worker settings in effect」，#397 §6.3）", () => {
+describe("parseSettingsLogFields（開機 log「parse worker settings in effect」，#397）", () => {
   it("全預設：欄位名照舊；worker 數依 CPU、兩個自動項 from=auto", () => {
     expect(parseSettingsLogFields(SiteLimits.defaults({ machine }))).toEqual({
       workers: 3,

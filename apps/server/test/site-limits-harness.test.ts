@@ -1,5 +1,5 @@
 /**
- * #397 §6.1／§13.4：harness 先決定 app 實際用的 `config` 與 `db`，再用這兩樣 `SiteLimits.load` 一份放進 `deps.siteLimits`。
+ * #397：harness 先決定 app 實際用的 `config` 與 `db`，再用這兩樣 `SiteLimits.load` 一份放進 `deps.siteLimits`。
  * 覆寫 `config` 的 env 鎖要進 `siteLimits`（鎖定狀態唯一來源）；覆寫 `db` 時 `siteLimits` 要綁同一個 DB。
  */
 import { describe, expect, it } from "vitest";

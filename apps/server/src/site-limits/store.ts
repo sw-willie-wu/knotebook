@@ -1,6 +1,6 @@
 /**
- * #397 §6.1：`SiteLimits`——站台限制的設定存取層。`load` 讀 `site_limits` 全表、`defaults()` 不碰 DB；
- * `update` 先驗、再在行程內互斥鎖下跑交易（§6.4、§6.5）。
+ * #397：`SiteLimits`——站台限制的設定存取層。`load` 讀 `site_limits` 全表、`defaults()` 不碰 DB；
+ * `update` 先驗、再在行程內互斥鎖下跑交易。
  */
 import { SITE_LIMIT_KEYS, siteLimitDef, type SiteLimitItemDto, type SiteLimitKey, type SiteLimitsDto } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
@@ -37,7 +37,7 @@ export class SiteLimits {
   private rows: Map<string, number>;
   private snapshot: Snapshot;
   private readonly listeners = new Set<Listener>();
-  /** 行程內 async 互斥鎖（promise chain）：一次一個 `update` 跑「試算＋交易＋套用」（§6.5）。 */
+  /** 行程內 async 互斥鎖（promise chain）：一次一個 `update` 跑「試算＋交易＋套用」。 */
   private lockTail: Promise<void> = Promise.resolve();
 
   private constructor(deps: Deps) {
@@ -55,7 +55,7 @@ export class SiteLimits {
   }
 
   /**
-   * 讀 `site_limits` 全表 → `resolveSnapshot`。不套用的列（未知 key、越界、沒對齊）逐筆 `log.warn`、列不刪（§6.4）。
+   * 讀 `site_limits` 全表 → `resolveSnapshot`。不套用的列（未知 key、越界、沒對齊）逐筆 `log.warn`、列不刪。
    * 讀不到 DB 就 reject（開機失敗，同 migration）。
    */
   static async load(db: Db, opts: { limitEnv: LimitEnv; machine: MachineInfo; log: SiteLimitsLog }): Promise<SiteLimits> {
@@ -113,7 +113,7 @@ export class SiteLimits {
   }
 
   /**
-   * PATCH 用（§6.4、§6.5）。唯讀實例（`defaults()`）一律拒絕。
+   * PATCH 用。唯讀實例（`defaults()`）一律拒絕。
    * 1. 進鎖之前、單一一輪依註冊表順序逐 key 驗：env 鎖（`null` 也算）→ 範圍 → 刻度，第一個失敗就丟（什麼都不寫）。
    * 2. 行程內互斥鎖下：以目前的 `rows` 試算改前／改後生效值 → 交易 → 用交易回傳的整張表重算快照 → 生效值有變的 key 發 `onChange`。
    * 3. `finally` 放鎖：交易或重算拋錯時記憶體不動、下一次 `update` 不卡。

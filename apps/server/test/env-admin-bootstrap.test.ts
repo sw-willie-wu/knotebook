@@ -29,7 +29,7 @@ async function buildAppWithEnvAdmin(envAdmin?: { email: string; password: string
     {
       config: testConfig,
       db,
-      // #397 §13.4：直接呼叫 `buildApp` 的唯一一處——不碰 DB 的唯讀那份。
+      // #397：直接呼叫 `buildApp` 的唯一一處——不碰 DB 的唯讀那份。
       siteLimits: SiteLimits.defaults({ machine: testConfig.machine }),
       gate,
       throttle: new LoginThrottle(),

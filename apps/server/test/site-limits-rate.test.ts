@@ -1,4 +1,4 @@
-/** #397 S7：9 顆可調節流桶接上 `siteLimits`（spec §7.6、§13.2「立即生效」）。 */
+/** #397：9 顆可調節流桶接上 `siteLimits`（改值立即生效）。 */
 import { describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";

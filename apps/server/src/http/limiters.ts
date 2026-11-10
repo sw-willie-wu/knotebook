@@ -1,5 +1,5 @@
 /**
- * 29 顆節流桶的型別與建構（#397 §7.6）。`AppDeps.limiters` 原本的行內型別搬到這裡取名 `Limiters`；
+ * 29 顆節流桶的型別與建構（#397）。`AppDeps.limiters` 原本的行內型別搬到這裡取名 `Limiters`；
  * 9 顆站台管理可調的桶（註冊表的 `rate*` 項）由 `buildAdjustableLimiters(siteLimits)` 建，`limit` 每次現讀
  * `siteLimits.get(key)`、`windowMs` 照常數（視窗不可調）；其餘 20 顆由 `buildFixedLimiters()` 建，照常數。
  * `mergeLimiters` 把測試覆寫蓋到 base 上（略過 explicit `undefined`）。
@@ -36,7 +36,7 @@ export type Limiters = {
   bearerMiss: FixedWindowLimiter;
   /** #107：`POST /api/auth/tokens`（key=userId）。 */
   patCreate: FixedWindowLimiter;
-  /** #106 D7：`PATCH /api/auth/tokens/:id` 改 agent 名稱（key=userId，見 `TOKEN_RENAME_LIMIT`）。 */
+  /** #106：`PATCH /api/auth/tokens/:id` 改 agent 名稱（key=userId，見 `TOKEN_RENAME_LIMIT`）。 */
   tokenRename: FixedWindowLimiter;
   /** #132：DCR／authorize／token 三個無認證端點（key=ip）。 */
   dcr: FixedWindowLimiter;
@@ -46,9 +46,9 @@ export type Limiters = {
   contentRead: FixedWindowLimiter;
   /** #93：全文搜尋（key=userId，見 `SEARCH_LIMIT`）。 */
   search: FixedWindowLimiter;
-  /** bulk §12.1：整包匯出（key=userId，見 TRANSFER_EXPORT_LIMIT）。 */
+  /** 批次傳輸：整包匯出（key=userId，見 TRANSFER_EXPORT_LIMIT）。 */
   transferExport: FixedWindowLimiter;
-  /** bulk §12.1：檔案寫回（key=userId，見 TRANSFER_WRITE_LIMIT；在佇列內扣）。 */
+  /** 批次傳輸：檔案寫回（key=userId，見 TRANSFER_WRITE_LIMIT；在佇列內扣）。 */
   transferWrite: FixedWindowLimiter;
   /** `GET /api/users/suggest`（key=userId，見 `USER_SUGGEST_LIMIT`）。 */
   userSuggest: FixedWindowLimiter;
@@ -56,7 +56,7 @@ export type Limiters = {
   edit: FixedWindowLimiter;
   /** 資料夾寫入（`folders/service.ts` 四支，REST 與 MCP 共用；key=userId，見 `FOLDER_LIMIT`——不與 `edit` 共桶）。 */
   folder: FixedWindowLimiter;
-  /** #187 §9.1：帳密註冊（key=ip）。 */
+  /** #187：帳密註冊（key=ip）。 */
   register: FixedWindowLimiter;
   /** #286／#285：重設連結與邀請的 inspect／完成（四個無登入端點、跨 kind 共用）的無效 token（key=ip；失敗才扣，見 `ONE_TIME_LINK_MISS_LIMIT`）。 */
   oneTimeLinkMiss: FixedWindowLimiter;

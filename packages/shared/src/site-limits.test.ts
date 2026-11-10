@@ -56,7 +56,7 @@ describe("site limits registry", () => {
     }
   });
 
-  it("每一項的值照 spec §4.3 逐字釘住", () => {
+  it("每一項的預設與範圍逐字釘住", () => {
     const expected: Record<string, SiteLimitDef> = {
     uploadMaxBytes: { type: "int", unit: "bytes", default: 10_485_760, min: 1_048_576, max: 10_485_760, category: "uploadsNotes", input: { unit: "mib", step: 1 } },
     noteMaxBytes: { type: "int", unit: "bytes", default: 5_242_880, min: 1_048_576, max: 5_242_880, env: "NOTE_MAX_BYTES", category: "uploadsNotes", input: { unit: "mib", step: 1 } },

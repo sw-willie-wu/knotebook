@@ -1,5 +1,5 @@
 /**
- * #397 §6.2／§6.4：`resolveSnapshot`——把 `site_limits` 的列、env、機器資訊算成生效值快照（純函式）。
+ * #397：`resolveSnapshot`——把 `site_limits` 的列、env、機器資訊算成生效值快照（純函式）。
  * `load` 與 `update` 共用；不合格的列只進 `ignored`、不套用、不刪。
  */
 import { SITE_LIMIT_KEYS, SITE_LIMITS, siteLimitDef, siteLimitStep, type SiteLimitKey, type SiteLimitSource } from "@knotebook/shared";

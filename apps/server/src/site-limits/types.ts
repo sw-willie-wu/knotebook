@@ -1,4 +1,4 @@
-/** #397 §3.1：站台限制在 server 端共用的型別。 */
+/** #397：站台限制在 server 端共用的型別。 */
 import type { SiteLimitKey } from "@knotebook/shared";
 import type { CpuSource, MemorySource } from "../notes/editing/parse-settings.js";
 

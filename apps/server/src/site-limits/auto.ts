@@ -1,4 +1,4 @@
-/** #397 §6.3：兩個自動項的推算（組合 shared 的純函式與現有常數）。 */
+/** #397：兩個自動項的推算（組合 shared 的純函式與現有常數）。 */
 import { defaultParseWorkers, memoryParseWorkers } from "@knotebook/shared";
 import { QUEUE_WAIT_SLACK_MS, QUEUE_WAIT_TIMEOUT_FACTOR } from "../notes/editing/parse-settings.js";
 import type { MachineInfo } from "./types.js";

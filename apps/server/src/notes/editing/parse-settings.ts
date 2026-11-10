@@ -9,7 +9,7 @@ import { availableParallelism, totalmem } from "node:os";
 import { AUTO_PARSE_WORKERS_MAX, PARSE_MEMORY_SHARE, SITE_LIMITS, defaultParseWorkers, memoryParseWorkers, siteLimitDef, type SiteLimitKey } from "@knotebook/shared";
 import type { LimitEnv, MachineInfo } from "../../site-limits/types.js";
 
-// #397 §6.3：自動推算的純函式與常數搬到 shared（前端公式警告共用）；這裡 re-export，server 既有的 import 不必改。
+// #397：自動推算的純函式與常數搬到 shared（前端公式警告共用）；這裡 re-export，server 既有的 import 不必改。
 export { AUTO_PARSE_WORKERS_MAX, PARSE_MEMORY_SHARE, defaultParseWorkers, memoryParseWorkers };
 
 export interface ParseLimits {

@@ -1,4 +1,4 @@
-/** #397 S7：`http/limiters.ts`（spec §7.6、§13.1）——桶合併與 9 顆可調桶讀 `siteLimits`。 */
+/** #397：`http/limiters.ts`——桶合併與 9 顆可調桶讀 `siteLimits`。 */
 import { describe, expect, it } from "vitest";
 import { SITE_LIMIT_KEYS, type SiteLimitKey } from "@knotebook/shared";
 import { FixedWindowLimiter } from "../../src/http/rate-limit.js";

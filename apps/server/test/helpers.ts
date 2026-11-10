@@ -320,7 +320,7 @@ export function withTestRoutes(app: FastifyInstance): FastifyInstance {
 // buildTestApp() 呼叫之間的請求計數會互相汙染——例如本檔 Task 4 的「61 次觸發 429」
 // 測試會被同一份 map 上其他測試先前已消耗掉的計數影響，導致隨執行順序隨機紅綠。
 // 只含 20 顆固定的桶（`buildFixedLimiters()`，數值同生產）加上 overrides；9 顆站台可調的桶不在這裡，
-// 由 `buildApp` 用該 app 的 `deps.siteLimits` 補（#397 §7.6），讓測試環境的節流行為與生產一致。
+// 由 `buildApp` 用該 app 的 `deps.siteLimits` 補（#397），讓測試環境的節流行為與生產一致。
 //
 // `overrides` 讓單一測試只換掉它要驗的那一顆桶（例如
 // `{ bearerMiss: new FixedWindowLimiter({ limit: 3, windowMs: 60_000 }) }`），不必手打
@@ -331,7 +331,7 @@ export function withTestRoutes(app: FastifyInstance): FastifyInstance {
 // 蓋掉這裡的預設值（tsconfig 沒開 `exactOptionalPropertyTypes`，TS 不擋），執行時是
 // `undefined.consume`。
 export function freshLimiters(overrides: Partial<Limiters> = {}): Partial<Limiters> {
-  // #397 §7.6：只含 20 顆固定的桶＋覆寫；9 顆可調的由 `buildApp` 用該 app 的 `deps.siteLimits` 補（沒被覆寫的才補）。
+  // #397：只含 20 顆固定的桶＋覆寫；9 顆可調的由 `buildApp` 用該 app 的 `deps.siteLimits` 補（沒被覆寫的才補）。
   return { ...buildFixedLimiters(), ...overrides };
 }
 
@@ -361,7 +361,7 @@ const SHARED_RUNTIME_FOLLOW_ERROR = "testEditingRuntime is shared; pass your own
  * logger 預設關閉（測試輸出降噪），可用 `options.logger` 覆寫回開（例如要除錯某個
  * 測試的實際請求日誌時）。
  *
- * #397 §13.4：先決定 app 實際用的 `config`、`db`，再用這兩樣 `SiteLimits.load` 一份（`overrides.siteLimits` 有給就照用）；
+ * #397：先決定 app 實際用的 `config`、`db`，再用這兩樣 `SiteLimits.load` 一份（`overrides.siteLimits` 有給就照用）；
  * 這三樣在其餘 `overrides` 之後才放，不會再被蓋掉——鎖定狀態（`config.limitEnv`）與 DB 都只有一個來源。
  */
 export async function buildTestApp(overrides: Partial<AppDeps> = {}, options: BuildAppOptions = {}): Promise<TestApp> {
@@ -461,7 +461,7 @@ export interface CollabTestCtx {
   /** bulk transfer：app 用的同一個 `UserGate`（停權後要 `invalidate` 才即時生效，同生產的停權路徑）。 */
   gate: UserGate;
   db: Db;
-  /** #397：app 實際在用的 `SiteLimits`（綁這個 app 的 `db` 與 `config.limitEnv`）。共用 DB 的兩個 app 各自一份（spec §6.1）。 */
+  /** #397：app 實際在用的 `SiteLimits`（綁這個 app 的 `db` 與 `config.limitEnv`）。共用 DB 的兩個 app 各自一份。 */
   siteLimits: SiteLimits;
   /** #180：實際掛進 app 的 uploadsDir（磁碟斷言用）。 */
   uploadsDir: string;
@@ -539,7 +539,7 @@ export async function buildCollabTestApp(
 ): Promise<CollabTestCtx> {
   const editing = opts.editing ?? testEditingRuntime;
   if (editing === testEditingRuntime && opts.editingFollowsSiteLimits === true) throw new Error(SHARED_RUNTIME_FOLLOW_ERROR);
-  // #397 §13.4：先決定 app 實際用的 `config`、`db`，再用這兩樣 `load`（同 `buildTestApp`）。
+  // #397：先決定 app 實際用的 `config`、`db`，再用這兩樣 `load`（同 `buildTestApp`）。
   const config = opts.config ?? testConfig;
   const { db } = opts.db ? { db: opts.db } : await freshDb();
   const siteLimits = opts.siteLimits ?? (await SiteLimits.load(db, { limitEnv: config.limitEnv, machine: config.machine, log: silentLog }));

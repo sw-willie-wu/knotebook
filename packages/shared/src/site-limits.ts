@@ -1,6 +1,5 @@
 /**
  * #397：站台限制註冊表——一項限制只註冊一次（前後端共用；web 用它畫表單、驗範圍、顯示預設與單位，server 用它驗 PATCH、取預設）。
- * 值照 spec §4.3。新增一項要做的事見 spec §4.2。
  */
 export type SiteLimitCategory = "uploadsNotes" | "parseWorkers" | "rateLimits" | "bulkTransfer" | "signIn";
 export type SiteLimitUnit = "bytes" | "mib" | "ms" | "seconds" | "count";

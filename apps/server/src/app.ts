@@ -126,7 +126,7 @@ export interface AppDeps {
   config: AppConfig;
   db: Db;
   /**
-   * #397 §6.1：站台限制的生效值（env＞`site_limits` 的列＞預設／自動）。**必填**，讓編譯器列出所有組 `AppDeps` 的地方。
+   * #397：站台限制的生效值（env＞`site_limits` 的列＞預設／自動）。**必填**，讓編譯器列出所有組 `AppDeps` 的地方。
    * `index.ts` 在 migration 之後用 `SiteLimits.load(db, { limitEnv: config.limitEnv, … })` 建；必須綁同一個 `db`、同一份
    * `config.limitEnv`（鎖定狀態唯一來源）。直接呼叫 `buildApp` 的測試用 `SiteLimits.defaults(…)`。
    */
@@ -155,7 +155,7 @@ export interface AppDeps {
   /**
    * 節流器（29 顆，型別 `Limiters` 在 `http/limiters.ts`）。**選配、可只給幾顆**：`buildApp` 以 `mergeLimiters` 合併——
    * 20 顆固定的桶由 `buildFixedLimiters()` 建，9 顆站台可調的桶由 `buildAdjustableLimiters(deps.siteLimits)` 建
-   * （`limit` 現讀這個 app 的 `siteLimits`，#397 §7.6）；這裡給的桶（值不是 `undefined`）蓋掉對應的那顆。
+   * （`limit` 現讀這個 app 的 `siteLimits`，#397）；這裡給的桶（值不是 `undefined`）蓋掉對應的那顆。
    *
    * `buildTestApp`/`buildCollabTestApp`（`test/helpers.ts`）經 `freshLimiters` 注入 20 顆全新固定桶＋測試覆寫——
    * 嚴禁 module 單例，否則不同測試檔案共享同一份計數會互相汙染。
@@ -660,7 +660,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
 
   app.get("/healthz", async () => ({ ok: true }));
 
-  // 29 顆節流桶：20 顆固定的＋9 顆可調的（`limit` 現讀這個 app 的 `deps.siteLimits`，#397 §7.6）；測試只覆寫它要驗的那幾顆。
+  // 29 顆節流桶：20 顆固定的＋9 顆可調的（`limit` 現讀這個 app 的 `deps.siteLimits`，#397）；測試只覆寫它要驗的那幾顆。
   const limiters = mergeLimiters(
     { ...buildFixedLimiters(), ...buildAdjustableLimiters(deps.siteLimits) } satisfies Limiters,
     deps.limiters
