@@ -3,7 +3,7 @@ import { canonicalColor, isCustomColor, isShownColor } from "./note-colors.js";
 
 const BOTH = "style (CSSOM) / data-*";
 const DATA = "data-*";
-// [input, expected, source]（來源見 spec §11.1）
+// [input, expected, source]：source 是這個值會從哪條路徑進來（style 經 CSSOM 改寫，或 data-* 原字串）
 const ACCEPT: [string, string, string][] = [
   ["red", "red", BOTH], ["default", "default", BOTH],
   ["#F60", "#ff6600", DATA], ["#FF6600", "#ff6600", DATA], ["#ff6600", "#ff6600", DATA],
