@@ -390,7 +390,8 @@
       "groups": "Groups",
       "storage": "Storage plans",
       "ai": "AI agents",
-      "auth": "Sign-in"
+      "auth": "Sign-in",
+      "limits": "Site limits"
     }
   },
   "theme": {
