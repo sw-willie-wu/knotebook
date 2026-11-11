@@ -34,6 +34,7 @@ import { buildCollabEditorBase } from "@/collab/editor-options";
 import { createMarkdownLinkExtension } from "@/collab/markdown-link";
 import { createMarkdownPasteHandler } from "@/collab/paste";
 import { createSiteLinkConvertExtension, createSiteLinkEnv, createSiteLinkPasteHook, withSiteLinkDrop, type SiteLinkEnvRef } from "@/collab/site-link-convert";
+import { createTourTransactionFilterExtension } from "@/collab/tour-transaction-filter";
 import { useCollabUndoLifeline } from "@/collab/undo";
 import { usePageUndoShortcut } from "@/collab/page-undo";
 import { buildSlashMenuItems } from "@/components/slash-menu";
@@ -206,6 +207,9 @@ export function buildNoteEditorOptions({
         createColumnEdgeKeymapExtension({ editorRef }),
         // 貼上／拖放的列：頂層完整、非頂層攤平（理由見 `@/collab/columns/paste-rule`）。
         createColumnsPasteExtension(),
+        // 功能導覽演示時擋下使用者改文件的交易（含輸入法組字）；預設放行。要在建編輯器時就掛上，演示中不能再註冊外掛
+        // （理由見 `@/collab/tour-transaction-filter`），開關經 `lib/tour-bridge.ts`。
+        createTourTransactionFilterExtension(),
       ],
       editorProps: {
         // drop：最外層先由 `withSiteLinkDrop` 判斷要不要轉站內連結（#352）；再由 `withGutterFileDrop` 把落在欄與欄之間的拖放

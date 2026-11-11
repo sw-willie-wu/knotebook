@@ -5,7 +5,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import * as Y from "yjs";
 import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
-import { getDemoEditor, onEditorEditable, type TourEditor } from "@/lib/tour-bridge";
+import { getDemoEditor, onEditorEditable, setDemoTransactionFilter, type TourEditor } from "@/lib/tour-bridge";
+import { isTourTransactionFilterOn } from "@/collab/tour-filter-flag";
 import { NoteEditor } from "./NoteEditor";
 import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
@@ -153,4 +154,51 @@ describe("NoteEditor：功能導覽登記處", () => {
     doc1.destroy();
     doc2.destroy();
   });
+
+  it("F2 交易過濾經登記處打開：真編輯器上打字被擋；關掉後照常寫入", async () => {
+    const doc = new Y.Doc();
+    const { unmount } = renderEditor({ doc, noteId: "note-1", editable: true });
+    await screen.findByTestId("note-editor");
+    const editor = getDemoEditor("note-1")!;
+    const view = editor._tiptapEditor.view;
+    const typeX = () => view.dispatch(view.state.tr.insertText("x", 1 + firstTextblockOffset(view.state.doc)));
+    const firstText = () => (editor.document[0]!.content as Array<{ text?: string }>).map((n) => n.text ?? "").join("");
+
+    expect(setDemoTransactionFilter("note-1", true)).toBe(true);
+    typeX();
+    expect(firstText()).toBe("");
+    setDemoTransactionFilter("note-1", false);
+    typeX();
+    expect(firstText()).toBe("x");
+    unmount();
+    doc.destroy();
+  });
+
+  it("F6 卸載 NoteEditor（撤登記）→ 開關關掉", async () => {
+    const doc = new Y.Doc();
+    const { unmount } = renderEditor({ doc, noteId: "note-1", editable: true });
+    await screen.findByTestId("note-editor");
+    const editor = getDemoEditor("note-1")!;
+    setDemoTransactionFilter("note-1", true);
+    expect(isTourTransactionFilterOn(editor._tiptapEditor)).toBe(true);
+    unmount();
+    expect(isTourTransactionFilterOn(editor._tiptapEditor)).toBe(false);
+    doc.destroy();
+  });
 });
+
+/** 第一個 textblock 內容開頭前的位置（textblock 節點本身的位置）。 */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- ProseMirror 節點型別在 apps/web 值層級拿不到
+function firstTextblockOffset(doc: any): number {
+  let at = -1;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 同上
+  doc.descendants((node: any, pos: number) => {
+    if (at !== -1) return false;
+    if (node.isTextblock) {
+      at = pos;
+      return false;
+    }
+    return true;
+  });
+  return at;
+}

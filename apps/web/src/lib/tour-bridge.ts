@@ -1,5 +1,7 @@
 import type { BlockNoteEditor } from "@blocknote/core";
 import type { SidebarTab } from "@/lib/sidebar-tab";
+// 只 import 開關那支：外掛本體（`collab/tour-transaction-filter.ts`）會把 tiptap 與 ProseMirror 拉進首包。
+import { setTourTransactionFilter } from "@/collab/tour-filter-flag";
 
 /**
  * 功能導覽的登記處：導覽的遮罩與狀態住在 App 層（`AppShell` 會隨首頁↔筆記頁、筆記頁整頁載入換殼），
@@ -50,11 +52,15 @@ const editableListeners = new Set<EditorListener>();
 /** 已經通知過「第一次可編輯」的編輯器實例。 */
 const notifiedEditable = new WeakSet<TourEditor>();
 
-/** 回傳撤銷函式；撤銷時登記處已換成別份就不動。 */
+/**
+ * 回傳撤銷函式；撤銷時登記處已換成別份就不動。撤銷一律關掉這份編輯器的交易過濾（不論登記處是否已換手）：
+ * 撤登記之後導覽就拿不到這份編輯器，也就沒辦法再關掉它。直接改編輯器上的旗標、不 dispatch：撤銷時編輯器可能已經卸載。
+ */
 export function registerEditor(noteId: string, editor: TourEditor): () => void {
   const entry: EditorEntry = { noteId, editor };
   editorEntry = entry;
   return () => {
+    setTourTransactionFilter(editor._tiptapEditor, false);
     if (editorEntry === entry) editorEntry = null;
   };
 }
@@ -62,6 +68,17 @@ export function registerEditor(noteId: string, editor: TourEditor): () => void {
 /** 只有登記的 noteId 等於傳入的 id 才回編輯器：導覽只能動它自己建的那篇。 */
 export function getDemoEditor(noteId: string): TourEditor | null {
   return editorEntry !== null && editorEntry.noteId === noteId ? editorEntry.editor : null;
+}
+
+/**
+ * 開關登記中編輯器的交易過濾（`collab/tour-transaction-filter.ts`：開著時擋下使用者改文件的交易，含輸入法組字）。
+ * 守衛同 `getDemoEditor`：只有登記的 noteId 等於傳入的 id 才生效。回傳是否生效。
+ */
+export function setDemoTransactionFilter(noteId: string, on: boolean): boolean {
+  const editor = getDemoEditor(noteId);
+  if (editor === null) return false;
+  setTourTransactionFilter(editor._tiptapEditor, on);
+  return true;
 }
 
 /**

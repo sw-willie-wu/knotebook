@@ -6,9 +6,11 @@ import {
   onEditorEditable,
   registerEditor,
   registerShellControls,
+  setDemoTransactionFilter,
   type ShellControls,
   type TourEditor,
 } from "./tour-bridge";
+import { isTourTransactionFilterOn } from "@/collab/tour-filter-flag";
 
 // 登記處是模組層狀態：每案把自己登記的東西撤乾淨，前一案失敗不連累下一案。
 const disposers: Array<() => void> = [];
@@ -120,5 +122,48 @@ describe("tour-bridge：編輯器", () => {
     off();
     notifyEditorEditable("note-1", fakeEditor());
     expect(fn).not.toHaveBeenCalled();
+  });
+});
+
+describe("tour-bridge：演示用的交易過濾開關", () => {
+  /** 開關記在 tiptap 編輯器實例上，替身只要有一個 `_tiptapEditor` 物件。 */
+  function filterableEditor(): TourEditor {
+    return { _tiptapEditor: {} } as unknown as TourEditor;
+  }
+  const isOn = (editor: TourEditor) => isTourTransactionFilterOn(editor._tiptapEditor);
+
+  it("F5 id 與登記的不同 → 回 false、不動開關；相同 → 回 true、開關跟著變", () => {
+    const editor = filterableEditor();
+    keep(registerEditor("note-1", editor));
+    expect(setDemoTransactionFilter("other", true)).toBe(false);
+    expect(isOn(editor)).toBe(false);
+    expect(setDemoTransactionFilter("note-1", true)).toBe(true);
+    expect(isOn(editor)).toBe(true);
+    expect(setDemoTransactionFilter("note-1", false)).toBe(true);
+    expect(isOn(editor)).toBe(false);
+  });
+
+  it("F5 什麼都沒登記 → 回 false", () => {
+    expect(setDemoTransactionFilter("note-1", true)).toBe(false);
+  });
+
+  it("F6 撤登記時關掉自己那份的開關", () => {
+    const editor = filterableEditor();
+    const unregister = registerEditor("note-1", editor);
+    setDemoTransactionFilter("note-1", true);
+    unregister();
+    expect(isOn(editor)).toBe(false);
+  });
+
+  it("F6 A 登記並打開、B 登記並打開、A 撤銷 → A 關掉、B 照樣開著", () => {
+    const a = filterableEditor();
+    const b = filterableEditor();
+    const unregisterA = keep(registerEditor("note-1", a));
+    setDemoTransactionFilter("note-1", true);
+    keep(registerEditor("note-1", b));
+    setDemoTransactionFilter("note-1", true);
+    unregisterA();
+    expect(isOn(a)).toBe(false);
+    expect(isOn(b)).toBe(true);
   });
 });
