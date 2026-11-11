@@ -111,8 +111,7 @@ describe("TC7 最後一站的提問是獨立的鍵，不在站點說明裡", () 
 
 describe("TC6 註冊後可用、不覆寫主檔", () => {
   it("包裡的鍵查得到，主檔的鍵照舊", () => {
-    expect(i18n.t("tourGuide.newInVersion", { lng: "en", version: "1.2.3", title: "X" })).toBe("New in v1.2.3: X");
-    expect(i18n.t("tourGuide.newInVersion", { lng: "zh-TW", version: "1.2.3", title: "X" })).toBe("v1.2.3 新增：X");
+    expect(i18n.t("tourGuide.progress", { lng: "en", n: 1, total: 7 })).toBe("1 / 7");
     expect(i18n.t("userMenu.shortcuts", { lng: "zh-TW" })).toBe("快捷鍵介紹");
     expect(i18n.t("userMenu.logout", { lng: "en" })).toBe("Log out");
   });

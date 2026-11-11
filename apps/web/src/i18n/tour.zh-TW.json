@@ -1,6 +1,5 @@
 {
   "tourGuide": {
-    "newInVersion": "v{{version}} 新增：{{title}}",
     "keepOrDeleteSample": "要保留示範筆記，還是移到垃圾桶？",
     "progress": "{{n}} / {{total}}",
     "stepAnnouncement": "{{progress}}：{{title}}。{{body}}",

@@ -2,7 +2,6 @@ import type { QueryClient } from "@tanstack/react-query";
 import type { AiActionDto } from "@knotebook/shared";
 import { fetchAiActions } from "@/api/ai";
 import { unionRect, type Rect } from "./geometry";
-import { RELEASE_HIGHLIGHTS } from "./release-highlights";
 import { buildSequence } from "./sequence";
 import { FULL_TOUR, prepareStop, STOPS, stopTarget, type StopContext, type StopDef } from "./stops";
 
@@ -27,13 +26,11 @@ export interface TourStartOptions {
 
 export interface TourStopEntry {
   stop: StopDef;
-  /** 「這一版新增」那段的站帶登記檔的版本（卡片標題加前綴）；完整導覽的站是 null。 */
-  newInVersion: string | null;
 }
 
-/** 完整導覽要走的站（含「這一版新增」那段）。 */
+/** 完整導覽要走的站。 */
 export function fullTourStops(): TourStopEntry[] {
-  return buildSequence(FULL_TOUR, RELEASE_HIGHLIGHTS).map((e) => ({ stop: STOPS[e.id], newInVersion: e.newInVersion }));
+  return buildSequence(FULL_TOUR).map((e) => ({ stop: STOPS[e.id] }));
 }
 
 /** 開始時算一次前置條件：不成立的站整站拿掉，總站數只算留下的，中途不會跳號。 */

@@ -15,7 +15,6 @@ import {
   waitForDrawerClosed,
   type TourStopEntry,
 } from "./engine";
-import { RELEASE_HIGHLIGHTS } from "./release-highlights";
 import { buildSequence } from "./sequence";
 import { FULL_TOUR, STOPS, type StopContext, type StopDef, type StopId } from "./stops";
 
@@ -56,7 +55,7 @@ function fakeStop(name: string, opts: { present?: boolean; missing?: boolean; pr
     leave,
     precondition: opts.precondition,
   };
-  return { entry: { stop, newInVersion: null }, prepare, leave, el };
+  return { entry: { stop }, prepare, leave, el };
 }
 
 function engineOf(stops: FakeStop[], ctx: StopContext = CTX): TourEngine {
@@ -113,9 +112,9 @@ describe("濾站與總站數", () => {
     expect(new TourEngine(planned, ctx).getSnapshot().total).toBe(2);
   });
 
-  it("完整導覽：站點表照 buildSequence 的順序，帶「這一版新增」的版本", () => {
-    const expected = buildSequence(FULL_TOUR, RELEASE_HIGHLIGHTS);
-    expect(fullTourStops().map((e) => [e.stop, e.newInVersion])).toEqual(expected.map((e) => [STOPS[e.id], e.newInVersion]));
+  it("完整導覽：站點表照 buildSequence 的順序", () => {
+    const expected = buildSequence(FULL_TOUR);
+    expect(fullTourStops().map((e) => e.stop)).toEqual(expected.map((e) => STOPS[e.id]));
   });
 
   it("搜尋框有字：完整導覽少掉 tab 列、資料夾、搜尋三站", () => {

@@ -132,7 +132,7 @@ export const STOPS: Readonly<Record<StopId, StopDef>> = {
   },
 };
 
-/** 完整導覽的站序；「這一版新增」那段由 `buildSequence` 插在最後一站之前。 */
+/** 完整導覽的站序；最後一站固定是 userMenu。 */
 export const FULL_TOUR: readonly [StopId, ...StopId[]] = ["tabs", "newNote", "folders", "search", "header", "versions", "userMenu"];
 
 /** 依目前視窗寬窄找目標。 */

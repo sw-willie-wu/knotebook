@@ -315,7 +315,7 @@ function fakeEntry(id: string, targetId: TourTargetId, extra: Partial<StopDef> =
     leave,
     ...extra,
   };
-  return { stop, newInVersion: null, leave };
+  return { stop, leave };
 }
 
 beforeEach(async () => {

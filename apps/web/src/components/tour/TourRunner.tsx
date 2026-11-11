@@ -42,7 +42,7 @@ export interface TourRunnerProps extends TourStartOptions {
   onStarted?: () => void;
   /** 導覽結束、還原做完之後呼叫一次；沒辦法開始時也呼叫。卸載時不呼叫。 */
   onFinished: (result: TourResult) => void;
-  /** 要走的站；預設是完整導覽（含「這一版新增」那段）。 */
+  /** 要走的站；預設是完整導覽。 */
   stops?: readonly TourStopEntry[];
 }
 
@@ -237,7 +237,7 @@ export function TourRunner({ returnTo, returnFocus, prepareSample, onStarted, on
       target={target}
       step={snapshot.index + 1}
       total={snapshot.total}
-      title={stopTitle(t, entry.stop, entry.newInVersion)}
+      title={stopTitle(t, entry.stop)}
       body={t(stopBodyKey(entry.stop, narrow))}
       onNext={() => engine.next()}
       onBack={() => engine.back()}

@@ -1,6 +1,5 @@
 {
   "tourGuide": {
-    "newInVersion": "New in v{{version}}: {{title}}",
     "keepOrDeleteSample": "Keep the sample note, or move it to the trash?",
     "progress": "{{n}} / {{total}}",
     "stepAnnouncement": "{{progress}}: {{title}}. {{body}}",

@@ -55,14 +55,14 @@ const BUNDLES = [
   ["zh-TW", guideZhTW],
 ] as const;
 
-describe("SH1 兩語系鍵集合相同、頂層只有 shortcutsGuide", () => {
+describe("SH1 兩語系鍵集合相同、頂層只有 shortcutsGuide 與 helpGuide", () => {
   it("鍵集合相同", () => {
     expect(flattenKeys(guideZhTW).sort()).toEqual(flattenKeys(guideEn).sort());
   });
 
-  it("頂層恰一個鍵 shortcutsGuide", () => {
-    expect(Object.keys(guideEn)).toEqual(["shortcutsGuide"]);
-    expect(Object.keys(guideZhTW)).toEqual(["shortcutsGuide"]);
+  it("頂層恰兩個鍵 shortcutsGuide、helpGuide", () => {
+    expect(Object.keys(guideEn)).toEqual(["shortcutsGuide", "helpGuide"]);
+    expect(Object.keys(guideZhTW)).toEqual(["shortcutsGuide", "helpGuide"]);
   });
 });
 
