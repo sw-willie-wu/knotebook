@@ -29,7 +29,7 @@ import {
 } from "./engine";
 import type { Rect } from "./geometry";
 import { stopTitle } from "./sequence";
-import { isNarrowViewport, stopBodyKey, stopTarget, type StopContext } from "./stops";
+import { isNarrowViewport, stopBody, stopTarget, type StopContext } from "./stops";
 import { TourOverlay } from "./TourOverlay";
 
 export interface TourRunnerProps extends TourStartOptions {
@@ -242,7 +242,7 @@ export function TourRunner({ returnTo, returnFocus, prepareSample, onStarted, on
       step={snapshot.index + 1}
       total={snapshot.total}
       title={stopTitle(t, entry.stop)}
-      body={t(stopBodyKey(entry.stop, narrow))}
+      body={stopBody(t, entry.stop, narrow)}
       onNext={() => engine.next()}
       onBack={() => engine.back()}
       onSkip={() => engine.end("close")}

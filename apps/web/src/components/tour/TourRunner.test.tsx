@@ -346,6 +346,7 @@ describe("一輪完整導覽（寬視窗）", () => {
     expect(currentPath).toBe(SAMPLE_PATH);
     expect(progress()).toBe("1 / 7");
     expect(hole()).toEqual(padded(RECTS.tabs));
+    expect(card()).not.toHaveAccessibleDescription(/\{\{/);
 
     const expected: [string, { x: number; y: number; width: number; height: number }][] = [
       ["New note", padded(RECTS.newNote)],
@@ -360,6 +361,9 @@ describe("一輪完整導覽（寬視窗）", () => {
       await next(title);
       expect(progress()).toBe(`${i + 2} / 7`);
       await waitFor(() => expect(hole()).toEqual(rect));
+      // 說明裡的修飾鍵要代入：不能留下字面的 {{mod}}。
+      expect(card(), title).not.toHaveAccessibleDescription(/\{\{/);
+      if (title === "Search") expect(card()).toHaveAccessibleDescription(/Ctrl\+K/);
     }
 
     fireEvent.click(within(card()).getByRole("button", { name: "Keep sample note" }));

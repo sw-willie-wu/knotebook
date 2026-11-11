@@ -77,7 +77,9 @@ export function TourOverlay({ target, step, total, title, body, live = false, on
     setStepChanged(true);
   }
   const progress = t("tourGuide.progress", { n: step, total });
-  const announcement = stepChanged ? t("tourGuide.stepAnnouncement", { progress, title, body }) : "";
+  // 標題已經以標點結尾（例如「忘了怎麼用？」）就不再補句點，免得報讀成「？。」；標點後面跟著收尾的引號、括號也算。
+  const titleStop = /[.!?。．！？…⋯]["'”’」』）)]*$/u.test(title.trimEnd()) ? "" : t("tourGuide.titleStop");
+  const announcement = stepChanged ? t("tourGuide.stepAnnouncement", { progress, title, titleStop, body }) : "";
 
   const viewport: Size = {
     width: useSyncExternalStore(subscribeResize, viewportWidth),

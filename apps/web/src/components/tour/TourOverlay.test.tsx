@@ -175,7 +175,36 @@ describe("換站時報讀器讀得到新的一站", () => {
     expect(region).toHaveTextContent("2 / 5: New note. Click here to create a note.");
     view.rerenderWith({ step: 5, title: "Forgot how something works?", body: "Press Ctrl+/." });
     expect(stepRegion()).toBe(region);
-    expect(region).toHaveTextContent("5 / 5: Forgot how something works?. Press Ctrl+/.");
+    expect(region).toHaveTextContent("5 / 5: Forgot how something works? Press Ctrl+/.");
+    expect(region).not.toHaveTextContent("?.");
+  });
+
+  it("標題以標點結尾就不再補句點（中英各種結尾），沒有標點才補", async () => {
+    const view = renderOverlay({ step: 1, total: 5 });
+    let step = 1;
+    const read = (title: string) => {
+      view.rerenderWith({ step: ++step, title, body: "Body." });
+      return stepRegion()!.textContent;
+    };
+    expect(read("Done.")).toMatch(/: Done\. Body\.$/);
+    expect(read("Why!")).toMatch(/: Why! Body\.$/);
+    expect(read("Wait…")).toMatch(/: Wait… Body\.$/);
+    expect(read("Wait⋯")).toMatch(/: Wait⋯ Body\.$/);
+    expect(read('Say "Done."')).toMatch(/: Say "Done\." Body\.$/);
+    expect(read("Is it done?)")).toMatch(/: Is it done\?\) Body\.$/);
+    expect(read("Say “Done.”")).toMatch(/: Say “Done\.” Body\.$/);
+    expect(read('Say "Done"')).toMatch(/: Say "Done"\. Body\.$/);
+    expect(read("Plain")).toMatch(/: Plain\. Body\.$/);
+    await i18n.changeLanguage("zh-TW");
+    expect(read("忘了怎麼用？")).toMatch(/：忘了怎麼用？Body\.$/);
+    expect(read("好了。")).toMatch(/：好了。Body\.$/);
+    expect(read("好了⋯⋯")).toMatch(/：好了⋯⋯Body\.$/);
+    expect(read("好了．")).toMatch(/：好了．Body\.$/);
+    expect(read("他說「好了。」")).toMatch(/：他說「好了。」Body\.$/);
+    expect(read("他說『好了？』")).toMatch(/：他說『好了？』Body\.$/);
+    expect(read("好了（真的。）")).toMatch(/：好了（真的。）Body\.$/);
+    expect(read("他說「好了」")).toMatch(/：他說「好了」。Body\.$/);
+    expect(read("忘了")).toMatch(/：忘了。Body\.$/);
   });
 
   it("zh-TW 的格式", async () => {
@@ -261,7 +290,7 @@ describe("沒有「每次登入都顯示」", () => {
 
 describe("最後一站", () => {
   it("兩顆鈕的 aria-describedby 指向那句提問；說明句另有自己的元素", () => {
-    renderOverlay({ step: 5, total: 5, body: "Press Ctrl+/ or open Keyboard shortcuts from here." });
+    renderOverlay({ step: 5, total: 5, body: "Press Ctrl+/ or open Help from here." });
     const question = screen.getByText("Keep the sample note, or move it to the trash?");
     expect(question.id).not.toBe("");
     for (const name of ["Keep sample note", "Delete sample note"]) {
@@ -269,7 +298,7 @@ describe("最後一站", () => {
       expect(btn.getAttribute("aria-describedby")).toBe(question.id);
       expect(btn).toHaveAccessibleDescription("Keep the sample note, or move it to the trash?");
     }
-    expect(card()).toHaveAccessibleDescription("Press Ctrl+/ or open Keyboard shortcuts from here.");
+    expect(card()).toHaveAccessibleDescription("Press Ctrl+/ or open Help from here.");
   });
 
   it("〔刪除〕的可及名稱含可見字樣、破壞性外觀；〔保留〕不是", () => {

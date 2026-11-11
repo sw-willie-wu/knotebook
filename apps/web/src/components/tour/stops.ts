@@ -1,5 +1,7 @@
 import type { AiActionDto } from "@knotebook/shared";
+import type { TFunction } from "i18next";
 import "@/i18n/tour-strings";
+import { isMacPlatform } from "@/lib/platform";
 import { getShellControls } from "@/lib/tour-bridge";
 import { findDrawerButton, findTourTarget, findUserMenuTrigger, isNarrowViewport } from "@/lib/tour-targets";
 
@@ -137,9 +139,14 @@ export function stopTarget(stop: StopDef, ctx: StopContext): Element[] {
   return (isNarrowViewport() && stop.narrowTarget !== undefined ? stop.narrowTarget : stop.target)(ctx);
 }
 
-/** `narrow` 預設當下讀一次；元件訂閱寬窄變化時把訂閱到的值傳進來。 */
-export function stopBodyKey(stop: StopDef, narrow: boolean = isNarrowViewport()): string {
+/** `narrow` 預設當下讀一次；元件訂閱寬窄變化時把訂閱到的值傳進來。不 export：呼叫端一律走 `stopBody`，才不會漏帶 `{{mod}}`。 */
+function stopBodyKey(stop: StopDef, narrow: boolean = isNarrowViewport()): string {
   return narrow && stop.narrowBodyKey !== undefined ? stop.narrowBodyKey : stop.bodyKey;
+}
+
+/** 說明文字：快捷鍵的修飾鍵由 `{{mod}}` 帶入（Mac 是 `⌘`，其他是 `Ctrl+`）。 */
+export function stopBody(t: TFunction, stop: StopDef, narrow: boolean = isNarrowViewport()): string {
+  return t(stopBodyKey(stop, narrow), { mod: isMacPlatform() ? "⌘" : "Ctrl+" });
 }
 
 /** 跑站點的前置動作；窄視窗不跑（見檔頭）。 */

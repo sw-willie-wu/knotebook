@@ -7,6 +7,8 @@ import type { CollabState } from "@/collab/connection";
 import i18n from "@/i18n";
 import tourEn from "@/i18n/tour.en.json";
 import tourZhTW from "@/i18n/tour.zh-TW.json";
+import shortcutsEn from "@/i18n/shortcuts.en.json";
+import shortcutsZhTW from "@/i18n/shortcuts.zh-TW.json";
 import { ActiveNoteProvider } from "@/lib/active-note";
 import { NARROW_QUERY } from "@/lib/sidebar-drawer";
 import { getShellControls } from "@/lib/tour-bridge";
@@ -21,7 +23,8 @@ import { ShareDialog } from "@/components/ShareDialog";
 import { OWNER_PERMS } from "@/test/fixtures";
 import { FOLDER_LIST_EMPTY, folderDto } from "@/test/folder-fixtures";
 import type { FolderListDto } from "@knotebook/shared";
-import { FULL_TOUR, prepareStop, STOPS, stopBodyKey, stopTarget, type StopContext, type StopId } from "./stops";
+import { stopTitle } from "./sequence";
+import { FULL_TOUR, prepareStop, STOPS, stopBody, stopTarget, type StopContext, type StopId } from "./stops";
 
 // 測試宿主照筆記頁的接線：真的 AppShell（側欄、搜尋框、tab 列、新增鈕、使用者選單），
 // 主內容區放筆記頁頁首用的同一批元件（漢堡鈕、分享、⋮）與右下角的版本泡泡。
@@ -202,7 +205,8 @@ describe("寬視窗：目標", () => {
   });
 
   it("說明用寬視窗那一句", () => {
-    for (const stop of Object.values(STOPS)) expect(stopBodyKey(stop)).toBe(stop.bodyKey);
+    const t = i18n.getFixedT("en");
+    for (const stop of Object.values(STOPS)) expect(stopBody(t, stop), stop.id).toBe(stopBody(t, stop, false));
   });
 });
 
@@ -229,7 +233,8 @@ describe("窄視窗：目標", () => {
   it("說明：有窄視窗那一句的站用它", () => {
     const narrowOnes = Object.values(STOPS).filter((s) => s.narrowBodyKey !== undefined).map((s) => s.id);
     expect(narrowOnes.sort()).toEqual(["folders", "newNote", "search", "tabs", "userMenu", "versions"]);
-    for (const stop of Object.values(STOPS)) expect(stopBodyKey(stop)).toBe(stop.narrowBodyKey ?? stop.bodyKey);
+    const t = i18n.getFixedT("en");
+    for (const stop of Object.values(STOPS)) expect(stopBody(t, stop), stop.id).toBe(stopBody(t, stop, true));
   });
 });
 
@@ -397,5 +402,169 @@ describe("precondition", () => {
     expect(applies("ab")).toEqual(["newNote", "header", "versions", "userMenu"]);
     // 空白也算搜尋中（同 AppShell 的判準）。
     expect(applies(" ")).toEqual(["newNote", "header", "versions", "userMenu"]);
+  });
+});
+
+// 說明文字：每站的標題與說明、快捷鍵的修飾鍵、說明裡提到的名稱與介面上的名稱一致。
+describe("說明文字", () => {
+  const TITLES: Record<"en" | "zh-TW", Record<StopId, string>> = {
+    en: {
+      tabs: "Sidebar sections",
+      newNote: "New note",
+      folders: "Folders",
+      search: "Search",
+      header: "Share and more",
+      versions: "Version history",
+      userMenu: "Forgot how something works?",
+    },
+    "zh-TW": {
+      tabs: "側欄分類",
+      newNote: "新增筆記",
+      folders: "資料夾",
+      search: "搜尋",
+      header: "分享與更多動作",
+      versions: "版本歷史",
+      userMenu: "忘了怎麼用？",
+    },
+  };
+
+  /** 寬視窗說明裡一定要有的片段（快捷鍵用 `{mod}` 代表修飾鍵）。 */
+  const WIDE_PARTS: Record<"en" | "zh-TW", Record<StopId, string[]>> = {
+    en: {
+      tabs: ["hover over one to see its name"],
+      newNote: ["Click here to create a note", "My notes"],
+      folders: ["My notes header", "Move to…"],
+      search: ["{mod}K", "titles and note text"],
+      header: ["invites others to view or edit"],
+      versions: ["{mod}S", "bottom-right corner"],
+      userMenu: ["{mod}/", "open Help from here", "shortcuts, the feature tour and what's new"],
+    },
+    "zh-TW": {
+      tabs: ["滑鼠停在上面就會顯示名稱"],
+      newNote: ["按這裡新增一篇筆記", "我的筆記"],
+      folders: ["我的筆記", "移動到…"],
+      search: ["{mod}K", "標題和內文"],
+      header: ["邀請別人一起看或一起編輯"],
+      versions: ["{mod}S", "右下角"],
+      userMenu: ["{mod}/", "從這裡打開「說明」", "快捷鍵、功能導覽和這一版新增"],
+    },
+  };
+
+  /** 窄視窗說明裡一定要有的片段。 */
+  const NARROW_PARTS: Record<"en" | "zh-TW", Partial<Record<StopId, string[]>>> = {
+    en: {
+      tabs: ["Open the sidebar from here"],
+      newNote: ["bottom of the sidebar", "Open the sidebar from here"],
+      folders: ["Move to…", "Open the sidebar from here"],
+      search: ["{mod}K", "open the sidebar from here"],
+      versions: ["in the ⋮ menu"],
+      userMenu: ["{mod}/", "open Help from the menu at the bottom-left of the sidebar", "Open the sidebar from here"],
+    },
+    "zh-TW": {
+      tabs: ["點這裡打開側欄"],
+      newNote: ["側欄底部", "點這裡打開側欄"],
+      folders: ["移動到…", "點這裡打開側欄"],
+      search: ["{mod}K", "點這裡打開側欄"],
+      versions: ["在 ⋮ 裡"],
+      userMenu: ["{mod}/", "從側欄左下角的選單打開「說明」", "點這裡打開側欄"],
+    },
+  };
+
+  /** 只在窄視窗出現的「打開側欄」補句；寬視窗的說明不能混進去。 */
+  const NARROW_SENTENCE = { en: /open the sidebar from here/i, "zh-TW": /點這裡打開側欄/ } as const;
+
+  const withMod = (parts: string[], mod: string) => parts.map((p) => p.replace("{mod}", mod));
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it.each(["en", "zh-TW"] as const)("%s：每站的標題與說明（寬、窄）", (lng) => {
+    const t = i18n.getFixedT(lng);
+    for (const id of FULL_TOUR) {
+      const stop = STOPS[id];
+      expect(stopTitle(t, stop), id).toBe(TITLES[lng][id]);
+      const wide = stopBody(t, stop, false);
+      for (const part of withMod(WIDE_PARTS[lng][id], "Ctrl+")) expect(wide, `${id} wide`).toContain(part);
+      expect(wide, `${id} wide`).not.toMatch(NARROW_SENTENCE[lng]);
+      const narrow = stopBody(t, stop, true);
+      const narrowParts = NARROW_PARTS[lng][id];
+      if (narrowParts === undefined) {
+        expect(narrow, `${id} narrow`).toBe(wide);
+      } else {
+        expect(narrow, `${id} narrow`).not.toBe(wide);
+        for (const part of withMod(narrowParts, "Ctrl+")) expect(narrow, `${id} narrow`).toContain(part);
+      }
+    }
+  });
+
+  it.each(["en", "zh-TW"] as const)("%s：站 6 在寬視窗指右下角、在窄視窗指 ⋮，兩邊不混", (lng) => {
+    const t = i18n.getFixedT(lng);
+    const wide = stopBody(t, STOPS.versions, false);
+    const narrow = stopBody(t, STOPS.versions, true);
+    expect(wide).not.toContain("⋮");
+    expect(narrow).not.toMatch(/右下角|bottom-right/);
+  });
+
+  it.each(["en", "zh-TW"] as const)("%s：Mac 顯示 ⌘、其他平台顯示 Ctrl+，沒有未代入的 {{mod}}", (lng) => {
+    const t = i18n.getFixedT(lng);
+    const all = (narrow: boolean) => FULL_TOUR.map((id) => stopBody(t, STOPS[id], narrow)).join("\n");
+    for (const narrow of [false, true]) {
+      vi.stubGlobal("navigator", { platform: "MacIntel" });
+      const mac = all(narrow);
+      expect(mac).toContain("⌘K");
+      expect(mac).toContain("⌘/");
+      expect(mac).not.toContain("Ctrl");
+      vi.stubGlobal("navigator", { platform: "Win32" });
+      const other = all(narrow);
+      expect(other).toContain("Ctrl+K");
+      expect(other).toContain("Ctrl+/");
+      expect(other).not.toContain("⌘");
+      for (const text of [mac, other]) expect(text).not.toContain("{{");
+    }
+  });
+
+  it("說明裡提到的名稱與介面上的名稱一致（兩種語言）", () => {
+    for (const lng of ["en", "zh-TW"] as const) {
+      const t = i18n.getFixedT(lng);
+      const body = (id: StopId) => stopBody(t, STOPS[id], false);
+      const narrowBody = (id: StopId) => stopBody(t, STOPS[id], true);
+      // 站 1：五個分類的名稱（含垃圾桶）。
+      const names = ["sidebar.recent", "sidebar.myNotes", "sidebar.workspace", "sidebar.shared", "sidebar.trash"].map((key) => t(key));
+      const list = lng === "en" ? `${names.slice(0, -1).join(", ")}, and ${names.at(-1)}` : names.join("、");
+      expect(body("tabs")).toContain(list);
+      expect(narrowBody("tabs")).toContain(list);
+      // 站 2：新增筆記的鈕名（側欄底部那顆）；放進的地方是「我的筆記」。
+      expect(stopTitle(t, STOPS.newNote)).toBe(t("home.newNote"));
+      expect(narrowBody("newNote")).toContain(t("home.newNote"));
+      expect(body("newNote")).toContain(t("sidebar.myNotes"));
+      // 站 3：筆記 ⋮ 選單裡的「移動到…」、標題列在「我的筆記」。
+      expect(body("folders")).toContain(t("note.menu.moveTo"));
+      expect(body("folders")).toContain(t("sidebar.myNotes"));
+      // 站 5：分享鈕與 ⋮ 裡的四個項目。
+      expect(body("header")).toContain(t("share.button"));
+      for (const key of ["note.menu.present", "note.menu.aiEdits", "note.menu.moveTo", "note.menu.copyTo"]) {
+        expect(body("header"), `${lng} ${key}`).toContain(t(key));
+      }
+      // 站 10：入口叫「說明」，與使用者選單那一格一致。
+      expect(body("userMenu")).toContain(t("userMenu.help"));
+      expect(narrowBody("userMenu")).toContain(t("userMenu.help"));
+      // 站 10 提到的三頁，名稱要跟說明視窗左欄的頁名一致。
+      const nav = (lng === "en" ? shortcutsEn : shortcutsZhTW).helpGuide.nav;
+      for (const text of [body("userMenu"), narrowBody("userMenu")]) {
+        if (lng === "en") {
+          const lower = text.toLowerCase();
+          expect(lower).toContain(nav.tour.toLowerCase());
+          expect(lower).toContain(nav.whatsNew.toLowerCase());
+          expect(lower).toContain(nav.shortcuts.toLowerCase().replace("keyboard ", ""));
+        } else {
+          for (const name of [nav.tour, nav.whatsNew, nav.shortcuts]) expect(text).toContain(name);
+        }
+      }
+    }
+  });
+
+  it.each(["en", "zh-TW"] as const)("%s：站點文案沒有拿快捷鍵介紹當入口名稱", (lng) => {
+    const t = i18n.getFixedT(lng);
+    const text = FULL_TOUR.flatMap((id) => [stopBody(t, STOPS[id], false), stopBody(t, STOPS[id], true)]).join("\n");
+    expect(text).not.toMatch(/Keyboard shortcuts|快捷鍵介紹/);
   });
 });
