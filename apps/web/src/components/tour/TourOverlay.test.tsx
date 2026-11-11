@@ -47,7 +47,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("V1 卡片的角色與名稱", () => {
+describe("卡片的角色與名稱", () => {
   it("role=dialog、aria-modal=false、名稱是標題、描述是說明、有 data-tour-card", () => {
     renderOverlay();
     const dialog = screen.getByRole("dialog", { name: "Search" });
@@ -62,7 +62,7 @@ describe("V1 卡片的角色與名稱", () => {
   });
 });
 
-describe("V2 按鈕依站序", () => {
+describe("按鈕依站序", () => {
   it("第 1 站：跳過、下一步、✕；沒有上一步", () => {
     renderOverlay({ step: 1, total: 5 });
     expect(buttonNames()).toEqual(["Skip feature tour", "Next", "Close"]);
@@ -114,7 +114,7 @@ describe("V2 按鈕依站序", () => {
   });
 });
 
-describe("V3 導覽開著時全站快捷鍵讓路", () => {
+describe("導覽開著時全站快捷鍵讓路", () => {
   it("isOverlayOpen() 掛著為 true、卸載後回到 false", () => {
     expect(isOverlayOpen()).toBe(false);
     const { unmount } = renderOverlay();
@@ -124,7 +124,7 @@ describe("V3 導覽開著時全站快捷鍵讓路", () => {
   });
 });
 
-describe("V4 卡面", () => {
+describe("卡面", () => {
   it("用 cardSurface", () => {
     renderOverlay();
     for (const cls of cardSurface.split(" ")) expect(card()).toHaveClass(cls);
@@ -136,7 +136,7 @@ describe("V4 卡面", () => {
   });
 });
 
-describe("V5 演示站模式", () => {
+describe("演示站模式", () => {
   it("有 aria-live=polite 的提示「← → 換站、Esc 結束」", () => {
     renderOverlay({ live: true });
     const region = hintRegion();
@@ -186,7 +186,7 @@ describe("換站時報讀器讀得到新的一站", () => {
   });
 });
 
-describe("V6 window capture 的 pointerdown 攔截", () => {
+describe("window capture 的 pointerdown 攔截", () => {
   it("卡片按鈕、卡片文字、遮罩：defaultPrevented，而且 document 的 capture 監聽收不到", () => {
     renderOverlay();
     const targets = [
@@ -252,14 +252,14 @@ describe("V6 window capture 的 pointerdown 攔截", () => {
   });
 });
 
-describe("V7 沒有「每次登入都顯示」", () => {
+describe("沒有「每次登入都顯示」", () => {
   it("卡片裡沒有 checkbox", () => {
     renderOverlay({ step: 1, total: 5 });
     expect(card().querySelector('input[type="checkbox"], [role="checkbox"], [role="switch"]')).toBeNull();
   });
 });
 
-describe("V8 最後一站", () => {
+describe("最後一站", () => {
   it("兩顆鈕的 aria-describedby 指向那句提問；說明句另有自己的元素", () => {
     renderOverlay({ step: 5, total: 5, body: "Press Ctrl+/ or open Keyboard shortcuts from here." });
     const question = screen.getByText("Keep the sample note, or move it to the trash?");

@@ -50,7 +50,7 @@ const BUNDLES = [
   ["zh-TW", tourZhTW],
 ] as const;
 
-describe("TC1 兩語系鍵集合相同、頂層只有 tourGuide", () => {
+describe("兩語系鍵集合相同、頂層只有 tourGuide", () => {
   it("鍵集合相同", () => {
     const keys = (bundle: unknown) => leaves(bundle).map(([k]) => k).sort();
     expect(keys(tourZhTW)).toEqual(keys(tourEn));
@@ -62,7 +62,7 @@ describe("TC1 兩語系鍵集合相同、頂層只有 tourGuide", () => {
   });
 });
 
-describe("TC2 每個值都是非空字串", () => {
+describe("每個值都是非空字串", () => {
   it.each(BUNDLES)("%s", (_name, bundle) => {
     const bad = leaves(bundle).filter(([, v]) => typeof v !== "string" || v.trim().length === 0);
     expect(bad.map(([k]) => k)).toEqual([]);
@@ -71,7 +71,7 @@ describe("TC2 每個值都是非空字串", () => {
 
 // 讀原始文字：deep merge 的 addResourceBundle 會把 tourGuide 併進 i18n 初始化時那份主 JSON 物件（同一個 import），
 // 所以 import 進來的主 JSON 在 tour-strings 載入後已帶 tourGuide 鍵。
-describe("TC3 主 JSON 沒有 tourGuide 頂層鍵", () => {
+describe("主 JSON 沒有 tourGuide 頂層鍵", () => {
   it.each([
     ["en", enRaw],
     ["zh-TW", zhTWRaw],
@@ -80,7 +80,7 @@ describe("TC3 主 JSON 沒有 tourGuide 頂層鍵", () => {
   });
 });
 
-describe("TC4 包沒有重複鍵", () => {
+describe("包沒有重複鍵", () => {
   it.each([
     ["en", tourEnRaw],
     ["zh-TW", tourZhTWRaw],
@@ -91,7 +91,7 @@ describe("TC4 包沒有重複鍵", () => {
 
 // 「導覽」兩個字已經是窄視窗側欄抽屜的名稱（`sidebar.drawerTitle`、`sidebar.openDrawer`），
 // 這個功能一律寫「功能導覽」，免得和抽屜混在一起。
-describe("TC5 zh-TW 沒有不帶「功能」的「導覽」", () => {
+describe("zh-TW 沒有不帶「功能」的「導覽」", () => {
   it("每個值", () => {
     const bad = leaves(tourZhTW).filter(([, v]) => typeof v === "string" && /(?<!功能)導覽/.test(v));
     expect(bad).toEqual([]);
@@ -100,7 +100,7 @@ describe("TC5 zh-TW 沒有不帶「功能」的「導覽」", () => {
 
 // 最後一站那句提問要獨立成一把鍵：卡片的兩顆鈕以 `aria-describedby` 指向它，併在站點說明裡的話，
 // 報讀器每顆鈕都會把整段說明念一次。
-describe("TC7 最後一站的提問是獨立的鍵，不在站點說明裡", () => {
+describe("最後一站的提問是獨立的鍵，不在站點說明裡", () => {
   const QUESTION = { en: "Keep the sample note, or move it to the trash?", "zh-TW": "要保留示範筆記，還是移到垃圾桶？" } as const;
   it.each(BUNDLES)("%s", (name, bundle) => {
     expect(bundle.tourGuide.keepOrDeleteSample).toBe(QUESTION[name]);
@@ -109,7 +109,7 @@ describe("TC7 最後一站的提問是獨立的鍵，不在站點說明裡", () 
   });
 });
 
-describe("TC6 註冊後可用、不覆寫主檔", () => {
+describe("註冊後可用、不覆寫主檔", () => {
   it("包裡的鍵查得到，主檔的鍵照舊", () => {
     expect(i18n.t("tourGuide.progress", { lng: "en", n: 1, total: 7 })).toBe("1 / 7");
     expect(i18n.t("userMenu.shortcuts", { lng: "zh-TW" })).toBe("快捷鍵介紹");

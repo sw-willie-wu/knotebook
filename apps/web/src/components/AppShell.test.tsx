@@ -918,7 +918,7 @@ describe("AppShell — 功能導覽登記處", () => {
     vi.unstubAllGlobals();
   });
 
-  it("B4 寬視窗：getTab 讀目前 tab；showTab 切 tab、不開抽屜；卸載後撤掉登記", async () => {
+  it("寬視窗：getTab 讀目前 tab；showTab 切 tab、不開抽屜；卸載後撤掉登記", async () => {
     localStorage.setItem("sidebar.tab", "recent");
     stubFetchForTour();
     const { unmount } = renderShell();
@@ -936,7 +936,7 @@ describe("AppShell — 功能導覽登記處", () => {
     expect(getShellControls()).toBeNull();
   });
 
-  it("B4 closeDrawer 關掉開著的抽屜", async () => {
+  it("closeDrawer 關掉開著的抽屜", async () => {
     stubFetchForTour();
     renderShell();
     fireEvent.click(await screen.findByRole("button", { name: "Open navigation" }));
@@ -946,7 +946,7 @@ describe("AppShell — 功能導覽登記處", () => {
     await waitFor(() => expect(document.querySelector("[data-sidebar-drawer]")).toBeNull());
   });
 
-  it("B4 endSelectionIfActive：選取模式中結束並回 true；不在選取模式回 false", async () => {
+  it("endSelectionIfActive：選取模式中結束並回 true；不在選取模式回 false", async () => {
     stubFetchForTour();
     renderShell();
     const controls = getShellControls()!;

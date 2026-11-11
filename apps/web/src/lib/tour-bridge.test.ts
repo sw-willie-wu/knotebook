@@ -32,7 +32,7 @@ function fakeEditor(): TourEditor {
 }
 
 describe("tour-bridge：外殼控制", () => {
-  it("B1 登記→取得→撤銷", () => {
+  it("登記→取得→撤銷", () => {
     const a = shell();
     const unregister = registerShellControls(a);
     expect(getShellControls()).toBe(a);
@@ -40,7 +40,7 @@ describe("tour-bridge：外殼控制", () => {
     expect(getShellControls()).toBeNull();
   });
 
-  it("B2 A 登記、B 登記、A 撤銷 → 仍取得 B；B 撤銷後才清空", () => {
+  it("A 登記、B 登記、A 撤銷 → 仍取得 B；B 撤銷後才清空", () => {
     const a = shell();
     const b = shell();
     const unregisterA = keep(registerShellControls(a));
@@ -54,7 +54,7 @@ describe("tour-bridge：外殼控制", () => {
 });
 
 describe("tour-bridge：編輯器", () => {
-  it("B1 登記→取得→撤銷", () => {
+  it("登記→取得→撤銷", () => {
     const editor = fakeEditor();
     const unregister = registerEditor("note-1", editor);
     expect(getTourNoteEditor("note-1")).toBe(editor);
@@ -62,7 +62,7 @@ describe("tour-bridge：編輯器", () => {
     expect(getTourNoteEditor("note-1")).toBeNull();
   });
 
-  it("B2 A 登記、B 登記、A 撤銷 → 仍取得 B；B 撤銷後才清空", () => {
+  it("A 登記、B 登記、A 撤銷 → 仍取得 B；B 撤銷後才清空", () => {
     const a = fakeEditor();
     const b = fakeEditor();
     const unregisterA = keep(registerEditor("note-1", a));
@@ -74,18 +74,18 @@ describe("tour-bridge：編輯器", () => {
     expect(getTourNoteEditor("note-1")).toBeNull();
   });
 
-  it("B3 傳入的 id 與登記的不同 → null（登記的那份照樣取得）", () => {
+  it("傳入的 id 與登記的不同 → null（登記的那份照樣取得）", () => {
     const editor = fakeEditor();
     keep(registerEditor("note-1", editor));
     expect(getTourNoteEditor("other")).toBeNull();
     expect(getTourNoteEditor("note-1")).toBe(editor);
   });
 
-  it("B3 什麼都沒登記 → null", () => {
+  it("什麼都沒登記 → null", () => {
     expect(getTourNoteEditor("note-1")).toBeNull();
   });
 
-  it("B6 同一個編輯器實例只通知一次；換一個實例再通知一次", () => {
+  it("同一個編輯器實例只通知一次；換一個實例再通知一次", () => {
     const fn = vi.fn();
     keep(onEditorEditable(fn));
     const a = fakeEditor();
@@ -99,7 +99,7 @@ describe("tour-bridge：編輯器", () => {
     expect(fn).toHaveBeenLastCalledWith("note-1", b);
   });
 
-  it("B6 一支訂閱者拋錯 → 不往外拋、記到 console、下一支照跑", () => {
+  it("一支訂閱者拋錯 → 不往外拋、記到 console、下一支照跑", () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     const boom = new Error("boom");
     keep(
@@ -116,7 +116,7 @@ describe("tour-bridge：編輯器", () => {
     consoleError.mockRestore();
   });
 
-  it("B6 取消訂閱後不再被呼叫", () => {
+  it("取消訂閱後不再被呼叫", () => {
     const fn = vi.fn();
     const off = onEditorEditable(fn);
     off();
@@ -132,7 +132,7 @@ describe("tour-bridge：演示用的交易過濾開關", () => {
   }
   const isOn = (editor: TourEditor) => isTourTransactionFilterOn(editor._tiptapEditor);
 
-  it("F5 id 與登記的不同 → 回 false、不動開關；相同 → 回 true、開關跟著變", () => {
+  it("id 與登記的不同 → 回 false、不動開關；相同 → 回 true、開關跟著變", () => {
     const editor = filterableEditor();
     keep(registerEditor("note-1", editor));
     expect(setTourTransactionFilter("other", true)).toBe(false);
@@ -143,11 +143,11 @@ describe("tour-bridge：演示用的交易過濾開關", () => {
     expect(isOn(editor)).toBe(false);
   });
 
-  it("F5 什麼都沒登記 → 回 false", () => {
+  it("什麼都沒登記 → 回 false", () => {
     expect(setTourTransactionFilter("note-1", true)).toBe(false);
   });
 
-  it("F6 撤登記時關掉自己那份的開關", () => {
+  it("撤登記時關掉自己那份的開關", () => {
     const editor = filterableEditor();
     const unregister = registerEditor("note-1", editor);
     setTourTransactionFilter("note-1", true);
@@ -155,7 +155,7 @@ describe("tour-bridge：演示用的交易過濾開關", () => {
     expect(isOn(editor)).toBe(false);
   });
 
-  it("F6 A 登記並打開、B 登記並打開、A 撤銷 → A 關掉、B 照樣開著", () => {
+  it("A 登記並打開、B 登記並打開、A 撤銷 → A 關掉、B 照樣開著", () => {
     const a = filterableEditor();
     const b = filterableEditor();
     const unregisterA = keep(registerEditor("note-1", a));

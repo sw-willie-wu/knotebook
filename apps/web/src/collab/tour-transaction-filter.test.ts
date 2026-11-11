@@ -102,7 +102,7 @@ function typeAtEnd(editor: AnyEditor, text: string, meta?: [string, unknown]): v
 }
 
 describe("導覽交易過濾（帶 Y.Doc 共編的真編輯器）", () => {
-  it("F1 開關關著：一般 insertText 照常寫入，也寫進 Y.Doc", async () => {
+  it("開關關著：一般 insertText 照常寫入，也寫進 Y.Doc", async () => {
     const { doc, editor } = await setup();
     expect(isTourTransactionFilterOn(editor._tiptapEditor)).toBe(false);
     const before = Y.encodeStateVector(doc);
@@ -111,7 +111,7 @@ describe("導覽交易過濾（帶 Y.Doc 共編的真編輯器）", () => {
     expect(Y.encodeStateVector(doc)).not.toEqual(before);
   });
 
-  it("F1 開關記在編輯器實例上：另一個編輯器開著，這一個照常寫入", async () => {
+  it("開關記在編輯器實例上：另一個編輯器開著，這一個照常寫入", async () => {
     const { editor: a } = await setup();
     const { editor: b } = await setup();
     setEditorTransactionFilterFlag(b._tiptapEditor, true);
@@ -121,7 +121,7 @@ describe("導覽交易過濾（帶 Y.Doc 共編的真編輯器）", () => {
     expect(texts(b)).toEqual(["hello"]);
   });
 
-  it("F2 開著：一般 insertText、帶 composition meta 的交易都被擋，文件與 Y.Doc 不變", async () => {
+  it("開著：一般 insertText、帶 composition meta 的交易都被擋，文件與 Y.Doc 不變", async () => {
     const { doc, editor } = await setup();
     setEditorTransactionFilterFlag(editor._tiptapEditor, true);
     const before = Y.encodeStateVector(doc);
@@ -131,7 +131,7 @@ describe("導覽交易過濾（帶 Y.Doc 共編的真編輯器）", () => {
     expect(Y.encodeStateVector(doc)).toEqual(before);
   });
 
-  it("F2 開著：只改選取的交易放行", async () => {
+  it("開著：只改選取的交易放行", async () => {
     const { editor } = await setup();
     const end = endOfFirstText(editor);
     editor._tiptapEditor.commands.setTextSelection(end);
@@ -141,14 +141,14 @@ describe("導覽交易過濾（帶 Y.Doc 共編的真編輯器）", () => {
     expect(texts(editor)).toEqual(["hello"]);
   });
 
-  it("F2 開著：帶導覽 meta 的改文件交易放行", async () => {
+  it("開著：帶導覽 meta 的改文件交易放行", async () => {
     const { editor } = await setup();
     setEditorTransactionFilterFlag(editor._tiptapEditor, true);
     typeAtEnd(editor, "!", [TOUR_TRANSACTION_META, true]);
     expect(texts(editor)).toEqual(["hello!"]);
   });
 
-  it("F3 開著：另一個 Y.Doc 的 update 套進來（y-sync$）→ 內容照常出現", async () => {
+  it("開著：另一個 Y.Doc 的 update 套進來（y-sync$）→ 內容照常出現", async () => {
     const { doc: d1, editor: a } = await setup();
     const d2 = new Y.Doc();
     cleanups.push(() => d2.destroy());
@@ -168,7 +168,7 @@ describe("導覽交易過濾（帶 Y.Doc 共編的真編輯器）", () => {
     expect(texts(a)).toEqual(["hello from B"]);
   });
 
-  it("F2 開著：帶導覽 meta 插入沒有 id 的 block → 補 id 的附加交易照樣放行；不帶 meta 的插入仍被擋", async () => {
+  it("開著：帶導覽 meta 插入沒有 id 的 block → 補 id 的附加交易照樣放行；不帶 meta 的插入仍被擋", async () => {
     const { editor } = await setup();
     const tiptap = editor._tiptapEditor;
     setEditorTransactionFilterFlag(tiptap, true);
@@ -180,7 +180,7 @@ describe("導覽交易過濾（帶 Y.Doc 共編的真編輯器）", () => {
     expect(ids.every((id) => typeof id === "string" && id.length > 0)).toBe(true);
   });
 
-  it("F3 開著：遠端套進一個沒有 id 的 block → 本機補上 id（附加交易跟著遠端同步放行）", async () => {
+  it("開著：遠端套進一個沒有 id 的 block → 本機補上 id（附加交易跟著遠端同步放行）", async () => {
     const { doc: d1, editor: a } = await setup();
     const d2 = new Y.Doc();
     cleanups.push(() => d2.destroy());
@@ -203,7 +203,7 @@ describe("導覽交易過濾（帶 Y.Doc 共編的真編輯器）", () => {
     expect(ids.every((id) => typeof id === "string" && id.length > 0)).toBe(true);
   });
 
-  it("F4 開關切換多次：state.plugins 數量與身分不變，不呼叫 registerPlugin／unregisterPlugin", async () => {
+  it("開關切換多次：state.plugins 數量與身分不變，不呼叫 registerPlugin／unregisterPlugin", async () => {
     const { editor } = await setup();
     const tiptap = editor._tiptapEditor;
     const register = vi.spyOn(tiptap, "registerPlugin");
@@ -225,7 +225,7 @@ describe("導覽交易過濾（帶 Y.Doc 共編的真編輯器）", () => {
 });
 
 describe("導覽交易過濾：經登記處開關", () => {
-  it("F5 setTourTransactionFilter 的 id 與登記的不同 → 不生效；相同 → 生效", async () => {
+  it("setTourTransactionFilter 的 id 與登記的不同 → 不生效；相同 → 生效", async () => {
     const { editor } = await setup();
     const unregister = registerEditor("note-1", editor);
     cleanups.push(unregister);
@@ -241,7 +241,7 @@ describe("導覽交易過濾：經登記處開關", () => {
     expect(texts(editor)).toEqual(["helloac"]);
   });
 
-  it("F6 撤登記後開關關掉，打字照常寫入", async () => {
+  it("撤登記後開關關掉，打字照常寫入", async () => {
     const { editor } = await setup();
     const unregister = registerEditor("note-1", editor);
     setTourTransactionFilter("note-1", true);
@@ -253,7 +253,7 @@ describe("導覽交易過濾：經登記處開關", () => {
     expect(texts(editor)).toEqual(["hellob"]);
   });
 
-  it("F6 編輯器已卸載後才撤登記：不拋錯、開關關掉", async () => {
+  it("編輯器已卸載後才撤登記：不拋錯、開關關掉", async () => {
     const { editor } = await setup();
     const unregister = registerEditor("note-1", editor);
     setTourTransactionFilter("note-1", true);

@@ -66,7 +66,7 @@ describe("NoteEditor：功能導覽登記處", () => {
     vi.unstubAllGlobals();
   });
 
-  it("B1 掛載後以 noteId 取得這份編輯器；別的 id 取不到；卸載後取不到", async () => {
+  it("掛載後以 noteId 取得這份編輯器；別的 id 取不到；卸載後取不到", async () => {
     const doc = new Y.Doc();
     const { unmount } = renderEditor({ doc, noteId: "note-1", editable: true });
     await screen.findByTestId("note-editor");
@@ -78,7 +78,7 @@ describe("NoteEditor：功能導覽登記處", () => {
     doc.destroy();
   });
 
-  it("B2 換 doc（編輯器重建）：登記處換成新的那份；卸載後清空", async () => {
+  it("換 doc（編輯器重建）：登記處換成新的那份；卸載後清空", async () => {
     const doc1 = new Y.Doc();
     const doc2 = new Y.Doc();
     const { rerenderWith, unmount } = renderEditor({ doc: doc1, noteId: "note-1", editable: true });
@@ -95,7 +95,7 @@ describe("NoteEditor：功能導覽登記處", () => {
     doc2.destroy();
   });
 
-  it("B6 editable false→true 呼叫一次（此時 isEditable 已為 true）；之後 true→false→true 不再呼叫", async () => {
+  it("editable false→true 呼叫一次（此時 isEditable 已為 true）；之後 true→false→true 不再呼叫", async () => {
     const calls: Array<{ noteId: string; editor: TourEditor; isEditable: boolean }> = [];
     disposers.push(onEditorEditable((noteId, editor) => calls.push({ noteId, editor, isEditable: editor.isEditable })));
     const doc = new Y.Doc();
@@ -118,7 +118,7 @@ describe("NoteEditor：功能導覽登記處", () => {
     doc.destroy();
   });
 
-  it("B6 一直唯讀 → 不呼叫", async () => {
+  it("一直唯讀 → 不呼叫", async () => {
     const fn = vi.fn();
     disposers.push(onEditorEditable(fn));
     const doc = new Y.Doc();
@@ -130,7 +130,7 @@ describe("NoteEditor：功能導覽登記處", () => {
     doc.destroy();
   });
 
-  it("B6 一掛上就可編輯 → 呼叫一次（此刻已登記）；換 doc（新實例）且可編輯 → 對新實例再呼叫一次", async () => {
+  it("一掛上就可編輯 → 呼叫一次（此刻已登記）；換 doc（新實例）且可編輯 → 對新實例再呼叫一次", async () => {
     const seen: TourEditor[] = [];
     const registeredAtCall: Array<TourEditor | null> = [];
     disposers.push(
@@ -155,7 +155,7 @@ describe("NoteEditor：功能導覽登記處", () => {
     doc2.destroy();
   });
 
-  it("F2 交易過濾經登記處打開：真編輯器上打字被擋；關掉後照常寫入", async () => {
+  it("交易過濾經登記處打開：真編輯器上打字被擋；關掉後照常寫入", async () => {
     const doc = new Y.Doc();
     const { unmount } = renderEditor({ doc, noteId: "note-1", editable: true });
     await screen.findByTestId("note-editor");
@@ -174,7 +174,7 @@ describe("NoteEditor：功能導覽登記處", () => {
     doc.destroy();
   });
 
-  it("F6 卸載 NoteEditor（撤登記）→ 開關關掉", async () => {
+  it("卸載 NoteEditor（撤登記）→ 開關關掉", async () => {
     const doc = new Y.Doc();
     const { unmount } = renderEditor({ doc, noteId: "note-1", editable: true });
     await screen.findByTestId("note-editor");
