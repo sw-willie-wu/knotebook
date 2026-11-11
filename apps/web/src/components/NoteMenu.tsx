@@ -184,17 +184,21 @@ function VersionsMenuItem({ onActivate }: { onActivate: () => void }) {
 
 /**
  * 「加入最愛／移出最愛」項。在選單內容裡才呼叫 `useFavoriteStatus`（Radix 的選單內容只在開啟時掛載），
- * 所以側欄每列平常不訂閱 `["favorites"]`。查詢還沒到或失敗、或這一篇有切換在送出中（重開選單也一樣）→ disabled。
+ * 所以側欄每列平常不訂閱 `["favorites"]`。查詢還沒到或失敗、或這一篇有切換在送出中（重開選單也一樣）→ `aria-disabled`＋選了不做事，
+ * 不用 `disabled`：用鍵盤開選單時 Radix 把焦點放在第一個可用項，`disabled` 會讓焦點落到第二項，之後項目可用了也不會移回來。
  * 三步形同 AI 修改紀錄項（focus trap 規矩，見檔頭）：`onAdd`／`onRemove` 由外層負責關選單。
  */
 function FavoriteMenuItem({ noteId, onAdd, onRemove }: { noteId: string; onAdd: () => void; onRemove: () => void }) {
   const { t } = useTranslation();
   const { ready, favorite, pending } = useFavoriteStatus(noteId);
+  const unavailable = !ready || pending;
   return (
     <DropdownMenuItem
-      disabled={!ready || pending}
+      aria-disabled={unavailable ? true : undefined}
+      className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
       onSelect={(event) => {
         event.preventDefault();
+        if (unavailable) return;
         if (favorite) onRemove();
         else onAdd();
       }}

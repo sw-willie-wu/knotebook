@@ -955,6 +955,26 @@ describe("NoteMenu × 最愛", () => {
     expect(await favItem("Add to favorites")).toHaveAttribute("aria-disabled", "true");
   });
 
+  it.each(["header", "sidebar"] as const)("%s 殼：清單還沒到時鍵盤開選單，焦點在第一項、按 Enter 不送請求；清單到了再選才送", async (shell) => {
+    const server = stubFavServer({ get: "pending" });
+    const { queryClient } = renderShell(shell);
+    fireEvent.keyDown(screen.getByRole("button", { name: triggerName(shell) }), { key: "Enter" });
+    const add = await favItem("Add to favorites");
+    expect(add).toHaveAttribute("aria-disabled", "true");
+    await waitFor(() => expect(add).toHaveFocus());
+    fireEvent.keyDown(add, { key: "Enter" });
+    await act(async () => {});
+    expect(count(server, `PUT /api/favorites/${FAV_NOTE.id}`)).toBe(0);
+    expect(screen.getAllByRole("menuitem")[0]).toBe(add);
+
+    // 清單到了：同一個項目變可用，再選才送出
+    act(() => queryClient.setQueryData(["favorites"], []));
+    await ready(add);
+    expect(add).toHaveFocus();
+    fireEvent.click(add);
+    await waitFor(() => expect(count(server, `PUT /api/favorites/${FAV_NOTE.id}`)).toBe(1));
+  });
+
   it("按「Add」→ PUT /api/favorites/<id>、出「Added to favorites」", async () => {
     const server = stubFavServer();
     renderShell("sidebar");
