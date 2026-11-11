@@ -53,6 +53,7 @@
     "emptyMyNotes": "No personal notes yet.",
     "emptyWorkspace": "You're not in any group yet.",
     "emptyShared": "Nothing has been shared with you yet.",
+    "emptyFavorites": "No favorites yet. Click the star at the top of a note, or choose Add to favorites in its ⋮ menu.",
     "locationGroup": "Groups › {{group}}",
     "locationShared": "Shared with me · {{role}}",
     "locationSharedIn": "Shared with me › {{path}} · {{role}}",

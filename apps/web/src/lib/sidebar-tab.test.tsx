@@ -70,14 +70,9 @@ describe("readSidebarTab", () => {
     expect(readSidebarTab()).toBe(tab);
   });
 
-  it("ST1b：trash 是合法值（步驟 2 起）", () => {
+  it("ST1b：trash 是合法值", () => {
     localStorage.setItem("sidebar.tab", "trash");
     expect(readSidebarTab()).toBe("trash");
-  });
-
-  it("favorites 是合法值", () => {
-    localStorage.setItem("sidebar.tab", "favorites");
-    expect(readSidebarTab()).toBe("favorites");
   });
 
   it.each(["bogus", ""])("無效值 %j → 預設", (raw) => {

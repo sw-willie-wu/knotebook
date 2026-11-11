@@ -53,6 +53,7 @@
     "emptyMyNotes": "還沒有個人筆記。",
     "emptyWorkspace": "還沒有加入任何群組。",
     "emptyShared": "還沒有人與你共享筆記。",
+    "emptyFavorites": "還沒有最愛的筆記。在筆記頁右上角按星號，或從筆記的 ⋮ 選單選「加入最愛」。",
     "locationGroup": "群組 › {{group}}",
     "locationShared": "與我共享 · {{role}}",
     "locationSharedIn": "與我共享 › {{path}} · {{role}}",

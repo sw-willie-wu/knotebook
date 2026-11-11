@@ -129,17 +129,18 @@ describe("SidebarTabList", () => {
 
   it("TL6b 窄寬：六顆均分 tablist、不帶固定寬或左右內距，200 px 側欄也排得下", () => {
     // jsdom 沒有版面，這裡守住寬度的來源：每顆 `flex-1` 均分、內容只有 16 px 圖示。
-    // 200 px 側欄扣掉 tablist 的 `mx-2` 剩 184 px，六顆各約 30 px；任何一顆加了固定寬、最小寬或左右內距，
-    // 六顆的最小寬加總就可能超過 184 px。真瀏覽器量測在 e2e。
+    // 200 px 側欄扣掉卡片邊框與 tablist 的 `mx-2` 剩 182 px，六顆各約 30 px；任何一顆加了固定寬、最小寬或左右內距
+    // （含任何斷點前綴與 ps／pe），或 tablist 加了間距或內距，六顆的最小寬加總就可能超過 182 px。真瀏覽器量測在 e2e。
     renderList();
     const tablist = screen.getByRole("tablist");
     expect(tablist).toHaveClass("mx-2", "flex");
     expect(tablist.className).not.toMatch(/(^|\s)(overflow-x-auto|overflow-x-scroll|flex-wrap)(\s|$)/);
+    expect(tablist.className).not.toMatch(/(^|\s)([a-z0-9-]+:)*(gap|gap-x|space-x|p|px|pl|pr|ps|pe)-\S+/);
     const tabs = screen.getAllByRole("tab");
     expect(tabs).toHaveLength(6);
     for (const tab of tabs) {
       expect(tab).toHaveClass("flex-1");
-      expect(tab.className).not.toMatch(/(^|\s)(md:)?(w|min-w|basis|px|pl|pr|p)-\S+/);
+      expect(tab.className).not.toMatch(/(^|\s)([a-z0-9-]+:)*(w|min-w|basis|p|px|pl|pr|ps|pe)-\S+/);
       expect(tab.className).not.toMatch(/(^|\s)shrink-0(\s|$)/);
       expect(tab.querySelector("svg")).toHaveClass("h-4", "w-4");
     }
