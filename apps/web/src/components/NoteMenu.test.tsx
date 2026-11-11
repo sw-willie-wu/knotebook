@@ -12,6 +12,10 @@ import { EDITOR_PERMS, OWNER_PERMS } from "@/test/fixtures";
 import { NARROW_QUERY, useVersionsController, VersionsProvider } from "@/lib/versions-context";
 import { FOLDER_LIST_EMPTY, folderDto } from "@/test/folder-fixtures";
 import { mockWidePointer } from "@/test/wide-pointer";
+import { ActiveNoteProvider } from "@/lib/active-note";
+import { SidebarTabProvider } from "@/lib/sidebar-tab";
+import { personalNote } from "@/test/select-fixtures";
+import { NoteList } from "./NoteList";
 
 // ⋮ 選單：複製連結（任何角色）＋移到垃圾桶（#181：不確認、成功 toast＋復原；#175 起看 `permissions.delete`，含
 // leavingRef 時序：刪除失敗且已進終態時，`NoteMenu` 必須自己補一套「同文案同
@@ -827,5 +831,396 @@ describe("NoteMenu × 逐層子選單", () => {
     expect(leavingRef.current).toBe(false);
     expect(screen.getByTestId("loc").textContent).toBe(canonicalNotePath(OWNER_NOTE));
     expect(screen.queryByText("home landing")).toBeNull();
+  });
+});
+
+// ── 最愛：⋮ 的「加入最愛／移出最愛」與移出確認框 ──
+
+describe("NoteMenu × 最愛", () => {
+  const FAV_NOTE = OWNER_NOTE;
+  const jsonResponse = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+  const hang = () => new Promise<Response>(() => {});
+
+  interface FavServer {
+    /** 此刻在最愛裡的 noteId，新到舊。 */
+    favorites: string[];
+    /** 回應方式；"pending"＝掛住不回。 */
+    get: "ok" | "pending";
+    put: "ok" | "pending" | 404;
+    del: "ok" | "pending" | 429;
+    calls: string[];
+  }
+
+  function stubFavServer(init: Partial<Omit<FavServer, "calls">> = {}): FavServer {
+    const server: FavServer = { favorites: [], get: "ok", put: "ok", del: "ok", calls: [], ...init };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, request?: RequestInit) => {
+        const url = String(input);
+        const method = (request?.method ?? "GET").toUpperCase();
+        server.calls.push(`${method} ${url}`);
+        if (url === "/api/favorites" && method === "GET") {
+          if (server.get === "pending") return hang();
+          return Promise.resolve(jsonResponse(server.favorites.map((noteId) => ({ noteId, favoritedAt: "2026-03-01T00:00:00.000Z" }))));
+        }
+        const target = /^\/api\/favorites\/(.+)$/.exec(url)?.[1];
+        if (target !== undefined && method === "PUT") {
+          if (server.put === "pending") return hang();
+          if (server.put === 404) return Promise.resolve(jsonResponse({ error: { code: "not_found", message: "Not found" } }, 404));
+          server.favorites = [target, ...server.favorites];
+          return Promise.resolve(jsonResponse({ noteId: target, favoritedAt: "2026-03-02T00:00:00.000Z" }));
+        }
+        if (target !== undefined && method === "DELETE") {
+          if (server.del === "pending") return hang();
+          if (server.del === 429) return Promise.resolve(jsonResponse({ error: { code: "too_many_requests", message: "slow" } }, 429));
+          server.favorites = server.favorites.filter((id) => id !== target);
+          return Promise.resolve(new Response(null, { status: 204 }));
+        }
+        if (url === "/api/groups" || url === "/api/notes") return Promise.resolve(jsonResponse([]));
+        if (url === "/api/folders") return Promise.resolve(jsonResponse({ folders: [] }));
+        return Promise.resolve(jsonResponse({ error: { code: "not_found", message: "unexpected" } }, 404));
+      }),
+    );
+    return server;
+  }
+
+  const count = (server: FavServer, call: string) => server.calls.filter((c) => c === call).length;
+
+  function renderShell(shell: "header" | "sidebar", note: NoteDto = FAV_NOTE) {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/start"]}>
+          {shell === "header" ? (
+            <NoteMenu note={note} state={CONNECTED} leavingRef={{ current: false }} onOpenEdits={() => {}} />
+          ) : (
+            <SidebarNoteMenu note={note} />
+          )}
+        </MemoryRouter>
+        <Toaster />
+      </QueryClientProvider>,
+    );
+    return { queryClient };
+  }
+
+  const triggerName = (shell: "header" | "sidebar") => (shell === "header" ? "More" : `Note actions for ${FAV_NOTE.title}`);
+  const openShellMenu = (shell: "header" | "sidebar") => fireEvent.pointerDown(screen.getByRole("button", { name: triggerName(shell) }), { button: 0 });
+  const favItem = (name: "Add to favorites" | "Remove from favorites") => screen.findByRole("menuitem", { name });
+  /** 清單到了（項目不再 disabled）。 */
+  const ready = (item: HTMLElement) => waitFor(() => expect(item).not.toHaveAttribute("aria-disabled", "true"));
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it.each(["header", "sidebar"] as const)("%s 殼：最愛項是第一項、複製連結是第二項", async (shell) => {
+    stubFavServer();
+    renderShell(shell);
+    openShellMenu(shell);
+    await favItem("Add to favorites");
+    expect(screen.getAllByRole("menuitem")[0]).toHaveTextContent("Add to favorites");
+    expect(screen.getAllByRole("menuitem")[1]).toHaveTextContent("Copy link");
+  });
+
+  it("不在最愛：空心星＋「Add to favorites」", async () => {
+    stubFavServer({ favorites: [] });
+    renderShell("header");
+    openShellMenu("header");
+    const add = await favItem("Add to favorites");
+    await ready(add);
+    expect(add.querySelector("svg")).toHaveAttribute("data-icon", "star");
+    expect(add.querySelector("svg")).toHaveAttribute("fill", "none");
+  });
+
+  it("在最愛：實心星＋「Remove from favorites」", async () => {
+    stubFavServer({ favorites: [FAV_NOTE.id] });
+    renderShell("header");
+    openShellMenu("header");
+    const remove = await favItem("Remove from favorites");
+    await ready(remove);
+    expect(remove.querySelector("svg")).toHaveAttribute("data-icon", "star");
+    expect(remove.querySelector("svg")).toHaveAttribute("fill", "currentColor");
+  });
+
+  it("清單還沒到 → disabled、顯示「Add to favorites」", async () => {
+    stubFavServer({ get: "pending" });
+    renderShell("header");
+    openShellMenu("header");
+    expect(await favItem("Add to favorites")).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("按「Add」→ PUT /api/favorites/<id>、出「Added to favorites」", async () => {
+    const server = stubFavServer();
+    renderShell("sidebar");
+    openShellMenu("sidebar");
+    const add = await favItem("Add to favorites");
+    await ready(add);
+    fireEvent.click(add);
+    expect(await screen.findByText("Added to favorites")).toBeInTheDocument();
+    expect(count(server, `PUT /api/favorites/${FAV_NOTE.id}`)).toBe(1);
+  });
+
+  it("加入失敗 → 出錯誤 toast、不出成功 toast", async () => {
+    stubFavServer({ put: 404 });
+    renderShell("header");
+    openShellMenu("header");
+    const add = await favItem("Add to favorites");
+    await ready(add);
+    fireEvent.click(add);
+    expect(await screen.findByText(i18n.t("errors.not_found"))).toBeInTheDocument();
+    expect(screen.queryByText("Added to favorites")).toBeNull();
+  });
+
+  it("按「Remove」→ 出確認框、還沒送 DELETE；Cancel → 沒送、焦點回 ⋮；再開、框內 Remove → 送 DELETE、框關、toast 沒有 Undo", async () => {
+    const server = stubFavServer({ favorites: [FAV_NOTE.id] });
+    renderShell("header");
+    openShellMenu("header");
+    const remove = await favItem("Remove from favorites");
+    await ready(remove);
+    fireEvent.click(remove);
+    const dialog = await screen.findByRole("dialog", { name: "Remove from favorites?" });
+    expect(count(server, `DELETE /api/favorites/${FAV_NOTE.id}`)).toBe(0);
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(screen.getByRole("button", { name: "More" })).toHaveFocus());
+    expect(count(server, `DELETE /api/favorites/${FAV_NOTE.id}`)).toBe(0);
+
+    openShellMenu("header");
+    fireEvent.click(await favItem("Remove from favorites"));
+    const again = await screen.findByRole("dialog", { name: "Remove from favorites?" });
+    fireEvent.click(within(again).getByRole("button", { name: "Remove" }));
+    expect(await screen.findByText("Removed from favorites")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(count(server, `DELETE /api/favorites/${FAV_NOTE.id}`)).toBe(1);
+    expect(screen.queryByRole("button", { name: /undo/i })).toBeNull();
+    await waitFor(() => expect(screen.getByRole("button", { name: "More" })).toHaveFocus());
+  });
+
+  it("DELETE 回 429 → 框關、錯誤 toast、快取不變、焦點回 ⋮", async () => {
+    stubFavServer({ favorites: [FAV_NOTE.id], del: 429 });
+    const { queryClient } = renderShell("sidebar");
+    openShellMenu("sidebar");
+    const remove = await favItem("Remove from favorites");
+    await ready(remove);
+    fireEvent.click(remove);
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }));
+    expect(await screen.findByText("Too many requests. Please slow down.")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.queryByText("Removed from favorites")).toBeNull();
+    expect(queryClient.getQueryData(["favorites"])).toEqual([{ noteId: FAV_NOTE.id, favoritedAt: "2026-03-01T00:00:00.000Z" }]);
+    await waitFor(() => expect(screen.getByRole("button", { name: triggerName("sidebar") })).toHaveFocus());
+  });
+
+  it("移出請求還沒回來：確認框不關、兩顆鈕 disabled、Esc 無效、DELETE 只送一次", async () => {
+    const server = stubFavServer({ favorites: [FAV_NOTE.id], del: "pending" });
+    renderShell("sidebar");
+    openShellMenu("sidebar");
+    const remove = await favItem("Remove from favorites");
+    await ready(remove);
+    fireEvent.click(remove);
+    const dialog = await screen.findByRole("dialog", { name: "Remove from favorites?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(count(server, `DELETE /api/favorites/${FAV_NOTE.id}`)).toBe(1));
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeDisabled());
+    expect(within(dialog).getByRole("button", { name: "Remove" })).toBeDisabled();
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(screen.getByRole("dialog", { name: "Remove from favorites?" })).toBeInTheDocument();
+    expect(count(server, `DELETE /api/favorites/${FAV_NOTE.id}`)).toBe(1);
+  });
+
+  it("送出中重開選單：PUT 掛住 → 該項 disabled；按它不送第二個請求", async () => {
+    const server = stubFavServer({ put: "pending" });
+    renderShell("header");
+    openShellMenu("header");
+    const add = await favItem("Add to favorites");
+    await ready(add);
+    fireEvent.click(add);
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    expect(count(server, `PUT /api/favorites/${FAV_NOTE.id}`)).toBe(1);
+
+    openShellMenu("header");
+    const during = await favItem("Remove from favorites");
+    expect(during).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(during);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(count(server, `PUT /api/favorites/${FAV_NOTE.id}`)).toBe(1);
+    expect(server.calls.filter((c) => c.startsWith("DELETE"))).toEqual([]);
+  });
+
+  it("選單沒開時不打 GET /api/favorites（十個側欄 ⋮）；打開一個才打一次", async () => {
+    const server = stubFavServer();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const notes = Array.from({ length: 10 }, (_, i) => ({ ...FAV_NOTE, id: `${FAV_NOTE.id.slice(0, -2)}${String(i).padStart(2, "0")}`, title: `Note ${i}` }));
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          {notes.map((n) => (
+            <SidebarNoteMenu key={n.id} note={n} />
+          ))}
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(count(server, "GET /api/favorites")).toBe(0);
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Note actions for Note 3" }), { button: 0 });
+    await favItem("Add to favorites");
+    await waitFor(() => expect(count(server, "GET /api/favorites")).toBe(1));
+  });
+});
+
+// 最愛 tab 裡用列自己的 ⋮ 移出：那一列在 204 之後卸載，焦點要落到下一列／上一列／tabpanel，toast 不能隨列消失。
+describe("NoteMenu × 最愛 tab 的焦點", () => {
+  const A = personalNote({ id: "fa", title: "Alpha" });
+  const B = personalNote({ id: "fb", title: "Bravo" });
+  const C = personalNote({ id: "fc", title: "Charlie" });
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+    localStorage.setItem("sidebar.tab", "favorites");
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  });
+
+  it("從 B、C、A 依序移出：焦點依序落在 C 的連結、A 的連結、tabpanel；三次都出現移出 toast", async () => {
+    let favorites = [A.id, B.id, C.id];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (url === "/api/favorites" && method === "GET") {
+          return Promise.resolve(json(favorites.map((noteId) => ({ noteId, favoritedAt: "2026-03-01T00:00:00.000Z" }))));
+        }
+        const target = /^\/api\/favorites\/(.+)$/.exec(url)?.[1];
+        if (target !== undefined && method === "DELETE") {
+          favorites = favorites.filter((id) => id !== target);
+          return Promise.resolve(new Response(null, { status: 204 }));
+        }
+        if (url === "/api/notes") return Promise.resolve(json([A, B, C]));
+        if (url === "/api/groups") return Promise.resolve(json([]));
+        if (url === "/api/folders") return Promise.resolve(json({ folders: [] }));
+        return Promise.resolve(json({ error: { code: "not_found", message: "unexpected" } }, 404));
+      }),
+    );
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <ActiveNoteProvider>
+            <SidebarTabProvider>
+              <div data-sidebar-instance="">
+                <div role="tabpanel" tabIndex={0}>
+                  <NoteList />
+                </div>
+              </div>
+            </SidebarTabProvider>
+          </ActiveNoteProvider>
+        </MemoryRouter>
+        <Toaster />
+      </QueryClientProvider>,
+    );
+
+    const rowLink = (id: string) => screen.getByRole("tabpanel").querySelector(`[data-node-id="${id}"] a`) as HTMLElement;
+    await waitFor(() => expect(rowLink(C.id)).not.toBeNull());
+
+    async function removeFrom(note: NoteDto) {
+      const menuButton = screen.getByRole("button", { name: `Note actions for ${note.title}` });
+      menuButton.focus();
+      fireEvent.pointerDown(menuButton, { button: 0 });
+      const item = await screen.findByRole("menuitem", { name: "Remove from favorites" });
+      await waitFor(() => expect(item).not.toHaveAttribute("aria-disabled", "true"));
+      fireEvent.click(item);
+      const dialog = await screen.findByRole("dialog", { name: "Remove from favorites?" });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }));
+      expect(await screen.findByText("Removed from favorites")).toBeInTheDocument();
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      await waitFor(() => expect(screen.getByRole("tabpanel").querySelector(`[data-node-id="${note.id}"]`)).toBeNull());
+      dismissAllToasts();
+    }
+
+    await removeFrom(B);
+    await waitFor(() => expect(rowLink(C.id)).toHaveFocus());
+    await removeFrom(C);
+    await waitFor(() => expect(rowLink(A.id)).toHaveFocus());
+    await removeFrom(A);
+    await waitFor(() => expect(screen.getByRole("tabpanel")).toHaveFocus());
+  });
+
+  it("畫面上有兩份側欄實例（抽屜＋隱藏的靜態卡）：焦點退路只在開框的那份裡找", async () => {
+    let favorites = [A.id, B.id, C.id];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (url === "/api/favorites" && method === "GET") {
+          return Promise.resolve(json(favorites.map((noteId) => ({ noteId, favoritedAt: "2026-03-01T00:00:00.000Z" }))));
+        }
+        const target = /^\/api\/favorites\/(.+)$/.exec(url)?.[1];
+        if (target !== undefined && method === "DELETE") {
+          favorites = favorites.filter((id) => id !== target);
+          return Promise.resolve(new Response(null, { status: 204 }));
+        }
+        if (url === "/api/notes") return Promise.resolve(json([A, B, C]));
+        if (url === "/api/groups") return Promise.resolve(json([]));
+        if (url === "/api/folders") return Promise.resolve(json({ folders: [] }));
+        return Promise.resolve(json({ error: { code: "not_found", message: "unexpected" } }, 404));
+      }),
+    );
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <ActiveNoteProvider>
+            <SidebarTabProvider>
+              <div data-testid="static" data-sidebar-instance="">
+                <div role="tabpanel" tabIndex={0}>
+                  <NoteList />
+                </div>
+              </div>
+              <div data-testid="drawer" data-sidebar-instance="">
+                <div role="tabpanel" tabIndex={0}>
+                  <NoteList />
+                </div>
+              </div>
+            </SidebarTabProvider>
+          </ActiveNoteProvider>
+        </MemoryRouter>
+        <Toaster />
+      </QueryClientProvider>,
+    );
+
+    const drawer = screen.getByTestId("drawer");
+    const staticCard = screen.getByTestId("static");
+    const linkIn = (root: HTMLElement, id: string) => root.querySelector(`[data-node-id="${id}"] a`) as HTMLElement;
+    await waitFor(() => expect(linkIn(drawer, C.id)).not.toBeNull());
+
+    const menuButton = within(drawer).getByRole("button", { name: `Note actions for ${B.title}` });
+    menuButton.focus();
+    fireEvent.pointerDown(menuButton, { button: 0 });
+    const item = await screen.findByRole("menuitem", { name: "Remove from favorites" });
+    await waitFor(() => expect(item).not.toHaveAttribute("aria-disabled", "true"));
+    fireEvent.click(item);
+    const dialog = await screen.findByRole("dialog", { name: "Remove from favorites?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }));
+    expect(await screen.findByText("Removed from favorites")).toBeInTheDocument();
+    await waitFor(() => expect(drawer.querySelector(`[data-node-id="${B.id}"]`)).toBeNull());
+    await waitFor(() => expect(linkIn(drawer, C.id)).toHaveFocus());
+    expect(linkIn(staticCard, C.id)).not.toHaveFocus();
   });
 });

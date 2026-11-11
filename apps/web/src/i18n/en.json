@@ -182,7 +182,16 @@
       "moveTo": "Move to…",
       "copyTo": "Copy to…",
       "makeCopy": "Make a copy",
+      "addFavorite": "Add to favorites",
+      "removeFavorite": "Remove from favorites",
       "delete": "Delete"
+    },
+    "favorite": {
+      "added": "Added to favorites",
+      "removed": "Removed from favorites",
+      "removeTitle": "Remove from favorites?",
+      "removeDescription": "\"{{title}}\" will be removed from your favorites. The note itself isn't changed, and you can add it back later.",
+      "removeConfirm": "Remove"
     },
     "width": {
       "label": "Width",

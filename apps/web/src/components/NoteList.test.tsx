@@ -1,7 +1,7 @@
 import { useEffect, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { focusManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router";
 import {
   canonicalNotePath,
@@ -1898,6 +1898,23 @@ describe("NoteList × 最愛", () => {
     selectTab("Favorites");
     await waitFor(() => expect(rowIds()).toEqual([SHARED.id, GROUPED.id, IN_FOLDER.id]));
     expect(favoritesGets(server)).toBe(1);
+  });
+
+  it("最愛清單不設 staleTime：離開再回到最愛 tab、視窗重新取得焦點都會重抓", async () => {
+    const server = stubServer();
+    renderNoteList({}, { tab: "favorites" });
+    await waitFor(() => expect(rowIds()).toEqual([SHARED.id, GROUPED.id, IN_FOLDER.id]));
+    expect(favoritesGets(server)).toBe(1);
+    selectTab("My notes");
+    await waitFor(() => expect(noteRow(LOOSE.id)).not.toBeNull());
+    selectTab("Favorites");
+    await waitFor(() => expect(favoritesGets(server)).toBe(2));
+    try {
+      act(() => focusManager.setFocused(true));
+      await waitFor(() => expect(favoritesGets(server)).toBe(3));
+    } finally {
+      focusManager.setFocused(undefined);
+    }
   });
 
   describe("回來的筆記不重掛就出現（['favorites'] 已在那之前重抓過、不含它）", () => {
