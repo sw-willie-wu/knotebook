@@ -4,4 +4,6 @@
  */
 export const REPO_URL = "https://github.com/sw-willie-wu/knotebook";
 export const DOCS_URL = `${REPO_URL}/tree/main/docs`;
+/** 安裝成 app 的說明（Android、iOS、桌面）。 */
+export const INSTALL_APP_DOCS_URL = `${REPO_URL}/blob/main/docs/install-app.md`;
 export const LICENSE_URL = `${REPO_URL}/blob/main/LICENSE`;
