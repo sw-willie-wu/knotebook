@@ -416,13 +416,13 @@ describe("開始流程", () => {
     release(null);
   });
 
-  it("prepareSample 回 null（沒辦法開始）→ 不出遮罩、不讀 AI 動作、onFinished 一次", async () => {
+  it("prepareSample 回 null（沒辦法開始）→ 不出遮罩、onFinished 一次；AI 動作照樣只讀過一次（和準備示範筆記同時發出）", async () => {
     const prepareSample = vi.fn(async () => null);
     const { onFinished } = await startTour({ props: { prepareSample } });
     await waitFor(() => expect(onFinished).toHaveBeenCalledTimes(1));
     await new Promise((r) => setTimeout(r, 100));
     expect(overlay()).toBeNull();
-    expect(calls.some((c) => c.url === "/api/ai/actions")).toBe(false);
+    expect(calls.filter((c) => c.url === "/api/ai/actions")).toHaveLength(1);
   });
 
   it("prepareSample 回 null → onStarted 不呼叫，onFinished 帶 started=false", async () => {
@@ -523,10 +523,11 @@ describe("開始流程", () => {
     expect(onStarted).toHaveBeenCalledTimes(1);
   });
 
-  it("StrictMode（開發模式掛載會跑兩次 effect）：示範筆記只準備一次", async () => {
+  it("StrictMode（開發模式掛載會跑兩次 effect）：示範筆記只準備一次、AI 動作只讀一次", async () => {
     const { prepareSample } = await startTour({ strict: true });
     await findCard("Sidebar sections");
     expect(prepareSample).toHaveBeenCalledTimes(1);
+    expect(calls.filter((c) => c.url === "/api/ai/actions")).toHaveLength(1);
     expect(document.querySelectorAll("[data-tour-overlay]")).toHaveLength(1);
   });
 
@@ -553,21 +554,34 @@ describe("站數讀的是開始時向 server 讀到的 AI 動作", () => {
       fakeEntry("last", "userMenu"),
     ] satisfies TourStopEntry[];
 
-  it("快取裡是空的、API 回非空 → AI 站在序列裡；讀取發生在示範筆記準備好之後", async () => {
+  it("快取裡是空的、API 回非空 → AI 站在序列裡", async () => {
     queryClient.setQueryData(["ai-actions"], []);
     aiActions = [AI_ACTION];
     const seen: number[] = [];
+    await startTour({ props: { stops: aiOnly((n) => seen.push(n)) } });
+    await findCard("fake.ai");
+    expect(progress()).toBe("1 / 2");
+    expect(seen).toEqual([1]);
+  });
+
+  it("整輪只讀一次：在示範筆記準備好之前就發出，prepareSample 拿到的與算站點用的是同一次讀取", async () => {
+    aiActions = [AI_ACTION];
+    const seen: number[] = [];
     const order: string[] = [];
-    const prepareSample = vi.fn(async (signal: AbortSignal) => {
+    let received: AiActionDto[] | null = null;
+    const prepareSample = vi.fn(async (signal: AbortSignal, ai: Promise<AiActionDto[]>) => {
       const note = await fakePrepareSample(signal);
       order.push(`sample ready, ai fetched=${calls.some((c) => c.url === "/api/ai/actions")}`);
+      received = await ai;
+      // 之後再讀就是空的：站點若自己另讀一次，AI 站會不見。
+      aiActions = [];
       return note;
     });
     await startTour({ props: { stops: aiOnly((n) => seen.push(n)), prepareSample } });
     await findCard("fake.ai");
-    expect(progress()).toBe("1 / 2");
+    expect(order).toEqual(["sample ready, ai fetched=true"]);
+    expect(received).toEqual([AI_ACTION]);
     expect(seen).toEqual([1]);
-    expect(order).toEqual(["sample ready, ai fetched=false"]);
     expect(calls.filter((c) => c.url === "/api/ai/actions")).toHaveLength(1);
   });
 

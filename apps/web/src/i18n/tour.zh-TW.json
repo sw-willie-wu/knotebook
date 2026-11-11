@@ -10,6 +10,8 @@
     "deleteSample": "刪除",
     "deleteSampleLabel": "刪除示範筆記",
     "liveHint": "← → 換站、Esc 結束",
+    "startFailed": "功能導覽沒辦法開始，請再試一次。",
+    "sampleFailed": "沒辦法建立示範筆記，請再試一次。",
     "stops": {
       "tabs": {
         "title": "側欄分類",

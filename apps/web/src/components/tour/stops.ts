@@ -1,8 +1,7 @@
 import type { AiActionDto } from "@knotebook/shared";
 import "@/i18n/tour-strings";
-import { NARROW_QUERY } from "@/lib/sidebar-drawer";
 import { getShellControls } from "@/lib/tour-bridge";
-import { findDrawerButton, findTourTarget, findUserMenuTrigger } from "@/lib/tour-targets";
+import { findDrawerButton, findTourTarget, findUserMenuTrigger, isNarrowViewport } from "@/lib/tour-targets";
 
 /**
  * 功能導覽的站點表。每站說明要指哪裡（`target`）、要先做什麼（`prepare`）、什麼情況下整站不跑（`precondition`）。
@@ -47,9 +46,7 @@ export interface StopDef {
   leave?: (ctx: StopContext) => void;
 }
 
-export function isNarrowViewport(): boolean {
-  return window.matchMedia(NARROW_QUERY).matches;
-}
+export { isNarrowViewport };
 
 /** 全部都找到才算找到：只挖亮其中一部分會讓說明對不上。 */
 function all(...els: (Element | null)[]): Element[] {

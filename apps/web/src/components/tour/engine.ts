@@ -14,15 +14,8 @@ export const TARGET_TIMEOUT_MS = 3000;
 /** 結束後找使用者選單觸發鈕的上限；導回原頁後新的側欄要一兩格畫面才掛上。 */
 export const RETURN_FOCUS_TIMEOUT_MS = 1000;
 
-export interface TourStartOptions {
-  /** 結束後要回到的位置（路徑＋search＋hash）。由打開導覽的地方傳入：打開當下的位置。 */
-  returnTo: string;
-  /**
-   * 結束後要聚焦的元素的查找函式，不是元素本身：從首頁打開時那份側欄會隨導頁卸載、
-   * 窄視窗的觸發鈕在已經關掉的抽屜裡，開始時記下的元素到結束時多半已經不在了。
-   */
-  returnFocus: () => Element | null;
-}
+// 型別住在首包的 context 那支（打開導覽的元件只 import 它）；這裡轉出給導覽內部用。
+export type { TourStartOptions } from "@/lib/tour-context";
 
 export interface TourStopEntry {
   stop: StopDef;

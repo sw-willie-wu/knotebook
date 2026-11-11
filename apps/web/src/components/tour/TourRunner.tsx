@@ -2,15 +2,15 @@ import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState, useSyncEx
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { canonicalNotePath, type NoteDto } from "@knotebook/shared";
+import { canonicalNotePath, type AiActionDto, type NoteDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
 import { useDeleteNote } from "@/api/notes";
 import { toast } from "@/components/ui/toast";
 import { useSidebarQuery } from "@/lib/sidebar-query";
 import type { SidebarTab } from "@/lib/sidebar-tab";
 import { getShellControls } from "@/lib/tour-bridge";
+import { useIsNarrowViewport } from "@/lib/tour-targets";
 import { showTrashedToast, type Translate } from "@/lib/trash-undo";
-import { useIsNarrow } from "@/lib/versions-context";
 import {
   fetchTourAiActions,
   focusReturnTarget,
@@ -35,9 +35,10 @@ import { TourOverlay } from "./TourOverlay";
 export interface TourRunnerProps extends TourStartOptions {
   /**
    * 建示範筆記、導過去、等它可編輯並寫入示範內容，回傳那篇筆記；回 null＝沒辦法開始（提示由它自己處理）。
-   * 元件卸載時 `signal` 會中止。
+   * 元件卸載時 `signal` 會中止。`aiActions` 是這一輪唯一一次向 server 讀 AI 動作的結果（不會 reject，失敗是空陣列）：
+   * 寫入示範內容時用它決定放不放 AI 那句，站點也用同一份，兩邊看到的答案才一致。
    */
-  prepareSample: (signal: AbortSignal) => Promise<NoteDto | null>;
+  prepareSample: (signal: AbortSignal, aiActions: Promise<AiActionDto[]>) => Promise<NoteDto | null>;
   /** 第一站出現時呼叫，整輪恰好一次（重繪、往回走、StrictMode 都不會重複）。開始前中止的不呼叫。 */
   onStarted?: () => void;
   /** 導覽結束、還原做完之後呼叫一次；沒辦法開始時也呼叫。卸載時不呼叫。 */
@@ -96,7 +97,8 @@ function errorMessage(t: Translate, err: unknown): string {
  * 報讀器的換站通知（常駐的 live region）才讀得出來，重掛的話它會把每一站當成剛打開。
  *
  * - **開始**：先關側欄抽屜、等它從 DOM 消失（抽屜是 modal，開著時卡片按不到、目標全都查不到）→ 記下目前的側欄 tab →
- *   `prepareSample`（建示範筆記、導過去、寫入內容）→ 向 server 讀 AI 動作 → 算前置條件、定站數 → 第一站。
+ *   開始向 server 讀 AI 動作，同時 `prepareSample`（建示範筆記、導過去、寫入內容）→ 用同一次讀到的 AI 動作算前置條件、定站數 → 第一站。
+ *   讀取和建筆記並行：等到編輯器可編輯時多半已經讀完，寫入示範內容不必再等一個來回（等的期間使用者在空筆記打的字會讓寫入作罷）。
  *   第一站出現之前不蓋遮罩。開始流程寫在掛載的 effect 裡、每一步之後看中止訊號：開發模式的 StrictMode
  *   掛載時會先卸載一次，第一輪在建示範筆記之前就會停下，不會建兩篇。這靠的是中止檢查之前有一個 `await`
  *   （等抽屜消失）：第一輪的 cleanup 在它回來之前就跑了；開頭改成不讓出執行權的話，第一輪會先把示範筆記建起來。
@@ -113,7 +115,7 @@ export function TourRunner({ returnTo, returnFocus, prepareSample, onStarted, on
   const location = useLocation();
   const { query } = useSidebarQuery();
   const deleteNote = useDeleteNote();
-  const narrow = useIsNarrow();
+  const narrow = useIsNarrowViewport();
   const [run, setRun] = useState<Run | null>(null);
 
   const readQuery = useEffectEvent(() => query);
@@ -123,9 +125,11 @@ export function TourRunner({ returnTo, returnFocus, prepareSample, onStarted, on
     await waitForDrawerClosed(signal);
     if (signal.aborted) return;
     const tab = getShellControls()?.getTab() ?? null;
+    // 在等抽屜那個 await 之後才發：StrictMode 的第一輪在那裡就停，不會多讀一次。
+    const aiRead = fetchTourAiActions(queryClient);
     let note: NoteDto | null = null;
     try {
-      note = await prepareSample(signal);
+      note = await prepareSample(signal, aiRead);
     } catch (err) {
       console.error(err);
     }
@@ -134,7 +138,7 @@ export function TourRunner({ returnTo, returnFocus, prepareSample, onStarted, on
       onFinished({ started: false, reason: "aborted" });
       return;
     }
-    const aiActions = await fetchTourAiActions(queryClient);
+    const aiActions = await aiRead;
     if (signal.aborted) return;
     const ctx: StopContext = { searchQuery: readQuery(), aiActions };
     const engine = new TourEngine(planStops(stops ?? fullTourStops(), ctx), ctx);

@@ -10,6 +10,8 @@
     "deleteSample": "Delete",
     "deleteSampleLabel": "Delete sample note",
     "liveHint": "← → to change stops, Esc to end",
+    "startFailed": "The feature tour couldn't start. Try again.",
+    "sampleFailed": "Couldn't create the sample note. Try again.",
     "stops": {
       "tabs": {
         "title": "Sidebar sections",
