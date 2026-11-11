@@ -4,9 +4,9 @@ import { BlockNoteEditor } from "@blocknote/core";
 import { withCollaboration } from "@blocknote/core/yjs";
 import { YDOC_FRAGMENT } from "@knotebook/shared";
 import { noteSchema } from "@/collab/schema";
-import { registerEditor, setDemoTransactionFilter } from "@/lib/tour-bridge";
+import { registerEditor, setTourTransactionFilter } from "@/lib/tour-bridge";
 import { createTourTransactionFilterExtension } from "./tour-transaction-filter";
-import { isTourTransactionFilterOn, setTourTransactionFilter, TOUR_TRANSACTION_META } from "./tour-filter-flag";
+import { isTourTransactionFilterOn, setEditorTransactionFilterFlag, TOUR_TRANSACTION_META } from "./tour-filter-flag";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 泛型三元組（repo 慣例）
 type AnyEditor = BlockNoteEditor<any, any, any>;
@@ -114,7 +114,7 @@ describe("導覽交易過濾（帶 Y.Doc 共編的真編輯器）", () => {
   it("F1 開關記在編輯器實例上：另一個編輯器開著，這一個照常寫入", async () => {
     const { editor: a } = await setup();
     const { editor: b } = await setup();
-    setTourTransactionFilter(b._tiptapEditor, true);
+    setEditorTransactionFilterFlag(b._tiptapEditor, true);
     typeAtEnd(a, "a");
     typeAtEnd(b, "b");
     expect(texts(a)).toEqual(["helloa"]);
@@ -123,7 +123,7 @@ describe("導覽交易過濾（帶 Y.Doc 共編的真編輯器）", () => {
 
   it("F2 開著：一般 insertText、帶 composition meta 的交易都被擋，文件與 Y.Doc 不變", async () => {
     const { doc, editor } = await setup();
-    setTourTransactionFilter(editor._tiptapEditor, true);
+    setEditorTransactionFilterFlag(editor._tiptapEditor, true);
     const before = Y.encodeStateVector(doc);
     typeAtEnd(editor, "x");
     typeAtEnd(editor, "測", ["composition", 1]);
@@ -135,7 +135,7 @@ describe("導覽交易過濾（帶 Y.Doc 共編的真編輯器）", () => {
     const { editor } = await setup();
     const end = endOfFirstText(editor);
     editor._tiptapEditor.commands.setTextSelection(end);
-    setTourTransactionFilter(editor._tiptapEditor, true);
+    setEditorTransactionFilterFlag(editor._tiptapEditor, true);
     editor._tiptapEditor.commands.setTextSelection(end - 2);
     expect(editor._tiptapEditor.state.selection.from).toBe(end - 2);
     expect(texts(editor)).toEqual(["hello"]);
@@ -143,7 +143,7 @@ describe("導覽交易過濾（帶 Y.Doc 共編的真編輯器）", () => {
 
   it("F2 開著：帶導覽 meta 的改文件交易放行", async () => {
     const { editor } = await setup();
-    setTourTransactionFilter(editor._tiptapEditor, true);
+    setEditorTransactionFilterFlag(editor._tiptapEditor, true);
     typeAtEnd(editor, "!", [TOUR_TRANSACTION_META, true]);
     expect(texts(editor)).toEqual(["hello!"]);
   });
@@ -157,7 +157,7 @@ describe("導覽交易過濾（帶 Y.Doc 共編的真編輯器）", () => {
     await tick();
     expect(texts(b)).toEqual(["hello"]);
 
-    setTourTransactionFilter(a._tiptapEditor, true);
+    setEditorTransactionFilterFlag(a._tiptapEditor, true);
     typeAtEnd(b, " from B");
     expect(texts(b)).toEqual(["hello from B"]);
     Y.applyUpdate(d1, Y.encodeStateAsUpdate(d2, Y.encodeStateVector(d1)));
@@ -171,7 +171,7 @@ describe("導覽交易過濾（帶 Y.Doc 共編的真編輯器）", () => {
   it("F2 開著：帶導覽 meta 插入沒有 id 的 block → 補 id 的附加交易照樣放行；不帶 meta 的插入仍被擋", async () => {
     const { editor } = await setup();
     const tiptap = editor._tiptapEditor;
-    setTourTransactionFilter(tiptap, true);
+    setEditorTransactionFilterFlag(tiptap, true);
     tiptap.view.dispatch(appendBlockWithoutId(tiptap.state));
     expect(blockIds(editor)).toHaveLength(1);
     tiptap.view.dispatch(appendBlockWithoutId(tiptap.state).setMeta(TOUR_TRANSACTION_META, true));
@@ -185,7 +185,7 @@ describe("導覽交易過濾（帶 Y.Doc 共編的真編輯器）", () => {
     const d2 = new Y.Doc();
     cleanups.push(() => d2.destroy());
     Y.applyUpdate(d2, Y.encodeStateAsUpdate(d1));
-    setTourTransactionFilter(a._tiptapEditor, true);
+    setEditorTransactionFilterFlag(a._tiptapEditor, true);
 
     // 不經編輯器的寫入者：直接在 Y 裡加一個沒有 id 屬性的 block。
     const group = d2.getXmlFragment(YDOC_FRAGMENT).get(0) as Y.XmlElement;
@@ -210,10 +210,10 @@ describe("導覽交易過濾（帶 Y.Doc 共編的真編輯器）", () => {
     const unregister = vi.spyOn(tiptap, "unregisterPlugin");
     const before = [...tiptap.state.plugins];
     for (const on of [true, false, true, false, true]) {
-      setTourTransactionFilter(tiptap, on);
+      setEditorTransactionFilterFlag(tiptap, on);
       typeAtEnd(editor, "x");
     }
-    setTourTransactionFilter(tiptap, false);
+    setEditorTransactionFilterFlag(tiptap, false);
     const after = tiptap.state.plugins;
     expect(after).toHaveLength(before.length);
     after.forEach((plugin: unknown, i: number) => expect(plugin).toBe(before[i]));
@@ -225,18 +225,18 @@ describe("導覽交易過濾（帶 Y.Doc 共編的真編輯器）", () => {
 });
 
 describe("導覽交易過濾：經登記處開關", () => {
-  it("F5 setDemoTransactionFilter 的 id 與登記的不同 → 不生效；相同 → 生效", async () => {
+  it("F5 setTourTransactionFilter 的 id 與登記的不同 → 不生效；相同 → 生效", async () => {
     const { editor } = await setup();
     const unregister = registerEditor("note-1", editor);
     cleanups.push(unregister);
-    expect(setDemoTransactionFilter("other", true)).toBe(false);
+    expect(setTourTransactionFilter("other", true)).toBe(false);
     typeAtEnd(editor, "a");
     expect(texts(editor)).toEqual(["helloa"]);
 
-    expect(setDemoTransactionFilter("note-1", true)).toBe(true);
+    expect(setTourTransactionFilter("note-1", true)).toBe(true);
     typeAtEnd(editor, "b");
     expect(texts(editor)).toEqual(["helloa"]);
-    expect(setDemoTransactionFilter("note-1", false)).toBe(true);
+    expect(setTourTransactionFilter("note-1", false)).toBe(true);
     typeAtEnd(editor, "c");
     expect(texts(editor)).toEqual(["helloac"]);
   });
@@ -244,7 +244,7 @@ describe("導覽交易過濾：經登記處開關", () => {
   it("F6 撤登記後開關關掉，打字照常寫入", async () => {
     const { editor } = await setup();
     const unregister = registerEditor("note-1", editor);
-    setDemoTransactionFilter("note-1", true);
+    setTourTransactionFilter("note-1", true);
     typeAtEnd(editor, "a");
     expect(texts(editor)).toEqual(["hello"]);
     unregister();
@@ -256,7 +256,7 @@ describe("導覽交易過濾：經登記處開關", () => {
   it("F6 編輯器已卸載後才撤登記：不拋錯、開關關掉", async () => {
     const { editor } = await setup();
     const unregister = registerEditor("note-1", editor);
-    setDemoTransactionFilter("note-1", true);
+    setTourTransactionFilter("note-1", true);
     editor.unmount();
     expect(() => unregister()).not.toThrow();
     expect(isTourTransactionFilterOn(editor._tiptapEditor)).toBe(false);

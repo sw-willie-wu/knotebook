@@ -12,7 +12,7 @@ export const TOUR_TRANSACTION_META = "knotebook:tour";
 const filtering = new WeakSet<object>();
 
 /** 開關某個 tiptap 編輯器（BlockNote 的 `_tiptapEditor`）的過濾。不 dispatch 任何交易，編輯器卸載後呼叫也安全。 */
-export function setTourTransactionFilter(tiptapEditor: object, on: boolean): void {
+export function setEditorTransactionFilterFlag(tiptapEditor: object, on: boolean): void {
   if (on) filtering.add(tiptapEditor);
   else filtering.delete(tiptapEditor);
 }

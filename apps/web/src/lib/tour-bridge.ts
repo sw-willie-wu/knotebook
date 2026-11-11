@@ -1,7 +1,7 @@
 import type { BlockNoteEditor } from "@blocknote/core";
 import type { SidebarTab } from "@/lib/sidebar-tab";
 // 只 import 開關那支：外掛本體（`collab/tour-transaction-filter.ts`）會把 tiptap 與 ProseMirror 拉進首包。
-import { setTourTransactionFilter } from "@/collab/tour-filter-flag";
+import { setEditorTransactionFilterFlag } from "@/collab/tour-filter-flag";
 
 /**
  * 功能導覽的登記處：導覽的遮罩與狀態住在 App 層（`AppShell` 會隨首頁↔筆記頁、筆記頁整頁載入換殼），
@@ -60,24 +60,24 @@ export function registerEditor(noteId: string, editor: TourEditor): () => void {
   const entry: EditorEntry = { noteId, editor };
   editorEntry = entry;
   return () => {
-    setTourTransactionFilter(editor._tiptapEditor, false);
+    setEditorTransactionFilterFlag(editor._tiptapEditor, false);
     if (editorEntry === entry) editorEntry = null;
   };
 }
 
 /** 只有登記的 noteId 等於傳入的 id 才回編輯器：導覽只能動它自己建的那篇。 */
-export function getDemoEditor(noteId: string): TourEditor | null {
+export function getTourNoteEditor(noteId: string): TourEditor | null {
   return editorEntry !== null && editorEntry.noteId === noteId ? editorEntry.editor : null;
 }
 
 /**
  * 開關登記中編輯器的交易過濾（`collab/tour-transaction-filter.ts`：開著時擋下使用者改文件的交易，含輸入法組字）。
- * 守衛同 `getDemoEditor`：只有登記的 noteId 等於傳入的 id 才生效。回傳是否生效。
+ * 守衛同 `getTourNoteEditor`：只有登記的 noteId 等於傳入的 id 才生效。回傳是否生效。
  */
-export function setDemoTransactionFilter(noteId: string, on: boolean): boolean {
-  const editor = getDemoEditor(noteId);
+export function setTourTransactionFilter(noteId: string, on: boolean): boolean {
+  const editor = getTourNoteEditor(noteId);
   if (editor === null) return false;
-  setTourTransactionFilter(editor._tiptapEditor, on);
+  setEditorTransactionFilterFlag(editor._tiptapEditor, on);
   return true;
 }
 

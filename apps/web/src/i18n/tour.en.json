@@ -2,6 +2,15 @@
   "tourGuide": {
     "newInVersion": "New in v{{version}}: {{title}}",
     "keepOrDeleteSample": "Keep the sample note, or move it to the trash?",
+    "progress": "{{n}} / {{total}}",
+    "stepAnnouncement": "{{progress}}: {{title}}. {{body}}",
+    "skip": "Skip feature tour",
+    "back": "Back",
+    "next": "Next",
+    "keepSample": "Keep sample note",
+    "deleteSample": "Delete",
+    "deleteSampleLabel": "Delete sample note",
+    "liveHint": "← → to change stops, Esc to end",
     "stops": {
       "tabs": {
         "title": "Sidebar sections",

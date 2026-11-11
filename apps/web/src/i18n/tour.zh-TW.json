@@ -2,6 +2,15 @@
   "tourGuide": {
     "newInVersion": "v{{version}} 新增：{{title}}",
     "keepOrDeleteSample": "要保留示範筆記，還是移到垃圾桶？",
+    "progress": "{{n}} / {{total}}",
+    "stepAnnouncement": "{{progress}}：{{title}}。{{body}}",
+    "skip": "跳過功能導覽",
+    "back": "上一步",
+    "next": "下一步",
+    "keepSample": "保留示範筆記",
+    "deleteSample": "刪除",
+    "deleteSampleLabel": "刪除示範筆記",
+    "liveHint": "← → 換站、Esc 結束",
     "stops": {
       "tabs": {
         "title": "側欄分類",

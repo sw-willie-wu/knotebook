@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  getDemoEditor,
+  getTourNoteEditor,
   getShellControls,
   notifyEditorEditable,
   onEditorEditable,
   registerEditor,
   registerShellControls,
-  setDemoTransactionFilter,
+  setTourTransactionFilter,
   type ShellControls,
   type TourEditor,
 } from "./tour-bridge";
@@ -57,9 +57,9 @@ describe("tour-bridge：編輯器", () => {
   it("B1 登記→取得→撤銷", () => {
     const editor = fakeEditor();
     const unregister = registerEditor("note-1", editor);
-    expect(getDemoEditor("note-1")).toBe(editor);
+    expect(getTourNoteEditor("note-1")).toBe(editor);
     unregister();
-    expect(getDemoEditor("note-1")).toBeNull();
+    expect(getTourNoteEditor("note-1")).toBeNull();
   });
 
   it("B2 A 登記、B 登記、A 撤銷 → 仍取得 B；B 撤銷後才清空", () => {
@@ -67,22 +67,22 @@ describe("tour-bridge：編輯器", () => {
     const b = fakeEditor();
     const unregisterA = keep(registerEditor("note-1", a));
     const unregisterB = keep(registerEditor("note-1", b));
-    expect(getDemoEditor("note-1")).toBe(b);
+    expect(getTourNoteEditor("note-1")).toBe(b);
     unregisterA();
-    expect(getDemoEditor("note-1")).toBe(b);
+    expect(getTourNoteEditor("note-1")).toBe(b);
     unregisterB();
-    expect(getDemoEditor("note-1")).toBeNull();
+    expect(getTourNoteEditor("note-1")).toBeNull();
   });
 
   it("B3 傳入的 id 與登記的不同 → null（登記的那份照樣取得）", () => {
     const editor = fakeEditor();
     keep(registerEditor("note-1", editor));
-    expect(getDemoEditor("other")).toBeNull();
-    expect(getDemoEditor("note-1")).toBe(editor);
+    expect(getTourNoteEditor("other")).toBeNull();
+    expect(getTourNoteEditor("note-1")).toBe(editor);
   });
 
   it("B3 什麼都沒登記 → null", () => {
-    expect(getDemoEditor("note-1")).toBeNull();
+    expect(getTourNoteEditor("note-1")).toBeNull();
   });
 
   it("B6 同一個編輯器實例只通知一次；換一個實例再通知一次", () => {
@@ -135,22 +135,22 @@ describe("tour-bridge：演示用的交易過濾開關", () => {
   it("F5 id 與登記的不同 → 回 false、不動開關；相同 → 回 true、開關跟著變", () => {
     const editor = filterableEditor();
     keep(registerEditor("note-1", editor));
-    expect(setDemoTransactionFilter("other", true)).toBe(false);
+    expect(setTourTransactionFilter("other", true)).toBe(false);
     expect(isOn(editor)).toBe(false);
-    expect(setDemoTransactionFilter("note-1", true)).toBe(true);
+    expect(setTourTransactionFilter("note-1", true)).toBe(true);
     expect(isOn(editor)).toBe(true);
-    expect(setDemoTransactionFilter("note-1", false)).toBe(true);
+    expect(setTourTransactionFilter("note-1", false)).toBe(true);
     expect(isOn(editor)).toBe(false);
   });
 
   it("F5 什麼都沒登記 → 回 false", () => {
-    expect(setDemoTransactionFilter("note-1", true)).toBe(false);
+    expect(setTourTransactionFilter("note-1", true)).toBe(false);
   });
 
   it("F6 撤登記時關掉自己那份的開關", () => {
     const editor = filterableEditor();
     const unregister = registerEditor("note-1", editor);
-    setDemoTransactionFilter("note-1", true);
+    setTourTransactionFilter("note-1", true);
     unregister();
     expect(isOn(editor)).toBe(false);
   });
@@ -159,9 +159,9 @@ describe("tour-bridge：演示用的交易過濾開關", () => {
     const a = filterableEditor();
     const b = filterableEditor();
     const unregisterA = keep(registerEditor("note-1", a));
-    setDemoTransactionFilter("note-1", true);
+    setTourTransactionFilter("note-1", true);
     keep(registerEditor("note-1", b));
-    setDemoTransactionFilter("note-1", true);
+    setTourTransactionFilter("note-1", true);
     unregisterA();
     expect(isOn(a)).toBe(false);
     expect(isOn(b)).toBe(true);

@@ -78,7 +78,8 @@ import { cn } from "@/lib/utils";
  *   刻意的例外：垃圾桶選取模式底部動作列的「永久刪除」（`sidebar/TrashFooter.tsx`）與「還原」平級並排，卻是
  *   `ghost`＋`border border-input`＋紅字（hover 同 `ROW_ICON_DANGER`）——`outline` 的 hover／按下填 `brand-deep`，
  *   紅字壓深色底不對（#181）。別「修」回 `outline`。一般 tab 選取模式動作列的紅色刪除圖示鈕
- *   （`sidebar/SelectActionBar.tsx`，#181）同此例外：與「移動到」「複製到」平級並排。
+ *   （`sidebar/SelectActionBar.tsx`，#181）同此例外：與「移動到」「複製到」平級並排。功能導覽最後一站的〔刪除〕
+ *   （`tour/TourOverlay.tsx`，把示範筆記移到垃圾桶）也是：與〔保留示範筆記〕平級並排，理由相同。
  * - `destructive`——**只用在確認對話框的那一顆提交鈕**。
  * - `brand`——主色 tint（無邊框），招牌入口：側欄「新增筆記」、AI 主控。
  * - `brandSolid`／`brandDeep`——主色實心，兩階，**依所在表面二選一、不得混用**：
