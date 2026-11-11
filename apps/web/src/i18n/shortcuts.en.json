@@ -167,7 +167,7 @@
       },
       "columnResizeKeys": {
         "name": "Resize columns (divider focused)",
-        "desc": "With the divider between two columns focused, the right arrow makes the left column wider and the right one narrower; the left arrow does the opposite. Back in the note, undo once (Ctrl+Z, ⌘Z on a Mac) to undo several quick presses."
+        "desc": "With the divider between two columns focused, the right arrow makes the left column wider and the right one narrower; the left arrow does the opposite. Undo once (Ctrl+Z, ⌘Z on a Mac) to undo several quick presses."
       },
       "selectEsc": {
         "name": "Leave select mode",
@@ -208,6 +208,10 @@
       "dragBlock": {
         "name": "Drag a paragraph",
         "desc": "Drag the ⋮⋮ handle next to a paragraph to move it somewhere else."
+      },
+      "dragBlockCopy": {
+        "name": "Copy a paragraph by dragging",
+        "desc": "Hold Ctrl (Option on Mac) while dragging ⋮⋮ to drop a copy."
       },
       "dragNoteToEditor": {
         "name": "Link by dragging",

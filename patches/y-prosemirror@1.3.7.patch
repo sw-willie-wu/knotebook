@@ -1,0 +1,48 @@
+diff --git a/dist/y-prosemirror.cjs b/dist/y-prosemirror.cjs
+index de4d1e6609bba2ffbc2a57048023cdf5bad44b18..934ef09b4d29fed1e52f12a823c5a2abbe0887d7 100644
+--- a/dist/y-prosemirror.cjs
++++ b/dist/y-prosemirror.cjs
+@@ -331,7 +331,18 @@ const restoreRelativeSelection = (tr, relSel, binding) => {
+         relSel.anchor,
+         binding.mapping
+       );
+-      tr.setSelection(prosemirrorState.NodeSelection.create(tr.doc, anchor));
++      // The selected node may be gone (deleted, or moved away by undo, redo or a remote change). NodeSelection.create would
++      // throw on the missing node inside the Yjs observer, leaving the editor out of sync with the Y.Doc; use the nearest
++      // text position instead.
++      if (anchor !== null) {
++        const $anchor = tr.doc.resolve(anchor);
++        const node = $anchor.nodeAfter;
++        if (node !== null && prosemirrorState.NodeSelection.isSelectable(node)) {
++          tr.setSelection(new prosemirrorState.NodeSelection($anchor));
++        } else {
++          tr.setSelection(prosemirrorState.TextSelection.between($anchor, $anchor));
++        }
++      }
+     } else {
+       const anchor = relativePositionToAbsolutePosition(
+         binding.doc,
+diff --git a/src/plugins/sync-plugin.js b/src/plugins/sync-plugin.js
+index dccfb76918c8c70fe5a5b12372cdabcc9d8c58dd..3c831132d718b7d976350ef14be13b109fdf35f5 100644
+--- a/src/plugins/sync-plugin.js
++++ b/src/plugins/sync-plugin.js
+@@ -257,7 +257,18 @@ const restoreRelativeSelection = (tr, relSel, binding) => {
+         relSel.anchor,
+         binding.mapping
+       )
+-      tr.setSelection(NodeSelection.create(tr.doc, anchor))
++      // The selected node may be gone (deleted, or moved away by undo, redo or a remote change). NodeSelection.create would
++      // throw on the missing node inside the Yjs observer, leaving the editor out of sync with the Y.Doc; use the nearest
++      // text position instead.
++      if (anchor !== null) {
++        const $anchor = tr.doc.resolve(anchor)
++        const node = $anchor.nodeAfter
++        if (node !== null && NodeSelection.isSelectable(node)) {
++          tr.setSelection(new NodeSelection($anchor))
++        } else {
++          tr.setSelection(TextSelection.between($anchor, $anchor))
++        }
++      }
+     } else {
+       const anchor = relativePositionToAbsolutePosition(
+         binding.doc,

@@ -46,8 +46,7 @@ export function textSelectionNear(sel: PMSelection, $pos: unknown): PMSelection 
 
 /**
  * 游標放在 `pos`（第一個 X 的 blockContainer 之前）之後的第一個文字位置：文字 block 就是它的內容開頭。一律用文字選取、不用
- * NodeSelection（圖片這類沒有文字內容的 X 會落到下一個文字 block）：y-prosemirror 撤銷時以相對位置還原放置後的選取，
- * NodeSelection 指到的節點已被撤銷移走時 `NodeSelection.create` 會丟例外，文字選取則會找最近的合法位置。
+ * NodeSelection（圖片這類沒有文字內容的 X 會落到下一個文字 block）。
  */
 function selectStart(tr: Transaction, pos: number): void {
   const sel = textSelectionNear(tr.selection, tr.doc.resolve(pos + 1));

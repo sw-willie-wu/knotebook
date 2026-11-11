@@ -52,7 +52,7 @@ the note, so Ctrl+Z right after letting go undoes the resize.
 
 With the keyboard, move the focus to a divider with Tab (the dividers come after the note's text; inside the note, Tab indents the block); ← and → change the left column's width by 5% of the row's width, not counting the gaps between columns, for each
 press, and the right column takes the difference. Presses made in quick succession are undone together
-with one Ctrl+Z. The divider has the focus, not the note, so click back into the note first.
+with one Ctrl+Z, which works while the divider still has the focus and then moves the focus back into the note.
 
 **Blocks in a column have no `+` button.** Their side menu shows only ⋮⋮, because the space between
 columns is too narrow for both buttons. To add a block in a column, press Enter at the end of a block

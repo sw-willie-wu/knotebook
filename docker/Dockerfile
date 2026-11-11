@@ -10,6 +10,8 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/server/package.json ./apps/server/package.json
 COPY apps/web/package.json ./apps/web/package.json
 COPY packages/shared/package.json ./packages/shared/package.json
+# package.json 的 `pnpm.patchedDependencies` 指到這裡的修補檔，install 時套上。
+COPY patches ./patches
 RUN pnpm install --frozen-lockfile
 
 COPY . .

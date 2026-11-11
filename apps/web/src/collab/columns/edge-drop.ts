@@ -11,6 +11,9 @@
  * 3. 兩筆都不帶 `uiEvent`（PasteRule 只在 `uiEvent === "drop"` 時對 diff 範圍跑 paste rule，會把中間 block 的網址轉成連結）、
  *    都帶 `preventAutolink`（autolink 對任何改文件的交易都跑；搬移沒有新打的字）。
  *
+ * 其餘的橫線放置由 `blockMoveDrop` 接手（同一支 `handleDrop`、排在兩者之後）：照 PM 預設 drop 的步驟搬移，只是移除的是記下的 X、
+ * 放下之後是文字選取（理由見該函式）。
+ *
  * 另外兩支接線：DropCursor 的 hook（`computeDropPosition`，拖曳中畫的線與放下時同一個判斷），以及落在欄與欄之間的拖放
  * （`withGutterFileDrop`，掛在 `handleDOMEvents.drop`）。
  */
@@ -21,7 +24,7 @@ import { TEXT_REPRESENTATION_MIME_TYPES } from "@/collab/schema";
 import type { EditorRef } from "@/components/wikilink/menu";
 import { dragMoves, edgeTargetAt, insideAny, isEmptyParagraph, type DraggedBlocks, type EdgeTarget } from "./drag-geometry";
 import { draggedBlocksOf } from "./drag-source";
-import { buildInsert, textSelectionNear, type InsertPlan } from "./edge-drop-insert";
+import { buildInsert, selectionBase, textSelectionNear, type InsertPlan } from "./edge-drop-insert";
 import { findNodeById, type PMNodeLike } from "./position";
 import { asUndoStep } from "./undo-step";
 import { addColumnWidths, equalHeightWidths } from "./widths";
@@ -99,8 +102,8 @@ function planFor(view: EditorView, predicted: PMNode, target: EdgeTarget, xNodes
 
 /**
  * y-prosemirror 在 undo 之後留著「操作前的選取」，下一次 redo 時以相對位置拿來還原。⋮⋮ 拖單一 block 時那是 X 的 NodeSelection：
- * 搬走之後 X 原本的位置常常已經沒有節點，還原時 `NodeSelection.create` 丟例外、redo 整個失敗。送交易之前先把它換成 X 開頭的
- * 文字選取（只改選取、不寫 Yjs），還原文字選取時 y-prosemirror 會找最近的合法位置。
+ * 重做把 X 搬走之後，X 原本的位置若是另一個 block，還原出來就是整塊選取那個 block。送交易之前先把它換成 X 開頭的文字選取
+ * （只改選取、不寫 Yjs），重做之後是游標。
  */
 function collapseNodeSelection(view: EditorView): void {
   const sel = view.state.selection;
@@ -244,6 +247,104 @@ export function emptyColumnDrop(editor: AnyEditor | null, view: EditorView, even
 
   const xNodes = flattenX(x.map((hit) => hit.node));
   return commitMove(editor, view, dragged.ids, () => ({ kind: "replaceEmpty", columnId, emptyId, xNodes }));
+}
+
+/** X 的範圍依文件順序、相鄰的併成一段（同 PM 刪除多選時的一段）；包在前一段裡的略過。 */
+function runsOf(x: readonly { node: PMNode; pos: number }[]): [number, number][] {
+  const out: [number, number][] = [];
+  for (const hit of [...x].sort((p, q) => p.pos - q.pos)) {
+    const end = hit.pos + hit.node.nodeSize;
+    const last = out.at(-1);
+    if (last && hit.pos < last[1]) last[1] = Math.max(last[1], end);
+    else if (last && hit.pos === last[1]) last[1] = end;
+    else out.push([hit.pos, end]);
+  }
+  return out;
+}
+
+/**
+ * 放下之後的選取：插入的是一個 block → 游標在它第一個文字位置；多個 block → 從第一個的開頭到最後一個的結尾（選取兩端在不同 block，
+ * 再按住 ⋮⋮ 拖，core 仍把它們當成多選）。插入的 block 以 slice 頂層的 id 找；找不到就退回插入點附近。
+ */
+function selectInserted(tr: Transaction, slice: Slice, at: number): void {
+  const idOf = (node: PMNode | null | undefined) => (typeof node?.attrs.id === "string" ? node.attrs.id : null);
+  const firstId = idOf(slice.content.firstChild);
+  const lastId = idOf(slice.content.lastChild);
+  const first = firstId ? find(tr.doc, firstId) : null;
+  const base = selectionBase(tr.selection);
+  const anchor = base.findFrom(tr.doc.resolve(first ? first.pos + 1 : Math.min(at, tr.doc.content.size)), 1, true) ?? base.findFrom(tr.doc.resolve(at), -1, true);
+  if (!anchor) return;
+  const last = slice.content.childCount > 1 && lastId ? find(tr.doc, lastId) : null;
+  const head = last ? base.findFrom(tr.doc.resolve(last.pos + last.node.nodeSize - 1), -1, true) : null;
+  if (head && head.head > anchor.anchor) {
+    const TextSel = anchor.constructor as unknown as { create(doc: PMNode, anchor: number, head: number): EditorView["state"]["selection"] };
+    tr.setSelection(TextSel.create(tr.doc, anchor.anchor, head.head));
+  } else {
+    tr.setSelection(anchor);
+  }
+}
+
+/**
+ * 橫線放置的搬移（直線、放進空欄都不成立時）。步驟照 PM 預設的 drop（`prosemirror-view` 的 `handleDrop`：以 `dropPoint` 算插入點、
+ * 移除來源、把插入點映射過去、插入、帶 `uiEvent: "drop"`、focus），只改兩件事：
+ * - 移除的是 dragstart 記下的 X（依 id 從當下文件找），不是當下的選取。拖曳中途有遠端更新時 y-prosemirror 會把多選還原成文字選取，
+ *   PM 的 `deleteSelection()` 只刪掉那段文字，原位留下空 block（#429）。
+ * - 放下之後是文字選取（`selectInserted`），不是 PM 給單一 block 的 NodeSelection：單一 block 拖完游標在它開頭，多個 block 拖完
+ *   仍是多選。
+ * X 有 block 已不在文件裡、或這次放置不改文件 → 回 false、一筆都不送，照 PM 預設。
+ */
+function moveBlocks(editor: AnyEditor, view: EditorView, event: DragEvent, slice: Slice, ids: readonly string[]): boolean {
+  const doc = view.state.doc;
+  const x = nodesOf(doc, ids);
+  if (!x || !slice.content.size) return false;
+  let mouse: number | undefined;
+  try {
+    mouse = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos;
+  } catch {
+    return false;
+  }
+  if (mouse === undefined) return false;
+  const insertAt = pmDropPoint(doc, mouse, slice) ?? mouse;
+  const runs = runsOf(x);
+  const build = (tr: Transaction): Transaction | null => {
+    const mapFrom = tr.steps.length;
+    for (const [from, to] of runs) {
+      const mapping = tr.mapping.slice(mapFrom);
+      tr.deleteRange(mapping.map(from), mapping.map(to));
+    }
+    const pos = tr.mapping.map(insertAt);
+    const isNode = slice.openStart === 0 && slice.openEnd === 0 && slice.content.childCount === 1;
+    const beforeInsert = tr.doc;
+    if (isNode) tr.replaceRangeWith(pos, pos, slice.content.firstChild!);
+    else tr.replaceRange(pos, pos, slice);
+    if (tr.doc.eq(beforeInsert)) return null;
+    selectInserted(tr, slice, pos);
+    return tr.setMeta("uiEvent", "drop");
+  };
+  if (!build(view.state.tr)) return false;
+  // 同 `commitMove`：先換掉 X 的 NodeSelection。只改選取、不改文件，所以換完之後重建的交易與上面試建的相同。
+  collapseNodeSelection(view);
+  const tr = build(view.state.tr);
+  // 選取已經換掉了：這時交回 PM 預設，它的 `deleteSelection()` 刪的就不是 X。重建不成立（例如有外掛對選取交易改了文件）就放棄這次放置。
+  if (!tr) return true;
+  // 同 PM 預設 drop 的順序：建好交易、focus、dispatch。
+  asUndoStep(editor, () => {
+    view.focus();
+    view.dispatch(tr);
+  });
+  return true;
+}
+
+/**
+ * 其餘的 ⋮⋮ 搬移（橫線放置）：有記下的 X、可編輯、在拖曳中、是搬移不是複製拖（`moved`，PM 以 `dragMoves` 算）、PM 的拖曳沒帶
+ * `node`（core 設的 `view.dragging` 一律沒有）。core SideMenu 夾進框內的合成事件也接：落點在編輯器框外時 PM 只收到這一筆，
+ * 照 PM 預設也是用它的座標放。放在 `edgeDrop`、`emptyColumnDrop` 之後。
+ */
+export function blockMoveDrop(editor: AnyEditor | null, view: EditorView, event: DragEvent, slice: Slice, moved: boolean): boolean {
+  if (!editor || !moved || !editor.isEditable) return false;
+  const dragged = draggedBlocksOf(view);
+  if (!dragged || view.dragging == null || (view.dragging as { node?: unknown }).node) return false;
+  return moveBlocks(editor, view, event, slice, dragged.ids);
 }
 
 type DropPos = ComputeDropPositionContext["defaultPosition"];

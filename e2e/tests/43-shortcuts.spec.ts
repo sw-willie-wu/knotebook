@@ -24,7 +24,7 @@ import {
  * - 一支 test 一個分類，各自 `createNote` 建一篇（不共用 page、互不污染）。按鍵用 `ControlOrMeta`（疊跑在 Linux＝Control）。
  * - 標題一律是純字串字面（不用 template literal）：守衛只認 `test("…")` 的第一個引數。
  * - 只有 Chromium 驗過；Firefox／Safari 未驗。
- * - 借用既有 e2e 的條目（presentOverview、presentExit → 22；dragNoteToEditor → 42-7；dragNoteToFolder → 42-1、42-4）不在這裡重寫。
+ * - 借用既有 e2e 的條目（presentOverview、presentExit → 22；dragNoteToEditor → 42-7；dragNoteToFolder → 42-1、42-4；dragBlockCopy → 49 U6）不在這裡重寫。
  */
 
 const RUN = Date.now();
@@ -733,7 +733,7 @@ test.describe.serial("ai facts", () => {
 });
 
 // ── 借用既有 e2e 的條目（標籤在那些檔裡）：presentOverview、presentExit → 22-presentation；dragNoteToEditor → 42-folders-drag 42-7；
-//    dragNoteToFolder → 42-folders-drag 42-1、42-4。
+//    dragNoteToFolder → 42-folders-drag 42-1、42-4；dragBlockCopy → 49-drag-undo U6。
 
 // ── 快捷鍵介紹頁（Ctrl+/ modal）本身的行為──────────────────────────────────────────────────
 
