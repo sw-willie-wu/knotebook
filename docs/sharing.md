@@ -80,6 +80,10 @@ The sidebar's **My notes**, **Groups** and **Shared with me** tabs show folders,
 - **Your folders in Shared with me** are seen only by you, names included. Putting a note someone shared with you into one of them only files it for you: the person who shared it, and anyone else it's shared with, don't see where you put it. When the note stops being shared with you, your placement of it goes too. **Remove folder** asks first, then removes the folder and its subfolders; the shared notes in them go back to the top of **Shared with me**, and no note is deleted.
 - **Deleting a folder** asks first. The notes in it, including those in its subfolders, move to the trash; **Undo** on the message that follows, or restoring them from the trash later, puts each note back in its folder, re-creating the folders it was in, and opens those folders in the sidebar.
 
+## Favorites
+
+Favorites are yours alone: adding a note to your favorites, or removing it, changes nothing for anyone else, and the other members of a group never see which of the group's notes you starred.
+
 ## Notes in the trash
 
 Deleting a note moves it to the trash (the sidebar's **Trash** tab) instead of deleting it for good. It stays there for the site's retention period — 7 days unless a site admin changed it — and is then permanently deleted automatically, unless a site admin turned automatic deletion off (see [Trash](./self-hosting.md#trash) for the schedule). Until then it can be restored, or deleted permanently, from the Trash tab.
