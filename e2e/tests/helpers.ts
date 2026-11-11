@@ -603,3 +603,23 @@ export async function versionLabelOf(
 export function reEscape(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
+
+// ── 功能導覽 ─────────────────────────────────────────────────────────────────────────────────
+
+/** 導覽的說明卡（`role="dialog"`、`aria-modal="false"`）。 */
+export function tourCard(page: Page): Locator {
+  return page.locator("[data-tour-card]");
+}
+
+/**
+ * 從使用者選單打開「Help」→ 停在「Feature tour」頁 → 「Start tour」，等第 1 站的說明卡出現。
+ * `userName` 是使用者選單觸發鈕的名稱（帳號的顯示名稱）。寬視窗用；窄視窗的觸發鈕在抽屜裡，案例自己走。
+ */
+export async function openTour(page: Page, userName: string): Promise<void> {
+  await page.getByRole("button", { name: userName, exact: true }).click();
+  await page.getByRole("menuitem", { name: "Help", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Help", exact: true });
+  await expect(dialog.getByRole("region", { name: "Feature tour" })).toBeVisible();
+  await dialog.getByRole("button", { name: "Start tour", exact: true }).click();
+  await expect(tourCard(page)).toBeVisible({ timeout: 30_000 });
+}
