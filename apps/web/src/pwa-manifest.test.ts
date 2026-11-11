@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { THEME_COLOR } from "./theme";
 
-// #336 PWA 最小可行方案：能加到主畫面、以 standalone 開啟；不含 service worker／離線。
+// #336 安裝成 app：能加到主畫面、以 standalone 開啟；不含 service worker／離線。
 // 這裡只驗「交出去的檔案本身」——manifest 欄位、圖示檔與實際尺寸、index.html 的 link／meta。
 // server 是否以正確 MIME 送出 manifest、且不被 SPA fallback 吞掉，見 apps/server/test/spa.test.ts。
 
@@ -48,10 +48,10 @@ function pngSize(file: string): { width: number; height: number } {
 const HEX = /^#[0-9a-f]{6}$/i;
 
 describe("pngSize（量測工具本身）", () => {
-  it("正控：既有的 apple-touch-icon.png 量得 180×180", () => {
+  it("已知尺寸的 PNG：apple-touch-icon.png 量得 180×180", () => {
     expect(pngSize(`${publicDir}/apple-touch-icon.png`)).toEqual({ width: 180, height: 180 });
   });
-  it("負控：非 PNG 檔（favicon.svg）會被判失敗", () => {
+  it("不是 PNG 的檔案（favicon.svg）會讓 pngSize 失敗", () => {
     expect(() => pngSize(`${publicDir}/favicon.svg`)).toThrow();
   });
 });

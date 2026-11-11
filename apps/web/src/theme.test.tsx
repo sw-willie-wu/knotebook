@@ -344,7 +344,7 @@ describe("ThemeProvider / useTheme", () => {
 });
 
 /**
- * #336 審查要求：<meta name="theme-color"> 要跟 app 內選的主題，而不是只跟裝置設定
+ * #336：<meta name="theme-color"> 跟 app 內選的主題，而不是只跟裝置設定
  * （index.html 的兩個 meta 靠 media 查詢，只認 OS）。測試自己在 head 建兩個 meta，測完清掉。
  */
 describe("ThemeProvider 同步 <meta name=\"theme-color\">", () => {

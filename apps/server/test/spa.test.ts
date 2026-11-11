@@ -21,7 +21,7 @@ describe("SPA fallback", () => {
     writeFileSync(path.join(webDist, "assets", "app.js"), "console.log('app');");
     // 根目錄的靜態檔（apps/web/public → dist 根）：瀏覽器分頁圖示。
     writeFileSync(path.join(webDist, "favicon.svg"), '<svg xmlns="http://www.w3.org/2000/svg"/>');
-    // #336：PWA manifest 同樣放在 dist 根目錄。
+    // #336：安裝成 app 用的 manifest 同樣放在 dist 根目錄。
     writeFileSync(path.join(webDist, "manifest.webmanifest"), '{"name":"Knotebook","display":"standalone"}');
   });
 
@@ -241,7 +241,7 @@ describe("SPA fallback", () => {
     expect(res.headers["x-robots-tag"]).toBe("noindex");
   });
 
-  it("#72：/p 本身、//p/、/P/ 變體同樣 noindex（判定與 log 遮罩共用正規化——只修一邊的洩漏形實測過）", async () => {
+  it("#72：/p 本身、//p/、/P/ 變體同樣 noindex（判定與 log 遮罩共用正規化——只修一邊就會漏掉這些變體）", async () => {
     const { app } = await buildTestApp({}, { webDist });
     for (const url of ["/p", "//p/some-token", "/P/some-token"]) {
       const res = await app.inject({ method: "GET", url, headers: { accept: "text/html" } });
