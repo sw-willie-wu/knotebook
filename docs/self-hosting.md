@@ -514,6 +514,11 @@ then start that build. Steps 2 and 3 are for the bundled database; with your own
 3. **The parse worker startup log line** (`parse worker settings in effect`) is now written after the saved values are read; its `from` entries can also be `admin`, and the number of workers and the longest wait for a worker now report `auto` instead of `default` when they are automatic; `workersSource` can also be `admin`.
 4. **Rolling back:** the previous version doesn't read the two tables, so its limits go back to the environment variables and its built-in values; the tables stay, and after upgrading again the saved values apply again.
 
+**Favorites (migration 0040).**
+
+1. **Migration 0040 only adds one table**, `note_favorites` (who marked which note, and when). It fills nothing in and changes no existing row; a row is deleted with the account or with the note when it is deleted for good. Back up the database first as usual.
+2. **Rolling back:** the previous version doesn't read the table, so favorites are not shown there; the table stays, and after upgrading again the favorites come back.
+
 **Upgrading to v0.15 (MCP bulk transfer, parse workers, a note size limit).**
 
 1. **Back up the database first.** Migrations 0036 and 0037 run automatically when the new server starts. They only add tables and columns, change checks and let `transfer_tokens.note_id` be empty, and leave existing rows as they are (see **MCP bulk transfer** above), but take a dump before you start the new version anyway, for example `docker compose exec -T db pg_dump -U knotebook knotebook > knotebook-before-upgrade.sql` (with your own PostgreSQL, run `pg_dump` against it directly — see [Using your own PostgreSQL](#using-your-own-postgresql)). Coming from v0.13 or earlier, read the sections for the versions in between as well.

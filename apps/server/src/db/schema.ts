@@ -614,6 +614,24 @@ export const notePlacements = pgTable("note_placements", {
   index("note_placements_folder_idx").on(t.folderId),
 ]);
 
+/**
+ * 最愛：每人把看得到的筆記加進自己的最愛清單，一人一篇至多一列，依 `created_at` 新到舊排。
+ * 紀錄只在使用者移出時，以及刪筆記或刪使用者的 FK cascade 時刪除；筆記進垃圾桶、撤分享、被移出群組、
+ * 角色改成不能讀都不刪——清單查詢當下才依可見性篩，所以還原或拿回權限後會以原本的時間回到原位置。
+ * FK 掛 `notes` 而不是 `note_shares`，否則撤分享會帶走紀錄，而且群組筆記與自己的筆記沒有分享列可掛。
+ * `created_at` 存整毫秒：JS `Date` 只有毫秒；存整毫秒時，回傳的 ISO 字串與 DB 值一一對應，server 排序與前端樂觀排序
+ * 用的是同一個值，對同一毫秒內的先後不會分歧。
+ * `note_favorites_note_idx`：永久刪筆記的 cascade 靠它找列，否則每刪一篇掃整表。
+ */
+export const noteFavorites = pgTable("note_favorites", {
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  noteId: uuid("note_id").notNull().references(() => notes.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`date_trunc('milliseconds', now())`),
+}, t => [
+  primaryKey({ columns: [t.userId, t.noteId] }),
+  index("note_favorites_note_idx").on(t.noteId),
+]);
+
 export const noteLinks = pgTable("note_links", {
   sourceNoteId: uuid("source_note_id").notNull().references(() => notes.id, { onDelete: "cascade" }),
   targetNoteId: uuid("target_note_id").notNull().references(() => notes.id, { onDelete: "cascade" }),
