@@ -7,7 +7,7 @@ import { TRASH_SETTINGS_QUERY_KEY } from "@/api/trash";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { SiteTrashGroup } from "./SettingsTrashSection";
 
-// 站台垃圾桶設定（#181）。單獨渲染 `SiteTrashGroup`，查詢一律經垃圾桶 region 圈定；整頁排列在 SettingsStorageSection.test.tsx 的 SS-T1。
+// 站台垃圾桶設定（#181）。單獨渲染 `SiteTrashGroup`，查詢一律經垃圾桶 region 圈定；整頁排列在 SettingsStorageSection.test.tsx。
 
 const URL_ = "/api/admin/trash/settings";
 const EN_DESCRIPTION =

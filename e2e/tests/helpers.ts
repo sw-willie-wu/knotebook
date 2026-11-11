@@ -340,7 +340,7 @@ export function toastWithTitle(page: Page, title: string): Locator {
 export async function moveNoteToTrashFromSidebar(page: Page, title: string, scope?: Locator): Promise<Locator> {
   const root = scope ?? page.getByRole("complementary");
   const actions = root.getByRole("button", { name: `Note actions for ${title}`, exact: true });
-  // ⋮ 是 hover 浮出（hoverReveal），先 hover 再點（同 22 的 E7）。
+  // ⋮ 是 hover 浮出（hoverReveal），先 hover 再點（同 22）。
   await actions.hover();
   await actions.click();
   await page.getByRole("menuitem", { name: "Delete", exact: true }).click();

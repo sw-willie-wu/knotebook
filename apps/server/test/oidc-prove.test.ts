@@ -266,8 +266,8 @@ describe("SSO 證明（#187）", () => {
     await entered;
     const loginP = ssoRoundTrip(t.app, t.idp("a"), { loginUrl: `/api/auth/oidc/login/${t.provider("a").id}`, claims: { sub: "ua", email: "u@x.example" } });
     try {
-      // 這一案要證明的就是「不被擋」：login 分支不寫 users，與 A2 的 users 鎖不相交；交易後的 touchLastLogin 以
-      // SKIP LOCKED 取列，A2 持鎖時整句 0 列、不等（#247）。
+      // 這一案要證明的就是「不被擋」：login 分支不寫 users，與 SSO 證明的 users 鎖不相交；交易後的 touchLastLogin 以
+      // SKIP LOCKED 取列，SSO 證明持鎖時整句 0 列、不等（#247）。
       expect(await waitForBlockedOrSettled(t.db.$client, loginP)).toBe("settled");
       expect((await loginP).callbackRes.headers.location).toBe("/");
       expect(await lastLoginOf(t.db, user.id)).toBeNull();
@@ -278,6 +278,6 @@ describe("SSO 證明（#187）", () => {
     expect(l.callbackRes.headers.location).toBe("/");
     expect(p.callback!.headers.location).toBe("/");
     expect(await identitiesOf(t.db, user.id)).toEqual([{ issuer: A, sub: "ua" }, { issuer: B, sub: "ub" }]);
-    expect(await lastLoginOf(t.db, user.id)).not.toBeNull(); // A2 commit 後寫入點 3（SSO 證明）記上
+    expect(await lastLoginOf(t.db, user.id)).not.toBeNull(); // SSO 證明 commit 後記上寫入點 3
   });
 });

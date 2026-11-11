@@ -1,8 +1,8 @@
 /**
  * #108：`read_note_outline`／`read_note_section`。
  *
- * 全族走 `buildCollabTestApp`（＝生產形態）：依 D-A，這兩支工具**只在 `collab` 與 `editing`
- * 都在時才註冊**，無 collab 的 app 上整條不宣告（那一面的形狀斷言在 MCP 寫入測試）。
+ * 全族走 `buildCollabTestApp`（＝生產形態）：依部署形態閘門（`mcp/register.ts`：要讀 live doc 的工具只在 `collab` 與 `editing` 都在時註冊），這兩支工具
+ * **只在兩者都在時才註冊**，無 collab 的 app 上整條不宣告（那一面的形狀斷言在 MCP 寫入測試）。
  *
  * ⚠ `callTool`／`payloadOf` 與 `mcp-notes.test.ts` 的同名 helper 是**兩份**：`test/mcp-helpers.ts`
  * 沒有收進去，因為它們各自只有幾行。兩份若日後分岔，症狀只是測試自己讀錯欄位。

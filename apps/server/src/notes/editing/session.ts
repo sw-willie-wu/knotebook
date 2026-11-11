@@ -9,7 +9,7 @@
 // #181：授權之後筆記可能被移入垃圾桶，直連寫入的重確認統一在 `withDirectConnection`
 // （記憶體刪除閘門＋DB 存活），不過 → `NoteGoneError`。開之前查一次：不替垃圾桶筆記把文件載回記憶體；
 // 開之後再查一次：擋「開連線的那一刻剛好被移入」。前提是直連持有文件時 Hocuspocus 不 unload，移入的
-// unload 輪詢會等到這次寫入落盤才 commit（由 `trash-direct-write.test.ts` 的 DW3 驗證）；剩下的窗口是
+// unload 輪詢會等到這次寫入落盤才 commit（由 `trash-direct-write.test.ts` 驗證）；剩下的窗口是
 // unload 輪詢 5 s 逾時——寫入會落進垃圾桶裡的筆記，內容不丟（known-limitations）。
 import { BlockNoteEditor } from "@blocknote/core";
 import { withCollaboration } from "@blocknote/core/yjs";

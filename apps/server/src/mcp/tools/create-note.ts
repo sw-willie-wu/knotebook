@@ -86,7 +86,7 @@ export const createNoteInput = {
     //   backtick ④開頭用祈使的「Leave it out」（而非「Leave out `title`」）
     //   ⑤ `edit_note` 兩側不加反引號（`.describe()` 依本檔慣例；docs 有）。
     //   #175：去重範圍片語（「…against the other notes in the same place — your personal notes, or that
-    //   group's notes — with a numeric suffix」，T1）與 docs 逐字相同，不在上述五項差異內。
+    //   group's notes — with a numeric suffix」）與 docs 逐字相同，不在上述五項差異內。
     //   「same place」的範圍＝`SlugScope`（個人＝owner 自己的筆記、群組＝該群組的筆記），由
     //   `notes/slug.ts` 的 `probeUniqueSlug` 述詞決定（`owner_id = me` 或 `group_id = g`，不含分享給你的筆記）。
     //   ⚠ 不准壓短：「沒給 title → untitled-…」這種縮寫會讓模型反推「給了就跟標題走」，
@@ -157,7 +157,7 @@ export async function createNote(args: CreateNoteArgs, ctx: McpToolCtx): Promise
   //    在組一個 values 物件（純物件、零查詢）所以擺在閘門之前無妨；`insertNoteWithAutoSlug`
   //    會發探測查詢，搬到這裡就讓「這個部署不支援 content」的拒絕路徑開始打 DB（違反
   //    拒絕零副作用）。守衛分兩種形，**實測**：
-  //    (a) 整支呼叫搬上來 → 既有的**列數**斷言就抓得到：D-M（`countNotes` 2≠1）、案 21 與
+  //    (a) 整支呼叫搬上來 → 既有的**列數**斷言就抓得到：讀寫搬移憑證案（`countNotes` 2≠1）、案 21 與
   //        案 28(b)（零新增列 1≠0）三案連同下面那一案共 4 條紅。
   //    (b) **只把探測搬上來、INSERT 留在閘門之後** → 整包 925 案只有
   //        `mcp-create-note.test.ts` 那一案紅（`probes()` 半邊，0→1）。
@@ -204,7 +204,7 @@ export async function createNote(args: CreateNoteArgs, ctx: McpToolCtx): Promise
   if (args.content !== undefined) {
     // 3. 沒有協作元件就沒有「內容」這回事（同 REST 的 400）。**排在扣 `edit` 桶之前**：
     //    這一發從來不會走到寫入管線，不該啃桶（拒絕零副作用）。
-    //    守衛＝`mcp-create-note.test.ts` 的 D-M 那一案最後兩行：那個 app 的 `edit` 桶由測試
+    //    守衛＝`mcp-create-note.test.ts` 的讀寫搬移憑證案最後兩行：那個 app 的 `edit` 桶由測試
     //    自己持有（`freshLimiters({ edit })`），所以「還剩幾格」直接數得出來——**「這個部署上
     //    `edit` 桶沒有第二個消費端」不等於觀察不到**。
     //    突變實測（兩行對調）：那一案紅，`expected 29 to be 30`。

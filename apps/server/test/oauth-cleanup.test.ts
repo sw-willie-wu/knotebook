@@ -1,5 +1,5 @@
 /**
- * #132：I5 機會性清理的五條 DELETE。
+ * #132：機會性清理（`runOauthCleanup`）的五條 DELETE。
  *
  * 這一族守的是每一條的**述詞邊界**：① 看 last_used_at 不是 created_at、② 只清「建立超過
  * 24h 且從沒換出過 grant／code」的殭屍、③④ 只清過期的、⑤ 只清 PAT 且要過期滿 30 天。
@@ -19,7 +19,7 @@ async function createUser(db: Db): Promise<string> {
   return (await insertPasswordUser(db)).id;
 }
 
-describe("I5 機會性清理", () => {
+describe("機會性清理", () => {
   it("① 30 天未使用的 client 連同其 grant 一起消失", async () => {
     const { db, close } = await freshDb();
     try {

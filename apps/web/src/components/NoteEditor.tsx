@@ -202,7 +202,7 @@ export function buildNoteEditorOptions({
         createCodeBlockCaretExtension(),
         // 並排的欄首 Backspace／欄尾 Delete（理由見 `@/collab/columns/edge-keymap`）。
         createColumnEdgeKeymapExtension({ editorRef }),
-        // 貼上／拖放的列：頂層完整、非頂層攤平（調整 3；理由見 `@/collab/columns/paste-rule`）。
+        // 貼上／拖放的列：頂層完整、非頂層攤平（理由見 `@/collab/columns/paste-rule`）。
         createColumnsPasteExtension(),
       ],
       editorProps: {

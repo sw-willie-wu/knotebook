@@ -1,6 +1,6 @@
 /**
  * 刪群組・轉移的配額（S3（轉移形）、S5（轉移形）、S14（刪群組））；
- * 另有 Q-S7 的縫順序／advisory 鎖探測，與轉移路由的 `storageLockTimeoutMs` 透傳（比照上傳）。
+ * 另有空間鎖先於 slug 寫入的縫順序／advisory 鎖探測，與轉移路由的 `storageLockTimeoutMs` 透傳（比照上傳）。
  */
 import { describe, expect, it, vi } from "vitest";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
@@ -117,7 +117,7 @@ describe("busy 映射（S14 刪群組）", () => {
 });
 
 describe("轉移的空間鎖：位置與等待上限", () => {
-  it("Q-S7：folder-structure-locked、storage-space-locked 依序在第一個 group-transfer-slug-candidate 之前；slug 探測當下本庫已持有 3 把 advisory 鎖", async () => {
+  it("空間鎖先於 slug 寫入：folder-structure-locked、storage-space-locked 依序在第一個 group-transfer-slug-candidate 之前；slug 探測當下本庫已持有 3 把 advisory 鎖", async () => {
     const points: string[] = [];
     const advisoryAtSlug: number[] = [];
     const built = await buildTestApp({

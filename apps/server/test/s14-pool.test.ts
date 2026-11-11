@@ -1,7 +1,7 @@
 /**
  * #175 S14 (c)（PATCH 形）：以 max=3 的小 pool 起 app，並發 max+1 個自訂 slug 改名（每篇舊 slug 是自訂、
- * 同路徑有轉址列——走 T1 的 DELETE 分支）。全部 200、轉址全刪、之後其他請求照常。pool 設 2 秒借連線逾時：S14 被違反時
- * 表現為 500，而不是把整支測試卡到逾時。hook 在 T1 內當柵欄：等到 3 個交易同時持有連線（或 1 秒）才放行。
+ * 同路徑有轉址列——走 `patchSlugInTx` 的 DELETE 分支）。全部 200、轉址全刪、之後其他請求照常。pool 設 2 秒借連線逾時：S14 被違反時
+ * 表現為 500，而不是把整支測試卡到逾時。hook 在 `patchSlugInTx` 內當柵欄：等到 3 個交易同時持有連線（或 1 秒）才放行。
  * pool 走生產的 `createPool`（保險絲）。
  */
 import { describe, expect, it } from "vitest";
@@ -157,7 +157,7 @@ describe("S14 全刪形：刪群組（delete 模式）在小 pool 下不卡死",
   });
 
   // (b) 的鑑別力（拿掉保護時 (a)(a')(b) 全紅：全刪得 500）：它守的是「交易內、lockGroup 之後不得再向 pool 借連線」——
-  // 在 T7 的 lockGroup 之後、交易內多借一條連線（對小 pool 做 `select 1`）時，pool 會被借光。
+  // 在全刪的 lockGroup 之後、交易內多借一條連線（對小 pool 做 `select 1`）時，pool 會被借光。
   it("(b) max=3、1 個全刪＋3 個在該群組建筆記的請求（全刪持鎖時才發）→ 全刪 204、建立全 404 group_not_found；之後照常", async () => {
     const target = await freshDb();
     const pool = createPool({ databaseUrl: target.url, ...POOL_OPTS });

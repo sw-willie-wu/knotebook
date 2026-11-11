@@ -8,7 +8,7 @@
  * 不扣任何桶（MCP 端點已扣 `tokenRead`）；不 touch presence。
  *
  * 描述與輸出依母憑證二選一：有 `notes:write`（`canWriteNotes`）→ RW description、RW 輸出（多 `write`）、RW `next`；
- * 否則 RO（「This credential can't send notes back.」——access=read 的權杖 PUT 會 403，`transfer-write-auth` W-A3c 守）。
+ * 否則 RO（「This credential can't send notes back.」——access=read 的權杖 PUT 會 403，`transfer-write-auth` 守）。
  * 模型面字串改一個字要同時改 docs 與 `test/unit/bulk-transfer-strings.test.ts` 的全文 `toBe`。
  * **密文不進 log**：明文只在這個回應本文裡；SQL 參數只有雜湊。
  */
@@ -66,7 +66,7 @@ export const BULK_NEXT_RW =
 export const BULK_RANGE_AMBIGUOUS_MESSAGE = "Pass at most one of `space`, `group_id` and `folder_id`, so no token was created.";
 /**
  * 全文見 `bulk-transfer-strings.test.ts` S3。「3」「30」是寫死的字面值：與 `MAX_ACTIVE_BULK_TOKENS`／`BULK_TRANSFER_TTL_MINUTES` 的對齊由
- * `bulk-transfer-strings.test.ts` S3 與 `mcp-open-notes-as-files.test.ts` B5（第 4 支被拒）守。
+ * `bulk-transfer-strings.test.ts` 與 `mcp-open-notes-as-files.test.ts`（第 4 支被拒）守。
  */
 export const TOO_MANY_BULK_TOKENS_MESSAGE =
   "This credential already has 3 bulk transfer tokens that haven't expired. Wait for one to expire (within 30 minutes), or run the `revoke.curl` of one you no longer need, before asking for another.";

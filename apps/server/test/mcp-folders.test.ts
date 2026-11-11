@@ -1032,7 +1032,7 @@ describe("CP1 copy_note 的 folder_id", () => {
     expect(await countTitled(ctx.db, "cp1b co")).toBe(1);
   });
 
-  it("tools/list：RW 版 folder_id 說明逐字＝CP-F0 且不提 group；RWM 版＝CP-F", async () => {
+  it("tools/list：RW 版 folder_id 說明逐字＝`COPY_FOLDER_ID_DESCRIBE_NO_MOVE` 且不提 group；RWM 版＝`COPY_FOLDER_ID_DESCRIBE`", async () => {
     const ctx = await buildCollabTestApp();
     const me = await seedUser(ctx.db);
     const describeOf = async (scope: TokenScope) => {

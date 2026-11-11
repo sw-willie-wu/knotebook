@@ -216,7 +216,7 @@ describe("/api/mcp 的 method 形狀與 Bearer challenge", () => {
     expect(second.lastUsedAt!.getTime()).toBe(first.lastUsedAt!.getTime());
   });
 
-  it("oauth grant 的 Bearer 連帶更新 oauth_clients.last_used_at（#132 的 I5 ① 依賴它）", async () => {
+  it("oauth grant 的 Bearer 連帶更新 oauth_clients.last_used_at（#132 機會性清理的 ① 依賴它）", async () => {
     const { app, db } = await buildTestApp();
     // 目前沒有建立 oauth grant 的產品路徑，直接插一列——這條分支的邏輯現在就在
     // auth/bearer.ts 裡，必須有守衛，不能等 #132。
@@ -515,7 +515,7 @@ describe("notes 路由收 Bearer（允許清單）", () => {
   });
 
   it("token 桶 429 不寫 last_used_at（last_used 只記驗證成功的請求）", async () => {
-    // #132 的 I5 ① 用 last_used_at 判斷 client 是否「30 天未使用」；被限流打回的請求
+    // #132 機會性清理的 ① 用 last_used_at 判斷 client 是否「30 天未使用」；被限流打回的請求
     // 若也蓋時間戳，一支只會被 429 的 token 會讓它的 client 永遠看起來活著。
     const { app, db } = await buildTestApp({
       limiters: freshLimiters({ tokenRead: new FixedWindowLimiter({ limit: 0, windowMs: 60_000 }) }),

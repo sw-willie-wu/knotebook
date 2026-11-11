@@ -299,8 +299,8 @@ describe("buildNoteEditorOptions", () => {
     expect(extensions.map((ext: { name: string }) => ext.name)).toContain("knotebookColumnEdgeKeys");
   });
 
-  // 同上：`paste-rule.test.ts` 掛的是自己建的編輯器（調整 3 貼上的列）。
-  it("_tiptapOptions.extensions 掛了並排的貼上規則 extension（調整 3）", () => {
+  // 同上：`paste-rule.test.ts` 掛的是自己建的編輯器（貼上的列）。
+  it("_tiptapOptions.extensions 掛了並排的貼上規則 extension", () => {
     const extensions = build()._tiptapOptions.extensions;
     expect(extensions.map((ext: { name: string }) => ext.name)).toContain("knotebookColumnsPaste");
   });

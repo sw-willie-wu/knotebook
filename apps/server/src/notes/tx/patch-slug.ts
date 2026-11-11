@@ -1,5 +1,5 @@
 /**
- * #175 T1：PATCH 寫 `prev_slug` 的短交易本體。
+ * #175：PATCH 寫 `prev_slug` 的短交易本體。
  *
  *   WITH o AS (SELECT id, slug_is_custom FROM notes WHERE id = $id AND <授權時的 scope> FOR UPDATE)
  *   UPDATE notes SET …, prev_slug = CASE WHEN slug_is_custom THEN slug ELSE prev_slug END FROM o WHERE notes.id = o.id

@@ -1,6 +1,6 @@
 /**
  * #200：兩支上傳／下載端點加收 transfer token。每一個對抗案都斷言「磁碟與 DB 沒有多出任何東西」。
- * 測資：`issueDirect`（直接跑簽發交易）；經 MCP 工具簽、照 curl 形重現的那一條在 `mcp-transfer-flow.test.ts`（T1 後半）。
+ * 測資：`issueDirect`（直接跑簽發交易）；經 MCP 工具簽、照 curl 形重現的那一條在 `mcp-transfer-flow.test.ts`（端到端）。
  */
 import { readdirSync } from "node:fs";
 import { randomUUID } from "node:crypto";
@@ -35,7 +35,7 @@ import { issueBulkDirect } from "./bulk-transfer-helpers.js";
 const NOT_AN_IMAGE = Buffer.from("plain text, not an image", "utf-8");
 
 describe("POST /api/notes/:id/uploads × transfer token", () => {
-  it("T1（REST 半）：upload token → 201 {id, url: /api/uploads/<id>}；uploader＝母憑證使用者；token 已消費", async () => {
+  it("T1：upload token → 201 {id, url: /api/uploads/<id>}；uploader＝母憑證使用者；token 已消費", async () => {
     const { app, db, uploadsDir } = await buildTestApp();
     const o = await ownerWithPat(db);
     const t = await issueDirect(db, o.patId, o.noteId, "upload");

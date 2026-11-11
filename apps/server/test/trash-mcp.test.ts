@@ -40,7 +40,7 @@ async function restore(app: FastifyInstance, noteId: string, userId: string): Pr
   expect((res.json() as { restored: Array<{ id: string }> }).restored.map(n => n.id)).toEqual([noteId]);
 }
 
-/** 一段文字＋一張指向 `/api/uploads/<uploadId>` 的圖（同 `mcp-image.test.ts` M6 的造法）。 */
+/** 一段文字＋一張指向 `/api/uploads/<uploadId>` 的圖（同 `mcp-image.test.ts` 的造法）。 */
 async function imageNoteDoc(uploadId: string): Promise<Y.Doc> {
   const doc = new Y.Doc();
   const s = await EditorSession.open(testEditingRuntime, doc);

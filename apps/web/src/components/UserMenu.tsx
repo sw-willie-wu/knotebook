@@ -193,7 +193,7 @@ export function UserMenu() {
         </DropdownMenuItem>
         {/* 快捷鍵介紹（Ctrl+/）：不在 AppShell 底下（context 為 null，例如單獨渲染本元件的測試）就不渲染，免得出現點了沒反應的死項。
             三步形照 NoteMenu 的 focus trap 規矩：preventDefault → 手動關選單 → 開對話框，並把觸發鈕交給對話框當關閉時的還焦點目標。
-            ⚠ 少了 preventDefault 選單一樣會關，單元測試守不到這一步（跟 NoteMenu 同理）；焦點回歸由 AppShell.shortcuts.test 的 S14 與 e2e 守。 */}
+            ⚠ 少了 preventDefault 選單一樣會關，單元測試守不到這一步（跟 NoteMenu 同理）；焦點回歸由 AppShell.shortcuts.test 的「Esc 關 → 焦點回 UserMenu 觸發鈕」案與 e2e 守。 */}
         {shortcuts && (
           <DropdownMenuItem
             aria-keyshortcuts={mac ? "Meta+/" : "Control+/"}

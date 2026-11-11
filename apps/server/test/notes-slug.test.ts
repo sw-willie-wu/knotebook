@@ -714,8 +714,8 @@ describe("PATCH /api/notes/:id — #122 分流矩陣", () => {
     const cookie = await cookieFor(owner.id);
     const note = (await app.inject({ method: "POST", url: "/api/notes", cookies: { [SESSION_COOKIE]: cookie }, payload: { title: "Shape" } })).json();
 
-    // #175：格 1／3／4 的 UPDATE 包在 T1（`WITH o AS (… FOR UPDATE) UPDATE "notes" …`）裡——「恰一條寫 notes 的語句」
-    // 改認 `with … update "notes"`；T1 另可能多一條 DELETE 轉址（只在舊 slug 是自訂時）。`begin`／`commit` 不命中。
+    // #175：格 1／3／4 的 UPDATE 包在 `patchSlugInTx`（`WITH o AS (… FOR UPDATE) UPDATE "notes" …`）裡——「恰一條寫 notes 的語句」
+    // 改認 `with … update "notes"`；它另可能多一條 DELETE 轉址（只在舊 slug 是自訂時）。`begin`／`commit` 不命中。
     const updates = () => queries.filter(q => /^(with .* )?update "notes"/i.test(q.trim()));
     const redirectDeletes = () => queries.filter(q => /^delete from "note_redirects"/i.test(q.trim()));
     // pre-check／探測都長成「select ... where owner_id 且 slug =」的形；pre-read 則是

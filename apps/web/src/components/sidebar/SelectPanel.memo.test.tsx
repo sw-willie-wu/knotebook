@@ -14,7 +14,7 @@ import { Folder } from "@/components/ui/icons";
 import { personalNote } from "@/test/select-fixtures";
 import { FOLDER_LIST_EMPTY, folderDto } from "@/test/folder-fixtures";
 
-// 只包一層計數（NS14：勾一列時哪些列重算了位置行），行為照原本（照 TrashPanel.test.tsx SM16）。
+// 只包一層計數（NS14：勾一列時哪些列重算了位置行），行為照原本（照 TrashPanel.test.tsx）。
 vi.mock("@/components/sidebar/tree", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/components/sidebar/tree")>();
   return { ...actual, noteLocationLabel: vi.fn(actual.noteLocationLabel) };

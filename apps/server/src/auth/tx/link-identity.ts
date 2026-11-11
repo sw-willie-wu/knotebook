@@ -125,7 +125,7 @@ export async function linkPendingIdentityInTx(tx: Tx, input: LinkPendingInput, h
 }
 
 /**
- * #187 交易表 P3：設定頁手動連結。本人同時持有 session 與 IdP 登入就是證明——不要求 email 相同（第 3 步）。
+ * #187：設定頁手動連結。本人同時持有 session 與 IdP 登入就是證明——不要求 email 相同（第 3 步）。
  * **第一句**鎖本人 users 列（`FOR NO KEY UPDATE`，給「同 issuer 只能一個 sub」的判定一個序列化點），之後依序：帳號不在 → `oidc_link_session_mismatch`；
  * 停用 → `account_disabled`；`(issuer, sub)` 屬本人 → 冪等成功；屬別人 → `identity_taken`；本人已有同 issuer 另一個 sub →
  * `identity_already_linked`（精確 `eq(issuer)`，理由同上一個函式）；都不是 → INSERT（並發首登搶同一身分時 ON CONFLICT 後重讀）。

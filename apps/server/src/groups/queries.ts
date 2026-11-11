@@ -243,7 +243,7 @@ export function roleByIdQuery(db: DbOrTx, groupId: string, roleId: string) {
     .limit(1);
 }
 
-/** 掛這個角色的成員（T12／T13 的踢線名單；只組不執行）。 */
+/** 掛這個角色的成員（`updateRoleInTx`／`deleteRoleInTx` 的踢線名單；只組不執行）。 */
 export function roleHolderIdsQuery(db: DbOrTx, groupId: string, roleId: string) {
   return db
     .select({ userId: groupMembers.userId })

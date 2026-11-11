@@ -378,7 +378,7 @@ describe.each(["restore", "purge"] as const)("TR-R3b 交易內略過與預判略
       { id: r, reason: "not_found" },
     ]);
     expect((await trashCols(db.$client, g))?.deleted_at).not.toBeNull();
-    // 進了交易但一篇也沒還原 → 不呼叫 onNotesRestored（T6：只傳實際還原的 id）。
+    // 進了交易但一篇也沒還原 → 不呼叫 onNotesRestored（只傳實際還原的 id）。
     expect(hooks.onNotesRestored).not.toHaveBeenCalled();
   });
 });

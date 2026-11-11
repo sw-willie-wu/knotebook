@@ -149,7 +149,7 @@ export function parseErrorMessage(code: ErrorCode, fallback: string, detail?: Pa
 // `MAX_AUTO_SLUG_RETRIES` 已搬進 `notes/slug.ts` 並 export（#145）——建立路徑的 INSERT
 // 重試迴圈（`notes/create.ts`）與本檔 PATCH 的 UPDATE 重試迴圈必須共用同一份 5。
 
-// `updated_at` 的唯一時鐘來源搬到 `notes/clock.ts`（#175：T1 的 `*InTx` 也要用，而 tx/ 檔不能 import 路由檔）。
+// `updated_at` 的唯一時鐘來源搬到 `notes/clock.ts`（#175：`patchSlugInTx` 也要用，而 tx/ 檔不能 import 路由檔）。
 
 // `isForeignKeyViolation` 收在 `db/pg-errors.ts` 的共用版（原本這裡有一份邏輯等價的私有
 // 重複實作，已收掉——`notes/links.ts` 的 `writeNoteLinks` 也需要同一個判定，兩處各自
@@ -199,7 +199,7 @@ export interface NotesRouteDeps {
    * 後退 untitled-<uuid8>」的競態路徑）。生產不注入＝零成本。透傳自
    * `AppDeps.noteCreateHooks`。⚠ **接在三處**：`POST /api/notes` 不帶 content 的建列、複製（`POST /api/notes/:id/copy`
    * 與 MCP `copy_note`，交易內模式）、MCP `create_note` 不帶 content 的分支（`server_busy` 映射的觀測點，
-   * `mcp-folders` 的 BZ-N）。帶 content 的兩條路（`createWithContent`）不接——它與前者走同一支 `insertNoteWithAutoSlug`
+   * `mcp-folders`）。帶 content 的兩條路（`createWithContent`）不接——它與前者走同一支 `insertNoteWithAutoSlug`
    * 的預設模式，競態迴圈由 `POST /api/notes` 那一處觀測；交易內模式（savepoint 重試）是另一個迴圈，由複製那一處觀測。
    */
   noteCreateHooks?: NoteCreateHooks;
@@ -409,7 +409,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
 
     /**
      * rowcount-0 分流：列不在 → 404；列在 → 歸屬在授權之後變了 → 409 conflict。
-     * 三處共用：public-link PUT、public-width PUT（#297）與 PATCH 的 T1（scope 條件命中 0 列）。
+     * 三處共用：public-link PUT、public-width PUT（#297）與 PATCH 的 `patchSlugInTx`（scope 條件命中 0 列）。
      * #181：垃圾桶筆記算「列不在」→ 404，不是 409。
      */
     const ownershipChanged = async (reply: FastifyReply, noteId: string): Promise<FastifyReply> => {
@@ -755,7 +755,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
 
     /**
      * PATCH 的回應組裝——**一律在交易外**（`ownerHandleOf`／`editorHandleOf`／`groupNameOf` 都是對 `deps.db` 的閉包，S14）。
-     * 四格的寫入都帶授權當下的歸屬當 scope 條件（格 1／3／4 在 T1、格 2 在單句 UPDATE——#175），所以 `access` 就是落地那一列的授權。
+     * 四格的寫入都帶授權當下的歸屬當 scope 條件（格 1／3／4 在 `patchSlugInTx`、格 2 在單句 UPDATE——#175），所以 `access` 就是落地那一列的授權。
      */
     async function respondPatched(updated: typeof notes.$inferSelect, access: NoteAccess, viewerId: string): Promise<NoteDto> {
       return toNoteDto(
@@ -787,7 +787,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
      *    成功失敗都計——判定在格式驗證與 UPDATE 之前）→ `prepareSlugForPatch` → 無
      *    pre-read、無探測，單一 UPDATE `[title=$t,] slug=$1, slug_is_custom=true,
      *    prev_slug=CASE WHEN slug_is_custom THEN slug ELSE prev_slug END`——#175：這三格（1、3、4）
-     *    的 UPDATE 各包成一個 T1 短交易（`patchSlugInTx`，`WITH o AS (… FOR UPDATE) UPDATE …`，帶授權時
+     *    的 UPDATE 各包成一個短交易（`patchSlugInTx`，`WITH o AS (… FOR UPDATE) UPDATE …`，帶授權時
      *    的歸屬當 scope 條件；0 列 → 列不在 404、列在 409 `conflict`），寫進 prev 的那一刻同交易刪同路徑
      *    轉址（個人 scope 才發）；撞 `notes_owner_slug_idx` 或 `notes_group_slug_idx` → 409
      *    `slug_taken`（**constraint 名分流**，其他唯一鍵違反 rethrow）；
@@ -801,11 +801,11 @@ export function notesRoutes(deps: NotesRouteDeps) {
      *    ＋6 次 UPDATE（第 6 輪退位不探測），皆有界——title PATCH 本身無節流為現狀，
      *    明示接受）。
      * 3. `{title, slug:null}`：回 auto、以新 title 算（**無 pre-read**——title 已在請求、
-     *    必走 auto）：探測＋單一 UPDATE（T1）`title=$t, slug=$auto, slug_is_custom=false,
+     *    必走 auto）：探測＋單一 UPDATE（`patchSlugInTx`）`title=$t, slug=$auto, slug_is_custom=false,
      *    prev_slug=CASE ...`。slugPatch **計**（進 slug 分支即計；null 無格式驗——與
      *    格 1 的先計後驗一致）。
      * 4. `{slug:null}`：回 auto、以 DB 現行 title 算——pre-read 一次本列 title：探測＋
-     *    單一 UPDATE（T1），語句同格 3。slugPatch 計。
+     *    單一 UPDATE（`patchSlugInTx`），語句同格 3。slugPatch 計。
      *
      * pre-read 界線：TOCTOU 紀律禁的是**唯一性 pre-check**（「先查名字有沒
      * 有人用再寫」——裁決必須在唯一索引）；讀**本列**的 title/slug_is_custom 不在此列
@@ -814,11 +814,11 @@ export function notesRoutes(deps: NotesRouteDeps) {
      *
      * auto 撞名（**永不 409**）：探測（述詞排除本列）選尾碼；UPDATE 撞兩把 slug 唯一索引之一＝真競態
      * → 重探測重發，`MAX_AUTO_SLUG_RETRIES`（5）次後退 `untitled-<uuid8>`。格 3／4 每一輪是一個新的
-     * T1 交易（23505 只 abort 那一輪，不需要 savepoint）。title 與 slug 一律組進同一個
+     * `patchSlugInTx` 交易（23505 只 abort 那一輪，不需要 savepoint）。title 與 slug 一律組進同一個
      * `.update(...).set({...})`：唯一鍵衝突時整條 UPDATE 連同 title 一併回滾，不會發生
      * 「slug 衝突但 title 卻偷偷套用了」這種半套結果。
      *
-     * S14：交易內不得向 pool 借連線——T1 的 handle 用 `request.user.handle`（記憶體中），回應組裝
+     * S14：交易內不得向 pool 借連線——`patchSlugInTx` 的 handle 用 `request.user.handle`（記憶體中），回應組裝
      * （`respondPatched`）一律在交易外。
      */
     app.patch("/api/notes/:id", { preHandler: app.authenticate }, async (request, reply) => {
@@ -838,7 +838,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
       // #186：body 帶 title 一律要 edit（不論有沒有帶 slug）——只有 changeSlug（群組角色的 can_manage_public_link）的人不能借 slug 的門順手改標題。
       if (title !== undefined && !access.permissions.edit) return sendError(reply, 403, "forbidden", "You don't have edit access to this note.");
 
-      // #175：slug 的去重範圍與 T1 的 scope 條件都取自**授權當下**的歸屬。
+      // #175：slug 的去重範圍與 `patchSlugInTx` 的 scope 條件都取自**授權當下**的歸屬。
       // role !== "none" 時：groupId 非 null ＝群組筆記；否則是個人筆記，`resolveNoteAccess` 回的 ownerId 必非 null。
       const slugScope: SlugScope = access.groupId !== null ? { groupId: access.groupId } : { ownerId: access.ownerId! };
       const txScope: SlugWriteScope =
@@ -900,7 +900,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
         else auto = await deriveUniqueAutoSlug(deps.db, slugScope, id, effectiveTitle);
         await deps.slugUpdateTestHook?.(auto);
         try {
-          // 格 3／4：每一輪一個新的 T1 交易（23505 只 abort 那一輪，所以不需要 savepoint——savepoint 只用在長交易內的重試）。
+          // 格 3／4：每一輪一個新的 `patchSlugInTx` 交易（23505 只 abort 那一輪，所以不需要 savepoint——savepoint 只用在長交易內的重試）。
           updated = await runT1({ ...(title !== undefined ? { title } : {}), slug: auto, slugIsCustom: false });
           if (!updated) return ownershipChanged(reply, id);
           break;
@@ -1005,7 +1005,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
     });
 
     /**
-     * #175 移動（T3）：個人筆記 → 群組。只有個人筆記的 owner（`permissions.moveToGroup`）；目標群組要
+     * #175 移動：個人筆記 → 群組。只有個人筆記的 owner（`permissions.moveToGroup`）；目標群組要
      * 成員＋can_create（交易前只驗 UUID 形；成員與旗標只在交易內、對群組列取 KEY SHARE 之後查，走 tx，S14）。
      * 非 UUID／不存在／非成員／無新建旗標／等鎖期間被刪 → 同一條 404
      * `group_not_found`（與 `POST /api/notes` 的 403 不同）。
@@ -1049,7 +1049,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
     });
 
     /**
-     * #175 複製（T4）：看得到就能複製；目標個人一律可，群組要成員＋can_create（非 UUID／不存在／非成員／無新建
+     * #175 複製：看得到就能複製；目標個人一律可，群組要成員＋can_create（非 UUID／不存在／非成員／無新建
      * 旗標同一條 404 `group_not_found`）。群組目標查兩次：這裡交易外的 `loadCreateTarget` 只是快速 404；
      * 授權本身在 `copyNoteInTx` (g) 持目標 groups KEY SHARE 後重驗（與 `lockGroup` 互斥，不是交易外的
      * 窗口；鎖序與成環分析在 `notes/tx/copy.ts` 檔頭），DTO 的角色／群組名也取 (g) 交易內讀到的值。節流：edit 桶。
@@ -1259,7 +1259,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
         return sendError(reply, 400, "cannot_share_with_self", "You can't share a note with yourself.");
       }
 
-      // #175 S14（T2）：交易本體在 `notes/tx/shares.ts`（`FOR SHARE` 讀 `group_id` 也在那裡）。引數只放
+      // #175 S14：交易本體在 `notes/tx/shares.ts`（`FOR SHARE` 讀 `group_id` 也在那裡）。引數只放
       // 識別字／屬性存取／物件字面——值都在上面 await 完了。
       await deps.groupTestHook?.("share-authorized", { noteId: id });
       try {

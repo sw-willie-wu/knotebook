@@ -7,7 +7,7 @@
  * body 的 `roleId`（`PUT`／`PATCH …/members`）非 UUID 或不屬於此群組 → 404 `role_not_found`（"No role with that id."，不是上面
  * 那條 `not_found`）；它的 UUID 檢查在 403 與 body 形狀驗證**之後**，「不屬於此群組」在交易內判定。
  * 每個交易的本體都在 `groups/tx/*`（S14）：路由只做 `db.transaction(tx => xxxInTx(tx, …))` 與 commit 後的踢線。
- * 角色端點：`POST …/roles` 是單句 INSERT；`PATCH`／`DELETE …/roles/:roleId` 的本體是 `groups/tx/roles.ts`（T12、T13）；
+ * 角色端點：`POST …/roles` 是單句 INSERT；`PATCH`／`DELETE …/roles/:roleId` 的本體是 `groups/tx/roles.ts`（`updateRoleInTx`、`deleteRoleInTx`）；
  * 三支都要 `manageGroup`，`:roleId` 非 UUID 或不屬於此群組 → 404 `role_not_found`，內建角色受限 → 409 `builtin_role`。
  * 刪群組：body 必填 `{mode}`；全刪的 gate 在交易外、commit 後才刪附件檔與踢線。
  */
@@ -104,7 +104,7 @@ export function groupsRoutes(deps: GroupsRouteDeps) {
       return rows.map(row => toGroupDto(row, request.user!.isAdmin));
     });
 
-    // 建立者在同一個交易裡成為內建管理員；兩個內建角色同交易建（T8）。
+    // 建立者在同一個交易裡成為內建管理員；兩個內建角色同交易建。
     app.post("/api/groups", { preHandler: app.authenticate }, async (request, reply) => {
       const parsed = nameBodySchema.safeParse(request.body);
       if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "Invalid request body.");
@@ -151,11 +151,11 @@ export function groupsRoutes(deps: GroupsRouteDeps) {
       return toGroupDto(row, request.user!.isAdmin);
     });
 
-    // #175：刪群組必填模式。transfer＝筆記全數改成 transferTo（內建管理員）的個人筆記（T6）；delete＝連筆記一起刪（T7）。
+    // #175：刪群組必填模式。transfer＝筆記全數改成 transferTo（內建管理員）的個人筆記；delete＝連筆記一起刪。
     // 全刪的 gate（beforeNoteDeleted 會借連線）在交易**之前**開完（S14）；gate 之後才進群組的
     // 不經 gate 被刪，commit 後以 onGroupAccessChanged 讓在線者 5 秒內以 revoked 關閉（代價）。
     // 兩模式交易外的錯誤映射相同：FK 23503 → 409 group_not_empty（防禦縱深：lockGroup 之後的建立／移入卡在 FK KEY SHARE，
-    // 理論上撞不到）；40P01／40001 → 409 server_busy（T15 × T6／T7 仍會成環：`writeLinksInTx` 先鎖來源列再取目標 FK KEY SHARE，與群組筆記 FOR UPDATE 互等；
+    // 理論上撞不到）；40P01／40001 → 409 server_busy（寫連結 × 刪群組仍會成環：`writeLinksInTx` 先鎖來源列再取目標 FK KEY SHARE，與群組筆記 FOR UPDATE 互等；
     // 同一位 transferTo 的兩筆轉移在接收者結構鎖上排隊〔取在筆記鎖之前〕，不再成環）。
     // 儲存配額起，transfer 另有 409 `storage_quota_exceeded`（接收者個人空間放不下；數字只給接收者本人與站台 admin）；
     // 55P03（空間鎖、資料夾結構鎖逾時）併入 server_busy。

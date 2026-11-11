@@ -687,7 +687,7 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
         // #269：舊分頁閘門。放在驗完 token 之後、刪除閘門之前：不需要 DB、與筆記存不存在無關（不形成存在性
         // oracle）。`!==` 不用 `<`：server 回滾時比較新的 client 一樣要重整。
         // ⚠ `onTokenSync` 刻意**不**重驗 `sv`：`sv` 隨 bundle 固定、`NOTE_SCHEMA_VERSION` 隨程序固定，schema 升版必然換程序
-        // ⇒ 所有 socket 斷線重握手。日後若改成熱更新，這個前提就不成立，要回頭在重驗補上（`collab-gate.test.ts` G3 釘現狀）。
+        // ⇒ 所有 socket 斷線重握手。日後若改成熱更新，這個前提就不成立，要回頭在重驗補上（`collab-gate.test.ts` 釘現狀）。
         if (claims.sv !== NOTE_SCHEMA_VERSION) {
           rejectAuth("client-outdated", { noteId: documentName, userId: claims.userId });
         }

@@ -1,6 +1,6 @@
 /**
  * bulk transfer（R1–R3b）：檔案寫回的紀錄交易（`recordFileSyncInTx`）。
- * T11（R4–R7c、反例二兩序）：`file_sync` 列經 REST 的列出與撤回。
+ * 列出與撤回（R4–R7c、反例二兩序）：`file_sync` 列經 REST 的列出與撤回。
  */
 import { describe, expect, it } from "vitest";
 import { eq, sql } from "drizzle-orm";
@@ -162,7 +162,7 @@ describe("R3 裁切到 100", () => {
   });
 });
 
-// ── T11：file_sync 列的撤回──────────────────────────────
+// ── file_sync 列的撤回──────────────────────────────
 type Opts = Parameters<typeof buildCollabTestApp>[0];
 type EditItem = { id: string; op: string; revertable: boolean; revertedAt: string | null };
 async function writeScene(md: string, opts: Opts = {}) {

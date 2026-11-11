@@ -205,8 +205,8 @@ describe("AF5 鏡像", () => {
   });
 });
 
-describe("AF6 describe 字串（NS-F）", () => {
-  it("tools/list 上 list_notes 的 notes.items.folder 說明逐字＝NS-F，且不提 read_note_outline", async () => {
+describe("AF6 describe 字串（`NS_FOLDER_DESCRIBE`）", () => {
+  it("tools/list 上 list_notes 的 notes.items.folder 說明逐字＝`NS_FOLDER_DESCRIBE`，且不提 read_note_outline", async () => {
     const ctx = await buildCollabTestApp();
     const u = await seedUser(ctx.db);
     const res = await mcpPost(ctx.app, rpc("tools/list"), await tokenOf(ctx.db, u.id, R));

@@ -9,7 +9,7 @@ import { DestinationPickerDialog } from "./DestinationPickerDialog";
 import { EMPTY_FOLDER_INDEX, indexFolders } from "./folder-index";
 
 // 目的地選擇框（#181；一次一層：DPf1–DPf5）。
-// 層內容一律由 T2 的 `buildDestinationLevel` 產生（與 SelectActionBar 同一支）。
+// 層內容一律由 `buildDestinationLevel` 產生（與 SelectActionBar 同一支）。
 
 type Props = Parameters<typeof DestinationPickerDialog>[0];
 

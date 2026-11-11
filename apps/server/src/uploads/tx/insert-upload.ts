@@ -1,5 +1,5 @@
 /**
- * 儲存配額 U-tx：上傳的 DB 寫入。S14：只收 `tx`／純資料／型別明示測試縫。
+ * 儲存配額 `insertUploadInTx`：上傳的 DB 寫入。S14：只收 `tx`／純資料／型別明示測試縫。
  *   筆記 `FOR KEY SHARE`（顯式；與原本 INSERT 的 FK 檢查是同一把鎖，只是提前——#188 的推理不變）→ 0 列 → 404 not_found
  *   → `assertSpaceRoomInTx(該筆記的空間, size)`（空間鎖在筆記列鎖之後）→ INSERT uploads（`charged_to_id`＝上傳者，#247）
  * 空間以交易內讀到的 owner_id／group_id 為準（preHandler 的預檢讀到的可能已被移動改掉）。

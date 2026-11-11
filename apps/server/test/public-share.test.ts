@@ -789,7 +789,7 @@ describe("公開別名端（GET /api/public/notes/:handle/:slug，無需登入�
   it("讀取述詞含 token 非空：直插殘留列（token NULL＋別名非 NULL）→ 404", async () => {
     const { app, db } = await buildTestApp();
     const owner = await insertUser(db, "carol@example.com", "carol");
-    // 生產路徑（T2 條件式 UPDATE＋DELETE 清兩者）產不出這形——直插模擬歷史/手動殘留
+    // 生產路徑（條件式 UPDATE＋DELETE 清兩者）產不出這形——直插模擬歷史/手動殘留
     await db.insert(notes).values({ ownerId: owner.id, title: "Residue", publicSlug: "ghost" });
     expect((await byPath(app, "carol", "ghost")).statusCode).toBe(404);
   });

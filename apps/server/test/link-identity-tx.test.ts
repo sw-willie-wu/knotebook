@@ -28,7 +28,7 @@ async function rejected(p: Promise<unknown>): Promise<{ status: number; code: st
   throw new Error("expected TxAbort");
 }
 
-describe("linkPendingIdentityInTx（#187，交易表 A2）", () => {
+describe("linkPendingIdentityInTx（#187，SSO 證明）", () => {
   it("密碼證明成功：INSERT identity（帶 last_login_at）、must_change_password 不清、回 LinkedUser", async () => {
     const { db } = await buildTestApp();
     const u = await seedTarget(db);

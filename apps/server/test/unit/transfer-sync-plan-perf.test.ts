@@ -31,7 +31,7 @@ async function scene(n: number) {
 
 describe("規劃尾段", () => {
   // 牆鐘門檻只抓數量級退化（300 ms 在雲端 CI 上兩個方向都可能翻）；「每區之後都讓出」的確定性守衛在
-  // transfer-sync-plan.test.ts 的 P6c（步進時鐘），呼叫次數守衛在下面兩案。
+  // transfer-sync-plan.test.ts 的步進時鐘案，呼叫次數守衛在下面兩案。
   it("1 000 區、2 000 顆：預設讓出下，最長同步間隔（含最後一次讓出到回傳）< 1 500 ms", async () => {
     const { b, live, body } = await scene(2000);
     const stamps: number[] = [];

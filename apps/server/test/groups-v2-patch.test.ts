@@ -107,7 +107,7 @@ describe("#175 PATCH 的權限", () => {
   });
 });
 
-describe("#175 T1：寫 prev 時刪同路徑轉址", () => {
+describe("#175：寫 prev 時刪同路徑轉址", () => {
   it("R1：N1 移進群組留下 /n/h/c15 轉址；N2 取 c15 再自訂改名 → prev=c15 且轉址被刪 → /n/h/c15 解到 N2", async () => {
     const { app, db } = await buildTestApp();
     const u = await seedUser(db);

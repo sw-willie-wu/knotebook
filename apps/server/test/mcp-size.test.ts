@@ -710,8 +710,8 @@ describe("#108 單次回應大小（案 11c）", () => {
    * - 100 篇 (iv) 形群組筆記放在最深那層；另一位使用者有同形的個人資料夾鏈與 100 篇個人筆記（個人形，`owner` 是 handle）。
    * 六發：① list_notes（兩形）② search_notes ③ list_folders ④ list_trash＝(vii)（同一最深路徑形，不重造；值見 (vii) 的 `[案 11c]` 行）
    * ⑥ read_note_outline（(ii) 形放進最深層）⑤ delete_folder（300 篇子樹；會刪東西，排最後）。
-   * 這一案不是下列三條突變的守衛（預算截頁或 fixture 太小遮掉）：資料夾名不截 → `unit/mcp-folder-fields` FF1、`mcp-folder-fields` AF3；
-   * 路徑只截段不丟段 → FF2、`mcp-trash-tools` LT8 八層案、`mcp-folders` LF4；list_folders 每頁改 100 → `mcp-folders` LF3。
+   * 這一案不是下列三條突變的守衛（預算截頁或 fixture 太小遮掉）：資料夾名不截 → `unit/mcp-folder-fields`、`mcp-folder-fields`；
+   * 路徑只截段不丟段 → `unit/mcp-folder-fields`、`mcp-trash-tools` 的八層案、`mcp-folders`；list_folders 每頁改 100 → `mcp-folders`。
    * 破哨兵＝`limits.ts` 的上限表漏一列，處置是補列，不得調大 `MCP_MAX_WIRE`。
    */
   it("(viii) 資料夾最壞形六發：list_notes／search_notes／list_folders／read_note_outline／delete_folder 都 ≤ N（list_trash 見 (vii)）", async () => {

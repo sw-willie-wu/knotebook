@@ -205,7 +205,7 @@ describe("DELETE /api/auth/identities/:id（#187）", () => {
   });
 
   // 這案不呼叫防自鎖的第二關（holder 以手打 SQL 擺出解除交易的鎖足跡）：守的只是「登入影響 0 列照樣簽 session」。
-  // P2 與登入的真並發（C24）見下一案。
+  // 解除連結與登入的真並發（C24）見下一案。
   it("登入撞上解除已刪未提交的身分 → 等它提交、0 列照樣簽 session", async () => {
     const t = await buildOidcApp({ providers: [{ key: "a", issuerUrl: A }] });
     const u = await insertPasswordUser(t.db);
@@ -227,7 +227,7 @@ describe("DELETE /api/auth/identities/:id（#187）", () => {
     }
   });
 
-  it("C24：真 P2 持 users 鎖卡在身分列上 → 真 SSO 登入（同帳號另一身分）不等 users、照樣完成；放行後 P2 → 204、無 40P01", async () => {
+  it("C24：真解除連結持 users 鎖卡在身分列上 → 真 SSO 登入（同帳號另一身分）不等 users、照樣完成；放行後解除連結 → 204、無 40P01", async () => {
     const t = await buildOidcApp({ providers: [{ key: "a", issuerUrl: A }, { key: "b", issuerUrl: B }] });
     const u = await insertPasswordUser(t.db);
     const idA = await identity(t.db, u.id, A, "sa");
@@ -235,12 +235,12 @@ describe("DELETE /api/auth/identities/:id（#187）", () => {
     const within = <T>(p: Promise<T>, ms: number) => Promise.race([p, new Promise<"timeout">(r => setTimeout(() => r("timeout"), ms))]);
     const holder = await holderFor(t.db);
     try {
-      // holder＝「登入 A 進行中」的鎖足跡（A1 login 分支：site_settings FOR SHARE＋UPDATE 該身分列，未提交）。
+      // holder＝「登入 A 進行中」的鎖足跡（登入分支：site_settings FOR SHARE＋UPDATE 該身分列，未提交）。
       await holder.query("begin");
       await holder.query("select 1 from site_settings where singleton for share");
       await holder.query("update user_identities set last_login_at = now() where id = $1", [idA]);
       const del = unlink(t.app, await cookieOf(u.id), idA);
-      // 真 P2 已持 users NKU＋site_settings SHARE，卡在刪 A 那一列。
+      // 真解除連結已持 users NKU＋site_settings SHARE，卡在刪 A 那一列。
       expect(await waitForBlockedOrSettled(t.db.$client, del)).toBe("blocked");
       const login = ssoRoundTrip(t.app, t.idp("b"), { loginUrl: `/api/auth/oidc/login/${t.provider("b").id}`, claims: { sub: "sb", email: u.email } });
       const r = await within(login, 5000);

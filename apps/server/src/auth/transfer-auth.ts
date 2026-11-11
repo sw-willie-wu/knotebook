@@ -119,7 +119,7 @@ export function createTransferAuth(deps: TransferAuthDeps) {
 
       // 母憑證可經 `PATCH /api/auth/tokens/:id` 原地降權（#239），所以這條**可達**；每次使用都以母憑證當下的 scope 重驗。
       // 刻意不像 `bearer.ts` 那支帶 `WWW-Authenticate: … error="insufficient_scope"`：transfer token 沒有可要求的 scope，
-      // 行為不改。守衛：`transfer-tokens.test.ts` 的 #239 T1。
+      // 行為不改。守衛：`transfer-tokens.test.ts` 的 #239 案。
       if (!hasScope(row.scope as TokenScope, purpose === "upload" ? "notes:write" : "notes:read")) {
         drainWithCap(request);
         sendError(reply, 403, "insufficient_scope", "This token's scope doesn't allow this action.");
@@ -141,7 +141,7 @@ export function createTransferAuth(deps: TransferAuthDeps) {
    * `purpose ≠ 'bulk'` → 403；無效、過期、停權／需改密碼 → 同形 401（`BULK_TRANSFER_INVALID_MESSAGE`）；讀取要母憑證當下有 `notes:read`。
    * `write`：read 的全部＋`access = 'write'`＋母憑證**當下**有 `notes:write`，缺一 → 403 `insufficient_scope`
    * （既有慣例：`require()` 與 `bearer.ts` 的 scope 不足都回這碼這句；`forbidden` 只用在用途不符）。兩者都排在使用者閘門之後
-   * （停權的唯讀權杖 → 401，不是 403；`transfer-write-auth.test.ts` 的 W-A3b）。不帶 `WWW-Authenticate`（同 `require()` 的理由）。
+   * （停權的唯讀權杖 → 401，不是 403；`transfer-write-auth.test.ts` 的唯讀權杖案）。不帶 `WWW-Authenticate`（同 `require()` 的理由）。
    */
   function requireBulk(op: "read" | "write") {
     const needed = op === "read" ? "notes:read" : "notes:write";
@@ -188,8 +188,8 @@ export function createTransferAuth(deps: TransferAuthDeps) {
       const gateResult = await deps.gate.checkUser(row.userId);
       if (gateResult.status !== "ok" || gateResult.user.mustChangePassword) return rejectInvalidBulk(request, reply);
 
-      // read：實務上不可達（五種 scope 都含 notes:read）；保留與 `require()` 同形。write：母憑證可經 PATCH 原地降權（#239），可達（W-A4）。
-      // write 另要權杖本身 `access = 'write'`（W-A3：唯讀母憑證簽的權杖）。
+      // read：實務上不可達（五種 scope 都含 notes:read）；保留與 `require()` 同形。write：母憑證可經 PATCH 原地降權（#239），可達。
+      // write 另要權杖本身 `access = 'write'`（唯讀母憑證簽的權杖不可寫）。
       if ((op === "write" && row.access !== "write") || !hasScope(row.scope as TokenScope, needed)) {
         drainWithCap(request);
         sendError(reply, 403, "insufficient_scope", "This token's scope doesn't allow this action.");

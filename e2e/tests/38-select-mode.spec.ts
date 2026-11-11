@@ -154,7 +154,7 @@ test("A2c-3：我的筆記 Shift 範圍選三篇 → 移動到群組；確認框
   await expect(toastWithTitle(page, `Moved 3 notes into "${groupName}"`)).toBeVisible({ timeout: 15_000 });
   await expect(confirm).toHaveCount(0);
   // 送出後焦點在 body（Chromium／Firefox：送出鈕 disabled）或確認框容器（WebKit）都算「沒移到別處」→ 交給本實例的「Select」。
-  // 本斷言驗最終落點；守衛的 `confirmEl` 那一支由元件測試 SA3／SA12／SA22 守。
+  // 本斷言驗最終落點；守衛的 `confirmEl` 那一支由元件測試守。
   await expect(panel.locator("button[data-sidebar-select]")).toBeFocused();
   await expectSelectionEnded(panel);
 

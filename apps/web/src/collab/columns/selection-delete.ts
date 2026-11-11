@@ -36,7 +36,7 @@ function findBlockNode(doc: PMNode, id: string): { node: PMNode; pos: number } |
   return hit;
 }
 
-/** 把 getSelection().blocks 裡的 column／columnList 項展開成選取範圍內的 block id（調整 2 補充第 1 點）。 */
+/** 把 getSelection().blocks 裡的 column／columnList 項展開成選取範圍內的 block id，免得把整欄連沒選到的 block 一起刪掉。 */
 export function blockIdsInSelectionForDelete(editor: Pick<AnyEditor, "prosemirrorState">, blocks: readonly { id: string; type: string }[]): string[] {
   const { doc, selection } = editor.prosemirrorState;
   const { from, to } = selection;
@@ -75,7 +75,7 @@ function insideSelectedRow(editor: Pick<AnyEditor, "getParentBlock">, id: string
   return false;
 }
 
-/** ⋮⋮ Delete 開在 clickedId 上時要刪的 id（補充第 3 點）：沒有選取 → [clickedId]；點的 block 屬於多選 → 展開後的集合；否則 [clickedId]。 */
+/** ⋮⋮ Delete 開在 clickedId 上時要刪的 id：沒有選取 → [clickedId]；點的 block 屬於多選 → 展開後的集合；否則 [clickedId]。 */
 export function blockIdsForMenuDelete(editor: SelectionDeleteEditor, clickedId: string): string[] {
   const selected = editor.getSelection()?.blocks;
   if (!selected) return [clickedId];

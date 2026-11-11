@@ -33,7 +33,7 @@ const filesIn = async (dir: string): Promise<string[]> => (await readdir(dir)).s
 const uploadsOf = (db: Db, noteId: string) =>
   db.select({ id: uploads.id, uploaderId: uploads.uploaderId, mime: uploads.mime, size: uploads.size }).from(uploads).where(eq(uploads.noteId, noteId));
 
-describe("#175 POST /api/notes/:id/copy（T4）", () => {
+describe("#175 POST /api/notes/:id/copy", () => {
   it("個人→群組：201 群組形 DTO；note_states version 1、XML 只差改寫的網址；本站附件換新 id 與新檔、外部圖與他篇附件原樣；不帶 AI 紀錄／shares／token／別名／prev／legacy／last_edited；副本 updated_at 晚於來源", async () => {
     const { app, db, uploadsDir } = await buildTestApp();
     const [owner, c] = await Promise.all([seedUser(db), seedUser(db)]);

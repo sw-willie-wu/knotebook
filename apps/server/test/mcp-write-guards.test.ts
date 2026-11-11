@@ -552,7 +552,7 @@ describe("並排與尺寸：寫入面拒絕不合格的形", () => {
     const err = errorOf(await editNote(s.ctx.app, s.token, { note_id: s.noteId, op: "append", markdown: FIVE_COLS }));
     expect(err.code).toBe("unsupported_columns");
     expect(err.message).toBe(writeFailureMessage("unsupported_columns"));
-    expect(err.message).toContain("side-by-side columns"); // 碼與句子沒有配錯（上一行兩邊同取自 writeFailureMessage；逐字由 write-messages.test.ts WM1 釘）
+    expect(err.message).toContain("side-by-side columns"); // 碼與句子沒有配錯（上一行兩邊同取自 writeFailureMessage；逐字由 write-messages.test.ts 釘）
 
     await expectNoSideEffects(s.ctx, s.noteId, before);
     expect(await stateOf(s)).toBe(stateBefore);

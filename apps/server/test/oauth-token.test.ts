@@ -291,13 +291,13 @@ describe("POST /oauth/token — authorization_code", () => {
     }
   });
 
-  it("成功後跑 I5：25 小時前的殭屍 client 在這一發後消失", async () => {
+  it("成功後跑機會性清理：25 小時前的殭屍 client 在這一發後消失", async () => {
     const { app, db, close } = await buildTestApp();
     try {
       const { cookie } = await createUserAndLogin(db);
       const c = await obtainCode(app, cookie);
-      // ⚠ zombie 必須在 obtainCode **之後**才插：DCR／authorize／decision 各跑一次 I5，
-      // 插在前面會被它們清掉，token 端點的 I5 拿掉也照樣綠（假綠）。
+      // ⚠ zombie 必須在 obtainCode **之後**才插：DCR／authorize／decision 各跑一次機會性清理，
+      // 插在前面會被它們清掉，token 端點的機會性清理拿掉也照樣綠（假綠）。
       await db.insert(oauthClients).values({
         clientId: "zombie",
         clientName: "Zombie",
@@ -305,7 +305,7 @@ describe("POST /oauth/token — authorization_code", () => {
         createdAt: sql`now() - interval '25 hours'`,
       });
       expect((await exchange(app, codeGrant(c))).statusCode).toBe(200);
-      // I5 是 fire-and-forget：有 deadline 的輪詢，固定 sleep 在 WSL 容器上會 flaky
+      // 機會性清理（`runOauthCleanup`）是 fire-and-forget：有 deadline 的輪詢，固定 sleep 在 WSL 容器上會 flaky
       await expect
         .poll(async () => (await db.select({ id: oauthClients.clientId }).from(oauthClients)).map(r => r.id), {
           timeout: 3_000,
@@ -372,7 +372,7 @@ describe("POST /oauth/token — refresh_token", () => {
       expect(rotated.json().scope).toBe("notes:read notes:write");
       expect(rotated.json().expires_in).toBe(86400);
       expect(await db.select().from(apiTokens)).toHaveLength(1); // 輪替不是新列
-      // 輪替是 I5 ① 的「使用」之一（refresh 步驟 4）
+      // 輪替是機會性清理 ① 的「使用」之一（refresh 步驟 4）
       const [client] = await db.select().from(oauthClients);
       expect(client!.lastUsedAt.getTime()).toBeGreaterThan(stale.getTime());
 

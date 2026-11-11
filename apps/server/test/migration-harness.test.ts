@@ -41,14 +41,14 @@ describe("freshEmptyDb（不跑 migration 的乾淨 DB 入口）", () => {
 });
 
 describe("applyMigrationsThrough（harness）", () => {
-  it("重放 0..最末支後：抽樣形狀＋記帳形（created_at＝journal when；全等價由下方 M-2 案守）", async () => {
+  it("重放 0..最末支後：抽樣形狀＋記帳形（created_at＝journal when；全等價由下方的全等價案守）", async () => {
     const entries = journalEntries();
     const lastIdx = entries[entries.length - 1].idx;
 
     const { pool } = await freshEmptyDb();
     await applyMigrationsThrough(pool, lastIdx);
 
-    // 形狀抽樣：核心表都在、來自 0005_public-share 的 public_token 欄在（全等價由下面 M-2 案守）
+    // 形狀抽樣：核心表都在、來自 0005_public-share 的 public_token 欄在（全等價由下面的全等價案守）
     const tables = await pool.query(
       `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`,
     );

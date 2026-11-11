@@ -463,7 +463,7 @@ describe("含子 block 的列貼進欄內", () => {
   });
 });
 
-describe("單獨一欄（Ctrl＋點欄整欄複製，concern 2）", () => {
+describe("單獨一欄（Ctrl＋點欄整欄複製）", () => {
   // 整欄 NodeSelection 的 slice 只有一個 column、沒有 columnList；不換掉的話 PM 會把它包成補了空欄的列，
   // 頂層貼上時長進段落的子 block（巢狀列；不裝規則時 `paragraph{ROW[COL(paragraph:c) | COL(paragraph)]}`）。
   it.each([

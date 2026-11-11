@@ -7,7 +7,7 @@ import { canUnlinkIdentity, enabledProvidersWithIssuer, usableIdentityIds } from
 export const IDENTITY_NOT_FOUND_MESSAGE = "No sign-in method with that id.";
 
 /**
- * #187 交易表 P2。鎖序：①users `FOR NO KEY UPDATE`（序列化同一人的並發解除與加密碼）②**之後**
+ * #187：解除身分連結。鎖序：①users `FOR NO KEY UPDATE`（序列化同一人的並發解除與加密碼）②**之後**
  * `site_settings FOR SHARE`（與站台設定寫入互斥：關閉帳密先拿到鎖 → 這裡讀到關、密碼不算數；這裡先拿到 → 關閉的防自鎖判斷
  * 看得到身分已刪）。讀不到列＝開，回 `settingsMissing` 讓呼叫端 log。解除連結的判斷與 GET 的 `unlinkable` 同一組函式。
  * 同交易清掉吻合的 `users.oidc_*`（否則開機時的舊欄補登會讓已解除的身分復活）。不撤 session。

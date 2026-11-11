@@ -47,7 +47,7 @@ describe("PresenceRegistry", () => {
     expect(presenceTargetForRead("sec-1")).toEqual({ kind: "section", sectionId: "sec-1" });
     // ⚠ 第二個參數是 `ApplyResult.afterBlockIds`＝**編輯後**新寫下的 block id（文件順序）。
     //    絕不是請求帶進來的 section_id：那是 heading 的 block id，replace_section／delete_section
-    //    會把 heading 一起換掉，編輯完成後它已不存在（繼承表第 21 列）。
+    //    會把 heading 一起換掉，編輯完成後它已不存在。
     expect(presenceTargetForWrite("replace_all", ["r1", "r2"])).toEqual({ kind: "doc-start" });
     expect(presenceTargetForWrite("replace_section", ["s1", "s2"])).toEqual({ kind: "block", blockId: "s1" });
     expect(presenceTargetForWrite("insert_after", ["i1"])).toEqual({ kind: "block", blockId: "i1" });

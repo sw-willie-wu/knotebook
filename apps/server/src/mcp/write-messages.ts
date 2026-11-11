@@ -53,6 +53,6 @@ export function writeFailureMessage(code: ParseError | "empty_section", detail?:
 /**
  * #180（move 與 copy 共用，code `group_not_found`）：涵蓋「不存在／非成員／成員但無 `can_create`／檢查後被刪」。
  * 與 `create_note` 的 `GROUP_NOT_FOUND_MESSAGE` **刻意不同字**——`create_note` 把「無新建權」分成 `forbidden`，這裡不分。
- * wire 行為由 `mcp-copy.test.ts` C5 與 `mcp-move.test.ts` V5 守。
+ * wire 行為由 `mcp-copy.test.ts` 與 `mcp-move.test.ts` 守。
  */
 export const GROUP_NO_CREATE_MESSAGE = "No group with that id among your groups where your role can create notes.";

@@ -1,8 +1,8 @@
 /**
  * #175（DELETE 列）：`DELETE /api/groups/:id` 必填 body 的兩種模式（HTTP 功能面）。
- *   `{mode:"transfer", transferTo}`（T6）：筆記全數改成 transferTo（該群組的內建管理員）的個人筆記、`/g/` 舊網址轉址、清公開連結；
+ *   `{mode:"transfer", transferTo}`：筆記全數改成 transferTo（該群組的內建管理員）的個人筆記、`/g/` 舊網址轉址、清公開連結；
  *     commit 後 `onGroupAccessChanged(noteIds, 成員 − transferTo)`、`onGroupAccessChanged(noteIds, [transferTo])`（筆記非空才呼叫）。
- *   `{mode:"delete"}`（T7）：交易外取 P0、每篇開 gate（`beforeNoteDeleted`）、`group-delete-gated` 縫、交易；失敗（含 TxAbort、40P01）
+ *   `{mode:"delete"}`：交易外取 P0、每篇開 gate（`beforeNoteDeleted`）、`group-delete-gated` 縫、交易；失敗（含 TxAbort、40P01）
  *     每個 gate 都 release；成功 → 刪附件檔 → `L \ P0` 非空才 `onGroupAccessChanged(L \ P0, 成員)`。
  * 順序：groupAccess（404 同形）→ 403 → body（400 invalid_body）→ transferTo 非 UUID 409 not_admin（與非成員同形）。
  * 交易本體的逐欄斷言在 `groups-v2-delete-tx.test.ts`；並發在 `groups-v2-race.test.ts`、`groups-v2-move-race.test.ts`。
@@ -149,7 +149,7 @@ describe("#175 DELETE /api/groups/:id：授權與 body", () => {
   });
 });
 
-describe("#175 DELETE /api/groups/:id：轉移（T6）", () => {
+describe("#175 DELETE /api/groups/:id：轉移", () => {
   it("轉移給另一位管理員：204 空 body；筆記成為 B 的個人筆記；GET /api/notes：B 看得到、role owner、groupId null；C（一般成員）看不到；onGroupAccessChanged 恰兩次：(全部筆記, 成員−B)、(全部筆記, [B])；beforeNoteDeleted 沒被呼叫", async () => {
     const { hooks, gates } = gatedHooks();
     const { app, db } = await buildTestApp({ collabHooks: hooks });
@@ -296,7 +296,7 @@ describe("#175 DELETE /api/groups/:id：轉移（T6）", () => {
   });
 });
 
-describe("#175 DELETE /api/groups/:id：全刪（T7）", () => {
+describe("#175 DELETE /api/groups/:id：全刪", () => {
   it("全刪：204；P0 每篇各呼叫一次 beforeNoteDeleted、沒有 release；L＝P0 時不呼叫 onGroupAccessChanged；筆記、群組消失", async () => {
     const { hooks, gates } = gatedHooks();
     const { app, db } = await buildTestApp({ collabHooks: hooks });

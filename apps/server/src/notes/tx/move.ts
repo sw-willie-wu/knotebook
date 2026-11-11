@@ -1,10 +1,10 @@
 /**
- * #175 T3：個人筆記移進群組的交易本體。S14：只收 `tx`、純資料與型別明示的測試縫。
+ * #175：個人筆記移進群組的交易本體。S14：只收 `tx`、純資料與型別明示的測試縫。
  *   (0) SELECT … FOR UPDATE 本列；不存在 → 404；已不是呼叫者的個人筆記 → 409 conflict
  *   (1) 目標群組：先對 `groups` 列取 `FOR KEY SHARE`，再讀呼叫者的成員資格與 can_create（走 tx）→ 群組不存在、
- *       非成員、無 can_create → 404 group_not_found。這把鎖與 `lockGroup`（T6／T7 刪群組、T9–T11 成員異動、T12／T13
- *       角色異動都取 `groups FOR UPDATE`）互斥，所以成員資格從讀到 commit 都成立——前提是所有會改變既有
- *       成員資格、或改變可能已有人持有之角色旗標的寫入，都先 `lockGroup`（`POST …/roles` 只新增無人持有的角色，不在此列；含 T12／T13 角色改刪；管理員不變量的紀律 `groups/queries.ts` 只管到
+ *       非成員、無 can_create → 404 group_not_found。這把鎖與 `lockGroup`（刪群組、成員異動、角色異動
+ *       都取 `groups FOR UPDATE`）互斥，所以成員資格從讀到 commit 都成立——前提是所有會改變既有
+ *       成員資格、或改變可能已有人持有之角色旗標的寫入，都先 `lockGroup`（`POST …/roles` 只新增無人持有的角色，不在此列；含角色改刪；管理員不變量的紀律 `groups/queries.ts` 只管到
  *       group_members 列與其 role_id，group_roles 的旗標靠各路徑自守）。不擋改群組名（非鍵 UPDATE＝`FOR NO KEY UPDATE`，
  *       groups 只有 PK 一個唯一索引；有測試守著，改成 `FOR SHARE` 會讓它卡住）。它也是 (3) 的 FK
  *       檢查本來就會取的同一把鎖，只是提前；鎖序仍是筆記 → groups（鎖序段），上述路徑都不在持 groups 鎖後再鎖個人筆記，不成環。
@@ -13,8 +13,7 @@
  *       `folder_not_found`。這段在 `note-move-locked` 縫**之前**（停在縫上時已持資料夾 KS）。鎖序「來源筆記 FU → groups KS → 資料夾
  *       KS」是全域鎖序的例外：來源必是個人筆記、目標必是群組資料夾，不在任何群組空間資料夾交易要鎖的筆記集合裡，不成環。
  *   (1a) 儲存配額：本篇附件總和（筆記已持 FOR UPDATE）＝移入的位元組 → 目標群組空間鎖＋判定
- *       （`assertSpaceRoomInTx`；在 (0)／(1) 兩把列鎖之後；在 (2) 刪 shares 與 (3) 群組範圍 slug 寫入之前（g）、
- *       Q-S7）。超過 → `StorageQuotaExceeded`，什麼都沒改；附件總和 0 時不取鎖。來源（個人空間）只會變少，不取鎖
+ *       （`assertSpaceRoomInTx`；在 (0)／(1) 兩把列鎖之後；在 (2) 刪 shares 與 (3) 群組範圍 slug 寫入之前（g）。超過 → `StorageQuotaExceeded`，什麼都沒改；附件總和 0 時不取鎖。來源（個人空間）只會變少，不取鎖
  *   (2) 刪光逐人分享並記下對象（commit 後踢線）
  *   (3) writeSlugInTx：以舊 slug 為基底在群組範圍去重；同一句 UPDATE 清 owner、prev、token、別名，
  *       並明寫 `folder_id`（不給資料夾＝群組根層 NULL，不靠 trigger 自癒）

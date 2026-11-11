@@ -1,7 +1,7 @@
 /**
  * 資料夾：共用骨架的純函式與常數。
  * FF＝資料夾名稱與路徑的截法、WB＝wire 預算、KC＝keyset 游標、FM＝`FolderFailure` → MCP 錯誤的對照表與英文句。
- * 查詢（`loadFolderNames`／`loadFolderPath`）由 T2／T5 的整合測試守。
+ * 查詢（`loadFolderNames`／`loadFolderPath`）由資料夾整合測試守。
  */
 import { describe, expect, it } from "vitest";
 import { FOLDER_DEPTH_MAX, FOLDER_NAME_MAX, FOLDERS_PER_SPACE_MAX, type ErrorCode } from "@knotebook/shared";

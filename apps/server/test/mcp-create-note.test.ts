@@ -1,7 +1,7 @@
 /**
- * #108：`create_note`（案 21／21a／21b／28(b)、D-M）。
+ * #108：`create_note`（案 21／21a／21b／28(b)、無 collab 的 create_note 案）。
  *
- * ⚠ **D-M 那一案走 `buildTestApp`（無 collab），其餘走 `buildCollabTestApp`**——`create_note`
+ * ⚠ **無 collab 的那一案走 `buildTestApp`（無 collab），其餘走 `buildCollabTestApp`**——`create_note`
  * 是唯一**不**進部署形態閘門的工具：不帶 `content` 時它只 insert 一列，完全不碰 live doc，
  * 而 REST 的 `POST /api/notes` 本來就無條件註冊、帶 content 而沒有 collab 時回 400
  * （`routes/notes.ts`：「This deployment cannot create a note with content. …」）。MCP 照抄它就是與 REST 對等（#372 起兩邊同一句開頭）。
@@ -227,11 +227,11 @@ describe("#108 create_note", () => {
   });
 
   // 判準是「這支工具要不要讀 live doc」，不是「它比較像哪一支」。
-  // ⚠ 用**讀寫**憑證（唯讀憑證看不到 `create_note`，那樣寫這一案恆綠且與 D-M 無關）。
+  // ⚠ 用**讀寫**憑證（唯讀憑證看不到 `create_note`，那樣寫這一案恆綠且與這一案無關）。
   // ⚠ **`edit` 桶由測試自己持有**（`freshLimiters({ edit })`）：唯一到得了「`available` 為假」
   //   那個分支的部署形態就是這個 app，而它上面 `edit` 桶**沒有第二個消費端**——但那不代表
   //   觀察不到。桶握在測試手上，直接數它剩幾格就是判準（見本案最後兩行）。
-  it("無 collab 的 app：tools/list 含 create_note（#175：三欄），不帶 content 可用、帶 content → invalid_body 零新增列且不啃 edit 桶（D-M）", async () => {
+  it("無 collab 的 app：tools/list 含 create_note（#175：三欄），不帶 content 可用、帶 content → invalid_body 零新增列且不啃 edit 桶（create_note 不進閘門）", async () => {
     const edit = new FixedWindowLimiter(EDIT_LIMIT);
     const { app, db } = await buildTestApp({ limiters: freshLimiters({ edit }) });
     const [user] = await db.insert(users).values({ email: `p-${randomUUID()}@example.com`, displayName: "P" }).returning();
@@ -303,10 +303,10 @@ describe("#108 create_note", () => {
   // 查詢，擺在閘門前無妨）。搬回去的話「這個部署不支援 content」的拒絕路徑就開始打 DB。
   //
   // ⚠ **這一案守的是哪一形，是量出來的**（實測，兩發突變）：
-  //   (a) **整支呼叫**搬到閘門之前 → 4 failed / 4 passed，紅的是 D-M 的 `countNotes`
+  //   (a) **整支呼叫**搬到閘門之前 → 4 failed / 4 passed，紅的是無 collab 那一案的 `countNotes`
   //       （`expected 2 to be 1`）、案 21 與案 28(b) 的零新增列（`expected 1 to be +0`），
   //       **再加本案的 `probes()`**。也就是說既有的列數斷言**抓得到**這一形——原本這裡寫
-  //       「D-M 一條都不會紅」是把因果說反了。
+  //       「列數斷言一條都不會紅」是把因果說反了。
   //   (b) **只把探測搬到閘門之前、INSERT 留在原位** → **整包 925 案只有本案紅**，紅在
   //       `probes()`（`expected [Array(1)] to have a length of +0 but got 1`）——列數一列
   //       都沒動 ⇒ `probes()` 半邊是 (b) 形唯一的守衛，這才是本案的價值。

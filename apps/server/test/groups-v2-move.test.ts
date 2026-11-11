@@ -21,7 +21,7 @@ const move = async (app: FastifyInstance, noteId: string, userId: string, payloa
 
 const get = async (app: FastifyInstance, url: string, userId: string) => app.inject({ method: "GET", url, cookies: await cookieOf(userId) });
 
-describe("#175 POST /api/notes/:id/move（T3）", () => {
+describe("#175 POST /api/notes/:id/move", () => {
   it("個人筆記移進群組：200 新形 DTO；DB 清 shares／token／別名／prev、owner NULL、slug 與 slug_is_custom 不變、updated_at 不動；轉址恰一列；AI 紀錄／links／uploads／note_states 跟著 UUID", async () => {
     const spy = spyCollabHooks();
     const { app, db } = await buildTestApp({ collabHooks: spy });

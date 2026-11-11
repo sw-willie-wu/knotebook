@@ -102,7 +102,7 @@ describe("GET /api/auth/oidc/pending（#187）", () => {
     expect(res.json()).toEqual({ pendingId, email: "target@x.example", providerDisplayName: "B", methods: { password: true, providers: [{ id: t.provider("a").id, displayName: "A", icon: GENERIC }] } });
   });
 
-  it("provider-icon：methods.providers 每項帶換算後的 icon（三範本 × 五種 kind，經 T1 重新組形）；不含圖檔位元組", async () => {
+  it("provider-icon：methods.providers 每項帶換算後的 icon（三範本 × 五種 kind，經 `toPublicProvider` 重新組形）；不含圖檔位元組", async () => {
     const t = await twoProviders();
     const matrix = await seedIconMatrix(t.db);
     const { cookie } = await toPending(t, {

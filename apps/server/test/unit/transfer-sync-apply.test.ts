@@ -132,7 +132,7 @@ describe("AP5／AP9 讓出", () => {
     await applySync(rt, fork, sv, planned.plan, planned.cur);
     expect(spy.mock.calls.length).toBeGreaterThanOrEqual(1);
   });
-  it("AP9b（T14）mount fork 之前先讓出一次、mount 之後再一次：讓出時記下的 mounts 依序是「mount 前」「mount 後」", async () => {
+  it("AP9b mount fork 之前先讓出一次、mount 之後再一次：讓出時記下的 mounts 依序是「mount 前」「mount 後」", async () => {
     const { b, live } = await scene([P("A"), P("B")]);
     const fork = forkOf(live);
     const { planInMemory } = await import("./fixtures/transfer-sync.js");

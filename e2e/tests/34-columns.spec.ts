@@ -143,7 +143,7 @@ function grayPng(width: number, height: number): Buffer {
   return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), pngChunk("IHDR", ihdr), pngChunk("IDAT", deflateSync(raw)), pngChunk("IEND", Buffer.alloc(0))]);
 }
 
-/** 走 API 真上傳一張 PNG 到目前這篇（同 22-presentation E4），回傳 `/api/uploads/…` 網址。 */
+/** 走 API 真上傳一張 PNG 到目前這篇（同 22-presentation），回傳 `/api/uploads/…` 網址。 */
 async function uploadPng(page: Page, width: number, height: number): Promise<string> {
   const noteId = await noteIdFromUrl(page);
   const res = await page.request.post(`/api/notes/${noteId}/uploads`, {
@@ -553,11 +553,11 @@ async function startSurfacesNote(
 }
 
 test("C9a 公開頁：匿名開公開連結 → 有一列兩欄、兩欄文字都在", async ({ page, browser, request }) => {
-  // 用新註冊的帳號：public-link 的 PUT 每人 10 次/10 分鐘，整套序跑到這裡 admin 已被用滿 → 429（同 31-note-width E3）。
+  // 用新註冊的帳號：public-link 的 PUT 每人 10 次/10 分鐘，整套序跑到這裡 admin 已被用滿 → 429（同 31-note-width）。
   const creds = { email: randomEmail(), password: "e2e-columns-pw" };
   expect((await request.post("/api/auth/register", { data: creds })).status()).toBe(201);
   const { errors, left, right } = await startSurfacesNote(page, "public", creds);
-  // 同 11-public-share／22-presentation E3 的 ShareDialog 操作
+  // 同 11-public-share／22-presentation 的 ShareDialog 操作
   await page.getByRole("button", { name: "Share", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Share note" });
   const publicRadio = dialog.getByRole("radio", { name: /^Public link/ });

@@ -382,7 +382,7 @@ describe("useConfirmNoteStillPersonal", () => {
   });
 });
 
-describe("T1 移動／複製帶資料夾", () => {
+describe("移動／複製帶資料夾", () => {
   it("NMv1 移動 body 只放有值的鍵（folderId 未給＝沒有這個鍵）", async () => {
     const f = setupFetch({ [`POST ${NOTE_URL}/move`]: () => fakeResponse(200, noteDto({ groupId: GID })) });
     const client = makeClient();

@@ -1,8 +1,8 @@
 /**
- * #175 C4：刪群組（兩模式，T6 轉移／T7 全刪）與成員同時建筆記。任何順序都不 500：
+ * #175 C4：刪群組（兩模式，轉移／全刪）與成員同時建筆記。任何順序都不 500：
  *   刪除先拿到 lockGroup → 建立的 INSERT 卡在 FK KEY SHARE（pg_stat_activity 見 Lock）→ 刪除 commit 後 23503 → 404 group_not_found；
  *   建立先 commit → 刪除以群組述詞把它撈進去（轉移＝成為 transferTo 的個人筆記；全刪＝一起刪）。
- * 另一案：刪空群組（全刪模式）× 同時加人（T9 的 lockGroup 決定這個交錯是 404 還是 500）。
+ * 另一案：刪空群組（全刪模式）× 同時加人（`addMemberInTx` 的 lockGroup 決定這個交錯是 404 還是 500）。
  */
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
@@ -101,7 +101,7 @@ describe("#175 C4：刪群組 × 同時建立", () => {
     expect(await built.db.select().from(groups).where(eq(groups.id, g.id))).toEqual([]);
   });
 
-  it("刪空群組 × 同時加人（T9）：刪除先鎖 → PUT …/members 卡在 T9 的 lockGroup → 刪除 204、加人 404 not_found（不是 500）、沒有成員列", async () => {
+  it("刪空群組 × 同時加人：刪除先鎖 → PUT …/members 卡在加人的 lockGroup → 刪除 204、加人 404 not_found（不是 500）、沒有成員列", async () => {
     const state: { fire?: () => Promise<LightMyRequestResponse>; second?: Promise<LightMyRequestResponse>; interleave?: string } = {};
     const holder: { pool?: import("pg").Pool } = {};
     const built = await buildTestApp({

@@ -82,9 +82,9 @@ export const createTransferTokenOutput = {
  * upload `next`（定稿全文，含儲存配額加入的兩句 409）。逐句綁定（409 兩句在 `transfer-tokens.test.ts` 的
  * 「× 儲存配額」describe：`storage_quota_exceeded` 由「空間已滿 → 409、token 未消費、騰出後同一支 201」與「放不下 → 交易內
  * 409、token 已燒」兩案綁；`server_busy` 由 55P03 縫那案綁——token 已燒、同一支之後 401、新 token 201）；其餘：
- * 401（T3、T4、T8）；403／429 不燒（T5、T7、T9；per-IP `bearerMiss` 的 429 只取代本來的 401，該次請求同樣沒有
- * 消費。所以措辭是「這次被拒不會用掉 token」而不是「token 仍未使用」：bearerMiss 那形的 token 可能早已用過）；404 的兩個來源——消費前的角色重驗 none（T9「移除分享 → 404」）
- * 與消費後筆記在上傳途中被刪（T24，真 socket）；413／415 燒（400 亦燒）。全在 `test/transfer-tokens.test.ts`。
+ * 401；403／429 不燒（per-IP `bearerMiss` 的 429 只取代本來的 401，該次請求同樣沒有
+ * 消費。所以措辭是「這次被拒不會用掉 token」而不是「token 仍未使用」：bearerMiss 那形的 token 可能早已用過）；404 的兩個來源——消費前的角色重驗 none（「移除分享 → 404」）
+ * 與消費後筆記在上傳途中被刪（真 socket）；413／415 燒（400 亦燒）。全在 `test/transfer-tokens.test.ts`。
  * （簽發後、上傳前就刪筆記的那一形答 401——token 列已被 cascade 刪——由「A 401 means the token can't be used」涵蓋。）
  */
 export const UPLOAD_NEXT =
@@ -97,7 +97,7 @@ export const UPLOAD_NEXT =
   "rejection (for example 413: too large, 415: not a PNG, JPEG, GIF or WebP image) still uses the token up.";
 
 /**
- * download `next`。403 的兩個來源（T6 錯筆記、T9 不再可讀）；404（非 UUID、查無此上傳；DB 有列
+ * download `next`。403 的兩個來源（token 屬於別篇筆記、筆記已不再可讀）；404（非 UUID、查無此上傳；DB 有列
  * 但檔案不在磁碟的那形同碼，`uploads.test.ts`）；429 之後等一下、用同一支 token 重試會成功。
  */
 export const DOWNLOAD_NEXT =
@@ -110,7 +110,7 @@ export const VIEWER_UPLOAD_MESSAGE = "You can read this note but not edit it, so
 export const REVOKED_MESSAGE = "This credential was revoked or expired while the request was being handled.";
 /**
  * 逐字。字串裡的「5」是寫死的字面值：與 `MAX_PENDING_UPLOAD_TOKENS` 的對齊由兩條斷言守——
- * `mcp-transfer.test.ts` M2a 基本形的 `expect(TOO_MANY_PENDING_MESSAGE).toContain(` ${MAX_PENDING_UPLOAD_TOKENS} unused upload tokens`)`
+ * `mcp-transfer.test.ts` 的基本形的 `expect(TOO_MANY_PENDING_MESSAGE).toContain(` ${MAX_PENDING_UPLOAD_TOKENS} unused upload tokens`)`
  * 與同案「第 6 支被拒」（常數本身＝5 由 `test/unit/transfer-token.test.ts` 釘）。
  */
 export const TOO_MANY_PENDING_MESSAGE =

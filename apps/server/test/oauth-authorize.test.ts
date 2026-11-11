@@ -409,7 +409,7 @@ describe("GET /oauth/authorize", () => {
       expect(after).toHaveLength(before.length); // 超限的請求不進 DB
 
       // 鑑別「限流擋在**任何 DB 存取**之前」：不存在的 client_id 在超限狀態下必須拿到
-      // 429，而不是步驟 1 查表後才發現的 400 說明頁。少了這一發，把 consume 移到 I5 與
+      // 429，而不是步驟 1 查表後才發現的 400 說明頁。少了這一發，把 consume 移到機會性清理（`runOauthCleanup`）與
       // client 查表之後（每發超限請求都跑 5 條全表掃描）這條測試照樣綠。
       const unknownClient = await app.inject({
         method: "GET",
@@ -448,7 +448,7 @@ describe("GET /oauth/authorize", () => {
     }
   });
 
-  it("I5 排在 client 查表之前：25 小時前的殭屍 client 落說明頁而不是 500", async () => {
+  it("機會性清理排在 client 查表之前：25 小時前的殭屍 client 落說明頁而不是 500", async () => {
     const { app, db, close } = await buildTestApp();
     try {
       await db.insert(oauthClients).values({

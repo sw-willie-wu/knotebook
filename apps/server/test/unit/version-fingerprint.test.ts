@@ -242,7 +242,7 @@ describe("不丟例外", () => {
   });
 });
 
-describe("並排欄寬（T2）", () => {
+describe("並排欄寬", () => {
   /** 手造一列：columnList > column(width?) > blockContainer > paragraph。width 為 undefined＝屬性不存在。 */
   function rowDoc(width: number | undefined): Y.Doc {
     const doc = new Y.Doc();

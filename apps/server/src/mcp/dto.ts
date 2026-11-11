@@ -16,7 +16,7 @@ import type { DbOrTx } from "../db/tx.js";
 import { folderRefForModel, folderRefSchema, loadFolderNames, type FolderRefForModel } from "./folder-fields.js";
 import { MCP_TEXT_MAX, truncateText } from "./limits.js";
 
-/** NS-F（不提 read_note_outline——它只在有共編元件時註冊，這份 schema 是所有部署共用的）。 */
+/** list_notes／search_notes 回應的 `folder` 說明；不提 read_note_outline：它只在有共編元件時註冊，這份 schema 是所有部署共用的。 */
 export const NS_FOLDER_DESCRIBE =
   "Where this note is filed for you, or null at the top level; for a note shared with you, where you filed it, not where its owner did. Only the folder itself — list_folders gives its path.";
 

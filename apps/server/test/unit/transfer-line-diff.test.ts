@@ -250,7 +250,7 @@ describe("D14 對抗形的上限（拆兩發）", () => {
       expect(d.capHit, `K=${K}`).toBeUndefined();
     }
   });
-  // 實測（T3）：gen(20, 10) 上限全開時總步數 1 486，預設倍數 4 的上限是 4·180·10＝7 200——這個產生器每層的 Myers 只花
+  // 實測：gen(20, 10) 上限全開時總步數 1 486，預設倍數 4 的上限是 4·180·10＝7 200——這個產生器每層的 Myers 只花
   // O(maxD²)（沒有長 snake），預設上限量不到；所以這案把倍數降到 0.5（上限 900）來逼出工作量上限那條路。
   it("D14w 工作量上限：gen(20, 10)、workFactor 0.5 → 會終止、capHit work、overflow、< 2 s", async () => {
     const { X, Y } = gen(20, 10);
@@ -360,7 +360,7 @@ describe("D7／D8／D13 讓出", () => {
 });
 
 describe("常數", () => {
-  it("DIFF_MAX_D＝2 000（T3 量完未調）、DIFF_WORK_MAX_FACTOR＝4、DIFF_DEPTH_MAX＝32", () => {
+  it("DIFF_MAX_D＝2 000（實測後未調，見上方 gen(20, 10) 的註）、DIFF_WORK_MAX_FACTOR＝4、DIFF_DEPTH_MAX＝32", () => {
     expect(DIFF_MAX_D).toBe(2000);
     expect(DIFF_WORK_MAX_FACTOR).toBe(4);
     expect(DIFF_DEPTH_MAX).toBe(32);

@@ -1,6 +1,6 @@
 /**
- * #175：角色變動（T12／T13）與成員異動（T9／T10）的交錯（鎖序「成員／角色變動＝
- * groups 一把」）。照 `groups-members.test.ts` C2 的形：先發的請求在測試縫（鎖已取得、寫入之前）發出第二個請求，並以
+ * #175：角色變動與成員異動的交錯（鎖序「成員／角色變動＝
+ * groups 一把」）。照 `groups-members.test.ts` 的形：先發的請求在測試縫（鎖已取得、寫入之前）發出第二個請求，並以
  * `waitForBlockedOrSettled`（`pg_stat_activity` 的 Lock 等待）證明第二個請求確實在等鎖（有連線處於 Lock 等待；不靠時序）。當時唯一被持有的列鎖是 groups 列，但 helper 只數 Lock 等待、分不出是哪一把。
  *
  * 末段「groups FOR KEY SHARE」一案釘的是跨功能前提：移動路徑讀成員資格前只對 groups 列取 `FOR KEY SHARE`，
@@ -51,7 +51,7 @@ async function raceScene(at: GroupRacePoint) {
 }
 
 describe("#175：刪自訂角色 vs 把人掛上該角色（同一把 groups 列鎖序列化）", () => {
-  it("R1（T10 先）：換 B 到 X 停在寫入前時發出 DELETE X → PATCH 200、DELETE 204；B 最後被改掛內建一般成員，X 不在了", async () => {
+  it("R1（換角色先）：換 B 到 X 停在寫入前時發出 DELETE X → PATCH 200、DELETE 204；B 最後被改掛內建一般成員，X 不在了", async () => {
     const { app, b, g, x, race, state, cookies } = await raceScene("group-members-checked");
     race.fire = () => app.inject({ method: "DELETE", url: `/api/groups/${g.id}/roles/${x}`, cookies });
     const first = await app.inject({ method: "PATCH", url: `/api/groups/${g.id}/members/${b.id}`, cookies, payload: { roleId: x } });
@@ -64,7 +64,7 @@ describe("#175：刪自訂角色 vs 把人掛上該角色（同一把 groups 列
     expect(state.interleave).toBe("blocked");
   });
 
-  it("R2（T13 先）：刪 X 停在寫入前時發出「換 B 到 X」→ DELETE 204、PATCH 404 role_not_found；B 仍掛內建一般成員", async () => {
+  it("R2（刪角色先）：刪 X 停在寫入前時發出「換 B 到 X」→ DELETE 204、PATCH 404 role_not_found；B 仍掛內建一般成員", async () => {
     const { app, b, g, x, race, state, cookies } = await raceScene("group-roles-checked");
     race.fire = () => app.inject({ method: "PATCH", url: `/api/groups/${g.id}/members/${b.id}`, cookies, payload: { roleId: x } });
     const first = await app.inject({ method: "DELETE", url: `/api/groups/${g.id}/roles/${x}`, cookies });
@@ -77,7 +77,7 @@ describe("#175：刪自訂角色 vs 把人掛上該角色（同一把 groups 列
     expect(state.interleave).toBe("blocked");
   });
 
-  it("R3（T13 先 vs T9）：刪 X 停在寫入前時發出「加 D 並掛 X」→ DELETE 204、PUT 404 role_not_found；D 不是成員", async () => {
+  it("R3（刪角色先 vs 加人）：刪 X 停在寫入前時發出「加 D 並掛 X」→ DELETE 204、PUT 404 role_not_found；D 不是成員", async () => {
     const { app, d, g, x, race, state, cookies } = await raceScene("group-roles-checked");
     race.fire = () => app.inject({ method: "PUT", url: `/api/groups/${g.id}/members`, cookies, payload: { email: d.email, roleId: x } });
     const first = await app.inject({ method: "DELETE", url: `/api/groups/${g.id}/roles/${x}`, cookies });
@@ -103,11 +103,11 @@ describe("#175 跨 PR 前提：改角色／成員的寫入都先 lockGroup（gro
     const patchMe = await seedRole(db, g.id, "PatchMe", { canRead: true, canEdit: true });
     const deleteMe = await seedRole(db, g.id, "DeleteMe", { canRead: true });
     const cases: Array<{ label: string; send: () => Promise<LightMyRequestResponse>; status: number }> = [
-      { label: "PATCH role（T12）", status: 200, send: () => app.inject({ method: "PATCH", url: `/api/groups/${g.id}/roles/${patchMe}`, cookies, payload: { permissions: NONE } }) },
-      { label: "DELETE role（T13）", status: 204, send: () => app.inject({ method: "DELETE", url: `/api/groups/${g.id}/roles/${deleteMe}`, cookies }) },
-      { label: "PUT member（T9）", status: 200, send: () => app.inject({ method: "PUT", url: `/api/groups/${g.id}/members`, cookies, payload: { email: d.email } }) },
-      { label: "PATCH member（T10）", status: 200, send: () => app.inject({ method: "PATCH", url: `/api/groups/${g.id}/members/${b.id}`, cookies, payload: { roleId: patchMe } }) },
-      { label: "DELETE member（T11）", status: 204, send: () => app.inject({ method: "DELETE", url: `/api/groups/${g.id}/members/${c.id}`, cookies }) },
+      { label: "PATCH role", status: 200, send: () => app.inject({ method: "PATCH", url: `/api/groups/${g.id}/roles/${patchMe}`, cookies, payload: { permissions: NONE } }) },
+      { label: "DELETE role", status: 204, send: () => app.inject({ method: "DELETE", url: `/api/groups/${g.id}/roles/${deleteMe}`, cookies }) },
+      { label: "PUT member", status: 200, send: () => app.inject({ method: "PUT", url: `/api/groups/${g.id}/members`, cookies, payload: { email: d.email } }) },
+      { label: "PATCH member", status: 200, send: () => app.inject({ method: "PATCH", url: `/api/groups/${g.id}/members/${b.id}`, cookies, payload: { roleId: patchMe } }) },
+      { label: "DELETE member", status: 204, send: () => app.inject({ method: "DELETE", url: `/api/groups/${g.id}/members/${c.id}`, cookies }) },
     ];
     for (const { label, send, status } of cases) {
       const holder = await pool.connect();

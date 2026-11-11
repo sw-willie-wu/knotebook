@@ -35,7 +35,7 @@ async function redirectsOf(db: Db): Promise<Array<{ oldPath: string; noteId: str
   return rows.sort((a, b) => (a.oldPath < b.oldPath ? -1 : a.oldPath > b.oldPath ? 1 : 0));
 }
 
-describe("#175 transferGroupInTx（T6）", () => {
+describe("#175 transferGroupInTx", () => {
   it("轉移：每篇 owner＝transferTo、group_id NULL、slug 保留或 -N、slug_is_custom 不變、prev_slug NULL、public_token NULL、public_slug NULL（轉移清公開連結）、legacy_slug 不變、updated_at 不動；轉址恰每篇一列 /g/<g 小寫>/<舊 slug>；群組／角色／成員消失；AI 紀錄／links／uploads／note_states 跟著 UUID；回傳 noteIds 與 memberIds", async () => {
     const { db } = await buildTestApp();
     const pool = db.$client;
@@ -209,7 +209,7 @@ describe("#175 transferGroupInTx（T6）", () => {
   });
 });
 
-describe("#175 deleteGroupWithNotesInTx（T7）", () => {
+describe("#175 deleteGroupWithNotesInTx", () => {
   it("全刪：L 內每篇與其 uploads 列／states／轉址／AI 紀錄／兩方向 links 消失；群組外的筆記（含 link 的另一端）仍在；回傳 uploadIds＝被刪的 uploads id、noteIds＝L、memberIds＝全體成員；群組／角色／成員消失", async () => {
     const { db, uploadsDir } = await buildTestApp();
     const [a, c] = await Promise.all([seedUser(db), seedUser(db)]);
@@ -279,7 +279,7 @@ describe("#175 刪群組的測試縫", () => {
     };
   };
 
-  it("group-transfer-slug-candidate 每輪呼叫一次、ctx 帶 noteId 與本輪候選；group-delete-locked 在 T6 的 transferTo 檢查之後、T7 的取 L 之前各呼叫一次；folder-structure-locked（資料夾結構鎖）接在它之後、鎖筆記之前", async () => {
+  it("group-transfer-slug-candidate 每輪呼叫一次、ctx 帶 noteId 與本輪候選；group-delete-locked 在轉移的 transferTo 檢查之後、全刪的取 L 之前各呼叫一次；folder-structure-locked（資料夾結構鎖）接在它之後、鎖筆記之前", async () => {
     const { db } = await buildTestApp();
     const pool = db.$client;
     const [a, b, c] = await Promise.all([seedUser(db), seedUser(db), seedUser(db)]);

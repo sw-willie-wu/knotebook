@@ -1,5 +1,5 @@
 /**
- * #200（確定性並發）、M4（log 不含明文）、T1 後半（工具給的 curl 形真的能用＋寫回 edit_note 讀得回來）、
+ * #200（確定性並發）、M4（log 不含明文）、端到端（工具給的 curl 形真的能用＋寫回 edit_note 讀得回來）、
  * M2 的「not_found 與 read_note_outline 逐位元組相同」（後者要 collab app）。
  */
 import { randomUUID } from "node:crypto";
@@ -107,7 +107,7 @@ describe("M4：transfer token 明文從頭到尾不進 log", () => {
   });
 });
 
-describe("T1 端到端（collab app）：工具給的 curl 形真的能用，回應的 url 寫進 edit_note 後讀得回來", () => {
+describe("端到端（collab app）：工具給的 curl 形真的能用，回應的 url 寫進 edit_note 後讀得回來", () => {
   it("create_transfer_token(upload) → 照 curl 的 method／header／網址重現 multipart POST → 201 → edit_note append → read_note_section 含 /api/uploads/<id>", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: `t1-${randomUUID()}@example.com`, password: "correct-horse-battery" });

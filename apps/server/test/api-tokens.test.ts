@@ -2,7 +2,7 @@
  * #130：PAT 管理端點（`routes/api-tokens.ts`）。
  *
  * 這一族守的是：①明文只出現一次、DB 只存 sha256；②I1 額度述詞的形狀（過期 PAT
- * 不計、oauth 計）；③I5 ⑤ 的機會性清理；④撤銷＝硬刪且跨使用者同形 404；
+ * 不計、oauth 計）；③機會性清理（`runOauthCleanup`）的 ⑤；④撤銷＝硬刪且跨使用者同形 404；
  * ⑤四條端點是 cookie 專用——token 不能簽發、改名、改權限或撤銷 token。
  */
 import { describe, expect, it } from "vitest";
@@ -162,7 +162,7 @@ describe("PAT 管理端點", () => {
     expect(new Date(g0!.expiresAt!).getTime()).toBeLessThan(Date.now());
   });
 
-  it("I5 ⑤：建立時順手清掉過期超過 30 天的 PAT，未滿 30 天的留著；oauth grant 不清", async () => {
+  it("機會性清理 ⑤：建立時順手清掉過期超過 30 天的 PAT，未滿 30 天的留著；oauth grant 不清", async () => {
     const { app, db, cookie, userId } = await signedInApp();
     // oauth grant 的 access 過期不代表授權失效（refresh 不到期）——#132 落地後這是
     // 唯一擋住「連 oauth 一起清」的防線，查詢條件逐字寫了 kind='pat'。
@@ -659,7 +659,7 @@ describe("#239 PATCH scope", () => {
     expect((await patch(app, cookie, row!.id, { scope: RWM })).statusCode).toBe(403);
     expect((await patch(app, cookie, row!.id, { agentLabel: "bot" })).statusCode).toBe(200);
   });
-  it("改完下一個請求生效：同一支 token 的 tools/list 12 ↔ 13，讀寫刪除 15（buildTestApp 無共編，#181 起含 list_trash；資料夾功能加入後含 list_folders 與四支資料夾寫入工具，T8 起讀寫刪除另含 delete_folder）", async () => {
+  it("改完下一個請求生效：同一支 token 的 tools/list 12 ↔ 13，讀寫刪除 15（buildTestApp 無共編，#181 起含 list_trash；資料夾功能加入後含 list_folders 與四支資料夾寫入工具，讀寫刪除另含 delete_folder）", async () => {
     const { app, cookie } = await signedInApp();
     const created = (await create(app, cookie, { name: "live", scope: "notes:read notes:write", expiresInDays: null })).json();
     const count = async () => ((await mcpPost(app, rpc("tools/list"), { token: created.token })).json().result.tools as unknown[]).length;

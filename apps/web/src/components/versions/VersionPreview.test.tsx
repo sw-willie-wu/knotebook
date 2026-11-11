@@ -162,7 +162,7 @@ describe("VersionPreview", () => {
     expect(view.querySelector('[data-id="A"][data-diff="context"]')).not.toBeNull();
   });
 
-  it("I-5（兩快照）：無關的 context 變動（splitMode）→ VersionPreview 確實 re-render，但不重建唯讀編輯器（BlockNoteEditor.create 呼叫數 0）；單欄套文章欄寬", async () => {
+  it("兩快照：無關的 context 變動（splitMode）→ VersionPreview 確實 re-render，但不重建唯讀編輯器（BlockNoteEditor.create 呼叫數 0）；單欄套文章欄寬", async () => {
     // 第二次回應**必須**與第一次不同。body 不變時 React Query 的 structural sharing 沿用舊 data 參照、
     // VersionPreview 根本不 re-render（實測：body 不變 0 次、dirty 翻面 1 次），守衛有無 useMemo 都綠。
     // 不能用「.bn-editor 同一節點」判斷——BlockNote 重建唯讀 editor 時 .bn-editor 根節點沿用，有無 useMemo 都綠。
@@ -221,7 +221,7 @@ describe("VersionPreview", () => {
     }
   });
 
-  it("I-5（vs 目前狀態）：無關的 context 變動（splitMode）→ 不重建唯讀編輯器、不重讀活文件", async () => {
+  it("vs 目前狀態：無關的 context 變動（splitMode）→ 不重建唯讀編輯器、不重讀活文件", async () => {
     // 清單重抓那段同上一案：今天對 VersionPreview 是空操作，保留為回歸防線。
     const routes: Record<string, unknown> = routesV1();
     stub(routes);
