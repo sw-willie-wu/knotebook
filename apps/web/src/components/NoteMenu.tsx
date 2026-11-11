@@ -526,7 +526,7 @@ function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef:
 
       {removing !== null && (
         <FavoriteRemoveDialog
-          title={note.title === "" ? t("note.titlePlaceholder") : note.title}
+          title={note.title}
           open
           pending={removeFavorite.isPending}
           onConfirm={() => void handleConfirmRemove(removing)}

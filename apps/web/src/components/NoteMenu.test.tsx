@@ -986,6 +986,7 @@ describe("NoteMenu × 最愛", () => {
     fireEvent.click(remove);
     const dialog = await screen.findByRole("dialog", { name: "Remove from favorites?" });
     expect(count(server, `DELETE /api/favorites/${FAV_NOTE.id}`)).toBe(0);
+    expect(dialog).toHaveTextContent(`"${FAV_NOTE.title}" will be removed`);
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());

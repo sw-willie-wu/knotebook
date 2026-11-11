@@ -187,6 +187,7 @@
       "delete": "刪除"
     },
     "favorite": {
+      "label": "最愛",
       "added": "已加入最愛",
       "removed": "已移出最愛",
       "removeTitle": "移出最愛？",

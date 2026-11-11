@@ -35,6 +35,23 @@ describe("FavoriteRemoveDialog", () => {
     );
   });
 
+  it.each([
+    ["空字串", ""],
+    ["只有空白", "  \t "],
+  ])("標題是%s → 說明換成「Untitled」佔位字", (_name, title) => {
+    setup({ title });
+    expect(screen.getByRole("dialog")).toHaveAccessibleDescription(
+      "\"Untitled\" will be removed from your favorites. The note itself isn't changed, and you can add it back later.",
+    );
+  });
+
+  it("標題前後有空白但有內容 → 照原字帶入", () => {
+    setup({ title: " Alpha " });
+    expect(screen.getByRole("dialog")).toHaveAccessibleDescription(
+      "\" Alpha \" will be removed from your favorites. The note itself isn't changed, and you can add it back later.",
+    );
+  });
+
   it("開框時焦點在 Cancel；Remove 是第二顆", () => {
     setup();
     expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();

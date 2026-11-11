@@ -9,6 +9,7 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, Di
  * 結構照垃圾桶的 `PurgeConfirmDialog`：取消在 `DialogFooter` 的第一個子節點（開框時焦點落在它，預設動作是不移出），
  * 確認鈕是 destructive。送出中兩鈕 disabled，Esc／點框外／✕ 一律忽略，框開到結果回來。
  * 關框後的焦點由呼叫端決定（`onCloseAutoFocus`）。
+ * `title` 收筆記的原始標題；空白或空字串在框內換成「無標題」佔位字，呼叫端不必處理。
  */
 interface FavoriteRemoveDialogProps {
   title: string;
@@ -32,7 +33,9 @@ export function FavoriteRemoveDialog({ title, open, pending, onConfirm, onOpenCh
       <DialogContent onCloseAutoFocus={onCloseAutoFocus}>
         <DialogHeader>
           <DialogTitle>{t("note.favorite.removeTitle")}</DialogTitle>
-          <DialogDescription>{t("note.favorite.removeDescription", { title })}</DialogDescription>
+          <DialogDescription>
+            {t("note.favorite.removeDescription", { title: title.trim() === "" ? t("note.titlePlaceholder") : title })}
+          </DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <DialogClose asChild>

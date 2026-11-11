@@ -187,6 +187,7 @@
       "delete": "Delete"
     },
     "favorite": {
+      "label": "Favorite",
       "added": "Added to favorites",
       "removed": "Removed from favorites",
       "removeTitle": "Remove from favorites?",
