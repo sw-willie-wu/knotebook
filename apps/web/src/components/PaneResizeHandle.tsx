@@ -33,8 +33,8 @@ export function PaneResizeHandle({
 }) {
   // `latest`：拖曳中最後一次算出的寬度。放開時寫入 localStorage 用它，不用 render 閉包裡的 `width`——
   // 真瀏覽器裡 pointermove（連續事件）的 state 更新不保證在 pointerup（離散事件）handler 之前 commit，
-  // 讀 `width` 可能存到上一格（gate r1 M1）。未在瀏覽器量過；jsdom 的 fireEvent 每發都包 act，
-  // 兩種寫法在 jsdom 下行為相同、單元測試分不出來（突變 A7 實跑全綠），只能靠手動清單驗。
+  // 讀 `width` 可能存到上一格。未在瀏覽器量過；jsdom 的 fireEvent 每發都包 act，
+  // 兩種寫法在 jsdom 下行為相同、單元測試分不出來（突變實測全綠），只能靠手動清單驗。
   const dragRef = useRef<{ startX: number; startWidth: number; latest: number } | null>(null);
   const [dragging, setDragging] = useState(false);
   // 往外拖＝變寬：right 緣 +dx、left 緣 −dx。
@@ -102,7 +102,7 @@ export function PaneResizeHandle({
         onChange(clamp(next), true);
       }}
     >
-      {/* 視覺（Willie 2026-09-30 裁決）：平常透明（側欄：就是頁底色的那條間距；版本面板：卡片底色）；hover **只換游標**
+      {/* 視覺：平常透明（側欄：就是頁底色的那條間距；版本面板：卡片底色）；hover **只換游標**
           （col-resize）、不畫線；拖曳中與鍵盤聚焦才出現 ring 色的線。class 必須以完整字面出現
           （Tailwind 靜態掃描），不得樣板化。 */}
       <div

@@ -1,6 +1,6 @@
 /**
- * CollabHooks：Plan 1 與 Plan 2（Hocuspocus 即時協作）之間的接縫。
- * Plan 1 一律注入 `noopCollabHooks`；Plan 2 才會提供真正實作。
+ * CollabHooks：REST 路由與即時協作（Hocuspocus）之間的接縫。
+ * 路由只依賴這個介面；`noopCollabHooks` 是什麼都不做的預設實作，真正實作由協作伺服器提供。
  */
 /**
  * 一次刪除所開的閘門。交易失敗時 `release()`——閘門開著的期間這篇筆記的**新連線**會被
@@ -20,29 +20,35 @@ export interface NoteDeleteGate {
 
 export interface CollabHooks {
   /**
-   * Plan 2：分享變更時對該使用者定向 requestToken + 5s deadline，逼迫其重新驗證權限。
+   * 分享變更時對該使用者定向 requestToken + 5s deadline，逼迫其重新驗證權限。
    * 實作不得同步 throw（fire-and-forget；throw 會使 API 在 DB commit 後回 500）。
    */
   onShareChanged(noteId: string, userId: string): void;
   /**
-   * Plan 2：使用者被撤銷（停用/改密碼）時，依 userId 跨所有開啟中的文件重驗連線。
+   * 使用者被撤銷（停用/改密碼）時，依 userId 跨所有開啟中的文件重驗連線。
    * 實作不得同步 throw（fire-and-forget；throw 會使 API 在 DB commit 後回 500）。
    */
   onUserRevoked(userId: string): void;
   /**
-   * #103 §7：群組來源或筆記歸屬造成的權限變動時，對 (noteIds × userIds) 的既有連線重驗（升級也要：
+   * #388：某台裝置登出（`sessions` 那一列刪了）——只重驗該使用者「由這個 session 換得 token」的連線（`ConnectionHandle.sessionId`）。
+   * 比照 `onShareChanged`：同一個人其他裝置的連線不受影響、不必重新出示 token。重驗時 `gate.check` 查不到那一列 → 關閉。
+   * 實作不得同步 throw（fire-and-forget；throw 會使 API 在 DB commit 後回 500）。
+   */
+  onSessionRevoked(userId: string, sessionId: string): void;
+  /**
+   * #103：群組來源或筆記歸屬造成的權限變動時，對 (noteIds × userIds) 的既有連線重驗（升級也要：
    * `onTokenSync` 會解除唯讀）。重驗結果由 `resolveRole` 決定——只靠群組取得存取的人被關、owner 或
    * 另有來源的人續留或降為唯讀。一律在交易 commit 之後呼叫。
    * 實作不得同步 throw（fire-and-forget；throw 會使 API 在 DB commit 後回 500）。
    */
   onGroupAccessChanged(noteIds: readonly string[], userIds: readonly string[]): void;
   /**
-   * Plan 2：刪除 note 前 close→flush→unload→輪詢，確保無進行中連線；呼叫方必須在刪除交易前
+   * 刪除 note 前 close→flush→unload→輪詢，確保無進行中連線；呼叫方必須在刪除交易前
    * await。回傳的 handle 代表「這一次刪除開的那道閘門」——**交易失敗時必須 `release()`**。
    */
   beforeNoteDeleted(noteId: string): Promise<NoteDeleteGate>;
   /**
-   * #181 §6.4.3：還原 commit 後呼叫——對每篇收掉刪除閘門（unmarkDeleting）並清 TTL 計時器。同步、不 throw、不借連線。
+   * #181：還原 commit 後呼叫——對每篇收掉刪除閘門（unmarkDeleting）並清 TTL 計時器。同步、不 throw、不借連線。
    *
    * ⚠ 它**不看 epoch**、一律收門，正確性押在呼叫端兩條規則上：
    *   1. 只傳還原交易**實際還原**的 id——傳進別的 id 等於讓 restore 端點收掉別人移入中的閘門；
@@ -53,7 +59,7 @@ export interface CollabHooks {
    */
   onNotesRestored(noteIds: readonly string[]): void;
   /**
-   * Plan 3：wikilink 索引器的同步點——委派 `CollabServer.linkSyncState`。`ok:false` 涵蓋
+   * wikilink 索引器的同步點——委派 `CollabServer.linkSyncState`。`ok:false` 涵蓋
    * 「文件不在記憶體裡」與「該使用者在這篇筆記上沒有開啟中的連線」兩種情況；呼叫方一律回
    * 409 `not_loaded`，收斂交由 client 重試與載入後自我修復——沒有 `note_states` 回退路徑。
    */
@@ -63,6 +69,7 @@ export interface CollabHooks {
 export const noopCollabHooks: CollabHooks = {
   onShareChanged: () => {},
   onUserRevoked: () => {},
+  onSessionRevoked: () => {},
   onGroupAccessChanged: () => {},
   beforeNoteDeleted: async () => ({ release: () => {} }),
   onNotesRestored: () => {},

@@ -1,9 +1,10 @@
 /**
- * #222：MCP／REST 讀寫筆記的文字色／底色——色盤與寫入檢查（讀出在 `note-markdown-read.ts`）。
+ * #222／#378：MCP／REST 讀寫筆記的文字色／底色——色盤、色碼判準與寫入正規化（讀出在 `note-markdown-read.ts`）。
  *
- * **寫入**（{@link findDisallowedColor}）：markdown 解析出來的 block 裡，`textColor`／`backgroundColor`
- * 只收編輯器內建的 10 種色名（{@link PALETTE_COLORS}）。其他值（`#hex`、`rgb()`、CSS 合法但不在色盤的
- * 名稱、大小寫不符的 data-*）BlockNote 照樣存進 JSON，但編輯器畫面上不顯示——所以整筆拒絕，不靜默剝除。
+ * **寫入**（{@link normalizeNoteColors}）：markdown 解析出來的 block 裡，`textColor`／`backgroundColor`
+ * 只收編輯器內建的 10 種色名（{@link PALETTE_COLORS}）與不透明色碼，色碼就地正規化成小寫 `#rrggbb`。
+ * 其他值（CSS 合法但不在色盤的名稱、帶透明度的色碼、大小寫不符的 data-*）BlockNote 照樣存進 JSON，
+ * 但編輯器畫面上不顯示——所以整筆拒絕，不靜默剝除。色碼判準見 {@link canonicalColor}。
  * ⚠ 走訪是**迭代**的（顯式堆疊）：巢狀深度由呼叫端的 markdown 決定，不能遞迴。
  */
 export const PALETTE_COLORS = ["default", "gray", "brown", "red", "orange", "yellow", "green", "blue", "purple", "pink"] as const;
@@ -13,20 +14,66 @@ const COLOR_KEYS = ["textColor", "backgroundColor"] as const;
 /** 讀寫兩端共用的判準：值是色盤裡的名稱（`default` 也算）。 */
 export const isPaletteColor = (v: unknown): v is string => typeof v === "string" && PALETTE.has(v);
 
-function badColorIn(rec: unknown): string | null {
+/** 自訂色的正規形：小寫 `#rrggbb`。 */
+export const CUSTOM_COLOR_RE = /^#[0-9a-f]{6}$/;
+export const isCustomColor = (v: unknown): v is string => typeof v === "string" && CUSTOM_COLOR_RE.test(v);
+/** 會顯示出顏色的值：色盤名（不含 `default`）或正規形色碼。 */
+export const isShownColor = (v: unknown): v is string => v !== "default" && (isPaletteColor(v) || isCustomColor(v));
+
+const HEX_RE = /^#([0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
+const RGB_RE = /^rgb\([ \t\n\r\f]*(\d+(?:\.\d+)?)[ \t\n\r\f]*,[ \t\n\r\f]*(\d+(?:\.\d+)?)[ \t\n\r\f]*,[ \t\n\r\f]*(\d+(?:\.\d+)?)[ \t\n\r\f]*\)$/;
+
+/** 把輸入正規化：色盤名原樣；`#rgb`／`#rrggbb`（含滿值 alpha）／`rgb(r, g, b)` → 小寫 `#rrggbb`；其餘 `null`。 */
+export function canonicalColor(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  if (isPaletteColor(v)) return v;
+  const h = HEX_RE.exec(v);
+  if (h) {
+    let d = h[1]!.toLowerCase();
+    if (d.length === 4) {
+      if (d[3] !== "f") return null;
+      d = d.slice(0, 3);
+    } else if (d.length === 8) {
+      if (d.slice(6) !== "ff") return null;
+      d = d.slice(0, 6);
+    }
+    if (d.length === 3) d = d[0]! + d[0]! + d[1]! + d[1]! + d[2]! + d[2]!;
+    return `#${d}`;
+  }
+  const m = RGB_RE.exec(v);
+  if (m) {
+    let out = "#";
+    for (const s of [m[1]!, m[2]!, m[3]!]) {
+      const n = Number(s);
+      if (!(n >= 0 && n <= 255)) return null;
+      out += Math.round(n).toString(16).padStart(2, "0");
+    }
+    return out;
+  }
+  return null;
+}
+
+/** 把 `rec` 上的色值就地換成正規形；遇到不收的值回 `String(原值)`。 */
+function normalizeColorsIn(rec: unknown): string | null {
   if (rec === null || typeof rec !== "object") return null;
+  const r = rec as Record<string, unknown>;
   for (const k of COLOR_KEYS) {
-    const v = (rec as Record<string, unknown>)[k];
-    if (v !== undefined && !isPaletteColor(v)) return String(v);
+    const v = r[k];
+    if (v === undefined) continue;
+    const c = canonicalColor(v);
+    if (c === null) return String(v);
+    r[k] = c;
   }
   return null;
 }
 
 /**
- * 回傳 blocks 裡任一個不在色盤的色值（找不到回 `null`）。看三處：block 的 `props`、行內 text 的
- * `styles`（含連結內的 text）、表格儲存格的 `props` 與其行內內容。不保證回的是文件順序上的第一個。
+ * 就地把 blocks 裡每個 `textColor`／`backgroundColor` 換成 {@link canonicalColor} 的結果；遇到不收的值
+ * 回 `String(原值)`（呼叫端整筆拒絕），全部收下回 `null`。看三處：block 的 `props`、行內 text 的
+ * `styles`（含連結內的 text）、表格儲存格的 `props` 與其行內內容。回傳的不保證是文件順序上的第一個；
+ * 回非 `null` 時 blocks 可能已被改了一部分，呼叫端要丟掉不用。
  */
-export function findDisallowedColor(blocks: readonly unknown[]): string | null {
+export function normalizeNoteColors(blocks: readonly unknown[]): string | null {
   const stack: unknown[] = [];
   const pushAll = (xs: readonly unknown[]) => {
     for (const x of xs) stack.push(x); // 不用 push(...xs)：超大陣列展開成參數會爆堆疊
@@ -40,7 +87,7 @@ export function findDisallowedColor(blocks: readonly unknown[]): string | null {
       continue;
     }
     const o = n as { props?: unknown; styles?: unknown; content?: unknown; children?: unknown };
-    const hit = badColorIn(o.props) ?? badColorIn(o.styles);
+    const hit = normalizeColorsIn(o.props) ?? normalizeColorsIn(o.styles);
     if (hit !== null) return hit;
     if (Array.isArray(o.content)) pushAll(o.content);
     else if (o.content !== null && typeof o.content === "object") {

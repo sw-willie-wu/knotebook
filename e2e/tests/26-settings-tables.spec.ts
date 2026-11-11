@@ -3,14 +3,13 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { ADMIN, createUserViaInvite, loginAs, randomEmail } from "./helpers.js";
 
 /**
- * 設定表格幾何守衛（spec docs/superpowers/specs/2026-10-13-settings-table-design.md §5.3）。
+ * 設定表格幾何守衛。
  *
  * 一支測試、四段：自建資料 → 1280×800 對齊 → 1024×768／390×844 框內捲動、sticky、遮擋、Tab → 清理。
  * 量測都在頁內一次 evaluate 完成（getBoundingClientRect；表頭文字範圍用 Range）。cell 的「內容左緣」＝cell 唯一子元素的左緣
- * （spec §2.3：cell 內容一律包成單一個 flex-1 min-w-0 子元素）。欄種由 spec §3 的欄序推：有啟用欄時它是最後一欄、操作欄在它左邊；
+ * （cell 內容一律包成單一個 flex-1 min-w-0 子元素）。欄種由欄序推：有啟用欄時它是最後一欄、操作欄在它左邊；
  * 沒有啟用欄時操作欄是最後一欄。
- * 個人設定的三張表以一個 SSO 首登建立的新使用者量：e2e 疊只有一個讓新帳號首登的 OIDC 服務（「SSO」），所以「登入方式」只有 1 列
- * （spec §5.3 允許，報告註明）；PAT 建立額度是每人計，新使用者不吃 admin 的額度。
+ * 個人設定的三張表以一個 SSO 首登建立的新使用者量：e2e 疊只有一個讓新帳號首登的 OIDC 服務（「SSO」），所以「登入方式」只有 1 列；PAT 建立額度是每人計，新使用者不吃 admin 的額度。
  * 清理：結尾以 API 刪掉自建的 token、群組、方案、登入服務、AI 動作與供應商、撤銷自建的邀請；使用者沒有刪除 API，留著（名稱帶隨機碼）。
  */
 
@@ -47,9 +46,9 @@ const USER_PASSWORD = "e2e-t26-user-password";
 interface TableSpec {
   /** 表格（與頂層表的捲動框）的可及名稱 */
   label: string;
-  /** 欄名（spec §3 的強制順序；操作欄是 sr-only 文字，textContent 一樣讀得到） */
+  /** 欄名（強制順序；操作欄是 sr-only 文字，textContent 一樣讀得到） */
   headers: string[];
-  /** 操作欄的鈕數（spec §3；0＝沒有操作欄） */
+  /** 操作欄的鈕數（0＝沒有操作欄） */
   buttons: number;
   enabled: boolean;
   minRows: number;
@@ -120,7 +119,7 @@ async function call<R>(page: Page, method: "post" | "patch" | "put", url: string
   return (text === "" ? undefined : JSON.parse(text)) as R;
 }
 
-/** SSO 首登（同 05-oidc 情境一）：設定 fake-idp 下一次登入的 claims → 登入頁按「Sign in with SSO」→ 自動建帳進站（e2e 疊的 SSO 由 `OIDC_*` 匯入，承接 registration_enabled 預設開）。 */
+/** SSO 首登（同 05-oidc 情境一）：設定 fake-idp 下一次登入的 claims → 登入頁按「Sign in with SSO」→ 自動建帳進站（e2e 疊的 SSO 由 global-setup 建、已開自動建帳）。 */
 async function signInSsoUser(page: Page): Promise<void> {
   const control = await page.request.put(ROOT_CONTROL_URL, {
     data: { sub: `e2e-t26-${randomUUID()}`, email: SSO_EMAIL, email_verified: true, name: N.ssoUser },
@@ -281,7 +280,7 @@ async function measure(table: Locator): Promise<TableGeometry> {
   });
 }
 
-/** spec §5.3 的 1280 頂層表檢查（左緣、啟用欄、操作欄、主欄高度）。 */
+/** 1280 頂層表檢查（左緣、啟用欄、操作欄、主欄高度）。 */
 function checkTable(spec: TableSpec, g: TableGeometry, where: string): void {
   const label = `${where}「${spec.label}」`;
   expect(g.headers.map((h) => h.text), `${label} 欄名順序`).toEqual(spec.headers);
@@ -321,7 +320,7 @@ function checkTable(spec: TableSpec, g: TableGeometry, where: string): void {
   }
 }
 
-/** spec §5.3 子表：子列開關中心、鈕群右緣與父列（供應商資料列）對齊。 */
+/** 子表：子列開關中心、鈕群右緣與父列（供應商資料列）對齊。 */
 async function checkSubTable(page: Page, providerName: string, minRows: number, where: string): Promise<void> {
   const parent = await tableOf(page, T.providers)
     .getByRole("row", { name: providerName, exact: true })
@@ -352,7 +351,7 @@ async function checkSubTable(page: Page, providerName: string, minRows: number, 
   for (const child of children) {
     expect(Math.abs(child.switchCenter - parent.switchCenter), `${where} 子列「${child.name}」開關中心 vs 父列`).toBeLessThanOrEqual(1);
     expect(Math.abs(child.buttonsRight - parent.buttonsRight), `${where} 子列「${child.name}」鈕群右緣 vs 父列`).toBeLessThanOrEqual(1);
-    // spec §5.3：主欄 cell 高＝列高 − 計算後的下框線寬（子表最後一列不畫下框線，為 0）。
+    // 主欄 cell 高＝列高 − 計算後的下框線寬（子表最後一列不畫下框線，為 0）。
     expect(Math.abs(child.primaryHeight - (child.rowHeight - child.borderBottom)), `${where} 子列「${child.name}」主欄 cell 高度 vs 列內容高`).toBeLessThanOrEqual(0.5);
   }
 }
@@ -375,7 +374,7 @@ async function expectOverflowing(page: Page, spec: TableSpec, where: string): Pr
   );
 }
 
-/** 每個含 table 且溢出的捲動框：捲到最右後，表頭主欄格與每列主欄格的左緣＝捲動框左緣（spec §2.4）。回傳檢查過的捲動框名。 */
+/** 每個含 table 且溢出的捲動框：捲到最右後，表頭主欄格與每列主欄格的左緣＝捲動框左緣。回傳檢查過的捲動框名。 */
 async function expectStickyAfterScrollRight(page: Page, where: string): Promise<string[]> {
   const results = await content(page).evaluate((root) =>
     Array.from(root.querySelectorAll('[role="region"]'))
@@ -398,7 +397,7 @@ async function expectStickyAfterScrollRight(page: Page, where: string): Promise<
 }
 
 /**
- * 遮擋檢查（spec §5.3）：捲到最右；每列（含子表列，參照格＝其父列的頂層主欄格）只捲縱向進可視範圍；
+ * 遮擋檢查：捲到最右；每列（含子表列，參照格＝其父列的頂層主欄格）只捲縱向進可視範圍；
  * 列內每個 button（含 switch）與參照格的水平重疊 ≤ 0.5px；非原生 disabled 的，中心點命中測試不得落在參照格或任何 sticky 格內。
  */
 async function expectNotCovered(page: Page, spec: TableSpec, where: string): Promise<void> {
@@ -481,7 +480,7 @@ async function tabStops(page: Page, table: Locator, max: number, stopAfter: (sto
   return stops;
 }
 
-/** 390：使用者表捲到最右、從第一列 switch 連按 Tab 走過後續列（spec §5.3）。 */
+/** 390：使用者表捲到最右、從第一列 switch 連按 Tab 走過後續列。 */
 async function expectUsersTabUncovered(page: Page): Promise<void> {
   await boxOf(page, T.users).evaluate((el) => {
     el.scrollLeft = el.scrollWidth;
@@ -497,7 +496,7 @@ async function expectUsersTabUncovered(page: Page): Promise<void> {
 
 /**
  * 390：AI 動作表捲到最右，從捲動框連按 Tab 走到自建動作那一列（4 顆鈕）的「Move up」——整個操作欄最左的一顆鈕
- * （spec §5.3：內建列只有 3 顆、靠右放，操作欄第 1 格只有自建列用到；最右時這一格左半壓在 sticky 名稱欄底下、整顆仍在
+ * （內建列只有 3 顆、靠右放，操作欄第 1 格只有自建列用到；最右時這一格左半壓在 sticky 名稱欄底下、整顆仍在
  * 捲動框內，瀏覽器聚焦時不捲，要靠 SettingsTable 捲動框的聚焦補捲才露出）。第一列的 Move up 在清單邊界是原生 disabled，Tab 會跳過，所以第一站是第一列的 Move down。
  * 每一站都量與 sticky 主欄的水平重疊。
  */
@@ -540,7 +539,7 @@ async function expectActionsTabUncovered(page: Page): Promise<void> {
   }
 }
 
-test("26 設定表格幾何守衛（spec 2026-10-13 settings-table §5.3）", async ({ browser }) => {
+test("26 設定表格幾何守衛", async ({ browser }) => {
   test.setTimeout(300_000);
   const created: Created = { providers: [], actions: [], authProviders: [], plans: [], groups: [], tokens: [], invites: [] };
   const adminContext = await browser.newContext({ viewport: { width: 1280, height: 800 } });

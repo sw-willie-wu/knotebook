@@ -1,9 +1,9 @@
 /**
- * #108 PR2 Task 1：兩個寫入端點的 `bodyLimit` 邊界（規格 D30／plan P9）。
+ * #108：兩個寫入端點的 `bodyLimit` 邊界。
  *
  * 這一族存在的理由是**既有的兩條 413 測試對「上限被放大」零鑑別力**：`note-edits.test.ts`
  * 與 `mcp-endpoint.test.ts` 都送寫死的 300 000 bytes，把上限改成 280 000 兩案照樣綠
- * （2026-09-08 實跑：38 案全綠）。本檔四發**全部從 `WRITE_BODY_LIMIT` 算出來**，所以常數
+ * 本檔四發**全部從 `WRITE_BODY_LIMIT` 算出來**，所以常數
  * 一動、邊界跟著動；兩個端點各一組，是「合併成一份常數之後兩邊不會再分岔」的守衛。
  *
  * ⚠ **兩件最容易反過來寫的事，都是實跑量過的**：
@@ -63,7 +63,8 @@ describe("#108 寫入端點的 bodyLimit 邊界（WRITE_BODY_LIMIT）", () => {
     const s = await setup();
     const res = await s.postEdits(padTo(md => ({ op: "append", markdown: md }), WRITE_BODY_LIMIT + 1));
     expect(res.statusCode).toBe(413);
-    expect(res.json().error.code).toBe("content_too_large");
+    // #372：不是 fastify 原生句，而是與其他錯誤同形的英文句。
+    expect(res.json()).toEqual({ error: { code: "content_too_large", message: "The request body is over this endpoint's size limit. Send a smaller request." } });
   });
 
   it("第 2 發 POST /:id/edits：恰好上限 ＋ 一把未宣告的鍵 → 400 invalid_body（不是 413），且零落盤", async () => {
@@ -84,7 +85,7 @@ describe("#108 寫入端點的 bodyLimit 邊界（WRITE_BODY_LIMIT）", () => {
     const s = await setup();
     const res = await mcpPost(s.ctx.app, undefined, { token: s.token, raw: padTo(mcpEnvelope, WRITE_BODY_LIMIT + 1) });
     expect(res.statusCode).toBe(413);
-    expect(res.json().error.code).toBe("content_too_large");
+    expect(res.json()).toEqual({ error: { code: "content_too_large", message: "The request body is over this endpoint's size limit. Send a smaller request." } });
   });
 
   it("第 4 發 POST /api/mcp：恰好上限 → 不是 413（帶一坨 padding 照樣 200）", async () => {

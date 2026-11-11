@@ -1,7 +1,7 @@
-/* #229 簡報層樣式（spec §10）。只被 present/PresentationOverlay.tsx import → 只進簡報 lazy chunk。
+/* #229 簡報層樣式。只被 present/PresentationOverlay.tsx import → 只進簡報 lazy chunk。
    每條規則都錨在 .kn-present（深色：:root.dark .kn-present）底下——present-css.test.ts 守著。
    不載 reveal 主題；色彩、字型吃 app 的 token（index.css）。reveal.css 的全域選擇器以 reveal 自己加的 class
-   為閘（§2.11-9）；.reveal-viewport 寫死的黑字白底在這裡覆寫成 token。 */
+   為閘；.reveal-viewport 寫死的黑字白底在這裡覆寫成 token。 */
 
 .kn-present .reveal-viewport,
 .kn-present .reveal {
@@ -10,6 +10,8 @@
   font-family: var(--font-sans);
 }
 .kn-present .reveal {
+  /* 總覽中目前那張的外框色（reveal.css：outline: 10px solid var(--r-link-color)）；不載 reveal 主題所以沒人定義它 */
+  --r-link-color: var(--color-brand);
   width: 100%;
   height: 100%;
 }
@@ -28,7 +30,7 @@
   font-size: clamp(1rem, 0.6rem + 1.2vw, 1.75rem);
   line-height: 1.5;
 }
-/* 沒有溢出的投影片關掉瀏覽器手勢（E6 揭露，spec §6.8、F13）：section 是 overflow-y:auto 捲動容器，computed touch-action 是 auto，
+/* 沒有溢出的投影片關掉瀏覽器手勢（e2e 22-presentation 揭露）：section 是 overflow-y:auto 捲動容器，computed touch-action 是 auto，
    Chromium 會在第一個 pointermove 之後送 pointercancel；reveal 6.0.2 走 pointer 事件路徑，位移因此停在約 27px、到不了 40px 的滑動門檻，
    換頁不成。溢出的投影片由 deck.ts 標 data-prevent-swipe，維持瀏覽器捲動（手指用來捲動內容，換頁用畫面箭頭）。
    不用 pan-y：那會把垂直手勢交給瀏覽器，縱向投影片的上下滑換頁會壞。
@@ -85,8 +87,8 @@
 .kn-present .kn-slide-body figcaption { font-size: 0.8em; color: var(--muted-foreground); margin-top: 0.25em; }
 .kn-present .kn-slide-body img,
 .kn-present .kn-slide-body video { max-width: 100%; height: auto; }
-/* 並排（columns-layout spec §11.8）：列與欄的 inline style 是正規形（display:flex;gap:16px、flex:N），sanitize.ts 刻意保留，
-   要蓋過它的宣告只能 !important。欄距同編輯器（spec §6），堆疊由 present/columns.ts 標 data-stacked。欄內圖片吃上面的 max-width。 */
+/* 並排：列與欄的 inline style 是正規形（display:flex;gap:16px、flex:N），sanitize.ts 刻意保留，
+   要蓋過它的宣告只能 !important。欄距同編輯器，堆疊由 present/columns.ts 標 data-stacked。欄內圖片吃上面的 max-width。 */
 .kn-present .kn-slide-body [data-kb-columns] { gap: 24px !important; align-items: flex-start; }
 .kn-present .kn-slide-body [data-kb-column] { min-width: 0; }
 .kn-present .kn-slide-body [data-kb-columns][data-stacked] { display: block !important; }

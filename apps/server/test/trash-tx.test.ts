@@ -1,5 +1,5 @@
 /**
- * #181 PR-2a T3：垃圾桶四支交易本體（`notes/tx/trash.ts`）。直接在 `db.transaction` 裡呼叫，不經路由；
+ * #181：垃圾桶四支交易本體（`notes/tx/trash.ts`）。直接在 `db.transaction` 裡呼叫，不經路由；
  * 每句 UPDATE／DELETE 都有旁觀者列在場（同人另一篇、別人一篇、另一篇垃圾桶筆記）。
  */
 import { randomUUID } from "node:crypto";
@@ -17,7 +17,7 @@ import { freshDb } from "./helpers.js";
 import { noteState, seedNote, seedShare, seedUser, sharesOf, waitForBlockedOrSettled } from "./group-helpers.js";
 import { markTrashed, sixRoleScene, trashCols } from "./trash-helpers.js";
 
-/** drizzle logger 會記交易控制語句（H7）——數 SQL 前先濾掉。 */
+/** drizzle logger 會記交易控制語句——數 SQL 前先濾掉。 */
 const TXN_CONTROL = /^(begin|commit|rollback)\b/i;
 
 async function seedUploadRow(db: Db, noteId: string, uploaderId: string): Promise<string> {
@@ -36,7 +36,7 @@ async function rolledBack<T>(db: Db, fn: (tx: Tx) => Promise<T>): Promise<T> {
   return out as T;
 }
 
-/** 還原的輸入：不帶群組與空間（不取 groups KS 與結構鎖；資料夾 PR-3a T7 起的完整鎖序見 `folders-trash.test.ts` TRF-9）。 */
+/** 還原的輸入：不帶群組與空間（不取 groups KS 與結構鎖；資料夾功能加入後的完整鎖序見 `folders-trash.test.ts`）。 */
 const restoreIn = (ids: readonly string[], by: string): TrashRestoreInput => ({ ids, by, groupIds: [], spaces: [], lockTimeoutMs: DEFAULT_STORAGE_LOCK_TIMEOUT_MS });
 
 /** 兩個 uuid 由大到小（輸入順序刻意與 id 升冪相反）。 */
@@ -227,7 +227,7 @@ describe("#181 restoreNotesInTx", () => {
 });
 
 describe("#181 purgeTrashedNotesInTx", () => {
-  it("TX-P1 永久刪除（AG5）：垃圾桶那篇與其 uploads 列消失、回 uploadIds；活筆記 not_in_trash 且列與子表都在", async () => {
+  it("TX-P1 永久刪除：垃圾桶那篇與其 uploads 列消失、回 uploadIds；活筆記 not_in_trash 且列與子表都在", async () => {
     const { db, pool } = await freshDb();
     const u = await seedUser(db);
     const trashed = await seedNote(db, { ownerId: u.id });

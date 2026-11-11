@@ -3,10 +3,9 @@ import path from "node:path";
 import { describe, it, expect, vi } from "vitest";
 import { eq, or } from "drizzle-orm";
 import { SESSION_COOKIE } from "@knotebook/shared";
-import { buildTestApp, testConfig } from "./helpers.js";
+import { buildTestApp, signTestSession } from "./helpers.js";
 import { notes, noteLinks, noteShares, noteStateBackups, noteStates, uploads, users } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
-import { signSession } from "../src/auth/session.js";
 import { resolveRole } from "../src/notes/service.js";
 import type { CollabHooks } from "../src/collab/hooks.js";
 
@@ -24,7 +23,7 @@ async function insertUser(db: Db, overrides: Partial<{ email: string; displayNam
 // 測試裡的 session 一律直接簽發（不走 /api/auth/login），tokenVersion 一律用 DB 預設值
 // 0（insertUser 不改它），與 UserGate.check 比對的 tv 一致。
 async function cookieFor(userId: string): Promise<string> {
-  return signSession(testConfig.appSecret, { userId, tv: 0 });
+  return signTestSession({ userId, tv: 0 });
 }
 
 describe("resolveRole", () => {
@@ -88,7 +87,7 @@ describe("POST /api/notes", () => {
     expect(typeof body.createdAt).toBe("string");
     expect(typeof body.updatedAt).toBe("string");
 
-    // M6（審查）：精確鎖住 DTO 的欄位集合（而非只用 toMatchObject 驗子集）——notes 表
+    // 精確鎖住 DTO 的欄位集合（而非只用 toMatchObject 驗子集）——notes 表
     // 實際還有 linksClock、deletedAt 兩個內部欄位，NoteDto 组裝必須明確排除，不能讓
     // 未來有人不小心把 `...note` 展開進回應而洩漏出去。
     expect(Object.keys(body).sort()).toEqual([
@@ -343,6 +342,7 @@ describe("DELETE /api/notes/:id", () => {
     const collabHooks: CollabHooks = {
       onShareChanged: vi.fn(),
       onUserRevoked: vi.fn(),
+      onSessionRevoked: vi.fn(),
       onGroupAccessChanged: vi.fn(),
       beforeNoteDeleted,
       onNotesRestored: vi.fn(),
@@ -369,6 +369,7 @@ describe("DELETE /api/notes/:id", () => {
     const collabHooks: CollabHooks = {
       onShareChanged: vi.fn(),
       onUserRevoked: vi.fn(),
+      onSessionRevoked: vi.fn(),
       onGroupAccessChanged: vi.fn(),
       beforeNoteDeleted,
       onNotesRestored: vi.fn(),
@@ -440,6 +441,7 @@ describe("DELETE /api/notes/:id", () => {
     const collabHooks: CollabHooks = {
       onShareChanged: vi.fn(),
       onUserRevoked: vi.fn(),
+      onSessionRevoked: vi.fn(),
       onGroupAccessChanged: vi.fn(),
       beforeNoteDeleted,
       onNotesRestored: vi.fn(),
@@ -465,6 +467,7 @@ describe("DELETE /api/notes/:id", () => {
     const collabHooks: CollabHooks = {
       onShareChanged: vi.fn(),
       onUserRevoked: vi.fn(),
+      onSessionRevoked: vi.fn(),
       onGroupAccessChanged: vi.fn(),
       beforeNoteDeleted: vi.fn(async (): Promise<never> => {
         throw new Error("collab teardown failed");
@@ -521,7 +524,7 @@ describe("DELETE /api/notes/:id", () => {
     expect(existsSync(filePath)).toBe(true);
   });
 
-  it("移入交易 commit 前失敗（模擬用強制 rollback）→ 500、筆記不在垃圾桶、附件列與磁碟檔都在（#181：DELETE 本來就不刪檔；原 Task 11 的「刪檔只在 commit 後」契約移到永久刪除）", async () => {
+  it("移入交易 commit 前失敗（模擬用強制 rollback）→ 500、筆記不在垃圾桶、附件列與磁碟檔都在（#181：DELETE 本來就不刪檔；原本「刪檔只在 commit 後」契約移到永久刪除）", async () => {
     const { app, db, uploadsDir } = await buildTestApp();
     const owner = await insertUser(db, { email: "owner-del8@example.com" });
     const ownerCookie = await cookieFor(owner.id);

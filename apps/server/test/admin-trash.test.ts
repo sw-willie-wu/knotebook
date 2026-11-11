@@ -1,4 +1,4 @@
-/** #181 PR-2a T10：`/api/admin/trash/settings`（spec §6.9、A2-9）。 */
+/** #181：`/api/admin/trash/settings`。 */
 import { describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import { siteSettings } from "../src/db/schema.js";
@@ -25,7 +25,7 @@ describe("AS1 讀與改", () => {
   });
 });
 
-describe("AS2 權限與輸入驗證（A2-9）", () => {
+describe("AS2 權限與輸入驗證", () => {
   it("非管理員 403、未登入 401（GET 與 PATCH）", async () => {
     const b = await adminApp();
     await expectAdminOnly(b.app, b.db, "GET", URL_);
@@ -77,7 +77,7 @@ describe("AS4 讀不到 site_settings 列", () => {
     await b.db.$client.query(`delete from site_settings`);
     const res = await get(b);
     expect(res.statusCode).toBe(500);
-    expect(res.json()).toEqual({ error: { code: "internal", message: "伺服器內部錯誤" } });
+    expect(res.json()).toEqual({ error: { code: "internal", message: "Internal server error." } });
     expect(logs.lines.find(l => l.msg === SITE_SETTINGS_MISSING_MESSAGE)?.obj).toEqual({ table: "site_settings" });
   });
 });

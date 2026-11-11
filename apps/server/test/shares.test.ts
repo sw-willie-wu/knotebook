@@ -1,10 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { SESSION_COOKIE } from "@knotebook/shared";
-import { buildTestApp, testConfig } from "./helpers.js";
+import { buildTestApp, signTestSession } from "./helpers.js";
 import { noteShares, users } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
-import { signSession } from "../src/auth/session.js";
 import type { CollabHooks } from "../src/collab/hooks.js";
 
 async function insertUser(db: Db, overrides: Partial<{ email: string; displayName: string }> = {}) {
@@ -19,13 +18,14 @@ async function insertUser(db: Db, overrides: Partial<{ email: string; displayNam
 }
 
 async function cookieFor(userId: string): Promise<string> {
-  return signSession(testConfig.appSecret, { userId, tv: 0 });
+  return signTestSession({ userId, tv: 0 });
 }
 
 function spyCollabHooks(): CollabHooks {
   return {
     onShareChanged: vi.fn(),
     onUserRevoked: vi.fn(),
+    onSessionRevoked: vi.fn(),
     onGroupAccessChanged: vi.fn(),
     beforeNoteDeleted: vi.fn(async () => ({ release: () => {} })),
     onNotesRestored: vi.fn(),
@@ -184,7 +184,7 @@ describe("PUT /api/notes/:id/shares", () => {
     expect(afterRes.statusCode).toBe(200);
   });
 
-  it("非 owner（editor）管理 shares → 403；onShareChanged 未被呼叫（I1：hook 只在成功路徑觸發）", async () => {
+  it("非 owner（editor）管理 shares → 403；onShareChanged 未被呼叫（hook 只在成功路徑觸發）", async () => {
     const collabHooks = spyCollabHooks();
     const { app, db } = await buildTestApp({ collabHooks });
     const owner = await insertUser(db, { email: "owner-ps3@example.com" });
@@ -207,7 +207,7 @@ describe("PUT /api/notes/:id/shares", () => {
     expect(collabHooks.onShareChanged).not.toHaveBeenCalled();
   });
 
-  it("role: 'owner' → 400 invalid_body（M1：分享角色只能是 viewer/editor，不可透過此端點授予 owner）", async () => {
+  it("role: 'owner' → 400 invalid_body（分享角色只能是 viewer/editor，不可透過此端點授予 owner）", async () => {
     const { app, db } = await buildTestApp();
     const owner = await insertUser(db, { email: "owner-ps7@example.com" });
     const ownerCookie = await cookieFor(owner.id);
@@ -265,7 +265,7 @@ describe("PUT /api/notes/:id/shares", () => {
     expect(res.json()).toMatchObject({ error: { code: "cannot_share_with_self" } });
   });
 
-  it("Mixed-Case email 分享 → 命中（spec §14.3 讀取端 lower() 對稱比對）", async () => {
+  it("Mixed-Case email 分享 → 命中（讀取端 lower() 對稱比對）", async () => {
     const { app, db } = await buildTestApp();
     const owner = await insertUser(db, { email: "owner-ps8@example.com" });
     const target = await insertUser(db, { email: "target-ps8@example.com", displayName: "Target Eight" });
@@ -299,7 +299,7 @@ describe("PUT /api/notes/:id/shares", () => {
       payload: { email: "nobody-ps6@example.com", role: "viewer" },
     });
     expect(res.statusCode).toBe(404);
-    expect(res.json()).toMatchObject({ error: { code: "user_not_found" } });
+    expect(res.json()).toMatchObject({ error: { code: "user_not_found", message: "No user with that email." } });
   });
 
   it("未登入 → 401", async () => {
@@ -387,7 +387,7 @@ describe("DELETE /api/notes/:id/shares/:userId", () => {
     expect(res.statusCode).toBe(404);
   });
 
-  it("分享列不存在 → 404 share_not_found；onShareChanged 未被呼叫（I1：hook 只在成功路徑觸發）", async () => {
+  it("分享列不存在 → 404 share_not_found；onShareChanged 未被呼叫（hook 只在成功路徑觸發）", async () => {
     const collabHooks = spyCollabHooks();
     const { app, db } = await buildTestApp({ collabHooks });
     const owner = await insertUser(db, { email: "owner-ds4@example.com" });

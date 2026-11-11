@@ -1,14 +1,14 @@
 /**
- * #108 §10.2 D23／不變量 M13：需要 `notes:write` 的工具的執行許可入口（`requireWriteScope`；#239 起搬移類走同形的 `requireMoveScope`，#181 起垃圾桶類走 `requireDeleteScope`）。
+ * #108：需要 `notes:write` 的工具的執行許可入口（`requireWriteScope`；#239 起搬移類走同形的 `requireMoveScope`，#181 起垃圾桶類走 `requireDeleteScope`）。
  *
  * 三件事**不可分割**——scope 檢查、session 跳過、`tokenWrite` 扣點——所以收成一支，每一支
  * 寫入工具的**第一個動作**就是呼叫它。目的：讓「token 寫入 60 次／10 分鐘」這條既有承諾
- * （`docs/api-tokens.md` 逐字）對 MCP 也成立；L1 的 preHandler 宣告的是 `notes:read`，所以
+ * （`docs/api-tokens.md` 逐字）對 MCP 也成立；preHandler 宣告的是 `notes:read`，所以
  * 它恆扣 `tokenRead`、永不扣 `tokenWrite`（`auth/bearer.ts` 的桶由 `required` 決定）。
  *
  * **順序是刻意的**：整支排在 `resolveRole` **之前**——REST 的 `tokenWrite` 在 preHandler 扣，
  * 也就是在 `resolveRole` 之前，所以 `role === "none"` 的 404 在 REST 上一樣啃 `tokenWrite`
- * （plan 階段實跑確認）。MCP 對齊 REST。`edit` 桶維持在**角色檢查之後**扣。
+ * （實跑確認過）。MCP 對齊 REST。`edit` 桶維持在**角色檢查之後**扣。
  * 桶 key 逐字 `token:${userId}`，與 `auth/bearer.ts` 同形——寫成裸 userId 會讓 MCP 與 REST
  * 各記一本帳（守衛＝`test/unit/mcp-write-scope.test.ts` 最後那一發）。
  *
@@ -17,27 +17,26 @@
  * 走 SDK 的未知工具名分支，永遠到不了這裡）；HTTP 上到得了第 2 步的只有 session，而 session 在
  * 第 1 步就 return 了。**唯一的守衛是 `test/unit/mcp-write-scope.test.ts` 的第 2 發**——不得寫成
  * 「案 10 守著」，那一案釘的是 SDK 的「Tool not found」形。保留它的理由：(a) 日後有人拿掉
- * 註冊時過濾（規格 D6(b) 要防的正是這件事），它是唯一的網；(b) 三件事收成一支，第七支工具的
+ * 註冊時過濾，它是唯一的網；(b) 三件事收成一支，第七支工具的
  * 作者照抄時不會只抄到扣桶那一半。
  * #239：`requireMoveScope` 的 write 分支同理是死碼（兩支用它的工具都只在 `canWrite` 時註冊）。
  * 它的 move 分支則**分兩支看**：`copy_note` 帶 `group_id` 走這條在 HTTP 上**到得了**（讀寫憑證
- * 清單上有 `copy_note`；守衛＝`test/mcp-copy.test.ts` 的 #239 M3）；`move_note_to_group` 那一支
- * 是死碼（沒 `notes:move` 時不註冊；唯一的守衛＝本檔單元測試的 #239 U3）。
+ * 清單上有 `copy_note`；守衛＝`test/mcp-copy.test.ts` 的 #239 案）；`move_note_to_group` 那一支
+ * 是死碼（沒 `notes:move` 時不註冊；唯一的守衛＝本檔單元測試的 #239）。
  * ⚠ **誠實缺口**：write 分支（`INSUFFICIENT_SCOPE_MESSAGE`）的 `insufficient_scope` 模型永遠看不到
- * （copy 帶 `group_id` 的 `COPY_NEEDS_MOVE_MESSAGE` 是看得到的）——D7 的
- * 意圖改由 per-request 的 `instructions` 承接（唯讀憑證那一版逐字寫了同樣的處置，D-Q）。
- * #181：`requireDeleteScope` 的 write 與 delete 兩個 scope 分支在 HTTP 上都是死碼（`delete_note`／`restore_note`
- * 只在 `canDeleteNotes` 時註冊；唯一的守衛＝本檔單元測試的 #181 D 案）；**tokenWrite 扣點是活的**（RWD／RWMD 憑證
- * 每次呼叫都扣；守衛＝`test/mcp-trash-tools.test.ts` 的 DN8／RN6）。
- * ⚠ **M13 是紀律不是繞不過的事實**：第七支寫入工具漏呼叫它不會有任何測試變紅（今天全部的
- * 守衛是「兩支工具各跑一次」那一族）。要變成繞不過就得走註冊器形，規格 §10.2 已延後。
+ * （copy 帶 `group_id` 的 `COPY_NEEDS_MOVE_MESSAGE` 是看得到的）——處置說明改由 per-request 的 `instructions` 承接（唯讀憑證那一版逐字寫了同樣的處置）。
+ * #181：`requireDeleteScope` 的 write 與 delete 兩個 scope 分支在 HTTP 上都是死碼（`delete_note`／`restore_note`，
+ * 與資料夾的 `delete_folder`，都只在 `canDeleteNotes` 時註冊；唯一的守衛＝本檔單元測試的 #181 D 案）；**tokenWrite 扣點是活的**
+ * （RWD／RWMD 憑證每次呼叫都扣；守衛＝`test/mcp-trash-tools.test.ts`、`test/mcp-folders.test.ts`）。
+ * ⚠ **這是紀律，不是繞不過的事實**：第七支寫入工具漏呼叫它不會有任何測試變紅（今天全部的
+ * 守衛是「兩支工具各跑一次」那一族）。要變成繞不過就得走註冊器形，目前沒做。
  */
 import { hasScope } from "@knotebook/shared";
 import { toolError, type ToolErrorResult } from "./tool-result.js";
 import type { McpToolCtx } from "./context.js";
 
 /**
- * spec §7.5(g)，#247 §12 改寫後 189 字元（原 173）。HTTP 上是死碼（唯讀憑證沒有寫入工具可呼叫）。模型看得到的字串一律英文；
+ * #247 改寫後 189 字元（原 173）。HTTP 上是死碼（唯讀憑證沒有寫入工具可呼叫）。模型看得到的字串一律英文；
  * 處置＝在「設定 → 授權」的 token 列上以鉛筆開啟權限、再重連；引號內＝該列與建立對話框上 toggle 的字樣（`settings.account.apiTokensScopeEdit`）。
  */
 export const INSUFFICIENT_SCOPE_MESSAGE =
@@ -46,7 +45,7 @@ const RATE_LIMITED_MESSAGE = "Too many writes with this credential right now. Wa
 
 /**
  * 「這份憑證寫得動筆記嗎」——**三個呼叫點共用一份判準**：`register.ts` 的註冊時過濾、
- * `routes/mcp.ts` 挑 per-request `instructions`（D-Q）、以及下面的 `requireWriteScope`。
+ * `routes/mcp.ts` 挑 per-request `instructions`、以及下面的 `requireWriteScope`。
  * 三份各寫各的話，最難看見的漂移是「清單裡有工具但 instructions 說你是唯讀的」。
  * #239 起 `canMoveNotes`／`requireMoveScope` 也以它為前提（搬移權必須先有寫入權）。
  * `?? "notes:read"` 是 fail-closed 的退路（token 路徑必有 scope）。
@@ -55,7 +54,7 @@ export function canWriteNotes(auth: Pick<McpToolCtx, "authKind" | "tokenScope">)
   return auth.authKind === "session" || hasScope(auth.tokenScope ?? "notes:read", "notes:write");
 }
 
-/** 回 `null` ＝放行；回 `ToolErrorResult` ＝呼叫端**直接回傳它**，不得再做任何事（M6：拒絕零副作用）。 */
+/** 回 `null` ＝放行；回 `ToolErrorResult` ＝呼叫端**直接回傳它**，不得再做任何事（拒絕零副作用）。 */
 export function requireWriteScope(ctx: McpToolCtx): ToolErrorResult | null {
   // 1. session ＝完整身分：不檢查 scope、不吃 token 桶（比照 `auth/bearer.ts` 的既有紀律）。
   if (ctx.authKind === "session") return null;
@@ -73,7 +72,7 @@ export function requireWriteScope(ctx: McpToolCtx): ToolErrorResult | null {
 /**
  * #239「這份憑證能把筆記移入／複製進群組嗎」——`register.ts` 的註冊時過濾與 `requireMoveScope` 共用。
  * 寫成「write **且** move」：這是 MCP 的授權判定，不依賴上游已正規化（CHECK 漂移成
- * `notes:read notes:move` 時不得放行，W3；同 `hasScope` 不依賴 CHECK 的理由）。
+ * `notes:read notes:move` 時不得放行；同 `hasScope` 不依賴 CHECK 的理由）。
  */
 export function canMoveNotes(auth: Pick<McpToolCtx, "authKind" | "tokenScope">): boolean {
   return auth.authKind === "session" || (canWriteNotes(auth) && hasScope(auth.tokenScope ?? "notes:read", "notes:move"));
@@ -92,14 +91,14 @@ export function requireMoveScope(ctx: McpToolCtx, message: string): ToolErrorRes
 }
 
 /**
- * #181 D-W1：「這份憑證能把筆記移到垃圾桶／從垃圾桶還原嗎」——`register.ts` 的註冊時過濾與 `requireDeleteScope` 共用。
+ * #181：「這份憑證能把筆記移到垃圾桶／從垃圾桶還原嗎」——`register.ts` 的註冊時過濾與 `requireDeleteScope` 共用。
  * 寫成「write **且** delete」（CHECK 漂移成 `notes:read notes:delete` 時不得放行，同 `canMoveNotes`）。與 move 互相獨立。
  */
 export function canDeleteNotes(auth: Pick<McpToolCtx, "authKind" | "tokenScope">): boolean {
   return auth.authKind === "session" || (canWriteNotes(auth) && hasScope(auth.tokenScope ?? "notes:read", "notes:delete"));
 }
 
-/** spec §6.8.2；HTTP 上是死碼（沒 notes:delete 時兩支工具都不註冊；唯一的守衛＝本檔單元測試的 #181 D 案）。引號內＝en toggle 字樣（W3）。 */
+/** HTTP 上是死碼（沒 notes:delete 時兩支工具都不註冊；唯一的守衛＝本檔單元測試的 #181 D 案）。引號內＝en toggle 字樣。 */
 export const DELETE_SCOPE_MESSAGE =
   'Moving notes to the trash and restoring them needs the notes:delete scope, and this credential doesn\'t have it, so nothing was changed. ' +
   'Ask the user to turn on "Move notes to the trash and restore them" for this credential via the pencil on its row in ' +

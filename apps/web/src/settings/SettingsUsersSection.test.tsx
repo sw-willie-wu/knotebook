@@ -10,16 +10,17 @@ import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { AppRoutes } from "@/App";
 import type { AdminUserDto } from "@/api/admin";
 import { copyText } from "@/lib/clipboard";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 vi.mock("@/lib/clipboard", () => ({ copyText: vi.fn(async () => true) }));
 
-// 歷程：Task 15 的獨立頁 `/admin/users` → Plan 4 併進設定 modal（`/settings/users`，
-// Task 8 逐案有意識重寫，spec §13.5-5）→ 2026-09-30 搬回獨立頁 `/admin/users`
+// 歷程：獨立頁 `/admin/users` → 併進設定 modal（`/settings/users`，
+// 逐案有意識重寫）→ 搬回獨立頁 `/admin/users`
 // （`pages/AdminPage.tsx`，殼是 `AppShell`）→ #247 改回 modal（第二棵樹的 `AdminModal`）。
 // 本檔各案直接查 heading/row 的寫法不依賴外殼，只換了那一則外殼 smoke。
 // - fetch mock 裡的 `/api/notes`、`/api/groups`：站台管理 modal 疊在主樹的背景 `HomePage` 上，
 //   背景側欄的 NoteList 會打這兩支。
-// - #247 §7.0：狀態欄與列尾文字鈕（Disable／Enable／Promote）改為角色下拉＋啟用 toggle，舊的按鈕案由檔尾 U 系列取代；
+// - #247：狀態欄與列尾文字鈕（Disable／Enable／Promote）改為角色下拉＋啟用 toggle，舊的按鈕案由檔尾 U 系列取代；
 //   停用確認 dialog 疊在站台管理 modal 上，U6／U7 以 dialog 名稱「Disable this user?」定位。
 //
 // 「非 admin → 導 `/`」與未登入導向在 `components/admin/AdminModal.test.tsx`（route-level，驗證
@@ -112,6 +113,7 @@ function baseFetchHandlers(): (url: string, method: string) => Response | null {
     if (url === "/api/auth/me" && method === "GET") {
       return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(ADMIN_USER) });
     }
+    if (url === "/api/folders") return new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } });
     if (url === "/api/notes" && method === "GET") {
       return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) });
     }
@@ -130,7 +132,7 @@ function baseFetchHandlers(): (url: string, method: string) => Response | null {
 }
 
 /**
- * `/api/auth/config` 的預設回應，只在各 stub 丟 `unexpected fetch` 之前當 fallback 用：`InvitesGroup` 在群組頂層讀它（D2 提示），
+ * `/api/auth/config` 的預設回應，只在各 stub 丟 `unexpected fetch` 之前當 fallback 用：`InvitesGroup` 在群組頂層讀它，
  * 每個渲染使用者頁的案都會打。不放進 `baseFetchHandlers`——各 stub 先問 base、後判自己的 config，放進去會遮蔽各案自己的設定。
  */
 function defaultAuthConfig(url: string, method: string): Response | null {
@@ -194,7 +196,7 @@ describe("SettingsUsersSection（/admin/users：站台管理頁的使用者區�
   });
 });
 
-describe("W5 使用者表的儲存空間與方案（spec §9.3）", () => {
+describe("使用者表的儲存空間與方案", () => {
   beforeEach(async () => { await i18n.changeLanguage("en"); dismissAllToasts(); });
   afterEach(() => { vi.unstubAllGlobals(); });
 
@@ -214,7 +216,7 @@ describe("W5 使用者表的儲存空間與方案（spec §9.3）", () => {
     });
   }
 
-  it("用量格：一般／無上限／已超過、恰好等於（警示色，>=——起草裁定 4）", async () => {
+  it("用量格：一般／無上限／已超過、恰好等於（警示色，>=）", async () => {
     const FULL: AdminUserDto = { ...ACTIVE_OTHER, id: "u-full", email: "full@example.com", storage: { planId: BASIC_ID, planName: "Basic", usedBytes: 1048576, quotaBytes: 1048576 } };
     renderUsersRoute(stub([ACTIVE_OTHER, OVER, FREE, FULL]));
     expect(await screen.findByText("over@example.com")).toBeInTheDocument();
@@ -244,7 +246,7 @@ describe("W5 使用者表的儲存空間與方案（spec §9.3）", () => {
     const patch = fetchMock.mock.calls.find(([u, i]) => String(u) === `/api/admin/users/${ACTIVE_OTHER.id}/storage-plan` && (i as RequestInit).method === "PATCH");
     expect(JSON.parse(String((patch![1] as RequestInit).body))).toEqual({ planId: BIG_ID });
     expect(screen.getByText("0 B (no limit)")).toBeInTheDocument();
-    // m2：成功後方案清單（人數）要重抓——PATCH 之後 GET storage-plans 又發了一次
+    // 成功後方案清單（人數）要重抓——PATCH 之後 GET storage-plans 又發了一次
     await waitFor(() => expect(fetchMock.mock.calls.filter(([u, i]) => String(u) === "/api/admin/storage-plans" && ((i as RequestInit | undefined)?.method ?? "GET") === "GET").length).toBeGreaterThanOrEqual(2));
   });
 
@@ -267,11 +269,11 @@ describe("W5 使用者表的儲存空間與方案（spec §9.3）", () => {
     fireEvent.change(select, { target: { value: BIG_ID } });
     expect(await screen.findByText("Plan not found")).toBeInTheDocument();
     expect(select).toHaveValue(BASIC_ID);
-    // m5：失敗也重抓方案清單（方案可能剛被刪）
+    // 失敗也重抓方案清單（方案可能剛被刪）
     await waitFor(() => expect(fetchMock.mock.calls.filter(([u]) => String(u) === "/api/admin/storage-plans").length).toBeGreaterThanOrEqual(2));
   });
 
-  it("RF4：列上的方案不在清單裡 → 下拉仍顯示該方案（補一個 option），不是清單第一個", async () => {
+  it("列上的方案不在清單裡 → 下拉仍顯示該方案（補一個 option），不是清單第一個", async () => {
     const NEWPLAN_ID = "99999999-9999-4999-8999-999999999999";
     const row: AdminUserDto = { ...ACTIVE_OTHER, storage: { planId: NEWPLAN_ID, planName: "Brand new", usedBytes: 0, quotaBytes: 1048576 } };
     renderUsersRoute(stub([row]));
@@ -285,7 +287,7 @@ describe("W5 使用者表的儲存空間與方案（spec §9.3）", () => {
       url === "/api/admin/storage-plans" && method === "GET" ? fakeResponse({ ok: false, status: 500, json: () => Promise.resolve({ error: { code: "internal", message: "x" } }) }) : null);
     renderUsersRoute(fetchMock);
     expect(await screen.findByText(ACTIVE_OTHER.email)).toBeInTheDocument();
-    // 等待點（review I2）：清單 pending 時 plans 也是 undefined、「沒有下拉」恆真——先等請求真的發出，再讓失敗結果落地
+    // 等待點：清單 pending 時 plans 也是 undefined、「沒有下拉」恆真——先等請求真的發出，再讓失敗結果落地
     await waitFor(() => expect(fetchMock.mock.calls.some(([u]) => String(u) === "/api/admin/storage-plans")).toBe(true));
     for (let i = 0; i < 5; i++) await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
     expect(screen.queryByRole("combobox", { name: `Storage plan for ${ACTIVE_OTHER.email}` })).not.toBeInTheDocument();
@@ -293,7 +295,7 @@ describe("W5 使用者表的儲存空間與方案（spec §9.3）", () => {
   });
 });
 
-describe("使用者表（#247 §7.0，W27）", () => {
+describe("使用者表（#247）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -318,13 +320,13 @@ describe("使用者表（#247 §7.0，W27）", () => {
   }
   const posts = (fetchMock: ReturnType<typeof vi.fn>, url: string) =>
     fetchMock.mock.calls.filter(([u, i]) => String(u) === url && (i as RequestInit | undefined)?.method === "POST");
-  /** 使用者表的列名＝email（spec 2026-10-13 settings-table §3 #5：`nameColumn` 是 Email 欄）。 */
+  /** 使用者表的列名＝email（`nameColumn` 是 Email 欄）。 */
   const rowOf = (email: string) => screen.getByRole("row", { name: email });
 
   it("U1 欄位：User（顯示名稱＋灰字 @handle）、Email、Storage、Last active、Role、Plan、Actions、Enabled；沒有 Status 欄、沒有列尾文字鈕", async () => {
     renderUsersRoute(stubUsers(() => [SELF_ROW, ACTIVE_OTHER]));
     await screen.findByText(ACTIVE_OTHER.email);
-    // spec 2026-10-13 settings-table §3 #5 的欄序：主欄 → 資訊欄（Email、Storage、最後活動）→ 可編輯欄（Role、Plan）→ 操作（#286）→ 啟用。
+    // 欄序：主欄 → 資訊欄（Email、Storage、最後活動）→ 可編輯欄（Role、Plan）→ 操作（#286）→ 啟用。
     expect(within(screen.getByRole("table", { name: "Users" })).getAllByRole("columnheader").map((h) => h.textContent)).toEqual([
       "User",
       "Email",
@@ -415,7 +417,7 @@ describe("使用者表（#247 §7.0，W27）", () => {
     renderUsersRoute(fetchMock);
     const carol = await screen.findByRole("combobox", { name: `Role for ${OTHER_ADMIN.email}` });
     fireEvent.change(carol, { target: { value: "user" } });
-    // 列層級錯誤走資料列之後的錯誤列（spec §2.5 末），不放在角色那格（會撐寬 max-content 軌）。
+    // 列層級錯誤走資料列之後的錯誤列，不放在角色那格（會撐寬 max-content 軌）。
     const errorRow = await screen.findByRole("row", { name: `${OTHER_ADMIN.email} error` });
     expect(within(rowOf(OTHER_ADMIN.email)).queryByRole("alert")).toBeNull();
     const alert = within(errorRow).getByRole("alert");
@@ -424,7 +426,7 @@ describe("使用者表（#247 §7.0，W27）", () => {
     expect(carol).toHaveValue("admin");
   });
 
-  it("U5（Review Focus 4）角色 pending 時下拉 disabled、顯示剛選的值；再改一次不送第二發", async () => {
+  it("U5 角色 pending 時下拉 disabled、顯示剛選的值；再改一次不送第二發", async () => {
     const fetchMock = stubUsers(() => [SELF_ROW, ACTIVE_OTHER], (url, method) =>
       url === `${ADMIN_USERS_URL}/${ACTIVE_OTHER.id}/promote` && method === "POST" ? new Promise<Response>(() => {}) : null,
     );
@@ -470,7 +472,7 @@ describe("使用者表（#247 §7.0，W27）", () => {
     expect(screen.queryByRole("dialog", { name: "Disable this user?" })).not.toBeInTheDocument();
   });
 
-  it("U7（Review Focus 4）停用確認框按取消 → 不送任何請求、toggle 留在開", async () => {
+  it("U7 停用確認框按取消 → 不送任何請求、toggle 留在開", async () => {
     const fetchMock = stubUsers(() => [SELF_ROW, ACTIVE_OTHER]);
     renderUsersRoute(fetchMock);
     fireEvent.click(await screen.findByRole("switch", { name: `Enabled ${ACTIVE_OTHER.email}` }));
@@ -505,7 +507,7 @@ describe("使用者表（#247 §7.0，W27）", () => {
       { ...OTHER_ADMIN, lastActiveAt: justOutside },
     ]));
     await screen.findByText(ACTIVE_OTHER.email);
-    // 依格的可及名稱（＝內容）找，不依欄序號（spec 2026-10-13 settings-table §5.2；欄序見 U1）。
+    // 依格的可及名稱（＝內容）找，不依欄序號（欄序見 U1）。
     const lastActiveCell = (email: string, text: string) => within(rowOf(email)).getByRole("cell", { name: text });
     expect(lastActiveCell(SELF_ROW.email, dateTime("2026-10-01T09:12:00.000Z"))).toBeInTheDocument();
     expect(dateTime("2026-10-01T09:12:00.000Z")).toMatch(/\d{1,2}:\d{2}/); // 有時間，不只日期
@@ -514,7 +516,7 @@ describe("使用者表（#247 §7.0，W27）", () => {
     expect(lastActiveCell(OTHER_ADMIN.email, dateTime(justOutside))).toBeInTheDocument();
   });
 
-  it("U10（RF4）角色變更失敗 → 錯誤列「＜email＞ error」；再改一次成功 → 錯誤列消失、不留空的 alert", async () => {
+  it("U10角色變更失敗 → 錯誤列「＜email＞ error」；再改一次成功 → 錯誤列消失、不留空的 alert", async () => {
     let fail = true;
     let rows = [SELF_ROW, OTHER_ADMIN];
     const fetchMock = stubUsers(() => rows, (url, method) => {
@@ -580,7 +582,7 @@ describe("使用者表（#247 §7.0，W27）", () => {
   });
 });
 
-describe("重設密碼（#286 A-15）", () => {
+describe("重設密碼（#286）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -834,7 +836,7 @@ describe("重設密碼（#286 A-15）", () => {
   });
 });
 
-describe("邀請（#285 B-17）", () => {
+describe("邀請（#285）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -967,7 +969,7 @@ describe("邀請（#285 B-17）", () => {
     expect(calls(fetchMock, INVITES_URL, "POST")).toHaveLength(0);
   });
 
-  it("I4（D1）帳密關閉：對話框有說明、Create link disabled", async () => {
+  it("I4 帳密關閉：對話框有說明、Create link disabled", async () => {
     renderUsersRoute(stub({ passwordLoginEnabled: false }));
     const dialog = await openCreate();
     expect(await within(dialog).findByText("Password sign-in is off on this site, so invitations can't be created or used.")).toBeInTheDocument();
@@ -981,7 +983,7 @@ describe("邀請（#285 B-17）", () => {
     await clickOutside();
     expect(screen.getByRole("dialog", { name: "Create an invitation" })).toBeInTheDocument();
     expect(screen.getByLabelText("Note (optional)")).toHaveValue("keep me");
-    // N-5：提示文字以 aria-describedby 連到輸入框
+    // 提示文字以 aria-describedby 連到輸入框
     expect(screen.getByLabelText("Note (optional)")).toHaveAccessibleDescription("Only admins see it, in the invitations list. Up to 100 characters.");
   });
 
@@ -1001,7 +1003,7 @@ describe("邀請（#285 B-17）", () => {
     const row = (name: string | RegExp) => within(table).getByRole("row", { name });
     expect(within(row(/Alice/)).getByText("Unused")).toBeInTheDocument();
     expect(within(row(/Bob/)).getByText("Used")).toBeInTheDocument();
-    // spec §6.1：非 pending 的狀態與「—」用 muted（前例 ApiTokensSection.test）
+    // 非 pending 的狀態與「—」用 muted（前例 ApiTokensSection.test）
     expect(within(row(/Alice/)).getByText("Unused")).not.toHaveClass("text-muted-foreground");
     expect(within(row(/Bob/)).getByText("Used")).toHaveClass("text-muted-foreground");
     expect(within(row(/Dave/)).getByText("—")).toHaveClass("text-muted-foreground");
@@ -1174,7 +1176,7 @@ describe("邀請（#285 B-17）", () => {
 
   const SUSPENDED = "Password sign-in is off, so unused invitations can't be used right now. Turn it back on and the ones that haven't expired work again.";
 
-  it("I8（D2）帳密關閉 → 表上方 role=status 提示", async () => {
+  it("I8 帳密關閉 → 表上方 role=status 提示", async () => {
     renderUsersRoute(stub({ passwordLoginEnabled: false, getInvites: () => [inv({ id: "i-p1", label: "Alice" })] }));
     expect(await screen.findByRole("status")).toHaveTextContent(SUSPENDED);
   });

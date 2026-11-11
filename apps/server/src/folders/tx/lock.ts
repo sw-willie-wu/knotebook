@@ -1,5 +1,5 @@
 /**
- * 資料夾交易的鎖與交易內讀取（spec docs/superpowers/specs/2026-10-22-folders-design.md §5.4）。S14：只收 `tx`／純資料／測試縫。
+ * 資料夾交易的鎖與交易內讀取。S14：只收 `tx`／純資料／測試縫。
  * 全域鎖序：① groups 列鎖 → ② 結構鎖（依鍵字串）→ ③ 資料夾列（依 id）→ ④ 筆記列 → ⑤ 容量 advisory 鎖；呼叫端照序呼叫。
  * 結構鎖形同 `storage/tx/quota.ts`：每把鍵三句——`set_config('lock_timeout', …, true)` → `pg_advisory_xact_lock`（單獨一句；
  * 等太久 → 55P03，路由映射 409 server_busy）→ `set local lock_timeout to default`。鍵前綴 `knotebook.folders:`，與容量鎖的
@@ -45,7 +45,7 @@ export async function lockFolderSpacesInTx(tx: Tx, spaces: readonly FolderSpace[
   await opts.hook?.("folder-structure-locked", opts.hookCtx ?? {});
 }
 
-/** 單表 `select … from folders where id = $f for key share|for update`（LEFT JOIN 不能同句加列鎖，讀碼發現 11）。 */
+/** 單表 `select … from folders where id = $f for key share|for update`（LEFT JOIN 不能同句加列鎖）。 */
 export async function lockFolderInTx(tx: Tx, folderId: string, strength: "key share" | "update"): Promise<FolderRow | undefined> {
   const [row] = await tx.select().from(folders).where(eq(folders.id, folderId)).for(strength);
   return row;

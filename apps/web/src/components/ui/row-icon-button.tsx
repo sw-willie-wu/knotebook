@@ -6,10 +6,10 @@ import { Button } from "./button";
 type ButtonProps = ComponentPropsWithoutRef<typeof Button>;
 
 export type RowIconButtonProps = Omit<ButtonProps, "variant" | "size" | "children" | "aria-label" | "title" | "asChild" | "aria-disabled"> & {
-  /** 可及名稱，同時當 `title`（spec §4.9：列內 icon 鈕必帶 title 與 aria-label）。 */
+  /** 可及名稱，同時當 `title`（列內 icon 鈕必帶 title 與 aria-label）。 */
   label: string;
   icon: ReactNode;
-  /** `destructive`＝紅色線條（解除連結、移除成員、撤銷、刪除）；**不是** `destructive` 變體——列內不出現實心紅鈕（§4.8）。 */
+  /** `destructive`＝紅色線條（解除連結、移除成員、撤銷、刪除）；**不是** `destructive` 變體——列內不出現實心紅鈕。 */
   tone?: "default" | "destructive";
   /**
    * 不可用但仍要讓人看得到原因（例如最後一位管理員不能移除）：`aria-disabled`（class 常數的 `aria-disabled:opacity-40`）、`title` 換成
@@ -24,7 +24,7 @@ export type RowIconButtonProps = Omit<ButtonProps, "variant" | "size" | "childre
 };
 
 /**
- * 表格列與角色卡上的動作鈕（#247 spec §4.9，W20／W21）：`ghost`＋`size="icon"`（32px），圖示由呼叫端給
+ * 表格列與角色卡上的動作鈕（#247）：`ghost`＋`size="icon"`（32px），圖示由呼叫端給
  * （`h-4 w-4`）。鉛筆＝編輯、插頭＝測試連線、紅垃圾桶（`tone="destructive"`）＝危險動作。
  */
 export const RowIconButton = forwardRef<HTMLButtonElement, RowIconButtonProps>(

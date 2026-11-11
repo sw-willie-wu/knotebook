@@ -1,11 +1,11 @@
 /**
- * 版本專用指紋（spec 2026-10-09-note-versions-design.md A14）。與 `editing/fingerprint.ts` 的 `outlineOf(...).whole` 分家：
+ * 版本專用指紋。與 `editing/fingerprint.ts` 的 `outlineOf(...).whole` 分家：
  * 那顆是 #106 `if_match` 的契約（`canonicalizeNode`，**不得改**），這顆只給版本子系統判斷「有沒有改」。四條差別：
- * (1) 空的 `Y.XmlText` 視同不存在——「打一字再刪」留下的 `T[]` 與新建空段落的 `[]` 同值（r1 實跑：兩者在 whole 上不同）；
- * (2) 頂層全部是「屬性全為 schema 預設、無內容」的 paragraph（含零顆、多顆）＝真空（兩人同時打開真空筆記會合併出兩顆空段落，r5）；
- * (3) **不丟例外**：顯式 stack 走訪（`canonicalizeNode` 遞迴，5000 層 RangeError——r3 實跑）、依文件順序直接走訪、不經 id 查表
+ * (1) 空的 `Y.XmlText` 視同不存在——「打一字再刪」留下的 `T[]` 與新建空段落的 `[]` 同值（兩者在 whole 上不同）；
+ * (2) 頂層全部是「屬性全為 schema 預設、無內容」的 paragraph（含零顆、多顆）＝真空（兩人同時打開真空筆記會合併出兩顆空段落）；
+ * (3) **不丟例外**：顯式 stack 走訪（`canonicalizeNode` 遞迴，5000 層 RangeError）、依文件順序直接走訪、不經 id 查表
  *     （缺 id 不撞鍵）、未知節點照 nodeName、屬性值以有深度上限的 `stableValue` 序列化。
- * (4) 屬性值**嚴格等於**（`===`）該元素類型在 shared schema 的 `propSchema[prop].default` 時視同缺席（spec §13-9 方案二）：
+ * (4) 屬性值**嚴格等於**（`===`）該元素類型在 shared schema 的 `propSchema[prop].default` 時視同缺席（方案二）：
  *     舊 schema 寫的筆記缺較新的預設屬性，瀏覽器打一字再刪時 y-prosemirror 會把那個段落連預設屬性一起寫回，內容沒變。
  *     型別不同視為不等（`level: "1"` 不等於預設 `1`）；查不到預設的類型／屬性照舊參與；值為 `undefined` 的屬性一律視同缺席。
  * 雜湊同 `fingerprintOf`（sha256 前 16 hex）；輸入帶 `V2:` 前綴（(4) 之前是 `V1:`），與 whole 的值域分開，不會被誤當 `if_match`。
@@ -129,7 +129,7 @@ function pushChildren(stack: Frame[], kids: unknown[]): void {
   const kept = kids.filter((c): c is Y.XmlElement | Y.XmlText => c instanceof Y.XmlElement || (c instanceof Y.XmlText && c.length > 0));
   for (let i = kept.length - 1; i >= 0; i -= 1) {
     stack.push(kept[i]!);
-    // 兄弟分隔記號是保險、不承重：`E…[…]` 與 `T…` 本身就有明確邊界（gate r1 實跑：拿掉仍 11/11 綠）。
+    // 兄弟分隔記號是保險、不承重：`E…[…]` 與 `T…` 本身就有明確邊界（拿掉仍 11/11 綠）。
     if (i > 0) stack.push("|");
   }
 }
@@ -163,7 +163,7 @@ function serialize(fragment: Y.XmlFragment): string {
   return out.join("");
 }
 
-/** A14：版本子系統唯一的「內容指紋」。永不丟例外（呼叫端仍包防禦性 catch，§5.3-2）。 */
+/** 版本子系統唯一的「內容指紋」。永不丟例外（呼叫端仍包防禦性 catch）。 */
 export function versionFingerprint(fragment: Y.XmlFragment): string {
   return isVacuum(fragment) ? VACUUM_VERSION_FINGERPRINT : fingerprintOf(`V2:${serialize(fragment)}`);
 }

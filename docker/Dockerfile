@@ -10,6 +10,8 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/server/package.json ./apps/server/package.json
 COPY apps/web/package.json ./apps/web/package.json
 COPY packages/shared/package.json ./packages/shared/package.json
+# package.json 的 `pnpm.patchedDependencies` 指到這裡的修補檔，install 時套上。
+COPY patches ./patches
 RUN pnpm install --frozen-lockfile
 
 COPY . .
@@ -20,18 +22,18 @@ FROM node:22-slim
 WORKDIR /app
 COPY --from=build /out .
 # `pnpm deploy` 只依 apps/server/package.json 的 "files": ["dist"] 打包產物，不含
-# drizzle/ migration 目錄（Task 3 審查 M8）；`src/db/migrate.ts` 在 runtime 用
+# drizzle/ migration 目錄；`src/db/migrate.ts` 在 runtime 用
 # `dist/db/../../drizzle` 解析路徑（即 /app/drizzle），必須顯式複製過來，
 # 否則 container 啟動時 runMigrations() 會找不到 migration 檔案而 fail fast。
 COPY --from=build /repo/apps/server/drizzle ./drizzle
-# 前端建置產物（Task 9，spec §11.5）：`pnpm -r build` 已經把 apps/web 一併建好
+# 前端建置產物：`pnpm -r build` 已經把 apps/web 一併建好
 # （`vite build` → apps/web/dist）；`src/index.ts` 用 `process.cwd()/web-dist`
 # （即 runtime WORKDIR /app 下的 ./web-dist）找它來做 SPA fallback + 靜態檔服務，
 # 目錄不存在時會 warn 後停用 fallback（不會啟動失敗），所以純 API 部署仍可省略
 # 這一層，但這裡是完整 image，必須複製。
 COPY --from=build /repo/apps/web/dist ./web-dist
 ENV NODE_ENV=production
-# Task 9：上傳圖片存放目錄。仍在 root 底下先建好並 chown 給 node（root 才有權限
+# 上傳圖片存放目錄。仍在 root 底下先建好並 chown 給 node（root 才有權限
 # chown），因為 volume mount（見 docker-compose.yml 的 `uploads:/app/uploads`）在
 # container 啟動時才會蓋上去，屆時已經是 `USER node` 在跑——若沒有預先在 image
 # 裡建好目錄並正確授權，node 使用者對這個掛載點會沒有寫入權限，`src/index.ts`
@@ -40,7 +42,7 @@ RUN mkdir -p /app/uploads && chown node:node /app/uploads
 # 不以 root 執行 process：node 官方 image 內建 uid 1000 的 "node" 使用者；上面
 # 幾個 COPY 都在切換到這個 user 之前執行（此時仍是 root），複製出來的檔案預設
 # 權限（644/755）本來就允許其他使用者讀取/執行——但 image 不再是純唯讀了：
-# `/app/uploads`（見上一行）是 node 使用者實際會寫入的目錄（Task 9 圖片上傳），
+# `/app/uploads`（見上一行）是 node 使用者實際會寫入的目錄（圖片上傳），
 # 其餘路徑仍維持唯讀存取即可正常運作。
 USER node
 EXPOSE 3000

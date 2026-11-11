@@ -1,7 +1,7 @@
 /**
- * #285 無登入的邀請端點：inspect 與接受邀請（spec §5.3–§5.6）。成功建帳（B-7）、不看「允許用帳號密碼自行註冊」（B-8）、
- * strict body（V3）、無效一律 410 不洩漏原因、kind 隔離（B-14）、單次與撤銷並發（B-9）、argon2 前判斷（B-10、§5.5）、
- * 帳密開關（B-11）、hash 忙碌、顯示名、錯誤遮蔽（B-15）、速率桶（B-11 桶半、B-12、B-13、E5）。
+ * #285 無登入的邀請端點：inspect 與接受邀請。成功建帳、不看「允許用帳號密碼自行註冊」、
+ * strict body、無效一律 410 不洩漏原因、kind 隔離、單次與撤銷並發、argon2 前判斷、
+ * 帳密開關、hash 忙碌、顯示名、錯誤遮蔽、速率桶。
  * 每案各建一個 app（fresh DB）。並發一律以 raw client 持邀請列（或 users 唯一鍵）的鎖、`waitForLockWaiters` 排隊後放行，不靠 sleep。
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -70,7 +70,7 @@ async function setup(overrides: Partial<AppDeps> = {}) {
 
 type Ctx = Awaited<ReturnType<typeof setup>>;
 
-/** 經 T2 的 admin POST 建邀請，回明文 token、列 id 與建立回應的 expiresAt。 */
+/** 經 admin POST 建邀請，回明文 token、列 id 與建立回應的 expiresAt。 */
 async function createInvite(ctx: Ctx, over: { expiresInDays?: number; label?: string } = {}): Promise<{ token: string; id: string; expiresAt: string }> {
   const res = await ctx.app.inject({
     method: "POST",
@@ -126,7 +126,7 @@ async function expectUnused(db: Db, id: string) {
 }
 
 describe("POST /api/auth/invite/accept（成功）", () => {
-  it("IA1（B-7、V3）：201 UserDto、一般使用者、email 小寫、顯示名預設 local-part、預設方案、session 有效、last_login_at、邀請標用掉、log 只帶 linkId／userId", async () => {
+  it("IA1：201 UserDto、一般使用者、email 小寫、顯示名預設 local-part、預設方案、session 有效、last_login_at、邀請標用掉、log 只帶 linkId／userId", async () => {
     const ctx = await setup();
     const { app, db } = ctx;
     const invite = await createInvite(ctx);
@@ -171,7 +171,7 @@ describe("POST /api/auth/invite/accept（成功）", () => {
     expect(used.map(l => l.obj)).toEqual([{ linkId: invite.id, userId: id }]);
   });
 
-  it("IA2（B-8、E2）：「允許用帳號密碼自行註冊」關閉 → inspect 200、accept 201", async () => {
+  it("IA2：「允許用帳號密碼自行註冊」關閉 → inspect 200、accept 201", async () => {
     const ctx = await setup();
     const { app, db } = ctx;
     await db.update(siteSettings).set({ registrationEnabled: false });
@@ -181,7 +181,7 @@ describe("POST /api/auth/invite/accept（成功）", () => {
     expect(res.statusCode, res.body).toBe(201);
   });
 
-  it("IA3（V3 strict）：多帶 isAdmin → 400 invalid_body、邀請未用；缺 password → 400", async () => {
+  it("IA3（strict）：多帶 isAdmin → 400 invalid_body、邀請未用；缺 password → 400", async () => {
     const ctx = await setup();
     const { app, db } = ctx;
     const invite = await createInvite(ctx);
@@ -197,7 +197,7 @@ describe("POST /api/auth/invite/accept（成功）", () => {
 });
 
 describe("POST /api/auth/invite/inspect", () => {
-  it("IA4（B-2）：200 只回 expiresAt（等於建立回應）；連打 3 次不消耗；accept 後 410；回應與 log 不含 token、雜湊、備註", async () => {
+  it("IA4：200 只回 expiresAt（等於建立回應）；連打 3 次不消耗；accept 後 410；回應與 log 不含 token、雜湊、備註", async () => {
     const ctx = await setup();
     const { app } = ctx;
     const label = "secret-label-285";
@@ -268,7 +268,7 @@ describe("無效一律 410、不洩漏原因（安全關鍵：列舉）", () => 
     expect(await db.select().from(users).where(eq(users.email, "second@example.com"))).toEqual([]);
   });
 
-  it("IA6（B-14，DB 層 kind 隔離）：雜湊相符、邀請形狀的 password_reset 列 → inspect 與 accept 410、列未用", async () => {
+  it("IA6（DB 層 kind 隔離）：雜湊相符、邀請形狀的 password_reset 列 → inspect 與 accept 410、列未用", async () => {
     const ctx = await setup();
     const { app, db } = ctx;
     const target = await insertPasswordUser(db);
@@ -282,7 +282,7 @@ describe("無效一律 410、不洩漏原因（安全關鍵：列舉）", () => 
     expect((await linkOf(db, row!.id)).usedAt).toBeNull();
   });
 
-  it("IA6（B-14，反向）：真邀請 token 打重設端點 → 410 reset_link_invalid、邀請未用", async () => {
+  it("IA6（反向）：真邀請 token 打重設端點 → 410 reset_link_invalid、邀請未用", async () => {
     const ctx = await setup();
     const { app, db } = ctx;
     const invite = await createInvite(ctx);
@@ -296,7 +296,7 @@ describe("無效一律 410、不洩漏原因（安全關鍵：列舉）", () => 
   });
 });
 
-describe("單次與撤銷並發（B-9、V2，安全關鍵）", () => {
+describe("單次與撤銷並發（安全關鍵）", () => {
   it("IA7：成功一次後同 token 再 accept（不同 email）→ 410、只有一個新帳號", async () => {
     const ctx = await setup();
     const { app, db } = ctx;
@@ -388,7 +388,7 @@ describe("單次與撤銷並發（B-9、V2，安全關鍵）", () => {
   });
 });
 
-describe("argon2 之前的判斷（B-10、§5.5，安全關鍵）", () => {
+describe("argon2 之前的判斷（安全關鍵）", () => {
   it("IA9：email 已存在（混合大小寫舊列）→ 409 email_taken、不呼叫 hashPassword、邀請未用", async () => {
     const ctx = await setup();
     const { app, db } = ctx;
@@ -445,7 +445,7 @@ describe("argon2 之前的判斷（B-10、§5.5，安全關鍵）", () => {
   });
 });
 
-describe("帳密登入開關（B-11、D1／D2，安全關鍵：不消耗）", () => {
+describe("帳密登入開關（安全關鍵：不消耗）", () => {
   it("IA11：DB 關閉 → inspect 與 accept 403，列不動、沒有新帳號；重新開啟 → 同 token accept 201", async () => {
     const ctx = await setup();
     const { app, db } = ctx;
@@ -475,7 +475,7 @@ describe("帳密登入開關（B-11、D1／D2，安全關鍵：不消耗）", ()
     expect((await accept(app, { token: invite.token, email: "ia11f@example.com", password: PW })).statusCode).toBe(201);
   });
 
-  it("IA11 順序（spec §5.3 第 1、2 步）：DB 關閉時，格式合法但查無與已撤銷的 token → inspect 與 accept 都 410（不是 403）", async () => {
+  it("IA11 順序：DB 關閉時，格式合法但查無與已撤銷的 token → inspect 與 accept 都 410（不是 403）", async () => {
     const ctx = await setup();
     const { app, db } = ctx;
     const revoked = await createInvite(ctx);
@@ -525,7 +525,7 @@ describe("hash 忙碌、顯示名", () => {
   });
 });
 
-describe("錯誤遮蔽（B-15、spec §5.6）", () => {
+describe("錯誤遮蔽", () => {
   it("IA14：交易的非預期 DB 錯誤 → 500，log 遮蔽（context「接受邀請」、無 password hash、無 params）；邀請未用", async () => {
     const ctx = await setup();
     const { app, db } = ctx;
@@ -574,11 +574,11 @@ function inviteLimiters(over: { miss?: number; attempt?: number }): Pick<AppDeps
 
 function expectTooMany(res: { statusCode: number; json(): unknown }) {
   expect(res.statusCode).toBe(429);
-  expect(res.json()).toMatchObject({ error: { code: "too_many_requests", message: "請求太頻繁，請稍後再試" } });
+  expect(res.json()).toMatchObject({ error: { code: "too_many_requests", message: "Too many requests. Wait a moment and try again." } });
 }
 
 describe("速率桶：miss 桶（key=ip，只在查無有效邀請時扣）", () => {
-  it("IB1（B-11 補，安全關鍵：帳密 403 不消耗任何桶）：miss 上限 1、嘗試上限 2；帳密關閉時同一張有效邀請連送 12 發 accept 全 403；重新開啟 → 201；之後一發無效 token → 410（不是 429）", async () => {
+  it("IB1（安全關鍵：帳密 403 不消耗任何桶）：miss 上限 1、嘗試上限 2；帳密關閉時同一張有效邀請連送 12 發 accept 全 403；重新開啟 → 201；之後一發無效 token → 410（不是 429）", async () => {
     const ctx = await setup(inviteLimiters({ miss: 1, attempt: 2 }));
     const { app, db } = ctx;
     const invite = await createInvite(ctx);
@@ -595,7 +595,7 @@ describe("速率桶：miss 桶（key=ip，只在查無有效邀請時扣）", ()
     expectInvalid(await accept(app, { token: generateOneTimeToken("invite"), email: "ib1b@example.com", password: PW }));
   });
 
-  it("IB2（B-12，安全關鍵：限流不擋有效 token）：miss 上限 3；同 IP 三發無效（inspect 兩、accept 一，每發新 token）→ 410，第四發 → 429；同 IP 的有效邀請 inspect 200、accept 201；另一 IP 的無效 → 410", async () => {
+  it("IB2（安全關鍵：限流不擋有效 token）：miss 上限 3；同 IP 三發無效（inspect 兩、accept 一，每發新 token）→ 410，第四發 → 429；同 IP 的有效邀請 inspect 200、accept 201；另一 IP 的無效 → 410", async () => {
     const ctx = await setup(inviteLimiters({ miss: 3 }));
     const { app } = ctx;
     const valid = await createInvite(ctx);
@@ -610,7 +610,7 @@ describe("速率桶：miss 桶（key=ip，只在查無有效邀請時扣）", ()
     expectInvalid(await inspect(app, generateOneTimeToken("invite"), "10.0.0.2"));
   });
 
-  it("IB3（B-12，跨 kind 共用同一顆桶）：miss 上限 2；同 IP 兩發無效重設 token → 410；第三發無效邀請 inspect → 429", async () => {
+  it("IB3（跨 kind 共用同一顆桶）：miss 上限 2；同 IP 兩發無效重設 token → 410；第三發無效邀請 inspect → 429", async () => {
     const ctx = await setup(inviteLimiters({ miss: 2 }));
     const { app } = ctx;
     for (let i = 0; i < 2; i += 1) {
@@ -620,7 +620,7 @@ describe("速率桶：miss 桶（key=ip，只在查無有效邀請時扣）", ()
     expectTooMany(await inspect(app, generateOneTimeToken("invite")));
   });
 
-  it("IB7（B-13，交易內 410 不扣 miss 桶）：miss 上限 1；accept 在邀請列鎖上排隊、撤銷提交後交易內 410；接著一發無效 token → 410（不是 429）", async () => {
+  it("IB7（交易內 410 不扣 miss 桶）：miss 上限 1；accept 在邀請列鎖上排隊、撤銷提交後交易內 410；接著一發無效 token → 410（不是 429）", async () => {
     const ctx = await setup(inviteLimiters({ miss: 1 }));
     const { app, db } = ctx;
     const invite = await createInvite(ctx);
@@ -642,7 +642,7 @@ describe("速率桶：miss 桶（key=ip，只在查無有效邀請時扣）", ()
 });
 
 describe("速率桶：每支連結的嘗試桶（key=link:id，帳密有效值為開之後才扣）", () => {
-  it("IB4（B-13）：嘗試上限 2；同一張邀請兩發 email 已存在 → 409，第三發 → 429 且不呼叫 hashPassword、邀請未用；另一張邀請 → 201", async () => {
+  it("IB4：嘗試上限 2；同一張邀請兩發 email 已存在 → 409，第三發 → 429 且不呼叫 hashPassword、邀請未用；另一張邀請 → 201", async () => {
     const ctx = await setup(inviteLimiters({ attempt: 2 }));
     const { app, db } = ctx;
     await db.insert(users).values({ email: "taken@ib4.example", displayName: "Old" });
@@ -660,7 +660,7 @@ describe("速率桶：每支連結的嘗試桶（key=link:id，帳密有效值�
     expect(other.statusCode, other.body).toBe(201);
   });
 
-  it("IB5（B-13）：嘗試上限 1；同 token inspect 3 次不扣桶 → accept 201", async () => {
+  it("IB5：嘗試上限 1；同 token inspect 3 次不扣桶 → accept 201", async () => {
     const ctx = await setup(inviteLimiters({ attempt: 1 }));
     const { app } = ctx;
     const invite = await createInvite(ctx);
@@ -669,7 +669,7 @@ describe("速率桶：每支連結的嘗試桶（key=link:id，帳密有效值�
     expect(res.statusCode, res.body).toBe(201);
   });
 
-  it("IB6（B-13，生產上限 10）：同一張邀請連送 10 發 email 已存在 → 409；第 11 發 → 429", async () => {
+  it("IB6（生產上限 10）：同一張邀請連送 10 發 email 已存在 → 409；第 11 發 → 429", async () => {
     const ctx = await setup();
     const { app, db } = ctx;
     await db.insert(users).values({ email: "taken@ib6.example", displayName: "Old" });
@@ -680,7 +680,7 @@ describe("速率桶：每支連結的嘗試桶（key=link:id，帳密有效值�
   });
 });
 
-describe("不扣 REGISTER_LIMIT（E5）", () => {
+describe("不扣 REGISTER_LIMIT", () => {
   it("IB8：生產桶；同 IP 以 11 張不同邀請各 accept 一次 → 全部 201", async () => {
     const ctx = await setup();
     const { app } = ctx;

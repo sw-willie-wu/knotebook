@@ -1,4 +1,4 @@
-// 版本歷史 × 真 Hocuspocus（#272 spec 2026-10-13 §4.1、§4.2、§12.1 案 19（WS 形）；前 spec 2026-10-09 D9 的 WS 形）。
+// 版本歷史 × 真 Hocuspocus（#272 案 19（WS 形））。
 // #272 起只有一條自動規則：落盤寫待切、停手 X 後掃描器切；離開（unload）不切。本檔把 X 壓成 0，掃描一律手動呼叫 `scanDue()`。
 // 斷言一律寫明「增量」還是「總數」。
 import { describe, expect, it } from "vitest";
@@ -30,7 +30,7 @@ async function typeInFirst(ctx: Awaited<ReturnType<typeof setup>>["ctx"], noteId
   await waitFor("server 收到編輯", 5_000, () => sentinel(docText(ctx.collab.hocuspocus.documents.get(noteId)!)));
 }
 
-describe("#272：停手才切（§4.1）、離開不切（§4.2）", () => {
+describe("#272：停手才切、離開不切", () => {
   it("(a) WS 編輯 → 落盤後待切、當下 0 版；掃描 → 增 1 版、editors 是那位使用者；再改再掃 → 再增 1；離開後掃描不多切", async () => {
     const s = await setup();
     const client = await seedContent(s.ctx, s.session, s.note.id, "第一段種子文字");
@@ -51,7 +51,7 @@ describe("#272：停手才切（§4.1）、離開不切（§4.2）", () => {
     expect(await versionsOf(s.ctx.db, s.note.id)).toHaveLength(2);
   });
 
-  it("(b) 全部斷線 → 不切（M9）、留下待切；掃描之後才 1 版", async () => {
+  it("(b) 全部斷線 → 不切、留下待切；掃描之後才 1 版", async () => {
     const s = await setup();
     const client = await seedContent(s.ctx, s.session, s.note.id, "不等五分鐘的內容");
     client.disconnect();
@@ -67,7 +67,7 @@ describe("#272：停手才切（§4.1）、離開不切（§4.2）", () => {
   });
 });
 
-describe("D9：沒有憑空出現的版本（WS 形；離開後掃描）", () => {
+describe("沒有憑空出現的版本（WS 形；離開後掃描）", () => {
   it("viewer 打開舊筆記再關 → 總數 0、沒有待切", async () => {
     const s = await setup();
     await seedOldNote(s.ctx.db, s.note.id, "舊筆記內容");
@@ -114,7 +114,7 @@ describe("D9：沒有憑空出現的版本（WS 形；離開後掃描）", () =>
   it("WS client 打開真空筆記、回寫一顆空段落（瀏覽器 mount 正規化的形）、斷線 → 沒有待切、掃描後總數 0", async () => {
     const s = await setup();
     const c = await s.session.connect(s.note.id);
-    // ⚠ server 端 headless EditorSession 只 mount 不會回寫（Task 6 實跑：mount 後 client fragment 仍是空字串），
+    // ⚠ server 端 headless EditorSession 只 mount 不會回寫（實測：mount 後 client fragment 仍是空字串），
     // 所以這裡明寫「一顆預設屬性的空段落」——即瀏覽器打開真空筆記時正規化回寫的那個形。
     const ed = await EditorSession.open(testEditingRuntime, c.doc);
     try {

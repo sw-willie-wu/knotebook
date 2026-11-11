@@ -14,13 +14,13 @@ const flags = (f: Partial<FolderRoleFlags>): FolderRoleFlags => ({
   ...f,
 });
 
-/** spec §5.6 角色展開表的五欄（看／建改搬／刪空／刪含筆記／建筆記），由 DTO 推出。 */
+/** 角色展開表的五欄（看／建改搬／刪空／刪含筆記／建筆記），由 DTO 推出。 */
 function columns(p: FolderPermissionsDto | null): [boolean, boolean, boolean, boolean, boolean] {
   if (p === null) return [false, false, false, false, false];
   return [true, p.manage, p.manage, p.manage && p.deleteNotes, p.createNote];
 }
 
-describe("PM-1 群組資料夾權限（spec §5.6 角色展開表；sixRoleScene 的旗標＋create-only＋全 false）", () => {
+describe("PM-1 群組資料夾權限（角色展開表；sixRoleScene 的旗標＋create-only＋全 false）", () => {
   const rows: Array<[string, FolderRoleFlags | null, FolderPermissionsDto | null, [boolean, boolean, boolean, boolean, boolean]]> = [
     // 內建管理員七旗標全真；資料夾只看四旗。
     ["admin", flags({ canRead: true, canCreate: true, canEdit: true, canDelete: true }), { manage: true, deleteNotes: true, createNote: true }, [true, true, true, true, true]],

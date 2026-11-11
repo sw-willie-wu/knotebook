@@ -1,17 +1,17 @@
 /**
- * #108 PR2 Task 2：`edit_note`（規格 §8.6、§14.4 案 19／19b／20／23、§14.2 案 8 的寫入側）。
+ * #108：`edit_note`（案 19／19b／20／23、案 8 的寫入側）。
  *
- * 全族走 `buildCollabTestApp`（＝生產形態）：依 D-M，`edit_note` 與兩支讀取工具一樣**只在
+ * 全族走 `buildCollabTestApp`（＝生產形態）：依工具註冊規則，`edit_note` 與兩支讀取工具一樣**只在
  * `collab` 與 `editing` 都在時才註冊**（它要寫 live doc）。
  *
- * ⚠ **唯讀憑證拿到的是 SDK 的「Tool not found」，不是 `insufficient_scope`**（plan P16）：
+ * ⚠ **唯讀憑證拿到的是 SDK 的「Tool not found」，不是 `insufficient_scope`**：
  * `McpServer` 的「清單」就是「註冊表」，`register.ts` 已經按 scope 過濾掉 `edit_note`，所以
  * `tools/call` 走的是 SDK 的未知工具名分支——**永遠到不了我們的 handler**。`insufficient_scope`
  * 那條分支在 HTTP 上是死碼，唯一的守衛是 `test/unit/mcp-write-scope.test.ts` 的第 2 發。
- * 這幾案（S2）剩下的鑑別力是 **M6 的四件零副作用**，那半是真的。
+ * 這幾案剩下的鑑別力是 **拒絕零副作用的四件事**，那半是真的。
  *
  * ⚠ `callTool`／`payloadOf` 與 `mcp-content.test.ts`／`mcp-notes.test.ts` 的同名 helper 是**第三份**
- * （同樣的理由：`test/mcp-helpers.ts` 不在本棒的觸及面內，各自只有幾行）。
+ * （同樣的理由：各自只有幾行，沒有收進 `test/mcp-helpers.ts`）。
  */
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
@@ -53,7 +53,7 @@ async function callTool(app: FastifyInstance, token: string, name: string, args:
   return { status: res.statusCode, result: res.json().result, raw: res.body };
 }
 
-/** 成功呼叫的 `structuredContent`（順手守住 M10 的鏡像等式）。 */
+/** 成功呼叫的 `structuredContent`（順手守住鏡像等式）。 */
 function payloadOf<T>(call: ToolCall): T {
   expect(call.status).toBe(200);
   expect(call.result.isError).toBeUndefined();
@@ -168,7 +168,7 @@ describe("#108 edit_note：五個 op 的落盤與 REST 對等（案 19）", () =
       const a = (await restOutline(app, mine.id, s.token)).markdown;
       const b = (await restOutline(app, theirs.id, s.token)).markdown;
       expect(a, `${op} 的落盤內容`).toBe(b);
-      // 兩條路徑各留一列紀錄、op 相同（MCP 的寫入與 REST 在 `note_ai_edits` 上不可區分，§11.1）。
+      // 兩條路徑各留一列紀錄、op 相同（MCP 的寫入與 REST 在 `note_ai_edits` 上不可區分）。
       for (const id of [mine.id, theirs.id]) {
         const rows = await s.ctx.db.select().from(noteAiEdits).where(eq(noteAiEdits.noteId, id));
         expect(rows).toHaveLength(1);
@@ -181,7 +181,7 @@ describe("#108 edit_note：五個 op 的落盤與 REST 對等（案 19）", () =
   });
 });
 
-describe("#108 edit_note：成功回應的形（案 19b／19c／S4）", () => {
+describe("#108 edit_note：成功回應的形（案 19b／19c）", () => {
   it("頂層 key 集合逐字 {editId, fingerprint, outline, unboundWikilinks}；outline 只有 {sections, truncated}；每個 entry 都有 fingerprint（案 19b）", async () => {
     const s = await scene(THREE_SECTIONS);
     const rest = await restOutline(s.ctx.app, s.noteId, s.token);
@@ -195,11 +195,11 @@ describe("#108 edit_note：成功回應的形（案 19b／19c／S4）", () => {
       })
     );
     expect(Object.keys(out).sort()).toEqual(["editId", "fingerprint", "outline", "unboundWikilinks"].sort());
-    // **沒有 `nextSectionOffset`**（§8.6 明文：沒有續讀入口就別回一個沒有工具收得下的游標）。
+    // **沒有 `nextSectionOffset`**（沒有續讀入口就別回一個沒有工具收得下的游標）。
     expect(Object.keys(out.outline).sort()).toEqual(["sections", "truncated"].sort());
     expect(out.outline.sections.length).toBeGreaterThan(0);
     for (const entry of out.outline.sections) {
-      // M12 的**明文例外**：只有 `edit_note` 的成功回應帶逐段指紋（D18 的 REST 對等）。
+      // **明文例外**：只有 `edit_note` 的成功回應帶逐段指紋（與 REST 對等）。
       expect(entry.fingerprint).toMatch(/^[0-9a-f]{16}$/);
       expect(Object.keys(entry).sort()).toEqual(["chars", "fingerprint", "heading", "level", "sectionId"].sort());
     }
@@ -208,7 +208,7 @@ describe("#108 edit_note：成功回應的形（案 19b／19c／S4）", () => {
     s.disconnect();
   });
 
-  it("append 不帶 section_id 成功、不帶 if_match 也成功（案 19c：M-7 的選配 ＋ P15 的逐鍵展開）", async () => {
+  it("append 不帶 section_id 成功、不帶 if_match 也成功（案 19c：選配 ＋ 逐鍵展開）", async () => {
     const s = await scene(THREE_SECTIONS);
     const out = payloadOf<EditPayload>(
       await editNote(s.ctx.app, s.token, { note_id: s.noteId, op: "append", markdown: "追加一行" })
@@ -218,10 +218,10 @@ describe("#108 edit_note：成功回應的形（案 19b／19c／S4）", () => {
     s.disconnect();
   });
 
-  // ⚠ **這兩發是 P15 那顆雷唯一的守衛**：`.strict()` 看的是 `Object.keys`，把 args 整包展開
+  // ⚠ **這兩發是那顆雷唯一的守衛**：`.strict()` 看的是 `Object.keys`，把 args 整包展開
   //   （不濾 `undefined`）之後，`{op:"append", section_id: undefined}` 會被判 `unrecognized_keys`
   //   → 每一發合法的 `append`／`delete_section` 都會退化成 `invalid_body`。實測過。
-  it("逐鍵條件展開：append 不帶 section_id、delete_section 不帶 markdown，兩發都成功（S4／P15）", async () => {
+  it("逐鍵條件展開：append 不帶 section_id、delete_section 不帶 markdown，兩發都成功", async () => {
     const s = await scene(THREE_SECTIONS);
     payloadOf<EditPayload>(await editNote(s.ctx.app, s.token, { note_id: s.noteId, op: "append", markdown: "追加一行" }));
     const rest = await restOutline(s.ctx.app, s.noteId, s.token);
@@ -238,18 +238,18 @@ describe("#108 edit_note：成功回應的形（案 19b／19c／S4）", () => {
   });
 });
 
-describe("#108 edit_note：必填矩陣的拒絕側（D-N）", () => {
+describe("#108 edit_note：必填矩陣的拒絕側", () => {
   // ⚠⚠ **這一發守的是「跳過指紋核對直接落盤」**，是資料正確性層級的關，不是形狀檢查。
   //   工具的 input schema 把 `if_match` 宣告成 `.optional()`（它對 `append` 真的是選配），所以 SDK 的
   //   `validateToolInput` **會放行**一發不帶 `if_match` 的 `replace_section`；MCP 路徑上
   //   **唯一**擋下它的是 handler 第 2 步共用的 `editBodySchema`（per-op 必填矩陣）。
   //   那一關失效 ＝ 整段內容在沒有比對過指紋的情況下被覆寫，而且不會有任何錯誤。
-  // 突變實測（2026-09-08）：把第 2 步換成恆 `success: true` 的直通 → **只有本案紅**，
+  // 突變實測：把第 2 步換成恆 `success: true` 的直通 → **只有本案紅**，
   //   而且紅在**落盤那一件**（`note_ai_edits` 由 0 變 1）——所以下面的斷言順序刻意是
   //   「先四件副作用、後錯誤形」：`errorOf()` 會在 `isError` 那一行就中止整個 `it`，
   //   排在它後面的四件在突變下**一件都跑不到**，紅的訊息也就指不到病因。
-  //   **本案之前，`invalid_body`／`invalidBodyMessage()` 在整份 PR2 零執行。**
-  it("replace_section 不帶 if_match → invalid_body，訊息點名缺的欄位，且四件零副作用（D-N）", async () => {
+  //   **本案之前，`invalid_body`／`invalidBodyMessage()` 在寫入工具上線時零執行。**
+  it("replace_section 不帶 if_match → invalid_body，訊息點名缺的欄位，且四件零副作用", async () => {
     const s = await scene(THREE_SECTIONS);
     const rest = await restOutline(s.ctx.app, s.noteId, s.token);
     const doc = () => s.ctx.collab.hocuspocus.documents.get(s.noteId)!;
@@ -261,7 +261,7 @@ describe("#108 edit_note：必填矩陣的拒絕側（D-N）", () => {
     //   寫入真的成功時，key 集合逐字不變）。所以這裡比的是**那顆 client 的整個 state 深度**：
     //   `PresenceRegistry.emit` 每次都寫一個新的 `beat`（`presence.ts` 逐字：「`beat` 不是
     //   裝飾品」），touch 一定改得動它。
-    //   ⚠ **S2 沒有這個問題**是因為那邊的呼叫端是另一顆唯讀 token，clientId 不同、key 集合
+    //   ⚠ **另一案沒有這個問題**是因為那邊的呼叫端是另一顆唯讀 token，clientId 不同、key 集合
     //   本身就是活的判準——**兩案的正確形不同，不要互抄。**
     const rwClientId = presenceClientId(s.noteId, s.tokenId);
     const keysBefore = [...doc().awareness.getStates().keys()].sort();
@@ -275,7 +275,7 @@ describe("#108 edit_note：必填矩陣的拒絕側（D-N）", () => {
       markdown: "# 不該寫進去",
     });
 
-    // M6 的四件：無新 `note_ai_edits` 列、live doc 內容不變、`documents` 沒多一份、
+    // 零副作用的四件：無新 `note_ai_edits` 列、live doc 內容不變、`documents` 沒多一份、
     // 無新名牌**且**既有那面名牌沒被 touch。
     expect(await s.ctx.db.select().from(noteAiEdits).where(eq(noteAiEdits.noteId, s.noteId))).toHaveLength(0);
     expect(docText(doc())).toBe(before);
@@ -292,7 +292,7 @@ describe("#108 edit_note：必填矩陣的拒絕側（D-N）", () => {
   });
 });
 
-describe("#108 edit_note：取頁規則（案 19d／19e／19f，D-J）", () => {
+describe("#108 edit_note：取頁規則（案 19d／19e／19f）", () => {
   // 19d／19e／19f **合為一個 `it`、共用一次 250 段的 `seedContent`**——散開就會 seed 好幾次。
   //
   // ⚠ **`sections[0]` 在 offset 0 那一頁恆為 `_top`，不是第一個編號段**：`sectionize()` 無條件
@@ -301,8 +301,8 @@ describe("#108 edit_note：取頁規則（案 19d／19e／19f，D-J）", () => {
   // ⚠ **只有 `replace_section` 那一格用 `heading`，而且是對的**：它的 offset ≠ 0（＝落點那一段
   //   的索引），`_top` 不在那一頁；而新段的 `sectionId` 是寫入時才生出來的 uuid，測試事先不知道。
   //
-  // ⚠ **順序刻意與 plan 的字面不同**：`replace_section` → `delete_section` → `append` →
-  //   `replace_all`（plan 寫的是 append 在 delete_section 之前）。理由是 plan 同時要求
+  // ⚠ **順序刻意如此**：`replace_section` → `delete_section` → `append` →
+  //   `replace_all`（append 排在 delete_section 之後）。理由是
   //   「拿 `append` 回應裡的整篇 `fingerprint` 再發一次 `replace_all` 成功」——夾一發
   //   `delete_section` 在中間會讓那個指紋過期，兩條要求無法同時成立。`replace_all` 仍然排最後
   //   （它會把 250 段整個換掉），delete/append 的先後對三格取頁斷言沒有影響。
@@ -334,7 +334,7 @@ describe("#108 edit_note：取頁規則（案 19d／19e／19f，D-J）", () => {
 
     // ── 19d(b)：insert_after 也是 section-scoped → 落點那一頁（`.describe()` 逐字對模型宣告
     //    「replace_section **and insert_after**」，所以這一格不能只打 replace_section）──
-    // ⚠ 突變實測（2026-09-08）：把 `insert_after` 從 `SECTION_SCOPED` 移出去 → **只有這兩行紅**
+    // ⚠ 突變實測：把 `insert_after` 從 `SECTION_SCOPED` 移出去 → **只有這兩行紅**
     //   （`expected '' to be 'INSERTED-MARKER-…'`）；沒有它，那半句宣告零守衛。
     const insertMarker = `INSERTED-MARKER-${randomUUID()}`;
     const insertTarget = (await restOutline(app, s.noteId, s.token)).outline[150]!;
@@ -356,7 +356,7 @@ describe("#108 edit_note：取頁規則（案 19d／19e／19f，D-J）", () => {
       await editNote(app, s.token, { note_id: s.noteId, op: "delete_section", section_id: mid.sectionId, if_match: mid.fingerprint })
     );
     // `delete_section` 的 `afterBlockIds` 恆為空 → `afterSectionIndex` 為 null → 第 0 頁。
-    // 「被刪的那一段已經不存在」，「包含落點的那一頁」在它身上沒有定義（D-J 的刻意選擇）。
+    // 「被刪的那一段已經不存在」，「包含落點的那一頁」在它身上沒有定義（刻意選擇）。
     expect(deleted.outline.sections[0]!.sectionId).toBe("_top");
     expect(deleted.outline.truncated).toBe(true);
 
@@ -414,7 +414,7 @@ describe("#108 edit_note：錯誤側（案 20）", () => {
     expect(Object.keys(outline).sort()).toEqual(["sections", "truncated"].sort());
     // ⚠ **這一行是錯誤側取頁規則唯一的守衛**：取頁＝請求的 `section_id` 在**目前** outline
     //   的索引（這裡是 3，最後一段），退化成恆 0 時 `sections[0]` 會變成 `_top`。
-    //   突變實測（2026-09-08）：把 `mismatchError()` 的 `const at = …` 拿掉、offset 恆 0
+    //   突變實測：把 `mismatchError()` 的 `const at = …` 拿掉、offset 恆 0
     //   → **只有本行紅**（`expected '_top' to be '<最後一段的 id>'`）；沒有它，那條規則
     //   在三段筆記上（outline 4 筆、一頁裝得下）**完全觀察不到**。
     expect(outline.sections[0]!.sectionId).toBe(last.sectionId);
@@ -433,11 +433,29 @@ describe("#108 edit_note：錯誤側（案 20）", () => {
       expect(fp).toMatch(/^[0-9a-f]{16}$/);
       expect(call.raw).not.toContain(fp);
     }
-    // M6：拒絕不留副作用——那一發沒有再產生 `note_ai_edits` 列（只有前面那發 append 的一列）。
+    // 拒絕不留副作用——那一發沒有再產生 `note_ai_edits` 列（只有前面那發 append 的一列）。
     const rows = await s.ctx.db.select().from(noteAiEdits).where(eq(noteAiEdits.noteId, s.noteId));
     expect(rows).toHaveLength(1);
     expect(rows[0]!.op).toBe("append");
     expect(after.markdown).not.toContain("不該寫進去");
+    s.disconnect();
+  });
+  it("混在內文裡的 <script>／<style>／<iframe>／<object> → unsupported_block 整筆拒絕（以前悄悄拿掉其餘照寫）；內容不變、零紀錄列", async () => {
+    const s = await scene(THREE_SECTIONS);
+    const before = await restOutline(s.ctx.app, s.noteId, s.token);
+    const last = before.outline[before.outline.length - 1]!;
+    const cases: Array<Record<string, unknown>> = [
+      { op: "append", markdown: "新段落\n\n<script>alert(1)</script>" },
+      { op: "replace_section", section_id: last.sectionId, if_match: last.fingerprint, markdown: "# C\n\n<style>p{color:red}</style>改過" },
+      { op: "replace_all", if_match: before.fingerprint, markdown: '# 全換\n\n文字 <iframe src="https://example.com"></iframe> 文字' },
+      { op: "append", markdown: '- 清單 <object data="x"></object>' },
+    ];
+    for (const c of cases) {
+      const err = errorOf(await editNote(s.ctx.app, s.token, { note_id: s.noteId, ...c }));
+      expect(err.code, JSON.stringify(c)).toBe("unsupported_block");
+    }
+    expect((await restOutline(s.ctx.app, s.noteId, s.token)).markdown).toBe(before.markdown);
+    expect(await s.ctx.db.select().from(noteAiEdits).where(eq(noteAiEdits.noteId, s.noteId))).toHaveLength(0);
     s.disconnect();
   });
 });
@@ -454,7 +472,7 @@ describe("#108 edit_note：紀錄、撤回與 presence（案 23／23b）", () =>
     expect(edits).toHaveLength(1);
     expect(edits[0]!.id).toBe(out.editId);
     expect(edits[0]!.op).toBe("append");
-    // #106 D7：MCP 的寫入與 REST 寫入在紀錄上不可區分（§11.1），名牌一樣是 PAT 名稱派生的。
+    // #106：MCP 的寫入與 REST 寫入在紀錄上不可區分，名牌一樣是 PAT 名稱派生的。
     expect(edits[0]!.agentLabel).toBe("claude");
     expect(edits[0]!.revertable).toBe(true);
 
@@ -468,7 +486,7 @@ describe("#108 edit_note：紀錄、撤回與 presence（案 23／23b）", () =>
     s.disconnect();
   });
 
-  it("MCP 的 replace_section → presence 落在寫入後的第一顆 block，不是原 heading 的 id（案 23b／M8）", async () => {
+  it("MCP 的 replace_section → presence 落在寫入後的第一顆 block，不是原 heading 的 id（案 23b）", async () => {
     const s = await scene(THREE_SECTIONS);
     const client = await s.session.connect(s.noteId);
     const clientId = presenceClientId(s.noteId, s.tokenId);
@@ -507,16 +525,16 @@ describe("#108 edit_note：紀錄、撤回與 presence（案 23／23b）", () =>
   });
 });
 
-describe("#108 edit_note：宣告面與 scope 過濾（案 S1／S2／S3）", () => {
-  // ⚠ **這一案是 P6 那個症狀唯一的守衛**：把整個 `editBodySchema`（zod v3 的
+describe("#108 edit_note：宣告面與 scope 過濾", () => {
+  // ⚠ **這一案是那個症狀唯一的守衛**：把整個 `editBodySchema`（zod v3 的
   //   discriminatedUnion）當 `inputSchema` 傳給 `registerTool` **不會 throw、執行期驗證
   //   照常**，但公告出去的 JSON Schema 會靜默變成 `{"type":"object","properties":{}}`
-  //   （entry 從 641 bytes 掉到 126，模型看不到任何欄位）。突變實測（2026-09-08）：本案紅在
+  //   （entry 從 641 bytes 掉到 126，模型看不到任何欄位）。突變實測：本案紅在
   //   `expected [] to deeply equal ['if_match','markdown',…(3)]`。
   // ⚠ 同一條突變在**今天的接線上**還讓另外八案紅，但那是巧合不是守衛——raw shape 有
   //   `note_id` 而 union 每個分支都 `.strict()`，所以每一發呼叫都被判 `unrecognized_keys`。
   //   union 哪天多一個 `note_id` 鍵，那八案就全部恢復綠，只剩本案紅。
-  it("tools/list 的 edit_note.inputSchema.properties 含全部六個欄位名（S1／P6；#180 加 title）", async () => {
+  it("tools/list 的 edit_note.inputSchema.properties 含全部六個欄位名（#180 加 title）", async () => {
     const s = await scene(null);
     const res = await mcpPost(s.ctx.app, rpc("tools/list"), { token: s.token });
     expect(res.statusCode).toBe(200);
@@ -528,10 +546,10 @@ describe("#108 edit_note：宣告面與 scope 過濾（案 S1／S2／S3）", () 
     );
   });
 
-  // ⚠ **不是 `insufficient_scope`**（P16，見檔頭）：註冊時已按 scope 過濾，唯讀憑證拿到的是
+  // ⚠ **不是 `insufficient_scope`**（見檔頭）：註冊時已按 scope 過濾，唯讀憑證拿到的是
   //   SDK 的 (4a) 形——`isError` ＋ 「Tool edit_note not found」＋ **沒有** `structuredContent`。
-  //   本案真正的價值在下半段的四件零副作用（M6）。
-  it("唯讀憑證：tools/list 不含 edit_note，直接呼叫拿到 SDK 的 (4a) 形，且零副作用（S2）", async () => {
+  //   本案真正的價值在下半段的四件零副作用。
+  it("唯讀憑證：tools/list 不含 edit_note，直接呼叫拿到 SDK 的 (4a) 形，且零副作用", async () => {
     const s = await scene(THREE_SECTIONS);
     const { token: ro, tokenId: roTokenId } = await seedTokenForUser(s.ctx.db, s.ownerId, "notes:read", "Reader");
     const list = await mcpPost(s.ctx.app, rpc("tools/list"), { token: ro });
@@ -553,12 +571,12 @@ describe("#108 edit_note：宣告面與 scope 過濾（案 S1／S2／S3）", () 
     expect(call.result.content[0]!.text).toContain("Tool edit_note not found");
     expect(call.result.structuredContent).toBeUndefined();
 
-    // M6 的四件：無新 `note_ai_edits` 列、live doc 內容不變、`documents` 沒多一份、無 presence。
+    // 零副作用的四件：無新 `note_ai_edits` 列、live doc 內容不變、`documents` 沒多一份、無 presence。
     expect(await s.ctx.db.select().from(noteAiEdits).where(eq(noteAiEdits.noteId, s.noteId))).toHaveLength(0);
     expect(docText(s.ctx.collab.hocuspocus.documents.get(s.noteId)!)).toBe(before);
     expect(s.ctx.collab.hocuspocus.documents.size).toBe(docsBefore);
     // ⚠ **這裡不能寫 `awareness.getStates().size === 0`，理由不是「種子留了一條瀏覽器連線」**
-    //   （實測 2026-09-08：`seedContent` 之後 awareness **是空的** size=0——那個 provider
+    //   （實測：`seedContent` 之後 awareness **是空的** size=0——那個 provider
     //   不設 awareness 狀態）。真正的原因是**上面那一發帶 token 的 `GET /content`**
     //   （`restOutline`）touch 了讀取 presence，所以此刻 awareness 恰好有**讀寫那顆 token**
     //   的名牌。所以正確形是釘住**用戶端識別的集合**：唯讀那顆 token 的名牌不得出現。
@@ -568,11 +586,11 @@ describe("#108 edit_note：宣告面與 scope 過濾（案 S1／S2／S3）", () 
     s.disconnect();
   });
 
-  // D-Q：`instructions` 是 **per-request 二選一**（不是相加）。兩支共用同一段 BASE，尾巴
-  // 依憑證挑一支——P11 量過讀寫那支只剩 23 字元餘裕，再追加一句必破 1000。
-  // ⚠ 讀寫版**現在就在講 `create_note`**，而那支工具要到下一棒才存在——那是刻意的（字串是
+  // `instructions` 是 **per-request 二選一**（不是相加）。兩支共用同一段 BASE，尾巴
+  // 依憑證挑一支——讀寫那支只剩 23 字元餘裕，再追加一句必破 1000。
+  // ⚠ 讀寫版**在講 `create_note`**——那是刻意的（字串是
   //   一份）。**本案只斷言字串內容，不得順手加「`tools/list` 含 create_note」那種斷言。**
-  it("instructions 二選一：唯讀版含處置字樣且不提寫入工具，讀寫版講寫入工具，兩版都 ≤ 1000（S3／D-Q）", async () => {
+  it("instructions 二選一：唯讀版含處置字樣且不提寫入工具，讀寫版講寫入工具，兩版都 ≤ 1000", async () => {
     const s = await scene(null);
     const { token: ro } = await seedTokenForUser(s.ctx.db, s.ownerId, "notes:read", "Reader");
 
@@ -584,8 +602,8 @@ describe("#108 edit_note：宣告面與 scope 過濾（案 S1／S2／S3）", () 
     expect(rw).toContain("notes:write");
     expect(rw.length).toBeLessThanOrEqual(1000);
 
-    // D7 的處置字樣：`insufficient_scope` 那條路在 HTTP 上到不了模型，`instructions` 是它
-    // 唯一到得了的落點。對唯讀憑證描述它沒有的工具，與 D32「不宣告我們做不到的 capability」
+    // 處置字樣：`insufficient_scope` 那條路在 HTTP 上到不了模型，`instructions` 是它
+    // 唯一到得了的落點。對唯讀憑證描述它沒有的工具，與「不宣告我們做不到的 capability」
     // 是同一個原則——所以這一版**刻意不提**兩支寫入工具的名字。
     expect(readOnly).toContain("Settings");
     expect(readOnly).toContain("notes:write");
@@ -597,7 +615,7 @@ describe("#108 edit_note：宣告面與 scope 過濾（案 S1／S2／S3）", () 
   });
 });
 
-describe("#241 E-241：append 帶 ifMatch（拼錯的 if_match）", () => {
+describe("#241：append 帶 ifMatch（拼錯的 if_match）", () => {
   it("先斷內容未變、零新 note_ai_edits 列，再斷 SDK 輸入驗證錯誤（無 structuredContent、訊息含 ifMatch）", async () => {
     const s = await scene(THREE_SECTIONS);
     const before = await restOutline(s.ctx.app, s.noteId, s.token);
@@ -616,7 +634,7 @@ describe("#241 E-241：append 帶 ifMatch（拼錯的 if_match）", () => {
 });
 
 describe("#240 大寫 note_id（MCP 寫入）", () => {
-  it("L3 WS 在線、MARK 只在 live doc：大寫 note_id 的 append 寫進小寫那份 live doc", async () => {
+  it("WS 在線、MARK 只在 live doc：大寫 note_id 的 append 寫進小寫那份 live doc", async () => {
     const s = await scene(null);
     const MARK = `MARK-${randomUUID()}`;
     const Y_TEXT = `Y-${randomUUID()}`;

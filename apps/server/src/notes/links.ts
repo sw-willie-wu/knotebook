@@ -1,5 +1,5 @@
 /**
- * `POST /api/notes/:id/links` 的交易寫入核心（spec §12.3，Task 5）。routes/notes.ts 只負責
+ * `POST /api/notes/:id/links` 的交易寫入核心。routes/notes.ts 只負責
  * body 驗證、權限矩陣與 `linkSyncGate` 呼叫；本檔專責「正規化目標集合」與「單一交易內
  * CAS clock + 批次授權 + 整組取代 note_links」的重試外殼（交易本體在 `tx/write-links.ts`，#175 S14）。
  */
@@ -26,7 +26,7 @@ export type NormalizeLinkTargetsResult = { ok: true; targets: string[] } | { ok:
  * #240：比較前先把來源與每個目標轉小寫——`note_links` 是 uuid 欄（DB 不分大小寫），JS 端若分大小寫，
  * 大寫的自身 id 會過自身過濾、寫進 uuid 欄時被正規化成小寫而成為自連結，大小寫變體也會各佔一個
  * `MAX_LINK_TARGETS` 名額。兩個呼叫端（`POST /links`、`syncLinksFromDoc`）都經過這裡。
- * 守衛＝`links-normalize.test.ts` 的 #240 族、`collab-links.test.ts` R9／R9b。
+ * 守衛＝`links-normalize.test.ts` 的 #240 族、`collab-links.test.ts`。
  */
 export function normalizeLinkTargets(sourceNoteId: string, rawTargetIds: string[]): NormalizeLinkTargetsResult {
   const self = sourceNoteId.toLowerCase();
@@ -51,7 +51,7 @@ export interface WriteNoteLinksHooks {
 export type WriteNoteLinksOutcome = "applied" | "noop" | "busy";
 
 /**
- * 單次交易嘗試：本體在 `tx/write-links.ts` 的 `writeLinksInTx`（#175 S14，§6 T15——只收 `tx`，碰不到 pool）。
+ * 單次交易嘗試：本體在 `tx/write-links.ts` 的 `writeLinksInTx`（#175 S14——只收 `tx`，碰不到 pool）。
  * 語意（CAS clock → 批次授權 owned ∪ shared ∪ grouped(can_read) → 測試縫 → 整組取代）寫在那支的檔頭。
  */
 async function attemptOnce(db: Db, params: WriteNoteLinksParams, hooks: WriteNoteLinksHooks): Promise<"applied" | "noop"> {
@@ -87,18 +87,19 @@ export async function writeNoteLinks(db: Db, params: WriteNoteLinksParams, hooks
 
 /**
  * 從一份 Y.Doc 抽出 wikilink 目標、以 `userId` 的身分寫進 `sourceNoteId` 的出向 `note_links`（`writeNoteLinks`）。
- * 原本是 `notes/editing/apply.ts` 的 `updateNoteLinks` 本體（#106 的 AI 寫入／撤回路徑），#175 PR2 搬來與複製
- * （`POST /api/notes/:id/copy` commit 後寫副本的出向連結，spec §6.5）共用；`updateNoteLinks` 改成委派到這裡。
+ * 原本是 `notes/editing/apply.ts` 的 `updateNoteLinks` 本體（#106 的 AI 寫入／撤回路徑），#175 搬來與複製
+ * （`POST /api/notes/:id/copy` commit 後寫副本的出向連結）共用；`updateNoteLinks` 改成委派到這裡。
  * deps 收窄成只要 `db` 與 `log.warn`。
  */
 export async function syncLinksFromDoc(
   deps: { db: Db; log: { warn(o: object, m: string): void } },
-  p: { sourceNoteId: string; userId: string; doc: Y.Doc; clock: number },
+  p: { sourceNoteId: string; userId: string; clock: number } & ({ doc: Y.Doc } | { targets: string[] }),
 ): Promise<void> {
   // 這裡的濾自連結與 slice 分大小寫：目標超過 MAX_LINK_TARGETS 且含大小寫變體時，變體可能先佔名額
-  // （spec §5.5 接受）；最終集合由 `normalizeLinkTargets` 轉小寫後收斂。
+  // （可接受）；最終集合由 `normalizeLinkTargets` 轉小寫後收斂。
   // 濾自連結排在 slice 之前，所以與 sourceNoteId 同形的 self-link 不會佔掉名額。
-  const deduped = extractLinkTargets(p.doc).filter(t => t !== p.sourceNoteId);
+  // `targets`：worker 已在編輯後的文件上抽好（`doc-jobs.ts` 的 `DocPost.linkTargets`，同一支 `extractLinkTargets`）。
+  const deduped = ("targets" in p ? p.targets : extractLinkTargets(p.doc)).filter(t => t !== p.sourceNoteId);
   const trimmed = deduped.slice(0, MAX_LINK_TARGETS);
   if (trimmed.length < deduped.length) deps.log.warn({ noteId: p.sourceNoteId, kept: trimmed.length, dropped: deduped.length - trimmed.length }, "wikilink 目標超過 MAX_LINK_TARGETS，已截斷");
   const norm = normalizeLinkTargets(p.sourceNoteId, trimmed);
@@ -118,20 +119,20 @@ export async function syncLinksFromDoc(
 }
 
 /**
- * `GET /api/notes/:id/backlinks` 的查詢核心（spec §12.3）：routes/notes.ts 只負責先用
+ * `GET /api/notes/:id/backlinks` 的查詢核心：routes/notes.ts 只負責先用
  * `resolveRole` 判斷呼叫者對「被查詢的筆記本身」有沒有讀取權（none → 404）；本函式回答
  * 另一個問題——連到該筆記的**來源**筆記裡，哪些是呼叫者看得到的（owner、有分享，或所屬群組裡角色可讀）。
  *
  * 單一 SQL、讀者授權述詞 inline：`note_links` JOIN `notes`（來源筆記）鎖定
  * `target_note_id = :targetNoteId`，分成三支：`ownedSelect`（來源筆記 owner_id = 呼叫者）、
  * `sharedSelect`（來源筆記是個人筆記〔`group_id IS NULL`〕且在 `note_shares` 有呼叫者的一列——群組筆記上的
- * 殘留分享列不算，規格落差 2）、`groupedSelect`（#175 §5.3：來源筆記所屬群組有呼叫者這位成員，且其角色
+ * 殘留分享列不算）、`groupedSelect`（#175：來源筆記所屬群組有呼叫者這位成員，且其角色
  * `can_read`），`union()`（非 `unionAll`——形狀比照 `writeLinksInTx` 的批次授權查詢：用真正的 SQL UNION 讓
  * 「同一來源筆記兩邊都命中」這種邊界情況天然被去重，不必額外加 `ne(ownerId, userId)` 排除）。
  * **不對每篇來源筆記各自呼叫 `resolveRole`**——那樣是 N+1 查詢，且審查會抓到「來源筆記存在性/標題被無權限地
  * 個別洩漏」的風險。
  *
- * `ORDER BY notes.updated_at DESC, notes.id DESC LIMIT MAX_BACKLINKS`（spec 逐字）：次要
+ * `ORDER BY notes.updated_at DESC, notes.id DESC LIMIT MAX_BACKLINKS`：次要
  * 排序鍵 `id DESC` 必須有——`updated_at` 是 `defaultNow()`，同一交易內批次 insert 的
  * fixture（測試造時序）時間戳會完全相同，缺了次要鍵會讓 LIMIT 邊界不確定、排序斷言
  * flake（`routes/notes.ts` 的 `GET /api/notes` 列表查詢已踩過同一雷，見該處註解）。
@@ -140,7 +141,7 @@ export async function syncLinksFromDoc(
  * `notes.updated_at` 只用來排序、不進 `BacklinkDto`（回應形狀是 `{id, title, slug,
  * ownerHandle, groupId}`——三支都 LEFT JOIN `users` 帶出來源筆記 owner 的 username〔群組筆記沒有 owner，
  * 為 null〕，並帶來源筆記的 `groupId`；BacklinksSection 以兩者組 `/n/` 或 `/g/` 連結）。
- * #181 §6.2-4：**來源**筆記在垃圾桶裡的不列（三支各帶 `deleted_at IS NULL`；`notes` 在這裡是來源）。
+ * #181：**來源**筆記在垃圾桶裡的不列（三支各帶 `deleted_at IS NULL`；`notes` 在這裡是來源）。
  */
 export async function fetchBacklinks(db: Db, targetNoteId: string, userId: string): Promise<BacklinkDto[]> {
   // `ownerHandle` 包 `sql<string | null>` 只為與 `list-query.ts` 的 `baseColumns` 同形——這裡三支都 LEFT JOIN
@@ -167,7 +168,7 @@ export async function fetchBacklinks(db: Db, targetNoteId: string, userId: strin
     .innerJoin(notes, eq(notes.id, noteLinks.sourceNoteId))
     .innerJoin(noteShares, and(eq(noteShares.noteId, notes.id), eq(noteShares.userId, userId)))
     .leftJoin(users, eq(users.id, notes.ownerId))
-    // 規格落差 2／gate r1 A-M6：群組筆記上的殘留分享列（S5 破裂）不算——同 §5.3 清單的 shared 支。
+    // 群組筆記上的殘留分享列（群組筆記不該有分享列）不算——同清單的 shared 支。
     .where(and(eq(noteLinks.targetNoteId, targetNoteId), isNull(notes.groupId), isNull(notes.deletedAt)));
 
   const groupedSelect = db

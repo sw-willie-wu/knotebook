@@ -3,8 +3,8 @@ import { createCollabHooks, DELETING_GATE_TTL_MS, REVERIFY_DEADLINE_MS } from ".
 import type { CollabServer, ConnectionHandle } from "../../src/collab/server.js";
 
 /**
- * 兩組東西：`beforeNoteDeleted` 開的閘門與它回傳的 `release()` handle（issue #35 審查
- * round 3／4），以及重驗 deadline 那一行日誌的守衛（issue #37 補審）。
+ * 兩組東西：`beforeNoteDeleted` 開的閘門與它回傳的 `release()` handle（issue #35
+ * ），以及重驗 deadline 那一行日誌的守衛（issue #37）。
  *
  * 這一層在 server 那側的測試看不到：整合測試直接呼叫 `collab.markDeleting/releaseDeletingGate`，
  * 而 `notes.test.ts` 用的是 mock 過的 hook。於是 hooks-impl 這邊的兩個修正——「重開閘門前先清掉
@@ -63,6 +63,7 @@ function fakeHandle(noteId: string, userId: string): ConnectionHandle {
     socketId: "s1",
     noteId,
     userId,
+    sessionId: undefined,
     requestToken: () => {},
     close: () => {},
     setReadOnly: () => {},
@@ -75,7 +76,7 @@ function fakeHandle(noteId: string, userId: string): ConnectionHandle {
  * ⚠ 這條 timer 對「已經關閉的連線」fire 是刻意的冪等 no-op，所以**使用者自己關掉分頁**也會
  * 走到這裡。照記的話，docs 排錯指引最倚重的那一行（「他若堅持自己還有權限，這行說了不是」）
  * 會指著一個根本沒被踢的人。守衛是「這條連線還在索引裡嗎」，而它自己也得有測試——不然
- * 拿掉它不會有任何測試變紅（這一族在 round 3→4 就踩過同一個形狀）。
+ * 拿掉它不會有任何測試變紅（這一族曾踩過同一個形狀）。
  */
 describe("重驗 deadline 的日誌", () => {
   const USER = "22222222-2222-2222-2222-222222222222";
@@ -110,7 +111,7 @@ describe("重驗 deadline 的日誌", () => {
     await vi.advanceTimersByTimeAsync(REVERIFY_DEADLINE_MS + 100);
 
     // 標題說「一行都不記」就整份斷言——只濾 deadline 的話，catch 分支寫出的 error 行會被
-    // 放過，而那句話就變成半真（審查指出）。
+    // 放過，而那句話就變成半真。
     expect(lines).toEqual([]);
   });
 });
@@ -149,7 +150,7 @@ describe("beforeNoteDeleted 的閘門 handle", () => {
   });
 });
 
-/** #181 §6.4.3：還原 commit 後收掉刪除閘門。 */
+/** #181：還原 commit 後收掉刪除閘門。 */
 describe("onNotesRestored", () => {
   const OTHER = "33333333-3333-3333-3333-333333333333";
 

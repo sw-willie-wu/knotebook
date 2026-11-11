@@ -43,7 +43,7 @@ describe("MermaidExternalHTML — 匯出", () => {
 describe("貼上（HTML 路徑）真正的落點", () => {
   it("⚠ <pre><code class=\"language-mermaid\"> 經 BlockNote 解析後是 codeBlock，不是 mermaid block", async () => {
     // 這條釘的是「為什麼這支 spec 沒有 `parse` 規則」：BlockNote 內建 codeBlock 的 `pre` 規則
-    // 優先序更高，自訂 `parse` 永遠不會被呼叫（2026-08-28 審查實測）。HTML 與 markdown 兩條
+    // 優先序更高，自訂 `parse` 永遠不會被呼叫（實測）。HTML 與 markdown 兩條
     // 貼上路徑都先變成 codeBlock，再由 `collab/mermaid-paste.ts` 在 blocks 層轉成圖。
     // 哪天 BlockNote 改了優先序、這條轉紅，才是可以考慮加回 `parse` 規則的時候。
     const editor = BlockNoteEditor.create({ schema: noteSchema });
@@ -63,7 +63,7 @@ describe("commitCode — 寫回原始碼", () => {
   });
 
   it("⚠ block 已被遠端刪掉時不得外拋（共編下的實際情境）", () => {
-    // `updateBlock` 對不存在的 block 會 throw `Block with ID … not found`（審查實測）。
+    // `updateBlock` 對不存在的 block 會 throw `Block with ID … not found`。
     // 例外從 React 事件 handler 拋出去，對使用者就是「剛打的原始碼無聲消失」。
     const updateBlock = vi.fn(() => {
       throw new Error("Block with ID b1 not found");

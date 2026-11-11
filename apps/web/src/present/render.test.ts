@@ -33,7 +33,7 @@ function slideHost(sections: RenderedSection[], h: number, v = 0): HTMLDivElemen
   return host;
 }
 
-describe("renderDeck：XSS 不變式（spec §13.1 渲染管線）", () => {
+describe("renderDeck：XSS 不變式（渲染管線）", () => {
   it("wikilink snapshotTitle 是 <img src=x onerror=…> → 只是文字", () => {
     const sections = deck([{ type: "paragraph", content: [{ type: "wikilink", props: { targetNoteId: "n1", snapshotTitle: "<img src=x onerror=alert(1)>" } }] }]);
     const host = slideHost(sections, 0);
@@ -67,7 +67,7 @@ describe("renderDeck：XSS 不變式（spec §13.1 渲染管線）", () => {
     expect(sections[0].slides[0].content!.mermaid).toEqual([]);
   });
 
-  it("javascript: 媒體 → img 還在、沒有 src 或 src 為 about:blank、絕不是 javascript:（Q6：§5.4-3 的 regexp 不收 about:blank，消毒器刪掉 src）", () => {
+  it("javascript: 媒體 → img 還在、沒有 src 或 src 為 about:blank、絕不是 javascript:（regexp 不收 about:blank，消毒器刪掉 src）", () => {
     const sections = deck([{ type: "image", props: { url: "javascript:alert(1)" } }]);
     const img = slideHost(sections, 0).querySelector("img");
     expect(img).not.toBeNull();
@@ -76,7 +76,7 @@ describe("renderDeck：XSS 不變式（spec §13.1 渲染管線）", () => {
     expect(src ?? "").not.toMatch(/^javascript:/i);
   });
 
-  it("消毒層確實接在管線上：BlockNote 匯出的 class／style／data-language／data-node-view-wrapper 都被刪（r1-p1 M-2b）", () => {
+  it("消毒層確實接在管線上：BlockNote 匯出的 class／style／data-language／data-node-view-wrapper 都被刪", () => {
     const sections = deck(
       [
         { type: "codeBlock", props: { language: "ts" }, content: "x" },
@@ -131,13 +131,13 @@ describe("renderDeck：頁別處理", () => {
 });
 
 describe("renderDeck：封面、比對鍵", () => {
-  it("RF3：標題含標記 → 封面 <h1> 只有文字", () => {
+  it("標題含標記 → 封面 <h1> 只有文字", () => {
     const host = slideHost(deck([], "<img src=x onerror=alert(1)>"), 0);
     expect(host.querySelector("h1")!.textContent).toBe("<img src=x onerror=alert(1)>");
     expect(host.querySelector("img")).toBeNull();
   });
 
-  it.each(["", "   "])("RF3：空／空白標題 %j → note.titlePlaceholder＋kn-present-untitled", (title) => {
+  it.each(["", "   "])("空／空白標題 %j → note.titlePlaceholder＋kn-present-untitled", (title) => {
     const h1 = slideHost(deck([], title), 0).querySelector("h1")!;
     expect(h1.textContent).toBe("Untitled");
     expect(h1.className).toBe("kn-present-untitled");
@@ -173,8 +173,8 @@ describe("renderDeck：封面、比對鍵", () => {
   });
 });
 
-describe("renderDeck：並排（columns-layout spec §11.8）", () => {
-  it("PR1：含列的 Y.Doc → 投影片內有 [data-kb-columns]，列與兩欄的正規形 style 保留、沒有 data-nesting-level", () => {
+describe("renderDeck：並排", () => {
+  it("含列的 Y.Doc → 投影片內有 [data-kb-columns]，列與兩欄的正規形 style 保留、沒有 data-nesting-level", () => {
     const host = slideHost(deck([row([[P("L", "l")], [P("R", "r")]], "row", [1.5, 1])]), 0);
     const list = host.querySelector("[data-kb-columns]");
     expect(list).not.toBeNull();

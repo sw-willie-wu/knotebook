@@ -1,5 +1,5 @@
 /**
- * 並排的版面外掛（spec 2026-10-21 columns-layout §6、§8、§11.7）：整列堆疊與「只含圖片的欄」標記，外加欄內圖片把手（`image-resize.ts`）。
+ * 並排的版面外掛：整列堆疊與「只含圖片的欄」標記，外加欄內圖片把手（`image-resize.ts`）。
  *
  * - 為何掛在 block spec（`withColumnsLayout`，web `collab/schema.ts` 的 `columnList`）而不是編輯器選項：凡是用 `noteSchema` 的編輯器
  *   （筆記頁、公開頁、版本預覽、框選 AI 預覽）都要堆疊，而唯讀選項規定不得有 `_tiptapOptions`（`editor-options.test.ts`）。
@@ -7,7 +7,7 @@
  *   簡報的匯出 schema（`present/schema.ts` 展開 `noteSchema.blockSpecs`）也帶著它，但那個編輯器從不 mount，plugin view 不會跑。
  * - 函式形 `createExtension(fn)()`：每個編輯器各自執行 fn，拿得到 editor、各有自己的 plugin 實例。
  * - 結果以 node decoration 掛在列與欄上（`data-stacked`、`data-kb-col-kind`），不直接改 PM 管的 DOM——直接改屬性會被 PM 的
- *   DOMObserver 當成文件變更來讀（spec §6、gate M-4；jsdom 驗不到，交 e2e）。也不輸出 `style`：欄的 renderHTML 先寫 `flex:N 1 0`，decoration 的 style 會蓋掉它。
+ *   DOMObserver 當成文件變更來讀（jsdom 驗不到，交 e2e）。也不輸出 `style`：欄的 renderHTML 先寫 `flex:N 1 0`，decoration 的 style 會蓋掉它。
  * - 列寬用 `ResizeObserver` 量（`clientWidth`）。`clientWidth` 為 0（未排版、隱藏）→ 不堆疊（`shouldStack`）。
  *   `view()` 建立時就掃一次並 observe：mount 之後沒有交易時 `update()` 不會被呼叫（靜態唯讀編輯器）。
  * - 欄的種類會隨內容變、列寬不變時 RO 不觸發 → 文件改變時用最近量到的寬度（以列 id 記）重算。
@@ -16,6 +16,7 @@ import { createExtension, type ExtensionOptions } from "@blocknote/core";
 import { COLUMN_LIST_TYPE, COLUMN_TYPE } from "@knotebook/shared";
 import { Decoration, DecorationSet } from "prosemirror-view";
 import { createPmPlugin } from "../pm-plugin";
+import { attachDragSourceRecorder } from "./drag-source";
 import { attachColumnImageResize } from "./image-resize";
 import { columnKindOf, shouldStack, type ColumnKind, type PMNodeLike } from "./layout";
 
@@ -149,7 +150,11 @@ function createStackingPlugin(): never {
 export const columnsLayoutExtension = createExtension(({ editor }: ExtensionOptions<undefined>) => ({
   key: "knotebookColumnsLayout",
   prosemirrorPlugins: [createStackingPlugin()],
-  mount: ({ dom, signal }: { dom: HTMLElement; signal: AbortSignal }) => attachColumnImageResize(editor, dom, signal),
+  mount: ({ dom, signal }: { dom: HTMLElement; signal: AbortSignal }) => {
+    attachColumnImageResize(editor, dom, signal);
+    // 拖曳來源記錄器跟著編輯器的 mount／unmount（signal）走：凡是用 `noteSchema` 的編輯器都有，唯讀時記 null。
+    attachDragSourceRecorder(editor, dom, signal);
+  },
 }))();
 
 interface BlockSpecLike {

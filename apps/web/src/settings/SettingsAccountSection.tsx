@@ -19,7 +19,7 @@ function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string
 }
 
 /**
- * 顯示名稱（#247 §5.2、W19）：別人在分享面板、版本歷史、群組成員表看到的名字。與網址名稱分開兩個區塊。
+ * 顯示名稱（#247）：別人在分享面板、版本歷史、群組成員表看到的名字。與網址名稱分開兩個區塊。
  * 送出前 client 端只擋「trim 後空白」與「超過 100 個 code point」（`[...s].length`，不是 `.length`——
  * emoji 一個字佔兩個 UTF-16 單位）；其餘（NUL、落單代理）交給 server 400 `invalid_body`。
  */
@@ -79,12 +79,12 @@ function DisplayNameSection() {
 
 /**
  * 網址名稱（handle，#122；#247 起 UI 稱『網址名稱』）編輯段——**兩個帳號分支（有密碼／SSO-only）都渲染**
- * （plan gate M5：SSO 使用者正是 handle 派生自 preferred_username、最可能想改名的
+ * （SSO 使用者正是 handle 派生自 preferred_username、最可能想改名的
  * 族群；原本的 hasPassword 早退分支已重構）。
  *
  * - 送出前在前端先 normalize＋validate（非法格式就地呈現、不打 API）；伺服器仍是
  *   最終裁決（409 handle_taken／429 額度）。
- * - 警語文案刻意含 `/n/`、`/p/` 網址形（PR2/3 緊隨，文案一次寫全——非 drift）。
+ * - 警語文案刻意含 `/n/`、`/p/` 網址形（兩種網址都會受影響）。
  * - 成功後 useUpdateHandle 的 onSuccess 先 setQueryData 更新 session、再 invalidateQueries 全清（見 api/profile.ts 的取捨說明）。
  */
 function HandleSection() {
@@ -118,7 +118,7 @@ function HandleSection() {
       title={t("settings.account.handleTitle")}
       description={t("settings.account.handleDescription")}
     >
-      {/* form＋type=submit（讀碼審查 m3）：單欄位表單使用者必按 Enter——比照
+      {/* form＋type=submit：單欄位表單使用者必按 Enter——比照
           ShareDialog/ChangePasswordForm 的既有形 */}
       <form
         className="flex items-center gap-2"
@@ -151,7 +151,7 @@ function HandleSection() {
 }
 
 /**
- * 個人設定「帳戶資訊」（`/settings/account`，#247 §5.2、W19）：顯示名稱與網址名稱兩區塊。密碼與已連結登入方式
+ * 個人設定「帳戶資訊」（`/settings/account`，#247）：顯示名稱與網址名稱兩區塊。密碼與已連結登入方式
  * 在「登入」頁、API token 在「授權」頁、用量與自動版本在「儲存空間」頁。
  */
 export function SettingsAccountSection() {

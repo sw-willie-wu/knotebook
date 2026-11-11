@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
 import { SignJWT, jwtVerify } from "jose";
 import { COLLAB_TOKEN_TTL_SECONDS, type CollabTokenClaims, type Role } from "@knotebook/shared";
+import { SID_RE } from "../auth/session.js";
 
 // jose 的 duration 字串只認 "<數字><單位>"（s/m/h/d/w/y）——比照 `auth/session.ts` 的
-// SESSION_TTL 模式，直接由 shared 那個以秒為單位的常數算出，不在這裡另寫一份字面量。
+// `signSession`（`${ttlSeconds}s`），直接由 shared 那個以秒為單位的常數算出，不在這裡另寫一份字面量。
 const COLLAB_TOKEN_TTL = `${COLLAB_TOKEN_TTL_SECONDS}s`;
 
 const ROLES: readonly Role[] = ["owner", "editor", "viewer", "none"];
@@ -20,14 +21,14 @@ function collabKey(secret: string): Uint8Array {
 }
 
 /**
- * 簽發 collab token：claims 含 noteId/role/tv，供 Hocuspocus `onAuthenticate`
- * （Task 5）與之後的 `onTokenSync` 重驗權限用。**`role:'none'` 也可以簽**——
+ * 簽發 collab token：claims 含 noteId/role/tv/sid，供 Hocuspocus `onAuthenticate`
+ * 與之後的 `onTokenSync` 重驗權限用。**`role:'none'` 也可以簽**——
  * `POST /api/notes/:id/collab-token` 對無權限的使用者一律回 200 + 這種 token
- * （spec §5/§8-2 的關鍵契約，見 `routes/notes.ts`），不是簽發失敗。
+ * （關鍵契約，見 `routes/notes.ts`），不是簽發失敗。
  */
 export async function signCollabToken(appSecret: string, claims: CollabTokenClaims): Promise<string> {
   const key = collabKey(appSecret);
-  return new SignJWT({ noteId: claims.noteId, role: claims.role, tv: claims.tv, sv: claims.sv })
+  return new SignJWT({ noteId: claims.noteId, role: claims.role, tv: claims.tv, sid: claims.sid, sv: claims.sv })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(claims.userId)
     .setIssuedAt()
@@ -43,17 +44,19 @@ export async function verifyCollabToken(appSecret: string, token: string): Promi
     if (typeof payload.sub !== "string") return null;
     if (typeof payload.noteId !== "string") return null;
     if (typeof payload.tv !== "number") return null;
+    // #388：沒有 `sid`（升級前簽的）或 sid 不是 uuid 形狀（比照 `verifySession`）的 token 視為壞 token；client 重取時用的 session cookie 也一樣沒有 sid → 401 → 走未登入流程。
+    if (typeof payload.sid !== "string" || !SID_RE.test(payload.sid)) return null;
     if (!isRole(payload.role)) return null;
     // #269：`sv` 缺席（閘門前簽的 token）或不是整數 ⇒ 0，**不視為壞 token**——由 onAuthenticate 的閘門以 client-outdated 拒。
     const sv = typeof payload.sv === "number" && Number.isInteger(payload.sv) ? payload.sv : 0;
-    return { userId: payload.sub, noteId: payload.noteId, role: payload.role, tv: payload.tv, sv };
+    return { userId: payload.sub, noteId: payload.noteId, role: payload.role, tv: payload.tv, sid: payload.sid, sv };
   } catch {
     return null;
   }
 }
 
 /**
- * #269 §5.1-2：`POST /api/notes/:id/collab-token` 的 body 選配；`noteSchemaVersion` 缺席或不是整數 ⇒ 0。
+ * #269：`POST /api/notes/:id/collab-token` 的 body 選配；`noteSchemaVersion` 缺席或不是整數 ⇒ 0。
  * 端點仍對所有人回 200（不洩漏契約不變），版本不符由 onAuthenticate 拒。
  */
 export function schemaVersionFromBody(body: unknown): number {

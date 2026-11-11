@@ -8,8 +8,8 @@ import { useSidebarTabActions } from "@/lib/sidebar-tab";
 import { trashResultMessage } from "@/lib/trash-display";
 
 /**
- * 筆記頁解析層拿到 404 `in_trash` 時的卡片（spec §6.10.5）：只有有垃圾桶權的人會拿到 in_trash。
- * 必須渲染在 AppShell 的 children 內（用 actions context 的 showTab；PR-1 預留點 4）。
+ * 筆記頁解析層拿到 404 `in_trash` 時的卡片：只有有垃圾桶權的人會拿到 in_trash。
+ * 必須渲染在 AppShell 的 children 內（用 actions context 的 showTab）。
  * - 還原成功 → `onRestored()`（呼叫端重抓解析層，畫面換成筆記即回饋，不另 toast）。
  * - 全略過（已被別人還原、或已永久刪除）→ toast 結果句＋`onRestored()`：重抓後落到筆記或連結無效出口。
  * - 失敗 → toast `errors.<code>`，卡片留著可再按。

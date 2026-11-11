@@ -6,6 +6,7 @@ import type { UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
 import { AppRoutes } from "./App";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 /**
  * Issue #66 接線案 11／11a：釘 App.tsx **真的**把 /notes/:ref 包進
@@ -79,6 +80,7 @@ function stubFetch() {
       if (url === "/api/auth/me") {
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(ADMIN_USER) }));
       }
+      if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
       if (url === "/api/notes") {
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
       }
@@ -130,9 +132,9 @@ describe("App route tree — /notes/:ref 的 ErrorBoundary 接線（issue #66 �
 
     // B 專屬元素（chunk 分支文案＋重試鈕）。⚠ 不得改斷 AppShell 招牌（「New note」）
     // ——B 畫面與 Suspense fallback 都包 AppShell，那樣拿掉 boundary 也綠。
-    // timeout 放寬：這是「最終到達某狀態」的等待，守門力在斷言內容不在等待長度；
-    // 預設 1s 在冷啟高負載下（fetch→react-query→lazy→分類→setState 整條鏈）餘裕太薄
-    await waitFor(() => expect(screen.getByText(CHUNK_ERROR_TEXT)).toBeInTheDocument(), { timeout: 3_000 });
+    // 這是「最終到達某狀態」的等待，守門力在斷言內容不在等待長度；冷啟高負載下
+    //（fetch→react-query→lazy→分類→setState 整條鏈）的餘裕靠 test/setup.ts 的全域 asyncUtilTimeout
+    await waitFor(() => expect(screen.getByText(CHUNK_ERROR_TEXT)).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
   });
 
@@ -142,7 +144,7 @@ describe("App route tree — /notes/:ref 的 ErrorBoundary 接線（issue #66 �
 
     renderNoteRoute();
 
-    await waitFor(() => expect(screen.getByText("notepage-mock-ok")).toBeInTheDocument(), { timeout: 3_000 });
+    await waitFor(() => expect(screen.getByText("notepage-mock-ok")).toBeInTheDocument());
     expect(sessionStorage.getItem(FLAG_KEY)).toBeNull();
   });
 });

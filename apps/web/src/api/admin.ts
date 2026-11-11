@@ -19,7 +19,7 @@ export interface AdminUserDto {
   isAdmin: boolean;
   disabledAt: string | null;
   createdAt: string;
-  /** #247 §9.5：最後一次登入（ISO）；null＝升級後尚未登入過。#267 起使用者表不再顯示它。 */
+  /** #247：最後一次登入（ISO）；null＝升級後尚未登入過。#267 起使用者表不再顯示它。 */
   lastLoginAt: string | null;
   /** #267：最後一次帶 session 的請求、共編連線或編輯、或登入（ISO）；null＝從無紀錄。使用者表「最後活動」欄讀它。 */
   lastActiveAt: string | null;
@@ -27,7 +27,7 @@ export interface AdminUserDto {
   hasPassword: boolean;
   /** #286：未用、未撤銷、未過期那一支重設連結的到期時間（ISO）；null＝沒有。帳密登入關閉期間照樣顯示。 */
   passwordResetExpiresAt: string | null;
-  /** 儲存配額 §7.2、§7.4：個人空間的方案與用量（GET／PATCH storage-plan 都帶）。 */
+  /** 儲存配額：個人空間的方案與用量（GET／PATCH storage-plan 都帶）。 */
   storage: SpaceStorageDto;
 }
 
@@ -134,13 +134,13 @@ export function usePromoteAdminUser() {
   return useAdminUserAction("promote");
 }
 
-/** #247 §9.4：`POST /api/admin/users/:id/demote`（204；400 `cannot_demote_self`、409 `last_site_admin`）。 */
+/** #247：`POST /api/admin/users/:id/demote`（204；400 `cannot_demote_self`、409 `last_site_admin`）。 */
 export function useDemoteAdminUser() {
   return useAdminUserAction("demote");
 }
 
 /**
- * `PATCH /api/admin/users/:id/storage-plan`（spec §7.2）：回傳更新後的整列 → 直接換掉清單裡那一列（下拉立刻顯示新方案，
+ * `PATCH /api/admin/users/:id/storage-plan`：回傳更新後的整列 → 直接換掉清單裡那一列（下拉立刻顯示新方案，
  * 不等重抓）；方案人數與自己的用量（若改的是自己）另行失效。
  */
 export function useAssignUserPlan() {

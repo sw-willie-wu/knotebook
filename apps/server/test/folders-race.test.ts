@@ -1,6 +1,6 @@
 /**
- * 資料夾 PR-3a T12：併發（上）——刪資料夾與各操作（spec docs/superpowers/specs/2026-10-22-folders-design.md §6.18 第三點、
- * §5.4；plan 附錄 A 鎖序表）。以拋棄式 pg 實跑：一方卡在自己交易內的縫，另一方送出後以 `waitForLockWaiters` 確認它真的在等鎖，
+ * 資料夾：併發（上）——刪資料夾與各操作（第三點、
+ * 鎖序表）。以拋棄式 pg 實跑：一方卡在自己交易內的縫，另一方送出後以 `waitForLockWaiters` 確認它真的在等鎖，
  * 放行後斷言結果只會是指定的那一種。每組兩種先後（「刪先」與「對方先」）；每案都斷言沒有 409 `server_busy`（40P01 經
  * `isRetryableTxError` 會變成它）與資料一致（沒有指向不存在資料夾的筆記或放置、活筆記沒有快照）。
  */
@@ -17,7 +17,7 @@ import { buildCollabTestApp, type CollabTestCtx } from "./helpers.js";
 import { inject, markTrashed, sixRoleScene, trashCols } from "./trash-helpers.js";
 
 type Res = LightMyRequestResponse;
-const CHANGED = "資料夾內容剛變動，請再試一次";
+const CHANGED = "The folder's contents just changed. Try again.";
 
 const delFolder = (app: FastifyInstance, by: string, id: string) => inject(app, "DELETE", `/api/folders/${id}`, by);
 const place = (app: FastifyInstance, by: string, noteId: string, folderId: string | null) => inject(app, "PUT", `/api/notes/${noteId}/folder`, by, { folderId });
@@ -123,10 +123,25 @@ async function scene(): Promise<Scene> {
   };
 }
 
-/** first 卡在 point；second 送出並確認在等鎖；放行。回 [first, second] 的回應，並斷言都不是 server_busy／5xx。 */
-async function race(s: Scene, point: GroupRacePoint, first: () => Promise<Res>, second: () => Promise<Res>): Promise<[Res, Res]> {
+/**
+ * first 卡在 point；second 送出並確認在等鎖；放行。回 [first, second] 的回應，並斷言都不是 server_busy／5xx。
+ * `holdSecondUntilFirstReplies`：second 拿到鎖、走到這個縫之後，等 first 回完應答才繼續——first commit 之後在鎖外重讀組回應，
+ * 不讓 second 搶在重讀前 commit（那會讓 first 偶爾回成 404）。同 `trash-race-ops.test.ts` 的 `opFirst`。
+ */
+async function race(
+  s: Scene,
+  point: GroupRacePoint,
+  first: () => Promise<Res>,
+  second: () => Promise<Res>,
+  holdSecondUntilFirstReplies?: GroupRacePoint,
+): Promise<[Res, Res]> {
+  // Seams 以點名為鍵：同一點後登記的會蓋掉 first 的 hold。
+  if (holdSecondUntilFirstReplies === point) throw new Error(`holdSecondUntilFirstReplies 不能與 point 同為 ${point}`);
   const h = s.seams.hold(point);
-  const p1 = first();
+  let replied!: () => void;
+  const firstReplied = new Promise<void>(r => { replied = r; });
+  if (holdSecondUntilFirstReplies !== undefined) s.seams.on(holdSecondUntilFirstReplies, () => firstReplied);
+  const p1 = first().finally(() => replied());
   await entered(h.entered, p1);
   const p2 = second();
   await blockedOrBail(s.pool, 1, h.open, [p1, p2]);
@@ -235,7 +250,7 @@ describe("RF-PO 刪資料夾與放置出子樹", () => {
     await expectConsistent(s.pool);
   });
 
-  it("放置先：刪重評述詞、不再鎖到它 → 刪 200、trashedNoteIds 不含它、它的閘門被收（M1）、筆記在新位置活著", async () => {
+  it("放置先：刪重評述詞、不再鎖到它 → 刪 200、trashedNoteIds 不含它、它的閘門被收、筆記在新位置活著", async () => {
     const s = await scene();
     const t = await personalTree(s);
     const n = await noteIn(s, { ownerId: t.u }, t.G);
@@ -270,7 +285,9 @@ describe("RF-PI 刪資料夾與子樹內放置", () => {
     const t = await personalTree(s);
     const H = (await seedFolder(s.db, { personal: t.u }, { parentId: t.F, name: "H" })).id;
     const n = await noteIn(s, { ownerId: t.u }, t.G);
-    const [pr, dr] = await race(s, "note-folder-locked", () => place(s.app, t.u, n, H), () => delFolder(s.app, t.u, t.F));
+    // 刪資料夾鎖完子樹筆記後停在 folder-delete-notes-locked 等放置回完應答，不和放置 commit 後的重讀競速
+    // （刪資料夾呼叫 `trashNotesInTx` 不帶 hook，note-trash-locked 不會觸發）。
+    const [pr, dr] = await race(s, "note-folder-locked", () => place(s.app, t.u, n, H), () => delFolder(s.app, t.u, t.F), "folder-delete-notes-locked");
     expect(okJson<NoteDto>(pr, 200).folderId).toBe(H);
     expect(okJson<FolderDeleteResultDto>(dr, 200)).toEqual({ trashedNoteIds: sorted([t.a, n]), deletedFolderIds: sorted([t.F, t.G, H]) });
     await expectTrashedWith(s.pool, n, ["F", "H"]);
@@ -304,7 +321,7 @@ describe("RF-TR 刪資料夾與單篇移入垃圾桶", () => {
   });
 });
 
-describe("RF-PG 刪資料夾與多 id 永久刪除（含已還原回子樹的活 id 與子樹內的垃圾桶 id，m5）", () => {
+describe("RF-PG 刪資料夾與多 id 永久刪除（含已還原回子樹的活 id 與子樹內的垃圾桶 id）", () => {
   it("刪先：永久刪除等筆記鎖 → 垃圾桶的兩篇被刪、已還原的活 id 略過；刪 200、trashedNoteIds 不含被永久刪除的", async () => {
     const s = await scene();
     const t = await personalTree(s);
@@ -387,7 +404,7 @@ describe("RF-RS 刪資料夾與還原（照路徑重建到子樹內）", () => {
     await expectConsistent(s.pool);
   });
 
-  it("還原先：還原把 G 重建在 F 裡並 commit；刪拿到鎖後鎖到這篇沒開閘門的活筆記 → 409 conflict、什麼都沒刪、閘門全收（gate r1 I2）", async () => {
+  it("還原先：還原把 G 重建在 F 裡並 commit；刪拿到鎖後鎖到這篇沒開閘門的活筆記 → 409 conflict、什麼都沒刪、閘門全收", async () => {
     const s = await scene();
     const t = await setup(s);
     const [rr, dr] = await race(s, "note-restore-locked", () => restore(s.app, t.u, [t.r]), () => delFolder(s.app, t.u, t.F));
@@ -523,7 +540,7 @@ describe("RF-RN 刪資料夾與改名子資料夾", () => {
   });
 });
 
-describe("RF-CP 刪資料夾與複製進子樹（I-1）", () => {
+describe("RF-CP 刪資料夾與複製進子樹", () => {
   interface CpForm {
     name: string;
     setup(s: Scene): Promise<{ by: string; F: string; G: string; others: string[]; src: string; srcAt: string | null; title: string; body: { folderId: string; groupId?: string } }>;

@@ -22,7 +22,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { EllipsisVertical } from "@/components/ui/icons";
+import { EllipsisVertical, LogOut, Pencil, Trash, Users } from "@/components/ui/icons";
 import { hoverReveal } from "@/components/ui/reveal";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
@@ -37,10 +37,10 @@ function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string
 }
 
 /**
- * 側欄群組段標的 ⋮（#175 spec §8.2；#247 起唯一呼叫點是 `NoteList` 的 `size="sidebar"`，管理入口連到群組面板 `/groups/:id`）。**只看 `GroupDto` 的兩個管理旗標，不看 `myRole` 的種類**：
+ * 側欄群組段標的 ⋮（#175；#247 起唯一呼叫點是 `NoteList` 的 `size="sidebar"`，管理入口連到群組面板 `/groups/:id`）。**只看 `GroupDto` 的兩個管理旗標，不看 `myRole` 的種類**：
  * - 第一項：`canManageMembers` →「成員與設定」，否則「查看成員」；
  * - `canManageGroup` → 重新命名、—、刪除群組（danger、兩模式對話框 `DeleteGroupDialog`；失敗只 toast、
- *   對話框留著，§8.6）；
+ *   對話框留著）；
  * - 不是最後一位管理員 → 退出群組（排在刪除之後；二次確認）。最後一位管理員＝`myRole.builtin === "admin"`
  *   且 `myRole.memberCount === 1`（`memberCount` 是掛這個角色的人數，內建管理員角色上就是管理員人數）；
  *   server 照舊回 409 `last_admin`，toast 保留當競態後備。
@@ -49,10 +49,10 @@ function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string
  * controlled——理由見 `NoteMenu.tsx` 檔頭的 focus trap 規矩。改名對話框在開啟時才掛載
  * （`renameOpen &&`），每次開都是新的預填。
  *
- * 「成員與設定」／「查看成員」都導到群組 modal `/groups/:id`（#247 §6.6），帶目前 location 當
+ * 「成員與設定」／「查看成員」都導到群組 modal `/groups/:id`（#247），帶目前 location 當
  * `backgroundLocation`，關閉群組 modal 時回得來。
  *
- * `size`：`"sidebar"`＝側欄群組列的 24px、hover 浮出（`ui/reveal.ts`；P21 只准側欄例外）；
+ * `size`：`"sidebar"`＝側欄群組列的 24px、hover 浮出（`ui/reveal.ts`；只准側欄例外）；
  * `"default"`＝標準 32px `size="icon"`、常駐（#247 起群組管理改在群組面板 `/groups/:id`，目前沒有呼叫點用它，保留給日後的非側欄入口）。
  *
  * 從 ⋮ 開出的三個對話框關閉時焦點還給 ⋮（`triggerRef`）；刪除／退出成功後這個 ⋮ 可能已
@@ -82,7 +82,7 @@ export function GroupMenu({ group, size = "default" }: { group: GroupDto; size?:
 
   function goToSettings(): void {
     // 已經在某個管理面板裡（/settings/*、/groups/*、/admin/*）時要**轉傳**既有的 backgroundLocation，不能拿面板自己的
-    // location 當背景——否則關閉時又 navigate 回面板、Esc／✕ 永遠關不掉（gate r1 I3）。深連結進面板（沒有 state）時也不拿
+    // location 當背景——否則關閉時又 navigate 回面板、Esc／✕ 永遠關不掉。深連結進面板（沒有 state）時也不拿
     // 面板自己當背景。#247 起實際只剩側欄一個呼叫點（群組 modal 與個人設定總覽都沒有 ⋮），判斷保留以防日後新增呼叫點。
     const state = location.state as { backgroundLocation?: Location } | null;
     const inPanel = /^\/(settings|groups|admin)\//.test(location.pathname);
@@ -126,6 +126,7 @@ export function GroupMenu({ group, size = "default" }: { group: GroupDto; size?:
               goToSettings();
             }}
           >
+            <Users aria-hidden="true" className="mr-2 h-4 w-4" />
             {group.canManageMembers ? t("groups.menu.manage") : t("groups.menu.viewMembers")}
           </DropdownMenuItem>
           {group.canManageGroup && (
@@ -136,6 +137,7 @@ export function GroupMenu({ group, size = "default" }: { group: GroupDto; size?:
                 setRenameOpen(true);
               }}
             >
+              <Pencil aria-hidden="true" className="mr-2 h-4 w-4" />
               {t("groups.menu.rename")}
             </DropdownMenuItem>
           )}
@@ -149,6 +151,7 @@ export function GroupMenu({ group, size = "default" }: { group: GroupDto; size?:
                 setDeleteOpen(true);
               }}
             >
+              <Trash aria-hidden="true" className="mr-2 h-4 w-4" />
               {t("groups.menu.delete")}
             </DropdownMenuItem>
           )}
@@ -160,6 +163,7 @@ export function GroupMenu({ group, size = "default" }: { group: GroupDto; size?:
                 setLeaveOpen(true);
               }}
             >
+              <LogOut aria-hidden="true" className="mr-2 h-4 w-4" />
               {t("groups.menu.leave")}
             </DropdownMenuItem>
           )}

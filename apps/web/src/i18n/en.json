@@ -29,19 +29,35 @@
     "searchLabel": "Search notes",
     "searchPlaceholder": "Search…",
     "noMatch": "No notes match your search.",
-    "workspace": "Workspace",
+    "workspace": "Groups",
     "newGroup": "New group",
     "newNoteIn": "New note in {{name}}",
     "newPersonalNote": "New personal note",
     "tabsLabel": "Sidebar sections",
-    "searchResults_one": "{{count}} result",
-    "searchResults_other": "{{count}} results",
+    "titleMatches_one": "{{count}} title match",
+    "titleMatches_other": "{{count}} title matches",
+    "resultsRegion": "Search results",
+    "matchesCount_one": "{{count}} result",
+    "matchesCount_other": "{{count}} results",
+    "matchesCountMore_one": "{{count}} result loaded, more available",
+    "matchesCountMore_other": "{{count}} results loaded, more available",
+    "bodySearching": "Searching note text…",
+    "bodySearchFailed": "Couldn't search note text.",
+    "bodySearchRateLimited": "Too many searches. Wait a moment and try again.",
+    "bodyLoadMore": "Load more",
+    "bodyLoadingMore": "Loading…",
+    "bodySearchTooShort": "Type one more character to search note text too.",
+    "bodySearchTooLong": "Too long to search note text; matching titles only.",
     "clearSearch": "Clear search",
     "emptyMyNotes": "No personal notes yet.",
     "emptyWorkspace": "You're not in any group yet.",
     "emptyShared": "Nothing has been shared with you yet.",
-    "locationGroup": "Workspace › {{group}}",
+    "locationGroup": "Groups › {{group}}",
     "locationShared": "Shared with me · {{role}}",
+    "locationSharedIn": "Shared with me › {{path}} · {{role}}",
+    "folderEmpty": "No notes",
+    "newFolder": "New folder",
+    "newFolderIn": "New folder in {{group}}",
     "trash": "Trash"
   },
   "roles": {
@@ -60,6 +76,9 @@
     "noShares": "No one else has access yet.",
     "roleLabel": "Role for {{email}}",
     "remove": "Remove {{email}}",
+    "removeConfirm": "Remove {{email}} from this note? They will lose access to it.",
+    "removeSelfConfirm": "Remove yourself ({{email}}) from this note? You will lose access to this note and cannot add yourself back.",
+    "removeConfirmButton": "Remove",
     "emailPlaceholder": "Email address",
     "newRoleLabel": "Role for new share",
     "add": "Add",
@@ -122,16 +141,18 @@
       "moveClosesPublicLink": "Its public link will be turned off.",
       "moveUrlChange": "Its address changes to /g/…; the old address forwards to the new one for a month.",
       "moveOwnership": "You will no longer own it — what you can do with it then depends on your role in the group.",
+      "moveClearsVersions": "Its version history is cleared and doesn't come back.",
       "moveSubmit": "Move into group",
-      "copyLead": "This creates a copy in \"{{group}}\"; the original stays as it is. AI edit history and backlinks are not copied.",
+      "copyLead": "This creates a copy in \"{{group}}\"; the original stays as it is. AI edit history, version history and backlinks are not copied.",
       "copySubmit": "Copy into group",
       "copyHereSubmit": "Make a copy",
       "copyPersonalSubmit": "Copy to my notes",
-      "copyLeadInPlace": "This creates a copy next to the original in \"{{group}}\"; the original stays as it is. AI edit history and backlinks are not copied.",
-      "copyLeadPersonal": "This creates a copy in your own notes; the original stays as it is. AI edit history and backlinks are not copied.",
+      "copyLeadInPlace": "This creates a copy next to the original in \"{{group}}\"; the original stays as it is. AI edit history, version history and backlinks are not copied.",
+      "copyLeadPersonal": "This creates a copy in your own notes; the original stays as it is. AI edit history, version history and backlinks are not copied.",
       "movedToGroup": "Moved into \"{{group}}\"",
       "copiedToGroup": "Copied into \"{{group}}\"",
       "copiedToPersonal": "Copied to your notes",
+      "copiedAtTopLevel": "Copy created at the top level (the original folder is gone)",
       "openCopy": "Open copy",
       "openCopyAlt": "You can also open the copy from the sidebar.",
       "changedElsewhere": "This note was changed elsewhere, so nothing was moved."
@@ -146,6 +167,8 @@
   },
   "note": {
     "titleLabel": "Note title",
+    "sizeLimitBlocked": "Adding this would exceed the note's size limit ({{size}}). The content wasn't added.",
+    "overSizeLimit": "This note is over the size limit; editing may be slow. Delete content to shrink it.",
     "titlePlaceholder": "Untitled",
     "readOnly": "Read-only",
     "menu": {
@@ -260,7 +283,8 @@
       "slashSubtext": "Flowcharts and diagrams with Mermaid",
       "slashGroup": "Advanced",
       "showSource": "Show source",
-      "escHint": "Press Esc or click elsewhere to finish"
+      "escHint": "Press Esc or click elsewhere to finish",
+      "rendering": "Rendering diagram…"
     },
     "link": {
       "slashTitle": "Link",
@@ -274,7 +298,8 @@
     "columns": {
       "slashTitle": "{{n}} columns",
       "slashSubtext": "Place blocks side by side",
-      "ungroup": "Ungroup columns"
+      "ungroup": "Ungroup columns",
+      "resize": "Resize columns"
     }
   },
   "login": {
@@ -356,7 +381,12 @@
     "theme": "Theme",
     "accent": "Accent color",
     "logout": "Log out",
-    "siteAdmin": "Site admin"
+    "siteAdmin": "Site admin",
+    "shortcuts": "Keyboard shortcuts"
+  },
+  "shortcuts": {
+    "title": "Keyboard shortcuts",
+    "description": "Common keyboard shortcuts and typing triggers"
   },
   "admin": {
     "nav": {
@@ -365,7 +395,8 @@
       "groups": "Groups",
       "storage": "Storage plans",
       "ai": "AI agents",
-      "auth": "Sign-in"
+      "auth": "Sign-in",
+      "limits": "Site limits"
     }
   },
   "theme": {
@@ -380,6 +411,43 @@
     "sage": "Sage",
     "rose": "Rose",
     "gold": "Gold"
+  },
+  "colors": {
+    "custom": "Custom…",
+    "back": "Back",
+    "hex_label": "Hex color",
+    "hex_placeholder": "#ff6600",
+    "hex_invalid": "Enter a color as #rgb or #rrggbb",
+    "apply": "Apply",
+    "recent": "Recent",
+    "saturation_label": "Saturation and brightness",
+    "hue_label": "Hue"
+  },
+  "folders": {
+    "menu": {
+      "label": "Folder menu for {{name}}",
+      "newNote": "New note",
+      "newSubfolder": "New subfolder",
+      "rename": "Rename",
+      "sortBy": "Sort by",
+      "sortName": "Name",
+      "sortRecent": "Last modified",
+      "sortSize": "Size",
+      "delete": "Delete folder",
+      "remove": "Remove folder",
+      "depthLimit": "Folders can be nested up to {{max}} levels",
+      "deleteBlocked": "This folder has notes you can't delete"
+    },
+    "dest": {
+      "topLevel": "Top level",
+      "back": "Back",
+      "moveHere": "Move here",
+      "copyHere": "Copy here",
+      "openLevel": "{{name}}, open"
+    },
+    "movedTo": "Moved to “{{name}}”",
+    "stackName": "New folder",
+    "stackNameN": "New folder {{n}}"
   },
   "groups": {
     "autoVersions": {
@@ -432,6 +500,7 @@
       "transferDescription_other": "{{count}} notes will become {{name}}'s personal notes. Their addresses change to /n/…, and the old addresses forward to them for a month. Everyone else in the group loses access, and any public links on them are turned off.",
       "transferDescriptionNoCount": "The group's notes will become {{name}}'s personal notes. Their addresses change to /n/…, and the old addresses forward to them for a month. Everyone else in the group loses access, and any public links on them are turned off.",
       "transferTrashNote": "Group notes in the trash go to {{name}}'s personal trash, and their retention period still counts from when they were deleted; their public links are turned off too.",
+      "transferFoldersNote": "The group's folders move into {{name}}'s notes, under a folder named after the group.",
       "deleteLabel": "Delete everything",
       "deleteDescription_one": "{{count}} note, its attachments and its edit history are permanently deleted — it doesn't go to the trash. This can't be undone.",
       "deleteDescription_other": "{{count}} notes, their attachments and their edit history are permanently deleted — they don't go to the trash. This can't be undone.",
@@ -442,6 +511,14 @@
       "acknowledge": "I understand the notes will be permanently deleted",
       "adminsUnavailable": "Couldn't load the group's admins.",
       "confirm": "Delete group"
+    },
+    "removeMember": {
+      "title": "Remove member?",
+      "description": "{{email}} will lose access to the notes in \"{{name}}\".",
+      "confirm": "Remove",
+      "selfTitle": "Remove yourself?",
+      "selfDescription": "You ({{email}}) will lose access to the notes in \"{{name}}\" and cannot add yourself back.",
+      "selfConfirm": "Remove me"
     },
     "leave": {
       "title": "Leave group?",
@@ -758,7 +835,7 @@
   "trash": {
     "header_one": "Trash · {{count}} note",
     "header_other": "Trash · {{count}} notes",
-    "sectionWorkspace": "Workspace",
+    "sectionWorkspace": "Groups",
     "daysLeft_one": "{{count}} day left",
     "daysLeft_other": "{{count}} days left",
     "deletedByName": "Deleted by {{name}}",
@@ -780,6 +857,7 @@
     "selectAll": "Select all",
     "deselectAll": "Deselect all",
     "done": "Done",
+    "exitSelect": "Exit selection",
     "selected_one": "{{count}} selected",
     "selected_other": "{{count}} selected",
     "purgeTitle_one": "Permanently delete {{count}} note?",
@@ -790,8 +868,8 @@
     "emptyDescription_other": "{{count}} notes and their attachments will be permanently deleted. This can't be undone.",
     "emptyPersonal_one": "My notes: {{count}} note",
     "emptyPersonal_other": "My notes: {{count}} notes",
-    "emptyWorkspace_one": "Workspace: {{count}} note",
-    "emptyWorkspace_other": "Workspace: {{count}} notes",
+    "emptyWorkspace_one": "Groups: {{count}} note",
+    "emptyWorkspace_other": "Groups: {{count}} notes",
     "includesOthers": " (including some deleted by other members)",
     "moved": "Moved to the trash",
     "undo": "Undo",
@@ -849,13 +927,16 @@
     "section_not_found": "That section no longer exists — reload the note.",
     "fingerprint_mismatch": "The note changed while you were editing it. Reload and try again.",
     "unsupported_block": "That content contains something this note can't store.",
-    "unsupported_color": "That content uses a color the editor doesn't have. Use one of the built-in color names.",
+    "unsupported_color": "That content uses a color the editor can't show. Use a built-in color name or a hex color such as #ff6600.",
     "unsupported_columns": "The AI edit failed; the note was not changed.",
     "unsupported_size": "The AI edit failed; the note was not changed.",
     "empty_content": "The content is empty.",
     "empty_section": "That section has no content to remove.",
     "too_many_blocks": "That content has too many blocks.",
     "content_too_large": "That content is too large.",
+    "too_many_notes": "Too many notes to download at once.",
+    "not_mergeable": "This note can't be updated from a file.",
+    "base_unavailable": "This copy can no longer be sent back. Download the note again and redo the change.",
     "already_reverted": "That change has already been reverted.",
     "stale": "The note has changed since that edit, so it can no longer be reverted. Reload and try again.",
     "last_admin": "A group needs at least one admin. Make someone else an admin first.",
@@ -908,6 +989,10 @@
     "folder_limit": "You've reached the maximum number of folders.",
     "folder_cross_space": "Folders can't be moved to another space.",
     "folder_delete_blocked": "This folder has notes you can't delete.",
+    "folder_not_empty": "The folder still has other items, so it wasn't deleted.",
+    "too_complex": "This note is too large or too complex to read within the server's limits.",
+    "note_too_large": "This change would make the note larger than its size limit, so it wasn't saved.",
+    "limit_locked_by_env": "This setting is set in the server's .env file. Change it there and restart the server.",
     "password_not_set": "This account signs in only through a sign-in service and has no password to reset.",
     "user_disabled": "This account is disabled. Enable it before resetting its password.",
     "empty_result": "The AI returned an empty result.",

@@ -1,10 +1,10 @@
 /**
  * #145：**唯一的建列點**。四個呼叫端全部呼叫這裡：① `POST /api/notes` 裸建列（`routes/notes.ts`）、② 帶 `content` 那條走的
  * `NoteWriteService.createWithContent`、③ MCP 的 `create_note`、④ 複製的交易內模式（`notes/tx/copy.ts`）。
- * 資料夾 PR-3a：位置（`NewNoteLocation`＝scope＋`folderId`）一律由呼叫端驗過可見性、空間與權限才傳進來，這裡只寫進 values。
+ * 資料夾：位置（`NewNoteLocation`＝scope＋`folderId`）一律由呼叫端驗過可見性、空間與權限才傳進來，這裡只寫進 values。
  *
- * ① 為什麼派生不能留在原本那個形——「同步組一個 values 物件、呼叫端各自 insert」（本棒把那支
- *    純函式與它的型別整組刪了）：scope 範圍（個人＝owner、群組＝group）去重是 `await` 的 DB 探測。把那支改成 async 只會讓
+ * ① 為什麼派生不能留在原本那個形——「同步組一個 values 物件、呼叫端各自 insert」（
+ *    那支純函式與它的型別已整組刪掉）：scope 範圍（個人＝owner、群組＝group）去重是 `await` 的 DB 探測。把那支改成 async 只會讓
  *    呼叫端各自 `await` 完再自己 insert——`insert(notes)` 仍散在三處，「只改其中一處」的漂移
  *    原樣保留。唯一能收成一處的切法是**連 insert 一起收**。
  * ② 「`src/` 內只有本檔可以 `.insert(notes)`」有源碼結構守衛：`test/notes-slug.test.ts` 的
@@ -19,7 +19,7 @@ import type { DbOrTx, Tx } from "../db/tx.js";
 import { MAX_AUTO_SLUG_RETRIES, deriveUniqueAutoSlug, fallbackAutoSlug, isSlugUniqueViolation, type SlugScope } from "./slug.js";
 import { writeSlugInTx } from "./tx/write-slug.js";
 
-/** 新筆記的位置（資料夾 PR-3a，spec §5.7.6）。`SlugScope` 不變（去重範圍）；`folderId` 多進 values。 */
+/** 新筆記的位置。`SlugScope` 不變（去重範圍）；`folderId` 多進 values。 */
 export interface NewNoteLocation {
   scope: SlugScope;
   /** 已由呼叫端驗過可見性、空間與權限；null＝根層。 */
@@ -40,7 +40,7 @@ export interface NoteCreateHooks {
  * 錯誤冒出去（REST → 500 `internal`、MCP → 工具錯誤 `internal`）。**建立路徑永不回 409
  * `slug_taken`**：那個碼專屬「使用者顯式指定的自訂 slug 撞名」。
  *
- * constraint 名分流不得放寬成「看到 23505 就重試」（PR1 的 M4-2 契約）——其他唯一鍵違反
+ * constraint 名分流不得放寬成「看到 23505 就重試」——其他唯一鍵違反
  * 一律 rethrow。⚠ 誠實：`notes` 表上今天除了兩把 slug 索引之外，沒有別的建立路徑撞得到的唯一鍵，
  * 所以放寬它不會有任何測試變紅（附錄二第 1 條）。
  *
@@ -50,8 +50,8 @@ export interface NoteCreateHooks {
  */
 export async function insertNoteWithAutoSlug(db: Db, where: NewNoteLocation, title: string | undefined, hooks?: NoteCreateHooks): Promise<typeof notes.$inferSelect>;
 /**
- * #175 §6.5／§6.9：**交易內模式**（複製 T4）。每輪 INSERT 包在 `writeSlugInTx` 的 savepoint 裡——交易內照抄預設模式的
- * 重試迴圈，第一次 23505 之後整個交易就 25P02（spec gate r1 B-5 對照組）。`hooks.beforeInsert` 經 `beforeWrite` 接上。
+ * #175：**交易內模式**（複製）。每輪 INSERT 包在 `writeSlugInTx` 的 savepoint 裡——交易內照抄預設模式的
+ * 重試迴圈，第一次 23505 之後整個交易就 25P02。`hooks.beforeInsert` 經 `beforeWrite` 接上。
  * 碰撞契約（constraint 名分流、`MAX_AUTO_SLUG_RETRIES` 後退位、永不回 `slug_taken`、三欄吃 default）與預設模式相同。
  */
 export async function insertNoteWithAutoSlug(tx: Tx, where: NewNoteLocation, title: string, hooks: NoteCreateHooks | undefined, mode: { inTx: true }): Promise<typeof notes.$inferSelect>;
@@ -63,10 +63,10 @@ export async function insertNoteWithAutoSlug(
   mode?: { inTx: true },
 ): Promise<typeof notes.$inferSelect> {
   const { scope } = where;
-  // #175：個人筆記 `owner_id`、群組筆記 `group_id`（XOR，S6）——群組筆記沒有建立者欄（Q17 不記）。群組在呼叫端確認
+  // #175：個人筆記 `owner_id`、群組筆記 `group_id`（XOR）——群組筆記沒有建立者欄。群組在呼叫端確認
   // 之後被刪時，INSERT 撞 FK 23503 並原樣拋出（重試迴圈只處理 slug 的 23505），由呼叫端映射成 404。
-  // 資料夾 PR-3a：三條 INSERT 都寫 `folder_id`。資料夾在確認之後被刪（`notes_folder_fk` 23503）或換了空間（trigger KF001，
-  // spec §5.1 M5）同樣原樣拋出，由呼叫端映射成 404 `folder_not_found`。
+  // 資料夾：三條 INSERT 都寫 `folder_id`。資料夾在確認之後被刪（`notes_folder_fk` 23503）或換了空間（trigger KF001）
+  // 同樣原樣拋出，由呼叫端映射成 404 `folder_not_found`。
   const owner = "groupId" in scope
     ? { groupId: scope.groupId, folderId: where.folderId }
     : { ownerId: scope.ownerId, folderId: where.folderId };
@@ -85,7 +85,7 @@ export async function insertNoteWithAutoSlug(
     return created!;
   }
   // `title` 未帶：`title`／`slug` 兩把鍵都不放，讓 DB 的 default `"Untitled"` 與
-  // `untitled-<uuid8>` 同時生效（#145 D6：不派生成 `untitled`，也不發任何探測查詢）。
+  // `untitled-<uuid8>` 同時生效（#145：不派生成 `untitled`，也不發任何探測查詢）。
   if (title === undefined) {
     const [created] = await db.insert(notes).values(owner).returning();
     return created!;

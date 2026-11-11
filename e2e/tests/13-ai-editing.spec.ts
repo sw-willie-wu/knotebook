@@ -32,7 +32,7 @@ test("外部 AI 改一段：不重整看到新內容、遠端游標名牌、最�
   await editor.pressSequentially("Original body");
   await expect(editor).toContainText("Original body");
 
-  // §14.5 隨機化：多 spec 共用一座疊、失敗時刻意不 down，固定名稱重跑會撞 strict mode。
+  // 隨機化：多 spec 共用一座疊、失敗時刻意不 down，固定名稱重跑會撞 strict mode。
   // ⚠ 隨機化會改變派生出來的 agent 名稱：`deriveAgentLabel` 取第一個空白切詞 → NFKC →
   //   小寫 → 濾掉 `[^A-Za-z0-9._-]` → 截 32。名稱刻意做成「無空白、全小寫、只含 `-` 與
   //   數字、共 23 字元」，派生值就等於名稱本身，底下一律用同一個變數斷言、不另外寫死。
@@ -63,7 +63,7 @@ test("外部 AI 改一段：不重整看到新內容、遠端游標名牌、最�
     const auth = { Authorization: `Bearer ${token}` };
 
     // ⚠ 用清單端點找 note id：以 handle／slug 解析筆記的那條路由是 cookie 專用，不在
-    //   #107 D2 的 Bearer 允許清單上，用匿名 context 打會 401（`.id` 是 undefined，之後
+    //   #107 的 Bearer 允許清單上，用匿名 context 打會 401（`.id` 是 undefined，之後
     //   每一發都 404）。`GET /api/notes` 在清單上。
     const listRes = await api.get(`${baseURL}/api/notes`, { headers: auth });
     expect(listRes.status()).toBe(200);
@@ -136,7 +136,7 @@ test("外部 AI 改一段：不重整看到新內容、遠端游標名牌、最�
     //   是兩個互不為子字串的字串——否則 dialog 還開著時兩個節點都中，strict mode violation。
     //   `exact: true` 另外避開 Radix Toast 的 `role="status"` live-region（01／03 的同款雷）。
     await expect(page.getByText("Edit reverted.", { exact: true })).toBeVisible();
-    // ⑤ spec 的 e2e 情境逐字要求「該列顯示已撤回」——`useRevertEdit` 的 onSuccess 失效
+    // ⑤ 要求「該列顯示已撤回」——`useRevertEdit` 的 onSuccess 失效
     //    修改紀錄清單（`apps/web/src/api/noteEdits.ts`），dialog 重抓後那一列的
     //    `revertable` 變 false、`revertedAt` 非 null，`AiEditsDialog.tsx` 就會把
     //    Revert 按鈕換成這個字串（`aiEdits.reverted`，與上面的 toast 文案不互為子字串）。

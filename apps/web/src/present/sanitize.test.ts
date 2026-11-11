@@ -8,7 +8,7 @@ function clean(html: string): HTMLDivElement {
   return host;
 }
 
-describe("sanitizeSlideFragment：危險內容（spec §13.1）", () => {
+describe("sanitizeSlideFragment：危險內容", () => {
   it.each([
     ["<script>alert(1)</script><p>x</p>", "script"],
     ['<img src="https://e/x.png" onerror="alert(1)">', "[onerror]"],
@@ -51,7 +51,7 @@ describe("sanitizeSlideFragment：危險內容（spec §13.1）", () => {
     "data:image/svg+xml,<svg onload=alert(1)>",
     "mailto:x@example.com",
     "ma\tilto:x@example.com", // 協定中間夾 C0（tab）：瀏覽器解析 URL 時會剝掉，刪除判斷也要先剝（不是只 trim 頭尾）
-  ])("img[src=%j] 的 src 被刪（小寫 data: 承重：DOMPurify 的 DATA_URI_TAGS 放行它，§2.13-3／-8）", (src) => {
+  ])("img[src=%j] 的 src 被刪（小寫 data: 承重：DOMPurify 的 DATA_URI_TAGS 放行它）", (src) => {
     const img = clean(`<img src="${src.replace(/"/g, "&quot;")}" alt="a">`).querySelector("img");
     expect(img).not.toBeNull();
     expect(img!.hasAttribute("src")).toBe(false);
@@ -63,11 +63,11 @@ describe("sanitizeSlideFragment：危險內容（spec §13.1）", () => {
     expect(host.querySelector("audio")!.hasAttribute("src")).toBe(false);
   });
 
-  it("href 只准在 a 上（§5.4-3 hook）", () => {
+  it("href 只准在 a 上（hook）", () => {
     expect(clean('<span href="https://e">x</span>').querySelector("span")!.hasAttribute("href")).toBe(false);
   });
 
-  it("input：type=text、沒有 type 的都刪；checkbox 保留且 checked 仍在（元素 hook 先於屬性 hook，§2.13-6）", () => {
+  it("input：type=text、沒有 type 的都刪；checkbox 保留且 checked 仍在（元素 hook 先於屬性 hook）", () => {
     const host = clean('<input type="text"><input><input type="checkbox" checked><input type=" CheckBox ">');
     const inputs = host.querySelectorAll("input");
     expect(inputs).toHaveLength(2);
@@ -82,8 +82,8 @@ describe("sanitizeSlideFragment：危險內容（spec §13.1）", () => {
   });
 });
 
-describe("sanitizeSlideFragment：要留下的（spec §13.1）", () => {
-  it('data-snapshot-title="Meeting: notes" 保留原值（ADD_URI_SAFE_ATTR，§2.13-2）', () => {
+describe("sanitizeSlideFragment：要留下的", () => {
+  it('data-snapshot-title="Meeting: notes" 保留原值（ADD_URI_SAFE_ATTR）', () => {
     const span = clean('<span data-inline-content-type="wikilink" data-target-note-id="n1" data-snapshot-title="Meeting: notes">x</span>').querySelector("span")!;
     expect(span.getAttribute("data-snapshot-title")).toBe("Meeting: notes");
     expect(span.getAttribute("data-target-note-id")).toBe("n1");
@@ -110,6 +110,18 @@ describe("sanitizeSlideFragment：要留下的（spec §13.1）", () => {
     expect(host.querySelector("span")!.getAttribute("data-value")).toBe("red");
   });
 
+  it("自訂色碼（#rrggbb）的 data-text-color／data-style-type／data-value 原值保留，style 照舊剝", () => {
+    const host = clean(
+      '<p data-text-color="#ff6600" style="color:#ff6600">a <span data-style-type="textColor" data-value="#ff6600" style="color: rgb(255, 102, 0)">x</span></p>',
+    );
+    const p = host.querySelector("p")!;
+    const span = host.querySelector("span")!;
+    expect(p.getAttribute("data-text-color")).toBe("#ff6600");
+    expect(span.getAttribute("data-style-type")).toBe("textColor");
+    expect(span.getAttribute("data-value")).toBe("#ff6600");
+    expect(host.querySelector("[style]")).toBeNull();
+  });
+
   it("http(s)、mailto、相對網址的 href 保留；https src 保留", () => {
     const host = clean('<a href="https://e/x">1</a><a href="mailto:a@b">2</a><a href="/n/a/b">3</a><img src="https://e/i.png" alt="i">');
     expect(Array.from(host.querySelectorAll("a")).map((a) => a.getAttribute("href"))).toEqual(["https://e/x", "mailto:a@b", "/n/a/b"]);
@@ -133,7 +145,7 @@ describe("sanitizeSlideFragment：要留下的（spec §13.1）", () => {
   });
 });
 
-describe("sanitizeSlideFragment：並排的列與欄（columns-layout spec §11.8、§13.1）", () => {
+describe("sanitizeSlideFragment：並排的列與欄", () => {
   const ROW = '<div data-kb-columns="" style="display:flex;gap:16px"><div data-kb-column="" style="flex:1.5"><p>A</p></div><div data-kb-column="" style="flex:1"><p>B</p></div></div>';
 
   it("PS1：正規形的列與欄，三個 div 的 style 與 data-kb-* 都保留", () => {
@@ -163,7 +175,7 @@ describe("sanitizeSlideFragment：並排的列與欄（columns-layout spec §11.
   });
 });
 
-describe("源碼守衛（spec §5.4-3 末段）", () => {
+describe("源碼守衛", () => {
   it("present/sanitize.ts 不碰 DOMPurify 預設單例的 addHook／setConfig／sanitize", () => {
     const source = readFileSync(`${process.cwd()}/src/present/sanitize.ts`, "utf8")
       .split(/\r?\n/)

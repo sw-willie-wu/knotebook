@@ -1,5 +1,5 @@
 /**
- * `createDocUpdateDebouncer` 的純函式行為（#138 Task 4 起；本機編輯也要通知見下）。
+ * `createDocUpdateDebouncer` 的純函式行為（#138；本機編輯也要通知見下）。
  *
  * 遠端 update 的 origin 是 provider 本身（`@hocuspocus/provider` 的
  * `readSyncMessage(message.decoder, message.encoder, provider.document, provider)`，第四個參數

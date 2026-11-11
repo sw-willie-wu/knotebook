@@ -12,7 +12,7 @@ import { createPmPlugin } from "./pm-plugin";
 import { attachTestElementRenderer } from "@/test/element-renderer";
 import { P, row, shape } from "@/test/columns-fixtures";
 
-// spec 2026-10-13 site-links §8.4、§6.5、§15.1 W4、§7.6（AddMarkStep 外掛、非同步後備兩列）。
+// W4（AddMarkStep 外掛、非同步後備兩列）。
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 泛型三元組，走 repo 慣例
 type AnyEditor = BlockNoteEditor<any, any, any>;
@@ -87,7 +87,7 @@ describe("#269 W4 AddMarkStep 外掛", () => {
   });
 
   it("選取上貼網址（tiptap Link 的 handlePaste → setMark）：外掛單獨掛著時換成 wikilink、label＝被選的字（產品組態下這條路徑歸貼上 hook）", () => {
-    // 本檔的組態只掛外掛、沒有貼上 hook；產品組態（NoteEditor）裡選取上貼網址由貼上 hook 轉換（Task 12），這裡量的是外掛自己的行為。
+    // 本檔的組態只掛外掛、沒有貼上 hook；產品組態（NoteEditor）裡選取上貼網址由貼上 hook 轉換，這裡量的是外掛自己的行為。
     ({ editor, container } = mount(env()));
     editor.replaceBlocks(editor.document, [{ type: "paragraph", content: "go Alpha now" }]);
     const view = editor._tiptapEditor.view;
@@ -101,7 +101,7 @@ describe("#269 W4 AddMarkStep 外掛", () => {
     expect(inline(editor).find((n) => n.type === "wikilink")?.props).toEqual({ targetNoteId: A_ID, snapshotTitle: "Alpha", label: "", anchorBlockId: "" });
   });
 
-  it("SLC-COL1 欄內（並排 PR-1 預留點 7）：第 2 欄段落選取上貼網址 → 換成 wikilink、列仍兩欄", () => {
+  it("欄內（並排預留點 7）：第 2 欄段落選取上貼網址 → 換成 wikilink、列仍兩欄", () => {
     ({ editor, container } = mount(env()));
     editor.replaceBlocks(editor.document, [row([[P("left")], [P("go Alpha now", "c2p")]], "r1")]);
     const view = editor._tiptapEditor.view;
@@ -211,15 +211,15 @@ describe("#269 W4 AddMarkStep 外掛", () => {
     expect(inline(editor).map((n) => [n.type, n.href])).toEqual([["link", "/n/alice/alpha"]]);
   });
 
-  it("拖放（uiEvent=drop）進來的純文字網址：paste rule 加了 link mark，但不轉、不排後備（§1.3、§17-4）", () => {
+  it("外掛單獨掛著時不收拖放（drop 歸 drop hook `withSiteLinkDrop`）：paste rule 加了 link mark，但不轉、不排後備", () => {
     const e = env();
     ({ editor, container } = mount(e));
     const view = editor._tiptapEditor.view;
     editor.setTextCursorPosition(editor.document[0]!.id, "end");
     const at = view.state.selection.from;
     view.dispatch(view.state.tr.insertText(`${ORIGIN}/n/alice/alpha ${ORIGIN}/n/bob/secret`, at).setMeta("uiEvent", "drop"));
-    // tiptap 的 paste rule 對外部 drop 也跑，兩個網址真的都成了 link（命中與未命中各一），而且都沒轉成 wikilink——
-    // 一次斷言整列 `[type, href]`：轉錯時紅燈訊息直接看得到 wikilink，不會與「paste rule 沒加 link」混淆。
+    // tiptap 的 paste rule 對外部 drop 也跑，兩個網址真的都成了 link（命中與未命中各一），而且外掛沒轉、沒排後備——
+    // 一次拖放只歸 drop hook（#352，`site-link-drop.test.tsx`），這裡沒有掛它。一次斷言整列 `[type, href]`：轉錯時紅燈訊息直接看得到 wikilink，不會與「paste rule 沒加 link」混淆。
     expect(inline(editor).map((n) => [n.type, n.href])).toEqual([
       ["link", `${ORIGIN}/n/alice/alpha`],
       ["text", undefined],
@@ -278,7 +278,7 @@ describe("#269 W4 AddMarkStep 外掛", () => {
   });
 });
 
-describe("#269 非同步後備（§6.5、A6）", () => {
+describe("#269 非同步後備", () => {
   afterEach(() => document.body.replaceChildren());
 
   it("解析成功 → 一筆 transaction 換掉仍在原區塊、href 與文字都相同的連結；文字被改過的放棄；相異 href 超過 20 只問前 20 個", async () => {
@@ -331,7 +331,7 @@ describe("#269 非同步後備（§6.5、A6）", () => {
 });
 
 /**
- * W11（§7.6 兩列，量到的結果即斷言；共編組態、不用 fake timers）：
+ * W11（兩列，量到的結果即斷言；共編組態、不用 fake timers）：
  * - AddMarkStep 外掛：轉換與建連結在**同一筆 dispatch**（appendTransaction）⇒ 預期同一撤銷格：第一下 undo 整個連結消失。
  * - 非同步後備：(a) 後備在停頓之後才落地（stopCapturing 隔開）⇒ 第一下 undo 只把 wikilink 退回一般連結，且退回後不再被自動轉換；
  *   (b) 後備緊接著落地（同一個 500ms 窗口）⇒ 第一下 undo 連建連結一起撤。MEASURED 是【推】假說，實測不同就照實改並回報。

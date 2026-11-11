@@ -11,6 +11,7 @@ import { setNoteWidth } from "@/components/note-width";
 import { ThemeProvider } from "@/theme";
 import { NoteEditor } from "./NoteEditor";
 import { NoteWidthMenu } from "./NoteWidthMenu";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 interface FakeResponseInit {
   ok: boolean;
@@ -35,6 +36,7 @@ function stubFetch() {
           fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ actions: [AI_ACTION] }) }),
         );
       }
+      if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
       if (url === "/api/notes" && method === "GET") {
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
       }
@@ -44,10 +46,10 @@ function stubFetch() {
 }
 
 /**
- * PR2（BC2 卡片版面）：改版前 brief 明講三層 flex class 漏掉任何一個都是
+ * 卡片版面：三層 flex class 漏掉任何一個都是
  * 「畫面在 jsdom 快照/一般互動測試裡看起來完全正常，只有真的有滾動內容、真的有
  * flex 容器擠壓時才會露餡」的靜默失敗——這裡延續同一個精神，直接斷言 class 字串
- * 本身，改測 slot 化後的新節點鏈（spec A 節逐字）：
+ * 本身，改測 slot 化後的新節點鏈：
  *
  *   根 row（flex h-full min-h-0 min-w-0 flex-1 gap-3）
  *     內文卡（flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl
@@ -65,7 +67,7 @@ function stubFetch() {
  *                        消費端（頁首/頁尾滿卡寬）；理由見該檔。`relative`＝#160：
  *                        BlockNote 表格 hover 浮層的 containing block，收在這層
  *                        擋掉全頁滾軸，別搬去捲動容器）
- *           note-editor（BlockNoteView，className 加 flex-1——B-1 定案：wrapper
+ *           note-editor（BlockNoteView，className 加 flex-1：wrapper
  *             的 min-h-full 無法把百分比高度傳給孫層，必須讓 BlockNoteView 自己
  *             成為置中 wrapper 的成長項。**兩者都要斷言，缺一即假守衛**）
  *       {previewSlot}（有值時才渲染，data-testid="preview-slot"；此時捲動容器多一個 hidden）
@@ -75,9 +77,9 @@ function stubFetch() {
  *
  * 這裡刻意掛**真正的** `<NoteEditor>`（不是 `NotePage.test.tsx`/`NoteEditorView.test.tsx`
  * 用的 mock 或只測 `NoteEditorView` 半層），驗證 `NoteEditor.tsx` 實際渲染出來的容器
- * class 跟 spec 逐字要求的一致。
+ * class 與要求的逐字一致。
  */
-describe("NoteEditor 佈局（PR2 slot 化：節點鏈 + 雙層 class smoke）", () => {
+describe("NoteEditor 佈局（slot 化：節點鏈 + 雙層 class smoke）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     stubFetch();
@@ -151,7 +153,7 @@ describe("NoteEditor 佈局（PR2 slot 化：節點鏈 + 雙層 class smoke）",
       "py-6",
     );
     // 雙層斷言（缺一即假守衛）：置中 wrapper 的 min-h-full/flex-col **與** BlockNoteView
-    // 的 flex-1，兩者都要在——B-1 定案的高度鏈只有兩者同時存在才成立。
+    // 的 flex-1，兩者都要在——高度鏈只有兩者同時存在才成立。
     expect(editorRoot).toHaveClass("min-h-full", "flex-1");
 
     // headerSlot/footerSlot 落在內文卡內、分別在捲動容器的前後（不是巢狀在裡面）。
@@ -163,7 +165,7 @@ describe("NoteEditor 佈局（PR2 slot 化：節點鏈 + 雙層 class smoke）",
     doc.destroy();
   });
 
-  it("previewSlot：捲動容器加 hidden、slot 渲染在同一張卡內（捲動容器之後、footer 之前），活編輯器仍在 DOM（spec §8.1、§8.4）", async () => {
+  it("previewSlot：捲動容器加 hidden、slot 渲染在同一張卡內（捲動容器之後、footer 之前），活編輯器仍在 DOM", async () => {
     const doc = new Y.Doc();
     const provider = { awareness: null } as never;
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -231,7 +233,7 @@ describe("NoteEditor 佈局（PR2 slot 化：節點鏈 + 雙層 class smoke）",
   });
 });
 
-/** #297 §4.2：內文欄跟著這篇的站內寬度（`useNoteWidth(noteId)`），換寬度不重建編輯器。 */
+/** #297：內文欄跟著這篇的站內寬度（`useNoteWidth(noteId)`），換寬度不重建編輯器。 */
 describe("NoteEditor 內文寬度（#297）", () => {
   const STANDARD_MAX = "max-w-[clamp(42.5rem,85%,66rem)]";
 

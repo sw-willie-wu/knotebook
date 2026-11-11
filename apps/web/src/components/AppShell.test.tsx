@@ -6,11 +6,15 @@ import { MemoryRouter, Route, Routes, useParams } from "react-router";
 import { canonicalNotePath, type GroupDto, type NoteDto, type UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ActiveNoteProvider } from "@/lib/active-note";
+import { NARROW_QUERY } from "@/lib/sidebar-drawer";
 import { NotePageControlsContext } from "@/lib/note-page-controls";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { AppShell, SidebarDrawerButton } from "./AppShell";
 import { adminRole, groupDto, OWNER_PERMS } from "@/test/fixtures";
+import { FOLDER_LIST_EMPTY, folderDto, groupFolder } from "@/test/folder-fixtures";
+import { __resetCollapseForTests, isCollapsed, setCollapsed } from "@/components/sidebar/collapse";
+import { __resetFolderSortForTests } from "@/components/sidebar/folder-sort";
 
 // `sidebar.tab` 的 localStorage 往外洩：一個案切了 tab，同檔後面找個人筆記的案會在錯的 tab 找不到。
 afterEach(() => localStorage.removeItem("sidebar.tab"));
@@ -95,9 +99,12 @@ describe("AppShell — new note", () => {
         if (url === "/api/notes" && method === "POST") {
           return Promise.resolve(fakeResponse({ ok: true, status: 201, json: () => Promise.resolve(CREATED) }));
         }
+        if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
         if (url === "/api/notes" && method === "GET") {
           return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
         }
+        // #93：搜尋字 ≥ 2 個字時側欄內文區會打 /api/search（回空）。
+        if (url.startsWith("/api/search?")) return Promise.resolve(new Response(JSON.stringify({ hits: [], nextCursor: null }), { status: 200, headers: { "Content-Type": "application/json" } }));
         throw new Error(`unexpected fetch: ${method} ${url}`);
       }),
     );
@@ -126,7 +133,7 @@ describe("AppShell — new note", () => {
   });
 
   it("#103／#175：群組段的「＋」以 groupId 建筆記並導向新筆記的 /g/ 網址", async () => {
-    // #175 gate r1 B-M8：這個 fixture 以前沒標 `GroupDto`、`myRole: "admin"` 是字串——tsc 不報，
+    // #175：這個 fixture 以前沒標 `GroupDto`、`myRole: "admin"` 是字串——tsc 不報，
     // 但「＋」改看 `myRole.permissions.create` 之後會丟 TypeError。現在標型別並走共用 helper。
     const group: GroupDto = groupDto({ id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", name: "Workshop A" }, adminRole());
     // 群組筆記（#175）：無個人 owner、role 從不是 owner、canonical 是 `/g/<groupId>/<slug>`。
@@ -157,9 +164,12 @@ describe("AppShell — new note", () => {
           postBody = JSON.parse(String(init?.body));
           return Promise.resolve(fakeResponse({ ok: true, status: 201, json: () => Promise.resolve(created) }));
         }
+        if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
         if (url === "/api/notes" && method === "GET") {
           return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([CREATED]) }));
         }
+        // #93：搜尋字 ≥ 2 個字時側欄內文區會打 /api/search（回空）。
+        if (url.startsWith("/api/search?")) return Promise.resolve(new Response(JSON.stringify({ hits: [], nextCursor: null }), { status: 200, headers: { "Content-Type": "application/json" } }));
         throw new Error(`unexpected fetch: ${method} ${url}`);
       }),
     );
@@ -180,8 +190,8 @@ describe("AppShell — new note", () => {
       </QueryClientProvider>,
     );
 
-    // 群組列在「工作坊」tab（預設 tab 是「我的筆記」）。
-    fireEvent.click(await screen.findByRole("tab", { name: "Workspace" }));
+    // 群組列在「群組」tab（預設 tab 是「我的筆記」）。
+    fireEvent.click(await screen.findByRole("tab", { name: "Groups" }));
     fireEvent.click(await screen.findByRole("button", { name: "New note in Workshop A" }));
 
     await waitFor(() => expect(postBody).toEqual({ groupId: group.id }));
@@ -212,6 +222,7 @@ describe("AppShell — new note", () => {
         if (url === "/api/auth/me") {
           return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(USER) }));
         }
+        if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
       }),
     );
@@ -291,9 +302,12 @@ describe("AppShell — search box & Ctrl/Cmd+K", () => {
         if (url === "/api/auth/me") {
           return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(USER) }));
         }
+        if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
         if (url === "/api/notes" && method === "GET") {
           return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(notes) }));
         }
+        // #93：搜尋字 ≥ 2 個字時側欄內文區會打 /api/search（回空）。
+        if (url.startsWith("/api/search?")) return Promise.resolve(new Response(JSON.stringify({ hits: [], nextCursor: null }), { status: 200, headers: { "Content-Type": "application/json" } }));
         throw new Error(`unexpected fetch: ${method} ${url}`);
       }),
     );
@@ -347,7 +361,7 @@ describe("AppShell — search box & Ctrl/Cmd+K", () => {
     expect(input).toHaveFocus();
   });
 
-  // review B1：BlockNote 的建立連結工具在編輯器 DOM 上綁原生 keydown 監聽
+  // BlockNote 的建立連結工具在編輯器 DOM 上綁原生 keydown 監聽
   // Ctrl/Cmd+K，`preventDefault()` 但不 `stopPropagation()`，事件仍會冒泡到
   // `window`——若 AppShell 不放行會搶在編輯器前面把焦點拉去搜尋框。這裡直接在
   // dispatch 前呼叫 `event.preventDefault()`，模擬「已經有人處理過這個按鍵」
@@ -452,8 +466,8 @@ describe("AppShell — search box & Ctrl/Cmd+K", () => {
     stubFetchWithNotes([ALPHA_NOTE, BETA_NOTE]);
     renderShell();
     const input = await screen.findByRole("textbox", { name: "Search notes" });
-    fireEvent.click(await screen.findByRole("tab", { name: "Workspace" }));
-    expect(screen.getByRole("tab", { name: "Workspace" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(await screen.findByRole("tab", { name: "Groups" }));
+    expect(screen.getByRole("tab", { name: "Groups" })).toHaveAttribute("aria-selected", "true");
 
     fireEvent.change(input, { target: { value: "Alpha" } });
     await screen.findByTestId("sidebar-search");
@@ -463,7 +477,7 @@ describe("AppShell — search box & Ctrl/Cmd+K", () => {
     fireEvent.keyDown(input, { key: "Escape" });
     expect(await screen.findByRole("tablist")).toBeInTheDocument();
     expect(screen.queryByTestId("sidebar-search")).toBeNull();
-    expect(screen.getByRole("tab", { name: "Workspace" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Groups" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("AS-S2：清除鈕——空字串時沒有、有 Ctrl K 徽章；有字時換成清除鈕；點了清空、焦點留在輸入框、tablist 回來", async () => {
@@ -472,7 +486,7 @@ describe("AppShell — search box & Ctrl/Cmd+K", () => {
     const input = await screen.findByRole("textbox", { name: "Search notes" });
     expect(screen.queryByRole("button", { name: "Clear search" })).toBeNull();
     expect(screen.getByText("Ctrl K")).toBeInTheDocument();
-    fireEvent.click(await screen.findByRole("tab", { name: "Workspace" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Groups" }));
 
     fireEvent.change(input, { target: { value: "Alpha" } });
     const clear = await screen.findByRole("button", { name: "Clear search" });
@@ -483,7 +497,7 @@ describe("AppShell — search box & Ctrl/Cmd+K", () => {
     expect(input).toHaveFocus();
     expect(await screen.findByRole("tablist")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Clear search" })).toBeNull();
-    expect(screen.getByRole("tab", { name: "Workspace" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Groups" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("只有空白也算搜尋中（現行行為）：換成搜尋視圖、出現清除鈕", async () => {
@@ -548,12 +562,12 @@ describe("AppShell — search box & Ctrl/Cmd+K", () => {
  *
  * jsdom 沒有 CSS——`hidden`/`md:flex` 不影響可及性查詢，抽屜開著時 DOM 上同時有
  * 靜態與抽屜兩份 SidebarContent，因此本組查詢一律 `within(drawer)` 圈定，不用
- * 全域 byRole（spec §3a 雙實例定案）。
+ * 全域 byRole（雙實例）。
  *
  * matchMedia：`test/setup.ts` 的 stub 恆 `matches:false` 且 addEventListener 是
  * no-op——「Ctrl+K 窄分支」與「跨斷點 resize 關閉」兩案必須自己 stub 一個可控的
  * MediaQueryList（自持 listener 集合＋手動 dispatch change），否則寫出「掛了
- * listener 但永遠不會觸發」的實作照樣全綠（plan gate B2 的指名陷阱）。
+ * listener 但永遠不會觸發」的實作照樣全綠。
  */
 describe("AppShell — #115 側欄抽屜", () => {
   const NOTE: NoteDto = {
@@ -586,9 +600,12 @@ describe("AppShell — #115 側欄抽屜", () => {
         if (url === "/api/auth/me") {
           return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(USER) }));
         }
+        if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
         if (url === "/api/notes" && method === "GET") {
           return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(notes) }));
         }
+        // #93：搜尋字 ≥ 2 個字時側欄內文區會打 /api/search（回空）。
+        if (url.startsWith("/api/search?")) return Promise.resolve(new Response(JSON.stringify({ hits: [], nextCursor: null }), { status: 200, headers: { "Content-Type": "application/json" } }));
         throw new Error(`unexpected fetch: ${method} ${url}`);
       }),
     );
@@ -608,7 +625,8 @@ describe("AppShell — #115 側欄抽屜", () => {
       removeListener: () => {},
       dispatchEvent: () => false,
     };
-    vi.stubGlobal("matchMedia", vi.fn(() => mql));
+    // 只有 NARROW_QUERY 回 mql；其餘 query（例如 WIDE_POINTER_QUERY）一律不成立、不註冊監聽。
+    vi.stubGlobal("matchMedia", vi.fn((query: string) => (query === NARROW_QUERY ? mql : { ...mql, matches: false, addEventListener: () => {}, removeEventListener: () => {} })));
     return {
       dispatchChange(matches: boolean) {
         mql.matches = matches;
@@ -655,13 +673,13 @@ describe("AppShell — #115 側欄抽屜", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Open navigation" }));
 
     const drawer = await screen.findByRole("dialog", { name: "Navigation" });
-    // 不變量四件套（spec §3a：缺底色透出 overlay 黑、缺 flex 脈絡長清單擠出鈕、
+    // 不變量四件套（缺底色透出 overlay 黑、缺 flex 脈絡長清單擠出鈕、
     // 缺屬性則 Ctrl+K 讓路判別失效）。
     expect(drawer).toHaveAttribute("data-sidebar-drawer");
     expect(drawer).toHaveClass("fixed", "inset-y-0", "left-0", "z-50", "flex", "w-64", "flex-col", "bg-card");
     // 漢堡開＝焦點落在抽屜容器本身（不聚焦搜尋框以免觸控彈鍵盤）——這一步武裝
     // Radix 的 focus trap；onOpenAutoFocus 只 preventDefault 不補聚焦的錯誤實作
-    // 會讓焦點留在漢堡鈕、Tab 逃進 aria-hidden 背景（審查突變實證原本沒案子抓）。
+    // 會讓焦點留在漢堡鈕、Tab 逃進 aria-hidden 背景（原本沒案子抓）。
     expect(drawer).toHaveFocus();
 
     expect(within(drawer).getByRole("textbox", { name: "Search notes" })).toBeInTheDocument();
@@ -745,5 +763,112 @@ describe("AppShell — #115 側欄抽屜", () => {
 
     expect(openEdits).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(document.querySelector("[data-sidebar-drawer]")).toBeNull());
+  });
+});
+
+// ── 在資料夾建立筆記
+describe("AppShell — 在資料夾建立筆記", () => {
+  const G: GroupDto = groupDto({ id: "G", name: "G" }, adminRole());
+  const FOLDERS = [folderDto({ id: "A", name: "A" }), groupFolder({ id: "GF", name: "GF", groupId: "G" })];
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    localStorage.clear();
+    __resetCollapseForTests();
+    __resetFolderSortForTests();
+  });
+
+  function json(body: unknown, status = 200): Response {
+    return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+  }
+
+  /** `post`：POST /api/notes 的回應；每次 POST 的 body 記進回傳的陣列。 */
+  function stubCreate(post: () => Response) {
+    const bodies: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (url === "/api/notes" && method === "POST") {
+          bodies.push(JSON.parse(String(init?.body)));
+          return Promise.resolve(post());
+        }
+        if (url === "/api/folders") return Promise.resolve(json({ folders: FOLDERS }));
+        if (url === "/api/notes" && method === "GET") return Promise.resolve(json([]));
+        if (url === "/api/groups" && method === "GET") return Promise.resolve(json([G]));
+        if (url === "/api/auth/me") return Promise.resolve(json(USER));
+        // #93：搜尋字 ≥ 2 個字時側欄內文區會打 /api/search（回空）。
+        if (url.startsWith("/api/search?")) return Promise.resolve(new Response(JSON.stringify({ hits: [], nextCursor: null }), { status: 200, headers: { "Content-Type": "application/json" } }));
+        throw new Error(`unexpected fetch: ${method} ${url}`);
+      }),
+    );
+    return bodies;
+  }
+
+  function renderShell() {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <MemoryRouter initialEntries={["/"]}>
+            <ActiveNoteProvider>
+              <Routes>
+                <Route path="/" element={<AppShell>home</AppShell>} />
+                <Route path="/n/:handle/:slug" element={<NoteRouteProbe />} />
+                <Route path="/g/:groupId/:slug" element={<GroupNoteRouteProbe />} />
+              </Routes>
+            </ActiveNoteProvider>
+          </MemoryRouter>
+          <Toaster />
+        </ThemeProvider>
+      </QueryClientProvider>,
+    );
+    return queryClient;
+  }
+
+  const fail = (status: number, code: string) => () => json({ error: { code, message: "x" } }, status);
+
+  it("AS-F1 個人資料夾「＋」→ body {folderId}、導到新筆記、資料夾寫成展開", async () => {
+    setCollapsed("folder:A", true);
+    const bodies = stubCreate(() => json(CREATED, 201));
+    renderShell();
+    fireEvent.click(await screen.findByRole("button", { name: "New note in A" }));
+    await waitFor(() => expect(screen.getByTestId("note-route")).toHaveTextContent("tester/untitled-33333333"));
+    expect(bodies).toEqual([{ folderId: "A" }]);
+    expect(isCollapsed("folder:A")).toBe(false);
+  });
+
+  it("AS-F1 群組資料夾「＋」→ body {groupId, folderId}", async () => {
+    const created: NoteDto = { ...CREATED, ownerId: null, ownerHandle: null, role: "editor", groupId: "G", group: { id: "G", name: "G" } };
+    const bodies = stubCreate(() => json(created, 201));
+    renderShell();
+    fireEvent.click(await screen.findByRole("tab", { name: "Groups" }));
+    fireEvent.click(await screen.findByRole("button", { name: "New note in GF" }));
+    await waitFor(() => expect(bodies).toEqual([{ groupId: "G", folderId: "GF" }]));
+    await waitFor(() => expect(screen.getByTestId("group-note-route")).toHaveTextContent(`G/${CREATED.slug}`));
+  });
+
+  it("AS-F2 404 folder_not_found → toast「Folder not found.」、失效 ['folders']、不導頁", async () => {
+    stubCreate(fail(404, "folder_not_found"));
+    const queryClient = renderShell();
+    const spy = vi.spyOn(queryClient, "invalidateQueries");
+    fireEvent.click(await screen.findByRole("button", { name: "New note in A" }));
+    await waitFor(() => expect(screen.getByText("Folder not found.")).toBeInTheDocument());
+    expect(spy).toHaveBeenCalledWith({ queryKey: ["folders"] });
+    expect(screen.getByText("home")).toBeInTheDocument();
+  });
+
+  it("AS-F3 409 folder_too_deep → toast 帶入上限、不含 {{max}}", async () => {
+    stubCreate(fail(409, "folder_too_deep"));
+    renderShell();
+    fireEvent.click(await screen.findByRole("button", { name: "New note in A" }));
+    await waitFor(() => expect(screen.getByText("Folders can be at most 5 levels deep.")).toBeInTheDocument());
+    expect(screen.queryByText(/\{\{max\}\}/)).toBeNull();
   });
 });

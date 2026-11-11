@@ -7,8 +7,9 @@ import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
 import { AppRoutes } from "@/App";
 import { adminRole, groupDto, memberRole } from "@/test/fixtures";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
-// W3（spec §11.5）：個人設定「儲存空間」頁與群組 modal「儲存空間」頁（`/groups/:id/storage`，#247 §6.4）的用量。
+// W3：個人設定「儲存空間」頁與群組 modal「儲存空間」頁（`/groups/:id/storage`，#247）的用量。
 // 群組頁的依成員／版本開關細節在 `components/groups/GroupStorageSection.test.tsx`。走真的 AppRoutes（同 SettingsAccountSection.test.tsx 慣例）。
 
 function fakeResponse(status: number, body: unknown): Response {
@@ -26,10 +27,11 @@ function renderAt(path: string, handlers: (url: string, method: string) => Respo
     const custom = handlers(url, method);
     if (custom) return Promise.resolve(custom);
     if (url === "/api/auth/me") return Promise.resolve(fakeResponse(200, ME));
+    if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
     if (url === "/api/notes") return Promise.resolve(fakeResponse(200, []));
     if (url === "/api/auth/identities") return Promise.resolve(fakeResponse(200, { identities: [], linkable: [], hasPassword: true, passwordLoginEnabled: true }));
     if (url === "/api/auth/tokens") return Promise.resolve(fakeResponse(200, { tokens: [] }));
-    // 儲存空間頁的版本歷史開關要打（#247 §5.4；回應形同 SettingsAccountSection.test.tsx 的 baseFetchHandlers）
+    // 儲存空間頁的版本歷史開關要打（#247；回應形同 SettingsAccountSection.test.tsx 的 baseFetchHandlers）
     if (url === "/api/auth/config") return Promise.resolve(fakeResponse(200, { providers: [], registration: { enabled: false, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true }));
     throw new Error(`unexpected fetch: ${method} ${url}`);
   });
@@ -74,7 +76,7 @@ describe("W3 帳號頁的儲存空間", () => {
     expect(screen.getByText("Limit reached — no new attachments can be added")).toHaveClass("text-destructive");
   });
 
-  it("恰好等於上限：也警示（Willie 2026-10-08，起草裁定 4）", async () => {
+  it("恰好等於上限：也警示", async () => {
     renderAt("/settings/storage", (url) => (url === "/api/groups" ? fakeResponse(200, []) : url === "/api/storage" ? fakeResponse(200, usage({ usedBytes: 1048576, quotaBytes: 1048576 })) : null));
     await waitFor(() => expect(screen.getByTestId("storage-usage")).toHaveTextContent("1 MB of 1 MB (Basic)"));
     expect(screen.getByTestId("storage-usage")).toHaveClass("text-destructive");
@@ -88,7 +90,7 @@ describe("W3 帳號頁的儲存空間", () => {
     expect(screen.queryByText("Limit reached — no new attachments can be added")).not.toBeInTheDocument();
   });
 
-  it("SU-T1（#181 D-W4）成功態末尾有垃圾桶計入用量的說明；載入中與錯誤態沒有", async () => {
+  it("SU-T1（#181）成功態末尾有垃圾桶計入用量的說明；載入中與錯誤態沒有", async () => {
     renderAt("/settings/storage", (url) => (url === "/api/groups" ? fakeResponse(200, []) : url === "/api/storage" ? fakeResponse(200, usage({})) : null));
     await waitFor(() => expect(screen.getByTestId("storage-usage")).toHaveTextContent("1 MB of 2 GB (Basic)"));
     const note = screen.getByText(TRASH_NOTE, { exact: true });
@@ -117,7 +119,7 @@ const ADMIN_ROLE = adminRole({ id: "11111111-1111-1111-1111-111111111111" });
 const MEMBER_ROLE = memberRole({ id: "22222222-2222-2222-2222-222222222222" });
 const groupUsage = (u: Partial<GroupStorageUsageDto>): GroupStorageUsageDto => ({ ...usage({}), byMember: [{ userId: "u-me", handle: "me", displayName: "Me", bytes: 1048576 }], ...u });
 
-describe("W3 群組儲存空間頁（/groups/:id/storage，#247 §6.4）", () => {
+describe("W3 群組儲存空間頁（/groups/:id/storage，#247）", () => {
   beforeEach(async () => { await i18n.changeLanguage("en"); });
   afterEach(() => { vi.unstubAllGlobals(); });
 
@@ -135,7 +137,7 @@ describe("W3 群組儲存空間頁（/groups/:id/storage，#247 §6.4）", () =>
     expect(fetchMock.mock.calls.some(([u]) => String(u) === `/api/groups/${g.id}/storage`)).toBe(true);
   });
 
-  it("不是群組管理者：§9.2 放寬後照樣渲染、照樣打 storage 端點（#247 前是不渲染、不打）", async () => {
+  it("不是群組管理者：放寬後照樣渲染、照樣打 storage 端點（#247 前是不渲染、不打）", async () => {
     const g = groupDto({ id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", name: "Team Beta" }, MEMBER_ROLE);
     const fetchMock = renderAt(`/groups/${g.id}/storage`, (url) => {
       if (url === "/api/groups") return fakeResponse(200, [g]);

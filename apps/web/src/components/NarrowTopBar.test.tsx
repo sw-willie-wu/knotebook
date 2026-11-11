@@ -8,11 +8,12 @@ import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
 import HomePage from "@/pages/HomePage";
 import { NotePageFallback } from "./NotePageFallback";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 /**
  * #115：NarrowTopBar（`md:hidden` 的漢堡＋K logo 列）消費端守衛。
  *
- * spec §3a 的明確清單＝HomePage／NotePageFallback／NoteRouteErrorFallback 三處
+ * 明確清單＝HomePage／NotePageFallback／NoteRouteErrorFallback 三處
  * （第三處的斷言在 `ErrorBoundary.test.tsx`，它有現成的錯誤畫面 harness；
  * **AppErrorFallback 刻意排除**的反向斷言也在那邊）——沒有這組守衛，窄視窗上
  * 這些頁面就是「側欄藏了、又沒有任何入口能打開抽屜」的死路，而 jsdom 不套 CSS
@@ -40,6 +41,7 @@ function stubFetch() {
     vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/auth/me") return Promise.resolve(fakeResponse(USER));
+      if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
       if (url === "/api/notes") return Promise.resolve(fakeResponse([]));
       throw new Error(`unexpected fetch: ${url}`);
     }),
@@ -73,7 +75,7 @@ describe("NarrowTopBar 消費端（#115）", () => {
     const hamburger = await screen.findByRole("button", { name: "Open navigation" });
     expect(hamburger.closest("main")).not.toBeNull();
     // wrapper 與按鈕**各自**斷 md:hidden——`closest('[class*="md:hidden"]')` 含
-    // 元素自身、按鈕本身就帶這個 class，那種寫法恆真（審查突變實證：wrapper 拔掉
+    // 元素自身、按鈕本身就帶這個 class，那種寫法恆真（wrapper 拔掉
     // md:hidden 仍全綠）。掉 wrapper 那個的後果是寬視窗每張內文卡頂多一條
     // 「K Knotebook」列。
     expect(hamburger.parentElement).toHaveClass("md:hidden");

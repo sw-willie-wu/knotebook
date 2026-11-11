@@ -77,7 +77,7 @@ async function fetchUserByEmail(db: Db, email: string): Promise<typeof users.$in
 }
 
 /**
- * #187：seed 一個 legacy provider（舊網址——本檔順帶守住 B13 的書籤相容）＋in-process fake IdP。
+ * #187：seed 一個 legacy provider（舊網址——本檔順帶守住書籤相容）＋in-process fake IdP。
  * 身分以 IdP 的 metadata.issuer（＝ISSUER_URL）存進 user_identities；`users.oidc_*` 新碼一律不寫。
  */
 async function setup(): Promise<{
@@ -136,13 +136,13 @@ describe("GET /api/auth/oidc/callback", () => {
     const res = await callback(app, { code, state, cookieValue });
     expect(res.statusCode).toBe(302);
     expect(res.headers.location).toBe("/login?error=oidc_exchange_failed");
-    // MINOR-3：exchange 失敗路徑一樣要清 state cookie（成敗皆清，不只 state_mismatch 路徑）。
+    // exchange 失敗路徑一樣要清 state cookie（成敗皆清，不只 state_mismatch 路徑）。
     const clearedCookie = res.cookies.find(c => c.name === OIDC_STATE_COOKIE);
     expect(clearedCookie?.value).toBe("");
     expect(clearedCookie?.path).toBe(OIDC_STATE_COOKIE_PATH);
   });
 
-  describe("callback 自身的 oidc_unavailable（§14.7：兩端點各自覆蓋，非僅 login）", () => {
+  describe("callback 自身的 oidc_unavailable（兩端點各自覆蓋，非僅 login）", () => {
     it("沒有 legacy provider → 302 oidc_unavailable；legacy provider 停用 → 同（provider 檢查在 cookie 解開之前，不帶 next）", async () => {
       const { app, db } = await buildTestApp();
       const none = await callback(app, {});
@@ -160,7 +160,7 @@ describe("GET /api/auth/oidc/callback", () => {
       fakeIdp.failNext("discovery");
       // 手動組一顆合法 state cookie（不經 login route）：若透過 login 先跑一次，會讓 discovery 在那一步就成功並快取，
       // callback 這裡就測不到「callback 自己第一次呼叫 getConfiguration() 就撞失敗」這條路徑。
-      // #187 §7.3：手封的 cookie 也要帶新必要欄位（綁到 seed 的 legacy provider、當下版本、intent login），否則在
+      // #187：手封的 cookie 也要帶新必要欄位（綁到 seed 的 legacy provider、當下版本、intent login），否則在
       // providerId 那一關就落 oidc_state_mismatch，測不到 discovery 這條。
       const state = "manual-state";
       const nonce = "manual-nonce";
@@ -205,7 +205,7 @@ describe("GET /api/auth/oidc/callback", () => {
     expect(await fetchUserByEmail(db, "")).toBeUndefined();
   });
 
-  describe("N9 帳號解析矩陣", () => {
+  describe("帳號解析矩陣", () => {
     it("全新 email → 建帳＋登入；身分寫進 user_identities（issuer＝IdP 的 metadata.issuer），舊欄 users.oidc_* 不寫", async () => {
       const { app, db, fakeIdp } = await setup();
       const { code, state, cookieValue } = await loginAndAuthorize(app, fakeIdp, {
@@ -227,13 +227,13 @@ describe("GET /api/auth/oidc/callback", () => {
       expect(row?.passwordHash).toBeNull();
       expect(row?.email).toBe("new.user@example.com");
 
-      // T4 帶入釘：OIDC 自動建帳後用該 session cookie 打 /api/auth/me → hasPassword:false。
+      // 帶入釘：OIDC 自動建帳後用該 session cookie 打 /api/auth/me → hasPassword:false。
       const oidcCookie = res.cookies.find(c => c.name === SESSION_COOKIE)!.value;
       const me = await app.inject({ method: "GET", url: "/api/auth/me", cookies: { [SESSION_COOKIE]: oidcCookie } });
       expect(me.json().hasPassword).toBe(false);
     });
 
-    it("gate 快取：create 分支（寫了 users）→ gate.invalidate(新帳號) 恰一次；同一身分再登入（login 分支，不寫 users）→ 不 invalidate（spec §7.4、B15）", async () => {
+    it("gate 快取：create 分支（寫了 users）→ gate.invalidate(新帳號) 恰一次；同一身分再登入（login 分支，不寫 users）→ 不 invalidate", async () => {
       // 新帳號的 id 是交易內現產的 uuid，gate 不可能事先快取它——「漏 invalidate」沒有可從 HTTP 觀察的後果，只能 spy。
       const invalidate = vi.spyOn(UserGate.prototype, "invalidate");
       onTestFinished(() => invalidate.mockRestore());
@@ -251,7 +251,7 @@ describe("GET /api/auth/oidc/callback", () => {
       expect(invalidate).not.toHaveBeenCalled();
     });
 
-    it("email 命中既有帳號（有密碼、未連結）→ 302 /link-account：不簽 session、封 pending cookie、零寫入（S5：不再自動連結）；帳密照常可登入", async () => {
+    it("email 命中既有帳號（有密碼、未連結）→ 302 /link-account：不簽 session、封 pending cookie、零寫入（不再自動連結）；帳密照常可登入", async () => {
       const { app, db, fakeIdp } = await setup();
       const existing = await insertUser(db, { email: "existing@example.com", passwordHash: await hashPassword("Password123!") });
 
@@ -279,10 +279,10 @@ describe("GET /api/auth/oidc/callback", () => {
       expect(passwordLogin.statusCode).toBe(200);
     });
 
-    it("帳號已連結同 issuer 的另一個 sub → 證明前仍是 /link-account（B14：不揭露 B2）、原身分不動", async () => {
+    it("帳號已連結同 issuer 的另一個 sub → 證明前仍是 /link-account（不揭露同 issuer 已連過）、原身分不動", async () => {
       const { app, db, fakeIdp } = await setup();
-      // ⚠ 要有密碼：同 issuer 的 provider 不列為證明方式（Task 6 fix round 1 裁定 A——列出來就等於在證明前告訴對方「這帳號
-      // 已連過這個 IdP」），所以沒有密碼的純 SSO 帳號在這裡會落 oidc_link_no_proof_method，測不到 B14（brief 原稿無密碼，實跑即落該碼）。
+      // ⚠ 要有密碼：同 issuer 的 provider 不列為證明方式（列出來就等於在證明前告訴對方「這帳號
+      // 已連過這個 IdP」），所以沒有密碼的純 SSO 帳號在這裡會落 oidc_link_no_proof_method，測不到本案要驗的那條路徑。
       const row0 = await insertUser(db, { email: "conflict@example.com", passwordHash: await hashPassword("Password123!") });
       await db.insert(userIdentities).values({ userId: row0.id, issuer: ISSUER_URL, sub: "original-sub" });
 
@@ -298,9 +298,9 @@ describe("GET /api/auth/oidc/callback", () => {
       expect(await identitiesOf(db, row0.id)).toEqual([{ issuer: ISSUER_URL, sub: "original-sub" }]);
     });
 
-    it("停用帳號經 email（有密碼、未連結）→ 302 /link-account（B14：證明前不揭露停用）、不簽 session、零寫入", async () => {
+    it("停用帳號經 email（有密碼、未連結）→ 302 /link-account（證明前不揭露停用）、不簽 session、零寫入", async () => {
       const { app, db, fakeIdp } = await setup();
-      // ⚠ 要有密碼：沒有密碼、又沒連任何 provider 的帳號會落 oidc_link_no_proof_method（§7.4 第 4.1 步），測不到 B14。
+      // ⚠ 要有密碼：沒有密碼、又沒連任何 provider 的帳號會落 oidc_link_no_proof_method（第 4.1 步），測不到「排除同 issuer 待連結身分」。
       const row0 = await insertUser(db, {
         email: "disabled@example.com",
         passwordHash: await hashPassword("Password123!"),
@@ -338,7 +338,7 @@ describe("GET /api/auth/oidc/callback", () => {
   });
 
   describe("userinfo 補打矩陣", () => {
-    it("ID token 有 email、缺 email_verified → 不打 userinfo（r2-M4）、以 ID token 的 email 照常建帳——userinfo 就算會回別的 email 也不採用", async () => {
+    it("ID token 有 email、缺 email_verified → 不打 userinfo、以 ID token 的 email 照常建帳——userinfo 就算會回別的 email 也不採用", async () => {
       const { app, db, fakeIdp } = await setup();
       fakeIdp.omitFromIdToken(["email_verified"]);
       // 預置一個分歧的 userinfo：只要有任何寫法多打了 userinfo 並採用它的 email，下面兩條 fetchUserByEmail 會反過來。
@@ -478,7 +478,7 @@ describe("GET /api/auth/oidc/callback", () => {
   });
 
   /**
-   * Task 6b 的確定性交錯：B 先進 callback、停在 `login-identity-missed`（身分查詢落空、email 查詢之前）；A 以同一
+   * 確定性交錯：B 先進 callback、停在 `login-identity-missed`（身分查詢落空、email 查詢之前）；A 以同一
    * (issuer, sub) 跑完首次登入並 commit；`afterA` 讓測試在放行 B 之前再動 DB；最後放行 B。
    */
   async function interleaveFirstLogins(
@@ -531,7 +531,7 @@ describe("GET /api/auth/oidc/callback", () => {
     return { db, resB, points, userId };
   }
 
-  it("race（Task 6b，確定性交錯）：B 身分查詢落空後、email 查詢前，A 以同一 (issuer, sub) 建帳並 commit → B 同交易重查身分命中、走 login 302 /（不落 oidc_link_no_proof_method）", async () => {
+  it("race（確定性交錯）：B 身分查詢落空後、email 查詢前，A 以同一 (issuer, sub) 建帳並 commit → B 同交易重查身分命中、走 login 302 /（不落 oidc_link_no_proof_method）", async () => {
     const { db, resB, points, userId } = await interleaveFirstLogins("toctou-sub", "toctou@example.com");
     expect(resB.statusCode).toBe(302);
     expect(resB.headers.location).toBe("/");
@@ -544,7 +544,7 @@ describe("GET /api/auth/oidc/callback", () => {
     expect(await identitiesOf(db, userId)).toEqual([{ issuer: ISSUER_URL, sub: "toctou-sub" }]);
   });
 
-  it("race（Task 6b，確定性交錯）：同上，但放行 B 前 A 建的帳號被停用 → B 重查身分命中後照第 1 步判 account_disabled（不走 login 捷徑、不發 session）", async () => {
+  it("race（確定性交錯）：同上，但放行 B 前 A 建的帳號被停用 → B 重查身分命中後照第 1 步判 account_disabled（不走 login 捷徑、不發 session）", async () => {
     const lastLogin = async (d: Db, id: string) =>
       (await d.$client.query<{ t: string }>("select last_login_at::text as t from user_identities where user_id = $1", [id])).rows[0]!.t;
     let lastLoginByA = "";
@@ -681,7 +681,7 @@ describe("#131 callback 的 return-to", () => {
     const { app, config, fakeIdp } = await setup();
     const { code, state, cookieValue } = await loginAndAuthorize(app, fakeIdp, claims);
     const payload = unsealOidcState(config.appSecret, cookieValue, Math.floor(Date.now() / 1000))!;
-    // Task 11 起 payload 是聯集（prove 形沒有 next）：先收窄再展開，否則 `{ ...payload, next }` 是 TS2345（gate r2 t8-14 I1）。
+    // payload 是聯集（prove 形沒有 next）：先收窄再展開，否則 `{ ...payload, next }` 是 TS2345。
     if (payload.intent !== "login") throw new Error("unreachable：login 端點封的 state cookie 一定是 login 形");
     const tampered = sealOidcState(config.appSecret, { ...payload, next: "//evil.example" });
 
@@ -692,7 +692,7 @@ describe("#131 callback 的 return-to", () => {
   });
 
   it("失敗（email 缺）→ /login?error=…&next=…（next 有 encode）", async () => {
-    // 原本用「email 未驗證」造失敗；#187 起那個判斷不存在（B3），改用 cookie 解開之後、決策層的另一個失敗：email 缺
+    // 原本用「email 未驗證」造失敗；#187 起那個判斷不存在，改用 cookie 解開之後、決策層的另一個失敗：email 缺
     // （ID token 沒有 email、metadata 也沒有 userinfo endpoint → 無處可補）。
     const noEmail: FakeIdpClaims = { sub: "s-131b", name: "U" };
 

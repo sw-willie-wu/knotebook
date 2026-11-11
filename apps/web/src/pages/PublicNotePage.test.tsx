@@ -61,9 +61,10 @@ function mockFetch(handler: (url: string) => { status: number; body: unknown } |
 }
 
 function renderPage(entry = `/p/${TOKEN}`) {
-  // 刻意**不**在測試端關 retry（突變審查抓到的遮蔽形）：頁面自己的 `retry: false`
-  // 必須承重——它一被拿掉，404/429 案就會重試三次，下面的呼叫次數斷言與
-  // waitFor 時限（預設 1 秒 < 首次重試退避後的總時長）都會紅。
+  // 刻意**不**在測試端關 retry（會遮蔽的形）：頁面自己的 `retry: false`
+  // 必須承重——它一被拿掉，404/429 案就會重試三次，錯誤畫面要等第四次失敗才出現。
+  // 守法是**計次**：404、429 兩案都在錯誤畫面出現後斷言公開端點恰被打一次（重試的話已是 4 次）。
+  // 不靠 waitFor 時限：react-query 預設退避 1+2+4≈7 秒，塞得進全域 asyncUtilTimeout（test/setup.ts）。
   // 路由樹帶兩形（與 App.tsx 同構）：形的判別在頁內 useParams。
   const queryClient = new QueryClient();
   render(
@@ -89,7 +90,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("PublicNotePage（#72 /p/:token＋#122 PR3 /p/:handle/:slug 免登入唯讀頁）", () => {
+describe("PublicNotePage（#72 /p/:token＋#122 /p/:handle/:slug 免登入唯讀頁）", () => {
   it("200：標題＋唯讀徽章＋Knotebook 連回 /，doc 解碼後交給唯讀編輯器（token 一併帶到）", async () => {
     const body: PublicNoteBody = {
       title: "公開的筆記",
@@ -118,7 +119,7 @@ describe("PublicNotePage（#72 /p/:token＋#122 PR3 /p/:handle/:slug 免登入�
     expect(calls).toEqual([`GET /api/public/notes/${TOKEN}`]);
   });
 
-  it("別名形 /p/<handle>/<slug>（#122 PR3）：打 by-path 端點、path 形 ref 交給編輯器、零 auth fetch", async () => {
+  it("別名形 /p/<handle>/<slug>（#122）：打 by-path 端點、path 形 ref 交給編輯器、零 auth fetch", async () => {
     const body: PublicNoteBody = {
       title: "別名的筆記",
       ydoc: ydocBase64((fragment) => {
@@ -138,7 +139,7 @@ describe("PublicNotePage（#72 /p/:token＋#122 PR3 /p/:handle/:slug 免登入�
     expect(editor.dataset.ref).toBe("path:alice/my-doc"); // token 形誤判會在這裡現形
     expect(screen.getByRole("heading", { name: "別名的筆記" })).toBeInTheDocument();
     expect(calls).toEqual(["GET /api/public/notes/alice/my-doc"]);
-    // 快取真的落在 by-path key（突變審 L1）：queryKey 若寫死 token 形，URL 與畫面
+    // 快取真的落在 by-path key（突變驗證）：queryKey 若寫死 token 形，URL 與畫面
     // 全對、只有快取格錯——所有別名頁共用一格，換頁會先渲染前一篇。fetch 斷言
     // 看不到這件事，必須直接驗 key。
     expect(queryClient.getQueryState(["public-note-by-path", "alice", "my-doc"])?.status).toBe("success");
@@ -174,7 +175,7 @@ describe("PublicNotePage（#72 /p/:token＋#122 PR3 /p/:handle/:slug 免登入�
   it("404（撤銷／token 錯）→ 失效卡，不掛編輯器；恰打一次（頁面 retry: false 承重——404 是常見合法結果，重試只啃節流額度）", async () => {
     const { fn, calls } = mockFetch((url) =>
       url === `/api/public/notes/${TOKEN}`
-        ? { status: 404, body: { error: { code: "not_found", message: "連結不存在或已失效" } } }
+        ? { status: 404, body: { error: { code: "not_found", message: "This link doesn't exist or no longer works." } } }
         : null,
     );
     vi.stubGlobal("fetch", fn);
@@ -189,7 +190,7 @@ describe("PublicNotePage（#72 /p/:token＋#122 PR3 /p/:handle/:slug 免登入�
   });
 
   it("非 404 的失敗（429 節流）→ 顯示 errors.<code> 文案而非失效卡（連結可能還活著，不能誤告使用者「已失效」）", async () => {
-    const { fn } = mockFetch((url) =>
+    const { fn, calls } = mockFetch((url) =>
       url === `/api/public/notes/${TOKEN}`
         ? { status: 429, body: { error: { code: "too_many_requests", message: "請求過於頻繁" } } }
         : null,
@@ -201,12 +202,14 @@ describe("PublicNotePage（#72 /p/:token＋#122 PR3 /p/:handle/:slug 免登入�
     // 逐字斷 errors.too_many_requests 的文案（不是 errors.fallback）——非 404 分支
     // 塌縮成一律 fallback 的突變要在這裡紅。
     await waitFor(() => expect(screen.getByText("Too many requests. Please slow down.")).toBeInTheDocument());
+    // 頁面的 `retry: false` 守門（見 renderPage 註解）：節流後還重試三次只會更糟。
+    expect(calls).toEqual([`GET /api/public/notes/${TOKEN}`]);
     expect(screen.getByRole("alert")).toBeInTheDocument();
     expect(screen.queryByText("This link doesn't exist or is no longer active.")).not.toBeInTheDocument();
     expect(screen.queryByTestId("public-note-editor")).not.toBeInTheDocument();
   });
 
-  // 背景 refetch（react-query 預設 focus/reconnect 會重抓）的兩條呈現規則（讀碼審查
+  // 背景 refetch（react-query 預設 focus/reconnect 會重抓）的兩條呈現規則（
   // Minor 1）：非 404 失敗不得把看到一半的內容翻成錯誤卡；404 則必須翻成失效卡
   //（撤銷的即時傳播）。
   const CONTENT_BODY: PublicNoteBody = {
@@ -246,7 +249,7 @@ describe("PublicNotePage（#72 /p/:token＋#122 PR3 /p/:handle/:slug 免登入�
     const queryClient = renderPage();
     await screen.findByTestId("public-note-editor");
 
-    respond = { status: 404, body: { error: { code: "not_found", message: "連結不存在或已失效" } } };
+    respond = { status: 404, body: { error: { code: "not_found", message: "This link doesn't exist or no longer works." } } };
     await act(async () => {
       await queryClient.refetchQueries();
     });

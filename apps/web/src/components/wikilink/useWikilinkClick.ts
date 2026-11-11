@@ -2,7 +2,9 @@ import { useCallback, useContext, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router";
 import { toast } from "@/components/ui/toast";
+import { TOP_SECTION_ID } from "@knotebook/shared";
 import { BlockAnchorContext } from "@/hooks/block-anchor-context";
+import { FIND_STATE_KEY } from "@/hooks/useBlockAnchor";
 
 export interface WikilinkClickTarget {
   /** 一般點擊要去的地方（member 命中＝canonical＋錨點；清單未到＝/notes/<id>[#b-…]；公開＝/p/…[#b-…]；公開同篇＝#b-…）。 */
@@ -11,6 +13,11 @@ export interface WikilinkClickTarget {
   targetNoteId: string | null;
   anchorBlockId: string;
   broken: boolean;
+  /**
+   * #93（側欄搜尋點片段）：要在段落範圍內找的字（`forQuery`）。同篇走 `requestAnchor(…, findText)`；別篇放進 navigation state
+   * （`FIND_STATE_KEY`），不進網址。省略＝一般錨點行為。
+   */
+  findText?: string;
 }
 
 /** 一般左鍵、無修飾鍵。其餘（Ctrl／Cmd／Shift／Alt、非左鍵）一律交給瀏覽器原生行為（新分頁／新視窗）。 */
@@ -35,21 +42,30 @@ export function useWikilinkActivate() {
         (anchors.currentNoteId !== null && target.targetNoteId.toLowerCase() === anchors.currentNoteId.toLowerCase());
       if (samePage) {
         if (target.anchorBlockId !== "") {
-          anchors.requestAnchor(target.anchorBlockId);
-          void navigate({ search: location.search, hash: `#b-${target.anchorBlockId}` }, { replace: false });
+          if (target.findText === undefined) anchors.requestAnchor(target.anchorBlockId);
+          else anchors.requestAnchor(target.anchorBlockId, target.findText);
+          void navigate(
+            { search: location.search, hash: `#b-${target.anchorBlockId}` },
+            { replace: false, ...(target.findText === undefined ? {} : { state: { [FIND_STATE_KEY]: target.findText } }) },
+          );
+        } else if (target.findText !== undefined) {
+          anchors.requestAnchor(TOP_SECTION_ID, target.findText);
+          // 同篇 `_top` 沒有 hash 可換：也把查詢字寫進目前這筆 history 的 state（replace，不多一筆），重新整理才會跳回去、
+          // 而且不會沿用上一次搜尋留在 state 裡的舊查詢字。
+          void navigate({ search: location.search, hash: "" }, { replace: true, state: { [FIND_STATE_KEY]: target.findText } });
         } else {
           anchors.scrollToTop();
         }
         return;
       }
-      void navigate(target.href);
+      void navigate(target.href, target.findText === undefined ? undefined : { state: { [FIND_STATE_KEY]: target.findText } });
     },
     [anchors, location.search, navigate, t],
   );
 }
 
 /**
- * #269 §7.2：wikilink 點擊的**唯一**實作（member、public、公開頁同篇 `#b-` 形都用它；rev 7 起可編輯時也直接跳轉，工具列改由 hover／長按開）。
+ * #269：wikilink 點擊的**唯一**實作（member、public、公開頁同篇 `#b-` 形都用它；可編輯時也直接跳轉，工具列改由 hover／長按開）。
  * - **不用 `<Link>`**：同路徑同 hash 時它預設 REPLACE，上一頁回不到點擊前。
  * - **不留給原生 `<a href>` 預設行為**：fragment 導航不經 react-router，而且區塊只有 `data-id` 沒有 `id`，瀏覽器捲不到。
  * - 同篇錨點先 `requestAnchor` 再 `navigate({ search, hash }, { replace: false })`：捲動由待處理錨點驅動，不依賴 router 是否產生新 key。

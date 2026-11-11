@@ -1,6 +1,6 @@
 /**
- * #181 PR-2a T9：垃圾桶 REST——`GET /api/trash`、`POST /api/trash/restore`、`POST /api/trash/purge`（spec 2026-10-21 §6.3.3–§6.3.5、
- * §6.7、A2-4 六角色矩陣、AG2）。造垃圾桶狀態一律打 `DELETE /api/notes/:id`（T8 起＝移入）；只有「同時刻」與大量資料兩案直改 DB。
+ * #181：垃圾桶 REST——`GET /api/trash`、`POST /api/trash/restore`、`POST /api/trash/purge`（
+ * 六角色矩陣）。造垃圾桶狀態一律打 `DELETE /api/notes/:id`（`DELETE` 即移入）；只有「同時刻」與大量資料兩案直改 DB。
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -22,8 +22,8 @@ import { captureLogs } from "./helpers/admin-auth.js";
 import { giveUserQuota, seedAttachment } from "./storage-helpers.js";
 import { inject, sixRoleScene, trashCols, type SixRoleScene } from "./trash-helpers.js";
 
-const INVALID = { error: { code: "invalid_body", message: "請求格式錯誤：ids 須為 1 到 200 個筆記 id" } };
-const inTrash = (noteId: string) => ({ error: { code: "in_trash", message: "這篇筆記在垃圾桶裡" }, noteId });
+const INVALID = { error: { code: "invalid_body", message: "Invalid request body: ids must be 1 to 200 note ids." } };
+const inTrash = (noteId: string) => ({ error: { code: "in_trash", message: "This note is in the trash." }, noteId });
 const DAY_MS = 86_400_000;
 const token = () => randomBytes(32).toString("base64url");
 
@@ -36,7 +36,7 @@ const listOf = async (app: FastifyInstance, userId: string): Promise<TrashListDt
 const listIds = async (app: FastifyInstance, userId: string) => (await listOf(app, userId)).items.map(i => i.id);
 const restore = (app: FastifyInstance, userId: string, ids: string[]) => inject(app, "POST", "/api/trash/restore", userId, { ids });
 const purge = (app: FastifyInstance, userId: string, ids: string[]) => inject(app, "POST", "/api/trash/purge", userId, { ids });
-/** 把回應 body 裡的某個 id 換成另一個（AG2：與「不存在」逐欄相同，只差 id 本身）。 */
+/** 把回應 body 裡的某個 id 換成另一個（與「不存在」逐欄相同，只差 id 本身）。 */
 const withId = (body: unknown, from: string, to: string): unknown => JSON.parse(JSON.stringify(body).split(from).join(to));
 const noteExists = async (db: Db, id: string) => (await db.$client.query(`select 1 from notes where id = $1`, [id])).rowCount === 1;
 const uploadExists = async (db: Db, id: string) => (await db.$client.query(`select 1 from uploads where id = $1`, [id])).rowCount === 1;
@@ -54,9 +54,14 @@ describe("TR-L1 兩區與排序", () => {
     const a = await seedNote(db, { ownerId: owner.id });
     const b = await seedNote(db, { ownerId: owner.id });
     const g = await seedNote(db, { groupId: grp.id });
+    // 資料夾：同一毫秒改依 id 排，所以每次移入後把剛移入那篇的 deleted_at 設成前一篇＋2 ms（順序不靠微秒）。
+    const spaceAfter = (id: string, prev: string) =>
+      db.$client.query(`update notes set deleted_at = (select deleted_at from notes where id = $2) + interval '2 milliseconds' where id = $1`, [id, prev]);
     await expect204(del(app, a.id, owner.id));
     await expect204(del(app, b.id, owner.id));
+    await spaceAfter(b.id, a.id);
     await expect204(del(app, g.id, owner.id));
+    await spaceAfter(g.id, b.id);
 
     const body = await listOf(app, owner.id);
     expect(body.items.map(i => i.id)).toEqual([g.id, b.id, a.id]);
@@ -76,6 +81,26 @@ describe("TR-L1 兩區與排序", () => {
     expect(rows[0]!.n).toBe(1);
 
     expect(await listIds(app, owner.id)).toEqual([...ids].sort().reverse());
+  });
+
+  it("TR-MS：同一毫秒、差 1 µs，µs 序與 id 序相反（µs 較大的給 id 較小者）→ 依 id DESC；回應 key 集合逐字不變", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await seedUser(db);
+    const x = await seedNote(db, { ownerId: owner.id });
+    const y = await seedNote(db, { ownerId: owner.id });
+    const [small, large] = [x.id, y.id].sort() as [string, string];
+    const ms = "2026-10-01T00:00:00.123Z";
+    await db.$client.query(`update notes set deleted_at = $2::timestamptz + interval '501 microseconds', deleted_by = $3 where id = $1`, [small, ms, owner.id]);
+    await db.$client.query(`update notes set deleted_at = $2::timestamptz + interval '500 microseconds', deleted_by = $3 where id = $1`, [large, ms, owner.id]);
+    const { rows } = await db.$client.query<{ n: number }>(`select count(*)::int n from notes where date_trunc('milliseconds', deleted_at) = $1::timestamptz`, [ms]);
+    expect(rows[0]!.n).toBe(2); // 前提：同一毫秒
+
+    const body = await listOf(app, owner.id);
+    expect(body.items.map(i => i.id)).toEqual([large, small]);
+    expect(Object.keys(body)).toEqual(["retentionDays", "items", "truncated"]);
+    for (const item of body.items) {
+      expect(Object.keys(item)).toEqual(["id", "title", "deletedAt", "purgeAt", "deletedBy", "group", "folderPath"]);
+    }
   });
 });
 
@@ -107,7 +132,7 @@ describe("TR-L2 DTO 欄", () => {
   });
 });
 
-describe("TR-L3 只列有垃圾桶權的（A2-4「列出」欄）", () => {
+describe("TR-L3 只列有垃圾桶權的（「列出」欄）", () => {
   it("群組垃圾桶：admin、editDelete 列得到，其餘列不到；別人的個人垃圾桶、活筆記從不出現", async () => {
     const { app, db } = await buildTestApp();
     const s = await sixRoleScene(db);
@@ -141,7 +166,7 @@ describe("TR-L4 刪除者帳號已刪", () => {
     expect(body.items.map(i => [i.id, i.deletedBy])).toEqual([[n.id, null]]);
   });
 
-  it("個人區：deleted_by 是另一個帳號（§6.5 群組轉移後的形）、該帳號被刪 → 仍列出、deletedBy null", async () => {
+  it("個人區：deleted_by 是另一個帳號（群組轉移後的形）、該帳號被刪 → 仍列出、deletedBy null", async () => {
     const { app, db } = await buildTestApp();
     const owner = await seedUser(db);
     const x = await seedUser(db);
@@ -164,7 +189,7 @@ describe("TR-L6 讀不到 site_settings 列", () => {
     await db.$client.query(`delete from site_settings`);
 
     const res = await inject(app, "GET", "/api/trash", owner.id);
-    expect([res.statusCode, res.json()]).toEqual([500, { error: { code: "internal", message: "伺服器內部錯誤" } }]);
+    expect([res.statusCode, res.json()]).toEqual([500, { error: { code: "internal", message: "Internal server error." } }]);
     const line = logs.lines.find(l => l.msg === SITE_SETTINGS_MISSING_MESSAGE);
     expect(line?.obj).toEqual({ table: "site_settings" });
   });
@@ -202,7 +227,7 @@ describe.each(["restore", "purge"] as const)("TR-V 輸入驗證（%s）", ep => 
 
     const bodies: Array<[string, unknown]> = [
       ["V1 空陣列", { ids: [] }],
-      // 上限算原始個數：201 個、去重後只剩 2 個，仍要 400（gate r1 M6）。
+      // 上限算原始個數：201 個、去重後只剩 2 個，仍要 400。
       ["V2 201 個", { ids: [n.id, ...Array<string>(200).fill(randomUUID())] }],
       ["V3 非 UUID", { ids: [n.id, "not-a-uuid"] }],
       ["V4 多一個鍵", { ids: [n.id], x: 1 }],
@@ -237,7 +262,7 @@ describe.each(["restore", "purge"] as const)("TR-V 輸入驗證（%s）", ep => 
   });
 });
 
-describe("TR-R1 還原正路（A2-11 的 server 面）", () => {
+describe("TR-R1 還原正路", () => {
   it("帶分享與公開連結的個人筆記 → restored[0] 是 NoteDto；分享者又看得到；公開兩形 200；空間已滿照樣還原", async () => {
     const { app, db, uploadsDir } = await buildTestApp();
     const owner = await seedUser(db);
@@ -246,7 +271,7 @@ describe("TR-R1 還原正路（A2-11 的 server 面）", () => {
     const n = await seedNote(db, { ownerId: owner.id }, { title: "R1", publicToken: tok, publicSlug: "r1-pub" });
     await seedShare(db, n.id, friend.id, "editor");
     await seedAttachment(db, uploadsDir, n.id, owner.id, 10);
-    await giveUserQuota(db, owner.id, 1); // 用量 10 bytes > 上限 1 byte（§6.3.3-5：還原不檢查容量）
+    await giveUserQuota(db, owner.id, 1); // 用量 10 bytes > 上限 1 byte（還原不檢查容量）
     const anon = (url: string) => app.inject({ method: "GET", url });
     const friendIds = async () => ((await inject(app, "GET", "/api/notes", friend.id)).json() as NoteDto[]).map(x => x.id);
 
@@ -353,7 +378,7 @@ describe.each(["restore", "purge"] as const)("TR-R3b 交易內略過與預判略
       { id: r, reason: "not_found" },
     ]);
     expect((await trashCols(db.$client, g))?.deleted_at).not.toBeNull();
-    // 進了交易但一篇也沒還原 → 不呼叫 onNotesRestored（T6：只傳實際還原的 id）。
+    // 進了交易但一篇也沒還原 → 不呼叫 onNotesRestored（只傳實際還原的 id）。
     expect(hooks.onNotesRestored).not.toHaveBeenCalled();
   });
 });
@@ -372,7 +397,7 @@ describe("TR-AG2 沒有垃圾桶權與不存在逐欄相同", () => {
   });
 });
 
-describe("TR-P1 永久刪除（A2-10 的釋放面）", () => {
+describe("TR-P1 永久刪除（釋放面）", () => {
   it("有附件的垃圾桶筆記 → purged [id]；列、uploads 列、磁碟檔都不在；用量減少；旁觀者垃圾桶筆記仍在", async () => {
     const { app, db, uploadsDir } = await buildTestApp();
     const owner = await seedUser(db);
@@ -421,7 +446,7 @@ describe("TR-P1 永久刪除（A2-10 的釋放面）", () => {
   });
 });
 
-describe("TR-P2 活筆記一律不刪（AG5）", () => {
+describe("TR-P2 活筆記一律不刪", () => {
   it("owner purge 自己的活筆記 → 預判不過、skipped not_found；筆記與附件都在", async () => {
     const { app, db, uploadsDir } = await buildTestApp();
     const owner = await seedUser(db);
@@ -483,7 +508,7 @@ describe("TR-P4 交易爆不先刪檔", () => {
 });
 
 type Role = keyof Omit<SixRoleScene, "groupId">;
-/** spec §6.3.1 第二張表：DELETE 回應碼、有沒有垃圾桶權（列出／還原／永久刪除／in_trash 四格一致）。 */
+/** 六角色矩陣：DELETE 回應碼、有沒有垃圾桶權（列出／還原／永久刪除／in_trash 四格一致）。 */
 const MATRIX: Array<[Role, number, boolean]> = [
   ["admin", 204, true],
   ["editDelete", 204, true],
@@ -532,7 +557,7 @@ describe.each(MATRIX)("TR-M1 六角色矩陣：%s", (role, delStatus, trashRight
   });
 });
 
-describe("TR-C1 清空語意（§6.3.4-5）", () => {
+describe("TR-C1 清空語意", () => {
   it("送清單上的全部 id → 之後才移入的那篇不受影響", async () => {
     const { app, db } = await buildTestApp();
     const owner = await seedUser(db);

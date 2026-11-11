@@ -5,8 +5,7 @@ import { P, integrity, mountEditor, row, shape, textPos, withChildren, type AnyE
 import { removeBlocksKeepColumns } from "./keep-columns";
 import { blockIdsForMenuDelete, blockIdsInSelectionForDelete } from "./selection-delete";
 
-// spec §5.4「調整 2 補充」（T3c）：⋮⋮ Delete 的刪除對象。表一（展開）、表二（多選判斷）的期望值逐字取自探針
-// sel4.mjs／c12.mjs／trig-narrow.mjs／anc-noncol-narrow.mjs 的輸出。
+// ⋮⋮ Delete 的刪除對象。表一（展開）、表二（多選判斷）的期望值逐字取自實際選取的輸出。
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -40,7 +39,7 @@ const ROW_BB_KQ = () => W([[P("a", "a1")], [withChildren(P("bb", "b1"), [P("k", 
 function selectFirstCharOfBb(editor: AnyEditor): void {
   editor.setTextCursorPosition("b1", "start");
   editor.transact((tr) =>
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- TextSelection 從現行選取的 constructor 取（讀碼發現 13），沒有可 import 的型別
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- TextSelection 從現行選取的 constructor 取，沒有可 import 的型別
     tr.setSelection((tr.selection.constructor as any).create(tr.doc, textPos(editor, "bb", 0), textPos(editor, "bb", 1))),
   );
 }
@@ -120,7 +119,7 @@ describe("SD1 blockIdsInSelectionForDelete：表一", () => {
   });
 });
 
-// T3c review M-2：「撤銷一次就還原」也要在共編 UndoManager 下成立（app 的實際組態）；挑四形，期望與非共編逐字相同。
+// 「撤銷一次就還原」也要在共編 UndoManager 下成立（app 的實際組態）；挑四形，期望與非共編逐字相同。
 describe("SD1-COLLAB 表一四形在共編下：刪除結果相同、manager.undo() 一次回起始", () => {
   const COLLAB = SD1.filter(([name]) => ["C1", "C7", "C10", "C12"].includes(name));
   it("挑到的恰是四形（改名時不得靜默少跑）", () => {
@@ -207,8 +206,8 @@ describe("SD3 blockIdsForMenuDelete：表二", () => {
     expect(shape(editor)).toBe(before);
   });
 
-  // 函式契約：PR-1 的 ⋮⋮ 只開在 blockContainer 上（core `getDraggableBlockFromElement`），UI 開不到欄節點；PR-6 整列把手才會用到。
-  it("點的 id 是 blocks 裡的欄節點本身（core 原本的條件；函式契約，PR-1 UI 開不到）→ 展開後的集合", () => {
+  // 函式契約：⋮⋮ 只開在 blockContainer 上（core `getDraggableBlockFromElement`），UI 開不到欄節點；整列把手才會用到。
+  it("點的 id 是 blocks 裡的欄節點本身（core 原本的條件；函式契約，UI 開不到）→ 展開後的集合", () => {
     const editor = mount(C1());
     editor.setSelection("a1", "b1");
     expect(blockIdsForMenuDelete(editor, "rc1")).toEqual(["a1", "b1"]);

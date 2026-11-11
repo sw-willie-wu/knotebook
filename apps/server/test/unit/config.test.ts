@@ -25,6 +25,9 @@ describe("loadConfig", () => {
       databasePoolConnectionTimeoutMs: 10000,
       testHooks: false,
       testHooksIgnored: false,
+      // #397：env 設的站台限制、機器資訊（解析 worker 的生效值由 SiteLimits 算，不在 config 裡）
+      limitEnv: {},
+      machine: expect.objectContaining({ cpus: expect.any(Number) }),
     });
   });
   it("#175 pool 保險絲：兩個 env 覆寫；空字串視同未設；非正整數 → throw", () => {
@@ -48,7 +51,7 @@ describe("loadConfig", () => {
     const { PUBLIC_URL, ...rest } = valid;
     expect(() => loadConfig(rest)).toThrow(/PUBLIC_URL/);
   });
-  it("http 非 localhost → 接受但 insecureHttpWarning=true，cookieSecure 仍為 false（trusted-LAN 拓撲，spec rev 5.6）", () => {
+  it("http 非 localhost → 接受但 insecureHttpWarning=true，cookieSecure 仍為 false（trusted-LAN 拓撲）", () => {
     const config = loadConfig({ ...valid, PUBLIC_URL: "http://notes.example.com" });
     expect(config.insecureHttpWarning).toBe(true);
     expect(config.cookieSecure).toBe(false);
@@ -62,7 +65,7 @@ describe("loadConfig", () => {
   it("無 scheme → throw", () => {
     expect(() => loadConfig({ ...valid, PUBLIC_URL: "localhost:3000" })).toThrow(/http\/https/);
   });
-  describe("ADMIN_EMAIL / ADMIN_PASSWORD（env bootstrap admin，spec rev 5.7）", () => {
+  describe("ADMIN_EMAIL / ADMIN_PASSWORD（env bootstrap admin）", () => {
     it("皆未設 → 通過，adminEmail/adminPassword 皆 undefined", () => {
       const config = loadConfig(valid);
       expect(config.adminEmail).toBeUndefined();
@@ -106,41 +109,14 @@ describe("loadConfig", () => {
     });
   });
 
-  describe("OIDC_*（#187：只剩首次啟動匯入用，§10.2）", () => {
-    const three = { OIDC_ISSUER_URL: "https://idp.example.com", OIDC_CLIENT_ID: "abc", OIDC_CLIENT_SECRET: "s" };
-    it("三件齊 → legacyOidcEnv 填入、沒有 problem", () => {
-      const c = loadConfig({ ...valid, ...three });
-      expect(c.legacyOidcEnv).toEqual({ issuerUrl: "https://idp.example.com", clientId: "abc", clientSecret: "s" });
-      expect(c.legacyOidcEnvProblem).toBeUndefined();
-    });
-    it("只設其中一個 → 不再 throw，legacyOidcEnvProblem='partial'", () => {
-      const c = loadConfig({ ...valid, OIDC_ISSUER_URL: "https://idp.example.com" });
-      expect(c.legacyOidcEnv).toBeUndefined();
-      expect(c.legacyOidcEnvProblem).toBe("partial");
-    });
-    it("issuer 非 http/https、超過 512 字、或 client id 超過 512 字 → 'invalid'（不擋啟動）", () => {
-      for (const over of [
-        { OIDC_ISSUER_URL: "ftp://idp.example.com" },
-        { OIDC_ISSUER_URL: "https://" + "i".repeat(505) },
-        { OIDC_CLIENT_ID: "c".repeat(513) },
-        // fix r1 I1：`new URL()` 認得、但 0014 的 CHECK（區分大小寫的 `^https?://`）拒收的形——必須在 config 就判 invalid。
-        { OIDC_ISSUER_URL: "HTTPS://idp.example" },
-        { OIDC_ISSUER_URL: "http:idp.example" },
-        { OIDC_ISSUER_URL: "https:/idp.example" },
-        { OIDC_ISSUER_URL: " https://idp.example" },
-        // 帶帳密的 issuer 不匯入（明文存 DB），只警告。
-        { OIDC_ISSUER_URL: "https://user:pass@idp.example" },
-        { OIDC_ISSUER_URL: "https://user@idp.example" },
-      ]) {
-        const c = loadConfig({ ...valid, ...three, ...over });
-        expect(c.legacyOidcEnv).toBeUndefined();
-        expect(c.legacyOidcEnvProblem).toBe("invalid");
+  describe("殘留的舊 OIDC_*（匯入機制已移除）", () => {
+    it("三件齊或半套的 OIDC_ISSUER_URL／CLIENT_ID／CLIENT_SECRET 都被忽略：不 throw、config 不帶任何 OIDC 欄位", () => {
+      const three = { OIDC_ISSUER_URL: "https://idp.example.com", OIDC_CLIENT_ID: "abc", OIDC_CLIENT_SECRET: "s" };
+      for (const extra of [three, { OIDC_ISSUER_URL: "ftp://bad" }, {}]) {
+        const c = loadConfig({ ...valid, ...extra });
+        expect(Object.keys(c).filter(k => /oidc/i.test(k))).toEqual([]);
+        expect(c.publicUrl.href).toBe(loadConfig(valid).publicUrl.href);
       }
-    });
-    it("全未設 → 兩欄皆 undefined", () => {
-      const c = loadConfig(valid);
-      expect(c.legacyOidcEnv).toBeUndefined();
-      expect(c.legacyOidcEnvProblem).toBeUndefined();
     });
   });
 });
@@ -184,7 +160,7 @@ describe("parseTrustProxy（issue #13）", () => {
     expect(parseTrustProxy("fd00::/64")).toEqual(["fd00::/64"]);
   });
 
-  // ⚠ 這條是本組測試裡唯一擋得住「我們自己驗過、fastify 卻不收」的形狀。審查實測抓到
+  // ⚠ 這條是本組測試裡唯一擋得住「我們自己驗過、fastify 卻不收」的形狀。實測抓到
   // 兩個真例：具名網段沒轉小寫（proxy-addr 用精確比對，`Loopback` 直接丟
   // `invalid IP address`）、以及 `/0`（proxy-addr 的 `range <= 0` 一律拒）。兩者都會在
   // `buildApp` 的 Fastify 建構子炸掉，訊息還指不出是哪個環境變數——形同 fail-fast 破功。
@@ -231,11 +207,11 @@ describe("parseTrustProxy（issue #13）", () => {
   });
 });
 
-describe("D12：OAuth issuer 取 origin、PUBLIC_URL 帶其他成分只警告", () => {
+describe("OAuth issuer 取 origin、PUBLIC_URL 帶其他成分只警告", () => {
   it("publicUrlIssuer：保留 port、丟掉 path／query／fragment／userinfo，scheme 與 host 小寫", () => {
-    // port 是這個 repo 最常見的自架形（demo 就是 http://192.168.3.22:8006）——
+    // port 是這個 repo 最常見的自架形（例如 http://192.168.1.50:3000）——
     // 手工組 issuer 的實作（protocol + "//" + hostname）會在這裡紅。
-    expect(publicUrlIssuer(new URL("http://192.168.3.22:8006/knb"))).toBe("http://192.168.3.22:8006");
+    expect(publicUrlIssuer(new URL("http://192.168.1.50:3000/knb"))).toBe("http://192.168.1.50:3000");
     expect(publicUrlIssuer(new URL("https://example.com/knb?q=1#f"))).toBe("https://example.com");
     expect(publicUrlIssuer(new URL("https://u:p@example.com/knb"))).toBe("https://example.com");
     expect(publicUrlIssuer(new URL("HTTPS://Notes.Example.com"))).toBe("https://notes.example.com");
@@ -246,7 +222,7 @@ describe("D12：OAuth issuer 取 origin、PUBLIC_URL 帶其他成分只警告", 
   it("publicUrlPathWarning：純 origin（含尾斜線、含 port）不警告", () => {
     expect(publicUrlPathWarning(new URL("https://notes.example.com"))).toBeNull();
     expect(publicUrlPathWarning(new URL("https://notes.example.com/"))).toBeNull();
-    expect(publicUrlPathWarning(new URL("http://192.168.3.22:8006/"))).toBeNull();
+    expect(publicUrlPathWarning(new URL("http://192.168.1.50:3000/"))).toBeNull();
   });
 
   it("publicUrlPathWarning：path／query／fragment／userinfo 都要警告（都是被 origin 丟掉的成分）", () => {
@@ -308,21 +284,19 @@ describe("D12：OAuth issuer 取 origin、PUBLIC_URL 帶其他成分只警告", 
     expect(callAt, "警告要在 listen 之前印出來").toBeLessThan(listenAt);
   });
 
-  it("結構守衛（#187 §10.2／§10.3）：index.ts 的 env 匯入與補登呼叫在 initializeInstance 之後、listen 之前，且匯入先於補登", () => {
+  it("結構守衛（#187）：index.ts 的舊欄補登呼叫在 initializeInstance 之後、listen 之前", () => {
     const src = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../src/index.ts"), "utf8");
     // 錨定呼叫點字面（含引數開頭），不是函式名——只找名字會先命中檔頭 import。
     const initAt = src.indexOf("await initializeInstance(");
-    const importAt = src.indexOf("await importLegacyOidcEnv(db");
     const backfillAt = src.indexOf("await backfillLegacyOidcIdentities(db");
     const listenAt = src.indexOf(".listen(");
     expect(initAt).toBeGreaterThan(-1);
-    expect(importAt, "index.ts 必須呼叫 importLegacyOidcEnv(db…").toBeGreaterThan(initAt);
-    expect(backfillAt, "補登必須在匯入之後").toBeGreaterThan(importAt);
+    expect(backfillAt, "index.ts 必須呼叫 backfillLegacyOidcIdentities(db…").toBeGreaterThan(initAt);
     expect(backfillAt, "補登必須在 listen 之前").toBeLessThan(listenAt);
   });
 });
 
-describe("PASSWORD_LOGIN_FORCE_ENABLE（#187 B18、§14.1-27）", () => {
+describe("PASSWORD_LOGIN_FORCE_ENABLE（#187）", () => {
   it.each([
     [undefined, false],
     ["", false],
@@ -346,7 +320,7 @@ describe("PASSWORD_LOGIN_FORCE_ENABLE（#187 B18、§14.1-27）", () => {
     expect(() => loadConfig({ ...valid, PASSWORD_LOGIN_FORCE_ENABLE: "yes" })).toThrow(/PASSWORD_LOGIN_FORCE_ENABLE/);
   });
 
-  it("結構守衛（§10.4）：開機檢查在 §10.3 補登之後、listen 之前", () => {
+  it("結構守衛：開機檢查在舊欄補登之後、listen 之前", () => {
     const src = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../src/index.ts"), "utf8");
     const backfillAt = src.indexOf("await backfillLegacyOidcIdentities(db");
     const checkAt = src.indexOf("await warnPasswordLoginAtBoot(db");
@@ -366,7 +340,7 @@ describe("#269 結構守衛：app.ts 的轉換工作 onClose", () => {
   });
 });
 
-describe("KNOTEBOOK_E2E_TEST_HOOKS（#272 §7.5，案 27）", () => {
+describe("KNOTEBOOK_E2E_TEST_HOOKS（#272，案 27）", () => {
   const pick = (c: AppConfig) => ({ testHooks: c.testHooks, testHooksIgnored: c.testHooksIgnored });
   const local = { ...valid, PUBLIC_URL: "http://localhost:3100" };
 
@@ -406,8 +380,8 @@ describe("KNOTEBOOK_E2E_TEST_HOOKS（#272 §7.5，案 27）", () => {
     expect(stopAt, "關機要呼叫 collab.versions.stopScan()").toBeGreaterThan(-1);
     expect(destroyAt, "關機要呼叫 collab.destroy()").toBeGreaterThan(-1);
     expect(stopAt, "stopScan 要在 collab.destroy() 之前").toBeLessThan(destroyAt);
-    // plan gate r1 M5：等掃描停下有 2 s 上限（卡住的那一篇不得吃掉 docker stop 的寬限期，留給 collab 落盤）。
-    // #269 併線（plan Task 8 Step 5）：與站內連結轉換的 stop 並行、共用同一份 2 s 寬限。
+    // 等掃描停下有 2 s 上限（卡住的那一篇不得吃掉 docker stop 的寬限期，留給 collab 落盤）。
+    // #269 併線：與站內連結轉換的 stop 並行、共用同一份 2 s 寬限。
     expect(handler).toMatch(/Promise\.race\(\[Promise\.all\(\[collab\.versions\.stopScan\(\), app\.linkConversion\.stop\(\)\]\), stopGrace\(\)\]\)/);
   });
 

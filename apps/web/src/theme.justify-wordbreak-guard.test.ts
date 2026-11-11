@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 /**
- * 內文左右對齊（issue I7 審查修正，2026-09-17）：`text-align: justify` 與
+ * 內文左右對齊：`text-align: justify` 與
  * `word-break: break-all` 這兩條規則是**一組**，見 `index.css` 該區塊上方的
  * 註解——單獨留 justify 會在「一小段文字 ＋ 空白 ＋ 一長串不能斷的東西」那種行
  * 把唯一的空白拉爆（680px 欄寬實測 136.4px→7.9px，見 index.css 的量測明細）。

@@ -5,26 +5,27 @@ import { schemaVersionFromBody, signCollabToken, verifyCollabToken } from "../..
 import { FixedWindowLimiter } from "../../src/http/rate-limit.js";
 
 const secret = "a".repeat(64);
+const SID = "00000000-0000-4000-8000-0000000000aa";
 
 describe("collab token jwt", () => {
   afterEach(() => {
     vi.useRealTimers();
   });
 
-  it("簽驗往返：noteId/role/tv 正確", async () => {
-    const token = await signCollabToken(secret, { noteId: "note-1", userId: "user-1", role: "editor", tv: 3, sv: 0 });
+  it("簽驗往返：noteId/role/tv/sid 正確", async () => {
+    const token = await signCollabToken(secret, { noteId: "note-1", userId: "user-1", role: "editor", tv: 3, sid: SID, sv: 0 });
     const result = await verifyCollabToken(secret, token);
-    expect(result).toEqual({ noteId: "note-1", userId: "user-1", role: "editor", tv: 3, sv: 0 });
+    expect(result).toEqual({ noteId: "note-1", userId: "user-1", role: "editor", tv: 3, sid: SID, sv: 0 });
   });
 
-  it("role:'none' 可簽可驗（§11.5-1：無權限使用者也拿得到合法 token）", async () => {
-    const token = await signCollabToken(secret, { noteId: "note-1", userId: "user-1", role: "none", tv: 0, sv: 0 });
+  it("role:'none' 可簽可驗（無權限使用者也拿得到合法 token）", async () => {
+    const token = await signCollabToken(secret, { noteId: "note-1", userId: "user-1", role: "none", tv: 0, sid: SID, sv: 0 });
     const result = await verifyCollabToken(secret, token);
-    expect(result).toEqual({ noteId: "note-1", userId: "user-1", role: "none", tv: 0, sv: 0 });
+    expect(result).toEqual({ noteId: "note-1", userId: "user-1", role: "none", tv: 0, sid: SID, sv: 0 });
   });
 
   it("claims 含 tv（JWT payload 層級可驗到）", async () => {
-    const token = await signCollabToken(secret, { noteId: "note-1", userId: "user-1", role: "viewer", tv: 7, sv: 0 });
+    const token = await signCollabToken(secret, { noteId: "note-1", userId: "user-1", role: "viewer", tv: 7, sid: SID, sv: 0 });
     const payload = decodeJwt(token);
     expect(payload.tv).toBe(7);
   });
@@ -32,7 +33,7 @@ describe("collab token jwt", () => {
   it("篡改 token → null", async () => {
     // 改 payload 首字元（而非簽章末字元——base64url 末字元只有部分位元有效，flip
     // 有極小機率不改變解碼後的位元組，造成假綠）。
-    const token = await signCollabToken(secret, { noteId: "note-1", userId: "user-1", role: "owner", tv: 1, sv: 0 });
+    const token = await signCollabToken(secret, { noteId: "note-1", userId: "user-1", role: "owner", tv: 1, sid: SID, sv: 0 });
     const [header, payload, signature] = token.split(".");
     const flippedFirstChar = payload[0] === "a" ? "b" : "a";
     const tampered = `${header}.${flippedFirstChar + payload.slice(1)}.${signature}`;
@@ -47,7 +48,7 @@ describe("collab token jwt", () => {
   it("過期 token → null", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
-    const token = await signCollabToken(secret, { noteId: "note-1", userId: "user-1", role: "editor", tv: 1, sv: 0 });
+    const token = await signCollabToken(secret, { noteId: "note-1", userId: "user-1", role: "editor", tv: 1, sid: SID, sv: 0 });
     // 120s TTL（COLLAB_TOKEN_TTL_SECONDS），推進 121s
     vi.setSystemTime(new Date("2026-01-01T00:02:01Z"));
     expect(await verifyCollabToken(secret, token)).toBeNull();
@@ -66,11 +67,21 @@ describe("collab token jwt", () => {
     expect(await verifyCollabToken(secret, token)).toBeNull();
   });
   it("#269：sv claim 往返；舊形 token（沒有 sv）驗成 sv=0、不視為壞 token", async () => {
-    const withSv = await signCollabToken(secret, { noteId: "note-1", userId: "user-1", role: "owner", tv: 1, sv: 7 });
+    const withSv = await signCollabToken(secret, { noteId: "note-1", userId: "user-1", role: "owner", tv: 1, sid: SID, sv: 7 });
     expect((await verifyCollabToken(secret, withSv))?.sv).toBe(7);
     const key = createHash("sha256").update(`${secret}:collab`).digest();
-    const legacy = await new SignJWT({ noteId: "note-1", role: "owner", tv: 1 }).setProtectedHeader({ alg: "HS256" }).setSubject("user-1").setIssuedAt().setExpirationTime("120s").sign(key);
-    expect(await verifyCollabToken(secret, legacy)).toEqual({ userId: "user-1", noteId: "note-1", role: "owner", tv: 1, sv: 0 });
+    const legacy = await new SignJWT({ noteId: "note-1", role: "owner", tv: 1, sid: SID }).setProtectedHeader({ alg: "HS256" }).setSubject("user-1").setIssuedAt().setExpirationTime("120s").sign(key);
+    expect(await verifyCollabToken(secret, legacy)).toEqual({ userId: "user-1", noteId: "note-1", role: "owner", tv: 1, sid: SID, sv: 0 });
+  });
+
+  it("#388：沒有 sid 的 token（升級前簽的）→ null（壞 token）；同一張帶上 sid 就過", async () => {
+    const key = createHash("sha256").update(`${secret}:collab`).digest();
+    const sign = (claims: Record<string, unknown>) =>
+      new SignJWT(claims).setProtectedHeader({ alg: "HS256" }).setSubject("user-1").setIssuedAt().setExpirationTime("120s").sign(key);
+    expect(await verifyCollabToken(secret, await sign({ noteId: "note-1", role: "owner", tv: 1, sv: 0 }))).toBeNull();
+    expect(await verifyCollabToken(secret, await sign({ noteId: "note-1", role: "owner", tv: 1, sid: "not-a-uuid", sv: 0 }))).toBeNull(); // 形狀比照 verifySession
+    expect(await verifyCollabToken(secret, await sign({ noteId: "note-1", role: "owner", tv: 1, sid: SID.toUpperCase(), sv: 0 }))).toBeNull();
+    expect((await verifyCollabToken(secret, await sign({ noteId: "note-1", role: "owner", tv: 1, sid: SID, sv: 0 })))?.sid).toBe(SID);
   });
 
   it("#269：schemaVersionFromBody——缺席、非物件、非整數一律 0；整數照收", () => {
@@ -119,7 +130,7 @@ describe("FixedWindowLimiter", () => {
     expect(limiter.consume("k")).toBe(false);
   });
 
-  it("consumeMany（#175 T4）：額度夠就一次扣 n；不夠回 false 且一個都不扣；n <= 0 恆放行不計數", () => {
+  it("consumeMany（#175）：額度夠就一次扣 n；不夠回 false 且一個都不扣；n <= 0 恆放行不計數", () => {
     const limiter = new FixedWindowLimiter({ limit: 5, windowMs: 60_000 });
     expect(limiter.consumeMany("k", 0)).toBe(true);
     expect(limiter.isBlocked("k")).toBe(false);
@@ -129,7 +140,7 @@ describe("FixedWindowLimiter", () => {
     expect(limiter.consume("k")).toBe(false);
   });
 
-  it("consumeMany n > limit（T4 review r2 I-1）：夾到整窗額度——只在空窗放行並扣滿；同窗再發拒絕且不扣；下一窗再放行", () => {
+  it("consumeMany n > limit：夾到整窗額度——只在空窗放行並扣滿；同窗再發拒絕且不扣；下一窗再放行", () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
     const limiter = new FixedWindowLimiter({ limit: 5, windowMs: 1_000 });

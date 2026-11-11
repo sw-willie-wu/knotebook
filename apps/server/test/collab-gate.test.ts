@@ -10,9 +10,9 @@ import {
 } from "@knotebook/shared";
 import { signCollabToken } from "../src/collab/token.js";
 import { waitFor } from "./editing-helpers.js";
-import { buildCollabTestApp, COLLAB_TOKEN_INIT, testConfig } from "./helpers.js";
+import { buildCollabTestApp, COLLAB_TOKEN_INIT, testConfig, testSessionId } from "./helpers.js";
 
-// spec 2026-10-13 site-links §5、§15.2 G1–G3：collab 連線的 note schema 版本閘門。
+// G1–G3：collab 連線的 note schema 版本閘門。
 const PASSWORD = "correct-horse-battery";
 
 describe("#269 舊分頁閘門（onAuthenticate）", () => {
@@ -41,7 +41,7 @@ describe("#269 舊分頁閘門（onAuthenticate）", () => {
     const owner = await ctx.createUser({ email: "gate-2@example.com", password: PASSWORD });
     const note = await ctx.createNote(owner.id);
     const session = await ctx.loginAs("gate-2@example.com", PASSWORD);
-    const newer = await signCollabToken(testConfig.appSecret, { noteId: note.id, userId: owner.id, role: "owner", tv: 0, sv: NOTE_SCHEMA_VERSION + 1 });
+    const newer = await signCollabToken(testConfig.appSecret, { noteId: note.id, userId: owner.id, role: "owner", tv: 0, sid: testSessionId(owner.id), sv: NOTE_SCHEMA_VERSION + 1 });
     await expect(session.connect(note.id, { tokenOverride: newer })).rejects.toThrow(COLLAB_REJECT_CLIENT_OUTDATED);
     const stringBody = await session.fetch(`/api/notes/${note.id}/collab-token`, { method: "POST", body: JSON.stringify({ noteSchemaVersion: String(NOTE_SCHEMA_VERSION) }) });
     expect(stringBody.status).toBe(200);
@@ -54,8 +54,8 @@ describe("#269 舊分頁閘門（onAuthenticate）", () => {
     const owner = await ctx.createUser({ email: "gate-3@example.com", password: PASSWORD });
     const note = await ctx.createNote(owner.id);
     const session = await ctx.loginAs("gate-3@example.com", PASSWORD);
-    const stale = await signCollabToken(testConfig.appSecret, { noteId: note.id, userId: owner.id, role: "owner", tv: 0, sv: 0 });
-    const fresh = await signCollabToken(testConfig.appSecret, { noteId: note.id, userId: owner.id, role: "owner", tv: 0, sv: NOTE_SCHEMA_VERSION });
+    const stale = await signCollabToken(testConfig.appSecret, { noteId: note.id, userId: owner.id, role: "owner", tv: 0, sid: testSessionId(owner.id), sv: 0 });
+    const fresh = await signCollabToken(testConfig.appSecret, { noteId: note.id, userId: owner.id, role: "owner", tv: 0, sid: testSessionId(owner.id), sv: NOTE_SCHEMA_VERSION });
     await ctx.db.execute(sql`alter table notes rename to notes_hidden`);
     try {
       await expect(session.connect(note.id, { tokenOverride: stale })).rejects.toThrow(COLLAB_REJECT_CLIENT_OUTDATED);
@@ -71,8 +71,9 @@ describe("#269 舊分頁閘門（onAuthenticate）", () => {
     const note = await ctx.createNote(owner.id);
     const session = await ctx.loginAs("gate-4@example.com", PASSWORD);
     // 照 `collab/token.ts` 的鍵衍生（sha256(appSecret + ":collab")）手簽一份舊形 token——不經 signCollabToken（它一定帶 sv）。
+    // 帶 #388 的 sid：沒有 sid 的 token 在驗簽就被當壞 token（invalid-token），到不了這裡要釘的 sv 閘門。
     const key = createHash("sha256").update(`${testConfig.appSecret}:collab`).digest();
-    const legacy = await new SignJWT({ noteId: note.id, role: "owner", tv: 0 })
+    const legacy = await new SignJWT({ noteId: note.id, role: "owner", tv: 0, sid: testSessionId(owner.id) })
       .setProtectedHeader({ alg: "HS256" })
       .setSubject(owner.id)
       .setIssuedAt()
@@ -89,7 +90,7 @@ describe("#269 舊分頁閘門（onAuthenticate）", () => {
     let swapped = false;
     const client = await session.connect(note.id, {
       tokenFn: async () => {
-        if (swapped) return signCollabToken(testConfig.appSecret, { noteId: note.id, userId: owner.id, role: "owner", tv: 0, sv: 0 });
+        if (swapped) return signCollabToken(testConfig.appSecret, { noteId: note.id, userId: owner.id, role: "owner", tv: 0, sid: testSessionId(owner.id), sv: 0 });
         const res = await session.fetch(`/api/notes/${note.id}/collab-token`, COLLAB_TOKEN_INIT);
         return ((await res.json()) as { token: string }).token;
       },

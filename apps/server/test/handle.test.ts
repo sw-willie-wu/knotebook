@@ -16,11 +16,11 @@ import { createFakeIdp, type FakeIdp, type FakeIdpClaims } from "./helpers/fake-
 import { legacyOidcApp } from "./helpers/oidc-provider.js";
 
 /**
- * #122 PR1 Task 3：三條建帳路徑的 handle 派生與 registry-first 配置（spec §2a/§2b）。
+ * #122：三條建帳路徑的 handle 派生與 registry-first 配置。
  *
  * 配置不變量（每條路徑都斷言）：建帳後 `handles` 有一列 `state='live'`、其
- * `handle`＝`users.handle` 且 `user_id`＝該使用者——這是抓 round 4 兩個 Critical
- * （admin 繞過 registry、改名後 registry 與 users 不一致）回歸的網子（spec §2c「runtime 一致性」）。
+ * `handle`＝`users.handle` 且 `user_id`＝該使用者——這是抓兩個嚴重
+ * （admin 繞過 registry、改名後 registry 與 users 不一致）回歸的網子。
  */
 
 async function registryOf(db: Db, email: string) {
@@ -55,10 +55,10 @@ async function renamesOf(db: Db, userId: string): Promise<number> {
   return row!.n;
 }
 
-describe("deriveHandle（候選序＋探測；spec §2b）", () => {
+describe("deriveHandle（候選序＋探測）", () => {
   it("候選序：preferred_username 優先於 email local-part", async () => {
     const { db } = await freshDb();
-    expect(await deriveHandle(db, ["Cool.Name", "willie.wu@x.example".split("@")[0]], "11111111-aaaa-4bbb-8ccc-000000000001")).toBe(
+    expect(await deriveHandle(db, ["Cool.Name", "alice.lee@x.example".split("@")[0]], "11111111-aaaa-4bbb-8ccc-000000000001")).toBe(
       "cool-name",
     );
   });
@@ -66,13 +66,13 @@ describe("deriveHandle（候選序＋探測；spec §2b）", () => {
   it("四分支退位：沒給／空字串／全非 ASCII（轉完全空）／uuid 形（截斷前判）→ 退 email local-part", async () => {
     const { db } = await freshDb();
     const uuid = "22222222-aaaa-4bbb-8ccc-000000000002";
-    expect(await deriveHandle(db, [undefined, "willie"], uuid)).toBe("willie");
-    expect(await deriveHandle(db, ["", "willie"], uuid)).toBe("willie");
-    expect(await deriveHandle(db, ["日本語", "willie"], uuid)).toBe("willie");
-    expect(await deriveHandle(db, ["550e8400-e29b-41d4-a716-446655440000", "willie"], uuid)).toBe("willie");
+    expect(await deriveHandle(db, [undefined, "alice"], uuid)).toBe("alice");
+    expect(await deriveHandle(db, ["", "alice"], uuid)).toBe("alice");
+    expect(await deriveHandle(db, ["日本語", "alice"], uuid)).toBe("alice");
+    expect(await deriveHandle(db, ["550e8400-e29b-41d4-a716-446655440000", "alice"], uuid)).toBe("alice");
     // 部分 ASCII 的候選**不**退位——非 ASCII 字元段轉 dash 後的殘餘是合法候選
-    // （spec §2b 管線語意：只有「空/uuid 形」才落到下一候選）
-    expect(await deriveHandle(db, ["Ünsal", "willie"], uuid)).toBe("nsal");
+    // （管線語意：只有「空/uuid 形」才落到下一候選）
+    expect(await deriveHandle(db, ["Ünsal", "alice"], uuid)).toBe("nsal");
   });
 
   it("全候選皆敗 → user-<uuid8>", async () => {
@@ -89,11 +89,11 @@ describe("deriveHandle（候選序＋探測；spec §2b）", () => {
       { id: uuid2, email: "seed-b@x.example", displayName: "S2", handle: "seed-holder-b" },
     ]);
     await db.insert(handles).values([
-      { handle: "willie", userId: uuid, state: "live" },
-      { handle: "willie-2", userId: uuid2, state: "live" },
+      { handle: "alice", userId: uuid, state: "live" },
+      { handle: "alice-2", userId: uuid2, state: "live" },
     ]);
     // 兩列 live 都占位——探測必須跳過兩者落到 -3
-    expect(await deriveHandle(db, ["willie"], uuid)).toBe("willie-3");
+    expect(await deriveHandle(db, ["alice"], uuid)).toBe("alice-3");
   });
 
   it("探測上限 20 → 退 user-<uuid8>（寫入放大上界）", async () => {
@@ -120,7 +120,7 @@ describe("deriveHandle（候選序＋探測；spec §2b）", () => {
   });
 });
 
-describe("bootstrap 路徑（registry-first；spec §2a）", () => {
+describe("bootstrap 路徑（registry-first）", () => {
   it("env bootstrap 建帳：registry live 列＝users.handle；handle 派生自 email local-part", async () => {
     const { db } = await freshDb();
     await initializeInstance(db, { email: "Admin.Boss@corp.example", password: "a-very-long-pw" });
@@ -137,7 +137,7 @@ describe("bootstrap 路徑（registry-first；spec §2a）", () => {
     expect(allHandles[0].handle).toBe("boss");
   });
 
-  it("**併發** bootstrap：敗方不得 commit 孤兒 registry 列（INSERT 必須在 setupRow 守衛之後——突變審查 MAJOR-2：序列版進不了 tx 的守衛分支，只有併發才踩得到）", async () => {
+  it("**併發** bootstrap：敗方不得 commit 孤兒 registry 列（INSERT 必須在 setupRow 守衛之後——突變測試：序列版進不了 tx 的守衛分支，只有併發才踩得到）", async () => {
     const { db } = await freshDb();
     // 兩個不同 email 同時搶 instance_setup 單列——敗方走 tx 內 `if (!setupRow) return`
     //（正常 COMMIT 早退）：registry INSERT 若在守衛之前，敗方會留下指向不存在使用者、
@@ -255,7 +255,7 @@ describe("接受邀請建帳路徑（#285；registry-first 與重試契約同註
   });
 });
 
-describe("OIDC 建帳路徑（preferred_username；spec §2b M3-8）", () => {
+describe("OIDC 建帳路徑（preferred_username）", () => {
   // 工具形比照 oidc-callback.test.ts 的檔內私有慣例，這裡自帶一份。
   const ISSUER_URL = "https://idp.example.com";
   async function oidcApp() {
@@ -312,7 +312,7 @@ describe("OIDC 建帳路徑（preferred_username；spec §2b M3-8）", () => {
     }
   });
 
-  it("OIDC 建帳撞 users_handle_unique（窗期形）→ 整-tx-重投一次仍同名撞 → oidc_exchange_failed（讀碼審查 m2/m3：OIDC 無 uuid8 出口的確定性形，重登可再試；窗期由 boot 補登收斂）", async () => {
+  it("OIDC 建帳撞 users_handle_unique（窗期形）→ 整-tx-重投一次仍同名撞 → oidc_exchange_failed（OIDC 無 uuid8 出口的確定性形，重登可再試；窗期由 boot 補登收斂）", async () => {
     const { app, db, fakeIdp } = await oidcApp();
     await db.insert(users).values({
       id: "13131313-aaaa-4bbb-8ccc-000000000013",
@@ -335,7 +335,7 @@ describe("OIDC 建帳路徑（preferred_username；spec §2b M3-8）", () => {
 
   it("userinfo 本來就要打（id_token 缺 email）時順手讀 preferred_username", async () => {
     const { app, db, fakeIdp } = await oidcApp();
-    // ⚠ preferred_username 也要從 id_token 省略（讀碼審查 M1）：否則 oidc.ts 已從
+    // ⚠ preferred_username 也要從 id_token 省略：否則 oidc.ts 已從
     // id_token 讀到值、userinfo 順手讀那行（唯一消費點）零覆蓋、刪掉照樣綠。
     fakeIdp.omitFromIdToken(["email", "email_verified", "preferred_username"]);
     await loginAs(app, fakeIdp, { sub: "u3", email: "via.userinfo@corp.example", email_verified: true, preferred_username: "From.Userinfo" });
@@ -380,7 +380,7 @@ describe("#291 註冊派生名取得別人改掉的名字（register 路徑）",
     });
 });
 
-describe("boot 補登＋DTO（spec §2a/§2b）", () => {
+describe("boot 補登＋DTO", () => {
   it("backfillHandleRegistry 冪等；被吞的衝突列會 log warn", async () => {
     const { db } = await freshDb();
     await db.insert(users).values([
@@ -435,13 +435,13 @@ describe("boot 補登＋DTO（spec §2a/§2b）", () => {
     expect(warns).toHaveLength(0);
   });
 
-  it("結構守衛：index.ts 的補登呼叫在 app.listen 之前（listen 前時序——plan 注意事項 1）", () => {
+  it("結構守衛：index.ts 的補登呼叫在 app.listen 之前（listen 前時序）", () => {
     const src = readFileSync(
       path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../src/index.ts"),
       "utf8",
     );
     // 錨定**呼叫點**字面（"backfillHandleRegistry(db"），不能只找函式名——那會先命中
-    // 檔頭的 import 敘述、恆早於 listen，呼叫搬走甚至刪掉都照樣綠（突變審查 MAJOR-1）。
+    // 檔頭的 import 敘述、恆早於 listen，呼叫搬走甚至刪掉都照樣綠。
     const callAt = src.indexOf("backfillHandleRegistry(db");
     const listenAt = src.indexOf(".listen(");
     expect(callAt, "index.ts 必須呼叫 backfillHandleRegistry(db…)").toBeGreaterThan(-1);
@@ -468,7 +468,7 @@ describe("boot 補登＋DTO（spec §2a/§2b）", () => {
   });
 });
 
-describe("改名 PATCH /api/auth/profile（spec §2a；Task 4）", () => {
+describe("改名 PATCH /api/auth/profile", () => {
   async function userApp(handle = "renamer") {
     const { app, db } = await buildTestApp();
     const [me] = await db
@@ -504,7 +504,7 @@ describe("改名 PATCH /api/auth/profile（spec §2a；Task 4）", () => {
     const { app, db, me, cookies } = await userApp();
     const res = await rename(app, cookies, "New-Name");
     expect(res.statusCode).toBe(200);
-    // 形狀鎖（讀碼審查 n1）：PATCH 回應＝完整 UserDto，無多無少；版本歷史 §6.8 加 autoVersions
+    // 形狀鎖：PATCH 回應＝完整 UserDto，無多無少；版本歷史加 autoVersions
     const body = res.json();
     expect(Object.keys(body).sort()).toEqual(
       ["id", "email", "handle", "displayName", "isAdmin", "mustChangePassword", "hasPassword", "autoVersions"].sort(),
@@ -528,7 +528,7 @@ describe("改名 PATCH /api/auth/profile（spec §2a；Task 4）", () => {
       expect(res.statusCode, bad).toBe(400);
       expect(res.json().error.code, bad).toBe("invalid_body");
     }
-    // zod 結構分支（讀碼審查 m3）：缺 handle／非字串
+    // zod 結構分支：缺 handle／非字串
     for (const payload of [{}, { handle: 123 }]) {
       const res = await app.inject({ method: "PATCH", url: "/api/auth/profile", payload, cookies });
       expect(res.statusCode, JSON.stringify(payload)).toBe(400);
@@ -587,7 +587,7 @@ describe("改名 PATCH /api/auth/profile（spec §2a；Task 4）", () => {
     expect(await renamesOf(db, y.id)).toBe(1);
   });
 
-  it("額度不可繞過（I3）：A→B 來回五次皆 200、第六次 429", async () => {
+  it("額度不可繞過：A→B 來回五次皆 200、第六次 429", async () => {
     const { app, db, me, cookies } = await userApp();
     for (const target of ["b5", "renamer", "b5", "renamer", "b5"]) {
       expect((await rename(app, cookies, target)).statusCode, target).toBe(200);
@@ -599,7 +599,7 @@ describe("改名 PATCH /api/auth/profile（spec §2a；Task 4）", () => {
     expect(await renamesOf(db, me.id)).toBe(5);
   });
 
-  it("額度 I3 同人併發：額度在本人列鎖之後數——排隊的改名讀得到前者已 commit 的紀錄 → 429", async () => {
+  it("額度同人併發：額度在本人列鎖之後數——排隊的改名讀得到前者已 commit 的紀錄 → 429", async () => {
     const { app, db, me, cookies } = await userApp();
     const pool = db.$client;
     const c = await pool.connect();
@@ -697,14 +697,14 @@ describe("改名 PATCH /api/auth/profile（spec §2a；Task 4）", () => {
     const res = await rename(app, cookies, "one-more");
     expect(res.statusCode).toBe(429);
     expect(res.json().error.code).toBe("too_many_requests");
-    // 429 必須整 tx 回滾（讀碼審查 m5）：users.handle 不變、新名無 registry 列
+    // 429 必須整 tx 回滾：users.handle 不變、新名無 registry 列
     const [me2] = await db.select().from(users).where(eq(users.email, "renamer@x.example"));
     expect(me2.handle).toBe("renamer");
     const claimed = await db.select().from(handles).where(eq(handles.handle, "one-more"));
     expect(claimed).toHaveLength(0);
   });
 
-  it("計數邊界與 per-user 過濾（讀碼審查 M1/m2）：本人 4 筆今日＋**他人 5 筆今日** → 仍 200（他人額度不得計到我頭上；>=4 提前一次的突變也在此紅）", async () => {
+  it("計數邊界與 per-user 過濾：本人 4 筆今日＋**他人 5 筆今日** → 仍 200（他人額度不得計到我頭上；>=4 提前一次的突變也在此紅）", async () => {
     const { app, db, me, cookies } = await userApp();
     const other = "17171717-aaaa-4bbb-8ccc-000000000017";
     await db.insert(users).values({ id: other, email: "their@x.example", displayName: "T", handle: "their" });
@@ -739,7 +739,7 @@ describe("改名 PATCH /api/auth/profile（spec §2a；Task 4）", () => {
   });
 });
 
-describe("改名——突變審查 round 1 補強（F1/F2/F3）", () => {
+describe("改名——突變測試補強（F1/F2/F3）", () => {
   async function userApp2() {
     const { app, db } = await buildTestApp();
     await db.insert(users).values({

@@ -1,9 +1,9 @@
 /**
- * #285 管理員產生／列出／撤銷邀請連結（spec §5.2，`requireAdmin`）。
+ * #285 管理員產生／列出／撤銷邀請連結（`requireAdmin`）。
  *
  * 全是單句、不開交易（不進 `test/unit/s14-structure.test.ts` 的 ④⑥）。不放進 `admin-users.ts`：避免牽動該檔的 ⑥ 計數，
  * 與重設路由（`admin-password-reset.ts`）同一種切法。
- * log 與回應絕不含 token 明文、`token_hash` 或備註（201 回應的 `token` 除外，V1；列表回應帶備註給管理員看，log 不帶，§5.8）。
+ * log 與回應絕不含 token 明文、`token_hash` 或備註（201 回應的 `token` 除外；列表回應帶備註給管理員看，log 不帶）。
  */
 import type { FastifyInstance } from "fastify";
 import { desc, eq, sql, type SQL } from "drizzle-orm";
@@ -95,11 +95,11 @@ async function selectInvites(db: Db, where: SQL): Promise<AdminInviteDto[]> {
 
 export function adminInvitesRoutes(deps: AdminInvitesRouteDeps) {
   return async function register(app: FastifyInstance): Promise<void> {
-    // 判斷順序（spec §5.2 N-5）：body → 帳密有效值 → INSERT。
+    // 判斷順序：body → 帳密有效值 → INSERT。
     app.post("/api/admin/invites", { preHandler: app.requireAdmin }, async (request, reply) => {
       const parsed = issueBodySchema.safeParse(request.body);
       const label = parsed.success ? normalizeInviteLabel(parsed.data.label) : "invalid";
-      if (!parsed.success || label === "invalid") return sendError(reply, 400, "invalid_body", "請求格式錯誤");
+      if (!parsed.success || label === "invalid") return sendError(reply, 400, "invalid_body", "Invalid request body.");
       if (!(await isPasswordLoginAccepted(deps.db, deps.config, request.log))) {
         return sendError(reply, 403, "password_login_disabled", PASSWORD_LOGIN_DISABLED_MESSAGE);
       }
@@ -144,10 +144,10 @@ export function adminInvitesRoutes(deps: AdminInvitesRouteDeps) {
       return selectInvites(deps.db, eq(oneTimeLinks.kind, "invite"));
     });
 
-    // 撤銷永遠允許：不看帳密開關（spec §5.7）。已撤銷或已過期的再撤也是 204，不改列。
+    // 撤銷永遠允許：不看帳密開關。已撤銷或已過期的再撤也是 204，不改列。
     app.delete("/api/admin/invites/:id", { preHandler: app.requireAdmin }, async (request, reply) => {
       const { id: rawId } = request.params as { id: string };
-      if (!UUID_RE.test(rawId)) return sendError(reply, 404, "invite_not_found", "找不到這個邀請");
+      if (!UUID_RE.test(rawId)) return sendError(reply, 404, "invite_not_found", "No invite with that id.");
       const id = rawId.toLowerCase();
       let hit: Array<{ id: string }>;
       let existing: { usedAt: Date | null } | undefined;
@@ -171,8 +171,8 @@ export function adminInvitesRoutes(deps: AdminInvitesRouteDeps) {
         request.log.info({ userId: request.user!.id, linkId: id }, "撤銷邀請");
         return reply.code(204).send();
       }
-      if (!existing) return sendError(reply, 404, "invite_not_found", "找不到這個邀請");
-      if (existing.usedAt !== null) return sendError(reply, 409, "invite_used", "這個邀請已經被使用");
+      if (!existing) return sendError(reply, 404, "invite_not_found", "No invite with that id.");
+      if (existing.usedAt !== null) return sendError(reply, 409, "invite_used", "This invite has already been used.");
       return reply.code(204).send();
     });
   };

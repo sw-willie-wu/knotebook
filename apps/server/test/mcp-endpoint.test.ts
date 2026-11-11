@@ -1,13 +1,13 @@
 /**
- * #108 PR1 Task 2：`/api/mcp` 的**傳輸層形狀**（規格 §14.1）。
+ * #108：`/api/mcp` 的**傳輸層形狀**。
  *
  * 這一族用 `buildTestApp`（**無 collab**）——測的是傳輸層，與 collab 無關，而且只有它
  * 收得到 `Partial<AppDeps>` 的 `mcpTestHooks` 注入縫。
  *
- * ⚠ **Task 3 起這個 app 上有工具了**（`list_notes`／`search_notes` 只查 DB，依 D-A 在無
+ * ⚠ **這個 app 上有工具了**（`list_notes`／`search_notes` 只查 DB，依註冊規則在無
  * collab 的 app 上照樣註冊），所以 `tools/list`／`tools/call` 回的是真的工具清單／結果。
  * 本檔刻意**不**斷言那些 body——工具面的驗收全在 `mcp-notes.test.ts`（含案 29(a)/(b)/(c)）。
- * Task 2 當時的零工具形回的是 `-32601 Method not found`（那兩個 handler 由第一次
+ * 當時的零工具形回的是 `-32601 Method not found`（那兩個 handler 由第一次
  * `registerTool()` 裝上）；那個形今天已經到不了，成因記在 `routes/mcp.ts` 檔頭。
  */
 import { describe, expect, it } from "vitest";
@@ -54,14 +54,14 @@ describe("#108 /api/mcp 傳輸層形狀", () => {
     expect(body.result.serverInfo.name).toBe("knotebook");
     expect(body.result.serverInfo.version).toBeTruthy();
     expect(body.result.instructions).toBeTruthy();
-    // ⚠ `capabilities.tools.listChanged` 的順序斷言（D32）在 `mcp-tools-list.test.ts`，
+    // ⚠ `capabilities.tools.listChanged` 的順序斷言在 `mcp-tools-list.test.ts`，
     // 這裡刻意不斷言：本檔測的是傳輸層，而那條契約要有 `registerTool` 才有鑑別力。
   });
 
   it("案 2b：同一 app 連兩發 tools/list 都回 200（stateless transport 沒有被跨請求重用）", async () => {
     const { app, token } = await appWithToken();
     // ⚠ 敘述是「都 200」不是「都成功」：鑑別力刻意只放在狀態碼層，body 一個字都不看
-    // （Task 2 的零工具形下兩發都是 -32601，Task 3 起是真的清單——兩種形都該綠）。
+    // （零工具形下兩發都是 -32601，有工具後是真的清單——兩種形都該綠）。
     // transport／server 若被跨請求重用，SDK 會丟
     // `Stateless transport cannot be reused across requests.`，第二發變 500。
     const first = await mcpPost(app, rpc("tools/list", undefined, 1), { token });
@@ -88,7 +88,7 @@ describe("#108 /api/mcp 傳輸層形狀", () => {
     await mcpPost(app, INITIALIZE, { token });
     await mcpPost(app, rpc("tools/list", undefined, 2), { token });
     const third = await mcpPost(app, INITIALIZE, { token });
-    // ⚠ 刻意不斷言前兩發的 body——第 (2) 發的語意在 Task 3 註冊工具之後已經從 `-32601`
+    // ⚠ 刻意不斷言前兩發的 body——第 (2) 發的語意在註冊工具之後已經從 `-32601`
     // 變成真的工具清單，這一案守的是 `close()` 的計數，與 body 無關。
     // 若這一案日後紅了而斷言變多了，是有人多加了 body 斷言，刪斷言不要改實作。
     expect(closes).toBe(3);
@@ -96,7 +96,7 @@ describe("#108 /api/mcp 傳輸層形狀", () => {
     expect(third.json()).toEqual({ error: { code: "internal", message: expect.any(String) } });
   });
 
-  it("案 3 ＋ D-D：有效 token 的 GET → 405 ＋ Allow: POST ＋ JSON-RPC error body", async () => {
+  it("案 3：有效 token 的 GET → 405 ＋ Allow: POST ＋ JSON-RPC error body", async () => {
     const { app, token } = await appWithToken();
     const res = await mcpRequest(app, "GET", { token });
     expect(res.statusCode).toBe(405);
@@ -104,7 +104,7 @@ describe("#108 /api/mcp 傳輸層形狀", () => {
     expect(res.json()).toEqual({ jsonrpc: "2.0", id: null, error: { code: -32000, message: expect.any(String) } });
   });
 
-  it("案 3 ＋ D-D：有效 token 的 DELETE → 405 ＋ Allow: POST ＋ JSON-RPC error body", async () => {
+  it("案 3：有效 token 的 DELETE → 405 ＋ Allow: POST ＋ JSON-RPC error body", async () => {
     const { app, token } = await appWithToken();
     const res = await mcpRequest(app, "DELETE", { token });
     expect(res.statusCode).toBe(405);
@@ -121,7 +121,7 @@ describe("#108 /api/mcp 傳輸層形狀", () => {
     expect(challenge).toContain(`resource_metadata="${ISSUER}/.well-known/oauth-protected-resource/api/mcp"`);
   });
 
-  // #181 PR-2d CH：challenge 一次給齊四個 scope（漏 notes:delete，守規矩的 client 就不會要刪除權）。
+  // #181 CH：challenge 一次給齊四個 scope（漏 notes:delete，守規矩的 client 就不會要刪除權）。
   it("CH：未帶憑證的 POST initialize → 401，challenge 的 scope 是 read write move delete 四項", async () => {
     const { app } = await buildTestApp();
     const res = await mcpPost(app, INITIALIZE);
@@ -130,7 +130,7 @@ describe("#108 /api/mcp 傳輸層形狀", () => {
     expect(challenge).toContain(`scope="notes:read notes:write notes:move notes:delete"`);
   });
 
-  it("案 5（M7）：401／405／200／403 四種回應都帶 nosniff", async () => {
+  it("案 5：401／405／200／403 四種回應都帶 nosniff", async () => {
     const { app, token } = await appWithToken();
     const unauthorized = await mcpRequest(app, "GET");
     const methodNotAllowed = await mcpRequest(app, "GET", { token });
@@ -156,7 +156,7 @@ describe("#108 /api/mcp 傳輸層形狀", () => {
 
   it("案 6：Content-Type: text/plain → 本站標準形 415（全域守衛排在 SDK 之前）", async () => {
     const { app, token } = await appWithToken();
-    // ⚠ 對本棒實作零鑑別力：擋下它的是全域 `onRequest` 守衛的 415，排在我們的 handler
+    // ⚠ 對 handler 實作零鑑別力：擋下它的是全域 `onRequest` 守衛的 415，排在我們的 handler
     // 之前、也在 SDK 之前——就算實作還停在舊的 501 暫時形，這一案照樣會綠。
     const res = await mcpPost(app, INITIALIZE, { token, contentType: "text/plain" });
     expect(res.statusCode).toBe(415);
@@ -172,14 +172,14 @@ describe("#108 /api/mcp 傳輸層形狀", () => {
     expect(body.error.message).toContain("Not Acceptable");
   });
 
-  // Origin 守衛（M3）——四發全部帶有效 token：守衛排在 `authenticateAny` 之後，
+  // Origin 守衛——四發全部帶有效 token：守衛排在 `authenticateAny` 之後，
   // 不帶 token 一律先拿 401，會讓人誤以為守衛沒接上。
   it("案 7a：Origin ＝ Host ＝ evil.example（都不是 PUBLIC_URL host）→ 403", async () => {
     const { app, token } = await appWithToken();
     // 殺「只比 Origin 對 request.host」的寫法——那種寫法在這一發會放行（兩者相等）。
     const res = await mcpPost(app, INITIALIZE, { token, origin: "http://evil.example", host: "evil.example" });
     expect(res.statusCode).toBe(403);
-    expect(res.json()).toEqual({ error: { code: "forbidden", message: expect.any(String) } });
+    expect(res.json()).toEqual({ error: { code: "forbidden", message: "Origin check failed: the request's Origin and Host must both match this site's address (PUBLIC_URL)." } });
   });
 
   it("案 7b：Origin ＝ PUBLIC_URL host、Host ＝ evil.example → 403", async () => {
@@ -198,7 +198,7 @@ describe("#108 /api/mcp 傳輸層形狀", () => {
     }
   });
 
-  it("案 7d：不帶 Origin、Host 任意 → 正常處理（D10 刻意的放行面）", async () => {
+  it("案 7d：不帶 Origin、Host 任意 → 正常處理（刻意的放行面）", async () => {
     const { app, token } = await appWithToken();
     const res = await mcpPost(app, INITIALIZE, { token, host: "whatever.example" });
     expect(res.statusCode).toBe(200);
@@ -218,15 +218,15 @@ describe("#108 /api/mcp 傳輸層形狀", () => {
     const res = await mcpPost(app, huge, { token });
     expect(res.statusCode).toBe(413);
     expect(res.json()).toEqual({ error: { code: "content_too_large", message: expect.any(String) } });
-    // M6 的邊界形：handler 之前就被擋下來，所以 `afterClose` 一次都沒被呼叫。
+    // 拒絕零副作用的邊界形：handler 之前就被擋下來，所以 `afterClose` 一次都沒被呼叫。
     expect(closes).toBe(0);
   });
 
   it("P1：壞 JSON body → 本站標準形 400 bad_request（不是 JSON-RPC -32700）", async () => {
     const { app, token } = await appWithToken();
     // 擋下它的是 Fastify 的 content-type parser，在我們的 handler 之前、也在 SDK 之前——
-    // 規格 §8.1 D12 (2) 那一格描述的是 SDK 單飛時的行為。
-    // ⚠ 對本棒實作零鑑別力：就算實作還停在舊的 501 暫時形，這一案照樣會綠；它釘住的是
+    // 工具描述裡那一格寫的是 SDK 單飛時的行為。
+    // ⚠ 對 handler 實作零鑑別力：就算實作還停在舊的 501 暫時形，這一案照樣會綠；它釘住的是
     // 這個實測事實與規格描述之間的落差，不是我們的實作。
     const res = await mcpPost(app, undefined, { token, raw: "{not json" });
     expect(res.statusCode).toBe(400);
@@ -246,9 +246,9 @@ describe("#108 /api/mcp 傳輸層形狀", () => {
 
   it("P1(ii)：帶 Content-Type: application/json 但空 body 的 POST → 本站標準形 400 bad_request", async () => {
     const { app, token } = await appWithToken();
-    // ⚠ 對本棒實作零鑑別力：擋下它的是 content-type parser 的 400，在我們的 handler
-    // 之前——就算實作還停在舊的 501 暫時形，這一案照樣會綠；它釘住的是 P1 的實測事實
-    // 與規格 §8.1 D12 (2) 的誤導，不是我們的實作。
+    // ⚠ 對 handler 實作零鑑別力：擋下它的是 content-type parser 的 400，在我們的 handler
+    // 之前——就算實作還停在舊的 501 暫時形，這一案照樣會綠；它釘住的是實測事實
+    // 與工具描述的誤導，不是我們的實作。
     const res = await mcpPost(app, undefined, { token, raw: "" });
     expect(res.statusCode).toBe(400);
     expect(res.json()).toEqual({ error: { code: "bad_request", message: expect.any(String) } });

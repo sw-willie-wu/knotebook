@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import { SESSION_COOKIE } from "@knotebook/shared";
-import { signSession } from "../src/auth/session.js";
 import { presenceClientId } from "../src/notes/editing/presence.js";
 import { EditorSession } from "../src/notes/editing/session.js";
-import { buildCollabTestApp, testConfig, testEditingRuntime } from "./helpers.js";
+import { buildCollabTestApp, testEditingRuntime, signTestSession } from "./helpers.js";
 import { bearer, docText, getContent, seedContent, seedTokenForUser, tick, waitFor } from "./editing-helpers.js";
 
 const PASSWORD = "correct-horse-battery";
@@ -19,7 +18,7 @@ async function scene(opts: Parameters<typeof buildCollabTestApp>[0] = {}) {
   const { token, tokenId } = await seedTokenForUser(ctx.db, u.id, "notes:read notes:write", "Claude Code");
   const id = presenceClientId(note.id, tokenId);
   // ⚠ handle 不是 email 的 local part：users.handle 的 DB default 是 'user-<8hex>'，ctx.createUser 不設它。
-  //    寫死 "a" 會紅；放寬成 expect.any(String) 會把「名牌指向正確的人」整條守衛拿掉（#137 r4 N-2）。
+  //    寫死 "a" 會紅；放寬成 expect.any(String) 會把「名牌指向正確的人」整條守衛拿掉（#137）。
   const ownerHandle = (await ctx.app.inject({ method: "GET", url: `/api/notes/${note.id}`, headers: bearer(token) })).json().ownerHandle as string;
   const expectedName = `${ownerHandle} (claude)`;
   const remote = () => client.provider.awareness!.getStates().get(id) as { user?: { name: string; color: string }; cursor?: { anchor: unknown } } | undefined;
@@ -35,7 +34,7 @@ async function scene(opts: Parameters<typeof buildCollabTestApp>[0] = {}) {
 }
 
 describe("presence：並排", () => {
-  it("PR1：_top 的第一顆是列 → 游標落在第一欄第一顆的文字（不是該欄最後一顆、不是最後一欄）", async () => {
+  it("_top 的第一顆是列 → 游標落在第一欄第一顆的文字（不是該欄最後一顆、不是最後一欄）", async () => {
     const s = await scene();
     const ses = await EditorSession.open(testEditingRuntime, s.client.doc);
     try {
@@ -75,15 +74,15 @@ describe("presence", () => {
 
   it("cookie **寫入**與 cookie 讀取都不設 presence；GET /edits 不刷新（用 clock 判斷，不用 sleep）", async () => {
     const s = await scene();
-    const cookie = `${SESSION_COOKIE}=${await signSession(testConfig.appSecret, { userId: s.u.id, tv: 0 })}`;
+    const cookie = `${SESSION_COOKIE}=${await signTestSession({ userId: s.u.id, tv: 0 })}`;
     // 三個「不該 touch」的動作依序先跑，之後才跑「該 touch」的那一發。awareness 更新走同一條 socket
     // 依序抵達，所以等到最後那發到了，前三發若偷偷 touch 過就一定已經反映在 clock 上。
     //
-    // ⚠ 第一發是 spec §12.2 指名的「**用瀏覽器登入的寫入**不設 presence」，它守住的是「cookie
+    // ⚠ 第一發是「**用瀏覽器登入的寫入**不設 presence」，它守住的是「cookie
     //   寫入照樣 201、而且不會讓 token 那組 clock 跑掉」。**誠實記下：把 `request.tokenId &&`
     //   拿掉不會讓這一案變紅**——cookie ⇒ agentLabel 為 null，第二個條件恰好也擋住；就算兩個
     //   條件都拿掉，cookie 這條路 touch 用的 tokenId 不同 ⇒ clientId 不同 ⇒ 下面那行 clock
-    //   斷言看不到（已用突變實測）。真正擋住它的是 `tsc`（TS2345），見 routes/notes.ts 該處註解。
+    //   斷言看不到（已用突變實測）。真正擋住它的是 `tsc`，見 routes/notes.ts 該處註解。
     //   下面的 `toBe(1)` 實際守住的是第三發（GET /edits 帶 token）——那一發突變確實會變成 2。
     expect((await s.ctx.app.inject({
       method: "POST", url: `/api/notes/${s.note.id}/edits`, headers: { cookie },
@@ -184,16 +183,16 @@ describe("presence", () => {
     await new Promise(r => setTimeout(r, 35_000));
     expect(s.remote()?.user?.name).toBe(s.expectedName);
     s.client.disconnect();
-  }, 60_000);
+  }); // 不另設 per-test 逾時、沿用全域 120 s：固定等 35 s，60 s 只留給建場景約 25 s，機器忙時太貼
 
-  it("#240 R2 Bearer 以大寫 id 讀 → presence 以小寫 id 現身、名牌正確", async () => {
+  it("#240 Bearer 以大寫 id 讀 → presence 以小寫 id 現身、名牌正確", async () => {
     const s = await scene();
     await getContent(s.ctx.app, s.note.id.toUpperCase(), s.token); await tick();
     await waitFor("名字到達", 2_000, () => s.remote()?.user?.name === s.expectedName);
     s.client.disconnect();
   });
 
-  it("NP-K1 瀏覽器收到的 AI state 帶 `knotebook` agent 標記（#293 §8.2），`user` 只有 name／color", async () => {
+  it("瀏覽器收到的 AI state 帶 `knotebook` agent 標記（#293），`user` 只有 name／color", async () => {
     const s = await scene();
     await getContent(s.ctx.app, s.note.id, s.token); await tick();
     await waitFor("名字到達", 2_000, () => s.remote()?.user?.name === s.expectedName);

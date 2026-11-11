@@ -8,7 +8,7 @@ import { LONG_PRESS_MS } from "@/lib/long-press";
 import { PresenceAvatars, type PresenceAvatarsProps } from "./PresenceAvatars";
 import { agentState, fakeProvider, removeRemote, setRemote, userState } from "./test-awareness";
 
-// #293 §9.2／§9.3／§12：頁頭頭像列。Host 照 NotePage 的 `<header className="@container …">` 掛法（H7）。
+// #293：頁頭頭像列。Host 照 NotePage 的 `<header className="@container …">` 掛法。
 
 let frames: FrameRequestCallback[] = [];
 const awarenesses: Awareness[] = [];
@@ -158,7 +158,7 @@ describe("PresenceAvatars", () => {
     expect(screen.getByRole("button", { name: "王小明，檢視者，目前沒有游標位置" })).toBeInTheDocument();
   });
 
-  it("PA3 Tooltip：focus 與 hover 都開；按鈕上沒有 aria-describedby（P8）", async () => {
+  it("PA3 Tooltip：focus 與 hover 都開；按鈕上沒有 aria-describedby", async () => {
     const aw = newAwareness();
     setRemote(aw, 10, userState("u-a", "Ann", { cursor: cur("a") }));
     mount(aw);
@@ -218,7 +218,7 @@ describe("PresenceAvatars", () => {
     expect(caught.errors).toEqual([]);
   });
 
-  it("PA5 點頭像、在頭像上按 Enter、pointerdown 都不開選單（I-A）", () => {
+  it("PA5 點頭像、在頭像上按 Enter、pointerdown 都不開選單", () => {
     const aw = newAwareness();
     setRemote(aw, 10, userState("u-a", "Ann", { cursor: cur("a") }));
     setRemote(aw, 11, userState("u-b", "Bob"));
@@ -269,6 +269,24 @@ describe("PresenceAvatars", () => {
     expect(wide).toHaveAttribute("aria-expanded", "true");
   });
 
+  it("#335 頭像尺寸：頁首每顆頭像與 +N 都是 24px，點擊區 ::before 桌面 32×32、窄視窗 36×44（x 伸出量 ≤ 疊放的 6px，不蓋鄰居中心）", () => {
+    const aw = newAwareness();
+    six(aw);
+    mount(aw);
+    for (const b of personButtons()) {
+      const circle = b.firstElementChild as HTMLElement;
+      expect(circle.style.width).toBe("24px");
+      expect(circle.style.height).toBe("24px");
+      expect(b).toHaveClass("before:-inset-x-1", "before:-inset-y-1", "max-md:before:-inset-x-1.5", "max-md:before:-inset-y-2.5");
+    }
+    for (const name of ["2 more, show everyone", "5 more, show everyone"]) {
+      const more = screen.getByRole("button", { name });
+      expect(more).toHaveClass("h-6", "w-6");
+      expect(more).not.toHaveClass("h-7");
+      expect(more).toHaveClass("before:-inset-x-1", "before:-inset-y-1", "max-md:before:-inset-x-1.5", "max-md:before:-inset-y-2.5");
+    }
+  });
+
   it("PA6 容量：5 位 → 5 顆、只有窄 +4；2 位 → 都不藏、沒有 +N", () => {
     const aw = newAwareness();
     for (const [i, id] of ["u-a", "u-b", "u-c", "u-d", "u-e"].entries()) setRemote(aw, 10 + i, userState(id, id));
@@ -292,7 +310,7 @@ describe("PresenceAvatars", () => {
     expect(screen.queryAllByRole("button", { name: /more, show everyone/ })).toHaveLength(0);
   });
 
-  it("PA7 完整名單：名稱、6 列同序、無游標 disabled、選一列捲動並關閉；Esc 焦點回 +N", async () => {
+  it("PA7 完整名單：名稱、6 列同序、無游標列 aria-disabled、選一列捲動並關閉；Esc 焦點回 +N", async () => {
     const aw = newAwareness();
     six(aw);
     const { scroller } = mount(aw);
@@ -310,6 +328,7 @@ describe("PresenceAvatars", () => {
     ]);
     for (const i of [2, 4, 5]) {
       expect(items[i]).toHaveAttribute("aria-disabled", "true");
+      expect(items[i]).not.toHaveAttribute("data-disabled");
       expect(items[i]).toHaveTextContent("No cursor");
       // 沒有游標也要看得到角色（觸控沒有 Tooltip，名單是唯一處）
       expect(items[i]).toHaveTextContent(i === 5 ? "Viewer" : "Editor");
@@ -332,6 +351,35 @@ describe("PresenceAvatars", () => {
     fireEvent.click(more);
     fireEvent.keyDown(screen.getByRole("menu", { name: "People on this note (6)" }), { key: "Escape" });
     await waitFor(() => expect(more).toHaveFocus());
+  });
+
+  it("PA7c 沒有游標的列可用方向鍵到達；選取它不捲動、不拋錯、選單不關", async () => {
+    const aw = newAwareness();
+    six(aw);
+    const { scroller } = mount(aw);
+    fireEvent.click(screen.getByRole("button", { name: "2 more, show everyone" }));
+    const menu = screen.getByRole("menu", { name: "People on this note (6)" });
+    const items = within(menu).getAllByRole("menuitem");
+    // items[2] 是第一個沒有游標的列（Bob）
+    items[1]!.focus();
+    fireEvent.keyDown(items[1]!, { key: "ArrowDown" });
+    await waitFor(() => expect(items[2]).toHaveFocus());
+    expect(items[2]).toHaveAttribute("aria-disabled", "true");
+    const caught = collectErrors();
+    // 選單還開著才是「選了沒反應」的真正守衛（沒游標時 scroller 本來就不會被呼叫）
+    for (const press of [
+      () => fireEvent.keyDown(items[2]!, { key: "Enter" }),
+      () => fireEvent.keyDown(items[2]!, { key: " " }),
+      () => fireEvent.click(items[2]!),
+    ]) {
+      press();
+      expect(screen.getByRole("menu", { name: "People on this note (6)" })).toBeInTheDocument();
+    }
+    caught.stop();
+    expect(caught.errors).toEqual([]);
+    // 有游標的列照舊：捲動並關閉
+    fireEvent.click(items[3]!);
+    expect(scroller).toHaveBeenCalledTimes(1);
   });
 
   it("PA7b 沒有游標的 AI 列同時顯示 AI agent 與 No cursor", () => {
@@ -477,7 +525,7 @@ describe("PresenceAvatars", () => {
       expect(screen.getByRole("tooltip")).toBeInTheDocument();
     });
 
-    it("PA9 (c0)(c) blur 解除抑制且不留下 tooltip；再聚焦是新的聚焦", () => {
+    it("PA9(c) blur 解除抑制且不留下 tooltip；再聚焦是新的聚焦", () => {
       const ann = pressAndEscape();
       act(() => {
         ann.blur();
@@ -489,7 +537,7 @@ describe("PresenceAvatars", () => {
       expect(screen.getByRole("tooltip")).toBeInTheDocument();
     });
 
-    it("PA9 (d0)(d) pointerdown 解除抑制且不留下 tooltip；hover 再開", () => {
+    it("PA9(d) pointerdown 解除抑制且不留下 tooltip；hover 再開", () => {
       const ann = pressAndEscape();
       fireEvent.pointerDown(ann, { pointerType: "mouse", button: 0 });
       expect(screen.queryByRole("tooltip")).toBeNull();
@@ -503,7 +551,7 @@ describe("PresenceAvatars", () => {
       expect(screen.getByRole("tooltip")).toBeInTheDocument();
     });
 
-    it("PA10 長按沒有游標的人：disabled 列仍取得焦點；Esc 焦點回該顆", () => {
+    it("PA10 長按沒有游標的人：aria-disabled 列仍取得焦點；Esc 焦點回該顆", () => {
       const aw = newAwareness();
       two(aw);
       const { scroller } = mount(aw);

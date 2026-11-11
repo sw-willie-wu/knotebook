@@ -1,4 +1,4 @@
-/** 版本歷史 §6.7：站台清除天數、自動儲存總開關與自動存版等待（#272 §8）（`requireAdmin`）。PATCH 走 `updateVersionSettingsInTx`（S14：callback 整段是 xInTx）。 */
+/** 版本歷史：站台清除天數、自動儲存總開關與自動存版等待（#272）（`requireAdmin`）。PATCH 走 `updateVersionSettingsInTx`（S14：callback 整段是 xInTx）。 */
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
@@ -15,7 +15,7 @@ const settingsPatchSchema = z
     keepAllDays: z.number().int().optional(),
     dailyUntilDays: z.number().int().optional(),
     autoVersionsEnabled: z.boolean().optional(),
-    // #272 §8：範圍外 → 自訂 issue，回中文範圍句；非整數、非數字是 zod 內建 issue → sendInvalidBody 換成「請求格式錯誤」。
+    // #272：範圍外 → 自訂 issue，回範圍句；非整數、非數字是 zod 內建 issue → sendInvalidBody 換成 "Invalid request body."。
     autoWaitMinutes: z
       .number()
       .int()
@@ -23,7 +23,7 @@ const settingsPatchSchema = z
       .optional(),
   })
   .strict()
-  .refine(b => Object.keys(b).length > 0, "請求格式錯誤：至少需要一個欄位");
+  .refine(b => Object.keys(b).length > 0, "Invalid request body: send at least one field.");
 
 export function adminVersionsRoutes(deps: { db: Db }) {
   return async function register(app: FastifyInstance): Promise<void> {
@@ -40,7 +40,7 @@ export function adminVersionsRoutes(deps: { db: Db }) {
         .limit(1);
       if (!row) {
         request.log.error({ table: "site_settings" }, SITE_SETTINGS_MISSING_MESSAGE);
-        return sendError(reply, 500, "internal", "伺服器內部錯誤");
+        return sendError(reply, 500, "internal", "Internal server error.");
       }
       return reply.send(row satisfies VersionSettingsDto);
     });

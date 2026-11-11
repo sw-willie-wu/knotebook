@@ -2,6 +2,7 @@ import { expect, test, type Browser, type BrowserContext, type Locator, type Pag
 import {
   ADMIN,
   createUserViaInvite,
+  expectWidePointer,
   loginAs,
   randomEmail,
   reEscape,
@@ -12,15 +13,17 @@ import {
 } from "./helpers.js";
 
 /**
- * #181 垃圾桶 PR-2c：一般 tab 的選取模式（spec 2026-10-21 §6.11；plan 2026-10-25-trash-pr2c 的 A2c-2～A2c-8、A2-12 多選面）。
+ * #181 垃圾桶：一般 tab 的選取模式（A2c-2～A2c-8、A2-12 多選面）。
  * 1. 我的筆記 Shift 範圍選三篇 → 移動到群組（確認框焦點在框內、送出後焦點回「Select」）。
- * 2. 工作坊勾一篇群組筆記 → 複製到「My notes」（先確認）。
+ * 2. 群組 tab 勾一篇群組筆記 → 有「Move to」（群組沒有資料夾、筆記在根層 → 停用）；複製到「My notes」（先確認）。
  * 3. 勾兩篇刪除（不確認）→ toast「Undo」整批復原。
  * 4. 一般成員（沒有刪除權）：刪除鈕 disabled、「Copy to」可按。
  * 5. 「能刪不能編輯」的角色勾兩篇刪除 → toast 沒有「Undo」、帶說明句。
- * 6. 最近 tab 沒有「Move to」；與我共享 tab 只有「Copy to」。
+ * 6. 最近 tab 沒有「Move to」；與我共享 tab 有「Copy to」與「Move to」（沒有共享資料夾 → 停用）、沒有刪除鈕。
  * 7. 390 寬抽屜：動作列排得進抽屜；Esc 只結束選取、抽屜不關、焦點回抽屜內的「Select」。
- * 8. 進入選取不改清單的捲動位置。
+ * 8. 進入選取不改清單的捲動位置：寬形（底部不顯示）捲在中段；窄形抽屜（底部換成同高的動作列）捲到底。
+ * e2e 預設視窗 1280 落在寬形——動作列（`[data-select-action-bar]`）在標題列、鈕的可及名稱不變，所以 1–6、9 照舊；
+ * 7 與 8 的窄形版是 390。
  * 9. Esc 的範圍：焦點在 body（滑鼠點過勾選框再點主內容區）時結束選取；在標題框裡不結束；開著 toast 時第一下只關 toast。
  *
  * 每個 test 自建所需資料（Playwright 失敗後換 worker、`RUN` 會變；`--grep` 也可能單跑一案）。資料以 API 建（建筆記不帶 content 不吃寫入節流；
@@ -44,7 +47,7 @@ function noteCheckbox(panel: Locator, title: string): Locator {
   return panel.getByRole("checkbox", { name: new RegExp("^" + reEscape(title)) });
 }
 
-/** 側欄底部的選取動作列（在 tabpanel 外）。`scope` 預設靜態側欄。 */
+/** 選取動作列（窄形在側欄底部、tabpanel 外；寬形在標題列）。`scope` 預設靜態側欄。 */
 function actionBar(page: Page, scope?: Locator): Locator {
   return (scope ?? page.getByRole("complementary")).locator("[data-select-action-bar]");
 }
@@ -151,12 +154,12 @@ test("A2c-3：我的筆記 Shift 範圍選三篇 → 移動到群組；確認框
   await expect(toastWithTitle(page, `Moved 3 notes into "${groupName}"`)).toBeVisible({ timeout: 15_000 });
   await expect(confirm).toHaveCount(0);
   // 送出後焦點在 body（Chromium／Firefox：送出鈕 disabled）或確認框容器（WebKit）都算「沒移到別處」→ 交給本實例的「Select」。
-  // 本斷言驗最終落點；守衛的 `confirmEl` 那一支由元件測試 SA3／SA12／SA22 守。
+  // 本斷言驗最終落點；守衛的 `confirmEl` 那一支由元件測試守。
   await expect(panel.locator("button[data-sidebar-select]")).toBeFocused();
   await expectSelectionEnded(panel);
 
-  // 工作坊：三篇都在該群組下。
-  const workspace = await showSidebarTab(page, "Workspace");
+  // 群組：三篇都在該群組下。
+  const workspace = await showSidebarTab(page, "Groups");
   const groupNode = workspace.locator(`li[data-node-kind="group"][data-node-id="${groupId}"]`);
   for (const title of [m1, m2, m3]) await expect(noteLink(groupNode, title)).toBeVisible({ timeout: 15_000 });
   // 我的筆記：先等正向錨點（keep）再斷三篇不在。
@@ -165,7 +168,7 @@ test("A2c-3：我的筆記 Shift 範圍選三篇 → 移動到群組；確認框
   for (const title of [m1, m2, m3]) await expect(noteLink(myNotes, title)).toHaveCount(0);
 });
 
-test("A2c-4：工作坊勾一篇群組筆記 → 複製到「My notes」（目的地叫 My notes、先確認）", async ({ page }) => {
+test("A2c-4：群組 tab 勾一篇群組筆記 → 有「Move to」；複製到「My notes」（目的地叫 My notes、先確認）", async ({ page }) => {
   test.setTimeout(120_000);
   const groupName = `E2E Sel C ${RUN}`;
   const title = `E2E Sel C1 ${RUN}`;
@@ -176,7 +179,7 @@ test("A2c-4：工作坊勾一篇群組筆記 → 複製到「My notes」（目�
 
   // 群組列「New note in …」建群組筆記（同 36 A2-12）：網址先換、畫面稍後才換，等新筆記的標題框（Untitled）再改標題。
   const sidebar = page.getByRole("complementary");
-  await showSidebarTab(page, "Workspace");
+  await showSidebarTab(page, "Groups");
   await sidebar.getByRole("button", { name: `New note in ${groupName}`, exact: true }).click();
   await page.waitForURL(/\/g\/[0-9a-f-]{36}\/untitled-[0-9a-f]{8}$/, { timeout: 15_000 });
   const titleInput = page.getByRole("textbox", NOTE_TITLE);
@@ -188,21 +191,24 @@ test("A2c-4：工作坊勾一篇群組筆記 → 複製到「My notes」（目�
     { timeout: 15_000 },
   );
 
-  const workspace = await showSidebarTab(page, "Workspace");
+  const workspace = await showSidebarTab(page, "Groups");
   await expect(noteLink(workspace, title)).toBeVisible({ timeout: 15_000 });
   const panel = await startSidebarSelection(page);
   await toggleSelectedNote(panel, title);
   await expect(panel.getByText("1 selected", { exact: true })).toBeVisible();
   const copyTo = actionBar(page).getByRole("button", { name: "Copy to", exact: true });
   await expect(copyTo).toBeEnabled();
-  await expect(actionBar(page).getByRole("button", { name: "Move to" })).toHaveCount(0); // 工作坊沒有「移動到」（步驟 2）
+  // 群組有「移動到」（只在本群組的資料夾間移動）。這個群組沒有資料夾、筆記在根層 → 第一層是空的 → 停用。
+  await expect(actionBar(page).getByRole("button", { name: "Move to", exact: true })).toBeDisabled();
 
   await copyTo.click();
   const picker = page.getByRole("dialog", { name: "Copy to" });
   const myNotesTarget = picker.getByRole("button", { name: "My notes", exact: true });
   await expect(myNotesTarget).toBeVisible();
-  // 命名統一（Willie Q5）：個人目的地就是清單第一顆，叫「My notes」（舊名不再出現）。
-  await expect(picker.getByRole("list").getByRole("button").first()).toHaveAccessibleName("My notes");
+  // 上半部（目前的群組）第一顆是「Make a copy」；分隔線之後的下半部第一顆是個人目的地，叫「My notes」（命名統一；舊名不再出現）。
+  const targets = picker.getByRole("list").getByRole("button");
+  await expect(targets.first()).toHaveAccessibleName("Make a copy");
+  await expect(targets.nth(1)).toHaveAccessibleName("My notes");
   await myNotesTarget.click();
 
   const confirm = page.getByRole("dialog", { name: "Copy to my notes" });
@@ -216,7 +222,7 @@ test("A2c-4：工作坊勾一篇群組筆記 → 複製到「My notes」（目�
   // 我的筆記多一篇同標題的副本；原篇仍在群組下。
   const myNotes = await showSidebarTab(page, "My notes");
   await expect(noteLink(myNotes, title)).toHaveCount(1, { timeout: 15_000 });
-  const workspaceAgain = await showSidebarTab(page, "Workspace");
+  const workspaceAgain = await showSidebarTab(page, "Groups");
   await expect(noteLink(workspaceAgain, title)).toHaveCount(1);
 });
 
@@ -265,7 +271,7 @@ test("A2c-6：群組一般成員（沒有刪除權）勾群組筆記 → 刪除�
 
     const user = await userSession(browser, member.email);
     contexts.push(user.context);
-    const workspace = await showSidebarTab(user.page, "Workspace");
+    const workspace = await showSidebarTab(user.page, "Groups");
     await expect(noteLink(workspace, title)).toBeVisible({ timeout: 15_000 });
     const panel = await startSidebarSelection(user.page);
     await toggleSelectedNote(panel, title);
@@ -295,7 +301,7 @@ test("A2-12（多選）：「能刪不能編輯」的角色勾兩篇群組筆記
 
     const user = await userSession(browser, deleter.email);
     contexts.push(user.context);
-    const workspace = await showSidebarTab(user.page, "Workspace");
+    const workspace = await showSidebarTab(user.page, "Groups");
     for (const title of [x1, x2]) await expect(noteLink(workspace, title)).toBeVisible({ timeout: 15_000 });
     const panel = await startSidebarSelection(user.page);
     await toggleSelectedNote(panel, x1);
@@ -311,7 +317,7 @@ test("A2-12（多選）：「能刪不能編輯」的角色勾兩篇群組筆記
   }
 });
 
-test("A2c-2：最近 tab 的動作列沒有「Move to」；與我共享 tab 只有「Copy to」", async ({ browser }) => {
+test("A2c-2：最近 tab 的動作列沒有「Move to」；與我共享 tab 有「Copy to」與「Move to」（沒有共享資料夾 → 停用）、沒有刪除鈕", async ({ browser }) => {
   test.setTimeout(120_000);
   const recentTitle = `E2E Sel R ${RUN}`;
   const sharedTitle = `E2E Sel S ${RUN}`;
@@ -336,7 +342,7 @@ test("A2c-2：最近 tab 的動作列沒有「Move to」；與我共享 tab 只�
     await expect(adminBar.getByRole("button", { name: "Delete 1 selected item", exact: true })).toBeEnabled();
     await expect(adminBar.getByRole("button", { name: "Move to" })).toHaveCount(0);
 
-    // ── B 與我共享 tab：只有複製到 ─────────────────────────────────────────
+    // ── B 與我共享 tab：複製到可按；移動到（只在自己的共享資料夾間）——B 沒有共享資料夾、那篇在根層 → 停用；沒有刪除鈕 ─────
     const user = await userSession(browser, guest.email);
     contexts.push(user.context);
     const shared = await showSidebarTab(user.page, "Shared with me");
@@ -345,8 +351,10 @@ test("A2c-2：最近 tab 的動作列沒有「Move to」；與我共享 tab 只�
     await toggleSelectedNote(sharedPanel, sharedTitle);
     const userBar = actionBar(user.page);
     await expect(userBar.getByRole("button", { name: "Copy to", exact: true })).toBeEnabled();
-    await expect(userBar.getByRole("button", { name: "Move to" })).toHaveCount(0);
+    await expect(userBar.getByRole("button", { name: "Move to", exact: true })).toBeDisabled();
+    // 與我共享的刪除鈕只在選的全是資料夾時才渲染（「移除選取的資料夾」）；只選筆記 → 沒有。
     await expect(userBar.getByRole("button", { name: DELETE_SELECTED })).toHaveCount(0);
+    await expect(userBar.getByRole("button", { name: /^Remove \d+ selected folders?$/ })).toHaveCount(0);
   } finally {
     for (const context of contexts) await context.close();
   }
@@ -370,7 +378,7 @@ test("A2c-7：390 寬抽屜——動作列排得進抽屜；Esc 只結束選取�
   await toggleSelectedNote(panel, title);
   const bar = actionBar(page, drawer);
   await expect(bar).toBeVisible();
-  // 三顆鈕都在抽屜的框內（T5 review r1 I1：刪除鈕曾被擠出卡片）；頁面不橫捲。
+  // 三顆鈕都在抽屜的框內（刪除鈕曾被擠出卡片）；頁面不橫捲。
   const drawerBox = await drawer.boundingBox();
   expect(drawerBox).not.toBeNull();
   for (const name of ["Move to", "Copy to", "Delete 1 selected item"]) {
@@ -392,20 +400,55 @@ test("A2c-7：390 寬抽屜——動作列排得進抽屜；Esc 只結束選取�
   await page.setViewportSize({ width: 1280, height: 800 });
 });
 
-test("A2c-8：進入選取模式不改清單的捲動位置", async ({ page }) => {
+test("A2c-8（寬形 1280）：清單捲在中段時進入選取模式，捲動位置不變", async ({ page }) => {
   test.setTimeout(120_000);
-  const titles = Array.from({ length: 20 }, (_, i) => `E2E Sel L${String(i + 1).padStart(2, "0")} ${RUN}`);
+  const titles = Array.from({ length: 30 }, (_, i) => `E2E Sel L${String(i + 1).padStart(2, "0")} ${RUN}`);
   await loginAs(page, ADMIN.email, ADMIN.password);
   await expect(page).toHaveURL(/\/$/);
   for (const title of titles) await apiCreateNote(page, title);
-  // 矮一點的視窗：單跑本案（admin 只有這 20 篇）時清單也一定可捲。
+  // 矮一點的視窗：單跑本案（admin 只有這 30 篇）時清單也一定可捲。
   await page.setViewportSize({ width: 1280, height: 600 });
   await page.goto("/");
+  await expectWidePointer(page, true);
 
   const sidebar = page.getByRole("complementary");
   const myNotes = await showSidebarTab(page, "My notes");
   await expect(noteLink(myNotes, titles[0]!)).toBeVisible({ timeout: 15_000 });
   const list = sidebar.locator("[data-sidebar-list]");
+  // 寬形進入選取時底部（New note）不顯示、清單可視高度多約一列，可捲範圍隨之縮小：捲在最底會被瀏覽器夾回（已知取捨，
+  // 所以寬形驗「捲在中段」。可捲範圍要遠大於一列，中段才不會落進被縮掉的那一段。
+  await expect.poll(() => list.evaluate((el) => el.scrollHeight - el.clientHeight)).toBeGreaterThan(200);
+  await list.evaluate((el) => {
+    el.scrollTop = Math.round((el.scrollHeight - el.clientHeight) / 2);
+  });
+  const before = await list.evaluate((el) => el.scrollTop);
+  expect(before).toBeGreaterThan(100);
+
+  await startSidebarSelection(page);
+  await expect(list.getByRole("checkbox").first()).toBeAttached(); // 勾選樹已換上（chunk 到了；限定清單，不算標題列的全選框）
+  await expect(sidebar.getByRole("button", { name: "New note", exact: true })).toHaveCount(0); // 本案驗的情境：底部已不顯示
+  await expect(async () => {
+    expect(await list.evaluate((el) => el.scrollTop)).toBe(before);
+  }).toPass({ timeout: 5_000 });
+});
+
+test("A2c-8（窄形 390 抽屜）：清單捲到底時進入選取模式，捲動位置不變（底部換成同高的動作列）", async ({ page }) => {
+  test.setTimeout(120_000);
+  const titles = Array.from({ length: 30 }, (_, i) => `E2E Sel B${String(i + 1).padStart(2, "0")} ${RUN}`);
+  await loginAs(page, ADMIN.email, ADMIN.password);
+  await expect(page).toHaveURL(/\/$/);
+  for (const title of titles) await apiCreateNote(page, title);
+  // 矮的窄視窗：單跑本案（admin 只有這 30 篇）時抽屜清單也一定可捲。
+  await page.setViewportSize({ width: 390, height: 600 });
+  await page.goto("/");
+  await expectWidePointer(page, false);
+  await page.getByRole("button", { name: "Open navigation" }).click();
+  const drawer = page.getByRole("dialog", { name: "Navigation" });
+  await expect(drawer).toBeVisible();
+  const myNotes = await showSidebarTab(page, "My notes", drawer);
+  await expect(noteLink(myNotes, titles[0]!)).toBeVisible({ timeout: 15_000 });
+  // 限定抽屜那一份（靜態卡在窄螢幕藏著、仍掛在 DOM）。
+  const list = page.locator("[data-sidebar-drawer] [data-sidebar-list]");
   await expect.poll(() => list.evaluate((el) => el.scrollHeight - el.clientHeight)).toBeGreaterThan(100);
   await list.evaluate((el) => {
     el.scrollTop = el.scrollHeight;
@@ -413,8 +456,9 @@ test("A2c-8：進入選取模式不改清單的捲動位置", async ({ page }) =
   const before = await list.evaluate((el) => el.scrollTop);
   expect(before).toBeGreaterThan(100);
 
-  const panel = await startSidebarSelection(page);
-  await expect(panel.getByRole("checkbox").first()).toBeAttached(); // 勾選樹已換上（chunk 到了）
+  await startSidebarSelection(page, drawer);
+  await expect(list.getByRole("checkbox").first()).toBeAttached(); // 勾選樹已換上（chunk 到了）
+  await expect(actionBar(page, drawer)).toBeVisible(); // 底部動作列已換上（同一個 chunk；之前是同高的佔位）
   await expect(async () => {
     expect(await list.evaluate((el) => el.scrollTop)).toBe(before);
   }).toPass({ timeout: 5_000 });

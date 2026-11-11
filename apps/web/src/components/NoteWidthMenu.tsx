@@ -20,7 +20,7 @@ const ROW =
   "transition-colors focus:bg-accent focus:text-accent-foreground";
 
 /**
- * #297 §4.3：頁首寬度 icon＋三選一選單（站內、每篇各自記，見 `note-width.ts`）。
+ * #297：頁首寬度 icon＋三選一選單（站內、每篇各自記，見 `note-width.ts`）。
  * 頁首 content box 寬 ≥ 43.5rem 才顯示（header 是 `@container`）：更窄時「寬」與「標準」一樣寬。
  */
 export function NoteWidthMenu({ noteId }: { noteId: string }) {

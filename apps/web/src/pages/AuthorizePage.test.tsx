@@ -38,8 +38,10 @@ function LocationProbe() {
   return <div data-testid="app-location">{`${location.pathname}${location.search}`}</div>;
 }
 
-// ⚠ 刻意**不**在 harness 設 `retry: false`：410／404 案的即時性要靠 hook 自己的
-// `retry: false`——在這裡蓋掉，hook 那行拿掉也全綠（正式站會多重試三次才顯示錯誤）。
+// ⚠ 刻意**不**在 harness 設 `retry: false`：410／404 案守的是 hook 自己的 `retry: false`
+// ——在這裡蓋掉，hook 那行拿掉也全綠（正式站會多重試三次才顯示錯誤）。守法是**計次**：錯誤畫面
+// 出現時 `/api/oauth/request` 恰被打一次（重試三次的話錯誤要等第四次失敗才出現，此時已是 4 次）。
+// 不靠等待上限：react-query 預設退避 1+2+4≈7 秒，塞得進全域 asyncUtilTimeout，只看「多久出現」守不住。
 function renderAt(path: string, me: () => Response = () => okMe()) {
   const client = new QueryClient();
   meHandler = me;
@@ -92,6 +94,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   meHandler = okMe;
+  // toast 跨案清空由 test/setup.ts 的全域 afterEach 負責（「decision 回 410」的 toast 與「410 → 錯誤頁」
+  // 的頁內文案同字，沒清的話後者會撈到上一案的 toast 而假綠）。
 });
 
 describe("AuthorizePage", () => {
@@ -123,7 +127,7 @@ describe("AuthorizePage", () => {
     expect(expectCardControls44(undefined, "button.underline")).toBe(2);
   });
 
-  // I-3：route 掛哪一層要有守衛。兩案分別殺「移到 RequireAuth 外」與「移到 ChangePasswordGate 外」。
+  // route 掛哪一層要有守衛。兩案分別殺「移到 RequireAuth 外」與「移到 ChangePasswordGate 外」。
   it("未登入 → /login?next=%2Fauthorize%3Freq%3Dabc（含 query，#131 才接得回來）", async () => {
     vi.stubGlobal("fetch", mockFetch(okRequest));
     renderAt("/authorize?req=abc", () => errorResponse(401, "unauthorized"));
@@ -263,22 +267,29 @@ describe("AuthorizePage", () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith("/api/oauth/request"))).toBe(false);
   });
 
-  it("410 → 顯示「請從應用程式重新發起」且沒有按鈕", async () => {
-    vi.stubGlobal("fetch", mockFetch(() => errorResponse(410, "oauth_request_invalid")));
+  it("410 → 顯示「請從應用程式重新發起」且沒有按鈕；不重試（恰打一次）", async () => {
+    const fetchMock = mockFetch(() => errorResponse(410, "oauth_request_invalid"));
+    vi.stubGlobal("fetch", fetchMock);
+    const requestCalls = () => fetchMock.mock.calls.filter(([url]) => String(url).startsWith("/api/oauth/request")).length;
     renderAt("/authorize?req=abc");
     expect(await screen.findByText(/already been used or has expired/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Allow" })).not.toBeInTheDocument();
+    // hook 的 `retry: false` 守門（見 renderAt 上方註解）：重試的話錯誤出現時已打 4 次。
+    expect(requestCalls()).toBe(1);
   });
 
-  it("404 → 通用錯誤且沒有按鈕", async () => {
-    vi.stubGlobal("fetch", mockFetch(() => errorResponse(404, "not_found")));
+  it("404 → 通用錯誤且沒有按鈕；不重試（恰打一次）", async () => {
+    const fetchMock = mockFetch(() => errorResponse(404, "not_found"));
+    vi.stubGlobal("fetch", fetchMock);
+    const requestCalls = () => fetchMock.mock.calls.filter(([url]) => String(url).startsWith("/api/oauth/request")).length;
     renderAt("/authorize?req=abc");
     expect(await screen.findByText(/Couldn't load this authorization request/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Allow" })).not.toBeInTheDocument();
+    expect(requestCalls()).toBe(1);
   });
 });
 
-// #239 W1（spec §9.2）：逐項勾選、預設勾選（W4'／W8）、連動、比既有權限窄的提示。
+// #239：逐項勾選、預設勾選、連動、比既有權限窄的提示。
 describe("AuthorizePage #239 逐項勾選", () => {
   const RWM = "notes:read notes:write notes:move" as const;
   const RW = "notes:read notes:write" as const;
@@ -432,7 +443,7 @@ describe("AuthorizePage #239 逐項勾選", () => {
   });
 });
 
-// #181 PR-2d（spec §6.8.2）：第三框「刪除」——client 沒要求不渲染、預設不勾、取消編輯一起清、既有權限取交集。
+// #181：第三框「刪除」——client 沒要求不渲染、預設不勾、取消編輯一起清、既有權限取交集。
 describe("AuthorizePage #181 刪除勾選", () => {
   const R = "notes:read" as const;
   const RW = "notes:read notes:write" as const;
@@ -442,7 +453,7 @@ describe("AuthorizePage #181 刪除勾選", () => {
   const EDIT = "Create and edit notes";
   const MOVE = "Move or copy notes into groups";
   const DELETE = "Move notes to the trash and restore them";
-  // 刪除框的常駐說明＝S2＋「需同時勾選編輯」一句（fix round 1 m1，比照搬移說明的結尾）。兩語系逐字釘。
+  // 刪除框的常駐說明＝基本說明＋「需同時勾選編輯」一句（比照搬移說明的結尾）。兩語系逐字釘。
   const DELETE_HINT_EN =
     "Can't delete notes permanently, but notes left in the trash can still be deleted permanently later, by the site's trash setting or by someone in the web app. Requires \"Create and edit notes\".";
   const DELETE_HINT_ZH =

@@ -12,7 +12,7 @@ function wrap(node: ReactNode) {
 
 const PASSWORD_FIELD_IDS = ["change-password-current", "change-password-new", "change-password-confirm"];
 
-describe("密碼表單在面板內的送出鈕（#247 §4.8）", () => {
+describe("密碼表單在面板內的送出鈕（#247）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
   });

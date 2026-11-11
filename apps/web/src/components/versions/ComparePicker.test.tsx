@@ -43,7 +43,7 @@ async function listLoaded() {
   await waitFor(() => expect(screen.getByTestId("rows")).toHaveTextContent("loaded"));
 }
 
-/** controller 狀態探針：左＝preview、右＝compareRight。`startPreview` 包一層計數（N-3：重選同一版不呼叫）。 */
+/** controller 狀態探針：左＝preview、右＝compareRight。`startPreview` 包一層計數（重選同一版不呼叫）。 */
 const startCalls: unknown[] = [];
 function Host({ start }: { start: VersionTarget }) {
   const inner = useVersionsController({ noteId: NOTE, enabled: true });
@@ -93,7 +93,7 @@ async function openPicker(name: "Left side" | "Right side") {
   return screen.findByRole("menu");
 }
 
-describe("ComparePicker（spec §8.4【rev 10】）", () => {
+describe("ComparePicker", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     window.localStorage.clear();
@@ -101,7 +101,7 @@ describe("ComparePicker（spec §8.4【rev 10】）", () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("C1（#272 D5 改）：觸發鈕顯示「名稱 (短 id)」（清單那一列的名稱）、右預設「Current state」；下拉項同一個標籤；aria-label 左側／右側", async () => {
+  it("C1（#272 改）：觸發鈕顯示「名稱 (短 id)」（清單那一列的名稱）、右預設「Current state」；下拉項同一個標籤；aria-label 左側／右側", async () => {
     stub({ [FIRST]: list([ver(2, "定稿"), ver(1)]) });
     renderPicker();
     await listLoaded();
@@ -115,7 +115,7 @@ describe("ComparePicker（spec §8.4【rev 10】）", () => {
     expect(within(menu).getByRole("menuitemradio", { name: vlabel(2, "定稿") })).toHaveAttribute("aria-checked", "true");
   });
 
-  it("N-3：左下拉重選已勾的同一版 → 不呼叫 startPreview（不重新取樣目前狀態、不重建預覽）", async () => {
+  it("左下拉重選已勾的同一版 → 不呼叫 startPreview（不重新取樣目前狀態、不重建預覽）", async () => {
     stub({ [FIRST]: list([ver(2), ver(1)]) });
     renderPicker();
     await listLoaded();
@@ -125,7 +125,7 @@ describe("ComparePicker（spec §8.4【rev 10】）", () => {
     expect(screen.getByTestId("right")).toHaveTextContent('"current"');
   });
 
-  it("M-1：載下一頁進行中 → 載入項 disabled，再點不會多打一次", async () => {
+  it("載下一頁進行中 → 載入項 disabled，再點不會多打一次", async () => {
     const page2 = `/api/notes/${NOTE}/versions?before=2&limit=50`;
     const calls: string[] = [];
     let release!: () => void;
@@ -255,7 +255,7 @@ describe("ComparePicker（spec §8.4【rev 10】）", () => {
   describe("跟著清單篩選（#258）", () => {
     const AUTO = (seq: number) => ver(seq, null, "auto");
 
-    it("僅手動：左右下拉都只列手動版本（右邊「Current state」永遠在）；預覽的那一版被篩掉，觸發鈕仍顯示它的名稱（清單沒有時用選取時記下的名稱，#272 §10.3）", async () => {
+    it("僅手動：左右下拉都只列手動版本（右邊「Current state」永遠在）；預覽的那一版被篩掉，觸發鈕仍顯示它的名稱（清單沒有時用選取時記下的名稱，#272）", async () => {
       window.localStorage.setItem(KIND_FILTER_STORAGE_KEY, "manual");
       stub({ [FIRST_MANUAL]: list([ver(3), ver(1)]) });
       renderPicker(vtarget(2, "草稿"));

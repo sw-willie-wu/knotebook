@@ -2,7 +2,7 @@ import { useCallback, useSyncExternalStore } from "react";
 import type { SidebarTabActions } from "@/lib/sidebar-tab";
 
 /**
- * 一般 tab 選取模式「批次進行中」的狀態（#181 PR-2c，plan Rev 4 裁定 2）：每個 `SidebarTabProvider` 一份，鍵＝它穩定的
+ * 一般 tab 選取模式「批次進行中」的狀態（#181）：每個 `SidebarTabProvider` 一份，鍵＝它穩定的
  * actions 物件（擁有 session 計數器的那一個）。所有 `SelectActionBar` 實例讀同一份——重開抽屜、Done→Select 後新掛上的
  * 動作列也顯示「處理中」、三顆鈕 disabled，不能在舊那輪跑完前開第二輪（避免重複複製）。
  * 鍵不用 session：Done→Select 開出的新 session 查不到舊那輪，動作列就會變成可按。結果要不要套用由呼叫端比對 session。

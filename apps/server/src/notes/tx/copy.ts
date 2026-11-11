@@ -1,41 +1,41 @@
 /**
- * #175 T4（spec §6.5）：複製的交易本體。快照（`loadNoteDoc`，會借連線）由路由在交易**之前**讀、clone 成 `input.copy`
- * （gate r2 M-6）。S14：只收 `tx`、純資料、型別明示的測試縫；檔案 I/O（`copyFile`）不借連線。
+ * #175：複製的交易本體（`copyNoteInTx`）。快照（`loadNoteDoc`，會借連線）由路由在交易**之前**讀、clone 成 `input.copy`
+ * 。S14：只收 `tx`、純資料、型別明示的測試縫；檔案 I/O（`copyFile`）不借連線。
  *   (g) 目標是群組時（**第一把鎖**）：目標 `groups` 列 `FOR KEY SHARE`，再在交易內重讀呼叫者的成員資格與 `can_create`
  *       → 群組不存在、非成員、無 can_create → 404 `group_not_found`（與路由交易外的快速檢查同形；同 `move.ts` (1)）。
- *       帶 `folderId` 時：群組不在 → 404 `folder_not_found`（以資料夾 id 進來的入口，spec §5.4 n-2）；另要 `can_edit` → 403（D13）。
- *   (f) 資料夾 PR-3a（I-1，spec §5.4、§5.7.6）：帶 `folderId` 時**在 (0) 之前**顯式對目標資料夾取 `FOR KEY SHARE`，不靠 (7) INSERT
+ *       帶 `folderId` 時：群組不在 → 404 `folder_not_found`（以資料夾 id 進來的入口，n-2）；另要 `can_edit` → 403。
+ *   (f) 資料夾：帶 `folderId` 時**在 (0) 之前**顯式對目標資料夾取 `FOR KEY SHARE`，不靠 (7) INSERT
  *       的 FK 隱含鎖——同空間複製（「建立副本」）時來源就在該資料夾子樹裡，資料夾鎖若排在來源之後，會與刪資料夾的「子樹資料夾 FU
- *       → 子樹筆記 FU」成環。不在、或空間與 scope 不符 → 404 `folder_not_found`（§5.5 第 2、3 步重判；群組資料夾的空間由 (g) 的
+ *       → 子樹筆記 FU」成環。不在、或空間與 scope 不符 → 404 `folder_not_found`（第 2、3 步重判；群組資料夾的空間由 (g) 的
  *       groups KS 穩住，個人資料夾的空間永遠不變）。
- *   (0) 來源 `FOR KEY SHARE`（不擋一般 UPDATE、仍擋刪列——gate r1 M1）；讀不到 → 404
+ *   (0) 來源 `FOR KEY SHARE`（不擋一般 UPDATE、仍擋刪列）；讀不到 → 404
  *   (3) 只留**屬於來源**的附件（他篇的附件原樣引用）
- *   (4) 每個附件：新 id → 記入 `copiedFileIds` → copyFile；檔不在（ENOENT）→ 跳過（plan 規格落差 8）——**不持空間鎖**
- *       （儲存配額 spec 2026-10-08 §6.4 I3：磁碟 I/O 不佔空間鎖；持有的只有 (g)／(0) 兩把 KEY SHARE，與改序前相同）
+ *   (4) 每個附件：新 id → 記入 `copiedFileIds` → copyFile；檔不在（ENOENT）→ 跳過——**不持空間鎖**
+ *       （磁碟 I/O 不佔空間鎖；持有的只有 (g)／(0) 兩把 KEY SHARE，與改序前相同）
  *   (5) incoming＝實際複製成功的 size 總和（磁碟已遺失而跳過的不計；`owned` 是 DB 列、已去重——同一附件被引用兩次只算一次）
- *   (6) `assertSpaceRoomInTx(目標空間, incoming)`——在 (7) `insertNoteWithAutoSlug` **之前**（Q-S7：空間鎖先於該空間的
- *       slug 寫入；R13）、(g)／(0) 兩把列鎖之後（Q-S2）。incoming＝0 時不取鎖（A4）
- *   (7) `insertNoteWithAutoSlug` 交易內模式（savepoint 重試，§6.9）
+ *   (6) `assertSpaceRoomInTx(目標空間, incoming)`——在 (7) `insertNoteWithAutoSlug` **之前**（空間鎖先於該空間的
+ *       slug 寫入）、(g)／(0) 兩把列鎖之後。incoming＝0 時不取鎖
+ *   (7) `insertNoteWithAutoSlug` 交易內模式（savepoint 重試）
  *   (8) 逐列 INSERT uploads（uploader＝複製者）→ 改寫網址 → 寫 `note_states` 首列（version 1，與 `persistNoteState` 首寫同形）
- *   (9) 寫全文索引（#93 §5.4；鎖序在 note_states 之後，對的是本交易新建的列）
+ *   (9) 寫全文索引（#93；鎖序在 note_states 之後，對的是本交易新建的列）
  * 被拒（`StorageQuotaExceeded`）或任何失敗：已落盤的新檔 id 在 `input.copiedFileIds`，路由在交易外 best-effort 刪。
  * 副本的 notes 列經 `insertNoteWithAutoSlug`（`create.ts`）寫入——那條 INSERT 不在本檔，S14 守衛 ① 掃不到它。
  * 副本的 `updated_at` 不在這裡寫：吃 DB default（新筆記＝本交易的 `now()`，必晚於來源；`test/unit/copy-doc.test.ts` 源碼守衛）。
- * 鎖序（spec §11；T4 review r1 I-1 改；資料夾 PR-3a I-1 再改）：**目標 groups KEY SHARE → 目標資料夾 KEY SHARE → 來源筆記 KEY SHARE**
+ * 鎖序：**目標 groups KEY SHARE → 目標資料夾 KEY SHARE → 來源筆記 KEY SHARE**
  * （目標是個人時沒有第一把；不帶資料夾時沒有第二把）。
  * 為什麼 groups 要在來源之前：來源與目標同在群組 G 時，若先鎖來源（G 的筆記）、再由 (7) INSERT 的 FK 檢查取 G 的
- * KEY SHARE，會與「groups FOR UPDATE → 該群組筆記 FOR UPDATE」（PR4 全刪的形）成環（review r1 實測 40P01；
- * `groups-v2-copy.test.ts` C19b 釘住）。現序下 `lockGroup` 方與 (g) 在各自的第一把鎖就互斥，後到者等的時候不持任何鎖。
- * (g) 也關掉「複製∥移除成員／降級」的授權窗口（C19a／C19c）：`lockGroup`（T6／T7 刪群組、T9–T11 成員異動、PR3 角色異動）
- * 的 FOR UPDATE 與 KEY SHARE 互斥，所以 (g) 讀到的成員資格從讀到 commit 都成立。PR3 角色異動（T12／T13）先 `lockGroup`
- * 這個前提由 PR3 的 race 測試檔守著（T4 review r2 M-3）。(g) 同一句也讀出群組名與角色旗標並回傳（`target`），路由用它組
- * 201 的 role／permissions——交易外 `loadCreateTarget` 只剩快速 404（review r2 M-2：兩次讀之間被降級時不再回降級前的值）。
+ * KEY SHARE，會與「groups FOR UPDATE → 該群組筆記 FOR UPDATE」（刪群組・全刪的形）成環（實測 40P01；
+ * `groups-v2-copy.test.ts` 釘住）。現序下 `lockGroup` 方與 (g) 在各自的第一把鎖就互斥，後到者等的時候不持任何鎖。
+ * (g) 也關掉「複製∥移除成員／降級」的授權窗口：`lockGroup`（`transferGroupInTx`／`deleteGroupWithNotesInTx` 刪群組、`addMemberInTx`／`setMemberRoleInTx`／`removeMemberInTx` 成員異動、`updateRoleInTx`／`deleteRoleInTx` 角色異動）
+ * 的 FOR UPDATE 與 KEY SHARE 互斥，所以 (g) 讀到的成員資格從讀到 commit 都成立。角色異動先 `lockGroup`
+ * 這個前提由 `groups-v2-roles-race.test.ts` 守著。(g) 同一句也讀出群組名與角色旗標並回傳（`target`），路由用它組
+ * 201 的 role／permissions——交易外 `loadCreateTarget` 只剩快速 404（兩次讀之間被降級時不再回降級前的值）。
  * 與其他路徑的鎖對（逐一）：移動＝筆記 FOR UPDATE → groups KEY SHARE——與 (g) 兩把 KEY SHARE 互容，交集只在來源列
  * （KEY SHARE vs FOR UPDATE），持該列的移動之後只要 groups KEY SHARE、不等複製，不成環；PATCH slug／刪筆記只鎖筆記列、
  * 不碰 groups；shares PUT 的 FOR SHARE、改群組名的 NO KEY UPDATE 都與 KEY SHARE 互容。
  * (g) 之後群組刪不掉，(7) 的 INSERT 不會撞 FK 23503；路由的 23503 → 404 映射只剩防禦縱深。
- * 空間鎖（(6)）在上述兩把列鎖之後；取得它之後只再取 Q-S6 允許的鎖（新列、`users` 的 FK KEY SHARE、已持有列的 FK、本空間
- * slug 唯一索引的插入等待）——無環論證見儲存配額 spec §6.1。
+ * 空間鎖（(6)）在上述兩把列鎖之後；取得它之後只再取不會成環的鎖（新列、`users` 的 FK KEY SHARE、已持有列的 FK、本空間
+ * slug 唯一索引的插入等待）。
  */
 import { randomUUID } from "node:crypto";
 import { copyFile } from "node:fs/promises";
@@ -62,13 +62,13 @@ export interface CopyNoteInput {
   sourceId: string;
   userId: string;
   scope: SlugScope;
-  /** 資料夾 PR-3a：已過 UUID_RE、已轉小寫、交易外判過可見性與空間；null＝根層。 */
+  /** 資料夾：已過 UUID_RE、已轉小寫、交易外判過可見性與空間；null＝根層。 */
   folderId: string | null;
   copy: CopyDoc;
   uploadsDir: string;
   /** out：已落盤的新附件 id（失敗時由路由清檔）。 */
   copiedFileIds: string[];
-  /** #93 §5.4：交易前由路由對 clone 抽好的索引（純資料）。交易內唯一改 doc 的 `rewriteUploadUrls` 只改 `url` 屬性，url 不入索引。 */
+  /** #93：交易前由路由對 clone 抽好的索引（純資料）。交易內唯一改 doc 的 `rewriteUploadUrls` 只改 `url` 屬性，url 不入索引。 */
   searchExtract: SearchExtract;
   /** 空間鎖等待上限（ms），路由從 deps 帶入。 */
   lockTimeoutMs: number;
@@ -106,13 +106,13 @@ export async function copyNoteInTx(tx: Tx, input: CopyNoteInput, hook?: GroupTes
       .where(and(eq(groupMembers.groupId, groupId), eq(groupMembers.userId, input.userId)))
       .limit(1);
     if (!g && input.folderId !== null) throw new TxAbort(404, "folder_not_found", FOLDER_NOT_FOUND_MESSAGE);
-    if (!g || !member || !member.canCreate) throw new TxAbort(404, "group_not_found", "找不到此群組");
+    if (!g || !member || !member.canCreate) throw new TxAbort(404, "group_not_found", "No group with that id.");
     if (input.folderId !== null && !member.canEdit) throw new TxAbort(403, "forbidden", NOTE_FOLDER_ROLE_FORBIDDEN_MESSAGE);
     target = { name: g.name, canRead: member.canRead, canEdit: member.canEdit, canDelete: member.canDelete, canManagePublicLink: member.canManagePublicLink };
     await hook?.("note-copy-target-locked", { noteId: input.sourceId, groupId });
   }
 
-  // (f) I-1：目標資料夾 KS 在來源 KS 之前。
+  // (f) 目標資料夾 KS 在來源 KS 之前。
   if (input.folderId !== null) {
     const folder = await lockFolderInTx(tx, input.folderId, "key share");
     const wanted: FolderSpace = "groupId" in input.scope
@@ -122,9 +122,9 @@ export async function copyNoteInTx(tx: Tx, input: CopyNoteInput, hook?: GroupTes
     await hook?.("note-copy-folder-locked", { noteId: input.sourceId, folderId: input.folderId, ...("groupId" in input.scope ? { groupId: input.scope.groupId } : {}) });
   }
 
-  // #181 §6.2-11：來源在垃圾桶＝列消失，404（與移入的 `FOR UPDATE` 序列化，同上傳）。
+  // #181：來源在垃圾桶＝列消失，404（與移入的 `FOR UPDATE` 序列化，同上傳）。
   const [src] = await tx.select({ id: notes.id, title: notes.title }).from(notes).where(and(eq(notes.id, input.sourceId), isNull(notes.deletedAt))).for("key share");
-  if (!src) throw new TxAbort(404, "not_found", "找不到此筆記");
+  if (!src) throw new TxAbort(404, "not_found", "No note with that id.");
   await hook?.("note-copy-locked", { noteId: input.sourceId });
 
   const wanted = [...input.copy.uploadNodes.keys()];
@@ -151,7 +151,7 @@ export async function copyNoteInTx(tx: Tx, input: CopyNoteInput, hook?: GroupTes
   }
   await hook?.("note-copy-files-copied", { noteId: input.sourceId });
 
-  // (5)(6) 儲存配額：只算實際複製成功的；空間鎖在 (g)／(0) 兩把列鎖之後（Q-S2）、slug 寫入之前（Q-S7）。
+  // (5)(6) 儲存配額：只算實際複製成功的；空間鎖在 (g)／(0) 兩把列鎖之後、slug 寫入之前。
   const incoming = copied.reduce((sum, c) => sum + c.size, 0);
   const targetSpace: StorageSpace = "groupId" in input.scope ? { kind: "group", id: input.scope.groupId } : { kind: "user", id: input.scope.ownerId };
   await assertSpaceRoomInTx(tx, targetSpace, incoming, {
@@ -166,14 +166,14 @@ export async function copyNoteInTx(tx: Tx, input: CopyNoteInput, hook?: GroupTes
   // (8)
   const mapping = new Map<string, string>();
   for (const c of copied) {
-    // #247 §9.2：副本列的出處與佔用者都是複製者（目標為個人時也照寫）。
+    // #247：副本列的出處與佔用者都是複製者（目標為個人時也照寫）。
     await tx.insert(uploads).values({ id: c.newId, noteId: created.id, uploaderId: input.userId, chargedToId: input.userId, mime: c.mime, size: c.size });
     mapping.set(c.oldId.toLowerCase(), c.newId);
   }
   rewriteUploadUrls(input.copy, mapping);
 
   await tx.insert(noteStates).values({ noteId: created.id, ydoc: Buffer.from(Y.encodeStateAsUpdate(input.copy.doc)), version: 1 });
-  // #93 §5.4：同一交易寫索引——複製成功就有索引，失敗一起 rollback。新筆記在本交易內才建立，SearchIndexSkip 不會發生；
+  // #93：同一交易寫索引——複製成功就有索引，失敗一起 rollback。新筆記在本交易內才建立，SearchIndexSkip 不會發生；
   // 若發生（不可能的路徑）就讓整個複製失敗，不吞（路由的 catch 只認 TxAbort（含其子類 StorageQuotaExceeded）／FK，其餘 rethrow → 500）。
   await replaceNoteSearchIndexInTx(tx, { noteId: created.id, sourceVersion: 1, extract: input.searchExtract }, searchHooks);
   return { note: created, target };

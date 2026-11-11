@@ -4,13 +4,13 @@ import { siteSettings, userIdentities, users } from "../../db/schema.js";
 import { TxAbort } from "../../http/tx-abort.js";
 import { canUnlinkIdentity, enabledProvidersWithIssuer, usableIdentityIds } from "../sign-in-methods.js";
 
-export const IDENTITY_NOT_FOUND_MESSAGE = "找不到這個登入方式";
+export const IDENTITY_NOT_FOUND_MESSAGE = "No sign-in method with that id.";
 
 /**
- * #187 交易表 P2（spec §8.2）。鎖序（B16、C28）：①users `FOR NO KEY UPDATE`（序列化同一人的並發解除與加密碼，C10）②**之後**
- * `site_settings FOR SHARE`（與 B27 的站台設定寫入互斥：關閉帳密先拿到鎖 → 這裡讀到關、密碼不算數；這裡先拿到 → 關閉的 P2
- * 看得到身分已刪）。讀不到列＝開（B17），回 `settingsMissing` 讓呼叫端 log。INV-7 的判斷與 GET 的 `unlinkable` 同一組函式。
- * 同交易清掉吻合的 `users.oidc_*`（r1-I2：否則 §10.3 補登會讓已解除的身分復活）。不撤 session。
+ * #187：解除身分連結。鎖序：①users `FOR NO KEY UPDATE`（序列化同一人的並發解除與加密碼）②**之後**
+ * `site_settings FOR SHARE`（與站台設定寫入互斥：關閉帳密先拿到鎖 → 這裡讀到關、密碼不算數；這裡先拿到 → 關閉的防自鎖判斷
+ * 看得到身分已刪）。讀不到列＝開，回 `settingsMissing` 讓呼叫端 log。解除連結的判斷與 GET 的 `unlinkable` 同一組函式。
+ * 同交易清掉吻合的 `users.oidc_*`（否則開機時的舊欄補登會讓已解除的身分復活）。不撤 session。
  */
 export async function unlinkIdentityInTx(tx: Tx, input: { userId: string; identityId: string }): Promise<{ settingsMissing: boolean }> {
   const [me] = await tx.select({ passwordHash: users.passwordHash }).from(users).where(eq(users.id, input.userId)).for("no key update");
@@ -33,7 +33,7 @@ export async function unlinkIdentityInTx(tx: Tx, input: { userId: string; identi
 
   const usable = usableIdentityIds(mine, await enabledProvidersWithIssuer(tx));
   if (!canUnlinkIdentity(target.id, { hasPassword: me.passwordHash !== null, passwordLoginDbValue, usableIdentityIds: usable })) {
-    throw new TxAbort(409, "last_login_method", "這是這個帳號唯一的登入方式，不能解除");
+    throw new TxAbort(409, "last_login_method", "This is the account's only sign-in method, so it can't be unlinked.");
   }
 
   await tx.delete(userIdentities).where(and(eq(userIdentities.id, target.id), eq(userIdentities.userId, input.userId)));

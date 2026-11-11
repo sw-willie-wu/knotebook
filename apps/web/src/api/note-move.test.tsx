@@ -8,7 +8,7 @@ import { usePublicLink } from "./public-link";
 import { useShares } from "./shares";
 
 /**
- * #175 PR2 Task 8：移動／複製／送出前檢查三支 hook 的快取契約。renderHook 本體掛 `useShares`＋`usePublicLink`
+ * #175：移動／複製／送出前檢查三支 hook 的快取契約。renderHook 本體掛 `useShares`＋`usePublicLink`
  * 兩個 observer——沒有 active observer 時 `invalidateQueries` 只標 stale、不重抓、promise 立即 resolve，
  * 「先 await 重抓」與「重抓掛起」都造不出來。
  */
@@ -82,7 +82,7 @@ function setupFetch(handlers: Record<string, () => Response>) {
 
 const KEY_OF: Record<GateName, unknown[]> = { shares: ["shares", ID], public: ["public-link", ID] };
 
-/** 放行 name 那一支並等它重抓完成（fetchStatus idle）、再讓出一個 macrotask。抓得到「只等一支就寫」的錯誤實作，主要靠 waitFor 約 50ms 的輪詢給了它提早寫入的時間（讓出 macrotask 只是多一層）；延遲 ≥ 50ms 才寫的錯誤形從外部分辨不出，r3 審查實測過、接受。 */
+/** 放行 name 那一支並等它重抓完成（fetchStatus idle）、再讓出一個 macrotask。抓得到「只等一支就寫」的錯誤實作，主要靠 waitFor 約 50ms 的輪詢給了它提早寫入的時間（讓出 macrotask 只是多一層）；延遲 ≥ 50ms 才寫的錯誤形從外部分辨不出，已接受這個限制。 */
 async function releaseAndSettle(client: QueryClient, f: { release: (n: GateName) => void }, name: GateName) {
   f.release(name);
   await waitFor(() => expect(client.getQueryState(KEY_OF[name])?.fetchStatus).toBe("idle"));
@@ -122,7 +122,7 @@ afterEach(() => {
 
 describe("useMoveNoteToGroup", () => {
   it("移動成功：快取寫入序＝shares→public-link→note（三次同步、之間無 await；不變量①⑥）", async () => {
-    // 搬完以回應為準、不假設 editor（Willie 裁決：create-only 搬完可能是 viewer）
+    // 搬完以回應為準、不假設 editor（create-only 搬完可能是 viewer）
     const moved = noteDto({ groupId: GID, ownerId: "u9", role: "viewer", permissions: { moveToGroup: false, edit: false } as never });
     const f = setupFetch({ ...baseHandlers, [`POST ${NOTE_URL}/move`]: () => fakeResponse(200, moved) });
     const client = makeClient();
@@ -138,7 +138,7 @@ describe("useMoveNoteToGroup", () => {
     const setSpy = vi.spyOn(client, "setQueryData");
     const invSpy = vi.spyOn(client, "invalidateQueries");
 
-    await result.current.mutateAsync(GID);
+    await result.current.mutateAsync({ groupId: GID });
 
     const post = f.calls.find(c => c.method === "POST");
     expect(post).toMatchObject({ url: `${NOTE_URL}/move` });
@@ -160,7 +160,7 @@ describe("useMoveNoteToGroup", () => {
     setupFetch({ [`POST ${NOTE_URL}/move`]: () => fakeResponse(200, moved) });
     const client = makeClient();
     const { result } = renderHook(() => useMoveNoteToGroup(ID), { wrapper: wrapperFor(client) });
-    await result.current.mutateAsync(GID);
+    await result.current.mutateAsync({ groupId: GID });
     expect(client.getQueryData(["public-link", ID])).toBeUndefined();
   });
 
@@ -186,7 +186,7 @@ describe("useMoveNoteToGroup", () => {
     f.arm();
 
     let rejected = false;
-    const p = result.current.mutateAsync(GID).catch(() => {
+    const p = result.current.mutateAsync({ groupId: GID }).catch(() => {
       rejected = true;
     });
     // 重抓真的被掛起（兩支都已發出第二次 GET、尚未放行）
@@ -219,7 +219,7 @@ describe("useMoveNoteToGroup", () => {
   });
 });
 
-describe("applyMovedNote／refetchAfterFailure（PR-2c 批次共用）", () => {
+describe("applyMovedNote／refetchAfterFailure（批次共用）", () => {
   it("AM1 applyMovedNote：shares＝[]、public-link 清 token／slug、note 寫入；順序 shares → public-link → note；失效 ['notes']", () => {
     const client = makeClient();
     client.setQueryData(["shares", ID], [SHARE]);
@@ -269,7 +269,7 @@ describe("useCopyNote", () => {
     const invSpy = vi.spyOn(client, "invalidateQueries");
     const { result } = renderHook(() => useCopyNote(ID), { wrapper: wrapperFor(client) });
 
-    const got = await result.current.mutateAsync(undefined);
+    const got = await result.current.mutateAsync({});
 
     expect(got).toEqual(copy);
     expect(f.calls[0]).toMatchObject({ method: "POST", url: `${NOTE_URL}/copy` });
@@ -284,7 +284,7 @@ describe("useCopyNote", () => {
     const f = setupFetch({ [`POST ${NOTE_URL}/copy`]: () => fakeResponse(201, copy) });
     const client = makeClient();
     const { result } = renderHook(() => useCopyNote(ID), { wrapper: wrapperFor(client) });
-    await result.current.mutateAsync(GID);
+    await result.current.mutateAsync({ groupId: GID });
     expect(JSON.parse(f.calls[0]!.body!)).toEqual({ groupId: GID });
   });
 });
@@ -360,7 +360,7 @@ describe("useConfirmNoteStillPersonal", () => {
     expect(settled).toBeUndefined();
 
     // 只放行一支並等它完成：另一支仍掛著，note 仍不得被寫、promise 仍未 resolve
-    // （少等任一支＝PR1 交接不變量⑥「閃一下公開」，會在此紅）
+    // （少等任一支＝「閃一下公開」，會在此紅）
     await releaseAndSettle(client, f, first);
     expect(client.getQueryData(["note", ID])).toBeUndefined();
     expect(setSpy).not.toHaveBeenCalled();
@@ -375,9 +375,46 @@ describe("useConfirmNoteStillPersonal", () => {
     for (const k of [["shares", ID], ["public-link", ID]]) {
       expect(keys).toContainEqual(k);
     }
-    // false 路徑也要失效列表／解析層／群組（M-1）
+    // false 路徑也要失效列表／解析層／群組
     for (const k of ["notes", "note-by-path", "note-by-group-path", "groups"]) {
       expect(keys).toContainEqual([k]);
     }
+  });
+});
+
+describe("移動／複製帶資料夾", () => {
+  it("NMv1 移動 body 只放有值的鍵（folderId 未給＝沒有這個鍵）", async () => {
+    const f = setupFetch({ [`POST ${NOTE_URL}/move`]: () => fakeResponse(200, noteDto({ groupId: GID })) });
+    const client = makeClient();
+    const { result } = renderHook(() => useMoveNoteToGroup(ID), { wrapper: wrapperFor(client) });
+    await result.current.mutateAsync({ groupId: "G" });
+    expect(Object.keys(JSON.parse(f.calls[0]!.body!))).toEqual(["groupId"]);
+    await result.current.mutateAsync({ groupId: "G", folderId: "GF" });
+    expect(JSON.parse(f.calls[1]!.body!)).toEqual({ groupId: "G", folderId: "GF" });
+  });
+
+  it("NMv2 複製 body：{} 無鍵；{ folderId } 只有 folderId", async () => {
+    const f = setupFetch({ [`POST ${NOTE_URL}/copy`]: () => fakeResponse(201, noteDto({ id: "44444444-4444-4444-4444-444444444444" })) });
+    const client = makeClient();
+    const { result } = renderHook(() => useCopyNote(ID), { wrapper: wrapperFor(client) });
+    await result.current.mutateAsync({});
+    expect(Object.keys(JSON.parse(f.calls[0]!.body!))).toHaveLength(0);
+    await result.current.mutateAsync({ folderId: "A" });
+    expect(JSON.parse(f.calls[1]!.body!)).toEqual({ folderId: "A" });
+  });
+
+  it.each([
+    ["move 成功", "move", 200],
+    ["move 失敗", "move", 409],
+    ["copy 成功", "copy", 201],
+    ["copy 失敗", "copy", 409],
+  ] as const)("NMv3 %s 後失效 ['folders']", async (_name, kind, status) => {
+    const body = status < 400 ? noteDto({ id: "44444444-4444-4444-4444-444444444444", groupId: GID }) : { error: { code: "x", message: "x" } };
+    setupFetch({ ...baseHandlers, [`POST ${NOTE_URL}/${kind}`]: () => fakeResponse(status, body) });
+    const client = makeClient();
+    const invSpy = vi.spyOn(client, "invalidateQueries");
+    const { result } = renderHook(() => ({ move: useMoveNoteToGroup(ID), copy: useCopyNote(ID) }), { wrapper: wrapperFor(client) });
+    await (kind === "move" ? result.current.move.mutateAsync({ groupId: GID }) : result.current.copy.mutateAsync({ groupId: GID })).catch(() => undefined);
+    await waitFor(() => expect(keysOf(invSpy)).toContainEqual(["folders"]));
   });
 });

@@ -8,15 +8,15 @@ import type { FixedWindowLimiter } from "../http/rate-limit.js";
 import { BoundedMap, DEFAULT_MAX_KEYS } from "../lib/bounded-map.js";
 import { buildBearerChallenge } from "./challenge.js";
 import { hashToken, isAccessTokenShape, parseAuthorizationHeader } from "./api-token.js";
-import type { GateUser, UserGate } from "./session.js";
+import type { ResolvedSession, UserGate } from "./session.js";
 
 export interface BearerDeps {
   db: Db;
   gate: UserGate;
-  /** `publicUrlIssuer(config.publicUrl)`＝origin，無尾斜線（D12）。 */
+  /** `publicUrlIssuer(config.publicUrl)`＝origin，無尾斜線。 */
   issuer: string;
   /** cookie session 的解析（`app.ts` 的區域函式）——無 `Authorization` header 時的回退。 */
-  resolveSessionUser: (request: FastifyRequest) => Promise<{ user: GateUser; tv: number } | null>;
+  resolveSessionUser: (request: FastifyRequest) => Promise<ResolvedSession | null>;
   limiters: {
     bearerMiss: FixedWindowLimiter;
     tokenRead: FixedWindowLimiter;
@@ -28,7 +28,7 @@ export interface BearerDeps {
 const LAST_USED_THROTTLE_MS = 60_000;
 
 /**
- * #107：**opt-in** 的 Bearer／session 雙路徑認證（D2）。只有明確掛上這個 preHandler
+ * #107：**opt-in** 的 Bearer／session 雙路徑認證。只有明確掛上這個 preHandler
  * 的路由收 API token，其餘路由維持 `app.authenticate`（cookie-only）——token 外洩的
  * 最壞情況因此是「筆記被讀寫」，不會變成「帳號被接管」。
  *
@@ -56,12 +56,12 @@ export function createAuthenticateAny(deps: BearerDeps) {
     if (previous !== undefined && now - previous < LAST_USED_THROTTLE_MS) return;
     lastUsedTouchedAt.set(row.id, now);
     const stamp = new Date(now);
-    // fire-and-forget：`last_used_at` 只是設定頁顯示與 #132 的 I5 清理依據，寫失敗
+    // fire-and-forget：`last_used_at` 只是設定頁顯示與 #132 的殭屍 client 清理依據，寫失敗
     // 不該讓請求本身失敗。
     void (async () => {
       await deps.db.update(apiTokens).set({ lastUsedAt: stamp }).where(eq(apiTokens.id, row.id));
       if (row.clientId !== null) {
-        // oauth grant 連帶更新 client 的 last_used_at——#132 的 I5 ① 用它判斷
+        // oauth grant 連帶更新 client 的 last_used_at——#132 的殭屍 client 清理用它判斷
         // 「30 天未使用」，兩個時間戳的語意必須一致，否則天天在用的 client 會被清掉。
         await deps.db.update(oauthClients).set({ lastUsedAt: stamp }).where(eq(oauthClients.clientId, row.clientId));
       }
@@ -83,14 +83,14 @@ export function createAuthenticateAny(deps: BearerDeps) {
     if (!deps.limiters.bearerMiss.consume(request.ip)) {
       // 429 不帶 challenge：RFC 6750 的 challenge 只定義在 400／401／403，掛在 429 上
       // 可能讓 client 在被限流時去重跑一輪授權，反而再吃 #132 的 DCR／authorize 桶。
-      sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
+      sendError(reply, 429, "too_many_requests", "Too many requests. Wait a moment and try again.");
       return;
     }
     reply.header(
       "www-authenticate",
       buildBearerChallenge({ issuer: deps.issuer, scope: challenge, error: invalidToken ? "invalid_token" : undefined })
     );
-    sendError(reply, 401, "unauthorized", invalidToken ? "token 無效或已過期" : "未登入");
+    sendError(reply, 401, "unauthorized", invalidToken ? "The token is invalid or expired." : "Not signed in.");
   }
 
   return function authenticateAny(required: RequiredScope, challenge: string = required) {
@@ -105,11 +105,12 @@ export function createAuthenticateAny(deps: BearerDeps) {
           // 請求依定義沒有 Authorization header，challenge 是它發現授權伺服器的入口。
           // RFC 6750 §3：沒帶憑證時 SHOULD NOT 含 error code。
           reply.header("www-authenticate", buildBearerChallenge({ issuer: deps.issuer, scope: challenge }));
-          sendError(reply, 401, "unauthorized", "未登入");
+          sendError(reply, 401, "unauthorized", "Not signed in.");
           return;
         }
         request.user = resolved.user;
         request.sessionTv = resolved.tv;
+        request.sessionId = resolved.sid;
         request.authKind = "session";
         return; // session 是完整身分：不檢查 scope、不吃 token 桶
       }
@@ -127,8 +128,8 @@ export function createAuthenticateAny(deps: BearerDeps) {
         .limit(1);
       if (row === undefined) return rejectBearer(request, reply, challenge, true);
 
-      // ⚠ 認證述詞**不含 kind**，且是「非 NULL 且已過期才拒」：D4 的預設 PAT 是 NULL
-      // ＝不到期，寫成 `access_expires_at > now()` 會讓每支預設 PAT 全滅；而 I1 額度
+      // ⚠ 認證述詞**不含 kind**，且是「非 NULL 且已過期才拒」：預設 PAT 的到期欄是 NULL
+      // ＝不到期，寫成 `access_expires_at > now()` 會讓每支預設 PAT 全滅；而憑證額度
       // 那條述詞的 `kind='oauth' OR` 是配額用的（refresh 不到期），帶進這裡會讓過期的
       // oauth access token 永遠有效。
       if (row.accessExpiresAt !== null && row.accessExpiresAt.getTime() <= Date.now()) {
@@ -146,21 +147,21 @@ export function createAuthenticateAny(deps: BearerDeps) {
           "www-authenticate",
           buildBearerChallenge({ issuer: deps.issuer, scope: challenge, error: "insufficient_scope" })
         );
-        sendError(reply, 403, "insufficient_scope", "此 token 沒有執行這個操作的權限");
+        sendError(reply, 403, "insufficient_scope", "This token's scope doesn't allow this action.");
         return;
       }
 
       // 限流扣點在 scope 檢查**通過之後**——403 不啃桶。
-      // ⚠ #108 §15.1：`/api/mcp` 是全站**唯一**一條「宣告的 `required`（這裡固定是
+      // ⚠ #108：`/api/mcp` 是全站**唯一**一條「宣告的 `required`（這裡固定是
       // `notes:read`）與實際執行的操作類別脫鉤」的路由——一發請求裡可能夾帶讀也可能夾帶寫，
       // 這裡只扣得到 `tokenRead`；寫入那顆桶（`tokenWrite`）由 `mcp/write-scope.ts` 的
       // `requireWriteScope()`／`requireMoveScope()`／`requireDeleteScope()` 在每支寫入工具第一行補扣
-      // （§10.2 D23；#239 搬移、#181 垃圾桶）。`routes/notes.ts` 的
+      // （#239 搬移、#181 垃圾桶）。`routes/notes.ts` 的
       // 七個呼叫點每一個都是「宣告即實際」（GET 系一律 `notes:read`、POST 系一律
       // `notes:write`），唯獨 `/api/mcp` 那條路由有這道二階段扣桶。
       const bucket = required === "notes:write" ? deps.limiters.tokenWrite : deps.limiters.tokenRead;
       if (!bucket.consume(`token:${row.userId}`)) {
-        sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
+        sendError(reply, 429, "too_many_requests", "Too many requests. Wait a moment and try again.");
         return;
       }
 

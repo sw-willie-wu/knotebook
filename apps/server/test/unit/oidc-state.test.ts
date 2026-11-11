@@ -11,7 +11,7 @@ import { sealCookieJson } from "../../src/auth/sealed-cookie.js";
 
 const secret = "a".repeat(64);
 
-/** #187：payload 帶新必要欄位。覆寫型別刻意只收 base 欄位與 next——Task 11 把 intent 擴成兩支後這裡不必改。 */
+/** #187：payload 帶新必要欄位。覆寫型別刻意只收 base 欄位與 next——intent 擴成兩支後這裡不必改。 */
 function payload(overrides: Partial<OidcStateBase> & { next?: string } = {}): OidcStatePayload {
   return {
     state: "state-abc",
@@ -25,7 +25,7 @@ function payload(overrides: Partial<OidcStateBase> & { next?: string } = {}): Oi
   };
 }
 
-/** Task 11 起 `OidcStatePayload` 是聯集（prove 形沒有 next）：讀 next 一律經這個收窄 helper（gate r2 t8-14 I1）。 */
+/** `OidcStatePayload` 是聯集（prove 形沒有 next）：讀 next 一律經這個收窄 helper。 */
 function nextOf(p: OidcStatePayload | null): string | undefined {
   return p !== null && p.intent === "login" ? p.next : undefined;
 }
@@ -132,7 +132,7 @@ describe("#131 next 欄位", () => {
   });
 });
 
-describe("#187 §7.3 新必要欄位（providerId／configVersion／intent）", () => {
+describe("#187 新必要欄位（providerId／configVersion／intent）", () => {
   // 三案各缺一欄、其餘齊全——只拿掉其中一道檢查時恰有對應那一案紅（三欄全缺的舊格式會被任何一道擋下，單獨用它沒有鑑別力）。
   it("缺 providerId → null；部署前封的舊格式（三欄都缺）→ null", () => {
     expect(unsealOidcState(secret, sealCookieJson(secret, "oidc-state", { ...payload(), providerId: undefined }), 1_000_000)).toBeNull();
@@ -146,7 +146,7 @@ describe("#187 §7.3 新必要欄位（providerId／configVersion／intent）", 
     }
   });
 
-  it("intent: \"link\"（PR3）：帶 linkUserId → 收；缺 linkUserId 或不是字串 → null；帶了 next 也丟掉", () => {
+  it("intent: \"link\"：帶 linkUserId → 收；缺 linkUserId 或不是字串 → null；帶了 next 也丟掉", () => {
     const base = { ...payload(), intent: "link" };
     expect(unsealOidcState(secret, sealCookieJson(secret, "oidc-state", base), 1_000_000)).toBeNull();
     expect(unsealOidcState(secret, sealCookieJson(secret, "oidc-state", { ...base, linkUserId: 7 }), 1_000_000)).toBeNull();
@@ -161,7 +161,7 @@ describe("#187 §7.3 新必要欄位（providerId／configVersion／intent）", 
   });
 });
 
-describe("#187 Task 11：prove 形（§7.5.3）", () => {
+describe("#187：prove 形", () => {
   /** 欄位齊全的 prove payload；覆寫用 `undefined` 表示「缺這一欄」（JSON.stringify 會丟掉它）。 */
   const prove = (over: Record<string, unknown> = {}) => ({
     state: "s", nonce: "n", codeVerifier: "v", exp: 1_000_600, providerId: "p1", configVersion: 1,

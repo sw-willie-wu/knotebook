@@ -4,7 +4,7 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vitest/config";
 
-// #247 §9.7：關於頁的版本號。讀 apps/web/package.json 的 version（release 流程本來就會改它），
+// #247：關於頁的版本號。讀 apps/web/package.json 的 version（release 流程本來就會改它），
 // 以 define 注入成編譯期常數；vitest 走同一份設定，測試環境同樣有定義。型別宣告在 src/vite-env.d.ts。
 const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as { version: string };
 
@@ -48,7 +48,8 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
     css: true,
-    // 單案上限要遠大於 test/setup.ts 的 asyncUtilTimeout（3s），否則一案內兩次等待就會先撞 vitest 逾時
-    testTimeout: 15_000,
+    // 單案上限要遠大於 test/setup.ts 的 asyncUtilTimeout（10s；放寬理由與實測數字見該檔），
+    // 否則一案內兩次慢等待就會先撞 vitest 逾時、看不到是哪個查詢等不到
+    testTimeout: 30_000,
   },
 });

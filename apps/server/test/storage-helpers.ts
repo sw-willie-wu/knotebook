@@ -1,5 +1,5 @@
 /**
- * 儲存配額整合測試共用的種子與量測（spec 2026-10-08 §11）。直插只在測試裡。
+ * 儲存配額整合測試共用的種子與量測。直插只在測試裡。
  * 上傳一律走真路由（`upload()`），附件大小可精確指定：PNG 簽章 8 bytes＋填充（`detectImageMimeType` 只認完整簽章）。
  */
 import { readdir, writeFile } from "node:fs/promises";
@@ -92,7 +92,7 @@ export const filesIn = async (dir: string): Promise<string[]> => (await readdir(
 
 /** 409 storage_quota_exceeded 的完整形（toMatchObject 用）。 */
 export const quotaBody = (storage: Record<string, unknown>) => ({
-  error: { code: "storage_quota_exceeded", message: "儲存空間已滿" },
+  error: { code: "storage_quota_exceeded", message: "This space's storage quota is full." },
   storage,
 });
 

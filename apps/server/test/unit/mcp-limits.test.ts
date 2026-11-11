@@ -1,5 +1,5 @@
 /**
- * #108 §8.1 回應大小上限表的截斷函式（M16）。
+ * #108 回應大小上限表的截斷函式。
  *
  * 這一族守的是 `truncateText` 的邊界，不是「哪些欄位有被截」——後者由
  * `test/mcp-notes.test.ts` 的 key 集合／長度斷言守。
@@ -73,7 +73,7 @@ describe("#177 truncateText 按 JSON 逃脫後的長度計", () => {
     expect(escapedLength(out.text)).toBe(MCP_TEXT_MAX);
   });
 
-  it("不需要逃脫的非 ASCII（CJK、U+2028、DEL、C1）照舊按原長度：201 個截到 200", () => {
+  it("不需要逃脫的非 ASCII（CJK、U+2028、DEL）照舊按原長度：201 個截到 200", () => {
     for (const ch of ["中", " ", "\u007f", "\u0085"]) {
       expect(truncateText(ch.repeat(MCP_TEXT_MAX))).toEqual({ text: ch.repeat(MCP_TEXT_MAX), truncated: false });
       expect(truncateText(ch.repeat(MCP_TEXT_MAX + 1))).toEqual({ text: ch.repeat(MCP_TEXT_MAX), truncated: true });
@@ -170,11 +170,27 @@ describe("#177 回給模型的 DTO 欄位走同一套截斷", () => {
         lastEditedAt: null,
         lastEditedAgentLabel: null,
         editorHandle: null,
+        viewerFolderId: null,
       },
-      "owner"
+      "owner",
+      undefined
     );
     expect(summary.title).toBe('"'.repeat(100));
     expect(summary.titleTruncated).toBe(true);
     expect(noteSummarySchema.safeParse(summary).success).toBe(true);
+  });
+
+  // 資料夾：viewerFolderId 有值但名稱查不到（兩句之間被刪）→ folder: null，仍過 outputSchema；查得到 → { id, name }。
+  it("folder：名稱查不到 → null 仍過 outputSchema；查得到 → { id, name }", () => {
+    const row = {
+      id: "n-1", title: "t", ownerHandle: "alice", groupId: null, groupName: null, slug: "s", updatedAt: new Date(0),
+      lastEditedAt: null, lastEditedAgentLabel: null, editorHandle: null, viewerFolderId: "f-1",
+    };
+    const missing = toNoteSummary(row, "owner", undefined);
+    expect(missing.folder).toBeNull();
+    expect(noteSummarySchema.safeParse(missing).success).toBe(true);
+    const found = toNoteSummary(row, "owner", "F");
+    expect(found.folder).toEqual({ id: "f-1", name: "F" });
+    expect(noteSummarySchema.safeParse(found).success).toBe(true);
   });
 });

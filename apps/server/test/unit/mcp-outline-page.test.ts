@@ -1,5 +1,5 @@
 /**
- * #108 §8.1／§8.3：outline 分頁（一次最多 100 筆）的邊界。
+ * #108：outline 分頁（一次最多 100 筆）的邊界。
  *
  * 這一族守的是 `buildOutlinePage` 本身；「哪些欄位被丟掉／被截斷」的結果面由
  * `test/mcp-content.test.ts` 的 key 集合與長度斷言守。
@@ -9,7 +9,7 @@ import type { OutlineEntry } from "../../src/notes/editing/fingerprint.js";
 import { buildOutlinePage } from "../../src/mcp/outline-page.js";
 import { MCP_PAGE_MAX, MCP_TEXT_MAX } from "../../src/mcp/limits.js";
 
-/** 逐字帶著 `fingerprint`／`blockIds` ——這兩欄**不得**出現在回傳值裡（M12(1)）。 */
+/** 逐字帶著 `fingerprint`／`blockIds` ——這兩欄**不得**出現在回傳值裡。 */
 function entries(n: number, heading = (i: number) => `S${i}`): OutlineEntry[] {
   return Array.from({ length: n }, (_, i) => ({
     sectionId: i === 0 ? "_top" : `sec-${i}`,
@@ -68,11 +68,11 @@ describe("#108 buildOutlinePage", () => {
     expect(JSON.stringify(page)).not.toContain("b-0");
   });
 
-  // #108 PR2 D-I：`withFingerprints: true` 是 M12「outline 不帶指紋」的**明文例外**，
-  // 只有 `edit_note` 的**成功**回應傳（維持 D18 的 REST 對等）。旗標**預設關閉**，所以
+  // #108：`withFingerprints: true` 是「outline 不帶指紋」的**明文例外**，
+  // 只有 `edit_note` 的**成功**回應傳（維持與 REST 對等）。旗標**預設關閉**，所以
   // 「忘記關」寫不出來，只有「刻意打開」寫得出來。
   // ⚠ 反面（預設不帶指紋）**不另立一案**：上面 `:62` 那條 key 集合斷言已經是那道守衛。
-  it("withFingerprints: true → 每個 entry 多一欄 fingerprint，逐字等於輸入那一筆（D-I）", () => {
+  it("withFingerprints: true → 每個 entry 多一欄 fingerprint，逐字等於輸入那一筆", () => {
     // 逐筆不同的指紋——全用同一個值的話「取錯行」也會綠。
     const input = entries(3).map((e, i) => ({ ...e, fingerprint: `abcdef01234567${i}${i}` }));
     const page = buildOutlinePage(input, 0, { withFingerprints: true });

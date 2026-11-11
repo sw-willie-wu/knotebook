@@ -20,6 +20,7 @@ import { useNotes } from "@/api/notes";
 import { sameNoteId } from "@/lib/note-id";
 import { anchorPlacement, applyAiResult, expandAnchorForColumns, hasNonTextBlock, prepareAiResult, revertAiResult, type PreparedResult } from "@/ai/apply";
 import { captureAnchor, verifyAnchor, type AiAnchor } from "@/ai/anchor";
+import { estimateBlocksBytes } from "@/lib/note-size-guard";
 import { aiMarkdownOf } from "@/ai/note-markdown";
 import { buildPreview, isNoChange, stripTextWrapper, type AiPreview } from "@/ai/preview";
 import { selectionFocus, selectionInsideAnchor, toolbarWouldShow } from "@/ai/selection";
@@ -30,7 +31,7 @@ type AnyEditor = BlockNoteEditor<any, any, any>;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 同上，Block 的實際泛型三元組
 type AnyBlock = Block<any, any, any>;
 
-/** 框作用的範圍（#263 §5.2）：`open()` 當下的錨點與框選子字串（整塊選取為 `""`）。 */
+/** 框作用的範圍（#263）：`open()` 當下的錨點與框選子字串（整塊選取為 `""`）。 */
 export interface AiTarget {
   anchor: AiAnchor;
   focus: string;
@@ -60,7 +61,7 @@ export type AiSessionState =
   | { phase: "done"; target: AiTarget; request: AiRequest; prepared: PreparedResult; preview: AiPreview; applied: AiApplied | null }
   | { phase: "error"; target: AiTarget; request: AiRequest; code: string };
 
-/** 活動錨點（§5.2）：已自動套用時是插入後的區塊，其餘是 target。定位、寬度量測、D12、錨點失效判定一律用它。 */
+/** 活動錨點：已自動套用時是插入後的區塊，其餘是 target。定位、寬度量測、自動關閉、錨點失效判定一律用它。 */
 export function activeAnchorOf(state: AiSessionState): AiAnchor | null {
   if (state.phase === "idle") return null;
   if (state.phase === "done" && state.applied) return state.applied.insertedAnchor;
@@ -70,13 +71,13 @@ export function activeAnchorOf(state: AiSessionState): AiAnchor | null {
 export interface AiSessionValue {
   actions: AiActionDto[];
   state: AiSessionState;
-  /** `editable === false` 時入口與框都不渲染（§5.2）。 */
+  /** `editable === false` 時入口與框都不渲染。 */
   editable: boolean;
-  /** 從當下選取開框（§5.2）：串流中不動作；input／done／error 先 `close()` 再開。 */
+  /** 從當下選取開框：串流中不動作；input／done／error 先 `close()` 再開。 */
   open(): void;
   /** input 態送出（chip 或指令）；真的開始串流回 true。 */
   start(actionId: string, instruction?: string): boolean;
-  /** done 態、未套用、非 noChange、且預覽已就緒（`previewReady`，由框推導後傳入，spec §5.2／§5.4）時走守門套用；成功回 true 並回 idle（S1）。 */
+  /** done 態、未套用、非 noChange、且預覽已就緒（`previewReady`，由框推導後傳入）時走守門套用；成功回 true 並回 idle。 */
   apply(previewReady: boolean): boolean;
   /** 已套用時還原（沿用 `revertAiResult`；stale 時 toast 並清掉 applied）。 */
   revert(): void;
@@ -106,6 +107,15 @@ type GuardedApply =
   | { ok: true; insertedAnchor: AiAnchor; replacedSnapshot: AnyBlock[] }
   | { ok: false; reason: "missing" | "changed" | "noteMismatch" };
 
+/**
+ * 套用這份結果大約讓筆記長多少（筆記大小上限的前端檢查用，`lib/note-size-guard.ts`）：新內容（`prepared.blocks`）的估計減去被取代的
+ * 原文（錨點區塊，同樣估法）。錨點區塊找不到的略過（守門會擋）。
+ */
+function aiGrowthBytes(editor: AnyEditor, anchor: AiAnchor, prepared: PreparedResult): number {
+  const replaced = anchor.blockIds.map(id => editor.getBlock(id)).filter((b): b is NonNullable<typeof b> => b !== undefined);
+  return estimateBlocksBytes(prepared.blocks) - estimateBlocksBytes(replaced);
+}
+
 /** 守門 1 的「同一筆記」半條＋`applyAiResult`＋成功後立刻以 insertedIds 重新 `captureAnchor`——自動套用與手動 `apply()` 共用。 */
 function runGuardedApply(editor: AnyEditor, noteId: string, anchor: AiAnchor, prepared: PreparedResult): GuardedApply {
   if (anchor.noteId !== noteId) return { ok: false, reason: "noteMismatch" };
@@ -115,8 +125,8 @@ function runGuardedApply(editor: AnyEditor, noteId: string, anchor: AiAnchor, pr
 }
 
 /**
- * 框自己的寫入（自動套用、手動套用、還原）期間把旗標設 true（#263 §5.2，修 r4 I-1）：`replaceBlocks` 會平移 target 後方的選取並**同步**發
- * selection change，旗標為真時 D12 回呼直接略過，不把自家寫入誤判成「使用者在別處做了選取」。
+ * 框自己的寫入（自動套用、手動套用、還原）期間把旗標設 true（#263）：`replaceBlocks` 會平移 target 後方的選取並**同步**發
+ * selection change，旗標為真時自動關閉的回呼直接略過，不把自家寫入誤判成「使用者在別處做了選取」。
  */
 function withSelfWrite<T>(flag: { current: boolean }, fn: () => T): T {
   flag.current = true;
@@ -132,10 +142,14 @@ export function AiSessionProvider(props: {
   noteId: string;
   editable: boolean;
   children: ReactNode;
-  /** **測試專用**（生產不傳）：D12 自動關閉時呼叫（§7：手動套用那一半以白箱斷言，`close` 本身不能當掛點）。 */
+  /** **測試專用**（生產不傳）：自動關閉時呼叫（手動套用那一半以白箱斷言，`close` 本身不能當掛點）。 */
   onAutoClose?: () => void;
+  /** 筆記大小上限的前端檢查（`NoteEditor` 給）：套用前問一次，回傳 true＝放進來會超過上限（已提示），這次不套用。省略＝不檢查。 */
+  sizeGuard?: (incomingBytes: number) => boolean;
 }): JSX.Element {
-  const { editor, noteId, editable, children, onAutoClose } = props;
+  const { editor, noteId, editable, children, onAutoClose, sizeGuard } = props;
+  const sizeGuardRef = useRef(sizeGuard);
+  sizeGuardRef.current = sizeGuard;
   const { t } = useTranslation();
 
   const actionsQuery = useQuery({ queryKey: ["ai-actions"], queryFn: fetchAiActions });
@@ -152,7 +166,7 @@ export function AiSessionProvider(props: {
   actionsRef.current = actions;
   const notesRef = useRef(notesQuery.data ?? []);
   notesRef.current = notesQuery.data ?? [];
-  // #269 §9.4：送出前的現行標題查找（讀 ref——串流續體與選取回呼要讀到「此刻」的清單）。
+  // #269：送出前的現行標題查找（讀 ref——串流續體與選取回呼要讀到「此刻」的清單）。
   // id 比對不分大小寫（`sameNoteId`）：舊文件的 `targetNoteId` 可能存大寫，清單是小寫。
   const titleOf = useCallback((id: string) => notesRef.current.find((n) => sameNoteId(n.id, id))?.title, []);
   const noteIdRef = useRef(noteId);
@@ -179,7 +193,7 @@ export function AiSessionProvider(props: {
     setState(IDLE_STATE);
   }, []);
 
-  /** 串流完成（§5.2，順序固定）：0 剝外殼 → 1 prepare（空／檢查不過→error）→ 2 先凍結 Preview → 3 noChange → 4 決定自動套用 → 5 done。 */
+  /** 串流完成（順序固定）：0 剝外殼 → 1 prepare（空／檢查不過→error）→ 2 先凍結 Preview → 3 noChange → 4 決定自動套用 → 5 done。 */
   const finish = useCallback((target: AiTarget, request: AiRequest, raw: string) => {
     const ed = editorRef.current;
     const markdown = stripTextWrapper(raw);
@@ -189,7 +203,7 @@ export function AiSessionProvider(props: {
       return;
     }
     if ("invalid" in prepared) {
-      setState({ phase: "error", target, request, code: prepared.invalid }); // 並排 PR-2（spec §11.6）：與 MCP 同一套檢查不過 → 不建預覽、不套用
+      setState({ phase: "error", target, request, code: prepared.invalid }); // 並排：與 MCP 同一套檢查不過 → 不建預覽、不套用
       return;
     }
     const preview = buildPreview(ed, target.anchor.blockIds, prepared.blocks, isNoChange(markdown, request.text));
@@ -200,7 +214,9 @@ export function AiSessionProvider(props: {
       request.applyMode === "direct" &&
       !hasNonTextBlock(ed, target.anchor.blockIds) &&
       !preview.noChange;
-    if (autoApply) {
+    // 筆記大小上限（前端檢查）：放進來會超過上限 → 不自動套用（guard 已提示；框照樣進 done，預覽與手動套用還在，手動套用會再擋一次）。
+    const sizeBlocked = autoApply && sizeGuardRef.current?.(aiGrowthBytes(ed, target.anchor, prepared)) === true;
+    if (autoApply && !sizeBlocked) {
       // 讀 noteIdRef（不是 target.anchor.noteId）：串流期間筆記若換手，守門 1 的 noteMismatch 才是活的判斷。
       const outcome = withSelfWrite(selfWriteRef, () => runGuardedApply(ed, noteIdRef.current, target.anchor, prepared));
       if (outcome.ok) {
@@ -227,7 +243,7 @@ export function AiSessionProvider(props: {
         noteId: target.anchor.noteId,
         text: request.text,
         ...(request.instruction !== undefined ? { instruction: request.instruction } : {}),
-        // §5.2 start()：focus 只有 Instruct 送，且 "" 時不送該欄位（非 Instruct 帶了 server 會回 400）。
+        // start()：focus 只有 Instruct 送，且 "" 時不送該欄位（非 Instruct 帶了 server 會回 400）。
         ...(request.kind === "instruct" && target.focus !== "" ? { focus: target.focus } : {}),
         signal: controller.signal,
         onDelta: (delta) => {
@@ -259,12 +275,12 @@ export function AiSessionProvider(props: {
 
   const open = useCallback(() => {
     if (!editableRef.current) return;
-    if (stateRef.current.phase === "streaming") return; // 串流中 AI 鈕本來就停用（S2）
+    if (stateRef.current.phase === "streaming") return; // 串流中 AI 鈕本來就停用
     if (stateRef.current.phase !== "idle") closeInternal(); // 舊結果、還原入口、標亮一併丟棄
     const ed = editorRef.current;
     const blocks = ed.getSelection()?.blocks;
     if (!blocks || blocks.length === 0) return; // 空選取與 NodeSelection 都回 undefined
-    const blockIds = expandAnchorForColumns(ed, blocks); // 並排 PR-2（spec §7.5）：碰到並排時擴大成頂層整列，送出與套回都以整列為單位
+    const blockIds = expandAnchorForColumns(ed, blocks); // 並排：碰到並排時擴大成頂層整列，送出與套回都以整列為單位
     const anchor = captureAnchor(ed, noteIdRef.current, blockIds);
     const focus = ed.transact((tr) => selectionFocus(tr, blockIds, titleOf));
     setState({ phase: "input", target: { anchor, focus } });
@@ -310,17 +326,18 @@ export function AiSessionProvider(props: {
 
   const apply = useCallback((previewReady: boolean): boolean => {
     const current = stateRef.current;
-    // 不變量進狀態機本身（spec §5.2）：預覽未就緒、已套用、noChange、非 done 一律不動——不只靠 UI 停用套用鈕。
-    // previewReady 由框推導（`readyFor === state.preview`，§5.4），狀態機不持有預覽子元件的生命週期，所以以參數傳入。
+    // 不變量進狀態機本身：預覽未就緒、已套用、noChange、非 done 一律不動——不只靠 UI 停用套用鈕。
+    // previewReady 由框推導（`readyFor === state.preview`），狀態機不持有預覽子元件的生命週期，所以以參數傳入。
     if (!previewReady || current.phase !== "done" || current.applied !== null || current.preview.noChange) return false;
     const ed = editorRef.current;
+    if (sizeGuardRef.current?.(aiGrowthBytes(ed, current.target.anchor, current.prepared)) === true) return false; // 會超過筆記大小上限（guard 已提示）
     const outcome = withSelfWrite(selfWriteRef, () => runGuardedApply(ed, noteIdRef.current, current.target.anchor, current.prepared));
     if (!outcome.ok) {
       toast({ title: tRef.current("ai.box.applyGuardFailed") });
       return false;
     }
     if (current.prepared.unboundCount > 0) toast({ title: tRef.current("ai.box.rebindNotice") });
-    setState(IDLE_STATE); // S1：使用者自己按的套用就關，復原靠 Ctrl+Z
+    setState(IDLE_STATE); // 使用者自己按的套用就關，復原靠 Ctrl+Z
     return true;
   }, []);
 
@@ -344,7 +361,7 @@ export function AiSessionProvider(props: {
     closeInternal();
   }, [closeInternal]);
 
-  // D12（§5.2）：掛在 onSelectionChange（不是工具列 store：store 在 pointerdown 期間恆為 false、pointerup 寫回 true 時不再有 selection
+  // 掛在 onSelectionChange（不是工具列 store：store 在 pointerdown 期間恆為 false、pointerup 寫回 true 時不再有 selection
   // change，拿它判會漏掉滑鼠拖選）。只在選取事件裡判，不以 effect 在 phase 變更時重評——streaming→done 是 setState、不產生選取事件，
   // 所以「串流完成當下即使選取在 target 外也不關」是結構保證。onSelectionChange 預設不含遠端（y-sync）造成的選取變更。
   useEffect(
@@ -363,8 +380,8 @@ export function AiSessionProvider(props: {
     [editor, closeInternal],
   );
 
-  // 標亮（§5.2）：phase !== idle 驅動 ShowSelectionExtension。它跟的是**當下選取**——使用者點到別處後標亮跟著移走、框仍釘在原區塊旁，
-  // 接受（spec §5.6）。初始 idle 不呼叫（editor 此時可能還沒被 BlockNoteView 掛上，showSelection 會 dispatch）。
+  // 標亮：phase !== idle 驅動 ShowSelectionExtension。它跟的是**當下選取**——使用者點到別處後標亮跟著移走、框仍釘在原區塊旁，
+  // 接受。初始 idle 不呼叫（editor 此時可能還沒被 BlockNoteView 掛上，showSelection 會 dispatch）。
   const highlight = state.phase !== "idle";
   const highlightRef = useRef(false);
   useEffect(() => {

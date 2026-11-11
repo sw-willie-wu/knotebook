@@ -1,11 +1,11 @@
 /**
- * #108 §10.2 D23／M13：`requireWriteScope()` 的三件事（scope 檢查／session 跳過／`tokenWrite`
+ * #108：`requireWriteScope()` 的三件事（scope 檢查／session 跳過／`tokenWrite`
  * 扣點）與桶 key 的形狀。
  *
- * ⚠ **第 2 發是 `insufficient_scope` 那條分支「唯一」的守衛**（P16）：`/api/mcp` 上，工具是
+ * ⚠ **第 2 發是 `insufficient_scope` 那條分支「唯一」的守衛**：`/api/mcp` 上，工具是
  * **按 scope 過濾之後才註冊**的，所以唯讀憑證根本沒有 `edit_note` 可以呼叫（它拿到的是 SDK
  * 的「Tool edit_note not found」）；而 session 路徑在第 1 步就 return 了。**HTTP 上到不了那個
- * 分支**——整合測試那邊的案 10／24／S2／29b 一個字都碰不到它，不得寫成「案 10 守著」。
+ * 分支**——整合測試那邊的案 10／24／29b 一個字都碰不到它，不得寫成「案 10 守著」。
  * 突變證明：把 scope 分支整條刪掉 → 只有本檔第 2 發紅，HTTP 面一條都不紅。
  *
  * 為什麼直接構造 ctx 而不經 HTTP：這一支收的是 `McpToolCtx`，四個欄位（`authKind`／
@@ -66,7 +66,7 @@ describe("#108 requireWriteScope", () => {
     const err = requireWriteScope(ctxWith({ authKind: "token", tokenScope: "notes:read", tokenWrite }));
     expect(err).not.toBeNull();
     expect(err!.structuredContent.code).toBe("insufficient_scope");
-    // D7 的處置字樣：訊息必須非空且指得到設定頁（模型看得到的字串一律英文）。
+    // 處置字樣：訊息必須非空且指得到設定頁（模型看得到的字串一律英文）。
     expect(err!.structuredContent.message).toContain("notes:write");
     expect(err!.structuredContent.message).toContain("Settings");
     // 「403 不啃桶」——桶仍是滿的。
@@ -107,7 +107,7 @@ describe("#239 canMoveNotes", () => {
     expect(canMoveNotes({ authKind: "token", tokenScope: "notes:read" })).toBe(false);
     expect(canMoveNotes({ authKind: "token", tokenScope: "notes:read notes:write" })).toBe(false);
     expect(canMoveNotes({ authKind: "token", tokenScope: "notes:read notes:write notes:move" })).toBe(true);
-    // CHECK 漂移形：有 move 沒 write → 不得放行（W3）。
+    // CHECK 漂移形：有 move 沒 write → 不得放行。
     expect(canMoveNotes({ authKind: "token", tokenScope: "notes:read notes:move" as TokenScope })).toBe(false);
   });
 });
@@ -142,7 +142,7 @@ const RWD = "notes:read notes:write notes:delete";
 const RWMD = "notes:read notes:write notes:move notes:delete";
 
 // #181 D：requireDeleteScope 的兩個 scope 分支在 HTTP 上到不了（delete_note／restore_note 只在 canDeleteNotes 時註冊），
-// 本段是它們唯一的守衛；tokenWrite 扣點在 HTTP 上活著（另由 mcp-trash-tools.test.ts 的 DN8／RN6 守）。
+// 本段是它們唯一的守衛；tokenWrite 扣點在 HTTP 上活著（另由 mcp-trash-tools.test.ts 守）。
 describe("#181 D canDeleteNotes", () => {
   it("五形＋session＋兩種漂移形", () => {
     expect(canDeleteNotes({ authKind: "session", tokenScope: null })).toBe(true);

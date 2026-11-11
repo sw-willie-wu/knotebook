@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { SettingsGroup } from "./SettingsLayout";
 
-// SettingsGroup 的 `labelledByTitle`（#181 PR-2b，Ruling I-B）：開了才以標題命名成 region；預設不是 landmark。
+// SettingsGroup 的 `labelledByTitle`（#181）：開了才以標題命名成 region；預設不是 landmark。
 
 describe("SettingsGroup labelledByTitle", () => {
   it("SL-T1a 帶 labelledByTitle＋title → region 以標題命名，aria-labelledby 指向那個 h2", () => {

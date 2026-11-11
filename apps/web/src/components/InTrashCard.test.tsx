@@ -9,7 +9,7 @@ import * as toastModule from "@/components/ui/toast";
 import { OWNER_PERMS } from "@/test/fixtures";
 import { InTrashCard } from "./InTrashCard";
 
-// 筆記頁「在垃圾桶裡」卡片（spec §6.10.5；plan T6 IC-T*）。接進 NotePage 的部分在 NotePage.test.tsx。
+// 筆記頁「在垃圾桶裡」卡片（IC-T*）。接進 NotePage 的部分在 NotePage.test.tsx。
 
 afterEach(() => {
   localStorage.clear();

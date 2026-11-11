@@ -1,6 +1,6 @@
 /**
- * #181 PR-2a T2：「看得到」的單一閘口與讀取面（spec §6.2 第 1～6、8 點；A2-5「移入前看得到、移入後看不到、還原又看得到」；
- * A2-6 目標在垃圾桶照記連結）。垃圾桶狀態以 `markTrashed`／`markRestored` 直寫（`trashNotesInTx` 在 T3）。
+ * #181：「看得到」的單一閘口與讀取面（第 1～6、8 點；「移入前看得到、移入後看不到、還原又看得到」；
+ * A2-6 目標在垃圾桶照記連結）。垃圾桶狀態以 `markTrashed`／`markRestored` 直寫（不經 `trashNotesInTx`）。
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
@@ -112,7 +112,7 @@ describe("V3 單篇讀取三形", () => {
     for (const [url, userId, who, trashId] of views) {
       const res = await inject(app, "GET", url, userId);
       expect(res.statusCode, `${who} ${url}`).toBe(404);
-      if (trashId) expect(res.json(), `${who} ${url}`).toEqual({ error: { code: "in_trash", message: "這篇筆記在垃圾桶裡" }, noteId: trashId });
+      if (trashId) expect(res.json(), `${who} ${url}`).toEqual({ error: { code: "in_trash", message: "This note is in the trash." }, noteId: trashId });
       else expect(res.body, `${who} ${url}`).toBe(missing.body);
     }
     await markRestored(pool(db), n.id);
@@ -169,7 +169,7 @@ describe("V5 GET /api/uploads/:id", () => {
     expect((await inject(app, "GET", url, owner.id)).statusCode).toBe(200);
     const strangerRes = await inject(app, "GET", url, stranger.id);
     expect(strangerRes.statusCode).toBe(403);
-    expect(strangerRes.json()).toEqual({ error: { code: "forbidden", message: "無權存取此檔案" } });
+    expect(strangerRes.json()).toEqual({ error: { code: "forbidden", message: "You don't have access to this file." } });
 
     await markTrashed(pool(db), n.id, owner.id);
     const res = await inject(app, "GET", url, owner.id);
@@ -287,7 +287,7 @@ describe("V9 站內連結解析", () => {
     expect(await resolveWith(db, group, `/notes/${a.id}`)).toEqual({ id: a.id, title: "A" });
   });
 
-  it("查找序不變（M1）：活筆記 B 的 prev_slug 等於垃圾桶筆記 A 的現行 slug → 以 A 的 slug 解析回 null（不解到 B）；by-group-path 也 404（admin in_trash 指向 A、一般成員 not_found）", async () => {
+  it("查找序不變：活筆記 B 的 prev_slug 等於垃圾桶筆記 A 的現行 slug → 以 A 的 slug 解析回 null（不解到 B）；by-group-path 也 404（admin in_trash 指向 A、一般成員 not_found）", async () => {
     const { app, db } = await buildTestApp();
     const admin = await seedUser(db);
     const member = await seedUser(db);
@@ -299,7 +299,7 @@ describe("V9 站內連結解析", () => {
     // REST 照同一查找序解到垃圾桶裡的 A（不是 B）：admin 有垃圾桶權 → in_trash 帶 A 的 id；一般成員 → not_found。
     const res = await inject(app, "GET", `/api/notes/by-group-path/${g.id}/v9-shared`, admin.id);
     expect(res.statusCode).toBe(404);
-    expect(res.json()).toEqual({ error: { code: "in_trash", message: "這篇筆記在垃圾桶裡" }, noteId: a.id });
+    expect(res.json()).toEqual({ error: { code: "in_trash", message: "This note is in the trash." }, noteId: a.id });
     const missing = await inject(app, "GET", `/api/notes/${randomUUID()}`, member.id);
     const byMember = await inject(app, "GET", `/api/notes/by-group-path/${g.id}/v9-shared`, member.id);
     expect(byMember.statusCode).toBe(404);
@@ -359,7 +359,7 @@ describe("V11 resolveNoteAccess 矩陣", () => {
   });
 });
 
-describe("V12 resolveTrashedNoteAccess 矩陣（D-W9）", () => {
+describe("V12 resolveTrashedNoteAccess 矩陣", () => {
   it("群組垃圾桶筆記：admin、editDelete 為 true；member、deleteOnly、editOnly、readOnly、outsider 為 false", async () => {
     const { db } = await buildTestApp();
     const s = await sixRoleScene(db);
@@ -408,7 +408,7 @@ describe("V13 noteIsLive", () => {
   });
 });
 
-describe("V14 容量不排除（§6.2-8）", () => {
+describe("V14 容量不排除", () => {
   it("readSpaceUsage（產品碼）：個人與群組空間的用量在移入前後相同（垃圾桶附件照算）", async () => {
     const { db, uploadsDir } = await buildTestApp();
     const owner = await seedUser(db);
@@ -428,7 +428,7 @@ describe("V14 容量不排除（§6.2-8）", () => {
   });
 });
 
-// ───────────────────────────── V15／V16：每個單篇授權端點（表驅動，讀碼發現 21） ─────────────────────────────
+// ───────────────────────────── V15／V16：每個單篇授權端點（表驅動） ─────────────────────────────
 
 type Ctx = Awaited<ReturnType<typeof buildCollabTestApp>>;
 

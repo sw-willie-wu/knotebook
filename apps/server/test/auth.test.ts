@@ -1,12 +1,11 @@
 import { vi, describe, it, expect, afterEach } from "vitest";
 import { eq } from "drizzle-orm";
-import { SESSION_COOKIE } from "@knotebook/shared";
-import { buildTestApp, testConfig } from "./helpers.js";
+import { SESSION_COOKIE, MAX_UPLOAD_BYTES } from "@knotebook/shared";
+import { buildTestApp, testConfig, signTestSession } from "./helpers.js";
 import { users, siteSettings } from "../src/db/schema.js";
 import { seedAuthProvider } from "./helpers/oidc-provider.js";
 import { GENERIC } from "./helpers/provider-icon.js";
 import type { Db } from "../src/db/index.js";
-import { signSession } from "../src/auth/session.js";
 import type { CollabHooks } from "../src/collab/hooks.js";
 
 // verifyPassword／hashPassword 被包成 vi.fn(actual)：預設行為與真實實作一致，只有
@@ -19,6 +18,7 @@ vi.mock("../src/auth/password.js", async () => {
 });
 
 import { verifyPassword, hashPassword, HashBusyError, DUMMY_HASH } from "../src/auth/password.js";
+import { DEFAULT_NOTE_MAX_BYTES } from "../src/notes/note-size.js";
 
 // mockClear 只清呼叫紀錄（不清 mockRejectedValueOnce 以外的實作，那些本來就是
 // vi.fn(actual...) 包出來的預設轉發），確保每個測試看到的呼叫次數只計自己那份。
@@ -64,31 +64,37 @@ function loginPayload(email: string, password: string) {
 }
 
 describe("GET /api/auth/config", () => {
-  it("免認證可打；沒有 provider → { providers: [], registration: { enabled: true, providerIds: [] } }（W23 預設開）", async () => {
+  it("免認證可打；沒有 provider → { providers: [], registration: { enabled: true, providerIds: [] } }（預設開）", async () => {
     const { app } = await buildTestApp();
     const res = await app.inject({ method: "GET", url: "/api/auth/config" });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ providers: [], registration: { enabled: true, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true });
+    expect(res.json()).toEqual({ providers: [], registration: { enabled: true, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true, noteMaxBytes: DEFAULT_NOTE_MAX_BYTES, maxUploadBytes: MAX_UPLOAD_BYTES });
   });
 
-  it("只列啟用中的 provider、依 sort_order 排；不含 issuer／client id／secret（§14.1 第 18 條）", async () => {
+  it("只列啟用中的 provider、依 sort_order 排；不含 issuer／client id／secret", async () => {
     const { app, db } = await buildTestApp();
     const b = await seedAuthProvider(db, { issuerUrl: "https://b.example", displayName: "B", sortOrder: 2 });
     const a = await seedAuthProvider(db, { issuerUrl: "https://a.example", displayName: "A", sortOrder: 1 });
     await seedAuthProvider(db, { issuerUrl: "https://off.example", displayName: "Off", enabled: false });
     const res = await app.inject({ method: "GET", url: "/api/auth/config" });
-    expect(res.json()).toEqual({ providers: [{ id: a.id, displayName: "A", icon: GENERIC }, { id: b.id, displayName: "B", icon: GENERIC }], registration: { enabled: true, providerIds: [a.id, b.id] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true });
+    expect(res.json()).toEqual({ providers: [{ id: a.id, displayName: "A", icon: GENERIC }, { id: b.id, displayName: "B", icon: GENERIC }], registration: { enabled: true, providerIds: [a.id, b.id] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true, noteMaxBytes: DEFAULT_NOTE_MAX_BYTES, maxUploadBytes: MAX_UPLOAD_BYTES });
     expect(res.body).not.toMatch(/a\.example|test-client|"ct"/);
+  });
+
+  it("noteMaxBytes＝設定的 NOTE_MAX_BYTES（網頁編輯器的筆記大小上限檢查用）", async () => {
+    const { app } = await buildTestApp({ config: { ...testConfig, limitEnv: { noteMaxBytes: 123_456 } } });
+    const res = await app.inject({ method: "GET", url: "/api/auth/config" });
+    expect(res.json().noteMaxBytes).toBe(123_456);
   });
 
   it("registration_enabled=false → registration.enabled false", async () => {
     const { app, db } = await buildTestApp();
     await db.update(siteSettings).set({ registrationEnabled: false });
     const res = await app.inject({ method: "GET", url: "/api/auth/config" });
-    expect(res.json()).toEqual({ providers: [], registration: { enabled: false, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true });
+    expect(res.json()).toEqual({ providers: [], registration: { enabled: false, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true, noteMaxBytes: DEFAULT_NOTE_MAX_BYTES, maxUploadBytes: MAX_UPLOAD_BYTES });
   });
 
-  it("site_settings 讀不到列 → registration.enabled false＋error log（§4.3 r1-M5）", async () => {
+  it("site_settings 讀不到列 → registration.enabled false＋error log", async () => {
     const logged: unknown[][] = [];
     const { app, db } = await buildTestApp(
       {},
@@ -106,7 +112,7 @@ describe("GET /api/auth/config", () => {
     );
     await db.delete(siteSettings);
     const res = await app.inject({ method: "GET", url: "/api/auth/config" });
-    expect(res.json()).toEqual({ providers: [], registration: { enabled: false, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true });
+    expect(res.json()).toEqual({ providers: [], registration: { enabled: false, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true, noteMaxBytes: DEFAULT_NOTE_MAX_BYTES, maxUploadBytes: MAX_UPLOAD_BYTES });
     expect(logged.some((a) => a.some((x) => typeof x === "string" && x.includes("site_settings")))).toBe(true);
     expect(logged.some((a) => a.some((x) => typeof x === "string" && x.includes("帳密登入視同開啟")))).toBe(true);
   });
@@ -120,7 +126,7 @@ describe("GET /api/auth/config", () => {
     return { a, b, c, d };
   }
 
-  it("C1（C-8）providerIds＝啟用中且開了自動建帳的服務、依顯示順序；停用但開關開的不列；與 registration.enabled 無關", async () => {
+  it("C1 providerIds＝啟用中且開了自動建帳的服務、依顯示順序；停用但開關開的不列；與 registration.enabled 無關", async () => {
     const { app, db } = await buildTestApp();
     const { a, b, c } = await seedAutoCreateMix(db);
     await db.update(siteSettings).set({ registrationEnabled: false });
@@ -131,7 +137,7 @@ describe("GET /api/auth/config", () => {
     for (const p of body.providers) expect(Object.keys(p).sort()).toEqual(["displayName", "icon", "id"]);
   });
 
-  it("C2（C-8）site_settings 讀不到列 → providerIds []；providers 照列", async () => {
+  it("C2 site_settings 讀不到列 → providerIds []；providers 照列", async () => {
     const { app, db } = await buildTestApp();
     const { a, b, c } = await seedAutoCreateMix(db);
     await db.delete(siteSettings);
@@ -179,7 +185,7 @@ describe("POST /api/auth/login", () => {
     });
   });
 
-  it("Mixed-Case 輸入登入既有小寫帳號 → 200（spec §14.3 讀取端 lower() 對稱比對）", async () => {
+  it("Mixed-Case 輸入登入既有小寫帳號 → 200（讀取端 lower() 對稱比對）", async () => {
     const { app, db } = await buildTestApp();
     const u = await insertUser(db, { email: "alice-mixed@example.com", displayName: "Alice", isAdmin: false });
 
@@ -398,7 +404,7 @@ describe("POST /api/auth/login", () => {
     }
   });
 
-  it("throttle 帳號鍵吃正規化值：Mixed-Case 變體自 IP A 累積 5 敗後，換大小寫自 IP B 仍 429（spec §14.7；未正規化實作下 IP B 兩軸皆 0 → 落到查詢 → 401，紅）", async () => {
+  it("throttle 帳號鍵吃正規化值：Mixed-Case 變體自 IP A 累積 5 敗後，換大小寫自 IP B 仍 429（未正規化實作下 IP B 兩軸皆 0 → 落到查詢 → 401，紅）", async () => {
     // 同上：要讓 IP A／IP B 真的是兩個不同的 request.ip，得先信任代理（issue #13）。
     const { app } = await buildTestApp({ config: { ...testConfig, trustProxy: true } });
     const variants = [
@@ -547,11 +553,12 @@ describe("POST /api/auth/password", () => {
     expect(loginNew.statusCode).toBe(200);
   });
 
-  it("成功改密碼 → collabHooks.onUserRevoked(userId) 被呼叫一次（spec §5 接縫：Plan 2 即時協作連線撤銷）", async () => {
+  it("成功改密碼 → collabHooks.onUserRevoked(userId) 被呼叫一次（接縫：即時協作連線撤銷）", async () => {
     const onUserRevoked = vi.fn();
     const collabHooks: CollabHooks = {
       onShareChanged: vi.fn(),
       onUserRevoked,
+      onSessionRevoked: vi.fn(),
       onGroupAccessChanged: vi.fn(),
       beforeNoteDeleted: vi.fn(async () => ({ release: () => {} })),
       onNotesRestored: vi.fn(),
@@ -577,7 +584,7 @@ describe("POST /api/auth/password", () => {
     const { app, db } = await buildTestApp();
     const u = await insertUser(db, { email: "mia@example.com", password: null });
     // OIDC-only 使用者無法透過密碼登入拿 cookie，直接簽一把合法 session 模擬其已登入狀態。
-    const cookie = await signSession(testConfig.appSecret, { userId: u.id, tv: u.tokenVersion });
+    const cookie = await signTestSession({ userId: u.id, tv: u.tokenVersion });
 
     const res = await app.inject({
       method: "POST",

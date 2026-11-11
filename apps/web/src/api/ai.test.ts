@@ -3,9 +3,9 @@ import { ApiFail } from "./client";
 import { streamAiAction } from "./ai";
 
 /**
- * `POST /api/ai` 的手寫 SSE client（spec §13.2/§13.5-1）。`fetch` 整個被 stub 掉，
+ * `POST /api/ai` 的手寫 SSE client。`fetch` 整個被 stub 掉，
  * 用一個真的 `ReadableStream<Uint8Array>` 模擬 server 端 `raw.write("event: ...\ndata:
- * ...\n\n")` 的位元組流——包含跨 chunk 斷行的情形（M3 的核心風險：`event: delta\n` 跟
+ * ...\n\n")` 的位元組流——包含跨 chunk 斷行的情形（核心風險：`event: delta\n` 跟
  * `data: {...}\n\n` 被切在兩次 `reader.read()` 裡）。
  */
 
@@ -109,7 +109,7 @@ describe("streamAiAction（手寫 SSE client）", () => {
         fakeResponse({
           ok: true,
           status: 200,
-          body: sseBody(['event: error\ndata: {"code":"upstream_error","message":"upstream request failed"}\n\n']),
+          body: sseBody(['event: error\ndata: {"code":"upstream_error","message":"The request to the AI provider failed."}\n\n']),
         }),
       ),
     );
@@ -118,7 +118,7 @@ describe("streamAiAction（手寫 SSE client）", () => {
     const onDelta = vi.fn();
     await expect(
       streamAiAction({ actionId: "a1", noteId: "n1", text: "hi", signal: new AbortController().signal, onDelta }),
-    ).rejects.toMatchObject(new ApiFail(200, "upstream_error", "upstream request failed"));
+    ).rejects.toMatchObject(new ApiFail(200, "upstream_error", "The request to the AI provider failed."));
     expect(onDelta).not.toHaveBeenCalled();
   });
 
@@ -128,7 +128,7 @@ describe("streamAiAction（手寫 SSE client）", () => {
         fakeResponse({
           ok: false,
           status: 503,
-          json: () => Promise.resolve({ error: { code: "ai_not_configured", message: "AI 尚未設定，請聯絡管理員" } }),
+          json: () => Promise.resolve({ error: { code: "ai_not_configured", message: "AI isn't set up on this site. Contact the site admin." } }),
         }),
       ),
     );
@@ -142,7 +142,7 @@ describe("streamAiAction（手寫 SSE client）", () => {
         signal: new AbortController().signal,
         onDelta: vi.fn(),
       }),
-    ).rejects.toMatchObject(new ApiFail(503, "ai_not_configured", "AI 尚未設定，請聯絡管理員"));
+    ).rejects.toMatchObject(new ApiFail(503, "ai_not_configured", "AI isn't set up on this site. Contact the site admin."));
   });
 
   it("abort：傳入的 AbortSignal 原封不動轉交給 fetch", async () => {
@@ -158,7 +158,7 @@ describe("streamAiAction（手寫 SSE client）", () => {
     expect(init.signal).toBe(controller.signal);
   });
 
-  it("送出的 init 帶 Content-Type: application/json 與 credentials: include（M3 護欄）", async () => {
+  it("送出的 init 帶 Content-Type: application/json 與 credentials: include", async () => {
     const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(() =>
       Promise.resolve(fakeResponse({ ok: true, status: 200, body: sseBody(["event: done\ndata: {}\n\n"]) })),
     );

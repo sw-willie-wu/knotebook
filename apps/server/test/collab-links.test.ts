@@ -9,6 +9,10 @@ import { notes, noteLinks } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
 import { buildCollabTestApp, COLLAB_TOKEN_INIT, type CollabTestCtx, type HttpSession, type TestClient } from "./helpers.js";
 
+/** #372：409 not_loaded 的訊息（兩種成因同一句）。 */
+const NOT_LOADED_MESSAGE =
+  "Link updates need the note open in the editor: it isn't loaded on the server, or you have no open editor connection to it. Open the note and try again.";
+
 const PASSWORD = "correct-horse-battery";
 
 /**
@@ -72,7 +76,7 @@ async function fetchToken(session: HttpSession, noteId: string): Promise<string>
   return body.token;
 }
 
-/** 走真的 `POST /api/notes/:id/links`——以手動 POST 複刻 client 提交語意（Task 8 與 Task 7 無程式碼依賴）。 */
+/** 走真的 `POST /api/notes/:id/links`——以手動 POST 複刻 client 提交語意（與 client 端無程式碼依賴）。 */
 function postLinks(session: HttpSession, noteId: string, targetIds: string[]): Promise<Response> {
   return session.fetch(`/api/notes/${noteId}/links`, {
     method: "POST",
@@ -132,7 +136,7 @@ async function disconnectAllAndUnload(ctx: CollabTestCtx, noteId: string, client
   });
 }
 
-describe("Task 8：links 共編整合——真 Hocuspocus gate、真 provider", () => {
+describe("links 共編整合——真 Hocuspocus gate、真 provider", () => {
   it("雙 client 收斂：Y.Doc 層手工插入的 wikilink 元素在兩個 client 間同步收斂", async () => {
     const ctx = await buildApp();
     const owner = await ctx.createUser({ email: "owner-links1@example.com", password: PASSWORD });
@@ -186,19 +190,19 @@ describe("Task 8：links 共編整合——真 Hocuspocus gate、真 provider", 
     const editorSession = await ctx.loginAs("editor-links3@example.com", PASSWORD);
 
     // owner 先連上，文件已在記憶體；並先編輯一次讓 docClock > 0——避免整個案子退化成
-    // `0 <= 0` 的邊界（那樣即使 CAS 閘門被整條拿掉、案子仍會巧合地綠，見審查 Important 2）。
+    // `0 <= 0` 的邊界（那樣即使 CAS 閘門被整條拿掉、案子仍會巧合地綠）。
     const ownerClient = await ownerSession.connect(note.id);
     insertWikilink(ownerClient.doc, target.id);
     const editClock = docClock(ownerClient.doc);
     await waitForServerClock(ctx, note.id, owner.id, editClock);
 
-    // ⚠ 據實描述本案在測什麼（審查 Important 1——原註解宣稱的「synced 撞 connected 時序
+    // ⚠ 據實描述本案在測什麼（原註解宣稱的「synced 撞 connected 時序
     // 交錯」與下面機制不符，予以更正）：
     //
     // 下面卡住 editor 的 tokenFn 造出的是「文件已在記憶體、但 editor 自己的連線尚未登記進
     // byNote 索引」這個**狀態**——與案 4（在記憶體但提交者無連線）是完全同一個 gate 分支，
     // 差別只在於這裡的「未登記」是暫時的、稍後會自己解除。這是狀態等價的 proxy，**不是**
-    // brief 字面「synced 撞 connected 窗口」那種時序交錯的重現：`@hocuspocus/provider` 的
+    // 「synced 撞 connected 窗口」那種時序交錯的重現：`@hocuspocus/provider` 的
     // `onOpen` 實作是 `await this.sendToken(); this.startSync();`（見
     // `@hocuspocus/provider` 4.5.0 原始碼）——`sendToken()` 在我們釋放 `gate` 之前不會
     // resolve，`startSync()`（也就是整個 y-protocol 同步、最終導向 client 端 "synced"
@@ -211,8 +215,8 @@ describe("Task 8：links 共編整合——真 Hocuspocus gate、真 provider", 
     // 登記進 `byNote`（見 collab/server.ts）。drain 與 connected 之間確實有一個真實窗口，
     // 但它完全在 Hocuspocus 內部一次 async 函式呼叫之中，中間沒有任何 I/O 或公開 API 可以
     // 掛勾暫停——沒有辦法只靠測試這一側手上的公開介面確定性地卡在那個窗口中間（要做到只能
-    // monkeypatch `Hocuspocus.prototype` 內部方法，超出本 task「真 provider + 公開 API
-    // 複刻 client 語意」的邊界，也不是本 task 該做的事）。
+    // monkeypatch `Hocuspocus.prototype` 內部方法，超出「真 provider + 公開 API
+    // 複刻 client 語意」的邊界，也不是這支測試該做的事）。
     let releaseToken: () => void = () => {};
     const gate = new Promise<void>(resolve => {
       releaseToken = resolve;
@@ -235,13 +239,13 @@ describe("Task 8：links 共編整合——真 Hocuspocus gate、真 provider", 
     releaseToken();
     const editorClient = await editorConnectPromise;
 
-    // 釘住 Task 7 client 實際依賴的性質：synced 之後，下一個 HTTP 請求抵達時這條連線的
+    // 釘住 client 實際依賴的性質：synced 之後，下一個 HTTP 請求抵達時這條連線的
     // 登記已經完成——不需要額外等待就該收斂，不是「湊巧等了 1 秒所以來得及」。
     const immediate = await postLinks(editorSession, note.id, [target.id]);
     expect(immediate.status).toBe(204);
     expect(await linkedTargets(ctx.db, note.id)).toEqual([target.id]);
 
-    // 再等 1s 後重試仍然收斂——同時覆蓋 brief 逐字要求的「1s 重試收斂」，證明上面的立即
+    // 再等 1s 後重試仍然收斂——同時覆蓋「1s 重試收斂」，證明上面的立即
     // 收斂不是曇花一現。
     await sleep(1_000);
     const retried = await postLinks(editorSession, note.id, [target.id]);
@@ -270,7 +274,7 @@ describe("Task 8：links 共編整合——真 Hocuspocus gate、真 provider", 
 
     const res = await postLinks(editorSession, note.id, [target.id]);
     expect(res.status).toBe(409);
-    expect(await res.json()).toMatchObject({ error: { code: "not_loaded" } });
+    expect(await res.json()).toMatchObject({ error: { code: "not_loaded", message: NOT_LOADED_MESSAGE } });
     expect(await linkedTargets(ctx.db, note.id)).toEqual([]);
 
     ownerClient.disconnect();
@@ -289,7 +293,7 @@ describe("Task 8：links 共編整合——真 Hocuspocus gate、真 provider", 
 
     const res = await postLinks(session, note.id, [target.id]);
     expect(res.status).toBe(409);
-    expect(await res.json()).toMatchObject({ error: { code: "not_loaded" } });
+    expect(await res.json()).toMatchObject({ error: { code: "not_loaded", message: NOT_LOADED_MESSAGE } });
     expect(await linkedTargets(ctx.db, note.id)).toEqual([]);
   });
 
@@ -328,7 +332,7 @@ describe("Task 8：links 共編整合——真 Hocuspocus gate、真 provider", 
     client.disconnect();
   });
 
-  it("鉗制收斂（護欄，§12.5-3）：links_clock 被人為調高後，unload+重連的 onLoadDocument 用 LEAST 鉗回 docClock，之後提交仍收斂", async () => {
+  it("鉗制收斂（護欄）：links_clock 被人為調高後，unload+重連的 onLoadDocument 用 LEAST 鉗回 docClock，之後提交仍收斂", async () => {
     const ctx = await buildApp();
     const owner = await ctx.createUser({ email: "owner-links7@example.com", password: PASSWORD });
     const note = await ctx.createNote(owner.id);
@@ -346,7 +350,7 @@ describe("Task 8：links 共編整合——真 Hocuspocus gate、真 provider", 
     expect(committedClock).toBe(editClock);
 
     // 人為把 links_clock 調到遠高於任何 docClock 能到達的值——若 onLoadDocument 的鉗制
-    // 誤用 GREATEST（而非 spec 要求的 LEAST），這個值會原封不動地留到重連之後。
+    // 誤用 GREATEST（而非該用的 LEAST），這個值會原封不動地留到重連之後。
     const inflated = committedClock + 1_000_000;
     await ctx.db.update(notes).set({ linksClock: inflated }).where(eq(notes.id, note.id));
     expect(await readLinksClock(ctx.db, note.id)).toBe(inflated);

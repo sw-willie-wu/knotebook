@@ -1,29 +1,32 @@
 /**
  * #108：兩支內容工具（`read_note_outline`／`read_note_section`）共用的前置。
  *
- * **三步的順序是契約**：L3 角色（`resolveRole`）→ `contentRead` 桶 → presence。
+ * **三步的順序是契約**：角色（`resolveRole`）→ `contentRead` 桶 → presence。
  * 桶排在角色**之後**，所以 `role === "none"` 的「找不到」**不啃桶**（與 REST 的
  * `GET /api/notes/:id/content` 同紀律）；presence 排在最後，被 429 擋下的請求
- * 一個痕跡都不留（M6）。收在同一支是為了讓這個順序只有一份實作。
+ * 一個痕跡都不留。收在同一支是為了讓這個順序只有一份實作。
  *
  * **三道順序各有一個守衛，三條突變都實跑過**（`mcp-content.test.ts`）：
  * 把 `consume` 移到 `resolveRole` 之前 → 案 31 前半紅；把 presence 移到 `consume` 之前 →
  * 案 31 後半（429 那一發的 awareness clock）紅；把 presence 移到 `role === "none"` 的
  * early return 之前 → 「拒絕路徑不 touch presence」那一案紅。
- * ⚠ **第三道守的是 M2 與 M6 的交界**：`touch` 只看文件有沒有載入、**不看角色**——順序寫反，
+ * ⚠ **第三道守的是「找不到不洩漏」與「拒絕路徑不 touch presence」的交界**：`touch` 只看文件有沒有載入、**不看角色**——順序寫反，
  * 任何持 PAT 的人只要猜得到 note id，就能讓自己的名牌出現在真正協作者的畫面上。
  *
- * ⚠ `role === "none"` 一律當「找不到」，訊息不得洩漏「存在但你沒權限」（M2／案 17）。
+ * ⚠ `role === "none"` 一律當「找不到」，訊息不得洩漏「存在但你沒權限」（案 17）。
  * ⚠ presence 目標一律走既有的 `presenceTargetForRead(...)`，**不得自組 `PresenceTarget`
- *   字面量**（M8 的讀取側）。顯示名走 `presenceIdentity(...)`——**server 端 presence 顯示名的
- *   唯一組字點**（#108 PR2 收成一份；`presence.ts` 的原文措辭準確，這裡不是複製貼上）。
+ *   字面量**。顯示名走 `presenceIdentity(...)`——**server 端 presence 顯示名的
+ *   唯一組字點**（#108 收成一份；`presence.ts` 的原文措辭準確，這裡不是複製貼上）。
  *   web 端 `LastEditedLabel.tsx`／`AiEditsDialog.tsx` 各自另有一份同形的
  *   `${byHandle} (${agentLabel})`——那兩處是**修改紀錄的顯示**，不是 presence，故意不共用這支。
  *   「它組得對不對」的唯一守衛仍是 `mcp-content.test.ts` 的 presence 那一案。
  */
-import type { Role } from "@knotebook/shared";
+import { YDOC_FRAGMENT, type Role } from "@knotebook/shared";
 import { currentAgentLabel } from "../auth/agent-label.js";
+import { outlineOf, type OutlineEntry } from "../notes/editing/fingerprint.js";
+import { ParserBusyError } from "../notes/editing/parse-core.js";
 import { presenceIdentity, presenceTargetForRead } from "../notes/editing/presence.js";
+import { NoteReadTooComplexError, loadNoteDoc, readNoteOutline } from "../notes/editing/read.js";
 import { resolveRole } from "../notes/service.js";
 import { toolError, type ToolErrorResult } from "./tool-result.js";
 import type { McpToolCtx } from "./context.js";
@@ -52,6 +55,35 @@ export const SECTION_NOT_FOUND_MESSAGE =
 
 /** 讀取桶（contentRead）的 429 訊息——`create_transfer_token`（download）也扣這顆桶，共用同一句。 */
 export const READ_RATE_LIMITED_MESSAGE = "Too many note reads right now. Wait a moment before reading more.";
+/** 讀出的轉換排不進 parse worker（全忙、排太久）時模型看到的字（`server_busy`）。 */
+export const READ_BUSY_MESSAGE = "The server is busy processing other requests. Try reading again in a moment.";
+/** 讀出的轉換逾時或用完 worker 的記憶體（`too_complex`）時模型看到的字。 */
+export const READ_TOO_COMPLEX_MESSAGE = "This note is too large or too complex to read within the server's time and memory limits.";
+
+/** 讀出轉換的兩種失敗 → 工具錯誤；其他例外回 null（呼叫端照舊丟出）。 */
+export function docReadToolError(err: unknown): ToolErrorResult | null {
+  if (err instanceof ParserBusyError) return toolError("server_busy", READ_BUSY_MESSAGE);
+  if (err instanceof NoteReadTooComplexError) return toolError("too_complex", READ_TOO_COMPLEX_MESSAGE);
+  return null;
+}
+
+/**
+ * 整篇大綱（`read_note_outline`、`edit_note` 指紋不符時）：在 parse worker 裡算（`readNoteOutline`）。沒有 editing runtime 的 app
+ * （測試用的無協作 app）退回主執行緒走結構。
+ */
+export async function readOutlineForTool(ctx: McpToolCtx, noteId: string): Promise<{ outline: OutlineEntry[] } | { error: ToolErrorResult }> {
+  if (ctx.editing === undefined) {
+    const { doc } = await loadNoteDoc({ db: ctx.db, collab: ctx.collab }, noteId);
+    return { outline: outlineOf(doc.getXmlFragment(YDOC_FRAGMENT)).outline };
+  }
+  try {
+    return { outline: (await readNoteOutline({ db: ctx.db, collab: ctx.collab }, ctx.editing, noteId, ctx.userId)).outline };
+  } catch (err) {
+    const error = docReadToolError(err);
+    if (error) return { error };
+    throw err;
+  }
+}
 
 export type NoteReadAccess = { ok: true; role: Role } | { ok: false; error: ToolErrorResult };
 
@@ -69,9 +101,9 @@ export async function authorizeNoteRead(
   if (!ctx.limiters.contentRead.consume(ctx.userId)) {
     return { ok: false, error: toolError("too_many_requests", READ_RATE_LIMITED_MESSAGE) };
   }
-  // cookie session（`tokenId` 為 null）不現身：那是使用者本人在用瀏覽器，規格 §12.2 明講
+  // cookie session（`tokenId` 為 null）不現身：那是使用者本人在用瀏覽器，
   // 不設 presence。`touch` 內部只對已載入的文件動作，沒人在線時是 no-op，讀路徑「零副作用」
-  // 的不變量仍成立。
+  // 的不變量仍成立（#387 的行程內記憶體記錄除外：讀到的連結文字記在 `NoteWriteService.shownLinks`，不落 DB、不動文件）。
   if (ctx.tokenId !== null) {
     const label = await currentAgentLabel(ctx.db, ctx.tokenId);
     if (label !== null) {

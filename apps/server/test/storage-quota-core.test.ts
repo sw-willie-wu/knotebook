@@ -1,5 +1,5 @@
 /**
- * `assertSpaceRoomInTx`／`storage/usage.ts` 直測（spec §5.3、§5.4、A4、§11.1 S15 函式層、Review Focus RF1）。
+ * `assertSpaceRoomInTx`／`storage/usage.ts` 直測（S15 函式層）。
  * 交易一律 `db.transaction(tx => …)`（READ COMMITTED），另一方用另一條 pool 連線。
  */
 import { describe, expect, it } from "vitest";
@@ -17,8 +17,8 @@ const opts = { lockTimeoutMs: 60_000 };
 const lockTimeoutOf = async (pool: Pool) => (await pool.query<{ lock_timeout: string }>("show lock_timeout")).rows[0]!.lock_timeout;
 const sqlShow = () => sql`show lock_timeout`; // `show` 的結果欄名就是設定名
 
-describe("assertSpaceRoomInTx（spec §5.3）", () => {
-  it("A4：incoming ≤ 0 → 不取鎖、不讀配額（另一交易持同空間鎖時也立刻回；已超額也不拋）", async () => {
+describe("assertSpaceRoomInTx", () => {
+  it("incoming ≤ 0 → 不取鎖、不讀配額（另一交易持同空間鎖時也立刻回；已超額也不拋）", async () => {
     const { db, uploadsDir } = await buildTestApp();
     const u = await seedUser(db);
     await giveUserQuota(db, u.id, 0);
@@ -29,10 +29,19 @@ describe("assertSpaceRoomInTx（spec §5.3）", () => {
     try {
       await holder.query("begin");
       await holder.query("select pg_advisory_xact_lock(hashtextextended($1::text, 0))", [spaceLockKey({ kind: "user", id: u.id })]);
-      const t0 = Date.now();
-      await db.transaction(tx => assertSpaceRoomInTx(tx, { kind: "user", id: u.id }, 0, opts));
-      await db.transaction(tx => assertSpaceRoomInTx(tx, { kind: "user", id: u.id }, -5, opts));
-      expect(Date.now() - t0).toBeLessThan(1_000);
+      // 「沒取鎖」的確定性證明（不量牆鐘）：鎖被 holder 持住，這裡只要去取就一定等——函式自己的上限給 1 ms、交易本身也先
+      // `set local lock_timeout = '1ms'`（防「沒先 set_config 就取鎖」的寫法落回 session 的 0＝無限等），所以取鎖＝立刻 55P03 → 紅；
+      // 兩筆都順利 commit 才證明沒取鎖。與機器快慢無關。
+      // 另在同一交易內數本連線持有的 advisory 鎖：擋住「改用 pg_try_advisory_xact_lock」或「取了別把鍵」這類不會被上面擋下的寫法。
+      const noLock = { lockTimeoutMs: 1 };
+      for (const incoming of [0, -5]) {
+        await db.transaction(async tx => {
+          await tx.execute(sql`set local lock_timeout = '1ms'`);
+          await assertSpaceRoomInTx(tx, { kind: "user", id: u.id }, incoming, noLock);
+          const held = await tx.execute<{ n: number }>(sql`select count(*)::int as n from pg_locks where locktype = 'advisory' and pid = pg_backend_pid()`);
+          expect(held.rows[0]!.n, `incoming=${incoming}`).toBe(0);
+        });
+      }
     } finally {
       await holder.query("rollback");
       holder.release();
@@ -48,7 +57,7 @@ describe("assertSpaceRoomInTx（spec §5.3）", () => {
     await db.transaction(tx => assertSpaceRoomInTx(tx, { kind: "user", id: u.id }, 400, opts));
     const err = await db.transaction(tx => assertSpaceRoomInTx(tx, { kind: "user", id: u.id }, 401, opts)).catch(e => e);
     expect(err).toBeInstanceOf(StorageQuotaExceeded);
-    expect(err).toMatchObject({ status: 409, errCode: "storage_quota_exceeded", message: "儲存空間已滿", usedBytes: 600, quotaBytes: 1000, incomingBytes: 401, space: { kind: "user", id: u.id } });
+    expect(err).toMatchObject({ status: 409, errCode: "storage_quota_exceeded", message: "This space's storage quota is full.", usedBytes: 600, quotaBytes: 1000, incomingBytes: 401, space: { kind: "user", id: u.id } });
     for (const k of ["usedBytes", "quotaBytes", "incomingBytes"] as const) expect(typeof err[k], k).toBe("number");
   });
 
@@ -97,7 +106,7 @@ describe("assertSpaceRoomInTx（spec §5.3）", () => {
     expect(await usedOf(db.$client, { kind: "user", id: u.id })).toBe(700);
   });
 
-  it("RF1：同一空間 id 大寫與小寫取的是同一把鎖（第二筆被擋）", async () => {
+  it("同一空間 id 大寫與小寫取的是同一把鎖（第二筆被擋）", async () => {
     const { db } = await buildTestApp();
     const g = await seedGroup(db, "G", []);
     await giveGroupQuota(db, g.id, 1000);
@@ -126,7 +135,7 @@ describe("assertSpaceRoomInTx（spec §5.3）", () => {
     const { db, url } = await freshDb();
     const u = await seedUser(db);
     await giveUserQuota(db, u.id, 1000);
-    // database 層設 7s（spec m6：`TO DEFAULT` 要回到這個值）；只有之後新開的連線吃得到，故另開 pool
+    // database 層設 7s（`TO DEFAULT` 要回到這個值）；只有之後新開的連線吃得到，故另開 pool
     const dbName = (await db.$client.query<{ d: string }>("select current_database() as d")).rows[0]!.d;
     await db.$client.query(`alter database "${dbName}" set lock_timeout = '7s'`);
     const pool2 = new Pool({ connectionString: url, max: 2 });
@@ -167,7 +176,7 @@ describe("assertSpaceRoomInTx（spec §5.3）", () => {
   });
 });
 
-describe("storage/usage.ts（spec §5.4）", () => {
+describe("storage/usage.ts", () => {
   it("readSpaceUsage：數字 typeof number、planName；不存在的空間 → null", async () => {
     const { db, uploadsDir } = await buildTestApp();
     const u = await seedUser(db);

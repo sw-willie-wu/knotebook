@@ -1,16 +1,16 @@
 /**
- * 貼上的列（spec 2026-10-21 columns-layout §5.4 調整 3、§7.1 第 2 點、§11.10）：一條 `transformPasted` 規則。
+ * 貼上的列：一條 `transformPasted` 規則。
  *
  * - PM 對站內拖曳也呼叫 `transformPasted`（`prosemirror-view` `handleDrop`：`view.dragging.slice` 先過一次再放），
- *   所以 §7.1「drop 的 slice 含列、落點不在頂層 → 先攤平」也在這裡做；`handleDOMEvents.drop` 只記落點（讀碼發現 9）。
+ *   所以「drop 的 slice 含列、落點不在頂層 → 先攤平」也在這裡做；`handleDOMEvents.drop` 只記落點。
  *   外部拖入（`view.dragging` 為 null）同樣用落點、不用游標判斷位置。
  * - core 的 `transformPasted` 掛在 editorProps、比外掛先跑：游標在表格格子內時 block 已被轉成行內＋換行，這裡看不到列。
- * - 頂層封閉 slice 的代價（spec §15）：貼上「段落＋列＋段落」時第一段不併進游標段落、貼在非空段落開頭多一個空段落；
+ * - 頂層封閉 slice 的代價：貼上「段落＋列＋段落」時第一段不併進游標段落、貼在非空段落開頭多一個空段落；
  *   不封閉的話 PM 的 `Slice.maxOpen` 會把列拆開（首欄併進游標段落、多一個空欄）。
- * - 單欄外部 HTML 由 shared `columns.ts` 的外部欄 parse 限定擋下（讀碼發現 1）；這裡處理的單欄列是從欄內複製時
+ * - 單欄外部 HTML 由 shared `columns.ts` 的外部欄 parse 限定擋下；這裡處理的單欄列是從欄內複製時
  *   PM 依 `data-pm-slice` 的 open context 重建的。
  *
- * `Slice`／`Fragment` 在 apps/web 值層級拿不到，由傳進來的 slice 取 constructor（讀碼發現 13）。
+ * `Slice`／`Fragment` 在 apps/web 值層級拿不到，由傳進來的 slice 取 constructor。
  */
 import { Extension } from "@tiptap/core";
 import { COLUMN_LIST_TYPE, COLUMN_TYPE, COLUMNS_MIN } from "@knotebook/shared";
@@ -58,7 +58,7 @@ const fragmentFrom = (like: SliceLike, nodes: NodeLike[]) =>
 let dropPoint: number | null = null;
 
 /** drop 落點（handleDOMEvents.drop 記下，同一個同步呼叫鏈結束時清掉）。view 為 null 時什麼都不做。
- * `posAtCoords` 丟例外時記成 null：不得讓例外穿出、跳過其後的媒體阻擋（final review M-3）。 */
+ * `posAtCoords` 丟例外時記成 null：不得讓例外穿出、跳過其後的媒體阻擋。 */
 export function recordDropPoint(view: ViewLike | null, event: Pick<DragEvent, "clientX" | "clientY">): void {
   if (!view) return;
   try {
@@ -78,7 +78,7 @@ export function takeDropPoint(): number | null {
 }
 
 const isSingle = (node: NodeLike) => node.type.name === COLUMN_LIST_TYPE && node.childCount < COLUMNS_MIN;
-/** 不在 columnList 裡的單獨 column：Ctrl＋點欄（整欄 NodeSelection）複製而來，open 為 0。不換掉的話 PM 會把它包成補了空欄的列、貼進段落的子 block（巢狀列，違反 I2）。 */
+/** 不在 columnList 裡的單獨 column：Ctrl＋點欄（整欄 NodeSelection）複製而來，open 為 0。不換掉的話 PM 會把它包成補了空欄的列、貼進段落的子 block（巢狀列）。 */
 const isLoneColumn = (node: NodeLike, parent: NodeLike | null) => node.type.name === COLUMN_TYPE && parent?.type.name !== COLUMN_LIST_TYPE;
 
 function unwrapFragment(like: SliceLike, fragment: FragmentLike, parent: NodeLike | null): FragmentLike {
@@ -153,7 +153,7 @@ export function columnsTransformPasted(slice: SliceLike, view: ViewLike): SliceL
   const drop = takeDropPoint();
   const { doc } = view.state;
   if (view.dragging) {
-    // 站內拖曳：橫線放置照 PM／core（§7.1），只在落點不在頂層時攤平。
+    // 站內拖曳：橫線放置照 PM／core，只在落點不在頂層時攤平。
     return drop !== null && !isTopLevelPosition(doc.resolve(drop)) ? flattenRows(slice) : slice;
   }
   return isTopLevelPosition(doc.resolve(drop ?? view.state.selection.from)) ? closeTopLevel(slice) : flattenRows(slice);

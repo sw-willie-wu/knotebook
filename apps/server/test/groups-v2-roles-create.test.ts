@@ -1,5 +1,5 @@
 /**
- * #175 PR3 Task 2：`POST /api/groups/:id/roles`（spec §6.7；閱讀恆真＝spec 疑點 10；旗標不蘊含＝spec 疑點 11）。
+ * #175：`POST /api/groups/:id/roles`（閱讀恆真；旗標不蘊含）。
  * 回讀一律走 `GET /api/groups/:id/roles`。
  */
 import { describe, expect, it } from "vitest";
@@ -32,7 +32,7 @@ async function setup() {
   return { app, db, spy, admin, member, g, post, roles };
 }
 
-describe("#175 PR3 POST /api/groups/:id/roles", () => {
+describe("#175 POST /api/groups/:id/roles", () => {
   it("授權矩陣：401／404×3（逐位元組相同）／403／201／站台 admin 201", async () => {
     const { app, db } = await buildTestApp({ collabHooks: spyCollabHooks() });
     await runGroupAuthMatrix(app, db, {
@@ -64,7 +64,7 @@ describe("#175 PR3 POST /api/groups/:id/roles", () => {
     expect((await roles()).map(r => r.builtin ?? r.name)).toEqual(["admin", "member", "alpha", "Beta", "Reviewers"]);
   });
 
-  it("RF5：六旗標全關 → 201，存成「只能閱讀」（read true、其餘 false）", async () => {
+  it("六旗標全關 → 201，存成「只能閱讀」（read true、其餘 false）", async () => {
     const { post, roles } = await setup();
     const res = await post({ name: "Readers", permissions: NONE });
     expect(res.statusCode).toBe(201);
@@ -102,7 +102,7 @@ describe("#175 PR3 POST /api/groups/:id/roles", () => {
     expect(list.find(r => r.id === m1.json().id)?.permissions).toMatchObject({ manageGroup: false, manageMembers: true });
   });
 
-  it("RF1 名稱：trim／大小寫／NFC 撞名與保留名 → 409 role_name_taken；'Admins' 可以建", async () => {
+  it("名稱：trim／大小寫／NFC 撞名與保留名 → 409 role_name_taken；'Admins' 可以建", async () => {
     const { post, roles } = await setup();
     const reader = await post({ name: " Reader ", permissions: NONE });
     expect(reader.statusCode).toBe(201);
@@ -113,7 +113,7 @@ describe("#175 PR3 POST /api/groups/:id/roles", () => {
     for (const name of ["reader", "Café", "admin", "MEMBER", "管理員", "一般成員"]) {
       const res = await post({ name, permissions: NONE });
       expect(res.statusCode, name).toBe(409);
-      expect(res.json()).toEqual({ error: { code: "role_name_taken", message: "這個群組已有同名的角色，或該名稱保留給內建角色" } });
+      expect(res.json()).toEqual({ error: { code: "role_name_taken", message: "This group already has a role with that name, or the name is reserved for a built-in role." } });
     }
     expect((await post({ name: "Admins", permissions: NONE })).statusCode).toBe(201);
     expect((await roles()).map(r => r.builtin ?? r.name)).toEqual(["admin", "member", "Admins", "Café", "Reader"]);
@@ -124,7 +124,7 @@ describe("#175 PR3 POST /api/groups/:id/roles", () => {
     for (const name of ["", "   ", "a".repeat(41), `a${NUL}b`, "\uD800"]) {
       const res = await post({ name, permissions: NONE });
       expect(res.statusCode, JSON.stringify(name)).toBe(400);
-      expect(res.json()).toEqual({ error: { code: "invalid_name", message: "角色名稱須為 1–40 個字元" } });
+      expect(res.json()).toEqual({ error: { code: "invalid_name", message: "Role names must be 1 to 40 characters." } });
     }
     expect(await roles()).toHaveLength(2);
     const emoji = await post({ name: "\u{1F600}".repeat(40), permissions: NONE });
@@ -169,7 +169,7 @@ describe("#175 PR3 POST /api/groups/:id/roles", () => {
     expect(res.json().error.code).toBe("forbidden");
   });
 
-  it("§5.5：身為內建一般成員的站台 admin → 201", async () => {
+  it("身為內建一般成員的站台 admin → 201", async () => {
     const { app, db } = await buildTestApp({ collabHooks: spyCollabHooks() });
     const owner = await seedUser(db);
     const siteAdmin = await seedUser(db, { isAdmin: true });
@@ -181,7 +181,7 @@ describe("#175 PR3 POST /api/groups/:id/roles", () => {
     expect(res.json()).toMatchObject({ builtin: null, name: "ByAdmin", memberCount: 0 });
   });
 
-  it("不踢線：連建數個角色後 onGroupAccessChanged 呼叫 0 次（§7：建立角色沒有人掛它）", async () => {
+  it("不踢線：連建數個角色後 onGroupAccessChanged 呼叫 0 次（建立角色沒有人掛它）", async () => {
     const { post, spy } = await setup();
     expect((await post({ name: "A", permissions: NONE })).statusCode).toBe(201);
     expect((await post({ name: "B", permissions: { ...NONE, edit: true, create: true } })).statusCode).toBe(201);

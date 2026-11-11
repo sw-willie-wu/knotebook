@@ -20,7 +20,7 @@ vi.mock("@/lib/trash-display", async (importOriginal) => {
   return { ...actual, trashDetailLine: vi.fn(actual.trashDetailLine) };
 });
 
-// 垃圾桶 tab 的面板（平常）、確認框（plan T4）；選取模式（plan T5 SM*，動作列在 SidebarFooter.test.tsx）。
+// 垃圾桶 tab 的面板（平常）、確認框；選取模式（SM*，動作列在 SidebarFooter.test.tsx）。
 
 afterEach(() => {
   localStorage.clear();
@@ -44,6 +44,9 @@ const RD = { id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", name: "R&D" };
 const P1 = trashItem({ id: "p1", title: "p1" }, { deletedDaysAgo: 0 });
 const P2 = trashItem({ id: "p2", title: "p2" }, { deletedDaysAgo: 1 });
 const W1 = trashItem({ id: "w1", title: "w1", group: RD, deletedBy: AMY }, { deletedDaysAgo: 2 });
+/** 在資料夾裡的（TP-F*）：個人 A › B、群組 研發組 › 團隊週報。 */
+const PF = trashItem({ id: "pf", title: "pf", folderPath: ["A", "B"] });
+const WF = trashItem({ id: "wf", title: "wf", group: { id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", name: "研發組" }, deletedBy: AMY, folderPath: ["團隊週報"] });
 
 /** 還原成功回的 NoteDto（只要 id 對；`useRestoreTrash` 會拿去蓋常駐層）。 */
 function restoredNote(item: TrashItemDto): NoteDto {
@@ -228,7 +231,7 @@ describe("TrashPanel（平常）", () => {
     expect(empty).toHaveClass("text-destructive");
     expect(empty).toBeEnabled();
 
-    // 「選取」只送 start（畫面在 T5）。
+    // 「選取」只送 start（畫面在選取模式）。
     fireEvent.click(select);
     expect(screen.getByTestId("selecting")).toHaveTextContent("true");
   });
@@ -261,7 +264,7 @@ describe("TrashPanel（平常）", () => {
     fireEvent.click(screen.getByTestId("toggle-p1"));
     expect(screen.getByTestId("selected-count")).toHaveTextContent("1");
 
-    // T5 起選取模式的標題列換成「已選」：「選取」鈕已卸載，再按也送不出 start。
+    // 選取模式的標題列換成「已選」：「選取」鈕已卸載，再按也送不出 start。
     expect(select.isConnected).toBe(false);
     expect(within(header()).queryByRole("button", { name: "Select" })).toBeNull();
     fireEvent.click(select);
@@ -274,29 +277,29 @@ describe("TrashPanel（平常）", () => {
     renderPanel();
     await waitFor(() => expect(row("w1")).not.toBeNull());
     const headings = within(panel()).getAllByRole("heading", { level: 3 });
-    expect(headings.map((h) => h.textContent)).toEqual(["My notes", "Workspace"]);
+    expect(headings.map((h) => h.textContent)).toEqual(["My notes", "Groups"]);
     const personal = within(panel()).getByRole("list", { name: "My notes" });
     expect([...personal.querySelectorAll("li[data-node-id]")].map((li) => li.getAttribute("data-node-id"))).toEqual(["p1", "p2"]);
-    const workspace = within(panel()).getByRole("list", { name: "Workspace" });
+    const workspace = within(panel()).getByRole("list", { name: "Groups" });
     expect([...workspace.querySelectorAll("li[data-node-id]")].map((li) => li.getAttribute("data-node-id"))).toEqual(["w1"]);
   });
 
-  it("TP2 只有個人項目 → 沒有 Workspace 區標", async () => {
+  it("TP2 只有個人項目 → 沒有 Groups 區標", async () => {
     stubServer({ items: [P1, P2] });
     renderPanel();
     await waitFor(() => expect(row("p2")).not.toBeNull());
     expect(within(panel()).getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(["My notes"]);
   });
 
-  it("TP2 只有工作坊項目 → 沒有 My notes 區標；清空框也沒有 My notes 列", async () => {
+  it("TP2 只有群組項目 → 沒有 My notes 區標；清空框也沒有 My notes 列", async () => {
     stubServer({ items: [W1] });
     renderPanel();
     await waitFor(() => expect(row("w1")).not.toBeNull());
-    expect(within(panel()).getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(["Workspace"]);
+    expect(within(panel()).getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(["Groups"]);
     fireEvent.click(within(header()).getByRole("button", { name: "Empty" }));
     const dialog = await screen.findByRole("dialog", { name: "Empty the trash?" });
     expect(within(dialog).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
-      "Workspace: 1 note (including some deleted by other members)",
+      "Groups: 1 note (including some deleted by other members)",
     ]);
   });
 
@@ -312,6 +315,31 @@ describe("TrashPanel（平常）", () => {
       expect(row(id)).toHaveAttribute("data-node-kind", "note");
       expect(row(id)).toHaveAttribute("data-node-id", id);
     }
+  });
+
+  // 資料夾：第二行元素帶位置段的 title；根層（位置段空）不帶。
+  it("TP-F1 個人 [A, B]：第二行文字照舊、該元素 title「A › B」", async () => {
+    stubServer({ items: [PF, P1] });
+    renderPanel();
+    await waitFor(() => expect(row("pf")).not.toBeNull());
+    expect(detail("pf")).toHaveTextContent(/^A › B · 3 days left$/);
+    expect(detail("pf")).toHaveAttribute("title", "A › B");
+  });
+
+  it("TP-F2 群組 [團隊週報]：title「研發組 › 團隊週報」", async () => {
+    stubServer({ items: [WF] });
+    renderPanel();
+    await waitFor(() => expect(row("wf")).not.toBeNull());
+    expect(detail("wf")).toHaveTextContent(/^研發組 › 團隊週報 · Deleted by Amy · 3 days left$/);
+    expect(detail("wf")).toHaveAttribute("title", "研發組 › 團隊週報");
+  });
+
+  it("TP-F3 個人根層：第二行沒有 title 屬性", async () => {
+    stubServer({ items: [PF, P1] });
+    renderPanel();
+    await waitFor(() => expect(row("p1")).not.toBeNull());
+    expect(detail("p1")).toHaveTextContent(/^3 days left$/);
+    expect(detail("p1")).not.toHaveAttribute("title");
   });
 
   it("TP4 列動作：還原鈕 hover 浮出＋圖示；⋮ 選單兩項帶圖示、永久刪除紅字", async () => {
@@ -494,7 +522,7 @@ describe("TrashPanel（平常）", () => {
     let dialog = await screen.findByRole("dialog", { name: "Empty the trash?" });
     expect(within(dialog).getByText("3 notes and their attachments will be permanently deleted. This can't be undone.", { exact: true })).toBeInTheDocument();
     const lines = within(dialog).getAllByRole("listitem").map((li) => li.textContent);
-    expect(lines).toEqual(["My notes: 2 notes", "Workspace: 1 note (including some deleted by other members)"]);
+    expect(lines).toEqual(["My notes: 2 notes", "Groups: 1 note (including some deleted by other members)"]);
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(server.posts("/api/trash/purge")).toEqual([]);
@@ -555,7 +583,7 @@ describe("TrashPanel（平常）", () => {
     expect(screen.getByRole("dialog", { name: "Empty the trash?" })).toBe(dialog);
   });
 
-  it("TP7 250 篇（全個人、我刪的）：分兩批 200＋50；框內沒有 Workspace 列", async () => {
+  it("TP7 250 篇（全個人、我刪的）：分兩批 200＋50；框內沒有 Groups 列", async () => {
     const many = Array.from({ length: 250 }, (_, i) => trashItem({ id: `n${String(i).padStart(3, "0")}`, title: `n${i}` }));
     const server = stubServer({ items: many });
     renderPanel();
@@ -645,7 +673,7 @@ describe("TrashPanel（平常）", () => {
     expect(within(list()).queryByText("Only the 1,000 most recently deleted notes are listed.")).toBeNull();
   });
 
-  it("TP10 zh-TW：標題、工作坊第二行、清空鈕與清空框的分區行", async () => {
+  it("TP10 zh-TW：標題、群組第二行、清空鈕與清空框的分區行", async () => {
     await i18n.changeLanguage("zh-TW");
     try {
       stubServer({ items: [P1, P2, W1] });
@@ -655,26 +683,26 @@ describe("TrashPanel（平常）", () => {
       const empty = within(header()).getByRole("button", { name: "清空" });
       fireEvent.click(empty);
       const dialog = await screen.findByRole("dialog", { name: "清空垃圾桶？" });
-      expect(within(dialog).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["我的筆記 2 篇", "工作坊 1 篇（含其他成員刪除的）"]);
+      expect(within(dialog).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["我的筆記 2 篇", "群組 1 篇（含其他成員刪除的）"]);
     } finally {
       await i18n.changeLanguage("en");
     }
   });
 
-  it("TC4 zh-TW：個人區的區標與清單名稱是「我的筆記」（與側欄 tab 同名）", async () => {
+  it("zh-TW：個人區的區標與清單名稱是「我的筆記」（與側欄 tab 同名）", async () => {
     await i18n.changeLanguage("zh-TW");
     try {
       stubServer({ items: [P1, W1] });
       renderPanel();
       await waitFor(() => expect(row("w1")).not.toBeNull());
-      expect(within(panel()).getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(["我的筆記", "工作坊"]);
+      expect(within(panel()).getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(["我的筆記", "群組"]);
       expect(within(panel()).getByRole("list", { name: "我的筆記" })).toBeInTheDocument();
     } finally {
       await i18n.changeLanguage("en");
     }
   });
 
-  // final review N-4：列的還原送出中，確認框的「永久刪除」若可按會被 `exclusive` 靜默吞掉——改成 disabled。
+  // 列的還原送出中，確認框的「永久刪除」若可按會被 `exclusive` 靜默吞掉——改成 disabled。
   it("TP13 列的還原送出中：單篇永久刪除框的確認鈕 disabled、按了不送；還原回來後可按、送一次", async () => {
     let release!: () => void;
     const hold = new Promise<void>((resolve) => {
@@ -732,7 +760,7 @@ const checkbox = (id: string) => row(id).querySelector('input[type="checkbox"]')
 const rowLabel = (id: string) => row(id).querySelector("label") as HTMLLabelElement;
 const checkedIds = () => ["p1", "p2", "w1", "w2"].filter((id) => checkbox(id).checked);
 
-/** 個人 p1、p2，工作坊 w1、w2；等清單到了按「選取」。 */
+/** 個人 p1、p2，群組 w1、w2；等清單到了按「選取」。 */
 async function renderSelecting() {
   const server = stubServer({ items: [P1, P2, W1, W2] });
   const rendered = renderPanel();
@@ -762,10 +790,23 @@ describe("TrashPanel（選取模式）", () => {
     const boxes = within(panel()).getAllByRole("checkbox");
     expect(boxes).toHaveLength(4);
     for (const box of boxes) expect(box).not.toBeChecked();
-    expect(checkbox("p1")).toHaveClass("accent-brand");
+    expect(checkbox("p1")).toHaveClass("appearance-none");
     expect(within(panel()).queryByRole("button", { name: "Restore p1" })).toBeNull();
     expect(within(panel()).queryByRole("button", { name: "Actions for p1" })).toBeNull();
     expect(done).toHaveFocus();
+  });
+
+  it("TP-F4 選取模式列的第二行：在資料夾裡帶完整路徑 title、根層不帶", async () => {
+    stubServer({ items: [PF, P1, WF] });
+    renderPanel();
+    await waitFor(() => expect(row("wf")).not.toBeNull());
+    fireEvent.click(within(header()).getByRole("button", { name: "Select" }));
+    await waitFor(() => expect(checkbox("pf")).not.toBeNull());
+    expect(detail("pf").tagName).toBe("SPAN");
+    expect(detail("pf")).toHaveTextContent(/^A › B · 3 days left$/);
+    expect(detail("pf")).toHaveAttribute("title", "A › B");
+    expect(detail("wf")).toHaveAttribute("title", "研發組 › 團隊週報");
+    expect(detail("p1")).not.toHaveAttribute("title");
   });
 
   it("SM2 點列（label 文字）切換：勾、標題 1 selected、列底色；再點取消", async () => {
@@ -783,6 +824,12 @@ describe("TrashPanel（選取模式）", () => {
     expect(checkbox("p1")).not.toBeChecked();
     expect(within(header()).getByText("0 selected", { exact: true })).toBeInTheDocument();
     expect(rowLabel("p1")).not.toHaveClass("bg-brand-soft");
+  });
+
+  it("TP-C1 垃圾桶選取列的勾選框是自繪的：appearance-none、不含 accent-brand", async () => {
+    await renderSelecting();
+    expect(checkbox("p1")).toHaveClass("appearance-none");
+    expect(checkbox("p1")).not.toHaveClass("accent-brand");
   });
 
   it("SM3 Shift 跨區：p1 → Shift 點 w1 → p1、p2、w1 勾，w2 未勾", async () => {
@@ -825,7 +872,8 @@ describe("TrashPanel（選取模式）", () => {
   it("SM6 Esc：回平常標題列、勾選框消失、焦點在 Select", async () => {
     await renderSelecting();
     fireEvent.click(checkbox("p1"));
-    fireEvent.keyDown(checkbox("p1"), { key: "Escape" });
+    // 這一下 Esc 只結束選取——preventDefault（fireEvent 回 false），搜尋標記的 Esc 監聽看到 defaultPrevented 就讓路
+    expect(fireEvent.keyDown(checkbox("p1"), { key: "Escape" })).toBe(false);
     const select = within(header()).getByRole("button", { name: "Select" });
     expect(select).toHaveFocus();
     expect(within(panel()).queryAllByRole("checkbox")).toHaveLength(0);
@@ -885,7 +933,7 @@ describe("TrashPanel（選取模式）", () => {
     expect(within(header()).getByRole("button", { name: "Select all" })).toBeDisabled();
   });
 
-  // final review M-1：1000 篇時每勾一列都重繪全部列＋重算日期。只有勾選狀態變了的列重算第二行。
+  // 1000 篇時每勾一列都重繪全部列＋重算日期。只有勾選狀態變了的列重算第二行。
   it("SM16 勾一列只重算那一列；Shift 範圍只重算新勾的列", async () => {
     await renderSelecting();
     const detailCalls = vi.mocked(trashDetailLine);

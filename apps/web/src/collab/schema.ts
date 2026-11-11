@@ -5,14 +5,14 @@ import { mermaidSpec } from "@/components/mermaid/spec";
 import { wikilinkSpec } from "@/components/wikilink/spec";
 import { withColumnsLayout } from "./columns/layout-extension";
 
-// spec §11.1（P2 圖片行為）曾經逐字：上傳是 Plan 3 的範圍，P2 **不啟用 image
+// 早期版本 **不啟用 image
 // block**，並且**攔截並拒絕**圖片的貼上／拖放。理由不是 UI 潔癖而是儲存：BlockNote
 // 沒有 `uploadFile` 時會把貼進來的圖片轉成 data URL 塞進 block props，那份 base64
-// 會直接進 Y.Doc → 經 `onStoreDocument` 灌爆 `note_states` 與分桶備份（§4 設計分桶
+// 會直接進 Y.Doc → 經 `onStoreDocument` 灌爆 `note_states` 與分桶備份（設計分桶
 // 正是為了避免這類 bytea 膨脹）。
 //
-// Plan 3 Task 14 起這段已經**不成立**：image block 恢復啟用，`NoteEditor.tsx` 的
-// `buildNoteEditorOptions` 掛了 `uploadFile`（Task 13 `createUploadFile`），純圖片
+// 現在這段已經**不成立**：image block 恢復啟用，`NoteEditor.tsx` 的
+// `buildNoteEditorOptions` 掛了 `uploadFile`（`createUploadFile`），純圖片
 // 檔案的貼上／拖放改走「先上傳、拿到 url 才寫回 block props」這條路，不會再有 base64
 // 進 Y.Doc。
 //
@@ -54,10 +54,10 @@ import { withColumnsLayout } from "./columns/layout-extension";
  */
 
 /**
- * 本專案的 BlockNote schema：預設 block **全套**（Plan 3 Task 14 起含 image；
+ * 本專案的 BlockNote schema：預設 block **全套**（含 image；
  * audio／file／image／video 四個檔案類 block 的 `toExternalHTML` 套上 #43 的 URL
  * 守衛，見上方 `withGuardedExternalHTML`），inline content 全套**加上** `wikilink`
- * （Plan 3）。並排排版的 `columnList`／`column` 兩型來自 `@knotebook/shared` 的 `columns.ts`（與 headless schema 同一份）。
+ * 。並排排版的 `columnList`／`column` 兩型來自 `@knotebook/shared` 的 `columns.ts`（與 headless schema 同一份）。
  *
  * ⚠ `BlockNoteSchema.create` 傳入 `inlineContentSpecs` 是**整組覆寫**，不是「疊加在
  * 預設值上」——`BlockNoteSchema.create` 本體只有在完全不傳這個欄位時才會落回
@@ -104,7 +104,7 @@ export function containsMediaDataUrl(text: string | null | undefined): boolean {
 export type BlockedTransferReason = "dataUrl" | "textRepresentation" | "nonImageFile";
 
 /**
- * `containsMediaDataUrl` 掃描的四種文字格式（§12.4 規則①）。刻意**不含**
+ * `containsMediaDataUrl` 掃描的四種文字格式（規則①）。刻意**不含**
  * `vscode-editor-data`——那個管線只用 `text/plain` 造 code block，本身不會帶媒體
  * data URL，掃了也是白掃。
  */
@@ -121,7 +121,7 @@ const MEDIA_DATA_URL_TEXT_FORMATS = ["text/html", "text/plain", "text/markdown",
  * import 型的 parity 測試來守住這條同步關係；升級 `@blocknote/core` 版本時記得
  * 回頭比對這份原始碼路徑。
  */
-const TEXT_REPRESENTATION_MIME_TYPES = [
+export const TEXT_REPRESENTATION_MIME_TYPES = [
   "vscode-editor-data",
   "blocknote/html",
   "text/markdown",
@@ -130,7 +130,7 @@ const TEXT_REPRESENTATION_MIME_TYPES = [
 ] as const;
 
 /**
- * 這次貼上／拖放該不該被攔下來、為什麼（§12.4）。四條規則依序判斷，第一條命中
+ * 這次貼上／拖放該不該被攔下來、為什麼。四條規則依序判斷，第一條命中
  * 就回傳，全部不匹配則放行（`null`）：
  *
  * ① `text/html`／`text/plain`／`text/markdown`／`blocknote/html` 任一含媒體 data
@@ -144,7 +144,7 @@ const TEXT_REPRESENTATION_MIME_TYPES = [
  *    直接放棄檔案插入路徑；我們沿用同一個判準，統一攔下引導使用者改用檔案本身。
  * ③ `files` 非空且全部 `File.type` 以 `image/` 開頭（空字串＝非 image）→ 放行
  *    （`null`）——純圖片檔案的貼上／拖放本身不會產生 data URL，交給後續
- *    `uploadFile` 管線處理（Plan 3 Task 13/14）。
+ *    `uploadFile` 管線處理。
  * ④ 其餘含檔案的情形（任一非 image 檔）→ `"nonImageFile"`。
  *
  * 傳 `null`／`undefined`（某些合成事件沒有 dataTransfer）一律放行。

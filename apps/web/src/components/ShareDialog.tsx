@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useLocation } from "react-router";
 import {
@@ -13,6 +13,7 @@ import {
 } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
 import { useDeleteShare, usePutShare, useShares } from "@/api/shares";
+import { useSession } from "@/auth/useSession";
 import {
   useClearPublicSlug,
   useCreatePublicLink,
@@ -53,7 +54,7 @@ const SELECT_CLASS =
   "focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
 
 /**
- * 分享面板的一組設定＝**一件事**。內部自訂網址下架後（Willie 2026-09-17）面板只剩
+ * 分享面板的一組設定＝**一件事**。內部自訂網址下架之後，面板只剩
  * 「存取權」一組，這裡只負責標題與上下留白（原本多組時靠外層 `divide-y` 長出髮絲線，
  * 現在單組已不需要）。
  *
@@ -79,6 +80,10 @@ function ShareRow({ noteId, share }: { noteId: string; share: ShareDto }) {
   const { t } = useTranslation();
   const putShare = usePutShare(noteId);
   const deleteShare = useDeleteShare(noteId);
+  const myUserId = useSession().user?.id;
+  // #395：移除前先在列內確認（與「改成私人」的確認列同一種樣式）
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
+  const trashRef = useRef<HTMLButtonElement>(null);
 
   async function handleRoleChange(role: ShareRole): Promise<void> {
     try {
@@ -92,12 +97,13 @@ function ShareRow({ noteId, share }: { noteId: string; share: ShareDto }) {
     try {
       await deleteShare.mutateAsync(share.userId);
     } catch (err) {
+      setConfirmingRemove(false);
       toast({ title: errorMessage(t, err), variant: "destructive" });
     }
   }
 
   return (
-    <li className="flex items-center gap-2">
+    <li className="flex flex-wrap items-center gap-2">
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium">{share.displayName}</p>
         <p className="truncate text-xs text-muted-foreground">{share.email}</p>
@@ -113,15 +119,35 @@ function ShareRow({ noteId, share }: { noteId: string; share: ShareDto }) {
         <option value="editor">{t("roles.editor")}</option>
       </select>
       <Button
+        ref={trashRef}
         type="button"
         variant="ghost"
         size="icon"
         aria-label={t("share.remove", { email: share.email })}
         disabled={deleteShare.isPending}
-        onClick={() => void handleRemove()}
+        onClick={() => setConfirmingRemove(true)}
       >
         <Trash className="h-4 w-4" />
       </Button>
+      {confirmingRemove && (
+        // role="alert"：同「改成私人」的確認列——破壞性確認憑空長出來，要告知鍵盤／AT 使用者。
+        <div role="alert" className="w-full space-y-2 rounded-md border border-destructive/40 p-2">
+          <p className="text-sm break-words">
+            {t(share.userId === myUserId ? "share.removeSelfConfirm" : "share.removeConfirm", { email: share.email })}
+          </p>
+          <div className="flex gap-2">
+            <Button type="button" variant="destructive" size="sm" disabled={deleteShare.isPending} onClick={() => void handleRemove()}>
+              {t("share.removeConfirmButton")}
+            </Button>
+            <Button type="button" variant="outline" size="sm" disabled={deleteShare.isPending} onClick={() => {
+                setConfirmingRemove(false);
+                trashRef.current?.focus(); // 確認列卸載，焦點不能掉到 body
+              }}>
+              {t("home.cancel")}
+            </Button>
+          </div>
+        </div>
+      )}
     </li>
   );
 }
@@ -204,19 +230,19 @@ type AccessLevel = "private" | "members" | "public";
 
 /**
  * 個人筆記三態的 derive（僅供 latch 初值與顯式重算點——不是持續同步）。
- * 群組筆記不走這裡（#175 §8.4：群組版面板沒有 radio；觸發鈕的群組態由 `ShareDialog` 獨立給）。
+ * 群組筆記不走這裡（#175：群組版面板沒有 radio；觸發鈕的群組態由 `ShareDialog` 獨立給）。
  */
 function deriveAccess(token: string | null, shares: ShareDto[]): AccessLevel {
   return token ? "public" : shares.length > 0 ? "members" : "private";
 }
 
 /**
- * 分享三態（#72，spec §4）：私人🔒／限定成員👥／公開連結🌐。
+ * 分享三態（#72）：私人🔒／限定成員👥／公開連結🌐。
  *
  * **radio 是 sticky 的 UI state（latch）**：兩個 query（shares＋public-link）在本元件
  * **掛載後**都抓到資料時 derive 一次初值（#170，見 latch effect 的註解）；之前顯示 loading、**不選中任何 radio**——dialog
  * 內容是開啟才掛載、query 開啟當下必為 undefined，字面的「開啟時 derive」會讓
- * 已公開的筆記永遠顯示私人（安全性誤述，spec B4）。之後**使用者的選擇活到
+ * 已公開的筆記永遠顯示私人（安全性誤述）。之後**使用者的選擇活到
  * dialog 關閉為止**（關閉即 unmount、重開重新 latch——由 ShareDialog 的
  * `open &&` 掛載結構保證，有測試釘住），沒有「資料變動時重算」的全域規則
  * （有的話「公開→限定成員（零成員）」與「移除最後一位成員」都會被 refetch 彈回
@@ -232,14 +258,14 @@ function deriveAccess(token: string | null, shares: ShareDto[]): AccessLevel {
  * 成員名單與加人表單在**三態都渲染**（SharesSection 原樣）——radio 只是動作
  * 觸發器：在「私人」態加人不會重算 selection（刻意）。**確認流懸掛中**成員被
  * 名單那側清空時，effect 會替使用者把剩下的「撤連結」做完（否則動作憑空蒸發：
- * radio 顯示私人、連結還活著——審查探針實測過的路徑）。
+ * radio 顯示私人、連結還活著——實測過的路徑）。
  *
- * 私人確認流（D3）：行內確認列出將移除成員數；確認後**先 DELETE public-link、
+ * 私人確認流：行內確認列出將移除成員數；確認後**先 DELETE public-link、
  * 再循序 DELETE shares**（順序承重：中止時最壞是「還剩幾位成員」，不是「連結
  * 還開著」）。
  *
- * **只給個人筆記**（#175 §8.4）：群組筆記的面板是 `GroupNoteShareSection`——沒有 radio、
- * 不發 `useShares`（群組筆記沒有逐人分享，S5）。
+ * **只給個人筆記**（#175）：群組筆記的面板是 `GroupNoteShareSection`——沒有 radio、
+ * 不發 `useShares`（群組筆記沒有逐人分享）。
  */
 function AccessSection({ note }: { note: NoteDto }) {
   const noteId = note.id;
@@ -260,10 +286,10 @@ function AccessSection({ note }: { note: NoteDto }) {
   const queriesFailed = linkQuery.isError || sharesQuery.isError;
 
   // #170：只用「本元件掛載後抓到的資料」latch——消滅「快取有就 latch」這一形。快取可能早於歸屬改變（移動成功把
-  // shares 寫成 []、PR4 轉移把群組筆記變回個人、背景重抓的到達順序），「快取有就 latch」會 sticky 地停在錯的態。掛載必
+  // shares 寫成 []、刪群組時的轉移把群組筆記變回個人、背景重抓的到達順序），「快取有就 latch」會 sticky 地停在錯的態。掛載必
   // 觸發一次重抓（預設 staleTime 0，main.tsx 的註解承重），所以代價是一個往返的「載入中」；觸發鈕圖示不受影響（它讀
   // 目前資料，不是 latch）。已知殘留三形（`isFetchedAfterMount` 只看掛載後計數有沒有增加，不看資料來自哪次請求；
-  // 與 v1 群組筆記 latch 同級、不另補——主檔規格落差 10）：
+  // 與 v1 群組筆記 latch 同級、不另補）：
   //   ① 重抓失敗也算 fetched，latch 吃舊快取；
   //   ② 掛載前已在飛的請求被沿用，內容可能早於歸屬改變；
   //   ③ 掛載後的 `setQueryData` 也會觸發 latch。
@@ -281,7 +307,7 @@ function AccessSection({ note }: { note: NoteDto }) {
     setSelection(deriveAccess(freshLink.data?.token ?? null, freshShares.data ?? []));
   }
 
-  /** 撤銷公開連結（失敗即復原——裸 mutate 的靜默失敗是審查抓到的安全性誤述）。 */
+  /** 撤銷公開連結（失敗即復原——裸 mutate 的靜默失敗是安全性誤述）。 */
   async function revokeLink(): Promise<void> {
     try {
       await deleteLink.mutateAsync();
@@ -291,7 +317,7 @@ function AccessSection({ note }: { note: NoteDto }) {
   }
 
   /** 產生／重生公開連結（失敗即復原，同上）。回傳是否成功——OFF 態「重新產生」
-   * （B1）需要知道換 token 這步有沒有成功，才能決定要不要接著換 slug：失敗時
+   *需要知道換 token 這步有沒有成功，才能決定要不要接著換 slug：失敗時
    * 這裡已經 toast＋復原過一次，呼叫端不必也不該再顯示第二個錯誤，只需要中止、
    * 不得拿舊 token 硬換出一個新 slug。 */
   async function mintLink(): Promise<boolean> {
@@ -431,7 +457,7 @@ function AccessSection({ note }: { note: NoteDto }) {
           「這些設定屬於我剛剛選的那個」才看得出來，同時畫面上的輸入框也少一半。
           ⚠ 副作用：私人狀態下不再直接出現邀請表單（要先選「限定成員」）——
           `e2e/tests/03-share-revoke.spec.ts` 因此多一步點選，那條刻意的捷徑
-          由 Willie 2026-09-17 裁定換掉。 */}
+          已換掉。 */}
       {latched && selection === "members" && (
         <div className="rounded-md bg-muted/40 p-3">
           <SharesSection noteId={note.id} title={t("share.membersPanelTitle")} />
@@ -455,12 +481,12 @@ function AccessSection({ note }: { note: NoteDto }) {
 }
 
 /**
- * #175 §8.4：群組筆記的分享面板——**無 radio、無成員區**。存取由群組角色決定，所以這裡只說明＋帶去群組設定
- * （點了先關分享面板，否則兩個 Dialog 疊著）；能管公開連結的角色才看得到公開連結開關（群組筆記沒有公開別名，W7）。
- * `useShares` 一律不發（群組筆記沒有逐人分享，S5）；`usePublicLink` 只在 `managePublicLink` 為真時發（否則 server 回 403）。
+ * #175：群組筆記的分享面板——**無 radio、無成員區**。存取由群組角色決定，所以這裡只說明＋帶去群組設定
+ * （點了先關分享面板，否則兩個 Dialog 疊著）；能管公開連結的角色才看得到公開連結開關（群組筆記沒有公開別名）。
+ * `useShares` 一律不發（群組筆記沒有逐人分享）；`usePublicLink` 只在 `managePublicLink` 為真時發（否則 server 回 403）。
  * 複製到我的筆記不在這裡：統一在 ⋮ 選單「複製到… → 我的筆記」（#216，`share/GroupTransfer.tsx`）。
  * 角色一律讀 `note.permissions`：移動成功後這份 `NoteDto` 是 server 回應，「能新建、不能編輯」的角色搬完是 viewer
- * （沒有公開連結開關、只剩說明與複製），不得假設搬完是 editor（規格落差 17）。
+ * （沒有公開連結開關、只剩說明與複製），不得假設搬完是 editor。
  *
  * 沒有 radio 也就沒有 latch：開關的 `checked` 直接看 query 資料（載入中停用），#170／#171 那種 sticky 誤報形在這裡不存在。
  */
@@ -546,7 +572,7 @@ function GroupNoteShareSection({ note, onClose }: { note: NoteDto; onClose: () =
 
 const RANDOM_SLUG_ATTEMPTS = 5;
 
-/** 匿名態公開連結網址的前綴（N3）：組完整網址（`linkUrl`）與畫面上顯示的前綴
+/** 匿名態公開連結網址的前綴：組完整網址（`linkUrl`）與畫面上顯示的前綴
  * 文字兩處都要用這個常數——各自拼一份字面 `"/p/"` 就是這個檔案自己在
  * `publicAliasPath` 那段 JSDoc 裡明令禁止的漂移形，這裡是同一份紀律套在匿名分支
  * （OFF 態的前綴走 `publicAliasPath({ handle, slug: "" })`，本來就只有一處）。 */
@@ -580,9 +606,9 @@ function generateValidatedRandomSlug(): string | null {
 }
 
 /**
- * 公開連結面板（Willie 2026-09-17 產品決定，取代舊「token 唯讀連結」＋「公開別名
+ * 公開連結面板（取代舊「token 唯讀連結」＋「公開別名
  * 欄位」兩個並列區塊）：**一個匿名 toggle ＋ 一條連結 ＋ 最多三顆鈕**（`allowAlias`
- * 為 false——群組筆記，W7——時沒有 toggle，只有連結＋兩顆鈕）。只在有 token 時渲染
+ * 為 false——群組筆記——時沒有 toggle，只有連結＋兩顆鈕）。只在有 token 時渲染
  * （個人呼叫端鎖在 `selection === "public" && token` 內；群組呼叫端鎖在 `token` 內）。
  *
  * **模式由既有資料推導，不是獨立 state**：`slug` 為 `null` ⇔ 匿名 ON（網址
@@ -595,7 +621,7 @@ function generateValidatedRandomSlug(): string | null {
  * - **切 OFF**＝`useSetPublicSlug` 寫入前端產生的隨機 slug；**切 ON**＝
  *   `useClearPublicSlug`。「重新產生」在 ON 態＝換 token（呼叫端傳入的
  *   `onRegenerateToken`：個人筆記是 `AccessSection.mintLink`（mutateAsync＋recoverFromError）、
- *   群組筆記是 `GroupNoteShareSection` 的 `regenerate`（mutateAsync＋toast））；在 OFF 態（B1 修正，2026-09-17）＝
+ *   群組筆記是 `GroupNoteShareSection` 的 `regenerate`（mutateAsync＋toast））；在 OFF 態＝
  *   **同時換 token 與 slug**——先換 token 再換 slug，任一步失敗都中止並走既有
  *   錯誤呈現。理由：OFF 態的網址是 `/p/<handle>/<slug>`，不含 token，但 token
  *   仍是唯一的安全邊界；只換 slug、不換 token 的話，外洩過的 256-bit token
@@ -606,7 +632,7 @@ function generateValidatedRandomSlug(): string | null {
  * - **一律 `mutateAsync` ＋ catch → `setError`**：toggle／regenerate／save／width 四個
  *   動作共用同一顆 `error` state（同時只會有一個在跑，`busy` 互斥），裸 `mutate()`
  *   的靜默失敗＝安全性誤述（見 `突變驗證`：把 catch 拿掉會讓失敗復原測試翻紅）。
- * - OFF 態沿用 #122 PR3 的別名輸入慣例：`normalizeSlug`→`validateSlug` 本地先擋、
+ * - OFF 態沿用 #122 的別名輸入慣例：`normalizeSlug`→`validateSlug` 本地先擋、
  *   `share.slugError.*` 文案、`#share-public-slug-prefix`／`#share-public-slug-hint`
  *   兩個 id（e2e 11-public-share 讀前綴，別改名）。a11y 名字契約沿用：input＝
  *   "Custom public link"、存鈕 aria-label＝"Save custom URL"（⊃ "Save"，e2e 查裸
@@ -632,7 +658,7 @@ function PublicLinkPanel({
   slug: string | null;
   /** 公開頁寬度（#297），取自 `['public-link', id]` 快取。 */
   width: NoteWidth;
-  /** #175 W7：群組筆記沒有公開別名——false 時固定匿名形，不渲染 Anonymous 開關、儲存鈕與可猜警語。 */
+  /** #175：群組筆記沒有公開別名——false 時固定匿名形，不渲染 Anonymous 開關、儲存鈕與可猜警語。 */
   allowAlias: boolean;
   onRegenerateToken: () => Promise<boolean>;
   regenerateTokenPending: boolean;
@@ -699,7 +725,7 @@ function PublicLinkPanel({
       await onRegenerateToken();
       return;
     }
-    // OFF 態（B1 修正）：同時換 token 與 slug——先換 token，成功才接著換 slug。
+    // OFF 態：同時換 token 與 slug——先換 token，成功才接著換 slug。
     // token 失敗就地中止：`mintLink` 已經走 `AccessSection` 既有的錯誤呈現
     // （toast＋selection 復原），這裡不重複顯示，也不得拿舊 token 換出一個新 slug。
     const tokenRegenerated = await onRegenerateToken();
@@ -877,7 +903,7 @@ export interface ShareDialogProps {
 /**
  * 分享管理 dialog。個人筆記：只有 `permissions.manageShares`（owner）看得到；逐人分享的
  * editor／viewer 完全不渲染——連觸發鈕都不出現，不只是「按了也沒用」而已。群組筆記
- * （#175 §8.4、Q14）：看得到筆記（`permissions.read`）的人都有分享鈕，面板是 `GroupNoteShareSection`。
+ * （#175）：看得到筆記（`permissions.read`）的人都有分享鈕，面板是 `GroupNoteShareSection`。
  *
  * 觸發鈕圖示需要知道目前的分享狀態才能選對圖示（私人🔒／限定成員／公開🌐），
  * 所以個人筆記 owner 的筆記頁上 `useShares`／`usePublicLink` 這兩支 query **一載入就會發**，
@@ -887,7 +913,7 @@ export interface ShareDialogProps {
  * 面板內部的 `useShares`／`usePublicLink` 與這裡共用同一份 react-query
  * 快取（同 key 去重），所以不會因此多打第三支請求。
  *
- * PR2（D.3）：觸發鈕改成 icon-only（原本是帶文字的按鈕）——`aria-label={t("share.button")}`
+ * 觸發鈕是 icon-only（原本是帶文字的按鈕）——`aria-label={t("share.button")}`
  * 頂住 accessible name，`ShareDialog.test.tsx` 既有的 `getByRole("button",{name:"Share"})`
  * 查詢不受影響（文字不變，只是從內容搬進 aria-label）。面板內容（`DialogContent` 以下）
  * 零改動。
@@ -897,8 +923,8 @@ export function ShareDialog({ note }: ShareDialogProps) {
   const [open, setOpen] = useState(false);
   // `typeof` 而非 `!== null`：與 `canonicalNotePath`／`api/notes.ts` 同慣例（沒有 `groupId` 欄的舊物件不得被當群組筆記）。
   const isGroupNote = typeof note.groupId === "string";
-  // Q14：群組筆記的分享鈕對看得到它的人都在（裡面有「群組設定」連結；複製在 ⋮ 選單）；
-  // 個人筆記只給能管分享的人（#175 §5.2：看 permissions，不再由 role 推）。
+  // 群組筆記的分享鈕對看得到它的人都在（裡面有「群組設定」連結；複製在 ⋮ 選單）；
+  // 個人筆記只給能管分享的人（#175：看 permissions，不再由 role 推）。
   const canOpen = isGroupNote ? note.permissions.read : note.permissions.manageShares;
 
   // 觸發鈕圖示要跟著分享狀態變（私人=鎖／限定成員=分享圖示／公開=地球，
@@ -912,7 +938,7 @@ export function ShareDialog({ note }: ShareDialogProps) {
   // 呼叫包在 `!canOpen` 早退之後。不該查時傳空字串 noteId，讓兩支 hook
   // 內建的 `enabled: noteId.length > 0` 守衛頂住，query 不會發（維持
   // 「打不開面板的人完全零 fetch」的既有測試斷言）。
-  // 群組筆記：永不查 shares（沒有逐人分享，S5）；只在能管公開連結時查 public-link（否則 403）。
+  // 群組筆記：永不查 shares（沒有逐人分享）；只在能管公開連結時查 public-link（否則 403）。
   const sharesQuery = useShares(canOpen && !isGroupNote ? note.id : "");
   const linkQuery = usePublicLink(canOpen && (!isGroupNote || note.permissions.managePublicLink) ? note.id : "");
 
@@ -920,7 +946,7 @@ export function ShareDialog({ note }: ShareDialogProps) {
 
   // 群組筆記的觸發鈕不等 shares：能管公開連結的角色——public-link 有資料才下結論（有 token → 公開、
   // 沒有 → 群組），載入中或查詢失敗（沒有資料）→ null；查不了 public-link 的角色直接「群組」
-  // （他看不到公開狀態——spec §8.4）。個人筆記照舊三態。
+  // （他看不到公開狀態）。個人筆記照舊三態。
   const triggerAccess: AccessLevel | "group" | null = isGroupNote
     ? !note.permissions.managePublicLink
       ? "group"
@@ -974,14 +1000,14 @@ export function ShareDialog({ note }: ShareDialogProps) {
       <DialogContent dismissOnOutside={false} className="max-w-lg">
         <DialogHeader>
           <DialogTitle>{t("share.title")}</DialogTitle>
-          {/* 群組筆記的面板對讀者也開（Q14），他什麼都不能管——「管理誰能檢視或編輯」那句對他為假，換群組專用句。 */}
+          {/* 群組筆記的面板對讀者也開，他什麼都不能管——「管理誰能檢視或編輯」那句對他為假，換群組專用句。 */}
           <DialogDescription>{isGroupNote ? t("share.groupNote.description") : t("share.description")}</DialogDescription>
         </DialogHeader>
         {/* 內部自訂網址（原「連結」區塊：CopyLinkButton／SlugField）已下架
-            （Willie 2026-09-17 產品決定）——要連到某篇筆記用 `[[標題]]` wikilink（#269 起貼站內網址也會自動變成 wikilink）；要連到某一段，用拖曳把手選單的「複製段落連結」或標題旁的「#」，
-            協作者本來就會在自己的工作區看到那篇筆記，不需要傳連結。
+            ——要連到某篇筆記用 `[[標題]]` wikilink（#269 起貼站內網址也會自動變成 wikilink）；要連到某一段，用拖曳把手選單的「複製段落連結」或標題旁的「#」，
+            協作者本來就會在自己的側欄（與我共享或群組 tab）看到那篇筆記，不需要傳連結。
             #175：個人與群組筆記各自一個面板；個人筆記只有存取權區塊；「移動／複製到群組」自 #216 起
-            改放 ⋮ 選單（`NoteMenu` + `share/GroupTransfer.tsx`）。面板開著時個人↔群組可能互換（PR4 轉移等）；
+            改放 ⋮ 選單（`NoteMenu` + `share/GroupTransfer.tsx`）。面板開著時個人↔群組可能互換（刪群組時的轉移等）；
             兩個分支是不同元件型別，互換即重掛。個人分支以 `note.id` 為 key：不同筆記不共用 `AccessSection` 的
             latch（#170）。 */}
         {open &&

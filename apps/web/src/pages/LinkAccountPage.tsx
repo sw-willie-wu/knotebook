@@ -10,7 +10,7 @@ import { toast } from "@/components/ui/toast";
 import { SESSION_QUERY_KEY } from "@/auth/useSession";
 import { ProviderIcon } from "@/components/ProviderIcon";
 
-/** `?error=` 白名單（#187 §9.4）：prove 回程會帶這些碼回來；其餘一律 fallback（任意 query 不得直接餵 i18next，Plan 5 MAJOR-1）。 */
+/** `?error=` 白名單（#187）：prove 回程會帶這些碼回來；其餘一律 fallback（任意 query 不得直接餵 i18next）。 */
 const LINK_ERROR_CODES = new Set<string>([
   "oidc_link_proof_mismatch", "oidc_link_expired", "identity_taken", "identity_already_linked",
   "account_disabled", "oidc_exchange_failed", "oidc_unavailable", "oidc_state_mismatch", "oidc_claim_too_long",
@@ -22,10 +22,10 @@ function loginLocation(code: string | null): string {
 }
 
 /**
- * #187 §7.5「這個 email 已有帳號，要連結嗎？」。不掛在 RequireAuth 底下：它只看 pending-link cookie（HttpOnly，頁面讀不到，
+ * #187「這個 email 已有帳號，要連結嗎？」。不掛在 RequireAuth 底下：它只看 pending-link cookie（HttpOnly，頁面讀不到，
  * 一律經 `GET /api/auth/oidc/pending`），與目前 session 無關——已登入他人的瀏覽器完成連結，server 簽出的 session 取代舊的。
- * pending 失效（401）→ 安靜回 `/login`，帶著當下的 `?error=`（r3-N6：prove 回程的 oidc_link_expired 要讓使用者看得到）。
- * 成功後只用 confirm 回應的 `next`，**不讀網址參數**（r2-M2）。provider 顯示名是管理員輸入：只進文字節點（r1-M6）。
+ * pending 失效（401）→ 安靜回 `/login`，帶著當下的 `?error=`（prove 回程的 oidc_link_expired 要讓使用者看得到）。
+ * 成功後只用 confirm 回應的 `next`，**不讀網址參數**。provider 顯示名是管理員輸入：只進文字節點。
  */
 export default function LinkAccountPage() {
   const { t } = useTranslation();
@@ -108,7 +108,7 @@ export default function LinkAccountPage() {
     const pending = pendingQuery.data;
     if (pending === undefined) return;
     setErrorMessage(null);
-    // 前一次密碼送出的 429 倒數不得錯接到 prove 的錯誤上（fix r1 M-b）。
+    // 前一次密碼送出的 429 倒數不得錯接到 prove 的錯誤上。
     setRetryAfterSeconds(null);
     setBusy(true);
     try {
@@ -137,7 +137,7 @@ export default function LinkAccountPage() {
 
   const loadError = pendingQuery.error;
   const noProofMethod = loadError instanceof ApiFail && loadError.code === "oidc_link_no_proof_method";
-  // 401／oidc_link_expired 由上面的 effect 轉登入頁；其餘（500、網路失敗）給通用錯誤與出口，免得永遠停在 Loading（fix r1 M-c）。
+  // 401／oidc_link_expired 由上面的 effect 轉登入頁；其餘（500、網路失敗）給通用錯誤與出口，免得永遠停在 Loading。
   const loadFailed =
     loadError !== null &&
     !noProofMethod &&

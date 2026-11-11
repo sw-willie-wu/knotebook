@@ -7,9 +7,18 @@ import i18n from "@/i18n";
 import { ApiFail } from "@/api/client";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { EDITOR_PERMS, OWNER_PERMS } from "@/test/fixtures";
+import { folderDto } from "@/test/folder-fixtures";
+import { __resetCollapseForTests, isCollapsed, setCollapsed } from "@/components/sidebar/collapse";
+import { __resetFolderSortForTests } from "@/components/sidebar/folder-sort";
 import { showTrashedToast } from "./trash-undo";
 
-// 「已移到垃圾桶」toast 與「復原」（spec §6.10.4／§6.10.7）。真的 QueryClient、navigate 用 vi.fn()。
+afterEach(() => {
+  localStorage.clear();
+  __resetCollapseForTests();
+  __resetFolderSortForTests();
+});
+
+// 「已移到垃圾桶」toast 與「復原」。真的 QueryClient、navigate 用 vi.fn()。
 
 interface FakeResponseInit {
   ok: boolean;
@@ -168,7 +177,7 @@ describe("showTrashedToast／undoTrash", () => {
 
   it("TU8 seed 早於導頁：navigate 當下常駐層 [\"note\", id] 已是 success（移入時留下的 404 error 態被蓋掉）", async () => {
     const { queryClient, navigate, t } = setup();
-    // 讀碼發現 27 的起點：常駐層有舊 data、停在 404 in_trash 的 error 態。
+    // 起點：常駐層有舊 data、停在 404 in_trash 的 error 態。
     queryClient.setQueryData(["note", PERSONAL.id], PERSONAL);
     await queryClient
       .fetchQuery({ queryKey: ["note", PERSONAL.id], queryFn: () => Promise.reject(new ApiFail(404, "in_trash", "x")), retry: false })
@@ -214,7 +223,7 @@ describe("showTrashedToast／undoTrash", () => {
     expect(navigate).not.toHaveBeenCalled();
   });
 
-  // PR-2c 多選刪除用的四個可選欄（plan 的 TU9–TU12；本檔 TU9 已被 server_busy 佔用，順延成 TU10–TU13）。
+  // 多選刪除用的四個可選欄（TU10–TU13；TU9 已被 server_busy 佔用）。
   it("TU10 title：標題逐字、仍有 Undo", async () => {
     const { queryClient, navigate, t } = setup();
     act(() => showTrashedToast({ notes: [PERSONAL], queryClient, navigate, t, reopen: false, title: "Moved 2 notes to the trash" }));
@@ -250,6 +259,97 @@ describe("showTrashedToast／undoTrash", () => {
 
     expect(await screen.findByText("Moved to the trash", { exact: true })).toBeInTheDocument();
     expect(toastRoot("Moved to the trash")).toHaveClass("bg-destructive");
+  });
+
+  it("TU-F1 undoIds 併進復原 body、去重；notes: []＋undoIds → 帶 Undo", async () => {
+    const { queryClient, navigate, t } = setup();
+    const bodies = stubRestore({ status: 200, body: { restored: [PERSONAL], skipped: [] } });
+    act(() => showTrashedToast({ notes: [PERSONAL], undoIds: [PERSONAL.id, "x2"], queryClient, navigate, t, reopen: false }));
+    fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(bodies).toEqual([{ ids: [PERSONAL.id, "x2"] }]));
+    act(() => dismissAllToasts());
+
+    act(() => showTrashedToast({ notes: [], undoIds: ["y1"], queryClient, navigate, t, reopen: false, title: "Folder gone" }));
+    expect(await screen.findByText("Folder gone", { exact: true })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument();
+  });
+
+  it("TU-F2 分批中途失敗、partial 已還原 200 篇 → 錯誤 toast 的描述「Restored 200 notes」", async () => {
+    const { queryClient, navigate, t } = setup();
+    const ids = Array.from({ length: 250 }, (_, i) => `n${i}`);
+    let call = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const batch = (JSON.parse(String(init?.body)) as { ids: string[] }).ids;
+        call += 1;
+        if (String(input) !== "/api/trash/restore") throw new Error(`unexpected fetch: ${String(input)}`);
+        if (call === 1) return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ restored: batch.map((id) => ({ ...PERSONAL, id })), skipped: [] }) }));
+        return Promise.resolve(fakeResponse({ ok: false, status: 429, json: () => Promise.resolve({ error: { code: "rate_limited", message: "x" } }) }));
+      }),
+    );
+    act(() => showTrashedToast({ notes: [], undoIds: ids, queryClient, navigate, t, reopen: false }));
+    fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    expect(await screen.findByText("Restored 200 notes", { exact: true })).toBeInTheDocument();
+  });
+
+  // 資料夾（還原後展開）：TU-F1／TU-F2 已被前面的案佔用，這裡的案編為 TU-R1／TU-R2。
+  /** `POST /api/trash/restore` 依序取 `restoreReplies`（用完重複最後一個）；`GET /api/folders` 回 `folders`。 */
+  function stubRestoreAndFolders(restoreReplies: Array<(batch: string[]) => Response>, folders: unknown[]) {
+    const folderGets: string[] = [];
+    let call = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (url === "/api/folders" && method === "GET") {
+          folderGets.push(url);
+          return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ folders }) }));
+        }
+        if (url === "/api/trash/restore" && method === "POST") {
+          const batch = (JSON.parse(String(init?.body)) as { ids: string[] }).ids;
+          const reply = restoreReplies[Math.min(call, restoreReplies.length - 1)]!;
+          call += 1;
+          return Promise.resolve(reply(batch));
+        }
+        throw new Error(`unexpected fetch: ${method} ${url}`);
+      }),
+    );
+    return folderGets;
+  }
+  const ok = (body: unknown) => fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(body) });
+
+  it("TU-R1復原成功 → 先收合的 folder:A 被展開", async () => {
+    const { queryClient, navigate, t } = setup();
+    const inA = { ...PERSONAL, folderId: "A" };
+    const folderGets = stubRestoreAndFolders([() => ok({ restored: [inA], skipped: [] })], [folderDto({ id: "A", name: "A" })]);
+    setCollapsed("folder:A", true);
+    act(() => showTrashedToast({ notes: [PERSONAL], queryClient, navigate, t, reopen: false }));
+    fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    expect(await screen.findByText("Restored 1 note", { exact: true })).toBeInTheDocument();
+    await waitFor(() => expect(isCollapsed("folder:A")).toBe(false));
+    expect(folderGets).toHaveLength(1);
+  });
+
+  it("TU-R2分批中途失敗 → 已還原那幾篇的資料夾展開、其餘不動", async () => {
+    const { queryClient, navigate, t } = setup();
+    const ids = Array.from({ length: 250 }, (_, i) => `n${i}`);
+    const folderGets = stubRestoreAndFolders(
+      [
+        (batch) => ok({ restored: batch.map((id, i) => ({ ...PERSONAL, id, folderId: i === 0 ? "A" : null })), skipped: [] }),
+        () => fakeResponse({ ok: false, status: 429, json: () => Promise.resolve({ error: { code: "rate_limited", message: "x" } }) }),
+      ],
+      [folderDto({ id: "A", name: "A" }), folderDto({ id: "B", name: "B" })],
+    );
+    setCollapsed("folder:A", true);
+    setCollapsed("folder:B", true);
+    act(() => showTrashedToast({ notes: [], undoIds: ids, queryClient, navigate, t, reopen: false }));
+    fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    expect(await screen.findByText("Restored 200 notes", { exact: true })).toBeInTheDocument();
+    await waitFor(() => expect(isCollapsed("folder:A")).toBe(false));
+    expect(isCollapsed("folder:B")).toBe(true);
+    expect(folderGets).toHaveLength(1);
   });
 
   it("TU14 可復原＋description：描述照原字顯示（不接 hint）、仍有 Undo", async () => {

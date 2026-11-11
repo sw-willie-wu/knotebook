@@ -5,9 +5,10 @@ import { MemoryRouter, useLocation, type Location } from "react-router";
 import type { UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
+import { ShortcutsDialogContext, type ShortcutsDialogApi } from "@/lib/shortcuts-dialog";
 import { UserMenu } from "./UserMenu";
 
-// PR3 主題色選擇器：六個 RadioItem 渲染／role=menuitemradio／aria-checked、
+// 主題色選擇器：六個 RadioItem 渲染／role=menuitemradio／aria-checked、
 // 點選→data-accent＋localStorage＋選單不關閉、鍵盤方向鍵移動焦點。
 // 本檔現在也涵蓋 #78（選中改點內勾——ItemIndicator 只在 checked 渲染 Check，
 // 與焦點態的 ring 是正交維度）與 #79（主題色群組補 aria-labelledby 可及名稱）。
@@ -39,27 +40,29 @@ const USER: UserDto = {
   autoVersions: true,
 };
 
-function stubFetch() {
+function stubFetch(user: UserDto = USER) {
   vi.stubGlobal(
     "fetch",
     vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = (init?.method ?? "GET").toUpperCase();
       if (url === "/api/auth/me" && method === "GET") {
-        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(USER) }));
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(user) }));
       }
       throw new Error(`unexpected fetch: ${method} ${url}`);
     }),
   );
 }
 
-function renderMenu() {
+function renderMenu(shortcuts: ShortcutsDialogApi | null = null) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <MemoryRouter>
-          <UserMenu />
+          <ShortcutsDialogContext.Provider value={shortcuts}>
+            <UserMenu />
+          </ShortcutsDialogContext.Provider>
         </MemoryRouter>
       </ThemeProvider>
     </QueryClientProvider>,
@@ -74,7 +77,7 @@ async function openMenu(): Promise<void> {
   await waitFor(() => expect(screen.getByRole("menu")).toBeInTheDocument());
 }
 
-describe("UserMenu 主題色選擇器（PR3）", () => {
+describe("UserMenu 主題色選擇器", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     window.localStorage.removeItem(ACCENT_STORAGE_KEY);
@@ -107,7 +110,7 @@ describe("UserMenu 主題色選擇器（PR3）", () => {
     }
   });
 
-  // B1（Wave 2 Review A blocking）：wrapper 的 outline-none 清掉了瀏覽器原生
+  // wrapper 的 outline-none 清掉了瀏覽器原生
   // focus ring，鍵盤在六點間移動時畫面必須靠 data-[highlighted]:ring-foreground
   // 補上可見指示——jsdom 不套用 CSS，這裡只能釘 class 字面量存在，行為級（真的
   // 顯示出一圈）留給視覺驗證。
@@ -137,7 +140,7 @@ describe("UserMenu 主題色選擇器（PR3）", () => {
 
   // 這裡只驗證 document.activeElement 有沒有真的移動；移動當下畫面上是否看得見
   // （data-[highlighted]:ring-foreground，補償 wrapper 的 outline-none）是另一條
-  // class 字面量案的職責，見上方 B1 那條測試。
+  // class 字面量案的職責，見上方那條測試。
   it("鍵盤 ArrowDown 依 DOM 序移動焦點（視覺上橫排，鍵盤仍走選單原生的上下）", async () => {
     renderMenu();
     await openMenu();
@@ -264,7 +267,7 @@ describe("UserMenu 站台管理入口", () => {
     vi.unstubAllGlobals();
   });
 
-  it("admin：看得到「Site admin」；點了導 /admin/users，state 帶 backgroundLocation（#247 §5.7：站台管理是 modal）", async () => {
+  it("admin：看得到「Site admin」；點了導 /admin/users，state 帶 backgroundLocation（#247：站台管理是 modal）", async () => {
     stubFetchAs(ADMIN);
     renderMenuWithProbe();
     await openMenu();
@@ -292,5 +295,143 @@ describe("UserMenu 站台管理入口", () => {
     await openMenu();
 
     expect(screen.getByRole("menuitem", { name: "站台管理" })).toBeInTheDocument();
+  });
+});
+
+describe("UserMenu「快捷鍵介紹」項", () => {
+  const ADMIN_USER: UserDto = { ...USER, isAdmin: true };
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    stubFetch(ADMIN_USER);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("U1 在「Settings」之後、「Site admin」之前", async () => {
+    renderMenu({ open: vi.fn() });
+    await openMenu();
+    const names = screen.getAllByRole("menuitem").map((el) => el.textContent ?? "");
+    const settings = names.findIndex((n) => n.startsWith("Settings"));
+    const shortcuts = names.findIndex((n) => n.startsWith("Keyboard shortcuts"));
+    const admin = names.findIndex((n) => n.startsWith("Site admin"));
+    expect(settings).toBeGreaterThanOrEqual(0);
+    expect(shortcuts).toBe(settings + 1);
+    expect(admin).toBe(shortcuts + 1);
+  });
+
+  it("U2 可及名稱恰為 Keyboard shortcuts（getByRole 的字串 name 是全字比對；提示字 aria-hidden）；項內有 Ctrl+/，Mac 是 ⌘/", async () => {
+    renderMenu({ open: vi.fn() });
+    await openMenu();
+    const item = screen.getByRole("menuitem", { name: "Keyboard shortcuts" });
+    expect(item).toHaveTextContent("Ctrl+/");
+  });
+
+  it("U2 MacIntel：提示字是 ⌘/", async () => {
+    vi.stubGlobal("navigator", { ...navigator, platform: "MacIntel" });
+    renderMenu({ open: vi.fn() });
+    await openMenu();
+    expect(screen.getByRole("menuitem", { name: "Keyboard shortcuts" })).toHaveTextContent("⌘/");
+  });
+
+  it("U3 aria-keyshortcuts：Control+/；Mac 是 Meta+/", async () => {
+    const view = renderMenu({ open: vi.fn() });
+    await openMenu();
+    expect(screen.getByRole("menuitem", { name: "Keyboard shortcuts" })).toHaveAttribute("aria-keyshortcuts", "Control+/");
+    view.unmount();
+    vi.stubGlobal("navigator", { ...navigator, platform: "MacIntel" });
+    renderMenu({ open: vi.fn() });
+    await openMenu();
+    expect(screen.getByRole("menuitem", { name: "Keyboard shortcuts" })).toHaveAttribute("aria-keyshortcuts", "Meta+/");
+  });
+
+  it("U4 選該項：open 被呼叫一次、參數是觸發鈕；選單已關", async () => {
+    const open = vi.fn();
+    renderMenu({ open });
+    const trigger = await screen.findByRole("button", { name: "Plain" }); // 選單開著時觸發鈕被標 aria-hidden，先抓
+    await openMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Keyboard shortcuts" }));
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(open.mock.calls[0]![0]).toBe(trigger);
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+  });
+
+  it("U5 沒有 Provider（不在 AppShell 底下）：沒有這一項", async () => {
+    renderMenu(null);
+    await openMenu();
+    expect(screen.queryByRole("menuitem", { name: "Keyboard shortcuts" })).toBeNull();
+    expect(screen.getByRole("menuitem", { name: "Settings" })).toBeInTheDocument();
+  });
+});
+
+describe("UserMenu「設定」項的 Ctrl+, 提示（與 AppShell 的 Ctrl+, 同一條路）", () => {
+  let lastLocation: Location | null = null;
+  function Probe() {
+    lastLocation = useLocation();
+    return <div data-testid="location">{lastLocation.pathname}</div>;
+  }
+
+  function renderWithProbe(shortcuts: ShortcutsDialogApi | null) {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <MemoryRouter initialEntries={["/n/tester/some-note"]}>
+            <ShortcutsDialogContext.Provider value={shortcuts}>
+              <UserMenu />
+            </ShortcutsDialogContext.Provider>
+            <Probe />
+          </MemoryRouter>
+        </ThemeProvider>
+      </QueryClientProvider>,
+    );
+  }
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    lastLocation = null;
+    stubFetch(USER);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("U6 在 AppShell 底下：Settings 項可及名稱仍是 Settings，旁邊標 Ctrl+,（aria-hidden），aria-keyshortcuts 是 Control+,", async () => {
+    renderWithProbe({ open: vi.fn() });
+    await openMenu();
+    const item = screen.getByRole("menuitem", { name: "Settings" });
+    expect(item).toHaveTextContent("Ctrl+,");
+    expect(item).toHaveAttribute("aria-keyshortcuts", "Control+,");
+    const hint = Array.from(item.querySelectorAll("span")).find((el) => el.textContent === "Ctrl+,");
+    expect(hint?.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  it("U6 MacIntel：⌘, 與 Meta+,", async () => {
+    vi.stubGlobal("navigator", { ...navigator, platform: "MacIntel" });
+    renderWithProbe({ open: vi.fn() });
+    await openMenu();
+    const item = screen.getByRole("menuitem", { name: "Settings" });
+    expect(item).toHaveTextContent("⌘,");
+    expect(item).toHaveAttribute("aria-keyshortcuts", "Meta+,");
+  });
+
+  it("U7 不在 AppShell 底下（沒有 context）：Settings 項沒有提示字、也沒有 aria-keyshortcuts（那個快捷鍵在這裡不作用）", async () => {
+    renderWithProbe(null);
+    await openMenu();
+    const item = screen.getByRole("menuitem", { name: "Settings" });
+    expect(item).not.toHaveTextContent("Ctrl+,");
+    expect(item).not.toHaveAttribute("aria-keyshortcuts");
+  });
+
+  it("U8 點 Settings：導 /settings/account，state 帶 backgroundLocation（與 Ctrl+, 同一條路）", async () => {
+    renderWithProbe({ open: vi.fn() });
+    await openMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/settings/account"));
+    const state = lastLocation?.state as { backgroundLocation?: { pathname: string } } | null;
+    expect(state?.backgroundLocation?.pathname).toBe("/n/tester/some-note");
   });
 });

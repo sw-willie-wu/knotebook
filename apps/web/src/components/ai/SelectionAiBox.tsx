@@ -31,7 +31,7 @@ import { SelectionAiResult, type BoxFocusTarget, type RunWithFocus } from "./Sel
 
 type IconComponent = ComponentType<SVGProps<SVGSVGElement>>;
 
-/** 內建 quick 動作的專屬 icon（§5.4，以 shared 的固定 id 判）；自訂動作一律通用的 `Sparkles`。 */
+/** 內建 quick 動作的專屬 icon（以 shared 的固定 id 判）；自訂動作一律通用的 `Sparkles`。 */
 const QUICK_ICONS: Record<string, IconComponent> = {
   [REWRITE_ACTION_ID]: PenLine,
   [TRANSLATE_ACTION_ID]: Languages,
@@ -39,13 +39,13 @@ const QUICK_ICONS: Record<string, IconComponent> = {
   [CONTINUE_WRITING_ACTION_ID]: ChevronsRight,
 };
 
-/** 框的左右外框（`border` 各 1px）：框寬＝區塊寬＋外框，框內預覽的文字欄才等於區塊寬（D7）。 */
+/** 框的左右外框（`border` 各 1px）：框寬＝區塊寬＋外框，框內預覽的文字欄才等於區塊寬。 */
 const BOX_BORDER_X = 2;
 const NO_DISMISS = { enabled: false };
 const NO_FOCUS_MANAGER = { disabled: true };
 const ELEMENT_PROPS = { style: { zIndex: 40 } };
 
-/** 錨點 block 的元素：一般 block 是 `.bn-block-outer`；錨點擴大成整列時列沒有 outer，查列節點本身（spec §7.5）。 */
+/** 錨點 block 的元素：一般 block 是 `.bn-block-outer`；錨點擴大成整列時列沒有 outer，查列節點本身。 */
 function anchorBlockElement(root: Element | null | undefined, id: string): HTMLElement | null {
   if (!root) return null;
   return (
@@ -63,20 +63,20 @@ function scrollParentOf(el: Element | null | undefined): HTMLElement | null {
 }
 
 /**
- * 框選 AI 框（#263 spec §5.3、§5.4）：工具列原位的浮動框，四態（輸入、串流、預覽、錯誤）。由 `SelectionAiController` 渲染在
+ * 框選 AI 框（#263）：工具列原位的浮動框，四態（輸入、串流、預覽、錯誤）。由 `SelectionAiController` 渲染在
  * `<BlockNoteView>` 內，經 `GenericPopover` 掛到 `editor.portalElement`（DOM 上在 `[data-testid="note-editor"]` 之內）。
  *
- * - 定位（S3）：reference＝**活動錨點的首區塊**（posBefore～posAfter），每次 editor 交易經 `getNodeById` 重算；找不到節點時沿用上一次位置
- *   （RF4）。輸入／串流／錯誤態：`top-start`，middleware 依內建工具列的順序 `offset(10)`、`shift()`、`flip()`，再加 `size()` 把最大高度設為
+ * - 定位：reference＝**活動錨點的首區塊**（posBefore～posAfter），每次 editor 交易經 `getNodeById` 重算；找不到節點時沿用上一次位置
+ *  。輸入／串流／錯誤態：`top-start`，middleware 依內建工具列的順序 `offset(10)`、`shift()`、`flip()`，再加 `size()` 把最大高度設為
  *   `min(40vh, 可用高度)`（框浮在區塊上方）。
- * - 結果態（`done`，含 direct 已套用；#263 後續 2026-10-13）：框**蓋在**首區塊上——reference 換成首區塊 `.bn-block-outer` 頂邊的零高矩形、
+ * - 結果態（`done`，含 direct 已套用；#263）：框**蓋在**首區塊上——reference 換成首區塊 `.bn-block-outer` 頂邊的零高矩形、
  *   `bottom-start`、無 offset，框頂＝區塊頂、左緣＝區塊左緣，往下延伸暫時蓋住後面的段落。不 flip（翻上去會蓋到別段）；留 `shift()` 防左右出界；
  *   `size()` 同上（可用高度改是框頂以下）。區塊頂捲出捲動容器頂時，頂邊夾在容器頂（不越過、不蓋頁首）。找不到區塊元素時退回 posBefore 的座標。
  *   reference 的 `element` 同 `PositionPopover`（編輯器根 blockGroup），autoUpdate 才會掛捲動容器的 scroll 監聽、隨捲動跟著區塊走。
  * - 寬度：量活動錨點首區塊 `.bn-block-outer`（首區塊是列時量列節點，`anchorBlockElement`）的寬度（ResizeObserver，目標換了就重新 observe）＋左右外框；上限可視寬減 16px。
- *   窄視窗（<768）同一個框、寬度同樣取區塊寬，chips 可換行（§5.6）。
+ *   窄視窗（<768）同一個框、寬度同樣取區塊寬，chips 可換行。
  * - `role="region"` 而不是 `dialog`：全站快捷鍵與版本預覽的 Esc 以「頁上有 dialog」為放棄條件。
- * - 焦點（§5.3）：開啟時進輸入框（沒有 Instruct 時進第一顆 chip）——唯一無條件的轉移。其餘轉場只在「動作當下焦點在框內」時轉移：
+ * - 焦點：開啟時進輸入框（沒有 Instruct 時進第一顆 chip）——唯一無條件的轉移。其餘轉場只在「動作當下焦點在框內」時轉移：
  *   送出／chip／重試 → 取消鈕；完成 → 框容器；還原成功 → 框容器；關閉 → 編輯器。「當下焦點在不在框內」以 document 的 focusin 持續追蹤
  *   （pointerdown 後再排一個 macrotask 依實際焦點重讀：點不可聚焦處時焦點落到 body、不發 focusin），**在元素卸載前就已記下**——卸載後再讀 `document.activeElement` 只會讀到 body。只認框內的 Esc。
  */
@@ -184,7 +184,7 @@ export function SelectionAiBox() {
     };
     // 點框外不可聚焦處（頁面背景等）時焦點直接落到 body，只發 focusout、不發 focusin——只靠 focusin 旗標會停在 true，完成時把焦點拉回框。
     // 但「按在框外」不等於「焦點離開了框」（觸控捲動、拖框外捲軸、外部元件 preventDefault 掉 mousedown 都不動焦點），所以不直接改旗標：
-    // pointerdown 先於瀏覽器預設的焦點移動，排一個 macrotask 等它做完，再以 `box.contains(document.activeElement)` 重讀實際焦點（spec §5.3）。
+    // pointerdown 先於瀏覽器預設的焦點移動，排一個 macrotask 等它做完，再以 `box.contains(document.activeElement)` 重讀實際焦點。
     let recheck: ReturnType<typeof setTimeout> | undefined;
     const onPointerDown = () => {
       clearTimeout(recheck);
@@ -277,6 +277,8 @@ export function SelectionAiBox() {
           role="region"
           aria-label={t("ai.box.label")}
           data-testid="selection-ai-box"
+          // 開著時筆記頁的撤銷快捷鍵讓路（`@/collab/page-undo`）。
+          data-kb-ai-box=""
           tabIndex={-1}
           onKeyDown={onKeyDown}
           style={{ width: boxWidth }}
@@ -349,7 +351,7 @@ export function SelectionAiBox() {
               <p className="text-muted-foreground">{t("ai.box.streaming")}</p>
               {state.partial && <p className="whitespace-pre-wrap">{state.partial}</p>}
               <div className="flex justify-end gap-2">
-                {/* 錨點失效（§5.2）：按鈕列只剩「捨棄」，串流中另留取消。 */}
+                {/* 錨點失效：按鈕列只剩「捨棄」，串流中另留取消。 */}
                 {!anchorOk && (
                   <Button type="button" variant="ghost" size="sm" onClick={() => run(() => session.close(), "editor")}>
                     {t("ai.box.discard")}

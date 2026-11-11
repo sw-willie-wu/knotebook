@@ -7,7 +7,7 @@ import { vi } from "vitest";
  * - performance.now 換成可控時鐘（每次安裝往前跳 100 萬毫秒），測試用 advance() 推進。
  * 用完一定要 `await fake.uninstall()`（afterEach）：把未決請求 reject，並**在時鐘 0 派一次「離開」**——
  *   present/fullscreen.ts 的 owned／exitWanted 歸 false、lastExitAt 歸 0（＝從未離開，msSinceFullscreenExit() 回 Infinity）。
- *   不歸 0 的話，模組會留著百萬級的假時間，下一案若**沒裝**假全螢幕，真時鐘減它是負數 < 300，Esc 全被防連退吃掉（gate r1-p2 M1 實跑）。
+ *   不歸 0 的話，模組會留著百萬級的假時間，下一案若**沒裝**假全螢幕，真時鐘減它是負數 < 300，Esc 全被防連退吃掉。
  */
 export async function flushMicrotasks(): Promise<void> {
   for (let i = 0; i < 10; i++) await Promise.resolve();

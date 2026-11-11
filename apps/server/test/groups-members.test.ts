@@ -21,7 +21,7 @@ async function roleOf(db: Db, groupId: string, userId: string): Promise<string |
   return row?.builtin;
 }
 
-/** 內建管理員人數（S1 數的就是這個，§4.1——自訂角色勾滿七旗標也不算）。 */
+/** 內建管理員人數（S1 數的就是這個——自訂角色勾滿七旗標也不算）。 */
 async function adminCount(db: Db, groupId: string): Promise<number> {
   const rows = await db
     .select({ userId: groupMembers.userId })
@@ -44,7 +44,7 @@ describe("#103／#175 成員異動：授權矩陣", () => {
 
   it("PATCH …/members/:userId", async () => {
     // `runGroupAuthMatrix` 的 payload 是同步函式、拿不到場景群組的角色 id（`{roleId}` 必須是那個群組的角色），
-    // 這支在本檔自己跑同一張矩陣：每個 actor 一個全新的場景、三種 404 逐位元組相同（S4）。
+    // 這支在本檔自己跑同一張矩陣：每個 actor 一個全新的場景、三種 404 逐位元組相同。
     const { app, db } = await buildTestApp({ collabHooks: spyCollabHooks() });
     const expected: Record<MatrixActor, number> = { anon: 401, nonMember: 404, member: 403, admin: 200, siteAdmin: 200, badId: 404, missing: 404 };
     const notFoundBodies: string[] = [];
@@ -67,7 +67,7 @@ describe("#103／#175 成員異動：授權矩陣", () => {
       if (res.statusCode === 200) expect(await roleOf(db, g.id, other.id)).toBe("admin");
     }
     expect(new Set(notFoundBodies).size).toBe(1);
-    expect(JSON.parse(notFoundBodies[0]!)).toEqual({ error: { code: "not_found", message: "找不到此群組" } });
+    expect(JSON.parse(notFoundBodies[0]!)).toEqual({ error: { code: "not_found", message: "No group with that id." } });
   });
 
   it("DELETE …/members/:userId（刪別人）", async () => {
@@ -93,7 +93,7 @@ describe("#103／#175 成員異動：授權矩陣", () => {
     ];
     for (const res of bodies) expect(res.statusCode).toBe(404);
     expect(new Set(bodies.map(r => r.body)).size).toBe(1);
-    expect(bodies[0]!.json()).toEqual({ error: { code: "not_found", message: "找不到此群組" } });
+    expect(bodies[0]!.json()).toEqual({ error: { code: "not_found", message: "No group with that id." } });
   });
 });
 
@@ -118,19 +118,19 @@ describe("#103／#175 PUT …/members", () => {
     expect(await roleOf(db, g.id, disabled.id)).toBe("admin");
     const missing = await app.inject({ method: "PUT", url: `/api/groups/${g.id}/members`, cookies, payload: { email: "nobody@example.com" } });
     expect(missing.statusCode).toBe(404);
-    expect(missing.json().error.code).toBe("user_not_found");
+    expect(missing.json().error).toEqual({ code: "user_not_found", message: "No user with that email." });
 
     for (const roleId of ["nope", other.memberRoleId]) {
       const res = await app.inject({ method: "PUT", url: `/api/groups/${g.id}/members`, cookies, payload: { email: third.email, roleId } });
       expect(res.statusCode, roleId).toBe(404);
-      expect(res.json()).toEqual({ error: { code: "role_not_found", message: "找不到此角色" } });
+      expect(res.json()).toEqual({ error: { code: "role_not_found", message: "No role with that id." } });
     }
     expect(await roleOf(db, g.id, third.id)).toBeUndefined();
     const legacy = await app.inject({ method: "PUT", url: `/api/groups/${g.id}/members`, cookies, payload: { email: third.email, role: "admin" } });
     expect(legacy.statusCode).toBe(400);
     expect(legacy.json().error.code).toBe("invalid_body");
     expect(await roleOf(db, g.id, third.id)).toBeUndefined();
-    expect(hooks.onGroupAccessChanged).not.toHaveBeenCalled(); // §7：加人不踢線
+    expect(hooks.onGroupAccessChanged).not.toHaveBeenCalled(); // 加人不踢線
   });
 
   it("只新增：已是成員 → 409 already_member，且既有管理員的角色不變", async () => {
@@ -212,7 +212,7 @@ describe("#103／#175 S1：每個群組至少一位內建管理員", () => {
     expect(await adminCount(db, g.id)).toBe(1);
   });
 
-  it("Q9 不防升權：只勾 canManageMembers（不可讀）的自訂角色可把自己換成內建管理員；只勾 canManageGroup 的自訂角色可以建立（兩旗標獨立）", async () => {
+  it("不防升權：只勾 canManageMembers（不可讀）的自訂角色可把自己換成內建管理員；只勾 canManageGroup 的自訂角色可以建立（兩旗標獨立）", async () => {
     const { app, db } = await buildTestApp({ collabHooks: spyCollabHooks() });
     const admin = await seedUser(db);
     const x = await seedUser(db);
@@ -268,7 +268,7 @@ describe("#103／#175 S1：每個群組至少一位內建管理員", () => {
     expectLastCall(removed.id);
   });
 
-  it("#240 R5b 一般成員以大寫的自己 id 退出群組 → 204、成員列刪除、踢線名單是小寫 id", async () => {
+  it("#240 一般成員以大寫的自己 id 退出群組 → 204、成員列刪除、踢線名單是小寫 id", async () => {
     const hooks = spyCollabHooks();
     const { app, db } = await buildTestApp({ collabHooks: hooks });
     const admin = await seedUser(db);
@@ -281,7 +281,7 @@ describe("#103／#175 S1：每個群組至少一位內建管理員", () => {
     expect(hooks.onGroupAccessChanged.mock.calls.at(-1)![1]).toEqual([leaver.id]);
   });
 
-  it("並發 C3（spec gate r2 E）：兩位管理員同時退出 → 恰一個 204、一個 409 last_admin；群組最後剩一位內建管理員", async () => {
+  it("並發：兩位管理員同時退出 → 恰一個 204、一個 409 last_admin；群組最後剩一位內建管理員", async () => {
     let groupId = "";
     let second: Promise<LightMyRequestResponse> | undefined;
     let secondCookies: Record<string, string> = {};
@@ -311,14 +311,14 @@ describe("#103／#175 S1：每個群組至少一位內建管理員", () => {
   });
 });
 
-describe("#175 S1 並發 C2（spec §11 C2、§12.1「S1：C2、C3」；gate r1 A-I2）", () => {
+describe("#175 並發 C2", () => {
   it("C2a：恰兩位管理員同時把對方降成一般成員 → 恰一個 200、一個 409 last_admin；最後恰一位內建管理員", async () => {
     let groupId = "";
     // `fire` 只賦值一次（在 `built` 之後）——放進 holder，`let` 會被 prefer-const 擋。
     const race: { fire?: () => Promise<LightMyRequestResponse> } = {};
     let second: Promise<LightMyRequestResponse> | undefined;
     let interleave: "blocked" | "settled" | undefined;
-    // 第一個請求（T10）在「鎖已取得、計數完、寫入前」發出第二個，並等它卡在 lockGroup 上（或已結束）。
+    // 第一個請求（換角色）在「鎖已取得、計數完、寫入前」發出第二個，並等它卡在 lockGroup 上（或已結束）。
     const hook: GroupTestHook = async (point, ctx) => {
       if (point !== "group-members-checked" || ctx.groupId !== groupId || second || !race.fire) return;
       second = race.fire();
@@ -343,7 +343,7 @@ describe("#175 S1 並發 C2（spec §11 C2、§12.1「S1：C2、C3」；gate r1 
     expect(interleave).toBe("blocked");
   });
 
-  it("C2b（spec gate r2 A-10 形）：持 canManageMembers 的自訂角色降級管理員 alice，同時另一位管理員 bob 退出 → 降級 200、退出 409 last_admin；最後恰一位內建管理員", async () => {
+  it("C2b：持 canManageMembers 的自訂角色降級管理員 alice，同時另一位管理員 bob 退出 → 降級 200、退出 409 last_admin；最後恰一位內建管理員", async () => {
     let groupId = "";
     const race: { fire?: () => Promise<LightMyRequestResponse> } = {};
     let second: Promise<LightMyRequestResponse> | undefined;

@@ -4,6 +4,7 @@ import {
   createNote,
   createUserViaInvite,
   editorLocator,
+  expectWidePointer,
   loginAs,
   moveNoteToTrashFromSidebar,
   openGroupPanel,
@@ -14,12 +15,15 @@ import {
 } from "./helpers.js";
 
 /**
- * #181 垃圾桶 PR-2b（spec 2026-10-21 §6.14 e2e 段；A2-1、A2-2、A2-3、A2-11、A2-12）：
+ * #181 垃圾桶（e2e 段；A2-1、A2-2、A2-3、A2-11、A2-12）：
  * 1. 頁首 ⋮「Delete」不確認、toast「Undo」回到該篇且可共編；側欄 ⋮ 再移入 → 垃圾桶 tab 個人區、「剩 N 天」、底部天數。
  * 2. 公開連結在垃圾桶期間 404，從垃圾桶列「還原」後恢復。
  * 3. 選取模式：Shift 範圍選三篇還原；勾兩篇永久刪除（確認框）後原網址連結無效。
  * 4. 390 寬抽屜：選取中按 Esc 只結束選取、焦點回抽屜內的「選取」鈕；確認框 Esc 只關框（jsdom 對這條假綠過，只有真瀏覽器守得住）。
  * 5. 群組：「只能刪」成員移入 → toast 沒有「Undo」、看不到群組垃圾桶、原網址無效；「編輯＋刪除」成員看得到、從卡片還原。
+ * 6. 390 寬抽屜：在抽屜裡把別篇移入 → toast 以 role 找得到（抽屜開著時 toast 搬進抽屜，不在 aria-hidden 的背景裡）、按它的 Undo 抽屜不關、該篇回來。
+ * 7. 資料夾（寬螢幕 1280）：選取模式是標題列一列——✕、三態全選框、已選篇數、還原／永久刪除圖示鈕；底部的保留天數說明不顯示。
+ *    A2-3 也跑在寬形（Restore／Delete permanently 的可及名稱兩形相同）；390 的兩案是窄形。
  *
  * 共用疊：別的 spec（例如 16）會在 admin 的垃圾桶留下項目，所以不斷言總數、列一律以本檔的標題（帶 RUN）定位。
  * 群組與筆記留著不清（同 17）：e2e 疊每次 `stack:down -v` 重置。
@@ -28,7 +32,7 @@ const RUN = Date.now();
 const PASSWORD = "e2e-trash-user-pw";
 const NOTE_TITLE = { name: "Note title" } as const;
 const TRASH_HEADER = /^Trash · \d+ notes?$/;
-/** ceil、最小 1：沒有「不到 1 天」（總管裁定 2026-10-22）。 */
+/** ceil、最小 1：沒有「不到 1 天」。 */
 const DAYS_LEFT = /^\d+ days? left$/;
 const LINK_INVALID = "This link is invalid or the note doesn't exist.";
 /**
@@ -51,8 +55,8 @@ async function openTrash(page: Page, scope?: Locator): Promise<Locator> {
   return panel;
 }
 
-/** 垃圾桶列（`<li>`，不是連結）；給 `section` 就限定在「My notes」／「Workspace」那一區。 */
-function trashRow(panel: Locator, title: string, section?: "My notes" | "Workspace"): Locator {
+/** 垃圾桶列（`<li>`，不是連結）；給 `section` 就限定在「My notes」／「Groups」那一區。 */
+function trashRow(panel: Locator, title: string, section?: "My notes" | "Groups"): Locator {
   const root = section ? panel.getByRole("list", { name: section, exact: true }) : panel;
   return root.getByRole("listitem").filter({ hasText: title });
 }
@@ -94,7 +98,7 @@ test("A2-1／A2-2：頁首 ⋮ 移入不確認、toast 復原回到該篇可共�
   await expect(editor).toContainText(word);
   await expect(badge).toBeVisible();
 
-  // ── A2-2：側欄 ⋮ 再移入同一篇（開著的那篇：同樣回首頁）→ 垃圾桶 tab ─────────────────
+  // ── 側欄 ⋮ 再移入同一篇（開著的那篇：同樣回首頁）→ 垃圾桶 tab ─────────────────
   const sidebar = page.getByRole("complementary");
   await showSidebarTab(page, "My notes");
   await moveNoteToTrashFromSidebar(page, title);
@@ -103,7 +107,7 @@ test("A2-1／A2-2：頁首 ⋮ 移入不確認、toast 復原回到該篇可共�
   const row = trashRow(panel, title, "My notes");
   await expect(row).toBeVisible();
   await expect(row.getByText(DAYS_LEFT)).toBeVisible();
-  await expect(row.getByRole("link")).toHaveCount(0); // 垃圾桶列不是連結（spec §6.10.1）
+  await expect(row.getByRole("link")).toHaveCount(0); // 垃圾桶列不是連結
   await expect(sidebar.getByTestId("trash-footer")).toHaveText(/Permanently deleted \d+ days? after deletion|isn't emptied automatically/);
 
   // My notes 沒有它：tab 一次只渲染一份清單，先等正向錨點（同測試先建的 keep）到了才斷負向
@@ -116,7 +120,7 @@ test("A2-11：公開連結在垃圾桶期間 404，從垃圾桶列還原後恢�
   test.setTimeout(120_000);
   const title = `E2E Trash P ${RUN}`;
   // 用新帳號當 owner：public-link 的 PUT/DELETE 每人 10 次/10 分鐘（PUBLIC_LINK_LIMIT），
-  // 整套序跑到這裡時 admin 已被前面的 spec 用滿，再開公開連結會吃 429（同 31 E3）。
+  // 整套序跑到這裡時 admin 已被前面的 spec 用滿，再開公開連結會吃 429（同 31）。
   const owner = { email: randomEmail(), password: PASSWORD };
   const adminContext = await browser.newContext();
   try {
@@ -131,7 +135,7 @@ test("A2-11：公開連結在垃圾桶期間 404，從垃圾桶列還原後恢�
   await expect(page).toHaveURL(/\/$/);
   await createNote(page, title);
 
-  // ShareDialog 開公開連結（同 31 E3；輸入框只放 token）
+  // ShareDialog 開公開連結（同 31；輸入框只放 token）
   await page.getByRole("button", { name: "Share", exact: true }).click();
   const shareDialog = page.getByRole("dialog", { name: "Share note" });
   const publicRadio = shareDialog.getByRole("radio", { name: /^Public link/ });
@@ -282,6 +286,115 @@ test("390 寬抽屜：選取中按 Esc 只結束選取、焦點回抽屜內的�
   await page.setViewportSize({ width: 1280, height: 800 });
 });
 
+test("390 寬抽屜開著時移入別篇：toast 與 Undo 以 role 找得到、按 Undo 抽屜不關、該篇回到清單", async ({ browser, page }) => {
+  test.setTimeout(120_000);
+  const keep = `E2E Trash Toast Keep ${RUN}`;
+  const title = `E2E Trash Toast ${RUN}`;
+  const user = { email: randomEmail(), password: PASSWORD };
+  const adminContext = await browser.newContext();
+  try {
+    const adminPage = await adminContext.newPage();
+    await loginAs(adminPage, ADMIN.email, ADMIN.password);
+    await expect(adminPage).toHaveURL(/\/$/);
+    await createUserViaInvite(adminPage, user);
+  } finally {
+    await adminContext.close();
+  }
+  await loginAs(page, user.email, user.password);
+  await expect(page).toHaveURL(/\/$/);
+  await createNote(page, title);
+  await createNote(page, keep);
+  const keepUrl = page.url();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  // 整頁載入後等 lazy NotePage 掛上再開抽屜：fallback 自帶的 AppShell 會被換掉（抽屜跟著關）。
+  await page.goto(keepUrl);
+  await expect(page.getByRole("textbox", NOTE_TITLE)).toBeVisible({ timeout: 15_000 });
+  await page.getByRole("button", { name: "Open navigation" }).click();
+  const drawer = page.getByRole("dialog", { name: "Navigation" });
+  await expect(drawer).toBeVisible();
+  await showSidebarTab(page, "My notes", drawer);
+
+  // 移的是別篇：不換頁、抽屜不關，toast 在抽屜開著時跳出（helper 以 role 找它——修正前它在 aria-hidden 的背景裡、找不到）。
+  const moved = await moveNoteToTrashFromSidebar(page, title, drawer);
+  await expect(drawer).toBeVisible();
+  // 鍵盤到得了：F8 把焦點交給 toast 區，抽屜的 focus trap 不把它拉回去（修正前 toast 區在抽屜外、焦點被拉回抽屜）。
+  await page.keyboard.press("F8");
+  await expect(page.getByRole("region", { name: /^Notifications/ }).getByRole("list")).toBeFocused();
+  await moved.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(toastWithTitle(page, "Restored 1 note")).toBeVisible({ timeout: 15_000 });
+  await expect(drawer).toBeVisible();
+  await expect(page).toHaveURL(keepUrl);
+  const myNotes = await showSidebarTab(page, "My notes", drawer);
+  await expect(noteLink(myNotes, title)).toBeVisible({ timeout: 15_000 });
+});
+
+test("寬螢幕（1280）垃圾桶選取工具列：✕ 聚焦、底部說明不在；全選框半勾 → 全勾；標題列「Restore」圖示 → toast、焦點回「Select」", async ({ browser, page }) => {
+  test.setTimeout(120_000);
+  const [w1, w2] = [1, 2].map((i) => `E2E Trash Wide${i} ${RUN}`) as [string, string];
+  // 留在垃圾桶的一篇：還原後垃圾桶不是空的，「Select」仍可按（空垃圾桶時它停用、焦點交不過去）。
+  const stay = `E2E Trash Wide Stay ${RUN}`;
+  // 新使用者：垃圾桶裡只有本案的三篇，全選框的三態不受別的 spec 留在 admin 垃圾桶的項目影響。
+  const user = { email: randomEmail(), password: PASSWORD };
+  const adminContext = await browser.newContext();
+  try {
+    const adminPage = await adminContext.newPage();
+    await loginAs(adminPage, ADMIN.email, ADMIN.password);
+    await expect(adminPage).toHaveURL(/\/$/);
+    await createUserViaInvite(adminPage, user);
+  } finally {
+    await adminContext.close();
+  }
+  await loginAs(page, user.email, user.password);
+  await expect(page).toHaveURL(/\/$/);
+  // 以 API 建（不帶 content：不吃寫入節流），建完 goto("/") 讓側欄重抓。
+  for (const title of [stay, w1, w2]) {
+    const res = await page.request.post("/api/notes", { data: { title } });
+    expect(res.status(), `POST /api/notes → ${await res.text()}`).toBe(201);
+  }
+  await page.goto("/");
+  await expectWidePointer(page, true);
+  const sidebar = page.getByRole("complementary");
+  const myNotes = await showSidebarTab(page, "My notes");
+  for (const title of [stay, w1, w2]) await expect(noteLink(myNotes, title)).toBeVisible({ timeout: 15_000 });
+  for (const title of [stay, w1, w2]) await moveNoteToTrashFromSidebar(page, title);
+
+  const panel = await openTrash(page);
+  for (const title of [stay, w1, w2]) await expect(trashRow(panel, title, "My notes")).toBeVisible();
+  const footer = sidebar.getByTestId("trash-footer");
+  await expect(footer).toBeVisible();
+
+  // ── Select → 焦點在 ✕（沒有「Done」）、底部的保留天數說明不在 ─────────────────────────────────
+  const selectButton = panel.getByRole("button", { name: "Select", exact: true });
+  await selectButton.click();
+  await expect(panel.getByRole("button", { name: "Exit selection", exact: true })).toBeFocused();
+  await expect(panel.getByRole("button", { name: "Done", exact: true })).toHaveCount(0);
+  await expect(footer).toHaveCount(0);
+
+  // ── 勾 W1 → 全選框半勾 → 點它：三篇全勾 → 取消勾「留著」那篇 → 又是半勾、2 selected ─────────────────
+  const selectAll = panel.getByRole("checkbox", { name: "Select all", exact: true });
+  await expect(selectAll).not.toBeChecked();
+  await trashCheckbox(panel, w1).click();
+  await expect(trashCheckbox(panel, w1)).toBeChecked();
+  await expect(selectAll).toBeChecked({ indeterminate: true });
+  await selectAll.click();
+  for (const title of [stay, w1, w2]) await expect(trashCheckbox(panel, title)).toBeChecked();
+  await expect(selectAll).toBeChecked();
+  await expect(panel.getByText("3 selected", { exact: true })).toBeVisible();
+  await trashCheckbox(panel, stay).click();
+  await expect(trashCheckbox(panel, stay)).not.toBeChecked();
+  await expect(selectAll).toBeChecked({ indeterminate: true });
+  await expect(panel.getByText("2 selected", { exact: true })).toBeVisible();
+
+  // ── 標題列的「Restore」圖示鈕 → toast → 結束選取、焦點回「Select」、兩篇離開垃圾桶 ─────────────────────
+  await panel.locator("[data-sidebar-header]").getByRole("button", { name: "Restore", exact: true }).click();
+  await expect(toastWithTitle(page, "Restored 2 notes")).toBeVisible({ timeout: 15_000 });
+  await expect(selectButton).toBeFocused();
+  await expect(trashRow(panel, stay, "My notes")).toBeVisible();
+  for (const title of [w1, w2]) await expect(trashRow(panel, title)).toHaveCount(0);
+  await expect(footer).toBeVisible();
+});
+
 /** 群組面板「Roles」項次上新增自訂角色，打開 `flags` 那幾個旗標（其餘預設關）。 */
 async function createRole(page: Page, name: string, flags: ReadonlyArray<"Edit" | "Delete">): Promise<void> {
   await page.getByRole("button", { name: "New role", exact: true }).click();
@@ -292,7 +405,7 @@ async function createRole(page: Page, name: string, flags: ReadonlyArray<"Edit" 
     await flagSwitch.click();
     await expect(flagSwitch).toBeChecked();
   }
-  // §6.10.7：勾了刪除、沒勾編輯 → 提示（只提示、不阻擋）
+  // 勾了刪除、沒勾編輯 → 提示（只提示、不阻擋）
   const deleteOnly = flags.includes("Delete") && !flags.includes("Edit");
   await expect(dialog.getByText(DELETE_WITHOUT_EDIT_HINT, { exact: true })).toHaveCount(deleteOnly ? 1 : 0);
   await dialog.getByRole("button", { name: "Create", exact: true }).click();
@@ -316,7 +429,7 @@ test("A2-12：「只能刪」成員移入群組筆記 → 沒有 Undo、看不�
 
     // ── admin：建群組、在群組建筆記（同 17）────────────────────────────────────
     const sidebar = adminPage.getByRole("complementary");
-    await showSidebarTab(adminPage, "Workspace");
+    await showSidebarTab(adminPage, "Groups");
     await sidebar.getByRole("button", { name: "New group", exact: true }).click();
     const groupDialog = adminPage.getByRole("dialog", { name: "New group" });
     await groupDialog.getByLabel("Group name").fill(groupName);
@@ -362,13 +475,13 @@ test("A2-12：「只能刪」成員移入群組筆記 → 沒有 Undo、看不�
     }
     await adminPage.keyboard.press("Escape");
 
-    // ── C（DeleteOnly）：工作坊 tab ⋮ 移入 → toast 沒有 Undo、有說明句 ───────────────
+    // ── C（DeleteOnly）：群組 tab ⋮ 移入 → toast 沒有 Undo、有說明句 ───────────────
     const deleterContext = await browser.newContext();
     contexts.push(deleterContext);
     const deleterPage = await deleterContext.newPage();
     await loginAs(deleterPage, deleter.email, PASSWORD);
     await expect(deleterPage).toHaveURL(/\/$/);
-    const deleterWorkspace = await showSidebarTab(deleterPage, "Workspace");
+    const deleterWorkspace = await showSidebarTab(deleterPage, "Groups");
     await expect(noteLink(deleterWorkspace, noteTitle)).toBeVisible({ timeout: 15_000 });
     const noUndoToast = await moveNoteToTrashFromSidebar(deleterPage, noteTitle);
     await expect(noUndoToast.getByText(NO_UNDO_HINT, { exact: true })).toBeVisible();
@@ -381,14 +494,14 @@ test("A2-12：「只能刪」成員移入群組筆記 → 沒有 Undo、看不�
     await deleterPage.goto(noteUrl);
     await expect(deleterPage.getByText(LINK_INVALID, { exact: true })).toBeVisible({ timeout: LINK_INVALID_TIMEOUT });
 
-    // ── B（EditDelete）：垃圾桶工作坊區有它、刪除者是 C → 開原網址是「在垃圾桶裡」卡片 → 還原 ─────
+    // ── B（EditDelete）：垃圾桶群組區有它、刪除者是 C → 開原網址是「在垃圾桶裡」卡片 → 還原 ─────
     const restorerContext = await browser.newContext();
     contexts.push(restorerContext);
     const restorerPage = await restorerContext.newPage();
     await loginAs(restorerPage, restorer.email, PASSWORD);
     await expect(restorerPage).toHaveURL(/\/$/);
     const restorerTrash = await openTrash(restorerPage);
-    const row = trashRow(restorerTrash, noteTitle, "Workspace");
+    const row = trashRow(restorerTrash, noteTitle, "Groups");
     await expect(row).toBeVisible();
     await expect(
       row.getByText(new RegExp(`^${reEscape(groupName)} · Deleted by ${reEscape(deleter.displayName)} · \\d+ days? left$`)),
@@ -399,9 +512,9 @@ test("A2-12：「只能刪」成員移入群組筆記 → 沒有 Undo、看不�
     await restorerPage.getByRole("button", { name: "Restore", exact: true }).click();
     await expect(restorerPage.getByRole("textbox", NOTE_TITLE)).toHaveValue(noteTitle, { timeout: 15_000 });
 
-    // ── C 重整 → 工作坊 tab 又看得到 ───────────────────────────────────────────
+    // ── C 重整 → 群組 tab 又看得到 ───────────────────────────────────────────
     await deleterPage.reload();
-    const deleterWorkspaceAgain = await showSidebarTab(deleterPage, "Workspace");
+    const deleterWorkspaceAgain = await showSidebarTab(deleterPage, "Groups");
     await expect(noteLink(deleterWorkspaceAgain, noteTitle)).toBeVisible({ timeout: 15_000 });
   } finally {
     for (const context of contexts) await context.close();

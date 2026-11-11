@@ -20,21 +20,21 @@ import { buildRevealConfig, configMatches, htmlHasPrintClasses, type RevealKeyHa
 import { COVER_ID } from "./slides";
 
 /**
- * #229 reveal 的生命週期（spec §6.9）與即時更新（§7、§8）——React 只負責呼叫 startDeck／dispose。
+ * #229 reveal 的生命週期與即時更新——React 只負責呼叫 startDeck／dispose。
  *
  * 生命週期（StrictMode 安全）：每次 startDeck 自建 `div.reveal > div.slides`；三個旗標 resolved／disposed／destroyed
- * 外加 announced。**Promise resolve 之前絕不 destroy**（§2.11-14：會讓 initialize 永不 resolve、監聽拆不掉）——
+ * 外加 announced。**Promise resolve 之前絕不 destroy**（會讓 initialize 永不 resolve、監聽拆不掉）——
  * resolve 時若已 disposed 才拆；只有送過 onRevealReady(true) 的這份才送 false。不用 reveal 的 isReady()（比 Promise 早一拍）。
- * 初始建置排在 queueMicrotask（§5.1-6：匯出不得在 effect 本體）；StrictMode 的第一份在 microtask 前已 disposed，
- * 根本不會 new Reveal（起草裁定 11）。
+ * 初始建置排在 queueMicrotask（匯出不得在 effect 本體）；StrictMode 的第一份在 microtask 前已 disposed，
+ * 根本不會 new Reveal。
  *
- * 初始化前斷言 `window.location.search === "?present"`（§6.4-1）、初始化後 getConfig() 逐鍵核對＋下一個 rAF 補查
- * <html> class（§6.4-3）；任一不符 → shell.onFatal("present.configRefused")，外殼卸載 overlay、cleanup 走拆除。
- * 定位（§6.4-4）：讀 router hash `#/<id>` → 找到就 slide(h, v)，否則封面；reveal 自己的 readURL 因 A11 不會命中任何投影片。
+ * 初始化前斷言 `window.location.search === "?present"`、初始化後 getConfig() 逐鍵核對＋下一個 rAF 補查
+ * <html> class；任一不符 → shell.onFatal("present.configRefused")，外殼卸載 overlay、cleanup 走拆除。
+ * 定位：讀 router hash `#/<id>` → 找到就 slide(h, v)，否則封面；reveal 自己的 readURL 因投影片沒有 id／data-id 而不會命中任何投影片。
  *
- * 更新（§7.1）：已登入＝fragment.observeDeep；公開＝doc prop 換成新的 Y.Doc（F1）；兩者另加 title 變動。防抖 500 ms／2 s
+ * 更新：已登入＝fragment.observeDeep；公開＝doc prop 換成新的 Y.Doc；兩者另加 title 變動。防抖 500 ms／2 s
  * → 在 timer callback 重切、逐張比對（同 id 沿用元素）→ 結構變了 sync()、只有內容變 syncSlide()；以 repositionAfterUpdate
- * 算位置、無轉場套用；目前那張內容沒變時恢復被 reveal 暫停的媒體；目前那張內容變了才捲回頂端（F4）。不重建 reveal、
+ * 算位置、無轉場套用；目前那張內容沒變時恢復被 reveal 暫停的媒體；目前那張內容變了才捲回頂端。不重建 reveal、
  * 全螢幕不受影響。
  */
 export type PresentationSource =
@@ -158,7 +158,7 @@ export function startDeck(host: HTMLElement, env: () => DeckEnv, hashWriter: Has
     const rendered = render(dom.keys);
     const currentRebuilt = rendered.some((section) => section.slides.some((slide) => slide.id === oldCurrent && slide.content !== null));
     const oldEls = dom.els.get(oldCurrent);
-    const playing = oldEls && !currentRebuilt ? playingMedia(oldEls.section) : []; // S5
+    const playing = oldEls && !currentRebuilt ? playingMedia(oldEls.section) : [];
     const { structureChanged, changed } = applyRenderedDeck(dom, rendered);
     if (!structureChanged && changed.length === 0) return;
     const position = repositionAfterUpdate(oldSections, oldCurrent, dom.sections);
@@ -168,10 +168,10 @@ export function startDeck(host: HTMLElement, env: () => DeckEnv, hashWriter: Has
       deck.slide(position.h, position.v);
     });
     for (const id of changed) restackSlideBody(dom.els.get(id)!.body); // 並排堆疊：離目前那張太遠的量到 0、不動，換到時由 onSlideChanged 補
-    for (const media of playing) if (media.isConnected && media.paused) void media.play().catch(() => {}); // S5
+    for (const media of playing) if (media.isConnected && media.paused) void media.play().catch(() => {});
     currentId = position.id;
     hashWriter.request(position.id);
-    if (currentRebuilt && position.id === oldCurrent) dom.els.get(oldCurrent)!.section.scrollTop = 0; // F4
+    if (currentRebuilt && position.id === oldCurrent) dom.els.get(oldCurrent)!.section.scrollTop = 0;
     for (const id of changed) {
       const els = dom.els.get(id)!;
       swipe?.observe(els);
@@ -186,7 +186,7 @@ export function startDeck(host: HTMLElement, env: () => DeckEnv, hashWriter: Has
       applyUpdateNow();
     } catch (err) {
       console.error(err);
-      // 匯出在 React 之外（§5.1-6），錯誤邊界接不到——同起草裁定 6 的出口：外殼顯示錯誤、卸載 overlay → teardown。
+      // 匯出在 React 之外，錯誤邊界接不到——出口：外殼顯示錯誤、卸載 overlay → teardown。
       env().shell.onFatal("app.noteCrash");
     }
   };
@@ -214,7 +214,7 @@ export function startDeck(host: HTMLElement, env: () => DeckEnv, hashWriter: Has
   };
 
   const teardown = () => {
-    if (!resolved || destroyed) return; // §6.9：resolve 之前絕不 destroy
+    if (!resolved || destroyed) return; // resolve 之前絕不 destroy
     destroyed = true;
     debouncer.cancel();
     unsubscribeSource?.();
@@ -245,14 +245,14 @@ export function startDeck(host: HTMLElement, env: () => DeckEnv, hashWriter: Has
   queueMicrotask(() => {
     if (disposed) return;
     if (window.location.search !== PRESENT_SEARCH) {
-      env().shell.onFatal("present.configRefused"); // §6.4-1
+      env().shell.onFatal("present.configRefused");
       return;
     }
     try {
       build();
     } catch (err) {
       console.error(err);
-      // 匯出在 React 之外（§5.1-6），錯誤邊界接不到——同起草裁定 6 的出口。reveal 沒有 resolve 過，不 destroy（§6.9）。
+      // 匯出在 React 之外，錯誤邊界接不到——同上的出口。reveal 沒有 resolve 過，不 destroy。
       keyTarget.current = null;
       dom.revealEl.remove();
       env().shell.onFatal("app.noteCrash");
@@ -275,7 +275,7 @@ export function startDeck(host: HTMLElement, env: () => DeckEnv, hashWriter: Has
           return;
         }
         if (!configMatches(instance.getConfig(), config)) {
-          env().shell.onFatal("present.configRefused"); // §6.4-3：外殼卸載 overlay → dispose → teardown
+          env().shell.onFatal("present.configRefused"); // 外殼卸載 overlay → dispose → teardown
           return;
         }
         instance.on("slidechanged", onSlideChanged);
@@ -287,14 +287,14 @@ export function startDeck(host: HTMLElement, env: () => DeckEnv, hashWriter: Has
           instance.slide(position.h, position.v);
           currentId = target;
         } else {
-          // §6.4-4「否則封面」：reveal 初始化時的 readURL() 會把數字形 hash（#/1、#/2/0）當索引直接跳頁
-          // （location.js:76-90，gate r1-p2 M2 實跑）——找不到我們的 id 就明確回封面。若因此改了索引，reveal 送
-          // slidechanged、由 onSlideChanged 寫成 #/_title；本來就在 (0,0) 時不送事件、網址不動（起草裁定 7）。
+          // 找不到就回封面：reveal 初始化時的 readURL() 會把數字形 hash（#/1、#/2/0）當索引直接跳頁
+          // （location.js:76-90）——找不到我們的 id 就明確回封面。若因此改了索引，reveal 送
+          // slidechanged、由 onSlideChanged 寫成 #/_title；本來就在 (0,0) 時不送事件、網址不動。
           instance.slide(0, 0);
         }
         swipe.refreshAll();
-        // 並排堆疊（columns-layout spec §11.8）：reveal 到 initialize() 才讓 present 與鄰近幾張顯示，之前量到的寬度一律是 0；
-        // 量不到的張不動，換到時由 onSlideChanged 補量。只在渲染時量，不跟視窗縮放重算。
+        // 並排堆疊：reveal 到 initialize() 才讓 present 與鄰近幾張（viewDistance 內）顯示，之前量到的寬度一律是 0；
+        // 這裡只有 present 那張與鄰近幾張量得到；其餘量不到的張不動，換到時由 onSlideChanged 補量。只在渲染時量，不跟視窗縮放重算。
         for (const els of dom.els.values()) restackSlideBody(els.body);
         runMermaid(mermaidJobsIn(dom.slidesEl));
         unsubscribeSource = subscribeSource();
@@ -312,7 +312,7 @@ export function startDeck(host: HTMLElement, env: () => DeckEnv, hashWriter: Has
       .catch((err: unknown) => {
         console.error(err);
         resolved = true;
-        if (!disposed) env().shell.onFatal("app.noteCrash"); // 起草裁定 6
+        if (!disposed) env().shell.onFatal("app.noteCrash");
       });
   }
 

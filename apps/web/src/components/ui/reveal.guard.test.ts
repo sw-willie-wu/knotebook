@@ -2,13 +2,13 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 /**
- * 來源層守衛（側欄 UX Task 5）：hover 浮出（`ui/reveal.ts` 的 `BASE`／`SCOPE`）與側欄拖曳把手的線
+ * 來源層守衛：hover 浮出（`ui/reveal.ts` 的 `BASE`／`SCOPE`）與側欄拖曳把手的線
  * （`PaneResizeHandle.tsx`，側欄與版本面板共用）的 class 必須是**完整字面**。
  *
  * 守的是：完整字面被改成樣板拼接（`` `group-hover/${scope}:…` ``）——Tailwind v4 靜態掃描原始碼
  * 產生 CSS，拼出來的 class 撈不到、靜默不產生；jsdom 測試只斷言 class 字串，照綠；而 build 產物
  * grep 也是盲的，因為 Tailwind 連測試檔一起掃，測試檔逐字寫著同一批 class 會把它們補回產物
- * （Task 2 審查 M2 實測）。所以只有讀原始碼的守衛看得到這個形。也因為會被補回，樣板化在今天的產物裡
+ * 。所以只有讀原始碼的守衛看得到這個形。也因為會被補回，樣板化在今天的產物裡
  * 其實還是對的——它是**潛伏回歸**：等哪天測試改寫、刪掉那些字面（本檔自己也逐字寫著幾條），才會靜默壞掉。
  *
  * 守不到的：字面本身打錯字、或 class 名不存在（照樣是完整字面，這裡放行）；用 `+` 串接字串拼出來
@@ -34,8 +34,8 @@ describe("hover 浮出與拖曳把手的 class 來源層守衛", () => {
   it("reveal.ts 的 BASE 與 SCOPE 是完整字面（沒有樣板拼接）", () => {
     const source = readFileSync(`${root}/components/ui/reveal.ts`, "utf8").replace(/\r\n/g, "\n");
     const segment = between(source, "const BASE =", "\n};");
-    // 片段真的涵蓋兩個 scope（錨點沒漂走）。
-    for (const scope of ["grouprow", "noterow"]) {
+    // 片段真的涵蓋三個 scope（錨點沒漂走）。
+    for (const scope of ["grouprow", "noterow", "folderrow"]) {
       expect(segment).toContain(`group-hover/${scope}:opacity-100`);
     }
     expect(segment).toContain("data-[state=open]:opacity-100");

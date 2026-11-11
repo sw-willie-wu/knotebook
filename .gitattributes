@@ -1,0 +1,2 @@
+# pnpm hashes the patch files into pnpm-lock.yaml and applies them to LF sources: keep them LF on every checkout.
+/patches/*.patch text eol=lf

@@ -4,16 +4,15 @@ import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import * as Y from "yjs";
 import { SESSION_COOKIE, YDOC_FRAGMENT } from "@knotebook/shared";
-import { signSession } from "../src/auth/session.js";
 import { noteStateBackups, notes, noteStates } from "../src/db/schema.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
 import { loadNoteDoc } from "../src/notes/editing/read.js";
-import { buildCollabTestApp, buildTestApp, testConfig } from "./helpers.js";
+import { buildCollabTestApp, buildTestApp, signTestSession } from "./helpers.js";
 import { bearer, docText, getContent, seedContent, seedTokenForUser, waitFor } from "./editing-helpers.js";
 import { loadDoc, xmlOf } from "./copy-helpers.js";
 
 const PASSWORD = "correct-horse-battery";
-const cookieFor = async (userId: string) => `${SESSION_COOKIE}=${await signSession(testConfig.appSecret, { userId, tv: 0 })}`;
+const cookieFor = async (userId: string) => `${SESSION_COOKIE}=${await signTestSession({ userId, tv: 0 })}`;
 
 // m-2：`read.ts` 檔頭與 `loadNoteDoc` 內的註解都宣稱「`documents.get` 到 `forkFrom(live)`
 // 之間不得插入 `await`」，但那只是**註解在守**——沒有任何行為測試釘著這條不變量。
@@ -37,22 +36,26 @@ const cookieFor = async (userId: string) => `${SESSION_COOKIE}=${await signSessi
 // 守衛邊界：這只擋兩個 marker 之間出現 `await` 這個字面。把 await 挪到 `documents.get`
 // 之前（例如 `const live = await Promise.resolve(...documents.get(noteId));`），或改用
 // `.then()`／`queueMicrotask` 讓出而不寫 `await` 這個字，這裡都抓不到。
-describe("read.ts 原始碼守衛：documents.get 到 forkFrom(live) 之間不得有 await", () => {
-  it("字面文字不含 await", () => {
+describe("read.ts 原始碼守衛：documents.get 到 forkFrom(live)／encodeStateAsUpdate(live) 之間不得有 await", () => {
+  it("字面文字不含 await（loadNoteDoc 與 loadNoteState 兩處）", () => {
     const src = readFileSync(new URL("../src/notes/editing/read.ts", import.meta.url), "utf8");
-    const start = src.indexOf("documents.get(noteId)");
-    const end = src.indexOf("forkFrom(live)");
-    expect(start).toBeGreaterThanOrEqual(0);
-    expect(end).toBeGreaterThan(start);
-    // 檔頭與行內註解本身就會提到「await」這個字（在講這條不變量），先濾掉整行都是 `//`
-    // 註解的行，才不會被註解自己的文字誤判成「含 await」；真的插進來的 `await` 程式碼
-    // 不是註解行，濾不掉。
-    const between = src
-      .slice(start, end)
-      .split("\n")
-      .filter(line => !line.trim().startsWith("//"))
-      .join("\n");
-    expect(between).not.toContain("await");
+    const starts: number[] = [];
+    for (let i = src.indexOf("documents.get(noteId)"); i !== -1; i = src.indexOf("documents.get(noteId)", i + 1)) starts.push(i);
+    expect(starts).toHaveLength(2);
+    for (const start of starts) {
+      const ends = ["forkFrom(live)", "encodeStateAsUpdate(live)"].map(t => src.indexOf(t, start)).filter(i => i !== -1);
+      const end = Math.min(...ends);
+      expect(end).toBeGreaterThan(start);
+      // 檔頭與行內註解本身就會提到「await」這個字（在講這條不變量），先濾掉整行都是 `//`
+      // 註解的行，才不會被註解自己的文字誤判成「含 await」；真的插進來的 `await` 程式碼
+      // 不是註解行，濾不掉。
+      const between = src
+        .slice(start, end)
+        .split("\n")
+        .filter(line => !line.trim().startsWith("//"))
+        .join("\n");
+      expect(between).not.toContain("await");
+    }
   });
 });
 
@@ -114,7 +117,7 @@ describe("GET /api/notes/:id/content", () => {
     expect(body.fingerprint).toMatch(/^[0-9a-f]{16}$/);
     // 大綱是對外 DTO（`NoteOutlineEntry`）：內部的 blockIds 不得外洩
     expect(body.outline.every((o: Record<string, unknown>) => o.blockIds === undefined)).toBe(true);
-    // 每一列的 fingerprint 是**該段自己的**指紋，不是整篇 fingerprint 的複製（Task 3
+    // 每一列的 fingerprint 是**該段自己的**指紋，不是整篇 fingerprint 的複製（
     // `fingerprint.ts` 檔頭明令禁止的退化：不符時退回整篇指紋）——三段內容互異，指紋
     // 也必須互異；且沒有任何一列會恰好等於整篇 fingerprint（#137 的條件更新拿這個欄位
     // 當基準，這裡沒守到就是編出來的假指紋）。
@@ -130,7 +133,7 @@ describe("GET /api/notes/:id/content", () => {
     // 段落端點回的指紋要與大綱那一列的指紋是同一個值（不是另外重算出來的巧合相等）。
     expect(sec.section.fingerprint).toBe(body.outline[2].fingerprint);
     expect(sec.outline).toBeUndefined();
-    // 段落形不帶整篇 outline，同樣不該帶整篇 fingerprint／假的 lastEdited——spec §5 的鍵只有
+    // 段落形不帶整篇 outline，同樣不該帶整篇 fingerprint／假的 lastEdited——段落形回應的鍵只有
     // `section`（見上）與 `lastEdited`。
     expect(sec.fingerprint).toBeUndefined();
     // #137：`lastEdited` 已是真值，不能再斷言恆 null（這篇剛被人編輯過，落盤一落地就變人形落款

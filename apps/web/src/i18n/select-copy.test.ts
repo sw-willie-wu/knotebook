@@ -9,7 +9,7 @@ import selectEnRaw from "./select.en.json?raw";
 import selectZhTWRaw from "./select.zh-TW.json?raw";
 
 /**
- * #181 PR-2c 一般 tab 選取模式的 lazy 字串包（`select.*`，只由 SelectLazy 鏈經 `select-strings.ts` 註冊）。
+ * #181 一般 tab 選取模式的 lazy 字串包（`select.*`，只由 SelectLazy 鏈經 `select-strings.ts` 註冊）。
  * 主 JSON 的 parity（`index.test.ts`）不涵蓋這兩檔，所以 parity、逐字、與主檔不重疊、無重複鍵都在這裡。
  */
 
@@ -59,7 +59,7 @@ describe("SC1 select 包：兩語系鍵集合相同、頂層只有 select", () =
   });
 });
 
-describe("SC2 spec §6.11／§6.12 字面（zh-TW）", () => {
+describe("SC2 選取模式文案字面（zh-TW）", () => {
   const SPEC_COPY: Record<string, string> = {
     "select.selected_other": "已選 {{count}} 項",
     "select.moveTo": "移動到",
@@ -70,6 +70,55 @@ describe("SC2 spec §6.11／§6.12 字面（zh-TW）", () => {
   for (const [key, text] of Object.entries(SPEC_COPY)) {
     it(key, () => expect(get(selectZhTW, key)).toBe(text));
   }
+});
+
+/** 資料夾選取模式的逐字字串（zh-TW 的 `_one`／`_other` 同字）。 */
+const FOLDER_SPEC_ZH: Record<string, string> = {
+  acrossGroups: "選取的筆記分屬不同群組，無法一起移動",
+  foldersOnlyWithinSpace: "資料夾只能在同一個空間內移動",
+  foldersCantCopy: "資料夾不能複製",
+  deleteFoldersTitle_one: "刪除 {{count}} 個資料夾？",
+  deleteFoldersTitle_other: "刪除 {{count}} 個資料夾？",
+  deleteFoldersBody_one: "這些資料夾與其中的子資料夾會刪除，{{count}} 篇筆記會移到垃圾桶。",
+  deleteFoldersBody_other: "這些資料夾與其中的子資料夾會刪除，{{count}} 篇筆記會移到垃圾桶。",
+  deleteFoldersAlsoNotes_one: "另外 {{count}} 篇選取的筆記也會移到垃圾桶。",
+  deleteFoldersAlsoNotes_other: "另外 {{count}} 篇選取的筆記也會移到垃圾桶。",
+  removeFoldersTitle_one: "移除 {{count}} 個資料夾？",
+  removeFoldersTitle_other: "移除 {{count}} 個資料夾？",
+  removeFoldersBody: "資料夾會移除，裡面的共享筆記回到最上層，不會刪除任何筆記。",
+  foldersBlockedSuffix_one: "，{{count}} 個資料夾沒有刪除（裡面有你不能刪除的筆記）",
+  foldersBlockedSuffix_other: "，{{count}} 個資料夾沒有刪除（裡面有你不能刪除的筆記）",
+  foldersGoneSuffix_one: "，{{count}} 個資料夾已不存在",
+  foldersGoneSuffix_other: "，{{count}} 個資料夾已不存在",
+};
+
+const FOLDER_SPEC_EN: Record<string, string> = {
+  acrossGroups: "The selected notes are in different groups and can't be moved together",
+  foldersOnlyWithinSpace: "Folders can only move within the same space",
+  foldersCantCopy: "Folders can't be copied",
+  deleteFoldersTitle_one: "Delete 1 folder?",
+  deleteFoldersTitle_other: "Delete {{count}} folders?",
+  deleteFoldersBody_one: "These folders and their subfolders will be deleted, and 1 note will move to the trash.",
+  deleteFoldersBody_other: "These folders and their subfolders will be deleted, and {{count}} notes will move to the trash.",
+  deleteFoldersAlsoNotes_one: "The 1 selected note will also move to the trash.",
+  deleteFoldersAlsoNotes_other: "The {{count}} selected notes will also move to the trash.",
+  removeFoldersTitle_one: "Remove 1 folder?",
+  removeFoldersTitle_other: "Remove {{count}} folders?",
+  removeFoldersBody: "The folders will be removed and their shared notes moved back to the top level. No notes are deleted.",
+  foldersBlockedSuffix_one: ", 1 folder wasn't deleted (it holds notes you can't delete)",
+  foldersBlockedSuffix_other: ", {{count}} folders weren't deleted (they hold notes you can't delete)",
+  foldersGoneSuffix_one: ", 1 folder no longer exists",
+  foldersGoneSuffix_other: ", {{count}} folders no longer exist",
+};
+
+describe("SC7 資料夾逐字", () => {
+  it.each(Object.entries(FOLDER_SPEC_ZH))("zh-TW select.%s", (key, text) => {
+    expect(get(selectZhTW, `select.${key}`)).toBe(text);
+  });
+
+  it.each(Object.entries(FOLDER_SPEC_EN))("en select.%s", (key, text) => {
+    expect(get(selectEn, `select.${key}`)).toBe(text);
+  });
 });
 
 // 讀原始文字：deep merge 的 addResourceBundle 會把 select 併進 i18n 初始化時那份主 JSON 物件（同一個 import），

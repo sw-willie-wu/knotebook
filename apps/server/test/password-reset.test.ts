@@ -1,6 +1,6 @@
 /**
- * #286 無登入端點：inspect 與以重設連結設定新密碼（spec §4.3）、登出手段與「不動 PAT／OAuth」（§4.4、A-7）、
- * 並發（A-9、A-10）、帳密開關（A-11）、miss 桶（A-12）、argon2 前判斷與嘗試桶（A-13）、kind 隔離（A-14）、錯誤遮蔽（§3.8）。
+ * #286 無登入端點：inspect 與以重設連結設定新密碼、登出手段與「不動 PAT／OAuth」、
+ * 並發、帳密開關、miss 桶、argon2 前判斷與嘗試桶、kind 隔離、錯誤遮蔽。
  * 每案各建一個 app（fresh DB），限流桶不跨案累積；未注入的案跑生產額度的桶。共編連線的關閉在 `collab-revocation.test.ts`。
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -39,13 +39,14 @@ const REDACTED = "重設密碼時發生非預期的資料庫錯誤（錯誤本�
 const LOOKUP_REDACTED = "查詢重設密碼連結時發生非預期的資料庫錯誤（錯誤本體已遮蔽）";
 /** 同 `admin-password-reset.test.ts`：DrizzleQueryError 的 params 落進 JSON log 的兩形。 */
 const PARAMS_LEAK = /params: |"params"\s*:/;
-/** 所有無效原因（含交易內並發造成的）回同一個 body，不洩漏原因（spec §4.3）。 */
+/** 所有無效原因（含交易內並發造成的）回同一個 body，不洩漏原因。 */
 const INVALID_BODY = { error: { code: "reset_link_invalid", message: RESET_LINK_INVALID_MESSAGE } };
 
 function spyCollabHooks(): CollabHooks {
   return {
     onShareChanged: vi.fn(),
     onUserRevoked: vi.fn(),
+    onSessionRevoked: vi.fn(),
     onGroupAccessChanged: vi.fn(),
     beforeNoteDeleted: vi.fn(async () => ({ release: () => {} })),
     onNotesRestored: vi.fn(),
@@ -86,7 +87,7 @@ async function setup(overrides: Partial<AppDeps> = {}) {
 
 type Ctx = Awaited<ReturnType<typeof setup>>;
 
-/** 經 T2 的 admin POST 產生連結，回明文 token 與產生回應的 expiresAt。 */
+/** 經 admin POST 產生連結，回明文 token 與產生回應的 expiresAt。 */
 async function issue(ctx: Ctx, targetId: string): Promise<{ token: string; expiresAt: string }> {
   const res = await ctx.app.inject({ method: "POST", url: `/api/admin/users/${targetId}/password-reset`, cookies: ctx.adminCookies, payload: { expiresInHours: 1 } });
   expect(res.statusCode, res.body).toBe(201);
@@ -233,7 +234,7 @@ describe("POST /api/auth/password-reset（完成）", () => {
     expect((await linkOf(db, live)).usedAt).toBeNull();
   });
 
-  // A-7（安全關鍵）：完成重設只動 users 與 one_time_links——agent 的 token 全部照常可用。
+  // 安全關鍵：完成重設只動 users 與 one_time_links——agent 的 token 全部照常可用。
   it("C4：完成前建立的 PAT、OAuth access／refresh、transfer token 完成後都照常可用；四張表列數不變", async () => {
     const ctx = await setup();
     const { app, db } = ctx;
@@ -277,7 +278,7 @@ describe("POST /api/auth/password-reset（完成）", () => {
     }).toEqual({ counts: before, pat: 200, oauthAccess: 200, oauthRefresh: 200, transfer: 201 });
   });
 
-  // A-9（安全關鍵）：兩發並發恰好一發成功；token_version 只加一次。
+  // 安全關鍵：兩發並發恰好一發成功；token_version 只加一次。
   it("C5：raw client 持 users 列鎖時兩發完成排隊 → 放行後 [200, 410]、token_version = 1", async () => {
     const ctx = await setup();
     const { app, db } = ctx;
@@ -304,8 +305,8 @@ describe("POST /api/auth/password-reset（完成）", () => {
   });
 });
 
-describe("停用與重設（A-10、§4.6）", () => {
-  // 停用的撤銷由 T2 的 disableUserInTx 負責（T2-M23 守）；本案驗的是端點對撤銷後的連結回 410、重新啟用不復活。
+describe("停用與重設", () => {
+  // 停用的撤銷由 disableUserInTx 負責；本案驗的是端點對撤銷後的連結回 410、重新啟用不復活。
   it("C6：經 API 停用 → inspect 與完成 410；重新啟用後仍 410", async () => {
     const ctx = await setup();
     const { app, db } = ctx;
@@ -386,7 +387,7 @@ describe("停用與重設（A-10、§4.6）", () => {
 });
 
 describe("POST /api/auth/password-reset/inspect", () => {
-  // 嘗試桶上限 1：inspect 若也扣嘗試桶，最後的完成會變 429（spec §4.3：inspect 不扣嘗試桶）。
+  // 嘗試桶上限 1：inspect 若也扣嘗試桶，最後的完成會變 429（inspect 不扣嘗試桶）。
   it("C2：200 只回 email／expiresAt；連打 3 次不消耗連結也不扣嘗試桶；用過之後 410", async () => {
     const ctx = await setup(resetLimiters({ attempt: 1 }));
     const { app, db } = ctx;
@@ -406,8 +407,8 @@ describe("POST /api/auth/password-reset/inspect", () => {
   });
 });
 
-describe("帳密登入開關（A-11、D2）", () => {
-  // 嘗試桶上限 2（spec N-1）：關閉期間連送 3 發完成都是 403、不扣桶，所以重新開啟後第一發就能完成。
+describe("帳密登入開關", () => {
+  // 嘗試桶上限 2：關閉期間連送 3 發完成都是 403、不扣桶，所以重新開啟後第一發就能完成。
   it("C7：DB 關閉 → inspect 403、完成連送 3 發都 403（不是 429），連結列不動；重新開啟 → 同一 token 完成 200", async () => {
     const ctx = await setup(resetLimiters({ attempt: 2 }));
     const { app, db } = ctx;
@@ -443,7 +444,7 @@ describe("帳密登入開關（A-11、D2）", () => {
 });
 
 describe("argon2 之前的判斷與 hash 忙碌", () => {
-  // A-13 前半（安全關鍵）：能在 argon2 之前判斷的都先判，太短、帳密關閉、無效連結都不跑 hashPassword。
+  // 前半（安全關鍵）：能在 argon2 之前判斷的都先判，太短、帳密關閉、無效連結都不跑 hashPassword。
   it("C9：太短 400、帳密關閉 403、無效連結 410 都不呼叫 hashPassword；成功那一發恰好一次", async () => {
     const ctx = await setup();
     const { app, db } = ctx;
@@ -469,7 +470,7 @@ describe("argon2 之前的判斷與 hash 忙碌", () => {
     expect(hashPassword).toHaveBeenCalledTimes(1);
   });
 
-  // A-13 後半（安全關鍵）：嘗試桶在長度檢查之前扣，太短的密碼也算；超限那一發不跑 argon2。
+  // 後半（安全關鍵）：嘗試桶在長度檢查之前扣，太短的密碼也算；超限那一發不跑 argon2。
   it("C9b：嘗試桶上限 2 → 太短兩發 400、第三發（長度足夠）429 且不呼叫 hashPassword；連結未用；別人的連結照常 200", async () => {
     const ctx = await setup(resetLimiters({ attempt: 2 }));
     const { app, db } = ctx;
@@ -505,7 +506,7 @@ describe("argon2 之前的判斷與 hash 忙碌", () => {
   });
 });
 
-describe("miss 桶（A-12、§3.6）", () => {
+describe("miss 桶", () => {
   // 安全關鍵：失敗才扣、有效 token 不預檢——同 IP 的無效 token 灌滿桶後，有效 token 仍 200。
   it("C8：上限 3 → 同 IP 三發無效 410、第四發 429；緊接著同 IP 的有效 token inspect 與完成都 200；另一個 IP 的無效 token 410", async () => {
     const ctx = await setup(resetLimiters({ miss: 3 }));
@@ -530,7 +531,7 @@ describe("miss 桶（A-12、§3.6）", () => {
     expectInvalid(await inspect(app, miss(), "10.0.0.2"));
   });
 
-  // N-4：交易內（並發造成）的 410 已以有效 token 通過查詢，不扣 miss 桶。
+  // 交易內（並發造成）的 410 已以有效 token 通過查詢，不扣 miss 桶。
   it("C13：上限 1 → 交易內的 410（DB 直接停用）之後，一發無效 token 仍是 410（不是 429）", async () => {
     const ctx = await setup(resetLimiters({ miss: 1 }));
     const { app, db } = ctx;
@@ -543,7 +544,7 @@ describe("miss 桶（A-12、§3.6）", () => {
 });
 
 describe("kind 隔離與錯誤遮蔽", () => {
-  it("C11：別的 kind 的列（雜湊相符、未過期）→ inspect 與完成 410（#285 起 'invite' 是合法 kind，改用假 kind；邀請 token 打重設端點見 invite-accept B-14）", async () => {
+  it("C11：別的 kind 的列（雜湊相符、未過期）→ inspect 與完成 410（#285 起 'invite' 是合法 kind，改用假 kind；邀請 token 打重設端點見 invite-accept）", async () => {
     const ctx = await setup();
     const { app, db } = ctx;
     const target = await insertPasswordUser(db);

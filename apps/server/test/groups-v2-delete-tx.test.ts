@@ -1,5 +1,5 @@
 /**
- * #175 PR4 T6／T7 的交易本體（`groups/tx/delete-group.ts`）以 `db.transaction(tx => xInTx(tx, …))` 直呼——不經路由。
+ * #175 的交易本體（`groups/tx/delete-group.ts`）以 `db.transaction(tx => xInTx(tx, …))` 直呼——不經路由。
  * HTTP 功能面（body 驗證、授權、踢線、磁碟檔）在 `groups-v2-delete.test.ts`；交錯案在 `groups-v2-delete-race.test.ts`。
  */
 import { randomUUID } from "node:crypto";
@@ -35,8 +35,8 @@ async function redirectsOf(db: Db): Promise<Array<{ oldPath: string; noteId: str
   return rows.sort((a, b) => (a.oldPath < b.oldPath ? -1 : a.oldPath > b.oldPath ? 1 : 0));
 }
 
-describe("#175 PR4 transferGroupInTx（T6）", () => {
-  it("轉移：每篇 owner＝transferTo、group_id NULL、slug 保留或 -N、slug_is_custom 不變、prev_slug NULL、public_token NULL、public_slug NULL（Willie 2026-10-02 裁決：轉移清公開連結，C1／W1）、legacy_slug 不變、updated_at 不動；轉址恰每篇一列 /g/<g 小寫>/<舊 slug>；群組／角色／成員消失；AI 紀錄／links／uploads／note_states 跟著 UUID；回傳 noteIds 與 memberIds", async () => {
+describe("#175 transferGroupInTx", () => {
+  it("轉移：每篇 owner＝transferTo、group_id NULL、slug 保留或 -N、slug_is_custom 不變、prev_slug NULL、public_token NULL、public_slug NULL（轉移清公開連結）、legacy_slug 不變、updated_at 不動；轉址恰每篇一列 /g/<g 小寫>/<舊 slug>；群組／角色／成員消失；AI 紀錄／links／uploads／note_states 跟著 UUID；回傳 noteIds 與 memberIds", async () => {
     const { db } = await buildTestApp();
     const pool = db.$client;
     const [a, b, c] = await Promise.all([seedUser(db), seedUser(db), seedUser(db)]);
@@ -70,7 +70,7 @@ describe("#175 PR4 transferGroupInTx（T6）", () => {
     });
     const { rows: legacyRows } = await pool.query("select legacy_slug from notes where id = $1", [n1.id]);
     expect(legacyRows).toEqual([{ legacy_slug: legacy }]);
-    // 只寫現行 slug（B12）：沒有 /g/<g>/old。
+    // 只寫現行 slug：沒有 /g/<g>/old。
     expect(await redirectsOf(db)).toEqual([
       { oldPath: `/g/${g.id.toLowerCase()}/plan`, noteId: n1.id },
       { oldPath: `/g/${g.id.toLowerCase()}/x`, noteId: n2.id },
@@ -85,14 +85,14 @@ describe("#175 PR4 transferGroupInTx（T6）", () => {
     expect(sorted(out.memberIds)).toEqual(sorted([a.id, b.id, c.id]));
   });
 
-  it("RF1：撞名鏈依 created_at, id 處理——較早的 a-2 保留、較晚的 a 得 a-3", async () => {
+  it("撞名鏈依 created_at, id 處理——較早的 a-2 保留、較晚的 a 得 a-3", async () => {
     const { db } = await buildTestApp();
     const pool = db.$client;
     const [a, b] = await Promise.all([seedUser(db), seedUser(db)]);
     const g = await seedGroup(db, "G", [{ userId: a.id, role: "admin" }, { userId: b.id, role: "admin" }]);
     await seedNote(db, { ownerId: b.id }, { slug: "a" });
     // 實體插入序 Q→P＝slug 序（a < a-2），與建立序（P 較早）相反——依 slug 序或實體序處理都會得 Q＝a-2、P＝a-2-2。
-    // id 也與建立序相反（q < p）：依 id 處理（鎖序是 id，T12b）同樣會錯。
+    // id 也與建立序相反（q < p）：依 id 處理（鎖序是 id）同樣會錯。
     const q = await seedNote(db, { groupId: g.id }, { id: "00000000-0000-4000-8000-000000000001", slug: "a" });
     const p = await seedNote(db, { groupId: g.id }, { id: "ffffffff-0000-4000-8000-000000000001", slug: "a-2" });
     await pool.query("update notes set created_at = now() - interval '1 hour' where id = $1", [p.id]);
@@ -109,13 +109,13 @@ describe("#175 PR4 transferGroupInTx（T6）", () => {
     expect(out.noteIds).toEqual([p.id, q.id]);
   });
 
-  it("RF1b：created_at 只差 1 µs（同一毫秒內）仍依 created_at 處理——較早的 a-2 保留、較晚的 a 得 a-3", async () => {
+  it("created_at 只差 1 µs（同一毫秒內）仍依 created_at 處理——較早的 a-2 保留、較晚的 a 得 a-3", async () => {
     const { db } = await buildTestApp();
     const pool = db.$client;
     const [a, b] = await Promise.all([seedUser(db), seedUser(db)]);
     const g = await seedGroup(db, "G", [{ userId: a.id, role: "admin" }, { userId: b.id, role: "admin" }]);
     await seedNote(db, { ownerId: b.id }, { slug: "a" });
-    // id 與 RF1 同一組反序（q < p）：毫秒或秒精度會把兩篇排成同時、退回依 id，q 先處理就錯。
+    // id 與上一案同一組反序（q < p）：毫秒或秒精度會把兩篇排成同時、退回依 id，q 先處理就錯。
     const q = await seedNote(db, { groupId: g.id }, { id: "00000000-0000-4000-8000-000000000001", slug: "a" });
     const p = await seedNote(db, { groupId: g.id }, { id: "ffffffff-0000-4000-8000-000000000001", slug: "a-2" });
     await pool.query("update notes set created_at = '2026-01-01 00:00:00.000100+00' where id = $1", [p.id]);
@@ -132,7 +132,7 @@ describe("#175 PR4 transferGroupInTx（T6）", () => {
     expect(out.noteIds).toEqual([p.id, q.id]);
   });
 
-  it("RF2：100 字元自訂 slug 在 transferTo 範圍撞名 → ≤60、-2 結尾、通過 validateSlug、slug_is_custom 仍 true；轉址鍵是 100 字元的舊 slug", async () => {
+  it("100 字元自訂 slug 在 transferTo 範圍撞名 → ≤60、-2 結尾、通過 validateSlug、slug_is_custom 仍 true；轉址鍵是 100 字元的舊 slug", async () => {
     const { db } = await buildTestApp();
     const pool = db.$client;
     const b = await seedUser(db);
@@ -209,7 +209,7 @@ describe("#175 PR4 transferGroupInTx（T6）", () => {
   });
 });
 
-describe("#175 PR4 deleteGroupWithNotesInTx（T7）", () => {
+describe("#175 deleteGroupWithNotesInTx", () => {
   it("全刪：L 內每篇與其 uploads 列／states／轉址／AI 紀錄／兩方向 links 消失；群組外的筆記（含 link 的另一端）仍在；回傳 uploadIds＝被刪的 uploads id、noteIds＝L、memberIds＝全體成員；群組／角色／成員消失", async () => {
     const { db, uploadsDir } = await buildTestApp();
     const [a, c] = await Promise.all([seedUser(db), seedUser(db)]);
@@ -266,7 +266,7 @@ describe("#175 PR4 deleteGroupWithNotesInTx（T7）", () => {
   });
 });
 
-describe("#175 PR4 刪群組的測試縫", () => {
+describe("#175 刪群組的測試縫", () => {
   /**
    * 「鎖之後、取筆記之前」以另一條連線的 `FOR UPDATE NOWAIT` 判定：groups 列已被 `lockGroup` 鎖住 → 55P03；
    * 該群組筆記尚未被 `FOR UPDATE` → 成功（autocommit，立即放鎖）。
@@ -279,7 +279,7 @@ describe("#175 PR4 刪群組的測試縫", () => {
     };
   };
 
-  it("group-transfer-slug-candidate 每輪呼叫一次、ctx 帶 noteId 與本輪候選；group-delete-locked 在 T6 的 transferTo 檢查之後、T7 的取 L 之前各呼叫一次；folder-structure-locked（資料夾結構鎖）接在它之後、鎖筆記之前", async () => {
+  it("group-transfer-slug-candidate 每輪呼叫一次、ctx 帶 noteId 與本輪候選；group-delete-locked 在轉移的 transferTo 檢查之後、全刪的取 L 之前各呼叫一次；folder-structure-locked（資料夾結構鎖）接在它之後、鎖筆記之前", async () => {
     const { db } = await buildTestApp();
     const pool = db.$client;
     const [a, b, c] = await Promise.all([seedUser(db), seedUser(db), seedUser(db)]);

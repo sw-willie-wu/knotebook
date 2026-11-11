@@ -12,9 +12,9 @@ import { UUID_RE } from "../notes/service.js";
 import { uploadFilePath } from "../uploads/service.js";
 
 /**
- * #72／#122 PR3 公開分享的**免登入**端點（無 `app.authenticate`）。兩形網址：
+ * #72／#122 公開分享的**免登入**端點（無 `app.authenticate`）。兩形網址：
  * token 形 `/api/public/notes/:token`（#72）與別名形 `/api/public/notes/:handle/:slug`
- * （#122 PR3，owner 顯式 opt-in 的 public_slug）——各自帶 uploads 子端點，合計四條，
+ * （#122，owner 顯式 opt-in 的 public_slug）——各自帶 uploads 子端點，合計四條，
  * 全部走同一支 `resolvePublicNote`（唯一實作，禁寫姊妹函式——四步序與 404 同形
  * 只能存在一份，兩份會漂移）。
  *
@@ -39,7 +39,7 @@ import { uploadFilePath } from "../uploads/service.js";
  * （別名頁洩 token＝把可猜的網址升級成不可撤的把手）、不含 noteId 與 updatedAt。
  *
  * token 出現在 token 形 URL 裡——**不進 log** 由 `app.ts` 的 req serializer
- * （`redactPublicTokens`，Task 1c）負責，本檔不得自行 `request.log` 帶 url。
+ * （`redactPublicTokens`）負責，本檔不得自行 `request.log` 帶 url。
  */
 
 const PUBLIC_TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
@@ -51,14 +51,14 @@ export function isValidPublicToken(token: string): boolean {
 
 /**
  * log 遮罩（pure，unit 釘住）：把 `/p/<段>` 與 `/api/public/notes/<段>` 的**第一段**
- * 換成 `:token` 再進 log——**刻意過寬**（非 43 字元的段也遮；#122 PR3 的別名形
+ * 換成 `:token` 再進 log——**刻意過寬**（非 43 字元的段也遮；#122 的別名形
  * `/p/<handle>/<slug>` 第一段是 handle 不是 token，也會被遮成 `/p/:token/<slug>`
  * ——接受：log 遮罩寧可多遮，「差一個字元的幾乎 token」也不留，而 handle/slug
  * 本就不是機密）。由 `app.ts` 的 req serializer 無條件套在 `req.url` 上（含測試
  * 注入 logger 的情形——見該處註解）。
  */
 export function redactPublicTokens(url: string): string {
-  // ⚠ 先收斂開頭的重複斜線、比對不分大小寫（審查真 socket 實測抓到的洩漏形）：
+  // ⚠ 先收斂開頭的重複斜線、比對不分大小寫（真 socket 實測過的洩漏形）：
   // SPA fallback 對 `//p/<token>`、`/P/<token>`、`//api/public/...` 一律照常服務
   // （fastify 路由與 EXCLUDED_PREFIXES 都比不中，落進 fallback 回 200），`^` 錨定
   // ＋大小寫敏感的字面比對會讓這些變體把 token 原文寫進 log。收斂會讓 log 裡的
@@ -73,7 +73,7 @@ export function redactPublicTokens(url: string): string {
 /**
  * `/p` 公開分享頁的 pathname 判定——noindex 條件（spa.ts）與 log 遮罩共用同一份
  * 正規化（開頭斜線收斂＋不分大小寫），**不得各寫一份字面比對**（只修一邊的話
- * `//p/<token>` 這類變體會拿不到 noindex 或洩進 log，兩處同時破——審查實測過）。
+ * `//p/<token>` 這類變體會拿不到 noindex 或洩進 log，兩處同時破——實測過）。
  * `pathname === "/p"` 也算：本身沒有 token、掛 noindex 無害，且讓 `/p` 與 `/p/`
  * 行為一致（有測試釘住）。
  */
@@ -90,7 +90,7 @@ export interface PublicRoutesDeps {
 
 /** 三情境共用的同形 404（body 逐位元組一致由測試釘住）。 */
 function sendLinkNotFound(reply: FastifyReply): FastifyReply {
-  return sendError(reply, 404, "not_found", "連結不存在或已失效");
+  return sendError(reply, 404, "not_found", "This link doesn't exist or no longer works.");
 }
 
 /** 反查命中的列（lookup 與 resolvePublicNote 共用）。 */
@@ -99,7 +99,7 @@ type PublicNoteRow = { id: string; title: string; publicWidth: NoteWidth };
 /**
  * 一種公開網址形＝三個注入點（檔頭四步序的可變部分；固定步序寫死在
  * `resolvePublicNote` 本體，**不得**把 guard 折進 lookup——那會讓「格式 guard
- * 不進桶不打 DB」（§5.4）靜默破掉）。
+ * 不進桶不打 DB」靜默破掉）。
  */
 interface PublicRefSpec<Q> {
   /** ① 正規化＋格式 guard（pure）：非法形回 null（404 同形、不進桶、不打 DB）。 */
@@ -130,7 +130,7 @@ export function publicRoutes(deps: PublicRoutesDeps) {
     const ip = request.ip;
     // ② 不計數預檢：對命中與未命中一視同仁。
     if (deps.limiters.publicMiss.isBlocked(ip)) {
-      sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
+      sendError(reply, 429, "too_many_requests", "Too many requests. Wait a moment and try again.");
       return null;
     }
     // ③ 反查後分桶計數（兩形共用 miss 桶）。
@@ -142,13 +142,13 @@ export function publicRoutes(deps: PublicRoutesDeps) {
     }
     // ④ hit 桶（key 形見檔頭）。
     if (!hitBucket.consume(spec.hitKey(q, ip, note.id))) {
-      sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
+      sendError(reply, 429, "too_many_requests", "Too many requests. Wait a moment and try again.");
       return null;
     }
     return note;
   }
 
-  /** token 形（#72）。#181 §6.2-5：垃圾桶筆記不命中（走 miss，與「連結不存在」逐位元組相同）——兩形同。 */
+  /** token 形（#72）。#181：垃圾桶筆記不命中（走 miss，與「連結不存在」逐位元組相同）——兩形同。 */
   function tokenSpec(token: string): PublicRefSpec<string> {
     return {
       guard: () => (isValidPublicToken(token) ? token : null),
@@ -163,7 +163,7 @@ export function publicRoutes(deps: PublicRoutesDeps) {
     };
   }
 
-  /** 別名形（#122 PR3）。 */
+  /** 別名形（#122）。 */
   function pathSpec(rawHandle: string, rawSlug: string): PublicRefSpec<{ handle: string; slug: string }> {
     return {
       guard: () => {
@@ -199,7 +199,7 @@ export function publicRoutes(deps: PublicRoutesDeps) {
         .where(eq(noteStates.noteId, note.id))
         .limit(1);
 
-      // #269 §11.1：指向有自訂公開網址的筆記的連結帶出該網址與標題（token 形目標永不出現）。
+      // #269：指向有自訂公開網址的筆記的連結帶出該網址與標題（token 形目標永不出現）。
       const links = await publicLinksFor(deps.db, note.id, state ? state.ydoc : null);
       // no-store：撤銷/重生要即時生效，公開內容不進任何快取。
       reply.header("cache-control", "no-store");
@@ -211,11 +211,11 @@ export function publicRoutes(deps: PublicRoutesDeps) {
       // 的檔案 404——**跨筆記 uploadId 也是 404**（公開授權只及自己那篇的 blob；
       // A 筆記的圖貼進 B、B 公開後那張圖破圖，記 docs/known-limitations.md）。
       if (!UUID_RE.test(uploadId)) {
-        return sendError(reply, 404, "not_found", "找不到此檔案");
+        return sendError(reply, 404, "not_found", "No file with that id.");
       }
       const [row] = await deps.db.select().from(uploads).where(eq(uploads.id, uploadId)).limit(1);
       if (!row || row.noteId !== note.id) {
-        return sendError(reply, 404, "not_found", "找不到此檔案");
+        return sendError(reply, 404, "not_found", "No file with that id.");
       }
 
       const filePath = uploadFilePath(deps.uploadsDir, row.id);
@@ -223,7 +223,7 @@ export function publicRoutes(deps: PublicRoutesDeps) {
         await stat(filePath);
       } catch {
         request.log.error({ uploadId: row.id }, "DB 有上傳紀錄但磁碟找不到對應檔案");
-        return sendError(reply, 404, "not_found", "找不到此檔案");
+        return sendError(reply, 404, "not_found", "No file with that id.");
       }
 
       reply.header("x-content-type-options", "nosniff");

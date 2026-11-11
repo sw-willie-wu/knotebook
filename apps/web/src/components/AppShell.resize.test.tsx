@@ -5,6 +5,7 @@ import { MemoryRouter } from "react-router";
 import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
 import { AppShell } from "./AppShell";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 interface FakeResponseInit {
   ok: boolean;
@@ -25,6 +26,7 @@ function stubFetch() {
       if (url === "/api/groups" && method === "GET") {
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
       }
+      if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
       if (url === "/api/notes" && method === "GET") {
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
       }
@@ -56,7 +58,7 @@ async function renderShell() {
 }
 
 /**
- * 側欄寬度把手（Task 4）。**全檔都是 state／attribute 斷言**：jsdom 沒有 CSS、沒有版面、
+ * 側欄寬度把手。**全檔都是 state／attribute 斷言**：jsdom 沒有 CSS、沒有版面、
  * 沒有 `setPointerCapture`（這裡用 spy 補上）——「游標離開把手仍跟手」「把手真的蓋在
  * `gap-3` 上」「focus 時看得到線」這類行為只能手動驗。
  */
@@ -121,7 +123,7 @@ describe("AppShell 側欄寬度把手", () => {
     expect(document.body.style.cursor).toBe("");
 
     // 拖曳已結束：之後的 move 不再改寬度。clientX 刻意選 180——若拖曳沒結束會算出 336、
-    // 與 200 不同值；選 0 的話算出來恰好也夾在 200，斷言分不出來（review r1 I1）。
+    // 與 200 不同值；選 0 的話算出來恰好也夾在 200，斷言分不出來。
     fireEvent.pointerMove(handle, { clientX: 180, pointerId: 1 });
     expect(aside.style.width).toBe("200px");
   });
@@ -174,7 +176,7 @@ describe("AppShell 側欄寬度把手", () => {
   });
 
   it("把手的線：平常透明、hover 不畫線，只在鍵盤聚焦與拖曳中出線（class／attribute 契約，不是行為斷言）", async () => {
-    // Willie 2026-09-30 裁決：hover 只換游標、不畫線。jsdom 沒有 CSS，只能釘 class 字串與屬性。
+    // hover 只換游標、不畫線。jsdom 沒有 CSS，只能釘 class 字串與屬性。
     const { handle } = await renderShell();
     const line = handle.firstElementChild;
     if (!line) throw new Error("resize handle has no line element");

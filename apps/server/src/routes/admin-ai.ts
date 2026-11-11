@@ -51,14 +51,14 @@ const baseUrlSchema = z
         return true;
       }
     },
-    { message: "Base URL 不能包含帳號密碼，請把認證放在 API key 欄位", params: { code: BASE_URL_CREDENTIALS_CODE } },
+    { message: "The base URL can't contain a username or password. Put credentials in the API key field.", params: { code: BASE_URL_CREDENTIALS_CODE } },
   );
 
 /** zod 失敗 → 400；帶帳密的專屬 code 讓前端能顯示明確訊息，其餘維持 invalid_body。 */
 function providerBodyError(error: z.ZodError): { code: "invalid_body" | typeof BASE_URL_CREDENTIALS_CODE; message: string } {
   const issue = error.issues[0];
   const hasCredentials = (issue as { params?: { code?: string } } | undefined)?.params?.code === BASE_URL_CREDENTIALS_CODE;
-  return { code: hasCredentials ? BASE_URL_CREDENTIALS_CODE : "invalid_body", message: issue?.message ?? "請求格式錯誤" };
+  return { code: hasCredentials ? BASE_URL_CREDENTIALS_CODE : "invalid_body", message: issue?.message ?? "Invalid request body." };
 }
 
 const createProviderSchema = z.object({
@@ -79,7 +79,7 @@ const patchProviderSchema = z.object({
 // 只選這六欄（形狀鎖，比照 `routes/admin-users.ts` 的 `adminUserColumns` 慣例，
 // 這裡更進一步）：`hasKey` 用 SQL 端 `IS NOT NULL` 直接算出布林值，**從不** SELECT
 // `apiKeyEncrypted` 本體——密文位元組完全不進 Node process 記憶體，不是「查出來但序列化
-// 階段刻意漏掉」那種較弱的防線（見 Task 3 交接：任何回應絕不可含 api_key_encrypted／
+// 階段刻意漏掉」那種較弱的防線（任何回應絕不可含 api_key_encrypted／
 // ct/iv/tag/keyId 字樣）。issue #14 之後密文另外綁了 providerId，但那道綁定管的是
 // 「密文不能跨列使用」，跟「密文不可以出現在回應裡」是兩件事——這裡這道防線照舊。
 const providerListColumns = {
@@ -122,7 +122,7 @@ const createModelSchema = z.object({
   modelId: z.string().min(1),
   displayName: z.string().min(1),
   // v0.1 只開 chat（YAGNI；embedding 連 API 都不收）——`z.literal` 讓任何非 "chat" 值
-  // 在 zod 階段就 400 invalid_body，不必另外手寫檢查（spec §13.2「purpose 鎖 chat」）。
+  // 在 zod 階段就 400 invalid_body，不必另外手寫檢查。
   purpose: z.literal("chat").optional(),
   isDefault: z.boolean().optional(),
   enabled: z.boolean().optional(),
@@ -155,8 +155,8 @@ function toModelDto(row: AiModelRow): AdminAiModelDto {
 // ───────────────────────────── actions ─────────────────────────────
 
 const actionApplyModeEnum = z.enum(["direct", "preview"]);
-// `{{text}}` 佔位缺失在建立時就擋（400），不留到執行期才發現太晚（spec §13.2）。
-const userTemplateSchema = z.string().min(1).refine(v => v.includes("{{text}}"), "userTemplate 必須包含 {{text}} 佔位符");
+// `{{text}}` 佔位缺失在建立時就擋（400），不留到執行期才發現太晚。
+const userTemplateSchema = z.string().min(1).refine(v => v.includes("{{text}}"), "userTemplate must contain the {{text}} placeholder.");
 
 const createActionSchema = z.object({
   name: z.string().min(1),
@@ -196,9 +196,9 @@ function toActionDto(row: AiActionRow): AdminAiActionDto {
 }
 
 /**
- * Admin AI 三層 CRUD（providers/models/actions）＋provider 測試連線端點（spec §13.2）。
+ * Admin AI 三層 CRUD（providers/models/actions）＋provider 測試連線端點。
  * 全部端點皆需 `requireAdmin`（guard／錯誤慣例逐字比照 `routes/admin-users.ts`）；
- * body／DTO 一律 camelCase（POST /api/ai 的 snake_case 是 §6 刻意例外，與本檔無關）。
+ * body／DTO 一律 camelCase（POST /api/ai 的 snake_case 是刻意例外，與本檔無關）。
  */
 export function adminAiRoutes(deps: AdminAiRouteDeps) {
   return async function register(app: FastifyInstance): Promise<void> {
@@ -236,7 +236,7 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
 
     app.patch("/api/admin/ai/providers/:id", { preHandler: app.requireAdmin }, async (request, reply) => {
       const { id: rawId } = request.params as { id: string };
-      if (!UUID_RE.test(rawId)) return sendError(reply, 404, "not_found", "找不到此 provider");
+      if (!UUID_RE.test(rawId)) return sendError(reply, 404, "not_found", "No AI provider with that id.");
       const id = rawId.toLowerCase();
 
       const parsed = patchProviderSchema.safeParse(request.body);
@@ -255,7 +255,7 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
         .from(aiProviders)
         .where(eq(aiProviders.id, id))
         .limit(1);
-      if (!existing) return sendError(reply, 404, "not_found", "找不到此 provider");
+      if (!existing) return sendError(reply, 404, "not_found", "No AI provider with that id.");
 
       const values: PgUpdateSetSource<typeof aiProviders> = {};
       if (name !== undefined) values.name = name;
@@ -287,7 +287,7 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
        * log），而原本那條是靜默的。殘留風險記在 docs/known-limitations.md。
        */
       if (baseUrl !== undefined && apiKey === undefined) {
-        // ⚠ **比對必須在 DB 端、跟寫入同一個語句裡做**（審查實測抓到，命中率 7–28%）：
+        // ⚠ **比對必須在 DB 端、跟寫入同一個語句裡做**（命中率 7–28%）：
         // 先 SELECT 再於 Node 端比對是個 TOCTOU——攻擊者持續送「網址不變」的 PATCH（讀到
         // 舊值＝EVIL ⇒ 判定沒變 ⇒ 不清金鑰，但 `base_url = EVIL` 照寫），只要有一發的
         // SELECT 落在受害者「改回正確網址＋重新輸入金鑰」的 UPDATE 之前、而 UPDATE 落在
@@ -303,11 +303,11 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
         values.apiKeyEncrypted = sql`case when ${aiProviders.baseUrl} is distinct from ${baseUrl} then null::jsonb else ${aiProviders.apiKeyEncrypted} end`;
       }
 
-      // fix round 1（I-2）：空 body `{}` 全欄位皆 undefined → `values` 是空物件——
+      // 空 body `{}` 全欄位皆 undefined → `values` 是空物件——
       // drizzle 0.44 的 `.update(...).set({})` 會同步 throw "No values to set"，逃出
       // 這支 handler 變成裸 500。在真的呼叫 `.set()` 之前擋掉，回結構化 400。
       if (Object.keys(values).length === 0) {
-        return sendError(reply, 400, "invalid_body", "請求格式錯誤：至少需要一個欄位");
+        return sendError(reply, 400, "invalid_body", "Invalid request body: send at least one field.");
       }
 
       // 同 POST：這一句可能寫密文欄／base_url，非預期的 DB 錯誤一律遮蔽（沒有交易、沒有業務錯誤要分流）。
@@ -319,9 +319,9 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
         .catch((err: unknown) => {
           throw redactDbError(request.log, err, "修改 AI provider");
         });
-      if (!row) return sendError(reply, 404, "not_found", "找不到此 provider");
+      if (!row) return sendError(reply, 404, "not_found", "No AI provider with that id.");
 
-      // ⚠ **只要帶了 `baseUrl` 就記一行**（審查 round 2 實測指出）：原本的條件是
+      // ⚠ **只要帶了 `baseUrl` 就記一行**：原本的條件是
       // 「網址跟 `existing` 不同、或金鑰被清掉」，而 `existing` 那個 SELECT 是非交易的——
       // 在攻擊者持續送 no-op PATCH 的那個競態下（他讀到的舊值就是自己的網址、hasKey 也
       // 是 stale 的 false），兩個條件同時為 false ⇒ **一行 log 都沒有**，偏偏那正是
@@ -351,7 +351,7 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
         // 重加密寫入後自檢：用目前的 APP_SECRET 立即解密剛寫入的密文——同一支 secret
         // 剛加密完緊接著解，理論上必然成功；try/catch 是防禦性寫法（純函式契約層面，
         // 不假設 encryptApiKey/decryptApiKey 永不出錯），不是預期會踩到的分支。成功即
-        // 從 degraded 移除（§10「不重啟生效」，不需重開 process）。
+        // 從 degraded 移除（不需重開 process 就生效）。
         try {
           decryptApiKey(deps.config.appSecret, newEncrypted, id);
           deps.runtime.degraded.delete(id);
@@ -374,12 +374,12 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
 
     app.delete("/api/admin/ai/providers/:id", { preHandler: app.requireAdmin }, async (request, reply) => {
       const { id: rawId } = request.params as { id: string };
-      if (!UUID_RE.test(rawId)) return sendError(reply, 404, "not_found", "找不到此 provider");
+      if (!UUID_RE.test(rawId)) return sendError(reply, 404, "not_found", "No AI provider with that id.");
       const id = rawId.toLowerCase();
 
       // cascade 由 FK 承擔：models 隨之刪除，關聯 actions.modelId SET NULL（走 13.2 回退鏈）。
       const [deleted] = await deps.db.delete(aiProviders).where(eq(aiProviders.id, id)).returning({ id: aiProviders.id });
-      if (!deleted) return sendError(reply, 404, "not_found", "找不到此 provider");
+      if (!deleted) return sendError(reply, 404, "not_found", "No AI provider with that id.");
       // provider 都不在了，degraded 裡的那筆再也沒有人會去清（PATCH 重輸金鑰是唯一
       // 的移除路徑）——留著就是永遠累積的髒狀態。
       deps.runtime.degraded.delete(id);
@@ -388,16 +388,16 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
 
     app.post("/api/admin/ai/providers/:id/test", { preHandler: app.requireAdmin }, async (request, reply) => {
       const { id: rawId } = request.params as { id: string };
-      if (!UUID_RE.test(rawId)) return sendError(reply, 404, "not_found", "找不到此 provider");
+      if (!UUID_RE.test(rawId)) return sendError(reply, 404, "not_found", "No AI provider with that id.");
       const id = rawId.toLowerCase();
 
       // 這裡是唯一一處刻意 SELECT `apiKeyEncrypted` 本體的地方——測試連線需要真的
       // plaintext key 打上游請求。絕不落進任何回應（下面只回 {ok:true} 或結構化錯誤）。
       const [row] = await deps.db.select().from(aiProviders).where(eq(aiProviders.id, id)).limit(1);
-      if (!row) return sendError(reply, 404, "not_found", "找不到此 provider");
+      if (!row) return sendError(reply, 404, "not_found", "No AI provider with that id.");
 
       if (deps.runtime.degraded.has(id)) {
-        return sendError(reply, 503, "provider_unavailable", "此 provider 目前無法使用，請至後台重新輸入 API key");
+        return sendError(reply, 503, "provider_unavailable", "This provider's API key can't be read. Enter the API key again in the admin settings.");
       }
 
       let apiKey: string | undefined;
@@ -407,13 +407,13 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
         } catch (err) {
           if (!(err instanceof AiKeyDecryptError)) throw err;
           deps.runtime.degraded.add(id);
-          return sendError(reply, 503, "provider_unavailable", "此 provider 目前無法使用，請至後台重新輸入 API key");
+          return sendError(reply, 503, "provider_unavailable", "This provider's API key can't be read. Enter the API key again in the admin settings.");
         }
       }
 
       // openai_compatible：`GET {baseUrl}/models`；anthropic：對稱地打官方 `/v1/models`
-      // 列表端點（§5「與前者對稱、免花錢、不依賴任何 model id」——@anthropic-ai/sdk
-      // 要到 Task 5 才加為依賴，此處故意不引入 SDK，改用等價的原生 fetch 呼叫，行為
+      // 列表端點（與前者對稱、免花錢、不依賴任何 model id——
+      // 此處故意不引入 @anthropic-ai/sdk，改用等價的原生 fetch 呼叫，行為
       // 與「client.models.list()」語意相同）。
       const url = row.type === "anthropic" ? `${row.baseUrl}/v1/models` : `${row.baseUrl}/models`;
       try {
@@ -423,7 +423,7 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
             : apiKey !== undefined
               ? { authorization: `Bearer ${apiKey}` }
               : {};
-        // fix round 1（I-4，安全）：`redirect: "manual"`——undici 對跨網域轉址只會剝掉
+        // 安全：`redirect: "manual"`——undici 對跨網域轉址只會剝掉
         // `Authorization`/`Cookie`，我們的驗證是自訂 header `x-api-key`（anthropic）／
         // 手寫 `authorization: Bearer ...`（openai_compatible 走的也是自訂組字串，非
         // fetch 認得的標準憑證欄位），跨網域 302 會把它原樣帶去第三方主機。手動模式下
@@ -432,13 +432,13 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
         const res = await fetch(url, { headers, signal: AbortSignal.timeout(10_000), redirect: "manual" });
         if (!res.ok) {
           // 上游 body 只 log、絕不回傳給 client（可能含 key 片段或內網資訊）；
-          // fix round 1（I-5）：無上限的 `res.text()` 可能把整包上游回應塞進 log——
+          // 無上限的 `res.text()` 可能把整包上游回應塞進 log——
           // 截前 2 KiB（比照 `drainWithCap` 的位元組上限精神），避免惡意/異常上游用
           // 超大 body 把 log 灌爆。
           const bodyText = await res.text();
           const truncatedBody = bodyText.length > 2048 ? `${bodyText.slice(0, 2048)}...(truncated)` : bodyText;
           request.log.warn({ providerId: id, status: res.status, body: truncatedBody }, "AI provider 測試連線失敗（上游非 2xx）");
-          return sendError(reply, 502, "upstream_error", "AI provider 回應錯誤");
+          return sendError(reply, 502, "upstream_error", "The AI provider returned an error.");
         }
         return reply.send({ ok: true });
       } catch (err) {
@@ -450,7 +450,7 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
           { providerId: id, target: safeTarget(url), urlHasCredentials: urlHasCredentials(url), ...fetchErrorSummary(err) },
           "AI provider 測試連線失敗（逾時或網路錯誤）"
         );
-        return sendError(reply, 502, "upstream_error", "AI provider 連線失敗或逾時");
+        return sendError(reply, 502, "upstream_error", "Couldn't reach the AI provider, or it timed out.");
       }
     });
 
@@ -463,13 +463,13 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
 
     app.post("/api/admin/ai/models", { preHandler: app.requireAdmin }, async (request, reply) => {
       const parsed = createModelSchema.safeParse(request.body);
-      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "Invalid request body.");
       const { providerId, modelId, displayName, isDefault, enabled } = parsed.data;
 
       try {
         const row = await deps.db.transaction(async tx => {
           // 交易內先 unset 同 purpose 其他列，再插入——`is_default` 唯一性無 DB 約束，
-          // 純靠 server 交易保證（spec §13）。
+          // 純靠 server 交易保證。
           if (isDefault) {
             await tx.update(aiModels).set({ isDefault: false }).where(eq(aiModels.purpose, "chat"));
           }
@@ -481,8 +481,8 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
         });
         return reply.code(201).send(toModelDto(row));
       } catch (err) {
-        if (isUniqueViolation(err)) return sendError(reply, 409, "model_taken", "此 provider 已有相同 model");
-        if (isForeignKeyViolation(err)) return sendError(reply, 400, "invalid_body", "指定的 provider 不存在");
+        if (isUniqueViolation(err)) return sendError(reply, 409, "model_taken", "This provider already has that model.");
+        if (isForeignKeyViolation(err)) return sendError(reply, 400, "invalid_body", "The given provider doesn't exist.");
         // 其餘非預期錯誤：DrizzleQueryError 的 message 帶 params（model id、顯示名稱…），不原樣進 log。
         throw redactDbError(request.log, err, "建立 AI model");
       }
@@ -490,11 +490,11 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
 
     app.patch("/api/admin/ai/models/:id", { preHandler: app.requireAdmin }, async (request, reply) => {
       const { id: rawId } = request.params as { id: string };
-      if (!UUID_RE.test(rawId)) return sendError(reply, 404, "not_found", "找不到此 model");
+      if (!UUID_RE.test(rawId)) return sendError(reply, 404, "not_found", "No AI model with that id.");
       const id = rawId.toLowerCase();
 
       const parsed = patchModelSchema.safeParse(request.body);
-      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "Invalid request body.");
       const { providerId, modelId, displayName, isDefault, enabled } = parsed.data;
 
       const values: Partial<typeof aiModels.$inferInsert> = {};
@@ -504,15 +504,15 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
       if (enabled !== undefined) values.enabled = enabled;
       if (isDefault !== undefined) values.isDefault = isDefault;
 
-      // fix round 1（I-2）：空 body `{}` → `values` 空物件，`.set({})` 同步 throw，見
+      // 空 body `{}` → `values` 空物件，`.set({})` 同步 throw，見
       // providers PATCH 同款註解。
       if (Object.keys(values).length === 0) {
-        return sendError(reply, 400, "invalid_body", "請求格式錯誤：至少需要一個欄位");
+        return sendError(reply, 400, "invalid_body", "Invalid request body: send at least one field.");
       }
 
       try {
         const row = await deps.db.transaction(async tx => {
-          // fix round 1（I-1）：target 列先更新、**確認真的命中**之後才 unset 同 purpose
+          // target 列先更新、**確認真的命中**之後才 unset 同 purpose
           // 其他列的 isDefault——原本的順序（先無條件 unset、之後才發現 target 不存在）
           // 會讓「PATCH 不存在的 id」這種完全不該有任何效果的請求，靜默把全站的既有
           // default 偏好清空後才回 404，交易仍然 commit（`returning()` 落空不是例外，
@@ -528,23 +528,23 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
           }
           return updated;
         });
-        if (!row) return sendError(reply, 404, "not_found", "找不到此 model");
+        if (!row) return sendError(reply, 404, "not_found", "No AI model with that id.");
         return reply.send(toModelDto(row));
       } catch (err) {
-        if (isUniqueViolation(err)) return sendError(reply, 409, "model_taken", "此 provider 已有相同 model");
-        if (isForeignKeyViolation(err)) return sendError(reply, 400, "invalid_body", "指定的 provider 不存在");
+        if (isUniqueViolation(err)) return sendError(reply, 409, "model_taken", "This provider already has that model.");
+        if (isForeignKeyViolation(err)) return sendError(reply, 400, "invalid_body", "The given provider doesn't exist.");
         throw redactDbError(request.log, err, "修改 AI model");
       }
     });
 
     app.delete("/api/admin/ai/models/:id", { preHandler: app.requireAdmin }, async (request, reply) => {
       const { id: rawId } = request.params as { id: string };
-      if (!UUID_RE.test(rawId)) return sendError(reply, 404, "not_found", "找不到此 model");
+      if (!UUID_RE.test(rawId)) return sendError(reply, 404, "not_found", "No AI model with that id.");
       const id = rawId.toLowerCase();
 
       // 刪除 model → 關聯 actions.modelId SET NULL（FK），走 13.2 回退鏈，不在此另外處理。
       const [deleted] = await deps.db.delete(aiModels).where(eq(aiModels.id, id)).returning({ id: aiModels.id });
-      if (!deleted) return sendError(reply, 404, "not_found", "找不到此 model");
+      if (!deleted) return sendError(reply, 404, "not_found", "No AI model with that id.");
       return reply.code(204).send();
     });
 
@@ -557,7 +557,7 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
 
     app.post("/api/admin/ai/actions", { preHandler: app.requireAdmin }, async (request, reply) => {
       const parsed = createActionSchema.safeParse(request.body);
-      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "Invalid request body.");
       const { name, systemPrompt, userTemplate, modelId, applyMode, sortOrder, enabled } = parsed.data;
 
       try {
@@ -575,7 +575,7 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
           .returning();
         return reply.code(201).send(toActionDto(row));
       } catch (err) {
-        if (isForeignKeyViolation(err)) return sendError(reply, 400, "invalid_body", "指定的 model 不存在");
+        if (isForeignKeyViolation(err)) return sendError(reply, 400, "invalid_body", "The given model doesn't exist.");
         // 其餘非預期錯誤：params 帶 system prompt／user template 全文，不原樣進 log。
         throw redactDbError(request.log, err, "建立 AI 動作");
       }
@@ -583,19 +583,19 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
 
     app.patch("/api/admin/ai/actions/:id", { preHandler: app.requireAdmin }, async (request, reply) => {
       const { id: rawId } = request.params as { id: string };
-      if (!UUID_RE.test(rawId)) return sendError(reply, 404, "not_found", "找不到此動作");
+      if (!UUID_RE.test(rawId)) return sendError(reply, 404, "not_found", "No AI action with that id.");
       const id = rawId.toLowerCase();
 
       const parsed = patchActionSchema.safeParse(request.body);
-      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "Invalid request body.");
       const { name, systemPrompt, userTemplate, modelId, applyMode, sortOrder, enabled } = parsed.data;
 
-      // #263 §4.4：內建 Instruct 一律預覽（D4）；它的 template 除了 {{text}}（上面 zod 已擋）還必須有 {{instruction}}，{{focus}} 選配。
+      // #263：內建 Instruct 一律預覽；它的 template 除了 {{text}}（上面 zod 已擋）還必須有 {{instruction}}，{{focus}} 選配。
       // 以路徑 id（上面已小寫化）對常數判。app 層 http/uuid-params.ts 的 hook 本來就把 UUID 路徑參數小寫化，這裡的小寫化是第二道防線（改成 rawId 測試不會紅，勿以為是守衛缺口）。
       if (id === INSTRUCT_ACTION_ID) {
-        if (applyMode === "direct") return sendError(reply, 400, "instruct_preview_only", "Instruct 動作只能預覽後套用");
+        if (applyMode === "direct") return sendError(reply, 400, "instruct_preview_only", "Instruct actions can only be applied after a preview.");
         if (userTemplate !== undefined && !userTemplate.includes("{{instruction}}")) {
-          return sendError(reply, 400, "invalid_body", "userTemplate 必須包含 {{instruction}} 佔位符");
+          return sendError(reply, 400, "invalid_body", "userTemplate must contain the {{instruction}} placeholder.");
         }
       }
 
@@ -608,35 +608,35 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
       if (sortOrder !== undefined) values.sortOrder = sortOrder;
       if (enabled !== undefined) values.enabled = enabled;
 
-      // fix round 1（I-2）：空 body `{}` → `values` 空物件，`.set({})` 同步 throw，見
+      // 空 body `{}` → `values` 空物件，`.set({})` 同步 throw，見
       // providers PATCH 同款註解。
       if (Object.keys(values).length === 0) {
-        return sendError(reply, 400, "invalid_body", "請求格式錯誤：至少需要一個欄位");
+        return sendError(reply, 400, "invalid_body", "Invalid request body: send at least one field.");
       }
 
       try {
         const [row] = await deps.db.update(aiActions).set(values).where(eq(aiActions.id, id)).returning();
-        if (!row) return sendError(reply, 404, "not_found", "找不到此動作");
+        if (!row) return sendError(reply, 404, "not_found", "No AI action with that id.");
         return reply.send(toActionDto(row));
       } catch (err) {
-        if (isForeignKeyViolation(err)) return sendError(reply, 400, "invalid_body", "指定的 model 不存在");
+        if (isForeignKeyViolation(err)) return sendError(reply, 400, "invalid_body", "The given model doesn't exist.");
         throw redactDbError(request.log, err, "修改 AI 動作");
       }
     });
 
     app.delete("/api/admin/ai/actions/:id", { preHandler: app.requireAdmin }, async (request, reply) => {
       const { id: rawId } = request.params as { id: string };
-      if (!UUID_RE.test(rawId)) return sendError(reply, 404, "not_found", "找不到此動作");
+      if (!UUID_RE.test(rawId)) return sendError(reply, 404, "not_found", "No AI action with that id.");
       const id = rawId.toLowerCase();
 
-      // 內建動作雙保險之一（server 端；UI 另一保險是不顯示刪除鈕，見 spec §13.2）：
+      // 內建動作雙保險之一（server 端；UI 另一保險是不顯示刪除鈕）：
       // 固定 id 一律拒刪，不論是否真存在於 DB（seed 是 idempotent，正常情況下必存在）。
       if (BUILTIN_ACTION_IDS.includes(id)) {
-        return sendError(reply, 400, "builtin_action", "內建動作不可刪除");
+        return sendError(reply, 400, "builtin_action", "Built-in actions can't be deleted.");
       }
 
       const [deleted] = await deps.db.delete(aiActions).where(eq(aiActions.id, id)).returning({ id: aiActions.id });
-      if (!deleted) return sendError(reply, 404, "not_found", "找不到此動作");
+      if (!deleted) return sendError(reply, 404, "not_found", "No AI action with that id.");
       return reply.code(204).send();
     });
   };

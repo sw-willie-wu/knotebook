@@ -1,5 +1,5 @@
-// 站內 AI 送出的 markdown（spec §11.2 第 2 段、§11.6、§13.1）：與 server 讀路徑對同一份 blocks 逐位元組相同。
-// golden 與 server `note-markdown-goldens.test.ts` 共用；輸入一律先過筆記頁 schema 的編輯器，拿 `ed.document` 去序列化（H7）。
+// 站內 AI 送出的 markdown：與 server 讀路徑對同一份 blocks 逐位元組相同。
+// golden 與 server `note-markdown-goldens.test.ts` 共用；輸入一律先過筆記頁 schema 的編輯器，拿 `ed.document` 去序列化。
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { BlockNoteEditor, type PartialBlock } from "@blocknote/core";
@@ -59,7 +59,7 @@ describe("aiMarkdownOf", () => {
     expect(md).not.toContain("\\\\\\[");
   });
 
-  it("W3 字色一併帶上（§11.6 附帶行為改變）", () => {
+  it("W3 字色一併帶上（附帶行為改變）", () => {
     const blocks = documentOf([
       { type: "paragraph", content: [{ type: "text", text: "red", styles: { textColor: "red" } }, { type: "text", text: " plain", styles: {} }] },
     ]);
@@ -74,7 +74,7 @@ describe("aiMarkdownOf", () => {
     expect(first).toBe(c.markdown);
   });
 
-  it("W5 媒體網址守衛（issue #43）：javascript: 網址送出成 about:blank", () => {
+  it("媒體網址守衛（issue #43）：javascript: 網址送出成 about:blank", () => {
     const blocks = documentOf([{ type: "image", props: { url: "javascript:alert(1)", name: "x", previewWidth: 300 } }]);
     const md = aiMarkdownOf(blocks, () => undefined);
     expect(md).not.toContain("javascript:");

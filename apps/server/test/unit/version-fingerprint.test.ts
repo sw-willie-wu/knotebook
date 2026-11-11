@@ -26,7 +26,7 @@ async function make(blocks: unknown[]): Promise<Y.Doc> {
   }
   return doc;
 }
-/** 第 i 顆頂層區塊的內容節點底下的 XmlText；沒有就建一顆（新建空段落沒有 XmlText——r1 實跑）。 */
+/** 第 i 顆頂層區塊的內容節點底下的 XmlText；沒有就建一顆（新建空段落沒有 XmlText）。 */
 function textOfBlock(doc: Y.Doc, i: number): Y.XmlText {
   const content = topLevelContainers(F(doc))[i]!.get(0) as Y.XmlElement;
   const t = content.get(0);
@@ -92,11 +92,11 @@ function deepDoc(depth: number): Y.Doc {
   return doc;
 }
 
-describe("真空（A14 (2)）", () => {
-  it("r1 探針向量：舊指紋把真空與一顆空段落分成兩個值，版本指紋視為同一個", async () => {
+describe("真空", () => {
+  it("對照向量：舊指紋把真空與一顆空段落分成兩個值，版本指紋視為同一個", async () => {
     const vacuum = new Y.Doc();
     const one = await make([{ type: "paragraph" }]);
-    expect(outlineOf(F(vacuum)).whole).toBe("8e2d0c61b0acc423"); // r1 實跑值（對照組：舊指紋不變）
+    expect(outlineOf(F(vacuum)).whole).toBe("8e2d0c61b0acc423"); // 實測值（對照組：舊指紋不變）
     expect(outlineOf(F(one)).whole).toBe("7bcfba7c4d4cd39c");
     expect(vfp(vacuum)).toBe(VACUUM_VERSION_FINGERPRINT);
     expect(vfp(one)).toBe(VACUUM_VERSION_FINGERPRINT);
@@ -128,14 +128,14 @@ describe("真空（A14 (2)）", () => {
   });
 });
 
-describe("空 XmlText 視同不存在（A14 (1)）", () => {
-  it("r2 探針 A：非真空文件裡，打字後刪光的段落與新建空段落同值（舊指紋不同值）", async () => {
+describe("空 XmlText 視同不存在", () => {
+  it("對照 A：非真空文件裡，打字後刪光的段落與新建空段落同值（舊指紋不同值）", async () => {
     const typed = await make([{ type: "paragraph", content: "x" }, { type: "paragraph", content: "a" }]);
     const t = textOfBlock(typed, 1);
     typed.transact(() => t.delete(0, t.length));
     const fresh = await make([{ type: "paragraph", content: "x" }, { type: "paragraph" }]);
     expect(vfp(typed)).toBe(vfp(fresh));
-    expect(outlineOf(F(typed)).whole).not.toBe(outlineOf(F(fresh)).whole); // 對照：A14 (1) 承重
+    expect(outlineOf(F(typed)).whole).not.toBe(outlineOf(F(fresh)).whole); // 對照：承重
   });
 
   it("套用往返相等：快照 blocks 以 replace_all 寫進別的活文件後版本指紋相同（舊指紋不同）", async () => {
@@ -162,11 +162,11 @@ describe("空 XmlText 視同不存在（A14 (1)）", () => {
     }
     Y.applyUpdate(live, diff!);
     expect(vfp(live)).toBe(vfp(snap));
-    expect(outlineOf(F(live)).whole).not.toBe(outlineOf(F(snap)).whole); // r1 ED2：舊指紋會判成「有改」
+    expect(outlineOf(F(live)).whole).not.toBe(outlineOf(F(snap)).whole); // 舊指紋會判成「有改」
   });
 });
 
-describe("內容與歷史（r1、r4 探針向量）", () => {
+describe("內容與歷史（對照向量）", () => {
   it("內容相同歷史不同 → 相等（粗體再取消、刪了重打）；區塊 id 不計", async () => {
     const plain = await make([{ type: "paragraph", content: "abc" }]);
     const bold = await make([{ type: "paragraph", content: "abc" }]);
@@ -181,7 +181,7 @@ describe("內容與歷史（r1、r4 探針向量）", () => {
     expect(vfp(retyped)).toBe(vfp(plain));
   });
 
-  it("r4 探針：fork、note_states 往返重載與原文件相等；改字、新區塊、只改屬性、只改 mark 都不等；打一字再刪相等", () => {
+  it("對照：fork、note_states 往返重載與原文件相等；改字、新區塊、只改屬性、只改 mark 都不等；打一字再刪相等", () => {
     const live = rawDoc([{ id: "a", text: "Title", attrs: { textColor: "default" } }, { id: "b", text: "hello world", attrs: { textAlignment: "left" } }]);
     const w0 = vfp(live);
     const reload = new Y.Doc();
@@ -211,7 +211,7 @@ describe("內容與歷史（r1、r4 探針向量）", () => {
   });
 });
 
-describe("不丟例外（A14 (3)）", () => {
+describe("不丟例外", () => {
   it("5000 層巢狀：舊指紋 RangeError（對照），版本指紋算得出 16 hex", () => {
     const deep = deepDoc(5000);
     expect(() => outlineOf(F(deep))).toThrow(RangeError);
@@ -242,7 +242,7 @@ describe("不丟例外（A14 (3)）", () => {
   });
 });
 
-describe("並排欄寬（T2）", () => {
+describe("並排欄寬", () => {
   /** 手造一列：columnList > column(width?) > blockContainer > paragraph。width 為 undefined＝屬性不存在。 */
   function rowDoc(width: number | undefined): Y.Doc {
     const doc = new Y.Doc();
@@ -269,13 +269,13 @@ describe("並排欄寬（T2）", () => {
     return doc;
   }
 
-  it("V1：column 的 width 屬性不存在 ≡ width:1（預設）；width:2 不同", () => {
+  it("column 的 width 屬性不存在 ≡ width:1（預設）；width:2 不同", () => {
     expect(vfp(rowDoc(undefined))).toBe(vfp(rowDoc(1)));
     expect(vfp(rowDoc(2))).not.toBe(vfp(rowDoc(1)));
   });
 });
 
-describe("屬性值等於 schema 預設視同缺席（spec §13-9 方案二，V2）", () => {
+describe("屬性值等於 schema 預設視同缺席（方案二，V2）", () => {
   const HEADING_FULL = { level: 2, isToggleable: false, backgroundColor: "default", textColor: "default", textAlignment: "left" };
   const PARA_FULL = { backgroundColor: "default", textAlignment: "left", textColor: "default" };
 

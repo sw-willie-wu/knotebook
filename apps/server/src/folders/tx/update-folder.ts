@@ -1,7 +1,7 @@
 /**
- * 改名／搬資料夾的交易本體（spec docs/superpowers/specs/2026-10-22-folders-design.md §5.7.2、§5.7.3；§5.4 表第 1、2 列）。
- * S14：只收 `tx`／純資料／測試縫。搬移只限同空間（D4）。
- * 順序：（群組空間）groups KS → 結構鎖 → 自己（帶 `name` → `FOR UPDATE`；只搬 → 一般讀，N9：UPDATE `parent_id` 取的是
+ * 改名／搬資料夾的交易本體。
+ * S14：只收 `tx`／純資料／測試縫。搬移只限同空間。
+ * 順序：（群組空間）groups KS → 結構鎖 → 自己（帶 `name` → `FOR UPDATE`；只搬 → 一般讀；UPDATE `parent_id` 取的是
  * NO KEY UPDATE，不必擋住對它的放置）→ 自己的可見性 →（搬到資料夾底下）新父層 KS → 新父層的可見性 → 同空間 → 管理權
  * →（搬移）成環 → 深度 → UPDATE。值都沒變 → 不發 UPDATE（`changed: false`）。
  * 失敗一律 throw `TxAbort`。同層撞名的 23505 交給服務層映射 409 `folder_name_taken`。呼叫端一律 READ COMMITTED（`lock.ts` 檔頭）。
@@ -58,9 +58,9 @@ export async function updateFolderInTx(
   const access = await folderAccessInTx(tx, input.by, self);
   if (access === null) throw notFound();
 
-  // 搬到原父層＝不搬（不檢查深度：轉移造出的超深樹照常能改名，§5.3「只在建立、搬移時檢查」）。
+  // 搬到原父層＝不搬（不檢查深度：轉移造出的超深樹照常能改名；深度只在建立、搬移時檢查）。
   const moving = input.parentId !== undefined && input.parentId !== self.parentId;
-  // §5.7.3／§5.5 I2：兩者的可見性（看不到＝不存在，即使同時也跨空間）→ 同空間 → 管理權 → 成環 → 深度。
+  // 兩者的可見性（看不到＝不存在，即使同時也跨空間）→ 同空間 → 管理權 → 成環 → 深度。
   if (moving && input.parentId !== null && input.parentId !== undefined) {
     const parent = await lockFolderInTx(tx, input.parentId, "key share");
     if (!parent || (await folderAccessInTx(tx, input.by, parent)) === null) throw notFound();

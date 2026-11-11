@@ -7,9 +7,8 @@ import { useAiSession, type AiSessionValue } from "./AiSession";
 import { SelectionAiResult } from "./SelectionAiResult";
 
 /**
- * 預覽就緒訊號的時序案（#263 §5.4）：lazy 預覽模組換成可控的替身——只控制「掛起／就緒／render 錯誤」三種時序，就緒時照真實模組的
- * 契約呼叫 `onReady(preview)`、卸載時 `onReady(null)`。真實模組的行為由 SelectionAiResult.test.tsx 驗（memory
- * knotebook-review-probe-fidelity-lessons：替身只放寬時序，不比真實更嚴）。
+ * 預覽就緒訊號的時序案（#263）：lazy 預覽模組換成可控的替身——只控制「掛起／就緒／render 錯誤」三種時序，就緒時照真實模組的
+ * 契約呼叫 `onReady(preview)`、卸載時 `onReady(null)`。真實模組的行為由 SelectionAiResult.test.tsx 驗（替身只放寬時序，不比真實更嚴）。
  */
 const gate = vi.hoisted(() => ({
   mode: "ready" as "ready" | "pending" | "crash",
@@ -75,7 +74,7 @@ function setPending(): void {
   });
 }
 
-describe("SelectionAiResult：預覽就緒訊號（#263 §5.4）", () => {
+describe("SelectionAiResult：預覽就緒訊號（#263）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     gate.mode = "ready";

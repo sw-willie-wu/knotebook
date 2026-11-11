@@ -3,7 +3,7 @@ import { collabUndoManager } from "@/collab/undo";
 import { P, cursorOf, integrity, mountEditor, row, shape, textPos, withChildren, type AnyEditor, type PartialBlockLike } from "@/test/columns-fixtures";
 import { canInsertColumns, insertColumns, isInColumn, ungroupColumns } from "./commands";
 
-// spec §7.1-②（/grid N）、§7.2（取消並排）、§7.4（撤銷步）。
+// `/grid N`、取消並排、撤銷步。
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {

@@ -1,4 +1,4 @@
-// #293 在線頭像列：viewer 的 awareness 轉發與離線移除（spec §4.1、§15、P6）。
+// #293 在線頭像列：viewer 的 awareness 轉發與離線移除。
 // 本檔守的多是 Hocuspocus／y-protocols 的函式庫事實（產品碼沒有對應的一行），各條由哪一步守：
 // - 唯讀連線的 awareness 照樣轉發 → CA1
 // - 連線關閉即移除該連線登記的 clientID → CA3 第 1 步（5 s 窗）、CA2
@@ -58,18 +58,18 @@ describe("collab awareness（#293）", () => {
     expect(s.ownerClient.doc.getXmlFragment(YDOC_FRAGMENT).toString()).not.toContain("from viewer");
   });
 
-  it("CA2 不正常斷線（不送移除訊息）也會被移除，且在 35 s 內（A2、P6）", async () => {
+  it("CA2 不正常斷線（不送移除訊息）也會被移除，且在 35 s 內", async () => {
     const s = await scene("ca2");
     const t0 = Date.now();
     socketOf(s.viewerClient).destroy(); // 不呼叫 provider.destroy()：模擬分頁直接被關
     await waitFor("owner 端移除 viewer", 40_000, () => !s.ownerSeesViewer());
     const ms = Date.now() - t0;
-    console.log("[P6] abrupt close removal ms", ms);
+    console.log("abrupt close removal ms", ms);
     expect(ms).toBeLessThan(35_000);
     s.viewerClient.disconnect();
-  }, 60_000);
+  }); // CA2／CA3 不另設 per-test 逾時、沿用全域 120 s：要等滿 awareness 的 30 s 逾時，加上建場景與各段 waitFor，60 s 太貼
 
-  it("CA3 重連的重送被忽略、clock＋1 重寫才回來；之後不正常斷線仍在 35 s 內移除（P6、N-4）", async () => {
+  it("CA3 重連的重送被忽略、clock＋1 重寫才回來；之後不正常斷線仍在 35 s 內移除", async () => {
     const s = await scene("ca3");
     const sock = socketOf(s.viewerClient);
     sock.disconnect();
@@ -77,7 +77,7 @@ describe("collab awareness（#293）", () => {
     void sock.connect();
     await waitFor("viewer 重新認證並同步", 5_000, () => s.viewerClient.provider.isAuthenticated && s.viewerClient.provider.synced);
     await sleep(2_000);
-    // 函式庫行為：onOpen 的重送沿用舊 clock，server 整筆忽略——web 端 LF9「重連強制重寫」存在的理由
+    // 函式庫行為：onOpen 的重送沿用舊 clock，server 整筆忽略——web 端「重連強制重寫」存在的理由
     expect(s.ownerSeesViewer()).toBe(false);
     const a = s.viewerClient.provider.awareness!;
     a.setLocalState({ ...a.getLocalState()! }); // 模擬 useLocalPresenceField 的重寫（clock＋1）
@@ -86,10 +86,10 @@ describe("collab awareness（#293）", () => {
     sock.destroy();
     await waitFor("移除", 40_000, () => !s.ownerSeesViewer());
     const ms = Date.now() - t0;
-    console.log("[P6] reconnected abrupt close removal ms", ms);
+    console.log("reconnected abrupt close removal ms", ms);
     expect(ms).toBeLessThan(35_000);
     s.viewerClient.disconnect();
-  }, 60_000);
+  });
 
   it("CA4 觀察者自己重連：onClose 清掉遠端舊 meta → 重連後立即看到原本在場的人", async () => {
     const s = await scene("ca4");

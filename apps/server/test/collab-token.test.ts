@@ -2,10 +2,9 @@ import { describe, it, expect } from "vitest";
 import { eq } from "drizzle-orm";
 import type { Role } from "@knotebook/shared";
 import { NOTE_SCHEMA_VERSION, SESSION_COOKIE } from "@knotebook/shared";
-import { buildTestApp, testConfig } from "./helpers.js";
+import { buildTestApp, testConfig, signTestSession, testSessionId } from "./helpers.js";
 import { noteShares, notes, users } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
-import { signSession } from "../src/auth/session.js";
 import { verifyCollabToken } from "../src/collab/token.js";
 
 async function insertUser(db: Db, overrides: Partial<{ email: string; displayName: string; tokenVersion: number }> = {}) {
@@ -21,7 +20,7 @@ async function insertUser(db: Db, overrides: Partial<{ email: string; displayNam
 }
 
 async function cookieFor(userId: string, tv = 0): Promise<string> {
-  return signSession(testConfig.appSecret, { userId, tv });
+  return signTestSession({ userId, tv });
 }
 
 describe("POST /api/notes/:id/collab-token", () => {
@@ -57,11 +56,11 @@ describe("POST /api/notes/:id/collab-token", () => {
       expect(typeof body.token).toBe("string");
 
       const claims = await verifyCollabToken(testConfig.appSecret, body.token);
-      expect(claims).toEqual({ noteId: note.id, userId: user.id, role, tv: 0, sv: 0 });
+      expect(claims).toEqual({ noteId: note.id, userId: user.id, role, tv: 0, sid: testSessionId(user.id), sv: 0 });
     }
   });
 
-  it("有 session 但無權限（陌生人）→ 200 + role:'none'（絕不 403/404，spec §8-2 關鍵契約）", async () => {
+  it("有 session 但無權限（陌生人）→ 200 + role:'none'（絕不 403/404，關鍵契約）", async () => {
     const { app, db } = await buildTestApp();
     const owner = await insertUser(db, { email: "owner-ct2@example.com" });
     const stranger = await insertUser(db, { email: "stranger-ct2@example.com" });
@@ -161,7 +160,7 @@ describe("POST /api/notes/:id/collab-token", () => {
     expect(body.retryAfterMs).toBeUndefined();
   });
 
-  it("#240 R6 大寫 id 簽出的 token，claims.noteId 是小寫", async () => {
+  it("#240 大寫 id 簽出的 token，claims.noteId 是小寫", async () => {
     const { app, db } = await buildTestApp();
     const owner = await insertUser(db, { email: "owner-r6@example.com" });
     const cookie = await cookieFor(owner.id);

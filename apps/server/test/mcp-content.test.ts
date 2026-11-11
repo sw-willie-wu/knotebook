@@ -1,22 +1,22 @@
 /**
- * #108 PR1 Task 4：`read_note_outline`／`read_note_section`（規格 §8.3／§8.4、§14.3、M12／M16）。
+ * #108：`read_note_outline`／`read_note_section`。
  *
- * 全族走 `buildCollabTestApp`（＝生產形態）：依 D-A，這兩支工具**只在 `collab` 與 `editing`
- * 都在時才註冊**，無 collab 的 app 上整條不宣告（那一面的形狀斷言在 Task 5）。
+ * 全族走 `buildCollabTestApp`（＝生產形態）：依部署形態閘門（`mcp/register.ts`：要讀 live doc 的工具只在 `collab` 與 `editing` 都在時註冊），這兩支工具
+ * **只在兩者都在時才註冊**，無 collab 的 app 上整條不宣告（那一面的形狀斷言在 MCP 寫入測試）。
  *
  * ⚠ `callTool`／`payloadOf` 與 `mcp-notes.test.ts` 的同名 helper 是**兩份**：`test/mcp-helpers.ts`
- * 不在本棒的觸及面內，而它們各自只有幾行。兩份若日後分岔，症狀只是測試自己讀錯欄位。
+ * 沒有收進去，因為它們各自只有幾行。兩份若日後分岔，症狀只是測試自己讀錯欄位。
  */
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import * as Y from "yjs";
-import { signSession } from "../src/auth/session.js";
 import { noteStateBackups, notes, noteStates } from "../src/db/schema.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
+import { fingerprintOf } from "../src/notes/editing/fingerprint.js";
 import { PRESENCE_COLOR, presenceClientId } from "../src/notes/editing/presence.js";
 import { MCP_PAGE_MAX, MCP_SECTION_CHARS, MCP_TEXT_MAX } from "../src/mcp/limits.js";
-import { buildCollabTestApp, testConfig, type CollabTestCtx } from "./helpers.js";
+import { buildCollabTestApp, type CollabTestCtx, signTestSession } from "./helpers.js";
 import { bearer, docText, getContent, seedContent, seedTokenForUser, tick, waitFor } from "./editing-helpers.js";
 import { mcpPost, rpc } from "./mcp-helpers.js";
 import { loadDoc, xmlOf } from "./copy-helpers.js";
@@ -75,7 +75,7 @@ async function callTool(app: FastifyInstance, token: string, name: string, args:
   return { status: res.statusCode, result: res.json().result, raw: res.body };
 }
 
-/** 成功呼叫的 `structuredContent`（順手守住 M10 的鏡像等式）。 */
+/** 成功呼叫的 `structuredContent`（順手守住鏡像等式）。 */
 function payloadOf<T>(call: ToolCall): T {
   expect(call.status).toBe(200);
   expect(call.result.isError).toBeUndefined();
@@ -170,21 +170,23 @@ describe("#108 read_note_outline", () => {
     expect(out.lastEdited).toBeNull();
   });
 
-  // 案 14a／M12(1)：**逐欄位的 key 集合**，不是「不含 16 個十六進位字元」那種啟發式
+  // 案 14a：**逐欄位的 key 集合**，不是「不含 16 個十六進位字元」那種啟發式
   // （一個叫 `deadbeefdeadbeef` 的標題就會讓啟發式誤紅）。殺掉的寫法＝照抄 `outlineOf`
   // 的回傳值（那會帶 `fingerprint` 與 `blockIds`）。
   //
-  // ⚠ **`headingTruncated` 這一族的守衛不是下面那條 key 集合斷言**（Task 3 實測推翻了
-  // plan P8，本棒重跑確認）：寫成 `headingTruncated: false` 時抓到它的是 `outputSchema`
+  // ⚠ **`headingTruncated` 這一族的守衛不是下面那條 key 集合斷言**（實測推翻了先前的假設）：
+  // 寫成 `headingTruncated: false` 時抓到它的是 `outputSchema`
   // 的 `z.literal(true)`（本檔十條會一起紅，紅法是 `isError`）；寫成 `undefined` 時**本檔
   // 一條都不紅**——那一半由 `test/unit/mcp-outline-page.test.ts` 直接對物件的 key 集合守。
-  it("outline 的頂層／note／每個 entry 的 key 集合逐字相符，一個指紋都沒有（案 14a／M12(1)）", async () => {
+  it("outline 的頂層／note／每個 entry 的 key 集合逐字相符，一個指紋都沒有（案 14a）", async () => {
     const s = await scene(TWO_SECTIONS);
     const call = await callTool(s.ctx.app, s.token, "read_note_outline", { note_id: s.noteId });
     const out = payloadOf<OutlinePayload>(call);
+    // #381：唯一的指紋是標題的 `titleFingerprint`（rename 的 if_match）；內文的整篇／逐段指紋照舊一個都沒有（下面兩道）。
     expect(Object.keys(out).sort()).toEqual(
-      ["lastEdited", "nextSectionOffset", "note", "sections", "totalChars", "truncated"].sort()
+      ["folder", "lastEdited", "nextSectionOffset", "note", "sections", "titleFingerprint", "totalChars", "truncated"].sort()
     );
+    expect(out.titleFingerprint).toBe(fingerprintOf(out.note.title));
     expect(Object.keys(out.note).sort()).toEqual(["id", "owner", "role", "title"].sort());
     for (const entry of out.sections) {
       expect(Object.keys(entry).sort()).toEqual(["chars", "heading", "level", "sectionId"].sort());
@@ -204,7 +206,7 @@ describe("#108 read_note_outline", () => {
     s.disconnect();
   });
 
-  it("超過 100 段：第一頁 100 筆 ＋ truncated ＋ nextSectionOffset 100，section_offset 接得上（M16）", async () => {
+  it("超過 100 段：第一頁 100 筆 ＋ truncated ＋ nextSectionOffset 100，section_offset 接得上", async () => {
     const many = Array.from({ length: 105 }, (_, i) => `# S${i}\n\nbody ${i}`).join("\n\n");
     const s = await scene(many);
     const rest = await restOutline(s.ctx.app, s.noteId, s.token);
@@ -237,7 +239,7 @@ describe("#108 read_note_outline", () => {
     s.disconnect();
   });
 
-  it("heading 與 note.title 截到逃脫後 200 並附 *Truncated（M16）", async () => {
+  it("heading 與 note.title 截到逃脫後 200 並附 *Truncated", async () => {
     const huge = "H".repeat(260_000);
     const s = await scene(`# ${huge}\n\ntail line`, {}, "T".repeat(260_000));
     const out = await outlineOf(s.ctx.app, s.token, s.noteId);
@@ -331,7 +333,7 @@ describe("#108 read_note_section", () => {
     s.disconnect();
   });
 
-  it("被截斷的那一發不含 fingerprint，但含解釋用的 note 文案（案 14b／M12(3)）", async () => {
+  it("被截斷的那一發不含 fingerprint，但含解釋用的 note 文案（案 14b）", async () => {
     const s = await scene(`# Long\n\n${LONG}`);
     const rest = await restOutline(s.ctx.app, s.noteId, s.token);
     const call = await callTool(s.ctx.app, s.token, "read_note_section", {
@@ -347,12 +349,12 @@ describe("#108 read_note_section", () => {
     s.disconnect();
   });
 
-  // 案 14c 前半（後半「那個值送進 edit_note 會被接受」是 PR2）。殺掉的寫法＝矯枉過正到
+  // 案 14c 前半（後半「那個值送進 edit_note 會被接受」在寫入測試）。殺掉的寫法＝矯枉過正到
   // 「永遠不回指紋」——那會讓 `replace_section` 對長段落整個不可用。
   //
   // ⚠ 這條收緊的理由是**正確性**：不要讓人改自己沒看完的東西（讀了前 4000 字元就
   // `replace_section`，會吃掉沒讀到的尾巴，而且模型不會知道自己刪了什麼）。**它不是安全
-  // 防線**——一發大 `offset` 的呼叫也算「結束該段的那一頁」，照樣拿得到指紋（規格 §8.4
+  // 防線**——一發大 `offset` 的呼叫也算「結束該段的那一頁」，照樣拿得到指紋（見
   // 的誠實降級），所以它只保護循序讀取的模型。
   it("讀完整段（最後一發 truncated false）含 fingerprint，且與 REST 的段落指紋逐字相同（案 14c 前半）", async () => {
     const s = await scene(`# Long\n\n${LONG}`);
@@ -372,7 +374,7 @@ describe("#108 read_note_section", () => {
     s.disconnect();
   });
 
-  it("回應不含 heading（它就在 markdown 第一行），key 集合逐字相符（§8.4）", async () => {
+  it("回應不含 heading（它就在 markdown 第一行），key 集合逐字相符", async () => {
     const s = await scene(TWO_SECTIONS);
     const rest = await restOutline(s.ctx.app, s.noteId, s.token);
     const done = await sectionOf(s.ctx.app, s.token, s.noteId, rest[1]!.sectionId);
@@ -395,14 +397,14 @@ describe("#108 read_note_section", () => {
     s.disconnect();
   });
 
-  // 案 16：不合 `SECTION_ID_RE` 的 `section_id` 在 **schema 層**被擋（不變量 M9 的格式 guard
+  // 案 16：不合 `SECTION_ID_RE` 的 `section_id` 在 **schema 層**被擋（格式 guard
   // ＋ NUL 兩關），也就是**在 handler 之外**。
   // ⚠ 這裡刻意**不寫**「沒有任何 SQL 被送出」——`section_id` 從來不進 SQL（`readNoteContent`
   //   → `outlineOf` → 記憶體裡的 `find`），那半斷言恆真。也不寫「不觸發任何文件載入」——
   //   `documents.size` 在讀路徑上本來就不會增加，同樣是類別錯置。
   // ⚠ **正向對照不可省**：沒有它，負向斷言在「`read_note_section` 根本沒被包進 `runTool()`」
   //   的寫法下與它要殺的寫法**同時恆真**，守衛靜默失效。
-  it("不合格式的 section_id／note_id（含 NUL 那一發）在 handler 之外被擋（案 16／M9）", async () => {
+  it("不合格式的 section_id／note_id（含 NUL 那一發）在 handler 之外被擋（案 16）", async () => {
     const seen: string[] = [];
     const s = await scene(TWO_SECTIONS, { mcpTestHooks: { beforeTool: name => void seen.push(name) } });
     const count = (): number => seen.filter(n => n === "read_note_section").length;
@@ -435,7 +437,7 @@ describe("#108 read_note_section", () => {
 });
 
 describe("#108 兩支內容工具的共同接線", () => {
-  it("role === none 的 id 與根本不存在的 id → not_found，且兩者的結果逐位元組同形（案 17／M2）", async () => {
+  it("role === none 的 id 與根本不存在的 id → not_found，且兩者的結果逐位元組同形（案 17）", async () => {
     const s = await scene(TWO_SECTIONS);
     const stranger = await s.ctx.createUser({ email: `x-${randomUUID()}@example.com`, password: PASSWORD });
     const secret = await s.ctx.createNote(stranger.id, "Secret");
@@ -454,12 +456,12 @@ describe("#108 兩支內容工具的共同接線", () => {
     s.disconnect();
   });
 
-  // M2 與 M6 的交界：`touch` 只看文件有沒有載入、**不看角色**。presence 若排在
+  // 「找不到不洩漏」與「拒絕路徑不 touch presence」的交界：`touch` 只看文件有沒有載入、**不看角色**。presence 若排在
   // `role === "none"` 的 early return 之前，任何持 PAT 的人只要猜得到 note id，就能讓
   // `handle (claude)` 出現在**真正協作者**的畫面上——那同時是存在性洩漏與拒絕路徑的副作用。
   // ⚠ 這一案的前提是那篇筆記**真的在 `hocuspocus.documents` 裡**（所以要讓陌生人自己連上去
   //   seed 一份內容）；用一顆沒人開過的筆記測，`touch` 本來就是 no-op，斷言恆真。
-  it("role === none 的拒絕路徑不 touch presence——即使那篇筆記正在被別人編輯（M2／M6）", async () => {
+  it("role === none 的拒絕路徑不 touch presence——即使那篇筆記正在被別人編輯", async () => {
     const s = await scene(TWO_SECTIONS);
     const strangerEmail = `x-${randomUUID()}@example.com`;
     const stranger = await s.ctx.createUser({ email: strangerEmail, password: PASSWORD });
@@ -488,7 +490,7 @@ describe("#108 兩支內容工具的共同接線", () => {
     s.disconnect();
   });
 
-  it("讀路徑零副作用：兩支各 10 發後 note_states／backup／documents.size／last_edited 四欄都不變（案 18／M6）", async () => {
+  it("讀路徑零副作用：兩支各 10 發後 note_states／backup／documents.size／last_edited 四欄都不變（案 18）", async () => {
     const s = await scene(TWO_SECTIONS);
     await waitFor("server 收到編輯", 5_000, () =>
       docText(s.ctx.collab.hocuspocus.documents.get(s.noteId)!).includes("第二段內容")
@@ -541,7 +543,7 @@ describe("#108 兩支內容工具的共同接線", () => {
     // 桶還是滿的：兩發成功，第三發才 429。
     expect((await outlineOf(s.ctx.app, s.token, s.noteId)).sections).toHaveLength(3);
     expect((await sectionOf(s.ctx.app, s.token, s.noteId, "_top")).section.id).toBe("_top");
-    // 被 429 擋下的那一發**不得留下痕跡**（M6）：presence 排在桶之後，所以 awareness 的
+    // 被 429 擋下的那一發**不得留下痕跡**：presence 排在桶之後，所以 awareness 的
     // clock 不會前進。這一段是「presence 不在桶之前」唯一的守衛——沒有它，把 touch 提到
     // 扣桶之前不會有任何測試變紅（突變實測過）。
     const doc = s.ctx.collab.hocuspocus.documents.get(s.noteId)!;
@@ -557,11 +559,11 @@ describe("#108 兩支內容工具的共同接線", () => {
     s.disconnect();
   });
 
-  // presence（§8.3／§8.4）：形狀比照 `note-presence.test.ts`。
+  // presence：形狀比照 `note-presence.test.ts`。
   // ⚠ **顯示名的逐字斷言是這一份組字實作唯一的守衛**：`routes/notes.ts:552`／`:634`／`:710`
   //   已經各有一份同樣的組字（handle、空格、左括號、agent label、右括號），MCP 是**第四份**，
   //   而 #138 的 UI 靠這個字串。只斷言 target 的話，名字寫成別的形不會紅。抽成
-  //   `presenceIdentity()` 留給 PR2／#138 後續（本棒的觸及面不含那兩個檔）。
+  //   `presenceIdentity()` 留給 #138 後續。
   it("token 讀者現身（顯示名／顏色逐字）、outline 落文件開頭、section 落該段第一顆；cookie 讀者不 touch", async () => {
     const s = await scene(TWO_SECTIONS);
     const id = presenceClientId(s.noteId, s.tokenId);
@@ -580,7 +582,7 @@ describe("#108 兩支內容工具的共同接線", () => {
 
     // cookie 讀者先跑：MCP 的 session 路徑 `tokenId` 為 null，不得 touch。
     // ⚠ `mcpPost` 的 `cookie` 收的是**值**（helper 自己組 `SESSION_COOKIE=`），不是整條 header。
-    const cookie = await signSession(testConfig.appSecret, { userId: s.ownerId, tv: 0 });
+    const cookie = await signTestSession({ userId: s.ownerId, tv: 0 });
     const viaCookie = await mcpPost(
       s.ctx.app,
       rpc("tools/call", { name: "read_note_outline", arguments: { note_id: s.noteId } }),
@@ -605,10 +607,10 @@ describe("#108 兩支內容工具的共同接線", () => {
     s.disconnect();
   });
 
-  // §8.3 對「分頁不是快照」的處置 (b)：逐字寫進工具 description 給模型看。沒有這一案，
-  // 刪掉那句話不會有任何東西變紅（處置 (a)＝known-limitations 由 PR3 補）。斷言的是**送到
+  // 對「分頁不是快照」的處置 (b)：逐字寫進工具 description 給模型看。沒有這一案，
+  // 刪掉那句話不會有任何東西變紅（處置 (a)＝寫進 known-limitations）。斷言的是**送到
   // wire 上的 `tools/list`**，不是原始碼常數——改對了常數卻沒接上 `registerTool` 也抓得到。
-  it("tools/list 的逐字文案在 wire 上出現（§8.3 的分頁警告、§8.4 的讀完才給指紋）", async () => {
+  it("tools/list 的逐字文案在 wire 上出現（分頁警告、讀完才給指紋）", async () => {
     const s = await scene(null);
     const res = await mcpPost(s.ctx.app, rpc("tools/list"), { token: s.token });
     expect(res.statusCode).toBe(200);
@@ -622,7 +624,7 @@ describe("#108 兩支內容工具的共同接線", () => {
     );
   });
 
-  it("runTool() 涵蓋率：beforeTool 看到的名字集合逐字等於四支唯讀工具（承 Task 3）", async () => {
+  it("runTool() 涵蓋率：beforeTool 看到的名字集合逐字等於四支唯讀工具", async () => {
     const seen: string[] = [];
     const s = await scene(TWO_SECTIONS, { mcpTestHooks: { beforeTool: name => void seen.push(name) } });
     payloadOf<Record<string, unknown>>(await callTool(s.ctx.app, s.token, "list_notes"));

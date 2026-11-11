@@ -1,7 +1,7 @@
 import { pgErrorSummary } from "../db/pg-errors.js";
 
 /**
- * 寫入密文欄時遇到**非預期**的 DB 錯誤（#187 PR2 Task 3 審查 m1）。
+ * 寫入密文欄時遇到**非預期**的 DB 錯誤（#187）。
  *
  * drizzle-orm 0.44 的 `DrizzleQueryError` 把整條 SQL 與 `params` 串進 `message`、也把 `params` 掛成可列舉屬性；全域 error
  * handler（`app.ts` 的 `setErrorHandler`）會把整個 err 交給 pino——寫 `client_secret_encrypted` 的那一句一旦非預期失敗，log 就帶走

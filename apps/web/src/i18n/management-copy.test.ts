@@ -15,7 +15,7 @@ import managementZhTWRaw from "./management.zh-TW.json?raw";
  * ⚠ 主檔內容一律讀 `?raw`：i18next 的 store 直接引用 init 的 `resources`，註冊後主 JSON 的 module 物件已被 deep merge 帶上整包 admin／settings。
  */
 
-/** 首包（AdminModal、SettingsModal、UserMenu）用得到、必須留在主檔的 15 個鍵——改這份清單＝改首包大小，同時改 management-strings.ts 的註解。 */
+/** 首包（AdminModal、SettingsModal、UserMenu）用得到、必須留在主檔的 16 個鍵——改這份清單＝改首包大小，同時改 management-strings.ts 的註解。 */
 const KEPT_IN_MAIN = [
   "admin.nav.label",
   "admin.nav.users",
@@ -23,6 +23,7 @@ const KEPT_IN_MAIN = [
   "admin.nav.storage",
   "admin.nav.ai",
   "admin.nav.auth",
+  "admin.nav.limits",
   "settings.entry",
   "settings.title",
   "settings.description",
@@ -96,7 +97,7 @@ describe("MC2 與主檔不重疊", () => {
   });
 });
 
-describe("MC3 主檔的 admin／settings 只剩首包的 15 個鍵", () => {
+describe("MC3 主檔的 admin／settings 只剩首包的 16 個鍵", () => {
   it.each([
     ["en", mainEnKeys],
     ["zh-TW", mainZhTWKeys],
@@ -163,7 +164,7 @@ describe("MC7 用到被搬走鍵的檔自己 import @/i18n/management-strings", 
     expect(users).toContain("src/settings/ScopeChecksField.tsx");
   });
 
-  it("每個含非首包 admin.／settings. 鍵字面的非測試檔都有 import；首包用的 15 鍵不需要", () => {
+  it("每個含非首包 admin.／settings. 鍵字面的非測試檔都有 import；首包用的 16 鍵不需要", () => {
     const offenders: string[] = [];
     for (const path of listNonTestSources()) {
       if (path === "src/i18n/management-strings.ts") continue;

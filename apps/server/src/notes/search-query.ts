@@ -1,6 +1,6 @@
 /**
- * #93 §7.3：搜尋的呼叫端（本檔在 S14 的 `ROUTE_FILES`）。`.transaction(` 的 callback **恰為** `runNoteSearchInTx(tx, input)`，
- * 不帶第二引數——帶設定物件或設定常數都會讓 ④ 紅（隔離等級在本體第一句）。MCP `search_notes` 與 PR2 的 `GET /api/search`
+ * #93：搜尋的呼叫端（本檔在 S14 的 `ROUTE_FILES`）。`.transaction(` 的 callback **恰為** `runNoteSearchInTx(tx, input)`，
+ * 不帶第二引數——帶設定物件或設定常數都會讓 ④ 紅（隔離等級在本體第一句）。MCP `search_notes` 與 `GET /api/search`
  * 都呼叫它，兩者本身不新增 `.transaction(`。
  */
 import type { Db } from "../db/index.js";

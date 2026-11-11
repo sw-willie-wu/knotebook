@@ -1,4 +1,5 @@
 import { forwardRef, useSyncExternalStore, type ComponentPropsWithoutRef, type ElementRef, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Toast as ToastPrimitive } from "radix-ui";
 import { X } from "./icons";
 import { cn } from "@/lib/utils";
@@ -6,7 +7,7 @@ import { Button } from "./button";
 
 // 精簡版 shadcn toast：Radix Toast 原語 + 一個模組層級的 pub/sub store 給
 // `toast()` 這個 imperative API 用（元件樹任何地方呼叫都能推新 toast），
-// 不搬 shadcn 完整版的 reducer/action 那一套——Task 11+ 目前只需要「顯示一則
+// 不搬 shadcn 完整版的 reducer/action 那一套——目前只需要「顯示一則
 // 訊息、可帶 variant、會自動消失」。
 
 export type ToastVariant = "default" | "destructive";
@@ -17,7 +18,7 @@ export interface ToastItem {
   description?: string;
   variant?: ToastVariant;
   durationMs?: number;
-  /** 動作鈕（#175 PR2「前往副本」）。點擊先跑 onClick、再由 Radix 關閉該 toast。 */
+  /** 動作鈕（#175「前往副本」）。點擊先跑 onClick、再由 Radix 關閉該 toast。 */
   action?: { label: string; onClick: () => void; /** 給無法操作 toast 的螢幕閱讀器使用者；未填時用 label。 */ altText?: string };
 }
 
@@ -27,7 +28,7 @@ let toasts: ToastItem[] = [];
 const listeners = new Set<Listener>();
 
 // id 產生器：不用 crypto.randomUUID——非 secure context（LAN plain-http，
-// rev 5.6 正當拓撲，如 http://192.168.3.22:8006）不存在該 API，會令每次
+// 正當拓撲，如 http://192.168.1.50:3000）不存在該 API，會令每次
 // toast() 拋 TypeError；jsdom/Node 有 polyfill 所以測試抓不到。id 只需
 // session 內唯一供 dismiss 比對，無安全需求，模組層級遞增計數器即可。
 let toastIdSeq = 0;
@@ -65,6 +66,47 @@ export function toast(item: Omit<ToastItem, "id">): string {
 
 export function useToasts(): ToastItem[] {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+// ── viewport 的落腳處 ──────────────────────────────────────────────────────────
+// 平常 ToastViewport 就渲染在 Toaster 所在處（`#root` 裡）。窄螢幕的側欄抽屜是 modal Radix Dialog：開著時
+// `hideOthers` 把抽屜以外全標成 aria-hidden、FocusScope 把焦點鎖在抽屜裡，留在原處的 toast（與它的「Undo」）
+// 螢幕閱讀器讀不到、鍵盤也到不了。所以抽屜開著時由 AppShell 登記抽屜內容裡的一個空節點，Toaster 把 viewport
+// portal 進去；抽屜關了（節點卸載）就清掉、viewport 回原處。toast 本身的狀態與計時器在 Toaster 底下的 Radix
+// Toast 元件裡，viewport 換位置不會重設它們。
+// 但 viewport 換位置會讓每則 toast 重新登記成最上層的 DismissableLayer：開抽屜前就在的 toast 會吃掉抽屜裡的第一下
+// Esc（關 toast、抽屜不關），與抽屜開著時才跳的 toast 一樣（e2e 38）。
+
+let viewportHost: HTMLElement | null = null;
+const viewportHostListeners = new Set<() => void>();
+
+function subscribeViewportHost(listener: () => void): () => void {
+  viewportHostListeners.add(listener);
+  return () => viewportHostListeners.delete(listener);
+}
+
+function getViewportHost(): HTMLElement | null {
+  return viewportHost;
+}
+
+function setViewportHost(host: HTMLElement | null): void {
+  viewportHost = host;
+  for (const listener of viewportHostListeners) listener();
+}
+
+/**
+ * 給 modal 容器（目前只有側欄抽屜）用的 callback ref：掛上就把 toast viewport 搬進這個節點，卸載時搬回原處。
+ * 卸載時只清自己登記的那個：別的容器已接手的話不動它。
+ *
+ * ⚠ viewport 是 `position: fixed`：容器（與它的祖先）不可加 transform／filter／perspective，否則 fixed 會改以
+ * 容器為準、toast 跟著跑進抽屜的框裡。
+ */
+export function toastViewportHostRef(host: HTMLElement | null): (() => void) | undefined {
+  if (!host) return undefined;
+  setViewportHost(host);
+  return () => {
+    if (viewportHost === host) setViewportHost(null);
+  };
 }
 
 export const ToastProvider = ToastPrimitive.Provider;
@@ -149,6 +191,7 @@ ToastClose.displayName = ToastPrimitive.Close.displayName;
 /** 掛在 App 根部一次即可；監聽 toast() store，渲染目前所有存活的 toast。 */
 export function Toaster(): ReactNode {
   const items = useToasts();
+  const host = useSyncExternalStore(subscribeViewportHost, getViewportHost, getViewportHost);
   return (
     <ToastProvider>
       {items.map(({ id, title, description, variant, durationMs, action }) => (
@@ -174,7 +217,7 @@ export function Toaster(): ReactNode {
           <ToastClose />
         </ToastRoot>
       ))}
-      <ToastViewport />
+      {host ? createPortal(<ToastViewport />, host) : <ToastViewport />}
     </ToastProvider>
   );
 }

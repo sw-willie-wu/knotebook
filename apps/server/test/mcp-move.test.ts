@@ -1,5 +1,5 @@
 /**
- * #180 spec §10.3：MCP `move_note_to_group`（V1–V13；V11 在 mcp-tools-list）＋ M-G2（move 半）＋ Review Focus RF1、RF5。
+ * #180：MCP `move_note_to_group`（V1–V13）＋ M-G2（move 半）。
  * 讀 live doc 的斷言（V1 的 read_note_outline、V2 的 edit_note、V4 的逐位元組比較、V13）用 collab app；其餘用 buildTestApp。
  */
 import { randomUUID } from "node:crypto";
@@ -18,7 +18,7 @@ import { cookieOf, noteState, seedGroup, seedNote, seedRole, seedShare, seedUser
 import { seedAttachment, giveGroupQuota } from "./storage-helpers.js";
 import { noteBase, versionsOf } from "./version-helpers.js";
 
-/** #239：move_note_to_group 只在 notes:move 時註冊——本檔呼叫它的案（成功與失敗皆是）一律用讀寫搬移憑證，期望值不動（spec §11.2 M1）。 */
+/** #239：move_note_to_group 只在 notes:move 時註冊——本檔呼叫它的案（成功與失敗皆是）一律用讀寫搬移憑證，期望值不動。 */
 const RWM = "notes:read notes:write notes:move" as const;
 /** #239 M2：讀寫無搬移憑證（清單上沒有 move_note_to_group）。 */
 const RW = "notes:read notes:write" as const;
@@ -225,7 +225,7 @@ describe("#180 move_note_to_group", () => {
     expect(first.statusCode).toBe(200);
     expect(second.structuredContent).toEqual({ code: "conflict", message: CONFLICT });
     expect(await noteState(db.$client, n.id)).toMatchObject({ owner_id: null, group_id: g1.id });
-    // V3 的 conflict 半（spec V3「被拒的各案（V4–V8）零次」）：只有 REST 那發成功的移動踢線，MCP 被拒的那發不踢。
+    // V3 的 conflict 半（被拒的各案（V4–V8）零次）：只有 REST 那發成功的移動踢線，MCP 被拒的那發不踢。
     expect(spy.onGroupAccessChanged).toHaveBeenCalledTimes(1);
   });
 
@@ -290,7 +290,7 @@ describe("#180 move_note_to_group", () => {
     expect(await noteState(db.$client, n.id)).toMatchObject({ owner_id: me.id, group_id: null });
   });
 
-  it("V12 模型面字串 wire 斷言（spec §5.5 全部）", async () => {
+  it("V12 模型面字串 wire 斷言（全部）", async () => {
     const { app, db } = await buildTestApp();
     const me = await seedUser(db);
     const { token } = await seedTokenForUser(db, me.id, RWM);
@@ -307,7 +307,7 @@ describe("#180 move_note_to_group", () => {
     expect(tool.inputSchema.properties.group_id!.description).toBe(GID);
     expect(tool.inputSchema.properties.note_id!.description).toBe("The note's id, as returned by list_notes or search_notes.");
     expect(tool.outputSchema.properties.note!.description).toBe(OUT);
-    expect(Object.keys(tool.inputSchema.properties).sort()).toEqual(["group_id", "note_id"]);
+    expect(Object.keys(tool.inputSchema.properties).sort()).toEqual(["folder_id", "group_id", "note_id"]); // 資料夾：多 folder_id
     for (const s of [DESC, GID, OUT]) expect(res.body).toContain(JSON.stringify(s).slice(1, -1));
   });
 
@@ -347,7 +347,7 @@ describe("#180 move_note_to_group", () => {
     expect(await noteState(db.$client, n.id)).toEqual(before);
   });
 
-  it("RF1-move 大寫 group_id → 成功；owner.id、url、DB group_id 小寫", async () => {
+  it("大寫 group_id → 成功；owner.id、url、DB group_id 小寫", async () => {
     const { app, db } = await buildTestApp();
     const me = await seedUser(db);
     const g = await seedGroup(db, "G", [{ userId: me.id, role: "member" }]);
@@ -358,7 +358,7 @@ describe("#180 move_note_to_group", () => {
     expect((await noteState(db.$client, n.id)).group_id).toBe(g.id);
   });
 
-  it("RF5 自訂網址：slug_is_custom 保留、群組 url 用同一個自訂 slug、舊 /n/<handle>/<自訂> 轉到它", async () => {
+  it("自訂網址：slug_is_custom 保留、群組 url 用同一個自訂 slug、舊 /n/<handle>/<自訂> 轉到它", async () => {
     const { app, db } = await buildTestApp();
     const me = await seedUser(db);
     const g = await seedGroup(db, "G", [{ userId: me.id, role: "member" }]);

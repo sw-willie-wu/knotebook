@@ -1,10 +1,10 @@
 /**
- * 並排 PR-2：MCP／REST／站內 AI 寫入 markdown 的兩道檢查（spec 2026-10-21 columns-layout §11.3；server 與 web 共用）。
+ * 並排：MCP／REST／站內 AI 寫入 markdown 的兩道檢查（server 與 web 共用）。
  *
- * **語法檢查**（{@link checkNoteMarkdownSyntax}，第一道）：在 `markdownToHTML` 的 DOM 上做 S1–S10——並排只收 §11.1 的
+ * **語法檢查**（{@link checkNoteMarkdownSyntax}，第一道）：在 `markdownToHTML` 的 DOM 上做十條語法規則——並排只收讀出的
  * 正規 div 形、圖片寬度只收 `<figure><img … width></figure>`、表格欄寬只收第一列的 `colwidth`；在這些之前先拒帶事件處理屬性的
  * HTML（`unsupported_block`）。不合格整筆拒絕。
- * S1「並排標記獨佔一行」用逐行標記判：`markdownToHTML` 把各 token 的 HTML 直接串接、不留換行，輸出字串上分不出
+ * 「並排標記獨佔一行」用逐行標記判：`markdownToHTML` 把各 token 的 HTML 直接串接、不留換行，輸出字串上分不出
  * 「同一行」與「另起一行」——所以先在 markdown 上把逐字等於正規行的行換成帶一次性標記屬性的同行版本（行結構不變，
  * 兩次 tokenize 結果相同；程式碼區塊裡的行被 escape、不成元素），DOM 裡帶並排屬性卻沒有標記的元素一律不收。
  * 檢查與剖析在同一片段情境（`createHTMLDocument` 的 div，見 {@link syntaxCheckRoot}）下建樹，才不會「檢查放行、剖析攤平」。
@@ -26,8 +26,8 @@ export type MarkdownSyntaxError = MarkdownShapeError | "unsupported_block";
 /**
  * 元素帶事件處理屬性：屬性名以 `on` 開頭、長度大於 2（`onerror`、`onclick`、`<svg onload>`、`<math onclick>`…）。只看名字、不問執行中的
  * DOM 有沒有這個 IDL 成員——jsdom 少很多處理器（`onanimationstart`、SVG 動畫的 `onbegin`、MathML 全部），問 DOM 會讓 server 與瀏覽器
- * 拒的集合不同（cleanup r2 Minor 1）。代價是 `<span only>` 這類自造屬性也被拒；讀出形不會產生它們。
- * 防線之外的一層（final review Nit 1）：core 剖析 `<details>` 時把子節點 clone 進活文件，瀏覽器裡 `<img onerror>` 會在剖析時觸發
+ * 拒的集合不同。代價是 `<span only>` 這類自造屬性也被拒；讀出形不會產生它們。
+ * 防線之外的一層：core 剖析 `<details>` 時把子節點 clone 進活文件，瀏覽器裡 `<img onerror>` 會在剖析時觸發
  *（CSP 擋 inline handler）；檢查用的 DOM 本身是惰性的。
  */
 const hasEventHandlerAttr = (el: Element): boolean => el.getAttributeNames().some(n => n.length > 2 && n.startsWith("on"));
@@ -54,11 +54,11 @@ const sameList = (a: readonly string[], b: readonly string[]): boolean => a.leng
 
 type Check = (els: readonly Element[], root: Element, mark: string) => boolean;
 
-/** 依序檢查（S10、S1–S7 → columns；S8、S9 → size），回第一個不過的。 */
+/** 依序檢查（並排規則 → columns；大小規則 → size），回第一個不過的。 */
 const COLUMNS_CHECKS: readonly Check[] = [
-  // S10：站內形（帶 data-node-type）一律不收
+  // 站內形（帶 data-node-type）一律不收
   els => els.some(el => el.hasAttribute("data-node-type")),
-  // S1：並排元素必須來自逐字正規、獨佔一行的行（帶標記）；前一行沒關上的開標籤會跟正規行併成同一個標籤，
+  // 並排元素必須來自逐字正規、獨佔一行的行（帶標記）；前一行沒關上的開標籤會跟正規行併成同一個標籤，
   // 所以帶標記的元素還要驗標籤名、屬性清單與 style 恰為正規形
   (els, _root, mark) =>
     els.some(el => {
@@ -71,18 +71,18 @@ const COLUMNS_CHECKS: readonly Check[] = [
       if (isRowEl(el)) return !sameList(el.getAttributeNames(), [ROW_ATTR, mark, "style"]) || style !== COLUMNS_STYLE;
       return !sameList(el.getAttributeNames(), [COL_ATTR, mark, "style"]) || typeof canonicalColumnsLine(`<div ${COL_ATTR} style="${style}">`) !== "object";
     }),
-  // S2：欄元素沒有非空白的直接文字
+  // 欄元素沒有非空白的直接文字
   els => els.some(el => isColEl(el) && hasLooseText(el)),
-  // S3：欄的父元素是列；列的直接子元素全是欄、沒有非空白的直接文字
+  // 欄的父元素是列；列的直接子元素全是欄、沒有非空白的直接文字
   els =>
     els.some(el => (isColEl(el) && !(el.parentElement !== null && isRowEl(el.parentElement))) || (isRowEl(el) && (hasLooseText(el) || Array.from(el.children).some(c => !isColEl(c))))),
-  // S4：欄數 2–4
+  // 欄數 2–4
   els => els.some(el => isRowEl(el) && (el.children.length < COLUMNS_MIN || el.children.length > COLUMNS_MAX)),
-  // S5：列沒有欄祖先
+  // 列沒有欄祖先
   els => els.some(el => isRowEl(el) && el.parentElement?.closest(`[${COL_ATTR}]`) != null),
-  // S6：列在最外層
+  // 列在最外層
   (els, root) => els.some(el => isRowEl(el) && el.parentNode !== root),
-  // S7：其他 div 不得用 flex／grid 排版
+  // 其他 div 不得用 flex／grid 排版
   els =>
     els.some(el => {
       if (el.tagName !== "DIV" || isRowEl(el) || isColEl(el)) return false;
@@ -97,7 +97,7 @@ const FIGURE_CHILDREN: readonly (readonly string[])[] = [["IMG"], ["IMG", "FIGCA
 const oneOf = (x: readonly string[], options: readonly (readonly string[])[]): boolean => options.some(o => sameList(x, o));
 
 const SIZE_CHECKS: readonly Check[] = [
-  // S8：帶 width 的 img 只收 `<figure[ data-background-color]><img[ alt] src width>[<figcaption>]</figure>`；表格格子內一律不收（Q3）
+  // 帶 width 的 img 只收 `<figure[ data-background-color]><img[ alt] src width>[<figcaption>]</figure>`；表格格子內一律不收
   els =>
     els.some(el => {
       if (el.tagName !== "IMG" || !el.hasAttribute("width")) return false;
@@ -106,7 +106,7 @@ const SIZE_CHECKS: readonly Check[] = [
       if (fig === null || fig.tagName !== "FIGURE" || !oneOf(el.getAttributeNames(), IMG_ATTRS)) return true;
       return !oneOf(fig.getAttributeNames(), FIGURE_ATTRS) || !oneOf(Array.from(fig.children).map(c => c.tagName), FIGURE_CHILDREN);
     }),
-  // S9：colwidth 段數＝colspan、每段空或合法 px；有非空段的只在所屬表格第一列（全空＝沒設寬，任何列都收）
+  // colwidth 段數＝colspan、每段空或合法 px；有非空段的只在所屬表格第一列（全空＝沒設寬，任何列都收）
   els =>
     els.some(el => {
       if (!el.matches("td,th") || !el.hasAttribute("colwidth")) return false;
@@ -130,11 +130,31 @@ export function syntaxCheckRoot(html: string): Element {
   return root;
 }
 
+/** `<pre …>…</pre>`（不分大小寫、不貪婪；沒收尾就到結尾）：split 用帶捕獲組的形，切出來的段落保留 pre 本身。 */
+const PRE_SPLIT = /(<pre\b[\s\S]*?(?:<\/pre\s*>|$))/i;
+const PRE_WHOLE = /^<pre\b/i;
 /**
- * 通過時回 `html`＝`markdownToHTML(markdown)`（未標記的原文），呼叫端拿它 `tryParseHTMLToBlocks`。
- * 順序：事件處理屬性（`unsupported_block`）→ 並排（S10、S1–S7）→ 尺寸（S8、S9）。
+ * #386：BlockNote 的 `markdownToHTML` 每個段落內換行（軟換行、`\` 換行、行尾兩空白三種寫法）都吐 `<br>\n`，而
+ * `tryParseHTMLToBlocks` 以 preserveWhitespace 剖析行內內容，把 `<br>` 後那個排版用的 `\n` 換成一個空白——下一行開頭就多一格。
+ * 這裡只拿掉緊接在 `<br>` 後的**那一個** `\n`，空白一律不動：markdown 續行開頭的空白 parser 已經剝掉了，`<br>` 之後還在的空白
+ * 一定是原文寫的（行內 `L1<br> L2`；讀出端遇到行首空白就寫成這個形，見 note-markdown-read.ts）。HTML 裡 `<br>` 後的換行本來就不顯示，
+ * 拿掉不改語意。程式碼區塊裡的 `<br>` 已被跳脫成文字，不會命中；原文手寫的 `<pre>…</pre>` 裡換行有意義，整段跳過。
  */
-export function checkNoteMarkdownSyntax(markdown: string, placement: MarkdownPlacement): { ok: true; html: string } | { ok: false; error: MarkdownSyntaxError } {
+function dropNewlineAfterBreaks(html: string): string {
+  return html
+    .split(PRE_SPLIT)
+    .map(seg => (PRE_WHOLE.test(seg) ? seg : seg.replace(/(<br\b[^>]*>)\n/gi, "$1")))
+    .join("");
+}
+
+/**
+ * 通過時回 `html`＝`markdownToHTML(markdown)`（未標記的原文）再過 {@link dropNewlineAfterBreaks}，呼叫端拿它 `tryParseHTMLToBlocks`。
+ * 順序：事件處理屬性（`unsupported_block`）→ 並排→ 尺寸。
+ */
+export function checkNoteMarkdownSyntax(input: string, placement: MarkdownPlacement): { ok: true; html: string } | { ok: false; error: MarkdownSyntaxError } {
+  // 行尾一律 LF：BlockNote 的 markdown → HTML 不正規化 CRLF，`\r` 留在文字裡、剖析時變空白（`L1\r\nL2` 存成「L1 」＋換行＋L2、
+  // `p\r\n\r\n` 存成「p 」）。網頁貼上早就在呼叫前正規化（collab/paste.ts）；這裡是所有 markdown 寫入共用的入口。
+  const markdown = input.replace(/\r\n?/g, "\n");
   // 標記屬性名避開原文裡出現過的字串（不分大小寫：HTML 屬性名不分大小寫），模型偽造不出來
   const lower = markdown.toLowerCase();
   let mark = "data-kb-line";
@@ -156,7 +176,7 @@ export function checkNoteMarkdownSyntax(markdown: string, placement: MarkdownPla
   if (placement === "nested" && els.some(el => isRowEl(el) || isColEl(el))) return { ok: false, error: "unsupported_columns" };
   if (COLUMNS_CHECKS.some(check => check(els, root, mark))) return { ok: false, error: "unsupported_columns" };
   if (SIZE_CHECKS.some(check => check(els, root, mark))) return { ok: false, error: "unsupported_size" };
-  return { ok: true, html: markdownToHTML(markdown) };
+  return { ok: true, html: dropNewlineAfterBreaks(markdownToHTML(markdown)) };
 }
 
 type Rec = Record<string, unknown>;
@@ -199,7 +219,7 @@ function mapBlocksCow<B>(blocks: B[], fix: (b: Rec) => Rec): B[] {
 
 const isPositiveFinite = (v: unknown): boolean => typeof v === "number" && Number.isFinite(v) && v > 0;
 
-/** Q2：parse 後把每個 table 的 `content.columnWidths` 裡不是正有限數的值（core 對空段 parse 出的 NaN、0、負數）換成 `undefined`。
+/** parse 後把每個 table 的 `content.columnWidths` 裡不是正有限數的值（core 對空段 parse 出的 NaN、0、負數）換成 `undefined`。
  *  顯式堆疊走訪 children（含欄），copy-on-write（沒改到就回同一陣列／物件），只動 `columnWidths`。 */
 export function normalizeTableWidths<B>(blocks: B[]): B[] {
   return mapBlocksCow(blocks, b => {
@@ -212,7 +232,7 @@ export function normalizeTableWidths<B>(blocks: B[]): B[] {
 
 const UPLOAD_PATH_RE = /^\/api\/uploads\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** 讀碼發現 15：parse 時被 core 絕對化的站內上傳網址還原成相對形。每個帶字串 `props.url` 的 block（顯式堆疊走訪 children、copy-on-write）：
+/** parse 時被 core 絕對化的站內上傳網址還原成相對形。每個帶字串 `props.url` 的 block（顯式堆疊走訪 children、copy-on-write）：
  *  `url` 能以 `new URL(url)`（不給 base）解析，且以解析後（不是字面）的值判定：`origin === baseOrigin`、`username`／`password`／`search`／`hash` 都空、
  *  `pathname` 符合 `/api/uploads/<uuid>`（同 server `copy-doc.ts`）→ 換成 `pathname`；其餘一律不動。
  *  呼叫端傳 `new URL(document.baseURI).origin`（parse 所用 DOM 的 base）。 */

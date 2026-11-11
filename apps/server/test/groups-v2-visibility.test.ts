@@ -1,6 +1,6 @@
 /**
- * #175 §5.3：五份可見性查詢的群組分支。查詢層直接跑（`GET /api/notes` 的 DTO 由 Task 4 覆蓋；MCP 的翻頁與搜尋
- * 由 Task 8 覆蓋——舊的 groups-visibility.test.ts 裡那兩案搬到那裡）。
+ * #175：五份可見性查詢的群組分支。查詢層直接跑（`GET /api/notes` 的 DTO 由其他測試覆蓋；MCP 的翻頁與搜尋
+ * 由 MCP 測試覆蓋——舊的 groups-visibility.test.ts 裡那兩案搬到那裡）。
  */
 import { describe, expect, it } from "vitest";
 import { desc, eq } from "drizzle-orm";
@@ -35,10 +35,10 @@ async function scene(db: Db) {
 }
 
 describe("#175 visibleNoteBranches（清單／MCP 共用）", () => {
-  it("三支結構性互斥；grouped 要 can_read；role＝CASE；群組欄與 ownerHandle 形；RF2：群組筆記上的殘留分享列不讓非成員看見", async () => {
+  it("三支結構性互斥；grouped 要 can_read；role＝CASE；群組欄與 ownerHandle 形；群組筆記上的殘留分享列不讓非成員看見", async () => {
     const { db } = await buildTestApp();
     const s = await scene(db);
-    await seedShare(db, s.groupNote.id, s.outsider.id, "editor"); // RF2：S5 破裂（DB 直塞）
+    await seedShare(db, s.groupNote.id, s.outsider.id, "editor"); // 群組筆記殘留分享列（DB 直塞）
     expect(idsAndRoles(await listFor(db, s.owner.id))).toEqual([`${s.personal.id}:owner`]);
     expect(idsAndRoles(await listFor(db, s.admin.id))).toEqual([`${s.groupNote.id}:editor`]);
     expect(idsAndRoles(await listFor(db, s.member.id))).toEqual([`${s.groupNote.id}:editor`, `${s.personal.id}:viewer`].sort());
@@ -51,7 +51,7 @@ describe("#175 visibleNoteBranches（清單／MCP 共用）", () => {
     expect(mine).toMatchObject({ ownerHandle: s.owner.handle, groupId: null, groupName: null, groupCanDelete: null, groupCanManagePublicLink: null });
   });
 
-  it("TS／SQL 兩處推導等價（gate r2 M-8）：每一列的 accessFromListRow 等於同一人同一篇的 resolveNoteAccess", async () => {
+  it("TS／SQL 兩處推導等價：每一列的 accessFromListRow 等於同一人同一篇的 resolveNoteAccess", async () => {
     // SQL 側＝grouped 支的 `CASE WHEN can_edit …`（經 `accessFromListRow` 還原成 permissions）；TS 側＝`resolveNoteAccess`
     // 走 `roleFromGroupFlags`＋`groupNotePermissions`。角色 fixture 涵蓋：owner、逐人分享 viewer、內建管理員、內建一般成員、
     // 只讀自訂、讀＋編＋刪自訂、讀＋公開連結自訂、讀＋刪自訂（viewer 但 managePublicLink／changeSlug 為真）。
@@ -76,13 +76,13 @@ describe("#175 visibleNoteBranches（清單／MCP 共用）", () => {
     }
   });
 
-  it("§5.3：grouped 支走 group_members_user_idx、notes_group_slug_idx；notes 不 Seq Scan", async () => {
+  it("grouped 支走 group_members_user_idx、notes_group_slug_idx；notes 不 Seq Scan", async () => {
     const { db } = await buildTestApp();
     const { userId } = await seedPlannerData(db.$client);
     const plan = await planOf(db.$client, visibleNoteBranches(db, userId).grouped.toSQL());
     expect(plan).toContain("group_members_user_idx");
-    // Task 1 刪了 notes_group_idx（A-M5）：group_id 開頭的只剩 notes_group_slug_idx。group_roles 不斷存取方式——
-    // seed 只有 500 列角色，planner 選 Seq Scan＋Filter can_read 是對的（gate r1 A-M3）。
+    // 刪了 notes_group_idx：group_id 開頭的只剩 notes_group_slug_idx。group_roles 不斷存取方式——
+    // seed 只有 500 列角色，planner 選 Seq Scan＋Filter can_read 是對的。
     expect(plan).toContain("notes_group_slug_idx");
     expect(plan).not.toMatch(/Seq Scan on notes\b/);
     expect(PLANNER_GROUP_OF_USER1).toMatch(/^[0-9a-f-]{36}$/); // 使用者 1 確實有群組（seed 形的健全性）
@@ -107,7 +107,7 @@ describe("#175 其餘四份可見性查詢", () => {
     expect([...(await loadNoteAudience(db, s.groupNote.id))].sort()).toEqual([s.admin.id, s.member.id, s.reader.id].sort());
   });
 
-  it("writeNoteLinks（T15）：只讀成員在自己的筆記寫 [[群組筆記]] 寫得進去；無閱讀旗標者與非成員提交同一個 target 被靜默丟棄", async () => {
+  it("writeNoteLinks：只讀成員在自己的筆記寫 [[群組筆記]] 寫得進去；無閱讀旗標者與非成員提交同一個 target 被靜默丟棄", async () => {
     const { db } = await buildTestApp();
     const s = await scene(db);
     for (const [user, expected] of [[s.reader, 1], [s.blind, 0], [s.outsider, 0]] as const) {
@@ -129,10 +129,10 @@ describe("#175 其餘四份可見性查詢", () => {
     expect(await fetchBacklinks(db, s.personal.id, s.outsider.id)).toEqual([]);
   });
 
-  it("RF2（gate r1 A-M6）：群組筆記上的殘留分享列不讓非成員從 backlinks、T15、候選看到或連到它", async () => {
+  it("群組筆記上的殘留分享列不讓非成員從 backlinks、寫連結、候選看到或連到它", async () => {
     const { db } = await buildTestApp();
     const s = await scene(db);
-    await seedShare(db, s.groupNote.id, s.outsider.id, "editor"); // S5 破裂（DB 直塞）
+    await seedShare(db, s.groupNote.id, s.outsider.id, "editor"); // 群組筆記殘留分享列（DB 直塞）
     const mine = await seedNote(db, { ownerId: s.outsider.id }, { title: "Mine" });
     await db.insert(noteLinks).values({ sourceNoteId: s.groupNote.id, targetNoteId: mine.id });
     expect(await fetchBacklinks(db, mine.id, s.outsider.id)).toEqual([]); // 不洩漏群組筆記的標題／slug／群組 id

@@ -8,7 +8,13 @@
  * 模型看得到的字串一律英文（同 `docs/`；不是 UI 文案，不走 i18n）。
  */
 import { PALETTE_COLORS } from "@knotebook/shared";
-import type { ParseError } from "../notes/editing/markdown.js";
+import type { ParseDetail, ParseError } from "../notes/editing/markdown.js";
+
+/** #398：解析的 worker 全忙、排隊超過上限（`server_busy`）——`edit_note` 與 `create_note` 帶 content 共用。 */
+export const PARSER_BUSY_TOOL_MESSAGE = "The server is busy processing other writes, so nothing was written. Try again in a moment.";
+
+/** 寫進既有筆記的轉換逾時或用完記憶體（`too_complex`）：是筆記本身太大或太複雜。 */
+export const NOTE_WRITE_TOO_COMPLEX_TOOL_MESSAGE = "This note is too large or too complex for the server to change within its time and memory limits, so nothing was written. Retrying won't help.";
 
 /** `edit` 桶（`docs/ai-editing.md` 的 Writes 那一列）擋下來時模型看到的字。 */
 export const WRITE_RATE_LIMITED_MESSAGE = "Too many note writes right now. Wait a moment before writing again.";
@@ -17,21 +23,23 @@ export const WRITE_RATE_LIMITED_MESSAGE = "Too many note writes right now. Wait 
  * 解析／套用失敗的逐碼說明。`empty_section` 只有 `edit_note` 產得出來（`create_note` 的失敗
  * 形只有 {@link ParseError} 那六個），但它與另外六個是同一張表，分開就會變成兩份。
  */
-export function writeFailureMessage(code: ParseError | "empty_section"): string {
+export function writeFailureMessage(code: ParseError | "empty_section", detail?: ParseDetail): string {
   switch (code) {
     case "unsupported_block":
+      // #398：解析超過時限、或用完 worker 的記憶體或堆疊——不是「有不支援的東西」，換一句。
+      if (detail === "too_complex") return "That markdown is too complex to process within the server's time and memory limits, so nothing was written. Split it into smaller writes or simplify its formatting.";
       return "That markdown contains something this editor cannot store. Plain markdown — headings, text, lists, code, tables — works.";
     case "unsupported_color":
-      // #222：色名清單取自 `PALETTE_COLORS`（單一真相），不手抄。
-      return `That markdown uses a color this editor cannot show, so nothing was written. Colors must be one of: ${PALETTE_COLORS.join(", ")}.`;
+      // #378：色名清單取自 `PALETTE_COLORS`（單一真相），不手抄；#rgb／#rrggbb 是文件教的色碼寫法（寫入端正規化成小寫 #rrggbb）；完整的收拒規則在 shared 的 `canonicalColor`。
+      return `That markdown uses a color this editor cannot show, so nothing was written. Use one of: ${PALETTE_COLORS.join(", ")}, or a hex color written #rgb or #rrggbb, such as #ff6600.`;
     case "unsupported_columns":
-      // 並排 PR-2（spec §11.3）。觸發的不只並排：S7（只有 display:flex／grid 的 div）、S10（任何帶 data-node-type 的元素）也回這碼，
-      // 所以主詞是「版面或編輯器內部的 HTML」，不說「那段有並排」（T4 審查 Minor-1）。
+      // 並排。觸發的不只並排：只有 display:flex／grid 的 div、任何帶 data-node-type 的元素也回這碼，
+      // 所以主詞是「版面或編輯器內部的 HTML」，不說「那段有並排」。
       return "That markdown has layout or editor-internal HTML this editor cannot store, so nothing was written. Write side-by-side columns exactly as read_note_section returns them: <div data-kb-columns style=\"display:flex;gap:16px\"> holding 2 to 4 <div data-kb-column style=\"flex:N\"> columns, N from 0.1 to 10 with at most two decimal places, with a blank line after each column's opening tag and another before its </div>, at the top level of the markdown, not nested inside a list, a quote or anything else. Other <div> elements cannot use display:flex or display:grid, and no element can carry data-node-type.";
     case "unsupported_size":
-      // 表格格子內的圖片寬度是 PR-4 的事（Q3），這句不邀請人寫；格子裡帶寬的 img 連 figure 形也被拒（S8），所以寫明 figure 要在表格之外，
-      // 免得模型照著改寫成格子裡的 figure 原地打轉（T4 審查 Minor-1）。img 的屬性清單與順序照 S8 的 IMG_ATTRS（`alt src width`／`src width`），
-      // 外面最常見的 `src alt width` 會被拒，所以寫明（T9＋T10 審查 r1 M-1）。
+      // 表格格子內的圖片寬度還不支援，這句不邀請人寫；格子裡帶寬的 img 連 figure 形也被拒，所以寫明 figure 要在表格之外，
+      // 免得模型照著改寫成格子裡的 figure 原地打轉。img 的屬性清單與順序照 IMG_ATTRS（`alt src width`／`src width`），
+      // 外面最常見的 `src alt width` 會被拒，所以寫明。
       return "An image width or table column width in that markdown is not in a form this editor can store, so nothing was written. Write sizes exactly as read_note_section returns them, as whole numbers of pixels from 32 to 4000: an image's width on the <img> inside a <figure> that is outside any table, the <img> carrying only alt (optional), src and width, in that order, and a table's column widths as colwidth on its first row's cells, one comma-separated value for each column a cell spans, left empty for a column with no width.";
     case "empty_content":
       return "That markdown is empty once parsed. Send at least one non-blank block.";
@@ -43,8 +51,8 @@ export function writeFailureMessage(code: ParseError | "empty_section"): string 
 }
 
 /**
- * #180 spec §5.5（move 與 copy 共用，code `group_not_found`）：涵蓋「不存在／非成員／成員但無 `can_create`／檢查後被刪」。
- * 與 `create_note` 的 `GROUP_NOT_FOUND_MESSAGE` **刻意不同字**——`create_note` 把「無新建權」分成 `forbidden`，這裡不分（W10）。
- * Task 0 先落常數（併行車道 B、C 都要它）；wire 行為由 `mcp-copy.test.ts` C5（Task 2）與 `mcp-move.test.ts` V5（Task 3）守。
+ * #180（move 與 copy 共用，code `group_not_found`）：涵蓋「不存在／非成員／成員但無 `can_create`／檢查後被刪」。
+ * 與 `create_note` 的 `GROUP_NOT_FOUND_MESSAGE` **刻意不同字**——`create_note` 把「無新建權」分成 `forbidden`，這裡不分。
+ * wire 行為由 `mcp-copy.test.ts` 與 `mcp-move.test.ts` 守。
  */
 export const GROUP_NO_CREATE_MESSAGE = "No group with that id among your groups where your role can create notes.";

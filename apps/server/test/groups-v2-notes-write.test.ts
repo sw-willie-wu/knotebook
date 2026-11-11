@@ -1,6 +1,6 @@
 /**
- * #175 §6.2／§6.6／§12.1：建立（REST）、刪除、分享、公開連結對群組筆記的判準。S5／C13／C14 的交錯用
- * groupTestHook 在「授權之後、寫入之前」以 SQL 把個人筆記移進群組（模擬 PR2 的移動）。
+ * #175：建立（REST）、刪除、分享、公開連結對群組筆記的判準。C13／C14 的交錯用
+ * groupTestHook 在「授權之後、寫入之前」以 SQL 把個人筆記移進群組（模擬移動）。
  */
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
@@ -28,8 +28,8 @@ async function scene(db: Db) {
 interface MoverState { point?: GroupRacePoint; noteId?: string; groupId?: string; reopenToken?: string }
 
 /**
- * 在指定的注入點把某篇個人筆記移進群組（清 owner、設 group、清 token／別名——PR2 的移動會做的事）。
- * `reopenToken` 有值時，移動之後再以群組管理員的身分重開 token（C14 的三方交錯，gate r2 A-12）。
+ * 在指定的注入點把某篇個人筆記移進群組（清 owner、設 group、清 token／別名——移動會做的事）。
+ * `reopenToken` 有值時，移動之後再以群組管理員的身分重開 token（C14 的三方交錯）。
  */
 function moverHook(db: () => Db, state: MoverState) {
   return async (point: GroupRacePoint, ctx: { noteId?: string }) => {
@@ -39,7 +39,7 @@ function moverHook(db: () => Db, state: MoverState) {
   };
 }
 
-describe("#175 POST /api/notes {groupId}（§6.2，gate r1 I3、r4 N-2）", () => {
+describe("#175 POST /api/notes {groupId}", () => {
   it("成員（內建一般成員）：帶與不帶 content 都 201，role editor、owner 欄 null、groupId／group 有值、permissions 取角色；個人建立仍是 owner", async () => {
     const { app, db } = await buildTestApp();
     const s = await scene(db);
@@ -57,15 +57,15 @@ describe("#175 POST /api/notes {groupId}（§6.2，gate r1 I3、r4 N-2）", () =
     expect((await noteState(db.$client, bare.json().id)).owner_id).toBeNull();
   });
 
-  it("帶 content＋groupId（Q13 解除互斥）→ 過了 schema（無 collab 的 app 在部署閘門回 400 invalid_body，與個人建立同一道閘）", async () => {
+  it("帶 content＋groupId（解除互斥）→ 過了 schema（無 collab 的 app 在部署閘門回 400 invalid_body，與個人建立同一道閘）", async () => {
     const { app, db } = await buildTestApp();
     const s = await scene(db);
     const res = await call(app, "POST", "/api/notes", s.member.id, { groupId: s.g.id, content: "# Hi" });
     expect(res.statusCode).toBe(400);
     expect(res.json().error.code).toBe("invalid_body");
     // 訊息是部署閘門那一句，不是 schema 的互斥訊息——互斥若還在，這裡會是「content 與 groupId 不可同時出現」。
-    expect(res.json().error.message).toBe("此部署不支援帶內容建立筆記");
-    // 帶 collab 的完整形在 note-create-content.test.ts 補一案（Step 7）
+    expect(res.json().error.message).toBe("This deployment cannot create a note with content. Send the request again without content.");
+    // 帶 collab 的完整形在 note-create-content.test.ts 補一案
   });
 
   it("非成員／非成員站台 admin／群組不存在 → 404 group_not_found（三者逐位元組相同）；成員缺新建旗標 → 403 forbidden；非 UUID → 400", async () => {
@@ -108,7 +108,7 @@ describe("#175 POST /api/notes {groupId}（§6.2，gate r1 I3、r4 N-2）", () =
   });
 });
 
-describe("#175 DELETE／shares／public-link 的新判準（§2.4 #15、#17–19、#22）", () => {
+describe("#175 DELETE／shares／public-link 的新判準（#17–19、#22）", () => {
   it("DELETE：群組筆記看 permissions.delete（一般成員 403、非成員 404、管理員 204；#181 起是移到垃圾桶——列還在、deleted_at 非 NULL）", async () => {
     const { app, db } = await buildTestApp();
     const s = await scene(db);
@@ -123,7 +123,7 @@ describe("#175 DELETE／shares／public-link 的新判準（§2.4 #15、#17–19
     expect(rows[0]!.deletedBy).toBe(s.admin.id);
   });
 
-  it("shares 三支：群組筆記一律 403（manageShares 恆 false，連管理員也是）；RF2 殘留列 404；S5 窗——授權為個人 owner、之後被移進群組 → PUT 409 note_in_group、不留分享列", async () => {
+  it("shares 三支：群組筆記一律 403（manageShares 恆 false，連管理員也是）；殘留列 404；授權窗——授權為個人 owner、之後被移進群組 → PUT 409 note_in_group、不留分享列", async () => {
     const state: MoverState = {};
     const holder: { db?: Db } = {};
     const built = await buildTestApp({ groupTestHook: moverHook(() => holder.db!, state) });
@@ -138,7 +138,7 @@ describe("#175 DELETE／shares／public-link 的新判準（§2.4 #15、#17–19
     ] as const) {
       expect((await call(app, method, url, s.admin.id, payload)).statusCode, `${method} ${url}`).toBe(403);
     }
-    // RF2（gate r2 A-N7）：非成員拿著群組筆記上的殘留分享列（S5 破裂，DB 直塞）→ 404，與不存在的筆記逐位元組相同。
+    // 非成員拿著群組筆記上的殘留分享列（群組筆記殘留分享列，DB 直塞）→ 404，與不存在的筆記逐位元組相同。
     await seedShare(db, gn.id, s.outsider.id, "editor");
     const leftover = await call(app, "PUT", `/api/notes/${gn.id}/shares`, s.outsider.id, { email: s.member.email, role: "viewer" });
     const missing = await call(app, "PUT", "/api/notes/00000000-0000-4000-8000-00000000dead/shares", s.outsider.id, { email: s.member.email, role: "viewer" });
@@ -182,7 +182,7 @@ describe("#175 DELETE／shares／public-link 的新判準（§2.4 #15、#17–19
     expect(await noteState(db.$client, a.id)).toMatchObject({ group_id: s.g.id, public_token: null });
 
     // C14 三方交錯：授權（個人 owner）→ 移進群組（token 清掉）→ 群組管理員重開 token → 過時的別名 PUT。
-    // 舊述詞 `public_token IS NOT NULL` 在這一刻為真——沒有 `group_id IS NULL` 就撞 S11 CHECK → 500（gate r2 A-12）。
+    // 舊述詞 `public_token IS NOT NULL` 在這一刻為真——沒有 `group_id IS NULL` 就撞 CHECK → 500。
     const b = await seedNote(db, { ownerId: s.member.id }, { publicToken: "t".repeat(43) });
     Object.assign(state, { noteId: b.id, reopenToken: "u".repeat(43) });
     const res = await call(app, "PUT", `/api/notes/${b.id}/public-link/slug`, s.member.id, { slug: "my-alias" });
@@ -191,7 +191,7 @@ describe("#175 DELETE／shares／public-link 的新判準（§2.4 #15、#17–19
   });
 });
 
-describe("#175 GET /api/notes/:id/backlinks 的群組來源（Task 3 review N-4：路由層接線）", () => {
+describe("#175 GET /api/notes/:id/backlinks 的群組來源（路由層接線）", () => {
   it("群組筆記連到個人筆記：成員看得到來源（groupId 有值、ownerHandle null）；只拿到目標分享的非成員看不到", async () => {
     const { app, db } = await buildTestApp();
     const s = await scene(db);

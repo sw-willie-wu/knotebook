@@ -1,6 +1,5 @@
 /**
- * 資料夾 PR-3a T9：`PUT /api/notes/:id/folder`（spec docs/superpowers/specs/2026-10-22-folders-design.md §5.7.5〔r3 m-7〕、
- * §5.6「把筆記放進／移出」列、§5.4 表「筆記放置」「共享放置」、A3-3、A3-10 ③、A3-11、AG-F1、S-F8）。
+ * 資料夾：`PUT /api/notes/:id/folder`（筆記放置與共享放置）。
  */
 import { describe, expect, it } from "vitest";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
@@ -19,9 +18,9 @@ import { inject, markTrashed, sixRoleScene } from "./trash-helpers.js";
 
 const RANDOM_UUID = "7d0c6a4e-1f2b-4c3d-9e8f-0a1b2c3d4e5f";
 const TXN_CONTROL = /^(begin|commit|rollback)\b/i;
-const CROSS_SPACE = "筆記不能放進其他空間的資料夾";
-const NO_ORGANIZE = "沒有整理這篇筆記的權限";
-const NOTE_NOT_FOUND = "找不到此筆記";
+const CROSS_SPACE = "A note can't go into a folder in another space.";
+const NO_ORGANIZE = "You don't have permission to organize this note.";
+const NOTE_NOT_FOUND = "No note with that id.";
 
 const put = (app: FastifyInstance, userId: string | null, noteId: string, body: unknown) =>
   inject(app, "PUT", `/api/notes/${noteId}/folder`, userId, body);
@@ -202,7 +201,7 @@ describe("PUT /api/notes/:id/folder", () => {
     expect(await placementOf(pool, vw.id, n)).toBe(SV);
     expect((await listOf(app, ed.id)).find(x => x.id === n)?.folderId).toBe(SE);
     expect((await listOf(app, vw.id)).find(x => x.id === n)?.folderId).toBe(SV);
-    // 擁有者那邊看不到任何變化（A3-3、AG-F1）
+    // 擁有者那邊看不到任何變化
     expect((await noteFolderCols(pool, n))?.folder_id).toBe(FO);
     expect(await xminOf(pool, "notes", n)).toBe(x0);
     expect((await listOf(app, owner.id)).find(x => x.id === n)?.folderId).toBe(FO);
@@ -301,7 +300,7 @@ describe("PUT /api/notes/:id/folder", () => {
     expect(messageOf(res)).toBe(NO_ORGANIZE);
     expect((await noteFolderCols(pool, gn))?.folder_id).toBeNull();
 
-    // 授權後被移出群組：交易內先判筆記（spec §5.7.5「同順序」）→ not_found，不是 folder_not_found。
+    // 授權後被移出群組：交易內先判筆記→ not_found，不是 folder_not_found。
     seam.arm("note-folder-authorized", async () => {
       await pool.query("delete from group_members where group_id = $1 and user_id = $2", [s.groupId, s.member.id]);
     });
@@ -427,7 +426,7 @@ describe("PUT /api/notes/:id/folder", () => {
   });
 
   it("FP-9 雜項：Bearer／未登入 401；節流 429；body strict（缺 folderId、未知鍵 400）；大寫 :id 與大寫 folderId 200", async () => {
-    const { app, db } = await buildTestApp({ limiters: freshLimiters({ edit: new FixedWindowLimiter({ limit: 1, windowMs: 60_000 }) }) });
+    const { app, db } = await buildTestApp({ limiters: freshLimiters({ folder: new FixedWindowLimiter({ limit: 1, windowMs: 60_000 }) }) });
     const pool = db.$client;
     const u = await seedUser(db);
     const F = (await seedFolder(db, { personal: u.id })).id;
@@ -449,7 +448,7 @@ describe("PUT /api/notes/:id/folder", () => {
 
     const limited = await put(app, u.id, n, { folderId: null });
     failed(limited, 429, "too_many_requests");
-    expect(messageOf(limited)).toBe("寫入過於頻繁");
+    expect(messageOf(limited)).toBe("Too many writes. Wait a moment and try again.");
     expect((await noteFolderCols(pool, n))?.folder_id).toBe(F);
   });
 });

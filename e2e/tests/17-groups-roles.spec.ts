@@ -3,7 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { ADMIN, createUserViaInvite, editorLocator, loginAs, openGroupPanel, randomEmail, showSidebarTab } from "./helpers.js";
 
 /**
- * #175 群組 v2 PR3（spec §12.3 第 17 條）：自訂角色即時生效。
+ * #175 群組 v2：自訂角色即時生效。
  * A 以邀請建第二使用者 B → A 建群組、在群組建筆記 → A 從群組面板加 B（內建一般成員）→ B 開那篇：徽章 Editor、可編輯 →
  * A 到「Roles」項次新增角色 Reader（對話框沒有 Read 開關、六個旗標預設全關＝只能閱讀）→ A 在「Members」項次把 B 改成
  * Reader → B 10 秒內徽章 Viewer、編輯器不可編輯 → A 改回 Member → B 10 秒內徽章 Editor、打字 A 看得到。
@@ -32,7 +32,7 @@ test("群組角色：新增自訂角色 → 改成員角色即時變唯讀 → �
     // ── 2. A 建群組、在群組建筆記、改標題（同 15）──────────────────────────
     const groupName = `E2E Roles ${Date.now()}`;
     const sidebar = adminPage.getByRole("complementary");
-    await showSidebarTab(adminPage, "Workspace");
+    await showSidebarTab(adminPage, "Groups");
     await sidebar.getByRole("button", { name: "New group", exact: true }).click();
     const groupDialog = adminPage.getByRole("dialog", { name: "New group" });
     await groupDialog.getByLabel("Group name").fill(groupName);
@@ -61,19 +61,19 @@ test("群組角色：新增自訂角色 → 改成員角色即時變唯讀 → �
     await adminPage.getByRole("button", { name: "Add", exact: true }).click();
     await expect(adminPage.getByRole("button", { name: `Remove ${secondEmail}` })).toBeVisible();
 
-    // ── 4. B：登入 → 側欄 Workspace 開那篇 → 徽章 Editor、可編輯 ──────────
+    // ── 4. B：登入 → 側欄 Groups 開那篇 → 徽章 Editor、可編輯 ──────────
     const userPage = await userContext.newPage();
     await loginAs(userPage, secondEmail, password);
     await expect(userPage).toHaveURL(/\/$/);
 
     const userSidebar = userPage.getByRole("complementary");
-    const userWorkspace = await showSidebarTab(userPage, "Workspace", userSidebar);
+    const userWorkspace = await showSidebarTab(userPage, "Groups", userSidebar);
     await expect(userWorkspace.getByRole("button", { name: groupName, exact: true })).toBeVisible({ timeout: 15_000 });
     await userWorkspace.getByRole("link", { name: title }).click();
     await expect(userPage).toHaveURL(noteUrl);
     const userBadge = userPage.getByRole("status").filter({ hasText: /^Connected/ });
     await expect(userBadge).toBeVisible({ timeout: 15_000 });
-    await expect(userBadge.getByText("Editor", { exact: true })).toBeVisible();
+    await expect(userBadge).toHaveText("Connected"); // #335：能編輯者徽章只寫「Connected」
     const userEditable = userPage.locator('[data-testid="note-editor"] [contenteditable="true"]');
     await expect(userEditable).toHaveCount(1, { timeout: 15_000 });
     if (shotDir) {
@@ -106,15 +106,15 @@ test("群組角色：新增自訂角色 → 改成員角色即時變唯讀 → �
     await roleSelect.selectOption({ label: "Reader" });
 
     // ── 7. B：10 秒內變唯讀 ────────────────────────────────────────────
-    // 有效斷言是這兩條：徽章 Viewer、編輯器沒有 `contenteditable="true"`。
-    await expect(userBadge.getByText("Viewer", { exact: true })).toBeVisible({ timeout: 10_000 });
+    // 有效斷言是這兩條：徽章變「Read-only」（#335：viewer 不再寫 Connected／角色）、編輯器沒有 `contenteditable="true"`。
+    await expect(userPage.getByRole("status").filter({ hasText: /^Read-only/ })).toBeVisible({ timeout: 10_000 });
     await expect(userEditable).toHaveCount(0, { timeout: 10_000 });
-    // spec 字面的「⋮ 沒有刪除」（#181 起選單項是 Delete）：**這條沒有鑑別力**——內建一般成員本來就沒有刪除旗標，第 4 步 B 的 ⋮ 裡
-    // 就已經沒有 Delete；Reader 前後都一樣。Willie 2026-10-01 裁決照 spec 保留（主檔 spec 疑點 8）。
+    // 原本寫的「⋮ 沒有刪除」（#181 起選單項是 Delete）：**這條沒有鑑別力**——內建一般成員本來就沒有刪除旗標，第 4 步 B 的 ⋮ 裡
+    // 就已經沒有 Delete；Reader 前後都一樣。照原樣保留。
     await userPage.getByRole("button", { name: "More", exact: true }).click();
     await expect(userPage.getByRole("menuitem", { name: "Delete" })).toHaveCount(0);
     await userPage.keyboard.press("Escape");
-    // Q14：唯讀讀者仍有分享鈕（群組版面板只說明＋連到群組設定）
+    // 唯讀讀者仍有分享鈕（群組版面板只說明＋連到群組設定）
     await expect(userPage.getByRole("button", { name: "Share", exact: true })).toBeVisible();
 
     if (shotDir) {
@@ -130,14 +130,14 @@ test("群組角色：新增自訂角色 → 改成員角色即時變唯讀 → �
     await roleSelect.selectOption({ label: "Member" });
 
     // ── 9. B：10 秒內恢復可編輯；B 打字 A 看得到 ────────────────────────
-    await expect(userBadge.getByText("Editor", { exact: true })).toBeVisible({ timeout: 10_000 });
+    await expect(userBadge).toHaveText("Connected", { timeout: 10_000 }); // #335：改回能編輯 → 徽章回到只寫「Connected」
     await expect(userEditable).toHaveCount(1, { timeout: 10_000 });
     const sentence = `typed by restored member ${Date.now()}`;
     await editorLocator(userPage).click();
     await userPage.keyboard.type(sentence);
     await expect(editorLocator(adminPage)).toContainText(sentence, { timeout: 15_000 });
 
-    // ── 10. A 回到角色頁截圖（Task 8 Step 4.3 的視覺檢查）────────────────
+    // ── 10. A 回到角色頁截圖（視覺檢查）────────────────
     await tabs.getByRole("link", { name: "Roles", exact: true }).click();
     await expect(adminPage.getByRole("region", { name: "Reader", exact: true })).toBeVisible();
     await shot(adminPage, "pr3-roles-page.png");

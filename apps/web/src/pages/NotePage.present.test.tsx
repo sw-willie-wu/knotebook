@@ -7,12 +7,14 @@ import * as Y from "yjs";
 import type { NoteDto, UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ActiveNoteProvider } from "@/lib/active-note";
+import { NARROW_QUERY } from "@/lib/sidebar-drawer";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import type { CollabState } from "@/collab/connection";
 import { OWNER_PERMS } from "@/test/fixtures";
 import { installFakeFullscreen, type FakeFullscreen } from "@/test/fake-fullscreen";
 import { enterPresentationFullscreen } from "@/present/fullscreen";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 vi.mock("@/components/NoteEditor", () => ({
   NoteEditor: ({ editable, headerSlot, footerSlot }: { editable: boolean; headerSlot?: ReactNode; footerSlot?: ReactNode }) => (
@@ -134,6 +136,7 @@ function stubFetch({ note = NOTE as NoteDto | { status: number; code: string; no
     const method = (init?.method ?? "GET").toUpperCase();
     if (url === "/api/groups") return Promise.resolve(respond(200, []));
     if (url === "/api/auth/me") return Promise.resolve(respond(200, USER));
+    if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
     if (url === "/api/notes" && method === "GET") return Promise.resolve(respond(200, list));
     if (url.endsWith("/backlinks")) return Promise.resolve(respond(200, { backlinks: [] }));
     if (url.endsWith("/links") && method === "POST") return Promise.resolve(respond(204, null));
@@ -144,6 +147,8 @@ function stubFetch({ note = NOTE as NoteDto | { status: number; code: string; no
           : respond(200, note),
       );
     }
+    // #93：搜尋字 ≥ 2 個字時側欄內文區會打 /api/search（回空）。
+    if (url.startsWith("/api/search?")) return Promise.resolve(new Response(JSON.stringify({ hits: [], nextCursor: null }), { status: 200, headers: { "Content-Type": "application/json" } }));
     throw new Error(`unexpected fetch: ${method} ${url}`);
   });
   vi.stubGlobal("fetch", fn);
@@ -186,10 +191,10 @@ function renderPresent(entries: InitialEntry[], { strict = false, browser = fals
 const loc = () => screen.getByTestId("loc").textContent;
 const dialog = () => screen.getByRole("dialog", { name: "My Note — presentation" });
 
-// `sidebar.tab` 會往外流到同檔後面的案（寫入它的案在 T5 加），檔案頂層清（plan I3）。
+// `sidebar.tab` 會往外流到同檔後面的案，檔案頂層清。
 afterEach(() => localStorage.removeItem("sidebar.tab"));
 
-describe("NotePage × 簡報（spec §6.1、§6.5、§13.2）", () => {
+describe("NotePage × 簡報", () => {
   let fake: FakeFullscreen | null = null;
 
   beforeEach(async () => {
@@ -257,7 +262,7 @@ describe("NotePage × 簡報（spec §6.1、§6.5、§13.2）", () => {
     const search = screen.getAllByLabelText("Search notes")[0];
     fireEvent.keyDown(window, { key: "k", ctrlKey: true });
     expect(document.activeElement).not.toBe(search);
-    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true, addEventListener() {}, removeEventListener() {} })));
+    vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === NARROW_QUERY, addEventListener() {}, removeEventListener() {} })));
     fireEvent.keyDown(window, { key: "k", ctrlKey: true });
     expect(document.querySelector("[data-sidebar-drawer]")).toBeNull();
   });
@@ -346,7 +351,7 @@ describe("NotePage × 簡報（spec §6.1、§6.5、§13.2）", () => {
     await waitFor(() => expect(loc()).toBe("/notes/x"));
   });
 
-  it("NP-T6（垃圾桶 T6）：?present 開一篇 in_trash → 外殼錯誤態 errors.in_trash、不導頁", async () => {
+  it("?present 開一篇 in_trash → 外殼錯誤態 errors.in_trash、不導頁", async () => {
     stubFetch({ note: { status: 404, code: "in_trash", noteId: NOTE.id } });
     renderPresent(["/n/tester/my-note?present"]);
     const shellDialog = await screen.findByRole("dialog");
@@ -392,7 +397,7 @@ describe("NotePage × 簡報（spec §6.1、§6.5、§13.2）", () => {
     await waitFor(() => expect(nav.fn).toHaveBeenCalledTimes(1));
   });
 
-  it("共編首次 synced 之前不掛 overlay（m9）：外殼是載入態", async () => {
+  it("共編首次 synced 之前不掛 overlay：外殼是載入態", async () => {
     stubFetch();
     collab.provider.synced = false;
     renderPresent(["/n/tester/my-note?present"]);
@@ -434,7 +439,7 @@ describe("NotePage × 簡報（BrowserRouter：網址寫入點、上一頁）", 
     await screen.findByTestId("present-overlay");
   });
 
-  it("RF4：播放中（已全螢幕）按瀏覽器上一頁 → 退出全螢幕、回筆記頁、編輯器同一實例", async () => {
+  it("播放中（已全螢幕）按瀏覽器上一頁 → 退出全螢幕、回筆記頁、編輯器同一實例", async () => {
     stubFetch();
     fake = installFakeFullscreen();
     window.history.replaceState(null, "", "/n/tester/my-note");
@@ -472,7 +477,7 @@ describe("NotePage × 簡報（BrowserRouter：網址寫入點、上一頁）", 
     expect(screen.getByTestId("note-editor")).toBe(editor);
   });
 
-  it("S9（§6.3-4【推】）：帶旗標進入 → 播放中改名 → Esc → navigate(-1) 回到舊網址那筆 → 留在同一篇、收斂到新網址、編輯器不重掛", async () => {
+  it("帶旗標進入 → 播放中改名 → Esc → navigate(-1) 回到舊網址那筆 → 留在同一篇、收斂到新網址、編輯器不重掛", async () => {
     stubFetch();
     window.history.replaceState(null, "", "/n/tester/my-note");
     let go: ((to: { pathname: string; search: string }, state: unknown) => void) | null = null;

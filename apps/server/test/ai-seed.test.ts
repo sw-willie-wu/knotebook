@@ -6,7 +6,7 @@ import { runMigrations } from "../src/db/migrate.js";
 import { seedAiActions } from "../src/db/seed-ai.js";
 import { aiActions } from "../src/db/schema.js";
 
-describe("seedAiActions（內建五動作 idempotent seed，spec §13；#263 §4.1）", () => {
+describe("seedAiActions（內建五動作 idempotent seed，#263）", () => {
   it("跑兩次仍是五筆，且 id 恰為 BUILTIN_ACTION_IDS", async () => {
     const { db } = await freshDb(); // freshDb() 內部 runMigrations() 已跑過一次 seed
     await seedAiActions(db); // 第二次
@@ -16,7 +16,7 @@ describe("seedAiActions（內建五動作 idempotent seed，spec §13；#263 §4
     expect(rows).toHaveLength(5);
   });
 
-  it("name/applyMode 照定案表：五個內建動作新安裝一律 preview（#263 後續：Rewrite/Translate 由 direct 改 preview）", async () => {
+  it("name/applyMode 照內建表：五個內建動作新安裝一律 preview（#263 後續：Rewrite/Translate 由 direct 改 preview）", async () => {
     const { db } = await freshDb();
     const rows = await db.select().from(aiActions);
     const byName = new Map(rows.map((r) => [r.name, r]));

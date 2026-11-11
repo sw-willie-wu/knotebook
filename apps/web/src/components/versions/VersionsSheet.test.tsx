@@ -85,7 +85,7 @@ function Host({ doc }: { doc: Y.Doc }) {
   );
 }
 
-/** final I-1：模擬頁首 ⋮ 開整頁——選單項按下後即卸載；`fake-menu-trigger` 是交給整頁的 returnFocusRef（NotePage 的 ⋮ 鈕）。 */
+/** 模擬頁首 ⋮ 開整頁——選單項按下後即卸載；`fake-menu-trigger` 是交給整頁的 returnFocusRef（NotePage 的 ⋮ 鈕）。 */
 function MenuHost({ doc }: { doc: Y.Doc }) {
   const value = useVersionsController({ noteId: NOTE, enabled: true });
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -127,7 +127,7 @@ function renderSheet() {
 const sState = () => JSON.parse(screen.getByTestId("s-state").textContent!);
 const footerOf = (sheet: HTMLElement) => within(within(sheet).getByTestId("sheet-footer"));
 
-describe("VersionsSheet（spec §8.3）", () => {
+describe("VersionsSheet", () => {
   let restoreMatchMedia: () => void;
   beforeEach(async () => {
     await i18n.changeLanguage("en");
@@ -169,7 +169,7 @@ describe("VersionsSheet（spec §8.3）", () => {
     expect(footer.getByRole("button", { name: "Newer version" })).toBeDisabled();
   });
 
-  it("rev 10：步二頁首列 2 是左右一對下拉（左 seq 2 → 右 Current state）＋只看差異；右選 seq 1 → compareRight＝seq 1；底部「較舊的版本」只換左、右保持", async () => {
+  it("步二頁首列 2 是左右一對下拉（左 seq 2 → 右 Current state）＋只看差異；右選 seq 1 → compareRight＝seq 1；底部「較舊的版本」只換左、右保持", async () => {
     stub({ [LIST]: list([ver(2), ver(1)]), [SNAP(2)]: { id: vid(2), seq: 2, ydoc: b64(V2) }, [SNAP(1)]: { id: vid(1), seq: 1, ydoc: b64(V1) } });
     renderSheet();
     const sheet = await screen.findByRole("dialog", { name: "Version history" });
@@ -180,11 +180,11 @@ describe("VersionsSheet（spec §8.3）", () => {
     await waitFor(() => expect(left).toHaveTextContent(vlabel(2)));
     expect(right).toHaveTextContent("Current state");
     expect(row.getByText("→")).toHaveAttribute("aria-hidden", "true");
-    // Task 19 M-3：整頁（觸控沒有 hover 看不到 title）保留文字鈕，不是橫幅那種圖示鈕。
+    // 整頁（觸控沒有 hover 看不到 title）保留文字鈕，不是橫幅那種圖示鈕。
     const only = row.getByRole("button", { name: "Only changes" });
     expect(only).toHaveTextContent("Only changes");
     expect(only.querySelector("svg")).toBeNull();
-    // 收尾 M-A：整頁一律單欄（forceSingle）——預覽區沒有欄標頭列，下拉只有列 2 那一對（寬 800 ≥ 720 也一樣）。
+    // 整頁一律單欄（forceSingle）——預覽區沒有欄標頭列，下拉只有列 2 那一對（寬 800 ≥ 720 也一樣）。
     await within(sheet).findByTestId("diff-single");
     expect(within(sheet).queryByTestId("diff-split-head")).toBeNull();
     expect(within(sheet).getAllByRole("button", { name: "Left side" })).toHaveLength(1);
@@ -234,7 +234,7 @@ describe("VersionsSheet（spec §8.3）", () => {
     await waitFor(() => expect(document.activeElement).toBe(opener));
   });
 
-  it("final I-1：開啟前的焦點元素（⋮ 選單項）在關閉前已卸載 → 關整頁後焦點退回 returnFocusRef（頁首 ⋮ 鈕）", async () => {
+  it("開啟前的焦點元素（⋮ 選單項）在關閉前已卸載 → 關整頁後焦點退回 returnFocusRef（頁首 ⋮ 鈕）", async () => {
     stub({ [LIST]: list([ver(1)]) });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
@@ -257,7 +257,7 @@ describe("VersionsSheet（spec §8.3）", () => {
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "fake-menu-trigger" })));
   });
 
-  it("final fix 2 M-A：開整頁時焦點在 body → 關閉後退回 returnFocusRef（⋮ 鈕），不是還給 body", async () => {
+  it("開整頁時焦點在 body → 關閉後退回 returnFocusRef（⋮ 鈕），不是還給 body", async () => {
     stub({ [LIST]: list([ver(1)]) });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
@@ -278,7 +278,7 @@ describe("VersionsSheet（spec §8.3）", () => {
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "fake-menu-trigger" })));
   });
 
-  it("final I-1(b)：步二頁首列 2（左右下拉＋只看差異）允許換行（flex-wrap；320 px 不溢出是依 class 推論，真瀏覽器量測留 e2e）", async () => {
+  it("步二頁首列 2（左右下拉＋只看差異）允許換行（flex-wrap；320 px 不溢出是依 class 推論，真瀏覽器量測留 e2e）", async () => {
     stub({ [LIST]: list([ver(2), ver(1)]), [SNAP(2)]: { id: vid(2), seq: 2, ydoc: b64(V2) }, [SNAP(1)]: { id: vid(1), seq: 1, ydoc: b64(V1) } });
     renderSheet();
     const sheet = await screen.findByRole("dialog", { name: "Version history" });
@@ -298,7 +298,7 @@ describe("VersionsSheet（spec §8.3）", () => {
     await waitFor(() => expect(sState().preview).toEqual(vtarget(2)));
   });
 
-  it("RF1（窄視窗）：預覽中的那一版被改名 → 頁首「List · …」與套用鈕立刻換成新名稱（清單那一列優先，不停在選取時記下的名稱）", async () => {
+  it("窄視窗：預覽中的那一版被改名 → 頁首「List · …」與套用鈕立刻換成新名稱（清單那一列優先，不停在選取時記下的名稱）", async () => {
     stub({ [LIST]: list([ver(2), ver(1)]), [SNAP(2)]: { id: vid(2), seq: 2, ydoc: b64(V2) } });
     const { queryClient } = renderSheet();
     const sheet = await screen.findByRole("dialog", { name: "Version history" });

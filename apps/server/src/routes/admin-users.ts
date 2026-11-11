@@ -17,14 +17,14 @@ import { TxAbort } from "../http/tx-abort.js";
 import type { AdminTestHook } from "../auth/admin-test-hook.js";
 import { demoteSiteAdminInTx } from "../auth/tx/admin-demote.js";
 
-/** 儲存配額 §7.2：指派方案的 body（strict——多餘欄 400）。 */
+/** 儲存配額：指派方案的 body（strict——多餘欄 400）。 */
 const assignPlanSchema = z.object({ planId: z.string() }).strict();
 
 export interface AdminUsersRouteDeps {
   db: Db;
   gate: UserGate;
   collabHooks: CollabHooks;
-  /** #247 §9.4 降級的測試注入縫（`auth/admin-test-hook.ts`）；`undefined`＝no-op。 */
+  /** #247 降級的測試注入縫（`auth/admin-test-hook.ts`）；`undefined`＝no-op。 */
   adminTestHook?: AdminTestHook;
 }
 
@@ -36,14 +36,14 @@ interface AdminUserDto {
   isAdmin: boolean;
   disabledAt: string | null;
   createdAt: string;
-  /** #247 §9.5：最後一次新簽登入 session 的時間；null＝升級後尚未登入過（不回填）。 */
+  /** #247：最後一次新簽登入 session 的時間；null＝升級後尚未登入過（不回填）。 */
   lastLoginAt: string | null;
   /** #267：最後一次帶 session cookie 的請求、共編連線或編輯、或登入的時間（`users.last_active_at`，同一使用者至多每分鐘更新一次）；null＝從無紀錄。 */
   lastActiveAt: string | null;
   storage: SpaceStorageDto;
   /** #286：`password_hash IS NOT NULL`（只回布林）。 */
   hasPassword: boolean;
-  /** #286：有效（未用、未撤銷、未過期）的重設連結的到期時間；I3 保證至多一支。不受帳密開關影響（D2）。 */
+  /** #286：有效（未用、未撤銷、未過期）的重設連結的到期時間；至多一支。不受帳密開關影響。 */
   passwordResetExpiresAt: string | null;
 }
 
@@ -93,7 +93,7 @@ const adminUserColumns = {
   lastActiveAt: users.lastActiveAt,
   hasPassword: sql<boolean>`${users.passwordHash} is not null`,
   // ⚠ 外層參照 `users.id` 必須留在巢狀的 `and(…)` 裡：drizzle 0.44 在單表 RETURNING（PATCH storage-plan）會把
-  // SQL 表達式**頂層**的欄位參照去掉表名，頂層的 `${users.id}` 變成 `"id"`、在子查詢內被解析成 one_time_links.id，靜默變 null（spec §4.2）。
+  // SQL 表達式**頂層**的欄位參照去掉表名，頂層的 `${users.id}` 變成 `"id"`、在子查詢內被解析成 one_time_links.id，靜默變 null。
   // `.mapWith` 不可省：不加會拿到 pg 原始字串。
   passwordResetExpiresAt: sql`(select ${oneTimeLinks.expiresAt} from ${oneTimeLinks} where ${and(eq(oneTimeLinks.targetUserId, users.id), activeOneTimeLink("password_reset"))})`.mapWith(oneTimeLinks.expiresAt),
 };
@@ -131,7 +131,7 @@ export function adminUsersRoutes(deps: AdminUsersRouteDeps) {
     app.post("/api/admin/users/:id/disable", { preHandler: app.requireAdmin }, async (request, reply) => {
       const { id: rawId } = request.params as { id: string };
       if (!UUID_RE.test(rawId)) {
-        return sendError(reply, 404, "user_not_found", "找不到此使用者");
+        return sendError(reply, 404, "user_not_found", "No user with that id.");
       }
       // 正規化成小寫：pg 的 uuid 型別比對本身不分大小寫，但 `id === request.user!.id`
       // 這個自我鎖死檢查是純 JS 字串比對——request.user!.id 來自 DB（一律小寫），若
@@ -140,7 +140,7 @@ export function adminUsersRoutes(deps: AdminUsersRouteDeps) {
       // 這裡正規化，後續比對／查詢都用同一個小寫 id。
       const id = rawId.toLowerCase();
       if (id === request.user!.id) {
-        return sendError(reply, 400, "cannot_disable_self", "無法停用自己的帳號");
+        return sendError(reply, 400, "cannot_disable_self", "You can't disable your own account.");
       }
 
       // 條件式停用＋ #286 同交易撤銷重設連結（auth/tx/disable-user.ts）。
@@ -157,7 +157,7 @@ export function adminUsersRoutes(deps: AdminUsersRouteDeps) {
       if (!result.disabled) {
         const [existing] = await deps.db.select({ id: users.id }).from(users).where(eq(users.id, id)).limit(1);
         if (!existing) {
-          return sendError(reply, 404, "user_not_found", "找不到此使用者");
+          return sendError(reply, 404, "user_not_found", "No user with that id.");
         }
         // 已存在但這次 UPDATE 沒命中列：代表已經是停用狀態——冪等 204，不再重複
         // invalidate/onUserRevoked（上一次真正停用時已經處理過，狀態沒有變化）。
@@ -176,7 +176,7 @@ export function adminUsersRoutes(deps: AdminUsersRouteDeps) {
     app.post("/api/admin/users/:id/enable", { preHandler: app.requireAdmin }, async (request, reply) => {
       const { id: rawId } = request.params as { id: string };
       if (!UUID_RE.test(rawId)) {
-        return sendError(reply, 404, "user_not_found", "找不到此使用者");
+        return sendError(reply, 404, "user_not_found", "No user with that id.");
       }
       // 正規化成小寫（見 disable 端點同一段註解）：三個 :id 端點統一套用，即使 enable/
       // promote 本身沒有「跟自己比對」的檢查，仍保持一致行為與可預期性。
@@ -186,7 +186,7 @@ export function adminUsersRoutes(deps: AdminUsersRouteDeps) {
       // 的舊 session 即使在 enable 之後仍然失效（binding：只有重新登入才能拿到新 session）。
       const [updated] = await deps.db.update(users).set({ disabledAt: null }).where(eq(users.id, id)).returning({ id: users.id });
       if (!updated) {
-        return sendError(reply, 404, "user_not_found", "找不到此使用者");
+        return sendError(reply, 404, "user_not_found", "No user with that id.");
       }
 
       deps.gate.invalidate(id);
@@ -197,13 +197,13 @@ export function adminUsersRoutes(deps: AdminUsersRouteDeps) {
     app.post("/api/admin/users/:id/promote", { preHandler: app.requireAdmin }, async (request, reply) => {
       const { id: rawId } = request.params as { id: string };
       if (!UUID_RE.test(rawId)) {
-        return sendError(reply, 404, "user_not_found", "找不到此使用者");
+        return sendError(reply, 404, "user_not_found", "No user with that id.");
       }
       const id = rawId.toLowerCase();
 
       const [updated] = await deps.db.update(users).set({ isAdmin: true }).where(eq(users.id, id)).returning({ id: users.id });
       if (!updated) {
-        return sendError(reply, 404, "user_not_found", "找不到此使用者");
+        return sendError(reply, 404, "user_not_found", "No user with that id.");
       }
 
       // gate 快取內的 isAdmin 若不即時失效，該使用者要等到快取 TTL（60s）過期才會被
@@ -213,15 +213,15 @@ export function adminUsersRoutes(deps: AdminUsersRouteDeps) {
       return reply.code(204).send();
     });
 
-    // #247 §9.4：與 promote 對稱。自降 400（比照 disable 的小寫正規化理由，見上）；交易內鎖全部 admin 列後計數（auth/tx/admin-demote.ts）。
+    // #247：與 promote 對稱。自降 400（比照 disable 的小寫正規化理由，見上）；交易內鎖全部 admin 列後計數（auth/tx/admin-demote.ts）。
     app.post("/api/admin/users/:id/demote", { preHandler: app.requireAdmin }, async (request, reply) => {
       const { id: rawId } = request.params as { id: string };
       if (!UUID_RE.test(rawId)) {
-        return sendError(reply, 404, "user_not_found", "找不到此使用者");
+        return sendError(reply, 404, "user_not_found", "No user with that id.");
       }
       const id = rawId.toLowerCase();
       if (id === request.user!.id) {
-        return sendError(reply, 400, "cannot_demote_self", "無法移除自己的管理員身分");
+        return sendError(reply, 400, "cannot_demote_self", "You can't remove your own admin role.");
       }
       const input = { targetId: id };
       try {
@@ -235,24 +235,24 @@ export function adminUsersRoutes(deps: AdminUsersRouteDeps) {
       return reply.code(204).send();
     });
 
-    // 儲存配額 §7.2：指派使用者方案。單句非鍵 UPDATE（不取空間鎖、不擋進行中的上傳——R10）；不檢查新方案是否小於現用量。
-    // 停權者照樣可改（S13）。非 UUID 的 :id／planId 各走自己的 404 碼（不落到 22P02 → 500）；大寫 UUID 正規化成小寫。
+    // 儲存配額：指派使用者方案。單句非鍵 UPDATE（不取空間鎖、不擋進行中的上傳）；不檢查新方案是否小於現用量。
+    // 停權者照樣可改。非 UUID 的 :id／planId 各走自己的 404 碼（不落到 22P02 → 500）；大寫 UUID 正規化成小寫。
     app.patch("/api/admin/users/:id/storage-plan", { preHandler: app.requireAdmin }, async (request, reply) => {
       const { id: rawId } = request.params as { id: string };
-      if (!UUID_RE.test(rawId)) return sendError(reply, 404, "user_not_found", "找不到此使用者");
+      if (!UUID_RE.test(rawId)) return sendError(reply, 404, "user_not_found", "No user with that id.");
       const id = rawId.toLowerCase();
       const parsed = assignPlanSchema.safeParse(request.body);
-      if (!parsed.success) return sendError(reply, 400, "invalid_body", "請求格式錯誤");
-      if (!UUID_RE.test(parsed.data.planId)) return sendError(reply, 404, "storage_plan_not_found", "找不到這個方案");
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", "Invalid request body.");
+      if (!UUID_RE.test(parsed.data.planId)) return sendError(reply, 404, "storage_plan_not_found", "No storage plan with that id.");
       let updated: AdminUserRow[];
       try {
         updated = await deps.db.update(users).set({ storagePlanId: parsed.data.planId.toLowerCase() }).where(eq(users.id, id)).returning(adminUserColumns);
       } catch (err) {
-        if (foreignKeyViolationConstraint(err) === "users_storage_plan_fk") return sendError(reply, 404, "storage_plan_not_found", "找不到這個方案");
+        if (foreignKeyViolationConstraint(err) === "users_storage_plan_fk") return sendError(reply, 404, "storage_plan_not_found", "No storage plan with that id.");
         throw err;
       }
       const [row] = updated;
-      if (!row) return sendError(reply, 404, "user_not_found", "找不到此使用者");
+      if (!row) return sendError(reply, 404, "user_not_found", "No user with that id.");
       return toAdminUserDto(row, await storageOfUser(deps.db, id));
     });
   };

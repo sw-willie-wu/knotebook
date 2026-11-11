@@ -7,8 +7,9 @@ import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { AppRoutes } from "@/App";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
-// W4（spec §11.5）：/admin/storage。走真的 AppRoutes（站台管理 modal＋AdminSections lazy chunk）。
+// /admin/storage。走真的 AppRoutes（站台管理 modal＋AdminSections lazy chunk）。
 
 function res(status: number, body?: unknown): Response {
   return { ok: status < 400, status, json: () => (body === undefined ? Promise.reject(new Error("no body")) : Promise.resolve(body)) } as unknown as Response;
@@ -21,8 +22,8 @@ const plan = (p: Partial<StoragePlanDto> & Pick<StoragePlanDto, "id" | "name">):
 const BASIC = plan({ id: "11111111-1111-4111-8111-111111111111", name: "Basic", quotaBytes: 2147483648, userCount: 3, groupCount: 1, isDefaultForUsers: true });
 const BIG = plan({ id: "22222222-2222-4222-8222-222222222222", name: "Big", quotaBytes: null, userCount: 1 });
 const SPARE = plan({ id: "33333333-3333-4333-8333-333333333333", name: "Spare", quotaBytes: 1048576 });
-const TIGHT = plan({ id: "44444444-4444-4444-8444-444444444444", name: "Tight", quotaBytes: 1004, userCount: 2, overQuotaCount: 1 }); // 1004 → 「0.000957 MB」→ 1003：換算回不來（RF2 承重值，起草者以 node 實算）
-/** 只因「是預設」而不能刪（沒人在用）——刪除鈕的第二個條件要有自己的案（review I1）。 */
+const TIGHT = plan({ id: "44444444-4444-4444-8444-444444444444", name: "Tight", quotaBytes: 1004, userCount: 2, overQuotaCount: 1 }); // 1004 → 「0.000957 MB」→ 1003：換算回不來
+/** 只因「是預設」而不能刪（沒人在用）——刪除鈕的第二個條件要有自己的案。 */
 const STARTER = plan({ id: "66666666-6666-4666-8666-666666666666", name: "Starter", quotaBytes: 1048576, isDefaultForGroups: true });
 const LIST: StoragePlansResponse = { plans: [BASIC, BIG, SPARE, STARTER, TIGHT], defaults: { userPlanId: BASIC.id, groupPlanId: STARTER.id } };
 
@@ -34,6 +35,7 @@ function renderStorage(extra: Handler = () => null, client = new QueryClient({ d
     const custom = extra(url, method, init);
     if (custom) return Promise.resolve(custom);
     if (url === "/api/auth/me") return Promise.resolve(res(200, ADMIN));
+    if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
     if (url === "/api/groups" || url === "/api/notes") return Promise.resolve(res(200, []));
     if (url === "/api/admin/storage-plans" && method === "GET") return Promise.resolve(res(200, LIST));
     if (url === "/api/admin/versions/settings" && method === "GET") return Promise.resolve(res(200, { keepAllDays: 7, dailyUntilDays: 30, autoVersionsEnabled: true, autoWaitMinutes: 5 }));
@@ -56,7 +58,7 @@ function renderStorage(extra: Handler = () => null, client = new QueryClient({ d
 const callsTo = (m: ReturnType<typeof vi.fn>, method: string, url: string) =>
   m.mock.calls.filter(([u, i]) => String(u) === url && ((i as RequestInit | undefined)?.method ?? "GET").toUpperCase() === method).map(([, i]) => i as RequestInit);
 const bodyOf = (init: RequestInit | undefined) => JSON.parse(String(init?.body));
-/** 方案表的列名＝方案名（spec 2026-10-13 settings-table §3 #7；列以 aria-labelledby 指向名稱）。 */
+/** 方案表的列名＝方案名（列以 aria-labelledby 指向名稱）。 */
 const row = (name: string) => screen.getByRole("row", { name });
 
 describe("/admin/storage（儲存方案頁）", () => {
@@ -68,7 +70,7 @@ describe("/admin/storage（儲存方案頁）", () => {
     vi.unstubAllGlobals();
   });
 
-  it("SS-T1（#181 §6.9）垃圾桶設定接在版本保留之後；兩個 region 內各恰一顆 Save", async () => {
+  it("SS-T1（#181）垃圾桶設定接在版本保留之後；兩個 region 內各恰一顆 Save", async () => {
     renderStorage();
     await screen.findByRole("switch", { name: "Delete automatically" });
     const trash = screen.getByRole("region", { name: "Trash" });
@@ -89,12 +91,12 @@ describe("/admin/storage（儲存方案頁）", () => {
     expect(within(row("Starter")).getByText("1 MB")).toBeInTheDocument();
     expect(within(row("Big")).getByText("No limit")).toBeInTheDocument();
     expect(within(row("Tight")).getByText("1004 B")).toBeInTheDocument();
-    // 使用者 2、群組 0、超過上限 1：依格名稱查（spec §5.2；欄序由下方欄名陣列守）。
+    // 使用者 2、群組 0、超過上限 1：依格名稱查（欄序由下方欄名陣列守）。
     for (const text of ["2", "0", "1"]) expect(within(row("Tight")).getByRole("cell", { name: text })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete Basic" })).toHaveAttribute("aria-disabled", "true"); // 預設（也在用）
     expect(screen.getByRole("button", { name: "Delete Tight" })).toHaveAttribute("aria-disabled", "true"); // 只因在用
     expect(screen.getByRole("button", { name: "Delete Big" })).toHaveAttribute("aria-disabled", "true"); // 只因在用（1 位使用者）
-    expect(screen.getByRole("button", { name: "Delete Starter" })).toHaveAttribute("aria-disabled", "true"); // 只因是預設（沒人在用）——M7b 守
+    expect(screen.getByRole("button", { name: "Delete Starter" })).toHaveAttribute("aria-disabled", "true"); // 只因是預設（沒人在用）
     expect(screen.getByRole("button", { name: "Delete Spare" })).not.toHaveAttribute("aria-disabled");
     expect(screen.getByText("A plan that is a default, or that any user or group is on, can't be deleted.")).toBeInTheDocument();
     expect(within(screen.getByRole("table", { name: "Storage plans" })).getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual([
@@ -105,12 +107,12 @@ describe("/admin/storage（儲存方案頁）", () => {
       "Spaces over limit",
       "Actions",
     ]);
-    // 超過上限的空間數 > 0 用 danger 語氣（spec §3 #7「保留紅色」）；0 不紅（Basic 列的 "0" 唯一：使用者 3、群組 1）
+    // 超過上限的空間數 > 0 用 danger 語氣（#7「保留紅色」）；0 不紅（Basic 列的 "0" 唯一：使用者 3、群組 1）
     expect(within(row("Tight")).getByText("1")).toHaveClass("text-destructive");
     expect(within(row("Basic")).getByText("0")).not.toHaveClass("text-destructive");
   });
 
-  it("P1 方案列的 Edit／Delete 是 icon 鈕（無可見文字、帶 title）；不可刪的 title 是原因；「New plan」不是實心鈕", async () => {
+  it("方案列的 Edit／Delete 是 icon 鈕（無可見文字、帶 title）；不可刪的 title 是原因；「New plan」不是實心鈕", async () => {
     renderStorage();
     const edit = await screen.findByRole("button", { name: "Edit Basic" });
     const del = screen.getByRole("button", { name: "Delete Basic" });
@@ -208,7 +210,7 @@ describe("/admin/storage（儲存方案頁）", () => {
     expect(within(dialog).getByText(/Lowering the limit doesn't delete any files/)).toBeInTheDocument();
   });
 
-  it("RF2a：編輯 Tight 什麼都沒改就按 Save → 不發請求、直接關（M5 的目標）", async () => {
+  it("編輯 Tight 什麼都沒改就按 Save → 不發請求、直接關", async () => {
     const fetchMock = renderStorage((url, method) => (url === `/api/admin/storage-plans/${TIGHT.id}` && method === "PATCH" ? res(200, TIGHT) : null));
     fireEvent.click(await screen.findByRole("button", { name: "Edit Tight" }));
     const dialog = await screen.findByRole("dialog", { name: "Edit storage plan" });
@@ -217,7 +219,7 @@ describe("/admin/storage（儲存方案頁）", () => {
     expect(callsTo(fetchMock, "PATCH", `/api/admin/storage-plans/${TIGHT.id}`)).toHaveLength(0);
   });
 
-  it("RF2b：編輯 Tight（1004 bytes）只改名 → PATCH 只送 name，不送換算回來的 quotaBytes（M4 的目標）", async () => {
+  it("編輯 Tight（1004 bytes）只改名 → PATCH 只送 name，不送換算回來的 quotaBytes", async () => {
     const fetchMock = renderStorage((url, method) => (url === `/api/admin/storage-plans/${TIGHT.id}` && method === "PATCH" ? res(200, TIGHT) : null));
     fireEvent.click(await screen.findByRole("button", { name: "Edit Tight" }));
     const dialog = await screen.findByRole("dialog", { name: "Edit storage plan" });
@@ -237,7 +239,7 @@ describe("/admin/storage（儲存方案頁）", () => {
     expect(await screen.findByText("This plan is assigned to users or groups. Move them to another plan first.")).toBeInTheDocument();
   });
 
-  it("刪除成功（204）：四把 key 都被失效（方案、使用者、群組、自己的用量），清單重抓（m2）", async () => {
+  it("刪除成功（204）：四把 key 都被失效（方案、使用者、群組、自己的用量），清單重抓", async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const spy = vi.spyOn(client, "invalidateQueries");
     const fetchMock = renderStorage((url, method) => (url === `/api/admin/storage-plans/${SPARE.id}` && method === "DELETE" ? res(204) : null), client);
@@ -250,7 +252,7 @@ describe("/admin/storage（儲存方案頁）", () => {
     for (const k of [["admin", "storage-plans"], ["admin", "users"], ["admin", "groups"], ["storage"]]) expect(keys).toContain(JSON.stringify(k));
   });
 
-  it("刪除失敗（409 in_use）：清單仍重抓（畫面上的清單已過時，m3）", async () => {
+  it("刪除失敗（409 in_use）：清單仍重抓（畫面上的清單已過時）", async () => {
     const fetchMock = renderStorage((url, method) =>
       url === `/api/admin/storage-plans/${SPARE.id}` && method === "DELETE" ? res(409, { error: { code: "storage_plan_in_use", message: "x" } }) : null);
     fireEvent.click(await screen.findByRole("button", { name: "Delete Spare" }));

@@ -13,6 +13,7 @@ import { installFakeFullscreen, type FakeFullscreen } from "@/test/fake-fullscre
 import { PresentationShell } from "./PresentationShell";
 import PresentationOverlay, { type PresentationOverlayProps } from "./PresentationOverlay";
 import { createExportEditor, renderDeck } from "./render";
+import { UPDATE_DEBOUNCE_MS } from "./debounce";
 import { OWNER_PERMS } from "@/test/fixtures";
 
 vi.mock("reveal.js", async () => ({ default: (await import("@/test/fake-reveal")).FakeReveal }));
@@ -137,7 +138,7 @@ describe("PresentationOverlay（fake reveal）", () => {
     document.documentElement.classList.remove("dark");
   });
 
-  it("初始化：自建 .reveal > .slides、設定照 A3、沒有任何 id／data-id（A11）", async () => {
+  it("初始化：自建 .reveal > .slides、設定照 `reveal-config`、沒有任何 id／data-id", async () => {
     setup();
     const deck = await ready();
     expect(deck.el.className).toContain("reveal");
@@ -288,13 +289,13 @@ describe("PresentationOverlay（fake reveal）", () => {
     expect(FakeReveal.instances).toHaveLength(1);
   });
 
-  it("RF2：深連結到縱向投影片 → slide(h, v) 的 v 為 1", async () => {
+  it("深連結到縱向投影片 → slide(h, v) 的 v 為 1", async () => {
     setup({ entry: `${BASE}?present#/a2` });
     const deck = await ready();
     expect(deck.slide).toHaveBeenCalledWith(1, 1);
   });
 
-  it.each(["#/%E0%A4%A", "#/nope", "#/", "#/1", "#/2/0", "#x"])("RF1：hash %s 找不到投影片 → 不 throw、明確 slide(0, 0) 回封面、仍 ready", async (hash) => {
+  it.each(["#/%E0%A4%A", "#/nope", "#/", "#/1", "#/2/0", "#x"])("hash %s 找不到投影片 → 不 throw、明確 slide(0, 0) 回封面、仍 ready", async (hash) => {
     setup({ entry: `${BASE}?present${hash}` });
     const deck = await ready();
     expect(deck.slide).toHaveBeenCalledWith(0, 0);
@@ -310,7 +311,7 @@ describe("PresentationOverlay（fake reveal）", () => {
     expect(nav.fn).toHaveBeenLastCalledWith({ pathname: BASE, search: "?present", hash: "#/b" }, { replace: true, state: null });
   });
 
-  it("test 19：首次建置後含 wikilink 的封面 DOM 有 wikilink 文字（匯出在 microtask，§5.1-6）", async () => {
+  it("test 19：首次建置後含 wikilink 的封面 DOM 有 wikilink 文字（匯出在 microtask）", async () => {
     setup();
     await ready();
     expect(slideEl("_title").textContent).toContain("Meeting Notes");
@@ -324,8 +325,8 @@ describe("PresentationOverlay（fake reveal）", () => {
     expect(slideEl("_title").querySelector("a")!.textContent).toBe("Renamed meeting");
   });
 
-  it("#269 Task 16 m1：文件存大寫 targetNoteId、['notes'] 快取是小寫 id ⇒ 命中（可點的連結＋現行標題），不是斷鏈", async () => {
-    // 必須含 a–f：全數字 id 的 toUpperCase() 不變，測不出大小寫（Task 16 M6 的教訓）。
+  it("#269：文件存大寫 targetNoteId、['notes'] 快取是小寫 id ⇒ 命中（可點的連結＋現行標題），不是斷鏈", async () => {
+    // 必須含 a–f：全數字 id 的 toUpperCase() 不變，測不出大小寫。
     const hex = "abcdef12-3456-4789-8abc-def123456789";
     expect(hex.toUpperCase()).not.toBe(hex);
     const note: NoteDto = { id: hex, title: "Renamed meeting", ownerId: "u1", role: "owner", createdAt: "", updatedAt: "", slug: "renamed", slugIsCustom: false, prevSlug: null, ownerHandle: "tester", lastEdited: null, group: null, groupId: null, folderId: null, permissions: OWNER_PERMS };
@@ -364,17 +365,45 @@ describe("PresentationOverlay（fake reveal）", () => {
       typeChar();
       await new Promise((r) => setTimeout(r, 20));
     }
-    await waitFor(() => expect(vi.mocked(renderDeck).mock.calls.length).toBe(initialCalls + 1), { timeout: 2000 });
+    await waitFor(() => expect(vi.mocked(renderDeck).mock.calls.length).toBe(initialCalls + 1));
     await new Promise((r) => setTimeout(r, 700));
     expect(vi.mocked(renderDeck).mock.calls.length).toBe(initialCalls + 1);
 
-    const before = vi.mocked(renderDeck).mock.calls.length;
-    const started = Date.now();
-    while (Date.now() - started < 2300) {
-      typeChar();
-      await new Promise((r) => setTimeout(r, 100));
+    // 持續每 100 ms 打一字，直到重切發生（上限 6 s）。不用「打滿 2.3 s 就驗」的固定窗：maxWait 2 s
+    // 只留 300 ms 餘裕，平行負載下計時器晚到就假紅。改證「trailing 計時器從未有機會到期」：
+    // debouncer.schedule() 在 insert 的交易內同步呼叫，所以第 i 次 schedule 落在 [打字前, 打字後] 之間；
+    // 重切時刻取 renderDeck 被呼叫的當下（≥ 計時器實際到期）。於是
+    //   相鄰兩次 schedule 的間隔 ≤ 後一次的「打字後」− 前一次的「打字前」，
+    //   最後一次 schedule 到重切 ≤ 重切時刻 − 最後一次的「打字前」，
+    // 這些上界全都 < UPDATE_DEBOUNCE_MS ⇒ 這次重切只可能是 maxWait 觸發的。只量打字與重切本身，
+    // 不把 sleep／輪詢的延遲算進去，CPU 卡頓造成的假紅只剩「真的卡在兩次 schedule 之間」一種。
+    // maxWait 的精確時刻由 debounce.test.ts 以 fake timers 守。
+    const fireTimes: number[] = [];
+    const realRenderDeck = vi.mocked(renderDeck).getMockImplementation()!;
+    vi.mocked(renderDeck).mockImplementation((input) => {
+      fireTimes.push(Date.now());
+      return realRenderDeck(input);
+    });
+    try {
+      const keys: { before: number; after: number }[] = [];
+      const started = Date.now();
+      while (fireTimes.length === 0 && Date.now() - started < 6_000) {
+        const t = Date.now();
+        typeChar();
+        keys.push({ before: t, after: Date.now() });
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      expect(fireTimes.length).toBeGreaterThan(0);
+      const fire = fireTimes[0];
+      // 計時器回呼不會插進同步的 typeChar 中間：重切前完成的輸入＝「打字後」不晚於重切的那些。
+      const sent = keys.filter((k) => k.after <= fire);
+      expect(sent.length).toBeGreaterThan(0);
+      const gapBounds = sent.slice(1).map((k, i) => k.after - sent[i].before);
+      gapBounds.push(fire - sent[sent.length - 1].before);
+      expect(Math.max(...gapBounds)).toBeLessThan(UPDATE_DEBOUNCE_MS);
+    } finally {
+      vi.mocked(renderDeck).mockImplementation(realRenderDeck);
     }
-    expect(vi.mocked(renderDeck).mock.calls.length).toBeGreaterThan(before);
   });
 
   it("test 7：目前那張被刪 → slide() 到前一張、hash replace；目前那張內容變 → 捲頂；別張變 → 不捲、不重建目前那張", async () => {
@@ -397,10 +426,10 @@ describe("PresentationOverlay（fake reveal）", () => {
       { id: "b", type: "heading", props: { level: 2 }, content: "B changed" },
     ] as never, YDOC_FRAGMENT);
     rerenderWith({ variant: "public", doc: v2, title: "My Note", publicRef: { kind: "token", token: "t" } });
-    await waitFor(() => expect(slideEl("b").textContent).toContain("B changed"), { timeout: 2000 });
+    await waitFor(() => expect(slideEl("b").textContent).toContain("B changed"));
     expect(slideEl("a2").querySelector(".kn-slide-body")!.firstChild).toBe(a2Body);
     expect(scrollSet).not.toHaveBeenCalled();
-    // §7.1-4：結構沒變 → 只 syncSlide 有變的那張、不 sync（r1-p2 MINOR 7）
+    // 結構沒變 → 只 syncSlide 有變的那張、不 sync
     expect(deck.syncSlide).toHaveBeenCalledWith(slideEl("b"));
     expect(deck.sync).not.toHaveBeenCalled();
 
@@ -413,7 +442,7 @@ describe("PresentationOverlay（fake reveal）", () => {
       { id: "b", type: "heading", props: { level: 2 }, content: "B changed" },
     ] as never, YDOC_FRAGMENT);
     rerenderWith({ variant: "public", doc: v3, title: "My Note", publicRef: { kind: "token", token: "t" } });
-    await waitFor(() => expect(scrollSet).toHaveBeenCalledWith(0), { timeout: 2000 });
+    await waitFor(() => expect(scrollSet).toHaveBeenCalledWith(0));
 
     // 目前那張被刪（a2 的標題沒了）→ 前一張 a
     const v4 = blocksToYDoc(editor, [
@@ -423,14 +452,14 @@ describe("PresentationOverlay（fake reveal）", () => {
       { id: "b", type: "heading", props: { level: 2 }, content: "B changed" },
     ] as never, YDOC_FRAGMENT);
     rerenderWith({ variant: "public", doc: v4, title: "My Note", publicRef: { kind: "token", token: "t" } });
-    await waitFor(() => expect(loc()).toBe(`${BASE}?present#/a`), { timeout: 2000 });
+    await waitFor(() => expect(loc()).toBe(`${BASE}?present#/a`));
     expect(nav.fn).toHaveBeenLastCalledWith({ pathname: BASE, search: "?present", hash: "#/a" }, { replace: true, state: null });
     expect(deck.slide).toHaveBeenLastCalledWith(1, 0);
     expect(deck.sync).toHaveBeenCalled();
     expect(deck.destroy).not.toHaveBeenCalled(); // 不重建 reveal
   });
 
-  it("主題切換 → mermaid 以新主題重畫（§5.3、§10-3）", async () => {
+  it("主題切換 → mermaid 以新主題重畫", async () => {
     setup({ props: { variant: "public", doc: makeDoc([{ id: "m", type: "mermaid", props: { code: "graph TD" } }]), title: "T", publicRef: { kind: "token", token: "t" } } });
     await ready();
     await waitFor(() => expect(mermaid.renderMermaid).toHaveBeenCalledWith("graph TD", "light"));
@@ -440,7 +469,7 @@ describe("PresentationOverlay（fake reveal）", () => {
     expect(mermaid.renderMermaid).toHaveBeenLastCalledWith("graph TD", "dark");
   });
 
-  it("mermaid 世代號：先發的晚回 → 丟掉，DOM 是後發的結果（§5.3「每張世代號，舊結果丟」，r1-p2 MINOR 8）", async () => {
+  it("mermaid 世代號：先發的晚回 → 丟掉，DOM 是後發的結果（每張世代號，舊結果丟）", async () => {
     let resolveFirst: (value: { ok: true; svg: string }) => void = () => {};
     mermaid.renderMermaid
       .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve; }))

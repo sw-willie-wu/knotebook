@@ -8,10 +8,10 @@ import type { CollabContext } from "../../src/collab/server.js";
 import { EditingRuntime } from "../../src/notes/editing/runtime.js";
 import { EditorSession, NoteGoneError, forkFrom, withDirectConnection, type DirectCtx, type DirectTarget } from "../../src/notes/editing/session.js";
 
-// m2：rebuildEvery／heapGrowthLimit 刻意調到不可能觸發——本檔最後一案會另建一個 rebuildEvery:1 的
+// rebuildEvery／heapGrowthLimit 刻意調到不可能觸發——本檔最後一案會另建一個 rebuildEvery:1 的
 // runtime 並用它自己 installGlobals() 換掉 globalThis 的 window/document；若這顆模組層 rt 中途也
 // 觸發了自己的重建，會在測試中途把全域 window 換走，讓那個小 runtime 的 session 意外 mount 到別顆
-// window 上（潛在 flake，見 task-2-report.md m2）。
+// window 上（潛在 flake）。
 const rt = new EditingRuntime({ baseUrl: "http://localhost/", rebuildEvery: 1_000_000, heapGrowthLimit: Number.MAX_SAFE_INTEGER });
 rt.installGlobals();
 
@@ -52,7 +52,7 @@ describe("EditorSession", () => {
     expect(source.getXmlFragment(YDOC_FRAGMENT).toString()).toContain("同時打的");
   });
 
-  it("未 mount 的 collaborative editor 對既有 id 操作 throw（釘住 spike 事實）", async () => {
+  it("未 mount 的 collaborative editor 對既有 id 操作 throw", async () => {
     const source = await seeded();
     const { fork } = forkFrom(source);
     const editor = BlockNoteEditor.create(
@@ -90,8 +90,8 @@ describe("EditorSession", () => {
   });
 });
 
-// N-1（第二輪 review）：`withDirectConnection` 的錯誤優先分支（fn 的錯優先於 disconnect 的錯，見
-// session.ts 的 m4 註解）在真實 hocuspocus 上很難逼出「disconnect 也失敗」，這裡用假 Hocuspocus
+// `withDirectConnection` 的錯誤優先分支（fn 的錯優先於 disconnect 的錯，見
+// session.ts 的註解）在真實 hocuspocus 上很難逼出「disconnect 也失敗」，這裡用假 Hocuspocus
 // 直接控制 disconnect 的成敗，純單元、不需要 docker/pg。
 function fakeHocuspocus(disconnect: () => Promise<void>): Hocuspocus<CollabContext> {
   return {
@@ -118,7 +118,7 @@ describe("withDirectConnection 的錯誤優先順序", () => {
   });
 
   it("fn throw、disconnect 也失敗 → reject 丟出 fn 的錯（不是 disconnect 的錯），disconnect 的錯只 log 一次", async () => {
-    // N-3（第三輪 review）：用身分比對（toBe）而非字串子字串比對（toThrow(string)）——後者只要
+    // 用身分比對（toBe）而非字串子字串比對（toThrow(string)）——後者只要
     // disconnect 的錯誤訊息裡含有 fn 錯誤訊息的子字串就會誤放行。disconnect 的錯誤訊息也刻意跟
     // fn 的錯誤訊息完全不重疊，即使將來有人改回字串比對也不會誤判。
     const fnErr = new Error("fn boom");
@@ -139,7 +139,7 @@ describe("withDirectConnection 的錯誤優先順序", () => {
   });
 
   it("fn 成功、disconnect 也成功 → 回傳 result，disconnect 恰呼叫一次（主線路徑＋防重複落盤）", async () => {
-    // N-4（第三輪 review）：既有兩案都用 mockRejectedValue，disconnect 第一次呼叫就 reject，
+    // 既有兩案都用 mockRejectedValue，disconnect 第一次呼叫就 reject，
     // 蓋不到「disconnect 成功之後」才會發生的重複呼叫；也沒有任何單元案覆蓋主線（fn 成功＋
     // disconnect 成功 → 回傳 result）。這一案同時補上兩個缺口。
     const disconnect = vi.fn().mockResolvedValue(undefined);
@@ -193,7 +193,7 @@ describe("withDirectConnection 的錯誤優先順序", () => {
   });
 });
 
-// #181 §6.2-11（M-B）：直連寫入的重確認——開之前、開之後各查一次閘門與存活。
+// #181：直連寫入的重確認——開之前、開之後各查一次閘門與存活。
 function spiedTarget(isDeleting: () => boolean, noteIsLive: () => Promise<boolean>) {
   const transact = vi.fn(async (cb: (doc: never) => void) => cb({} as never));
   const disconnect = vi.fn().mockResolvedValue(undefined);

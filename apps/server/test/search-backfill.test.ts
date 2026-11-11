@@ -1,5 +1,5 @@
 /**
- * #93 §6：背景回填（S11、S16、RF4）。直接呼叫 backfillSearchIndex（不經 index.ts）；接線的結構守衛在 unit/search-backfill-wiring。
+ * #93：背景回填。直接呼叫 backfillSearchIndex（不經 index.ts）；接線的結構守衛在 unit/search-backfill-wiring。
  */
 import { describe, expect, it } from "vitest";
 import { eq, sql } from "drizzle-orm";
@@ -90,7 +90,7 @@ describe("S11 回填", () => {
     expect(await bodies(db, good.id)).toEqual(["good one"]);
   });
 
-  it("RF4：回填途中候選筆記被刪 → skipped、不算失敗、不 warn，其餘照做", async () => {
+  it("回填途中候選筆記被刪 → skipped、不算失敗、不 warn，其餘照做", async () => {
     const { db } = await freshDb();
     const u = await seedUser(db);
     const ids: string[] = [];
@@ -115,7 +115,7 @@ describe("S11 回填", () => {
     expect(warns).toEqual([]);
   });
 
-  it("RF4（gone 形）：逐篇讀到 note_states 之後才被刪（writeSearchIndex 回 gone）→ 同樣 skipped、不 warn", async () => {
+  it("gone 形：逐篇讀到 note_states 之後才被刪（writeSearchIndex 回 gone）→ 同樣 skipped、不 warn", async () => {
     // 上一案的刪除在逐篇讀之前就提交，走的是「列已不在」分支、到不了 writeSearchIndex；這案讓刪除交易
     // 在逐篇讀時還沒提交（讀得到舊列），writeSearchIndex 第 1 步 KEY SHARE 卡在 DELETE 的列鎖上，提交後回 gone。
     const { db } = await freshDb();
@@ -158,7 +158,7 @@ describe("S11 回填", () => {
   });
 });
 
-describe("S16 還原 runbook（spec §5.5）", () => {
+describe("S16 還原 runbook", () => {
   async function restored(variant: { bump: boolean; purge: boolean }) {
     const { db } = await freshDb();
     const u = await seedUser(db);

@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { SESSION_COOKIE } from "@knotebook/shared";
-import { buildTestApp, testConfig, withTestRoutes } from "./helpers.js";
-import { signSession } from "../src/auth/session.js";
+import { buildTestApp, withTestRoutes, signTestSession } from "./helpers.js";
 import { users } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
 
@@ -59,7 +58,7 @@ describe("buildApp", () => {
     expect(res.json()).toEqual({ ok: true });
   });
 
-  // Mandatory item 1（第二輪審查備忘）：content-type 守衛必須放行無 body 的變更請求
+  // content-type 守衛必須放行無 body 的變更請求
   // （例如 POST /logout 不會帶 Content-Type/body），不能一律要求 application/json——
   // 否則所有無 body 的變更端點都會被誤判 415。
   it("變更請求無 body（如 POST /logout 不帶 Content-Type）→ 放行，不觸發 415", async () => {
@@ -103,7 +102,7 @@ describe("buildApp", () => {
     const { app, db } = await buildTestApp();
     withTestRoutes(app);
     const u = await insertUser(db, { isAdmin: false, tokenVersion: 0 });
-    const token = await signSession(testConfig.appSecret, { userId: u.id, tv: 0 });
+    const token = await signTestSession({ userId: u.id, tv: 0 });
     const res = await app.inject({ method: "GET", url: "/__test/protected", cookies: { [SESSION_COOKIE]: token } });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({
@@ -122,7 +121,7 @@ describe("buildApp", () => {
     const { app, db } = await buildTestApp();
     withTestRoutes(app);
     const u = await insertUser(db, { tokenVersion: 0 });
-    const token = await signSession(testConfig.appSecret, { userId: u.id, tv: 0 });
+    const token = await signTestSession({ userId: u.id, tv: 0 });
     const res = await app.inject({ method: "GET", url: "/__test/protected", cookies: { [SESSION_COOKIE]: tamperToken(token) } });
     expect(res.statusCode).toBe(401);
     expect(res.json()).toMatchObject({ error: { code: "unauthorized" } });
@@ -132,7 +131,7 @@ describe("buildApp", () => {
     const { app, db } = await buildTestApp();
     withTestRoutes(app);
     const u = await insertUser(db, { tokenVersion: 0, disabledAt: new Date() });
-    const token = await signSession(testConfig.appSecret, { userId: u.id, tv: 0 });
+    const token = await signTestSession({ userId: u.id, tv: 0 });
     const res = await app.inject({ method: "GET", url: "/__test/protected", cookies: { [SESSION_COOKIE]: token } });
     expect(res.statusCode).toBe(401);
     expect(res.json()).toMatchObject({ error: { code: "unauthorized" } });
@@ -149,7 +148,7 @@ describe("buildApp", () => {
     const { app, db } = await buildTestApp();
     withTestRoutes(app);
     const u = await insertUser(db, { isAdmin: false, tokenVersion: 0 });
-    const token = await signSession(testConfig.appSecret, { userId: u.id, tv: 0 });
+    const token = await signTestSession({ userId: u.id, tv: 0 });
     const res = await app.inject({ method: "GET", url: "/__test/admin", cookies: { [SESSION_COOKIE]: token } });
     expect(res.statusCode).toBe(403);
     expect(res.json()).toMatchObject({ error: { code: "forbidden" } });
@@ -159,7 +158,7 @@ describe("buildApp", () => {
     const { app, db } = await buildTestApp();
     withTestRoutes(app);
     const u = await insertUser(db, { isAdmin: true, tokenVersion: 0 });
-    const token = await signSession(testConfig.appSecret, { userId: u.id, tv: 0 });
+    const token = await signTestSession({ userId: u.id, tv: 0 });
     const res = await app.inject({ method: "GET", url: "/__test/admin", cookies: { [SESSION_COOKIE]: token } });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ ok: true });

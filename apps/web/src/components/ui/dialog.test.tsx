@@ -81,7 +81,7 @@ describe("DialogContent dismissOnOutside", () => {
   });
 });
 
-describe("DialogContent size（#247 §4.1）", () => {
+describe("DialogContent size（#247）", () => {
   it("預設 size：恰一顆內建 Close（行為零變的基準）", async () => {
     render(<Harness />);
     await settle();
@@ -97,7 +97,7 @@ describe("DialogContent size（#247 §4.1）", () => {
     expect(screen.queryAllByRole("button", { name: "Close" })).toHaveLength(0);
   });
 
-  it('size="panel"：透明外框、§4.6 窄視窗寬高＋§4.1 的 md: clamp', async () => {
+  it('size="panel"：透明外框、窄視窗寬高＋md: clamp', async () => {
     render(<Harness size="panel" />);
     const dialog = await screen.findByRole("dialog");
     expect(dialog).toHaveClass(
@@ -117,5 +117,19 @@ describe("DialogContent size（#247 §4.1）", () => {
     expect(dialog).not.toHaveClass("bg-popover");
     expect(dialog).not.toHaveClass("shadow-lg");
     expect(dialog).not.toHaveClass("w-full");
+  });
+});
+
+describe("DialogContent 容器不畫焦點環", () => {
+  // Radix 把焦點放在 Content 本身（程式聚焦或沒有可 tab 元素的後備）時，Chrome 預設 :focus-visible outline 會圈住整個面板；
+  // 統一在共用基底擋掉，各 size 都要有。
+  it.each(["default", "panel"] as const)("size=%s：Content 有 outline-none", (size) => {
+    render(<Harness size={size} />);
+    expect(screen.getByRole("dialog")).toHaveClass("outline-none");
+  });
+
+  it("未傳 size（預設）：Content 有 outline-none", () => {
+    render(<Harness />);
+    expect(screen.getByRole("dialog")).toHaveClass("outline-none");
   });
 });

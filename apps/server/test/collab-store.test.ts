@@ -40,7 +40,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-describe("Task 7：onLoadDocument/onStoreDocument + 樂觀鎖 + 分桶備份", () => {
+describe("onLoadDocument/onStoreDocument + 樂觀鎖 + 分桶備份", () => {
   it("編輯後 ≤5s note_states 有資料，內容與編輯一致", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: "owner-store1@example.com", password: PASSWORD });
@@ -88,7 +88,8 @@ describe("Task 7：onLoadDocument/onStoreDocument + 樂觀鎖 + 分桶備份", (
   });
 
   it("同一個 15 分桶內兩次編輯 → 恰 1 筆 backup（第二次落地不重複備份）", async () => {
-    const ctx = await buildCollabTestApp();
+    // 時鐘固定在 [10:00,10:15) 桶中段：兩次落地確定性同桶，不受真實牆鐘跨桶影響。
+    const ctx = await buildCollabTestApp({ storeSearchHooks: { now: () => new Date("2026-01-05T10:07:30Z") } });
     const owner = await ctx.createUser({ email: "owner-store3@example.com", password: PASSWORD });
     const note = await ctx.createNote(owner.id);
     const session = await ctx.loginAs("owner-store3@example.com", PASSWORD);
@@ -106,8 +107,8 @@ describe("Task 7：onLoadDocument/onStoreDocument + 樂觀鎖 + 分桶備份", (
       return r?.version === 2;
     });
 
-    // 兩次落地都發生在同一個真實時鐘的 15 分桶內（兩次相隔僅數秒）——第一次因
-    // lastBackupAt=null 必寫一筆；第二次未跨桶，必須被跳過。
+    // 注入的固定時鐘讓兩次落地都在同一個 15 分桶——第一次因 lastBackupAt=null
+    // 必寫一筆；第二次未跨桶，必須被跳過。
     const backups = await ctx.db.select().from(noteStateBackups).where(eq(noteStateBackups.noteId, note.id));
     expect(backups.length).toBe(1);
   });
@@ -147,11 +148,11 @@ describe("Task 7：onLoadDocument/onStoreDocument + 樂觀鎖 + 分桶備份", (
   });
 
   it("永久刪除期間 pending store 不復活資料列（用預設 noop hooks：DELETE 移入＋永久刪除落地時 store debounce 仍 pending）", async () => {
-    // 刻意用預設（noop）collabHooks，不是 Task 6 的真實作——真實作的 beforeNoteDeleted
+    // 刻意用預設（noop）collabHooks，不是真實作——真實作的 beforeNoteDeleted
     // 會在刪除交易前 flush+unload，讓 store 早於 DELETE 落地，測不到「資料列被復活」
     // 這個競態；noop 才會讓 DELETE 在 store debounce 仍 pending 時搶先落地，正是本規則
-    // 存在的理由（Task 6 的 gate 依賴這條規則成立）。
-    // #181：DELETE 只移入垃圾桶（列還在，落單的 store 照寫，spec §6.4.1）——「筆記不存在就丟棄」要靠永久刪除才走得到，
+    // 存在的理由（刪除閘門依賴這條規則成立）。
+    // #181：DELETE 只移入垃圾桶（列還在，落單的 store 照寫）——「筆記不存在就丟棄」要靠永久刪除才走得到，
     // 所以移入後同一個 debounce 窗內直接呼叫永久刪除的交易本體。
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: "owner-store5@example.com", password: PASSWORD });
@@ -212,7 +213,7 @@ describe("onStoreDocument 危險 URL 掃描（issue #44）", () => {
     expect(warns).toHaveLength(1);
 
     // unload → 重載 → store：訊號重新出現（同一個 warn sink 也收樂觀鎖衝突那行，
-    // 所以第二行的欄位要真的驗、不能只數行數——審查指出）。
+    // 所以第二行的欄位要真的驗、不能只數行數）。
     store.afterUnloadDocument(note.id);
     const doc2 = new Y.Doc();
     await store.onLoadDocument(note.id, doc2);

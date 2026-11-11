@@ -5,7 +5,7 @@ import { noteSchema } from "@/collab/schema";
 import { IMG, P, mountEditor, row, shape, type AnyEditor, type PartialBlockLike } from "@/test/columns-fixtures";
 import { COLUMN_KIND_ATTR, STACKED_ATTR, columnsLayoutExtension, withColumnsLayout } from "./layout-extension";
 
-// spec 2026-10-21 columns-layout §6、§8、Review Focus 3。
+// 並排的欄寬與版面擴充。
 
 /**
  * 可手動觸發的 ResizeObserver 替身：記下 observe 的目標；測試一律經 `fire(el)` 觸發，先斷言 el 已被 observe——
@@ -77,7 +77,7 @@ describe("L3／L4 堆疊", () => {
     expect(rowEl(container).hasAttribute(STACKED_ATTR)).toBe(false);
   });
 
-  it("L4 clientWidth 0（未排版、隱藏）→ 不堆疊（Review Focus 3）", () => {
+  it("L4 clientWidth 0（未排版、隱藏）→ 不堆疊", () => {
     const { container } = mount(textRow());
     setWidth(rowEl(container), 0);
     fire(rowEl(container));

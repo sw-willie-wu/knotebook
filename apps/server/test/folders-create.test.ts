@@ -1,8 +1,8 @@
 /**
- * 資料夾 PR-3a T5：`GET`／`POST /api/folders`（spec §5.7.1、§5.5 入口順序、§5.6、§5.3 深度與數量、§5.11）。
+ * 資料夾：`GET`／`POST /api/folders`（入口順序、深度與數量）。
  * 控制字元與組合字元一律以 `String.fromCharCode` 組字（原始碼不放跳脫序列）。
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import { FOLDER_DEPTH_MAX, FOLDERS_PER_SPACE_MAX, type FolderDto, type FolderListDto } from "@knotebook/shared";
 import type { Db } from "../src/db/index.js";
@@ -14,6 +14,13 @@ import { folderRow, seedFolder } from "./folder-helpers.js";
 import { noteState, seedNote, seedRole, seedUser } from "./group-helpers.js";
 import { buildTestApp, freshLimiters } from "./helpers.js";
 import { inject, sixRoleScene } from "./trash-helpers.js";
+import { INJECTED_LOCK_TIMEOUT_BOUND_MS } from "./lock-timeout-bound.js";
+
+// 預設空間鎖上限在本檔換成 60 s（產品值 5000），「注入的短上限有生效」的牆鐘界線才能離兩邊都遠——見 ./lock-timeout-bound.ts。
+vi.mock("../src/storage/tx/quota.js", async () => ({
+  ...(await vi.importActual<typeof import("../src/storage/tx/quota.js")>("../src/storage/tx/quota.js")),
+  DEFAULT_STORAGE_LOCK_TIMEOUT_MS: (await import("./lock-timeout-bound.js")).SLOW_DEFAULT_LOCK_TIMEOUT_MS,
+}));
 
 const NUL = String.fromCharCode(0);
 const LONE_SURROGATE = String.fromCharCode(0xd800);
@@ -113,7 +120,7 @@ describe("POST /api/folders", () => {
     for (const u of [s.deleteOnly, s.readOnly, s.createOnly]) {
       const res = await post(app, u.id, { name: `x-${u.id}`, space });
       failed(res, 403, "forbidden");
-      expect(messageOf(res)).toBe("你在這個群組的角色不能建立資料夾");
+      expect(messageOf(res)).toBe("Your role in this group can't create folders.");
     }
     const bodies = [
       failed(await post(app, s.outsider.id, { name: "A", space }), 404, "group_not_found"),
@@ -123,7 +130,7 @@ describe("POST /api/folders", () => {
       failed(await post(app, s.member.id, { name: "A", space: { kind: "group", groupId: "x" } }), 404, "group_not_found"),
     ];
     expect(new Set(bodies).size).toBe(1);
-    expect(bodies[0]).toContain("找不到此群組");
+    expect(bodies[0]).toContain("No group with that id.");
     const { rows } = await db.$client.query<{ n: number }>("select count(*)::int as n from folders where group_id = $1", [s.groupId]);
     expect(rows[0]!.n).toBe(4);
   });
@@ -155,11 +162,11 @@ describe("POST /api/folders", () => {
       failed(await post(app, s.outsider.id, { name: "A", parentId: "x" }), 404, "folder_not_found"),
     ];
     expect(new Set(bodies).size).toBe(1);
-    expect(bodies[0]).toContain("找不到此資料夾");
+    expect(bodies[0]).toContain("No folder with that id.");
     for (const u of [s.readOnly, s.deleteOnly, s.createOnly]) {
       const res = await post(app, u.id, { name: "A", parentId: groupFolder.id });
       failed(res, 403, "forbidden");
-      expect(messageOf(res)).toBe("沒有管理這個資料夾的權限");
+      expect(messageOf(res)).toBe("You don't have permission to manage this folder.");
     }
     expect(await folderCount(db)).toBe(7);
   });
@@ -170,11 +177,11 @@ describe("POST /api/folders", () => {
     const other = await seedUser(db);
     const personal = { kind: "personal" };
     const bad: Array<[string, string]> = [
-      [`A${NUL}B`, "資料夾名稱含有無法儲存的字元"],
-      [`A${LONE_SURROGATE}`, "資料夾名稱含有無法儲存的字元"],
-      ["A\nB", "名稱不能包含換行或控制字元"],
-      ["a".repeat(81), "資料夾名稱須為 1 到 80 個字"],
-      ["   ", "資料夾名稱須為 1 到 80 個字"],
+      [`A${NUL}B`, "The folder name contains characters that can't be stored."],
+      [`A${LONE_SURROGATE}`, "The folder name contains characters that can't be stored."],
+      ["A\nB", "The folder name can't contain line breaks or control characters."],
+      ["a".repeat(81), "Folder names must be 1 to 80 characters."],
+      ["   ", "Folder names must be 1 to 80 characters."],
     ];
     for (const [name, message] of bad) {
       const res = await post(app, u.id, { name, space: personal });
@@ -193,7 +200,7 @@ describe("POST /api/folders", () => {
     const docs = created(await post(app, u.id, { name: "Docs", space: personal }));
     const taken = await post(app, u.id, { name: "docs", space: personal });
     failed(taken, 409, "folder_name_taken");
-    expect(messageOf(taken)).toBe("這裡已經有同名資料夾");
+    expect(messageOf(taken)).toBe("A folder with that name already exists here.");
     failed(await post(app, u.id, { name: E_ACUTE, space: personal }), 409, "folder_name_taken");
     failed(await post(app, u.id, { name: `E${COMBINING_ACUTE}`, space: personal }), 409, "folder_name_taken");
 
@@ -211,7 +218,7 @@ describe("POST /api/folders", () => {
     }
     const res = await post(app, u.id, { name: "too deep", parentId: parent.id });
     failed(res, 409, "folder_too_deep");
-    expect(messageOf(res)).toBe("資料夾最多 5 層");
+    expect(messageOf(res)).toBe("Folders can be nested at most 5 levels deep.");
     expect(await folderCount(db)).toBe(FOLDER_DEPTH_MAX);
   });
 
@@ -228,7 +235,7 @@ describe("POST /api/folders", () => {
     created(await post(app, u.id, { name: "last", space: { kind: "personal" } }));
     const full = await post(app, u.id, { name: "one more", parentId: p.id });
     failed(full, 409, "folder_limit");
-    expect(messageOf(full)).toBe("資料夾數量已達上限");
+    expect(messageOf(full)).toBe("This space has reached its folder limit.");
     failed(await post(app, u.id, { name: "root more", space: { kind: "personal" } }), 409, "folder_limit");
     created(await post(app, u.id, { name: "fine", space: { kind: "shared" } }));
     created(await post(app, other.id, { name: "fine", space: { kind: "personal" } }));
@@ -280,8 +287,8 @@ describe("POST /api/folders", () => {
     expect((await post(app, null, { name: "C", space: { kind: "personal" } })).statusCode).toBe(401);
   });
 
-  it("FC-10 節流：edit 桶上限 1——授權失敗的請求不扣；第二次成功前 429；另一位使用者不受影響", async () => {
-    const { app, db } = await buildTestApp({ limiters: freshLimiters({ edit: new FixedWindowLimiter({ limit: 1, windowMs: 60_000 }) }) });
+  it("FC-10 節流：folder 桶上限 1——授權失敗的請求不扣；第二次成功前 429；另一位使用者不受影響", async () => {
+    const { app, db } = await buildTestApp({ limiters: freshLimiters({ folder: new FixedWindowLimiter({ limit: 1, windowMs: 60_000 }) }) });
     const u = await seedUser(db);
     const other = await seedUser(db);
     failed(await post(app, u.id, { name: "A", parentId: RANDOM_UUID }), 404, "folder_not_found");
@@ -289,7 +296,7 @@ describe("POST /api/folders", () => {
     created(await post(app, u.id, { name: "first", space: { kind: "personal" } }));
     const res = await post(app, u.id, { name: "second", space: { kind: "personal" } });
     failed(res, 429, "too_many_requests");
-    expect(messageOf(res)).toBe("寫入過於頻繁");
+    expect(messageOf(res)).toBe("Too many writes. Wait a moment and try again.");
     created(await post(app, other.id, { name: "first", space: { kind: "personal" } }));
     expect(await folderCount(db)).toBe(2);
   });
@@ -331,8 +338,8 @@ describe("POST /api/folders", () => {
     const restore = (userId: string) => setFlags(userId, "can_read = true, can_edit = true")();
 
     const forbidden: Array<[unknown, string]> = [
-      [{ name: "A", space }, "你在這個群組的角色不能建立資料夾"],
-      [{ name: "A", parentId: gf.id }, "沒有管理這個資料夾的權限"],
+      [{ name: "A", space }, "Your role in this group can't create folders."],
+      [{ name: "A", parentId: gf.id }, "You don't have permission to manage this folder."],
     ];
     for (const [payload, message] of forbidden) {
       seam.arm("folder-structure-locked", setFlags(s.editOnly.id, "can_edit = false"));
@@ -359,7 +366,7 @@ describe("POST /api/folders", () => {
     expect(await folderCount(db)).toBe(1);
   });
 
-  it("FC-16 結構鎖等太久（另一條連線持住同空間的鎖、lock_timeout 300 ms）：409 server_busy（< 3000 ms：注入值有生效，不是預設 5000）、沒有建出列；鎖放掉後照常 201", async () => {
+  it("FC-16 結構鎖等太久（另一條連線持住同空間的鎖、lock_timeout 300 ms）：409 server_busy（< 20 s：注入值有生效，不是本檔預設 60 s）、沒有建出列；鎖放掉後照常 201", async () => {
     const { app, db } = await buildTestApp({ storageLockTimeoutMs: 300 });
     const u = await seedUser(db);
     const holder = await db.$client.connect();
@@ -370,8 +377,8 @@ describe("POST /api/folders", () => {
       const res = await post(app, u.id, { name: "busy", space: { kind: "personal" } });
       const ms = Date.now() - t0;
       failed(res, 409, "server_busy");
-      expect(messageOf(res)).toBe("伺服器忙碌，請稍後再試");
-      expect(ms).toBeLessThan(3000);
+      expect(messageOf(res)).toBe("The server is busy. Try again in a moment.");
+      expect(ms).toBeLessThan(INJECTED_LOCK_TIMEOUT_BOUND_MS);
     } finally {
       try {
         await holder.query("rollback");

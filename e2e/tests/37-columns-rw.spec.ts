@@ -2,9 +2,9 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { ADMIN, adminNav, createNote, editorLocator, loginAs, noteIdFromUrl, openSiteAdmin, selectionAiBox, waitForEditorSelection } from "./helpers.js";
 
 /**
- * 並排排版 PR-2（讀寫面，columns-layout spec §13.3 驗收 10／11 的真瀏覽器半、plan 讀碼發現 12／13）：
- * E1 REST 讀出 §11.1 的 div 形、原樣寫回不變、5 欄被拒；E2 #305 REST 改字、圖片寬度與表格欄寬不變；
- * E3 站內 AI（Rewrite，ai-stub `/echo`）改字、寬度不變；E4 從左欄拖選到右欄 → 錨點擴大成整列，套用後列仍在（§7.5）。
+ * 並排排版讀寫面（真瀏覽器半）：
+ * E1 REST 讀出 div 形、原樣寫回不變、5 欄被拒；E2 #305 REST 改字、圖片寬度與表格欄寬不變；
+ * E3 站內 AI（Rewrite，ai-stub `/echo`）改字、寬度不變；E4 從左欄拖選到右欄 → 錨點擴大成整列，套用後列仍在。
  *
  * - 內容一律貼 markdown（純文字剪貼簿 → `collab/paste.ts` 接手；同 34-columns 的 `pasteMarkdown`）。
  * - e2e 不能 import shared：正規字面（`COLUMNS_OPEN_TAG`、`columnOpenTag`）在本檔逐字另寫一份，兩邊要一起改。
@@ -52,7 +52,7 @@ function figure(url: string, alt: string): string {
   return `<figure><img alt="${alt}" src="${url}" width="300"></figure>`;
 }
 
-/** plan 的 `ROW2`（Task 2 G1-cols-spec）：兩欄寬 1／1.5，右欄 H2「設備規格」＋段落「型號：x」；左欄內容由呼叫端給。 */
+/** `ROW2`：兩欄寬 1／1.5，右欄 H2「設備規格」＋段落「型號：x」；左欄內容由呼叫端給。 */
 function row2(left: string): string {
   return [COLUMNS_OPEN_TAG, columnOpenTag("1"), "", left, "", "</div>", columnOpenTag("1.5"), "", "## 設備規格", "", "型號：x", "", "</div>", "</div>"].join("\n");
 }
@@ -93,7 +93,7 @@ function firstColWidth(page: Page): Promise<string> {
 }
 
 /**
- * E2／E3 共用：貼「一段開頭文字 ＋ 圖片寬 300 ＋ 第一欄寬 120 的表格 ＋ 一段文字」，等兩個尺寸都在編輯器裡（讀碼發現 13 的瀏覽器端 parse）。
+ * E2／E3 共用：貼「一段開頭文字 ＋ 圖片寬 300 ＋ 第一欄寬 120 的表格 ＋ 一段文字」，等兩個尺寸都在編輯器裡（瀏覽器端 parse）。
  * 開頭文字讓 E3 的全選從文字起頭（Chromium 的 Ctrl+A 落成 TextSelection，見 25-selection-ai-box），圖片一定在選取內。
  */
 async function pasteSized(page: Page, noteId: string, paragraph: string): Promise<void> {
@@ -123,7 +123,7 @@ async function expectSizesKept(page: Page, before: Array<string | null>): Promis
   await expect.poll(() => firstColWidth(page)).toBe("120px");
 }
 
-test("E1（驗收 10）：REST 讀出 §11.1 的 div 形 → 原樣 replace_all 送回 201、列不變、再讀逐字相同 → 5 欄 400 unsupported_columns、筆記沒變", async ({ page }) => {
+test("E1：REST 讀出 div 形 → 原樣 replace_all 送回 201、列不變、再讀逐字相同 → 5 欄 400 unsupported_columns、筆記沒變", async ({ page }) => {
   test.setTimeout(120_000);
   const errors = await startNote(page, "E1");
   const noteId = await noteIdFromUrl(page);
@@ -184,7 +184,7 @@ test("E1（驗收 10）：REST 讀出 §11.1 的 div 形 → 原樣 replace_all 
   expectNoPageErrors(errors);
 });
 
-test("E2（讀碼發現 13、#305）：貼 figure 寬 300 與第一欄寬 120 的表格 → REST 讀 _top、old 換 new、replace_section → 文字變、寬度與欄寬不變", async ({ page }) => {
+test("E2（#305）：貼 figure 寬 300 與第一欄寬 120 的表格 → REST 讀 _top、old 換 new、replace_section → 文字變、寬度與欄寬不變", async ({ page }) => {
   test.setTimeout(120_000);
   const errors = await startNote(page, "E2");
   const noteId = await noteIdFromUrl(page);
@@ -285,7 +285,7 @@ test.describe("站內 AI（ai-stub /echo）", () => {
     await expect(box).toBeHidden();
   }
 
-  test("E3（驗收 11 站內 AI 半）：圖片寬 300＋第一欄寬 120 的表格＋「Original words」→ 全選 → Rewrite → 套用 → 「Rewritten words」、寬度與欄寬不變", async ({ page }) => {
+  test("E3（站內 AI 半）：圖片寬 300＋第一欄寬 120 的表格＋「Original words」→ 全選 → Rewrite → 套用 → 「Rewritten words」、寬度與欄寬不變", async ({ page }) => {
     test.setTimeout(120_000);
     const errors = await startNote(page, "E3");
     const noteId = await noteIdFromUrl(page);
@@ -307,7 +307,7 @@ test.describe("站內 AI（ai-stub /echo）", () => {
     expectNoPageErrors(errors);
   });
 
-  test("E4（§7.5）：從左欄文字拖選到右欄文字 → 工具列有 AI 鈕 → Rewrite → 套用 → 仍一列兩欄、左欄「Rewritten left」", async ({ page }) => {
+  test("E4：從左欄文字拖選到右欄文字 → 工具列有 AI 鈕 → Rewrite → 套用 → 仍一列兩欄、左欄「Rewritten left」", async ({ page }) => {
     test.setTimeout(120_000);
     const errors = await startNote(page, "E4");
     const editor = editorLocator(page);

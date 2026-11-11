@@ -6,7 +6,7 @@ import { BlockNoteView } from "@blocknote/mantine";
 import { noteSchema } from "@/collab/schema";
 import { LinkLongPress } from "./LinkLongPress";
 
-// spec 2026-10-13 site-links rev 7 §7.4：外部連結（一般 link mark）的觸控長按 ⇒ BlockNote 原生連結工具列。
+// 外部連結（一般 link mark）的觸控長按 ⇒ BlockNote 原生連結工具列。
 // 真編輯器＋BlockNoteView（預設帶 LinkToolbarController）；長按把游標放進連結，讓 BlockNote 既有的「游標在連結內」路徑開工具列。
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 泛型三元組，走 repo 慣例
@@ -42,7 +42,7 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
-describe("外部連結觸控長按（rev 7）", () => {
+describe("外部連結觸控長按", () => {
   it("長按約 500 ms：游標放進連結、BlockNote 原生連結工具列出現；之前不出現", async () => {
     const { editor, link } = await mount();
     fireEvent.pointerDown(link, TOUCH);

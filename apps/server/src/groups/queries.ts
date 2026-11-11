@@ -1,9 +1,9 @@
 /**
  * #103／#175：群組的查詢建構與交易內輔助。路由在 `routes/groups.ts`；交易本體在 `groups/tx/*`（S14）。
  *
- * **S1（每個群組至少一位成員持內建管理員角色）的紀律**（spec §4.4、§5.1）：任何會改動 `group_members` 列或其
+ * **「每個群組至少一位成員持內建管理員角色」的紀律**：任何會改動 `group_members` 列或其
  * `role_id` 的交易，第一步 `lockGroup()`（`SELECT … FROM groups WHERE id=$g FOR UPDATE`），之後才用**另一條敘述**
- * `countAdmins()` 計數——READ COMMITTED 下後到者取得鎖後，新的敘述才拿得到新快照（gate r1 B-7：拿掉鎖、同交易計數 →
+ * `countAdmins()` 計數——READ COMMITTED 下後到者取得鎖後，新的敘述才拿得到新快照（拿掉鎖、同交易計數 →
  * 兩邊都降級、最終 0 位管理員）。不可把鎖與計數併成同一條敘述、不可改用 REPEATABLE READ。
  */
 import { and, asc, eq, sql } from "drizzle-orm";
@@ -17,14 +17,14 @@ import { hasUnstorableChar } from "../oauth/storable.js";
 
 export type { DbOrTx, Tx } from "../db/tx.js";
 
-/** 群組路由的 404 `not_found` 訊息——非成員／不存在／id 不合法三者必須逐位元組相同（S4）。 */
-export const GROUP_NOT_FOUND_MESSAGE = "找不到此群組";
-/** #175 PR4 刪群組・轉移的 409 `not_admin` 訊息——非 UUID／非成員／非內建管理員三者必須逐位元組相同（spec 疑點 Q2）。 */
-export const NOT_ADMIN_MESSAGE = "轉移對象必須是這個群組的管理員";
+/** 群組路由的 404 `not_found` 訊息——非成員／不存在／id 不合法三者必須逐位元組相同。 */
+export const GROUP_NOT_FOUND_MESSAGE = "No group with that id.";
+/** #175 刪群組・轉移的 409 `not_admin` 訊息——非 UUID／非成員／非內建管理員三者必須逐位元組相同。 */
+export const NOT_ADMIN_MESSAGE = "The transfer target must be an admin of this group.";
 export const GROUP_NAME_MAX = 80;
 
 /**
- * 群組名稱驗證（D9）：先擋 NUL 與落單代理（重用 `oauth/storable.ts` 的 `hasUnstorableChar`）——NUL
+ * 群組名稱驗證：先擋 NUL 與落單代理（重用 `oauth/storable.ts` 的 `hasUnstorableChar`）——NUL
  * 進 `text` 欄是 22021（會 500）；落單代理會被 pg 驅動編 UTF-8 時靜默換成 U+FFFD，擋它是為了不讓
  * 名稱被靜默破壞。再 trim，長度以 **code point** 計（與 DB `length()` 同單位——80 個 single-code-point
  * emoji，例如 😀，可以剛好塞滿；組合式 emoji（國旗、膚色修飾、ZWJ 序列）是多個 code point，塞不滿 80
@@ -88,7 +88,7 @@ export function toGroupRoleDto(r: RoleColumnsRow): GroupRoleDto | null {
   };
 }
 
-/** `GroupDto`：兩個 `canManage*`＝角色旗標 OR 站台 admin（§5.5，不論是否成員——gate r2 M-3）。 */
+/** `GroupDto`：兩個 `canManage*`＝角色旗標 OR 站台 admin（不論是否成員）。 */
 export function toGroupDto(row: { id: string; name: string; createdAt: Date; autoVersions: boolean } & RoleColumnsRow, isSiteAdmin: boolean): GroupDto {
   const myRole = toGroupRoleDto(row);
   return {
@@ -121,8 +121,8 @@ export function groupWithMyRoleQuery(db: DbOrTx, groupId: string, userId: string
 }
 
 /**
- * 呼叫者對群組的可見性與管理權（§5.4、§5.5）：回 null ＝ 一律 404（id 不合法、群組不存在、非成員且不是站台 admin），
- * 三者不可分辨（S4）。**無閱讀旗標的成員仍看得到群組本身**（§5.4 末句）。
+ * 呼叫者對群組的可見性與管理權：回 null ＝ 一律 404（id 不合法、群組不存在、非成員且不是站台 admin），
+ * 三者不可分辨。**無閱讀旗標的成員仍看得到群組本身**。
  */
 export async function groupAccess(db: DbOrTx, groupId: string, user: { id: string; isAdmin: boolean }): Promise<GroupAccess | null> {
   if (!UUID_RE.test(groupId)) return null;
@@ -133,13 +133,13 @@ export async function groupAccess(db: DbOrTx, groupId: string, user: { id: strin
   return { role: dto.myRole, manageMembers: dto.canManageMembers, manageGroup: dto.canManageGroup };
 }
 
-/** S1 的鎖（交易第一步）。群組不存在回 false（呼叫端 throw 404）。 */
+/** 管理員計數用的鎖（交易第一步）。群組不存在回 false（呼叫端 throw 404）。 */
 export async function lockGroup(tx: Tx, groupId: string): Promise<boolean> {
   const rows = await tx.select({ id: groups.id }).from(groups).where(eq(groups.id, groupId)).for("update");
   return rows.length > 0;
 }
 
-/** S1 的計數：持**內建管理員**角色的成員數（自訂角色勾滿七旗標也不算，§4.1）——**必須是 `lockGroup` 之後的另一條敘述**。 */
+/** 管理員計數：持**內建管理員**角色的成員數（自訂角色勾滿七旗標也不算）——**必須是 `lockGroup` 之後的另一條敘述**。 */
 export async function countAdmins(tx: Tx, groupId: string): Promise<number> {
   const [row] = await tx
     .select({ n: sql<number>`count(*)::int` })
@@ -159,7 +159,7 @@ export async function roleInGroup(db: DbOrTx, groupId: string, roleId: string) {
   return row;
 }
 
-/** 內建角色的 id（S9：每群組恰一個 admin、一個 member；「至少」在應用層——建群組同交易建兩個，§4.4）。 */
+/** 內建角色的 id（S9：每群組恰一個 admin、一個 member；「至少」在應用層——建群組同交易建兩個）。 */
 export async function builtinRoleId(db: DbOrTx, groupId: string, builtin: BuiltinGroupRole): Promise<string> {
   const [row] = await db
     .select({ id: groupRoles.id })
@@ -172,7 +172,7 @@ export async function builtinRoleId(db: DbOrTx, groupId: string, builtin: Builti
 
 /**
  * `GET /api/groups`：我所屬的群組，先依我在群組的角色（內建管理員 → 內建一般成員 → 自訂角色，與 `listRolesQuery` 同一個 CASE），
- * 同角色內依 name 再依 id（只組不執行——路由與 EXPLAIN 測試共用同一個形）。側欄工作坊 tab 照這個順序列群組。
+ * 同角色內依 name 再依 id（只組不執行——路由與 EXPLAIN 測試共用同一個形）。側欄群組 tab 照這個順序列群組。
  */
 export function listMyGroupsQuery(db: DbOrTx, userId: string) {
   return db
@@ -189,8 +189,8 @@ export function listMyGroupsQuery(db: DbOrTx, userId: string) {
 }
 
 /**
- * `GET /api/groups/:id/roles`：內建管理員、內建一般成員、其餘依 `lower(name)`、`id`（排序見 spec §6.7）。可見性：任一成員
- * （Q18），加上非成員的站台 admin（plan 規格落差 13，與 `GET …/members` 同一條授權線）。
+ * `GET /api/groups/:id/roles`：內建管理員、內建一般成員、其餘依 `lower(name)`、`id`。可見性：任一成員
+ * ，加上非成員的站台 admin（與 `GET …/members` 同一條授權線）。
  */
 export function listRolesQuery(db: DbOrTx, groupId: string) {
   return db
@@ -210,7 +210,7 @@ export function groupNoteIdsQuery(db: DbOrTx, groupId: string) {
 }
 
 /**
- * #175 PR3：自訂角色名稱（spec §4.1；gate r1 I6、r2 M-9）。先擋 NUL 與落單代理（`hasUnstorableChar`，比照 `validateGroupName`），
+ * #175：自訂角色名稱。先擋 NUL 與落單代理（`hasUnstorableChar`，比照 `validateGroupName`），
  * 再 trim → NFC，長度以 code point 計 1..40（與 DB `group_roles_name_len_chk` 同單位）。不合法回 null。保留名另由
  * `isReservedRoleName` 判（409，不是 400）。回的是**正規化後**的值——存這個，`' reader '` 與 `Reader` 才會在 `lower()` 索引下撞。
  */
@@ -221,7 +221,7 @@ export function validateRoleName(raw: string): string | null {
   return length >= 1 && length <= GROUP_ROLE_NAME_MAX ? name : null;
 }
 
-/** 六個可設旗標 → `group_roles` 欄。`can_read` 恆寫 true（閱讀恆真，plan spec 疑點 10）。 */
+/** 六個可設旗標 → `group_roles` 欄。`can_read` 恆寫 true（閱讀恆真）。 */
 export function roleFlagValues(f: GroupRoleFlags) {
   return {
     canRead: true as const,
@@ -243,7 +243,7 @@ export function roleByIdQuery(db: DbOrTx, groupId: string, roleId: string) {
     .limit(1);
 }
 
-/** 掛這個角色的成員（T12／T13 的踢線名單；只組不執行）。 */
+/** 掛這個角色的成員（`updateRoleInTx`／`deleteRoleInTx` 的踢線名單；只組不執行）。 */
 export function roleHolderIdsQuery(db: DbOrTx, groupId: string, roleId: string) {
   return db
     .select({ userId: groupMembers.userId })

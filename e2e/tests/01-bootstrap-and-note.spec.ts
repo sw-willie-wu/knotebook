@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { ADMIN, createNote, editorLocator, loginAs } from "./helpers.js";
 
 /**
- * §14.5 流程 1：env bootstrap admin 首登 → **不被強制改密碼**（#187 PR4，spec §10.1／W6）
+ * env bootstrap admin 首登 → **不被強制改密碼**（#187）
  * → 直接進站，建筆記、打字、重整後內容還在。
  *
  * 強制改密碼不再有 e2e 覆蓋（代建已移除），由 `auth/guards.test.tsx`、`pages/ChangePasswordPage.test.tsx` 與 server 測試守。
@@ -29,7 +29,7 @@ test("env admin 首登不強改密 → 直接進站、建筆記 → 重整後內
 
   // 筆記正文走 Y.Doc 共編，server 端 `onStoreDocument` 是 debounce 2000ms 才落地
   // 到 Postgres（`STORE_DEBOUNCE_MS`，見 apps/server/src/collab/server.ts）——重整
-  // 前要等這個窗口過去，否則重整後拿到的是還沒落盤的舊內容（假陰性）。T12 審查遞延：
+  // 前要等這個窗口過去，否則重整後拿到的是還沒落盤的舊內容（假陰性）。已知遞延：
   // 固定 `waitForTimeout(2_500)` 只是「賭」debounce 一定準時觸發＋落盤一定夠快，CI
   // 較慢的跑者上這個賭注會輸——改用 `expect(...).toPass()` 主動重試「重整＋斷言」，
   // 直到內容真的落盤為止，語意上等價但不再是固定睡眠賭時序。
@@ -51,10 +51,10 @@ test("env admin 首登不強改密 → 直接進站、建筆記 → 重整後內
 /**
  * #99：手打完整的 markdown 連結語法 `[文字](網址)`，打完尾端 `)` 的當下轉成真連結。
  *
- * 直接以 `ADMIN.password` 登入（#187 PR4 起疊內 admin 密碼不再被改過）。
+ * 直接以 `ADMIN.password` 登入（#187 起疊內 admin 密碼不再被改過）。
  *
- * `)` 是這條 input rule 的單一字元觸發（[[knotebook-wikilink-trigger]] 記著的「合成
- * 按鍵一次只送一個字元」限制，對這個 feature 反而無害），`pressSequentially` 逐字元
+ * `)` 是這條 input rule 的單一字元觸發（Playwright 合成
+ * 按鍵一次只送一個字元，對這個 feature 反而無害），`pressSequentially` 逐字元
  * 送出即可測到。
  */
 test("手打 markdown 連結語法 [文字](網址) 自動轉成真連結", async ({ page }) => {

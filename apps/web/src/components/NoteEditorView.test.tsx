@@ -1,3 +1,5 @@
+import { useState, type ReactNode } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { BlockNoteEditor, SuggestionMenu } from "@blocknote/core";
@@ -11,10 +13,10 @@ import { createTestEditor, renderAiHost, selectInBlock, stubAiFetch } from "@/te
 import { NoteEditorView } from "./NoteEditor";
 
 /**
- * Task 14 審查修復（Important 1）：審查者實測 mutation（拿掉 `filePanel={false}`、
+ * 曾以 mutation 實測（拿掉 `filePanel={false}`、
  * 或把 `useMemo` 換成每 render 新建）能讓 268 個既有測試全綠通過——`NoteEditorView`
  * 這段 JSX 接線在此之前完全零覆蓋。這個檔案直接掛真的 `<BlockNoteView>`
- * （`@blocknote/mantine`，自帶 `MantineProvider`）鎖住兩條 Task 14 核心契約：
+ * （`@blocknote/mantine`，自帶 `MantineProvider`）鎖住兩條核心契約：
  *
  * 1. `filePanel={false}` 真的關掉了 BlockNote 內建的 `FilePanelController`
  *    （否則使用者點開檔案類 block 會同時看到兩份面板疊在一起）。
@@ -50,7 +52,13 @@ async function getItems(): Promise<DefaultReactSuggestionItem[]> {
   return [];
 }
 
-describe("NoteEditorView（Task 14：filePanel={false} + useMemo 接線）", () => {
+/** 自家 FilePanel 讀 `useAuthConfig()`，需要 QueryClientProvider；config 回不帶 `maxUploadBytes` 的設定（不前驗）。 */
+function QueryWrapper({ children }: { children: ReactNode }) {
+  const [client] = useState(() => new QueryClient({ defaultOptions: { queries: { retry: false } } }));
+  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+}
+
+describe("NoteEditorView（filePanel={false} + useMemo 接線）", () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 同上
   let editor: BlockNoteEditor<any, any, any>;
   let container: HTMLElement;
@@ -58,16 +66,21 @@ describe("NoteEditorView（Task 14：filePanel={false} + useMemo 接線）", () 
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     ({ editor, container } = mountedEditor());
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({}) } as unknown as Response),
+    );
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     editor.unmount();
     container.remove();
   });
 
   it("filePanel={false} 關掉內建面板：開啟 FilePanel 時畫面上只有 1 個 tablist（我們自家那個，不是內建又多一個）", () => {
     const blockId = insertImageBlock(editor);
-    render(<NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />);
+    render(<NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />, { wrapper: QueryWrapper });
 
     act(() => {
       editor.getExtension(FilePanelExtension)!.showMenu(blockId);
@@ -80,6 +93,7 @@ describe("NoteEditorView（Task 14：filePanel={false} + useMemo 接線）", () 
     const blockId = insertImageBlock(editor);
     const { rerender } = render(
       <NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />,
+      { wrapper: QueryWrapper },
     );
 
     act(() => {
@@ -102,7 +116,7 @@ describe("NoteEditorView（Task 14：filePanel={false} + useMemo 接線）", () 
 
 // ── issue #94：`slashMenu={false}` + 自家 `/` controller 接線 ────────────────────
 //
-// 比照本檔開頭記載的 Task 14 前例：審查者實測，把 `slashMenu={false}` 拿掉、或把整條
+// 比照本檔開頭記載的前例：實測把 `slashMenu={false}` 拿掉、或把整條
 // `<SuggestionMenuController triggerCharacter="/">` 刪掉，693 條測試全綠——這段接線在
 // 此之前零覆蓋。`NoteEditor.tsx` 的註解寫著「不明確設 false 會同時掛兩個 `/` 選單
 // controller，按 `/` 會看到兩份選單疊在一起」，這裡就是釘住那句話的地方。
@@ -148,7 +162,7 @@ describe("NoteEditorView（issue #94：/ 選單接管）", () => {
   });
 });
 
-// ── #263：formatting toolbar 由 children 裡的 SelectionAiController 擁有（spec §5.3）──────────────
+// ── #263：formatting toolbar 由 children 裡的 SelectionAiController 擁有──────────────
 //
 // NoteEditorView 自己只設 `formattingToolbar={false}`、不再掛 FormattingToolbarController；工具列壓制與 AI 項的行為測試在
 // `components/ai/SelectionAiController.test.tsx`。這裡只釘接線：沒有 children 就沒有工具列；children 是 controller 時才有。

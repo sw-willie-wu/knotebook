@@ -1,7 +1,7 @@
 /**
- * #175 T9／T10／T11（§6.7、S1、§7）：成員異動的交易本體。三支都以 `lockGroup` 開頭、S1 以另一條敘述 `countAdmins`
+ * #175：成員異動的交易本體。三支都以 `lockGroup` 開頭、管理員計數以另一條敘述 `countAdmins`
  * 計數（見 `groups/queries.ts` 檔頭）。本檔不 import `Db`、不接 `deps`；測試縫 `hook` 是型別明示的參數（S14 允許）——
- * S1 的並發測試靠它在「鎖已取得、寫入尚未發生」時讓第二個請求撞上同一把鎖。業務拒絕一律 throw `TxAbort`。
+ * 管理員不變量的並發測試靠它在「鎖已取得、寫入尚未發生」時讓第二個請求撞上同一把鎖。業務拒絕一律 throw `TxAbort`。
  */
 import { and, eq } from "drizzle-orm";
 import type { Tx } from "../../db/tx.js";
@@ -11,10 +11,10 @@ import { GROUP_NOT_FOUND_MESSAGE, builtinRoleId, countAdmins, groupNoteIdsQuery,
 import type { GroupTestHook } from "../test-hook.js";
 
 const notFound = (): TxAbort => new TxAbort(404, "not_found", GROUP_NOT_FOUND_MESSAGE);
-const roleNotFound = (): TxAbort => new TxAbort(404, "role_not_found", "找不到此角色");
-const lastAdmin = (): TxAbort => new TxAbort(409, "last_admin", "群組至少要有一位管理員");
+const roleNotFound = (): TxAbort => new TxAbort(404, "role_not_found", "No role with that id.");
+const lastAdmin = (): TxAbort => new TxAbort(409, "last_admin", "The group needs at least one admin.");
 
-/** T9：只新增（已是成員 → 409 `already_member`，**不動**既有角色）。`roleId` null＝內建一般成員。回實際掛上的角色。 */
+/** `addMemberInTx`：只新增（已是成員 → 409 `already_member`，**不動**既有角色）。`roleId` null＝內建一般成員。回實際掛上的角色。 */
 export async function addMemberInTx(
   tx: Tx,
   input: { groupId: string; targetUserId: string; roleId: string | null },
@@ -32,13 +32,13 @@ export async function addMemberInTx(
     .values({ groupId: input.groupId, userId: input.targetUserId, roleId: role.id })
     .onConflictDoNothing()
     .returning({ userId: groupMembers.userId });
-  if (inserted.length === 0) throw new TxAbort(409, "already_member", "此人已經是群組成員");
+  if (inserted.length === 0) throw new TxAbort(409, "already_member", "That user is already a member of this group.");
   return { roleId: role.id, builtin: role.builtin };
 }
 
 /**
- * T10：換角色（Q9 不防升權：含授予／收回內建管理員、含自己）。唯一硬限制 S1：目前持內建管理員、要換成別的角色、
- * 而且他是最後一位 → 409。角色沒變 → no-op（不 UPDATE、`noteIds` 為 null＝不踢線，比照 v1 F-1「值沒變就不踢」）。
+ * `setMemberRoleInTx`：換角色（不防升權：含授予／收回內建管理員、含自己）。唯一硬限制：每群組至少一位內建管理員；目前持內建管理員、要換成別的角色、
+ * 而且他是最後一位 → 409。角色沒變 → no-op（不 UPDATE、`noteIds` 為 null＝不踢線：值沒變就不踢）。
  */
 export async function setMemberRoleInTx(
   tx: Tx,
@@ -66,7 +66,7 @@ export async function setMemberRoleInTx(
   return { member, noteIds: (await groupNoteIdsQuery(tx, input.groupId)).map(r => r.id) };
 }
 
-/** T11：移人／退出（S1）。回群組所有筆記的 id（commit 後踢線：群組所有筆記 × 那一人，§7）。 */
+/** `removeMemberInTx`：移人／退出。回群組所有筆記的 id（commit 後踢線：群組所有筆記 × 那一人）。 */
 export async function removeMemberInTx(
   tx: Tx,
   input: { groupId: string; targetUserId: string },

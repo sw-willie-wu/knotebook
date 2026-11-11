@@ -6,7 +6,7 @@ import { dismissAllToasts } from "@/components/ui/toast";
 import { ADMIN_ROLE, EMPTY_GROUP_USAGE, GROUP_ADMIN, GROUP_MEMBER, ME, callsTo, groupFetch, member, ok, renderGroupRoute } from "./group-test-utils";
 
 const USAGE = {
-  // usedBytes 刻意與 byKind 之和（3 MB）不同：佔比分母必須取 byKind 之和（§9.1），兩者相同時「分母取錯」測不出來。
+  // usedBytes 刻意與 byKind 之和（3 MB）不同：佔比分母必須取 byKind 之和，兩者相同時「分母取錯」測不出來。
   usedBytes: 4 * 1048576,
   quotaBytes: 10 * 1048576,
   planName: "Team",
@@ -28,7 +28,7 @@ async function openStorage(group: GroupDto, usage: unknown, extra: Parameters<ty
   return { dialog, fetchMock };
 }
 
-describe("GroupStorageSection（/groups/:id/storage，#247 §6.4）", () => {
+describe("GroupStorageSection（/groups/:id/storage，#247）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -41,7 +41,7 @@ describe("GroupStorageSection（/groups/:id/storage，#247 §6.4）", () => {
     const { dialog } = await openStorage(GROUP_ADMIN, USAGE);
     await waitFor(() => expect(within(dialog).getByTestId("storage-usage")).toHaveTextContent("4 MB"));
     expect(within(dialog).getByRole("heading", { name: "By type" })).toBeInTheDocument();
-    // 依類型的列以 data-testid 取（spec 2026-10-13 settings-table §4 保留 by-kind-*；§5.2 不再以 closest("section") 圈範圍）。
+    // 依類型的列以 data-testid 取（保留 by-kind-*；不再以 closest("section") 圈範圍）。
     const kinds: Array<[string, string]> = [["image", "Images"], ["audio", "Audio"], ["video", "Video"], ["document", "Documents"], ["other", "Other"]];
     for (const [kind, label] of kinds) {
       expect(within(within(dialog).getByTestId(`by-kind-${kind}`)).getByText(label)).toBeInTheDocument();
@@ -67,7 +67,7 @@ describe("GroupStorageSection（/groups/:id/storage，#247 §6.4）", () => {
     expect(within(dialog).queryByText("Zero")).not.toBeInTheDocument();
   });
 
-  it("S3 依成員沒有任何列 → 「This group's notes have no files yet.」；說明是佔用者語意（§9.2 rev 10，兩語言）；byKind 和為 0 時不 NaN", async () => {
+  it("S3 依成員沒有任何列 → 「This group's notes have no files yet.」；說明是佔用者語意（兩語言）；byKind 和為 0 時不 NaN", async () => {
     const { dialog } = await openStorage(GROUP_ADMIN, EMPTY_GROUP_USAGE);
     await within(dialog).findByRole("heading", { name: "By member" });
     expect(within(dialog).getByText("This group's notes have no files yet.")).toBeInTheDocument();
@@ -83,7 +83,7 @@ describe("GroupStorageSection（/groups/:id/storage，#247 §6.4）", () => {
     expect(dialog.innerHTML).not.toContain("NaN");
   });
 
-  it("S4 一般成員（無 canManageGroup）也看得到用量（§9.2 放寬）；版本開關 disabled＋只有…可以變更；說明含「版本不佔額度」", async () => {
+  it("S4 一般成員（無 canManageGroup）也看得到用量（放寬）；版本開關 disabled＋只有…可以變更；說明含「版本不佔額度」", async () => {
     const { dialog, fetchMock } = await openStorage(GROUP_MEMBER, USAGE);
     await waitFor(() => expect(within(dialog).getByTestId("storage-usage")).toBeInTheDocument());
     expect(callsTo(fetchMock, "GET", `/api/groups/${GROUP_MEMBER.id}/storage`).length).toBeGreaterThanOrEqual(1);

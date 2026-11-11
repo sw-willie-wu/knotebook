@@ -38,9 +38,11 @@ import { NarrowTopBar } from "./NarrowTopBar";
  * lazy route 各自有額度（#201 起：`admin`、`group`、`settings`、四個登入流程頁各一個；版本歷史的
  * `versions`；側欄垃圾桶 tab 的 `trash`；一般 tab 選取模式的 `select`）。`versions` 是 NotePage 底下的巢狀 lazy：用自己的別名，且五個掛載點都 `import()`
  * 同一個模組 `VersionsLazy`，任一成功後其餘不可能再以 chunk 錯誤失敗，滿足上面的收斂前提
- * （起草裁定 23）。`trash` 同形（#181）：AppShell 的 tabpanel 與 SidebarFooter 兩個掛載點都 `import()` `TrashLazy`、
- * 各包 `SidebarLazyBoundary chunk="trash"`。一般 tab 選取模式的 `select` 同形（#181 PR-2c）：NoteList 的標題列與清單、SidebarFooter
- * 三個掛載點都 `import()` `SelectLazy`、各包 `SidebarLazyBoundary chunk="select"`。測試刻意寫字面 key（釘住 key 名不被改），這裡不匯出常數。
+ * 。`trash` 同形（#181）：AppShell 的 tabpanel 與 SidebarFooter 兩個掛載點都 `import()` `TrashLazy`、
+ * 各包 `SidebarLazyBoundary chunk="trash"`。一般 tab 選取模式的 `select` 同形（#181）：NoteList 的標題列與清單、SidebarFooter
+ * 三個掛載點都 `import()` `SelectLazy`、各包 `SidebarLazyBoundary chunk="select"`。快捷鍵介紹頁的 `shortcuts` 是單一掛載點（`ShortcutsDialog` 一處 `import()`
+ * `ShortcutsLazy`，不是巢狀），一個別名一份額度。側欄搜尋內文區的 `bodySearch`（#93）與 `trash` 同形：靜態卡與抽屜兩份 `SearchResults` 都
+ * `import()` `BodySearchLazy`、各包 `SidebarLazyBoundary chunk="bodySearch"`。測試刻意寫字面 key（釘住 key 名不被改），這裡不匯出常數。
  */
 const DEFAULT_CHUNK = "notepage";
 
@@ -50,7 +52,7 @@ function chunkReloadFlag(chunk: string): string {
 
 /**
  * chunk 載入失敗的訊息樣式。前三條是三大瀏覽器對裸動態 import 失敗的措辭
- * （Chromium／Firefox／Safari）；後兩條**不可省**（PR #67 獨立審查抓到的 blocking）：
+ * （Chromium／Firefox／Safari）；後兩條**不可省**（PR #67）：
  * - `unable to preload css for`：NotePage chunk 帶 CSS dep，build 後走 Vite 的
  *   __vitePreload——CSS <link> 先被 await，一失敗就以 Vite 自己的這條訊息 reject，
  *   真正的 import() 根本不會執行。離線時 CSS 必炸，部署輪替時只要 CSS hash 變了
@@ -115,7 +117,7 @@ function clearReloadFlag(chunk: string): void {
  * chunk 成功載入的信標——**必須擺在 `<Suspense>` 內、`<NotePage>` 旁**：lazy reject
  * 時 Suspense 內子樹不 commit、這個 effect 不執行，旗標才不會在失敗發生前被清。
  * 錯放到 Suspense 外（哪怕仍在 boundary 內）effect 會在 lazy 還 pending 時就跑
- * → 旗標先被清 → 每次 reload 落地都重新武裝 → 無限重整迴圈（審查探針實測）。
+ * → 旗標先被清 → 每次 reload 落地都重新武裝 → 無限重整迴圈。
  * App.tsx 的實際擺放由 App.errorBoundary.test.tsx 案 11 守。
  *
  * `chunk` 必須與同一條 route 的 boundary 一致（清的是那條 route 的額度）。
@@ -345,7 +347,7 @@ function LazyRouteErrorFallback({
   if (frame === "inline") return inlineErrorClassName ? <div className={inlineErrorClassName}>{content}</div> : content;
   return (
     <AppShell>
-      {/* PR2（G 節，M5 第四個呼叫端）：跟 NotePage/HomePage/NotePageFallback 同一款
+      {/* 跟 NotePage/HomePage/NotePageFallback 同一款
           內文卡——main 已無自身捲動，長錯誤內容改由卡自己捲（overflow-y-auto）。
           內容本身不動。 */}
       <div className={cn(cardSurface, "min-w-0 flex-1 overflow-y-auto")}>

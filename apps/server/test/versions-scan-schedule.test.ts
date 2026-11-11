@@ -1,4 +1,4 @@
-// #272 §7.4：app.ts 的自動切版掃描排程——startVersionSweep 開著才排；每個間隔一輪；onClose 清計時器並等進行中那一輪。
+// #272：app.ts 的自動切版掃描排程——startVersionSweep 開著才排；每個間隔一輪；onClose 清計時器並等進行中那一輪。
 import { describe, expect, it } from "vitest";
 import { markPending } from "../src/collab/versions.js";
 import type { Db } from "../src/db/index.js";
@@ -15,7 +15,7 @@ async function duePending(db: Db, ownerId: string, text: string): Promise<string
   return n.id;
 }
 
-describe("自動切版掃描排程（§7.4）", () => {
+describe("自動切版掃描排程", () => {
   it("startVersionSweep＋versionAutoScanIntervalMs → 定時掃描切到期的筆記；app.close() 之後不再掃", async () => {
     const { app, db } = await buildTestApp({ startVersionSweep: true, versionAutoScanIntervalMs: 50 });
     const u = await seedUser(db);

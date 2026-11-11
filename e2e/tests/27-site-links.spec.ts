@@ -1,14 +1,15 @@
-import { expect, test, type Browser, type BrowserContext, type Locator, type Page } from "@playwright/test";
-import { ADMIN, createNote, createUserViaInvite, editorLocator, loginAs, noteIdFromUrl, randomEmail, reEscape, waitForEditorSelection } from "./helpers.js";
+import { writeFileSync } from "node:fs";
+import { expect, test, type Browser, type BrowserContext, type Frame, type Locator, type Page } from "@playwright/test";
+import { ADMIN, createNote, createUserViaInvite, editorLocator, loginAs, noteIdFromUrl, randomEmail, reEscape, showSidebarTab, waitForEditorSelection } from "./helpers.js";
 
 /**
- * #269 站內連結（spec §15.3）：E1 點擊語意（讀者／編輯者都同分頁跳轉、修飾鍵新分頁、編輯者 hover 出工具列）、E2 段落錨點、E3 複製入口、
- * E4 三條寫入路徑轉 wikilink＋反向連結、E5 公開頁。E6 在 22-presentation.spec.ts。
- * C1–C3 是前面 task 留給真瀏覽器確認的項目（選取含 wikilink 的複製／拖曳、A 工具列開著時 hover 到 B、過期分頁）；
- * C4 是 rev 7 的觸控（wikilink 與一般連結：長按出工具列、短按跳轉）。
+ * #269 站內連結：E1 點擊語意（讀者／編輯者都同分頁跳轉、修飾鍵新分頁、編輯者 hover 出工具列）、E2 段落錨點、E3 複製入口、
+ * E4 三條寫入路徑轉 wikilink＋反向連結、E5 公開頁。E6（#352）是拖放進編輯器的站內連結；#269 的觸控案在 22-presentation.spec.ts 的 E6。
+ * C1–C3 是留給真瀏覽器確認的項目（選取含 wikilink 的複製／拖曳、A 工具列開著時 hover 到 B、過期分頁）；
+ * C4 是觸控（wikilink 與一般連結：長按出工具列、短按跳轉）。
  *
  * - wikilink 一律以 `[data-inline-content-type="wikilink"]` 定位（BlockNote 對 inline content 外層加的屬性）。
- * - e2e package 不 import `@knotebook/shared`（rsync 不帶 dist；同 11-public-share 檔頭的裁決），網址自組。
+ * - e2e package 不 import `@knotebook/shared`（rsync 不帶 dist；同 11-public-share 檔頭的說明），網址自組。
  * - 唯讀的編輯器（viewer、公開頁）沒有 `contenteditable="true"`，`editorLocator` 找不到——那些情境以頁面容器為範圍。
  */
 
@@ -26,10 +27,11 @@ async function pasteAtCaret(page: Page, text: string): Promise<void> {
   await page.keyboard.press("ControlOrMeta+v");
 }
 
-/** 在筆記最後貼上 markdown（22-presentation 的 pasteMarkdown 同形）。 */
+/** 在筆記最後貼上 markdown（22-presentation 的 pasteMarkdown 同形；Ctrl+End 後等 ProseMirror 讀回選取再貼，同 34-columns）。 */
 async function appendMarkdown(page: Page, markdown: string): Promise<void> {
   await editorLocator(page).click();
   await page.keyboard.press("ControlOrMeta+End");
+  await waitForEditorSelection(page);
   await pasteAtCaret(page, markdown);
 }
 
@@ -132,9 +134,9 @@ async function backlinkIds(page: Page, noteId: string): Promise<string[]> {
 }
 
 /**
- * 段落錨點的高亮（#269 §10.2）：useBlockAnchor 在 ProseMirror 管轄外疊一層 `.kn-anchor-flash[data-anchor-flash="<id>"]` 浮層。
+ * 段落錨點的高亮（#269）：useBlockAnchor 在 ProseMirror 管轄外疊一層 `.kn-anchor-flash[data-anchor-flash="<id>"]` 浮層。
  * 斷言：浮層出現、蓋在該區塊上（±1px）、在可編輯 DOM 之外、有動畫；300 ms 後仍在（舊作法把屬性掛在 `.bn-block-outer` 上，可編輯時
- * ProseMirror 約 70 ms 內就把那個元素換掉、高亮跟著消失——Task 19 探針實測）。
+ * ProseMirror 約 70 ms 內就把那個元素換掉、高亮跟著消失——實測）。
  */
 async function expectAnchorFlash(page: Page, blockId: string): Promise<void> {
   const overlay = page.locator(`.kn-anchor-flash[data-anchor-flash="${blockId}"]`);
@@ -201,16 +203,81 @@ test("E1：讀者一般點擊同分頁導航；Ctrl+Click 與中鍵開新分頁�
     await admin.keyboard.press("Escape");
     await expect(adminToolbar).not.toBeVisible();
 
-    // 編輯者：Ctrl/Cmd+Click（contenteditable 內的 contentEditable=false 島——spec §7.2【推】的量測點）⇒ 新分頁、原分頁不動
+    // 編輯者：Ctrl/Cmd+Click（contenteditable 內的 contentEditable=false 島——量測點）⇒ 新分頁、原分頁不動
     // （滑鼠停在連結上，hover 工具列可能出現——那是 hover 的行為，不在這裡斷言）
-    const editorCtrlPromise = adminContext.waitForEvent("page", { timeout: 10_000 });
-    await adminLink.locator("a").click({ modifiers: ["ControlOrMeta"] });
-    const editorCtrlPage = await editorCtrlPromise;
+    // 雲端偶發等不到新分頁（run 40182358217：trace 裡點擊落在 <a> 上、點擊後編輯器失焦，卻沒有 page 事件；根因未明）。
+    // 只在失敗時輸出診斷（console＋test-results 下的 e1-ctrl-click-diagnostics.txt）：page／popup／導航事件、點擊事件有沒有到、
+    // 有沒有被 preventDefault、點擊後的焦點與選取、連結中心點上是什麼元素。成功時不輸出、不改變行為（監聽都是被動的）。
+    const diag: string[] = [];
+    const diagStart = Date.now();
+    const note = (line: string) => diag.push(`+${Date.now() - diagStart}ms ${line}`);
+    const onContextPage = (p: Page) => note(`context "page": ${p.url()}`);
+    const onPopup = (p: Page) => note(`admin "popup": ${p.url()}`);
+    const onNavigated = (f: Frame) => {
+      if (f === admin.mainFrame()) note(`admin framenavigated: ${f.url()}`);
+    };
+    adminContext.on("page", onContextPage);
+    admin.on("popup", onPopup);
+    admin.on("framenavigated", onNavigated);
+    // 裝監聽本身不得改變測試結果：頁面正在導航等原因讓 evaluate 拋錯時吞掉、記一行（那次的診斷就少了點擊事件那段，events 會是 null）
+    await admin
+      .evaluate(() => {
+        const log: string[] = [];
+        (window as unknown as { __e1Events: string[] }).__e1Events = log;
+        const describe = (t: EventTarget | null) => (t instanceof Element ? `${t.tagName}.${String(t.className).slice(0, 30)}` : String(t));
+        for (const type of ["pointerdown", "mousedown", "mouseup", "click", "auxclick"]) {
+          // capture＝事件有沒有到；bubble（window 最後一站）＝有沒有被攔（沒記到就是被 stopPropagation）、有沒有 preventDefault
+          window.addEventListener(type, (e) => log.push(`${type} capture target=${describe(e.target)} ctrl=${(e as MouseEvent).ctrlKey}`), { capture: true, passive: true });
+          window.addEventListener(type, (e) => log.push(`${type} bubble defaultPrevented=${e.defaultPrevented}`), { passive: true });
+        }
+        window.addEventListener("blur", () => log.push("window blur"));
+      })
+      .catch((e: unknown) => note(`listener install failed (no event log): ${String(e)}`));
+    let editorCtrlPage: Page;
+    try {
+      const editorCtrlPromise = adminContext.waitForEvent("page", { timeout: 10_000 });
+      // click 自己拋錯時這個 promise 沒人 await，10 s 後的逾時會變成未處理的 rejection：先掛一個空 catch（下面照常 await，失敗仍會拋）
+      editorCtrlPromise.catch(() => undefined);
+      await adminLink.locator("a").click({ modifiers: ["ControlOrMeta"] });
+      note(`click returned: admin.url=${admin.url()}`);
+      editorCtrlPage = await editorCtrlPromise;
+    } catch (err) {
+      note(`failed: admin.url=${admin.url()} contextPages=${JSON.stringify(adminContext.pages().map((p) => p.url()))} pagesPerContext=${JSON.stringify(browser.contexts().map((c) => c.pages().length))}`);
+      const state = await admin
+        .evaluate(() => {
+          const link = document.querySelector('[data-testid="note-editor"] [data-inline-content-type="wikilink"] a');
+          const rect = link?.getBoundingClientRect();
+          const atCenter = rect ? document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2) : null;
+          const ce = document.querySelector('[data-testid="note-editor"] [contenteditable="true"]') as (Element & { editor?: { view?: { state: { selection: { toJSON(): unknown } } } } }) | null;
+          const active = document.activeElement;
+          return {
+            events: (window as unknown as { __e1Events?: string[] }).__e1Events ?? null,
+            hasFocus: document.hasFocus(),
+            visibility: document.visibilityState,
+            activeElement: active ? `${active.tagName}.${String(active.className).slice(0, 40)}` : null,
+            pmFocused: document.querySelector(".ProseMirror-focused") !== null,
+            pmSelection: ce?.editor?.view?.state.selection.toJSON() ?? null,
+            openToolbars: document.querySelectorAll('[role="dialog"][aria-label="Note link"][data-state="open"]').length,
+            elementAtLinkCenter: atCenter ? `${atCenter.tagName}.${String(atCenter.className).slice(0, 40)}` : null,
+            linkIsAtCenter: !!link && !!atCenter && (atCenter === link || link.contains(atCenter)),
+          };
+        })
+        .catch((e: unknown) => `evaluate failed: ${String(e)}`);
+      note(`page state: ${JSON.stringify(state)}`);
+      const report = `[E1 Ctrl+Click 診斷]\n${diag.join("\n")}`;
+      console.log(report);
+      writeFileSync(test.info().outputPath("e1-ctrl-click-diagnostics.txt"), report, "utf8");
+      throw err;
+    } finally {
+      adminContext.off("page", onContextPage);
+      admin.off("popup", onPopup);
+      admin.off("framenavigated", onNavigated);
+    }
     await editorCtrlPage.waitForURL((u) => u.pathname === targetPath, { timeout: 15_000 });
     expect(admin.url()).toBe(sourceUrl);
     await editorCtrlPage.close();
 
-    // 編輯者：一般點擊同分頁跳轉（rev 7：不再是「點擊開工具列」）
+    // 編輯者：一般點擊同分頁跳轉（不再是「點擊開工具列」）
     const adminPagesBefore = adminContext.pages().length;
     await adminLink.locator("a").click();
     await admin.waitForURL((u) => u.pathname === targetPath, { timeout: 15_000 });
@@ -219,11 +286,11 @@ test("E1：讀者一般點擊同分頁導航；Ctrl+Click 與中鍵開新分頁�
     // 讀者：清單到了 ⇒ <a href=canonical>
     const vp = viewer.page;
     await vp.goto(sourceUrl);
-    await expect(vp.getByRole("status").filter({ hasText: /^Connected/ })).toBeVisible({ timeout: 15_000 });
+    await expect(vp.getByRole("status").filter({ hasText: /^Read-only/ })).toBeVisible({ timeout: 15_000 });
     const link = vp.locator(`[data-testid="note-editor"] ${WIKILINK} a`, { hasText: targetTitle });
     await expect(link).toHaveAttribute("href", targetPath, { timeout: 10_000 });
 
-    // Ctrl/Cmd+Click：新分頁、原分頁不動（修飾鍵實測——見 Step 5）
+    // Ctrl/Cmd+Click：新分頁、原分頁不動（修飾鍵實測）
     const ctrlPagePromise = viewer.context.waitForEvent("page", { timeout: 10_000 });
     await link.click({ modifiers: ["ControlOrMeta"] });
     const ctrlPage = await ctrlPagePromise;
@@ -289,7 +356,7 @@ test("E2：開 #b-<id> 捲到並高亮；不存在的 id 停頂端無錯；?pres
     await missing.close();
     await cold.close();
 
-    // 簡報播放中（?present）忽略 #b-（spec §10.1）：底下的筆記不捲。守衛是 not.toBeInViewport（para 35 在 40 段裡，不捲就在視窗外）；
+    // 簡報播放中（?present）忽略 #b-：底下的筆記不捲。守衛是 not.toBeInViewport（para 35 在 40 段裡，不捲就在視窗外）；
     // 不斷高亮浮層——等了 1.5 s，就算錨點被消耗、浮層也可能已到期移除，0 個證明不了什麼。
     const present = await context.newPage();
     await present.goto(`${noteUrl}?present#b-${targetId}`);
@@ -300,7 +367,7 @@ test("E2：開 #b-<id> 捲到並高亮；不存在的 id 停頂端無錯；?pres
     await expect(presentTarget).not.toBeInViewport();
     await present.close();
 
-    // 同篇錨點：文首加一個指向本篇 para 35 的連結（自連結轉換，RF5 的 client 半），編輯模式直接點（rev 7）
+    // 同篇錨點：文首加一個指向本篇 para 35 的連結（自連結轉換），編輯模式直接點
     await editorLocator(page).getByText("para 1", { exact: true }).click();
     await page.keyboard.press("Home");
     await waitForEditorSelection(page);
@@ -316,7 +383,7 @@ test("E2：開 #b-<id> 捲到並高亮；不存在的 id 停頂端無錯；?pres
     await expectAnchorFlash(page, targetId);
     expect(await page.evaluate(() => (window as unknown as { __kbMarker?: number }).__kbMarker)).toBe(1);
 
-    // 上一頁回到點擊前（PUSH，不是 REPLACE——T9-M4 的觀察點）且仍不重載
+    // 上一頁回到點擊前（PUSH，不是 REPLACE）且仍不重載
     await page.goBack();
     await page.waitForURL((u) => u.pathname === notePath && u.hash === "", { timeout: 10_000 });
     expect(await page.evaluate(() => (window as unknown as { __kbMarker?: number }).__kbMarker)).toBe(1);
@@ -350,11 +417,11 @@ test("E3：拖曳把手「Copy link to block」與標題「#」寫入剪貼簿�
     await expect(admin.getByText("Block link copied", { exact: true }).first()).toBeVisible();
     expect(await readClipboard(admin)).toBe(`${ORIGIN}${notePath}#b-${paraId}`);
 
-    // 標題「#」（編輯者；Task 15 I1 把它搬到文字右側，避開側邊選單）
+    // 標題「#」（編輯者；它在文字右側，避開側邊選單）
     await blockOuter(admin, "Copy heading").hover();
     const hash = admin.getByRole("button", { name: "Copy link to this section" });
     await expect(hash).toBeVisible();
-    // 幾何（Task 15 m2）：「#」在標題文字首行垂直置中、在文字右側
+    // 幾何：「#」在標題文字首行垂直置中、在文字右側
     const geo = await headingButtonGeometry(blockOuter(admin, "Copy heading"));
     expect(Math.abs(geo.buttonMid - geo.lineMid)).toBeLessThanOrEqual(1);
     expect(geo.buttonLeft).toBeGreaterThanOrEqual(geo.lineRight);
@@ -365,7 +432,7 @@ test("E3：拖曳把手「Copy link to block」與標題「#」寫入剪貼簿�
     const vp = viewer.page;
     await grantClipboard(vp);
     await vp.goto(noteUrl);
-    await expect(vp.getByRole("status").filter({ hasText: /^Connected/ })).toBeVisible({ timeout: 15_000 });
+    await expect(vp.getByRole("status").filter({ hasText: /^Read-only/ })).toBeVisible({ timeout: 15_000 });
     const viewerEditor = vp.getByTestId("note-editor");
     await blockOuterIn(viewerEditor, "Copy heading").hover();
     await vp.getByRole("button", { name: "Copy link to this section" }).click();
@@ -373,7 +440,7 @@ test("E3：拖曳把手「Copy link to block」與標題「#」寫入剪貼簿�
     await blockOuterIn(viewerEditor, "copy para").hover();
     await expect(vp.getByRole("button", { name: "Open block menu" })).toHaveCount(0);
 
-    // 編輯者：「#」顯示中、標題被刪掉（游標不動）⇒「#」收起（Task 15 m3）
+    // 編輯者：「#」顯示中、標題被刪掉（游標不動）⇒「#」收起
     await blockOuter(admin, "Copy heading").hover();
     await expect(hash).toBeVisible();
     await editorLocator(admin).evaluate((el, text) => {
@@ -509,7 +576,7 @@ test("E5：公開頁——自訂網址目標可點且導到 /p/…；非公開�
       if (new URL(r.url()).pathname === "/api/notes") apiNotesHits.push(r.url());
     });
 
-    // 冷開公開頁的 #b-<id>：捲到並高亮（Task 14 的公開頁接線）
+    // 冷開公開頁的 #b-<id>：捲到並高亮（公開頁接線）
     await anon.goto(`/p/${token}#b-${anchorId}`);
     const coldTarget = anon.locator(`.bn-block-outer[data-id="${anchorId}"]`);
     await expectAnchorFlash(anon, anchorId);
@@ -525,7 +592,7 @@ test("E5：公開頁——自訂網址目標可點且導到 /p/…；非公開�
       await expect(scope.filter({ hasText: text }).locator("a")).toHaveCount(0);
     }
 
-    // 公開頁的標題「#」：複製公開網址＋錨點（Task 15）
+    // 公開頁的標題「#」：複製公開網址＋錨點
     await grantClipboard(anon);
     await blockOuterIn(anon.locator("body"), "Pub heading").hover();
     await anon.getByRole("button", { name: "Copy link to this section" }).click();
@@ -642,6 +709,66 @@ test("C1：選取含 wikilink 的文字——複製貼回保留 wikilink（label
   }
 });
 
+test("E6（#352）：從側欄拖一篇筆記進編輯器 → 成為連到它的 wikilink（label 空）、沒有一般連結、網址不變；停頓後 Ctrl+Z 一次整個拿掉", async ({ browser }) => {
+  test.setTimeout(180_000);
+  const adminContext = await browser.newContext();
+  let user: { context: BrowserContext; page: Page; email: string } | undefined;
+  try {
+    const admin = await adminContext.newPage();
+    await loginAs(admin, ADMIN.email, ADMIN.password);
+    // 新使用者：側欄只有這個測試的筆記
+    user = await createViewer(browser, admin);
+    const page = user.page;
+    const stamp = String(Date.now());
+    const titleN = `E2E sl e6 source ${stamp}`;
+
+    await createNote(page, titleN);
+    const nId = await noteIdFromUrl(page);
+    await createNote(page, `E2E sl e6 host ${stamp}`);
+    const editor = editorLocator(page);
+    await editor.click();
+    await page.keyboard.type(`drop target ${stamp}`);
+    const dropInline = editor.locator(".bn-inline-content", { hasText: /^drop target / });
+    await expect(dropInline).toHaveText(`drop target ${stamp}`);
+
+    // 來源：側欄「My notes」裡 N 的連結
+    const panel = await showSidebarTab(page, "My notes");
+    const link = panel.getByRole("link", { name: titleN, exact: true });
+    const nPath = (await link.getAttribute("href"))!;
+    expect(nPath).toMatch(/^\/n\//);
+    const urlBefore = page.url();
+
+    // 手寫滑鼠（同 C1：放在目標列右段，拖曳中側邊選單按鈕疊在段首文字上）。不用 dragTo／dragAndDrop。
+    const from = (await link.boundingBox())!;
+    const dropOuter = editor.locator(".bn-block-outer").filter({ has: page.locator(".bn-inline-content", { hasText: /^drop target / }) }).last();
+    const to = (await dropOuter.boundingBox())!;
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(from.x + from.width / 2 + 30, from.y + from.height / 2, { steps: 5 });
+    await page.mouse.move(to.x + to.width * 0.8, to.y + to.height / 2, { steps: 10 });
+    await page.mouse.move(to.x + to.width * 0.8 + 2, to.y + to.height / 2);
+    // 放下前停頓至少 600 ms（語意上的停頓：讓撤銷歷史把放下與前面的輸入分開，不是等待條件）
+    await page.waitForTimeout(600);
+    await page.mouse.up();
+
+    // 1. 恰一個 wikilink，連到 N、label 空
+    await expect(dropInline.locator(WIKILINK)).toHaveCount(1, { timeout: 10_000 });
+    expect(await wikilinkAttrs(page)).toEqual([{ targetNoteId: nId, label: "", anchorBlockId: "" }]);
+    // 2. 沒有連到 N 的一般連結（排除 wikilink 本身的 href）
+    await expect(editor.locator(`a[href$="${nPath}"]:not(${WIKILINK} a)`)).toHaveCount(0);
+    // 3. 網址不變（沒有被當成導航）
+    expect(page.url()).toBe(urlBefore);
+    // 4. 一次 Ctrl+Z 整個拿掉：沒有 wikilink、文字回到放下前、沒有任何連結
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(editor.locator(WIKILINK)).toHaveCount(0);
+    await expect(dropInline).toHaveText(`drop target ${stamp}`);
+    await expect(editor.locator("a[href]")).toHaveCount(0);
+  } finally {
+    await user?.context.close();
+    await adminContext.close();
+  }
+});
+
 test("C2：hover A 出工具列 → 移進工具列不關 → 真滑鼠移到 B → 只剩 B 的工具列；移開 → 關閉且焦點不被拉進編輯器", async ({ browser }) => {
   test.setTimeout(150_000);
   const context = await browser.newContext();
@@ -691,9 +818,14 @@ test("C2：hover A 出工具列 → 移進工具列不關 → 真滑鼠移到 B 
     await expect(toolbars).toHaveAttribute("data-state", "open");
     await page.keyboard.press("Escape");
     await expect(toolbars).toHaveCount(0);
+    // Esc 關閉後焦點會還給編輯器，但那是 Radix FocusScope 卸載時另排 setTimeout(0) 才跑的 onCloseAutoFocus：toHaveCount(0) 過了它可能還沒跑，
+    // 這時 blur 會被它晚到的 editor.focus() 蓋掉（下一段 hover 開工具列時又把「開啟當下編輯器有焦點」記成真，最後焦點留在編輯器）。
+    // 先等焦點真的回到編輯器，再 blur。
+    await expect.poll(() => page.evaluate(() => document.activeElement?.closest('[data-testid="note-editor"]') != null)).toBe(true);
 
     // 純 hover 開、純移開：關閉，焦點不被拉進編輯器（先讓焦點落在 body——Esc 等關法在這種情況會把焦點還給編輯器）
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
     await page.mouse.move(a.x, a.y, { steps: 5 });
     await expect(toolbars).toHaveAttribute("data-state", "open");
     await page.mouse.move(a.x, a.y + 200, { steps: 5 });

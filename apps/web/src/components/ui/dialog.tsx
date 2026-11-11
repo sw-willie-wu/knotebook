@@ -27,13 +27,14 @@ DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 
 /** `size="default"`＝既有的單欄表單 dialog 尺寸（NoteList/ShareDialog 既有用法，
  * 未傳 `size` 時行為零變）；`lg` 已於 #247 刪除：再用會直接型別錯誤，比照 `button.tsx` 刪 `secondary`
- * 的做法，不靠 grep 測試；`size="panel"`＝三個管理面板（`components/management/ManagementShell.tsx`，#247 §4.1／§4.6）：
+ * 的做法，不靠 grep 測試；`size="panel"`＝三個管理面板（`components/management/ManagementShell.tsx`，#247）
+ * 與快捷鍵介紹頁（`components/shortcuts/ShortcutsDialog.tsx`，單卡、寬度另以 className 收窄）：
  * 外框本身透明無邊、不投影，托盤與兩張卡由 ManagementShell 自己畫；窄視窗 `96vw × 92vh`，
  * `md:` 以上 `92vw × 88vh` 夾在 896×672～1360×896 之間。`panel` 時**不渲染內建 Close**——
- * 面板在右卡自己放一顆帶 i18n 名稱的 ✕（§4.5），這裡再放就會有兩顆 Close。
+ * 面板在右卡自己放一顆帶 i18n 名稱的 ✕，這裡再放就會有兩顆 Close。
  * `panel` 的 grid 軌道是 `minmax(0,1fr)`：預設的 `auto` 軌道會依托盤內容撐大，托盤就會在高度與寬度上都長出外框、右卡永遠不捲動。 */
 const dialogContentVariants = cva(
-  "fixed left-1/2 top-1/2 z-50 grid w-full -translate-x-1/2 -translate-y-1/2 gap-4 " +
+  "fixed left-1/2 top-1/2 z-50 grid w-full -translate-x-1/2 -translate-y-1/2 gap-4 outline-none " +
     "rounded-lg border border-border bg-popover text-popover-foreground shadow-lg duration-200 " +
     "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 " +
     "data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
@@ -68,7 +69,7 @@ export const DialogContent = forwardRef<
   ComponentPropsWithoutRef<typeof DialogPrimitive.Content> &
     VariantProps<typeof dialogContentVariants> & { dismissOnOutside?: boolean }
 >(({ className, children, size, dismissOnOutside = true, onInteractOutside, ...props }, ref) => {
-  // #247 §4.1：panel 由 ManagementShell 在右卡放自己的 ✕；這裡只決定要不要渲染，不新增 prop。
+  // #247：panel 由 ManagementShell 在右卡放自己的 ✕；這裡只決定要不要渲染，不新增 prop。
   const renderBuiltInClose = size !== "panel";
   return (
     <DialogPortal>

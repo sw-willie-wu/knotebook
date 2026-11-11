@@ -12,7 +12,7 @@ export function sidebarPanelId(idBase: string): string {
 }
 
 /**
- * 側欄 tab 列（WAI-ARIA tablist，spec §5.1／§5.6）。`idBase` 由呼叫端的 `useId` 給——靜態卡與抽屜兩份
+ * 側欄 tab 列（WAI-ARIA tablist）。`idBase` 由呼叫端的 `useId` 給——靜態卡與抽屜兩份
  * 實例的 id 不能撞。選中者 `tabIndex 0`、其餘 `-1`（roving）；方向鍵循環並同時切換，Home／End 到頭尾。
  */
 export function SidebarTabList({ idBase }: { idBase: string }) {

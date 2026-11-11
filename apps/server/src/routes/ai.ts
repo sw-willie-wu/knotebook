@@ -24,12 +24,12 @@ export interface AiRouteDeps {
   /** per-user 節流（`AI_LIMIT`，同 collabToken/slugPatch/upload 慣例，key=userId）。 */
   limiters: { ai: FixedWindowLimiter };
   /**
-   * SSE 收流後的 idle 逾時（無 delta）覆寫值，毫秒。**測試 seam**——CI flake round 2
+   * SSE 收流後的 idle 逾時（無 delta）覆寫值，毫秒。**測試 seam**——CI 上的 flake
    * 診斷：`vi.useFakeTimers` × 真實 SSE I/O（fake upstream 是真的 `http.createServer`，
    * app 端打的是真 `fetch()`）在 CI 上互動不可靠（本機兩輪都綠、CI 兩次都在
    * `startFakeUpstream` 的 `onTestFinished` server.close() 卡 180s hook timeout——代表
-   * 測試本體已經跑完、只是連線沒被關掉，指向假時鐘沒能可靠驅動這條 `setTimeout`）。round 1
-   * 的「確定性 arm 訊號」方向沒錯但沒治本，round 2 改結構：讓 idle timeout 這個數字可被
+   * 測試本體已經跑完、只是連線沒被關掉，指向假時鐘沒能可靠驅動這條 `setTimeout`）。所以
+   * 改結構：讓 idle timeout 這個數字可被
    * 測試注入一個短的**真實**值，測試改用真實時間等待，完全不碰 `vi.useFakeTimers`。
    * **選配**：不傳沿用生產預設 `IDLE_TIMEOUT_MS`（60s）——production（`src/app.ts`
    * 未傳 `BuildAppOptions.aiIdleTimeoutMs` 時）與其餘測試（未特別覆寫時）行為不變。
@@ -37,8 +37,8 @@ export interface AiRouteDeps {
   idleTimeoutMs?: number;
 }
 
-// body 刻意 snake_case（spec §6 明文例外，與其他路由的 camelCase 慣例不同）。
-// #263 §4.3：`instruction`／`focus` 只有內建 Instruct 收；誰可以帶、長度（code point）由下方 checkInstructFields 判——
+// body 刻意 snake_case（與其他路由的 camelCase 慣例不同）。
+// #263：`instruction`／`focus` 只有內建 Instruct 收；誰可以帶、長度（code point）由下方 checkInstructFields 判——
 // 要先把 action_id 小寫化才知道是不是 Instruct，所以不放進 zod。
 const postAiBodySchema = z.object({
   action_id: z.string().min(1),
@@ -48,15 +48,15 @@ const postAiBodySchema = z.object({
   focus: z.string().optional(),
 });
 
-const AI_UNAVAILABLE_MESSAGE = "此 AI 服務目前無法使用，請聯絡管理員";
+const AI_UNAVAILABLE_MESSAGE = "This AI service is unavailable right now. Contact the site admin.";
 /** SSE 收流後的 idle 逾時（無 delta）生產預設值——`AiRouteDeps.idleTimeoutMs` 未傳時採用。
  * 導出（非 module-private）：`test/unit` 有一條形狀測試釘住這個預設值，防止未來改動時
  * 悄悄把預設值改壞卻沒有任何測試示警（見該測試檔說明）。 */
 export const IDLE_TIMEOUT_MS = 60_000;
 
 /**
- * 一般 session 用 AI 路由：`GET /api/ai/actions`（Task 4）＋`POST /api/ai` SSE 端點
- * （Task 5，spec §13.2/§13.5-1）。
+ * 一般 session 用 AI 路由：`GET /api/ai/actions` ＋`POST /api/ai` SSE 端點
+ * 。
  */
 export function aiRoutes(deps: AiRouteDeps) {
   // 解析一次即定案（同一個 aiRoutes(...) 呼叫掛出來的所有請求共用同一個值）——
@@ -66,8 +66,8 @@ export function aiRoutes(deps: AiRouteDeps) {
     // 依 sort_order, id 排序（次要鍵慣例，同 `admin-users.ts` GET 列表）；只帶
     // `{id, name, applyMode, kind}`——systemPrompt/userTemplate 這些不需要洩給非 admin。
     //
-    // 「可解析」判定與 `POST /api/ai`（Task 5）**共用同一支 `resolveActionModel`**
-    // （spec §13.2 單一真相）：一次 `loadAiSnapshot` 取快照，對每筆 enabled action 套用，
+    // 「可解析」判定與 `POST /api/ai` **共用同一支 `resolveActionModel`**
+    // （單一真相）：一次 `loadAiSnapshot` 取快照，對每筆 enabled action 套用，
     // 只有解析得出 model/provider 的 action 才出現在清單——全新實例（零 provider）／
     // 全部降級但仍 enabled 的 provider（降級不參與此判定，只影響 POST 執行）／
     // action 綁定的 model 已停用但存在其他可回退的 enabled chat model，皆各自對應
@@ -89,11 +89,11 @@ export function aiRoutes(deps: AiRouteDeps) {
     });
 
     /**
-     * `POST /api/ai`（spec §13.2/§13.5-1）：body 為 snake_case `{action_id, note_id, text, instruction?, focus?}`
-     * （spec §6 刻意例外）。授權/節流/解析全在 `reply.hijack()` **之前**完成——pre-stream 錯誤
+     * `POST /api/ai`：body 為 snake_case `{action_id, note_id, text, instruction?, focus?}`
+     * （刻意例外）。授權/節流/解析全在 `reply.hijack()` **之前**完成——pre-stream 錯誤
      * 走一般 `sendError`（400/401/403/404/429/503）；一旦 hijack，之後整段 try/catch/finally
      * 包死，任何例外只會送出固定文案的 SSE `error` 事件，絕不逃到全域 errorHandler
-     * （spec §13.2）。
+     * 。
      *
      * 授權沿用 uploads/notes 慣例：note 無權（含 note_id 非合法 uuid，`resolveRole` 內建擋）
      * → 404；viewer → 403；editor/owner 才可執行 AI 動作。
@@ -101,14 +101,14 @@ export function aiRoutes(deps: AiRouteDeps) {
     app.post("/api/ai", { preHandler: app.authenticate }, async (request, reply) => {
       const parsed = postAiBodySchema.safeParse(request.body);
       if (!parsed.success) {
-        return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+        return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "Invalid request body.");
       }
       const { text, instruction, focus } = parsed.data;
-      // #263 §4.3：先小寫化（與 #240 路徑參數同語意）——之後的 UUID 檢查、DB 查詢、常數比對都用小寫值。
+      // #263：先小寫化（與 #240 路徑參數同語意）——之後的 UUID 檢查、DB 查詢、常數比對都用小寫值。
       const actionId = parsed.data.action_id.toLowerCase();
       const noteId = parsed.data.note_id.toLowerCase();
 
-      // #263 §4.3：Instruct 相關的 400 以常數判、不查 DB，排在 UUID 檢查、角色檢查與節流之前（節流額度不扣）。
+      // #263：Instruct 相關的 400 以常數判、不查 DB，排在 UUID 檢查、角色檢查與節流之前（節流額度不扣）。
       const fields = checkInstructFields(actionId === INSTRUCT_ACTION_ID, instruction, focus);
       if (!fields.ok) return sendError(reply, 400, "invalid_body", fields.message);
 
@@ -116,29 +116,29 @@ export function aiRoutes(deps: AiRouteDeps) {
       // guard，但這裡刻意提前擋掉，避免「格式不合法」與「無權限/找不到」在同一個 404 分支
       // 裡混淆，且 action_id 若非 uuid，後面 aiActions 查詢會直接讓 pg 丟裸例外）。
       if (!UUID_RE.test(actionId) || !UUID_RE.test(noteId)) {
-        return sendError(reply, 400, "invalid_body", "action_id/note_id 格式錯誤");
+        return sendError(reply, 400, "invalid_body", "action_id and note_id must be UUIDs.");
       }
 
       const userId = request.user!.id;
 
       const role = await resolveRole(deps.db, userId, noteId);
-      if (role === "none") return sendError(reply, 404, "not_found", "找不到此筆記");
-      if (role === "viewer") return sendError(reply, 403, "forbidden", "沒有編輯權限");
+      if (role === "none") return sendError(reply, 404, "not_found", "No note with that id.");
+      if (role === "viewer") return sendError(reply, 403, "forbidden", "You don't have edit access to this note.");
 
       if (!deps.limiters.ai.consume(userId)) {
-        return sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
+        return sendError(reply, 429, "too_many_requests", "Too many requests. Wait a moment and try again.");
       }
 
       const [action] = await deps.db.select().from(aiActions).where(eq(aiActions.id, actionId)).limit(1);
-      if (!action || !action.enabled) return sendError(reply, 404, "not_found", "找不到此動作");
+      if (!action || !action.enabled) return sendError(reply, 404, "not_found", "No AI action with that id.");
 
-      // 與 GET /api/ai/actions 共用同一支 loadAiSnapshot/resolveActionModel（spec §13.2 單一
+      // 與 GET /api/ai/actions 共用同一支 loadAiSnapshot/resolveActionModel（單一
       // 真相）：GET 清單「有出現」與這裡「解析得出」必然一致，不會出現清單有但打不通、或
       // 清單沒有但仍能執行的漂移。
       const snapshot = await loadAiSnapshot(deps.db);
       const resolved = resolveActionModel({ modelId: action.modelId }, snapshot);
       if (resolved === null) {
-        return sendError(reply, 503, "ai_not_configured", "AI 尚未設定，請聯絡管理員");
+        return sendError(reply, 503, "ai_not_configured", "AI isn't set up on this site. Contact the site admin.");
       }
 
       // anthropic 且無 key：**獨立檢查**（不透過 degraded 集合）——NULL key 是「尚未設定」的
@@ -184,7 +184,7 @@ export function aiRoutes(deps: AiRouteDeps) {
         }
       };
       const upstreamAbort = new AbortController();
-      // 【偏離 brief 骨架，記錄理由，fix round 1 M-1 校正機制描述】骨架原文用
+      // 不用
       // `request.raw.on("close", ...)`。實測（Node ≥16 `http.IncomingMessage` 語意 + 本專案
       // 實際 handler 結構交叉驗證）：`request.raw` 的 'close' 語意是「這個 *request*（含其
       // body）已完成」，不是「client 連線已斷」——一旦 request body 讀完就視為完成。在本
@@ -201,7 +201,7 @@ export function aiRoutes(deps: AiRouteDeps) {
       // `raw.end()` 之後才觸發，此時 `upstreamAbort.abort()` 是無害的 no-op（generator 早已
       // 跑完，沒有任何東西還在監聽這個 signal）。
       raw.on("close", () => upstreamAbort.abort());
-      // fix round 1 I-3：pre-stream 階段（hijack 之前那一串 await：authenticate/resolveRole/
+      // pre-stream 階段（hijack 之前那一串 await：authenticate/resolveRole/
       // limiter/action 查詢/loadAiSnapshot/decryptApiKey）client 若已斷線，`raw` 的 'close'
       // 可能早在我們掛上面這個 listener之前就已經 fire 過、錯過了——這裡補一次立即檢查，
       // 把「listener 註冊時連線已經死了」這個既成事實同步反應出來，不必等到 upstream 真的
@@ -214,7 +214,7 @@ export function aiRoutes(deps: AiRouteDeps) {
         clearTimeout(idleTimer);
         idleTimer = setTimeout(() => upstreamAbort.abort(), idleTimeoutMs);
       };
-      // fix round 1 I-2：`UpstreamHandle.abort()` 骨架介面本來就有這個方法，但先前只讓
+      // `UpstreamHandle.abort()` 介面本來就有這個方法，但先前只讓
       // `upstreamAbort`（route 端擁有的 controller）驅動中止，從未呼叫過它——導致
       // `[DONE]`／正常收流完成後，如果上游自己沒有主動關閉底層連線（部分 vLLM/相容伺服器
       // 行為），我們這端不會主動要求關閉，造成一個不會再被讀取、但也沒被中止的 socket 洩漏。
@@ -223,13 +223,13 @@ export function aiRoutes(deps: AiRouteDeps) {
       // timeout、client 斷線四種收尾路徑，兩個 provider 分支皆受惠。
       let handle: UpstreamHandle | undefined;
       try {
-        // #263 §4.2：「是不是 Instruct」依 DB 讀回的 id（上面的常數比對只管串流前的 400）。`action` 是以 eq(aiActions.id, actionId)
+        // #263：「是不是 Instruct」依 DB 讀回的 id（上面的常數比對只管串流前的 400）。`action` 是以 eq(aiActions.id, actionId)
         // 查回的，兩者同值；Instruct 時 fields.instruct 必非 null（checkInstructFields 的回傳形）。
         const isInstruct = action.id === INSTRUCT_ACTION_ID;
         const opts = {
           baseUrl: resolved.provider.baseUrl,
           model: resolved.model.modelId,
-          // 並排 PR-2（Q4）：每個動作都前置並排與尺寸的固定說明，排在 Instruct 守門之前；兩個 provider 分支共用這個 opts。
+          // 並排：每個動作都前置並排與尺寸的固定說明，排在 Instruct 守門之前；兩個 provider 分支共用這個 opts。
           system: withMarkupGuard(isInstruct ? withInstructGuard(action.systemPrompt) : action.systemPrompt),
           user: renderUserTemplate(
             action.userTemplate,
@@ -294,14 +294,14 @@ export function aiRoutes(deps: AiRouteDeps) {
         if (missingKeyAuthFailure) {
           send(AI_SSE_EVENTS.error, { code: "provider_unavailable", message: AI_UNAVAILABLE_MESSAGE });
         } else {
-          send(AI_SSE_EVENTS.error, { code: "upstream_error", message: "upstream request failed" });
+          send(AI_SSE_EVENTS.error, { code: "upstream_error", message: "The request to the AI provider failed." });
         }
       } finally {
-        handle?.abort(); // I-2：無論收尾路徑為何，一律確保 upstream 連線被要求關閉，不留給對方單方面決定
+        handle?.abort(); // 無論收尾路徑為何，一律確保 upstream 連線被要求關閉，不留給對方單方面決定
         clearTimeout(idleTimer);
         if (!raw.writableEnded) raw.end();
       }
-      // hijack 之後整段 try/catch/finally 包死——任何例外不得逃到全域 errorHandler（spec §13.2）。
+      // hijack 之後整段 try/catch/finally 包死——任何例外不得逃到全域 errorHandler。
     });
   };
 }

@@ -1,5 +1,5 @@
 /**
- * #132 Task 3：I5 機會性清理（§3 I5）的五條 DELETE。
+ * #132：機會性清理（`runOauthCleanup`）的五條 DELETE。
  *
  * 這一族守的是每一條的**述詞邊界**：① 看 last_used_at 不是 created_at、② 只清「建立超過
  * 24h 且從沒換出過 grant／code」的殭屍、③④ 只清過期的、⑤ 只清 PAT 且要過期滿 30 天。
@@ -19,7 +19,7 @@ async function createUser(db: Db): Promise<string> {
   return (await insertPasswordUser(db)).id;
 }
 
-describe("I5 機會性清理（§3 I5）", () => {
+describe("機會性清理", () => {
   it("① 30 天未使用的 client 連同其 grant 一起消失", async () => {
     const { db, close } = await freshDb();
     try {
@@ -62,7 +62,7 @@ describe("I5 機會性清理（§3 I5）", () => {
       await runOauthCleanup(db);
 
       expect(await db.select().from(oauthClients)).toHaveLength(0);
-      // CASCADE 帶走三者（spec ① 逐字如此），未過期的 request／code 也一併消失
+      // CASCADE 帶走三者，未過期的 request／code 也一併消失
       expect(await db.select().from(apiTokens)).toHaveLength(0);
       expect(await db.select().from(oauthRequests)).toHaveLength(0);
       expect(await db.select().from(oauthCodes)).toHaveLength(0);
@@ -247,7 +247,7 @@ describe("I5 機會性清理（§3 I5）", () => {
       });
 
       await runOauthCleanup(db);
-      // 第一輪：② 看到 code 還在而放過 client，④ 隨後清掉那個 code
+      // ② 看到 code 還在而放過 client，④ 隨後清掉那個 code
       expect(await db.select().from(oauthClients)).toHaveLength(1);
       expect(await db.select().from(oauthCodes)).toHaveLength(0);
 

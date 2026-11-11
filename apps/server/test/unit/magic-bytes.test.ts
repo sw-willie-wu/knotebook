@@ -9,7 +9,7 @@ const WEBP_BYTES = Uint8Array.from([
   0x52, 0x49, 0x46, 0x46, 0x24, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x20,
 ]);
 
-describe("detectImageMimeType（Task 9 magic bytes）", () => {
+describe("detectImageMimeType（magic bytes）", () => {
   it("PNG 簽名 → image/png", () => {
     expect(detectImageMimeType(PNG_BYTES)).toBe("image/png");
   });

@@ -4,7 +4,7 @@ import { renderHook } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { LastEditedDto, NoteDto } from "@knotebook/shared";
 import { OWNER_PERMS } from "@/test/fixtures";
-import { patchNotesListLastEdited, useDeleteNote, useNote, useNoteByGroupPath, useNoteByPath } from "./notes";
+import { patchNotesListLastEdited, useCreateNote, useDeleteNote, useNote, useNoteByGroupPath, useNoteByPath } from "./notes";
 
 function note(id: string, lastEdited: LastEditedDto | null): NoteDto {
   return {
@@ -33,7 +33,7 @@ function client() {
   return new QueryClient({ defaultOptions: { queries: { retry: false } } });
 }
 
-describe("patchNotesListLastEdited（spec §5.2）", () => {
+describe("patchNotesListLastEdited", () => {
   it("PL1 沒有 [\"notes\"] 快取：不建立快取項", () => {
     const qc = client();
     patchNotesListLastEdited(qc, "a", NEW);
@@ -95,7 +95,7 @@ describe("useDeleteNote", () => {
     vi.unstubAllGlobals();
   });
 
-  it("AT8 移入成功後失效 ['trash']，原有 ['notes']／['note', id]／['backlinks'] 照舊", async () => {
+  it("移入成功後失效 ['trash']，原有 ['notes']／['note', id]／['backlinks'] 照舊", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 204, json: () => Promise.reject(new Error("no body")) } as unknown as Response));
     const qc = client();
     const spy = vi.spyOn(qc, "invalidateQueries");
@@ -107,7 +107,27 @@ describe("useDeleteNote", () => {
   });
 });
 
-describe("單篇查詢的 retry 選項（垃圾桶 T6：解析層 in_trash 不重試）", () => {
+describe("useCreateNote × 資料夾", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("mutateAsync({ folderId }) → POST /api/notes body 恰為 {\"folderId\":\"A\"}", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 201, json: () => Promise.resolve({ id: "n1" }) } as unknown as Response);
+    vi.stubGlobal("fetch", fetchMock);
+    const qc = client();
+    const wrapper = ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client: qc }, children);
+    const { result } = renderHook(() => useCreateNote(), { wrapper });
+    await result.current.mutateAsync({ folderId: "A" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/notes");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toEqual({ folderId: "A" });
+  });
+});
+
+describe("單篇查詢的 retry 選項（垃圾桶：解析層 in_trash 不重試）", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });

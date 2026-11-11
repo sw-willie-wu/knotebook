@@ -1,5 +1,5 @@
 /**
- * 方案管理、預設、站台群組列表、用量檢視（spec 2026-10-08 §7；§11.1 S10、S11（預設）、S12（群組與檢視）；Review Focus RF3、RF4）。
+ * 方案管理、預設、站台群組列表、用量檢視（預設、群組與檢視）。
  */
 import { describe, expect, it } from "vitest";
 import type { StorageByKind } from "@knotebook/shared";
@@ -16,8 +16,8 @@ const req = (b: B, method: "GET" | "POST" | "PATCH" | "DELETE", url: string, pay
 const NUL = String.fromCodePoint(0);
 
 /**
- * 直插一列 uploads（#247：上傳端點只收四種圖片，其他 kind 只能這樣造——spec §9.1 SCOPE）。不寫磁碟檔：GET 用量不讀檔。
- * `chargedToId`（佔用者，#247 §9.2 rev 9）省略時＝`uploaderId`——真實上傳路徑就是這樣寫；要造「佔用者≠上傳者」時顯式給。
+ * 直插一列 uploads（#247：上傳端點只收四種圖片，其他 kind 只能這樣造）。不寫磁碟檔：GET 用量不讀檔。
+ * `chargedToId`（佔用者，#247）省略時＝`uploaderId`——真實上傳路徑就是這樣寫；要造「佔用者≠上傳者」時顯式給。
  */
 async function seedUploadRow(
   db: Db, noteId: string, uploaderId: string | null, mime: string, size: number, chargedToId: string | null = uploaderId,
@@ -26,7 +26,7 @@ async function seedUploadRow(
 }
 const ZERO: StorageByKind = { image: 0, audio: 0, video: 0, document: 0, other: 0 };
 
-describe("GET／POST／PATCH／DELETE /api/admin/storage-plans（S10）", () => {
+describe("GET／POST／PATCH／DELETE /api/admin/storage-plans", () => {
   it("只限站台 admin（四支＋defaults）", async () => {
     const b = await adminApp();
     const id = await basicPlanId(b.db);
@@ -64,21 +64,21 @@ describe("GET／POST／PATCH／DELETE /api/admin/storage-plans（S10）", () => 
     for (const q of [-1, 1.5, 1125899906842625, "1", undefined]) {
       const r = await req(b, "POST", "/api/admin/storage-plans", { name: `q${String(q)}`, ...(q === undefined ? {} : { quotaBytes: q }) });
       expect(r.statusCode, String(q)).toBe(400);
-      expect(r.json().error, String(q)).toEqual({ code: "invalid_body", message: "請求格式錯誤" });
+      expect(r.json().error, String(q)).toEqual({ code: "invalid_body", message: "Invalid request body." });
     }
     expect((await req(b, "POST", "/api/admin/storage-plans", { name: "zero", quotaBytes: 0 })).statusCode).toBe(201);
     expect((await req(b, "POST", "/api/admin/storage-plans", { name: "unl", quotaBytes: null })).json()).toMatchObject({ quotaBytes: null });
     expect((await req(b, "POST", "/api/admin/storage-plans", { name: "x", quotaBytes: 1, extra: 1 })).statusCode).toBe(400);
   });
 
-  it("RF3：名稱邊界——全形空白 trim、40 個 astral 字元放行、41 個拒、空白名、NUL、落單代理 → 400 invalid_name（不是 500）", async () => {
+  it("名稱邊界——全形空白 trim、40 個 astral 字元放行、41 個拒、空白名、NUL、落單代理 → 400 invalid_name（不是 500）", async () => {
     const b = await adminApp();
     const emoji = "😀";
     expect((await req(b, "POST", "/api/admin/storage-plans", { name: `\u3000${emoji.repeat(40)}\u3000`, quotaBytes: 1 })).statusCode).toBe(201);
     for (const name of [emoji.repeat(41), "   ", "\u3000", `a${NUL}b`, "a\uD800b", "x".repeat(41)]) {
       const r = await req(b, "POST", "/api/admin/storage-plans", { name, quotaBytes: 1 });
       expect(r.statusCode, JSON.stringify(name)).toBe(400);
-      expect(r.json().error, JSON.stringify(name)).toEqual({ code: "invalid_name", message: "方案名稱須為 1–40 個字元" });
+      expect(r.json().error, JSON.stringify(name)).toEqual({ code: "invalid_name", message: "Plan names must be 1 to 40 characters." });
     }
   });
 
@@ -108,7 +108,7 @@ describe("GET／POST／PATCH／DELETE /api/admin/storage-plans（S10）", () => 
     expect((await upload(b.app, n.id, u.id, 8)).statusCode).toBe(409);
     const list = (await req(b, "GET", "/api/admin/storage-plans")).json();
     expect(list.plans.find((x: { id: string }) => x.id === p).overQuotaCount).toBe(1);
-    // overQuotaCount 是「used > quota」：恰好等於上限的空間不算（M5 的鑑別案）。
+    // overQuotaCount 是「used > quota」：恰好等於上限的空間不算（鑑別案）。
     const atLimit = await seedUser(b.db);
     const pe = await giveUserQuota(b.db, atLimit.id, 500);
     const en = await seedNote(b.db, { ownerId: atLimit.id });
@@ -155,7 +155,7 @@ describe("GET／POST／PATCH／DELETE /api/admin/storage-plans（S10）", () => 
     await raise("site_settings_default_user_plan_fk");
     await b.db.$client.query("create trigger t_plan_delete_fk before delete on storage_plans for each row execute function raise_plan_delete_fk()");
     const del = async () => req(b, "DELETE", `/api/admin/storage-plans/${await seedPlan(b.db, `F-${Math.random().toString(36).slice(2, 8)}`, 1)}`);
-    expect((await del()).json()).toEqual({ error: { code: "storage_plan_is_default", message: "這個方案是預設方案，請先改選其他預設" } });
+    expect((await del()).json()).toEqual({ error: { code: "storage_plan_is_default", message: "This is the default plan. Make another plan the default first." } });
     await raise("site_settings_default_group_plan_fk");
     expect((await del()).json().error.code).toBe("storage_plan_is_default");
     await raise("something_else_fk");
@@ -163,7 +163,7 @@ describe("GET／POST／PATCH／DELETE /api/admin/storage-plans（S10）", () => 
   });
 });
 
-describe("PATCH /api/admin/storage-plans/defaults（S10、S11）", () => {
+describe("PATCH /api/admin/storage-plans/defaults", () => {
   it("不被 /:id 吃掉；改使用者預設 → 之後的直插使用者是新預設、既有不變；群組同；不存在／非 UUID 的 planId → 404；{} → 400", async () => {
     const b = await adminApp();
     const basic = await basicPlanId(b.db);
@@ -177,7 +177,7 @@ describe("PATCH /api/admin/storage-plans/defaults（S10、S11）", () => {
     expect((await req(b, "PATCH", "/api/admin/storage-plans/defaults", { groupPlanId: p })).json()).toEqual({ userPlanId: p, groupPlanId: p });
     const g = await seedGroup(b.db, "G", []);
     expect((await b.db.$client.query("select storage_plan_id from groups where id = $1", [g.id])).rows[0].storage_plan_id).toBe(p);
-    // 真路由也吃到新群組預設（S11「群組同」）
+    // 真路由也吃到新群組預設（「群組同」）
     const viaRoute = await b.app.inject({ method: "POST", url: "/api/groups", cookies: b.cookies, payload: { name: "Routed" } });
     expect(viaRoute.statusCode).toBe(201);
     expect((await b.db.$client.query("select storage_plan_id from groups where id = $1", [viaRoute.json().id])).rows[0].storage_plan_id).toBe(p);
@@ -197,7 +197,7 @@ describe("PATCH /api/admin/storage-plans/defaults（S10、S11）", () => {
   });
 });
 
-describe("站台管理的群組（S12）", () => {
+describe("站台管理的群組", () => {
   it("GET /api/admin/groups：依 lower(name), id；memberCount、storage 四欄（typeof number）；只限站台 admin", async () => {
     const b = await adminApp();
     await expectAdminOnly(b.app, b.db, "GET", "/api/admin/groups");
@@ -228,7 +228,7 @@ describe("站台管理的群組（S12）", () => {
   });
 });
 
-describe("用量檢視（S12）", () => {
+describe("用量檢視", () => {
   it("GET /api/storage：只回自己；未登入 401", async () => {
     const b = await adminApp();
     const u = await seedUser(b.db);
@@ -241,7 +241,7 @@ describe("用量檢視（S12）", () => {
     expect((await b.app.inject({ method: "GET", url: "/api/storage" })).statusCode).toBe(401);
   });
 
-  it("GET /api/groups/:id/storage（#247 §9.2 放寬）：任何成員 200（含六旗標全關的自訂角色）；非成員／非 UUID／不存在 404 逐位元組相同；非成員站台 admin 200；沒有 403", async () => {
+  it("GET /api/groups/:id/storage（#247 放寬）：任何成員 200（含六旗標全關的自訂角色）；非成員／非 UUID／不存在 404 逐位元組相同；非成員站台 admin 200；沒有 403", async () => {
     const b = await adminApp();
     const [gAdmin, gMember, plain, outsider] = await Promise.all([seedUser(b.db), seedUser(b.db), seedUser(b.db), seedUser(b.db)]);
     const g = await seedGroup(b.db, "G", [{ userId: gAdmin.id, role: "admin" }, { userId: gMember.id, role: "member" }, { userId: plain.id, role: "member" }]);
@@ -258,7 +258,7 @@ describe("用量檢視（S12）", () => {
     const bodies = [await get(outsider.id), await get(gAdmin.id, "nope"), await get(gAdmin.id, "00000000-0000-4000-8000-000000000000")];
     for (const r of bodies) expect(r.statusCode).toBe(404);
     expect(new Set(bodies.map(r => r.body)).size).toBe(1);
-    expect(bodies[0]!.json()).toEqual({ error: { code: "not_found", message: "找不到此群組" } });
+    expect(bodies[0]!.json()).toEqual({ error: { code: "not_found", message: "No group with that id." } });
   });
 
   it("GET /api/groups/:id/storage：群組授權矩陣（anon 401／nonMember 404／member 200／admin 200／siteAdmin 200／badId 404／missing 404）", async () => {
@@ -271,7 +271,7 @@ describe("用量檢視（S12）", () => {
   });
 });
 
-describe("#247 §9.1／§9.2：byKind 與 byMember", () => {
+describe("#247：byKind 與 byMember", () => {
   it("GET /api/storage：每條分類規則落到對的 kind、未知 mime → other、別人筆記裡的附件不算；byKind 之和＝usedBytes", async () => {
     const b = await adminApp();
     const u = await seedUser(b.db);
@@ -337,7 +337,7 @@ describe("#247 §9.1／§9.2：byKind 與 byMember", () => {
     expect(body.byMember.map((r: { userId: string | null }) => r.userId)).toEqual([[x.id, y.id].sort()[0], [x.id, y.id].sort()[1], null]);
   });
 
-  it("byMember 依佔用者（charged_to_id）分組：userId／handle／displayName 取佔用者的；佔用者 NULL 而上傳者仍在 → 匿名列，不回落給上傳者（§9.2 rev 9）", async () => {
+  it("byMember 依佔用者（charged_to_id）分組：userId／handle／displayName 取佔用者的；佔用者 NULL 而上傳者仍在 → 匿名列，不回落給上傳者", async () => {
     const b = await adminApp();
     const occ = await seedUser(b.db, { displayName: "Occupant" });
     const up = await seedUser(b.db, { displayName: "Uploader" });

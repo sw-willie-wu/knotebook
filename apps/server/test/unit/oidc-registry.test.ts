@@ -6,7 +6,7 @@ import { createFakeIdp } from "../helpers/fake-idp.js";
 const ISSUER = "https://idp.example.com";
 const key = (over: Partial<OidcRuntimeKey> = {}): OidcRuntimeKey => ({ id: "p1", issuerUrl: ISSUER, clientId: "c", configVersion: 1, ...over });
 
-describe("createOidcRuntimeRegistry（#187 §6）", () => {
+describe("createOidcRuntimeRegistry（#187）", () => {
   it("同 (id, configVersion) → 快取（discovery 一次、loadSecret 一次、同一個 Configuration）", async () => {
     const idp = createFakeIdp(ISSUER);
     const registry = createOidcRuntimeRegistry({ fetch: idp.fetch });
@@ -56,7 +56,7 @@ describe("createOidcRuntimeRegistry（#187 §6）", () => {
     expect(loads).toBe(1);
   });
 
-  it("同一個 configVersion、issuerUrl 換了 → 重新 discovery、拿到新 issuer 的 Configuration；clientId 換了 → 也重建（防禦縱深，gate r1 m1）", async () => {
+  it("同一個 configVersion、issuerUrl 換了 → 重新 discovery、拿到新 issuer 的 Configuration；clientId 換了 → 也重建（防禦縱深）", async () => {
     const ISSUER2 = "https://idp2.example.com";
     const idp1 = createFakeIdp(ISSUER);
     const idp2 = createFakeIdp(ISSUER2);
@@ -73,7 +73,7 @@ describe("createOidcRuntimeRegistry（#187 §6）", () => {
     expect(idp2.counts.discovery).toBe(2);
   });
 
-  it("metadata.issuer 超過 512 字 → OidcUnavailableError（不快取；r3-M3 的 issuer 上界）", async () => {
+  it("metadata.issuer 超過 512 字 → OidcUnavailableError（不快取；issuer 長度上界）", async () => {
     const longIssuer = `https://idp.example.com/${"x".repeat(500)}`;
     expect(longIssuer.length).toBeGreaterThan(512);
     const idp = createFakeIdp(longIssuer);
@@ -84,7 +84,7 @@ describe("createOidcRuntimeRegistry（#187 §6）", () => {
   });
 });
 
-describe("registry.probe／probeOidcIssuer（#187 PR2 §9.2：/test 與 /discover 用；不經快取、不送 secret）", () => {
+describe("registry.probe／probeOidcIssuer（#187：/test 與 /discover 用；不經快取、不送 secret）", () => {
   it("回 discovery metadata；只打 discovery、不打 token；之後 get 仍要自己 discovery（probe 不寫快取）", async () => {
     const idp = createFakeIdp(ISSUER);
     const registry = createOidcRuntimeRegistry({ fetch: idp.fetch });
@@ -115,7 +115,7 @@ describe("registry.probe／probeOidcIssuer（#187 PR2 §9.2：/test 與 /discove
     await expect(registry.probe("not a url")).rejects.toBeInstanceOf(OidcUnavailableError);
   });
 
-  it("IdP 回報的 issuer 與輸入不符（帶 path 的尾斜線形，spec §2.2）→ OidcUnavailableError", async () => {
+  it("IdP 回報的 issuer 與輸入不符（帶 path 的尾斜線形）→ OidcUnavailableError", async () => {
     const idp = createFakeIdp(`${ISSUER}/realms/x`);
     const registry = createOidcRuntimeRegistry({ fetch: idp.fetch });
     await expect(registry.probe(`${ISSUER}/realms/x/`)).rejects.toBeInstanceOf(OidcUnavailableError);

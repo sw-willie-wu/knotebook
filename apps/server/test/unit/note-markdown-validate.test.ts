@@ -1,4 +1,4 @@
-// 並排 PR-2（spec 2026-10-21 columns-layout §11.3）：寫入的語法檢查 S1–S10（`checkNoteMarkdownSyntax`，在
+// 並排：寫入的語法檢查 S1–S10（`checkNoteMarkdownSyntax`，在
 // `markdownToHTML` 的 DOM 上做）與結構檢查（`findStructureError`，在 blocks 上做）。需要 DOM：沿用 `rt.installGlobals()`。
 import { readFileSync } from "node:fs";
 import { markdownToHTML } from "@blocknote/core";
@@ -30,7 +30,7 @@ const SIZE = { ok: false, error: "unsupported_size" } as const;
 const tableMd = (row1: string, row2: string) => `<table><tr>${row1}</tr><tr>${row2}</tr></table>\n`;
 
 describe("接受", () => {
-  it("V-OK1：Task 2 讀出的列 → ok，html 是未標記原文的 markdownToHTML", () => {
+  it("V-OK1：讀出的列 → ok，html 是未標記原文的 markdownToHTML", () => {
     expect(ROW2.startsWith(`${OUTER_LINE}\n${FIRST_COL_LINE}\n`)).toBe(true);
     expect(chk(ROW2)).toEqual({ ok: true, html: markdownToHTML(ROW2) });
   });
@@ -50,7 +50,7 @@ describe("接受", () => {
     expect(chk(md).ok).toBe(true);
   });
 
-  it("V-OK5：CRLF 換行（Review Focus 1）", () => {
+  it("V-OK5：CRLF 換行", () => {
     const md = ROW2.replace(/\n/g, "\r\n");
     expect(md).toContain(`${OUTER_LINE}\r\n`);
     expect(chk(md).ok).toBe(true);
@@ -186,9 +186,9 @@ describe("拒絕：S9 表格欄寬", () => {
   });
 });
 
-// 審查 r3：檢查與 BlockNote 剖析要在同一片段情境下建樹。`<template>` 情境下開頭一個 `<col>` 會丟掉其後所有 token、
+// 檢查與 BlockNote 剖析要在同一片段情境下建樹。`<template>` 情境下開頭一個 `<col>` 會丟掉其後所有 token、
 // `<caption>`／`<td>`／`<th>` 開頭會把列收進格子；BlockNote（createHTMLDocument 的 div）都照常剖析其餘內容。
-// `<frameset>` 開頭：整份文件剖析（`DOMParser` 的 body）時 frameset 取代 body、看不到列，div 片段情境照常（T3 審查 r4 Minor-1）。
+// `<frameset>` 開頭：整份文件剖析（`DOMParser` 的 body）時 frameset 取代 body、看不到列，div 片段情境照常。
 const FLEX_DIV = '<div style="display:flex">\n\nx\n\n</div>\n';
 const ROW3_FIG = row(col("1", "a"), col("2.5", "b"), col("1", "c")) + '\n<figure><img src="/x" width="300"></figure>\n';
 const LEADS = ["col", "caption", "td", "th", "frameset"] as const;
@@ -210,7 +210,7 @@ describe("片段情境：檢查看到的 DOM 與剖析一致", () => {
     expect(chk(`<${t}>\n\n${ROW2}`)).toMatchObject({ ok: true });
   });
 
-  // 對照（Willie 指定）：檢查的 root 裡看到的頂層列（各列欄數）與帶寬圖片數，必須等於 BlockNote 實際剖析出的
+  // 對照：檢查的 root 裡看到的頂層列（各列欄數）與帶寬圖片數，必須等於 BlockNote 實際剖析出的
   // 頂層 columnList（各列欄數）與帶 previewWidth 的 image 數。BlockNote 日後改了建樹情境，這裡會先紅。
   it.each(LEADS.flatMap(t => [[t, "ROW2", ROW2], [t, "ROW3_FIG", ROW3_FIG]] as const))("CTX-CMP：開頭 <%s> 接 %s → 檢查看到的＝剖析出的", async (t, _name, body) => {
     const html = markdownToHTML(`<${t}>\n\n${body}`);
@@ -261,7 +261,7 @@ describe("拒絕：S10、placement、順序", () => {
   });
 });
 
-// final review Nit 1（總管裁定）：HTML 帶事件處理屬性（`onerror` 等）→ `unsupported_block`，在並排與尺寸檢查之前。
+// HTML 帶事件處理屬性（`onerror` 等）→ `unsupported_block`，在並排與尺寸檢查之前。
 // 碼用 unsupported_block：unsupported_columns 的訊息是「layout or editor-internal HTML」，事件處理屬性兩者都不是。
 describe("事件處理屬性", () => {
   const BLOCK = { ok: false, error: "unsupported_block" } as const;
@@ -274,7 +274,7 @@ describe("事件處理屬性", () => {
     ["EH6 大寫 ONERROR", '<IMG SRC="x" ONERROR="x()">\n'],
     ["EH7 欄內的 onmouseover", row(col("1", '<p onmouseover="x()">a</p>'), col("1", "b"))],
     ["EH8 同一筆另有 S7 的 div（事件處理屬性先判）", '<div style="display:flex"><img src="x" onerror="x()"></div>\n'],
-    // cleanup r2 Minor 1：只看名字——自造的 on 開頭屬性也拒（讀出形不產生它們），server 與瀏覽器拒同一組
+    // 只看名字——自造的 on 開頭屬性也拒（讀出形不產生它們），server 與瀏覽器拒同一組
     ["EH9 自造的 on 開頭屬性名（only、one）", '<span only="1" one="2">x</span>\n'],
     // 以下三形 jsdom 沒有對應的 IDL 成員（舊的 `n in el` 在 server 上照收）
     ["EH10 p onanimationstart", '<p onanimationstart="x()">t</p>\n'],

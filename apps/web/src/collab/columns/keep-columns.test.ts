@@ -7,7 +7,7 @@ import { noteSchema } from "@/collab/schema";
 import { IMG, P, integrity, mountEditor, row, shape, type AnyEditor, type PartialBlockLike } from "@/test/columns-fixtures";
 import { removeBlocksKeepColumns, replaceBlocksKeepColumns } from "./keep-columns";
 
-// D25（spec §5.5、§13.1）：我們發動的移除／取代不收欄。
+// 我們發動的移除／取代不收欄。
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -73,7 +73,7 @@ const allText = (editor: AnyEditor) => {
   return s;
 };
 
-describe("removeBlocksKeepColumns／replaceBlocksKeepColumns（D25）", () => {
+describe("removeBlocksKeepColumns／replaceBlocksKeepColumns", () => {
   it("K1：移掉欄內唯一的圖 → 列與兩欄都在、該欄補空段落；core 的 removeBlocks 則攤平（事實釘）", () => {
     const content = () => [P("x", "x"), row([[P("a", "a")], [IMG("img")]], "r"), P("z", "z")];
     const editor = mount(content());

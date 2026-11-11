@@ -10,7 +10,7 @@ import {
   COLLAB_REJECT_SERVER_ERROR,
 } from "../src/collab/server.js";
 import { notes } from "../src/db/schema.js";
-import { buildCollabTestApp, COLLAB_TOKEN_INIT, testConfig } from "./helpers.js";
+import { buildCollabTestApp, COLLAB_TOKEN_INIT, testConfig, testSessionId } from "./helpers.js";
 
 const PASSWORD = "correct-horse-battery";
 
@@ -38,7 +38,7 @@ function insertParagraph(doc: Y.Doc, text: string): void {
   doc.getXmlFragment(YDOC_FRAGMENT).insert(0, [element]);
 }
 
-describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", () => {
+describe("共編認證：onAuthenticate / onTokenSync 真驗證", () => {
   it("owner 可連可寫；viewer 連上但寫入被 protocol 層丟棄（另一 client 看不到）", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: "owner-auth1@example.com", password: PASSWORD });
@@ -73,7 +73,7 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
     const note = await ctx.createNote(owner.id);
     const session = await ctx.loginAs("owner-auth2@example.com", PASSWORD);
 
-    const forged = await signCollabToken("f".repeat(64), { noteId: note.id, userId: owner.id, role: "owner", tv: 0, sv: NOTE_SCHEMA_VERSION });
+    const forged = await signCollabToken("f".repeat(64), { noteId: note.id, userId: owner.id, role: "owner", tv: 0, sid: testSessionId(owner.id), sv: NOTE_SCHEMA_VERSION });
 
     await expect(session.connect(note.id, { tokenOverride: forged })).rejects.toThrow(COLLAB_REJECT_INVALID_TOKEN);
   });
@@ -92,6 +92,7 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
       userId: stranger.id,
       role: "owner",
       tv: 0,
+      sid: testSessionId(stranger.id),
       sv: NOTE_SCHEMA_VERSION,
     });
 
@@ -134,6 +135,7 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
       userId: owner.id,
       role: "owner",
       tv: 0,
+      sid: testSessionId(owner.id),
       sv: NOTE_SCHEMA_VERSION,
     });
 
@@ -179,7 +181,7 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
 
     await ctx.collab.markDeleting(note.id);
 
-    const forged = await signCollabToken("f".repeat(64), { noteId: note.id, userId: owner.id, role: "owner", tv: 0, sv: NOTE_SCHEMA_VERSION });
+    const forged = await signCollabToken("f".repeat(64), { noteId: note.id, userId: owner.id, role: "owner", tv: 0, sid: testSessionId(owner.id), sv: NOTE_SCHEMA_VERSION });
     await expect(session.connect(note.id, { tokenOverride: forged })).rejects.toThrow(COLLAB_REJECT_INVALID_TOKEN);
     // 合法 token 才拿得到真正的理由。
     await expect(session.connect(note.id)).rejects.toThrow(COLLAB_REJECT_NOTE_DELETING);
@@ -207,7 +209,7 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
     await expect(strangerSession.connect(note.id)).rejects.toThrow(COLLAB_REJECT_FORBIDDEN);
   });
 
-  it("名單抓不到時，「有沒有角色」接手判斷——陌生人照樣只聽得到 forbidden（審查 round 3）", async () => {
+  it("名單抓不到時，「有沒有角色」接手判斷——陌生人照樣只聽得到 forbidden", async () => {
     // `markDeleting` 的名單查詢失敗時（DB 抖動）閘門的 value 是 null。那個 fallback 若解成
     // 「誰都聽得到 note-deleting」，一次抖動就把「這個 id 剛被刪掉」告訴全世界整整兩分鐘。
     const ctx = await buildCollabTestApp();
@@ -233,7 +235,7 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
     await expect(strangerSession.connect(note.id)).rejects.toThrow(COLLAB_REJECT_FORBIDDEN);
   });
 
-  it("閘門的收放：release 只收得掉自己那一道，而且只在筆記還在時（審查 round 4）", async () => {
+  it("閘門的收放：release 只收得掉自己那一道，而且只在筆記還在時", async () => {
     // 這三條是「刪除失敗 → 收閘門」整條路的不變量，少了任何一條，症狀都只是「協作者偶爾
     // 看到錯的那句話」——不會有別的測試變紅。
     const ctx = await buildCollabTestApp();
@@ -293,6 +295,7 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
       userId: stranger.id,
       role: "owner",
       tv: 0,
+      sid: testSessionId(stranger.id),
       sv: NOTE_SCHEMA_VERSION,
     });
     await expect(session.connect(note.id, { tokenOverride: forgedRole })).rejects.toThrow(COLLAB_REJECT_FORBIDDEN);
@@ -312,7 +315,7 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
 
     // 而 `bad-token` **不得**進 info：/collab 的 upgrade 不需要 session，Hocuspocus 對認證
     // 失敗又不關 socket——一則空 token 訊息換一行 info 日誌等於把日誌量交給匿名對端決定。
-    const forged = await signCollabToken("f".repeat(64), { noteId: note.id, userId: stranger.id, role: "owner", tv: 0, sv: NOTE_SCHEMA_VERSION });
+    const forged = await signCollabToken("f".repeat(64), { noteId: note.id, userId: stranger.id, role: "owner", tv: 0, sid: testSessionId(stranger.id), sv: NOTE_SCHEMA_VERSION });
     await expect(session.connect(note.id, { tokenOverride: forged })).rejects.toThrow(COLLAB_REJECT_INVALID_TOKEN);
     const badToken = ctx.collabLogs.find(one => one.obj.cause === "bad-token");
     expect(badToken?.level).toBe("debug");
@@ -358,6 +361,7 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
       userId: target.id,
       role: "owner",
       tv: 0,
+      sid: testSessionId(target.id),
       sv: NOTE_SCHEMA_VERSION,
     });
     expect((await adminSession.fetch(`/api/admin/users/${target.id}/disable`, { method: "POST" })).status).toBe(204);
@@ -413,7 +417,7 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
         if (revoked) {
           // 撤權後仍簽一個聲稱 role:'owner' 的合法簽章 token——驗證 onTokenSync 重跑
           // resolveRole 而非信任 token 內的 role（N2 同樣適用於重驗路徑）。
-          return signCollabToken(testConfig.appSecret, { noteId: note.id, userId: editorUser.id, role: "owner", tv: 0, sv: NOTE_SCHEMA_VERSION });
+          return signCollabToken(testConfig.appSecret, { noteId: note.id, userId: editorUser.id, role: "owner", tv: 0, sid: testSessionId(editorUser.id), sv: NOTE_SCHEMA_VERSION });
         }
         const res = await editorSession.fetch(`/api/notes/${note.id}/collab-token`, COLLAB_TOKEN_INIT);
         if (!res.ok) throw new Error(`取得 collab token 失敗（${res.status}）：${await res.text()}`);
@@ -434,7 +438,7 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
     );
   });
 
-  it("onNextTokenSync 的回呼在重驗被拒（close）路徑也會觸發，不因 reject 被跳過（fix round 1 / CRITICAL 1）", async () => {
+  it("onNextTokenSync 的回呼在重驗被拒（close）路徑也會觸發，不因 reject 被跳過", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: "owner-auth11@example.com", password: PASSWORD });
     const note = await ctx.createNote(owner.id);
@@ -451,6 +455,7 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
             userId: owner.id,
             role: "owner",
             tv: 0,
+            sid: testSessionId(owner.id),
             sv: NOTE_SCHEMA_VERSION,
           });
         }
@@ -492,12 +497,13 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
     // 停用前手動簽一份合法 token（tv=0，此時尚未被 bump）——刻意不走
     // `POST .../collab-token`：那條路徑會先經 `authenticate` 呼叫一次 `gate.check`，
     // 把「尚未停用」的結果快取住（TTL 60s），會讓下面的停用操作看起來像沒生效
-    // （撞上 Task 4 report 記載過的同一個快取陷阱，而非驗證到我們真正想測的東西）。
+    // （撞上同一個快取陷阱，而非驗證到我們真正想測的東西）。
     const preDisableToken = await signCollabToken(testConfig.appSecret, {
       noteId: note.id,
       userId: target.id,
       role: "owner",
       tv: 0,
+      sid: testSessionId(target.id),
       sv: NOTE_SCHEMA_VERSION,
     });
 
@@ -528,6 +534,7 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
       userId: target.id,
       role: "owner",
       tv: 0,
+      sid: testSessionId(target.id),
       sv: NOTE_SCHEMA_VERSION,
     });
 
@@ -566,6 +573,7 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
             userId: editorUser.id,
             role: "editor",
             tv: 0,
+            sid: testSessionId(editorUser.id),
             sv: NOTE_SCHEMA_VERSION,
           });
         }
@@ -584,7 +592,7 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
       ownerClient.closes.some(one => one.reason === COLLAB_CLOSE_REVOKED)
     );
 
-    // ⚠ 這一則必須看得見（審查 round 3）：握手階段的 bad-token 走 debug（匿名 socket 的
+    // ⚠ 這一則必須看得見：握手階段的 bad-token 走 debug（匿名 socket 的
     // 日誌放大器），但**重驗階段**的 bad-token 是把一條已經認證過的連線踢掉，使用者會看到
     // 「你已失去存取權」並被導走——身分也早就知道了。
     const line = ctx.collabLogs.find(one => one.obj.phase === "reverify" && one.obj.cause === "bad-token");
@@ -592,7 +600,7 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
     expect(line?.obj).toMatchObject({ noteId: note.id, userId: owner.id });
   });
 
-  it("#240 R7 以大寫 documentName 連線被拒（token 由同一個大寫 id 簽出，claims 已是小寫）", async () => {
+  it("#240 以大寫 documentName 連線被拒（token 由同一個大寫 id 簽出，claims 已是小寫）", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: "owner-r7@example.com", password: PASSWORD });
     const note = await ctx.createNote(owner.id);
@@ -631,7 +639,7 @@ describe("訊息預檢：未知型別灌流 → 強制斷線（issue #50）", ()
       .websocketProvider.webSocket;
 
     // type 9（Ping）在 enum 裡有名字、在 MessageReceiver 的 switch 裡沒有 case——正是
-    // 首輪審查證明「用 enum 範圍當白名單」擋不住的那一型。
+    // 「用 enum 範圍當白名單」擋不住的那一型。
     for (let i = 0; i < 10; i += 1) rawWs.send(bogusFrame(note.id, 9));
 
     // terminate 是 server 端主動硬斷——等 flooder 那條連線從索引消失。

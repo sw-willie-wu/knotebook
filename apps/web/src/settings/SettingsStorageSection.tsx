@@ -47,9 +47,9 @@ function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string
 }
 
 /**
- * 新增／編輯方案（spec §9.3）。上限＝數字（MB／GB，1024 進位）或「無上限」。編輯時只送改了的欄位（起草裁定 6）：
+ * 新增／編輯方案。上限＝數字（MB／GB，1024 進位）或「無上限」。編輯時只送改了的欄位：
  * 名稱 trim 後不同才送 `name`；碰過上限欄（數字、單位、無上限任一）且換算後不同才送 `quotaBytes`——
- * bytes→「MB＋小數」→bytes 會四捨五入，只改名時不能把換算值送回去（RF2）。調低只顯示說明文字，不另確認（M1）。
+ * bytes→「MB＋小數」→bytes 會四捨五入，只改名時不能把換算值送回去。調低只顯示說明文字，不另確認。
  */
 function PlanDialog({ plan, trigger }: { plan?: StoragePlanDto; trigger: ReactNode }) {
   const { t } = useTranslation();
@@ -233,7 +233,7 @@ function DeletePlanButton({ plan, disabled }: { plan: StoragePlanDto; disabled: 
   );
 }
 
-/** 兩個預設（spec §7.1、D4b）：只影響之後建立的。`null`＝沒碰過、顯示 server 值；送出只帶改了的鍵。 */
+/** 兩個預設：只影響之後建立的。`null`＝沒碰過、顯示 server 值；送出只帶改了的鍵。 */
 function DefaultsGroup({ data }: { data: StoragePlansResponse }) {
   const { t } = useTranslation();
   const updateDefaults = useUpdateStorageDefaults();
@@ -297,7 +297,7 @@ function DefaultsGroup({ data }: { data: StoragePlansResponse }) {
 const BADGE_CLASS = "whitespace-nowrap rounded border border-border px-1 text-xs text-muted-foreground";
 
 /**
- * 方案表（spec 2026-10-13 settings-table §3 #7）：名稱（預設標籤）｜上限｜使用者｜群組｜超過上限（>0 紅）｜操作（編輯、刪除）。
+ * 方案表：名稱（預設標籤）｜上限｜使用者｜群組｜超過上限（>0 紅）｜操作（編輯、刪除）。
  * 刪除鈕不可用時 softDisabled＋原因（`title`），表下另有看得見的說明。
  */
 function PlanTable({ plans }: { plans: StoragePlanDto[] }) {
@@ -346,8 +346,8 @@ function PlanTable({ plans }: { plans: StoragePlanDto[] }) {
 }
 
 /**
- * 站台管理的「儲存方案」（`/admin/storage`，admin only；spec §9.3、#247 §7.0）：方案表、兩個預設、站台版本設定（`SiteVersionsGroups`）、
- * 站台垃圾桶設定（`SiteTrashGroup`，#181 §6.9）。
+ * 站台管理的「儲存方案」（`/admin/storage`，admin only；#247）：方案表、兩個預設、站台版本設定（`SiteVersionsGroups`）、
+ * 站台垃圾桶設定（`SiteTrashGroup`，#181）。
  * 只被站台管理的 lazy 模組靜態 import（#201／#247：同一個 chunk，不得逐區 lazy）。刪除鈕的 disabled 只是體驗，
  * server 仍裁決（並發被指派 → 409 `storage_plan_in_use`，以 toast 顯示）。
  */

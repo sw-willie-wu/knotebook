@@ -8,7 +8,8 @@ import { publicUrlIssuer, type AppConfig } from "../config.js";
 import { apiTokens, oauthClients, oauthCodes, oauthRequests } from "../db/schema.js";
 import { sendError } from "../http/errors.js";
 import { hashToken } from "../auth/api-token.js";
-import { countBillableGrants, TOKEN_LIMIT_PER_USER } from "../auth/grant-quota.js";
+import { countBillableGrants } from "../auth/grant-quota.js";
+import type { SiteLimits } from "../site-limits/store.js";
 import { matchesLoopbackRedirect } from "../oauth/redirect.js";
 import { runOauthCleanup } from "../oauth/cleanup.js";
 
@@ -46,10 +47,11 @@ function buildRedirect(redirectUri: string, issuer: string, params: Record<strin
 export interface OauthApiRouteDeps {
   db: Db;
   config: AppConfig;
+  siteLimits: SiteLimits;
 }
 
 /**
- * 同意頁的站內端點（§5.3.1／§5.3.2）。**掛頂層 app、走站內錯誤形**——不得放進
+ * 同意頁的站內端點。**掛頂層 app、走站內錯誤形**——不得放進
  * `/oauth` 那個 RFC 形 plugin：這兩支的消費者是我們自己的 SPA，錯誤要能餵給 i18n。
  * 兩支都不吃限流桶（上游 `AUTHORIZE_LIMIT` 已支配）。
  */
@@ -60,7 +62,7 @@ export function oauthApiRoutes(deps: OauthApiRouteDeps) {
     app.get("/api/oauth/request", { preHandler: app.authenticate }, async (request, reply) => {
       const req = (request.query as { req?: unknown }).req;
       if (typeof req !== "string" || !REQUEST_ID_RE.test(req)) {
-        return sendError(reply, 410, "oauth_request_invalid", "授權請求已使用或已過期");
+        return sendError(reply, 410, "oauth_request_invalid", "This authorization request has been used or has expired.");
       }
       const [row] = await deps.db
         .select({
@@ -74,14 +76,14 @@ export function oauthApiRoutes(deps: OauthApiRouteDeps) {
         .innerJoin(oauthClients, eq(oauthRequests.clientId, oauthClients.clientId))
         .where(and(eq(oauthRequests.id, req), sql`${oauthRequests.expiresAt} > now()`));
       if (row === undefined) {
-        return sendError(reply, 410, "oauth_request_invalid", "授權請求已使用或已過期");
+        return sendError(reply, 410, "oauth_request_invalid", "This authorization request has been used or has expired.");
       }
       // stored 值含 ephemeral port，**不可用字串成員判定**。
       if (!row.redirectUris.some(uri => matchesLoopbackRedirect(uri, row.redirectUri))) {
-        return sendError(reply, 404, "not_found", "找不到此授權請求");
+        return sendError(reply, 404, "not_found", "No authorization request with that id.");
       }
 
-      // #239：existingScope 是載入當下的快照，只給同意頁當預設勾選；decision 不重查，server 不依賴它（spec §5.4）。
+      // #239：existingScope 是載入當下的快照，只給同意頁當預設勾選；decision 不重查，server 不依賴它。
       const [existing] = await deps.db
         .select({ scope: apiTokens.scope })
         .from(apiTokens)
@@ -104,32 +106,32 @@ export function oauthApiRoutes(deps: OauthApiRouteDeps) {
     app.post("/api/oauth/decision", { preHandler: app.authenticate }, async (request, reply) => {
       const parsed = decisionBodySchema.safeParse(request.body ?? {});
       if (!parsed.success) {
-        return sendError(reply, 400, "invalid_body", "請求格式錯誤");
+        return sendError(reply, 400, "invalid_body", "Invalid request body.");
       }
       // 擋在消費之前——被擋下的請求不該白吃掉一個 pending request。
       if (request.user!.mustChangePassword) {
-        return sendError(reply, 403, "forbidden", "請先修改密碼");
+        return sendError(reply, 403, "forbidden", "Change your password before doing this.");
       }
       if (!REQUEST_ID_RE.test(parsed.data.req)) {
-        return sendError(reply, 410, "oauth_request_invalid", "這個授權請求已使用或已過期");
+        return sendError(reply, 410, "oauth_request_invalid", "This authorization request has been used or has expired.");
       }
 
-      // ⚠ I5 要早於下面的消費與 client 查表（誤序只在跨 24h 邊界時可觀察，無自動化守衛）。
+      // ⚠ 殭屍 client 清理要早於下面的消費與 client 查表（誤序只在跨 24h 邊界時可觀察，無自動化守衛）。
       await runOauthCleanup(deps.db);
 
-      // I6：allow 與 deny 都消費，連點兩下只會建一個 code。`expires_at > now()` 那半段
-      // 在這裡被上面 I5 ③ 遮蔽（過期列已先被清），是縱深防禦、沒有自動化守衛。
+      // allow 與 deny 都消費，連點兩下只會建一個 code。`expires_at > now()` 那半段
+      // 在這裡被上面的清理遮蔽（過期列已先被清），是縱深防禦、沒有自動化守衛。
       const [pending] = await deps.db
         .delete(oauthRequests)
         .where(and(eq(oauthRequests.id, parsed.data.req), sql`${oauthRequests.expiresAt} > now()`))
         .returning();
       if (pending === undefined) {
-        return sendError(reply, 410, "oauth_request_invalid", "這個授權請求已使用或已過期");
+        return sendError(reply, 410, "oauth_request_invalid", "This authorization request has been used or has expired.");
       }
 
       const [client] = await deps.db.select().from(oauthClients).where(eq(oauthClients.clientId, pending.clientId));
       if (client === undefined || !client.redirectUris.some(uri => matchesLoopbackRedirect(uri, pending.redirectUri))) {
-        return sendError(reply, 404, "not_found", "找不到此授權請求");
+        return sendError(reply, 404, "not_found", "No authorization request with that id.");
       }
 
       if (parsed.data.decision === "deny") {
@@ -137,8 +139,9 @@ export function oauthApiRoutes(deps: OauthApiRouteDeps) {
       }
 
       const userId = request.user!.id;
-      if ((await countBillableGrants(deps.db, userId, pending.clientId)) >= TOKEN_LIMIT_PER_USER) {
-        return sendError(reply, 409, "token_limit", `有效 token 已達 ${TOKEN_LIMIT_PER_USER} 個上限，請先撤銷一個`);
+      const tokenLimit = deps.siteLimits.get("apiTokensPerUser");
+      if ((await countBillableGrants(deps.db, userId, pending.clientId)) >= tokenLimit) {
+        return sendError(reply, 409, "token_limit", `You already have the maximum of ${tokenLimit} active tokens. Revoke one first.`);
       }
 
       // #239：授予值＝要求 ∩ 勾選。超出 pending 的 body 被夾回、不報錯。
@@ -154,7 +157,7 @@ export function oauthApiRoutes(deps: OauthApiRouteDeps) {
         codeChallenge: pending.codeChallenge,
         expiresAt: new Date(Date.now() + CODE_TTL_MS),
       });
-      // 建 code 是 I5 ① 的「使用」之一。
+      // 建 code 也算 client 的「使用」。
       await deps.db.update(oauthClients).set({ lastUsedAt: new Date() }).where(eq(oauthClients.clientId, pending.clientId));
 
       return { redirectTo: buildRedirect(pending.redirectUri, issuer, { code }, pending.state) };

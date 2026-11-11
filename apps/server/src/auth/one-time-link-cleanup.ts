@@ -3,7 +3,7 @@ import type { Db } from "../db/index.js";
 import { oneTimeLinks } from "../db/schema.js";
 
 /**
- * #286 spec §3.7：已結束（用掉、撤銷或過期）超過 30 天的一次性連結的清理。**沒有排程**，比照
+ * #286：已結束（用掉、撤銷或過期）超過 30 天的一次性連結的清理。**沒有排程**，比照
  * `auth/transfer-cleanup.ts` 的機會性執行：呼叫點是產生連結成功後的 fire-and-forget（失敗只 `log.warn`）。
  *
  * - 30 天：重設本身用不到歷史紀錄，但先定成之後邀請列表也合用的值，日後免改。

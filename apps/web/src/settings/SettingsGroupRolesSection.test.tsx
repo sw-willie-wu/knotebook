@@ -9,9 +9,10 @@ import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { AppRoutes } from "@/App";
 import { adminRole, customRole, groupDto, memberRole } from "@/test/fixtures";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
-// 群組 modal「角色」（`/groups/:id/roles`，#247 §6.3）：真 `AppRoutes`、`MemoryRouter`、fetch 分派。
-// W28：switch 按下即送 PATCH（六鍵）；一張卡同時只有一發，pending 涵蓋 `onSettled` 的 refetch；沒有「套用」。
+// 群組 modal「角色」（`/groups/:id/roles`，#247）：真 `AppRoutes`、`MemoryRouter`、fetch 分派。
+// switch 按下即送 PATCH（六鍵）；一張卡同時只有一發，pending 涵蓋 `onSettled` 的 refetch；沒有「套用」。
 
 function fakeResponse({ ok: okFlag, status, json }: { ok: boolean; status: number; json?: () => Promise<unknown> }): Response {
   return { ok: okFlag, status, json: json ?? (() => Promise.reject(new Error("no body"))) } as unknown as Response;
@@ -46,6 +47,7 @@ function fetchFor(getGroups: () => GroupDto[], getRoles: () => GroupRoleDto[], e
     const custom = extra(url, method, init);
     if (custom) return Promise.resolve(custom);
     if (url === "/api/auth/me" && method === "GET") return Promise.resolve(ok(ME));
+    if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
     if (url === "/api/notes" && method === "GET") return Promise.resolve(ok([]));
     if (url === "/api/groups" && method === "GET") return Promise.resolve(ok(getGroups()));
     for (const group of getGroups()) {
@@ -92,7 +94,7 @@ const SOLID_BG = /(^|\s)bg-(primary|destructive|brand|brand-deep)(\s|$)/;
 const solidButtons = (scope: HTMLElement) => within(scope).queryAllByRole("button").filter((b) => SOLID_BG.test(b.className));
 const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
 
-describe("SettingsGroupRolesSection（/groups/:id/roles，#247 §6.3）", () => {
+describe("SettingsGroupRolesSection（/groups/:id/roles，#247）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -217,7 +219,7 @@ describe("SettingsGroupRolesSection（/groups/:id/roles，#247 §6.3）", () => 
     expect(bodyOf(patches()[1])).toEqual({ permissions: { ...ALL_OFF, create: true, edit: true } });
   });
 
-  it("R5（Review Focus 1）PATCH 200、roles GET 500 之後：卡片仍在（不換成錯誤字），按 Edit 送出的六鍵仍含 Create 的新值（onSuccess 寫回）", async () => {
+  it("R5 PATCH 200、roles GET 500 之後：卡片仍在（不換成錯誤字），按 Edit 送出的六鍵仍含 Create 的新值（onSuccess 寫回）", async () => {
     let failRolesGet = false;
     const fetchMock = fetchFor(() => [GROUP_ADMIN], () => ROLES, (url, method, init) => {
       if (url === roleUrl(GROUP_ADMIN, READER) && method === "PATCH") {
@@ -291,7 +293,7 @@ describe("SettingsGroupRolesSection（/groups/:id/roles，#247 §6.3）", () => 
     expect(within(reader).getByRole("button", { name: "Save" })).toBeDisabled();
   });
 
-  it("R7b 改名表單的存檔／取消是 icon 鈕（無可見文字，可及名稱 Save／Cancel），存檔是 submit、兩顆在輸入框之後（表單最右；spec 2026-10-13 settings-table §2.6、§3 角色卡）", async () => {
+  it("R7b 改名表單的存檔／取消是 icon 鈕（無可見文字，可及名稱 Save／Cancel），存檔是 submit、兩顆在輸入框之後（表單最右；角色卡）", async () => {
     const dialog = await openRoles(GROUP_ADMIN, fetchFor(() => [GROUP_ADMIN], () => ROLES), "Reader");
     const reader = region(dialog, "Reader");
     fireEvent.click(within(reader).getByRole("button", { name: "Rename Reader" }));
@@ -393,7 +395,7 @@ describe("SettingsGroupRolesSection（/groups/:id/roles，#247 §6.3）", () => 
     expect(within(dialog).queryByText(ADMIN_LOCKED)).not.toBeInTheDocument();
   });
 
-  it("R12 RF4：我的自訂角色 Leads 關掉 Manage roles & group → GET /api/groups 回 canManageGroup false → 頁面立刻變唯讀", async () => {
+  it("R12：我的自訂角色 Leads 關掉 Manage roles & group → GET /api/groups 回 canManageGroup false → 頁面立刻變唯讀", async () => {
     const LEADS = customRole({ id: "66666666-6666-6666-6666-666666666666", name: "Leads", memberCount: 1, permissions: { read: true, ...ALL_OFF, manageGroup: true } });
     let group: GroupDto = groupDto({ id: GROUP_ADMIN.id, name: "Team Alpha" }, LEADS);
     let roles: GroupRoleDto[] = [ADMIN_ROLE, MEMBER_ROLE, LEADS];
@@ -414,7 +416,7 @@ describe("SettingsGroupRolesSection（/groups/:id/roles，#247 §6.3）", () => 
   });
 });
 
-// #181 PR-2b T7：「刪除」旗標的新說明（§6.5 末條）與「能刪不能編輯」提示（§6.10.7 末條：只提示、不阻擋）。
+// #181：「刪除」旗標的新說明（末條）與「能刪不能編輯」提示（末條：只提示、不阻擋）。
 const DELETE_DESCRIPTION = "Move the group's notes to the trash. With Edit as well, also restore them from the trash or delete them permanently.";
 const DELETE_HINT = "Without Edit, notes deleted with this role can't be restored from the trash by its holders.";
 const DELETER = customRole({ id: "66666666-6666-6666-6666-666666666666", name: "Deleter", permissions: { ...READER.permissions, delete: true } });
@@ -422,7 +424,7 @@ const EDIT_DELETER = customRole({ id: "77777777-7777-7777-7777-777777777777", na
 /** 不會出現的資料（內建管理員恆有全部旗標），只用來釘住 `!isAdmin`：管理員卡永遠不顯示提示。 */
 const ODD_ADMIN = adminRole({ id: ADMIN_ROLE.id, permissions: { ...ADMIN_ROLE.permissions, edit: false } });
 
-describe("SettingsGroupRolesSection：垃圾桶相關說明與提示（#181 §6.5、§6.10.7）", () => {
+describe("SettingsGroupRolesSection：垃圾桶相關說明與提示（#181）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();

@@ -4,22 +4,22 @@ import { cn } from "@/lib/utils";
 import "@/i18n/management-strings";
 
 /**
- * 設定與管理面板的「項目清單」共用表格（spec：docs/superpowers/specs/2026-10-13-settings-table-design.md，下稱 spec）。
+ * 設定與管理面板的「項目清單」共用表格。
  *
- * - 欄位順序由元件強制（spec §2.2）：主欄 → 資訊欄（text／url／fixed，彼此保留宣告順序）→ 可編輯欄（control）→ 操作鈕欄 → 啟用欄。
+ * - 欄位順序由元件強制：主欄 → 資訊欄（text／url／fixed，彼此保留宣告順序）→ 可編輯欄（control）→ 操作鈕欄 → 啟用欄。
  *   宣告違反時開發模式 console.error，並照強制順序排。
- * - 版面（§2.3）：`role="table"` 是 grid，軌道由各欄 kind 算出、以 inline style 寫進 `--kb-table-cols`（Tailwind v4 只產生原始碼裡
+ * - 版面：`role="table"` 是 grid，軌道由各欄 kind 算出、以 inline style 寫進 `--kb-table-cols`（Tailwind v4 只產生原始碼裡
  *   出現的 class，不能在執行期拼 arbitrary class）。表頭列與資料列是 `grid-column: 1 / -1` 的 subgrid：`max-content` 軌道在整張表
  *   取同一寬度，各欄左緣對齊表頭。列不得設 gap、水平內距或行內方向的框線（subgrid 會把它們加到邊緣項目上）；內距只在儲存格上。
  *   cell 撐滿列的內容高（grid 預設 stretch），內容一律包成單一個 `flex-1 min-w-0` 子元素，欄的水平對齊設在這個子元素上。
- * - 窄螢幕（§2.4）：不重排。頂層表外包 `role="region"` 的橫向捲動框，主欄 sticky 在左（不透明底、z-index 1：開關圓鈕用 translate，
+ * - 窄螢幕：不重排。頂層表外包 `role="region"` 的橫向捲動框，主欄 sticky 在左（不透明底、z-index 1：開關圓鈕用 translate，
  *   會建立堆疊環境）。捲動框只在內容實際溢出時可聚焦；`scroll-padding-inline-start` 取表頭主欄格的實際寬，Tab 帶捲時焦點目標
  *   落在 sticky 欄右側（WCAG 2.4.11）；目標已在框內、只是壓在 sticky 欄底下時瀏覽器不捲，由捲動框的 focus 處理補捲。
- * - 明細列與錯誤列（§2.5）是緊接在資料列後的獨立 row（不是 subgrid）。子表以 `nested` 宣告：沒有捲動框、主欄不 sticky（sticky 盒
+ * - 明細列與錯誤列是緊接在資料列後的獨立 row（不是 subgrid）。子表以 `nested` 宣告：沒有捲動框、主欄不 sticky（sticky 盒
  *   不能離開所屬列，子表主欄軌很寬，黏住會蓋掉同列的操作鈕與開關）、表頭列 sr-only（供開關的 aria-labelledby 引用）。
- * - 編輯中（§2.6）：主欄 cell 保留，其餘欄合併成一格放呼叫端的表單。
+ * - 編輯中：主欄 cell 保留，其餘欄合併成一格放呼叫端的表單。
  *
- * ⚠ 版面 class／inline style 的斷言只准寫在本元件的測試（spec §5.1）；各頁測試一律語意查詢。
+ * ⚠ 版面 class／inline style 的斷言只准寫在本元件的測試；各頁測試一律語意查詢。
  */
 
 export type SettingsTableColumnKind = "primary" | "text" | "url" | "fixed" | "control" | "actions" | "enabled";
@@ -30,7 +30,7 @@ export interface SettingsTableColumn {
   /** 表頭文字（`actions` 欄渲染成 sr-only）。 */
   header: string;
   kind: SettingsTableColumnKind;
-  /** 只給 `actions`：該表一列最多幾顆鈕（spec §2.1，決定固定軌寬）。 */
+  /** 只給 `actions`：該表一列最多幾顆鈕（決定固定軌寬）。 */
   buttons?: number;
   /** 只對 `primary`／`text`／`url` 有效（其餘 kind 忽略）：取代該 kind 預設的 fr 比例；未設＝預設。 */
   grow?: number;
@@ -48,10 +48,10 @@ export interface SettingsTableCellSpec {
 export type SettingsTableCellValue = ReactNode | SettingsTableCellSpec;
 
 /**
- * 主欄：一行名稱（前可接圖示、後可接標籤）＋任意行數的灰色副標。名稱一律 bidi 隔離（spec §2.1，沿用 token 名稱的
+ * 主欄：一行名稱（前可接圖示、後可接標籤）＋任意行數的灰色副標。名稱一律 bidi 隔離（沿用 token 名稱的
  * `dir="ltr"`＋`unicode-bidi:isolate`）——這幾張表的名稱全是使用者、管理員或 OAuth client 自填的。
  * `icon` 直接渲染在名稱元素的前一個兄弟位置（測試以「名稱元素的 previousElementSibling」找圖示）。
- * `weight`：名稱字重，沿用各表現行的樣式（spec §2.1 沒有規定字重，元件不替任何表加粗）；預設一般字重。
+ * `weight`：名稱字重，沿用各表現行的樣式（元件不替任何表加粗）；預設一般字重。
  */
 export interface SettingsTablePrimary {
   name: string;
@@ -62,25 +62,25 @@ export interface SettingsTablePrimary {
 }
 
 export interface SettingsTableRow {
-  /** 穩定 id（資料庫 id）：列名、明細列等 DOM id 都以它組，不以名稱（名稱可重複，spec §2.1）。 */
+  /** 穩定 id（資料庫 id）：列名、明細列等 DOM id 都以它組，不以名稱（名稱可重複）。 */
   id: string;
   primary: SettingsTablePrimary;
   /** 資訊欄與可編輯欄（`text`／`url`／`fixed`／`control`）的內容，以欄 id 為鍵。 */
   cells?: Record<string, SettingsTableCellValue>;
-  /** 操作鈕欄（一律 `RowIconButton`，spec §2.7）；不提供的動作就不渲染該鈕。 */
+  /** 操作鈕欄（一律 `RowIconButton`）；不提供的動作就不渲染該鈕。 */
   actions?: ReactNode;
-  /** 啟用欄：收到 `aria-labelledby`（＝啟用欄表頭 id＋名稱文字 id），交給 `Switch`（spec §2.8）。 */
+  /** 啟用欄：收到 `aria-labelledby`（＝啟用欄表頭 id＋名稱文字 id），交給 `Switch`。 */
   enabled?: (labelledBy: string) => ReactNode;
-  /** 緊接在後的明細列（spec §2.5）。 */
+  /** 緊接在後的明細列。 */
   detail?: ReactNode;
-  /** 有值＝編輯中：主欄 cell 保留，其餘欄合併成一格放這個表單（spec §2.6）。 */
+  /** 有值＝編輯中：主欄 cell 保留，其餘欄合併成一格放這個表單。 */
   editing?: ReactNode;
-  /** 列層級錯誤：渲染成資料列之後的錯誤列，內容 `role="alert"`；有明細列時在它之前（spec §2.5 末）。 */
+  /** 列層級錯誤：渲染成資料列之後的錯誤列，內容 `role="alert"`；有明細列時在它之前。 */
   error?: ReactNode;
 }
 
 export interface SettingsTableProps {
-  /** 表格可及名稱（必填，spec §3 逐表列出）；頂層表的捲動框也用它。 */
+  /** 表格可及名稱（必填，逐表列出）；頂層表的捲動框也用它。 */
   label: string;
   columns: SettingsTableColumn[];
   rows: SettingsTableRow[];
@@ -91,13 +91,13 @@ export interface SettingsTableProps {
   /** 表格上方的標題列（不論有無資料列都渲染）；頂層表通常由 `SettingsGroup` 給標題，不用這個。 */
   title?: ReactNode;
   titleAction?: ReactNode;
-  /** 子表（放在父表的明細列裡）：沒有捲動框、主欄不 sticky、表頭 sr-only、主欄內容左縮（spec §2.5）。 */
+  /** 子表（放在父表的明細列裡）：沒有捲動框、主欄不 sticky、表頭 sr-only、主欄內容左縮。 */
   nested?: boolean;
 }
 
 const KIND_RANK: Record<SettingsTableColumnKind, number> = { primary: 0, text: 1, url: 1, fixed: 1, control: 2, actions: 3, enabled: 4 };
 
-/** spec §2.2：照「主欄→資訊欄→可編輯欄→操作鈕欄→啟用欄」排（同級保留宣告順序）；宣告違反時開發模式 console.error。 */
+/** 照「主欄→資訊欄→可編輯欄→操作鈕欄→啟用欄」排（同級保留宣告順序）；宣告違反時開發模式 console.error。 */
 export function orderSettingsTableColumns(columns: SettingsTableColumn[]): SettingsTableColumn[] {
   const ordered = columns
     .map((column, index) => ({ column, index }))
@@ -106,19 +106,19 @@ export function orderSettingsTableColumns(columns: SettingsTableColumn[]): Setti
   if (import.meta.env.DEV) {
     if (ordered.some((column, index) => column !== columns[index])) {
       console.error(
-        `SettingsTable：欄位宣告順序違反 spec §2.2，已改照「主欄→資訊欄→可編輯欄→操作鈕欄→啟用欄」排：${ordered.map((column) => column.id).join(", ")}`,
+        `SettingsTable：欄位宣告順序不符規定，已改照「主欄→資訊欄→可編輯欄→操作鈕欄→啟用欄」排：${ordered.map((column) => column.id).join(", ")}`,
       );
     }
     const count = (kind: SettingsTableColumnKind): number => columns.filter((column) => column.kind === kind).length;
-    if (count("primary") !== 1) console.error(`SettingsTable：一張表恰有一個 primary 欄（spec §2.2），實際 ${count("primary")} 個`);
-    if (count("actions") > 1) console.error(`SettingsTable：一張表至多一個 actions 欄（spec §2.2），實際 ${count("actions")} 個`);
-    if (count("enabled") > 1) console.error(`SettingsTable：一張表至多一個 enabled 欄（spec §2.2），實際 ${count("enabled")} 個`);
+    if (count("primary") !== 1) console.error(`SettingsTable：一張表恰有一個 primary 欄，實際 ${count("primary")} 個`);
+    if (count("actions") > 1) console.error(`SettingsTable：一張表至多一個 actions 欄，實際 ${count("actions")} 個`);
+    if (count("enabled") > 1) console.error(`SettingsTable：一張表至多一個 enabled 欄，實際 ${count("enabled")} 個`);
     for (const column of columns) {
       if (column.grow !== undefined && !validGrow(column.grow)) {
         console.error(`SettingsTable：欄「${column.id}」的 grow 必須是有限正數，實際 ${column.grow}，已改用預設`);
       }
       if (column.kind === "actions" && (column.buttons === undefined || column.buttons < 1)) {
-        console.error(`SettingsTable：actions 欄「${column.id}」要給 buttons（該表一列最多的按鈕數，spec §2.1）`);
+        console.error(`SettingsTable：actions 欄「${column.id}」要給 buttons（該表一列最多的按鈕數）`);
       }
     }
   }
@@ -134,10 +134,10 @@ function fr(column: SettingsTableColumn, fallback: number): number {
   return column.grow !== undefined && validGrow(column.grow) ? column.grow : fallback;
 }
 
-/** 啟用欄固定 56px（spec §2.1）：子表與父表都是這個寬、都在最右，開關中心才會上下對齊。 */
+/** 啟用欄固定 56px：子表與父表都是這個寬、都在最右，開關中心才會上下對齊。 */
 const ENABLED_TRACK = "3.5rem";
 
-/** 一欄的 grid 軌道（spec §2.1）。 */
+/** 一欄的 grid 軌道。 */
 function settingsTableTrack(column: SettingsTableColumn, isLast: boolean): string {
   switch (column.kind) {
     case "primary":
@@ -164,21 +164,21 @@ export function settingsTableTracks(ordered: SettingsTableColumn[]): string {
   return ordered.map((column, index) => settingsTableTrack(column, index === ordered.length - 1)).join(" ");
 }
 
-/** 表頭列與資料列：同一張表內這一層的 subgrid（spec §2.3）。列不得加 gap、水平內距或 items-*。 */
+/** 表頭列與資料列：同一張表內這一層的 subgrid。列不得加 gap、水平內距或 items-*。 */
 const ROW_GRID = "col-span-full grid grid-cols-subgrid";
 /** 列間分隔：畫在列上（欄距處不斷線）。 */
 const ROW_BORDER = "border-b border-border";
 /** 儲存格：撐滿列的內容高、內容垂直置中。 */
 const CELL = "flex items-center";
-/** 頂層表主欄（表頭格與每列主欄格）：sticky、z-index 1、不透明底；右緣分隔線只在捲動框溢出時畫（捲動框帶 `data-overflowing`，spec §2.4）。 */
+/** 頂層表主欄（表頭格與每列主欄格）：sticky、z-index 1、不透明底；右緣分隔線只在捲動框溢出時畫（捲動框帶 `data-overflowing`）。 */
 const STICKY_CELL = "sticky left-0 z-[1] border-border bg-card group-data-[overflowing]/box:border-r";
-/** 編輯中列的 sticky 主欄：淡色疊在卡片色上（`--brand-soft` 是半透明；用 inline style，不用 `bg-[…]` arbitrary 值，spec §2.4）。 */
+/** 編輯中列的 sticky 主欄：淡色疊在卡片色上（`--brand-soft` 是半透明；用 inline style，不用 `bg-[…]` arbitrary 值）。 */
 const EDITING_STICKY_BACKGROUND = "linear-gradient(var(--brand-soft), var(--brand-soft)), var(--card)";
-/** 頂層表的橫向捲動框（spec §2.4）。 */
+/** 頂層表的橫向捲動框。 */
 const SCROLL_BOX = "group/box overflow-x-auto scroll-ps-(--kb-sticky-w) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
-/** 明細 cell：不加水平內距（子表要與父表同寬；非表格內容自己帶 px-3，spec §2.5）。 */
+/** 明細 cell：不加水平內距（子表要與父表同寬；非表格內容自己帶 px-3）。 */
 const DETAIL_CELL = "pb-3";
-/** cell 內容子元素依欄種的文字行為與水平對齊（spec §2.1、§2.3）。 */
+/** cell 內容子元素依欄種的文字行為與水平對齊。 */
 const INNER: Record<SettingsTableColumnKind, string> = {
   primary: "wrap-anywhere",
   text: "wrap-anywhere",
@@ -188,10 +188,10 @@ const INNER: Record<SettingsTableColumnKind, string> = {
   actions: "flex justify-end gap-1",
   enabled: "flex justify-center",
 };
-/** 表頭文字與該欄內容同側（spec §2.3）：啟用置中、操作靠右、其餘靠左。 */
+/** 表頭文字與該欄內容同側：啟用置中、操作靠右、其餘靠左。 */
 const HEADER_INNER: Partial<Record<SettingsTableColumnKind, string>> = { actions: "text-right", enabled: "text-center" };
 
-/** 內距只在儲存格（spec §2.3）：第一格 pl-3；最後一格 pr-3，但最後一格是 enabled 時不加（56px 軌道已含留白）。 */
+/** 內距只在儲存格：第一格 pl-3；最後一格 pr-3，但最後一格是 enabled 時不加（56px 軌道已含留白）。 */
 function cellPadding(kind: SettingsTableColumnKind, index: number, count: number, header: boolean): string {
   return cn(header ? "py-2" : "py-2.5", index === 0 && "pl-3", index === count - 1 && kind !== "enabled" && "pr-3");
 }
@@ -232,7 +232,7 @@ function PrimaryContent({ primary, nameId }: { primary: SettingsTablePrimary; na
 }
 
 /**
- * 頂層表的橫向捲動框：量內容是否溢出、表頭主欄格的實際寬（spec §2.4）。
+ * 頂層表的橫向捲動框：量內容是否溢出、表頭主欄格的實際寬。
  * `stickyKey`＝主欄的欄 id：表頭格以欄 id 為 key，id 一換就是新的 DOM 節點，effect 要重新訂閱，不能繼續觀察已脫離的舊節點。
  */
 function useScrollBox(active: boolean, stickyKey: string | undefined) {
@@ -378,7 +378,7 @@ export function SettingsTable({ label, columns, rows, nameColumn, empty, title, 
     const editing = present(row.editing);
     const hasError = present(row.error);
     const hasDetail = present(row.detail);
-    // 一組＝資料列（＋錯誤列）（＋明細列）：下框線只畫在這一組的最後一列；子表的最後一組不畫（由外層明細列畫，spec §2.3）。
+    // 一組＝資料列（＋錯誤列）（＋明細列）：下框線只畫在這一組的最後一列；子表的最後一組不畫（由外層明細列畫）。
     const groupBorder = nested && rowIndex === rows.length - 1 ? undefined : ROW_BORDER;
     const name = rowName(row);
     return (

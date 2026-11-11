@@ -1,7 +1,28 @@
 import { describe, expect, it } from "vitest";
 import { render } from "@testing-library/react";
 import { NOTE_WIDTHS } from "@knotebook/shared";
-import { ArrowDown, ArrowUp, Columns2, History, ImageIcon, KeyRound, ListFilter, NoteWidthIcon, Pencil, Plug, RotateCcw, Rows3, SquareCheck, Users } from "./icons";
+import {
+  ArrowDown,
+  ArrowUp,
+  Columns2,
+  CornerDownRight,
+  FilePlus,
+  Folder,
+  FolderPlus,
+  History,
+  House,
+  ImageIcon,
+  KeyRound,
+  ListFilter,
+  LogOut,
+  NoteWidthIcon,
+  Pencil,
+  Plug,
+  RotateCcw,
+  Rows3,
+  SquareCheck,
+  Users,
+} from "./icons";
 
 describe("icons", () => {
   it("Users 帶 data-icon=\"users\"（ShareDialog 測試靠它斷觸發鈕圖示）且吃 className", () => {
@@ -25,9 +46,17 @@ describe("icons", () => {
     ["key-round", KeyRound],
     ["arrow-up", ArrowUp],
     ["arrow-down", ArrowDown],
-    // IC1 垃圾桶的「還原」與「選取」（#181 PR-2b）
+    // 垃圾桶的「還原」與「選取」（#181）
     ["restore", RotateCcw],
     ["select", SquareCheck],
+    // 資料夾列、資料夾 ⋮、GroupMenu
+    ["folder", Folder],
+    ["folder-plus", FolderPlus],
+    ["file-plus", FilePlus],
+    ["log-out", LogOut],
+    // 目的地項目的根目錄與「放進這裡」
+    ["house", House],
+    ["corner-down-right", CornerDownRight],
   ] as const)("圖示 %s：帶 data-icon、預設 aria-hidden、吃 className", (name, Icon) => {
     const { container } = render(<Icon className="h-4 w-4" />);
     const svg = container.querySelector("svg");
@@ -35,7 +64,7 @@ describe("icons", () => {
     expect(svg).toHaveAttribute("aria-hidden", "true");
     expect(svg).toHaveClass("h-4", "w-4");
   });
-  it('Pencil 帶 data-icon="pencil"、預設 aria-hidden、吃 className（#247 §4.9 編輯鈕）', () => {
+  it('Pencil 帶 data-icon="pencil"、預設 aria-hidden、吃 className（#247 編輯鈕）', () => {
     const { container } = render(<Pencil className="h-4 w-4" />);
     const svg = container.querySelector("svg");
     expect(svg).toHaveAttribute("data-icon", "pencil");

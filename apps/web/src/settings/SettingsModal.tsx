@@ -10,11 +10,11 @@ interface SettingsLocationState {
 }
 
 /**
- * 個人設定 modal（#247 §5）——第二棵 Routes 樹的 layout route。外殼（托盤、兩卡、✕、窄視窗雙層、
+ * 個人設定 modal（#247）——第二棵 Routes 樹的 layout route。外殼（托盤、兩卡、✕、窄視窗雙層、
  * 項次轉傳 `backgroundLocation`）全在 `components/management/ManagementShell`；這一層只做兩件事：
  * 1. 關閉（Esc／✕）時導回開啟前的背景 location（`location.state.backgroundLocation`）；深連結沒有這個
  *    state 時導回 `/`。點外面不關（外殼的 `dismissOnOutside={false}`）。
- * 2. 六個項次（帳戶資訊／登入／授權／儲存空間／群組／關於，Willie W8）。站台管理不在這裡（入口在 `UserMenu`）。
+ * 2. 六個項次（帳戶資訊／登入／授權／儲存空間／群組／關於）。站台管理不在這裡（入口在 `UserMenu`）。
  *
  * 項次之間切換是巢狀 route 切換，`<Dialog>` 不隨切換卸載重掛（layout route 的既有語意）。
  * 各頁是 lazy chunk（#201）：外殼留在首包，開 modal 時外框與導覽立刻出現，只有內容區在 chunk 到手前顯示
@@ -27,7 +27,7 @@ export function SettingsModal() {
   const navigate = useNavigate();
   const location = useLocation();
   const backgroundLocation = (location.state as SettingsLocationState | null)?.backgroundLocation;
-  // 「群組」項右側灰字計數（原型 v30、#247 Q7 裁定）：與側欄同一份 ['groups'] 快取；載入中（data undefined）不顯示。
+  // 「群組」項右側灰字計數（#247）：與側欄同一份 ['groups'] 快取；載入中（data undefined）不顯示。
   const groups = useGroups();
 
   function handleOpenChange(open: boolean): void {

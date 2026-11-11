@@ -2,7 +2,7 @@ import { codePointLength, FOCUS_MAX_CODE_POINTS, INSTRUCTION_MAX_CODE_POINTS } f
 import type { TemplateVars } from "./upstream.js";
 
 /**
- * 內建 Instruct 動作的守門 prompt（#263 spec 2026-10-12 §4.2，D2／D3）。由 server 固定前置在該動作的 system prompt 之前，管理員改不掉；
+ * 內建 Instruct 動作的守門 prompt（#263）。由 server 固定前置在該動作的 system prompt 之前，管理員改不掉；
  * 只對 Instruct 做（判斷依 DB 讀回的 id，見 `routes/ai.ts`）。只引用三個固定標記，不依賴 template 的字面。
  * 軟性守門：不另打分類模型、不跳脫標記內容——代入的文字含 `</text>` 之類字串可以偽造邊界，這是接受的限制（docs/known-limitations.md）。
  */
@@ -16,7 +16,7 @@ export const INSTRUCT_GUARD_PROMPT = [
 ].join("\n");
 
 /**
- * 並排 PR-2（spec 2026-10-21 columns-layout §11.6，Q4）：送給站內 AI 的 markdown 帶並排、圖片寬度、表格欄寬的 HTML，
+ * 並排：送給站內 AI 的 markdown 帶並排、圖片寬度、表格欄寬的 HTML，
  * 這段要模型保留它們。server 前置在**每一個**動作的 system prompt 最前面（`routes/ai.ts`），管理員改不掉；是提示不是過濾——
  * 不照做的結果在套用前被 web 的檢查擋下（`unsupported_columns`／`unsupported_size`）。字面對應 `docs/ai.md`。
  */
@@ -43,7 +43,7 @@ export interface InstructFields {
 }
 
 /**
- * 把三個變數包上固定標記（§4.2）；template 只決定順序與夾在中間的文字。`focus` 沒帶或為空字串都代入 `<selected></selected>`
+ * 把三個變數包上固定標記；template 只決定順序與夾在中間的文字。`focus` 沒帶或為空字串都代入 `<selected></selected>`
  * （web 在「整塊選取」時不送 focus；body 帶空字串的語意與沒帶相同——守門第 3 條把空的 <selected> 解讀為「整段」）。
  */
 export function wrapInstructVars(input: { text: string; instruction: string; focus?: string }): TemplateVars {
@@ -57,23 +57,23 @@ export function wrapInstructVars(input: { text: string; instruction: string; foc
 export type InstructFieldCheck = { ok: true; instruct: InstructFields | null } | { ok: false; message: string };
 
 /**
- * `POST /api/ai` 對 `instruction`／`focus` 的 400 矩陣（§4.3）。`isInstruct` 由呼叫端以**小寫化後的** `action_id` 對常數判
- * （不查 DB、在角色檢查與節流之前）。長度一律以 code point 計；instruction 先 trim 再量。訊息是 HTTP 層，中文。
+ * `POST /api/ai` 對 `instruction`／`focus` 的 400 矩陣。`isInstruct` 由呼叫端以**小寫化後的** `action_id` 對常數判
+ * （不查 DB、在角色檢查與節流之前）。長度一律以 code point 計；instruction 先 trim 再量。訊息是 HTTP 層，英文（#372）。
  */
 export function checkInstructFields(isInstruct: boolean, instruction: string | undefined, focus: string | undefined): InstructFieldCheck {
   if (!isInstruct) {
     if (instruction !== undefined || focus !== undefined) {
-      return { ok: false, message: "instruction／focus 只用於 Instruct 動作" };
+      return { ok: false, message: "instruction and focus are only accepted by Instruct actions." };
     }
     return { ok: true, instruct: null };
   }
   const trimmed = (instruction ?? "").trim();
-  if (trimmed === "") return { ok: false, message: "Instruct 動作必須帶 instruction" };
+  if (trimmed === "") return { ok: false, message: "Instruct actions need an instruction." };
   if (codePointLength(trimmed) > INSTRUCTION_MAX_CODE_POINTS) {
-    return { ok: false, message: `instruction 不得超過 ${INSTRUCTION_MAX_CODE_POINTS} 字` };
+    return { ok: false, message: `instruction can be at most ${INSTRUCTION_MAX_CODE_POINTS} characters.` };
   }
   if (focus !== undefined && codePointLength(focus) > FOCUS_MAX_CODE_POINTS) {
-    return { ok: false, message: `focus 不得超過 ${FOCUS_MAX_CODE_POINTS} 字` };
+    return { ok: false, message: `focus can be at most ${FOCUS_MAX_CODE_POINTS} characters.` };
   }
   return { ok: true, instruct: focus === undefined ? { instruction: trimmed } : { instruction: trimmed, focus } };
 }

@@ -11,7 +11,7 @@ test("PAT：設定頁建立 → 無 cookie 的 Bearer 請求可用 → PATCH 改
 }) => {
   await loginAs(page, ADMIN.email, ADMIN.password);
 
-  // §14.5 隨機化：多 spec 共用一座疊、失敗時刻意不 down，固定名稱在重跑時會在
+  // 隨機化：多 spec 共用一座疊、失敗時刻意不 down，固定名稱在重跑時會在
   // 列名查詢（getByRole("row", { name, exact: true })）撞出 strict mode violation，把真正的回歸訊息蓋掉。
   const tokenName = `E2E script ${Date.now()}`;
 
@@ -53,7 +53,7 @@ test("PAT：設定頁建立 → 無 cookie 的 Bearer 請求可用 → PATCH 改
     expect(created.status()).toBe(201);
 
     // #239：PATCH /api/auth/tokens/:id 改 scope → 同一支 token 的 tools/list 下一個請求就跟著變。
-    // W11：設定頁沒有改權限的 UI——用 page.request（與頁面共用 session cookie）直接打 cookie-only 的 PATCH。
+    // 設定頁沒有改權限的 UI——用 page.request（與頁面共用 session cookie）直接打 cookie-only 的 PATCH。
     // ⚠ 刻意沿用這支 PAT、不另建：`PAT_CREATE_LIMIT`（`http/rate-limit.ts`）是每人每小時 10 支、存在 server
     //   行程記憶體，e2e 全用 ADMIN；髒疊重跑時映像沒變，`stack:up` 的 `up --build` 不會重建容器、計數還在——每輪多建一支，連跑幾輪就會撞 429 假紅
     //   （本檔與 13 號每輪各建一支，與 #239 之前相同）。
@@ -89,23 +89,30 @@ test("PAT：設定頁建立 → 無 cookie 的 Bearer 請求可用 → PATCH 改
     expect(before).not.toContain("move_note_to_group");
     expect(before).not.toContain("delete_note");
     expect(before).not.toContain("restore_note");
+    // 資料夾：`list_folders` 任何憑證都有；`delete_folder` 同 delete_note 要 notes:delete。
+    expect(before).toContain("list_folders");
+    expect(before).not.toContain("delete_folder");
     await setScope("notes:read notes:write notes:move");
     const withMove = await toolNames();
     expect(withMove).toContain("move_note_to_group");
     expect(withMove).not.toContain("delete_note");
-    // #181：讀寫刪除——兩支垃圾桶寫入工具出現，搬移不在（move 與 delete 互相獨立）。
+    expect(withMove).not.toContain("delete_folder");
+    // #181：讀寫刪除——要 notes:delete 的三支（delete_note、restore_note，資料夾功能加入後加 delete_folder）出現，搬移不在（move 與 delete 互相獨立）。
     await setScope("notes:read notes:write notes:delete");
     const withDelete = await toolNames();
     expect(withDelete).toContain("delete_note");
     expect(withDelete).toContain("restore_note");
     expect(withDelete).toContain("list_trash");
+    expect(withDelete).toContain("delete_folder");
     expect(withDelete).not.toContain("move_note_to_group");
     await setScope("notes:read notes:write");
     const after = await toolNames();
     expect(after).not.toContain("move_note_to_group");
     expect(after).not.toContain("delete_note");
     expect(after).not.toContain("restore_note");
+    expect(after).not.toContain("delete_folder");
     expect(after).toContain("list_trash");
+    expect(after).toContain("list_folders");
 
     // 撤銷——鎖定這一輪建的那一列（名稱已隨機化，前一輪殘留不會同名）。#247：token 是表格列，
     // 撤銷是列尾紅垃圾桶 icon 鈕（aria-label「Revoke」）。
@@ -194,7 +201,7 @@ test("OAuth：未登入開 authorize → 登入 → 同意 → 本機 callback �
       await expect(page).toHaveURL(/\/authorize\?req=/);
 
       await expect(page.getByText(`127.0.0.1:${port}`)).toBeVisible();
-      // #239 W4'／#181：第一次授權三框預設都不勾——直接按 Allow 只拿到 notes:read。勾「編輯」再 Allow。
+      // #239'／#181：第一次授權三框預設都不勾——直接按 Allow 只拿到 notes:read。勾「編輯」再 Allow。
       // 「刪除」框在編輯沒勾時 disabled，勾了編輯才可勾（本案不勾，授予的仍是讀寫）。
       const edit = page.getByRole("checkbox", { name: "Create and edit notes" });
       const move = page.getByRole("checkbox", { name: "Move or copy notes into groups" });
@@ -238,7 +245,7 @@ test("OAuth：未登入開 authorize → 登入 → 同意 → 本機 callback �
       await page.goto("/settings/authorization");
       await expect(page.getByRole("row", { name: /^E2E client \d+$/ }).first()).toBeVisible();
 
-      // #239 W8：同一個 client 再授權一次——編輯框沿用目前已授予的權限（預設勾）並標「Currently
+      // #239：同一個 client 再授權一次——編輯框沿用目前已授予的權限（預設勾）並標「Currently
       // granted」，搬移框與刪除框仍不勾。按 Deny，不留第二支憑證（舊憑證不受影響：deny 不碰 api_tokens）。
       const state2 = `st2-${Date.now()}`;
       await page.goto(authorizeUrlFor(state2));

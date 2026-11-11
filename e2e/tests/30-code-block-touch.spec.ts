@@ -2,7 +2,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { ADMIN, createNote, editorLocator, loginAs, waitForEditorSelection } from "./helpers.js";
 
 /**
- * 2026-10-15：code block 的語言下拉搬進方塊內右上角，平常隱形。觸控沒有 hover，叫出它的路是「點進程式碼」
+ * code block 的語言下拉搬進方塊內右上角，平常隱形。觸控沒有 hover，叫出它的路是「點進程式碼」
  * （`apps/web/src/collab/code-block-caret.ts` 掛 `data-caret-inside` → `index.css` 讓下拉現身）。
  * 單元測試守得到屬性有沒有掛、CSS 規則在不在；這裡守**只有真瀏覽器才有**的三件事：
  * (a) 隱形時 `pointer-events:none` 真的讓點擊穿過（hit-test），點那一角不會被看不見的下拉吃掉；

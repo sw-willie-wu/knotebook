@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { EMPTY_YDOC_UPDATE_B64, SESSION_COOKIE } from "@knotebook/shared";
-import { buildTestApp, freshDb, freshLimiters, testConfig } from "./helpers.js";
+import { buildTestApp, freshDb, freshLimiters, signTestSession } from "./helpers.js";
 import { noteShares, noteStates, notes, uploads, users } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
-import { UserGate, signSession } from "../src/auth/session.js";
+import { UserGate } from "../src/auth/session.js";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { eq, sql } from "drizzle-orm";
 import type pino from "pino";
@@ -17,7 +17,7 @@ import { uploadFilePath } from "../src/uploads/service.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
 
 /**
- * #72 公開分享連結＋#122 PR3 公開別名。涵蓋：管理端五支（token 三支＋別名
+ * #72 公開分享連結＋#122 公開別名。涵蓋：管理端五支（token 三支＋別名
  * PUT/DELETE /public-link/slug）、公開四端點（token 形＋別名形各帶 uploads）與
  * 四步節流、log 遮罩。
  *
@@ -28,14 +28,14 @@ import { FixedWindowLimiter } from "../src/http/rate-limit.js";
 const TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
 
 async function insertUser(db: Db, email: string, handle?: string) {
-  // handle 未指定時吃 DB default（user-<uuid8>）——#122 PR3 的 by-path 案要可預期
+  // handle 未指定時吃 DB default（user-<uuid8>）——#122 的 by-path 案要可預期
   // 的 handle 才能組公開別名網址。
   const [u] = await db.insert(users).values({ email, displayName: "Test User", ...(handle ? { handle } : {}) }).returning();
   return u;
 }
 
 async function cookieFor(userId: string): Promise<string> {
-  return signSession(testConfig.appSecret, { userId, tv: 0 });
+  return signTestSession({ userId, tv: 0 });
 }
 
 async function createNote(app: Awaited<ReturnType<typeof buildTestApp>>["app"], cookie: string): Promise<string> {
@@ -75,7 +75,7 @@ describe("公開連結管理端（GET/PUT/DELETE /api/notes/:id/public-link）",
     expect(g2.json()).toEqual({ token: null, slug: null, width: "standard" });
 
     // DELETE 對 token 狀態冪等：已是 null 再 DELETE 照樣 204（404 只留給 note 本身
-    // 不見了的 I2 情境）。
+    // 不見了的情境）。
     const d2 = await app.inject({ method: "DELETE", url: `/api/notes/${noteId}/public-link`, cookies: { [SESSION_COOKIE]: cookie } });
     expect(d2.statusCode).toBe(204);
   });
@@ -111,7 +111,7 @@ describe("公開連結管理端（GET/PUT/DELETE /api/notes/:id/public-link）",
       }
     };
 
-    // 無副作用鑑別（審查抓的洞）：403/404 只回錯誤還不夠——若寫入被挪到授權判定
+    // 無副作用鑑別：403/404 只回錯誤還不夠——若寫入被挪到授權判定
     // 之前，非 owner 的 PUT/DELETE 照樣回 403/404 但 token 已被重生/撤銷。矩陣
     // 前後各用 owner 的 GET 釘住 token 狀態：先在無 token 態跑（結束仍 null），
     // 再由 owner 開一顆後重跑（結束仍是同一顆）。
@@ -147,7 +147,7 @@ describe("公開連結管理端（GET/PUT/DELETE /api/notes/:id/public-link）",
     expect(over.statusCode).toBe(429);
     expect(over.json().error.code).toBe("too_many_requests");
 
-    // key=userId 的鑑別（審查突變 D 證實原版守不住）：
+    // key=userId 的鑑別（原版守不住）：
     // ① 同一 user 的**另一篇**筆記照樣 429——key 若誤寫成 noteId 這裡會 200，而
     //    per-note key＋consume 先於授權＝任何登入者可把別人的管理端鎖 10 分鐘。
     const note2 = await createNote(app, cookie);
@@ -162,7 +162,7 @@ describe("公開連結管理端（GET/PUT/DELETE /api/notes/:id/public-link）",
   });
 
   it("consume 早於授權：陌生人的 404 照樣吃他自己的桶（第 11 次是 429 不是 404）", async () => {
-    // 註解花最多篇幅論證的那條不變量（審查突變 D5 證實原本沒有測試守著）：順序
+    // 註解花最多篇幅論證的那條不變量（原本沒有測試守著）：順序
     // 反過來的話，任何登入者可對隨機 noteId 無限打 PUT，每次觸發 resolveRole 的
     // DB 查詢而完全不受節流。
     const { app, db } = await buildTestApp();
@@ -181,7 +181,7 @@ describe("公開連結管理端（GET/PUT/DELETE /api/notes/:id/public-link）",
   });
 });
 
-// ──────────────────── #122 PR3 Task 2：公開別名管理端 ────────────────────
+// ──────────────────── #122：公開別名管理端 ────────────────────
 
 describe("公開別名管理端（PUT/DELETE /api/notes/:id/public-link/slug）", () => {
   /** owner 建一篇並開公開，回 [noteId, token]。 */
@@ -205,7 +205,7 @@ describe("公開別名管理端（PUT/DELETE /api/notes/:id/public-link/slug）"
 
     const p = await putSlug(app, cookie, noteId, "my-alias");
     expect(p.statusCode).toBe(200);
-    // 全形釘住（gate r4-M1）：web mutation 直寫回應進快取，token 缺席＝快取 token 被
+    // 全形釘住：web mutation 直寫回應進快取，token 缺席＝快取 token 被
     // 抹成 undefined→公開連結列消失。
     expect(p.json()).toEqual({ token, slug: "my-alias", width: "standard" });
 
@@ -222,7 +222,7 @@ describe("公開別名管理端（PUT/DELETE /api/notes/:id/public-link/slug）"
   });
 
   it("未公開（token NULL）設別名 → 400 invalid_body 且 DB 無殘留（rowcount-0 路徑的行為級殺手）", async () => {
-    // 取消 token pre-read 後（plan r3-m1），這一案直接走「條件式 UPDATE 述詞不成立→
+    // 取消 token pre-read 後，這一案直接走「條件式 UPDATE 述詞不成立→
     // rowcount 0→400」——同時殺「刪 public_token is not null 述詞」（會變 200）與
     // 「忽略 rowcount 照回 200」兩類突變。
     const { app, db } = await buildTestApp();
@@ -282,7 +282,7 @@ describe("公開別名管理端（PUT/DELETE /api/notes/:id/public-link/slug）"
     const clash = await putSlug(app, ca, noteA2, "team-doc");
     expect(clash.statusCode).toBe(409);
     expect(clash.json().error.code).toBe("public_slug_taken");
-    // 無部分寫入（讀碼審 m4）：單條 UPDATE 的原子性下 409＝零落地——若未來改成
+    // 無部分寫入：單條 UPDATE 的原子性下 409＝零落地——若未來改成
     // pre-check＋分步寫，這兩行是唯一會抓到殘影的地方
     const [a2row] = await db.select({ publicSlug: notes.publicSlug }).from(notes).where(eq(notes.id, noteA2)).limit(1);
     expect(a2row.publicSlug).toBeNull();
@@ -304,15 +304,15 @@ describe("公開別名管理端（PUT/DELETE /api/notes/:id/public-link/slug）"
 
     // 桶算術（SLUG_PATCH_LIMIT=10，先計後驗＝400 也計）：畸形 body ×2 ＋ 驗證違例
     // ×4 ＋ 合法 ×1 ＋ 驗證違例 ×3 ＝ 10 → 第 11 次（合法）必 429。
-    // 突變審 L1：沒有這條尾斷言，「consume 挪到驗證後（400 不耗桶）」全套照綠——
+    // 突變驗證：沒有這條尾斷言，「consume 挪到驗證後（400 不耗桶）」全套照綠——
     // 那正是 JSDoc「先計後驗」的反例（登入者可零成本無限打驗證面）。
-    // 畸形 body（無 zod schema，手寫守衛——突變審 L3：整段刪掉會變 500 且無人紅）
+    // 畸形 body（無 zod schema，手寫守衛——突變驗證：整段刪掉會變 500 且無人紅）
     for (const payload of [{}, { slug: 123 }]) {
       const r = await app.inject({ method: "PUT", url: `/api/notes/${noteId}/public-link/slug`, cookies: { [SESSION_COOKIE]: cookie }, payload });
       expect(r.statusCode, JSON.stringify(payload)).toBe(400);
       expect(r.json().error.code).toBe("invalid_body");
     }
-    // ⚠ `café` 是**合法**輸入（slug 字元集是 \p{L}\p{N}-，spec §3a 在地化 slug）——
+    // ⚠ `café` 是**合法**輸入（slug 字元集是 \p{L}\p{N}-，允許在地化 slug）——
     // 別把它當非法案例；真正的 charset 違例用底線。
     for (const bad of ["new", "f47ac10b-58cc-4372-a567-0e02b2c3d479", "under_score", ""]) {
       const r = await putSlug(app, cookie, noteId, bad);
@@ -359,7 +359,7 @@ describe("公開別名管理端（PUT/DELETE /api/notes/:id/public-link/slug）"
     const stranger = await insertUser(db, "stranger-ps7@example.com");
     const [noteId] = await publicNote(app, await cookieFor(owner.id));
     const sc = await cookieFor(stranger.id);
-    // 突變審 L2：兩支**分開**灌——只灌 PUT 的話「DELETE 半邊 consume 挪到授權前」
+    // 突變驗證：兩支**分開**灌——只灌 PUT 的話「DELETE 半邊 consume 挪到授權前」
     // 全套照綠（半邊紀律反轉觀測不到）。
     for (let i = 0; i < 12; i += 1) {
       expect((await putSlug(app, sc, noteId, "poke")).statusCode).toBe(404); // 不是 429
@@ -392,7 +392,7 @@ describe("公開別名管理端（PUT/DELETE /api/notes/:id/public-link/slug）"
     const [row] = await db.select({ publicSlug: notes.publicSlug, publicToken: notes.publicToken }).from(notes).where(eq(notes.id, noteId)).limit(1);
     expect(row).toEqual({ publicSlug: null, publicToken: null });
 
-    // 再開公開：別名不復活（「以為刪掉的別名自己回來」是 plan gate M-2 點名的故障形）
+    // 再開公開：別名不復活（「以為刪掉的別名自己回來」是會出現的故障形）
     const reopened = await app.inject({ method: "PUT", url: `/api/notes/${noteId}/public-link`, cookies: { [SESSION_COOKIE]: cookie } });
     expect(reopened.json().slug).toBeNull();
   });
@@ -427,7 +427,7 @@ describe("公開別名管理端（PUT/DELETE /api/notes/:id/public-link/slug）"
   });
 
   it("語句形狀守衛（雙保險）：別名 PUT 無 token pre-read、恰一條 UPDATE 且述詞含 public_token is not null", async () => {
-    // 行為級殺手是「未公開→400」案；這裡再釘語句形（plan gate M-2）：述詞無參數、
+    // 行為級殺手是「未公開→400」案；這裡再釘語句形：述詞無參數、
     // 必逐字出現在 SQL 文字，防未來有人把閘門搬回 pre-read（TOCTOU 窗重開）。
     const { pool, db } = await freshDb();
     const queries: string[] = [];
@@ -454,7 +454,7 @@ describe("公開別名管理端（PUT/DELETE /api/notes/:id/public-link/slug）"
 });
 
 
-// ───────────────────────────── Task 1b：公開端點 ─────────────────────────────
+// ───────────────────────────── 公開端點 ─────────────────────────────
 
 /** 全鍵 limiter 物件（三個公開桶可覆寫；其餘取生產常數的新實例）。 */
 function limitersWithPublic(overrides: Partial<Record<"publicMiss" | "publicNote" | "publicUpload", FixedWindowLimiter>> = {}) {
@@ -586,7 +586,7 @@ describe("公開內容端（GET /api/public/notes/:token，無需登入）", () 
 
     expect((await app.inject({ method: "GET", url: `/api/public/notes/${tokenA}` })).statusCode).toBe(200);
     expect((await app.inject({ method: "GET", url: `/api/public/notes/${tokenA}` })).statusCode).toBe(429);
-    // key 拿掉 token 的退化形（審查抓的洞）：這裡會 429——同代理後讀不同筆記的
+    // key 拿掉 token 的退化形：這裡會 429——同代理後讀不同筆記的
     // 讀者互相拖累。
     expect((await app.inject({ method: "GET", url: `/api/public/notes/${tokenB}` })).statusCode).toBe(200);
     // key 拿掉 ip 前綴的退化形：任一讀者可吃光全世界對該筆記的額度——另一 IP
@@ -605,7 +605,7 @@ describe("公開內容端（GET /api/public/notes/:token，無需登入）", () 
     const noteId = await createNote(app, cookie);
     const token = await openPublicLink(app, cookie, noteId);
 
-    // 「DB 命中後仍 consume(ip)」的退化形（spec §2b 點名）：第 2 發就會 429。
+    // 「DB 命中後仍 consume(ip)」的退化形（點名）：第 2 發就會 429。
     for (let i = 0; i < 3; i += 1) {
       expect((await app.inject({ method: "GET", url: `/api/public/notes/${token}` })).statusCode, `hit ${i}`).toBe(200);
     }
@@ -682,14 +682,14 @@ describe("公開圖片端（GET /api/public/notes/:token/uploads/:uploadId）", 
 });
 
 
-describe("token 不進 log（Task 1c：req serializer 遮罩）", () => {
+describe("token 不進 log（req serializer 遮罩）", () => {
   it("三條帶 token 的路徑（/p/ HTML fallback＋兩條公開 API）打過之後，整份 log 不含 token 字面量、且含遮罩後的 :token", async () => {
     const captured: string[] = [];
     const webDist = mkdtempSync(path.join(tmpdir(), "knotebook-pub-log-"));
     writeFileSync(path.join(webDist, "index.html"), "<!doctype html><title>t</title>");
     try {
       // 只注入 destination（stream）——**禁止自帶 serializers**：帶了的話斷言的是
-      // 測試自己的設定，production（logger: true）零遮罩照樣綠（spec B 不變量）。
+      // 測試自己的設定，production（logger: true）零遮罩照樣綠。
       const { app, db } = await buildTestApp(
         {},
         {
@@ -703,7 +703,7 @@ describe("token 不進 log（Task 1c：req serializer 遮罩）", () => {
       const token = await openPublicLink(app, cookie, noteId);
 
       await app.inject({ method: "GET", url: `/p/${token}`, headers: { accept: "text/html" } });
-      // 洩漏變體（審查真 socket 實測抓到）：SPA fallback 對這兩形照樣 200。
+      // 洩漏變體（真 socket 實測）：SPA fallback 對這兩形照樣 200。
       await app.inject({ method: "GET", url: `//p/${token}`, headers: { accept: "text/html" } });
       await app.inject({ method: "GET", url: `/P/${token}`, headers: { accept: "text/html" } });
       await app.inject({ method: "GET", url: `/api/public/notes/${token}` });
@@ -712,7 +712,7 @@ describe("token 不進 log（Task 1c：req serializer 遮罩）", () => {
       const all = captured.join("");
       // 有在記 log（防「logger 靜默沒開」的空泛通過）且 url 被遮成 :token。
       expect(all).toContain(":token");
-      // 核心不變量：token 字面量一個位元組都不出現——這是 D1「存原文」定案的
+      // 核心不變量：token 字面量一個位元組都不出現——這是「存原文」做法的
       // 承重條件①（fastify 預設 req serializer 會印 req.url，靠 buildApp 無條件
       // 合併的遮罩 serializer 擋）。
       expect(all).not.toContain(token);
@@ -722,7 +722,7 @@ describe("token 不進 log（Task 1c：req serializer 遮罩）", () => {
   });
 });
 
-// ──────────────── #122 PR3 Task 3：公開別名端（by-path 雙段） ────────────────
+// ──────────────── #122：公開別名端（by-path 雙段） ────────────────
 
 describe("公開別名端（GET /api/public/notes/:handle/:slug，無需登入）", () => {
   const byPath = (app: Awaited<ReturnType<typeof buildTestApp>>["app"], handle: string, slug: string, ip?: string) =>
@@ -751,7 +751,7 @@ describe("公開別名端（GET /api/public/notes/:handle/:slug，無需登入�
     const res = await byPath(app, "alice", "my-doc");
     expect(res.statusCode).toBe(200);
     expect(res.headers["cache-control"]).toBe("no-store");
-    // 形狀斷言（plan gate m9）：恰四鍵（#269 加 links、#297 加 width）——token/noteId/updatedAt 任何一個混進來都紅
+    // 形狀斷言：恰四鍵（#269 加 links、#297 加 width）——token/noteId/updatedAt 任何一個混進來都紅
     expect(res.json()).toEqual({ title: "Alias Note", ydoc: ydocBytes.toString("base64"), links: [], width: "standard" });
 
     // 與 token 端點逐鍵同值（共用 200 回應器的行為面證明）
@@ -763,7 +763,7 @@ describe("公開別名端（GET /api/public/notes/:handle/:slug，無需登入�
   it("三條負向（安全核心）：私人 slug 不可達、prev_slug 不補查、legacy_slug 不查", async () => {
     const { app, db, cookie, noteId } = await aliasSetup("bob", "real-alias");
     // 給同一篇筆記設上私人 slug＋prev＋legacy 三個值，逐一打 by-path 驗 404。
-    // ⚠ 兩發 PATCH 必須斷 200（讀碼審 M3）：失敗（節流/驗證回歸）會讓底下三個 404
+    // ⚠ 兩發 PATCH 必須斷 200：失敗（節流/驗證回歸）會讓底下三個 404
     // 打在不存在的值上——「安全核心」變 vacuous 而全綠。
     expect((await app.inject({ method: "PATCH", url: `/api/notes/${noteId}`, cookies: { [SESSION_COOKIE]: cookie }, payload: { slug: "private-name" } })).statusCode).toBe(200);
     expect((await app.inject({ method: "PATCH", url: `/api/notes/${noteId}`, cookies: { [SESSION_COOKIE]: cookie }, payload: { slug: "private-name-2" } })).statusCode).toBe(200); // prev=private-name
@@ -772,7 +772,7 @@ describe("公開別名端（GET /api/public/notes/:handle/:slug，無需登入�
     await db.execute(sql`alter table notes disable trigger notes_legacy_slug_guard`);
     await db.update(notes).set({ legacySlug: "old-global-name" }).where(eq(notes.id, noteId));
     await db.execute(sql`alter table notes enable trigger notes_legacy_slug_guard`);
-    // fixture 落地覆核（同 M3 動機——三個值真的在場）
+    // fixture 落地覆核（同上動機——三個值真的在場）
     const [row] = await db.select({ slug: notes.slug, prevSlug: notes.prevSlug, legacySlug: notes.legacySlug }).from(notes).where(eq(notes.id, noteId)).limit(1);
     expect(row).toEqual({ slug: "private-name-2", prevSlug: "private-name", legacySlug: "old-global-name" });
 
@@ -789,7 +789,7 @@ describe("公開別名端（GET /api/public/notes/:handle/:slug，無需登入�
   it("讀取述詞含 token 非空：直插殘留列（token NULL＋別名非 NULL）→ 404", async () => {
     const { app, db } = await buildTestApp();
     const owner = await insertUser(db, "carol@example.com", "carol");
-    // 生產路徑（T2 條件式 UPDATE＋DELETE 清兩者）產不出這形——直插模擬歷史/手動殘留
+    // 生產路徑（條件式 UPDATE＋DELETE 清兩者）產不出這形——直插模擬歷史/手動殘留
     await db.insert(notes).values({ ownerId: owner.id, title: "Residue", publicSlug: "ghost" });
     expect((await byPath(app, "carol", "ghost")).statusCode).toBe(404);
   });
@@ -844,7 +844,7 @@ describe("公開別名端（GET /api/public/notes/:handle/:slug，無需登入�
   });
 
   it("hit 桶 key 綁 noteId：跨 owner 同名別名各自一桶（key 含 slug 的退化形在此紅）", async () => {
-    // 突變審 L1：key 誤寫成 `${ip}:${q.slug}` 時，同 IP 讀兩個 owner 的同名別名會
+    // 突變驗證：key 誤寫成 `${ip}:${q.slug}` 時，同 IP 讀兩個 owner 的同名別名會
     // 共用額度——「跨 owner 同名共存」是管理端已釘的合法狀態，公開端不得互相扣。
     const { app, db } = await buildTestApp({
       limiters: limitersWithPublic({ publicNote: new FixedWindowLimiter({ limit: 1, windowMs: 60_000 }) }),
@@ -861,9 +861,9 @@ describe("公開別名端（GET /api/public/notes/:handle/:slug，無需登入�
   });
 
   it("別名 slug 走 Unicode 漏斗（normalizeSlug 的 NFC＋Unicode 小寫，非 handle 的 ASCII 漏斗）", async () => {
-    // 突變審 L3：把 pathSpec.guard 的 normalizeSlug 換成 normalizeHandle（ASCII-only）
-    // 全套照綠——PR2 私人 by-path 就補過同款洞（notes-slug.test.ts 的 NFD 案，突變審
-    // F2 前科）。管理端以 NFC 存 café；公開網址以 NFD 拼形（e＋U+0301）與 Unicode
+    // 突變驗證：把 pathSpec.guard 的 normalizeSlug 換成 normalizeHandle（ASCII-only）
+    // 全套照綠——私人 by-path 就補過同款洞（notes-slug.test.ts 的 NFD 案）。
+    // 管理端以 NFC 存 café；公開網址以 NFD 拼形（e＋U+0301）與 Unicode
     // 大寫形 CAFÉ 都必須命中。**三個 fixture 全用碼位逸出**——字面 é 會被編輯器/
     // 工具鏈自動正規化，NFD 案就靜默變成 NFC 對 NFC 的套套邏輯。
     const { app } = await aliasSetup("nfd-owner", "caf\u00e9"); // NFC
@@ -915,7 +915,7 @@ describe("公開別名端（GET /api/public/notes/:handle/:slug，無需登入�
     expect((await byPath(app, "ivan", "not-set")).statusCode).toBe(404);
   });
 
-  it("改名互動（spec §5.8＋#291）：真實改名後 /p/<舊>/<slug> 404（取走前）、/p/<新>/<slug> 活；舊名被別人取走後依新主人解析", async () => {
+  it("改名互動（#291）：真實改名後 /p/<舊>/<slug> 404（取走前）、/p/<新>/<slug> 活；舊名被別人取走後依新主人解析", async () => {
     const { app, db, cookie } = await aliasSetup("judy", "moving-doc");
     // 走真實端點（PATCH /api/auth/profile 需要 registry 列——backfill 補登）。Y 先建好，
     // 讓同一次補登涵蓋兩人（改名之後再補登會順手清掉 released 列，掩蓋釋放形狀）
@@ -924,7 +924,7 @@ describe("公開別名端（GET /api/public/notes/:handle/:slug，無需登入�
     const renamed = await app.inject({ method: "PATCH", url: "/api/auth/profile", payload: { handle: "judy-new" }, cookies: { [SESSION_COOKIE]: cookie } });
     expect(renamed.statusCode).toBe(200);
 
-    expect((await byPath(app, "judy", "moving-doc")).statusCode).toBe(404); // 舊名未被取走前不轉址（D2）
+    expect((await byPath(app, "judy", "moving-doc")).statusCode).toBe(404); // 舊名未被取走前不轉址
     expect((await byPath(app, "judy-new", "moving-doc")).statusCode).toBe(200); // 新 handle 活
 
     // #291：Y 取走 judy。Y 還沒有該別名 → 404；Y 設了同名別名 → 解析到 Y 的筆記
@@ -974,7 +974,7 @@ describe("公開別名圖片端（GET /api/public/notes/:handle/:slug/uploads/:u
   });
 
   it("別名 uploads 吃 publicUpload 桶（非 publicNote）：uploads limit 1 第 2 發 429、內容端不受影響", async () => {
-    // 突變審 L2：新路由的 limiter 接線沒人釘——貼成 publicNote 桶（60/min vs
+    // 突變驗證：新路由的 limiter 接線沒人釘——貼成 publicNote 桶（60/min vs
     // 300/min）圖片會啃內容端額度，全套照綠。
     const uploadsDir = mkdtempSync(path.join(tmpdir(), "knb-alias-lim-"));
     try {

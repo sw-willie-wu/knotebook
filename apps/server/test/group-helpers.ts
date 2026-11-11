@@ -9,11 +9,10 @@ import type { Pool } from "pg";
 import { and, eq, sql } from "drizzle-orm";
 import { expect, vi } from "vitest";
 import { SESSION_COOKIE, type NoteWidth } from "@knotebook/shared";
-import { signSession } from "../src/auth/session.js";
 import type { CollabHooks } from "../src/collab/hooks.js";
 import type { Db } from "../src/db/index.js";
 import { groupMembers, groupRoles, groups, noteRedirects, noteShares, notes, users } from "../src/db/schema.js";
-import { testConfig } from "./helpers.js";
+import { signTestSession } from "./helpers.js";
 
 export interface SeededUser {
   id: string;
@@ -41,7 +40,7 @@ export async function seedUser(
 
 /** `app.inject({ cookies })` 用的 session cookie（直接簽，tv=0——與 insert 預設的 token_version 一致）。 */
 export async function cookieOf(userId: string): Promise<Record<string, string>> {
-  return { [SESSION_COOKIE]: await signSession(testConfig.appSecret, { userId, tv: 0 }) };
+  return { [SESSION_COOKIE]: await signTestSession({ userId, tv: 0 }) };
 }
 
 /** 建群組＋兩個內建角色（與 0012 步驟 2、`createGroupInTx` 同旗標）＋成員。回兩個內建角色的 id。 */
@@ -85,7 +84,7 @@ export async function setMemberRole(db: Db, groupId: string, userId: string, rol
   await db.update(groupMembers).set({ roleId }).where(and(eq(groupMembers.groupId, groupId), eq(groupMembers.userId, userId)));
 }
 
-/** 個人筆記給 `{ ownerId }`、群組筆記給 `{ groupId }`（XOR，S6）。slug 預設隨機（#150 生日問題）。 */
+/** 個人筆記給 `{ ownerId }`、群組筆記給 `{ groupId }`（XOR）。slug 預設隨機（#150 生日問題）。 */
 export async function seedNote(
   db: Db,
   owner: { ownerId: string } | { groupId: string },
@@ -110,7 +109,7 @@ export async function seedNote(
   return { id: n!.id, slug };
 }
 
-/** 直插一列轉址（PR1 沒有寫轉址的生產路徑——PR2 的移動才有）。`expired` 給一列已過期的。 */
+/** 直插一列轉址（寫轉址的生產路徑只有移動）。`expired` 給一列已過期的。 */
 export async function seedRedirect(db: Db, oldPath: string, noteId: string, opts: { expired?: boolean } = {}): Promise<void> {
   await db.insert(noteRedirects).values({
     oldPath,
@@ -136,8 +135,8 @@ export const PLANNER_GROUP_OF_USER1 = "00000000-0000-4000-9000-000000000008";
  * EXPLAIN 用的規模資料（比照 migrate.test.ts 的 #18 慣例：seed 後 analyze，讓 planner 真的做選擇）：
  * 2000 位使用者、500 個群組、每人 3 個群組（約 6000 列成員）、5000 篇筆記（4/5 在群組裡、每群組約 8 篇）、
  * 每篇一列逐人分享。回傳使用者 1 與群組 8 裡的一篇筆記。
- * ⚠ 保留下來的「每篇一列逐人分享」也落在群組筆記上（S5 破裂的形）——只為 EXPLAIN 的規模，**不得**拿這份 seed 做可見性斷言。
- * ⚠ 也只建了 `member` 內建角色，沒有 admin 角色、沒有任何管理員（S1 不成立）——**不得**拿來測 S1。
+ * ⚠ 保留下來的「每篇一列逐人分享」也落在群組筆記上（群組筆記殘留分享列的形）——只為 EXPLAIN 的規模，**不得**拿這份 seed 做可見性斷言。
+ * ⚠ 也只建了 `member` 內建角色，沒有 admin 角色、沒有任何管理員（「每群組至少一位管理員」不成立）——**不得**拿來測管理員不變量。
  */
 export async function seedPlannerData(pool: Pool): Promise<{ userId: string; noteId: string }> {
   const U = (n: string): string => `('00000000-0000-4000-8000-' || lpad(to_hex(${n}), 12, '0'))::uuid`;
@@ -171,11 +170,12 @@ export async function seedPlannerData(pool: Pool): Promise<{ userId: string; not
   return { userId: "00000000-0000-4000-8000-000000000001", noteId: rows[0].id as string };
 }
 
-/** 六個成員是 spy 的 `CollabHooks`（`linkSyncGate` 恆拒，比照既有測試的 stub）。 */
+/** 七個成員是 spy 的 `CollabHooks`（`linkSyncGate` 恆拒，比照既有測試的 stub）。 */
 export function spyCollabHooks() {
   return {
     onShareChanged: vi.fn<(noteId: string, userId: string) => void>(),
     onUserRevoked: vi.fn<(userId: string) => void>(),
+    onSessionRevoked: vi.fn<(userId: string, sessionId: string) => void>(),
     onGroupAccessChanged: vi.fn<(noteIds: readonly string[], userIds: readonly string[]) => void>(),
     beforeNoteDeleted: vi.fn(async () => ({ release: () => {} })),
     onNotesRestored: vi.fn<(noteIds: readonly string[]) => void>(),
@@ -194,7 +194,7 @@ export interface MatrixScene {
   outsider: SeededUser;
   siteAdmin: SeededUser;
   newcomer: SeededUser;
-  /** #175 PR3：沒有人掛的自訂角色（六旗標全關，只有恆真的閱讀）。 */
+  /** #175：沒有人掛的自訂角色（六旗標全關，只有恆真的閱讀）。 */
   customRoleId: string;
 }
 
@@ -223,8 +223,8 @@ async function seedMatrixScene(db: Db): Promise<MatrixScene> {
 }
 
 /**
- * spec §11.1 的群組路由授權矩陣：每個 actor 一個全新的場景（破壞性端點互不干擾）。
- * 非成員／非 UUID／不存在三者的 404 回應必須**逐位元組相同**（S4）。
+ * 群組路由授權矩陣：每個 actor 一個全新的場景（破壞性端點互不干擾）。
+ * 非成員／非 UUID／不存在三者的 404 回應必須**逐位元組相同**。
  */
 export async function runGroupAuthMatrix(app: FastifyInstance, db: Db, endpoint: MatrixEndpoint): Promise<void> {
   const notFoundBodies: string[] = [];
@@ -247,7 +247,7 @@ export async function runGroupAuthMatrix(app: FastifyInstance, db: Db, endpoint:
     if (actor === "nonMember" || actor === "badId" || actor === "missing") notFoundBodies.push(res.body);
   }
   expect(new Set(notFoundBodies).size, "非成員／非 UUID／不存在的 404 必須逐位元組相同").toBe(1);
-  expect(JSON.parse(notFoundBodies[0]!)).toEqual({ error: { code: "not_found", message: "找不到此群組" } });
+  expect(JSON.parse(notFoundBodies[0]!)).toEqual({ error: { code: "not_found", message: "No group with that id." } });
 }
 
 export function sleep(ms: number): Promise<void> {

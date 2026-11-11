@@ -45,7 +45,7 @@ function Harness({ target }: { target: VersionDto }) {
       <button type="button" onClick={() => s.openDialog({ kind: "rename", version: target })}>h-rename</button>
       <button type="button" onClick={() => s.openDialog({ kind: "delete", version: target })}>h-delete</button>
       <span data-testid="h-state">{JSON.stringify({ preview: s.preview, dialog: s.dialog?.kind ?? null })}</span>
-      {/* 編輯器替身（final I-2）：Ctrl+S 時焦點在 contenteditable 上。 */}
+      {/* 編輯器替身：Ctrl+S 時焦點在 contenteditable 上。 */}
       <div data-testid="h-editor" contentEditable suppressContentEditableWarning tabIndex={-1}>
         editor
       </div>
@@ -54,7 +54,7 @@ function Harness({ target }: { target: VersionDto }) {
 }
 function Host({ target }: { target: VersionDto }) {
   const value = useVersionsController({ noteId: NOTE, enabled: true });
-  // final I-2 fallback：模擬頁首 ⋮——選單項按下（開儲存對話框）的同一批次就卸載；`fake-menu-trigger` 是交下來的 returnFocusRef。
+  // fallback：模擬頁首 ⋮——選單項按下（開儲存對話框）的同一批次就卸載；`fake-menu-trigger` 是交下來的 returnFocusRef。
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [menuOpen, setMenuOpen] = useState(true);
   return (
@@ -74,7 +74,7 @@ function Host({ target }: { target: VersionDto }) {
           menu-item-save
         </button>
       )}
-      {/* 照 NotePage 的掛法（final fix 2 I-A）：只在 dialog !== null 時掛，關閉即卸載。 */}
+      {/* 照 NotePage 的掛法：只在 dialog !== null 時掛，關閉即卸載。 */}
       {value.dialog !== null && <VersionsDialogs returnFocusRef={triggerRef} />}
     </VersionsProvider>
   );
@@ -94,14 +94,14 @@ const LIST = `/api/notes/${NOTE}/versions?limit=50`;
 const CUR = `/api/notes/${NOTE}/versions?limit=1`;
 const APPLY1 = `/api/notes/${NOTE}/versions/1/apply`;
 
-describe("VersionsDialogs＋useApplyFlow（spec §8.5）", () => {
+describe("VersionsDialogs＋useApplyFlow", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("儲存：描述是固定句、不預告版號（#272 D5）；名稱去頭尾空白送出；toast「Saved as 里程碑 (0003aaa)」；關閉", async () => {
+  it("儲存：描述是固定句、不預告版號（#272）；名稱去頭尾空白送出；toast「Saved as 里程碑 (0003aaa)」；關閉", async () => {
     const calls = stub((url, init) => {
       if (url === LIST) return { status: 200, body: listBody(cur({ dirty: true })) };
       if (url === `/api/notes/${NOTE}/versions` && init?.method === "POST") return { status: 201, body: { ...v(3, { kind: "manual", name: "里程碑" }), upgraded: false } };
@@ -119,7 +119,7 @@ describe("VersionsDialogs＋useApplyFlow（spec §8.5）", () => {
     await waitFor(() => expect(hState().dialog).toBeNull());
   });
 
-  it("M-3：儲存對話框點外面不關（表單型 dismissOnOutside={false}）、已填的名稱還在", async () => {
+  it("儲存對話框點外面不關（表單型 dismissOnOutside={false}）、已填的名稱還在", async () => {
     stub((url) => (url === LIST ? { status: 200, body: listBody(cur({ dirty: true })) } : undefined));
     renderDialogs();
     fireEvent.click(screen.getByText("h-save"));
@@ -130,7 +130,7 @@ describe("VersionsDialogs＋useApplyFlow（spec §8.5）", () => {
     expect(within(screen.getByRole("dialog")).getByLabelText("Version name (optional)")).toHaveValue("草稿");
   });
 
-  it("儲存遇到內容與基底相同（upgraded:true）→ toast 依回應的那一版，不用快取的基底（r7 N-3）", async () => {
+  it("儲存遇到內容與基底相同（upgraded:true）→ toast 依回應的那一版，不用快取的基底", async () => {
     stub((url, init) => {
       if (url === LIST) return { status: 200, body: listBody(cur({ baseSeq: 9 })) };
       if (url === `/api/notes/${NOTE}/versions` && init?.method === "POST") return { status: 201, body: { ...v(2, { kind: "manual" }), upgraded: true } };
@@ -158,7 +158,7 @@ describe("VersionsDialogs＋useApplyFlow（spec §8.5）", () => {
     expect(hState().preview).toBeNull();
   });
 
-  it("面板快取寫著乾淨、但按套用前重抓到 dirty → 跳三選一（spec §8.2：一律重抓）", async () => {
+  it("面板快取寫著乾淨、但按套用前重抓到 dirty → 跳三選一（一律重抓）", async () => {
     const calls = stub((url) => {
       if (url === CUR) return { status: 200, body: listBody(cur({ dirty: true })) };
       return undefined;
@@ -213,7 +213,7 @@ describe("VersionsDialogs＋useApplyFlow（spec §8.5）", () => {
   it("直接套用收到 409 version_unsaved_changes → 改跳三選一", async () => {
     stub((url) => {
       if (url === CUR) return { status: 200, body: listBody(cur({ dirty: false })) };
-      if (url === APPLY1) return { status: 409, body: { error: { code: "version_unsaved_changes", message: "目前有未儲存的修改" } } };
+      if (url === APPLY1) return { status: 409, body: { error: { code: "version_unsaved_changes", message: "The note has changes that aren't in any saved version." } } };
       return undefined;
     });
     renderDialogs();
@@ -269,7 +269,7 @@ describe("VersionsDialogs＋useApplyFlow（spec §8.5）", () => {
     expect(hState().preview).toBeNull();
   });
 
-  it("final I-2：編輯器有焦點 → 開儲存對話框 → 取消／存完關閉 → 焦點都回到編輯器（受控 Dialog 沒有 Trigger，Radix 不會自己還原）", async () => {
+  it("編輯器有焦點 → 開儲存對話框 → 取消／存完關閉 → 焦點都回到編輯器（受控 Dialog 沒有 Trigger，Radix 不會自己還原）", async () => {
     stub((url, init) => {
       if (url === LIST) return { status: 200, body: listBody(cur({ dirty: true })) };
       if (url === `/api/notes/${NOTE}/versions` && init?.method === "POST") return { status: 201, body: { ...v(3, { kind: "manual" }), upgraded: false } };
@@ -285,7 +285,7 @@ describe("VersionsDialogs＋useApplyFlow（spec §8.5）", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     await waitFor(() => expect(document.activeElement).toBe(editor));
-    // 第二輪：送出成功關閉也一樣。
+    // 送出成功關閉也一樣。
     fireEvent.click(screen.getByText("h-save"));
     dialog = await screen.findByRole("dialog", { name: "Save current version" });
     await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
@@ -295,7 +295,7 @@ describe("VersionsDialogs＋useApplyFlow（spec §8.5）", () => {
     await waitFor(() => expect(document.activeElement).toBe(editor));
   });
 
-  it("final I-2 fallback：從 ⋮ 選單開儲存對話框（記到的選單項已卸載）→ 取消 → 焦點退回 ⋮ 觸發鈕", async () => {
+  it("fallback：從 ⋮ 選單開儲存對話框（記到的選單項已卸載）→ 取消 → 焦點退回 ⋮ 觸發鈕", async () => {
     stub((url) => (url === LIST ? { status: 200, body: listBody(cur({ dirty: true })) } : undefined));
     renderDialogs();
     const item = screen.getByText("menu-item-save");
@@ -310,7 +310,7 @@ describe("VersionsDialogs＋useApplyFlow（spec §8.5）", () => {
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "fake-menu-trigger" })));
   });
 
-  it("final fix 2 M-A：開對話框時焦點在 body（沒有可還的元素）→ 關閉後退回 ⋮ 觸發鈕，不是還給 body", async () => {
+  it("開對話框時焦點在 body（沒有可還的元素）→ 關閉後退回 ⋮ 觸發鈕，不是還給 body", async () => {
     stub((url) => (url === LIST ? { status: 200, body: listBody(cur({ dirty: true })) } : undefined));
     renderDialogs();
     (document.activeElement as HTMLElement | null)?.blur();
@@ -323,7 +323,7 @@ describe("VersionsDialogs＋useApplyFlow（spec §8.5）", () => {
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "fake-menu-trigger" })));
   });
 
-  it("final I-2：三選一 → 「儲存當前版本」換成儲存對話框時焦點留在新對話框裡（不被拉回編輯器）；存完套用後才回到編輯器", async () => {
+  it("三選一 → 「儲存當前版本」換成儲存對話框時焦點留在新對話框裡（不被拉回編輯器）；存完套用後才回到編輯器", async () => {
     stub((url, init) => {
       if (url === CUR) return { status: 200, body: listBody(cur({ dirty: true })) };
       if (url === LIST) return { status: 200, body: listBody(cur({ dirty: true })) };
@@ -347,7 +347,7 @@ describe("VersionsDialogs＋useApplyFlow（spec §8.5）", () => {
     await waitFor(() => expect(document.activeElement).toBe(editor));
   });
 
-  it("final M-4：存完再套用——存檔成功到套用完成之間，送出鈕不可再按（第二次點擊不觸發第二次 POST）", async () => {
+  it("存完再套用——存檔成功到套用完成之間，送出鈕不可再按（第二次點擊不觸發第二次 POST）", async () => {
     let releaseApply: () => void = () => {};
     const calls: Array<{ method: string; url: string }> = [];
     const res = (status: number, body?: unknown) => ({ ok: status < 400, status, json: () => Promise.resolve(body) }) as Response;

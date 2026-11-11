@@ -5,15 +5,15 @@ import { createMarkdownLinkExtension } from "./markdown-link";
 import type { EditorRef } from "@/components/wikilink/menu";
 
 /**
- * oracle 比對測試（INV-1 的守衛）：比照 `paste.subset.test.ts` 拿 BlockNote 自己當
+ * oracle 比對測試（手打與貼上終態相等的守衛）：比照 `paste.subset.test.ts` 拿 BlockNote 自己當
  * oracle 的既有招數——對同一組輸入，比對「逐字元打完的終態」與「`pasteMarkdown` 的
  * 終態」，整份文件相等。
  *
  * ⚠ **輸入集合明文枚舉，每一條各附一句「為什麼收／為什麼排除」，不用開放判準篩選**
- * （spec §8.2 的明文要求）。反例：`![a](…) [b](…)` 的尾端還原逐字相等（依「還原不回
+ * 。反例：`![a](…) [b](…)` 的尾端還原逐字相等（依「還原不回
  * 原字面就排除」這條開放判準會被留在集合內），但剖析器那側把 inline 圖片**整個靜默
  * 丟掉**、手打那側只換尾端 ⇒ 假紅。**判準只看尾端，終態卻由整段決定**——下面
- * `EXCLUDED` 那組就是這一族與 §9.2 title/scheme 家族的具名成員。
+ * `EXCLUDED` 那組就是這一族與 title/scheme 家族的具名成員。
  */
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ProseMirror EditorView，理由同 markdown-link.rule.test.tsx
@@ -71,13 +71,13 @@ function pastedContent(input: string): unknown {
   }
 }
 
-/** INV-1 適用集合：手打終態與貼上終態逐字相等。每條都附一句「為什麼收」。 */
+/** 適用集合：手打終態與貼上終態逐字相等。每條都附一句「為什麼收」。 */
 const MATCHING: Array<[string, string]> = [
   ["基本案：純一個連結", "[a](https://x.com)"],
   ["href 含成對括號：剖析器兩側都完整保留括號", "[水星](https://zh.wikipedia.org/wiki/水星_(行星))"],
   ["連結前有一般文字前綴，前綴不含任何 markdown 顯著字元，兩側都原樣保留", "前面有字 [a](https://x.com)"],
   ["同一段落兩個連結，兩側都各自轉成獨立 link node（夾一段純文字）", "[a](https://x.com) 然後 [b](https://y.com)"],
-  ["§9.1：網址內未跳脫的 )，兩側都在第一個 ) 收尾成短連結＋純文字殘留", "[a](https://x.com/foo)bar)"],
+  ["網址內未跳脫的 )，兩側都在第一個 ) 收尾成短連結＋純文字殘留", "[a](https://x.com/foo)bar)"],
   ["相對路徑 href，兩側都原樣保留（不套用 safeMediaUrl 那套判準）", "[區域](/n/my-note)"],
   ["mailto scheme，兩側都放行（本規格刻意不收窄 scheme，見 spec D1）", "[寄信](mailto:me@example.com)"],
 ];
@@ -87,7 +87,7 @@ const MATCHING: Array<[string, string]> = [
  * 且用一條「兩側確實不同」的斷言釘住排除理由不是憑空想像——避免這份清單本身跟著
  * 事實漂移卻沒有東西發現。
  */
-describe("markdown-link oracle：INV-1 適用集合（整份文件終態相等）", () => {
+describe("markdown-link oracle：適用集合（整份文件終態相等）", () => {
   it.each(MATCHING)("%s：%s", (_reason, input) => {
     expect(typedContent(input)).toEqual(pastedContent(input));
   });

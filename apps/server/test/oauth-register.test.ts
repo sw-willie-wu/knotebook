@@ -1,9 +1,9 @@
 /**
- * #132 Task 4：`POST /oauth/register`（DCR，§5.2）。
+ * #132：`POST /oauth/register`（DCR）。
  *
- * 這一族守的是：①loopback-only（D10——無認證的 DCR 若收遠端 redirect，任何人都能註冊
+ * 這一族守的是：①loopback-only（無認證的 DCR 若收遠端 redirect，任何人都能註冊
  * 好聽的名字做一鍵釣魚）；②不支援的 metadata 一律回絕而不是默默接受；③`client_name`
- * 黑名單；④進表前先跑 I5；⑤限流與 content-type 都走 RFC 形。
+ * 黑名單；④進表前先跑機會性清理（`runOauthCleanup`）；⑤限流與 content-type 都走 RFC 形。
  */
 import { describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
@@ -17,7 +17,7 @@ async function register(app: TestApp["app"], body: object) {
   return app.inject({ method: "POST", url: "/oauth/register", payload: body });
 }
 
-describe("POST /oauth/register（§5.2）", () => {
+describe("POST /oauth/register", () => {
   it("201 回註冊結果，不發 secret，欄位固定", async () => {
     const { app, close } = await buildTestApp();
     try {
@@ -225,7 +225,7 @@ describe("POST /oauth/register（§5.2）", () => {
     }
   });
 
-  it("進表前跑 I5：25 小時前的殭屍 client 在這一發後消失", async () => {
+  it("進表前跑機會性清理：25 小時前的殭屍 client 在這一發後消失", async () => {
     const { app, db, close } = await buildTestApp();
     try {
       await db.insert(oauthClients).values({
@@ -265,6 +265,20 @@ describe("POST /oauth/register（§5.2）", () => {
       const a = (await register(app, OK_BODY)).json().client_id as string;
       const b = (await register(app, OK_BODY)).json().client_id as string;
       expect(a).not.toBe(b);
+    } finally {
+      await close();
+    }
+  });
+
+  it("#372：body 超過上限 → 413 RFC 形，error_description 是與 REST 同一句的固定英文句", async () => {
+    const { app, close } = await buildTestApp();
+    try {
+      const res = await register(app, { ...OK_BODY, pad: "x".repeat(1_100_000) });
+      expect(res.statusCode).toBe(413);
+      expect(res.json()).toEqual({
+        error: "invalid_request",
+        error_description: "The request body is over this endpoint's size limit. Send a smaller request.",
+      });
     } finally {
       await close();
     }

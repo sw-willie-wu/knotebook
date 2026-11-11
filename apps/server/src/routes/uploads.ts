@@ -10,6 +10,7 @@ import { sendError, sendStorageQuotaExceeded } from "../http/errors.js";
 import { TxAbort } from "../http/tx-abort.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
+import type { SiteLimits } from "../site-limits/store.js";
 import { isForeignKeyViolation, isRetryableTxError } from "../db/pg-errors.js";
 import { transferTokens, uploads } from "../db/schema.js";
 import type { GroupTestHook } from "../groups/test-hook.js";
@@ -25,6 +26,7 @@ import { insertUploadInTx } from "../uploads/tx/insert-upload.js";
 export interface UploadsRouteDeps {
   db: Db;
   config: AppConfig;
+  siteLimits: SiteLimits;
   /** #200：transfer token 路徑的 `checkUser`（停權／需改密碼）。 */
   gate: UserGate;
   /**
@@ -41,10 +43,10 @@ export interface UploadsRouteDeps {
 }
 
 /**
- * 上傳（POST）／下載（GET）路由（spec §12.4/§12.5，Task 10b）。
+ * 上傳（POST）／下載（GET）路由。
  *
  * `POST /api/notes/:id/uploads` 的 multipart body 解析與 CSRF 豁免（essence 檢查 +
- * Origin 驗證）在 `app.ts` 的全域 `onRequest` hook 已完成（Task 10a）——本模組只處理
+ * Origin 驗證）在 `app.ts` 的全域 `onRequest` hook 已完成——本模組只處理
  * routing 之後的邏輯：authenticate → editor+ 權限 → 節流 → 儲存配額「已滿」預檢 → 解析 multipart body →
  * magic bytes 偵測 → 寫檔 → 交易（筆記 KEY SHARE → 空間鎖＋配額 → INSERT；`uploads/tx/insert-upload.ts`）。
  *
@@ -52,9 +54,9 @@ export interface UploadsRouteDeps {
  * `app.ts` 的註冊點註解。本模組不重複註冊它，只消費 `request.parts()`。
  *
  * #200：兩支路由在 session 之外加收 **transfer token**（`auth/transfer-auth.ts`；一般 PAT／OAuth Bearer 不收，
- * spec §5.1）。POST 的 preHandler 順序是契約（spec §5.2）：認證 → token 的筆記＝路徑筆記 → 使用當下角色 → 上傳節流
+ * 見 docs/api-tokens.md）。POST 的 preHandler 順序是契約：認證 → token 的筆記＝路徑筆記 → 使用當下角色 → 上傳節流
  * → 儲存配額「已滿」預檢（第 4a 步；已滿不燒 token）→ 原子消費；全部在 `request.parts()` 之前、每個早退都 drain。
- * **消費之後**（server 開始讀檔之後）的任何失敗都燒掉 token、不退還（spec §5.2、Q2）——含交易內的 409
+ * **消費之後**（server 開始讀檔之後）的任何失敗都燒掉 token、不退還——含交易內的 409
  * `storage_quota_exceeded`（放不下）與 409 `server_busy`（空間鎖逾時／死結），兩種 409 都與預檢的同碼同形。CSRF：`MULTIPART_EXEMPT_ROUTES` 不變——Bearer 不是 ambient 憑證。
  */
 export function uploadsRoutes(deps: UploadsRouteDeps) {
@@ -70,14 +72,14 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
 
     /**
      * 認證 + 授權 + 節流 + 儲存配額「已滿」預檢全部收在 preHandler，且**每個早退分支都要先 drain**
-     * （`drainWithCap`，spec §13.2）——這幾個檢查都在真的開始解析 multipart body
+     * （`drainWithCap`）——這幾個檢查都在真的開始解析 multipart body
      * （`request.parts()`）之前執行，而 `@fastify/multipart` 的 content-type parser
      * （`setMultipart`）本身完全不讀 body，只是設個旗標；若不主動 drain，未被消費的
      * request body 會讓底層 socket 卡住，client 收不到我們已經送出的結構化錯誤 body
-     * （見 task-10-brief 的「大 body + 早退 4xx 仍收到結構化 error body」）。
+     * （大 body + 早退 4xx 時，client 仍要收到結構化 error body）。
      *
      * #200：認證改走 `transferAuth.require("upload")`（沒帶 `Authorization` 就回退 `app.authenticate`，session 路徑
-     * 行為不變）；transfer 路徑多兩步——「token 的筆記＝路徑筆記」排在角色之前、原子消費排在節流之後（spec §5.2）。
+     * 行為不變）；transfer 路徑多兩步——「token 的筆記＝路徑筆記」排在角色之前、原子消費排在節流之後。
      */
     async function authAndAuthorize(request: FastifyRequest, reply: FastifyReply): Promise<void> {
       await uploadAuth(request, reply);
@@ -90,35 +92,35 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
       const userId = request.user!.id;
       const transfer = request.transfer;
 
-      // #200 spec §5.2 第 2 步：排在角色之前——持 A 篇 token 的人拿 B 篇的 id 來打一律同形 403，不洩漏 B 存不存在。
-      // DB 存小寫正規形、`UUID_RE` 收大寫（M1），所以比對前 toLowerCase。
+      // #200：排在角色之前——持 A 篇 token 的人拿 B 篇的 id 來打一律同形 403，不洩漏 B 存不存在。
+      // DB 存小寫正規形、`UUID_RE` 收大寫，所以比對前 toLowerCase。
       if (transfer !== undefined && transfer.noteId !== noteId.toLowerCase()) {
         drainWithCap(request);
-        sendError(reply, 403, "forbidden", "此 transfer token 不適用於這篇筆記");
+        sendError(reply, 403, "forbidden", "This transfer token is for a different note.");
         return;
       }
 
-      // 第 3 步：使用當下重驗角色（spec A）。`ownerId`／`groupId` 是配額的空間鍵，也在使用當下決定。
+      // 第 3 步：使用當下重驗角色。`ownerId`／`groupId` 是配額的空間鍵，也在使用當下決定。
       const access = await resolveNoteAccess(deps.db, userId, noteId);
       if (access.role === "none") {
         drainWithCap(request);
-        sendError(reply, 404, "not_found", "找不到此筆記");
+        sendError(reply, 404, "not_found", "No note with that id.");
         return;
       }
       if (access.role === "viewer") {
         drainWithCap(request);
-        sendError(reply, 403, "forbidden", "沒有編輯權限");
+        sendError(reply, 403, "forbidden", "You don't have edit access to this note.");
         return;
       }
 
       // 第 4 步：排在消費 token 之前——被 429 擋下時 token 不被燒掉。
       if (!deps.limiters.upload.consume(userId)) {
         drainWithCap(request);
-        sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
+        sendError(reply, 429, "too_many_requests", "Too many requests. Wait a moment and try again.");
         return;
       }
 
-      // 第 4a 步（配額預檢，#200 spec §5.2-4a；儲存配額 §6.3-1、§8.3）：不持鎖的「已滿」預檢——讀 body 之前、
+      // 第 4a 步（配額預檢，#200）：不持鎖的「已滿」預檢——讀 body 之前、
       // 消費 token 之前，所以已滿不燒 token。放得下與否的權威判定在交易內（insertUploadInTx）；這裡只擋「已經滿了」。
       const space = spaceOfNote(access);
       const usage = await readSpaceUsage(deps.db, space);
@@ -153,7 +155,7 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
       // 才會釋放，不是靠 `drainWithCap` 就能繞過的，那個只對「完全還沒進
       // multipart 解析」的早退才有效，見上面 `authAndAuthorize`）。
       //
-      // 「多 file part 取第一其餘 drain」（spec §12.4）：刻意不對 `request.parts()` 設
+      // 「多 file part 取第一其餘 drain」：刻意不對 `request.parts()` 設
       // `limits.files`——設了的話多餘的 file part 會讓外掛自己丟 413（FilesLimitError）
       // 直接逃逸出我們的錯誤分類，不會走到這裡的「取第一個、其餘忽略」邏輯。
       let fileBuf: Buffer | undefined;
@@ -161,7 +163,7 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
       let sawFile = false;
 
       try {
-        for await (const part of request.parts()) {
+        for await (const part of request.parts({ limits: { fileSize: deps.siteLimits.get("uploadMaxBytes") } })) {
           if (part.type !== "file") continue; // field part 在 yield 時已由 busboy 完整消費，不需額外動作。
           if (!sawFile) {
             sawFile = true;
@@ -175,7 +177,7 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
           }
         }
       } catch (err) {
-        // 【Critical-2，真 socket 審查發現】busboy 的 `cleanup(err)` 只
+        // 真 socket 實測發現：busboy 的 `cleanup(err)` 只
         // `request.unpipe(bb)`，不會 resume `request.raw`——一旦 `request.pipe(bb)`
         // 真的跑過（`request.parts()` 已經開始消費），Node 會把這個 request 標成
         // 「應用層已接手消費」（`req._consuming`），關閉回應時內建的自動
@@ -195,7 +197,7 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
         // `content_too_large`，也一樣不是本路由該回的碼——multipart 的大小超限由下面
         // 的 `truncated` 分支自己回 413 `file_too_large`）。
         request.log.warn({ err }, "multipart 解析失敗");
-        return sendError(reply, 400, "invalid_body", "上傳格式錯誤");
+        return sendError(reply, 400, "invalid_body", "The upload isn't valid multipart/form-data.");
       }
 
       if (!sawFile || fileBuf === undefined) {
@@ -204,11 +206,11 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
         // `drainWithCap` 本身冪等（見該 helper 說明），且不依賴「迴圈一定跑到底」
         // 這個前提在未來重構後繼續成立（防禦性，同 413/415 分支）。
         drainWithCap(request);
-        return sendError(reply, 400, "invalid_body", "缺少上傳檔案");
+        return sendError(reply, 400, "invalid_body", "The upload has no file.");
       }
       if (truncated) {
         drainWithCap(request);
-        return sendError(reply, 413, "file_too_large", "檔案超過大小上限");
+        return sendError(reply, 413, "file_too_large", "The file is over the size limit.");
       }
 
       // 只信任 magic bytes，不採信任何請求端聲稱的 Content-Type／副檔名（見
@@ -217,7 +219,7 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
       const mime = detectImageMimeType(fileBuf);
       if (mime === null) {
         drainWithCap(request);
-        return sendError(reply, 415, "unsupported_media_type", "不支援的圖片格式");
+        return sendError(reply, 415, "unsupported_media_type", "Unsupported image format. Upload a PNG, JPEG, GIF or WebP image.");
       }
 
       const id = randomUUID();
@@ -229,14 +231,14 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
       await writeFile(tempPath, fileBuf);
       await rename(tempPath, finalPath);
 
-      // 儲存配額 U-tx（§6.3-2）：筆記 KEY SHARE → 空間鎖＋配額 → INSERT。S14：callback 整段是 insertUploadInTx(tx, …)，引數是
+      // 儲存配額上傳：筆記 KEY SHARE → 空間鎖＋配額 → INSERT。S14：callback 整段是 insertUploadInTx(tx, …)，引數是
       // 交易前備好的純資料與測試縫（屬性存取）。
       const input = { id, noteId: noteId.toLowerCase(), uploaderId: userId, mime, size: fileBuf.length, lockTimeoutMs: deps.storageLockTimeoutMs };
       try {
         await deps.groupTestHook?.("upload-authorized", { noteId: input.noteId });
         await deps.db.transaction(tx => insertUploadInTx(tx, input, deps.groupTestHook));
       } catch (err) {
-        // 交易任何拋出都先清檔（M4）：DB 沒有列的檔不該留在磁碟。清檔本身失敗（理論上不太可能，寫入才剛成功）
+        // 交易任何拋出都先清檔：DB 沒有列的檔不該留在磁碟。清檔本身失敗（理論上不太可能，寫入才剛成功）
         // 不吞原錯誤。
         await unlink(finalPath).catch(() => {});
         // 先判子類（StorageQuotaExceeded extends TxAbort）：反序會失去數字。
@@ -244,9 +246,9 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
         // 筆記在處理途中被刪：交易內 KEY SHARE 讀到 0 列 → TxAbort 404（同本檔 authAndAuthorize 的 none 分支），不是 500。
         if (err instanceof TxAbort) return sendError(reply, err.status, err.errCode, err.message);
         // 防禦縱深：交易已持筆記 KEY SHARE，INSERT 不會撞 FK；撞到也回同一條 404（同既有語意）。
-        if (isForeignKeyViolation(err)) return sendError(reply, 404, "not_found", "找不到此筆記");
-        // §6.9：空間鎖逾時（55P03）／死結（40P01）／序列化失敗（40001）→ 409 server_busy（字面同 routes/groups.ts）。
-        if (isRetryableTxError(err)) return sendError(reply, 409, "server_busy", "伺服器忙碌，請稍後再試");
+        if (isForeignKeyViolation(err)) return sendError(reply, 404, "not_found", "No note with that id.");
+        // 空間鎖逾時（55P03）／死結（40P01）／序列化失敗（40001）→ 409 server_busy（字面同 routes/groups.ts）。
+        if (isRetryableTxError(err)) return sendError(reply, 409, "server_busy", "The server is busy. Try again in a moment.");
         throw err;
       }
 
@@ -267,28 +269,28 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
       const transfer = request.transfer;
 
       if (!UUID_RE.test(id)) {
-        return sendError(reply, 404, "not_found", "找不到此檔案");
+        return sendError(reply, 404, "not_found", "No file with that id.");
       }
 
       const [row] = await deps.db.select().from(uploads).where(eq(uploads.id, id)).limit(1);
       if (!row) {
-        return sendError(reply, 404, "not_found", "找不到此檔案");
+        return sendError(reply, 404, "not_found", "No file with that id.");
       }
 
-      // #200 spec §5.3：transfer token 只綁一篇筆記——上傳不屬於那一篇 → 403（與下面「看不到的上傳回 403」同碼，
+      // #200：transfer token 只綁一篇筆記——上傳不屬於那一篇 → 403（與下面「看不到的上傳回 403」同碼，
       // 上方 JSDoc 的理由同樣成立）。兩邊都是 DB 的小寫正規形，不必再 toLowerCase。
       if (transfer !== undefined && row.noteId !== transfer.noteId) {
-        return sendError(reply, 403, "forbidden", "此 transfer token 不適用於這個檔案");
+        return sendError(reply, 403, "forbidden", "This transfer token is for a different file.");
       }
 
       const role = await resolveRole(deps.db, userId, row.noteId);
       if (role === "none") {
-        return sendError(reply, 403, "forbidden", "無權存取此檔案");
+        return sendError(reply, 403, "forbidden", "You don't have access to this file.");
       }
 
       // #200：transfer GET 扣 token 讀取桶（key 與 `auth/bearer.ts` 同形 `token:${userId}`、同一實例＝同一本帳）。
       if (transfer !== undefined && !deps.limiters.tokenRead.consume(`token:${userId}`)) {
-        return sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
+        return sendError(reply, 429, "too_many_requests", "Too many requests. Wait a moment and try again.");
       }
 
       const filePath = uploadFilePath(deps.uploadsDir, row.id);
@@ -299,7 +301,7 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
         // 維運排查（例如 volume 被清過、手動誤刪），對呼叫端仍回統一的 404，不洩漏
         // 內部路徑等細節。
         request.log.error({ uploadId: row.id }, "DB 有上傳紀錄但磁碟找不到對應檔案");
-        return sendError(reply, 404, "not_found", "找不到此檔案");
+        return sendError(reply, 404, "not_found", "No file with that id.");
       }
 
       reply.header("x-content-type-options", "nosniff");

@@ -31,8 +31,8 @@ export interface RegisteredUser {
 }
 
 /**
- * #187 交易表 P1（spec §9.1 第 5 步）。`site_settings` 以 `FOR SHARE` 再讀**兩個**開關（C9、C27：與關閉的 `FOR NO KEY UPDATE`
- * 互斥——快速路徑讀到開、這裡讀到關的那一次會被擋下）；讀不到列＝註冊關（§4.3）。
+ * #187：註冊。`site_settings` 以 `FOR SHARE` 再讀**兩個**開關（與關閉的 `FOR NO KEY UPDATE`
+ * 互斥——快速路徑讀到開、這裡讀到關的那一次會被擋下）；讀不到列＝註冊關。
  * 建帳本體在 `insertPasswordUserInTx`（與接受邀請共用）。
  */
 export async function registerUserInTx(tx: Tx, input: RegisterUserInput): Promise<RegisteredUser> {
@@ -49,13 +49,13 @@ export async function registerUserInTx(tx: Tx, input: RegisterUserInput): Promis
 }
 
 /**
- * registry-first 建帳（註冊與接受邀請共用）：`lower(email)` 先查（r2-M8：`users_email_unique` 大小寫敏感，擋不住 pre-v0.1
+ * registry-first 建帳（註冊與接受邀請共用）：`lower(email)` 先查（`users_email_unique` 大小寫敏感，擋不住 pre-v0.1
  * 的大小寫混合舊列）；並發形的最後防線是唯一鍵（呼叫端在交易外判 constraint）。本人自己選的密碼，故
- * `must_change_password=false`（B9）；`isAdmin` 不寫、取 DB 預設 false。開關由呼叫端判斷：註冊在交易內以 FOR SHARE 重判（registerUserInTx）；接受邀請在交易外判斷，交易內不讀 site_settings（#285 spec §5.4）。
+ * `must_change_password=false`；`isAdmin` 不寫、取 DB 預設 false。開關由呼叫端判斷：註冊在交易內以 FOR SHARE 重判（registerUserInTx）；接受邀請在交易外判斷，交易內不讀 site_settings（#285）。
  */
 export async function insertPasswordUserInTx(tx: Tx, input: PasswordUserInput): Promise<RegisteredUser> {
   const [taken] = await tx.select({ id: users.id }).from(users).where(sql`lower(${users.email}) = ${input.email}`).limit(1);
-  if (taken !== undefined) throw new TxAbort(409, "email_taken", "此 email 已被使用");
+  if (taken !== undefined) throw new TxAbort(409, "email_taken", "That email is already in use.");
 
   const handle = input.useFallbackHandle ? `user-${input.id.slice(0, 8)}` : await deriveHandle(tx, [input.email.split("@")[0]], input.id);
   await tx.insert(handles).values({ handle, userId: input.id, state: "live" });

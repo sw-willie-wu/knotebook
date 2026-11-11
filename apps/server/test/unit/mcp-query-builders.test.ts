@@ -1,7 +1,7 @@
 /**
  * #108：`mcp/queries.ts` 的「每次呼叫現造一組 branch select」守衛。
  *
- * **為什麼需要它**（plan Step 1 實跑）：drizzle 的 select builder 是**可變且單次使用**的。
+ * **為什麼需要它**：drizzle 的 select builder 是**可變且單次使用**的。
  * 同一組 `owned`／`shared` 拿去組第二個 `unionAll(...)`，產出的是一個多一段 `union all`
  * 的畸形查詢，**不丟例外**；而且污染是**回溯的**——建完第二個之後，回頭對第一個 query
  * 物件 `toSQL()` 也變成畸形形。
@@ -18,6 +18,7 @@ import { createDb } from "../../src/db/index.js";
 import { buildNoteListQuery } from "../../src/mcp/queries.js";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { buildNoteSearchQuery as buildFullTextQuery, buildSearchMatchesQuery } from "../../src/notes/search-sql.js";
+import { GOLDEN_PARAMS, GOLDEN_SQL, GOLDEN_USER } from "./search-sql-golden.js";
 
 const pool = new pg.Pool({ connectionString: "postgres://u:p@127.0.0.1:1/none" });
 const db = createDb(pool);
@@ -106,6 +107,37 @@ describe("#93 notes/search-sql", () => {
     expect(sql.toLowerCase()).not.toContain(" like ");
     expect(sql).not.toContain("50%");
     expect(params).toContain("50%");
+  });
+  // #93：bodyOnly／page 兩個選項
+  it("U0 不帶新選項的 toSQL() 與加分頁之前抓的 golden 逐位元組相同（不變量 1：MCP 的 SQL 不變）", () => {
+    const { sql, params } = buildFullTextQuery(db, { userId: GOLDEN_USER, query: "q", limit: 20 }).toSQL();
+    expect(sql).toBe(GOLDEN_SQL);
+    expect(params).toEqual(GOLDEN_PARAMS);
+  });
+  it("U1 不帶、bodyOnly: false、page: undefined 三者逐位元組相同", () => {
+    const base = buildFullTextQuery(db, { userId: USER, query: "q", limit: 20 }).toSQL();
+    const off = buildFullTextQuery(db, { userId: USER, query: "q", limit: 20, bodyOnly: false }).toSQL();
+    const noPage = buildFullTextQuery(db, { userId: USER, query: "q", limit: 20, page: undefined }).toSQL();
+    expect(off).toEqual(base);
+    expect(noPage).toEqual(base);
+  });
+  it("U2 bodyOnly: true 的 sql 與不帶不同、仍恰兩次 union all", () => {
+    const base = buildFullTextQuery(db, { userId: USER, query: "q", limit: 20 }).toSQL();
+    const body = buildFullTextQuery(db, { userId: USER, query: "q", limit: 20, bodyOnly: true }).toSQL();
+    expect(body.sql).not.toBe(base.sql);
+    expect(countUnionAll(body.sql)).toBe(2);
+  });
+  it("U3 page：after null 多一欄 updated_at_key、沒有 keyset；after 有值時 keyset 的值走參數", () => {
+    const first = buildFullTextQuery(db, { userId: USER, query: "q", limit: 20, page: { after: null } }).toSQL();
+    expect(first.sql).toContain(`"updated_at_key"`);
+    expect(first.sql).not.toContain("::timestamptz");
+    const key = { rank: 2, updatedAtKey: "2026-01-01T00:00:00.123456Z", id: randomUUID() };
+    const next = buildFullTextQuery(db, { userId: USER, query: "q", limit: 20, page: { after: key } }).toSQL();
+    expect(next.sql).toContain("::timestamptz");
+    expect(countUnionAll(next.sql)).toBe(2);
+    expect(next.params).toEqual(expect.arrayContaining([key.updatedAtKey, key.id]));
+    expect(next.sql).not.toContain(key.updatedAtKey);
+    expect(next.sql).not.toContain(key.id);
   });
   it("連呼兩次各自現造（單次使用的 builder）", () => {
     const first = buildFullTextQuery(db, { userId: USER, query: "x", limit: 5 });

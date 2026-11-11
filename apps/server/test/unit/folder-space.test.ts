@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   folderSpaceLockKey,
   folderSpaceOfRow,
+  newNoteFolderConsistent,
   noteFolderSpace,
   sameFolderSpace,
   sortedSpaceLockKeys,
@@ -11,7 +12,7 @@ import {
 const U = "0b6f3a2e-1c4d-4e5f-8a9b-0c1d2e3f4a5b";
 const G = "ffffffff-1c4d-4e5f-8a9b-0c1d2e3f4a5b";
 
-describe("SP-1 結構鎖鍵（spec §5.4 N2）", () => {
+describe("SP-1 結構鎖鍵", () => {
   it("大寫 id 與小寫 id 同鍵", () => {
     expect(folderSpaceLockKey({ kind: "personal", ownerId: U.toUpperCase() })).toBe(
       folderSpaceLockKey({ kind: "personal", ownerId: U }),
@@ -59,6 +60,16 @@ describe("SP-2 列與筆記的空間", () => {
     expect(sameFolderSpace({ kind: "personal", ownerId: U }, { kind: "personal", ownerId: G })).toBe(false);
     expect(sameFolderSpace({ kind: "group", groupId: G }, { kind: "group", groupId: G })).toBe(true);
     expect(sameFolderSpace({ kind: "group", groupId: G }, { kind: "group", groupId: U })).toBe(false);
+  });
+  it("newNoteFolderConsistent：群組資料夾要同一個 groupId（不分大小寫）；個人資料夾不帶 groupId；shared 一律不行", () => {
+    expect(newNoteFolderConsistent({ kind: "group", groupId: G }, G)).toBe(true);
+    expect(newNoteFolderConsistent({ kind: "group", groupId: G }, G.toUpperCase())).toBe(true);
+    expect(newNoteFolderConsistent({ kind: "group", groupId: G }, U)).toBe(false);
+    expect(newNoteFolderConsistent({ kind: "group", groupId: G }, undefined)).toBe(false);
+    expect(newNoteFolderConsistent({ kind: "personal", ownerId: U }, undefined)).toBe(true);
+    expect(newNoteFolderConsistent({ kind: "personal", ownerId: U }, G)).toBe(false);
+    expect(newNoteFolderConsistent({ kind: "shared", ownerId: U }, undefined)).toBe(false);
+    expect(newNoteFolderConsistent({ kind: "shared", ownerId: U }, G)).toBe(false);
   });
   it("toFolderSpaceDto 不輸出 ownerId", () => {
     expect(toFolderSpaceDto({ kind: "personal", ownerId: U })).toEqual({ kind: "personal" });

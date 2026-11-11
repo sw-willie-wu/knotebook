@@ -3,9 +3,9 @@ import { test, expect, type Browser, type APIRequestContext } from "@playwright/
 import { ADMIN, adminNav, loginAs, openSiteAdmin, randomEmail } from "./helpers.js";
 
 /**
- * #187 e2e 19（spec §14.3）：1–8（含 6a）；2–6、6a、8 是 #187 PR3。
+ * #187 e2e 19：1–8（含 6a）；2–6、6a、8 是 #187。
  * 第二個服務指向 fake-idp 的路徑形 issuer `http://fake-idp:9400/b`（各自金鑰、共用 client）。
- * 識別值一律隨機化（顯示名、sub、email）：腳本失敗時不 down 疊，重跑會吃到髒資料（r2-M10、[[knotebook-local-workflow]]）。
+ * 識別值一律隨機化（顯示名、sub、email）：腳本失敗時不 down 疊，重跑會吃到髒資料。
  * control endpoint 走 `http://localhost:9400/b/control/next-login`（`request` fixture 不吃瀏覽器的 host-resolver-rules）。
  */
 
@@ -49,7 +49,7 @@ test.describe.serial("19 帳號與登入服務（#187）", () => {
       await steps.getByRole("button", { name: "Done" }).click();
       await expect(steps).not.toBeVisible();
 
-      // 登入服務＝資料列（Edit、Test connection、開關）＋「＜名稱＞ details」明細列（secret 狀態、測試結果；spec 2026-10-13 settings-table §3 #4）。
+      // 登入服務＝資料列（Edit、Test connection、開關）＋「＜名稱＞ details」明細列（secret 狀態、測試結果）。
       const card = page.getByRole("row", { name: SECOND_NAME, exact: true });
       const details = page.getByRole("row", { name: `${SECOND_NAME} details`, exact: true });
       await expect(details.getByText(/No client secret yet/)).toBeVisible();
@@ -100,10 +100,10 @@ test.describe.serial("19 帳號與登入服務（#187）", () => {
       await page.goto("/settings/login");
       await nextLogin(request, SECOND_CONTROL_URL, { sub, email: `other-${randomUUID()}@e2e.local` });
       await page.getByRole("button", { name: `Link ${SECOND_NAME}` }).click();
-      // 整條 OIDC 來回之後才回到設定頁（URL 等待無作用——出發前就在 /settings/login，gate r1-t10-17 M3）。
+      // 整條 OIDC 來回之後才回到設定頁（URL 等待無作用——出發前就在 /settings/login）。
       // toast 文字另有一份在 `role="status"` 的「Notification …」朗讀節點：不加 exact 會 strict mode 兩個命中（03 先例）。
       await expect(page.getByText("Sign-in service linked.", { exact: true })).toBeVisible({ timeout: 20_000 });
-      // #247 §9.9：回程落點是設定的「Sign-in」頁（server 導 `/settings/login?linked=…`，toast 後清參數）；
+      // #247：回程落點是設定的「Sign-in」頁（server 導 `/settings/login?linked=…`，toast 後清參數）；
       // 等到 toast 才斷言，這時已是回程那一頁，不是出發前那一頁。
       await expect(page).toHaveURL(/\/settings\/login(\?.*)?$/);
       await expect(page.getByRole("table", { name: "Sign-in methods", exact: true }).getByRole("row", { name: new RegExp(SECOND_NAME) })).toBeVisible();
@@ -167,7 +167,7 @@ test.describe.serial("19 帳號與登入服務（#187）", () => {
       await expect(page).toHaveURL(/\/$/, { timeout: 20_000 });
       await page.goto("/settings/login");
       const row = page.getByRole("table", { name: "Sign-in methods", exact: true }).getByRole("row", { name: new RegExp(SECOND_NAME) });
-      // 唯一的登入方式：解除鈕 softDisabled（aria-disabled、可聚焦、title 說原因；spec 2026-10-13 settings-table §2.7）。
+      // 唯一的登入方式：解除鈕 softDisabled（aria-disabled、可聚焦、title 說原因）。
       await expect(row.getByRole("button", { name: "Unlink" })).toHaveAttribute("aria-disabled", "true");
       await expect(row.getByText("This is your only way to sign in, so it can't be unlinked.")).toBeVisible();
       // id 定位：Playwright 的 getByLabel 預設子字串比對，「New password」會同時命中「Confirm new password」（strict mode 錯，`05-oidc.spec.ts:87-89` 先例）。
@@ -193,7 +193,7 @@ test.describe.serial("19 帳號與登入服務（#187）", () => {
 
   test("19-6：關閉自行註冊 → 登入頁沒有註冊鈕、/register 導回登入頁、API 403；再關所有服務的自動建帳 → 新 email SSO 首登被拒；最後逐一還原", async ({ browser, request }) => {
     const { context, page } = await adminOnSignInPage(browser);
-    type ProviderRow = { id: string; displayName: string; legacyCallback: boolean; autoCreateEnabled: boolean };
+    type ProviderRow = { id: string; displayName: string; autoCreateEnabled: boolean };
     const listProviders = async (): Promise<ProviderRow[]> => {
       const res = await page.request.get("/api/admin/auth/providers");
       expect(res.ok()).toBe(true);
@@ -269,7 +269,7 @@ test.describe.serial("19 帳號與登入服務（#187）", () => {
           // 原值沒抓到（開頭就掛）：退回「自助註冊開、第二服務與 SSO 會建帳」——05、19-4、19-6a、26 依賴它們。
           const results = [];
           for (const row of await listProviders()) {
-            if (row.displayName !== SECOND_NAME && !row.legacyCallback) continue;
+            if (row.displayName !== SECOND_NAME && row.displayName !== "SSO") continue;
             results.push(await page.request.patch(`/api/admin/auth/providers/${row.id}`, { data: { autoCreateEnabled: true } }));
           }
           results.push(await page.request.patch("/api/admin/auth/settings", { data: { registrationEnabled: true } }));
@@ -301,7 +301,7 @@ test.describe.serial("19 帳號與登入服務（#187）", () => {
       await page.goto("/login");
       await page.getByRole("link", { name: `Sign in with ${SECOND_NAME}` }).click();
       await expect(page).toHaveURL(/\/link-account$/, { timeout: 20_000 });
-      // 容忍殘留：只斷言本輪要用的那顆在（PR3 注意事項 2）。它看得到＝pending 已落地，才能斷言密碼欄不存在
+      // 容忍殘留：只斷言本輪要用的那顆在。它看得到＝pending 已落地，才能斷言密碼欄不存在
       // （落地前是「Loading…」，密碼欄本來就不在——先斷言 count 0 會在資料到之前就假綠）。
       const prove = page.getByRole("button", { name: "Confirm by signing in with SSO", exact: true });
       await expect(prove).toBeVisible();
@@ -376,7 +376,7 @@ test.describe.serial("19 帳號與登入服務（#187）", () => {
       try {
         const p = await member.newPage();
         await p.goto("/login");
-        // 「不存在」斷言的等待點：SSO 鈕看得到＝`/api/auth/config` 已落地（帳密表單在落地前照常顯示，RF5）。
+        // 「不存在」斷言的等待點：SSO 鈕看得到＝`/api/auth/config` 已落地（帳密表單在落地前照常顯示）。
         await expect(p.getByRole("link", { name: `Sign in with ${SECOND_NAME}` })).toBeVisible();
         await expect(p.locator("#login-email")).toHaveCount(0);
         const api = await p.request.post("/api/auth/login", { data: { email: ADMIN.email, password: ADMIN.password } });
@@ -402,13 +402,13 @@ test.describe.serial("19 帳號與登入服務（#187）", () => {
         await member.close();
       }
 
-      // B25：admin 用密碼登入的 session 在關閉後仍有效。
+      // admin 用密碼登入的 session 在關閉後仍有效。
       expect((await page.request.get("/api/auth/me")).status()).toBe(200);
     } finally {
       try {
         // 先收集、後斷言：不逐發斷言，免得前一發失敗就跳過後面的還原（比照 19-6）。
         const results = [];
-        // 一律開回（否則髒疊重跑時 01／05 等帳密登入全掛；救不回就 stack:down，[[knotebook-local-workflow]]）。
+        // 一律開回（否則髒疊重跑時 01／05 等帳密登入全掛；救不回就 stack:down）。
         results.push(await page.request.patch("/api/admin/auth/settings", { data: { passwordLoginEnabled: true } }));
         if (original !== null) {
           results.push(await page.request.patch(`/api/admin/auth/providers/${original.secondProvider.id}`, { data: { autoCreateEnabled: original.secondProvider.autoCreateEnabled } }));
@@ -434,8 +434,8 @@ test.describe.serial("19 帳號與登入服務（#187）", () => {
       const card = page.getByRole("row", { name: SECOND_NAME, exact: true });
       await card.getByRole("switch", { name: `Enabled ${SECOND_NAME}`, exact: true }).click();
       const dialog = page.getByRole("dialog", { name: "Turn this sign-in service off?" });
-      // 不釘死人數：身分以 issuer 為鍵、刪服務後保留（§14.1-9），髒疊重跑時 `/b` 上可能已有前幾輪的身分；前輪若在刪除前失敗，
-      // 殘留的同 issuer 啟用服務會讓 lockedOut 變 0（RF2）。只斷言「至少有本輪 19-1 那一個」與數字形（gate r1-t8-12 I4）。
+      // 不釘死人數：身分以 issuer 為鍵、刪服務後保留，髒疊重跑時 `/b` 上可能已有前幾輪的身分；前輪若在刪除前失敗，
+      // 殘留的同 issuer 啟用服務會讓 lockedOut 變 0。只斷言「至少有本輪 19-1 那一個」與數字形。
       await expect(dialog.getByText(/^Linked accounts: [1-9]\d*$/)).toBeVisible();
       await expect(dialog.getByText(/^Of those, with no other way to sign in: \d+$/)).toBeVisible();
       await dialog.getByRole("button", { name: "Turn off" }).click();

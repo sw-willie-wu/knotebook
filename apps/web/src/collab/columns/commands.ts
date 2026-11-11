@@ -5,8 +5,8 @@ import { findNodeById } from "./position";
 import { asUndoStep } from "./undo-step";
 
 /**
- * 建立與拆除並排（spec 2026-10-21 columns-layout §7.1-② `/grid N`、§7.2 取消並排）。
- * 兩者都是一個結構操作＝一個撤銷步（§7.4）：`asUndoStep` 包住單一 `editor.transact`。
+ * 建立與拆除並排（`/grid N` 與取消並排）。
+ * 兩者都是一個結構操作＝一個撤銷步：`asUndoStep` 包住單一 `editor.transact`。
  */
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 泛型三元組（repo 慣例）
@@ -25,7 +25,7 @@ function isEmptyParagraph(block: { type: string; content?: unknown; children: un
   return block.type === "paragraph" && Array.isArray(block.content) && block.content.length === 0 && block.children.length === 0;
 }
 
-/** spec §7.1-②：空段落 → 換成新列；否則插在後面。N 欄、各一空段落、width 1；游標進第 1 欄；新列是最後一個 block 時後面補空段落。單一撤銷步。回新列 id。 */
+/** 空段落 → 換成新列；否則插在後面。N 欄、各一空段落、width 1；游標進第 1 欄；新列是最後一個 block 時後面補空段落。單一撤銷步。回新列 id。 */
 export function insertColumns(editor: AnyEditor, n: 2 | 3 | 4): string {
   return asUndoStep(editor, () =>
     editor.transact((tr) => {
@@ -37,7 +37,7 @@ export function insertColumns(editor: AnyEditor, n: 2 | 3 | 4): string {
       const inserted = isEmptyParagraph(block)
         ? replaceBlocksKeepColumns(editor, [block.id], [newRow]).insertedBlocks[0]!
         : editor.insertBlocks([newRow], block.id, "after")[0]!;
-      // 文件結尾的列用鍵盤出不去（讀碼發現 12）。
+      // 文件結尾的列用鍵盤出不去。
       if (tr.doc.firstChild?.lastChild?.attrs.id === inserted.id) editor.insertBlocks([{ type: "paragraph" }], inserted.id, "after");
       editor.setTextCursorPosition(inserted.children[0]!.children[0]!.id, "start");
       return inserted.id;

@@ -6,22 +6,22 @@ import { uniqueViolationConstraint } from "../db/pg-errors.js";
 import { notes } from "../db/schema.js";
 
 /**
- * 把 `validateSlug` 回傳的違規原因轉成使用者看得懂的訊息（spec §11.4 分支順序：
+ * 把 `validateSlug` 回傳的違規原因轉成使用者看得懂的訊息（分支順序：
  * length → charset → dash → reserved → uuid_like）——這裡刻意不逐字照抄
  * `validateSlug` 的英文型別名稱，讓 400 回應的 `message` 對終端使用者友善。
  */
 function slugErrorMessage(reason: NonNullable<ReturnType<typeof validateSlug>>): string {
   switch (reason) {
     case "length":
-      return "網址代稱長度需為 1–100 字元";
+      return "The URL slug must be 1 to 100 characters.";
     case "charset":
-      return "網址代稱只能包含文字、數字與連字號（-）";
+      return "The URL slug can only contain letters, digits and hyphens (-).";
     case "dash":
-      return "網址代稱不可以連字號開頭/結尾，也不可連續出現";
+      return "The URL slug can't start or end with a hyphen or have two hyphens in a row.";
     case "reserved":
-      return "此網址代稱為系統保留字，不可使用";
+      return "That URL slug is reserved by the system.";
     case "uuid_like":
-      return "網址代稱不可為 UUID 格式（會與系統內部識別碼混淆）";
+      return "The URL slug can't look like a UUID, because it would be confused with note ids.";
   }
 }
 
@@ -41,13 +41,13 @@ export function prepareSlugForPatch(raw: string): SlugValidationResult {
   return { ok: true, value: normalized };
 }
 
-// auto slug 探測上限（#122 spec §3a，同 auth/handle.ts 的 PROBE_LIMIT 理由與可見性）：
+// auto slug 探測上限（#122，同 auth/handle.ts 的 PROBE_LIMIT 理由與可見性）：
 // 探測是 O(同前綴數) 次索引查詢，而 title PATCH 與建立筆記（`notes/create.ts`，#145）**兩條
 // 路都無節流**（cookie 的 `POST /api/notes` 沒有 per-user 桶；Bearer 只吃 `tokenWrite`），
 // 上界必須有。超限退 `untitled-<uuid8>`。
 const AUTO_SLUG_PROBE_LIMIT = 20;
 
-// auto slug 的寫入撞唯一索引（真競態）重試上限（#122 spec §3a）：1..5 次重探測重發，
+// auto slug 的寫入撞唯一索引（真競態）重試上限（#122）：1..5 次重探測重發，
 // 第 6 次改用 `fallbackAutoSlug()`（untitled-<uuid8>）——再撞（~2^-32）就讓錯誤冒出去。
 // **兩個呼叫端共用這一份**（#145）：`routes/notes.ts` 的 PATCH（UPDATE 重試）與
 // `notes/create.ts` 的建立路徑（INSERT 重試）。各自寫死一個 5 的話，只改其中一處不會有
@@ -60,19 +60,19 @@ export function fallbackAutoSlug(): string {
 }
 
 /**
- * #175：auto slug 的去重範圍。個人筆記＝owner（`notes_owner_slug_idx`）、群組筆記＝群組（`notes_group_slug_idx`，S12）。
- * 群組筆記的 `owner_id` 是 NULL，兩把唯一索引互不干擾（NULL 不互撞，spec §2.1【驗 PG】）。
+ * #175：auto slug 的去重範圍。個人筆記＝owner（`notes_owner_slug_idx`）、群組筆記＝群組（`notes_group_slug_idx`）。
+ * 群組筆記的 `owner_id` 是 NULL，兩把唯一索引互不干擾（PG 的 NULL 不互撞）。
  */
 export type SlugScope = { ownerId: string } | { groupId: string };
 
-/** 撞的是哪一把 slug 唯一索引都算「slug 撞名」（constraint 名分流，PR1 M4-2 契約）；其他 23505 一律不是。 */
+/** 撞的是哪一把 slug 唯一索引都算「slug 撞名」（constraint 名分流）；其他 23505 一律不是。 */
 export function isSlugUniqueViolation(err: unknown): boolean {
   const c = uniqueViolationConstraint(err);
   return c === "notes_owner_slug_idx" || c === "notes_group_slug_idx";
 }
 
 /**
- * #175 §6.9：`-N` 尾碼候選（移動、轉移、建立、PATCH 共用的唯一一份算術）。n=1 回基底本身（不截）；n≥2 重截基底
+ * #175：`-N` 尾碼候選（移動、轉移、建立、PATCH 共用的唯一一份算術）。n=1 回基底本身（不截）；n≥2 重截基底
  * （以 code point 計，CJK 不被切半）使總長 ≤60、去掉截斷後的尾端連字號（不產生 `--N`）後加 `-N`——同 0007
  * backfill 的 SQL 版。
  */
@@ -84,16 +84,16 @@ export function nextSlugCandidate(base: string, n: number): string {
 }
 
 /**
- * scope 範圍（個人＝owner、群組＝群組）的 slug 去重探測（#122 spec §3a；#175 §6.9 抽出）：依序探測
+ * scope 範圍（個人＝owner、群組＝群組）的 slug 去重探測（#122；#175 抽出）：依序探測
  * `nextSlugCandidate(base, 1..AUTO_SLUG_PROBE_LIMIT)`，回第一個沒被占用的；全撞 → `fallbackAutoSlug()`
  * （`untitled-<uuid8>`）。收 `DbOrTx`：交易內（`notes/tx/write-slug.ts` 的 `writeSlugInTx`）傳 `tx`、
  * 交易外（PATCH、建立的預設模式）傳 `db`。
  *
  * **述詞必排除本列**（`id <> noteId`）——不排除的話「標題微調但 auto slug 不變」會把
- * 自己判成占用、網址在 `meeting`↔`meeting-2` 間震盪且每次舊網址即死（spec M5-1）。
+ * 自己判成占用、網址在 `meeting`↔`meeting-2` 間震盪且每次舊網址即死。
  *
  * `excludeNoteId === null` ＝**這一列還不存在**（建立路徑，`notes/create.ts`，#145）：本來就沒有
- * 「本列」要排除，`and()` 會把那個 `undefined` 述詞濾掉。實測（2026-09-15，`.toSQL()`）：
+ * 「本列」要排除，`and()` 會把那個 `undefined` 述詞濾掉。實測（`.toSQL()`）：
  * 非 null 那條路渲染出的 `sql` 與放寬前**逐位元組相同**、`params` 同為 4 格；null 則少掉
  * `"id" <> $3`、`params` 剩 3 格——所以放寬對 PATCH 是零改變。
  *
@@ -121,7 +121,7 @@ export async function probeUniqueSlug(db: DbOrTx, scope: SlugScope, excludeNoteI
 }
 
 /**
- * auto slug 的 scope 範圍去重探測（#122 spec §3a）：候選基底＝`autoSlugFromTitle(title)`，探測與 `-N` 算術全在
+ * auto slug 的 scope 範圍去重探測（#122）：候選基底＝`autoSlugFromTitle(title)`，探測與 `-N` 算術全在
  * `probeUniqueSlug`／`nextSlugCandidate`（#175 抽出；行為與抽出前逐輪相同——候選序列、探測次數、退位形、
  * 渲染出的 SQL 與 params 都不變）。`noteId` 的語意見 `probeUniqueSlug` 的 `excludeNoteId`。
  */
@@ -130,7 +130,7 @@ export async function deriveUniqueAutoSlug(db: DbOrTx, scope: SlugScope, noteId:
 }
 
 /**
- * 舊形 `GET /api/notes/:ref` 的 ref 解析（#122 spec §3a 起，序位即優先序）：
+ * 舊形 `GET /api/notes/:ref` 的 ref 解析（#122，序位即優先序）：
  * 1. `normalizeSlug(ref)` 精確比對 **`notes.legacy_slug`**（0007 凍結快照，全域唯一、
  *    trigger 保證不可變）——**刻意不查現行 `notes.slug`**：slug 已是 per-user 唯一，
  *    跨 owner 同名時全域查找沒有確定答案；舊形連結凍結在 0007 當下的世界。

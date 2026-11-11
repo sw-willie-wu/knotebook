@@ -10,7 +10,7 @@ CREATE TABLE "handles" (
 --> statement-breakpoint
 CREATE INDEX "handles_user_idx" ON "handles" USING btree ("user_id");--> statement-breakpoint
 ALTER TABLE "users" ADD COLUMN "handle" text;--> statement-breakpoint
--- #122 backfill（spec §2c；drizzle-kit generate 草稿經手改為「加欄(nullable)→backfill→
+-- #122 backfill（drizzle-kit generate 草稿經手改為「加欄(nullable)→backfill→
 -- SET NOT NULL/DEFAULT→ADD CONSTRAINT」段式——generate 的一句式對既有列會直接套隨機
 -- default，派生自 email 的 handle 就沒了；snapshot 描述的是最終態，不受此手改影響）。
 --
@@ -19,7 +19,7 @@ ALTER TABLE "users" ADD COLUMN "handle" text;--> statement-breakpoint
 -- → 截 30 再 trim 尾 dash）；`WHILE EXISTS(handles)` 遞增 `-N` 尾碼（重截基底使總長
 -- ≤32；上限 100 後退 user-<uuid8>）。逐列查已寫入值＝跨組撞名（foo＋既有 foo-2＋第二個
 -- foo）天然正確——migrate.test.ts 的資料案例守著。uuid 形判斷在**截斷前**（截 30 後的
--- uuid 前綴已非 uuid 形，判不到——plan 注意事項 9）。
+-- uuid 前綴已非 uuid 形，判不到）。
 -- 整支 migration 由 drizzle 包在單一 transaction 內執行；本檔不得出現 COMMIT 或並行建索引語法。
 DO $$
 DECLARE

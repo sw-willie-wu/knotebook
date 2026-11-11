@@ -1,4 +1,4 @@
--- #286 一次性連結（spec 2026-10-20-286-admin-password-reset §3.3）：新表 one_time_links，四條 CHECK、兩條 FK（target cascade／created_by set null）、兩個索引（I3 partial unique＋kind,created_at）。單一交易（drizzle migrator 整批），無非交易式 DDL（migrate.test.ts 有輔助 grep）。
+-- #286 一次性連結：新表 one_time_links，四條 CHECK、兩條 FK（target cascade／created_by set null）、兩個索引（partial unique＋kind,created_at）。單一交易（drizzle migrator 整批），無非交易式 DDL（migrate.test.ts 有輔助 grep）。
 CREATE TABLE "one_time_links" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"kind" text NOT NULL,

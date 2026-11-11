@@ -1,5 +1,5 @@
 /**
- * #175 §7 的端到端踢線（群組筆記）：全部走真路由（hook 只在路由裡被呼叫）＋真 CollabHooks。
+ * #175 的端到端踢線（群組筆記）：全部走真路由（hook 只在路由裡被呼叫）＋真 CollabHooks。
  * 群組筆記由成員以 `POST /api/notes {groupId}` 建立（群組持有，沒有 owner、沒有逐人分享）。
  * 「續留」一律等過重驗 deadline 再斷言（沒回應的重驗在 deadline 到期才會被關）。
  */
@@ -88,7 +88,7 @@ async function armTokenSync(ctx: CollabTestCtx, noteId: string, userId: string):
   return () => synced;
 }
 
-describe("#175 踢線（spec §7，群組筆記）", () => {
+describe("#175 踢線（群組筆記）", () => {
   it("移人：只靠群組取得存取的人 10 秒內被 close(revoked)；管理員那條續留", async () => {
     const ctx = await buildApp();
     const admin = await user(ctx, "admin-v1@example.com");
@@ -104,7 +104,7 @@ describe("#175 踢線（spec §7，群組筆記）", () => {
     expect(adminClient.closes).toEqual([]);
   });
 
-  it("#240 R5 移人的 :userId 大寫：只靠群組取得存取的人 10 秒內被 close(revoked)", async () => {
+  it("#240 移人的 :userId 大寫：只靠群組取得存取的人 10 秒內被 close(revoked)", async () => {
     const ctx = await buildApp();
     const admin = await user(ctx, "admin-r5@example.com");
     const member = await user(ctx, "m-r5@example.com");
@@ -177,7 +177,7 @@ describe("#175 踢線（spec §7，群組筆記）", () => {
   });
 });
 
-describe("#175 PR2 移動的踢線（spec §7）", () => {
+describe("#175 移動的踢線", () => {
   it("個人→群組：只靠逐人分享的人 10 秒內被 close(revoked)；同時是新群組成員的分享對象續留；owner 續留且仍可寫（寫入傳到群組另一位成員那邊）", async () => {
     const ctx = await buildApp();
     const owner = await user(ctx, "owner-mv1@example.com");
@@ -233,8 +233,8 @@ describe("#175 PR2 移動的踢線（spec §7）", () => {
   });
 });
 
-describe("#175 PR2 複製（spec §6.5、§7）", () => {
-  it("§6.5：來源有人在線、有未落盤編輯 → 複製取 live fork、副本含那段文字；複製後立刻以 provider 開副本看到同樣內容；在線者不被踢", async () => {
+describe("#175 複製", () => {
+  it("來源有人在線、有未落盤編輯 → 複製取 live fork、副本含那段文字；複製後立刻以 provider 開副本看到同樣內容；在線者不被踢", async () => {
     const ctx = await buildApp();
     const owner = await user(ctx, "owner-cp1@example.com");
     const { id: noteId } = await ctx.createNote(owner.id, "personal note");
@@ -243,7 +243,7 @@ describe("#175 PR2 複製（spec §6.5、§7）", () => {
     await waitFor("編輯到達 server 的 live doc", 5_000, () => text(ctx.collab.hocuspocus.documents.get(noteId)!).includes("live-unsaved-text"));
     // 「未落盤」：onStoreDocument debounce 2 秒，此刻 note_states 還沒有這段（有列也不含它）。本案依賴這 2 秒的窗口
     // （`STORE_DEBOUNCE_MS`，buildApp 沒有注入點）：本機實測單案約 0.5 秒、約 4 倍餘裕。窗口不夠時（store 先跑）是下一行
-    // 這條前置斷言紅，不會變成沒走到 live fork 的假綠（T4 review r1 M-2）。
+    // 這條前置斷言紅，不會變成沒走到 live fork 的假綠。
     const persisted = await loadDoc(ctx.db, noteId);
     expect(persisted === null ? "" : text(persisted)).not.toContain("live-unsaved-text");
 
@@ -259,7 +259,7 @@ describe("#175 PR2 複製（spec §6.5、§7）", () => {
   });
 });
 
-describe("#175 PR4 刪群組的踢線（spec §7）", () => {
+describe("#175 刪群組的踢線", () => {
   it("轉移：群組筆記上只靠群組取得存取的成員 10 秒內被 close(revoked)；transferTo 那條續留、collab-token 回 role owner、寫入落盤", async () => {
     const ctx = await buildApp();
     const admin = await user(ctx, "admin-dg1@example.com");
@@ -272,7 +272,7 @@ describe("#175 PR4 刪群組的踢線（spec §7）", () => {
     const adminSynced = await armTokenSync(ctx, noteId, admin.id);
     expect((await api(admin.session, "DELETE", `/api/groups/${groupId}`, { mode: "transfer", transferTo: admin.id })).status).toBe(204);
     await waitFor("只靠群組取得存取的成員被踢", 10_000, () => revoked(memberClient.closes));
-    // 釘的是 §7「transferTo 也重驗」這個呼叫面（拿掉 `[transferTo]` 那一批，這裡逾時紅——PR4 Task 6 突變實跑）；
+    // 釘的是「transferTo 也重驗」這個呼叫面（拿掉 `[transferTo]` 那一批，這裡逾時紅）；
     // 行為面等價：transferTo 必是內建管理員＝本來就可寫，不重驗下面的寫入照樣落盤。
     await waitFor("transferTo 那條連線完成重驗（setReadOnly 之後）", 10_000, adminSynced);
     await sleep(REVERIFY_DEADLINE_MS + 1_000);
@@ -312,7 +312,7 @@ describe("#175 PR4 刪群組的踢線（spec §7）", () => {
     expect(ctx.collab.connectionsOfNote(noteId).size).toBe(0);
   });
 
-  it("全刪：gate 之後才進群組的筆記（L \\ P0）上的連線，在 commit 後 10 秒內被關，reason 是 revoked 而不是 note-deleted（§6.8 代價、§15 第 10 條）", async () => {
+  it("全刪：gate 之後才進群組的筆記（L \\ P0）上的連線，在 commit 後 10 秒內被關，reason 是 revoked 而不是 note-deleted（代價）", async () => {
     // `buildCollabTestApp` 沒有 `groupTestHook` 注入面，「gate 之後、交易之前」改由包住真 `beforeNoteDeleted` 來卡：
     // 路由先取 P0、對 P0 每篇 await `beforeNoteDeleted`（Promise.allSettled），全數落定後才進交易——在包裝裡、真 gate
     // 開完之後才建筆記並連上，時點與 `group-delete-gated` 同一段（P0 之後、交易之前）。`gatedIds` 佐證新筆記不在 P0。

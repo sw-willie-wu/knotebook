@@ -35,16 +35,17 @@ import { invalidateNoteQueries } from "@/api/notes";
 import { Awareness } from "y-protocols/awareness";
 import { resetLocalPresenceFieldForTest } from "@/components/presence/local-field";
 import { setRemote, userState } from "@/components/presence/test-awareness";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 // BlockNote 需要一整套 jsdom 沒有的 DOM/Range API，掛進單元測試只會測到環境；
 // 這裡只驗證「頁面有沒有把正確的 props 交給編輯器」，編輯器本身留給手動驗證。
 //
-// PR2（BLK-1）：NoteEditor slot 化——舊版 mock 只吃 `editable`，slot 化後會把整個
+// NoteEditor slot 化——舊版 mock 只吃 `editable`，slot 化後會把整個
 // 頁頭（TitleInput/ConnectionBadge/分享鈕/⋮）與 backlinks chips 一起吞掉。改為原樣
 // 渲染 `headerSlot`/`footerSlot`，讓下面依賴 `getByLabelText("Note title")` 等查詢的
 // 既有測試在新結構下繼續照過。`SettingsModal.test.tsx` 有第二處綁定同一份 mock 形狀
 // （該檔檔頭自述沿用這裡的最小替身慣例），兩處要同步改。
-// 版本歷史（Task 10）：替身另渲染 `previewSlot`（包在 `mock-preview-slot` 裡），並給兩顆驅動鈕——
+// 版本歷史：替身另渲染 `previewSlot`（包在 `mock-preview-slot` 裡），並給兩顆驅動鈕——
 // 進入預覽（`startPreview`）與開套用三選一（`openDialog({ kind: "apply" })`）；真的 NoteEditor 裡這兩條路徑由面板觸發，
 // 面板掛在 NoteEditor 的第三欄，替身不渲染它。
 const VERSION_1 = vi.hoisted(() => ({
@@ -58,7 +59,9 @@ const VERSION_1 = vi.hoisted(() => ({
   createdAt: "2026-01-01T00:00:00.000Z",
 }));
 // #293：替身交給 NotePage 的 scroller（`onCursorScroller`）；預設 null＝同真編輯器尚未交出。
-const editorMock = vi.hoisted(() => ({ scroller: null as null | ((c: unknown) => boolean) }));
+const editorMock = vi.hoisted(() => ({ scroller: null as null | ((c: unknown) => boolean), noteMaxBytes: undefined as number | undefined, maxUploadBytes: undefined as number | undefined }));
+/** `GET /api/auth/config` 回的 `noteMaxBytes`（筆記大小上限）、`maxUploadBytes`（單檔上傳上限）；undefined＝回應不帶這個欄位。 */
+const siteConfig = vi.hoisted(() => ({ noteMaxBytes: undefined as number | undefined, maxUploadBytes: undefined as number | undefined }));
 // #297：`mock-column` 用真的 `useNoteWidth(noteId)`，P3 靠它驗 NotePage 交給頁首選單與編輯器的是同一個 id。
 vi.mock("@/components/NoteEditor", async () => {
   const React = await import("react");
@@ -71,6 +74,8 @@ vi.mock("@/components/NoteEditor", async () => {
     footerSlot,
     previewSlot,
     onCursorScroller,
+    noteMaxBytes,
+    maxUploadBytes,
   }: {
     editable: boolean;
     noteId: string;
@@ -78,7 +83,11 @@ vi.mock("@/components/NoteEditor", async () => {
     footerSlot?: ReactNode;
     previewSlot?: ReactNode;
     onCursorScroller?: (s: unknown) => void;
+    noteMaxBytes?: number;
+    maxUploadBytes?: number;
   }) {
+    editorMock.noteMaxBytes = noteMaxBytes;
+    editorMock.maxUploadBytes = maxUploadBytes;
     const versions = useVersions();
     const [width] = useNoteWidth(noteId);
     React.useEffect(() => {
@@ -103,9 +112,9 @@ vi.mock("@/components/NoteEditor", async () => {
   return { NoteEditor: NoteEditorMock };
 });
 
-/** `provider.on("synced", …)`／`.off(…)`／`.synced` 的最小替身（Task 7）。多數既有測試
+/** `provider.on("synced", …)`／`.off(…)`／`.synced` 的最小替身。多數既有測試
  * 不主動 emit、`synced` 也維持預設 `false`——那些測試裡 link-sync 狀態機不會送出任何
- * `POST .../links`（`onSynced()` 是它唯一的提交觸發點，見 `link-sync.ts`）。但「Task 7
+ * `POST .../links`（`onSynced()` 是它唯一的提交觸發點，見 `link-sync.ts`）。但「連結同步
  * 接線」那組測試會主動呼叫 `.emit("synced", …)` 或把 `.synced` 直接設 `true`——這支替身
  * 兩種用法都要撐得住，`mockFetch` 的 `POST .../links` → 204 分支正是那些測試依賴的
  * 成功回應（不是單純防禦性備而不用）。 */
@@ -139,7 +148,7 @@ function createStubProvider() {
 // 有 connection.test.ts 全覆蓋。這裡把它換成一個可由測試直接擺弄的假回傳值，
 // 驗證 NotePage 對每個 phase 的反應。
 //
-// `doc`/`provider` 換成 Task 7 之前的 `{fake:"doc"}`/`{fake:"provider"}` 會讓
+// `doc`/`provider` 換成連結同步接線之前的 `{fake:"doc"}`/`{fake:"provider"}` 會讓
 // `NotePage` 的 link-sync 掛載 effect（`doc.on("update",…)`／`provider.on("synced",…)`）
 // 直接 TypeError（那兩個替身沒有 `.on`）：`doc` 換一個**真的** `Y.Doc`、`provider` 換
 // 上面的最小 `on`/`off`/`synced` 替身。兩者都放進這個 `vi.hoisted` 模組級物件、由
@@ -169,7 +178,7 @@ const collab = vi.hoisted(() => ({
   provider: undefined as unknown as ReturnType<typeof createStubProvider>,
   /** #179：每次 render 傳進 useCollab 的 noteId（真實 useCollab 依它拆線／重連）。測試自行清空。 */
   noteIds: [] as (string | undefined)[],
-  /** 最近 tab 時效案（spec §5.2）：NotePage 傳給 useCollab 的 onDocUpdate，測試自己觸發。 */
+  /** 最近 tab 時效案：NotePage 傳給 useCollab 的 onDocUpdate，測試自己觸發。 */
   onDocUpdate: undefined as (() => void) | undefined,
 }));
 vi.mock("@/collab/useCollab", () => ({
@@ -254,23 +263,28 @@ function mockFetch(
     const url = String(input);
     const method = (init?.method ?? "GET").toUpperCase();
     // #103：側欄（AppShell → NoteList）的 `useGroups()`——沒有這支，mock 的 throw 會
-    // 變成 rejected query，工作坊段多出一個 `role="alert"`，撞上本檔的單數 alert 查詢。
+    // 變成 rejected query，群組段多出一個 `role="alert"`，撞上本檔的單數 alert 查詢。
     if (url === "/api/groups" && method === "GET") {
       return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
     }
     if (url === "/api/auth/me") {
       return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(USER) }));
     }
+    if (url === "/api/auth/config") {
+      const body = { providers: [], registration: { enabled: true, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true, ...(siteConfig.noteMaxBytes === undefined ? {} : { noteMaxBytes: siteConfig.noteMaxBytes }), ...(siteConfig.maxUploadBytes === undefined ? {} : { maxUploadBytes: siteConfig.maxUploadBytes }) };
+      return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(body) }));
+    }
+    if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
     if (url === "/api/notes" && method === "GET") {
       return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
     }
-    // Task 6b：backlinks 折疊區塊的 fetch（`useBacklinks`）。必須放在下面的
+    // backlinks 折疊區塊的 fetch（`useBacklinks`）。必須放在下面的
     // `GET /api/notes/` catch-all 之前——`/api/notes/:id/backlinks` 也會匹配那個
     // `startsWith` 判斷，若順序反了，backlinks 請求會被誤餵成 NoteDto（catch-all
     // 分支回的是 `note` 而不是 `{backlinks:[]}`），這支測試檔案裡的 NotePage 測試
     // 多數不驗證 backlinks 內容，固定回空陣列即可（0 篇時 `BacklinksSection` 整塊
     // 隱藏，不干擾既有斷言）；佈局回饋那組測試會傳非空陣列。
-    // 版本歷史（Task 10）：清單（面板 `limit=50`、套用前重抓 `limit=1`）、快照、套用。同樣要在
+    // 版本歷史：清單（面板 `limit=50`、套用前重抓 `limit=1`）、快照、套用。同樣要在
     // `GET /api/notes/` catch-all 之前。快照的 `AAA=` 是 `Y.encodeStateAsUpdate(new Y.Doc())`（空 doc，node 實跑取得）。
     const versionsBase = `/api/notes/${encodeURIComponent(NOTE.id)}/versions`;
     const versionCurrent = { baseSeq: 1, base: { id: VERSION_1.id, name: null, deleted: false }, dirty: false, nextSeq: 2, autoEnabled: true };
@@ -319,7 +333,7 @@ function mockFetch(
       }
       return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(note) }));
     }
-    // Task 7：link-sync 的提交端點。「Task 7 接線」那組測試會主動 emit `"synced"`
+    // link-sync 的提交端點。「連結同步接線」那組測試會主動 emit `"synced"`
     // 事件（或直接把 `collab.provider.synced` 設 `true`）觸發真的提交，這支就是那些
     // 測試依賴的成功回應（204）——不是備而不用的防禦性分支。
     if (url.endsWith("/links") && method === "POST") {
@@ -335,7 +349,7 @@ function ActiveProbe() {
   return <div data-testid="active-probe">{activeNoteId ?? "none"}</div>;
 }
 
-/** 模擬 NoteList 的樂觀 set：掛載時把 `id` 種進 context（A6 案的殘留來源）。
+/** 模擬 NoteList 的樂觀 set：掛載時把 `id` 種進 context（殘留來源）。
  * `id` 選填且元件**恆掛載**——provider 的 children 形狀必須在 render 與 rerender 之間
  * 穩定（child 位移會讓 React 把 NotePage 整棵 remount，previousRoleRef 之類的頁內
  * state 全部歸零，N4 那組 rerender 案就假紅了）。 */
@@ -397,7 +411,7 @@ function renderNotePage(ref: string, options: { seedActiveId?: string } = {}) {
   return { ...result, queryClient };
 }
 
-// `sidebar.tab` 會往外流到同檔後面的案（寫入它的案在 T5 加），檔案頂層清（plan I3）。
+// `sidebar.tab` 會往外流到同檔後面的案（寫入它的案在同檔後面），檔案頂層清。
 afterEach(() => localStorage.removeItem("sidebar.tab"));
 
 describe("NotePage", () => {
@@ -408,6 +422,10 @@ describe("NotePage", () => {
     collab.provider = createStubProvider();
     // 上一案 NotePage 的回呼會殘留在 hoisted 物件上——不清的話「等到回呼出現」會立刻拿到舊頁的那支。
     collab.onUnauthorized = undefined;
+    siteConfig.noteMaxBytes = undefined;
+    siteConfig.maxUploadBytes = undefined;
+    editorMock.noteMaxBytes = undefined;
+    editorMock.maxUploadBytes = undefined;
     window.history.replaceState(null, "", "/");
     // toast store 是模組層級的，不歸零的話上一個測試的 toast 會留在畫面上。
     dismissAllToasts();
@@ -417,6 +435,15 @@ describe("NotePage", () => {
     collab.doc.destroy();
     vi.unstubAllGlobals();
     navSpy.current = undefined;
+    siteConfig.maxUploadBytes = undefined;
+  });
+
+  it("設定的 maxUploadBytes（GET /api/auth/config）交給編輯器（貼上、拖放圖片的上傳前驗用）", async () => {
+    siteConfig.maxUploadBytes = 654_321;
+    vi.stubGlobal("fetch", mockFetch());
+    collab.provider.synced = true;
+    renderNotePage("my-note");
+    await waitFor(() => expect(editorMock.maxUploadBytes).toBe(654_321));
   });
 
   it("以舊形 uuid ref 開頁：解析出筆記、把網址 replace 成新形 canonical、掛上編輯器", async () => {
@@ -444,9 +471,65 @@ describe("NotePage", () => {
 
     await waitFor(() => expect(screen.getByTestId("note-editor")).toHaveAttribute("data-editable", "false"));
     expect(screen.getByText("Connecting…")).toBeInTheDocument();
-    // ⚠ 但標題**仍可編輯**（issue #48 審查）：標題走 REST 的 last-write-wins、不走 Yjs，
+    // ⚠ 但標題**仍可編輯**（#48）：標題走 REST 的 last-write-wins、不走 Yjs，
     // 連不上共編但 REST 正常時改標題完全安全。跟著 synced 一起鎖死是功能倒退。
     expect(screen.getByLabelText("Note title")).toBeInTheDocument();
+  });
+
+  describe("筆記大小上限（前端檢查）", () => {
+    afterEach(() => {
+      siteConfig.noteMaxBytes = undefined;
+    });
+    it("設定的 noteMaxBytes（GET /api/auth/config）交給編輯器（貼上、拖放、站內 AI 套用的檢查用）", async () => {
+      siteConfig.noteMaxBytes = 123_456;
+      vi.stubGlobal("fetch", mockFetch());
+      collab.provider.synced = true;
+      renderNotePage("my-note");
+      await waitFor(() => expect(editorMock.noteMaxBytes).toBe(123_456));
+    });
+
+    it("超過上限的筆記：開啟（同步後）就顯示不擋編輯的提示；刪掉內容、節流時間過後消失；再長過上限又出現", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        collab.doc.getText("t").insert(0, "x".repeat(2_000));
+        siteConfig.noteMaxBytes = Y.encodeStateAsUpdate(collab.doc).byteLength - 100;
+        vi.stubGlobal("fetch", mockFetch());
+        collab.provider.synced = true;
+        renderNotePage("my-note");
+        const notice = "This note is over the size limit; editing may be slow. Delete content to shrink it.";
+        expect(await screen.findByText(notice)).toBeInTheDocument();
+        await waitFor(() => expect(screen.getByTestId("note-editor")).toHaveAttribute("data-editable", "true")); // 不擋編輯
+        act(() => collab.doc.getText("t").delete(0, 1_500));
+        expect(screen.getByText(notice), "節流：還沒重算").toBeInTheDocument();
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(3_100);
+        });
+        expect(screen.queryByText(notice)).toBeNull();
+        act(() => collab.doc.getText("t").insert(0, "y".repeat(3_000)));
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(3_100);
+        });
+        expect(screen.getByText(notice)).toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("上限內、或設定沒帶上限、或還沒同步：不顯示", async () => {
+      collab.doc.getText("t").insert(0, "x".repeat(2_000));
+      siteConfig.noteMaxBytes = Y.encodeStateAsUpdate(collab.doc).byteLength + 1_000;
+      vi.stubGlobal("fetch", mockFetch());
+      collab.provider.synced = true;
+      const first = renderNotePage("my-note");
+      await waitFor(() => expect(editorMock.noteMaxBytes).toBe(siteConfig.noteMaxBytes));
+      expect(screen.queryByText(/over the size limit/)).toBeNull();
+      first.unmount();
+      siteConfig.noteMaxBytes = 10;
+      collab.provider.synced = false;
+      renderNotePage("my-note");
+      await waitFor(() => expect(editorMock.noteMaxBytes).toBe(10));
+      expect(screen.queryByText(/over the size limit/), "還沒同步").toBeNull();
+    });
   });
 
   it("issue #48：同步過一次之後就可編輯（owner）", async () => {
@@ -458,7 +541,7 @@ describe("NotePage", () => {
     await waitFor(() => expect(screen.getByTestId("note-editor")).toHaveAttribute("data-editable", "true"));
   });
 
-  it("Task 7 接線：owner 掛載後 provider 觸發 synced 事件 → 真的打 POST /api/notes/:id/links（驗證 provider.on(\"synced\",…) 掛載接線本身，不是只測 link-sync 內部狀態機）", async () => {
+  it("接線：owner 掛載後 provider 觸發 synced 事件 → 真的打 POST /api/notes/:id/links（驗證 provider.on(\"synced\",…) 掛載接線本身，不是只測 link-sync 內部狀態機）", async () => {
     const fetchSpy = mockFetch();
     vi.stubGlobal("fetch", fetchSpy);
 
@@ -501,7 +584,7 @@ describe("NotePage", () => {
     );
   });
 
-  it("Task 7 啟動條件：viewer fixture（canEdit 為假）⇒ 不 start() ⇒ 即使 synced 事件觸發也不提交", async () => {
+  it("啟動條件：viewer fixture（canEdit 為假）⇒ 不 start() ⇒ 即使 synced 事件觸發也不提交", async () => {
     const fetchSpy = mockFetch({ ...NOTE, role: "viewer" });
     vi.stubGlobal("fetch", fetchSpy);
 
@@ -520,10 +603,11 @@ describe("NotePage", () => {
     vi.stubGlobal("fetch", mockFetch({ ...NOTE, role: "viewer" }));
     collab.state = { phase: "connected", role: "viewer" };
 
+    collab.provider.synced = true; // #335：viewer 在 connected＋synced 時徽章才改寫「Read-only」
     renderNotePage("my-note");
 
     await waitFor(() => expect(screen.getByTestId("note-editor")).toHaveAttribute("data-editable", "false"));
-    // PR2（BLK-1）：`container.querySelector("header")` 範圍化——單純的
+    // `container.querySelector("header")` 範圍化——單純的
     // `queryByLabelText(...).not.toBeInTheDocument()` 在新 mock 下即使 headerSlot
     // 整個沒渲染也會通過（vacuous pass）；範圍化到 header 內同時斷言「heading 在」
     // 與「textbox 不在」，才把鑑別力綁回同一個容器上。
@@ -532,6 +616,7 @@ describe("NotePage", () => {
     expect(within(header!).getByRole("heading", { name: "My Note" })).toBeInTheDocument();
     expect(within(header!).queryByRole("textbox")).not.toBeInTheDocument();
     expect(screen.getByText("Read-only")).toBeInTheDocument();
+    expect(screen.queryByText("Connected")).not.toBeInTheDocument();
   });
 
   // #115：頁首回滿卡寬（置左置右）——單層 header 自己就是內容列，標題貼左、
@@ -677,7 +762,7 @@ describe("NotePage", () => {
     expect(screen.queryByText("This note has been deleted.")).not.toBeInTheDocument();
   });
 
-  it("首次解析 404 → **linkInvalid** 文案（A10：不得沿用「筆記已刪」）並導回 /", async () => {
+  it("首次解析 404 → **linkInvalid** 文案（不得沿用「筆記已刪」）並導回 /", async () => {
     vi.stubGlobal("fetch", mockFetch({ status: 404, code: "not_found" }));
 
     renderNotePage("gone");
@@ -703,7 +788,7 @@ describe("NotePage", () => {
 
   it("真接線的卸載清除：關頁滅（current===自己→清）；他頁搶先 set→**不誤清**（條件清除）", async () => {
     // active-note.test 的競態案守的是復刻 Page——這裡把同兩條語意釘在**真的 NotePage**
-    // 上（突變審查：把 NotePage 的 cleanup 改成無條件清 null，原本全套仍綠）。
+    // 上（把 NotePage 的 cleanup 改成無條件清 null，原本全套仍綠）。
     vi.stubGlobal("fetch", mockFetch());
     collab.provider.synced = true;
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -750,7 +835,7 @@ describe("NotePage", () => {
     expect(screen.getByTestId("active-probe")).toHaveTextContent(OTHER_ID);
   });
 
-  it("解析 404 導走前清掉樂觀殘留（A6）：NoteList 點擊 set 的 id 不會卡在側欄", async () => {
+  it("解析 404 導走前清掉樂觀殘留：NoteList 點擊 set 的 id 不會卡在側欄", async () => {
     vi.stubGlobal("fetch", mockFetch({ status: 404, code: "not_found" }));
 
     // SeedActive＝模擬 NoteList 的樂觀 set：點了一篇隨後解析失敗的筆記。NotePage 對
@@ -763,7 +848,7 @@ describe("NotePage", () => {
     await waitFor(() => expect(screen.getByTestId("active-probe")).toHaveTextContent("none"));
   });
 
-  // ── #122 5a：解析層→id 常駐層（spec §3d ①③＋A1＋收斂閘門） ──
+  // ── #122 5a：解析層→id 常駐層（①③＋A1＋收斂閘門） ──
 
   const NOTE_B: NoteDto = {
     ...NOTE,
@@ -796,6 +881,7 @@ describe("NotePage", () => {
       if (url === "/api/auth/me") {
         return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(USER) });
       }
+      if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
       if (url === "/api/notes" && method === "GET") {
         return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) });
       }
@@ -840,8 +926,8 @@ describe("NotePage", () => {
               : { slug: body.slug, slugIsCustom: true }
             : {}),
         };
-        // 寫回 stub 狀態（讀碼審 m13）：useUpdateNote.onSuccess 會 invalidate id 鍵、
-        // 觸發常駐層重抓——stub 不同步的話重抓會拿回舊 DTO，M2 案綠不綠就押在
+        // 寫回 stub 狀態：useUpdateNote.onSuccess 會 invalidate id 鍵、
+        // 觸發常駐層重抓——stub 不同步的話重抓會拿回舊 DTO，該案綠不綠就押在
         // setQueryData 與 refetch 的 microtask 落點先後（脆弱且與真 server 語意不符）。
         byRef.set(updated.id, updated);
         byRef.set(updated.slug, updated);
@@ -944,8 +1030,8 @@ describe("NotePage", () => {
     expect(screen.queryByText("This note has been deleted.")).not.toBeInTheDocument();
     expect(screen.queryByText("This link is invalid or the note doesn't exist.")).not.toBeInTheDocument();
     expect(screen.getByTestId("active-probe")).toHaveTextContent(NOTE.id);
-    // 機制直釘（讀碼審 m9）：invalidate 之後**沒有**再對舊 slug 鍵發 GET——解析 query
-    // 已停用、常駐層走 id 鍵；順帶釘 A11（從未打過空 ref 的 `/api/notes/`）。
+    // 機制直釘：invalidate 之後**沒有**再對舊 slug 鍵發 GET——解析 query
+    // 已停用、常駐層走 id 鍵；順帶釘（從未打過空 ref 的 `/api/notes/`）。
     const urls = fetchMock.mock.calls.map((call) => String(call[0]));
     expect(urls.filter((u) => u === "/api/notes/my-note")).toHaveLength(1);
     expect(urls).not.toContain("/api/notes/");
@@ -960,14 +1046,14 @@ describe("NotePage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "go-b" }));
 
-    // C6-1(d)：斷**內容**（標題 input 的值），不是高亮——同 pattern 下 params 變更只
+    // 斷**內容**（標題 input 的值），不是高亮——同 pattern 下 params 變更只
     // re-render 不 remount，解析機制必須對 params 變更反應，否則內容卡在舊筆記。
     await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("Note B"));
     await waitFor(() => expect(routerPath()).toBe("/n/tester/note-b"));
     expect(screen.getByTestId("active-probe")).toHaveTextContent(NOTE_B.id);
   });
 
-  it("④跨 pattern 真導航（舊形頁 → /n/ 新形）→ 內容切到新筆記、URL/高亮同步（Task 4 延件）", async () => {
+  it("④跨 pattern 真導航（舊形頁 → /n/ 新形）→ 內容切到新筆記、URL/高亮同步", async () => {
     stubTwoNotes();
     collab.provider.synced = true;
 
@@ -979,7 +1065,7 @@ describe("NotePage", () => {
 
     await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("Note B"));
     await waitFor(() => expect(routerPath()).toBe("/n/tester/note-b"));
-    // 高亮延件（Task 4 gate m17）：只斷最終態「active 跟到新筆記」——條件清除的
+    // 高亮延件：只斷最終態「active 跟到新筆記」——條件清除的
     // 鑑別力在 NotePage.test 的「真接線卸載清除」案，這行不重複宣稱那個。
     expect(screen.getByTestId("active-probe")).toHaveTextContent(NOTE_B.id);
   });
@@ -1021,7 +1107,7 @@ describe("NotePage", () => {
   it("A4：**新形之間**換頁（/n/→/n/ 同 pattern）→ 內容與網址都切到新筆記", async () => {
     // useNoteByPath 的 query key 必含 handle 與 slug——丟掉 slug 段時，導航瞬間
     // resolveQuery.data 是**上一篇**的 DTO，seed 寫出 {key: 新, id: 舊}，頁面永久
-    // 卡在 A、網址還被收斂回 A（突變審查實證：此前無任何案會紅）。
+    // 卡在 A、網址還被收斂回 A（此前無任何案會紅）。
     stubTwoNotes();
     collab.provider.synced = true;
 
@@ -1034,7 +1120,7 @@ describe("NotePage", () => {
     await waitFor(() => expect(routerPath()).toBe("/n/tester/note-b"));
   });
 
-  it("新形 by-path 404 → linkInvalid 出口（兩形分流的 §3b 新分支）", async () => {
+  it("新形 by-path 404 → linkInvalid 出口（兩形分流的新分支）", async () => {
     stubTwoNotes();
     collab.provider.synced = true;
 
@@ -1072,10 +1158,10 @@ describe("NotePage", () => {
     await waitFor(() => expect(screen.queryByTestId("note-editor")).not.toBeInTheDocument());
     expect(screen.queryByLabelText("Note title")).not.toBeInTheDocument();
 
-    // 收斂閘門（C6-1(c)）：在途重解析時，舊筆記（A）的常駐層更新（例如它的 refetch
+    // 收斂閘門：在途重解析時，舊筆記（A）的常駐層更新（例如它的 refetch
     // 帶回新 slug）**不得**把網址改走——needsResolve 閘要擋住它。
     // ⚠ 必須 flush 一個 **macrotask**：react-query 的通知走 macrotask 排程，同步 act
-    // 斷言會落在 re-render 之前、變成零鑑別力的假綠（突變審查實證：拿掉閘門、網址
+    // 斷言會落在 re-render 之前、變成零鑑別力的假綠（拿掉閘門、網址
     // 真的被改走，同步版斷言照樣綠）。
     await act(async () => {
       queryClient.setQueryData(["note", NOTE.id], { ...NOTE, slug: "moved-away" });
@@ -1094,7 +1180,7 @@ describe("NotePage", () => {
   it("常駐層 404＝**真刪除** → note.deleted 文案導回 /（不得誤入 linkInvalid——needsResolve 前置的牙）", async () => {
     // 以 uuid 開頁：解析層與常駐層共用同一個 cache entry（["note", <id>]）——真刪除的
     // 404 會同時讓 resolveQuery.isError 成立，linkInvalid 少了 needsResolve 前置就會
-    // 噴錯文案（A10 違反）。這一案同時守 noteGone 出口存在性與該前置。
+    // 噴錯文案。這一案同時守 noteGone 出口存在性與該前置。
     const { killRef } = stubTwoNotes();
     collab.provider.synced = true;
 
@@ -1113,10 +1199,9 @@ describe("NotePage", () => {
     expect(screen.getByTestId("active-probe")).toHaveTextContent("none");
   });
 
-  it("slug 變更（快取回寫）→ 收斂 effect 更新網址（A3 移轉的正向面）", async () => {
+  it("slug 變更（快取回寫）→ 收斂 effect 更新網址（正向面）", async () => {
     // 這一案守「收斂 effect 是**資料變動驅動**」（deps 少了 note 這裡必紅）。
-    // 內部自訂網址的 UI 入口（ShareDialog 的 SlugField）已下架（Willie 2026-09-17
-    // 產品決定，見 ShareDialog.tsx 頂層說明）——slug 改變現在只可能來自標題重新
+    // 內部自訂網址的 UI 入口（ShareDialog 的 SlugField）已下架（見 ShareDialog.tsx 頂層說明）——slug 改變現在只可能來自標題重新
     // 派生（#145）或其他寫入路徑，這裡改用 setQueryData 直接模擬「常駐層 note
     // 換了新 slug」，同款手法見上面 A1 案（`queryClient.setQueryData(["note", …])`）。
     stubTwoNotes();
@@ -1534,18 +1619,18 @@ describe("NotePage", () => {
 
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Something went wrong. Please try again."));
     expect(screen.queryByText("home landing")).not.toBeInTheDocument();
-    // PR2（A/G 節）：error 態渲染的是佔位內文卡，不是裸 <p>。
+    // error 態渲染的是佔位內文卡，不是裸 <p>。
     const card = screen.getByRole("alert").parentElement;
     expect(card).toHaveClass("min-w-0", "flex-1", "overflow-y-auto", "rounded-xl", "border", "border-border", "bg-card");
     // #115：佔位卡也要有窄視窗抽屜入口——isError 是會**停住**的狀態（筆記被刪、
-    // 沒權限），沒有這顆，`<md` 的使用者在錯誤畫面上零導覽出口（審查 F1）。
+    // 沒權限），沒有這顆，`<md` 的使用者在錯誤畫面上零導覽出口。
     expect(screen.getByRole("button", { name: "Open navigation" })).toBeInTheDocument();
   });
 
-  // PR2（A 節）：note 本身載入成功，但 `doc|provider|user` 還沒全部備妥（這裡卡住
+  // note 本身載入成功，但 `doc|provider|user` 還沒全部備妥（這裡卡住
   // `user`——`useSession()` 的 `/api/auth/me` 故意延遲 resolve）時，渲染的是不含
   // header/footer slot 的佔位卡，不是 `NoteEditor`。
-  it("PR2：doc/provider/user 尚未備妥時渲染不含 header 的佔位卡，不是 NoteEditor", async () => {
+  it("doc/provider/user 尚未備妥時渲染不含 header 的佔位卡，不是 NoteEditor", async () => {
     let resolveMe!: () => void;
     const meGate = new Promise<void>((resolve) => {
       resolveMe = resolve;
@@ -1603,12 +1688,12 @@ describe("NotePage", () => {
     await waitFor(() => expect(screen.getByText("login page")).toBeInTheDocument());
   });
 
-  // PR2（BLK-1 版面斷言重寫）：NoteEditor 現在是「slot 化」呼叫——NotePage body 直接
+  // NoteEditor 現在是「slot 化」呼叫——NotePage body 直接
   // 渲染 `<div className="flex min-h-0 flex-1"><NoteEditor .../></div>`，`NoteEditor`
-  // （mock）容器的直接父層就是這個 body row，不再是 Task 6 時代「自己捲動」的
+  // （mock）容器的直接父層就是這個 body row，不再是舊版「自己捲動」的
   // `overflow-y-auto` 容器（捲動責任完全交給 `NoteEditor` 內部／各卡片自己的
   // `overflow-y-auto`，見 `NoteEditor.tsx`／`AppShell.tsx` 的說明）。
-  it("PR2：NoteEditor 容器存在，外層是 slot 化的 body row（flex min-h-0 flex-1），不是舊版自捲容器", async () => {
+  it("NoteEditor 容器存在，外層是 slot 化的 body row（flex min-h-0 flex-1），不是舊版自捲容器", async () => {
     vi.stubGlobal("fetch", mockFetch());
 
     renderNotePage("my-note");
@@ -1620,12 +1705,12 @@ describe("NotePage", () => {
     expect(bodyRow).not.toHaveClass("overflow-y-auto");
   });
 
-  // PR2（F 節）：backlinks 從可折疊的 `<details>` 改成常駐 chips，且不再由 NotePage
+  // backlinks 從可折疊的 `<details>` 改成常駐 chips，且不再由 NotePage
   // 額外包一層容器——`footerSlot` 就是 `<BacklinksSection>` 本身，幾何（shrink-0／
   // border-t／捲動上限）完全收在該元件內部（見 BacklinksSection.test.tsx 的專屬
   // 覆蓋）。這裡只驗證 slot 接線本身：footerSlot 的內容（chip 連結）確實出現在
   // mock 渲染出的 note-editor 容器內，不是漏接。
-  it("PR2：footerSlot（backlinks chips）確實接進 NoteEditor，不是漏接的 slot", async () => {
+  it("footerSlot（backlinks chips）確實接進 NoteEditor，不是漏接的 slot", async () => {
     const backlink: BacklinkDto = { id: "22222222-2222-2222-2222-222222222222", title: "Other", slug: "other", ownerHandle: "tester", groupId: null };
     vi.stubGlobal("fetch", mockFetch(NOTE, [backlink]));
 
@@ -1639,10 +1724,10 @@ describe("NotePage", () => {
   });
 });
 
-// ── #175 §8.1：`/g/:groupId/:slug`（NotePage 第三形）──
+// ── #175：`/g/:groupId/:slug`（NotePage 第三形）──
 // 群組筆記沒有個人 owner，canonical 是 `/g/<groupId>/<slug>`；解析層走
 // `GET /api/notes/by-group-path/:groupId/:slug`（`useNoteByGroupPath`），不打 by-path 與 `:ref`。
-describe("NotePage × /g/ 群組筆記（#175 §8.1）", () => {
+describe("NotePage × /g/ 群組筆記（#175）", () => {
   const GROUP_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
   const G_NOTE: NoteDto = {
     ...NOTE,
@@ -1707,6 +1792,7 @@ describe("NotePage × /g/ 群組筆記（#175 §8.1）", () => {
         if (url === "/api/auth/me") {
           return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(USER) }));
         }
+        if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
         if (url === "/api/notes" && method === "GET") {
           return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
         }
@@ -2016,6 +2102,7 @@ function withEditsAndList(inner: ReturnType<typeof mockFetch>, notes: () => Note
     if (url.endsWith("/edits") && method === "GET") {
       return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ edits: [] }) }));
     }
+    if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
     if (url === "/api/notes" && method === "GET") {
       return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(notes()) }));
     }
@@ -2151,11 +2238,11 @@ describe("NotePage × 側欄筆記列 ⋮", () => {
     expect(screen.queryByText("This note has been deleted.")).toBeNull();
   });
 
-  // NP-U1（讀碼發現 27）：移入後常駐層 ["note", id] 停在 404 in_trash 的 error 態；復原必須先蓋回常駐層再導回，
+  // NP-U1：移入後常駐層 ["note", id] 停在 404 in_trash 的 error 態；復原必須先蓋回常駐層再導回，
   // 否則重開的 NotePage 讀到舊 error →「此筆記已被刪除」並彈回首頁。
   // ⚠ 寫死從 `/n/tester/my-note`（by-path）進入：只有 by-path 形（`/g/<groupId>/<slug>` 同理）會留下解析層的
   // `["note-by-path", …]` 快取，而常駐層在掛載時重抓一次、`dataUpdatedAt` 才比解析層新，復原後 seed effect 不 seed 的條件才成立；
-  // 從 `/notes/<slug>` 或 `/notes/<id>` 進入時重開那篇會重抓 by-path、照常 seed，不 seed 也不會彈回（gate r2 探針實測）。
+  // 從 `/notes/<slug>` 或 `/notes/<id>` 進入時重開那篇會重抓 by-path、照常 seed，不 seed 也不會彈回。
   it("NP-U1 頁首 ⋮ 移到垃圾桶 → 回首頁 → 按 Undo：回到該篇、標題框出現，全程沒有「此筆記已被刪除」", async () => {
     let trashed = false;
     const inner = mockFetch();
@@ -2197,7 +2284,7 @@ describe("NotePage × 側欄筆記列 ⋮", () => {
     fireEvent.pointerDown(screen.getByRole("button", { name: "More" }), { button: 0 });
     fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/\|/));
-    // 等移入後常駐層的重抓（404 in_trash）真的落地成 error 態，才是讀碼發現 27 的起點（不用固定等待）。
+    // 等移入後常駐層的重抓（404 in_trash）真的落地成 error 態，才是起點（不用固定等待）。
     await waitFor(() => expect(queryClient.getQueryState(["note", NOTE.id])?.status).toBe("error"));
 
     fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
@@ -2211,16 +2298,16 @@ describe("NotePage × 側欄筆記列 ⋮", () => {
     expect(calls).toContain("POST /api/trash/restore");
     // 標題框出現＝重開的頁面已有一個 render 不是 noteGone 佔位卡；React 在它之前已跑完先前 commit 的 effect（含 noteGone 出口），
     // 所以若曾判成「已刪除」，toast() 此刻必已被呼叫。正面兩則都來自 trash-undo，只證明那一側的 spy 接上；
-    // NotePage 那一側的呼叫被攔到，由突變 T3-M28（拿掉 seed 且 noteGone 不導頁 → 下一行紅）證明。
+    // NotePage 那一側的呼叫被攔到，由突變（拿掉 seed 且 noteGone 不導頁 → 下一行紅）證明。
     expect(toastTitles()).toEqual(expect.arrayContaining(["Moved to the trash", "Restored 1 note"]));
     expect(toastTitles()).not.toContain("This note has been deleted.");
     expect(screen.queryByText("This note has been deleted.", { exact: true })).toBeNull();
   });
 });
 
-// 解析層 404 `in_trash`（帶頂層 noteId）→ 卡片、不導頁；其餘 404 照舊連結無效（plan T6 NP-T*）。
+// 解析層 404 `in_trash`（帶頂層 noteId）→ 卡片、不導頁；其餘 404 照舊連結無效（NP-T*）。
 // NP-T4 回歸另見既有案：「首次解析 404 → linkInvalid」（舊形）、「新形 by-path 404 → linkInvalid 出口」、「⑤by-group-path 404」。
-describe("NotePage × 在垃圾桶裡（spec §6.10.5）", () => {
+describe("NotePage × 在垃圾桶裡", () => {
   const GROUP_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
   const G_NOTE: NoteDto = {
     ...NOTE,
@@ -2302,6 +2389,7 @@ describe("NotePage × 在垃圾桶裡（spec §6.10.5）", () => {
         if (url === "/api/auth/me") {
           return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(USER) }));
         }
+        if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
         if (url === "/api/notes" && method === "GET") {
           return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
         }
@@ -2425,7 +2513,7 @@ describe("NotePage × 在垃圾桶裡（spec §6.10.5）", () => {
     await expectCardStays("/n/tester/my-note");
   });
 
-  // 用 `/notes/<slug>` 形（gate r1 M1）：解析層 key 是 `["note", slug]`，不在 invalidateTrashRelated 的前綴清單裡。
+  // 用 `/notes/<slug>` 形：解析層 key 是 `["note", slug]`，不在 invalidateTrashRelated 的前綴清單裡。
   it("NP-T2 /notes/<slug> 形：卡片 → 按 Restore → 送 restore、解析層重抓 200 → 卡片消失、標題框出現且拿到焦點", async () => {
     const { calls } = stubTrashed();
     renderAt(`/notes/${NOTE.slug}`);
@@ -2438,11 +2526,11 @@ describe("NotePage × 在垃圾桶裡（spec §6.10.5）", () => {
     expect(calls).toContain("POST /api/trash/restore");
     await waitFor(() => expect(routerPath()).toBe("/n/tester/my-note"));
     expect(screen.queryByText(LINK_INVALID)).toBeNull();
-    // 卡片卸載後焦點不落在 body：移到標題框（review r1 M-1）。
+    // 卡片卸載後焦點不落在 body：移到標題框。
     await waitFor(() => expect(screen.getByLabelText("Note title", { selector: "input" })).toHaveFocus());
   });
 
-  // ── 焦點只給「那一次還原的那一篇」（review r2 I-1） ──
+  // ── 焦點只給「那一次還原的那一篇」 ──
 
   it("NP-T8 一般開筆記（不在垃圾桶）：標題框不拿焦點", async () => {
     stubTrashed({ initiallyTrashed: false });
@@ -2483,7 +2571,7 @@ describe("NotePage × 在垃圾桶裡（spec §6.10.5）", () => {
     await settle();
     expect(titleInput()).not.toHaveFocus();
 
-    // 之後還原真的落地、再換回那篇：旗標早該在別篇頁首掛上時清掉（review r3 m-2）。
+    // 之後還原真的落地、再換回那篇：旗標早該在別篇頁首掛上時清掉。
     untrash();
     fireEvent.click(screen.getByRole("button", { name: "go-my-note" }));
     await waitFor(() => expect(titleInput()).toHaveValue("My Note"));
@@ -2572,7 +2660,7 @@ describe("NotePage × 在垃圾桶裡（spec §6.10.5）", () => {
     expect(byPathGets(calls)).toBe(3);
   });
 
-  // 正式環境（`main.tsx` 的 `new QueryClient()`）沒設 retry：沿用 query-core 的預設 3 次（review r1 M-2）。
+  // 正式環境（`main.tsx` 的 `new QueryClient()`）沒設 retry：沿用 query-core 的預設 3 次。
   it("NP-T7c QueryClient 沒設 retry：其他 404 照 query-core 預設重試 3 次（共 4 次）", async () => {
     const { calls } = stubTrashed({ code: "not_found" });
     renderAt("/n/tester/my-note", { retryDelay: 0 });
@@ -2674,7 +2762,7 @@ describe("scheduleTerminalReconcile", () => {
     expect(queryFn.mock.calls.length).toBe(before + 1);
   });
 
-  it("RF5：被踢的終態對帳同時讓 ['groups'] 失效一次（不隨 ['notes'] 輪詢重複）", async () => {
+  it("被踢的終態對帳同時讓 ['groups'] 失效一次（不隨 ['notes'] 輪詢重複）", async () => {
     // 前兩次仍回「NOTE 還在」讓 ['notes'] 輪詢跑至少兩輪，藉此跟「['groups'] 失效被
     // 誤放進 tick() 裡、隨每輪重複發」的錯法做出區別；第三次起才收斂。
     const notesFn = vi
@@ -2701,7 +2789,7 @@ describe("scheduleTerminalReconcile", () => {
   });
 });
 
-// ── #229：收斂保留 search／hash（spec §6.3-1）──────────────────────────────────────
+// ── #229：收斂保留 search／hash ──────────────────────────────────────
 // `?present` 與 `#/<slide id>` 是簡報模式的網址狀態；收斂（直接開 `/notes/:ref`、播放中改名）
 // 若只寫 pathname，簡報層會在第一次收斂時消失。
 
@@ -2738,7 +2826,7 @@ function renderAtEntry(entry: string) {
   return { ...result, queryClient };
 }
 
-describe("#229 網址收斂保留 search／hash（spec §6.3-1）", () => {
+describe("#229 網址收斂保留 search／hash", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     collab.state = { phase: "connected", role: "owner" };
@@ -2778,9 +2866,9 @@ describe("#229 網址收斂保留 search／hash（spec §6.3-1）", () => {
   });
 });
 
-// ── 版本歷史（Task 10，spec §8.1、§8.4、§8.5、A9）─────────────────────────────────────
+// ── 版本歷史─────────────────────────────────────
 
-describe("NotePage × 版本歷史（spec §8.1、§8.4、§8.5、A9）", () => {
+describe("NotePage × 版本歷史", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     collab.state = { phase: "connecting" };
@@ -2805,8 +2893,9 @@ describe("NotePage × 版本歷史（spec §8.1、§8.4、§8.5、A9）", () => 
     const ev = new KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true, cancelable: true });
     window.dispatchEvent(ev);
     expect(ev.defaultPrevented).toBe(true);
-    // 單案放寬 timeout（不動全域 asyncUtilTimeout 3 s）：這是版本 describe 第一個開對話框的案，lazy chunk 冷啟動＋全套平行負載下實測到 3043 ms 逾時紅。
-    expect(await screen.findByRole("dialog", { name: "Save current version" }, { timeout: 10_000 })).toBeInTheDocument();
+    // 這是版本 describe 第一個開對話框的案，lazy chunk 冷啟動＋全套平行負載下曾實測到 3043 ms（舊全域 3 s 時逾時紅）；
+    // 原本單案放寬到 10 s，全域 asyncUtilTimeout 已是 10 s（test/setup.ts），不再另設。
+    expect(await screen.findByRole("dialog", { name: "Save current version" })).toBeInTheDocument();
   });
 
   it("儲存對話框已開著再按 Ctrl+S → 仍 preventDefault（不跳瀏覽器另存），不開第二個、已填的名稱還在", async () => {
@@ -2927,11 +3016,12 @@ describe("NotePage × 版本歷史（spec §8.1、§8.4、§8.5、A9）", () => 
     renderNotePage(NOTE.id);
     fireEvent.click(await screen.findByText("mock-start-preview"));
     await screen.findByTestId("mock-preview-slot");
-    fireEvent.keyDown(window, { key: "Escape" });
+    // 這一下 Esc 只關預覽這一層——preventDefault（fireEvent 回 false），搜尋標記的 Esc 監聽看到 defaultPrevented 就讓路
+    expect(fireEvent.keyDown(window, { key: "Escape" })).toBe(false);
     await waitFor(() => expect(screen.queryByTestId("mock-preview-slot")).not.toBeInTheDocument());
   });
 
-  it("RF3：預覽中開著 ⋮ 選單按 Esc → 只關選單、預覽留著（jsdom；真鍵盤見 e2e 22）", async () => {
+  it("預覽中開著 ⋮ 選單按 Esc → 只關選單、預覽留著（jsdom；真鍵盤見 e2e 22）", async () => {
     vi.stubGlobal("fetch", mockFetch());
     collab.state = { phase: "connected", role: "owner" };
     renderNotePage(NOTE.id);
@@ -2944,7 +3034,7 @@ describe("NotePage × 版本歷史（spec §8.1、§8.4、§8.5、A9）", () => 
     expect(screen.getByTestId("mock-preview-slot")).toBeInTheDocument();
   });
 
-  it("RF3：預覽中開著儲存對話框按 Esc → 只關對話框、預覽留著（jsdom；真鍵盤見 e2e 22）", async () => {
+  it("預覽中開著儲存對話框按 Esc → 只關對話框、預覽留著（jsdom；真鍵盤見 e2e 22）", async () => {
     vi.stubGlobal("fetch", mockFetch());
     collab.state = { phase: "connected", role: "owner" };
     renderNotePage(NOTE.id);
@@ -2957,7 +3047,7 @@ describe("NotePage × 版本歷史（spec §8.1、§8.4、§8.5、A9）", () => 
     expect(screen.getByTestId("mock-preview-slot")).toBeInTheDocument();
   });
 
-  it("RF3（I-3 的判準本身）：Esc 已被別人 preventDefault（＝Radix 處理過、浮層已卸）→ 預覽留著，即使 DOM 裡已沒有任何浮層", async () => {
+  it("Esc 已被別人 preventDefault（＝Radix 處理過、浮層已卸）→ 預覽留著，即使 DOM 裡已沒有任何浮層", async () => {
     vi.stubGlobal("fetch", mockFetch());
     collab.state = { phase: "connected", role: "owner" };
     renderNotePage(NOTE.id);
@@ -2987,7 +3077,7 @@ describe("NotePage × 版本歷史（spec §8.1、§8.4、§8.5、A9）", () => 
   });
 });
 
-describe("NotePage × 最近 tab 跟上開著那篇（spec §5.2）", () => {
+describe("NotePage × 最近 tab 跟上開著那篇", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     collab.state = { phase: "connecting" };
@@ -3021,6 +3111,7 @@ describe("NotePage × 最近 tab 跟上開著那篇（spec §5.2）", () => {
     const fn = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = (init?.method ?? "GET").toUpperCase();
+      if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
       if (url === "/api/notes" && method === "GET") {
         listCalls += 1;
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([noteB, noteA]) }));
@@ -3068,6 +3159,7 @@ describe("NotePage × 最近 tab 跟上開著那篇（spec §5.2）", () => {
     const fn = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = (init?.method ?? "GET").toUpperCase();
+      if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
       if (url === "/api/notes" && method === "GET") {
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([aNew, noteB]) }));
       }
@@ -3116,7 +3208,7 @@ describe("NotePage × 最近 tab 跟上開著那篇（spec §5.2）", () => {
   });
 });
 
-describe("頁頭頭像列（#293 PR-1）", () => {
+describe("頁頭頭像列（#293）", () => {
   const GROUP = { name: "Also viewing this note" } as const;
   let awareness: Awareness;
 
@@ -3165,7 +3257,7 @@ describe("頁頭頭像列（#293 PR-1）", () => {
     expect(group.compareDocumentPosition(last) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("NP-P2 本分頁寫 knotebook 欄（PR-1 avatar 恆 null）", async () => {
+  it("NP-P2 本分頁寫 knotebook 欄（avatar 恆 null）", async () => {
     await openPage();
 
     await waitFor(() =>

@@ -14,10 +14,11 @@ import {
   NoteRouteErrorBoundary,
 } from "./ErrorBoundary";
 import { NotePageFallback } from "./NotePageFallback";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 /**
  * Issue #66：NoteRouteErrorBoundary／AppErrorBoundary／ChunkLoadBeacon 的行為判準
- * （spec 案 1–10）。接線案（App.tsx 真的有包）在 App.errorBoundary.test.tsx／
+ * （案 1–10）。接線案（App.tsx 真的有包）在 App.errorBoundary.test.tsx／
  * App.appBoundary.test.tsx——這裡手組的形狀對，不代表 App.tsx 的對，兩邊都要有。
  *
  * 鑑別力紀律（本 repo 慣性缺陷形）：
@@ -86,6 +87,7 @@ function stubFetch() {
       if (url === "/api/auth/me") {
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(ADMIN_USER) }));
       }
+      if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
       if (url === "/api/notes") {
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
       }
@@ -129,7 +131,7 @@ function expectLoadingScreen() {
   expect(screen.queryByText(CRASH_TEXT)).not.toBeInTheDocument();
 }
 
-describe("NoteRouteErrorBoundary（spec 案 1–8）", () => {
+describe("NoteRouteErrorBoundary（案 1–8）", () => {
   it("案 1：chunk 錯誤（首次、online、旗標未設）→ reload 恰一次＋旗標被設；期間畫面是載入樣式非錯誤畫面", async () => {
     const reload = vi.fn();
     render(
@@ -145,7 +147,7 @@ describe("NoteRouteErrorBoundary（spec 案 1–8）", () => {
     // 鑑別式斷言：載入文案在場、兩支錯誤文案皆不在場（B 也含 AppShell，只斷言
     // AppShell 招牌不鑑別）；AppShell 在場另外釘（不得是唯一斷言）。
     expectLoadingScreen();
-    await waitFor(() => expect(screen.getByText("New note")).toBeInTheDocument(), { timeout: 3_000 });
+    await waitFor(() => expect(screen.getByText("New note")).toBeInTheDocument());
   });
 
   it("案 2：chunk 錯誤（旗標已設）→ 不 reload，B 畫面 chunk 分支文案＋重試按鈕", () => {
@@ -225,7 +227,7 @@ describe("NoteRouteErrorBoundary（spec 案 1–8）", () => {
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
-  // 案 5b/5c（PR #67 獨立審查抓到的 blocking 後補的回歸釘）：真實 bundle 的失敗
+  // 案 5b/5c（PR #67 補的回歸釘）：真實 bundle 的失敗
   // 訊息不是裸 import() 那三條——NotePage chunk 帶 CSS dep，走 Vite __vitePreload，
   // 離線/CSS hash 輪替時 reject 的是 Vite 自己的 CSS 訊息；反代 try_files 部署則是
   // MIME 型訊息。兩者都必須判為 chunk（旗標已設 → B 的 chunk 分支文案；若被誤判
@@ -445,7 +447,7 @@ describe("NoteRouteErrorBoundary（spec 案 1–8）", () => {
   });
 });
 
-describe("ChunkLoadBeacon（spec 案 9／9a，真實 suspend→reject 時間軸）", () => {
+describe("ChunkLoadBeacon（案 9／9a，真實 suspend→reject 時間軸）", () => {
   it("案 9：成功 commit → 旗標被清（先種；起始為空的話刪掉 beacon 也綠——恆真）", async () => {
     sessionStorage.setItem(FLAG_KEY, "1");
     const reload = vi.fn();
@@ -461,7 +463,7 @@ describe("ChunkLoadBeacon（spec 案 9／9a，真實 suspend→reject 時間軸�
       </Providers>,
     );
 
-    await waitFor(() => expect(screen.getByText("lazy-ok")).toBeInTheDocument(), { timeout: 3_000 });
+    await waitFor(() => expect(screen.getByText("lazy-ok")).toBeInTheDocument());
     expect(sessionStorage.getItem(FLAG_KEY)).toBeNull();
     expect(reload).not.toHaveBeenCalled();
   });
@@ -484,7 +486,7 @@ describe("ChunkLoadBeacon（spec 案 9／9a，真實 suspend→reject 時間軸�
       </Providers>,
     );
 
-    await waitFor(() => expect(screen.getByText(CHUNK_ERROR_TEXT)).toBeInTheDocument(), { timeout: 3_000 });
+    await waitFor(() => expect(screen.getByText(CHUNK_ERROR_TEXT)).toBeInTheDocument());
     // 守門的是上下兩條（錯放＝reload 1 次＋載入畫面，兩者同時紅）；「旗標仍在」在
     // 錯放下也成立（beacon 清掉後 componentDidCatch 又設回去）——它是輔助斷言，
     // 精簡時不得只留它。
@@ -524,7 +526,7 @@ describe("LazyRouteErrorBoundary 的 chunk／frame（#201）", () => {
         </Suspense>
       </LazyRouteErrorBoundary>,
     );
-    await waitFor(() => expect(screen.getByText("lazy-ok")).toBeInTheDocument(), { timeout: 3_000 });
+    await waitFor(() => expect(screen.getByText("lazy-ok")).toBeInTheDocument());
     expect(sessionStorage.getItem(SETTINGS_FLAG_KEY)).toBeNull();
     expect(sessionStorage.getItem(FLAG_KEY)).toBe("1");
   });
@@ -559,7 +561,7 @@ describe("LazyRouteErrorBoundary 的 chunk／frame（#201）", () => {
     expect(vi.mocked(fetch)).not.toHaveBeenCalled();
   });
 
-  it("案 E（版本歷史 M-5）：frame=inline 給 crashMessageKey／inlineErrorClassName → 非 chunk 錯誤顯示該 key 的文案且包在該 class 裡；不給時與預設逐字相同", () => {
+  it("案 E（版本歷史）：frame=inline 給 crashMessageKey／inlineErrorClassName → 非 chunk 錯誤顯示該 key 的文案且包在該 class 裡；不給時與預設逐字相同", () => {
     const { unmount } = render(
       <LazyRouteErrorBoundary
         resetKey={undefined}
@@ -589,7 +591,7 @@ describe("LazyRouteErrorBoundary 的 chunk／frame（#201）", () => {
   });
 });
 
-describe("AppErrorBoundary（spec 案 10）", () => {
+describe("AppErrorBoundary（案 10）", () => {
   it("案 10：子元件 render 丟錯 → app 級 fallback（無白屏），按鈕觸發 reload", () => {
     const reload = vi.fn();
     render(

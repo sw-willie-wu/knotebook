@@ -1,12 +1,12 @@
 /**
- * #181 PR-2a T12：移入垃圾桶 ×｛搬移、上傳、複製、分享、改網址、改標題、開公開連結、MCP `edit_note`｝的併發（spec §6.14、
- * A2-16 併發半）。每種操作三形：
+ * #181：移入垃圾桶 ×｛搬移、上傳、複製、分享、改網址、改標題、開公開連結、MCP `edit_note`｝的併發。
+ * 每種操作三形：
  *   (a) 操作先——操作卡在它的交易內縫（持鎖）、DELETE 送出並確認在等鎖 → 放行 → 操作成功、之後移入；
  *   (b) 移入先——操作卡在它的授權後縫，縫裡跑完整個 DELETE → 放行 → 操作回該處原本的 not_found，狀態沒被改到；
  *   (c) 移入在途——DELETE 卡在 `note-trash-locked`（持 FOR UPDATE）、操作送出並確認在等鎖 → 放行 → 操作 not_found
  *       （PG 等鎖後對新版本重評 `deleted_at IS NULL` 的那條路）。
  * 改標題、開公開連結沒有交易（單句 UPDATE／三句無交易），MCP `edit_note` 的直連寫入也不持 DB 鎖：(a) 以「操作完成後才 DELETE」
- * 的循序案代替；MCP 的併發證據另見 `trash-direct-write.test.ts` DW3，且 MCP 不等鎖、沒有 (c)。
+ * 的循序案代替；MCP 的併發證據另見 `trash-direct-write.test.ts`，且 MCP 不等鎖、沒有 (c)。
  */
 import { randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
@@ -28,8 +28,8 @@ import { inject, trashCols } from "./trash-helpers.js";
 import { paraDoc } from "./version-helpers.js";
 
 type Res = LightMyRequestResponse;
-const NOT_FOUND = { error: { code: "not_found", message: "找不到此筆記" } };
-const FORBIDDEN = { error: { code: "forbidden", message: "沒有刪除這篇筆記的權限" } };
+const NOT_FOUND = { error: { code: "not_found", message: "No note with that id." } };
+const FORBIDDEN = { error: { code: "forbidden", message: "You don't have permission to delete this note." } };
 const del = (app: FastifyInstance, id: string, by: string) => inject(app, "DELETE", `/api/notes/${id}`, by);
 
 /** 一次性測試縫：`on` 登記的處理第一次觸發時拿掉並執行，其餘觸發直接放行。 */
@@ -90,7 +90,7 @@ interface Scene {
 
 /**
  * owner 的個人筆記（自訂 slug、一筆 viewer 分享）；owner 在搬移目標群組裡是 `ownerRole`。
- * 閘門照 D3 的造法注入 release spy（`beforeNoteDeleted` 回 `{ release }`）。
+ * 閘門照既有的造法注入 release spy（`beforeNoteDeleted` 回 `{ release }`）。
  */
 async function scene(ownerRole: "admin" | "member" = "admin"): Promise<Scene> {
   const seams = new Seams();
@@ -113,7 +113,7 @@ async function scene(ownerRole: "admin" | "member" = "admin"): Promise<Scene> {
 const titleOf = async (db: Db, id: string) => (await db.select({ title: notes.title }).from(notes).where(eq(notes.id, id)))[0]!.title;
 const uploadRows = async (db: Db, id: string) => (await db.select({ id: uploads.id }).from(uploads).where(eq(uploads.noteId, id))).map(r => r.id);
 
-/** A2-16 的狀態：歸屬、網址、公開、標題、分享、版本，加上附件列、筆記總數與磁碟檔（上傳、複製兩種）。 */
+/** 狀態：歸屬、網址、公開、標題、分享、版本，加上附件列、筆記總數與磁碟檔（上傳、複製兩種）。 */
 async function snap(e: Scene) {
   const [width] = await e.db.select({ w: notes.publicWidth }).from(notes).where(eq(notes.id, e.noteId));
   return {

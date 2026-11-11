@@ -1,7 +1,7 @@
 /**
- * 儲存配額的站台管理端點（spec 2026-10-08 §7.1、§7.2 群組那兩支）。全部 `app.requireAdmin`、全部單句（不開交易——
- * s14 ⑥：本檔 `.transaction(` 恆 0；要改用交易必須先抽 `*InTx` 並列進 ROUTE_FILES）。錯誤訊息中文；body 一律 strict zod，
- * 形狀錯回固定的「請求格式錯誤」（不吐 zod 英文）。id 一律 UUID_RE＋toLowerCase，非 UUID 走該端點的 404 碼。
+ * 儲存配額的站台管理端點（群組那兩支）。全部 `app.requireAdmin`、全部單句（不開交易——
+ * S14 ⑥：本檔 `.transaction(` 恆 0；要改用交易必須先抽 `*InTx` 並列進 ROUTE_FILES）。錯誤訊息英文（#372）；body 一律 strict zod，
+ * 形狀錯回固定的 "Invalid request body."（不吐 zod 內建句）。id 一律 UUID_RE＋toLowerCase，非 UUID 走該端點的 404 碼。
  */
 import type { FastifyBaseLogger, FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
@@ -35,7 +35,7 @@ const UNSTORABLE = /[\0]|\p{Surrogate}/u;
 
 /**
  * 方案名稱：trim（含全形空白）後 1..40 個 **code point**（與 DB `char_length` 同單位——不得用 `.length`，astral 字元算兩個）；
- * 含 NUL 或落單代理一律拒（PG 存不下 → 22021，[[g:pg-unstorable-strings-drizzle-tx]]）。不合法回 null。
+ * 含 NUL 或落單代理一律拒（PG 存不下 → 22021）。不合法回 null。
  */
 export function validatePlanName(raw: string): string | null {
   const name = raw.trim();
@@ -91,14 +91,14 @@ async function readDefaults(db: Db): Promise<{ userPlanId: string; groupPlanId: 
 
 export function adminStorageRoutes(deps: AdminStorageRouteDeps) {
   return async function register(app: FastifyInstance): Promise<void> {
-    const invalidBody = (reply: FastifyReply) => sendError(reply, 400, "invalid_body", "請求格式錯誤");
-    const invalidName = (reply: FastifyReply) => sendError(reply, 400, "invalid_name", "方案名稱須為 1–40 個字元");
-    const planNotFound = (reply: FastifyReply) => sendError(reply, 404, "storage_plan_not_found", "找不到這個方案");
-    const nameTaken = (reply: FastifyReply) => sendError(reply, 409, "storage_plan_name_taken", "已有同名的方案");
-    const groupNotFound = (reply: FastifyReply) => sendError(reply, 404, "group_not_found", "找不到此群組");
+    const invalidBody = (reply: FastifyReply) => sendError(reply, 400, "invalid_body", "Invalid request body.");
+    const invalidName = (reply: FastifyReply) => sendError(reply, 400, "invalid_name", "Plan names must be 1 to 40 characters.");
+    const planNotFound = (reply: FastifyReply) => sendError(reply, 404, "storage_plan_not_found", "No storage plan with that id.");
+    const nameTaken = (reply: FastifyReply) => sendError(reply, 409, "storage_plan_name_taken", "A plan with that name already exists.");
+    const groupNotFound = (reply: FastifyReply) => sendError(reply, 404, "group_not_found", "No group with that id.");
     const settingsMissing = (reply: FastifyReply, log: FastifyBaseLogger) => {
       log.error({ table: "site_settings" }, SITE_SETTINGS_MISSING_MESSAGE); // 物件開頭（captureLogs 只收這形；先例 routes/admin-auth.ts:114）
-      return sendError(reply, 500, "internal", "伺服器內部錯誤");
+      return sendError(reply, 500, "internal", "Internal server error.");
     };
     const onePlan = async (id: string): Promise<StoragePlanDto | null> => {
       const defaults = await readDefaults(deps.db);
@@ -130,7 +130,7 @@ export function adminStorageRoutes(deps: AdminStorageRouteDeps) {
       return reply.code(201).send(await onePlan(id));
     });
 
-    // 靜態段 `/defaults` 先於 `/:id`（find-my-way 靜態優先；S10 測試釘住「不被 /:id 吃掉」）。
+    // 靜態段 `/defaults` 先於 `/:id`（find-my-way 靜態優先；測試釘住「不被 /:id 吃掉」）。
     app.patch("/api/admin/storage-plans/defaults", { preHandler: app.requireAdmin }, async (request, reply) => {
       const parsed = defaultsSchema.safeParse(request.body);
       if (!parsed.success) return invalidBody(reply);
@@ -143,7 +143,7 @@ export function adminStorageRoutes(deps: AdminStorageRouteDeps) {
       }
       let rows: Array<{ userPlanId: string; groupPlanId: string }>;
       try {
-        // 單句 UPDATE（含 updated_at，M9）：與 B27 持有者、註冊的 FOR SHARE 讀在同一列排隊（spec §6.2）。只影響之後建立的。
+        // 單句 UPDATE（含 updated_at）：與站台設定列鎖持有者、註冊的 FOR SHARE 讀在同一列排隊。只影響之後建立的。
         rows = await deps.db.update(siteSettings).set(set).where(eq(siteSettings.singleton, true))
           .returning({ userPlanId: siteSettings.defaultUserStoragePlanId, groupPlanId: siteSettings.defaultGroupStoragePlanId });
       } catch (err) {
@@ -170,7 +170,7 @@ export function adminStorageRoutes(deps: AdminStorageRouteDeps) {
       if (parsed.data.quotaBytes !== undefined) set.quotaBytes = parsed.data.quotaBytes;
       let updated: Array<{ id: string }>;
       try {
-        // 調低低於現用量允許（D4a：不刪、只擋新增）；調高立即生效（下一次判定讀到新值）。
+        // 調低低於現用量允許（不刪、只擋新增）；調高立即生效（下一次判定讀到新值）。
         updated = await deps.db.update(storagePlans).set(set).where(eq(storagePlans.id, id)).returning({ id: storagePlans.id });
       } catch (err) {
         if (uniqueViolationConstraint(err) === "storage_plans_name_lower_idx") return nameTaken(reply);
@@ -184,10 +184,10 @@ export function adminStorageRoutes(deps: AdminStorageRouteDeps) {
       const { id: rawId } = request.params as { id: string };
       if (!UUID_RE.test(rawId)) return planNotFound(reply);
       const id = rawId.toLowerCase();
-      const isDefault = () => sendError(reply, 409, "storage_plan_is_default", "這個方案是預設方案，請先改選其他預設");
+      const isDefault = () => sendError(reply, 409, "storage_plan_is_default", "This is the default plan. Make another plan the default first.");
       let deleted: number;
       try {
-        // spec §7.1（I2）：條件式排除預設先於 FK 觸發——「既是預設又使用中」一律 is_default；使用中由 FK RESTRICT 在 DB 端裁決。
+        // 條件式排除預設先於 FK 觸發——「既是預設又使用中」一律 is_default；使用中由 FK RESTRICT 在 DB 端裁決。
         const res = await deps.db.execute(sql`
           delete from storage_plans where id = ${id}
             and id not in (select default_user_storage_plan_id from site_settings
@@ -196,8 +196,8 @@ export function adminStorageRoutes(deps: AdminStorageRouteDeps) {
         deleted = res.rows.length;
       } catch (err) {
         const c = foreignKeyViolationConstraint(err);
-        if (c === "users_storage_plan_fk" || c === "groups_storage_plan_fk") return sendError(reply, 409, "storage_plan_in_use", "這個方案仍有使用者或群組在用，請先改指派其他方案");
-        // 與「改預設」並發：子查詢讀快照，改預設在其後 commit 使它成為預設 → site_settings 的 FK 擋下（§7.1、R11）。
+        if (c === "users_storage_plan_fk" || c === "groups_storage_plan_fk") return sendError(reply, 409, "storage_plan_in_use", "Users or groups still use this plan. Assign them another plan first.");
+        // 與「改預設」並發：子查詢讀快照，改預設在其後 commit 使它成為預設 → site_settings 的 FK 擋下。
         if (c === "site_settings_default_user_plan_fk" || c === "site_settings_default_group_plan_fk") return isDefault();
         throw err;
       }
@@ -234,7 +234,7 @@ export function adminStorageRoutes(deps: AdminStorageRouteDeps) {
       if (!UUID_RE.test(parsed.data.planId)) return planNotFound(reply);
       let updated: Array<{ id: string }>;
       try {
-        // 單句非鍵 UPDATE（NO KEY UPDATE）：不取空間鎖、不擋進行中的上傳（R10）；不檢查新方案是否小於現用量（§7.2）。
+        // 單句非鍵 UPDATE（NO KEY UPDATE）：不取空間鎖、不擋進行中的上傳；不檢查新方案是否小於現用量。
         updated = await deps.db.update(groups).set({ storagePlanId: parsed.data.planId.toLowerCase() }).where(eq(groups.id, id)).returning({ id: groups.id });
       } catch (err) {
         if (foreignKeyViolationConstraint(err) === "groups_storage_plan_fk") return planNotFound(reply);

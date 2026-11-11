@@ -56,7 +56,7 @@ const TEXTAREA_CLASS =
   "placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring " +
   "disabled:cursor-not-allowed disabled:opacity-50";
 
-/** provider type 決定 baseUrl 欄位的 placeholder（Task 4 審查交接）：anthropic 是官方
+/** provider type 決定 baseUrl 欄位的 placeholder：anthropic 是官方
  * origin（不帶 `/v1`——`routes/admin-ai.ts` 測試連線端點自己拼 `${baseUrl}/v1/models`）；
  * openai_compatible 通常是本機/自架端點，`/v1` 是路徑的一部分（例如 ollama）。 */
 function baseUrlPlaceholder(type: AdminAiProviderDto["type"]): string {
@@ -613,7 +613,7 @@ function DeleteModelDialog({ model }: { model: AdminAiModelDto }) {
   );
 }
 
-/** 模型列的啟用開關（`SettingsTable` 的 enabled 欄）：可及名稱「Enabled ＜模型名＞」由表格的 aria-labelledby 給（spec §1 的唯一例外：原為「Enabled」）。 */
+/** 模型列的啟用開關（`SettingsTable` 的 enabled 欄）：可及名稱「Enabled ＜模型名＞」由表格的 aria-labelledby 給（唯一例外：原為「Enabled」）。 */
 function ModelEnabledSwitch({ model, labelledBy }: { model: AdminAiModelDto; labelledBy: string }) {
   const { t } = useTranslation();
   const patchModel = usePatchAiModel();
@@ -637,9 +637,9 @@ function ModelEnabledSwitch({ model, labelledBy }: { model: AdminAiModelDto; lab
 }
 
 /**
- * 供應商明細列裡的模型子表（spec §3 #2）：`nested`、表名「Models – ＜供應商名＞」、標題列＝Models＋「Add model」（不論有無模型都在）。
+ * 供應商明細列裡的模型子表：`nested`、表名「Models – ＜供應商名＞」、標題列＝Models＋「Add model」（不論有無模型都在）。
  * 欄：名稱（★預設標籤、副標 modelId）｜操作（編輯、刪除）｜啟用。子表與父表的啟用軌同為 56px、在最右；操作軌緊鄰其左、鈕群靠右（子表 2 顆鈕，軌比父表的 3 顆窄），
- * 所以子列鈕群右緣與開關中心和父列上下對齊（spec §2.5）。
+ * 所以子列鈕群右緣與開關中心和父列上下對齊。
  */
 function ModelsTable({ provider, models }: { provider: AdminAiProviderDto; models: AdminAiModelDto[] }) {
   const { t } = useTranslation();
@@ -710,7 +710,7 @@ function ProviderEnabledSwitch({ provider, labelledBy }: { provider: AdminAiProv
   );
 }
 
-/** 供應商列的操作鈕（spec §2.7 的順序：測試 → 編輯 → 刪除）。測試的進行中與結果交給上層保存、在明細列顯示。 */
+/** 供應商列的操作鈕（順序：測試 → 編輯 → 刪除）。測試的進行中與結果交給上層保存、在明細列顯示。 */
 function ProviderActions({
   provider,
   onTestStart,
@@ -748,8 +748,8 @@ function ProviderActions({
 }
 
 /**
- * 供應商的明細列（spec §3 #1：現有內容全數保留）：降級警示、金鑰說明行、測試中狀態與測試結果、模型子表。
- * 明細內容排在整個表格寬度上，窄螢幕時一部分要捲動才看得到（spec §8 已知風險）。
+ * 供應商的明細列（現有內容全數保留）：降級警示、金鑰說明行、測試中狀態與測試結果、模型子表。
+ * 明細內容排在整個表格寬度上，窄螢幕時一部分要捲動才看得到（已知取捨）。
  */
 function ProviderDetail({
   provider,
@@ -770,7 +770,7 @@ function ProviderDetail({
           </p>
         )}
 
-        {/* issue #46 審查：改網址會把金鑰作廢，但在此之前卡片上**完全看不出**一個 provider
+        {/* issue #46：改網址會把金鑰作廢，但在此之前卡片上**完全看不出**一個 provider
             有沒有金鑰（`hasKey` 以前只有 Edit dialog 用）——於是「金鑰被清掉」變成一個沒有
             任何 UI 表示的狀態，degraded 的紅字還會在同一時間消失（沒金鑰就不叫解不開）而
             沒有東西接手。這一行就是接手的那個。degraded 時不重複顯示：那句已經在講同一件
@@ -779,7 +779,7 @@ function ProviderDetail({
             ⚠ 文案必須是**中性事實**：`hasKey` 分不出「從來沒有」（自架的無授權服務，
             `docs/ai.md` 明講那是合法設定）與「剛剛被清掉」（要行動），所以這一行不能預言
             後果、也不能說「直到重新輸入為止」——對一顆從來沒有金鑰的 Ollama provider
-            那是假話，而且它永遠不會消失（審查抓到）。 */}
+            那是假話，而且它永遠不會消失。 */}
         {!provider.hasKey && !provider.degraded && (
           <p role="status" className="text-muted-foreground">
             {t("settings.ai.noKeyNotice")}
@@ -805,7 +805,7 @@ function ProviderDetail({
 // ═══════════════════════════════ actions ═══════════════════════════════
 
 /** model 下拉共用欄位：空值＝`settings.ai.modelAuto`（**「自動選擇（偏好預設模型）」**，
- * spec §13.4 明文禁止簡寫成「預設模型」——那句話描述的是「回退時偏好誰」，不是「這個
+ * 不得簡寫成「預設模型」——那句話描述的是「回退時偏好誰」，不是「這個
  * 選項本身叫預設模型」，兩者不能混為一談）。 */
 function ModelSelectField({
   id,
@@ -832,7 +832,7 @@ function ModelSelectField({
 }
 
 /**
- * `nextSortOrder`（fix round 1，M-1）：新 action 一律附加在清單最後，而不是讓 body
+ * `nextSortOrder`：新 action 一律附加在清單最後，而不是讓 body
  * 省略 `sortOrder`（server 端 `sortOrder ?? 0` 會跟內建 Rewrite 之類同分變成 0——
  * 上下移鈕互換的是「相鄰兩項的 sortOrder 值」，同分時互換等於原地不動：兩支 PATCH
  * 照發、皆成功、但排序靜默失效）。呼叫端（`SettingsAiSection`）算好目前最大值 +1 傳進來。
@@ -981,7 +981,7 @@ function EditActionDialog({ action, models }: { action: AdminAiActionDto; models
   const [modelId, setModelId] = useState(action.modelId ?? "");
   const [applyMode, setApplyMode] = useState<AdminAiActionDto["applyMode"]>(action.applyMode);
   const [error, setError] = useState<string | null>(null);
-  // #263 §4.4：內建 Instruct 一律預覽——不畫套用模式控制項、PATCH 也不帶 applyMode；template 提示列出三個佔位符。
+  // #263：內建 Instruct 一律預覽——不畫套用模式控制項、PATCH 也不帶 applyMode；template 提示列出三個佔位符。
   const isInstruct = action.kind === "instruct";
 
   function handleOpenChange(next: boolean): void {
@@ -1153,7 +1153,7 @@ function DeleteActionDialog({ action }: { action: AdminAiActionDto }) {
   );
 }
 
-/** 動作的啟用開關（可及名稱「Enabled ＜動作名＞」——spec §1 的唯一例外：原為帶可見文字的「Enabled」）。 */
+/** 動作的啟用開關（可及名稱「Enabled ＜動作名＞」——設定表格的唯一例外：原為帶可見文字的「Enabled」）。 */
 function ActionEnabledSwitch({ action, labelledBy }: { action: AdminAiActionDto; labelledBy: string }) {
   const { t } = useTranslation();
   const patchAction = usePatchAiAction();
@@ -1177,7 +1177,7 @@ function ActionEnabledSwitch({ action, labelledBy }: { action: AdminAiActionDto;
 }
 
 /**
- * 動作列的操作鈕（spec §2.7：上移 → 下移 → 編輯 → 刪除）。上下移在清單邊界、或兩支 PATCH 進行中用原生 disabled（暫時性的不可用）；
+ * 動作列的操作鈕（上移 → 下移 → 編輯 → 刪除）。上下移在清單邊界、或兩支 PATCH 進行中用原生 disabled（暫時性的不可用）；
  * 內建動作沒有刪除鈕（builtin 雙保險之一，server 端見 `routes/admin-ai.ts` 的 `BUILTIN_ACTION_IDS`）。
  */
 function ActionButtons({
@@ -1225,14 +1225,14 @@ function ActionButtons({
  * 見 `@/api/adminAi`），任一 mutation 成功都會 invalidate 這三個＋`["ai-actions"]`
  * （`AiSession` 讀的可執行動作清單，讓筆記側欄同分頁立即生效）。
  *
- * 版面（spec 2026-10-13 settings-table §3 #1–#3）：供應商表（模型是每個供應商明細列裡的子表）與動作表都是 `SettingsTable`；
+ * 版面（#3）：供應商表（模型是每個供應商明細列裡的子表）與動作表都是 `SettingsTable`；
  * 動作表的標題與「Add action」由 `SettingsGroup` 的 title／action 提供。
  *
  * 動作照 `sortOrder` 排序（`GET /api/admin/ai/actions` 已經 `orderBy(sortOrder, id)`，這裡直接沿用回應順序，不再重排）。
  * 上下移鈕＝跟相鄰項目對調 `sortOrder` 值：兩支循序 PATCH（先目標項、後鄰居項），值取自目前已知的 `actions` 陣列
  * （不必等第一支 PATCH 的回應／重新查詢），故意循序 await 避免競態。
  *
- * fix round 2：上下移鈕在兩支 PATCH 進行中必須鎖死，否則連點會用同一組 stale `actions` 陣列送出第二組「跟相鄰項目對調」
+ * 上下移鈕在兩支 PATCH 進行中必須鎖死，否則連點會用同一組 stale `actions` 陣列送出第二組「跟相鄰項目對調」
  * 的 PATCH——兩次對調抵銷，UI 呈現原地不動，但兩列已經同 `sortOrder`（PATCH body 不含 sortOrder 的 Edit 表單救不回來）。
  * 本層的 `patchAction`（`usePatchAiAction()` 實例）才是 `handleMove` 實際呼叫 `mutateAsync` 的那個——每列開關各有自己的
  * `usePatchAiAction()` 實例，彼此 `isPending` 不共享，所以上下移鈕的鎖從這層往下傳（`movePending`）。
@@ -1248,7 +1248,7 @@ export function SettingsAiSection() {
   const models = modelsQuery.data ?? [];
   const actions = actionsQuery.data ?? [];
 
-  // fix round 1（M-1）：新 action 附加在清單最後——`sortOrder` 沒有 DB 唯一約束，若
+  // 新 action 附加在清單最後——`sortOrder` 沒有 DB 唯一約束，若
   // create body 省略這個欄位，server 端 `sortOrder ?? 0` 會讓新動作跟 sortOrder=0
   // 的既有項（例如內建 Rewrite）同分，之後上下移鈕互換同分值＝原地不動，排序功能
   // 對這個新動作靜默失效。`Math.max(...) + 1` 保證新項一律排在現有最大值之後。

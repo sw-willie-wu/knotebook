@@ -11,13 +11,17 @@ import { NotePageControlsContext, type NotePageControls } from "@/lib/note-page-
 import { SidebarTabProvider, type SidebarTab } from "@/lib/sidebar-tab";
 import { NoteList } from "@/components/NoteList";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
-import { __resetCollapseForTests } from "@/components/sidebar/collapse";
+import { __resetCollapseForTests, isCollapsed, setCollapsed } from "@/components/sidebar/collapse";
 import { SidebarFooter } from "@/components/sidebar/SidebarFooter";
 import { adminRole, customRole, groupDto } from "@/test/fixtures";
 import { clickOutside } from "@/test/outside-click";
 import { groupNote, personalNote, sharedNote } from "@/test/select-fixtures";
+import { FOLDER_LIST_EMPTY, folderDto, groupFolder, sharedFolder } from "@/test/folder-fixtures";
+import type { FolderDto } from "@knotebook/shared";
+import { __resetFolderSortForTests } from "@/components/sidebar/folder-sort";
+import { mockWidePointer } from "@/test/wide-pointer";
 
-// 一般 tab 選取模式的動作列、目的地框、確認框與三種流程（#181 PR-2c T5，SA1–SA24b）。
+// 一般 tab 選取模式的動作列、目的地框、確認框與三種流程（#181，SA1–SA24b；含資料夾 SAf1–SAf16）。
 // 兩份外殼（同 AppShell 的靜態卡與抽屜）共用同一份選取；動作一律從第二份（shell 1）發起，找錯外殼焦點就會落到第一份。
 
 afterEach(() => {
@@ -47,7 +51,7 @@ const P2 = personalNote({ id: "p2", title: "p2" });
 const P3 = personalNote({ id: "p3", title: "p3" });
 const GA1 = groupNote({ id: "ga1", title: "ga1", group: GA });
 const GA2 = groupNote({ id: "ga2", title: "ga2", group: GA });
-/** 能刪不能編輯（§6.10.7）。 */
+/** 能刪不能編輯。 */
 const GA3 = groupNote({ id: "ga3", title: "ga3", group: GA, edit: false });
 /** 不能刪。 */
 const GA4 = groupNote({ id: "ga4", title: "ga4", group: GA, delete: false });
@@ -63,28 +67,81 @@ interface Call {
  * 假 server：清單與群組照 `box`；DELETE／move／copy 預設成功並改 `box.notes`（下一次 GET 生效），restore 還回被刪的篇。
  * `fail(key, status, code)` 讓某支回錯誤；`hold(key)` 讓某支等放行才回（回傳放行函式）。
  */
-function stubServer(initial: { notes?: NoteDto[]; groups?: GroupDto[] } = {}) {
-  const box = { notes: [...(initial.notes ?? ALL)], groups: initial.groups ?? [GA] };
+function stubServer(initial: { notes?: NoteDto[]; groups?: GroupDto[]; folders?: FolderDto[] } = {}) {
+  const box = { notes: [...(initial.notes ?? ALL)], groups: initial.groups ?? [GA], folders: [...(initial.folders ?? [])] };
   const trashed = new Map<string, NoteDto>();
   const calls: Call[] = [];
   const failures = new Map<string, { status: number; code: string }>();
   const gates = new Map<string, Promise<void>>();
   const listeners: ((key: string) => void)[] = [];
 
+  /** 資料夾子樹（含自己）的 id。 */
+  function subtree(folderId: string): Set<string> {
+    const out = new Set([folderId]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const folder of box.folders) {
+        if (folder.parentId !== null && out.has(folder.parentId) && !out.has(folder.id)) {
+          out.add(folder.id);
+          grew = true;
+        }
+      }
+    }
+    return out;
+  }
+
   function perform(method: string, url: string, body: unknown): Response {
     const key = `${method} ${url}`;
     const failure = failures.get(key);
     if (failure) return fakeResponse({ error: { code: failure.code, message: "x" } }, failure.status);
-    const id = decodeURIComponent(url.split("/")[3] ?? "");
+    const [, , resource, rawId] = url.split("/");
+    const id = decodeURIComponent(rawId ?? "");
+    if (resource === "folders") {
+      const folder = box.folders.find((f) => f.id === id);
+      if (!folder) return fakeResponse({ error: { code: "folder_not_found", message: "x" } }, 404);
+      if (method === "PATCH") {
+        const moved: FolderDto = { ...folder, parentId: (body as { parentId: string | null }).parentId };
+        box.folders = box.folders.map((f) => (f.id === id ? moved : f));
+        return fakeResponse(moved);
+      }
+      if (method === "DELETE") {
+        const ids = subtree(id);
+        const inside = box.notes.filter((n) => n.folderId !== null && ids.has(n.folderId));
+        box.folders = box.folders.filter((f) => !ids.has(f.id));
+        // 與我共享：資料夾只是自己的分類，移除後裡面的回最上層、不進垃圾桶。
+        if (folder.space.kind === "shared") {
+          box.notes = box.notes.map((n) => (inside.includes(n) ? { ...n, folderId: null } : n));
+          return fakeResponse({ trashedNoteIds: [], deletedFolderIds: [...ids] });
+        }
+        box.notes = box.notes.filter((n) => !inside.includes(n));
+        for (const n of inside) trashed.set(n.id, n);
+        return fakeResponse({ trashedNoteIds: inside.map((n) => n.id), deletedFolderIds: [...ids] });
+      }
+    }
     const note = box.notes.find((n) => n.id === id);
     if (method === "DELETE" && note) {
       box.notes = box.notes.filter((n) => n.id !== id);
       trashed.set(id, note);
       return fakeResponse(undefined, 204);
     }
+    if (method === "PUT" && url.endsWith("/folder") && note) {
+      const placed: NoteDto = { ...note, folderId: (body as { folderId: string | null }).folderId };
+      box.notes = box.notes.map((n) => (n.id === id ? placed : n));
+      return fakeResponse(placed);
+    }
     if (url.endsWith("/move") && note) {
-      const group = box.groups.find((g) => g.id === (body as { groupId: string }).groupId) as GroupDto;
-      const moved: NoteDto = { ...note, ownerId: null, ownerHandle: null, role: "editor", groupId: group.id, group: { id: group.id, name: group.name } };
+      const { groupId, folderId } = body as { groupId: string; folderId?: string };
+      const group = box.groups.find((g) => g.id === groupId) as GroupDto;
+      const moved: NoteDto = {
+        ...note,
+        ownerId: null,
+        ownerHandle: null,
+        role: "editor",
+        groupId: group.id,
+        group: { id: group.id, name: group.name },
+        folderId: folderId ?? null,
+      };
       box.notes = box.notes.map((n) => (n.id === id ? moved : n));
       return fakeResponse(moved);
     }
@@ -115,6 +172,7 @@ function stubServer(initial: { notes?: NoteDto[]; groups?: GroupDto[] } = {}) {
       const method = (init?.method ?? "GET").toUpperCase();
       const body = init?.body ? JSON.parse(String(init.body)) : undefined;
       if (method === "GET") {
+        if (url === "/api/folders") return Promise.resolve(fakeResponse(box.folders.length === 0 ? FOLDER_LIST_EMPTY : { folders: box.folders }));
         if (url === "/api/notes") return Promise.resolve(fakeResponse(box.notes));
         if (url === "/api/groups") return Promise.resolve(fakeResponse(box.groups));
         if (url === "/api/auth/me") return Promise.resolve(fakeResponse(ME));
@@ -255,10 +313,10 @@ async function enterSelecting(index = 1): Promise<void> {
 async function pickDestination(name: string): Promise<HTMLElement> {
   const picker = await screen.findByRole("dialog", { name: /^(Move to|Copy to)$/ });
   fireEvent.click(within(picker).getByRole("button", { name }));
-  return screen.findByRole("dialog", { name: /^(Move into group|Copy to my notes|Copy into group)$/ });
+  return screen.findByRole("dialog", { name: /^(Move into group|Copy to my notes|Copy into group|Make a copy)$/ });
 }
 
-describe("SelectActionBar（PR-2c T5）", () => {
+describe("SelectActionBar", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -294,7 +352,7 @@ describe("SelectActionBar（PR-2c T5）", () => {
       expect(del.className).not.toContain("brand-deep");
       expect(del.className).not.toContain("hover:border-transparent");
       expect(within(shell(1)).queryByRole("button", { name: "New note" })).toBeNull();
-      // 版面契約（T5 review r1 I1；真瀏覽器量測見報告）：兩顆文字鈕能縮（min-w-0）、字截斷但 DOM 仍是全文（可及名稱完整）、title 給全文。
+      // 版面契約（真瀏覽器量測見報告）：兩顆文字鈕能縮（min-w-0）、字截斷但 DOM 仍是全文（可及名稱完整）、title 給全文。
       for (const name of ["Move to", "Copy to"]) {
         const button = barButton(name);
         expect(button).toHaveClass("min-w-0", "flex-1", "px-1.5");
@@ -307,10 +365,11 @@ describe("SelectActionBar（PR-2c T5）", () => {
       expect(del).toHaveClass("w-9", "shrink-0");
     });
 
+    // SAf1：群組、與我共享加 Move to；與我共享的刪除鈕只在選取全是資料夾時才有（0 項時沒有）。
     it.each([
       ["recent" as const, ["Copy to", "Delete 0 selected items"]],
-      ["workspace" as const, ["Copy to", "Delete 0 selected items"]],
-      ["shared" as const, ["Copy to"]],
+      ["workspace" as const, ["Move to", "Copy to", "Delete 0 selected items"]],
+      ["shared" as const, ["Move to", "Copy to"]],
     ])("%s：%j", async (tab, names) => {
       stubServer();
       renderShells({ tab });
@@ -342,6 +401,7 @@ describe("SelectActionBar（PR-2c T5）", () => {
       "Any public links are turned off.",
       "Their addresses change to /g/…; the old addresses forward to the new ones for a month.",
       "You will no longer own them — what you can do with them then depends on your role in the group.",
+      "Their version history is cleared and doesn't come back.",
     ]);
     const submit = within(confirm).getByRole("button", { name: "Move into group" });
     expect(submit).toHaveClass("bg-destructive");
@@ -412,7 +472,7 @@ describe("SelectActionBar（PR-2c T5）", () => {
     const confirm = await pickDestination("My notes");
     expect(confirm).toHaveAccessibleName("Copy to my notes");
     expect(confirm).toHaveAccessibleDescription(
-      "This creates a copy in My notes; the original stays as it is. AI edit history and backlinks are not copied.",
+      "This creates a copy in My notes; the original stays as it is. AI edit history, version history and backlinks are not copied.",
     );
     const submit = within(confirm).getByRole("button", { name: "Copy to my notes" });
     expect(submit).not.toHaveClass("bg-destructive");
@@ -422,20 +482,22 @@ describe("SelectActionBar（PR-2c T5）", () => {
     await waitFor(() => expect(selecting()).toBe(false));
   });
 
+  // 群組 tab 單一群組 A 的「複製到」上半部是 A 自己（建立副本），下半部不再列 A → 改從我的筆記複製到 A（同一組確認字與 body）。
   it("SA5 複製到群組：body {groupId}、toast", async () => {
     const server = stubServer();
-    renderShells({ tab: "workspace" });
+    renderShells();
     await enterSelecting();
-    tick("ga1", "ga2");
+    tick("p1", "p2");
     fireEvent.click(barButton("Copy to"));
     const confirm = await pickDestination("A");
     expect(confirm).toHaveAccessibleName("Copy into group");
     expect(confirm).toHaveAccessibleDescription(
-      'This creates 2 copies in "A"; the originals stay as they are. AI edit history and backlinks are not copied.',
+      'This creates 2 copies in "A"; the originals stay as they are. AI edit history, version history and backlinks are not copied.',
     );
     fireEvent.click(within(confirm).getByRole("button", { name: "Copy into group" }));
     expect(await screen.findByText('Copied 2 notes into "A"', { exact: true })).toBeInTheDocument();
-    expect(server.bodies("POST /api/notes/ga1/copy")).toEqual([{ groupId: "ga" }]);
+    expect(server.bodies("POST /api/notes/p1/copy")).toEqual([{ groupId: "ga" }]);
+    expect(server.bodies("POST /api/notes/p2/copy")).toEqual([{ groupId: "ga" }]);
   });
 
   it("SA6 刪除：不確認、依清單順序兩支 DELETE、toast＋Undo → 還原整批", async () => {
@@ -451,6 +513,20 @@ describe("SelectActionBar（PR-2c T5）", () => {
     fireEvent.click(screen.getByRole("button", { name: "Undo" }));
     expect(await screen.findByText("Restored 2 notes", { exact: true })).toBeInTheDocument();
     expect(server.bodies("POST /api/trash/restore")).toEqual([{ ids: ["p1", "p2"] }]);
+  });
+
+  it("SA-F1 刪除依樹序送出（資料夾在前）：server 序 [根層 fp3, 資料夾 A 裡的 fp1] → DELETE fp1、fp3", async () => {
+    const fp3 = personalNote({ id: "fp3", title: "fp3" });
+    const fp1 = personalNote({ id: "fp1", title: "fp1", folderId: "A" });
+    const server = stubServer({ notes: [fp3, fp1], folders: [folderDto({ id: "A", name: "A" })] });
+    renderShells();
+    await enterSelecting();
+    await waitFor(() => expect(box("fp1")).not.toBeNull());
+    tick("fp3", "fp1");
+    fireEvent.click(barButton("Delete 2 selected items"));
+    expect(await screen.findByText("Moved 2 notes to the trash", { exact: true })).toBeInTheDocument();
+    expect(server.keys()).toEqual(["DELETE /api/notes/fp1", "DELETE /api/notes/fp3"]);
+    __resetFolderSortForTests();
   });
 
   it("SA7 最近 tab 刪除混共享：只送 p1、toast 報 1 篇略過、有 Undo", async () => {
@@ -494,7 +570,7 @@ describe("SelectActionBar（PR-2c T5）", () => {
     expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument();
   });
 
-  it("SA10 混一篇能刪不能編輯 → 沒有 Undo、帶說明句（A2-12）", async () => {
+  it("SA10 混一篇能刪不能編輯 → 沒有 Undo、帶說明句", async () => {
     stubServer();
     renderShells({ tab: "workspace" });
     await enterSelecting();
@@ -512,7 +588,7 @@ describe("SelectActionBar（PR-2c T5）", () => {
     await enterSelecting();
     tick("p1", "p2", "p3");
     fireEvent.click(barButton("Copy to"));
-    fireEvent.click(within(await pickDestination("My notes")).getByRole("button", { name: "Copy to my notes" }));
+    fireEvent.click(within(await pickDestination("Make a copy")).getByRole("button", { name: "Make a copy" }));
     expect(await screen.findByText("Too many requests. Please slow down.", { exact: true })).toBeInTheDocument();
     expect(toastRoot("Too many requests. Please slow down.")).toHaveClass("bg-destructive");
     expect(screen.getByText("1 note was done; the rest weren't processed.", { exact: true })).toBeInTheDocument();
@@ -634,7 +710,7 @@ describe("SelectActionBar（PR-2c T5）", () => {
       expect(document.querySelectorAll("li[data-swipe-direction]")).toHaveLength(1);
     });
 
-    it("SA14b 批次中途在同一個 NotePage 換到別篇：送原那篇時不設（已屬於新篇的）leavingRef、成功後不導回首頁（T5 review r1 M1）", async () => {
+    it("SA14b 批次中途在同一個 NotePage 換到別篇：送原那篇時不設（已屬於新篇的）leavingRef、成功後不導回首頁", async () => {
       const server = stubServer();
       const releaseP1 = server.hold("DELETE /api/notes/p1");
       const { controls, leavingRef } = controlsFor({ phase: "connected", role: "owner" });
@@ -818,22 +894,22 @@ describe("SelectActionBar（PR-2c T5）", () => {
     await enterSelecting();
     tick("p1", "p2", "p3");
     fireEvent.click(barButton("Copy to"));
-    const confirm = await pickDestination("My notes");
-    fireEvent.click(within(confirm).getByRole("button", { name: "Copy to my notes" }));
+    const confirm = await pickDestination("Make a copy");
+    fireEvent.click(within(confirm).getByRole("button", { name: "Make a copy" }));
     await waitFor(() => expect(within(confirm).getByRole("status")).toHaveTextContent("Working… 0 of 3"));
 
     fireEvent.keyDown(document.activeElement ?? confirm, { key: "Escape" });
     await settleTimers();
-    expect(screen.getByRole("dialog", { name: "Copy to my notes" })).toBe(confirm);
+    expect(screen.getByRole("dialog", { name: "Make a copy" })).toBe(confirm);
 
     fireEvent.click(within(confirm).getByRole("button", { name: "Close" }));
     await settleTimers();
-    expect(screen.getByRole("dialog", { name: "Copy to my notes" })).toBe(confirm);
+    expect(screen.getByRole("dialog", { name: "Make a copy" })).toBe(confirm);
 
     // 點框外：送出中由 progress 包裝（onOpenChange(false) 一律忽略）與 dismissOnOutside={false} 兩道都擋；後者單獨由 SA22c 守。
     await clickOutside();
-    expect(screen.getByRole("dialog", { name: "Copy to my notes" })).toBe(confirm);
-    expect(within(confirm).getByRole("button", { name: "Copy to my notes" })).toBeDisabled();
+    expect(screen.getByRole("dialog", { name: "Make a copy" })).toBe(confirm);
+    expect(within(confirm).getByRole("button", { name: "Make a copy" })).toBeDisabled();
     expect(within(confirm).getByRole("button", { name: "Cancel" })).toBeDisabled();
     expect(selecting()).toBe(true);
 
@@ -852,9 +928,9 @@ describe("SelectActionBar（PR-2c T5）", () => {
     await enterSelecting();
     tick("p1");
     fireEvent.click(barButton("Copy to"));
-    const confirm = await pickDestination("My notes");
+    const confirm = await pickDestination("Make a copy");
     await clickOutside();
-    expect(screen.getByRole("dialog", { name: "Copy to my notes" })).toBe(confirm);
+    expect(screen.getByRole("dialog", { name: "Make a copy" })).toBe(confirm);
     fireEvent.click(within(confirm).getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(server.keys()).toEqual([]);
@@ -901,7 +977,7 @@ describe("SelectActionBar（PR-2c T5）", () => {
     await enterSelecting();
     tick("p1");
     fireEvent.click(barButton("Copy to"));
-    fireEvent.click(within(await pickDestination("My notes")).getByRole("button", { name: "Copy to my notes" }));
+    fireEvent.click(within(await pickDestination("Make a copy")).getByRole("button", { name: "Make a copy" }));
     await waitFor(() => expect(within(bar()).getByRole("status", { hidden: true })).toHaveTextContent("Working… 0 of 1"));
     // 批次自己的 finally（整批失效）丟例外 → runBatch reject；拿走 vitest 的 unhandledRejection 監聽、只收這一個。
     const boom = new Error("boom");
@@ -974,5 +1050,909 @@ describe("SelectActionBar（PR-2c T5）", () => {
     expect(checkedIds()).toEqual(["p3"]);
     expect(barButton("Delete 1 selected item")).toBeEnabled();
     expect(barButton("Move to")).toBeEnabled();
+  });
+});
+
+// ── 資料夾與筆記同列的動作（SAf1–SAf16） ──
+
+/** 我的筆記：A（p1、p2）、A1、B 三個根層資料夾；p3、p4 在根層。群組 G（admin）有資料夾 GF、GF2。 */
+const FG: GroupDto = groupDto({ id: "G", name: "G" }, adminRole());
+const FH: GroupDto = groupDto({ id: "H", name: "H" }, adminRole());
+const FA = folderDto({ id: "A", name: "A" });
+const FA1 = folderDto({ id: "A1", name: "A1" });
+const FB = folderDto({ id: "B", name: "B" });
+const GF = groupFolder({ id: "GF", name: "GF", groupId: "G" });
+const GF2 = groupFolder({ id: "GF2", name: "GF2", groupId: "G" });
+const SF = sharedFolder({ id: "SF", name: "SF" });
+const FP1 = personalNote({ id: "p1", title: "p1", folderId: "A" });
+const FP2 = personalNote({ id: "p2", title: "p2", folderId: "A" });
+const FP3 = personalNote({ id: "p3", title: "p3" });
+const FP4 = personalNote({ id: "p4", title: "p4" });
+const MY = { notes: [FP1, FP2, FP3, FP4], groups: [FG], folders: [FA, FA1, FB, GF] };
+
+const folderBox = (id: string, index = 1) =>
+  shell(index).querySelector(`input[type="checkbox"][data-selection-key="folder:${id}"]`) as HTMLInputElement | null;
+const tickFolder = (...ids: string[]) => {
+  for (const id of ids) fireEvent.click(folderBox(id) as HTMLInputElement);
+};
+async function openPicker(name: "Move to" | "Copy to"): Promise<HTMLElement> {
+  fireEvent.click(barButton(name));
+  return screen.findByRole("dialog", { name });
+}
+/** 目的地框這一層的項目（可及名稱；分隔線記 "—"）。 */
+const levelNames = (picker: HTMLElement) =>
+  Array.from(picker.querySelectorAll("ul > li")).map((li) =>
+    li.getAttribute("role") === "separator" ? "—" : li.querySelector("button")?.getAttribute("aria-label"),
+  );
+const barNames = () => within(bar()).getAllByRole("button", { hidden: true }).map((b) => b.getAttribute("aria-label") ?? b.textContent);
+const openToasts = () => document.querySelectorAll('li[data-swipe-direction][data-state="open"]');
+/** aria-describedby 指到的元素的字（`toHaveAccessibleDescription` 在描述元素不存在時會退回 title，守不住 sr-only 那份）。 */
+const describedText = (el: HTMLElement) => document.getElementById(el.getAttribute("aria-describedby") ?? "")?.textContent ?? null;
+
+async function waitFolders(...ids: string[]): Promise<void> {
+  await waitFor(() => {
+    for (const id of ids) expect(folderBox(id)).not.toBeNull();
+  });
+}
+
+describe("SelectActionBar（資料夾）", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    act(() => dismissAllToasts());
+    __resetFolderSortForTests();
+  });
+
+  describe("SAf1 各 tab 的鈕", () => {
+    // 四個 tab 都要有列可選（「選取」才可按）：再加一篇群組筆記、一篇共享筆記。
+    const everyTab = { ...MY, notes: [...MY.notes, groupNote({ id: "g9", title: "g9", group: FG }), sharedNote({ id: "s9", title: "s9" })] };
+
+    it.each(["myNotes" as const, "workspace" as const, "shared" as const])("%s 有 Move to", async (tab) => {
+      stubServer(everyTab);
+      renderShells({ tab });
+      await enterSelecting();
+      expect(barNames()).toContain("Move to");
+    });
+
+    it("最近沒有 Move to", async () => {
+      stubServer(everyTab);
+      renderShells({ tab: "recent" });
+      await enterSelecting();
+      expect(barNames()).not.toContain("Move to");
+    });
+
+    it("與我共享：只勾筆記時沒有刪除鈕；只勾資料夾時有「Remove 1 selected folder」", async () => {
+      const s2 = sharedNote({ id: "s2", title: "s2" });
+      stubServer({ notes: [s2], groups: [FG], folders: [SF] });
+      renderShells({ tab: "shared" });
+      await enterSelecting();
+      await waitFolders("SF");
+      tick("s2");
+      expect(barNames()).toEqual(["Move to", "Copy to"]);
+      tick("s2");
+      tickFolder("SF");
+      expect(barNames()).toEqual(["Move to", "Copy to", "Remove 1 selected folder"]);
+      expect(barButton("Remove 1 selected folder")).toBeEnabled();
+    });
+  });
+
+  it("SAf2 同空間：勾 p3、A1 → B → 沒有確認框、依序 PATCH A1、PUT p3 → toast 帶 Undo → 離開選取、焦點在 Select；先收合的 folder:B 被展開", async () => {
+    setCollapsed("folder:B", true);
+    const server = stubServer(MY);
+    renderShells();
+    await enterSelecting();
+    await waitFolders("A1", "B");
+    tickFolder("A1");
+    tick("p3");
+    const picker = await openPicker("Move to");
+    fireEvent.click(within(picker).getByRole("button", { name: "B" }));
+    expect(await screen.findByText("Moved 2 items to “B”", { exact: true })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(server.keys()).toEqual(["PATCH /api/folders/A1", "PUT /api/notes/p3/folder"]);
+    expect(server.bodies("PATCH /api/folders/A1")).toEqual([{ parentId: "B" }]);
+    expect(server.bodies("PUT /api/notes/p3/folder")).toEqual([{ folderId: "B" }]);
+    expect(within(toastRoot("Moved 2 items to “B”")).getByRole("button", { name: "Undo" })).toBeInTheDocument();
+    await waitFor(() => expect(selecting()).toBe(false));
+    expect(selectButton(1)).toHaveFocus();
+    expect(isCollapsed("folder:B")).toBe(false);
+  });
+
+  it("SAf3 按 Undo → 依序送回原處（{parentId:null}、{folderId:null}）、全部成功不另出 toast", async () => {
+    const server = stubServer(MY);
+    renderShells();
+    await enterSelecting();
+    await waitFolders("A1", "B");
+    tickFolder("A1");
+    tick("p3");
+    fireEvent.click(within(await openPicker("Move to")).getByRole("button", { name: "B" }));
+    const title = "Moved 2 items to “B”";
+    expect(await screen.findByText(title, { exact: true })).toBeInTheDocument();
+    fireEvent.click(within(toastRoot(title)).getByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(server.keys()).toHaveLength(4));
+    expect(server.keys()).toEqual(["PATCH /api/folders/A1", "PUT /api/notes/p3/folder", "PATCH /api/folders/A1", "PUT /api/notes/p3/folder"]);
+    expect(server.bodies("PATCH /api/folders/A1")).toEqual([{ parentId: "B" }, { parentId: null }]);
+    expect(server.bodies("PUT /api/notes/p3/folder")).toEqual([{ folderId: "B" }, { folderId: null }]);
+    await settleTimers();
+    expect(openToasts()).toHaveLength(0);
+  });
+
+  it("SAf4 Undo 第 2 項 429 → 錯誤 toast＋「1 item was moved back; the rest weren't.」", async () => {
+    const server = stubServer(MY);
+    renderShells();
+    await enterSelecting();
+    await waitFolders("A1", "B");
+    tickFolder("A1");
+    tick("p3");
+    fireEvent.click(within(await openPicker("Move to")).getByRole("button", { name: "B" }));
+    const title = "Moved 2 items to “B”";
+    expect(await screen.findByText(title, { exact: true })).toBeInTheDocument();
+    server.fail("PUT /api/notes/p3/folder", 429, "too_many_requests");
+    fireEvent.click(within(toastRoot(title)).getByRole("button", { name: "Undo" }));
+    expect(await screen.findByText("Too many requests. Please slow down.", { exact: true })).toBeInTheDocument();
+    expect(toastRoot("Too many requests. Please slow down.")).toHaveClass("bg-destructive");
+    expect(screen.getByText("1 item was moved back; the rest weren't.", { exact: true })).toBeInTheDocument();
+    expect(server.bodies("PATCH /api/folders/A1")).toEqual([{ parentId: "B" }, { parentId: null }]);
+  });
+
+  it("SAf5 移回根層：全在根層時第一層沒有 Top level；p1（在 A）→ Top level → {folderId:null}", async () => {
+    const server = stubServer(MY);
+    renderShells();
+    await enterSelecting();
+    await waitFolders("A");
+    tick("p3");
+    let picker = await openPicker("Move to");
+    expect(levelNames(picker)).not.toContain("Top level");
+    expect(levelNames(picker)).toEqual(["A", "A1", "B", "—", "G, open"]);
+    fireEvent.click(within(picker).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    tick("p3", "p1");
+    picker = await openPicker("Move to");
+    expect(levelNames(picker)[0]).toBe("Top level");
+    fireEvent.click(within(picker).getByRole("button", { name: "Top level" }));
+    expect(await screen.findByText("Moved 1 item to “Top level”", { exact: true })).toBeInTheDocument();
+    expect(server.keys()).toEqual(["PUT /api/notes/p1/folder"]);
+    expect(server.bodies("PUT /api/notes/p1/folder")).toEqual([{ folderId: null }]);
+  });
+
+  it("SAf6 個人筆記移入群組資料夾：p3 → G, open → GF → 確認框描述含「G › GF」→ body {groupId:G, folderId:GF}", async () => {
+    const server = stubServer(MY);
+    renderShells();
+    await enterSelecting();
+    tick("p3");
+    const picker = await openPicker("Move to");
+    fireEvent.click(within(picker).getByRole("button", { name: "G, open" }));
+    await waitFor(() => expect(levelNames(picker)).toEqual(["Back", "Top level", "GF"]));
+    fireEvent.click(within(picker).getByRole("button", { name: "GF" }));
+    const confirm = await screen.findByRole("dialog", { name: "Move into group" });
+    expect(confirm).toHaveAccessibleDescription('Move 1 note into "G › GF"?');
+    fireEvent.click(within(confirm).getByRole("button", { name: "Move into group" }));
+    expect(await screen.findByText('Moved 1 note into "G › GF"', { exact: true })).toBeInTheDocument();
+    expect(server.keys()).toEqual(["POST /api/notes/p3/move"]);
+    expect(server.bodies("POST /api/notes/p3/move")).toEqual([{ groupId: "G", folderId: "GF" }]);
+  });
+
+  it("SAf6 同時勾了資料夾 → 下半部的 G disabled", async () => {
+    stubServer(MY);
+    renderShells();
+    await enterSelecting();
+    await waitFolders("A1");
+    tick("p3");
+    tickFolder("A1");
+    const picker = await openPicker("Move to");
+    expect(within(picker).getByRole("button", { name: "G" })).toBeDisabled();
+  });
+
+  // 反灰原因改 aria-disabled（不是 disabled，hover 提示才出得來）。
+  it("SAf7 群組 tab 跨群組：Move to aria-disabled＋title／可及描述「…different groups…」；Copy to 可按、第一層沒有 Make a copy", async () => {
+    const g1 = groupNote({ id: "g1", title: "g1", group: FG });
+    const h1 = groupNote({ id: "h1", title: "h1", group: FH });
+    stubServer({ notes: [g1, h1], groups: [FG, FH], folders: [GF] });
+    renderShells({ tab: "workspace" });
+    await enterSelecting();
+    tick("g1", "h1");
+    const move = barButton("Move to");
+    expect(move).toHaveAttribute("aria-disabled", "true");
+    expect(move).not.toHaveAttribute("disabled");
+    expect(move).toHaveAttribute("title", "The selected notes are in different groups and can't be moved together");
+    expect(describedText(move)).toBe("The selected notes are in different groups and can't be moved together");
+    expect(barButton("Copy to")).toBeEnabled();
+    const picker = await openPicker("Copy to");
+    expect(levelNames(picker)).not.toContain("Make a copy");
+    expect(levelNames(picker)[0]).toBe("My notes");
+  });
+
+  it("SAf8 群組 tab 單群組：g2（在 GF2）→ 第一層只有 G 的根目錄與資料夾、無分隔線 → GF → PUT {folderId:GF}", async () => {
+    const g2 = groupNote({ id: "g2", title: "g2", group: FG, folderId: "GF2" });
+    const server = stubServer({ notes: [g2], groups: [FG, FH], folders: [GF, GF2] });
+    renderShells({ tab: "workspace" });
+    await enterSelecting();
+    await waitFor(() => expect(box("g2")).not.toBeNull());
+    tick("g2");
+    const picker = await openPicker("Move to");
+    expect(levelNames(picker)).toEqual(["Top level", "GF", "GF2"]);
+    expect(within(picker).getByRole("button", { name: "GF2" })).toBeDisabled();
+    fireEvent.click(within(picker).getByRole("button", { name: "GF" }));
+    expect(await screen.findByText("Moved 1 item to “GF”", { exact: true })).toBeInTheDocument();
+    expect(server.keys()).toEqual(["PUT /api/notes/g2/folder"]);
+    expect(server.bodies("PUT /api/notes/g2/folder")).toEqual([{ folderId: "GF" }]);
+  });
+
+  it("SAf9 與我共享：s2 → 第一層只有 SF → PUT {folderId:SF}", async () => {
+    const s2 = sharedNote({ id: "s2", title: "s2" });
+    const server = stubServer({ notes: [s2], groups: [FG], folders: [SF] });
+    renderShells({ tab: "shared" });
+    await enterSelecting();
+    await waitFolders("SF");
+    tick("s2");
+    const picker = await openPicker("Move to");
+    expect(levelNames(picker)).toEqual(["SF"]);
+    fireEvent.click(within(picker).getByRole("button", { name: "SF" }));
+    expect(await screen.findByText("Moved 1 item to “SF”", { exact: true })).toBeInTheDocument();
+    expect(server.bodies("PUT /api/notes/s2/folder")).toEqual([{ folderId: "SF" }]);
+  });
+
+  it("SAf9 與我共享：沒有共享資料夾、選的都在根 → Move to disabled（第一層為空）", async () => {
+    const s2 = sharedNote({ id: "s2", title: "s2" });
+    stubServer({ notes: [s2], groups: [FG] });
+    renderShells({ tab: "shared" });
+    await enterSelecting();
+    tick("s2");
+    await settleTimers();
+    expect(barButton("Move to")).toBeDisabled();
+    expect(barButton("Copy to")).toBeEnabled();
+  });
+
+  it("SAf10 刪除含資料夾：A＋p3 → 彙總確認框 → DELETE 資料夾先、筆記後 → toast＋Undo（三個 id）；開著的 p2 在 A 裡 → 送 A 時設 leavingRef、導回首頁、一則 toast", async () => {
+    const server = stubServer(MY);
+    const leavingRef = { current: false };
+    const controls: NotePageControls = { noteId: "p2", state: { phase: "connected", role: "owner" }, leavingRef, openEdits: () => {} };
+    const leavingAt: Record<string, boolean> = {};
+    server.onRequest((key) => {
+      leavingAt[key] = leavingRef.current;
+    });
+    renderShells({ controls, path: "/n/tester/note-p2" });
+    await enterSelecting();
+    await waitFolders("A");
+    tickFolder("A");
+    tick("p3");
+    fireEvent.click(barButton("Delete 2 selected items"));
+    const confirm = await screen.findByRole("dialog", { name: "Delete 1 folder?" });
+    // 附加句也在可及描述裡（開框時一起唸）。
+    expect(confirm).toHaveAccessibleDescription(
+      "These folders and their subfolders will be deleted, and 2 notes will move to the trash. The 1 selected note will also move to the trash.",
+    );
+    expect(within(confirm).getByText("The 1 selected note will also move to the trash.", { exact: true })).toBeInTheDocument();
+    expect(server.keys()).toEqual([]);
+    const submit = within(confirm).getByRole("button", { name: "Delete" });
+    expect(submit).toHaveClass("bg-destructive");
+    fireEvent.click(submit);
+    const title = "1 folder deleted; 3 notes moved to the trash";
+    expect(await screen.findByText(title, { exact: true })).toBeInTheDocument();
+    expect(server.keys()).toEqual(["DELETE /api/folders/A", "DELETE /api/notes/p3"]);
+    expect(leavingAt).toEqual({ "DELETE /api/folders/A": true, "DELETE /api/notes/p3": true });
+    await waitFor(() => expect(location()).toBe("/"));
+    expect(openToasts()).toHaveLength(1);
+    fireEvent.click(within(toastRoot(title)).getByRole("button", { name: "Undo" }));
+    expect(await screen.findByText("Restored 3 notes", { exact: true })).toBeInTheDocument();
+    const [restoreBody] = server.bodies("POST /api/trash/restore") as { ids: string[] }[];
+    expect([...restoreBody.ids].sort()).toEqual(["p1", "p2", "p3"]);
+    await waitFor(() => expect(location()).toBe("/n/tester/note-p2"));
+  });
+
+  it("SAf11 與我共享移除：SF（含開著的 s1）→「Remove 1 folder?」→ 一般 toast、沒有 Undo、不設 leavingRef、不導頁", async () => {
+    const s1 = sharedNote({ id: "s1", title: "s1", folderId: "SF" });
+    const s2 = sharedNote({ id: "s2", title: "s2" });
+    const server = stubServer({ notes: [s1, s2], groups: [FG], folders: [SF] });
+    const leavingRef = { current: false };
+    const controls: NotePageControls = { noteId: "s1", state: { phase: "connected", role: "editor" }, leavingRef, openEdits: () => {} };
+    const leavingAt: Record<string, boolean> = {};
+    server.onRequest((key) => {
+      leavingAt[key] = leavingRef.current;
+    });
+    renderShells({ tab: "shared", controls, path: "/n/someone/note-s1" });
+    await enterSelecting();
+    await waitFolders("SF");
+    tickFolder("SF");
+    fireEvent.click(barButton("Remove 1 selected folder"));
+    const confirm = await screen.findByRole("dialog", { name: "Remove 1 folder?" });
+    expect(confirm).toHaveAccessibleDescription(
+      "The folders will be removed and their shared notes moved back to the top level. No notes are deleted.",
+    );
+    fireEvent.click(within(confirm).getByRole("button", { name: "Remove" }));
+    const title = "1 folder removed; its shared notes moved back to the top level";
+    expect(await screen.findByText(title, { exact: true })).toBeInTheDocument();
+    expect(server.keys()).toEqual(["DELETE /api/folders/SF"]);
+    expect(leavingAt).toEqual({ "DELETE /api/folders/SF": false });
+    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+    await settleTimers();
+    expect(leavingRef.current).toBe(false);
+    expect(location()).toBe("/n/someone/note-s1");
+  });
+
+  it("SAf12 擋下（預先排除）與已不在（server 404）：只送 B、p3；標題恰為 trashed 句＋blocked＋gone 後綴", async () => {
+    const blocked = folderDto({ id: "A", name: "A", permissions: { manage: true, deleteNotes: false, createNote: true } });
+    const server = stubServer({ notes: [FP1, FP3], groups: [FG], folders: [blocked, FB] });
+    server.fail("DELETE /api/folders/B", 404, "folder_not_found");
+    renderShells();
+    await enterSelecting();
+    await waitFolders("A", "B");
+    tickFolder("A", "B");
+    tick("p3");
+    fireEvent.click(barButton("Delete 3 selected items"));
+    const confirm = await screen.findByRole("dialog", { name: "Delete 1 folder?" });
+    fireEvent.click(within(confirm).getByRole("button", { name: "Delete" }));
+    const title = "Moved 1 note to the trash, 1 folder wasn't deleted (it holds notes you can't delete), 1 folder no longer exists";
+    expect(await screen.findByText(title, { exact: true })).toBeInTheDocument();
+    expect(server.keys()).toEqual(["DELETE /api/folders/B", "DELETE /api/notes/p3"]);
+  });
+
+  // 同 SAf7，反灰原因改 aria-disabled。
+  it("SAf13 複製：勾資料夾 → Copy to aria-disabled＋「Folders can't be copied」；只勾 p1（在 A）→ Make a copy → copyLeadMakeCopy → body {folderId:A}", async () => {
+    const server = stubServer(MY);
+    renderShells();
+    await enterSelecting();
+    await waitFolders("A");
+    tickFolder("A");
+    const copy = barButton("Copy to");
+    expect(copy).toHaveAttribute("aria-disabled", "true");
+    expect(copy).not.toHaveAttribute("disabled");
+    expect(copy).toHaveAttribute("title", "Folders can't be copied");
+    expect(describedText(copy)).toBe("Folders can't be copied");
+    tickFolder("A");
+    tick("p1");
+    const picker = await openPicker("Copy to");
+    fireEvent.click(within(picker).getByRole("button", { name: "Make a copy" }));
+    const confirm = await screen.findByRole("dialog", { name: "Make a copy" });
+    expect(confirm).toHaveAccessibleDescription(
+      "This creates a copy where the original is; the original stays as it is. AI edit history, version history and backlinks are not copied.",
+    );
+    fireEvent.click(within(confirm).getByRole("button", { name: "Make a copy" }));
+    expect(await screen.findByText("Copied 1 note to My notes", { exact: true })).toBeInTheDocument();
+    expect(server.bodies("POST /api/notes/p1/copy")).toEqual([{ folderId: "A" }]);
+  });
+
+  it("SAf14 放置中途 404 folder_not_found → 「Folder not found.」＋「1 item was done…」、[folders] 失效、仍在選取只留未處理的", async () => {
+    const server = stubServer(MY);
+    server.fail("PUT /api/notes/p3/folder", 404, "folder_not_found");
+    const { queryClient } = renderShells();
+    await enterSelecting();
+    await waitFolders("A1", "B");
+    tickFolder("A1");
+    tick("p3", "p4");
+    fireEvent.click(within(await openPicker("Move to")).getByRole("button", { name: "B" }));
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    expect(await screen.findByText("Folder not found.", { exact: true })).toBeInTheDocument();
+    expect(toastRoot("Folder not found.")).toHaveClass("bg-destructive");
+    expect(screen.getByText("1 item was done; the rest weren't processed.", { exact: true })).toBeInTheDocument();
+    // 已有項目完成：停下的錯誤 toast 也帶「復原」（把已完成的送回）。
+    expect(within(toastRoot("Folder not found.")).getByRole("button", { name: "Undo" })).toBeInTheDocument();
+    expect(server.keys()).toEqual(["PATCH /api/folders/A1", "PUT /api/notes/p3/folder"]);
+    expect(invalidate.mock.calls.some(([filters]) => JSON.stringify(filters?.queryKey) === '["folders"]')).toBe(true);
+    await waitFor(() => expect(within(shellHeader(1)).getByText("2 selected")).toBeInTheDocument());
+    expect(selecting()).toBe(true);
+    expect(checkedIds()).toEqual(["p3", "p4"]);
+    invalidate.mockRestore();
+  });
+
+  it("SAf14b 同空間只有筆記、中途停下 → 描述仍以「項」計（與結果句 movedItems 一致）", async () => {
+    const server = stubServer(MY);
+    server.fail("PUT /api/notes/p4/folder", 429, "too_many_requests");
+    renderShells();
+    await enterSelecting();
+    await waitFolders("B");
+    tick("p3", "p4");
+    fireEvent.click(within(await openPicker("Move to")).getByRole("button", { name: "B" }));
+    expect(await screen.findByText("Too many requests. Please slow down.", { exact: true })).toBeInTheDocument();
+    expect(screen.getByText("1 item was done; the rest weren't processed.", { exact: true })).toBeInTheDocument();
+    expect(server.keys()).toEqual(["PUT /api/notes/p3/folder", "PUT /api/notes/p4/folder"]);
+    await waitFor(() => expect(checkedIds()).toEqual(["p4"]));
+  });
+
+  it("SAf17 在 A › X1 時 X1 被刪（folders 重抓）→ 顯示 A 那層；按 Back 恰退一層到第一層（比照 NM-I7）", async () => {
+    const A = folderDto({ id: "A", name: "A" });
+    const X1 = folderDto({ id: "X1", name: "X1", parentId: "A" });
+    const X2 = folderDto({ id: "X2", name: "X2", parentId: "X1" });
+    const server = stubServer({ notes: [FP3], groups: [FG], folders: [A, X1, X2, FB] });
+    const { queryClient } = renderShells();
+    await enterSelecting();
+    tick("p3");
+    const picker = await openPicker("Move to");
+    await waitFor(() => expect(levelNames(picker)).toEqual(["A, open", "B", "—", "G"]));
+    fireEvent.click(within(picker).getByRole("button", { name: "A, open" }));
+    fireEvent.click(await within(picker).findByRole("button", { name: "X1, open" }));
+    await waitFor(() => expect(levelNames(picker)).toEqual(["Back", "Move here", "X2"]));
+    server.box.folders = [A, FB];
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["folders"] });
+    });
+    await waitFor(() => expect(levelNames(picker)).toEqual(["Back", "Move here"]));
+    fireEvent.click(within(picker).getByRole("button", { name: "Back" }));
+    await waitFor(() => expect(levelNames(picker)).toEqual(["A", "B", "—", "G"]));
+  });
+
+  it("SAf15 目的地框 → 確認框：開框鈕收到 0 次 focus、焦點在確認框內；取消 → 焦點回開框鈕", async () => {
+    stubServer(MY);
+    renderShells();
+    await enterSelecting();
+    tick("p3");
+    const moveTo = barButton("Move to");
+    const picker = await openPicker("Move to");
+    const spy = vi.fn();
+    moveTo.addEventListener("focus", spy);
+    fireEvent.click(within(picker).getByRole("button", { name: "G, open" }));
+    await waitFor(() => expect(within(picker).getByRole("button", { name: "GF" })).toBeInTheDocument());
+    fireEvent.click(within(picker).getByRole("button", { name: "GF" }));
+    const confirm = await screen.findByRole("dialog", { name: "Move into group" });
+    await settleTimers();
+    expect(spy).toHaveBeenCalledTimes(0);
+    expect(confirm.contains(document.activeElement)).toBe(true);
+    fireEvent.click(within(confirm).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await settleTimers();
+    expect(moveTo).toHaveFocus();
+  });
+
+  describe("SAf16 zh-TW", () => {
+    afterEach(async () => {
+      await i18n.changeLanguage("en");
+    });
+
+    async function enterSelectingZh(): Promise<void> {
+      await waitFor(() => expect(within(shellHeader(1)).getByRole("button", { name: "選取" })).toBeEnabled());
+      fireEvent.click(within(shellHeader(1)).getByRole("button", { name: "選取" }));
+      await within(shellHeader(1)).findByText("已選 0 項");
+      await waitFor(() => expect(bar()).not.toBeNull());
+    }
+
+    it("同空間結果「已移 2 項到「B」」", async () => {
+      await i18n.changeLanguage("zh-TW");
+      stubServer(MY);
+      renderShells();
+      await enterSelectingZh();
+      await waitFolders("A1", "B");
+      tickFolder("A1");
+      tick("p3");
+      fireEvent.click(barButton("移動到"));
+      const picker = await screen.findByRole("dialog", { name: "移動到" });
+      fireEvent.click(within(picker).getByRole("button", { name: "B" }));
+      expect(await screen.findByText("已移 2 項到「B」", { exact: true })).toBeInTheDocument();
+    });
+
+    it("刪資料夾確認框「刪除 1 個資料夾？」", async () => {
+      await i18n.changeLanguage("zh-TW");
+      stubServer(MY);
+      renderShells();
+      await enterSelectingZh();
+      await waitFolders("A");
+      tickFolder("A");
+      fireEvent.click(barButton("刪除選取的 1 項"));
+      const confirm = await screen.findByRole("dialog", { name: "刪除 1 個資料夾？" });
+      expect(within(confirm).getByRole("button", { name: "刪除" })).toBeInTheDocument();
+    });
+  });
+});
+
+// ── 寬螢幕一列工具列、窄形「移動到」outline、反灰原因（SB1–SB10） ──
+// 元件測試預設是窄（jsdom 的 matchMedia 恆 false）；寬形一律 `mockWidePointer(true)`。動作一律從 shell 1 發起。
+
+const exitButton = (index = 1) => within(shellHeader(index)).queryByRole("button", { name: "Exit selection", hidden: true });
+const selectAllBox = (index = 1) => within(shellHeader(index)).getByRole("checkbox", { name: "Select all", hidden: true }) as HTMLInputElement;
+/** 勾選樹裡已勾的鍵（不含標題列的全選框；DOM 序）。 */
+const selectedKeys = (index = 1) =>
+  Array.from(shell(index).querySelectorAll<HTMLInputElement>('input[type="checkbox"][data-selection-key]'))
+    .filter((input) => input.checked)
+    .map((input) => input.dataset.selectionKey);
+const barsOf = (index: number) => Array.from(shell(index).querySelectorAll("[data-select-action-bar]"));
+const follows = (a: Node, b: Node) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+const folderToggle = (name: string, index = 1) =>
+  within(shell(index).querySelector("[data-sidebar-list]") as HTMLElement).getByRole("button", { name });
+const allState = (index = 1) => {
+  const all = selectAllBox(index);
+  return all.indeterminate ? "some" : all.checked ? "all" : "none";
+};
+
+/** 寬形：等「選取」可按 → 按 → 等 ✕、勾選樹與標題列裡的動作列（批次中數量位是進度，不能等「0 selected」）。 */
+async function enterWide(index = 1): Promise<void> {
+  await waitFor(() => expect(selectButton(index)).toBeEnabled());
+  fireEvent.click(selectButton(index) as HTMLElement);
+  await waitFor(() => expect(exitButton(index)).not.toBeNull());
+  await waitFor(() => expect(shell(index).querySelector('input[type="checkbox"][data-selection-key]')).not.toBeNull());
+  await waitFor(() => expect(bar(index)).not.toBeNull());
+}
+
+const enterForm = (form: "narrow" | "wide") => (form === "wide" ? enterWide() : enterSelecting());
+
+describe("寬螢幕一列工具列", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    act(() => dismissAllToasts());
+    __resetFolderSortForTests();
+  });
+
+  it("SB1 寬：標題列依序 ✕、全選框、0 selected、三顆圖示鈕；每份實例恰一個動作列且在標題列裡；沒有 Done、Select all 文字鈕、New note", async () => {
+    mockWidePointer(true);
+    stubServer();
+    renderShells();
+    await enterWide();
+    const header = shellHeader(1);
+    const exit = exitButton() as HTMLElement;
+    expect(exit).toHaveAttribute("title", "Exit selection");
+    expect(exit).toHaveClass("h-6", "w-6");
+    expect(exit.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+    const all = selectAllBox();
+    const count = within(header).getByText("0 selected");
+    const actionBar = bar();
+    expect(follows(exit, all)).toBe(true);
+    expect(follows(all, count)).toBe(true);
+    expect(follows(count, actionBar)).toBe(true);
+    expect(within(actionBar).getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual(["Move to", "Copy to", "Delete 0 selected items"]);
+    for (const [name, icon] of [
+      ["Move to", "folder-input"],
+      ["Copy to", "copy"],
+      ["Delete 0 selected items", "trash"],
+    ] as const) {
+      const button = barButton(name);
+      expect(button).toHaveAttribute("title", name);
+      expect(button).toHaveClass("h-6", "w-6");
+      expect(button).toHaveTextContent(/^$/);
+      expect(button.querySelector(`svg[data-icon="${icon}"]`)).toHaveAttribute("aria-hidden", "true");
+      expect(button).toBeDisabled();
+    }
+    expect(within(header).queryByRole("button", { name: "Done", hidden: true })).toBeNull();
+    expect(within(header).queryByRole("button", { name: "Select all", hidden: true })).toBeNull();
+    for (const index of [0, 1]) {
+      const bars = barsOf(index);
+      expect(bars).toHaveLength(1);
+      expect(bars[0]!.closest("[data-sidebar-header]")).toBe(shellHeader(index));
+    }
+    expect(within(shell(1)).queryByRole("button", { name: "New note", hidden: true })).toBeNull();
+  });
+
+  it("SB1 窄（預設）：標題列 0 selected＋Select all＋Done 文字鈕、沒有 ✕ 與全選框；每份實例恰一個動作列且在標題列外", async () => {
+    stubServer();
+    renderShells();
+    await enterSelecting();
+    expect(exitButton()).toBeNull();
+    expect(within(shellHeader(1)).queryByRole("checkbox", { hidden: true })).toBeNull();
+    expect(within(shellHeader(1)).getByRole("button", { name: "Select all" })).toBeInTheDocument();
+    expect(doneButton()).toBeInTheDocument();
+    for (const index of [0, 1]) {
+      const bars = barsOf(index);
+      expect(bars).toHaveLength(1);
+      expect(bars[0]!.closest("[data-sidebar-header]")).toBeNull();
+    }
+  });
+
+  it("SB2 寬：按 Select → 焦點在 ✕；按 ✕ → 選取結束、焦點在同一份的 Select", async () => {
+    mockWidePointer(true);
+    stubServer();
+    renderShells();
+    await enterWide();
+    await waitFor(() => expect(exitButton()).toHaveFocus());
+    fireEvent.click(exitButton() as HTMLElement);
+    await waitFor(() => expect(exitButton()).toBeNull());
+    expect(bar()).toBeNull();
+    expect(selectButton(1)).toHaveFocus();
+  });
+
+  it("SB3 寬：選取中在 body 上按 Esc → 結束、焦點在 Select", async () => {
+    mockWidePointer(true);
+    stubServer();
+    renderShells();
+    await enterWide();
+    tick("p1");
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(exitButton()).toBeNull());
+    // document 層的 Esc 由先掛上的那一份處理（它 preventDefault 後另一份讓路），焦點回那一份的 Select。
+    expect(document.activeElement).toHaveAttribute("data-sidebar-select");
+  });
+
+  it("SB3 寬：焦點在 ✕、對 ✕ 按 Esc → 結束、焦點在同一份的 Select；批次執行中（數量位是進度）同樣成立", async () => {
+    mockWidePointer(true);
+    const server = stubServer(MY);
+    const release = server.hold("PUT /api/notes/p3/folder");
+    renderShells();
+    await enterWide();
+    let exit = exitButton() as HTMLElement;
+    exit.focus();
+    fireEvent.keyDown(exit, { key: "Escape" });
+    await waitFor(() => expect(exitButton()).toBeNull());
+    expect(selectButton(1)).toHaveFocus();
+
+    await enterWide();
+    await waitFolders("B");
+    tick("p3");
+    fireEvent.click(within(await openPicker("Move to")).getByRole("button", { name: "B" }));
+    await waitFor(() => expect(within(shellHeader(1)).getByRole("status")).toHaveTextContent("Working… 0 of 1"));
+    exit = exitButton() as HTMLElement;
+    exit.focus();
+    fireEvent.keyDown(exit, { key: "Escape" });
+    await waitFor(() => expect(exitButton()).toBeNull());
+    expect(selectButton(1)).toHaveFocus();
+    await release();
+    expect(await screen.findByText("Moved 1 item to “B”", { exact: true })).toBeInTheDocument();
+  });
+
+  it("SB4 寬：三態全選框只看可見列；空／半勾點下去全選可見列，全勾點下去清空全部；收合子樹裡勾的保留", async () => {
+    mockWidePointer(true);
+    stubServer({ notes: [FP1, FP3], groups: [FG], folders: [FA] });
+    renderShells();
+    await enterWide();
+    await waitFolders("A");
+    await waitFor(() => expect(box("p1")).not.toBeNull());
+    expect(allState()).toBe("none");
+    expect(selectAllBox()).toHaveAttribute("title", "Select all");
+    // 外層 24px 那格也帶同字 title（框旁滑過也有提示）。
+    expect(selectAllBox().parentElement?.parentElement).toHaveAttribute("title", "Select all");
+    tick("p3");
+    expect(allState()).toBe("some");
+    fireEvent.click(selectAllBox());
+    expect(selectedKeys()).toEqual(["folder:A", "note:p1", "note:p3"]);
+    expect(allState()).toBe("all");
+    expect(selectAllBox()).toHaveAttribute("title", "Deselect all");
+    expect(within(shellHeader(1)).getByText("3 selected")).toBeInTheDocument();
+    fireEvent.click(selectAllBox());
+    expect(selectedKeys()).toEqual([]);
+    expect(allState()).toBe("none");
+
+    // 先展開勾 p1 再收合 A：可見列（A、p3）都沒勾 → 空框；點下去全選可見列、p1 仍勾。
+    tick("p1");
+    fireEvent.click(folderToggle("A"));
+    expect(box("p1")).toBeNull();
+    expect(allState()).toBe("none");
+    expect(within(shellHeader(1)).getByText("1 selected")).toBeInTheDocument();
+    fireEvent.click(selectAllBox());
+    expect(within(shellHeader(1)).getByText("3 selected")).toBeInTheDocument();
+    expect(allState()).toBe("all");
+    fireEvent.click(folderToggle("A"));
+    expect(selectedKeys()).toEqual(["folder:A", "note:p1", "note:p3"]);
+  });
+
+  it("SB4 寬：群組 tab 群組全收合（沒有可見列）→ 全選框 disabled；展開後可按", async () => {
+    mockWidePointer(true);
+    stubServer({ notes: [groupNote({ id: "g1", title: "g1", group: FG })], groups: [FG], folders: [] });
+    renderShells({ tab: "workspace" });
+    await enterWide();
+    await waitFor(() => expect(box("g1")).not.toBeNull());
+    expect(selectAllBox()).toBeEnabled();
+    fireEvent.click(folderToggle("G"));
+    expect(box("g1")).toBeNull();
+    expect(selectAllBox()).toBeDisabled();
+    fireEvent.click(folderToggle("G"));
+    expect(selectAllBox()).toBeEnabled();
+  });
+
+  it("SB5 寬：批次中按 ✕ 再開新選取 → 放行前數量位仍是進度、三顆鈕 disabled；放行後 0 selected、仍在選取、結果 toast 恰一則", async () => {
+    mockWidePointer(true);
+    const server = stubServer(MY);
+    const release = server.hold("PATCH /api/folders/A1");
+    renderShells();
+    await enterWide();
+    await waitFolders("A1", "B");
+    tickFolder("A1");
+    tick("p3");
+    fireEvent.click(within(await openPicker("Move to")).getByRole("button", { name: "B" }));
+    const status = await within(shellHeader(1)).findByRole("status");
+    expect(status).toHaveTextContent("Working… 0 of 2");
+    expect(status).toHaveAttribute("title", "Working… 0 of 2");
+    expect(within(shellHeader(1)).queryByText("2 selected")).toBeNull();
+    expect(within(shellHeader(1)).getAllByRole("status", { hidden: true })).toHaveLength(1);
+    expect(bar()).toHaveAttribute("aria-busy", "true");
+
+    fireEvent.click(exitButton() as HTMLElement);
+    await waitFor(() => expect(exitButton()).toBeNull());
+    fireEvent.click(selectButton(1) as HTMLElement);
+    await waitFor(() => expect(exitButton()).not.toBeNull());
+    await waitFor(() => expect(bar()).not.toBeNull());
+    // select-run 以 actions 為鍵：舊那輪還在跑，新選取的數量位仍是進度。
+    expect(within(shellHeader(1)).getByRole("status")).toHaveTextContent("Working… 0 of 2");
+    for (const name of ["Move to", "Copy to", "Delete 0 selected items"]) expect(barButton(name)).toBeDisabled();
+
+    await release();
+    expect(await screen.findByText("Moved 2 items to “B”", { exact: true })).toBeInTheDocument();
+    await waitFor(() => expect(within(shellHeader(1)).queryByRole("status")).toBeNull());
+    expect(within(shellHeader(1)).getByText("0 selected")).toBeInTheDocument();
+    expect(exitButton()).not.toBeNull();
+    await settleTimers();
+    expect(openToasts()).toHaveLength(1);
+  });
+
+  it("SB6 選取中寬→窄：標題列換回 1 selected＋Select all＋Done、底部出現動作列、勾選保留、開著的目的地框關掉", async () => {
+    const mq = mockWidePointer(true);
+    stubServer();
+    renderShells();
+    await enterWide();
+    tick("p1");
+    fireEvent.click(barButton("Move to"));
+    await screen.findByRole("dialog", { name: "Move to" });
+    act(() => mq.setWide(false));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(exitButton()).toBeNull();
+    expect(within(shellHeader(1)).getByText("1 selected")).toBeInTheDocument();
+    expect(within(shellHeader(1)).getByRole("button", { name: "Select all" })).toBeInTheDocument();
+    expect(doneButton()).toBeInTheDocument();
+    await waitFor(() => expect(bar()).not.toBeNull());
+    for (const index of [0, 1]) {
+      const bars = barsOf(index);
+      expect(bars).toHaveLength(1);
+      expect(bars[0]!.closest("[data-sidebar-header]")).toBeNull();
+    }
+    expect(selectedKeys()).toEqual(["note:p1"]);
+  });
+
+  it("SB6b 選取中跨判準、焦點在標題列的鈕上：✕ → 翻窄 → 焦點在「完成」；完成 → 翻寬 → 焦點在 ✕（不掉到 body）", async () => {
+    const mq = mockWidePointer(true);
+    stubServer();
+    renderShells();
+    await enterWide();
+    await waitFor(() => expect(exitButton()).toHaveFocus());
+    act(() => mq.setWide(false));
+    expect(doneButton()).toHaveFocus();
+    act(() => mq.setWide(true));
+    expect(exitButton()).toHaveFocus();
+  });
+
+  it("SB6c 選取中跨判準、翻轉前焦點已在 body（不在標題列）→ 不搶焦點、仍在 body", async () => {
+    const mq = mockWidePointer(true);
+    stubServer();
+    renderShells();
+    await enterWide();
+    await waitFor(() => expect(exitButton()).toHaveFocus());
+    (exitButton() as HTMLElement).blur();
+    expect(document.activeElement).toBe(document.body);
+    act(() => mq.setWide(false));
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it("SB7 寬：點 Move to 圖示 → 目的地框；取消 → 焦點回圖示鈕", async () => {
+    mockWidePointer(true);
+    stubServer();
+    renderShells();
+    await enterWide();
+    tick("p1");
+    fireEvent.click(barButton("Move to"));
+    const picker = await screen.findByRole("dialog", { name: "Move to" });
+    fireEvent.click(within(picker).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await settleTimers();
+    expect(barButton("Move to")).toHaveFocus();
+    expect(shellHeader(1).contains(document.activeElement)).toBe(true);
+  });
+
+  it("SB8 窄：Move to 不是主色（沒有 bg-brand*）、class 與 Copy to 相同", async () => {
+    stubServer();
+    renderShells();
+    await enterSelecting();
+    tick("p1");
+    const move = barButton("Move to");
+    expect([...move.classList].filter((name) => name.startsWith("bg-brand"))).toEqual([]);
+    expect(move.className).toBe(barButton("Copy to").className);
+  });
+
+  const ACROSS = "The selected notes are in different groups and can't be moved together";
+  const NO_FOLDER_COPY = "Folders can't be copied";
+
+  it.each(["narrow", "wide"] as const)(
+    "SB9 %s：群組 tab 跨群組 → Move to aria-disabled（沒有 disabled）＋title／描述；點了不開框；窄出 toast、寬沒有；兩顆鈕 class 相同",
+    async (form) => {
+      mockWidePointer(form === "wide");
+      const g1 = groupNote({ id: "g1", title: "g1", group: FG });
+      const h1 = groupNote({ id: "h1", title: "h1", group: FH });
+      const server = stubServer({ notes: [g1, h1], groups: [FG, FH], folders: [GF] });
+      renderShells({ tab: "workspace" });
+      await enterForm(form);
+      tick("g1", "h1");
+      const move = barButton("Move to");
+      expect(move).toHaveAttribute("aria-disabled", "true");
+      expect(move).not.toHaveAttribute("disabled");
+      expect(move).toHaveAttribute("title", ACROSS);
+      expect(describedText(move)).toBe(ACROSS);
+      expect(move).toHaveClass("aria-disabled:cursor-not-allowed", "aria-disabled:opacity-50");
+      const copy = barButton("Copy to");
+      expect(copy).toBeEnabled();
+      expect(copy).not.toHaveAttribute("aria-disabled");
+      expect(move.className).toBe(copy.className);
+      fireEvent.click(move);
+      await settleTimers();
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(server.keys()).toEqual([]);
+      expect(openToasts()).toHaveLength(form === "narrow" ? 1 : 0);
+      if (form === "narrow") expect(openToasts()[0]).toHaveTextContent(ACROSS);
+    },
+  );
+
+  it.each(["narrow", "wide"] as const)(
+    "SB9 %s：勾資料夾 → Copy to aria-disabled（沒有 disabled）＋「Folders can't be copied」；點了不開框；窄出 toast、寬沒有",
+    async (form) => {
+      mockWidePointer(form === "wide");
+      const server = stubServer(MY);
+      renderShells();
+      await enterForm(form);
+      await waitFolders("A");
+      tickFolder("A");
+      const copy = barButton("Copy to");
+      expect(copy).toHaveAttribute("aria-disabled", "true");
+      expect(copy).not.toHaveAttribute("disabled");
+      expect(copy).toHaveAttribute("title", NO_FOLDER_COPY);
+      expect(describedText(copy)).toBe(NO_FOLDER_COPY);
+      expect(copy.className).toBe(barButton("Move to").className);
+      fireEvent.click(copy);
+      await settleTimers();
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(server.keys()).toEqual([]);
+      expect(openToasts()).toHaveLength(form === "narrow" ? 1 : 0);
+      if (form === "narrow") expect(openToasts()[0]).toHaveTextContent(NO_FOLDER_COPY);
+    },
+  );
+
+  it.each(["narrow", "wide"] as const)("SB10 %s：0 項時三顆鈕、最近 tab 只勾不能刪的篇時的刪除 → 真的 disabled、沒有 aria-disabled、點了沒有 toast", async (form) => {
+    mockWidePointer(form === "wide");
+    stubServer();
+    renderShells({ tab: "recent" });
+    await enterForm(form);
+    for (const name of ["Copy to", "Delete 0 selected items"]) {
+      expect(barButton(name)).toBeDisabled();
+      expect(barButton(name)).not.toHaveAttribute("aria-disabled");
+    }
+    tick("s1");
+    const del = barButton("Delete 1 selected item");
+    expect(del).toBeDisabled();
+    expect(del).not.toHaveAttribute("aria-disabled");
+    expect(barButton("Copy to")).toBeEnabled();
+    fireEvent.click(del);
+    await settleTimers();
+    expect(openToasts()).toHaveLength(0);
+  });
+
+  it.each(["narrow", "wide"] as const)("SB10 %s：批次執行中三顆鈕真的 disabled、沒有 aria-disabled、點了沒有 toast", async (form) => {
+    mockWidePointer(form === "wide");
+    const server = stubServer();
+    const releaseP1 = server.hold("DELETE /api/notes/p1");
+    renderShells();
+    await enterForm(form);
+    tick("p1", "p2");
+    fireEvent.click(barButton("Delete 2 selected items"));
+    await waitFor(() => expect(bar()).toHaveAttribute("aria-busy", "true"));
+    for (const name of ["Move to", "Copy to", "Delete 2 selected items"]) {
+      expect(barButton(name)).toBeDisabled();
+      expect(barButton(name)).not.toHaveAttribute("aria-disabled");
+      fireEvent.click(barButton(name));
+    }
+    await settleTimers();
+    expect(openToasts()).toHaveLength(0);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await releaseP1();
+    expect(await screen.findByText("Moved 2 notes to the trash", { exact: true })).toBeInTheDocument();
+  });
+
+  it.each(["narrow", "wide"] as const)("SB10 %s：優先序——選了資料夾又在跑批次（busy 與反灰原因同時成立）→ Copy to 真的 disabled、沒有 aria-disabled、點了沒有 toast", async (form) => {
+    mockWidePointer(form === "wide");
+    const server = stubServer(MY);
+    const release = server.hold("PATCH /api/folders/A1");
+    renderShells();
+    await enterForm(form);
+    await waitFolders("A1", "B");
+    tickFolder("A1");
+    tick("p3");
+    expect(barButton("Copy to")).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(within(await openPicker("Move to")).getByRole("button", { name: "B" }));
+    await waitFor(() => expect(bar()).toHaveAttribute("aria-busy", "true"));
+    const copy = barButton("Copy to");
+    expect(copy).toBeDisabled();
+    expect(copy).not.toHaveAttribute("aria-disabled");
+    fireEvent.click(copy);
+    await settleTimers();
+    expect(openToasts()).toHaveLength(0);
+    await release();
+    expect(await screen.findByText("Moved 2 items to “B”", { exact: true })).toBeInTheDocument();
   });
 });

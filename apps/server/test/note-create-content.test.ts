@@ -1,9 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { SESSION_COOKIE } from "@knotebook/shared";
-import { signSession } from "../src/auth/session.js";
 import { noteAiEdits, notes, users } from "../src/db/schema.js";
-import { buildCollabTestApp, buildTestApp, testConfig } from "./helpers.js";
+import { buildCollabTestApp, buildTestApp, signTestSession } from "./helpers.js";
 import { seedGroup } from "./group-helpers.js";
 import { bearer, getContent, seedTokenForUser } from "./editing-helpers.js";
 
@@ -26,9 +25,9 @@ describe("POST /api/notes 帶 content", () => {
     const rows = await ctx.db.select().from(noteAiEdits).where(eq(noteAiEdits.noteId, id));
     expect(rows).toHaveLength(1);
     expect(rows[0]!.op).toBe("replace_all");
-    // ⚠ `/backlinks` 是 **cookie-only**（`app.authenticate`，不在 #107 D2 的 Bearer 允許清單上）
+    // ⚠ `/backlinks` 是 **cookie-only**（`app.authenticate`，不在 #107 的 Bearer 允許清單上）
     // ——用 Bearer 會拿到 401、`body.backlinks` 是 undefined。這裡改用 session cookie。
-    const cookie = `${SESSION_COOKIE}=${await signSession(testConfig.appSecret, { userId: u.id, tv: 0 })}`;
+    const cookie = `${SESSION_COOKIE}=${await signTestSession({ userId: u.id, tv: 0 })}`;
     const back = await ctx.app.inject({ method: "GET", url: `/api/notes/${target.id}/backlinks`, headers: { cookie } });
     expect(back.json().backlinks.map((b: { id: string }) => b.id)).toContain(id);
   });
@@ -62,6 +61,8 @@ describe("POST /api/notes 帶 content", () => {
       [{ title: "T", content: "   \n" }, "empty_content"],
       [{ title: "T", content: "a".repeat(262_145) }, "invalid_body"],
       [{ title: "T", content: "x" + NUL }, "invalid_body"],
+      // 會被丟掉的元素混在內文裡也整筆拒絕（以前悄悄拿掉、照建）
+      [{ title: "T", content: '內文\n\n<iframe src="https://example.com"></iframe>' }, "unsupported_block"],
       // Minor-1：含 NUL 的 title。少了 schema 那道 `.refine(noNul)`，這一格是 500 不是 400
       // （pg 對 text 欄位的 0x00 直接拒收，錯誤逃到全域 errorHandler）。
       [{ title: "T" + NUL }, "invalid_body"],
@@ -105,7 +106,7 @@ describe("POST /api/notes 帶 content", () => {
     expect((await ctx.db.select().from(notes).where(eq(notes.ownerId, u.id))).length).toBe(0);
   });
 
-  it("#175 Q13：成員帶 content＋groupId → 201 群組筆記（role editor、ownerId null、groupId 有值），內容真的落盤", async () => {
+  it("#175：成員帶 content＋groupId → 201 群組筆記（role editor、ownerId null、groupId 有值），內容真的落盤", async () => {
     const ctx = await buildCollabTestApp();
     const u = await ctx.createUser({ email: "a@example.com", password: PASSWORD });
     const g = await seedGroup(ctx.db, "Team", [{ userId: u.id, role: "member" }]);

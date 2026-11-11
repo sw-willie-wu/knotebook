@@ -1,8 +1,8 @@
 /**
- * 資料夾 PR-3a T7：垃圾桶整合（spec docs/superpowers/specs/2026-10-22-folders-design.md §5.8、§5.4 表「還原」列、A3-5）——
+ * 資料夾：垃圾桶整合（表「還原」列）——
  * 移入寫路徑快照、`GET /api/trash` 的 `folderPath`、還原照路徑重建。組合字元一律以 `String.fromCharCode` 組字。
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import type { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -16,6 +16,13 @@ import { folderRow, noteFolderCols, seedFolder, seedFolderChain, setNoteFolder, 
 import { cookieOf, seedGroup, seedNote, seedUser } from "./group-helpers.js";
 import { buildTestApp, freshDb } from "./helpers.js";
 import { inject, markTrashed, sixRoleScene, trashCols } from "./trash-helpers.js";
+import { INJECTED_LOCK_TIMEOUT_BOUND_MS } from "./lock-timeout-bound.js";
+
+// 預設空間鎖上限在本檔換成 60 s（產品值 5000），「注入的短上限有生效」的牆鐘界線才能離兩邊都遠——見 ./lock-timeout-bound.ts。
+vi.mock("../src/storage/tx/quota.js", async () => ({
+  ...(await vi.importActual<typeof import("../src/storage/tx/quota.js")>("../src/storage/tx/quota.js")),
+  DEFAULT_STORAGE_LOCK_TIMEOUT_MS: (await import("./lock-timeout-bound.js")).SLOW_DEFAULT_LOCK_TIMEOUT_MS,
+}));
 
 const COMBINING_ACUTE = String.fromCharCode(0x301);
 const E_ACUTE = String.fromCharCode(0xe9);
@@ -305,7 +312,7 @@ describe("資料夾與垃圾桶：還原", () => {
           method: "DELETE", url: `/api/groups/${g.id}`, cookies: await cookieOf(admin.id), payload: { mode: "transfer", transferTo: admin.id },
         });
         expect(res.statusCode, res.body).toBe(204);
-        // 轉移本身可能建「{群組名}」頂層（資料夾 T11），那是轉移的事；這裡只比還原前後。
+        // 轉移本身可能建「{群組名}」頂層，那是轉移的事；這裡只比還原前後。
         before = (await foldersOf(pool, { ownerId: admin.id })).length;
       },
     };
@@ -314,12 +321,12 @@ describe("資料夾與垃圾桶：還原", () => {
     expect(out.restored.map(r => [r.id, r.folderId])).toEqual([[gn.id, null]]);
     const { rows } = await pool.query("select owner_id, group_id, deleted_at from notes where id = $1", [gn.id]);
     expect(rows[0]).toEqual({ owner_id: admin.id, group_id: null, deleted_at: null });
-    // spec §5.8-1 接受的已知損失（F9）：預讀之後被轉移的那篇不重建，轉移接上的快照前綴（["{群組名}", …]）也一併清掉。
+    // 接受的已知損失：預讀之後被轉移的那篇不重建，轉移接上的快照前綴（["{群組名}", …]）也一併清掉。
     expect(await noteFolderCols(pool, gn.id)).toEqual({ folder_id: null, trash_folder_path: null });
     expect((await foldersOf(pool, { ownerId: admin.id })).length).toBe(before);
   });
 
-  it("TRF-11 結構鎖等太久（另一條連線持住同空間的鎖、lock_timeout 300 ms）：還原 409 server_busy（< 3000 ms）、什麼都沒變；鎖放掉後重試照常重建", async () => {
+  it("TRF-11 結構鎖等太久（另一條連線持住同空間的鎖、lock_timeout 300 ms）：還原 409 server_busy（< 20 s：注入值有生效，不是本檔預設 60 s）、什麼都沒變；鎖放掉後重試照常重建", async () => {
     const { app, db } = await buildTestApp({ storageLockTimeoutMs: 300 });
     const pool = db.$client;
     const o = await seedUser(db);
@@ -335,8 +342,8 @@ describe("資料夾與垃圾桶：還原", () => {
       const res = await inject(app, "POST", "/api/trash/restore", o.id, { ids: [n.id] });
       const ms = Date.now() - t0;
       expect(res.statusCode, res.body).toBe(409);
-      expect(res.json()).toEqual({ error: { code: "server_busy", message: "伺服器忙碌，請稍後再試" } });
-      expect(ms).toBeLessThan(3000);
+      expect(res.json()).toEqual({ error: { code: "server_busy", message: "The server is busy. Try again in a moment." } });
+      expect(ms).toBeLessThan(INJECTED_LOCK_TIMEOUT_BOUND_MS);
     } finally {
       try {
         await holder.query("rollback");

@@ -1,27 +1,37 @@
-import { lazy, useEffect, useId, useRef, useState, type ReactNode, type RefObject } from "react";
+import { lazy, useEffect, useId, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { Dialog as DialogPrimitive } from "radix-ui";
-import { canonicalNotePath } from "@knotebook/shared";
-import { ApiFail } from "@/api/client";
+import { canonicalNotePath, type FolderDto } from "@knotebook/shared";
+import { FOLDERS_QUERY_KEY, folderErrorMessage, invalidateFolderRelated, isFolderNotFound } from "@/api/folders";
 import { useCreateNote } from "@/api/notes";
+import { expandFolderChain, indexFolders } from "@/components/sidebar/folder-index";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Menu, Search, X } from "@/components/ui/icons";
-import { toast } from "@/components/ui/toast";
+import { toast, toastViewportHostRef } from "@/components/ui/toast";
 import { cardSurface } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { NARROW_QUERY, SidebarDrawerContext, useSidebarDrawer } from "@/lib/sidebar-drawer";
 import { canonicalizedFrom } from "@/lib/real-location";
+import { isMacPlatform } from "@/lib/platform";
+import { ShortcutsDialogContext, type ShortcutsDialogApi } from "@/lib/shortcuts-dialog";
+import { isOverlayOpen } from "@/lib/versions-context";
+import { openSettings } from "@/lib/open-settings";
 import { SIDEBAR_SELECT_BUTTON } from "@/lib/sidebar-selection";
+import { useSession } from "@/auth/useSession";
+import { useSidebarQuery } from "@/lib/sidebar-query";
 import { SidebarTabProvider, useSidebarTabActions, useSidebarTabState, type SidebarTabActions } from "@/lib/sidebar-tab";
 import { NoteList } from "@/components/NoteList";
 import { SearchResults } from "@/components/sidebar/SearchResults";
+import { clearSearchMark } from "@/hooks/search-mark";
 import { SidebarFooter } from "@/components/sidebar/SidebarFooter";
 import { SidebarTabList, sidebarPanelId, sidebarTabId } from "@/components/sidebar/SidebarTabList";
 import { SidebarLazyBoundary } from "@/components/sidebar/SidebarLazyBoundary";
 import { UserMenu } from "@/components/UserMenu";
+import { ShortcutsDialog } from "@/components/shortcuts/ShortcutsDialog";
 import {
   SIDEBAR_WIDTH_DEFAULT,
   SIDEBAR_WIDTH_MAX,
@@ -82,9 +92,9 @@ interface SidebarContentProps {
   onQueryChange: (query: string) => void;
   /** 搜尋框 ref——**兩個實例（靜態卡／抽屜）各傳自己的 ref 物件**，不得共用：
    * 共用同一個物件的話，抽屜 unmount 時 React 會把它清成 null，Ctrl+K 從此
-   * 靜默失效（spec §3a）。 */
+   * 靜默失效。 */
   searchRef: RefObject<HTMLInputElement | null>;
-  onCreateNote: (groupId?: string) => void;
+  onCreateNote: (groupId?: string, folderId?: string) => void;
   newNotePending: boolean;
   shortcutBadge: string;
 }
@@ -95,7 +105,7 @@ interface SidebarContentProps {
  * 目前 tab 住在 `SidebarTabProvider`（靜態卡與抽屜兩份實例共用一份）。wrapper（靜態
  * `<aside>` 卡或抽屜 Content）由呼叫端提供——兩個 wrapper 都必須給
  * `flex flex-col` 脈絡，否則清單容器的 `min-h-0 flex-1 overflow-y-auto` 失去
- * 約束（spec §3a 邊界定案）。 */
+ * 約束。 */
 function SidebarContent({
   query,
   onQueryChange,
@@ -105,13 +115,13 @@ function SidebarContent({
   shortcutBadge,
 }: SidebarContentProps) {
   const { t } = useTranslation();
-  // 靜態卡與抽屜各自一份 `useId`，tab／tabpanel 的 id 才不會撞（spec §5.5）。
+  // 靜態卡與抽屜各自一份 `useId`，tab／tabpanel 的 id 才不會撞。
   const idBase = useId();
   const { tab } = useSidebarTabState();
   const { updateSelection } = useSidebarTabActions();
   // 空白也算搜尋中（同改版前的判準）。
   const searching = query.length > 0;
-  // spec §6.10.2：開始搜尋也離開選取模式（兩份實例都跑，冪等）。
+  // 開始搜尋也離開選取模式（兩份實例都跑，冪等）。
   useEffect(() => {
     if (searching) updateSelection({ type: "end" });
   }, [searching, updateSelection]);
@@ -208,7 +218,7 @@ function SidebarContent({
 
 interface AppShellProps {
   children: ReactNode;
-  /** #229：簡報模式時整個背景不可互動（spec §6.6-7）；簡報層是 AppShell 的兄弟、不在它底下。 */
+  /** #229：簡報模式時整個背景不可互動；簡報層是 AppShell 的兄弟、不在它底下。 */
   inert?: boolean;
 }
 
@@ -260,7 +270,7 @@ interface AppShellProps {
  * `actionsRef` 給抽屜 Esc 用；`AppShell` 隨
  * 首頁↔筆記頁重掛（各自渲染一份），tab 靠 localStorage 在重掛間帶回，切 tab 不重繪 `AppShell` 本身。
  *
- * 側欄寬度（Task 4）：靜態卡寬度是 `<aside style={{ width }}>` 的 React state，範圍
+ * 側欄寬度：靜態卡寬度是 `<aside style={{ width }}>` 的 React state，範圍
  * 200–480、預設 256（＝改版前的 `w-64`），存在 localStorage（`sidebar-width.ts`）。下限讓
  * 群組內筆記列還留得下約 3 個中文字；上限不相對視窗——窄視窗下拉到最寬會擠壓內文，
  * 雙擊把手即回 256。把手（共用的 `PaneResizeHandle`，`edge="right"`）是 `<aside>` 內
@@ -273,7 +283,22 @@ export function AppShell({ children, inert }: AppShellProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const createNote = useCreateNote();
-  const [query, setQuery] = useState("");
+  const queryClient = useQueryClient();
+  const { query, setQuery, claim } = useSidebarQuery();
+  const { user: sessionUser } = useSession();
+  const sessionUserId = sessionUser?.id;
+  useEffect(() => {
+    if (sessionUserId !== undefined) claim(sessionUserId); // 換人登入：清掉上一個人的搜尋字
+  }, [sessionUserId, claim]);
+  // 住在 App 層：換殼 // 住在 App 層：換殼（首頁 → 筆記頁、NotePage 的 Suspense fallback）時搜尋字不重設
+  // 關閉搜尋（搜尋字從非空變空：清空鈕、Esc、手動刪光）＝清掉搜尋跳轉留在筆記裡的常駐標記。只看「非空 → 空」的轉變，不看「現在是空」：
+  // 重掛時 ref 以當下的字起算，不該清掉什麼。窄螢幕點結果會關抽屜，但 query 在這裡、
+  // 不跟著抽屜卸載，所以不算關閉搜尋。
+  const prevQueryRef = useRef(query);
+  useEffect(() => {
+    if (prevQueryRef.current !== "" && query === "") clearSearchMark();
+    prevQueryRef.current = query;
+  }, [query]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth);
   const handleSidebarWidth = (px: number, commit: boolean) => {
@@ -292,6 +317,66 @@ export function AppShell({ children, inert }: AppShellProps) {
   const drawerOpenRef = useRef(drawerOpen);
   drawerOpenRef.current = drawerOpen;
   const tabActionsRef = useRef<SidebarTabActions | null>(null);
+
+  // 快捷鍵介紹頁（Ctrl/Cmd+/ 或使用者選單）的開關：state 在這裡，內容 lazy（`ShortcutsDialog`）。
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const shortcutsOpenRef = useRef(shortcutsOpen);
+  shortcutsOpenRef.current = shortcutsOpen;
+  /** 關閉時要還焦點的元素：鍵盤開的＝開啟當下的焦點元素；選單開的＝UserMenu 觸發鈕（`open(returnFocusTo)`）。 */
+  const shortcutsReturnFocusRef = useRef<HTMLElement | null>(null);
+  const shortcutsApi = useMemo<ShortcutsDialogApi>(
+    () => ({
+      open: (returnFocusTo) => {
+        shortcutsReturnFocusRef.current = returnFocusTo ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+        setShortcutsOpen(true);
+      },
+    }),
+    [],
+  );
+
+  // Ctrl/Cmd+/ 開關快捷鍵介紹頁（與下面的 Ctrl+K 是兩支獨立的 effect，互不改動）。判準與讓路：
+  // - `(ctrl || meta) && !alt && key === "/"`，不看 shift（德文等配置的 `/` 本身要按 Shift，排除會讓那些鍵盤打不開）；`!alt` 比照 NotePage 的 Ctrl+S。
+  // - `repeat` 不理；`defaultPrevented` 不理（別人已處理，比照下面 Ctrl+K）。
+  // - 快捷鍵頁已開 → preventDefault＋關（切換）。
+  // - 其他對話框（側欄抽屜除外）或選單開著 → 放棄、不 preventDefault：比照 NotePage 的 Ctrl+S 連選單也讓路，
+  //   因 Radix 選單與 Dialog 共用 FocusScope 會搶焦點（與 Ctrl+K 的「menu 照觸發」刻意不同）。
+  // deps 留空：handler 只讀 ref 與當下的 DOM。
+  useEffect(() => {
+    function handleShortcutsKey(event: KeyboardEvent): void {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.key !== "/") return;
+      if (event.repeat || event.defaultPrevented) return;
+      if (shortcutsOpenRef.current) {
+        event.preventDefault();
+        setShortcutsOpen(false);
+        return;
+      }
+      if (isOverlayOpen()) return;
+      event.preventDefault();
+      shortcutsReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      setShortcutsOpen(true);
+    }
+    window.addEventListener("keydown", handleShortcutsKey);
+    return () => window.removeEventListener("keydown", handleShortcutsKey);
+  }, []);
+
+  // Ctrl/Cmd+, 打開設定（與使用者選單的「設定」項走同一條路：`openSettings`，帶 backgroundLocation）。規則同上面的 Ctrl+/：
+  // `(ctrl || meta) && !alt && !shift && key === ","`、不理 repeat／defaultPrevented；其他對話框（側欄抽屜除外）或選單開著——
+  // 含設定 modal 本身、快捷鍵頁、簡報層——就放棄、不 preventDefault（設定已開著時什麼都不做）。
+  // 查證：BlockNote 0.52／tiptap 3／prosemirror 的 dist 都沒有綁任何標點鍵（`Mod-,` 不存在），Chromium 不保留 Ctrl+,；
+  // Mac 的 ⌘, 在 Safari 是原生的偏好設定、頁面可能攔不到；Mac Chrome、Firefox 也一樣未驗（⌘／ 同）——全部列入手測，測後再定。handler 讀 ref（navigate／location 每次 render 都換）。
+  const settingsRouteRef = useRef({ navigate, location });
+  settingsRouteRef.current = { navigate, location };
+  useEffect(() => {
+    function handleSettingsKey(event: KeyboardEvent): void {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.key !== ",") return;
+      if (event.repeat || event.defaultPrevented) return;
+      if (isOverlayOpen()) return;
+      event.preventDefault();
+      openSettings(settingsRouteRef.current.navigate, settingsRouteRef.current.location);
+    }
+    window.addEventListener("keydown", handleSettingsKey);
+    return () => window.removeEventListener("keydown", handleSettingsKey);
+  }, []);
 
   // Ctrl/Cmd+K。deps 刻意留空——handler 只讀 ref（穩定物件）與當下的
   // matchMedia/DOM，不需要隨 state 重新掛聽。
@@ -355,36 +440,37 @@ export function AppShell({ children, inert }: AppShellProps) {
     return () => mql.removeEventListener("change", handleChange);
   }, []);
 
-  /** 建立筆記並導向。`groupId` 給群組段的「＋」（#103，server 預設 editor）；失敗
-   * 一律 toast（含群組剛被刪的 404 `group_not_found`）。 */
-  async function handleNewNote(groupId?: string): Promise<void> {
+  /** 建立筆記並導向。`groupId` 給群組段的「＋」（#103，server 預設 editor）、群組資料夾要同時帶；`folderId` 給資料夾列的「＋」
+   * ，成功後該資料夾與祖先寫成展開。body 只帶有給的鍵（都沒有＝不帶 body，同現行）。
+   * 失敗一律 toast（含群組剛被刪的 404 `group_not_found`）；資料夾錯誤帶 `max`，`folder_not_found` 另重抓資料夾清單。 */
+  async function handleNewNote(groupId?: string, folderId?: string): Promise<void> {
+    const body = {
+      ...(groupId === undefined ? {} : { groupId }),
+      ...(folderId === undefined ? {} : { folderId }),
+    };
     try {
-      const note = await createNote.mutateAsync(groupId === undefined ? undefined : { groupId });
+      const note = await createNote.mutateAsync(groupId === undefined && folderId === undefined ? undefined : body);
+      if (folderId !== undefined) expandFolderChain(indexFolders(queryClient.getQueryData<FolderDto[]>(FOLDERS_QUERY_KEY) ?? []), folderId);
       navigate(canonicalNotePath(note));
     } catch (err) {
-      const message =
-        err instanceof ApiFail ? t(`errors.${err.code}`, { defaultValue: t("errors.fallback") }) : t("errors.fallback");
-      toast({ title: message, variant: "destructive" });
+      if (isFolderNotFound(err)) invalidateFolderRelated(queryClient);
+      toast({ title: folderErrorMessage(t, err), variant: "destructive" });
     }
   }
 
-  // `navigator.platform` 已棄用但仍是目前偵測平台最簡單可靠的方式，這裡只用來
-  // 決定快捷鍵徽章的顯示文字（⌘K vs Ctrl K），不影響任何行為判斷。`?? ""`
-  // 防呆：某些環境（如部分測試/嵌入式 WebView）這個欄位可能是空字串以外的
-  // falsy 值，讓 `.toLowerCase()` 不會炸在 undefined 上。
-  const platform = typeof navigator !== "undefined" ? (navigator.platform ?? "") : "";
-  const shortcutBadge = platform.toLowerCase().includes("mac") ? "⌘K" : "Ctrl K";
+  // 平台偵測（只決定徽章顯示文字，不影響行為）見 lib/platform.ts。
+  const shortcutBadge = isMacPlatform() ? "⌘K" : "Ctrl K";
 
   const sidebarProps = {
     query,
     onQueryChange: setQuery,
-    onCreateNote: (groupId?: string) => void handleNewNote(groupId),
+    onCreateNote: (groupId?: string, folderId?: string) => void handleNewNote(groupId, folderId),
     newNotePending: createNote.isPending,
     shortcutBadge,
   };
 
   return (
-    // 高度/捲動鏈（PR2（BC2 卡片版面）起）：三個面板要各自固定高度、內文獨立捲動，
+    // 高度/捲動鏈（卡片版面）：三個面板要各自固定高度、內文獨立捲動，
     // 頁面本身不得整體捲動。`min-h-screen` 只設下限——內容一旦比視口高，這個 row
     // 容器（連帶 `main`）就會跟著撐高，逼出**文件層級**的捲動，下游各卡片的
     // `overflow-y-auto` 因此永遠沒機會真的裁切。必須 `h-screen`（鎖視口）＋
@@ -393,80 +479,89 @@ export function AppShell({ children, inert }: AppShellProps) {
     // `min-h-0 min-w-0 flex-1 flex flex-col` 撐開版面（`min-w-0` 顯式宣告——
     // `main` 沒有 overflow、少了隱含的自我裁切途徑，寬度鏈全靠它）。
     <SidebarDrawerContext.Provider value={{ setOpen: setDrawerOpen }}>
-      <SidebarTabProvider actionsRef={tabActionsRef}>
-        <div inert={inert} className="flex h-screen gap-3 overflow-hidden bg-background p-3">
-          {/* data-sidebar-instance：SidebarContent 回 fragment、沒有自己的根；垃圾桶動作列靠它找回同一份的「選取」鈕。 */}
-          <aside
-            data-sidebar-instance=""
-            className={cn(cardSurface, "relative hidden shrink-0 md:flex md:flex-col")}
-            style={{ width: sidebarWidth }}
-          >
-            <SidebarContent {...sidebarProps} searchRef={searchInputRef} />
-            <PaneResizeHandle
-              width={sidebarWidth}
-              onChange={handleSidebarWidth}
-              min={SIDEBAR_WIDTH_MIN}
-              max={SIDEBAR_WIDTH_MAX}
-              defaultWidth={SIDEBAR_WIDTH_DEFAULT}
-              step={SIDEBAR_WIDTH_STEP}
-              edge="right"
-              label={t("sidebar.resize")}
-              placementClassName="left-full"
-            />
-          </aside>
+      <ShortcutsDialogContext.Provider value={shortcutsApi}>
+        <SidebarTabProvider actionsRef={tabActionsRef}>
+          <div inert={inert} className="flex h-screen gap-3 overflow-hidden bg-background p-3">
+            {/* data-sidebar-instance：SidebarContent 回 fragment、沒有自己的根；垃圾桶動作列靠它找回同一份的「選取」鈕。 */}
+            <aside
+              data-sidebar-instance=""
+              className={cn(cardSurface, "relative hidden shrink-0 md:flex md:flex-col")}
+              style={{ width: sidebarWidth }}
+            >
+              <SidebarContent {...sidebarProps} searchRef={searchInputRef} />
+              <PaneResizeHandle
+                width={sidebarWidth}
+                onChange={handleSidebarWidth}
+                min={SIDEBAR_WIDTH_MIN}
+                max={SIDEBAR_WIDTH_MAX}
+                defaultWidth={SIDEBAR_WIDTH_DEFAULT}
+                step={SIDEBAR_WIDTH_STEP}
+                edge="right"
+                label={t("sidebar.resize")}
+                placementClassName="left-full"
+              />
+            </aside>
 
-          <DialogPrimitive.Root open={drawerOpen} onOpenChange={setDrawerOpen}>
-            <DialogPrimitive.Portal>
-              <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/50" />
-              <DialogPrimitive.Content
-                ref={drawerContentRef}
-                data-sidebar-drawer=""
-                data-sidebar-instance=""
-                // 底色與 flex 脈絡缺一不可：沒底色透出 overlay 的黑、沒 flex-col 則
-                // SidebarContent 的 min-h-0 flex-1 清單失去約束（spec §3a）。貼齊
-                // 左緣故意不用 cardSurface 的圓角——抽屜不是卡片。
-                className="fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-border bg-card"
-                // Radix 在 document capture 先處理 Esc：選取中先結束選取、抽屜不關。真瀏覽器在這個 listener 與 React 的
-                // onKeyDown 之間會跑 microtask，選取的結束先 commit、勾選框／動作列卸載，React 那層的 handler 不會再跑——
-                // 焦點要在這裡交給抽屜裡的「選取」鈕（flushSync 讓它在同一個 task 內出現）。
-                onEscapeKeyDown={(event) => {
-                  let ended = false;
-                  flushSync(() => {
-                    ended = tabActionsRef.current?.endSelectionIfActive() ?? false;
-                  });
-                  if (!ended) return;
-                  event.preventDefault();
-                  drawerContentRef.current?.querySelector<HTMLButtonElement>(SIDEBAR_SELECT_BUTTON)?.focus();
-                }}
-                onOpenAutoFocus={(event) => {
-                  event.preventDefault();
-                  if (openedByShortcutRef.current && drawerSearchRef.current) {
-                    drawerSearchRef.current.focus();
-                    openedByShortcutRef.current = false;
-                  } else {
-                    openedByShortcutRef.current = false;
-                    // 漢堡開：不聚焦搜尋框（觸控裝置會彈鍵盤；Radix 預設聚焦第一個
-                    // 可聚焦元素恰好就是它，必須 preventDefault 擋掉），但焦點必須
-                    // 落進抽屜本身——Radix 的 focus trap 要焦點先進容器才武裝
-                    // （lastFocusedElement 為 null 時 handleFocusIn 拉不回焦點、Tab
-                    // 攔截掛在容器 onKeyDown 也不會觸發），只 preventDefault 不補
-                    // 聚焦＝trap 沒建立、Tab 逃進 aria-hidden 的背景。
-                    drawerContentRef.current?.focus();
-                  }
-                }}
-              >
-                {/* Radix 的 aria-labelledby 只在 Title 存在時輸出——不放＝一個無
-                    可及名稱的 dialog（釘住的 radix-ui 1.6.7 已不再 console 警告，
-                    沒有訊號提醒你）。 */}
-                <DialogPrimitive.Title className="sr-only">{t("sidebar.drawerTitle")}</DialogPrimitive.Title>
-                <SidebarContent {...sidebarProps} searchRef={drawerSearchRef} />
-              </DialogPrimitive.Content>
-            </DialogPrimitive.Portal>
-          </DialogPrimitive.Root>
+            <DialogPrimitive.Root open={drawerOpen} onOpenChange={setDrawerOpen}>
+              <DialogPrimitive.Portal>
+                <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/50" />
+                <DialogPrimitive.Content
+                  ref={drawerContentRef}
+                  data-sidebar-drawer=""
+                  data-sidebar-instance=""
+                  // 底色與 flex 脈絡缺一不可：沒底色透出 overlay 的黑、沒 flex-col 則
+                  // SidebarContent 的 min-h-0 flex-1 清單失去約束。貼齊
+                  // 左緣故意不用 cardSurface 的圓角——抽屜不是卡片。
+                  className="fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-border bg-card outline-none"
+                  // Radix 在 document capture 先處理 Esc：選取中先結束選取、抽屜不關。真瀏覽器在這個 listener 與 React 的
+                  // onKeyDown 之間會跑 microtask，選取的結束先 commit、勾選框／動作列卸載，React 那層的 handler 不會再跑——
+                  // 焦點要在這裡交給抽屜裡的「選取」鈕（flushSync 讓它在同一個 task 內出現）。
+                  onEscapeKeyDown={(event) => {
+                    let ended = false;
+                    flushSync(() => {
+                      ended = tabActionsRef.current?.endSelectionIfActive() ?? false;
+                    });
+                    if (!ended) return;
+                    event.preventDefault();
+                    drawerContentRef.current?.querySelector<HTMLButtonElement>(SIDEBAR_SELECT_BUTTON)?.focus();
+                  }}
+                  onOpenAutoFocus={(event) => {
+                    event.preventDefault();
+                    if (openedByShortcutRef.current && drawerSearchRef.current) {
+                      drawerSearchRef.current.focus();
+                      openedByShortcutRef.current = false;
+                    } else {
+                      openedByShortcutRef.current = false;
+                      // 漢堡開：不聚焦搜尋框（觸控裝置會彈鍵盤；Radix 預設聚焦第一個
+                      // 可聚焦元素恰好就是它，必須 preventDefault 擋掉），但焦點必須
+                      // 落進抽屜本身——Radix 的 focus trap 要焦點先進容器才武裝
+                      // （lastFocusedElement 為 null 時 handleFocusIn 拉不回焦點、Tab
+                      // 攔截掛在容器 onKeyDown 也不會觸發），只 preventDefault 不補
+                      // 聚焦＝trap 沒建立、Tab 逃進 aria-hidden 的背景。
+                      drawerContentRef.current?.focus();
+                    }
+                  }}
+                >
+                  {/* Radix 的 aria-labelledby 只在 Title 存在時輸出——不放＝一個無
+                      可及名稱的 dialog（釘住的 radix-ui 1.6.7 已不再 console 警告，
+                      沒有訊號提醒你）。 */}
+                  <DialogPrimitive.Title className="sr-only">{t("sidebar.drawerTitle")}</DialogPrimitive.Title>
+                  <SidebarContent {...sidebarProps} searchRef={drawerSearchRef} />
+                  {/* 抽屜開著時 toast viewport 搬進這裡（`toastViewportHostRef`）：抽屜外的東西此刻都被 Radix 標成 aria-hidden、
+                      焦點也鎖在抽屜裡，toast 留在原處就讀不到、按不到。viewport 是 fixed 定位，所以抽屜內容不可加
+                      transform／filter（否則 toast 會改以抽屜為準定位）。搬進來後 toast 位在抽屜的 z-50 堆疊脈絡裡，
+                      從抽屜 portal 出去的 z-50 層（⋮ 選單、確認框與它的 overlay）可能蓋住 toast——modal 開著時這樣可接受。 */}
+                  <div ref={toastViewportHostRef} />
+                </DialogPrimitive.Content>
+              </DialogPrimitive.Portal>
+            </DialogPrimitive.Root>
 
-          <main className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</main>
-        </div>
-      </SidebarTabProvider>
+            <main className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</main>
+          </div>
+          {/* 放在 inert 的 div 外面：portal 本來就在 body，放外面是讓閱讀者不必推理 inert。 */}
+          <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} returnFocusRef={shortcutsReturnFocusRef} />
+        </SidebarTabProvider>
+      </ShortcutsDialogContext.Provider>
     </SidebarDrawerContext.Provider>
   );
 }

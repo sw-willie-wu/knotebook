@@ -1,7 +1,7 @@
 /**
  * 卡面樣式的單一出處（#81）：`AppShell` 側欄卡、`NoteEditor` 內文卡、`NotePage` 佔位卡、`HomePage`／
- * `NotePageFallback`／`ErrorBoundary` 的全寬內文卡，以及 `ManagementShell`／`VersionsPanel`／
- * `VersionsLazyBoundary`——這 9 個檔 11 處視覺上是同一款卡片
+ * `NotePageFallback`／`ErrorBoundary` 的全寬內文卡，以及 `ManagementShell`／`ShortcutsDialog`／
+ * `VersionsPanel`／`VersionsLazyBoundary`——這 10 個檔 12 處視覺上是同一款卡片
  * （圓角＋邊框＋卡片底色），過去各自手抄同一串 class 字面量。改卡片語彙（圓角
  * 大小、邊框、底色）只需要動這裡；呼叫端一律 `cn(cardSurface, "<其餘 class>")`。
  *

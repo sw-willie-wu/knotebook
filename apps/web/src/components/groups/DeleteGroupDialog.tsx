@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
 import type { GroupDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
+import { useFolders } from "@/api/folders";
 import { groupMembersKey, useDeleteGroup, useGroupMembers } from "@/api/groups";
 import { useNotes } from "@/api/notes";
 import { useTrash } from "@/api/trash";
@@ -35,21 +36,23 @@ function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string
 }
 
 /**
- * 刪除群組的兩模式對話框（#175 spec §8.6 PR4）。側欄 ⋮（`GroupMenu`）與群組 modal「關於」頁（`GroupAboutSection`）
+ * 刪除群組的兩模式對話框（#175）。側欄 ⋮（`GroupMenu`）與群組 modal「關於」頁（`GroupAboutSection`）
  * 兩個入口共用；呼叫端以 `open && <DeleteGroupDialog … />` 掛載，每次開都是新狀態（比照 `GroupNameDialog`）。
  *
  * - **轉移給管理員**（預設）：下拉只列持內建管理員角色的成員，順序沿用 server（`GET …/members` 內建管理員在前），
  *   第一位預設選中、可以是自己。這是不丟資料的那條路，所以放前面當預設。
  * - **全部刪除**：筆記、附件、修改紀錄永久刪除，必須先勾「我了解…」才能送出；切模式時同步清掉勾選，
  *   避免舊勾選被帶進下一次全刪。
- * - **空群組也顯示兩模式**（主檔 spec 疑點 Q7）：兩者在空群組上效果相同，但介面不分岔，使用者不必猜；
+ * - **空群組也顯示兩模式**：兩者在空群組上效果相同，但介面不分岔，使用者不必猜；
  *   說明句換成「這個群組沒有筆記」。
- * - 篇數＝活筆記＋群組垃圾桶裡的（#181 spec §6.5：兩模式都連垃圾桶裡的一起處理）。活筆記取自 `['notes']` 快取
+ * - 篇數＝活筆記＋群組垃圾桶裡的（#181：兩模式都連垃圾桶裡的一起處理）。活筆記取自 `['notes']` 快取
  *   （`groupId === group.id`）：側欄本來就載著它；垃圾桶取自 `GET /api/trash` 中 `group.id` 相符的項目。
- *   垃圾桶篇數在下列情形不可信（spec §6.5 M4）：①自己沒有該群組的垃圾桶權（`edit`＋`delete`；能管群組的自訂角色可能沒有）、
+ *   垃圾桶篇數在下列情形不可信：①自己沒有該群組的垃圾桶權（`edit`＋`delete`；能管群組的自訂角色可能沒有）、
  *   ②清單 `truncated`（上限 `TRASH_LIST_LIMIT`，會少算）；另外還沒載到或載入失敗也一樣。任一篇數不可信時說明句改用不含數字的版本，
  *   不顯示「0 篇」的假話；「這個群組沒有筆記」只在兩者都可信且為 0 時說。
  * - 轉移模式另起一句說明垃圾桶裡的群組筆記去向（進接收者的個人垃圾桶）；垃圾桶篇數可信且為 0 時省略。
+ * - 轉移模式、`GET /api/folders` 成功且有這個群組的資料夾時，再起一句說明資料夾去向；
+ *   還沒載到或載入失敗不說。
  * - 按鈕變體：確認鈕 `destructive`（一個畫面一顆實心鈕，取消是 `outline`；見 `ui/button.tsx`）。
  *
  * 失敗一律 toast 並**留著對話框**（409 `not_admin`、409 `server_busy`、404…）；`not_admin` 另外重抓成員名單，
@@ -72,6 +75,7 @@ export function DeleteGroupDialog({
   const membersQuery = useGroupMembers(group.id);
   const notesQuery = useNotes();
   const trashQuery = useTrash();
+  const foldersQuery = useFolders();
   const [mode, setMode] = useState<Mode>("transfer");
   const [pickedAdmin, setPickedAdmin] = useState<string | null>(null);
   const [acknowledged, setAcknowledged] = useState(false);
@@ -89,6 +93,8 @@ export function DeleteGroupDialog({
       : null;
   const total = liveCount !== null && trashCount !== null ? liveCount + trashCount : null;
   const name = selected?.displayName ?? "";
+  const hasGroupFolders =
+    foldersQuery.isSuccess && foldersQuery.data.some((folder) => folder.space.kind === "group" && folder.space.groupId === group.id);
 
   function describe(kind: "transfer" | "delete"): string {
     if (liveCount === 0 && trashCount === 0) return t("groups.delete.emptyDescription");
@@ -187,6 +193,7 @@ export function DeleteGroupDialog({
             )}
             <DialogDescription>{describe("transfer")}</DialogDescription>
             {trashCount !== 0 && <p className="text-sm text-muted-foreground">{t("groups.delete.transferTrashNote", { name })}</p>}
+            {hasGroupFolders && <p className="text-sm text-muted-foreground">{t("groups.delete.transferFoldersNote", { name })}</p>}
           </div>
         ) : (
           <div className="space-y-3">

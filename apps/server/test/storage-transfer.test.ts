@@ -1,12 +1,19 @@
 /**
- * 刪群組・轉移的配額（spec 2026-10-08 §6.6、§8.1；§11.1 S8、S3（轉移形）、S5（轉移形）、S14（刪群組））；
- * 另有 Q-S7 的縫順序／advisory 鎖探測，與轉移路由的 `storageLockTimeoutMs` 透傳（比照上傳的 S15(a)）。
+ * 刪群組・轉移的配額（S3（轉移形）、S5（轉移形）、S14（刪群組））；
+ * 另有空間鎖先於 slug 寫入的縫順序／advisory 鎖探測，與轉移路由的 `storageLockTimeoutMs` 透傳（比照上傳）。
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import { buildTestApp } from "./helpers.js";
 import { cookieOf, noteState, seedGroup, seedNote, seedUser } from "./group-helpers.js";
 import { giveGroupQuota, giveUserQuota, quotaBody, seedAttachment, upload, usedOf } from "./storage-helpers.js";
+import { INJECTED_LOCK_TIMEOUT_BOUND_MS } from "./lock-timeout-bound.js";
+
+// 預設空間鎖上限在本檔換成 60 s（產品值 5000），「注入的短上限有生效」的牆鐘界線才能離兩邊都遠——見 ./lock-timeout-bound.ts。
+vi.mock("../src/storage/tx/quota.js", async () => ({
+  ...(await vi.importActual<typeof import("../src/storage/tx/quota.js")>("../src/storage/tx/quota.js")),
+  DEFAULT_STORAGE_LOCK_TIMEOUT_MS: (await import("./lock-timeout-bound.js")).SLOW_DEFAULT_LOCK_TIMEOUT_MS,
+}));
 
 const transfer = async (app: FastifyInstance, groupId: string, userId: string, transferTo: string) =>
   app.inject({ method: "DELETE", url: `/api/groups/${groupId}`, cookies: await cookieOf(userId), payload: { mode: "transfer", transferTo } });
@@ -14,7 +21,7 @@ const deleteAll = async (app: FastifyInstance, groupId: string, userId: string) 
   app.inject({ method: "DELETE", url: `/api/groups/${groupId}`, cookies: await cookieOf(userId), payload: { mode: "delete" } });
 const groupExists = async (pool: import("pg").Pool, id: string) => (await pool.query("select count(*)::int n from groups where id = $1", [id])).rows[0].n === 1;
 
-describe("轉移（S8、S3、S5）", () => {
+describe("轉移（S3、S5）", () => {
   it("接收者放不下 → 409，什麼都不發生（群組、筆記歸屬、轉址都原封）", async () => {
     const { app, db, uploadsDir } = await buildTestApp();
     const b = await seedUser(db);
@@ -110,7 +117,7 @@ describe("busy 映射（S14 刪群組）", () => {
 });
 
 describe("轉移的空間鎖：位置與等待上限", () => {
-  it("Q-S7：folder-structure-locked、storage-space-locked 依序在第一個 group-transfer-slug-candidate 之前；slug 探測當下本庫已持有 3 把 advisory 鎖", async () => {
+  it("空間鎖先於 slug 寫入：folder-structure-locked、storage-space-locked 依序在第一個 group-transfer-slug-candidate 之前；slug 探測當下本庫已持有 3 把 advisory 鎖", async () => {
     const points: string[] = [];
     const advisoryAtSlug: number[] = [];
     const built = await buildTestApp({
@@ -137,7 +144,7 @@ describe("轉移的空間鎖：位置與等待上限", () => {
     expect(advisoryAtSlug).toEqual([3]);
   });
 
-  it("storageLockTimeoutMs=200：上傳 A 持接收者個人空間鎖（停在縫上）時轉移 → 真的 55P03 → 409 server_busy（< 3000 ms：注入值有傳到轉移交易，不是預設 5000）、群組原封；A 之後 201", async () => {
+  it("storageLockTimeoutMs=200：上傳 A 持接收者個人空間鎖（停在縫上）時轉移 → 真的 55P03 → 409 server_busy（< 20 s：注入值有傳到轉移交易，不是本檔預設 60 s）、群組原封；A 之後 201", async () => {
     const holder: { app?: FastifyInstance; groupId?: string; userId?: string; noteId?: string; t?: LightMyRequestResponse; tMs?: number } = {};
     const { app, db, uploadsDir } = await buildTestApp({
       storageLockTimeoutMs: 200,
@@ -159,8 +166,8 @@ describe("轉移的空間鎖：位置與等待上限", () => {
     const a = await upload(app, bn.id, b.id, 10);
     expect(holder.t!.statusCode).toBe(409);
     expect(holder.t!.json().error.code).toBe("server_busy");
-    // 200 與預設 5000 之間留寬裕：路由若沒把 deps.storageLockTimeoutMs 傳進交易（落回 5000），轉移要等約 5 s 才逾時 → 紅
-    expect(holder.tMs!).toBeLessThan(3000);
+    // 200 ms 與本檔預設 60 s 之間的界線放 20 s：路由若沒把 deps.storageLockTimeoutMs 傳進交易（落回預設），轉移要等約 60 s 才逾時 → 紅
+    expect(holder.tMs!).toBeLessThan(INJECTED_LOCK_TIMEOUT_BOUND_MS);
     expect(await groupExists(db.$client, g.id)).toBe(true);
     expect(a.statusCode).toBe(201);
   });

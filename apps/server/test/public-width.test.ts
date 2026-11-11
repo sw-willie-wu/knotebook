@@ -1,5 +1,5 @@
 /**
- * #297 公開頁寬度：`PUT /api/notes/:id/public-width`（權限同公開連結、自己的速率桶、C13 歸屬述詞）與公開端點回 `width`。
+ * #297 公開頁寬度：`PUT /api/notes/:id/public-width`（權限同公開連結、自己的速率桶、歸屬述詞）與公開端點回 `width`。
  * public-link 三支回應帶 `width`、DELETE 不重設在 `public-share.test.ts`；移動／轉移保留寬度在 `groups-v2-move`／`groups-v2-delete`。
  */
 import { describe, expect, it } from "vitest";
@@ -24,7 +24,7 @@ const move = async (app: FastifyInstance, noteId: string, userId: string, groupI
 const transfer = async (app: FastifyInstance, groupId: string, userId: string, transferTo: string) =>
   app.inject({ method: "DELETE", url: `/api/groups/${groupId}`, cookies: await cookieOf(userId), payload: { mode: "transfer", transferTo } });
 
-const CONFLICT_BODY = { error: { code: "conflict", message: "筆記的歸屬已變更，請重新整理後再試" } };
+const CONFLICT_BODY = { error: { code: "conflict", message: "The note's owner or group changed. Reload and try again." } };
 
 describe("#297 PUT /api/notes/:id/public-width", () => {
   it("W1 owner 個人筆記（未公開）→ 200 { width }、落地；token 仍 null、updated_at 不動", async () => {
@@ -118,7 +118,7 @@ describe("#297 PUT /api/notes/:id/public-width", () => {
     expect(res.json().error.code).toBe("not_found");
   });
 
-  it("W5 C13：授權之後筆記被移進群組 → 409 conflict；寬度沒寫進去", async () => {
+  it("授權之後筆記被移進群組 → 409 conflict；寬度沒寫進去", async () => {
     const state: { noteId?: string; fire?: () => Promise<LightMyRequestResponse>; moved?: LightMyRequestResponse } = {};
     const { app, db } = await buildTestApp({
       groupTestHook: async (point, ctx) => {
@@ -140,7 +140,7 @@ describe("#297 PUT /api/notes/:id/public-width", () => {
     expect(await noteState(db.$client, n.id)).toMatchObject({ group_id: g.id });
   });
 
-  it("W6 C13 反向：授權之後群組被轉移給個人 → 409 conflict；寬度沒寫進去", async () => {
+  it("反向：授權之後群組被轉移給個人 → 409 conflict；寬度沒寫進去", async () => {
     const state: { noteId?: string; fire?: () => Promise<LightMyRequestResponse>; moved?: LightMyRequestResponse } = {};
     const { app, db } = await buildTestApp({
       collabHooks: spyCollabHooks(),

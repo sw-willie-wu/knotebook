@@ -4,6 +4,7 @@ import {
   PASSWORD_LOGIN_FORCED_LOG,
   PASSWORD_LOGIN_FORCED_NOOP_LOG,
   PASSWORD_LOGIN_LOCKOUT_LOG,
+  PASSWORD_LOGIN_SETTINGS_MISSING_LOG,
   warnPasswordLoginAtBoot,
 } from "../src/auth/password-login.js";
 import { buildTestApp } from "./helpers.js";
@@ -11,7 +12,7 @@ import { seedAuthProvider } from "./helpers/oidc-provider.js";
 
 const fakeLogger = () => ({ warn: vi.fn(), error: vi.fn() });
 
-describe("warnPasswordLoginAtBoot（#187 §10.4：不擋啟動，只寫 log）", () => {
+describe("warnPasswordLoginAtBoot（#187：不擋啟動，只寫 log）", () => {
   it("預設（DB 開、env 未設）→ 一行都不印", async () => {
     const { db } = await buildTestApp();
     const logger = fakeLogger();
@@ -35,7 +36,7 @@ describe("warnPasswordLoginAtBoot（#187 §10.4：不擋啟動，只寫 log）",
     expect(on.warn.mock.calls).toEqual([[PASSWORD_LOGIN_FORCED_NOOP_LOG]]);
   });
 
-  it("有效值關＋零個啟用 provider（只可能是手改 DB，INV-8）→ error 一行；有啟用 provider 時不印", async () => {
+  it("有效值關＋零個啟用 provider（只可能是手改 DB）→ error 一行；有啟用 provider 時不印", async () => {
     const { db } = await buildTestApp();
     await db.update(siteSettings).set({ passwordLoginEnabled: false });
     const none = fakeLogger();
@@ -56,6 +57,15 @@ describe("warnPasswordLoginAtBoot（#187 §10.4：不擋啟動，只寫 log）",
     const logger = fakeLogger();
     await warnPasswordLoginAtBoot(db, { passwordLoginForceEnable: false }, logger);
     expect(logger.error.mock.calls).toEqual([[PASSWORD_LOGIN_LOCKOUT_LOG]]);
+  });
+
+  it("site_settings 讀不到列 → error 印 SETTINGS_MISSING（帳密視同開啟，不再多印）", async () => {
+    const { db } = await buildTestApp();
+    await db.delete(siteSettings);
+    const logger = fakeLogger();
+    await warnPasswordLoginAtBoot(db, { passwordLoginForceEnable: false }, logger);
+    expect(logger.error.mock.calls).toEqual([[PASSWORD_LOGIN_SETTINGS_MISSING_LOG]]);
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 
   it("env 強制時即使 DB 關＋零 provider 也不印 error（有效值是開）", async () => {

@@ -1,6 +1,6 @@
 /**
- * #180 Task 0：`create_note`／`copy_note`／`move_note_to_group` 共用的「回應列」組裝（原在 `tools/create-note.ts`，
- * spec §5.3「`create-note.ts:155-159` 那支 helper 抽到 `mcp/` 共用」）。兩支函式逐字搬家，行為不變。
+ * #180：`create_note`／`copy_note`／`move_note_to_group` 共用的「回應列」組裝（原在 `tools/create-note.ts`，
+ * 抽到 `mcp/` 共用）。兩支函式逐字搬家，行為不變。
  */
 import { eq } from "drizzle-orm";
 import { notes } from "../db/schema.js";
@@ -11,8 +11,8 @@ import type { McpToolCtx } from "./context.js";
 
 /**
  * insert 的 `returning()` 那一列 → `toNoteSummary` 收的形。`owner` 由呼叫端依 scope 給——個人＝呼叫者的
- * handle（建立者即 owner，同 REST 的 A12，不必補查 `users`）、群組＝群組名（`ownerHandle` 為 null）；**不得**再無條件填
- * `ctx.userHandle`（gate r1 I3：群組筆記會被組成 `/n/<me>/<slug>`）。`groupId` 取列本身。
+ * handle（建立者即 owner，同 REST，不必補查 `users`）、群組＝群組名（`ownerHandle` 為 null）；**不得**再無條件填
+ * `ctx.userHandle`（群組筆記會被組成 `/n/<me>/<slug>`）。`groupId` 取列本身。
  * `editorHandle` 恆為 `null`——這一列的 `last_edited_by` 若已落款，落款人也就是呼叫者本人，而
  * **只有重讀落空的競態**才會走到這裡。
  */
@@ -31,6 +31,8 @@ export function insertedRow(
     lastEditedAt: row.lastEditedAt,
     lastEditedAgentLabel: row.lastEditedAgentLabel,
     editorHandle: null,
+    // 建立／複製者必是 owner 或群組成員，呼叫者視角＝列本身的 folder_id。
+    viewerFolderId: row.folderId,
   };
 }
 
@@ -65,6 +67,22 @@ export async function rereadOwnOrGroupNote(
 ): Promise<(NoteSummaryRow & { role: string }) | undefined> {
   const [owned] = await visibleNoteBranches(ctx.db, ctx.userId, { extraWhere: eq(notes.id, noteId) }).owned;
   if (owned) return owned;
+  const [grouped] = await visibleNoteBranches(ctx.db, ctx.userId, { extraWhere: eq(notes.id, noteId) }).grouped;
+  return grouped;
+}
+
+/**
+ * 資料夾：move_note_to_folder 對共享筆記要讀 shared 支：owned → shared → grouped 依序各自現造（三支結構互斥，至多一支有列）。
+ * 不新增查詢形，可見性與 list_notes 同一份。
+ */
+export async function rereadAnyVisibleNote(
+  ctx: Pick<McpToolCtx, "db" | "userId">,
+  noteId: string
+): Promise<(NoteSummaryRow & { role: string }) | undefined> {
+  const [owned] = await visibleNoteBranches(ctx.db, ctx.userId, { extraWhere: eq(notes.id, noteId) }).owned;
+  if (owned) return owned;
+  const [shared] = await visibleNoteBranches(ctx.db, ctx.userId, { extraWhere: eq(notes.id, noteId) }).shared;
+  if (shared) return shared;
   const [grouped] = await visibleNoteBranches(ctx.db, ctx.userId, { extraWhere: eq(notes.id, noteId) }).grouped;
   return grouped;
 }

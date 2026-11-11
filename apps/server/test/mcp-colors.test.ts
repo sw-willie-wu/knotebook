@@ -1,7 +1,7 @@
 /**
  * #222：MCP／REST 讀寫筆記的文字色／底色（整合層）。
  *
- * - 寫入：不在色盤的色值整筆拒絕——MCP `edit_note`／`create_note` 的工具錯誤 `unsupported_color`、
+ * - 寫入：無法顯示的色值（不在色盤的色名、半透明色等）整筆拒絕——MCP `edit_note`／`create_note` 的工具錯誤 `unsupported_color`、
  *   REST `POST /api/notes/:id/edits`／`POST /api/notes` 的 400；錯誤訊息列出可用色名；什麼都不存。
  * - 讀取：`read_note_section` 帶出顏色（寫入端認得的 HTML），拿讀到的原文與指紋 `replace_section`
  *   寫回，再讀一次逐字相同。
@@ -70,12 +70,18 @@ const COLORED =
   "# Colors\n\n" +
   'plain <span style="color:red">red</span> and <span style="color:blue;background-color:yellow">both</span>\n\n' +
   '<p data-background-color="yellow" data-text-color="purple">whole paragraph</p>\n\n' +
-  '<table><tr><th>h1</th><th>h2</th></tr><tr><td data-background-color="blue">c</td><td>d</td></tr></table>\n\n' +
+  'hex <span style="color:#ff6600">o</span>\n\n' +
+  '<table><tr><th>h1</th><th>h2</th></tr><tr><td data-background-color="blue">c</td><td data-background-color="#00ff00">d</td></tr></table>\n\n' +
   "# Other\n\nplain";
-const BAD = 'x <span style="color:#ff6600">orange-ish</span>';
+const BAD = 'x <span style="color:tomato">orange-ish</span>';
 
+const REJECT_MESSAGE =
+  "That markdown uses a color this editor cannot show, so nothing was written. Use one of: default, gray, brown, red, orange, yellow, green, blue, purple, pink, or a hex color written #rgb or #rrggbb, such as #ff6600.";
 const expectListsPalette = (message: string | undefined) => {
   for (const c of PALETTE_COLORS) expect(message).toContain(c);
+  expect(message).not.toContain("must be one of");
+  expect(message).toContain("#rgb or #rrggbb");
+  expect(message).toContain("#ff6600");
 };
 
 async function createColored(s: Scene): Promise<string> {
@@ -83,8 +89,20 @@ async function createColored(s: Scene): Promise<string> {
   return note.id;
 }
 
-describe("#222 MCP 寫入：只收內建色名", () => {
-  it("create_note 帶不在色盤的色值 → unsupported_color、訊息列出 10 個色名、一列都不建", async () => {
+describe("#222 MCP 寫入：收內建色名與色碼", () => {
+  it("create_note 帶短寫大寫色碼 → 成功，read_note_section 讀回小寫 #rrggbb", async () => {
+    const s = await scene();
+    const { note } = payloadOf<{ note: { id: string } }>(
+      await callTool(s.ctx.app, s.token, "create_note", { title: "H", content: '<span style="color:#F60">x</span>' })
+    );
+    const outline = payloadOf<{ sections: Array<{ sectionId: string }> }>(await callTool(s.ctx.app, s.token, "read_note_outline", { note_id: note.id }));
+    const sec = payloadOf<{ section: { markdown: string } }>(
+      await callTool(s.ctx.app, s.token, "read_note_section", { note_id: note.id, section_id: outline.sections[0]!.sectionId })
+    );
+    expect(sec.section.markdown).toContain('<span style="color:#ff6600">x</span>');
+  });
+
+  it("create_note 帶無法顯示的色值（不在色盤的色名）→unsupported_color、訊息列出 10 個色名、一列都不建", async () => {
     const s = await scene();
     const err = errorOf(await callTool(s.ctx.app, s.token, "create_note", { title: "T", content: BAD }));
     expect(err.code).toBe("unsupported_color");
@@ -92,7 +110,7 @@ describe("#222 MCP 寫入：只收內建色名", () => {
     expect(await countNotes(s)).toBe(0);
   });
 
-  it("edit_note 帶不在色盤的色值 → unsupported_color、內容位元組相同、修改紀錄零新增", async () => {
+  it("edit_note 帶無法顯示的色值（不在色盤的色名）→unsupported_color、內容位元組相同、修改紀錄零新增", async () => {
     const s = await scene();
     const noteId = await createColored(s);
     const beforeState = await stateBytes(s, noteId);
@@ -123,6 +141,17 @@ describe("#222 REST 寫入：同一條管線、400 unsupported_color", () => {
     expectListsPalette(r2.json().error.message);
     expect(await countNotes(s)).toBe(before);
   });
+
+  it("POST /api/notes 帶 #F60 → 201；帶 tomato → 400 且訊息逐字", async () => {
+    const s = await scene();
+    const ok = await s.ctx.app.inject({ method: "POST", url: "/api/notes", headers: bearer(s.token), payload: { title: "H", content: '<span style="color:#F60">x</span>' } });
+    expect(ok.statusCode).toBe(201);
+    const read = await getContent(s.ctx.app, ok.json().id, s.token);
+    expect(read.json().markdown).toContain('<span style="color:#ff6600">x</span>');
+    const bad = await s.ctx.app.inject({ method: "POST", url: "/api/notes", headers: bearer(s.token), payload: { title: "B", content: BAD } });
+    expect(bad.statusCode).toBe(400);
+    expect(bad.json().error.message).toBe(REJECT_MESSAGE);
+  });
 });
 
 describe("#222 讀取帶出顏色，讀 → replace_section 寫回 → 再讀一致", () => {
@@ -145,6 +174,8 @@ describe("#222 讀取帶出顏色，讀 → replace_section 寫回 → 再讀一
     expect(md1).toContain('\nplain <span style="color:red">red</span> and <span style="color:blue;background-color:yellow">both</span>\n');
     expect(md1).toContain('<p data-background-color="yellow" data-text-color="purple">whole paragraph</p>');
     expect(md1).toContain('<td data-background-color="blue">c</td>');
+    expect(md1).toContain('hex <span style="color:#ff6600">o</span>');
+    expect(md1).toContain('<td data-background-color="#00ff00">d</td>');
     expect(md1).not.toContain("| ---");
 
     payloadOf(await callTool(s.ctx.app, s.token, "edit_note", { note_id: noteId, op: "replace_section", section_id: await colorsId(), markdown: md1, if_match: r1.section.fingerprint }));

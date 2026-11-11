@@ -9,9 +9,10 @@ import type { PublicNoteRef } from "@/lib/public-note-ref";
 
 /**
  * 編輯頁（`NoteEditor` 的 `buildNoteEditorOptions`）與公開唯讀頁
- * （{@link buildReadonlyNoteEditorOptions}）共用的選項底層（#72 Task 3 抽出）——
+ * （{@link buildReadonlyNoteEditorOptions}）共用的選項底層（#72 抽出）——
  * schema／字典／collaboration 三件事兩邊必須一致，各寫一份的漂移症狀都很陰
  * （fragment 名寫錯＝空白頁零錯誤；schema 不同＝同一篇筆記兩頁渲染不同）。
+ * 表格功能旗標（{@link NOTE_TABLE_SETTINGS}）也放這裡；唯讀頁不顯示表格把手，帶著無妨。
  */
 export interface CollabEditorBaseInput {
   doc: Y.Doc;
@@ -21,13 +22,20 @@ export interface CollabEditorBaseInput {
   /** i18next 目前的語言代碼（`i18n.language`）。 */
   language: string;
   /** 共編游標的名牌。唯讀頁沒有 cursor 顯示，給匿名替身即可（withCollaboration
-   * 的 user 必填——Task 0 spike 實證）。 */
+   * 的 user 必填——實測過）。 */
   user: { id?: string; name: string; color: string };
 }
+
+/**
+ * 表格把手開放的功能：只開儲存格的字色與底色（開了之後滑鼠停在儲存格上會出現儲存格把手，列／欄把手選單多一項顏色）。
+ * 拆格（`splitCells`）與標題列／欄（`headers`）維持 BlockNote 預設的關閉。測試建編輯器也用這個常數，免得與實際設定分岔。
+ */
+export const NOTE_TABLE_SETTINGS = { cellTextColor: true, cellBackgroundColor: true } as const;
 
 export function buildCollabEditorBase({ doc, awareness, language, user }: CollabEditorBaseInput) {
   return {
     schema: noteSchema,
+    tables: NOTE_TABLE_SETTINGS,
     // BlockNote 的預設字典就是英文，只有 zh-TW 需要換掉。
     dictionary: language.startsWith("zh") ? blocknoteZhTW : undefined,
     collaboration: {
@@ -45,7 +53,7 @@ export interface ReadonlyNoteEditorOptionsInput {
   doc: Y.Doc;
   /** local `new Awareness(doc)`（y-protocols）——唯讀頁沒有連線，不掛 HocuspocusProvider。 */
   awareness: Awareness;
-  /** 公開頁把手（#122 PR3 起兩形）：`resolveFileUrl` 依形把自家上傳網址映射到免登入的公開圖端點。 */
+  /** 公開頁把手（#122 起兩形）：`resolveFileUrl` 依形把自家上傳網址映射到免登入的公開圖端點。 */
   publicRef: PublicNoteRef;
   language: string;
 }

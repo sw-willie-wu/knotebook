@@ -1,5 +1,5 @@
 /**
- * #181 PR-2a T11：既有 MCP 工具與垃圾桶（spec 2026-10-21 §6.8.1、A2-5 MCP 面、A2-13 的 PR-2a 部分、AG6）。
+ * #181：既有 MCP 工具與垃圾桶。
  * 憑證一律讀寫搬移（`notes:read notes:write notes:move`）；讀 live doc 的工具要 collab，所以全檔用 `buildCollabTestApp`。
  * 造垃圾桶狀態打 `DELETE /api/notes/:id`、還原打 `POST /api/trash/restore`（cookie）。
  */
@@ -40,7 +40,7 @@ async function restore(app: FastifyInstance, noteId: string, userId: string): Pr
   expect((res.json() as { restored: Array<{ id: string }> }).restored.map(n => n.id)).toEqual([noteId]);
 }
 
-/** 一段文字＋一張指向 `/api/uploads/<uploadId>` 的圖（同 `mcp-image.test.ts` M6 的造法）。 */
+/** 一段文字＋一張指向 `/api/uploads/<uploadId>` 的圖（同 `mcp-image.test.ts` 的造法）。 */
 async function imageNoteDoc(uploadId: string): Promise<Y.Doc> {
   const doc = new Y.Doc();
   const s = await EditorSession.open(testEditingRuntime, doc);
@@ -62,14 +62,15 @@ function perNoteCalls(noteId: string, uploadId: string, groupId: string): Array<
     ["read_note_section", { note_id: noteId, section_id: "_top" }],
     ["read_note_image", { note_id: noteId, upload_id: uploadId }],
     ["edit_note", { note_id: noteId, op: "append", markdown: "MC1 append" }],
-    ["edit_note:rename", { note_id: noteId, op: "rename", title: "MC1 rename" }], // rename 支另有一處單篇授權
+    // rename 支另有一處單篇授權。#381：if_match 必帶；授權（垃圾桶＝not_found）排在指紋比對之前，所以任一合格式值都行。
+    ["edit_note:rename", { note_id: noteId, op: "rename", title: "MC1 rename", if_match: "0123456789abcdef" }],
     ["move_note_to_group", { note_id: noteId, group_id: groupId }],
     ["copy_note", { note_id: noteId }],
     ["create_transfer_token", { note_id: noteId, purpose: "download" }],
   ];
 }
 
-describe("MC1 既有工具看不到垃圾桶筆記（§6.8.1）", () => {
+describe("MC1 既有工具看不到垃圾桶筆記", () => {
   it("list／search 不列；七支單篇工具（edit_note 含 append 與 rename）回 not_found，text 與隨機 uuid 相同；還原後又列得到、讀得到", async () => {
     const ctx = await buildCollabTestApp();
     const u = await seedUser(ctx.db);
@@ -145,7 +146,7 @@ describe("MC1b 跨篇附件（read-note-image 的第二次授權）", () => {
   });
 });
 
-describe("MC2 AG6：既有工具不會把筆記移進垃圾桶", () => {
+describe("MC2 既有工具不會把筆記移進垃圾桶", () => {
   it("讀寫搬移憑證：tools/list 沒有 delete_note／restore_note；edit_note（含 replace_all 清空）、copy_note（個人、群組）、create_note（群組）、move_note_to_group 之後垃圾桶筆記數不變", async () => {
     const ctx = await buildCollabTestApp();
     const u = await seedUser(ctx.db);
@@ -161,7 +162,8 @@ describe("MC2 AG6：既有工具不會把筆記移進垃圾桶", () => {
     expect(names).toEqual(expect.arrayContaining(["edit_note", "copy_note", "create_note", "move_note_to_group"]));
     expect(names).not.toContain("delete_note");
     expect(names).not.toContain("restore_note");
-    expect(names).toContain("list_trash"); // #181 PR-2d：讀取類，任何憑證都有
+    expect(names).not.toContain("delete_folder"); // 資料夾：同樣只在 notes:delete 時註冊
+    expect(names).toContain("list_trash"); // #181：讀取類，任何憑證都有
     expect(await trashedIds()).toEqual([t.id]);
 
     const ok = async (name: string, args: Record<string, unknown>): Promise<Result> => {
@@ -195,7 +197,7 @@ function wikilinkTargets(doc: Y.Doc): string[] {
   return out;
 }
 
-describe("MC3 §6.4 的例外（rev 4.2，known-limitations）：垃圾桶期間讀出再寫回，指向它的 wikilink 變一般連結", () => {
+describe("MC3 索引照寫的例外（known-limitations）：垃圾桶期間讀出再寫回，指向它的 wikilink 變一般連結", () => {
   it("A 連到 B、C；B 在垃圾桶時以 read_note_section 讀 A、replace_section 原樣寫回 → 只剩 C 是 wikilink；還原 B 後不會變回", async () => {
     const ctx = await buildCollabTestApp();
     const u = await seedUser(ctx.db);

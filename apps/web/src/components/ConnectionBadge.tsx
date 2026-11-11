@@ -13,11 +13,11 @@ import { cn } from "@/lib/utils";
 export const OFFLINE_WARN_MS = 3_000;
 
 /**
- * 6 個 phase（#269 加 `outdated`：中性灰點、不升級成離線警示）→ i18n key ＋ 點色（PR2 D.2：離開 pill 徽章，改成「狀態點＋文字」的
+ * 6 個 phase（#269 加 `outdated`：中性灰點、不升級成離線警示）→ i18n key ＋ 點色（離開 pill 徽章，改成「狀態點＋文字」的
  * 精簡形，色彩訊號集中在點上——`PHASE_STYLES` 因此由原本「2 類 className」（預設灰／
  * 警示紅）擴為「點色映射」，5 個 phase 文案分支與 #48 的計時邏輯完全零改動）。
  * `connected` 用字面值 `oklch(0.8 0.17 152)`（≈ #4ade80）而不是 Tailwind class：
- * PR3 才接主題色系統，這裡的狀態綠是跟主題無關的語意色，先用字面值頂著。
+ * 這裡的狀態綠是跟主題無關的語意色，用字面值。
  */
 const PHASE_STYLES: Record<CollabState["phase"], { key: string; dotClassName: string; dotStyle?: CSSProperties }> = {
   connecting: { key: "note.connection.connecting", dotClassName: "bg-muted-foreground" },
@@ -29,9 +29,12 @@ const PHASE_STYLES: Record<CollabState["phase"], { key: string; dotClassName: st
 };
 
 /**
- * 編輯頁頁頭的連線狀態徽章：顯示 `collabReducer` 的 phase，連上之後另外顯示
- * 目前角色；角色不可編輯（viewer／none）時再補一個「唯讀」標記——N4 降級除了
- * toast 之外，也要有一個持續存在的視覺線索。
+ * 編輯頁頁頭的連線狀態徽章：顯示 `collabReducer` 的 phase（#335：不再帶角色）。
+ * 連上時——能編輯的角色（owner／editor）只顯示「已連線」；不能編輯的角色（viewer／none）
+ * 改顯示「唯讀」取代「已連線」（連上即顯示，不等 synced），點維持綠色（內容仍是即時的）。
+ * 降級除了 toast 之外，仍有這個持續存在的視覺線索。角色本身不在徽章上出現（要看自己的角色：
+ * 側欄「與我共享」列表的 Editor／Viewer 標示、群組筆記看群組面板的成員表；頭像名單不列自己）；
+ * 窄視窗與螢幕閱讀器也不再讀出角色——能不能編輯已由「唯讀」與編輯器本身表達。
  *
  * issue #48：非 connected 相位**持續超過 `OFFLINE_WARN_MS`** 之後，狀態點升級成
  * 警示色，文案依 `synced` 分兩種——
@@ -44,15 +47,11 @@ const PHASE_STYLES: Record<CollabState["phase"], { key: string; dotClassName: st
  * `role="status"` + `aria-live="polite"`：撤權／降級／離線這些狀態改變不是使用者主動
  * 觸發的，螢幕閱讀器需要被動得知，但不該打斷當下的朗讀（故 polite 而非 assertive）。
  *
- * PR2（D.2）內部結構定死（e2e 語意保存，rev5 審查逐條核對）：
+ * 內部結構（e2e 語意保存；#335 之後）：
  * - 狀態點：`<span aria-hidden="true">` 純 CSS 圓點，**無文字節點**——保住
- *   `filter({hasText:/^Connected/})` 的 textContent 前綴不被干擾。
- * - phase 文字 span：既有 5 分支文案原樣，只是拿掉了 pill 的 border/padding。
- * - role span／readOnly span：**內容只有** `t('roles.<role>')`／`t('note.readOnly')`，
- *   跟前一個 span 的「·」分隔用 CSS `::before`（`before:content-['·']`）——
- *   Playwright 的文字比對走 DOM 節點的正規化文字，偽元素不是 DOM 節點、其 content
- *   不參與比對，所以 `getByText("Viewer",{exact:true})` 與 `hasText:/^Connected/`
- *   都不受這個分隔符影響。
+ *   `filter({hasText:/^Connected/})`（可編輯者）與 `/^Read-only/`（viewer）的 textContent 前綴不被干擾。
+ * - 只有**一個**文字 span（phase 文案，或 viewer 在 connected＋synced 時的「唯讀」）；
+ *   不再有 role／readOnly 兩個附屬 span，也沒有「·」分隔。
  */
 export function ConnectionBadge({
   state,
@@ -71,9 +70,9 @@ export function ConnectionBadge({
   // 「還不能用」已經持續超過門檻。用 timer 而非「進相位的時刻」相減，才能在跨過門檻的
   // 當下觸發一次 re-render（否則畫面要等下一次不相關的 render 才升級）。
   //
-  // ⚠ **「還不能用」＝非 connected，或 connected 但還沒 synced**（審查兩位獨立指出）：
+  // ⚠ **「還不能用」＝非 connected，或 connected 但還沒 synced**：
   // `onAuthenticated` 就進 `connected`，但 `provider.synced` 要再一個 round trip；若
-  // server 的 `onLoadDocument` 慢或丟錯，會永久卡在「已連線 · 擁有者」配一篇空白唯讀
+  // server 的 `onLoadDocument` 慢或丟錯，會永久卡在「已連線」配一篇空白唯讀
   // 筆記。只看 phase 的話這一格永遠不升級——正是 #48 要消滅的形狀，只是方向反過來。
   // 併進同一顆 timer 就不會誤傷正常開頁：connecting→connected→synced 走完通常 <1s，
   // 跨不過門檻、不閃。
@@ -104,20 +103,17 @@ export function ConnectionBadge({
       : "note.connection.offline";
   const phase = showOffline ? { key: offlineKey, dotClassName: "bg-destructive" } : PHASE_STYLES[state.phase];
 
-  const role = state.phase === "connected" ? state.role : null;
+  // #335：viewer（含 none）一連上就以「唯讀」取代「已連線」，點仍是綠的；不看 synced（未 synced 的
+  // 編輯器本來就唯讀，說「唯讀」是真話）。連不上而升級成離線警示（含 connected 但久未 synced 的
+  // 「尚未載入」）時 showOffline 優先，文案回到警示。
+  const readOnlyLabel = !showOffline && state.phase === "connected" && !canEdit(state.role) ? "note.readOnly" : null;
 
   return (
     <div role="status" aria-live="polite" className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
       <span aria-hidden="true" className={cn("h-1.5 w-1.5 rounded-full", phase.dotClassName)} style={phase.dotStyle} />
-      {/* #115：三個文字 span 在 `<md` 收成 sr-only（頁首擠不下）——**不是 hidden**：
+      {/* #115：文字 span 在 `<md` 收成 sr-only（頁首擠不下）——**不是 hidden**：
           容器是 aria-live，display:none 會讓窄視窗的螢幕閱讀器收不到狀態變化。 */}
-      <span className="max-md:sr-only">{t(phase.key)}</span>
-      {role && role !== "none" && (
-        <span className="max-md:sr-only before:mr-1 before:content-['·']">{t(`roles.${role}`)}</span>
-      )}
-      {role && !canEdit(role) && (
-        <span className="max-md:sr-only before:mr-1 before:content-['·']">{t("note.readOnly")}</span>
-      )}
+      <span className="max-md:sr-only">{t(readOnlyLabel ?? phase.key)}</span>
     </div>
   );
 }

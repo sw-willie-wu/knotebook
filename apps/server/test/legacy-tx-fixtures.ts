@@ -1,7 +1,7 @@
 /**
- * 舊碼複本（資料夾 spec docs/superpowers/specs/2026-10-22-folders-design.md §7【推-4】）：回滾到 0034 之前的版本時，舊碼的
+ * 舊碼複本：回滾到 0034 之前的版本時，舊碼的
  * 移入群組、刪群組轉移與全刪、還原在新 schema 上必須照跑、不 500（trigger 只走自癒分支）。`folders-groups.test.ts` FG-OLD 用。
- * 出處：commit 4a7e0c1（feat/folders，資料夾 PR-3a 的 base）——
+ * 出處：0034 之前的舊版（git 歷史）——
  *   `apps/server/src/notes/tx/move.ts` `moveNoteToGroupInTx`、`apps/server/src/groups/tx/delete-group.ts` `transferGroupInTx`／
  *   `deleteGroupWithNotesInTx`、`apps/server/src/notes/tx/trash.ts` `restoreNotesInTx`（與它用的 `lockNotes`／`classifyTrashed`）。
  * 函式本體逐句照抄，只改名（加 `legacy` 前綴）、import 指回 src、輸入型別就地宣告；註解從略。不得為了配合新 schema 改語句。
@@ -22,7 +22,7 @@ import { writeSlugInTx } from "../src/notes/tx/write-slug.js";
 import { sumUploadSizeSql } from "../src/storage/space.js";
 import { assertSpaceRoomInTx } from "../src/storage/tx/quota.js";
 
-// ---- notes/tx/move.ts @ 4a7e0c1 ----
+// ---- notes/tx/move.ts（舊版）----
 
 export interface LegacyMoveNoteInput {
   noteId: string;
@@ -38,8 +38,8 @@ export async function legacyMoveNoteToGroupInTx(tx: Tx, input: LegacyMoveNoteInp
     .from(notes)
     .where(and(eq(notes.id, input.noteId), isNull(notes.deletedAt)))
     .for("update");
-  if (!row) throw new TxAbort(404, "not_found", "找不到此筆記");
-  if (row.ownerId !== input.userId) throw new TxAbort(409, "conflict", "筆記的歸屬已變更，請重新整理後再試");
+  if (!row) throw new TxAbort(404, "not_found", "No note with that id.");
+  if (row.ownerId !== input.userId) throw new TxAbort(409, "conflict", "The note's owner or group changed. Reload and try again.");
 
   const [target] = await tx.select({ id: groups.id }).from(groups).where(eq(groups.id, input.groupId)).for("key share");
   const [member] = await tx
@@ -48,7 +48,7 @@ export async function legacyMoveNoteToGroupInTx(tx: Tx, input: LegacyMoveNoteInp
     .innerJoin(groupRoles, eq(groupRoles.id, groupMembers.roleId))
     .where(and(eq(groupMembers.groupId, input.groupId), eq(groupMembers.userId, input.userId)))
     .limit(1);
-  if (!target || !member || !member.canCreate) throw new TxAbort(404, "group_not_found", "找不到此群組");
+  if (!target || !member || !member.canCreate) throw new TxAbort(404, "group_not_found", "No group with that id.");
   await hook?.("note-move-locked", { noteId: input.noteId, groupId: input.groupId });
 
   const [sized] = await tx.select({ incoming: sumUploadSizeSql() }).from(uploads).where(eq(uploads.noteId, input.noteId));
@@ -78,7 +78,7 @@ export async function legacyMoveNoteToGroupInTx(tx: Tx, input: LegacyMoveNoteInp
   return { removedShareUserIds: removed.map(r => r.userId) };
 }
 
-// ---- groups/tx/delete-group.ts @ 4a7e0c1 ----
+// ---- groups/tx/delete-group.ts（舊版）----
 
 export interface LegacyTransferGroupInput {
   groupId: string;
@@ -159,7 +159,7 @@ export async function legacyDeleteGroupWithNotesInTx(
   return { noteIds, memberIds: members.map(m => m.userId), uploadIds };
 }
 
-// ---- notes/tx/trash.ts @ 4a7e0c1 ----
+// ---- notes/tx/trash.ts（舊版）----
 
 export interface LegacyTrashIdsInput { ids: readonly string[]; by: string }
 export interface LegacyTrashBatchOutcome { done: string[]; skipped: TrashSkipDto[] }

@@ -47,7 +47,7 @@ describe("PresenceRegistry", () => {
     expect(presenceTargetForRead("sec-1")).toEqual({ kind: "section", sectionId: "sec-1" });
     // ⚠ 第二個參數是 `ApplyResult.afterBlockIds`＝**編輯後**新寫下的 block id（文件順序）。
     //    絕不是請求帶進來的 section_id：那是 heading 的 block id，replace_section／delete_section
-    //    會把 heading 一起換掉，編輯完成後它已不存在（繼承表第 21 列）。
+    //    會把 heading 一起換掉，編輯完成後它已不存在。
     expect(presenceTargetForWrite("replace_all", ["r1", "r2"])).toEqual({ kind: "doc-start" });
     expect(presenceTargetForWrite("replace_section", ["s1", "s2"])).toEqual({ kind: "block", blockId: "s1" });
     expect(presenceTargetForWrite("insert_after", ["i1"])).toEqual({ kind: "block", blockId: "i1" });
@@ -60,7 +60,7 @@ describe("PresenceRegistry", () => {
   });
 
   it("touch：文件已載入才 seed（states+meta+emit added）；clock 從 1 起；未載入 no-op；hocuspocus 缺席全 no-op", () => {
-    // n2:t2 在本檔只出現這一案，所以 spec §9 的「從 1 起」可以用絕對值釘住
+    // n2:t2 在本檔只出現這一案，所以「從 1 起」可以用絕對值釘住
     const h = fakeHocuspocus(); const doc = h.makeDoc(); h.documents.set("n2", doc);
     const reg = new PresenceRegistry(h as never);
     const id = presenceClientId("n2", "t2");

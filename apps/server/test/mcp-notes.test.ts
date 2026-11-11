@@ -1,9 +1,9 @@
 /**
- * #108 PR1 Task 3：`list_notes`／`search_notes` 兩支唯讀工具（規格 §8.2／§8.5、§14.2／§14.5）。
+ * #108：`list_notes`／`search_notes` 兩支唯讀工具。
  *
  * 這一族預設用 `buildCollabTestApp`（＝生產形態）；**只有 29d 那一案走 `buildTestApp`**
  * ——只有它收得到 `options.logger`（`buildCollabTestApp` 建 app 時寫死 `{ logger: false }`），
- * 而依 D-A 這兩支工具在無 collab 的 app 上仍然註冊。
+ * 而依註冊規則這兩支工具在無 collab 的 app 上仍然註冊。
  */
 import { Writable } from "node:stream";
 import { randomUUID } from "node:crypto";
@@ -57,7 +57,7 @@ async function callTool(app: FastifyInstance, token: string, name: string, args:
   return { status: res.statusCode, result: res.json().result, raw: res.body };
 }
 
-/** 成功呼叫的 `structuredContent`（順手守住 M10 的鏡像等式）。 */
+/** 成功呼叫的 `structuredContent`（順手守住鏡像等式）。 */
 function payloadOf(call: ToolCall): ToolPayload {
   expect(call.status).toBe(200);
   expect(call.result.isError).toBeUndefined();
@@ -132,7 +132,7 @@ describe("#108 list_notes", () => {
     );
   });
 
-  it("同一個 updatedAt 之下以 id desc 決勝（M3 的次要排序鍵）", async () => {
+  it("同一個 updatedAt 之下以 id desc 決勝（次要排序鍵）", async () => {
     const ctx = await buildCollabTestApp();
     const { ownerId, token } = await scenario(ctx);
     const ids: string[] = [];
@@ -211,8 +211,10 @@ describe("#108 list_notes", () => {
       //   - 落時間戳後面 → `new Date("2099-01-01T00:00:00.000Z" + NUL)` **仍然有效**
       //     （實測 `toISOString()` 回 `2099-01-01T00:00:00.000Z`），`UUID_RE` 也管不到 id 欄，
       //     所以三關只剩 `noNul` 擋得住它。
-      // 突變實測（2026-09-07）：拿掉 `if (!noNul(decoded))` → **只有這一發紅**
+      // 突變實測：拿掉 `if (!noNul(decoded))` → **只有這一發紅**
       // （`isError` 變 `undefined`、回了一整頁筆記——日期取未來值，keyset 述詞會放行全部）。
+      // ⚠ 資料夾功能加入後時間段改走 `parseCursorTimestamp`（格式＋往返），這一發也會被它擋下：
+      // 拿掉 `noNul` 不再讓這一發變綠，`noNul` 對這個落點已不是唯一守衛（`list-notes.ts` 的 decodeCursor 註解同步）。
       encode(`2099-01-01T00:00:00.000Z${NUL}|${randomUUID()}`),
     ];
     for (const cursor of bad) {
@@ -226,7 +228,39 @@ describe("#108 list_notes", () => {
     expect(payloadOf(await callTool(ctx.app, token, "list_notes", { cursor: first.nextCursor! }))).toBeTruthy();
   });
 
-  it("title 截到逃脫後 200 並附 titleTruncated（M16）", async () => {
+  // 資料夾：JS `new Date` 收、pg `::timestamptz` 解析不了的時間段，原本落成 internal。
+  it("時間段不是本站發的形（+275760-…、-000001-…、0000-…、寬鬆的 2026）→ invalid_body，不是 internal", async () => {
+    const ctx = await buildCollabTestApp();
+    const { ownerId, token } = await scenario(ctx);
+    await ctx.createNote(ownerId, "One");
+    const encode = (s: string): string => Buffer.from(s, "utf8").toString("base64url");
+    for (const ts of ["+275760-09-13T00:00:00.000Z", "-000001-01-01T00:00:00.000Z", "0000-01-01T00:00:00.000Z", "2026"]) {
+      const call = await callTool(ctx.app, token, "list_notes", { cursor: encode(`${ts}|${randomUUID()}`) });
+      expect(call.status).toBe(200);
+      expect(call.result.isError, ts).toBe(true);
+      expect(call.result.structuredContent, ts).toEqual({ code: "invalid_body", message: "The `cursor` value is not one this server issued. Omit it to start over." });
+    }
+  });
+
+  // `Buffer.from(…, "base64url")` 靜默略過字元集外的字元，真游標接 `!!` 原本照樣翻頁；list_trash／list_folders 都拒。
+  it("真游標後面接 !! → invalid_body，與 list_trash 收到同一串的錯誤結果逐欄相同；真游標本身照常翻頁", async () => {
+    const ctx = await buildCollabTestApp();
+    const { ownerId, token } = await scenario(ctx);
+    await ctx.createNote(ownerId, "One");
+    await ctx.createNote(ownerId, "Two");
+    const first = payloadOf(await callTool(ctx.app, token, "list_notes", { limit: 1 }));
+    expect(typeof first.nextCursor).toBe("string"); // 前提：真的拿到一個游標
+    expect(payloadOf(await callTool(ctx.app, token, "list_notes", { limit: 1, cursor: first.nextCursor! })).notes).toHaveLength(1);
+    const cursor = `${first.nextCursor!}!!`;
+    const notesCall = await callTool(ctx.app, token, "list_notes", { limit: 1, cursor });
+    const trashCall = await callTool(ctx.app, token, "list_trash", { cursor });
+    expect(notesCall.status).toBe(200);
+    expect(notesCall.result).toEqual(trashCall.result);
+    expect(notesCall.result.isError).toBe(true);
+    expect(notesCall.result.structuredContent).toEqual({ code: "invalid_body", message: "The `cursor` value is not one this server issued. Omit it to start over." });
+  });
+
+  it("title 截到逃脫後 200 並附 titleTruncated", async () => {
     const ctx = await buildCollabTestApp();
     const { ownerId, token } = await scenario(ctx);
     const title = "T".repeat(260_000);
@@ -244,7 +278,7 @@ describe("#108 list_notes", () => {
     const out = payloadOf(await callTool(ctx.app, token, "list_notes"));
     expect(Object.keys(out).sort()).toEqual(["nextCursor", "notes"]);
     expect(Object.keys(out.notes[0]).sort()).toEqual(
-      ["id", "lastEdited", "owner", "role", "slug", "title", "updatedAt", "url"].sort()
+      ["folder", "id", "lastEdited", "owner", "role", "slug", "title", "updatedAt", "url"].sort()
     );
     // 未被截斷時**沒有** `titleTruncated` 這把 key（不是 `undefined`）。
     expect("titleTruncated" in out.notes[0]!).toBe(false);
@@ -286,7 +320,7 @@ describe("#108 search_notes", () => {
     expect(seenTools.filter(n => n === "search_notes").length).toBe(3);
   });
 
-  it("回應沒有 nextCursor／cursor，只有 truncated（D33）", async () => {
+  it("回應沒有 nextCursor／cursor，只有 truncated", async () => {
     const ctx = await buildCollabTestApp();
     const { ownerId, token } = await scenario(ctx);
     for (let i = 0; i < 3; i += 1) await ctx.createNote(ownerId, `dup ${i}`);
@@ -319,7 +353,7 @@ describe("#108 search_notes", () => {
     expect(out.notes.map(n => n.id)).toEqual([exact.id, prefix.id, substrNew.id, substrOld.id]);
   });
 
-  it("大小寫不敏感；內文命中排在標題命中之後（D17 反轉，#93）", async () => {
+  it("大小寫不敏感；內文命中排在標題命中之後（#93）", async () => {
     const ctx = await buildCollabTestApp();
     const { ownerId, token } = await scenario(ctx);
     const owner = await ctx.db.select({ email: users.email }).from(users).where(eq(users.id, ownerId));
@@ -336,7 +370,7 @@ describe("#108 search_notes", () => {
     expect((out.notes[1]!.matches as Array<{ snippet: string }>)[0]!.snippet.toLowerCase()).toContain("quarterly plan");
   });
 
-  it("搜尋範圍＝呼叫者看得見的筆記（M2：別人的私有筆記不出現）", async () => {
+  it("搜尋範圍＝呼叫者看得見的筆記（別人的私有筆記不出現）", async () => {
     const ctx = await buildCollabTestApp();
     const { ownerId, otherId, token, otherToken } = await scenario(ctx);
     const secret = await ctx.createNote(otherId, "secret roadmap");
@@ -358,18 +392,18 @@ describe("#108 search_notes", () => {
 
 describe("#108 兩支工具的共同接線", () => {
   // 這兩句是規格逐字要求、且是某個「模型會踩但不會報錯」的形**唯一**的處置：
-  // - `list_notes`：keyset 分頁不是快照，分頁期間有人新建／改名會靜默漏列（§8.2 的處置 (b)）。
+  // - `list_notes`：keyset 分頁不是快照，分頁期間有人新建／改名會靜默漏列（處置 (b)）。
   //   ⚠ #146 換過措辭：舊句說「邊列邊改會漏列」，而 `edit_note` 根本不動 `notes.updated_at`
   //   （成因與查證在 `tools/list-notes.ts` 檔頭）。斷言仍是**整句逐字**、仍打 wire，只是換成
   //   新那句的核心；連同下一行的「Editing a note's content does not move it.」一起釘，
   //   把「真正的成因」與「刻意否定掉的假成因」兩半都守住。
-  //   #175 再換一次主詞（「renaming it」涵蓋標題與網址代稱兩種 PATCH——plan 規格落差 6），
+  //   #175 再換一次主詞（「renaming it」涵蓋標題與網址代稱兩種 PATCH），
   //   並把**第三成因句**（翻頁期間被分享、或加入群組而看得到的筆記以原位置加入）也整句釘上：
   //   `list-notes.ts` 檔頭一直宣稱它由這一案守，#175 之前其實沒釘。
   // - `search_notes`：#93：只搜標題的句子已刪；改釘排序句，並釘住舊句不在（被否定掉的假敘述加回去也要紅）。
   // 沒有這一案，刪掉它們不會有任何東西變紅。斷言的是**送到 wire 上的 `tools/list`**，
   // 不是原始碼常數——改對了常數卻沒接上 `registerTool` 的形也要抓得到。
-  it("tools/list 的三句逐字文案在 wire 上出現（§8.2 的分頁警告與第三成因、#93 的排序句）", async () => {
+  it("tools/list 的三句逐字文案在 wire 上出現（分頁警告與第三成因、#93 的排序句）", async () => {
     const ctx = await buildCollabTestApp();
     const { token } = await scenario(ctx);
     const res = await mcpPost(ctx.app, rpc("tools/list"), { token });
@@ -381,7 +415,7 @@ describe("#108 兩支工具的共同接線", () => {
         "so no later page shows it."
     );
     expect(byName("list_notes")).toContain("Editing a note's content does not move it.");
-    // #175 PR2 補回移動（PR1 plan 規格落差 6）
+    // #175 補回移動
     expect(byName("list_notes")).toContain(
       "While you page, a note shared with you, a note moved into one of your groups, or the notes of a group you join appear at their own unchanged positions, which may already be above your cursor."
     );
@@ -403,7 +437,7 @@ describe("#108 兩支工具的共同接線", () => {
     expect(listNotes).not.toContain("the ones other people shared with you");
   });
 
-  it("不吃 contentRead 桶（§8.8）", async () => {
+  it("不吃 contentRead 桶", async () => {
     const ctx = await buildCollabTestApp({ limiters: { contentRead: new FixedWindowLimiter({ limit: 1, windowMs: 600_000 }) } });
     const { ownerId, token } = await scenario(ctx);
     await ctx.createNote(ownerId, "bucket");
@@ -413,7 +447,7 @@ describe("#108 兩支工具的共同接線", () => {
     }
   });
 
-  it("#93 M7：search_notes 吃自己的 search 桶（60/min）；耗盡 → too_many_requests 與逐字訊息；list_notes 不受影響；桶以使用者為 key", async () => {
+  it("#93：search_notes 吃自己的 search 桶（60/min）；耗盡 → too_many_requests 與逐字訊息；list_notes 不受影響；桶以使用者為 key", async () => {
     const ctx = await buildCollabTestApp({ limiters: { search: new FixedWindowLimiter({ limit: 1, windowMs: 600_000 }) } });
     const { ownerId, otherId, token, otherToken } = await scenario(ctx);
     await ctx.createNote(ownerId, "bucket");
@@ -441,7 +475,7 @@ describe("#108 兩支工具的共同接線", () => {
     await ctx.createNote(ownerId, "coverage");
     payloadOf(await callTool(ctx.app, token, "list_notes"));
     payloadOf(await callTool(ctx.app, token, "search_notes", { query: "coverage" }));
-    // 漏把某一支包進 `runTool()` 就沒有 D31／M15 的 try/catch，未捕捉例外會被 SDK 原樣
+    // 漏把某一支包進 `runTool()` 就沒有 try/catch，未捕捉例外會被 SDK 原樣
     // 送進模型脈絡（29d 守的正是那條）——所以「每一支都經過 runTool」必須自己有守衛。
     expect([...new Set(seen)].sort()).toEqual(["list_notes", "search_notes"]);
   });
@@ -471,7 +505,7 @@ describe("#108 兩支工具的共同接線", () => {
 
   it("案 29d：handler 丟含哨兵字串的例外 → code internal、body 不含哨兵、log.error 有被呼叫", async () => {
     // ⚠ 走 `buildTestApp`：只有它收得到 `options.logger`（`buildCollabTestApp` 寫死
-    // `logger: false`）。依 D-A，這兩支工具在無 collab 的 app 上仍然註冊。
+    // `logger: false`）。依註冊規則，這兩支工具在無 collab 的 app 上仍然註冊。
     const sentinel = `SENTINEL-${randomUUID()}`;
     const lines: string[] = [];
     const stream = new Writable({
@@ -505,10 +539,10 @@ describe("#108 兩支工具的共同接線", () => {
   });
 
   // ⚠ 下面三條是 **SDK 特徵化測試，對我們的實作零鑑別力**（同案 6b 一族）：斷言的是 SDK
-  // 自己組出來的固定字串。它們的存在理由是把 D12 的 (3) 協定層 error 信封與 (4a) SDK 自產
+  // 自己組出來的固定字串。它們的存在理由是把 (3) 協定層 error 信封與 (4a) SDK 自產
   // 工具錯誤的分界釘死——兩者在 HTTP 上都是 200，只有 body 形狀不同。用 `toContain` 只釘短語，
   // 版本由 lockfile 釘死；SDK 升版後這三條若紅，是 SDK 換了字串，不是我們寫壞了。
-  // ⚠ 實測記錄（Task 3 首跑）：**29(c) 在零工具形之下就已經是綠的**——`resources/list` 不論
+  // ⚠ 實測記錄：**29(c) 在零工具形之下就已經是綠的**——`resources/list` 不論
   // 有沒有註冊工具都回 `-32601`。它守的是分界（29(a)／29(b) 在同一個 200 上長得不一樣），
   // 不是我們的實作；29(a)／29(b) 則要「至少註冊一支工具」才寫得出來，所以三條同在這一棒。
   it("案 29(a)：tools/call 一個沒註冊的名字 → 200、isError、structuredContent 缺席", async () => {
@@ -540,5 +574,48 @@ describe("#108 兩支工具的共同接線", () => {
     const body = res.json();
     expect(body.result).toBeUndefined();
     expect(body.error.code).toBe(-32601);
+  });
+});
+
+describe("資料夾：list_notes 依大小截頁（pageCutShort）", () => {
+  const seedPlain = (db: Db, ownerId: string, n: number) =>
+    db.$client.query(
+      `insert into notes (owner_id, title, slug) select $1::uuid, 'ln ' || g, 'ln-' || g || '-' || substr(md5(random()::text), 1, 8) from generate_series(1, $2::int) g`,
+      [ownerId, n],
+    );
+
+  it("LN1 一般資料 100 篇、limit 100 → 一頁收完、沒有 pageCutShort 鍵（key 集合逐字）", async () => {
+    const ctx = await buildCollabTestApp();
+    const { ownerId, token } = await scenario(ctx);
+    await seedPlain(ctx.db, ownerId, 100);
+    const out = payloadOf(await callTool(ctx.app, token, "list_notes", { limit: 100 }));
+    expect(Object.keys(out)).toEqual(["notes", "nextCursor"]);
+    expect(out.notes).toHaveLength(100);
+    expect(out.nextCursor).toBeNull();
+  });
+
+  it("LN3 一般資料、limit 30 → 30 篇、沒有 pageCutShort 鍵、nextCursor 非 null", async () => {
+    const ctx = await buildCollabTestApp();
+    const { ownerId, token } = await scenario(ctx);
+    await seedPlain(ctx.db, ownerId, 40);
+    const out = payloadOf(await callTool(ctx.app, token, "list_notes", { limit: 30 }));
+    expect(Object.keys(out)).toEqual(["notes", "nextCursor"]);
+    expect(out.notes).toHaveLength(30);
+    expect(out.nextCursor).not.toBeNull();
+  });
+
+  it("LN2 tools/list：description 帶短頁句（LN+）；pageCutShort 的說明逐字", async () => {
+    const ctx = await buildCollabTestApp();
+    const { token } = await scenario(ctx);
+    const res = await mcpPost(ctx.app, rpc("tools/list"), { token });
+    expect(res.statusCode).toBe(200);
+    type Tool = { name: string; description: string; outputSchema: { properties: Record<string, { description?: string }> } };
+    const tool = (res.json().result.tools as Tool[]).find(t => t.name === "list_notes")!;
+    expect(tool.description).toContain(
+      "A page can hold fewer notes than `limit` when the notes are large — `pageCutShort` is then true — so keep paging until `nextCursor` is null.",
+    );
+    expect(tool.outputSchema.properties.pageCutShort!.description).toBe(
+      "Present, and true, when this page was cut short to keep the reply small; more follow, so keep paging with `nextCursor`.",
+    );
   });
 });

@@ -15,10 +15,9 @@ import {
   type ViewLike,
 } from "./paste-rule";
 
-// spec §5.4 調整 3、§7.1 第 2 點、§11.10、§13.1 貼上各條；讀碼發現 1、9。期望值逐字取自探針
-// paste7.mjs／copycol-fix.mjs／copycol2.mjs／lonecol-rule.mjs（COLCTX=2）的輸出。
+// 貼上各情境的期望值逐字取自實際貼上的輸出（含單一欄、整列複製、複製欄的情境）。
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- PM 的 Plugin／Node 在 apps/web 值層級拿不到（讀碼發現 13）
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- PM 的 Plugin／Node 在 apps/web 值層級拿不到
 type Any = any;
 
 const cleanups: (() => void)[] = [];
@@ -37,7 +36,7 @@ function mount(content: PartialBlockLike[], opts?: { rule?: boolean; extensions?
 
 const viewOf = (editor: AnyEditor) => editor.prosemirrorView! as unknown as ViewLike & Any;
 
-/** 貼上前先叫 uniqueID 外掛的 paste handler（同探針：真貼上時它會先跑，讓貼進來的 id 重配）。 */
+/** 貼上前先叫 uniqueID 外掛的 paste handler（真貼上時它會先跑，讓貼進來的 id 重配）。 */
 function arm(editor: AnyEditor): void {
   const view = editor.prosemirrorView!;
   for (const plugin of view.state.plugins.filter((p) => (p as Any).key.startsWith("uniqueID"))) (plugin.props.handleDOMEvents as Any).paste(view, new Event("paste"));
@@ -143,7 +142,7 @@ function pasteFrom(editor: AnyEditor, how: string, internalHtml: string): void {
   else editor.pasteHTML(internalHtml, true);
 }
 
-describe("PR1 三種來源 × 位置：頂層貼入完整、非頂層攤平", () => {
+describe("三種來源 × 位置：頂層貼入完整、非頂層攤平", () => {
   it.each(PR1)("%s @ %s", (how, place, expected, w) => {
     const editor = mount(W());
     const internalHtml = copyFirstRow(editor);
@@ -216,8 +215,8 @@ describe("PR2 從欄內複製再貼上：與不裝規則時相同", () => {
   });
 });
 
-// copycol2.mjs 的 [rule] 輸出。spec §13.1 的順序：最後一欄中間到列下方、列上方到第 1 欄中間 → 不出現新的列；
-// 第 1 欄中間到第 2 欄中間 → 頂層成為新的一列（§15）。
+// copycol2.mjs 的 [rule] 輸出。順序：最後一欄中間到列下方、列上方到第 1 欄中間 → 不出現新的列；
+// 第 1 欄中間到第 2 欄中間 → 頂層成為新的一列。
 const PR3: [string, string, string, number][] = [
   ["col2 c -> z below (c| .. z)", "top empty", "paragraph:x  paragraph:c  paragraph:z  paragraph:abc  ROW[COL(paragraph:def,paragraph:ghi,paragraph) | COL(paragraph:c)]  paragraph:z", 1],
   ["col2 c -> z below (c| .. z)", "col2 end c", "paragraph:x  paragraph  paragraph:abc  ROW[COL(paragraph:def,paragraph:ghi,paragraph) | COL(paragraph:cc,paragraph:z)]  paragraph:z", 1],
@@ -227,7 +226,7 @@ const PR3: [string, string, string, number][] = [
   ["cross col1 mid -> col2 mid (de|f .. c)", "col2 end c", "paragraph:x  paragraph  paragraph:abc  ROW[COL(paragraph:def,paragraph:ghi,paragraph) | COL(paragraph:c,paragraph:f,paragraph:ghi,paragraph,paragraph:c)]  paragraph:z", 1],
 ];
 
-describe("PR3 跨出欄邊界的選取", () => {
+describe("跨出欄邊界的選取", () => {
   it.each(PR3)("%s @ %s", (sel, place, expected, rows) => {
     const editor = copyPaste(sel, place, true);
     expect(shape(editor)).toBe(expected);
@@ -236,7 +235,7 @@ describe("PR3 跨出欄邊界的選取", () => {
   });
 });
 
-describe("PR4 單欄外部 HTML 照一般 block 剖析（讀碼發現 1）", () => {
+describe("單欄外部 HTML 照一般 block 剖析", () => {
   const rest = "paragraph:abc  paragraph:p{paragraph}  ROW[COL(paragraph:def,paragraph) | COL(paragraph:c)]  paragraph:z";
   it.each([
     ["kb single col", '<div data-kb-columns style="display:flex;gap:16px"><div data-kb-column style="flex:1"><p>X</p></div></div>', `paragraph:x  paragraph:X  ${rest}`, "1/1"],
@@ -285,7 +284,7 @@ function rawExternalSlice(): SliceLike {
 const at = (pos: number) => ({ pos, inside: -1 });
 const DROP_EVENT = { clientX: 1, clientY: 1 } as DragEvent;
 
-describe("PR5 外部拖入：位置看落點、不看游標", () => {
+describe("外部拖入：位置看落點、不看游標", () => {
   it("游標在欄內、落點在頂層 → 列完整（封閉 slice）", () => {
     const raw = rawExternalSlice();
     expect(raw.openStart).toBeGreaterThan(0);
@@ -322,7 +321,7 @@ const D = (): PartialBlockLike[] => [
   P("z", "z9"),
 ];
 
-describe("PR6 站內拖曳（view.dragging）", () => {
+describe("站內拖曳（view.dragging）", () => {
   function dragging(editor: AnyEditor): { view: Any; slice: SliceLike } {
     const view = viewOf(editor);
     const doc = view.state.doc;
@@ -356,7 +355,7 @@ describe("PR6 站內拖曳（view.dragging）", () => {
   });
 });
 
-describe("PR7 drop 落點的生命週期", () => {
+describe("drop 落點的生命週期", () => {
   it("同步取得、取過即清、microtask 後清回 null", async () => {
     const editor = mount(W(), { rule: false });
     const view = viewOf(editor);
@@ -378,7 +377,7 @@ describe("PR7 drop 落點的生命週期", () => {
   });
 });
 
-describe("PR8 withColumnsDropPoint", () => {
+describe("withColumnsDropPoint", () => {
   type DropEvents = { drop: (view: unknown, event: DragEvent) => boolean; paste?: () => boolean };
 
   it("先記落點再交給原 handler，回傳值照原 handler", () => {
@@ -415,7 +414,7 @@ describe("PR8 withColumnsDropPoint", () => {
   });
 });
 
-describe("PR9 5 欄的列貼在頂層（spec §11.10）", () => {
+describe("PR9 5 欄的列貼在頂層", () => {
   it("照貼成一列 5 欄、不丟例外、不裁欄", () => {
     const source = mount([row([[P("a", "a1")], [P("b", "b1")], [P("c", "c1")], [P("d", "d1")], [P("e", "e1")]], "r5")], { rule: false });
     const html = copyFirstRow(source);
@@ -430,7 +429,7 @@ describe("PR9 5 欄的列貼在頂層（spec §11.10）", () => {
   });
 });
 
-describe("PR10 列貼進表格格子（Review Focus 1）", () => {
+describe("PR10 列貼進表格格子", () => {
   it("不丟例外、文件合法、表格裡沒有 columnList、兩欄文字進了該格", () => {
     const table: PartialBlockLike = {
       id: "t1",
@@ -449,7 +448,7 @@ describe("PR10 列貼進表格格子（Review Focus 1）", () => {
   });
 });
 
-describe("含子 block 的列貼進欄內（T5-M11 自補）", () => {
+describe("含子 block 的列貼進欄內", () => {
   it("攤平時子 block 跟著它的父 block，不產生巢狀列", () => {
     const source = mount([row([[withChildren(P("m", "m1"), [P("n", "n1")])], [P("o", "o1")]], "rs")], { rule: false });
     const html = copyFirstRow(source);
@@ -464,9 +463,9 @@ describe("含子 block 的列貼進欄內（T5-M11 自補）", () => {
   });
 });
 
-describe("單獨一欄（Ctrl＋點欄整欄複製，concern 2）", () => {
+describe("單獨一欄（Ctrl＋點欄整欄複製）", () => {
   // 整欄 NodeSelection 的 slice 只有一個 column、沒有 columnList；不換掉的話 PM 會把它包成補了空欄的列，
-  // 頂層貼上時長進段落的子 block（巢狀列，違反 I2；不裝規則時 `paragraph{ROW[COL(paragraph:c) | COL(paragraph)]}`）。
+  // 頂層貼上時長進段落的子 block（巢狀列；不裝規則時 `paragraph{ROW[COL(paragraph:c) | COL(paragraph)]}`）。
   it.each([
     ["top empty", "paragraph:x  paragraph:c  paragraph:abc  ROW[COL(paragraph:def,paragraph:ghi,paragraph) | COL(paragraph:c)]  paragraph:z"],
     ["top end abc", "paragraph:x  paragraph  paragraph:abc  paragraph:c  ROW[COL(paragraph:def,paragraph:ghi,paragraph) | COL(paragraph:c)]  paragraph:z"],

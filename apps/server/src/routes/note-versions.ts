@@ -1,6 +1,6 @@
 /**
- * 筆記版本歷史 REST（spec 2026-10-09-note-versions-design.md §6）。全部 cookie（`app.authenticate`）；PAT／MCP 不在本 spec（§14-2）。
- * 判準六支一致：`:id` 先 `UUID_RE` → `resolveRole`：none → 404 `not_found`、viewer → 403 `forbidden`「沒有編輯權限」（D5）。
+ * 筆記版本歷史 REST。全部 cookie（`app.authenticate`）；PAT／MCP 不能用。
+ * 判準六支一致：`:id` 先 `UUID_RE` → `resolveRole`：none → 404 `not_found`、viewer → 403 `forbidden`（"You don't have edit access to this note."）。
  * 寫入四支（存、套用、改名、刪除）吃既有 `edit` 桶，排在角色檢查之後。apply 只在 `writes.available` 時註冊（與 `/edits` 同閘門）。
  * 參數（不變量 S）：`:seq` 走 `/^[1-9]\d{0,9}$/` 且 ≤ 2147483647，否則 404；`before` 同規則、`limit` 1..100、`kind` 只收 manual／auto，否則 400。
  */
@@ -15,7 +15,7 @@ import {
 import type { VersionCurrentCore, VersionService } from "../collab/versions.js";
 import type { Db } from "../db/index.js";
 import { noteVersions, notes, users } from "../db/schema.js";
-import { sendError } from "../http/errors.js";
+import { sendError, sendNoteTooLarge } from "../http/errors.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
 import type { NoteWriteService } from "../notes/editing/write-service.js";
 import { resolveRole, UUID_RE } from "../notes/service.js";
@@ -28,10 +28,10 @@ export interface NoteVersionsRouteDeps {
   limiters: { edit: FixedWindowLimiter };
 }
 
-const NOTE_NOT_FOUND = "找不到此筆記";
-const VERSION_NOT_FOUND = "找不到此版本";
-const INVALID_BODY = "請求格式錯誤";
-const INVALID_NAME = "版本名稱須在 120 字以內，且不能含無法儲存的字元";
+const NOTE_NOT_FOUND = "No note with that id.";
+const VERSION_NOT_FOUND = "No version with that number.";
+const INVALID_BODY = "Invalid request body.";
+const INVALID_NAME = "Version names can be at most 120 characters and can't contain characters that can't be stored.";
 const INT4_MAX = 2147483647;
 const SEQ_RE = /^[1-9]\d{0,9}$/;
 const LIMIT_RE = /^[1-9]\d{0,2}$/;
@@ -49,7 +49,7 @@ const renameBodySchema = z.object({ name: z.string().nullable() }).strict();
 // 形＝shared 的 `ApplyVersionBody`（`satisfies` 讓兩邊漂移在編譯期紅）。
 const applyBodySchema = z.object({ versionId: z.string().regex(UUID_RE), discardUnsaved: z.boolean() }).strict() satisfies z.ZodType<ApplyVersionBody>;
 
-/** #272 §9：基底參照。`baseSeq` 為 null → null；id 為 null（升級前就已刪的舊資料）或查不到 → 已刪除；否則帶名稱。 */
+/** #272：基底參照。`baseSeq` 為 null → null；id 為 null（升級前就已刪的舊資料）或查不到 → 已刪除；否則帶名稱。 */
 function baseRefOf(baseSeq: number | null, id: string | null, names: Map<string, string | null>): VersionBaseRefDto | null {
   if (baseSeq === null) return null;
   if (id === null || !names.has(id)) return { id, name: null, deleted: true };
@@ -83,7 +83,7 @@ function toVersionDto(r: NoteVersionRow, handles: Map<string, string>, names: Ma
 
 /**
  * editors 的 handle 一次查（`inArray`，筆數＝這一頁出現的不同使用者數）；刪除的使用者 → ""。
- * #272 §9：基底在這一頁的直接用頁內名稱，其餘（不在本頁、被 kind 篩掉）一句查；查不到＝已刪除。
+ * #272：基底在這一頁的直接用頁內名稱，其餘（不在本頁、被 kind 篩掉）一句查；查不到＝已刪除。
  */
 export async function toVersionDtos(db: Db, noteId: string, rows: NoteVersionRow[]): Promise<VersionDto[]> {
   const ids = [...new Set(rows.flatMap(r => r.editors.map(e => e.user_id)))].filter(id => UUID_RE.test(id));
@@ -97,7 +97,7 @@ export async function toVersionDtos(db: Db, noteId: string, rows: NoteVersionRow
   return rows.map(r => toVersionDto(r, handles, names));
 }
 
-/** #272 §9：`currentOf` 的結果補上 `base`（讀 `notes.version_base_version_id`）。清單與套用回應共用。 */
+/** #272：`currentOf` 的結果補上 `base`（讀 `notes.version_base_version_id`）。清單與套用回應共用。 */
 export async function withCurrentBase(db: Db, noteId: string, current: VersionCurrentCore): Promise<VersionCurrentDto> {
   if (current.baseSeq === null) return { ...current, base: null };
   const [n] = await db.select({ id: notes.versionBaseVersionId }).from(notes).where(eq(notes.id, noteId)).limit(1);
@@ -116,13 +116,13 @@ export function noteVersionsRoutes(deps: NoteVersionsRouteDeps) {
         return false;
       }
       if (role === "viewer") {
-        sendError(reply, 403, "forbidden", "沒有編輯權限");
+        sendError(reply, 403, "forbidden", "You don't have edit access to this note.");
         return false;
       }
       return true;
     }
     const noteIdOf = (raw: string): string | null => (UUID_RE.test(raw) ? raw.toLowerCase() : null);
-    const tooMany = (reply: FastifyReply) => sendError(reply, 429, "too_many_requests", "寫入過於頻繁");
+    const tooMany = (reply: FastifyReply) => sendError(reply, 429, "too_many_requests", "Too many writes. Wait a moment and try again.");
 
     app.get("/api/notes/:id/versions", { preHandler: app.authenticate }, async (request, reply) => {
       const id = noteIdOf((request.params as { id: string }).id);
@@ -164,7 +164,7 @@ export function noteVersionsRoutes(deps: NoteVersionsRouteDeps) {
         .where(and(eq(noteVersions.noteId, id), eq(noteVersions.seq, seq)))
         .limit(1);
       if (!row) return sendError(reply, 404, "not_found", VERSION_NOT_FOUND);
-      // §6.2：§9 會讓同一個 seq 指向不同內容——不得被任何快取留住（web 以 id 當快取鍵）。
+      // 搬移會清空版本，讓同一個 seq 指向不同內容——不得被任何快取留住（web 以 id 當快取鍵）。
       reply.header("cache-control", "private, no-store");
       return reply.send({ id: row.id, seq: row.seq, ydoc: Buffer.from(row.ydoc).toString("base64") } satisfies VersionSnapshotDto);
     });
@@ -183,7 +183,7 @@ export function noteVersionsRoutes(deps: NoteVersionsRouteDeps) {
       if (!out.ok) {
         return out.kind === "note-deleted"
           ? sendError(reply, 404, "not_found", NOTE_NOT_FOUND)
-          : sendError(reply, 503, "server_busy", "筆記正在被寫入，請稍後再試");
+          : sendError(reply, 503, "server_busy", "The note is being written right now. Try again in a moment.");
       }
       const [dto] = await toVersionDtos(deps.db, id, [out.row]);
       return reply.code(201).send({ ...dto!, upgraded: out.upgraded } satisfies SavedVersionDto);
@@ -205,14 +205,16 @@ export function noteVersionsRoutes(deps: NoteVersionsRouteDeps) {
           noteId: id, seq, versionId: parsed.data.versionId.toLowerCase(), userId, discardUnsaved: parsed.data.discardUnsaved,
         });
         if (!out.ok) {
-          if (out.kind === "busy") return sendError(reply, 503, "server_busy", "筆記正在被寫入，請稍後再試");
-          // #181 §6.2-11：授權之後被移入垃圾桶（或正被移入）→ 同授權 none 的 404。
+          if (out.kind === "busy") return sendError(reply, 503, "server_busy", "The note is being written right now. Try again in a moment.");
+          // #181：授權之後被移入垃圾桶（或正被移入）→ 同授權 none 的 404。
           if (out.kind === "gone") return sendError(reply, 404, "not_found", NOTE_NOT_FOUND);
+          // 套回的版本比現況大、而且超過筆記大小上限（`notes/note-size.ts`）。
+          if (out.kind === "too_large") return sendNoteTooLarge(reply, out.limitBytes);
           if (out.code === "not_found") return sendError(reply, 404, "not_found", VERSION_NOT_FOUND);
-          if (out.code === "version_mismatch") return sendError(reply, 409, "version_mismatch", "這一版已經不存在或已被取代，請重新整理");
-          return sendError(reply, 409, "version_unsaved_changes", "目前有未儲存的修改");
+          if (out.code === "version_mismatch") return sendError(reply, 409, "version_mismatch", "That version no longer exists or has been replaced. Reload and try again.");
+          return sendError(reply, 409, "version_unsaved_changes", "The note has changes that aren't in any saved version.");
         }
-        // 起草裁定 12：回「套用全部完成後的實際 current」——沒有 WS 連線時 disconnect 內已卸載（#272 起卸載不切版）。
+        // 回「套用全部完成後的實際 current」——沒有 WS 連線時 disconnect 內已卸載（#272 起卸載不切版）。
         const current = await deps.versions.currentOf(id);
         if (current === null) return sendError(reply, 404, "not_found", NOTE_NOT_FOUND);
         return reply.send({ current: await withCurrentBase(deps.db, id, current) } satisfies ApplyVersionResultDto);
@@ -232,7 +234,7 @@ export function noteVersionsRoutes(deps: NoteVersionsRouteDeps) {
       const userId = request.user!.id;
       if (!(await canEdit(reply, userId, id))) return reply;
       if (!deps.limiters.edit.consume(userId)) return tooMany(reply);
-      // §6.5：任何 PATCH 都把 kind 變 manual（自動版本事後命名＝轉手動、永久保留，D7）。
+      // 任何 PATCH 都把 kind 變 manual（自動版本事後命名＝轉手動、永久保留）。
       const [row] = await deps.db
         .update(noteVersions)
         .set({ name: name.name, kind: "manual" })
@@ -252,7 +254,7 @@ export function noteVersionsRoutes(deps: NoteVersionsRouteDeps) {
       const userId = request.user!.id;
       if (!(await canEdit(reply, userId, id))) return reply;
       if (!deps.limiters.edit.consume(userId)) return tooMany(reply);
-      // §6.6：單句；基底不可刪（A6）——述詞在 DELETE 當下重判。已知限制（見 spec §13）：READ COMMITTED 下 DELETE 與
+      // 單句；基底不可刪——述詞在 DELETE 當下重判。已知限制：READ COMMITTED 下 DELETE 與
       // `setVersionBase` 的 EXISTS 各看自己的快照，兩邊都提交後 `version_base_seq` 可能指向已刪列（無 FK）；窗口極窄，後果只是 `current.baseSeq` 懸空。
       const gone = await deps.db
         .delete(noteVersions)
@@ -269,7 +271,7 @@ export function noteVersionsRoutes(deps: NoteVersionsRouteDeps) {
         .where(and(eq(noteVersions.noteId, id), eq(noteVersions.seq, seq)))
         .limit(1);
       return still
-        ? sendError(reply, 409, "version_is_base", "這是目前內容的基底版本，不能刪除")
+        ? sendError(reply, 409, "version_is_base", "This version is the base of the current content, so it can't be deleted.")
         : sendError(reply, 404, "not_found", VERSION_NOT_FOUND);
     });
   };

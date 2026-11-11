@@ -6,7 +6,7 @@ import { ApiFail } from "@/api/client";
 import { useUpdateNote } from "@/api/notes";
 import { toast } from "@/components/ui/toast";
 
-/** 停止輸入後多久自動存檔（spec §5：blur 或 800ms debounce）。 */
+/** 停止輸入後多久自動存檔（blur 或 800ms debounce）。 */
 export const TITLE_DEBOUNCE_MS = 800;
 
 interface TitleInputProps {
@@ -21,14 +21,14 @@ interface TitleInputProps {
 }
 
 /**
- * 筆記標題輸入框。**標題不在 Y.Doc 裡**（spec §5：標題走 REST 的 last-write-wins，
+ * 筆記標題輸入框。**標題不在 Y.Doc 裡**（標題走 REST 的 last-write-wins，
  * 不即時共編）——所以這裡是一個獨立於 BlockNote 之外的受控 input，只跟
  * `PATCH /api/notes/:id` 打交道。
  *
  * 存檔時機：停止輸入 800ms，或 blur（blur 會把 pending 的 debounce 立刻沖出去，
  * 不等計時器）。存檔成功後把回應寫回 `['note', note.id]`（#122 起 NotePage 的常駐層
  * 就是這把 id 鍵——寫回它頁面即時反映；`['notes']` 側欄清單由 `useUpdateNote` 自己
- * invalidate）。**本元件不寫網址**（A3）：改標題會重算 auto slug、canonical 跟著變，
+ * invalidate）。**本元件不寫網址**：改標題會重算 auto slug、canonical 跟著變，
  * 但唯一寫網址點是 NotePage 的收斂 effect——快取更新 → 常駐層 note 變 → effect
  * 以 router `navigate` replace（#179）；在途 PATCH 於換筆記後才回來時，收斂 effect 會因為轉場中 `note`
  * 被閘成 undefined 而早退（舊版自帶 replaceState 沒這道閘，會把網址改回前一篇）。
@@ -48,7 +48,7 @@ export function TitleInput({ note, readOnly, isNavigatingAway }: TitleInputProps
   const syncedRef = useRef(note.title);
 
   // 標題被別處改動（協作者改名、快取 refetch）時重新對齊。使用者本地有未存的修改
-  // （value !== syncedRef.current）時不覆蓋。#122 A1 之後「換筆記」不再走這裡——
+  // （value !== syncedRef.current）時不覆蓋。#122 之後「換筆記」不再走這裡——
   // 轉場一律出佔位卡，本元件會被卸載重掛、useState 直接吃新值（⚠ NotePage 本身仍是
   // 同元件重用不 remount，別把那個結論改掉——是 TitleInput 的掛載期變短了）。
   useEffect(() => {
@@ -127,7 +127,7 @@ export function TitleInput({ note, readOnly, isNavigatingAway }: TitleInputProps
 
   return (
     <input
-      // 握把：NotePage 還原後把焦點移到這裡（final review N-3：別靠「頁首第一個 input」）。
+      // 握把：NotePage 還原後把焦點移到這裡（別靠「頁首第一個 input」）。
       data-note-title-input=""
       className="min-w-16 flex-1 bg-transparent text-xl font-semibold outline-none placeholder:text-muted-foreground"
       aria-label={t("note.titleLabel")}

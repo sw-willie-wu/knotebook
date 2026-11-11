@@ -23,7 +23,7 @@ import {
 
 const NOT_FOUND = "We couldn't find what you were looking for.";
 
-describe("GroupModal（/groups/:id/*，#247 §6.0、§6.1）", () => {
+describe("GroupModal（/groups/:id/*，#247）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -32,7 +32,7 @@ describe("GroupModal（/groups/:id/*，#247 §6.0、§6.1）", () => {
     vi.unstubAllGlobals();
   });
 
-  it("G1 四項導覽（nav 的可及名稱＝群組名，§8）：Members／Roles／Storage／About，href 依序；在 /groups/:id 時 Members 是 aria-current", async () => {
+  it("G1 四項導覽（nav 的可及名稱＝群組名）：Members／Roles／Storage／About，href 依序；在 /groups/:id 時 Members 是 aria-current", async () => {
     renderGroupRoute(`/groups/${GROUP_ADMIN.id}`, groupFetch(() => [GROUP_ADMIN], () => [member(ME.id, ME.email, "Me", ADMIN_ROLE)]));
     const dialog = await screen.findByRole("dialog", { name: "Team Alpha" });
     const nav = within(dialog).getByRole("navigation", { name: "Team Alpha" });
@@ -63,7 +63,7 @@ describe("GroupModal（/groups/:id/*，#247 §6.0、§6.1）", () => {
     expect(await within(dialog).findByRole("heading", { level: 1, name: "Members" })).toBeInTheDocument();
   });
 
-  it("G4 找不到（非成員／不存在／id 不合法同形，S4）：右卡 errors.not_found、標題是備用字「Group」、無副文字；外殼與導覽照常", async () => {
+  it("G4 找不到（非成員／不存在／id 不合法同形）：右卡 errors.not_found、標題是備用字「Group」、無副文字；外殼與導覽照常", async () => {
     for (const path of [`/groups/${GROUP_MEMBER.id}`, "/groups/not-a-real-id"]) {
       const view = renderGroupRoute(path, groupFetch(() => [GROUP_ADMIN]));
       const dialog = await screen.findByRole("dialog", { name: "Group" });
@@ -122,12 +122,12 @@ describe("GroupModal（/groups/:id/*，#247 §6.0、§6.1）", () => {
     await waitFor(() => expect(locationText().startsWith("/|")).toBe(true));
   });
 
-  it("G8（Review Focus 2）網址的群組 id 是大寫 → 仍解析到同一個群組（不分大小寫比對）", async () => {
+  it("G8 網址的群組 id 是大寫 → 仍解析到同一個群組（不分大小寫比對）", async () => {
     renderGroupRoute(`/groups/${GROUP_ADMIN.id.toUpperCase()}`, groupFetch(() => [GROUP_ADMIN]));
     expect(await screen.findByRole("dialog", { name: "Team Alpha" })).toBeInTheDocument();
   });
 
-  it("G9（Review Focus 1）已顯示群組後 ['groups'] refetch 失敗 → 右卡內容留著（不換成錯誤字）", async () => {
+  it("G9 已顯示群組後 ['groups'] refetch 失敗 → 右卡內容留著（不換成錯誤字）", async () => {
     let failGroups = false;
     const fetchMock = groupFetch(() => [GROUP_ADMIN], () => [member(ME.id, ME.email, "Me", ADMIN_ROLE)], (url, method) =>
       url === "/api/groups" && method === "GET" && failGroups ? fail(500, "internal") : null,
@@ -147,7 +147,7 @@ describe("GroupModal（/groups/:id/*，#247 §6.0、§6.1）", () => {
   });
 });
 
-describe("GroupAboutSection（/groups/:id/about，#247 §6.5）", () => {
+describe("GroupAboutSection（/groups/:id/about，#247）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -186,7 +186,7 @@ describe("GroupAboutSection（/groups/:id/about，#247 §6.5）", () => {
     expect(del.className).not.toMatch(/(^|\s)(bg-destructive|text-destructive)(\s|$)/);
   });
 
-  it("A2 沒有 canManageGroup：名稱唯讀（純文字、無輸入框、無 Save name）；沒有 Delete group；項次四個照舊（W13 不隱藏）", async () => {
+  it("A2 沒有 canManageGroup：名稱唯讀（純文字、無輸入框、無 Save name）；沒有 Delete group；項次四個照舊（不隱藏）", async () => {
     const dialog = await openAbout(
       `/groups/${GROUP_MEMBER.id}/about`,
       groupFetch(() => [GROUP_MEMBER], () => [member("u-a", "a@example.com", "A", ADMIN_ROLE), member(ME.id, ME.email, "Me", MEMBER_ROLE)]),
@@ -200,7 +200,7 @@ describe("GroupAboutSection（/groups/:id/about，#247 §6.5）", () => {
     expect(within(within(dialog).getByRole("navigation", { name: "Team Beta" })).getAllByRole("link")).toHaveLength(4);
   });
 
-  it("A3 退出後的去處（三案＋Review Focus 3）：背景是別頁 → 回背景；背景是本群組筆記（含大寫 id）→ /；無背景 → /；從不導到 /settings/*", async () => {
+  it("A3 退出後的去處（三案）：背景是別頁 → 回背景；背景是本群組筆記（含大寫 id）→ /；無背景 → /；從不導到 /settings/*", async () => {
     const members = [member("u-a", "a@example.com", "A", ADMIN_ROLE), member(ME.id, ME.email, "Me", MEMBER_ROLE)];
     const cases: Array<[unknown, string]> = [
       [{ backgroundLocation: BG_NOTE }, BG_NOTE.pathname],

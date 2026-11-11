@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { __resetCollapseForTests, isCollapsed, useCollapsed, useCollapseVersion, type SidebarSectionKey } from "./collapse";
+import { __resetCollapseForTests, isCollapsed, setCollapsed, useCollapsed, useCollapseVersion, type SidebarSectionKey } from "./collapse";
 
 // 覆蓋層與訂閱者是模組層，跨案殘留（亂序跑時尤其）。
 afterEach(() => {
@@ -89,6 +89,18 @@ describe("collapse store", () => {
     expect(isCollapsed("group:g1")).toBe(true);
     localStorage.removeItem("sidebar.collapsed.group:g1");
     expect(isCollapsed("group:g1")).toBe(false);
+  });
+
+  it("CO-F1 資料夾鍵：setCollapsed(\"folder:a\", true) 寫 sidebar.collapsed.folder:a=\"1\"；與 group:a 互不影響", () => {
+    setCollapsed("folder:a", true);
+    expect(localStorage.getItem("sidebar.collapsed.folder:a")).toBe("1");
+    expect(isCollapsed("folder:a")).toBe(true);
+    expect(isCollapsed("group:a")).toBe(false);
+    setCollapsed("group:a", true);
+    setCollapsed("folder:a", false);
+    expect(localStorage.getItem("sidebar.collapsed.folder:a")).toBeNull();
+    expect(isCollapsed("folder:a")).toBe(false);
+    expect(isCollapsed("group:a")).toBe(true);
   });
 
   it("CO5 useCollapseVersion：任一鍵 toggle 後重繪，別的鍵的元件不受影響", () => {

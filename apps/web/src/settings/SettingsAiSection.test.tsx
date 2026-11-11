@@ -143,7 +143,7 @@ function renderSection(
   return queryClient;
 }
 
-describe("SettingsAiSection（spec §13.4：provider／model／action 三層 CRUD）", () => {
+describe("SettingsAiSection（provider／model／action 三層 CRUD）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -192,7 +192,7 @@ describe("SettingsAiSection（spec §13.4：provider／model／action 三層 CRU
 
     await waitFor(() => expect(screen.getByText(PROVIDER_A.name)).toBeInTheDocument());
     expect(screen.getByText(PROVIDER_B.name)).toBeInTheDocument();
-    // 模型名出現兩次：供應商列的「模型」欄＋明細列的模型子表（spec 2026-10-13 settings-table §3 #1–#2）。
+    // 模型名出現兩次：供應商列的「模型」欄＋明細列的模型子表（#2）。
     expect(screen.getAllByText(MODEL_A1.displayName)).toHaveLength(2);
     expect(screen.getByText(MODEL_A1.modelId)).toBeInTheDocument();
     expect(screen.getAllByText(MODEL_B1.displayName)).toHaveLength(2);
@@ -339,13 +339,13 @@ describe("SettingsAiSection（spec §13.4：provider／model／action 三層 CRU
     expect(screen.getByText(notice)).toBeInTheDocument();
   });
 
-  it("沒有金鑰的 provider 在該供應商的明細列就看得出來；有金鑰的不顯示（issue #46 審查）", async () => {
+  it("沒有金鑰的 provider 在該供應商的明細列就看得出來；有金鑰的不顯示（#46）", async () => {
     // 「金鑰被清掉」以前是一個完全沒有 UI 表示的狀態——供應商不顯示 hasKey，degraded 的紅字
     // 又剛好在同一時間消失（沒金鑰就不叫「解不開」）。文件宣稱的「shows as having no key」
     // 就是靠這一行才成立。
     // 用現成的 PROVIDER_B（Local Ollama，hasKey:false）——自己捏 id 撞到 PROVIDER_A 的話
     // React key 與 DOM id 都會重複，「恰好一則」這個斷言就變成建立在 reconciliation 的
-    // 未定義行為上（審查抓到）。
+    // 未定義行為上。
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = (init?.method ?? "GET").toUpperCase();
@@ -357,10 +357,10 @@ describe("SettingsAiSection（spec §13.4：provider／model／action 三層 CRU
     renderSection(fetchMock);
     await waitFor(() => expect(screen.getByText(PROVIDER_B.name)).toBeInTheDocument());
 
-    // ⚠ 要驗它**掛在哪一個供應商的明細列**，不能只數數量（審查用變異實測抓到：把顯示條件反轉成
+    // ⚠ 要驗它**掛在哪一個供應商的明細列**，不能只數數量（變異實測：把顯示條件反轉成
     // `hasKey && !degraded`，提示改掛在有金鑰的那一列、真正沒金鑰的反而不顯示，只數
     // 數量的話 16 條測試全綠）。而三份文件唯一依靠的就是這道釘子。
-    // 供應商的說明行在緊接資料列的明細列（spec 2026-10-13 settings-table §2.5：「＜名稱＞ details」）。
+    // 供應商的說明行在緊接資料列的明細列（「＜名稱＞ details」）。
     const noKeyCard = screen.getByRole("row", { name: `${PROVIDER_B.name} details` });
     const hasKeyCard = screen.getByRole("row", { name: `${PROVIDER_A.name} details` });
     expect(within(noKeyCard).getByText(/No API key stored/)).toBeInTheDocument();
@@ -403,7 +403,7 @@ describe("SettingsAiSection（spec §13.4：provider／model／action 三層 CRU
     expect(screen.getByText(/Enter the API key again to restore it/)).toBeInTheDocument();
   });
 
-  it("測試連線失敗 → 仍 invalidate（fix round 1 m-1：onSettled，不是 onSuccess——degraded 徽章不過期）", async () => {
+  it("測試連線失敗 → 仍 invalidate（onSettled，不是 onSuccess——degraded 徽章不過期）", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = (init?.method ?? "GET").toUpperCase();
@@ -464,7 +464,7 @@ describe("SettingsAiSection（spec §13.4：provider／model／action 三層 CRU
           fakeResponse({
             ok: false,
             status: 409,
-            json: () => Promise.resolve({ error: { code: "model_taken", message: "此 provider 已有相同 model" } }),
+            json: () => Promise.resolve({ error: { code: "model_taken", message: "This provider already has that model." } }),
           }),
         );
       }
@@ -576,7 +576,7 @@ describe("SettingsAiSection（spec §13.4：provider／model／action 三層 CRU
           fakeResponse({
             ok: false,
             status: 400,
-            json: () => Promise.resolve({ error: { code: "invalid_body", message: "userTemplate 必須包含 {{text}} 佔位符" } }),
+            json: () => Promise.resolve({ error: { code: "invalid_body", message: "userTemplate must contain the {{text}} placeholder." } }),
           }),
         );
       }
@@ -597,7 +597,7 @@ describe("SettingsAiSection（spec §13.4：provider／model／action 三層 CRU
     await waitFor(() => expect(screen.getByText("The request was malformed.")).toBeInTheDocument());
   });
 
-  it("新增 action 附加在清單最後：create body 帶遞增 sortOrder（fix round 1 M-1 回歸釘）", async () => {
+  it("新增 action 附加在清單最後：create body 帶遞增 sortOrder（回歸釘）", async () => {
     // ACTION_BUILTIN.sortOrder=0、ACTION_CUSTOM.sortOrder=1——修法前 create body 省略
     // `sortOrder`，server 端 `sortOrder ?? 0` 會讓新動作跟 ACTION_BUILTIN 同分變成 0，
     // 之後上下移鈕互換同分值＝原地不動，排序對這個新動作靜默失效。這裡直接斷言送出的
@@ -678,7 +678,7 @@ describe("SettingsAiSection（spec §13.4：provider／model／action 三層 CRU
     expect(JSON.parse(String(secondInit.body))).toEqual({ sortOrder: ACTION_CUSTOM.sortOrder });
   });
 
-  it("上下移鈕：mutation 進行中連點是 no-op，不送出第二組 PATCH（fix round 2 回歸釘）", async () => {
+  it("上下移鈕：mutation 進行中連點是 no-op，不送出第二組 PATCH（回歸釘）", async () => {
     // 修法前上下移鈕只看 `!canMoveUp/Down`，沒鎖 in-flight——連點會用同一份 stale
     // `actions` 陣列各自送出「跟相鄰項目對調」的第二組 PATCH，兩次對調彼此抵銷造成
     // 兩列同 `sortOrder`（Edit 表單不送這個欄位救不回來）。這裡把第一支 PATCH 卡住不
@@ -747,7 +747,7 @@ describe("SettingsAiSection（spec §13.4：provider／model／action 三層 CRU
     renderSection(fetchMock, queryClient);
 
     await waitFor(() => expect(screen.getByText(PROVIDER_A.name)).toBeInTheDocument());
-    // 供應商列的啟用 switch：可及名稱＝「Enabled」欄頭＋供應商名（spec 2026-10-13 settings-table §2.8，對齊使用者表／登入服務表）。
+    // 供應商列的啟用 switch：可及名稱＝「Enabled」欄頭＋供應商名（對齊使用者表／登入服務表）。
     fireEvent.click(screen.getByRole("switch", { name: `Enabled ${PROVIDER_A.name}` }));
 
     await waitFor(() => {
@@ -758,7 +758,7 @@ describe("SettingsAiSection（spec §13.4：provider／model／action 三層 CRU
   });
 });
 
-describe("AI 代理表格（spec 2026-10-13 settings-table §3 #1–#3）", () => {
+describe("AI 代理表格（#3）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -830,7 +830,7 @@ describe("AI 代理表格（spec 2026-10-13 settings-table §3 #1–#3）", () =
     }
   });
 
-  it("AI4 動作表：群組標題與表名都是 Actions；欄名 Name／Apply mode／Model／Actions／Enabled；內建列有 Built-in 標籤、沒有 Delete；鈕的順序＝上移、下移、編輯、刪除（spec §2.7）；開關名稱「Enabled ＜動作名＞」（spec §1 的例外）", async () => {
+  it("AI4 動作表：群組標題與表名都是 Actions；欄名 Name／Apply mode／Model／Actions／Enabled；內建列有 Built-in 標籤、沒有 Delete；鈕的順序＝上移、下移、編輯、刪除；開關名稱「Enabled ＜動作名＞」（例外）", async () => {
     renderSection(stubDefault());
     const table = await screen.findByRole("table", { name: "Actions" });
     expect(screen.getByRole("heading", { level: 2, name: "Actions" })).toBeInTheDocument();
@@ -845,7 +845,7 @@ describe("AI 代理表格（spec 2026-10-13 settings-table §3 #1–#3）", () =
     expect(within(custom).getByRole("switch", { name: `Enabled ${ACTION_CUSTOM.name}` })).toBeInTheDocument();
   });
 
-  it("AI5 上移／下移在清單邊界是原生 disabled（第一列不能上移、最後一列不能下移；spec §2.7 的暫時性停用）", async () => {
+  it("AI5 上移／下移在清單邊界是原生 disabled（第一列不能上移、最後一列不能下移；暫時性停用）", async () => {
     renderSection(stubDefault());
     await screen.findByRole("table", { name: "Actions" });
     expect(screen.getByRole("button", { name: `Move up ${ACTION_BUILTIN.name}` })).toBeDisabled();
@@ -882,7 +882,7 @@ describe("AI 代理表格（spec 2026-10-13 settings-table §3 #1–#3）", () =
     );
   });
 
-  it("AI7 測試連線的進行中與結果只出現在被測那個供應商的明細列（根元件以供應商 id 為鍵保存；fix round 1 I-1）", async () => {
+  it("AI7 測試連線的進行中與結果只出現在被測那個供應商的明細列（根元件以供應商 id 為鍵保存）", async () => {
     const FAIL = "AI provider is unavailable — ask an admin to re-enter the API key";
     let resolveB: (res: Response) => void = () => {};
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {

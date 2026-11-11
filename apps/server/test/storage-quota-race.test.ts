@@ -1,8 +1,8 @@
 /**
- * 儲存配額的並發案（spec 2026-10-08 §11.2 R1–R6、R13；R10–R12 在檔尾。R7–R9 是既有案的重驗、不在本檔：
- * C22（groups-v2-delete-race）、#188（notes-delete-race）、C5（groups-v2-move-race）、C20b（groups-v2-delete-race））。
+ * 儲存配額的並發案（R1–R6、R13；R10–R12 在檔尾。其餘是既有案的重驗、不在本檔：
+ * C22（groups-v2-delete-race）、#188（notes-delete-race）、groups-v2-move-race 的移動 × 刪群組案）。
  * 先手停在 `storage-space-locked`（取得空間鎖、lock_timeout 復原之後）或既有縫，另一方在縫裡發出；`waitForBlockedOrSettled`
- * 回 "blocked" 才證明測到的是交錯。race 一律注入 storageLockTimeoutMs = 60000（spec §5.3 m7）。
+ * 回 "blocked" 才證明測到的是交錯。race 一律注入 storageLockTimeoutMs = 60000。
  * 另一方從發出到結束的耗時一律 < 10 s：60 s 的空間鎖等待上限之下，「blocked 之後很快完成」分得出「先手放行後立刻輪到」與
  * 「一路等到逾時」；死結（40P01）由 PG 的 deadlock_timeout（預設 1 s）偵測，不受這個上限影響。
  */
@@ -92,8 +92,8 @@ describe("R1 並發上傳搶配額", () => {
   it("剩 500、20 個並發各 100 → 恰 5 個 201；終態 SUM = quota；磁碟恰多 5 個檔", async () => {
     // 縫上的窗口：持鎖者停到「本庫有連線在等 advisory 鎖」或 300 ms。正常碼下其餘請求排在鎖上、持鎖者幾乎不停；空間鎖若
     // 失效，沒有人等 advisory 鎖，同時在交易裡的每一筆都在縫上停滿 300 ms、各自讀到舊 SUM → 超賣。沒有這個窗口時，拿掉空間鎖
-    // （突變 M1）本機 5/5 次仍不超賣（交易太短、自然交錯碰不到）。
-    // 配額 500（不是 spec 字面的 1000）：app 的 pool 預設 10 條，同時在交易裡的至多 10 筆；配額恰為 10 × 100 時，空間鎖失效下
+    // （突變）本機 5/5 次仍不超賣（交易太短、自然交錯碰不到）。
+    // 配額 500（不是 1000）：app 的 pool 預設 10 條，同時在交易裡的至多 10 筆；配額恰為 10 × 100 時，空間鎖失效下
     // 觀察到的終態也只到 1000＝看不出超賣（其餘 10 筆等連線，實測是等到前 10 筆 commit 後才被 preHandler 預檢擋下）。這是觀察、
     // 不是保證的上界（等連線的請求何時過預檢、何時讀 SUM 看排程）——放得下的筆數取 < 10，讓失效時同時在交易裡的筆數多於放得下的筆數。
     // 探測走獨立的 1 條連線：app 的 pool（預設 10 條）會被停在縫上的交易佔滿，在縫裡借它查 pg_stat_activity 會互等到測試逾時（實測）。
@@ -298,7 +298,7 @@ describe("R6 上傳持被轉移群組某篇的 KEY SHARE", () => {
   });
 });
 
-describe("R13 複製→接收者個人空間 ∥ 轉移→同一接收者（Q-S7：空間鎖先於 slug 寫入；兩序都不死結）", () => {
+describe("R13 複製→接收者個人空間 ∥ 轉移→同一接收者（空間鎖先於 slug 寫入；兩序都不死結）", () => {
   async function scene(hookOf: (h: Holder) => GroupTestHook) {
     const holder: Holder = {};
     const { app, db, uploadsDir } = await buildTestApp({ ...RACE, groupTestHook: hookOf(holder) });
@@ -341,7 +341,7 @@ describe("R13 複製→接收者個人空間 ∥ 轉移→同一接收者（Q-S7
   });
 });
 
-describe("Q-S7 移動形：移入群組 ∥ 複製進同一群組（空間鎖先於群組範圍 slug 寫入；兩序都不死結）", () => {
+describe("移動形：移入群組 ∥ 複製進同一群組（空間鎖先於群組範圍 slug 寫入；兩序都不死結）", () => {
   async function scene(hookOf: (h: Holder) => GroupTestHook) {
     const holder: Holder = {};
     const { app, db, uploadsDir } = await buildTestApp({ ...RACE, groupTestHook: hookOf(holder) });
@@ -394,7 +394,7 @@ const assignBoth = async (app: FastifyInstance, adminId: string, ids: { userId: 
   ]);
 };
 
-describe("R10 指派方案不擋進行中的新增（§6.2：非鍵 UPDATE＝NO KEY UPDATE，與 FK KEY SHARE 互容）", () => {
+describe("R10 指派方案不擋進行中的新增（非鍵 UPDATE＝NO KEY UPDATE，與 FK KEY SHARE 互容）", () => {
   // 各案守的性質：
   // - 前兩案（上傳停在縫上）：指派**不取空間鎖**。上傳停在縫上時持的是筆記列 KEY SHARE＋空間 advisory 鎖，還沒 INSERT uploads、
   //   沒有 users／groups 列的鎖——所以這兩案抓不到「指派升成鍵鎖」，只抓得到「指派去取空間鎖」。個人筆記那案守使用者指派、
@@ -454,7 +454,7 @@ describe("R10 指派方案不擋進行中的新增（§6.2：非鍵 UPDATE＝NO 
   });
 });
 
-describe("R11 刪方案 ∥ 指派／改預設（FK 在 DB 端裁決，§7.1）", () => {
+describe("R11 刪方案 ∥ 指派／改預設（FK 在 DB 端裁決）", () => {
   // holder 交易在 finally 一律 rollback（已 commit 時是無害的 WARNING），連線不帶著未結束的交易回 pool。
   it("(a) 另一連線把使用者指派到 P（未 commit）→ 刪 P blocked → 對方 commit → 409 storage_plan_in_use", async () => {
     const { app, db } = await buildTestApp();
@@ -581,8 +581,8 @@ describe("R12 S14 小 pool（max=3、借連線逾時 2 s：違反 S14 表現為 
   });
 
   it("一筆大量附件（200 個）的複製：複製在 copyFile 之後、取空間鎖之前（note-copy-files-copied）時發 max+1 筆同空間上傳＋1 筆另一空間上傳 → 都在複製放行前完成、全 201", async () => {
-    // I3（spec §6.4 改序）：copyFile 不持空間鎖。上傳從複製自己的縫裡發出，交錯是確定的：正常碼下複製只占 1 條連線、不持空間鎖，
-    // 5 筆上傳輪流用剩下 2 條連線、在縫的 4 s 窗口內完成；若複製在 copyFile 前就取了空間鎖（I3 回歸），同空間上傳卡在鎖上占住
+    // copyFile 不持空間鎖。上傳從複製自己的縫裡發出，交錯是確定的：正常碼下複製只占 1 條連線、不持空間鎖，
+    // 5 筆上傳輪流用剩下 2 條連線、在縫的 4 s 窗口內完成；若複製在 copyFile 前就取了空間鎖（回歸），同空間上傳卡在鎖上占住
     // 那 2 條連線，其餘上傳借連線 2 s 逾時 → 500。
     // copy 依附件數扣 upload 桶（200 張 > 預設 UPLOAD_LIMIT 120）：本案換大桶（形照 test/groups-v2-copy.test.ts 的 freshLimiters({ upload })）。
     const box: { fired?: boolean; done?: boolean; reqs?: Array<Promise<LightMyRequestResponse>>; app?: FastifyInstance; a?: string; other?: string; an?: string; on?: string } = {};

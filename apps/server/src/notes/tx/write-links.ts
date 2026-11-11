@@ -1,6 +1,6 @@
 /**
- * #175 S14（T15）：`POST /api/notes/:id/links` 的交易本體。**本檔不 import `Db`、不接 `deps`**——只收 `tx`、
- * 純資料與型別明示的測試縫，所以寫不出「交易內向 pool 借連線」（spec §4.4 S14、§6 T15）。
+ * #175 S14：`POST /api/notes/:id/links` 的交易本體。**本檔不 import `Db`、不接 `deps`**——只收 `tx`、
+ * 純資料與型別明示的測試縫，所以寫不出「交易內向 pool 借連線」。
  * 重試／錯誤分類外殼（FK race 重試一次、40001/40P01 → busy）留在 `notes/links.ts` 的 `writeNoteLinks`。
  *
  * 單次交易嘗試（READ COMMITTED，drizzle `db.transaction` 預設隔離級別）：
@@ -46,13 +46,13 @@ export async function writeLinksInTx(
       .select({ id: notes.id })
       .from(notes)
       .where(and(eq(notes.ownerId, input.userId), inArray(notes.id, input.targetIds)));
-    // 規格落差 2／gate r1 A-M6：JOIN notes 才看得到 group_id——群組筆記上的殘留分享列不給連結權。
+    // JOIN notes 才看得到 group_id——群組筆記上的殘留分享列不給連結權。
     const sharedSelect = tx
       .select({ id: notes.id })
       .from(notes)
       .innerJoin(noteShares, and(eq(noteShares.noteId, notes.id), eq(noteShares.userId, input.userId)))
       .where(and(inArray(notes.id, input.targetIds), isNull(notes.groupId)));
-    // #175 §5.3：成員在自己筆記裡寫 `[[群組筆記]]`——角色要有閱讀旗標才寫得進去。
+    // #175：成員在自己筆記裡寫 `[[群組筆記]]`——角色要有閱讀旗標才寫得進去。
     const groupedSelect = tx
       .select({ id: notes.id })
       .from(notes)

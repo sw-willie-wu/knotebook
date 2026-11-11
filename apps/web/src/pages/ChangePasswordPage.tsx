@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
 
 /**
- * 改密碼頁（`/change-password`，登入後可達；spec rev 5.7，共用表單抽出見 §13.4）。
+ * 改密碼頁（`/change-password`，登入後可達）。
  * 頁面本身只負責「強制模式外框」：標題/說明、忘記密碼的登出逃生口，以及
  * `ChangePasswordForm` 成功後的導向——`navigate("/", {replace:true})`（現行為，
  * `ChangePasswordGate` 讀到新的 `mustChangePassword:false` 後自然放行，不需要頁面
@@ -52,7 +52,7 @@ export default function ChangePasswordPage() {
         </div>
 
         {authConfig.data?.passwordLogin.enabled === false && (
-          // B23：關閉期間 must_change_password 照常生效、清除仍只有改密碼一途；說明這個密碼暫時用不到、但臨時密碼仍要換掉。
+          // 關閉期間 must_change_password 照常生效、清除仍只有改密碼一途；說明這個密碼暫時用不到、但臨時密碼仍要換掉。
           <p className="text-sm text-muted-foreground">{t("changePassword.ssoOnlyNote")}</p>
         )}
 

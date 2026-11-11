@@ -2,13 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation, type Location } from "react-router";
-import type { UserDto } from "@knotebook/shared";
+import type { SiteLimitsDto, UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ActiveNoteProvider } from "@/lib/active-note";
 import { ThemeProvider } from "@/theme";
 import { AppRoutes } from "@/App";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
-// 站台管理 modal（`/admin/*`，#247 §7）：真 `AppRoutes`（驗的是 guard 串接、兩棵樹與 layout route 有沒有接對）。
+// 站台管理 modal（`/admin/*`，#247）：真 `AppRoutes`（驗的是 guard 串接、兩棵樹與 layout route 有沒有接對）。
 // 前身 `pages/AdminPage.test.tsx`（#174、#201）——本檔取代它。
 
 function fakeResponse(status: number, body?: unknown): Response {
@@ -18,6 +19,8 @@ function fakeResponse(status: number, body?: unknown): Response {
 const ADMIN_USER: UserDto = { id: "u-admin", email: "admin@example.com", handle: "admin", displayName: "Admin", isAdmin: true, mustChangePassword: false, hasPassword: true, autoVersions: true };
 const PLAIN_USER: UserDto = { ...ADMIN_USER, id: "u-plain", handle: "plain", displayName: "Plain", isAdmin: false };
 const BG = { pathname: "/n/admin/some-note", search: "", hash: "", state: null, key: "bg1" } as Location;
+/** 站台限制頁只驗「點了換成該區塊」，不需要任何項目。 */
+const SITE_LIMITS_EMPTY: SiteLimitsDto = { items: [], machine: { cpus: 2, cpuSource: "os", memoryBytes: 2 * 1024 ** 3, memorySource: "os" }, changes: [] };
 
 function mockFetch(getUser: () => UserDto | null) {
   return vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -30,12 +33,14 @@ function mockFetch(getUser: () => UserDto | null) {
     if (url === "/api/auth/config" && method === "GET") {
       return Promise.resolve(fakeResponse(200, { providers: [], registration: { enabled: true, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true }));
     }
+    if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
     if ((url === "/api/groups" || url === "/api/notes" || url === "/api/admin/users" || url === "/api/admin/invites" || url === "/api/admin/groups") && method === "GET") {
       return Promise.resolve(fakeResponse(200, []));
     }
     if (url === "/api/admin/storage-plans" && method === "GET") return Promise.resolve(fakeResponse(200, { plans: [], defaults: { userPlanId: "", groupPlanId: "" } }));
     if (url === "/api/admin/versions/settings" && method === "GET") return Promise.resolve(fakeResponse(200, { keepAllDays: 7, dailyUntilDays: 30, autoVersionsEnabled: true, autoWaitMinutes: 5 }));
     if (url === "/api/admin/trash/settings" && method === "GET") return Promise.resolve(fakeResponse(200, { retentionDays: 7 }));
+    if (url === "/api/admin/limits" && method === "GET") return Promise.resolve(fakeResponse(200, SITE_LIMITS_EMPTY));
     if (url.startsWith("/api/admin/ai/") && method === "GET") {
       const key = url.slice("/api/admin/ai/".length);
       return Promise.resolve(fakeResponse(200, { [key]: [] }));
@@ -78,7 +83,7 @@ function renderAt(entry: string | { pathname: string; state?: unknown }, fetchMo
 }
 
 /**
- * §5.1 的「不閃設定面板」負面判準：轉址過程中掛進 DOM 的任何 `[role=dialog]`，可及名稱（`aria-labelledby` 指到的
+ * 「不閃設定面板」負面判準：轉址過程中掛進 DOM 的任何 `[role=dialog]`，可及名稱（`aria-labelledby` 指到的
  * `DialogTitle` 文字）不得是設定面板的標題「Settings」。只記錄、不判斷「必須等於目的地」（群組 modal 會先是備用標題）。
  * 記 `addedNodes`（含子孫）而不是回呼當下 `querySelectorAll`——閃一下的節點可能在回呼跑之前就被移除了（同本檔
  * 「不先閃一下 modal」那案）；標題也先在被加入的子樹裡找（節點已脫離 document 時 `getElementById` 找不到）。
@@ -105,7 +110,7 @@ function watchDialogTitles() {
   return { titles, stop: () => observer.disconnect() };
 }
 
-describe("AdminModal（/admin/*，#247 §7）", () => {
+describe("AdminModal（/admin/*，#247）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
   });
@@ -113,7 +118,7 @@ describe("AdminModal（/admin/*，#247 §7）", () => {
     vi.unstubAllGlobals();
   });
 
-  it("M1 五項（nav 可及名稱 Site admin，§8）：Users／Groups／Sign-in／Storage plans／AI agents；沒有「Back to notes」；/admin/users 是 aria-current", async () => {
+  it("M1 六項（nav 可及名稱 Site admin）：Users／Groups／Sign-in／Storage plans／AI agents／Site limits；沒有「Back to notes」；/admin/users 是 aria-current", async () => {
     renderAt("/admin/users", mockFetch(() => ADMIN_USER));
     const dialog = await screen.findByRole("dialog", { name: "Site admin" });
     const nav = within(dialog).getByRole("navigation", { name: "Site admin" });
@@ -123,6 +128,7 @@ describe("AdminModal（/admin/*，#247 §7）", () => {
       ["Sign-in", "/admin/login"],
       ["Storage plans", "/admin/storage"],
       ["AI agents", "/admin/ai"],
+      ["Site limits", "/admin/limits"],
     ]);
     expect(within(nav).getByRole("link", { name: "Users" })).toHaveAttribute("aria-current", "page");
     expect(screen.queryByRole("link", { name: "Back to notes" })).not.toBeInTheDocument();
@@ -168,7 +174,7 @@ describe("AdminModal（/admin/*，#247 §7）", () => {
   });
 
   it.each([["/settings/users"], ["/admin"], ["/admin/auth"], ["/admin/versions"]])(
-    "M5（Review Focus 5）%s 轉到站台 modal 的過程不閃設定面板（中途掛進的 dialog 標題從不是 Settings）",
+    "M5 %s 轉到站台 modal 的過程不閃設定面板（中途掛進的 dialog 標題從不是 Settings）",
     async (from) => {
       const watcher = watchDialogTitles();
       try {
@@ -193,7 +199,7 @@ describe("AdminModal（/admin/*，#247 §7）", () => {
     await waitFor(() => expect(path()).toBe(BG.pathname));
   });
 
-  it("M7 各項次的內容：Groups／Sign-in／Storage plans／AI agents 點了都換成該區塊（h1）", async () => {
+  it("M7 各項次的內容：Groups／Sign-in／Storage plans／AI agents／Site limits 點了都換成該區塊（h1）", async () => {
     renderAt("/admin/users", mockFetch(() => ADMIN_USER));
     const dialog = await screen.findByRole("dialog", { name: "Site admin" });
     const nav = within(within(dialog).getByRole("navigation", { name: "Site admin" }));
@@ -202,6 +208,7 @@ describe("AdminModal（/admin/*，#247 §7）", () => {
       ["Sign-in", "/admin/login", "Sign-in"],
       ["Storage plans", "/admin/storage", "Storage plans"],
       ["AI agents", "/admin/ai", "AI providers & actions"],
+      ["Site limits", "/admin/limits", "Site limits"],
     ] as const) {
       fireEvent.click(nav.getByRole("link", { name: link }));
       await waitFor(() => expect(path()).toBe(url));
@@ -209,7 +216,7 @@ describe("AdminModal（/admin/*，#247 §7）", () => {
     }
   });
 
-  it("M8 「Storage plans」頁同時有方案表、版本總開關與保留政策表單（§7.0）", async () => {
+  it("M8 「Storage plans」頁同時有方案表、版本總開關與保留政策表單", async () => {
     renderAt("/admin/storage", mockFetch(() => ADMIN_USER));
     const dialog = await screen.findByRole("dialog", { name: "Site admin" });
     expect(await within(dialog).findByRole("heading", { level: 1, name: "Storage plans" })).toBeInTheDocument();

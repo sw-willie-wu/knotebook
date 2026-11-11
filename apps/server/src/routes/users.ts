@@ -2,7 +2,7 @@
  * 加成員／分享對話框的使用者建議：`GET /api/users/suggest?q=`。
  *
  * **隱私邊界**：這**不是**全站名錄——全站搜尋會讓任何登入者列舉所有帳號的 email。只在呼叫者「已經認識」的人裡找：
- * ① 與呼叫者同在至少一個群組的成員（`GET /api/groups/:id/members` 本來就把他們的 email 給任何成員看——A8；
+ * ① 與呼叫者同在至少一個群組的成員（`GET /api/groups/:id/members` 本來就把他們的 email 給任何成員看）；
  *    那支哪天收回成員的 email，① 要一起拿掉，見 routes/groups.ts 該路由上的註解）；
  * ② 呼叫者把**自己的**筆記逐人分享過的對象（`GET /api/notes/:id/shares` 本來就給 owner 看）。垃圾桶裡的筆記不算（`deleted_at IS NULL`；
  *    那時分享名單在介面上看不到，還原後就又算了）。
@@ -32,7 +32,7 @@ const suggestQuerySchema = z
     q: z
       .string()
       .transform(s => s.trim())
-      .pipe(z.string().min(USER_SUGGEST_MIN_QUERY, "查詢字串太短").max(USER_SUGGEST_MAX_QUERY, "查詢字串太長")),
+      .pipe(z.string().min(USER_SUGGEST_MIN_QUERY, "The query is too short.").max(USER_SUGGEST_MAX_QUERY, "The query is too long.")),
   })
   .strict();
 
@@ -50,9 +50,9 @@ export function usersRoutes(deps: UsersRouteDeps) {
   return async function register(app: FastifyInstance): Promise<void> {
     app.get("/api/users/suggest", { preHandler: app.authenticate }, async (request, reply) => {
       const parsed = suggestQuerySchema.safeParse(request.query ?? {});
-      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "Invalid request body.");
       const me = request.user!.id;
-      if (!deps.limiters.userSuggest.consume(me)) return sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
+      if (!deps.limiters.userSuggest.consume(me)) return sendError(reply, 429, "too_many_requests", "Too many requests. Wait a moment and try again.");
 
       const escaped = escapeLike(parsed.data.q);
       const contains = `%${escaped}%`;

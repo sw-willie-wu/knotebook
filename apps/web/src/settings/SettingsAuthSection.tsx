@@ -1,6 +1,7 @@
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { AdminAuthProbeResultDto, AdminAuthProviderDto } from "@knotebook/shared";
+import { useSiteLimits } from "@/api/siteLimits";
 import {
   useAdminAuthProviders,
   useAuthProviderImpact,
@@ -30,10 +31,36 @@ import { authErrorMessage } from "./auth-error-message";
 import { CreateProviderDialog, EditProviderDialog } from "./AuthProviderDialogs";
 import { ProviderIconDialog } from "./ProviderIconDialog";
 import { SettingsGroup, SettingsPage } from "./SettingsLayout";
+import { categoryKeys, serverErrorMessage, SiteLimitsGroup } from "./SettingsLimitsSection";
 import { SiteAccessSettings } from "./SiteAccessSettings";
 import "@/i18n/management-strings";
 
-/** 停用前確認（W11：停用前提示受影響人數）。人數是開 dialog 當下的快照（§9.3）。 */
+/** 「登入期限與 token」：網頁登入有效期（以小時填）與每人有效 API token 上限，沿用站台限制分頁的列與儲存邏輯。 */
+function SessionAndTokensGroup() {
+  const { t } = useTranslation();
+  const query = useSiteLimits();
+  const title = t("admin.limits.categories.signIn");
+  if (query.isPending) {
+    return (
+      <SettingsGroup title={title}>
+        <p className="text-sm text-muted-foreground">{t("app.loading")}</p>
+      </SettingsGroup>
+    );
+  }
+  // 只在沒有資料時換成錯誤文字：有舊資料時背景重抓失敗，不能把輸入到一半的內容整組拆掉。
+  if (query.data === undefined) {
+    return (
+      <SettingsGroup title={title}>
+        <p role="alert" className="text-sm text-destructive">
+          {serverErrorMessage(t, query.error)}
+        </p>
+      </SettingsGroup>
+    );
+  }
+  return <SiteLimitsGroup title={title} keys={categoryKeys("signIn")} data={query.data} />;
+}
+
+/** 停用前確認（停用前提示受影響人數）。人數是開 dialog 當下的快照。 */
 function DisableProviderDialog({
   provider,
   open,
@@ -66,7 +93,7 @@ function DisableProviderDialog({
         {/* 顯示名是管理員輸入：獨立文字節點，不進 t() 插值（Global Constraints）。 */}
         <p className="text-sm font-medium">{provider.displayName}</p>
         {/* 列上的「已連結」欄與這裡共用同一把 query key：開框時快取裡已有列載入時的舊人數（isPending=false），
-            重抓完成前一律顯示載入中，才維持「開框當下的快照」、不先閃過期人數（#247 §7.0）。 */}
+            重抓完成前一律顯示載入中，才維持「開框當下的快照」、不先閃過期人數（#247）。 */}
         {impact.isPending || impact.isFetching ? (
           <p className="text-sm text-muted-foreground">{t("admin.auth.impactLoading")}</p>
         ) : impact.isError ? (
@@ -97,7 +124,7 @@ function DisableProviderDialog({
 }
 
 /**
- * 刪除（W11）。刪除要先停用：啟用中時是 `aria-disabled`（`RowIconButton` 的 softDisabled），`title` 與明細列的可見文字都說明原因，
+ * 刪除。刪除要先停用：啟用中時是 `aria-disabled`（`RowIconButton` 的 softDisabled），`title` 與明細列的可見文字都說明原因，
  * 並以 `aria-describedby`（`disabledHintId`，那段文字在明細列）連過去；server 另以 409 `provider_enabled` 把關。
  */
 function DeleteProviderDialog({ provider, disabledHintId }: { provider: AdminAuthProviderDto; disabledHintId: string }) {
@@ -164,7 +191,7 @@ function configKeyOf(provider: AdminAuthProviderDto): string {
   return `${provider.issuerUrl}|${provider.clientId ?? ""}|${provider.hasSecret}`;
 }
 
-/** 「已連結」欄（Q2 裁定：每列一支唯讀的 impact 查詢，不改 server）；`DisableProviderDialog` 共用同一把 key，開框時照舊重抓。 */
+/** 「已連結」欄（每列一支唯讀的 impact 查詢，不改 server）；`DisableProviderDialog` 共用同一把 key，開框時照舊重抓。 */
 function LinkedCount({ providerId }: { providerId: string }) {
   const impact = useAuthProviderImpact(providerId, true);
   return <span className="tabular-nums">{impact.data ? impact.data.linkedUsers : "—"}</span>;
@@ -202,7 +229,7 @@ function ProviderEnabledSwitch({ provider, labelledBy }: { provider: AdminAuthPr
 }
 
 /**
- * 自動建帳開關（PR-C）。control 欄第一次放 switch：可及名稱用 `aria-label`，不是啟用欄的 `aria-labelledby`（spec §3.7 N3）。
+ * 自動建帳開關。control 欄第一次放 switch：可及名稱用 `aria-label`，不是啟用欄的 `aria-labelledby`。
  * 切換即送單獨一欄的 PATCH，不跳確認框；服務停用中也可切（先設好再啟用）。
  */
 function ProviderAutoCreateSwitch({ provider }: { provider: AdminAuthProviderDto }) {
@@ -227,7 +254,7 @@ function ProviderAutoCreateSwitch({ provider }: { provider: AdminAuthProviderDto
   );
 }
 
-/** 列尾操作鈕（spec §2.7 的順序：測試／次要 → 編輯 → 危險，即測試 → 圖示 → 編輯 → 刪除；spec §3 #4 同序）。測試的進行中與結果交給上層保存、在明細列顯示。 */
+/** 列尾操作鈕（順序：測試／次要 → 編輯 → 危險，即測試 → 圖示 → 編輯 → 刪除）。測試的進行中與結果交給上層保存、在明細列顯示。 */
 function ProviderActions({
   provider,
   deleteHintId,
@@ -268,7 +295,7 @@ function ProviderActions({
 }
 
 /**
- * 明細列（spec §3 #4：現有內容全數保留）：刪除停用說明（`deleteDisabledHint`，刪除鈕的 aria-describedby 目標）、client ID、
+ * 明細列（現有內容全數保留）：刪除停用說明（`deleteDisabledHint`，刪除鈕的 aria-describedby 目標）、client ID、
  * 回呼網址與複製鈕、secret 已存／未存、未連線、不安全 issuer（紅色）、測試中狀態與結果。
  */
 function ProviderDetail({
@@ -340,8 +367,8 @@ function ProviderDetail({
 }
 
 /**
- * #187 §9.4：站台管理 → 登入（站台 modal 的 `/admin/login`；舊網址 `/admin/auth` 轉過來，#247 §7.0）。頂部是「允許帳號密碼登入」與「允許用帳號密碼自行註冊」（`SiteAccessSettings`），下面是登入服務管理。
- * 新增與編輯 dialog 在 `AuthProviderDialogs.tsx`。登入服務表（spec 2026-10-13 settings-table §3 #4）：服務（圖示、名稱；副標＝範本名＋legacy 標記）｜Issuer｜已連結｜自動建帳（control 欄的 switch，PR-C）｜操作｜啟用，
+ * #187：站台管理 → 登入（站台 modal 的 `/admin/login`；舊網址 `/admin/auth` 轉過來，#247）。頂部是「允許帳號密碼登入」與「允許用帳號密碼自行註冊」（`SiteAccessSettings`），下面是登入服務管理。
+ * 新增與編輯 dialog 在 `AuthProviderDialogs.tsx`。登入服務表：服務（圖示、名稱；副標＝範本名＋legacy 標記）｜Issuer｜已連結｜自動建帳（control 欄的 switch）｜操作｜啟用，
  * 其餘資訊在明細列。
  */
 export function SettingsAuthSection() {
@@ -407,6 +434,7 @@ export function SettingsAuthSection() {
   return (
     <SettingsPage title={t("admin.auth.title")} description={t("admin.auth.description")}>
       <SiteAccessSettings />
+      <SessionAndTokensGroup />
       <SettingsGroup
         title={t("admin.auth.providersHeading")}
         description={t("admin.auth.providersDescription")}

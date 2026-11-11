@@ -2,19 +2,30 @@ import "@/i18n/select-strings";
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
+import { X } from "@/components/ui/icons";
+import { SelectAllCheckbox } from "@/components/ui/selection-checkbox";
 import { NARROW_QUERY } from "@/lib/sidebar-drawer";
+import { selectAllState } from "@/lib/sidebar-selection";
 import { useSidebarTabActions, useSidebarTabState } from "@/lib/sidebar-tab";
+import { useWidePointer } from "@/lib/wide-pointer";
 import { isCollapsed, useCollapseVersion } from "./collapse";
-import { selectedTabNotes, visibleNoteKeys } from "./select-model";
+import { SelectActionBar } from "./SelectActionBar";
+import { selectedTargets, visibleSelectionKeys } from "./select-model";
+import { useSelectRun } from "./select-run";
 import type { SidebarNode } from "./tree";
 
 /** 開著的 Radix Toast（`@radix-ui/react-toast` 的 root 是 `<li data-swipe-direction data-state>`）。 */
 const OPEN_TOAST = 'li[data-swipe-direction][data-state="open"]';
 
 /**
- * 一般 tab 選取模式的標題列（#181 PR-2c，spec §6.11；class 同 `TrashPanel.renderHeader` 的選取支）：「已選 N 項」＋全選／取消全選＋完成。
- * 「全選」只勾畫面上看得見的列（收合群組的子樹不算，資料夾 spec §6.10）、不清掉先前在收合子樹裡勾的；「已選 N 項」不看收合。
- * 「全選／取消全選／完成」沿用首包的 `trash.*` 字串（鍵名前綴不準，但改名要動首包兩語系與 PR-2b 測試）。
+ * 一般 tab 選取模式的標題列（#181，class 同 `TrashPanel.renderHeader` 的選取支）。兩種形（`useWidePointer`）：
+ * - 窄：「已選 N 項」＋全選／取消全選＋完成；動作列在底部（`SidebarFooter`）。
+ * - 寬：一列——✕（結束選取，就是「完成」的角色：`onMounted` 交它、Esc 規則不變）＋三態全選框＋數量位（批次執行中換成進度 status）＋
+ *   `SelectActionBar` 的 `toolbar` 形；底部不顯示。
+ * 「全選」只勾畫面上看得見的列（資料夾列與筆記列都算；收合的群組／資料夾的子樹不算）、不清掉先前在收合子樹裡勾的；
+ * 「取消全選」（三態框全勾時點下去）清掉全部、含收合子樹裡勾的。
+ * 「已選 N 項」＝資料夾與筆記合計、不看收合、不去重（去重在送出前）。
+ * 「全選／取消全選／完成／結束選取」沿用首包的 `trash.*` 字串（鍵名前綴不準，但改名要動首包兩語系與垃圾桶的測試）。
  * 只准經 `SelectLazy` 引用。
  */
 export function SelectHeader({
@@ -23,16 +34,21 @@ export function SelectHeader({
   onDone,
 }: {
   nodes: readonly SidebarNode[];
-  /** 掛上時呼叫一次（useLayoutEffect）；NoteList 用它把焦點交給「完成」（只在發起的那一份設過旗標時）。 */
+  /** 掛上時呼叫一次（useLayoutEffect）；NoteList 用它把焦點交給「完成」（寬形是 ✕；只在發起的那一份設過旗標時）。 */
   onMounted: (done: HTMLButtonElement | null) => void;
-  /** 「完成」與 Esc：NoteList 設焦點旗標後結束選取。 */
+  /** 「完成」／✕ 與 Esc：NoteList 設焦點旗標後結束選取。 */
   onDone: () => void;
 }) {
   const { t } = useTranslation();
+  const wide = useWidePointer();
   const { selection } = useSidebarTabState();
-  const { updateSelection } = useSidebarTabActions();
+  const actions = useSidebarTabActions();
+  const { updateSelection } = actions;
+  // 批次執行中（所有實例共用，見 select-run.ts）：寬形把數量位換成進度。
+  const run = useSelectRun(actions);
   // 收合變動時重繪：「全選／取消全選」看可見列。
   useCollapseVersion();
+  /** Esc 守衛 ⑤⑥ 由它找所在的 `[data-sidebar-instance]`：寬形掛在恆在的外層（數量位換成進度時不換），窄形掛在數量位。 */
   const rootRef = useRef<HTMLSpanElement>(null);
   const doneRef = useRef<HTMLButtonElement>(null);
   const onMountedRef = useRef(onMounted);
@@ -44,7 +60,20 @@ export function SelectHeader({
     onMountedRef.current(doneRef.current);
   }, []);
 
-  // Esc（plan 讀碼發現 20）：選取模式在使用者離開側欄時不會結束，所以 document 層監聽要有範圍，下列全部成立才動作。
+  // 選取中跨過寬窄判準：焦點所在的鈕（✕、圖示鈕、完成…）隨換形卸載，焦點會掉到 body。
+  // render 時（舊 DOM 還在）記下焦點是否在本實例的標題列裡；換形後焦點落在 body 就交給新形的 doneRef（寬＝✕、窄＝完成）。
+  const focusInHeaderRef = useRef(false);
+  const header = rootRef.current?.closest("[data-sidebar-header]") ?? null;
+  focusInHeaderRef.current = header !== null && header.contains(document.activeElement);
+  const prevWideRef = useRef(wide);
+  useLayoutEffect(() => {
+    if (prevWideRef.current === wide) return;
+    prevWideRef.current = wide;
+    const active = document.activeElement;
+    if (focusInHeaderRef.current && (active === null || active === document.body)) doneRef.current?.focus();
+  }, [wide]);
+
+  // Esc：選取模式在使用者離開側欄時不會結束，所以 document 層監聽要有範圍，下列全部成立才動作。
   useEffect(() => {
     /** 本次按鍵在 window capture（最早）時是否有開著的 toast：真瀏覽器在 listener 之間跑 microtask，到 bubble 時 toast 可能已關。 */
     let toastOpenAt: Event | null = null;
@@ -76,26 +105,60 @@ export function SelectHeader({
     };
   }, []);
 
-  const count = selectedTabNotes(nodes, selection.keys).length;
-  const visible = visibleNoteKeys(nodes, isCollapsed);
-  const allVisibleSelected = visible.length > 0 && visible.every((key) => selection.keys.has(key));
+  const count = selectedTargets(nodes, selection.keys).length;
+  const visible = visibleSelectionKeys(nodes, isCollapsed);
+  const allState = selectAllState(visible, selection.keys);
+  /** 全勾 → 清空全部（含收合子樹裡勾的）；否則 → 勾上可見列、保留已勾的。 */
+  const toggleAll = () =>
+    updateSelection(allState === "all" ? { type: "clear" } : { type: "setAll", keys: [...new Set([...selection.keys, ...visible])] });
+  const countText = t("select.selected", { count });
+
+  if (wide) {
+    const progressText = run === null ? null : t("select.progress", run.progress);
+    return (
+      <span ref={rootRef} className="flex min-w-0 flex-1 items-center gap-0.5">
+        <Button
+          ref={doneRef}
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label={t("trash.exitSelect")}
+          title={t("trash.exitSelect")}
+          onClick={onDone}
+          className="h-6 w-6 shrink-0"
+        >
+          <X aria-hidden="true" className="h-3.5 w-3.5" />
+        </Button>
+        <SelectAllCheckbox
+          state={allState}
+          disabled={visible.length === 0}
+          onToggle={toggleAll}
+          label={t("trash.selectAll")}
+          title={allState === "all" ? t("trash.deselectAll") : t("trash.selectAll")}
+        />
+        <span className="flex h-6 min-w-0 flex-1 items-center px-1 text-[11px] font-semibold tracking-wide text-brand-on-soft">
+          {progressText === null ? (
+            <span className="truncate" title={countText}>
+              {countText}
+            </span>
+          ) : (
+            <span role="status" className="truncate font-normal text-muted-foreground" title={progressText}>
+              {progressText}
+            </span>
+          )}
+        </span>
+        <SelectActionBar layout="toolbar" />
+      </span>
+    );
+  }
 
   return (
     <>
       <span ref={rootRef} className="flex h-6 min-w-0 flex-1 items-center px-2 text-[11px] font-semibold tracking-wide text-brand-on-soft">
-        <span className="truncate">{t("select.selected", { count })}</span>
+        <span className="truncate">{countText}</span>
       </span>
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        disabled={visible.length === 0}
-        onClick={() =>
-          updateSelection(allVisibleSelected ? { type: "clear" } : { type: "setAll", keys: [...new Set([...selection.keys, ...visible])] })
-        }
-        className="h-6 px-2 text-xs"
-      >
-        {allVisibleSelected ? t("trash.deselectAll") : t("trash.selectAll")}
+      <Button type="button" variant="ghost" size="sm" disabled={visible.length === 0} onClick={toggleAll} className="h-6 px-2 text-xs">
+        {allState === "all" ? t("trash.deselectAll") : t("trash.selectAll")}
       </Button>
       <Button ref={doneRef} type="button" variant="outline" size="sm" onClick={onDone} className="h-6 px-2 text-xs">
         {t("trash.done")}

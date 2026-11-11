@@ -6,6 +6,7 @@ import type { UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
 import { AppRoutes } from "./App";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 /**
  * #201 接線案：釘 App.tsx 的 `LazyPageRoute` **真的**把整頁 lazy route 包進
@@ -13,7 +14,7 @@ import { AppRoutes } from "./App";
  * 分實例。boundary 自身的行為在 ErrorBoundary.test.tsx（案 A–D），那裡手組的形狀對
  * 不代表 App.tsx 的對——比照 App.errorBoundary.test.tsx 案 11／11a。
  *
- * ⚠⚠ 每個頁面的「throw」案必須是本檔第一個觸發該頁 lazy 的案子（AdminSections（站台 modal 的五個區塊，#247）、RegisterPage
+ * ⚠⚠ 每個頁面的「throw」案必須是本檔第一個觸發該頁 lazy 的案子（AdminSections（站台 modal 的六個區塊，#247）、RegisterPage
  * 各自的 lazy 是模組級單例，只有第一次觸發會經過 suspend 期）。「beacon 錯放到 Suspense
  * 外」的守門靠那次 pending 期：錯放的 beacon 會在 pending 期 commit、清掉種下的旗標，
  * 讓 componentDidCatch 誤判「首次」而走 reload＋載入畫面——錯誤文案斷言與「reload 沒被
@@ -23,7 +24,7 @@ import { AppRoutes } from "./App";
  * lazy 第一次動態 import 時執行並把它設成 true，所以這條把「本案是第一個觸發者」的順序
  * 假設變成會紅的斷言。⚠ 不能改用「render 後此刻不是錯誤畫面」當前置斷言：/admin 在
  * RequireAuth 底下、要等非同步的 /api/auth/me，render 當下**必然**不是錯誤畫面，不論 lazy
- * 是否已載入過（審查實測：admin 的 ok 案移到 throw 案前＋beacon 錯放，admin 案照綠）。
+ * 是否已載入過（admin 的 ok 案移到 throw 案前＋beacon 錯放，admin 案照綠）。
  */
 
 // vi.mock 是 hoisted 的——共享狀態走 vi.hoisted；模式要在 mock 元件函式本體內讀
@@ -52,6 +53,7 @@ vi.mock("./components/admin/AdminSections", () => {
     AdminLoginSection: make("adminsections-login"),
     AdminStorageSection: make("adminsections-storage"),
     AdminAiSection: make("adminsections-ai"),
+    AdminLimitsSection: make("adminsections-limits"),
   };
 });
 
@@ -103,6 +105,7 @@ function stubFetch() {
     vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/auth/me") return Promise.resolve(fakeResponse(true, 200, ADMIN_USER));
+      if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
       if (url === "/api/groups" || url === "/api/notes") return Promise.resolve(fakeResponse(true, 200, []));
       return Promise.resolve(fakeResponse(false, 404));
     }),
@@ -153,8 +156,8 @@ describe("App route tree — 整頁 lazy route 的 ErrorBoundary 接線（#201�
     sessionStorage.setItem(ADMIN_FLAG, "1");
     renderAt("/admin/users");
 
-    const dialog = await screen.findByRole("dialog", { name: "Site admin" }, { timeout: 3_000 });
-    await waitFor(() => expect(within(dialog).getByText(CHUNK_ERROR_TEXT)).toBeInTheDocument(), { timeout: 3_000 });
+    const dialog = await screen.findByRole("dialog", { name: "Site admin" });
+    await waitFor(() => expect(within(dialog).getByText(CHUNK_ERROR_TEXT)).toBeInTheDocument());
     expect(within(dialog).getByRole("button", { name: "Try again" })).toBeInTheDocument();
     expect(within(dialog).getByRole("navigation", { name: "Site admin" })).toBeInTheDocument();
     expect(screen.queryByText("Something went wrong")).not.toBeInTheDocument();
@@ -167,8 +170,24 @@ describe("App route tree — 整頁 lazy route 的 ErrorBoundary 接線（#201�
     mockPages.admin = "ok";
     renderAt("/admin/users");
 
-    await waitFor(() => expect(screen.getByText("adminsections-mock-ok")).toBeInTheDocument(), { timeout: 3_000 });
+    await waitFor(() => expect(screen.getByText("adminsections-mock-ok")).toBeInTheDocument());
     expect(sessionStorage.getItem(ADMIN_FLAG)).toBeNull();
+  });
+
+  it("站台 modal 六個區塊都來自同一個 AdminSections 模組：/admin/limits 渲染它的 AdminLimitsSection", async () => {
+    mockPages.admin = "ok";
+    renderAt("/admin/limits");
+
+    const dialog = await screen.findByRole("dialog", { name: "Site admin" });
+    await waitFor(() => expect(within(dialog).getByText("adminsections-limits")).toBeInTheDocument());
+    expect(within(dialog).getAllByRole("link").map((l) => l.getAttribute("href"))).toEqual([
+      "/admin/users",
+      "/admin/groups",
+      "/admin/login",
+      "/admin/storage",
+      "/admin/ai",
+      "/admin/limits",
+    ]);
   });
 
   it("/register（frame=page）：RegisterPage chunk 失敗（旗標已設）→ 錯誤畫面＋重試、不 reload、旗標仍在", async () => {
@@ -177,7 +196,7 @@ describe("App route tree — 整頁 lazy route 的 ErrorBoundary 接線（#201�
     sessionStorage.setItem(REGISTER_FLAG, "1");
     renderAt("/register");
 
-    await waitFor(() => expect(screen.getByText(CHUNK_ERROR_TEXT)).toBeInTheDocument(), { timeout: 3_000 });
+    await waitFor(() => expect(screen.getByText(CHUNK_ERROR_TEXT)).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
     expect(reload).not.toHaveBeenCalled();
     expect(sessionStorage.getItem(REGISTER_FLAG)).toBe("1");
@@ -188,7 +207,7 @@ describe("App route tree — 整頁 lazy route 的 ErrorBoundary 接線（#201�
     mockPages.register = "ok";
     renderAt("/register");
 
-    await waitFor(() => expect(screen.getByText("registerpage-mock-ok")).toBeInTheDocument(), { timeout: 3_000 });
+    await waitFor(() => expect(screen.getByText("registerpage-mock-ok")).toBeInTheDocument());
     expect(sessionStorage.getItem(REGISTER_FLAG)).toBeNull();
   });
 
@@ -196,13 +215,13 @@ describe("App route tree — 整頁 lazy route 的 ErrorBoundary 接線（#201�
     sessionStorage.setItem(REGISTER_FLAG, "1");
     sessionStorage.setItem(LINK_ACCOUNT_FLAG, "1");
     renderAt("/register");
-    await waitFor(() => expect(screen.getByText(CHUNK_ERROR_TEXT)).toBeInTheDocument(), { timeout: 3_000 });
+    await waitFor(() => expect(screen.getByText(CHUNK_ERROR_TEXT)).toBeInTheDocument());
 
     act(() => navigateFn?.("/link-account"));
 
     // 同一個 boundary 實例被兩條 route 共用的話，error 態會留著（resetKey 不變→不動作），
     // link-account 頁永遠出不來。
-    await waitFor(() => expect(screen.getByText("linkaccountpage-mock-ok")).toBeInTheDocument(), { timeout: 3_000 });
+    await waitFor(() => expect(screen.getByText("linkaccountpage-mock-ok")).toBeInTheDocument());
     expect(screen.queryByText(CHUNK_ERROR_TEXT)).not.toBeInTheDocument();
     expect(reload).not.toHaveBeenCalled();
     // link-account 成功掛載只清自己的額度，不碰 register 的

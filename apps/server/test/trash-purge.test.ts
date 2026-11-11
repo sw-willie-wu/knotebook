@@ -1,4 +1,4 @@
-/** #181 PR-2a T10：保留期清理工作（spec §6.6、A2-7）。 */
+/** #181：保留期清理工作。 */
 import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -26,7 +26,7 @@ const expired = async (db: Db, owner: string, ago = "8 days") => {
   return n.id;
 };
 
-describe("PU1 到期邊界與附件（A2-7）", () => {
+describe("PU1 到期邊界與附件", () => {
   it("停用帳號的筆記照樣清理；7 天＋1 分鐘前的刪、7 天－1 分鐘前與活筆記留下", async () => {
     const { db, uploadsDir } = await buildTestApp();
     const owner = await seedUser(db, { disabled: true });
@@ -203,7 +203,7 @@ describe("PU9 交易爆不先刪檔", () => {
   });
 });
 
-describe("PU10 刪檔失敗的 log 只記 name／code／uploadId（T9 concern 3）", () => {
+describe("PU10 刪檔失敗的 log 只記 name／code／uploadId", () => {
   it("缺檔 → log.error 的物件鍵恰為 name、code、uploadId，沒有 err", async () => {
     const uploadsDir = mkdtempSync(path.join(tmpdir(), "kn-pu10-"));
     const calls: unknown[] = [];

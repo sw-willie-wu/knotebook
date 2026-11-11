@@ -17,8 +17,8 @@ const GITLAB_ICON: ProviderIconDto = { type: "builtin", name: "gitlab" };
 const GOOGLE_ICON: ProviderIconDto = { type: "builtin", name: "google" };
 
 /**
- * 登入服務圖示對話框（spec 2026-10-07-provider-icon §6.3、D6）：五個選項各附預覽，按「儲存」才生效——上傳走 PUT、其他走 PATCH {iconKind}；
- * 無變更直接關（Q6）。表單型 → `dismissOnOutside={false}`。開或關都重設為目前的 iconKind（RF5）；縮圖的 `blob:` 在換掉或關閉時釋放。
+ * 登入服務圖示對話框：五個選項各附預覽，按「儲存」才生效——上傳走 PUT、其他走 PATCH {iconKind}；
+ * 無變更直接關。表單型 → `dismissOnOutside={false}`。開或關都重設為目前的 iconKind；縮圖的 `blob:` 在換掉或關閉時釋放。
  * 開或關都遞增 `generation`：關閉時還在跑的縮圖，回來後發現 generation 已變就丟掉結果（不建 `blob:`、不寫 state）——否則取消後再開會漏進舊檔。
  * 儲存中（`busy`）不得關閉：Cancel 停用、`onOpenChange` 擋下 X／Esc（點外面本來就擋）——否則取消再重開時 `choice` 停在舊 iconKind，
  * PUT 成功後直接按 Save 會送 PATCH 把剛上傳的圖清掉。`busy` 涵蓋到「成功後等 admin providers 重抓完」（`refreshing`）：mutation 的 invalidate 不等 refetch，
@@ -75,7 +75,7 @@ export function ProviderIconDialog({ provider }: { provider: AdminAuthProviderDt
   }
 
   const busy = patch.isPending || upload.isPending || refreshing;
-  // Q6：選上傳、目前不是 upload、還沒有新檔 → 無從儲存。
+  // 選上傳、目前不是 upload、還沒有新檔 → 無從儲存。
   const needsFile = choice === "upload" && provider.iconKind !== "upload" && picked === null;
 
   async function handleSave(): Promise<void> {
@@ -87,7 +87,7 @@ export function ProviderIconDialog({ provider }: { provider: AdminAuthProviderDt
       } else if (choice !== "upload" && choice !== provider.iconKind) {
         await patch.mutateAsync({ id: provider.id, body: { iconKind: choice } });
       }
-      // 其餘＝無變更（Q6）：不送請求，直接關。
+      // 其餘＝無變更：不送請求，直接關。
       if (choice === "upload" ? picked !== null : choice !== provider.iconKind) {
         // 寫入成功：等列表重抓完再關（沿用進行中的重抓，不取消重來）；重抓失敗不擋關閉。
         setRefreshing(true);
@@ -110,7 +110,7 @@ export function ProviderIconDialog({ provider }: { provider: AdminAuthProviderDt
   function preview(kind: ProviderIconKind): ProviderIconDto {
     switch (kind) {
       case "template":
-        // template 分支不讀 version（spec §6.3）。
+        // template 分支不讀 version。
         return resolveProviderIcon({ id: provider.id, template: provider.template, iconKind: "template", iconVersion: 0 });
       case "gitlab":
         return GITLAB_ICON;

@@ -1,6 +1,6 @@
-// 並排排版（spec 2026-10-21 columns-layout §5.1）的兩個節點：`columnList`（列）與 `column`（欄）。
+// 並排排版的兩個節點：`columnList`（列）與 `column`（欄）。
 // MIT 自寫、clean-room：不引入也不參考 `@blocknote/xl-multi-column`。節點名沿用 core 的 `columnList`／`column`，
-// 才吃得到 core 內建的 `UniqueID`（types 含這兩名）、`fixColumnList`、鍵盤與 SideMenu 行為（spec §4-1）。
+// 才吃得到 core 內建的 `UniqueID`（types 含這兩名）、`fixColumnList`、鍵盤與 SideMenu 行為。
 // 同 note-schema-config.ts：只有 renderHTML／toExternalHTML 閉包碰 document，且只在掛載與匯出時被呼叫。
 //
 // parse：列的規則以 getAttrs 限定至少兩欄；外部形的欄規則（`div[data-kb-column]`）另限定父元素是合格的外部列——
@@ -48,7 +48,12 @@ export function parseColumnFlex(style: string | null): number {
   return m ? clampColumnWidth(Number(m[1])) : COLUMN_WIDTH_DEFAULT;
 }
 
-const countChildren = (el: Element, selector: string) => Array.from(el.children).filter((c) => c.matches(selector)).length;
+// #398 順手：走兄弟（`firstElementChild`／`nextElementSibling`）——server 端 DOM（jsdom）的 `children` 每讀一次是 O(子數)。
+const countChildren = (el: Element, selector: string) => {
+  let n = 0;
+  for (let c = el.firstElementChild; c !== null; c = c.nextElementSibling) if (c.matches(selector)) n++;
+  return n;
+};
 const hasEnoughColumns = (el: HTMLElement) =>
   countChildren(el, "div[data-node-type=column],div[data-kb-column]") >= COLUMNS_MIN ? {} : false;
 const inExternalRow = (el: HTMLElement) => {
@@ -102,7 +107,7 @@ export const ColumnNode = Node.create({
   },
 });
 
-// toExternalHTML 自寫、不經 defaultBlockToHTML（spec §4-2）：只帶 §11.1 的屬性，不帶 class／data-id／data-node-type。
+// toExternalHTML 自寫、不經 defaultBlockToHTML：只帶讀出正規形的屬性，不帶 class／data-id／data-node-type。
 const listSpec = createBlockSpecFromTiptapNode({ node: ColumnListNode, type: COLUMN_LIST_TYPE, content: "none" }, {});
 export const columnListBlockSpec: typeof listSpec = {
   ...listSpec,

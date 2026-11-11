@@ -5,7 +5,7 @@ import { cardSurface } from "./ui/card";
 import { cn } from "@/lib/utils";
 
 /**
- * NotePage chunk 載入中的 fallback——**必須包 AppShell**（審查抓到的 blocking：裸 <p>
+ * NotePage chunk 載入中的 fallback——**必須包 AppShell**（裸 <p>
  * 會讓「從首頁點開第一篇筆記」的瞬間整個側欄/選單消失、白頁閃一下再全部長回來——
  * 恰好發生在本改動要優化的路徑上，而 AppShell 的相依全在首包裡，包它零成本）。
  * 內容沿用 NotePage 自己資料載入時的同款樣式與文案（`app.loading`），如此使用者
@@ -20,7 +20,7 @@ export function NotePageFallback() {
   const { t } = useTranslation();
   return (
     <AppShell>
-      {/* PR2（G 節）：跟 NotePage/HomePage 同一款佔位/內文卡——main 已無自身捲動，
+      {/* 跟 NotePage/HomePage 同一款佔位/內文卡——main 已無自身捲動，
           overflow-y-auto 掛在卡自己身上。 */}
       <div className={cn(cardSurface, "min-w-0 flex-1 overflow-y-auto")}>
         <NarrowTopBar />

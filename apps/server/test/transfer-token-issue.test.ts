@@ -1,5 +1,5 @@
 /**
- * #200 spec §4.2、§4.3a、§4.6：簽發交易本體（`auth/tx/issue-transfer-token.ts`）與過期清理。直接呼叫交易本體——
+ * #200：簽發交易本體（`auth/tx/issue-transfer-token.ts`）與過期清理。直接呼叫交易本體——
  * MCP 那層（scope、角色、扣桶、錯誤映射、測試縫）在 `mcp-transfer*.test.ts`。
  */
 import { randomUUID } from "node:crypto";
@@ -40,7 +40,7 @@ async function dbNowMs(db: Db): Promise<number> {
   return Number(rows[0]!.ms);
 }
 
-describe("issueTransferTokenInTx（spec §4.2）", () => {
+describe("issueTransferTokenInTx", () => {
   it("簽出：一列、noteId 是 DB 小寫形（輸入大寫也一樣）、expiresAt ≈ now＋10 分", async () => {
     const { db } = await freshDb();
     const o = await ownerWithPat(db);
@@ -90,7 +90,7 @@ describe("issueTransferTokenInTx（spec §4.2）", () => {
   });
 });
 
-describe("未消費 upload token 上限（spec §4.3a）", () => {
+describe("未消費 upload token 上限", () => {
   it("同一母憑證 5 支未消費 upload 之後第 6 支 too_many_pending；download 不受限；另一支母憑證不受影響", async () => {
     const { db } = await freshDb();
     const o = await ownerWithPat(db);
@@ -108,7 +108,7 @@ describe("未消費 upload token 上限（spec §4.3a）", () => {
     expect((await issue(db, o.patId, o.noteId, "upload")).kind).toBe("issued");
   });
 
-  it("RF4：5 支分散在 5 篇不同筆記也算滿——上限是每支母憑證，不是每篇", async () => {
+  it("5 支分散在 5 篇不同筆記也算滿——上限是每支母憑證，不是每篇", async () => {
     const { db } = await freshDb();
     const o = await ownerWithPat(db);
     for (let i = 0; i < 5; i++) {
@@ -131,7 +131,7 @@ describe("未消費 upload token 上限（spec §4.3a）", () => {
   });
 });
 
-describe("deleteExpiredTransferTokens（spec §4.6）", () => {
+describe("deleteExpiredTransferTokens", () => {
   it("只刪已過期的列", async () => {
     const { db } = await freshDb();
     const o = await ownerWithPat(db);

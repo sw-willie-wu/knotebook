@@ -5,6 +5,7 @@ import { MemoryRouter } from "react-router";
 import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
 import { AppShell } from "./AppShell";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 interface FakeResponseInit {
   ok: boolean;
@@ -25,6 +26,7 @@ function stubFetch() {
       if (url === "/api/groups" && method === "GET") {
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
       }
+      if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
       if (url === "/api/notes" && method === "GET") {
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
       }
@@ -41,11 +43,11 @@ function stubFetch() {
  * `h-screen overflow-hidden`（連同 `gap-3 bg-background p-3`），`main`
  * `min-h-0 min-w-0 flex-1 flex-col`（側欄卡化後捲動全部內移到側欄自己的清單
  * 容器，main 不再自己 `overflow-y-auto`，改成寬度鏈的起點——見 `AppShell.tsx`
- * 檔頭「PR2（BC2 卡片版面）」那段說明）。這類 class 組合在 jsdom 快照/一般
+ * 檔頭「卡片版面」那段說明）。這類 class 組合在 jsdom 快照/一般
  * 互動測試裡看起來完全正常，只有真的有滾動內容、真的有 flex 容器擠壓時才會
  * 露餡，必須直接斷言字串本身，不能只看畫面像不像對。
  *
- * 側欄寬度改 inline style（Task 4，可拖曳），根 `gap-3` 不動——拖曳把手是 `<aside>`
+ * 側欄寬度改 inline style（可拖曳），根 `gap-3` 不動——拖曳把手是 `<aside>`
  * 內 `absolute left-full w-3` 的子元素，約略蓋在這條間距上（以 padding box 定位、壓住 aside
  * 右框一個框寬；把手本身見 `AppShell.resize.test.tsx`）。
  */
@@ -83,14 +85,14 @@ describe("AppShell 版面 smoke", () => {
     const aside = root?.querySelector("aside");
     expect(aside).not.toBeNull();
     expect(aside).toHaveClass("relative", "hidden", "shrink-0", "md:flex", "md:flex-col");
-    // Task 4：寬度改 inline style（可拖曳），不再是 `w-64`；未存過寬度＝預設 256。
+    // 寬度改 inline style（可拖曳），不再是 `w-64`；未存過寬度＝預設 256。
     expect(aside).not.toHaveClass("w-64");
     expect(aside?.style.width).toBe("256px");
   });
 
-  // PR3：K logo 與新增筆記鈕跟主題色。K 的 <span> 是 aria-hidden——getByText 不受
-  // 可及性樹過濾，是這裡唯一取得到它的握把（N3）。ThemeProvider 掛載會恆設
-  // data-accent 在 <html> 上（見 theme.tsx）——m4：跟 UserMenu.test.tsx 同一套
+  // K logo 與新增筆記鈕跟主題色。K 的 <span> 是 aria-hidden——getByText 不受
+  // 可及性樹過濾，是這裡唯一取得到它的握把。ThemeProvider 掛載會恆設
+  // data-accent 在 <html> 上（見 theme.tsx）——跟 UserMenu.test.tsx 同一套
   // 清理紀律，finally 清掉避免污染同檔案後續案。
   it("K logo 套用 text-brand；新增筆記鈕套用 brand tint variant", async () => {
     try {

@@ -37,8 +37,8 @@ export function hashToken(plaintext: string): string {
 /**
  * `Authorization` header 的三態解析。三態分開的理由是 RFC 6750 對兩種失敗要求
  * 不同的 challenge：
- * - §3「unsupported authentication method」（例如 `Basic`）**SHOULD NOT** 帶 error；
- * - §3.1「malformed / invalid token」要帶 `error="invalid_token"`。
+ * - RFC 6750 §3「unsupported authentication method」（例如 `Basic`）**SHOULD NOT** 帶 error；
+ * - RFC 6750 §3.1「malformed / invalid token」要帶 `error="invalid_token"`。
  *
  * - `none`：完全沒有 header → 呼叫端回退 cookie session。
  * - `other-scheme`：有 header 但不是形狀完整的 `Bearer <token>`（含 `Basic`、空字串、
