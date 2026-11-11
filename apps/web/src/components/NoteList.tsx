@@ -28,6 +28,7 @@ import { StackPreview } from "@/components/sidebar/StackPreview";
 import { tabSpec, type HeaderActionId } from "@/components/sidebar/tab-specs";
 import { DROP_SCOPE_CLASS, useSidebarDrag } from "@/components/sidebar/useSidebarDrag";
 import { buildTabNodes, hasSelectableNodes, noteLocationLabel, noteSpaceKey, type LocationContext, type SidebarNode } from "@/components/sidebar/tree";
+import { tourTarget, type TourTargetId } from "@/lib/tour-targets";
 
 // 一般 tab 選取模式：只准經 SelectLazy 這個 lazy 入口（首包上限）。兩個掛點共用同一個 chunk。
 const SelectHeader = lazy(() => import("@/components/sidebar/SelectLazy").then((m) => ({ default: m.SelectHeader })));
@@ -166,6 +167,7 @@ function HeaderActionButton({
   buttonRef,
   reveal,
   icon: Icon = Plus,
+  tourTargetId,
 }: {
   label: string;
   /** `currentTarget` 給開框的呼叫端當還焦點的對象。 */
@@ -176,6 +178,8 @@ function HeaderActionButton({
   reveal?: RevealScope;
   /** 預設「＋」；「新增資料夾」傳 `FolderPlus`。 */
   icon?: (props: SVGProps<SVGSVGElement>) => ReactElement;
+  /** 功能導覽要指這顆時給（`lib/tour-targets.ts`）。 */
+  tourTargetId?: TourTargetId;
 }) {
   return (
     <Button
@@ -185,6 +189,7 @@ function HeaderActionButton({
       size="icon"
       aria-label={label}
       title={label}
+      {...(tourTargetId === undefined ? {} : tourTarget(tourTargetId))}
       onClick={onClick}
       disabled={disabled}
       // 24px。hover 浮出與觸控（`hover: none`）常駐見 `ui/reveal.ts`。
@@ -512,6 +517,7 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
             key={action}
             icon={FolderPlus}
             label={t("sidebar.newFolder")}
+            tourTargetId="newFolder"
             onClick={(event) =>
               openFolderDialog({ kind: "create", parent: { space: { kind: tab === "shared" ? "shared" : "personal" } } }, event.currentTarget)
             }

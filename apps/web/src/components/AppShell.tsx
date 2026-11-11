@@ -42,6 +42,7 @@ import {
   writeSidebarWidth,
 } from "@/components/sidebar-width";
 import { PaneResizeHandle } from "@/components/PaneResizeHandle";
+import { tourTarget } from "@/lib/tour-targets";
 
 /** 只有打開垃圾桶 tab 才下載（首包上限）；與 SidebarFooter 的 `TrashFooter` 同一個 chunk（`TrashLazy`）。 */
 const TrashPanel = lazy(() => import("@/components/sidebar/TrashLazy").then((m) => ({ default: m.TrashPanel })));
@@ -80,6 +81,7 @@ export function SidebarDrawerButton() {
       variant="ghost"
       size="icon"
       aria-label={t("sidebar.openDrawer")}
+      {...tourTarget("drawerButton")}
       onClick={() => setOpen(true)}
       className="h-8 w-8 shrink-0 md:hidden"
     >
@@ -155,6 +157,7 @@ function SidebarContent({
             event.currentTarget.blur();
           }}
           aria-label={t("sidebar.searchLabel")}
+          {...tourTarget("search")}
           placeholder={t("sidebar.searchPlaceholder")}
           className="h-8 pl-7 pr-11 text-[13px]"
         />

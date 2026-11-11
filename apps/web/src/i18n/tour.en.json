@@ -1,0 +1,42 @@
+{
+  "tourGuide": {
+    "newInVersion": "New in v{{version}}: {{title}}",
+    "keepOrDeleteSample": "Keep the sample note, or move it to the trash?",
+    "stops": {
+      "tabs": {
+        "title": "Sidebar sections",
+        "body": "The sidebar has five sections: Recent, My notes, Groups, Shared with me, and Trash. They show icons only; hover over one to see its name. Deleted notes go to the Trash first.",
+        "narrowBody": "The sidebar has five sections: Recent, My notes, Groups, Shared with me, and Trash. Deleted notes go to the Trash first. Open the sidebar from here."
+      },
+      "newNote": {
+        "title": "New note",
+        "body": "Click here to create a note. It goes into My notes.",
+        "narrowBody": "\"New note\" at the bottom of the sidebar creates a note in My notes. Open the sidebar from here."
+      },
+      "folders": {
+        "title": "Folders",
+        "body": "Use this button in the My notes header to create a folder. A note's ⋮ menu has \"Move to…\" for putting it into a folder.",
+        "narrowBody": "You can create folders from the My notes header. A note's ⋮ menu has \"Move to…\" for putting it into a folder. Open the sidebar from here."
+      },
+      "search": {
+        "title": "Search",
+        "body": "Press Ctrl+K to search. It finds titles and note text.",
+        "narrowBody": "Press Ctrl+K to open the sidebar with the search box focused. It finds titles and note text. You can also open the sidebar from here."
+      },
+      "header": {
+        "title": "Share and more",
+        "body": "\"Share\" invites others to view or edit. The ⋮ menu has \"Present\", \"AI edit history\", \"Move to…\", and \"Copy to…\"."
+      },
+      "versions": {
+        "title": "Version history",
+        "body": "Notes save versions automatically by default, and you can press Ctrl+S to save one yourself. Open the version history with this button in the bottom-right corner.",
+        "narrowBody": "Notes save versions automatically by default, and you can press Ctrl+S to save one yourself. The version history is in the ⋮ menu."
+      },
+      "userMenu": {
+        "title": "Forgot how something works?",
+        "body": "Press Ctrl+/ or open Keyboard shortcuts from here. The feature tour is here too, so you can take it again any time.",
+        "narrowBody": "Press Ctrl+/ or open Keyboard shortcuts from the menu at the bottom-left of the sidebar. The feature tour is there too, so you can take it again any time. Open the sidebar from here."
+      }
+    }
+  }
+}

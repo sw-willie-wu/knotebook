@@ -39,6 +39,7 @@ import { toast } from "@/components/ui/toast";
 import { copyText } from "@/lib/clipboard";
 import { ManualCopyField } from "@/components/ManualCopyField";
 import { UserEmailCombobox } from "@/components/UserEmailCombobox";
+import { tourTarget } from "@/lib/tour-targets";
 
 /** ApiFail → errors.<code>；其餘 → errors.fallback。與 NoteList/TitleInput 同一套對映（各檔各自一份，
  * 是既有慣例——見那兩處的說明，這裡不再重複抽象）。 */
@@ -989,6 +990,7 @@ export function ShareDialog({ note }: ShareDialogProps) {
           variant="ghost"
           size="icon"
           aria-label={t("share.button")}
+          {...tourTarget("share")}
           title={triggerTitle}
           className="shrink-0 text-brand hover:text-brand"
         >

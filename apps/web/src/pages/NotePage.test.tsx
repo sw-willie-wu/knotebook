@@ -36,6 +36,7 @@ import { Awareness } from "y-protocols/awareness";
 import { resetLocalPresenceFieldForTest } from "@/components/presence/local-field";
 import { setRemote, userState } from "@/components/presence/test-awareness";
 import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
+import { findDrawerButton, findTourTarget } from "@/lib/tour-targets";
 
 // BlockNote 需要一整套 jsdom 沒有的 DOM/Range API，掛進單元測試只會測到環境；
 // 這裡只驗證「頁面有沒有把正確的 props 交給編輯器」，編輯器本身留給手動驗證。
@@ -649,6 +650,18 @@ describe("NotePage", () => {
     expect(screen.getByLabelText("Note title")).toHaveClass("min-w-16");
     expect(screen.getByRole("button", { name: "Share" })).toHaveClass("shrink-0");
     expect(screen.getByRole("button", { name: "More" })).toHaveClass("shrink-0");
+  });
+
+  it("功能導覽靠 data-kb-tour-target 找得到頁首的漢堡鈕、Share、⋮", async () => {
+    vi.stubGlobal("fetch", mockFetch());
+
+    renderNotePage("my-note");
+    await screen.findByTestId("note-editor");
+
+    const header = within(document.querySelector("header")!);
+    expect(findDrawerButton()).toBe(header.getByRole("button", { name: "Open navigation" }));
+    expect(findTourTarget("share")).toBe(header.getByRole("button", { name: "Share" }));
+    expect(findTourTarget("noteMenu")).toBe(header.getByRole("button", { name: "More" }));
   });
 
   it("#297 P1 owner：頁首是 @container；寬度鈕在 Share 之後、⋮ 之前", async () => {

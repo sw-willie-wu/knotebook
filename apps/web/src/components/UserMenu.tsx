@@ -21,6 +21,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { tourTarget } from "@/lib/tour-targets";
 
 const LANGUAGES: { code: "en" | "zh-TW"; labelKey: string }[] = [
   { code: "en", labelKey: "userMenu.languageEn" },
@@ -83,6 +84,7 @@ export function UserMenu() {
           ref={triggerRef}
           type="button"
           aria-label={user.displayName}
+          {...tourTarget("userMenu")}
           className={cn(
             // 列高吃 SIDEBAR_ROW_HEIGHT：與內文卡底部的 backlinks 列等高
             // （兩者左右相鄰，見該常數註解）。p-1.5＋24px avatar 的自然高度
