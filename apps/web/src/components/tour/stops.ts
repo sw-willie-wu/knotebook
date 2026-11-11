@@ -1,3 +1,4 @@
+import type { AiActionDto } from "@knotebook/shared";
 import "@/i18n/tour-strings";
 import { NARROW_QUERY } from "@/lib/sidebar-drawer";
 import { getShellControls } from "@/lib/tour-bridge";
@@ -17,6 +18,11 @@ export type StopId = "tabs" | "newNote" | "folders" | "search" | "header" | "ver
 export interface StopContext {
   /** 側欄搜尋框目前的字。 */
   searchQuery: string;
+  /**
+   * 開始時向 server 讀到的 AI 動作（`GET /api/ai/actions`；讀取失敗是空陣列）。不讀查詢快取：
+   * 從首頁打開時快取還沒有資料，看快取會把站台有設定 AI 誤判成沒有。
+   */
+  aiActions: readonly AiActionDto[];
 }
 
 export interface StopDef {
@@ -33,6 +39,12 @@ export interface StopDef {
   prepare?: (ctx: StopContext) => void;
   /** 開始時算一次；不成立的站整站不跑、不算進總站數。 */
   precondition?: (ctx: StopContext) => boolean;
+  /**
+   * 離開這一站時要收拾的東西（例如演示開的選單）。引擎開始進這一站就會呼叫恰好一次：
+   * 下一步、上一步、等不到目標而跳過、結束、卸載、位置離開示範筆記都算。窄視窗不跑 `prepare`，
+   * 但 `leave` 照樣會被呼叫，所以它要能在 `prepare` 沒跑過時安全執行。拋錯只記到 console，不擋換站。
+   */
+  leave?: (ctx: StopContext) => void;
 }
 
 export function isNarrowViewport(): boolean {
@@ -128,8 +140,9 @@ export function stopTarget(stop: StopDef, ctx: StopContext): Element[] {
   return (isNarrowViewport() && stop.narrowTarget !== undefined ? stop.narrowTarget : stop.target)(ctx);
 }
 
-export function stopBodyKey(stop: StopDef): string {
-  return isNarrowViewport() && stop.narrowBodyKey !== undefined ? stop.narrowBodyKey : stop.bodyKey;
+/** `narrow` 預設當下讀一次；元件訂閱寬窄變化時把訂閱到的值傳進來。 */
+export function stopBodyKey(stop: StopDef, narrow: boolean = isNarrowViewport()): string {
+  return narrow && stop.narrowBodyKey !== undefined ? stop.narrowBodyKey : stop.bodyKey;
 }
 
 /** 跑站點的前置動作；窄視窗不跑（見檔頭）。 */

@@ -133,7 +133,7 @@ async function renderPage({ withShare = true, home = false, inert = false }: { w
 }
 
 function ctx(searchQuery = ""): StopContext {
-  return { searchQuery };
+  return { searchQuery, aiActions: [] };
 }
 
 const aside = () => document.querySelector<HTMLElement>("aside[data-sidebar-instance]")!;
