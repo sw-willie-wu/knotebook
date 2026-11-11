@@ -27,6 +27,7 @@ interface Manifest {
   start_url: string;
   scope: string;
   display: string;
+  orientation: string;
   theme_color: string;
   background_color: string;
   icons: ManifestIcon[];
@@ -70,6 +71,10 @@ describe("manifest.webmanifest（#336）", () => {
     expect(m.start_url).toBe("/");
     expect(m.scope).toBe("/");
     expect(m.display).toBe("standalone");
+  });
+
+  it("鎖直向：orientation 是 portrait（Android 照做；iOS 不讀這個欄位）", () => {
+    expect(readManifest().orientation).toBe("portrait");
   });
 
   it("theme_color／background_color 是 6 碼 hex", () => {
