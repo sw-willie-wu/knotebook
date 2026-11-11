@@ -11,6 +11,7 @@ import { NotePageControlsContext } from "@/lib/note-page-controls";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { AppShell, SidebarDrawerButton } from "./AppShell";
+import { getShellControls } from "@/lib/tour-bridge";
 import { adminRole, groupDto, OWNER_PERMS } from "@/test/fixtures";
 import { FOLDER_LIST_EMPTY, folderDto, groupFolder } from "@/test/folder-fixtures";
 import { __resetCollapseForTests, isCollapsed, setCollapsed } from "@/components/sidebar/collapse";
@@ -870,5 +871,97 @@ describe("AppShell — 在資料夾建立筆記", () => {
     fireEvent.click(await screen.findByRole("button", { name: "New note in A" }));
     await waitFor(() => expect(screen.getByText("Folders can be at most 5 levels deep.")).toBeInTheDocument());
     expect(screen.queryByText(/\{\{max\}\}/)).toBeNull();
+  });
+});
+
+// ── 功能導覽登記處：AppShell 交出切 tab、結束選取、關抽屜、讀目前 tab 的控制
+describe("AppShell — 功能導覽登記處", () => {
+  const NOTE: NoteDto = { ...CREATED, id: "77777777-7777-7777-7777-777777777777", title: "Tour Note", slug: "tour-note" };
+
+  function stubFetchForTour() {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (url === "/api/groups" && method === "GET") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+        if (url === "/api/auth/me") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(USER) }));
+        if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
+        if (url === "/api/notes" && method === "GET") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([NOTE]) }));
+        throw new Error(`unexpected fetch: ${method} ${url}`);
+      }),
+    );
+  }
+
+  function renderShell() {
+    return render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <ThemeProvider>
+          <MemoryRouter initialEntries={["/"]}>
+            <ActiveNoteProvider>
+              <AppShell>
+                <SidebarDrawerButton />
+              </AppShell>
+            </ActiveNoteProvider>
+          </MemoryRouter>
+        </ThemeProvider>
+      </QueryClientProvider>,
+    );
+  }
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("B4 寬視窗：getTab 讀目前 tab；showTab 切 tab、不開抽屜；卸載後撤掉登記", async () => {
+    localStorage.setItem("sidebar.tab", "recent");
+    stubFetchForTour();
+    const { unmount } = renderShell();
+    await screen.findByRole("tab", { name: "Recent" });
+    const controls = getShellControls();
+    expect(controls).not.toBeNull();
+    expect(controls!.getTab()).toBe("recent");
+
+    act(() => controls!.showTab("myNotes"));
+    expect(controls!.getTab()).toBe("myNotes");
+    expect(screen.getByRole("tab", { name: "My notes" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByRole("dialog", { name: "Navigation" })).not.toBeInTheDocument();
+
+    unmount();
+    expect(getShellControls()).toBeNull();
+  });
+
+  it("B4 closeDrawer 關掉開著的抽屜", async () => {
+    stubFetchForTour();
+    renderShell();
+    fireEvent.click(await screen.findByRole("button", { name: "Open navigation" }));
+    await screen.findByRole("dialog", { name: "Navigation" });
+
+    act(() => getShellControls()!.closeDrawer());
+    await waitFor(() => expect(document.querySelector("[data-sidebar-drawer]")).toBeNull());
+  });
+
+  it("B4 endSelectionIfActive：選取模式中結束並回 true；不在選取模式回 false", async () => {
+    stubFetchForTour();
+    renderShell();
+    const controls = getShellControls()!;
+    expect(controls.endSelectionIfActive()).toBe(false);
+
+    // 筆記清單載入前「Select」是 disabled。
+    await waitFor(() => expect(screen.getByRole("button", { name: "Select" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Select" }));
+    await screen.findByRole("button", { name: "Done" });
+    let ended = false;
+    act(() => {
+      ended = controls.endSelectionIfActive();
+    });
+    expect(ended).toBe(true);
+    expect(screen.queryByRole("button", { name: "Done" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Select" })).toBeInTheDocument();
   });
 });

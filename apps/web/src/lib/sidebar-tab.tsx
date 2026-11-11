@@ -60,6 +60,8 @@ export interface SidebarTabActions {
   /** 目前這一輪選取的序號：每次 `updateSelection({ type: "start" })` 遞增；不在選取模式回 null。穩定函式（讀 ref）。
    *  批次動作開跑時記下，結束時相同才套用選取結果——與元件是否還掛著無關（抽屜關掉會卸載動作列，但選取還在）。 */
   getSelectionSession: () => number | null;
+  /** 目前的 tab。穩定函式（讀 ref）：給 `SidebarTabProvider` 外面、拿不到 `useSidebarTabState` 的呼叫端（`AppShell` 交給功能導覽）。 */
+  getTab: () => SidebarTab;
 }
 export interface SidebarTabState {
   tab: SidebarTab;
@@ -74,6 +76,7 @@ const NOOP_ACTIONS: SidebarTabActions = {
   updateSelection: () => {},
   endSelectionIfActive: () => false,
   getSelectionSession: () => null,
+  getTab: () => DEFAULT_SIDEBAR_TAB,
 };
 const DEFAULT_STATE: SidebarTabState = { tab: DEFAULT_SIDEBAR_TAB, selection: EMPTY_SELECTION };
 
@@ -118,9 +121,11 @@ export function SidebarTabProvider({
 
   const getSelectionSession = useCallback(() => (selectionRef.current.active ? sessionRef.current : null), []);
 
+  const getTab = useCallback(() => tabRef.current, []);
+
   const actions = useMemo<SidebarTabActions>(
-    () => ({ showTab, updateSelection, endSelectionIfActive, getSelectionSession }),
-    [showTab, updateSelection, endSelectionIfActive, getSelectionSession],
+    () => ({ showTab, updateSelection, endSelectionIfActive, getSelectionSession, getTab }),
+    [showTab, updateSelection, endSelectionIfActive, getSelectionSession, getTab],
   );
   if (actionsRef) actionsRef.current = actions;
   const state = useMemo<SidebarTabState>(() => ({ tab, selection }), [tab, selection]);

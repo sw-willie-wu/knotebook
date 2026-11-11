@@ -23,7 +23,8 @@ import { openSettings } from "@/lib/open-settings";
 import { SIDEBAR_SELECT_BUTTON } from "@/lib/sidebar-selection";
 import { useSession } from "@/auth/useSession";
 import { useSidebarQuery } from "@/lib/sidebar-query";
-import { SidebarTabProvider, useSidebarTabActions, useSidebarTabState, type SidebarTabActions } from "@/lib/sidebar-tab";
+import { DEFAULT_SIDEBAR_TAB, SidebarTabProvider, useSidebarTabActions, useSidebarTabState, type SidebarTabActions } from "@/lib/sidebar-tab";
+import { registerShellControls } from "@/lib/tour-bridge";
 import { NoteList } from "@/components/NoteList";
 import { SearchResults } from "@/components/sidebar/SearchResults";
 import { clearSearchMark } from "@/hooks/search-mark";
@@ -317,6 +318,20 @@ export function AppShell({ children, inert }: AppShellProps) {
   const drawerOpenRef = useRef(drawerOpen);
   drawerOpenRef.current = drawerOpen;
   const tabActionsRef = useRef<SidebarTabActions | null>(null);
+
+  // 功能導覽住在 App 層、在這棵樹外面：把切 tab、結束選取、關抽屜、讀目前 tab 登記上去。
+  // 換殼時新舊兩份先後掛載，登記處以最後掛上的為準、卸載只撤自己那份。
+  // 讀 ref 而不是直接交出 actions：ref 由子層的 `SidebarTabProvider` 在 render 時寫入。
+  useEffect(
+    () =>
+      registerShellControls({
+        showTab: (tab) => tabActionsRef.current?.showTab(tab),
+        endSelectionIfActive: () => tabActionsRef.current?.endSelectionIfActive() ?? false,
+        closeDrawer: () => setDrawerOpen(false),
+        getTab: () => tabActionsRef.current?.getTab() ?? DEFAULT_SIDEBAR_TAB,
+      }),
+    [],
+  );
 
   // 快捷鍵介紹頁（Ctrl/Cmd+/ 或使用者選單）的開關：state 在這裡，內容 lazy（`ShortcutsDialog`）。
   const [shortcutsOpen, setShortcutsOpen] = useState(false);

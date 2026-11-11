@@ -11,6 +11,7 @@ function owner(): SidebarTabActions {
     updateSelection: () => {},
     endSelectionIfActive: () => false,
     getSelectionSession: () => null,
+    getTab: () => "myNotes",
   };
 }
 

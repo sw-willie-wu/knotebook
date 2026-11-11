@@ -52,6 +52,7 @@ import { AiSessionProvider } from "@/components/ai/AiSession";
 import { createNoteSizeGuard, createNoteSizePasteHandlers, formatNoteLimit } from "@/lib/note-size-guard";
 import { CornerStack } from "@/components/CornerStack";
 import { useVersions } from "@/lib/versions-context";
+import { notifyEditorEditable, registerEditor } from "@/lib/tour-bridge";
 import { VERSIONS_ERROR_FRAME, VersionsLazyBoundary } from "@/components/versions/VersionsLazyBoundary";
 import { useVersionsPanelWidth } from "@/components/versions/versions-panel-width";
 import { SelectionAiController } from "@/components/ai/SelectionAiController";
@@ -533,6 +534,14 @@ export function NoteEditor({
     report?.(createCursorScroller({ editor, getRoot: () => (hasPreviewRef.current ? null : scrollRootRef.current) }));
     return () => report?.(null);
   }, [editor]);
+
+  // 功能導覽經登記處拿這份編輯器（`lib/tour-bridge.ts`）。
+  useEffect(() => registerEditor(noteId, editor), [noteId, editor]);
+  // 每個編輯器實例第一次可編輯時通知一次（登記處自己記「已通知」）。放在登記之後：同一次 commit 裡先登記、再通知。
+  // BlockNoteView 在 commit 階段的 ref callback 裡設 `editor.isEditable`，比這個 effect 早，所以通知時它已是新值。
+  useEffect(() => {
+    if (editable) notifyEditorEditable(noteId, editor);
+  }, [noteId, editor, editable]);
 
   // issue #99：`/` 選單「連結」項的對話框狀態與 `getSlashItems` 組法——抽成
   // `useLinkMenuState`（見該函式檔頭）方便直接對它
