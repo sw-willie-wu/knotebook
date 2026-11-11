@@ -38,6 +38,7 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ### Fixed
 
+- **People with no cursor position can now be reached with the arrow keys in the page-header avatar list.** Their rows used to be disabled, so the arrow keys, and a screen reader moving through the list, skipped them, and they were drawn faded in both themes. They are now announced as unavailable but stay focusable and keep normal contrast; choosing one still does nothing and leaves the list open.
 - **Dropping into the gap between two columns works.** A file dragged from the desktop into the gap could fail to be added, a block dragged there by its ⋮⋮ didn't drop, and a file dropped on a column's ⋮⋮ opened in the browser and left the note. Now a file lands next to the nearest block, and a block goes into one of the columns.
 - **Releasing a ⋮⋮ drag over the formatting toolbar now drops the block.** The toolbar briefly appears above the dragged block when the drag starts and took the drop, so a quick drag released over it did nothing.
 - When a public link is revoked while it is being presented and the page changes to "This link doesn't exist or is no longer active", the address no longer keeps `?present` and the slide part (`#/…`); they are removed without adding a history entry (#234).

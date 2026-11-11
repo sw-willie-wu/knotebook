@@ -310,7 +310,7 @@ describe("PresenceAvatars", () => {
     expect(screen.queryAllByRole("button", { name: /more, show everyone/ })).toHaveLength(0);
   });
 
-  it("PA7 完整名單：名稱、6 列同序、無游標 disabled、選一列捲動並關閉；Esc 焦點回 +N", async () => {
+  it("PA7 完整名單：名稱、6 列同序、無游標列 aria-disabled、選一列捲動並關閉；Esc 焦點回 +N", async () => {
     const aw = newAwareness();
     six(aw);
     const { scroller } = mount(aw);
@@ -328,6 +328,7 @@ describe("PresenceAvatars", () => {
     ]);
     for (const i of [2, 4, 5]) {
       expect(items[i]).toHaveAttribute("aria-disabled", "true");
+      expect(items[i]).not.toHaveAttribute("data-disabled");
       expect(items[i]).toHaveTextContent("No cursor");
       // 沒有游標也要看得到角色（觸控沒有 Tooltip，名單是唯一處）
       expect(items[i]).toHaveTextContent(i === 5 ? "Viewer" : "Editor");
@@ -350,6 +351,35 @@ describe("PresenceAvatars", () => {
     fireEvent.click(more);
     fireEvent.keyDown(screen.getByRole("menu", { name: "People on this note (6)" }), { key: "Escape" });
     await waitFor(() => expect(more).toHaveFocus());
+  });
+
+  it("PA7c 沒有游標的列可用方向鍵到達；選取它不捲動、不拋錯、選單不關", async () => {
+    const aw = newAwareness();
+    six(aw);
+    const { scroller } = mount(aw);
+    fireEvent.click(screen.getByRole("button", { name: "2 more, show everyone" }));
+    const menu = screen.getByRole("menu", { name: "People on this note (6)" });
+    const items = within(menu).getAllByRole("menuitem");
+    // items[2] 是第一個沒有游標的列（Bob）
+    items[1]!.focus();
+    fireEvent.keyDown(items[1]!, { key: "ArrowDown" });
+    await waitFor(() => expect(items[2]).toHaveFocus());
+    expect(items[2]).toHaveAttribute("aria-disabled", "true");
+    const caught = collectErrors();
+    // 選單還開著才是「選了沒反應」的真正守衛（沒游標時 scroller 本來就不會被呼叫）
+    for (const press of [
+      () => fireEvent.keyDown(items[2]!, { key: "Enter" }),
+      () => fireEvent.keyDown(items[2]!, { key: " " }),
+      () => fireEvent.click(items[2]!),
+    ]) {
+      press();
+      expect(screen.getByRole("menu", { name: "People on this note (6)" })).toBeInTheDocument();
+    }
+    caught.stop();
+    expect(caught.errors).toEqual([]);
+    // 有游標的列照舊：捲動並關閉
+    fireEvent.click(items[3]!);
+    expect(scroller).toHaveBeenCalledTimes(1);
   });
 
   it("PA7b 沒有游標的 AI 列同時顯示 AI agent 與 No cursor", () => {
@@ -521,7 +551,7 @@ describe("PresenceAvatars", () => {
       expect(screen.getByRole("tooltip")).toBeInTheDocument();
     });
 
-    it("PA10 長按沒有游標的人：disabled 列仍取得焦點；Esc 焦點回該顆", () => {
+    it("PA10 長按沒有游標的人：aria-disabled 列仍取得焦點；Esc 焦點回該顆", () => {
       const aw = newAwareness();
       two(aw);
       const { scroller } = mount(aw);
