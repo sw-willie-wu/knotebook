@@ -1211,6 +1211,17 @@ export function isExcludedPath(pathname: string): boolean {
 }
 
 /**
+ * `/p` 公開分享頁的 pathname 判定。server 的 noindex 條件、log 遮罩與網頁端的「公開頁不提示安裝」
+ * 共用同一份正規化（開頭斜線收斂＋不分大小寫），**不得各寫一份字面比對**：SPA fallback 對 `//p/<token>`、
+ * `/P/<token>` 一律照常服務（React Router 的路由比對也不分大小寫），只修一邊的話這些變體就會漏掉。
+ * `pathname === "/p"` 也算：本身沒有 token，讓 `/p` 與 `/p/` 行為一致。
+ */
+export function isPublicSharePath(pathname: string): boolean {
+  const p = pathname.replace(/^\/{2,}/, "/").toLowerCase();
+  return p === "/p" || p.startsWith("/p/");
+}
+
+/**
  * `next` 的長度上限。2048 是一個任意但明顯低於各層實務上限的數字（nginx 預設 header
  * buffer 8 KB、舊 IE 的網址列 2083），用途是讓「有人把整份文件塞進 query」有個明確的
  * 失敗點，而不是慢慢地把各層撐爆。

@@ -1,12 +1,12 @@
 import { useTranslation } from "react-i18next";
-import { DOCS_URL, LICENSE_URL, REPO_URL } from "./about-links";
+import { DOCS_URL, INSTALL_APP_DOCS_URL, LICENSE_URL, REPO_URL } from "./about-links";
 import { SettingsGroup, SettingsPage } from "./SettingsLayout";
 import "@/i18n/management-strings";
 
 const LINK_CLASS = "text-brand-on-soft underline-offset-4 hover:underline";
 
 /**
- * 個人設定「關於」（`/settings/about`，#247）：版本＋三個外部連結。
+ * 個人設定「關於」（`/settings/about`，#247）：版本＋四個外部連結（原始碼、文件、安裝成 app 的說明、授權條款）。
  * 不放「檢查更新」、不打任何網路請求。版本號是 build 時注入的 `__APP_VERSION__`。
  */
 export function SettingsAboutSection() {
@@ -27,6 +27,12 @@ export function SettingsAboutSection() {
           <dd>
             <a href={DOCS_URL} target="_blank" rel="noreferrer" className={LINK_CLASS}>
               {t("settings.about.docsLink")}
+            </a>
+          </dd>
+          <dt className="text-muted-foreground">{t("settings.about.installApp")}</dt>
+          <dd>
+            <a href={INSTALL_APP_DOCS_URL} target="_blank" rel="noreferrer" className={LINK_CLASS}>
+              {t("settings.about.installAppLink")}
             </a>
           </dd>
           <dt className="text-muted-foreground">{t("settings.about.license")}</dt>

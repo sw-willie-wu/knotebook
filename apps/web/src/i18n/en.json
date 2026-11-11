@@ -8,6 +8,7 @@
     "noteCrash": "Something went wrong on this page.",
     "crashTitle": "Something went wrong",
     "reload": "Reload",
+    "updateAvailable": "Knotebook has been updated",
     "offlineHint": "You appear to be offline — this button will re-enable when the connection returns."
   },
   "home": {

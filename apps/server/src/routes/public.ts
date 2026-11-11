@@ -73,14 +73,10 @@ export function redactPublicTokens(url: string): string {
 /**
  * `/p` 公開分享頁的 pathname 判定——noindex 條件（spa.ts）與 log 遮罩共用同一份
  * 正規化（開頭斜線收斂＋不分大小寫），**不得各寫一份字面比對**（只修一邊的話
- * `//p/<token>` 這類變體會拿不到 noindex 或洩進 log，兩處同時破——實測過）。
- * `pathname === "/p"` 也算：本身沒有 token、掛 noindex 無害，且讓 `/p` 與 `/p/`
- * 行為一致（有測試釘住）。
+ * `//p/<token>` 這類變體會拿不到 noindex 或洩進 log，兩處同時破）。
+ * 定義在 `@knotebook/shared`，網頁端判定公開頁也用同一支。
  */
-export function isPublicSharePath(pathname: string): boolean {
-  const p = pathname.replace(/^\/{2,}/, "/").toLowerCase();
-  return p === "/p" || p.startsWith("/p/");
-}
+export { isPublicSharePath } from "@knotebook/shared";
 
 export interface PublicRoutesDeps {
   db: Db;
