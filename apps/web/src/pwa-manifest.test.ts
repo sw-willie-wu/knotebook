@@ -11,7 +11,7 @@ const indexHtml = readFileSync(`${process.cwd()}/index.html`, "utf8");
 // 先去掉 HTML 註解：被註解掉的 <link>／<meta> 在瀏覽器裡不存在，不能讓它們算數。
 const head = indexHtml.slice(indexHtml.indexOf("<head>"), indexHtml.indexOf("</head>")).replace(/<!--[\s\S]*?-->/g, "");
 // index.css 的 --background 行尾**註解**記著淺／深兩組 hex（:root 與 :root.dark 各一條）。⚠ 這裡比對的是註解，
-// 不是 oklch 實際值：改了 oklch 卻沒改註解，這組測試照樣綠——hex 註解與 theme-color 都是人工同步。
+// 不是 oklch 實際值：改了 oklch 卻沒改註解，這組測試照樣綠。實際值由 e2e/tests/00-smoke.spec.ts 在真瀏覽器裡比對。
 const backgroundHexes = [...readFileSync(`${process.cwd()}/src/index.css`, "utf8").matchAll(/(?<![\w-])--background:[^;]*;\s*\/\*\s*(#[0-9a-f]{6})/gi)].map((m) => m[1].toLowerCase());
 
 interface ManifestIcon {

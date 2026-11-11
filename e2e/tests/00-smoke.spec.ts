@@ -56,3 +56,47 @@ test("index.html 是 no-cache，它載入的入口 script（/assets/ 底下的 h
   expect(script.status()).toBe(200);
   expect(script.headers()["cache-control"]).toBe("public, max-age=31536000, immutable");
 });
+
+// <meta name="theme-color"> 是寫死的 hex（狀態列要穩定的值），頁底色是 index.css 的 oklch token。
+// 在真瀏覽器裡把 body 的計算後背景色畫到 canvas 換成 sRGB，與 meta 比對，token 改了而 hex 沒跟上就會紅。
+// 裝置設定刻意與 app 主題相反：meta 要跟的是 app 內選的主題。
+for (const theme of ["light", "dark"] as const) {
+  test(`theme-color 等於 ${theme} 主題的頁底色（裝置設定相反）`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme === "dark" ? "light" : "dark" });
+    await page.addInitScript((value) => window.localStorage.setItem("knotebook:theme", value), theme);
+    await page.goto("/login");
+    await expect(page.locator("#login-email")).toBeVisible();
+    if (theme === "dark") await expect(page.locator("html")).toHaveClass(/\bdark\b/);
+    else await expect(page.locator("html")).not.toHaveClass(/\bdark\b/);
+    // 首屏兩個 meta 依裝置深淺各有一個值；React 掛載後兩個都改成 app 主題的值
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => new Set([...document.querySelectorAll('meta[name="theme-color"]')].map((m) => m.getAttribute("content"))).size,
+        ),
+      )
+      .toBe(1);
+
+    const { body, metas } = await page.evaluate(() => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 1;
+      canvas.height = 1;
+      const ctx = canvas.getContext("2d")!;
+      ctx.fillStyle = getComputedStyle(document.body).backgroundColor;
+      ctx.fillRect(0, 0, 1, 1);
+      const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+      return {
+        body: [r, g, b],
+        metas: [...document.querySelectorAll('meta[name="theme-color"]')].map((m) => m.getAttribute("content") ?? ""),
+      };
+    });
+
+    expect(metas).toHaveLength(2);
+    for (const hex of metas) {
+      expect(hex).toMatch(/^#[0-9a-f]{6}$/i);
+      const meta = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+      // oklch → sRGB 的取整可能差 1
+      for (let i = 0; i < 3; i++) expect(Math.abs(meta[i] - body[i]), `${hex} vs rgb(${body.join(", ")})`).toBeLessThanOrEqual(1);
+    }
+  });
+}
