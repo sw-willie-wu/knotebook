@@ -233,7 +233,7 @@
         },
         "rateTransferExport": {
           "label": "批次下載次數",
-          "description": "每人批次下載的次數上限。"
+          "description": "每人整包下載的次數上限；只重抓單篇筆記不算在內。"
         },
         "rateTransferWrite": {
           "label": "批次寫回次數",
