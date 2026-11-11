@@ -43,8 +43,17 @@ export const RANGE_GONE_MESSAGE = "The group or folder this transfer token cover
 export const NOT_IN_RANGE_MESSAGE = "This note isn't in this transfer token's range.";
 export const TRANSFER_NOTE_NOT_FOUND_MESSAGE = "No note with that id.";
 export const TRANSFER_RATE_LIMITED_MESSAGE = "Too many requests. Wait a moment and try again.";
-/** 全站已有一個匯出在跑。 */
-export const EXPORT_BUSY_MESSAGE = "Another export is already running. Try again in a moment.";
+/**
+ * 整包的每人每小時額度（`transferExport`）用完。curl 的指令不印回應 header，所以等待時間寫在訊息裡：
+ * `retryAfterMs` 換成分鐘，向上取整、至少 1（與 `Retry-After` 的秒數同一個 `retryAfterMs`）。單篇走 `contentRead`，不受這個額度影響。
+ * 桶的 key 是 userId，換新權杖不會重置；等待可能比權杖的壽命（至多 30 分鐘）長，所以提醒到時候可能要新權杖。
+ */
+export function exportRateLimitedMessage(retryAfterMs: number): string {
+  const minutes = Math.max(1, Math.ceil(retryAfterMs / 60_000));
+  return `You've reached your hourly limit for full downloads; it counts per person, so a new token won't reset it. Download again in ${minutes} ${minutes === 1 ? "minute" : "minutes"}, with a new token if this one has expired by then; until then, fetch the notes you need one by one with the note command, which doesn't count toward this limit.`;
+}
+/** 全站已有一個匯出在跑（秒數與 `Retry-After` 同一個常數；curl 的指令不印 header）。 */
+export const EXPORT_BUSY_MESSAGE = `Another export is already running. Try again in ${EXPORT_BUSY_RETRY_AFTER_S} seconds.`;
 export const TOO_MANY_NOTES_MESSAGE = `The range has more than ${TRANSFER_EXPORT_MAX_NOTES} notes. Ask for a token with a smaller range.`;
 /** 寫回的 body 不是 UTF-8（fatal 解碼失敗）。 */
 export const INVALID_UTF8_MESSAGE = "The file isn't valid UTF-8.";
@@ -147,8 +156,9 @@ export function transferRoutes(deps: TransferRouteDeps) {
       }
       if (!deps.limiters.transferExport.consume(userId)) {
         release();
-        reply.header("retry-after", String(retryAfterSeconds(deps.limiters.transferExport.retryAfterMs(userId))));
-        return sendError(reply, 429, "too_many_requests", TRANSFER_RATE_LIMITED_MESSAGE);
+        const waitMs = deps.limiters.transferExport.retryAfterMs(userId);
+        reply.header("retry-after", String(retryAfterSeconds(waitMs)));
+        return sendError(reply, 429, "too_many_requests", exportRateLimitedMessage(waitMs));
       }
       let streaming = false;
       const started = Date.now();
