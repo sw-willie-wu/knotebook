@@ -284,7 +284,7 @@ describe("PUT /api/favorites/:id：加入", () => {
     expect(await favoriteRows(db, alice.id)).toEqual([shared.id, inGroup.id].sort());
   });
 
-  it("不存在、別人沒分享的、自己在垃圾桶裡的、非 UUID 的 :id → 404，四者 body 逐位元組相同，表中沒有新列", async () => {
+  it("不存在、別人沒分享的、自己在垃圾桶裡的、群組裡讀不到的、非 UUID 的 :id → 404，五者 body 逐位元組相同，表中沒有新列", async () => {
     const { app, db } = await buildTestApp();
     const alice = await seedUser(db, { displayName: "Alice" });
     const bob = await seedUser(db, { displayName: "Bob" });
@@ -345,6 +345,8 @@ describe("PUT /api/favorites/:id：加入", () => {
       expect(t).toBeGreaterThanOrEqual(before - 1000);
       expect(t).toBeLessThanOrEqual(after + 1000);
     }
+    // 毫秒有保留：只截到秒的話五篇都會是 `.000000`（五篇都剛好落在整秒的機率可以忽略）。
+    expect(rows.some(r => !r.at.endsWith(".000000")), rows.map(r => r.at).join(" ")).toBe(true);
   });
 
   it("帶了 body 但不是空物件（任何欄位、陣列、JSON null）→ 400 invalid_body，不寫入；`{}` → 200", async () => {
@@ -466,7 +468,7 @@ describe("DELETE /api/favorites/:id：移出", () => {
 });
 
 describe("PUT／DELETE：favorite 節流桶", () => {
-  it("PUT 與 DELETE 共用一顆、每人各自計；GET、400、404 不扣；超過 → 429 且不寫入、不刪除", async () => {
+  it("PUT 與 DELETE 共用一顆、每人各自計；GET、授權前的 400 與 404 不扣；超過 → 429 且不寫入、不刪除", async () => {
     const { app, db } = await buildTestApp({ limiters: { favorite: new FixedWindowLimiter({ limit: 2, windowMs: 60_000 }) } });
     const alice = await seedUser(db, { displayName: "Alice" });
     const bob = await seedUser(db, { displayName: "Bob" });
