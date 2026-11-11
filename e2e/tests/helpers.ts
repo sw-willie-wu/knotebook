@@ -282,7 +282,7 @@ export async function adminNav(page: Page, item: "Users" | "Groups" | "Sign-in" 
   await expect(page).toHaveURL(urls[item]);
 }
 
-export type SidebarTabName = "Recent" | "My notes" | "Groups" | "Shared with me" | "Trash";
+export type SidebarTabName = "Recent" | "Favorites" | "My notes" | "Groups" | "Shared with me" | "Trash";
 
 /**
  * 點側欄某個 tab、等它 aria-selected，回傳同一範圍內的 tabpanel。`scope` 預設靜態側欄（complementary）；窄螢幕傳抽屜。

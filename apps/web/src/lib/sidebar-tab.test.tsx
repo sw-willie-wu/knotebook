@@ -51,8 +51,12 @@ function Probe() {
 
 describe("常數", () => {
   it("tab 列順序、窄螢幕判準", () => {
-    expect(SIDEBAR_TABS).toEqual(["recent", "myNotes", "workspace", "shared", "trash"]);
+    expect(SIDEBAR_TABS).toEqual(["recent", "favorites", "myNotes", "workspace", "shared", "trash"]);
     expect(NARROW_QUERY).toBe("(width < 48rem)");
+  });
+
+  it("預設 tab 仍是我的筆記（最愛排第二，不是預設）", () => {
+    expect(DEFAULT_SIDEBAR_TAB).toBe("myNotes");
   });
 });
 
@@ -69,6 +73,11 @@ describe("readSidebarTab", () => {
   it("ST1b：trash 是合法值（步驟 2 起）", () => {
     localStorage.setItem("sidebar.tab", "trash");
     expect(readSidebarTab()).toBe("trash");
+  });
+
+  it("favorites 是合法值", () => {
+    localStorage.setItem("sidebar.tab", "favorites");
+    expect(readSidebarTab()).toBe("favorites");
   });
 
   it.each(["bogus", ""])("無效值 %j → 預設", (raw) => {
@@ -110,6 +119,24 @@ describe("SidebarTabProvider", () => {
     fireEvent.click(screen.getByRole("button", { name: "go-recent" }));
     expect(screen.getByTestId("tab")).toHaveTextContent("recent");
     expect(localStorage.getItem("sidebar.tab")).toBe("recent");
+  });
+
+  it("選了最愛 → 寫進 storage；卸載重掛後仍是最愛", () => {
+    const first = render(
+      <SidebarTabProvider>
+        <Probe />
+      </SidebarTabProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "go-favorites" }));
+    expect(screen.getByTestId("tab")).toHaveTextContent("favorites");
+    expect(localStorage.getItem("sidebar.tab")).toBe("favorites");
+    first.unmount();
+    render(
+      <SidebarTabProvider>
+        <Probe />
+      </SidebarTabProvider>,
+    );
+    expect(screen.getByTestId("tab")).toHaveTextContent("favorites");
   });
 
   it("setItem 丟例外時 showTab 仍切換", () => {
