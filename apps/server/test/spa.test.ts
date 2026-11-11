@@ -34,6 +34,7 @@ describe("SPA fallback", () => {
       expect(res.headers["content-type"]).toContain("application/manifest+json");
       expect(res.json()).toMatchObject({ name: "Knotebook", display: "standalone" });
       expect(res.body).not.toContain("knotebook spa");
+      expect(res.headers["cache-control"]).toBe("no-cache");
     }
   });
 
@@ -50,6 +51,8 @@ describe("SPA fallback", () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers["content-type"]).toContain("text/html");
     expect(res.body).toContain("knotebook spa");
+    // index.html 決定載入哪一組 /assets/*，每次都要回 server 確認
+    expect(res.headers["cache-control"]).toBe("no-cache");
   });
 
   it("真實瀏覽器 Accept 字串（含 text/html 子字串）→ index.html", async () => {
@@ -91,6 +94,8 @@ describe("SPA fallback", () => {
     const res = await app.inject({ method: "GET", url: "/assets/app.js" });
     expect(res.statusCode).toBe(200);
     expect(res.body).toBe("console.log('app');");
+    // 檔名帶內容 hash：快取一年、不 revalidate
+    expect(res.headers["cache-control"]).toBe("public, max-age=31536000, immutable");
   });
 
   it("GET /favicon.svg → 200 image/svg+xml（dist 根目錄的檔案由 static 送，不被 SPA fallback 吞成 index.html）", async () => {
@@ -101,6 +106,7 @@ describe("SPA fallback", () => {
       expect(res.statusCode).toBe(200);
       expect(res.headers["content-type"]).toContain("image/svg+xml");
       expect(res.body).toContain("<svg");
+      expect(res.headers["cache-control"]).toBe("no-cache");
       expect(res.body).not.toContain("knotebook spa");
     }
   });

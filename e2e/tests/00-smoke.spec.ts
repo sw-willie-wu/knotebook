@@ -26,6 +26,7 @@ test("GET /manifest.webmanifest 回 application/manifest+json，且 manifest 列
   const response = await request.get("/manifest.webmanifest");
   expect(response.status()).toBe(200);
   expect(response.headers()["content-type"]).toContain("application/manifest+json");
+  expect(response.headers()["cache-control"]).toBe("no-cache");
 
   const manifest = (await response.json()) as { icons: { src: string }[] };
   // 先斷言非空：空陣列會讓下面的迴圈空轉而假綠。
@@ -34,10 +35,24 @@ test("GET /manifest.webmanifest 回 application/manifest+json，且 manifest 列
     const iconResponse = await request.get(icon.src);
     expect(iconResponse.status(), icon.src).toBe(200);
     expect(iconResponse.headers()["content-type"], icon.src).toContain("image/png");
+    expect(iconResponse.headers()["cache-control"], icon.src).toBe("no-cache");
   }
 
   // iOS 的主畫面圖示用 index.html 的 <link rel="apple-touch-icon">，不在 manifest 裡。
   const touchIcon = await request.get("/apple-touch-icon.png");
   expect(touchIcon.status()).toBe(200);
   expect(touchIcon.headers()["content-type"]).toContain("image/png");
+  expect(touchIcon.headers()["cache-control"]).toBe("no-cache");
+});
+
+test("index.html 是 no-cache，它載入的入口 script（/assets/ 底下的 hash 檔名）快取一年且 immutable", async ({ request }) => {
+  const html = await request.get("/", { headers: { accept: "text/html" } });
+  expect(html.status()).toBe(200);
+  expect(html.headers()["cache-control"]).toBe("no-cache");
+
+  const entry = (await html.text()).match(/<script\b[^>]*\bsrc="(\/assets\/index-[^"]+\.js)"/)?.[1];
+  expect(entry, "index.html 裡找不到 /assets/index-*.js").toBeDefined();
+  const script = await request.get(entry!);
+  expect(script.status()).toBe(200);
+  expect(script.headers()["cache-control"]).toBe("public, max-age=31536000, immutable");
 });
