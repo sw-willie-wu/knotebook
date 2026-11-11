@@ -179,6 +179,7 @@ test("頁首頭像列：A 看 B（無游標）、B 看 A（外框色、點了捲
     await expect(menu.getByRole("menuitem")).toHaveCount(3);
     const bRow = menu.getByRole("menuitem").filter({ hasText: "E2E Viewer" });
     await expect(bRow).toHaveAttribute("aria-disabled", "true");
+    await expect(bRow).not.toHaveAttribute("data-disabled");
     await expect(bRow).toContainText("No cursor");
     await expect(bRow).toContainText(/E2E Viewer\s*Viewer/);
     await pageA.keyboard.press("Escape");

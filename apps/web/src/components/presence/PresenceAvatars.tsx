@@ -290,9 +290,17 @@ export function PresenceAvatars({ provider, connected, myUserId, scrollerRef }: 
               <DropdownMenuItem
                 key={p.key}
                 data-person-key={p.key}
-                disabled={!p.hasCursor}
+                // 沒有游標的列不用 `disabled`：Radix 會把它從方向鍵巡覽拿掉（含螢幕閱讀器在選單裡逐項移動），而且畫成淡色。
+                // 改用 `aria-disabled`：仍可聚焦與朗讀，選取時不捲動、選單也不關。
+                aria-disabled={p.hasCursor ? undefined : true}
                 className="gap-2"
-                onSelect={() => scrollTo(p.key)}
+                onSelect={(e) => {
+                  if (!p.hasCursor) {
+                    e.preventDefault();
+                    return;
+                  }
+                  scrollTo(p.key);
+                }}
               >
                 <PersonAvatar person={p} size={24} offsetColor="var(--color-popover)" />
                 <bdi className="min-w-0 flex-1 truncate">{rowName(p)}</bdi>{" "}
