@@ -277,6 +277,8 @@ export function SelectionAiBox() {
           role="region"
           aria-label={t("ai.box.label")}
           data-testid="selection-ai-box"
+          // 開著時筆記頁的撤銷快捷鍵讓路（`@/collab/page-undo`）。
+          data-kb-ai-box=""
           tabIndex={-1}
           onKeyDown={onKeyDown}
           style={{ width: boxWidth }}

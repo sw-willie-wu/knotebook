@@ -9,6 +9,10 @@
  * - 清除：`document` capture `dragend`、下一次 dragstart 覆寫，以及 drop handler 串接跑完時由呼叫端 `clearDraggedBlocks`。
  *   不在 capture `drop` 清：capture 先於 `view.dom` 上的 drop handler，清了 `handleDrop` 就讀不到；在那裡排 microtask 也不行，
  *   原生事件的 microtask 在每個 listener 之間就會跑。
+ * - 放下之後的焦點（#430）：⋮⋮ 自己的 dragend handler（core `blockDragEnd`）會讓編輯器失焦，焦點落到 `<body>`，Ctrl+Z 就送不到
+ *   編輯器。drop handler 串接跑完時由呼叫端 `endBlockDrop` 記下「這次 ⋮⋮ 拖曳放進了這顆編輯器」；`document` bubble `dragend`
+ *   （在 ⋮⋮ 的 handler 之後）看到記號就把焦點拉回編輯器，選取照放下時設的。沒放進編輯器、或不是 ⋮⋮ 拖曳的 dragend 不動焦點。
+ *   ⋮⋮ 在放下時被換掉（block 搬進或搬出欄，側邊選單換一棵）時 dragend 送不到 document，也沒有失焦：drop 時的 focus 留著。
  */
 import type { BlockNoteEditor } from "@blocknote/core";
 import type { EditorView } from "prosemirror-view";
@@ -18,6 +22,8 @@ import { draggedFromSelection, type DraggedBlocks } from "./drag-geometry";
 type AnyEditor = BlockNoteEditor<any, any, any>;
 
 const recorded = new WeakMap<EditorView, DraggedBlocks | null>();
+/** 這次 ⋮⋮ 拖曳放進了這顆編輯器（`endBlockDrop` 記、`dragstart`／`dragend` 清）。 */
+const droppedHere = new WeakSet<EditorView>();
 
 /** `dom` 是編輯器掛載的元素（extension `mount` 的參數）；判斷來源用 `editor.domElement.parentElement`，React 下就是 `bn-container`。 */
 export function attachDragSourceRecorder(editor: AnyEditor, dom: HTMLElement, signal: AbortSignal): void {
@@ -27,6 +33,7 @@ export function attachDragSourceRecorder(editor: AnyEditor, dom: HTMLElement, si
       const view = editor.prosemirrorView as EditorView | undefined;
       if (!view) return;
       const inside = !!editor.domElement?.parentElement?.contains(event.target as Node);
+      droppedHere.delete(view);
       recorded.set(view, editor.isEditable && inside && !event.defaultPrevented ? draggedFromSelection(view.state.selection) : null);
     },
     { signal },
@@ -39,6 +46,23 @@ export function attachDragSourceRecorder(editor: AnyEditor, dom: HTMLElement, si
     },
     { capture: true, signal },
   );
+  document.addEventListener(
+    "dragend",
+    (event) => {
+      if ((event as { synthetic?: boolean }).synthetic) return;
+      const view = editor.prosemirrorView as EditorView | undefined;
+      if (!view || !droppedHere.has(view)) return;
+      droppedHere.delete(view);
+      if (editor.isEditable && view.dom.isConnected) view.focus();
+    },
+    { signal },
+  );
+}
+
+/** drop handler 串接跑完時呼叫：這次是 ⋮⋮ 拖曳（有記下的 X）就記下「放進了這顆編輯器」，再清掉記錄。 */
+export function endBlockDrop(view: EditorView): void {
+  if (recorded.get(view)) droppedHere.add(view);
+  clearDraggedBlocks(view);
 }
 
 export function draggedBlocksOf(view: EditorView): DraggedBlocks | null {

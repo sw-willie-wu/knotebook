@@ -85,7 +85,7 @@ describe("DS 拖曳來源記錄器", () => {
     const view = editor.prosemirrorView as any;
     const host = editor.domElement!.parentElement!;
     expect(mountSignal).toBeInstanceOf(AbortSignal); // 前提：mount 時掛了記錄器
-    expect(registered.map(([type]) => type)).toEqual(["dragstart", "dragend"]);
+    expect(registered.map(([type]) => type)).toEqual(["dragstart", "dragend", "dragend"]);
     for (const [, options] of registered) expect(options?.signal).toBe(mountSignal);
     startBlockDrag(editor, "x1");
     expect(draggedBlocksOf(view)).not.toBeNull(); // 對照：mount 中有記

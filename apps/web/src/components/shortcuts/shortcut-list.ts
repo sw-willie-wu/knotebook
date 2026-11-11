@@ -111,6 +111,8 @@ export const SHORTCUTS: readonly ShortcutEntry[] = [
   { id: "aiClose", category: "ai", keys: [combo("Esc")], requires: "ai" },
   // 滑鼠
   { id: "dragBlock", category: "mouse", keys: [action] },
+  // 複製拖：PM 在放下那一刻看修飾鍵（Mac 是 ⌥，其他平台是 Ctrl）。
+  { id: "dragBlockCopy", category: "mouse", keys: [combo("Ctrl")], macKeys: [combo("Alt")] },
   { id: "dragNoteToEditor", category: "mouse", keys: [action] },
   { id: "dragNoteToFolder", category: "mouse", keys: [action] },
 ];

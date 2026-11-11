@@ -27,14 +27,15 @@ import { useCreateNote, useNotes } from "@/api/notes";
 import { classifyMediaTransfer, type BlockedTransferReason } from "@/collab/schema";
 import { createCodeBlockCaretExtension } from "@/collab/code-block-caret";
 import { createColumnEdgeKeymapExtension } from "@/collab/columns/edge-keymap";
-import { clearDraggedBlocks } from "@/collab/columns/drag-source";
-import { computeDropPosition, edgeDrop, emptyColumnDrop, withGutterFileDrop } from "@/collab/columns/edge-drop";
+import { endBlockDrop } from "@/collab/columns/drag-source";
+import { blockMoveDrop, computeDropPosition, edgeDrop, emptyColumnDrop, withGutterFileDrop } from "@/collab/columns/edge-drop";
 import { createColumnsPasteExtension, withColumnsDropPoint } from "@/collab/columns/paste-rule";
 import { buildCollabEditorBase } from "@/collab/editor-options";
 import { createMarkdownLinkExtension } from "@/collab/markdown-link";
 import { createMarkdownPasteHandler } from "@/collab/paste";
 import { createSiteLinkConvertExtension, createSiteLinkEnv, createSiteLinkPasteHook, withSiteLinkDrop, type SiteLinkEnvRef } from "@/collab/site-link-convert";
 import { useCollabUndoLifeline } from "@/collab/undo";
+import { usePageUndoShortcut } from "@/collab/page-undo";
 import { buildSlashMenuItems } from "@/components/slash-menu";
 import { LinkDialog } from "@/components/LinkDialog";
 import { toast } from "@/components/ui/toast";
@@ -212,13 +213,19 @@ export function buildNoteEditorOptions({
         // 筆記大小上限的前端檢查：貼上、拖放在解析好（slice）、插入之前估成長，超過上限就不放（`lib/note-size-guard.ts`）。直接傳入的
         // editorProps 比外掛先被問到；回傳 false 照常往下（BlockNote、並排的貼上規則）。
         handlePaste: sizeHandlers.handlePaste,
-        // ⋮⋮ 拖曳放下：先問直線放置（建列、加欄），再問橫線放進空欄，都不接手才做大小上限的檢查（搬移不增加內容，接手時不必估）。
-        // 不論誰接手，跑完都清掉 dragstart 記下的被拖 block，下一次拖放不會讀到這次的。
+        // ⋮⋮ 拖曳放下：先問直線放置（建列、加欄），再問橫線放進空欄，再由 `blockMoveDrop` 接手其餘的搬移（#428、#429），都不接手
+        // （複製拖、外部拖入）才做大小上限的檢查（搬移不增加內容，接手時不必估）。不論誰接手，跑完都清掉 dragstart 記下的被拖 block，
+        // 下一次拖放不會讀到這次的；是 ⋮⋮ 拖曳的話另外記下，⋮⋮ 的 dragend 之後把焦點拉回編輯器（#430，`@/collab/columns/drag-source`）。
         handleDrop: (view, event, slice, moved) => {
           try {
-            return edgeDrop(editorRef.current, view, event) || emptyColumnDrop(editorRef.current, view, event, slice) || sizeHandlers.handleDrop(view, event, slice, moved);
+            return (
+              edgeDrop(editorRef.current, view, event) ||
+              emptyColumnDrop(editorRef.current, view, event, slice) ||
+              blockMoveDrop(editorRef.current, view, event, slice, moved) ||
+              sizeHandlers.handleDrop(view, event, slice, moved)
+            );
           } finally {
-            clearDraggedBlocks(view);
+            endBlockDrop(view);
           }
         },
         // `[[` 觸發偵測。這裡刻意**不**倚賴 `SuggestionMenu`
@@ -392,6 +399,8 @@ export interface NoteEditorProps {
   noteMaxBytes?: number;
   /** 單檔上傳上限（`GET /api/auth/config` 的 `maxUploadBytes`）：貼上、拖放圖片的上傳前驗。還沒載入＝不前驗。 */
   maxUploadBytes?: number;
+  /** 焦點不在編輯器時，頁面上的 Ctrl/Cmd+Z、重做鍵也作用在這篇（`@/collab/page-undo`）；版本預覽中一律關。省略＝關。 */
+  pageUndoShortcut?: boolean;
 }
 
 /**
@@ -426,6 +435,7 @@ export function NoteEditor({
   notePath,
   noteMaxBytes,
   maxUploadBytes,
+  pageUndoShortcut = false,
 }: NoteEditorProps) {
   const { t, i18n } = useTranslation();
   const [columnEl, setColumnEl] = useState<HTMLElement | null>(null);
@@ -515,6 +525,8 @@ export function NoteEditor({
     [doc, provider],
   );
   editorRef.current = editor;
+  // 版本預覽中活編輯器藏起來了，撤銷會改到看不見的內容。
+  usePageUndoShortcut(editor, pageUndoShortcut && !hasPreview);
 
   useEffect(() => {
     const report = onCursorScrollerRef.current; // cleanup 不讀 ref

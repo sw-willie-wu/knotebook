@@ -723,11 +723,17 @@ describe("D12 橫線放進空欄取代空段落", () => {
 
   describe("D12 預先驗證失敗 → 一筆都不送", () => {
     // 預測的文件上 `buildInsert` 不成立（模擬：E 在只移除 X 之後已不再是空段落）。handler 回 false 之後 PM 的預設 drop 照跑、
-    // 那一筆會寫 Yjs，所以只數 handler 呼叫期間的 update。
+    // 那一筆會寫 Yjs，所以只數 handler 呼叫期間的 update。排在後面的 `blockMoveDrop` 換成不接手的版本：這裡數的是前兩支送了幾筆，
+    // 對照編輯器也是 PM 預設的 drop。
+    const noMoveTakeover = () => vi.spyOn(edgeDropModule, "blockMoveDrop").mockReturnValue(false);
+
     it("D12 空欄：emptyColumnDrop 回 false、buildInsert 只被呼叫一次、handler 期間沒有 Y update、結果同對照編輯器", () => {
       const m = expectSameAsControl(emptyContent(), (x) => dragDrop(x, intoEmpty), {
         insertCalls: 1,
-        before: (s) => s.insert.mockReturnValueOnce(false),
+        before: (s) => {
+          s.insert.mockReturnValueOnce(false);
+          noMoveTakeover();
+        },
         after: (s) => expect(s.empty.mock.results.map((r) => r.value)).toEqual([false]),
       });
       expect(m.handlerUpdates).toEqual([0]);
@@ -737,7 +743,13 @@ describe("D12 橫線放進空欄取代空段落", () => {
       const m = expectSameAsControl(
         [P("x", "x1"), P("y", "y1"), P("z", "z1")],
         (x) => dragDrop(x, { drag: "z1", target: "x1", at: [590, 115], boxes: topBox("x1", 100) }),
-        { insertCalls: 1, before: (s) => s.insert.mockReturnValueOnce(false) },
+        {
+          insertCalls: 1,
+          before: (s) => {
+            s.insert.mockReturnValueOnce(false);
+            noMoveTakeover();
+          },
+        },
       );
       expect(m.handlerUpdates).toEqual([0]);
     });
@@ -1374,25 +1386,40 @@ describe("C5 大小上限與直線放置", () => {
     expect(sizeDrop).not.toHaveBeenCalled();
   });
 
-  it("C5 ⋮⋮ 橫線放置（edgeDrop／emptyColumnDrop 都回 false）→ size 的 handleDrop 被呼叫一次（搬移不估大小）、照 PM 搬移", () => {
+  it("C5 ⋮⋮ 橫線放置（edgeDrop／emptyColumnDrop 都回 false）→ blockMoveDrop 接手搬移、size 的 handleDrop 不被呼叫（搬移不估大小）", () => {
     const sizeDrop = spySizeDrop();
     const guard = vi.fn(() => true);
     const m = mount(three(), { sizeGuard: guard });
     const s = spies();
+    const move = vi.spyOn(edgeDropModule, "blockMoveDrop");
     dragDrop(m, { ...zToX, at: [300, 115] });
     expectOneRealCall(s.edge);
     expect(s.edge.mock.results[0]!.value).toBe(false);
-    expect(sizeDrop).toHaveBeenCalledTimes(1);
-    expect(sizeDrop.mock.calls[0]![3]).toBe(true);
+    expect(move.mock.results.map((r) => r.value)).toEqual([true]);
+    expect(sizeDrop).not.toHaveBeenCalled();
     expect(guard).not.toHaveBeenCalled();
     expect(shape(m.editor)).not.toContain("ROW");
+  });
+
+  it("C5 Ctrl 複製拖（PM 預設的放置）→ blockMoveDrop 不接手、size 的 handleDrop 被呼叫一次，回 true 時不放", () => {
+    const sizeDrop = spySizeDrop();
+    const guard = vi.fn(() => true);
+    const m = mount(three(), { sizeGuard: guard });
+    const move = vi.spyOn(edgeDropModule, "blockMoveDrop");
+    const before = shape(m.editor);
+    dragDrop(m, { ...zToX, at: [300, 115], ctrlKey: true });
+    expect(move.mock.results.map((r) => r.value)).toEqual([false]);
+    expect(sizeDrop).toHaveBeenCalledTimes(1);
+    expect(sizeDrop.mock.calls[0]![3]).toBe(false);
+    expect(guard).toHaveBeenCalledTimes(1);
+    expect(shape(m.editor)).toBe(before);
   });
 });
 
 describe("C6 handleDrop 跑完就清掉記下的被拖 block", () => {
   it.each([
     ["直線放置（接手）", [590, 115], true],
-    ["橫線放置（不接手）", [300, 115], false],
+    ["橫線放置（edgeDrop 不接手）", [300, 115], false],
   ] as const)("C6 %s：drop 之後、dragend 之前，記錄已經是 null", (_label, at, taken) => {
     const m = mount(three());
     const s = spies();
