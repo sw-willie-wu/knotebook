@@ -39,7 +39,9 @@ taskbar or dock.
 - **Updates.** Starting the app always loads the current version. If the app has been left in the
   background and the site has been updated since, coming back to it shows **Knotebook has been
   updated** with a **Reload** button; it doesn't reload by itself, so nothing you're typing is
-  interrupted.
+  interrupted. It checks only when you come back to it at least 30 minutes after the last check
+  (or after the page loaded), and shows the notice once per load. The same notice appears in an
+  ordinary browser tab and on a public share page.
 - **Top bar colour.** In browsers that colour the window's top bar, it follows the theme you pick in
   **Settings**, once the app has started.
 - **Public links.** A public share page (`/p/…`) doesn't offer to install Knotebook: installing

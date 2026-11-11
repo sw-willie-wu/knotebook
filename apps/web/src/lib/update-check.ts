@@ -34,6 +34,7 @@ export function currentEntryScript(doc: Document = document): string | null {
   return null;
 }
 
+// 伺服器只對 Accept 含 text/html 的請求回 index.html，其餘（`*/*`）回 JSON 404，所以一定要帶。
 async function fetchIndexHtml(): Promise<string> {
   const res = await fetch("/", { headers: { Accept: "text/html" }, cache: "no-store", credentials: "same-origin" });
   if (!res.ok) throw new Error(`GET / ${res.status}`);

@@ -177,6 +177,24 @@ describe("installUpdateCheck", () => {
     expect(onUpdate).toHaveBeenCalledTimes(1);
   });
 
+  it("抓失敗之後也要等滿 30 分鐘才再試", async () => {
+    const { page, fetchHtml } = setup(() => Promise.reject(new Error("offline")));
+    clock += UPDATE_CHECK_INTERVAL_MS;
+    page.show();
+    await flush();
+    expect(fetchHtml).toHaveBeenCalledTimes(1);
+
+    clock += UPDATE_CHECK_INTERVAL_MS - 1;
+    page.show();
+    await flush();
+    expect(fetchHtml).toHaveBeenCalledTimes(1);
+
+    clock += 1;
+    page.show();
+    await flush();
+    expect(fetchHtml).toHaveBeenCalledTimes(2);
+  });
+
   it("目前頁面沒有 hash 檔名的入口 script（dev server）：完全不檢查", async () => {
     const { page, fetchHtml } = setup(indexHtml(NEWER), "/src/main.tsx");
     clock += UPDATE_CHECK_INTERVAL_MS;
@@ -192,6 +210,32 @@ describe("installUpdateCheck", () => {
     page.show();
     await flush();
     expect(fetchHtml).not.toHaveBeenCalled();
+  });
+});
+
+describe("預設的抓取", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("抓 / 時帶 Accept: text/html 與 no-store（伺服器只對接受 HTML 的請求回 index.html）", async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(new Response(indexHtml(NEWER), { status: 200 })));
+    vi.stubGlobal("fetch", fetchMock);
+    const page = fakeDocument(CURRENT);
+    const onUpdate = vi.fn();
+    let clock = 1_000_000;
+    installUpdateCheck({ onUpdate, now: () => clock, doc: page.doc });
+    clock += UPDATE_CHECK_INTERVAL_MS;
+    page.show();
+    await flush();
+    await flush();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("/");
+    expect((init.headers as Record<string, string>).Accept).toContain("text/html");
+    expect(init.cache).toBe("no-store");
+    expect(onUpdate).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -212,6 +256,20 @@ describe("showUpdateAvailableToast", () => {
     expect(reload).not.toHaveBeenCalled();
     act(() => screen.getByRole("button", { name: "Reload" }).click());
     expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it("不會自己消失", () => {
+    vi.useFakeTimers();
+    try {
+      render(<Toaster />);
+      act(() => showUpdateAvailableToast(() => {}));
+      act(() => {
+        vi.advanceTimersByTime(60_000);
+      });
+      expect(screen.getByText("Knotebook has been updated")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("中文介面", async () => {
