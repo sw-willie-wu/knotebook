@@ -11,15 +11,11 @@ browser tab: it needs the server just like the tab does, and it is updated whene
    offer it at the bottom of the screen on its own.
 3. Confirm. Knotebook appears on the home screen and in the app drawer with the "K" icon.
 
-The installed app always opens in portrait.
-
 ## iPhone and iPad (Safari)
 
 1. Open your Knotebook site in Safari and sign in.
 2. Tap **Share**, then **Add to Home Screen**.
 3. Tap **Add**.
-
-iOS doesn't lock the app to portrait: turned sideways, it shows the landscape layout.
 
 ## Computer (Chrome, Edge)
 
