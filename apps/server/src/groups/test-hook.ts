@@ -82,7 +82,9 @@ export type GroupRacePoint =
   /** 複製筆記到資料夾（`notes/tx/copy.ts` `copyNoteInTx`）：目標資料夾 `FOR KEY SHARE`＋重判之後、鎖來源之前。 */
   | "note-copy-folder-locked"
   /** 還原筆記（`trash/service.ts` `restoreTrashed`）：預判與預讀空間之後、交易之前。 */
-  | "trash-restore-prejudged";
+  | "trash-restore-prejudged"
+  /** #334 `PUT /api/favorites/:id`（`routes/favorites.ts`）：授權與扣桶之後、寫入之前——「授權後筆記被永久刪除」的窗。 */
+  | "favorite-authorized";
 
 export interface GroupHookCtx { noteId?: string; groupId?: string; slug?: string; folderId?: string }
 
