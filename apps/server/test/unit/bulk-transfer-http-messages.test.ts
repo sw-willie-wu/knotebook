@@ -18,6 +18,7 @@ import {
   TOO_MANY_NOTES_MESSAGE,
   TRANSFER_NOTE_NOT_FOUND_MESSAGE,
   TRANSFER_RATE_LIMITED_MESSAGE,
+  exportRateLimitedMessage,
   transferParseMessage,
 } from "../../src/routes/transfer.js";
 import {
@@ -27,6 +28,7 @@ import {
   SHARED_FOLDER_CREATE_FORBIDDEN_MESSAGE,
 } from "../../src/transfer/create-file.js";
 import { UNCLOSED_FENCE_MESSAGE, unclosedFenceMessage } from "../../src/transfer/regions.js";
+import { EXPORT_BUSY_RETRY_AFTER_S } from "../../src/transfer/export-stream.js";
 
 /**
  * bulk transfer 的 HTTP 層訊息（英文碼；#372 起訊息也是英文）：守衛第一層，以**字面字串**釘住 bulk 端點的 HTTP 層與 auth 層
@@ -55,7 +57,20 @@ describe("bulk transfer 的 HTTP 層訊息（字面）", () => {
     expect(NOT_IN_RANGE_MESSAGE).toBe("This note isn't in this transfer token's range.");
     expect(TRANSFER_NOTE_NOT_FOUND_MESSAGE).toBe("No note with that id.");
     expect(TRANSFER_RATE_LIMITED_MESSAGE).toBe("Too many requests. Wait a moment and try again.");
-    expect(EXPORT_BUSY_MESSAGE).toBe("Another export is already running. Try again in a moment.");
+    // 忙碌：秒數寫進訊息（curl 印不出 Retry-After），與 header 同一個常數。
+    expect(EXPORT_BUSY_MESSAGE).toBe("Another export is already running. Try again in 30 seconds.");
+    expect(EXPORT_BUSY_MESSAGE).toContain(`in ${EXPORT_BUSY_RETRY_AFTER_S} seconds`);
+    // 整包每小時額度用完：等待分鐘數寫進訊息，向上取整、至少 1；說明是每人的額度（新權杖不重置）、到時候權杖可能已過期；碼仍是 too_many_requests。
+    expect(exportRateLimitedMessage(37 * 60_000)).toBe(
+      "You've reached your hourly limit for full downloads; it counts per person, so a new token won't reset it. Download again in 37 minutes, with a new token if this one has expired by then; until then, fetch the notes you need one by one with the note command, which doesn't count toward this limit."
+    );
+    expect(exportRateLimitedMessage(1_000)).toContain(" in 1 minute, ");
+    expect(exportRateLimitedMessage(0)).toContain(" in 1 minute, ");
+    expect(exportRateLimitedMessage(60_000)).toContain(" in 1 minute, ");
+    expect(exportRateLimitedMessage(60_001)).toContain(" in 2 minutes, ");
+    expect(exportRateLimitedMessage(59 * 60_000 + 1_000)).toContain(" in 60 minutes, ");
+    expect(exportRateLimitedMessage(3_600_000)).toContain(" in 60 minutes, ");
+    expect(exportRateLimitedMessage(37 * 60_000)).not.toBe(TRANSFER_RATE_LIMITED_MESSAGE);
     expect(TOO_MANY_NOTES_MESSAGE).toBe("The range has more than 3000 notes. Ask for a token with a smaller range.");
     expect(INVALID_UTF8_MESSAGE).toBe("The file isn't valid UTF-8.");
     expect(BASE_UNAVAILABLE_MESSAGES).toEqual({

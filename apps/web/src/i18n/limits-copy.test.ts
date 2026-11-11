@@ -114,7 +114,7 @@ const DESCRIPTION_MARKERS: Record<string, [string, string]> = {
   rateSearch: ["Full-text", "全文搜尋"],
   rateUpload: ["Files uploaded", "上傳檔案"],
   rateAi: ["AI requests", "站內 AI"],
-  rateTransferExport: ["Bulk downloads", "批次下載"],
+  rateTransferExport: ["download a whole range", "整包下載"],
   rateTransferWrite: ["write-back", "批次寫回"],
   sessionTtlSeconds: ["sign-in", "網頁登入"],
   apiTokensPerUser: ["revoke", "撤銷"],

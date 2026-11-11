@@ -347,7 +347,7 @@ Shared with me/<your folder path>/<title>.md
 - Attachments are not in it: images and files stay links in the markdown; fetch an image with `create_transfer_token`.
 - **The download is not a snapshot.** Each note is read when its turn comes, live — including what people are typing — so notes in one download can be from different moments.
 - **A range with more than 3 000 notes** answers `413 too_many_notes` before anything is sent: ask for a token with `space`, `group_id` or `folder_id`.
-- **One download at a time runs on the whole site**: while one runs, another answers `429` with `Retry-After: 30`, and that doesn't count against your downloads. Each person can start 10 downloads an hour. A download whose client stops reading without closing the connection keeps that place until the connection drops (see [Known limitations](./known-limitations.md#sending-notes-back-as-files-mcp-bulk-transfer)).
+- **One download at a time runs on the whole site**: while one runs, another answers `429` with `Retry-After: 30`, and that doesn't count against your downloads. Each person can start 10 downloads an hour; once they are used up, a download answers `429` whose message gives the wait in minutes (the commands don't print `Retry-After`), and fetching single notes with `note` doesn't count against them. A download whose client stops reading without closing the connection keeps that place until the connection drops (see [Known limitations](./known-limitations.md#sending-notes-back-as-files-mcp-bulk-transfer)).
 
 #### Fetching one note
 

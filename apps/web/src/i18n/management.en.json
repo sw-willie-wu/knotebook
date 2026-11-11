@@ -233,7 +233,7 @@
         },
         "rateTransferExport": {
           "label": "Bulk downloads",
-          "description": "Bulk downloads allowed per person."
+          "description": "How many times each person can download a whole range. Fetching a single note again doesn't count."
         },
         "rateTransferWrite": {
           "label": "Bulk write-backs",
