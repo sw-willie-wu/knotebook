@@ -1333,6 +1333,7 @@ export * from "./version-names.js";
 export * from "./ai.js";
 export * from "./trash.js";
 export * from "./folders.js";
+export * from "./favorites.js";
 export * from "./presence.js";
 export * from "./avatar.js";
 export * from "./site-limits.js";

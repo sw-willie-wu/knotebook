@@ -23,6 +23,7 @@ import { notesRoutes } from "./routes/notes.js";
 import { noteVersionsRoutes } from "./routes/note-versions.js";
 import { trashRoutes } from "./routes/trash.js";
 import { foldersRoutes } from "./routes/folders.js";
+import { favoritesRoutes } from "./routes/favorites.js";
 import { groupsRoutes } from "./routes/groups.js";
 import { searchRoutes } from "./routes/search.js";
 import { usersRoutes } from "./routes/users.js";
@@ -836,6 +837,8 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   void app.register(trashRoutes({ db: deps.db, collabHooks: deps.collabHooks, uploadsDir: deps.uploadsDir, storageLockTimeoutMs, groupTestHook: deps.groupTestHook }));
   // 資料夾：讀取收 Bearer notes:read、寫入 cookie-only（見 routes/folders.ts 檔頭）。
   void app.register(foldersRoutes({ db: deps.db, collabHooks: deps.collabHooks, storageLockTimeoutMs, groupTestHook: deps.groupTestHook, limiters: { folder: limiters.folder } }));
+  // #334：最愛清單／加入／移出（cookie-only，見 routes/favorites.ts 檔頭）。
+  void app.register(favoritesRoutes({ db: deps.db }));
   // #103：群組管理（session-only，見 routes/groups.ts 檔頭）。
   void app.register(groupsRoutes({ db: deps.db, collabHooks: deps.collabHooks, groupTestHook: deps.groupTestHook, uploadsDir: deps.uploadsDir, storageLockTimeoutMs, versions }));
   // 加成員／分享對話框的「認識的人」建議（session-only，見 routes/users.ts 檔頭）。
