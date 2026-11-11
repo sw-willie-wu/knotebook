@@ -224,7 +224,19 @@
     }
   },
   "helpGuide": {
+    "nav": {
+      "tour": "Feature tour",
+      "whatsNew": "What's new",
+      "shortcuts": "Keyboard shortcuts"
+    },
+    "tour": {
+      "heading": "Feature tour",
+      "intro": "A short walk through Knotebook's main features. It creates a sample note in My notes and demonstrates on it.",
+      "start": "Start tour"
+    },
     "whatsNew": {
+      "heading": "New in v{{version}}",
+      "empty": "Nothing new to highlight in this version.",
       "items": {
         "customColors": {
           "title": "Custom colors",

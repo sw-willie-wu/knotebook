@@ -382,11 +382,11 @@
     "accent": "Accent color",
     "logout": "Log out",
     "siteAdmin": "Site admin",
-    "shortcuts": "Keyboard shortcuts"
+    "help": "Help"
   },
   "shortcuts": {
-    "title": "Keyboard shortcuts",
-    "description": "Common keyboard shortcuts and typing triggers"
+    "title": "Help",
+    "description": "Feature tour, what is new in this version, and common keyboard shortcuts and typing triggers"
   },
   "admin": {
     "nav": {

@@ -6,6 +6,7 @@ import type { UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
 import { ShortcutsDialogContext, type ShortcutsDialogApi } from "@/lib/shortcuts-dialog";
+import { TourContext, type TourApi } from "@/lib/tour-context";
 import { UserMenu } from "./UserMenu";
 
 // 主題色選擇器：六個 RadioItem 渲染／role=menuitemradio／aria-checked、
@@ -54,14 +55,16 @@ function stubFetch(user: UserDto = USER) {
   );
 }
 
-function renderMenu(shortcuts: ShortcutsDialogApi | null = null) {
+function renderMenu(shortcuts: ShortcutsDialogApi | null = null, tour: TourApi | null = null) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <MemoryRouter>
           <ShortcutsDialogContext.Provider value={shortcuts}>
-            <UserMenu />
+            <TourContext.Provider value={tour}>
+              <UserMenu />
+            </TourContext.Provider>
           </ShortcutsDialogContext.Provider>
         </MemoryRouter>
       </ThemeProvider>
@@ -298,7 +301,7 @@ describe("UserMenu 站台管理入口", () => {
   });
 });
 
-describe("UserMenu「快捷鍵介紹」項", () => {
+describe("UserMenu「說明」項", () => {
   const ADMIN_USER: UserDto = { ...USER, isAdmin: true };
 
   beforeEach(async () => {
@@ -315,53 +318,89 @@ describe("UserMenu「快捷鍵介紹」項", () => {
     await openMenu();
     const names = screen.getAllByRole("menuitem").map((el) => el.textContent ?? "");
     const settings = names.findIndex((n) => n.startsWith("Settings"));
-    const shortcuts = names.findIndex((n) => n.startsWith("Keyboard shortcuts"));
+    const shortcuts = names.findIndex((n) => n.startsWith("Help"));
     const admin = names.findIndex((n) => n.startsWith("Site admin"));
     expect(settings).toBeGreaterThanOrEqual(0);
     expect(shortcuts).toBe(settings + 1);
     expect(admin).toBe(shortcuts + 1);
   });
 
-  it("U2 可及名稱恰為 Keyboard shortcuts（getByRole 的字串 name 是全字比對；提示字 aria-hidden）；項內有 Ctrl+/，Mac 是 ⌘/", async () => {
+  it("U2 可及名稱恰為 Help（getByRole 的字串 name 是全字比對；提示字 aria-hidden）；項內有 Ctrl+/，Mac 是 ⌘/", async () => {
     renderMenu({ open: vi.fn() });
     await openMenu();
-    const item = screen.getByRole("menuitem", { name: "Keyboard shortcuts" });
+    const item = screen.getByRole("menuitem", { name: "Help" });
     expect(item).toHaveTextContent("Ctrl+/");
+  });
+
+  it("選單裡只有「Help」：沒有 Keyboard shortcuts，也沒有單獨的 Feature tour（有導覽 context 時也一樣）", async () => {
+    renderMenu({ open: vi.fn() }, { start: vi.fn() });
+    await openMenu();
+    const names = screen.getAllByRole("menuitem").map((el) => el.textContent ?? "");
+    expect(names.some((n) => n.startsWith("Help"))).toBe(true);
+    expect(screen.queryByRole("menuitem", { name: "Keyboard shortcuts" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /Feature tour/ })).toBeNull();
+  });
+
+  it("zh-TW：項目名稱是「說明」", async () => {
+    await i18n.changeLanguage("zh-TW");
+    renderMenu({ open: vi.fn() });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Plain" })).toBeInTheDocument());
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Plain" }), { button: 0 });
+    await waitFor(() => expect(screen.getByRole("menuitem", { name: "說明" })).toBeInTheDocument());
+    expect(screen.queryByRole("menuitem", { name: "快捷鍵介紹" })).toBeNull();
   });
 
   it("U2 MacIntel：提示字是 ⌘/", async () => {
     vi.stubGlobal("navigator", { ...navigator, platform: "MacIntel" });
     renderMenu({ open: vi.fn() });
     await openMenu();
-    expect(screen.getByRole("menuitem", { name: "Keyboard shortcuts" })).toHaveTextContent("⌘/");
+    expect(screen.getByRole("menuitem", { name: "Help" })).toHaveTextContent("⌘/");
   });
 
   it("U3 aria-keyshortcuts：Control+/；Mac 是 Meta+/", async () => {
     const view = renderMenu({ open: vi.fn() });
     await openMenu();
-    expect(screen.getByRole("menuitem", { name: "Keyboard shortcuts" })).toHaveAttribute("aria-keyshortcuts", "Control+/");
+    expect(screen.getByRole("menuitem", { name: "Help" })).toHaveAttribute("aria-keyshortcuts", "Control+/");
     view.unmount();
     vi.stubGlobal("navigator", { ...navigator, platform: "MacIntel" });
     renderMenu({ open: vi.fn() });
     await openMenu();
-    expect(screen.getByRole("menuitem", { name: "Keyboard shortcuts" })).toHaveAttribute("aria-keyshortcuts", "Meta+/");
+    expect(screen.getByRole("menuitem", { name: "Help" })).toHaveAttribute("aria-keyshortcuts", "Meta+/");
   });
 
-  it("U4 選該項：open 被呼叫一次、參數是觸發鈕；選單已關", async () => {
+  it("U4 選該項：open 被呼叫一次、第一個參數是觸發鈕；選單已關", async () => {
     const open = vi.fn();
     renderMenu({ open });
     const trigger = await screen.findByRole("button", { name: "Plain" }); // 選單開著時觸發鈕被標 aria-hidden，先抓
     await openMenu();
-    fireEvent.click(screen.getByRole("menuitem", { name: "Keyboard shortcuts" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Help" }));
     expect(open).toHaveBeenCalledTimes(1);
     expect(open.mock.calls[0]![0]).toBe(trigger);
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
   });
 
+  it("有導覽 context：打開說明視窗時停在 tour 頁", async () => {
+    const open = vi.fn();
+    renderMenu({ open }, { start: vi.fn() });
+    await openMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Help" }));
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(open.mock.calls[0]![1]).toBe("tour");
+  });
+
+  it("沒有導覽 context：停在快捷鍵的 global 頁", async () => {
+    const open = vi.fn();
+    renderMenu({ open });
+    await openMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Help" }));
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(open.mock.calls[0]![1]).toBe("global");
+  });
+
   it("U5 沒有 Provider（不在 AppShell 底下）：沒有這一項", async () => {
     renderMenu(null);
     await openMenu();
-    expect(screen.queryByRole("menuitem", { name: "Keyboard shortcuts" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Help" })).toBeNull();
     expect(screen.getByRole("menuitem", { name: "Settings" })).toBeInTheDocument();
   });
 });

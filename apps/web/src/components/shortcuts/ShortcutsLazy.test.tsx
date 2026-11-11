@@ -1,17 +1,37 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { AiActionDto } from "@knotebook/shared";
 import i18n from "@/i18n";
+import { TourContext } from "@/lib/tour-context";
+import { findUserMenuReturnTarget } from "@/lib/tour-targets";
+import type { ShortcutsStartPage } from "@/lib/shortcuts-dialog";
+import { RELEASE_HIGHLIGHTS } from "./release-highlights";
 import { ShortcutsContent } from "./ShortcutsLazy";
 
 /**
- * 快捷鍵介紹頁的內容：左卡列分類、右卡只顯示所選分類；
- * 分類／條目依站台 AI 能力篩選、Mac 與其他平台的鍵面、報讀器友善的鍵名與分隔符、左卡底部的提示句（沒有「重看導覽」）、
- * 選分類的焦點與窄螢幕兩層切換（比照設定的 ManagementShell）。
+ * 說明視窗的內容：左卡列「功能導覽」「這一版新增」兩頁與快捷鍵分類、右卡只顯示所選那一頁；
+ * 分類／條目依站台 AI 能力篩選、Mac 與其他平台的鍵面、報讀器友善的鍵名與分隔符、左卡底部的提示句（沒有按鈕）、
+ * 選頁的焦點與窄螢幕兩層切換（比照設定的 ManagementShell）、〔開始導覽〕與「這一版新增」依登入者過濾。
  *
  * matchMedia：`test/setup.ts` 的全域 stub 恆回 matches:false——對 `(min-width: 768px)` 來說＝窄視窗；寬視窗案自己 stub。
  */
+
+/** 登記檔的替身：`override` 不為 null 時取代真的登記檔（空狀態、`adminOnly` 過濾用）；其餘案例用真的。 */
+const registryState = vi.hoisted(() => ({ override: null as null | { version: string; items: { id: string; adminOnly?: boolean }[] } }));
+vi.mock("./release-highlights", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./release-highlights")>();
+  return {
+    ...actual,
+    get RELEASE_HIGHLIGHTS() {
+      return registryState.override ?? actual.RELEASE_HIGHLIGHTS;
+    },
+  };
+});
+
+/** `/api/auth/me` 的替身：null＝未登入（401）。 */
+const sessionState = { user: null as null | { isAdmin: boolean } };
 
 const INSTRUCT: AiActionDto = { id: "instruct", name: "Instruct", applyMode: "preview", kind: "instruct" };
 const QUICK: AiActionDto = { id: "rewrite", name: "Rewrite", applyMode: "direct", kind: "quick" };
@@ -23,6 +43,11 @@ function stubFetch(handler: () => Promise<Response>) {
     vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/ai/actions") return handler();
+      if (url === "/api/auth/me") {
+        return sessionState.user === null
+          ? jsonResponse({ error: { code: "unauthorized", message: "no session" } }, 401)
+          : jsonResponse({ id: "u1", email: "alice@example.com", handle: "alice", displayName: "Alice", ...sessionState.user });
+      }
       throw new Error(`unexpected fetch: ${url}`);
     }),
   );
@@ -55,12 +80,26 @@ function stubWide() {
   );
 }
 
-function renderContent() {
-  return render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <ShortcutsContent />
-    </QueryClientProvider>,
+interface ContentOptions {
+  /** 有導覽 context（說明視窗從 App 層拿到 `useTour()`）。 */
+  tour?: { start: (options: { returnTo: string; returnFocus: () => Element | null }) => void };
+  startPage?: ShortcutsStartPage;
+  onClose?: () => void;
+  client?: QueryClient;
+  route?: string;
+}
+
+function contentElement({ tour, startPage, onClose = () => {}, client = new QueryClient({ defaultOptions: { queries: { retry: false } } }), route = "/" }: ContentOptions = {}) {
+  const content = <ShortcutsContent startPage={startPage} onClose={onClose} />;
+  return (
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={[route]}>{tour ? <TourContext.Provider value={tour}>{content}</TourContext.Provider> : content}</MemoryRouter>
+    </QueryClientProvider>
   );
+}
+
+function renderContent(options: ContentOptions = {}) {
+  return render(contentElement(options));
 }
 
 const ALL_EN = ["General", "Typing triggers", "Markdown shortcuts", "Text formatting", "Columns", "Sidebar", "Presentation", "AI", "Mouse"];
@@ -68,7 +107,9 @@ const NO_AI_EN = ALL_EN.filter((title) => title !== "AI");
 
 /** 左欄的分類鈕（名稱依序）。 */
 const navNames = () => Array.from(document.querySelectorAll("[data-shortcuts-category]")).map((el) => el.textContent);
-const navButton = (name: string) => within(screen.getByRole("navigation", { name: "Keyboard shortcuts" })).getByRole("button", { name });
+const navButton = (name: string) => within(screen.getByRole("navigation", { name: "Help" })).getByRole("button", { name });
+/** 左欄所有按鈕的名稱，依序（兩頁＋各分類）。 */
+const allNavNames = () => within(screen.getByRole("navigation", { name: "Help" })).getAllByRole("button").map((b) => b.textContent);
 /** 右卡目前顯示的 h3。 */
 const heading = () => screen.getByRole("heading", { level: 3 }).textContent;
 const row = (id: string) => {
@@ -89,6 +130,8 @@ function openCategory(name: string): void {
 beforeEach(async () => {
   await i18n.changeLanguage("en");
   stubPlatform("Win32");
+  sessionState.user = null;
+  registryState.override = null;
 });
 
 afterEach(() => {
@@ -134,24 +177,20 @@ describe("站台能力：分類", () => {
     expect(navNames()).toEqual(NO_AI_EN);
   });
 
-  it("C3b 所選的是 AI、之後站台能力消失 → 退回第一個分類而不是空白", async () => {
+  it("C3b 所選的是 AI、之後站台能力消失 → 退回第一頁而不是空白", async () => {
     stubActions([INSTRUCT]);
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(
-      <QueryClientProvider client={client}>
-        <ShortcutsContent />
-      </QueryClientProvider>,
-    );
+    renderContent({ client });
     await waitFor(() => expect(navNames()).toContain("AI"));
     openCategory("AI");
     expect(heading()).toBe("AI");
-    // 管理員把 AI 動作全關掉（["ai-actions"] 快取更新）：所選的 AI 分類消失，右卡退回第一個分類，元件不崩
+    // 管理員把 AI 動作全關掉（["ai-actions"] 快取更新）：所選的 AI 分類消失，右卡退回第一頁（沒有導覽 context 時是「這一版新增」），元件不崩
     act(() => {
       client.setQueryData(["ai-actions"], []);
     });
     await waitFor(() => expect(navNames()).toEqual(NO_AI_EN));
-    expect(heading()).toBe("General");
-    expect(navButton("General")).toHaveAttribute("aria-current", "true");
+    expect(navButton("What's new")).toHaveAttribute("aria-current", "true");
+    expect(heading()).toMatch(/^New in v/);
     expect(screen.queryByRole("alert")).toBeNull();
   });
 });
@@ -228,6 +267,207 @@ describe("分類切換（左卡項次＋右卡內容）", () => {
     expect(content.className).toMatch(/(^| )flex( |$)/);
     expect(items.className).toMatch(/(^| )hidden( |$)/);
     expect(region()).toHaveAccessibleName("Sidebar");
+  });
+});
+
+describe("說明視窗的頁", () => {
+  beforeEach(() => stubActions([]));
+
+  it("左欄順序：Feature tour、What's new、分隔線、「Keyboard shortcuts」小標題；分類按鈕在以小標題命名的群組裡", async () => {
+    renderContent({ tour: { start: vi.fn() } });
+    await waitFor(() => expect(navNames()).toEqual(NO_AI_EN));
+    expect(allNavNames()).toEqual(["Feature tour", "What's new", ...NO_AI_EN]);
+    const nav = screen.getByRole("navigation", { name: "Help" });
+    const kids = Array.from(nav.children);
+    expect(kids.map((el) => el.getAttribute("role") ?? el.tagName.toLowerCase())).toEqual(["button", "button", "separator", "group"]);
+    const group = within(nav).getByRole("group", { name: "Keyboard shortcuts" });
+    expect(within(group).getAllByRole("button").map((b) => b.textContent)).toEqual(NO_AI_EN);
+    // 小標題是文字、不可聚焦
+    const label = group.firstElementChild as HTMLElement;
+    expect(label.textContent).toBe("Keyboard shortcuts");
+    expect(label.tabIndex).toBe(-1);
+  });
+
+  it("沒有導覽 context：左欄沒有 Feature tour，What's new 仍在最上面", async () => {
+    renderContent();
+    await waitFor(() => expect(navNames()).toEqual(NO_AI_EN));
+    expect(allNavNames()).toEqual(["What's new", ...NO_AI_EN]);
+  });
+
+  it("起始頁：global 停在 General；tour 停在 Feature tour（aria-current 與 region 名稱都跟著）", async () => {
+    const first = renderContent({ tour: { start: vi.fn() }, startPage: "global" });
+    await waitFor(() => expect(navNames()).toEqual(NO_AI_EN));
+    expect(navButton("General")).toHaveAttribute("aria-current", "true");
+    expect(region()).toHaveAccessibleName("General");
+    first.unmount();
+
+    renderContent({ tour: { start: vi.fn() }, startPage: "tour" });
+    await waitFor(() => expect(navNames()).toEqual(NO_AI_EN));
+    expect(navButton("Feature tour")).toHaveAttribute("aria-current", "true");
+    expect(navButton("General")).not.toHaveAttribute("aria-current");
+    expect(region()).toHaveAccessibleName("Feature tour");
+    expect(screen.getByRole("button", { name: "Start tour" })).toBeInTheDocument();
+  });
+
+  it("沒有導覽 context 卻要求停在 tour：退回 What's new，不會出現沒反應的鈕", async () => {
+    renderContent({ startPage: "tour" });
+    await waitFor(() => expect(navNames()).toEqual(NO_AI_EN));
+    expect(navButton("What's new")).toHaveAttribute("aria-current", "true");
+    expect(screen.queryByRole("button", { name: "Start tour" })).toBeNull();
+  });
+
+  it("〔Start tour〕：先關視窗、再恰好呼叫一次 start；returnTo 是當下位置（含 search 與 hash），returnFocus 是使用者選單的查找函式", async () => {
+    const calls: string[] = [];
+    const start = vi.fn(() => void calls.push("start"));
+    const onClose = vi.fn(() => void calls.push("close"));
+    renderContent({ tour: { start }, startPage: "tour", onClose, route: "/n/alice/notes/draft?tab=2#top" });
+    await waitFor(() => expect(navNames()).toEqual(NO_AI_EN));
+    fireEvent.click(screen.getByRole("button", { name: "Start tour" }));
+    expect(calls).toEqual(["close", "start"]);
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(start).toHaveBeenCalledWith({ returnTo: "/n/alice/notes/draft?tab=2#top", returnFocus: findUserMenuReturnTarget });
+  });
+
+  it("Feature tour 頁：標題、說明句與按鈕", async () => {
+    renderContent({ tour: { start: vi.fn() }, startPage: "tour" });
+    await waitFor(() => expect(navNames()).toEqual(NO_AI_EN));
+    expect(heading()).toBe("Feature tour");
+    expect(region()).toHaveTextContent("It creates a sample note in My notes");
+  });
+
+  it("窄螢幕：打開就是內容層（Feature tour 頁）；返回鈕回左欄；再選 What's new 進內容層", async () => {
+    renderContent({ tour: { start: vi.fn() }, startPage: "tour" });
+    await waitFor(() => expect(navNames()).toEqual(NO_AI_EN));
+    const items = document.querySelector<HTMLElement>('[data-shortcuts-card="items"]')!;
+    const content = document.querySelector<HTMLElement>('[data-shortcuts-card="content"]')!;
+    expect(content.className).toMatch(/(^| )flex( |$)/);
+    expect(items.className).toMatch(/(^| )hidden( |$)/);
+    expect(heading()).toBe("Feature tour");
+
+    fireEvent.click(screen.getByRole("button", { name: "Back to sections" }));
+    await waitFor(() => expect(items.className).toMatch(/(^| )flex( |$)/));
+    expect(content.className).toMatch(/(^| )hidden( |$)/);
+    await waitFor(() => expect(navButton("Feature tour")).toHaveFocus());
+
+    fireEvent.click(navButton("What's new"));
+    await waitFor(() => expect(region()).toHaveFocus());
+    expect(content.className).toMatch(/(^| )flex( |$)/);
+    expect(items.className).toMatch(/(^| )hidden( |$)/);
+    expect(region()).toHaveAccessibleName(/^New in v/);
+  });
+
+  it("zh-TW：左欄與頁面用「功能導覽」「這一版新增」「快捷鍵」", async () => {
+    await i18n.changeLanguage("zh-TW");
+    renderContent({ tour: { start: vi.fn() }, startPage: "tour" });
+    await waitFor(() => expect(screen.getByRole("navigation", { name: "說明" })).toBeInTheDocument());
+    const nav = within(screen.getByRole("navigation", { name: "說明" }));
+    expect(nav.getAllByRole("button").slice(0, 2).map((b) => b.textContent)).toEqual(["功能導覽", "這一版新增"]);
+    expect(nav.getByRole("group", { name: "快捷鍵" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "開始導覽" })).toBeInTheDocument();
+    fireEvent.click(nav.getByRole("button", { name: "這一版新增" }));
+    expect(heading()).toBe(`v${RELEASE_HIGHLIGHTS.version} 新增`);
+  });
+});
+
+describe("這一版新增", () => {
+  beforeEach(() => {
+    stubActions([]);
+    i18n.addResourceBundle(
+      "en",
+      "translation",
+      {
+        helpGuide: {
+          whatsNew: {
+            items: {
+              sample: { title: "Sample feature", desc: "Sample description." },
+              adminSample: { title: "Admin-only feature", desc: "Only site admins see this." },
+            },
+          },
+        },
+      },
+      true,
+      false,
+    );
+  });
+
+  const SAMPLE_REGISTRY = { version: "9.9.9", items: [{ id: "sample" }, { id: "adminSample", adminOnly: true }] };
+  const highlightIds = () => Array.from(document.querySelectorAll("[data-highlight-id]")).map((el) => el.getAttribute("data-highlight-id"));
+
+  async function openWhatsNew(options: ContentOptions = {}) {
+    renderContent(options);
+    await waitFor(() => expect(navNames()).toEqual(NO_AI_EN));
+    fireEvent.click(navButton("What's new"));
+  }
+
+  it("一般使用者：標題帶登記檔的版本，只列沒有標 adminOnly 的條目（名稱與說明都在）", async () => {
+    registryState.override = SAMPLE_REGISTRY;
+    sessionState.user = { isAdmin: false };
+    await openWhatsNew();
+    await waitFor(() => expect(heading()).toBe("New in v9.9.9"));
+    expect(highlightIds()).toEqual(["sample"]);
+    expect(region()).toHaveTextContent("Sample feature");
+    expect(region()).toHaveTextContent("Sample description.");
+    expect(region()).not.toHaveTextContent("Admin-only feature");
+  });
+
+  it("站台管理員：兩條都列，順序照登記檔", async () => {
+    registryState.override = SAMPLE_REGISTRY;
+    sessionState.user = { isAdmin: true };
+    await openWhatsNew();
+    await waitFor(() => expect(highlightIds()).toEqual(["sample", "adminSample"]));
+    expect(heading()).toBe("New in v9.9.9");
+  });
+
+  it("登入者還沒查到（載入中）：先當一般使用者，不露出 adminOnly 條目", async () => {
+    registryState.override = SAMPLE_REGISTRY;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/ai/actions") return jsonResponse({ actions: [] });
+        return new Promise<Response>(() => {});
+      }),
+    );
+    await openWhatsNew();
+    expect(highlightIds()).toEqual(["sample"]);
+  });
+
+  it("登記檔沒有條目：左欄仍有 What's new，頁面只有那一句，沒有版本標題", async () => {
+    registryState.override = { version: "9.9.9", items: [] };
+    await openWhatsNew();
+    expect(navButton("What's new")).toHaveAttribute("aria-current", "true");
+    expect(region()).toHaveTextContent("Nothing new to highlight in this version.");
+    expect(screen.queryByRole("heading", { name: /New in v/ })).toBeNull();
+    expect(document.querySelectorAll("[data-highlight-id]")).toHaveLength(0);
+    expect(region()).toHaveAccessibleName("What's new");
+  });
+
+  it("條目全是 adminOnly 而登入者不是管理員：同樣只有那一句，沒有版本標題", async () => {
+    registryState.override = { version: "9.9.9", items: [{ id: "adminSample", adminOnly: true }] };
+    sessionState.user = { isAdmin: false };
+    await openWhatsNew();
+    expect(region()).toHaveTextContent("Nothing new to highlight in this version.");
+    expect(screen.queryByRole("heading", { name: /New in v/ })).toBeNull();
+  });
+
+  it("真的登記檔：每個 adminOnly 條目一般使用者看不到、管理員看得到，其餘兩邊都看得到", async () => {
+    const all = RELEASE_HIGHLIGHTS.items;
+    const adminOnly = all.filter((item) => item.adminOnly === true).map((item) => item.id);
+    const everyone = all.filter((item) => item.adminOnly !== true).map((item) => item.id);
+
+    sessionState.user = { isAdmin: false };
+    const normal = renderContent();
+    await waitFor(() => expect(navNames()).toEqual(NO_AI_EN));
+    fireEvent.click(navButton("What's new"));
+    expect(highlightIds()).toEqual(everyone);
+    normal.unmount();
+
+    sessionState.user = { isAdmin: true };
+    renderContent();
+    await waitFor(() => expect(navNames()).toEqual(NO_AI_EN));
+    fireEvent.click(navButton("What's new"));
+    await waitFor(() => expect(highlightIds()).toEqual(all.map((item) => item.id)));
+    for (const id of adminOnly) expect(highlightIds()).toContain(id);
   });
 });
 
@@ -312,7 +552,7 @@ describe("鍵面", () => {
 });
 
 describe("提示句", () => {
-  it("C6 左卡底部的提示句含 “to open this page” 與 <kbd>/</kbd>；提示句裡沒有按鈕（沒有「重看導覽」）", async () => {
+  it("C6 左卡底部的提示句含 “to open this page” 與 <kbd>/</kbd>；提示句裡沒有按鈕（導覽的入口在「功能導覽」頁，不在底部）", async () => {
     stubActions([]);
     renderContent();
     await waitFor(() => expect(document.querySelector("[data-shortcuts-footer]")).not.toBeNull());

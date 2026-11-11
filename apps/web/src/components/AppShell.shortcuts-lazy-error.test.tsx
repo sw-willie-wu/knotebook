@@ -97,11 +97,11 @@ describe("AppShell — 快捷鍵頁 chunk 載入失敗", () => {
     renderApp();
     await openShortcuts();
 
-    const dialog = await screen.findByRole("dialog", { name: "Keyboard shortcuts" });
+    const dialog = await screen.findByRole("dialog", { name: "Help" });
     const alert = await within(dialog).findByRole("alert");
     expect(alert).toHaveTextContent(i18n.t("app.chunkLoadError"));
     expect(within(alert).getByRole("button", { name: "Try again" })).toBeInTheDocument();
-    expect(within(dialog).getByRole("heading", { name: "Keyboard shortcuts" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("heading", { name: "Help" })).toBeInTheDocument();
     expect(screen.queryByText("Something went wrong")).toBeNull();
     expect(reload).not.toHaveBeenCalled();
   });

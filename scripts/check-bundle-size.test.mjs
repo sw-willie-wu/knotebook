@@ -6,7 +6,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { BODY_SEARCH_MARKER, FOLDER_I18N_MARKER, MANAGEMENT_I18N_MARKERS, MAX_ENTRY_BYTES, SELECT_I18N_MARKER, SHORTCUTS_I18N_MARKER, TOUR_I18N_MARKER, VERSIONS_MARKERS, checkBundleSize } from './check-bundle-size.mjs';
+import { BODY_SEARCH_MARKER, FOLDER_I18N_MARKER, HELP_I18N_MARKER, MANAGEMENT_I18N_MARKERS, MAX_ENTRY_BYTES, SELECT_I18N_MARKER, SHORTCUTS_I18N_MARKER, TOUR_I18N_MARKER, VERSIONS_MARKERS, checkBundleSize } from './check-bundle-size.mjs';
 
 // 守預設上限 750 KiB（理由見 check-bundle-size.mjs 的常數註解；下面兩案明傳 700 * 1024 測判斷本身，與預設值無關）。
 test('BS0 首包上限是 750 KiB', () => {
@@ -418,6 +418,86 @@ test('BS-T4 TOUR_I18N_MARKER 是 tour.en.json 裡 tourGuide.* 的鍵，不在主
   assert.equal(typeof tour.tourGuide?.[TOUR_I18N_MARKER], 'string', `tourGuide.${TOUR_I18N_MARKER} 不在 tour.en.json——鍵改名了，請同步更新 TOUR_I18N_MARKER`);
   const main = readFileSync(fileURLToPath(new URL('../apps/web/src/i18n/en.json', import.meta.url)), 'utf8');
   assert.ok(!main.includes(`"${TOUR_I18N_MARKER}"`), `${TOUR_I18N_MARKER} 不該在主 en.json`);
+});
+
+// 說明視窗：entry 不得含說明頁的字串；說明視窗的 chunk 不得帶著導覽的字串包或引用導覽的 chunk
+test('entry 含說明頁的字串鍵名 → throw', () => {
+  const { assets, cleanup } = fakeAssets({
+    ...MARKER_BASE, 'index-Abc123.js': `const s={${HELP_I18N_MARKER}:{}}`, 'NotePage-Def456.js': 'x',
+    'VersionsLazy-Vvv000.js': 'x',
+  });
+  try {
+    assert.throws(() => checkBundleSize(assets), /index-Abc123\.js[\s\S]*whatsNew[\s\S]*ShortcutsLazy/);
+  } finally {
+    cleanup();
+  }
+});
+
+test('說明視窗的 chunk 含導覽字串包的鍵名 → throw', () => {
+  const { assets, cleanup } = fakeAssets({
+    ...MARKER_BASE, 'ShortcutsLazy-Kkk000.js': `const s={${TOUR_I18N_MARKER}:"x",${HELP_I18N_MARKER}:{}}`, 'NotePage-Def456.js': 'x',
+    'VersionsLazy-Vvv000.js': 'x',
+  });
+  try {
+    assert.throws(() => checkBundleSize(assets), /ShortcutsLazy-Kkk000\.js[\s\S]*keepOrDeleteSample/);
+  } finally {
+    cleanup();
+  }
+});
+
+test('說明視窗的 chunk 靜態引用 TourLazy chunk（鍵名在別的檔）→ throw', () => {
+  const { assets, cleanup } = fakeAssets({
+    ...MARKER_BASE, 'ShortcutsLazy-Kkk000.js': 'import{T}from"./TourLazy-Tou000.js";export{T}', 'NotePage-Def456.js': 'x',
+    'VersionsLazy-Vvv000.js': 'x',
+  });
+  try {
+    assert.throws(() => checkBundleSize(assets), /ShortcutsLazy-Kkk000\.js[\s\S]*TourLazy-Tou000\.js/);
+  } finally {
+    cleanup();
+  }
+});
+
+test('導覽字串包被抽成共用 chunk、說明視窗的 chunk 只留一行靜態 import → throw', () => {
+  const { assets, cleanup } = fakeAssets({
+    ...MARKER_BASE, 'ShortcutsLazy-Kkk000.js': 'import"./tour-strings-Zzz999.js";export{};', 'tour-strings-Zzz999.js': `const s={${TOUR_I18N_MARKER}:"x"}`,
+    'NotePage-Def456.js': 'x', 'VersionsLazy-Vvv000.js': 'x',
+  });
+  try {
+    assert.throws(() => checkBundleSize(assets), /ShortcutsLazy-Kkk000\.js[\s\S]*tour-strings-Zzz999\.js/);
+  } finally {
+    cleanup();
+  }
+});
+
+test('說明視窗的 chunk 只是動態 import 導覽的 chunk（括號形）→ 通過', () => {
+  const { assets, cleanup } = fakeAssets({
+    ...MARKER_BASE, 'ShortcutsLazy-Kkk000.js': 'const load=()=>import("./TourLazy-Tou000.js");export{load};',
+    'NotePage-Def456.js': 'x', 'VersionsLazy-Vvv000.js': 'x',
+  });
+  try {
+    assert.deepEqual(checkBundleSize(assets).shortcutsChunks, ['ShortcutsLazy-Kkk000.js']);
+  } finally {
+    cleanup();
+  }
+});
+
+test('說明頁的鍵名只在 ShortcutsLazy 裡、導覽只在 TourLazy 裡 → 通過', () => {
+  const { assets, cleanup } = fakeAssets({
+    ...MARKER_BASE, 'ShortcutsLazy-Kkk000.js': `const s={${HELP_I18N_MARKER}:{}}`, 'TourLazy-Tou000.js': `const s={${TOUR_I18N_MARKER}:"x"}`,
+    'NotePage-Def456.js': 'x', 'VersionsLazy-Vvv000.js': 'x',
+  });
+  try {
+    assert.deepEqual(checkBundleSize(assets).shortcutsChunks, ['ShortcutsLazy-Kkk000.js']);
+  } finally {
+    cleanup();
+  }
+});
+
+test('HELP_I18N_MARKER 是 shortcuts.en.json 的 helpGuide 底下的鍵，不在主 en.json', () => {
+  const bundle = JSON.parse(readFileSync(fileURLToPath(new URL('../apps/web/src/i18n/shortcuts.en.json', import.meta.url)), 'utf8'));
+  assert.equal(typeof bundle.helpGuide?.[HELP_I18N_MARKER], 'object', `helpGuide.${HELP_I18N_MARKER} 不在 shortcuts.en.json——鍵改名了，請同步更新 HELP_I18N_MARKER`);
+  const main = readFileSync(fileURLToPath(new URL('../apps/web/src/i18n/en.json', import.meta.url)), 'utf8');
+  assert.ok(!main.includes(`"${HELP_I18N_MARKER}"`), `${HELP_I18N_MARKER} 不該在主 en.json`);
 });
 
 test('BS5 MANAGEMENT_I18N_MARKERS 都是 management.en.json 裡被搬走子樹的鍵，且不在首包保留的 15 鍵裡', () => {

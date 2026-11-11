@@ -14,6 +14,8 @@
 //      資料夾對話框同理：FolderLazy chunk 必須存在，且 entry 不得含資料夾字串包的鍵名（FOLDER_I18N_MARKER）。
 //      快捷鍵介紹同理：ShortcutsLazy chunk 必須存在，且 entry 不得含 SHORTCUTS_I18N_MARKER。
 //      功能導覽同理：TourLazy chunk 必須存在，且 entry 不得含導覽字串包的鍵名（TOUR_I18N_MARKER）。
+//      說明視窗（ShortcutsLazy）另有兩條：entry 不得含說明頁的字串鍵名（HELP_I18N_MARKER）；ShortcutsLazy chunk 本身不得含導覽字串包的鍵名、
+//      也不得（沿著靜態 import 往下）到達 TourLazy chunk 或帶著導覽字串包鍵名的共用 chunk（說明視窗只經首包的 context 開始導覽，導覽的字串包與站點表不能跟著它下載）。
 //      側欄搜尋的內文區（#93）同理：BodySearchLazy chunk 必須存在，且 entry 不得含內文區的 marker（BODY_SEARCH_MARKER）。
 //      站台管理／設定的字串包（management-strings，首包瘦身）同理：entry 不得含 MANAGEMENT_I18N_MARKERS，且 management-strings chunk 必須存在並帶著它們。
 //
@@ -92,6 +94,9 @@ export const SHORTCUTSLAZY_RE = /^ShortcutsLazy-[A-Za-z0-9_-]+\.js$/;
 // shortcuts.*.json 只能進 ShortcutsLazy 鏈：這把鍵名（`shortcutsGuide.items.columnBackspace`，清單 id）出現在 entry＝字串包或清單被首包靜態 import。
 // 選它而不選 heading／wikilink 這類 id：那些字在 entry 本來就有（block 名稱）。check-bundle-size.test.mjs 驗它是 shortcuts.en.json 的鍵、不在主 en.json。
 export const SHORTCUTS_I18N_MARKER = 'columnBackspace';
+// 說明視窗「這一版新增」頁的鍵名（`helpGuide.whatsNew`）：只有 ShortcutsLazy 鏈用得到；出現在 entry＝說明頁的字串或內容被首包靜態 import。
+// check-bundle-size.test.mjs 驗它是 shortcuts.en.json 的 helpGuide 底下的鍵、不在主 en.json。
+export const HELP_I18N_MARKER = 'whatsNew';
 // #93：側欄搜尋的「內文符合」區（BodySearchResults、查詢 hook、片段與點擊處理）必須是自己的 lazy chunk；
 // `components/sidebar/BodySearchLazy.tsx` 是唯一入口（SearchResults 的 `lazy(() => import("@/components/sidebar/BodySearchLazy"))`）。
 // ⚠ 同 SELECTLAZY_RE：存在性只擋「整組被併回 entry」或 chunk 改名；SearchResults 是唯一呼叫端，改成靜態 import 時整組併回 entry、chunk 消失。
@@ -335,6 +340,25 @@ export function checkBundleSize(assetsDir, { maxEntryBytes = MAX_ENTRY_BYTES } =
       `entry chunk ${entryName} 含導覽字串包的鍵名 ${TOUR_I18N_MARKER}——\`@/i18n/tour-strings\`（或 import 它的導覽模組）` +
         `被首包靜態 import；功能導覽只能經 TourLazy 載入（功能導覽）`
     );
+  }
+
+  // 說明視窗的 chunk 不得把導覽帶進來：從 ShortcutsLazy 靜態 import 得到的 chunk（含它自己）裡，不得有導覽的字串包鍵名、也不得有 TourLazy chunk。
+  // 只看 ShortcutsLazy 自己那個檔不夠：導覽字串包同時被 TourLazy 用，rollup 會把它抽成共用 chunk，ShortcutsLazy 只留一行 import。
+  if (entrySource.includes(HELP_I18N_MARKER)) {
+    throw new Error(
+      `entry chunk ${entryName} 含說明頁的字串鍵名 ${HELP_I18N_MARKER}——說明頁的內容與字串包只能經 ShortcutsLazy 載入`
+    );
+  }
+  for (const chunk of shortcutsChunks) {
+    for (const reached of staticImportClosure(assetsDir, chunk)) {
+      const leaked = TOURLAZY_RE.test(reached) ? reached : readFileSync(join(assetsDir, reached), 'utf8').includes(TOUR_I18N_MARKER) ? TOUR_I18N_MARKER : undefined;
+      if (leaked !== undefined) {
+        throw new Error(
+          `說明視窗的 chunk ${chunk} 靜態 import 到導覽的東西（${leaked}，經 ${reached}）——說明視窗只能經首包的 \`useTour()\` 開始導覽，` +
+            `不得 import 導覽模組或導覽字串包（\`@/i18n/tour-strings\`）`
+        );
+      }
+    }
   }
 
   const bodySearchChunks = names.filter(name => BODYSEARCHLAZY_RE.test(name));

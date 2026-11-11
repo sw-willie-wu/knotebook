@@ -118,7 +118,8 @@ export function TourLazy({ returnTo, returnFocus, timedOut, onStarted, onDone }:
    * 開始流程中止（逾時、位置離開示範筆記、沒辦法準備）：跳一則提示、收掉這一輪；示範筆記還沒寫入內容就移到垃圾桶。
    * 要移的筆記正開著時先導回原頁、等位置生效再移：開著的筆記被移到垃圾桶，筆記頁會走「已被刪除」的離場路徑、再跳一則提示。
    * 收掉 `TourRunner` 會中止 `prepareSample`，它的 `bail` 比導回原頁的 transition 先跑；這裡跑著的期間（`ending` 且還沒 `settled`）
-   * 移垃圾桶只由這裡做，`bail` 不動手，「先導回再移」才成立。最後把焦點還給 `returnFocus`（說明視窗已經關了，不還會落在 body）。
+   * 移垃圾桶只由這裡做，`bail` 不動手，「先導回再移」才成立。最後把焦點還給 `returnFocus`（使用者選單的觸發鈕；窄視窗是開側欄抽屜的漢堡鈕）。
+   * 使用者自己導到別處而中止時也一樣還焦點，與導覽正常結束、或第 1 站之後離開示範筆記時的行為一致。
    */
   const abortStart = async () => {
     const session = sessionRef.current;
