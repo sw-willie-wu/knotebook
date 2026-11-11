@@ -1,6 +1,6 @@
 /**
  * #181：「看得到」的單一閘口與讀取面（第 1～6、8 點；「移入前看得到、移入後看不到、還原又看得到」；
- * A2-6 目標在垃圾桶照記連結）。垃圾桶狀態以 `markTrashed`／`markRestored` 直寫（`trashNotesInTx` 在 T3）。
+ * A2-6 目標在垃圾桶照記連結）。垃圾桶狀態以 `markTrashed`／`markRestored` 直寫（不經 `trashNotesInTx`）。
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";

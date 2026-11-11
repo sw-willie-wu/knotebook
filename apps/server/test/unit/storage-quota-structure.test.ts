@@ -1,13 +1,13 @@
 /**
  * 儲存配額的結構性守衛。剝註解後掃 `src/`（剝法同 s14-structure.test.ts 的 `code()`）。
- * 誠實：字面掃描——改名重匯出、別名呼叫、經另一模組轉手等刻意規避守不到；行為面由 storage-quota-race.test.ts 的 R1／R13 守。
- *   ① `insert(uploads)` 只在 U-tx 與 T4（新增 uploads 列的路徑必須進白名單）
+ * 誠實：字面掃描——改名重匯出、別名呼叫、經另一模組轉手等刻意規避守不到；行為面由 storage-quota-race.test.ts 守。
+ *   ① `insert(uploads)` 只在上傳（`insertUploadInTx`）與複製（`copyNoteInTx`）（新增 uploads 列的路徑必須進白名單）
  *   ② `assertSpaceRoomInTx(` 呼叫形只在白名單四檔、各恰一次；delete-group.ts 那一次在 `transferGroupInTx` 函式體內；
  *      quota.ts 恰一次宣告形、0 次呼叫形；其他檔 0 次
  *   ③ `pg_advisory` 只在 quota.ts 與資料夾結構鎖 folders/tx/lock.ts（第二種 advisory 鎖；鍵前綴 `knotebook.folders:` 與容量鎖的
  *      `knotebook.storage:` 不同，不共用 key 空間）
  *   ④ quota.ts 取鎖那個 `tx.execute(` 呼叫不含 `sum(`；之後另有 SUM 查詢（兩句）
- *   ⑤ 白名單檔裡 `assertSpaceRoomInTx(` 早於同函式的 `writeSlugInTx(`／`insertNoteWithAutoSlug(`（Q-S7 的字面守衛）
+ *   ⑤ 白名單檔裡 `assertSpaceRoomInTx(` 早於同函式的 `writeSlugInTx(`／`insertNoteWithAutoSlug(`（空間鎖先於 slug 寫入的字面守衛）
  *   ⑥ quota.ts、白名單四檔與其路由檔不出現 isolationLevel／setTransaction／set transaction（限定範圍：#93 的
  *      search-query.ts 合法使用 setTransaction，所以不掃整個 src/）
  *   ⑦ HTTP 409 的訊息字面只在 storage/space.ts（STORAGE_QUOTA_EXCEEDED_MESSAGE）——errors.ts 的 helper 與
@@ -108,7 +108,7 @@ describe("儲存配額結構性守衛", () => {
     expect(q.slice(end)).toMatch(/sumUploadSizeSql\(\)/);
   });
 
-  it("⑤ 空間鎖早於同函式的 slug 寫入（Q-S7）", () => {
+  it("⑤ 空間鎖早於同函式的 slug 寫入", () => {
     const cases: Array<[string, string, RegExp]> = [
       ["notes/tx/copy.ts", "copyNoteInTx", /\binsertNoteWithAutoSlug\(/],
       ["notes/tx/move.ts", "moveNoteToGroupInTx", /\bwriteSlugInTx\(/],

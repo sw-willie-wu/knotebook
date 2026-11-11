@@ -6,7 +6,7 @@
  *   1. 筆記 `FOR KEY SHARE`；0 列 → `SearchIndexSkip("gone")`。**必要**：狀態列已存在時第 2 步不插列、不做 FK 檢查，
  *      少了這一步，本交易先持狀態列鎖；DELETE notes 的 cascade 先鎖住該篇的 sections 列、再等狀態列，本交易到第 5 步
  *      刪舊 sections 列時等 DELETE 的交易——成環（突變實測：pg log `deadlock detected`（40P01），環閉合在第 5 步的
- *      `delete from note_search_sections`，犧牲者是使用者的 DELETE（回 500）；`search-index-write.test.ts` S5 釘住）。
+ *      `delete from note_search_sections`，犧牲者是使用者的 DELETE（回 500）；`search-index-write.test.ts` 釘住）。
  *      先取 notes KEY SHARE，DELETE 就在 notes 列上等、碰不到 sections 列，環不成立。
  *   2. 狀態列 `INSERT … ON CONFLICT DO NOTHING`（佔位）＋`SELECT … FOR UPDATE`：同一篇的並發索引交易在這裡排隊
  *      （首建也一樣——只有 FOR UPDATE 的話兩個交易都看到「沒有列」）。

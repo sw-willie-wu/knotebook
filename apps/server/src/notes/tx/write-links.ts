@@ -1,5 +1,5 @@
 /**
- * #175 S14（T15）：`POST /api/notes/:id/links` 的交易本體。**本檔不 import `Db`、不接 `deps`**——只收 `tx`、
+ * #175 S14：`POST /api/notes/:id/links` 的交易本體。**本檔不 import `Db`、不接 `deps`**——只收 `tx`、
  * 純資料與型別明示的測試縫，所以寫不出「交易內向 pool 借連線」。
  * 重試／錯誤分類外殼（FK race 重試一次、40001/40P01 → busy）留在 `notes/links.ts` 的 `writeNoteLinks`。
  *

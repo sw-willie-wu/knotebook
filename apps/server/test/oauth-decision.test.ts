@@ -210,7 +210,7 @@ describe("POST /api/oauth/decision", () => {
       const { clientId, req } = await startFlow(app, { scope: "notes:write" });
       // register 幾秒前才把 last_used_at 設成 now()——先推回 10 天前，下面那條
       // 「建 code 後更新 last_used_at」的 UPDATE 被拿掉時才分得出來。
-      const staleStamp = new Date(Date.now() - 10 * 86_400_000); // 須 < I5 ① 的 30 天，否則 client 會被清掉
+      const staleStamp = new Date(Date.now() - 10 * 86_400_000); // 須 < 機會性清理 ① 的 30 天，否則 client 會被清掉
       await db.update(oauthClients).set({ lastUsedAt: staleStamp }).where(sql`${oauthClients.clientId} = ${clientId}`);
       const res = await decide(app, cookie, { req, decision: "allow", scope: RWM });
       expect(res.statusCode).toBe(200);
@@ -235,7 +235,7 @@ describe("POST /api/oauth/decision", () => {
       expect(ttl).toBeGreaterThan(9 * 60_000);
       expect(ttl).toBeLessThanOrEqual(10 * 60_000);
 
-      // 建 code 時連帶更新 client 的 last_used_at（I5 ① 的依據）
+      // 建 code 時連帶更新 client 的 last_used_at（機會性清理 ① 的依據）
       const [client] = await db.select().from(oauthClients);
       expect(client!.lastUsedAt.getTime()).toBeGreaterThan(staleStamp.getTime());
       expect(Date.now() - client!.lastUsedAt.getTime()).toBeLessThan(5_000);
@@ -441,12 +441,12 @@ describe("POST /api/oauth/decision", () => {
     }
   });
 
-  it("decision 的 I5 排在消費之前：pending request 跨過 24h 邊界的殭屍 client → 410 不是 500", async () => {
+  it("decision 的機會性清理排在消費之前：pending request 跨過 24h 邊界的殭屍 client → 410 不是 500", async () => {
     const { app, db, close } = await buildTestApp();
     try {
       const { cookie } = await createUserAndLogin(db);
       const { clientId, req } = await startFlow(app);
-      // 把 client 推回 25 小時前：它沒有 grant／code，I5 ② 會清掉它（CASCADE 帶走 request）
+      // 把 client 推回 25 小時前：它沒有 grant／code，機會性清理 ② 會清掉它（CASCADE 帶走 request）
       await db
         .update(oauthClients)
         .set({ createdAt: sql`now() - interval '25 hours'` })

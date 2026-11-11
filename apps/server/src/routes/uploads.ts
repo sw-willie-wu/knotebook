@@ -231,7 +231,7 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
       await writeFile(tempPath, fileBuf);
       await rename(tempPath, finalPath);
 
-      // 儲存配額 U-tx：筆記 KEY SHARE → 空間鎖＋配額 → INSERT。S14：callback 整段是 insertUploadInTx(tx, …)，引數是
+      // 儲存配額上傳：筆記 KEY SHARE → 空間鎖＋配額 → INSERT。S14：callback 整段是 insertUploadInTx(tx, …)，引數是
       // 交易前備好的純資料與測試縫（屬性存取）。
       const input = { id, noteId: noteId.toLowerCase(), uploaderId: userId, mime, size: fileBuf.length, lockTimeoutMs: deps.storageLockTimeoutMs };
       try {

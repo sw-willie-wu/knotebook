@@ -203,7 +203,7 @@ describe("PU9 交易爆不先刪檔", () => {
   });
 });
 
-describe("PU10 刪檔失敗的 log 只記 name／code／uploadId（T9 concern 3）", () => {
+describe("PU10 刪檔失敗的 log 只記 name／code／uploadId", () => {
   it("缺檔 → log.error 的物件鍵恰為 name、code、uploadId，沒有 err", async () => {
     const uploadsDir = mkdtempSync(path.join(tmpdir(), "kn-pu10-"));
     const calls: unknown[] = [];

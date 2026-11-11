@@ -1,4 +1,4 @@
-// T4 fix：`handlePick` 要明確判「同空間移動」，不能把 `transferTargetOf` 的任何 null 都當成同空間移動去 PUT。
+// `handlePick` 要明確判「同空間移動」，不能把 `transferTargetOf` 的任何 null 都當成同空間移動去 PUT。
 // 群組與 `DestSpace` 在真實選單裡出自同一份 `pick.groups`，UI 造不出「目的群組不在 pick.groups」，
 // 所以這裡只把 `GroupTransferMenuItems` 換成一顆按鈕、直接餵造好的 pick；其餘（NoteMenu、handlePick、transferTargetOf）都是真的。
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -74,7 +74,7 @@ async function pickIt(pick: DestinationPick): Promise<void> {
 
 const writes = () => fetchMock.mock.calls.filter(([, init]) => ((init as RequestInit | undefined)?.method ?? "GET").toUpperCase() !== "GET");
 
-describe("NoteMenu handlePick：同空間移動要明確判斷（T4 fix）", () => {
+describe("NoteMenu handlePick：同空間移動要明確判斷", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();

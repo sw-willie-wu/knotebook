@@ -29,7 +29,7 @@ export interface McpRequestOpts {
   accept?: string | null;
   /** `null` ＝ 完全不帶 `Content-Type`；不傳 ＝ `application/json`。 */
   contentType?: string | null;
-  /** 帶 `Origin` 時**務必**一起給 `host`（見檔頭第 2 點）。 */
+  /** 帶 `Origin` 時**務必**一起給 `host`（見檔頭說明）。 */
   origin?: string;
   host?: string;
   /** 原樣送出的 body 字串（壞 JSON／空 body 兩案用），優先於 `body`。 */

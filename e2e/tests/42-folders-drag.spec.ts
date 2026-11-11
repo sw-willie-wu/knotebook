@@ -419,7 +419,7 @@ test("42-7 拖進編輯器（【推-2】）：側欄 N 拖進 P 的編輯器放�
 
   // 正向錨點：放下的那段多出恰一個指向 N 的 wikilink（#352：從編輯器外拖進來的站內連結在放下範圍內轉成 wikilink，
   // collab/site-link-convert.ts `withSiteLinkDrop`）。編輯頁的 wikilink 命中態（MemberWikilink）是 <a href={canonicalNotePath(note)}>、
-  // 文字是 label 或現行標題（拖進來的 label 空，見 27 的 E6）。另斷言沒有指向 N 的一般連結（link mark 的 <a href="<origin>/n/…">）。
+  // 文字是 label 或現行標題（拖進來的 label 空，見 27）。另斷言沒有指向 N 的一般連結（link mark 的 <a href="<origin>/n/…">）。
   await expect(dropOuter.locator(WIKILINK)).toHaveCount(1, { timeout: 15_000 });
   await expect(dropOuter.locator(`${WIKILINK} a[href$="${nPath}"]`)).toHaveText(N, { timeout: 15_000 });
   await expect(editor.locator(`a[href$="${nPath}"]:not(${WIKILINK} a)`)).toHaveCount(0);

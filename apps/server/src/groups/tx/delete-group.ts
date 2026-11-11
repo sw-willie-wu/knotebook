@@ -1,6 +1,6 @@
 /**
- * #175 刪群組的兩支交易本體：T6 `transferGroupInTx`（轉移給內建管理員）、
- * T7 `deleteGroupWithNotesInTx`（連筆記一起刪）。角色與成員由 FK CASCADE 帶走。
+ * #175 刪群組的兩支交易本體：`transferGroupInTx`（轉移給內建管理員）、
+ * `deleteGroupWithNotesInTx`（連筆記一起刪）。角色與成員由 FK CASCADE 帶走。
  * S14：本檔只收 `tx`／純資料／測試縫，不 import `Db`、不接 `deps`；全刪的 gate（`beforeNoteDeleted`）、commit 後的刪檔與踢線都在路由。
  *
  * 鎖序（全域序 ① groups → ② 結構鎖 → ③ 資料夾列 → ④ 筆記列 → ⑤ 容量鎖）：
@@ -43,14 +43,14 @@ export interface TransferGroupInput {
 }
 
 export interface GroupDeletionResult {
-  /** 交易內以群組述詞鎖住並處理的筆記（T6＝轉走的、T7＝刪掉的）。 */
+  /** 交易內以群組述詞鎖住並處理的筆記（轉移＝轉走的、全刪＝刪掉的）。 */
   noteIds: string[];
   /** `DELETE groups`（CASCADE）**之前**以 tx 取的全體成員。 */
   memberIds: string[];
 }
 
 /**
- * #175 T6（transfer）：群組筆記全數改成 transferTo 的個人筆記，再刪群組。S14：只收 `tx`／純資料／測試縫。
+ * #175 `transferGroupInTx`（transfer）：群組筆記全數改成 transferTo 的個人筆記，再刪群組。S14：只收 `tx`／純資料／測試縫。
  *   lockGroup（不存在 → 404）→ transferTo 是成員且 builtin='admin'（鎖之後查）→ 否則 409 not_admin
  *   → M（CASCADE 前取）→ 群組與 transferTo 個人空間的結構鎖（在鎖群組筆記之前）
  *   → 該群組筆記 FOR UPDATE（依 id 鎖），再在 JS 依 created_at, id 排處理順序（撞名時誰拿較小的 -N 是決定性的）
@@ -98,7 +98,7 @@ export async function transferGroupInTx(tx: Tx, input: TransferGroupInput, hook?
     .sort((x, y) => (x.us < y.us ? -1 : x.us > y.us ? 1 : x.id < y.id ? -1 : x.id > y.id ? 1 : 0));
 
   // 儲存配額：群組筆記已全數 FOR UPDATE，incoming＝它們的附件總和（含 gate 開完之後才進群組的——以群組述詞取到即算）。
-  // 接收者個人空間鎖在第一個 writeSlugInTx **之前**（`storage-quota-race.test.ts` 的 R13 釘住）。拒絕 → 什麼都沒寫。
+  // 接收者個人空間鎖在第一個 writeSlugInTx **之前**（`storage-quota-race.test.ts` 釘住）。拒絕 → 什麼都沒寫。
   // 以群組述詞 SUM（rows 已全數 FOR UPDATE，取到的是同一組筆記）——不用 `inArray(…, ids)`：一篇一個綁定參數，
   // 超過協定上限（65535）的大群組會 500。
   const [sumRow] = await tx
@@ -158,7 +158,7 @@ export async function transferGroupInTx(tx: Tx, input: TransferGroupInput, hook?
 }
 
 /**
- * #175 T7（delete）：連筆記一起刪群組。**gate（`beforeNoteDeleted`，會借連線）由路由在交易之前開完**——
+ * #175 `deleteGroupWithNotesInTx`（delete）：連筆記一起刪群組。**gate（`beforeNoteDeleted`，會借連線）由路由在交易之前開完**——
  * 本函式不碰 gate（S14）。lockGroup（不存在 → 404）→ 群組結構鎖（與轉移同位置）→
  * L＝該群組筆記 FOR UPDATE（以群組述詞、不比對名單：gate 之後才進群組的也在 L 裡，這是接受的代價）→ M（CASCADE 前取）→
  * deleteNotesInTx(L)（與永久刪除／到期清理同一份；L 含群組垃圾桶裡的筆記）→ DELETE groups（群組資料夾 CASCADE）。

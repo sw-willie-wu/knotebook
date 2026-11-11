@@ -217,7 +217,7 @@ describe("側選單「Delete」不收欄", () => {
   });
 });
 
-describe("T6 ⋮⋮「取消並排」", () => {
+describe("⋮⋮「取消並排」", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
   });

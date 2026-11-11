@@ -3,7 +3,7 @@
  *
  * 這一族守的是：①loopback-only（無認證的 DCR 若收遠端 redirect，任何人都能註冊
  * 好聽的名字做一鍵釣魚）；②不支援的 metadata 一律回絕而不是默默接受；③`client_name`
- * 黑名單；④進表前先跑 I5；⑤限流與 content-type 都走 RFC 形。
+ * 黑名單；④進表前先跑機會性清理（`runOauthCleanup`）；⑤限流與 content-type 都走 RFC 形。
  */
 import { describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
@@ -225,7 +225,7 @@ describe("POST /oauth/register", () => {
     }
   });
 
-  it("進表前跑 I5：25 小時前的殭屍 client 在這一發後消失", async () => {
+  it("進表前跑機會性清理：25 小時前的殭屍 client 在這一發後消失", async () => {
     const { app, db, close } = await buildTestApp();
     try {
       await db.insert(oauthClients).values({

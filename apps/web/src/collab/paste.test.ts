@@ -822,11 +822,11 @@ describe("#353 段中貼上多段：既有的一般站內連結不轉", () => {
 });
 
 /**
- * I1（一次貼上只歸一個擁有者）：會經過 link AddMarkStep 的貼法——空選取貼裸網址（tiptap paste rule 在附加 tr 加 link）、選取上貼網址
+ * 一次貼上只歸一個擁有者：會經過 link AddMarkStep 的貼法——空選取貼裸網址（tiptap paste rule 在附加 tr 加 link）、選取上貼網址
  * （Link 的 handlePaste → setMark）——AddMarkStep 外掛與貼上 hook 都收得到同一個連結。快取未命中時 `schedule` 必須恰好一次
  * （每動作上限、撤銷後不被晚到的第二發轉回）；命中時只轉一次。
  */
-describe("#269 I1 貼上的轉換只做一次（外掛 × 貼上 hook）", () => {
+describe("#269 貼上的轉換只做一次（外掛 × 貼上 hook）", () => {
   afterEach(cleanupPasteEditors);
 
   function counting(notes: SiteLinkCandidate[]) {

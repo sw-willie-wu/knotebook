@@ -50,7 +50,7 @@ const SPEC_COPY: Record<string, string> = {
   "versions.sheet.backToList": "清單",
   // 避免與比較對象「前一版」同名：底部導覽鈕不用「上一版」「下一版」
   "versions.sheet.prev": "較舊的版本",
-  // 裁定（避免與比較對象同名）
+  // 同上：避免與比較對象同名
   "versions.sheet.next": "較新的版本",
   // #272：基底版已刪除
   "versions.deletedSuffix": "{{label}}（已刪除）",

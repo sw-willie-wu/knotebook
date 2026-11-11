@@ -120,7 +120,7 @@ test("A2-11：公開連結在垃圾桶期間 404，從垃圾桶列還原後恢�
   test.setTimeout(120_000);
   const title = `E2E Trash P ${RUN}`;
   // 用新帳號當 owner：public-link 的 PUT/DELETE 每人 10 次/10 分鐘（PUBLIC_LINK_LIMIT），
-  // 整套序跑到這裡時 admin 已被前面的 spec 用滿，再開公開連結會吃 429（同 31 E3）。
+  // 整套序跑到這裡時 admin 已被前面的 spec 用滿，再開公開連結會吃 429（同 31）。
   const owner = { email: randomEmail(), password: PASSWORD };
   const adminContext = await browser.newContext();
   try {
@@ -135,7 +135,7 @@ test("A2-11：公開連結在垃圾桶期間 404，從垃圾桶列還原後恢�
   await expect(page).toHaveURL(/\/$/);
   await createNote(page, title);
 
-  // ShareDialog 開公開連結（同 31 E3；輸入框只放 token）
+  // ShareDialog 開公開連結（同 31；輸入框只放 token）
   await page.getByRole("button", { name: "Share", exact: true }).click();
   const shareDialog = page.getByRole("dialog", { name: "Share note" });
   const publicRadio = shareDialog.getByRole("radio", { name: /^Public link/ });

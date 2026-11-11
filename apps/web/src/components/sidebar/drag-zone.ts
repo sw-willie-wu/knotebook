@@ -80,7 +80,7 @@ export function readDragTarget(target: EventTarget | null, container: Element): 
   if (!(target instanceof Node)) return { kind: "outside" };
   const el = target instanceof Element ? target : target.parentElement;
   if (el === null || !container.contains(el)) return { kind: "outside" };
-  // 預覽塊裡的列（B 列等）不得當成一般筆記列（區域表第一列）：先找預覽。
+  // 預覽塊裡的列（B 列等）不得當成一般筆記列：先找預覽。
   const preview = el.closest('[data-node-kind="preview"]');
   if (preview !== null && container.contains(preview)) return { kind: "preview" };
   const node = el.closest("[data-node-kind]");

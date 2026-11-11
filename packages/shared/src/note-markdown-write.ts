@@ -1,10 +1,10 @@
 /**
  * 並排：MCP／REST／站內 AI 寫入 markdown 的兩道檢查（server 與 web 共用）。
  *
- * **語法檢查**（{@link checkNoteMarkdownSyntax}，第一道）：在 `markdownToHTML` 的 DOM 上做 S1–S10——並排只收讀出的
+ * **語法檢查**（{@link checkNoteMarkdownSyntax}，第一道）：在 `markdownToHTML` 的 DOM 上做十條語法規則——並排只收讀出的
  * 正規 div 形、圖片寬度只收 `<figure><img … width></figure>`、表格欄寬只收第一列的 `colwidth`；在這些之前先拒帶事件處理屬性的
  * HTML（`unsupported_block`）。不合格整筆拒絕。
- * S1「並排標記獨佔一行」用逐行標記判：`markdownToHTML` 把各 token 的 HTML 直接串接、不留換行，輸出字串上分不出
+ * 「並排標記獨佔一行」用逐行標記判：`markdownToHTML` 把各 token 的 HTML 直接串接、不留換行，輸出字串上分不出
  * 「同一行」與「另起一行」——所以先在 markdown 上把逐字等於正規行的行換成帶一次性標記屬性的同行版本（行結構不變，
  * 兩次 tokenize 結果相同；程式碼區塊裡的行被 escape、不成元素），DOM 裡帶並排屬性卻沒有標記的元素一律不收。
  * 檢查與剖析在同一片段情境（`createHTMLDocument` 的 div，見 {@link syntaxCheckRoot}）下建樹，才不會「檢查放行、剖析攤平」。
@@ -54,7 +54,7 @@ const sameList = (a: readonly string[], b: readonly string[]): boolean => a.leng
 
 type Check = (els: readonly Element[], root: Element, mark: string) => boolean;
 
-/** 依序檢查（S1–S7 → columns；S8、S9 → size），回第一個不過的。 */
+/** 依序檢查（並排規則 → columns；大小規則 → size），回第一個不過的。 */
 const COLUMNS_CHECKS: readonly Check[] = [
   // 站內形（帶 data-node-type）一律不收
   els => els.some(el => el.hasAttribute("data-node-type")),

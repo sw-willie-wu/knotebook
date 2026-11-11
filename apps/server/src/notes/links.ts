@@ -26,7 +26,7 @@ export type NormalizeLinkTargetsResult = { ok: true; targets: string[] } | { ok:
  * #240：比較前先把來源與每個目標轉小寫——`note_links` 是 uuid 欄（DB 不分大小寫），JS 端若分大小寫，
  * 大寫的自身 id 會過自身過濾、寫進 uuid 欄時被正規化成小寫而成為自連結，大小寫變體也會各佔一個
  * `MAX_LINK_TARGETS` 名額。兩個呼叫端（`POST /links`、`syncLinksFromDoc`）都經過這裡。
- * 守衛＝`links-normalize.test.ts` 的 #240 族、`collab-links.test.ts` R9／R9b。
+ * 守衛＝`links-normalize.test.ts` 的 #240 族、`collab-links.test.ts`。
  */
 export function normalizeLinkTargets(sourceNoteId: string, rawTargetIds: string[]): NormalizeLinkTargetsResult {
   const self = sourceNoteId.toLowerCase();
@@ -51,7 +51,7 @@ export interface WriteNoteLinksHooks {
 export type WriteNoteLinksOutcome = "applied" | "noop" | "busy";
 
 /**
- * 單次交易嘗試：本體在 `tx/write-links.ts` 的 `writeLinksInTx`（#175 S14，T15——只收 `tx`，碰不到 pool）。
+ * 單次交易嘗試：本體在 `tx/write-links.ts` 的 `writeLinksInTx`（#175 S14——只收 `tx`，碰不到 pool）。
  * 語意（CAS clock → 批次授權 owned ∪ shared ∪ grouped(can_read) → 測試縫 → 整組取代）寫在那支的檔頭。
  */
 async function attemptOnce(db: Db, params: WriteNoteLinksParams, hooks: WriteNoteLinksHooks): Promise<"applied" | "noop"> {

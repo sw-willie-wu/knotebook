@@ -4,7 +4,7 @@
  * 這一族用 `buildTestApp`（**無 collab**）——測的是傳輸層，與 collab 無關，而且只有它
  * 收得到 `Partial<AppDeps>` 的 `mcpTestHooks` 注入縫。
  *
- * ⚠ **這個 app 上有工具了**（`list_notes`／`search_notes` 只查 DB，依 D-A 在無
+ * ⚠ **這個 app 上有工具了**（`list_notes`／`search_notes` 只查 DB，依註冊規則在無
  * collab 的 app 上照樣註冊），所以 `tools/list`／`tools/call` 回的是真的工具清單／結果。
  * 本檔刻意**不**斷言那些 body——工具面的驗收全在 `mcp-notes.test.ts`（含案 29(a)/(b)/(c)）。
  * 當時的零工具形回的是 `-32601 Method not found`（那兩個 handler 由第一次

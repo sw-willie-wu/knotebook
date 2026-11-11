@@ -3,7 +3,7 @@
  *
  * 這一族預設用 `buildCollabTestApp`（＝生產形態）；**只有 29d 那一案走 `buildTestApp`**
  * ——只有它收得到 `options.logger`（`buildCollabTestApp` 建 app 時寫死 `{ logger: false }`），
- * 而依 D-A 這兩支工具在無 collab 的 app 上仍然註冊。
+ * 而依註冊規則這兩支工具在無 collab 的 app 上仍然註冊。
  */
 import { Writable } from "node:stream";
 import { randomUUID } from "node:crypto";
@@ -505,7 +505,7 @@ describe("#108 兩支工具的共同接線", () => {
 
   it("案 29d：handler 丟含哨兵字串的例外 → code internal、body 不含哨兵、log.error 有被呼叫", async () => {
     // ⚠ 走 `buildTestApp`：只有它收得到 `options.logger`（`buildCollabTestApp` 寫死
-    // `logger: false`）。依 D-A，這兩支工具在無 collab 的 app 上仍然註冊。
+    // `logger: false`）。依註冊規則，這兩支工具在無 collab 的 app 上仍然註冊。
     const sentinel = `SENTINEL-${randomUUID()}`;
     const lines: string[] = [];
     const stream = new Writable({

@@ -665,7 +665,7 @@ describe("NoteMenu × 版本歷史", () => {
   });
 
   // 替身只翻 `NARROW_QUERY`（`WIDE_POINTER_QUERY` 恆不成立）：描述的是觸控裝置（寬判準不翻）跨寬度的路徑，選單保持開著、項目就地增減。
-  // 有滑鼠的裝置跨寬度時寬判準也會翻，整個選單會先關（由 GroupTransfer.test 的 WC12 與本檔 NM-W1 守）。
+  // 有滑鼠的裝置跨寬度時寬判準也會翻，整個選單會先關（由 GroupTransfer.test 與本檔守）。
   it("視窗跨斷點：選單開著時窄→寬項目消失、寬→窄項目出現", async () => {
     const setNarrow = installMatchMedia(true);
     renderVersionsMenu("enabled");

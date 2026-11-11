@@ -37,7 +37,7 @@ function blockContent(container: Y.XmlElement): Y.XmlElement | null {
  * #93：**迭代**（顯式 stack）——巢狀深度是 client 可控的，遞迴版在深文件上 RangeError，
  * 而 `sectionize` 會被全文索引在每次落盤時呼叫。子節點**反序**推入，pop 出來就是前序（＝遞迴版的串接順序）；
  * 只收 `XmlText | XmlElement`（`Y.XmlHook` 是 `YMap` 子類，同遞迴版被濾掉）。輸出與遞迴版逐位元組相同
- * （`note-sections.test.ts` 的 T1 對照遞迴參考實作）。
+ * （`note-sections.test.ts` 對照遞迴參考實作）。
  */
 function textOf(node: Y.XmlElement | Y.XmlText): string {
   let s = "";

@@ -1,5 +1,5 @@
 /**
- * #200–M3（M2a 的確定性並發與 M4 log 在 `mcp-transfer-flow.test.ts`）。
+ * #200（確定性並發與 log 不含明文在 `mcp-transfer-flow.test.ts`）。
  * harness：`buildTestApp`（無 collab）——`create_transfer_token` 在部署形態閘門外，無 collab 的 app 也有它。
  * PUBLIC_URL 刻意設成與 inject 的 Host（`localhost:80`）不同的 https origin，證明 `url`／`curl` 取自 PUBLIC_URL。
  */

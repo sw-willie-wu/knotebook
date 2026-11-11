@@ -1,6 +1,6 @@
 /**
  * 儲存配額的唯一判定點。S14：只收 `tx`／純資料／型別明示測試縫。
- * 呼叫它的交易**恰為**白名單四支（U-tx 上傳、T3 移動、T4 複製、T6 轉移），各恰一次，位置在該交易全部
+ * 呼叫它的交易**恰為**白名單四支（`insertUploadInTx` 上傳、`moveNoteToGroupInTx` 移動、`copyNoteInTx` 複製、`transferGroupInTx` 轉移），各恰一次，位置在該交易全部
  * notes／groups 列鎖之後、該空間 slug 範圍的任何寫入之前——這個位置保證不成環。
  * 每一步是**獨立的一句 SQL**：
  *   1. incoming ≤ 0 → return（不取鎖：只擋新增）

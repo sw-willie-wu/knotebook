@@ -31,7 +31,7 @@ export interface RegisteredUser {
 }
 
 /**
- * #187 交易表 P1。`site_settings` 以 `FOR SHARE` 再讀**兩個**開關（與關閉的 `FOR NO KEY UPDATE`
+ * #187：註冊。`site_settings` 以 `FOR SHARE` 再讀**兩個**開關（與關閉的 `FOR NO KEY UPDATE`
  * 互斥——快速路徑讀到開、這裡讀到關的那一次會被擋下）；讀不到列＝註冊關。
  * 建帳本體在 `insertPasswordUserInTx`（與接受邀請共用）。
  */

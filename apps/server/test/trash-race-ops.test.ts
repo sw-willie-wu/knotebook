@@ -6,7 +6,7 @@
  *   (c) 移入在途——DELETE 卡在 `note-trash-locked`（持 FOR UPDATE）、操作送出並確認在等鎖 → 放行 → 操作 not_found
  *       （PG 等鎖後對新版本重評 `deleted_at IS NULL` 的那條路）。
  * 改標題、開公開連結沒有交易（單句 UPDATE／三句無交易），MCP `edit_note` 的直連寫入也不持 DB 鎖：(a) 以「操作完成後才 DELETE」
- * 的循序案代替；MCP 的併發證據另見 `trash-direct-write.test.ts` DW3，且 MCP 不等鎖、沒有 (c)。
+ * 的循序案代替；MCP 的併發證據另見 `trash-direct-write.test.ts`，且 MCP 不等鎖、沒有 (c)。
  */
 import { randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";

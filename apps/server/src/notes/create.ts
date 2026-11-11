@@ -50,7 +50,7 @@ export interface NoteCreateHooks {
  */
 export async function insertNoteWithAutoSlug(db: Db, where: NewNoteLocation, title: string | undefined, hooks?: NoteCreateHooks): Promise<typeof notes.$inferSelect>;
 /**
- * #175：**交易內模式**（複製 T4）。每輪 INSERT 包在 `writeSlugInTx` 的 savepoint 裡——交易內照抄預設模式的
+ * #175：**交易內模式**（複製）。每輪 INSERT 包在 `writeSlugInTx` 的 savepoint 裡——交易內照抄預設模式的
  * 重試迴圈，第一次 23505 之後整個交易就 25P02。`hooks.beforeInsert` 經 `beforeWrite` 接上。
  * 碰撞契約（constraint 名分流、`MAX_AUTO_SLUG_RETRIES` 後退位、永不回 `slug_taken`、三欄吃 default）與預設模式相同。
  */

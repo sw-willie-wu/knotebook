@@ -38,11 +38,11 @@ export const COPY_GROUP_ID_DESCRIBE =
   "The id of one of your groups where your role lets you create notes; the copy then belongs to the group. Leave it out to copy " +
   "into your personal notes. A group's id is the `id` in the `owner` of its notes in list_notes or search_notes.";
 
-/** CP-F：讀寫搬移與 session 的版本。 */
+/** 讀寫搬移與 session 的版本。 */
 export const COPY_FOLDER_ID_DESCRIBE =
   "The id of a folder to put the copy in, from list_folders; leave it out for the top level. One of your personal folders for a copy " +
   "of your own (leave out `group_id`), or one of the folders of the group you pass as `group_id`, where your role must also be able to edit notes.";
-/** CP-F0：讀寫無搬移憑證的版本（不提群組資料夾）。 */
+/** 讀寫無搬移憑證的版本（不提群組資料夾）。 */
 export const COPY_FOLDER_ID_DESCRIBE_NO_MOVE =
   "The id of one of your personal folders to put the copy in, from list_folders; leave it out for the top level of your personal notes.";
 
@@ -76,7 +76,7 @@ export const copyNoteInputNoMove = {
 };
 
 /**
- * #247 改寫後 319 字元（原 331）。HTTP 上可達（讀寫憑證的清單上有 copy_note，帶 group_id 呼叫）；守衛＝`test/mcp-copy.test.ts` 的 #239 M3。
+ * #247 改寫後 319 字元（原 331）。HTTP 上可達（讀寫憑證的清單上有 copy_note，帶 group_id 呼叫）；守衛＝`test/mcp-copy.test.ts` 的 #239 案。
  * 處置＝在「設定 → 授權」的 token 列上以鉛筆開啟搬移權。結尾是「then try again」不是「reconnect」：copy_note 已在清單上、
  * scope 每請求重讀（`requireMoveScope`），開啟後下一發帶 group_id 就會過，不必重連。
  */

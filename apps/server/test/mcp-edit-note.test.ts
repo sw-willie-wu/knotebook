@@ -1,7 +1,7 @@
 /**
  * #108：`edit_note`（案 19／19b／20／23、案 8 的寫入側）。
  *
- * 全族走 `buildCollabTestApp`（＝生產形態）：依 D-M，`edit_note` 與兩支讀取工具一樣**只在
+ * 全族走 `buildCollabTestApp`（＝生產形態）：依工具註冊規則，`edit_note` 與兩支讀取工具一樣**只在
  * `collab` 與 `editing` 都在時才註冊**（它要寫 live doc）。
  *
  * ⚠ **唯讀憑證拿到的是 SDK 的「Tool not found」，不是 `insufficient_scope`**：

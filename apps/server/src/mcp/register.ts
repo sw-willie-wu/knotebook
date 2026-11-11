@@ -16,7 +16,7 @@
  * `{copy_note, create_note, create_transfer_token, edit_note, move_note_to_group, read_note_image}`；#181 加 `list_trash`、`delete_note`、`restore_note`；資料夾功能加 `list_folders`、`create_folder`、`rename_folder`、`move_folder`、`move_note_to_folder`、`delete_folder`；bulk transfer功能加 `open_notes_as_files`。
  * **新增工具時要一併把它加進其中一個名字集合，否則等於沒有守衛。**
  *
- * ⚠ 新增工具一律 `z.object(<shape>).strict()` 註冊；`test/unit/mcp-register.test.ts`（U-F1，覆蓋 authKind × scope × 有無 collab 的十二種組合）的名字常數也要補——它會紅。
+ * ⚠ 新增工具一律 `z.object(<shape>).strict()` 註冊；`test/unit/mcp-register.test.ts`（覆蓋 authKind × scope × 有無 collab 的十二種組合）的名字常數也要補——它會紅。
  *
  * ⚠ 呼叫順序是契約：建 `McpServer` → **本函式** → `registerCapabilities` →
  * `connect()`。`registerTool` 內部會無條件把 `listChanged` 設回 `true`。**守衛＝
@@ -29,8 +29,8 @@
  * `canRead` 變數，#93 起 search_notes 的變體（description 與 `sectionId` 的說明）也看它。
  * `list_notes`／`search_notes` 只查 DB，永遠註冊；`read_note_image`（#200）只讀 DB 與磁碟，同樣在閘門外、任何憑證都註冊；
  * `list_trash`（#181）只查 DB，同上。`open_notes_as_files`（bulk transfer）在閘門**內**：它簽的權杖拿去匯出要 mount（判準：要不要讀 live doc）。
- * **這道閘門由兩案守**（都是無 collab 的 app，斷名字集合）：`test/mcp-tools-list.test.ts` 的 D-A 案（讀寫憑證；標題含「D-M 不進閘門，D-A」）、
- * `test/mcp-create-note.test.ts` 的 D-M 案（讀寫搬移憑證，比 D-A 多 `move_note_to_group`；標題含「（D-M）」）。`create_note`／`copy_note`／
+ * **這道閘門由兩案守**（都是無 collab 的 app，斷名字集合）：`test/mcp-tools-list.test.ts` 的讀寫憑證案、
+ * `test/mcp-create-note.test.ts` 的讀寫搬移憑證案（比讀寫憑證多 `move_note_to_group`）。`create_note`／`copy_note`／
  * `move_note_to_group` 都在閘門外；`delete_note`／`restore_note`（#181）同樣在閘門外。
  * ⚠ 但它們**只擋得住「悄悄搬邊」，擋不住「放錯邊」**：新增一支工具一定會讓那一案紅（名字
  * 集合對不上），可是把名字補進 `LIVE_DOC_TOOLS`／`DB_ONLY_TOOLS` 哪一邊是人判的——
@@ -125,7 +125,7 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
   //   所以沒註冊的名字連 handler 都到不了（`tools/call` 走 SDK 的未知工具名分支）——
   //   **write 檢查的 `insufficient_scope` 在 HTTP 上因此是死碼**（別在整合測試裡去釘它；`move_note_to_group`
   //   的 move 檢查同理）。例外是 `copy_note` 帶 `group_id` 的 move 檢查（#239）：讀寫憑證的清單上有
-  //   `copy_note`，那條 `insufficient_scope` 在 HTTP 上到得了，守衛＝`test/mcp-copy.test.ts` 的 #239 M3。
+  //   `copy_note`，那條 `insufficient_scope` 在 HTTP 上到得了，守衛＝`test/mcp-copy.test.ts` 的 #239 案。
   const canWrite = canWriteNotes(ctx);
   // #239：移入／複製進群組要 `notes:move`（session 恆真；token 要 write 且 move）。只管 move_note_to_group 的註冊與
   // copy_note 的說明二選一；create_note／edit_note 不看它。
@@ -188,15 +188,15 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
   // 預告的那一支：不帶 `content` 時它只 insert 一列，完全不碰 live doc，而 REST 的
   // `POST /api/notes` 本來就無條件註冊、帶 content 而沒有 collab 時回 `400 invalid_body`
   // （工具側的對等答案是 `invalid_body`，由 `createNote` 自己判 `ctx.writes.available`）。
-  // 把它移進閘門就是發明第二套行為——守衛＝`mcp-create-note.test.ts` 的 D-M 那一案
+  // 把它移進閘門就是發明第二套行為——守衛＝`mcp-create-note.test.ts` 的讀寫搬移憑證案
   // （無 collab 的 app ＋**讀寫**憑證，斷言名字的集合）。
   //
   // #241（#180 原本只套三支）：**所有工具**都以 `.strict()` 物件註冊——raw shape 會**靜默丟掉**未知鍵
   // 用舊鍵 `groupId` 呼叫 `create_note` 會被當成「沒給群組」建成個人筆記；`edit_note` 的 `append`
   // 帶拼錯的 `ifMatch` 會跳過指紋比對照寫。strict 後回 SDK 輸入驗證錯誤、什麼都沒做；`tools/list` 的 JSON 與 raw shape
   // 逐字相同，`inputSchema.properties` 不會空掉（裸 `ZodObject`）。
-  // 守衛＝`test/unit/mcp-register.test.ts`（U-F1，實際註冊物的結構）與 `mcp-tools-list.test.ts` 的 X-241（wire）；
-  // 另有 `mcp-groups.test.ts` M-G1。
+  // 守衛＝`test/unit/mcp-register.test.ts`（實際註冊物的結構）與 `mcp-tools-list.test.ts`（wire）；
+  // 另有 `mcp-groups.test.ts`。
   if (canWrite) {
     server.registerTool(
       "create_note",
@@ -209,7 +209,7 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
   // #239：沒 notes:move 不註冊（同 canWrite 慣例：不宣告服務不了的工具）——session 與讀寫搬移 token 才有；讀寫 token 呼叫它
   // 拿到 SDK 的 Tool not found。守衛＝`mcp-tools-list` 的「#239：讀寫無搬移憑證」案（標題含「不含 move_note_to_group」）。
   // `.strict()` 註冊；annotations 兩值都等於 SDK 預設，寫出來讓 client 不必依賴預設——**不宣稱任何 client 因此改變行為**。
-  // 守衛：annotations＝`mcp-tools-list`；strict＝`mcp-move` M-G2。
+  // 守衛：annotations＝`mcp-tools-list`；strict＝`mcp-move`。
   if (canMove) {
     server.registerTool(
       "move_note_to_group",
@@ -226,7 +226,7 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
   // #180：copy_note 在 collab 閘門**外**（REST 複製無條件註冊；`loadNoteDoc` 無 collab 時讀 note_states）。
   // `.strict()` 註冊（照 create_note 舊習慣傳 `groupId` 會被靜默丟掉→複製成個人筆記；strict 後回驗證錯誤）。
   // annotations：`destructiveHint: false`；`idempotentHint` 不寫（SDK 預設 false，而每一發都建新筆記）。
-  // 守衛：無 collab 集合＝`mcp-tools-list` D-A 案／`mcp-create-note` 的 D-M 案；strict＝`mcp-copy` M-G2。
+  // 守衛：無 collab 集合＝`mcp-tools-list` 的讀寫憑證案／`mcp-create-note` 的讀寫搬移憑證案；strict＝`mcp-copy`。
   // #239：仍在 canWrite 內（不帶 group_id 的複製只要 notes:write）；description 與 `group_id` 的說明依 canMove 二選一
   // ，帶 group_id 時執行期另驗 notes:move（`copy-note.ts`）。守衛＝`mcp-tools-list` 的 #239。
   if (canWrite) {
@@ -244,7 +244,7 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
 
   // #200：`create_transfer_token` **只在 token 路徑**註冊（session 沒有母憑證可綁），且在部署形態閘門外
   // （它只查 DB）。purpose 的 enum 與描述依憑證二選一——唯讀憑證看不到 upload（不描述它沒有的東西，同 instructions）。
-  // 守衛＝`mcp-transfer.test.ts` M1 的三案（讀寫／唯讀／session）與 `mcp-tools-list.test.ts` 的名字集合。
+  // 守衛＝`mcp-transfer.test.ts` 的三案（讀寫／唯讀／session）與 `mcp-tools-list.test.ts` 的名字集合。
   if (ctx.authKind === "token") {
     if (canWrite) {
       server.registerTool(
@@ -264,7 +264,7 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
   // bulk transfer：`open_notes_as_files` 只在 token 路徑（要綁母憑證）、且 collab＋editing 都在（canRead；
   // 匯出要 mount）時註冊——閘門內，判準是 `hasOpenNotesAsFiles`（`routes/mcp.ts` 挑 instructions 用同一支）。
   // 描述與輸出依 `canWrite` 二選一（與 handler 算 `access` 同一支 `canWriteNotes`）。
-  // 守衛：集合＝`mcp-tools-list`、`unit/mcp-register`（U-F1）；描述與輸出鍵＝`mcp-open-notes-as-files.test.ts` B7(c)。
+  // 守衛：集合＝`mcp-tools-list`、`unit/mcp-register`；描述與輸出鍵＝`mcp-open-notes-as-files.test.ts`。
   if (hasOpenNotesAsFiles(ctx)) {
     server.registerTool(
       "open_notes_as_files",
@@ -278,7 +278,7 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
   }
 
   // #181：讀取類，所有閘門外、任何憑證都註冊（只查 DB）；不帶 annotations（同其他讀取工具；list_folders 是例外，見下）。
-  // 守衛：集合＝`mcp-tools-list`、`unit/mcp-register`（U-F1）。
+  // 守衛：集合＝`mcp-tools-list`、`unit/mcp-register`。
   server.registerTool(
     "list_trash",
     { description: LIST_TRASH_DESCRIPTION, inputSchema: z.object(listTrashInput).strict(), outputSchema: listTrashOutput },
@@ -288,7 +288,7 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
   // #181：沒 notes:delete 不註冊（同 canMove 慣例）；collab 閘門外（只碰 DB，踢線與收門經 collabHooks）；`.strict()`；
   // MCP 沒有永久刪除與清空。annotations：delete_note 只標 `destructiveHint: true`、restore_note 標 `destructiveHint: false`，
   // 兩支都**不寫** `idempotentHint`（第二次呼叫回 not_found，不是相同結果）。
-  // 守衛：集合＝`mcp-tools-list`、`unit/mcp-register`（U-F1）、`mcp-trash-tools`；annotations＝`mcp-tools-list`。
+  // 守衛：集合＝`mcp-tools-list`、`unit/mcp-register`、`mcp-trash-tools`；annotations＝`mcp-tools-list`。
   if (canDelete) {
     server.registerTool(
       "delete_note",
@@ -315,7 +315,7 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
 
   // 資料夾：list_folders 只查 DB，所有閘門外、任何憑證都註冊（同 list_trash）；`.strict()`。
   // annotations `{ readOnlyHint: true }` 是刻意的例外——其他讀取工具都不帶 annotations（見 list_trash 那段）。
-  // 守衛：集合＝`mcp-tools-list`、`unit/mcp-register`（U-F1）；annotations＝`mcp-tools-list`。
+  // 守衛：集合＝`mcp-tools-list`、`unit/mcp-register`；annotations＝`mcp-tools-list`。
   server.registerTool(
     "list_folders",
     {
@@ -331,7 +331,7 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
   // 只碰 DB）；`.strict()`；第一個動作是 requireWriteScope。
   // annotations：create_folder `{ destructiveHint: false }`；rename／move_folder／move_note_to_folder 另加 `idempotentHint: true`
   // （同一參數再呼叫一次結果相同）。
-  // 守衛：集合＝`mcp-tools-list`、`unit/mcp-register`（U-F1）；annotations＝`mcp-tools-list`。
+  // 守衛：集合＝`mcp-tools-list`、`unit/mcp-register`；annotations＝`mcp-tools-list`。
   if (canWrite) {
     server.registerTool(
       "create_folder",
@@ -379,7 +379,7 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
   // 資料夾：delete_folder 把子樹的筆記移到垃圾桶，所以同 delete_note 只在 notes:delete 時註冊（collab 閘門外：只碰 DB，
   // 踢線與收門經 collabHooks）；`.strict()`；第一個動作是 requireDeleteScope。輸入只有 folder_id。annotations 只標
   // `destructiveHint: true`、不寫 idempotentHint（第二次呼叫回 not_found）。MCP 沒有永久刪除與清空。
-  // 守衛：集合＝`mcp-tools-list`、`unit/mcp-register`（U-F1）、`mcp-trash-tools`、`mcp-folders`；annotations＝`mcp-tools-list`。
+  // 守衛：集合＝`mcp-tools-list`、`unit/mcp-register`、`mcp-trash-tools`、`mcp-folders`；annotations＝`mcp-tools-list`。
   if (canDelete) {
     server.registerTool(
       "delete_folder",

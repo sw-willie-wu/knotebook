@@ -251,7 +251,7 @@ describe("R6 HTML 註解", () => {
     const b = await base([P("A"), P("B")]);
     expect(summary(b, ok(await regionsOf(rt, b, "A\n\nB <!-- c --> b")).regions)).toEqual([{ kind: "rewrite", idx: [1], text: "B <!-- c --> b" }]);
   });
-  it("未閉合 `<!--` 貼在沒改的段上方 → 那段併入（交給 T6 判 400）", async () => {
+  it("未閉合 `<!--` 貼在沒改的段上方 → 那段併入（交給寫入端判 400）", async () => {
     const b = await base([P("A"), P("B")]);
     expect(summary(b, ok(await regionsOf(rt, b, "A\n\n<!--\nB")).regions)).toEqual([{ kind: "rewrite", idx: [1], text: "<!--\nB" }]);
   });

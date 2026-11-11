@@ -21,13 +21,13 @@
  * 作者照抄時不會只抄到扣桶那一半。
  * #239：`requireMoveScope` 的 write 分支同理是死碼（兩支用它的工具都只在 `canWrite` 時註冊）。
  * 它的 move 分支則**分兩支看**：`copy_note` 帶 `group_id` 走這條在 HTTP 上**到得了**（讀寫憑證
- * 清單上有 `copy_note`；守衛＝`test/mcp-copy.test.ts` 的 #239 M3）；`move_note_to_group` 那一支
+ * 清單上有 `copy_note`；守衛＝`test/mcp-copy.test.ts` 的 #239 案）；`move_note_to_group` 那一支
  * 是死碼（沒 `notes:move` 時不註冊；唯一的守衛＝本檔單元測試的 #239）。
  * ⚠ **誠實缺口**：write 分支（`INSUFFICIENT_SCOPE_MESSAGE`）的 `insufficient_scope` 模型永遠看不到
  * （copy 帶 `group_id` 的 `COPY_NEEDS_MOVE_MESSAGE` 是看得到的）——處置說明改由 per-request 的 `instructions` 承接（唯讀憑證那一版逐字寫了同樣的處置）。
  * #181：`requireDeleteScope` 的 write 與 delete 兩個 scope 分支在 HTTP 上都是死碼（`delete_note`／`restore_note`，
  * 與資料夾的 `delete_folder`，都只在 `canDeleteNotes` 時註冊；唯一的守衛＝本檔單元測試的 #181 D 案）；**tokenWrite 扣點是活的**
- * （RWD／RWMD 憑證每次呼叫都扣；守衛＝`test/mcp-trash-tools.test.ts` 的 DN8／RN6、`test/mcp-folders.test.ts` 的 DF7）。
+ * （RWD／RWMD 憑證每次呼叫都扣；守衛＝`test/mcp-trash-tools.test.ts`、`test/mcp-folders.test.ts`）。
  * ⚠ **這是紀律，不是繞不過的事實**：第七支寫入工具漏呼叫它不會有任何測試變紅（今天全部的
  * 守衛是「兩支工具各跑一次」那一族）。要變成繞不過就得走註冊器形，目前沒做。
  */

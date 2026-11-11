@@ -318,7 +318,7 @@ describe("#175 並發 C2", () => {
     const race: { fire?: () => Promise<LightMyRequestResponse> } = {};
     let second: Promise<LightMyRequestResponse> | undefined;
     let interleave: "blocked" | "settled" | undefined;
-    // 第一個請求（T10）在「鎖已取得、計數完、寫入前」發出第二個，並等它卡在 lockGroup 上（或已結束）。
+    // 第一個請求（換角色）在「鎖已取得、計數完、寫入前」發出第二個，並等它卡在 lockGroup 上（或已結束）。
     const hook: GroupTestHook = async (point, ctx) => {
       if (point !== "group-members-checked" || ctx.groupId !== groupId || second || !race.fire) return;
       second = race.fire();

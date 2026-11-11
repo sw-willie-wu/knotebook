@@ -30,7 +30,7 @@ const MAX_QUERY = 200;
 /** `,"matchesTruncated":true` 兩份（structuredContent＋鏡像）的成本約 56，取 64。 */
 const MATCHES_TRUNCATED_RESERVE = 64;
 
-// 逐字（模型面字串：只寫各部署形態都為真的話）。守衛：test/mcp-search.test.ts 的 M8 兩案（toBe 整句）。
+// 逐字（模型面字串：只寫各部署形態都為真的話）。守衛：test/mcp-search.test.ts 的兩案（toBe 整句）。
 const DESC_HEAD =
   "Find notes among the ones you can see by text in their title or body. Matching is case-insensitive and literal. " +
   "Notes whose title matches come first — exact titles, then titles that start with your text, then the rest — then notes that match only in the body. ";

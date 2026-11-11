@@ -103,7 +103,7 @@ export interface NoteAccess {
   ownerId: string | null;
   /**
    * 判定當下讀到的 `notes.group_id`。單篇路徑拿它與「取到的那一列」比對：不一致＝授權與取列之間歸屬
-   * 變了（例如移動剛 commit），重讀一次、仍不一致 → 404；PATCH 的 T1 拿它當 scope 條件。
+   * 變了（例如移動剛 commit），重讀一次、仍不一致 → 404；PATCH 的 `patchSlugInTx` 拿它當 scope 條件。
    */
   groupId: string | null;
   permissions: NotePermissions;

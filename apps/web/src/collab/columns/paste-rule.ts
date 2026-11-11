@@ -1,5 +1,5 @@
 /**
- * 貼上的列（調整 3）：一條 `transformPasted` 規則。
+ * 貼上的列：一條 `transformPasted` 規則。
  *
  * - PM 對站內拖曳也呼叫 `transformPasted`（`prosemirror-view` `handleDrop`：`view.dragging.slice` 先過一次再放），
  *   所以「drop 的 slice 含列、落點不在頂層 → 先攤平」也在這裡做；`handleDOMEvents.drop` 只記落點。

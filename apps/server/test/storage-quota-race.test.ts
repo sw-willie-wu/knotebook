@@ -298,7 +298,7 @@ describe("R6 上傳持被轉移群組某篇的 KEY SHARE", () => {
   });
 });
 
-describe("R13 複製→接收者個人空間 ∥ 轉移→同一接收者（Q-S7：空間鎖先於 slug 寫入；兩序都不死結）", () => {
+describe("R13 複製→接收者個人空間 ∥ 轉移→同一接收者（空間鎖先於 slug 寫入；兩序都不死結）", () => {
   async function scene(hookOf: (h: Holder) => GroupTestHook) {
     const holder: Holder = {};
     const { app, db, uploadsDir } = await buildTestApp({ ...RACE, groupTestHook: hookOf(holder) });
@@ -341,7 +341,7 @@ describe("R13 複製→接收者個人空間 ∥ 轉移→同一接收者（Q-S7
   });
 });
 
-describe("Q-S7 移動形：移入群組 ∥ 複製進同一群組（空間鎖先於群組範圍 slug 寫入；兩序都不死結）", () => {
+describe("移動形：移入群組 ∥ 複製進同一群組（空間鎖先於群組範圍 slug 寫入；兩序都不死結）", () => {
   async function scene(hookOf: (h: Holder) => GroupTestHook) {
     const holder: Holder = {};
     const { app, db, uploadsDir } = await buildTestApp({ ...RACE, groupTestHook: hookOf(holder) });

@@ -36,8 +36,8 @@ import { EXPORT_BUSY_RETRY_AFTER_S } from "../../src/transfer/export-stream.js";
  * 行內字面（不是常數）的句子——「You don't have edit access to this note.」「This token's scope doesn't allow this action.」
  * 「The server is busy. Try again in a moment.」「Too many requests. Wait a moment and try again.」「Not signed in.」（bulk 端點收到非 Bearer
  * 的 Authorization）「This request needs Content-Type text/markdown.」「Origin check failed: …」——在整合測試以字面斷言
- * （`transfer-write.test.ts` W9／W11、`transfer-bulk-auth.test.ts` A2／A12、
- * `transfer-write-auth.test.ts` W-A6／W-A7）；frontmatter 的八句在 `transfer-frontmatter-read.test.ts` 以字面斷言。
+ * （`transfer-write.test.ts`、`transfer-bulk-auth.test.ts`、
+ * `transfer-write-auth.test.ts`）；frontmatter 的八句在 `transfer-frontmatter-read.test.ts` 以字面斷言。
  * 413 `content_too_large` 走全域 errorHandler 的 `BODY_TOO_LARGE_MESSAGE`（`http/errors.ts`，#372），不在這裡。
  */
 describe("bulk transfer 的 HTTP 層訊息（字面）", () => {

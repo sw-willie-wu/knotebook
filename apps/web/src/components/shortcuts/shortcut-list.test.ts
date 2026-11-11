@@ -3,7 +3,7 @@ import { SHORTCUT_CATEGORIES, SHORTCUTS, visibleShortcuts } from "./shortcut-lis
 
 /**
  * 條目資料與篩選。
- * 「清單 id ⇔ e2e 標籤」的雙向核對在 shortcut-e2e-coverage.test.ts（T9）；這裡只守資料形與站台能力篩選。
+ * 「清單 id ⇔ e2e 標籤」的雙向核對在 shortcut-e2e-coverage.test.ts；這裡只守資料形與站台能力篩選。
  */
 
 const ids = (site: { aiAvailable: boolean; aiInstruct: boolean }) => visibleShortcuts(site).flatMap((g) => g.entries.map((e) => e.id));

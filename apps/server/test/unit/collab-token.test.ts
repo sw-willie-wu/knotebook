@@ -130,7 +130,7 @@ describe("FixedWindowLimiter", () => {
     expect(limiter.consume("k")).toBe(false);
   });
 
-  it("consumeMany（#175 T4）：額度夠就一次扣 n；不夠回 false 且一個都不扣；n <= 0 恆放行不計數", () => {
+  it("consumeMany（#175）：額度夠就一次扣 n；不夠回 false 且一個都不扣；n <= 0 恆放行不計數", () => {
     const limiter = new FixedWindowLimiter({ limit: 5, windowMs: 60_000 });
     expect(limiter.consumeMany("k", 0)).toBe(true);
     expect(limiter.isBlocked("k")).toBe(false);

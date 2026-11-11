@@ -193,7 +193,7 @@ export function createLinkSync({ noteId, doc, api }: CreateLinkSyncOptions): Lin
    * 5. 若目前這個 key 剛好等於某個**排程中**重試 timer 的 key → 讓那個 timer 自己觸發，
    *    不搶著現在送；否則（key 換了）作廢舊排程，改為立即送出這個新集合。
    *
-   * 注意第 5 點特別檢查 `retryTimer`（而非只看 `retryState`）：`retryState` 在重試
+   * 注意要特別檢查 `retryTimer`（而非只看 `retryState`）：`retryState` 在重試
    * timer 觸發後、下一次失敗判定完成前的這段時間仍然留著同一個 key（`handleFailure`
    * 拿它算下一輪 backoff/notLoadedUsed），若只憑 `retryState.key === key` 判斷，
    * 重試 timer 自己呼叫的這次 `attemptSubmit()`（此時 `retryTimer` 已被設回 `null`，

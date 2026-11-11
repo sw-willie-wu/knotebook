@@ -1,5 +1,5 @@
 /**
- * #175 S14 結構性守衛（交易表 T1–T15）：**任何持有交易連線的路徑，不得在交易內 await 會向
+ * #175 S14 結構性守衛：**任何持有交易連線的路徑，不得在交易內 await 會向
  * pool 借連線的呼叫**。違反時不是 500，而是整台 server 永久不回應（pg-pool 預設 max 10、永不逾時；
  * 實跑）。主守衛是結構：交易本體是只收 `tx`／純資料／型別明示測試縫的 `*InTx`，放在
  * `src/**​/tx/` 目錄、不 import `Db`／`DbOrTx`、不碰 `deps`——錯的寫法寫不出來。本檔是**輔助**的源碼掃描：
@@ -9,7 +9,7 @@
  *    不 export 的 `*InTx` 閉包是這個形）；
  * ③ `tx/` 裡的 `*InTx` 一律以 `function` 宣告，第一個參數字面上是 `tx: Tx`；
  * ④ `ROUTE_FILES` 裡的檔（#175 三支＋#187 的 `routes/oidc.ts`、`routes/oidc-pending.ts`、`routes/admin-auth.ts`、`routes/account.ts`＋#93 的 `notes/search-index.ts`、`notes/search-query.ts`＋#200 的 `mcp/tools/create-transfer-token.ts`＋儲存配額的 `routes/uploads.ts`＋#236 版本歷史的 `collab/versions.ts`、`routes/admin-versions.ts`＋#180 的 `notes/copy-note.ts`、`notes/move-note.ts`＋#286 的 `routes/admin-password-reset.ts`、`routes/password-reset.ts`＋#181 的 `trash/service.ts`＋資料夾的 `folders/service.ts`），`.transaction(` 的 callback **整段**就是一個 `xInTx(tx, …)` 呼叫，而且 `xInTx`
- *    必須是以 `import { … } from "…/tx/…"` 引進的名字——無例外（T14 也抽成 `deleteNotesInTx`）；
+ *    必須是以 `import { … } from "…/tx/…"` 引進的名字——無例外（刪筆記也抽成 `deleteNotesInTx`）；
  * ⑤ 那個呼叫的**引數**（callback 內求值、此時已持有交易連線）只准是識別字、屬性存取與物件字面：**不得有任何 `(`**
  *    （擋住所有以括號形式的呼叫，含 `Number(x)`、`String(x)` 這種轉型）、不得有裸 `db` 識別字（drizzle 的 lazy query）、
  *    `deps.db`、`await`、閉包（`=>`、`function`）與閉包 helper 名。測試縫一律以屬性存取傳入（`deps.groupTestHook`、
@@ -19,7 +19,7 @@
  * ⚠ 守不到（誠實）：
  *   - 把 pool 藏進另一個模組——從 `*InTx`（tx/ 檔內）呼叫別的模組的函式、tx/ 檔以 `export { helper as xInTx } from "…"`
  *     重新匯出、或 import 路徑寫成經過 `/tx/` 再跳出（`…/tx/../…`）——只掃字面；行為面只有 `s14-pool.test.ts`
- *     接 T1 一形。後兩者屬刻意規避。
+ *     接 `patchSlugInTx` 一形。後兩者屬刻意規避。
  *   - 以識別字傳入的**未求值** query builder 或 Promise（`const audit = deps.db.select()…;` 放在 `.transaction(` 之前、
  *     不 await，再以 `{ …, audit }` 傳進去、`*InTx` 在交易內 await 它）：引數字面乾淨，本檔看不到；型別寫成
  *     `PromiseLike<unknown>` 的話 ① 也看不到。靠 Global Constraints 的「await 完的純資料」規則與 review 守。
@@ -181,28 +181,28 @@ describe("S14 結構性守衛（#175）", () => {
       return { f, all: cbs.length, inTx: cbs.filter(c => c.inTx).length };
     });
     expect(perFile).toEqual([
-      { f: "routes/notes.ts", all: 2, inTx: 2 }, // T1 PATCH、T2 PUT shares（#180：T3 move、T4 copy 搬到 notes/move-note.ts、notes/copy-note.ts；#181：T14 DELETE 改成移入、搬到 trash/service.ts）
-      { f: "routes/groups.ts", all: 8, inTx: 8 }, // T8 建群組、T9 加人、T10 換角色、T11 移人、T6 轉移、T7 全刪、T12 改角色、T13 刪角色（T5 已退場）
-      { f: "notes/links.ts", all: 1, inTx: 1 }, // T15
-      { f: "routes/oidc.ts", all: 3, inTx: 3 }, // A1 登入、A2 SSO 證明、P3 手動連結（#187；A1 重投是同一個 runLogin 閉包呼叫兩次，字面只有一處）
-      { f: "routes/oidc-pending.ts", all: 1, inTx: 1 }, // A2 密碼證明（#187；SSO 證明那一處在 routes/oidc.ts）
+      { f: "routes/notes.ts", all: 2, inTx: 2 }, // PATCH（patchSlugInTx）、PUT shares（#180：移動、複製搬到 notes/move-note.ts、notes/copy-note.ts；#181：DELETE 改成移入、搬到 trash/service.ts）
+      { f: "routes/groups.ts", all: 8, inTx: 8 }, // 建群組、加人、換角色、移人、轉移、全刪、改角色、刪角色
+      { f: "notes/links.ts", all: 1, inTx: 1 }, // 寫連結（writeLinksInTx）
+      { f: "routes/oidc.ts", all: 3, inTx: 3 }, // 登入、SSO 證明、手動連結（#187；登入重投是同一個 runLogin 閉包呼叫兩次，字面只有一處）
+      { f: "routes/oidc-pending.ts", all: 1, inTx: 1 }, // 密碼證明（#187；SSO 證明那一處在 routes/oidc.ts）
       { f: "routes/admin-auth.ts", all: 3, inTx: 3 }, // 改登入服務、刪登入服務、站台設定
-      { f: "routes/account.ts", all: 4, inTx: 4 }, // P1 註冊（#187）、P2 解除連結、P5 接受邀請（#285，acceptInviteInTx）、#388 加上密碼（setPasswordInTx）
+      { f: "routes/account.ts", all: 4, inTx: 4 }, // 註冊（#187）、解除連結、接受邀請（#285，acceptInviteInTx）、#388 加上密碼（setPasswordInTx）
       { f: "notes/search-index.ts", all: 1, inTx: 1 }, // 全文索引寫入（#93）
       { f: "notes/search-query.ts", all: 1, inTx: 1 }, // 搜尋快照讀取（#93）
       { f: "mcp/tools/create-transfer-token.ts", all: 1, inTx: 1 }, // #200 簽發
       { f: "mcp/tools/open-notes-as-files.ts", all: 1, inTx: 1 }, // bulk transfer 簽發
-      { f: "routes/uploads.ts", all: 1, inTx: 1 }, // 儲存配額 U-tx（insertUploadInTx）
+      { f: "routes/uploads.ts", all: 1, inTx: 1 }, // 儲存配額上傳（insertUploadInTx）
       { f: "collab/versions.ts", all: 1, inTx: 1 }, // 版本歷史：切版（cutVersionInTx）
       { f: "routes/admin-versions.ts", all: 1, inTx: 1 }, // 版本歷史：站台清除設定（updateVersionSettingsInTx）
-      { f: "notes/copy-note.ts", all: 1, inTx: 1 }, // #180 T4 copy
-      { f: "notes/move-note.ts", all: 1, inTx: 1 }, // #180 T3 move
+      { f: "notes/copy-note.ts", all: 1, inTx: 1 }, // #180 複製
+      { f: "notes/move-note.ts", all: 1, inTx: 1 }, // #180 移動
       { f: "routes/admin-password-reset.ts", all: 2, inTx: 2 }, // #286 產生、取消
       { f: "routes/password-reset.ts", all: 1, inTx: 1 }, // #286 完成重設
       { f: "trash/service.ts", all: 3, inTx: 3 }, // #181 移入（trashNotesInTx）、還原（restoreNotesInTx）、永久刪除（purgeTrashedNotesInTx）
       { f: "routes/admin-trash.ts", all: 1, inTx: 1 }, // #181 垃圾桶保留天數（updateTrashSettingsInTx）
       { f: "trash/purge.ts", all: 1, inTx: 1 }, // #181 保留期清理一批（purgeExpiredBatchInTx）
-      { f: "folders/service.ts", all: 4, inTx: 4 }, // 資料夾 T5 建立（createFolderInTx）、T6 改名／搬移（updateFolderInTx）、T8 刪除（deleteFolderInTx）、T9 放置（placeNoteInTx）
+      { f: "folders/service.ts", all: 4, inTx: 4 }, // 資料夾建立（createFolderInTx）、改名／搬移（updateFolderInTx）、刪除（deleteFolderInTx）、放置（placeNoteInTx）
       { f: "notes/editing/write-service.ts", all: 1, inTx: 1 }, // bulk transfer：syncFile 的紀錄交易（recordFileSyncInTx）
       { f: "site-limits/store.ts", all: 1, inTx: 1 }, // #397 站台限制 PATCH（updateSiteLimitsInTx）
     ]);

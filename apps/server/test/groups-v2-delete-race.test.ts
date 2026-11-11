@@ -1,7 +1,7 @@
 /**
  * #175 刪群組兩模式的交錯案：C9a／C9b（轉移 × 成員異動）、C10（轉移的 savepoint 重試）、
  * C12／C12b／C12c（全刪 × gate 之後才進群組的筆記）、C17（全刪 gate 之後被轉移）、C20a–d（複製／移動／PATCH × 刪群組）、
- * C13 反向（token PUT × 轉移）、C21（別名 PUT × 轉移＋接手者重開 token，三方形）、C22（全刪持 L 時的上傳；#188 起 T7 與 `deleteNotesInTx` 的 `FOR UPDATE` 任一把都守得住這條）。
+ * C13 反向（token PUT × 轉移）、C21（別名 PUT × 轉移＋接手者重開 token，三方形）、C22（全刪持 L 時的上傳；#188 起 `deleteGroupWithNotesInTx` 與 `deleteNotesInTx` 的 `FOR UPDATE` 任一把都守得住這條）。
  * 要證明「測到的是交錯」的案在注入縫裡呼叫 `waitForBlockedOrSettled`，最後斷言 `"blocked"`；標「序列」的案在縫裡
  * `await` 一次完整的請求（窗在授權／gate 之後、交易或 UPDATE 之前，序列即可）。
  * 同一個舊網址兩次寫入轉址的案不寫：轉移只寫 `/g/<被刪群組>/<現行 slug>` 鍵；移動與 0012 只寫 `/n/` 鍵；同群組的現行 slug
@@ -302,8 +302,8 @@ describe("#175 複製／移動 × 刪群組（C20a／C20b／C20c）", () => {
     const u1 = await seedUpload(db, uploadsDir, src.id, a.id);
     await seedDoc(db, src.id, imageDoc([`/api/uploads/${u1}`]));
 
-    // 註：拿掉 T7 的 FOR UPDATE 時本案仍綠——等待改由 deleteNotesInTx 取得（#188 起是它第一步的 FOR UPDATE，之前是 DELETE notes）
-    // （同樣要等複製持有的 KEY SHARE），複製在自己的快照讀附件、磁碟檔在 T7 commit 後才刪，結果逐項相同，屬等價。
+    // 註：拿掉 `deleteGroupWithNotesInTx` 的 FOR UPDATE 時本案仍綠——等待改由 deleteNotesInTx 取得（#188 起是它第一步的 FOR UPDATE，之前是 DELETE notes）
+    // （同樣要等複製持有的 KEY SHARE），複製在自己的快照讀附件、磁碟檔在全刪 commit 後才刪，結果逐項相同，屬等價。
     // FOR UPDATE 的承重由 C22 守（#188 起 `deleteNotesInTx` 也取 FOR UPDATE，與 C22 亦等價；見 C22 的註）。
     const copied = await copy(app, src.id, m.id);
     const del = await holder.del!;
@@ -440,12 +440,12 @@ describe("#175 全刪 × 上傳（C22）", () => {
   }
 
   it("C22 全刪持 L（群組筆記 FOR UPDATE）時上傳到其中一篇 → 上傳交易的筆記 KEY SHARE 讀等全刪 commit → 刪除 204、上傳 404 not_found（讀到 0 列 → TxAbort，路由已 unlink）；uploads 0 列、磁碟沒有孤兒檔", async () => {
-    // 把 T7 停在「已持 L、`deleteNotesInTx` 的 DELETE uploads 還沒做完」：另一條連線先對該篇既有的附件列 u0 取 FOR UPDATE，
-    // T7 的 DELETE uploads 就卡在 u0 上（此時 L 已到手）。在這個窗裡發上傳：有 L 時上傳交易（`insertUploadInTx`）對 notes 列的
-    // `FOR KEY SHARE` 讀 → 與 FOR UPDATE 互斥 → 等 T7 commit 後讀到 0 列 → TxAbort 404（儲存配額功能以前是 INSERT 的 FK 檢查
+    // 把全刪停在「已持 L、`deleteNotesInTx` 的 DELETE uploads 還沒做完」：另一條連線先對該篇既有的附件列 u0 取 FOR UPDATE，
+    // 全刪的 DELETE uploads 就卡在 u0 上（此時 L 已到手）。在這個窗裡發上傳：有 L 時上傳交易（`insertUploadInTx`）對 notes 列的
+    // `FOR KEY SHARE` 讀 → 與 FOR UPDATE 互斥 → 等全刪 commit 後讀到 0 列 → TxAbort 404（儲存配額功能以前是 INSERT 的 FK 檢查
     // 取同一把鎖、撞 23503 → 404）；沒有 L 時上傳直接成功（201），之後 DELETE uploads 的快照看不到它、
     // DELETE notes 以 CASCADE 帶走它的列——它不在回傳的 uploadIds 裡，磁碟檔就成了孤兒（最小 schema 的實測形）。
-    // 鑑別：拿掉 T7 的 FOR UPDATE 時，本案先紅在 interleave 斷言（上傳沒被擋、得 201），
+    // 鑑別：拿掉 `deleteGroupWithNotesInTx` 的 FOR UPDATE 時，本案先紅在 interleave 斷言（上傳沒被擋、得 201），
     // 跑不到最後的 readdir；孤兒檔本身是靠測試側變體（拿掉 interleave 斷言後）才實際看到——readdir 那條不是對應的守衛。
     // #188 起 `deleteNotesInTx` 在 DELETE uploads 之前也對 L 取 FOR UPDATE：單拿掉其中一把，本案都仍綠（等價）；
     // 兩把都拿掉才紅在 interleave。#181 起單篇 DELETE 改為移入垃圾桶、不再走 `deleteNotesInTx`；那一把在三個呼叫端都冗餘
@@ -462,7 +462,7 @@ describe("#175 全刪 × 上傳（C22）", () => {
         const c = await holder.pool!.connect();
         await c.query("begin");
         await c.query("select id from uploads where id = $1 for update", [holder.u0]);
-        // 不 await：讓 T7 繼續走到 L 與 DELETE uploads（卡在 u0），在那個窗裡發上傳，量完再放開 u0。
+        // 不 await：讓全刪繼續走到 L 與 DELETE uploads（卡在 u0），在那個窗裡發上傳，量完再放開 u0。
         holder.locker = (async () => {
           try {
             holder.t7Blocked = await waitForWaiters(holder.pool!, 1);

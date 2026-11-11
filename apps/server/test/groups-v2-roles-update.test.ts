@@ -1,5 +1,5 @@
 /**
- * #175：`PATCH`／`DELETE /api/groups/:id/roles/:roleId`（T12／T13；閱讀恆真；
+ * #175：`PATCH`／`DELETE /api/groups/:id/roles/:roleId`（閱讀恆真；
  * 旗標不蘊含；內建管理員不可改、內建一般成員只准改旗標；刪自訂角色持有者改掛內建一般成員）。
  * 自訂角色一律以 `POST …/roles` 建，或 `seedRole(…, { canRead: true, … })` 明寫可讀。
  * 回讀一律走 `GET …/roles`／`GET …/members`；踢線看 spy 的 `onGroupAccessChanged`。
@@ -126,7 +126,7 @@ describe("#175 PATCH／DELETE …/roles/:roleId：授權", () => {
   });
 });
 
-describe("#175 PATCH …/roles/:roleId（T12）", () => {
+describe("#175 PATCH …/roles/:roleId（改角色）", () => {
   it("改自訂角色：改名＋改旗標一起 → 200、body 為新值；改成 create-only → 200；GET 回讀一致；memberCount＝實際掛的人數", async () => {
     const { db, g, b, c, patch, roles, createRole } = await setup();
     const role = await createRole("Editors", { ...NONE, edit: true });
@@ -283,7 +283,7 @@ describe("#175 PATCH …/roles/:roleId（T12）", () => {
   });
 });
 
-describe("#175 DELETE …/roles/:roleId（T13）", () => {
+describe("#175 DELETE …/roles/:roleId（刪角色）", () => {
   it("刪自訂角色：持有者 B、C 改掛內建一般成員、角色消失、踢線（群組兩篇, [B, C]）恰 1 次；刪沒人掛的 → 204、不踢；同名可再建", async () => {
     const { db, g, b, c, spy, groupNotes, del, roles, memberOf, createRole, kickCall, app, adminCookies } = await setup();
     const readers = await createRole("Readers", NONE);

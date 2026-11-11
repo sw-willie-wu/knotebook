@@ -2,7 +2,7 @@
  * #181：交易內存活重讀（表前五列的循序案）。在「授權之後、交易之前」的測試縫裡以
  * `trashNotesInTx` 把筆記移入垃圾桶——繞過路由授權——再讓操作跑完：回該處原本的 not_found，筆記沒被改到。
  * 每案配一個對照：同一縫裡不移入 → 操作照常成功（縫本身沒弄壞流程）。
- * T5（後半）：改標題、公開連結五支、切版（`cutVersionInTx`）、掃描（`scanDue`）、連結轉換（含 backfill 群組分支照記）。
+ * 後半：改標題、公開連結五支、切版（`cutVersionInTx`）、掃描（`scanDue`）、連結轉換（含 backfill 群組分支照記）。
  */
 import { describe, expect, it, vi } from "vitest";
 import { eq, sql } from "drizzle-orm";

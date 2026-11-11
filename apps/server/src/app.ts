@@ -335,7 +335,7 @@ function isMultipartExemptRoute(request: FastifyRequest): boolean {
 
 // bulk transfer：檔案寫回收 `text/markdown`（整個檔案就是 body）。同 multipart 豁免的形：
 // essence 必須 `text/markdown`（否則 415）＋Origin 不符 403；兩條早退都先 `drainWithCap`。parser 註冊在頂層（見下方
-// `addContentTypeParser` 的註解），所以「其他路由帶 text/markdown 仍 415」靠的是這張白名單（W-A10）。
+// `addContentTypeParser` 的註解），所以「其他路由帶 text/markdown 仍 415」靠的是這張白名單。
 const TEXT_BODY_EXEMPT_ROUTES = new Set(["PUT /api/transfer/notes"]);
 
 /** 同 `isMultipartExemptRoute`：先擋 `is404`（404 請求的 `routeOptions.url` 是 undefined）。 */
@@ -516,7 +516,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
 
   // bulk transfer：`PUT /api/transfer/notes` 的 `text/markdown` body。同 multipart／formbody 註冊在
   // **頂層 app**（`transferRoutes` 是非 fastify-plugin 的子情境，註冊在裡面不外溢）——「parser 全域可用、只有
-  // `TEXT_BODY_EXEMPT_ROUTES` 的判定擋得下其他路由」才是 W-A10 的鑑別力前提。parser 只回 Buffer，**解碼在路由**（fatal UTF-8）。
+  // `TEXT_BODY_EXEMPT_ROUTES` 的判定擋得下其他路由」才是這張白名單測試的鑑別力前提。parser 只回 Buffer，**解碼在路由**（fatal UTF-8）。
   app.addContentTypeParser("text/markdown", { parseAs: "buffer" }, (_request, body, done) => {
     done(null, body);
   });

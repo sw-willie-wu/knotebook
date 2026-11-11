@@ -12,7 +12,7 @@ const CURSOR_FIELD = "cursor";
  * （`cursor-plugin.js:207`、`:255`），沒有開關。讓編輯區不能聚焦會連帶讓唯讀者無法選取複製。
  *
  * - null 一律放行（失焦、plugin destroy 時的清除）。可編輯翻成唯讀時，BlockNoteView 會重掛 PM view，
- *   舊 plugin 的 destroy 就把已送出的 cursor 清成 null（`NoteEditor.cursor.test.tsx` RC4 守這條）。
+ *   舊 plugin 的 destroy 就把已送出的 cursor 清成 null（`NoteEditor.cursor.test.tsx` 守這條）。
  * - 其餘欄位與所有讀取、訂閱都直通原物件（`this` 綁回原物件），別人的游標照樣畫。
  */
 export function gateLocalCursor(awareness: Awareness, canSend: () => boolean): Awareness {

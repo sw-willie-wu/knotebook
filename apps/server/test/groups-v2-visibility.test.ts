@@ -107,7 +107,7 @@ describe("#175 其餘四份可見性查詢", () => {
     expect([...(await loadNoteAudience(db, s.groupNote.id))].sort()).toEqual([s.admin.id, s.member.id, s.reader.id].sort());
   });
 
-  it("writeNoteLinks（T15）：只讀成員在自己的筆記寫 [[群組筆記]] 寫得進去；無閱讀旗標者與非成員提交同一個 target 被靜默丟棄", async () => {
+  it("writeNoteLinks：只讀成員在自己的筆記寫 [[群組筆記]] 寫得進去；無閱讀旗標者與非成員提交同一個 target 被靜默丟棄", async () => {
     const { db } = await buildTestApp();
     const s = await scene(db);
     for (const [user, expected] of [[s.reader, 1], [s.blind, 0], [s.outsider, 0]] as const) {
@@ -129,7 +129,7 @@ describe("#175 其餘四份可見性查詢", () => {
     expect(await fetchBacklinks(db, s.personal.id, s.outsider.id)).toEqual([]);
   });
 
-  it("群組筆記上的殘留分享列不讓非成員從 backlinks、T15、候選看到或連到它", async () => {
+  it("群組筆記上的殘留分享列不讓非成員從 backlinks、寫連結、候選看到或連到它", async () => {
     const { db } = await buildTestApp();
     const s = await scene(db);
     await seedShare(db, s.groupNote.id, s.outsider.id, "editor"); // 群組筆記殘留分享列（DB 直塞）

@@ -83,7 +83,7 @@ function renderView(state: BodySearchState, opts: ViewOpts = {}) {
 }
 const region = () => screen.getByRole("region", { name: "搜尋結果" });
 
-describe("BodySearchView 合併列表（T5）", () => {
+describe("BodySearchView 合併列表", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("zh-TW");
   });
@@ -334,7 +334,7 @@ describe("BodySearchView 合併列表（T5）", () => {
   });
 });
 
-describe("BodySearchView 點擊（T6）", () => {
+describe("BodySearchView 點擊", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("zh-TW");
     lastLocation = { pathname: "", hash: "", state: null };

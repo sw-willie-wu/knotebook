@@ -1,5 +1,5 @@
 /**
- * #188：單篇 `DELETE /api/notes/:id` × 上傳的交錯（比照 `groups-v2-delete-race.test.ts` 的 C22，群組全刪形）。
+ * #188：單篇 `DELETE /api/notes/:id` × 上傳的交錯（比照 `groups-v2-delete-race.test.ts` 的全刪上傳案，群組全刪形）。
  * #181 起 DELETE 是移到垃圾桶：`trashNotesInTx` 第一步對筆記列取 `FOR UPDATE`；上傳交易（`insertUploadInTx`）以
  * `SELECT … WHERE deleted_at IS NULL FOR KEY SHARE` 讀那篇筆記列，與 FOR UPDATE 互斥 → 等移入 commit 後重評條件不成立 → 0 列 →
  * TxAbort 404 not_found（路由先 unlink）。移入不刪 uploads，所以「孤兒檔」那一形只剩永久刪除（垃圾桶筆記本來就上傳不了：授權即 none）。

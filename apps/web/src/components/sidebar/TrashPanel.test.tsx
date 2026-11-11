@@ -231,7 +231,7 @@ describe("TrashPanel（平常）", () => {
     expect(empty).toHaveClass("text-destructive");
     expect(empty).toBeEnabled();
 
-    // 「選取」只送 start（畫面在 T5）。
+    // 「選取」只送 start（畫面在選取模式）。
     fireEvent.click(select);
     expect(screen.getByTestId("selecting")).toHaveTextContent("true");
   });

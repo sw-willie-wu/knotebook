@@ -2,12 +2,12 @@
  * #108：`tools/list` 的內容（案 8～10、案 2 的
  * `listChanged` 那半）與批次（案 33）。
  *
- * 兩種 harness 各有被測對象，**不可互換**（D-A 的分工表）：
+ * 兩種 harness 各有被測對象，**不可互換**（部署形態閘門的分工表）：
  * - `buildCollabTestApp` ＝生產形態（collab ＋ editing 都在）→ 讀寫搬移憑證上十一支工具全在（#180 起含 copy_note、move_note_to_group；#200 起含 read_note_image；
  *   #181 起含 list_trash）；#239 起讀寫（無 notes:move）憑證少一支——`move_note_to_group` 只在 `notes:move` 時註冊。
  *   #181：`delete_note`／`restore_note` 只在 `notes:delete`（且有 write）時註冊——讀寫搬移刪除憑證十三支、讀寫刪除與 session 十二支。
  *   資料夾（另有三支資料夾寫入工具，notes:write 時註冊）起每種憑證各多一支 `list_folders`（任何憑證、任何部署形態都註冊）：上面的支數各加一（讀寫搬移十二、讀寫搬移刪除十四、讀寫刪除與 session 十三）；再加三支資料夾寫入工具（讀寫搬移十五、讀寫搬移刪除十七、讀寫刪除與 session 十六）；再加 `move_note_to_folder`（讀寫搬移十六、讀寫搬移刪除十八、讀寫刪除與 session 十七）；再加 `delete_folder`（notes:delete 時註冊：讀寫搬移刪除十九、讀寫刪除與 session 十八，讀寫搬移不變）。
- * - `buildTestApp` ＝無 collab → 只有查得動 DB 的工具（讀寫憑證上多 `create_note`，D-M；token 路徑上另有
+ * - `buildTestApp` ＝無 collab → 只有查得動 DB 的工具（讀寫憑證上多 `create_note`，它不進部署形態閘門；token 路徑上另有
  *   `create_transfer_token`，#200）。
  *
  * ⚠ **案 8 要有寫入工具才是守衛**：只有讀取工具時 `edit_note`／`create_note` 還不存在，那兩行
@@ -120,8 +120,8 @@ describe("#108 tools/list", () => {
   //   同樣守 scope 過濾——同一條突變實測見 #200 回報。）
   // 今天有鑑別力的除了 scope 過濾本身，還有 `toEqual` 那一行（**生產形態上恰好這六個名字**，
   // 一支不多一支不少、改名也會紅），那是形狀斷言。
-  // ⚠ **不要為了「看起來重複」把它與下面那條 D-A 案合併**：兩案的被測對象是**兩種部署形態**，
-  //   合併必然丟掉一邊——「拿掉閘門」的突變只讓 D-A 紅、案 8 綠，就是它們互不涵蓋的證明。
+  // ⚠ **不要為了「看起來重複」把它與下面那條部署形態閘門案合併**：兩案的被測對象是**兩種部署形態**，
+  //   合併必然丟掉一邊——「拿掉閘門」的突變只讓閘門案紅、案 8 綠，就是它們互不涵蓋的證明。
   it("唯讀憑證的 tools/list ＝恰好九支（七支讀取＋create_transfer_token＋open_notes_as_files），不含 edit_note／create_note（案 8）", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
@@ -133,7 +133,7 @@ describe("#108 tools/list", () => {
     expect(names).not.toContain("create_note");
   });
 
-  // D-A 的形狀斷言：**這是那道部署形態閘門唯一的守衛**。
+  // 部署形態閘門的形狀斷言：**這是那道部署形態閘門唯一的守衛**。
   //   1. 突變實測（讀寫憑證版）：`register.ts` 的 `if (ctx.collab &&
   //      ctx.editing)` 換成 `if (true)` → **只有本案紅**（`expected ['create_note',
   //      'edit_note', …(4)] to deeply equal ['create_note','list_notes','search_notes']`——
@@ -149,7 +149,7 @@ describe("#108 tools/list", () => {
   //   `create_note` 不進這道閘門，所以集合裡它（與 `copy_note`、`create_transfer_token`）必須在，`edit_note` 必須不在。
   //   #239：讀寫（無 notes:move）憑證看不到 `move_note_to_group`（它只在 `notes:move` 時註冊），所以比讀寫搬移少一支；
   //   憑證刻意維持讀寫——換成讀寫搬移會讓這案同時改測「搬移權」與「部署形態」兩件事。
-  it("無 collab 的 app ＋讀寫憑證：只宣告查得動 DB 的五支（含 read_note_image、list_trash、list_folders）、create_note、copy_note、四支資料夾寫入工具（含 move_note_to_folder）與 create_transfer_token（D-M 不進閘門，D-A）", async () => {
+  it("無 collab 的 app ＋讀寫憑證：只宣告查得動 DB 的五支（含 read_note_image、list_trash、list_folders）、create_note、copy_note、四支資料夾寫入工具（含 move_note_to_folder）與 create_transfer_token（create_note 不進部署形態閘門）", async () => {
     const { app, db } = await buildTestApp();
     const userId = await seedUser(db);
     const { token } = await seedTokenForUser(db, userId, "notes:read notes:write");

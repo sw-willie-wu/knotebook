@@ -20,7 +20,7 @@
  * (2) UPDATE 的 WHERE 多一條 `title = pre.title`（**條件式 UPDATE**：比對與寫入同一句，pg 的列鎖＋EvalPlanQual 讓
  *     「pre-read 之後、UPDATE 之前」被提交的改名一定讓這句 0 列）；0 列時補查到的列標題已不是 pre.title → `title_changed`。
  * 兩道缺一不可：拿掉 (1)，pre-read 讀到的是**別人的新標題**，(2) 的 WHERE 照樣成立；拿掉 (2)，(1) 與 UPDATE 之間就是 TOCTOU 窗。
- * 守衛＝`test/mcp-rename.test.ts` 的 R14（(1)）與 R15（(2)，經 `hook` 在兩者之間插入別人的改名）。
+ * 守衛＝`test/mcp-rename.test.ts` 的 (1)(2) 兩案（(2) 經 `hook` 在兩者之間插入別人的改名）。
  * 指紋算的是**標題全文**（`fingerprintOf`，與內文指紋同格式），不是 MCP 回應裡截斷後的顯示字串。ABA（被改走又改回同一字串）視為未變，可接受。
  */
 import { and, eq, isNull, sql } from "drizzle-orm";

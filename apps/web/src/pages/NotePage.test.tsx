@@ -411,7 +411,7 @@ function renderNotePage(ref: string, options: { seedActiveId?: string } = {}) {
   return { ...result, queryClient };
 }
 
-// `sidebar.tab` 會往外流到同檔後面的案（寫入它的案在 T5 加），檔案頂層清。
+// `sidebar.tab` 會往外流到同檔後面的案（寫入它的案在同檔後面），檔案頂層清。
 afterEach(() => localStorage.removeItem("sidebar.tab"));
 
 describe("NotePage", () => {

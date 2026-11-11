@@ -21,7 +21,7 @@ import { NoteList } from "./NoteList";
 
 /**
  * 側欄拖曳接線：接手判準、落點範圍提示、放進資料夾／回根目錄（樂觀）、彈簧資料夾。
- * fixture（同 T2 的子集）：個人 F ⊃ F1；根層 A、F 裡 N1、N2；群組 G 有 GF、根層 g1、GF 裡 g2、唯讀 gr；群組 H 有 HF、h1。
+ * fixture（`sidebar/drag-zone.test.ts` 的子集）：個人 F ⊃ F1；根層 A、F 裡 N1、N2；群組 G 有 GF、根層 g1、GF 裡 g2、唯讀 gr；群組 H 有 HF、h1。
  * 計時：渲染與等樹用真計時，只在停留段切假的 setTimeout／clearTimeout。
  */
 

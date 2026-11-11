@@ -1,5 +1,5 @@
 /**
- * #175 S14（T2）：`PUT /api/notes/:id/shares` 的交易本體。只收 `tx`、純資料與型別明示的測試縫——本檔不碰
+ * #175 S14：`PUT /api/notes/:id/shares` 的交易本體。只收 `tx`、純資料與型別明示的測試縫——本檔不碰
  * pool，寫不出「交易內向 pool 借連線」。授權（`permissions.manageShares`）、email 查找與
  * FK 23503 → 404 的映射都在路由層、交易之外。
  * `FOR SHARE` 讀 `group_id`——與移動交易的 `FOR UPDATE` 互鎖；讀到非 NULL（授權之後被移進群組）→ 409。

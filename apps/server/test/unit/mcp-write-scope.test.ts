@@ -142,7 +142,7 @@ const RWD = "notes:read notes:write notes:delete";
 const RWMD = "notes:read notes:write notes:move notes:delete";
 
 // #181 D：requireDeleteScope 的兩個 scope 分支在 HTTP 上到不了（delete_note／restore_note 只在 canDeleteNotes 時註冊），
-// 本段是它們唯一的守衛；tokenWrite 扣點在 HTTP 上活著（另由 mcp-trash-tools.test.ts 的 DN8／RN6 守）。
+// 本段是它們唯一的守衛；tokenWrite 扣點在 HTTP 上活著（另由 mcp-trash-tools.test.ts 守）。
 describe("#181 D canDeleteNotes", () => {
   it("五形＋session＋兩種漂移形", () => {
     expect(canDeleteNotes({ authKind: "session", tokenScope: null })).toBe(true);

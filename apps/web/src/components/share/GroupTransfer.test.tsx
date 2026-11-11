@@ -1169,7 +1169,7 @@ describe("⋮ 逐層子選單", () => {
       await expandMove(["SF"]);
     });
 
-    // NM-I7–I9：flyout 形的窄形版——所在層 path 只剩窄形在用（不看 path.length，見 `livePath`）。
+    // flyout 形的窄形版——所在層 path 只剩窄形在用（不看 path.length，見 `livePath`）。
     const moveGroup = () => screen.getByRole("group", { name: "Move to…" });
 
     it("NM-I7 在 A › A1 時 A1 被刪（folders 重抓）→ 顯示 A 那層；按「Back」恰退一層到第一層", async () => {

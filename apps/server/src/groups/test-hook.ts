@@ -21,9 +21,9 @@ export type GroupRacePoint =
    */
   | "group-roles-checked"
   /**
-   * T9／T10／T11（`groups/tx/members.ts`）：`lockGroup` 鎖住 `groups` 列、完成該支的檢查之後、寫入 `group_members` 之前。
-   * 檢查各支不同：T9 只解析角色（`already_member` 由之後的 INSERT 判定）；T10 解析新角色、確認成員，從內建管理員換走時
-   * 做管理員計數——角色不變時提早回傳、不經過此點；T11 確認成員，移的是內建管理員時做管理員計數。
+   * `addMemberInTx`／`setMemberRoleInTx`／`removeMemberInTx`（`groups/tx/members.ts`）：`lockGroup` 鎖住 `groups` 列、完成該支的檢查之後、寫入 `group_members` 之前。
+   * 檢查各支不同：`addMemberInTx` 只解析角色（`already_member` 由之後的 INSERT 判定）；`setMemberRoleInTx` 解析新角色、確認成員，從內建管理員換走時
+   * 做管理員計數——角色不變時提早回傳、不經過此點；`removeMemberInTx` 確認成員，移的是內建管理員時做管理員計數。
    */
   | "group-members-checked"
   /** #175（`notes/tx/move.ts`）：(0) `FOR UPDATE` 鎖住筆記列、(1) 目標群組檢查通過之後、刪逐人分享之前。 */
@@ -45,11 +45,11 @@ export type GroupRacePoint =
   | "group-transfer-slug-candidate"
   /** #175 `DELETE /api/groups/:id` 全刪模式（路由，**交易外**）：gate 全部開完之後、`BEGIN` 之前——「gate 之後才進群組」與「另一位管理員的轉移先完成」的窗。 */
   | "group-delete-gated"
-  /** 刪群組（`groups/tx/delete-group.ts`）：T6 轉移＝`lockGroup`＋transferTo 檢查通過之後、取成員與筆記之前；T7 全刪＝`lockGroup` 之後、取 L 之前。 */
+  /** 刪群組（`groups/tx/delete-group.ts`）：轉移（`transferGroupInTx`）＝`lockGroup`＋transferTo 檢查通過之後、取成員與筆記之前；全刪（`deleteGroupWithNotesInTx`）＝`lockGroup` 之後、取 L 之前。 */
   | "group-delete-locked"
   /**
    * 儲存配額（第 4a 步）：`assertSpaceRoomInTx` 取得空間 advisory 鎖、`lock_timeout` 已復原之後，讀配額與 SUM 之前。
-   * 四支白名單交易（上傳 U-tx、T3 移動、T4 複製、T6 轉移）都經過它；ctx 由呼叫端帶（上傳 `{noteId}`、移動 `{noteId, groupId}`、
+   * 四支白名單交易（上傳 `insertUploadInTx`、移動 `moveNoteToGroupInTx`、複製 `copyNoteInTx`、轉移 `transferGroupInTx`）都經過它；ctx 由呼叫端帶（上傳 `{noteId}`、移動 `{noteId, groupId}`、
    * 複製 `{noteId: 來源, groupId?: 目標群組}`、轉移 `{groupId: 被刪的群組}`）。
    */
   | "storage-space-locked"
@@ -67,21 +67,21 @@ export type GroupRacePoint =
   | "note-copy-authorized"
   /** #181：`POST /api/notes/:id/uploads`（`routes/uploads.ts`）授權之後、`.transaction(` 之前。 */
   | "upload-authorized"
-  /** 資料夾 T5／T6／T8（`folders/service.ts`）：交易外授權之後、閘門／`.transaction(` 之前。 */
+  /** 資料夾建立／改名搬移／刪除（`folders/service.ts`）：交易外授權之後、閘門／`.transaction(` 之前。 */
   | "folder-authorized"
-  /** 資料夾 T3（`folders/tx/lock.ts` `lockFolderSpacesInTx`）：取完所有結構鎖鍵、`lock_timeout` 已復原之後（鍵空不經過）。 */
+  /** 資料夾結構鎖（`folders/tx/lock.ts` `lockFolderSpacesInTx`）：取完所有結構鎖鍵、`lock_timeout` 已復原之後（鍵空不經過）。 */
   | "folder-structure-locked"
-  /** 資料夾 T8（刪資料夾）：閘門全開之後、交易之前。 */
+  /** 刪資料夾：閘門全開之後、交易之前。 */
   | "folder-delete-gated"
-  /** 資料夾 T8（`folders/tx/delete-folder.ts`）：一段式鎖完子樹筆記之後、分組之前。 */
+  /** 刪資料夾（`folders/tx/delete-folder.ts`）：一段式鎖完子樹筆記之後、分組之前。 */
   | "folder-delete-notes-locked"
-  /** 資料夾 T9（放置）：交易外授權之後、交易之前。 */
+  /** 放置筆記（`placeNoteInTx`）：交易外授權之後、交易之前。 */
   | "note-folder-authorized"
-  /** 資料夾 T9（`folders/tx/place-note.ts`）：交易內鎖完筆記並重判之後、寫入之前。 */
+  /** 放置筆記（`folders/tx/place-note.ts`）：交易內鎖完筆記並重判之後、寫入之前。 */
   | "note-folder-locked"
-  /** 資料夾 T10（`notes/tx/copy.ts` `copyNoteInTx`）：目標資料夾 `FOR KEY SHARE`＋重判之後、鎖來源之前。 */
+  /** 複製筆記到資料夾（`notes/tx/copy.ts` `copyNoteInTx`）：目標資料夾 `FOR KEY SHARE`＋重判之後、鎖來源之前。 */
   | "note-copy-folder-locked"
-  /** 資料夾 T7（`trash/service.ts` `restoreTrashed`）：預判與預讀空間之後、交易之前。 */
+  /** 還原筆記（`trash/service.ts` `restoreTrashed`）：預判與預讀空間之後、交易之前。 */
   | "trash-restore-prejudged";
 
 export interface GroupHookCtx { noteId?: string; groupId?: string; slug?: string; folderId?: string }

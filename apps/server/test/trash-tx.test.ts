@@ -36,7 +36,7 @@ async function rolledBack<T>(db: Db, fn: (tx: Tx) => Promise<T>): Promise<T> {
   return out as T;
 }
 
-/** 還原的輸入：不帶群組與空間（不取 groups KS 與結構鎖；資料夾功能加入後的完整鎖序見 `folders-trash.test.ts` TRF-9）。 */
+/** 還原的輸入：不帶群組與空間（不取 groups KS 與結構鎖；資料夾功能加入後的完整鎖序見 `folders-trash.test.ts`）。 */
 const restoreIn = (ids: readonly string[], by: string): TrashRestoreInput => ({ ids, by, groupIds: [], spaces: [], lockTimeoutMs: DEFAULT_STORAGE_LOCK_TIMEOUT_MS });
 
 /** 兩個 uuid 由大到小（輸入順序刻意與 id 升冪相反）。 */

@@ -32,7 +32,7 @@ export interface ResolveOidcLoginResult {
  * - 服務列綁 callback 驗過的 `config_version`：callback 驗完版本到開這個交易之間隔著 code 交換，issuer 在這段期間被改掉時，
  *   不得以舊 issuer 的 claims 建帳。
  * - 交易內不再看服務的 `enabled`。
- * login 分支只 `UPDATE user_identities.last_login_at`、**不碰 users**（因此與 A2 的「先 users 後 identity」無循環等待）；
+ * login 分支只 `UPDATE user_identities.last_login_at`、**不碰 users**（因此與 SSO 證明的「先 users 後 identity」無循環等待）；
  * 並發解除連結讓它影響 0 列時照樣算 login。create 分支 registry-first（handles → users → user_identities），
  * **不寫 users.oidc_***（舊欄只剩開機時的補登讀）。撞唯一鍵的錯誤原樣拋出，整 tx 重投由路由負責。
  */

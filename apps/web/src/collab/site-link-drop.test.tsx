@@ -452,7 +452,7 @@ describe("#352 drop hook", () => {
 
 /**
  * DL11（量法：共編組態、不用 fake timers、`stopCapturing()` 只放在 drop 之前）。
- * 量到的結果即斷言；後備兩列比照 `site-link-convert.test.tsx` 的 W11，改由 drop 觸發。
+ * 量到的結果即斷言；後備兩列比照 `site-link-convert.test.tsx`，改由 drop 觸發。
  */
 const MEASURED_DROP = { undoRemovesWholeDrop: true, fallbackAfterPauseRevertsToLink: true, fallbackImmediateRemovesAll: true } as const;
 

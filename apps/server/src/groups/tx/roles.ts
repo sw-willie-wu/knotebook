@@ -1,16 +1,16 @@
 /**
- * #175（交易表）：自訂角色的修改與刪除。兩支都以 `lockGroup` 開頭——與 T6／T7（刪群組）、T9–T11
+ * #175：自訂角色的修改與刪除。兩支都以 `lockGroup` 開頭——與刪群組、成員異動
  * 同一把 groups 列鎖（鎖序「成員／角色變動＝groups 一把」）：刪角色與「把人掛上這個角色」因此序列化，後到者看到
  * 前者的結果（角色已不在 → 404 `role_not_found`；那人已掛上 → 被改掛內建一般成員），不會在 `group_members_role_fk`
  * 撞 23503。本檔不 import 資料庫型別、不碰路由的依賴物件（S14）；測試縫 `hook` 是型別明示的參數。業務拒絕一律 throw `TxAbort`。
  *
  * ⚠ 跨檔前提（`notes/tx/move.ts`）：移動路徑讀成員資格與角色旗標之前，只對 groups 列取 `FOR KEY SHARE`；它的正確性
  * 建立在「所有會改變**既有成員資格**，或改變**可能已有人持有之角色**旗標的寫入，都先 `lockGroup`（groups `FOR UPDATE`，
- * 與 KEY SHARE 互斥；T6／T7、T9–T13）」上。`POST …/roles` 只新增一個尚無人持有的角色（要掛上它必須經過 T9／T10 的
+ * 與 KEY SHARE 互斥；刪群組、成員異動、角色改刪）」上。`POST …/roles` 只新增一個尚無人持有的角色（要掛上它必須經過 `addMemberInTx`／`setMemberRoleInTx` 的
  * `lockGroup`），不改變任何人的有效權限，所以不在此列、也不取鎖。日後若新增會刪 `users` 的路徑（`group_members.user_id`
  * 是 ON DELETE CASCADE），必須先對該使用者所屬的每個群組 `lockGroup`。
  * 所以這兩支的第一步必須是 `lockGroup`，不可為了省一次往返拿掉或挪到讀取之後。守衛：
- * `test/groups-v2-roles-race.test.ts` 的「groups FOR KEY SHARE」一案（另一條交易持 KEY SHARE 時，T12／T13 都必須卡住）。
+ * `test/groups-v2-roles-race.test.ts` 的「groups FOR KEY SHARE」一案（另一條交易持 KEY SHARE 時，`updateRoleInTx`／`deleteRoleInTx` 都必須卡住）。
  */
 import { and, eq } from "drizzle-orm";
 import type { GroupRoleDto, GroupRoleFlags } from "@knotebook/shared";
@@ -33,7 +33,7 @@ export interface RoleKick {
 }
 
 /**
- * T12：改自訂角色的名稱與旗標；內建一般成員只准改旗標；內建管理員一律 409。`name` 已正規化、`permissions`
+ * `updateRoleInTx`：改自訂角色的名稱與旗標；內建一般成員只准改旗標；內建管理員一律 409。`name` 已正規化、`permissions`
  * 已過形狀檢查（路由先驗）。**`read` 或 `edit` 有變才回踢線名單**（其他五旗標只影響 REST 授權；值沒變就不踢）。
  */
 export async function updateRoleInTx(
@@ -66,7 +66,7 @@ export async function updateRoleInTx(
 }
 
 /**
- * T13：刪自訂角色。掛著它的成員同交易改掛**內建一般成員**，再刪角色——FK `group_members_role_fk` 是 NO ACTION，
+ * `deleteRoleInTx`：刪自訂角色。掛著它的成員同交易改掛**內建一般成員**，再刪角色——FK `group_members_role_fk` 是 NO ACTION，
  * 順序反過來會 23503。內建角色一律 409（每群組恰兩個內建角色）。回（群組所有筆記, 原持有者）；沒有持有者時兩者皆空。
  */
 export async function deleteRoleInTx(

@@ -1,5 +1,5 @@
 /**
- * #175 T4：複製的交易本體。快照（`loadNoteDoc`，會借連線）由路由在交易**之前**讀、clone 成 `input.copy`
+ * #175：複製的交易本體（`copyNoteInTx`）。快照（`loadNoteDoc`，會借連線）由路由在交易**之前**讀、clone 成 `input.copy`
  * 。S14：只收 `tx`、純資料、型別明示的測試縫；檔案 I/O（`copyFile`）不借連線。
  *   (g) 目標是群組時（**第一把鎖**）：目標 `groups` 列 `FOR KEY SHARE`，再在交易內重讀呼叫者的成員資格與 `can_create`
  *       → 群組不存在、非成員、無 can_create → 404 `group_not_found`（與路由交易外的快速檢查同形；同 `move.ts` (1)）。
@@ -13,7 +13,7 @@
  *   (4) 每個附件：新 id → 記入 `copiedFileIds` → copyFile；檔不在（ENOENT）→ 跳過——**不持空間鎖**
  *       （磁碟 I/O 不佔空間鎖；持有的只有 (g)／(0) 兩把 KEY SHARE，與改序前相同）
  *   (5) incoming＝實際複製成功的 size 總和（磁碟已遺失而跳過的不計；`owned` 是 DB 列、已去重——同一附件被引用兩次只算一次）
- *   (6) `assertSpaceRoomInTx(目標空間, incoming)`——在 (7) `insertNoteWithAutoSlug` **之前**（Q-S7：空間鎖先於該空間的
+ *   (6) `assertSpaceRoomInTx(目標空間, incoming)`——在 (7) `insertNoteWithAutoSlug` **之前**（空間鎖先於該空間的
  *       slug 寫入）、(g)／(0) 兩把列鎖之後。incoming＝0 時不取鎖
  *   (7) `insertNoteWithAutoSlug` 交易內模式（savepoint 重試）
  *   (8) 逐列 INSERT uploads（uploader＝複製者）→ 改寫網址 → 寫 `note_states` 首列（version 1，與 `persistNoteState` 首寫同形）
@@ -25,9 +25,9 @@
  * （目標是個人時沒有第一把；不帶資料夾時沒有第二把）。
  * 為什麼 groups 要在來源之前：來源與目標同在群組 G 時，若先鎖來源（G 的筆記）、再由 (7) INSERT 的 FK 檢查取 G 的
  * KEY SHARE，會與「groups FOR UPDATE → 該群組筆記 FOR UPDATE」（刪群組・全刪的形）成環（實測 40P01；
- * `groups-v2-copy.test.ts` C19b 釘住）。現序下 `lockGroup` 方與 (g) 在各自的第一把鎖就互斥，後到者等的時候不持任何鎖。
- * (g) 也關掉「複製∥移除成員／降級」的授權窗口：`lockGroup`（T6／T7 刪群組、T9–T11 成員異動、T12／T13 角色異動）
- * 的 FOR UPDATE 與 KEY SHARE 互斥，所以 (g) 讀到的成員資格從讀到 commit 都成立。角色異動（T12／T13）先 `lockGroup`
+ * `groups-v2-copy.test.ts` 釘住）。現序下 `lockGroup` 方與 (g) 在各自的第一把鎖就互斥，後到者等的時候不持任何鎖。
+ * (g) 也關掉「複製∥移除成員／降級」的授權窗口：`lockGroup`（`transferGroupInTx`／`deleteGroupWithNotesInTx` 刪群組、`addMemberInTx`／`setMemberRoleInTx`／`removeMemberInTx` 成員異動、`updateRoleInTx`／`deleteRoleInTx` 角色異動）
+ * 的 FOR UPDATE 與 KEY SHARE 互斥，所以 (g) 讀到的成員資格從讀到 commit 都成立。角色異動先 `lockGroup`
  * 這個前提由 `groups-v2-roles-race.test.ts` 守著。(g) 同一句也讀出群組名與角色旗標並回傳（`target`），路由用它組
  * 201 的 role／permissions——交易外 `loadCreateTarget` 只剩快速 404（兩次讀之間被降級時不再回降級前的值）。
  * 與其他路徑的鎖對（逐一）：移動＝筆記 FOR UPDATE → groups KEY SHARE——與 (g) 兩把 KEY SHARE 互容，交集只在來源列
@@ -151,7 +151,7 @@ export async function copyNoteInTx(tx: Tx, input: CopyNoteInput, hook?: GroupTes
   }
   await hook?.("note-copy-files-copied", { noteId: input.sourceId });
 
-  // (5)(6) 儲存配額：只算實際複製成功的；空間鎖在 (g)／(0) 兩把列鎖之後、slug 寫入之前（Q-S7）。
+  // (5)(6) 儲存配額：只算實際複製成功的；空間鎖在 (g)／(0) 兩把列鎖之後、slug 寫入之前。
   const incoming = copied.reduce((sum, c) => sum + c.size, 0);
   const targetSpace: StorageSpace = "groupId" in input.scope ? { kind: "group", id: input.scope.groupId } : { kind: "user", id: input.scope.ownerId };
   await assertSpaceRoomInTx(tx, targetSpace, incoming, {

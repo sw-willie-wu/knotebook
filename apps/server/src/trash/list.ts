@@ -2,7 +2,7 @@
  * #181 `GET /api/trash` 的查詢：呼叫者有垃圾桶權的項目＝個人（owner）∪ 群組
  * （角色 `can_edit AND can_delete`）。兩支結構性互斥（個人支 `owner_id = $u`、群組支 INNER JOIN 群組；`owner_id` 與 `group_id`
  * 恰一個非 NULL，`notes_owner_xor_group_chk`），`unionAll`。
- * 垃圾桶權的推導與單篇的 `trashRightFromRow` 同規則（`trash-routes.test.ts` TR-L3／TR-M1 逐角色比對）。
+ * 垃圾桶權的推導與單篇的 `trashRightFromRow` 同規則（`trash-routes.test.ts` 逐角色比對）。
  * #181：MCP `list_trash` 共用 `readTrashRetentionDays`；`delete_note` 移入後以 `loadTrashedMeta` 重讀。
  * 資料夾：MCP `list_trash` 改走 `listTrashPage`（keyset 游標）；REST 的 `listTrash` 是它第一頁的包裝。兩者同用毫秒排序鍵。
  * 資料夾：MCP `delete_folder` 移入後以 `loadTrashedPurgeAt` 重讀到期時間。

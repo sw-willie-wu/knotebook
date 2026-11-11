@@ -88,11 +88,11 @@ const REGISTRY: Record<string, Disposition> = {
   "collab/store.ts": { includes: 1, why: "載入時 links_clock 鉗制，與存活無關" },
   // excludes：scanRound（scanDue）。
   "collab/versions.ts": { excludes: 1, includes: 7, why: "版本狀態隨落盤與套用版本後的基底寫回寫入；readVersionMeta 不改（M-G）；sweep 照常" },
-  // 刪資料夾預讀子樹活筆記（資料夾 T8）。
+  // 刪資料夾預讀子樹活筆記（刪資料夾）。
   "folders/service.ts": { excludes: 1 },
-  // includes：子樹筆記鎖讀；trashOnly：刷新子樹垃圾桶筆記的路徑快照（資料夾 T8）。
+  // includes：子樹筆記鎖讀；trashOnly：刷新子樹垃圾桶筆記的路徑快照（刪資料夾）。
   "folders/tx/delete-folder.ts": { includes: 1, trashOnly: 1, why: "一段式依 id 鎖子樹全部筆記（不分狀態，spec m5）" },
-  // excludes：放置的筆記鎖讀（個人／群組 FOR UPDATE、共享 FOR KEY SHARE 同一句，帶 deleted_at IS NULL）；write：UPDATE folder_id（受前一句的 FU 保護）（資料夾 T9）。
+  // excludes：放置的筆記鎖讀（個人／群組 FOR UPDATE、共享 FOR KEY SHARE 同一句，帶 deleted_at IS NULL）；write：UPDATE folder_id（受前一句的 FU 保護）（放置）。
   "folders/tx/place-note.ts": { excludes: 1, write: 1 },
   "groups/queries.ts": { includes: 1, why: "群組全部筆記（踢線、刪群組 P0）" },
   // 轉移的鎖、配額 innerJoin、轉移 UPDATE、全刪的鎖。
@@ -123,7 +123,7 @@ const REGISTRY: Record<string, Disposition> = {
   "notes/tx/patch-slug.ts": { write: 2 },
   "notes/tx/search-index.ts": { includes: 1, why: "索引照寫" },
   "notes/tx/shares.ts": { excludes: 1 },
-  // trashOnly：照路徑重建寫 folder_id（資料夾 T7）、還原 UPDATE、到期查詢；includes：lockNotes；write：移入 UPDATE。
+  // trashOnly：照路徑重建寫 folder_id（還原）、還原 UPDATE、到期查詢；includes：lockNotes；write：移入 UPDATE。
   "notes/tx/trash.ts": { trashOnly: 3, includes: 1, write: 1, why: "先鎖再判（狀態在鎖後逐篇判）" },
   // excludes：切版鎖讀；includes：notBaseVersionSql、reset 兩句；write：cutVersionInTx 內三句 UPDATE。
   "notes/tx/versions.ts": { excludes: 1, includes: 3, write: 3, why: "版本清除照常、轉移 reset 不分狀態" },
@@ -142,7 +142,7 @@ const REGISTRY: Record<string, Disposition> = {
   "storage/usage.ts": { includes: 4, why: "容量照算" },
   // trashOnly：清單兩支、loadTrashedMeta（delete_note 移入後的重讀）、loadTrashedPurgeAt（delete_folder 移入後的重讀）。
   "trash/list.ts": { trashOnly: 4 },
-  // 還原的預讀空間（資料夾 T7）。
+  // 還原的預讀空間（還原）。
   "trash/service.ts": { trashOnly: 1 },
   "uploads/tx/insert-upload.ts": { excludes: 1 },
 };

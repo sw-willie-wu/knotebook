@@ -1862,7 +1862,7 @@ describe("0012_groups-v2（#175）", () => {
       code: "23503",
       constraint: "group_members_role_fk",
     });
-    // 個人與群組同 slug 並存；沒有筆記、但**還有成員**的群組可刪（T5 的真實形），成員與角色隨之 CASCADE
+    // 個人與群組同 slug 並存；沒有筆記、但**還有成員**的群組可刪（刪群組的真實形），成員與角色隨之 CASCADE
     await pool.query(`insert into notes (owner_id, title, slug) values ($1, 't', 'dup')`, [A]);
     const countIn = async (table: string) =>
       (await pool.query(`select count(*)::int as c from ${table} where group_id = $1`, [H])).rows[0].c as number;

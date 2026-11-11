@@ -1,5 +1,5 @@
 /**
- * bulk transfer：S14 探測——**不是產品守衛**。PUT（有 body）上 `request.raw` 的 `close` 何時觸發，決定 T8 的
+ * bulk transfer：S14 探測——**不是產品守衛**。PUT（有 body）上 `request.raw` 的 `close` 何時觸發，決定寫回路由（PUT /api/transfer/notes）的
  * 斷線偵測只准掛 `reply.raw` 的 `close`。整檔 `describe.skipIf(!process.env.KN_PROBE)`：CI 的 `test:unit` 照收檔
  * 但不跑（避免「10 次不一致就紅」偶發）。序列寫進 `KN_PROBE_LOG`（UTF-8；沒給就只印 stdout）。
  *
