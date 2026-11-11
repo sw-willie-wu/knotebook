@@ -45,6 +45,29 @@
         "body": "Press Ctrl+/ or open Keyboard shortcuts from here. The feature tour is here too, so you can take it again any time.",
         "narrowBody": "Press Ctrl+/ or open Keyboard shortcuts from the menu at the bottom-left of the sidebar. The feature tour is there too, so you can take it again any time. Open the sidebar from here."
       }
+    },
+    "sample": {
+      "title": "Welcome to Knotebook",
+      "intro": "This note was made for the feature tour. You can edit it freely, then keep it or delete it at the end.",
+      "heading": "What a note can hold",
+      "bullet1": "Bulleted lists",
+      "bullet2": "Easy to scan",
+      "number1": "Numbered steps",
+      "number2": "Keep them in order",
+      "todoDone": "A finished task",
+      "todoOpen": "A task still to do",
+      "quote": "A quote to remember.",
+      "code": "console.log(\"hello\");",
+      "linkBefore": "A link to this very note: ",
+      "linkAfter": ".",
+      "columnLeft": "Left column",
+      "columnRight": "Right column",
+      "mermaidCode": "graph LR\n  A[Write] --> B[Link] --> C[Share]",
+      "tableName": "Name",
+      "tableValue": "Value",
+      "tableRow1Name": "Notes",
+      "tableRow1Value": "Ideas",
+      "aiSentence": "Select this sentence to try AI."
     }
   }
 }

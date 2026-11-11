@@ -45,6 +45,29 @@
         "body": "按 Ctrl+/ 或從這裡打開快捷鍵介紹；功能導覽也在這裡，隨時可以重看。",
         "narrowBody": "按 Ctrl+/ 或從側欄左下角的選單打開快捷鍵介紹；功能導覽也在那裡，隨時可以重看。點這裡打開側欄。"
       }
+    },
+    "sample": {
+      "title": "歡迎使用 Knotebook",
+      "intro": "這篇筆記是為功能導覽準備的，可以隨意編輯，功能導覽結束時再決定要保留還是刪除。",
+      "heading": "筆記裡可以放什麼",
+      "bullet1": "項目清單",
+      "bullet2": "一眼就看懂",
+      "number1": "編號步驟",
+      "number2": "照順序排好",
+      "todoDone": "做完的事",
+      "todoOpen": "還沒做的事",
+      "quote": "一句值得記住的話。",
+      "code": "console.log(\"hello\");",
+      "linkBefore": "連到這篇筆記本身：",
+      "linkAfter": "。",
+      "columnLeft": "左欄",
+      "columnRight": "右欄",
+      "mermaidCode": "graph LR\n  A[寫下] --> B[連結] --> C[分享]",
+      "tableName": "名稱",
+      "tableValue": "內容",
+      "tableRow1Name": "筆記",
+      "tableRow1Value": "想法",
+      "aiSentence": "選取這一句，試試看 AI。"
     }
   }
 }
