@@ -8,7 +8,7 @@ import { eq, sql } from "drizzle-orm";
 import { ERROR_CODES } from "@knotebook/shared";
 import { groupMembers, notes, transferBases, users } from "../src/db/schema.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
-import { EXPORT_BUSY_MESSAGE, RANGE_GONE_MESSAGE, TOO_MANY_NOTES_MESSAGE } from "../src/routes/transfer.js";
+import { EXPORT_BUSY_MESSAGE, RANGE_GONE_MESSAGE, TOO_MANY_NOTES_MESSAGE, exportRateLimitedMessage } from "../src/routes/transfer.js";
 import { EXPORT_BUSY_RETRY_AFTER_S, TRANSFER_EXPORT_MAX_NOTES, type ExportOutcome, type ExportTestHooks } from "../src/transfer/export-stream.js";
 import { presenceClientId } from "../src/notes/editing/presence.js";
 import { TRANSFER_WRITE_BODY_LIMIT } from "../src/http/body-limits.js";
@@ -225,13 +225,14 @@ describe("E5–E7b、E18：413、全站 1 個、桶", () => {
     expect((await exportRaw(ctx.baseUrl, B.b.token)).status).toBe(200);
   });
 
-  it("E7 transferExport limit 1 → 第二發 429＋Retry-After ≥ 1", async () => {
+  it("E7 transferExport limit 1 → 第二發 429＋Retry-After ≥ 1＋訊息給分鐘數（視窗剛開：60 分鐘）", async () => {
     const ctx = await buildCollabTestApp({ limiters: { transferExport: new FixedWindowLimiter({ limit: 1, windowMs: 3_600_000 }) } });
     const { b } = await userWithBulk(ctx);
     expect((await exportRaw(ctx.baseUrl, b.token)).status).toBe(200);
     const r = await exportRaw(ctx.baseUrl, b.token);
     expect(r.status).toBe(429);
     expect(String(r.headers["retry-after"])).toMatch(/^[1-9]\d*$/);
+    expect(JSON.parse(r.body.toString("utf8"))).toEqual({ error: { code: "too_many_requests", message: exportRateLimitedMessage(3_600_000) } });
   });
 
   it("E7b 忙碌不扣桶：limit 2；A 停住時 B 連打 3 發都 429（Retry-After 30）；放行後 B → 200", async () => {
