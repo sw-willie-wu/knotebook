@@ -53,7 +53,7 @@ describe("padRect／unionRect", () => {
   });
 });
 
-describe("placeCard：下、上、右、左，都不行就置中", () => {
+describe("placeCard：下、上、右、左；四邊放不下且有挖洞就貼上緣或下緣（蓋得少的一邊），沒有挖洞就置中", () => {
   it("下方放得下 → 放下方，水平對齊目標中心", () => {
     const hole: Rect = { left: 500, top: 100, width: 80, height: 40 };
     const p = placeCard(hole, CARD, VIEWPORT);
@@ -84,12 +84,21 @@ describe("placeCard：下、上、右、左，都不行就置中", () => {
     expect(p.left + CARD.width).toBe(hole.left - CARD_GAP);
   });
 
-  it("四邊都放不下 → 置中", () => {
+  it("四邊都放不下 → 水平置中、貼視窗下緣（上下蓋到的一樣多時）", () => {
     const hole: Rect = { left: 10, top: 10, width: 1260, height: 700 };
     const p = placeCard(hole, CARD, VIEWPORT);
     expect(p.placement).toBe("center");
     expect(p.left).toBe((VIEWPORT.width - CARD.width) / 2);
-    expect(p.top).toBe((VIEWPORT.height - CARD.height) / 2);
+    expect(p.top).toBe(VIEWPORT.height - VIEWPORT_MARGIN - CARD.height);
+  });
+
+  it("四邊都放不下 → 貼視窗上緣或下緣，挑蓋到挖洞比較少的一邊", () => {
+    const wide: Rect = { left: 10, top: 40, width: 1260, height: 670 };
+    // 洞從 40 到 710：貼上緣（8–168）蓋 128，貼下緣（552–712）蓋 158。
+    expect(placeCard(wide, CARD, VIEWPORT).top).toBe(VIEWPORT_MARGIN);
+    // 洞從 10 到 680：貼上緣蓋 158，貼下緣蓋 128。
+    const lower: Rect = { left: 10, top: 10, width: 1260, height: 670 };
+    expect(placeCard(lower, CARD, VIEWPORT).top).toBe(VIEWPORT.height - VIEWPORT_MARGIN - CARD.height);
   });
 
   it("沒有挖洞 → 置中", () => {

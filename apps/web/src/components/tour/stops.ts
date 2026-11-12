@@ -165,7 +165,7 @@ export const STOPS: Readonly<Record<StopId, StopDef>> = {
     prepare: (ctx) => startLiveSelection(ctx.sampleNoteId),
     prepareInNarrow: true,
     leave: (ctx) => stopLiveSelection(ctx.sampleNoteId),
-    // 站台沒有設定 AI 就整站略過（AI 工具列不會出現）。
+    // 站台沒有設定 AI 就整站略過（格式工具列上不會有 AI 鈕）。
     precondition: (ctx) => ctx.aiActions.length > 0,
     // 只選取、不需要空段落，所以不看 `liveStops`；拿不到示範筆記的編輯器就不是演示。
     live: (ctx) => getTourNoteEditor(ctx.sampleNoteId) !== null,

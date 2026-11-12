@@ -150,7 +150,7 @@ export function TourOverlay({ target, step, total, title, body, live = false, on
   }, [step, total, live]);
 
   return createPortal(
-    <div ref={rootRef} data-tour-overlay="" className="fixed inset-0 z-[60]">
+    <div ref={rootRef} data-tour-overlay="" className="fixed inset-0 z-[95]">
       <svg aria-hidden="true" className="pointer-events-none absolute inset-0 h-full w-full forced-color-adjust-none">
         <defs>
           <mask id={maskId}>

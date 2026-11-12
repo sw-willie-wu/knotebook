@@ -5,13 +5,14 @@ import { getTourNoteEditor, setTourTransactionFilter, type TourEditor } from "@/
 import { findFormattingToolbarButton, findTourTarget, type TourTargetId } from "@/lib/tour-targets";
 
 /**
- * 功能導覽的現場演示：在示範筆記的編輯器裡叫出真的選單，整個過程不寫文件。
+ * 功能導覽的現場演示：在示範筆記的編輯器裡叫出真的選單，或框選一句讓格式工具列出現，整個過程不寫文件。
  *
  * - 游標放進最後的空段落，用 `deleteTriggerCharacter: false` 開選單：觸發字不會進文件，選單照樣出現，
  *   所以重新整理、關分頁、上一頁都不會留下東西，也不產生版本或撤銷紀錄。
  * - 演示期間開著編輯器的交易過濾（`setTourTransactionFilter`）：輸入法組字擋不在鍵盤層，只有在交易層擋得乾淨。
  *   過濾是常駐外掛上的旗標，演示中不註冊也不拆外掛（選單開著時動態註冊會弄壞選單的狀態）。
  * - 離站由站點的 `leave` 呼叫 `stopLiveTrigger`：關選單、還原選取、關過濾。可以重複呼叫，也可以在沒開始過時呼叫。
+ * - AI 站不開選單，只用一筆交易把演示句設成選取（`startLiveSelection`），讓格式工具列自己出現；離站把選取收合（`stopLiveSelection`）。
  */
 
 export type TourTrigger = "[[" | "/";
@@ -217,6 +218,7 @@ export interface LiveStopInput {
  *   所以瀏覽器自己的快捷鍵（重新整理、開發人員工具、縮放）照常有效；功能鍵（F5、F12）整個放行。
  *   `z`／`y`（撤銷、重做：經 Y 回來的交易會通過交易過濾）、`v`／`x`／`a`（貼上、剪下、全選）和 `Enter` 另外 `preventDefault`。
  * - 選單項目的點擊擋掉：點項目會先關掉選單再執行它，插入雖然會被交易過濾擋下，選單卻沒了。
+ *   格式工具列上的鈕也擋（點 AI 鈕會開 AI 框）；導覽遮罩本身已經蓋住整個畫面，這裡是遮罩以外的備援。
  * 回傳拆除函式。
  */
 export function installLiveStopInput({ next, back }: LiveStopInput): () => void {
