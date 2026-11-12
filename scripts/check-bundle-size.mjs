@@ -14,6 +14,7 @@
 //      資料夾對話框同理：FolderLazy chunk 必須存在，且 entry 不得含資料夾字串包的鍵名（FOLDER_I18N_MARKER）。
 //      快捷鍵介紹同理：ShortcutsLazy chunk 必須存在，且 entry 不得含 SHORTCUTS_I18N_MARKER。
 //      側欄搜尋的內文區（#93）同理：BodySearchLazy chunk 必須存在，且 entry 不得含內文區的 marker（BODY_SEARCH_MARKER）。
+//      頭貼的解碼／編碼模組（avatars/encode.ts）不得進首包：entry 不得含 AVATAR_IMAGE_MARKER（只擋進 entry，不驗它是否獨立成 chunk）。
 //      站台管理／設定的字串包（management-strings，首包瘦身）同理：entry 不得含 MANAGEMENT_I18N_MARKERS，且 management-strings chunk 必須存在並帶著它們。
 //
 // 全程 fail-closed：dist 不存在、找不到 entry、找到多個 entry，一律 throw 而非放行
@@ -100,6 +101,10 @@ export const SHORTCUTS_I18N_MARKER = 'columnBackspace';
 // 先前用的根元素 testid 在合併列表重寫後改成與首包共用的 sidebar-search-results，所以換成這個。
 export const BODYSEARCHLAZY_RE = /^BodySearchLazy-[A-Za-z0-9_-]+\.js$/;
 export const BODY_SEARCH_MARKER = 'body-match';
+// 頭貼的解碼／編碼模組（`avatars/encode.ts`）不得進首包。marker 是它匯出的錯誤類別在 `this.name` 設的字串字面量
+// （字面量不會被 minify 改掉，類別名會）：entry 含它＝該模組被首包靜態 import（含間接）。
+// 只擋這一種；被某個 lazy chunk 靜態 import 的情形（併進該 chunk、不進首包）不在檢查範圍。
+export const AVATAR_IMAGE_MARKER = 'AvatarImageError';
 // 站台管理（admin.*）與設定（settings.*）的字串包（management.*.json，經 `@/i18n/management-strings` 註冊）也只能進 lazy 鏈：
 // 首包只留 AdminModal／SettingsModal／UserMenu 用到的 15 個鍵。兩個 marker 各取一個只在被搬走子樹裡的鍵名
 // （admin.auth.edit.autoCreateConfirmKeep、settings.ai.actionBuiltinBadge），entry 含任一個＝字串包被首包靜態 import（含「某個首包檔 import 了它」）。
@@ -328,6 +333,13 @@ export function checkBundleSize(assetsDir, { maxEntryBytes = MAX_ENTRY_BYTES } =
     );
   }
 
+  if (readFileSync(join(assetsDir, entryName), 'utf8').includes(AVATAR_IMAGE_MARKER)) {
+    throw new Error(
+      `entry chunk ${entryName} 含頭貼影像模組的 marker ${AVATAR_IMAGE_MARKER}——\`avatars/encode.ts\`（或 import 它的模組）` +
+        `被首包靜態 import；解碼／編碼不得進首包`
+    );
+  }
+
   for (const name of names.filter(n => n.endsWith('.js') && !PRESENTATION_RE.test(n))) {
     if (readFileSync(join(assetsDir, name), 'utf8').includes(REVEAL_MARKER)) {
       throw new Error(
@@ -380,7 +392,8 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
         `${result.folderChunks.join(', ')}（entry 不含 ${FOLDER_I18N_MARKER}）、` +
         `${result.shortcutsChunks.join(', ')}（entry 不含 ${SHORTCUTS_I18N_MARKER}）、` +
         `${result.managementChunks.join(', ')}（entry 不含 ${MANAGEMENT_I18N_MARKERS.join('、')}）、` +
-        `${result.bodySearchChunks.join(', ')}（entry 不含 ${BODY_SEARCH_MARKER}）`
+        `${result.bodySearchChunks.join(', ')}（entry 不含 ${BODY_SEARCH_MARKER}）、` +
+        `entry 不含 ${AVATAR_IMAGE_MARKER}`
     );
   } catch (err) {
     console.error(String(err instanceof Error ? err.message : err));

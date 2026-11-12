@@ -57,7 +57,7 @@ export interface UpdateAvatarDisplayInput {
   id: string;
   display: Blob;
   crop: AvatarCropDto;
-  /** 呼叫端看到的候選版本；server 發現不是最新就回 `avatar_outdated`。 */
+  /** 呼叫端看到的候選版本，即該候選 DTO 的 `avatar.v`；server 發現不是最新就回 `avatar_outdated`。 */
   version: number;
 }
 

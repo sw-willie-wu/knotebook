@@ -6,7 +6,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { BODY_SEARCH_MARKER, FOLDER_I18N_MARKER, MANAGEMENT_I18N_MARKERS, MAX_ENTRY_BYTES, SELECT_I18N_MARKER, SHORTCUTS_I18N_MARKER, VERSIONS_MARKERS, checkBundleSize } from './check-bundle-size.mjs';
+import { AVATAR_IMAGE_MARKER, BODY_SEARCH_MARKER, FOLDER_I18N_MARKER, MANAGEMENT_I18N_MARKERS, MAX_ENTRY_BYTES, SELECT_I18N_MARKER, SHORTCUTS_I18N_MARKER, VERSIONS_MARKERS, checkBundleSize } from './check-bundle-size.mjs';
 
 // 守預設上限 750 KiB（理由見 check-bundle-size.mjs 的常數註解；下面兩案明傳 700 * 1024 測判斷本身，與預設值無關）。
 test('BS0 首包上限是 750 KiB', () => {
@@ -516,4 +516,23 @@ test('每個 i18n key 型 marker 都存在於 en.json；非 key 的只有 diff �
 test('diff 套件的 word.js 仍含 marker 字面 u{2DE}-', () => {
   const wordJs = fileURLToPath(new URL('../apps/web/node_modules/diff/libesm/diff/word.js', import.meta.url));
   assert.ok(readFileSync(wordJs, 'utf8').includes('u{2DE}-'), 'diff 的 word.js 不再含 u{2DE}-——請改挑新的 diff 獨有字面並更新 VERSIONS_MARKERS');
+});
+
+// 頭貼的解碼／編碼模組（avatars/encode.ts）不得進首包。
+test('BS-A1 entry 含頭貼影像模組的 marker（被靜態 import 進首包）→ throw', () => {
+  const { assets, cleanup } = fakeAssets({
+    ...MARKER_BASE, 'index-Abc123.js': `class E extends Error{constructor(){super();this.name="${AVATAR_IMAGE_MARKER}"}}`, 'NotePage-Def456.js': 'x',
+    'VersionsLazy-Vvv000.js': 'x',
+  });
+  try {
+    assert.throws(() => checkBundleSize(assets), /index-Abc123\.js[\s\S]*AvatarImageError/);
+  } finally {
+    cleanup();
+  }
+});
+
+// marker 改名即靜默失效——綁回 encode.ts 的 this.name 字串字面量。
+test('BS-A4 AVATAR_IMAGE_MARKER 是 avatars/encode.ts 裡 this.name 的字串字面量', () => {
+  const source = readFileSync(fileURLToPath(new URL('../apps/web/src/avatars/encode.ts', import.meta.url)), 'utf8');
+  assert.ok(source.includes(`this.name = "${AVATAR_IMAGE_MARKER}"`), `encode.ts 沒有 this.name = "${AVATAR_IMAGE_MARKER}"——marker 或類別改名了，請同步更新 AVATAR_IMAGE_MARKER`);
 });
