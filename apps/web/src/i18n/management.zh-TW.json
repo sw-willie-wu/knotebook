@@ -487,7 +487,7 @@
       }
     },
     "storage": {
-      "description": "你個人筆記裡的檔案與頭貼的用量。",
+      "description": "你個人筆記裡的檔案，加上你的頭貼，佔用的空間。",
       "usageTitle": "用量",
       "byKind": "依類型",
       "byKindDescription": "檔案與頭貼依類型分組。",
