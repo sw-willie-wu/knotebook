@@ -405,6 +405,21 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
     [tab, notesQuery.isSuccess, notesQuery.data, groupsQuery.data, favoritesReady, favoritesQuery.data, foldersPending, folderIndex, sortOf],
   );
   const selectable = nodes !== null && hasSelectableNodes(nodes);
+  // 「選取」鈕正握著焦點時清單空了（鈕隨之停用）：停用的鈕留不住焦點，會掉到 body；改交給所在的 tabpanel。
+  // Chromium 在 commit 寫入 disabled 時就同步把焦點移到 body 並觸發 blur（此時 React 不派送事件），Firefox／WebKit 則稍後才移；
+  // 所以掛原生 focusout，延到 microtask 再看鈕是否已停用、焦點是否落在 body。焦點本來就在別處時不動。
+  useEffect(() => {
+    const onFocusOut = (event: FocusEvent) => {
+      const button = selectButtonRef.current;
+      if (button === null || event.target !== button || event.relatedTarget !== null) return;
+      queueMicrotask(() => {
+        const active = document.activeElement;
+        if (button.disabled && (active === null || active === document.body)) button.closest<HTMLElement>('[role="tabpanel"]')?.focus();
+      });
+    };
+    document.addEventListener("focusout", onFocusOut, true);
+    return () => document.removeEventListener("focusout", onFocusOut, true);
+  }, []);
   const openFolderDialog = (request: FolderDialogRequest, opener: HTMLElement | null) => {
     folderOpenerRef.current = opener;
     setFolderRequest(request);

@@ -280,7 +280,7 @@ export async function deleteTargetsInOrder(
 
 /**
  * 最愛 tab 的批次移出：逐篇 `DELETE /api/favorites/:id`，每篇成功就把那篇從 `["favorites"]` 濾掉（清單即時少一列）；
- * 404 `not_found` 略過、其餘停下。finally 重抓一次最愛清單（以 server 為準）。
+ * 錯誤分類同 `classifyBatchError`（403、404 `not_found` 略過，其餘停下）。finally 重抓一次最愛清單（以 server 為準）。
  */
 export async function unfavoriteInOrder(
   noteIds: readonly string[],

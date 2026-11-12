@@ -159,7 +159,7 @@ export function useTrashSelectionActions(): {
   return { selectedIds, disabled, busy, onRestore, onPurge, purgeDialog };
 }
 
-/** 窄形：底部動作列「還原」（主色）「永久刪除」（紅字），各帶圖示。 */
+/** 窄形：底部動作列「還原」（主色）「永久刪除」（紅字），只放圖示，可及名稱由 `aria-label` 給。 */
 function TrashActionBar() {
   const { t } = useTranslation();
   const { disabled, onRestore, onPurge, purgeDialog } = useTrashSelectionActions();
@@ -185,20 +185,20 @@ function TrashActionBar() {
   return (
     <>
       <div className="m-2 flex gap-1" onKeyDown={handleKeyDown}>
-        <Button type="button" variant="brand" className="flex-1" disabled={disabled} onClick={onRestore}>
-          <RotateCcw aria-hidden="true" className="h-4 w-4" />
-          {t("trash.restore")}
+        <Button type="button" variant="brand" className="min-w-0 flex-1 px-1.5" aria-label={t("trash.restore")} title={t("trash.restore")} disabled={disabled} onClick={onRestore}>
+          <RotateCcw aria-hidden="true" className="h-4 w-4 shrink-0" />
         </Button>
         {/* 不用 outline：它的 hover 填 brand-deep，紅字壓深色底不對；hover 同 row-actions.ts 的 ROW_ICON_DANGER。 */}
         <Button
           type="button"
           variant="ghost"
-          className="flex-1 border border-input text-destructive hover:bg-destructive/10 hover:text-destructive"
+          className="min-w-0 flex-1 px-1.5 border border-input text-destructive hover:bg-destructive/10 hover:text-destructive"
+          aria-label={t("trash.purge")}
+          title={t("trash.purge")}
           disabled={disabled}
           onClick={onPurge}
         >
-          <Trash aria-hidden="true" className="h-4 w-4" />
-          {t("trash.purge")}
+          <Trash aria-hidden="true" className="h-4 w-4 shrink-0" />
         </Button>
       </div>
       {/* 放在動作列的 div 外：確認框內的 Esc 只關框，不經 React 樹冒泡到上面的 onKeyDown 結束選取。 */}

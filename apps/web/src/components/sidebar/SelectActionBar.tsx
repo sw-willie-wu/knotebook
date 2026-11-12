@@ -95,15 +95,13 @@ type PlaceTarget = Extract<DestTarget, { kind: "place" }>;
 type Stopped = BatchOutcome<unknown>["stopped"];
 
 /**
- * 「移動到」「複製到」：側欄最窄 200px（卡片內約 182px）也要和 36px 的刪除鈕排進同一列——`min-w-0` 讓 flex 子項能縮到比內容窄、
- * `px-1.5 gap-1.5` 省寬、字 `truncate`（DOM 裡仍是全文，可及名稱不受影響；`title` 給看得到截字的人）。不加的話刪除鈕會被擠出卡片、
- * 落到側欄寬度把手底下（真 Chromium 量測）。按鈕列是 `@container`：列寬不到 14.5rem（字級 16 時側欄約 250px 以下）時拿掉
- * 兩顆的圖示，把位置讓給字（實測帶圖示時 en 要列寬 ≥ 14rem 才不截字，字級 16、20 皆同；多留 0.5rem）。
- * `aria-disabled:` 開頭的是反灰原因的樣子（看起來停用、hover／按下不變色）：兩顆恆帶、不依條件加（兩顆的 className 相同，e2e 41-12 依此斷言）。
+ * 窄形底部列的動作鈕：只放圖示（可及名稱由 `aria-label` 給，`title` 給滑鼠停留的人）。每顆 `flex-1` 平分刪除鈕以外的列寬，
+ * `min-w-0` 讓它在側欄最窄 200px（卡片內約 182px）也能和 36px 的刪除鈕排進同一列；高度同一般按鈕（h-8），寬度平分列寬。
+ * `aria-disabled:` 開頭的是反灰原因的樣子（看起來停用、hover／按下不變色）：各顆恆帶、不依條件加（className 相同，e2e 41-12 依此斷言）。
  */
-const ACTION_TEXT_BUTTON =
-  "min-w-0 flex-1 gap-1.5 px-1.5 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:border-input aria-disabled:hover:bg-transparent aria-disabled:hover:text-inherit aria-disabled:active:[background:transparent]";
-const ACTION_ICON = "hidden h-4 w-4 shrink-0 @min-[14.5rem]:block";
+const ACTION_BUTTON =
+  "min-w-0 flex-1 px-1.5 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:border-input aria-disabled:hover:bg-transparent aria-disabled:hover:text-inherit aria-disabled:active:[background:transparent]";
+const ACTION_ICON = "h-4 w-4 shrink-0";
 /** 寬螢幕標題列的「移動到」「複製到」圖示鈕（同標題列其他 24px 鈕）；`aria-disabled:` 同上，兩顆恆帶。 */
 const TOOLBAR_ICON_BUTTON =
   "h-6 w-6 shrink-0 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:bg-transparent aria-disabled:hover:text-inherit";
@@ -270,8 +268,13 @@ export function SelectActionBar({ layout = "bar" }: { layout?: "bar" | "toolbar"
         endSelectRun(actions);
       });
     }
-    if (focusTo === "select") shell?.querySelector<HTMLButtonElement>(SIDEBAR_SELECT_BUTTON)?.focus();
-    else if (focusTo === "opener" && opener?.isConnected) opener.focus();
+    if (focusTo === "select") {
+      // 收尾時清單已空（最愛逐篇濾掉快取）：「Select」鈕已停用，focus 會落空，改聚焦面板。
+      // 其他 tab 要等重抓後清單才空，那時瀏覽器已把焦點從停用的「Select」鈕移到 body，由 NoteList 監聽 focusout 再交給面板。
+      const selectButton = shell?.querySelector<HTMLButtonElement>(SIDEBAR_SELECT_BUTTON) ?? null;
+      if (selectButton !== null && !selectButton.disabled) selectButton.focus();
+      else shell?.querySelector<HTMLElement>('[role="tabpanel"]')?.focus();
+    } else if (focusTo === "opener" && opener?.isConnected) opener.focus();
   }
 
   /** 同空間（進資料夾、回根目錄）：不確認；結果 toast 帶「復原」；正向移動成功後展開目標資料夾（比照 ⋮）。 */
@@ -675,24 +678,21 @@ export function SelectActionBar({ layout = "bar" }: { layout?: "bar" | "toolbar"
             {t("select.progress", run.progress)}
           </p>
         )}
-        <div className="@container flex gap-1">
+        <div className="flex gap-1">
           {available.includes("unfavorite") && (
-            <Button type="button" variant="outline" className={ACTION_TEXT_BUTTON} {...unfavoriteProps}>
+            <Button type="button" variant="outline" className={ACTION_BUTTON} aria-label={t("select.unfavorite")} {...unfavoriteProps}>
               <StarOff aria-hidden="true" className={ACTION_ICON} />
-              <span className="truncate">{t("select.unfavorite")}</span>
             </Button>
           )}
           {/* 「移動到」與「複製到」同為 outline（選取模式沒有唯一主角，不用主色）。 */}
           {available.includes("move") && (
-            <Button type="button" variant="outline" className={ACTION_TEXT_BUTTON} {...moveProps}>
+            <Button type="button" variant="outline" className={ACTION_BUTTON} aria-label={t("select.moveTo")} {...moveProps}>
               <FolderInput aria-hidden="true" className={ACTION_ICON} />
-              <span className="truncate">{t("select.moveTo")}</span>
             </Button>
           )}
           {available.includes("copy") && (
-            <Button type="button" variant="outline" className={ACTION_TEXT_BUTTON} {...copyProps}>
+            <Button type="button" variant="outline" className={ACTION_BUTTON} aria-label={t("select.copyTo")} {...copyProps}>
               <Copy aria-hidden="true" className={ACTION_ICON} />
-              <span className="truncate">{t("select.copyTo")}</span>
             </Button>
           )}
           {showDelete && (

@@ -258,7 +258,7 @@ function renderShells(opts: RenderOpts = {}) {
     <SidebarTabProvider>
       {[0, 1].map((index) => (
         <div key={index} data-sidebar-instance="" data-testid={`shell-${index}`}>
-          <div role="tabpanel">
+          <div role="tabpanel" tabIndex={0}>
             <NoteList />
           </div>
           <SidebarFooter searching={false} onCreateNote={() => {}} newNotePending={false} />
@@ -362,16 +362,16 @@ describe("SelectActionBar", () => {
       expect(del.className).not.toContain("brand-deep");
       expect(del.className).not.toContain("hover:border-transparent");
       expect(within(shell(1)).queryByRole("button", { name: "New note" })).toBeNull();
-      // 版面契約（真瀏覽器量測見報告）：兩顆文字鈕能縮（min-w-0）、字截斷但 DOM 仍是全文（可及名稱完整）、title 給全文。
+      // 版面契約：窄形每顆都只放圖示（沒有可見文字），可及名稱靠 aria-label；兩顆能縮（min-w-0）平分剩下的列寬，title 給全文。
       for (const name of ["Move to", "Copy to"]) {
         const button = barButton(name);
         expect(button).toHaveClass("min-w-0", "flex-1", "px-1.5");
         expect(button).toHaveAttribute("title", name);
-        expect(button.querySelector("span.truncate")).toHaveTextContent(name);
-        // 列寬不到 14.5rem 時圖示讓位給字（按鈕列是 @container）。
-        expect(button.querySelector("svg")).toHaveClass("hidden", "@min-[14.5rem]:block");
+        expect(button).toHaveAttribute("aria-label", name);
+        expect(button.textContent).toBe("");
+        expect(button.querySelector("svg")).not.toHaveClass("hidden");
       }
-      expect(barButton("Move to").parentElement).toHaveClass("@container");
+      expect(del.textContent).toBe("");
       expect(del).toHaveClass("w-9", "shrink-0");
     });
 
@@ -389,6 +389,8 @@ describe("SelectActionBar", () => {
       expect(barButton("Copy to")).toBeEnabled();
       expect(barButton("Delete 1 selected item")).toBeEnabled();
       expect(within(bar()).queryByRole("button", { name: "Move to", hidden: true })).toBeNull();
+      // 兩形都只放圖示，沒有可見文字。
+      for (const button of within(bar()).getAllByRole("button", { hidden: true })) expect(button.textContent).toBe("");
     });
 
     it("最愛：不能刪的筆記仍可移出最愛，Delete 維持 disabled", async () => {
@@ -584,6 +586,100 @@ describe("SelectActionBar", () => {
     expect(await screen.findByText("Moved 1 note to the trash, 1 skipped (no permission, or it no longer exists)", { exact: true })).toBeInTheDocument();
     expect(server.keys()).toEqual(["DELETE /api/notes/p1"]);
     expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument();
+  });
+
+  /** 模擬 Chromium：握著焦點的元素被寫入 disabled 的當下，同步失焦（blur、focusout 照常觸發）。jsdom 不會自己這麼做。 */
+  function blurOnDisable(): () => void {
+    const original = Element.prototype.setAttribute;
+    Element.prototype.setAttribute = function (this: Element, name: string, value: string) {
+      if (name === "disabled" && this === document.activeElement) (this as HTMLElement).blur();
+      return original.call(this, name, value);
+    };
+    return () => {
+      Element.prototype.setAttribute = original;
+    };
+  }
+
+  it("最近 tab 全部刪除、清單空了：焦點不掉到 body，改落在面板（停用時同步失焦的瀏覽器）", async () => {
+    const restore = blurOnDisable();
+    try {
+      stubServer({ notes: [personalNote({ id: "d1", title: "d1" }), personalNote({ id: "d2", title: "d2" })] });
+      renderShells({ tab: "recent" });
+      await enterSelecting();
+      await waitFor(() => expect(box("d1")).not.toBeNull());
+      tick("d1", "d2");
+      fireEvent.click(barButton("Delete 2 selected items"));
+      expect(await screen.findByText("Moved 2 notes to the trash", { exact: true })).toBeInTheDocument();
+      await waitFor(() => expect(selectButton(1)).toBeDisabled());
+      await waitFor(() => expect(within(screen.getByTestId("shell-1")).getByRole("tabpanel")).toHaveFocus());
+      expect(document.body).not.toHaveFocus();
+    } finally {
+      restore();
+    }
+  });
+
+  it("「選取」鈕失焦但沒停用、或焦點被使用者移到別處：不搶焦點", async () => {
+    stubServer({ notes: [personalNote({ id: "d1", title: "d1" })] });
+    renderShells({ tab: "recent" });
+    const other = document.createElement("button");
+    document.body.appendChild(other);
+    try {
+      await waitFor(() => expect(selectButton(1)).toBeEnabled());
+      const button = selectButton(1) as HTMLButtonElement;
+      const panel = within(screen.getByTestId("shell-1")).getByRole("tabpanel");
+      // 鈕還可用時失焦（點到別處）：焦點留在 body，不交給面板。
+      button.focus();
+      button.blur();
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(panel).not.toHaveFocus();
+      // 焦點已被使用者移到別的元素，之後鈕才停用：不動。
+      button.focus();
+      other.focus();
+      button.setAttribute("disabled", "");
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(other).toHaveFocus();
+    } finally {
+      other.remove();
+    }
+  });
+
+  it("停用的「選取」鈕發出 focusout：relatedTarget 非空、或焦點已在別的元素 → 各自都不搶焦點", async () => {
+    stubServer({ notes: [personalNote({ id: "d1", title: "d1" })] });
+    renderShells({ tab: "recent" });
+    const other = document.createElement("button");
+    document.body.appendChild(other);
+    try {
+      await waitFor(() => expect(selectButton(1)).toBeEnabled());
+      const button = selectButton(1) as HTMLButtonElement;
+      const panel = within(screen.getByTestId("shell-1")).getByRole("tabpanel");
+      const flush = () =>
+        act(async () => {
+          await Promise.resolve();
+        });
+      // 鈕沒握著焦點就被停用（不會觸發失焦），焦點在 body。
+      button.setAttribute("disabled", "");
+      // 焦點在 body、focusout 帶了 relatedTarget：這是焦點正要移往他處，不交給面板。
+      button.dispatchEvent(new FocusEvent("focusout", { bubbles: true, relatedTarget: other }));
+      await flush();
+      expect(panel).not.toHaveFocus();
+      expect(document.body).toHaveFocus();
+      // relatedTarget 為空、但焦點已在別的元素：不動。
+      other.focus();
+      button.dispatchEvent(new FocusEvent("focusout", { bubbles: true, relatedTarget: null }));
+      await flush();
+      expect(other).toHaveFocus();
+      // 對照：relatedTarget 為空且焦點在 body → 交給面板。
+      other.blur();
+      button.dispatchEvent(new FocusEvent("focusout", { bubbles: true, relatedTarget: null }));
+      await flush();
+      expect(panel).toHaveFocus();
+    } finally {
+      other.remove();
+    }
   });
 
   it("SA8 一篇都不能刪 → 刪除 disabled；再勾一篇可刪的 → enabled", async () => {
@@ -2043,9 +2139,10 @@ describe("最愛 tab 的批次移出", () => {
     await enterForm(form);
     tick("p2", "ga1", "p1");
     fireEvent.click(unfavoriteButton());
+    expect(server.keys()).toEqual([]);
     const confirm = await screen.findByRole("dialog", { name: "Remove 3 notes from favorites?" });
     expect(confirm).toHaveAccessibleDescription("The notes themselves aren't changed, and you can add them back later.");
-    expect(within(confirm).getByRole("button", { name: "Remove" })).toBeInTheDocument();
+    expect(within(confirm).getByRole("button", { name: "Remove" })).toHaveClass("bg-destructive");
     await settleTimers();
     expect(server.keys()).toEqual([]);
     fireEvent.click(within(confirm).getByRole("button", { name: "Cancel" }));
@@ -2090,6 +2187,24 @@ describe("最愛 tab 的批次移出", () => {
     expect(selectButton(1)).toHaveFocus();
   });
 
+  it("最愛全部移出、清單空了：「Select」鈕已停用，焦點改落在該份側欄的面板，不掉到 body", async () => {
+    const server = stubServer({ favorites: FAV4 });
+    const { queryClient } = renderShells({ tab: "favorites" });
+    await enterSelecting();
+    tick("p2", "ga1", "p1", "p3");
+    fireEvent.click(unfavoriteButton());
+    const confirm = await screen.findByRole("dialog", { name: "Remove 4 notes from favorites?" });
+    fireEvent.click(within(confirm).getByRole("button", { name: "Remove" }));
+    expect(await screen.findByText("Removed 4 notes from favorites", { exact: true })).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(cacheIds(queryClient)).toEqual([]));
+    expect(server.keys()).toHaveLength(4);
+    expect(selecting()).toBe(false);
+    expect(selectButton(1)).toBeDisabled();
+    expect(within(screen.getByTestId("shell-1")).getByRole("tabpanel")).toHaveFocus();
+    expect(document.body).not.toHaveFocus();
+  });
+
   it("第二篇 429 → 停下：第一篇已濾掉、第二三篇仍勾著、錯誤 toast＋已完成 1 篇", async () => {
     const server = stubServer({ favorites: FAV4 });
     server.fail("DELETE /api/favorites/ga1", 429, "too_many_requests");
@@ -2097,6 +2212,7 @@ describe("最愛 tab 的批次移出", () => {
     await enterSelecting();
     tick("p2", "ga1", "p1");
     fireEvent.click(unfavoriteButton());
+    expect(server.keys()).toEqual([]);
     const confirm = await screen.findByRole("dialog", { name: "Remove 3 notes from favorites?" });
     fireEvent.click(within(confirm).getByRole("button", { name: "Remove" }));
     expect(await screen.findByText("Too many requests. Please slow down.", { exact: true })).toBeInTheDocument();
@@ -2118,6 +2234,7 @@ describe("最愛 tab 的批次移出", () => {
     await enterForm(form);
     tick("p2", "ga1");
     fireEvent.click(unfavoriteButton());
+    expect(server.keys()).toEqual([]);
     const confirm = await screen.findByRole("dialog", { name: "Remove 2 notes from favorites?" });
     fireEvent.click(within(confirm).getByRole("button", { name: "Remove" }));
     await waitFor(() => expect(bar()).toHaveAttribute("aria-busy", "true"));

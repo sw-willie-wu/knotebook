@@ -384,6 +384,7 @@ test("A2c-7：390 寬抽屜——動作列排得進抽屜；Esc 只結束選取�
   for (const name of ["Move to", "Copy to", "Delete 1 selected item"]) {
     const button = bar.getByRole("button", { name, exact: true });
     await expect(button).toBeVisible();
+    await expect(button).toHaveText("");
     const box = await button.boundingBox();
     expect(box).not.toBeNull();
     expect(box!.x, name).toBeGreaterThanOrEqual(drawerBox!.x);

@@ -3,12 +3,16 @@ import {
   ADMIN,
   createNote,
   createUserViaInvite,
+  expectWidePointer,
   loginAs,
   moveNoteToTrashFromSidebar,
   noteIdFromUrl,
   randomEmail,
   reEscape,
   showSidebarTab,
+  startSidebarSelection,
+  toastWithTitle,
+  toggleSelectedNote,
 } from "./helpers.js";
 
 /**
@@ -20,6 +24,8 @@ import {
  * 4. 390 寬、兩位其他人在同一篇時，頁首的星號、分享、⋮ 都不被卡片裁掉、也不擠進頁首的右內距；鍵盤 Space 切換後焦點仍在星號；
  *    320 寬星號收起，⋮ 選單的第一項接手。
  * 5. 公開分享頁沒有星號。
+ * 6. 最愛 tab 的選取模式：勾兩篇移出（先確認、沒有 Undo、動作列沒有 Move to）；剩下的全部移出後清單空了，焦點留在面板而不是掉到 body；
+ *    390 寬抽屜的動作列（只放圖示、靠可及名稱找鈕）同樣先確認再移出。
  *
  * 每個測試都用新建的帳號（alice、bob、carol 加 RUN 後綴），最愛清單不受別支 spec 影響；群組與筆記留著不清（疊每次 `stack:down -v` 重置）。
  * 所有按鈕查詢都用 `exact: true`：Playwright 預設是不分大小寫的子字串比對，「Favorite」會撞到「Add to favorites」「Remove from favorites」。
@@ -340,6 +346,138 @@ test("公開分享頁沒有星號", async ({ browser }) => {
     await expect(star(publicPage)).toHaveCount(0);
   } finally {
     await anonymous.close();
+    await context.close();
+  }
+});
+
+/** 以 API 建筆記並加入最愛（依序，所以後建的在最愛 tab 的前面）；回傳 id。 */
+async function apiCreateFavorite(page: Page, title: string): Promise<string> {
+  const created = await page.request.post("/api/notes", { data: { title } });
+  expect(created.status(), await created.text()).toBe(201);
+  const { id } = (await created.json()) as { id: string };
+  const added = await page.request.put(`/api/favorites/${id}`);
+  expect(added.status(), await added.text()).toBe(200);
+  return id;
+}
+
+/** 選取動作列（寬形在標題列、窄形在側欄底部；兩形都有 `data-select-action-bar`）。 */
+function actionBar(scope: Locator): Locator {
+  return scope.locator("[data-select-action-bar]");
+}
+
+test("最愛 tab 選取模式：勾兩篇移出（先確認、沒有 Undo、沒有 Move to）；全部移出後焦點留在面板", async ({ browser }) => {
+  test.setTimeout(120_000);
+  const alice = await createAccount(browser, "alice");
+  const { context, page } = await openAs(browser, alice);
+  try {
+    await expectWidePointer(page, true);
+    const titles = [1, 2, 3].map((n) => `E2E fav select ${n} ${RUN}`);
+    for (const title of titles) await apiCreateFavorite(page, title);
+    await page.goto("/");
+
+    const sidebar = page.getByRole("complementary");
+    const panel = await showSidebarTab(page, "Favorites");
+    await expect(panel.getByRole("link")).toHaveText([favoriteRow(titles[2]!, "My notes"), favoriteRow(titles[1]!, "My notes"), favoriteRow(titles[0]!, "My notes")]);
+
+    // 1. 勾第三、第一篇：動作列有「Copy to」與「Remove from favorites」，沒有「Move to」
+    await startSidebarSelection(page);
+    await toggleSelectedNote(panel, titles[2]!);
+    await toggleSelectedNote(panel, titles[0]!);
+    await expect(panel.getByText("2 selected", { exact: true })).toBeVisible();
+    const bar = actionBar(sidebar);
+    await expect(bar.getByRole("button", { name: "Remove from favorites", exact: true })).toBeEnabled();
+    await expect(bar.getByRole("button", { name: "Copy to", exact: true })).toBeVisible();
+    await expect(bar.getByRole("button", { name: /^Move to/ })).toHaveCount(0);
+
+    // 2. 先確認：框裡寫著篇數；確認後只剩中間那篇、沒有 Undo、離開選取
+    await bar.getByRole("button", { name: "Remove from favorites", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Remove 2 notes from favorites?" });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Remove", exact: true }).click();
+    await expect(toastWithTitle(page, "Removed 2 notes from favorites")).toBeVisible({ timeout: 15_000 });
+    await expect(dialog).toBeHidden();
+    await expect(panel.getByRole("link")).toHaveText([favoriteRow(titles[1]!, "My notes")]);
+    await expect(page.getByRole("button", { name: "Undo", exact: true })).toHaveCount(0);
+    await expect(panel.getByRole("checkbox")).toHaveCount(0);
+    await expect(panel.getByRole("button", { name: "Select", exact: true })).toBeFocused();
+    const afterFirst = await page.request.get("/api/favorites");
+    expect(((await afterFirst.json()) as Array<{ noteId: string }>).length).toBe(1);
+
+    // 3. 剩下的一篇也移出：清單空了，「Select」鈕停用，焦點在面板（不掉到 body）
+    await startSidebarSelection(page);
+    await toggleSelectedNote(panel, titles[1]!);
+    await bar.getByRole("button", { name: "Remove from favorites", exact: true }).click();
+    await page.getByRole("dialog", { name: "Remove 1 note from favorites?" }).getByRole("button", { name: "Remove", exact: true }).click();
+    await expect(panel.getByText(EMPTY_FAVORITES)).toBeVisible({ timeout: 15_000 });
+    await expect(panel.getByRole("button", { name: "Select", exact: true })).toBeDisabled();
+    await expect(panel).toBeFocused();
+    expect(await page.evaluate(() => document.activeElement === document.body)).toBe(false);
+    const afterAll = await page.request.get("/api/favorites");
+    expect(await afterAll.json()).toEqual([]);
+  } finally {
+    await context.close();
+  }
+});
+
+test("最愛 tab 選取模式：390 寬抽屜的動作列先確認再移出", async ({ browser }) => {
+  test.setTimeout(120_000);
+  const alice = await createAccount(browser, "alice");
+  const { context, page } = await openAs(browser, alice, { width: 390, height: 844 });
+  try {
+    await expectWidePointer(page, false);
+    const titles = [1, 2].map((n) => `E2E fav drawer ${n} ${RUN}`);
+    for (const title of titles) await apiCreateFavorite(page, title);
+    await page.goto("/");
+
+    await page.getByRole("button", { name: "Open navigation" }).click();
+    const drawer = page.getByRole("dialog", { name: "Navigation" });
+    await expect(drawer).toBeVisible();
+    const panel = await showSidebarTab(page, "Favorites", drawer);
+    await expect(panel.getByRole("link")).toHaveCount(2);
+    await startSidebarSelection(page, drawer);
+    await toggleSelectedNote(panel, titles[0]!);
+
+    const bar = actionBar(drawer);
+    await expect(bar.getByRole("button", { name: "Copy to", exact: true })).toBeVisible();
+    // 窄形的鈕只放圖示：可及名稱在，可見文字沒有。
+    for (const name of ["Remove from favorites", "Copy to"]) await expect(bar.getByRole("button", { name, exact: true })).toHaveText("");
+    await expect(bar.getByRole("button", { name: /^Move to/ })).toHaveCount(0);
+    await bar.getByRole("button", { name: "Remove from favorites", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Remove 1 note from favorites?" });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Remove", exact: true }).click();
+    await expect(toastWithTitle(page, "Removed 1 note from favorites")).toBeVisible({ timeout: 15_000 });
+    await expect(panel.getByRole("link")).toHaveText([favoriteRow(titles[1]!, "My notes")]);
+    await expect(page.getByRole("button", { name: "Undo", exact: true })).toHaveCount(0);
+  } finally {
+    await context.close();
+  }
+});
+
+test("最近 tab 選取模式：把清單全部刪除後，焦點落在面板而不是 body", async ({ browser }) => {
+  test.setTimeout(120_000);
+  const alice = await createAccount(browser, "alice");
+  const { context, page } = await openAs(browser, alice);
+  try {
+    await expectWidePointer(page, true);
+    for (const n of [1, 2]) {
+      const created = await page.request.post("/api/notes", { data: { title: `E2E recent delete ${n} ${RUN}` } });
+      expect(created.status(), await created.text()).toBe(201);
+    }
+    await page.goto("/");
+
+    const panel = await showSidebarTab(page, "Recent");
+    await startSidebarSelection(page);
+    // 新帳號的最近清單只有上面兩篇：全選後刪除，清單就空了。
+    await panel.getByRole("checkbox", { name: "Select all", exact: true }).click();
+    await expect(panel.getByText("2 selected", { exact: true })).toBeVisible();
+    await actionBar(page.getByRole("complementary")).getByRole("button", { name: "Delete 2 selected items", exact: true }).click();
+    await expect(toastWithTitle(page, "Moved 2 notes to the trash")).toBeVisible({ timeout: 15_000 });
+    await expect(panel.getByRole("link")).toHaveCount(0);
+    await expect(panel.getByRole("button", { name: "Select", exact: true })).toBeDisabled();
+    await expect(panel).toBeFocused();
+    expect(await page.evaluate(() => document.activeElement === document.body)).toBe(false);
+  } finally {
     await context.close();
   }
 });
