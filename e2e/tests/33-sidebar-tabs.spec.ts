@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { ADMIN, createNote, loginAs, reEscape, showSidebarTab } from "./helpers.js";
 
 /**
- * 側欄 tab（#181 加第五顆「Trash」）：五顆 tab 的 DOM／預設 tab、選擇重整後保留、方向鍵與 Home／End、
+ * 側欄 tab（#181 加「Trash」、#334 加第二顆「Favorites」）：六顆 tab 的 DOM／預設 tab、選擇重整後保留、方向鍵與 Home／End、
  * 搜尋視圖與 Esc／清除鈕、390 寬抽屜的 tab 觸控高度與不橫捲。
  * 本檔不斷言點搜尋結果後字串保留（AppShell 會重掛、搜尋字串本來就掉），所以搜尋段一律在筆記頁上做。
  */
@@ -18,12 +18,12 @@ test("sidebar tabs: roles, persistence, keyboard, search view, narrow drawer", a
   await createNote(page, title);
   const noteUrl = page.url();
 
-  // ── 靜態側欄：五顆 tab、預設 My notes ─────────────────────────────────────
+  // ── 靜態側欄：六顆 tab、預設 My notes ─────────────────────────────────────
   const sidebar = page.getByRole("complementary");
   const tablist = sidebar.getByRole("tablist", { name: "Sidebar sections" });
   const tabs = tablist.getByRole("tab");
-  await expect(tabs).toHaveCount(5);
-  const names = ["Recent", "My notes", "Groups", "Shared with me", "Trash"];
+  await expect(tabs).toHaveCount(6);
+  const names = ["Recent", "Favorites", "My notes", "Groups", "Shared with me", "Trash"];
   for (const [i, name] of names.entries()) await expect(tabs.nth(i)).toHaveAttribute("aria-label", name);
   await expect(tablist.getByRole("tab", { name: "My notes", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(sidebar.getByRole("tabpanel").getByRole("link", { name: new RegExp("^" + reEscape(title)) })).toBeVisible();
@@ -39,6 +39,7 @@ test("sidebar tabs: roles, persistence, keyboard, search view, narrow drawer", a
   const workspaceTab = tablist.getByRole("tab", { name: "Groups", exact: true });
   const sharedTab = tablist.getByRole("tab", { name: "Shared with me", exact: true });
   const recentTab = tablist.getByRole("tab", { name: "Recent", exact: true });
+  const favoritesTab = tablist.getByRole("tab", { name: "Favorites", exact: true });
   const trashTab = tablist.getByRole("tab", { name: "Trash", exact: true });
   await workspaceTab.focus();
   await page.keyboard.press("ArrowRight");
@@ -52,6 +53,10 @@ test("sidebar tabs: roles, persistence, keyboard, search view, narrow drawer", a
   await expect(trashTab).toBeFocused();
   await page.keyboard.press("Home");
   await expect(recentTab).toHaveAttribute("aria-selected", "true");
+  // Recent 的右邊是 Favorites
+  await page.keyboard.press("ArrowRight");
+  await expect(favoritesTab).toHaveAttribute("aria-selected", "true");
+  await expect(favoritesTab).toBeFocused();
   await page.keyboard.press("End");
   await expect(trashTab).toHaveAttribute("aria-selected", "true");
   await expect(trashTab).toBeFocused();
@@ -94,10 +99,10 @@ test("sidebar tabs: roles, persistence, keyboard, search view, narrow drawer", a
   const drawer = page.getByRole("dialog", { name: "Navigation" });
   await expect(drawer).toBeVisible();
   const drawerTabs = drawer.getByRole("tablist", { name: "Sidebar sections" }).getByRole("tab");
-  await expect(drawerTabs).toHaveCount(5);
+  await expect(drawerTabs).toHaveCount(6);
   // 與靜態卡一致：Groups 仍選中（tab 存在 localStorage、兩份實例共用）
   await expect(drawer.getByRole("tab", { name: "Groups", exact: true })).toHaveAttribute("aria-selected", "true");
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 6; i++) {
     const box = await drawerTabs.nth(i).boundingBox();
     expect(box).not.toBeNull();
     expect(box!.height).toBeGreaterThanOrEqual(43.5);

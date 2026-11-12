@@ -119,6 +119,27 @@ describe("api/groups", () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["trash"] });
   });
 
+  it("重新取得讀取權時最愛要回來：經 useInvalidateGroupsAndNotes 的 hook 與 useUpdateRole 都失效 ['favorites']", async () => {
+    stubFetch({
+      "POST /api/groups": () => fakeResponse(201, GROUP),
+      [`PATCH /api/groups/${GROUP.id}/roles/r-new`]: () => fakeResponse(200, customRole({ id: "r-new" })),
+    });
+    const favoritesCalls = (spy: { mock: { calls: unknown[][] } }) =>
+      spy.mock.calls.filter(([arg]) => JSON.stringify((arg as { queryKey?: unknown } | undefined)?.queryKey) === '["favorites"]').length;
+
+    const qcCreate = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const spyCreate = vi.spyOn(qcCreate, "invalidateQueries");
+    const create = renderHook(() => useCreateGroup(), { wrapper: wrapper(qcCreate) });
+    await create.result.current.mutateAsync({ name: "工作坊" });
+    expect(favoritesCalls(spyCreate)).toBe(1);
+
+    const qcRole = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const spyRole = vi.spyOn(qcRole, "invalidateQueries");
+    const update = renderHook(() => useUpdateRole(GROUP.id), { wrapper: wrapper(qcRole) });
+    await update.result.current.mutateAsync({ roleId: "r-new", permissions: FLAGS });
+    expect(favoritesCalls(spyRole)).toBe(1);
+  });
+
   it("useRenameGroup：PATCH /api/groups/:id {name}；useDeleteGroup：DELETE /api/groups/:id 帶 {mode}；兩者都 invalidate 兩把 key", async () => {
     const calls = stubFetch({
       [`PATCH /api/groups/${GROUP.id}`]: () => fakeResponse(200, { ...GROUP, name: "新名" }),
@@ -270,7 +291,7 @@ describe("api/groups", () => {
     expect(calls[1].body).toEqual({});
   });
 
-  it("#175 useCreateRole：POST /roles、body 恰為 {name, permissions}；只失效 ['groups']、['notes']、['trash']、['folders']，不碰單篇筆記 key", async () => {
+  it("#175 useCreateRole：POST /roles、body 恰為 {name, permissions}；只失效 ['groups']、['notes']、['trash']、['folders']、['favorites']，不碰單篇筆記 key", async () => {
     const role = customRole({ id: "r-new", name: "Editor" });
     const calls = stubFetch({ [`POST /api/groups/${GROUP.id}/roles`]: () => fakeResponse(201, role) });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -279,10 +300,10 @@ describe("api/groups", () => {
     await expect(result.current.mutateAsync({ name: "Editor", permissions: FLAGS })).resolves.toEqual(role);
     expect(calls).toEqual([{ method: "POST", url: `/api/groups/${GROUP.id}/roles`, body: { name: "Editor", permissions: FLAGS } }]);
     const keys = invalidate.mock.calls.map(([arg]) => JSON.stringify(arg?.queryKey));
-    expect([...keys].sort()).toEqual(['["folders"]', '["groups"]', '["notes"]', '["trash"]']);
+    expect([...keys].sort()).toEqual(['["favorites"]', '["folders"]', '["groups"]', '["notes"]', '["trash"]']);
   });
 
-  it("#175 useUpdateRole：PATCH /roles/:roleId、只給 permissions 時 body 恰為 {permissions}；失效七把 key（含 ['trash']、['folders']）", async () => {
+  it("#175 useUpdateRole：PATCH /roles/:roleId、只給 permissions 時 body 恰為 {permissions}；失效八把 key（含 ['trash']、['folders']、['favorites']）", async () => {
     const role = customRole({ id: "r-new", permissions: { ...customRole().permissions, edit: true } });
     const calls = stubFetch({ [`PATCH /api/groups/${GROUP.id}/roles/r-new`]: () => fakeResponse(200, role) });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -296,7 +317,7 @@ describe("api/groups", () => {
     expect(Object.keys(calls[0].body as object)).toEqual(["permissions"]);
     expect(calls[0].body).toEqual({ permissions: { ...FLAGS, edit: true } });
     const keys = invalidate.mock.calls.map(([arg]) => JSON.stringify(arg?.queryKey));
-    expect([...keys].sort()).toEqual(['["folders"]', '["groups"]', '["note"]', '["note-by-group-path"]', '["note-by-path"]', '["notes"]', '["trash"]']);
+    expect([...keys].sort()).toEqual(['["favorites"]', '["folders"]', '["groups"]', '["note"]', '["note-by-group-path"]', '["note-by-path"]', '["notes"]', '["trash"]']);
   });
 
   it("#175 useDeleteRole：DELETE /roles/:roleId、無 body；失效同 useUpdateRole", async () => {
@@ -307,7 +328,7 @@ describe("api/groups", () => {
     await expect(result.current.mutateAsync("r-new")).resolves.toBeUndefined();
     expect(calls).toEqual([{ method: "DELETE", url: `/api/groups/${GROUP.id}/roles/r-new`, body: undefined }]);
     const keys = invalidate.mock.calls.map(([arg]) => JSON.stringify(arg?.queryKey));
-    expect([...keys].sort()).toEqual(['["folders"]', '["groups"]', '["note"]', '["note-by-group-path"]', '["note-by-path"]', '["notes"]', '["trash"]']);
+    expect([...keys].sort()).toEqual(['["favorites"]', '["folders"]', '["groups"]', '["note"]', '["note-by-group-path"]', '["note-by-path"]', '["notes"]', '["trash"]']);
   });
 
   it("資料夾：useDeleteGroup／useRemoveMember／useUpdateRole 成功後各失效 ['folders']", async () => {

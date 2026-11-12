@@ -24,12 +24,12 @@ import { EMPTY_SELECTION, reduceSelection, type SelectionOp, type SidebarSelecti
  * - `showTab` 讀 ref 而不是把抽屜 context 放進依賴：`AppShell` 的 `SidebarDrawerContext.Provider value`
  *   每次 render 都是新物件，進依賴的話 actions 會跟著換物件。
  * - `AppShell` 會隨首頁↔筆記頁重掛（各自渲染一份），所以初值每次掛載都重讀 storage，tab 靠它延續。
- * - `trash` 從步驟 2 起是合法值。
+ * - 合法值就是 `SIDEBAR_TABS` 的六個（含 `favorites`、`trash`）；舊版存下的值都還在清單內，照樣讀得回來。
  */
-export type SidebarTab = "recent" | "myNotes" | "workspace" | "shared" | "trash";
+export type SidebarTab = "recent" | "favorites" | "myNotes" | "workspace" | "shared" | "trash";
 
-/** tab 列的順序。 */
-export const SIDEBAR_TABS: readonly SidebarTab[] = ["recent", "myNotes", "workspace", "shared", "trash"];
+/** tab 列的順序。最愛排在最近之後；預設 tab 仍是我的筆記。 */
+export const SIDEBAR_TABS: readonly SidebarTab[] = ["recent", "favorites", "myNotes", "workspace", "shared", "trash"];
 export const DEFAULT_SIDEBAR_TAB: SidebarTab = "myNotes";
 export const SIDEBAR_TAB_STORAGE_KEY = "sidebar.tab";
 

@@ -392,6 +392,12 @@ describe("這一版新增", () => {
 
   const SAMPLE_REGISTRY = { version: "9.9.9", items: [{ id: "sample" }, { id: "adminSample", adminOnly: true }] };
   const highlightIds = () => Array.from(document.querySelectorAll("[data-highlight-id]")).map((el) => el.getAttribute("data-highlight-id"));
+  const highlightEl = (id: string) => {
+    const el = document.querySelector(`[data-highlight-id="${id}"]`);
+    if (!el) throw new Error(`no highlight ${id}`);
+    return el as HTMLElement;
+  };
+  const highlightTitle = (id: string) => highlightEl(id).querySelector("p")?.textContent ?? null;
 
   async function openWhatsNew(options: ContentOptions = {}) {
     renderContent(options);
@@ -448,6 +454,52 @@ describe("這一版新增", () => {
     await openWhatsNew();
     expect(region()).toHaveTextContent("Nothing new to highlight in this version.");
     expect(screen.queryByRole("heading", { name: /New in v/ })).toBeNull();
+  });
+
+  it("真的登記檔：標題帶登記檔版本，列出最愛、安裝成 app、說明與導覽（英文名稱與說明都在）", async () => {
+    registryState.override = null;
+    sessionState.user = { isAdmin: false };
+    await openWhatsNew();
+    await waitFor(() => expect(heading()).toBe(`New in v${RELEASE_HIGHLIGHTS.version}`));
+    expect(highlightIds()).toContain("favorites");
+    expect(highlightIds()).toContain("installApp");
+    expect(highlightIds()).toContain("helpAndTour");
+    expect(highlightIds()).not.toContain("signOutThisBrowser");
+    expect(highlightTitle("favorites")).toBe("Favorites");
+    expect(highlightTitle("installApp")).toBe("Install Knotebook as an app");
+    expect(highlightTitle("helpAndTour")).toBe("Help and feature tour");
+    expect(highlightEl("helpAndTour")).toHaveTextContent("Ctrl+/");
+    expect(highlightEl("helpAndTour")).not.toHaveTextContent("{{");
+    expect(highlightEl("helpAndTour")).toHaveTextContent("Start tour");
+    expect(highlightEl("installApp")).toHaveTextContent("HTTPS");
+  });
+
+  it("真的登記檔：Mac 上說明與導覽那條寫 ⌘/，不出現 Ctrl", async () => {
+    stubPlatform("MacIntel");
+    registryState.override = null;
+    sessionState.user = { isAdmin: false };
+    await openWhatsNew();
+    await waitFor(() => expect(highlightIds()).toContain("helpAndTour"));
+    expect(highlightEl("helpAndTour")).toHaveTextContent("⌘/");
+    expect(highlightEl("helpAndTour")).not.toHaveTextContent("Ctrl");
+    expect(highlightEl("helpAndTour")).not.toHaveTextContent("{{");
+  });
+
+  it("真的登記檔：繁體中文也列出最愛、安裝成 app、說明與導覽（標題在各自條目內）", async () => {
+    registryState.override = null;
+    sessionState.user = { isAdmin: false };
+    await i18n.changeLanguage("zh-TW");
+    renderContent();
+    await waitFor(() => expect(screen.getByRole("navigation", { name: "說明" })).toBeInTheDocument());
+    fireEvent.click(within(screen.getByRole("navigation", { name: "說明" })).getByRole("button", { name: "這一版新增" }));
+    await waitFor(() => expect(highlightTitle("favorites")).toBe("最愛"));
+    expect(highlightTitle("installApp")).toBe("把 Knotebook 安裝成 App");
+    expect(highlightTitle("helpAndTour")).toBe("說明與功能導覽");
+    expect(highlightEl("helpAndTour")).toHaveTextContent("Ctrl+/");
+    expect(highlightEl("helpAndTour")).not.toHaveTextContent("{{");
+    expect(highlightEl("helpAndTour")).toHaveTextContent("開始導覽");
+    expect(highlightEl("installApp")).toHaveTextContent("HTTPS");
+    expect(highlightIds()).not.toContain("signOutThisBrowser");
   });
 
   it("真的登記檔：每個 adminOnly 條目一般使用者看不到、管理員看得到，其餘兩邊都看得到", async () => {

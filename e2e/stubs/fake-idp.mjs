@@ -206,7 +206,7 @@ const server = createServer(async (req, res) => {
 });
 
 // 必須綁 0.0.0.0：同時要被 compose 網路內的 app 容器（issuer host `fake-idp`）與
-// 發布出去的 `127.0.0.1:9400`（瀏覽器經 host-resolver-rules 打進來）打到。
+// 發布出去的 `127.0.0.1:<E2E_IDP_PORT>`（瀏覽器經 host-resolver-rules 打進來）打到。
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`[fake-idp] listening on 0.0.0.0:${PORT} (issuers: ${ISSUERS.map(i => `${ORIGIN}${i.prefix}`).join(", ")})`);
 });

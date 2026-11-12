@@ -14,6 +14,24 @@ function acceptsHtml(accept: string | undefined): boolean {
 
 const FALLBACK_METHODS = new Set(["GET", "HEAD"]);
 
+/** 檔名帶內容 hash 的 build 產物：內容一變檔名就變，可以讓瀏覽器快取一年、不再 revalidate。 */
+export const IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable";
+/**
+ * 檔名固定的檔案（`index.html`、manifest、圖示、favicon）：可以存，但每次使用前都要問 server。
+ * `index.html` 決定要載入哪一組 `/assets/*`，被快取住就會一直開到舊版。
+ */
+export const REVALIDATE_CACHE_CONTROL = "no-cache";
+
+/**
+ * static 送出的檔案該帶的 `Cache-Control`：`<webDist>/assets/` 底下（vite 輸出的 hash 檔名）→ 長快取；
+ * 其餘（dist 根目錄、從 `apps/web/public` 複製過來的固定檔名）→ `no-cache`。
+ */
+export function staticCacheControl(webDist: string, filePath: string): string {
+  const relative = path.relative(webDist, filePath);
+  const [first] = relative.split(/[\\/]/);
+  return first === "assets" ? IMMUTABLE_CACHE_CONTROL : REVALIDATE_CACHE_CONTROL;
+}
+
 /**
  * 掛 SPA 服務：`webDist` 存在時註冊 `@fastify/static`
  * `{ root: webDist, wildcard: false, index: false }`——`wildcard: false` 只為啟動當下
@@ -56,6 +74,11 @@ export function registerSpaFallback(app: FastifyInstance, webDist: string | unde
        * 要把這條改成 `!pathName.endsWith(".html")` 並補守衛。
        */
       allowedPath: (pathName) => pathName !== "/index.html",
+      // 外掛預設送 `public, max-age=0`：hash 檔名的 bundle 每次開 app 都要逐檔 revalidate。
+      // setHeaders 在外掛寫完自己的標頭之後才呼叫，這裡設的值會蓋過預設。
+      setHeaders: (reply, filePath) => {
+        reply.header("cache-control", staticCacheControl(webDist, filePath));
+      },
     });
   }
 
@@ -66,6 +89,7 @@ export function registerSpaFallback(app: FastifyInstance, webDist: string | unde
         try {
           const html = await readFile(path.join(webDist, "index.html"), "utf8");
           reply.header("content-type", "text/html; charset=utf-8");
+          reply.header("cache-control", REVALIDATE_CACHE_CONTROL);
           // #72：公開分享頁（/p/<token>）的 HTML 加 noindex——token 連結是 capability，
           // 不該被搜尋引擎收錄。**只掛這個前綴**：掛進 securityHeaders() 會整站
           // noindex（該函式由 html 推導、所有路由共用，不看 pathname）。判定與 log

@@ -576,11 +576,11 @@ describe("說明文字", () => {
       const t = i18n.getFixedT(lng);
       const body = (id: StopId) => stopBody(t, STOPS[id], false);
       const narrowBody = (id: StopId) => stopBody(t, STOPS[id], true);
-      // 站 1：五個分類的名稱（含垃圾桶）。
-      const names = ["sidebar.recent", "sidebar.myNotes", "sidebar.workspace", "sidebar.shared", "sidebar.trash"].map((key) => t(key));
-      const list = lng === "en" ? `${names.slice(0, -1).join(", ")}, and ${names.at(-1)}` : names.join("、");
-      expect(body("tabs")).toContain(list);
-      expect(narrowBody("tabs")).toContain(list);
+      // 站 1：舉例提到的分頁名稱要與側欄一致（不鎖分頁數量）。
+      for (const key of ["sidebar.myNotes", "sidebar.workspace", "sidebar.shared", "sidebar.trash"]) {
+        expect(body("tabs"), `${lng} ${key}`).toContain(t(key));
+        expect(narrowBody("tabs"), `${lng} ${key}`).toContain(t(key));
+      }
       // 站 2：新增筆記的鈕名（側欄底部那顆）；放進的地方是「我的筆記」。
       expect(stopTitle(t, STOPS.newNote)).toBe(t("home.newNote"));
       expect(narrowBody("newNote")).toContain(t("home.newNote"));

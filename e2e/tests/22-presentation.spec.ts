@@ -1,5 +1,6 @@
 import { deflateSync } from "node:zlib";
 import { expect, test, type Browser, type Page } from "@playwright/test";
+import { E2E_ORIGIN } from "../ports.js";
 import { ADMIN, clickEndOfParagraph, createNote, editorLocator, loginAs, waitForEditorSelection } from "./helpers.js";
 
 /**
@@ -12,7 +13,7 @@ import { ADMIN, clickEndOfParagraph, createNote, editorLocator, loginAs, waitFor
  *   （防連退窗口）再按 Esc。
  */
 
-const ORIGIN = "http://localhost:3100";
+const ORIGIN = E2E_ORIGIN;
 const INVALID_LINK_TEXT = "This link doesn't exist or is no longer active.";
 
 async function pasteMarkdown(page: Page, markdown: string): Promise<void> {

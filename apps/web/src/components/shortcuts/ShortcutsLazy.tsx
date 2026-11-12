@@ -342,7 +342,7 @@ export function ShortcutsContent({ startPage = "global", onClose }: { startPage?
                     {highlights.map((item) => (
                       <li key={item.id} data-highlight-id={item.id} className="py-2.5">
                         <p className="text-sm font-medium">{t(`helpGuide.whatsNew.items.${item.id}.title`)}</p>
-                        <p className="text-sm text-muted-foreground">{t(`helpGuide.whatsNew.items.${item.id}.desc`)}</p>
+                        <p className="text-sm text-muted-foreground">{t(`helpGuide.whatsNew.items.${item.id}.desc`, { mod: mac ? "⌘" : "Ctrl+" })}</p>
                       </li>
                     ))}
                   </ul>

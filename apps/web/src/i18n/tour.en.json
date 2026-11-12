@@ -17,8 +17,8 @@
     "stops": {
       "tabs": {
         "title": "Sidebar sections",
-        "body": "The sidebar has five sections: Recent, My notes, Groups, Shared with me, and Trash. They show icons only; hover over one to see its name. Deleted notes go to the Trash first.",
-        "narrowBody": "The sidebar has five sections: Recent, My notes, Groups, Shared with me, and Trash. Deleted notes go to the Trash first. Open the sidebar from here."
+        "body": "Switch between lists of notes, such as My notes, Groups and Shared with me, with the tabs at the top of the sidebar. They show icons only; hover over one to see its name. Deleted notes go to the Trash first.",
+        "narrowBody": "The tabs at the top of the sidebar switch between lists of notes, such as My notes, Groups and Shared with me. Deleted notes go to the Trash first. Open the sidebar from here."
       },
       "newNote": {
         "title": "New note",

@@ -1,4 +1,4 @@
-// #108：`GET /api/notes` 與 MCP 的 `list_notes`／`search_notes` 共用的「呼叫者看得見的筆記」查詢形狀。
+// #108：`GET /api/notes`、`GET /api/favorites`（#334）與 MCP 的 `list_notes`／`search_notes` 共用的「呼叫者看得見的筆記」查詢形狀。
 // 可見性語意（owned ∪ shared ∪ grouped）**只能有一份**——抄第二份的漂移沒有任何測試抓得到。
 // ⚠ 其餘四份可見性查詢刻意不吃這支工廠（欄位集不同）：`notes/editing/candidates.ts` 的
 // `visibleNoteTargets()`、`notes/service.ts` 的 `loadNoteAudience()`、`notes/links.ts` 的 `fetchBacklinks()`、

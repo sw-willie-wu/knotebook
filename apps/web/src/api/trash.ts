@@ -107,6 +107,8 @@ export function invalidateTrashRelated(queryClient: QueryClient, ids: readonly s
   void queryClient.invalidateQueries({ queryKey: ["notes"] });
   // 資料夾：還原會照原路徑重建資料夾
   void queryClient.invalidateQueries({ queryKey: ["folders"] });
+  // 最愛清單在 server 端濾掉垃圾桶裡的筆記；還原後要重抓才會回來（只失效 ["notes"] 時交集仍沒有它）。
+  void queryClient.invalidateQueries({ queryKey: ["favorites"] });
   void queryClient.invalidateQueries({ queryKey: ["backlinks"] });
   for (const id of ids) void queryClient.invalidateQueries({ queryKey: ["note", id] });
   void queryClient.invalidateQueries({ queryKey: ["note-by-path"] });

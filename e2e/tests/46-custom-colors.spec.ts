@@ -10,6 +10,7 @@ import {
   reEscape,
   waitForEditorSelection,
 } from "./helpers.js";
+import { E2E_ORIGIN } from "../ports.js";
 
 /**
  * 自訂色碼（任意 #rrggbb 的文字色與底色）的顯示面與自訂色面板 e2e。
@@ -1005,7 +1006,7 @@ test("C13 帶自訂行內色與 block 底色的段落複製貼上到另一份筆
   const context = await browser.newContext({ viewport: WIDE });
   try {
     const page = await context.newPage();
-    await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: "http://localhost:3100" });
+    await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: E2E_ORIGIN });
     await loginAs(page, ADMIN.email, ADMIN.password);
     await expect(page).toHaveURL(/\/$/);
     const stamp = Date.now();

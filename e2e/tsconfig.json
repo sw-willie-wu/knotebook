@@ -3,5 +3,5 @@
   "compilerOptions": {
     "noEmit": true
   },
-  "include": ["tests", "playwright.config.ts", "global-setup.ts", "stubs"]
+  "include": ["tests", "playwright.config.ts", "global-setup.ts", "ports.ts", "stubs"]
 }

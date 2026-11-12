@@ -191,7 +191,7 @@ function SelectableNodeList({ nodes, ctx, inGroup = false }: { nodes: readonly S
           <SelectableNoteRow
             key={node.id}
             note={node.note}
-            variant={inGroup ? "group" : ctx.tab === "recent" ? "recent" : "plain"}
+            variant={inGroup ? "group" : ctx.tab === "recent" || ctx.tab === "favorites" ? "recent" : "plain"}
             checked={ctx.keys.has(selectionKey({ kind: "note", id: node.id }))}
             onToggle={ctx.onToggle}
             location={ctx.location}

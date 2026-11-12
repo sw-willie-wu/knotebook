@@ -1,22 +1,36 @@
 #!/usr/bin/env bash
 # scripts/test-e2e.sh
 #
-# E2E（Playwright）需要真的連到 Docker daemon 起 compose 疊——docker
-# 只存在於 WSL，Windows host 沒有 docker CLI。跟
-# scripts/test-integration.sh 同款理由與形狀：把這份 repo（Windows 檔案系統，WSL 看到
-# 的 /mnt/c/...）留在原地對它跑 pnpm install 落入 9p 掛載的極慢 I/O，所以先單向同步到
-# WSL 原生 ext4（$HOME/knotebook）再裝、再跑。
+# E2E（Playwright）整套都在 WSL 內跑：docker compose 疊、Playwright 與它的瀏覽器、程式碼複本
+# 全在 WSL 自己的檔案系統（ext4）。Windows 端只負責把這份 repo 單向同步進 WSL，再用 `wsl -e` 執行；
+# 不在 /mnt/c 上跑（9p 掛載的 I/O 極慢），也不在 Windows 端跑 Playwright。
 #
-# ⚠️ 禁止在 WSL 的 ~/knotebook 內直接編輯任何檔案——單向同步（rsync --delete）會覆蓋，
-#    改動不會被保留。要改程式碼一律在 Windows 這邊的 repo（這支腳本所在的這份）改，
-#    然後重跑本腳本。
+# ⚠️ 禁止在 WSL 的工作目錄內直接編輯任何檔案——單向同步（rsync --delete）會覆蓋。
+#    要改程式碼一律在 Windows 這邊的 repo 改，然後重跑本腳本。
 #
 # 用法（在 Windows 側的 Git Bash / 任何能呼叫 `wsl` 的 shell 執行）：
-#   bash scripts/test-e2e.sh
+#   bash scripts/test-e2e.sh                      # 跑全套
+#   bash scripts/test-e2e.sh 00-smoke 05-oidc     # 只跑符合的 spec（Playwright 的檔名過濾，可多個；
+#                                                 #   也收 e2e/tests/00-smoke.spec.ts 這種路徑）
+#   bash scripts/test-e2e.sh -- --grep "login"    # 「--」之後原樣交給 `playwright test`
+#   bash scripts/test-e2e.sh --list               # 列出 WSL 內所有 knotebook-e2e* 的疊（含埠、狀態）
+#   bash scripts/test-e2e.sh --clean              # 清掉「自己這組」：容器、volume、網路、映像、WSL 工作目錄
 #
-# 埠註記：`-p knotebook-e2e`（e2e/package.json 的 stack:up/stack:down）已把這座疊跟
-# WSL 裡可能同時掛著的另一個 compose 專案（專案名 knotebook、port 3000）隔開；e2e 疊用 3100
-# （app）/9400（fake-idp）不會跟它相撞，兩者可在同一個 WSL 並存，不必先關它。
+# 同時跑多組：每組靠四個值隔開，全部可用環境變數指定，沒指定就由「git 分支（沒有 git 就用目錄名）」
+# 推出穩定的短後綴 <sfx>：
+#   E2E_PROJECT   compose 專案名            預設 knotebook-e2e-<sfx>
+#   E2E_PORT      app 對外埠                預設自動找空的（從 3101 起，依專案名挑起點）
+#   E2E_IDP_PORT  fake-idp 對外埠           預設自動找空的（E2E_PORT=3100 時為 9400）
+#   E2E_WORKDIR   WSL 內的程式碼複本目錄    預設 $HOME/knotebook-e2e-<sfx>
+#   E2E_SUFFIX    直接指定 <sfx>（預設由分支推出）
+#   E2E_MAX_PARALLEL  同時最多幾組（預設 3）；已有這麼多組 knotebook-e2e* 在跑，就等到有空位
+#   E2E_MAX_WAIT      最多等幾秒（預設 900），逾時以 exit 1 退出
+# E2E_PROJECT 只收 knotebook-e2e／knotebook-e2e-*；E2E_WORKDIR 要給 WSL 內 $HOME 的直接子目錄 knotebook-e2e*（絕對路徑、本身不是符號連結），
+# 其他值一律拒絕（不會執行任何刪除或 docker 動作）。
+# 開跑時會印出實際使用的值；整段輸出同時寫進 WSL 內 <工作目錄>/e2e-run.log。固定埠的寫法：E2E_PROJECT=knotebook-e2e E2E_PORT=3100 bash scripts/test-e2e.sh
+#
+# 收尾：成功就 `down -v --rmi local` 只收自己的專案（工作目錄保留，要用 --clean 收）；失敗刻意不 down（保留除錯），訊息會印出清理指令。
+# 每組大約吃多少資源、上限怎麼訂 → docs/e2e-local.md。
 
 set -euo pipefail
 
@@ -28,84 +42,28 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Git Bash 的 pwd 是 /c/Users/... 這種格式；WSL 看同一個磁碟要走 /mnt/c/Users/...
 WSL_SRC="$(echo "$REPO_ROOT" | sed -E 's#^/([A-Za-z])/#/mnt/\L\1/#')"
 
-echo "[test-e2e] src(WSL)=$WSL_SRC  dest(WSL)=\$HOME/knotebook"
+mode=run
+case "${1:-}" in
+  --list) mode=list; shift ;;
+  --clean) mode=clean; shift ;;
+  --) shift ;;
+esac
 
-# 全部邏輯用單引號的 heredoc 丟給 WSL 內的 bash 執行——避免 Windows/WSL 兩邊 shell
-# 對 $HOME、~、引號的展開規則不同而互相打架。需要從外面傳進去的值一律用「位置參數」
-# （$0/$1）傳遞，不做字串內插。
-wsl -e bash -lc 'set -euo pipefail
-  src="$1"
-  dest="$HOME/knotebook"
+# 穩定的短後綴：分支名（沒有 git 就用目錄名）去掉非英數後取前 12 字，再加 4 碼雜湊避免截斷後撞名。
+if [ -z "${E2E_SUFFIX:-}" ]; then
+  label="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  if [ -z "$label" ] || [ "$label" = "HEAD" ]; then label="$(basename "$REPO_ROOT")"; fi
+  slug="$(printf '%s' "$label" | tr 'A-Z' 'a-z' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//' | cut -c1-12 | sed -E 's/-+$//')"
+  hash4="$(printf '%s' "$label" | cksum | awk '{printf "%04x", $1 % 65536}')"
+  E2E_SUFFIX="${slug:-x}-$hash4"
+fi
+export E2E_PROJECT="${E2E_PROJECT:-knotebook-e2e-$E2E_SUFFIX}"
+E2E_WORKDIR="${E2E_WORKDIR:-}"   # 空字串＝在 WSL 內用 $HOME/knotebook-e2e-<sfx>
+E2E_PORT="${E2E_PORT:-}"
+E2E_IDP_PORT="${E2E_IDP_PORT:-}"
+E2E_MAX_PARALLEL="${E2E_MAX_PARALLEL:-3}"
+E2E_MAX_WAIT="${E2E_MAX_WAIT:-900}"
 
-  echo "[test-e2e] rsync $src/ -> $dest/（--delete 單向覆蓋，排除 node_modules/dist/.git）"
-  mkdir -p "$dest"
-  rsync -a --delete \
-    --exclude=node_modules --exclude="**/node_modules" \
-    --exclude=dist --exclude="**/dist" \
-    --exclude=.git \
-    --exclude=test-results --exclude="**/test-results" \
-    --exclude=playwright-report --exclude="**/playwright-report" \
-    "$src/" "$dest/"
-
-  export NVM_DIR="$HOME/.nvm"
-  if [ ! -s "$NVM_DIR/nvm.sh" ]; then
-    echo "[test-e2e] 首次執行：安裝 nvm（不需 sudo）"
-    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
-  fi
-  . "$NVM_DIR/nvm.sh"
-  if ! command -v node >/dev/null 2>&1; then
-    echo "[test-e2e] 首次執行：安裝 Node 22（不需 sudo）"
-    nvm install 22
-  fi
-  nvm use default >/dev/null
-  corepack enable >/dev/null 2>&1 || true
-
-  if ! command -v docker >/dev/null 2>&1; then
-    echo "[test-e2e] ⚠️  WSL 內找不到 docker CLI——docker 只在 WSL、需先安裝（見 docs/self-hosting.md）。" >&2
-    exit 1
-  fi
-  if ! docker info >/dev/null 2>&1; then
-    echo "[test-e2e] ⚠️  docker daemon 未啟動或無權限存取——確認 WSL 內 dockerd 正在跑。" >&2
-    exit 1
-  fi
-
-  cd "$dest"
-  echo "[test-e2e] pnpm install --frozen-lockfile（原生 fs，應該很快）"
-  pnpm install --frozen-lockfile
-
-  echo "[test-e2e] playwright install chromium（不帶 --with-deps，避免需要 root）"
-  pnpm --filter @knotebook/e2e exec playwright install chromium
-
-  cleanup_hint_shown=0
-  print_stack_down_hint() {
-    if [ "$cleanup_hint_shown" -eq 0 ]; then
-      cleanup_hint_shown=1
-      echo "[test-e2e] 疊保留供 debug（未自動 down）。手動清理：" >&2
-      echo "  wsl -e bash -lc \"cd \$HOME/knotebook/e2e && pnpm run stack:down\"" >&2
-    fi
-  }
-
-  echo "[test-e2e] docker compose stack:up（-p knotebook-e2e，見 e2e/package.json）"
-  if ! pnpm --filter @knotebook/e2e run stack:up; then
-    echo "[test-e2e] ❌ stack:up 失敗。" >&2
-    print_stack_down_hint
-    exit 1
-  fi
-
-  set +e
-  pnpm --filter @knotebook/e2e run test:e2e
-  test_exit_code=$?
-  set -e
-
-  if [ "$test_exit_code" -ne 0 ]; then
-    echo "[test-e2e] ❌ test:e2e 失敗（exit $test_exit_code）。" >&2
-    echo "[test-e2e] 若原因疑似缺系統依賴（chromium 啟動失敗、GTK/NSS 等 .so 找不到），" >&2
-    echo "  手動跑一次（需 root，只需一次）：" >&2
-    echo "  wsl -u root bash -lc \"cd \$HOME/knotebook && pnpm --filter @knotebook/e2e exec playwright install-deps chromium\"" >&2
-    print_stack_down_hint
-    exit "$test_exit_code"
-  fi
-
-  echo "[test-e2e] docker compose stack:down"
-  pnpm --filter @knotebook/e2e run stack:down
-' _ "$WSL_SRC"
+# 實際邏輯在 scripts/test-e2e.wsl.sh（WSL 內執行）。值一律用「位置參數」傳遞，不做字串內插；
+# 空值以 "-" 代替（wsl.exe 會吞掉空字串參數）。其餘位置參數（第 9 個起）是交給 playwright 的過濾條件。
+wsl -e bash -l "$WSL_SRC/scripts/test-e2e.wsl.sh" "$mode" "$WSL_SRC" "$E2E_PROJECT" "${E2E_WORKDIR:--}" "${E2E_PORT:--}" "${E2E_IDP_PORT:--}" "$E2E_MAX_PARALLEL" "$E2E_MAX_WAIT" "$@"
