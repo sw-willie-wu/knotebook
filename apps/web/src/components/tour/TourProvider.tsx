@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
+import { Component, useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 import i18n from "@/i18n";
 import { toast } from "@/components/ui/toast";
 import { TourContext, type TourApi, type TourStartOptions } from "@/lib/tour-context";
@@ -32,6 +32,28 @@ function loadTourLazy(): Promise<TourLazyComponent> {
     },
   );
   return loadingTourLazy;
+}
+
+/**
+ * 導覽元件 render 時拋錯：只收掉這一輪、跳一則提示，不讓錯誤傳到最外層 `AppErrorBoundary`（那會把整個 app 換成兜底畫面）。
+ * 示範筆記照提早結束的規則保留。以 `session.id` 當 key，下一輪是全新的 boundary。
+ */
+class TourErrorBoundary extends Component<{ onCrash: () => void; children: ReactNode }, { crashed: boolean }> {
+  state = { crashed: false };
+
+  static getDerivedStateFromError() {
+    return { crashed: true };
+  }
+
+  componentDidCatch(error: unknown) {
+    console.error(error);
+    toast({ title: i18n.t("tourGuide.crashed"), variant: "destructive" });
+    this.props.onCrash();
+  }
+
+  render() {
+    return this.state.crashed ? null : this.props.children;
+  }
 }
 
 interface Session extends TourStartOptions {
@@ -98,17 +120,18 @@ export function TourProvider({ children }: { children: ReactNode }) {
     <TourContext.Provider value={api}>
       {children}
       {session !== null && TourLazy !== null && (
-        <TourLazy
-          key={session.id}
-          returnTo={session.returnTo}
-          returnFocus={session.returnFocus}
-          timedOut={session.timedOut}
-          onStarted={() => {
-            // 只是停掉計時器（清資源）：第 1 站出現之後不中止，由 TourLazy 依 `started` 判斷。
-            if (activeRef.current === session.id) clearTimeout(timerRef.current);
-          }}
-          onDone={() => end(session.id)}
-        />
+        <TourErrorBoundary key={session.id} onCrash={() => end(session.id)}>
+          <TourLazy
+            returnTo={session.returnTo}
+            returnFocus={session.returnFocus}
+            timedOut={session.timedOut}
+            onStarted={() => {
+              // 只是停掉計時器（清資源）：第 1 站出現之後不中止，由 TourLazy 依 `started` 判斷。
+              if (activeRef.current === session.id) clearTimeout(timerRef.current);
+            }}
+            onDone={() => end(session.id)}
+          />
+        </TourErrorBoundary>
       )}
     </TourContext.Provider>
   );
