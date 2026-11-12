@@ -33,6 +33,7 @@ import {
 import { destinationShortLabel } from "@/components/sidebar/destination-level";
 import { toast } from "@/components/ui/toast";
 import { usePresentEntry } from "@/present/usePresentEntry";
+import { tourTarget } from "@/lib/tour-targets";
 
 /** ApiFail → errors.<code>；其餘 → errors.fallback。與 NoteList/ShareDialog 同一套對映
  * （各檔各自一份，是既有慣例）。 */
@@ -293,7 +294,7 @@ function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef:
       >
         <DropdownMenuTrigger asChild>
           {trigger === "header" ? (
-            <Button ref={triggerRef} type="button" variant="ghost" size="icon" className="shrink-0" aria-label={t("note.menu.label")}>
+            <Button ref={triggerRef} type="button" variant="ghost" size="icon" className="shrink-0" aria-label={t("note.menu.label")} {...tourTarget("noteMenu")}>
               <EllipsisVertical className="h-4 w-4" />
             </Button>
           ) : (

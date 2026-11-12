@@ -7,6 +7,7 @@ import type { UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ActiveNoteProvider } from "@/lib/active-note";
 import { useShortcutsDialog } from "@/lib/shortcuts-dialog";
+import { TourContext, type TourApi } from "@/lib/tour-context";
 import { NARROW_QUERY } from "@/lib/sidebar-drawer";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts } from "@/components/ui/toast";
@@ -14,11 +15,14 @@ import { AppShell, SidebarDrawerButton } from "./AppShell";
 import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 /**
- * Ctrl/Cmd+/ 開關快捷鍵介紹頁：判準、讓路、焦點回歸、context。
+ * Ctrl/Cmd+/ 與使用者選單「說明」開關說明視窗：判準、讓路、焦點回歸、context、打開時停在哪一頁。
  * 對話框內容換成替身（內容自己的行為在 ShortcutsLazy.test.tsx；lazy 載入失敗在 AppShell.shortcuts-lazy-error.test.tsx）。
  */
 
-vi.mock("@/components/shortcuts/ShortcutsLazy", () => ({ ShortcutsContent: () => <p>stub shortcuts content</p> }));
+// 替身把收到的起始頁印在 data-start-page 上：外殼有沒有把「這一次該停哪一頁」傳下去，看這個屬性。
+vi.mock("@/components/shortcuts/ShortcutsLazy", () => ({
+  ShortcutsContent: ({ startPage }: { startPage?: string }) => <p data-start-page={startPage}>stub shortcuts content</p>,
+}));
 
 function fakeResponse(body: unknown, status = 200): Response {
   return { ok: status < 400, status, json: () => Promise.resolve(body) } as unknown as Response;
@@ -61,21 +65,26 @@ function OpenViaContext() {
   );
 }
 
-function renderShell(children: ReactNode = <button type="button">probe</button>) {
+function renderShell(children: ReactNode = <button type="button">probe</button>, tour: TourApi | null = null) {
   return render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <ThemeProvider>
         <MemoryRouter initialEntries={["/"]}>
-          <ActiveNoteProvider>
-            <AppShell>{children}</AppShell>
-          </ActiveNoteProvider>
+          <TourContext.Provider value={tour}>
+            <ActiveNoteProvider>
+              <AppShell>{children}</AppShell>
+            </ActiveNoteProvider>
+          </TourContext.Provider>
         </MemoryRouter>
       </ThemeProvider>
     </QueryClientProvider>,
   );
 }
 
-const dialog = () => screen.queryByRole("dialog", { name: "Keyboard shortcuts" });
+/** 對話框內容（替身）收到的起始頁。 */
+const startPage = () => document.querySelector("[data-start-page]")?.getAttribute("data-start-page");
+
+const dialog = () => screen.queryByRole("dialog", { name: "Help" });
 const press = (init: KeyboardEventInit & { key: string }) => fireEvent.keyDown(window, init);
 
 /** 等外殼畫完（有 probe 鈕），再開始按鍵。 */
@@ -102,20 +111,20 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("AppShell — Ctrl/Cmd+/ 快捷鍵介紹", () => {
+describe("AppShell — Ctrl/Cmd+/ 說明視窗", () => {
   it("S1 Ctrl+/ 被 preventDefault 且開出 dialog", async () => {
     renderShell();
     await ready();
     const notCanceled = press({ key: "/", ctrlKey: true });
     expect(notCanceled).toBe(false);
-    expect(await screen.findByRole("dialog", { name: "Keyboard shortcuts" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Help" })).toBeInTheDocument();
   });
 
   it("S2 Cmd+/（metaKey）也開", async () => {
     renderShell();
     await ready();
     press({ key: "/", metaKey: true });
-    expect(await screen.findByRole("dialog", { name: "Keyboard shortcuts" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Help" })).toBeInTheDocument();
   });
 
   it("S3 Ctrl+Alt+/ 不開、也不 preventDefault", async () => {
@@ -132,7 +141,7 @@ describe("AppShell — Ctrl/Cmd+/ 快捷鍵介紹", () => {
     press({ key: "?", ctrlKey: true, shiftKey: true });
     expect(dialog()).toBeNull();
     press({ key: "/", ctrlKey: true, shiftKey: true });
-    expect(await screen.findByRole("dialog", { name: "Keyboard shortcuts" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Help" })).toBeInTheDocument();
   });
 
   it("S5 事件已被別人 preventDefault（例如 BlockNote 的鍵）→ 讓路，不開", async () => {
@@ -170,14 +179,14 @@ describe("AppShell — Ctrl/Cmd+/ 快捷鍵介紹", () => {
     await ready();
     addToBody('<div role="dialog" data-sidebar-drawer="" aria-label="drawer"></div>');
     press({ key: "/", ctrlKey: true });
-    expect(await screen.findByRole("dialog", { name: "Keyboard shortcuts" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Help" })).toBeInTheDocument();
   });
 
   it("S9 開著再按一次 → 關（切換）、被 preventDefault", async () => {
     renderShell();
     await ready();
     press({ key: "/", ctrlKey: true });
-    await screen.findByRole("dialog", { name: "Keyboard shortcuts" });
+    await screen.findByRole("dialog", { name: "Help" });
     const notCanceled = press({ key: "/", ctrlKey: true });
     expect(notCanceled).toBe(false);
     await waitFor(() => expect(dialog()).toBeNull());
@@ -196,7 +205,7 @@ describe("AppShell — Ctrl/Cmd+/ 快捷鍵介紹", () => {
     const probe = await screen.findByRole("button", { name: "probe" });
     probe.focus();
     press({ key: "/", ctrlKey: true });
-    await screen.findByRole("dialog", { name: "Keyboard shortcuts" });
+    await screen.findByRole("dialog", { name: "Help" });
     fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
     await waitFor(() => expect(dialog()).toBeNull());
     await waitFor(() => expect(probe).toHaveFocus());
@@ -206,7 +215,7 @@ describe("AppShell — Ctrl/Cmd+/ 快捷鍵介紹", () => {
     renderShell();
     await ready();
     press({ key: "/", ctrlKey: true });
-    await screen.findByRole("dialog", { name: "Keyboard shortcuts" });
+    await screen.findByRole("dialog", { name: "Help" });
     const search = document.querySelector<HTMLInputElement>('input[aria-label="Search notes"]')!;
     expect(search).not.toBeNull();
     press({ key: "k", ctrlKey: true });
@@ -216,7 +225,7 @@ describe("AppShell — Ctrl/Cmd+/ 快捷鍵介紹", () => {
   it("S13 context：消費端呼叫 open() → 開", async () => {
     renderShell(<OpenViaContext />);
     fireEvent.click(await screen.findByRole("button", { name: "open via context" }));
-    expect(await screen.findByRole("dialog", { name: "Keyboard shortcuts" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Help" })).toBeInTheDocument();
   });
 });
 
@@ -227,14 +236,47 @@ async function openUserMenu(scope?: HTMLElement): Promise<void> {
   await screen.findByRole("menu");
 }
 
-describe("AppShell — 從使用者選單開快捷鍵介紹", () => {
+describe("AppShell — 說明視窗打開時停在哪一頁", () => {
+  it("Ctrl+/ 停在 global", async () => {
+    renderShell(undefined, { start: vi.fn() });
+    await ready();
+    press({ key: "/", ctrlKey: true });
+    await screen.findByRole("dialog", { name: "Help" });
+    expect(startPage()).toBe("global");
+  });
+
+  it("使用者選單（有導覽 context）停在 tour；關掉後再按 Ctrl+/ 回到 global，不沿用上一次的頁", async () => {
+    renderShell(undefined, { start: vi.fn() });
+    await ready();
+    await openUserMenu();
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Help" }));
+    await screen.findByRole("dialog", { name: "Help" });
+    expect(startPage()).toBe("tour");
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    await waitFor(() => expect(dialog()).toBeNull());
+    press({ key: "/", ctrlKey: true });
+    await screen.findByRole("dialog", { name: "Help" });
+    expect(startPage()).toBe("global");
+  });
+
+  it("使用者選單（沒有導覽 context）停在 global", async () => {
+    renderShell();
+    await ready();
+    await openUserMenu();
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Help" }));
+    await screen.findByRole("dialog", { name: "Help" });
+    expect(startPage()).toBe("global");
+  });
+});
+
+describe("AppShell — 從使用者選單開說明視窗", () => {
   it("S14 選單開 → dialog 出現；Esc 關 → 焦點回 UserMenu 觸發鈕", async () => {
     renderShell();
     await ready();
     const trigger = await screen.findByRole("button", { name: "Ann" });
     await openUserMenu();
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Keyboard shortcuts" }));
-    await screen.findByRole("dialog", { name: "Keyboard shortcuts" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Help" }));
+    await screen.findByRole("dialog", { name: "Help" });
     fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
     await waitFor(() => expect(dialog()).toBeNull());
     await waitFor(() => expect(trigger).toHaveFocus());
@@ -264,8 +306,8 @@ describe("AppShell — 從使用者選單開快捷鍵介紹", () => {
     const drawer = await screen.findByRole("dialog", { name: "Navigation" });
     const drawerTrigger = await within(drawer).findByRole("button", { name: "Ann" });
     await openUserMenu(drawer);
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Keyboard shortcuts" }));
-    await screen.findByRole("dialog", { name: "Keyboard shortcuts" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Help" }));
+    await screen.findByRole("dialog", { name: "Help" });
     expect(document.querySelector("[data-sidebar-drawer]")).not.toBeNull();
 
     fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
@@ -381,7 +423,7 @@ describe("AppShell — Ctrl/Cmd+, 打開設定", () => {
     renderShell(<LocationProbe />);
     await screen.findByTestId("location");
     press({ key: "/", ctrlKey: true });
-    await screen.findByRole("dialog", { name: "Keyboard shortcuts" });
+    await screen.findByRole("dialog", { name: "Help" });
     const notCanceled = press({ key: ",", ctrlKey: true });
     expect(notCanceled).toBe(true);
     expect(where().getAttribute("data-bg")).toBe("");

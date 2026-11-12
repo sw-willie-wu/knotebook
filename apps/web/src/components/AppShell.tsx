@@ -17,13 +17,14 @@ import { cn } from "@/lib/utils";
 import { NARROW_QUERY, SidebarDrawerContext, useSidebarDrawer } from "@/lib/sidebar-drawer";
 import { canonicalizedFrom } from "@/lib/real-location";
 import { isMacPlatform } from "@/lib/platform";
-import { ShortcutsDialogContext, type ShortcutsDialogApi } from "@/lib/shortcuts-dialog";
+import { ShortcutsDialogContext, type ShortcutsDialogApi, type ShortcutsStartPage } from "@/lib/shortcuts-dialog";
 import { isOverlayOpen } from "@/lib/versions-context";
 import { openSettings } from "@/lib/open-settings";
 import { SIDEBAR_SELECT_BUTTON } from "@/lib/sidebar-selection";
 import { useSession } from "@/auth/useSession";
 import { useSidebarQuery } from "@/lib/sidebar-query";
-import { SidebarTabProvider, useSidebarTabActions, useSidebarTabState, type SidebarTabActions } from "@/lib/sidebar-tab";
+import { DEFAULT_SIDEBAR_TAB, SidebarTabProvider, useSidebarTabActions, useSidebarTabState, type SidebarTabActions } from "@/lib/sidebar-tab";
+import { registerShellControls } from "@/lib/tour-bridge";
 import { NoteList } from "@/components/NoteList";
 import { SearchResults } from "@/components/sidebar/SearchResults";
 import { clearSearchMark } from "@/hooks/search-mark";
@@ -41,6 +42,7 @@ import {
   writeSidebarWidth,
 } from "@/components/sidebar-width";
 import { PaneResizeHandle } from "@/components/PaneResizeHandle";
+import { tourTarget } from "@/lib/tour-targets";
 
 /** 只有打開垃圾桶 tab 才下載（首包上限）；與 SidebarFooter 的 `TrashFooter` 同一個 chunk（`TrashLazy`）。 */
 const TrashPanel = lazy(() => import("@/components/sidebar/TrashLazy").then((m) => ({ default: m.TrashPanel })));
@@ -79,6 +81,7 @@ export function SidebarDrawerButton() {
       variant="ghost"
       size="icon"
       aria-label={t("sidebar.openDrawer")}
+      {...tourTarget("drawerButton")}
       onClick={() => setOpen(true)}
       className="h-8 w-8 shrink-0 md:hidden"
     >
@@ -154,6 +157,7 @@ function SidebarContent({
             event.currentTarget.blur();
           }}
           aria-label={t("sidebar.searchLabel")}
+          {...tourTarget("search")}
           placeholder={t("sidebar.searchPlaceholder")}
           className="h-8 pl-7 pr-11 text-[13px]"
         />
@@ -318,23 +322,40 @@ export function AppShell({ children, inert }: AppShellProps) {
   drawerOpenRef.current = drawerOpen;
   const tabActionsRef = useRef<SidebarTabActions | null>(null);
 
-  // 快捷鍵介紹頁（Ctrl/Cmd+/ 或使用者選單）的開關：state 在這裡，內容 lazy（`ShortcutsDialog`）。
+  // 功能導覽住在 App 層、在這棵樹外面：把切 tab、結束選取、關抽屜、讀目前 tab 登記上去。
+  // 換殼時新舊兩份先後掛載，登記處以最後掛上的為準、卸載只撤自己那份。
+  // 讀 ref 而不是直接交出 actions：ref 由子層的 `SidebarTabProvider` 在 render 時寫入。
+  useEffect(
+    () =>
+      registerShellControls({
+        showTab: (tab) => tabActionsRef.current?.showTab(tab),
+        endSelectionIfActive: () => tabActionsRef.current?.endSelectionIfActive() ?? false,
+        closeDrawer: () => setDrawerOpen(false),
+        getTab: () => tabActionsRef.current?.getTab() ?? DEFAULT_SIDEBAR_TAB,
+      }),
+    [],
+  );
+
+  // 說明視窗（Ctrl/Cmd+/ 或使用者選單「說明」）的開關：state 在這裡，內容 lazy（`ShortcutsDialog`）。
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  /** 這一次打開停在哪一頁；每次打開都重設（Ctrl+/ 是「通用」，選單由呼叫端決定）。 */
+  const [shortcutsPage, setShortcutsPage] = useState<ShortcutsStartPage>("global");
   const shortcutsOpenRef = useRef(shortcutsOpen);
   shortcutsOpenRef.current = shortcutsOpen;
   /** 關閉時要還焦點的元素：鍵盤開的＝開啟當下的焦點元素；選單開的＝UserMenu 觸發鈕（`open(returnFocusTo)`）。 */
   const shortcutsReturnFocusRef = useRef<HTMLElement | null>(null);
   const shortcutsApi = useMemo<ShortcutsDialogApi>(
     () => ({
-      open: (returnFocusTo) => {
+      open: (returnFocusTo, page = "global") => {
         shortcutsReturnFocusRef.current = returnFocusTo ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+        setShortcutsPage(page);
         setShortcutsOpen(true);
       },
     }),
     [],
   );
 
-  // Ctrl/Cmd+/ 開關快捷鍵介紹頁（與下面的 Ctrl+K 是兩支獨立的 effect，互不改動）。判準與讓路：
+  // Ctrl/Cmd+/ 開關說明視窗（與下面的 Ctrl+K 是兩支獨立的 effect，互不改動）。判準與讓路：
   // - `(ctrl || meta) && !alt && key === "/"`，不看 shift（德文等配置的 `/` 本身要按 Shift，排除會讓那些鍵盤打不開）；`!alt` 比照 NotePage 的 Ctrl+S。
   // - `repeat` 不理；`defaultPrevented` 不理（別人已處理，比照下面 Ctrl+K）。
   // - 快捷鍵頁已開 → preventDefault＋關（切換）。
@@ -353,6 +374,7 @@ export function AppShell({ children, inert }: AppShellProps) {
       if (isOverlayOpen()) return;
       event.preventDefault();
       shortcutsReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      setShortcutsPage("global");
       setShortcutsOpen(true);
     }
     window.addEventListener("keydown", handleShortcutsKey);
@@ -559,7 +581,7 @@ export function AppShell({ children, inert }: AppShellProps) {
             <main className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</main>
           </div>
           {/* 放在 inert 的 div 外面：portal 本來就在 body，放外面是讓閱讀者不必推理 inert。 */}
-          <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} returnFocusRef={shortcutsReturnFocusRef} />
+          <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} returnFocusRef={shortcutsReturnFocusRef} page={shortcutsPage} />
         </SidebarTabProvider>
       </ShortcutsDialogContext.Provider>
     </SidebarDrawerContext.Provider>

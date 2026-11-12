@@ -5,6 +5,7 @@ import { useWidePointer } from "@/lib/wide-pointer";
 import { Button } from "@/components/ui/button";
 import { Plus } from "@/components/ui/icons";
 import { SidebarLazyBoundary } from "@/components/sidebar/SidebarLazyBoundary";
+import { tourTarget } from "@/lib/tour-targets";
 
 /** 只有打開垃圾桶 tab 才下載（首包上限）；與 AppShell 的 `TrashPanel` 同一個 chunk（`TrashLazy`）。 */
 const TrashFooter = lazy(() => import("@/components/sidebar/TrashLazy").then((m) => ({ default: m.TrashFooter })));
@@ -32,7 +33,7 @@ export function SidebarFooter({
   const wide = useWidePointer();
   const newNote = (
     <div className="m-2">
-      <Button variant="brand" className="w-full" onClick={() => onCreateNote()} disabled={newNotePending}>
+      <Button variant="brand" className="w-full" onClick={() => onCreateNote()} disabled={newNotePending} {...tourTarget("newNote")}>
         <Plus aria-hidden="true" className="h-4 w-4" />
         {t("home.newNote")}
       </Button>

@@ -55,14 +55,14 @@ const BUNDLES = [
   ["zh-TW", guideZhTW],
 ] as const;
 
-describe("SH1 兩語系鍵集合相同、頂層只有 shortcutsGuide", () => {
+describe("SH1 兩語系鍵集合相同、頂層只有 shortcutsGuide 與 helpGuide", () => {
   it("鍵集合相同", () => {
     expect(flattenKeys(guideZhTW).sort()).toEqual(flattenKeys(guideEn).sort());
   });
 
-  it("頂層恰一個鍵 shortcutsGuide", () => {
-    expect(Object.keys(guideEn)).toEqual(["shortcutsGuide"]);
-    expect(Object.keys(guideZhTW)).toEqual(["shortcutsGuide"]);
+  it("頂層恰兩個鍵 shortcutsGuide、helpGuide", () => {
+    expect(Object.keys(guideEn)).toEqual(["shortcutsGuide", "helpGuide"]);
+    expect(Object.keys(guideZhTW)).toEqual(["shortcutsGuide", "helpGuide"]);
   });
 });
 
@@ -145,10 +145,11 @@ describe("SH5 註冊後可用、不覆寫主檔", () => {
   it("分類標題與主檔的三把鍵", () => {
     expect(i18n.t("shortcutsGuide.categories.typing", { lng: "en" })).toBe("Typing triggers");
     expect(i18n.t("shortcutsGuide.categories.typing", { lng: "zh-TW" })).toBe("打字觸發");
-    expect(i18n.t("shortcuts.title", { lng: "en" })).toBe("Keyboard shortcuts");
-    expect(i18n.t("shortcuts.title", { lng: "zh-TW" })).toBe("快捷鍵介紹");
-    expect(i18n.t("userMenu.shortcuts", { lng: "zh-TW" })).toBe("快捷鍵介紹");
-    expect(i18n.t("shortcuts.description", { lng: "zh-TW" })).toBe("常用快捷鍵與打字觸發字");
+    expect(i18n.t("shortcuts.title", { lng: "en" })).toBe("Help");
+    expect(i18n.t("shortcuts.title", { lng: "zh-TW" })).toBe("說明");
+    expect(i18n.t("userMenu.help", { lng: "en" })).toBe("Help");
+    expect(i18n.t("userMenu.help", { lng: "zh-TW" })).toBe("說明");
+    expect(i18n.t("shortcuts.description", { lng: "zh-TW" })).toBe("功能導覽、這一版新增，以及常用快捷鍵與打字觸發字");
     expect(i18n.t("userMenu.logout", { lng: "en" })).toBe("Log out");
   });
 });
@@ -180,4 +181,31 @@ describe("SH7 分類標題定稿", () => {
       expect(get(guideZhTW, `shortcutsGuide.categories.${category}`)).toBe(zh);
     });
   }
+});
+
+describe("說明頁的字串", () => {
+  const REQUIRED = ["nav.tour", "nav.whatsNew", "nav.shortcuts", "tour.heading", "tour.intro", "tour.start", "whatsNew.heading", "whatsNew.empty"];
+
+  it.each(BUNDLES)("%s：必備的鍵都是非空字串，版本標題帶 {{version}}", (_name, bundle) => {
+    for (const key of REQUIRED) {
+      const value = get(bundle, `helpGuide.${key}`);
+      expect(typeof value === "string" && value.length > 0, key).toBe(true);
+    }
+    expect(get(bundle, "helpGuide.whatsNew.heading") as string).toContain("{{version}}");
+  });
+
+  it.each([
+    ["en", enRaw],
+    ["zh-TW", zhTWRaw],
+  ] as const)("%s：主 JSON 沒有 helpGuide，userMenu 只有 help、沒有舊的 shortcuts", (_name, raw) => {
+    const main = JSON.parse(raw) as { userMenu: Record<string, unknown> };
+    expect(Object.keys(main)).not.toContain("helpGuide");
+    expect(main.userMenu).toHaveProperty("help");
+    expect(main.userMenu).not.toHaveProperty("shortcuts");
+  });
+
+  it("zh-TW 一律稱「功能導覽」，不單用「導覽」", () => {
+    const texts = flattenKeys(guideZhTW.helpGuide.tour).map((key) => get(guideZhTW.helpGuide.tour, key) as string);
+    for (const text of [...texts, guideZhTW.helpGuide.nav.tour]) expect(text.replace(/功能導覽/g, "")).not.toMatch(/(?<!開始)導覽/);
+  });
 });

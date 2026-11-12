@@ -5,6 +5,8 @@ type Any = any;
 
 export interface PmPluginSpec {
   appendTransaction?(trs: readonly Any[], oldState: Any, newState: Any): Any;
+  /** PM 的 `filterTransaction`：回 false 的交易不套用（`collab/tour-transaction-filter.ts` 用）。 */
+  filterTransaction?(tr: Any, state: Any): boolean;
   /** PM 的 `props`（例：`decorations(state)`，`collab/code-block-caret.ts` 用）。 */
   props?: { decorations?(state: Any): Any; transformPasted?(slice: Any, view: Any): Any };
   /** PM 的 plugin state（`collab/columns/layout-extension.ts` 用）。 */

@@ -2,6 +2,7 @@ import { useRef, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { SIDEBAR_TABS, useSidebarTabActions, useSidebarTabState, type SidebarTab } from "@/lib/sidebar-tab";
 import { SIDEBAR_TAB_SPECS } from "@/components/sidebar/tab-specs";
+import { tourTarget } from "@/lib/tour-targets";
 
 export function sidebarTabId(idBase: string, tab: SidebarTab): string {
   return `${idBase}-tab-${tab}`;
@@ -56,7 +57,7 @@ export function SidebarTabList({ idBase }: { idBase: string }) {
   }
 
   return (
-    <div role="tablist" aria-label={t("sidebar.tabsLabel")} className="mx-2 mt-2 flex border-b border-border">
+    <div role="tablist" aria-label={t("sidebar.tabsLabel")} {...tourTarget("tabs")} className="mx-2 mt-2 flex border-b border-border">
       {SIDEBAR_TAB_SPECS.map(({ id, labelKey, Icon }, index) => {
         const selected = id === current;
         const name = t(labelKey);

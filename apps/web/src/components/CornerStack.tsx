@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { History } from "@/components/ui/icons";
 import { useIsNarrow, useVersions } from "@/lib/versions-context";
 import { cn } from "@/lib/utils";
+import { tourTarget } from "@/lib/tour-targets";
 
 /**
  * 右下角泡泡容器。#263 起 AI 泡泡拿掉（改由框選 AI 框處理），容器裡只剩歷史泡泡；容器留著，因為定位與捲動淡出都掛在它上面。
@@ -52,6 +53,7 @@ export function CornerStack() {
         variant="brand"
         size="icon"
         data-testid="versions-bubble"
+        {...tourTarget("versions")}
         aria-label={t("versions.bubble")}
         onClick={versions.open}
         className="h-12 w-12 rounded-full border border-border shadow-lg"

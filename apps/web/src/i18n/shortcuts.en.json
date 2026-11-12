@@ -222,5 +222,43 @@
         "desc": "Drag a note onto a folder. Hold it over another note to see a new folder holding both. Let go, name the folder, and it is created."
       }
     }
+  },
+  "helpGuide": {
+    "nav": {
+      "tour": "Feature tour",
+      "whatsNew": "What's new",
+      "shortcuts": "Keyboard shortcuts"
+    },
+    "tour": {
+      "heading": "Feature tour",
+      "intro": "A short walk through Knotebook's main features. It creates a sample note in My notes and demonstrates on it.",
+      "start": "Start tour"
+    },
+    "whatsNew": {
+      "heading": "New in v{{version}}",
+      "empty": "Nothing new to highlight in this version.",
+      "items": {
+        "customColors": {
+          "title": "Custom colors",
+          "desc": "Pick any color for text and highlights from the Custom option in the color menus; the last 8 you used are remembered. Table cells can be colored too, from the cell menu and the row and column handle menus."
+        },
+        "sideBySideColumns": {
+          "title": "Side-by-side columns",
+          "desc": "Drag a block by its ⋮⋮ handle onto the left or right edge of another block to make columns, up to four. Drag the divider, or press the left and right arrow keys on it, to change the widths."
+        },
+        "confirmRemoveMember": {
+          "title": "Confirm before removing a member",
+          "desc": "The trash button in the group member list and in the share panel now asks you to confirm first."
+        },
+        "signOutThisBrowser": {
+          "title": "Log out only this browser",
+          "desc": "Logging out now only logs out the browser you used; your other browsers stay logged in."
+        },
+        "siteLimits": {
+          "title": "Site limits in the browser (site admins)",
+          "desc": "Site admins can adjust 15 limits on the Site limits page, and tune \"Session and tokens\" on the Sign-in page."
+        }
+      }
+    }
   }
 }

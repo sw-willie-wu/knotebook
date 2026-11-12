@@ -382,11 +382,11 @@
     "accent": "主題色",
     "logout": "登出",
     "siteAdmin": "站台管理",
-    "shortcuts": "快捷鍵介紹"
+    "help": "說明"
   },
   "shortcuts": {
-    "title": "快捷鍵介紹",
-    "description": "常用快捷鍵與打字觸發字"
+    "title": "說明",
+    "description": "功能導覽、這一版新增，以及常用快捷鍵與打字觸發字"
   },
   "admin": {
     "nav": {

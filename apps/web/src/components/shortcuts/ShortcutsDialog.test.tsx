@@ -56,8 +56,8 @@ describe("ShortcutsDialog", () => {
 
   it("D2 open=true：dialog 有名稱與描述、內容出現、✕ 名稱 Close", async () => {
     render(ui(true, () => {}));
-    const dialog = await screen.findByRole("dialog", { name: "Keyboard shortcuts" });
-    expect(dialog).toHaveAccessibleDescription("Common keyboard shortcuts and typing triggers");
+    const dialog = await screen.findByRole("dialog", { name: "Help" });
+    expect(dialog).toHaveAccessibleDescription("Feature tour, what is new in this version, and common keyboard shortcuts and typing triggers");
     expect(await screen.findByText("stub shortcuts content")).toBeInTheDocument();
     expect(mockState.loaded).toBe(true);
     expect(screen.getByRole("button", { name: "Close" })).toBeInTheDocument();
@@ -66,7 +66,7 @@ describe("ShortcutsDialog", () => {
   it("D3 Esc 與點 ✕ 都呼叫 onOpenChange(false)", async () => {
     const onOpenChange = vi.fn();
     render(ui(true, onOpenChange));
-    await screen.findByRole("dialog", { name: "Keyboard shortcuts" });
+    await screen.findByRole("dialog", { name: "Help" });
     fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
     onOpenChange.mockClear();
@@ -83,7 +83,7 @@ describe("ShortcutsDialog", () => {
     opener.focus();
     ref.current = target;
     view.rerender(ui(true, onOpenChange, ref));
-    await screen.findByRole("dialog", { name: "Keyboard shortcuts" });
+    await screen.findByRole("dialog", { name: "Help" });
     view.rerender(ui(false, onOpenChange, ref));
     await waitFor(() => expect(target).toHaveFocus());
   });
@@ -95,7 +95,7 @@ describe("ShortcutsDialog", () => {
     const gone = document.createElement("button");
     ref.current = gone; // 從沒掛進 document：isConnected 為 false
     view.rerender(ui(true, onOpenChange, ref));
-    await screen.findByRole("dialog", { name: "Keyboard shortcuts" });
+    await screen.findByRole("dialog", { name: "Help" });
     expect(() => view.rerender(ui(false, onOpenChange, ref))).not.toThrow();
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(ref.current).toBeNull();
@@ -126,7 +126,7 @@ describe("ShortcutsDialog", () => {
 
   it("D8 對話框本身 outline-none：首開時焦點先落在 Content（chunk 未到），不能畫出瀏覽器預設的 focus-visible 外框（白框閃爍）", async () => {
     render(ui(true, () => {}));
-    const dialog = await screen.findByRole("dialog", { name: "Keyboard shortcuts" });
+    const dialog = await screen.findByRole("dialog", { name: "Help" });
     expect(dialog).toHaveAttribute("data-shortcuts-dialog");
     expect(dialog).toHaveClass("outline-none");
   });

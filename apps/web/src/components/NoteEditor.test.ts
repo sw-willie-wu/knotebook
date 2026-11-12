@@ -305,6 +305,12 @@ describe("buildNoteEditorOptions", () => {
     expect(extensions.map((ext: { name: string }) => ext.name)).toContain("knotebookColumnsPaste");
   });
 
+  // 同上：`tour-transaction-filter.test.ts` 掛的是自己建的編輯器。建編輯器時就要掛上、只掛一支：演示中不能再註冊外掛。
+  it("_tiptapOptions.extensions 掛了一支導覽交易過濾 extension", () => {
+    const extensions = build()._tiptapOptions.extensions;
+    expect(extensions.filter((ext: { name: string }) => ext.name === "knotebookTourTransactionFilter")).toHaveLength(1);
+  });
+
   // 既有的 drop 阻擋案直接呼叫 createMediaBlockingDOMEvents 的 handler、不經 build()——守不到「記落點」那層組合。
   it("組合後的 drop 仍接到媒體阻擋（經 build()）", () => {
     const event = dragEvent(transfer({ files: [file("a.pdf", "application/pdf")], types: ["Files"] }));

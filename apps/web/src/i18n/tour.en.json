@@ -1,0 +1,77 @@
+{
+  "tourGuide": {
+    "keepOrDeleteSample": "Keep the sample note, or move it to the trash?",
+    "progress": "{{n}} / {{total}}",
+    "stepAnnouncement": "{{progress}}: {{title}}{{titleStop}} {{body}}",
+    "titleStop": ".",
+    "skip": "Skip feature tour",
+    "back": "Back",
+    "next": "Next",
+    "keepSample": "Keep sample note",
+    "deleteSample": "Delete",
+    "deleteSampleLabel": "Delete sample note",
+    "liveHint": "← → to change stops, Esc to end",
+    "startFailed": "The feature tour couldn't start. Try again.",
+    "sampleFailed": "Couldn't create the sample note. Try again.",
+    "crashed": "The feature tour ran into a problem and was closed.",
+    "stops": {
+      "tabs": {
+        "title": "Sidebar sections",
+        "body": "The sidebar has five sections: Recent, My notes, Groups, Shared with me, and Trash. They show icons only; hover over one to see its name. Deleted notes go to the Trash first.",
+        "narrowBody": "The sidebar has five sections: Recent, My notes, Groups, Shared with me, and Trash. Deleted notes go to the Trash first. Open the sidebar from here."
+      },
+      "newNote": {
+        "title": "New note",
+        "body": "Click here to create a note. It goes into My notes.",
+        "narrowBody": "\"New note\" at the bottom of the sidebar creates a note in My notes. Open the sidebar from here."
+      },
+      "folders": {
+        "title": "Folders",
+        "body": "Use this button in the My notes header to create a folder. A note's ⋮ menu has \"Move to…\" for putting it into a folder.",
+        "narrowBody": "You can create folders from the My notes header. A note's ⋮ menu has \"Move to…\" for putting it into a folder. Open the sidebar from here."
+      },
+      "search": {
+        "title": "Search",
+        "body": "Press {{mod}}K to search. It finds titles and note text.",
+        "narrowBody": "Press {{mod}}K to open the sidebar with the search box focused. It finds titles and note text. You can also open the sidebar from here."
+      },
+      "header": {
+        "title": "Share and more",
+        "body": "\"Share\" invites others to view or edit. The ⋮ menu has \"Present\", \"AI edit history\", \"Move to…\", and \"Copy to…\"."
+      },
+      "versions": {
+        "title": "Version history",
+        "body": "Notes save versions automatically by default, and you can press {{mod}}S to save one yourself. Open the version history with this button in the bottom-right corner.",
+        "narrowBody": "Notes save versions automatically by default, and you can press {{mod}}S to save one yourself. The version history is in the ⋮ menu."
+      },
+      "userMenu": {
+        "title": "Forgot how something works?",
+        "body": "Press {{mod}}/ or open Help from here: shortcuts, the feature tour and what's new are all there, any time.",
+        "narrowBody": "Press {{mod}}/ or open Help from the menu at the bottom-left of the sidebar: shortcuts, the feature tour and what's new are all there, any time. Open the sidebar from here."
+      }
+    },
+    "sample": {
+      "title": "Welcome to Knotebook",
+      "intro": "This note was made for the feature tour. You can edit it freely, then keep it or delete it at the end.",
+      "heading": "What a note can hold",
+      "bullet1": "Bulleted lists",
+      "bullet2": "Easy to scan",
+      "number1": "Numbered steps",
+      "number2": "Keep them in order",
+      "todoDone": "A finished task",
+      "todoOpen": "A task still to do",
+      "quote": "A quote to remember.",
+      "code": "console.log(\"hello\");",
+      "linkBefore": "A link to this very note: ",
+      "linkAfter": ".",
+      "columnLeft": "Left column",
+      "columnRight": "Right column",
+      "mermaidCode": "graph LR\n  A[Write] --> B[Link] --> C[Share]",
+      "tableName": "Name",
+      "tableValue": "Value",
+      "tableRow1Name": "Notes",
+      "tableRow1Value": "Ideas",
+      "aiSentence": "Select this sentence to try AI."
+    }
+  }
+}

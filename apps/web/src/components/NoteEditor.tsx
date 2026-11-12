@@ -34,6 +34,7 @@ import { buildCollabEditorBase } from "@/collab/editor-options";
 import { createMarkdownLinkExtension } from "@/collab/markdown-link";
 import { createMarkdownPasteHandler } from "@/collab/paste";
 import { createSiteLinkConvertExtension, createSiteLinkEnv, createSiteLinkPasteHook, withSiteLinkDrop, type SiteLinkEnvRef } from "@/collab/site-link-convert";
+import { createTourTransactionFilterExtension } from "@/collab/tour-transaction-filter";
 import { useCollabUndoLifeline } from "@/collab/undo";
 import { usePageUndoShortcut } from "@/collab/page-undo";
 import { buildSlashMenuItems } from "@/components/slash-menu";
@@ -52,6 +53,7 @@ import { AiSessionProvider } from "@/components/ai/AiSession";
 import { createNoteSizeGuard, createNoteSizePasteHandlers, formatNoteLimit } from "@/lib/note-size-guard";
 import { CornerStack } from "@/components/CornerStack";
 import { useVersions } from "@/lib/versions-context";
+import { notifyEditorEditable, registerEditor } from "@/lib/tour-bridge";
 import { VERSIONS_ERROR_FRAME, VersionsLazyBoundary } from "@/components/versions/VersionsLazyBoundary";
 import { useVersionsPanelWidth } from "@/components/versions/versions-panel-width";
 import { SelectionAiController } from "@/components/ai/SelectionAiController";
@@ -205,6 +207,9 @@ export function buildNoteEditorOptions({
         createColumnEdgeKeymapExtension({ editorRef }),
         // 貼上／拖放的列：頂層完整、非頂層攤平（理由見 `@/collab/columns/paste-rule`）。
         createColumnsPasteExtension(),
+        // 功能導覽演示時擋下使用者改文件的交易（含輸入法組字）；預設放行。要在建編輯器時就掛上，演示中不能再註冊外掛
+        // （理由見 `@/collab/tour-transaction-filter`），開關經 `lib/tour-bridge.ts`。
+        createTourTransactionFilterExtension(),
       ],
       editorProps: {
         // drop：最外層先由 `withSiteLinkDrop` 判斷要不要轉站內連結（#352）；再由 `withGutterFileDrop` 把落在欄與欄之間的拖放
@@ -533,6 +538,14 @@ export function NoteEditor({
     report?.(createCursorScroller({ editor, getRoot: () => (hasPreviewRef.current ? null : scrollRootRef.current) }));
     return () => report?.(null);
   }, [editor]);
+
+  // 功能導覽經登記處拿這份編輯器（`lib/tour-bridge.ts`）。
+  useEffect(() => registerEditor(noteId, editor), [noteId, editor]);
+  // 每個編輯器實例第一次可編輯時通知一次（登記處自己記「已通知」）。放在登記之後：同一次 commit 裡先登記、再通知。
+  // BlockNoteView 在 commit 階段的 ref callback 裡設 `editor.isEditable`，比這個 effect 早，所以通知時它已是新值。
+  useEffect(() => {
+    if (editable) notifyEditorEditable(noteId, editor);
+  }, [noteId, editor, editable]);
 
   // issue #99：`/` 選單「連結」項的對話框狀態與 `getSlashItems` 組法——抽成
   // `useLinkMenuState`（見該函式檔頭）方便直接對它

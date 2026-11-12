@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { isMacPlatform } from "@/lib/platform";
 import { useSidebarQuery } from "@/lib/sidebar-query";
 import { useShortcutsDialog } from "@/lib/shortcuts-dialog";
+import { useTour } from "@/lib/tour-context";
 import { openSettings } from "@/lib/open-settings";
 import {
   DropdownMenu,
@@ -21,6 +22,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { tourTarget } from "@/lib/tour-targets";
 
 const LANGUAGES: { code: "en" | "zh-TW"; labelKey: string }[] = [
   { code: "en", labelKey: "userMenu.languageEn" },
@@ -53,8 +55,9 @@ export function UserMenu() {
   const { release } = useSidebarQuery();
   const { theme, setTheme, accent, setAccent } = useTheme();
   const accentLabelId = useId();
-  // 快捷鍵介紹項：這幾個 hook 必須在 `if (!user) return null` 之前。
+  // 說明項：這幾個 hook 必須在 `if (!user) return null` 之前。
   const shortcuts = useShortcutsDialog();
+  const tour = useTour();
   const mac = isMacPlatform();
   const [menuOpen, setMenuOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -83,6 +86,7 @@ export function UserMenu() {
           ref={triggerRef}
           type="button"
           aria-label={user.displayName}
+          {...tourTarget("userMenu")}
           className={cn(
             // 列高吃 SIDEBAR_ROW_HEIGHT：與內文卡底部的 backlinks 列等高
             // （兩者左右相鄰，見該常數註解）。p-1.5＋24px avatar 的自然高度
@@ -191,7 +195,7 @@ export function UserMenu() {
             </span>
           )}
         </DropdownMenuItem>
-        {/* 快捷鍵介紹（Ctrl+/）：不在 AppShell 底下（context 為 null，例如單獨渲染本元件的測試）就不渲染，免得出現點了沒反應的死項。
+        {/* 說明（快捷鍵、功能導覽、這一版新增；Ctrl+/ 也開同一個視窗）：不在 AppShell 底下（context 為 null，例如單獨渲染本元件的測試）就不渲染，免得出現點了沒反應的死項。
             三步形照 NoteMenu 的 focus trap 規矩：preventDefault → 手動關選單 → 開對話框，並把觸發鈕交給對話框當關閉時的還焦點目標。
             ⚠ 少了 preventDefault 選單一樣會關，單元測試守不到這一步（跟 NoteMenu 同理）；焦點回歸由 AppShell.shortcuts.test 的「Esc 關 → 焦點回 UserMenu 觸發鈕」案與 e2e 守。 */}
         {shortcuts && (
@@ -200,10 +204,11 @@ export function UserMenu() {
             onSelect={(event) => {
               event.preventDefault();
               setMenuOpen(false);
-              shortcuts.open(triggerRef.current);
+              // 有導覽 context 就停在「功能導覽」頁；沒有（導覽不在這棵樹上）那頁不列，停在快捷鍵的「通用」。
+              shortcuts.open(triggerRef.current, tour ? "tour" : "global");
             }}
           >
-            {t("userMenu.shortcuts")}
+            {t("userMenu.help")}
             {/* 提示字 aria-hidden：不進選單項的可及名稱（e2e 以名稱找項）。 */}
             <span aria-hidden="true" className="ml-auto pl-4 text-xs text-muted-foreground">
               {mac ? "⌘/" : "Ctrl+/"}

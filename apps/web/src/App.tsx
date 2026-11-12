@@ -11,6 +11,7 @@ import {
 } from "react-router";
 import { ActiveNoteProvider } from "./lib/active-note";
 import { SidebarQueryProvider } from "./lib/sidebar-query";
+import { TourProvider } from "./components/tour/TourProvider";
 import { RealLocationContext } from "./lib/real-location";
 import { ThemeProvider } from "./theme";
 import { Toaster } from "./components/ui/toast";
@@ -393,7 +394,10 @@ export default function App() {
               公開頁（/p/…）在樹內但不消費不 set（明文，見 lib/active-note.tsx）。 */}
           <ActiveNoteProvider>
             <SidebarQueryProvider>
-              <AppRoutes />
+              {/* 功能導覽住在 Routes 外面：導覽要跨頁（原頁 → 示範筆記 → 原頁）活著；它讀側欄搜尋字，所以在 SidebarQueryProvider 裡面。 */}
+              <TourProvider>
+                <AppRoutes />
+              </TourProvider>
             </SidebarQueryProvider>
           </ActiveNoteProvider>
         </BrowserRouter>
