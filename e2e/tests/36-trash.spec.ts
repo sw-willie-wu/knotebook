@@ -242,7 +242,7 @@ test("390 寬抽屜：選取中按 Esc 只結束選取、焦點回抽屜內的�
   // 整頁載入（toast 也一併清掉，不會蓋住抽屜底部）；等 lazy NotePage 掛上：fallback 自帶的 AppShell 會被換掉（抽屜跟著關）。
   await page.goto(keepUrl);
   await expect(page.getByRole("textbox", NOTE_TITLE)).toBeVisible({ timeout: 15_000 });
-  await page.getByRole("button", { name: "Open navigation" }).click();
+  await page.getByRole("button", { name: "Open sidebar" }).click();
   const drawer = page.getByRole("dialog", { name: "Navigation" });
   await expect(drawer).toBeVisible();
   const panel = await openTrash(page, drawer);
@@ -310,7 +310,7 @@ test("390 寬抽屜開著時移入別篇：toast 與 Undo 以 role 找得到、�
   // 整頁載入後等 lazy NotePage 掛上再開抽屜：fallback 自帶的 AppShell 會被換掉（抽屜跟著關）。
   await page.goto(keepUrl);
   await expect(page.getByRole("textbox", NOTE_TITLE)).toBeVisible({ timeout: 15_000 });
-  await page.getByRole("button", { name: "Open navigation" }).click();
+  await page.getByRole("button", { name: "Open sidebar" }).click();
   const drawer = page.getByRole("dialog", { name: "Navigation" });
   await expect(drawer).toBeVisible();
   await showSidebarTab(page, "My notes", drawer);

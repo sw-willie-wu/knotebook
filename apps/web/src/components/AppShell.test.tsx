@@ -6,7 +6,8 @@ import { MemoryRouter, Route, Routes, useParams } from "react-router";
 import { canonicalNotePath, type GroupDto, type NoteDto, type UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ActiveNoteProvider } from "@/lib/active-note";
-import { NARROW_QUERY } from "@/lib/sidebar-drawer";
+import { OVERLAY_QUERY } from "@/lib/layout-tiers";
+import { stubLayoutTier } from "@/test/layout-tier";
 import { NotePageControlsContext } from "@/lib/note-page-controls";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
@@ -560,7 +561,7 @@ describe("AppShell — search box & Ctrl/Cmd+K", () => {
 /**
  * #115：側欄抽屜（<md 的導覽入口）。
  *
- * jsdom 沒有 CSS——`hidden`/`md:flex` 不影響可及性查詢，抽屜開著時 DOM 上同時有
+ * jsdom 沒有 CSS——`hidden`/`xl:flex` 不影響可及性查詢，抽屜開著時 DOM 上同時有
  * 靜態與抽屜兩份 SidebarContent，因此本組查詢一律 `within(drawer)` 圈定，不用
  * 全域 byRole（雙實例）。
  *
@@ -617,7 +618,7 @@ describe("AppShell — #115 側欄抽屜", () => {
     const listeners = new Set<(e: { matches: boolean }) => void>();
     const mql = {
       matches: initialMatches,
-      media: "(width < 48rem)",
+      media: OVERLAY_QUERY,
       addEventListener: (_: "change", fn: (e: { matches: boolean }) => void) => listeners.add(fn),
       removeEventListener: (_: "change", fn: (e: { matches: boolean }) => void) => listeners.delete(fn),
       onchange: null,
@@ -625,8 +626,8 @@ describe("AppShell — #115 側欄抽屜", () => {
       removeListener: () => {},
       dispatchEvent: () => false,
     };
-    // 只有 NARROW_QUERY 回 mql；其餘 query（例如 WIDE_POINTER_QUERY）一律不成立、不註冊監聽。
-    vi.stubGlobal("matchMedia", vi.fn((query: string) => (query === NARROW_QUERY ? mql : { ...mql, matches: false, addEventListener: () => {}, removeEventListener: () => {} })));
+    // 只有 OVERLAY_QUERY 回 mql；其餘 query（例如 WIDE_POINTER_QUERY）一律不成立、不註冊監聽。
+    vi.stubGlobal("matchMedia", vi.fn((query: string) => (query === OVERLAY_QUERY ? mql : { ...mql, matches: false, addEventListener: () => {}, removeEventListener: () => {} })));
     return {
       dispatchChange(matches: boolean) {
         mql.matches = matches;
@@ -670,13 +671,14 @@ describe("AppShell — #115 側欄抽屜", () => {
     stubFetchWithNotes([NOTE]);
     renderShell();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Open navigation" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open sidebar" }));
 
     const drawer = await screen.findByRole("dialog", { name: "Navigation" });
     // 不變量四件套（缺底色透出 overlay 黑、缺 flex 脈絡長清單擠出鈕、
     // 缺屬性則 Ctrl+K 讓路判別失效）。
     expect(drawer).toHaveAttribute("data-sidebar-drawer");
-    expect(drawer).toHaveClass("fixed", "inset-y-0", "left-0", "z-50", "flex", "w-64", "flex-col", "bg-card");
+    expect(drawer).toHaveClass("fixed", "inset-y-0", "left-0", "z-50", "flex", "flex-col", "bg-card");
+    expect(drawer).not.toHaveClass("w-64");
     // 漢堡開＝焦點落在抽屜容器本身（不聚焦搜尋框以免觸控彈鍵盤）——這一步武裝
     // Radix 的 focus trap；onOpenAutoFocus 只 preventDefault 不補聚焦的錯誤實作
     // 會讓焦點留在漢堡鈕、Tab 逃進 aria-hidden 背景（原本沒案子抓）。
@@ -691,7 +693,7 @@ describe("AppShell — #115 側欄抽屜", () => {
     stubFetchWithNotes([NOTE]);
     renderShell();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Open navigation" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open sidebar" }));
     const drawer = await screen.findByRole("dialog", { name: "Navigation" });
 
     fireEvent.click(await within(drawer).findByRole("link", { name: "Drawer Note" }));
@@ -703,7 +705,7 @@ describe("AppShell — #115 側欄抽屜", () => {
     stubFetchWithNotes([NOTE]);
     renderShell();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Open navigation" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open sidebar" }));
     const drawer = await screen.findByRole("dialog", { name: "Navigation" });
     fireEvent.keyDown(drawer, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Navigation" })).not.toBeInTheDocument());
@@ -718,7 +720,7 @@ describe("AppShell — #115 側欄抽屜", () => {
     stubControllableMatchMedia(true);
     stubFetchWithNotes([NOTE]);
     renderShell();
-    await screen.findByRole("button", { name: "Open navigation" });
+    await screen.findByRole("button", { name: "Open sidebar" });
 
     // 回傳 false＝事件被 preventDefault（窄視窗按 Ctrl+K 不能同時觸發瀏覽器網址列搜尋）。
     const notCanceled = fireEvent.keyDown(window, { key: "k", ctrlKey: true });
@@ -733,7 +735,7 @@ describe("AppShell — #115 側欄抽屜", () => {
     stubFetchWithNotes([NOTE]);
     renderShell();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Open navigation" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open sidebar" }));
     await screen.findByRole("dialog", { name: "Navigation" });
     expect(media.listenerCount()).toBeGreaterThan(0);
 
@@ -754,7 +756,7 @@ describe("AppShell — #115 側欄抽屜", () => {
       </NotePageControlsContext.Provider>
     ));
 
-    fireEvent.click(await screen.findByRole("button", { name: "Open navigation" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open sidebar" }));
     const drawer = await screen.findByRole("dialog", { name: "Navigation" });
     const section = await within(drawer).findByRole("tabpanel");
     fireEvent.pointerDown(await within(section).findByRole("button", { name: "Note actions for Drawer Note" }), { button: 0 });
@@ -763,6 +765,111 @@ describe("AppShell — #115 側欄抽屜", () => {
 
     expect(openEdits).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(document.querySelector("[data-sidebar-drawer]")).toBeNull());
+  });
+
+  describe("浮動段（640-1279）", () => {
+    afterEach(() => {
+      localStorage.removeItem("sidebar.width");
+    });
+
+    it("固定側欄只在 xl 以上顯示；側欄鈕在 xl 以上隱藏，名稱是 Open sidebar", async () => {
+      stubLayoutTier("overlay");
+      stubFetchWithNotes([NOTE]);
+      const { container } = renderShell();
+
+      const aside = container.querySelector("aside[data-sidebar-instance]");
+      expect(aside).toHaveClass("hidden", "xl:flex", "xl:flex-col");
+      expect(aside).not.toHaveClass("md:flex");
+      const button = await screen.findByRole("button", { name: "Open sidebar" });
+      expect(button).toHaveClass("xl:hidden");
+      expect(button).not.toHaveClass("md:hidden");
+      expect(button.querySelector("svg")).toHaveAttribute("data-icon", "panel-left");
+    });
+
+    it("按側欄鈕開抽屜：焦點在抽屜容器、不在搜尋框；Esc 關閉後焦點回側欄鈕", async () => {
+      stubLayoutTier("overlay");
+      stubFetchWithNotes([NOTE]);
+      renderShell();
+
+      const button = await screen.findByRole("button", { name: "Open sidebar" });
+      button.focus(); // 真實點擊會先聚焦鈕；fireEvent.click 不會，Radix 關閉時要還焦點的對象就是它
+      fireEvent.click(button);
+      const drawer = await screen.findByRole("dialog", { name: "Navigation" });
+      expect(drawer).toHaveFocus();
+      expect(within(drawer).getByRole("textbox", { name: "Search notes" })).not.toHaveFocus();
+
+      fireEvent.keyDown(drawer, { key: "Escape" });
+      await waitFor(() => expect(screen.queryByRole("dialog", { name: "Navigation" })).not.toBeInTheDocument());
+      await waitFor(() => expect(button).toHaveFocus());
+    });
+
+    it("Ctrl+K 開抽屜且焦點在抽屜裡的搜尋框，並 preventDefault", async () => {
+      stubLayoutTier("overlay");
+      stubFetchWithNotes([NOTE]);
+      renderShell();
+      await screen.findByRole("button", { name: "Open sidebar" });
+
+      expect(fireEvent.keyDown(window, { key: "k", ctrlKey: true })).toBe(false);
+      const drawer = await screen.findByRole("dialog", { name: "Navigation" });
+      await waitFor(() => expect(within(drawer).getByRole("textbox", { name: "Search notes" })).toHaveFocus());
+    });
+
+    it("點遮罩（筆記區）關閉抽屜", async () => {
+      stubLayoutTier("overlay");
+      stubFetchWithNotes([NOTE]);
+      renderShell();
+
+      fireEvent.click(await screen.findByRole("button", { name: "Open sidebar" }));
+      await screen.findByRole("dialog", { name: "Navigation" });
+      const overlay = document.querySelector("[data-sidebar-drawer]")?.previousElementSibling;
+      expect(overlay).toHaveClass("fixed", "inset-0");
+      fireEvent.pointerDown(overlay as Element);
+      fireEvent.pointerUp(overlay as Element);
+      fireEvent.click(overlay as Element);
+
+      await waitFor(() => expect(screen.queryByRole("dialog", { name: "Navigation" })).not.toBeInTheDocument());
+    });
+
+    it("抽屜寬度吃存下來的側欄寬度，右側至少留 4rem；抽屜裡沒有拖曳把手", async () => {
+      localStorage.setItem("sidebar.width", "400");
+      stubLayoutTier("overlay");
+      stubFetchWithNotes([NOTE]);
+      renderShell();
+
+      fireEvent.click(await screen.findByRole("button", { name: "Open sidebar" }));
+      const drawer = await screen.findByRole("dialog", { name: "Navigation" });
+      // jsdom 的 cssstyle 會把 min() 的逗號兩側補上 `*`，所以分開比對兩個成分。
+      const widthStyle = drawer.getAttribute("style") ?? "";
+      expect(widthStyle).toContain("min(400px");
+      expect(widthStyle).toContain("calc(100vw - 4rem)");
+      expect(within(drawer).queryByRole("separator")).toBeNull();
+    });
+
+    it("跨 1280 變固定版面 -> 開著的抽屜關掉；640 附近的來回（手機 <-> 浮動）不關", async () => {
+      const tier = stubLayoutTier("phone");
+      stubFetchWithNotes([NOTE]);
+      renderShell();
+
+      fireEvent.click(await screen.findByRole("button", { name: "Open sidebar" }));
+      await screen.findByRole("dialog", { name: "Navigation" });
+
+      act(() => tier.setLayoutTier("overlay"));
+      expect(screen.getByRole("dialog", { name: "Navigation" })).toBeInTheDocument();
+
+      act(() => tier.setLayoutTier("docked"));
+      await waitFor(() => expect(screen.queryByRole("dialog", { name: "Navigation" })).not.toBeInTheDocument());
+    });
+
+    it("固定版面下 Ctrl+K 聚焦固定側欄的搜尋框、不開抽屜", async () => {
+      stubLayoutTier("docked");
+      stubFetchWithNotes([NOTE]);
+      renderShell();
+      const input = await screen.findByRole("textbox", { name: "Search notes" });
+
+      fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+      expect(input).toHaveFocus();
+      expect(document.querySelector("[data-sidebar-drawer]")).toBeNull();
+    });
   });
 });
 

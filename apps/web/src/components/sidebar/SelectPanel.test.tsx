@@ -7,7 +7,7 @@ import { MemoryRouter } from "react-router";
 import type { FavoriteDto, FolderDto, GroupDto, NoteDto, UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ActiveNoteProvider } from "@/lib/active-note";
-import { NARROW_QUERY } from "@/lib/sidebar-drawer";
+import { OVERLAY_QUERY } from "@/lib/layout-tiers";
 import { SidebarTabProvider, type SidebarTab } from "@/lib/sidebar-tab";
 import { NoteList } from "@/components/NoteList";
 import { dismissAllToasts, toast, Toaster } from "@/components/ui/toast";
@@ -78,7 +78,7 @@ function stubFetch(box: { notes: NoteDto[]; groups?: GroupDto[]; folders?: Folde
 function stubMatchMedia(narrow: boolean) {
   const mql = {
     matches: narrow,
-    media: "(width < 48rem)",
+    media: OVERLAY_QUERY,
     addEventListener: () => {},
     removeEventListener: () => {},
     onchange: null,
@@ -86,10 +86,10 @@ function stubMatchMedia(narrow: boolean) {
     removeListener: () => {},
     dispatchEvent: () => false,
   };
-  // 只有 NARROW_QUERY 回 mql；其餘 query（例如 WIDE_POINTER_QUERY）一律不成立。
+  // 只有 OVERLAY_QUERY 回 mql；其餘 query（例如 WIDE_POINTER_QUERY）一律不成立。
   vi.stubGlobal(
     "matchMedia",
-    vi.fn((query: string) => (query === NARROW_QUERY ? mql : { ...mql, matches: false })),
+    vi.fn((query: string) => (query === OVERLAY_QUERY ? mql : { ...mql, matches: false })),
   );
   return mql;
 }

@@ -8,7 +8,7 @@ import i18n from "@/i18n";
 import { BlockAnchorContext } from "@/hooks/block-anchor-context";
 import { onSearchMarkClear } from "@/hooks/search-mark";
 import { ActiveNoteProvider } from "@/lib/active-note";
-import { NARROW_QUERY } from "@/lib/sidebar-drawer";
+import { OVERLAY_QUERY } from "@/lib/layout-tiers";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts } from "@/components/ui/toast";
 import { AppShell, SidebarDrawerButton } from "./AppShell";
@@ -44,8 +44,8 @@ function stubFetch() {
 }
 
 function stubNarrow() {
-  const mql = { matches: true, media: NARROW_QUERY, addEventListener: () => {}, removeEventListener: () => {}, onchange: null, addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false };
-  vi.stubGlobal("matchMedia", vi.fn((query: string) => (query === NARROW_QUERY ? mql : { ...mql, matches: false })));
+  const mql = { matches: true, media: OVERLAY_QUERY, addEventListener: () => {}, removeEventListener: () => {}, onchange: null, addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false };
+  vi.stubGlobal("matchMedia", vi.fn((query: string) => (query === OVERLAY_QUERY ? mql : { ...mql, matches: false })));
 }
 
 function renderShell(wrap: (shell: ReactNode) => ReactNode = (s) => s, initialEntry = "/") {
@@ -61,7 +61,7 @@ function renderShell(wrap: (shell: ReactNode) => ReactNode = (s) => s, initialEn
 }
 
 async function openDrawerAndSearch() {
-  fireEvent.click(await screen.findByRole("button", { name: "Open navigation" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Open sidebar" }));
   const drawer = await screen.findByRole("dialog", { name: "Navigation" });
   fireEvent.change(within(drawer).getByRole("textbox", { name: "Search notes" }), { target: { value: "needle" } });
   return within(drawer).findByTestId("body-match");
@@ -120,7 +120,7 @@ describe("W3 搜尋跳轉的常駐標記：只有「關閉搜尋」會清", () =
       fireEvent.click(await openDrawerAndSearch());
       await drawerGone();
       expect(cleared).not.toHaveBeenCalled();
-      fireEvent.click(await screen.findByRole("button", { name: "Open navigation" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Open sidebar" }));
       const drawer = await screen.findByRole("dialog", { name: "Navigation" });
       expect(within(drawer).getByRole("textbox", { name: "Search notes" })).toHaveValue("needle");
       fireEvent.click(within(drawer).getByRole("button", { name: "Clear search" }));
@@ -136,7 +136,7 @@ describe("W3 搜尋跳轉的常駐標記：只有「關閉搜尋」會清", () =
     try {
       renderShell();
       expect(cleared).not.toHaveBeenCalled();
-      fireEvent.click(await screen.findByRole("button", { name: "Open navigation" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Open sidebar" }));
       const box = within(await screen.findByRole("dialog", { name: "Navigation" })).getByRole("textbox", { name: "Search notes" });
       fireEvent.change(box, { target: { value: "ne" } });
       fireEvent.change(box, { target: { value: "nee" } });

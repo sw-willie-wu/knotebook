@@ -7,7 +7,7 @@ import type { UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ActiveNoteProvider } from "@/lib/active-note";
 import { useShortcutsDialog } from "@/lib/shortcuts-dialog";
-import { NARROW_QUERY } from "@/lib/sidebar-drawer";
+import { OVERLAY_QUERY } from "@/lib/layout-tiers";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts } from "@/components/ui/toast";
 import { AppShell, SidebarDrawerButton } from "./AppShell";
@@ -245,7 +245,7 @@ describe("AppShell — 從使用者選單開快捷鍵介紹", () => {
   it("S15 窄視窗：抽屜裡的 UserMenu 開快捷鍵頁，抽屜仍在；Esc 只關快捷鍵頁，焦點回抽屜裡的觸發鈕", async () => {
     const mql = {
       matches: true,
-      media: NARROW_QUERY,
+      media: OVERLAY_QUERY,
       addEventListener: () => {},
       removeEventListener: () => {},
       onchange: null,
@@ -253,14 +253,14 @@ describe("AppShell — 從使用者選單開快捷鍵介紹", () => {
       removeListener: () => {},
       dispatchEvent: () => false,
     };
-    vi.stubGlobal("matchMedia", vi.fn((query: string) => (query === NARROW_QUERY ? mql : { ...mql, matches: false })));
+    vi.stubGlobal("matchMedia", vi.fn((query: string) => (query === OVERLAY_QUERY ? mql : { ...mql, matches: false })));
     renderShell(
       <>
         <SidebarDrawerButton />
         <button type="button">probe</button>
       </>,
     );
-    fireEvent.click(await screen.findByRole("button", { name: "Open navigation" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open sidebar" }));
     const drawer = await screen.findByRole("dialog", { name: "Navigation" });
     const drawerTrigger = await within(drawer).findByRole("button", { name: "Ann" });
     await openUserMenu(drawer);

@@ -207,7 +207,7 @@ test("E3＋E4 窄螢幕抽屜：別篇與同篇的片段點了都關抽屜、捲
   const href = `${pathOf(a)}#b-${gammaId}`;
 
   async function searchInDrawer(): Promise<Locator> {
-    await page.getByRole("button", { name: "Open navigation" }).click();
+    await page.getByRole("button", { name: "Open sidebar" }).click();
     const drawer = page.getByRole("dialog", { name: "Navigation" });
     await drawer.getByRole("textbox", { name: "Search notes" }).fill(kw);
     const s = snippetOf(drawer, href);

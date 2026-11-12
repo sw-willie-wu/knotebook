@@ -70,15 +70,15 @@ test("窄視窗：靜態側欄隱藏、抽屜導覽、框選 AI 框不超出視�
     // ── 縮到 390×844：窄視窗行為 ────────────────────────────────────────────
     await page.setViewportSize({ width: 390, height: 844 });
 
-    // 靜態側欄（hidden）：New note 鈕不可見；頁首漢堡（md:hidden）可見。
+    // 靜態側欄（hidden）：New note 鈕不可見；頁首側欄鈕（xl:hidden）可見。
     await expect(page.getByRole("button", { name: "New note", exact: true })).toBeHidden();
-    const hamburger = page.getByRole("button", { name: "Open navigation" });
+    const hamburger = page.getByRole("button", { name: "Open sidebar" });
     await expect(hamburger).toBeVisible();
 
     // 抽屜（在首頁開，點筆記連結 → 真的導航＋route change 自動關）。先回首頁：
     // 停在同一篇筆記上點自己的連結 pathname 不變、不會觸發自動關。
     await page.goto("/");
-    await page.getByRole("button", { name: "Open navigation" }).click();
+    await page.getByRole("button", { name: "Open sidebar" }).click();
     const drawer = page.getByRole("dialog", { name: "Navigation" });
     await expect(drawer).toBeVisible();
     await expect(drawer.getByRole("button", { name: "New note", exact: true })).toBeVisible();

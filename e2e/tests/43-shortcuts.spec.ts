@@ -856,7 +856,7 @@ test.describe("shortcuts dialog", () => {
     await startNote(page, "dlg-narrow");
     await page.setViewportSize({ width: 390, height: 844 });
     // search 說明的「窄螢幕會先打開側欄」：Ctrl+K 開抽屜並把焦點放進抽屜裡的搜尋框
-    await expect(page.getByRole("button", { name: "Open navigation" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Open sidebar" })).toBeVisible();
     await page.keyboard.press("ControlOrMeta+k");
     const drawer = page.getByRole("dialog", { name: "Navigation" });
     await expect(drawer).toBeVisible();
@@ -864,7 +864,7 @@ test.describe("shortcuts dialog", () => {
     await page.keyboard.press("Escape");
     await expect(drawer).toHaveCount(0);
 
-    await page.getByRole("button", { name: "Open navigation" }).click();
+    await page.getByRole("button", { name: "Open sidebar" }).click();
     await expect(drawer).toBeVisible();
     const trigger = drawer.getByRole("button", { name: "admin", exact: true });
     await trigger.click();

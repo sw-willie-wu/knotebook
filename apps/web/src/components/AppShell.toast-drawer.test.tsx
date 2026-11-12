@@ -105,7 +105,7 @@ function hasAriaHiddenAncestor(el: HTMLElement): boolean {
 }
 
 async function openDrawer(): Promise<HTMLElement> {
-  fireEvent.click(await screen.findByRole("button", { name: "Open navigation" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Open sidebar" }));
   return screen.findByRole("dialog", { name: "Navigation" });
 }
 

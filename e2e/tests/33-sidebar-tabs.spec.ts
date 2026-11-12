@@ -95,7 +95,7 @@ test("sidebar tabs: roles, persistence, keyboard, search view, narrow drawer", a
   await page.goto(noteUrl);
   // 等 lazy NotePage 掛上：fallback 自帶的 AppShell 會被換掉（drawerOpen 跟著重設；搜尋字串 #369 起住在 App 層、不重設）。
   await expect(page.getByRole("textbox", { name: "Note title" })).toBeVisible();
-  await page.getByRole("button", { name: "Open navigation" }).click();
+  await page.getByRole("button", { name: "Open sidebar" }).click();
   const drawer = page.getByRole("dialog", { name: "Navigation" });
   await expect(drawer).toBeVisible();
   const drawerTabs = drawer.getByRole("tablist", { name: "Sidebar sections" }).getByRole("tab");

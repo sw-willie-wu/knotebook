@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { X } from "@/components/ui/icons";
 import { SelectAllCheckbox } from "@/components/ui/selection-checkbox";
-import { NARROW_QUERY } from "@/lib/sidebar-drawer";
+import { OVERLAY_QUERY } from "@/lib/layout-tiers";
 import { selectAllState } from "@/lib/sidebar-selection";
 import { useSidebarTabActions, useSidebarTabState } from "@/lib/sidebar-tab";
 import { useWidePointer } from "@/lib/wide-pointer";
@@ -88,8 +88,8 @@ export function SelectHeader({
       // ④b 按下當下有開著的 toast：Radix Toast 關 toast 時不 preventDefault，一下 Esc 只關一層（停下後的錯誤 toast 不連帶丟掉選取）。
       if (toastOpenAt === event) return;
       const shell = rootRef.current?.closest("[data-sidebar-instance]");
-      // ⑤ 本實例看得見：抽屜那份恆看得見；靜態卡在窄螢幕是 hidden（抽屜關著時仍掛著）。
-      if (!(shell?.hasAttribute("data-sidebar-drawer") || !window.matchMedia(NARROW_QUERY).matches)) return;
+      // ⑤ 本實例看得見：抽屜那份恆看得見；靜態卡在 1280 以下（浮動與手機）是 hidden（抽屜關著時仍掛著）。
+      if (!(shell?.hasAttribute("data-sidebar-drawer") || !window.matchMedia(OVERLAY_QUERY).matches)) return;
       // ⑥ 焦點在 body（macOS Safari 點勾選框不聚焦它）或本實例之內：主內容區的輸入框、編輯器裡的 Esc 不算。
       const target = event.target;
       if (!(target === document || target === document.body || target === document.documentElement || (target instanceof Node && shell?.contains(target)))) return;

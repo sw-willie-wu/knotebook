@@ -112,6 +112,16 @@ export function Star(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+/** 側欄（浮動側欄的入口鈕）。路徑取自 lucide `panel-left`（ISC），手刻同風格。 */
+export function PanelLeft(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg data-icon="panel-left" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <rect width="18" height="18" x="3" y="3" rx="2" />
+      <path d="M9 3v18" />
+    </svg>
+  );
+}
+
 /** 移出最愛（最愛 tab 選取模式）。路徑取自 lucide `star-off`（ISC），手刻同風格。 */
 export function StarOff(props: SVGProps<SVGSVGElement>) {
   return (

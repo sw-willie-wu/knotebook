@@ -354,7 +354,7 @@ test("41-6 390 抽屜：⋮ Move to… 就地展開、點「F, open」縮排區�
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
   await expectWidePointer(page, false);
-  await page.getByRole("button", { name: "Open navigation" }).click();
+  await page.getByRole("button", { name: "Open sidebar" }).click();
   const drawer = page.getByRole("dialog", { name: "Navigation" });
   await expect(drawer).toBeVisible();
   const drawerPanel = await showSidebarTab(page, "My notes", drawer);
@@ -606,7 +606,7 @@ test("41-12 390 窄形：勾資料夾 → 底部 Copy to 反灰（aria-disabled�
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
   await expectWidePointer(page, false);
-  await page.getByRole("button", { name: "Open navigation" }).click();
+  await page.getByRole("button", { name: "Open sidebar" }).click();
   const drawer = page.getByRole("dialog", { name: "Navigation" });
   await expect(drawer).toBeVisible();
   const drawerPanel = await showSidebarTab(page, "My notes", drawer);
@@ -664,7 +664,7 @@ test("41-13 跨寬窄判準：⋮ 層疊開著時縮到 700 → 選單全關；�
   await expect(selecting.getByText("1 selected", { exact: true })).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   await expectWidePointer(page, false);
-  await page.getByRole("button", { name: "Open navigation" }).click();
+  await page.getByRole("button", { name: "Open sidebar" }).click();
   const drawer = page.getByRole("dialog", { name: "Navigation" });
   await expect(drawer).toBeVisible();
   const drawerPanel = drawer.getByRole("tabpanel");
