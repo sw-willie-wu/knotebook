@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import * as Y from "yjs";
 import { BlockNoteEditor } from "@blocknote/core";
@@ -10,7 +10,7 @@ import { ARTICLE_COLUMN, ARTICLE_COLUMN_PADDING, articleColumn } from "@/compone
 import { setNoteWidth } from "@/components/note-width";
 import { ThemeProvider } from "@/theme";
 import { NoteEditor } from "./NoteEditor";
-import { NoteWidthMenu } from "./NoteWidthMenu";
+import { NoteWidthToggle } from "./NoteWidthToggle";
 import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 interface FakeResponseInit {
@@ -331,20 +331,15 @@ describe("NoteEditor 內文寬度（#297）", () => {
     doc2.destroy();
   });
 
-  it("L6 頁首寬度選單（headerSlot，與 NotePage 同組合）選 Wide → 欄變寬；再選 Full width → 全寬", async () => {
+  it("L6 頁首寬度鈕（headerSlot，與 NotePage 同組合）按一下 → 欄變寬；再按一下 → 全寬", async () => {
     const doc = new Y.Doc();
-    renderEditor("note-1", doc, <NoteWidthMenu noteId="note-1" />);
+    renderEditor("note-1", doc, <NoteWidthToggle noteId="note-1" />);
     await screen.findByTestId("note-editor");
-    const pick = async (name: string) => {
-      fireEvent.pointerDown(screen.getByRole("button", { name: /^Width/ }), { button: 0 });
-      fireEvent.click(await screen.findByRole("menuitemradio", { name }));
-      await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
-    };
-    await pick("Wide");
     const column = screen.getByTestId("article-column");
+    fireEvent.click(screen.getByRole("button", { name: /^Width/ }));
     expect(column).toHaveClass(...articleColumn("wide").split(" "));
     expect(column).not.toHaveClass(STANDARD_MAX);
-    await pick("Full width");
+    fireEvent.click(screen.getByRole("button", { name: /^Width/ }));
     expect(screen.getByTestId("article-column")).toHaveClass("max-w-none");
     doc.destroy();
   });

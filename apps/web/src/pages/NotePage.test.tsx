@@ -1136,20 +1136,19 @@ describe("NotePage", () => {
       await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("My Note"));
       expect(screen.getByTestId("mock-column")).toHaveAttribute("data-width", "standard");
 
-      fireEvent.pointerDown(screen.getByRole("button", { name: /^Width/ }), { button: 0 });
-      fireEvent.click(await screen.findByRole("menuitemradio", { name: "Full width" }));
-      await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
-      expect(screen.getByRole("button", { name: /^Width/ })).toHaveAccessibleName("Width: Full width");
+      fireEvent.click(screen.getByRole("button", { name: /^Width/ }));
+      fireEvent.click(screen.getByRole("button", { name: /^Width/ }));
+      expect(screen.getByRole("button", { name: /^Width/ })).toHaveAccessibleName("Width: Full width — click for Standard");
       expect(screen.getByTestId("mock-column")).toHaveAttribute("data-width", "full");
 
       fireEvent.click(screen.getByRole("button", { name: "go-b-new" }));
       await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("Note B"));
-      expect(screen.getByRole("button", { name: /^Width/ })).toHaveAccessibleName("Width: Standard");
+      expect(screen.getByRole("button", { name: /^Width/ })).toHaveAccessibleName("Width: Standard — click for Wide");
       expect(screen.getByTestId("mock-column")).toHaveAttribute("data-width", "standard");
 
       fireEvent.click(screen.getByRole("button", { name: "go-my-note" }));
       await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("My Note"));
-      expect(screen.getByRole("button", { name: /^Width/ })).toHaveAccessibleName("Width: Full width");
+      expect(screen.getByRole("button", { name: /^Width/ })).toHaveAccessibleName("Width: Full width — click for Standard");
       expect(screen.getByTestId("mock-column")).toHaveAttribute("data-width", "full");
 
       expect(widthKeys()).toEqual([`note.width.${NOTE.id}`]);

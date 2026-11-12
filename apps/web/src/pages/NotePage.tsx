@@ -35,7 +35,7 @@ import { ChunkLoadBeacon, LazyRouteErrorBoundary, LazyRouteLoading } from "@/com
 import { LastEditedLabel } from "@/components/LastEditedLabel";
 import { NoteEditor } from "@/components/NoteEditor";
 import { NoteMenu } from "@/components/NoteMenu";
-import { NoteWidthMenu } from "@/components/NoteWidthMenu";
+import { NoteWidthToggle } from "@/components/NoteWidthToggle";
 import { OutdatedClientBanner } from "@/components/OutdatedClientBanner";
 import { useAuthConfig } from "@/api/authConfig";
 import { useNoteOverLimit } from "@/hooks/useNoteOverLimit";
@@ -825,8 +825,8 @@ export default function NotePage() {
                   <LastEditedLabel note={note} onOpenEdits={openEdits} />
                   <FavoriteToggle note={note} />
                   <ShareDialog note={note} />
-                  {/* #297：寬度 icon 只在頁首夠寬時顯示（@container，見 NoteWidthMenu）。 */}
-                  <NoteWidthMenu noteId={noteId!} />
+                  {/* #297：寬度 icon 只在頁首夠寬時顯示（@container，見 NoteWidthToggle）。 */}
+                  <NoteWidthToggle noteId={noteId!} />
                   <NoteMenu note={note} state={state} leavingRef={leavingRef} onOpenEdits={openEdits} triggerRef={noteMenuTriggerRef} />
                 </header>
                 {/* 版本預覽橫幅：寬版預覽時在頁首下方；整頁（sheet）模式由整頁自己畫。 */}
