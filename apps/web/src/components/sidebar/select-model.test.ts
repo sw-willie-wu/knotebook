@@ -44,7 +44,7 @@ afterEach(() => {
 });
 
 describe("SMf1 SELECT_ACTIONS（資料夾：群組、與我共享加 move）", () => {
-  it("四個 tab", () => {
+  it("五個 tab", () => {
     expect(SELECT_ACTIONS).toEqual({
       recent: ["copy", "delete"],
       favorites: ["unfavorite", "copy", "delete"],

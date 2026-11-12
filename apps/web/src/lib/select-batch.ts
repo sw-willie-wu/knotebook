@@ -1,6 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query";
-import type { NoteDto } from "@knotebook/shared";
+import type { FavoriteDto, NoteDto } from "@knotebook/shared";
 import { api, ApiFail } from "@/api/client";
+import { FAVORITES_QUERY_KEY } from "@/api/favorites";
 import { deleteFolderRequest, invalidateFolderRelated, isFolderNotFound, moveFolderRequest, placeNoteRequest } from "@/api/folders";
 import { applyMovedNote, refetchAfterFailure } from "@/api/note-move";
 import type { DestTarget } from "@/components/sidebar/destination-level";
@@ -274,5 +275,30 @@ export async function deleteTargetsInOrder(
     invalidateFolderRelated(queryClient, { trash: true });
     void queryClient.invalidateQueries({ queryKey: ["backlinks"] });
     for (const id of trashedIds) void queryClient.invalidateQueries({ queryKey: ["note", id] });
+  }
+}
+
+/**
+ * 最愛 tab 的批次移出：逐篇 `DELETE /api/favorites/:id`，每篇成功就把那篇從 `["favorites"]` 濾掉（清單即時少一列）；
+ * 404 `not_found` 略過、其餘停下。finally 重抓一次最愛清單（以 server 為準）。
+ */
+export async function unfavoriteInOrder(
+  noteIds: readonly string[],
+  deps: { queryClient: QueryClient } & BatchHooks,
+): Promise<BatchOutcome<string>> {
+  const { queryClient } = deps;
+  try {
+    return await runSequential(
+      noteIds,
+      (id): SelectionNode => ({ kind: "note", id }),
+      async (id) => {
+        await api<void>(`/api/favorites/${encodeURIComponent(id)}`, { method: "DELETE" });
+        queryClient.setQueryData<FavoriteDto[]>(FAVORITES_QUERY_KEY, (old) => old?.filter((favorite) => favorite.noteId !== id));
+        return id;
+      },
+      { onProgress: deps.onProgress },
+    );
+  } finally {
+    void queryClient.invalidateQueries({ queryKey: FAVORITES_QUERY_KEY });
   }
 }

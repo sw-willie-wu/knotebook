@@ -112,6 +112,17 @@ export function Star(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+/** 移出最愛（最愛 tab 選取模式）。路徑取自 lucide `star-off`（ISC），手刻同風格。 */
+export function StarOff(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg data-icon="star-off" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M8.34 8.34 2 9.27l5 4.87L5.82 21 12 17.77 18.18 21l-.59-3.43" />
+      <path d="M18.42 12.76 22 9.27l-6.91-1L12 2l-1.44 2.91" />
+      <path d="m2 2 20 20" />
+    </svg>
+  );
+}
+
 export function Search(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>

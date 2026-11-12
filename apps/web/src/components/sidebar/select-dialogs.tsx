@@ -116,6 +116,20 @@ export function CopyConfirmDialog({ count, target, pathLabel, ...rest }: Confirm
   return <ConfirmShell {...rest} title={label} description={lead} submitLabel={label} submitVariant="outline" />;
 }
 
+/** 最愛 tab 的批次移出確認框（沒有復原，所以先確認）。篇數由呼叫端在開框那一刻快照。 */
+export function UnfavoriteConfirmDialog({ count, ...rest }: ConfirmProps) {
+  const { t } = useTranslation();
+  return (
+    <ConfirmShell
+      {...rest}
+      title={t("select.unfavoriteTitle", { count })}
+      description={t("select.unfavoriteDescription")}
+      submitLabel={t("note.favorite.removeConfirm")}
+      submitVariant="destructive"
+    />
+  );
+}
+
 /**
  * 選了資料夾按「刪除」的彙總確認框：標題資料夾數、內文會進垃圾桶的篇數（各資料夾子樹活筆記的聯集）、
  * 另選了筆記時加一句（也在可及描述裡）；與我共享 tab 是「移除」（資料夾只是自己的分類，筆記回最上層）。數字由呼叫端在開框那一刻快照。
