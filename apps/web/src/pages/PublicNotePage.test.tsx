@@ -119,6 +119,18 @@ describe("PublicNotePage（#72 /p/:token＋#122 /p/:handle/:slug 免登入唯讀
     expect(calls).toEqual([`GET /api/public/notes/${TOKEN}`]);
   });
 
+  it("公開頁沒有最愛星號，也不打最愛清單（#334）", async () => {
+    const body: PublicNoteBody = { title: "公開的筆記", ydoc: ydocBase64(() => {}) };
+    const { fn, calls } = mockFetch((url) => (url === `/api/public/notes/${TOKEN}` ? { status: 200, body } : null));
+    vi.stubGlobal("fetch", fn);
+
+    renderPage();
+
+    await screen.findByTestId("public-note-editor");
+    expect(screen.queryByRole("button", { name: "Favorite" })).toBeNull();
+    expect(calls.some((c) => c.includes("/api/favorites"))).toBe(false);
+  });
+
   it("別名形 /p/<handle>/<slug>（#122）：打 by-path 端點、path 形 ref 交給編輯器、零 auth fetch", async () => {
     const body: PublicNoteBody = {
       title: "別名的筆記",

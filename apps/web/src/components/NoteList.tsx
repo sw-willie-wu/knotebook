@@ -1,8 +1,9 @@
 import { lazy, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactElement, type ReactNode, type RefObject, type SVGProps } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
-import { canonicalNotePath, type FolderDto, type FolderSpaceDto, type GroupDto, type NoteDto } from "@knotebook/shared";
+import { canonicalNotePath, type FavoriteDto, type FolderDto, type FolderSpaceDto, type GroupDto, type NoteDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
+import { useFavorites } from "@/api/favorites";
 import { folderErrorMessage, useFolders } from "@/api/folders";
 import { useGroups } from "@/api/groups";
 import { GroupMenu } from "@/components/groups/GroupMenu";
@@ -53,6 +54,7 @@ export type FolderDialogRequest =
 const EMPTY_GROUPS: GroupDto[] = [];
 const EMPTY_FOLDERS: FolderDto[] = [];
 const EMPTY_NOTES: NoteDto[] = [];
+const EMPTY_FAVORITES: FavoriteDto[] = [];
 const EMPTY_NODES: SidebarNode[] = [];
 
 /** ApiFail → errors.<code>；其餘（網路失敗等）→ errors.fallback。與 LoginPage
@@ -333,7 +335,7 @@ function SidebarNodeList({ nodes, ctx, inGroup = false }: { nodes: SidebarNode[]
           <NoteRow
             key={node.id}
             note={node.note}
-            variant={inGroup ? "group" : ctx.tab === "recent" ? "recent" : "plain"}
+            variant={inGroup ? "group" : ctx.tab === "recent" || ctx.tab === "favorites" ? "recent" : "plain"}
             location={ctx.location}
           />
         ),
@@ -356,6 +358,8 @@ const MESSAGE_CLASS = "p-2 text-sm text-muted-foreground";
  * `GET /api/notes` 的 pending／error 在清單內顯示；`GET /api/groups` 的 pending／error 只影響
  * 群組 tab（與「零筆記時要等群組才知道是不是全空」），群組筆記在那期間依兜底列落與我共享、
  * 資料到了再歸位。搜尋由 `sidebar/SearchResults` 負責。
+ * 最愛 tab：`GET /api/favorites` 只在這個 tab 打，列是它與 `["notes"]` 的交集（依加入時間；標題與位置取 `["notes"]`），
+ * 不等資料夾；`favorites` 失敗但有舊資料時照舊資料顯示。
  * tabpanel 的 `tabIndex={0}` 在 `AppShell`（WAI-ARIA APG：面板第一個有內容的元素不可聚焦時，Tab 要能停在面板上）。
  *
  * 選取模式：標題列「選取」由這裡渲染；進入後標題列內容換成 lazy 的 `SelectHeader`、清單內容換成
@@ -370,6 +374,8 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
   const notesQuery = useNotes();
   const groupsQuery = useGroups();
   const foldersQuery = useFolders();
+  // 只在最愛 tab 打：其他 tab 用不到，平常不多一支請求。
+  const favoritesQuery = useFavorites({ enabled: tab === "favorites" });
   const sortOf = useFolderSortOf();
   const [createOpen, setCreateOpen] = useState(false);
   const addGroupRef = useRef<HTMLButtonElement>(null);
@@ -383,17 +389,20 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
   const groups = groupsQuery.data ?? EMPTY_GROUPS;
   // memo：不 memo 的話每次勾選都換 `nodes`／`groupIds`，選取樹的 `onToggle` 隨之換、所有列重繪。
   const groupIds = useMemo<ReadonlySet<string>>(() => new Set((groupsQuery.data ?? EMPTY_GROUPS).map((group) => group.id)), [groupsQuery.data]);
-  // 我的筆記／群組／與我共享等 `["folders"]`（不先平鋪再跳）；失敗且沒有舊資料 → 空索引（筆記落根層）＋錯誤列。最近 tab 不等。
-  const waitFolders = tab !== "recent" && tab !== "trash";
+  // 我的筆記／群組／與我共享等 `["folders"]`（不先平鋪再跳）；失敗且沒有舊資料 → 空索引（筆記落根層）＋錯誤列。
+  // 最近與最愛 tab 是平鋪清單、不等（資料夾只用來算位置行，晚到時位置行再補上）。
+  const waitFolders = tab !== "recent" && tab !== "favorites" && tab !== "trash";
   const folderIndex = useMemo(() => indexFolders(foldersQuery.data ?? EMPTY_FOLDERS), [foldersQuery.data]);
   const location = useMemo<LocationContext>(() => ({ groupIds, folders: folderIndex }), [groupIds, folderIndex]);
   const foldersPending = waitFolders && foldersQuery.isPending;
+  // 看 `data` 而不是 `isSuccess`：背景重抓失敗後 status 是 error，但舊清單仍在、照舊顯示。
+  const favoritesReady = tab !== "favorites" || favoritesQuery.data !== undefined;
   const nodes = useMemo(
     () =>
-      notesQuery.isSuccess && (tab !== "workspace" || groupsQuery.data !== undefined) && !foldersPending
-        ? buildTabNodes(tab, notesQuery.data, groupsQuery.data ?? EMPTY_GROUPS, folderIndex, sortOf)
+      notesQuery.isSuccess && (tab !== "workspace" || groupsQuery.data !== undefined) && favoritesReady && !foldersPending
+        ? buildTabNodes(tab, notesQuery.data, groupsQuery.data ?? EMPTY_GROUPS, folderIndex, sortOf, favoritesQuery.data ?? EMPTY_FAVORITES)
         : null,
-    [tab, notesQuery.isSuccess, notesQuery.data, groupsQuery.data, foldersPending, folderIndex, sortOf],
+    [tab, notesQuery.isSuccess, notesQuery.data, groupsQuery.data, favoritesReady, favoritesQuery.data, foldersPending, folderIndex, sortOf],
   );
   const selectable = nodes !== null && hasSelectableNodes(nodes);
   const openFolderDialog = (request: FolderDialogRequest, opener: HTMLElement | null) => {
@@ -473,11 +482,24 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
       }
     }
 
+    if (tab === "favorites" && favoritesQuery.data === undefined) {
+      if (favoritesQuery.isError) {
+        return (
+          <p role="alert" className="p-2 text-sm text-destructive">
+            {errorMessage(t, favoritesQuery.error)}
+          </p>
+        );
+      }
+      return <p className={MESSAGE_CLASS}>{t("app.loading")}</p>;
+    }
+
     if (foldersPending) return <p className={MESSAGE_CLASS}>{t("app.loading")}</p>;
-    // 上面已處理 pending／error（群組 tab 另含群組、資料夾），到這裡 `nodes` 一定有值。
+    // 上面已處理 pending／error（群組 tab 另含群組、資料夾；最愛 tab 另含最愛），到這裡 `nodes` 一定有值。
     if (nodes === null) return null;
     if (nodes.length === 0) {
       if (tab === "recent") return emptyState;
+      // 看交集而不是 `favorites` 本身：紀錄都在、但那幾篇此刻都不在 `["notes"]` 時也是空的。
+      if (tab === "favorites") return <p className={MESSAGE_CLASS}>{t("sidebar.emptyFavorites")}</p>;
       if (tab === "shared") return <p className={MESSAGE_CLASS}>{t("sidebar.emptyShared")}</p>;
       if (tab === "myNotes") {
         // 零筆記時要等群組清單才知道是 EmptyState 還是「有群組、只是沒個人筆記」——不然會閃一幀。
@@ -602,9 +624,10 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
           data-drop-scope={listDropScoped ? "" : undefined}
           className={cn("min-h-full overflow-x-clip px-2", listDropScoped && DROP_SCOPE_CLASS)}
         >
-          {selection.active && nodes !== null && nodes.length > 0 && tab !== "trash" ? (
+          {selection.active && nodes !== null && nodes.length > 0 && tab !== "trash" && tab !== "favorites" ? (
             // chunk 還沒到：照常顯示平常的列，到了才換勾選框。選取中清單重抓後變得沒有可勾的篇（只剩空群組）也留在勾選樹：
             // 群組列不帶「＋」與 ⋮，與選取標題列一致；完全沒有節點時是平常的空狀態句（沒有動作鈕）。
+            // 最愛 tab 目前沒有選取模式（標題列不宣告 `selectMode`），所以不進勾選樹。
             <SidebarLazyBoundary chunk="select" fallback={<SidebarNodeList nodes={nodes} ctx={ctx} />} errorClassName="p-2">
               <SelectableTree nodes={nodes} tab={tab} location={location} />
             </SidebarLazyBoundary>

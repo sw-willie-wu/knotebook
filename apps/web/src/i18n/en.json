@@ -22,6 +22,7 @@
   "sidebar": {
     "resize": "Resize sidebar",
     "recent": "Recent",
+    "favorites": "Favorites",
     "myNotes": "My notes",
     "shared": "Shared with me",
     "openDrawer": "Open navigation",
@@ -52,6 +53,7 @@
     "emptyMyNotes": "No personal notes yet.",
     "emptyWorkspace": "You're not in any group yet.",
     "emptyShared": "Nothing has been shared with you yet.",
+    "emptyFavorites": "No favorites yet. Click the star at the top of a note, or choose Add to favorites in its ⋮ menu.",
     "locationGroup": "Groups › {{group}}",
     "locationShared": "Shared with me · {{role}}",
     "locationSharedIn": "Shared with me › {{path}} · {{role}}",
@@ -180,7 +182,17 @@
       "moveTo": "Move to…",
       "copyTo": "Copy to…",
       "makeCopy": "Make a copy",
+      "addFavorite": "Add to favorites",
+      "removeFavorite": "Remove from favorites",
       "delete": "Delete"
+    },
+    "favorite": {
+      "label": "Favorite",
+      "added": "Added to favorites",
+      "removed": "Removed from favorites",
+      "removeTitle": "Remove from favorites?",
+      "removeDescription": "\"{{title}}\" will be removed from your favorites. The note itself isn't changed, and you can add it back later.",
+      "removeConfirm": "Remove"
     },
     "width": {
       "label": "Width",

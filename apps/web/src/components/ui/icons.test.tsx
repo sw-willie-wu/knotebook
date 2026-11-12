@@ -21,6 +21,7 @@ import {
   RotateCcw,
   Rows3,
   SquareCheck,
+  Star,
   Users,
 } from "./icons";
 
@@ -57,6 +58,8 @@ describe("icons", () => {
     // 目的地項目的根目錄與「放進這裡」
     ["house", House],
     ["corner-down-right", CornerDownRight],
+    // 側欄最愛 tab、筆記 ⋮ 與頁首的最愛
+    ["star", Star],
   ] as const)("圖示 %s：帶 data-icon、預設 aria-hidden、吃 className", (name, Icon) => {
     const { container } = render(<Icon className="h-4 w-4" />);
     const svg = container.querySelector("svg");
@@ -70,6 +73,15 @@ describe("icons", () => {
     expect(svg).toHaveAttribute("data-icon", "pencil");
     expect(svg).toHaveAttribute("aria-hidden", "true");
     expect(svg).toHaveClass("h-4", "w-4");
+  });
+  it("Star 預設空心（fill=none）；呼叫端傳 fill=currentColor 畫實心、也可覆寫 aria-hidden", () => {
+    const hollow = render(<Star />).container.querySelector("svg");
+    expect(hollow).toHaveAttribute("fill", "none");
+    expect(hollow).toHaveAttribute("stroke", "currentColor");
+    const solid = render(<Star fill="currentColor" aria-hidden="false" />).container.querySelector("svg");
+    expect(solid).toHaveAttribute("data-icon", "star");
+    expect(solid).toHaveAttribute("fill", "currentColor");
+    expect(solid).toHaveAttribute("aria-hidden", "false");
   });
   it.each(NOTE_WIDTHS)("NoteWidthIcon %s：data-icon=note-width-<w>、預設 aria-hidden、吃 className（#297）", (width) => {
     const { container } = render(<NoteWidthIcon width={width} className="h-4 w-4" />);

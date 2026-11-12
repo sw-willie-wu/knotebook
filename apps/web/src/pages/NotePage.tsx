@@ -29,6 +29,7 @@ import { AppShell, SidebarDrawerButton } from "@/components/AppShell";
 import { NarrowTopBar } from "@/components/NarrowTopBar";
 import { BacklinksSection } from "@/components/BacklinksSection";
 import { ConnectionBadge } from "@/components/ConnectionBadge";
+import { FavoriteToggle } from "@/components/FavoriteToggle";
 import { InTrashCard } from "@/components/InTrashCard";
 import { ChunkLoadBeacon, LazyRouteErrorBoundary, LazyRouteLoading } from "@/components/ErrorBoundary";
 import { LastEditedLabel } from "@/components/LastEditedLabel";
@@ -821,6 +822,7 @@ export default function NotePage() {
                     scrollerRef={cursorScrollerRef}
                   />
                   <LastEditedLabel note={note} onOpenEdits={openEdits} />
+                  <FavoriteToggle note={note} />
                   <ShareDialog note={note} />
                   {/* #297：寬度 icon 只在頁首夠寬時顯示（@container，見 NoteWidthMenu）。 */}
                   <NoteWidthMenu noteId={noteId!} />
