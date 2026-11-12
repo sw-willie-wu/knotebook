@@ -432,11 +432,17 @@ export async function expectWidePointer(page: Page, wide: boolean): Promise<void
  * `scope`：層疊各層同時開著，「Move here」等同名項可能在好幾層都有——傳 `openedSubmenu` 回傳的那一層限定範圍。
  */
 export async function clickMenuItemByPointer(page: Page, name: string, scope?: Locator): Promise<void> {
-  const target = (scope ?? page).getByRole("menuitem", { name, exact: true });
+  await clickByPointer(page, (scope ?? page).getByRole("menuitem", { name, exact: true }));
+}
+
+/**
+ * 滑鼠分段移到 `target` 中心再點（選單的 radio 項等：一步瞬移離開 SubTrigger，Radix 會判定沒往子選單走而關掉它）。
+ */
+export async function clickByPointer(page: Page, target: Locator): Promise<void> {
   await expect(target).toBeVisible();
   await target.scrollIntoViewIfNeeded();
   const box = await target.boundingBox();
-  expect(box, `menuitem「${name}」量不到位置`).not.toBeNull();
+  expect(box, "要點的元素量不到位置").not.toBeNull();
   await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2, { steps: 10 });
   await target.click();
 }
