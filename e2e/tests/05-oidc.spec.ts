@@ -1,17 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { test, expect } from "@playwright/test";
+import { IDP_CONTROL_ORIGIN } from "../ports.js";
 import { ADMIN, createUserViaInvite, loginAs, randomEmail } from "./helpers.js";
 
 /**
  * 流程 5（#187 改寫）：SSO 兩情境（fake-idp）。e2e 疊的 `global-setup.ts` 以管理 API 建一個名為「SSO」的登入服務（指向 fake-idp 根 issuer、已啟用、
  * 開自動建帳），所以按鈕是「Sign in with SSO」。舊回呼網址（legacy_callback）管理 API 建不出來，只由 server 整合測試涵蓋。
  *
- * control endpoint 走 `http://localhost:9400/control/next-login`（`request` fixture 不吃瀏覽器的 host-resolver-rules）。
+ * control endpoint 走 `IDP_CONTROL_ORIGIN`（`e2e/ports.ts`）下的 `/control/next-login`（`request` fixture 不吃瀏覽器的 host-resolver-rules）。
  * 識別值一律隨機化（sub、email）：腳本失敗時不 down 疊，重跑會吃到髒資料。
  * 另有一支量登入頁控制項高度（44px）：jsdom 不套 CSS，只能借這支的 SSO 按鈕在真瀏覽器量。
  */
 
-const CONTROL_URL = "http://localhost:9400/control/next-login";
+const CONTROL_URL = `${IDP_CONTROL_ORIGIN}/control/next-login`;
 const SSO_BUTTON = "Sign in with SSO";
 
 test("情境一：SSO 登入未知 email → 自動建帳並登入", async ({ request, browser }) => {

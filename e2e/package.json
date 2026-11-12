@@ -3,8 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "stack:up": "docker compose -p knotebook-e2e -f ../docker-compose.yml -f ../docker-compose.e2e.yml up --build --wait",
-    "stack:down": "docker compose -p knotebook-e2e -f ../docker-compose.yml -f ../docker-compose.e2e.yml down -v",
+    "stack:up": "docker compose -p ${E2E_PROJECT:-knotebook-e2e} -f ../docker-compose.yml -f ../docker-compose.e2e.yml up --build --wait --wait-timeout 300",
+    "stack:down": "docker compose -p ${E2E_PROJECT:-knotebook-e2e} -f ../docker-compose.yml -f ../docker-compose.e2e.yml down -v",
+    "stack:ps": "docker compose -p ${E2E_PROJECT:-knotebook-e2e} -f ../docker-compose.yml -f ../docker-compose.e2e.yml ps -a",
     "test:e2e": "playwright test"
   },
   "devDependencies": {

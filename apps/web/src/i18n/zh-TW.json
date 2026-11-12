@@ -8,6 +8,7 @@
     "noteCrash": "此頁發生錯誤。",
     "crashTitle": "發生錯誤",
     "reload": "重新整理",
+    "updateAvailable": "Knotebook 已更新",
     "offlineHint": "目前似乎離線——連線恢復後按鈕會重新啟用。"
   },
   "home": {

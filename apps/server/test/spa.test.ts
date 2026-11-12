@@ -21,6 +21,21 @@ describe("SPA fallback", () => {
     writeFileSync(path.join(webDist, "assets", "app.js"), "console.log('app');");
     // 根目錄的靜態檔（apps/web/public → dist 根）：瀏覽器分頁圖示。
     writeFileSync(path.join(webDist, "favicon.svg"), '<svg xmlns="http://www.w3.org/2000/svg"/>');
+    // #336：安裝成 app 用的 manifest 同樣放在 dist 根目錄。
+    writeFileSync(path.join(webDist, "manifest.webmanifest"), '{"name":"Knotebook","display":"standalone"}');
+  });
+
+  it("GET /manifest.webmanifest → 200 application/manifest+json（#336；static 送，不被 SPA fallback 吞成 index.html）", async () => {
+    const { app } = await buildTestApp({}, { webDist });
+    // 瀏覽器抓 manifest 的 Accept 是 */*；再用 text/html 證明即使如此也不會落進 fallback。
+    for (const accept of ["*/*", "text/html"]) {
+      const res = await app.inject({ method: "GET", url: "/manifest.webmanifest", headers: { accept } });
+      expect(res.statusCode).toBe(200);
+      expect(res.headers["content-type"]).toContain("application/manifest+json");
+      expect(res.json()).toMatchObject({ name: "Knotebook", display: "standalone" });
+      expect(res.body).not.toContain("knotebook spa");
+      expect(res.headers["cache-control"]).toBe("no-cache");
+    }
   });
 
   afterAll(() => {
@@ -36,6 +51,8 @@ describe("SPA fallback", () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers["content-type"]).toContain("text/html");
     expect(res.body).toContain("knotebook spa");
+    // index.html 決定載入哪一組 /assets/*，每次都要回 server 確認
+    expect(res.headers["cache-control"]).toBe("no-cache");
   });
 
   it("真實瀏覽器 Accept 字串（含 text/html 子字串）→ index.html", async () => {
@@ -77,6 +94,8 @@ describe("SPA fallback", () => {
     const res = await app.inject({ method: "GET", url: "/assets/app.js" });
     expect(res.statusCode).toBe(200);
     expect(res.body).toBe("console.log('app');");
+    // 檔名帶內容 hash：快取一年、不 revalidate
+    expect(res.headers["cache-control"]).toBe("public, max-age=31536000, immutable");
   });
 
   it("GET /favicon.svg → 200 image/svg+xml（dist 根目錄的檔案由 static 送，不被 SPA fallback 吞成 index.html）", async () => {
@@ -87,6 +106,7 @@ describe("SPA fallback", () => {
       expect(res.statusCode).toBe(200);
       expect(res.headers["content-type"]).toContain("image/svg+xml");
       expect(res.body).toContain("<svg");
+      expect(res.headers["cache-control"]).toBe("no-cache");
       expect(res.body).not.toContain("knotebook spa");
     }
   });
@@ -221,7 +241,7 @@ describe("SPA fallback", () => {
     expect(res.headers["x-robots-tag"]).toBe("noindex");
   });
 
-  it("#72：/p 本身、//p/、/P/ 變體同樣 noindex（判定與 log 遮罩共用正規化——只修一邊的洩漏形實測過）", async () => {
+  it("#72：/p 本身、//p/、/P/ 變體同樣 noindex（判定與 log 遮罩共用正規化——只修一邊就會漏掉這些變體）", async () => {
     const { app } = await buildTestApp({}, { webDist });
     for (const url of ["/p", "//p/some-token", "/P/some-token"]) {
       const res = await app.inject({ method: "GET", url, headers: { accept: "text/html" } });

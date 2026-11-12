@@ -1,4 +1,5 @@
 import { defineConfig } from "@playwright/test";
+import { E2E_ORIGIN, IDP_PORT } from "./ports.js";
 
 export default defineConfig({
   testDir: "./tests",
@@ -6,9 +7,9 @@ export default defineConfig({
   workers: 1, // 單 worker 序列、共用一座疊
   timeout: 60_000,
   use: {
-    baseURL: "http://localhost:3100",
+    baseURL: E2E_ORIGIN,
     trace: "retain-on-failure",
     locale: "en-US", // 斷言釘死英文文案（i18n 預設語言，避免跑者作業系統語系飄移影響 getByText 斷言）
-    launchOptions: { args: ["--host-resolver-rules=MAP fake-idp 127.0.0.1"] }, // issuer 一致性
+    launchOptions: { args: [`--host-resolver-rules=MAP fake-idp:9400 127.0.0.1:${IDP_PORT}`] }, // issuer 一致性（容器內固定 fake-idp:9400；本機發布埠可變）
   },
 });

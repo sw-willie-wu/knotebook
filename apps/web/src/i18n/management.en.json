@@ -516,6 +516,8 @@
       "source": "Source code",
       "docs": "Documentation",
       "docsLink": "docs/ folder",
+      "installApp": "Install",
+      "installAppLink": "How to install Knotebook as an app",
       "license": "License"
     },
     "account": {

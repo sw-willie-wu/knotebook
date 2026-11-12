@@ -516,6 +516,8 @@
       "source": "原始碼",
       "docs": "文件",
       "docsLink": "docs/ 目錄",
+      "installApp": "安裝",
+      "installAppLink": "如何把 Knotebook 安裝成 App",
       "license": "授權條款"
     },
     "account": {

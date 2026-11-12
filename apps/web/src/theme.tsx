@@ -14,6 +14,13 @@ export const ACCENTS = ["indigo", "blue", "teal", "sage", "rose", "gold"] as con
 
 export type Accent = (typeof ACCENTS)[number];
 
+/**
+ * 各主題下的實際頁底色（index.css 的 --background）。同步到 <meta name="theme-color">，
+ * 讓 standalone／PWA 的上方列跟 app 內選的主題。index.html 的兩個 meta 初始值與
+ * manifest 的 theme_color（淺色）須與此一致，由 pwa-manifest.test.ts 守住。
+ */
+export const THEME_COLOR = { light: "#f3f4f6", dark: "#0e1013" } as const;
+
 const STORAGE_KEY = "knotebook:theme";
 const ACCENT_STORAGE_KEY = "knotebook:accent";
 
@@ -48,6 +55,11 @@ function resolveTheme(theme: Theme): "light" | "dark" {
 function applyResolvedTheme(resolved: "light" | "dark"): void {
   if (typeof document === "undefined") return;
   document.documentElement.classList.toggle("dark", resolved === "dark");
+  // 兩個 <meta name="theme-color">（淺／深，靠 media 查詢只認 OS）都改成 app 實際主題的頁底色，
+  // 讓 PWA 上方列跟 app 內選的主題。找不到 meta 就靜默略過。
+  for (const meta of document.head.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')) {
+    meta.setAttribute("content", THEME_COLOR[resolved]);
+  }
 }
 
 function readStoredAccent(): Accent {
