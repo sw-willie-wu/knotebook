@@ -14,7 +14,9 @@
 //      資料夾對話框同理：FolderLazy chunk 必須存在，且 entry 不得含資料夾字串包的鍵名（FOLDER_I18N_MARKER）。
 //      快捷鍵介紹同理：ShortcutsLazy chunk 必須存在，且 entry 不得含 SHORTCUTS_I18N_MARKER。
 //      側欄搜尋的內文區（#93）同理：BodySearchLazy chunk 必須存在，且 entry 不得含內文區的 marker（BODY_SEARCH_MARKER）。
-//      頭貼的解碼／編碼模組（avatars/encode.ts）不得進首包：entry 不得含 AVATAR_IMAGE_MARKER（只擋進 entry，不驗它是否獨立成 chunk）。
+//      頭貼的解碼／編碼模組（avatars/encode.ts）只能是自己的 lazy chunk：AVATAR_IMAGE_MARKER 必須出現在檔名為 encode-*.js 的 chunk，
+//      且 entry 與其他任何 JS 都不得含它（含被別的 lazy chunk，例如裁切框，靜態 import 而併進去的形）；
+//      再者任何 chunk 都不得靜態 import encode-*.js（兩個以上的靜態使用者會讓它成為共用 chunk，marker 查不到，但開頁就會下載）。
 //      站台管理／設定的字串包（management-strings，首包瘦身）同理：entry 不得含 MANAGEMENT_I18N_MARKERS，且 management-strings chunk 必須存在並帶著它們。
 //
 // 全程 fail-closed：dist 不存在、找不到 entry、找到多個 entry，一律 throw 而非放行
@@ -101,10 +103,12 @@ export const SHORTCUTS_I18N_MARKER = 'columnBackspace';
 // 先前用的根元素 testid 在合併列表重寫後改成與首包共用的 sidebar-search-results，所以換成這個。
 export const BODYSEARCHLAZY_RE = /^BodySearchLazy-[A-Za-z0-9_-]+\.js$/;
 export const BODY_SEARCH_MARKER = 'body-match';
-// 頭貼的解碼／編碼模組（`avatars/encode.ts`）不得進首包。marker 是它匯出的錯誤類別在 `this.name` 設的字串字面量
-// （字面量不會被 minify 改掉，類別名會）：entry 含它＝該模組被首包靜態 import（含間接）。
-// 只擋這一種；被某個 lazy chunk 靜態 import 的情形（併進該 chunk、不進首包）不在檢查範圍。
+// 頭貼的解碼／編碼模組（`avatars/encode.ts`）只能是自己的 lazy chunk（裁切框按儲存時才 `import("@/avatars/encode")`）。
+// marker 是它匯出的錯誤類別在 `this.name` 設的字串字面量（字面量不會被 minify 改掉，類別名會）。兩個方向都查：
+//   正向：含 marker 的 JS 檔必須都叫 encode-<hash>.js（entry 含它＝被首包靜態 import；別的 lazy chunk 含它＝被裁切框等靜態 import 而併進去）；
+//   反向：至少要有一個含 marker 的 encode-<hash>.js（chunk 名來自模組檔名 encode.ts；若 rollup 改了命名慣例，請更新 pattern，不要刪檢查）。
 export const AVATAR_IMAGE_MARKER = 'AvatarImageError';
+export const AVATAR_ENCODE_RE = /^encode-[A-Za-z0-9_-]+\.js$/;
 // 站台管理（admin.*）與設定（settings.*）的字串包（management.*.json，經 `@/i18n/management-strings` 註冊）也只能進 lazy 鏈：
 // 首包只留 AdminModal／SettingsModal／UserMenu 用到的 15 個鍵。兩個 marker 各取一個只在被搬走子樹裡的鍵名
 // （admin.auth.edit.autoCreateConfirmKeep、settings.ai.actionBuiltinBadge），entry 含任一個＝字串包被首包靜態 import（含「某個首包檔 import 了它」）。
@@ -339,6 +343,34 @@ export function checkBundleSize(assetsDir, { maxEntryBytes = MAX_ENTRY_BYTES } =
         `被首包靜態 import；解碼／編碼不得進首包`
     );
   }
+  const avatarMarkerHits = names.filter(n => n.endsWith('.js') && readFileSync(join(assetsDir, n), 'utf8').includes(AVATAR_IMAGE_MARKER));
+  const avatarStray = avatarMarkerHits.filter(n => !AVATAR_ENCODE_RE.test(n));
+  if (avatarStray.length > 0) {
+    throw new Error(
+      `${avatarStray.join(', ')} 含頭貼影像模組的 marker ${AVATAR_IMAGE_MARKER}——\`avatars/encode.ts\` 被 \`import("@/avatars/encode")\` 以外的地方靜態 import，` +
+        `併進了這個 chunk（解碼／編碼不再是按儲存才下載的獨立 chunk）`
+    );
+  }
+  const avatarEncodeChunks = avatarMarkerHits.filter(n => AVATAR_ENCODE_RE.test(n));
+  if (avatarEncodeChunks.length === 0) {
+    throw new Error(
+      `找不到含 ${AVATAR_IMAGE_MARKER} 的 encode-<hash>.js——頭貼的解碼／編碼模組沒有成為獨立 chunk（裁切框的動態 import 被拿掉，或被靜態 import 併走）；` +
+        `若是 rollup 改了 chunk 命名慣例，請更新本檢查的 pattern，不要刪檢查`
+    );
+  }
+
+  // marker 只能抓到「encode.ts 的程式碼被併進別的 chunk」。若 encode 因為有兩個以上的靜態使用者而成為共用 chunk，
+  // 它仍叫 encode-<hash>.js，但開筆記頁／設定頁就會一起下載——所以再查：任何 JS 都不得以靜態 import 載入 encode-<hash>.js
+  // （動態 `import("./encode-….js")` 不算）。
+  for (const name of names.filter(n => n.endsWith('.js'))) {
+    const source = readFileSync(join(assetsDir, name), 'utf8');
+    const staticEncode = [...source.matchAll(STATIC_IMPORT_RE)].map(m => m[1]).filter(n => AVATAR_ENCODE_RE.test(n));
+    if (staticEncode.length > 0) {
+      throw new Error(
+        `${name} 靜態 import 了 ${[...new Set(staticEncode)].join(', ')}——頭貼的解碼／編碼 chunk 只能經 \`import("@/avatars/encode")\` 在按儲存時才載入`
+      );
+    }
+  }
 
   for (const name of names.filter(n => n.endsWith('.js') && !PRESENTATION_RE.test(n))) {
     if (readFileSync(join(assetsDir, name), 'utf8').includes(REVEAL_MARKER)) {
@@ -376,7 +408,7 @@ export function checkBundleSize(assetsDir, { maxEntryBytes = MAX_ENTRY_BYTES } =
     }
   }
 
-  return { entryName, entryBytes, notePageChunks, mermaidChunks, shikiChunks, adminSectionsChunks, versionsChunks, presentationChunks, trashChunks, selectChunks, folderChunks, shortcutsChunks, managementChunks, bodySearchChunks };
+  return { entryName, entryBytes, notePageChunks, mermaidChunks, shikiChunks, adminSectionsChunks, versionsChunks, presentationChunks, trashChunks, selectChunks, folderChunks, shortcutsChunks, managementChunks, bodySearchChunks, avatarEncodeChunks };
 }
 
 // 直接執行（非被 import）時跑真的 dist。
@@ -393,7 +425,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
         `${result.shortcutsChunks.join(', ')}（entry 不含 ${SHORTCUTS_I18N_MARKER}）、` +
         `${result.managementChunks.join(', ')}（entry 不含 ${MANAGEMENT_I18N_MARKERS.join('、')}）、` +
         `${result.bodySearchChunks.join(', ')}（entry 不含 ${BODY_SEARCH_MARKER}）、` +
-        `entry 不含 ${AVATAR_IMAGE_MARKER}`
+        `${result.avatarEncodeChunks.join(', ')}（${AVATAR_IMAGE_MARKER} 只在這個 chunk，entry 與其他 chunk 都不含）`
     );
   } catch (err) {
     console.error(String(err instanceof Error ? err.message : err));

@@ -125,6 +125,7 @@ export function panelFetch(user: UserDto) {
     if (url === "/api/auth/identities") return Promise.resolve(json({ ...IDENTITIES, hasPassword: user.hasPassword }));
     if (url === "/api/auth/tokens") return Promise.resolve(json({ tokens: [TOKEN] }));
     if (url === "/api/storage") return Promise.resolve(json(STORAGE));
+    if (url === "/api/auth/avatars") return Promise.resolve(json({ candidates: [], auto: false, refreshable: [] }));
     if (url === "/api/groups") return Promise.resolve(json(GROUPS));
     if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
     if (url === "/api/notes") return Promise.resolve(json([]));

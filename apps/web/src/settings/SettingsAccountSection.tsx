@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toast";
 import { useSession } from "@/auth/useSession";
+import { AvatarSection } from "./AvatarSection";
 import { SettingsGroup, SettingsPage } from "./SettingsLayout";
 import "@/i18n/management-strings";
 
@@ -151,13 +152,14 @@ function HandleSection() {
 }
 
 /**
- * 個人設定「帳戶資訊」（`/settings/account`，#247）：顯示名稱與網址名稱兩區塊。密碼與已連結登入方式
+ * 個人設定「帳戶資訊」（`/settings/account`，#247）：頭貼、顯示名稱與網址名稱三區塊。密碼與已連結登入方式
  * 在「登入」頁、API token 在「授權」頁、用量與自動版本在「儲存空間」頁。
  */
 export function SettingsAccountSection() {
   const { t } = useTranslation();
   return (
     <SettingsPage title={t("settings.nav.account")} description={t("settings.account.description")}>
+      <AvatarSection />
       <DisplayNameSection />
       <HandleSection />
     </SettingsPage>
