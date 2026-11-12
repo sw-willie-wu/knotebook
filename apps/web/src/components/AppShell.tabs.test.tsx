@@ -187,7 +187,8 @@ describe("AppShell — 側欄 tab 接線", () => {
     expect(drawer.contains(document.getElementById(drawerControls))).toBe(true);
 
     const ids = [...document.querySelectorAll("[role=tab], [role=tabpanel]")].map((el) => el.id);
-    expect(ids).toHaveLength(12);
+    // 靜態卡與抽屜兩份 ×（六顆 tab＋一個 tabpanel）
+    expect(ids).toHaveLength(14);
     expect(new Set(ids).size).toBe(ids.length);
   });
 

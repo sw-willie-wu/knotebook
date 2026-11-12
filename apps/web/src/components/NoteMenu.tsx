@@ -3,10 +3,11 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router";
 import { canonicalNotePath, type NoteDto } from "@knotebook/shared";
-import { ApiFail } from "@/api/client";
+import { errorMessage, useAddFavorite, useFavoriteStatus, useRemoveFavorite } from "@/api/favorites";
 import { useDeleteNote } from "@/api/notes";
 import { isTerminal, type CollabState } from "@/collab/connection";
 import { copyText } from "@/lib/clipboard";
+import { captureRemoveContext, focusAfterRemoveLater, type RemoveContext } from "@/lib/favorite-focus";
 import { placeNoteWithUndo } from "@/lib/note-place";
 import { useNotePageControls, type OpenEditsState } from "@/lib/note-page-controls";
 import { useCloseSidebarDrawer } from "@/lib/sidebar-drawer";
@@ -17,7 +18,8 @@ import { Button } from "@/components/ui/button";
 import { hoverReveal } from "@/components/ui/reveal";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { EllipsisVertical, History, Link as LinkIcon, MessageCircle, Presentation, Trash } from "@/components/ui/icons";
+import { EllipsisVertical, History, Link as LinkIcon, MessageCircle, Presentation, Star, Trash } from "@/components/ui/icons";
+import { FavoriteRemoveDialog } from "@/components/FavoriteRemoveDialog";
 import { ManualCopyField } from "@/components/ManualCopyField";
 import {
   EMPTY_DEST_PATHS,
@@ -34,15 +36,6 @@ import { destinationShortLabel } from "@/components/sidebar/destination-level";
 import { toast } from "@/components/ui/toast";
 import { usePresentEntry } from "@/present/usePresentEntry";
 import { tourTarget } from "@/lib/tour-targets";
-
-/** ApiFail → errors.<code>；其餘 → errors.fallback。與 NoteList/ShareDialog 同一套對映
- * （各檔各自一份，是既有慣例）。 */
-function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {
-  if (err instanceof ApiFail) {
-    return t(`errors.${err.code}`, { defaultValue: t("errors.fallback") });
-  }
-  return t("errors.fallback");
-}
 
 export interface NoteMenuProps {
   note: NoteDto;
@@ -61,7 +54,7 @@ export interface NoteMenuProps {
 }
 
 /**
- * 內文卡頁頭的 ⋮ 選單：複製連結（任何角色）＋簡報模式（#229，任何角色）＋AI 修改紀錄＋移動到…／複製到…（#216；逐層子選單，規則見 `sidebar/destination-level.ts`、兩種形態見 `share/GroupTransfer.tsx`，「複製到我的筆記」已併入「複製到… → 我的筆記」）
+ * 內文卡頁頭的 ⋮ 選單：加入／移出最愛（第一項，任何角色；移出先確認，見 `FavoriteMenuItem`）＋複製連結（任何角色）＋簡報模式（#229，任何角色）＋AI 修改紀錄＋移動到…／複製到…（#216；逐層子選單，規則見 `sidebar/destination-level.ts`、兩種形態見 `share/GroupTransfer.tsx`，「複製到我的筆記」已併入「複製到… → 我的筆記」）
  * ＋移到垃圾桶（`permissions.delete`，#175；#181 起刪除＝移入垃圾桶）。
  *
  * **移到垃圾桶不確認**：點下選單項即送 DELETE；成功 toast「已移到垃圾桶」，
@@ -181,11 +174,40 @@ function VersionsMenuItem({ onActivate }: { onActivate: () => void }) {
   );
 }
 
+/**
+ * 「加入最愛／移出最愛」項。在選單內容裡才呼叫 `useFavoriteStatus`（Radix 的選單內容只在開啟時掛載），
+ * 所以側欄每列平常不訂閱 `["favorites"]`。查詢還沒到或失敗、或這一篇有切換在送出中（重開選單也一樣）→ `aria-disabled`＋選了不做事，
+ * 不用 `disabled`：用鍵盤開選單時 Radix 把焦點放在第一個可用項，`disabled` 會讓焦點落到第二項，之後項目可用了也不會移回來。
+ * 三步形同 AI 修改紀錄項（focus trap 規矩，見檔頭）：`onAdd`／`onRemove` 由外層負責關選單。
+ */
+function FavoriteMenuItem({ noteId, onAdd, onRemove }: { noteId: string; onAdd: () => void; onRemove: () => void }) {
+  const { t } = useTranslation();
+  const { ready, favorite, pending } = useFavoriteStatus(noteId);
+  const unavailable = !ready || pending;
+  return (
+    <DropdownMenuItem
+      aria-disabled={unavailable ? true : undefined}
+      className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+      onSelect={(event) => {
+        event.preventDefault();
+        if (unavailable) return;
+        if (favorite) onRemove();
+        else onAdd();
+      }}
+    >
+      <Star className="mr-2 h-4 w-4" fill={favorite ? "currentColor" : "none"} />
+      {favorite ? t("note.menu.removeFavorite") : t("note.menu.addFavorite")}
+    </DropdownMenuItem>
+  );
+}
+
 function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef: externalTriggerRef }: NoteMenuCoreProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const deleteNote = useDeleteNote();
+  const addFavorite = useAddFavorite();
+  const removeFavorite = useRemoveFavorite();
   const versions = useVersions();
 
   // 每次 render 同步寫入——`handleTrash` 的 catch 分支讀最新值，避開
@@ -206,6 +228,34 @@ function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef:
   /** 就地展開形移動、複製各自的所在層；選單關閉、收合、跨過寬窄判準時回第一層。 */
   const [paths, setPaths] = useState<DestPaths>(EMPTY_DEST_PATHS);
   const [manualCopyUrl, setManualCopyUrl] = useState<string | null>(null);
+  /** 移出最愛的確認框；非 null 時才掛載（側欄每列不常駐一份 Dialog）。 */
+  const [removing, setRemoving] = useState<RemoveContext | null>(null);
+
+  async function handleAddFavorite(): Promise<void> {
+    setMenuOpen(false);
+    try {
+      await addFavorite.mutateAsync({ noteId: note.id });
+      toast({ title: t("note.favorite.added") });
+    } catch (err) {
+      toast({ title: errorMessage(t, err), variant: "destructive" });
+    }
+  }
+
+  /**
+   * 確認後 `await mutateAsync`，關框、toast、焦點都在 await 之後：最愛 tab 裡這一列會在 204 之後卸載，
+   * 連同掛在它底下的確認框，`mutate(vars, { onSuccess })` 的回呼在 observer 卸載後不會被呼叫。
+   */
+  async function handleConfirmRemove(ctx: RemoveContext): Promise<void> {
+    try {
+      await removeFavorite.mutateAsync({ noteId: note.id });
+      setRemoving(null);
+      toast({ title: t("note.favorite.removed") });
+    } catch (err) {
+      setRemoving(null);
+      toast({ title: errorMessage(t, err), variant: "destructive" });
+    }
+    focusAfterRemoveLater(ctx);
+  }
 
   /**
    * 子選單選定非 `>` 項：先收合、回第一層、關選單（確認框的 FocusScope 不與選單互搶）。
@@ -328,6 +378,14 @@ function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef:
             event.preventDefault();
           }}
         >
+          <FavoriteMenuItem
+            noteId={note.id}
+            onAdd={() => void handleAddFavorite()}
+            onRemove={() => {
+              setMenuOpen(false);
+              setRemoving(captureRemoveContext(triggerRef.current));
+            }}
+          />
           <DropdownMenuItem
             onSelect={(event) => {
               event.preventDefault();
@@ -410,6 +468,21 @@ function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef:
           )}
         </DropdownMenuContent>
       </DropdownMenu>
+
+      {removing !== null && (
+        <FavoriteRemoveDialog
+          title={note.title}
+          open
+          pending={removeFavorite.isPending}
+          onConfirm={() => void handleConfirmRemove(removing)}
+          onOpenChange={(open) => {
+            if (open) return;
+            setRemoving(null);
+            focusAfterRemoveLater(removing);
+          }}
+          onCloseAutoFocus={(event) => event.preventDefault()}
+        />
+      )}
 
       {transfer !== null && <GroupTransferDialog note={note} pick={transfer} onClose={() => setTransfer(null)} returnFocusRef={triggerRef} />}
 

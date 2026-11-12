@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { GroupDto, NoteDto, NotePermissions } from "@knotebook/shared";
+import type { FavoriteDto, GroupDto, NoteDto, NotePermissions } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { adminRole, EDITOR_PERMS, groupDto, OWNER_PERMS, VIEWER_PERMS } from "@/test/fixtures";
 import { folderDto, groupFolder, sharedFolder } from "@/test/folder-fixtures";
@@ -8,6 +8,7 @@ import { EMPTY_FOLDER_INDEX, indexFolders } from "./folder-index";
 import { __resetFolderSortForTests, type FolderSort } from "./folder-sort";
 import {
   buildTabNodes,
+  favoriteNotes,
   hasSelectableNodes,
   noteBucket,
   noteLocationLabel,
@@ -167,6 +168,51 @@ describe("buildTabNodes", () => {
   it("trash → []（垃圾桶不從 notes 組樹；不落入群組兜底）", () => {
     expect(groups.length).toBeGreaterThan(0);
     expect(buildTabNodes("trash", notes, groups, EMPTY_FOLDER_INDEX)).toEqual([]);
+  });
+});
+
+describe("favoriteNotes／buildTabNodes(favorites)", () => {
+  const fav = (noteId: string, favoritedAt = "2026-01-01T00:00:00.000Z"): FavoriteDto => ({ noteId, favoritedAt });
+  const a = note("a");
+  const b = note("b");
+  const c = note("c");
+
+  it("依 favorites 的順序輸出，不照 notes 的順序", () => {
+    expect(favoriteNotes([a, b, c], [fav("c"), fav("a"), fav("b")]).map((n) => n.id)).toEqual(["c", "a", "b"]);
+  });
+
+  it("favorites 有、notes 沒有的 id 略過；notes 有、favorites 沒有的不出現", () => {
+    expect(favoriteNotes([a, b], [fav("gone"), fav("b")]).map((n) => n.id)).toEqual(["b"]);
+    expect(favoriteNotes([a, b, c], [fav("a")]).map((n) => n.id)).toEqual(["a"]);
+    expect(favoriteNotes([a], [fav("gone")])).toEqual([]);
+  });
+
+  it("不改動輸入陣列", () => {
+    const notes = [a, b, c];
+    const favorites = [fav("c"), fav("a")];
+    const notesCopy = [...notes];
+    const favoritesCopy = favorites.map((f) => ({ ...f }));
+    favoriteNotes(notes, favorites);
+    expect(notes).toEqual(notesCopy);
+    expect(favorites).toEqual(favoritesCopy);
+  });
+
+  it("buildTabNodes(favorites) 只回筆記節點：即使筆記在資料夾或群組裡，也沒有群組或資料夾節點", () => {
+    const folders = indexFolders([folderDto({ id: "A", name: "A" }), groupFolder({ id: "gf", name: "GF", groupId: GROUP_A.id })]);
+    const inFolder = note("in-folder", { folderId: "A" });
+    const inGroupFolder = { ...groupNote("in-group-folder", GROUP_A, "editor"), folderId: "gf" };
+    const nodes = buildTabNodes("favorites", [inFolder, inGroupFolder, MY_GROUP_NOTE, SHARED_NOTE], [GROUP_A, GROUP_B], folders, undefined, [
+      fav(SHARED_NOTE.id),
+      fav("in-group-folder"),
+      fav(MY_GROUP_NOTE.id),
+      fav("in-folder"),
+    ]);
+    expect(nodes.every((node) => node.kind === "note")).toBe(true);
+    expect(nodes.map((node) => node.id)).toEqual([SHARED_NOTE.id, "in-group-folder", MY_GROUP_NOTE.id, "in-folder"]);
+  });
+
+  it("buildTabNodes(favorites) 不傳 favorites → []（不落入群組兜底）", () => {
+    expect(buildTabNodes("favorites", [OWNER_NOTE, MY_GROUP_NOTE], [GROUP_A, GROUP_B], EMPTY_FOLDER_INDEX)).toEqual([]);
   });
 });
 

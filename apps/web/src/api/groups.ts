@@ -76,6 +76,8 @@ export function useInvalidateGroupsAndNotes() {
     void queryClient.invalidateQueries({ queryKey: ["trash"] });
     // 資料夾：刪群組轉移會建資料夾、移人／退出讓群組資料夾消失、角色變了 permissions 也變
     void queryClient.invalidateQueries({ queryKey: ["folders"] });
+    // 最愛清單只回此刻讀得到的筆記：重新取得讀取權時要重抓，最愛才會回來
+    void queryClient.invalidateQueries({ queryKey: ["favorites"] });
   };
 }
 
@@ -220,6 +222,8 @@ export function useUpdateRole(groupId: string) {
       void queryClient.invalidateQueries({ queryKey: ["trash"] });
       // 資料夾：群組資料夾的 permissions 跟著角色旗標變
       void queryClient.invalidateQueries({ queryKey: ["folders"] });
+      // 最愛清單只回此刻讀得到的筆記：角色改回可讀時要重抓，最愛才會回來
+      void queryClient.invalidateQueries({ queryKey: ["favorites"] });
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: GROUPS_QUERY_KEY }),
   });

@@ -3,7 +3,7 @@ import { useState, type ReactNode } from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation, useNavigate, type NavigateFunction } from "react-router";
-import type { GroupDto, NoteDto, UserDto } from "@knotebook/shared";
+import type { FavoriteDto, GroupDto, NoteDto, UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import type { CollabState } from "@/collab/connection";
 import { ActiveNoteProvider } from "@/lib/active-note";
@@ -57,6 +57,11 @@ const GA3 = groupNote({ id: "ga3", title: "ga3", group: GA, edit: false });
 const GA4 = groupNote({ id: "ga4", title: "ga4", group: GA, delete: false });
 const S1 = sharedNote({ id: "s1", title: "s1", role: "viewer" });
 const ALL = [P1, P2, P3, GA1, GA2, GA3, GA4, S1];
+const FAVORITES: FavoriteDto[] = [
+  { noteId: "p2", favoritedAt: "2026-03-03T00:00:00.000Z" },
+  { noteId: "ga1", favoritedAt: "2026-03-02T00:00:00.000Z" },
+  { noteId: "p1", favoritedAt: "2026-03-01T00:00:00.000Z" },
+];
 
 interface Call {
   key: string;
@@ -67,8 +72,8 @@ interface Call {
  * 假 server：清單與群組照 `box`；DELETE／move／copy 預設成功並改 `box.notes`（下一次 GET 生效），restore 還回被刪的篇。
  * `fail(key, status, code)` 讓某支回錯誤；`hold(key)` 讓某支等放行才回（回傳放行函式）。
  */
-function stubServer(initial: { notes?: NoteDto[]; groups?: GroupDto[]; folders?: FolderDto[] } = {}) {
-  const box = { notes: [...(initial.notes ?? ALL)], groups: initial.groups ?? [GA], folders: [...(initial.folders ?? [])] };
+function stubServer(initial: { notes?: NoteDto[]; groups?: GroupDto[]; folders?: FolderDto[]; favorites?: FavoriteDto[] } = {}) {
+  const box = { notes: [...(initial.notes ?? ALL)], groups: initial.groups ?? [GA], folders: [...(initial.folders ?? [])], favorites: [...(initial.favorites ?? [])] };
   const trashed = new Map<string, NoteDto>();
   const calls: Call[] = [];
   const failures = new Map<string, { status: number; code: string }>();
@@ -97,6 +102,10 @@ function stubServer(initial: { notes?: NoteDto[]; groups?: GroupDto[]; folders?:
     if (failure) return fakeResponse({ error: { code: failure.code, message: "x" } }, failure.status);
     const [, , resource, rawId] = url.split("/");
     const id = decodeURIComponent(rawId ?? "");
+    if (resource === "favorites") {
+      if (method === "DELETE") box.favorites = box.favorites.filter((favorite) => favorite.noteId !== id);
+      return fakeResponse(undefined, 204);
+    }
     if (resource === "folders") {
       const folder = box.folders.find((f) => f.id === id);
       if (!folder) return fakeResponse({ error: { code: "folder_not_found", message: "x" } }, 404);
@@ -175,6 +184,7 @@ function stubServer(initial: { notes?: NoteDto[]; groups?: GroupDto[]; folders?:
         if (url === "/api/folders") return Promise.resolve(fakeResponse(box.folders.length === 0 ? FOLDER_LIST_EMPTY : { folders: box.folders }));
         if (url === "/api/notes") return Promise.resolve(fakeResponse(box.notes));
         if (url === "/api/groups") return Promise.resolve(fakeResponse(box.groups));
+        if (url === "/api/favorites") return Promise.resolve(fakeResponse(box.favorites));
         if (url === "/api/auth/me") return Promise.resolve(fakeResponse(ME));
         return Promise.resolve(fakeResponse({ error: { code: "not_found", message: "x" } }, 404));
       }
@@ -248,7 +258,7 @@ function renderShells(opts: RenderOpts = {}) {
     <SidebarTabProvider>
       {[0, 1].map((index) => (
         <div key={index} data-sidebar-instance="" data-testid={`shell-${index}`}>
-          <div role="tabpanel">
+          <div role="tabpanel" tabIndex={0}>
             <NoteList />
           </div>
           <SidebarFooter searching={false} onCreateNote={() => {}} newNotePending={false} />
@@ -352,17 +362,55 @@ describe("SelectActionBar", () => {
       expect(del.className).not.toContain("brand-deep");
       expect(del.className).not.toContain("hover:border-transparent");
       expect(within(shell(1)).queryByRole("button", { name: "New note" })).toBeNull();
-      // 版面契約（真瀏覽器量測見報告）：兩顆文字鈕能縮（min-w-0）、字截斷但 DOM 仍是全文（可及名稱完整）、title 給全文。
+      // 版面契約：窄形每顆都只放圖示（沒有可見文字），可及名稱靠 aria-label；兩顆能縮（min-w-0）平分剩下的列寬，title 給全文。
       for (const name of ["Move to", "Copy to"]) {
         const button = barButton(name);
         expect(button).toHaveClass("min-w-0", "flex-1", "px-1.5");
         expect(button).toHaveAttribute("title", name);
-        expect(button.querySelector("span.truncate")).toHaveTextContent(name);
-        // 列寬不到 14.5rem 時圖示讓位給字（按鈕列是 @container）。
-        expect(button.querySelector("svg")).toHaveClass("hidden", "@min-[14.5rem]:block");
+        expect(button).toHaveAttribute("aria-label", name);
+        expect(button.textContent).toBe("");
+        expect(button.querySelector("svg")).not.toHaveClass("hidden");
       }
-      expect(barButton("Move to").parentElement).toHaveClass("@container");
+      expect(del.textContent).toBe("");
       expect(del).toHaveClass("w-9", "shrink-0");
+    });
+
+    // 最愛：第一個是 Remove from favorites，沒有 Move to；兩形都一樣。
+    it.each(["narrow", "wide"] as const)("最愛（%s）：Remove from favorites、Copy to、Delete；沒有 Move to；勾選後可按", async (form) => {
+      mockWidePointer(form === "wide");
+      stubServer({ favorites: FAVORITES });
+      renderShells({ tab: "favorites" });
+      await enterForm(form);
+      const names = () => within(bar()).getAllByRole("button", { hidden: true }).map((b) => b.getAttribute("aria-label") ?? b.textContent);
+      expect(names()).toEqual(["Remove from favorites", "Copy to", "Delete 0 selected items"]);
+      for (const name of names()) expect(barButton(name as string)).toBeDisabled();
+      tick("p2");
+      expect(barButton("Remove from favorites")).toBeEnabled();
+      expect(barButton("Copy to")).toBeEnabled();
+      expect(barButton("Delete 1 selected item")).toBeEnabled();
+      expect(within(bar()).queryByRole("button", { name: "Move to", hidden: true })).toBeNull();
+      // 兩形都只放圖示，沒有可見文字。
+      for (const button of within(bar()).getAllByRole("button", { hidden: true })) expect(button.textContent).toBe("");
+    });
+
+    it("最愛：不能刪的筆記仍可移出最愛，Delete 維持 disabled", async () => {
+      stubServer({ favorites: [{ noteId: "ga4", favoritedAt: "2026-03-01T00:00:00.000Z" }] });
+      renderShells({ tab: "favorites" });
+      await enterSelecting();
+      tick("ga4");
+      expect(barButton("Remove from favorites")).toBeEnabled();
+      expect(barButton("Delete 1 selected item")).toBeDisabled();
+    });
+
+    it("最愛：Copy to 的目的地沒有「建立副本」上半部", async () => {
+      stubServer({ favorites: FAVORITES });
+      renderShells({ tab: "favorites" });
+      await enterSelecting();
+      tick("p2");
+      fireEvent.click(barButton("Copy to"));
+      const picker = await screen.findByRole("dialog", { name: "Copy to" });
+      expect(within(picker).queryByRole("button", { name: "Make a copy" })).toBeNull();
+      expect(within(picker).getByRole("button", { name: "My notes" })).toBeInTheDocument();
     });
 
     // SAf1：群組、與我共享加 Move to；與我共享的刪除鈕只在選取全是資料夾時才有（0 項時沒有）。
@@ -538,6 +586,100 @@ describe("SelectActionBar", () => {
     expect(await screen.findByText("Moved 1 note to the trash, 1 skipped (no permission, or it no longer exists)", { exact: true })).toBeInTheDocument();
     expect(server.keys()).toEqual(["DELETE /api/notes/p1"]);
     expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument();
+  });
+
+  /** 模擬 Chromium：握著焦點的元素被寫入 disabled 的當下，同步失焦（blur、focusout 照常觸發）。jsdom 不會自己這麼做。 */
+  function blurOnDisable(): () => void {
+    const original = Element.prototype.setAttribute;
+    Element.prototype.setAttribute = function (this: Element, name: string, value: string) {
+      if (name === "disabled" && this === document.activeElement) (this as HTMLElement).blur();
+      return original.call(this, name, value);
+    };
+    return () => {
+      Element.prototype.setAttribute = original;
+    };
+  }
+
+  it("最近 tab 全部刪除、清單空了：焦點不掉到 body，改落在面板（停用時同步失焦的瀏覽器）", async () => {
+    const restore = blurOnDisable();
+    try {
+      stubServer({ notes: [personalNote({ id: "d1", title: "d1" }), personalNote({ id: "d2", title: "d2" })] });
+      renderShells({ tab: "recent" });
+      await enterSelecting();
+      await waitFor(() => expect(box("d1")).not.toBeNull());
+      tick("d1", "d2");
+      fireEvent.click(barButton("Delete 2 selected items"));
+      expect(await screen.findByText("Moved 2 notes to the trash", { exact: true })).toBeInTheDocument();
+      await waitFor(() => expect(selectButton(1)).toBeDisabled());
+      await waitFor(() => expect(within(screen.getByTestId("shell-1")).getByRole("tabpanel")).toHaveFocus());
+      expect(document.body).not.toHaveFocus();
+    } finally {
+      restore();
+    }
+  });
+
+  it("「選取」鈕失焦但沒停用、或焦點被使用者移到別處：不搶焦點", async () => {
+    stubServer({ notes: [personalNote({ id: "d1", title: "d1" })] });
+    renderShells({ tab: "recent" });
+    const other = document.createElement("button");
+    document.body.appendChild(other);
+    try {
+      await waitFor(() => expect(selectButton(1)).toBeEnabled());
+      const button = selectButton(1) as HTMLButtonElement;
+      const panel = within(screen.getByTestId("shell-1")).getByRole("tabpanel");
+      // 鈕還可用時失焦（點到別處）：焦點留在 body，不交給面板。
+      button.focus();
+      button.blur();
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(panel).not.toHaveFocus();
+      // 焦點已被使用者移到別的元素，之後鈕才停用：不動。
+      button.focus();
+      other.focus();
+      button.setAttribute("disabled", "");
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(other).toHaveFocus();
+    } finally {
+      other.remove();
+    }
+  });
+
+  it("停用的「選取」鈕發出 focusout：relatedTarget 非空、或焦點已在別的元素 → 各自都不搶焦點", async () => {
+    stubServer({ notes: [personalNote({ id: "d1", title: "d1" })] });
+    renderShells({ tab: "recent" });
+    const other = document.createElement("button");
+    document.body.appendChild(other);
+    try {
+      await waitFor(() => expect(selectButton(1)).toBeEnabled());
+      const button = selectButton(1) as HTMLButtonElement;
+      const panel = within(screen.getByTestId("shell-1")).getByRole("tabpanel");
+      const flush = () =>
+        act(async () => {
+          await Promise.resolve();
+        });
+      // 鈕沒握著焦點就被停用（不會觸發失焦），焦點在 body。
+      button.setAttribute("disabled", "");
+      // 焦點在 body、focusout 帶了 relatedTarget：這是焦點正要移往他處，不交給面板。
+      button.dispatchEvent(new FocusEvent("focusout", { bubbles: true, relatedTarget: other }));
+      await flush();
+      expect(panel).not.toHaveFocus();
+      expect(document.body).toHaveFocus();
+      // relatedTarget 為空、但焦點已在別的元素：不動。
+      other.focus();
+      button.dispatchEvent(new FocusEvent("focusout", { bubbles: true, relatedTarget: null }));
+      await flush();
+      expect(other).toHaveFocus();
+      // 對照：relatedTarget 為空且焦點在 body → 交給面板。
+      other.blur();
+      button.dispatchEvent(new FocusEvent("focusout", { bubbles: true, relatedTarget: null }));
+      await flush();
+      expect(panel).toHaveFocus();
+    } finally {
+      other.remove();
+    }
   });
 
   it("SA8 一篇都不能刪 → 刪除 disabled；再勾一篇可刪的 → enabled", async () => {
@@ -1954,5 +2096,183 @@ describe("寬螢幕一列工具列", () => {
     expect(openToasts()).toHaveLength(0);
     await release();
     expect(await screen.findByText("Moved 2 items to “B”", { exact: true })).toBeInTheDocument();
+  });
+});
+
+// ── 最愛 tab 的批次移出 ──
+
+describe("最愛 tab 的批次移出", () => {
+  /** 四篇最愛（樹序＝加入時間新到舊：p2、ga1、p1、p3）。 */
+  const FAV4: FavoriteDto[] = [...FAVORITES, { noteId: "p3", favoritedAt: "2026-02-01T00:00:00.000Z" }];
+  const unfavoriteButton = () => barButton("Remove from favorites");
+  const favoritesGets = () =>
+    vi.mocked(fetch).mock.calls.filter(([url, init]) => String(url) === "/api/favorites" && (init?.method ?? "GET").toUpperCase() === "GET").length;
+  const cacheIds = (queryClient: QueryClient) => (queryClient.getQueryData<FavoriteDto[]>(["favorites"]) ?? []).map((favorite) => favorite.noteId);
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    act(() => dismissAllToasts());
+  });
+
+  it.each(["narrow", "wide"] as const)("%s：移出最愛是 star-off 圖示、刪除是 trash 圖示且名稱與一般 tab 相同；寬形的圖示鈕用同一組 class", async (form) => {
+    mockWidePointer(form === "wide");
+    stubServer({ favorites: FAV4 });
+    renderShells({ tab: "favorites" });
+    await enterForm(form);
+    tick("p2");
+    expect(unfavoriteButton().querySelector("svg")).toHaveAttribute("data-icon", "star-off");
+    const del = barButton(i18n.t("select.deleteSelected", { count: 1 }));
+    expect(del).toHaveAccessibleName("Delete 1 selected item");
+    expect(del.querySelector("svg")).toHaveAttribute("data-icon", "trash");
+    if (form === "wide") expect(unfavoriteButton().className).toBe(barButton("Copy to").className);
+  });
+
+  it.each(["narrow", "wide"] as const)("%s：按移出最愛先開確認框（標題帶篇數、還沒送請求）；Cancel → 沒有請求、選取不變、焦點回開框鈕", async (form) => {
+    mockWidePointer(form === "wide");
+    const server = stubServer({ favorites: FAV4 });
+    renderShells({ tab: "favorites" });
+    await enterForm(form);
+    tick("p2", "ga1", "p1");
+    fireEvent.click(unfavoriteButton());
+    expect(server.keys()).toEqual([]);
+    const confirm = await screen.findByRole("dialog", { name: "Remove 3 notes from favorites?" });
+    expect(confirm).toHaveAccessibleDescription("The notes themselves aren't changed, and you can add them back later.");
+    expect(within(confirm).getByRole("button", { name: "Remove" })).toHaveClass("bg-destructive");
+    await settleTimers();
+    expect(server.keys()).toEqual([]);
+    fireEvent.click(within(confirm).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await settleTimers();
+    expect(server.keys()).toEqual([]);
+    expect(bar()).not.toBeNull();
+    expect(checkedIds()).toEqual(["p2", "ga1", "p1"]);
+    expect(unfavoriteButton()).toHaveFocus();
+  });
+
+  it("確認 → 依序送 DELETE，每篇完成後最愛快取少一篇；送出中框關不掉；結束重抓一次、toast 帶篇數、沒有 Undo、離開選取", async () => {
+    const server = stubServer({ favorites: FAV4 });
+    const releaseGa1 = server.hold("DELETE /api/favorites/ga1");
+    const { queryClient } = renderShells({ tab: "favorites" });
+    await enterSelecting();
+    tick("p2", "ga1", "p1");
+    await waitFor(() => expect(cacheIds(queryClient)).toEqual(["p2", "ga1", "p1", "p3"]));
+    const getsBefore = favoritesGets();
+    fireEvent.click(unfavoriteButton());
+    const confirm = await screen.findByRole("dialog", { name: "Remove 3 notes from favorites?" });
+    fireEvent.click(within(confirm).getByRole("button", { name: "Remove" }));
+    // 第一篇已完成、第二篇卡在 server：快取只少了第一篇。
+    await waitFor(() => expect(within(confirm).getByRole("status")).toHaveTextContent("Working… 1 of 3"));
+    expect(server.keys()).toEqual(["DELETE /api/favorites/p2", "DELETE /api/favorites/ga1"]);
+    expect(cacheIds(queryClient)).toEqual(["ga1", "p1", "p3"]);
+    expect(favoritesGets()).toBe(getsBefore);
+    fireEvent.keyDown(document.activeElement ?? confirm, { key: "Escape" });
+    await settleTimers();
+    expect(screen.getByRole("dialog", { name: "Remove 3 notes from favorites?" })).toBe(confirm);
+    expect(within(confirm).getByRole("button", { name: "Remove" })).toBeDisabled();
+    expect(within(confirm).getByRole("button", { name: "Cancel" })).toBeDisabled();
+
+    await releaseGa1();
+    expect(await screen.findByText("Removed 3 notes from favorites", { exact: true })).toBeInTheDocument();
+    expect(server.keys()).toEqual(["DELETE /api/favorites/p2", "DELETE /api/favorites/ga1", "DELETE /api/favorites/p1"]);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(favoritesGets()).toBe(getsBefore + 1));
+    await waitFor(() => expect(cacheIds(queryClient)).toEqual(["p3"]));
+    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+    expect(selecting()).toBe(false);
+    expect(selectButton(1)).toHaveFocus();
+  });
+
+  it("最愛全部移出、清單空了：「Select」鈕已停用，焦點改落在該份側欄的面板，不掉到 body", async () => {
+    const server = stubServer({ favorites: FAV4 });
+    const { queryClient } = renderShells({ tab: "favorites" });
+    await enterSelecting();
+    tick("p2", "ga1", "p1", "p3");
+    fireEvent.click(unfavoriteButton());
+    const confirm = await screen.findByRole("dialog", { name: "Remove 4 notes from favorites?" });
+    fireEvent.click(within(confirm).getByRole("button", { name: "Remove" }));
+    expect(await screen.findByText("Removed 4 notes from favorites", { exact: true })).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(cacheIds(queryClient)).toEqual([]));
+    expect(server.keys()).toHaveLength(4);
+    expect(selecting()).toBe(false);
+    expect(selectButton(1)).toBeDisabled();
+    expect(within(screen.getByTestId("shell-1")).getByRole("tabpanel")).toHaveFocus();
+    expect(document.body).not.toHaveFocus();
+  });
+
+  it("第二篇 429 → 停下：第一篇已濾掉、第二三篇仍勾著、錯誤 toast＋已完成 1 篇", async () => {
+    const server = stubServer({ favorites: FAV4 });
+    server.fail("DELETE /api/favorites/ga1", 429, "too_many_requests");
+    const { queryClient } = renderShells({ tab: "favorites" });
+    await enterSelecting();
+    tick("p2", "ga1", "p1");
+    fireEvent.click(unfavoriteButton());
+    expect(server.keys()).toEqual([]);
+    const confirm = await screen.findByRole("dialog", { name: "Remove 3 notes from favorites?" });
+    fireEvent.click(within(confirm).getByRole("button", { name: "Remove" }));
+    expect(await screen.findByText("Too many requests. Please slow down.", { exact: true })).toBeInTheDocument();
+    expect(toastRoot("Too many requests. Please slow down.")).toHaveClass("bg-destructive");
+    expect(screen.getByText("1 note was done; the rest weren't processed.", { exact: true })).toBeInTheDocument();
+    expect(server.keys()).toEqual(["DELETE /api/favorites/p2", "DELETE /api/favorites/ga1"]);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(cacheIds(queryClient)).toEqual(["ga1", "p1", "p3"]));
+    expect(selecting()).toBe(true);
+    expect(checkedIds()).toEqual(["ga1", "p1"]);
+    expect(within(shellHeader(1)).getByText("2 selected")).toBeInTheDocument();
+  });
+
+  it.each(["narrow", "wide"] as const)("%s：批次執行中移出最愛、複製到、刪除真的 disabled、沒有 aria-disabled、點了沒有 toast 也沒有第二個框", async (form) => {
+    mockWidePointer(form === "wide");
+    const server = stubServer({ favorites: FAV4 });
+    const releaseP2 = server.hold("DELETE /api/favorites/p2");
+    renderShells({ tab: "favorites" });
+    await enterForm(form);
+    tick("p2", "ga1");
+    fireEvent.click(unfavoriteButton());
+    expect(server.keys()).toEqual([]);
+    const confirm = await screen.findByRole("dialog", { name: "Remove 2 notes from favorites?" });
+    fireEvent.click(within(confirm).getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(bar()).toHaveAttribute("aria-busy", "true"));
+    for (const name of ["Remove from favorites", "Copy to", "Delete 2 selected items"]) {
+      expect(barButton(name)).toBeDisabled();
+      expect(barButton(name)).not.toHaveAttribute("aria-disabled");
+      fireEvent.click(barButton(name));
+    }
+    await settleTimers();
+    expect(openToasts()).toHaveLength(0);
+    expect(screen.getAllByRole("dialog")).toEqual([confirm]);
+    expect(server.keys()).toEqual(["DELETE /api/favorites/p2"]);
+    await releaseP2();
+    expect(await screen.findByText("Removed 2 notes from favorites", { exact: true })).toBeInTheDocument();
+  });
+
+  it("zh-TW：確認框標題與送出鈕、結果 toast", async () => {
+    await i18n.changeLanguage("zh-TW");
+    stubServer({ favorites: FAV4 });
+    renderShells({ tab: "favorites" });
+    await waitFor(() => expect(within(shellHeader(1)).getByRole("button", { name: "選取" })).toBeEnabled());
+    fireEvent.click(within(shellHeader(1)).getByRole("button", { name: "選取" }));
+    await within(shellHeader(1)).findByText("已選 0 項");
+    await waitFor(() => expect(bar()).not.toBeNull());
+    tick("p2", "ga1");
+    fireEvent.click(barButton("移出最愛"));
+    const confirm = await screen.findByRole("dialog", { name: "要把 2 篇筆記移出最愛嗎？" });
+    expect(confirm).toHaveAccessibleDescription("筆記本身不受影響，之後可以再加回來。");
+    fireEvent.click(within(confirm).getByRole("button", { name: "移出最愛" }));
+    expect(await screen.findByText("已移出最愛 2 篇", { exact: true })).toBeInTheDocument();
+  });
+
+  it.each(["recent", "myNotes", "workspace", "shared"] as const)("%s：選取模式沒有移出最愛鈕；GET /api/favorites 只有清單訂的那一次", async (tab) => {
+    stubServer();
+    renderShells({ tab });
+    await enterSelecting();
+    await settleTimers();
+    expect(within(bar()).queryByRole("button", { name: "Remove from favorites", hidden: true })).toBeNull();
+    expect(favoritesGets()).toBe(1);
   });
 });

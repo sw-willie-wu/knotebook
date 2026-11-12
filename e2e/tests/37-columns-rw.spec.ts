@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { E2E_ORIGIN } from "../ports.js";
 import { ADMIN, adminNav, createNote, editorLocator, loginAs, noteIdFromUrl, openSiteAdmin, selectionAiBox, waitForEditorSelection } from "./helpers.js";
 
 /**
@@ -18,7 +19,7 @@ import { ADMIN, adminNav, createNote, editorLocator, loginAs, noteIdFromUrl, ope
  */
 
 const RUN = Date.now();
-const ORIGIN = "http://localhost:3100";
+const ORIGIN = E2E_ORIGIN;
 const ROW = '[data-node-type="columnList"]';
 const COL = '[data-node-type="column"]';
 const IMAGE = '[data-content-type="image"]';

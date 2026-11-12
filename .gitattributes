@@ -1,2 +1,5 @@
 # pnpm hashes the patch files into pnpm-lock.yaml and applies them to LF sources: keep them LF on every checkout.
 /patches/*.patch text eol=lf
+
+# Shell scripts run under bash (Git Bash and WSL): keep them LF on every checkout.
+*.sh text eol=lf

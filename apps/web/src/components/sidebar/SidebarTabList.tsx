@@ -22,6 +22,7 @@ export function SidebarTabList({ idBase }: { idBase: string }) {
   const { showTab } = useSidebarTabActions();
   const buttonRefs = useRef<Record<SidebarTab, HTMLButtonElement | null>>({
     recent: null,
+    favorites: null,
     myNotes: null,
     workspace: null,
     shared: null,

@@ -1,4 +1,4 @@
-import type { FolderDto, GroupDto, NoteDto } from "@knotebook/shared";
+import type { FavoriteDto, FolderDto, GroupDto, NoteDto } from "@knotebook/shared";
 import type { SidebarTab } from "@/lib/sidebar-tab";
 import { FOLDER_COLLATOR, folderPath, spaceKeyOf, type FolderIndex, type FolderSpaceKey } from "./folder-index";
 import { folderSortOf, type FolderSort } from "./folder-sort";
@@ -73,6 +73,20 @@ export function recentNotes(notes: NoteDto[]): NoteDto[] {
     .slice(0, RECENT_TAB_LIMIT);
 }
 
+/**
+ * 最愛 tab 的筆記：依 `favorites` 的順序（加入時間新到舊）挑出 `notes` 裡有的那幾篇。
+ * `favorites` 有、`notes` 沒有的 id 是剛失去權限或剛進垃圾桶，不顯示；標題與位置只取 `notes`。不改動輸入陣列。
+ */
+export function favoriteNotes(notes: readonly NoteDto[], favorites: readonly FavoriteDto[]): NoteDto[] {
+  const byId = new Map(notes.map((note) => [note.id, note]));
+  const out: NoteDto[] = [];
+  for (const { noteId } of favorites) {
+    const note = byId.get(noteId);
+    if (note !== undefined) out.push(note);
+  }
+  return out;
+}
+
 const noteNode = (note: NoteDto): SidebarNode => ({ kind: "note", id: note.id, note });
 
 /** 穩定排序：比較相等時依輸入順序。 */
@@ -124,7 +138,7 @@ function spaceNodes(space: FolderSpaceKey, notes: readonly NoteDto[], folders: F
 
 /**
  * folders 必填。同層資料夾在前（索引已依名稱排好）、筆記在後；資料夾內筆記依 sortOf(id)；根層筆記維持 server 順序。
- * 最近 tab 不建資料夾節點；垃圾桶照舊回 []。
+ * 最近與最愛 tab 是平鋪的筆記清單、不建資料夾節點；最愛 tab 依 `favorites`（見 `favoriteNotes`），沒傳就是 []。垃圾桶照舊回 []。
  */
 export function buildTabNodes(
   tab: SidebarTab,
@@ -132,10 +146,12 @@ export function buildTabNodes(
   groups: GroupDto[],
   folders: FolderIndex,
   sortOf: (folderId: string) => FolderSort = folderSortOf,
+  favorites: readonly FavoriteDto[] = [],
 ): SidebarNode[] {
-  // 垃圾桶不從 ["notes"] 組樹；先攔，否則會落進最後一支（其餘一律當群組 tab）列出全部群組。
+  // 垃圾桶與最愛不照空間分組；先攔，否則會落進最後一支（其餘一律當群組 tab）列出全部群組。
   if (tab === "trash") return [];
   if (tab === "recent") return recentNotes(notes).map(noteNode);
+  if (tab === "favorites") return favoriteNotes(notes, favorites).map(noteNode);
   const parts = partitionNotes(notes, groups);
   if (tab === "myNotes") return spaceNodes("personal", parts.myNotes, folders, sortOf);
   if (tab === "shared") return spaceNodes("shared", parts.shared, folders, sortOf);

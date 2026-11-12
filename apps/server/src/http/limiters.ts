@@ -1,13 +1,13 @@
 /**
- * 29 顆節流桶的型別與建構（#397）。`AppDeps.limiters` 原本的行內型別搬到這裡取名 `Limiters`；
+ * 30 顆節流桶的型別與建構（#397）。`AppDeps.limiters` 原本的行內型別搬到這裡取名 `Limiters`；
  * 9 顆站台管理可調的桶（註冊表的 `rate*` 項）由 `buildAdjustableLimiters(siteLimits)` 建，`limit` 每次現讀
- * `siteLimits.get(key)`、`windowMs` 照常數（視窗不可調）；其餘 20 顆由 `buildFixedLimiters()` 建，照常數。
+ * `siteLimits.get(key)`、`windowMs` 照常數（視窗不可調）；其餘 21 顆由 `buildFixedLimiters()` 建，照常數。
  * `mergeLimiters` 把測試覆寫蓋到 base 上（略過 explicit `undefined`）。
  */
 import type { SiteLimitKey } from "@knotebook/shared";
 import type { SiteLimits } from "../site-limits/store.js";
 import {
-  AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, EDIT_LIMIT, FixedWindowLimiter, FOLDER_LIMIT,
+  AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, EDIT_LIMIT, FAVORITE_LIMIT, FixedWindowLimiter, FOLDER_LIMIT,
   OIDC_LIMIT, ONE_TIME_LINK_ATTEMPT_LIMIT, ONE_TIME_LINK_MISS_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT,
   PUBLIC_UPLOAD_LIMIT, PUBLIC_WIDTH_LIMIT, REGISTER_LIMIT, SEARCH_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_RENAME_LIMIT,
   TOKEN_WRITE_LIMIT, TRANSFER_EXPORT_LIMIT, TRANSFER_WRITE_LIMIT, UPLOAD_LIMIT, USER_SUGGEST_LIMIT,
@@ -56,6 +56,8 @@ export type Limiters = {
   edit: FixedWindowLimiter;
   /** 資料夾寫入（`folders/service.ts` 四支，REST 與 MCP 共用；key=userId，見 `FOLDER_LIMIT`——不與 `edit` 共桶）。 */
   folder: FixedWindowLimiter;
+  /** #334：最愛的加入與移出（`PUT`／`DELETE /api/favorites/:id`；key=userId，見 `FAVORITE_LIMIT`——不與 `edit` 共桶）。 */
+  favorite: FixedWindowLimiter;
   /** #187：帳密註冊（key=ip）。 */
   register: FixedWindowLimiter;
   /** #286／#285：重設連結與邀請的 inspect／完成（四個無登入端點、跨 kind 共用）的無效 token（key=ip；失敗才扣，見 `ONE_TIME_LINK_MISS_LIMIT`）。 */
@@ -101,7 +103,7 @@ export function buildAdjustableLimiters(siteLimits: SiteLimits): AdjustableLimit
   };
 }
 
-/** 其餘 20 顆：每次呼叫都是全新實例（嚴禁 module 單例，同 `freshLimiters` 的理由）。 */
+/** 其餘 21 顆：每次呼叫都是全新實例（嚴禁 module 單例，同 `freshLimiters` 的理由）。 */
 export function buildFixedLimiters(): FixedLimiters {
   return {
     collabToken: new FixedWindowLimiter(COLLAB_TOKEN_LIMIT),
@@ -121,6 +123,7 @@ export function buildFixedLimiters(): FixedLimiters {
     tokenEndpoint: new FixedWindowLimiter(TOKEN_ENDPOINT_LIMIT),
     userSuggest: new FixedWindowLimiter(USER_SUGGEST_LIMIT),
     folder: new FixedWindowLimiter(FOLDER_LIMIT),
+    favorite: new FixedWindowLimiter(FAVORITE_LIMIT),
     register: new FixedWindowLimiter(REGISTER_LIMIT),
     oneTimeLinkMiss: new FixedWindowLimiter(ONE_TIME_LINK_MISS_LIMIT),
     oneTimeLinkAttempt: new FixedWindowLimiter(ONE_TIME_LINK_ATTEMPT_LIMIT),

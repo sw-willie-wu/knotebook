@@ -7,6 +7,17 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <!--
+      安裝成 app（#336）：manifest 連結與 theme-color。沒有 service worker，不能離線。
+      theme-color 是 index.css 頁底色 --background 的 hex（淺 #f3f4f6／深 #0e1013），獨立視窗時是上方列的顏色。
+      首屏依裝置深淺取這裡 media 版的值；React 掛載後由 theme.tsx 把兩個 meta 都改成 app 主題的頁底色。
+      淺色值須與 manifest.webmanifest 的 theme_color 一致（pwa-manifest.test.ts 比對）。
+      這裡不要再加 inline script：theme.test.tsx 只抓 head 裡第一段 script 驗防閃邏輯，
+      security-headers.ts 的 hash 擷取也有「屬性含 >」的已知限制（見該檔檔頭）。
+    -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f3f4f6" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0e1013" />
+    <!--
       深色模式首屏防閃白：React 掛載前就把 .dark 打在 <html> 上。必須是同步的內嵌
       script（外部檔或 defer 都會晚於首次繪製）。這裡的 storage key 與 class 名是
       src/theme.tsx 的複製——那邊的 `theme.test.tsx` 有一條測試釘住兩邊一致。

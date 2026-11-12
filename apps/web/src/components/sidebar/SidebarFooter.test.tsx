@@ -425,6 +425,11 @@ describe("SidebarFooter — 垃圾桶選取模式的動作列", () => {
     fireEvent.click(shellBox(1, "w2"));
     fireEvent.click(shellBox(1, "p2"));
     expect(barButton(1, "Delete permanently").querySelector('svg[data-icon="trash"]')).not.toBeNull();
+    // 窄形只放圖示：名稱來自 aria-label，沒有可見文字。
+    expect(barButton(1, "Delete permanently")).toHaveAttribute("aria-label", "Delete permanently");
+    expect(barButton(1, "Delete permanently")).toHaveTextContent("");
+    expect(barButton(1, "Restore")).toHaveAttribute("aria-label", "Restore");
+    expect(barButton(1, "Restore")).toHaveTextContent("");
     fireEvent.click(barButton(1, "Delete permanently"));
     const dialog = await screen.findByRole("dialog", { name: "Permanently delete 2 notes?" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete permanently" }));
@@ -805,7 +810,7 @@ describe("SidebarFooter — 垃圾桶寬螢幕選取工具列", () => {
     expect(selectButton(1)).toHaveFocus();
   });
 
-  it("TPW6 窄：照現行（未選取有保留天數說明；選取中 Done、底部 Restore 主色文字鈕、標題列沒有圖示鈕）", async () => {
+  it("TPW6 窄：照現行（未選取有保留天數說明；選取中 Done、底部 Restore 主色圖示鈕、標題列沒有圖示鈕）", async () => {
     mockWidePointer(false);
     stubTrashServer([P1, P2, W1, W2]);
     renderShells();
@@ -817,7 +822,8 @@ describe("SidebarFooter — 垃圾桶寬螢幕選取工具列", () => {
     expect(within(shellHeader(1)).queryByRole("button", { name: "Restore" })).toBeNull();
     expect(shell(1).querySelectorAll("[data-select-action-bar]")).toHaveLength(0);
     const restore = barButton(1, "Restore");
-    expect(restore).toHaveTextContent("Restore");
+    expect(restore).toHaveAttribute("aria-label", "Restore");
+    expect(restore).toHaveTextContent("");
     expect(restore).toHaveClass("bg-brand-soft", "text-brand-on-soft");
     expect(within(shell(1)).queryByTestId("trash-footer")).toBeNull();
   });
@@ -861,7 +867,7 @@ describe("SidebarFooter — 垃圾桶寬螢幕選取工具列", () => {
     expect(exitButton(1)).toBeNull();
     expect(within(shellHeader(1)).getByRole("button", { name: "Done" })).toHaveFocus();
     expect(within(shellHeader(1)).queryByRole("button", { name: "Restore" })).toBeNull();
-    expect(await within(shell(1)).findByRole("button", { name: "Restore" })).toHaveTextContent("Restore");
+    expect(await within(shell(1)).findByRole("button", { name: "Restore" })).toHaveAttribute("aria-label", "Restore");
 
     act(() => pointer.setWide(true));
     expect(exitButton(1)).toHaveFocus();
