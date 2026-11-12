@@ -504,11 +504,11 @@ describe("遮罩：挖洞、外框、箭頭", () => {
     expect(card()).toBeInTheDocument();
   });
 
-  it("遮罩是全畫面 fixed、z-[60]，畫在 body 底下（不受頁面的 stacking context 影響）", () => {
+  it("遮罩是全畫面 fixed、z-[95]，畫在 body 底下（不受頁面的 stacking context 影響）", () => {
     renderOverlay();
     const root = document.querySelector("[data-tour-overlay]")!;
     expect(root.parentElement).toBe(document.body);
-    expect(root).toHaveClass("fixed", "inset-0", "z-[60]");
+    expect(root).toHaveClass("fixed", "inset-0", "z-[95]");
     expect(root.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
   });
 

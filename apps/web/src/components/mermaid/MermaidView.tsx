@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type JSX, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { cachedMermaid, preloadMermaid, renderMermaid, type MermaidRenderResult, type MermaidTheme } from "@/lib/mermaid";
+import { tourTarget } from "@/lib/tour-targets";
 import { cn } from "@/lib/utils";
 
 /**
@@ -233,7 +234,7 @@ export function MermaidView({ code, editable, theme, onChange }: MermaidViewProp
   // ⚠ `w-full` 不可省：BlockNote 的 `bn-block-content` 是 flex 容器，沒宣告寬度的子項
   // 會被 shrink-wrap 成內容寬度——實測（e2e 截圖）整個 block 縮成約 140px 的一小條。
   return (
-    <div ref={rootRef} className="group relative w-full">
+    <div ref={rootRef} className="group relative w-full" {...tourTarget("flowchart")}>
       {editing ? null : (
         <button
           type="button"

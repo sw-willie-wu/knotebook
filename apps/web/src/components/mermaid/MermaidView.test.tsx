@@ -71,6 +71,12 @@ describe("MermaidView — 渲染態", () => {
     await waitFor(() => expect(screen.getByTestId("diagram")).toBeInTheDocument());
   });
 
+  it("最外層帶功能導覽的目標屬性（導覽挖亮筆記裡的流程圖用）", async () => {
+    const { container } = render(<MermaidView code="graph TD; A-->B;" editable theme="light" onChange={vi.fn()} />);
+    await waitFor(() => expect(screen.getByTestId("diagram")).toBeInTheDocument());
+    expect(container.firstElementChild).toHaveAttribute("data-kb-tour-target", "flowchart");
+  });
+
   it("原始碼為空時顯示提示、不顯示錯誤", async () => {
     renderMermaidMock.mockResolvedValue({ ok: false, message: "" });
     render(<MermaidView code="" editable theme="light" onChange={vi.fn()} />);

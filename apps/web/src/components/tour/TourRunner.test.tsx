@@ -9,8 +9,8 @@ import i18n from "@/i18n";
 import { ActiveNoteProvider } from "@/lib/active-note";
 import { NARROW_QUERY } from "@/lib/sidebar-drawer";
 import { SidebarQueryProvider } from "@/lib/sidebar-query";
-import { getShellControls } from "@/lib/tour-bridge";
-import { findDrawerButton, findTourTarget, findUserMenuTrigger, type TourTargetId } from "@/lib/tour-targets";
+import { getShellControls, registerEditor, type TourEditor } from "@/lib/tour-bridge";
+import { findDrawerButton, findTourTarget, findUserMenuTrigger, tourTarget, type TourTargetId } from "@/lib/tour-targets";
 import { useVersionsController, VersionsProvider } from "@/lib/versions-context";
 import { ThemeProvider } from "@/theme";
 import { Toaster } from "@/components/ui/toast";
@@ -23,7 +23,7 @@ import { OWNER_PERMS } from "@/test/fixtures";
 import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 import { HOLE_PADDING } from "./geometry";
 import { TARGET_TIMEOUT_MS, waitForFrames, type TourStopEntry } from "./engine";
-import type { StopDef, StopId } from "./stops";
+import type { StopContext, StopDef, StopId } from "./stops";
 import { TourRunner, type TourRunnerProps } from "./TourRunner";
 
 // 測試宿主照 App 的接線：導覽住在 `<Routes>` 外面；首頁與筆記頁各自渲染一份 AppShell（換頁時側欄換新的一份）。
@@ -154,6 +154,10 @@ const RECTS: Record<TourTargetId, [number, number, number, number]> = {
   versions: [1200, 650, 40, 40],
   userMenu: [10, 650, 200, 40],
   drawerButton: [5, 5, 32, 32],
+  wikilinkMenu: [400, 300, 220, 60],
+  slashMenu: [400, 300, 220, 60],
+  wikilink: [300, 200, 120, 20],
+  flowchart: [300, 400, 400, 120],
 };
 /** 尺寸是 0 的目標（＝畫面上看不到）。 */
 let hiddenTargets = new Set<TourTargetId>();
@@ -210,6 +214,12 @@ function NoteStandIn() {
           <NoteMenu note={note} state={CONNECTED} leavingRef={{ current: false }} onOpenEdits={() => {}} />
         </header>
         <CornerStack />
+        {/* 示範筆記裡現成的 `[[` 連結（沒有編輯器時，演示站改指它）。 */}
+        <a href="/somewhere" {...tourTarget("wikilink")}>
+          linked note
+        </a>
+        {/* 示範筆記裡用 `/` 插的流程圖（沒有編輯器時，`/` 站改指它）。 */}
+        <div {...tourTarget("flowchart")}>a flowchart</div>
       </VersionsProvider>
     </AppShell>
   );
@@ -294,7 +304,7 @@ async function next(expectTitle: string) {
   await findCard(expectTitle);
 }
 
-const FULL_TITLES = ["Sidebar sections", "New note", "Folders", "Search", "Share and more", "Version history", "Forgot how something works?"];
+const FULL_TITLES = ["Sidebar sections", "New note", "Folders", "Search", "Share and more", "Version history", "Link to another note", "Insert blocks with /", "Forgot how something works?"];
 
 async function goToLast() {
   await findCard(FULL_TITLES[0]!);
@@ -340,11 +350,11 @@ afterEach(() => {
 });
 
 describe("一輪完整導覽（寬視窗）", () => {
-  it("從筆記頁打開：七站依序、挖洞對準每站的目標、n / N；最後〔保留示範筆記〕→ 回原頁、焦點在帳號列、不刪", async () => {
+  it("從筆記頁打開：九站依序、挖洞對準每站的目標、n / N；最後〔保留示範筆記〕→ 回原頁、焦點在帳號列、不刪", async () => {
     const { onFinished } = await startTour();
     await findCard("Sidebar sections");
     expect(currentPath).toBe(SAMPLE_PATH);
-    expect(progress()).toBe("1 / 7");
+    expect(progress()).toBe("1 / 9");
     expect(hole()).toEqual(padded(RECTS.tabs));
     expect(card()).not.toHaveAccessibleDescription(/\{\{/);
 
@@ -355,11 +365,13 @@ describe("一輪完整導覽（寬視窗）", () => {
       // 分享鈕與 ⋮ 的聯集。
       ["Share and more", padded([900, 10, 100, 30])],
       ["Version history", padded(RECTS.versions)],
+      ["Link to another note", padded(RECTS.wikilink)],
+      ["Insert blocks with /", padded(RECTS.flowchart)],
       ["Forgot how something works?", padded(RECTS.userMenu)],
     ];
     for (const [i, [title, rect]] of expected.entries()) {
       await next(title);
-      expect(progress()).toBe(`${i + 2} / 7`);
+      expect(progress()).toBe(`${i + 2} / 9`);
       await waitFor(() => expect(hole()).toEqual(rect));
       // 說明裡的修飾鍵要代入：不能留下字面的 {{mod}}。
       expect(card(), title).not.toHaveAccessibleDescription(/\{\{/);
@@ -384,7 +396,7 @@ describe("一輪完整導覽（寬視窗）", () => {
     expect(announcement()).toBe("");
     await next("New note");
     expect(overlay()).toBe(root);
-    expect(announcement()).toContain("2 / 7");
+    expect(announcement()).toContain("2 / 9");
     expect(announcement()).toContain("New note");
     await next("Folders");
     expect(overlay()).toBe(root);
@@ -397,7 +409,7 @@ describe("一輪完整導覽（寬視窗）", () => {
     await next("New note");
     fireEvent.click(within(card()).getByRole("button", { name: "Back" }));
     await findCard("Sidebar sections");
-    expect(progress()).toBe("1 / 7");
+    expect(progress()).toBe("1 / 9");
   });
 });
 
@@ -535,14 +547,14 @@ describe("開始流程", () => {
     expect(document.querySelectorAll("[data-tour-overlay]")).toHaveLength(1);
   });
 
-  it("搜尋框有字：少掉 tab 列、資料夾、搜尋三站，從「新增筆記」開始、共 4 站", async () => {
+  it("搜尋框有字：少掉 tab 列、資料夾、搜尋三站，從「新增筆記」開始、共 6 站", async () => {
     await startTour({
       before: () => {
         fireEvent.change(screen.getByRole("textbox", { name: "Search notes" }), { target: { value: "ab" } });
       },
     });
     await findCard("New note");
-    expect(progress()).toBe("1 / 4");
+    expect(progress()).toBe("1 / 6");
   });
 });
 
@@ -690,16 +702,156 @@ describe("鍵盤", () => {
   });
 });
 
-describe("等不到目標就跳站", () => {
-  it("版本泡泡一直是 0 尺寸 → 跳過那站，直接到最後一站（站號照原本的序）", async () => {
+describe("現場演示站的鍵盤與焦點", () => {
+  /** 第一站是演示站（`live` 回 true）、第二站是一般站。 */
+  const liveThenStatic = (live: StopDef["live"] = () => true) => [
+    fakeEntry("live", "tabs", { live }),
+    fakeEntry("plain", "userMenu"),
+  ];
+  const press = (init: KeyboardEventInit) => {
+    const event = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init });
+    document.body.dispatchEvent(event);
+    return event;
+  };
+
+  it("演示站：卡片不搶焦點、讀出換站按鍵；→ 下一步，其他按鍵擋下", async () => {
+    const stops = liveThenStatic();
+    const outside = document.createElement("button");
+    document.body.appendChild(outside);
+    outside.focus();
+    await startTour({ props: { stops } });
+    await findCard("fake.live");
+    expect(card()).toHaveTextContent("← → to change stops, Esc to end");
+    expect(card().contains(document.activeElement)).toBe(false);
+    expect(press({ key: "a" }).defaultPrevented).toBe(true);
+    expect(progress()).toBe("1 / 2");
+
+    press({ key: "ArrowRight" });
+    await findCard("fake.plain");
+    expect(progress()).toBe("2 / 2");
+    expect(card()).not.toHaveTextContent("← → to change stops");
+    expect(card().contains(document.activeElement)).toBe(true);
+
+    // 一般站不攔鍵盤，回上一站用卡片上的〔Back〕。
+    fireEvent.click(within(card()).getByRole("button", { name: "Back" }));
+    await findCard("fake.live");
+    expect(progress()).toBe("1 / 2");
+    outside.remove();
+  });
+
+  it("演示站：Enter 也是下一步；Esc 結束導覽", async () => {
+    const { onFinished } = await startTour({ props: { stops: liveThenStatic() } });
+    await findCard("fake.live");
+    press({ key: "Enter" });
+    await findCard("fake.plain");
+    fireEvent.click(within(card()).getByRole("button", { name: "Back" }));
+    await findCard("fake.live");
+    press({ key: "ArrowRight" });
+    await findCard("fake.plain");
+    fireEvent.click(within(card()).getByRole("button", { name: "Back" }));
+    await findCard("fake.live");
+    press({ key: "Escape" });
+    await waitFor(() => expect(overlay()).toBeNull());
+    await waitFor(() => expect(onFinished).toHaveBeenCalledWith({ started: true, reason: "closed" }));
+  });
+
+  it("離開演示站後鍵盤放行", async () => {
+    await startTour({ props: { stops: liveThenStatic() } });
+    await findCard("fake.live");
+    press({ key: "ArrowRight" });
+    await findCard("fake.plain");
+    expect(press({ key: "a" }).defaultPrevented).toBe(false);
+  });
+
+  it("這一輪不演示（live 回 false）：不攔鍵盤、焦點進卡片、沒有換站提示", async () => {
+    await startTour({ props: { stops: liveThenStatic(() => false) } });
+    await findCard("fake.live");
+    expect(card()).not.toHaveTextContent("← → to change stops");
+    expect(card().contains(document.activeElement)).toBe(true);
+    expect(press({ key: "a" }).defaultPrevented).toBe(false);
+    expect(press({ key: "ArrowRight" }).defaultPrevented).toBe(false);
+    expect(progress()).toBe("1 / 2");
+  });
+
+  it("站點拿到的情境帶示範筆記的 id；示範筆記沒有登記的編輯器時 liveStops 是 false", async () => {
+    const seen: StopContext[] = [];
+    const stops = [fakeEntry("live", "tabs", { live: (ctx) => (seen.push(ctx), ctx.liveStops) })];
+    await startTour({ props: { stops } });
+    await findCard("fake.live");
+    expect(seen.length).toBeGreaterThan(0);
+    for (const ctx of seen) {
+      expect(ctx.sampleNoteId).toBe(SAMPLE.id);
+      expect(ctx.liveStops).toBe(false);
+    }
+  });
+
+  it("示範筆記的編輯器可編輯、最後是空段落：liveStops 是 true（演示站的 live 回 true）", async () => {
+    const editor = {
+      isEditable: true,
+      document: [{ type: "paragraph", children: [], content: [] }],
+    } as unknown as TourEditor;
+    const off = registerEditor(SAMPLE.id, editor);
+    try {
+      const seen: StopContext[] = [];
+      const stops = [fakeEntry("live", "tabs", { live: (ctx) => (seen.push(ctx), ctx.liveStops) })];
+      await startTour({ props: { stops } });
+      await findCard("fake.live");
+      expect(seen.length).toBeGreaterThan(0);
+      for (const ctx of seen) expect(ctx.liveStops).toBe(true);
+      expect(card()).toHaveTextContent("← → to change stops, Esc to end");
+      expect(press({ key: "a" }).defaultPrevented).toBe(true);
+    } finally {
+      off();
+    }
+  });
+
+  it("換進演示站、目標還沒畫出來的那幾格：鍵盤已經攔住（連按 Enter 送不進編輯器），目標出現後照常演示", async () => {
     hiddenTargets = new Set(["versions"]);
+    const stops = [fakeEntry("plain", "userMenu"), fakeEntry("live", "versions", { live: () => true })];
+    const editorSide = vi.fn();
+    document.body.addEventListener("keydown", editorSide);
+    try {
+      await startTour({ props: { stops } });
+      await findCard("fake.plain");
+      expect(press({ key: "a" }).defaultPrevented).toBe(false);
+      editorSide.mockClear();
+      fireEvent.click(within(card()).getByRole("button", { name: "Next" }));
+      // 換站等目標：畫面上還是上一站，但下一站的 prepare 已經跑了。
+      await waitFor(() => expect(press({ key: "Enter" }).defaultPrevented).toBe(true));
+      expect(press({ key: "Enter" }).defaultPrevented).toBe(true);
+      expect(editorSide).not.toHaveBeenCalled();
+      expect(progress()).toBe("1 / 2");
+      // 攔鍵盤看「正在準備的那一站」，卡片的樣子仍只看畫面上那一站：上一站是一般站，不顯示換站提示、焦點留在卡片。
+      expect(card()).not.toHaveTextContent("← → to change stops");
+      expect(card().contains(document.activeElement)).toBe(true);
+      hiddenTargets = new Set();
+      await findCard("fake.live");
+      expect(progress()).toBe("2 / 2");
+    } finally {
+      document.body.removeEventListener("keydown", editorSide);
+    }
+  });
+
+  it("導覽卸載後鍵盤放行", async () => {
+    const { unmountRunner } = await startTour({ props: { stops: liveThenStatic() } });
+    await findCard("fake.live");
+    expect(press({ key: "a" }).defaultPrevented).toBe(true);
+    unmountRunner();
+    await waitFor(() => expect(overlay()).toBeNull());
+    expect(press({ key: "a" }).defaultPrevented).toBe(false);
+  });
+});
+
+describe("等不到目標就跳站", () => {
+  it("版本泡泡與 `[[` 連結一直是 0 尺寸 → 跳過這兩站，接著到後面的一站（站號照原本的序）", async () => {
+    hiddenTargets = new Set(["versions", "wikilink"]);
     await startTour();
     await findCard("Sidebar sections");
     for (const title of FULL_TITLES.slice(1, 5)) await next(title);
     fireEvent.click(within(card()).getByRole("button", { name: "Next" }));
-    await screen.findByRole("dialog", { name: "Forgot how something works?" }, { timeout: TARGET_TIMEOUT_MS + 2000 });
-    expect(progress()).toBe("7 / 7");
-  });
+    await screen.findByRole("dialog", { name: "Insert blocks with /" }, { timeout: TARGET_TIMEOUT_MS * 2 + 2000 });
+    expect(progress()).toBe("8 / 9");
+  }, TARGET_TIMEOUT_MS * 2 + 5000);
 });
 
 describe("窄視窗：開始時抽屜開著", () => {

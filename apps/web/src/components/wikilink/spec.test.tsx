@@ -123,6 +123,14 @@ describe("MemberWikilink", () => {
     expect(loc()).toBe(`/notes/${TARGET.id}#b-b1`);
   });
 
+  it("活連結與斷鏈都帶導覽目標屬性（功能導覽在沒有現場演示時指它）", () => {
+    renderWikilink({ queryClient: pendingClient(), props: { targetNoteId: TARGET.id, snapshotTitle: "Snap" } });
+    expect(screen.getByRole("link", { name: "Snap" })).toHaveAttribute("data-kb-tour-target", "wikilink");
+    cleanup();
+    renderWikilink({ queryClient: loadedClient([]), props: { targetNoteId: "44444444-4444-4444-4444-444444444444", snapshotTitle: "Deleted Note" } });
+    expect(screen.getByText("Deleted Note")).toHaveAttribute("data-kb-tour-target", "wikilink");
+  });
+
   it("列表查詢失敗（重試耗盡，isPending=false 但 data 仍是 undefined）：跟清單未到同一態，不是斷鏈，不編造「筆記不存在」", async () => {
     // 蓋掉 beforeEach 那個永不 resolve 的 stub：這裡要真的落到 error 終態（isPending 變 false、data 從未拿到過）。
     vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("network down"))));

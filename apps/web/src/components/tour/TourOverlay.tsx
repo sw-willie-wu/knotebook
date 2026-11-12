@@ -149,8 +149,9 @@ export function TourOverlay({ target, step, total, title, body, live = false, on
     if (!live) primaryRef.current?.focus();
   }, [step, total, live]);
 
+  // z-[95]：要高於編輯器浮層（BlockNote 最高 90），低於 toast（100）。
   return createPortal(
-    <div ref={rootRef} data-tour-overlay="" className="fixed inset-0 z-[60]">
+    <div ref={rootRef} data-tour-overlay="" className="fixed inset-0 z-[95]">
       <svg aria-hidden="true" className="pointer-events-none absolute inset-0 h-full w-full forced-color-adjust-none">
         <defs>
           <mask id={maskId}>

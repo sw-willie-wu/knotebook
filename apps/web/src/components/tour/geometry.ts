@@ -57,7 +57,7 @@ export function unionRect(rects: readonly Rect[]): Rect | null {
 }
 
 /**
- * 卡片放哪裡：下方放得下就放下方，否則依序試上、右、左，都放不下（或沒有挖洞）就置中。
+ * 卡片放哪裡：下方放得下就放下方，否則依序試上、右、左，都放不下就貼視窗上緣或下緣（蓋到挖洞比較少的一邊）、水平置中；沒有挖洞就整個置中。
  * 「放得下」只看與挖洞垂直的那個方向；另一個方向對齊挖洞中心後夾在視窗內，所以卡片不會出界。
  */
 export function placeCard(hole: Rect | null, card: Size, viewport: Size): CardPlacement {
@@ -80,11 +80,14 @@ export function placeCard(hole: Rect | null, card: Size, viewport: Size): CardPl
       return { placement: "left", left: hole.left - CARD_GAP - card.width, top: yRange(centerY) };
     }
   }
-  return {
-    placement: "center",
-    left: xRange((viewport.width - card.width) / 2),
-    top: yRange((viewport.height - card.height) / 2),
-  };
+  const left = xRange((viewport.width - card.width) / 2);
+  if (hole === null) return { placement: "center", left, top: yRange((viewport.height - card.height) / 2) };
+  // 挖洞大到四邊都放不下（例如窄視窗裡撐滿整個畫面的選單）：卡片貼視窗上緣或下緣，挑蓋到挖洞比較少的一邊，
+  // 疊到的那一段選單項目會被卡片擋住（導覽層在選單之上），蓋得少就讀得到的項目多；一樣多就貼下緣。
+  const overlap = (cardTop: number) => Math.max(0, Math.min(bottomOf(hole), cardTop + card.height) - Math.max(hole.top, cardTop));
+  const topEdge = yRange(m);
+  const bottomEdge = yRange(viewport.height - m - card.height);
+  return { placement: "center", left, top: overlap(topEdge) < overlap(bottomEdge) ? topEdge : bottomEdge };
 }
 
 /**

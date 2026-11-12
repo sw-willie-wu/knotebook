@@ -170,6 +170,8 @@ export interface EngineSnapshot {
   entry: TourStopEntry | null;
   /** 正在換站（等下一站的目標）：這段期間的下一步、上一步不動作。 */
   pending: boolean;
+  /** 換站中、已經跑過 `prepare` 正在等目標的那一站；沒有在換站是 null。 */
+  preparing: TourStopEntry | null;
   endReason: EndReason | null;
 }
 
@@ -198,7 +200,7 @@ export class TourEngine {
     private readonly ctx: StopContext,
     private readonly waitForTarget: WaitForTarget = waitForStopTarget,
   ) {
-    this.snapshot = { phase: "idle", index: -1, total: stops.length, entry: null, pending: false, endReason: null };
+    this.snapshot = { phase: "idle", index: -1, total: stops.length, entry: null, pending: false, preparing: null, endReason: null };
   }
 
   subscribe = (listener: () => void): (() => void) => {
@@ -244,7 +246,7 @@ export class TourEngine {
     this.waiting?.abort();
     this.waiting = null;
     this.leaveShown();
-    this.set({ phase: "ended", pending: false, endReason: reason });
+    this.set({ phase: "ended", pending: false, preparing: null, endReason: reason });
   }
 
   private leaveShown(): void {
@@ -267,6 +269,7 @@ export class TourEngine {
         dir = 1;
       }
       const entry = this.stops[i]!;
+      this.set({ preparing: entry });
       runPrepare(entry, this.ctx);
       const found = await this.waitForTarget(entry, this.ctx, waiting.signal);
       if (generation !== this.generation) {
@@ -276,7 +279,7 @@ export class TourEngine {
       if (found || i === this.stops.length - 1) {
         this.waiting = null;
         this.shown = entry;
-        this.set({ index: i, entry, pending: false });
+        this.set({ index: i, entry, pending: false, preparing: null });
         return;
       }
       runLeave(entry, this.ctx);
