@@ -15,11 +15,11 @@ type Snapshot = { id: string; prevId: string };
 type Reserved = { idx: number; tag: string; when: number };
 
 /**
- * 跨分支刻意跳過的號：目前沒有保留號（feat/trash 的 0035 與 feat/folders 的 0034_folders 已合流）；機制留著給下次跨分支跳號。
+ * 跨分支刻意跳過的號：0040 留給 feat/favorites 的 0040_note-favorites（尚未合流）；該分支合流後 journal 會出現 idx 40，屆時刪掉這一筆。機制本身給每次跨分支跳號用（先前的例子：feat/trash 的 0035、feat/folders 的 0034_folders）。
  * 只准跳這裡登記的號；被跳的號兩側 `when` 必須夾住登記的 `when`（合流後 journal 仍單調）；登記的號一旦出現在 journal（＝已合流）就紅，
  * 要求刪掉這一筆。drizzle migrator 只看 `when` 不看 idx（drizzle-orm@0.44.7 migrator.js、pg-core/dialect.js:62）。
  */
-const RESERVED: ReadonlyArray<Reserved> = [];
+const RESERVED: ReadonlyArray<Reserved> = [{ idx: 40, tag: "0040_note-favorites", when: 1794394471106 }];
 
 const pad = (idx: number) => String(idx).padStart(4, "0");
 

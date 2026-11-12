@@ -281,6 +281,13 @@
       "when": 1794286735882,
       "tag": "0039_site-limits",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1794450328094,
+      "tag": "0041_user-avatars",
+      "breakpoints": true
     }
   ]
 }

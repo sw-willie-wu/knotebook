@@ -3,16 +3,16 @@ import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { MAX_PROVIDER_ICON_BYTES, autoSlugFromTitle, validateHandle, validateSlug } from "@knotebook/shared";
+import { MAX_AVATAR_DISPLAY_BYTES, MAX_PROVIDER_ICON_BYTES, SITE_LIMITS, autoSlugFromTitle, validateHandle, validateSlug } from "@knotebook/shared";
 import { applyMigrationsThrough, freshDb, freshEmptyDb, idxOfTag, journalEntries } from "./helpers.js";
 import { runMigrations } from "../src/db/migrate.js";
 import { PgDialect, getTableConfig } from "drizzle-orm/pg-core";
-import { apiTokens, authProviders, folders, groupMembers, groupRoles, groups, notePlacements, noteRedirects, notes, oauthClients, oauthCodes, noteSearchSections, noteSearchState, noteLinkConversion, noteVersions, handleRenames, oauthRequests, oneTimeLinks, sessions, siteLimitChanges, siteLimits, siteSettings, storagePlans, transferBases, transferCreates, transferTokens, userIdentities, users } from "../src/db/schema.js";
+import { apiTokens, authProviders, folders, groupMembers, groupRoles, groups, notePlacements, noteRedirects, notes, oauthClients, oauthCodes, noteSearchSections, noteSearchState, noteLinkConversion, noteVersions, handleRenames, oauthRequests, oneTimeLinks, sessions, siteLimitChanges, siteLimits, siteSettings, storagePlans, transferBases, transferCreates, transferTokens, userAvatars, userIdentities, users } from "../src/db/schema.js";
 
 const drizzleDirForTest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
 /** drizzle 對 `schema.ts` 的序列化；宣告漂移守衛拿最新一支當比對基準（改成實際檔名）。 */
-const SNAPSHOT_FILE = "meta/0039_snapshot.json";
+const SNAPSHOT_FILE = "meta/0041_snapshot.json";
 const snapshotLatest = JSON.parse(readFileSync(path.join(drizzleDirForTest, SNAPSHOT_FILE), "utf8")) as {
   tables: Record<string, {
     checkConstraints?: Record<string, { name: string; value: string }>;
@@ -23,12 +23,12 @@ const snapshotLatest = JSON.parse(readFileSync(path.join(drizzleDirForTest, SNAP
 const pgDialect = new PgDialect();
 
 describe("runMigrations", () => {
-  it("migrate 兩次 idempotent 且 39 張表存在", async () => {
+  it("migrate 兩次 idempotent 且 40 張表存在", async () => {
     const { db, pool } = await freshDb();
     await runMigrations(db); // freshDb 已跑過一次——此為第二次
     const r = await pool.query(`select table_name from information_schema.tables where table_schema='public'`);
     const tableNames = r.rows.map(x => x.table_name);
-    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles", "api_tokens", "oauth_clients", "oauth_requests", "oauth_codes", "note_ai_edits", "groups", "group_members", "group_roles", "note_redirects", "auth_providers", "user_identities", "site_settings", "note_search_sections", "note_search_state", "transfer_tokens", "storage_plans", "note_versions", "note_link_conversion", "handle_renames", "one_time_links", "folders", "note_placements", "transfer_bases", "transfer_creates", "sessions", "site_limits", "site_limit_changes"])
+    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles", "api_tokens", "oauth_clients", "oauth_requests", "oauth_codes", "note_ai_edits", "groups", "group_members", "group_roles", "note_redirects", "auth_providers", "user_identities", "site_settings", "note_search_sections", "note_search_state", "transfer_tokens", "storage_plans", "note_versions", "note_link_conversion", "handle_renames", "one_time_links", "folders", "note_placements", "transfer_bases", "transfer_creates", "sessions", "site_limits", "site_limit_changes", "user_avatars"])
       expect(tableNames).toContain(t);
   });
 
@@ -1408,7 +1408,7 @@ describe("0009_api-tokens", () => {
       expect(names, i).toContain(i);
   });
 
-  it("schema.ts 的二十五個宣告沒有靜默漂移（四個 OAuth／token 宣告零 import；#103／#175 的四張表的 CHECK 也在這裡逐字比對、#187 的三張表、#93 的兩張表、#200 的一張表、容量上限的 users／storage_plans、版本歷史的 note_versions、#269 的 note_link_conversion、#291 的 handle_renames、#286 的 one_time_links（#285 擴充）、資料夾的 folders／note_placements、bulk transfer 的 transfer_bases／transfer_creates）", async () => {
+  it("schema.ts 的二十六個宣告沒有靜默漂移（四個 OAuth／token 宣告零 import；#103／#175 的四張表的 CHECK 也在這裡逐字比對、#187 的三張表、#93 的兩張表、#200 的一張表、容量上限的 users／storage_plans、版本歷史的 note_versions、#269 的 note_link_conversion、#291 的 handle_renames、#286 的 one_time_links（#285 擴充）、資料夾的 folders／note_placements、bulk transfer 的 transfer_bases／transfer_creates）", async () => {
     // 比照 0008 的同族守衛：把 schema.ts 的宣告與 migration 造出來的 DB 對起來。
     // 沒有這一案的話，把 schema.ts 的四段 pgTable 整個刪掉，全套測試照樣綠——
     // 只有下一次 db:generate 會產出 DROP TABLE。
@@ -1450,7 +1450,7 @@ describe("0009_api-tokens", () => {
         "enabled", "sort_order", "legacy_callback", "config_version", "auto_create_enabled", "created_at", "updated_at",
         "icon_kind", "icon_data", "icon_mime", "icon_version",
       ],
-      user_identities: ["id", "user_id", "issuer", "sub", "created_at", "last_login_at"],
+      user_identities: ["id", "user_id", "issuer", "sub", "created_at", "last_login_at", "last_picture_url", "picture_dismissed_url"],
       site_settings: [
         "singleton", "registration_enabled", "password_login_enabled", "legacy_oidc_env_handled_at", "updated_at",
         "default_user_storage_plan_id", "default_group_storage_plan_id",
@@ -1476,7 +1476,7 @@ describe("0009_api-tokens", () => {
       users: [
         "id", "email", "handle", "password_hash", "oidc_issuer", "oidc_sub", "display_name", "avatar_url", "is_admin",
         "disabled_at", "token_version", "must_change_password", "created_at", "storage_plan_id", "auto_versions",
-        "last_login_at", "last_active_at",
+        "last_login_at", "last_active_at", "avatar_auto",
       ],
       storage_plans: ["id", "name", "quota_bytes", "created_at", "updated_at"],
       note_versions: ["id", "note_id", "seq", "ydoc", "kind", "name", "editors", "base_seq", "base_version_id", "created_at"],
@@ -1486,6 +1486,11 @@ describe("0009_api-tokens", () => {
       sessions: ["id", "user_id", "created_at", "expires_at"],
       site_limits: ["key", "value", "updated_at"],
       site_limit_changes: ["id", "key", "old_value", "new_value", "old_effective", "new_effective", "actor_user_id", "changed_at"],
+      user_avatars: [
+        "id", "user_id", "source", "identity_id", "oidc_picture_url", "original_file", "original_sha256", "original_mime",
+        "original_size", "original_width", "original_height", "crop_x", "crop_y", "crop_size", "display_data", "display_mime",
+        "display_size", "version", "is_current", "created_at",
+      ],
     };
 
     for (const [table, decl] of [
@@ -1517,6 +1522,7 @@ describe("0009_api-tokens", () => {
       ["sessions", sessions],
       ["site_limits", siteLimits],
       ["site_limit_changes", siteLimitChanges],
+      ["user_avatars", userAvatars],
     ] as const) {
       const cfg = getTableConfig(decl);
       // 宣告的欄名 = DB 的欄名 = 這裡寫死的期望（三方對齊，任一邊漂移就紅）
@@ -3414,5 +3420,179 @@ describe("bulk transfer（0036）", () => {
     const sqlText = readFileSync(path.join(drizzleDirForTest, `${entries[0]!.tag}.sql`), "utf8");
     expect(sqlText).not.toMatch(/CONCURRENTLY/i);
     expect(sqlText).not.toMatch(/^\s*COMMIT/im);
+  });
+});
+
+describe("0041_user-avatars（#404 使用者頭貼）", () => {
+  const newUser = async (pool: import("pg").Pool, email: string): Promise<string> =>
+    (await pool.query(`insert into users (email, display_name) values ($1, 'U') returning id`, [email])).rows[0].id as string;
+  const newIdentity = async (pool: import("pg").Pool, userId: string, sub: string): Promise<string> =>
+    (await pool.query(`insert into user_identities (user_id, issuer, sub) values ($1, 'https://idp.example', $2) returning id`, [userId, sub])).rows[0].id as string;
+  /** 一列剛好合法的上傳候選；`over` 逐欄覆寫（值 undefined 的鍵略過，null 照寫）。 */
+  const insertAvatar = async (pool: import("pg").Pool, userId: string, over: Record<string, unknown> = {}) => {
+    const row: Record<string, unknown> = {
+      user_id: userId,
+      source: "upload",
+      original_file: randomUUID(),
+      original_sha256: Buffer.alloc(32, 1),
+      original_mime: "image/png",
+      original_size: 10,
+      display_data: Buffer.from([1]),
+      display_mime: "image/png",
+      display_size: 1,
+      ...over,
+    };
+    const keys = Object.keys(row).filter(k => row[k] !== undefined);
+    return pool.query(
+      `insert into user_avatars (${keys.join(", ")}) values (${keys.map((_, i) => `$${i + 1}`).join(", ")}) returning id`,
+      keys.map(k => row[k]),
+    );
+  };
+  const pendingOidc = (over: Record<string, unknown> = {}) => ({
+    source: "oidc", oidc_picture_url: "https://idp.example/p.png", display_data: null, display_mime: null, display_size: 0, ...over,
+  });
+
+  it("欄位型別、NOT NULL 與預設值", async () => {
+    const { pool } = await freshDb();
+    const u = await newUser(pool, "av-cols@example.com");
+    const { rows: userRows } = await pool.query(`select avatar_auto from users where id = $1`, [u]);
+    expect(userRows).toEqual([{ avatar_auto: true }]);
+    const id = (await insertAvatar(pool, u)).rows[0].id as string;
+    const { rows } = await pool.query(`select version, is_current, created_at is not null as has_created from user_avatars where id = $1`, [id]);
+    expect(rows).toEqual([{ version: 1, is_current: false, has_created: true }]);
+    // display_size 的預設是 0：待補顯示圖的 OIDC 列不必帶它
+    const pendingId = (await insertAvatar(pool, u, pendingOidc({ display_size: undefined }))).rows[0].id as string;
+    const { rows: pending } = await pool.query(`select display_size from user_avatars where id = $1`, [pendingId]);
+    expect(pending).toEqual([{ display_size: 0 }]);
+    const { rows: cols } = await pool.query(
+      `select column_name, data_type, is_nullable from information_schema.columns where table_name = 'user_avatars' order by column_name`,
+    );
+    const by = Object.fromEntries(cols.map((r: { column_name: string; data_type: string; is_nullable: string }) => [r.column_name, `${r.data_type}/${r.is_nullable}`]));
+    expect(by).toMatchObject({
+      id: "uuid/NO", user_id: "uuid/NO", source: "text/NO", identity_id: "uuid/YES", oidc_picture_url: "text/YES",
+      original_file: "uuid/NO", original_sha256: "bytea/NO", original_mime: "text/NO", original_size: "bigint/NO",
+      original_width: "integer/YES", original_height: "integer/YES", crop_x: "integer/YES", crop_y: "integer/YES", crop_size: "integer/YES",
+      display_data: "bytea/YES", display_mime: "text/YES", display_size: "integer/NO", version: "integer/NO",
+      is_current: "boolean/NO", created_at: "timestamp with time zone/NO",
+    });
+    const { rows: idCols } = await pool.query(
+      `select column_name, is_nullable from information_schema.columns where table_name = 'user_identities' and column_name in ('last_picture_url', 'picture_dismissed_url') order by column_name`,
+    );
+    expect(idCols).toEqual([{ column_name: "last_picture_url", is_nullable: "YES" }, { column_name: "picture_dismissed_url", is_nullable: "YES" }]);
+  });
+
+  it("CHECK：每一形恰違反一條，constraint 名逐一斷言；各有剛好合法的對照列", async () => {
+    const { pool } = await freshDb();
+    const u = await newUser(pool, "av-chk@example.com");
+    const url2048 = "https://idp.example/" + "a".repeat(2048 - "https://idp.example/".length);
+    const cases: Array<[string, Record<string, unknown>, string]> = [
+      ["source 不在白名單", { source: "bogus" }, "user_avatars_source_chk"],
+      ["oidc 缺網址", pendingOidc({ oidc_picture_url: null }), "user_avatars_oidc_url_chk"],
+      ["upload 帶了網址", { oidc_picture_url: "https://idp.example/p.png" }, "user_avatars_oidc_url_chk"],
+      ["網址 2049 字", pendingOidc({ oidc_picture_url: url2048 + "b" }), "user_avatars_oidc_url_len_chk"],
+      ["sha256 31 位元組", { original_sha256: Buffer.alloc(31) }, "user_avatars_sha256_chk"],
+      ["sha256 33 位元組", { original_sha256: Buffer.alloc(33) }, "user_avatars_sha256_chk"],
+      ["原圖 gif", { original_mime: "image/gif" }, "user_avatars_original_mime_chk"],
+      ["原圖大小 0", { original_size: 0 }, "user_avatars_original_size_chk"],
+      ["原圖大小超過上限", { original_size: SITE_LIMITS.uploadMaxBytes.max + 1 }, "user_avatars_original_size_chk"],
+      ["裁切只有 x", { crop_x: 1 }, "user_avatars_crop_chk"],
+      ["裁切缺 size", { crop_x: 1, crop_y: 1 }, "user_avatars_crop_chk"],
+      ["裁切 size 為 0", { crop_x: 0, crop_y: 0, crop_size: 0 }, "user_avatars_crop_chk"],
+      ["顯示圖超過上限", { display_data: Buffer.alloc(MAX_AVATAR_DISPLAY_BYTES + 1), display_size: MAX_AVATAR_DISPLAY_BYTES + 1 }, "user_avatars_display_size_max_chk"],
+      ["有顯示圖沒有 mime", { display_mime: null }, "user_avatars_display_pair_chk"],
+      ["有 mime 沒有顯示圖", pendingOidc({ display_mime: "image/png" }), "user_avatars_display_pair_chk"],
+      ["顯示圖 gif", { display_mime: "image/gif" }, "user_avatars_display_mime_chk"],
+      ["upload 沒有顯示圖", { display_data: null, display_mime: null, display_size: 0 }, "user_avatars_upload_display_chk"],
+      ["display_size 與位元組不一致", { display_size: 5 }, "user_avatars_display_size_chk"],
+      ["version 為 0", { version: 0 }, "user_avatars_version_chk"],
+    ];
+    for (const [label, over, constraint] of cases) {
+      await expect(insertAvatar(pool, u, over), label).rejects.toMatchObject({ code: "23514", constraint });
+    }
+    // 對照列：每條 CHECK 的合法邊界
+    await insertAvatar(pool, u);
+    await insertAvatar(pool, u, { original_size: SITE_LIMITS.uploadMaxBytes.max });
+    await insertAvatar(pool, u, { original_mime: "image/jpeg", display_mime: "image/webp" });
+    await insertAvatar(pool, u, { crop_x: 0, crop_y: 0, crop_size: 1, original_width: 8, original_height: 8 });
+    await insertAvatar(pool, u, { display_data: Buffer.alloc(MAX_AVATAR_DISPLAY_BYTES), display_size: MAX_AVATAR_DISPLAY_BYTES });
+    await insertAvatar(pool, u, pendingOidc({ oidc_picture_url: url2048 }));
+    await insertAvatar(pool, u, pendingOidc({ oidc_picture_url: "https://idp.example/q.png", display_data: Buffer.from([2]), display_mime: "image/png", display_size: 1 }));
+    const { rows } = await pool.query(`select count(*)::int as n from user_avatars where user_id = $1`, [u]);
+    expect(rows[0].n).toBe(7);
+  });
+
+  it("身分列的兩個網址欄：2049 字被拒、2048 字放行", async () => {
+    const { pool } = await freshDb();
+    const u = await newUser(pool, "av-idchk@example.com");
+    const id = await newIdentity(pool, u, "sub-chk");
+    const long = "https://idp.example/" + "a".repeat(2048 - "https://idp.example/".length);
+    await expect(pool.query(`update user_identities set last_picture_url = $2 where id = $1`, [id, long + "b"])).rejects.toMatchObject({ code: "23514", constraint: "user_identities_last_picture_url_chk" });
+    await expect(pool.query(`update user_identities set picture_dismissed_url = $2 where id = $1`, [id, long + "b"])).rejects.toMatchObject({ code: "23514", constraint: "user_identities_picture_dismissed_url_chk" });
+    await pool.query(`update user_identities set last_picture_url = $2, picture_dismissed_url = $2 where id = $1`, [id, long]);
+    const { rows } = await pool.query(`select char_length(last_picture_url) as a, char_length(picture_dismissed_url) as b from user_identities where id = $1`, [id]);
+    expect(rows).toEqual([{ a: 2048, b: 2048 }]);
+  });
+
+  it("DB 的上限與 shared 常數字面對齊：顯示圖 MAX_AVATAR_DISPLAY_BYTES、原圖 SITE_LIMITS.uploadMaxBytes.max", async () => {
+    const { pool } = await freshDb();
+    const u = await newUser(pool, "av-const@example.com");
+    await expect(
+      insertAvatar(pool, u, { display_data: Buffer.alloc(MAX_AVATAR_DISPLAY_BYTES + 1), display_size: MAX_AVATAR_DISPLAY_BYTES + 1 }),
+    ).rejects.toMatchObject({ code: "23514", constraint: "user_avatars_display_size_max_chk" });
+    await insertAvatar(pool, u, { display_data: Buffer.alloc(MAX_AVATAR_DISPLAY_BYTES), display_size: MAX_AVATAR_DISPLAY_BYTES });
+    await expect(insertAvatar(pool, u, { original_size: SITE_LIMITS.uploadMaxBytes.max + 1 })).rejects.toMatchObject({
+      code: "23514",
+      constraint: "user_avatars_original_size_chk",
+    });
+    await insertAvatar(pool, u, { original_size: SITE_LIMITS.uploadMaxBytes.max });
+  });
+
+  it("三條唯一索引各擋一次；不同人可以各有一張目前頭貼", async () => {
+    const { pool } = await freshDb();
+    const alice = await newUser(pool, "av-alice@example.com");
+    const bob = await newUser(pool, "av-bob@example.com");
+    const file = randomUUID();
+    await insertAvatar(pool, alice, { original_file: file });
+    await expect(insertAvatar(pool, bob, { original_file: file })).rejects.toMatchObject({ code: "23505", constraint: "user_avatars_original_file_idx" });
+
+    const ident = await newIdentity(pool, alice, "sub-a");
+    await insertAvatar(pool, alice, pendingOidc({ identity_id: ident }));
+    await expect(insertAvatar(pool, alice, pendingOidc({ identity_id: ident }))).rejects.toMatchObject({ code: "23505", constraint: "user_avatars_identity_idx" });
+    // 沒有來源身分的候選（identity_id 為 NULL）不受那條索引限制
+    await insertAvatar(pool, alice, pendingOidc({ identity_id: null }));
+    await insertAvatar(pool, alice, pendingOidc({ identity_id: null }));
+
+    await insertAvatar(pool, alice, { is_current: true });
+    await expect(insertAvatar(pool, alice, { is_current: true })).rejects.toMatchObject({ code: "23505", constraint: "user_avatars_current_idx" });
+    await insertAvatar(pool, alice, { is_current: false });
+    await insertAvatar(pool, bob, { is_current: true });
+    const { rows } = await pool.query(`select user_id from user_avatars where is_current`);
+    expect(rows.map((r: { user_id: string }) => r.user_id).sort()).toEqual([alice, bob].sort());
+  });
+
+  it("外鍵：刪使用者帶走他的候選、不影響別人；刪身分列只把 identity_id 設為 NULL", async () => {
+    const { pool } = await freshDb();
+    const alice = await newUser(pool, "av-fk-a@example.com");
+    const bob = await newUser(pool, "av-fk-b@example.com");
+    await insertAvatar(pool, alice);
+    await insertAvatar(pool, alice);
+    const bobAvatar = (await insertAvatar(pool, bob)).rows[0].id as string;
+    await pool.query(`delete from users where id = $1`, [alice]);
+    const { rows } = await pool.query(`select id, user_id from user_avatars`);
+    expect(rows).toEqual([{ id: bobAvatar, user_id: bob }]);
+
+    const ident = await newIdentity(pool, bob, "sub-fk");
+    const oidcId = (await insertAvatar(pool, bob, pendingOidc({ identity_id: ident }))).rows[0].id as string;
+    await pool.query(`delete from user_identities where id = $1`, [ident]);
+    const { rows: left } = await pool.query(`select identity_id from user_avatars where id = $1`, [oidcId]);
+    expect(left).toEqual([{ identity_id: null }]);
+  });
+
+  it("SQL 檔無 CONCURRENTLY／行首 COMMIT；不刪東西、不動 users.avatar_url", () => {
+    const sqlText = readFileSync(path.join(drizzleDirForTest, "0041_user-avatars.sql"), "utf8");
+    expect(sqlText).not.toMatch(/CONCURRENTLY/i);
+    expect(sqlText).not.toMatch(/^\s*COMMIT/im);
+    expect(sqlText).not.toMatch(/\bDROP\b/i);
+    expect(sqlText).not.toMatch(/"avatar_url"/);
   });
 });
