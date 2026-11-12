@@ -51,9 +51,10 @@ export function canRunLiveStop(noteId: string): boolean {
   }
 }
 
-/** 選單目前是不是開著（外掛狀態，不看畫面）。 */
-export function isTriggerMenuShown(editor: TourEditor): boolean {
-  return menuOf(editor)?.shown() === true;
+/** `trigger` 的選單目前是不是開著（外掛狀態，不看畫面）。兩種選單共用同一個外掛，所以要再比對是哪個觸發字開的。 */
+export function isTriggerMenuShown(editor: TourEditor, trigger: TourTrigger): boolean {
+  const menu = menuOf(editor);
+  return menu?.shown() === true && menu.store.state?.triggerCharacter === trigger;
 }
 
 /**
@@ -61,7 +62,7 @@ export function isTriggerMenuShown(editor: TourEditor): boolean {
  * 開選單會把焦點放進編輯器，也會把游標捲進可視範圍。
  */
 export function startTourTrigger(editor: TourEditor, trigger: TourTrigger): boolean {
-  if (active.has(editor)) return isTriggerMenuShown(editor);
+  if (active.has(editor)) return isTriggerMenuShown(editor, trigger);
   const menu = menuOf(editor);
   const last = editor.document[editor.document.length - 1];
   if (menu === undefined || last === undefined) return false;
@@ -106,23 +107,28 @@ export function stopLiveTrigger(noteId: string): void {
 const scrolledFallbacks = new WeakSet<Element>();
 
 /**
- * 演示站要挖亮的東西：選單開著就指選單（等它畫出來才有，畫出來之前回空陣列，引擎會等）；
+ * 演示站要挖亮的東西：`trigger` 的選單開著就指選單（等它畫出來才有，畫出來之前回空陣列，引擎會等）；
  * 沒有在演示、或選單因故關掉（例如視窗失焦）就指筆記裡現成的成品，不留空箭頭。
+ * 「開著」要是導覽自己開的、而且是這個觸發字的選單：使用者自己開的選單、上一站的選單都不算。
  */
-export function liveTriggerTarget(noteId: string, menuId: TourTargetId, fallbackId: TourTargetId): Element[] {
+export function liveTriggerTarget(noteId: string, trigger: TourTrigger, menuId: TourTargetId, fallbackId: TourTargetId): Element[] {
   const editor = getTourNoteEditor(noteId);
-  if (editor !== null && active.has(editor) && isTriggerMenuShown(editor)) {
+  if (editor !== null && active.has(editor) && isTriggerMenuShown(editor, trigger)) {
     const menu = findTourTarget(menuId);
     return menu === null ? [] : [menu];
   }
-  // 只在示範筆記的編輯器裡找：頁面上可能還有別的編輯器畫面（例如版本預覽）。
-  const fallback = findTourTarget(fallbackId, editor?.domElement ?? document);
+  const fallback = findInSampleEditor(noteId, fallbackId);
   if (fallback === null) return [];
   if (!scrolledFallbacks.has(fallback)) {
     scrolledFallbacks.add(fallback);
     if (typeof fallback.scrollIntoView === "function") fallback.scrollIntoView({ block: "nearest" });
   }
   return [fallback];
+}
+
+/** 只在示範筆記的編輯器裡找：頁面上可能還有別的編輯器畫面（例如版本預覽）。 */
+export function findInSampleEditor(noteId: string, id: TourTargetId): Element | null {
+  return findTourTarget(id, getTourNoteEditor(noteId)?.domElement ?? document);
 }
 
 export interface LiveStopInput {
@@ -157,7 +163,7 @@ export function installLiveStopInput({ next, back }: LiveStopInput): () => void 
     else if (e.key === "ArrowLeft") back();
   };
   const onClick = (e: MouseEvent) => {
-    if (e.target instanceof Element && e.target.closest('[data-kb-tour-target="suggestionMenu"]') !== null) {
+    if (e.target instanceof Element && e.target.closest('[data-kb-tour-target="wikilinkMenu"], [data-kb-tour-target="slashMenu"]') !== null) {
       e.preventDefault();
       e.stopPropagation();
     }

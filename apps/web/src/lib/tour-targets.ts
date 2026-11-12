@@ -25,8 +25,10 @@ export type TourTargetId =
   | "versions"
   | "userMenu"
   | "drawerButton"
-  | "suggestionMenu"
-  | "wikilink";
+  | "wikilinkMenu"
+  | "slashMenu"
+  | "wikilink"
+  | "flowchart";
 
 const ATTR = "data-kb-tour-target";
 

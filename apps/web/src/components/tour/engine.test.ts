@@ -119,7 +119,7 @@ describe("濾站與總站數", () => {
 
   it("搜尋框有字：完整導覽少掉 tab 列、資料夾、搜尋三站", () => {
     const planned = planStops(fullTourStops(), { ...CTX, searchQuery: "ab" });
-    expect(planned.map((e) => e.stop.id)).toEqual(["newNote", "header", "versions", "wikilink", "userMenu"]);
+    expect(planned.map((e) => e.stop.id)).toEqual(["newNote", "header", "versions", "wikilink", "slash", "userMenu"]);
   });
 });
 

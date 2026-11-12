@@ -154,8 +154,10 @@ const RECTS: Record<TourTargetId, [number, number, number, number]> = {
   versions: [1200, 650, 40, 40],
   userMenu: [10, 650, 200, 40],
   drawerButton: [5, 5, 32, 32],
-  suggestionMenu: [400, 300, 220, 60],
+  wikilinkMenu: [400, 300, 220, 60],
+  slashMenu: [400, 300, 220, 60],
   wikilink: [300, 200, 120, 20],
+  flowchart: [300, 400, 400, 120],
 };
 /** 尺寸是 0 的目標（＝畫面上看不到）。 */
 let hiddenTargets = new Set<TourTargetId>();
@@ -216,6 +218,8 @@ function NoteStandIn() {
         <a href="/somewhere" {...tourTarget("wikilink")}>
           linked note
         </a>
+        {/* 示範筆記裡用 `/` 插的流程圖（沒有編輯器時，`/` 站改指它）。 */}
+        <div {...tourTarget("flowchart")}>a flowchart</div>
       </VersionsProvider>
     </AppShell>
   );
@@ -300,7 +304,7 @@ async function next(expectTitle: string) {
   await findCard(expectTitle);
 }
 
-const FULL_TITLES = ["Sidebar sections", "New note", "Folders", "Search", "Share and more", "Version history", "Link to another note", "Forgot how something works?"];
+const FULL_TITLES = ["Sidebar sections", "New note", "Folders", "Search", "Share and more", "Version history", "Link to another note", "Insert blocks with /", "Forgot how something works?"];
 
 async function goToLast() {
   await findCard(FULL_TITLES[0]!);
@@ -346,11 +350,11 @@ afterEach(() => {
 });
 
 describe("一輪完整導覽（寬視窗）", () => {
-  it("從筆記頁打開：八站依序、挖洞對準每站的目標、n / N；最後〔保留示範筆記〕→ 回原頁、焦點在帳號列、不刪", async () => {
+  it("從筆記頁打開：九站依序、挖洞對準每站的目標、n / N；最後〔保留示範筆記〕→ 回原頁、焦點在帳號列、不刪", async () => {
     const { onFinished } = await startTour();
     await findCard("Sidebar sections");
     expect(currentPath).toBe(SAMPLE_PATH);
-    expect(progress()).toBe("1 / 8");
+    expect(progress()).toBe("1 / 9");
     expect(hole()).toEqual(padded(RECTS.tabs));
     expect(card()).not.toHaveAccessibleDescription(/\{\{/);
 
@@ -362,11 +366,12 @@ describe("一輪完整導覽（寬視窗）", () => {
       ["Share and more", padded([900, 10, 100, 30])],
       ["Version history", padded(RECTS.versions)],
       ["Link to another note", padded(RECTS.wikilink)],
+      ["Insert blocks with /", padded(RECTS.flowchart)],
       ["Forgot how something works?", padded(RECTS.userMenu)],
     ];
     for (const [i, [title, rect]] of expected.entries()) {
       await next(title);
-      expect(progress()).toBe(`${i + 2} / 8`);
+      expect(progress()).toBe(`${i + 2} / 9`);
       await waitFor(() => expect(hole()).toEqual(rect));
       // 說明裡的修飾鍵要代入：不能留下字面的 {{mod}}。
       expect(card(), title).not.toHaveAccessibleDescription(/\{\{/);
@@ -391,7 +396,7 @@ describe("一輪完整導覽（寬視窗）", () => {
     expect(announcement()).toBe("");
     await next("New note");
     expect(overlay()).toBe(root);
-    expect(announcement()).toContain("2 / 8");
+    expect(announcement()).toContain("2 / 9");
     expect(announcement()).toContain("New note");
     await next("Folders");
     expect(overlay()).toBe(root);
@@ -404,7 +409,7 @@ describe("一輪完整導覽（寬視窗）", () => {
     await next("New note");
     fireEvent.click(within(card()).getByRole("button", { name: "Back" }));
     await findCard("Sidebar sections");
-    expect(progress()).toBe("1 / 8");
+    expect(progress()).toBe("1 / 9");
   });
 });
 
@@ -542,14 +547,14 @@ describe("開始流程", () => {
     expect(document.querySelectorAll("[data-tour-overlay]")).toHaveLength(1);
   });
 
-  it("搜尋框有字：少掉 tab 列、資料夾、搜尋三站，從「新增筆記」開始、共 5 站", async () => {
+  it("搜尋框有字：少掉 tab 列、資料夾、搜尋三站，從「新增筆記」開始、共 6 站", async () => {
     await startTour({
       before: () => {
         fireEvent.change(screen.getByRole("textbox", { name: "Search notes" }), { target: { value: "ab" } });
       },
     });
     await findCard("New note");
-    expect(progress()).toBe("1 / 5");
+    expect(progress()).toBe("1 / 6");
   });
 });
 
@@ -816,6 +821,9 @@ describe("現場演示站的鍵盤與焦點", () => {
       expect(press({ key: "Enter" }).defaultPrevented).toBe(true);
       expect(editorSide).not.toHaveBeenCalled();
       expect(progress()).toBe("1 / 2");
+      // 攔鍵盤看「正在準備的那一站」，卡片的樣子仍只看畫面上那一站：上一站是一般站，不顯示換站提示、焦點留在卡片。
+      expect(card()).not.toHaveTextContent("← → to change stops");
+      expect(card().contains(document.activeElement)).toBe(true);
       hiddenTargets = new Set();
       await findCard("fake.live");
       expect(progress()).toBe("2 / 2");
@@ -835,14 +843,14 @@ describe("現場演示站的鍵盤與焦點", () => {
 });
 
 describe("等不到目標就跳站", () => {
-  it("版本泡泡與 `[[` 連結一直是 0 尺寸 → 跳過這兩站，直接到最後一站（站號照原本的序）", async () => {
+  it("版本泡泡與 `[[` 連結一直是 0 尺寸 → 跳過這兩站，接著到後面的一站（站號照原本的序）", async () => {
     hiddenTargets = new Set(["versions", "wikilink"]);
     await startTour();
     await findCard("Sidebar sections");
     for (const title of FULL_TITLES.slice(1, 5)) await next(title);
     fireEvent.click(within(card()).getByRole("button", { name: "Next" }));
-    await screen.findByRole("dialog", { name: "Forgot how something works?" }, { timeout: TARGET_TIMEOUT_MS * 2 + 2000 });
-    expect(progress()).toBe("8 / 8");
+    await screen.findByRole("dialog", { name: "Insert blocks with /" }, { timeout: TARGET_TIMEOUT_MS * 2 + 2000 });
+    expect(progress()).toBe("8 / 9");
   }, TARGET_TIMEOUT_MS * 2 + 5000);
 });
 

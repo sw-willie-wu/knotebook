@@ -390,6 +390,10 @@ See [Version history](./versions.md) for how versions work.
 - **On a keyboard where `/` needs Shift, Ctrl+/ may not open the shortcuts page while the cursor is in a note.** A German layout, for example, types `/` with Shift+7, so Ctrl+/ reaches the editor as Ctrl+Shift+7, which the editor takes as "turn this paragraph into a numbered list": the paragraph with the cursor becomes a numbered list item and the page doesn't open. Outside the text of a note, and from **Help** in the user menu, it works as usual. This was seen in Chromium with the key sent the way such a layout sends it; it hasn't been tried on a real German keyboard.
 - **Whether ⌘/ and ⌘, reach Knotebook in Safari, Chrome and Firefox on a Mac hasn't been checked.** The shortcuts were tried only in Chromium on Linux (with Ctrl). If a browser keeps one of them for itself, it won't open the shortcuts page or the settings there; the user menu items still work.
 
+## Feature tour
+
+- **At the stops that show a live menu (the `[[` and `/` stops), a few key combinations still move the cursor, and that closes the menu.** The tour holds back typing and most shortcuts at these stops so the sample note can't change, but moving by word or to the start or end of the note (for example Ctrl+← and Ctrl+→, Ctrl+Home and Ctrl+End, or Option+← and Option+→, ⌘↑ and ⌘↓ on a Mac) is still done by the browser. When one of them moves the cursor out of the menu's place, the menu closes and the stop points at the finished example in the sample note instead. Nothing in the note changes; press → to carry on.
+
 ## Sending notes back as files (MCP bulk transfer)
 
 - **Only a note with nothing in it at all counts as empty.** Sending a file back to a note with no blocks replaces its content with the file's. A note whose only block is an empty paragraph also downloads with a blank body, but sending text back to it puts the text in front of that paragraph, so the note ends with an empty paragraph.

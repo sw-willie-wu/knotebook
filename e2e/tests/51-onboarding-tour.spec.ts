@@ -33,7 +33,8 @@ const WIDE_TARGETS: readonly (readonly string[])[] = [
   ["search"],
   ["share", "noteMenu"],
   ["versions"],
-  ["suggestionMenu"],
+  ["wikilinkMenu"],
+  ["slashMenu", "flowchart"],
   ["userMenu"],
 ];
 
@@ -90,6 +91,16 @@ async function walkToLastStop(page: Page, onStep?: (n: number, total: number) =>
     if (n < total) await tourCard(page).getByRole("button", { name: "Next", exact: true }).click();
   }
   return total;
+}
+
+/** 從目前這一站按 Next 走到第 `stop` 站；每按一次前先等目前這一站的 "n / N" 出現（換站中按 Next 會被忽略）。 */
+async function goToStop(page: Page, stop: number, total: number): Promise<void> {
+  const { n: from } = await readProgress(page);
+  for (let n = from; n < stop; n++) {
+    await expect(tourCard(page).getByText(`${n} / ${total}`, { exact: true })).toBeVisible();
+    await tourCard(page).getByRole("button", { name: "Next", exact: true }).click();
+  }
+  await expect(tourCard(page).getByText(`${stop} / ${total}`, { exact: true })).toBeVisible();
 }
 
 /** 讀挖洞矩形（svg 與視窗同大、左上角在原點，屬性值就是視窗座標）。 */
@@ -361,17 +372,16 @@ test.describe("feature tour (manual start)", () => {
       return ((await res.json()) as { markdown: string }).markdown;
     };
 
-    const { total } = await readProgress(page);
-    const stop = WIDE_TARGETS.findIndex((ids) => ids[0] === "suggestionMenu") + 1;
-    for (let n = 1; n < stop; n++) await tourCard(page).getByRole("button", { name: "Next", exact: true }).click();
-    await expect(tourCard(page).getByText(`${stop} / ${total}`, { exact: true })).toBeVisible();
-    await expect(cardTitle(page)).toHaveText("Link to another note");
-
-    // 示範內容寫入後 server 端要有，才拿得到比對的基準。
+    // 示範內容寫入後 server 端要有，才拿得到比對的基準。基準在走到演示站之前取，開選單本身有沒有寫入才算得進去。
     await expect.poll(read, { timeout: 15_000 }).toContain("What a note can hold");
     const before = await read();
 
-    const menu = page.locator('[data-kb-tour-target="suggestionMenu"]:visible').first();
+    const { total } = await readProgress(page);
+    const stop = WIDE_TARGETS.findIndex((ids) => ids[0] === "wikilinkMenu") + 1;
+    await goToStop(page, stop, total);
+    await expect(cardTitle(page)).toHaveText("Link to another note");
+
+    const menu = page.locator('[data-kb-tour-target="wikilinkMenu"]:visible').first();
     await expect(menu).toBeVisible();
     await expect(menu.locator(".bn-suggestion-menu-item").first()).toBeVisible();
     const box = await menu.boundingBox();
@@ -383,18 +393,92 @@ test.describe("feature tour (manual start)", () => {
     expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height);
     expectHoleMatches(await holeBox(page), box!);
 
-    // 點選單項目沒有作用：選單還在、還在同一站、內容不變。
+    // 點選單項目沒有作用：選單還在、還在同一站、內容不變。固定等一秒是負向斷言要的：沒有事件可等。
     await menu.locator(".bn-suggestion-menu-item").first().click();
     await page.waitForTimeout(1_000);
     await expect(menu).toBeVisible();
     await expect(tourCard(page).getByText(`${stop} / ${total}`, { exact: true })).toBeVisible();
 
     await page.keyboard.press("ArrowRight");
-    await expect(cardTitle(page)).toHaveText("Forgot how something works?");
+    await expect(cardTitle(page)).toHaveText("Insert blocks with /");
+    await expect(page.locator('[data-kb-tour-target="wikilinkMenu"]')).toHaveCount(0);
+    await goToStop(page, total, total);
     await expect(page.locator(".bn-suggestion-menu")).toHaveCount(0);
     await tourCard(page).getByRole("button", { name: "Keep sample note", exact: true }).click();
     await expect(tourCard(page)).toHaveCount(0);
     await expectBackAtStart(page, { path: "/" }, userMenuTrigger(page));
+
+    await (await sampleNotesInMyNotes(page)).click();
+    await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue(SAMPLE_TITLE);
+    await page.reload();
+    await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue(SAMPLE_TITLE);
+    await page.waitForTimeout(1_500);
+    expect(await read()).toBe(before);
+  });
+
+  test("the / stop opens the real insert menu next to the flowchart, mentions side-by-side columns, ignores typing and clicks, and leaves the note unchanged", async ({
+    page,
+    browser,
+  }) => {
+    test.setTimeout(120_000);
+    await signUpFreshUser(browser, page);
+    await openTour(page, USER_NAME);
+    const noteId = await noteIdFromUrl(page);
+    const read = async (): Promise<string> => {
+      const res = await page.request.get(`/api/notes/${noteId}/content`);
+      expect(res.status(), await res.text()).toBe(200);
+      return ((await res.json()) as { markdown: string }).markdown;
+    };
+    await expect.poll(read, { timeout: 15_000 }).toContain("What a note can hold");
+    const before = await read();
+
+    const { total } = await readProgress(page);
+    const stop = WIDE_TARGETS.findIndex((ids) => ids[0] === "slashMenu") + 1;
+    await goToStop(page, stop, total);
+    await expect(cardTitle(page)).toHaveText("Insert blocks with /");
+    await expect(tourCard(page)).toContainText("side-by-side columns");
+    await expect(tourCard(page)).toContainText("2 columns");
+
+    // 上一站剛關的 [[ 選單可能還在 DOM 裡多留一下，所以只認 / 選單自己的目標屬性。
+    const menu = page.locator('[data-kb-tour-target="slashMenu"]:visible').first();
+    await expect(menu).toBeVisible();
+    await expect(menu.getByText("Heading 1", { exact: true })).toBeVisible();
+    const box = (await menu.boundingBox())!;
+    const viewport = page.viewportSize()!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+    expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
+    // 挖洞同時蓋住選單與筆記裡的流程圖。
+    await expect
+      .poll(
+        async () => {
+          const [hole, target] = [await holeBox(page), await targetsBox(page, ["slashMenu", "flowchart"])];
+          try {
+            expectHoleMatches(hole, target);
+            return true;
+          } catch {
+            return false;
+          }
+        },
+        { message: "挖洞要對上 / 選單與流程圖" },
+      )
+      .toBe(true);
+
+    // 打字、方向鍵、點選單項目都沒有作用：選單還在、還在同一站、內容不變。固定等一秒是負向斷言要的：沒有事件可等。
+    await page.keyboard.type("abc");
+    await page.keyboard.press("ArrowDown");
+    await menu.locator(".bn-suggestion-menu-item").first().click();
+    await page.waitForTimeout(1_000);
+    await expect(menu).toBeVisible();
+    await expect(tourCard(page).getByText(`${stop} / ${total}`, { exact: true })).toBeVisible();
+    expect(await read()).toBe(before);
+
+    await page.keyboard.press("Enter");
+    await expect(cardTitle(page)).toHaveText("Forgot how something works?");
+    await expect(page.locator('[data-kb-tour-target="slashMenu"]')).toHaveCount(0);
+    await tourCard(page).getByRole("button", { name: "Keep sample note", exact: true }).click();
+    await expect(tourCard(page)).toHaveCount(0);
 
     await (await sampleNotesInMyNotes(page)).click();
     await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue(SAMPLE_TITLE);
@@ -572,17 +656,19 @@ test.describe("feature tour (manual start)", () => {
     await expect(tourCard(page)).toBeVisible({ timeout: 30_000 });
     await expect(help).toHaveCount(0);
 
-    // 站 5（Share and more）指頁首的 ⋮，站 6（Version history）也在 ⋮ 裡，站 7（Link to another note）指編輯器裡真的 [[ 選單；
+    // 站 5（Share and more）指頁首的 ⋮，站 6（Version history）也在 ⋮ 裡，站 7、8 指編輯器裡真的 [[ 與 / 選單；
     // 其餘指開側欄的漢堡鈕。抽屜整輪都不再出現。
-    const label = (n: number): string => (n === 5 || n === 6 ? "More" : n === 7 ? "the [[ menu" : "Open navigation");
+    const label = (n: number): string => (n === 5 || n === 6 ? "More" : n === 7 ? "the [[ menu" : n === 8 ? "the / menu" : "Open navigation");
     await walkToLastStop(page, async (n) => {
       await expect(page.locator("[data-sidebar-drawer]")).toHaveCount(0);
       const target =
         n === 5 || n === 6
           ? page.getByRole("button", { name: "More", exact: true })
           : n === 7
-            ? page.locator('[data-kb-tour-target="suggestionMenu"]:visible').first()
-            : drawerButton;
+            ? page.locator('[data-kb-tour-target="wikilinkMenu"]:visible').first()
+            : n === 8
+              ? page.locator('[data-kb-tour-target="slashMenu"]:visible').first()
+              : drawerButton;
       await expect.poll(async () => {
         const [hole, box] = [await holeBox(page), await target.boundingBox()];
         if (box === null) return false;

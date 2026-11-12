@@ -4,7 +4,7 @@ import "@/i18n/tour-strings";
 import { isMacPlatform } from "@/lib/platform";
 import { getShellControls } from "@/lib/tour-bridge";
 import { findDrawerButton, findTourTarget, findUserMenuTrigger, isNarrowViewport } from "@/lib/tour-targets";
-import { startLiveTrigger, stopLiveTrigger, liveTriggerTarget } from "./live-stops";
+import { findInSampleEditor, startLiveTrigger, stopLiveTrigger, liveTriggerTarget } from "./live-stops";
 
 /**
  * 功能導覽的站點表。每站說明要指哪裡（`target`）、要先做什麼（`prepare`）、什麼情況下整站不跑（`precondition`）。
@@ -16,7 +16,7 @@ import { startLiveTrigger, stopLiveTrigger, liveTriggerTarget } from "./live-sto
  *   所以側欄裡的站改指頁首的漢堡鈕，也不跑 `prepare`（切 tab 在窄視窗會順便打開抽屜）。
  */
 
-export type StopId = "tabs" | "newNote" | "folders" | "search" | "header" | "versions" | "wikilink" | "userMenu";
+export type StopId = "tabs" | "newNote" | "folders" | "search" | "header" | "versions" | "wikilink" | "slash" | "userMenu";
 
 export interface StopContext {
   /** 側欄搜尋框目前的字。 */
@@ -141,9 +141,27 @@ export const STOPS: Readonly<Record<StopId, StopDef>> = {
     id: "wikilink",
     titleKey: "tourGuide.stops.wikilink.title",
     bodyKey: "tourGuide.stops.wikilink.body",
-    target: (ctx) => liveTriggerTarget(ctx.sampleNoteId, "suggestionMenu", "wikilink"),
+    target: (ctx) => liveTriggerTarget(ctx.sampleNoteId, "[[", "wikilinkMenu", "wikilink"),
     prepare: (ctx) => {
       if (ctx.liveStops) startLiveTrigger(ctx.sampleNoteId, "[[");
+    },
+    prepareInNarrow: true,
+    leave: (ctx) => stopLiveTrigger(ctx.sampleNoteId),
+    live: (ctx) => ctx.liveStops,
+  },
+  slash: {
+    id: "slash",
+    titleKey: "tourGuide.stops.slash.title",
+    bodyKey: "tourGuide.stops.slash.body",
+    target: (ctx) => {
+      const base = liveTriggerTarget(ctx.sampleNoteId, "/", "slashMenu", "flowchart");
+      if (base.length === 0) return base;
+      // 選單旁邊一起挖亮筆記裡用 `/` 插的流程圖；筆記裡沒有流程圖就只挖亮選單。
+      const chart = findInSampleEditor(ctx.sampleNoteId, "flowchart");
+      return chart === null || base.includes(chart) ? base : [...base, chart];
+    },
+    prepare: (ctx) => {
+      if (ctx.liveStops) startLiveTrigger(ctx.sampleNoteId, "/");
     },
     prepareInNarrow: true,
     leave: (ctx) => stopLiveTrigger(ctx.sampleNoteId),
@@ -160,7 +178,7 @@ export const STOPS: Readonly<Record<StopId, StopDef>> = {
 };
 
 /** 完整導覽的站序；最後一站固定是 userMenu。 */
-export const FULL_TOUR: readonly [StopId, ...StopId[]] = ["tabs", "newNote", "folders", "search", "header", "versions", "wikilink", "userMenu"];
+export const FULL_TOUR: readonly [StopId, ...StopId[]] = ["tabs", "newNote", "folders", "search", "header", "versions", "wikilink", "slash", "userMenu"];
 
 /** 依目前視窗寬窄找目標。 */
 export function stopTarget(stop: StopDef, ctx: StopContext): Element[] {

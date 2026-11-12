@@ -678,11 +678,15 @@ export function NoteEditor({
 }
 
 /**
- * 給 `[[` 選單的 `floatingUIOptions`：選單外面那層 popover 掛導覽的目標屬性，功能導覽才找得到真的 `[[` 選單。
+ * 給 `[[` 與 `/` 選單的 `floatingUIOptions`：選單外面那層 popover 掛導覽的目標屬性，功能導覽才找得到真的選單。
+ * 兩個選單各用自己的 id：上一站剛關的選單還會在 DOM 裡多留一下，共用 id 會讓導覽挖亮到舊的那個。
  * 模組層常數：`SuggestionMenuController` 的 `useMemo` 依賴它的身分。只加屬性，不動預設的 `style`／`onMouseDownCapture`。
  */
 const WIKILINK_MENU_FLOATING_OPTIONS: Partial<FloatingUIOptions> = {
-  elementProps: tourTarget("suggestionMenu") as FloatingUIOptions["elementProps"],
+  elementProps: tourTarget("wikilinkMenu") as FloatingUIOptions["elementProps"],
+};
+const SLASH_MENU_FLOATING_OPTIONS: Partial<FloatingUIOptions> = {
+  elementProps: tourTarget("slashMenu") as FloatingUIOptions["elementProps"],
 };
 
 export interface NoteEditorViewProps {
@@ -760,7 +764,7 @@ export function NoteEditorView({ editor, editable, theme, noteId, getItems, getS
         tableHandles={false}
       >
         <SuggestionMenuController triggerCharacter="[[" getItems={getItems} floatingUIOptions={WIKILINK_MENU_FLOATING_OPTIONS} />
-        <SuggestionMenuController triggerCharacter="/" getItems={getSlashItems} />
+        <SuggestionMenuController triggerCharacter="/" getItems={getSlashItems} floatingUIOptions={SLASH_MENU_FLOATING_OPTIONS} />
         <SideMenuController sideMenu={KnotebookSideMenu} floatingUIOptions={SIDE_MENU_FLOATING_OPTIONS} />
         <TableHandlesController tableHandle={KnotebookTableHandle} tableCellHandle={KnotebookTableCellButton} />
         <FilePanelController filePanel={filePanel} />

@@ -110,6 +110,8 @@ function NotePageStandIn({ withShare }: { withShare: boolean }) {
       <a href="/somewhere" {...tourTarget("wikilink")}>
         linked note
       </a>
+      {/* 示範筆記裡用 `/` 插的流程圖。 */}
+      <div {...tourTarget("flowchart")}>a flowchart</div>
     </VersionsProvider>
   );
 }
@@ -158,7 +160,7 @@ afterEach(() => {
 
 describe("站點表", () => {
   it("完整導覽的順序；每個站點恰好出現一次", () => {
-    expect(FULL_TOUR).toEqual(["tabs", "newNote", "folders", "search", "header", "versions", "wikilink", "userMenu"]);
+    expect(FULL_TOUR).toEqual(["tabs", "newNote", "folders", "search", "header", "versions", "wikilink", "slash", "userMenu"]);
     expect(Object.keys(STOPS).sort()).toEqual([...FULL_TOUR].sort());
     for (const id of FULL_TOUR) expect(STOPS[id].id).toBe(id);
   });
@@ -194,6 +196,7 @@ describe("寬視窗：目標", () => {
       header: [header.getByRole("button", { name: "Share" }), header.getByRole("button", { name: "More" })],
       versions: [screen.getByTestId("versions-bubble")],
       wikilink: [screen.getByRole("link", { name: "linked note" })],
+      slash: [screen.getByText("a flowchart")],
       userMenu: [side.getByRole("button", { name: "Ann" })],
     };
     for (const id of FULL_TOUR) expect(stopTarget(STOPS[id], ctx()), id).toEqual(expected[id]);
@@ -231,6 +234,7 @@ describe("窄視窗：目標", () => {
       header: [header.getByRole("button", { name: "Share" }), more],
       versions: [more],
       wikilink: [screen.getByRole("link", { name: "linked note" })],
+      slash: [screen.getByText("a flowchart")],
       userMenu: [hamburger],
     };
     for (const id of FULL_TOUR) expect(stopTarget(STOPS[id], ctx()), id).toEqual(expected[id]);
@@ -311,9 +315,9 @@ describe("使用者內容撞名", () => {
 });
 
 describe("背景不可互動（簡報模式的 AppShell inert）", () => {
-  const ALL_IDS: TourTargetId[] = ["tabs", "newNote", "newFolder", "search", "share", "noteMenu", "versions", "userMenu", "drawerButton", "wikilink"];
+  const ALL_IDS: TourTargetId[] = ["tabs", "newNote", "newFolder", "search", "share", "noteMenu", "versions", "userMenu", "drawerButton", "wikilink", "flowchart"];
 
-  it.each([false, true])("窄視窗＝%s：十個目標都查不到", async (narrow) => {
+  it.each([false, true])("窄視窗＝%s：十一個目標都查不到", async (narrow) => {
     stubViewport(narrow);
     await renderPage({ inert: true });
     // 元素都還在 DOM 裡（帶著屬性），只是在 inert 範圍內。窄視窗沒有版本泡泡。
@@ -405,9 +409,9 @@ describe("precondition", () => {
   it("搜尋框有字時 tabs、folders、search 不成立（搜尋中 tab 列與標題列不渲染，也不清掉使用者的字）；其他站照常", () => {
     const applies = (q: string) => FULL_TOUR.filter((id) => STOPS[id].precondition?.(ctx(q)) ?? true);
     expect(applies("")).toEqual(FULL_TOUR);
-    expect(applies("ab")).toEqual(["newNote", "header", "versions", "wikilink", "userMenu"]);
+    expect(applies("ab")).toEqual(["newNote", "header", "versions", "wikilink", "slash", "userMenu"]);
     // 空白也算搜尋中（同 AppShell 的判準）。
-    expect(applies(" ")).toEqual(["newNote", "header", "versions", "wikilink", "userMenu"]);
+    expect(applies(" ")).toEqual(["newNote", "header", "versions", "wikilink", "slash", "userMenu"]);
   });
 });
 
@@ -422,6 +426,7 @@ describe("說明文字", () => {
       header: "Share and more",
       versions: "Version history",
       wikilink: "Link to another note",
+      slash: "Insert blocks with /",
       userMenu: "Forgot how something works?",
     },
     "zh-TW": {
@@ -432,6 +437,7 @@ describe("說明文字", () => {
       header: "分享與更多動作",
       versions: "版本歷史",
       wikilink: "連到別篇筆記",
+      slash: "用 / 插入各種區塊",
       userMenu: "忘了怎麼用？",
     },
   };
@@ -446,6 +452,7 @@ describe("說明文字", () => {
       header: ["invites others to view or edit"],
       versions: ["{mod}S", "bottom-right corner"],
       wikilink: ["Type [[", "Mentioned in"],
+      slash: ["Type /", "flowchart", "side-by-side columns", "\"2 columns\"", "divider between columns"],
       userMenu: ["{mod}/", "open Help from here", "shortcuts, the feature tour and what's new"],
     },
     "zh-TW": {
@@ -456,6 +463,7 @@ describe("說明文字", () => {
       header: ["邀請別人一起看或一起編輯"],
       versions: ["{mod}S", "右下角"],
       wikilink: ["打 [[", "提及"],
+      slash: ["打 /", "流程圖", "並排 2 欄", "拖欄與欄之間的分隔線"],
       userMenu: ["{mod}/", "從這裡打開「說明」", "快捷鍵、功能導覽和這一版新增"],
     },
   };

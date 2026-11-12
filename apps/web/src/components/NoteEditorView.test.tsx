@@ -184,15 +184,16 @@ describe("NoteEditorView（`[[` 選單帶導覽目標屬性）", () => {
     return [{ title: "Some note", onItemClick: () => {} }] as DefaultReactSuggestionItem[];
   }
 
-  it("`[[` 選單的 popover 帶 data-kb-tour-target=suggestionMenu，預設的 z-index 還在；`/` 選單不帶", async () => {
+  it("`[[` 選單的 popover 帶 data-kb-tour-target=wikilinkMenu、`/` 選單的帶 slashMenu，預設的 z-index 還在；兩邊不互帶", async () => {
     render(<NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getWikilinkItems} getSlashItems={getItems} />);
 
     act(() => {
       editor.getExtension(SuggestionMenu)!.openSuggestionMenu("[[");
     });
     expect(await screen.findByText("Some note")).toBeInTheDocument();
-    const popover = document.querySelector<HTMLElement>('[data-kb-tour-target="suggestionMenu"]')!;
+    const popover = document.querySelector<HTMLElement>('[data-kb-tour-target="wikilinkMenu"]')!;
     expect(popover).not.toBeNull();
+    expect(document.querySelector('[data-kb-tour-target="slashMenu"]')).toBeNull();
     expect(popover).toContainElement(document.querySelector(".bn-suggestion-menu"));
     expect(popover.style.zIndex).toContain("80");
 
@@ -204,7 +205,11 @@ describe("NoteEditorView（`[[` 選單帶導覽目標屬性）", () => {
       editor.getExtension(SuggestionMenu)!.openSuggestionMenu("/");
     });
     await waitFor(() => expect(document.querySelector(".bn-suggestion-menu")).not.toBeNull());
-    expect(document.querySelector('[data-kb-tour-target="suggestionMenu"]')).toBeNull();
+    const slashPopover = document.querySelector<HTMLElement>('[data-kb-tour-target="slashMenu"]')!;
+    expect(slashPopover).not.toBeNull();
+    expect(slashPopover).toContainElement(document.querySelector(".bn-suggestion-menu"));
+    expect(slashPopover.style.zIndex).toContain("80");
+    expect(document.querySelector('[data-kb-tour-target="wikilinkMenu"]')).toBeNull();
   });
 });
 
