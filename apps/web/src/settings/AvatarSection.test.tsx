@@ -52,7 +52,7 @@ const USER: UserDto = {
   avatar: null,
 };
 
-const dateLabel = (iso: string) => new Date(iso).toLocaleString("en", { dateStyle: "medium", timeStyle: "short" });
+const dateLabel = (iso: string) => new Date(iso).toLocaleString("en", { dateStyle: "medium", timeStyle: "medium" });
 
 interface Call {
   method: string;

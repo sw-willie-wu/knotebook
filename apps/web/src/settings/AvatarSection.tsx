@@ -43,7 +43,7 @@ function candidateLabel(t: Translate, language: string, candidate: AvatarCandida
       : t("settings.account.avatar.fromDisconnected");
   }
   // 含時間：同一天上傳的幾張要能分得出來（radio 與 ⋮ 的可及名稱、刪除確認框都用這個名字）。
-  const date = new Date(candidate.createdAt).toLocaleString(language, { dateStyle: "medium", timeStyle: "short" });
+  const date = new Date(candidate.createdAt).toLocaleString(language, { dateStyle: "medium", timeStyle: "medium" });
   return t("settings.account.avatar.uploaded", { date });
 }
 

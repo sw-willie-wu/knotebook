@@ -3275,7 +3275,7 @@ describe("頁頭頭像列（#293）", () => {
     expect(group.compareDocumentPosition(last) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("NP-P2 本分頁寫 knotebook 欄（avatar 恆 null）", async () => {
+  it("NP-P2 沒有頭貼時本分頁寫 knotebook 欄、avatar 為 null", async () => {
     await openPage();
 
     await waitFor(() =>
@@ -3287,6 +3287,40 @@ describe("頁頭頭像列（#293）", () => {
         since: expect.any(Number),
       }),
     );
+  });
+
+  it("NP-P2a 有頭貼時 avatar 寫 { id, v }、不含 pending", async () => {
+    const { queryClient } = await openPage();
+    await waitFor(() => expect(awareness.getLocalState()?.knotebook).toBeDefined());
+
+    act(() => {
+      queryClient.setQueryData(["me"], { ...USER, avatar: { id: "av-1", v: 3, pending: true } });
+    });
+
+    await waitFor(() => expect((awareness.getLocalState()?.knotebook as { avatar: unknown }).avatar).toEqual({ id: "av-1", v: 3 }));
+    const field = awareness.getLocalState()?.knotebook as { avatar: Record<string, unknown> };
+    expect(Object.keys(field.avatar).sort()).toEqual(["id", "v"]);
+  });
+
+  it("NP-P2b 換頭貼、清除頭貼後 awareness 的 avatar 跟著變", async () => {
+    const { queryClient } = await openPage();
+    await waitFor(() => expect(awareness.getLocalState()?.knotebook).toBeDefined());
+    const avatarOf = () => (awareness.getLocalState()?.knotebook as { avatar: unknown }).avatar;
+
+    act(() => {
+      queryClient.setQueryData(["me"], { ...USER, avatar: { id: "av-1", v: 1, pending: false } });
+    });
+    await waitFor(() => expect(avatarOf()).toEqual({ id: "av-1", v: 1 }));
+
+    act(() => {
+      queryClient.setQueryData(["me"], { ...USER, avatar: { id: "av-2", v: 1, pending: false } });
+    });
+    await waitFor(() => expect(avatarOf()).toEqual({ id: "av-2", v: 1 }));
+
+    act(() => {
+      queryClient.setQueryData(["me"], { ...USER, avatar: null });
+    });
+    await waitFor(() => expect(avatarOf()).toBeNull());
   });
 
   it.each([

@@ -621,6 +621,20 @@ test('BS-A9 動態 import("./encode-*.js")（含 mapDeps 列名）→ 通過', (
   }
 });
 
+test('BS-A10 別的模組也叫 encode-*.js 且被靜態 import（不含頭貼 marker）→ 不誤報', () => {
+  const { assets, cleanup } = fakeAssets({
+    ...MARKER_BASE,
+    'encode-Zzz999.js': 'export const e=1',
+    'NotePage-Def456.js': 'import{e as a}from"./encode-Zzz999.js";x',
+    'VersionsLazy-Vvv000.js': 'x',
+  });
+  try {
+    assert.deepEqual(checkBundleSize(assets).avatarEncodeChunks, ['encode-Eee000.js']);
+  } finally {
+    cleanup();
+  }
+});
+
 // marker 改名即靜默失效——綁回 encode.ts 的 this.name 字串字面量。
 test('BS-A4 AVATAR_IMAGE_MARKER 是 avatars/encode.ts 裡 this.name 的字串字面量', () => {
   const source = readFileSync(fileURLToPath(new URL('../apps/web/src/avatars/encode.ts', import.meta.url)), 'utf8');

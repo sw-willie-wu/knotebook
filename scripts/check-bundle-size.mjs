@@ -364,7 +364,7 @@ export function checkBundleSize(assetsDir, { maxEntryBytes = MAX_ENTRY_BYTES } =
   // （動態 `import("./encode-….js")` 不算）。
   for (const name of names.filter(n => n.endsWith('.js'))) {
     const source = readFileSync(join(assetsDir, name), 'utf8');
-    const staticEncode = [...source.matchAll(STATIC_IMPORT_RE)].map(m => m[1]).filter(n => AVATAR_ENCODE_RE.test(n));
+    const staticEncode = [...source.matchAll(STATIC_IMPORT_RE)].map(m => m[1]).filter(n => avatarEncodeChunks.includes(n));
     if (staticEncode.length > 0) {
       throw new Error(
         `${name} 靜態 import 了 ${[...new Set(staticEncode)].join(', ')}——頭貼的解碼／編碼 chunk 只能經 \`import("@/avatars/encode")\` 在按儲存時才載入`
