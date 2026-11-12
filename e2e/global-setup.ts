@@ -1,4 +1,5 @@
 import { request as pwRequest, type FullConfig } from "@playwright/test";
+import { E2E_ORIGIN } from "./ports.js";
 import { ADMIN } from "./tests/helpers.js";
 
 /**
@@ -11,7 +12,7 @@ import { ADMIN } from "./tests/helpers.js";
 const SSO_NAME = "SSO";
 
 export default async function globalSetup(config: FullConfig): Promise<void> {
-  const baseURL = config.projects[0]?.use.baseURL ?? "http://localhost:3100";
+  const baseURL = config.projects[0]?.use.baseURL ?? E2E_ORIGIN;
   const api = await pwRequest.newContext({ baseURL });
   const check = async (res: Awaited<ReturnType<typeof api.get>>, what: string) => {
     if (!res.ok()) throw new Error(`global-setup：${what} → HTTP ${res.status()} ${await res.text()}`);

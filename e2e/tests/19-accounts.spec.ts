@@ -1,18 +1,19 @@
 import { randomUUID } from "node:crypto";
 import { test, expect, type Browser, type APIRequestContext } from "@playwright/test";
-import { ADMIN, adminNav, loginAs, openSiteAdmin, randomEmail } from "./helpers.js";
+import { E2E_ORIGIN, IDP_CONTROL_ORIGIN } from "../ports.js";
+import { ADMIN, adminNav, loginAs, openSiteAdmin, randomEmail, reEscape } from "./helpers.js";
 
 /**
  * #187 e2e 19：1–8（含 6a）；2–6、6a、8 是 #187。
  * 第二個服務指向 fake-idp 的路徑形 issuer `http://fake-idp:9400/b`（各自金鑰、共用 client）。
  * 識別值一律隨機化（顯示名、sub、email）：腳本失敗時不 down 疊，重跑會吃到髒資料。
- * control endpoint 走 `http://localhost:9400/b/control/next-login`（`request` fixture 不吃瀏覽器的 host-resolver-rules）。
+ * control endpoint 走 `IDP_CONTROL_ORIGIN`（`e2e/ports.ts`）下的 `/b/control/next-login`（`request` fixture 不吃瀏覽器的 host-resolver-rules）。
  */
 
 const SECOND_ISSUER = "http://fake-idp:9400/b";
-const SECOND_CONTROL_URL = "http://localhost:9400/b/control/next-login";
+const SECOND_CONTROL_URL = `${IDP_CONTROL_ORIGIN}/b/control/next-login`;
 const SECOND_NAME = `Second IdP ${randomUUID().slice(0, 8)}`;
-const ROOT_CONTROL_URL = "http://localhost:9400/control/next-login";
+const ROOT_CONTROL_URL = `${IDP_CONTROL_ORIGIN}/control/next-login`;
 const NEW_PASSWORD = "e2e-accounts-password-123";
 
 async function nextLogin(request: APIRequestContext, url: string, claims: { sub: string; email: string; name?: string }) {
@@ -45,7 +46,7 @@ test.describe.serial("19 帳號與登入服務（#187）", () => {
       await dialog.getByRole("button", { name: "Add", exact: true }).click();
 
       const steps = page.getByRole("dialog", { name: "Finish setting it up" });
-      await expect(steps.getByText(/^http:\/\/localhost:3100\/api\/auth\/oidc\/callback\/[0-9a-f-]{36}$/)).toBeVisible();
+      await expect(steps.getByText(new RegExp(`^${reEscape(E2E_ORIGIN)}/api/auth/oidc/callback/[0-9a-f-]{36}$`))).toBeVisible();
       await steps.getByRole("button", { name: "Done" }).click();
       await expect(steps).not.toBeVisible();
 
