@@ -8,6 +8,8 @@ import { canonicalNotePath, type NoteDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { NoteMenu, SidebarNoteMenu } from "./NoteMenu";
+import { NoteWidthMenuItems } from "./NoteWidthMenuItems";
+import { NoteWidthToggle } from "./NoteWidthToggle";
 import { EDITOR_PERMS, OWNER_PERMS } from "@/test/fixtures";
 import { NARROW_QUERY, useVersionsController, VersionsProvider } from "@/lib/versions-context";
 import { FOLDER_LIST_EMPTY, folderDto } from "@/test/folder-fixtures";
@@ -163,15 +165,6 @@ describe("NoteMenu（⋮ 選單）", () => {
     const trashItem = screen.getByRole("menuitem", { name: "Delete" });
     expect(trashItem.querySelector("svg")).toHaveAttribute("data-icon", "trash");
     expect(screen.queryByText(/Delete note/)).toBeNull();
-  });
-
-  it("#297：⋮ 選單沒有寬度（寬度只在頁首 icon）", () => {
-    renderMenu(OWNER_NOTE, CONNECTED, { current: false });
-    openMenu();
-
-    expect(screen.getByRole("menuitem", { name: /Copy link/ })).toBeInTheDocument();
-    expect(screen.queryAllByRole("menuitemradio")).toHaveLength(0);
-    expect(screen.queryByRole("menuitem", { name: /Width/ })).toBeNull();
   });
 
   // #138：AI 修改紀錄項。狀態住在 `NotePage`（兩個觸發點共用），選單只負責關自己再
@@ -1243,5 +1236,253 @@ describe("NoteMenu × 最愛 tab 的焦點", () => {
     await waitFor(() => expect(drawer.querySelector(`[data-node-id="${B.id}"]`)).toBeNull());
     await waitFor(() => expect(linkIn(drawer, C.id)).toHaveFocus());
     expect(linkIn(staticCard, C.id)).not.toHaveFocus();
+  });
+});
+
+describe("NoteMenu × 寬度", () => {
+  function renderWidthMenu(shell: "header" | "sidebar" = "header", withToggle = true) {
+    vi.stubGlobal("fetch", (input: RequestInfo | URL) =>
+      Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(String(input) === "/api/folders" ? FOLDER_LIST_EMPTY : []) })),
+    );
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/notes/my-note"]}>
+          {withToggle && <NoteWidthToggle noteId={OWNER_NOTE.id} />}
+          {shell === "header" ? (
+            <NoteMenu
+              note={OWNER_NOTE}
+              state={CONNECTED}
+              leavingRef={{ current: false }}
+              onOpenEdits={() => {}}
+              widthItems={(control) => <NoteWidthMenuItems noteId={OWNER_NOTE.id} {...control} />}
+            />
+          ) : (
+            <SidebarNoteMenu note={OWNER_NOTE} />
+          )}
+        </MemoryRouter>
+        <Toaster />
+      </QueryClientProvider>,
+    );
+  }
+  // 選單開著時 Radix 把其他內容標 aria-hidden，所以查詢要帶 hidden。
+  const widthToggle = () => screen.getByRole("button", { name: /^Width:/, hidden: true });
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+    window.localStorage.clear();
+  });
+  afterEach(() => {
+    cleanup();
+    act(() => dismissAllToasts());
+    window.localStorage.clear();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("頁首 ⋮ 有「Width」，側欄列 ⋮ 沒有", () => {
+    renderWidthMenu("header");
+    openMenu();
+    expect(screen.getByRole("menuitem", { name: "Width" })).toBeInTheDocument();
+    cleanup();
+    renderWidthMenu("sidebar", false);
+    fireEvent.pointerDown(screen.getByRole("button", { name: `Note actions for ${OWNER_NOTE.title}` }), { button: 0 });
+    expect(screen.getByRole("menuitem", { name: "Copy link" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Width" })).toBeNull();
+    expect(screen.queryAllByRole("menuitemradio")).toHaveLength(0);
+  });
+
+  it("寬形：Width 是子選單觸發項，展開後三個 menuitemradio、目前那個 aria-checked", async () => {
+    mockWidePointer(true);
+    renderWidthMenu();
+    openMenu();
+    const trigger = screen.getByRole("menuitem", { name: "Width" });
+    expect(trigger).toHaveAttribute("aria-haspopup", "menu");
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: "ArrowRight" });
+    const sub = await screen.findByRole("menu", { name: "Width" });
+    const radios = within(sub).getAllByRole("menuitemradio");
+    expect(radios.map((el) => el.textContent)).toEqual(["Standard", "Wide", "Full width"]);
+    expect(radios.map((el) => el.getAttribute("aria-checked"))).toEqual(["true", "false", "false"]);
+  });
+
+  it("已存的寬度：兩種形開出來都是那一項 aria-checked", async () => {
+    window.localStorage.setItem(`note.width.${OWNER_NOTE.id}`, "full");
+    mockWidePointer(true);
+    renderWidthMenu();
+    openMenu();
+    const trigger = screen.getByRole("menuitem", { name: "Width" });
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: "ArrowRight" });
+    const sub = await screen.findByRole("menu", { name: "Width" });
+    expect(within(sub).getByRole("menuitemradio", { name: "Full width" })).toHaveAttribute("aria-checked", "true");
+    expect(within(sub).getByRole("menuitemradio", { name: "Standard" })).toHaveAttribute("aria-checked", "false");
+    cleanup();
+    mockWidePointer(false);
+    renderWidthMenu();
+    openMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Width" }));
+    expect(screen.getByRole("menuitemradio", { name: "Full width" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("menuitemradio", { name: "Standard" })).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("寬形：點「Wide」→ localStorage 寫入、頁首寬度鈕的名稱跟著變", async () => {
+    mockWidePointer(true);
+    renderWidthMenu();
+    openMenu();
+    const trigger = screen.getByRole("menuitem", { name: "Width" });
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: "ArrowRight" });
+    const sub = await screen.findByRole("menu", { name: "Width" });
+    expect(widthToggle()).toHaveAccessibleName("Width: Standard — click for Wide");
+    fireEvent.click(within(sub).getByRole("menuitemradio", { name: "Wide" }));
+    expect(window.localStorage.getItem(`note.width.${OWNER_NOTE.id}`)).toBe("wide");
+    expect(widthToggle()).toHaveAccessibleName("Width: Wide — click for Full width");
+    // 子選單形選了之後整個選單關掉
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+  });
+
+  it("寬形：Esc 只收子選單，焦點回「Width」，主選單還開著", async () => {
+    mockWidePointer(true);
+    renderWidthMenu();
+    openMenu();
+    const trigger = screen.getByRole("menuitem", { name: "Width" });
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: "ArrowRight" });
+    const sub = await screen.findByRole("menu", { name: "Width" });
+    fireEvent.keyDown(within(sub).getAllByRole("menuitemradio")[0]!, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("menuitemradio")).toBeNull());
+    expect(screen.getByRole("menuitem", { name: "Copy link" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Width" })).toHaveFocus();
+  });
+
+  it("窄形：點「Width」就地出現三項、不帶 aria-haspopup、選單仍開著；點「Full width」寫入且選單不關", () => {
+    mockWidePointer(false);
+    renderWidthMenu();
+    openMenu();
+    const trigger = screen.getByRole("menuitem", { name: "Width" });
+    expect(trigger).not.toHaveAttribute("aria-haspopup");
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryAllByRole("menuitemradio")).toHaveLength(0);
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    const radios = screen.getAllByRole("menuitemradio");
+    expect(radios.map((el) => el.getAttribute("aria-checked"))).toEqual(["true", "false", "false"]);
+    expect(screen.getAllByRole("menu")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Full width" }));
+    expect(window.localStorage.getItem(`note.width.${OWNER_NOTE.id}`)).toBe("full");
+    expect(screen.getByRole("menuitem", { name: "Copy link" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitemradio", { name: "Full width" })).toHaveAttribute("aria-checked", "true");
+    expect(widthToggle()).toHaveAccessibleName("Width: Full width — click for Standard");
+  });
+
+  it("窄形：Esc 先收合再關選單；重開是收合態", () => {
+    mockWidePointer(false);
+    renderWidthMenu();
+    openMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Width" }));
+    expect(screen.getAllByRole("menuitemradio")).toHaveLength(3);
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+    expect(screen.queryAllByRole("menuitemradio")).toHaveLength(0);
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Width" })).toHaveFocus();
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    openMenu();
+    expect(screen.getByRole("menuitem", { name: "Width" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryAllByRole("menuitemradio")).toHaveLength(0);
+  });
+
+  it("選單開著時跨過寬窄判準 → 關整個選單", () => {
+    const mq = mockWidePointer(false);
+    renderWidthMenu();
+    openMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Width" }));
+    expect(screen.getAllByRole("menuitemradio")).toHaveLength(3);
+    act(() => mq.setWide(true));
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("窄形：跨到寬再跨回窄，重開 ⋮ 是收合態、第一下 Esc 就關選單", () => {
+    const mq = mockWidePointer(false);
+    renderWidthMenu();
+    openMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Width" }));
+    expect(screen.getAllByRole("menuitemradio")).toHaveLength(3);
+    act(() => mq.setWide(true));
+    expect(screen.queryByRole("menu")).toBeNull();
+    act(() => mq.setWide(false));
+    openMenu();
+    expect(screen.getByRole("menuitem", { name: "Width" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryAllByRole("menuitemradio")).toHaveLength(0);
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("窄形：ArrowRight 展開、radio 上按 ArrowLeft 收合並把焦點還給「Width」", () => {
+    mockWidePointer(false);
+    renderWidthMenu();
+    openMenu();
+    const trigger = screen.getByRole("menuitem", { name: "Width" });
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: "ArrowRight" });
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    const radios = screen.getAllByRole("menuitemradio");
+    expect(radios).toHaveLength(3);
+    radios[0].focus();
+    fireEvent.keyDown(radios[0], { key: "ArrowLeft" });
+    expect(screen.queryAllByRole("menuitemradio")).toHaveLength(0);
+    expect(screen.getByRole("menuitem", { name: "Width" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("menuitem", { name: "Width" })).toHaveFocus();
+    // 觸發項上按 ArrowLeft（已收合）不做事；選單還在
+    fireEvent.keyDown(screen.getByRole("menuitem", { name: "Width" }), { key: "ArrowLeft" });
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    // 焦點在觸發項、已展開時按 ArrowLeft 也收合
+    const again = screen.getByRole("menuitem", { name: "Width" });
+    again.focus();
+    fireEvent.keyDown(again, { key: "ArrowRight" });
+    expect(again).toHaveAttribute("aria-expanded", "true");
+    fireEvent.keyDown(again, { key: "ArrowLeft" });
+    expect(again).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryAllByRole("menuitemradio")).toHaveLength(0);
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+  });
+
+  it("窄形：寬度展開後點別的項目關選單，重開是收合態、第一下 Esc 就關選單", () => {
+    mockWidePointer(false);
+    renderWidthMenu();
+    openMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Width" }));
+    expect(screen.getAllByRole("menuitemradio")).toHaveLength(3);
+    fireEvent.click(screen.getByRole("menuitem", { name: "AI edit history" }));
+    expect(screen.queryByRole("menu")).toBeNull();
+    openMenu();
+    expect(screen.getByRole("menuitem", { name: "Width" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryAllByRole("menuitemradio")).toHaveLength(0);
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("窄形：「Copy to…」展開後點別的項目關選單，重開是收合態", () => {
+    mockWidePointer(false);
+    renderWidthMenu();
+    openMenu();
+    fireEvent.click(screen.getByTestId("note-menu-copy-to"));
+    expect(screen.getByTestId("note-menu-copy-to")).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(screen.getByRole("menuitem", { name: "AI edit history" }));
+    expect(screen.queryByRole("menu")).toBeNull();
+    openMenu();
+    expect(screen.getByTestId("note-menu-copy-to")).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("選單沒開時不訂閱寬度 store（開了才訂閱）", () => {
+    const add = vi.spyOn(window, "addEventListener");
+    const storageListeners = () => add.mock.calls.filter(([type]) => type === "storage").length;
+    renderWidthMenu("header", false);
+    expect(storageListeners()).toBe(0);
+    openMenu();
+    expect(screen.getByRole("menuitem", { name: "Width" })).toBeInTheDocument();
+    expect(storageListeners()).toBe(1);
   });
 });

@@ -1,4 +1,4 @@
-import { useRef, useState, type RefObject } from "react";
+import { useRef, useState, type ReactNode, type RefObject } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router";
@@ -17,7 +17,13 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { hoverReveal } from "@/components/ui/reveal";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import type { NoteWidthItemsControl } from "@/components/NoteWidthMenuItems";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { EllipsisVertical, History, Link as LinkIcon, MessageCircle, Presentation, Star, Trash } from "@/components/ui/icons";
 import { FavoriteRemoveDialog } from "@/components/FavoriteRemoveDialog";
 import { ManualCopyField } from "@/components/ManualCopyField";
@@ -50,10 +56,12 @@ export interface NoteMenuProps {
   /** 頁首 ⋮ 觸發鈕的 ref（選填）：NotePage 拿它當版本歷史整頁關閉時的焦點退路（從 ⋮ 開整頁時記到的選單項已卸載）。
    * 不傳時用內部自己的 ref。 */
   triggerRef?: RefObject<HTMLButtonElement | null>;
+  /** 「寬度」項（只頁首 ⋮）：只在筆記頁用的東西由 `NotePage` 交進來，這支共用檔（側欄也 import）不靜態相依它。 */
+  widthItems?: (control: NoteWidthItemsControl) => ReactNode;
 }
 
 /**
- * 內文卡頁頭的 ⋮ 選單：加入／移出最愛（第一項，任何角色；移出先確認，見 `FavoriteMenuItem`）＋複製連結（任何角色）＋簡報模式（#229，任何角色）＋AI 修改紀錄＋移動到…／複製到…（#216；逐層子選單，規則見 `sidebar/destination-level.ts`、兩種形態見 `share/GroupTransfer.tsx`，「複製到我的筆記」已併入「複製到… → 我的筆記」）
+ * 內文卡頁頭的 ⋮ 選單：加入／移出最愛（第一項，任何角色；移出先確認，見 `FavoriteMenuItem`）＋複製連結（任何角色）＋簡報模式（#229，任何角色）＋寬度（只在頁首 ⋮；頁首寬度鈕收起時的設定入口，見 `NoteWidthMenuItems`，由 `NotePage` 以 `widthItems` 交進來，側欄的 ⋮ 不把它帶進首包）＋AI 修改紀錄＋移動到…／複製到…（#216；逐層子選單，規則見 `sidebar/destination-level.ts`、兩種形態見 `share/GroupTransfer.tsx`，「複製到我的筆記」已併入「複製到… → 我的筆記」）
  * ＋移到垃圾桶（`permissions.delete`，#175；#181 起刪除＝移入垃圾桶）。
  *
  * **移到垃圾桶不確認**：點下選單項即送 DELETE；成功 toast「已移到垃圾桶」，
@@ -120,12 +128,24 @@ interface NoteMenuCoreProps {
   onPresent: () => void;
   page: PageExit | null;
   triggerRef?: RefObject<HTMLButtonElement | null>;
+  /** 「寬度」項（只頁首 ⋮）：只在筆記頁用的東西由 `NotePage` 交進來，這支共用檔（側欄也 import）不靜態相依它。 */
+  widthItems?: (control: NoteWidthItemsControl) => ReactNode;
 }
 
 /** 頁首 ⋮。 */
-export function NoteMenu({ note, state, leavingRef, onOpenEdits, triggerRef }: NoteMenuProps) {
+export function NoteMenu({ note, state, leavingRef, onOpenEdits, triggerRef, widthItems }: NoteMenuProps) {
   const { presentHere } = usePresentEntry();
-  return <NoteMenuCore note={note} trigger="header" onOpenEdits={onOpenEdits} onPresent={presentHere} page={{ state, leavingRef }} triggerRef={triggerRef} />;
+  return (
+    <NoteMenuCore
+      note={note}
+      trigger="header"
+      onOpenEdits={onOpenEdits}
+      onPresent={presentHere}
+      page={{ state, leavingRef }}
+      triggerRef={triggerRef}
+      widthItems={widthItems}
+    />
+  );
 }
 
 /** 側欄筆記列 ⋮。開著的那篇＝與頁首 ⋮ 同一套；別篇＝刪了不導頁、AI 修改紀錄導過去並自動開。 */
@@ -200,7 +220,7 @@ function FavoriteMenuItem({ noteId, onAdd, onRemove }: { noteId: string; onAdd: 
   );
 }
 
-function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef: externalTriggerRef }: NoteMenuCoreProps) {
+function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef: externalTriggerRef, widthItems }: NoteMenuCoreProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -226,6 +246,19 @@ function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef:
   const [groupExpanded, setGroupExpanded] = useState<GroupTransferKind | null>(null);
   /** 就地展開形移動、複製各自的所在層；選單關閉、收合、跨過寬窄判準時回第一層。 */
   const [paths, setPaths] = useState<DestPaths>(EMPTY_DEST_PATHS);
+  /** 「寬度」項的就地展開形是否展開（窄／觸控）；Esc 先收合，選單關閉、跨過寬窄判準時收合。 */
+  const [widthExpanded, setWidthExpanded] = useState(false);
+  // 下次開啟是收合態、子選單回第一層。
+  const resetMenu = () => {
+    setGroupExpanded(null);
+    setPaths(EMPTY_DEST_PATHS);
+    setWidthExpanded(false);
+  };
+  // 程式關選單（寬窄判準翻轉）不會回呼 `onOpenChange(false)`；這裡立刻重設，開啟時 `onOpenChange` 也會再重設。
+  const closeAndReset = () => {
+    setMenuOpen(false);
+    resetMenu();
+  };
   const [manualCopyUrl, setManualCopyUrl] = useState<string | null>(null);
   /** 移出最愛的確認框；非 null 時才掛載（側欄每列不常駐一份 Dialog）。 */
   const [removing, setRemoving] = useState<RemoveContext | null>(null);
@@ -334,11 +367,8 @@ function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef:
         open={menuOpen}
         onOpenChange={(open) => {
           setMenuOpen(open);
-          if (!open) {
-            // 下次開啟是收合態、子選單回第一層
-            setGroupExpanded(null);
-            setPaths(EMPTY_DEST_PATHS);
-          }
+          // 選單項自己 setMenuOpen(false) 關閉時不會回呼這裡，所以開啟時也重設：重開一律是收合態。
+          resetMenu();
         }}
       >
         <DropdownMenuTrigger asChild>
@@ -364,7 +394,11 @@ function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef:
           align="end"
           className="max-h-[var(--radix-dropdown-menu-content-available-height)] max-w-[min(20rem,calc(100vw-1rem))] overflow-y-auto"
           onEscapeKeyDown={(event) => {
-            if (groupExpanded !== null) {
+            if (widthExpanded) {
+              // 寬度的就地展開形：Esc 先收合、不關整個選單
+              event.preventDefault();
+              setWidthExpanded(false);
+            } else if (groupExpanded !== null) {
               // 就地展開形：Esc 先收合（回第一層）、不關整個選單
               event.preventDefault();
               setGroupExpanded(null);
@@ -407,6 +441,8 @@ function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef:
             <Presentation className="mr-2 h-4 w-4" />
             {t("note.menu.present")}
           </DropdownMenuItem>
+          {/* 寬度：只在頁首 ⋮（側欄每列沒有頁首寬度鈕要補）。兩種形與展開狀態見 `NoteWidthMenuItems`。 */}
+          {trigger === "header" && widthItems?.({ expanded: widthExpanded, onExpandedChange: setWidthExpanded, onModeChange: closeAndReset })}
           {/* 版本歷史：只在 `useVersions().enabled`（＝canEdit，且在 NotePage 的 VersionsProvider 之內）時渲染——
               側欄每列的 ⋮ 在 provider 之外，拿到的是 no-op 預設（enabled=false），所以只出現在頁首 ⋮。
               項目本身只在窄視窗渲染（見 `VersionsMenuItem`）；「儲存當前版本」不在 ⋮（入口是 Ctrl+S 與版本面板／整頁底部的按鈕）。
@@ -443,11 +479,7 @@ function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef:
             paths={paths}
             onPathChange={(kind, path) => setPaths((prev) => (prev[kind] === path ? prev : { ...prev, [kind]: path }))}
             onPick={handlePick}
-            onModeChange={() => {
-              setMenuOpen(false);
-              setGroupExpanded(null);
-              setPaths(EMPTY_DEST_PATHS);
-            }}
+            onModeChange={closeAndReset}
           />
           {/* #175：刪除看 `permissions.delete`（群組筆記的 role 從不是 owner，但角色有
               `can_delete` 的成員要能刪；個人筆記只有 owner 為真）。#181：點下即移到垃圾桶、不確認；刪除中 disabled 不重送。 */}

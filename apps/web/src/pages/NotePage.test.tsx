@@ -670,6 +670,16 @@ describe("NotePage", () => {
     expect(width.compareDocumentPosition(more) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it("頁首 ⋮ 裡有「Width」（任何寬度都能改寬度，頁首鈕在窄寬會隱藏）", async () => {
+    vi.stubGlobal("fetch", mockFetch());
+
+    renderNotePage("my-note");
+    await screen.findByTestId("note-editor");
+
+    fireEvent.pointerDown(within(document.querySelector("header")!).getByRole("button", { name: "More" }), { button: 0 });
+    expect(await screen.findByRole("menuitem", { name: "Width" })).toBeInTheDocument();
+  });
+
   it("頁首 gap 在手機寬收成 gap-2（容器查詢套不到 header 自己的 gap）", async () => {
     vi.stubGlobal("fetch", mockFetch());
 
