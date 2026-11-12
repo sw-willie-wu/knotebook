@@ -9,7 +9,7 @@ import { adminRole, groupDto, memberRole } from "@/test/fixtures";
 import { GroupMenu } from "./GroupMenu";
 import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
-const ME: UserDto = { id: "u-me", email: "me@example.com", handle: "me", displayName: "Me", isAdmin: false, mustChangePassword: false, hasPassword: true, autoVersions: true };
+const ME: UserDto = { id: "u-me", email: "me@example.com", handle: "me", displayName: "Me", isAdmin: false, mustChangePassword: false, hasPassword: true, autoVersions: true, avatar: null };
 /** 唯一的管理員（`adminRole()` 的 `memberCount` 預設 1＝掛內建管理員角色的人數）。 */
 const ADMIN_GROUP: GroupDto = groupDto({ id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", name: "Workshop A" }, adminRole());
 /** 兩位管理員之一：不是最後一位，可以退出。 */

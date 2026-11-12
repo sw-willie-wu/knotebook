@@ -64,10 +64,10 @@ describe("kindOfMime（#247：分類規則只有這一份，server 的 byKind �
     expect(kindOfMime("Audio/OGG")).toBe("audio");
   });
 
-  it("STORAGE_KINDS 是 UI 的固定五列順序；emptyStorageByKind 每次回新物件、五鍵皆 0", () => {
-    expect(STORAGE_KINDS).toEqual(["image", "audio", "video", "document", "other"]);
+  it("STORAGE_KINDS 是 UI 的固定六列順序（avatar 最後）；emptyStorageByKind 每次回新物件、六鍵皆 0", () => {
+    expect(STORAGE_KINDS).toEqual(["image", "audio", "video", "document", "other", "avatar"]);
     const a = emptyStorageByKind();
-    expect(a).toEqual({ image: 0, audio: 0, video: 0, document: 0, other: 0 });
+    expect(a).toEqual({ image: 0, audio: 0, video: 0, document: 0, other: 0, avatar: 0 });
     a.image = 5;
     expect(emptyStorageByKind().image).toBe(0);
   });

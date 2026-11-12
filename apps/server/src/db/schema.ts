@@ -75,6 +75,9 @@ export const users = pgTable("users", {
   // bearer token 與 AI 直連不算）與 `touchLastLogin`（登入時一併寫）。同一使用者至多每 `LAST_ACTIVE_WRITE_INTERVAL_MS` 寫一次：行程內節流表先擋，SQL 條件保底；
   // 跟 last_login_at 一樣永不等鎖（`SKIP LOCKED`），併發下偶爾漏記。migration 0024 以 last_login_at 回填。
   lastActiveAt: timestamp("last_active_at", { withTimezone: true }),
+  // 頭貼：true＝使用者從未自己選過頭貼，OIDC 登入帶回的圖片可以自動選用。
+  // 使用者任何一次選用、改用登入帳號的頭貼、不使用、上傳、刪除目前頭貼都會把它設為 false。
+  avatarAuto: boolean("avatar_auto").notNull().default(true),
 }, t => [
   uniqueIndex("users_oidc_idx").on(t.oidcIssuer, t.oidcSub),
   // issue #18：email 比對全面走 `lower(users.email) = $1`（登入、分享查人、OIDC 連結，
@@ -200,10 +203,80 @@ export const userIdentities = pgTable(
     sub: text().notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+    // 這個身分最後一次登入時 IdP 回報的 `picture`（即使沒下載也記）；只存網址，不出現在任何回應裡。
+    lastPictureUrl: text("last_picture_url"),
+    // 使用者刪除這個身分的 OIDC 頭貼候選時，記下該候選的圖片網址；之後登入的 `picture` 與它相同就不再自動下載。
+    pictureDismissedUrl: text("picture_dismissed_url"),
   },
   t => [
     uniqueIndex("user_identities_issuer_sub_idx").on(t.issuer, t.sub),
     index("user_identities_user_idx").on(t.userId),
+    check("user_identities_last_picture_url_chk", sql`${t.lastPictureUrl} is null or char_length(${t.lastPictureUrl}) <= 2048`),
+    check("user_identities_picture_dismissed_url_chk", sql`${t.pictureDismissedUrl} is null or char_length(${t.pictureDismissedUrl}) <= 2048`),
+  ],
+);
+
+/**
+ * 使用者頭貼候選。一人可有多張，至多一張 `is_current`。
+ * - 原圖放在 uploads 目錄，檔名＝`original_file`（與列 id 脫鉤：替換原圖時換新 uuid，舊檔在 commit 後才刪）；不進 `uploads` 表。
+ * - 顯示圖（裁成圓形用的方圖）放在 `display_data`；NULL＝待補（只有 OIDC 候選會有這個狀態，由本人的瀏覽器補產）。
+ * - 「目前頭貼」用 `is_current` 旗標而不是 `users.avatar_id`：避免 users 與本表循環外鍵，也不會出現指到別人候選的狀態。
+ * - `users.avatar_url` 是從未使用的保留欄，不存外部網址。
+ * 用量算進個人空間：`original_size + display_size`。
+ */
+export const userAvatars = pgTable(
+  "user_avatars",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    source: text().notNull(),
+    // OIDC 候選的來源身分；解除連結後變 NULL，候選本身保留。一個身分至多一張。
+    identityId: uuid("identity_id").references(() => userIdentities.id, { onDelete: "set null" }),
+    // 下載當下的 `picture` 值；`source = 'oidc'` 才有。
+    oidcPictureUrl: text("oidc_picture_url"),
+    originalFile: uuid("original_file").notNull(),
+    // 原圖位元組的雜湊：IdP 換了網址但圖沒變時，只更新網址、保留裁切。
+    originalSha256: bytea("original_sha256").notNull(),
+    originalMime: text("original_mime").notNull(),
+    originalSize: bigint("original_size", { mode: "number" }).notNull(),
+    // 瀏覽器解碼後回報（已依 EXIF 轉正）；OIDC 候選在補產顯示圖之前為 NULL。
+    originalWidth: integer("original_width"),
+    originalHeight: integer("original_height"),
+    cropX: integer("crop_x"),
+    cropY: integer("crop_y"),
+    cropSize: integer("crop_size"),
+    displayData: bytea("display_data"),
+    displayMime: text("display_mime"),
+    // ＝ coalesce(octet_length(display_data), 0)，冗存給 SUM 用（CHECK 守一致）。
+    displaySize: integer("display_size").notNull().default(0),
+    // 原圖或顯示圖每換一次就 +1：讀圖網址的 `?v=`，也是重新裁切的前置條件。
+    version: integer().notNull().default(1),
+    isCurrent: boolean("is_current").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  t => [
+    index("user_avatars_user_idx").on(t.userId),
+    uniqueIndex("user_avatars_original_file_idx").on(t.originalFile),
+    uniqueIndex("user_avatars_identity_idx").on(t.identityId).where(sql`${t.identityId} is not null`),
+    uniqueIndex("user_avatars_current_idx").on(t.userId).where(sql`${t.isCurrent}`),
+    check("user_avatars_source_chk", sql`${t.source} in ('upload', 'oidc')`),
+    check("user_avatars_oidc_url_chk", sql`(${t.source} = 'oidc') = (${t.oidcPictureUrl} is not null)`),
+    check("user_avatars_oidc_url_len_chk", sql`${t.oidcPictureUrl} is null or char_length(${t.oidcPictureUrl}) <= 2048`),
+    check("user_avatars_sha256_chk", sql`octet_length(${t.originalSha256}) = 32`),
+    check("user_avatars_original_mime_chk", sql`${t.originalMime} in ('image/png', 'image/jpeg', 'image/webp')`),
+    // 10485760＝shared `SITE_LIMITS.uploadMaxBytes.max`（寫字面：插值會變成 SQL 參數；兩邊由 migrate 測試對齊）。
+    check("user_avatars_original_size_chk", sql`${t.originalSize} > 0 and ${t.originalSize} <= 10485760`),
+    check(
+      "user_avatars_crop_chk",
+      sql`(${t.cropX} is null and ${t.cropY} is null and ${t.cropSize} is null) or (${t.cropX} is not null and ${t.cropY} is not null and ${t.cropSize} is not null and ${t.cropSize} > 0)`,
+    ),
+    // 262144＝shared `MAX_AVATAR_DISPLAY_BYTES`（同上，寫字面）。
+    check("user_avatars_display_size_max_chk", sql`${t.displayData} is null or octet_length(${t.displayData}) <= 262144`),
+    check("user_avatars_display_pair_chk", sql`(${t.displayData} is null) = (${t.displayMime} is null)`),
+    check("user_avatars_display_mime_chk", sql`${t.displayMime} is null or ${t.displayMime} in ('image/png', 'image/jpeg', 'image/webp')`),
+    check("user_avatars_upload_display_chk", sql`${t.source} <> 'upload' or ${t.displayData} is not null`),
+    check("user_avatars_display_size_chk", sql`${t.displaySize} = coalesce(octet_length(${t.displayData}), 0)`),
+    check("user_avatars_version_chk", sql`${t.version} >= 1`),
   ],
 );
 

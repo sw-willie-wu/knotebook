@@ -2,6 +2,7 @@ export { YDOC_FRAGMENT } from "./ydoc.js";
 import type { ProviderIconDto, ProviderIconKind } from "./provider-icon.js";
 import type { AiActionKind } from "./ai.js";
 import { SITE_LIMITS } from "./site-limits.js";
+import type { UserAvatarDto } from "./avatar.js";
 
 export const SESSION_COOKIE = "knotebook_session";
 
@@ -32,6 +33,8 @@ export interface UserDto {
   hasPassword: boolean;
   /** 版本歷史：個人空間的自動儲存開關（`users.auto_versions`）。生效值另需站台總開關。 */
   autoVersions: boolean;
+  /** 目前使用的頭貼；沒有則 null。只帶 id 與版本，網址一律由 `avatarUrl` 組。 */
+  avatar: UserAvatarDto | null;
 }
 
 /** #285：管理員邀請的狀態（`GET /api/admin/invites`，由 SQL 以 now() 算）。 */
@@ -550,6 +553,8 @@ export const ERROR_CODES = [
   "storage_plan_is_default",
   "storage_plan_name_taken",
   "storage_plan_not_found",
+  // 頭貼：`avatar_outdated`＝409，重新裁切時送出的 `version` 已不是目前版本（另一個分頁先補好了，或原圖剛被替換）。
+  "avatar_outdated",
   // 筆記版本歷史：`version_is_base`＝409，刪除「目前內容的基底版本」；
   // `version_unsaved_changes`＝409，套用時有未儲存的修改而 body 沒帶 `discardUnsaved: true`，或套用兩次都遇到併發修改；
   // `version_mismatch`＝409，套用 body 的 `versionId` 與該 seq 現在那一列不同（搬移清空後同一個 seq 指向別的內容）。

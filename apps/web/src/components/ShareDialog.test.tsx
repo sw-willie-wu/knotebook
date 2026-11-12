@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
-import type { NoteDto, NoteWidth, ShareDto } from "@knotebook/shared";
+import type { NoteDto, NoteWidth, ShareDto, UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { clickOutside } from "@/test/outside-click";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
@@ -328,7 +328,7 @@ describe("ShareDialog", () => {
     });
 
     it("移除的是自己：文字講明失去這篇筆記的存取權，與一般移除不同", async () => {
-      const me = { id: SHARE.userId, email: SHARE.email, handle: "bob", displayName: "Bob", isAdmin: false, mustChangePassword: false, hasPassword: true, autoVersions: true };
+      const me = { id: SHARE.userId, email: SHARE.email, handle: "bob", displayName: "Bob", isAdmin: false, mustChangePassword: false, hasPassword: true, autoVersions: true, avatar: null } satisfies UserDto;
       const stub = await openMembers((method, url) =>
         url === "/api/auth/me" && method === "GET"
           ? fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(me) })

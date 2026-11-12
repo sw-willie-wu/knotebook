@@ -507,7 +507,7 @@ describe("改名 PATCH /api/auth/profile", () => {
     // 形狀鎖：PATCH 回應＝完整 UserDto，無多無少；版本歷史加 autoVersions
     const body = res.json();
     expect(Object.keys(body).sort()).toEqual(
-      ["id", "email", "handle", "displayName", "isAdmin", "mustChangePassword", "hasPassword", "autoVersions"].sort(),
+      ["id", "email", "handle", "displayName", "isAdmin", "mustChangePassword", "hasPassword", "autoVersions", "avatar"].sort(),
     );
     expect(body.handle).toBe("new-name");
 

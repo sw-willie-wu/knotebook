@@ -363,7 +363,7 @@
     "disableDescription": "{{email}} 將立即被踢下線，並失去存取權限，直到重新啟用為止。",
     "storage": {
       "title": "儲存方案",
-      "description": "方案限制個人空間或群組的附件總大小。新使用者與新群組套用下方的預設方案；改預設不會影響既有的使用者與群組。",
+      "description": "方案限制個人空間或群組的檔案總大小（個人空間另計頭貼）。新使用者與新群組套用下方的預設方案；改預設不會影響既有的使用者與群組。",
       "create": "新增方案",
       "createTitle": "新增儲存方案",
       "editTitle": "編輯儲存方案",
@@ -402,7 +402,7 @@
     "versions": {
       "title": "版本歷史",
       "autoTitle": "自動儲存版本",
-      "autoDescription": "關閉後所有空間都不會自動儲存版本，仍可手動儲存。版本歷史與筆記文字不佔用儲存空間，配額只計上傳的檔案。",
+      "autoDescription": "關閉後所有空間都不會自動儲存版本，仍可手動儲存。版本歷史與筆記文字不佔用儲存空間；檔案與（個人空間的）頭貼才計入配額。",
       "retentionTitle": "自動版本的保留",
       "retentionDescription": "{{keepAll}} 天內的自動版本全部保留；{{dailyUntil}} 天內每天留一版；更早的每週留一版。日與週以 UTC 計算。手動版本不會被清除。",
       "keepAllLabel": "全部保留（天）",
@@ -487,19 +487,20 @@
       }
     },
     "storage": {
-      "description": "你個人筆記裡上傳檔案的用量。",
+      "description": "你個人筆記裡的檔案與頭貼的用量。",
       "usageTitle": "用量",
       "byKind": "依類型",
-      "byKindDescription": "上傳的檔案依類型分組。",
+      "byKindDescription": "檔案與頭貼依類型分組。",
       "kinds": {
         "image": "影像",
         "audio": "音訊",
         "video": "影片",
         "document": "文件",
-        "other": "其他"
+        "other": "其他",
+        "avatar": "頭貼"
       },
       "versionsTitle": "版本歷史",
-      "versionsNote": "版本歷史與筆記文字不佔用儲存空間，配額只計上傳的檔案。"
+      "versionsNote": "版本歷史與筆記文字不佔用儲存空間；檔案與（個人空間的）頭貼才計入配額。"
     },
     "groups": {
       "overview": "你所屬的群組，以及你在每個群組裡的角色。建立或管理群組都從側欄進行。",

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useParams } from "react-router";
-import type { FolderDto, GroupDto, NoteDto } from "@knotebook/shared";
+import type { FolderDto, GroupDto, NoteDto, UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ActiveNoteProvider } from "@/lib/active-note";
 import { SidebarTabProvider, type SidebarTab } from "@/lib/sidebar-tab";
@@ -30,7 +30,7 @@ afterEach(() => {
   __resetFolderSortForTests();
 });
 
-const ME = { id: "u1", email: "a@example.com", handle: "tester", displayName: "Ann", isAdmin: false, mustChangePassword: false, hasPassword: true, autoVersions: true };
+const ME = { id: "u1", email: "a@example.com", handle: "tester", displayName: "Ann", isAdmin: false, mustChangePassword: false, hasPassword: true, autoVersions: true, avatar: null } satisfies UserDto;
 const G: GroupDto = groupDto({ id: "G", name: "G" }, adminRole());
 const R: GroupDto = groupDto({ id: "R", name: "R" }, customRole());
 

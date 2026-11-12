@@ -89,6 +89,7 @@ const ADMIN_USER: UserDto = {
   mustChangePassword: false,
   hasPassword: true,
   autoVersions: true,
+  avatar: null,
 };
 
 function fakeResponse(ok: boolean, status: number, body?: unknown): Response {

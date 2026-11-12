@@ -35,6 +35,7 @@ const PASSWORD_USER: UserDto = {
   mustChangePassword: false,
   hasPassword: true,
   autoVersions: true,
+  avatar: null,
 };
 
 const SSO_ONLY_USER: UserDto = {
@@ -46,6 +47,7 @@ const SSO_ONLY_USER: UserDto = {
   mustChangePassword: false,
   hasPassword: false,
   autoVersions: true,
+  avatar: null,
 };
 
 function baseFetchHandlers(user: UserDto, passwordLoginEnabled = true, siteOn = true) {

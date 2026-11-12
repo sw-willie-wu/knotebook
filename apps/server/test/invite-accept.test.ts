@@ -32,7 +32,7 @@ afterEach(() => {
 
 const PW = "correct-horse-battery-staple";
 const NUL = String.fromCodePoint(0);
-const USER_DTO_KEYS = ["autoVersions", "displayName", "email", "handle", "hasPassword", "id", "isAdmin", "mustChangePassword"];
+const USER_DTO_KEYS = ["autoVersions", "avatar", "displayName", "email", "handle", "hasPassword", "id", "isAdmin", "mustChangePassword"];
 const REDACTED = "接受邀請時發生非預期的資料庫錯誤（錯誤本體已遮蔽）";
 const LOOKUP_REDACTED = "查詢邀請時發生非預期的資料庫錯誤（錯誤本體已遮蔽）";
 const PARAMS_LEAK = /params: |"params"\s*:/;
@@ -141,6 +141,7 @@ describe("POST /api/auth/invite/accept（成功）", () => {
       mustChangePassword: false,
       hasPassword: true,
       autoVersions: true,
+      avatar: null,
     });
     const id = body.id as string;
 

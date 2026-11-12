@@ -41,6 +41,7 @@ import { adminLimitsRoutes } from "./routes/admin-limits.js";
 import { adminTrashRoutes } from "./routes/admin-trash.js";
 import { testHookRoutes } from "./routes/test-hooks.js";
 import { accountRoutes } from "./routes/account.js";
+import { avatarsRoutes } from "./routes/avatars.js";
 import { passwordResetRoutes } from "./routes/password-reset.js";
 import { aiRoutes } from "./routes/ai.js";
 import { uploadsRoutes } from "./routes/uploads.js";
@@ -80,6 +81,7 @@ import { createLinkConversion, errorSummary, NOOP_LINK_CONVERSION, type LinkConv
 import { TRASH_PURGE_FIRST_DELAY_MS, TRASH_PURGE_INTERVAL_MS, createTrashPurger } from "./trash/purge.js";
 import type { NoteCreateHooks } from "./notes/create.js";
 import type { GroupTestHook } from "./groups/test-hook.js";
+import type { AvatarTestHooks } from "./avatars/tx/avatars.js";
 import type { SearchIndexHooks } from "./notes/tx/search-index.js";
 import { DEFAULT_STORAGE_LOCK_TIMEOUT_MS } from "./storage/tx/quota.js";
 import type { SiteLimits } from "./site-limits/store.js";
@@ -222,6 +224,8 @@ export interface AppDeps {
    * `undefined`＝no-op；整合測試的注入面是 `buildTestApp({ groupTestHook })` 與 `buildCollabTestApp({ groupTestHook })`（後者 #175 起有；帶 content 的 MCP `create_note` 要 collab app）。
    */
   groupTestHook?: GroupTestHook;
+  /** 頭貼寫入交易的交錯縫（`avatars/tx/avatars.ts`）。選配；production 不注入，整合測試的注入面是 `buildTestApp({ avatarTestHooks })`。 */
+  avatarTestHooks?: AvatarTestHooks;
   /** #93：全文索引交易的測試縫（`notes/tx/search-index.ts`）。選配；production 不注入。注入面是 `buildTestApp({ searchIndexHooks })`。 */
   searchIndexHooks?: SearchIndexHooks;
   /**
@@ -319,7 +323,7 @@ const CHANGE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 // 形狀，`url` 用 `request.routeOptions.url`（route pattern，含 `:id` 這類參數佔位符，
 // 不是實際請求路徑）比對，故單一字面值即可涵蓋所有 id。
 // 登入服務圖示上傳走同一條：essence 必須 multipart（否則 415）＋Origin 不符 403。
-const MULTIPART_EXEMPT_ROUTES = new Set(["POST /api/notes/:id/uploads", "PUT /api/admin/auth/providers/:id/icon"]);
+const MULTIPART_EXEMPT_ROUTES = new Set(["POST /api/notes/:id/uploads", "PUT /api/admin/auth/providers/:id/icon", "POST /api/auth/avatars", "PUT /api/auth/avatars/:id/display"]);
 
 /**
  * 判定這個請求是否命中 multipart 豁免白名單。`request.is404` 必須先擋——404 請求的
@@ -873,6 +877,18 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       collabHooks: deps.collabHooks,
       reloginReverifyDelayMs: deps.reloginReverifyDelayMs,
       limiters: { register: limiters.register, oneTimeLinkMiss: limiters.oneTimeLinkMiss, oneTimeLinkAttempt: limiters.oneTimeLinkAttempt },
+    }),
+  );
+  // 頭貼：候選清單與上傳（cookie-only）。
+  void app.register(
+    avatarsRoutes({
+      db: deps.db,
+      gate: deps.gate,
+      limiters: { upload: limiters.upload },
+      uploadsDir: deps.uploadsDir,
+      siteLimits: deps.siteLimits,
+      storageLockTimeoutMs,
+      avatarTestHooks: deps.avatarTestHooks,
     }),
   );
   // #286：無登入的重設密碼端點——inspect 與以一次性連結設定新密碼。

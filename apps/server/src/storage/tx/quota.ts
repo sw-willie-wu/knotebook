@@ -1,7 +1,7 @@
 /**
  * 儲存配額的唯一判定點。S14：只收 `tx`／純資料／型別明示測試縫。
- * 呼叫它的交易**恰為**白名單四支（`insertUploadInTx` 上傳、`moveNoteToGroupInTx` 移動、`copyNoteInTx` 複製、`transferGroupInTx` 轉移），各恰一次，位置在該交易全部
- * notes／groups 列鎖之後、該空間 slug 範圍的任何寫入之前——這個位置保證不成環。
+ * 呼叫它的交易**恰為**白名單五個檔（`insertUploadInTx` 上傳、`moveNoteToGroupInTx` 移動、`copyNoteInTx` 複製、`transferGroupInTx` 轉移、
+ * 頭貼檔的 `insertAvatarInTx` 上傳與 `updateAvatarDisplayInTx` 重新裁切），頭貼檔呼叫兩次、其餘四檔各恰一次，每次位置都在該交易全部 notes／groups／users 列鎖之後、該空間 slug 範圍的任何寫入之前——這個位置保證不成環。
  * 每一步是**獨立的一句 SQL**：
  *   1. incoming ≤ 0 → return（不取鎖：只擋新增）
  *   2. set_config('lock_timeout', '<n>ms', true)——`SET` 不收綁定參數；is_local＝SET LOCAL
@@ -10,7 +10,7 @@
  *      交易之後的列鎖等待行為與今天相同（有測試守）
  *   4a. 測試縫 `storage-space-locked`
  *   5. 讀配額（users／groups JOIN storage_plans）；NULL → return
- *   6. SUM——**必須是取鎖之後的另一句**：READ COMMITTED 每句取新快照，才看得到前一位持鎖者已 commit 的列；併成一句時快照在
+ *   6. SUM（個人空間：附件總和＋該使用者的頭貼總和，同一句內的子查詢）——**必須是取鎖之後的另一句**：READ COMMITTED 每句取新快照，才看得到前一位持鎖者已 commit 的列；併成一句時快照在
  *      取鎖之前，SUM 是舊值（確定性版測試守）。advisory xact lock 在 commit 可見之後才釋放。
  *   7. used + incoming > quota → throw（等於上限放行）
  * 呼叫它的交易一律 READ COMMITTED（REPEATABLE READ 下第 6 步看不到他人的新 commit）——結構性守衛 storage-quota-structure ⑥。
@@ -20,7 +20,7 @@ import type { Tx } from "../../db/tx.js";
 import { groups, notes, storagePlans, uploads, users } from "../../db/schema.js";
 import type { GroupTestHook } from "../../groups/test-hook.js";
 import { TxAbort } from "../../http/tx-abort.js";
-import { STORAGE_QUOTA_EXCEEDED_MESSAGE, spaceLockKey, spaceNotesWhere, sumUploadSizeSql, type StorageSpace } from "../space.js";
+import { STORAGE_QUOTA_EXCEEDED_MESSAGE, spaceLockKey, spaceNotesWhere, sumAvatarBytesSql, sumUploadSizeSql, type StorageSpace } from "../space.js";
 
 /** 空間鎖等待上限的預設值（ms）。`AppDeps.storageLockTimeoutMs` 只給測試注入，不開 env。 */
 export const DEFAULT_STORAGE_LOCK_TIMEOUT_MS = 5000;
@@ -63,8 +63,9 @@ export async function assertSpaceRoomInTx(tx: Tx, space: StorageSpace, incomingB
   if (!plan) throw new Error(`assertSpaceRoomInTx: 找不到空間 ${space.kind}:${space.id}`);
   if (plan.quotaBytes === null) return;
 
-  const [row] = await tx.select({ used: sumUploadSizeSql() }).from(uploads).innerJoin(notes, eq(notes.id, uploads.noteId)).where(spaceNotesWhere(space));
-  const usedBytes = row?.used ?? 0;
+  const avatar = space.kind === "user" ? sumAvatarBytesSql(space.id) : sql<number>`0`.mapWith(Number);
+  const [row] = await tx.select({ used: sumUploadSizeSql(), avatar }).from(uploads).innerJoin(notes, eq(notes.id, uploads.noteId)).where(spaceNotesWhere(space));
+  const usedBytes = (row?.used ?? 0) + (row?.avatar ?? 0);
   if (usedBytes + incomingBytes > plan.quotaBytes) {
     throw new StorageQuotaExceeded(space, usedBytes, plan.quotaBytes, incomingBytes);
   }

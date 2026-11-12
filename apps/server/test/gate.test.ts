@@ -38,7 +38,7 @@ describe("UserGate", () => {
     const result = await gate.check(u.id, 3, testSessionId(u.id));
     expect(result).toEqual({
       status: "ok",
-      user: { id: u.id, email: u.email, handle: u.handle, displayName: u.displayName, isAdmin: true, mustChangePassword: false, hasPassword: false, autoVersions: true },
+      user: { id: u.id, email: u.email, handle: u.handle, displayName: u.displayName, isAdmin: true, mustChangePassword: false, hasPassword: false, autoVersions: true, avatar: null },
     });
   });
 
@@ -184,6 +184,7 @@ describe("UserGate", () => {
               mustChangePassword: row.mustChangePassword,
               hasPassword: row.passwordHash !== null,
               autoVersions: row.autoVersions,
+              avatar: null,
             }
           : null;
       },
@@ -208,6 +209,7 @@ describe("UserGate", () => {
       mustChangePassword: false,
       hasPassword: false,
       autoVersions: true,
+      avatar: null,
     });
     const first = await firstCheck;
     expect(first.status).toBe("ok"); // 這次呼叫本身仍用它查到的資料正確回答
@@ -252,6 +254,7 @@ describe("UserGate.checkUser（#107：token 路徑的使用者狀態閘）", () 
         mustChangePassword: false,
         hasPassword: true,
         autoVersions: true,
+        avatar: null,
       },
     });
   });
@@ -293,6 +296,7 @@ describe("UserGate.checkUser（#107：token 路徑的使用者狀態閘）", () 
           mustChangePassword: false,
           hasPassword: true,
           autoVersions: true,
+          avatar: null,
         };
       },
       // "u-shared" 不是 DB 裡的使用者，沒有測試預設 session 列；session 列不是這條要守的東西，直接給一列。
@@ -325,6 +329,7 @@ describe("UserGate.checkUser（#107：token 路徑的使用者狀態閘）", () 
           mustChangePassword: false,
           hasPassword: true,
           autoVersions: true,
+          avatar: null,
         };
       },
     });

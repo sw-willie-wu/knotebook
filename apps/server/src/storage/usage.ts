@@ -6,9 +6,9 @@ import { eq, sql } from "drizzle-orm";
 import { emptyStorageByKind, kindOfMime, type GroupStorageMemberUsageDto, type StorageByKind, type StorageQuotaErrorDetail } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
 import type { DbOrTx } from "../db/tx.js";
-import { groups, notes, storagePlans, uploads, users } from "../db/schema.js";
+import { groups, notes, storagePlans, uploads, userAvatars, users } from "../db/schema.js";
 import { groupAccess } from "../groups/queries.js";
-import { spaceNotesWhere, sumUploadSizeSql, type StorageSpace } from "./space.js";
+import { spaceNotesWhere, sumAvatarBytesSql, sumUploadSizeSql, type StorageSpace } from "./space.js";
 import type { StorageQuotaExceeded } from "./tx/quota.js";
 
 export interface SpaceUsage {
@@ -18,20 +18,25 @@ export interface SpaceUsage {
   planName: string;
 }
 
-/** 空間的方案與用量；空間不存在 → null。兩句（方案、SUM），不持鎖——只給預檢與顯示用，權威判定在 `assertSpaceRoomInTx`。 */
+/**
+ * 空間的方案與用量；空間不存在 → null。兩句（方案、SUM），不持鎖——只給預檢與顯示用，權威判定在 `assertSpaceRoomInTx`。
+ * 個人空間的用量＝附件＋該使用者的頭貼（同一句 SUM 內以子查詢取得）；群組空間只有附件。
+ */
 export async function readSpaceUsage(db: DbOrTx, space: StorageSpace): Promise<SpaceUsage | null> {
   const cols = { planId: storagePlans.id, planName: storagePlans.name, quotaBytes: storagePlans.quotaBytes };
   const [plan] = space.kind === "user"
     ? await db.select(cols).from(users).innerJoin(storagePlans, eq(storagePlans.id, users.storagePlanId)).where(eq(users.id, space.id))
     : await db.select(cols).from(groups).innerJoin(storagePlans, eq(storagePlans.id, groups.storagePlanId)).where(eq(groups.id, space.id));
   if (!plan) return null;
-  const [row] = await db.select({ used: sumUploadSizeSql() }).from(uploads).innerJoin(notes, eq(notes.id, uploads.noteId)).where(spaceNotesWhere(space));
-  return { usedBytes: row?.used ?? 0, quotaBytes: plan.quotaBytes, planId: plan.planId, planName: plan.planName };
+  const avatar = space.kind === "user" ? sumAvatarBytesSql(space.id) : sql<number>`0`.mapWith(Number);
+  const [row] = await db.select({ used: sumUploadSizeSql(), avatar }).from(uploads).innerJoin(notes, eq(notes.id, uploads.noteId)).where(spaceNotesWhere(space));
+  return { usedBytes: (row?.used ?? 0) + (row?.avatar ?? 0), quotaBytes: plan.quotaBytes, planId: plan.planId, planName: plan.planName };
 }
 
 /**
  * #247：空間內上傳依 mime 分組加總，JS 端以 shared 的 `kindOfMime` 歸類（分類規則只有一份）。只給兩支用量 GET 用——
  * **不得**搬進 `readSpaceUsage`：那句也是上傳 preHandler 與複製的「已滿」預檢（熱路徑），不加 GROUP BY。
+ * 個人空間另以一句取頭貼總和填 `avatar`（群組恆 0）；`image` 等附件類型不含頭貼。
  */
 export async function readSpaceUsageByKind(db: DbOrTx, space: StorageSpace): Promise<StorageByKind> {
   const rows = await db
@@ -42,6 +47,10 @@ export async function readSpaceUsageByKind(db: DbOrTx, space: StorageSpace): Pro
     .groupBy(uploads.mime);
   const out = emptyStorageByKind();
   for (const r of rows) out[kindOfMime(r.mime)] += r.bytes;
+  if (space.kind === "user") {
+    const [row] = await db.select({ bytes: sumAvatarBytesSql(space.id) }).from(users).where(eq(users.id, space.id));
+    out.avatar = row?.bytes ?? 0;
+  }
   return out;
 }
 
@@ -93,11 +102,21 @@ export function isSpaceFull(usage: SpaceUsage | null): usage is SpaceUsage & { q
   return usage !== null && usage.quotaBytes !== null && usage.usedBytes >= usage.quotaBytes;
 }
 
-/** 站台管理列表用：一次 GROUP BY 得「空間 id → 用量」；沒有附件的空間不在 Map 裡（呼叫端以 0 補）。 */
+/**
+ * 站台管理列表用：「空間 id → 用量」；沒有附件（個人空間另加：也沒有頭貼）的空間不在 Map 裡（呼叫端以 0 補）。
+ * 附件一次 GROUP BY；個人空間再以一句 `GROUP BY user_id` 取頭貼，在 JS 相加——只有頭貼、沒有附件的使用者也要進 Map。
+ */
 export async function listSpaceUsage(db: DbOrTx, kind: "user" | "group"): Promise<Map<string, number>> {
   const key = kind === "user" ? notes.ownerId : notes.groupId;
   const rows = await db.select({ id: key, used: sumUploadSizeSql() }).from(uploads).innerJoin(notes, eq(notes.id, uploads.noteId)).groupBy(key);
   const m = new Map<string, number>();
   for (const r of rows) if (r.id !== null) m.set(r.id, r.used);
+  if (kind === "user") {
+    const avatarRows = await db
+      .select({ id: userAvatars.userId, bytes: sql<number>`coalesce(sum(${userAvatars.originalSize} + ${userAvatars.displaySize}), 0)::bigint`.mapWith(Number) })
+      .from(userAvatars)
+      .groupBy(userAvatars.userId);
+    for (const r of avatarRows) m.set(r.id, (m.get(r.id) ?? 0) + r.bytes);
+  }
   return m;
 }
