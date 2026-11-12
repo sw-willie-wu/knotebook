@@ -27,19 +27,33 @@ export interface PresenceAvatarsProps {
 
 type Opener = PresenceKey | "more";
 
-/** 寬模式才顯示（視窗 `<md` 或頁頭 container `< 43.5rem` 任一成立就藏；同 `NoteWidthMenu` 門檻）。 */
-const WIDE_ONLY = "max-md:hidden @max-[43.5rem]:hidden";
-/** 窄模式才顯示（兩者都不成立才藏）。 */
-const NARROW_ONLY = "md:@min-[43.5rem]:hidden";
 /**
- * 點擊區以 `::before` 擴大，版面高度不變：桌面 32×32 px，`<md` 36×44 px；聚焦／hover 的那顆浮到上層，焦點框不被下一顆蓋住。
- * #335：頭像 24 px、疊放 `-ms-1.5`（6 px）時，下一顆的 `::before` 往左伸出量（x 方向）必須 ≤ 6 px，否則會蓋住前一顆的中心點
- * （Playwright 的 `hover()` 會一直被攔截而卡死；觸控也會點到鄰居）。所以 x、y 分開擴：x 受疊放限制（桌面 4 px、窄 6 px），
- * y 沒有鄰居，窄視窗可放到 10 px 以維持 44 px 的觸控高度。
+ * 三種形（頁頭是 container）：
+ * - 視窗 `< 640`（`max-sm`）：精簡形，不放頭像，只有一顆「+N」（N＝所有其他人）。
+ * - 視窗 `>= 640` 且頁頭 container `< 43.5rem`：窄形，最多 2 格。
+ * - 其餘：寬形，最多 5 格。
+ * 藏的方式是 `display:none`（不是 DOM 裡少一份），所以最多三顆「+N」同時存在、各自帶自己那組 class。
  */
-const HIT =
+/** 寬形才顯示（視窗 `< 640` 或頁頭 container `< 43.5rem` 任一成立就藏；同頁頭寬度鈕的門檻）。 */
+const WIDE_ONLY = "max-sm:hidden @max-[43.5rem]:hidden";
+/** 窄形才顯示（手機寬藏；視窗夠寬時 container 夠寬也藏）。 */
+const NARROW_ONLY = "max-sm:hidden sm:@min-[43.5rem]:hidden";
+/** 精簡形才顯示（只在手機寬）。 */
+const COMPACT_ONLY = "sm:hidden";
+/** 頭像在手機寬一律藏（只剩精簡 +N）；窄形留下的頭像在 640 以上不藏。 */
+const PHONE_HIDDEN = "max-sm:hidden";
+/**
+ * 點擊區以 `::before` 擴大，版面高度不變：預設 32×32 px，觸控裝置（`pointer-coarse`）36×44 px；聚焦／hover 的那顆浮到上層，焦點框不被下一顆蓋住。
+ * #335：頭像 24 px、疊放 `-ms-1.5`（6 px）時，下一顆的 `::before` 往左伸出量（x 方向）必須 ≤ 6 px，否則會蓋住前一顆的中心點
+ * （Playwright 的 `hover()` 會一直被攔截而卡死；觸控也會點到鄰居）。所以 x、y 分開擴：x 受疊放限制（預設 4 px、觸控 6 px），
+ * y 沒有鄰居，觸控裝置可放到 10 px 以維持 44 px 的觸控高度。
+ */
+const HIT_BASE =
   "relative inline-flex rounded-full outline-none focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 " +
-  "hover:z-10 before:absolute before:-inset-x-1 before:-inset-y-1 max-md:before:-inset-x-1.5 max-md:before:-inset-y-2.5 before:content-['']";
+  "hover:z-10 before:absolute before:content-['']";
+const HIT = `${HIT_BASE} before:-inset-x-1 before:-inset-y-1 pointer-coarse:before:-inset-x-1.5 pointer-coarse:before:-inset-y-2.5`;
+/** 精簡 +N 視覺 32×28、點擊區 40×44；它在手機寬時是列裡唯一看得見的鈕，沒有鄰居要避開。 */
+const HIT_COMPACT = `${HIT_BASE} before:-inset-x-1 before:-inset-y-2`;
 
 /** 還焦點的目標要真的看得見：寬窄模式的藏法是 `display:none`，對它 `focus()` 會無聲失敗。 */
 function focusable(el: HTMLElement | null | undefined): el is HTMLElement {
@@ -180,11 +194,13 @@ function MoreButton({
   count,
   expanded,
   className,
+  compact = false,
   onOpen,
 }: {
   count: number;
   expanded: boolean;
   className: string;
+  compact?: boolean;
   onOpen: (el: HTMLElement) => void;
 }) {
   const { t } = useTranslation();
@@ -194,7 +210,11 @@ function MoreButton({
       aria-label={t("note.presence.more", { count })}
       aria-haspopup="menu"
       aria-expanded={expanded}
-      className={cn(HIT, "h-6 w-6 items-center justify-center bg-muted text-xs font-semibold text-foreground", className)}
+      className={cn(
+        compact ? `${HIT_COMPACT} h-7 w-8 max-sm:ms-0!` : `${HIT} h-6 w-6`,
+        "items-center justify-center bg-muted text-xs font-semibold text-foreground",
+        className,
+      )}
       onClick={(e) => onOpen(e.currentTarget)}
     >
       +{count}
@@ -319,7 +339,7 @@ export function PresenceAvatars({ provider, connected, myUserId, scrollerRef }: 
           <PersonButton
             key={p.key}
             person={p}
-            className={i < layout.narrow.shown ? "" : WIDE_ONLY}
+            className={i < layout.narrow.shown ? PHONE_HIDDEN : WIDE_ONLY}
             suppressed={suppressedKey === p.key}
             onUnsuppress={unsuppress}
             onScroll={() => scrollTo(p.key)}
@@ -339,6 +359,15 @@ export function PresenceAvatars({ provider, connected, myUserId, scrollerRef }: 
             count={layout.narrow.more}
             expanded={menu === "more"}
             className={NARROW_ONLY}
+            onOpen={(el) => openMenu("more", el)}
+          />
+        )}
+        {layout.compact.more > 0 && (
+          <MoreButton
+            count={layout.compact.more}
+            expanded={menu === "more"}
+            className={COMPACT_ONLY}
+            compact
             onOpen={(el) => openMenu("more", el)}
           />
         )}

@@ -197,7 +197,7 @@
     },
     "width": {
       "label": "Width",
-      "current": "Width: {{name}}",
+      "cycle": "Width: {{name}} — click for {{next}}",
       "standard": "Standard",
       "wide": "Wide",
       "full": "Full width"

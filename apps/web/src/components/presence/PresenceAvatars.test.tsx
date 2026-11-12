@@ -237,27 +237,32 @@ describe("PresenceAvatars", () => {
     expect(group()).not.toHaveAttribute("aria-haspopup");
   });
 
-  it("PA6 容量與 +N：6 位 → 4 顆＋寬 +2／窄 +5；疊放結構", () => {
+  it("PA6 容量與 +N：6 位 → 4 顆＋寬 +2／窄 +5／精簡 +6；疊放結構", () => {
     const aw = newAwareness();
     six(aw);
     mount(aw);
     const btns = personButtons();
     expect(btns).toHaveLength(4);
-    expect(btns[0]).not.toHaveClass("max-md:hidden");
+    // 手機（< 640）只剩精簡 +N：每顆頭像都帶 max-sm:hidden；窄形留下的那顆在 640 以上不藏
+    expect(btns[0]).toHaveClass("max-sm:hidden");
     expect(btns[0]).not.toHaveClass("@max-[43.5rem]:hidden");
-    for (const b of btns.slice(1)) expect(b).toHaveClass("max-md:hidden", "@max-[43.5rem]:hidden");
+    for (const b of btns.slice(1)) expect(b).toHaveClass("max-sm:hidden", "@max-[43.5rem]:hidden");
+    expect(screen.getAllByRole("button", { name: /more, show everyone/ })).toHaveLength(3);
     const wide = screen.getByRole("button", { name: "2 more, show everyone" });
     const narrow = screen.getByRole("button", { name: "5 more, show everyone" });
-    expect(wide).toHaveClass("max-md:hidden", "@max-[43.5rem]:hidden");
-    expect(wide).not.toHaveClass("md:@min-[43.5rem]:hidden");
-    expect(narrow).toHaveClass("md:@min-[43.5rem]:hidden");
-    expect(narrow).not.toHaveClass("max-md:hidden");
-    for (const b of [wide, narrow]) {
+    const compact = screen.getByRole("button", { name: "6 more, show everyone" });
+    expect(wide).toHaveClass("max-sm:hidden", "@max-[43.5rem]:hidden");
+    expect(wide).not.toHaveClass("sm:@min-[43.5rem]:hidden", "sm:hidden");
+    expect(narrow).toHaveClass("max-sm:hidden", "sm:@min-[43.5rem]:hidden");
+    expect(narrow).not.toHaveClass("@max-[43.5rem]:hidden", "sm:hidden");
+    expect(compact).toHaveClass("sm:hidden");
+    expect(compact).not.toHaveClass("max-sm:hidden", "@max-[43.5rem]:hidden", "sm:@min-[43.5rem]:hidden");
+    for (const b of [wide, narrow, compact]) {
       expect(b).toHaveAttribute("aria-haspopup", "menu");
       expect(b).toHaveAttribute("aria-expanded", "false");
     }
     // 聚焦／hover 的那顆浮到上層，焦點框不被下一顆蓋住
-    for (const b of [...btns, wide, narrow]) expect(b).toHaveClass("focus-visible:z-10", "hover:z-10");
+    for (const b of [...btns, wide, narrow, compact]) expect(b).toHaveClass("focus-visible:z-10", "hover:z-10");
     const g = group();
     expect(g).toHaveClass("[&>button+button]:-ms-1.5");
     expect(g.className).not.toContain("space-x");
@@ -269,7 +274,7 @@ describe("PresenceAvatars", () => {
     expect(wide).toHaveAttribute("aria-expanded", "true");
   });
 
-  it("#335 頭像尺寸：頁首每顆頭像與 +N 都是 24px，點擊區 ::before 桌面 32×32、窄視窗 36×44（x 伸出量 ≤ 疊放的 6px，不蓋鄰居中心）", () => {
+  it("#335 頭像尺寸：頁首每顆頭像與 +N 都是 24px，點擊區 ::before 預設 32×32、觸控裝置 36×44（x 伸出量 ≤ 疊放的 6px，不蓋鄰居中心）；手機精簡 +N 視覺 32×28、點擊區 40×44", () => {
     const aw = newAwareness();
     six(aw);
     mount(aw);
@@ -277,26 +282,36 @@ describe("PresenceAvatars", () => {
       const circle = b.firstElementChild as HTMLElement;
       expect(circle.style.width).toBe("24px");
       expect(circle.style.height).toBe("24px");
-      expect(b).toHaveClass("before:-inset-x-1", "before:-inset-y-1", "max-md:before:-inset-x-1.5", "max-md:before:-inset-y-2.5");
+      expect(b).toHaveClass("before:-inset-x-1", "before:-inset-y-1", "pointer-coarse:before:-inset-x-1.5", "pointer-coarse:before:-inset-y-2.5");
     }
     for (const name of ["2 more, show everyone", "5 more, show everyone"]) {
       const more = screen.getByRole("button", { name });
       expect(more).toHaveClass("h-6", "w-6");
       expect(more).not.toHaveClass("h-7");
-      expect(more).toHaveClass("before:-inset-x-1", "before:-inset-y-1", "max-md:before:-inset-x-1.5", "max-md:before:-inset-y-2.5");
+      expect(more).toHaveClass("before:-inset-x-1", "before:-inset-y-1", "pointer-coarse:before:-inset-x-1.5", "pointer-coarse:before:-inset-y-2.5");
     }
+    // 精簡 +N 只在手機寬出現、前面沒有鄰居可蓋：視覺 32×28（h-7 w-8），::before 擴成 40×44
+    const compact = screen.getByRole("button", { name: "6 more, show everyone" });
+    expect(compact).toHaveClass("h-7", "w-8", "before:-inset-x-1", "before:-inset-y-2");
+    expect(compact).not.toHaveClass("h-6", "w-6");
+    // 手機寬時它前面接的是連線點，疊放用的負邊距要清掉；點擊區不帶頭像那組擴大 class
+    expect(compact).toHaveClass("max-sm:ms-0!");
+    expect(compact).not.toHaveClass("before:-inset-y-1");
+    expect(compact.className).not.toMatch(/pointer-coarse:|max-sm:before:/);
   });
 
-  it("PA6 容量：5 位 → 5 顆、只有窄 +4；2 位 → 都不藏、沒有 +N", () => {
+  it("PA6 容量：5 位 → 5 顆、窄 +4 與精簡 +5；2 位 → 兩顆在寬窄形都不藏，只有精簡 +2", () => {
     const aw = newAwareness();
     for (const [i, id] of ["u-a", "u-b", "u-c", "u-d", "u-e"].entries()) setRemote(aw, 10 + i, userState(id, id));
     const five = mount(aw);
     const btns = personButtons();
     expect(btns).toHaveLength(5);
-    expect(btns[0]).not.toHaveClass("max-md:hidden");
-    for (const b of btns.slice(1)) expect(b).toHaveClass("max-md:hidden", "@max-[43.5rem]:hidden");
-    expect(screen.getByRole("button", { name: "4 more, show everyone" })).toHaveClass("md:@min-[43.5rem]:hidden");
-    expect(screen.queryAllByRole("button", { name: /more, show everyone/ })).toHaveLength(1);
+    expect(btns[0]).toHaveClass("max-sm:hidden");
+    expect(btns[0]).not.toHaveClass("@max-[43.5rem]:hidden");
+    for (const b of btns.slice(1)) expect(b).toHaveClass("max-sm:hidden", "@max-[43.5rem]:hidden");
+    expect(screen.getByRole("button", { name: "4 more, show everyone" })).toHaveClass("sm:@min-[43.5rem]:hidden");
+    expect(screen.getByRole("button", { name: "5 more, show everyone" })).toHaveClass("sm:hidden");
+    expect(screen.queryAllByRole("button", { name: /more, show everyone/ })).toHaveLength(2);
     five.unmount();
 
     const two = newAwareness();
@@ -304,10 +319,47 @@ describe("PresenceAvatars", () => {
     setRemote(two, 11, userState("u-b", "Bob"));
     mount(two);
     for (const b of personButtons()) {
-      expect(b).not.toHaveClass("max-md:hidden");
+      expect(b).toHaveClass("max-sm:hidden");
       expect(b).not.toHaveClass("@max-[43.5rem]:hidden");
     }
+    const chips = screen.getAllByRole("button", { name: /more, show everyone/ });
+    expect(chips).toHaveLength(1);
+    expect(chips[0]).toHaveAccessibleName("2 more, show everyone");
+    expect(chips[0]).toHaveClass("sm:hidden");
+  });
+
+  it("PA6 精簡 +N：一位 → +1；沒有其他人 → 不渲染", () => {
+    const aw = newAwareness();
+    setRemote(aw, 10, userState("u-a", "Ann"));
+    const one = mount(aw);
+    expect(screen.getByRole("button", { name: "1 more, show everyone" })).toHaveClass("sm:hidden");
+    one.unmount();
+
+    const none = newAwareness();
+    mount(none);
     expect(screen.queryAllByRole("button", { name: /more, show everyone/ })).toHaveLength(0);
+  });
+
+  it("PA6 精簡 +N：點了開完整名單；Esc 後開它的那顆被藏就退到第一顆看得見的頭像", async () => {
+    const aw = newAwareness();
+    six(aw);
+    mount(aw);
+    const compact = screen.getByRole("button", { name: "6 more, show everyone" });
+    expect(compact).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(compact);
+    expect(compact).toHaveAttribute("aria-expanded", "true");
+    const menu = screen.getByRole("menu", { name: "People on this note (6)" });
+    expect(within(menu).getAllByRole("menuitem")).toHaveLength(6);
+    // 模擬 640 以上：精簡那顆是 display:none，其餘看得見
+    const real = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation((el, pseudo) =>
+      el === compact ? ({ display: "none" } as CSSStyleDeclaration) : real(el, pseudo),
+    );
+    fireEvent.keyDown(menu, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    const target = personButtons()[0]!;
+    await waitFor(() => expect(target).toHaveFocus());
+    expect(compact).not.toHaveFocus();
   });
 
   it("PA7 完整名單：名稱、6 列同序、無游標列 aria-disabled、選一列捲動並關閉；Esc 焦點回 +N", async () => {
@@ -573,7 +625,7 @@ describe("PresenceAvatars", () => {
       const ann = screen.getByRole("button", { name: "Ann, Editor, go to their cursor" });
       const bob = screen.getByRole("button", { name: "Bob, Editor, go to their cursor" });
       longPress(bob, "user:u-b", scroller);
-      bob.style.display = "none"; // 模擬寬窄切換後 `max-md:hidden` 生效
+      bob.style.display = "none"; // 模擬寬窄切換後 `max-sm:hidden` 生效
       escape();
       expect(ann).toHaveFocus();
       expect(screen.queryByRole("tooltip")).toBeNull();

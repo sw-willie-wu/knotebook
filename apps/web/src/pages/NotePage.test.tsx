@@ -670,6 +670,54 @@ describe("NotePage", () => {
     expect(width.compareDocumentPosition(more) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it("頁首 ⋮ 裡有「Width」（任何寬度都能改寬度，頁首鈕在窄寬會隱藏）", async () => {
+    vi.stubGlobal("fetch", mockFetch());
+
+    renderNotePage("my-note");
+    await screen.findByTestId("note-editor");
+
+    fireEvent.pointerDown(within(document.querySelector("header")!).getByRole("button", { name: "More" }), { button: 0 });
+    expect(await screen.findByRole("menuitem", { name: "Width" })).toBeInTheDocument();
+  });
+
+  it("頁首 gap 在手機寬收成 gap-2（容器查詢套不到 header 自己的 gap）", async () => {
+    vi.stubGlobal("fetch", mockFetch());
+
+    renderNotePage("my-note");
+    await screen.findByTestId("note-editor");
+
+    expect(document.querySelector("header")).toHaveClass("gap-3", "max-sm:gap-2");
+  });
+
+  it("頁首子節點順序：導覽鈕、標題、連線、在線者、最後編輯、星號、分享、寬度、⋮", async () => {
+    resetLocalPresenceFieldForTest();
+    const awareness = new Awareness(new Y.Doc());
+    onTestFinished(() => awareness.destroy());
+    collab.state = { phase: "connected", role: "owner" };
+    collab.provider = Object.assign(createStubProvider(), { awareness });
+    setRemote(awareness, 10, userState("u2", "Bea"));
+    vi.stubGlobal("fetch", mockFetch({ ...NOTE, lastEdited: { at: "2026-02-03T04:05:06.000Z", byHandle: "alice", agentLabel: null } }));
+
+    renderNotePage("my-note");
+    await screen.findByTestId("note-editor");
+
+    const header = document.querySelector("header")!;
+    const order = [
+      within(header).getByRole("button", { name: "Open navigation" }),
+      within(header).getByLabelText("Note title"),
+      within(header).getByRole("status"),
+      await within(header).findByRole("group", { name: "Also viewing this note" }),
+      within(header).getByTestId("last-edited"),
+      within(header).getByRole("button", { name: "Favorite" }),
+      within(header).getByRole("button", { name: "Share" }),
+      within(header).getByRole("button", { name: /^Width/ }),
+      within(header).getByRole("button", { name: "More" }),
+    ];
+    for (let i = 0; i < order.length - 1; i++) {
+      expect(order[i]!.compareDocumentPosition(order[i + 1]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+  });
+
   it("頁首有最愛星號，位置在 Share 之前（#334）", async () => {
     vi.stubGlobal("fetch", mockFetch());
 
@@ -1098,20 +1146,19 @@ describe("NotePage", () => {
       await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("My Note"));
       expect(screen.getByTestId("mock-column")).toHaveAttribute("data-width", "standard");
 
-      fireEvent.pointerDown(screen.getByRole("button", { name: /^Width/ }), { button: 0 });
-      fireEvent.click(await screen.findByRole("menuitemradio", { name: "Full width" }));
-      await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
-      expect(screen.getByRole("button", { name: /^Width/ })).toHaveAccessibleName("Width: Full width");
+      fireEvent.click(screen.getByRole("button", { name: /^Width/ }));
+      fireEvent.click(screen.getByRole("button", { name: /^Width/ }));
+      expect(screen.getByRole("button", { name: /^Width/ })).toHaveAccessibleName("Width: Full width — click for Standard");
       expect(screen.getByTestId("mock-column")).toHaveAttribute("data-width", "full");
 
       fireEvent.click(screen.getByRole("button", { name: "go-b-new" }));
       await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("Note B"));
-      expect(screen.getByRole("button", { name: /^Width/ })).toHaveAccessibleName("Width: Standard");
+      expect(screen.getByRole("button", { name: /^Width/ })).toHaveAccessibleName("Width: Standard — click for Wide");
       expect(screen.getByTestId("mock-column")).toHaveAttribute("data-width", "standard");
 
       fireEvent.click(screen.getByRole("button", { name: "go-my-note" }));
       await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("My Note"));
-      expect(screen.getByRole("button", { name: /^Width/ })).toHaveAccessibleName("Width: Full width");
+      expect(screen.getByRole("button", { name: /^Width/ })).toHaveAccessibleName("Width: Full width — click for Standard");
       expect(screen.getByTestId("mock-column")).toHaveAttribute("data-width", "full");
 
       expect(widthKeys()).toEqual([`note.width.${NOTE.id}`]);

@@ -164,16 +164,28 @@ describe("ConnectionBadge（issue #48：離線可見性）", () => {
     }
   });
 
-  it("#115：文字 span 為 max-md:sr-only（窄視窗只留色點，但 aria-live 仍讀得到）；viewer 的「Read-only」也是", () => {
+  it("#115：文字 span 在手機寬或頁首不到 36rem 時為 sr-only（只留色點，但 aria-live 仍讀得到）；viewer 的「Read-only」也是", () => {
     // 用 sr-only 而不是 hidden：容器是 role=status aria-live=polite，display:none
     // 會讓窄視窗的螢幕閱讀器收不到撤權/降級/離線通知。
     const owner = renderBadge({ phase: "connected", role: "owner" }, true);
-    expect(screen.getByText("Connected")).toHaveClass("max-md:sr-only");
-    expect(screen.getByText("Connected").className).not.toContain("max-md:hidden");
+    expect(screen.getByText("Connected")).toHaveClass("max-sm:sr-only", "@max-[36rem]:sr-only");
+    expect(screen.getByText("Connected").className).not.toContain("hidden");
     owner.unmount();
     renderBadge({ phase: "connected", role: "viewer" }, true, false);
-    expect(screen.getByText("Read-only")).toHaveClass("max-md:sr-only");
-    expect(screen.getByText("Read-only").className).not.toContain("max-md:hidden");
+    expect(screen.getByText("Read-only")).toHaveClass("max-sm:sr-only", "@max-[36rem]:sr-only");
+    expect(screen.getByText("Read-only").className).not.toContain("hidden");
+  });
+
+  it("離線長文案與一般文案是同一個 span、同一組收縮 class，容器仍是 aria-live", () => {
+    renderBadge({ phase: "reconnecting-once" }, true);
+    act(() => vi.advanceTimersByTime(OFFLINE_WARN_MS));
+    const long = screen.getByText("Editing offline — changes not synced yet");
+    expect(long.tagName).toBe("SPAN");
+    expect(long).toHaveClass("max-sm:sr-only", "@max-[36rem]:sr-only");
+    expect(long.className).not.toContain("hidden");
+    const status = screen.getByRole("status");
+    expect(status).toHaveAttribute("aria-live", "polite");
+    expect(status).toContainElement(long);
   });
 
   it("#269 outdated：中性「Reload required」、超過門檻也不升級成離線警示", () => {

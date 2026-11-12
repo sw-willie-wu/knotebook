@@ -78,9 +78,9 @@ describe("LastEditedLabel", () => {
   });
 
   // 窄視窗要跟同一個 header 裡的 ConnectionBadge 一致——
-  // max-md:sr-only（螢幕閱讀器讀得到、視覺隱藏），不是 hidden（display:none 整個
-  // 從無障礙樹消失）；斷點也是 md，不是 sm。兩形（人形 span、AI 形 button）都要守。
-  it("窄視窗：max-md:sr-only（非 hidden），兩形都要守", () => {
+  // 手機寬或頁首不到 36rem 時 sr-only（螢幕閱讀器讀得到、視覺隱藏），不是 hidden
+  // （display:none 整個從無障礙樹消失）。兩形（人形 span、AI 形 button）都要守。
+  it("窄視窗：max-sm:sr-only 與 @max-[36rem]:sr-only（非 hidden），兩形都要守", () => {
     const { rerender } = render(
       <LastEditedLabel
         note={{ ...NOTE, lastEdited: { at: AT, byHandle: "alice", agentLabel: null } }}
@@ -88,7 +88,7 @@ describe("LastEditedLabel", () => {
       />,
     );
     const humanEl = screen.getByTestId("last-edited");
-    expect(humanEl).toHaveClass("max-md:sr-only");
+    expect(humanEl).toHaveClass("max-sm:sr-only", "@max-[36rem]:sr-only");
     expect(humanEl.className).not.toContain("hidden");
     expect(humanEl.className).not.toContain("sm:inline");
 
@@ -99,7 +99,7 @@ describe("LastEditedLabel", () => {
       />,
     );
     const aiEl = screen.getByTestId("last-edited");
-    expect(aiEl).toHaveClass("max-md:sr-only");
+    expect(aiEl).toHaveClass("max-sm:sr-only", "@max-[36rem]:sr-only");
     expect(aiEl.className).not.toContain("hidden");
     expect(aiEl.className).not.toContain("sm:inline");
   });
@@ -123,7 +123,7 @@ describe("LastEditedLabel", () => {
       const sep = label.previousElementSibling;
       expect(sep).not.toBeNull();
       expect(sep).toHaveAttribute("aria-hidden", "true");
-      expect(sep).toHaveClass("h-4", "w-px", "bg-border", "max-md:hidden");
+      expect(sep).toHaveClass("h-4", "w-px", "bg-border", "max-sm:hidden", "@max-[36rem]:hidden");
       expect(label).toHaveClass("min-w-0", "truncate");
       expect(label).not.toHaveClass("shrink-0");
     }

@@ -197,7 +197,7 @@
     },
     "width": {
       "label": "寬度",
-      "current": "寬度：{{name}}",
+      "cycle": "寬度：{{name}}（按一下改為{{next}}）",
       "standard": "標準",
       "wide": "寬",
       "full": "全寬"

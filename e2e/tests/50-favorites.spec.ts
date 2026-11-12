@@ -278,8 +278,8 @@ test("390 寬頁首：星號、分享、⋮ 不被裁、不擠進右內距；鍵
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(noteUrl);
     await waitForNoteTitle(page, title);
-    // 兩位其他人：窄螢幕頭像列有兩格，是頁首最擠的情況
-    await expect(page.getByRole("group", { name: "Also viewing this note" }).getByRole("button")).toHaveCount(2, { timeout: 15_000 });
+    // 兩位其他人：手機寬的在線者只剩一顆「+2」
+    await expect(page.getByRole("group", { name: "Also viewing this note" }).getByRole("button", { name: "2 more, show everyone" })).toHaveCount(1, { timeout: 15_000 });
     await expect(star(page)).toBeEnabled();
 
     const share = page.getByRole("button", { name: "Share", exact: true });

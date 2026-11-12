@@ -211,15 +211,19 @@ describe("presenceSignature", () => {
 
 describe("presenceLayout", () => {
   it.each([
-    [0, 0, 0, 0, 0],
-    [1, 1, 0, 1, 0],
-    [2, 2, 0, 2, 0],
-    [3, 3, 0, 1, 2],
-    [5, 5, 0, 1, 4],
-    [6, 4, 2, 1, 5],
-    [9, 4, 5, 1, 8],
-  ])("total=%i → 寬 %i/%i、窄 %i/%i", (total, ws, wm, ns, nm) => {
-    expect(presenceLayout(total)).toEqual({ wide: { shown: ws, more: wm }, narrow: { shown: ns, more: nm } });
+    [0, 0, 0, 0, 0, 0],
+    [1, 1, 0, 1, 0, 1],
+    [2, 2, 0, 2, 0, 2],
+    [3, 3, 0, 1, 2, 3],
+    [5, 5, 0, 1, 4, 5],
+    [6, 4, 2, 1, 5, 6],
+    [9, 4, 5, 1, 8, 9],
+  ])("total=%i → 寬 %i/%i、窄 %i/%i、精簡 0/%i", (total, ws, wm, ns, nm, cm) => {
+    expect(presenceLayout(total)).toEqual({
+      wide: { shown: ws, more: wm },
+      narrow: { shown: ns, more: nm },
+      compact: { shown: 0, more: cm },
+    });
   });
 });
 

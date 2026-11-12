@@ -35,7 +35,8 @@ import { ChunkLoadBeacon, LazyRouteErrorBoundary, LazyRouteLoading } from "@/com
 import { LastEditedLabel } from "@/components/LastEditedLabel";
 import { NoteEditor } from "@/components/NoteEditor";
 import { NoteMenu } from "@/components/NoteMenu";
-import { NoteWidthMenu } from "@/components/NoteWidthMenu";
+import { NoteWidthMenuItems } from "@/components/NoteWidthMenuItems";
+import { NoteWidthToggle } from "@/components/NoteWidthToggle";
 import { OutdatedClientBanner } from "@/components/OutdatedClientBanner";
 import { useAuthConfig } from "@/api/authConfig";
 import { useNoteOverLimit } from "@/hooks/useNoteOverLimit";
@@ -807,7 +808,8 @@ export default function NotePage() {
                     {t("note.overSizeLimit")}
                   </p>
                 )}
-                <header ref={noteHeaderRef} className="@container flex items-center gap-3 border-b border-border px-5 py-3">
+                {/* header 本身是 container，容器查詢管不到自己的 gap，所以手機寬的 gap 用視窗寬（max-sm）。 */}
+                <header ref={noteHeaderRef} className="@container flex items-center gap-3 max-sm:gap-2 border-b border-border px-5 py-3">
                   {/* #115：窄視窗的抽屜入口（md:hidden）——筆記載入成功態不掛
                       NarrowTopBar（頁首自己有這顆）；載入中/錯誤的佔位卡沒有頁首，
                       由 placeholderCard 裡的 NarrowTopBar 補位。 */}
@@ -824,9 +826,16 @@ export default function NotePage() {
                   <LastEditedLabel note={note} onOpenEdits={openEdits} />
                   <FavoriteToggle note={note} />
                   <ShareDialog note={note} />
-                  {/* #297：寬度 icon 只在頁首夠寬時顯示（@container，見 NoteWidthMenu）。 */}
-                  <NoteWidthMenu noteId={noteId!} />
-                  <NoteMenu note={note} state={state} leavingRef={leavingRef} onOpenEdits={openEdits} triggerRef={noteMenuTriggerRef} />
+                  {/* #297：寬度 icon 只在頁首夠寬時顯示（@container，見 NoteWidthToggle）。 */}
+                  <NoteWidthToggle noteId={noteId!} />
+                  <NoteMenu
+                    note={note}
+                    state={state}
+                    leavingRef={leavingRef}
+                    onOpenEdits={openEdits}
+                    triggerRef={noteMenuTriggerRef}
+                    widthItems={(control) => <NoteWidthMenuItems noteId={note.id} {...control} />}
+                  />
                 </header>
                 {/* 版本預覽橫幅：寬版預覽時在頁首下方；整頁（sheet）模式由整頁自己畫。 */}
                 {versions.preview !== null && versions.mode !== "sheet" && (

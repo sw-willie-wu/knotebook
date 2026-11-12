@@ -4,7 +4,7 @@ import { ADMIN, createNote, createUserViaInvite, editorLocator, loginAs, noteIdF
 /**
  * #293：頁首「也在這篇的人」頭像列。
  * A（擁有者）寫 40 段 → B（檢視者）進來 → A 看到 B（唯讀者沒有游標）、B 看到 A（外框色＝遠端游標色、點頭像捲到游標）
- * → B 多開一分頁仍一顆 → B 的兩支 PAT 各讀一次，A 看到兩顆 AI（不與 B 合併）→ 390 寬 +N 與完整名單 → 鍵盤 → B 關掉後 35 s 內消失。
+ * → B 多開一分頁仍一顆 → B 的兩支 PAT 各讀一次，A 看到兩顆 AI（不與 B 合併）→ 390 寬只剩一顆 +N 與完整名單 → 鍵盤 → B 關掉後 35 s 內消失。
  *
  * 唯讀者沒有游標：此檔「B 的頭像是 no cursor」即守衛；紅了代表 viewer 也送了 cursor，不得改斷言。
  * 被刪位置點頭像會捲到相鄰，所以這裡只對「沒有游標」的頭像斷言不捲。
@@ -163,8 +163,9 @@ test("頁首頭像列：A 看 B（無游標）、B 看 A（外框色、點了捲
     }).toPass({ timeout: 5_000 });
     await pageA.setViewportSize({ width: 390, height: 844 });
     const personBtn = rowA.getByRole("button", { name: /, (go to (their|its) cursor|no cursor right now)$/ });
-    await expect(personBtn).toHaveCount(1);
-    const more = rowA.getByRole("button", { name: "2 more, show everyone" });
+    // 手機寬（< 640）不放頭像，只有一顆「+N」，N＝其他所有人
+    await expect(personBtn).toHaveCount(0);
+    const more = rowA.getByRole("button", { name: "3 more, show everyone" });
     await expect(more).toBeVisible();
 
     const header = rowA.locator("xpath=ancestor::header[1]");

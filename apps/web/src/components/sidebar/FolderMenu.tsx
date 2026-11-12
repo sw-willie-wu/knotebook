@@ -19,7 +19,7 @@ import { hoverReveal } from "@/components/ui/reveal";
 import { cn } from "@/lib/utils";
 import { setFolderSort, useFolderSort, type FolderSort } from "./folder-sort";
 
-/** 排序列樣式照 `NoteWidthMenu`（RadioItem 是不帶樣式的最小包裝）。 */
+/** 排序列樣式照 `DropdownMenuCheckboxItem`（RadioItem 是不帶樣式的最小包裝）。 */
 const RADIO_ROW =
   "relative flex cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none " +
   "transition-colors focus:bg-accent focus:text-accent-foreground";
