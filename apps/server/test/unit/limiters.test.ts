@@ -7,7 +7,7 @@ import { SiteLimits } from "../../src/site-limits/store.js";
 import { testConfig } from "../helpers.js";
 
 const EXPECTED_KEYS = [
-  "ai", "authorize", "bearerMiss", "collabToken", "contentRead", "dcr", "edit", "folder", "oidcCallback", "oidcLogin",
+  "ai", "authorize", "bearerMiss", "collabToken", "contentRead", "dcr", "edit", "favorite", "folder", "oidcCallback", "oidcLogin",
   "oneTimeLinkAttempt", "oneTimeLinkMiss", "patCreate", "publicLink", "publicMiss", "publicNote", "publicUpload", "publicWidth",
   "register", "search", "slugPatch", "tokenEndpoint", "tokenRead", "tokenRename", "tokenWrite", "transferExport", "transferWrite",
   "upload", "userSuggest",
@@ -35,8 +35,8 @@ describe("mergeLimiters", () => {
     const b = base();
     expect(mergeLimiters(b)).toBe(b);
   });
-  it("29 個 key 齊全", () => {
-    expect(EXPECTED_KEYS).toHaveLength(29);
+  it("30 個 key 齊全", () => {
+    expect(EXPECTED_KEYS).toHaveLength(30);
     expect(Object.keys(mergeLimiters(base(), {})).sort()).toEqual(EXPECTED_KEYS);
     expect(Object.keys(mergeLimiters(base(), { edit: undefined })).sort()).toEqual(EXPECTED_KEYS);
   });

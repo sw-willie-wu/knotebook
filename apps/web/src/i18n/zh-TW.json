@@ -23,6 +23,7 @@
   "sidebar": {
     "resize": "調整側欄寬度",
     "recent": "最近",
+    "favorites": "最愛",
     "myNotes": "我的筆記",
     "shared": "與我共享",
     "openDrawer": "開啟導覽選單",
@@ -53,6 +54,7 @@
     "emptyMyNotes": "還沒有個人筆記。",
     "emptyWorkspace": "還沒有加入任何群組。",
     "emptyShared": "還沒有人與你共享筆記。",
+    "emptyFavorites": "還沒有最愛的筆記。在筆記頁右上角按星號，或從筆記的 ⋮ 選單選「加入最愛」。",
     "locationGroup": "群組 › {{group}}",
     "locationShared": "與我共享 · {{role}}",
     "locationSharedIn": "與我共享 › {{path}} · {{role}}",
@@ -181,7 +183,17 @@
       "moveTo": "移動到…",
       "copyTo": "複製到…",
       "makeCopy": "建立副本",
+      "addFavorite": "加入最愛",
+      "removeFavorite": "移出最愛",
       "delete": "刪除"
+    },
+    "favorite": {
+      "label": "最愛",
+      "added": "已加入最愛",
+      "removed": "已移出最愛",
+      "removeTitle": "移出最愛？",
+      "removeDescription": "「{{title}}」會從你的最愛移除。筆記本身不受影響，之後可以再加回來。",
+      "removeConfirm": "移出最愛"
     },
     "width": {
       "label": "寬度",

@@ -14,15 +14,16 @@ import { noteBucket, noteSpaceKey, type SidebarNode } from "./tree";
 
 type Translate = (key: string, options?: Record<string, unknown>) => string;
 
-export type SelectableTab = "recent" | "myNotes" | "workspace" | "shared";
-export type SelectActionId = "move" | "copy" | "delete";
+export type SelectableTab = "recent" | "favorites" | "myNotes" | "workspace" | "shared";
+export type SelectActionId = "unfavorite" | "move" | "copy" | "delete";
 
 /**
- * 各 tab 可用的批次動作：群組 tab、與我共享加 "move"（資料夾目的地）；最近不給。
+ * 各 tab 可用的批次動作：群組 tab、與我共享加 "move"（資料夾目的地）；最近、最愛不給。最愛的第一個動作是 "unfavorite"（移出最愛）。
  * 與我共享的 "delete" 只在選取（去重後）非空且全是資料夾時渲染（移除資料夾；共享筆記本身不能刪）。
  */
 export const SELECT_ACTIONS: Readonly<Record<SelectableTab, readonly SelectActionId[]>> = {
   recent: ["copy", "delete"],
+  favorites: ["unfavorite", "copy", "delete"],
   myNotes: ["move", "copy", "delete"],
   workspace: ["move", "copy", "delete"],
   shared: ["move", "copy", "delete"],
@@ -93,6 +94,7 @@ function canMoveNote(tab: SelectableTab, note: NoteDto): boolean {
 /**
  * 預先排除：
  * move：myNotes 筆記＝`moveToGroup && groupId === null`；workspace 筆記＝`permissions.edit`；shared 筆記恆可；資料夾＝`permissions.manage`。
+ * unfavorite：筆記一律可（只動自己的最愛紀錄）；資料夾不進 eligible、也不計略過。
  * copy：只看筆記（有資料夾時呼叫端整顆 disabled）；資料夾不進 eligible、也不計略過。
  * delete：筆記＝`permissions.delete`；資料夾要 `manage`（否則 foldersSkipped），子樹有活筆記（liveNotesUnder）且 `!deleteNotes` → foldersBlocked；
  * shared tab 的筆記一律 notesSkipped。eligible 維持輸入順序。
@@ -107,7 +109,8 @@ export function partitionTargets(
     if (target.kind === "note") {
       const note = target.note;
       let ok: boolean;
-      if (action === "move") ok = canMoveNote(ctx.tab, note);
+      if (action === "unfavorite") ok = true;
+      else if (action === "move") ok = canMoveNote(ctx.tab, note);
       else if (action === "delete") ok = ctx.tab !== "shared" && note.permissions.delete;
       else ok = true;
       if (ok) out.eligible.push(target);
@@ -115,7 +118,7 @@ export function partitionTargets(
       continue;
     }
     const folder = target.folder;
-    if (action === "copy") continue;
+    if (action === "copy" || action === "unfavorite") continue;
     if (!folder.permissions.manage) {
       out.foldersSkipped += 1;
       continue;
@@ -145,7 +148,7 @@ function targetGroupId(target: SelectionTarget, groupIds: ReadonlySet<string>): 
 
 /**
  * 批次的目的地：回 DestSource；workspace 的 move 跨兩個以上群組回 "mixedGroups"。不判空：呼叫端用 isEmptyDestination。
- * current：myNotes→個人；shared→共享私人（copy 沒有上半部）；workspace→eligible 全在同一群組 G 時 G（G 要在 groups 裡；copy 另要 G 是 `canCreateAndEdit`）；recent→無。
+ * current：myNotes→個人；shared→共享私人（copy 沒有上半部）；workspace→eligible 全在同一群組 G 時 G（G 要在 groups 裡；copy 另要 G 是 `canCreateAndEdit`）；recent、favorites→無。
  * makeCopy：只 copy、且有上半部時。others：move 只有 myNotes 列候選群組；copy＝myNotes→候選群組、workspace 單一群組→個人＋其他候選群組、其餘→個人＋候選群組。
  * locations＝eligible 各自位置（筆記 `folderId`、資料夾 `parentId`）；movingFolders＝eligible 中的資料夾（只 move）。
  */
@@ -183,7 +186,7 @@ export function batchDestSource(input: {
     }
     return { ...noUpper, others: [PERSONAL_SPACE, ...candidates] };
   }
-  // recent：沒有「移動到」；「複製到」一律沒有上半部（選取可能跨空間）。
+  // recent、favorites：沒有「移動到」；「複製到」一律沒有上半部（選取可能跨空間）。
   return mode === "move" ? { ...noUpper, others: [] } : { ...noUpper, others: [PERSONAL_SPACE, ...candidates] };
 }
 

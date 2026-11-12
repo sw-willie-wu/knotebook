@@ -281,6 +281,13 @@
       "when": 1794286735882,
       "tag": "0039_site-limits",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1794394471106,
+      "tag": "0040_note-favorites",
+      "breakpoints": true
     }
   ]
 }

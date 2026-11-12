@@ -121,6 +121,35 @@ describe("SC7 資料夾逐字", () => {
   });
 });
 
+/** 最愛 tab 選取模式的逐字字串（zh-TW 的 `_one`／`_other` 同字）。 */
+const FAVORITE_SPEC_ZH: Record<string, string> = {
+  unfavorite: "移出最愛",
+  unfavoriteTitle_one: "要把 {{count}} 篇筆記移出最愛嗎？",
+  unfavoriteTitle_other: "要把 {{count}} 篇筆記移出最愛嗎？",
+  unfavoriteDescription: "筆記本身不受影響，之後可以再加回來。",
+  unfavorited_one: "已移出最愛 {{count}} 篇",
+  unfavorited_other: "已移出最愛 {{count}} 篇",
+};
+
+const FAVORITE_SPEC_EN: Record<string, string> = {
+  unfavorite: "Remove from favorites",
+  unfavoriteTitle_one: "Remove {{count}} note from favorites?",
+  unfavoriteTitle_other: "Remove {{count}} notes from favorites?",
+  unfavoriteDescription: "The notes themselves aren't changed, and you can add them back later.",
+  unfavorited_one: "Removed {{count}} note from favorites",
+  unfavorited_other: "Removed {{count}} notes from favorites",
+};
+
+describe("SC8 最愛 tab 逐字", () => {
+  it.each(Object.entries(FAVORITE_SPEC_ZH))("zh-TW select.%s", (key, text) => {
+    expect(get(selectZhTW, `select.${key}`)).toBe(text);
+  });
+
+  it.each(Object.entries(FAVORITE_SPEC_EN))("en select.%s", (key, text) => {
+    expect(get(selectEn, `select.${key}`)).toBe(text);
+  });
+});
+
 // 讀原始文字：deep merge 的 addResourceBundle 會把 select 併進 i18n 初始化時那份主 JSON 物件（同一個 import），
 // 所以 import 進來的主 JSON 在 select-strings 載入後已帶 select 鍵。
 describe("SC3 主 JSON 沒有 select 頂層鍵（字串只進 lazy 包）", () => {

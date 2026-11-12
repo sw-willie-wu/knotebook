@@ -1,13 +1,15 @@
 import { lazy, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactElement, type ReactNode, type RefObject, type SVGProps } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
-import { canonicalNotePath, type FolderDto, type FolderSpaceDto, type GroupDto, type NoteDto } from "@knotebook/shared";
+import { canonicalNotePath, type FavoriteDto, type FolderDto, type FolderSpaceDto, type GroupDto, type NoteDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
+import { useFavoriteLookup } from "@/api/favorites";
 import { folderErrorMessage, useFolders } from "@/api/folders";
 import { useGroups } from "@/api/groups";
 import { GroupMenu } from "@/components/groups/GroupMenu";
 import { GroupNameDialog } from "@/components/groups/GroupNameDialog";
 import { SidebarNoteMenu } from "@/components/NoteMenu";
+import { RowFavoriteStar } from "@/components/RowFavoriteStar";
 import { useNotes } from "@/api/notes";
 import { useActiveNote } from "@/lib/active-note";
 import { useSidebarTabActions, useSidebarTabState } from "@/lib/sidebar-tab";
@@ -53,6 +55,7 @@ export type FolderDialogRequest =
 const EMPTY_GROUPS: GroupDto[] = [];
 const EMPTY_FOLDERS: FolderDto[] = [];
 const EMPTY_NOTES: NoteDto[] = [];
+const EMPTY_FAVORITES: FavoriteDto[] = [];
 const EMPTY_NODES: SidebarNode[] = [];
 
 /** ApiFail → errors.<code>；其餘（網路失敗等）→ errors.fallback。與 LoginPage
@@ -84,11 +87,16 @@ interface NoteRowProps {
   note: NoteDto;
   variant: RowVariant;
   location: LocationContext;
+  /** 這一篇是不是最愛；`null`＝最愛清單還沒到或讀取失敗（狀態未知，不渲染星星）。 */
+  favorite: boolean | null;
+  /** 這一篇的加入或移出送出中。 */
+  favoritePending: boolean;
 }
 
-/** 一列筆記：標題、徽章、⋮（`SidebarNoteMenu`，hover 浮出靠 `<li>` 的 `group/noterow`）。
- * 靜態卡與抽屜各一份 NoteList，所以一篇筆記的 ⋮ 最多兩份 DOM——測試一律 `within(...)` 鎖定面板。 */
-function NoteRow({ note, variant, location }: NoteRowProps) {
+/** 一列筆記：標題、徽章、最愛星星（`RowFavoriteStar`）、⋮（`SidebarNoteMenu`），DOM 順序＝視覺順序；
+ * 星星與 ⋮ 的 hover 浮出靠 `<li>` 的 `group/noterow`。
+ * 靜態卡與抽屜各一份 NoteList，所以一篇筆記的星星與 ⋮ 最多各兩份 DOM——測試一律 `within(...)` 鎖定面板。 */
+function NoteRow({ note, variant, location, favorite, favoritePending }: NoteRowProps) {
   const { t } = useTranslation();
   const { activeNoteId, setActiveNoteId } = useActiveNote();
   // #122：active 判準改吃 context 的 note.id（單一真相，理由見 lib/active-note.tsx
@@ -142,6 +150,7 @@ function NoteRow({ note, variant, location }: NoteRowProps) {
         )}
       </Link>
       {variant !== "recent" && <RoleBadge role={note.role} group={note.group} />}
+      {favorite !== null && <RowFavoriteStar note={note} favorite={favorite} pending={favoritePending} />}
       <SidebarNoteMenu note={note} />
     </li>
   );
@@ -204,6 +213,10 @@ interface NodeContext {
   openFolderDialog: (request: FolderDialogRequest, opener: HTMLElement | null) => void;
   /** 快取裡的筆記：資料夾 ⋮ 開啟時判斷子樹有沒有活筆記（刪除擋下）。 */
   notes: readonly NoteDto[];
+  /** 最愛的 noteId 集合；`null`＝最愛清單還沒到或讀取失敗（列上不渲染星星）。 */
+  favoriteIds: ReadonlySet<string> | null;
+  /** 加入或移出最愛送出中的 noteId。 */
+  favoritePendingIds: ReadonlySet<string>;
   /** 拖曳的落點範圍提示鍵（`dropScopeKey`："list"｜"group:<id>"｜"folder:<id>"）；null＝不標示。 */
   dropScope: string | null;
   /** 疊資料夾預覽或「建立中」：取代 `anchorNoteId` 那一列（`creating` 優先）。 */
@@ -333,8 +346,10 @@ function SidebarNodeList({ nodes, ctx, inGroup = false }: { nodes: SidebarNode[]
           <NoteRow
             key={node.id}
             note={node.note}
-            variant={inGroup ? "group" : ctx.tab === "recent" ? "recent" : "plain"}
+            variant={inGroup ? "group" : ctx.tab === "recent" || ctx.tab === "favorites" ? "recent" : "plain"}
             location={ctx.location}
+            favorite={ctx.favoriteIds === null ? null : ctx.favoriteIds.has(node.note.id)}
+            favoritePending={ctx.favoritePendingIds.has(node.note.id)}
           />
         ),
       )}
@@ -356,6 +371,9 @@ const MESSAGE_CLASS = "p-2 text-sm text-muted-foreground";
  * `GET /api/notes` 的 pending／error 在清單內顯示；`GET /api/groups` 的 pending／error 只影響
  * 群組 tab（與「零筆記時要等群組才知道是不是全空」），群組筆記在那期間依兜底列落與我共享、
  * 資料到了再歸位。搜尋由 `sidebar/SearchResults` 負責。
+ * 最愛：每個 tab 都在這裡訂一次 `["favorites"]`（列上的星星要知道哪幾篇是最愛），轉成 id 集合經 `NodeContext` 給各列；
+ * 清單還沒到或讀取失敗時列上不渲染星星。最愛 tab 的列是它與 `["notes"]` 的交集（依加入時間；標題與位置取 `["notes"]`），
+ * 不等資料夾；`favorites` 失敗但有舊資料時照舊資料顯示。
  * tabpanel 的 `tabIndex={0}` 在 `AppShell`（WAI-ARIA APG：面板第一個有內容的元素不可聚焦時，Tab 要能停在面板上）。
  *
  * 選取模式：標題列「選取」由這裡渲染；進入後標題列內容換成 lazy 的 `SelectHeader`、清單內容換成
@@ -370,6 +388,9 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
   const notesQuery = useNotes();
   const groupsQuery = useGroups();
   const foldersQuery = useFolders();
+  // 每個 tab 都訂：列上的星星要知道狀態；最愛 tab 的排序用同一份 query（不另打一支）。
+  const favorites = useFavoriteLookup();
+  const favoritesQuery = favorites.query;
   const sortOf = useFolderSortOf();
   const [createOpen, setCreateOpen] = useState(false);
   const addGroupRef = useRef<HTMLButtonElement>(null);
@@ -383,19 +404,37 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
   const groups = groupsQuery.data ?? EMPTY_GROUPS;
   // memo：不 memo 的話每次勾選都換 `nodes`／`groupIds`，選取樹的 `onToggle` 隨之換、所有列重繪。
   const groupIds = useMemo<ReadonlySet<string>>(() => new Set((groupsQuery.data ?? EMPTY_GROUPS).map((group) => group.id)), [groupsQuery.data]);
-  // 我的筆記／群組／與我共享等 `["folders"]`（不先平鋪再跳）；失敗且沒有舊資料 → 空索引（筆記落根層）＋錯誤列。最近 tab 不等。
-  const waitFolders = tab !== "recent" && tab !== "trash";
+  // 我的筆記／群組／與我共享等 `["folders"]`（不先平鋪再跳）；失敗且沒有舊資料 → 空索引（筆記落根層）＋錯誤列。
+  // 最近與最愛 tab 是平鋪清單、不等（資料夾只用來算位置行，晚到時位置行再補上）。
+  const waitFolders = tab !== "recent" && tab !== "favorites" && tab !== "trash";
   const folderIndex = useMemo(() => indexFolders(foldersQuery.data ?? EMPTY_FOLDERS), [foldersQuery.data]);
   const location = useMemo<LocationContext>(() => ({ groupIds, folders: folderIndex }), [groupIds, folderIndex]);
   const foldersPending = waitFolders && foldersQuery.isPending;
+  // 看 `data` 而不是 `isSuccess`：背景重抓失敗後 status 是 error，但舊清單仍在、照舊顯示。
+  const favoritesReady = tab !== "favorites" || favoritesQuery.data !== undefined;
   const nodes = useMemo(
     () =>
-      notesQuery.isSuccess && (tab !== "workspace" || groupsQuery.data !== undefined) && !foldersPending
-        ? buildTabNodes(tab, notesQuery.data, groupsQuery.data ?? EMPTY_GROUPS, folderIndex, sortOf)
+      notesQuery.isSuccess && (tab !== "workspace" || groupsQuery.data !== undefined) && favoritesReady && !foldersPending
+        ? buildTabNodes(tab, notesQuery.data, groupsQuery.data ?? EMPTY_GROUPS, folderIndex, sortOf, favoritesQuery.data ?? EMPTY_FAVORITES)
         : null,
-    [tab, notesQuery.isSuccess, notesQuery.data, groupsQuery.data, foldersPending, folderIndex, sortOf],
+    [tab, notesQuery.isSuccess, notesQuery.data, groupsQuery.data, favoritesReady, favoritesQuery.data, foldersPending, folderIndex, sortOf],
   );
   const selectable = nodes !== null && hasSelectableNodes(nodes);
+  // 「選取」鈕正握著焦點時清單空了（鈕隨之停用）：停用的鈕留不住焦點，會掉到 body；改交給所在的 tabpanel。
+  // Chromium 在 commit 寫入 disabled 時就同步把焦點移到 body 並觸發 blur（此時 React 不派送事件），Firefox／WebKit 則稍後才移；
+  // 所以掛原生 focusout，延到 microtask 再看鈕是否已停用、焦點是否落在 body。焦點本來就在別處時不動。
+  useEffect(() => {
+    const onFocusOut = (event: FocusEvent) => {
+      const button = selectButtonRef.current;
+      if (button === null || event.target !== button || event.relatedTarget !== null) return;
+      queueMicrotask(() => {
+        const active = document.activeElement;
+        if (button.disabled && (active === null || active === document.body)) button.closest<HTMLElement>('[role="tabpanel"]')?.focus();
+      });
+    };
+    document.addEventListener("focusout", onFocusOut, true);
+    return () => document.removeEventListener("focusout", onFocusOut, true);
+  }, []);
   const openFolderDialog = (request: FolderDialogRequest, opener: HTMLElement | null) => {
     folderOpenerRef.current = opener;
     setFolderRequest(request);
@@ -411,6 +450,8 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
     createNotePending,
     openFolderDialog,
     notes: notesQuery.data ?? EMPTY_NOTES,
+    favoriteIds: favorites.ready ? favorites.ids : null,
+    favoritePendingIds: favorites.pendingIds,
     dropScope: drag.view.scope,
     stack: stackState === null ? null : { state: stackState, creating: drag.view.creating !== null },
   };
@@ -473,11 +514,24 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
       }
     }
 
+    if (tab === "favorites" && favoritesQuery.data === undefined) {
+      if (favoritesQuery.isError) {
+        return (
+          <p role="alert" className="p-2 text-sm text-destructive">
+            {errorMessage(t, favoritesQuery.error)}
+          </p>
+        );
+      }
+      return <p className={MESSAGE_CLASS}>{t("app.loading")}</p>;
+    }
+
     if (foldersPending) return <p className={MESSAGE_CLASS}>{t("app.loading")}</p>;
-    // 上面已處理 pending／error（群組 tab 另含群組、資料夾），到這裡 `nodes` 一定有值。
+    // 上面已處理 pending／error（群組 tab 另含群組、資料夾；最愛 tab 另含最愛），到這裡 `nodes` 一定有值。
     if (nodes === null) return null;
     if (nodes.length === 0) {
       if (tab === "recent") return emptyState;
+      // 看交集而不是 `favorites` 本身：紀錄都在、但那幾篇此刻都不在 `["notes"]` 時也是空的。
+      if (tab === "favorites") return <p className={MESSAGE_CLASS}>{t("sidebar.emptyFavorites")}</p>;
       if (tab === "shared") return <p className={MESSAGE_CLASS}>{t("sidebar.emptyShared")}</p>;
       if (tab === "myNotes") {
         // 零筆記時要等群組清單才知道是 EmptyState 還是「有群組、只是沒個人筆記」——不然會閃一幀。
