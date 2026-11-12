@@ -12,7 +12,8 @@ A release is cut by merging a release pull request into `main`. Everything after
 
    It changes nothing, and exits with an error, if the version isn't `X.Y.Z`, isn't greater than the greatest `vX.Y.Z` tag in your local clone, already has a section in `CHANGELOG.md`, if `[Unreleased]` is empty or only `_Nothing yet._`, or if either status line can't be found exactly once. It doesn't run any git command that changes anything; at the end it prints the commands for the next step.
 3. Check by hand what the script doesn't touch: the feature list and upgrade notes in both READMEs, the "Upgrading to vX.Y" part of [docs/self-hosting.md](self-hosting.md#upgrading-and-rolling-back), and the new CHANGELOG section itself.
-4. Commit on a branch, push, and open a pull request against `main`.
+4. **What's new.** In `apps/web/src/components/shortcuts/release-highlights.ts`, make sure `version` is X.Y.Z and `items` lists only this release's features worth showing in the Help window (they were added by the feature pull requests), or is empty; delete the strings of the entries you remove from `apps/web/src/i18n/shortcuts.en.json` and `shortcuts.zh-TW.json`. A check fails if `version` is lower than the release (see [Help and the feature tour](feature-tour.md#updating-new-in-this-version)).
+5. Commit on a branch, push, and open a pull request against `main`.
 
 Before 1.0, a release with new features or with upgrade notes (anything that needs action on upgrade) bumps the minor version; a release with fixes only bumps the patch version.
 
