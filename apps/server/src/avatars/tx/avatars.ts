@@ -7,10 +7,14 @@
  * `insertAvatarInTx`：users 列鎖 → 測試縫 → `assertSpaceRoomInTx`（原圖＋顯示圖）→ 清掉目前頭貼的旗標 → INSERT
  * （新的一張就是目前頭貼）→ `avatar_auto = false`。部分唯一索引不能 DEFERRABLE，所以切換目前頭貼一定是「先清舊、再設新」兩句。
  * 原圖檔已由路由寫好；本交易任何拋出都由路由 unlink。
+ *
+ * `updateAvatarDisplayInTx`：users 列鎖 → 測試縫 → 候選列 `FOR UPDATE`（不在或不是自己的 → `AvatarNotFound`）→ `version` 不符 → `AvatarOutdated`
+ * → `assertSpaceRoomInTx`（新顯示圖 − 舊顯示圖；差額 ≤ 0 時該函式不取鎖，變小一定成功）→ UPDATE，`version + 1`。
+ * `selectAvatarInTx`、`deleteAvatarInTx`：users 列鎖 → 測試縫 → 寫入；兩者都只讓用量減少或不變，不呼叫 `assertSpaceRoomInTx`。
  */
 import { and, eq } from "drizzle-orm";
 import type { Tx } from "../../db/tx.js";
-import { userAvatars, users } from "../../db/schema.js";
+import { userAvatars, userIdentities, users } from "../../db/schema.js";
 import { TxAbort } from "../../http/tx-abort.js";
 import { assertSpaceRoomInTx } from "../../storage/tx/quota.js";
 
@@ -79,4 +83,97 @@ export async function insertAvatarInTx(tx: Tx, input: InsertAvatarInput, hooks?:
     .returning();
   await tx.update(users).set({ avatarAuto: false }).where(eq(users.id, input.userId));
   return row!;
+}
+
+export interface UpdateAvatarDisplayInput {
+  userId: string;
+  avatarId: string;
+  /** 呼叫端載入候選時看到的版本；與列上的不同＝期間有人換過原圖或顯示圖。 */
+  version: number;
+  crop: { x: number; y: number; size: number };
+  originalWidth: number;
+  originalHeight: number;
+  displayData: Buffer;
+  displayMime: string;
+  lockTimeoutMs: number;
+}
+
+/** 重新裁切，或替待補顯示圖的候選補產顯示圖。原圖與「是否為目前頭貼」都不動。 */
+export async function updateAvatarDisplayInTx(tx: Tx, input: UpdateAvatarDisplayInput, hooks?: AvatarTestHooks): Promise<void> {
+  const locked = await tx.select({ id: users.id }).from(users).where(eq(users.id, input.userId)).for("no key update");
+  if (locked.length === 0) throw new TxAbort(404, "not_found", "No user with that id.");
+  await hooks?.afterUserLock?.();
+  const [row] = await tx
+    .select({ version: userAvatars.version, displaySize: userAvatars.displaySize })
+    .from(userAvatars)
+    .where(and(eq(userAvatars.id, input.avatarId), eq(userAvatars.userId, input.userId)))
+    .for("update");
+  if (row === undefined) throw new AvatarNotFound();
+  if (row.version !== input.version) throw new AvatarOutdated();
+  await assertSpaceRoomInTx(tx, { kind: "user", id: input.userId }, input.displayData.length - row.displaySize, { lockTimeoutMs: input.lockTimeoutMs });
+  await tx
+    .update(userAvatars)
+    .set({
+      cropX: input.crop.x,
+      cropY: input.crop.y,
+      cropSize: input.crop.size,
+      originalWidth: input.originalWidth,
+      originalHeight: input.originalHeight,
+      displayData: input.displayData,
+      displayMime: input.displayMime,
+      displaySize: input.displayData.length,
+      version: row.version + 1,
+    })
+    .where(and(eq(userAvatars.id, input.avatarId), eq(userAvatars.userId, input.userId)));
+}
+
+export interface SelectAvatarInput {
+  userId: string;
+  /** `null`＝不使用任何候選。 */
+  candidateId: string | null;
+}
+
+/** 選用一張候選（或 `null`＝都不用）。目標不是自己的候選 → `AvatarNotFound`，整筆回滾（原本的目前頭貼不變）。 */
+export async function selectAvatarInTx(tx: Tx, input: SelectAvatarInput, hooks?: AvatarTestHooks): Promise<void> {
+  const locked = await tx.select({ id: users.id }).from(users).where(eq(users.id, input.userId)).for("no key update");
+  if (locked.length === 0) throw new TxAbort(404, "not_found", "No user with that id.");
+  await hooks?.afterUserLock?.();
+  await tx.update(userAvatars).set({ isCurrent: false }).where(and(eq(userAvatars.userId, input.userId), eq(userAvatars.isCurrent, true)));
+  if (input.candidateId !== null) {
+    const set = await tx
+      .update(userAvatars)
+      .set({ isCurrent: true })
+      .where(and(eq(userAvatars.id, input.candidateId), eq(userAvatars.userId, input.userId)))
+      .returning({ id: userAvatars.id });
+    if (set.length === 0) throw new AvatarNotFound();
+  }
+  await tx.update(users).set({ avatarAuto: false }).where(eq(users.id, input.userId));
+}
+
+export interface DeleteAvatarInput {
+  userId: string;
+  avatarId: string;
+}
+
+/**
+ * 刪一張候選。OIDC 候選順便把它的圖片網址記進來源身分（之後登入帶同一個網址就不再自動下載）；刪的是目前那張 →
+ * `avatar_auto = false`，不自動改選別張。回原圖檔名，由路由在 commit 後 best-effort 刪檔。
+ */
+export async function deleteAvatarInTx(tx: Tx, input: DeleteAvatarInput, hooks?: AvatarTestHooks): Promise<{ originalFile: string }> {
+  const locked = await tx.select({ id: users.id }).from(users).where(eq(users.id, input.userId)).for("no key update");
+  if (locked.length === 0) throw new TxAbort(404, "not_found", "No user with that id.");
+  await hooks?.afterUserLock?.();
+  const [row] = await tx
+    .delete(userAvatars)
+    .where(and(eq(userAvatars.id, input.avatarId), eq(userAvatars.userId, input.userId)))
+    .returning({ originalFile: userAvatars.originalFile, isCurrent: userAvatars.isCurrent, identityId: userAvatars.identityId, oidcPictureUrl: userAvatars.oidcPictureUrl });
+  if (row === undefined) throw new AvatarNotFound();
+  if (row.identityId !== null && row.oidcPictureUrl !== null) {
+    await tx
+      .update(userIdentities)
+      .set({ pictureDismissedUrl: row.oidcPictureUrl })
+      .where(and(eq(userIdentities.id, row.identityId), eq(userIdentities.userId, input.userId)));
+  }
+  if (row.isCurrent) await tx.update(users).set({ avatarAuto: false }).where(eq(users.id, input.userId));
+  return { originalFile: row.originalFile };
 }

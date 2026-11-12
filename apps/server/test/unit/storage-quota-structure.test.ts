@@ -2,8 +2,9 @@
  * 儲存配額的結構性守衛。剝註解後掃 `src/`（剝法同 s14-structure.test.ts 的 `code()`）。
  * 誠實：字面掃描——改名重匯出、別名呼叫、經另一模組轉手等刻意規避守不到；行為面由 storage-quota-race.test.ts 守。
  *   ① `insert(uploads)` 只在上傳（`insertUploadInTx`）與複製（`copyNoteInTx`）（新增 uploads 列的路徑必須進白名單）
- *   ② `assertSpaceRoomInTx(` 呼叫形只在白名單五檔、各恰一次；delete-group.ts 那一次在 `transferGroupInTx` 函式體內，
- *      avatars/tx/avatars.ts 那一次在 `insertAvatarInTx` 函式體內；
+ *   ② `assertSpaceRoomInTx(` 呼叫形只在白名單五檔；除 avatars/tx/avatars.ts（兩次）外各恰一次；delete-group.ts 那一次在
+ *      `transferGroupInTx` 函式體內，avatars/tx/avatars.ts 的兩次分別在 `insertAvatarInTx`、`updateAvatarDisplayInTx` 函式體內各恰一次，
+ *      `selectAvatarInTx`、`deleteAvatarInTx`（只讓用量減少或不變）不呼叫；
  *      quota.ts 恰一次宣告形、0 次呼叫形；其他檔 0 次
  *   ③ `pg_advisory` 只在 quota.ts 與資料夾結構鎖 folders/tx/lock.ts（第二種 advisory 鎖；鍵前綴 `knotebook.folders:` 與容量鎖的
  *      `knotebook.storage:` 不同，不共用 key 空間）
@@ -78,13 +79,13 @@ describe("儲存配額結構性守衛", () => {
     expect(hits).toEqual(["notes/tx/copy.ts", "uploads/tx/insert-upload.ts"]);
   });
 
-  it("② assertSpaceRoomInTx 呼叫形：白名單五檔各恰一次、其他 0 次；quota.ts 恰一次宣告形；delete-group 那次在 transferGroupInTx 內、avatars 那次在 insertAvatarInTx 內", () => {
+  it("② assertSpaceRoomInTx 呼叫形：白名單五檔（avatars 兩次、其餘各一次）、其他 0 次；quota.ts 恰一次宣告形；delete-group 那次在 transferGroupInTx 內、avatars 的兩次分別在 insertAvatarInTx 與 updateAvatarDisplayInTx 內", () => {
     const counts: Record<string, number> = {};
     for (const p of files) {
       const n = [...code(p).matchAll(CALL)].length;
       if (n > 0) counts[rel(p)] = n;
     }
-    expect(counts).toEqual(Object.fromEntries(WHITELIST.map(f => [f, 1])));
+    expect(counts).toEqual(Object.fromEntries(WHITELIST.map(f => [f, f === "avatars/tx/avatars.ts" ? 2 : 1])));
     expect([...at("storage/tx/quota.ts").matchAll(DECL)]).toHaveLength(1);
     expect([...at("storage/tx/quota.ts").matchAll(CALL)]).toHaveLength(0);
     const dg = at("groups/tx/delete-group.ts");
@@ -92,9 +93,14 @@ describe("儲存配額結構性守衛", () => {
     const t6 = fnBody(dg, "transferGroupInTx");
     expect(idx > t6.start && idx < t6.end).toBe(true);
     const av = at("avatars/tx/avatars.ts");
-    const avIdx = av.search(/(?<!function\s+)\bassertSpaceRoomInTx\(/);
-    const ins = fnBody(av, "insertAvatarInTx");
-    expect(avIdx > ins.start && avIdx < ins.end).toBe(true);
+    const callsIn = (name: string): number => {
+      const { start, end } = fnBody(av, name);
+      return [...av.slice(start, end).matchAll(CALL)].length;
+    };
+    expect(callsIn("insertAvatarInTx")).toBe(1);
+    expect(callsIn("updateAvatarDisplayInTx")).toBe(1);
+    expect(callsIn("selectAvatarInTx")).toBe(0);
+    expect(callsIn("deleteAvatarInTx")).toBe(0);
   });
 
   it("③ pg_advisory 只在 storage/tx/quota.ts 與 folders/tx/lock.ts（資料夾結構鎖，鍵前綴不同）", () => {

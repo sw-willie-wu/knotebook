@@ -160,6 +160,7 @@ describe("POST /api/auth/avatars：大小與格式", () => {
       ["size 為 0", { crop: { ...c, size: 0 } }],
       ["width 為 0", { crop: { ...c, width: 0 } }],
       ["數字不是安全整數", { crop: { ...c, width: 2 ** 60 } }],
+      ["寬度超過 int4 上限", { crop: { x: 0, y: 0, size: 10, width: 2 ** 31, height: 100 } }],
       ["數字是字串", { crop: { ...c, size: "64" } }],
       ["缺欄位", { crop: { x: 0, y: 0, size: 10 } }],
       ["含 NUL 的字串", { crop: `${JSON.stringify(c)}\u0000` }],

@@ -85,3 +85,38 @@ export async function uploadAvatar(app: FastifyInstance, userId: string, opts: A
     headers: { "content-type": `multipart/form-data; boundary=${ICON_BOUNDARY}`, ...opts.headers },
   });
 }
+
+export interface AvatarRecropOpts {
+  /** 顯示圖位元組；`null`＝不送這個 part。預設 300 bytes 的 WebP。 */
+  display?: Buffer | null;
+  /** 物件→JSON 字串；字串→原樣；`null`＝不送 `crop` 欄。 */
+  crop?: Record<string, unknown> | string | null;
+  /** 送出的版本；字串原樣；`null`＝不送 `version` 欄。預設 1。 */
+  version?: number | string | null;
+  /** `null`＝不帶 cookie（未登入）。 */
+  cookies?: Record<string, string> | null;
+  headers?: Record<string, string>;
+}
+
+export function avatarRecropBody(opts: AvatarRecropOpts = {}): Buffer {
+  const parts: IconPart[] = [];
+  const display = opts.display === undefined ? webpOf(300) : opts.display;
+  const crop = opts.crop === undefined ? DEFAULT_CROP : opts.crop;
+  const version = opts.version === undefined ? 1 : opts.version;
+  if (display !== null) parts.push({ name: "display", filename: "avatar.webp", contentType: "image/webp", data: display });
+  if (crop !== null) parts.push({ name: "crop", data: typeof crop === "string" ? crop : JSON.stringify(crop) });
+  if (version !== null) parts.push({ name: "version", data: String(version) });
+  return multipartBody(parts);
+}
+
+/** `PUT /api/auth/avatars/:id/display`（真路由）；`userId` 以該人的 session 送出。 */
+export async function recropAvatar(app: FastifyInstance, userId: string, id: string, opts: AvatarRecropOpts = {}) {
+  const cookies = opts.cookies === undefined ? await cookieOf(userId) : opts.cookies;
+  return app.inject({
+    method: "PUT",
+    url: `/api/auth/avatars/${id}/display`,
+    payload: avatarRecropBody(opts),
+    ...(cookies !== null ? { cookies } : {}),
+    headers: { "content-type": `multipart/form-data; boundary=${ICON_BOUNDARY}`, ...opts.headers },
+  });
+}
