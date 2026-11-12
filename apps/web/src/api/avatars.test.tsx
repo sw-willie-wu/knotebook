@@ -258,7 +258,10 @@ describe("fetchAvatarOriginal", () => {
     const calls = stubFetch(() => new Response("png-bytes", { status: 200, headers: { "content-type": "image/png" } }));
     const blob = await fetchAvatarOriginal(ID);
     expect(calls[0]).toMatchObject({ method: "GET", url: `/api/auth/avatars/${ID}/original`, credentials: "include" });
-    expect(blob).toBeInstanceOf(Blob);
+    // 不用 toBeInstanceOf(Blob)：測試裡的全域 Blob 是 jsdom 的，Node 內建 fetch 的 response.blob()
+    // 依 Node 版本可能回 Node 自己的 Blob（Node 22 就是），instanceof 會跨 realm 失敗；改看標記、型別與內容。
+    expect(Object.prototype.toString.call(blob)).toBe("[object Blob]");
+    expect(blob.type).toBe("image/png");
     expect(await blob.text()).toBe("png-bytes");
   });
 

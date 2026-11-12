@@ -44,6 +44,14 @@ function json(status: number, body?: unknown): Response {
   });
 }
 
+// 取原圖的回應用位元組當 body，不用 `new Blob(...)`：測試裡的全域 Blob 是 jsdom 的，Node 內建的 Response
+// 不認得它——Node 22 會在建構時丟「object.stream is not a function」，Node 24 會把它轉成字串 "[object Blob]"，
+// 兩種都不會把原圖位元組放進回應。
+const ORIGINAL_BYTES = [137, 80, 78, 71, 13, 10, 26, 10];
+function originalResponse(): Response {
+  return new Response(new Uint8Array(ORIGINAL_BYTES), { headers: { "content-type": "image/png" } });
+}
+
 interface Call {
   method: string;
   url: string;
@@ -188,7 +196,7 @@ describe("AvatarCropDialog", () => {
 
     it("初值：既有候選用它的裁切（size 200 → scale 1.4，x 100 → left -140）", async () => {
       const { img } = await openLoaded({ kind: "existing", candidate: candidate() }, ({ url }) =>
-        url.endsWith("/original") ? new Response(new Blob([new Uint8Array(8)], { type: "image/png" })) : json(200, candidate()),
+        url.endsWith("/original") ? originalResponse() : json(200, candidate()),
       );
       expect(width(img)).toBeCloseTo(840);
       expect(left(img)).toBeCloseTo(-140);
@@ -372,7 +380,7 @@ describe("AvatarCropDialog", () => {
 
     it("調整既有候選：先取原圖，PUT /api/auth/avatars/:id/display 帶 version、不帶 original", async () => {
       const { dialog, calls, onSaved } = await openLoaded({ kind: "existing", candidate: candidate() }, ({ url }) =>
-        url.endsWith("/original") ? new Response(new Blob([new Uint8Array(8)], { type: "image/png" })) : json(200, candidate()),
+        url.endsWith("/original") ? originalResponse() : json(200, candidate()),
       );
       expect(calls[0]).toMatchObject({ method: "GET", url: `/api/auth/avatars/${ID}/original` });
       fireEvent.click(saveButton(dialog));
@@ -383,11 +391,15 @@ describe("AvatarCropDialog", () => {
       expect(form.get("version")).toBe("3");
       expect(form.get("original")).toBeNull();
       expect(JSON.parse(form.get("crop") as string)).toEqual({ x: 100, y: 0, size: 200, width: 600, height: 400 } satisfies AvatarCropUpload);
+      // 解碼拿到的是取回的原圖本身（位元組與型別），不是別的東西。
+      const decoded = vi.mocked(encode.decodeImage).mock.calls[0]![0];
+      expect(decoded.type).toBe("image/png");
+      expect(Array.from(new Uint8Array(await decoded.arrayBuffer()))).toEqual(ORIGINAL_BYTES);
     });
 
     it("調整既有候選：送出的 version 是取原圖當下的，之後 props 換成新版也不變（伺服器回 avatar_outdated 時照既有流程關框）", async () => {
       const respond = ({ url, method }: Call) => {
-        if (url.endsWith("/original")) return new Response(new Blob([new Uint8Array(8)], { type: "image/png" }));
+        if (url.endsWith("/original")) return originalResponse();
         return method === "PUT" ? json(409, { error: { code: "avatar_outdated", message: "x" } }) : json(200, candidate());
       };
       const ctx = await openLoaded({ kind: "existing", candidate: candidate() }, respond);
@@ -728,7 +740,7 @@ describe("AvatarCropDialog", () => {
       expect(ctx.createObjectURL).not.toHaveBeenCalled();
       ctx.view.rerender(ctx.tree(false));
       await act(async () => {
-        release(new Response(new Blob([new Uint8Array(8)], { type: "image/png" })));
+        release(originalResponse());
         await settle();
       });
       expect(ctx.createObjectURL).not.toHaveBeenCalled();
