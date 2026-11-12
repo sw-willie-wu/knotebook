@@ -111,7 +111,7 @@ const ARG_BANNED: Array<[string, RegExp]> = [
   ["閉包 function", /\bfunction\b/],
   ...HELPERS,
 ];
-const ROUTE_FILES = ["routes/notes.ts", "routes/groups.ts", "notes/links.ts", "routes/oidc.ts", "routes/oidc-pending.ts", "routes/admin-auth.ts", "routes/account.ts", "notes/search-index.ts", "notes/search-query.ts", "mcp/tools/create-transfer-token.ts", "mcp/tools/open-notes-as-files.ts", "routes/uploads.ts", "collab/versions.ts", "routes/admin-versions.ts", "notes/copy-note.ts", "notes/move-note.ts", "routes/admin-password-reset.ts", "routes/password-reset.ts", "trash/service.ts", "routes/admin-trash.ts", "trash/purge.ts", "folders/service.ts", "notes/editing/write-service.ts", "site-limits/store.ts"];
+const ROUTE_FILES = ["routes/notes.ts", "routes/groups.ts", "notes/links.ts", "routes/oidc.ts", "routes/oidc-pending.ts", "routes/admin-auth.ts", "routes/account.ts", "notes/search-index.ts", "notes/search-query.ts", "mcp/tools/create-transfer-token.ts", "mcp/tools/open-notes-as-files.ts", "routes/uploads.ts", "collab/versions.ts", "routes/admin-versions.ts", "notes/copy-note.ts", "notes/move-note.ts", "routes/admin-password-reset.ts", "routes/password-reset.ts", "trash/service.ts", "routes/admin-trash.ts", "trash/purge.ts", "folders/service.ts", "notes/editing/write-service.ts", "site-limits/store.ts", "routes/avatars.ts"];
 
 describe("S14 結構性守衛（#175）", () => {
   const files = walk(SRC);
@@ -205,6 +205,7 @@ describe("S14 結構性守衛（#175）", () => {
       { f: "folders/service.ts", all: 4, inTx: 4 }, // 資料夾建立（createFolderInTx）、改名／搬移（updateFolderInTx）、刪除（deleteFolderInTx）、放置（placeNoteInTx）
       { f: "notes/editing/write-service.ts", all: 1, inTx: 1 }, // bulk transfer：syncFile 的紀錄交易（recordFileSyncInTx）
       { f: "site-limits/store.ts", all: 1, inTx: 1 }, // #397 站台限制 PATCH（updateSiteLimitsInTx）
+      { f: "routes/avatars.ts", all: 1, inTx: 1 }, // 頭貼上傳（insertAvatarInTx）
     ]);
   });
 

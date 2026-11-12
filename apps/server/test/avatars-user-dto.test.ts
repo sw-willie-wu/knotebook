@@ -139,6 +139,12 @@ describe("UserDto.avatar：PATCH /api/auth/profile（RETURNING 的兩個分支�
     expect(me.json().avatar).toEqual(a.json().avatar);
     const b = await app.inject({ method: "PATCH", url: "/api/auth/profile", cookies: await cookieOf(bob.id), payload: { autoVersions: false } });
     expect(b.json().avatar).toBeNull();
+    // 顯示圖尚未補產的目前頭貼：回應的 pending 要是 true（網頁據此決定要不要補產）
+    const carol = await seedUser(db);
+    const waiting = await seedAvatarRow(db, { userId: carol.id, originalSize: 800, displaySize: 0, isCurrent: true });
+    const c = await app.inject({ method: "PATCH", url: "/api/auth/profile", cookies: await cookieOf(carol.id), payload: { autoVersions: false } });
+    expect(c.statusCode, c.body).toBe(200);
+    expect(c.json().avatar).toEqual({ id: waiting, v: 1, pending: true });
   });
 
   it("改 handle（改名交易分支）：avatar 非 null，沒有頭貼的人是 null", async () => {
