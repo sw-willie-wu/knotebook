@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 
-/** 寬＝`NARROW_QUERY`（`(width < 48rem)`）的反面，且滑鼠可 hover。不支援 range 語法的瀏覽器整條不成立 -> 窄。 */
+/** 寬＝視窗寬度 `(width >= 48rem)`，且滑鼠可 hover。這是選單互動形的判準，不是版面斷點（版面斷點見 `layout-tiers.ts`）。不支援 range 語法的瀏覽器整條不成立 -> 窄。 */
 export const WIDE_POINTER_QUERY = "(width >= 48rem) and (hover: hover) and (pointer: fine)";
 
 /** 沒有 matchMedia（SSR／極舊環境）回 false。 */
