@@ -42,6 +42,7 @@ const ME: UserDto = {
   mustChangePassword: false,
   hasPassword: true,
   autoVersions: true,
+  avatar: null,
 };
 
 const GA: GroupDto = groupDto({ id: "ga", name: "A" }, adminRole());

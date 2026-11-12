@@ -2,6 +2,7 @@ export { YDOC_FRAGMENT } from "./ydoc.js";
 import type { ProviderIconDto, ProviderIconKind } from "./provider-icon.js";
 import type { AiActionKind } from "./ai.js";
 import { SITE_LIMITS } from "./site-limits.js";
+import type { UserAvatarDto } from "./avatar.js";
 
 export const SESSION_COOKIE = "knotebook_session";
 
@@ -32,6 +33,8 @@ export interface UserDto {
   hasPassword: boolean;
   /** 版本歷史：個人空間的自動儲存開關（`users.auto_versions`）。生效值另需站台總開關。 */
   autoVersions: boolean;
+  /** 目前使用的頭貼；沒有則 null。只帶 id 與版本，網址一律由 `avatarUrl` 組。 */
+  avatar: UserAvatarDto | null;
 }
 
 /** #285：管理員邀請的狀態（`GET /api/admin/invites`，由 SQL 以 now() 算）。 */

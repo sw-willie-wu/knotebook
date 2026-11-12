@@ -18,7 +18,7 @@ function fakeResponse(status: number, body: unknown): Response {
 
 const TRASH_NOTE = "Notes in the trash count toward usage too, until they're permanently deleted.";
 
-const ME: UserDto = { id: "u-me", email: "me@example.com", handle: "me", displayName: "Me", isAdmin: false, mustChangePassword: false, hasPassword: true, autoVersions: true };
+const ME: UserDto = { id: "u-me", email: "me@example.com", handle: "me", displayName: "Me", isAdmin: false, mustChangePassword: false, hasPassword: true, autoVersions: true, avatar: null };
 
 function renderAt(path: string, handlers: (url: string, method: string) => Response | Promise<Response> | null) {
   const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {

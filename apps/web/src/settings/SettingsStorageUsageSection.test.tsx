@@ -9,6 +9,7 @@ import { SettingsStorageUsageSection } from "./SettingsStorageUsageSection";
 const USER: UserDto = {
   id: "u1", email: "a@example.com", handle: "a", displayName: "A",
   isAdmin: false, mustChangePassword: false, hasPassword: true, autoVersions: true,
+  avatar: null,
 };
 const MiB = 1048576;
 

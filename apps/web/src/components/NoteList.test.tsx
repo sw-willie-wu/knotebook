@@ -189,7 +189,7 @@ const ORPHAN_GROUP_NOTE: NoteDto = groupNote(
   { ...EDITOR_PERMS },
 );
 
-const ME: UserDto = { id: "u1", email: "me@example.com", handle: "owner-one", displayName: "Me", isAdmin: false, mustChangePassword: false, hasPassword: true, autoVersions: true };
+const ME: UserDto = { id: "u1", email: "me@example.com", handle: "owner-one", displayName: "Me", isAdmin: false, mustChangePassword: false, hasPassword: true, autoVersions: true, avatar: null };
 
 function stubNotesFetch(notes: NoteDto[], groups: GroupDto[] = []) {
   vi.stubGlobal(

@@ -14,7 +14,7 @@ import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 function res(status: number, body?: unknown): Response {
   return { ok: status < 400, status, json: () => (body === undefined ? Promise.reject(new Error("no body")) : Promise.resolve(body)) } as unknown as Response;
 }
-const ADMIN: UserDto = { id: "u-admin", email: "admin@example.com", handle: "admin", displayName: "Admin", isAdmin: true, mustChangePassword: false, hasPassword: true, autoVersions: true };
+const ADMIN: UserDto = { id: "u-admin", email: "admin@example.com", handle: "admin", displayName: "Admin", isAdmin: true, mustChangePassword: false, hasPassword: true, autoVersions: true, avatar: null };
 const T = "2026-01-01T00:00:00.000Z";
 const plan = (p: Partial<StoragePlanDto> & Pick<StoragePlanDto, "id" | "name">): StoragePlanDto => ({
   quotaBytes: null, userCount: 0, groupCount: 0, overQuotaCount: 0, isDefaultForUsers: false, isDefaultForGroups: false, createdAt: T, updatedAt: T, ...p,

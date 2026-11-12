@@ -25,6 +25,7 @@ const SOLID_TOKENS = ["bg-brand-deep", "bg-brand", "bg-primary", "bg-destructive
 const ADMIN: UserDto = {
   id: "u-admin", email: "admin@example.com", handle: "admin", displayName: "Admin",
   isAdmin: true, mustChangePassword: false, hasPassword: true, autoVersions: true,
+  avatar: null,
 };
 const SSO_ADMIN: UserDto = { ...ADMIN, id: "u-sso", hasPassword: false };
 

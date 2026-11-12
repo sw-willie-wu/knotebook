@@ -24,7 +24,7 @@ function fail(status: number, code: string): Response {
   return fakeResponse({ ok: false, status, json: () => Promise.resolve({ error: { code, message: "x" } }) });
 }
 
-const ME: UserDto = { id: "u-me", email: "me@example.com", handle: "me", displayName: "Me", isAdmin: false, mustChangePassword: false, hasPassword: true, autoVersions: true };
+const ME: UserDto = { id: "u-me", email: "me@example.com", handle: "me", displayName: "Me", isAdmin: false, mustChangePassword: false, hasPassword: true, autoVersions: true, avatar: null };
 const ADMIN_ROLE = adminRole({ id: "11111111-1111-1111-1111-111111111111" });
 const MEMBER_ROLE = memberRole({ id: "22222222-2222-2222-2222-222222222222" });
 /** 自訂角色：六個可設旗標全關（`customRole` 預設）、兩人掛著。 */

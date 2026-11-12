@@ -34,7 +34,7 @@ afterEach(() => {
 
 const OLD_PASSWORD = "correct-horse-battery-staple";
 const NEW_PASSWORD = "brand-new-password-286";
-const USER_DTO_KEYS = ["autoVersions", "displayName", "email", "handle", "hasPassword", "id", "isAdmin", "mustChangePassword"];
+const USER_DTO_KEYS = ["autoVersions", "avatar", "displayName", "email", "handle", "hasPassword", "id", "isAdmin", "mustChangePassword"];
 const REDACTED = "重設密碼時發生非預期的資料庫錯誤（錯誤本體已遮蔽）";
 const LOOKUP_REDACTED = "查詢重設密碼連結時發生非預期的資料庫錯誤（錯誤本體已遮蔽）";
 /** 同 `admin-password-reset.test.ts`：DrizzleQueryError 的 params 落進 JSON log 的兩形。 */
