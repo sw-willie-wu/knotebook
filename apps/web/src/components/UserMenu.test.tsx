@@ -454,8 +454,8 @@ describe("UserMenu 帳號列頭像", () => {
     return screen.findByRole("button", { name: user.displayName });
   }
 
-  it("有頭貼：觸發鈕內有一個 img，src 是 avatarUrl(id, v)", async () => {
-    const trigger = await renderTrigger({ ...USER, avatar: { id: AVATAR_ID, v: 4, pending: false } });
+  it.each([false, true])("有頭貼（pending=%s）：觸發鈕內有一個 img，src 是 avatarUrl(id, v)", async pending => {
+    const trigger = await renderTrigger({ ...USER, avatar: { id: AVATAR_ID, v: 4, pending } });
     const imgs = trigger.querySelectorAll("img");
     expect(imgs).toHaveLength(1);
     expect(imgs[0].getAttribute("src")).toBe(avatarUrl(AVATAR_ID, 4));

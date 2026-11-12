@@ -14,7 +14,7 @@ import {
 import { agentState, userState } from "./test-awareness";
 import { firstGrapheme as libFirstGrapheme, hasVisibleText as libHasVisibleText } from "@/lib/first-grapheme";
 
-// #293：名單、合併、排序、簽章、容量、首字。me＝"u-me"、本分頁 clientID＝1。
+// #293：名單、合併、排序、簽章、容量；首字只驗 re-export。me＝"u-me"、本分頁 clientID＝1。
 const ME = "u-me";
 const MY_CLIENT = 1;
 const UUID = "0f8fad5b-d9cb-469f-a165-70867728950e";
