@@ -260,7 +260,7 @@
         },
         "helpAndTour": {
           "title": "Help and feature tour",
-          "desc": "Choose Help in the user menu, or press Ctrl+/, to open the Help window. On the Feature tour page, Start tour creates a sample note and walks you through Knotebook on it."
+          "desc": "Choose Help in the user menu, or press {{mod}}/, to open the Help window. On the Feature tour page, Start tour creates a sample note and walks you through Knotebook on it."
         },
         "siteLimits": {
           "title": "Site limits in the browser (site admins)",

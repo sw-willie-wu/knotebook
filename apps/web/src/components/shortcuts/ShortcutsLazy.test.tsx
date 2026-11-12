@@ -469,8 +469,20 @@ describe("這一版新增", () => {
     expect(highlightTitle("installApp")).toBe("Install Knotebook as an app");
     expect(highlightTitle("helpAndTour")).toBe("Help and feature tour");
     expect(highlightEl("helpAndTour")).toHaveTextContent("Ctrl+/");
+    expect(highlightEl("helpAndTour")).not.toHaveTextContent("{{");
     expect(highlightEl("helpAndTour")).toHaveTextContent("Start tour");
     expect(highlightEl("installApp")).toHaveTextContent("HTTPS");
+  });
+
+  it("真的登記檔：Mac 上說明與導覽那條寫 ⌘/，不出現 Ctrl", async () => {
+    stubPlatform("MacIntel");
+    registryState.override = null;
+    sessionState.user = { isAdmin: false };
+    await openWhatsNew();
+    await waitFor(() => expect(highlightIds()).toContain("helpAndTour"));
+    expect(highlightEl("helpAndTour")).toHaveTextContent("⌘/");
+    expect(highlightEl("helpAndTour")).not.toHaveTextContent("Ctrl");
+    expect(highlightEl("helpAndTour")).not.toHaveTextContent("{{");
   });
 
   it("真的登記檔：繁體中文也列出最愛、安裝成 app、說明與導覽（標題在各自條目內）", async () => {
@@ -484,6 +496,7 @@ describe("這一版新增", () => {
     expect(highlightTitle("installApp")).toBe("把 Knotebook 安裝成 App");
     expect(highlightTitle("helpAndTour")).toBe("說明與功能導覽");
     expect(highlightEl("helpAndTour")).toHaveTextContent("Ctrl+/");
+    expect(highlightEl("helpAndTour")).not.toHaveTextContent("{{");
     expect(highlightEl("helpAndTour")).toHaveTextContent("開始導覽");
     expect(highlightEl("installApp")).toHaveTextContent("HTTPS");
     expect(highlightIds()).not.toContain("signOutThisBrowser");
