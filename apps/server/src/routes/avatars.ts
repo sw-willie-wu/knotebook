@@ -383,5 +383,45 @@ export function avatarsRoutes(deps: AvatarsRouteDeps) {
       reply.type(row.originalMime);
       return reply.send(createReadStream(filePath));
     });
+
+    // 顯示圖：任何登入者都讀得到（知道 id 才讀得到）；不看 `is_current`，換掉的候選仍可讀。
+    // 還沒補產顯示圖的候選只有本人讀得到原圖，且永不標 immutable。
+    app.get("/api/avatars/:id", { preHandler: app.authenticate }, async (request, reply) => {
+      const avatarId = idOf(request);
+      if (avatarId === null) return sendAvatarNotFound(reply);
+      const [row] = await deps.db
+        .select({
+          userId: userAvatars.userId,
+          displayData: userAvatars.displayData,
+          displayMime: userAvatars.displayMime,
+          originalFile: userAvatars.originalFile,
+          originalMime: userAvatars.originalMime,
+          version: userAvatars.version,
+        })
+        .from(userAvatars)
+        .where(eq(userAvatars.id, avatarId));
+      if (row === undefined) return sendAvatarNotFound(reply);
+      if (row.displayData !== null && row.displayMime !== null) {
+        reply.header("x-content-type-options", "nosniff");
+        reply.header("content-security-policy", "default-src 'none'; sandbox");
+        const v = (request.query as { v?: unknown }).v;
+        reply.header("cache-control", typeof v === "string" && v === String(row.version) ? "private, max-age=31536000, immutable" : "private, no-cache");
+        reply.type(row.displayMime);
+        return reply.send(row.displayData);
+      }
+      if (row.userId !== request.user!.id) return sendAvatarNotFound(reply);
+      const filePath = uploadFilePath(deps.uploadsDir, row.originalFile);
+      try {
+        await stat(filePath);
+      } catch {
+        request.log.warn({ avatarId }, "頭貼候選有紀錄但磁碟找不到原圖檔");
+        return sendAvatarNotFound(reply);
+      }
+      reply.header("x-content-type-options", "nosniff");
+      reply.header("content-security-policy", "default-src 'none'; sandbox");
+      reply.header("cache-control", "private, no-cache");
+      reply.type(row.originalMime);
+      return reply.send(createReadStream(filePath));
+    });
   };
 }

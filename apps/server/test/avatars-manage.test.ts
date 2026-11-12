@@ -1,8 +1,8 @@
 /**
- * 頭貼候選的管理：重新裁切（PUT …/:id/display）、選用（PUT /api/auth/avatar）、刪除（DELETE …/:id）、本人讀原圖（GET …/:id/original）。
+ * 頭貼候選的管理：重新裁切（PUT …/:id/display）、選用（PUT /api/auth/avatar）、刪除（DELETE …/:id）、本人讀原圖（GET …/:id/original）、任何登入者讀顯示圖（GET /api/avatars/:id）。
  * 全部走真路由與真交易；並發案用 `avatarTestHooks.afterUserLock` 把第一條請求停在持有 users 列鎖之後。
  */
-import { readdir, rm } from "node:fs/promises";
+import { readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { asc, eq } from "drizzle-orm";
@@ -603,5 +603,118 @@ describe("頭貼管理端點的存取界線", () => {
     const cross = await recropAvatar(app, alice.id, id, { headers: { origin: "https://evil.example" } });
     expect(cross.statusCode).toBe(403);
     expect(await rowOf(db, id)).toEqual(before);
+  });
+});
+
+const readDisplay = async (app: Ctx["app"], userId: string, id: string, query = "") =>
+  app.inject({ method: "GET", url: `/api/avatars/${id}${query}`, cookies: await cookieOf(userId) });
+
+describe("GET /api/avatars/:id：讀顯示圖", () => {
+  it("別人也能讀：200、位元組相等；content-type 是 DB 值，另有 nosniff 與 CSP sandbox", async () => {
+    const { app, db } = await buildTestApp();
+    const alice = await seedUser(db);
+    const bob = await seedUser(db);
+    const display = webpOf(500);
+    const id = await uploaded(app, alice.id, { display });
+    const res = await readDisplay(app, bob.id, id);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(Buffer.compare(res.rawPayload, display)).toBe(0);
+    expect(res.headers["content-type"]).toBe("image/webp");
+    expect(res.headers["x-content-type-options"]).toBe("nosniff");
+    expect(res.headers["content-security-policy"]).toBe("default-src 'none'; sandbox");
+    expect(res.headers["cache-control"]).toBe("private, no-cache");
+  });
+
+  it("content-type 取 DB 存的值，不由內容或網址推", async () => {
+    const { app, db } = await buildTestApp();
+    const alice = await seedUser(db);
+    const id = await uploaded(app, alice.id);
+    await db.update(userAvatars).set({ displayMime: "image/jpeg" }).where(eq(userAvatars.id, id));
+    expect((await readDisplay(app, alice.id, id)).headers["content-type"]).toBe("image/jpeg");
+  });
+
+  it("?v= 等於現版本 → immutable；不等、沒帶、空字串、1.0、01、陣列形都是 no-cache", async () => {
+    const { app, db } = await buildTestApp();
+    const alice = await seedUser(db);
+    const bob = await seedUser(db);
+    const id = await uploaded(app, alice.id);
+    expect((await readDisplay(app, bob.id, id, "?v=1")).headers["cache-control"]).toBe("private, max-age=31536000, immutable");
+    for (const q of ["", "?v=2", "?v=", "?v=1.0", "?v=01", "?v=1&v=1", "?v=0x1"]) {
+      expect((await readDisplay(app, bob.id, id, q)).headers["cache-control"], q).toBe("private, no-cache");
+    }
+    const re = await recropAvatar(app, alice.id, id, { display: webpOf(400), version: 1 });
+    expect(re.statusCode, re.body).toBe(200);
+    expect((await readDisplay(app, bob.id, id, "?v=1")).headers["cache-control"]).toBe("private, no-cache");
+    expect((await readDisplay(app, bob.id, id, "?v=2")).headers["cache-control"]).toBe("private, max-age=31536000, immutable");
+  });
+
+  it("不看 is_current：換過目前頭貼後，舊候選的 id 仍讀得到", async () => {
+    const { app, db } = await buildTestApp();
+    const alice = await seedUser(db);
+    const bob = await seedUser(db);
+    const first = await uploaded(app, alice.id);
+    const second = await uploaded(app, alice.id);
+    expect((await select(app, alice.id, { candidateId: second })).statusCode).toBe(200);
+    expect((await rowOf(db, first))!.isCurrent).toBe(false);
+    expect((await readDisplay(app, bob.id, first)).statusCode).toBe(200);
+    expect((await select(app, alice.id, { candidateId: null })).statusCode).toBe(200);
+    expect((await readDisplay(app, bob.id, second)).statusCode).toBe(200);
+  });
+
+  it("大寫 uuid 可用；不存在、不是 uuid 的 id 與刪除後都是同形 404", async () => {
+    const { app, db } = await buildTestApp();
+    const alice = await seedUser(db);
+    const id = await uploaded(app, alice.id);
+    expect((await readDisplay(app, alice.id, id.toUpperCase())).statusCode).toBe(200);
+    const missing = await readDisplay(app, alice.id, "00000000-0000-4000-8000-000000000000");
+    const junk = await readDisplay(app, alice.id, "not-a-uuid");
+    expect((await remove(app, alice.id, id)).statusCode).toBe(204);
+    const gone = await readDisplay(app, alice.id, id);
+    for (const res of [missing, junk, gone]) {
+      expect(res.statusCode).toBe(404);
+      expect(res.json().error.code).toBe("not_found");
+    }
+    expect(junk.body).toBe(missing.body);
+    expect(gone.body).toBe(missing.body);
+  });
+
+  it("待補顯示圖的 OIDC 候選：本人讀到原圖（no-cache，即使 ?v= 吻合），別人 404", async () => {
+    const { app, db, uploadsDir } = await buildTestApp();
+    const alice = await seedUser(db);
+    const bob = await seedUser(db);
+    const id = await seedAvatarRow(db, { userId: alice.id, originalSize: 700, displaySize: 0 });
+    const original = pngOf(700);
+    await writeFile(path.join(uploadsDir, (await rowOf(db, id))!.originalFile), original);
+    const own = await readDisplay(app, alice.id, id, "?v=1");
+    expect(own.statusCode, own.body).toBe(200);
+    expect(Buffer.compare(own.rawPayload, original)).toBe(0);
+    expect(own.headers["content-type"]).toBe("image/png");
+    expect(own.headers["cache-control"]).toBe("private, no-cache");
+    expect(own.headers["x-content-type-options"]).toBe("nosniff");
+    expect(own.headers["content-security-policy"]).toBe("default-src 'none'; sandbox");
+    const other = await readDisplay(app, bob.id, id);
+    const missing = await readDisplay(app, bob.id, "00000000-0000-4000-8000-000000000000");
+    expect(other.statusCode).toBe(404);
+    expect(missing.statusCode).toBe(404);
+    expect(other.body).toBe(missing.body);
+    expect(other.headers["content-security-policy"]).toBe(missing.headers["content-security-policy"]);
+    expect(other.headers["content-type"]).toBe(missing.headers["content-type"]);
+  });
+
+  it("待補的候選、本人讀但原圖檔不在 → 404（不丟 500）", async () => {
+    const { app, db } = await buildTestApp();
+    const alice = await seedUser(db);
+    const id = await seedAvatarRow(db, { userId: alice.id, originalSize: 70, displaySize: 0 });
+    expect((await readDisplay(app, alice.id, id)).statusCode).toBe(404);
+  });
+
+  it("未登入 401、只帶 Bearer（API token）401", async () => {
+    const { app, db } = await buildTestApp();
+    const alice = await seedUser(db);
+    const id = await uploaded(app, alice.id);
+    const { token } = await seedTokenForUser(db, alice.id);
+    for (const headers of [{}, bearer(token)]) {
+      expect((await app.inject({ method: "GET", url: `/api/avatars/${id}`, headers })).statusCode).toBe(401);
+    }
   });
 });
