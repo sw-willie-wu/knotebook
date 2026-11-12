@@ -43,6 +43,16 @@ describe("hover 浮出與拖曳把手的 class 來源層守衛", () => {
     expect(segment).not.toContain("`");
   });
 
+  it("reveal.ts 的 REVEAL_ONLY 是完整字面（沒有樣板拼接），且觸控兩種判準都隱藏", () => {
+    const source = readFileSync(`${root}/components/ui/reveal.ts`, "utf8").replace(/\r\n/g, "\n");
+    const segment = between(source, "const REVEAL_ONLY =", "\n} as const;");
+    expect(segment).toContain("group-hover/noterow:opacity-100");
+    expect(segment).toContain("[@media(hover:none)]:hidden");
+    expect(segment).toContain("[@media(pointer:coarse)]:hidden");
+    expect(segment).not.toContain("${");
+    expect(segment).not.toContain("`");
+  });
+
   it("PaneResizeHandle.tsx 把手線的 class 是完整字面（沒有樣板拼接）", () => {
     const source = readFileSync(`${root}/components/PaneResizeHandle.tsx`, "utf8").replace(/\r\n/g, "\n");
     const lines = source.split("\n").filter((line) => line.includes("w-0.5 rounded-full"));

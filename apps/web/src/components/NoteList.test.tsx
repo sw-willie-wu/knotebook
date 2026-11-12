@@ -1,6 +1,6 @@
 import { useEffect, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { focusManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router";
 import {
@@ -1106,6 +1106,9 @@ function renderRowMenu(
       if (url === "/api/groups" && method === "GET") {
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(groups) }));
       }
+      if (url === "/api/favorites" && method === "GET") {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+      }
       // 群組列的 ⋮（GroupMenu）用 useSession 拿自己的 id（只在傳了 groups 時會打）
       if (url === "/api/auth/me" && method === "GET") {
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(ME) }));
@@ -1194,11 +1197,13 @@ describe("筆記列 ⋮", () => {
     // 單一面板裡同一篇只有一顆 ⋮。
     expect(within(panel()).getAllByRole("button", { name: "Note actions for Has A Slug" })).toHaveLength(1);
 
-    // 與我共享（editor）那列：順序＝標題、徽章、⋮。
+    // 與我共享（editor）那列：順序＝標題、徽章、星星（最愛清單載入後才有）、⋮。
     selectTab("Shared with me");
     const sharedTrigger = within(panel()).getByRole("button", { name: "Note actions for No Slug Note" });
     const badge = within(panel()).getByText("Editor");
-    expect(badge.nextElementSibling).toBe(sharedTrigger);
+    const star = await within(panel()).findByRole("button", { name: "Favorite" });
+    expect(badge.nextElementSibling).toBe(star);
+    expect(star.nextElementSibling).toBe(sharedTrigger);
     expect(sharedTrigger.closest("li")?.lastElementChild).toBe(sharedTrigger);
   });
 
@@ -1885,32 +1890,28 @@ describe("NoteList × 最愛", () => {
     expect(myNotesDrag.setData).toHaveBeenCalledWith(DRAG_NOTE_MIME, LOOSE.id);
   });
 
-  it("不在最愛 tab 時不打 GET /api/favorites；切到最愛 tab 才打", async () => {
+  it("每個 tab 共用同一份 GET /api/favorites：切 tab 不多打", async () => {
     const server = stubServer();
     renderNoteList();
     await waitFor(() => expect(noteRow(LOOSE.id)).not.toBeNull());
+    await waitFor(() => expect(favoritesGets(server)).toBe(1));
     selectTab("Recent");
     await waitFor(() => expect(noteRow(LOOSE.id)).not.toBeNull());
     selectTab("Shared with me");
     await waitFor(() => expect(noteRow(SHARED.id)).not.toBeNull());
-    expect(favoritesGets(server)).toBe(0);
     selectTab("Favorites");
     await waitFor(() => expect(rowIds()).toEqual([SHARED.id, GROUPED.id, IN_FOLDER.id]));
     expect(favoritesGets(server)).toBe(1);
   });
 
-  it("最愛清單不設 staleTime：離開再回到最愛 tab、視窗重新取得焦點都會重抓", async () => {
+  it("最愛清單不設 staleTime：視窗重新取得焦點會重抓", async () => {
     const server = stubServer();
     renderNoteList({}, { tab: "favorites" });
     await waitFor(() => expect(rowIds()).toEqual([SHARED.id, GROUPED.id, IN_FOLDER.id]));
     expect(favoritesGets(server)).toBe(1);
-    selectTab("My notes");
-    await waitFor(() => expect(noteRow(LOOSE.id)).not.toBeNull());
-    selectTab("Favorites");
-    await waitFor(() => expect(favoritesGets(server)).toBe(2));
     try {
       act(() => focusManager.setFocused(true));
-      await waitFor(() => expect(favoritesGets(server)).toBe(3));
+      await waitFor(() => expect(favoritesGets(server)).toBe(2));
     } finally {
       focusManager.setFocused(undefined);
     }
@@ -1948,5 +1949,156 @@ describe("NoteList × 最愛", () => {
       });
       await waitFor(() => expect(rowIds()).toEqual([BACK.id, LOOSE.id]));
     });
+  });
+});
+
+// ── 筆記列右側的星星
+describe("NoteList × 列上星星", () => {
+  const G: GroupDto = groupDto({ id: "G", name: "G" }, adminRole());
+  const FOLDERS: FolderDto[] = [folderDto({ id: "A", name: "A" })];
+  const IN_FOLDER = personalNote({ id: "star-in-folder", title: "Alpha", folderId: "A" });
+  const LOOSE = personalNote({ id: "star-loose", title: "Beta" });
+  const GROUPED = selGroupNote({ id: "star-grouped", title: "Gamma", group: G });
+  const SHARED = sharedNote({ id: "star-shared", title: "Delta", role: "viewer" });
+  const NOTES = [IN_FOLDER, LOOSE, GROUPED, SHARED];
+  const T1 = "2026-03-01T00:00:00.000Z";
+
+  type Reply<T> = T | "error" | "pending";
+  interface StarServer {
+    favorites: Reply<FavoriteDto[]>;
+    /** PUT /api/favorites/:id 的回應：`"pending"`＝永不回。 */
+    put: "ok" | "pending";
+    calls: string[];
+  }
+
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+
+  function stubStars(init: Partial<Omit<StarServer, "calls">> = {}): StarServer {
+    const server: StarServer = { favorites: [{ noteId: LOOSE.id, favoritedAt: T1 }], put: "ok", calls: [], ...init };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, request?: RequestInit) => {
+        const url = String(input);
+        const method = (request?.method ?? "GET").toUpperCase();
+        server.calls.push(`${method} ${url}`);
+        if (url === "/api/folders" && method === "GET") return Promise.resolve(json({ folders: FOLDERS }));
+        if (url === "/api/favorites" && method === "GET") {
+          if (server.favorites === "pending") return new Promise<Response>(() => {});
+          if (server.favorites === "error") return Promise.resolve(json({ error: { code: "internal", message: "boom" } }, 500));
+          return Promise.resolve(json(server.favorites));
+        }
+        if (/^\/api\/favorites\/.+/.test(url) && method === "PUT") {
+          if (server.put === "pending") return new Promise<Response>(() => {});
+          return Promise.resolve(json({ noteId: url.split("/").pop(), favoritedAt: T1 }));
+        }
+        if (url === "/api/notes" && method === "GET") return Promise.resolve(json(NOTES));
+        if (url === "/api/groups" && method === "GET") return Promise.resolve(json([G]));
+        if (url === "/api/auth/me" && method === "GET") return Promise.resolve(json(ME));
+        throw new Error(`unexpected fetch: ${method} ${url}`);
+      }),
+    );
+    return server;
+  }
+
+  const stars = () => within(panel()).queryAllByRole("button", { name: "Favorite" });
+  const starOf = (id: string) => within(noteRow(id)!).queryByRole("button", { name: "Favorite" });
+  const favoritesGets = (server: StarServer) => server.calls.filter((call) => call === "GET /api/favorites").length;
+
+  beforeEach(async () => {
+    localStorage.clear();
+    await i18n.changeLanguage("en");
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it.each([
+    ["recent", [IN_FOLDER, LOOSE, GROUPED, SHARED]],
+    ["favorites", [LOOSE]],
+    ["myNotes", [IN_FOLDER, LOOSE]],
+    ["workspace", [GROUPED]],
+    ["shared", [SHARED]],
+  ] as const)("%s tab 的每一列筆記都有星星，狀態＝是否在 favorites", async (tab, expected) => {
+    stubStars();
+    renderNoteList({}, { tab });
+    await waitFor(() => expect(stars().length).toBe(expected.length));
+    for (const note of expected) {
+      expect(starOf(note.id), note.title).toHaveAttribute("aria-pressed", note.id === LOOSE.id ? "true" : "false");
+    }
+  });
+
+  it("資料夾列與群組列沒有星星（只有筆記列有）", async () => {
+    stubStars();
+    renderNoteList({}, { tab: "workspace" });
+    await waitFor(() => expect(groupNode("G")).not.toBeNull());
+    await waitFor(() => expect(stars().length).toBe(1));
+    expect(within(groupNode("G")!.firstElementChild as HTMLElement).queryByRole("button", { name: "Favorite" })).toBeNull();
+    cleanup();
+
+    stubStars();
+    renderNoteList({}, { tab: "myNotes" });
+    await waitFor(() => expect(panel().querySelector('[data-node-kind="folder"]')).not.toBeNull());
+    const folderRow = panel().querySelector('[data-node-kind="folder"]')!.firstElementChild as HTMLElement;
+    expect(within(folderRow).queryByRole("button", { name: "Favorite" })).toBeNull();
+  });
+
+  it.each(["pending", "error"] as const)("favorites %s：筆記列都在、都沒有星星（狀態未知不顯示成未加入）", async (reply) => {
+    stubStars({ favorites: reply });
+    renderNoteList({}, { tab: "recent" });
+    await waitFor(() => expect(noteRow(LOOSE.id)).not.toBeNull());
+    await waitFor(() => expect(noteRow(SHARED.id)).not.toBeNull());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(stars()).toHaveLength(0);
+  });
+
+  it("每份 NoteList 只打一次 GET /api/favorites；兩份實例共用快取也只打一次", async () => {
+    const server = stubStars();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <ActiveNoteProvider>
+            <SidebarTabProvider>
+              <div role="tabpanel">
+                <NoteList />
+              </div>
+              <div data-testid="second" role="tabpanel">
+                <NoteList />
+              </div>
+            </SidebarTabProvider>
+          </ActiveNoteProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Favorite" }).length).toBeGreaterThanOrEqual(4));
+    expect(favoritesGets(server)).toBe(1);
+  });
+
+  it("列內 DOM 順序是連結、角色標記、星星、⋮；星星不在連結內", async () => {
+    stubStars();
+    renderNoteList({}, { tab: "shared" });
+    await waitFor(() => expect(starOf(SHARED.id)).not.toBeNull());
+    const row = noteRow(SHARED.id)!;
+    const link = within(row).getByRole("link");
+    const badge = within(row).getByText("Viewer");
+    const star = starOf(SHARED.id)!;
+    const actions = within(row).getByRole("button", { name: "Note actions for Delta" });
+    const before = (a: Element, b: Element) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(before(link, badge)).toBe(true);
+    expect(before(badge, star)).toBe(true);
+    expect(before(star, actions)).toBe(true);
+    expect(star.closest("a")).toBeNull();
+    expect(star.parentElement).toBe(row);
+  });
+
+  it("只有送出中的那一篇是 aria-disabled，其他列照常", async () => {
+    stubStars({ favorites: [], put: "pending" });
+    renderNoteList({}, { tab: "recent" });
+    await waitFor(() => expect(stars()).toHaveLength(4));
+    fireEvent.click(starOf(LOOSE.id)!);
+    await waitFor(() => expect(starOf(LOOSE.id)).toHaveAttribute("aria-disabled", "true"));
+    expect(starOf(SHARED.id)).not.toHaveAttribute("aria-disabled");
+    expect(starOf(GROUPED.id)).not.toHaveAttribute("aria-disabled");
   });
 });

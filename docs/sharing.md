@@ -84,6 +84,8 @@ The sidebar's **My notes**, **Groups** and **Shared with me** tabs show folders,
 
 Favorites are yours alone: adding a note to your favorites, or removing it, changes nothing for anyone else, and the other members of a group never see which of the group's notes you starred.
 
+There are three ways to add a note: the star in its header, **Add to favorites** in its `⋮` menu, and the star on its row in the sidebar. The row's star is an outline star that appears when you point at the row or move the keyboard focus to it; click it to add the note. A favorite's row keeps a filled star; click it to remove the note, after a confirmation. Devices that can't hover or whose main pointer is coarse, such as phones and tablets, don't show the outline star (use the `⋮` menu there), and rows of folders, groups and the trash, and rows in selection mode, have no star.
+
 To remove several favorites at once, press **Select** at the top of the **Favorites** tab, tick the notes and choose **Remove from favorites**. It asks once for the whole batch, and there is no undo: add a note back with its star. The notes themselves aren't changed. In **Favorites**, **Select** can also copy the ticked notes and delete them, as described in [Moving or copying a note into a group](#moving-or-copying-a-note-into-a-group). Anything that goes wrong when removing (too many requests, say) stops the batch, as with the other **Select** actions.
 
 ## Notes in the trash

@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import {
   useMutation,
   useMutationState,
@@ -8,7 +9,7 @@ import {
   type UseQueryResult,
 } from "@tanstack/react-query";
 import type { FavoriteDto } from "@knotebook/shared";
-import { api } from "./client";
+import { ApiFail, api } from "./client";
 
 /**
  * #334 最愛的 client 資料層。`["favorites"]` 只存「哪幾篇、何時加的」，標題與位置由呼叫端從 `["notes"]` 取。
@@ -19,6 +20,15 @@ import { api } from "./client";
 
 export const FAVORITES_QUERY_KEY = ["favorites"] as const;
 const FAVORITE_SET_KEY = ["favorites", "set"] as const;
+const EMPTY_IDS: ReadonlySet<string> = new Set();
+
+/** ApiFail → errors.<code>；其餘（網路失敗等）→ errors.fallback。最愛各入口的錯誤 toast 共用。 */
+export function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {
+  if (err instanceof ApiFail) {
+    return t(`errors.${err.code}`, { defaultValue: t("errors.fallback") });
+  }
+  return t("errors.fallback");
+}
 
 interface FavoriteVars {
   noteId: string;
@@ -113,4 +123,29 @@ export function useFavoriteStatus(noteId: string): { ready: boolean; favorite: b
     favorite: query.isSuccess && (query.data?.some((f) => f.noteId === noteId) ?? false),
     pending: pendingFor.length > 0,
   };
+}
+
+/**
+ * 一份清單所有筆記的最愛狀態，只訂一次：`ids`＝最愛的 noteId 集合、`pendingIds`＝有加入或移出在送出中的 noteId。
+ * 給列很多的清單用（每列各呼叫 `useFavoriteStatus` 會是 N 份訂閱）。`ready` 同 `useFavoriteStatus`：清單查詢成功。
+ * 還沒到或讀取失敗時 `ids` 是空集合——呼叫端看 `ready`，不要把空集合當成「都不是最愛」。
+ */
+export function useFavoriteLookup(options: { enabled?: boolean } = {}): {
+  ready: boolean;
+  ids: ReadonlySet<string>;
+  pendingIds: ReadonlySet<string>;
+  query: UseQueryResult<FavoriteDto[]>;
+} {
+  const query = useFavorites(options);
+  const ids = useMemo<ReadonlySet<string>>(
+    () => (query.isSuccess ? new Set(query.data.map((f) => f.noteId)) : EMPTY_IDS),
+    [query.isSuccess, query.data],
+  );
+  const pendingList = useMutationState({
+    filters: { mutationKey: FAVORITE_SET_KEY, status: "pending" },
+    select: (mutation) => (mutation.state.variables as FavoriteVars | undefined)?.noteId,
+  });
+  const pendingKey = pendingList.filter((id): id is string => id !== undefined).sort().join("\n");
+  const pendingIds = useMemo<ReadonlySet<string>>(() => (pendingKey === "" ? EMPTY_IDS : new Set(pendingKey.split("\n"))), [pendingKey]);
+  return { ready: query.isSuccess, ids, pendingIds, query };
 }

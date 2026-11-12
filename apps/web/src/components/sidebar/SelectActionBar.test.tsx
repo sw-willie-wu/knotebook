@@ -2267,19 +2267,12 @@ describe("最愛 tab 的批次移出", () => {
     expect(await screen.findByText("已移出最愛 2 篇", { exact: true })).toBeInTheDocument();
   });
 
-  it.each(["recent", "myNotes", "workspace", "shared"] as const)("%s：選取模式不打 GET /api/favorites、也沒有移出最愛鈕", async (tab) => {
+  it.each(["recent", "myNotes", "workspace", "shared"] as const)("%s：選取模式沒有移出最愛鈕；GET /api/favorites 只有清單訂的那一次", async (tab) => {
     stubServer();
     renderShells({ tab });
     await enterSelecting();
     await settleTimers();
     expect(within(bar()).queryByRole("button", { name: "Remove from favorites", hidden: true })).toBeNull();
-    expect(favoritesGets()).toBe(0);
-  });
-
-  it("對照：最愛 tab 會打 GET /api/favorites", async () => {
-    stubServer({ favorites: FAV4 });
-    renderShells({ tab: "favorites" });
-    await enterSelecting();
-    expect(favoritesGets()).toBeGreaterThan(0);
+    expect(favoritesGets()).toBe(1);
   });
 });

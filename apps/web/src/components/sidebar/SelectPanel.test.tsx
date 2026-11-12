@@ -860,3 +860,23 @@ describe("選取模式 × 資料夾可勾", () => {
     expect(within(panel()).getAllByRole("checkbox")).toEqual([folderBox("B")]);
   });
 });
+
+// ── 選取模式沒有列上星星
+describe("選取模式 × 列上星星", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it.each(["myNotes", "recent", "shared", "workspace"] as const)("%s：平常的列有星星，進入選取模式後沒有任何星星按鈕", async (tab) => {
+    stubFetch({ notes: ALL_NOTES, favorites: [fav("p1", "2026-03-01T00:00:00.000Z")] });
+    renderPanel({ tab });
+    await within(panel()).findAllByRole("button", { name: "Favorite" });
+    await enterSelect();
+    expect(within(panel()).queryAllByRole("button", { name: "Favorite", hidden: true })).toHaveLength(0);
+    expect(within(panel()).queryAllByRole("checkbox").length).toBeGreaterThan(0);
+  });
+});

@@ -3,12 +3,13 @@ import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 import { canonicalNotePath, type FavoriteDto, type FolderDto, type FolderSpaceDto, type GroupDto, type NoteDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
-import { useFavorites } from "@/api/favorites";
+import { useFavoriteLookup } from "@/api/favorites";
 import { folderErrorMessage, useFolders } from "@/api/folders";
 import { useGroups } from "@/api/groups";
 import { GroupMenu } from "@/components/groups/GroupMenu";
 import { GroupNameDialog } from "@/components/groups/GroupNameDialog";
 import { SidebarNoteMenu } from "@/components/NoteMenu";
+import { RowFavoriteStar } from "@/components/RowFavoriteStar";
 import { useNotes } from "@/api/notes";
 import { useActiveNote } from "@/lib/active-note";
 import { useSidebarTabActions, useSidebarTabState } from "@/lib/sidebar-tab";
@@ -86,11 +87,16 @@ interface NoteRowProps {
   note: NoteDto;
   variant: RowVariant;
   location: LocationContext;
+  /** 這一篇是不是最愛；`null`＝最愛清單還沒到或讀取失敗（狀態未知，不渲染星星）。 */
+  favorite: boolean | null;
+  /** 這一篇的加入或移出送出中。 */
+  favoritePending: boolean;
 }
 
-/** 一列筆記：標題、徽章、⋮（`SidebarNoteMenu`，hover 浮出靠 `<li>` 的 `group/noterow`）。
- * 靜態卡與抽屜各一份 NoteList，所以一篇筆記的 ⋮ 最多兩份 DOM——測試一律 `within(...)` 鎖定面板。 */
-function NoteRow({ note, variant, location }: NoteRowProps) {
+/** 一列筆記：標題、徽章、最愛星星（`RowFavoriteStar`）、⋮（`SidebarNoteMenu`），DOM 順序＝視覺順序；
+ * 星星與 ⋮ 的 hover 浮出靠 `<li>` 的 `group/noterow`。
+ * 靜態卡與抽屜各一份 NoteList，所以一篇筆記的星星與 ⋮ 最多各兩份 DOM——測試一律 `within(...)` 鎖定面板。 */
+function NoteRow({ note, variant, location, favorite, favoritePending }: NoteRowProps) {
   const { t } = useTranslation();
   const { activeNoteId, setActiveNoteId } = useActiveNote();
   // #122：active 判準改吃 context 的 note.id（單一真相，理由見 lib/active-note.tsx
@@ -144,6 +150,7 @@ function NoteRow({ note, variant, location }: NoteRowProps) {
         )}
       </Link>
       {variant !== "recent" && <RoleBadge role={note.role} group={note.group} />}
+      {favorite !== null && <RowFavoriteStar note={note} favorite={favorite} pending={favoritePending} />}
       <SidebarNoteMenu note={note} />
     </li>
   );
@@ -206,6 +213,10 @@ interface NodeContext {
   openFolderDialog: (request: FolderDialogRequest, opener: HTMLElement | null) => void;
   /** 快取裡的筆記：資料夾 ⋮ 開啟時判斷子樹有沒有活筆記（刪除擋下）。 */
   notes: readonly NoteDto[];
+  /** 最愛的 noteId 集合；`null`＝最愛清單還沒到或讀取失敗（列上不渲染星星）。 */
+  favoriteIds: ReadonlySet<string> | null;
+  /** 加入或移出最愛送出中的 noteId。 */
+  favoritePendingIds: ReadonlySet<string>;
   /** 拖曳的落點範圍提示鍵（`dropScopeKey`："list"｜"group:<id>"｜"folder:<id>"）；null＝不標示。 */
   dropScope: string | null;
   /** 疊資料夾預覽或「建立中」：取代 `anchorNoteId` 那一列（`creating` 優先）。 */
@@ -337,6 +348,8 @@ function SidebarNodeList({ nodes, ctx, inGroup = false }: { nodes: SidebarNode[]
             note={node.note}
             variant={inGroup ? "group" : ctx.tab === "recent" || ctx.tab === "favorites" ? "recent" : "plain"}
             location={ctx.location}
+            favorite={ctx.favoriteIds === null ? null : ctx.favoriteIds.has(node.note.id)}
+            favoritePending={ctx.favoritePendingIds.has(node.note.id)}
           />
         ),
       )}
@@ -358,7 +371,8 @@ const MESSAGE_CLASS = "p-2 text-sm text-muted-foreground";
  * `GET /api/notes` 的 pending／error 在清單內顯示；`GET /api/groups` 的 pending／error 只影響
  * 群組 tab（與「零筆記時要等群組才知道是不是全空」），群組筆記在那期間依兜底列落與我共享、
  * 資料到了再歸位。搜尋由 `sidebar/SearchResults` 負責。
- * 最愛 tab：`GET /api/favorites` 只在這個 tab 打，列是它與 `["notes"]` 的交集（依加入時間；標題與位置取 `["notes"]`），
+ * 最愛：每個 tab 都在這裡訂一次 `["favorites"]`（列上的星星要知道哪幾篇是最愛），轉成 id 集合經 `NodeContext` 給各列；
+ * 清單還沒到或讀取失敗時列上不渲染星星。最愛 tab 的列是它與 `["notes"]` 的交集（依加入時間；標題與位置取 `["notes"]`），
  * 不等資料夾；`favorites` 失敗但有舊資料時照舊資料顯示。
  * tabpanel 的 `tabIndex={0}` 在 `AppShell`（WAI-ARIA APG：面板第一個有內容的元素不可聚焦時，Tab 要能停在面板上）。
  *
@@ -374,8 +388,9 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
   const notesQuery = useNotes();
   const groupsQuery = useGroups();
   const foldersQuery = useFolders();
-  // 只在最愛 tab 打：其他 tab 用不到，平常不多一支請求。
-  const favoritesQuery = useFavorites({ enabled: tab === "favorites" });
+  // 每個 tab 都訂：列上的星星要知道狀態；最愛 tab 的排序用同一份 query（不另打一支）。
+  const favorites = useFavoriteLookup();
+  const favoritesQuery = favorites.query;
   const sortOf = useFolderSortOf();
   const [createOpen, setCreateOpen] = useState(false);
   const addGroupRef = useRef<HTMLButtonElement>(null);
@@ -435,6 +450,8 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
     createNotePending,
     openFolderDialog,
     notes: notesQuery.data ?? EMPTY_NOTES,
+    favoriteIds: favorites.ready ? favorites.ids : null,
+    favoritePendingIds: favorites.pendingIds,
     dropScope: drag.view.scope,
     stack: stackState === null ? null : { state: stackState, creating: drag.view.creating !== null },
   };

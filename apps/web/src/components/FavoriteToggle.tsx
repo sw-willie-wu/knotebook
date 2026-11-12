@@ -1,19 +1,11 @@
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { NoteDto } from "@knotebook/shared";
-import { ApiFail } from "@/api/client";
-import { useAddFavorite, useFavoriteStatus, useRemoveFavorite } from "@/api/favorites";
+import { errorMessage, useAddFavorite, useFavoriteStatus, useRemoveFavorite } from "@/api/favorites";
 import { FavoriteRemoveDialog } from "@/components/FavoriteRemoveDialog";
 import { Button } from "@/components/ui/button";
 import { Star } from "@/components/ui/icons";
 import { toast } from "@/components/ui/toast";
-
-function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {
-  if (err instanceof ApiFail) {
-    return t(`errors.${err.code}`, { defaultValue: t("errors.fallback") });
-  }
-  return t("errors.fallback");
-}
 
 /**
  * 筆記頁頁首的最愛星號。未加入：點下樂觀加入（不出 toast，星號本身就是回饋）；已加入：點下先開確認框，

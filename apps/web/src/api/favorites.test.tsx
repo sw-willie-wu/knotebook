@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import type { FavoriteDto } from "@knotebook/shared";
 import { ApiFail } from "./client";
-import { FAVORITES_QUERY_KEY, useAddFavorite, useFavorites, useFavoriteStatus, useRemoveFavorite } from "./favorites";
+import { FAVORITES_QUERY_KEY, useAddFavorite, useFavoriteLookup, useFavorites, useFavoriteStatus, useRemoveFavorite } from "./favorites";
 
 function fakeResponse(status: number, body?: unknown): Response {
   return {
@@ -484,5 +484,50 @@ describe("useFavoriteStatus", () => {
     await flush();
     expect(cached(qc)).toEqual([rowA]);
     expect(result.current).toEqual({ ready: false, favorite: false, pending: false });
+  });
+});
+
+describe("useFavoriteLookup", () => {
+  it("清單成功 → ready、ids 是最愛的 noteId 集合；整份只打一次 GET", async () => {
+    const calls = stubFetch({ "GET /api/favorites": [() => fakeResponse(200, [fav("b", "2026-03-02T00:00:00.000Z"), fav("a", "2026-03-01T00:00:00.000Z")])] });
+    const qc = client();
+    const { result } = renderHook(() => useFavoriteLookup(), { wrapper: wrapper(qc) });
+    expect(result.current.ready).toBe(false);
+    expect(result.current.ids.size).toBe(0);
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    expect([...result.current.ids].sort()).toEqual(["a", "b"]);
+    expect(result.current.pendingIds.size).toBe(0);
+    expect(getCount(calls)).toBe(1);
+  });
+
+  it("查詢失敗 → ready=false、ids 為空（呼叫端看 ready，不把空集合當成都不是最愛）", async () => {
+    stubFetch({ "GET /api/favorites": [() => fakeResponse(500, { error: { code: "internal", message: "x" } })] });
+    const qc = client();
+    const { result } = renderHook(() => useFavoriteLookup(), { wrapper: wrapper(qc) });
+    await waitFor(() => expect(qc.getQueryState(FAVORITES_QUERY_KEY)?.status).toBe("error"));
+    expect(result.current.ready).toBe(false);
+    expect(result.current.ids.size).toBe(0);
+  });
+
+  it("pendingIds 只含送出中那一篇；完成後清掉", async () => {
+    const put = deferred();
+    stubFetch({
+      "GET /api/favorites": [() => fakeResponse(200, [])],
+      "PUT /api/favorites/a": [put.handler],
+    });
+    const qc = client();
+    const { result } = renderHook(() => ({ lookup: useFavoriteLookup(), add: useAddFavorite() }), { wrapper: wrapper(qc) });
+    await waitFor(() => expect(result.current.lookup.ready).toBe(true));
+    let done: Promise<unknown> = Promise.resolve();
+    act(() => {
+      done = result.current.add.mutateAsync({ noteId: "a" });
+    });
+    await waitFor(() => expect([...result.current.lookup.pendingIds]).toEqual(["a"]));
+    expect(result.current.lookup.ids.has("a")).toBe(true);
+    await act(async () => {
+      put.resolve(fakeResponse(200, fav("a", "2026-03-05T00:00:00.000Z")));
+      await done;
+    });
+    await waitFor(() => expect(result.current.lookup.pendingIds.size).toBe(0));
   });
 });

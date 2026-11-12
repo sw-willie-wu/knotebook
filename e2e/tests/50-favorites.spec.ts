@@ -1,4 +1,4 @@
-import { expect, test, type Browser, type BrowserContext, type Locator, type Page } from "@playwright/test";
+import { devices, expect, test, type Browser, type BrowserContext, type Locator, type Page } from "@playwright/test";
 import {
   ADMIN,
   createNote,
@@ -26,6 +26,9 @@ import {
  * 5. 公開分享頁沒有星號。
  * 6. 最愛 tab 的選取模式：勾兩篇移出（先確認、沒有 Undo、動作列沒有 Move to）；剩下的全部移出後清單空了，焦點留在面板而不是掉到 body；
  *    390 寬抽屜的動作列（只放圖示、靠可及名稱找鈕）同樣先確認再移出。
+ * 7. 筆記列右側的星星：hover／鍵盤焦點才浮出空心星、點了直接加入；最愛 tab 的實心星移出先確認、焦點落到鄰近的列；Tab 順序是連結、星星、⋮；
+ *    觸控裝置沒加入的列沒有星星；選取模式、資料夾列、垃圾桶沒有星星；側欄縮到最窄時星星與 ⋮ 都在列內。
+ *    列上星星與頁首星號同名（Favorite），頁首的查詢限定在 `<header>` 內。
  *
  * 每個測試都用新建的帳號（alice、bob、carol 加 RUN 後綴），最愛清單不受別支 spec 影響；群組與筆記留著不清（疊每次 `stack:down -v` 重置）。
  * 所有按鈕查詢都用 `exact: true`：Playwright 預設是不分大小寫的子字串比對，「Favorite」會撞到「Add to favorites」「Remove from favorites」。
@@ -73,7 +76,8 @@ function favoriteRow(title: string, location: string): RegExp {
 }
 
 function star(page: Page): Locator {
-  return page.getByRole("button", { name: "Favorite", exact: true });
+  // 頁首的星號。側欄每列也有同名（Favorite）的星星，所以限定在 `<header>` 內。
+  return page.locator("header").getByRole("button", { name: "Favorite", exact: true });
 }
 
 /** 整頁載入筆記頁後先等標題框：lazy 筆記頁的 fallback 殼會換掉側欄、重設抽屜。 */
@@ -477,6 +481,237 @@ test("最近 tab 選取模式：把清單全部刪除後，焦點落在面板而
     await expect(panel.getByRole("button", { name: "Select", exact: true })).toBeDisabled();
     await expect(panel).toBeFocused();
     expect(await page.evaluate(() => document.activeElement === document.body)).toBe(false);
+  } finally {
+    await context.close();
+  }
+});
+
+/** 以 API 建筆記（不加入最愛）；回傳 id。 */
+async function apiCreateNote(page: Page, title: string): Promise<string> {
+  const created = await page.request.post("/api/notes", { data: { title } });
+  expect(created.status(), await created.text()).toBe(201);
+  return ((await created.json()) as { id: string }).id;
+}
+
+/** 側欄面板裡某篇筆記的列（`<li>`）。 */
+function noteRowOf(panel: Locator, title: string): Locator {
+  return panel.locator('li[data-node-kind="note"]').filter({ has: panel.page().getByRole("link", { name: new RegExp("^" + reEscape(title)) }) });
+}
+
+/** 列上的星星（可及名稱固定 Favorite，狀態看 aria-pressed）。 */
+function rowStar(row: Locator): Locator {
+  return row.getByRole("button", { name: "Favorite", exact: true });
+}
+
+test("列上星星（滑鼠）：空心星 hover 才浮出，點了直接加入變實心；在最愛 tab 取消不移、確認後焦點落到鄰近的列", async ({ browser }) => {
+  test.setTimeout(120_000);
+  const alice = await createAccount(browser, "alice");
+  const { context, page } = await openAs(browser, alice);
+  try {
+    await expectWidePointer(page, true);
+    const loose = `E2E row star loose ${RUN}`;
+    await apiCreateNote(page, loose);
+    const titles = [1, 2, 3].map((n) => `E2E row star ${n} ${RUN}`);
+    for (const title of titles) await apiCreateFavorite(page, title);
+    await page.goto("/");
+
+    // 1. 我的筆記：沒加入的筆記是空心星、平常看不到，hover 該列才浮出；點下直接加入（不開框）
+    const mine = await showSidebarTab(page, "My notes");
+    const looseRow = noteRowOf(mine, loose);
+    const looseStar = rowStar(looseRow);
+    await expect(looseStar).toHaveAttribute("aria-pressed", "false");
+    await expect(looseStar).toHaveCSS("opacity", "0");
+    await looseRow.hover();
+    await expect(looseStar).toHaveCSS("opacity", "1");
+    await looseStar.click();
+    await expect(looseStar).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(looseStar).toHaveCSS("opacity", "1");
+    const favorites = await showSidebarTab(page, "Favorites");
+    await expect(noteLink(favorites, loose)).toBeVisible();
+
+    // 2. 最愛 tab（新到舊：loose、3、2、1）：移出標題 2 要先確認；Cancel 不移、焦點回星星
+    const row2 = noteRowOf(favorites, titles[1]!);
+    await rowStar(row2).click();
+    const dialog = page.getByRole("dialog", { name: "Remove from favorites?" });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    await expect(noteLink(favorites, titles[1]!)).toBeVisible();
+    await expect(rowStar(row2)).toBeFocused();
+
+    // 3. 再點、確認：列消失，焦點落到下一列（標題 1）的連結；沒有 Undo
+    await rowStar(row2).click();
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Remove", exact: true }).click();
+    await expect(noteLink(favorites, titles[1]!)).toHaveCount(0, { timeout: 15_000 });
+    await expect(noteLink(favorites, titles[0]!)).toBeFocused();
+    await expect(page.getByRole("button", { name: "Undo", exact: true })).toHaveCount(0);
+
+    // 4. 最後一列（標題 1）移出：沒有下一列，焦點落到上一列（標題 3）
+    await rowStar(noteRowOf(favorites, titles[0]!)).click();
+    await dialog.getByRole("button", { name: "Remove", exact: true }).click();
+    await expect(noteLink(favorites, titles[0]!)).toHaveCount(0, { timeout: 15_000 });
+    await expect(noteLink(favorites, titles[2]!)).toBeFocused();
+
+    // 5. 再移出 loose；只剩一篇時移出：清單空了，焦點落到面板
+    await rowStar(noteRowOf(favorites, loose)).click();
+    await dialog.getByRole("button", { name: "Remove", exact: true }).click();
+    await expect(noteLink(favorites, loose)).toHaveCount(0, { timeout: 15_000 });
+    await rowStar(noteRowOf(favorites, titles[2]!)).click();
+    await dialog.getByRole("button", { name: "Remove", exact: true }).click();
+    await expect(favorites.getByText(EMPTY_FAVORITES)).toBeVisible({ timeout: 15_000 });
+    await expect(favorites).toBeFocused();
+  } finally {
+    await context.close();
+  }
+});
+
+test("列上星星（鍵盤）：Tab 順序是連結、星星、⋮；聚焦的空心星 opacity 為 1；Enter 加入後焦點仍在星星", async ({ browser }) => {
+  test.setTimeout(90_000);
+  const alice = await createAccount(browser, "alice");
+  const { context, page } = await openAs(browser, alice);
+  try {
+    await expectWidePointer(page, true);
+    const title = `E2E row star kbd ${RUN}`;
+    await apiCreateNote(page, title);
+    await page.goto("/");
+
+    const mine = await showSidebarTab(page, "My notes");
+    const row = noteRowOf(mine, title);
+    const star = rowStar(row);
+    const actions = row.getByRole("button", { name: `Note actions for ${title}`, exact: true });
+    await expect(star).toHaveCSS("opacity", "0");
+    await noteLink(mine, title).focus();
+    await page.keyboard.press("Tab");
+    await expect(star).toBeFocused();
+    await expect(star).toHaveCSS("opacity", "1");
+    await page.keyboard.press("Tab");
+    await expect(actions).toBeFocused();
+    await page.keyboard.press("Shift+Tab");
+    await expect(star).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(star).toHaveAttribute("aria-pressed", "true");
+    await expect(star).toBeFocused();
+  } finally {
+    await context.close();
+  }
+});
+
+test("列上星星（觸控）：沒加入的列看不到星星，最愛列的實心星可見、點了開確認框，⋮ 仍有「Add to favorites」", async ({ browser }) => {
+  test.setTimeout(120_000);
+  const alice = await createAccount(browser, "alice");
+  const context = await browser.newContext({ ...devices["Pixel 5"] });
+  try {
+    const page = await context.newPage();
+    await loginAs(page, alice.email, PASSWORD);
+    await expectWidePointer(page, false);
+    // 前提：空心星用 hover: none／pointer: coarse 隱藏；這個 context 要真的落在其中之一
+    expect(await page.evaluate(() => window.matchMedia("(hover: none), (pointer: coarse)").matches)).toBe(true);
+    const loose = `E2E row star touch loose ${RUN}`;
+    const faved = `E2E row star touch faved ${RUN}`;
+    await apiCreateNote(page, loose);
+    await apiCreateFavorite(page, faved);
+    await page.goto("/");
+
+    await page.getByRole("button", { name: "Open navigation" }).click();
+    const drawer = page.getByRole("dialog", { name: "Navigation" });
+    await expect(drawer).toBeVisible();
+    const mine = await showSidebarTab(page, "My notes", drawer);
+    await expect(noteLink(mine, loose)).toBeVisible();
+    await expect(noteLink(mine, faved)).toBeVisible();
+    await expect(rowStar(noteRowOf(mine, loose))).toHaveCount(0);
+
+    const favedStar = rowStar(noteRowOf(mine, faved));
+    await expect(favedStar).toBeVisible();
+    await expect(favedStar).toHaveAttribute("aria-pressed", "true");
+    await favedStar.click();
+    const confirm = page.getByRole("dialog", { name: "Remove from favorites?" });
+    await expect(confirm).toBeVisible();
+    await confirm.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(confirm).toBeHidden();
+
+    await noteRowOf(mine, loose).getByRole("button", { name: `Note actions for ${loose}`, exact: true }).click();
+    await expect(page.getByRole("menuitem", { name: "Add to favorites", exact: true })).toBeVisible();
+  } finally {
+    await context.close();
+  }
+});
+
+test("列上星星：選取模式、資料夾列、垃圾桶 tab 都沒有星星", async ({ browser }) => {
+  test.setTimeout(120_000);
+  const alice = await createAccount(browser, "alice");
+  const { context, page } = await openAs(browser, alice);
+  try {
+    await expectWidePointer(page, true);
+    const folderName = `E2E row star folder ${RUN}`;
+    const folderRes = await page.request.post("/api/folders", { data: { name: folderName, space: { kind: "personal" } } });
+    expect(folderRes.status(), await folderRes.text()).toBe(201);
+    const title = `E2E row star plain ${RUN}`;
+    const trashed = `E2E row star trashed ${RUN}`;
+    await apiCreateFavorite(page, title);
+    await apiCreateNote(page, trashed);
+    await page.goto("/");
+
+    const sidebar = page.getByRole("complementary");
+    const mine = await showSidebarTab(page, "My notes");
+    await expect(rowStar(noteRowOf(mine, title))).toBeVisible();
+    const folderRow = mine.locator('li[data-node-kind="folder"]').filter({ hasText: folderName });
+    await expect(folderRow).toBeVisible();
+    await expect(rowStar(folderRow)).toHaveCount(0);
+
+    await startSidebarSelection(page);
+    await expect(mine.getByRole("checkbox").first()).toBeVisible();
+    await expect(mine.getByRole("button", { name: "Favorite", exact: true })).toHaveCount(0);
+    await sidebar.getByRole("button", { name: "Done", exact: true }).click();
+
+    await moveNoteToTrashFromSidebar(page, trashed);
+    const trash = await showSidebarTab(page, "Trash");
+    await expect(trash.getByText(trashed)).toBeVisible({ timeout: 15_000 });
+    await expect(trash.getByRole("button", { name: "Favorite", exact: true })).toHaveCount(0);
+  } finally {
+    await context.close();
+  }
+});
+
+test("列上星星：側欄縮到最窄時，最愛列的連結仍有寬度，星星與 ⋮ 的右緣都在列內", async ({ browser }) => {
+  test.setTimeout(120_000);
+  const alice = await createAccount(browser, "alice");
+  const { context, page } = await openAs(browser, alice, { width: 1280, height: 800 });
+  try {
+    await expectWidePointer(page, true);
+    const title = `E2E row star narrow ${RUN}`;
+    await apiCreateFavorite(page, title);
+    await page.goto("/");
+
+    const sidebar = page.getByRole("complementary");
+    const handle = page.getByRole("separator", { name: "Resize sidebar" });
+    await expect(handle).toBeVisible();
+    const box = (await handle.boundingBox())!;
+    const x = box.x + box.width / 2;
+    const y = box.y + box.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x - 100, y, { steps: 5 });
+    await page.mouse.move(x - 300, y, { steps: 5 });
+    await page.mouse.up();
+    await expect.poll(async () => (await sidebar.boundingBox())!.width, { timeout: 5_000 }).toBeLessThanOrEqual(201);
+
+    const panel = await showSidebarTab(page, "Favorites");
+    const row = noteRowOf(panel, title);
+    await expect(row).toBeVisible();
+    const link = noteLink(panel, title);
+    const star = rowStar(row);
+    const actions = row.getByRole("button", { name: `Note actions for ${title}`, exact: true });
+    await row.hover();
+    const rowBox = (await row.boundingBox())!;
+    const linkBox = (await link.boundingBox())!;
+    const starBox = (await star.boundingBox())!;
+    const actionsBox = (await actions.boundingBox())!;
+    const rowRight = rowBox.x + rowBox.width;
+    expect(linkBox.width, JSON.stringify({ linkBox, rowBox })).toBeGreaterThan(0);
+    expect(starBox.x + starBox.width, JSON.stringify({ starBox, rowBox })).toBeLessThanOrEqual(rowRight + 0.5);
+    expect(actionsBox.x + actionsBox.width, JSON.stringify({ actionsBox, rowBox })).toBeLessThanOrEqual(rowRight + 0.5);
   } finally {
     await context.close();
   }
