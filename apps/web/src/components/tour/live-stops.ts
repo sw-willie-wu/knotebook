@@ -218,7 +218,8 @@ export interface LiveStopInput {
  *   所以瀏覽器自己的快捷鍵（重新整理、開發人員工具、縮放）照常有效；功能鍵（F5、F12）整個放行。
  *   `z`／`y`（撤銷、重做：經 Y 回來的交易會通過交易過濾）、`v`／`x`／`a`（貼上、剪下、全選）和 `Enter` 另外 `preventDefault`。
  * - 選單項目的點擊擋掉：點項目會先關掉選單再執行它，插入雖然會被交易過濾擋下，選單卻沒了。
- *   格式工具列上的鈕也擋（點 AI 鈕會開 AI 框）；導覽遮罩本身已經蓋住整個畫面，這裡是遮罩以外的備援。
+ *   格式工具列上的鈕也擋（點 AI 鈕會開 AI 框）；遮罩已擋住滑鼠點擊，這裡擋的是直接送到元素上的 click
+ *   （例如螢幕閱讀器的啟動、`element.click()`）。
  * 回傳拆除函式。
  */
 export function installLiveStopInput({ next, back }: LiveStopInput): () => void {

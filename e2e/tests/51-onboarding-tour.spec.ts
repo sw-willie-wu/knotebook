@@ -530,6 +530,13 @@ test.describe("feature tour (manual start)", () => {
 
     // 點選單項目沒有作用：選單還在、還在同一站、內容不變。固定等一秒是負向斷言要的：沒有事件可等。
     // 導覽遮罩蓋在選單上面，真的點下去落在遮罩；另外直接對項目送 click，確認遮罩以外的備援攔截也擋得住。
+    expect(
+      await menu.locator(".bn-suggestion-menu-item").first().evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+        return !!hit?.closest("[data-tour-overlay]");
+      }),
+    ).toBe(true);
     await menu.locator(".bn-suggestion-menu-item").first().click({ force: true });
     await menu.locator(".bn-suggestion-menu-item").first().dispatchEvent("click");
     await page.waitForTimeout(1_000);
@@ -606,6 +613,13 @@ test.describe("feature tour (manual start)", () => {
     await page.keyboard.type("abc");
     await page.keyboard.press("ArrowDown");
     // 導覽遮罩蓋在選單上面，真的點下去落在遮罩；另外直接對項目送 click，確認遮罩以外的備援攔截也擋得住。
+    expect(
+      await menu.locator(".bn-suggestion-menu-item").first().evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+        return !!hit?.closest("[data-tour-overlay]");
+      }),
+    ).toBe(true);
     await menu.locator(".bn-suggestion-menu-item").first().click({ force: true });
     await menu.locator(".bn-suggestion-menu-item").first().dispatchEvent("click");
     await page.waitForTimeout(1_000);
