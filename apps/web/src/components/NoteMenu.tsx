@@ -12,7 +12,8 @@ import { placeNoteWithUndo } from "@/lib/note-place";
 import { useNotePageControls, type OpenEditsState } from "@/lib/note-page-controls";
 import { useCloseSidebarDrawer } from "@/lib/sidebar-drawer";
 import { showTrashedToast } from "@/lib/trash-undo";
-import { useIsNarrow, useVersions } from "@/lib/versions-context";
+import { useIsPhone } from "@/lib/layout-tiers";
+import { useVersions } from "@/lib/versions-context";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { hoverReveal } from "@/components/ui/reveal";
@@ -173,13 +174,13 @@ export function SidebarNoteMenu({ note }: { note: NoteDto }) {
   );
 }
 
-/** 「版本歷史」項：只在窄視窗渲染——寬視窗有右下歷史泡泡（CornerStack 讀同一個 `useIsNarrow()`），同一寬度只留一個入口。
- * 用條件渲染而非 `md:hidden`：display:none 的 Radix 項目仍在選單集合裡，方向鍵／typeahead 會停在看不見的項目。
+/** 「版本歷史」項：只在手機（< 640）渲染——其餘寬度有右下歷史泡泡（CornerStack 讀同一個 `useIsPhone()`），同一寬度只留一個入口。
+ * 用條件渲染而非 `sm:hidden`：display:none 的 Radix 項目仍在選單集合裡，方向鍵／typeahead 會停在看不見的項目。
  * matchMedia 訂閱放在這個子元件，選單內容掛著才訂閱，不讓每個側欄列的 NoteMenuCore 都掛一份。 */
 function VersionsMenuItem({ onActivate }: { onActivate: () => void }) {
   const { t } = useTranslation();
-  const narrow = useIsNarrow();
-  if (!narrow) return null;
+  const phone = useIsPhone();
+  if (!phone) return null;
   return (
     <DropdownMenuItem
       onSelect={(event) => {

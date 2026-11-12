@@ -54,6 +54,7 @@ import { CornerStack } from "@/components/CornerStack";
 import { useVersions } from "@/lib/versions-context";
 import { VERSIONS_ERROR_FRAME, VersionsLazyBoundary } from "@/components/versions/VersionsLazyBoundary";
 import { useVersionsPanelWidth } from "@/components/versions/versions-panel-width";
+import { useFloatingPanelDismiss, useNoteHeaderHeight } from "@/components/versions/floating-panel";
 import { SelectionAiController } from "@/components/ai/SelectionAiController";
 import { KnotebookSideMenu, NotePathContext, SIDE_MENU_FLOATING_OPTIONS } from "@/components/editor/KnotebookSideMenu";
 import { useDragActiveClass } from "@/components/editor/use-drag-active-class";
@@ -445,6 +446,11 @@ export function NoteEditor({
   const { panelOpen } = useVersions();
   // #274：版本面板寬度。state 放在面板與錯誤外框的最近共同祖先（下方列容器），以 CSS 變數往下傳。
   const panelWidth = useVersionsPanelWidth();
+  // 640-1279：面板浮在筆記上（列容器 `relative`、面板 `absolute`），上緣讓出頁首；收起規則見 `floating-panel.ts`。
+  const rowRef = useRef<HTMLDivElement>(null);
+  const headerSlotRef = useRef<HTMLDivElement>(null);
+  useNoteHeaderHeight(rowRef, headerSlotRef);
+  const { onKeyDown: onRowKeyDown } = useFloatingPanelDismiss();
   // #297：這篇的站內內文寬度（訂閱模組層 Map；換寬度只換欄 class，不重建 editor）。
   const [width] = useNoteWidth(noteId);
   const hasPreview = previewSlot !== undefined && previewSlot !== null;
@@ -571,9 +577,9 @@ export function NoteEditor({
   //
   // 卡片版面：內文卡在這裡。DOM 樹（
   // 寬度鏈的起點）：
-  //   根 row（flex h-full min-h-0 min-w-0 flex-1 gap-3）
+  //   根 row（relative flex h-full min-h-0 min-w-0 flex-1 gap-3；640-1279 時是浮動版本面板的定位基準）
   //     內文卡（cardSurface，flex-col）
-  //       {headerSlot}                              ← NotePage 組裝
+  //       {headerSlot}（外包 data-note-header-slot，量高度給 --note-header-h）  ← NotePage 組裝
   //       捲動容器（min-w-0 flex-1 overflow-y-auto min-h-0 overflow-x-clip——
   //         `overflow-x-clip`＝#162，見下方 JSX 註解）
   //         置中 wrapper（articleColumn(width) ＋ ARTICLE_COLUMN_PADDING ＋ `relative` flex
@@ -587,16 +593,19 @@ export function NoteEditor({
   //             BlockNoteView 自己成為 flex-col wrapper 的成長項；除 className 外零改動）
   //       {previewSlot}                               ← 版本預覽時才渲染；此時上面的捲動容器加 hidden（活編輯器不 unmount）
   //       {footerSlot}                                ← NotePage 組裝（backlinks chips）
-  //     VersionsPanel                                 ← `panelOpen` 時才渲染（lazy，經 VersionsLazyBoundary）
+  //     VersionsPanel                                 ← `panelOpen` 時才渲染（lazy，經 VersionsLazyBoundary）；1280 起是第三欄，640-1279 是 absolute 浮在卡上，
+  //                                                      兩段是同一個節點（不搬進卡片，跨 1280 才不重掛、不丟清單捲動位置）
   //     CornerStack                                   ← 右下歷史泡泡（fixed，不佔 row 的 flex 空間）
   // `data-testid="note-editor"` 留在 `NoteEditorView`／`BlockNoteView` 上，不隨這次
   // 改版搬家——e2e 的 `[data-testid="note-editor"] [contenteditable]` 與
   // `NoteEditor.layout.test.tsx` 的節點鏈都吊在這裡。
   return (
     <AiSessionProvider editor={editor} noteId={noteId} editable={editable} sizeGuard={sizeGuard}>
-      <div className="flex h-full min-h-0 min-w-0 flex-1 gap-3" style={panelWidth.style}>
+      <div ref={rowRef} onKeyDown={onRowKeyDown} className="relative flex h-full min-h-0 min-w-0 flex-1 gap-3" style={panelWidth.style}>
         <div className={cn(cardSurface, "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden")}>
-          {headerSlot}
+          <div ref={headerSlotRef} data-note-header-slot="">
+            {headerSlot}
+          </div>
           <div ref={setScrollRoot} className={cn("min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-clip", hasPreview && "hidden")}>
             {/* issue #160：`relative` 承重——BlockNote 表格 hover 浮層走 FloatingPortal 到
                 `editor.portalElement`，沒有 positioned 祖先時 containing block 落到
@@ -641,16 +650,26 @@ export function NoteEditor({
             </div>
           </div>
           {hasPreview && (
-            <div data-testid="preview-slot" className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+            // 640-1279 面板浮在卡上：開著時右側讓出面板的寬度，預覽的並排門檻量到的是剩下的寬度，右欄不會被面板蓋住。
+            <div
+              data-testid="preview-slot"
+              className={cn(
+                "min-h-0 min-w-0 flex-1 overflow-y-auto",
+                panelOpen && "max-xl:pr-[min(var(--versions-panel-width),calc(100%_-_3rem))]",
+              )}
+            >
               {previewSlot}
             </div>
           )}
           {footerSlot}
         </div>
         {panelOpen && (
-          <VersionsLazyBoundary noteId={noteId} errorClassName={VERSIONS_ERROR_FRAME.panel}>
-            <VersionsPanel doc={doc} width={panelWidth.width} onWidthChange={panelWidth.onChange} />
-          </VersionsLazyBoundary>
+          // `display: contents`：不產生盒子，面板的定位基準仍是列容器；收起與 Esc 的「在面板內」判斷認這個節點（錯誤外框也在裡面）。
+          <div data-versions-panel-slot="" className="contents">
+            <VersionsLazyBoundary noteId={noteId} errorClassName={VERSIONS_ERROR_FRAME.panel}>
+              <VersionsPanel doc={doc} width={panelWidth.width} onWidthChange={panelWidth.onChange} />
+            </VersionsLazyBoundary>
+          </div>
         )}
         <CornerStack />
       </div>

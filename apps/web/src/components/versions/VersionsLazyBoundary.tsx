@@ -2,6 +2,7 @@ import { Suspense, type ReactNode } from "react";
 import { ChunkLoadBeacon, LazyRouteErrorBoundary } from "@/components/ErrorBoundary";
 import { cardSurface } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { VERSIONS_PANEL_PLACEMENT } from "./versions-panel-width";
 
 /**
  * `VersionsLazy` 的每個掛載點都包這一層。版本 UI 是 NotePage 底下、render 時才 throw 的巢狀 lazy——
@@ -46,7 +47,7 @@ export function VersionsLazyBoundary({
 
 /** 各掛載點的錯誤外框。面板：與 VersionsPanel 同位置同寬的卡（寬度吃 NoteEditor 列容器設的 `--versions-panel-width`，與面板同一個來源，#274）；對話框與整頁：浮在右下的小卡（不落在版面末端）。 */
 export const VERSIONS_ERROR_FRAME = {
-  panel: cn(cardSurface, "shrink-0 p-3 md:w-[var(--versions-panel-width)]"),
+  panel: cn(cardSurface, "shrink-0 p-3", VERSIONS_PANEL_PLACEMENT),
   inline: "px-5 py-2",
-  floating: cn(cardSurface, "fixed inset-x-3 bottom-5 z-50 p-3 shadow-lg md:inset-x-auto md:right-6 md:w-80"),
+  floating: cn(cardSurface, "fixed inset-x-3 bottom-5 z-50 p-3 shadow-lg sm:inset-x-auto sm:right-6 sm:w-80"),
 };

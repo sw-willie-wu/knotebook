@@ -1,6 +1,7 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { VersionDto } from "@knotebook/shared";
 import type { VersionKindFilter, VersionTarget } from "@/api/versions";
+import { PHONE_QUERY, isPhone } from "@/lib/layout-tiers";
 
 /**
  * 版本歷史的頁面層狀態。`NotePage` 呼叫 `useVersionsController` 持有、以 `VersionsProvider`
@@ -9,10 +10,9 @@ import type { VersionKindFilter, VersionTarget } from "@/api/versions";
  * **沒有 provider 時回 no-op 預設**（`enabled: false`）：AI 元件的測試 Host（`test/ai-host.tsx`）
  * 單獨包 `AiSessionProvider` 渲染、側欄每列的 ⋮（在 provider 之外）都靠它——入口一律以 `enabled` 判斷要不要渲染。
  *
- * 寬窄：`open()` 當下以 `NARROW_QUERY` 決定開第三欄卡（`panel`）還是整頁（`sheet`）；
- * 開著時一跨斷點就整個關掉、預覽一併離開（比照 `AppShell` 的抽屜）。
+ * 三段版面：`open()` 當下手機（< 640）開整頁（`sheet`），其餘開面板（`panel`）——640-1279 浮在筆記上、1280 起是第三欄。
+ * 面板開著跨 1280 不關（同一個元件換定位，清單捲動位置還在）；跨 640 就整個關掉、預覽一併離開。
  */
-export const NARROW_QUERY = "(width < 48rem)";
 
 export type VersionsMode = "panel" | "sheet";
 export type VersionsDialog =
@@ -126,22 +126,6 @@ export function isOverlayOpen(): boolean {
   return document.querySelector('[role="dialog"]:not([data-sidebar-drawer]), [role="menu"]') !== null;
 }
 
-function isNarrow(): boolean {
-  return window.matchMedia(NARROW_QUERY).matches;
-}
-
-function subscribeNarrow(onChange: () => void): () => void {
-  const mql = window.matchMedia(NARROW_QUERY);
-  mql.addEventListener("change", onChange);
-  return () => mql.removeEventListener("change", onChange);
-}
-
-/** 目前是不是窄視窗（`NARROW_QUERY`）；視窗跨斷點時跟著更新。歷史泡泡（CornerStack 的 `max-md:hidden`）與此同界：
- * 窄＝沒有泡泡，所以頁首 ⋮ 的「版本歷史」只在窄時渲染。 */
-export function useIsNarrow(): boolean {
-  return useSyncExternalStore(subscribeNarrow, isNarrow, () => false);
-}
-
 export function useVersionsController({
   noteId,
   enabled,
@@ -199,7 +183,7 @@ export function useVersionsController({
 
   useEffect(() => {
     if (mode === null && preview === null) return;
-    const mql = window.matchMedia(NARROW_QUERY);
+    const mql = window.matchMedia(PHONE_QUERY);
     const onChange = () => {
       setMode(null);
       setPreview(null);
@@ -210,7 +194,7 @@ export function useVersionsController({
   }, [mode, preview]);
 
   const open = useCallback(() => {
-    if (active) setMode(isNarrow() ? "sheet" : "panel");
+    if (active) setMode(isPhone() ? "sheet" : "panel");
   }, [active]);
   // 關面板＝一併離開預覽：橫幅不再有 ✕，面板關了預覽卻留著就沒有出口。
   // 右邊同 stopPreview 重設 current。CornerStack 的 AI 橋接呼叫 close() 也因此一併離開預覽。

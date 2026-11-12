@@ -80,12 +80,23 @@ describe("VersionsPanel", () => {
     vi.useRealTimers();
   });
 
-  it("卡片 class：md:relative md:w-[var(--versions-panel-width)]（寬度不帶前綴即錯）＋ cardSurface", async () => {
+  it("卡片 class：浮動（absolute、z-20、陰影、寬度夾在卡寬 - 3rem 內）＋ 固定（xl:relative xl:w-[var(--versions-panel-width)]）＋ cardSurface", async () => {
     stub({ [FIRST]: { versions: [], current: cur(), nextBefore: null } });
     renderPanel();
     const panel = await screen.findByTestId("versions-panel");
-    expect(panel).toHaveClass("md:relative", "md:w-[var(--versions-panel-width)]", "rounded-xl", "border", "bg-card");
+    expect(panel).toHaveClass("absolute", "right-0", "bottom-0", "z-20", "shadow-lg", "rounded-xl", "border", "bg-card");
+    expect(panel).toHaveClass("w-[min(var(--versions-panel-width),calc(100%_-_3rem))]", "xl:relative", "xl:inset-auto", "xl:z-30", "xl:shadow-none", "xl:w-[var(--versions-panel-width)]");
     expect(panel).not.toHaveClass("w-[var(--versions-panel-width)]");
+    expect(panel).not.toHaveClass("fixed");
+  });
+
+  it("把手在浮動與固定段都在（right-full，沒有 max-md:hidden）", async () => {
+    stub({ [FIRST]: { versions: [], current: cur(), nextBefore: null } });
+    renderPanel();
+    const handle = await screen.findByRole("separator");
+    expect(handle).toHaveClass("right-full");
+    expect(handle).not.toHaveClass("max-md:hidden");
+    expect(handle).not.toHaveClass("max-xl:hidden");
   });
 
   // #258：副標只看 current.baseSeq／dirty，與清單內容無關（清單可能被篩過、或根本是空的）。

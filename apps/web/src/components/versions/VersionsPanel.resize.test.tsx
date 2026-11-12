@@ -90,11 +90,13 @@ describe("版本面板寬度把手（#274）", () => {
     expect(panel.querySelector(":scope > .overflow-hidden")).not.toBeNull();
   });
 
-  it("窄螢幕（底部卡片）沒有把手：把手只在 md+ 顯示（class 契約）；面板在 md+ 為 relative 以承載把手", async () => {
+  it("把手在浮動與固定兩段都顯示（class 契約）；固定段（xl）面板為 relative、寬度吃 CSS 變數，浮動段寬度夾在卡寬 - 3rem 內", async () => {
     const { panel, handle } = await renderPanel();
-    expect(handle).toHaveClass("max-md:hidden");
-    expect(panel).toHaveClass("md:relative", "md:w-[var(--versions-panel-width)]");
+    expect(handle).not.toHaveClass("max-md:hidden");
+    expect(handle).not.toHaveClass("max-xl:hidden");
+    expect(panel).toHaveClass("xl:relative", "xl:w-[var(--versions-panel-width)]", "w-[min(var(--versions-panel-width),calc(100%_-_3rem))]");
     expect(panel).not.toHaveClass("md:w-80");
+    expect(panel).not.toHaveClass("xl:w-80");
   });
 
   it("把手在面板外：清單內距還原為 p-2，不再留 pl-3", async () => {
@@ -105,11 +107,16 @@ describe("版本面板寬度把手（#274）", () => {
     expect(list).not.toHaveClass("pl-3");
   });
 
-  it("錯誤外框與面板同一個寬度來源（同吃 CSS 變數），不再寫死 md:w-80", async () => {
-    await renderPanel();
+  it("錯誤外框與面板同一個寬度來源（同吃 CSS 變數、同兩段定位），不再寫死 md:w-80", async () => {
+    const { panel } = await renderPanel();
     const frame = screen.getByTestId("error-frame");
-    expect(frame).toHaveClass("md:w-[var(--versions-panel-width)]");
+    expect(frame).toHaveClass("xl:w-[var(--versions-panel-width)]", "w-[min(var(--versions-panel-width),calc(100%_-_3rem))]", "absolute", "xl:relative");
     expect(frame).not.toHaveClass("md:w-80");
+    expect(frame).not.toHaveClass("xl:w-80");
+    for (const cls of ["absolute", "z-20", "shadow-lg", "xl:relative", "xl:z-30", "xl:shadow-none", "top-[var(--note-header-h,0px)]"]) {
+      expect(frame).toHaveClass(cls);
+      expect(panel).toHaveClass(cls);
+    }
   });
 
   it("拖曳：往左變寬（把手在左緣）、夾在 240／560、拖曳中鎖 body、放開才寫入", async () => {
@@ -185,6 +192,30 @@ describe("版本面板寬度把手（#274）", () => {
     fireEvent.keyDown(handle, { key: "ArrowLeft" });
     expect(window.localStorage.getItem("sidebar.width")).toBe("300");
     expect(window.localStorage.getItem(KEY)).toBe("336");
+  });
+
+  it("浮動段被 CSS 夾窄時（設定 560、實際 300）：aria-valuenow 報實際寬度，鍵盤從實際寬度起算", async () => {
+    window.localStorage.setItem(KEY, "560");
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(private readonly cb: () => void) {}
+        observe() {
+          this.cb();
+        }
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    const original = Element.prototype.getBoundingClientRect;
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      return this.getAttribute("data-testid") === "versions-panel" ? ({ width: 300 } as DOMRect) : original.call(this);
+    });
+    const { handle, row } = await renderPanel();
+    expect(widthVar(row)).toBe("560px");
+    expect(handle).toHaveAttribute("aria-valuenow", "300");
+    fireEvent.keyDown(handle, { key: "ArrowLeft" });
+    expect(widthVar(row)).toBe("316px");
   });
 
   it.each([

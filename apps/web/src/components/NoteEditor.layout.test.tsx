@@ -51,7 +51,7 @@ function stubFetch() {
  * flex 容器擠壓時才會露餡」的靜默失敗——這裡延續同一個精神，直接斷言 class 字串
  * 本身，改測 slot 化後的新節點鏈：
  *
- *   根 row（flex h-full min-h-0 min-w-0 flex-1 gap-3）
+ *   根 row（relative flex h-full min-h-0 min-w-0 flex-1 gap-3；relative＝640-1279 浮動版本面板的定位基準，守衛在 `NoteEditor.versions-floating.test.tsx`）
  *     內文卡（flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl
  *             border border-border bg-card）
  *       {headerSlot}
@@ -121,7 +121,7 @@ describe("NoteEditor 佈局（slot 化：節點鏈 + 雙層 class smoke）", () 
     expect(contentCard).not.toBeNull();
     expect(root).not.toBeNull();
 
-    expect(root).toHaveClass("flex", "h-full", "min-h-0", "min-w-0", "flex-1", "gap-3");
+    expect(root).toHaveClass("relative", "flex", "h-full", "min-h-0", "min-w-0", "flex-1", "gap-3");
     // #274：版本面板與其錯誤外框共用的寬度來源——列容器設 CSS 變數（預設 320）。拿掉 style 則兩者寬度失效。
     expect(root!.style.getPropertyValue("--versions-panel-width")).toBe("320px");
     expect(contentCard).toHaveClass(

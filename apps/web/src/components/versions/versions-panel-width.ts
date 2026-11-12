@@ -1,8 +1,8 @@
 import { useState, type CSSProperties } from "react";
 
 /**
- * 版本面板（`md+` 右欄）的寬度：常數、夾值、localStorage 讀寫，結構比照 `components/sidebar-width.ts`。
- * 窄螢幕（`<md`）的底部浮出卡片不吃這裡。
+ * 版本面板的寬度：常數、夾值、localStorage 讀寫，結構比照 `components/sidebar-width.ts`。
+ * 640 起浮動（640-1279，浮在筆記右緣）與固定（1280 起，第三欄）都吃這個寬度；手機（< 640）是整頁，不吃這裡。
  *
  * 範圍 240–560、預設 320（＝改版前的 `md:w-80`；#274）。
  * 鍵與側欄分開（`sidebar.width`），兩欄各記各的。
@@ -13,9 +13,16 @@ export const VERSIONS_PANEL_WIDTH_MAX = 560;
 export const VERSIONS_PANEL_WIDTH_STEP = 16;
 export const VERSIONS_PANEL_WIDTH_STORAGE_KEY = "versions.panelWidth";
 
-/** 寬度以這個 CSS 變數往下傳：面板與錯誤外框（`VERSIONS_ERROR_FRAME.panel`）都寫 `md:w-[var(--versions-panel-width)]`，
- * 變數只由 NoteEditor 的列容器設一次——兩者不可能不同步，窄螢幕則因為沒有 `md:` 前綴的寬度而不受影響。 */
+/** 寬度以這個 CSS 變數往下傳，變數只由 NoteEditor 的列容器設一次；面板與錯誤外框（`VERSIONS_ERROR_FRAME.panel`）共用下面的定位 class，不可能不同步。 */
 export const VERSIONS_PANEL_WIDTH_CSS_VAR = "--versions-panel-width";
+
+/** 面板與其錯誤外框的定位與寬度（以完整字面給，Tailwind 靜態掃描）：
+ * - 640-1279：`absolute` 貼列容器右下，上緣讓出頁首（`--note-header-h`，NoteEditor 量頁首外包層設的），浮在筆記上；
+ *   寬度是設定值，但不超過卡寬減 3rem（左邊至少留一截筆記）。
+ * - 1280 起（`xl:`）：回到列容器裡的第三欄（`relative`、固定設定寬度、無陰影）。 */
+export const VERSIONS_PANEL_PLACEMENT =
+  "absolute right-0 bottom-0 top-[var(--note-header-h,0px)] z-20 w-[min(var(--versions-panel-width),calc(100%_-_3rem))] shadow-lg " +
+  "xl:relative xl:inset-auto xl:z-30 xl:w-[var(--versions-panel-width)] xl:shadow-none";
 
 export function clampVersionsPanelWidth(px: number): number {
   return Math.min(VERSIONS_PANEL_WIDTH_MAX, Math.max(VERSIONS_PANEL_WIDTH_MIN, Math.round(px)));

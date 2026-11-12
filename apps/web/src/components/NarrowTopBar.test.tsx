@@ -70,8 +70,7 @@ describe("NarrowTopBar 消費端（#115）", () => {
 
   it("HomePage 內文卡頂有 xl:hidden 的側欄鈕列（開抽屜入口）", async () => {
     renderWithProviders(<HomePage />);
-    // 靜態側欄與 NarrowTopBar 各有一顆漢堡？不——靜態側欄沒有漢堡，唯一的
-    // 「Open sidebar」就是 NarrowTopBar 的。它必須在 main（內文卡）裡。
+    // 靜態側欄沒有開抽屜的鈕，唯一的「Open sidebar」就是 NarrowTopBar 的。它必須在 main（內文卡）裡。
     const hamburger = await screen.findByRole("button", { name: "Open sidebar" });
     expect(hamburger.closest("main")).not.toBeNull();
     // wrapper 與按鈕**各自**斷 xl:hidden——`closest('[class*="xl:hidden"]')` 含
@@ -82,7 +81,7 @@ describe("NarrowTopBar 消費端（#115）", () => {
     expect(hamburger).toHaveClass("xl:hidden");
   });
 
-  it("NotePageFallback（chunk 載入中的過渡畫面）同樣有漢堡列", async () => {
+  it("NotePageFallback（chunk 載入中的過渡畫面）同樣有側欄鈕列", async () => {
     renderWithProviders(<NotePageFallback />);
     const hamburger = await screen.findByRole("button", { name: "Open sidebar" });
     expect(hamburger.closest("main")).not.toBeNull();

@@ -559,7 +559,7 @@ describe("AppShell — search box & Ctrl/Cmd+K", () => {
 });
 
 /**
- * #115：側欄抽屜（<md 的導覽入口）。
+ * #115：側欄抽屜（< 1280 的導覽入口）。
  *
  * jsdom 沒有 CSS——`hidden`/`xl:flex` 不影響可及性查詢，抽屜開著時 DOM 上同時有
  * 靜態與抽屜兩份 SidebarContent，因此本組查詢一律 `within(drawer)` 圈定，不用
@@ -637,7 +637,7 @@ describe("AppShell — #115 側欄抽屜", () => {
     };
   }
 
-  // 漢堡鈕在頁面層（NotePage 頁首／NarrowTopBar），AppShell 本體沒有——harness 自己
+  // 側欄鈕在頁面層（NotePage 頁首／NarrowTopBar），AppShell 本體沒有——harness 自己
   // 當那個消費端，把 SidebarDrawerButton 放進 children。
   // `wrap`：要包在 `<AppShell>` **外面**的 provider（例如 NotePage 提供的 NotePageControlsContext）
   // ——children 插槽在 AppShell 裡面，放不進去。
@@ -667,7 +667,7 @@ describe("AppShell — #115 側欄抽屜", () => {
     vi.unstubAllGlobals();
   });
 
-  it("點漢堡開抽屜：dialog 有可及名稱、掛 data-sidebar-drawer、bg-card flex flex-col；內容含搜尋框與筆記列", async () => {
+  it("點側欄鈕開抽屜：dialog 有可及名稱、掛 data-sidebar-drawer、bg-card flex flex-col；內容含搜尋框與筆記列", async () => {
     stubFetchWithNotes([NOTE]);
     renderShell();
 
@@ -679,9 +679,9 @@ describe("AppShell — #115 側欄抽屜", () => {
     expect(drawer).toHaveAttribute("data-sidebar-drawer");
     expect(drawer).toHaveClass("fixed", "inset-y-0", "left-0", "z-50", "flex", "flex-col", "bg-card");
     expect(drawer).not.toHaveClass("w-64");
-    // 漢堡開＝焦點落在抽屜容器本身（不聚焦搜尋框以免觸控彈鍵盤）——這一步武裝
+    // 側欄鈕開＝焦點落在抽屜容器本身（不聚焦搜尋框以免觸控彈鍵盤）——這一步武裝
     // Radix 的 focus trap；onOpenAutoFocus 只 preventDefault 不補聚焦的錯誤實作
-    // 會讓焦點留在漢堡鈕、Tab 逃進 aria-hidden 背景（原本沒案子抓）。
+    // 會讓焦點留在側欄鈕、Tab 逃進 aria-hidden 背景（原本沒案子抓）。
     expect(drawer).toHaveFocus();
 
     expect(within(drawer).getByRole("textbox", { name: "Search notes" })).toBeInTheDocument();
@@ -798,9 +798,12 @@ describe("AppShell — #115 側欄抽屜", () => {
       expect(drawer).toHaveFocus();
       expect(within(drawer).getByRole("textbox", { name: "Search notes" })).not.toHaveFocus();
 
+      const focusSpy = vi.spyOn(button, "focus");
       fireEvent.keyDown(drawer, { key: "Escape" });
       await waitFor(() => expect(screen.queryByRole("dialog", { name: "Navigation" })).not.toBeInTheDocument());
       await waitFor(() => expect(button).toHaveFocus());
+      // 還焦點不捲動：opener 若是編輯器，focus() 預設會把捲動位置帶到游標。
+      expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true });
     });
 
     it("Ctrl+K 開抽屜且焦點在抽屜裡的搜尋框，並 preventDefault", async () => {

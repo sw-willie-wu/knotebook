@@ -3,7 +3,8 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import i18n from "@/i18n";
-import { NARROW_QUERY, VersionsProvider, useVersions, useVersionsController } from "@/lib/versions-context";
+import { VersionsProvider, useVersions, useVersionsController } from "@/lib/versions-context";
+import { stubLayoutTier, type LayoutTier } from "@/test/layout-tier";
 import { CornerStack } from "./CornerStack";
 
 /** 探針：印出版本面板狀態，並提供「從 ⋮ 開版本面板」的外部按鈕。 */
@@ -44,43 +45,30 @@ describe("CornerStack（#263 起只剩歷史泡泡）", () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("容器：fixed 右下（<md 20px、md+ 24px）、由下往上排、z-30；唯一子項是歷史泡泡，沒有 AI 泡泡、沒有讓位 class", async () => {
+  it("容器：fixed 右下（< 640 為 20px、640 起 24px）、由下往上排、z-30；唯一子項是歷史泡泡，沒有 AI 泡泡、沒有讓位 class", async () => {
     renderStack(true);
     const stack = await screen.findByTestId("corner-stack");
     expect(Array.from(stack.children).map((el) => el.getAttribute("data-testid"))).toEqual(["versions-bubble"]);
     expect(screen.queryByTestId("ai-bubble")).not.toBeInTheDocument();
-    expect(stack).toHaveClass("fixed", "bottom-5", "right-5", "md:bottom-6", "md:right-6", "flex", "flex-col-reverse", "gap-3", "z-30");
+    expect(stack).toHaveClass("fixed", "bottom-5", "right-5", "sm:bottom-6", "sm:right-6", "flex", "flex-col-reverse", "gap-3", "z-30");
     expect(stack).not.toHaveClass(SHIFT);
   });
 
-  function installMatchMedia(narrow: boolean): (next: boolean) => void {
-    let current = narrow;
-    const listeners = new Set<() => void>();
-    vi.stubGlobal(
-      "matchMedia",
-      vi.fn((query: string) => ({
-        get matches() {
-          return query === NARROW_QUERY ? current : false;
-        },
-        media: query,
-        addEventListener: (_: string, fn: () => void) => listeners.add(fn),
-        removeEventListener: (_: string, fn: () => void) => listeners.delete(fn),
-      })),
-    );
-    return (next) => {
-      current = next;
-      act(() => listeners.forEach((fn) => fn()));
-    };
+  function installTier(tier: LayoutTier): (next: LayoutTier) => void {
+    const handle = stubLayoutTier(tier);
+    return (next) => act(() => handle.setLayoutTier(next));
   }
 
-  it("窄視窗：沒有歷史泡泡（整個容器不渲染）；寬：有；跨斷點跟著變", async () => {
-    const setNarrow = installMatchMedia(true);
+  it("手機（< 640）：沒有歷史泡泡（整個容器不渲染）；浮動與固定段都有；跨斷點跟著變", async () => {
+    const setTier = installTier("phone");
     renderStack(true);
     expect(screen.queryByTestId("versions-bubble")).not.toBeInTheDocument();
     expect(screen.queryByTestId("corner-stack")).not.toBeInTheDocument();
-    setNarrow(false);
+    setTier("overlay");
     expect(await screen.findByTestId("versions-bubble")).toBeInTheDocument();
-    setNarrow(true);
+    setTier("docked");
+    expect(screen.getByTestId("versions-bubble")).toBeInTheDocument();
+    setTier("phone");
     expect(screen.queryByTestId("versions-bubble")).not.toBeInTheDocument();
   });
 

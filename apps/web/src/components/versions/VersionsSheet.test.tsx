@@ -12,7 +12,8 @@ import { noteSchema } from "@/collab/schema";
 import { Toaster, dismissAllToasts } from "@/components/ui/toast";
 import { ThemeProvider } from "@/theme";
 import { versionListKey } from "@/api/versions";
-import { KIND_FILTER_STORAGE_KEY, NARROW_QUERY, VersionsProvider, useVersionsController } from "@/lib/versions-context";
+import { stubLayoutTier } from "@/test/layout-tier";
+import { KIND_FILTER_STORAGE_KEY, VersionsProvider, useVersionsController } from "@/lib/versions-context";
 import { VersionsSheet } from "./VersionsSheet";
 
 vi.mock("@/lib/use-container-width", () => ({ useContainerWidth: () => widthRef.current }));
@@ -52,21 +53,11 @@ const list = (versions: VersionDto[], nextBefore: number | null = null): Version
   nextBefore,
 });
 
-/** 同 versions-context.test 的 installMatchMedia：只有 `NARROW_QUERY` 回 `narrow`。 */
-function installMatchMedia(narrow: boolean) {
-  const original = window.matchMedia;
-  window.matchMedia = ((query: string) => ({
-    matches: query === NARROW_QUERY ? narrow : false,
-    media: query,
-    onchange: null,
-    addListener: () => {},
-    removeListener: () => {},
-    addEventListener: () => {},
-    removeEventListener: () => {},
-    dispatchEvent: () => false,
-  })) as unknown as typeof window.matchMedia;
+/** 整頁只在手機（< 640）出現：版面段固定在 phone。 */
+function installMatchMedia() {
+  stubLayoutTier("phone");
   return () => {
-    window.matchMedia = original;
+    vi.unstubAllGlobals();
   };
 }
 
@@ -134,7 +125,7 @@ describe("VersionsSheet", () => {
     window.localStorage.clear();
     dismissAllToasts();
     widthRef.current = 800;
-    restoreMatchMedia = installMatchMedia(true);
+    restoreMatchMedia = installMatchMedia();
   });
   afterEach(() => {
     restoreMatchMedia();

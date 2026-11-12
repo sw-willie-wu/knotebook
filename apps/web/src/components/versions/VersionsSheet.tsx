@@ -15,7 +15,7 @@ import { currentSubtitle, editorsText, formatVersionTime, versionLabel } from ".
 import { useApplyFlow } from "./use-apply-flow";
 
 /**
- * 窄視窗（`<md`）的版本歷史：全螢幕 Radix Dialog、不改網址。
+ * 手機（< 640）的版本歷史：全螢幕 Radix Dialog、不改網址。
  * 步一＝清單（「‹ 返回 · 版本歷史」、最後編輯、目前狀態、清單、底部「儲存當前版本」）；
  * 步二＝預覽（「‹ 清單 · 名稱 (短 id) · 時間」、單欄 diff、底部「‹ 上一版 ｜ 套用 名稱 (短 id) ｜ 下一版 ›」）。步數就是 `preview` 是否為 null。
  * 底部「較舊的版本」＝seq 較小的下一筆、「較新的版本」＝較大的那筆（文案刻意不用「前一版」，免得與比較對象撞名）；

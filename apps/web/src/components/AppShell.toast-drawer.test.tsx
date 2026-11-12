@@ -216,7 +216,7 @@ describe("AppShell — 抽屜容器不畫焦點環", () => {
     vi.unstubAllGlobals();
   });
 
-  it("漢堡開抽屜時焦點落在 Content 本身，Content 有 outline-none", async () => {
+  it("側欄鈕開抽屜時焦點落在 Content 本身，Content 有 outline-none", async () => {
     renderApp();
     const drawer = await openDrawer();
     expect(drawer).toHaveClass("outline-none");

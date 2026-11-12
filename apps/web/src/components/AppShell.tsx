@@ -535,7 +535,7 @@ export function AppShell({ children, inert }: AppShellProps) {
                     drawerOpenerRef.current = null;
                     if (opener?.isConnected !== true) return;
                     event.preventDefault();
-                    opener.focus();
+                    opener.focus({ preventScroll: true });
                   }}
                   onOpenAutoFocus={(event) => {
                     event.preventDefault();

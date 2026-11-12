@@ -11,7 +11,9 @@ import { NoteMenu, SidebarNoteMenu } from "./NoteMenu";
 import { NoteWidthMenuItems } from "./NoteWidthMenuItems";
 import { NoteWidthToggle } from "./NoteWidthToggle";
 import { EDITOR_PERMS, OWNER_PERMS } from "@/test/fixtures";
-import { NARROW_QUERY, useVersionsController, VersionsProvider } from "@/lib/versions-context";
+import { useVersionsController, VersionsProvider } from "@/lib/versions-context";
+import { PHONE_QUERY } from "@/lib/layout-tiers";
+import { stubLayoutTier, type LayoutTier } from "@/test/layout-tier";
 import { FOLDER_LIST_EMPTY, folderDto } from "@/test/folder-fixtures";
 import { mockWidePointer } from "@/test/wide-pointer";
 import { ActiveNoteProvider } from "@/lib/active-note";
@@ -618,30 +620,18 @@ describe("NoteMenu × 版本歷史", () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  /** 可控 matchMedia：只有 `NARROW_QUERY` 回 `narrow`；回傳「跨斷點」的把手（會通知已註冊的 change 監聽）。 */
+  /** 可控的版面段（`test/layout-tier.ts`）：`installMatchMedia(true)` 是手機（< 640）；回傳的把手可改成任一段（會通知翻轉的查詢）。 */
   let liveListeners = (): number => 0;
-  function installMatchMedia(narrow: boolean): (next: boolean) => void {
-    let current = narrow;
-    const listeners = new Set<() => void>();
-    liveListeners = () => listeners.size;
-    vi.stubGlobal(
-      "matchMedia",
-      vi.fn((query: string) => ({
-        get matches() {
-          return query === NARROW_QUERY ? current : false;
-        },
-        media: query,
-        addEventListener: (_: string, fn: () => void) => listeners.add(fn),
-        removeEventListener: (_: string, fn: () => void) => listeners.delete(fn),
-      })),
-    );
+  function installMatchMedia(phone: boolean, tier: LayoutTier = phone ? "phone" : "docked"): (next: boolean | LayoutTier) => void {
+    const handle = stubLayoutTier(tier);
+    liveListeners = () => handle.listenerCount(PHONE_QUERY);
     return (next) => {
-      current = next;
-      act(() => listeners.forEach((fn) => fn()));
+      const target: LayoutTier = typeof next === "boolean" ? (next ? "phone" : "docked") : next;
+      act(() => handle.setLayoutTier(target));
     };
   }
 
-  it("窄（沒有歷史泡泡）：canEdit → 「Version history」在「AI edit history」上方；沒有「Save current version」", async () => {
+  it("手機（沒有歷史泡泡）：canEdit → 「Version history」在「AI edit history」上方；沒有「Save current version」", async () => {
     installMatchMedia(true);
     renderVersionsMenu("enabled");
     const menu = await openVersionsMenu();
@@ -652,8 +642,8 @@ describe("NoteMenu × 版本歷史", () => {
     expect(names).not.toContain("Save current version");
   });
 
-  it("寬（有歷史泡泡）：沒有「Version history」也沒有「Save current version」", async () => {
-    installMatchMedia(false);
+  it.each([["固定（>= 1280）", "docked"], ["浮動（640-1279）", "overlay"]] as const)("%s（有歷史泡泡）：沒有「Version history」也沒有「Save current version」", async (_label, tier) => {
+    installMatchMedia(false, tier);
     renderVersionsMenu("enabled");
     const menu = await openVersionsMenu();
     expect(within(menu).getByRole("menuitem", { name: "AI edit history" })).toBeInTheDocument();
@@ -661,7 +651,7 @@ describe("NoteMenu × 版本歷史", () => {
     expect(within(menu).queryByRole("menuitem", { name: "Save current version" })).not.toBeInTheDocument();
   });
 
-  // 替身只翻 `NARROW_QUERY`（`WIDE_POINTER_QUERY` 恆不成立）：描述的是觸控裝置（寬判準不翻）跨寬度的路徑，選單保持開著、項目就地增減。
+  // 替身只翻版面段（`WIDE_POINTER_QUERY` 恆不成立）：描述的是觸控裝置（寬判準不翻）跨寬度的路徑，選單保持開著、項目就地增減。
   // 有滑鼠的裝置跨寬度時寬判準也會翻，整個選單會先關（由 GroupTransfer.test 與本檔守）。
   it("視窗跨斷點：選單開著時窄→寬項目消失、寬→窄項目出現", async () => {
     const setNarrow = installMatchMedia(true);
