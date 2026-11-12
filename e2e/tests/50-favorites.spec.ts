@@ -653,17 +653,18 @@ test("列上星星：選取模式、資料夾列、垃圾桶 tab 都沒有星星
     await apiCreateNote(page, trashed);
     await page.goto("/");
 
-    const sidebar = page.getByRole("complementary");
     const mine = await showSidebarTab(page, "My notes");
     await expect(rowStar(noteRowOf(mine, title))).toBeVisible();
     const folderRow = mine.locator('li[data-node-kind="folder"]').filter({ hasText: folderName });
     await expect(folderRow).toBeVisible();
     await expect(rowStar(folderRow)).toHaveCount(0);
 
-    await startSidebarSelection(page);
+    const panel = await startSidebarSelection(page);
     await expect(mine.getByRole("checkbox").first()).toBeVisible();
     await expect(mine.getByRole("button", { name: "Favorite", exact: true })).toHaveCount(0);
-    await sidebar.getByRole("button", { name: "Done", exact: true }).click();
+    // 寬螢幕的選取列用 ✕「Exit selection」結束；「Done」只出現在窄螢幕版的選取列
+    await panel.getByRole("button", { name: "Exit selection", exact: true }).click();
+    await expect(rowStar(noteRowOf(mine, title))).toBeVisible();
 
     await moveNoteToTrashFromSidebar(page, trashed);
     const trash = await showSidebarTab(page, "Trash");
