@@ -268,6 +268,10 @@ function mockFetch(
     if (url === "/api/groups" && method === "GET") {
       return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
     }
+    // 頁首星號無條件訂閱最愛清單。
+    if (url === "/api/favorites" && method === "GET") {
+      return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+    }
     if (url === "/api/auth/me") {
       return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(USER) }));
     }
@@ -665,6 +669,19 @@ describe("NotePage", () => {
     const more = within(header).getByRole("button", { name: "More" });
     expect(share.compareDocumentPosition(width) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(width.compareDocumentPosition(more) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("頁首有最愛星號，位置在 Share 之前（#334）", async () => {
+    vi.stubGlobal("fetch", mockFetch());
+
+    renderNotePage("my-note");
+    await screen.findByTestId("note-editor");
+
+    const header = document.querySelector("header")!;
+    const star = within(header).getByRole("button", { name: "Favorite" });
+    const share = within(header).getByRole("button", { name: "Share" });
+    expect(star.compareDocumentPosition(share) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(star).toHaveAttribute("aria-pressed", "false");
   });
 
   it("#297 P2 viewer：頁首也有寬度鈕（個人閱讀偏好）", async () => {

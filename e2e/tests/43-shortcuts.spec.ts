@@ -13,6 +13,7 @@ import {
   toggleSelectedNote,
   waitForEditorSelection,
 } from "./helpers.js";
+import { E2E_ORIGIN } from "../ports.js";
 
 /**
  * 快捷鍵介紹頁（Ctrl+/ modal）的事實驗證。
@@ -28,7 +29,7 @@ import {
  */
 
 const RUN = Date.now();
-const ORIGIN = "http://localhost:3100";
+const ORIGIN = E2E_ORIGIN;
 
 // ── 編輯器 helper ─────────────────────────────────────────────────────────────────────────────
 

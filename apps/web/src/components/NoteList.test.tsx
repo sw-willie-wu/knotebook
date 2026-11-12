@@ -1,13 +1,24 @@
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { focusManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router";
-import { canonicalNotePath, type FolderDto, type GroupDto, type NoteDto, type NotePermissions, type UserDto } from "@knotebook/shared";
+import {
+  canonicalNotePath,
+  type FavoriteDto,
+  type FolderDto,
+  type GroupDto,
+  type GroupRoleFlags,
+  type NoteDto,
+  type NotePermissions,
+  type UserDto,
+} from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ActiveNoteProvider, useActiveNote } from "@/lib/active-note";
 import { NotePageControlsContext, type NotePageControls } from "@/lib/note-page-controls";
-import { GROUPS_QUERY_KEY } from "@/api/groups";
+import { GROUPS_QUERY_KEY, useInvalidateGroupsAndNotes, useUpdateRole } from "@/api/groups";
+import { FAVORITES_QUERY_KEY } from "@/api/favorites";
+import { invalidateTrashRelated } from "@/api/trash";
 import { SidebarTabProvider, type SidebarTab } from "@/lib/sidebar-tab";
 import { SidebarTabList } from "@/components/sidebar/SidebarTabList";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
@@ -17,6 +28,10 @@ import { __resetCollapseForTests } from "@/components/sidebar/collapse";
 import { __resetFolderSortForTests, setFolderSort } from "@/components/sidebar/folder-sort";
 import { FOLDER_LIST_EMPTY, folderDto, groupFolder, sharedFolder } from "@/test/folder-fixtures";
 import { groupNote as selGroupNote, personalNote, sharedNote } from "@/test/select-fixtures";
+import { createFakeDataTransfer, mockFinePointer } from "@/test/drag-fixtures";
+import { DRAG_NOTE_MIME } from "@/components/sidebar/drag-zone";
+import { indexFolders } from "@/components/sidebar/folder-index";
+import { noteLocationLabel } from "@/components/sidebar/tree";
 
 // `sidebar.tab`／`sidebar.collapsed.*`（含 collapse store 的記憶體覆蓋層）會往外流到同檔後面的案（亂序跑時尤其），檔案頂層清。
 afterEach(() => {
@@ -57,6 +72,8 @@ interface RenderOpts {
   tab?: SidebarTab;
   queryClient?: QueryClient;
   activeId?: string;
+  /** 掛在 SidebarTabProvider 裡的額外元素（例如取 hook 回傳值的探針）。 */
+  extra?: ReactNode;
 }
 
 /** 真實版面裡 tablist 與 tabpanel 外框由 AppShell 給；這裡由 helper 補（面板握把才成立）。 */
@@ -69,6 +86,7 @@ function renderNoteList(props: Partial<NoteListProps> = {}, opts: RenderOpts = {
         <ActiveNoteProvider>
           <SidebarTabProvider>
             {opts.activeId !== undefined && <SetActive id={opts.activeId} />}
+            {opts.extra}
             <SidebarTabList idBase="t" />
             <div role="tabpanel">
               <NoteList {...props} />
@@ -416,7 +434,7 @@ describe("NoteList", () => {
   // ── tab 標題列 ──
 
   describe("NL1 標題列", () => {
-    // 四個一般 tab 的標題列都多一顆「Select」（選取模式本身見 sidebar/SelectPanel.test.tsx）。
+    // 五個一般 tab 的標題列都多一顆「Select」（選取模式本身見 sidebar/SelectPanel.test.tsx）。
     it("我的筆記：標題＋「Select」＋常駐的「New personal note」鈕（不浮出）", async () => {
       stubNotesFetch([OWNER_NOTE]);
       renderNoteList();
@@ -1088,6 +1106,9 @@ function renderRowMenu(
       if (url === "/api/groups" && method === "GET") {
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(groups) }));
       }
+      if (url === "/api/favorites" && method === "GET") {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+      }
       // 群組列的 ⋮（GroupMenu）用 useSession 拿自己的 id（只在傳了 groups 時會打）
       if (url === "/api/auth/me" && method === "GET") {
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(ME) }));
@@ -1176,11 +1197,13 @@ describe("筆記列 ⋮", () => {
     // 單一面板裡同一篇只有一顆 ⋮。
     expect(within(panel()).getAllByRole("button", { name: "Note actions for Has A Slug" })).toHaveLength(1);
 
-    // 與我共享（editor）那列：順序＝標題、徽章、⋮。
+    // 與我共享（editor）那列：順序＝標題、徽章、星星（最愛清單載入後才有）、⋮。
     selectTab("Shared with me");
     const sharedTrigger = within(panel()).getByRole("button", { name: "Note actions for No Slug Note" });
     const badge = within(panel()).getByText("Editor");
-    expect(badge.nextElementSibling).toBe(sharedTrigger);
+    const star = await within(panel()).findByRole("button", { name: "Favorite" });
+    expect(badge.nextElementSibling).toBe(star);
+    expect(star.nextElementSibling).toBe(sharedTrigger);
     expect(sharedTrigger.closest("li")?.lastElementChild).toBe(sharedTrigger);
   });
 
@@ -1683,5 +1706,399 @@ describe("NoteList × 新增資料夾", () => {
     fireEvent.change(await screen.findByRole("textbox", { name: "Folder name" }), { target: { value: "Reports" } });
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
     await waitFor(() => expect(posts).toEqual([{ name: "Reports", space: { kind: "group", groupId: "G" } }]));
+  });
+});
+
+// ── 最愛 tab
+describe("NoteList × 最愛", () => {
+  const G: GroupDto = groupDto({ id: "G", name: "G" }, adminRole());
+  const FOLDERS: FolderDto[] = [folderDto({ id: "A", name: "A" })];
+  const IN_FOLDER = personalNote({ id: "fav-in-folder", title: "Alpha", folderId: "A" });
+  const LOOSE = personalNote({ id: "fav-loose", title: "Beta" });
+  const GROUPED = selGroupNote({ id: "fav-grouped", title: "Gamma", group: G });
+  const SHARED = sharedNote({ id: "fav-shared", title: "Delta", role: "viewer" });
+  /** 案例中途才回來的那一篇（還原、重新取得讀取權）。 */
+  const BACK = selGroupNote({ id: "back", title: "Back", group: G });
+  const NO_FLAGS: GroupRoleFlags = { create: false, edit: false, delete: false, managePublicLink: false, manageMembers: false, manageGroup: false };
+
+  const fav = (noteId: string, favoritedAt: string): FavoriteDto => ({ noteId, favoritedAt });
+  const T1 = "2026-03-01T00:00:00.000Z";
+  const T2 = "2026-03-02T00:00:00.000Z";
+  const T3 = "2026-03-03T00:00:00.000Z";
+
+  type Reply<T> = T | "error" | "pending";
+
+  /** 假 server：欄位可在案例中途改，下一次重抓就回新值。`calls` 記每一發 `METHOD url`。 */
+  interface FakeServer {
+    notes: NoteDto[];
+    favorites: Reply<FavoriteDto[]>;
+    folders: Reply<FolderDto[]>;
+    calls: string[];
+  }
+
+  function json(body: unknown, status = 200): Response {
+    return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+  }
+
+  const boom = () => json({ error: { code: "internal", message: "boom" } }, 500);
+
+  function stubServer(init: Partial<Omit<FakeServer, "calls">> = {}): FakeServer {
+    const server: FakeServer = {
+      notes: [IN_FOLDER, LOOSE, GROUPED, SHARED],
+      favorites: [fav(SHARED.id, T3), fav(GROUPED.id, T2), fav(IN_FOLDER.id, T1)],
+      folders: FOLDERS,
+      calls: [],
+      ...init,
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        server.calls.push(`${method} ${url}`);
+        if (url === "/api/folders" && method === "GET") {
+          if (server.folders === "pending") return new Promise<Response>(() => {});
+          if (server.folders === "error") return Promise.resolve(boom());
+          return Promise.resolve(json({ folders: server.folders }));
+        }
+        if (url === "/api/favorites" && method === "GET") {
+          if (server.favorites === "pending") return new Promise<Response>(() => {});
+          if (server.favorites === "error") return Promise.resolve(boom());
+          return Promise.resolve(json(server.favorites));
+        }
+        if (url === "/api/notes" && method === "GET") return Promise.resolve(json(server.notes));
+        if (url === "/api/groups" && method === "GET") return Promise.resolve(json([G]));
+        if (url === "/api/auth/me" && method === "GET") return Promise.resolve(json(ME));
+        if (url === "/api/groups/G/roles/r1" && method === "PATCH") return Promise.resolve(json(customRole({ id: "r1" })));
+        throw new Error(`unexpected fetch: ${method} ${url}`);
+      }),
+    );
+    return server;
+  }
+
+  const rowIds = () => Array.from(panel().querySelectorAll('[data-node-kind="note"]')).map((row) => row.getAttribute("data-node-id"));
+  const favoritesGets = (server: FakeServer) => server.calls.filter((call) => call === "GET /api/favorites").length;
+
+  /** 在 render 裡取群組失效的兩支 hook，讓案例在不重掛的情況下呼叫。 */
+  interface GroupHooks {
+    invalidateGroupsAndNotes: () => void;
+    updateRole: ReturnType<typeof useUpdateRole>["mutateAsync"];
+  }
+  function GroupHooksProbe({ into }: { into: { current: GroupHooks | null } }) {
+    const invalidateGroupsAndNotes = useInvalidateGroupsAndNotes();
+    const updateRole = useUpdateRole("G").mutateAsync;
+    useEffect(() => {
+      into.current = { invalidateGroupsAndNotes, updateRole };
+    });
+    return null;
+  }
+
+  beforeEach(async () => {
+    localStorage.clear();
+    await i18n.changeLanguage("en");
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("列出 favorites 與 notes 的交集、順序照 favorites；每列兩行，第二行＝noteLocationLabel", async () => {
+    stubServer({ favorites: [fav(SHARED.id, T3), fav("gone", T3), fav(GROUPED.id, T2), fav(IN_FOLDER.id, T1)] });
+    renderNoteList({}, { tab: "favorites" });
+    await waitFor(() => expect(noteRow(GROUPED.id)?.querySelector("a div:nth-child(2)")).toHaveTextContent("Groups › G"));
+    expect(rowIds()).toEqual([SHARED.id, GROUPED.id, IN_FOLDER.id]);
+    const location = { groupIds: new Set([G.id]), folders: indexFolders(FOLDERS) };
+    const lines = [SHARED, GROUPED, IN_FOLDER].map((note) => {
+      const link = noteRow(note.id)!.querySelector("a")!;
+      expect(link.children).toHaveLength(2);
+      return { title: link.children[0]!.textContent, place: link.children[1]!.textContent, expected: noteLocationLabel(note, location, i18n.t) };
+    });
+    expect(lines).toEqual([
+      { title: "Delta", place: "Shared with me · Viewer", expected: "Shared with me · Viewer" },
+      { title: "Gamma", place: "Groups › G", expected: "Groups › G" },
+      { title: "Alpha", place: "My notes › A", expected: "My notes › A" },
+    ]);
+    // 沒有資料夾或群組節點。
+    expect(panel().querySelector('[data-node-kind="folder"], [data-node-kind="group"]')).toBeNull();
+  });
+
+  it("favorites pending → Loading…", async () => {
+    stubServer({ favorites: "pending" });
+    const { queryClient } = renderNoteList({}, { tab: "favorites" });
+    await waitFor(() => expect(queryClient.getQueryData(["notes"])).toBeDefined());
+    expect(within(list()).getByText("Loading…")).toBeInTheDocument();
+    expect(rowIds()).toEqual([]);
+  });
+
+  it("favorites 失敗且沒有舊資料 → role=alert", async () => {
+    stubServer({ favorites: "error" });
+    renderNoteList({}, { tab: "favorites" });
+    await waitFor(() => expect(within(list()).getByRole("alert")).toHaveTextContent(i18n.t("errors.internal")));
+    expect(rowIds()).toEqual([]);
+  });
+
+  it("交集為空 → 空狀態句（favorites 是空的，或有紀錄但都不在 notes）", async () => {
+    const empty = "No favorites yet. Click the star at the top of a note, or choose Add to favorites in its ⋮ menu.";
+    stubServer({ favorites: [] });
+    const first = renderNoteList({}, { tab: "favorites" });
+    expect(await within(list()).findByText(empty)).toBeInTheDocument();
+    first.view.unmount();
+
+    stubServer({ favorites: [fav("gone-1", T2), fav("gone-2", T1)] });
+    const { queryClient } = renderNoteList({}, { tab: "favorites" });
+    await waitFor(() => expect(queryClient.getQueryData(FAVORITES_QUERY_KEY)).toHaveLength(2));
+    expect(await within(list()).findByText(empty)).toBeInTheDocument();
+  });
+
+  it("有舊資料時背景重抓失敗 → 仍顯示舊清單、沒有 alert", async () => {
+    const server = stubServer();
+    const { queryClient } = renderNoteList({}, { tab: "favorites" });
+    await waitFor(() => expect(rowIds()).toEqual([SHARED.id, GROUPED.id, IN_FOLDER.id]));
+    server.favorites = "error";
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: FAVORITES_QUERY_KEY });
+    });
+    await waitFor(() => expect(queryClient.getQueryState(FAVORITES_QUERY_KEY)?.status).toBe("error"));
+    expect(rowIds()).toEqual([SHARED.id, GROUPED.id, IN_FOLDER.id]);
+    expect(within(list()).queryByRole("alert")).toBeNull();
+  });
+
+  it("不等 ['folders']：資料夾 pending 時照常列出、沒有 Loading…", async () => {
+    stubServer({ folders: "pending" });
+    renderNoteList({}, { tab: "favorites" });
+    await waitFor(() => expect(rowIds()).toEqual([SHARED.id, GROUPED.id, IN_FOLDER.id]));
+    expect(within(list()).queryByText("Loading…")).toBeNull();
+  });
+
+  it("標題列只有選取、沒有新增資料夾、新增筆記鈕；細指標下拖曳也不接手（我的筆記 tab 同一套觀測會接手）", async () => {
+    mockFinePointer(true);
+    stubServer();
+    renderNoteList({}, { tab: "favorites" });
+    await waitFor(() => expect(rowIds()).toEqual([SHARED.id, GROUPED.id, IN_FOLDER.id]));
+    expect(within(header()).queryAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Select"]);
+    expect(within(panel()).queryByRole("button", { name: "New folder" })).toBeNull();
+    expect(within(panel()).queryByRole("button", { name: "New personal note" })).toBeNull();
+
+    const favoritesDrag = createFakeDataTransfer(["text/uri-list", "text/plain"]);
+    fireEvent.dragStart(noteRow(IN_FOLDER.id)!.querySelector("a")!, { dataTransfer: favoritesDrag });
+    expect(favoritesDrag.setData).not.toHaveBeenCalledWith(DRAG_NOTE_MIME, expect.anything());
+
+    selectTab("My notes");
+    await waitFor(() => expect(noteRow(LOOSE.id)).not.toBeNull());
+    const myNotesDrag = createFakeDataTransfer(["text/uri-list", "text/plain"]);
+    fireEvent.dragStart(noteRow(LOOSE.id)!.querySelector("a")!, { dataTransfer: myNotesDrag });
+    expect(myNotesDrag.setData).toHaveBeenCalledWith(DRAG_NOTE_MIME, LOOSE.id);
+  });
+
+  it("每個 tab 共用同一份 GET /api/favorites：切 tab 不多打", async () => {
+    const server = stubServer();
+    renderNoteList();
+    await waitFor(() => expect(noteRow(LOOSE.id)).not.toBeNull());
+    await waitFor(() => expect(favoritesGets(server)).toBe(1));
+    selectTab("Recent");
+    await waitFor(() => expect(noteRow(LOOSE.id)).not.toBeNull());
+    selectTab("Shared with me");
+    await waitFor(() => expect(noteRow(SHARED.id)).not.toBeNull());
+    selectTab("Favorites");
+    await waitFor(() => expect(rowIds()).toEqual([SHARED.id, GROUPED.id, IN_FOLDER.id]));
+    expect(favoritesGets(server)).toBe(1);
+  });
+
+  it("最愛清單不設 staleTime：視窗重新取得焦點會重抓", async () => {
+    const server = stubServer();
+    renderNoteList({}, { tab: "favorites" });
+    await waitFor(() => expect(rowIds()).toEqual([SHARED.id, GROUPED.id, IN_FOLDER.id]));
+    expect(favoritesGets(server)).toBe(1);
+    try {
+      act(() => focusManager.setFocused(true));
+      await waitFor(() => expect(favoritesGets(server)).toBe(2));
+    } finally {
+      focusManager.setFocused(undefined);
+    }
+  });
+
+  describe("回來的筆記不重掛就出現（['favorites'] 已在那之前重抓過、不含它）", () => {
+    /** 最愛 tab 已渲染、兩支查詢都不含 BACK；把 server 換成含 BACK 的回應，回傳 queryClient 與探針。 */
+    async function setup() {
+      const server = stubServer({ favorites: [fav(LOOSE.id, T1)] });
+      const hooks: { current: GroupHooks | null } = { current: null };
+      const { queryClient } = renderNoteList({}, { tab: "favorites", extra: <GroupHooksProbe into={hooks} /> });
+      await waitFor(() => expect(rowIds()).toEqual([LOOSE.id]));
+      await waitFor(() => expect(hooks.current).not.toBeNull());
+      server.notes = [...server.notes, BACK];
+      server.favorites = [fav(BACK.id, T2), fav(LOOSE.id, T1)];
+      return { queryClient, hooks: hooks as { current: GroupHooks } };
+    }
+
+    it("invalidateTrashRelated（還原）", async () => {
+      const { queryClient } = await setup();
+      act(() => invalidateTrashRelated(queryClient, [BACK.id]));
+      await waitFor(() => expect(rowIds()).toEqual([BACK.id, LOOSE.id]));
+    });
+
+    it("useInvalidateGroupsAndNotes（加入群組等）", async () => {
+      const { hooks } = await setup();
+      act(() => hooks.current.invalidateGroupsAndNotes());
+      await waitFor(() => expect(rowIds()).toEqual([BACK.id, LOOSE.id]));
+    });
+
+    it("useUpdateRole 成功（角色改回可讀）", async () => {
+      const { hooks } = await setup();
+      await act(async () => {
+        await hooks.current.updateRole({ roleId: "r1", permissions: NO_FLAGS });
+      });
+      await waitFor(() => expect(rowIds()).toEqual([BACK.id, LOOSE.id]));
+    });
+  });
+});
+
+// ── 筆記列右側的星星
+describe("NoteList × 列上星星", () => {
+  const G: GroupDto = groupDto({ id: "G", name: "G" }, adminRole());
+  const FOLDERS: FolderDto[] = [folderDto({ id: "A", name: "A" })];
+  const IN_FOLDER = personalNote({ id: "star-in-folder", title: "Alpha", folderId: "A" });
+  const LOOSE = personalNote({ id: "star-loose", title: "Beta" });
+  const GROUPED = selGroupNote({ id: "star-grouped", title: "Gamma", group: G });
+  const SHARED = sharedNote({ id: "star-shared", title: "Delta", role: "viewer" });
+  const NOTES = [IN_FOLDER, LOOSE, GROUPED, SHARED];
+  const T1 = "2026-03-01T00:00:00.000Z";
+
+  type Reply<T> = T | "error" | "pending";
+  interface StarServer {
+    favorites: Reply<FavoriteDto[]>;
+    /** PUT /api/favorites/:id 的回應：`"pending"`＝永不回。 */
+    put: "ok" | "pending";
+    calls: string[];
+  }
+
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+
+  function stubStars(init: Partial<Omit<StarServer, "calls">> = {}): StarServer {
+    const server: StarServer = { favorites: [{ noteId: LOOSE.id, favoritedAt: T1 }], put: "ok", calls: [], ...init };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, request?: RequestInit) => {
+        const url = String(input);
+        const method = (request?.method ?? "GET").toUpperCase();
+        server.calls.push(`${method} ${url}`);
+        if (url === "/api/folders" && method === "GET") return Promise.resolve(json({ folders: FOLDERS }));
+        if (url === "/api/favorites" && method === "GET") {
+          if (server.favorites === "pending") return new Promise<Response>(() => {});
+          if (server.favorites === "error") return Promise.resolve(json({ error: { code: "internal", message: "boom" } }, 500));
+          return Promise.resolve(json(server.favorites));
+        }
+        if (/^\/api\/favorites\/.+/.test(url) && method === "PUT") {
+          if (server.put === "pending") return new Promise<Response>(() => {});
+          return Promise.resolve(json({ noteId: url.split("/").pop(), favoritedAt: T1 }));
+        }
+        if (url === "/api/notes" && method === "GET") return Promise.resolve(json(NOTES));
+        if (url === "/api/groups" && method === "GET") return Promise.resolve(json([G]));
+        if (url === "/api/auth/me" && method === "GET") return Promise.resolve(json(ME));
+        throw new Error(`unexpected fetch: ${method} ${url}`);
+      }),
+    );
+    return server;
+  }
+
+  const stars = () => within(panel()).queryAllByRole("button", { name: "Favorite" });
+  const starOf = (id: string) => within(noteRow(id)!).queryByRole("button", { name: "Favorite" });
+  const favoritesGets = (server: StarServer) => server.calls.filter((call) => call === "GET /api/favorites").length;
+
+  beforeEach(async () => {
+    localStorage.clear();
+    await i18n.changeLanguage("en");
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it.each([
+    ["recent", [IN_FOLDER, LOOSE, GROUPED, SHARED]],
+    ["favorites", [LOOSE]],
+    ["myNotes", [IN_FOLDER, LOOSE]],
+    ["workspace", [GROUPED]],
+    ["shared", [SHARED]],
+  ] as const)("%s tab 的每一列筆記都有星星，狀態＝是否在 favorites", async (tab, expected) => {
+    stubStars();
+    renderNoteList({}, { tab });
+    await waitFor(() => expect(stars().length).toBe(expected.length));
+    for (const note of expected) {
+      expect(starOf(note.id), note.title).toHaveAttribute("aria-pressed", note.id === LOOSE.id ? "true" : "false");
+    }
+  });
+
+  it("資料夾列與群組列沒有星星（只有筆記列有）", async () => {
+    stubStars();
+    renderNoteList({}, { tab: "workspace" });
+    await waitFor(() => expect(groupNode("G")).not.toBeNull());
+    await waitFor(() => expect(stars().length).toBe(1));
+    expect(within(groupNode("G")!.firstElementChild as HTMLElement).queryByRole("button", { name: "Favorite" })).toBeNull();
+    cleanup();
+
+    stubStars();
+    renderNoteList({}, { tab: "myNotes" });
+    await waitFor(() => expect(panel().querySelector('[data-node-kind="folder"]')).not.toBeNull());
+    const folderRow = panel().querySelector('[data-node-kind="folder"]')!.firstElementChild as HTMLElement;
+    expect(within(folderRow).queryByRole("button", { name: "Favorite" })).toBeNull();
+  });
+
+  it.each(["pending", "error"] as const)("favorites %s：筆記列都在、都沒有星星（狀態未知不顯示成未加入）", async (reply) => {
+    stubStars({ favorites: reply });
+    renderNoteList({}, { tab: "recent" });
+    await waitFor(() => expect(noteRow(LOOSE.id)).not.toBeNull());
+    await waitFor(() => expect(noteRow(SHARED.id)).not.toBeNull());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(stars()).toHaveLength(0);
+  });
+
+  it("每份 NoteList 只打一次 GET /api/favorites；兩份實例共用快取也只打一次", async () => {
+    const server = stubStars();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <ActiveNoteProvider>
+            <SidebarTabProvider>
+              <div role="tabpanel">
+                <NoteList />
+              </div>
+              <div data-testid="second" role="tabpanel">
+                <NoteList />
+              </div>
+            </SidebarTabProvider>
+          </ActiveNoteProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Favorite" }).length).toBeGreaterThanOrEqual(4));
+    expect(favoritesGets(server)).toBe(1);
+  });
+
+  it("列內 DOM 順序是連結、角色標記、星星、⋮；星星不在連結內", async () => {
+    stubStars();
+    renderNoteList({}, { tab: "shared" });
+    await waitFor(() => expect(starOf(SHARED.id)).not.toBeNull());
+    const row = noteRow(SHARED.id)!;
+    const link = within(row).getByRole("link");
+    const badge = within(row).getByText("Viewer");
+    const star = starOf(SHARED.id)!;
+    const actions = within(row).getByRole("button", { name: "Note actions for Delta" });
+    const before = (a: Element, b: Element) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(before(link, badge)).toBe(true);
+    expect(before(badge, star)).toBe(true);
+    expect(before(star, actions)).toBe(true);
+    expect(star.closest("a")).toBeNull();
+    expect(star.parentElement).toBe(row);
+  });
+
+  it("只有送出中的那一篇是 aria-disabled，其他列照常", async () => {
+    stubStars({ favorites: [], put: "pending" });
+    renderNoteList({}, { tab: "recent" });
+    await waitFor(() => expect(stars()).toHaveLength(4));
+    fireEvent.click(starOf(LOOSE.id)!);
+    await waitFor(() => expect(starOf(LOOSE.id)).toHaveAttribute("aria-disabled", "true"));
+    expect(starOf(SHARED.id)).not.toHaveAttribute("aria-disabled");
+    expect(starOf(GROUPED.id)).not.toHaveAttribute("aria-disabled");
   });
 });

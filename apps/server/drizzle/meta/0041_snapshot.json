@@ -1,6 +1,6 @@
 {
-  "id": "9d65c336-9816-470f-b1c8-58e27f942365",
-  "prevId": "9f28a775-7615-4bb6-bfd6-48492133f637",
+  "id": "138c920d-acd0-4dd7-87c8-270bccc01a6c",
+  "prevId": "028b4a8b-23b9-4d60-9bf7-065647db1ef1",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1616,6 +1616,89 @@
           "value": "case when \"note_ai_edits\".\"op\" = 'delete_section' then \"note_ai_edits\".\"anchor\" is not null when \"note_ai_edits\".\"op\" = 'file_sync' then (\"note_ai_edits\".\"anchor\" is not null) = (cardinality(\"note_ai_edits\".\"after_block_ids\") = 0) else \"note_ai_edits\".\"anchor\" is null end"
         }
       },
+      "isRLSEnabled": false
+    },
+    "public.note_favorites": {
+      "name": "note_favorites",
+      "schema": "",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "note_id": {
+          "name": "note_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "date_trunc('milliseconds', now())"
+        }
+      },
+      "indexes": {
+        "note_favorites_note_idx": {
+          "name": "note_favorites_note_idx",
+          "columns": [
+            {
+              "expression": "note_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "note_favorites_user_id_users_id_fk": {
+          "name": "note_favorites_user_id_users_id_fk",
+          "tableFrom": "note_favorites",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "note_favorites_note_id_notes_id_fk": {
+          "name": "note_favorites_note_id_notes_id_fk",
+          "tableFrom": "note_favorites",
+          "tableTo": "notes",
+          "columnsFrom": [
+            "note_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "note_favorites_user_id_note_id_pk": {
+          "name": "note_favorites_user_id_note_id_pk",
+          "columns": [
+            "user_id",
+            "note_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.note_link_conversion": {

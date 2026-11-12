@@ -185,12 +185,29 @@ describe("purgeTrashIds", () => {
 });
 
 describe("invalidateTrashRelated", () => {
-  it("AT5 失效的 key 恰為 trash／notes／folders／backlinks／每篇 note／兩支解析層前綴", () => {
+  it("AT5 失效的 key 恰為 trash／notes／folders／favorites／backlinks／每篇 note／兩支解析層前綴", () => {
     const qc = client();
     const spy = vi.spyOn(qc, "invalidateQueries");
     invalidateTrashRelated(qc, ["a", "b"]);
     const keys = spy.mock.calls.filter(([arg]) => arg?.queryKey !== undefined).map(([arg]) => JSON.stringify(arg?.queryKey));
-    expect([...keys].sort()).toEqual(['["backlinks"]', '["folders"]', '["note","a"]', '["note","b"]', '["note-by-group-path"]', '["note-by-path"]', '["notes"]', '["trash"]']);
+    expect([...keys].sort()).toEqual([
+      '["backlinks"]',
+      '["favorites"]',
+      '["folders"]',
+      '["note","a"]',
+      '["note","b"]',
+      '["note-by-group-path"]',
+      '["note-by-path"]',
+      '["notes"]',
+      '["trash"]',
+    ]);
+  });
+
+  it("失效 ['favorites']：最愛清單在 server 端濾掉垃圾桶裡的筆記，還原後要重抓才會回來", () => {
+    const qc = client();
+    const spy = vi.spyOn(qc, "invalidateQueries");
+    invalidateTrashRelated(qc, ["a"]);
+    expect(spy).toHaveBeenCalledWith({ queryKey: ["favorites"] });
   });
 
   it("AT-F 失效 ['folders']（資料夾：還原會照原路徑重建資料夾）", () => {

@@ -2,6 +2,12 @@
   "select": {
     "selected_one": "{{count}} selected",
     "selected_other": "{{count}} selected",
+    "unfavorite": "Remove from favorites",
+    "unfavoriteTitle_one": "Remove {{count}} note from favorites?",
+    "unfavoriteTitle_other": "Remove {{count}} notes from favorites?",
+    "unfavoriteDescription": "The notes themselves aren't changed, and you can add them back later.",
+    "unfavorited_one": "Removed {{count}} note from favorites",
+    "unfavorited_other": "Removed {{count}} notes from favorites",
     "moveTo": "Move to",
     "copyTo": "Copy to",
     "deleteSelected_one": "Delete 1 selected item",

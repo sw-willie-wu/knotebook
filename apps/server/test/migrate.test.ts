@@ -7,7 +7,7 @@ import { MAX_AVATAR_DISPLAY_BYTES, MAX_PROVIDER_ICON_BYTES, SITE_LIMITS, autoSlu
 import { applyMigrationsThrough, freshDb, freshEmptyDb, idxOfTag, journalEntries } from "./helpers.js";
 import { runMigrations } from "../src/db/migrate.js";
 import { PgDialect, getTableConfig } from "drizzle-orm/pg-core";
-import { apiTokens, authProviders, folders, groupMembers, groupRoles, groups, notePlacements, noteRedirects, notes, oauthClients, oauthCodes, noteSearchSections, noteSearchState, noteLinkConversion, noteVersions, handleRenames, oauthRequests, oneTimeLinks, sessions, siteLimitChanges, siteLimits, siteSettings, storagePlans, transferBases, transferCreates, transferTokens, userAvatars, userIdentities, users } from "../src/db/schema.js";
+import { apiTokens, authProviders, folders, groupMembers, groupRoles, groups, noteFavorites, notePlacements, noteRedirects, notes, oauthClients, oauthCodes, noteSearchSections, noteSearchState, noteLinkConversion, noteVersions, handleRenames, oauthRequests, oneTimeLinks, sessions, siteLimitChanges, siteLimits, siteSettings, storagePlans, transferBases, transferCreates, transferTokens, userAvatars, userIdentities, users } from "../src/db/schema.js";
 
 const drizzleDirForTest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
@@ -29,7 +29,7 @@ describe("runMigrations", () => {
     await runMigrations(db); // freshDb 已跑過一次——此為第二次
     const r = await pool.query(`select table_name from information_schema.tables where table_schema='public'`);
     const tableNames = r.rows.map(x => x.table_name);
-    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles", "api_tokens", "oauth_clients", "oauth_requests", "oauth_codes", "note_ai_edits", "groups", "group_members", "group_roles", "note_redirects", "auth_providers", "user_identities", "site_settings", "note_search_sections", "note_search_state", "transfer_tokens", "storage_plans", "note_versions", "note_link_conversion", "handle_renames", "one_time_links", "folders", "note_placements", "transfer_bases", "transfer_creates", "sessions", "site_limits", "site_limit_changes", "user_avatars"])
+    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles", "api_tokens", "oauth_clients", "oauth_requests", "oauth_codes", "note_ai_edits", "groups", "group_members", "group_roles", "note_redirects", "auth_providers", "user_identities", "site_settings", "note_search_sections", "note_search_state", "transfer_tokens", "storage_plans", "note_versions", "note_link_conversion", "handle_renames", "one_time_links", "folders", "note_placements", "transfer_bases", "transfer_creates", "sessions", "site_limits", "site_limit_changes", "note_favorites", "user_avatars"])
       expect(tableNames).toContain(t);
   });
 
@@ -1409,7 +1409,7 @@ describe("0009_api-tokens", () => {
       expect(names, i).toContain(i);
   });
 
-  it("schema.ts 的二十九個宣告沒有靜默漂移（四個 OAuth／token 宣告零 import；#103／#175 的四張表的 CHECK 也在這裡逐字比對、#187 的三張表、#93 的兩張表、#200 的一張表、容量上限的 users／storage_plans、版本歷史的 note_versions、#269 的 note_link_conversion、#291 的 handle_renames、#286 的 one_time_links（#285 擴充）、資料夾的 folders／note_placements、bulk transfer 的 transfer_bases／transfer_creates）", async () => {
+  it("schema.ts 的三十個宣告沒有靜默漂移（四個 OAuth／token 宣告零 import；#103／#175 的四張表的 CHECK 也在這裡逐字比對、#187 的三張表、#93 的兩張表、#200 的一張表、容量上限的 users／storage_plans、版本歷史的 note_versions、#269 的 note_link_conversion、#291 的 handle_renames、#286 的 one_time_links（#285 擴充）、資料夾的 folders／note_placements、bulk transfer 的 transfer_bases／transfer_creates）", async () => {
     // 比照 0008 的同族守衛：把 schema.ts 的宣告與 migration 造出來的 DB 對起來。
     // 沒有這一案的話，把 schema.ts 的四段 pgTable 整個刪掉，全套測試照樣綠——
     // 只有下一次 db:generate 會產出 DROP TABLE。
@@ -1474,6 +1474,7 @@ describe("0009_api-tokens", () => {
       ],
       folders: ["id", "kind", "owner_id", "group_id", "parent_id", "name", "created_by", "created_at"],
       note_placements: ["user_id", "note_id", "folder_id"],
+      note_favorites: ["user_id", "note_id", "created_at"],
       users: [
         "id", "email", "handle", "password_hash", "oidc_issuer", "oidc_sub", "display_name", "avatar_url", "is_admin",
         "disabled_at", "token_version", "must_change_password", "created_at", "storage_plan_id", "auto_versions",
@@ -1523,6 +1524,7 @@ describe("0009_api-tokens", () => {
       ["sessions", sessions],
       ["site_limits", siteLimits],
       ["site_limit_changes", siteLimitChanges],
+      ["note_favorites", noteFavorites],
       ["user_avatars", userAvatars],
     ] as const) {
       const cfg = getTableConfig(decl);
@@ -3610,10 +3612,7 @@ describe("0041_user-avatars（#404 使用者頭貼）", () => {
 
   it("已有資料的庫升級：使用者、筆記、身分列原樣，avatar_auto 預設 true、頭貼表是空的、新欄位為 NULL", async () => {
     const { pool, db } = await freshEmptyDb();
-    // 前一支取 journal 的相對位置：編號跳號期間 `idxOfTag(TAG) - 1` 不存在。
-    const es = journalEntries();
-    const prevIdx = es[es.findIndex(e => e.tag === "0041_user-avatars") - 1]!.idx;
-    await applyMigrationsThrough(pool, prevIdx);
+    await applyMigrationsThrough(pool, idxOfTag("0041_user-avatars") - 1);
     const alice = await newUser(pool, "av-upgrade@example.com");
     const note = (await pool.query(`insert into notes (owner_id) values ($1) returning id`, [alice])).rows[0].id as string;
     const ident = await newIdentity(pool, alice, "sub-upgrade");
@@ -3634,5 +3633,91 @@ describe("0041_user-avatars（#404 使用者頭貼）", () => {
     expect(sqlText).not.toMatch(/^\s*COMMIT/im);
     expect(sqlText).not.toMatch(/\bDROP\b/i);
     expect(sqlText).not.toMatch(/"avatar_url"/);
+  });
+});
+
+describe("note_favorites（#334）", () => {
+  it("三欄型別／NOT NULL／default、PK (user_id, note_id)、兩條 FK 都 ON DELETE CASCADE、note_id 索引", async () => {
+    const { pool } = await freshDb();
+    const cols = (await pool.query(
+      `select column_name, data_type, is_nullable, column_default from information_schema.columns where table_name = 'note_favorites' order by column_name`,
+    )).rows;
+    expect(cols.map((c: { column_name: string; data_type: string; is_nullable: string }) => [c.column_name, c.data_type, c.is_nullable])).toEqual([
+      ["created_at", "timestamp with time zone", "NO"],
+      ["note_id", "uuid", "NO"],
+      ["user_id", "uuid", "NO"],
+    ]);
+    const byName = Object.fromEntries(cols.map((c: { column_name: string; column_default: string | null }) => [c.column_name, c.column_default]));
+    expect(byName.created_at).toContain("date_trunc('milliseconds'");
+    expect(byName.created_at).toContain("now()");
+    expect(byName.note_id).toBeNull();
+    expect(byName.user_id).toBeNull();
+
+    const pk = (await pool.query(
+      `select a.attname from pg_constraint c
+         cross join lateral unnest(c.conkey) with ordinality as k(attnum, ord)
+         join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum
+        where c.conrelid = 'note_favorites'::regclass and c.contype = 'p'
+        order by k.ord`,
+    )).rows.map((r: { attname: string }) => r.attname);
+    expect(pk).toEqual(["user_id", "note_id"]);
+
+    const fks = (await pool.query(
+      `select a.attname as col, c.confrelid::regclass::text as ref, c.confdeltype
+         from pg_constraint c
+         join pg_attribute a on a.attrelid = c.conrelid and a.attnum = c.conkey[1]
+        where c.conrelid = 'note_favorites'::regclass and c.contype = 'f'
+        order by col`,
+    )).rows;
+    expect(fks).toEqual([
+      { col: "note_id", ref: "notes", confdeltype: "c" },
+      { col: "user_id", ref: "users", confdeltype: "c" },
+    ]);
+
+    const idx = (await pool.query(`select indexdef from pg_indexes where indexname = 'note_favorites_note_idx'`)).rows;
+    expect(idx).toHaveLength(1);
+    expect(idx[0].indexdef).toMatch(/USING btree \(note_id\)$/);
+  });
+
+  it("default 存成整毫秒；刪筆記只帶走那篇的列、刪使用者只帶走他的列（旁觀者列留著）", async () => {
+    const { pool } = await freshDb();
+    const alice = (await pool.query(`insert into users (email, display_name) values ('alice-fav@example.com', 'Alice') returning id`)).rows[0].id as string;
+    // bob 不擁有筆記（notes.owner_id 是 restrict），刪 bob 只經 note_favorites.user_id 的 cascade 帶走他的列
+    const bob = (await pool.query(`insert into users (email, display_name) values ('bob-fav@example.com', 'Bob') returning id`)).rows[0].id as string;
+    const n1 = (await pool.query(`insert into notes (owner_id) values ($1) returning id`, [alice])).rows[0].id as string;
+    const n2 = (await pool.query(`insert into notes (owner_id) values ($1) returning id`, [alice])).rows[0].id as string;
+    await pool.query(
+      `insert into note_favorites (user_id, note_id) values ($1, $3), ($1, $4), ($2, $3), ($2, $4)`,
+      [alice, bob, n1, n2],
+    );
+    // default 存成整毫秒：微秒部分一律是 0
+    const sub = (await pool.query(`select count(*)::int as n from note_favorites where extract(microseconds from created_at)::bigint % 1000 <> 0`)).rows[0].n;
+    expect(sub).toBe(0);
+
+    const rows = async () => (await pool.query(`select user_id, note_id from note_favorites`)).rows
+      .map((r: { user_id: string; note_id: string }) => `${r.user_id === alice ? "alice" : "bob"}:${r.note_id === n1 ? "n1" : "n2"}`)
+      .sort();
+    expect(await rows()).toEqual(["alice:n1", "alice:n2", "bob:n1", "bob:n2"]);
+    await pool.query(`delete from notes where id = $1`, [n1]);
+    expect(await rows()).toEqual(["alice:n2", "bob:n2"]);
+    await pool.query(`delete from users where id = $1`, [bob]);
+    expect(await rows()).toEqual(["alice:n2"]);
+  });
+
+  it("SQL 檔只有建表、兩條 FK、一個索引；無 CONCURRENTLY／行首 COMMIT", () => {
+    // 以 tag 後綴找檔：整合分支合流時編號可能重產。
+    const entries = journalEntries().filter(e => e.tag.endsWith("_note-favorites"));
+    expect(entries, "journal 裡要恰有一支 *_note-favorites").toHaveLength(1);
+    const sqlText = readFileSync(path.join(drizzleDirForTest, `${entries[0]!.tag}.sql`), "utf8");
+    expect(sqlText).not.toMatch(/CONCURRENTLY/i);
+    expect(sqlText).not.toMatch(/^\s*COMMIT/im);
+    const statements = sqlText
+      .split("--> statement-breakpoint")
+      .map(s => s.replace(/^\s*--.*$/gm, "").trim())
+      .filter(s => s.length > 0);
+    expect(statements).toHaveLength(4);
+    expect(statements[0]).toMatch(/^CREATE TABLE "note_favorites"/);
+    expect(statements.filter(s => /^ALTER TABLE "note_favorites" ADD CONSTRAINT "[^"]+" FOREIGN KEY .* ON DELETE cascade/.test(s))).toHaveLength(2);
+    expect(statements.filter(s => /^CREATE INDEX "note_favorites_note_idx"/.test(s))).toHaveLength(1);
   });
 });

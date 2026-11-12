@@ -44,9 +44,10 @@ afterEach(() => {
 });
 
 describe("SMf1 SELECT_ACTIONS（資料夾：群組、與我共享加 move）", () => {
-  it("四個 tab", () => {
+  it("五個 tab", () => {
     expect(SELECT_ACTIONS).toEqual({
       recent: ["copy", "delete"],
+      favorites: ["unfavorite", "copy", "delete"],
       myNotes: ["move", "copy", "delete"],
       workspace: ["move", "copy", "delete"],
       shared: ["move", "copy", "delete"],
@@ -207,6 +208,21 @@ describe("SMf4 dedupeByAncestor", () => {
   });
 });
 
+describe("partitionTargets（最愛 tab）", () => {
+  const ctx = { tab: "favorites" as const, index: EMPTY_FOLDER_INDEX, notes: [], groupIds: new Set(["g1"]) };
+  const cannotDelete = groupNote({ id: "nd", title: "No delete", group: G1, delete: false, edit: false });
+
+  it("移出最愛一律 eligible：不看刪除或編輯權限、不計略過", () => {
+    const out = partitionTargets("unfavorite", [noteT(G1A), noteT(cannotDelete), noteT(A)], ctx);
+    expect(out).toEqual({ eligible: [noteT(G1A), noteT(cannotDelete), noteT(A)], notesSkipped: 0, foldersSkipped: 0, foldersBlocked: 0 });
+  });
+
+  it("刪除仍看 permissions.delete", () => {
+    const out = partitionTargets("delete", [noteT(G1A), noteT(cannotDelete)], ctx);
+    expect(out).toEqual({ eligible: [noteT(G1A)], notesSkipped: 1, foldersSkipped: 0, foldersBlocked: 0 });
+  });
+});
+
 describe("SMf5 partitionTargets(delete)", () => {
   const GG1 = new Set(["g1"]);
 
@@ -328,6 +344,11 @@ describe("SMf7 batchDestSource", () => {
     expect(move).toMatchObject({ current: null, makeCopy: false, others: [] });
     const copy = asSource(batchDestSource({ tab: "workspace", mode: "copy", eligible: [folderT(orphan)], groups: GROUPS, groupIds: ids }));
     expect(copy).toMatchObject({ current: null, makeCopy: false, others: [PERSONAL, G1S, G2S] });
+  });
+
+  it("favorites copy → 跟 recent 同支：沒有上半部", () => {
+    const src = asSource(batchDestSource({ tab: "favorites", mode: "copy", eligible: [noteT(A), noteT(G1A)], groups: GROUPS, groupIds: IDS }));
+    expect(src).toMatchObject({ current: null, makeCopy: false, others: [PERSONAL, G1S, G2S] });
   });
 
   it("recent copy → current null", () => {

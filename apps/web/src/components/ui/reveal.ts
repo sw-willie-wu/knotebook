@@ -7,6 +7,8 @@
  * - 選單開著時不消失：Radix trigger 開啟時帶 `data-state="open"`；modal 選單開著時指標已離開列，
  *   沒有這條 ⋮ 會在選單還開著時淡掉。對非選單的「＋」沒有作用（它不帶 data-state）。
  * - 觸控（`hover: none`）常駐：Tailwind v4 的 group-hover 只在 `@media (hover: hover)` 生效。
+ * `hoverRevealOnly` 與 `hoverReveal` 的差別只在觸控：⋮ 在觸控裝置要常駐（唯一入口），列上的空心星星相反——
+ * `hover: none` 或 `pointer: coarse` 時整顆 `display: none`（不佔位、不在 Tab 順序與無障礙樹），加入改走 ⋮。
  * ⚠ 每個 scope 的 class 必須是**完整字面**——Tailwind 靜態掃描原始碼產生 CSS，
  *   樣板字串拼出來的 class 不會被產生（靜默失效，jsdom 測試照綠）。
  * ⚠ 測試只能斷言 class 字串（jsdom 沒有 CSS、沒有 hover）；真的滑過會浮出要在瀏覽器看。
@@ -24,4 +26,14 @@ const SCOPE: Record<RevealScope, string> = {
 
 export function hoverReveal(scope: RevealScope): string {
   return `${BASE} ${SCOPE[scope]}`;
+}
+
+/** 只在滑鼠／鍵盤裝置浮出、觸控裝置整顆隱藏（見檔頭）。目前只有 `noterow`；每個 class 一樣必須是完整字面。 */
+const REVEAL_ONLY = {
+  noterow:
+    "opacity-0 transition-opacity focus-visible:opacity-100 group-hover/noterow:opacity-100 group-has-[:focus-visible]/noterow:opacity-100 [@media(hover:none)]:hidden [@media(pointer:coarse)]:hidden",
+} as const;
+
+export function hoverRevealOnly(scope: keyof typeof REVEAL_ONLY): string {
+  return REVEAL_ONLY[scope];
 }

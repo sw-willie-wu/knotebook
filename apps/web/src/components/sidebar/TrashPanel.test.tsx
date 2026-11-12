@@ -318,6 +318,13 @@ describe("TrashPanel（平常）", () => {
     }
   });
 
+  it("TP3c 垃圾桶的列沒有最愛星星", async () => {
+    stubServer({ items: [P1, W1] });
+    renderPanel();
+    await waitFor(() => expect(row("w1")).not.toBeNull());
+    expect(within(panel()).queryAllByRole("button", { name: "Favorite", hidden: true })).toHaveLength(0);
+  });
+
   // 資料夾：第二行元素帶位置段的 title；根層（位置段空）不帶。
   it("TP-F1 個人 [A, B]：第二行文字照舊、該元素 title「A › B」", async () => {
     stubServer({ items: [PF, P1] });

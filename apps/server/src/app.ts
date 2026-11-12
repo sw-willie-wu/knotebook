@@ -23,6 +23,7 @@ import { notesRoutes } from "./routes/notes.js";
 import { noteVersionsRoutes } from "./routes/note-versions.js";
 import { trashRoutes } from "./routes/trash.js";
 import { foldersRoutes } from "./routes/folders.js";
+import { favoritesRoutes } from "./routes/favorites.js";
 import { groupsRoutes } from "./routes/groups.js";
 import { searchRoutes } from "./routes/search.js";
 import { usersRoutes } from "./routes/users.js";
@@ -155,11 +156,11 @@ export interface AppDeps {
    */
   editingFollowsSiteLimits?: boolean;
   /**
-   * 節流器（29 顆，型別 `Limiters` 在 `http/limiters.ts`）。**選配、可只給幾顆**：`buildApp` 以 `mergeLimiters` 合併——
-   * 20 顆固定的桶由 `buildFixedLimiters()` 建，9 顆站台可調的桶由 `buildAdjustableLimiters(deps.siteLimits)` 建
+   * 節流器（30 顆，型別 `Limiters` 在 `http/limiters.ts`）。**選配、可只給幾顆**：`buildApp` 以 `mergeLimiters` 合併——
+   * 21 顆固定的桶由 `buildFixedLimiters()` 建，9 顆站台可調的桶由 `buildAdjustableLimiters(deps.siteLimits)` 建
    * （`limit` 現讀這個 app 的 `siteLimits`，#397）；這裡給的桶（值不是 `undefined`）蓋掉對應的那顆。
    *
-   * `buildTestApp`/`buildCollabTestApp`（`test/helpers.ts`）經 `freshLimiters` 注入 20 顆全新固定桶＋測試覆寫——
+   * `buildTestApp`/`buildCollabTestApp`（`test/helpers.ts`）經 `freshLimiters` 注入 21 顆全新固定桶＋測試覆寫——
    * 嚴禁 module 單例，否則不同測試檔案共享同一份計數會互相汙染。
    */
   limiters?: Partial<Limiters>;
@@ -660,7 +661,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
 
   app.get("/healthz", async () => ({ ok: true }));
 
-  // 29 顆節流桶：20 顆固定的＋9 顆可調的（`limit` 現讀這個 app 的 `deps.siteLimits`，#397）；測試只覆寫它要驗的那幾顆。
+  // 30 顆節流桶：21 顆固定的＋9 顆可調的（`limit` 現讀這個 app 的 `deps.siteLimits`，#397）；測試只覆寫它要驗的那幾顆。
   const limiters = mergeLimiters(
     { ...buildFixedLimiters(), ...buildAdjustableLimiters(deps.siteLimits) } satisfies Limiters,
     deps.limiters
@@ -840,6 +841,8 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   void app.register(trashRoutes({ db: deps.db, collabHooks: deps.collabHooks, uploadsDir: deps.uploadsDir, storageLockTimeoutMs, groupTestHook: deps.groupTestHook }));
   // 資料夾：讀取收 Bearer notes:read、寫入 cookie-only（見 routes/folders.ts 檔頭）。
   void app.register(foldersRoutes({ db: deps.db, collabHooks: deps.collabHooks, storageLockTimeoutMs, groupTestHook: deps.groupTestHook, limiters: { folder: limiters.folder } }));
+  // #334：最愛清單／加入／移出（cookie-only，見 routes/favorites.ts 檔頭）。
+  void app.register(favoritesRoutes({ db: deps.db, limiters: { favorite: limiters.favorite }, groupTestHook: deps.groupTestHook }));
   // #103：群組管理（session-only，見 routes/groups.ts 檔頭）。
   void app.register(groupsRoutes({ db: deps.db, collabHooks: deps.collabHooks, groupTestHook: deps.groupTestHook, uploadsDir: deps.uploadsDir, storageLockTimeoutMs, versions }));
   // 加成員／分享對話框的「認識的人」建議（session-only，見 routes/users.ts 檔頭）。

@@ -3,7 +3,7 @@
  * 等）。與 `auth/rate-limit.ts` 的 `LoginThrottle`（帳號+IP 雙軌、指數退避）
  * 是兩套不同語意，不共用實作：這裡只要「每個 key 在固定長度的視窗內最多 N 次」。
  *
- * **生產預設值唯一真相來源**：`http/limiters.ts` 的 `buildFixedLimiters()`（20 顆固定的桶）與
+ * **生產預設值唯一真相來源**：`http/limiters.ts` 的 `buildFixedLimiters()`（21 顆固定的桶）與
  * `buildAdjustableLimiters()`（9 顆站台可調的桶，`limit` 現讀 `SiteLimits`、`windowMs` 取這裡的常數）都從這裡
  * 匯出的常數取值；`buildApp` 與 `test/helpers.ts` 都走它們，不各自重複寫一份數字字面量。
  *
@@ -327,6 +327,17 @@ export const EDIT_LIMIT = { limit: SITE_LIMITS.rateEdit.default, windowMs: 60_00
  * 幾篇都只扣一次。MCP 經 token 呼叫時另先扣 `TOKEN_WRITE_LIMIT`（60／10 分鐘），實際先撞到的是那一顆。
  */
 export const FOLDER_LIMIT = { limit: 600, windowMs: 60_000 } as const;
+
+/**
+ * #334 最愛的加入與移出（`PUT`／`DELETE /api/favorites/:id`；key=userId，兩支共用、各扣一次；`GET` 不扣）。
+ * PUT **解析 `:id`、body 並授權之後才扣**（授權前的 400／404——非 UUID、壞 body、讀不到的筆記——不扣；扣桶之後筆記才被永久刪除的那種 404 已經扣過）；
+ * DELETE 只在 `:id` 是 UUID 時扣。
+ *
+ * 600/min 比照 `FOLDER_LIMIT`：選取模式一次批次移出數百篇（網頁逐篇送 DELETE）仍在額度內，又擋得住失控迴圈。
+ * **不與 `edit` 共桶**：切一次星號只寫一列，`EDIT_LIMIT` 的 30/min 是照內容寫入的成本訂的；共桶時批次移出會把同一分鐘
+ * AI 編輯的額度吃光。固定、不進站台管理可調。
+ */
+export const FAVORITE_LIMIT = { limit: 600, windowMs: 60_000 } as const;
 
 /**
  * `GET /api/users/suggest`（成員／分享對話框的「認識的人」建議，key=userId）。數值比照 `SEARCH_LIMIT`：同樣是使用者

@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { E2E_ORIGIN } from "../ports.js";
 import { ADMIN, createNote, editorLocator, loginAs } from "./helpers.js";
 
 /**
@@ -152,7 +153,7 @@ async function scrollTableWrapperToLeft(page: Page) {
 }
 
 test("hover 表格最後一欄（下緣在視窗外）不會撐出全頁滾軸", async ({ page, context }) => {
-  await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: "http://localhost:3100" });
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: E2E_ORIGIN });
 
   // 縮小視窗高度：不用打幾十行填充文字也能可靠讓表格下緣落在視窗外，寬度不動
   // 避免碰到 <768 的窄視窗版面（見 10-responsive.spec.ts）。
@@ -257,7 +258,7 @@ test("hover 表格最後一列第一欄（右緣在視窗外，水平孿生案�
   page,
   context,
 }) => {
-  await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: "http://localhost:3100" });
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: E2E_ORIGIN });
 
   // 縮小視窗寬度（不動高度）：讓 20 欄的表格右緣可靠地落在視窗外，同時列數壓在 2
   // 列就好——不需要像垂直案那樣捲動，表格本來就矮到整張都在預設視窗高度內。

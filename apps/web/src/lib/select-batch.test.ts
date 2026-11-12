@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { waitFor } from "@testing-library/react";
 import { QueryClient } from "@tanstack/react-query";
-import type { NoteDto } from "@knotebook/shared";
+import type { FavoriteDto, NoteDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
 import type { PublicLinkDto } from "@/api/public-link";
 import { folderDto } from "@/test/folder-fixtures";
@@ -17,6 +17,7 @@ import {
   placeTargetsInOrder,
   runSequential,
   undoPlacements,
+  unfavoriteInOrder,
   type PlacedItem,
 } from "./select-batch";
 
@@ -568,5 +569,57 @@ describe("copyNotesInOrder（目的地）", () => {
     const calls = stubFetch({ [copy("a")]: () => ok(personalNote({ id: "ca", title: "A" })) });
     await copyNotesInOrder([a], { kind: "place", space: { kind: "personal" }, folder: folderDto({ id: "PF", name: "PF" }) }, { queryClient: newClient() });
     expect(lines(calls)).toEqual(['POST /api/notes/a/copy {"folderId":"PF"}']);
+  });
+});
+
+describe("unfavoriteInOrder", () => {
+  const favs = (...ids: string[]): FavoriteDto[] => ids.map((noteId) => ({ noteId, favoritedAt: "2026-03-01T00:00:00.000Z" }));
+  const ids = (qc: QueryClient): string[] | undefined => qc.getQueryData<FavoriteDto[]>(["favorites"])?.map((favorite) => favorite.noteId);
+
+  it("依序 DELETE；每篇成功就從 [favorites] 濾掉；整批只失效一次 [favorites]", async () => {
+    const calls = stubFetch({
+      "DELETE /api/favorites/a": () => ok(),
+      "DELETE /api/favorites/b": () => ok(),
+      "DELETE /api/favorites/c": () => ok(),
+    });
+    const qc = newClient();
+    qc.setQueryData(["favorites"], favs("a", "b", "c", "d"));
+    const invalidations = spyInvalidations(qc);
+    const seen: Array<string[] | undefined> = [];
+    const outcome = await unfavoriteInOrder(["a", "b", "c"], { queryClient: qc, onProgress: () => seen.push(ids(qc)) });
+    expect(calls.map((call) => `${call.method} ${call.url}`)).toEqual(["DELETE /api/favorites/a", "DELETE /api/favorites/b", "DELETE /api/favorites/c"]);
+    expect(seen).toEqual([["b", "c", "d"], ["c", "d"], ["d"]]);
+    expect(outcome.done).toEqual(["a", "b", "c"]);
+    expect(outcome.stopped).toBeNull();
+    expect(invalidations).toEqual([k("favorites")]);
+  });
+
+  it("429 → 停下、之後不送、已完成的已濾掉、remaining 從停下那篇起；停下時也失效", async () => {
+    const calls = stubFetch({
+      "DELETE /api/favorites/a": () => ok(),
+      "DELETE /api/favorites/b": () => fail(429, "too_many_requests"),
+    });
+    const qc = newClient();
+    qc.setQueryData(["favorites"], favs("a", "b", "c"));
+    const invalidations = spyInvalidations(qc);
+    const outcome = await unfavoriteInOrder(["a", "b", "c"], { queryClient: qc });
+    expect(calls).toHaveLength(2);
+    expect(outcome.done).toEqual(["a"]);
+    expect(outcome.stopped?.remaining).toEqual([{ kind: "note", id: "b" }, { kind: "note", id: "c" }]);
+    expect(ids(qc)).toEqual(["b", "c"]);
+    expect(invalidations).toEqual([k("favorites")]);
+  });
+
+  it("404 not_found → 略過、繼續下一篇；快取沒載入時不建立", async () => {
+    stubFetch({
+      "DELETE /api/favorites/a": () => fail(404, "not_found"),
+      "DELETE /api/favorites/b": () => ok(),
+    });
+    const qc = newClient();
+    const outcome = await unfavoriteInOrder(["a", "b"], { queryClient: qc });
+    expect(outcome.done).toEqual(["b"]);
+    expect(outcome.skipped).toBe(1);
+    expect(outcome.stopped).toBeNull();
+    expect(qc.getQueryData(["favorites"])).toBeUndefined();
   });
 });

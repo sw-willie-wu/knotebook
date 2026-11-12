@@ -1,4 +1,5 @@
 import { test, expect, type Locator, type Page } from "@playwright/test";
+import { E2E_ORIGIN } from "../ports.js";
 import { ADMIN, createNote, editorLocator, loginAs, waitForEditorSelection } from "./helpers.js";
 
 /**
@@ -128,7 +129,7 @@ async function expectNoMermaidLeftovers(page: Page): Promise<void> {
 }
 
 async function pasteMarkdown(page: Page, markdown: string): Promise<void> {
-  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: "http://localhost:3100" });
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: E2E_ORIGIN });
   const editor = editorLocator(page);
   await editor.click();
   await page.keyboard.press("ControlOrMeta+End");
@@ -300,7 +301,7 @@ test("#344 同一頁兩張相同原始碼的圖：都畫得出來、id 不衝突
 test("貼上 ```mermaid 純文字 → 自動變成圖", async ({ page, context }) => {
   // 真剪貼簿需要權限；`clipboard-read` 給 `navigator.clipboard` 用，貼上本身是
   // 鍵盤事件走瀏覽器原生路徑（跟使用者實際操作同一條）。
-  await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: "http://localhost:3100" });
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: E2E_ORIGIN });
 
   await loginAs(page, ADMIN.email, ADMIN.password);
   await createNote(page, `E2E mermaid paste ${Date.now()}`);
@@ -323,7 +324,7 @@ test("貼上帶 text/html 的 ```mermaid（從 GitHub README／AI 對話複製�
   // 那種剪貼簿**同時帶 text/plain 與 text/html**，走的是 `collab/paste.ts` 的**預設 handler**
   // 出口（`decideMarkdownPaste` 回 null），跟上面那條純文字走的是不同分支。單元測試用假的
   // `defaultPasteHandler` 只能驗接線，真剪貼簿的形狀只有這裡驗得到。
-  await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: "http://localhost:3100" });
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: E2E_ORIGIN });
 
   await loginAs(page, ADMIN.email, ADMIN.password);
   await createNote(page, `E2E mermaid html paste ${Date.now()}`);
