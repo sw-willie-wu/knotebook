@@ -1,18 +1,18 @@
 services:
   app:
-    # 拿掉基底的 GHCR 映像名：e2e 一律從原始碼 build，且產物維持叫 knotebook-e2e-app，不覆寫本機
+    # 拿掉基底的 GHCR 映像名：e2e 一律從原始碼 build，且產物叫 <E2E_PROJECT>-app，不覆寫本機
     # ghcr.io/sw-willie-wu/knotebook:latest（同一台機器上另一個 compose 專案用的是那個標籤）。
     image: !reset null
     env_file: !override []
     environment:
       DATABASE_URL: postgres://knotebook:knotebook@db:5432/knotebook
       APP_SECRET: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-      PUBLIC_URL: http://localhost:3100
+      PUBLIC_URL: http://localhost:${E2E_PORT:-3100} # 本機同時跑多組時由 scripts/test-e2e.sh 傳入不同埠；CI 不設就是 3100
       ADMIN_EMAIL: admin@e2e.local
       ADMIN_PASSWORD: e2e-admin-password
       KNOTEBOOK_E2E_TEST_HOOKS: "1" # #272：自動存版等待可壓成秒（PUBLIC_URL 是 localhost 才生效；只給 e2e 疊）
     ports: !override
-      - "127.0.0.1:3100:3000"
+      - "127.0.0.1:${E2E_PORT:-3100}:3000"
   db:
     scale: 1 # 同理顯式釘死：基底的 ${BUNDLED_DB:-1} 也讀 .env/shell——誰設了 BUNDLED_DB=0，e2e 疊就沒有 db
     environment:
@@ -22,7 +22,7 @@ services:
     build: { context: ./e2e, dockerfile: Dockerfile.stub }
     command: ["node", "stubs/fake-idp.mjs"]
     ports:
-      - "127.0.0.1:9400:9400" # 瀏覽器經 host-resolver-rules 打進來；control endpoint 也走這
+      - "127.0.0.1:${E2E_IDP_PORT:-9400}:9400" # 瀏覽器經 host-resolver-rules 打進來；control endpoint 也走這
   ai-stub:
     build: { context: ./e2e, dockerfile: Dockerfile.stub }
     command: ["node", "stubs/ai-stub.mjs"]

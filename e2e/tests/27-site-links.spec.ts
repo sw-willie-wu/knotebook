@@ -1,5 +1,6 @@
 import { writeFileSync } from "node:fs";
 import { expect, test, type Browser, type BrowserContext, type Frame, type Locator, type Page } from "@playwright/test";
+import { E2E_ORIGIN } from "../ports.js";
 import { ADMIN, createNote, createUserViaInvite, editorLocator, loginAs, noteIdFromUrl, randomEmail, reEscape, showSidebarTab, waitForEditorSelection } from "./helpers.js";
 
 /**
@@ -13,7 +14,7 @@ import { ADMIN, createNote, createUserViaInvite, editorLocator, loginAs, noteIdF
  * - 唯讀的編輯器（viewer、公開頁）沒有 `contenteditable="true"`，`editorLocator` 找不到——那些情境以頁面容器為範圍。
  */
 
-const ORIGIN = "http://localhost:3100";
+const ORIGIN = E2E_ORIGIN;
 const WIKILINK = '[data-inline-content-type="wikilink"]';
 
 async function grantClipboard(page: Page): Promise<void> {

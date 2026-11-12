@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
+import { E2E_ORIGIN } from "../ports.js";
 import { ADMIN, editorLocator, loginAs, setAutoWait, waitForEditorSelection } from "./helpers.js";
 
 /**
@@ -9,8 +10,8 @@ import { ADMIN, editorLocator, loginAs, setAutoWait, waitForEditorSelection } fr
  * 數字印成 `MEASURE-…` 行，寫進文件。期望（不多切）是產品要求——成立就留著當守衛；
  * 不成立就是發現，停下回報。
  */
-const COMPOSE = ["compose", "-p", "knotebook-e2e", "-f", "../docker-compose.yml", "-f", "../docker-compose.e2e.yml"];
-const ORIGIN = "http://localhost:3100";
+const COMPOSE = ["compose", "-p", process.env.E2E_PROJECT || "knotebook-e2e", "-f", "../docker-compose.yml", "-f", "../docker-compose.e2e.yml"];
+const ORIGIN = E2E_ORIGIN;
 /** 40×40 灰色 PNG（1×1 在編輯器裡點不到）。 */
 const PNG_40 = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAIAAAADnC86AAAAK0lEQVR4nO3NMQ0AAAwDoMqv7JpYsgcMkD6JWCwWi8VisVgsFovFYrFYfGcPqfaI6W3y9QAAAABJRU5ErkJggg==",

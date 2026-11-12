@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { expect, request as pwRequest, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 import { derivedVersionName } from "../../packages/shared/src/version-names.js";
+import { E2E_ORIGIN } from "../ports.js";
 
 /**
  * 疊內建的 env bootstrap admin（見 `docker-compose.e2e.yml` 的 `ADMIN_EMAIL`/
@@ -557,9 +558,6 @@ export async function openSelectionAiBox(page: Page, paragraphText: string): Pro
   await expect(box).toBeVisible();
   return box;
 }
-
-/** e2e 疊的 origin（`playwright.config.ts` 的 baseURL）；cookie 寫入請求帶 Origin（同 22-presentation／23）。 */
-const E2E_ORIGIN = "http://localhost:3100";
 
 /**
  * #272：e2e 測試縫——把自動存版等待 X 設成 `seconds` 秒（null＝回站台設定）。只有 e2e 疊有這條路由

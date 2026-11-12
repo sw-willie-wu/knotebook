@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { IDP_CONTROL_ORIGIN } from "../ports.js";
 import { ADMIN, createUserViaInvite, loginAs, randomEmail } from "./helpers.js";
 
 /**
@@ -14,7 +15,7 @@ import { ADMIN, createUserViaInvite, loginAs, randomEmail } from "./helpers.js";
  */
 
 const RUN = randomUUID().slice(0, 8);
-const ROOT_CONTROL_URL = "http://localhost:9400/control/next-login";
+const ROOT_CONTROL_URL = `${IDP_CONTROL_ORIGIN}/control/next-login`;
 /** #267 的「最後活動」欄英文欄名（以 #267 實際合入的 i18n 為準）。 */
 const LAST_ACTIVE_HEADER = "Last active";
 const CUSTOM_LABEL = "t26-custom";
