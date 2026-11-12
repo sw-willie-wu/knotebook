@@ -117,6 +117,13 @@ describe("濾站與總站數", () => {
     expect(fullTourStops().map((e) => e.stop)).toEqual(expected.map((e) => STOPS[e.id]));
   });
 
+  it("站台沒有 AI 動作：完整導覽少掉 AI 站；有就在 [[ 站與 / 站之間", () => {
+    const ids = (aiActions: StopContext["aiActions"]) => planStops(fullTourStops(), { ...CTX, aiActions }).map((e) => e.stop.id);
+    expect(ids([])).not.toContain("ai");
+    const withAi = ids([{ id: "rewrite", name: "Rewrite", applyMode: "preview", kind: "quick" }]);
+    expect(withAi.slice(withAi.indexOf("wikilink"), withAi.indexOf("slash") + 1)).toEqual(["wikilink", "ai", "slash"]);
+  });
+
   it("搜尋框有字：完整導覽少掉 tab 列、資料夾、搜尋三站", () => {
     const planned = planStops(fullTourStops(), { ...CTX, searchQuery: "ab" });
     expect(planned.map((e) => e.stop.id)).toEqual(["newNote", "header", "versions", "wikilink", "slash", "userMenu"]);

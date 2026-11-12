@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import i18n from "@/i18n";
 import * as Y from "yjs";
 import { BlockNoteEditor, SuggestionMenu } from "@blocknote/core";
 import { withCollaboration } from "@blocknote/core/yjs";
@@ -17,7 +18,10 @@ import {
   startLiveTrigger,
   stopTourTrigger,
   stopLiveTrigger,
+  liveSelectionTarget,
   liveTriggerTarget,
+  startLiveSelection,
+  stopLiveSelection,
 } from "./live-stops";
 import { isNarrowViewport, prepareStop, STOPS, stopTarget, type StopContext } from "./stops";
 
@@ -646,11 +650,181 @@ describe("installLiveStopInput", () => {
     expect(onOther).toHaveBeenCalledTimes(1);
   });
 
+  it("格式工具列上的點擊擋下（不會真的開 AI 框）", () => {
+    const popover = document.createElement("div");
+    popover.setAttribute("data-kb-formatting-toolbar-popover", "");
+    const button = document.createElement("button");
+    popover.appendChild(button);
+    document.body.appendChild(popover);
+    const onButton = vi.fn();
+    button.addEventListener("click", onButton);
+    button.click();
+    expect(onButton).not.toHaveBeenCalled();
+  });
+
   it("拆除後完全放行", () => {
     uninstall();
     expect(press({ key: "a" }).defaultPrevented).toBe(false);
     expect(press({ key: "ArrowRight" }).defaultPrevented).toBe(false);
     expect(handlers.next).not.toHaveBeenCalled();
     uninstall = installLiveStopInput(handlers);
+  });
+});
+
+describe("startLiveSelection／stopLiveSelection（AI 站）", () => {
+  const SENTENCE = i18n.t("tourGuide.sample.aiSentence");
+  const BLOCKS = [{ type: "paragraph", content: "intro" }, { type: "paragraph", content: SENTENCE }, { type: "paragraph" }];
+  const AI_CTX: StopContext = {
+    searchQuery: "",
+    aiActions: [{ id: "rewrite", name: "Rewrite", applyMode: "preview", kind: "quick" }],
+    sampleNoteId: NOTE_ID,
+    liveStops: false,
+  };
+
+  const selectedText = (editor: TourEditor) => {
+    const { state } = editor._tiptapEditor;
+    return state.doc.textBetween(state.selection.from, state.selection.to);
+  };
+
+  /** 格式工具列的假浮層：裡面有一顆有尺寸、名稱是 AI 的鈕。 */
+  function fakeToolbar(): HTMLButtonElement {
+    const popover = document.createElement("div");
+    popover.setAttribute("data-kb-formatting-toolbar-popover", "");
+    const button = document.createElement("button");
+    button.setAttribute("aria-label", i18n.t("ai.toolbar.trigger"));
+    vi.spyOn(button, "getBoundingClientRect").mockReturnValue(new DOMRect(10, 10, 40, 30));
+    popover.appendChild(button);
+    document.body.appendChild(popover);
+    return button;
+  }
+
+  it("進站：選取正好是那一句；離站：選取收合、過濾關掉", async () => {
+    const { editor } = await setup(BLOCKS);
+    startLiveSelection(NOTE_ID);
+    expect(selectedText(editor)).toBe(SENTENCE);
+    expect(isTourTransactionFilterOn(editor._tiptapEditor)).toBe(true);
+    stopLiveSelection(NOTE_ID);
+    expect(editor._tiptapEditor.state.selection.empty).toBe(true);
+    expect(isTourTransactionFilterOn(editor._tiptapEditor)).toBe(false);
+  });
+
+  it("文件、Y 狀態、撤銷堆疊前後都不變", async () => {
+    const { doc, editor } = await setup(BLOCKS);
+    const before = snapshot(doc, editor);
+    startLiveSelection(NOTE_ID);
+    expect(snapshot(doc, editor)).toEqual(before);
+    stopLiveSelection(NOTE_ID);
+    expect(snapshot(doc, editor)).toEqual(before);
+  });
+
+  it("那一句不在（使用者改掉了）：框第一個非空段落", async () => {
+    const { editor } = await setup([
+      { type: "paragraph" },
+      { type: "heading", props: { level: 2 }, content: "title" },
+      { type: "paragraph", content: "first filled" },
+      { type: "paragraph", content: "second" },
+    ]);
+    startLiveSelection(NOTE_ID);
+    expect(selectedText(editor)).toBe("first filled");
+    stopLiveSelection(NOTE_ID);
+  });
+
+  it("沒有任何非空段落：不選取、不拋錯，過濾照樣能關", async () => {
+    const { editor } = await setup([{ type: "paragraph" }]);
+    expect(() => startLiveSelection(NOTE_ID)).not.toThrow();
+    expect(editor._tiptapEditor.state.selection.empty).toBe(true);
+    stopLiveSelection(NOTE_ID);
+    expect(isTourTransactionFilterOn(editor._tiptapEditor)).toBe(false);
+  });
+
+  it("過濾開著：取代選取的交易被擋，那一句還在且仍是選取", async () => {
+    const { doc, editor } = await setup(BLOCKS);
+    startLiveSelection(NOTE_ID);
+    const before = snapshot(doc, editor);
+    const view = editor._tiptapEditor.view;
+    view.dispatch(view.state.tr.insertText("x"));
+    view.dispatch(view.state.tr.insertText("測").setMeta("composition", 1));
+    expect(snapshot(doc, editor)).toEqual(before);
+    expect(selectedText(editor)).toBe(SENTENCE);
+    stopLiveSelection(NOTE_ID);
+  });
+
+  it("呼叫順序：先 focus，再用一筆帶 scrollIntoView 的交易設選取", async () => {
+    const { editor } = await setup(BLOCKS);
+    const order: string[] = [];
+    vi.spyOn(editor, "focus").mockImplementation(() => {
+      order.push("focus");
+    });
+    const view = editor._tiptapEditor.view;
+    const dispatch = view.dispatch.bind(view);
+    vi.spyOn(view, "dispatch").mockImplementation((tr) => {
+      order.push(`dispatch selection=${tr.selection.empty ? "empty" : "range"} scroll=${tr.scrolledIntoView}`);
+      dispatch(tr);
+    });
+    startLiveSelection(NOTE_ID);
+    expect(order).toEqual(["focus", "dispatch selection=range scroll=true"]);
+    stopLiveSelection(NOTE_ID);
+  });
+
+  it("重複進站不再設一次選取；沒開始過就離站、重複離站都是空操作", async () => {
+    const { editor } = await setup(BLOCKS);
+    expect(() => stopLiveSelection(NOTE_ID)).not.toThrow();
+    startLiveSelection(NOTE_ID);
+    const dispatch = vi.spyOn(editor._tiptapEditor.view, "dispatch");
+    startLiveSelection(NOTE_ID);
+    expect(dispatch).not.toHaveBeenCalled();
+    stopLiveSelection(NOTE_ID);
+    stopLiveSelection(NOTE_ID);
+    expect(editor._tiptapEditor.state.selection.empty).toBe(true);
+  });
+
+  it("沒有登記的編輯器：什麼都不做、不拋錯", () => {
+    expect(() => startLiveSelection(NOTE_ID)).not.toThrow();
+    expect(() => stopLiveSelection(NOTE_ID)).not.toThrow();
+  });
+
+  it("目標：工具列浮層裡名稱是 AI 的鈕；工具列沒出現、或浮層外有同名鈕都不算", () => {
+    expect(liveSelectionTarget()).toEqual([]);
+    const outside = document.createElement("button");
+    outside.setAttribute("aria-label", i18n.t("ai.toolbar.trigger"));
+    document.body.appendChild(outside);
+    expect(liveSelectionTarget()).toEqual([]);
+    const ai = fakeToolbar();
+    expect(liveSelectionTarget()).toEqual([ai]);
+  });
+
+  it("接進引擎：進站選取那一句、AI 鈕被挖亮；下一步、結束、卸載都收合選取並關過濾，文件不變", async () => {
+    const { doc, editor } = await setup(BLOCKS);
+    const before = snapshot(doc, editor);
+    const ai = fakeToolbar();
+    for (const leaveBy of ["next", "close", "unmount"] as const) {
+      const last = fakeTargetEl("userMenu");
+      const lastStop: TourStopEntry = { stop: { id: "userMenu", titleKey: "x", bodyKey: "x", target: () => [last] } };
+      const engine = new TourEngine([{ stop: STOPS.ai }, lastStop], AI_CTX);
+      await engine.begin();
+      expect(engine.getSnapshot().entry?.stop.id, leaveBy).toBe("ai");
+      expect(stopTarget(STOPS.ai, AI_CTX), leaveBy).toEqual([ai]);
+      expect(selectedText(editor), leaveBy).toBe(SENTENCE);
+      expect(isTourTransactionFilterOn(editor._tiptapEditor), leaveBy).toBe(true);
+      expect(STOPS.ai.live?.(AI_CTX)).toBe(true);
+      if (leaveBy === "next") engine.next();
+      else engine.end(leaveBy);
+      await vi.waitFor(() => {
+        expect(editor._tiptapEditor.state.selection.empty, leaveBy).toBe(true);
+        expect(isTourTransactionFilterOn(editor._tiptapEditor), leaveBy).toBe(false);
+      });
+      expect(snapshot(doc, editor), leaveBy).toEqual(before);
+    }
+  });
+
+  it("窄視窗也跑 prepare；沒有示範筆記的編輯器就不是演示", async () => {
+    const { editor } = await setup(BLOCKS);
+    vi.spyOn(window, "matchMedia").mockImplementation(
+      (query: string) => ({ matches: true, media: query, addEventListener: () => {}, removeEventListener: () => {} }) as unknown as MediaQueryList,
+    );
+    prepareStop(STOPS.ai, AI_CTX);
+    expect(selectedText(editor)).toBe(SENTENCE);
+    stopLiveSelection(NOTE_ID);
+    expect(STOPS.ai.live?.({ ...AI_CTX, sampleNoteId: "other" })).toBe(false);
   });
 });

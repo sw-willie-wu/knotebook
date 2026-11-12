@@ -48,6 +48,10 @@
         "title": "Link to another note",
         "body": "Type [[ anywhere in a note and pick another note to link to it. The note you link to lists this one under \"Mentioned in\"."
       },
+      "ai": {
+        "title": "Ask AI about a selection",
+        "body": "Select text and press the AI button in the toolbar that appears to have AI work on it. A sentence is already selected for you here."
+      },
       "slash": {
         "title": "Insert blocks with /",
         "body": "Type / to insert headings, lists, tables, diagrams and more, like the flowchart in this note. For side-by-side columns, pick \"2 columns\" (up to 4), or drag the ⋮⋮ beside a block to the left or right edge of another block. Drag the divider between columns to resize them."

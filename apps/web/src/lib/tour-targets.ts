@@ -50,6 +50,21 @@ export function findTourTarget(id: TourTargetId, root: ParentNode = document): E
   return null;
 }
 
+/**
+ * 選取文字時浮出的格式工具列裡、可及名稱等於 `name` 的鈕。工具列是 portal 出來的浮層（外層帶
+ * `data-kb-formatting-toolbar-popover`），鈕本身沒有導覽屬性，所以靠名稱找；範圍限在浮層內，使用者的內容不會撞名。
+ * 同 `findTourTarget`：在 `aria-hidden`／`inert` 範圍內的不算。
+ */
+export function findFormattingToolbarButton(name: string): Element | null {
+  for (const popover of document.querySelectorAll("[data-kb-formatting-toolbar-popover]")) {
+    if (popover.closest('[aria-hidden="true"], [inert]') !== null) continue;
+    for (const button of popover.querySelectorAll("button")) {
+      if (button.getAttribute("aria-label") === name) return button;
+    }
+  }
+  return null;
+}
+
 /** 開抽屜的漢堡鈕：在筆記頁頁首，或沒有頁首的頁面上的窄版頂列（同一時間只會掛其中一顆）。 */
 export function findDrawerButton(): Element | null {
   return findTourTarget("drawerButton");

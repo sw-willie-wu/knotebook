@@ -1,6 +1,8 @@
 import { SuggestionMenu } from "@blocknote/core";
+import i18n from "@/i18n";
+import "@/i18n/tour-strings";
 import { getTourNoteEditor, setTourTransactionFilter, type TourEditor } from "@/lib/tour-bridge";
-import { findTourTarget, type TourTargetId } from "@/lib/tour-targets";
+import { findFormattingToolbarButton, findTourTarget, type TourTargetId } from "@/lib/tour-targets";
 
 /**
  * 功能導覽的現場演示：在示範筆記的編輯器裡叫出真的選單，整個過程不寫文件。
@@ -103,6 +105,77 @@ export function stopLiveTrigger(noteId: string): void {
   }
 }
 
+/** 正在框選演示句的編輯器。 */
+const selecting = new WeakSet<TourEditor>();
+
+type PmDoc = TourEditor["_tiptapEditor"]["state"]["doc"];
+
+/**
+ * 示範筆記裡要框起來的那句：內容等於範例句的段落；找不到（使用者改掉了）就是第一個非空段落。
+ * 回傳文字內容的起訖位置，沒有任何非空段落時回 null。
+ */
+function findDemoSentenceRange(doc: PmDoc): { from: number; to: number } | null {
+  const sentence = i18n.t("tourGuide.sample.aiSentence");
+  let exact: { from: number; to: number } | null = null;
+  let firstFilled: { from: number; to: number } | null = null;
+  doc.descendants((node, pos) => {
+    if (exact !== null) return false;
+    if (!node.isTextblock) return true;
+    if (node.textContent.trim() === "") return false;
+    const range = { from: pos + 1, to: pos + 1 + node.content.size };
+    if (node.textContent === sentence) exact = range;
+    else if (firstFilled === null && node.type.name === "paragraph") firstFilled = range;
+    return false;
+  });
+  return exact ?? firstFilled;
+}
+
+/**
+ * 站點的 `prepare`（AI 站）：開過濾，焦點放進編輯器，再用一筆交易把演示句設成選取並捲進視窗。
+ * 先要有焦點：沒有焦點時格式工具列雖然會出現，選取反白看不到，編輯器也不會捲到那句。
+ * 只改選取、不改文件：不進撤銷、不寫進 Y 文件。重複呼叫沒有作用。
+ */
+export function startLiveSelection(noteId: string): void {
+  const editor = getTourNoteEditor(noteId);
+  if (editor === null) return;
+  setTourTransactionFilter(noteId, true);
+  if (selecting.has(editor)) return;
+  const view = editor._tiptapEditor.view;
+  const range = findDemoSentenceRange(view.state.doc);
+  if (range === null) return;
+  selecting.add(editor);
+  editor.focus();
+  const { state } = view;
+  // TextSelection 沒有可 import 的來源：從目前選取的 class 取（`near` 在文字段落裡必回 TextSelection）。
+  const current = state.selection.constructor as unknown as { near(pos: unknown): { constructor: unknown } };
+  const TextSel = current.near(state.doc.resolve(range.from)).constructor as unknown as {
+    create(doc: PmDoc, anchor: number, head: number): typeof state.selection;
+  };
+  view.dispatch(state.tr.setSelection(TextSel.create(state.doc, range.from, range.to)).scrollIntoView());
+}
+
+/** 站點的 `leave`（AI 站）：把選取收合到末端、關過濾。沒開始過、重複呼叫都是空操作；過濾一定關。 */
+export function stopLiveSelection(noteId: string): void {
+  try {
+    const editor = getTourNoteEditor(noteId);
+    if (editor !== null && selecting.delete(editor) && !editor._tiptapEditor.isDestroyed) {
+      const { state, view } = editor._tiptapEditor;
+      if (!state.selection.empty) {
+        const SelCtor = state.selection.constructor as unknown as { near(pos: unknown): typeof state.selection };
+        view.dispatch(state.tr.setSelection(SelCtor.near(state.doc.resolve(state.selection.to))));
+      }
+    }
+  } finally {
+    setTourTransactionFilter(noteId, false);
+  }
+}
+
+/** AI 站要挖亮的東西：框選工具列上的 AI 鈕。工具列還沒畫出來之前回空陣列，引擎會等。 */
+export function liveSelectionTarget(): Element[] {
+  const button = findFormattingToolbarButton(i18n.t("ai.toolbar.trigger"));
+  return button === null ? [] : [button];
+}
+
 /** 已經為退路目標捲過的元素：目標每格畫面都會重查，只在第一次找到時捲，之後使用者自己捲走就不去搶。 */
 const scrolledFallbacks = new WeakSet<Element>();
 
@@ -163,7 +236,10 @@ export function installLiveStopInput({ next, back }: LiveStopInput): () => void 
     else if (e.key === "ArrowLeft") back();
   };
   const onClick = (e: MouseEvent) => {
-    if (e.target instanceof Element && e.target.closest('[data-kb-tour-target="wikilinkMenu"], [data-kb-tour-target="slashMenu"]') !== null) {
+    if (
+      e.target instanceof Element &&
+      e.target.closest('[data-kb-tour-target="wikilinkMenu"], [data-kb-tour-target="slashMenu"], [data-kb-formatting-toolbar-popover]') !== null
+    ) {
       e.preventDefault();
       e.stopPropagation();
     }

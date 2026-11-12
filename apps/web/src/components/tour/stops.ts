@@ -2,9 +2,17 @@ import type { AiActionDto } from "@knotebook/shared";
 import type { TFunction } from "i18next";
 import "@/i18n/tour-strings";
 import { isMacPlatform } from "@/lib/platform";
-import { getShellControls } from "@/lib/tour-bridge";
+import { getShellControls, getTourNoteEditor } from "@/lib/tour-bridge";
 import { findDrawerButton, findTourTarget, findUserMenuTrigger, isNarrowViewport } from "@/lib/tour-targets";
-import { findInSampleEditor, startLiveTrigger, stopLiveTrigger, liveTriggerTarget } from "./live-stops";
+import {
+  findInSampleEditor,
+  liveSelectionTarget,
+  liveTriggerTarget,
+  startLiveSelection,
+  startLiveTrigger,
+  stopLiveSelection,
+  stopLiveTrigger,
+} from "./live-stops";
 
 /**
  * 功能導覽的站點表。每站說明要指哪裡（`target`）、要先做什麼（`prepare`）、什麼情況下整站不跑（`precondition`）。
@@ -16,7 +24,7 @@ import { findInSampleEditor, startLiveTrigger, stopLiveTrigger, liveTriggerTarge
  *   所以側欄裡的站改指頁首的漢堡鈕，也不跑 `prepare`（切 tab 在窄視窗會順便打開抽屜）。
  */
 
-export type StopId = "tabs" | "newNote" | "folders" | "search" | "header" | "versions" | "wikilink" | "slash" | "userMenu";
+export type StopId = "tabs" | "newNote" | "folders" | "search" | "header" | "versions" | "wikilink" | "ai" | "slash" | "userMenu";
 
 export interface StopContext {
   /** 側欄搜尋框目前的字。 */
@@ -149,6 +157,19 @@ export const STOPS: Readonly<Record<StopId, StopDef>> = {
     leave: (ctx) => stopLiveTrigger(ctx.sampleNoteId),
     live: (ctx) => ctx.liveStops,
   },
+  ai: {
+    id: "ai",
+    titleKey: "tourGuide.stops.ai.title",
+    bodyKey: "tourGuide.stops.ai.body",
+    target: () => liveSelectionTarget(),
+    prepare: (ctx) => startLiveSelection(ctx.sampleNoteId),
+    prepareInNarrow: true,
+    leave: (ctx) => stopLiveSelection(ctx.sampleNoteId),
+    // 站台沒有設定 AI 就整站略過（AI 工具列不會出現）。
+    precondition: (ctx) => ctx.aiActions.length > 0,
+    // 只選取、不需要空段落，所以不看 `liveStops`；拿不到示範筆記的編輯器就不是演示。
+    live: (ctx) => getTourNoteEditor(ctx.sampleNoteId) !== null,
+  },
   slash: {
     id: "slash",
     titleKey: "tourGuide.stops.slash.title",
@@ -178,7 +199,7 @@ export const STOPS: Readonly<Record<StopId, StopDef>> = {
 };
 
 /** 完整導覽的站序；最後一站固定是 userMenu。 */
-export const FULL_TOUR: readonly [StopId, ...StopId[]] = ["tabs", "newNote", "folders", "search", "header", "versions", "wikilink", "slash", "userMenu"];
+export const FULL_TOUR: readonly [StopId, ...StopId[]] = ["tabs", "newNote", "folders", "search", "header", "versions", "wikilink", "ai", "slash", "userMenu"];
 
 /** 依目前視窗寬窄找目標。 */
 export function stopTarget(stop: StopDef, ctx: StopContext): Element[] {
