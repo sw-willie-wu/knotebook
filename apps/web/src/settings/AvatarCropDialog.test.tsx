@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { formatBytes, type AvatarCandidateDto } from "@knotebook/shared";
+import { formatBytes, type AvatarCandidateDto, type AvatarCropUpload } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { AVATARS_QUERY_KEY } from "@/api/avatars";
 import { AUTH_CONFIG_QUERY_KEY } from "@/api/authConfig";
@@ -348,7 +348,7 @@ describe("AvatarCropDialog", () => {
       expect((form.get("original") as File).name).toBe("alice.png");
       expect((form.get("display") as File).name).toBe("display.webp");
       const crop = JSON.parse(form.get("crop") as string) as Record<string, number>;
-      expect(crop).toEqual({ x: 100, y: 0, size: 400 });
+      expect(crop).toEqual({ x: 100, y: 0, size: 400, width: 600, height: 400 } satisfies AvatarCropUpload);
       for (const v of Object.values(crop)) expect(Number.isInteger(v)).toBe(true);
       expect(vi.mocked(encode.renderDisplay)).toHaveBeenCalledTimes(1);
       expect(vi.mocked(encode.renderDisplay).mock.calls[0]![1]).toEqual({ x: 100, y: 0, size: 400 });
@@ -382,7 +382,7 @@ describe("AvatarCropDialog", () => {
       const form = call!.body as FormData;
       expect(form.get("version")).toBe("3");
       expect(form.get("original")).toBeNull();
-      expect(JSON.parse(form.get("crop") as string)).toEqual({ x: 100, y: 0, size: 200 });
+      expect(JSON.parse(form.get("crop") as string)).toEqual({ x: 100, y: 0, size: 200, width: 600, height: 400 } satisfies AvatarCropUpload);
     });
 
     it("調整既有候選：送出的 version 是取原圖當下的，之後 props 換成新版也不變（伺服器回 avatar_outdated 時照既有流程關框）", async () => {
@@ -555,7 +555,7 @@ describe("AvatarCropDialog", () => {
       fireEvent.click(saveButton(dialog));
       await waitFor(() => expect(onSaved).toHaveBeenCalled());
       const crop = JSON.parse((mutations(calls)[0]!.body as FormData).get("crop") as string) as Record<string, number>;
-      expect(crop).toEqual({ x: 200, y: 100, size: 200 });
+      expect(crop).toEqual({ x: 200, y: 100, size: 200, width: 600, height: 400 } satisfies AvatarCropUpload);
     });
   });
 

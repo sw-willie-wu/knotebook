@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createElement, type ReactNode } from "react";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { AvatarCandidateDto, AvatarListDto, UserDto } from "@knotebook/shared";
+import type { AvatarCandidateDto, AvatarCropUpload, AvatarListDto, UserDto } from "@knotebook/shared";
 import { SESSION_QUERY_KEY } from "@/auth/useSession";
 import { ApiFail } from "./client";
 import { STORAGE_USAGE_QUERY_KEY } from "./storage";
@@ -83,7 +83,7 @@ function invalidatedKeys(spy: ReturnType<typeof setup>["invalidate"]): unknown[]
   return spy.mock.calls.map(c => (c[0] as { queryKey?: unknown }).queryKey);
 }
 
-const CROP = { x: 4, y: 8, size: 64 };
+const CROP = { x: 4, y: 8, size: 64, width: 100, height: 80 } satisfies AvatarCropUpload;
 const DISPLAY = new Blob(["d"], { type: "image/webp" });
 
 afterEach(() => {

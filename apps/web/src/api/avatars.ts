@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient, type UseQueryResult } from "@tanstack/react-query";
-import type { AvatarCandidateDto, AvatarCropDto, AvatarListDto, UserDto } from "@knotebook/shared";
+import type { AvatarCandidateDto, AvatarCropUpload, AvatarListDto, UserDto } from "@knotebook/shared";
 import { SESSION_QUERY_KEY } from "@/auth/useSession";
 import { api, ApiFail } from "./client";
 import { STORAGE_USAGE_QUERY_KEY } from "./storage";
@@ -35,7 +35,7 @@ export interface UploadAvatarInput {
   /** 瀏覽器裁出的顯示圖。 */
   display: Blob;
   /** 裁切框（原圖像素座標）。 */
-  crop: AvatarCropDto;
+  crop: AvatarCropUpload;
 }
 
 /** 上傳新頭貼（multipart：`original`、`display`、`crop`＝JSON 字串）。`api()` 對 FormData 不補 Content-Type。 */
@@ -56,7 +56,7 @@ export function useUploadAvatar() {
 export interface UpdateAvatarDisplayInput {
   id: string;
   display: Blob;
-  crop: AvatarCropDto;
+  crop: AvatarCropUpload;
   /** 呼叫端看到的候選版本，即該候選 DTO 的 `avatar.v`；server 發現不是最新就回 `avatar_outdated`。 */
   version: number;
 }

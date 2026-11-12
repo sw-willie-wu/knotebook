@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { formatBytes, type AvatarCandidateDto } from "@knotebook/shared";
+import { formatBytes, type AvatarCandidateDto, type AvatarCropUpload } from "@knotebook/shared";
 import { AVATARS_QUERY_KEY, fetchAvatarOriginal, useUpdateAvatarDisplay, useUploadAvatar } from "@/api/avatars";
 import { useAuthConfig } from "@/api/authConfig";
 import { ApiFail } from "@/api/client";
@@ -280,12 +280,13 @@ export function AvatarCropDialog({ open, source, onOpenChange, onSaved }: Avatar
       // 解碼與編碼只在這裡才載入（獨立 chunk，不進首包）。
       const encode = await import("@/avatars/encode");
       let display: Blob;
-      let crop: ReturnType<typeof viewToCrop>;
+      let crop: AvatarCropUpload;
       try {
         const bitmap = await encode.decodeImage(original);
         try {
-          crop = viewToCrop({ scale: geo.scale, offset: geo.offset }, bitmap.width, bitmap.height, geo.viewport);
-          display = await encode.renderDisplay(bitmap, crop);
+          const box = viewToCrop({ scale: geo.scale, offset: geo.offset }, bitmap.width, bitmap.height, geo.viewport);
+          crop = { ...box, width: bitmap.width, height: bitmap.height };
+          display = await encode.renderDisplay(bitmap, box);
         } finally {
           bitmap.close();
         }

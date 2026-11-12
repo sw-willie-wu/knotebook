@@ -4,7 +4,7 @@ import { rename, stat, unlink, writeFile } from "node:fs/promises";
 import { and, eq } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { MAX_AVATAR_DISPLAY_BYTES } from "@knotebook/shared";
+import { MAX_AVATAR_DISPLAY_BYTES, type AvatarCropUpload } from "@knotebook/shared";
 import type { UserGate } from "../auth/session.js";
 import {
   deleteAvatarInTx,
@@ -68,6 +68,11 @@ const cropFieldSchema = z
   .refine(c => c.x + c.size <= c.width && c.y + c.size <= c.height);
 
 type CropField = z.infer<typeof cropFieldSchema>;
+
+// 雙向相等的編譯期斷言：單向 `satisfies z.ZodType<…>` 抓不到 shared 型別少欄。
+type Equal<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+const _cropShapeMatchesShared: Equal<CropField, AvatarCropUpload> = true;
+void _cropShapeMatchesShared;
 
 const selectBodySchema = z.object({ candidateId: z.string().regex(UUID_RE).nullable() }).strict();
 
