@@ -123,8 +123,10 @@ test("E1＋E2：寬螢幕從首頁 Ctrl+K 搜 → 點片段捲到 Gamma 並高�
 
   // E1：首頁、Ctrl+K
   await page.goto("/");
-  await page.keyboard.press("ControlOrMeta+k");
   const search = page.getByRole("complementary").getByRole("textbox", { name: "Search notes" });
+  // Ctrl+K 的監聽掛在 AppShell；登入檢查的 Loading 結束、搜尋框可見後才按，否則按鍵沒人接。
+  await expect(search).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+k");
   await expect(search).toBeFocused();
   await search.fill(kw);
   const snippet = snippetOf(page.getByRole("complementary"), `${pathOf(a)}#b-${gammaId}`);
