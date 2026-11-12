@@ -118,7 +118,7 @@ export function adminUsersRoutes(deps: AdminUsersRouteDeps) {
     app.get("/api/admin/users", { preHandler: app.requireAdmin }, async () => {
       // 次要排序鍵 id asc（同 notes.ts GET /api/notes 清單慣例）：createdAt 精度不足以
       // 保證唯一序，兩筆使用者在同一毫秒建立時排序會不穩定。
-      // 用量一次 GROUP BY（沒有附件的使用者不在 Map 裡 → 0）；方案以 inner join 帶出（storage_plan_id NOT NULL＋FK）。
+      // 用量見 listSpaceUsage（附件與頭貼都沒有的使用者不在 Map 裡 → 0）；方案以 inner join 帶出（storage_plan_id NOT NULL＋FK）。
       const usage = await listSpaceUsage(deps.db, "user");
       const rows = await deps.db
         .select({ ...adminUserColumns, planId: storagePlans.id, planName: storagePlans.name, quotaBytes: storagePlans.quotaBytes })

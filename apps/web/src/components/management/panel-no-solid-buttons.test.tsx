@@ -42,7 +42,7 @@ const TOKEN: ApiTokenDto = {
 };
 const STORAGE: StorageUsageDto = {
   usedBytes: 1048576, quotaBytes: 2147483648, planName: "Basic",
-  byKind: { image: 1048576, audio: 0, video: 0, document: 0, other: 0 },
+  byKind: { image: 1048576, audio: 0, video: 0, document: 0, other: 0, avatar: 0 },
 };
 const GROUPS: GroupDto[] = [groupDto({ id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", name: "Team Alpha" }, adminRole())];
 const GROUP_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
@@ -70,7 +70,7 @@ const PANEL3_GETS: Record<string, unknown> = {
   [`/api/groups/${GROUP_ID}/roles`]: [adminRole(), memberRole(), customRole({ id: "r-custom", name: "Reader", memberCount: 0 })],
   [`/api/groups/${GROUP_ID}/storage`]: {
     usedBytes: 1048576, quotaBytes: 2147483648, planName: "Basic",
-    byKind: { image: 1048576, audio: 0, video: 0, document: 0, other: 0 },
+    byKind: { image: 1048576, audio: 0, video: 0, document: 0, other: 0, avatar: 0 },
     byMember: [{ userId: "u-admin", handle: "admin", displayName: "Admin", bytes: 1048576 }],
   },
   "/api/admin/users": [

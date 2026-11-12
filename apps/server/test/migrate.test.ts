@@ -18,6 +18,7 @@ const snapshotLatest = JSON.parse(readFileSync(path.join(drizzleDirForTest, SNAP
     checkConstraints?: Record<string, { name: string; value: string }>;
     columns?: Record<string, { notNull: boolean }>;
     foreignKeys?: Record<string, { name: string; onDelete?: string }>;
+    indexes?: Record<string, { isUnique: boolean; where?: string }>;
   }>;
 };
 const pgDialect = new PgDialect();
@@ -1408,7 +1409,7 @@ describe("0009_api-tokens", () => {
       expect(names, i).toContain(i);
   });
 
-  it("schema.ts 的二十六個宣告沒有靜默漂移（四個 OAuth／token 宣告零 import；#103／#175 的四張表的 CHECK 也在這裡逐字比對、#187 的三張表、#93 的兩張表、#200 的一張表、容量上限的 users／storage_plans、版本歷史的 note_versions、#269 的 note_link_conversion、#291 的 handle_renames、#286 的 one_time_links（#285 擴充）、資料夾的 folders／note_placements、bulk transfer 的 transfer_bases／transfer_creates）", async () => {
+  it("schema.ts 的二十九個宣告沒有靜默漂移（四個 OAuth／token 宣告零 import；#103／#175 的四張表的 CHECK 也在這裡逐字比對、#187 的三張表、#93 的兩張表、#200 的一張表、容量上限的 users／storage_plans、版本歷史的 note_versions、#269 的 note_link_conversion、#291 的 handle_renames、#286 的 one_time_links（#285 擴充）、資料夾的 folders／note_placements、bulk transfer 的 transfer_bases／transfer_creates）", async () => {
     // 比照 0008 的同族守衛：把 schema.ts 的宣告與 migration 造出來的 DB 對起來。
     // 沒有這一案的話，把 schema.ts 的四段 pgTable 整個刪掉，全套測試照樣綠——
     // 只有下一次 db:generate 會產出 DROP TABLE。
@@ -1581,6 +1582,25 @@ describe("0009_api-tokens", () => {
     expect(uidx!.config.unique).toBe(true);
     expect(uidx!.config.where, "partial where 不可省略").toBeDefined();
     expect(uidx!.config.columns.map(c => (c as { name?: string }).name)).toEqual(["user_id", "client_id"]);
+
+    // user_avatars 的兩條部分唯一索引：拿掉 unique 或 where 都會讓「至多一張目前頭貼」「一個身分至多一張」變質（或誤擋）。
+    // 宣告端（unique／where／欄）、snapshot 端（isUnique／where 逐字）、DB 端（indexdef）三方都比。
+    const avatarCfg = getTableConfig(userAvatars);
+    const avatarSnap = snapshotLatest.tables["public.user_avatars"]!.indexes!;
+    for (const [name, column, dbWhere] of [
+      ["user_avatars_identity_idx", "identity_id", "(identity_id IS NOT NULL)"],
+      ["user_avatars_current_idx", "user_id", "is_current"],
+    ] as const) {
+      const idx = avatarCfg.indexes.find(i => i.config.name === name);
+      expect(idx, `${name} 宣告存在`).toBeDefined();
+      expect(idx!.config.unique, `${name} 必須是 unique`).toBe(true);
+      expect(idx!.config.where, `${name} 的 partial where 不可省略`).toBeDefined();
+      expect(idx!.config.columns.map(c => (c as { name?: string }).name), `${name} 的欄`).toEqual([column]);
+      expect(pgDialect.sqlToQuery(idx!.config.where!).sql, `${name} 的 where 對 snapshot`).toBe(avatarSnap[name]!.where);
+      expect(avatarSnap[name]!.isUnique, `${name} 的 snapshot isUnique`).toBe(true);
+      const { rows } = await pool.query(`select indexdef from pg_indexes where tablename = 'user_avatars' and indexname = $1`, [name]);
+      expect(rows[0]?.indexdef, `${name} 的 DB 定義`).toBe(`CREATE UNIQUE INDEX ${name} ON public.user_avatars USING btree (${column}) WHERE ${dbWhere}`);
+    }
   });
 
   it("0009 檔內無 CONCURRENTLY／行首 COMMIT（單一 tx 前提的輔助 grep，比照 0007／0008）", () => {
@@ -3586,6 +3606,26 @@ describe("0041_user-avatars（#404 使用者頭貼）", () => {
     await pool.query(`delete from user_identities where id = $1`, [ident]);
     const { rows: left } = await pool.query(`select identity_id from user_avatars where id = $1`, [oidcId]);
     expect(left).toEqual([{ identity_id: null }]);
+  });
+
+  it("已有資料的庫升級：使用者、筆記、身分列原樣，avatar_auto 預設 true、頭貼表是空的、新欄位為 NULL", async () => {
+    const { pool, db } = await freshEmptyDb();
+    // 前一支取 journal 的相對位置：編號跳號期間 `idxOfTag(TAG) - 1` 不存在。
+    const es = journalEntries();
+    const prevIdx = es[es.findIndex(e => e.tag === "0041_user-avatars") - 1]!.idx;
+    await applyMigrationsThrough(pool, prevIdx);
+    const alice = await newUser(pool, "av-upgrade@example.com");
+    const note = (await pool.query(`insert into notes (owner_id) values ($1) returning id`, [alice])).rows[0].id as string;
+    const ident = await newIdentity(pool, alice, "sub-upgrade");
+    await runMigrations(db);
+    const { rows: users1 } = await pool.query(`select email, avatar_auto from users where id = $1`, [alice]);
+    expect(users1).toEqual([{ email: "av-upgrade@example.com", avatar_auto: true }]);
+    expect((await pool.query(`select 1 from notes where id = $1 and owner_id = $2`, [note, alice])).rowCount).toBe(1);
+    const { rows: identRows } = await pool.query(`select last_picture_url, picture_dismissed_url from user_identities where id = $1`, [ident]);
+    expect(identRows).toEqual([{ last_picture_url: null, picture_dismissed_url: null }]);
+    expect((await pool.query(`select count(*)::int as n from user_avatars`)).rows[0].n).toBe(0);
+    // 升級後的庫可以正常新增頭貼
+    await insertAvatar(pool, alice, { is_current: true });
   });
 
   it("SQL 檔無 CONCURRENTLY／行首 COMMIT；不刪東西、不動 users.avatar_url", () => {

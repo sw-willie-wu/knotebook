@@ -57,7 +57,7 @@ export const EMPTY_GROUP_USAGE = {
   usedBytes: 0,
   quotaBytes: 2147483648,
   planName: "Basic",
-  byKind: { image: 0, audio: 0, video: 0, document: 0, other: 0 },
+  byKind: { image: 0, audio: 0, video: 0, document: 0, other: 0, avatar: 0 },
   byMember: [],
 };
 

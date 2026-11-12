@@ -76,7 +76,7 @@ export const users = pgTable("users", {
   // 跟 last_login_at 一樣永不等鎖（`SKIP LOCKED`），併發下偶爾漏記。migration 0024 以 last_login_at 回填。
   lastActiveAt: timestamp("last_active_at", { withTimezone: true }),
   // 頭貼：true＝使用者從未自己選過頭貼，OIDC 登入帶回的圖片可以自動選用。
-  // 使用者任何一次選用、不使用、上傳、刪除目前頭貼都會把它設為 false。
+  // 使用者任何一次選用、改用登入帳號的頭貼、不使用、上傳、刪除目前頭貼都會把它設為 false。
   avatarAuto: boolean("avatar_auto").notNull().default(true),
 }, t => [
   uniqueIndex("users_oidc_idx").on(t.oidcIssuer, t.oidcSub),
