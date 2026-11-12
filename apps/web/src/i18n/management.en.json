@@ -523,6 +523,19 @@
     },
     "account": {
       "description": "The name others see, and the name in your public links.",
+      "avatar": {
+        "tooLarge": "The image is larger than the {{size}} limit.",
+        "crop": {
+          "title": "Adjust picture",
+          "description": "Drag to move. Use the slider or scroll to zoom.",
+          "area": "Crop area",
+          "zoom": "Zoom",
+          "save": "Save",
+          "saving": "Uploading…",
+          "unreadable": "Couldn't read this image. PNG, JPEG and WebP are supported.",
+          "uploadFailed": "Upload failed. Please try again."
+        }
+      },
       "displayName": {
         "title": "Display name",
         "description": "The name shown in the share panel, version history and group member lists.",

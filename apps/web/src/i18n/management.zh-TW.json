@@ -523,6 +523,19 @@
     },
     "account": {
       "description": "別人看到的名字，以及公開網址裡的名字。",
+      "avatar": {
+        "tooLarge": "圖片超過 {{size}} 上限。",
+        "crop": {
+          "title": "調整頭貼",
+          "description": "拖曳移動，用滑桿或滾輪縮放。",
+          "area": "裁切區域",
+          "zoom": "縮放",
+          "save": "儲存",
+          "saving": "上傳中…",
+          "unreadable": "無法讀取這張圖。支援 PNG、JPEG、WebP。",
+          "uploadFailed": "上傳失敗，請再試一次。"
+        }
+      },
       "displayName": {
         "title": "顯示名稱",
         "description": "在分享面板、版本歷史與群組成員表裡顯示的名字。",
