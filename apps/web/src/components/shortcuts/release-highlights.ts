@@ -27,10 +27,12 @@ export interface ReleaseHighlights {
 export const RELEASE_HIGHLIGHTS: ReleaseHighlights = {
   version: "0.16.0",
   items: [
+    { id: "favorites" },
     { id: "customColors" },
     { id: "sideBySideColumns" },
+    { id: "installApp" },
     { id: "confirmRemoveMember" },
-    { id: "signOutThisBrowser" },
+    { id: "helpAndTour" },
     { id: "siteLimits", adminOnly: true },
   ],
 };
