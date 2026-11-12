@@ -624,10 +624,9 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
           data-drop-scope={listDropScoped ? "" : undefined}
           className={cn("min-h-full overflow-x-clip px-2", listDropScoped && DROP_SCOPE_CLASS)}
         >
-          {selection.active && nodes !== null && nodes.length > 0 && tab !== "trash" && tab !== "favorites" ? (
+          {selection.active && nodes !== null && nodes.length > 0 && tab !== "trash" ? (
             // chunk 還沒到：照常顯示平常的列，到了才換勾選框。選取中清單重抓後變得沒有可勾的篇（只剩空群組）也留在勾選樹：
             // 群組列不帶「＋」與 ⋮，與選取標題列一致；完全沒有節點時是平常的空狀態句（沒有動作鈕）。
-            // 最愛 tab 目前沒有選取模式（標題列不宣告 `selectMode`），所以不進勾選樹。
             <SidebarLazyBoundary chunk="select" fallback={<SidebarNodeList nodes={nodes} ctx={ctx} />} errorClassName="p-2">
               <SelectableTree nodes={nodes} tab={tab} location={location} />
             </SidebarLazyBoundary>

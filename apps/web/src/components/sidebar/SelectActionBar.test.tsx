@@ -3,7 +3,7 @@ import { useState, type ReactNode } from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation, useNavigate, type NavigateFunction } from "react-router";
-import type { GroupDto, NoteDto, UserDto } from "@knotebook/shared";
+import type { FavoriteDto, GroupDto, NoteDto, UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import type { CollabState } from "@/collab/connection";
 import { ActiveNoteProvider } from "@/lib/active-note";
@@ -57,6 +57,11 @@ const GA3 = groupNote({ id: "ga3", title: "ga3", group: GA, edit: false });
 const GA4 = groupNote({ id: "ga4", title: "ga4", group: GA, delete: false });
 const S1 = sharedNote({ id: "s1", title: "s1", role: "viewer" });
 const ALL = [P1, P2, P3, GA1, GA2, GA3, GA4, S1];
+const FAVORITES: FavoriteDto[] = [
+  { noteId: "p2", favoritedAt: "2026-03-03T00:00:00.000Z" },
+  { noteId: "ga1", favoritedAt: "2026-03-02T00:00:00.000Z" },
+  { noteId: "p1", favoritedAt: "2026-03-01T00:00:00.000Z" },
+];
 
 interface Call {
   key: string;
@@ -67,8 +72,8 @@ interface Call {
  * 假 server：清單與群組照 `box`；DELETE／move／copy 預設成功並改 `box.notes`（下一次 GET 生效），restore 還回被刪的篇。
  * `fail(key, status, code)` 讓某支回錯誤；`hold(key)` 讓某支等放行才回（回傳放行函式）。
  */
-function stubServer(initial: { notes?: NoteDto[]; groups?: GroupDto[]; folders?: FolderDto[] } = {}) {
-  const box = { notes: [...(initial.notes ?? ALL)], groups: initial.groups ?? [GA], folders: [...(initial.folders ?? [])] };
+function stubServer(initial: { notes?: NoteDto[]; groups?: GroupDto[]; folders?: FolderDto[]; favorites?: FavoriteDto[] } = {}) {
+  const box = { notes: [...(initial.notes ?? ALL)], groups: initial.groups ?? [GA], folders: [...(initial.folders ?? [])], favorites: [...(initial.favorites ?? [])] };
   const trashed = new Map<string, NoteDto>();
   const calls: Call[] = [];
   const failures = new Map<string, { status: number; code: string }>();
@@ -175,6 +180,7 @@ function stubServer(initial: { notes?: NoteDto[]; groups?: GroupDto[]; folders?:
         if (url === "/api/folders") return Promise.resolve(fakeResponse(box.folders.length === 0 ? FOLDER_LIST_EMPTY : { folders: box.folders }));
         if (url === "/api/notes") return Promise.resolve(fakeResponse(box.notes));
         if (url === "/api/groups") return Promise.resolve(fakeResponse(box.groups));
+        if (url === "/api/favorites") return Promise.resolve(fakeResponse(box.favorites));
         if (url === "/api/auth/me") return Promise.resolve(fakeResponse(ME));
         return Promise.resolve(fakeResponse({ error: { code: "not_found", message: "x" } }, 404));
       }
@@ -363,6 +369,42 @@ describe("SelectActionBar", () => {
       }
       expect(barButton("Move to").parentElement).toHaveClass("@container");
       expect(del).toHaveClass("w-9", "shrink-0");
+    });
+
+    // 最愛：第一個是 Remove from favorites，沒有 Move to；兩形都一樣。
+    it.each(["narrow", "wide"] as const)("最愛（%s）：Remove from favorites、Copy to、Delete；沒有 Move to；勾選後可按", async (form) => {
+      mockWidePointer(form === "wide");
+      stubServer({ favorites: FAVORITES });
+      renderShells({ tab: "favorites" });
+      await enterForm(form);
+      const names = () => within(bar()).getAllByRole("button", { hidden: true }).map((b) => b.getAttribute("aria-label") ?? b.textContent);
+      expect(names()).toEqual(["Remove from favorites", "Copy to", "Delete 0 selected items"]);
+      for (const name of names()) expect(barButton(name as string)).toBeDisabled();
+      tick("p2");
+      expect(barButton("Remove from favorites")).toBeEnabled();
+      expect(barButton("Copy to")).toBeEnabled();
+      expect(barButton("Delete 1 selected item")).toBeEnabled();
+      expect(within(bar()).queryByRole("button", { name: "Move to", hidden: true })).toBeNull();
+    });
+
+    it("最愛：不能刪的筆記仍可移出最愛，Delete 維持 disabled", async () => {
+      stubServer({ favorites: [{ noteId: "ga4", favoritedAt: "2026-03-01T00:00:00.000Z" }] });
+      renderShells({ tab: "favorites" });
+      await enterSelecting();
+      tick("ga4");
+      expect(barButton("Remove from favorites")).toBeEnabled();
+      expect(barButton("Delete 1 selected item")).toBeDisabled();
+    });
+
+    it("最愛：Copy to 的目的地沒有「建立副本」上半部", async () => {
+      stubServer({ favorites: FAVORITES });
+      renderShells({ tab: "favorites" });
+      await enterSelecting();
+      tick("p2");
+      fireEvent.click(barButton("Copy to"));
+      const picker = await screen.findByRole("dialog", { name: "Copy to" });
+      expect(within(picker).queryByRole("button", { name: "Make a copy" })).toBeNull();
+      expect(within(picker).getByRole("button", { name: "My notes" })).toBeInTheDocument();
     });
 
     // SAf1：群組、與我共享加 Move to；與我共享的刪除鈕只在選取全是資料夾時才有（0 項時沒有）。

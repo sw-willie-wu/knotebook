@@ -2,6 +2,7 @@
   "select": {
     "selected_one": "{{count}} selected",
     "selected_other": "{{count}} selected",
+    "unfavorite": "Remove from favorites",
     "moveTo": "Move to",
     "copyTo": "Copy to",
     "deleteSelected_one": "Delete 1 selected item",

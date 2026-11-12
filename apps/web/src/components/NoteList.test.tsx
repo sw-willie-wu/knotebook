@@ -1865,13 +1865,12 @@ describe("NoteList × 最愛", () => {
     expect(within(list()).queryByText("Loading…")).toBeNull();
   });
 
-  it("標題列沒有選取、新增資料夾、新增筆記鈕；細指標下拖曳也不接手（我的筆記 tab 同一套觀測會接手）", async () => {
+  it("標題列只有選取、沒有新增資料夾、新增筆記鈕；細指標下拖曳也不接手（我的筆記 tab 同一套觀測會接手）", async () => {
     mockFinePointer(true);
     stubServer();
     renderNoteList({}, { tab: "favorites" });
     await waitFor(() => expect(rowIds()).toEqual([SHARED.id, GROUPED.id, IN_FOLDER.id]));
-    expect(within(header()).queryAllByRole("button")).toEqual([]);
-    expect(within(panel()).queryByRole("button", { name: "Select" })).toBeNull();
+    expect(within(header()).queryAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Select"]);
     expect(within(panel()).queryByRole("button", { name: "New folder" })).toBeNull();
     expect(within(panel()).queryByRole("button", { name: "New personal note" })).toBeNull();
 

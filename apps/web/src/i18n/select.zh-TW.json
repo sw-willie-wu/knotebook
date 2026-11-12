@@ -2,6 +2,7 @@
   "select": {
     "selected_one": "已選 {{count}} 項",
     "selected_other": "已選 {{count}} 項",
+    "unfavorite": "移出最愛",
     "moveTo": "移動到",
     "copyTo": "複製到",
     "deleteSelected_one": "刪除選取的 {{count}} 項",

@@ -4,7 +4,7 @@ import { flushSync } from "react-dom";
 import { act, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
-import type { FolderDto, GroupDto, NoteDto, UserDto } from "@knotebook/shared";
+import type { FavoriteDto, FolderDto, GroupDto, NoteDto, UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ActiveNoteProvider } from "@/lib/active-note";
 import { NARROW_QUERY } from "@/lib/sidebar-drawer";
@@ -49,9 +49,10 @@ const G1B = groupNote({ id: "g1b", title: "g1b", group: G1 });
 const G2A = groupNote({ id: "g2a", title: "g2a", group: G2 });
 const S1 = sharedNote({ id: "s1", title: "s1", role: "viewer" });
 const ALL_NOTES = [P1, P2, P3, G1A, G1B, G2A, S1];
+const fav = (noteId: string, favoritedAt: string): FavoriteDto => ({ noteId, favoritedAt });
 
 /** `notes` 是可變的盒子：改 `box.notes` 後 invalidate 就重抓到新清單（NS10）。`pending: true` 讓 `GET /api/notes` 永不回。 */
-function stubFetch(box: { notes: NoteDto[]; groups?: GroupDto[]; folders?: FolderDto[]; pending?: boolean }) {
+function stubFetch(box: { notes: NoteDto[]; groups?: GroupDto[]; folders?: FolderDto[]; favorites?: FavoriteDto[]; pending?: boolean }) {
   vi.stubGlobal(
     "fetch",
     vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -66,6 +67,7 @@ function stubFetch(box: { notes: NoteDto[]; groups?: GroupDto[]; folders?: Folde
         return Promise.resolve(fakeResponse(box.notes));
       }
       if (url === "/api/groups" && method === "GET") return Promise.resolve(fakeResponse(box.groups ?? [G1, G2]));
+      if (url === "/api/favorites" && method === "GET") return Promise.resolve(fakeResponse(box.favorites ?? []));
       if (url === "/api/auth/me" && method === "GET") return Promise.resolve(fakeResponse(ME));
       throw new Error(`unexpected fetch: ${method} ${url}`);
     }),
@@ -147,8 +149,8 @@ async function enterSelect(): Promise<void> {
   await within(panel()).findAllByRole("checkbox");
 }
 
-async function renderSelecting(opts: RenderOpts & { notes?: NoteDto[]; groups?: GroupDto[]; folders?: FolderDto[] } = {}) {
-  const box = { notes: opts.notes ?? ALL_NOTES, groups: opts.groups, folders: opts.folders };
+async function renderSelecting(opts: RenderOpts & { notes?: NoteDto[]; groups?: GroupDto[]; folders?: FolderDto[]; favorites?: FavoriteDto[] } = {}) {
+  const box = { notes: opts.notes ?? ALL_NOTES, groups: opts.groups, folders: opts.folders, favorites: opts.favorites };
   stubFetch(box);
   const view = renderPanel(opts);
   await enterSelect();
@@ -567,6 +569,38 @@ describe("一般 tab 的選取模式", () => {
     expect(label).toHaveTextContent("g1a");
     expect(label).toHaveTextContent("Groups › G1");
     expect(checkbox("p1").closest("label")).toHaveTextContent("My notes");
+  });
+
+  it("最愛 tab 的選取：勾選樹是兩行列、順序與平常一致", async () => {
+    // 加入時間新到舊：g1a、p2、s1。
+    await renderSelecting({
+      tab: "favorites",
+      favorites: [fav("g1a", "2026-03-03T00:00:00.000Z"), fav("p2", "2026-03-02T00:00:00.000Z"), fav("s1", "2026-03-01T00:00:00.000Z")],
+    });
+    const rows = Array.from(panel().querySelectorAll<HTMLInputElement>('input[type="checkbox"][data-selection-key]')).map((input) =>
+      input.dataset.selectionKey?.replace(/^note:/, ""),
+    );
+    expect(rows).toEqual(["g1a", "p2", "s1"]);
+    const label = checkbox("g1a").closest("label") as HTMLElement;
+    expect(label).toHaveTextContent("g1a");
+    expect(label).toHaveTextContent("Groups › G1");
+    expect(label.className).toContain("items-start");
+    expect(checkbox("p2").closest("label")).toHaveTextContent("My notes");
+  });
+
+  it("最愛 tab：標題列只有 Select，有列時可按", async () => {
+    stubFetch({ notes: ALL_NOTES, favorites: [fav("p1", "2026-03-01T00:00:00.000Z")] });
+    renderPanel({ tab: "favorites" });
+    await within(panel()).findAllByRole("link");
+    expect(headerButtonNames()).toEqual(["Select"]);
+    expect(selectButton()).toBeEnabled();
+  });
+
+  it("最愛 tab 沒有列 → Select disabled", async () => {
+    stubFetch({ notes: ALL_NOTES, favorites: [] });
+    renderPanel({ tab: "favorites" });
+    await within(panel()).findByText(/No favorites yet/);
+    expect(selectButton()).toBeDisabled();
   });
 
   it("NS9b 與我共享：s1 列帶 Viewer", async () => {

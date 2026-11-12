@@ -7,6 +7,7 @@ import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import type { NoteDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
 import { folderErrorMessage, invalidateFolderRelated, isFolderNotFound, useFolders } from "@/api/folders";
+import { useFavorites } from "@/api/favorites";
 import { useGroups } from "@/api/groups";
 import { useNotes } from "@/api/notes";
 import { isTerminal } from "@/collab/connection";
@@ -24,7 +25,7 @@ import { selectionKey, SIDEBAR_SELECT_BUTTON } from "@/lib/sidebar-selection";
 import { useSidebarTabActions, useSidebarTabState } from "@/lib/sidebar-tab";
 import { showTrashedToast } from "@/lib/trash-undo";
 import { Button } from "@/components/ui/button";
-import { Copy, FolderInput, Trash } from "@/components/ui/icons";
+import { Copy, FolderInput, Star, Trash } from "@/components/ui/icons";
 import { toast } from "@/components/ui/toast";
 import {
   buildDestinationLevel,
@@ -58,7 +59,7 @@ import { buildTabNodes, noteSpaceKey } from "./tree";
 
 /**
  * 一般 tab 選取模式的動作列（#181）。只准經 `SelectLazy` 引用。
- * - 動作表（`SELECT_ACTIONS`）：我的筆記、群組 tab、與我共享「移動到／複製到／刪除」，最近「複製到／刪除」；與我共享的刪除鈕＝「移除選取的資料夾」，
+ * - 動作表（`SELECT_ACTIONS`）：我的筆記、群組 tab、與我共享「移動到／複製到／刪除」，最近「複製到／刪除」，最愛「移出最愛／複製到／刪除」；與我共享的刪除鈕＝「移除選取的資料夾」，
  *   只在選取（去重後）非空且全是資料夾時才渲染。
  * - 選取（資料夾與筆記同列）：`selectedTargets` → `dedupeByAncestor`（祖先也被選的不送、不算略過）→ 依動作 `partitionTargets` 預先排除
  *   （排除的不送、算進結果句的略過）。一項都做不了就 disabled；不出「0 項」toast。
@@ -166,6 +167,7 @@ export function SelectActionBar({ layout = "bar" }: { layout?: "bar" | "toolbar"
   const { updateSelection, getSelectionSession } = actions;
   const notesQuery = useNotes();
   const groupsQuery = useGroups();
+  const favoritesQuery = useFavorites({ enabled: currentTab === "favorites" });
   const foldersQuery = useFolders();
   const sortOf = useFolderSortOf();
   // 與畫面上的樹同序（批次依樹序送出）。
@@ -205,10 +207,10 @@ export function SelectActionBar({ layout = "bar" }: { layout?: "bar" | "toolbar"
   const groups = groupsQuery.data;
   const nodes = useMemo(
     () =>
-      notesQuery.isSuccess && (tab !== "workspace" || groups !== undefined)
-        ? buildTabNodes(tab, notesQuery.data, groups ?? [], folderIndex, sortOf)
+      notesQuery.isSuccess && (tab !== "workspace" || groups !== undefined) && (tab !== "favorites" || favoritesQuery.data !== undefined)
+        ? buildTabNodes(tab, notesQuery.data, groups ?? [], folderIndex, sortOf, favoritesQuery.data)
         : null,
-    [tab, notesQuery.isSuccess, notesQuery.data, groups, folderIndex, sortOf],
+    [tab, notesQuery.isSuccess, notesQuery.data, groups, favoritesQuery.data, folderIndex, sortOf],
   );
   const groupIds = useMemo<ReadonlySet<string>>(() => new Set((groups ?? []).map((group) => group.id)), [groups]);
   const notes = notesQuery.data ?? [];
@@ -216,6 +218,7 @@ export function SelectActionBar({ layout = "bar" }: { layout?: "bar" | "toolbar"
   const targets = nodes === null ? [] : selectedTargets(nodes, selection.keys);
   const deduped = dedupeByAncestor(targets, folderIndex);
   const ctx = { tab, index: folderIndex, notes, groupIds };
+  const unfavoriteElig = partitionTargets("unfavorite", deduped, ctx);
   const moveElig = partitionTargets("move", deduped, ctx);
   const copyElig = partitionTargets("copy", deduped, ctx);
   const deleteElig = partitionTargets("delete", deduped, ctx);
@@ -578,6 +581,11 @@ export function SelectActionBar({ layout = "bar" }: { layout?: "bar" | "toolbar"
     disabled: copyDisabled,
     onClick: (event: MouseEvent<HTMLButtonElement>) => (copySoftDisabled ? showReason(copyReason) : openPicker("copy", event)),
   };
+  // 移出最愛鈕：目前只渲染，還沒有 onClick。
+  const unfavoriteProps = {
+    title: t("select.unfavorite"),
+    disabled: busy || unfavoriteElig.eligible.length === 0,
+  };
   const deleteProps = {
     "aria-label": deleteLabel,
     title: deleteLabel,
@@ -604,6 +612,11 @@ export function SelectActionBar({ layout = "bar" }: { layout?: "bar" | "toolbar"
     layout === "toolbar" ? (
       // 寬形：標題列裡一列圖示鈕（進度在 SelectHeader 的數量位）。
       <div className="flex shrink-0 items-center gap-0.5" data-select-action-bar="" aria-busy={busy}>
+        {available.includes("unfavorite") && (
+          <Button type="button" variant="ghost" size="icon" className="h-6 w-6 shrink-0" aria-label={t("select.unfavorite")} {...unfavoriteProps}>
+            <Star aria-hidden="true" className={TOOLBAR_ICON} />
+          </Button>
+        )}
         {available.includes("move") && (
           <Button type="button" variant="ghost" size="icon" className={TOOLBAR_ICON_BUTTON} aria-label={t("select.moveTo")} {...moveProps}>
             <FolderInput aria-hidden="true" className={TOOLBAR_ICON} />
@@ -629,6 +642,12 @@ export function SelectActionBar({ layout = "bar" }: { layout?: "bar" | "toolbar"
           </p>
         )}
         <div className="@container flex gap-1">
+          {available.includes("unfavorite") && (
+            <Button type="button" variant="outline" className={ACTION_TEXT_BUTTON} {...unfavoriteProps}>
+              <Star aria-hidden="true" className={ACTION_ICON} />
+              <span className="truncate">{t("select.unfavorite")}</span>
+            </Button>
+          )}
           {/* 「移動到」與「複製到」同為 outline（選取模式沒有唯一主角，不用主色）。 */}
           {available.includes("move") && (
             <Button type="button" variant="outline" className={ACTION_TEXT_BUTTON} {...moveProps}>
