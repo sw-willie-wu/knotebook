@@ -807,7 +807,7 @@ export default function NotePage() {
                     {t("note.overSizeLimit")}
                   </p>
                 )}
-                <header ref={noteHeaderRef} className="@container flex items-center gap-3 border-b border-border px-5 py-3">
+                <header ref={noteHeaderRef} className="@container flex items-center gap-3 max-sm:gap-2 border-b border-border px-5 py-3">
                   {/* #115：窄視窗的抽屜入口（md:hidden）——筆記載入成功態不掛
                       NarrowTopBar（頁首自己有這顆）；載入中/錯誤的佔位卡沒有頁首，
                       由 placeholderCard 裡的 NarrowTopBar 補位。 */}

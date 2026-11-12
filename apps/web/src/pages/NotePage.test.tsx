@@ -670,6 +670,37 @@ describe("NotePage", () => {
     expect(width.compareDocumentPosition(more) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it("頁首 gap 在手機寬收成 gap-2（容器查詢套不到 header 自己的 gap）", async () => {
+    vi.stubGlobal("fetch", mockFetch());
+
+    renderNotePage("my-note");
+    await screen.findByTestId("note-editor");
+
+    expect(document.querySelector("header")).toHaveClass("gap-3", "max-sm:gap-2");
+  });
+
+  it("頁首子節點順序：導覽鈕、標題、連線、最後編輯、星號、分享、寬度、⋮", async () => {
+    vi.stubGlobal("fetch", mockFetch({ ...NOTE, lastEdited: { at: "2026-02-03T04:05:06.000Z", byHandle: "alice", agentLabel: null } }));
+
+    renderNotePage("my-note");
+    await screen.findByTestId("note-editor");
+
+    const header = document.querySelector("header")!;
+    const order = [
+      within(header).getByRole("button", { name: "Open navigation" }),
+      within(header).getByLabelText("Note title"),
+      within(header).getByRole("status"),
+      within(header).getByTestId("last-edited"),
+      within(header).getByRole("button", { name: "Favorite" }),
+      within(header).getByRole("button", { name: "Share" }),
+      within(header).getByRole("button", { name: /^Width/ }),
+      within(header).getByRole("button", { name: "More" }),
+    ];
+    for (let i = 0; i < order.length - 1; i++) {
+      expect(order[i]!.compareDocumentPosition(order[i + 1]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+  });
+
   it("頁首有最愛星號，位置在 Share 之前（#334）", async () => {
     vi.stubGlobal("fetch", mockFetch());
 

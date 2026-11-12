@@ -11,13 +11,14 @@ import type { NoteDto } from "@knotebook/shared";
  * 時間用**絕對格式**（`toLocaleDateString`，`title` 給完整 `toLocaleString`）——repo 裡
  * 沒有相對時間 helper，`ApiTokensSection` 的 `formatDate` 就是這一套。
  *
- * 窄視窗：`max-md:sr-only`（不是 `hidden`），斷點跟同一個 header 裡的 `ConnectionBadge`
- * 一致——`<md` 收成螢幕閱讀器讀得到、視覺隱藏，不是 `display:none` 整個從無障礙樹消失。
- * `sm:inline`/`hidden` 那組不同斷點是這裡原本的雷：窄視窗使用者連文字帶按鈕一起看不到。
+ * 窄頁首：`max-sm:sr-only @max-[36rem]:sr-only`（不是 `hidden`），規則跟同一個 header 裡的
+ * `ConnectionBadge` 一致——視窗是手機寬，或頁首 content box 不到 36rem 時收成螢幕閱讀器讀得到、
+ * 視覺隱藏，不是 `display:none` 整個從無障礙樹消失。
+ * `sm:inline`/`hidden` 那組是這裡原本的雷：窄視窗使用者連文字帶按鈕一起看不到。
  *
  * 分隔線：標籤前面多一條 `aria-hidden` 的 1px 直線，與 `ConnectionBadge`（「已連線」／「唯讀」）
  * 隔開，免得頁首把狀態字與「<who>」連讀成一句。放在這裡（而不是 NotePage）是為了與標籤共用同一個
- * null 條件；`<md` 標籤收成 sr-only、badge 只剩狀態點，線也一起 `max-md:hidden`。
+ * null 條件；標籤收成 sr-only、badge 只剩狀態點時，線也一起藏起來。
  *
  * 標籤是頁首收縮順序裡最後才縮、且能縮到 0 的那一個（`min-w-0 truncate`）；標題（`TitleInput`）
  * 最多讓到 `min-w-16`（64px），唯讀形 `<h1>` 到 64px 後同樣 `truncate`。收縮順序見 `TitleInput` 的
@@ -34,7 +35,7 @@ export function LastEditedLabel({ note, onOpenEdits }: { note: NoteDto; onOpenEd
   const text = t("note.lastEdited", { who, when: at.toLocaleDateString(i18n.language) });
   const full = at.toLocaleString(i18n.language);
 
-  const separator = <span aria-hidden="true" className="h-4 w-px shrink-0 bg-border max-md:hidden" />;
+  const separator = <span aria-hidden="true" className="h-4 w-px shrink-0 bg-border max-sm:hidden @max-[36rem]:hidden" />;
 
   if (last.agentLabel === null) {
     return (
@@ -43,7 +44,7 @@ export function LastEditedLabel({ note, onOpenEdits }: { note: NoteDto; onOpenEd
         <span
           data-testid="last-edited"
           title={t("note.lastEditedAt", { who, when: full })}
-          className="max-md:sr-only min-w-0 truncate text-xs text-muted-foreground"
+          className="max-sm:sr-only @max-[36rem]:sr-only min-w-0 truncate text-xs text-muted-foreground"
         >
           {text}
         </span>
@@ -59,7 +60,7 @@ export function LastEditedLabel({ note, onOpenEdits }: { note: NoteDto; onOpenEd
         data-testid="last-edited"
         title={t("note.lastEditedTitle", { who, when: full })}
         onClick={onOpenEdits}
-        className="max-md:sr-only min-w-0 truncate rounded text-xs text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        className="max-sm:sr-only @max-[36rem]:sr-only min-w-0 truncate rounded text-xs text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       >
         {text}
       </button>

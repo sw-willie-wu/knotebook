@@ -111,9 +111,9 @@ export function ConnectionBadge({
   return (
     <div role="status" aria-live="polite" className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
       <span aria-hidden="true" className={cn("h-1.5 w-1.5 rounded-full", phase.dotClassName)} style={phase.dotStyle} />
-      {/* #115：文字 span 在 `<md` 收成 sr-only（頁首擠不下）——**不是 hidden**：
-          容器是 aria-live，display:none 會讓窄視窗的螢幕閱讀器收不到狀態變化。 */}
-      <span className="max-md:sr-only">{t(readOnlyLabel ?? phase.key)}</span>
+      {/* #115：視窗是手機寬，或頁首 content box 不到 36rem 時，文字只給螢幕閱讀器——
+          **不是 hidden**：容器是 aria-live，display:none 會讓窄視窗的螢幕閱讀器收不到狀態變化。 */}
+      <span className="max-sm:sr-only @max-[36rem]:sr-only">{t(readOnlyLabel ?? phase.key)}</span>
     </div>
   );
 }
