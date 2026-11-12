@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { expect, test, type Browser, type Locator, type Page, type Route } from "@playwright/test";
 import {
   ADMIN,
@@ -15,6 +16,7 @@ import {
   tourCard,
   waitForEditorSelection,
 } from "./helpers.js";
+import { RELEASE_HIGHLIGHTS, visibleHighlightItems } from "../../apps/web/src/components/shortcuts/release-highlights.js";
 
 /**
  * 功能導覽（第一部分：從說明視窗手動打開、靜態站、示範筆記）。
@@ -25,6 +27,11 @@ import {
  * - 筆記頁整頁載入（reload／goto）後先等 "Note title" 標題框，再碰側欄（NotePage 掛上前的 fallback 自帶一份側欄）。
  * - 只有 Chromium 驗過。
  */
+
+/** 英文字串包（說明視窗 What's new 頁用的）；條目標題從這裡讀，不寫死這一版有哪些功能。 */
+const WHATS_NEW_STRINGS = JSON.parse(
+  readFileSync(new URL("../../apps/web/src/i18n/shortcuts.en.json", import.meta.url), "utf8"),
+) as { helpGuide: { whatsNew: { heading: string; empty: string; items: Record<string, { title: string }> } } };
 
 const SAMPLE_TITLE = "Welcome to Knotebook";
 const USER_NAME = "Tour User";
@@ -1007,6 +1014,58 @@ test.describe("feature tour (manual start)", () => {
     } finally {
       await adminContext.close();
     }
+  });
+
+  for (const who of ["a regular user", "the site admin"] as const) {
+    test(`the Help window's What's new page lists the registry's items that ${who} can see, titled by the string bundle`, async ({ page, browser }) => {
+      test.setTimeout(90_000);
+      if (who === "a regular user") await signUpFreshUser(browser, page);
+      else await loginAs(page, ADMIN.email, ADMIN.password);
+      const visible = visibleHighlightItems(RELEASE_HIGHLIGHTS.items, who === "the site admin");
+      await page.getByRole("button", { name: who === "a regular user" ? USER_NAME : "admin", exact: true }).click();
+      await page.getByRole("menuitem", { name: "Help", exact: true }).click();
+      const dialog = page.getByRole("dialog", { name: "Help", exact: true });
+      await dialog.getByRole("button", { name: "What's new", exact: true }).click();
+      const content = dialog.locator('[data-help-page-content="whatsNew"]');
+      await expect(content).toBeVisible();
+      if (visible.length === 0) {
+        await expect(content.getByText("Nothing new to highlight in this version.", { exact: true })).toBeVisible();
+        await expect(content.locator("[data-highlight-id]")).toHaveCount(0);
+        return;
+      }
+      await expect(content.getByRole("heading", { level: 3, name: `New in v${RELEASE_HIGHLIGHTS.version}`, exact: true })).toBeVisible();
+      await expect(content.locator("[data-highlight-id]")).toHaveCount(visible.length);
+      for (const item of visible) {
+        const title = WHATS_NEW_STRINGS.helpGuide.whatsNew.items[item.id]?.title;
+        expect(title, `字串包缺 ${item.id} 的標題`).toBeTruthy();
+        await expect(content.locator(`[data-highlight-id="${item.id}"]`).getByText(title!, { exact: true })).toBeVisible();
+      }
+    });
+  }
+
+  test("the tour has no stop for this version's new features: after the / stop comes the user menu stop", async ({ page, browser }) => {
+    test.setTimeout(120_000);
+    await signUpFreshUser(browser, page);
+    await openTour(page, USER_NAME);
+    const { total } = await readProgress(page);
+    expect(total).toBe(WIDE_TARGETS.length);
+    const slashStop = WIDE_TARGETS.findIndex((ids) => ids.includes("slashMenu")) + 1;
+    await goToStop(page, slashStop, total);
+    await tourCard(page).getByRole("button", { name: "Next", exact: true }).click();
+    await expect(tourCard(page).getByText(`${slashStop + 1} / ${total}`, { exact: true })).toBeVisible();
+    expect(WIDE_TARGETS[slashStop]).toEqual(["userMenu"]);
+    await expect(cardTitle(page)).not.toHaveText(/^New in v/);
+    await expect.poll(async () => {
+      const [hole, target] = [await holeBox(page), await targetsBox(page, ["userMenu"])];
+      try {
+        expectHoleMatches(hole, target);
+        return true;
+      } catch {
+        return false;
+      }
+    }).toBe(true);
+    await tourCard(page).getByRole("button", { name: "Keep sample note", exact: true }).click();
+    await expect(tourCard(page)).toHaveCount(0);
   });
 
   test("narrow window: Help and the drawer close first, sidebar stops point at the menu button, and focus ends on it", async ({
