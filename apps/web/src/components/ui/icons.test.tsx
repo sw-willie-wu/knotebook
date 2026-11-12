@@ -22,6 +22,7 @@ import {
   Rows3,
   SquareCheck,
   Star,
+  StarOff,
   Users,
 } from "./icons";
 
@@ -60,6 +61,8 @@ describe("icons", () => {
     ["corner-down-right", CornerDownRight],
     // 側欄最愛 tab、筆記 ⋮ 與頁首的最愛
     ["star", Star],
+    // 最愛 tab 選取模式的「移出最愛」
+    ["star-off", StarOff],
   ] as const)("圖示 %s：帶 data-icon、預設 aria-hidden、吃 className", (name, Icon) => {
     const { container } = render(<Icon className="h-4 w-4" />);
     const svg = container.querySelector("svg");

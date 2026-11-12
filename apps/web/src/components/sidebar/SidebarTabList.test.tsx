@@ -146,9 +146,9 @@ describe("SidebarTabList", () => {
     }
   });
 
-  it("TL6c 標題列動作：最愛 tab 不宣告任何動作（沒有選取、新增），其餘五顆都有選取", () => {
-    expect(tabSpec("favorites").actions).toEqual([]);
-    for (const id of TAB_IDS.filter((tab) => tab !== "favorites")) expect(tabSpec(id).actions).toContain("selectMode");
+  it("TL6c 標題列動作：六個 tab 都宣告選取；最愛 tab 只有選取（沒有新增）", () => {
+    expect(tabSpec("favorites").actions).toEqual(["selectMode"]);
+    for (const id of TAB_IDS) expect(tabSpec(id).actions).toContain("selectMode");
   });
 
   it("TL7 zh-TW：tablist 與 tab 名", async () => {

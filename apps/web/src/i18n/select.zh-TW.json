@@ -2,6 +2,12 @@
   "select": {
     "selected_one": "已選 {{count}} 項",
     "selected_other": "已選 {{count}} 項",
+    "unfavorite": "移出最愛",
+    "unfavoriteTitle_one": "要把 {{count}} 篇筆記移出最愛嗎？",
+    "unfavoriteTitle_other": "要把 {{count}} 篇筆記移出最愛嗎？",
+    "unfavoriteDescription": "筆記本身不受影響，之後可以再加回來。",
+    "unfavorited_one": "已移出最愛 {{count}} 篇",
+    "unfavorited_other": "已移出最愛 {{count}} 篇",
     "moveTo": "移動到",
     "copyTo": "複製到",
     "deleteSelected_one": "刪除選取的 {{count}} 項",

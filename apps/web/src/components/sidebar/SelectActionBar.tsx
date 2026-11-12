@@ -7,6 +7,7 @@ import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import type { NoteDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
 import { folderErrorMessage, invalidateFolderRelated, isFolderNotFound, useFolders } from "@/api/folders";
+import { useFavorites } from "@/api/favorites";
 import { useGroups } from "@/api/groups";
 import { useNotes } from "@/api/notes";
 import { isTerminal } from "@/collab/connection";
@@ -17,6 +18,7 @@ import {
   moveNotesInOrder,
   placeTargetsInOrder,
   undoPlacements,
+  unfavoriteInOrder,
   type BatchOutcome,
   type PlacedItem,
 } from "@/lib/select-batch";
@@ -24,7 +26,7 @@ import { selectionKey, SIDEBAR_SELECT_BUTTON } from "@/lib/sidebar-selection";
 import { useSidebarTabActions, useSidebarTabState } from "@/lib/sidebar-tab";
 import { showTrashedToast } from "@/lib/trash-undo";
 import { Button } from "@/components/ui/button";
-import { Copy, FolderInput, Trash } from "@/components/ui/icons";
+import { Copy, FolderInput, StarOff, Trash } from "@/components/ui/icons";
 import { toast } from "@/components/ui/toast";
 import {
   buildDestinationLevel,
@@ -39,7 +41,7 @@ import {
   type DestTarget,
 } from "./destination-level";
 import { DestinationPickerDialog } from "./DestinationPickerDialog";
-import { CopyConfirmDialog, DeleteFoldersConfirmDialog, MoveConfirmDialog } from "./select-dialogs";
+import { CopyConfirmDialog, DeleteFoldersConfirmDialog, MoveConfirmDialog, UnfavoriteConfirmDialog } from "./select-dialogs";
 import {
   batchDestSource,
   dedupeByAncestor,
@@ -58,7 +60,7 @@ import { buildTabNodes, noteSpaceKey } from "./tree";
 
 /**
  * 一般 tab 選取模式的動作列（#181）。只准經 `SelectLazy` 引用。
- * - 動作表（`SELECT_ACTIONS`）：我的筆記、群組 tab、與我共享「移動到／複製到／刪除」，最近「複製到／刪除」；與我共享的刪除鈕＝「移除選取的資料夾」，
+ * - 動作表（`SELECT_ACTIONS`）：我的筆記、群組 tab、與我共享「移動到／複製到／刪除」，最近「複製到／刪除」，最愛「移出最愛／複製到／刪除」；與我共享的刪除鈕＝「移除選取的資料夾」，
  *   只在選取（去重後）非空且全是資料夾時才渲染。
  * - 選取（資料夾與筆記同列）：`selectedTargets` → `dedupeByAncestor`（祖先也被選的不送、不算略過）→ 依動作 `partitionTargets` 預先排除
  *   （排除的不送、算進結果句的略過）。一項都做不了就 disabled；不出「0 項」toast。
@@ -67,6 +69,7 @@ import { buildTabNodes, noteSpaceKey } from "./tree";
  *   結果 toast 帶「復原」（`undoPlacements`，依序送回原處；停下報已移回幾項）、目標資料夾展開；跨空間（只會是我的筆記 → 群組）先
  *   `MoveConfirmDialog`（完整路徑）→ `moveNotesInOrder`，沒有復原。
  * - 複製到：選了資料夾 → disabled；選定後一律先 `CopyConfirmDialog` → `copyNotesInOrder`。
+ * - 移出最愛（只有最愛 tab，排第一）：一律先 `UnfavoriteConfirmDialog`（開框那一刻快照篇數）→ `unfavoriteInOrder`，每篇成功就從最愛清單濾掉；沒有復原。
  * - 刪除：含資料夾 → 先開彙總確認框（開框那一刻快照篇數）→ `deleteTargetsInOrder`（資料夾先、筆記後）；只有筆記 → 不確認。
  *   與我共享 tab 是「移除」：一般 toast、沒有復原。
  * - 執行：依序呼叫單篇端點（`lib/select-batch.ts`）；403／404 `not_found` 略過、其餘停下。停下後留在選取、只留下還沒處理的項目；成功則離開選取。結果一則 toast；停在 404 `folder_not_found` 另失效資料夾快取。
@@ -80,7 +83,7 @@ import { buildTabNodes, noteSpaceKey } from "./tree";
  *   與我共享的移除不設、不離場（筆記只是回最上層）。
  * - 整批都能自己還原才帶「復原」（`showTrashedToast`；資料夾帶走的篇併進 `undoIds`），否則帶說明句。
  * - 兩種形：`bar`＝窄螢幕底部列（`SidebarFooter` 掛；進度句在列上；「移動到」與「複製到」同為 outline 文字鈕）；
- *   `toolbar`＝寬螢幕標題列裡的三顆 24px 圖示鈕（`SelectHeader` 掛；進度由它顯示在數量位）。兩形都包在 `data-select-action-bar` 容器裡，
+ *   `toolbar`＝寬螢幕標題列裡的 24px 圖示鈕（`SelectHeader` 掛；進度由它顯示在數量位）。兩形都包在 `data-select-action-bar` 容器裡，
  *   目的地框、確認框、`runBatch`、各鈕出現與停用的判斷完全共用。
  * - 反灰原因：跨群組的「移動到」、選了資料夾的「複製到」不設 `disabled`（`disabled:pointer-events-none` 會讓
  *   hover 提示出不來），改 `aria-disabled`＋`title`＝原因＋`aria-describedby`，點了不執行；`bar` 形另出同字 toast（觸控看不到 hover）。
@@ -92,15 +95,13 @@ type PlaceTarget = Extract<DestTarget, { kind: "place" }>;
 type Stopped = BatchOutcome<unknown>["stopped"];
 
 /**
- * 「移動到」「複製到」：側欄最窄 200px（卡片內約 182px）也要和 36px 的刪除鈕排進同一列——`min-w-0` 讓 flex 子項能縮到比內容窄、
- * `px-1.5 gap-1.5` 省寬、字 `truncate`（DOM 裡仍是全文，可及名稱不受影響；`title` 給看得到截字的人）。不加的話刪除鈕會被擠出卡片、
- * 落到側欄寬度把手底下（真 Chromium 量測）。按鈕列是 `@container`：列寬不到 14.5rem（字級 16 時側欄約 250px 以下）時拿掉
- * 兩顆的圖示，把位置讓給字（實測帶圖示時 en 要列寬 ≥ 14rem 才不截字，字級 16、20 皆同；多留 0.5rem）。
- * `aria-disabled:` 開頭的是反灰原因的樣子（看起來停用、hover／按下不變色）：兩顆恆帶、不依條件加（兩顆的 className 相同，e2e 41-12 依此斷言）。
+ * 窄形底部列的動作鈕：只放圖示（可及名稱由 `aria-label` 給，`title` 給滑鼠停留的人）。每顆 `flex-1` 平分刪除鈕以外的列寬，
+ * `min-w-0` 讓它在側欄最窄 200px（卡片內約 182px）也能和 36px 的刪除鈕排進同一列；高度同一般按鈕（h-8），寬度平分列寬。
+ * `aria-disabled:` 開頭的是反灰原因的樣子（看起來停用、hover／按下不變色）：各顆恆帶、不依條件加（className 相同，e2e 41-12 依此斷言）。
  */
-const ACTION_TEXT_BUTTON =
-  "min-w-0 flex-1 gap-1.5 px-1.5 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:border-input aria-disabled:hover:bg-transparent aria-disabled:hover:text-inherit aria-disabled:active:[background:transparent]";
-const ACTION_ICON = "hidden h-4 w-4 shrink-0 @min-[14.5rem]:block";
+const ACTION_BUTTON =
+  "min-w-0 flex-1 px-1.5 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:border-input aria-disabled:hover:bg-transparent aria-disabled:hover:text-inherit aria-disabled:active:[background:transparent]";
+const ACTION_ICON = "h-4 w-4 shrink-0";
 /** 寬螢幕標題列的「移動到」「複製到」圖示鈕（同標題列其他 24px 鈕）；`aria-disabled:` 同上，兩顆恆帶。 */
 const TOOLBAR_ICON_BUTTON =
   "h-6 w-6 shrink-0 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:bg-transparent aria-disabled:hover:text-inherit";
@@ -148,6 +149,7 @@ async function undoBatchPlacement(done: readonly PlacedItem[], queryClient: Quer
 type Confirm =
   | { kind: "move"; target: PlaceTarget; groupId: string; pathLabel: string; notes: NoteDto[]; pre: Eligibility }
   | { kind: "copy"; target: DestTarget; pathLabel: string; notes: NoteDto[]; copySource: DestSpace | null }
+  | { kind: "unfavorite"; noteIds: string[] }
   | { kind: "delete"; items: SelectionTarget[]; pre: Eligibility; folderCount: number; noteCount: number; alsoNotes: number; shared: boolean };
 
 interface RunResult {
@@ -166,6 +168,7 @@ export function SelectActionBar({ layout = "bar" }: { layout?: "bar" | "toolbar"
   const { updateSelection, getSelectionSession } = actions;
   const notesQuery = useNotes();
   const groupsQuery = useGroups();
+  const favoritesQuery = useFavorites({ enabled: currentTab === "favorites" });
   const foldersQuery = useFolders();
   const sortOf = useFolderSortOf();
   // 與畫面上的樹同序（批次依樹序送出）。
@@ -205,10 +208,10 @@ export function SelectActionBar({ layout = "bar" }: { layout?: "bar" | "toolbar"
   const groups = groupsQuery.data;
   const nodes = useMemo(
     () =>
-      notesQuery.isSuccess && (tab !== "workspace" || groups !== undefined)
-        ? buildTabNodes(tab, notesQuery.data, groups ?? [], folderIndex, sortOf)
+      notesQuery.isSuccess && (tab !== "workspace" || groups !== undefined) && (tab !== "favorites" || favoritesQuery.data !== undefined)
+        ? buildTabNodes(tab, notesQuery.data, groups ?? [], folderIndex, sortOf, favoritesQuery.data)
         : null,
-    [tab, notesQuery.isSuccess, notesQuery.data, groups, folderIndex, sortOf],
+    [tab, notesQuery.isSuccess, notesQuery.data, groups, favoritesQuery.data, folderIndex, sortOf],
   );
   const groupIds = useMemo<ReadonlySet<string>>(() => new Set((groups ?? []).map((group) => group.id)), [groups]);
   const notes = notesQuery.data ?? [];
@@ -216,6 +219,7 @@ export function SelectActionBar({ layout = "bar" }: { layout?: "bar" | "toolbar"
   const targets = nodes === null ? [] : selectedTargets(nodes, selection.keys);
   const deduped = dedupeByAncestor(targets, folderIndex);
   const ctx = { tab, index: folderIndex, notes, groupIds };
+  const unfavoriteElig = partitionTargets("unfavorite", deduped, ctx);
   const moveElig = partitionTargets("move", deduped, ctx);
   const copyElig = partitionTargets("copy", deduped, ctx);
   const deleteElig = partitionTargets("delete", deduped, ctx);
@@ -264,8 +268,13 @@ export function SelectActionBar({ layout = "bar" }: { layout?: "bar" | "toolbar"
         endSelectRun(actions);
       });
     }
-    if (focusTo === "select") shell?.querySelector<HTMLButtonElement>(SIDEBAR_SELECT_BUTTON)?.focus();
-    else if (focusTo === "opener" && opener?.isConnected) opener.focus();
+    if (focusTo === "select") {
+      // 收尾時清單已空（最愛逐篇濾掉快取）：「Select」鈕已停用，focus 會落空，改聚焦面板。
+      // 其他 tab 要等重抓後清單才空，那時瀏覽器已把焦點從停用的「Select」鈕移到 body，由 NoteList 監聽 focusout 再交給面板。
+      const selectButton = shell?.querySelector<HTMLButtonElement>(SIDEBAR_SELECT_BUTTON) ?? null;
+      if (selectButton !== null && !selectButton.disabled) selectButton.focus();
+      else shell?.querySelector<HTMLElement>('[role="tabpanel"]')?.focus();
+    } else if (focusTo === "opener" && opener?.isConnected) opener.focus();
   }
 
   /** 同空間（進資料夾、回根目錄）：不確認；結果 toast 帶「復原」；正向移動成功後展開目標資料夾（比照 ⋮）。 */
@@ -371,6 +380,29 @@ export function SelectActionBar({ layout = "bar" }: { layout?: "bar" | "toolbar"
     });
   }
 
+  /** 最愛 tab：逐篇移出最愛（確認後）。每篇成功就從最愛清單濾掉，結束重抓一次；沒有復原。 */
+  function runUnfavorite(snapshot: Extract<Confirm, { kind: "unfavorite" }>): void {
+    const { noteIds } = snapshot;
+    void runBatch({
+      total: noteIds.length,
+      opener: openerRef.current,
+      fromConfirm: true,
+      execute: async (onProgress) => {
+        const { done, skipped, stopped } = await unfavoriteInOrder(noteIds, { queryClient, onProgress });
+        const halted = stoppedCopy(t, stopped, done.length, false);
+        let title = t("select.unfavorited", { count: done.length });
+        if (done.length === 0 && stopped === null) title = t("select.noneDone", { count: skipped });
+        else if (skipped > 0) title += t("select.skippedSuffix", { count: skipped });
+        toast({
+          title: halted?.title ?? title,
+          description: halted?.description,
+          variant: stopped || done.length === 0 ? "destructive" : "default",
+        });
+        return { stopped };
+      },
+    });
+  }
+
   /**
    * 刪除（資料夾先、筆記後，`deleteTargetsInOrder`）。開著的那篇：直接選的、或所在的個人／群組資料夾（與我共享的移除不算）排到各段最後，
    * 送它前設 `leavingRef`。
@@ -467,6 +499,14 @@ export function SelectActionBar({ layout = "bar" }: { layout?: "bar" | "toolbar"
     pickedRef.current = false;
     setPath([]);
     setPickerMode(mode);
+  }
+
+  /** 移出最愛：先確認；篇數與要送的篇在開框那一刻快照。 */
+  function startUnfavorite(event: MouseEvent<HTMLButtonElement>): void {
+    openerRef.current = event.currentTarget;
+    submittedRef.current = false;
+    setConfirm({ kind: "unfavorite", noteIds: notesOf(unfavoriteElig.eligible).map((note) => note.id) });
+    setConfirmOpen(true);
   }
 
   function startDelete(event: MouseEvent<HTMLButtonElement>): void {
@@ -578,6 +618,11 @@ export function SelectActionBar({ layout = "bar" }: { layout?: "bar" | "toolbar"
     disabled: copyDisabled,
     onClick: (event: MouseEvent<HTMLButtonElement>) => (copySoftDisabled ? showReason(copyReason) : openPicker("copy", event)),
   };
+  const unfavoriteProps = {
+    title: t("select.unfavorite"),
+    disabled: busy || unfavoriteElig.eligible.length === 0,
+    onClick: startUnfavorite,
+  };
   const deleteProps = {
     "aria-label": deleteLabel,
     title: deleteLabel,
@@ -604,6 +649,11 @@ export function SelectActionBar({ layout = "bar" }: { layout?: "bar" | "toolbar"
     layout === "toolbar" ? (
       // 寬形：標題列裡一列圖示鈕（進度在 SelectHeader 的數量位）。
       <div className="flex shrink-0 items-center gap-0.5" data-select-action-bar="" aria-busy={busy}>
+        {available.includes("unfavorite") && (
+          <Button type="button" variant="ghost" size="icon" className={TOOLBAR_ICON_BUTTON} aria-label={t("select.unfavorite")} {...unfavoriteProps}>
+            <StarOff aria-hidden="true" className={TOOLBAR_ICON} />
+          </Button>
+        )}
         {available.includes("move") && (
           <Button type="button" variant="ghost" size="icon" className={TOOLBAR_ICON_BUTTON} aria-label={t("select.moveTo")} {...moveProps}>
             <FolderInput aria-hidden="true" className={TOOLBAR_ICON} />
@@ -628,18 +678,21 @@ export function SelectActionBar({ layout = "bar" }: { layout?: "bar" | "toolbar"
             {t("select.progress", run.progress)}
           </p>
         )}
-        <div className="@container flex gap-1">
+        <div className="flex gap-1">
+          {available.includes("unfavorite") && (
+            <Button type="button" variant="outline" className={ACTION_BUTTON} aria-label={t("select.unfavorite")} {...unfavoriteProps}>
+              <StarOff aria-hidden="true" className={ACTION_ICON} />
+            </Button>
+          )}
           {/* 「移動到」與「複製到」同為 outline（選取模式沒有唯一主角，不用主色）。 */}
           {available.includes("move") && (
-            <Button type="button" variant="outline" className={ACTION_TEXT_BUTTON} {...moveProps}>
+            <Button type="button" variant="outline" className={ACTION_BUTTON} aria-label={t("select.moveTo")} {...moveProps}>
               <FolderInput aria-hidden="true" className={ACTION_ICON} />
-              <span className="truncate">{t("select.moveTo")}</span>
             </Button>
           )}
           {available.includes("copy") && (
-            <Button type="button" variant="outline" className={ACTION_TEXT_BUTTON} {...copyProps}>
+            <Button type="button" variant="outline" className={ACTION_BUTTON} aria-label={t("select.copyTo")} {...copyProps}>
               <Copy aria-hidden="true" className={ACTION_ICON} />
-              <span className="truncate">{t("select.copyTo")}</span>
             </Button>
           )}
           {showDelete && (
@@ -708,6 +761,17 @@ export function SelectActionBar({ layout = "bar" }: { layout?: "bar" | "toolbar"
           progress={run?.progress ?? null}
           contentRef={confirmContentRef}
           onConfirm={() => runCopy(confirm)}
+          onOpenChange={setConfirmOpen}
+          onCloseAutoFocus={onConfirmCloseAutoFocus}
+        />
+      )}
+      {confirm?.kind === "unfavorite" && (
+        <UnfavoriteConfirmDialog
+          count={confirm.noteIds.length}
+          open={confirmOpen}
+          progress={run?.progress ?? null}
+          contentRef={confirmContentRef}
+          onConfirm={() => runUnfavorite(confirm)}
           onOpenChange={setConfirmOpen}
           onCloseAutoFocus={onConfirmCloseAutoFocus}
         />
