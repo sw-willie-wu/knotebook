@@ -4,17 +4,19 @@ import "@/i18n/tour-strings";
 import { isMacPlatform } from "@/lib/platform";
 import { getShellControls } from "@/lib/tour-bridge";
 import { findDrawerButton, findTourTarget, findUserMenuTrigger, isNarrowViewport } from "@/lib/tour-targets";
+import { startLiveTrigger, stopLiveTrigger, liveTriggerTarget } from "./live-stops";
 
 /**
  * 功能導覽的站點表。每站說明要指哪裡（`target`）、要先做什麼（`prepare`）、什麼情況下整站不跑（`precondition`）。
  *
  * - 目標一律靠元件上的 `data-kb-tour-target` 屬性找（`lib/tour-targets.ts`），不比名稱：側欄裡到處是使用者自己取的名字。
  *   每次都重新查 DOM：AppShell 會隨首頁↔筆記頁、筆記頁整頁載入換殼，先前查到的元素可能已經卸載。
+ * - 現場演示站（`live`）在示範筆記的編輯器裡叫出真的選單，細節見 `live-stops.ts`；它們的 `leave` 負責收掉選單與過濾。
  * - 窄視窗的側欄收在抽屜裡。抽屜是會鎖焦點、把外面標成 `aria-hidden` 的 modal，開著時導覽卡片按不到，
  *   所以側欄裡的站改指頁首的漢堡鈕，也不跑 `prepare`（切 tab 在窄視窗會順便打開抽屜）。
  */
 
-export type StopId = "tabs" | "newNote" | "folders" | "search" | "header" | "versions" | "userMenu";
+export type StopId = "tabs" | "newNote" | "folders" | "search" | "header" | "versions" | "wikilink" | "userMenu";
 
 export interface StopContext {
   /** 側欄搜尋框目前的字。 */
@@ -24,6 +26,13 @@ export interface StopContext {
    * 從首頁打開時快取還沒有資料，看快取會把站台有設定 AI 誤判成沒有。
    */
   aiActions: readonly AiActionDto[];
+  /** 示範筆記的 id：現場演示只動這一篇的編輯器。 */
+  sampleNoteId: string;
+  /**
+   * 開始時算一次：能不能在示範筆記上現場演示（編輯器可編輯、最後一段是空段落，見 `canRunLiveStop`）。
+   * 不能的演示站改指筆記裡現成的成品，靜態說明。
+   */
+  liveStops: boolean;
 }
 
 export interface StopDef {
@@ -46,6 +55,13 @@ export interface StopDef {
    * 但 `leave` 照樣會被呼叫，所以它要能在 `prepare` 沒跑過時安全執行。拋錯只記到 console，不擋換站。
    */
   leave?: (ctx: StopContext) => void;
+  /**
+   * 這一站在這一輪是不是現場演示。是的話：卡片不搶焦點（焦點留在編輯器，選單才不會關）、導覽攔鍵盤與選單上的點擊，
+   * `→`／`Enter` 下一步、`←` 上一步。沒有這個欄位＝一般靜態站。
+   */
+  live?: (ctx: StopContext) => boolean;
+  /** 窄視窗也跑 `prepare`。預設不跑（理由見檔頭）；演示站在編輯器裡、不碰側欄，所以跑。 */
+  prepareInNarrow?: boolean;
 }
 
 export { isNarrowViewport };
@@ -121,6 +137,18 @@ export const STOPS: Readonly<Record<StopId, StopDef>> = {
     // 窄視窗沒有右下角的泡泡，版本歷史在頁首 ⋮ 裡。
     narrowTarget: () => all(noteMenu()),
   },
+  wikilink: {
+    id: "wikilink",
+    titleKey: "tourGuide.stops.wikilink.title",
+    bodyKey: "tourGuide.stops.wikilink.body",
+    target: (ctx) => liveTriggerTarget(ctx.sampleNoteId, "suggestionMenu", "wikilink"),
+    prepare: (ctx) => {
+      if (ctx.liveStops) startLiveTrigger(ctx.sampleNoteId, "[[");
+    },
+    prepareInNarrow: true,
+    leave: (ctx) => stopLiveTrigger(ctx.sampleNoteId),
+    live: (ctx) => ctx.liveStops,
+  },
   userMenu: {
     id: "userMenu",
     titleKey: "tourGuide.stops.userMenu.title",
@@ -132,7 +160,7 @@ export const STOPS: Readonly<Record<StopId, StopDef>> = {
 };
 
 /** 完整導覽的站序；最後一站固定是 userMenu。 */
-export const FULL_TOUR: readonly [StopId, ...StopId[]] = ["tabs", "newNote", "folders", "search", "header", "versions", "userMenu"];
+export const FULL_TOUR: readonly [StopId, ...StopId[]] = ["tabs", "newNote", "folders", "search", "header", "versions", "wikilink", "userMenu"];
 
 /** 依目前視窗寬窄找目標。 */
 export function stopTarget(stop: StopDef, ctx: StopContext): Element[] {
@@ -149,8 +177,8 @@ export function stopBody(t: TFunction, stop: StopDef, narrow: boolean = isNarrow
   return t(stopBodyKey(stop, narrow), { mod: isMacPlatform() ? "⌘" : "Ctrl+" });
 }
 
-/** 跑站點的前置動作；窄視窗不跑（見檔頭）。 */
+/** 跑站點的前置動作；窄視窗不跑，除非站點自己說要跑（見檔頭）。 */
 export function prepareStop(stop: StopDef, ctx: StopContext): void {
-  if (isNarrowViewport()) return;
+  if (isNarrowViewport() && stop.prepareInNarrow !== true) return;
   stop.prepare?.(ctx);
 }

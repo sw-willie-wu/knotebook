@@ -1,0 +1,171 @@
+import { SuggestionMenu } from "@blocknote/core";
+import { getTourNoteEditor, setTourTransactionFilter, type TourEditor } from "@/lib/tour-bridge";
+import { findTourTarget, type TourTargetId } from "@/lib/tour-targets";
+
+/**
+ * 功能導覽的現場演示：在示範筆記的編輯器裡叫出真的選單，整個過程不寫文件。
+ *
+ * - 游標放進最後的空段落，用 `deleteTriggerCharacter: false` 開選單：觸發字不會進文件，選單照樣出現，
+ *   所以重新整理、關分頁、上一頁都不會留下東西，也不產生版本或撤銷紀錄。
+ * - 演示期間開著編輯器的交易過濾（`setTourTransactionFilter`）：輸入法組字擋不在鍵盤層，只有在交易層擋得乾淨。
+ *   過濾是常駐外掛上的旗標，演示中不註冊也不拆外掛（選單開著時動態註冊會弄壞選單的狀態）。
+ * - 離站由站點的 `leave` 呼叫 `stopLiveTrigger`：關選單、還原選取、關過濾。可以重複呼叫，也可以在沒開始過時呼叫。
+ */
+
+export type TourTrigger = "[[" | "/";
+
+/** 演示開始前的選取，離站時還原。 */
+interface Saved {
+  from: number;
+  to: number;
+}
+
+/** 正在演示的編輯器。用編輯器當 key：編輯器卸載後不會留下東西。 */
+const active = new WeakMap<TourEditor, Saved>();
+
+function menuOf(editor: TourEditor) {
+  return editor.getExtension(SuggestionMenu);
+}
+
+/** 文件最後一個頂層 block 是沒有內容的段落。 */
+function lastBlockIsEmptyParagraph(editor: TourEditor): boolean {
+  const last = editor.document[editor.document.length - 1];
+  if (last === undefined || last.type !== "paragraph" || last.children.length > 0) return false;
+  const content: unknown = last.content;
+  return Array.isArray(content) && content.every((node: { type?: string; text?: string }) => node.type === "text" && (node.text ?? "") === "");
+}
+
+/**
+ * 能不能在這篇示範筆記上現場演示：它的編輯器已登記、可編輯，而且最後一段是空段落（游標要放在那裡）。
+ * 開始導覽時算一次；不成立的站改指筆記裡現成的成品。
+ */
+export function canRunLiveStop(noteId: string): boolean {
+  const editor = getTourNoteEditor(noteId);
+  if (editor === null) return false;
+  try {
+    return editor.isEditable && lastBlockIsEmptyParagraph(editor);
+  } catch (err) {
+    // 開始流程裡呼叫：讀不出文件就當不能演示，不讓導覽開不起來。
+    console.error(err);
+    return false;
+  }
+}
+
+/** 選單目前是不是開著（外掛狀態，不看畫面）。 */
+export function isTriggerMenuShown(editor: TourEditor): boolean {
+  return menuOf(editor)?.shown() === true;
+}
+
+/**
+ * 游標放進最後的空段落、叫出 `trigger` 的選單，回傳選單有沒有開。重複呼叫沒有作用。
+ * 開選單會把焦點放進編輯器，也會把游標捲進可視範圍。
+ */
+export function startTourTrigger(editor: TourEditor, trigger: TourTrigger): boolean {
+  if (active.has(editor)) return isTriggerMenuShown(editor);
+  const menu = menuOf(editor);
+  const last = editor.document[editor.document.length - 1];
+  if (menu === undefined || last === undefined) return false;
+  const { from, to } = editor._tiptapEditor.state.selection;
+  active.set(editor, { from, to });
+  editor.setTextCursorPosition(last, "start");
+  menu.openSuggestionMenu(trigger, { deleteTriggerCharacter: false });
+  return menu.shown();
+}
+
+/** 關選單（已經關了就不動）並還原演示前的選取；沒開始過、重複呼叫都是空操作。不碰焦點。 */
+export function stopTourTrigger(editor: TourEditor): void {
+  const saved = active.get(editor);
+  if (saved === undefined) return;
+  active.delete(editor);
+  const menu = menuOf(editor);
+  if (menu?.shown() === true) menu.closeMenu();
+  if (editor._tiptapEditor.isDestroyed) return;
+  editor._tiptapEditor.commands.setTextSelection({ from: saved.from, to: saved.to });
+}
+
+/** 站點的 `prepare`：開過濾、叫出選單。示範筆記的編輯器拿不到就什麼都不做。 */
+export function startLiveTrigger(noteId: string, trigger: TourTrigger): void {
+  const editor = getTourNoteEditor(noteId);
+  if (editor === null) return;
+  setTourTransactionFilter(noteId, true);
+  startTourTrigger(editor, trigger);
+}
+
+/** 站點的 `leave`：關選單、還原選取、關過濾。 */
+export function stopLiveTrigger(noteId: string): void {
+  try {
+    const editor = getTourNoteEditor(noteId);
+    if (editor !== null) stopTourTrigger(editor);
+  } finally {
+    // 關選單拋錯也要關過濾，否則使用者在這篇的輸入會一直被擋到導覽結束。
+    setTourTransactionFilter(noteId, false);
+  }
+}
+
+/** 已經為退路目標捲過的元素：目標每格畫面都會重查，只在第一次找到時捲，之後使用者自己捲走就不去搶。 */
+const scrolledFallbacks = new WeakSet<Element>();
+
+/**
+ * 演示站要挖亮的東西：選單開著就指選單（等它畫出來才有，畫出來之前回空陣列，引擎會等）；
+ * 沒有在演示、或選單因故關掉（例如視窗失焦）就指筆記裡現成的成品，不留空箭頭。
+ */
+export function liveTriggerTarget(noteId: string, menuId: TourTargetId, fallbackId: TourTargetId): Element[] {
+  const editor = getTourNoteEditor(noteId);
+  if (editor !== null && active.has(editor) && isTriggerMenuShown(editor)) {
+    const menu = findTourTarget(menuId);
+    return menu === null ? [] : [menu];
+  }
+  // 只在示範筆記的編輯器裡找：頁面上可能還有別的編輯器畫面（例如版本預覽）。
+  const fallback = findTourTarget(fallbackId, editor?.domElement ?? document);
+  if (fallback === null) return [];
+  if (!scrolledFallbacks.has(fallback)) {
+    scrolledFallbacks.add(fallback);
+    if (typeof fallback.scrollIntoView === "function") fallback.scrollIntoView({ block: "nearest" });
+  }
+  return [fallback];
+}
+
+export interface LiveStopInput {
+  next: () => void;
+  back: () => void;
+}
+
+/**
+ * 演示站期間的鍵盤與滑鼠，都在 window 的 capture 階段接，比編輯器與 BlockNote 的選單都早：
+ * - `→`／`Enter` 下一步、`←` 上一步；`Esc` 交給遮罩（它也在 capture 階段接，BlockNote 自己會用 `Esc` 關選單，要搶在前面）；
+ *   其他按鍵一律不送進編輯器，選單才不會被方向鍵、字元、`Tab` 動到。
+ * - 帶 `Ctrl`／`Meta`／`Alt` 的組合鍵一律不送進編輯器與選單（`stopPropagation`），但多數不 `preventDefault`，
+ *   所以瀏覽器自己的快捷鍵（重新整理、開發人員工具、縮放）照常有效；功能鍵（F5、F12）整個放行。
+ *   `z`／`y`（撤銷、重做：經 Y 回來的交易會通過交易過濾）、`v`／`x`／`a`（貼上、剪下、全選）和 `Enter` 另外 `preventDefault`。
+ * - 選單項目的點擊擋掉：點項目會先關掉選單再執行它，插入雖然會被交易過濾擋下，選單卻沒了。
+ * 回傳拆除函式。
+ */
+export function installLiveStopInput({ next, back }: LiveStopInput): () => void {
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key === "Escape") return;
+    if (/^F\d{1,2}$/.test(e.key)) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) {
+      e.stopPropagation();
+      if (/^[zyvxa]$/i.test(e.key) || e.key === "Enter") e.preventDefault();
+      return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    if (e.isComposing || e.keyCode === 229 || e.repeat) return;
+    if (e.key === "ArrowRight" || e.key === "Enter") next();
+    else if (e.key === "ArrowLeft") back();
+  };
+  const onClick = (e: MouseEvent) => {
+    if (e.target instanceof Element && e.target.closest('[data-kb-tour-target="suggestionMenu"]') !== null) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  };
+  window.addEventListener("keydown", onKeyDown, true);
+  window.addEventListener("click", onClick, true);
+  return () => {
+    window.removeEventListener("keydown", onKeyDown, true);
+    window.removeEventListener("click", onClick, true);
+  };
+}

@@ -33,6 +33,7 @@ const WIDE_TARGETS: readonly (readonly string[])[] = [
   ["search"],
   ["share", "noteMenu"],
   ["versions"],
+  ["suggestionMenu"],
   ["userMenu"],
 ];
 
@@ -346,6 +347,63 @@ test.describe("feature tour (manual start)", () => {
     expect(await read()).toBe(before);
   });
 
+  test("the [[ stop opens the real link menu inside the window; clicking its items does nothing, and the note is unchanged afterwards", async ({
+    page,
+    browser,
+  }) => {
+    test.setTimeout(120_000);
+    await signUpFreshUser(browser, page);
+    await openTour(page, USER_NAME);
+    const noteId = await noteIdFromUrl(page);
+    const read = async (): Promise<string> => {
+      const res = await page.request.get(`/api/notes/${noteId}/content`);
+      expect(res.status(), await res.text()).toBe(200);
+      return ((await res.json()) as { markdown: string }).markdown;
+    };
+
+    const { total } = await readProgress(page);
+    const stop = WIDE_TARGETS.findIndex((ids) => ids[0] === "suggestionMenu") + 1;
+    for (let n = 1; n < stop; n++) await tourCard(page).getByRole("button", { name: "Next", exact: true }).click();
+    await expect(tourCard(page).getByText(`${stop} / ${total}`, { exact: true })).toBeVisible();
+    await expect(cardTitle(page)).toHaveText("Link to another note");
+
+    // 示範內容寫入後 server 端要有，才拿得到比對的基準。
+    await expect.poll(read, { timeout: 15_000 }).toContain("What a note can hold");
+    const before = await read();
+
+    const menu = page.locator('[data-kb-tour-target="suggestionMenu"]:visible').first();
+    await expect(menu).toBeVisible();
+    await expect(menu.locator(".bn-suggestion-menu-item").first()).toBeVisible();
+    const box = await menu.boundingBox();
+    const viewport = page.viewportSize()!;
+    expect(box).not.toBeNull();
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.y).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height);
+    expectHoleMatches(await holeBox(page), box!);
+
+    // 點選單項目沒有作用：選單還在、還在同一站、內容不變。
+    await menu.locator(".bn-suggestion-menu-item").first().click();
+    await page.waitForTimeout(1_000);
+    await expect(menu).toBeVisible();
+    await expect(tourCard(page).getByText(`${stop} / ${total}`, { exact: true })).toBeVisible();
+
+    await page.keyboard.press("ArrowRight");
+    await expect(cardTitle(page)).toHaveText("Forgot how something works?");
+    await expect(page.locator(".bn-suggestion-menu")).toHaveCount(0);
+    await tourCard(page).getByRole("button", { name: "Keep sample note", exact: true }).click();
+    await expect(tourCard(page)).toHaveCount(0);
+    await expectBackAtStart(page, { path: "/" }, userMenuTrigger(page));
+
+    await (await sampleNotesInMyNotes(page)).click();
+    await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue(SAMPLE_TITLE);
+    await page.reload();
+    await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue(SAMPLE_TITLE);
+    await page.waitForTimeout(1_500);
+    expect(await read()).toBe(before);
+  });
+
   test("with text in the search box, the stops that point at the hidden tab bar, folder button and search box are left out", async ({
     page,
     browser,
@@ -514,10 +572,17 @@ test.describe("feature tour (manual start)", () => {
     await expect(tourCard(page)).toBeVisible({ timeout: 30_000 });
     await expect(help).toHaveCount(0);
 
-    // 站 5（Share and more）指頁首的 ⋮，站 6（Version history）也在 ⋮ 裡；其餘指開側欄的漢堡鈕。抽屜整輪都不再出現。
+    // 站 5（Share and more）指頁首的 ⋮，站 6（Version history）也在 ⋮ 裡，站 7（Link to another note）指編輯器裡真的 [[ 選單；
+    // 其餘指開側欄的漢堡鈕。抽屜整輪都不再出現。
+    const label = (n: number): string => (n === 5 || n === 6 ? "More" : n === 7 ? "the [[ menu" : "Open navigation");
     await walkToLastStop(page, async (n) => {
       await expect(page.locator("[data-sidebar-drawer]")).toHaveCount(0);
-      const target = n === 5 || n === 6 ? page.getByRole("button", { name: "More", exact: true }) : drawerButton;
+      const target =
+        n === 5 || n === 6
+          ? page.getByRole("button", { name: "More", exact: true })
+          : n === 7
+            ? page.locator('[data-kb-tour-target="suggestionMenu"]:visible').first()
+            : drawerButton;
       await expect.poll(async () => {
         const [hole, box] = [await holeBox(page), await target.boundingBox()];
         if (box === null) return false;
@@ -527,7 +592,7 @@ test.describe("feature tour (manual start)", () => {
         } catch {
           return false;
         }
-      }, { message: `第 ${n} 站的挖洞要蓋住 ${n === 5 || n === 6 ? "More" : "Open navigation"}` }).toBe(true);
+      }, { message: `第 ${n} 站的挖洞要蓋住 ${label(n)}` }).toBe(true);
     });
     await tourCard(page).getByRole("button", { name: "Keep sample note", exact: true }).click();
     await expect(tourCard(page)).toHaveCount(0);

@@ -20,6 +20,7 @@ import {
   TableHandlesController,
   useCreateBlockNote,
   type DefaultReactSuggestionItem,
+  type FloatingUIOptions,
 } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/mantine";
 import type { NoteDto } from "@knotebook/shared";
@@ -54,6 +55,7 @@ import { createNoteSizeGuard, createNoteSizePasteHandlers, formatNoteLimit } fro
 import { CornerStack } from "@/components/CornerStack";
 import { useVersions } from "@/lib/versions-context";
 import { notifyEditorEditable, registerEditor } from "@/lib/tour-bridge";
+import { tourTarget } from "@/lib/tour-targets";
 import { VERSIONS_ERROR_FRAME, VersionsLazyBoundary } from "@/components/versions/VersionsLazyBoundary";
 import { useVersionsPanelWidth } from "@/components/versions/versions-panel-width";
 import { SelectionAiController } from "@/components/ai/SelectionAiController";
@@ -675,6 +677,14 @@ export function NoteEditor({
   );
 }
 
+/**
+ * 給 `[[` 選單的 `floatingUIOptions`：選單外面那層 popover 掛導覽的目標屬性，功能導覽才找得到真的 `[[` 選單。
+ * 模組層常數：`SuggestionMenuController` 的 `useMemo` 依賴它的身分。只加屬性，不動預設的 `style`／`onMouseDownCapture`。
+ */
+const WIKILINK_MENU_FLOATING_OPTIONS: Partial<FloatingUIOptions> = {
+  elementProps: tourTarget("suggestionMenu") as FloatingUIOptions["elementProps"],
+};
+
 export interface NoteEditorViewProps {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 編輯器泛型三元組，走 repo 慣例用 any（同 EditorRef/wikilink/menu.ts）
   editor: BlockNoteEditor<any, any, any>;
@@ -749,7 +759,7 @@ export function NoteEditorView({ editor, editable, theme, noteId, getItems, getS
         // 關掉內建的表格把手，自掛一份：儲存格與列／欄把手的顏色選單多了「自訂…」。不明確設 false 會疊兩份把手。
         tableHandles={false}
       >
-        <SuggestionMenuController triggerCharacter="[[" getItems={getItems} />
+        <SuggestionMenuController triggerCharacter="[[" getItems={getItems} floatingUIOptions={WIKILINK_MENU_FLOATING_OPTIONS} />
         <SuggestionMenuController triggerCharacter="/" getItems={getSlashItems} />
         <SideMenuController sideMenu={KnotebookSideMenu} floatingUIOptions={SIDE_MENU_FLOATING_OPTIONS} />
         <TableHandlesController tableHandle={KnotebookTableHandle} tableCellHandle={KnotebookTableCellButton} />

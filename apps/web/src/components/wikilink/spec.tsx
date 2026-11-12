@@ -3,6 +3,7 @@ import type { BlockNoteEditor, DefaultStyleSchema } from "@blocknote/core";
 import { createReactInlineContentSpec, type ReactCustomInlineContentRenderProps } from "@blocknote/react";
 import { canonicalNotePath, normalizeAnchor, wikilinkConfig, wikilinkHref, wikilinkVisibleText, type PublicLinkDto } from "@knotebook/shared";
 import { useNotes } from "@/api/notes";
+import { tourTarget } from "@/lib/tour-targets";
 import { sameNoteId } from "@/lib/note-id";
 import { WikilinkContext } from "./context";
 import { useToolbarTriggers } from "./useToolbarTriggers";
@@ -84,11 +85,11 @@ function MemberWikilink({ inlineContent, contentRef, editor, updateInlineContent
   // text/html 連結，放回編輯器就多出一份連結（`view.dragging` 為 null，#352 起會被當成外部拖入、轉成 wikilink 複本）。
   // 唯讀不設，讀者照常可把連結拖到分頁列／書籤。
   const anchorEl = broken ? (
-    <span ref={setRefs} className={BROKEN_CLASS} onClick={onClick} {...toolbar.anchorHandlers}>
+    <span ref={setRefs} className={BROKEN_CLASS} onClick={onClick} {...tourTarget("wikilink")} {...toolbar.anchorHandlers}>
       {text}
     </span>
   ) : (
-    <a ref={setRefs} href={href} className={LIVE_LINK_CLASS} draggable={editor.isEditable ? false : undefined} onClick={onClick} {...toolbar.anchorHandlers}>
+    <a ref={setRefs} href={href} className={LIVE_LINK_CLASS} draggable={editor.isEditable ? false : undefined} onClick={onClick} {...tourTarget("wikilink")} {...toolbar.anchorHandlers}>
       {text}
     </a>
   );

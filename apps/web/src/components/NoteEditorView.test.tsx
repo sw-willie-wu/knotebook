@@ -10,6 +10,7 @@ import i18n from "@/i18n";
 import { noteSchema } from "@/collab/schema";
 import { SelectionAiController } from "@/components/ai/SelectionAiController";
 import { createTestEditor, renderAiHost, selectInBlock, stubAiFetch } from "@/test/ai-host";
+import { installLiveStopInput } from "@/components/tour/live-stops";
 import { NoteEditorView } from "./NoteEditor";
 
 /**
@@ -159,6 +160,103 @@ describe("NoteEditorView（issue #94：/ 選單接管）", () => {
     });
 
     expect(await screen.findByText("Diagram")).toBeInTheDocument();
+  });
+});
+
+// ── 功能導覽要指到真的 `[[` 選單：外面那層 popover 帶導覽的目標屬性 ──────────────────────────────
+
+describe("NoteEditorView（`[[` 選單帶導覽目標屬性）", () => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 同上
+  let editor: BlockNoteEditor<any, any, any>;
+  let container: HTMLElement;
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    ({ editor, container } = mountedEditor());
+  });
+
+  afterEach(() => {
+    editor.unmount();
+    container.remove();
+  });
+
+  async function getWikilinkItems(): Promise<DefaultReactSuggestionItem[]> {
+    return [{ title: "Some note", onItemClick: () => {} }] as DefaultReactSuggestionItem[];
+  }
+
+  it("`[[` 選單的 popover 帶 data-kb-tour-target=suggestionMenu，預設的 z-index 還在；`/` 選單不帶", async () => {
+    render(<NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getWikilinkItems} getSlashItems={getItems} />);
+
+    act(() => {
+      editor.getExtension(SuggestionMenu)!.openSuggestionMenu("[[");
+    });
+    expect(await screen.findByText("Some note")).toBeInTheDocument();
+    const popover = document.querySelector<HTMLElement>('[data-kb-tour-target="suggestionMenu"]')!;
+    expect(popover).not.toBeNull();
+    expect(popover).toContainElement(document.querySelector(".bn-suggestion-menu"));
+    expect(popover.style.zIndex).toContain("80");
+
+    act(() => {
+      editor.getExtension(SuggestionMenu)!.closeMenu();
+    });
+    await waitFor(() => expect(document.querySelector(".bn-suggestion-menu")).toBeNull());
+    act(() => {
+      editor.getExtension(SuggestionMenu)!.openSuggestionMenu("/");
+    });
+    await waitFor(() => expect(document.querySelector(".bn-suggestion-menu")).not.toBeNull());
+    expect(document.querySelector('[data-kb-tour-target="suggestionMenu"]')).toBeNull();
+  });
+});
+
+describe("NoteEditorView（演示站的鍵盤攔截擋在真的 `[[` 選單前面）", () => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 同上
+  let editor: BlockNoteEditor<any, any, any>;
+  let container: HTMLElement;
+  let uninstall: (() => void) | null = null;
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    ({ editor, container } = mountedEditor());
+  });
+
+  afterEach(() => {
+    uninstall?.();
+    uninstall = null;
+    editor.unmount();
+    container.remove();
+  });
+
+  /** 開好 `[[` 選單，回傳「選了項目」的 spy 與一個往編輯器送按鍵的函式。 */
+  async function openMenu(withInput: boolean) {
+    const onItemClick = vi.fn();
+    const items = async () => [{ title: "Some note", onItemClick }] as DefaultReactSuggestionItem[];
+    render(<NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={items} getSlashItems={getItems} />);
+    act(() => {
+      editor.getExtension(SuggestionMenu)!.openSuggestionMenu("[[", { deleteTriggerCharacter: false });
+    });
+    expect(await screen.findByText("Some note")).toBeInTheDocument();
+    if (withInput) uninstall = installLiveStopInput({ next: () => {}, back: () => {} });
+    const press = (init: KeyboardEventInit) => {
+      act(() => {
+        editor.domElement!.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init }));
+      });
+    };
+    return { onItemClick, press };
+  }
+
+  it("沒有攔截時 Ctrl+Enter 會選中選單項目（確認這案量得到差別）", async () => {
+    const { onItemClick, press } = await openMenu(false);
+    press({ key: "Enter", ctrlKey: true });
+    expect(onItemClick).toHaveBeenCalledTimes(1);
+  });
+
+  it("攔截開著：Enter、Ctrl／Alt／Meta＋Enter 都不選中項目，選單仍開著；Ctrl+A 不關選單", async () => {
+    const { onItemClick, press } = await openMenu(true);
+    for (const init of [{ key: "Enter" }, { key: "Enter", ctrlKey: true }, { key: "Enter", altKey: true }, { key: "Enter", metaKey: true }, { key: "a", ctrlKey: true }]) {
+      press(init);
+    }
+    expect(onItemClick).not.toHaveBeenCalled();
+    expect(editor.getExtension(SuggestionMenu)!.shown()).toBe(true);
   });
 });
 

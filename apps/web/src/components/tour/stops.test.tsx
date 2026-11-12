@@ -12,7 +12,7 @@ import shortcutsZhTW from "@/i18n/shortcuts.zh-TW.json";
 import { ActiveNoteProvider } from "@/lib/active-note";
 import { NARROW_QUERY } from "@/lib/sidebar-drawer";
 import { getShellControls } from "@/lib/tour-bridge";
-import { findDrawerButton, findTourTarget, findUserMenuTrigger, type TourTargetId } from "@/lib/tour-targets";
+import { findDrawerButton, findTourTarget, findUserMenuTrigger, tourTarget, type TourTargetId } from "@/lib/tour-targets";
 import { useVersionsController, VersionsProvider } from "@/lib/versions-context";
 import { ThemeProvider } from "@/theme";
 import { AppShell, SidebarDrawerButton } from "@/components/AppShell";
@@ -106,6 +106,10 @@ function NotePageStandIn({ withShare }: { withShare: boolean }) {
         <NoteMenu note={NOTE} state={CONNECTED} leavingRef={{ current: false }} onOpenEdits={() => {}} />
       </header>
       <CornerStack />
+      {/* 示範筆記裡現成的 `[[` 連結。 */}
+      <a href="/somewhere" {...tourTarget("wikilink")}>
+        linked note
+      </a>
     </VersionsProvider>
   );
 }
@@ -136,7 +140,7 @@ async function renderPage({ withShare = true, home = false, inert = false }: { w
 }
 
 function ctx(searchQuery = ""): StopContext {
-  return { searchQuery, aiActions: [] };
+  return { searchQuery, aiActions: [], sampleNoteId: NOTE.id, liveStops: false };
 }
 
 const aside = () => document.querySelector<HTMLElement>("aside[data-sidebar-instance]")!;
@@ -154,7 +158,7 @@ afterEach(() => {
 
 describe("站點表", () => {
   it("完整導覽的順序；每個站點恰好出現一次", () => {
-    expect(FULL_TOUR).toEqual(["tabs", "newNote", "folders", "search", "header", "versions", "userMenu"]);
+    expect(FULL_TOUR).toEqual(["tabs", "newNote", "folders", "search", "header", "versions", "wikilink", "userMenu"]);
     expect(Object.keys(STOPS).sort()).toEqual([...FULL_TOUR].sort());
     for (const id of FULL_TOUR) expect(STOPS[id].id).toBe(id);
   });
@@ -189,6 +193,7 @@ describe("寬視窗：目標", () => {
       search: [side.getByRole("textbox", { name: "Search notes" })],
       header: [header.getByRole("button", { name: "Share" }), header.getByRole("button", { name: "More" })],
       versions: [screen.getByTestId("versions-bubble")],
+      wikilink: [screen.getByRole("link", { name: "linked note" })],
       userMenu: [side.getByRole("button", { name: "Ann" })],
     };
     for (const id of FULL_TOUR) expect(stopTarget(STOPS[id], ctx()), id).toEqual(expected[id]);
@@ -225,6 +230,7 @@ describe("窄視窗：目標", () => {
       search: [hamburger],
       header: [header.getByRole("button", { name: "Share" }), more],
       versions: [more],
+      wikilink: [screen.getByRole("link", { name: "linked note" })],
       userMenu: [hamburger],
     };
     for (const id of FULL_TOUR) expect(stopTarget(STOPS[id], ctx()), id).toEqual(expected[id]);
@@ -305,9 +311,9 @@ describe("使用者內容撞名", () => {
 });
 
 describe("背景不可互動（簡報模式的 AppShell inert）", () => {
-  const ALL_IDS: TourTargetId[] = ["tabs", "newNote", "newFolder", "search", "share", "noteMenu", "versions", "userMenu", "drawerButton"];
+  const ALL_IDS: TourTargetId[] = ["tabs", "newNote", "newFolder", "search", "share", "noteMenu", "versions", "userMenu", "drawerButton", "wikilink"];
 
-  it.each([false, true])("窄視窗＝%s：九個目標都查不到", async (narrow) => {
+  it.each([false, true])("窄視窗＝%s：十個目標都查不到", async (narrow) => {
     stubViewport(narrow);
     await renderPage({ inert: true });
     // 元素都還在 DOM 裡（帶著屬性），只是在 inert 範圍內。窄視窗沒有版本泡泡。
@@ -399,9 +405,9 @@ describe("precondition", () => {
   it("搜尋框有字時 tabs、folders、search 不成立（搜尋中 tab 列與標題列不渲染，也不清掉使用者的字）；其他站照常", () => {
     const applies = (q: string) => FULL_TOUR.filter((id) => STOPS[id].precondition?.(ctx(q)) ?? true);
     expect(applies("")).toEqual(FULL_TOUR);
-    expect(applies("ab")).toEqual(["newNote", "header", "versions", "userMenu"]);
+    expect(applies("ab")).toEqual(["newNote", "header", "versions", "wikilink", "userMenu"]);
     // 空白也算搜尋中（同 AppShell 的判準）。
-    expect(applies(" ")).toEqual(["newNote", "header", "versions", "userMenu"]);
+    expect(applies(" ")).toEqual(["newNote", "header", "versions", "wikilink", "userMenu"]);
   });
 });
 
@@ -415,6 +421,7 @@ describe("說明文字", () => {
       search: "Search",
       header: "Share and more",
       versions: "Version history",
+      wikilink: "Link to another note",
       userMenu: "Forgot how something works?",
     },
     "zh-TW": {
@@ -424,6 +431,7 @@ describe("說明文字", () => {
       search: "搜尋",
       header: "分享與更多動作",
       versions: "版本歷史",
+      wikilink: "連到別篇筆記",
       userMenu: "忘了怎麼用？",
     },
   };
@@ -437,6 +445,7 @@ describe("說明文字", () => {
       search: ["{mod}K", "titles and note text"],
       header: ["invites others to view or edit"],
       versions: ["{mod}S", "bottom-right corner"],
+      wikilink: ["Type [[", "Mentioned in"],
       userMenu: ["{mod}/", "open Help from here", "shortcuts, the feature tour and what's new"],
     },
     "zh-TW": {
@@ -446,6 +455,7 @@ describe("說明文字", () => {
       search: ["{mod}K", "標題和內文"],
       header: ["邀請別人一起看或一起編輯"],
       versions: ["{mod}S", "右下角"],
+      wikilink: ["打 [[", "提及"],
       userMenu: ["{mod}/", "從這裡打開「說明」", "快捷鍵、功能導覽和這一版新增"],
     },
   };

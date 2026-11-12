@@ -152,7 +152,7 @@ function NoteStandIn() {
   const { slug } = useParams();
   const note = NOTES.find((n) => n.slug === slug)!;
   useEffect(() => {
-    const editor = { isEditable: editable, _tiptapEditor: {} } as unknown as TourEditor;
+    const editor = { isEditable: editable, document: [], _tiptapEditor: {} } as unknown as TourEditor;
     const unregister = registerEditor(note.id, editor);
     if (editable) notifyEditorEditable(note.id, editor);
     return unregister;

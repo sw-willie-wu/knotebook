@@ -18,7 +18,7 @@ import {
 import { buildSequence } from "./sequence";
 import { FULL_TOUR, STOPS, type StopContext, type StopDef, type StopId } from "./stops";
 
-const CTX: StopContext = { searchQuery: "", aiActions: [] };
+const CTX: StopContext = { searchQuery: "", aiActions: [], sampleNoteId: "n1", liveStops: false };
 const AI_ACTION: AiActionDto = { id: "rewrite", name: "Rewrite", applyMode: "preview", kind: "quick" };
 
 /** 一個有尺寸的目標元素；`visible=false` 時寬高是 0（＝還沒出現）。 */
@@ -105,7 +105,7 @@ describe("濾站與總站數", () => {
     const a = fakeStop("a");
     const b = fakeStop("b", { precondition: (ctx) => (seen.push(ctx), ctx.searchQuery === "") });
     const c = fakeStop("c", { precondition: () => true });
-    const ctx: StopContext = { searchQuery: "x", aiActions: [] };
+    const ctx: StopContext = { searchQuery: "x", aiActions: [], sampleNoteId: "n1", liveStops: false };
     const planned = planStops([a, b, c].map((s) => s.entry), ctx);
     expect(planned.map((e) => e.stop.id)).toEqual(["a", "c"]);
     expect(seen).toEqual([ctx]);
@@ -118,8 +118,8 @@ describe("濾站與總站數", () => {
   });
 
   it("搜尋框有字：完整導覽少掉 tab 列、資料夾、搜尋三站", () => {
-    const planned = planStops(fullTourStops(), { searchQuery: "ab", aiActions: [] });
-    expect(planned.map((e) => e.stop.id)).toEqual(["newNote", "header", "versions", "userMenu"]);
+    const planned = planStops(fullTourStops(), { ...CTX, searchQuery: "ab" });
+    expect(planned.map((e) => e.stop.id)).toEqual(["newNote", "header", "versions", "wikilink", "userMenu"]);
   });
 });
 

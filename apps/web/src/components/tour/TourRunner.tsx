@@ -28,6 +28,7 @@ import {
   type TourStopEntry,
 } from "./engine";
 import type { Rect } from "./geometry";
+import { canRunLiveStop, installLiveStopInput } from "./live-stops";
 import { stopTitle } from "./sequence";
 import { isNarrowViewport, stopBody, stopTarget, type StopContext } from "./stops";
 import { TourOverlay } from "./TourOverlay";
@@ -77,7 +78,7 @@ interface Run {
   ctx: StopContext;
 }
 
-const IDLE: EngineSnapshot = { phase: "idle", index: -1, total: 0, entry: null, pending: false, endReason: null };
+const IDLE: EngineSnapshot = { phase: "idle", index: -1, total: 0, entry: null, pending: false, preparing: null, endReason: null };
 const subscribeNothing = () => () => {};
 const idleSnapshot = () => IDLE;
 
@@ -140,7 +141,7 @@ export function TourRunner({ returnTo, returnFocus, prepareSample, onStarted, on
     }
     const aiActions = await aiRead;
     if (signal.aborted) return;
-    const ctx: StopContext = { searchQuery: readQuery(), aiActions };
+    const ctx: StopContext = { searchQuery: readQuery(), aiActions, sampleNoteId: note.id, liveStops: canRunLiveStop(note.id) };
     const engine = new TourEngine(planStops(stops ?? fullTourStops(), ctx), ctx);
     setRun({ engine, note, path: canonicalNotePath(note), tab, ctx });
   });
@@ -234,11 +235,23 @@ export function TourRunner({ returnTo, returnFocus, prepareSample, onStarted, on
     return () => cancelAnimationFrame(frame);
   }, [entry, run]);
 
+  // 現場演示站：焦點留在編輯器，鍵盤與選單上的點擊由導覽接走（細節見 `installLiveStopInput`）。
+  // 卡片上的樣子看畫面上那一站；攔截另外看「正在準備的那一站」：換進演示站時選單在目標出現之前就已經開了。
+  const liveStop = entry !== null && run !== null && entry.stop.live?.(run.ctx) === true;
+  const preparing = snapshot.phase === "running" ? snapshot.preparing : null;
+  const liveInput = liveStop || (preparing !== null && run !== null && preparing.stop.live?.(run.ctx) === true);
+  useEffect(() => {
+    if (!liveInput || run === null) return;
+    const { engine } = run;
+    return installLiveStopInput({ next: () => engine.next(), back: () => engine.back() });
+  }, [liveInput, run]);
+
   if (entry === null || run === null) return null;
   const { engine } = run;
   return (
     <TourOverlay
       target={target}
+      live={liveStop}
       step={snapshot.index + 1}
       total={snapshot.total}
       title={stopTitle(t, entry.stop)}
