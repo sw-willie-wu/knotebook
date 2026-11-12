@@ -974,6 +974,7 @@
     "storage_plan_is_default": "This plan is a default. Choose another default first.",
     "storage_plan_name_taken": "A plan with this name already exists",
     "storage_plan_not_found": "Plan not found",
+    "avatar_outdated": "This picture was updated elsewhere. Open it again to adjust.",
     "version_is_base": "This version is what the current content is based on, so it can't be deleted",
     "version_unsaved_changes": "There are unsaved changes",
     "version_mismatch": "This version no longer exists or has been replaced. Refresh and try again.",
