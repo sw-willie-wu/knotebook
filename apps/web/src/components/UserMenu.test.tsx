@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation, type Location } from "react-router";
-import type { UserDto } from "@knotebook/shared";
+import { avatarUrl, type UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
 import { ShortcutsDialogContext, type ShortcutsDialogApi } from "@/lib/shortcuts-dialog";
@@ -434,5 +434,74 @@ describe("UserMenu「設定」項的 Ctrl+, 提示（與 AppShell 的 Ctrl+, 同
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/settings/account"));
     const state = lastLocation?.state as { backgroundLocation?: { pathname: string } } | null;
     expect(state?.backgroundLocation?.pathname).toBe("/n/tester/some-note");
+  });
+});
+
+describe("UserMenu 帳號列頭像", () => {
+  const AVATAR_ID = "0f8fad5b-d9cb-469f-a165-70867728950e";
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  async function renderTrigger(user: UserDto): Promise<HTMLElement> {
+    stubFetch(user);
+    renderMenu();
+    return screen.findByRole("button", { name: user.displayName });
+  }
+
+  it.each([false, true])("有頭貼（pending=%s）：觸發鈕內有一個 img，src 是 avatarUrl(id, v)", async pending => {
+    const trigger = await renderTrigger({ ...USER, avatar: { id: AVATAR_ID, v: 4, pending } });
+    const imgs = trigger.querySelectorAll("img");
+    expect(imgs).toHaveLength(1);
+    expect(imgs[0].getAttribute("src")).toBe(avatarUrl(AVATAR_ID, 4));
+  });
+
+  it("沒有頭貼：沒有 img，顯示首字", async () => {
+    const trigger = await renderTrigger({ ...USER, displayName: "alice", avatar: null });
+    expect(trigger.querySelector("img")).toBeNull();
+    expect(trigger).toHaveTextContent(/^A/);
+  });
+
+  it("img 載入失敗：退回首字", async () => {
+    const trigger = await renderTrigger({ ...USER, displayName: "alice", avatar: { id: AVATAR_ID, v: 1, pending: false } });
+    fireEvent.error(trigger.querySelector("img")!);
+    expect(trigger.querySelector("img")).toBeNull();
+    const letter = Array.from(trigger.querySelectorAll("span")).find((el) => el.textContent === "A");
+    expect(letter).toBeDefined();
+  });
+
+  it("首字的 inline font-size 是 10px（24px 頭像）", async () => {
+    const trigger = await renderTrigger({ ...USER, displayName: "alice", avatar: null });
+    const letter = Array.from(trigger.querySelectorAll("span")).find((el) => el.textContent === "A")!;
+    expect(letter.style.fontSize).toBe("10px");
+  });
+
+  it("首字狀態的底色是 bg-primary、字色是 text-primary-foreground，不被 bg-muted 蓋掉", async () => {
+    const trigger = await renderTrigger({ ...USER, displayName: "alice", avatar: null });
+    const letter = Array.from(trigger.querySelectorAll("span")).find((el) => el.textContent === "A")!;
+    expect(letter).toHaveClass("bg-primary", "text-primary-foreground");
+    expect(letter).not.toHaveClass("bg-muted");
+    expect(letter).not.toHaveClass("text-foreground");
+  });
+
+  it("觸發鈕的可及名稱仍是 displayName（有頭貼時也一樣）", async () => {
+    stubFetch({ ...USER, displayName: "Alice Lin", avatar: { id: AVATAR_ID, v: 1, pending: false } });
+    renderMenu();
+    expect(await screen.findByRole("button", { name: "Alice Lin" })).toBeInTheDocument();
+  });
+
+  it.each([
+    ["王小明", "王"],
+    ["👩‍💻 dev", "👩‍💻"],
+    ["éclair", "É"],
+  ])("名字 %j 的首字顯示完整一字 %j", async (displayName, expected) => {
+    const trigger = await renderTrigger({ ...USER, displayName, avatar: null });
+    const letter = Array.from(trigger.querySelectorAll("span")).find((el) => el.textContent === expected);
+    expect(letter).toBeDefined();
   });
 });

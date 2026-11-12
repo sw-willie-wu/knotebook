@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { AGENT_PRESENCE_COLOR, collabUserColor } from "@knotebook/shared";
 import {
   firstGrapheme,
+  hasVisibleText,
   orderBySeen,
   presenceCursor,
   presenceLayout,
@@ -11,8 +12,9 @@ import {
   type UserPresencePerson,
 } from "./people";
 import { agentState, userState } from "./test-awareness";
+import { firstGrapheme as libFirstGrapheme, hasVisibleText as libHasVisibleText } from "@/lib/first-grapheme";
 
-// #293：名單、合併、排序、簽章、容量、首字。me＝"u-me"、本分頁 clientID＝1。
+// #293：名單、合併、排序、簽章、容量；首字只驗 re-export。me＝"u-me"、本分頁 clientID＝1。
 const ME = "u-me";
 const MY_CLIENT = 1;
 const UUID = "0f8fad5b-d9cb-469f-a165-70867728950e";
@@ -224,26 +226,8 @@ describe("presenceLayout", () => {
 });
 
 describe("firstGrapheme", () => {
-  it.each([
-    ["ann", "A"],
-    ["王小明", "王"],
-    ["👩‍💻 dev", "👩‍💻"],
-    ["éclair", "É"],
-    ["  ", "?"],
-    ["", "?"],
-    [" bob", "B"],
-  ])("%j → %j", (name, expected) => {
-    expect(firstGrapheme(name)).toBe(expected);
-  });
-
-  // #293：開頭的 bidi／格式字元看不見，首字取第一個看得見的字素。
-  it.each([
-    [String.fromCharCode(0x202e) + "Ann", "A"],
-    [String.fromCharCode(0x200f, 0x2066) + "bob", "B"],
-    [String.fromCharCode(0xfeff, 0x200b) + "王", "王"],
-    [String.fromCharCode(0x200b), "?"],
-    [String.fromCharCode(0x202e, 0x3000, 0x200e), "?"],
-  ])("開頭不可見字元 %j → %j", (name, expected) => {
-    expect(firstGrapheme(name)).toBe(expected);
+  it("people 仍轉出與 lib 同一支 firstGrapheme / hasVisibleText", () => {
+    expect(firstGrapheme).toBe(libFirstGrapheme);
+    expect(hasVisibleText).toBe(libHasVisibleText);
   });
 });

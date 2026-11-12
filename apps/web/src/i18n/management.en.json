@@ -487,7 +487,7 @@
       }
     },
     "storage": {
-      "description": "How much space the files in your personal notes and your profile pictures take.",
+      "description": "How much space your profile pictures and the files in your personal notes take.",
       "usageTitle": "Usage",
       "byKind": "By type",
       "byKindDescription": "Files and profile pictures, grouped by type.",
@@ -523,6 +523,39 @@
     },
     "account": {
       "description": "The name others see, and the name in your public links.",
+      "avatar": {
+        "title": "Profile picture",
+        "description": "Shown in the sidebar and to people on the same note.",
+        "upload": "Upload a picture",
+        "listLabel": "Picture options",
+        "none": "No picture",
+        "uploaded": "Picture uploaded {{date}}",
+        "fromProvider": "Picture from {{provider}}",
+        "fromDisconnected": "Picture from a disconnected sign-in service",
+        "more": "More actions for {{candidate}}",
+        "recrop": "Adjust crop",
+        "delete": "Delete",
+        "changed": "Profile picture updated",
+        "usage": "Profile pictures count toward your storage, original and cropped.",
+        "deleteTitle": "Delete this picture?",
+        "deleteDescription": "This can't be undone. It frees {{size}}.",
+        "deleted": "Picture deleted.",
+        "deletedCurrent": "Deleted. Your initial is shown instead.",
+        "empty": "You haven't uploaded a picture yet.",
+        "loading": "Loading pictures…",
+        "loadFailed": "Couldn't load your pictures.",
+        "tooLarge": "The image is larger than the {{size}} limit.",
+        "crop": {
+          "title": "Adjust picture",
+          "description": "Drag to move. Use the slider or scroll to zoom.",
+          "area": "Crop area",
+          "zoom": "Zoom",
+          "save": "Save",
+          "saving": "Uploading…",
+          "unreadable": "Couldn't read this image. PNG, JPEG and WebP are supported.",
+          "uploadFailed": "Upload failed. Please try again."
+        }
+      },
       "displayName": {
         "title": "Display name",
         "description": "The name shown in the share panel, version history and group member lists.",

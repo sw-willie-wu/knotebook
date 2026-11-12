@@ -12,7 +12,7 @@ function root(container: HTMLElement): HTMLElement {
 }
 
 describe("Avatar", () => {
-  it("AV1 首字：aria-hidden、大寫首字、bg-muted／text-foreground、inline 尺寸", () => {
+  it("首字：aria-hidden、大寫首字、bg-muted／text-foreground、inline 尺寸", () => {
     const { container } = render(<Avatar name="ann" avatar={null} size={28} />);
     const el = root(container);
     expect(el).toHaveAttribute("aria-hidden", "true");
@@ -22,7 +22,7 @@ describe("Avatar", () => {
     expect(el.style.height).toBe("28px");
   });
 
-  it("AV2 圖：src 只經 avatarUrl；載入失敗退首字；換版本後重試", () => {
+  it("圖：src 只經 avatarUrl；載入失敗退首字；換版本後重試", () => {
     const { container, rerender } = render(<Avatar name="ann" avatar={{ id: ID, v: 2 }} size={28} />);
     const img = container.querySelector("img")!;
     expect(img).not.toBeNull();
@@ -37,14 +37,14 @@ describe("Avatar", () => {
     expect(container.querySelector("img")?.getAttribute("src")).toBe(avatarUrl(ID, 3));
   });
 
-  it("AV3 AI：Sparkles 圖示、沒有首字", () => {
+  it("AI：Sparkles 圖示、沒有首字", () => {
     const { container } = render(<Avatar name="w" avatar={null} size={28} kind="agent" />);
     const el = root(container);
     expect(el.querySelector('svg[data-icon="sparkles"]')).not.toBeNull();
     expect(el.textContent).toBe("");
   });
 
-  it("AV5 AI 圖示色：淺色＝AGENT_PRESENCE_COLOR、深色改用較亮的紫（class，不用 inline 色）", () => {
+  it("AI 圖示色：淺色＝AGENT_PRESENCE_COLOR、深色改用較亮的紫（class，不用 inline 色）", () => {
     const { container } = render(<Avatar name="w" avatar={null} size={28} kind="agent" />);
     const icon = root(container).querySelector<SVGElement>('svg[data-icon="sparkles"]')!;
     expect(icon).toHaveClass(`text-[${AGENT_PRESENCE_COLOR}]`, "dark:text-[#a78bfa]");
@@ -52,7 +52,7 @@ describe("Avatar", () => {
     expect(icon.style.color).toBe("");
   });
 
-  it("AV4 外框：ringColor 與 card 底色兩圈；offsetColor 換底色；不給 ringColor 就沒有 boxShadow", () => {
+  it("外框：ringColor 與 card 底色兩圈；offsetColor 換底色；不給 ringColor 就沒有 boxShadow", () => {
     const { container, rerender } = render(<Avatar name="ann" avatar={null} size={28} ringColor="hsl(10 65% 45%)" />);
     const shadow = root(container).style.boxShadow;
     expect(shadow).toContain("hsl(10 65% 45%)");
@@ -64,7 +64,7 @@ describe("Avatar", () => {
     expect(root(container).style.boxShadow).toBe("");
   });
 
-  it("AV6 名字以不可見字元開頭：首字取第一個看得見的字素", () => {
+  it("名字以不可見字元開頭：首字取第一個看得見的字素", () => {
     const { container } = render(<Avatar name={`${String.fromCharCode(0x202e)}ann`} avatar={null} size={28} />);
     expect(root(container).textContent).toBe("A");
   });

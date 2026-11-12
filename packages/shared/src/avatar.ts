@@ -55,6 +55,12 @@ export interface AvatarCropDto {
   size: number;
 }
 
+/** 送給 server 的裁切欄：裁切方框（原圖像素）加上原圖解碼、轉正後的寬高（server 用來驗方框在圖內，並記下原圖尺寸）。 */
+export interface AvatarCropUpload extends AvatarCropDto {
+  width: number;
+  height: number;
+}
+
 /** 候選清單的一張頭貼。`providerName`＝OIDC 來源在啟用中登入服務的顯示名，對不到為 null。 */
 export interface AvatarCandidateDto {
   id: string;
