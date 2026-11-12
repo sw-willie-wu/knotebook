@@ -201,7 +201,7 @@ export function presenceSignature(people: readonly PresencePerson[]): string {
   );
 }
 
-export const PRESENCE_CAPACITY = { wide: 5, narrow: 2 } as const;
+export const PRESENCE_CAPACITY = { wide: 5, narrow: 2, compact: 0 } as const;
 
 function fit(total: number, capacity: number): { shown: number; more: number } {
   if (total > capacity) {
@@ -211,12 +211,20 @@ function fit(total: number, capacity: number): { shown: number; more: number } {
   return { shown: total, more: 0 };
 }
 
-/** 超過容量時 shown＝容量−1、more＝total−shown；未超過時 shown＝total、more＝0。 */
+/**
+ * 超過容量時 shown＝容量−1、more＝total−shown；未超過時 shown＝total、more＝0。
+ * 精簡形（手機寬）一顆頭像都不放，只有「+N」，N＝所有人；沒有其他人時 more 是 0、不渲染。
+ */
 export function presenceLayout(total: number): {
   wide: { shown: number; more: number };
   narrow: { shown: number; more: number };
+  compact: { shown: number; more: number };
 } {
-  return { wide: fit(total, PRESENCE_CAPACITY.wide), narrow: fit(total, PRESENCE_CAPACITY.narrow) };
+  return {
+    wide: fit(total, PRESENCE_CAPACITY.wide),
+    narrow: fit(total, PRESENCE_CAPACITY.narrow),
+    compact: { shown: 0, more: total },
+  };
 }
 
 const segmenter: Intl.Segmenter | null =

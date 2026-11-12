@@ -679,7 +679,13 @@ describe("NotePage", () => {
     expect(document.querySelector("header")).toHaveClass("gap-3", "max-sm:gap-2");
   });
 
-  it("頁首子節點順序：導覽鈕、標題、連線、最後編輯、星號、分享、寬度、⋮", async () => {
+  it("頁首子節點順序：導覽鈕、標題、連線、在線者、最後編輯、星號、分享、寬度、⋮", async () => {
+    resetLocalPresenceFieldForTest();
+    const awareness = new Awareness(new Y.Doc());
+    onTestFinished(() => awareness.destroy());
+    collab.state = { phase: "connected", role: "owner" };
+    collab.provider = Object.assign(createStubProvider(), { awareness });
+    setRemote(awareness, 10, userState("u2", "Bea"));
     vi.stubGlobal("fetch", mockFetch({ ...NOTE, lastEdited: { at: "2026-02-03T04:05:06.000Z", byHandle: "alice", agentLabel: null } }));
 
     renderNotePage("my-note");
@@ -690,6 +696,7 @@ describe("NotePage", () => {
       within(header).getByRole("button", { name: "Open navigation" }),
       within(header).getByLabelText("Note title"),
       within(header).getByRole("status"),
+      await within(header).findByRole("group", { name: "Also viewing this note" }),
       within(header).getByTestId("last-edited"),
       within(header).getByRole("button", { name: "Favorite" }),
       within(header).getByRole("button", { name: "Share" }),

@@ -807,6 +807,7 @@ export default function NotePage() {
                     {t("note.overSizeLimit")}
                   </p>
                 )}
+                {/* header 本身是 container，容器查詢管不到自己的 gap，所以手機寬的 gap 用視窗寬（max-sm）。 */}
                 <header ref={noteHeaderRef} className="@container flex items-center gap-3 max-sm:gap-2 border-b border-border px-5 py-3">
                   {/* #115：窄視窗的抽屜入口（md:hidden）——筆記載入成功態不掛
                       NarrowTopBar（頁首自己有這顆）；載入中/錯誤的佔位卡沒有頁首，
