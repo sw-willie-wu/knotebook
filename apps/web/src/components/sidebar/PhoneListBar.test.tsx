@@ -1,6 +1,6 @@
 import { createRef } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import i18n from "@/i18n";
 import { PhoneListBar } from "./PhoneListBar";
 
@@ -108,5 +108,76 @@ describe("PhoneListBar", () => {
     expect(bar).not.toBeNull();
     expect(bar?.className).toContain("env(safe-area-inset-bottom)");
     expect(bar).toHaveClass("pt-1.5");
+  });
+
+  describe("鍵盤開著", () => {
+    let viewport: EventTarget & { height: number; offsetTop: number; scale: number };
+    let frames: Array<() => void>;
+
+    function setKeyboard(inset: number) {
+      viewport.height = 800 - inset;
+      act(() => {
+        viewport.dispatchEvent(new Event("resize"));
+        frames.splice(0).forEach((run) => run());
+      });
+    }
+
+    beforeEach(() => {
+      viewport = Object.assign(new EventTarget(), { height: 800, offsetTop: 0, scale: 1 });
+      vi.stubGlobal("innerHeight", 800);
+      frames = [];
+      vi.stubGlobal("requestAnimationFrame", (cb: () => void) => frames.push(cb));
+      Object.defineProperty(window, "visualViewport", { value: viewport, configurable: true, writable: true });
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      Object.defineProperty(window, "visualViewport", { value: undefined, configurable: true, writable: true });
+    });
+
+    function bar() {
+      return document.querySelector<HTMLElement>("[data-phone-list-bar]")!;
+    }
+
+    it("鍵盤收著：列在文件流裡（沒有 margin-bottom），有 New note 與 safe area", () => {
+      renderBar();
+      expect(bar()).not.toHaveClass("fixed");
+      expect(bar().style.bottom).toBe("");
+      expect(screen.getByRole("button", { name: "New note" })).toBeInTheDocument();
+      expect(bar().className).toContain("env(safe-area-inset-bottom)");
+    });
+
+    it("鍵盤升起：列仍在文件流裡、margin-bottom＝鍵盤高（結果區跟著縮短），只留搜尋框，沒有 New note、沒有 safe area 內距", () => {
+      renderBar();
+      setKeyboard(300);
+      expect(bar()).not.toHaveClass("fixed");
+      expect(bar()).toHaveClass("shrink-0");
+      expect(bar().style.marginBottom).toBe("300px");
+      expect(screen.getByRole("textbox", { name: "Search notes" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "New note" })).toBeNull();
+      expect(bar().className).not.toContain("env(safe-area-inset-bottom)");
+    });
+
+    it("鍵盤升起且搜尋層開著：Cancel 也收起", () => {
+      renderBar({ active: true });
+      expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+      setKeyboard(300);
+      expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+    });
+
+    it("高度差在門檻以內：不算鍵盤，列照舊", () => {
+      renderBar();
+      setKeyboard(60);
+      expect(bar()).not.toHaveClass("fixed");
+      expect(screen.getByRole("button", { name: "New note" })).toBeInTheDocument();
+    });
+
+    it("鍵盤收起：回到文件流、按鈕回來", () => {
+      renderBar();
+      setKeyboard(300);
+      setKeyboard(0);
+      expect(bar().style.marginBottom).toBe("");
+      expect(screen.getByRole("button", { name: "New note" })).toBeInTheDocument();
+    });
   });
 });
