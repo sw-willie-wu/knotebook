@@ -6,7 +6,10 @@
  * 重導）由下載器逐跳檢查，不在這裡。
  */
 
-/** 網址長度上限（字元數，非位元組）。 */
+/**
+ * 網址長度上限：UTF-16 code unit 數（JS 的 `.length`），不是位元組。它恆 ≥ PG 的
+ * `char_length`，所以通過這裡的值一定滿足資料庫的長度 CHECK。
+ */
 export const MAX_PICTURE_URL_LENGTH = 2048;
 
 /** NUL 與落單代理（well-formed 的代理對不算）。 */
