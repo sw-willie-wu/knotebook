@@ -1,3 +1,4 @@
+import { SAFE_FRAME_PADDING } from "@/components/ui/safe-area";
 import { lazy, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
@@ -696,7 +697,7 @@ export function AppShell({ children, inert }: AppShellProps) {
       <PhoneBrowseContext.Provider value={browseState}>
       <ShortcutsDialogContext.Provider value={shortcutsApi}>
         <SidebarTabProvider actionsRef={tabActionsRef}>
-          <div inert={inert} className="flex h-screen gap-3 overflow-hidden bg-background p-3">
+          <div inert={inert} className={cn("flex h-screen gap-3 overflow-hidden bg-background", SAFE_FRAME_PADDING)}>
             {/* data-sidebar-instance：SidebarContent 回 fragment、沒有自己的根；垃圾桶動作列靠它找回同一份的「選取」鈕。 */}
             <aside
               ref={asideRef}
@@ -709,6 +710,8 @@ export function AppShell({ children, inert }: AppShellProps) {
                 "relative hidden shrink-0 xl:flex xl:flex-col",
                 // 手機的清單畫面：滿版蓋住整個視窗；筆記路由維持 `hidden`（加 inert）。
                 asideShown && "max-sm:fixed max-sm:inset-0 max-sm:z-40 max-sm:flex max-sm:flex-col max-sm:rounded-none max-sm:border-0",
+                // 滿版清單蓋住外框，橫拿時左右自己退開瀏海（頂列與底部列各自處理上下）。
+                asideShown && "max-sm:pl-[env(safe-area-inset-left)] max-sm:pr-[env(safe-area-inset-right)]",
               )}
               style={phone ? undefined : { width: sidebarWidth }}
               inert={phone && !asideShown}
@@ -739,7 +742,7 @@ export function AppShell({ children, inert }: AppShellProps) {
                   // 底色與 flex 脈絡缺一不可：沒底色透出 overlay 的黑、沒 flex-col 則
                   // SidebarContent 的 min-h-0 flex-1 清單失去約束。貼齊
                   // 左緣故意不用 cardSurface 的圓角——抽屜不是卡片。
-                  className="fixed inset-y-0 left-0 z-50 flex flex-col border-r border-border bg-card outline-none"
+                  className="fixed inset-y-0 left-0 z-50 flex flex-col border-r border-border bg-card pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pt-[env(safe-area-inset-top)] outline-none"
                   // 寬度吃側欄寬度設定，右側至少露出 4rem 的筆記區（點那裡收起）；浮動版不放拖曳把手。
                   style={{ width: `min(${sidebarWidth}px, calc(100vw - 4rem))` }}
                   // Radix 在 document capture 先處理 Esc：選取中先結束選取、抽屜不關。真瀏覽器在這個 listener 與 React 的

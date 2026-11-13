@@ -50,7 +50,18 @@ describe("CornerStack（#263 起只剩歷史泡泡）", () => {
     const stack = await screen.findByTestId("corner-stack");
     expect(Array.from(stack.children).map((el) => el.getAttribute("data-testid"))).toEqual(["versions-bubble"]);
     expect(screen.queryByTestId("ai-bubble")).not.toBeInTheDocument();
-    expect(stack).toHaveClass("fixed", "bottom-5", "right-5", "sm:bottom-6", "sm:right-6", "flex", "flex-col-reverse", "gap-3", "z-30");
+    // 20／24 px 之外再加 safe area（Home 指示條、橫拿時的側邊）。
+    expect(stack).toHaveClass(
+      "fixed",
+      "bottom-[calc(1.25rem+env(safe-area-inset-bottom))]",
+      "right-[calc(1.25rem+env(safe-area-inset-right))]",
+      "sm:bottom-[calc(1.5rem+env(safe-area-inset-bottom))]",
+      "sm:right-[calc(1.5rem+env(safe-area-inset-right))]",
+      "flex",
+      "flex-col-reverse",
+      "gap-3",
+      "z-30",
+    );
     expect(stack).not.toHaveClass(SHIFT);
   });
 

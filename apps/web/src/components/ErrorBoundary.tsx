@@ -1,3 +1,4 @@
+import { SAFE_PAGE_PADDING, SAFE_PAGE_PADDING_COMPACT } from "@/components/ui/safe-area";
 import { Component, useEffect, useSyncExternalStore, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "./ui/button";
@@ -302,7 +303,7 @@ export const NoteRouteErrorBoundary = LazyRouteErrorBoundary;
  * AuthorizePage 的最外層 `<main>` 同款，lazy 頁面到手前後版面不跳。
  */
 function PageFrame({ children }: { children: ReactNode }) {
-  return <main className="flex min-h-screen items-center justify-center p-8">{children}</main>;
+  return <main className={`flex min-h-screen items-center justify-center ${SAFE_PAGE_PADDING}`}>{children}</main>;
 }
 
 /**
@@ -390,7 +391,7 @@ function AppErrorFallback({ onReload }: { onReload: () => void }) {
   const { t } = useTranslation();
   const online = useOnline();
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-6">
+    <div className={`flex min-h-screen items-center justify-center bg-background ${SAFE_PAGE_PADDING_COMPACT}`}>
       <div role="alert" className="flex flex-col items-center gap-4 rounded-lg border p-8 text-center">
         <p className="text-base font-medium text-foreground">{t("app.crashTitle")}</p>
         <Button type="button" variant="outline" disabled={!online} onClick={onReload}>

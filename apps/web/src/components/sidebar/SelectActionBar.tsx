@@ -160,8 +160,9 @@ interface RunResult {
 
 /**
  * @param layout `bar`＝窄形底部列（預設）；`toolbar`＝寬形標題列裡的圖示鈕（不渲染進度句，由 `SelectHeader` 顯示）。
+ * @param safeBottom `bar` 形貼著螢幕底邊（手機清單滿版）時為 true：底部多留 `safe-area-inset-bottom`。側欄在外框裡（外框已給底邊）時不給，免得疊兩次。
  */
-export function SelectActionBar({ layout = "bar" }: { layout?: "bar" | "toolbar" }) {
+export function SelectActionBar({ layout = "bar", safeBottom = false }: { layout?: "bar" | "toolbar"; safeBottom?: boolean }) {
   const { t } = useTranslation();
   const { tab: currentTab, selection } = useSidebarTabState();
   const actions = useSidebarTabActions();
@@ -672,7 +673,7 @@ export function SelectActionBar({ layout = "bar" }: { layout?: "bar" | "toolbar"
         {reasonTexts}
       </div>
     ) : (
-      <div className="m-2 flex flex-col gap-1" data-select-action-bar="" aria-busy={busy}>
+      <div className={`m-2 flex flex-col gap-1${safeBottom ? " pb-[env(safe-area-inset-bottom)]" : ""}`} data-select-action-bar="" aria-busy={busy}>
         {run !== null && (
           <p role="status" className="px-1 text-center text-[11px] text-muted-foreground">
             {t("select.progress", run.progress)}

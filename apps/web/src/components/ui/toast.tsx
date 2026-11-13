@@ -121,7 +121,9 @@ export const ToastViewport = forwardRef<
       // `pointer-events-none`（#115）：viewport 空著的時候仍是右下角一塊 fixed 命中
       // 區，會蓋住右下角歷史泡泡的下緣；toast item 自己帶 `pointer-events-auto`（見
       // ToastRoot），互動不受影響。
-      "pointer-events-none fixed bottom-0 right-0 z-[100] flex max-h-screen w-full flex-col gap-2 p-4 sm:max-w-[420px]",
+      "pointer-events-none fixed bottom-0 right-0 z-[100] flex max-h-screen w-full flex-col gap-2 sm:max-w-[420px]",
+      // 內距 16 px，四邊再與 safe area 取大（瀏海與 Home 指示條下不被蓋住）。
+      "pt-[max(1rem,env(safe-area-inset-top))] pr-[max(1rem,env(safe-area-inset-right))] pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))]",
       className,
     )}
     {...props}

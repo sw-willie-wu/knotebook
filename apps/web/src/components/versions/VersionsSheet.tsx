@@ -1,3 +1,4 @@
+import { SAFE_INSETS } from "@/components/ui/safe-area";
 import { useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { Dialog as DialogPrimitive } from "radix-ui";
@@ -150,7 +151,7 @@ export function VersionsSheet({ doc, lastEdited, returnFocusRef }: { doc: Y.Doc;
     <DialogPrimitive.Root open onOpenChange={(open) => !open && shut()}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Content
-          className="fixed inset-0 z-50 flex flex-col bg-card outline-none"
+          className={`fixed inset-0 z-50 flex flex-col bg-card outline-none ${SAFE_INSETS}`}
           aria-describedby={undefined}
           onCloseAutoFocus={(event) => {
             const target = returnFocus?.isConnected ? returnFocus : returnFocusRef?.current;

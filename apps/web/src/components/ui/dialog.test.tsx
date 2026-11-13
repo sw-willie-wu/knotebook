@@ -108,6 +108,7 @@ describe("DialogContent size（#247）", () => {
       "overflow-visible",
       "w-[96vw]",
       "h-[92vh]",
+      "max-w-[calc(100vw-2*max(2vw,env(safe-area-inset-left),env(safe-area-inset-right)))]",
       "md:w-[clamp(min(56rem,96vw),92vw,85rem)]",
       "md:h-[clamp(min(42rem,92vh),88vh,56rem)]",
       "grid-cols-[minmax(0,1fr)]",

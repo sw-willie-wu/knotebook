@@ -1,3 +1,4 @@
+import { SAFE_INSETS } from "@/components/ui/safe-area";
 import {
   Component, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore,
   type MouseEvent as ReactMouseEvent, type ReactNode,
@@ -165,7 +166,7 @@ export function PresentationShell({ title, status, errorMessage, toolbarExtra, c
         {/* 閒置淡出：不用 focus-visible 浮現；這裡用 focus-within——鍵盤焦點在任一顆按鈕上時整列都浮現，範圍較寬、符合意圖。 */}
         <div
           className={cn(
-            "absolute right-3 top-3 z-10 flex items-center gap-2 transition-opacity hover:opacity-100 focus-within:opacity-100",
+            "absolute right-[max(0.75rem,env(safe-area-inset-right))] top-[max(0.75rem,env(safe-area-inset-top))] z-10 flex items-center gap-2 transition-opacity hover:opacity-100 focus-within:opacity-100",
             idle ? "opacity-0" : "opacity-100",
           )}
         >
@@ -196,7 +197,7 @@ export function PresentationShell({ title, status, errorMessage, toolbarExtra, c
         ) : status === "loading" ? (
           <p className="m-auto text-sm text-muted-foreground">{t("app.loading")}</p>
         ) : (
-          <div className="relative min-h-0 flex-1">{children}</div>
+          <div className={`relative min-h-0 flex-1 ${SAFE_INSETS}`}>{children}</div>
         )}
       </div>
     </PresentationShellContext.Provider>

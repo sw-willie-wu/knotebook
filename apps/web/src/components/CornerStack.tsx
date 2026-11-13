@@ -43,7 +43,8 @@ export function CornerStack() {
     <div
       data-testid="corner-stack"
       className={cn(
-        "fixed bottom-5 right-5 z-30 flex flex-col-reverse gap-3 sm:bottom-6 sm:right-6",
+        "fixed bottom-[calc(1.25rem+env(safe-area-inset-bottom))] right-[calc(1.25rem+env(safe-area-inset-right))] z-30 flex flex-col-reverse gap-3",
+        "sm:bottom-[calc(1.5rem+env(safe-area-inset-bottom))] sm:right-[calc(1.5rem+env(safe-area-inset-right))]",
         "transition-opacity duration-200 focus-within:pointer-events-auto focus-within:opacity-100",
         scrolling && "pointer-events-none opacity-0",
       )}

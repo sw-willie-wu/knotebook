@@ -1,3 +1,4 @@
+import { SAFE_INSETS } from "@/components/ui/safe-area";
 import { Component, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useOnline } from "./ErrorBoundary";
@@ -37,7 +38,7 @@ import { Button } from "./ui/button";
  */
 export function PublicPageFrame({ children, inert }: { children: ReactNode; inert?: boolean }) {
   return (
-    <div inert={inert} className="flex h-screen flex-col overflow-hidden bg-card">
+    <div inert={inert} className={`flex h-screen flex-col overflow-hidden bg-card ${SAFE_INSETS}`}>
       {children}
     </div>
   );

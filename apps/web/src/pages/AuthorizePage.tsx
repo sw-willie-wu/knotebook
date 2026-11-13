@@ -1,3 +1,4 @@
+import { SAFE_PAGE_PADDING } from "@/components/ui/safe-area";
 import { useId, useState } from "react";
 import { useSearchParams } from "react-router";
 import { useTranslation } from "react-i18next";
@@ -31,7 +32,7 @@ export default function AuthorizePage() {
   })();
 
   return (
-    <main className="flex min-h-screen items-center justify-center p-8">
+    <main className={`flex min-h-screen items-center justify-center ${SAFE_PAGE_PADDING}`}>
       <div className="w-full max-w-md space-y-4">
         {errorMessage !== null ? (
           <div className="space-y-2">

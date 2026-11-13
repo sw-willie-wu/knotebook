@@ -51,7 +51,7 @@ export function SidebarFooter({
     // 佔位與動作列同高；chunk 失敗時錯誤＋重試由清單那份（同一個 chunk）顯示，這裡隱藏。
     return (
       <SidebarLazyBoundary chunk="select" fallback={<div className="m-2 h-8" />} errorClassName="hidden">
-        <SelectActionBar />
+        <SelectActionBar safeBottom={phone} />
       </SidebarLazyBoundary>
     );
   }

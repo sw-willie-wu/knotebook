@@ -62,7 +62,7 @@ describe("AppShell 版面 smoke", () => {
     vi.unstubAllGlobals();
   });
 
-  it("根＝flex h-screen overflow-hidden gap-3 bg-background p-3；main＝flex min-h-0 min-w-0 flex-1 flex-col", async () => {
+  it("根＝flex h-screen overflow-hidden gap-3 bg-background＋四邊 safe area 內距；main＝flex min-h-0 min-w-0 flex-1 flex-col", async () => {
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <ThemeProvider>
@@ -77,7 +77,12 @@ describe("AppShell 版面 smoke", () => {
     const root = main.closest("main")?.parentElement;
 
     expect(main.closest("main")).toHaveClass("flex", "min-h-0", "min-w-0", "flex-1", "flex-col");
-    expect(root).toHaveClass("flex", "h-screen", "overflow-hidden", "gap-3", "bg-background", "p-3");
+    expect(root).toHaveClass("flex", "h-screen", "overflow-hidden", "gap-3", "bg-background");
+    // 外框四邊都是 max(12px, safe area)：瀏海與圓角下不貼邊，沒有 inset 的裝置仍是 12px。
+    expect(root).not.toHaveClass("p-3");
+    for (const [prefix, side] of [["pt", "top"], ["pr", "right"], ["pb", "bottom"], ["pl", "left"]]) {
+      expect(root).toHaveClass(`${prefix}-[max(0.75rem,env(safe-area-inset-${side}))]`);
+    }
 
     // 靜態側欄卡 `<xl` 藏起來（浮動抽屜接手）、`xl+` 才以卡片顯示——`hidden`
     // 搭配 `xl:flex xl:flex-col` 缺一即壞（缺 xl:flex 寬螢幕也消失；缺 xl:flex-col

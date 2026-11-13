@@ -171,7 +171,7 @@ describe("SidebarFooter — 一般 tab 選取模式", () => {
     );
   }
 
-  function renderSelectFooter(props: { searching?: boolean } = {}) {
+  function renderSelectFooter(props: { searching?: boolean; phone?: boolean } = {}) {
     localStorage.setItem("sidebar.tab", "myNotes");
     vi.stubGlobal(
       "fetch",
@@ -189,7 +189,7 @@ describe("SidebarFooter — 一般 tab 選取模式", () => {
           <SidebarTabProvider>
             <SelectionProbe />
             <div data-testid="footer">
-              <SidebarFooter searching={props.searching ?? false} onCreateNote={() => {}} newNotePending={false} />
+              <SidebarFooter phone={props.phone} searching={props.searching ?? false} onCreateNote={() => {}} newNotePending={false} />
             </div>
           </SidebarTabProvider>
         </MemoryRouter>
@@ -246,6 +246,22 @@ describe("SidebarFooter — 一般 tab 選取模式", () => {
     fireEvent.click(screen.getByRole("button", { name: "probe-start" }));
     expect(await screen.findByRole("button", { name: "Copy to" })).toBeInTheDocument();
     expect(screen.getByTestId("footer").querySelector("[data-select-action-bar]")).not.toBeNull();
+  });
+
+  it("SF-S1 手機清單（貼著螢幕底邊）的動作列留底部 safe area", async () => {
+    mockWidePointer(false);
+    renderSelectFooter({ phone: true });
+    fireEvent.click(screen.getByRole("button", { name: "probe-start" }));
+    await screen.findByRole("button", { name: "Copy to" });
+    expect(screen.getByTestId("footer").querySelector("[data-select-action-bar]")).toHaveClass("pb-[env(safe-area-inset-bottom)]");
+  });
+
+  it("SF-S2 一般（classic）側欄的動作列不加 safe area（外框已給底邊）", async () => {
+    mockWidePointer(false);
+    renderSelectFooter();
+    fireEvent.click(screen.getByRole("button", { name: "probe-start" }));
+    await screen.findByRole("button", { name: "Copy to" });
+    expect(screen.getByTestId("footer").querySelector("[data-select-action-bar]")?.className).not.toContain("safe-area-inset");
   });
 });
 

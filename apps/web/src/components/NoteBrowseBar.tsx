@@ -35,7 +35,7 @@ export function NoteBrowseBar({ note }: { note: NoteDto }) {
   return (
     <div
       data-testid="note-browse-bar"
-      className="flex shrink-0 items-center gap-2 border-t border-border bg-card px-2 pt-1.5 pb-[calc(0.375rem+env(safe-area-inset-bottom))]"
+      className="flex shrink-0 items-center gap-2 border-t border-border bg-card px-2 pt-1.5 pb-1.5"
     >
       <button
         type="button"

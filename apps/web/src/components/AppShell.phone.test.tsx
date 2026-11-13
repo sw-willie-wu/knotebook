@@ -173,6 +173,10 @@ describe("AppShell — 手機清單畫面", () => {
     const top = container.querySelector("[data-phone-top-bar]");
     expect(top?.className).toContain("env(safe-area-inset-top)");
     expect(top?.firstElementChild).toHaveClass("h-12");
+    // 滿版清單蓋住外框：左右（橫拿的瀏海）由清單自己退開；上下由頂列與底部列給，不在這一層重複。
+    const list = aside(container);
+    expect(list).toHaveClass("max-sm:pl-[env(safe-area-inset-left)]", "max-sm:pr-[env(safe-area-inset-right)]");
+    expect(list.className).not.toMatch(/max-sm:p[tb]-\[env/);
   });
 
   it("PH6 tab 列：每個 tab 一顆、只有圖示（沒有文字）、h-11、不橫捲", async () => {

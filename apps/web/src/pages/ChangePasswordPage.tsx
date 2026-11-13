@@ -1,3 +1,4 @@
+import { SAFE_PAGE_PADDING } from "@/components/ui/safe-area";
 import { useNavigate } from "react-router";
 import { useTranslation } from "react-i18next";
 import { useAuthConfig } from "@/api/authConfig";
@@ -38,7 +39,7 @@ export default function ChangePasswordPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center p-8">
+    <main className={`flex min-h-screen items-center justify-center ${SAFE_PAGE_PADDING}`}>
       <div className="w-full max-w-sm space-y-4">
         <div className="flex justify-end">
           <Button type="button" variant="ghost" size="lg" onClick={() => void handleLogout()}>
