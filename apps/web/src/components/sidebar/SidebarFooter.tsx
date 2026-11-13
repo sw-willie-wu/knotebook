@@ -12,6 +12,7 @@ const TrashFooter = lazy(() => import("@/components/sidebar/TrashLazy").then((m)
 const SelectActionBar = lazy(() => import("@/components/sidebar/SelectLazy").then((m) => ({ default: m.SelectActionBar })));
 
 /**
+ * 手機清單畫面（`phone`）：不渲染「新增筆記」（底部列有），其餘（選取動作列、垃圾桶的說明與動作列）照舊。
  * 側欄底部（tab 列與 UserMenu 之間）：「我的筆記」「最近」tab 是「新增筆記」（永遠建個人筆記，所以「群組」「與我共享」tab 不顯示）；垃圾桶 tab 換成保留天數說明，
  * 垃圾桶選取模式換成動作列，兩者在 `TrashFooter.tsx`；一般 tab 的選取模式換成 `SelectActionBar`（
  * 寬螢幕不顯示，動作列在標題列）。
@@ -22,10 +23,13 @@ export function SidebarFooter({
   searching,
   onCreateNote,
   newNotePending,
+  phone = false,
 }: {
   searching: boolean;
   onCreateNote: () => void;
   newNotePending: boolean;
+  /** 手機清單畫面：「新增筆記」在底部列（`PhoneListBar`），這裡只留選取動作列與垃圾桶的說明／動作列。 */
+  phone?: boolean;
 }) {
   const { t } = useTranslation();
   const { tab, selection } = useSidebarTabState();
@@ -38,7 +42,7 @@ export function SidebarFooter({
       </Button>
     </div>
   );
-  if (searching) return newNote;
+  if (searching) return phone ? null : newNote;
   if (tab !== "trash" && selection.active) {
     // 寬螢幕：動作列在標題列（`SelectHeader` 的工具列），底部什麼都不顯示。
     // 清單可視高度因此多約一列：捲在最底附近時進入選取會位移約一列（不留同高空白）。
@@ -51,7 +55,7 @@ export function SidebarFooter({
       </SidebarLazyBoundary>
     );
   }
-  if (tab === "myNotes" || tab === "recent") return newNote;
+  if (tab === "myNotes" || tab === "recent") return phone ? null : newNote;
   if (tab !== "trash") return null;
   // 佔位與保留天數說明「載入中」同高，chunk 到了版面不跳。chunk 載入失敗時錯誤＋重試由面板那份（同一個 chunk）顯示，
   // 底部的錯誤內容隱藏、不重複一顆重試鈕。

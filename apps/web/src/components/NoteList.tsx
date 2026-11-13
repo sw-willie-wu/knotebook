@@ -651,7 +651,7 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
       {/* `key={tab}`：切 tab 換新元素，捲動位置回頂端。進出選取模式不換（捲動位置不跳）。 */}
       {/* 安全網：橫向裁切放在內層包層——放在清單本身會因另一軸是 `overflow-y-auto` 算成 `hidden`，仍可被捲動橫移。 */}
       {/* 拖曳的 dragstart／dragover／drop／dragend 都委派在這個容器；包層 `min-h-full`：清單下方空白也算根目錄的標示範圍。 */}
-      <div key={tab} data-sidebar-list="" className="min-h-0 flex-1 overflow-y-auto" {...drag.containerProps}>
+      <div key={tab} data-sidebar-list="" className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain" {...drag.containerProps}>
         <div
           data-drop-scope={listDropScoped ? "" : undefined}
           className={cn("min-h-full overflow-x-clip px-2", listDropScoped && DROP_SCOPE_CLASS)}

@@ -3,6 +3,7 @@ import { useNotes } from "@/api/notes";
 import { EmptyState } from "@/components/EmptyState";
 import { NarrowTopBar } from "@/components/NarrowTopBar";
 import { cardSurface } from "@/components/ui/card";
+import { useIsPhone } from "@/lib/layout-tiers";
 import { cn } from "@/lib/utils";
 
 /**
@@ -17,6 +18,10 @@ export default function HomePage() {
   const { t } = useTranslation();
   const notesQuery = useNotes();
   const hasNotes = (notesQuery.data?.length ?? 0) > 0;
+  const phone = useIsPhone();
+
+  // 手機：清單畫面（側欄）蓋滿整個視窗，這張空狀態卡與它的頂列不渲染。
+  if (phone) return null;
 
   return (
     // 側欄殼由外層的 AppShellLayout 提供；這裡只渲染主區插槽：一張全寬內文卡，跟 NotePage 的內文卡／佔位卡

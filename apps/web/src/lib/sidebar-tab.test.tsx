@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import { OVERLAY_QUERY } from "@/lib/layout-tiers";
 import { SidebarDrawerContext } from "@/lib/sidebar-drawer";
+import { PhoneListContext } from "@/lib/phone-list";
+import { stubLayoutTier, type LayoutTier } from "@/test/layout-tier";
 import { onSearchMarkClear } from "@/hooks/search-mark";
 import { EMPTY_SELECTION } from "./sidebar-selection";
 import {
@@ -280,6 +282,51 @@ describe("showTab 窄螢幕開抽屜", () => {
     });
     expect(spy2).toHaveBeenCalledTimes(1);
     expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+describe("showTab 手機：回清單、不開抽屜", () => {
+  function renderWithList(tier: LayoutTier, drawerSpy: (open: boolean) => void, backToList: () => void) {
+    stubLayoutTier(tier);
+    return render(
+      <PhoneListContext.Provider value={{ backToList }}>
+        {withDrawer(
+          drawerSpy,
+          <SidebarTabProvider>
+            <Probe />
+          </SidebarTabProvider>,
+        )}
+      </PhoneListContext.Provider>,
+    );
+  }
+
+  it("手機 → 呼叫 backToList 恰一次、抽屜不開；tab 照樣切換並寫入", () => {
+    const drawer = vi.fn();
+    const backToList = vi.fn();
+    renderWithList("phone", drawer, backToList);
+    fireEvent.click(screen.getByRole("button", { name: "go-workspace" }));
+    expect(backToList).toHaveBeenCalledTimes(1);
+    expect(drawer).not.toHaveBeenCalled();
+    expect(screen.getByTestId("tab")).toHaveTextContent("workspace");
+    expect(localStorage.getItem("sidebar.tab")).toBe("workspace");
+  });
+
+  it("浮動段 → 開抽屜、不呼叫 backToList", () => {
+    const drawer = vi.fn();
+    const backToList = vi.fn();
+    renderWithList("overlay", drawer, backToList);
+    fireEvent.click(screen.getByRole("button", { name: "go-workspace" }));
+    expect(drawer).toHaveBeenCalledWith(true);
+    expect(backToList).not.toHaveBeenCalled();
+  });
+
+  it("固定段 → 兩個都不呼叫", () => {
+    const drawer = vi.fn();
+    const backToList = vi.fn();
+    renderWithList("docked", drawer, backToList);
+    fireEvent.click(screen.getByRole("button", { name: "go-workspace" }));
+    expect(drawer).not.toHaveBeenCalled();
+    expect(backToList).not.toHaveBeenCalled();
   });
 });
 

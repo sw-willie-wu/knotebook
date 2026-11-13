@@ -21,6 +21,7 @@ import { PublicNoteErrorBoundary, PublicNoteFallback } from "./components/Public
 import LoginPage from "./pages/LoginPage";
 import HomePage from "./pages/HomePage";
 import { AppShellLayout } from "./components/AppShellLayout";
+import { NOTE_ROUTE_PATTERNS } from "./lib/phone-list";
 import { SettingsModal } from "./settings/SettingsModal";
 import { GroupModal, GroupSubpathRedirect, LegacyGroupRedirect } from "./components/groups/GroupModal";
 import { AdminModal } from "./components/admin/AdminModal";
@@ -308,11 +309,12 @@ export function AppRoutes() {
             {/* 首頁與三條筆記路由共用同一個 AppShellLayout（pathless layout route）：側欄只掛一份、換路由不重掛，
                 清單捲動位置與選取模式因此保留；頁面只渲染主內容區。 */}
             <Route element={<AppShellLayout />}>
-              <Route path="/notes/:ref" element={<NoteRoute />} />
-              <Route path="/n/:handle/:slug" element={<NoteRoute />} />
-              {/* #175：群組筆記 `/g/<group_id>/<slug>`——同一個 NoteRoute/NotePage；
+              {/* 三條筆記路由的 pattern 與手機版判斷「是不是筆記路由」共用同一份常數（`lib/phone-list.ts`）。
+                  #175：群組筆記 `/g/<group_id>/<slug>`——同一個 NoteRoute/NotePage；
                   只掛主樹（第二棵樹只管三個面板：/settings/*、/groups/*、/admin/*）。承接由 App.resetKey.test control 4 釘住。 */}
-              <Route path="/g/:groupId/:slug" element={<NoteRoute />} />
+              {NOTE_ROUTE_PATTERNS.map((path) => (
+                <Route key={path} path={path} element={<NoteRoute />} />
+              ))}
               <Route path="/*" element={<HomePage />} />
             </Route>
           </Route>

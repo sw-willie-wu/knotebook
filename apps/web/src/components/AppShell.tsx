@@ -14,7 +14,8 @@ import { PanelLeft, Search, X } from "@/components/ui/icons";
 import { toast, toastViewportHostRef } from "@/components/ui/toast";
 import { cardSurface } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { OVERLAY_QUERY } from "@/lib/layout-tiers";
+import { OVERLAY_QUERY, isPhone, useIsPhone } from "@/lib/layout-tiers";
+import { PhoneListContext, isNoteRoutePath } from "@/lib/phone-list";
 import { SidebarDrawerContext, useSidebarDrawer } from "@/lib/sidebar-drawer";
 import { canonicalizedFrom } from "@/lib/real-location";
 import { isMacPlatform } from "@/lib/platform";
@@ -29,6 +30,7 @@ import { NoteList } from "@/components/NoteList";
 import { SearchResults } from "@/components/sidebar/SearchResults";
 import { clearSearchMark } from "@/hooks/search-mark";
 import { SidebarFooter } from "@/components/sidebar/SidebarFooter";
+import { PhoneListBar } from "@/components/sidebar/PhoneListBar";
 import { SidebarTabList, sidebarPanelId, sidebarTabId } from "@/components/sidebar/SidebarTabList";
 import { SidebarLazyBoundary } from "@/components/sidebar/SidebarLazyBoundary";
 import { UserMenu } from "@/components/UserMenu";
@@ -98,6 +100,11 @@ interface SidebarContentProps {
   onCreateNote: (groupId?: string, folderId?: string) => void;
   newNotePending: boolean;
   shortcutBadge: string;
+  /** `phone`：手機清單畫面的排列（頂列頭像、只有圖示的 tab、底部搜尋列、全螢幕搜尋）；預設 `classic` 是寬版與抽屜的排列。 */
+  layout?: "classic" | "phone";
+  /** 手機：全螢幕搜尋層是否開著（狀態在 `AppShell`，這裡的排列與側欄的可見性都看這一個值）。 */
+  searchOpen?: boolean;
+  onSearchOpenChange?: (open: boolean) => void;
 }
 
 /** 側欄的內層堆疊（logo 列／搜尋／tab 列＋tabpanel（NoteList；垃圾桶 tab 是 TrashPanel）或搜尋結果／底部（SidebarFooter：
@@ -114,31 +121,59 @@ function SidebarContent({
   onCreateNote,
   newNotePending,
   shortcutBadge,
+  layout = "classic",
+  searchOpen = false,
+  onSearchOpenChange,
 }: SidebarContentProps) {
   const { t } = useTranslation();
   // 靜態卡與抽屜各自一份 `useId`，tab／tabpanel 的 id 才不會撞。
   const idBase = useId();
-  const { tab } = useSidebarTabState();
+  const { tab, selection } = useSidebarTabState();
   const { updateSelection } = useSidebarTabActions();
   // 空白也算搜尋中（同改版前的判準）。
   const searching = query.length > 0;
+  const phoneLayout = layout === "phone";
+  // 手機的全螢幕搜尋層：底部搜尋框聚焦或有字時，tab 列與清單換成搜尋結果。
+  const searchLayer = phoneLayout && searchOpen;
+  const showSearchView = phoneLayout ? searchLayer : searching;
+  // 選取模式（一般 tab）的動作列取代整條底部列。
+  const selectionBar = phoneLayout && tab !== "trash" && selection.active && !searchLayer;
   // 開始搜尋也離開選取模式（兩份實例都跑，冪等）。
   useEffect(() => {
     if (searching) updateSelection({ type: "end" });
   }, [searching, updateSelection]);
   return (
     <>
-      <div className="flex items-center gap-2 px-3 pt-3">
-        <span
-          aria-hidden="true"
-          className="text-2xl font-bold italic text-brand"
-          style={{ fontFamily: "'Playfair Display', Georgia, serif" }}
-        >
-          K
-        </span>
-        <span className="text-sm font-semibold">Knotebook</span>
-      </div>
+      {phoneLayout ? (
+        <div data-phone-top-bar="" className="shrink-0 pt-[env(safe-area-inset-top)]">
+          <div className="grid h-12 grid-cols-[2.75rem_1fr_2.75rem] items-center px-1">
+            <UserMenu variant="avatar" />
+            <div className="flex items-center justify-center gap-2">
+              <span
+                aria-hidden="true"
+                className="text-2xl font-bold italic text-brand"
+                style={{ fontFamily: "'Playfair Display', Georgia, serif" }}
+              >
+                K
+              </span>
+              <span className="text-sm font-semibold">Knotebook</span>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 px-3 pt-3">
+          <span
+            aria-hidden="true"
+            className="text-2xl font-bold italic text-brand"
+            style={{ fontFamily: "'Playfair Display', Georgia, serif" }}
+          >
+            K
+          </span>
+          <span className="text-sm font-semibold">Knotebook</span>
+        </div>
+      )}
 
+      {!phoneLayout && (
       <div className="relative mx-2 mt-2">
         <Search
           aria-hidden="true"
@@ -182,9 +217,16 @@ function SidebarContent({
           </kbd>
         )}
       </div>
+      )}
 
-      {searching ? (
-        <SearchResults query={query} />
+      {showSearchView ? (
+        searching ? (
+          <SearchResults query={query} />
+        ) : (
+          <p data-testid="phone-search-hint" className="px-4 py-6 text-sm text-muted-foreground">
+            {t("sidebar.searchHint")}
+          </p>
+        )
       ) : (
         <>
           <SidebarTabList idBase={idBase} />
@@ -208,11 +250,32 @@ function SidebarContent({
         </>
       )}
 
-      <SidebarFooter searching={searching} onCreateNote={() => onCreateNote()} newNotePending={newNotePending} />
+      {phoneLayout ? (
+        <>
+          {!searchLayer && <SidebarFooter phone searching={searching} onCreateNote={() => onCreateNote()} newNotePending={newNotePending} />}
+          {!selectionBar && (
+            <PhoneListBar
+              query={query}
+              onQueryChange={onQueryChange}
+              searchRef={searchRef}
+              active={searchLayer}
+              onOpen={() => onSearchOpenChange?.(true)}
+              onClose={() => onSearchOpenChange?.(false)}
+              showNewNote={tab !== "trash"}
+              onCreateNote={() => onCreateNote()}
+              newNotePending={newNotePending}
+            />
+          )}
+        </>
+      ) : (
+        <>
+          <SidebarFooter searching={searching} onCreateNote={() => onCreateNote()} newNotePending={newNotePending} />
 
-      <div className="border-t border-border p-2">
-        <UserMenu />
-      </div>
+          <div className="border-t border-border p-2">
+            <UserMenu />
+          </div>
+        </>
+      )}
     </>
   );
 }
@@ -230,6 +293,9 @@ interface AppShellProps {
  * `HomePage`（`/`）、`NotePage`（`/n/:handle/:slug`、`/g/:groupId/:slug`（#175）與舊形 `/notes/:ref` 三條 route 共用）、
  * `NotePageFallback`、`NoteRouteErrorFallback` 都只渲染主內容區，經 `<Outlet />` 進 `children`；換路由時側欄不重掛。
  *
+ * 手機（< 640）：靜態 `<aside>` 在清單畫面（任何非筆記路由）是滿版的清單，換成手機排列（頂列頭像、只有圖示的 tab、底部搜尋列、
+ * 全螢幕搜尋）；筆記路由時它仍在 DOM、`hidden` 加 `inert`，捲動位置與選取模式保留。抽屜維持寬版排列。
+ *
  * 側欄內容抽成 `SidebarContent`，靜態卡與抽屜共用；抽屜開著時 DOM 上同時有兩份
  * （靜態那份 `hidden`——真實瀏覽器 display:none 不進 a11y tree、不可聚焦；jsdom
  * 沒有 CSS，所以測試端一律 `within(drawer)` 圈定查詢）。
@@ -244,7 +310,8 @@ interface AppShellProps {
  * 屬性選擇器，不是元件身分；⋮ 選單是 `role="menu"`，不在判定範圍，快捷鍵仍會
  * 觸發（寬分支會把焦點搶去搜尋框，Radix menu 因此自行關閉，副作用可接受）。
  * 然後分斷點：
- * **窄**（`matchMedia(OVERLAY_QUERY).matches`，即窄於 1280px）→ 抽屜未開就開抽屜（聚焦交給
+ * **手機**（`isPhone()`，窄於 640px）→ 不開抽屜：先結束選取模式（底部是動作列、沒有搜尋框），在筆記路由就先回清單，再聚焦底部搜尋框；
+ * **窄**（`matchMedia(OVERLAY_QUERY).matches`，即窄於 1280px，不含手機）→ 抽屜未開就開抽屜（聚焦交給
  * `onOpenAutoFocus`：Ctrl+K 開的聚焦抽屜搜尋框，側欄鈕開的聚焦抽屜容器；靜態搜尋框
  * 是 display:none、focus() 無效）；**寬** → 聚焦靜態搜尋框。**按鍵比對用嚴格 `event.key === "k"`**（不 `toLowerCase()`）：
  * 刻意排除 Ctrl+Shift+K——瀏覽器對有 Shift 的字母鍵回報大寫 `"K"`，嚴格比對讓
@@ -369,6 +436,43 @@ export function AppShell({ children, inert }: AppShellProps) {
   // Mac 的 ⌘, 在 Safari 是原生的偏好設定、頁面可能攔不到；Mac Chrome、Firefox 也一樣未驗（⌘／ 同）——全部列入手測，測後再定。handler 讀 ref（navigate／location 每次 render 都換）。
   const settingsRouteRef = useRef({ navigate, location });
   settingsRouteRef.current = { navigate, location };
+
+  // 手機：清單畫面是 `/`（以及背後是清單的 modal 路徑），筆記路由時側欄藏起來並 inert、但不卸載。
+  const phone = useIsPhone();
+  const onList = !isNoteRoutePath(location.pathname);
+  const listVisible = phone && onList;
+  const phoneState = useMemo(
+    () => ({
+      backToList: () => {
+        const { navigate: go, location: here } = settingsRouteRef.current;
+        if (isNoteRoutePath(here.pathname)) go("/");
+      },
+    }),
+    [],
+  );
+  // 手機的全螢幕搜尋層：搜尋框取得焦點時開；Cancel、Esc、進入筆記路由（點結果、上一頁）與離開手機段時關；失焦不關
+  // （點結果、收鍵盤都會失焦）。開著時側欄滿版，即使目前是筆記路由。排著的「回清單後聚焦」在離開手機段時一併作廢。
+  const [phoneSearchOpen, setPhoneSearchOpen] = useState(false);
+  const searchOpen = phone && phoneSearchOpen;
+  const asideShown = onList || searchOpen;
+  const listVisibleRef = useRef(listVisible);
+  listVisibleRef.current = listVisible;
+  /** Ctrl+K 在筆記畫面按下：先回清單，等清單可見再聚焦底部搜尋框。 */
+  const pendingSearchFocusRef = useRef(false);
+  useEffect(() => {
+    if (phone) return;
+    setPhoneSearchOpen(false);
+    pendingSearchFocusRef.current = false;
+  }, [phone]);
+  // 只在「進入」筆記路由時關（回到 `/` 不關：Ctrl+K 從筆記回清單後還要聚焦搜尋框、開搜尋層）。
+  useEffect(() => {
+    if (!onList) setPhoneSearchOpen(false);
+  }, [onList]);
+  useEffect(() => {
+    if (!listVisible || !pendingSearchFocusRef.current) return;
+    pendingSearchFocusRef.current = false;
+    searchInputRef.current?.focus();
+  }, [listVisible]);
   useEffect(() => {
     function handleSettingsKey(event: KeyboardEvent): void {
       if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.key !== ",") return;
@@ -381,7 +485,7 @@ export function AppShell({ children, inert }: AppShellProps) {
     return () => window.removeEventListener("keydown", handleSettingsKey);
   }, []);
 
-  // Ctrl/Cmd+K。deps 刻意留空——handler 只讀 ref（穩定物件）與當下的
+  // Ctrl/Cmd+K。deps 只有穩定的 `phoneState`——handler 只讀 ref（穩定物件）與當下的
   // matchMedia/DOM，不需要隨 state 重新掛聽。
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent): void {
@@ -390,7 +494,21 @@ export function AppShell({ children, inert }: AppShellProps) {
       if (event.defaultPrevented) return;
       // 非抽屜的 dialog 開著（設定 modal、分享 dialog…）→ 放棄，不搶 focus trap。
       if (document.querySelector('[role="dialog"]:not([data-sidebar-drawer])')) return;
-      if (window.matchMedia(OVERLAY_QUERY).matches) {
+      if (isPhone()) {
+        // 手機：到清單並聚焦底部搜尋框（接實體鍵盤時用得到）；不開抽屜。
+        event.preventDefault();
+        // 選取模式時底部是動作列、沒有搜尋框：先結束選取，搜尋框才掛得上。
+        if (listVisibleRef.current) {
+          flushSync(() => {
+            tabActionsRef.current?.endSelectionIfActive();
+          });
+          searchInputRef.current?.focus();
+        } else {
+          tabActionsRef.current?.endSelectionIfActive();
+          pendingSearchFocusRef.current = true;
+          phoneState.backToList();
+        }
+      } else if (window.matchMedia(OVERLAY_QUERY).matches) {
         event.preventDefault();
         if (!drawerOpenRef.current) {
           openedByShortcutRef.current = true;
@@ -408,7 +526,7 @@ export function AppShell({ children, inert }: AppShellProps) {
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [phoneState]);
 
   // 路由變化（點抽屜裡的筆記、導向新筆記）→ 關抽屜。mount 時不動作（初值本來就 false）。
   // #179：NotePage 的 canonical 收斂（改標題、他人改名）也會換 pathname，但那是**同一篇**換網址，
@@ -430,6 +548,11 @@ export function AppShell({ children, inert }: AppShellProps) {
   useEffect(() => {
     if (!drawerOpen) openedByShortcutRef.current = false;
   }, [drawerOpen]);
+
+  // 進入手機段（橫拿轉直拿）→ 關抽屜：手機的清單是滿版的側欄，不能再被抽屜與遮罩蓋住。
+  useEffect(() => {
+    if (phone) setDrawerOpen(false);
+  }, [phone]);
 
   // 跨斷點 resize（旋轉平板、拉寬視窗）→ 關抽屜，否則靜態側欄與抽屜同時出現、
   // overlay 蓋住全畫面。⚠ jsdom 的 matchMedia stub 的 addEventListener 是 no-op，
@@ -482,27 +605,36 @@ export function AppShell({ children, inert }: AppShellProps) {
     // `min-h-0 min-w-0 flex-1 flex flex-col` 撐開版面（`min-w-0` 顯式宣告——
     // `main` 沒有 overflow、少了隱含的自我裁切途徑，寬度鏈全靠它）。
     <SidebarDrawerContext.Provider value={{ setOpen: setDrawerOpen }}>
+      <PhoneListContext.Provider value={phoneState}>
       <ShortcutsDialogContext.Provider value={shortcutsApi}>
         <SidebarTabProvider actionsRef={tabActionsRef}>
           <div inert={inert} className="flex h-screen gap-3 overflow-hidden bg-background p-3">
             {/* data-sidebar-instance：SidebarContent 回 fragment、沒有自己的根；垃圾桶動作列靠它找回同一份的「選取」鈕。 */}
             <aside
               data-sidebar-instance=""
-              className={cn(cardSurface, "relative hidden shrink-0 xl:flex xl:flex-col")}
-              style={{ width: sidebarWidth }}
+              className={cn(
+                cardSurface,
+                "relative hidden shrink-0 xl:flex xl:flex-col",
+                // 手機的清單畫面：滿版蓋住整個視窗；筆記路由維持 `hidden`（加 inert）。
+                asideShown && "max-sm:fixed max-sm:inset-0 max-sm:z-40 max-sm:flex max-sm:flex-col max-sm:rounded-none max-sm:border-0",
+              )}
+              style={phone ? undefined : { width: sidebarWidth }}
+              inert={phone && !asideShown}
             >
-              <SidebarContent {...sidebarProps} searchRef={searchInputRef} />
-              <PaneResizeHandle
-                width={sidebarWidth}
-                onChange={handleSidebarWidth}
-                min={SIDEBAR_WIDTH_MIN}
-                max={SIDEBAR_WIDTH_MAX}
-                defaultWidth={SIDEBAR_WIDTH_DEFAULT}
-                step={SIDEBAR_WIDTH_STEP}
-                edge="right"
-                label={t("sidebar.resize")}
-                placementClassName="left-full"
-              />
+              <SidebarContent {...sidebarProps} searchRef={searchInputRef} layout={phone ? "phone" : "classic"} searchOpen={searchOpen} onSearchOpenChange={setPhoneSearchOpen} />
+              {!phone && (
+                <PaneResizeHandle
+                  width={sidebarWidth}
+                  onChange={handleSidebarWidth}
+                  min={SIDEBAR_WIDTH_MIN}
+                  max={SIDEBAR_WIDTH_MAX}
+                  defaultWidth={SIDEBAR_WIDTH_DEFAULT}
+                  step={SIDEBAR_WIDTH_STEP}
+                  edge="right"
+                  label={t("sidebar.resize")}
+                  placementClassName="left-full"
+                />
+              )}
             </aside>
 
             <DialogPrimitive.Root open={drawerOpen} onOpenChange={setDrawerOpen}>
@@ -575,6 +707,7 @@ export function AppShell({ children, inert }: AppShellProps) {
           <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} returnFocusRef={shortcutsReturnFocusRef} />
         </SidebarTabProvider>
       </ShortcutsDialogContext.Provider>
+      </PhoneListContext.Provider>
     </SidebarDrawerContext.Provider>
   );
 }

@@ -30,6 +30,7 @@
     "drawerTitle": "導覽",
     "searchLabel": "搜尋筆記",
     "searchPlaceholder": "搜尋…",
+    "searchHint": "搜尋筆記標題與內文。",
     "noMatch": "沒有符合搜尋的筆記。",
     "workspace": "群組",
     "newGroup": "新增群組",

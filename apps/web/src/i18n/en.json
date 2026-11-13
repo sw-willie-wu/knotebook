@@ -30,6 +30,7 @@
     "drawerTitle": "Navigation",
     "searchLabel": "Search notes",
     "searchPlaceholder": "Search…",
+    "searchHint": "Search note titles and text.",
     "noMatch": "No notes match your search.",
     "workspace": "Groups",
     "newGroup": "New group",

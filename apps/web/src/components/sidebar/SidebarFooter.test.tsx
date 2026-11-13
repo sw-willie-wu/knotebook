@@ -893,3 +893,42 @@ describe("SidebarFooter — 垃圾桶寬螢幕選取工具列", () => {
     expect(document.body).toHaveFocus();
   });
 });
+
+describe("SidebarFooter 手機形（phone）", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function renderPhoneFooter(tab: SidebarTab, props: { searching?: boolean } = {}) {
+    localStorage.setItem("sidebar.tab", tab);
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <SidebarTabProvider>
+          <SidebarFooter phone searching={props.searching ?? false} onCreateNote={vi.fn()} newNotePending={false} />
+        </SidebarTabProvider>
+      </QueryClientProvider>,
+    );
+  }
+
+  it.each(["myNotes", "recent", "workspace"] as const)("PF1 %s tab：不渲染 New note（底部列有）", (tab) => {
+    stubTrash();
+    renderPhoneFooter(tab);
+    expect(screen.queryByRole("button", { name: "New note" })).toBeNull();
+  });
+
+  it("PF2 搜尋中：不渲染 New note", () => {
+    stubTrash();
+    renderPhoneFooter("myNotes", { searching: true });
+    expect(screen.queryByRole("button", { name: "New note" })).toBeNull();
+  });
+
+  it("PF3 垃圾桶 tab：保留天數說明照常顯示", async () => {
+    stubTrash(7);
+    renderPhoneFooter("trash");
+    expect(await screen.findByTestId("trash-footer")).toHaveTextContent(/^Permanently deleted 7 days after deletion$/);
+  });
+});
