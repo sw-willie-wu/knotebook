@@ -11,7 +11,7 @@ import { NotePageFallback } from "./NotePageFallback";
 import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 /**
- * #115：NarrowTopBar（`md:hidden` 的漢堡＋K logo 列）消費端守衛。
+ * #115：NarrowTopBar（`xl:hidden` 的側欄鈕＋K logo 列）消費端守衛。
  *
  * 明確清單＝HomePage／NotePageFallback／NoteRouteErrorFallback 三處
  * （第三處的斷言在 `ErrorBoundary.test.tsx`，它有現成的錯誤畫面 harness；
@@ -68,23 +68,22 @@ describe("NarrowTopBar 消費端（#115）", () => {
     vi.unstubAllGlobals();
   });
 
-  it("HomePage 內文卡頂有 md:hidden 的漢堡列（開抽屜入口）", async () => {
+  it("HomePage 內文卡頂有 xl:hidden 的側欄鈕列（開抽屜入口）", async () => {
     renderWithProviders(<HomePage />);
-    // 靜態側欄與 NarrowTopBar 各有一顆漢堡？不——靜態側欄沒有漢堡，唯一的
-    // 「Open navigation」就是 NarrowTopBar 的。它必須在 main（內文卡）裡。
-    const hamburger = await screen.findByRole("button", { name: "Open navigation" });
+    // 靜態側欄沒有開抽屜的鈕，唯一的「Open sidebar」就是 NarrowTopBar 的。它必須在 main（內文卡）裡。
+    const hamburger = await screen.findByRole("button", { name: "Open sidebar" });
     expect(hamburger.closest("main")).not.toBeNull();
-    // wrapper 與按鈕**各自**斷 md:hidden——`closest('[class*="md:hidden"]')` 含
+    // wrapper 與按鈕**各自**斷 xl:hidden——`closest('[class*="xl:hidden"]')` 含
     // 元素自身、按鈕本身就帶這個 class，那種寫法恆真（wrapper 拔掉
-    // md:hidden 仍全綠）。掉 wrapper 那個的後果是寬視窗每張內文卡頂多一條
+    // xl:hidden 仍全綠）。掉 wrapper 那個的後果是寬視窗每張內文卡頂多一條
     // 「K Knotebook」列。
-    expect(hamburger.parentElement).toHaveClass("md:hidden");
-    expect(hamburger).toHaveClass("md:hidden");
+    expect(hamburger.parentElement).toHaveClass("xl:hidden");
+    expect(hamburger).toHaveClass("xl:hidden");
   });
 
-  it("NotePageFallback（chunk 載入中的過渡畫面）同樣有漢堡列", async () => {
+  it("NotePageFallback（chunk 載入中的過渡畫面）同樣有側欄鈕列", async () => {
     renderWithProviders(<NotePageFallback />);
-    const hamburger = await screen.findByRole("button", { name: "Open navigation" });
+    const hamburger = await screen.findByRole("button", { name: "Open sidebar" });
     expect(hamburger.closest("main")).not.toBeNull();
   });
 });

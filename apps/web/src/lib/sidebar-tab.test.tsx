@@ -1,7 +1,8 @@
 import { memo, useRef, useState, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, renderHook, screen } from "@testing-library/react";
-import { NARROW_QUERY, SidebarDrawerContext } from "@/lib/sidebar-drawer";
+import { OVERLAY_QUERY } from "@/lib/layout-tiers";
+import { SidebarDrawerContext } from "@/lib/sidebar-drawer";
 import { onSearchMarkClear } from "@/hooks/search-mark";
 import { EMPTY_SELECTION } from "./sidebar-selection";
 import {
@@ -26,7 +27,7 @@ function stubMatchMedia(matches: boolean) {
   vi.stubGlobal(
     "matchMedia",
     vi.fn().mockImplementation((query: string) => ({
-      matches: query === NARROW_QUERY ? matches : false,
+      matches: query === OVERLAY_QUERY ? matches : false,
       media: query,
       addEventListener: () => {},
       removeEventListener: () => {},
@@ -50,9 +51,8 @@ function Probe() {
 }
 
 describe("常數", () => {
-  it("tab 列順序、窄螢幕判準", () => {
+  it("tab 列順序", () => {
     expect(SIDEBAR_TABS).toEqual(["recent", "favorites", "myNotes", "workspace", "shared", "trash"]);
-    expect(NARROW_QUERY).toBe("(width < 48rem)");
   });
 
   it("預設 tab 仍是我的筆記（最愛排第二，不是預設）", () => {

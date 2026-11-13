@@ -637,9 +637,9 @@ describe("NotePage", () => {
     expect(header).not.toBeNull();
     expect(header).toHaveClass("flex", "items-center", "gap-3", "border-b", "border-border", "px-5", "py-3");
     expect(header).toContainElement(screen.getByLabelText("Note title"));
-    // #115：頁首最前面是 `md:hidden` 的漢堡鈕（窄視窗開抽屜的入口——筆記頁沒有
+    // #115：頁首最前面是 `xl:hidden` 的側欄鈕（浮動側欄的入口——筆記頁沒有
     // NarrowTopBar，這顆就是唯一入口）。
-    expect(header).toContainElement(screen.getByRole("button", { name: "Open navigation" }));
+    expect(header).toContainElement(screen.getByRole("button", { name: "Open sidebar" }));
   });
 
   // class 斷言，不是行為斷言：jsdom 無版面。頁首收縮順序（標題讓到 64px → 標籤截斷 → 其餘不縮）
@@ -703,7 +703,7 @@ describe("NotePage", () => {
 
     const header = document.querySelector("header")!;
     const order = [
-      within(header).getByRole("button", { name: "Open navigation" }),
+      within(header).getByRole("button", { name: "Open sidebar" }),
       within(header).getByLabelText("Note title"),
       within(header).getByRole("status"),
       await within(header).findByRole("group", { name: "Also viewing this note" }),
@@ -1325,7 +1325,7 @@ describe("NotePage", () => {
     await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("My Note"));
     await waitFor(() => expect(routerPath()).toBe("/n/tester/my-note"));
 
-    fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open sidebar" }));
     await screen.findByRole("dialog", { name: "Navigation" });
 
     await act(async () => {
@@ -1688,7 +1688,7 @@ describe("NotePage", () => {
     expect(card).toHaveClass("min-w-0", "flex-1", "overflow-y-auto", "rounded-xl", "border", "border-border", "bg-card");
     // #115：佔位卡也要有窄視窗抽屜入口——isError 是會**停住**的狀態（筆記被刪、
     // 沒權限），沒有這顆，`<md` 的使用者在錯誤畫面上零導覽出口。
-    expect(screen.getByRole("button", { name: "Open navigation" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open sidebar" })).toBeInTheDocument();
   });
 
   // note 本身載入成功，但 `doc|provider|user` 還沒全部備妥（這裡卡住
@@ -2555,8 +2555,8 @@ describe("NotePage × 在垃圾桶裡", () => {
     expect(await screen.findByRole("heading", { level: 2, name: IN_TRASH })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Restore" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Go to trash" })).toBeInTheDocument();
-    // 卡片包在 placeholderCard 裡：窄螢幕的導覽出口（NarrowTopBar 的漢堡鈕，#115）也在（jsdom 不套 md:hidden）。
-    expect(screen.getByRole("button", { name: "Open navigation" })).toBeInTheDocument();
+    // 卡片包在 placeholderCard 裡：窄螢幕的導覽出口（NarrowTopBar 的側欄鈕，#115）也在（jsdom 不套 xl:hidden）。
+    expect(screen.getByRole("button", { name: "Open sidebar" })).toBeInTheDocument();
     await settle();
     expect(toastTitles()).not.toContain(LINK_INVALID);
     expect(screen.queryByText(LINK_INVALID)).toBeNull();

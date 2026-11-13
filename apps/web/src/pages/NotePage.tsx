@@ -717,7 +717,7 @@ export default function NotePage() {
   const placeholderCard = (content: ReactNode) => (
     <div className="flex min-h-0 flex-1">
       <div className={cn(cardSurface, "min-w-0 flex-1 overflow-y-auto")}>
-        {/* #115：佔位卡沒有 headerSlot（也就沒有頁首的漢堡鈕）——`<md` 時靜態側欄
+        {/* #115：佔位卡沒有 headerSlot（也就沒有頁首的側欄鈕）——`<xl` 時靜態側欄
             是 hidden，缺這條的話 isError 這種**會停住**的狀態（筆記被刪、沒權限）
             在手機上就是一行紅字＋零導覽出口（死路）。 */}
         <NarrowTopBar />
@@ -810,7 +810,7 @@ export default function NotePage() {
                 )}
                 {/* header 本身是 container，容器查詢管不到自己的 gap，所以手機寬的 gap 用視窗寬（max-sm）。 */}
                 <header ref={noteHeaderRef} className="@container flex items-center gap-3 max-sm:gap-2 border-b border-border px-5 py-3">
-                  {/* #115：窄視窗的抽屜入口（md:hidden）——筆記載入成功態不掛
+                  {/* #115：浮動側欄的入口（xl:hidden）——筆記載入成功態不掛
                       NarrowTopBar（頁首自己有這顆）；載入中/錯誤的佔位卡沒有頁首，
                       由 placeholderCard 裡的 NarrowTopBar 補位。 */}
                   <SidebarDrawerButton />

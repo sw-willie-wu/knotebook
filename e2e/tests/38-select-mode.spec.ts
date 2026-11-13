@@ -368,7 +368,7 @@ test("A2c-7：390 寬抽屜——動作列排得進抽屜；Esc 只結束選取�
   await apiCreateNote(page, title);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
-  await page.getByRole("button", { name: "Open navigation" }).click();
+  await page.getByRole("button", { name: "Open sidebar" }).click();
   const drawer = page.getByRole("dialog", { name: "Navigation" });
   await expect(drawer).toBeVisible();
   const myNotes = await showSidebarTab(page, "My notes", drawer);
@@ -443,7 +443,7 @@ test("A2c-8（窄形 390 抽屜）：清單捲到底時進入選取模式，捲�
   await page.setViewportSize({ width: 390, height: 600 });
   await page.goto("/");
   await expectWidePointer(page, false);
-  await page.getByRole("button", { name: "Open navigation" }).click();
+  await page.getByRole("button", { name: "Open sidebar" }).click();
   const drawer = page.getByRole("dialog", { name: "Navigation" });
   await expect(drawer).toBeVisible();
   const myNotes = await showSidebarTab(page, "My notes", drawer);

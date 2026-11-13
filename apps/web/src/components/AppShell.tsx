@@ -10,11 +10,12 @@ import { useCreateNote } from "@/api/notes";
 import { expandFolderChain, indexFolders } from "@/components/sidebar/folder-index";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Menu, Search, X } from "@/components/ui/icons";
+import { PanelLeft, Search, X } from "@/components/ui/icons";
 import { toast, toastViewportHostRef } from "@/components/ui/toast";
 import { cardSurface } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { NARROW_QUERY, SidebarDrawerContext, useSidebarDrawer } from "@/lib/sidebar-drawer";
+import { OVERLAY_QUERY } from "@/lib/layout-tiers";
+import { SidebarDrawerContext, useSidebarDrawer } from "@/lib/sidebar-drawer";
 import { canonicalizedFrom } from "@/lib/real-location";
 import { isMacPlatform } from "@/lib/platform";
 import { ShortcutsDialogContext, type ShortcutsDialogApi } from "@/lib/shortcuts-dialog";
@@ -65,11 +66,11 @@ function TrashPanelFallback() {
   );
 }
 
-// `<md` 的判準 `NARROW_QUERY` 住在 `lib/sidebar-drawer.ts`（`SidebarTabProvider` 也要用）。
+// 抽屜與固定側欄的分界是 `lib/layout-tiers.ts` 的 `OVERLAY_QUERY`（視窗窄於 1280px，與 Tailwind 的 `xl` 同界）。
 
 // 抽屜開關的 context（`SidebarDrawerContext`／`useSidebarDrawer`）住在 `lib/sidebar-drawer.ts`。
 
-/** 漢堡鈕（`md:hidden`）：NotePage 頁首與 `NarrowTopBar` 共用的抽屜入口。 */
+/** 側欄鈕（`xl:hidden`）：NotePage 頁首與 `NarrowTopBar` 共用的浮動側欄入口。 */
 export function SidebarDrawerButton() {
   const { t } = useTranslation();
   const { setOpen } = useSidebarDrawer();
@@ -80,9 +81,9 @@ export function SidebarDrawerButton() {
       size="icon"
       aria-label={t("sidebar.openDrawer")}
       onClick={() => setOpen(true)}
-      className="h-8 w-8 shrink-0 md:hidden"
+      className="h-8 w-8 shrink-0 xl:hidden"
     >
-      <Menu aria-hidden="true" className="h-4 w-4" />
+      <PanelLeft aria-hidden="true" className="h-4 w-4" />
     </Button>
   );
 }
@@ -223,8 +224,8 @@ interface AppShellProps {
 }
 
 /**
- * 主佈局：側欄（`md+`＝固定卡片；`<md`＝隱藏，改由抽屜承載，入口是
- * `SidebarDrawerButton` 漢堡鈕——NotePage 頁首或 `NarrowTopBar` 提供）、右側主
+ * 主佈局：側欄（`xl+`＝固定卡片；`<xl`＝隱藏，改由浮動抽屜承載，入口是
+ * `SidebarDrawerButton` 側欄鈕——NotePage 頁首或 `NarrowTopBar` 提供）、右側主
  * 內容區（呼叫端傳入的 `children`）。四個呼叫端：`HomePage`（`/`）、
  * `NotePage`（`/n/:handle/:slug`、`/g/:groupId/:slug`（#175）與舊形 `/notes/:ref` 三條 route 共用）、
  * `NotePageFallback`、`NoteRouteErrorFallback`（#247 起站台管理是 modal，不再用 AppShell）。
@@ -243,8 +244,8 @@ interface AppShellProps {
  * 屬性選擇器，不是元件身分；⋮ 選單是 `role="menu"`，不在判定範圍，快捷鍵仍會
  * 觸發（寬分支會把焦點搶去搜尋框，Radix menu 因此自行關閉，副作用可接受）。
  * 然後分斷點：
- * **窄**（`matchMedia(NARROW_QUERY).matches`）→ 抽屜未開就開抽屜（聚焦交給
- * `onOpenAutoFocus`：Ctrl+K 開的聚焦抽屜搜尋框，漢堡開的聚焦抽屜容器；靜態搜尋框
+ * **窄**（`matchMedia(OVERLAY_QUERY).matches`，即窄於 1280px）→ 抽屜未開就開抽屜（聚焦交給
+ * `onOpenAutoFocus`：Ctrl+K 開的聚焦抽屜搜尋框，側欄鈕開的聚焦抽屜容器；靜態搜尋框
  * 是 display:none、focus() 無效）；**寬** → 聚焦靜態搜尋框。**按鍵比對用嚴格 `event.key === "k"`**（不 `toLowerCase()`）：
  * 刻意排除 Ctrl+Shift+K——瀏覽器對有 Shift 的字母鍵回報大寫 `"K"`，嚴格比對讓
  * 這個快捷鍵只認「不按 Shift」這一種按法，行為釘在 `AppShell.test.tsx` 的
@@ -276,7 +277,7 @@ interface AppShellProps {
  * 雙擊把手即回 256。把手（共用的 `PaneResizeHandle`，`edge="right"`）是 `<aside>` 內
  * `absolute left-full w-3` 的子元素，約略蓋在根容器既有的 `gap-3` 上（以 padding box 定位，
  * 壓住 aside 右框一個框寬）——所以根的 `gap-3`
- * 與 `main` 都不動；`<aside>` 在 `<md` 是 `hidden`，把手跟著消失。抽屜仍固定 `w-64`。
+ * 與 `main` 都不動；`<aside>` 在 `<xl` 是 `hidden`，把手跟著消失。浮動抽屜用同一個寬度（上限視窗寬減 4rem），沒有把手。
  */
 export function AppShell({ children, inert }: AppShellProps) {
   const { t } = useTranslation();
@@ -311,7 +312,9 @@ export function AppShell({ children, inert }: AppShellProps) {
    * SidebarContentProps.searchRef 的說明）。 */
   const drawerSearchRef = useRef<HTMLInputElement>(null);
   const drawerContentRef = useRef<HTMLDivElement>(null);
-  /** Ctrl+K 開抽屜時設 true，`onOpenAutoFocus` 讀完即清——漢堡開的不聚焦搜尋框
+  /** 開抽屜當下有焦點的元素（通常是側欄鈕）；Dialog 沒有 Trigger，關閉時要自己把焦點還回去。 */
+  const drawerOpenerRef = useRef<HTMLElement | null>(null);
+  /** Ctrl+K 開抽屜時設 true，`onOpenAutoFocus` 讀完即清——側欄鈕開的不聚焦搜尋框
    * （觸控裝置會彈鍵盤蓋掉半個抽屜）。 */
   const openedByShortcutRef = useRef(false);
   const drawerOpenRef = useRef(drawerOpen);
@@ -387,13 +390,13 @@ export function AppShell({ children, inert }: AppShellProps) {
       if (event.defaultPrevented) return;
       // 非抽屜的 dialog 開著（設定 modal、分享 dialog…）→ 放棄，不搶 focus trap。
       if (document.querySelector('[role="dialog"]:not([data-sidebar-drawer])')) return;
-      if (window.matchMedia(NARROW_QUERY).matches) {
+      if (window.matchMedia(OVERLAY_QUERY).matches) {
         event.preventDefault();
         if (!drawerOpenRef.current) {
           openedByShortcutRef.current = true;
           setDrawerOpen(true);
         } else {
-          // 已開（漢堡開的話焦點在 Content 容器、不在搜尋框）：Ctrl+K 的語意是
+          // 已開（側欄鈕開的話焦點在 Content 容器、不在搜尋框）：Ctrl+K 的語意是
           // 「聚焦搜尋」，直接把焦點放進抽屜的搜尋框。
           drawerSearchRef.current?.focus();
         }
@@ -423,7 +426,7 @@ export function AppShell({ children, inert }: AppShellProps) {
 
   // 抽屜關閉（任何路徑：Esc/backdrop/route/resize）→ 清捷徑旗標。Ctrl+K 開啟後
   // 若在 Content 掛載、onOpenAutoFocus 消化旗標**之前**就被關掉，殘留的旗標會讓
-  // 下一次漢堡開誤聚焦搜尋框（觸控彈鍵盤）。
+  // 下一次側欄鈕開誤聚焦搜尋框（觸控彈鍵盤）。
   useEffect(() => {
     if (!drawerOpen) openedByShortcutRef.current = false;
   }, [drawerOpen]);
@@ -432,7 +435,7 @@ export function AppShell({ children, inert }: AppShellProps) {
   // overlay 蓋住全畫面。⚠ jsdom 的 matchMedia stub 的 addEventListener 是 no-op，
   // 這條的行為測試用可控 stub 手動 dispatch change（AppShell.test）。
   useEffect(() => {
-    const mql = window.matchMedia(NARROW_QUERY);
+    const mql = window.matchMedia(OVERLAY_QUERY);
     const handleChange = (event: MediaQueryListEvent) => {
       if (!event.matches) setDrawerOpen(false);
     };
@@ -485,7 +488,7 @@ export function AppShell({ children, inert }: AppShellProps) {
             {/* data-sidebar-instance：SidebarContent 回 fragment、沒有自己的根；垃圾桶動作列靠它找回同一份的「選取」鈕。 */}
             <aside
               data-sidebar-instance=""
-              className={cn(cardSurface, "relative hidden shrink-0 md:flex md:flex-col")}
+              className={cn(cardSurface, "relative hidden shrink-0 xl:flex xl:flex-col")}
               style={{ width: sidebarWidth }}
             >
               <SidebarContent {...sidebarProps} searchRef={searchInputRef} />
@@ -512,7 +515,9 @@ export function AppShell({ children, inert }: AppShellProps) {
                   // 底色與 flex 脈絡缺一不可：沒底色透出 overlay 的黑、沒 flex-col 則
                   // SidebarContent 的 min-h-0 flex-1 清單失去約束。貼齊
                   // 左緣故意不用 cardSurface 的圓角——抽屜不是卡片。
-                  className="fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-border bg-card outline-none"
+                  className="fixed inset-y-0 left-0 z-50 flex flex-col border-r border-border bg-card outline-none"
+                  // 寬度吃側欄寬度設定，右側至少露出 4rem 的筆記區（點那裡收起）；浮動版不放拖曳把手。
+                  style={{ width: `min(${sidebarWidth}px, calc(100vw - 4rem))` }}
                   // Radix 在 document capture 先處理 Esc：選取中先結束選取、抽屜不關。真瀏覽器在這個 listener 與 React 的
                   // onKeyDown 之間會跑 microtask，選取的結束先 commit、勾選框／動作列卸載，React 那層的 handler 不會再跑——
                   // 焦點要在這裡交給抽屜裡的「選取」鈕（flushSync 讓它在同一個 task 內出現）。
@@ -525,14 +530,22 @@ export function AppShell({ children, inert }: AppShellProps) {
                     event.preventDefault();
                     drawerContentRef.current?.querySelector<HTMLButtonElement>(SIDEBAR_SELECT_BUTTON)?.focus();
                   }}
+                  onCloseAutoFocus={(event) => {
+                    const opener = drawerOpenerRef.current;
+                    drawerOpenerRef.current = null;
+                    if (opener?.isConnected !== true) return;
+                    event.preventDefault();
+                    opener.focus({ preventScroll: true });
+                  }}
                   onOpenAutoFocus={(event) => {
                     event.preventDefault();
+                    drawerOpenerRef.current = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
                     if (openedByShortcutRef.current && drawerSearchRef.current) {
                       drawerSearchRef.current.focus();
                       openedByShortcutRef.current = false;
                     } else {
                       openedByShortcutRef.current = false;
-                      // 漢堡開：不聚焦搜尋框（觸控裝置會彈鍵盤；Radix 預設聚焦第一個
+                      // 側欄鈕開：不聚焦搜尋框（觸控裝置會彈鍵盤；Radix 預設聚焦第一個
                       // 可聚焦元素恰好就是它，必須 preventDefault 擋掉），但焦點必須
                       // 落進抽屜本身——Radix 的 focus trap 要焦點先進容器才武裝
                       // （lastFocusedElement 為 null 時 handleFocusIn 拉不回焦點、Tab

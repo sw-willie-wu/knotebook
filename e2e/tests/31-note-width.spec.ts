@@ -4,8 +4,9 @@ import { ADMIN, clickByPointer, createNote, editorLocator, loginAs, randomEmail 
 /**
  * #297 內文欄三段寬度（真瀏覽器量測）：
  * - E1 站內：頁首寬度鈕按一下換下一種（標準 → 寬 → 全寬 → 標準），多個視窗寬下欄寬＝`expected()`（clamp 公式，代入實量的 W）；重整後仍記得。
- * - E2 頁首：768 px × {預設側欄, 320 px 側欄} × {en, zh-TW} 頁首不被裁、寬度鈕隱藏；
- *   寬度鈕恰在頁首 content box ≥ 696 px（`@min-[43.5rem]`）時出現，門檻兩側各量一格，⋮ 都不被裁。
+ * - E2 頁首：{en, zh-TW} 下頁首都不被裁。視窗 640–1279 側欄浮在筆記上、不佔寬，寬度鈕只看頁首 content box：
+ *   恰在 ≥ 696 px（`@min-[43.5rem]`）時出現，門檻兩側各量一格，⋮ 都不被裁；視窗 ≥ 1280 側欄固定在左側
+ *   （預設與 320 px 兩種寬度），1280、1440 兩格同樣不被裁、可見性與 content box 一致。
  * - E4 站內：⋮ 選單的「Width」子選單（Radix 巢狀選單）選寬度，欄寬照公式、寬度鈕的名稱跟著換。
  * - E3 公開頁（e2e）：owner 在分享對話框設全寬 → 匿名讀者的欄寬＝W、超過標準上限 1056。
  *
@@ -68,7 +69,7 @@ test("E1 站內三段寬度：欄寬照公式、選了就換、重整仍記得",
     // 按一下換下一種；起點已經是標準，第一輪不按。
     if (mode !== "standard") await button.click();
     await expect(button).toHaveAttribute("aria-label", CYCLE_LABEL[mode]);
-    for (const vw of [1920, 1440, 1200, 1000, 900]) {
+    for (const vw of [1920, 1440, 1280, 1200, 900, 700, 640]) {
       await setViewport(page, vw, 1000);
       const { col, W } = await measureColumn(page);
       const want = expected(mode, W);
@@ -125,7 +126,7 @@ async function measureHeader(header: Locator, widthButton: Locator, more: Locato
   return { ...box, moreRight: moreBox.x + moreBox.width, visible: await widthButton.isVisible() };
 }
 
-test("E2 頁首不裁切：768 × 兩種側欄 × 中英文；寬度鈕恰在 content box ≥ 696 時出現", async ({ page }) => {
+test("E2 頁首不裁切：浮動段（640–1279）與固定段（≥ 1280）× 中英文；寬度鈕恰在 content box ≥ 696 時出現", async ({ page }) => {
   test.setTimeout(180_000);
   await loginAndCreateNote(page, `E2E note width E2 ${RUN_ID}`);
   // 等「最後編輯」出現，讓頁首最擠。
@@ -169,14 +170,18 @@ test("E2 頁首不裁切：768 × 兩種側欄 × 中英文；寬度鈕恰在 co
         return m;
       };
 
-      const narrow = await check(768);
-      expect(narrow.visible, `${tag}：768 時寬度鈕要隱藏`).toBe(false);
-      const wide = await check(1200);
-      expect(wide.visible, `${tag}: width button must be visible at 1200`).toBe(true);
+      // 固定段：側欄在左側佔寬，兩格都要不裁切，可見性與 content box 一致。
+      for (const vw of [1280, 1440]) await check(vw);
 
-      // 邊界：在 (768, 1200] 二分找最小可見 vw，兩側各量一格（check 內已斷言不裁切、可見性與 contentW 一致）。
-      let lo = 768;
-      let hi = 1200;
+      // 浮動段：側欄不佔寬，content box ≈ 視窗 − 66，寬度鈕只看它。640 時不夠寬（隱藏），1279 時夠寬（可見）。
+      const narrow = await check(640);
+      expect(narrow.visible, `${tag}：640 時寬度鈕要隱藏`).toBe(false);
+      const wide = await check(1279);
+      expect(wide.visible, `${tag}: width button must be visible at 1279`).toBe(true);
+
+      // 邊界：在 (640, 1279] 二分找最小可見 vw，兩側各量一格（check 內已斷言不裁切、可見性與 contentW 一致）。
+      let lo = 640;
+      let hi = 1279;
       while (hi - lo > 1) {
         const mid = Math.floor((lo + hi) / 2);
         await setViewport(page, mid, 900);
@@ -185,7 +190,7 @@ test("E2 頁首不裁切：768 × 兩種側欄 × 中英文；寬度鈕恰在 co
       }
       const edge = await check(hi);
       const below = await check(hi - 1);
-      const predicted = 1200 - (wide.contentW - HEADER_EDGE);
+      const predicted = 1279 - (wide.contentW - HEADER_EDGE);
       console.log(`MEASURE E2 ${tag} edgeVw=${hi} predictedVw=${predicted} contentW@edge=${edge.contentW} contentW@edge-1=${below.contentW}`);
       expect(edge.visible).toBe(true);
       expect(below.visible).toBe(false);

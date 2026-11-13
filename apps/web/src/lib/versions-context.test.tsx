@@ -3,32 +3,21 @@ import { vid, vtarget } from "@/test/version-fixtures";
 import { act, render, renderHook, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import type { VersionDto } from "@knotebook/shared";
-import { KIND_FILTER_STORAGE_KEY, NARROW_QUERY, VersionsProvider, isOverlayOpen, useVersions, useVersionsController } from "./versions-context";
+import { stubLayoutTier, type LayoutTier } from "@/test/layout-tier";
+import { KIND_FILTER_STORAGE_KEY, VersionsProvider, isOverlayOpen, useVersions, useVersionsController } from "./versions-context";
 
-/** 可控的 matchMedia（jsdom 預設 stub 的 addEventListener 是 no-op）。 */
-function installMatchMedia(initialNarrow: boolean) {
-  let narrow = initialNarrow;
-  const listeners = new Set<(e: { matches: boolean }) => void>();
-  const original = window.matchMedia;
-  window.matchMedia = ((query: string) => ({
-    get matches() {
-      return query === NARROW_QUERY ? narrow : false;
-    },
-    media: query,
-    onchange: null,
-    addListener: () => {},
-    removeListener: () => {},
-    addEventListener: (_: string, fn: (e: { matches: boolean }) => void) => listeners.add(fn),
-    removeEventListener: (_: string, fn: (e: { matches: boolean }) => void) => listeners.delete(fn),
-    dispatchEvent: () => false,
-  })) as unknown as typeof window.matchMedia;
+/** 可控的版面段（`test/layout-tier.ts`）：`set(true)` 是手機（< 640），`set(false)` 是固定（>= 1280），`tier()` 指定任一段。 */
+function installMatchMedia(initialPhone: boolean) {
+  const handle = stubLayoutTier(initialPhone ? "phone" : "docked");
   return {
-    set(next: boolean) {
-      narrow = next;
-      act(() => listeners.forEach((fn) => fn({ matches: next })));
+    set(phone: boolean) {
+      act(() => handle.setLayoutTier(phone ? "phone" : "docked"));
+    },
+    tier(next: LayoutTier) {
+      act(() => handle.setLayoutTier(next));
     },
     restore() {
-      window.matchMedia = original;
+      vi.unstubAllGlobals();
     },
   };
 }
@@ -55,8 +44,13 @@ describe("versions-context", () => {
     expect(result.current.preview).toBeNull();
   });
 
-  it("寬視窗 open() → mode=panel、panelOpen=true；窄視窗 → mode=sheet、panelOpen=false", () => {
+  it("固定與浮動段 open() → mode=panel、panelOpen=true；手機 -> mode=sheet、panelOpen=false", () => {
     const { result } = renderHook(() => useVersionsController({ noteId: "n1", enabled: true }));
+    act(() => result.current.open());
+    expect(result.current.mode).toBe("panel");
+    expect(result.current.panelOpen).toBe(true);
+    act(() => result.current.close());
+    mm.tier("overlay");
     act(() => result.current.open());
     expect(result.current.mode).toBe("panel");
     expect(result.current.panelOpen).toBe(true);
@@ -65,6 +59,33 @@ describe("versions-context", () => {
     act(() => result.current.open());
     expect(result.current.mode).toBe("sheet");
     expect(result.current.panelOpen).toBe(false);
+  });
+
+  it("面板開著跨 1280（浮動 <-> 固定）：mode 仍是 panel、預覽保留", () => {
+    mm.tier("overlay");
+    const { result } = renderHook(() => useVersionsController({ noteId: "n1", enabled: true }));
+    act(() => {
+      result.current.open();
+      result.current.startPreview(vtarget(2));
+    });
+    mm.tier("docked");
+    expect(result.current.mode).toBe("panel");
+    expect(result.current.preview).toEqual(vtarget(2));
+    mm.tier("overlay");
+    expect(result.current.mode).toBe("panel");
+    expect(result.current.preview).toEqual(vtarget(2));
+  });
+
+  it("面板開著跨 640（浮動 -> 手機）：整個關掉，預覽一併離開", () => {
+    mm.tier("overlay");
+    const { result } = renderHook(() => useVersionsController({ noteId: "n1", enabled: true }));
+    act(() => {
+      result.current.open();
+      result.current.startPreview(vtarget(2));
+    });
+    mm.tier("phone");
+    expect(result.current.mode).toBeNull();
+    expect(result.current.preview).toBeNull();
   });
 
   it("enabled=false → open／openSave／startPreview 都不生效", () => {

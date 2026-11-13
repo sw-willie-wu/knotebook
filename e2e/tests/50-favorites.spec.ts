@@ -213,7 +213,7 @@ test("窄寬：390 抽屜與側欄縮到最窄時六顆 tab 都放得下", async
   const alice = await createAccount(browser, "alice");
   const { context, page } = await openAs(browser, alice, { width: 390, height: 844 });
   try {
-    await page.getByRole("button", { name: "Open navigation" }).click();
+    await page.getByRole("button", { name: "Open sidebar" }).click();
     const drawer = page.getByRole("dialog", { name: "Navigation" });
     await expect(drawer).toBeVisible();
     const drawerTabs = drawer.getByRole("tablist", { name: "Sidebar sections" });
@@ -433,7 +433,7 @@ test("最愛 tab 選取模式：390 寬抽屜的動作列先確認再移出", as
     for (const title of titles) await apiCreateFavorite(page, title);
     await page.goto("/");
 
-    await page.getByRole("button", { name: "Open navigation" }).click();
+    await page.getByRole("button", { name: "Open sidebar" }).click();
     const drawer = page.getByRole("dialog", { name: "Navigation" });
     await expect(drawer).toBeVisible();
     const panel = await showSidebarTab(page, "Favorites", drawer);
@@ -614,7 +614,7 @@ test("列上星星（觸控）：沒加入的列看不到星星，最愛列的�
     await apiCreateFavorite(page, faved);
     await page.goto("/");
 
-    await page.getByRole("button", { name: "Open navigation" }).click();
+    await page.getByRole("button", { name: "Open sidebar" }).click();
     const drawer = page.getByRole("dialog", { name: "Navigation" });
     await expect(drawer).toBeVisible();
     const mine = await showSidebarTab(page, "My notes", drawer);

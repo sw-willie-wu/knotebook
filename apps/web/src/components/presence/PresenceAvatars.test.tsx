@@ -252,11 +252,11 @@ describe("PresenceAvatars", () => {
     const narrow = screen.getByRole("button", { name: "5 more, show everyone" });
     const compact = screen.getByRole("button", { name: "6 more, show everyone" });
     expect(wide).toHaveClass("max-sm:hidden", "@max-[43.5rem]:hidden");
-    expect(wide).not.toHaveClass("sm:@min-[43.5rem]:hidden", "sm:hidden");
+    for (const cls of ["sm:@min-[43.5rem]:hidden", "sm:hidden"]) expect(wide).not.toHaveClass(cls);
     expect(narrow).toHaveClass("max-sm:hidden", "sm:@min-[43.5rem]:hidden");
-    expect(narrow).not.toHaveClass("@max-[43.5rem]:hidden", "sm:hidden");
+    for (const cls of ["@max-[43.5rem]:hidden", "sm:hidden"]) expect(narrow).not.toHaveClass(cls);
     expect(compact).toHaveClass("sm:hidden");
-    expect(compact).not.toHaveClass("max-sm:hidden", "@max-[43.5rem]:hidden", "sm:@min-[43.5rem]:hidden");
+    for (const cls of ["max-sm:hidden", "@max-[43.5rem]:hidden", "sm:@min-[43.5rem]:hidden"]) expect(compact).not.toHaveClass(cls);
     for (const b of [wide, narrow, compact]) {
       expect(b).toHaveAttribute("aria-haspopup", "menu");
       expect(b).toHaveAttribute("aria-expanded", "false");
@@ -293,7 +293,7 @@ describe("PresenceAvatars", () => {
     // 精簡 +N 只在手機寬出現、前面沒有鄰居可蓋：視覺 32×28（h-7 w-8），::before 擴成 40×44
     const compact = screen.getByRole("button", { name: "6 more, show everyone" });
     expect(compact).toHaveClass("h-7", "w-8", "before:-inset-x-1", "before:-inset-y-2");
-    expect(compact).not.toHaveClass("h-6", "w-6");
+    for (const cls of ["h-6", "w-6"]) expect(compact).not.toHaveClass(cls);
     // 手機寬時它前面接的是連線點，疊放用的負邊距要清掉；點擊區不帶頭像那組擴大 class
     expect(compact).toHaveClass("max-sm:ms-0!");
     expect(compact).not.toHaveClass("before:-inset-y-1");

@@ -260,12 +260,13 @@ test("hover 表格最後一列第一欄（右緣在視窗外，水平孿生案�
 }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: E2E_ORIGIN });
 
-  // 縮小視窗寬度（不動高度）：讓 20 欄的表格右緣可靠地落在視窗外，同時列數壓在 2
-  // 列就好——不需要像垂直案那樣捲動，表格本來就矮到整張都在預設視窗高度內。
-  await page.setViewportSize({ width: 800, height: 700 });
-
   await loginAs(page, ADMIN.email, ADMIN.password);
   await createNote(page, `E2E table hover wide ${Date.now()}`);
+
+  // 縮小視窗寬度（不動高度）：讓 20 欄的表格右緣可靠地落在視窗外，同時列數壓在 2
+  // 列就好——不需要像垂直案那樣捲動，表格本來就矮到整張都在預設視窗高度內。
+  // 先建筆記再縮：800 寬時側欄收成抽屜，建筆記的鈕在固定側欄裡。
+  await page.setViewportSize({ width: 800, height: 700 });
 
   const editor = editorLocator(page);
   await editor.click();

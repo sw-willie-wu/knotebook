@@ -9,12 +9,14 @@ import { cardSurface } from "@/components/ui/card";
 import { PaneResizeHandle } from "@/components/PaneResizeHandle";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { EllipsisVertical, X } from "@/components/ui/icons";
+import { useIsOverlay } from "@/lib/layout-tiers";
 import { useVersions } from "@/lib/versions-context";
 import { cn } from "@/lib/utils";
 import { KindFilter, KindFilterEmpty } from "./KindFilter";
 import { baseLabelOrDeleted, currentSubtitle, editorsText, formatVersionTime, versionLabel } from "./version-labels";
 import { useApplyFlow } from "./use-apply-flow";
 import {
+  VERSIONS_PANEL_PLACEMENT,
   VERSIONS_PANEL_WIDTH_DEFAULT,
   VERSIONS_PANEL_WIDTH_MAX,
   VERSIONS_PANEL_WIDTH_MIN,
@@ -71,7 +73,7 @@ export function VersionRowMenu({ version, isBase, onApply }: { version: VersionD
 }
 
 /**
- * 版本面板（md+ 第三欄卡）。
+ * 版本面板（640 起：1280 以下浮在筆記右緣、1280 起是第三欄卡；手機是整頁 `VersionsSheet`）。
  * `current` 的刷新：面板開著時訂閱活 `Y.Doc` 的 `update`，去抖動 1 s 後 invalidate `['notes', id, 'versions']`。
  * 離開預覽（橫幅沒有 ✕）：點清單空白處（`<ul>` 本身，點到列或 ⋯ 不算）、
  * 再點已選中的那一列（toggle）、✕ 關面板（`close()` 一併離開預覽）；另有 NotePage 的 Esc。
@@ -82,7 +84,7 @@ export function VersionsPanel({
   onWidthChange,
 }: {
   doc: Y.Doc;
-  /** #274：md+ 的面板寬度（狀態在 NoteEditor，與錯誤外框共用；實際寬度走 `--versions-panel-width` CSS 變數，這裡只供把手的 aria-valuenow 與拖曳起點）。 */
+  /** #274：面板寬度（狀態在 NoteEditor，與錯誤外框共用；實際寬度走 `--versions-panel-width` CSS 變數，這裡只供把手的 aria-valuenow 與拖曳起點）。 */
   width: number;
   onWidthChange: (px: number, commit: boolean) => void;
 }) {
@@ -92,6 +94,24 @@ export function VersionsPanel({
   const id = noteId ?? "";
   const list = useVersionList(id, true, kindFilter);
   const rowsRef = useRef<Array<HTMLButtonElement | null>>([]);
+  // 浮動段的實際寬度可能被 CSS 夾在卡寬 - 3rem 以內（視窗窄時比設定值小）：把手的 aria-valuenow 與拖曳起點報實際寬度。
+  const asideRef = useRef<HTMLElement>(null);
+  const [renderedWidth, setRenderedWidth] = useState(0);
+  useEffect(() => {
+    const el = asideRef.current;
+    if (el === null || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => setRenderedWidth(Math.round(el.getBoundingClientRect().width)));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  // 固定段的寬度不會被夾，直接用設定值（量測值比設定值晚一格才更新，連按鍵時會拿到舊寬度）。
+  const overlay = useIsOverlay();
+  const shownWidth = overlay && renderedWidth > 0 ? Math.min(width, renderedWidth) : width;
+  // 浮動段被夾窄時，把手從實際寬度起算：往變寬的方向動了、但還沒超過設定值，就不寫入，否則設定值會被往下改。
+  const handleWidthChange = (px: number, commit: boolean) => {
+    if (px >= shownWidth && px < width) return; // 只有浮動段會有 shownWidth < width
+    onWidthChange(px, commit);
+  };
   // 這一發 click 的按下點是否也在 <ul> 本身：在列上按下、拖到列間縫放開時，瀏覽器把 click 派給共同祖先 <ul>，
   // 只看 click 的 target 會誤判成點空白。
   const pressedOnListRef = useRef(false);
@@ -132,13 +152,13 @@ export function VersionsPanel({
 
   return (
     <aside
+      ref={asideRef}
       data-testid="versions-panel"
       aria-label={t("versions.title")}
       className={cn(
         cardSurface,
-        "z-30 flex shrink-0 flex-col",
-        "fixed inset-x-3 bottom-5 h-[80dvh] max-h-[calc(100dvh-5rem)]",
-        "md:relative md:inset-auto md:bottom-auto md:h-auto md:max-h-none md:w-[var(--versions-panel-width)]",
+        "flex shrink-0 flex-col",
+        VERSIONS_PANEL_PLACEMENT,
       )}
     >
       {/* 裁切（圓角、內部捲動）在這一層：aside 本身不能 overflow-hidden，否則伸到面板外的把手會被裁掉。 */}
@@ -206,18 +226,18 @@ export function VersionsPanel({
           </Button>
         </div>
       </div>
-      {/* #274：把手與側欄同形，`absolute right-full w-3` 伸進內文卡與面板之間的 `gap-3`（約略蓋在間隙上，以 padding box 定位、壓住面板左框一個框寬，與側欄對稱）；窄螢幕的底部卡片不顯示。
+      {/* #274：把手與側欄同形，`absolute right-full w-3` 伸進內文卡與面板之間的 `gap-3`（約略蓋在間隙上，以 padding box 定位、壓住面板左框一個框寬，與側欄對稱）；浮動與固定兩段都在。
           放在最後一個子元素：Tab 順序不會以它為面板第一個停點。 */}
       <PaneResizeHandle
-        width={width}
-        onChange={onWidthChange}
+        width={shownWidth}
+        onChange={handleWidthChange}
         min={VERSIONS_PANEL_WIDTH_MIN}
         max={VERSIONS_PANEL_WIDTH_MAX}
         defaultWidth={VERSIONS_PANEL_WIDTH_DEFAULT}
         step={VERSIONS_PANEL_WIDTH_STEP}
         edge="left"
         label={t("versions.resize")}
-        placementClassName="right-full max-md:hidden"
+        placementClassName="right-full"
       />
     </aside>
   );

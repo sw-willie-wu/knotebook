@@ -272,7 +272,7 @@ test("40-5 390 抽屜：長名稱資料夾、用它的「＋」建筆記，清�
   await page.goto("/");
 
   const openDrawer = async (): Promise<Locator> => {
-    await page.getByRole("button", { name: "Open navigation" }).click();
+    await page.getByRole("button", { name: "Open sidebar" }).click();
     const drawer = page.getByRole("dialog", { name: "Navigation" });
     await expect(drawer).toBeVisible();
     return drawer;

@@ -6,7 +6,7 @@ import { MemoryRouter, Route, Routes, useParams } from "react-router";
 import type { NoteDto, TrashItemDto, UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ActiveNoteProvider } from "@/lib/active-note";
-import { NARROW_QUERY } from "@/lib/sidebar-drawer";
+import { OVERLAY_QUERY } from "@/lib/layout-tiers";
 import { useSidebarTabActions, useSidebarTabState, type SidebarTabActions } from "@/lib/sidebar-tab";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts } from "@/components/ui/toast";
@@ -84,11 +84,11 @@ function stubFetchWithNotes(notes: NoteDto[], trash: TrashItemDto[] = []) {
   );
 }
 
-/** 可控 matchMedia stub（同 AppShell.test.tsx）：只有 `NARROW_QUERY` 回 `initialMatches`，其餘 query（例如 `WIDE_POINTER_QUERY`）一律不成立。 */
+/** 可控 matchMedia stub（同 AppShell.test.tsx）：只有 `OVERLAY_QUERY` 回 `initialMatches`，其餘 query（例如 `WIDE_POINTER_QUERY`）一律不成立。 */
 function stubControllableMatchMedia(initialMatches: boolean) {
   const mql = {
     matches: initialMatches,
-    media: "(width < 48rem)",
+    media: OVERLAY_QUERY,
     addEventListener: () => {},
     removeEventListener: () => {},
     onchange: null,
@@ -98,7 +98,7 @@ function stubControllableMatchMedia(initialMatches: boolean) {
   };
   vi.stubGlobal(
     "matchMedia",
-    vi.fn((query: string) => (query === NARROW_QUERY ? mql : { ...mql, matches: false })),
+    vi.fn((query: string) => (query === OVERLAY_QUERY ? mql : { ...mql, matches: false })),
   );
 }
 
@@ -155,7 +155,7 @@ describe("AppShell — 側欄 tab 接線", () => {
     stubFetchWithNotes([NOTE]);
     renderShell();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Open navigation" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open sidebar" }));
     const drawer = await screen.findByRole("dialog", { name: "Navigation" });
     fireEvent.click(within(drawer).getByRole("tab", { name: "Groups" }));
 
@@ -175,7 +175,7 @@ describe("AppShell — 側欄 tab 接線", () => {
     stubFetchWithNotes([NOTE]);
     renderShell();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Open navigation" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open sidebar" }));
     const drawer = await screen.findByRole("dialog", { name: "Navigation" });
 
     const staticControls = within(aside())
@@ -321,7 +321,7 @@ describe("AppShell — 側欄 tab 接線", () => {
         <SelectionProbe />
       </>,
     );
-    fireEvent.click(await screen.findByRole("button", { name: "Open navigation" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open sidebar" }));
     const drawer = await screen.findByRole("dialog", { name: "Navigation" });
     fireEvent.click(screen.getByTestId("start-select"));
     expect(screen.getByTestId("selecting")).toHaveTextContent("true");
@@ -348,7 +348,7 @@ describe("AppShell — 側欄 tab 接線", () => {
         <SelectionProbe />
       </>,
     );
-    fireEvent.click(await screen.findByRole("button", { name: "Open navigation" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open sidebar" }));
     const drawer = await screen.findByRole("dialog", { name: "Navigation" });
     expect(screen.getByTestId("selecting")).toHaveTextContent("false");
     fireEvent.keyDown(document.activeElement ?? drawer, { key: "Escape" });
@@ -376,7 +376,7 @@ describe("AppShell — 側欄 tab 接線", () => {
     stubControllableMatchMedia(true);
     stubFetchWithNotes([NOTE], TRASH);
     renderShell();
-    fireEvent.click(await screen.findByRole("button", { name: "Open navigation" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open sidebar" }));
     const drawer = await screen.findByRole("dialog", { name: "Navigation" });
     fireEvent.click(within(drawer).getByRole("tab", { name: "Trash" }));
     await waitFor(() => expect(drawer.querySelector('li[data-node-id="p1"]')).not.toBeNull());
@@ -436,7 +436,7 @@ describe("AppShell — 側欄 tab 接線", () => {
     stubControllableMatchMedia(true);
     stubFetchWithNotes([NOTE], TRASH);
     renderShell();
-    fireEvent.click(await screen.findByRole("button", { name: "Open navigation" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open sidebar" }));
     const drawer = await screen.findByRole("dialog", { name: "Navigation" });
     fireEvent.click(within(drawer).getByRole("tab", { name: "Trash" }));
     await waitFor(() => expect(drawer.querySelector('li[data-node-id="p1"]')).not.toBeNull());
@@ -468,7 +468,7 @@ describe("AppShell — 側欄 tab 接線", () => {
     fireEvent.keyDown(asideRestore, { key: "Escape" });
     expect(within(trashHeader(aside())).getByRole("button", { name: "Select" })).toHaveFocus();
 
-    fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open sidebar" }));
     const drawer = await screen.findByRole("dialog", { name: "Navigation" });
     fireEvent.click(within(trashHeader(drawer)).getByRole("button", { name: "Select" }));
     fireEvent.click(trashBox(drawer, "p1")!);
@@ -483,7 +483,7 @@ describe("AppShell — 側欄 tab 接線", () => {
     stubControllableMatchMedia(true);
     stubFetchWithNotes([NOTE], TRASH);
     renderShell();
-    fireEvent.click(await screen.findByRole("button", { name: "Open navigation" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open sidebar" }));
     const drawer = await screen.findByRole("dialog", { name: "Navigation" });
     fireEvent.click(within(drawer).getByRole("tab", { name: "Trash" }));
     await waitFor(() => expect(drawer.querySelector('li[data-node-id="p1"]')).not.toBeNull());
@@ -586,7 +586,7 @@ describe("AppShell — 批次進行中關掉抽屜", () => {
 
   /** 開抽屜 → 抽屜內我的筆記進選取 → 勾三篇 → 刪除（第一支掛起）。 */
   async function startBatchInDrawer(): Promise<void> {
-    fireEvent.click(await screen.findByRole("button", { name: "Open navigation" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open sidebar" }));
     const drawer = await screen.findByRole("dialog", { name: "Navigation" });
     await waitFor(() => expect(within(header(drawer)).getByRole("button", { name: "Select" })).toBeEnabled());
     fireEvent.click(within(header(drawer)).getByRole("button", { name: "Select" }));
@@ -604,7 +604,7 @@ describe("AppShell — 批次進行中關掉抽屜", () => {
   }
 
   async function reopenDrawer(): Promise<HTMLElement> {
-    fireEvent.click(screen.getByRole("button", { name: "Open navigation", hidden: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Open sidebar", hidden: true }));
     return screen.findByRole("dialog", { name: "Navigation" });
   }
 
@@ -695,7 +695,7 @@ describe("AppShell — 一般 tab 選取模式", () => {
     stubControllableMatchMedia(true);
     stubFetchWithNotes(notes);
     renderShell();
-    fireEvent.click(await screen.findByRole("button", { name: "Open navigation" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open sidebar" }));
     const drawer = await screen.findByRole("dialog", { name: "Navigation" });
     await startSelecting(drawer);
     fireEvent.click(noteBox(drawer, "p1")!);
@@ -735,7 +735,7 @@ describe("AppShell — 一般 tab 選取模式", () => {
     stubControllableMatchMedia(true);
     stubFetchWithNotes(notes);
     renderShell();
-    fireEvent.click(await screen.findByRole("button", { name: "Open navigation" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open sidebar" }));
     const drawer = await screen.findByRole("dialog", { name: "Navigation" });
     await startSelecting(drawer);
     fireEvent.click(noteBox(drawer, "p1")!);

@@ -10,7 +10,8 @@ import {
   type ReactNode,
 } from "react";
 import { clearSearchMark } from "@/hooks/search-mark";
-import { NARROW_QUERY, SidebarDrawerContext } from "@/lib/sidebar-drawer";
+import { OVERLAY_QUERY } from "@/lib/layout-tiers";
+import { SidebarDrawerContext } from "@/lib/sidebar-drawer";
 import { EMPTY_SELECTION, reduceSelection, type SelectionOp, type SidebarSelection } from "@/lib/sidebar-selection";
 
 /**
@@ -102,7 +103,7 @@ export function SidebarTabProvider({
       dispatchSelection({ type: "end" });
       clearSearchMark(); // 搜尋框已空時切到別的 tab ＝離開搜尋：清掉搜尋跳轉留在筆記裡的標記
     }
-    if (window.matchMedia(NARROW_QUERY).matches) drawerRef.current?.setOpen(true);
+    if (window.matchMedia(OVERLAY_QUERY).matches) drawerRef.current?.setOpen(true);
   }, []);
 
   const endSelectionIfActive = useCallback(() => {
