@@ -297,9 +297,11 @@ export async function openListOnCompact(page: Page): Promise<Locator> {
   if (width < 640) {
     // 不用「含 tab 列」過濾：全螢幕搜尋層開著時 tab 列不在，清單仍是這個 aside。
     const sidebar = page.getByRole("complementary");
-    if (!(await sidebar.isVisible())) {
-      await page.getByRole("button", { name: "Back to notes", exact: true }).click();
-    }
+    const back = page.getByRole("button", { name: "Back to notes", exact: true });
+    // 換頁走 transition：網址先換、畫面晚一點才跟上，isVisible 不會等。
+    // 先等清單或筆記畫面其中之一出現，再判斷要不要按返回。
+    await expect(sidebar.or(back).first()).toBeVisible({ timeout: 15_000 });
+    if (!(await sidebar.isVisible())) await back.click();
     await expect(sidebar).toBeVisible({ timeout: 15_000 });
     return sidebar;
   }
