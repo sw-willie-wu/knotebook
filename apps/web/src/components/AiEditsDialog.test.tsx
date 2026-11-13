@@ -51,6 +51,7 @@ function edit(patch: Partial<NoteEditDto> & { id: string }): NoteEditDto {
     heading: "Section A",
     byHandle: NOTE.ownerHandle ?? "",
     agentLabel: "claude",
+    avatar: null,
     createdAt: "2026-02-03T04:05:06.000Z",
     revertedAt: null,
     revertOf: null,

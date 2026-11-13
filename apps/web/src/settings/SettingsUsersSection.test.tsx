@@ -67,6 +67,7 @@ const ACTIVE_OTHER: AdminUserDto = {
   hasPassword: true,
   passwordResetExpiresAt: null,
   storage: { planId: BASIC_ID, planName: "Basic", usedBytes: 0, quotaBytes: 2147483648 },
+  avatar: null,
 };
 
 const DISABLED_OTHER: AdminUserDto = {
@@ -82,6 +83,7 @@ const DISABLED_OTHER: AdminUserDto = {
   hasPassword: true,
   passwordResetExpiresAt: null,
   storage: { planId: BASIC_ID, planName: "Basic", usedBytes: 0, quotaBytes: 2147483648 },
+  avatar: null,
 };
 
 /** 已是 admin、但不是目前登入者本人的一列——降級（demote）與 `last_site_admin` 案要的是
@@ -99,6 +101,7 @@ const OTHER_ADMIN: AdminUserDto = {
   hasPassword: true,
   passwordResetExpiresAt: null,
   storage: { planId: BASIC_ID, planName: "Basic", usedBytes: 0, quotaBytes: 2147483648 },
+  avatar: null,
 };
 
 const ADMIN_USERS_URL = "/api/admin/users";

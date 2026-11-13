@@ -9,10 +9,11 @@ import { z } from "zod";
 import { and, desc, eq, inArray, lt, sql } from "drizzle-orm";
 import {
   VERSION_LIST_LIMIT_DEFAULT, VERSION_LIST_LIMIT_MAX, normalizeVersionName,
-  type ApplyVersionBody, type ApplyVersionResultDto, type VersionBaseRefDto, type VersionCurrentDto, type VersionDto, type VersionKind, type VersionListDto,
+  type ApplyVersionBody, type ApplyVersionResultDto, type AvatarRef, type VersionBaseRefDto, type VersionCurrentDto, type VersionDto, type VersionKind, type VersionListDto,
   type SavedVersionDto, type VersionSnapshotDto,
 } from "@knotebook/shared";
 import type { VersionCurrentCore, VersionService } from "../collab/versions.js";
+import { readAvatarRefs } from "../avatars/read.js";
 import type { Db } from "../db/index.js";
 import { noteVersions, notes, users } from "../db/schema.js";
 import { sendError, sendNoteTooLarge } from "../http/errors.js";
@@ -68,13 +69,13 @@ async function versionNames(db: Db, noteId: string, ids: string[]): Promise<Map<
   return out;
 }
 
-function toVersionDto(r: NoteVersionRow, handles: Map<string, string>, names: Map<string, string | null>): VersionDto {
+function toVersionDto(r: NoteVersionRow, handles: Map<string, string>, avatars: Map<string, AvatarRef>, names: Map<string, string | null>): VersionDto {
   return {
     id: r.id,
     seq: r.seq,
     kind: r.kind as VersionKind,
     name: r.name,
-    editors: r.editors.map(e => ({ handle: handles.get(e.user_id) ?? "", agentLabel: e.agent_label })),
+    editors: r.editors.map(e => ({ handle: handles.get(e.user_id) ?? "", agentLabel: e.agent_label, avatar: avatars.get(e.user_id) ?? null })),
     baseSeq: r.baseSeq,
     base: baseRefOf(r.baseSeq, r.baseVersionId, names),
     createdAt: r.createdAt.toISOString(),
@@ -83,6 +84,7 @@ function toVersionDto(r: NoteVersionRow, handles: Map<string, string>, names: Ma
 
 /**
  * editors 的 handle 一次查（`inArray`，筆數＝這一頁出現的不同使用者數）；刪除的使用者 → ""。
+ * 頭貼參照另一句（同一批 id；AI 寫入的列也是該使用者本人的頭貼）；刪除的使用者查不到 → null。
  * #272：基底在這一頁的直接用頁內名稱，其餘（不在本頁、被 kind 篩掉）一句查；查不到＝已刪除。
  */
 export async function toVersionDtos(db: Db, noteId: string, rows: NoteVersionRow[]): Promise<VersionDto[]> {
@@ -91,10 +93,11 @@ export async function toVersionDtos(db: Db, noteId: string, rows: NoteVersionRow
   if (ids.length > 0) {
     for (const u of await db.select({ id: users.id, handle: users.handle }).from(users).where(inArray(users.id, ids))) handles.set(u.id, u.handle);
   }
+  const avatars = await readAvatarRefs(db, ids);
   const names = new Map<string, string | null>(rows.map(r => [r.id, r.name]));
   const missing = [...new Set(rows.flatMap(r => (r.baseSeq !== null && r.baseVersionId !== null && !names.has(r.baseVersionId) ? [r.baseVersionId] : [])))];
   for (const [id, name] of await versionNames(db, noteId, missing)) names.set(id, name);
-  return rows.map(r => toVersionDto(r, handles, names));
+  return rows.map(r => toVersionDto(r, handles, avatars, names));
 }
 
 /** #272：`currentOf` 的結果補上 `base`（讀 `notes.version_base_version_id`）。清單與套用回應共用。 */

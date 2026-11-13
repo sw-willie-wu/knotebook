@@ -230,6 +230,8 @@ export interface NoteEditDto {
   heading: string;
   byHandle: string;
   agentLabel: string | null;
+  /** 寫入者本人目前的頭貼（`agentLabel` 非 null 的列也是本人的）；沒有頭貼、顯示圖尚未備好 → null。 */
+  avatar: AvatarRef | null;
   createdAt: string;
   revertedAt: string | null;
   revertOf: string | null;

@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, eq, isNotNull, sql } from "drizzle-orm";
 import type { AvatarRef, UserAvatarDto } from "@knotebook/shared";
 import type { DbOrTx } from "../db/tx.js";
 import { userAvatars } from "../db/schema.js";
@@ -21,6 +21,8 @@ export async function readCurrentAvatar(db: DbOrTx, userId: string): Promise<Use
 /**
  * 列表端點補 `avatar` 用：一次查多人的目前頭貼，回 userId → `{ id, v }`；沒有頭貼的人不在 Map 裡。
  * 單句查詢（查詢數不隨人數成長）；空輸入、全是非 UUID 形的輸入不發查詢。
+ * id 以**一個**陣列參數送出（`= any($1::uuid[])`），不是每個 id 一個綁定參數：PostgreSQL 一句最多 65535 個參數，
+ * 站台管理的使用者列表可以超過。輸入已先過 UUID 形檢查，轉型不會失敗。
  *
  * 顯示圖尚未補產的候選（`display_data` 為 NULL）一律排除：別人讀不到它的圖（`GET /api/avatars/:id` 對非本人回 404），
  * 列表帶出去只會是破圖；本人自己的畫面走 `UserDto.avatar`（帶 `pending`）。停用帳號照常查得到。
@@ -35,7 +37,7 @@ export async function readAvatarRefs(db: DbOrTx, userIds: readonly string[]): Pr
   const rows = await db
     .select({ userId: userAvatars.userId, id: userAvatars.id, v: userAvatars.version })
     .from(userAvatars)
-    .where(and(inArray(userAvatars.userId, ids), eq(userAvatars.isCurrent, true), isNotNull(userAvatars.displayData)));
+    .where(and(sql`${userAvatars.userId} = any(${sql.param(ids)}::uuid[])`, eq(userAvatars.isCurrent, true), isNotNull(userAvatars.displayData)));
   for (const r of rows) out.set(r.userId, { id: r.id, v: r.v });
   return out;
 }

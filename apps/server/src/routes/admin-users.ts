@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { and, asc, eq, sql } from "drizzle-orm";
-import type { SpaceStorageDto } from "@knotebook/shared";
+import type { AvatarRef, SpaceStorageDto } from "@knotebook/shared";
 import { sendError } from "../http/errors.js";
 import type { Db } from "../db/index.js";
 import { oneTimeLinks, storagePlans, users } from "../db/schema.js";
@@ -16,6 +16,7 @@ import { redactDbError } from "../lib/redact-db-error.js";
 import { TxAbort } from "../http/tx-abort.js";
 import type { AdminTestHook } from "../auth/admin-test-hook.js";
 import { demoteSiteAdminInTx } from "../auth/tx/admin-demote.js";
+import { readAvatarRefs } from "../avatars/read.js";
 
 /** 儲存配額：指派方案的 body（strict——多餘欄 400）。 */
 const assignPlanSchema = z.object({ planId: z.string() }).strict();
@@ -45,6 +46,8 @@ interface AdminUserDto {
   hasPassword: boolean;
   /** #286：有效（未用、未撤銷、未過期）的重設連結的到期時間；至多一支。不受帳密開關影響。 */
   passwordResetExpiresAt: string | null;
+  /** 目前的頭貼；沒有頭貼、顯示圖尚未備好 → null。 */
+  avatar: AvatarRef | null;
 }
 
 interface AdminUserRow {
@@ -64,7 +67,7 @@ interface AdminUserRow {
 // 只選這九欄＋兩個 SQL 表達式＋方案（storage 另組）（形狀鎖，#122 起含 handle、#247 起含 lastLoginAt、#267 起含 lastActiveAt、#286 起含
 // hasPassword／passwordResetExpiresAt）：不可帶 passwordHash/tokenVersion——`hasPassword` 只回布林，仍不 select `password_hash` 本體。即使只是
 // 內部查詢，也不要 select 出這兩欄再靠序列化階段刻意漏掉，直接在 SQL 端就不撈，斷絕任何洩漏路徑。
-function toAdminUserDto(row: AdminUserRow, storage: SpaceStorageDto): AdminUserDto {
+function toAdminUserDto(row: AdminUserRow, storage: SpaceStorageDto, avatar: AvatarRef | null): AdminUserDto {
   return {
     id: row.id,
     email: row.email,
@@ -78,6 +81,7 @@ function toAdminUserDto(row: AdminUserRow, storage: SpaceStorageDto): AdminUserD
     storage,
     hasPassword: row.hasPassword,
     passwordResetExpiresAt: row.passwordResetExpiresAt ? row.passwordResetExpiresAt.toISOString() : null,
+    avatar,
   };
 }
 
@@ -125,7 +129,8 @@ export function adminUsersRoutes(deps: AdminUsersRouteDeps) {
         .from(users)
         .innerJoin(storagePlans, eq(storagePlans.id, users.storagePlanId))
         .orderBy(asc(users.createdAt), asc(users.id));
-      return rows.map(r => toAdminUserDto(r, { planId: r.planId, planName: r.planName, usedBytes: usage.get(r.id) ?? 0, quotaBytes: r.quotaBytes }));
+      const avatars = await readAvatarRefs(deps.db, rows.map(r => r.id));
+      return rows.map(r => toAdminUserDto(r, { planId: r.planId, planName: r.planName, usedBytes: usage.get(r.id) ?? 0, quotaBytes: r.quotaBytes }, avatars.get(r.id) ?? null));
     });
 
     app.post("/api/admin/users/:id/disable", { preHandler: app.requireAdmin }, async (request, reply) => {
@@ -253,7 +258,7 @@ export function adminUsersRoutes(deps: AdminUsersRouteDeps) {
       }
       const [row] = updated;
       if (!row) return sendError(reply, 404, "user_not_found", "No user with that id.");
-      return toAdminUserDto(row, await storageOfUser(deps.db, id));
+      return toAdminUserDto(row, await storageOfUser(deps.db, id), (await readAvatarRefs(deps.db, [id])).get(id) ?? null);
     });
   };
 }

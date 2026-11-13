@@ -3,13 +3,15 @@
  * 每個端點的 `avatar` 都要等於該人在 `/api/auth/me` 的 `{ id, v }`；待補顯示圖的候選別人讀不到，列表一律給 null；
  * 查詢句數不隨人數成長；旁觀者的頭貼不會出現在任何回應。
  */
-import { describe, expect, it } from "vitest";
+import { randomUUID } from "node:crypto";
+import pg from "pg";
+import { describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import type { AvatarRef } from "@knotebook/shared";
-import { buildTestApp, freshLimiters } from "./helpers.js";
+import { buildCollabTestApp, buildTestApp, freshLimiters } from "./helpers.js";
 import { cookieOf, seedGroup, seedNote, seedShare, seedUser } from "./group-helpers.js";
 import { countQueries, seedAvatarRow } from "./avatar-helpers.js";
-import { userAvatars } from "../src/db/schema.js";
+import { noteAiEdits, noteVersions, storagePlans, userAvatars, users } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
 import { readAvatarRefs } from "../src/avatars/read.js";
 
@@ -26,8 +28,8 @@ async function givePendingPicture(db: Db, userId: string): Promise<string> {
   return seedAvatarRow(db, { userId, originalSize: 800, displaySize: 0, isCurrent: true });
 }
 
-// helper 的批次查詢（`user_id in (…)`）；閘門讀自己的頭貼走 `user_id = $1`，不算在內。
-const AVATAR_SQL = /"user_avatars"\."user_id" in \(/;
+// helper 的批次查詢（`user_id = any($1::uuid[])`）；閘門讀自己的頭貼走 `user_id = $1`，不算在內。
+const AVATAR_SQL = /"user_avatars"\."user_id" = any\(\$1::uuid\[\]\)/;
 
 describe("readAvatarRefs", () => {
   it("空陣列不發查詢；重複 id 只查一次且結果正確；非 UUID 形的 id 不進查詢", async () => {
@@ -296,5 +298,198 @@ describe("列表與 /api/auth/me 一致", () => {
     expect(rows.find(r => r.userId === alice.id)?.avatar).toEqual({ id: aliceMe.id, v: aliceMe.v });
     expect((await me(carol.id)).pending).toBe(true);
     expect(rows.find(r => r.userId === carol.id)?.avatar).toBeNull();
+  });
+});
+
+describe("readAvatarRefs 大量 id", () => {
+  it("幾千個 id 仍是 1 句查詢、綁定參數只有 2 個（id 陣列一個）；結果只含有頭貼的人", async () => {
+    const { db } = await buildTestApp();
+    const alice = await seedUser(db);
+    const ref = await giveCurrentPicture(db, alice.id);
+    const ids = [alice.id, ...Array.from({ length: 5000 }, () => randomUUID())];
+    const spy = vi.spyOn(pg.Client.prototype, "query");
+    try {
+      const map = await readAvatarRefs(db, ids);
+      expect([...map.entries()]).toEqual([[alice.id, ref]]);
+      const calls = spy.mock.calls
+        .map(([q]) => q as { text?: string; values?: unknown[] } | string)
+        .filter((q): q is { text: string; values: unknown[] } => typeof q !== "string" && typeof q?.text === "string" && AVATAR_SQL.test(q.text));
+      expect(calls).toHaveLength(1);
+      // 綁定參數的個數不隨 id 數成長：一個陣列（全部 id）加 is_current 的布林。
+      expect(calls[0]!.values).toHaveLength(2);
+      expect(Array.isArray(calls[0]!.values[0])).toBe(true);
+      expect(calls[0]!.values[0]).toHaveLength(ids.length);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe("GET /api/admin/users 的 avatar", () => {
+  it("每人帶本人的 avatar（待補與沒有頭貼為 null）；PATCH storage-plan 的回應也帶；非管理員仍 403", async () => {
+    const { app, db } = await buildTestApp();
+    const admin = await seedUser(db, { isAdmin: true });
+    const alice = await seedUser(db, { displayName: "Alice" });
+    const bob = await seedUser(db, { displayName: "Bob" });
+    const carol = await seedUser(db, { displayName: "Carol" });
+    const aliceRef = await giveCurrentPicture(db, alice.id);
+    await givePendingPicture(db, carol.id);
+    const cookies = await cookieOf(admin.id);
+
+    const res = await app.inject({ method: "GET", url: "/api/admin/users", cookies });
+    expect(res.statusCode).toBe(200);
+    const byId = new Map((res.json() as Array<{ id: string; avatar: AvatarRef | null }>).map(u => [u.id, u.avatar]));
+    expect(byId.get(alice.id)).toEqual(aliceRef);
+    expect(byId.get(bob.id)).toBeNull();
+    expect(byId.get(carol.id)).toBeNull();
+    expect(byId.get(admin.id)).toBeNull();
+
+    const [plan] = await db.select({ id: storagePlans.id }).from(storagePlans).limit(1);
+    const patched = await app.inject({ method: "PATCH", url: `/api/admin/users/${alice.id}/storage-plan`, cookies, payload: { planId: plan!.id } });
+    expect(patched.statusCode, patched.body).toBe(200);
+    expect(patched.json().avatar).toEqual(aliceRef);
+    const patchedBob = await app.inject({ method: "PATCH", url: `/api/admin/users/${bob.id}/storage-plan`, cookies, payload: { planId: plan!.id } });
+    expect(patchedBob.json().avatar).toBeNull();
+
+    expect((await app.inject({ method: "GET", url: "/api/admin/users", cookies: await cookieOf(alice.id) })).statusCode).toBe(403);
+  });
+
+  it("查詢句數：3 人與 6 人的列表碰 user_avatars 都恰 1 句，總句數相同", async () => {
+    const run = async (n: number) => {
+      const { app, db } = await buildTestApp();
+      const admin = await seedUser(db, { isAdmin: true });
+      for (let i = 0; i < n - 1; i++) await giveCurrentPicture(db, (await seedUser(db)).id);
+      const cookies = await cookieOf(admin.id);
+      const one = await countQueries(() => app.inject({ method: "GET", url: "/api/admin/users", cookies }), AVATAR_SQL);
+      const all = await countQueries(() => app.inject({ method: "GET", url: "/api/admin/users", cookies }));
+      expect(one.result.json()).toHaveLength(n);
+      return { avatar: one.count, total: all.count };
+    };
+    const small = await run(3);
+    const big = await run(6);
+    expect(small.avatar).toBe(1);
+    expect(big.avatar).toBe(1);
+    expect(big.total).toBe(small.total);
+  });
+});
+
+describe("版本歷史 editors 的 avatar", () => {
+  async function seedVersion(db: Db, noteId: string, seq: number, editors: Array<{ user_id: string; agent_label: string | null }>) {
+    await db.insert(noteVersions).values({ noteId, seq, ydoc: Buffer.from([0]), kind: "auto", name: null, editors, baseSeq: null });
+  }
+
+  it("人與 AI 兩種身分各帶本人的頭貼（同一人兩個 editor 帶同一個 { id, v }）；沒有頭貼為 null；已刪除的使用者 handle 為空字串且 avatar 為 null；旁觀者的頭貼不出現", async () => {
+    const { app, db } = await buildTestApp();
+    const alice = await seedUser(db, { displayName: "Alice" });
+    const bob = await seedUser(db, { displayName: "Bob" });
+    const dave = await seedUser(db, { displayName: "Dave" });
+    const gone = await seedUser(db, { displayName: "Gone" });
+    const note = await seedNote(db, { ownerId: alice.id });
+    const aliceRef = await giveCurrentPicture(db, alice.id);
+    const bobRef = await giveCurrentPicture(db, bob.id);
+    const daveRef = await giveCurrentPicture(db, dave.id);
+    await giveCurrentPicture(db, gone.id);
+    await seedShare(db, note.id, bob.id, "editor");
+    await seedVersion(db, note.id, 1, [
+      { user_id: alice.id, agent_label: null }, { user_id: alice.id, agent_label: "Claude" }, { user_id: bob.id, agent_label: "Codex" },
+    ]);
+    await seedVersion(db, note.id, 2, [{ user_id: gone.id, agent_label: null }]);
+    await db.delete(users).where(eq(users.id, gone.id));
+    const cookies = await cookieOf(alice.id);
+
+    const res = await app.inject({ method: "GET", url: `/api/notes/${note.id}/versions`, cookies });
+    expect(res.statusCode, res.body).toBe(200);
+    const versions = res.json().versions as Array<{ seq: number; editors: Array<{ handle: string; agentLabel: string | null; avatar: AvatarRef | null }> }>;
+    const v1 = versions.find(v => v.seq === 1)!;
+    expect(v1.editors).toEqual([
+      { handle: alice.handle, agentLabel: null, avatar: aliceRef },
+      { handle: alice.handle, agentLabel: "Claude", avatar: aliceRef },
+      { handle: bob.handle, agentLabel: "Codex", avatar: bobRef },
+    ]);
+    expect(versions.find(v => v.seq === 2)!.editors).toEqual([{ handle: "", agentLabel: null, avatar: null }]);
+    expect(res.body).not.toContain(daveRef.id);
+
+    // 改名（PATCH）的回應同樣帶
+    const renamed = await app.inject({ method: "PATCH", url: `/api/notes/${note.id}/versions/1`, cookies, payload: { name: "第一版" } });
+    expect(renamed.statusCode, renamed.body).toBe(200);
+    expect(renamed.json().editors[2]).toEqual({ handle: bob.handle, agentLabel: "Codex", avatar: bobRef });
+  });
+
+  it("查詢句數：編輯者 2 人與 4 人的清單碰 user_avatars 都恰 1 句，總句數相同", async () => {
+    const run = async (n: number) => {
+      const { app, db } = await buildTestApp();
+      const owner = await seedUser(db);
+      const note = await seedNote(db, { ownerId: owner.id });
+      const editors: Array<{ user_id: string; agent_label: string | null }> = [];
+      for (let i = 0; i < n; i++) {
+        const u = await seedUser(db);
+        await giveCurrentPicture(db, u.id);
+        editors.push({ user_id: u.id, agent_label: null });
+      }
+      await seedVersion(db, note.id, 1, editors);
+      const cookies = await cookieOf(owner.id);
+      const url = `/api/notes/${note.id}/versions`;
+      const one = await countQueries(() => app.inject({ method: "GET", url, cookies }), AVATAR_SQL);
+      const all = await countQueries(() => app.inject({ method: "GET", url, cookies }));
+      expect(one.result.json().versions[0].editors).toHaveLength(n);
+      return { avatar: one.count, total: all.count };
+    };
+    const small = await run(2);
+    const big = await run(4);
+    expect(small.avatar).toBe(1);
+    expect(big.avatar).toBe(1);
+    expect(big.total).toBe(small.total);
+  });
+});
+
+describe("GET /api/notes/:id/edits（AI 修改紀錄）的 avatar", () => {
+  it("每列帶寫入者本人的頭貼（agentLabel 非 null 也是本人的）；沒有頭貼為 null；旁觀者的頭貼不出現", async () => {
+    const { db, app } = await buildCollabTestApp();
+    const alice = await seedUser(db, { displayName: "Alice" });
+    const bob = await seedUser(db, { displayName: "Bob" });
+    const dave = await seedUser(db, { displayName: "Dave" });
+    const note = await seedNote(db, { ownerId: alice.id });
+    await seedShare(db, note.id, bob.id, "editor");
+    const aliceRef = await giveCurrentPicture(db, alice.id);
+    const daveRef = await giveCurrentPicture(db, dave.id);
+    await db.insert(noteAiEdits).values([
+      { noteId: note.id, userId: alice.id, op: "append", agentLabel: "Claude" },
+      { noteId: note.id, userId: alice.id, op: "append", agentLabel: null },
+      { noteId: note.id, userId: bob.id, op: "append", agentLabel: "Codex" },
+    ]);
+    const res = await app.inject({ method: "GET", url: `/api/notes/${note.id}/edits`, cookies: await cookieOf(alice.id) });
+    expect(res.statusCode, res.body).toBe(200);
+    const edits = res.json().edits as Array<{ byHandle: string; agentLabel: string | null; avatar: AvatarRef | null }>;
+    expect(edits).toHaveLength(3);
+    const mine = edits.filter(x => x.byHandle === alice.handle);
+    expect(mine).toHaveLength(2);
+    expect(mine.map(x => x.avatar)).toEqual([aliceRef, aliceRef]);
+    expect(mine.some(x => x.agentLabel === "Claude")).toBe(true);
+    expect(edits.find(x => x.byHandle === bob.handle)!.avatar).toBeNull();
+    expect(res.body).not.toContain(daveRef.id);
+  });
+
+  it("查詢句數：寫入者 2 人與 4 人的紀錄碰 user_avatars 都恰 1 句，總句數相同", async () => {
+    const run = async (n: number) => {
+      const { db, app } = await buildCollabTestApp();
+      const owner = await seedUser(db);
+      const note = await seedNote(db, { ownerId: owner.id });
+      for (let i = 0; i < n; i++) {
+        const u = await seedUser(db);
+        await giveCurrentPicture(db, u.id);
+        await db.insert(noteAiEdits).values({ noteId: note.id, userId: u.id, op: "append" });
+      }
+      const cookies = await cookieOf(owner.id);
+      const url = `/api/notes/${note.id}/edits`;
+      const one = await countQueries(() => app.inject({ method: "GET", url, cookies }), AVATAR_SQL);
+      const all = await countQueries(() => app.inject({ method: "GET", url, cookies }));
+      expect(one.result.json().edits).toHaveLength(n);
+      return { avatar: one.count, total: all.count };
+    };
+    const small = await run(2);
+    const big = await run(4);
+    expect(small.avatar).toBe(1);
+    expect(big.avatar).toBe(1);
+    expect(big.total).toBe(small.total);
   });
 });

@@ -15,7 +15,7 @@ const v = (seq: number, over: Partial<VersionDto> = {}): VersionDto => ({
   seq,
   kind: "auto",
   name: null,
-  editors: [{ handle: "ann", agentLabel: null }],
+  editors: [{ handle: "ann", agentLabel: null, avatar: null }],
   baseSeq: null,
   base: baseRefOrNull(over.baseSeq),
   createdAt: "2026-10-09T01:00:00.000Z",
@@ -122,8 +122,8 @@ describe("VersionsPanel", () => {
     stub({
       [FIRST]: {
         versions: [
-          v(3, { kind: "manual", name: "給客戶", baseSeq: 1, editors: [{ handle: "ann", agentLabel: null }, { handle: "bob", agentLabel: "Claude" }] }),
-          v(2, { editors: [{ handle: "", agentLabel: null }] }),
+          v(3, { kind: "manual", name: "給客戶", baseSeq: 1, editors: [{ handle: "ann", agentLabel: null, avatar: null }, { handle: "bob", agentLabel: "Claude", avatar: null }] }),
+          v(2, { editors: [{ handle: "", agentLabel: null, avatar: null }] }),
           v(1),
         ],
         current: cur({ baseSeq: 3, nextSeq: 4 }),
@@ -539,7 +539,7 @@ describe("VersionsPanel", () => {
   it("#272（案 28／29 的 web 面）：列第二行——cookie 與網頁 AI 寫入只列 handle；token 寫入列「handle (agent)」", async () => {
     stub({
       [FIRST]: {
-        versions: [v(2, { editors: [{ handle: "ann", agentLabel: null }] }), v(1, { editors: [{ handle: "ann", agentLabel: "Claude Code" }] })],
+        versions: [v(2, { editors: [{ handle: "ann", agentLabel: null, avatar: null }] }), v(1, { editors: [{ handle: "ann", agentLabel: "Claude Code", avatar: null }] })],
         current: cur({ baseSeq: 2, nextSeq: 3 }),
         nextBefore: null,
       },
