@@ -1,4 +1,4 @@
-FROM node:22-slim AS build
+FROM node:24-slim AS build
 RUN corepack enable
 WORKDIR /repo
 
@@ -18,7 +18,7 @@ COPY . .
 RUN pnpm -r build
 RUN pnpm --filter ./apps/server deploy --legacy --prod /out
 
-FROM node:22-slim
+FROM node:24-slim
 WORKDIR /app
 COPY --from=build /out .
 # `pnpm deploy` 只依 apps/server/package.json 的 "files": ["dist"] 打包產物，不含

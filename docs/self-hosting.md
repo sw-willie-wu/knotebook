@@ -233,7 +233,7 @@ The values in effect are logged when the server starts (`parse worker settings i
 | `PARSE_TIMEOUT_MS` | 10000 | 100–2147483647 |
 | `PARSE_QUEUE_WAIT_MS` | 4 × `PARSE_TIMEOUT_MS` + 5000 (45000) | 100–2147483647 |
 
-**How many CPUs.** The server takes the smaller of what Node.js reports (`os.availableParallelism()`) and the container's CPU quota (cgroup v2 `/sys/fs/cgroup/cpu.max`, or cgroup v1 `cpu.cfs_quota_us` / `cpu.cfs_period_us`), rounded up. The quota matters: in a container started with `--cpus=2` on a 24-core machine, Node.js 22 reports 24. Without a quota, or where there is no cgroup (not Linux), it uses what Node.js reports.
+**How many CPUs.** The server takes the smaller of what Node.js reports (`os.availableParallelism()`) and the container's CPU quota (cgroup v2 `/sys/fs/cgroup/cpu.max`, or cgroup v1 `cpu.cfs_quota_us` / `cpu.cfs_period_us`), rounded up. The quota matters: `os.availableParallelism()` does not always reflect it — in a container started with `--cpus=2` on a 24-core machine using cgroup v1, it reports 24 (measured with Node.js 22). Without a quota, or where there is no cgroup (not Linux), it uses what Node.js reports.
 
 **How much memory.** The container's memory limit (cgroup v2 `/sys/fs/cgroup/memory.max`, or cgroup v1 `memory.limit_in_bytes`; no limit counts as none), otherwise the machine's memory (`os.totalmem()`, which in a container is the host's). Without `PARSE_WORKERS`, the workers' memory limits together take at most half of it; with the default 1024 MiB per worker, a 2 GiB container gets one worker however many CPUs it has, and a 4 GiB one at most two.
 
@@ -241,7 +241,7 @@ The values in effect are logged when the server starts (`parse worker settings i
 
 ### Choosing the values
 
-Measured on a reference machine of 2 vCPUs and 4 GiB (`docker run --cpus=2 -m 4g` with the `node:22-slim` image the app image is built on):
+Measured on a reference machine of 2 vCPUs and 4 GiB (`docker run --cpus=2 -m 4g` with a `node:22-slim` image; the app image is built on `node:24-slim`):
 
 - A worker is ready about 0.5–0.7 seconds after it starts and adds about 120 MB to the process's memory when idle, about 135 MB after its first read.
 - When a read uses the whole memory limit, the worker's memory reaches about the limit: with the default 1024 MiB, the process (server and one worker) peaked at about 1.2 GB.
