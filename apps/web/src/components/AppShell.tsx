@@ -32,6 +32,7 @@ import { SidebarTabList, sidebarPanelId, sidebarTabId } from "@/components/sideb
 import { SidebarLazyBoundary } from "@/components/sidebar/SidebarLazyBoundary";
 import { UserMenu } from "@/components/UserMenu";
 import { ShortcutsDialog } from "@/components/shortcuts/ShortcutsDialog";
+import { AvatarDisplayFiller } from "@/avatars/AvatarDisplayFiller";
 import {
   SIDEBAR_WIDTH_DEFAULT,
   SIDEBAR_WIDTH_MAX,
@@ -560,6 +561,7 @@ export function AppShell({ children, inert }: AppShellProps) {
           </div>
           {/* 放在 inert 的 div 外面：portal 本來就在 body，放外面是讓閱讀者不必推理 inert。 */}
           <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} returnFocusRef={shortcutsReturnFocusRef} />
+          <AvatarDisplayFiller />
         </SidebarTabProvider>
       </ShortcutsDialogContext.Provider>
     </SidebarDrawerContext.Provider>
