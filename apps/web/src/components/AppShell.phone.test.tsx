@@ -1,11 +1,12 @@
 import type { ReactNode } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter, Route, Routes, useLocation } from "react-router";
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router";
 import type { NoteDto, UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ActiveNoteProvider } from "@/lib/active-note";
+import { withCanonicalizedFrom } from "@/lib/real-location";
 import { SIDEBAR_TABS } from "@/lib/sidebar-tab";
 import { stubLayoutTier } from "@/test/layout-tier";
 import { ThemeProvider } from "@/theme";
@@ -14,6 +15,7 @@ import { OWNER_PERMS } from "@/test/fixtures";
 import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 import { trashList } from "@/test/trash-fixtures";
 import { AppShell, SidebarDrawerButton } from "./AppShell";
+import { NoteBrowseBar } from "./NoteBrowseBar";
 
 // 手機（< 640）的清單畫面：`/` 與非筆記路由時側欄滿版、筆記路由時藏起來並 inert；頂列、只有圖示的 tab 列、底部列與全螢幕搜尋。
 
@@ -84,11 +86,12 @@ function LocationProbe() {
   return <div data-testid="location">{location.pathname}</div>;
 }
 
-function renderAt(path: string, children: ReactNode = <LocationProbe />) {
+function renderAt(path: string | string[], children: ReactNode = <LocationProbe />) {
+  const entries = Array.isArray(path) ? path : [path];
   return render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <ThemeProvider>
-        <MemoryRouter initialEntries={[path]}>
+        <MemoryRouter initialEntries={entries} initialIndex={entries.length - 1}>
           <ActiveNoteProvider>
             <Routes>
               <Route
@@ -426,5 +429,161 @@ describe("AppShell — 手機以外維持原樣", () => {
     stubFetch([NOTE]);
     const { container } = renderAt("/n/tester/alpha-note");
     expect(aside(container)).not.toHaveAttribute("inert");
+  });
+});
+
+describe("AppShell — 手機筆記頁的瀏覽列", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+    stubLayoutTier("phone");
+  });
+
+  const OTHER: NoteDto = { ...NOTE, id: "77777777-7777-7777-7777-777777777777", title: "Beta Note", slug: "beta-note" };
+
+  function renderNote(path = "/n/tester/alpha-note") {
+    return renderAt(
+      path,
+      <>
+        <LocationProbe />
+        <NoteBrowseBar note={NOTE} />
+      </>,
+    );
+  }
+
+  it("搜尋框按鈕：搜尋層蓋在筆記上（網址不變、側欄不 inert、搜尋框取得焦點）；Cancel 回到同一篇", async () => {
+    stubFetch([NOTE]);
+    // jsdom 不看 CSS：模擬瀏覽器「藏起來（inert）的元素聚焦不了」，才分得出是不是真的先把搜尋層開起來再聚焦。
+    const originalFocus = HTMLElement.prototype.focus;
+    const focusSpy = vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (this: HTMLElement, ...args) {
+      if (this.closest("[inert]") !== null) return;
+      originalFocus.apply(this, args);
+    });
+    onTestFinished(() => focusSpy.mockRestore());
+    const { container } = renderNote();
+    const node = aside(container);
+    expect(node).toHaveAttribute("inert");
+    fireEvent.click(within(screen.getByTestId("note-browse-bar")).getByRole("button", { name: "Search notes" }));
+    expect(node).not.toHaveAttribute("inert");
+    expect(node).toHaveClass("max-sm:fixed", "max-sm:inset-0");
+    const input = within(node).getByRole("textbox", { name: "Search notes" });
+    await waitFor(() => expect(input).toHaveFocus());
+    expect(screen.getByTestId("location")).toHaveTextContent("/n/tester/alpha-note");
+
+    // 筆記在搜尋層後面：不可達。
+    expect(container.querySelector("main")).toHaveAttribute("inert");
+
+    fireEvent.click(within(node).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(node).toHaveAttribute("inert"));
+    expect(screen.getByTestId("location")).toHaveTextContent("/n/tester/alpha-note");
+    expect(container.querySelector("main")).not.toHaveAttribute("inert");
+    // 焦點回到瀏覽列的搜尋鈕。
+    await waitFor(() => expect(within(screen.getByTestId("note-browse-bar")).getByRole("button", { name: "Search notes" })).toHaveFocus());
+  });
+
+  it("搜尋層開在筆記上時按系統返回：回到清單，搜尋層已關、搜尋框沒有焦點", async () => {
+    stubFetch([NOTE]);
+    function Back() {
+      const navigate = useNavigate();
+      return (
+        <button type="button" onClick={() => navigate(-1)}>
+          history-back
+        </button>
+      );
+    }
+    renderAt(
+      ["/", "/n/tester/alpha-note"],
+      <>
+        <LocationProbe />
+        <Back />
+        <NoteBrowseBar note={NOTE} />
+      </>,
+    );
+    fireEvent.click(within(screen.getByTestId("note-browse-bar")).getByRole("button", { name: "Search notes" }));
+    const input = screen.getByRole("textbox", { name: "Search notes" });
+    await waitFor(() => expect(input).toHaveFocus());
+    fireEvent.click(screen.getByRole("button", { name: "history-back" }));
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/$/));
+    expect(await screen.findByRole("tablist")).toBeInTheDocument();
+    expect(screen.queryByTestId("phone-search-hint")).toBeNull();
+    expect(input).not.toHaveFocus();
+  });
+
+  it("搜尋層開在筆記上時按 Ctrl+K：直接聚焦搜尋框，不回清單", async () => {
+    stubFetch([NOTE]);
+    renderNote();
+    fireEvent.click(within(screen.getByTestId("note-browse-bar")).getByRole("button", { name: "Search notes" }));
+    const input = screen.getByRole("textbox", { name: "Search notes" });
+    input.blur();
+    expect(input).not.toHaveFocus();
+    expect(fireEvent.keyDown(window, { key: "k", ctrlKey: true })).toBe(false);
+    expect(input).toHaveFocus();
+    expect(screen.getByTestId("location")).toHaveTextContent("/n/tester/alpha-note");
+  });
+
+  it("開著搜尋層的筆記路由上，點結果換到另一篇：搜尋層關掉、側欄藏起來", async () => {
+    stubFetch([NOTE, OTHER]);
+    const { container } = renderNote();
+    const node = aside(container);
+    fireEvent.click(within(screen.getByTestId("note-browse-bar")).getByRole("button", { name: "Search notes" }));
+    const input = within(node).getByRole("textbox", { name: "Search notes" });
+    fireEvent.change(input, { target: { value: "beta" } });
+    const results = await screen.findByTestId("sidebar-search");
+    fireEvent.click(await within(results).findByRole("link", { name: /^Beta Note/ }));
+
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/n/tester/beta-note"));
+    await waitFor(() => expect(node).toHaveAttribute("inert"));
+    expect(node).not.toHaveClass("max-sm:fixed");
+    expect(screen.queryByTestId("sidebar-search")).toBeNull();
+  });
+
+  it("開著搜尋層時點的結果就是目前這篇：搜尋層也關掉", async () => {
+    stubFetch([NOTE]);
+    const { container } = renderNote();
+    const node = aside(container);
+    fireEvent.click(within(screen.getByTestId("note-browse-bar")).getByRole("button", { name: "Search notes" }));
+    fireEvent.change(within(node).getByRole("textbox", { name: "Search notes" }), { target: { value: "alpha" } });
+    const results = await screen.findByTestId("sidebar-search");
+    fireEvent.click(await within(results).findByRole("link", { name: /^Alpha Note/ }));
+    await waitFor(() => expect(node).toHaveAttribute("inert"));
+    expect(screen.queryByTestId("sidebar-search")).toBeNull();
+  });
+
+  it("同一篇換網址（改名後的 canonical 收斂）不算換頁：搜尋層留著", async () => {
+    stubFetch([NOTE]);
+    function Rename() {
+      const navigate = useNavigate();
+      const location = useLocation();
+      return (
+        <button
+          type="button"
+          onClick={() => navigate("/n/tester/alpha-renamed", { replace: true, state: withCanonicalizedFrom(location.state, location.pathname) })}
+        >
+          rename-in-place
+        </button>
+      );
+    }
+    const { container } = renderAt(
+      "/n/tester/alpha-note",
+      <>
+        <LocationProbe />
+        <Rename />
+        <NoteBrowseBar note={NOTE} />
+      </>,
+    );
+    const node = aside(container);
+    fireEvent.click(within(screen.getByTestId("note-browse-bar")).getByRole("button", { name: "Search notes" }));
+    expect(node).not.toHaveAttribute("inert");
+    fireEvent.click(screen.getByRole("button", { name: "rename-in-place" }));
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/n/tester/alpha-renamed"));
+    expect(node).not.toHaveAttribute("inert");
+  });
+
+  it("「New note」建立並導向新筆記（同一個 createNote 流程）", async () => {
+    const created = stubFetch([NOTE]);
+    renderNote();
+    fireEvent.click(within(screen.getByTestId("note-browse-bar")).getByRole("button", { name: "New note" }));
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/n/tester/untitled-99999999"));
+    expect(created).toHaveLength(1);
   });
 });

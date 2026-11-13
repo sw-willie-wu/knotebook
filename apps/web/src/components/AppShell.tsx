@@ -15,7 +15,7 @@ import { toast, toastViewportHostRef } from "@/components/ui/toast";
 import { cardSurface } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { OVERLAY_QUERY, isPhone, useIsPhone } from "@/lib/layout-tiers";
-import { PhoneListContext, isNoteRoutePath } from "@/lib/phone-list";
+import { PhoneBrowseContext, PhoneListContext, isNoteRoutePath } from "@/lib/phone-list";
 import { backTarget, clearListIdx, historyIdx, readListIdx, recordListIdx } from "@/lib/phone-nav";
 import { SidebarDrawerContext, useSidebarDrawer } from "@/lib/sidebar-drawer";
 import { canonicalizedFrom, useRealNavigationType } from "@/lib/real-location";
@@ -468,8 +468,8 @@ export function AppShell({ children, inert }: AppShellProps) {
   const [phoneSearchOpen, setPhoneSearchOpen] = useState(false);
   const searchOpen = phone && phoneSearchOpen;
   const asideShown = onList || searchOpen;
-  const listVisibleRef = useRef(listVisible);
-  listVisibleRef.current = listVisible;
+  const asideShownRef = useRef(asideShown);
+  asideShownRef.current = asideShown;
   // 清單可見時記下它在 history 裡的序號，「‹」才知道要退幾格。
   useEffect(() => {
     backFromKeyRef.current = null;
@@ -514,10 +514,30 @@ export function AppShell({ children, inert }: AppShellProps) {
     setPhoneSearchOpen(false);
     pendingSearchFocusRef.current = false;
   }, [phone]);
-  // 只在「進入」筆記路由時關（回到 `/` 不關：Ctrl+K 從筆記回清單後還要聚焦搜尋框、開搜尋層）。
+  // 每次換網址（location.key 變）就關，並把搜尋框失焦：點結果換篇、點到目前這篇、系統返回都算，搜尋層不留在新畫面上。
+  // 只有同一篇換網址（#179 的 canonical 收斂）不是換頁，不關。Ctrl+K 從筆記回清單的流程在這之後才聚焦搜尋框、再開搜尋層（下一個 effect）。
+  const searchSeenRef = useRef({ key: location.key, pathname: location.pathname });
   useEffect(() => {
-    if (!onList) setPhoneSearchOpen(false);
-  }, [onList]);
+    const seen = searchSeenRef.current;
+    if (seen.key === location.key) return;
+    searchSeenRef.current = { key: location.key, pathname: location.pathname };
+    if (canonicalizedFrom(location.state) === seen.pathname) return;
+    searchInputRef.current?.blur();
+    setPhoneSearchOpen(false);
+  }, [location.key, location.pathname, location.state]);
+  // 從筆記頁開的搜尋層：Cancel／Esc 關掉後（沒換網址）把焦點還給瀏覽列的搜尋鈕。
+  const searchOpenedKeyRef = useRef<string | null>(null);
+  const wasSearchOpenRef = useRef(false);
+  useEffect(() => {
+    const wasOpen = wasSearchOpenRef.current;
+    wasSearchOpenRef.current = searchOpen;
+    if (searchOpen) {
+      if (!wasOpen) searchOpenedKeyRef.current = location.key;
+      return;
+    }
+    if (!wasOpen || onList || searchOpenedKeyRef.current !== location.key) return;
+    document.querySelector<HTMLElement>("main [data-note-browse-search]")?.focus();
+  }, [searchOpen, onList, location.key]);
   useEffect(() => {
     if (!listVisible || !pendingSearchFocusRef.current) return;
     pendingSearchFocusRef.current = false;
@@ -547,8 +567,8 @@ export function AppShell({ children, inert }: AppShellProps) {
       if (isPhone()) {
         // 手機：到清單並聚焦底部搜尋框（接實體鍵盤時用得到）；不開抽屜。
         event.preventDefault();
-        // 選取模式時底部是動作列、沒有搜尋框：先結束選取，搜尋框才掛得上。
-        if (listVisibleRef.current) {
+        // 選取模式時底部是動作列、沒有搜尋框：先結束選取，搜尋框才掛得上。清單或搜尋層已經滿版（含蓋在筆記上）就直接聚焦。
+        if (asideShownRef.current) {
           flushSync(() => {
             tabActionsRef.current?.endSelectionIfActive();
           });
@@ -637,6 +657,23 @@ export function AppShell({ children, inert }: AppShellProps) {
   // 平台偵測（只決定徽章顯示文字，不影響行為）見 lib/platform.ts。
   const shortcutBadge = isMacPlatform() ? "⌘K" : "Ctrl K";
 
+  // 筆記頁底部瀏覽列用：開搜尋層（選取模式先結束，搜尋框才掛得上）與建立筆記。只讀 ref，物件身分恆定。
+  const handleNewNoteRef = useRef(handleNewNote);
+  handleNewNoteRef.current = handleNewNote;
+  const browseState = useMemo(
+    () => ({
+      openSearch: () => {
+        flushSync(() => {
+          tabActionsRef.current?.endSelectionIfActive();
+          setPhoneSearchOpen(true);
+        });
+        searchInputRef.current?.focus();
+      },
+      createNote: (groupId?: string, folderId?: string) => handleNewNoteRef.current(groupId, folderId),
+    }),
+    [],
+  );
+
   const sidebarProps = {
     query,
     onQueryChange: setQuery,
@@ -656,6 +693,7 @@ export function AppShell({ children, inert }: AppShellProps) {
     // `main` 沒有 overflow、少了隱含的自我裁切途徑，寬度鏈全靠它）。
     <SidebarDrawerContext.Provider value={{ setOpen: setDrawerOpen }}>
       <PhoneListContext.Provider value={phoneState}>
+      <PhoneBrowseContext.Provider value={browseState}>
       <ShortcutsDialogContext.Provider value={shortcutsApi}>
         <SidebarTabProvider actionsRef={tabActionsRef}>
           <div inert={inert} className="flex h-screen gap-3 overflow-hidden bg-background p-3">
@@ -755,12 +793,15 @@ export function AppShell({ children, inert }: AppShellProps) {
               </DialogPrimitive.Portal>
             </DialogPrimitive.Root>
 
-            <main className={cn("flex min-h-0 min-w-0 flex-1 flex-col", enterNote && "kb-phone-enter")}>{children}</main>
+            <main inert={searchOpen && !onList} className={cn("flex min-h-0 min-w-0 flex-1 flex-col", enterNote && "kb-phone-enter")}>
+              {children}
+            </main>
           </div>
           {/* 放在 inert 的 div 外面：portal 本來就在 body，放外面是讓閱讀者不必推理 inert。 */}
           <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} returnFocusRef={shortcutsReturnFocusRef} />
         </SidebarTabProvider>
       </ShortcutsDialogContext.Provider>
+      </PhoneBrowseContext.Provider>
       </PhoneListContext.Provider>
     </SidebarDrawerContext.Provider>
   );

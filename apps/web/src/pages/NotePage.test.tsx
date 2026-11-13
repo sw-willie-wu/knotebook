@@ -100,6 +100,7 @@ vi.mock("@/components/NoteEditor", async () => {
       <div data-testid="note-editor" data-editable={String(editable)}>
         {headerSlot}
         <div data-testid="mock-column" data-width={width} />
+        <div data-testid="mock-content" contentEditable={editable} suppressContentEditableWarning tabIndex={0} />
         <button type="button" onClick={() => versions.startPreview({ seq: 1, id: VERSION_1.id, name: null })}>
           mock-start-preview
         </button>
@@ -376,6 +377,15 @@ function RouterPathProbe() {
     <div data-testid="router-path" data-key={location.key}>
       {location.pathname}
     </div>
+  );
+}
+
+function GoToOther() {
+  const navigate = useNavigate();
+  return (
+    <button type="button" onClick={() => navigate("/notes/other-note")}>
+      go-b
+    </button>
   );
 }
 
@@ -735,6 +745,115 @@ describe("NotePage", () => {
 
       expect(document.querySelector("header [data-testid='note-header-subline']")).toBeNull();
       expect(screen.queryByRole("button", { name: /^Show in list/ })).toBeNull();
+    });
+  });
+
+  describe("手機底部瀏覽列", () => {
+    const BAR = "note-browse-bar";
+
+    async function renderEditable(note: NoteDto = NOTE, role: "owner" | "viewer" = "owner") {
+      stubLayoutTier("phone");
+      collab.state = { phase: "connected", role };
+      collab.provider.synced = true;
+      vi.stubGlobal("fetch", mockFetch(note));
+      const view = renderNotePage("my-note");
+      await screen.findByTestId("note-editor");
+      await screen.findByTestId(BAR);
+      return view;
+    }
+
+    it("可編輯：焦點進編輯區 → 瀏覽列消失；焦點到頁首標題 → 回來", async () => {
+      await renderEditable();
+      expect(within(screen.getByTestId(BAR)).getByRole("button", { name: "New note" })).toBeInTheDocument();
+      act(() => screen.getByTestId("mock-content").focus());
+      expect(screen.queryByTestId(BAR)).toBeNull();
+      act(() => screen.getByLabelText("Note title").focus());
+      expect(screen.getByTestId(BAR)).toBeInTheDocument();
+    });
+
+    it("焦點移到編輯工具列（blur 帶 relatedTarget）：仍算編輯中，瀏覽列不閃回來", async () => {
+      await renderEditable();
+      const content = screen.getByTestId("mock-content");
+      act(() => content.focus());
+      expect(screen.queryByTestId(BAR)).toBeNull();
+      const toolbar = document.createElement("div");
+      toolbar.setAttribute("data-mobile-edit-toolbar", "");
+      document.body.appendChild(toolbar);
+      onTestFinished(() => toolbar.remove());
+      fireEvent.blur(content, { relatedTarget: toolbar });
+      expect(screen.queryByTestId(BAR)).toBeNull();
+      // 焦點真的離開到別處：回來。
+      fireEvent.blur(content, { relatedTarget: screen.getByLabelText("Note title") });
+      expect(screen.getByTestId(BAR)).toBeInTheDocument();
+    });
+
+    it("編輯區在焦點還在裡面時被卸載（點連結換篇）：新畫面的瀏覽列不會被舊的編輯旗標藏住", async () => {
+      stubLayoutTier("phone");
+      collab.state = { phase: "connected", role: "owner" };
+      collab.provider.synced = true;
+      vi.stubGlobal("fetch", mockFetch());
+      render(
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+          <ThemeProvider>
+            <MemoryRouter initialEntries={["/notes/my-note"]}>
+              <GoToOther />
+              <NotePageTree />
+            </MemoryRouter>
+          </ThemeProvider>
+        </QueryClientProvider>,
+      );
+      await screen.findByTestId(BAR);
+      act(() => screen.getByTestId("mock-content").focus());
+      expect(screen.queryByTestId(BAR)).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "go-b" }));
+      await waitFor(() => expect(routerPath()).not.toBe("/notes/my-note"));
+      expect(await screen.findByTestId(BAR)).toBeInTheDocument();
+    });
+
+    it("編輯中被降成唯讀（焦點旗標還在）：瀏覽列回來", async () => {
+      const { rerender, queryClient } = await renderEditable();
+      act(() => screen.getByTestId("mock-content").focus());
+      expect(screen.queryByTestId(BAR)).toBeNull();
+      collab.state = { phase: "connected", role: "viewer" };
+      rerender(
+        <QueryClientProvider client={queryClient}>
+          <ThemeProvider>
+            <MemoryRouter initialEntries={["/notes/my-note"]}>
+              <NotePageTree />
+            </MemoryRouter>
+          </ThemeProvider>
+        </QueryClientProvider>,
+      );
+      await waitFor(() => expect(screen.getByTestId("note-editor")).toHaveAttribute("data-editable", "false"));
+      expect(screen.getByTestId(BAR)).toBeInTheDocument();
+    });
+
+    it("唯讀：點內文瀏覽列仍在，沒有「New note」，搜尋還在", async () => {
+      await renderEditable({ ...NOTE, role: "viewer", ownerId: "u2", permissions: VIEWER_PERMS }, "viewer");
+      act(() => screen.getByTestId("mock-content").focus());
+      fireEvent.focus(screen.getByTestId("mock-content"));
+      expect(screen.getByTestId(BAR)).toBeInTheDocument();
+      expect(within(screen.getByTestId(BAR)).queryByRole("button", { name: "New note" })).toBeNull();
+      expect(within(screen.getByTestId(BAR)).getByRole("button", { name: "Search notes" })).toBeInTheDocument();
+    });
+
+    it("首次同步完成前（還不能編輯）：是瀏覽列，不是編輯狀態", async () => {
+      stubLayoutTier("phone");
+      collab.state = { phase: "connected", role: "owner" };
+      collab.provider.synced = false;
+      vi.stubGlobal("fetch", mockFetch());
+      renderNotePage("my-note");
+      await screen.findByTestId("note-editor");
+      fireEvent.focus(screen.getByTestId("mock-content"));
+      expect(screen.getByTestId(BAR)).toBeInTheDocument();
+    });
+
+    it.each(["overlay", "docked"] as const)("%s：沒有瀏覽列", async (tier) => {
+      stubLayoutTier(tier);
+      vi.stubGlobal("fetch", mockFetch());
+      renderNotePage("my-note");
+      await screen.findByTestId("note-editor");
+      expect(screen.queryByTestId(BAR)).toBeNull();
     });
   });
 
