@@ -36,6 +36,7 @@ import { Awareness } from "y-protocols/awareness";
 import { resetLocalPresenceFieldForTest } from "@/components/presence/local-field";
 import { setRemote, userState } from "@/components/presence/test-awareness";
 import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
+import { AppShellLayout } from "@/components/AppShellLayout";
 
 // BlockNote 需要一整套 jsdom 沒有的 DOM/Range API，掛進單元測試只會測到環境；
 // 這裡只驗證「頁面有沒有把正確的 props 交給編輯器」，編輯器本身留給手動驗證。
@@ -391,10 +392,12 @@ function NotePageTree({ seedActiveId }: { seedActiveId?: string }) {
       <ActiveProbe />
       <RouterPathProbe />
       <Routes>
-        <Route path="/notes/:ref" element={<NotePage />} />
-        <Route path="/n/:handle/:slug" element={<NotePage />} />
-        <Route path="/g/:groupId/:slug" element={<NotePage />} />
-        <Route path="/" element={<div>home landing</div>} />
+        <Route element={<AppShellLayout />}>
+          <Route path="/notes/:ref" element={<NotePage />} />
+          <Route path="/n/:handle/:slug" element={<NotePage />} />
+          <Route path="/g/:groupId/:slug" element={<NotePage />} />
+          <Route path="/" element={<div>home landing</div>} />
+        </Route>
       </Routes>
     </ActiveNoteProvider>
   );
@@ -868,10 +871,12 @@ describe("NotePage", () => {
               <ActiveProbe />
               {withPage ? (
                 <Routes>
-                  <Route path="/notes/:ref" element={<NotePage />} />
-                  {/* #179：收斂 effect 以 router navigate 把舊形換成 /n/ 新形 */}
-                  <Route path="/n/:handle/:slug" element={<NotePage />} />
-                  <Route path="/" element={<div>home landing</div>} />
+                  <Route element={<AppShellLayout />}>
+                    <Route path="/notes/:ref" element={<NotePage />} />
+                    {/* #179：收斂 effect 以 router navigate 把舊形換成 /n/ 新形 */}
+                    <Route path="/n/:handle/:slug" element={<NotePage />} />
+                    <Route path="/" element={<div>home landing</div>} />
+                  </Route>
                 </Routes>
               ) : (
                 <div />
@@ -1063,9 +1068,11 @@ describe("NotePage", () => {
               <RouterPathProbe />
               <NavToB />
               <Routes>
-                <Route path="/notes/:ref" element={<NotePage />} />
-                <Route path="/n/:handle/:slug" element={<NotePage />} />
-                <Route path="/" element={<div>home landing</div>} />
+                <Route element={<AppShellLayout />}>
+                  <Route path="/notes/:ref" element={<NotePage />} />
+                  <Route path="/n/:handle/:slug" element={<NotePage />} />
+                  <Route path="/" element={<div>home landing</div>} />
+                </Route>
               </Routes>
             </ActiveNoteProvider>
           </MemoryRouter>
@@ -1462,9 +1469,11 @@ describe("NotePage", () => {
       return (
         <RealLocationContext.Provider value={real}>
           <Routes location={background ?? location}>
-            <Route path="/notes/:ref" element={<NotePage />} />
-            <Route path="/n/:handle/:slug" element={<NotePage />} />
-            <Route path="/" element={<div>home landing</div>} />
+            <Route element={<AppShellLayout />}>
+              <Route path="/notes/:ref" element={<NotePage />} />
+              <Route path="/n/:handle/:slug" element={<NotePage />} />
+              <Route path="/" element={<div>home landing</div>} />
+            </Route>
           </Routes>
         </RealLocationContext.Provider>
       );
@@ -1733,10 +1742,12 @@ describe("NotePage", () => {
           <MemoryRouter initialEntries={["/notes/my-note"]}>
             <ActiveNoteProvider>
               <Routes>
-                <Route path="/notes/:ref" element={<NotePage />} />
-                {/* #179：收斂 effect 以 router navigate 把舊形換成 /n/ 新形 */}
-                <Route path="/n/:handle/:slug" element={<NotePage />} />
-                <Route path="/login" element={<div>login page</div>} />
+                <Route element={<AppShellLayout />}>
+                  <Route path="/notes/:ref" element={<NotePage />} />
+                  {/* #179：收斂 effect 以 router navigate 把舊形換成 /n/ 新形 */}
+                  <Route path="/n/:handle/:slug" element={<NotePage />} />
+                  <Route path="/login" element={<div>login page</div>} />
+                </Route>
               </Routes>
             </ActiveNoteProvider>
           </MemoryRouter>
@@ -1908,10 +1919,12 @@ describe("NotePage × /g/ 群組筆記（#175）", () => {
               <RouterPathProbe />
               <NavToGroupNote2 />
               <Routes>
-                <Route path="/notes/:ref" element={<NotePage />} />
-                <Route path="/n/:handle/:slug" element={<NotePage />} />
-                <Route path="/g/:groupId/:slug" element={<NotePage />} />
-                <Route path="/" element={<div>home landing</div>} />
+                <Route element={<AppShellLayout />}>
+                  <Route path="/notes/:ref" element={<NotePage />} />
+                  <Route path="/n/:handle/:slug" element={<NotePage />} />
+                  <Route path="/g/:groupId/:slug" element={<NotePage />} />
+                  <Route path="/" element={<div>home landing</div>} />
+                </Route>
               </Routes>
             </ActiveNoteProvider>
           </MemoryRouter>
@@ -1981,7 +1994,9 @@ describe("NotePage × /g/ 群組筆記（#175）", () => {
           <MemoryRouter initialEntries={[`/g/${GROUP_ID}/group-note`]}>
             <ActiveNoteProvider>
               <Routes>
-                <Route path="/g/:groupId/:slug" element={<NotePage />} />
+                <Route element={<AppShellLayout />}>
+                  <Route path="/g/:groupId/:slug" element={<NotePage />} />
+                </Route>
               </Routes>
             </ActiveNoteProvider>
           </MemoryRouter>
@@ -2030,7 +2045,9 @@ describe("NotePage × /g/ 群組筆記（#175）", () => {
             <ActiveNoteProvider>
               <NavToGroupNote2 />
               <Routes>
-                <Route path="/g/:groupId/:slug" element={<NotePage />} />
+                <Route element={<AppShellLayout />}>
+                  <Route path="/g/:groupId/:slug" element={<NotePage />} />
+                </Route>
               </Routes>
             </ActiveNoteProvider>
           </MemoryRouter>
@@ -2176,7 +2193,7 @@ function withEditsAndList(inner: ReturnType<typeof mockFetch>, notes: () => Note
 }
 
 /** `NotePageTree` 只掛 `/notes/:ref` 且沒有位置探針——這組自己組：兩條筆記路由＋首頁＋探針。 */
-function renderWithProbe(initialEntry: string | { pathname: string; state: unknown }) {
+function renderWithProbe(initialEntry: string | { pathname: string; state: unknown }, extra?: ReactNode) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const result = render(
     <QueryClientProvider client={queryClient}>
@@ -2184,10 +2201,13 @@ function renderWithProbe(initialEntry: string | { pathname: string; state: unkno
         <MemoryRouter initialEntries={[initialEntry]}>
           <ActiveNoteProvider>
             <SidebarLocationProbe />
+            {extra}
             <Routes>
-              <Route path="/notes/:ref" element={<NotePage />} />
-              <Route path="/n/:handle/:slug" element={<NotePage />} />
-              <Route path="/" element={<div>home landing</div>} />
+              <Route element={<AppShellLayout />}>
+                <Route path="/notes/:ref" element={<NotePage />} />
+                <Route path="/n/:handle/:slug" element={<NotePage />} />
+                <Route path="/" element={<div>home landing</div>} />
+              </Route>
             </Routes>
           </ActiveNoteProvider>
         </MemoryRouter>
@@ -2371,6 +2391,49 @@ describe("NotePage × 側欄筆記列 ⋮", () => {
 
 // 解析層 404 `in_trash`（帶頂層 noteId）→ 卡片、不導頁；其餘 404 照舊連結無效（NP-T*）。
 // NP-T4 回歸另見既有案：「首次解析 404 → linkInvalid」（舊形）、「新形 by-path 404 → linkInvalid 出口」、「⑤by-group-path 404」。
+describe("NotePage × 側欄內文搜尋的同篇片段", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    collab.state = { phase: "connecting" };
+    collab.doc = new Y.Doc();
+    collab.provider = createStubProvider();
+    window.history.replaceState(null, "", "/");
+    dismissAllToasts();
+  });
+
+  afterEach(() => {
+    collab.doc.destroy();
+    vi.unstubAllGlobals();
+    navSpy.current = undefined;
+  });
+
+  it("開著這一篇時點側欄裡同篇的片段 → 走段落錨點（留在原網址、只換 hash），不是 push 到片段的 href", async () => {
+    // 錨點 API 由頁面登記給外層的側欄殼；沒登記上去時側欄把它當別篇、導向 href（會丟掉目前網址的 query）。
+    const { fn } = withEditsAndList(
+      ((input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).startsWith("/api/search?")) {
+          const hit = { note: NOTE, matchedOn: "body", matches: [{ sectionId: "h1", heading: "Gamma", snippet: "the needle is here" }] };
+          return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ hits: [hit], nextCursor: null }) }));
+        }
+        return mockFetch()(input, init);
+      }) as ReturnType<typeof mockFetch>,
+      () => [NOTE],
+    );
+    vi.stubGlobal("fetch", fn);
+    collab.state = { phase: "connected", role: "owner" };
+    collab.provider.synced = true;
+
+    renderWithProbe("/n/tester/my-note?keep=1", <FullLocationProbe />);
+    await screen.findByLabelText("Note title", { selector: "input" });
+
+    const aside = screen.getByRole("complementary");
+    fireEvent.change(within(aside).getByRole("textbox", { name: "Search notes" }), { target: { value: "needle" } });
+    fireEvent.click(await within(aside).findByTestId("body-match"));
+
+    await waitFor(() => expect(screen.getByTestId("full-location")).toHaveTextContent("/n/tester/my-note?keep=1#b-h1"));
+  });
+});
+
 describe("NotePage × 在垃圾桶裡", () => {
   const GROUP_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
   const G_NOTE: NoteDto = {
@@ -2877,9 +2940,11 @@ function renderAtEntry(entry: string) {
           <ActiveNoteProvider>
             <FullLocationProbe />
             <Routes>
-              <Route path="/notes/:ref" element={<NotePage />} />
-              <Route path="/n/:handle/:slug" element={<NotePage />} />
-              <Route path="/" element={<div>home landing</div>} />
+              <Route element={<AppShellLayout />}>
+                <Route path="/notes/:ref" element={<NotePage />} />
+                <Route path="/n/:handle/:slug" element={<NotePage />} />
+                <Route path="/" element={<div>home landing</div>} />
+              </Route>
             </Routes>
           </ActiveNoteProvider>
         </MemoryRouter>

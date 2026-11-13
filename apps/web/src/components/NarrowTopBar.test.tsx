@@ -1,13 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, Route, Routes } from "react-router";
 import type { ReactNode } from "react";
 import type { UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
 import HomePage from "@/pages/HomePage";
 import { NotePageFallback } from "./NotePageFallback";
+import { AppShellLayout } from "./AppShellLayout";
 import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 /**
@@ -52,7 +53,13 @@ function renderWithProviders(children: ReactNode) {
   return render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <ThemeProvider>
-        <MemoryRouter initialEntries={["/"]}>{children}</MemoryRouter>
+        <MemoryRouter initialEntries={["/"]}>
+          <Routes>
+            <Route element={<AppShellLayout />}>
+              <Route path="*" element={children} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
       </ThemeProvider>
     </QueryClientProvider>,
   );

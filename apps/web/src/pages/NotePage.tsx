@@ -18,6 +18,8 @@ import {
   withCanonicalizedFrom,
 } from "@/lib/real-location";
 import { NotePageControlsContext, type NotePageControls, type OpenEditsState } from "@/lib/note-page-controls";
+import { useRegisterNotePage } from "@/lib/note-page-bridge";
+import { useAppShellInert } from "@/lib/app-shell-inert";
 import { isOverlayOpen, useVersionsController, VersionsProvider } from "@/lib/versions-context";
 import { createLinkSync, type LinkSync } from "@/collab/link-sync";
 import type { CursorScroller } from "@/collab/cursor-scroll";
@@ -25,7 +27,8 @@ import { useCollab } from "@/collab/useCollab";
 import { BlockAnchorContext } from "@/hooks/block-anchor-context";
 import { useMemberBlockAnchor } from "@/hooks/useBlockAnchor";
 import { AiEditsDialog } from "@/components/AiEditsDialog";
-import { AppShell, SidebarDrawerButton } from "@/components/AppShell";
+import { createPortal } from "react-dom";
+import { SidebarDrawerButton } from "@/components/AppShell";
 import { NarrowTopBar } from "@/components/NarrowTopBar";
 import { BacklinksSection } from "@/components/BacklinksSection";
 import { ConnectionBadge } from "@/components/ConnectionBadge";
@@ -582,6 +585,9 @@ export default function NotePage() {
     () => (noteId ? { noteId, state, leavingRef, openEdits } : null),
     [noteId, state, openEdits],
   );
+  // 側欄在頁面外層（AppShellLayout）：把這一頁的控制與錨點 API 登記給它；簡報時整個殼 inert。
+  useRegisterNotePage(controls, blockAnchor);
+  useAppShellInert(presenting);
 
   // 404 三個出口分流（#122：文案不得混用）：
   // ① 解析層 404＝**連結無效**（slug 已改名/從不存在）→ `note.linkInvalid`。導走
@@ -895,28 +901,31 @@ export default function NotePage() {
   return (
     <NotePageControlsContext.Provider value={controls}>
       <BlockAnchorContext.Provider value={blockAnchor}>
-        <AppShell inert={presenting}>{body}</AppShell>
-        {shellMounted && (
-          <PresentationShell
-            title={note?.title ?? ""}
-            status={presentStatus}
-            errorMessage={presentFailure !== null ? errorText(presentFailure) : undefined}
-            toolbarExtra={
-              note && (state.phase !== "connected" || !synced) ? (
-                <ConnectionBadge state={state} synced={synced} canEdit={presentRoleCanEdit} />
-              ) : null
-            }
-          >
-            {overlayReady && doc !== null && note !== undefined && (
-              <LazyRouteErrorBoundary resetKey={paramsKey} chunk="present" frame="inline">
-                <Suspense fallback={<LazyRouteLoading frame="inline" />}>
-                  <LazyPresentation variant="member" doc={doc} title={note.title} />
-                  <ChunkLoadBeacon chunk="present" />
-                </Suspense>
-              </LazyRouteErrorBoundary>
-            )}
-          </PresentationShell>
-        )}
+        {body}
+        {/* 簡報層掛到 body：NotePage 在側欄殼（簡報時 inert）的主區裡，留在原處會跟著 inert。 */}
+        {shellMounted &&
+          createPortal(
+            <PresentationShell
+              title={note?.title ?? ""}
+              status={presentStatus}
+              errorMessage={presentFailure !== null ? errorText(presentFailure) : undefined}
+              toolbarExtra={
+                note && (state.phase !== "connected" || !synced) ? (
+                  <ConnectionBadge state={state} synced={synced} canEdit={presentRoleCanEdit} />
+                ) : null
+              }
+            >
+              {overlayReady && doc !== null && note !== undefined && (
+                <LazyRouteErrorBoundary resetKey={paramsKey} chunk="present" frame="inline">
+                  <Suspense fallback={<LazyRouteLoading frame="inline" />}>
+                    <LazyPresentation variant="member" doc={doc} title={note.title} />
+                    <ChunkLoadBeacon chunk="present" />
+                  </Suspense>
+                </LazyRouteErrorBoundary>
+              )}
+            </PresentationShell>,
+            document.body,
+          )}
       </BlockAnchorContext.Provider>
     </NotePageControlsContext.Provider>
   );

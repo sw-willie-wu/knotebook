@@ -173,7 +173,7 @@ function renderNoteRoute(initialEntry = "/notes/my-note") {
 }
 
 /** DropdownMenuTrigger（UserMenu）只掛 onPointerDown，純 fireEvent.click 開不了
- * （SettingsModal.test.tsx 既有註解）。錯誤畫面（B）包完整 AppShell，UserMenu
+ * （SettingsModal.test.tsx 既有註解）。錯誤畫面（B）在 layout route 的完整 AppShell 裡，UserMenu
  * 可正常互動（已實測）。 */
 function openUserMenu(userDisplayName: string): void {
   fireEvent.pointerDown(screen.getByRole("button", { name: userDisplayName }), { button: 0 });
@@ -231,7 +231,7 @@ describe("resetKey 選型守門——錯誤畫面上開/關設定 modal 不觸�
     renderNoteRoute();
 
     await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
-    // 載入畫面（reloading 態）而非錯誤畫面——鑑別式斷言（兩畫面都含 AppShell）
+    // 載入畫面（reloading 態）而非錯誤畫面——鑑別式斷言（側欄在兩種畫面都在）
     expect(screen.getAllByText(LOADING_TEXT).length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByText(CHUNK_ERROR_TEXT)).not.toBeInTheDocument();
     expect(screen.queryByText(CRASH_TEXT)).not.toBeInTheDocument();

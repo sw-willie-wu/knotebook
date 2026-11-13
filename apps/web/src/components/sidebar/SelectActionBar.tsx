@@ -485,7 +485,7 @@ export function SelectActionBar({ layout = "bar" }: { layout?: "bar" | "toolbar"
         }
         return {
           stopped,
-          // 中途已換到別篇就不導回首頁（換頁導致 AppShell 重掛時 controlsRef 停在舊值，這一形抓不到，屬已接受的邊界）。
+          // 中途已換到別篇就不導回首頁（controlsRef 經頁面登記的橋接更新，換篇後 noteId 對不上）。
           afterSelection: () => {
             if (leaveHome && controlsRef.current?.noteId === openId) void navigate("/", { replace: true });
           },

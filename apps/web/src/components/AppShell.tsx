@@ -226,9 +226,9 @@ interface AppShellProps {
 /**
  * 主佈局：側欄（`xl+`＝固定卡片；`<xl`＝隱藏，改由浮動抽屜承載，入口是
  * `SidebarDrawerButton` 側欄鈕——NotePage 頁首或 `NarrowTopBar` 提供）、右側主
- * 內容區（呼叫端傳入的 `children`）。四個呼叫端：`HomePage`（`/`）、
- * `NotePage`（`/n/:handle/:slug`、`/g/:groupId/:slug`（#175）與舊形 `/notes/:ref` 三條 route 共用）、
- * `NotePageFallback`、`NoteRouteErrorFallback`（#247 起站台管理是 modal，不再用 AppShell）。
+ * 內容區（呼叫端傳入的 `children`）。唯一的呼叫端是 `AppShellLayout`（pathless layout route）：
+ * `HomePage`（`/`）、`NotePage`（`/n/:handle/:slug`、`/g/:groupId/:slug`（#175）與舊形 `/notes/:ref` 三條 route 共用）、
+ * `NotePageFallback`、`NoteRouteErrorFallback` 都只渲染主內容區，經 `<Outlet />` 進 `children`；換路由時側欄不重掛。
  *
  * 側欄內容抽成 `SidebarContent`，靜態卡與抽屜共用；抽屜開著時 DOM 上同時有兩份
  * （靜態那份 `hidden`——真實瀏覽器 display:none 不進 a11y tree、不可聚焦；jsdom
@@ -291,7 +291,7 @@ export function AppShell({ children, inert }: AppShellProps) {
   useEffect(() => {
     if (sessionUserId !== undefined) claim(sessionUserId); // 換人登入：清掉上一個人的搜尋字
   }, [sessionUserId, claim]);
-  // 住在 App 層：換殼 // 住在 App 層：換殼（首頁 → 筆記頁、NotePage 的 Suspense fallback）時搜尋字不重設
+  // 住在 App 層：殼重掛（登出重登、進出改密碼頁）時搜尋字不重設
   // 關閉搜尋（搜尋字從非空變空：清空鈕、Esc、手動刪光）＝清掉搜尋跳轉留在筆記裡的常駐標記。只看「非空 → 空」的轉變，不看「現在是空」：
   // 重掛時 ref 以當下的字起算，不該清掉什麼。窄螢幕點結果會關抽屜，但 query 在這裡、
   // 不跟著抽屜卸載，所以不算關閉搜尋。

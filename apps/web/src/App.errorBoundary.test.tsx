@@ -131,7 +131,7 @@ describe("App route tree — /notes/:ref 的 ErrorBoundary 接線（issue #66 �
     expect(screen.queryByText(CHUNK_ERROR_TEXT)).not.toBeInTheDocument();
 
     // B 專屬元素（chunk 分支文案＋重試鈕）。⚠ 不得改斷 AppShell 招牌（「New note」）
-    // ——B 畫面與 Suspense fallback 都包 AppShell，那樣拿掉 boundary 也綠。
+    // ——側欄在 layout route 裡、與 boundary 無關，那樣拿掉 boundary 也綠。
     // 這是「最終到達某狀態」的等待，守門力在斷言內容不在等待長度；冷啟高負載下
     //（fetch→react-query→lazy→分類→setState 整條鏈）的餘裕靠 test/setup.ts 的全域 asyncUtilTimeout
     await waitFor(() => expect(screen.getByText(CHUNK_ERROR_TEXT)).toBeInTheDocument());

@@ -133,25 +133,22 @@ vi.mock("./pages/NotePage", async () => {
 });
 
 /**
- * issue #19（回歸釘）：NotePage 走 lazy 之後，Suspense fallback
- * **必須包 AppShell**——裸 <p> 會讓「從首頁點開第一篇筆記」的瞬間整個側欄/選單消失、
- * 白頁閃一下再長回來，恰好發生在切分要優化的路徑上。E2E 在 localhost 上 chunk 毫秒級
- * 解析、看不到 fallback；只有這裡把 chunk 的 resolve 拖住，才驗得到 fallback 的長相。
+ * issue #19（回歸釘）：NotePage 走 lazy 之後，chunk 載入中側欄（layout route 的 AppShell）仍在、不是空白頁。
+ * 本案守的是「NotePage 是 lazy」與「chunk 載入中殼在場」；fallback 的長相與「側欄是同一個節點」由
+ * `App.appShellLayout.test.tsx` 守。
  *
  * ⚠ 不可用「doMock + await import("./App")」的寫法（第一版就是，假守衛）：檔頭的靜態
  * import 已經把 ./App 連同真 NotePage 快取住，測試內的動態 import 拿到同一份快取，
- * mock 根本沒生效——突變驗證（把 fallback 改回裸 <p>、甚至把 lazy 整個拿掉）照樣綠。
- * 現行寫法兩種突變都會紅（已實測；改成閘門版後重測：靜態 import、fallback 改裸 <p>
- * 兩者都在「New note」等待處紅）。
+ * mock 根本沒生效。現行寫法在 NotePage 改回靜態 import 時會在「New note」等待處紅。
  */
-describe("App route tree — NotePage lazy fallback 保留 AppShell（issue #19）", () => {
+describe("App route tree — NotePage lazy：chunk 載入中殼在場（issue #19）", () => {
   afterEach(() => {
     // 測試中途紅掉也要放行，別讓 factory 永遠懸著（後面 describe 若 render /notes/… 會卡住）。
     notePageGate.release();
     vi.unstubAllGlobals();
   });
 
-  it("chunk 載入中：fallback 有 AppShell（New note 按鈕在），不是空白頁", async () => {
+  it("chunk 載入中：側欄殼在（New note 按鈕在），不是空白頁", async () => {
     notePageGate.pending = new Promise<void>(resolve => {
       notePageGate.release = resolve;
     });

@@ -24,7 +24,7 @@ import { EMPTY_SELECTION, reduceSelection, type SelectionOp, type SidebarSelecti
  *   `children` 重繪。切 tab、抽屜 Esc（`actionsRef`，`AppShell` 用）與開始搜尋都會結束選取。
  * - `showTab` 讀 ref 而不是把抽屜 context 放進依賴：`AppShell` 的 `SidebarDrawerContext.Provider value`
  *   每次 render 都是新物件，進依賴的話 actions 會跟著換物件。
- * - `AppShell` 會隨首頁↔筆記頁重掛（各自渲染一份），所以初值每次掛載都重讀 storage，tab 靠它延續。
+ * - `AppShell` 在 layout route 裡、換路由不重掛；初值仍在每次掛載時讀 storage（重新整理、開新分頁）。
  * - 合法值就是 `SIDEBAR_TABS` 的六個（含 `favorites`、`trash`）；舊版存下的值都還在清單內，照樣讀得回來。
  */
 export type SidebarTab = "recent" | "favorites" | "myNotes" | "workspace" | "shared" | "trash";
