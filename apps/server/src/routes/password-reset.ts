@@ -21,6 +21,7 @@ import { oneTimeLinks, users } from "../db/schema.js";
 import { hashToken } from "../auth/api-token.js";
 import { MIN_PASSWORD_LENGTH } from "../auth/constants.js";
 import { touchLastLogin } from "../auth/last-login.js";
+import { readCurrentAvatar } from "../avatars/read.js";
 import { activeOneTimeLink, isOneTimeTokenShape } from "../auth/one-time-link.js";
 import { hashPassword, HashBusyError } from "../auth/password.js";
 import { isPasswordLoginAccepted, PASSWORD_LOGIN_DISABLED_MESSAGE } from "../auth/password-login.js";
@@ -142,6 +143,7 @@ export function passwordResetRoutes(deps: PasswordResetRouteDeps) {
         mustChangePassword: updated.mustChangePassword,
         hasPassword: true,
         autoVersions: updated.autoVersions,
+        avatar: await readCurrentAvatar(deps.db, updated.id),
       };
       return reply.send(dto);
     });

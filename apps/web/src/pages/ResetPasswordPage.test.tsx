@@ -22,8 +22,8 @@ const TOKEN = "knbp_X";
 const EXPIRES_AT = "2030-01-02T03:04:00.000Z";
 const WHEN = new Date(EXPIRES_AT).toLocaleString("en", { dateStyle: "short", timeStyle: "short" });
 const NEW_PASSWORD = "correct-horse-battery";
-const ME: UserDto = { id: "u-me", email: "me@example.com", handle: "me", displayName: "Me", isAdmin: true, mustChangePassword: false, hasPassword: true, autoVersions: true };
-const RESET_USER: UserDto = { id: "u-a", email: "a@example.com", handle: "a", displayName: "A", isAdmin: false, mustChangePassword: false, hasPassword: true, autoVersions: true };
+const ME: UserDto = { id: "u-me", email: "me@example.com", handle: "me", displayName: "Me", isAdmin: true, mustChangePassword: false, hasPassword: true, autoVersions: true, avatar: null };
+const RESET_USER: UserDto = { id: "u-a", email: "a@example.com", handle: "a", displayName: "A", isAdmin: false, mustChangePassword: false, hasPassword: true, autoVersions: true, avatar: null };
 
 const INVALID_TEXT = "This password reset link is invalid, already used, or expired. Ask the site administrator for a new one.";
 const NOTICE_TEXT = "Setting it signs you out of every other browser. API tokens and connected apps keep working.";

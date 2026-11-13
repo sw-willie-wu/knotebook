@@ -1,7 +1,8 @@
 /**
- * 側欄 24px 圖示鈕的「滑過才浮出」（button.tsx 規範的 24px 例外那幾顆共用）。`noterow` 的使用者：筆記列 ⋮
+ * 側欄與設定頁頭貼候選格 ⋮ 的「滑過才浮出」（側欄那幾顆是 button.tsx 規範的 24px 例外）。`noterow` 的使用者：筆記列 ⋮
  * （`NoteMenu.tsx`）與垃圾桶列的「還原」、⋮（`sidebar/TrashPanel.tsx`）；列 `<li>` 帶 `group/noterow`。
  * `folderrow`：資料夾列的「在 X 建立筆記」與 ⋮（列帶 `group/folderrow`）。
+ * `avatarcell`：設定頁頭貼候選格的 ⋮（整個候選格區塊帶 `group/avatarcell`，滑過區塊內任何地方，各格的 ⋮ 一起浮出）。
  * - 桌面：平常 `opacity-0`；滑過該列（`group-hover/<scope>`）、列內有鍵盤焦點
  *   （`group-has-[:focus-visible]/<scope>`——不用 focus-within，滑鼠點完留下的焦點會讓它殘留）、自己被鍵盤聚焦時浮出。
  * - 選單開著時不消失：Radix trigger 開啟時帶 `data-state="open"`；modal 選單開著時指標已離開列，
@@ -13,7 +14,7 @@
  *   樣板字串拼出來的 class 不會被產生（靜默失效，jsdom 測試照綠）。
  * ⚠ 測試只能斷言 class 字串（jsdom 沒有 CSS、沒有 hover）；真的滑過會浮出要在瀏覽器看。
  */
-export type RevealScope = "grouprow" | "noterow" | "folderrow";
+export type RevealScope = "grouprow" | "noterow" | "folderrow" | "avatarcell";
 
 const BASE =
   "opacity-0 transition-opacity focus-visible:opacity-100 [@media(hover:none)]:opacity-100 data-[state=open]:opacity-100";
@@ -22,6 +23,7 @@ const SCOPE: Record<RevealScope, string> = {
   grouprow: "group-hover/grouprow:opacity-100 group-has-[:focus-visible]/grouprow:opacity-100",
   noterow: "group-hover/noterow:opacity-100 group-has-[:focus-visible]/noterow:opacity-100",
   folderrow: "group-hover/folderrow:opacity-100 group-has-[:focus-visible]/folderrow:opacity-100",
+  avatarcell: "group-hover/avatarcell:opacity-100 group-has-[:focus-visible]/avatarcell:opacity-100",
 };
 
 export function hoverReveal(scope: RevealScope): string {

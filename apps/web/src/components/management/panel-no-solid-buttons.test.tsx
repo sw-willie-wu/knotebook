@@ -25,6 +25,7 @@ const SOLID_TOKENS = ["bg-brand-deep", "bg-brand", "bg-primary", "bg-destructive
 const ADMIN: UserDto = {
   id: "u-admin", email: "admin@example.com", handle: "admin", displayName: "Admin",
   isAdmin: true, mustChangePassword: false, hasPassword: true, autoVersions: true,
+  avatar: null,
 };
 const SSO_ADMIN: UserDto = { ...ADMIN, id: "u-sso", hasPassword: false };
 
@@ -42,7 +43,7 @@ const TOKEN: ApiTokenDto = {
 };
 const STORAGE: StorageUsageDto = {
   usedBytes: 1048576, quotaBytes: 2147483648, planName: "Basic",
-  byKind: { image: 1048576, audio: 0, video: 0, document: 0, other: 0 },
+  byKind: { image: 1048576, audio: 0, video: 0, document: 0, other: 0, avatar: 0 },
 };
 const GROUPS: GroupDto[] = [groupDto({ id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", name: "Team Alpha" }, adminRole())];
 const GROUP_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
@@ -70,7 +71,7 @@ const PANEL3_GETS: Record<string, unknown> = {
   [`/api/groups/${GROUP_ID}/roles`]: [adminRole(), memberRole(), customRole({ id: "r-custom", name: "Reader", memberCount: 0 })],
   [`/api/groups/${GROUP_ID}/storage`]: {
     usedBytes: 1048576, quotaBytes: 2147483648, planName: "Basic",
-    byKind: { image: 1048576, audio: 0, video: 0, document: 0, other: 0 },
+    byKind: { image: 1048576, audio: 0, video: 0, document: 0, other: 0, avatar: 0 },
     byMember: [{ userId: "u-admin", handle: "admin", displayName: "Admin", bytes: 1048576 }],
   },
   "/api/admin/users": [
@@ -124,6 +125,7 @@ export function panelFetch(user: UserDto) {
     if (url === "/api/auth/identities") return Promise.resolve(json({ ...IDENTITIES, hasPassword: user.hasPassword }));
     if (url === "/api/auth/tokens") return Promise.resolve(json({ tokens: [TOKEN] }));
     if (url === "/api/storage") return Promise.resolve(json(STORAGE));
+    if (url === "/api/auth/avatars") return Promise.resolve(json({ candidates: [], auto: false, refreshable: [] }));
     if (url === "/api/groups") return Promise.resolve(json(GROUPS));
     if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
     if (url === "/api/notes") return Promise.resolve(json([]));

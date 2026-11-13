@@ -363,7 +363,7 @@
     "disableDescription": "{{email}} will be signed out immediately and lose access until re-enabled.",
     "storage": {
       "title": "Storage plans",
-      "description": "A plan limits the total size of the attachments in a personal space or a group. New users and new groups start on the defaults below; changing a default doesn't move anyone who already exists.",
+      "description": "A plan limits the total size of the files in a personal space or a group (profile pictures count toward a personal space). New users and new groups start on the defaults below; changing a default doesn't move anyone who already exists.",
       "create": "New plan",
       "createTitle": "New storage plan",
       "editTitle": "Edit storage plan",
@@ -402,7 +402,7 @@
     "versions": {
       "title": "Version history",
       "autoTitle": "Automatic versions",
-      "autoDescription": "When off, no space saves versions automatically; people can still save versions by hand. Versions and note text don't count toward storage; quotas count uploaded files only.",
+      "autoDescription": "When off, no space saves versions automatically; people can still save versions by hand. Versions and note text don't count toward storage. Files and, in a personal space, profile pictures do.",
       "retentionTitle": "Keeping automatic versions",
       "retentionDescription": "All automatic versions from the last {{keepAll}} days are kept; up to {{dailyUntil}} days, one a day; older, one a week. Days and weeks are counted in UTC. Manual versions are never removed.",
       "keepAllLabel": "Keep all for (days)",
@@ -487,19 +487,20 @@
       }
     },
     "storage": {
-      "description": "How much space the files uploaded to your personal notes take.",
+      "description": "How much space your profile pictures and the files in your personal notes take.",
       "usageTitle": "Usage",
       "byKind": "By type",
-      "byKindDescription": "Uploaded files, grouped by type.",
+      "byKindDescription": "Files and profile pictures, grouped by type.",
       "kinds": {
         "image": "Images",
         "audio": "Audio",
         "video": "Video",
         "document": "Documents",
-        "other": "Other"
+        "other": "Other",
+        "avatar": "Profile pictures"
       },
       "versionsTitle": "Version history",
-      "versionsNote": "Versions and note text don't count toward storage; quotas count uploaded files only."
+      "versionsNote": "Versions and note text don't count toward storage. Files and, in a personal space, profile pictures do."
     },
     "groups": {
       "overview": "Groups you belong to, and your role in each. Create or manage groups from the sidebar.",
@@ -522,6 +523,42 @@
     },
     "account": {
       "description": "The name others see, and the name in your public links.",
+      "avatar": {
+        "title": "Profile picture",
+        "description": "Shown in the sidebar and to people on the same note.",
+        "upload": "Upload a picture",
+        "listLabel": "Picture options",
+        "none": "No picture",
+        "uploaded": "Picture uploaded {{date}}",
+        "fromProvider": "Picture from {{provider}}",
+        "fromDisconnected": "Picture from a disconnected sign-in service",
+        "more": "More actions for {{candidate}}",
+        "recrop": "Adjust crop",
+        "delete": "Delete",
+        "changed": "Profile picture updated",
+        "usage": "Profile pictures count toward your storage, original and cropped.",
+        "deleteTitle": "Delete this picture?",
+        "deleteDescription": "This can't be undone. It frees {{size}}.",
+        "deleted": "Picture deleted.",
+        "deletedCurrent": "Deleted. Your initial is shown instead.",
+        "empty": "You haven't uploaded a picture yet.",
+        "loading": "Loading pictures…",
+        "loadFailed": "Couldn't load your pictures.",
+        "useProvider": "Use my {{provider}} picture",
+        "refreshFailed": "Couldn't get your picture from {{provider}}.",
+        "noSpace": "Not enough storage. Others can't see this picture yet.",
+        "tooLarge": "The image is larger than the {{size}} limit.",
+        "crop": {
+          "title": "Adjust picture",
+          "description": "Drag to move. Use the slider or scroll to zoom.",
+          "area": "Crop area",
+          "zoom": "Zoom",
+          "save": "Save",
+          "saving": "Uploading…",
+          "unreadable": "Couldn't read this image. PNG, JPEG and WebP are supported.",
+          "uploadFailed": "Upload failed. Please try again."
+        }
+      },
       "displayName": {
         "title": "Display name",
         "description": "The name shown in the share panel, version history and group member lists.",

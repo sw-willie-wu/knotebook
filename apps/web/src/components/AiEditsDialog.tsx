@@ -4,6 +4,7 @@ import { AI_EDITS_RETENTION, type NoteDto, type NoteEditDto } from "@knotebook/s
 import { ApiFail } from "@/api/client";
 import { useNoteEdits, useRevertEdit } from "@/api/noteEdits";
 import { invalidateNoteQueries } from "@/api/notes";
+import { Avatar } from "@/components/Avatar";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
@@ -43,7 +44,8 @@ function EditRow({ note, edit }: { note: NoteDto; edit: NoteEditDto }) {
 
   return (
     <li data-testid={`ai-edit-${edit.id}`} className="flex items-start justify-between gap-3 rounded-md border border-border p-2">
-      <div className="min-w-0 space-y-1">
+      <Avatar name={edit.byHandle} avatar={edit.avatar ?? null} size={24} />
+      <div className="min-w-0 flex-1 space-y-1">
         {/* handle 與 agent 名稱都是外部字串——比照 ApiTokensSection 的名稱欄做 bidi 隔離。 */}
         <p dir="ltr" className="truncate text-sm [unicode-bidi:isolate]" data-testid="ai-edit-who">
           {who}

@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { avatarUrl, parseAvatarRef } from "./avatar.js";
+import {
+  AVATAR_DISPLAY_SIZE,
+  AVATAR_MIME_TYPES,
+  MAX_AVATAR_DISPLAY_BYTES,
+  MAX_OIDC_AVATAR_BYTES,
+  avatarUrl,
+  parseAvatarRef,
+} from "./avatar.js";
 
 const id = "0f0e1d2c-3b4a-4958-8677-665544332211";
 
@@ -53,5 +60,17 @@ describe("parseAvatarRef 一律 null", () => {
     ["id 為數字", { id: 123, v: 1 }],
   ])("%s", (_name, input) => {
     expect(parseAvatarRef(input)).toBeNull();
+  });
+});
+
+describe("頭貼常數", () => {
+  it("字面值", () => {
+    expect(MAX_AVATAR_DISPLAY_BYTES).toBe(262144);
+    expect(AVATAR_DISPLAY_SIZE).toBe(256);
+    expect(MAX_OIDC_AVATAR_BYTES).toBe(1048576);
+  });
+  it("可接受的原圖 MIME 是 png／jpeg／webp，不含 gif", () => {
+    expect([...AVATAR_MIME_TYPES]).toEqual(["image/png", "image/jpeg", "image/webp"]);
+    expect(AVATAR_MIME_TYPES).not.toContain("image/gif" as never);
   });
 });

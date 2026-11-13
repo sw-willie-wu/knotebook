@@ -14,6 +14,7 @@ import {
 } from "@/api/admin";
 import { useAdminStoragePlans } from "@/api/adminStorage";
 import { SettingsTable, type SettingsTableColumn, type SettingsTableRow } from "@/components/management/SettingsTable";
+import { Avatar } from "@/components/Avatar";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -218,7 +219,7 @@ export function SettingsUsersSection() {
     const isSelf = row.id === currentUserId;
     return {
       id: row.id,
-      primary: { name: row.displayName, subtitles: [`@${row.handle}`] },
+      primary: { name: row.displayName, icon: <Avatar name={row.displayName} avatar={row.avatar ?? null} size={24} />, subtitles: [`@${row.handle}`] },
       cells: {
         email: row.email,
         storage: <StorageCell storage={row.storage} />,

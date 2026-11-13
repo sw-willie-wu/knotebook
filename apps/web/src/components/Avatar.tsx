@@ -1,6 +1,6 @@
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { AGENT_PRESENCE_COLOR, avatarUrl, type AvatarRef } from "@knotebook/shared";
-import { firstGrapheme } from "@/components/presence/people";
+import { firstGrapheme } from "@/lib/first-grapheme";
 import { Sparkles } from "@/components/ui/icons";
 import { cn } from "@/lib/utils";
 
@@ -22,8 +22,8 @@ export interface AvatarProps {
 const AGENT_ICON = "text-[#7c3aed] dark:text-[#a78bfa]";
 
 /**
- * #293：頭像（圖、首字、AI 三形）。網址只經 `avatarUrl`，prop 只收 `AvatarRef`（N-a）；
- * 外框色是執行期動態值，只能 inline。目前 `avatar` 恆 null，圖分支是預先佈線。
+ * 頭像（圖、首字、AI 三形）。網址只經 `avatarUrl`，prop 只收 `AvatarRef`；
+ * 圖載入失敗以 `(id, v)` 記住並退回首字。外框色是執行期動態值，只能 inline。
  */
 export function Avatar({ name, avatar, size, ringColor, offsetColor = "var(--color-card)", kind = "user", className }: AvatarProps) {
   // 記住「哪一版」載入失敗：id／v 變了就自然重試，不必另用 effect 重設。

@@ -27,3 +27,59 @@ export function parseAvatarRef(x: unknown): AvatarRef | null {
 export function avatarUrl(id: string, v: number): string {
   return `/api/avatars/${encodeURIComponent(id)}?v=${v}`;
 }
+
+/** 顯示圖（瀏覽器產的 256 px 方圖）位元組上限；與 `user_avatars.display_data` 的 CHECK 字面一致。 */
+export const MAX_AVATAR_DISPLAY_BYTES = 262144;
+
+/** 顯示圖邊長（px）。 */
+export const AVATAR_DISPLAY_SIZE = 256;
+
+/** OIDC `picture` 下載的原圖位元組上限（1 MiB）；只在下載器擋，不進 DB。 */
+export const MAX_OIDC_AVATAR_BYTES = 1048576;
+
+/** 可接受的原圖與顯示圖格式（不含 GIF、SVG）。 */
+export const AVATAR_MIME_TYPES = ["image/png", "image/jpeg", "image/webp"] as const;
+export type AvatarMimeType = (typeof AVATAR_MIME_TYPES)[number];
+
+/** `UserDto.avatar`：目前使用的頭貼。`pending`＝顯示圖尚未由本人瀏覽器補產（別人讀不到）。 */
+export interface UserAvatarDto {
+  id: string;
+  v: number;
+  pending: boolean;
+}
+
+/** 原圖上的裁切方框（原圖像素座標，方形）。 */
+export interface AvatarCropDto {
+  x: number;
+  y: number;
+  size: number;
+}
+
+/** 送給 server 的裁切欄：裁切方框（原圖像素）加上原圖解碼、轉正後的寬高（server 用來驗方框在圖內，並記下原圖尺寸）。 */
+export interface AvatarCropUpload extends AvatarCropDto {
+  width: number;
+  height: number;
+}
+
+/** 候選清單的一張頭貼。`providerName`＝OIDC 來源在啟用中登入服務的顯示名，對不到為 null。 */
+export interface AvatarCandidateDto {
+  id: string;
+  source: "upload" | "oidc";
+  providerName: string | null;
+  avatar: AvatarRef;
+  pending: boolean;
+  current: boolean;
+  crop: AvatarCropDto | null;
+  originalWidth: number | null;
+  originalHeight: number | null;
+  originalSize: number;
+  displaySize: number;
+  createdAt: string;
+}
+
+/** `GET /api/auth/avatars`：候選（新到舊）、是否自動帶入 OIDC 頭貼、可手動重新抓取的身分。 */
+export interface AvatarListDto {
+  candidates: AvatarCandidateDto[];
+  auto: boolean;
+  refreshable: { identityId: string; providerName: string }[];
+}

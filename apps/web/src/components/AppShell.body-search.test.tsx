@@ -19,7 +19,7 @@ import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
  * #93：窄視窗抽屜裡點內文區的片段 → 抽屜一律關（別篇靠 pathname 也會關；同篇 pathname 不變，要靠點擊時主動關）。
  * 防抖 300 ms 與 lazy chunk 都用真的（全域 asyncUtilTimeout 10 s，test/setup.ts）。
  */
-const USER = { id: "u1", email: "a@example.com", handle: "tester", displayName: "Ann", isAdmin: false, mustChangePassword: false, hasPassword: true, autoVersions: true } as UserDto;
+const USER = { id: "u1", email: "a@example.com", handle: "tester", displayName: "Ann", isAdmin: false, mustChangePassword: false, hasPassword: true, autoVersions: true, avatar: null } satisfies UserDto;
 const NOTE: NoteDto = {
   id: "44444444-4444-4444-8444-444444444444", title: "Drawer Note", ownerId: "u1", role: "owner", createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z", slug: "drawer-note", slugIsCustom: false, prevSlug: null, ownerHandle: "tester", lastEdited: null,

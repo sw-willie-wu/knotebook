@@ -18,6 +18,9 @@ export interface FakeIdpClaims {
   /** #122：handle 派生的首選候選——id_token 與 userinfo 兩邊都吐（後者供「userinfo
    * 本來就被打時順手讀」的測試形；只加型別不加吐出點＝那形造不出來）。 */
   preferred_username?: string;
+  /** 頭貼網址——id_token 與 userinfo 兩邊都吐（id_token 那邊可用 `omitFromIdToken(["picture"])`
+   * 省略，造出「只在 userinfo」的形）。 */
+  picture?: string;
 }
 
 // #131：加 "authorization_endpoint" 是為了造出「discovery 成功、但 buildAuthorizationUrl
@@ -27,7 +30,7 @@ export interface FakeIdpClaims {
 // userinfo_endpoint 則完全不影響這兩者。
 // #187：省略 `token_endpoint_auth_methods_supported` 造出「沒宣告 client_secret_post」的形（測試連線的 warning）。
 export type FakeIdpOmittableMetadataKey = "userinfo_endpoint" | "jwks_uri" | "authorization_endpoint" | "token_endpoint_auth_methods_supported";
-export type FakeIdpOmittableIdTokenKey = "email" | "email_verified" | "nonce" | "preferred_username";
+export type FakeIdpOmittableIdTokenKey = "email" | "email_verified" | "nonce" | "preferred_username" | "picture";
 export type FakeIdpFailTarget = "token" | "userinfo" | "discovery";
 
 export interface FakeIdp {
@@ -212,6 +215,9 @@ export function createFakeIdp(issuerUrl: string): FakeIdp {
       if (record.claims.preferred_username !== undefined && !omittedIdTokenKeys.has("preferred_username")) {
         idTokenClaims.preferred_username = record.claims.preferred_username;
       }
+      if (record.claims.picture !== undefined && !omittedIdTokenKeys.has("picture")) {
+        idTokenClaims.picture = record.claims.picture;
+      }
       if (!omittedIdTokenKeys.has("nonce")) {
         idTokenClaims.nonce = record.nonce;
       }
@@ -259,6 +265,7 @@ export function createFakeIdp(issuerUrl: string): FakeIdp {
       if (effective.email_verified !== undefined) body.email_verified = effective.email_verified;
       if (effective.name !== undefined) body.name = effective.name;
       if (effective.preferred_username !== undefined) body.preferred_username = effective.preferred_username;
+      if (effective.picture !== undefined) body.picture = effective.picture;
       return jsonResponse(body);
     }
 

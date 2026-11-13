@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { STORAGE_KINDS, formatBytes, type GroupDto, type GroupStorageUsageDto } from "@knotebook/shared";
+import { STORAGE_KINDS, formatBytes, type GroupDto, type GroupStorageUsageDto, type StorageKind } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
 import { useAuthConfig } from "@/api/authConfig";
 import { useGroupStorageUsage } from "@/api/storage";
@@ -18,15 +18,18 @@ function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string
   return t("errors.fallback");
 }
 
+/** 群組空間不含頭貼：「依類型」與「依成員」的列和佔比分母都只用這幾類。 */
+const GROUP_STORAGE_KINDS: readonly StorageKind[] = STORAGE_KINDS.filter((kind) => kind !== "avatar");
+
 /**
  * 「依成員」（#247）：每個人佔用了這個群組多少空間——server 依 `uploads.charged_to_id`（佔用者）分組：
  * 在群組筆記裡直接上傳＝上傳者；把筆記移入或複製進群組＝執行的人（移入含該篇全部附件；複製只含隨副本複製的附件）。佔用者帳號已刪除者彙總成
- * `userId: null` 一列。只列 `bytes > 0`；沒有任何列時一句說明。佔比分母同「依類型」：`byKind` 五值之和。
+ * `userId: null` 一列。只列 `bytes > 0`；沒有任何列時一句說明。佔比分母同「依類型」：`byKind` 在群組顯示的五類之和（不含頭貼）。
  * 列距與列間框線同設定表格（只統一列距與框線、不換元件，保留進度條 grid）。
  */
 function ByMemberGroup({ usage }: { usage: GroupStorageUsageDto }) {
   const { t } = useTranslation();
-  const total = STORAGE_KINDS.reduce((sum, kind) => sum + usage.byKind[kind], 0);
+  const total = GROUP_STORAGE_KINDS.reduce((sum, kind) => sum + usage.byKind[kind], 0);
   const rows = usage.byMember.filter((row) => row.bytes > 0);
   return (
     <SettingsGroup title={t("groups.storage.byMember")} description={t("groups.storage.byMemberDescription")}>
@@ -100,7 +103,7 @@ export function GroupStorageSection() {
   return (
     <SettingsPage title={t("groups.nav.storage")}>
       <StorageUsageGroup title={t("settings.storage.usageTitle")} query={query} />
-      <StorageByKindGroup byKind={query.data?.byKind} pending={query.isPending} />
+      <StorageByKindGroup byKind={query.data?.byKind} pending={query.isPending} kinds={GROUP_STORAGE_KINDS} />
       {query.data && <ByMemberGroup usage={query.data} />}
       <GroupAutoVersionsGroup group={group} />
     </SettingsPage>

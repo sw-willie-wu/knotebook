@@ -363,7 +363,7 @@
     "disableDescription": "{{email}} 將立即被踢下線，並失去存取權限，直到重新啟用為止。",
     "storage": {
       "title": "儲存方案",
-      "description": "方案限制個人空間或群組的附件總大小。新使用者與新群組套用下方的預設方案；改預設不會影響既有的使用者與群組。",
+      "description": "方案限制個人空間或群組的檔案總大小（個人空間另計頭貼）。新使用者與新群組套用下方的預設方案；改預設不會影響既有的使用者與群組。",
       "create": "新增方案",
       "createTitle": "新增儲存方案",
       "editTitle": "編輯儲存方案",
@@ -402,7 +402,7 @@
     "versions": {
       "title": "版本歷史",
       "autoTitle": "自動儲存版本",
-      "autoDescription": "關閉後所有空間都不會自動儲存版本，仍可手動儲存。版本歷史與筆記文字不佔用儲存空間，配額只計上傳的檔案。",
+      "autoDescription": "關閉後所有空間都不會自動儲存版本，仍可手動儲存。版本歷史與筆記文字不佔用儲存空間；檔案與（個人空間的）頭貼才計入配額。",
       "retentionTitle": "自動版本的保留",
       "retentionDescription": "{{keepAll}} 天內的自動版本全部保留；{{dailyUntil}} 天內每天留一版；更早的每週留一版。日與週以 UTC 計算。手動版本不會被清除。",
       "keepAllLabel": "全部保留（天）",
@@ -487,19 +487,20 @@
       }
     },
     "storage": {
-      "description": "你個人筆記裡上傳檔案的用量。",
+      "description": "你個人筆記裡的檔案，加上你的頭貼，佔用的空間。",
       "usageTitle": "用量",
       "byKind": "依類型",
-      "byKindDescription": "上傳的檔案依類型分組。",
+      "byKindDescription": "檔案與頭貼依類型分組。",
       "kinds": {
         "image": "影像",
         "audio": "音訊",
         "video": "影片",
         "document": "文件",
-        "other": "其他"
+        "other": "其他",
+        "avatar": "頭貼"
       },
       "versionsTitle": "版本歷史",
-      "versionsNote": "版本歷史與筆記文字不佔用儲存空間，配額只計上傳的檔案。"
+      "versionsNote": "版本歷史與筆記文字不佔用儲存空間；檔案與（個人空間的）頭貼才計入配額。"
     },
     "groups": {
       "overview": "你所屬的群組，以及你在每個群組裡的角色。建立或管理群組都從側欄進行。",
@@ -522,6 +523,42 @@
     },
     "account": {
       "description": "別人看到的名字，以及公開網址裡的名字。",
+      "avatar": {
+        "title": "頭貼",
+        "description": "顯示在側欄與共編頁頭。",
+        "upload": "上傳新頭貼",
+        "listLabel": "頭貼候選",
+        "none": "不使用頭貼",
+        "uploaded": "{{date}} 上傳的頭貼",
+        "fromProvider": "來自 {{provider}} 的頭貼",
+        "fromDisconnected": "來自已解除連結的登入服務的頭貼",
+        "more": "{{candidate}} 的更多動作",
+        "recrop": "調整裁切",
+        "delete": "刪除",
+        "changed": "已更換頭貼",
+        "usage": "頭貼的原圖與裁切後的圖都會計入你的儲存空間。",
+        "deleteTitle": "刪除這張頭貼？",
+        "deleteDescription": "刪除後無法復原。{{size}} 的空間會釋放。",
+        "deleted": "已刪除頭貼。",
+        "deletedCurrent": "已刪除，目前改用首字。",
+        "empty": "還沒有上傳過頭貼。",
+        "loading": "正在載入頭貼…",
+        "loadFailed": "無法載入頭貼。",
+        "useProvider": "改用 {{provider}} 的頭貼",
+        "refreshFailed": "無法從 {{provider}} 取得頭貼。",
+        "noSpace": "空間不足，別人還看不到這張。",
+        "tooLarge": "圖片超過 {{size}} 上限。",
+        "crop": {
+          "title": "調整頭貼",
+          "description": "拖曳移動，用滑桿或滾輪縮放。",
+          "area": "裁切區域",
+          "zoom": "縮放",
+          "save": "儲存",
+          "saving": "上傳中…",
+          "unreadable": "無法讀取這張圖。支援 PNG、JPEG、WebP。",
+          "uploadFailed": "上傳失敗，請再試一次。"
+        }
+      },
       "displayName": {
         "title": "顯示名稱",
         "description": "在分享面板、版本歷史與群組成員表裡顯示的名字。",

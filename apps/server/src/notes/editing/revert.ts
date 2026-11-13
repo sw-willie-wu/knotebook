@@ -10,6 +10,7 @@ import type { CollabServer } from "../../collab/server.js";
 import type { Db } from "../../db/index.js";
 import { apiTokens, noteAiEdits, users } from "../../db/schema.js";
 import { agentLabelOf } from "../../auth/agent-label.js";
+import { readAvatarRefs } from "../../avatars/read.js";
 import { DOC_MERGE_ATTEMPTS, RETENTION, StaleBase, mergeAtBase, recordableAfter, updateNoteLinks, type ApplyDeps, type MergeOutput } from "./apply.js";
 import { DOC_TOO_COMPLEX } from "./doc-jobs.js";
 import { ParserBusyError } from "./parse-core.js";
@@ -33,7 +34,7 @@ export async function listEdits(deps: { db: Db; collab?: CollabServer }, noteId:
   // ⚠ 存活突變：**沒有測試會因為改回整表撈而變紅**（行為等價，差的只是每次列出多拉最多 100 份
   // 完整筆記快照），只能靠審查看程式碼，這裡誠實記下。
   const rows = await deps.db.select({
-    id: noteAiEdits.id, op: noteAiEdits.op, sectionId: noteAiEdits.sectionId, tokenId: noteAiEdits.tokenId,
+    id: noteAiEdits.id, userId: noteAiEdits.userId, op: noteAiEdits.op, sectionId: noteAiEdits.sectionId, tokenId: noteAiEdits.tokenId,
     agentLabelSnapshot: noteAiEdits.agentLabel, afterBlockIds: noteAiEdits.afterBlockIds, afterFingerprint: noteAiEdits.afterFingerprint,
     anchor: noteAiEdits.anchor, revertOf: noteAiEdits.revertOf, revertedAt: noteAiEdits.revertedAt, createdAt: noteAiEdits.createdAt,
     handle: users.handle, tokenName: apiTokens.name, tokenLabel: apiTokens.agentLabel,
@@ -46,6 +47,7 @@ export async function listEdits(deps: { db: Db; collab?: CollabServer }, noteId:
   })
     .from(noteAiEdits).innerJoin(users, eq(users.id, noteAiEdits.userId)).leftJoin(apiTokens, eq(apiTokens.id, noteAiEdits.tokenId))
     .where(eq(noteAiEdits.noteId, noteId)).orderBy(desc(noteAiEdits.createdAt), desc(noteAiEdits.id));
+  const avatars = await readAvatarRefs(deps.db, rows.map(e => e.userId));
   const { doc } = await loadNoteDoc(deps, noteId);
   const fragment = doc.getXmlFragment(YDOC_FRAGMENT);
   const topIds = topLevelIds(fragment);
@@ -60,7 +62,7 @@ export async function listEdits(deps: { db: Db; collab?: CollabServer }, noteId:
     const probe = e.afterBlockIds[0] ?? anchor?.block_id;
     const heading = probe === undefined ? "" : sections.find(s => s.blockIds.includes(probe))?.heading ?? "";
     const agentLabel = e.tokenId !== null && e.tokenName !== null ? agentLabelOf({ agentLabel: e.tokenLabel, name: e.tokenName }) : e.agentLabelSnapshot;
-    return { id: e.id, op: e.op as NoteEditDto["op"], sectionId: e.sectionId, heading, byHandle: e.handle, agentLabel, createdAt: e.createdAt.toISOString(), revertedAt: e.revertedAt?.toISOString() ?? null, revertOf: e.revertOf, revertable };
+    return { id: e.id, op: e.op as NoteEditDto["op"], sectionId: e.sectionId, heading, byHandle: e.handle, agentLabel, avatar: avatars.get(e.userId) ?? null, createdAt: e.createdAt.toISOString(), revertedAt: e.revertedAt?.toISOString() ?? null, revertOf: e.revertOf, revertable };
   });
 }
 

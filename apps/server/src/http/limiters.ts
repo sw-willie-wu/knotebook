@@ -1,13 +1,13 @@
 /**
- * 30 顆節流桶的型別與建構（#397）。`AppDeps.limiters` 原本的行內型別搬到這裡取名 `Limiters`；
+ * 31 顆節流桶的型別與建構（#397）。`AppDeps.limiters` 原本的行內型別搬到這裡取名 `Limiters`；
  * 9 顆站台管理可調的桶（註冊表的 `rate*` 項）由 `buildAdjustableLimiters(siteLimits)` 建，`limit` 每次現讀
- * `siteLimits.get(key)`、`windowMs` 照常數（視窗不可調）；其餘 21 顆由 `buildFixedLimiters()` 建，照常數。
+ * `siteLimits.get(key)`、`windowMs` 照常數（視窗不可調）；其餘 22 顆由 `buildFixedLimiters()` 建，照常數。
  * `mergeLimiters` 把測試覆寫蓋到 base 上（略過 explicit `undefined`）。
  */
 import type { SiteLimitKey } from "@knotebook/shared";
 import type { SiteLimits } from "../site-limits/store.js";
 import {
-  AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, EDIT_LIMIT, FAVORITE_LIMIT, FixedWindowLimiter, FOLDER_LIMIT,
+  AI_LIMIT, AUTHORIZE_LIMIT, AVATAR_REFRESH_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, EDIT_LIMIT, FAVORITE_LIMIT, FixedWindowLimiter, FOLDER_LIMIT,
   OIDC_LIMIT, ONE_TIME_LINK_ATTEMPT_LIMIT, ONE_TIME_LINK_MISS_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT,
   PUBLIC_UPLOAD_LIMIT, PUBLIC_WIDTH_LIMIT, REGISTER_LIMIT, SEARCH_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_RENAME_LIMIT,
   TOKEN_WRITE_LIMIT, TRANSFER_EXPORT_LIMIT, TRANSFER_WRITE_LIMIT, UPLOAD_LIMIT, USER_SUGGEST_LIMIT,
@@ -52,6 +52,8 @@ export type Limiters = {
   transferWrite: FixedWindowLimiter;
   /** `GET /api/users/suggest`（key=userId，見 `USER_SUGGEST_LIMIT`）。 */
   userSuggest: FixedWindowLimiter;
+  /** `POST /api/auth/avatars/oidc/:identityId/refresh`（key=userId，見 `AVATAR_REFRESH_LIMIT`）。 */
+  avatarRefresh: FixedWindowLimiter;
   /** #106 寫入端：`POST /api/notes/:id/edits`、`POST /api/notes` 帶 `content`（key=userId，見 `EDIT_LIMIT`）。 */
   edit: FixedWindowLimiter;
   /** 資料夾寫入（`folders/service.ts` 四支，REST 與 MCP 共用；key=userId，見 `FOLDER_LIMIT`——不與 `edit` 共桶）。 */
@@ -103,7 +105,7 @@ export function buildAdjustableLimiters(siteLimits: SiteLimits): AdjustableLimit
   };
 }
 
-/** 其餘 21 顆：每次呼叫都是全新實例（嚴禁 module 單例，同 `freshLimiters` 的理由）。 */
+/** 其餘 22 顆：每次呼叫都是全新實例（嚴禁 module 單例，同 `freshLimiters` 的理由）。 */
 export function buildFixedLimiters(): FixedLimiters {
   return {
     collabToken: new FixedWindowLimiter(COLLAB_TOKEN_LIMIT),
@@ -122,6 +124,7 @@ export function buildFixedLimiters(): FixedLimiters {
     authorize: new FixedWindowLimiter(AUTHORIZE_LIMIT),
     tokenEndpoint: new FixedWindowLimiter(TOKEN_ENDPOINT_LIMIT),
     userSuggest: new FixedWindowLimiter(USER_SUGGEST_LIMIT),
+    avatarRefresh: new FixedWindowLimiter(AVATAR_REFRESH_LIMIT),
     folder: new FixedWindowLimiter(FOLDER_LIMIT),
     favorite: new FixedWindowLimiter(FAVORITE_LIMIT),
     register: new FixedWindowLimiter(REGISTER_LIMIT),

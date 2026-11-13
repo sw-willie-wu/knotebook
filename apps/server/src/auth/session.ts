@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 import { SignJWT, jwtVerify } from "jose";
-import { eq } from "drizzle-orm";
-import { SESSION_COOKIE, SITE_LIMITS } from "@knotebook/shared";
+import { eq, and, sql } from "drizzle-orm";
+import { SESSION_COOKIE, SITE_LIMITS, type UserAvatarDto } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
-import { sessions, users } from "../db/schema.js";
+import { sessions, userAvatars, users } from "../db/schema.js";
 import { BoundedMap } from "../lib/bounded-map.js";
 
 // 網頁登入有效期的**預設值**（註冊表 `sessionTtlSeconds` 的 default，7 天）。實際簽發用的有效期由管理員調整（#397）：
@@ -65,6 +65,8 @@ export interface GateUser {
   hasPassword: boolean;
   /** 版本歷史：`/api/auth/me` 直接回 `request.user`，此欄必須在 Gate 層就撈。 */
   autoVersions: boolean;
+  /** 目前使用的頭貼；`/api/auth/me` 直接回 `request.user`，此欄在 Gate 層就撈。寫入頭貼的路徑要 `invalidate`。 */
+  avatar: UserAvatarDto | null;
 }
 
 export type GateResult = { status: "ok"; user: GateUser } | { status: "revoked" };
@@ -80,6 +82,7 @@ export interface GateRow {
   mustChangePassword: boolean;
   hasPassword: boolean;
   autoVersions: boolean;
+  avatar: UserAvatarDto | null;
 }
 
 interface CacheEntry {
@@ -240,9 +243,21 @@ export class UserGate {
   }
 
   private async fetchRowFromDb(userId: string): Promise<GateRow | null> {
-    const rows = await this.db.select().from(users).where(eq(users.id, userId)).limit(1);
-    const row = rows[0];
-    if (!row) return null;
+    // 每人至多一列 `is_current`（部分唯一索引），LEFT JOIN 不會讓使用者列重複。
+    const rows = await this.db
+      .select({
+        user: users,
+        avatarId: userAvatars.id,
+        avatarVersion: userAvatars.version,
+        avatarPending: sql<boolean | null>`${userAvatars.displayData} is null`,
+      })
+      .from(users)
+      .leftJoin(userAvatars, and(eq(userAvatars.userId, users.id), eq(userAvatars.isCurrent, true)))
+      .where(eq(users.id, userId))
+      .limit(1);
+    const found = rows[0];
+    if (!found) return null;
+    const row = found.user;
     return {
       id: row.id,
       email: row.email,
@@ -254,6 +269,7 @@ export class UserGate {
       mustChangePassword: row.mustChangePassword,
       hasPassword: row.passwordHash !== null,
       autoVersions: row.autoVersions,
+      avatar: found.avatarId === null ? null : { id: found.avatarId, v: found.avatarVersion!, pending: found.avatarPending === true },
     };
   }
 
@@ -281,6 +297,7 @@ export class UserGate {
         mustChangePassword: row.mustChangePassword,
         hasPassword: row.hasPassword,
         autoVersions: row.autoVersions,
+        avatar: row.avatar,
       },
     };
   }

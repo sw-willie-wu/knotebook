@@ -11,7 +11,7 @@ import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 // 密碼三形（#187；#247 起在「登入」頁 `/settings/login`＝`SettingsLoginSection`）：`hasPassword === false`
 // → 不渲染 `ChangePasswordForm`；帳密登入有效值開時改渲染「加上密碼」表單、關時只有說明。
-// 帳戶資訊頁（`SettingsAccountSection`）只剩顯示名稱與網址名稱。
+// 帳戶資訊頁（`SettingsAccountSection`）只有頭貼、顯示名稱與網址名稱三區塊。
 // 走真正的 `AppRoutes`（同 SettingsModal.test.tsx/SettingsUsersSection.test.tsx 慣例，
 // 不拆開重建等價樹）——驗證的是「有沒有接對」。fetch 樁比照
 // `SettingsUsersSection.test.tsx:89-101`。
@@ -35,6 +35,7 @@ const PASSWORD_USER: UserDto = {
   mustChangePassword: false,
   hasPassword: true,
   autoVersions: true,
+  avatar: null,
 };
 
 const SSO_ONLY_USER: UserDto = {
@@ -46,6 +47,7 @@ const SSO_ONLY_USER: UserDto = {
   mustChangePassword: false,
   hasPassword: false,
   autoVersions: true,
+  avatar: null,
 };
 
 function baseFetchHandlers(user: UserDto, passwordLoginEnabled = true, siteOn = true) {
@@ -75,6 +77,9 @@ function baseFetchHandlers(user: UserDto, passwordLoginEnabled = true, siteOn = 
     }
     if (url === "/api/storage" && method === "GET") {
       return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ usedBytes: 0, quotaBytes: 2147483648, planName: "Basic" }) });
+    }
+    if (url === "/api/auth/avatars" && method === "GET") {
+      return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ candidates: [], auto: false, refreshable: [] }) });
     }
     return null;
   };
@@ -215,7 +220,7 @@ describe("SettingsAccountSection——使用者名欄（#122）", () => {
     expect(input).not.toBeDisabled();
   });
 
-  it("帳戶資訊頁只有顯示名稱與網址名稱兩區塊（密碼、登入方式、token、用量都搬走了，#247）", async () => {
+  it("帳戶資訊頁依序是頭貼、顯示名稱、網址名稱三區塊（密碼、登入方式、token、用量都搬走了，#247）", async () => {
     vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const res = baseFetchHandlers(PASSWORD_USER)(String(input), (init?.method ?? "GET").toUpperCase());
       if (res) return Promise.resolve(res);
@@ -233,7 +238,7 @@ describe("SettingsAccountSection——使用者名欄（#122）", () => {
     const h1 = await screen.findByRole("heading", { level: 1, name: "Account info" });
     // 範圍限在頁面本身（SettingsPage 根＝h1 所在 header 的父層）：Radix DialogTitle 也是 h2，掃全頁會掃到它。
     const page = h1.closest("header")!.parentElement!;
-    expect(within(page).getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual(["Display name", "URL name"]);
+    expect(within(page).getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual(["Profile picture", "Display name", "URL name"]);
   });
 
   it("改名成功：PATCH body 正規化後送出、invalidateQueries **全清**（無過濾參數）、全清 refetch 後畫面顯示新值＋成功 toast", async () => {

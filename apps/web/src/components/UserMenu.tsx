@@ -2,6 +2,7 @@ import { useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router";
 import { useSession } from "@/auth/useSession";
+import { Avatar } from "@/components/Avatar";
 import { useTheme, ACCENTS, type Accent, type Theme } from "@/theme";
 import { Check, Settings } from "@/components/ui/icons";
 import { SIDEBAR_ROW_HEIGHT } from "@/components/ui/rows";
@@ -91,12 +92,12 @@ export function UserMenu() {
             SIDEBAR_ROW_HEIGHT,
           )}
         >
-          <span
-            aria-hidden="true"
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-[11px] font-semibold text-primary-foreground"
-          >
-            {user.displayName.charAt(0).toUpperCase()}
-          </span>
+          <Avatar
+            name={user.displayName}
+            avatar={user.avatar ? { id: user.avatar.id, v: user.avatar.v } : null}
+            size={24}
+            className="bg-primary text-primary-foreground"
+          />
           <span aria-hidden="true" className="min-w-0 flex-1 truncate">
             {user.displayName}
           </span>

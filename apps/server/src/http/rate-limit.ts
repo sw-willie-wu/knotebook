@@ -3,7 +3,7 @@
  * 等）。與 `auth/rate-limit.ts` 的 `LoginThrottle`（帳號+IP 雙軌、指數退避）
  * 是兩套不同語意，不共用實作：這裡只要「每個 key 在固定長度的視窗內最多 N 次」。
  *
- * **生產預設值唯一真相來源**：`http/limiters.ts` 的 `buildFixedLimiters()`（21 顆固定的桶）與
+ * **生產預設值唯一真相來源**：`http/limiters.ts` 的 `buildFixedLimiters()`（22 顆固定的桶）與
  * `buildAdjustableLimiters()`（9 顆站台可調的桶，`limit` 現讀 `SiteLimits`、`windowMs` 取這裡的常數）都從這裡
  * 匯出的常數取值；`buildApp` 與 `test/helpers.ts` 都走它們，不各自重複寫一份數字字面量。
  *
@@ -346,3 +346,10 @@ export const FAVORITE_LIMIT = { limit: 600, windowMs: 60_000 } as const;
  * 這桶不是隱私邊界（查詢範圍本來就只限呼叫者已看得到 email 的人），只擋失控迴圈。
  */
 export const USER_SUGGEST_LIMIT = { limit: 60, windowMs: 60_000 } as const;
+
+/**
+ * `POST /api/auth/avatars/oidc/:identityId/refresh`（手動「改用 X 的頭貼」，key=userId）：每人每小時 10 次。
+ * 每次都是一次由 server 發出的對外下載（最長 10 s），所以不與 `upload` 共桶（上傳的額度是照使用者自己送來的位元組訂的，
+ * 也可由站台管理調整；這裡的成本在 server 對外連線）。固定、不進站台管理可調。身分不是本人、沒有圖片網址的 404 在扣桶之前，不扣。
+ */
+export const AVATAR_REFRESH_LIMIT = { limit: 10, windowMs: 3_600_000 } as const;

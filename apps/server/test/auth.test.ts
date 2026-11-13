@@ -164,6 +164,7 @@ describe("POST /api/auth/login", () => {
       mustChangePassword: false,
       hasPassword: true,
       autoVersions: true,
+      avatar: null,
     });
 
     const cookie = res.cookies.find(c => c.name === SESSION_COOKIE);
@@ -182,6 +183,7 @@ describe("POST /api/auth/login", () => {
       mustChangePassword: false,
       hasPassword: true,
       autoVersions: true,
+      avatar: null,
     });
   });
 

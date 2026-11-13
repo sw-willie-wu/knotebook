@@ -183,6 +183,7 @@ export function accountRoutes(deps: AccountRouteDeps) {
         hasPassword: true,
         // 新帳號取 DB 預設 `users.auto_versions = true`。
         autoVersions: true,
+        avatar: null, // 新帳號還沒有任何頭貼
       };
       return reply.code(201).send(dto);
     });
@@ -273,6 +274,7 @@ export function accountRoutes(deps: AccountRouteDeps) {
         mustChangePassword: false,
         hasPassword: true,
         autoVersions: true,
+        avatar: null, // 新帳號還沒有任何頭貼
       };
       return reply.code(201).send(dto);
     });

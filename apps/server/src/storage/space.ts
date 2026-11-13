@@ -3,7 +3,7 @@
  * 純資料與「只組不執行」的 SQL 片段——沒有 DB 存取，`tx/` 與非 tx 模組都可 import。
  */
 import { eq, sql, type SQL } from "drizzle-orm";
-import { notes, uploads } from "../db/schema.js";
+import { notes, uploads, userAvatars } from "../db/schema.js";
 
 export type StorageSpace = { kind: "user"; id: string } | { kind: "group"; id: string };
 
@@ -30,6 +30,15 @@ export function spaceLockKey(space: StorageSpace): string {
  */
 export function sumUploadSizeSql(): SQL<number> {
   return sql<number>`coalesce(sum(${uploads.size}), 0)::bigint`.mapWith(Number);
+}
+
+/**
+ * 某使用者所有頭貼候選的位元組數（`original_size + display_size`）：純量子查詢 `coalesce(sum(...), 0)::bigint`，`mapWith(Number)`，
+ * 可直接放進任何 select 欄位（含聚合查詢）。**只算個人空間**：頭貼屬於使用者本人，群組空間的用量不含頭貼。
+ * 每次呼叫現造（同上）。
+ */
+export function sumAvatarBytesSql(userId: string): SQL<number> {
+  return sql<number>`(select coalesce(sum(${userAvatars.originalSize} + ${userAvatars.displaySize}), 0)::bigint from ${userAvatars} where ${userAvatars.userId} = ${userId})`.mapWith(Number);
 }
 
 /** 「屬於這個空間的筆記」述詞（JOIN notes 後用）：個人走 `notes_owner_idx`，群組走 `notes_group_slug_idx`（以 EXPLAIN 驗）。 */
