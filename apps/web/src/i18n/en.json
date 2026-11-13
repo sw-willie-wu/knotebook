@@ -171,6 +171,7 @@
   },
   "note": {
     "backToList": "Back to notes",
+    "showInList": "Show in list: {{path}}",
     "titleLabel": "Note title",
     "sizeLimitBlocked": "Adding this would exceed the note's size limit ({{size}}). The content wasn't added.",
     "overSizeLimit": "This note is over the size limit; editing may be slow. Delete content to shrink it.",

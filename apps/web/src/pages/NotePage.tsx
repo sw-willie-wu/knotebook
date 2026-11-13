@@ -31,6 +31,8 @@ import { createPortal } from "react-dom";
 import { SidebarDrawerButton } from "@/components/AppShell";
 import { BackToListButton } from "@/components/BackToListButton";
 import { NarrowTopBar } from "@/components/NarrowTopBar";
+import { NoteLocation } from "@/components/NoteLocation";
+import { useIsPhone } from "@/lib/layout-tiers";
 import { BacklinksSection } from "@/components/BacklinksSection";
 import { ConnectionBadge } from "@/components/ConnectionBadge";
 import { FavoriteToggle } from "@/components/FavoriteToggle";
@@ -167,6 +169,7 @@ export default function NotePage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user } = useSession();
+  const phone = useIsPhone();
 
   // paramsKey 三形：`n:`（/n/:handle/:slug）、`g:`（/g/:groupId/:slug，#175 群組筆記）、
   // `ref:`（/notes/:ref）。前綴不同是**防禦性設計**（ref 不可能含 `/`，實際上單靠內容就分得開
@@ -788,6 +791,20 @@ export default function NotePage() {
     // `TitleInput` 檔頭），值來自已成功的 `GET /api/notes/:ref`——連不上共編但 REST 正常
     // 時，改標題完全安全、重整也真的在。跟著 synced 一起鎖死是功能倒退。
     const editable = roleCanEdit && synced;
+    // #293：此刻也開著這篇的其他人；只在 connected 時渲染，名單空不佔位。
+    const presenceAvatars = (
+      <PresenceAvatars provider={provider} connected={state.phase === "connected"} myUserId={user.id} scrollerRef={cursorScrollerRef} />
+    );
+    const noteMenu = (
+      <NoteMenu
+        note={note}
+        state={state}
+        leavingRef={leavingRef}
+        onOpenEdits={openEdits}
+        triggerRef={noteMenuTriggerRef}
+        widthItems={(control) => <NoteWidthMenuItems noteId={note.id} {...control} />}
+      />
+    );
     body = (
       <VersionsProvider value={versions}>
         <div className="flex min-h-0 flex-1">
@@ -816,34 +833,49 @@ export default function NotePage() {
                   </p>
                 )}
                 {/* header 本身是 container，容器查詢管不到自己的 gap，所以手機寬的 gap 用視窗寬（max-sm）。 */}
-                <header ref={noteHeaderRef} className="@container flex items-center gap-3 max-sm:gap-2 border-b border-border px-5 py-3">
+                <header
+                  ref={noteHeaderRef}
+                  className={
+                    phone
+                      ? "@container flex flex-col border-b border-border px-5 pt-3 pb-1"
+                      : "@container flex items-center gap-3 max-sm:gap-2 border-b border-border px-5 py-3"
+                  }
+                >
                   {/* #115：窄視窗的入口——手機是「‹」回清單，浮動段（xl:hidden）是側欄鈕；各自只在自己的寬度渲染。
                       筆記載入成功態不掛 NarrowTopBar（頁首自己有這兩顆）；載入中/錯誤的佔位卡沒有頁首，
                       由 placeholderCard 裡的 NarrowTopBar 補位。 */}
-                  <BackToListButton />
-                  <SidebarDrawerButton />
-                  <TitleInput note={note} readOnly={!roleCanEdit} isNavigatingAway={isNavigatingAway} />
-                  <ConnectionBadge state={state} synced={synced} canEdit={roleCanEdit} />
-                  {/* #293：此刻也開著這篇的其他人；只在 connected 時渲染，名單空不佔位。 */}
-                  <PresenceAvatars
-                    provider={provider}
-                    connected={state.phase === "connected"}
-                    myUserId={user.id}
-                    scrollerRef={cursorScrollerRef}
-                  />
-                  <LastEditedLabel note={note} onOpenEdits={openEdits} />
-                  <FavoriteToggle note={note} />
-                  <ShareDialog note={note} />
-                  {/* #297：寬度 icon 只在頁首夠寬時顯示（@container，見 NoteWidthToggle）。 */}
-                  <NoteWidthToggle noteId={noteId!} />
-                  <NoteMenu
-                    note={note}
-                    state={state}
-                    leavingRef={leavingRef}
-                    onOpenEdits={openEdits}
-                    triggerRef={noteMenuTriggerRef}
-                    widthItems={(control) => <NoteWidthMenuItems noteId={note.id} {...control} />}
-                  />
+                  {phone ? (
+                    <>
+                      {/* 手機兩行：第一行是標題與動作，第二行是連線點、位置、在線者。連線狀態、在線者、最後編輯只渲染在這一處（不是 CSS 藏一份）。 */}
+                      <div data-testid="note-header-title-row" className="flex items-center gap-2">
+                        <BackToListButton />
+                        <TitleInput note={note} readOnly={!roleCanEdit} isNavigatingAway={isNavigatingAway} />
+                        <FavoriteToggle note={note} />
+                        <ShareDialog note={note} />
+                        {noteMenu}
+                      </div>
+                      <div data-testid="note-header-subline" className="flex items-center gap-2">
+                        <ConnectionBadge state={state} synced={synced} canEdit={roleCanEdit} />
+                        <NoteLocation note={note} />
+                        {presenceAvatars}
+                        <LastEditedLabel note={note} onOpenEdits={openEdits} />
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <BackToListButton />
+                      <SidebarDrawerButton />
+                      <TitleInput note={note} readOnly={!roleCanEdit} isNavigatingAway={isNavigatingAway} />
+                      <ConnectionBadge state={state} synced={synced} canEdit={roleCanEdit} />
+                      {presenceAvatars}
+                      <LastEditedLabel note={note} onOpenEdits={openEdits} />
+                      <FavoriteToggle note={note} />
+                      <ShareDialog note={note} />
+                      {/* #297：寬度 icon 只在頁首夠寬時顯示（@container，見 NoteWidthToggle）。 */}
+                      <NoteWidthToggle noteId={noteId!} />
+                      {noteMenu}
+                    </>
+                  )}
                 </header>
                 {/* 版本預覽橫幅：寬版預覽時在頁首下方；整頁（sheet）模式由整頁自己畫。 */}
                 {versions.preview !== null && versions.mode !== "sheet" && (

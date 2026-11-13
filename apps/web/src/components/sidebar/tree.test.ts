@@ -12,6 +12,7 @@ import {
   hasSelectableNodes,
   noteBucket,
   noteLocationLabel,
+  noteLocationParts,
   noteLocationSegments,
   noteSpaceKey,
   partitionNotes,
@@ -476,5 +477,66 @@ describe("noteLocationLabel × 資料夾", () => {
   it("noteLocationSegments：[群組名?, ...路徑]", () => {
     expect(noteLocationSegments({ group: { name: "G" } }, ["A", "B"])).toEqual(["G", "A", "B"]);
     expect(noteLocationSegments({ group: null }, ["A"])).toEqual(["A"]);
+  });
+});
+
+describe("noteLocationParts", () => {
+  const folders = indexFolders([
+    folderDto({ id: "pA", name: "A" }),
+    folderDto({ id: "pB", name: "B", parentId: "pA" }),
+    groupFolder({ id: "gA", name: "GA", groupId: GROUP_A.id }),
+    sharedFolder({ id: "sX", name: "X" }),
+  ]);
+  const ctx = { groupIds: new Set([GROUP_A.id]), folders };
+  const parts = (n: NoteDto) => noteLocationParts(n, ctx, (k, o) => i18n.t(k, o));
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+  });
+
+  it("個人：根層與資料夾鏈，tab 是 myNotes", () => {
+    expect(parts(OWNER_NOTE)).toEqual({ segments: ["My notes"], suffix: null, tab: "myNotes", folderId: null, groupId: null });
+    expect(parts(note("inB", { folderId: "pB" }))).toEqual({ segments: ["My notes", "A", "B"], suffix: null, tab: "myNotes", folderId: "pB", groupId: null });
+  });
+
+  it("群組：群組名開頭，不帶「Groups」前綴，tab 是 workspace", () => {
+    expect(parts(MY_GROUP_NOTE)).toEqual({ segments: ["Workshop A"], suffix: null, tab: "workspace", folderId: null, groupId: GROUP_A.id });
+    expect(parts({ ...MY_GROUP_NOTE, folderId: "gA" })).toEqual({
+      segments: ["Workshop A", "GA"],
+      suffix: null,
+      tab: "workspace",
+      folderId: "gA",
+      groupId: GROUP_A.id,
+    });
+  });
+
+  it("共享：Shared with me 開頭、我放的資料夾、後綴是 @擁有者帳號，tab 是 shared", () => {
+    expect(parts({ ...VIEWER_SHARED_NOTE, ownerHandle: "alice" })).toEqual({ segments: ["Shared with me"], suffix: "@alice", tab: "shared", folderId: null, groupId: null });
+    expect(parts({ ...VIEWER_SHARED_NOTE, ownerHandle: "alice", folderId: "sX" })).toEqual({
+      segments: ["Shared with me", "X"],
+      suffix: "@alice",
+      tab: "shared",
+      folderId: "sX",
+      groupId: null,
+    });
+  });
+
+  it("ownerHandle 為 null 時不帶後綴；孤兒群組筆記歸共享、不顯示群組名", () => {
+    expect(parts({ ...VIEWER_SHARED_NOTE, ownerHandle: null }).suffix).toBeNull();
+    expect(parts(ORPHAN_GROUP_NOTE)).toMatchObject({ segments: ["Shared with me"], tab: "shared" });
+  });
+
+  it("資料夾不在索引或跨空間 → 不帶路徑、folderId 為 null", () => {
+    expect(parts(note("gone", { folderId: "nope" }))).toMatchObject({ segments: ["My notes"], folderId: null });
+    expect(parts(note("cross", { folderId: "gA" }))).toMatchObject({ segments: ["My notes"], folderId: null });
+  });
+
+  it("zh-TW 段名", async () => {
+    await i18n.changeLanguage("zh-TW");
+    try {
+      expect(parts(OWNER_NOTE).segments).toEqual(["我的筆記"]);
+    } finally {
+      await i18n.changeLanguage("en");
+    }
   });
 });

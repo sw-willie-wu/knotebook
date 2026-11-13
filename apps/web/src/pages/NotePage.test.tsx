@@ -654,8 +654,88 @@ describe("NotePage", () => {
     await screen.findByTestId("note-editor");
 
     const header = document.querySelector("header") as HTMLElement;
-    expect(header.firstElementChild).toBe(screen.getByRole("button", { name: "Back to notes" }));
+    expect(header.querySelector("button")).toBe(screen.getByRole("button", { name: "Back to notes" }));
     expect(screen.queryByRole("button", { name: "Open sidebar" })).toBeNull();
+  });
+
+  describe("手機頁首兩行（標題＋位置副標）", () => {
+    function setupPhone() {
+      resetLocalPresenceFieldForTest();
+      const awareness = new Awareness(new Y.Doc());
+      onTestFinished(() => awareness.destroy());
+      collab.state = { phase: "connected", role: "owner" };
+      collab.provider = Object.assign(createStubProvider(), { awareness });
+      setRemote(awareness, 10, userState("u2", "Bea"));
+      stubLayoutTier("phone");
+      vi.stubGlobal("fetch", mockFetch({ ...NOTE, lastEdited: { at: "2026-02-03T04:05:06.000Z", byHandle: "alice", agentLabel: null } }));
+    }
+
+    it("第一行：返回、標題、星號、分享、⋮；沒有寬度鈕；第二行：連線點、位置、在線者、最後編輯", async () => {
+      setupPhone();
+      renderNotePage("my-note");
+      await screen.findByTestId("note-editor");
+
+      const header = document.querySelector("header") as HTMLElement;
+      const top = within(header).getByTestId("note-header-title-row");
+      const sub = within(header).getByTestId("note-header-subline");
+      expect(within(top).getByRole("button", { name: "Back to notes" })).toBeInTheDocument();
+      expect(within(top).getByLabelText("Note title")).toBeInTheDocument();
+      expect(within(top).getByRole("button", { name: "Favorite" })).toBeInTheDocument();
+      expect(within(top).getByRole("button", { name: "Share" })).toBeInTheDocument();
+      expect(within(top).getByRole("button", { name: "More" })).toBeInTheDocument();
+      expect(within(header).queryByRole("button", { name: /^Width/ })).toBeNull();
+
+      expect(within(sub).getByRole("status")).toBeInTheDocument();
+      const location = within(sub).getByRole("button", { name: "Show in list: My notes" });
+      expect(await within(sub).findByRole("group", { name: "Also viewing this note" })).toBeInTheDocument();
+      expect(within(sub).getByTestId("last-edited")).toBeInTheDocument();
+      const order = [within(sub).getByRole("status"), location, within(sub).getByRole("group", { name: "Also viewing this note" }), within(sub).getByTestId("last-edited")];
+      for (let i = 0; i < order.length - 1; i++) {
+        expect(order[i]!.compareDocumentPosition(order[i + 1]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      }
+    });
+
+    it("連線狀態與在線者整頁各只有一份（不是 CSS 藏一份）", async () => {
+      setupPhone();
+      renderNotePage("my-note");
+      await screen.findByTestId("note-editor");
+      await screen.findByRole("group", { name: "Also viewing this note" });
+
+      const header = document.querySelector("header") as HTMLElement;
+      expect(within(header).getAllByRole("status")).toHaveLength(1);
+      expect(within(header).getAllByRole("group", { name: "Also viewing this note" })).toHaveLength(1);
+      expect(within(header).getAllByTestId("last-edited")).toHaveLength(1);
+    });
+
+    it("位置按鈕的點擊高度：副標列有垂直 padding，加標題列合計 ≥ 44（class 斷言，jsdom 無版面）", async () => {
+      setupPhone();
+      renderNotePage("my-note");
+      await screen.findByTestId("note-editor");
+
+      expect(screen.getByRole("button", { name: /^Show in list/ })).toHaveClass("py-2");
+      expect(screen.getByLabelText("Note title")).toHaveClass("text-xl");
+    });
+
+    it("固定段：維持單行頁首，沒有副標列也沒有位置按鈕", async () => {
+      vi.stubGlobal("fetch", mockFetch());
+      renderNotePage("my-note");
+      await screen.findByTestId("note-editor");
+
+      const header = document.querySelector("header") as HTMLElement;
+      expect(within(header).queryByTestId("note-header-subline")).toBeNull();
+      expect(within(header).queryByTestId("note-header-title-row")).toBeNull();
+      expect(screen.queryByRole("button", { name: /^Show in list/ })).toBeNull();
+    });
+
+    it("浮動段：同樣維持單行頁首", async () => {
+      stubLayoutTier("overlay");
+      vi.stubGlobal("fetch", mockFetch());
+      renderNotePage("my-note");
+      await screen.findByTestId("note-editor");
+
+      expect(document.querySelector("header [data-testid='note-header-subline']")).toBeNull();
+      expect(screen.queryByRole("button", { name: /^Show in list/ })).toBeNull();
+    });
   });
 
   it("浮動段（640–1279）：頁首是「Open sidebar」，沒有「Back to notes」", async () => {
