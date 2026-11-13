@@ -15,6 +15,7 @@ import { personalNote } from "@/test/select-fixtures";
 import { SidebarTabList } from "./SidebarTabList";
 import { SidebarFooter } from "./SidebarFooter";
 import { TrashPanel } from "./TrashPanel";
+import { PHONE_BAR_CONTROL_HEIGHT, PHONE_BAR_FRAME } from "./phone-bar";
 import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 import { mockWidePointer } from "@/test/wide-pointer";
 
@@ -253,7 +254,11 @@ describe("SidebarFooter — 一般 tab 選取模式", () => {
     renderSelectFooter({ phone: true });
     fireEvent.click(screen.getByRole("button", { name: "probe-start" }));
     await screen.findByRole("button", { name: "Copy to" });
-    expect(screen.getByTestId("footer").querySelector("[data-select-action-bar]")).toHaveClass("pb-[env(safe-area-inset-bottom)]");
+    const bar = screen.getByTestId("footer").querySelector("[data-select-action-bar]");
+    expect(bar).toHaveClass("pb-[calc(0.375rem+env(safe-area-inset-bottom))]");
+    // 與底部搜尋列同一組外框 class、控制項那一列同為 44：兩列同高，進出選取模式清單不跳。
+    for (const token of PHONE_BAR_FRAME.split(" ")) expect(bar).toHaveClass(token);
+    expect(bar?.querySelector(":scope > div")).toHaveClass(PHONE_BAR_CONTROL_HEIGHT);
   });
 
   it("SF-S2 一般（classic）側欄的動作列不加 safe area（外框已給底邊）", async () => {

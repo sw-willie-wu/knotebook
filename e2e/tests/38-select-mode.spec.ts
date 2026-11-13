@@ -4,6 +4,7 @@ import {
   createUserViaInvite,
   expectWidePointer,
   loginAs,
+  openListOnCompact,
   randomEmail,
   reEscape,
   showSidebarTab,
@@ -20,10 +21,10 @@ import {
  * 4. 一般成員（沒有刪除權）：刪除鈕 disabled、「Copy to」可按。
  * 5. 「能刪不能編輯」的角色勾兩篇刪除 → toast 沒有「Undo」、帶說明句。
  * 6. 最近 tab 沒有「Move to」；與我共享 tab 有「Copy to」與「Move to」（沒有共享資料夾 → 停用）、沒有刪除鈕。
- * 7. 390 寬抽屜：動作列排得進抽屜；Esc 只結束選取、抽屜不關、焦點回抽屜內的「Select」。
- * 8. 進入選取不改清單的捲動位置：寬形（底部不顯示）捲在中段；窄形抽屜（底部換成同高的動作列）捲到底。
+ * 7. 700 寬抽屜（640–767）：動作列排得進抽屜；Esc 只結束選取、抽屜不關、焦點回抽屜內的「Select」。
+ * 8. 進入選取不改清單的捲動位置：寬形（底部不顯示）捲在中段；手機清單（底部列換成同高的動作列）捲到底。
  * e2e 預設視窗 1280 落在寬形——動作列（`[data-select-action-bar]`）在標題列、鈕的可及名稱不變，所以 1–6、9 照舊；
- * 7 與 8 的窄形版是 390。
+ * 7 與 8 的窄形版：7 是 700 寬抽屜、8 是 390 手機清單。
  * 9. Esc 的範圍：焦點在 body（滑鼠點過勾選框再點主內容區）時結束選取；在標題框裡不結束；開著 toast 時第一下只關 toast。
  *
  * 每個 test 自建所需資料（Playwright 失敗後換 worker、`RUN` 會變；`--grep` 也可能單跑一案）。資料以 API 建（建筆記不帶 content 不吃寫入節流；
@@ -360,13 +361,13 @@ test("A2c-2：最近 tab 的動作列沒有「Move to」；與我共享 tab 有�
   }
 });
 
-test("A2c-7：390 寬抽屜——動作列排得進抽屜；Esc 只結束選取、抽屜不關、焦點回抽屜內的「Select」", async ({ page }) => {
+test("A2c-7：700 寬抽屜——動作列排得進抽屜；Esc 只結束選取、抽屜不關、焦點回抽屜內的「Select」", async ({ page }) => {
   test.setTimeout(120_000);
   const title = `E2E Sel W ${RUN}`;
   await loginAs(page, ADMIN.email, ADMIN.password);
   await expect(page).toHaveURL(/\/$/);
   await apiCreateNote(page, title);
-  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setViewportSize({ width: 700, height: 844 });
   await page.goto("/");
   await page.getByRole("button", { name: "Open sidebar" }).click();
   const drawer = page.getByRole("dialog", { name: "Navigation" });
@@ -390,7 +391,7 @@ test("A2c-7：390 寬抽屜——動作列排得進抽屜；Esc 只結束選取�
     expect(box!.x, name).toBeGreaterThanOrEqual(drawerBox!.x);
     expect(box!.x + box!.width, name).toBeLessThanOrEqual(drawerBox!.x + drawerBox!.width);
   }
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(700);
 
   // 焦點在勾選框（抽屜內）：抽屜的 Esc 先結束選取、不關抽屜。
   await expect(noteCheckbox(panel, title)).toBeFocused();
@@ -433,23 +434,20 @@ test("A2c-8（寬形 1280）：清單捲在中段時進入選取模式，捲動�
   }).toPass({ timeout: 5_000 });
 });
 
-test("A2c-8（窄形 390 抽屜）：清單捲到底時進入選取模式，捲動位置不變（底部換成同高的動作列）", async ({ page }) => {
+test("A2c-8（窄形 390 手機清單）：清單捲到底時進入選取模式，捲動位置不變（底部列換成同高的動作列）", async ({ page }) => {
   test.setTimeout(120_000);
   const titles = Array.from({ length: 30 }, (_, i) => `E2E Sel B${String(i + 1).padStart(2, "0")} ${RUN}`);
   await loginAs(page, ADMIN.email, ADMIN.password);
   await expect(page).toHaveURL(/\/$/);
   for (const title of titles) await apiCreateNote(page, title);
-  // 矮的窄視窗：單跑本案（admin 只有這 30 篇）時抽屜清單也一定可捲。
+  // 矮的窄視窗：單跑本案（admin 只有這 30 篇）時手機清單也一定可捲。
   await page.setViewportSize({ width: 390, height: 600 });
   await page.goto("/");
   await expectWidePointer(page, false);
-  await page.getByRole("button", { name: "Open sidebar" }).click();
-  const drawer = page.getByRole("dialog", { name: "Navigation" });
-  await expect(drawer).toBeVisible();
+  const drawer = await openListOnCompact(page);
   const myNotes = await showSidebarTab(page, "My notes", drawer);
   await expect(noteLink(myNotes, titles[0]!)).toBeVisible({ timeout: 15_000 });
-  // 限定抽屜那一份（靜態卡在窄螢幕藏著、仍掛在 DOM）。
-  const list = page.locator("[data-sidebar-drawer] [data-sidebar-list]");
+  const list = drawer.locator("[data-sidebar-list]");
   await expect.poll(() => list.evaluate((el) => el.scrollHeight - el.clientHeight)).toBeGreaterThan(100);
   await list.evaluate((el) => {
     el.scrollTop = el.scrollHeight;
@@ -460,6 +458,7 @@ test("A2c-8（窄形 390 抽屜）：清單捲到底時進入選取模式，捲�
   await startSidebarSelection(page, drawer);
   await expect(list.getByRole("checkbox").first()).toBeAttached(); // 勾選樹已換上（chunk 到了）
   await expect(actionBar(page, drawer)).toBeVisible(); // 底部動作列已換上（同一個 chunk；之前是同高的佔位）
+  // 手機清單底部的搜尋列與動作列同高（同一組外框 class），清單可視高度不變、捲動位置一格不差。
   await expect(async () => {
     expect(await list.evaluate((el) => el.scrollTop)).toBe(before);
   }).toPass({ timeout: 5_000 });

@@ -8,6 +8,7 @@ import {
   folderRow,
   loginAs,
   openGroupPanel,
+  openListOnCompact,
   randomEmail,
   reEscape,
   showSidebarTab,
@@ -263,7 +264,7 @@ test("40-4 群組資料夾：群組列建資料夾、在裡面建筆記；一般
   }
 });
 
-test("40-5 390 抽屜：長名稱資料夾、用它的「＋」建筆記，清單內層包層沒有任何列超出", async ({ page }) => {
+test("40-5 390 手機清單：長名稱資料夾、用它的「＋」建筆記，清單內層包層沒有任何列超出", async ({ page }) => {
   test.setTimeout(120_000);
   const longName = `F ${RUN} ${"Long folder name for the narrow drawer ".repeat(2).slice(0, 60)}`.trimEnd();
   const title = `E2E Fold Narrow ${RUN}`;
@@ -271,12 +272,8 @@ test("40-5 390 抽屜：長名稱資料夾、用它的「＋」建筆記，清�
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
 
-  const openDrawer = async (): Promise<Locator> => {
-    await page.getByRole("button", { name: "Open sidebar" }).click();
-    const drawer = page.getByRole("dialog", { name: "Navigation" });
-    await expect(drawer).toBeVisible();
-    return drawer;
-  };
+  // 手機的清單是整個側欄；在筆記畫面時要先按「Back to notes」。
+  const openDrawer = (): Promise<Locator> => openListOnCompact(page);
 
   let drawer = await openDrawer();
   let drawerPanel = await showSidebarTab(page, "My notes", drawer);
@@ -286,12 +283,12 @@ test("40-5 390 抽屜：長名稱資料夾、用它的「＋」建筆記，清�
   await plus.click();
   await titleNewNote(page, title, "n");
 
-  // 整頁換成筆記頁：碰側欄前先等「Note title」，再重開抽屜
+  // 換成筆記畫面：碰側欄前先等「Note title」，再回清單
   await expect(page.getByRole("textbox", { name: "Note title" })).toBeVisible();
-  if (!(await page.getByRole("dialog", { name: "Navigation" }).isVisible())) drawer = await openDrawer();
+  drawer = await openDrawer();
   drawerPanel = await showSidebarTab(page, "My notes", drawer);
   await expect(noteLink(folderRow(drawerPanel, longName), title)).toBeVisible({ timeout: 15_000 });
-  // 清單內層包層是 overflow-x-clip（安全網）：清單本身恆不溢出，量包層的內容寬度。淺層在 256 寬抽屜裡不該有任何列超出。
+  // 清單內層包層是 overflow-x-clip（安全網）：清單本身恆不溢出，量包層的內容寬度。淺層在手機清單裡不該有任何列超出。
   const wrapper = drawerPanel.locator("[data-sidebar-list] > div");
   expect(await wrapper.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);

@@ -1,8 +1,8 @@
 import { test, expect, type Page } from "@playwright/test";
-import { ADMIN, adminNav, createNote, editorLocator, loginAs, openSelectionAiBox, openSiteAdmin } from "./helpers.js";
+import { ADMIN, adminNav, createNote, editorLocator, loginAs, openListOnCompact, openSelectionAiBox, openSiteAdmin } from "./helpers.js";
 
 /**
- * #115 版面改版：窄視窗（<768）的抽屜導覽；#263 起 AI 段驗框選 AI 框的寬度。
+ * #115 版面改版：窄視窗的導覽（手機＜640 是清單畫面與「Back to notes」，640–1279 是抽屜）；#263 起 AI 段驗框選 AI 框的寬度。
  *
  * 佈局策略：provider/model 的建立與筆記內容輸入都在**預設 1280 視窗**完成（站台
  * 管理 modal 的表單在 390 下擁擠，且不是本檔要驗的東西），然後 `setViewportSize(390×844)`
@@ -70,27 +70,29 @@ test("窄視窗：靜態側欄隱藏、抽屜導覽、框選 AI 框不超出視�
     // ── 縮到 390×844：窄視窗行為 ────────────────────────────────────────────
     await page.setViewportSize({ width: 390, height: 844 });
 
-    // 靜態側欄（hidden）：New note 鈕不可見；頁首側欄鈕（xl:hidden）可見。
-    await expect(page.getByRole("button", { name: "New note", exact: true })).toBeHidden();
-    const hamburger = page.getByRole("button", { name: "Open sidebar" });
-    await expect(hamburger).toBeVisible();
-
-    // 抽屜（在首頁開，點筆記連結 → 真的導航＋route change 自動關）。先回首頁：
-    // 停在同一篇筆記上點自己的連結 pathname 不變、不會觸發自動關。
-    await page.goto("/");
-    await page.getByRole("button", { name: "Open sidebar" }).click();
-    const drawer = page.getByRole("dialog", { name: "Navigation" });
-    await expect(drawer).toBeVisible();
-    await expect(drawer.getByRole("button", { name: "New note", exact: true })).toBeVisible();
+    // 手機（< 640）：清單是首頁，沒有側欄鈕；筆記畫面按「Back to notes」回清單，點清單裡的筆記再進去。
+    await expect(page.getByRole("button", { name: "Open sidebar" })).toHaveCount(0);
+    const list = await openListOnCompact(page);
+    await expect(page).toHaveURL(/\/$/);
+    await expect(list.getByRole("button", { name: "New note", exact: true })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Note title" })).toHaveCount(0);
     // `.first()` 保險用；改版後側欄只渲染目前 tab。
-    await drawer.getByRole("link", { name: title }).first().click();
+    await list.getByRole("link", { name: title }).first().click();
     await page.waitForURL(/\/n\//, { timeout: 15_000 }); // #122：側欄連結是 /n/<handle>/<slug> 新形
-    await expect(drawer).not.toBeVisible();
-    // 回到筆記頁再驗 Escape 這條關法（頁首漢堡開）。
+    await expect(list).toBeHidden();
+    await expect(page.getByRole("textbox", { name: "Note title" })).toBeVisible({ timeout: 15_000 });
+
+    // 640–1279 的抽屜：側欄鈕開、Esc 關。
+    await page.setViewportSize({ width: 768, height: 844 });
+    const drawer = page.getByRole("dialog", { name: "Navigation" });
+    const hamburger = page.getByRole("button", { name: "Open sidebar" });
+    await expect(page.getByRole("button", { name: "New note", exact: true })).toBeHidden();
     await hamburger.click();
     await expect(drawer).toBeVisible();
+    await expect(drawer.getByRole("button", { name: "New note", exact: true })).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(drawer).not.toBeVisible();
+    await page.setViewportSize({ width: 390, height: 844 });
 
     // #263：窄視窗下框選 AI 框照樣出現，寬度不超過視窗寬減 16、左右不出視窗；框內 Esc 關閉。
     const box = await openSelectionAiBox(page, original);

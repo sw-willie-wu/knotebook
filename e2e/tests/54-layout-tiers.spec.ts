@@ -11,7 +11,7 @@ import { ADMIN, createNote, editorLocator, loginAs, waitForEditorSelection } fro
  * 頁首與寬度的細部量測在 52-header-policy。
  *
  * - L1 768 與 1024：沒有固定側欄；抽屜的開關（遮罩、Esc、選筆記）與焦點回側欄鈕。
- * - L2 抽屜寬度吃 sidebar.width：768 寬 400；390 寬至少讓出 4rem。
+ * - L2 抽屜寬度吃 sidebar.width：768 與 640（抽屜最窄的一格）都是 400（視窗寬減 4rem 的上限在 640 起不會碰到，只是保險）。
  * - L3 768 與 1024 的版本面板：在頁首下方；只開清單時點筆記收起；差異檢視中點筆記不收；面板內 Esc 收起。
  * - L4 1279 浮動、1280 固定：側欄與面板的形態各量一格。
  * - L5 640：由歷史泡泡開浮動面板（⋮ 沒有 Version history）；639 改由 ⋮ 開整頁。
@@ -148,7 +148,7 @@ test("L1 768 與 1024：沒有固定側欄；側欄鈕開抽屜，點遮罩、Es
   }
 });
 
-test("L2 抽屜寬度吃 sidebar.width：768 寬 400；390 寬至少讓出 4rem（≤ 326）", async () => {
+test("L2 抽屜寬度吃 sidebar.width：768 與 640（抽屜最窄的一格）都是 400", async () => {
   test.setTimeout(90_000);
   await page.evaluate((k) => window.localStorage.setItem(k, "400"), SIDEBAR_KEY);
   await page.reload();
@@ -160,10 +160,10 @@ test("L2 抽屜寬度吃 sidebar.width：768 寬 400；390 寬至少讓出 4rem�
   await page.keyboard.press("Escape");
   await expect(drawerOf(page)).toBeHidden();
 
-  await setViewport(page, 390, 844);
+  await setViewport(page, 640, 844);
   await openSidebar(page).click();
   const narrow = (await drawerOf(page).boundingBox())!;
-  expect(narrow.width, `390 寬的抽屜寬 ${narrow.width}`).toBeLessThanOrEqual(390 - 64 + 1);
+  expect(Math.abs(narrow.width - 400), `640 寬的抽屜寬 ${narrow.width}`).toBeLessThanOrEqual(1);
   await page.keyboard.press("Escape");
   await expect(drawerOf(page)).toBeHidden();
   // 還原：記憶體裡的側欄寬度只有重整才會跟著 localStorage 回預設，後面的案子不該帶著 400 跑。

@@ -349,7 +349,7 @@ interface AppShellProps {
  * 雙擊把手即回 256。把手（共用的 `PaneResizeHandle`，`edge="right"`）是 `<aside>` 內
  * `absolute left-full w-3` 的子元素，約略蓋在根容器既有的 `gap-3` 上（以 padding box 定位，
  * 壓住 aside 右框一個框寬）——所以根的 `gap-3`
- * 與 `main` 都不動；`<aside>` 在 `<xl` 是 `hidden`，把手跟著消失。浮動抽屜用同一個寬度（上限視窗寬減 4rem），沒有把手。
+ * 與 `main` 都不動；`<aside>` 在 `<xl` 是 `hidden`，把手跟著消失。浮動抽屜用同一個寬度（視窗寬減 4rem 的上限是保險：抽屜只在 640 起，側欄最寬 480，碰不到），沒有把手。
  */
 export function AppShell({ children, inert }: AppShellProps) {
   const { t } = useTranslation();
@@ -743,7 +743,7 @@ export function AppShell({ children, inert }: AppShellProps) {
                   // SidebarContent 的 min-h-0 flex-1 清單失去約束。貼齊
                   // 左緣故意不用 cardSurface 的圓角——抽屜不是卡片。
                   className="fixed inset-y-0 left-0 z-50 flex flex-col border-r border-border bg-card pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pt-[env(safe-area-inset-top)] outline-none"
-                  // 寬度吃側欄寬度設定，右側至少露出 4rem 的筆記區（點那裡收起）；浮動版不放拖曳把手。
+                  // 寬度吃側欄寬度設定；視窗寬減 4rem 的上限是保險（抽屜只在 640 起、側欄最寬 480，正常碰不到），保證右側露出筆記區（點那裡收起）；浮動版不放拖曳把手。
                   style={{ width: `min(${sidebarWidth}px, calc(100vw - 4rem))` }}
                   // Radix 在 document capture 先處理 Esc：選取中先結束選取、抽屜不關。真瀏覽器在這個 listener 與 React 的
                   // onKeyDown 之間會跑 microtask，選取的結束先 commit、勾選框／動作列卸載，React 那層的 handler 不會再跑——

@@ -48,9 +48,13 @@ export function SidebarFooter({
     // 清單可視高度因此多約一列：捲在最底附近時進入選取會位移約一列（不留同高空白）。
     // 跨判準時兩處各自依判準掛／卸，同一份實例同時只有一個 `SelectActionBar`。
     if (wide) return null;
-    // 佔位與動作列同高；chunk 失敗時錯誤＋重試由清單那份（同一個 chunk）顯示，這裡隱藏。
+    // 佔位與動作列同高（手機：與搜尋列同高，57＋底部 safe area）；chunk 失敗時錯誤＋重試由清單那份（同一個 chunk）顯示，這裡隱藏。
     return (
-      <SidebarLazyBoundary chunk="select" fallback={<div className="m-2 h-8" />} errorClassName="hidden">
+      <SidebarLazyBoundary
+        chunk="select"
+        fallback={<div className={phone ? "h-[calc(57px+env(safe-area-inset-bottom))] shrink-0" : "m-2 h-8"} />}
+        errorClassName="hidden"
+      >
         <SelectActionBar safeBottom={phone} />
       </SidebarLazyBoundary>
     );

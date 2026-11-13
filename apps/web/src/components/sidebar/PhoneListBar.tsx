@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Plus, Search } from "@/components/ui/icons";
 import { isKeyboardOpen, useKeyboardInset } from "@/lib/visual-viewport";
 import { cn } from "@/lib/utils";
+import { PHONE_BAR_FRAME, phoneBarBottomPadding } from "./phone-bar";
 
 interface PhoneListBarProps {
   query: string;
@@ -37,10 +38,7 @@ export function PhoneListBar({ query, onQueryChange, searchRef, active, onOpen, 
     <div
       data-phone-list-bar=""
       style={keyboardOpen ? { marginBottom: inset } : undefined}
-      className={cn(
-        "flex shrink-0 items-center gap-2 border-t border-border bg-card px-2 pt-1.5",
-        keyboardOpen ? "pb-1.5" : "pb-[calc(0.375rem+env(safe-area-inset-bottom))]",
-      )}
+      className={cn("flex items-center gap-2", PHONE_BAR_FRAME, phoneBarBottomPadding(keyboardOpen))}
     >
       <div className="relative min-w-0 flex-1">
         <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
