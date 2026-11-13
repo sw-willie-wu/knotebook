@@ -48,7 +48,7 @@ export const GROUP_MEMBER: GroupDto = groupDto({ id: "bbbbbbbb-bbbb-bbbb-bbbb-bb
 export const BG_NOTE = { pathname: "/n/me/some-note", search: "", hash: "", state: null, key: "bg1" } as Location;
 
 export function member(userId: string, email: string, displayName: string, role: GroupRoleDto): GroupMemberDto {
-  return { userId, email, displayName, roleId: role.id, builtin: role.builtin };
+  return { userId, email, displayName, roleId: role.id, builtin: role.builtin, avatar: null };
 }
 
 export type Handler = (url: string, method: string, init: RequestInit | undefined) => Response | Promise<Response> | null;

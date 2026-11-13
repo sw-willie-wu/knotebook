@@ -17,7 +17,7 @@ const CO_ADMIN_GROUP: GroupDto = groupDto({ id: "cccccccc-cccc-cccc-cccc-ccccccc
 const MEMBER_GROUP: GroupDto = groupDto({ id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", name: "Workshop B" }, memberRole({ memberCount: 3 }));
 
 /** 刪除對話框掛載時會打 `GET …/members`（下拉）與 `GET /api/notes`（篇數）——兩支都在 `renderMenu` 統一回應。 */
-const ME_AS_ADMIN: GroupMemberDto = { userId: ME.id, email: ME.email, displayName: ME.displayName, roleId: "r-admin", builtin: "admin" };
+const ME_AS_ADMIN: GroupMemberDto = { userId: ME.id, email: ME.email, displayName: ME.displayName, roleId: "r-admin", builtin: "admin", avatar: null };
 
 function fakeResponse(status: number, body?: unknown): Response {
   return { ok: status >= 200 && status < 300, status, json: () => (body === undefined ? Promise.reject(new Error("no body")) : Promise.resolve(body)) } as unknown as Response;

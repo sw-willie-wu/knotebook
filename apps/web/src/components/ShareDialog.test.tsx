@@ -45,6 +45,7 @@ const SHARE: ShareDto = {
   email: "bob@example.com",
   displayName: "Bob",
   role: "viewer",
+  avatar: null,
 };
 
 const SHARES_URL = `/api/notes/${NOTE.id}/shares`;
@@ -474,6 +475,7 @@ const SHARE2: ShareDto = {
   email: "carol@example.com",
   displayName: "Carol",
   role: "editor",
+  avatar: null,
 };
 
 describe("ShareDialog 三態（#72）", () => {

@@ -7,8 +7,8 @@ import i18n from "@/i18n";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { UserEmailCombobox } from "./UserEmailCombobox";
 
-const ANN: UserSuggestionDto = { userId: "u-ann", email: "ann@example.com", displayName: "Ann Example" };
-const ANDY: UserSuggestionDto = { userId: "u-andy", email: "andy@example.com", displayName: "Andy Example" };
+const ANN: UserSuggestionDto = { userId: "u-ann", email: "ann@example.com", displayName: "Ann Example", avatar: null };
+const ANDY: UserSuggestionDto = { userId: "u-andy", email: "andy@example.com", displayName: "Andy Example", avatar: null };
 
 function suggestFetch(users: UserSuggestionDto[] = [ANN, ANDY]) {
   const fetchMock = vi.fn((input: RequestInfo | URL) => {

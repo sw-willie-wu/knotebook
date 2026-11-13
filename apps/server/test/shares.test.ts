@@ -47,7 +47,7 @@ describe("GET /api/notes/:id/shares", () => {
     const res = await app.inject({ method: "GET", url: `/api/notes/${note.id}/shares`, cookies: { [SESSION_COOKIE]: ownerCookie } });
     expect(res.statusCode).toBe(200);
     const body = res.json();
-    expect(body).toEqual([{ userId: viewer.id, email: "viewer-gs1@example.com", displayName: "Viewer One", role: "viewer" }]);
+    expect(body).toEqual([{ userId: viewer.id, email: "viewer-gs1@example.com", displayName: "Viewer One", role: "viewer", avatar: null }]);
   });
 
   it("非 owner 但可讀（editor）→ 403", async () => {
@@ -124,7 +124,7 @@ describe("PUT /api/notes/:id/shares", () => {
       payload: { email: "target-ps1@example.com", role: "viewer" },
     });
     expect(putRes.statusCode).toBe(200);
-    expect(putRes.json()).toEqual({ userId: target.id, email: "target-ps1@example.com", displayName: "Target One", role: "viewer" });
+    expect(putRes.json()).toEqual({ userId: target.id, email: "target-ps1@example.com", displayName: "Target One", role: "viewer", avatar: null });
     expect(collabHooks.onShareChanged).toHaveBeenCalledWith(note.id, target.id);
     expect(collabHooks.onShareChanged).toHaveBeenCalledTimes(1);
 
@@ -281,7 +281,7 @@ describe("PUT /api/notes/:id/shares", () => {
       payload: { email: "TarGET-ps8@Example.COM", role: "viewer" },
     });
     expect(putRes.statusCode).toBe(200);
-    expect(putRes.json()).toEqual({ userId: target.id, email: "target-ps8@example.com", displayName: "Target Eight", role: "viewer" });
+    expect(putRes.json()).toEqual({ userId: target.id, email: "target-ps8@example.com", displayName: "Target Eight", role: "viewer", avatar: null });
   });
 
   it("不存在 email → 404 user_not_found", async () => {
