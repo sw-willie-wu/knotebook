@@ -1,7 +1,7 @@
-import { lazy, useEffect, useId, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { lazy, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
-import { useLocation, useNavigate } from "react-router";
+import { NavigationType, useLocation, useNavigate, useNavigationType } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { canonicalNotePath, type FolderDto } from "@knotebook/shared";
@@ -16,8 +16,9 @@ import { cardSurface } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { OVERLAY_QUERY, isPhone, useIsPhone } from "@/lib/layout-tiers";
 import { PhoneListContext, isNoteRoutePath } from "@/lib/phone-list";
+import { backTarget, clearListIdx, historyIdx, readListIdx, recordListIdx } from "@/lib/phone-nav";
 import { SidebarDrawerContext, useSidebarDrawer } from "@/lib/sidebar-drawer";
-import { canonicalizedFrom } from "@/lib/real-location";
+import { canonicalizedFrom, useRealNavigationType } from "@/lib/real-location";
 import { isMacPlatform } from "@/lib/platform";
 import { ShortcutsDialogContext, type ShortcutsDialogApi } from "@/lib/shortcuts-dialog";
 import { isOverlayOpen } from "@/lib/versions-context";
@@ -76,6 +77,9 @@ function TrashPanelFallback() {
 export function SidebarDrawerButton() {
   const { t } = useTranslation();
   const { setOpen } = useSidebarDrawer();
+  // 手機沒有抽屜：側欄就是清單畫面，入口是「‹」（`BackToListButton`）。
+  const phone = useIsPhone();
+  if (phone) return null;
   return (
     <Button
       type="button"
@@ -441,11 +445,20 @@ export function AppShell({ children, inert }: AppShellProps) {
   const phone = useIsPhone();
   const onList = !isNoteRoutePath(location.pathname);
   const listVisible = phone && onList;
+  const backFromKeyRef = useRef<string | null>(null);
   const phoneState = useMemo(
     () => ({
       backToList: () => {
         const { navigate: go, location: here } = settingsRouteRef.current;
-        if (isNoteRoutePath(here.pathname)) go("/");
+        if (!isNoteRoutePath(here.pathname)) return;
+        // 連點：第一下的導覽還沒生效（popstate 未到）前，第二下不再退一格。
+        if (backFromKeyRef.current === here.key) return;
+        backFromKeyRef.current = here.key;
+        // 清單那一格還在 history 裡就退回去（系統返回鍵與「‹」走同一條歷史）；找不到就把這一格換成清單，
+        // 不新增 entry——否則返回鍵會又回到剛離開的那篇筆記。
+        const target = backTarget({ listIdx: readListIdx(), currentIdx: historyIdx() });
+        if (target.kind === "go") go(target.delta);
+        else go("/", { replace: true });
       },
     }),
     [],
@@ -457,6 +470,43 @@ export function AppShell({ children, inert }: AppShellProps) {
   const asideShown = onList || searchOpen;
   const listVisibleRef = useRef(listVisible);
   listVisibleRef.current = listVisible;
+  // 清單可見時記下它在 history 裡的序號，「‹」才知道要退幾格。
+  useEffect(() => {
+    backFromKeyRef.current = null;
+    if (listVisible) {
+      recordListIdx();
+      return;
+    }
+    // 記錄的那一格已不在目前這格之前（新開的文件、被導走）：記錄過期，清掉。
+    const recorded = readListIdx();
+    const current = historyIdx();
+    if (recorded !== null && current !== null && current <= recorded) clearListIdx();
+  }, [listVisible, location.key]);
+  // 進筆記的轉場：手機、上一個畫面是清單、這一個是筆記路由、而且是 PUSH——深連結、重新整理、返回／前進都不播。
+  const realNavigationType = useRealNavigationType();
+  const localNavigationType = useNavigationType();
+  const navigationType = realNavigationType ?? localNavigationType;
+  const wasOnListRef = useRef(onList);
+  const [enterNote, setEnterNote] = useState(false);
+  // layout effect：class 要在筆記第一次繪製前就套上，否則會先畫一格最終位置再滑入。
+  useLayoutEffect(() => {
+    setEnterNote(phone && !onList && wasOnListRef.current && navigationType === NavigationType.Push);
+    wasOnListRef.current = onList;
+  }, [phone, onList, location.key, navigationType]);
+  // 回清單後的焦點：清單在筆記畫面時是 display:none，原本點的那一列已經失焦；回來時還給那一列，找不到就給 tabpanel。
+  const lastRowHrefRef = useRef<string | null>(null);
+  const asideRef = useRef<HTMLElement>(null);
+  const wasOnListForFocusRef = useRef(onList);
+  useEffect(() => {
+    // 只在手機段內「筆記路由 → 清單」才還焦點；跨 640 的寬度變化不算。
+    const returned = phone && onList && !wasOnListForFocusRef.current;
+    wasOnListForFocusRef.current = onList;
+    const root = asideRef.current;
+    if (!returned || root === null || isOverlayOpen()) return;
+    const href = lastRowHrefRef.current;
+    const row = href === null ? null : [...root.querySelectorAll<HTMLElement>("a[href]")].find((a) => a.getAttribute("href") === href);
+    (row ?? root.querySelector<HTMLElement>('[role="tabpanel"]'))?.focus({ preventScroll: true });
+  }, [phone, onList]);
   /** Ctrl+K 在筆記畫面按下：先回清單，等清單可見再聚焦底部搜尋框。 */
   const pendingSearchFocusRef = useRef(false);
   useEffect(() => {
@@ -611,6 +661,10 @@ export function AppShell({ children, inert }: AppShellProps) {
           <div inert={inert} className="flex h-screen gap-3 overflow-hidden bg-background p-3">
             {/* data-sidebar-instance：SidebarContent 回 fragment、沒有自己的根；垃圾桶動作列靠它找回同一份的「選取」鈕。 */}
             <aside
+              ref={asideRef}
+              onClickCapture={(event) => {
+                if (phone && event.target instanceof Element) lastRowHrefRef.current = event.target.closest("a[href]")?.getAttribute("href") ?? null;
+              }}
               data-sidebar-instance=""
               className={cn(
                 cardSurface,
@@ -701,7 +755,7 @@ export function AppShell({ children, inert }: AppShellProps) {
               </DialogPrimitive.Portal>
             </DialogPrimitive.Root>
 
-            <main className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</main>
+            <main className={cn("flex min-h-0 min-w-0 flex-1 flex-col", enterNote && "kb-phone-enter")}>{children}</main>
           </div>
           {/* 放在 inert 的 div 外面：portal 本來就在 body，放外面是讓閱讀者不必推理 inert。 */}
           <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} returnFocusRef={shortcutsReturnFocusRef} />

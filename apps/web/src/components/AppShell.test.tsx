@@ -848,16 +848,13 @@ describe("AppShell — #115 側欄抽屜", () => {
       expect(within(drawer).queryByRole("separator")).toBeNull();
     });
 
-    it("跨 1280 變固定版面 -> 開著的抽屜關掉；640 附近的來回（手機 <-> 浮動）不關", async () => {
-      const tier = stubLayoutTier("phone");
+    it("跨 1280 變固定版面 -> 開著的抽屜關掉", async () => {
+      const tier = stubLayoutTier("overlay");
       stubFetchWithNotes([NOTE]);
       renderShell();
 
       fireEvent.click(await screen.findByRole("button", { name: "Open sidebar" }));
       await screen.findByRole("dialog", { name: "Navigation" });
-
-      act(() => tier.setLayoutTier("overlay"));
-      expect(screen.getByRole("dialog", { name: "Navigation" })).toBeInTheDocument();
 
       act(() => tier.setLayoutTier("docked"));
       await waitFor(() => expect(screen.queryByRole("dialog", { name: "Navigation" })).not.toBeInTheDocument());

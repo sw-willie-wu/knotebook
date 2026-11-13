@@ -1087,6 +1087,25 @@ input[name="share-access"] {
   background-color: color-mix(in oklch, var(--color-brand) 38%, transparent);
   animation: kn-anchor-mark 1.6s linear;
 }
+/* 手機：從清單點進筆記時，筆記畫面從右側滑入（只在 AppShell 判定為「清單 → 筆記的 PUSH」時加上這個 class）。 */
+@keyframes kb-phone-enter {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+.kb-phone-enter {
+  animation: kb-phone-enter 200ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kb-phone-enter {
+    animation: none;
+  }
+}
+
 /* 一般錨點的 2 s 高亮在 reduced-motion 下不動畫、靜態底色。搜尋標記（.kn-anchor-mark）刻意不在這裡關動畫：它是「你要找的字在這裡」的
    定位提示，只閃 2 次、頻率遠低於每秒 3 次（WCAG 2.3.1 閃光門檻），而且最後停在亮的；關掉動畫就只剩一個恆亮的底色，使用者看不出
    是跳轉的結果（曾有使用者在系統關閉動畫的機器上回報「沒有閃兩下、是恆亮」）。 */

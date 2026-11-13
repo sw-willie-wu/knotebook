@@ -29,6 +29,7 @@ import { useMemberBlockAnchor } from "@/hooks/useBlockAnchor";
 import { AiEditsDialog } from "@/components/AiEditsDialog";
 import { createPortal } from "react-dom";
 import { SidebarDrawerButton } from "@/components/AppShell";
+import { BackToListButton } from "@/components/BackToListButton";
 import { NarrowTopBar } from "@/components/NarrowTopBar";
 import { BacklinksSection } from "@/components/BacklinksSection";
 import { ConnectionBadge } from "@/components/ConnectionBadge";
@@ -816,9 +817,10 @@ export default function NotePage() {
                 )}
                 {/* header 本身是 container，容器查詢管不到自己的 gap，所以手機寬的 gap 用視窗寬（max-sm）。 */}
                 <header ref={noteHeaderRef} className="@container flex items-center gap-3 max-sm:gap-2 border-b border-border px-5 py-3">
-                  {/* #115：浮動側欄的入口（xl:hidden）——筆記載入成功態不掛
-                      NarrowTopBar（頁首自己有這顆）；載入中/錯誤的佔位卡沒有頁首，
+                  {/* #115：窄視窗的入口——手機是「‹」回清單，浮動段（xl:hidden）是側欄鈕；各自只在自己的寬度渲染。
+                      筆記載入成功態不掛 NarrowTopBar（頁首自己有這兩顆）；載入中/錯誤的佔位卡沒有頁首，
                       由 placeholderCard 裡的 NarrowTopBar 補位。 */}
+                  <BackToListButton />
                   <SidebarDrawerButton />
                   <TitleInput note={note} readOnly={!roleCanEdit} isNavigatingAway={isNavigatingAway} />
                   <ConnectionBadge state={state} synced={synced} canEdit={roleCanEdit} />

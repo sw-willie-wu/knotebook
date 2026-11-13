@@ -37,6 +37,7 @@ import { resetLocalPresenceFieldForTest } from "@/components/presence/local-fiel
 import { setRemote, userState } from "@/components/presence/test-awareness";
 import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 import { AppShellLayout } from "@/components/AppShellLayout";
+import { stubLayoutTier } from "@/test/layout-tier";
 
 // BlockNote 需要一整套 jsdom 沒有的 DOM/Range API，掛進單元測試只會測到環境；
 // 這裡只驗證「頁面有沒有把正確的 props 交給編輯器」，編輯器本身留給手動驗證。
@@ -643,6 +644,29 @@ describe("NotePage", () => {
     // #115：頁首最前面是 `xl:hidden` 的側欄鈕（浮動側欄的入口——筆記頁沒有
     // NarrowTopBar，這顆就是唯一入口）。
     expect(header).toContainElement(screen.getByRole("button", { name: "Open sidebar" }));
+  });
+
+  it("手機（< 640）：頁首最前面是「Back to notes」，沒有「Open sidebar」（抽屜在手機上不可達）", async () => {
+    stubLayoutTier("phone");
+    vi.stubGlobal("fetch", mockFetch());
+
+    renderNotePage("my-note");
+    await screen.findByTestId("note-editor");
+
+    const header = document.querySelector("header") as HTMLElement;
+    expect(header.firstElementChild).toBe(screen.getByRole("button", { name: "Back to notes" }));
+    expect(screen.queryByRole("button", { name: "Open sidebar" })).toBeNull();
+  });
+
+  it("浮動段（640–1279）：頁首是「Open sidebar」，沒有「Back to notes」", async () => {
+    stubLayoutTier("overlay");
+    vi.stubGlobal("fetch", mockFetch());
+
+    renderNotePage("my-note");
+    await screen.findByTestId("note-editor");
+
+    expect(within(document.querySelector("header") as HTMLElement).getByRole("button", { name: "Open sidebar" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Back to notes" })).toBeNull();
   });
 
   // class 斷言，不是行為斷言：jsdom 無版面。頁首收縮順序（標題讓到 64px → 標籤截斷 → 其餘不縮）
