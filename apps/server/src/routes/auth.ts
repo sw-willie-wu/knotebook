@@ -1,12 +1,12 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { and, eq, gt, sql } from "drizzle-orm";
-import { MAX_REGISTER_DISPLAY_NAME_LENGTH, SESSION_COOKIE, normalizeEmail, normalizeHandle, validateHandle, type AuthConfigDto, type UserDto } from "@knotebook/shared";
+import { MAX_REGISTER_DISPLAY_NAME_LENGTH, SESSION_COOKIE, normalizeEmail, normalizeHandle, validateHandle, type AuthConfigDto, type UserAvatarDto, type UserDto } from "@knotebook/shared";
 import { sendError, sendLoginThrottled } from "../http/errors.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
 import type { SiteLimits } from "../site-limits/store.js";
-import { authProviders, handleRenames, handles, siteSettings, users } from "../db/schema.js";
+import { authProviders, handleRenames, handles, siteSettings, userAvatars, users } from "../db/schema.js";
 import { UUID_RE } from "../notes/service.js";
 import { uniqueViolationConstraint } from "../db/pg-errors.js";
 import { verifyPassword, hashPassword, HashBusyError, DUMMY_HASH } from "../auth/password.js";
@@ -14,6 +14,7 @@ import type { UserGate } from "../auth/session.js";
 import { deleteSessionFromCookie, setSessionCookieFor, startSession } from "../auth/sessions.js";
 import { changePasswordInTx } from "../auth/tx/change-password.js";
 import { touchLastLogin } from "../auth/last-login.js";
+import { readCurrentAvatar } from "../avatars/read.js";
 import type { LoginThrottle } from "../auth/rate-limit.js";
 import type { CollabHooks } from "../collab/hooks.js";
 import { MIN_PASSWORD_LENGTH } from "../auth/constants.js";
@@ -184,6 +185,7 @@ export function authRoutes(deps: AuthRouteDeps) {
         mustChangePassword: user!.mustChangePassword,
         hasPassword: user!.passwordHash !== null,
         autoVersions: user!.autoVersions,
+        avatar: await readCurrentAvatar(deps.db, user!.id),
       };
 
       return reply.send(dto);
@@ -225,6 +227,8 @@ export function authRoutes(deps: AuthRouteDeps) {
     const profileReturning = () => ({
       id: users.id, email: users.email, handle: users.handle, displayName: users.displayName, isAdmin: users.isAdmin,
       mustChangePassword: users.mustChangePassword, hasPassword: sql<boolean>`${users.passwordHash} is not null`, autoVersions: users.autoVersions,
+      // 相關子查詢裡外層欄位寫字面 `users.id`：插值 `${users.id}` 在單表 RETURNING 會渲染成裸 "id"，被內層 FROM 搶走而恆為 null。
+      avatar: sql<UserAvatarDto | null>`(select json_build_object('id', ua.id, 'v', ua.version, 'pending', ua.display_data is null) from ${userAvatars} ua where ua.user_id = users.id and ua.is_current)`,
     });
 
     /**

@@ -24,6 +24,7 @@ import {
   USER_SUGGEST_MAX_QUERY, USER_SUGGEST_MAX_RESULTS, USER_SUGGEST_MIN_QUERY, type UserSuggestResponse, type UserSuggestionDto,
 } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
+import { readAvatarRefs } from "../avatars/read.js";
 import { sendError } from "../http/errors.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
 
@@ -85,7 +86,8 @@ export function usersRoutes(deps: UsersRouteDeps) {
                   u.display_name, u.id
          limit ${USER_SUGGEST_MAX_RESULTS}
       `);
-      const users = res.rows.map((r): UserSuggestionDto => ({ userId: r.id, email: r.email, displayName: r.display_name }));
+      const avatars = await readAvatarRefs(deps.db, res.rows.map(r => r.id));
+      const users = res.rows.map((r): UserSuggestionDto => ({ userId: r.id, email: r.email, displayName: r.display_name, avatar: avatars.get(r.id) ?? null }));
       const dto: UserSuggestResponse = { users };
       return dto;
     });

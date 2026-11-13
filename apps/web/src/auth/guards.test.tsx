@@ -109,6 +109,7 @@ const SESSION_USER = {
   isAdmin: false,
   mustChangePassword: false,
   hasPassword: true,
+  avatar: null,
 };
 
 function okSession(): Response {
@@ -196,6 +197,7 @@ describe("session query 出錯（非 401）", () => {
               isAdmin: false,
               mustChangePassword: false,
               hasPassword: true,
+              avatar: null,
             }),
         }),
       );

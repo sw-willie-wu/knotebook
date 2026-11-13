@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router";
-import type { PendingLinkDto } from "@knotebook/shared";
+import type { PendingLinkDto, UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
@@ -22,7 +22,7 @@ const PENDING: PendingLinkDto = {
   providerDisplayName: "Corp IdP",
   methods: { password: true, providers: [{ id: "11111111-1111-1111-1111-111111111111", displayName: "GitLab", icon: { type: "builtin", name: "gitlab" } }] },
 };
-const USER = { id: "u1", email: "u@example.com", handle: "u", displayName: "U", isAdmin: false, mustChangePassword: false, hasPassword: true };
+const USER = { id: "u1", email: "u@example.com", handle: "u", displayName: "U", isAdmin: false, mustChangePassword: false, hasPassword: true, autoVersions: true, avatar: null } satisfies UserDto;
 
 /** 依「METHOD url」回應；沒列到的回 404 JSON（不 throw——導向後的頁面可能打別的 API）。 */
 function mockFetch(routes: Record<string, () => Response | Promise<Response>>) {

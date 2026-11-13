@@ -34,6 +34,7 @@ const USER: UserDto = {
   mustChangePassword: false,
   hasPassword: true,
   autoVersions: true,
+  avatar: null,
 };
 
 function stubFetch() {

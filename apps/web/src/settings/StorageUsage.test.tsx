@@ -18,7 +18,7 @@ function fakeResponse(status: number, body: unknown): Response {
 
 const TRASH_NOTE = "Notes in the trash count toward usage too, until they're permanently deleted.";
 
-const ME: UserDto = { id: "u-me", email: "me@example.com", handle: "me", displayName: "Me", isAdmin: false, mustChangePassword: false, hasPassword: true, autoVersions: true };
+const ME: UserDto = { id: "u-me", email: "me@example.com", handle: "me", displayName: "Me", isAdmin: false, mustChangePassword: false, hasPassword: true, autoVersions: true, avatar: null };
 
 function renderAt(path: string, handlers: (url: string, method: string) => Response | Promise<Response> | null) {
   const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -48,7 +48,7 @@ function renderAt(path: string, handlers: (url: string, method: string) => Respo
   return fetchMock;
 }
 
-const usage = (u: Partial<StorageUsageDto>): StorageUsageDto => ({ usedBytes: 1048576, quotaBytes: 2147483648, planName: "Basic", byKind: { image: 1048576, audio: 0, video: 0, document: 0, other: 0 }, ...u });
+const usage = (u: Partial<StorageUsageDto>): StorageUsageDto => ({ usedBytes: 1048576, quotaBytes: 2147483648, planName: "Basic", byKind: { image: 1048576, audio: 0, video: 0, document: 0, other: 0, avatar: 0 }, ...u });
 
 describe("W3 帳號頁的儲存空間", () => {
   beforeEach(async () => { await i18n.changeLanguage("en"); });

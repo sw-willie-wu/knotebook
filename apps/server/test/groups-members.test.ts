@@ -111,7 +111,7 @@ describe("#103／#175 PUT …/members", () => {
 
     const a = await app.inject({ method: "PUT", url: `/api/groups/${g.id}/members`, cookies, payload: { email: plain.email.toUpperCase() } });
     expect(a.statusCode).toBe(200);
-    expect(a.json()).toEqual({ userId: plain.id, email: plain.email, displayName: expect.any(String), roleId: g.memberRoleId, builtin: "member" });
+    expect(a.json()).toEqual({ userId: plain.id, email: plain.email, displayName: expect.any(String), roleId: g.memberRoleId, builtin: "member", avatar: null });
     const b = await app.inject({ method: "PUT", url: `/api/groups/${g.id}/members`, cookies, payload: { email: disabled.email, roleId: g.adminRoleId } });
     expect(b.statusCode).toBe(200);
     expect(b.json()).toMatchObject({ userId: disabled.id, roleId: g.adminRoleId, builtin: "admin" });

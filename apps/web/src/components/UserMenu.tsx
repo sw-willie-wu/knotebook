@@ -2,6 +2,7 @@ import { useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router";
 import { useSession } from "@/auth/useSession";
+import { Avatar } from "@/components/Avatar";
 import { useTheme, ACCENTS, type Accent, type Theme } from "@/theme";
 import { Check, Settings } from "@/components/ui/icons";
 import { SIDEBAR_ROW_HEIGHT } from "@/components/ui/rows";
@@ -81,19 +82,19 @@ export function UserMenu({ variant = "row" }: { variant?: "row" | "avatar" } = {
     <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
       <DropdownMenuTrigger asChild>
         {avatar ? (
-          // 頭像形（手機清單頂列）：只有圓形首字；視覺 32、點擊範圍 44。
+          // 頭像形（手機清單頂列）：只有共用頭像（圖或首字）；視覺 32、點擊範圍 44。
           <button
             ref={triggerRef}
             type="button"
             aria-label={user.displayName}
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full"
           >
-            <span
-              aria-hidden="true"
-              className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground"
-            >
-              {user.displayName.charAt(0).toUpperCase()}
-            </span>
+            <Avatar
+              name={user.displayName}
+              avatar={user.avatar ? { id: user.avatar.id, v: user.avatar.v } : null}
+              size={32}
+              className="bg-primary text-primary-foreground"
+            />
           </button>
         ) : (
           <button
@@ -108,12 +109,12 @@ export function UserMenu({ variant = "row" }: { variant?: "row" | "avatar" } = {
               SIDEBAR_ROW_HEIGHT,
             )}
           >
-            <span
-              aria-hidden="true"
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-[11px] font-semibold text-primary-foreground"
-            >
-              {user.displayName.charAt(0).toUpperCase()}
-            </span>
+            <Avatar
+              name={user.displayName}
+              avatar={user.avatar ? { id: user.avatar.id, v: user.avatar.v } : null}
+              size={24}
+              className="bg-primary text-primary-foreground"
+            />
             <span aria-hidden="true" className="min-w-0 flex-1 truncate">
               {user.displayName}
             </span>

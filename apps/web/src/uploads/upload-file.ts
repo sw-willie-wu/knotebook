@@ -1,7 +1,7 @@
-import { formatBytes } from "@knotebook/shared";
 import { api, ApiFail } from "@/api/client";
 import { removeBlocksKeepColumns } from "@/collab/columns/keep-columns";
 import { toast } from "@/components/ui/toast";
+import { storageQuotaDescription, type Translate } from "@/lib/storage-quota-text";
 import type { EditorRef } from "@/components/wikilink/menu";
 
 /**
@@ -33,20 +33,8 @@ export async function postUpload(
   });
 }
 
-/** 收插值參數的翻譯函式（i18next `t` 相容）。呼叫端若自己包一層 late-bound，**必須轉傳 `opts`**（`NoteEditor.lateBoundTranslate`）。 */
-export type Translate = (key: string, opts?: Record<string, unknown>) => string;
-
-/**
- * 409 `storage_quota_exceeded` 的說明句：server 給了用量與上限（呼叫者看得到該空間）→ `storage.quotaDetail`；
- * 否則（看不到、或欄位不完整——上限 `null` 不可能被超過，出現就當沒給）→ `storage.quotaFullGeneric`。toast 與 FilePanel 共用。
- */
-export function storageQuotaDescription(err: ApiFail, translate: Translate): string {
-  const s = err.storage;
-  if (s && typeof s.usedBytes === "number" && typeof s.quotaBytes === "number") {
-    return translate("storage.quotaDetail", { used: formatBytes(s.usedBytes), quota: formatBytes(s.quotaBytes) });
-  }
-  return translate("storage.quotaFullGeneric");
-}
+/** 翻譯函式型別與配額說明句放在不依賴編輯器的 `lib/storage-quota-text.ts`；這裡原地轉出，既有呼叫端不用改。 */
+export { storageQuotaDescription, type Translate } from "@/lib/storage-quota-text";
 
 /** 同一個錯誤 code 在這個時間窗內只 toast 一次（module 級，跨呼叫共享）。 */
 const TOAST_DEDUPE_WINDOW_MS = 5000;

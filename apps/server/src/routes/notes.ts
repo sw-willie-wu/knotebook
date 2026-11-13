@@ -25,6 +25,7 @@ import { NOTE_WRITE_TOO_COMPLEX_MESSAGE, sendDocReadError, sendParserBusy, TOO_C
 import type { ParseDetail } from "../notes/editing/markdown.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
+import { readAvatarRefs } from "../avatars/read.js";
 import type { SiteLimits } from "../site-limits/store.js";
 import { groups, notePlacements, noteShares, notes, users } from "../db/schema.js";
 import type { GroupTestHook } from "../groups/test-hook.js";
@@ -1224,7 +1225,10 @@ export function notesRoutes(deps: NotesRouteDeps) {
         .where(eq(noteShares.noteId, id))
         .orderBy(users.email);
 
-      return rows.map((row): ShareDto => ({ userId: row.userId, email: row.email, displayName: row.displayName, role: row.role as ShareDto["role"] }));
+      const avatars = await readAvatarRefs(deps.db, rows.map(r => r.userId));
+      return rows.map((row): ShareDto => ({
+        userId: row.userId, email: row.email, displayName: row.displayName, role: row.role as ShareDto["role"], avatar: avatars.get(row.userId) ?? null,
+      }));
     });
 
     app.put("/api/notes/:id/shares", { preHandler: app.authenticate }, async (request, reply) => {
@@ -1289,7 +1293,8 @@ export function notesRoutes(deps: NotesRouteDeps) {
       // 呼叫一次更危險。統一呼叫用簡單性換取這裡不會漏判。
       deps.collabHooks.onShareChanged(id, target.id);
 
-      const dto: ShareDto = { userId: target.id, email: target.email, displayName: target.displayName, role: parsed.data.role };
+      const avatars = await readAvatarRefs(deps.db, [target.id]);
+      const dto: ShareDto = { userId: target.id, email: target.email, displayName: target.displayName, role: parsed.data.role, avatar: avatars.get(target.id) ?? null };
       return dto;
     });
 

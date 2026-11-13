@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import type { GroupDto, GroupRoleDto } from "@knotebook/shared";
+import { avatarUrl, type GroupDto, type GroupRoleDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { dismissAllToasts } from "@/components/ui/toast";
 import { ADMIN_ROLE, BG_NOTE, GROUP_ADMIN, GROUP_CO_ADMIN, GROUP_MEMBER, ME, MEMBER_ROLE, ROLES, callsTo, fail, fakeResponse, groupFetch, locationText, member, ok, renderGroupRoute } from "./group-test-utils";
@@ -192,7 +192,9 @@ describe("GroupMembersSection（/groups/:id，#247）", () => {
     expect(box).toHaveAccessibleDescription(/You can enter several addresses at once/);
     fireEvent.change(box, { target: { value: "ex" } });
     const list = await within(dialog).findByRole("listbox", { name: "People you know" });
-    expect(within(list).getAllByRole("option").map((o) => o.textContent)).toEqual(["Carol Examplecarol@example.com"]);
+    const options = within(list).getAllByRole("option");
+    expect(options).toHaveLength(1);
+    expect(options[0]).toHaveAccessibleName("Carol Examplecarol@example.com");
     fireEvent.keyDown(box, { key: "ArrowDown" });
     fireEvent.keyDown(box, { key: "Enter" });
     expect(box).toHaveValue("carol@example.com, ");
@@ -420,5 +422,63 @@ describe("GroupMembersSection（/groups/:id，#247）", () => {
     fireEvent.click(me);
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(callsTo(fetchMock, "DELETE", `/api/groups/${GROUP_ADMIN.id}/members/${ME.id}`)).toHaveLength(0);
+  });
+});
+
+describe("GroupMembersSection 的成員頭貼", () => {
+  const REF = { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", v: 3 };
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  async function renderWith(bob: ReturnType<typeof member>) {
+    renderGroupRoute(
+      `/groups/${GROUP_ADMIN.id}`,
+      groupFetch(() => [GROUP_ADMIN], () => [member(ME.id, ME.email, "Me", ADMIN_ROLE), bob]),
+    );
+    const dialog = await screen.findByRole("dialog", { name: GROUP_ADMIN.name });
+    const name = await within(dialog).findByText("Bob");
+    return name.previousElementSibling as HTMLElement;
+  }
+
+  it("有頭貼：名稱前一個兄弟是頭像，img 的 src 帶版本、lazy，外層 aria-hidden", async () => {
+    const avatar = await renderWith({ ...member("u-bob", "bob@example.com", "Bob", MEMBER_ROLE), avatar: REF });
+    const img = avatar.querySelector("img");
+    expect(img).not.toBeNull();
+    expect(img).toHaveAttribute("src", avatarUrl(REF.id, REF.v));
+    expect(img).toHaveAttribute("loading", "lazy");
+    expect(avatar).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("avatar 為 null：首字、沒有 img", async () => {
+    const avatar = await renderWith(member("u-bob", "bob@example.com", "Bob", MEMBER_ROLE));
+    expect(avatar.querySelector("img")).toBeNull();
+    expect(avatar.textContent).toBe("B");
+  });
+
+  it("舊 server 沒有 avatar 欄（undefined）：不丟錯、顯示首字", async () => {
+    const bob = member("u-bob", "bob@example.com", "Bob", MEMBER_ROLE) as unknown as Record<string, unknown>;
+    delete bob.avatar;
+    const avatar = await renderWith(bob as unknown as ReturnType<typeof member>);
+    expect(avatar.querySelector("img")).toBeNull();
+    expect(avatar.textContent).toBe("B");
+  });
+
+  it("圖載入失敗 → 退回首字", async () => {
+    const avatar = await renderWith({ ...member("u-bob", "bob@example.com", "Bob", MEMBER_ROLE), avatar: REF });
+    fireEvent.error(avatar.querySelector("img")!);
+    expect(avatar.querySelector("img")).toBeNull();
+    expect(avatar.textContent).toBe("B");
+  });
+
+  it("列的可及名稱與名稱格不受頭像影響", async () => {
+    await renderWith(member("u-bob", "bob@example.com", "Bob", MEMBER_ROLE));
+    expect(screen.getByRole("row", { name: "bob@example.com" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "Bob" })).toBeInTheDocument();
   });
 });

@@ -2,13 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRef, useState, type RefObject } from "react";
-import type { UserSuggestionDto } from "@knotebook/shared";
+import { avatarUrl, type UserSuggestionDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { UserEmailCombobox } from "./UserEmailCombobox";
 
-const ANN: UserSuggestionDto = { userId: "u-ann", email: "ann@example.com", displayName: "Ann Example" };
-const ANDY: UserSuggestionDto = { userId: "u-andy", email: "andy@example.com", displayName: "Andy Example" };
+const ANN: UserSuggestionDto = { userId: "u-ann", email: "ann@example.com", displayName: "Ann Example", avatar: null };
+const ANDY: UserSuggestionDto = { userId: "u-andy", email: "andy@example.com", displayName: "Andy Example", avatar: null };
 
 function suggestFetch(users: UserSuggestionDto[] = [ANN, ANDY]) {
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
@@ -89,7 +89,9 @@ describe("UserEmailCombobox", () => {
     const list = await typeAndWaitForList("an");
     expect(fetchMock).toHaveBeenCalledWith("/api/users/suggest?q=an", expect.anything());
     const options = within(list).getAllByRole("option");
-    expect(options.map((o) => o.textContent)).toEqual(["Ann Exampleann@example.com", "Andy Exampleandy@example.com"]);
+    const expected = ["Ann Exampleann@example.com", "Andy Exampleandy@example.com"];
+    expect(options).toHaveLength(expected.length);
+    options.forEach((o, i) => expect(o).toHaveAccessibleName(expected[i]));
     expect(input()).toHaveAttribute("aria-expanded", "true");
     expect(input()).toHaveAttribute("aria-controls", list.id);
     expect(input()).not.toHaveAttribute("aria-activedescendant");
@@ -162,7 +164,9 @@ describe("UserEmailCombobox", () => {
     suggestFetch();
     renderHarness({ onSubmit: vi.fn(), exclude: [ANN.userId] });
     const list = await typeAndWaitForList("an");
-    expect(within(list).getAllByRole("option").map((o) => o.textContent)).toEqual(["Andy Exampleandy@example.com"]);
+    const options = within(list).getAllByRole("option");
+    expect(options).toHaveLength(1);
+    expect(options[0]).toHaveAccessibleName("Andy Exampleandy@example.com");
   });
 
   it("查詢失敗 → 沒有清單，輸入框照常可用；不重試（恰打一次）", async () => {
@@ -282,7 +286,9 @@ describe("UserEmailCombobox multiple（群組加成員的多地址框）", () =>
     typeAt("ANN@example.com, an");
     const list = await screen.findByRole("listbox", { name: "People you know" });
     expect(fetchMock).toHaveBeenCalledWith("/api/users/suggest?q=an", expect.anything());
-    expect(within(list).getAllByRole("option").map((o) => o.textContent)).toEqual(["Andy Exampleandy@example.com"]);
+    const options = within(list).getAllByRole("option");
+    expect(options).toHaveLength(1);
+    expect(options[0]).toHaveAccessibleName("Andy Exampleandy@example.com");
   });
 
   it("游標在分隔上（前後都不是地址）→ 不查、不開清單", async () => {
@@ -361,5 +367,55 @@ describe("UserEmailCombobox multiple（群組加成員的多地址框）", () =>
     fireEvent.keyDown(input(), { key: "Enter", isComposing: true });
     expect(input()).toHaveValue("an");
     expect(screen.getByRole("listbox", { name: "People you know" })).toBeInTheDocument();
+  });
+});
+
+describe("UserEmailCombobox 選項的頭貼", () => {
+  const REF = { id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd", v: 4 };
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  async function firstOption(users: UserSuggestionDto[]): Promise<HTMLElement> {
+    suggestFetch(users);
+    renderHarness({ onSubmit: vi.fn() });
+    const list = await typeAndWaitForList("an");
+    return within(list).getAllByRole("option")[0]!;
+  }
+
+  it("有頭貼：選項首位是頭像，src 帶版本、lazy，外層 aria-hidden", async () => {
+    const option = await firstOption([{ ...ANN, avatar: REF }]);
+    const avatar = option.firstElementChild as HTMLElement;
+    const img = avatar.querySelector("img");
+    expect(img).toHaveAttribute("src", avatarUrl(REF.id, REF.v));
+    expect(img).toHaveAttribute("loading", "lazy");
+    expect(avatar).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("avatar 為 null：首字、沒有 img；可及名稱不含首字", async () => {
+    const option = await firstOption([ANN]);
+    const avatar = option.firstElementChild as HTMLElement;
+    expect(avatar.querySelector("img")).toBeNull();
+    expect(avatar.textContent).toBe("A");
+    expect(screen.getByRole("option", { name: "Ann Exampleann@example.com" })).toBe(option);
+  });
+
+  it("舊 server 沒有 avatar 欄：不丟錯、顯示首字", async () => {
+    const legacy = { ...ANN } as Record<string, unknown>;
+    delete legacy.avatar;
+    const option = await firstOption([legacy as unknown as UserSuggestionDto]);
+    expect((option.firstElementChild as HTMLElement).textContent).toBe("A");
+  });
+
+  it("圖載入失敗 → 退回首字", async () => {
+    const option = await firstOption([{ ...ANN, avatar: REF }]);
+    const avatar = option.firstElementChild as HTMLElement;
+    fireEvent.error(avatar.querySelector("img")!);
+    expect(avatar.querySelector("img")).toBeNull();
+    expect(avatar.textContent).toBe("A");
   });
 });

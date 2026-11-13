@@ -114,6 +114,7 @@ describe("buildApp", () => {
       mustChangePassword: false,
       hasPassword: false,
       autoVersions: true,
+      avatar: null,
     });
   });
 

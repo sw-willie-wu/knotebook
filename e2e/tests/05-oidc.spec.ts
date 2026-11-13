@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { IDP_CONTROL_ORIGIN } from "../ports.js";
-import { ADMIN, createUserViaInvite, loginAs, randomEmail } from "./helpers.js";
+import { ADMIN, createNote, createUserViaInvite, loginAs, randomEmail } from "./helpers.js";
 
 /**
  * 流程 5（#187 改寫）：SSO 兩情境（fake-idp）。e2e 疊的 `global-setup.ts` 以管理 API 建一個名為「SSO」的登入服務（指向 fake-idp 根 issuer、已啟用、
@@ -103,6 +103,88 @@ test("情境二：SSO 首登 email 命中邀請建的帳號 → 輸入該帳號�
     await expect(page.getByRole("button", { name: displayName, exact: true })).toBeVisible();
   } finally {
     await passwordContext.close();
+  }
+});
+
+/**
+ * 情境三：IdP 的 `picture` → 首登後背景下載成 OIDC 候選並自動選用，再由瀏覽器補產顯示圖 → 側欄帳號按鈕出現圖；
+ * 刪掉它之後再登入不會被補回，設定頁的「Use my SSO picture」才把它拿回來。
+ * 圖放在 fake-idp 自己的 `/avatar.png`（與 issuer 同主機名同埠），下載器的位址檢查因此放行；不靠任何 e2e 專用放行縫。
+ */
+test("情境三：SSO 首登帶 picture → 自動成為候選並選用 → 補產顯示圖後側欄有圖；刪除後不被補回，手動「Use my SSO picture」才取回", async ({ request, browser }) => {
+  test.setTimeout(180_000);
+  const email = randomEmail();
+  const sub = `e2e-picture-${randomUUID()}`;
+  const displayName = "E2E Picture User";
+  const picture = "http://fake-idp:9400/avatar.png";
+
+  const putLogin = async () => {
+    const res = await request.put(CONTROL_URL, { data: { sub, email, email_verified: true, name: displayName, picture } });
+    expect(res.ok()).toBe(true);
+  };
+  const ssoLogin = async (page: Page) => {
+    await putLogin();
+    await page.goto("/login");
+    await page.getByRole("link", { name: SSO_BUTTON }).click();
+    await expect(page).toHaveURL(/\/$/, { timeout: 20_000 });
+  };
+  type Candidate = { id: string; source: string; providerName: string | null; pending: boolean; current: boolean };
+  type AvatarList = { candidates: Candidate[]; auto: boolean; refreshable: { identityId: string; providerName: string }[] };
+  const readList = async (page: Page) => (await (await page.request.get("/api/auth/avatars")).json()) as AvatarList;
+
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  try {
+    const page = await context.newPage();
+    await ssoLogin(page);
+    const accountButton = page.getByRole("button", { name: displayName, exact: true });
+    await expect(accountButton).toBeVisible({ timeout: 15_000 });
+
+    // 背景下載：候選出現且是目前這張（登入回應不等它，所以輪詢）。
+    await expect.poll(async () => (await readList(page)).candidates.length, { timeout: 35_000 }).toBe(1);
+    const first = (await readList(page)).candidates[0]!;
+    expect(first.source).toBe("oidc");
+    expect(first.providerName).toBe("SSO");
+    expect(first.current).toBe(true);
+
+    // 圖可能在首頁讀 /me 之後才到；重新整理＝再開一次 Knotebook，補產器才看得到 pending。
+    await page.reload();
+    await expect(accountButton).toBeVisible({ timeout: 15_000 });
+
+    // 補產顯示圖由本人瀏覽器做（掛在 AppShell，人還停在首頁就會補；設定頁自己也會補，所以先不進去）：pending 變 false。
+    await expect.poll(async () => (await readList(page)).candidates[0]?.pending, { timeout: 35_000 }).toBe(false);
+
+    await page.goto("/settings/account");
+    const group = page.getByRole("radiogroup", { name: "Picture options" });
+    await expect(group.getByRole("radio", { name: "Picture from SSO", exact: true })).toHaveAttribute("aria-checked", "true", { timeout: 15_000 });
+
+    // 側欄帳號按鈕內有載入完成的 <img>（回筆記頁看；先等標題框，lazy 頁換完殼才碰側欄）。
+    await page.goto("/");
+    await createNote(page, `E2E OIDC avatar ${Date.now()}`);
+    await expect(page.getByLabel("Note title")).toBeVisible({ timeout: 15_000 });
+    const accountImg = accountButton.locator("img");
+    await expect(accountImg).toHaveCount(1, { timeout: 15_000 });
+    await expect.poll(() => accountImg.evaluate((el: HTMLImageElement) => el.naturalWidth), { timeout: 15_000 }).toBeGreaterThan(0);
+
+    // 刪掉它 → 再 SSO 登入一次：同一張圖不會被補回。
+    const del = await page.request.delete(`/api/auth/avatars/${first.id}`);
+    expect(del.status(), await del.text()).toBeLessThan(300);
+    await page.request.post("/api/auth/logout");
+    await ssoLogin(page);
+    await expect(accountButton).toBeVisible({ timeout: 15_000 });
+    // 沒有「會補回」的事件可等，只能給背景工作一個完整的視窗再確認仍沒有候選。
+    await page.waitForTimeout(3_000);
+    expect((await readList(page)).candidates).toHaveLength(0);
+
+    // 設定頁的「Use my SSO picture」手動取回 → 又成為候選並選用。
+    await page.goto("/settings/account");
+    await page.getByRole("button", { name: "Use my SSO picture", exact: true }).click({ timeout: 15_000 });
+    await expect(group.getByRole("radio", { name: "Picture from SSO", exact: true })).toHaveAttribute("aria-checked", "true", { timeout: 20_000 });
+    const after = await readList(page);
+    expect(after.candidates).toHaveLength(1);
+    expect(after.candidates[0]!.current).toBe(true);
+    expect(after.refreshable).toHaveLength(0);
+  } finally {
+    await context.close();
   }
 });
 

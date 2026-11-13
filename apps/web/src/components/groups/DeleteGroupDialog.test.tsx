@@ -15,7 +15,7 @@ const ADMIN = adminRole();
 const MEMBER = memberRole();
 
 function member(userId: string, displayName: string, role: typeof ADMIN): GroupMemberDto {
-  return { userId, email: `${displayName.toLowerCase()}@example.com`, displayName, roleId: role.id, builtin: role.builtin };
+  return { userId, email: `${displayName.toLowerCase()}@example.com`, displayName, roleId: role.id, builtin: role.builtin, avatar: null };
 }
 
 /** server 排序：內建管理員在前。 */

@@ -11,6 +11,7 @@ import { TxAbort } from "../http/tx-abort.js";
 import { DUMMY_HASH, HashBusyError, verifyPassword } from "../auth/password.js";
 import type { LoginThrottle } from "../auth/rate-limit.js";
 import type { UserGate } from "../auth/session.js";
+import { readCurrentAvatar } from "../avatars/read.js";
 import { startSession } from "../auth/sessions.js";
 import type { CollabHooks } from "../collab/hooks.js";
 import { touchLastLogin } from "../auth/last-login.js";
@@ -46,8 +47,8 @@ export interface OidcPendingRouteDeps {
   oidcTestHook?: OidcTestHook;
 }
 
-function toUserDto(u: LinkedUser): UserDto {
-  return { id: u.id, email: u.email, handle: u.handle, displayName: u.displayName, isAdmin: u.isAdmin, mustChangePassword: u.mustChangePassword, hasPassword: u.hasPassword, autoVersions: u.autoVersions };
+function toUserDto(u: LinkedUser, avatar: UserDto["avatar"]): UserDto {
+  return { id: u.id, email: u.email, handle: u.handle, displayName: u.displayName, isAdmin: u.isAdmin, mustChangePassword: u.mustChangePassword, hasPassword: u.hasPassword, autoVersions: u.autoVersions, avatar };
 }
 
 /**
@@ -145,7 +146,7 @@ export function oidcPendingRoutes(deps: OidcPendingRouteDeps) {
       await startSession(deps, request, reply, { userId: linked.id, tv: linked.tokenVersion });
       // next 由 server 從 pending 解出、再過 safeNextPath；web 只用這個值。
       const next = (pending.next !== undefined ? safeNextPath(pending.next) : null) ?? "/";
-      const body: PendingLinkConfirmDto = { user: toUserDto(linked), next };
+      const body: PendingLinkConfirmDto = { user: toUserDto(linked, await readCurrentAvatar(deps.db, linked.id)), next };
       return reply.send(body);
     });
 

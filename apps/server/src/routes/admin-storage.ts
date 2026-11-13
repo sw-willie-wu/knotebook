@@ -45,7 +45,7 @@ export function validatePlanName(raw: string): string | null {
 }
 
 /**
- * 方案 DTO 的 select（只組不執行；每次現造）。overQuotaCount＝指派到此方案且 used > quota 的使用者數＋群組數。
+ * 方案 DTO 的 select（只組不執行；每次現造）。overQuotaCount＝指派到此方案且 used > quota 的使用者數＋群組數（使用者的 used 含頭貼，群組不含）。
  * 相關子查詢裡的外層欄一律寫死 `storage_plans.id`／`storage_plans.quota_bytes`：單表 select 時 drizzle 把 `${storagePlans.id}`
  * 渲染成不帶表名的 `"id"`（`toSQL()` 實測），在 `from users u` 子查詢裡會被解析成 `u.id`——計數恆 0。
  */
@@ -62,7 +62,8 @@ function planRowsQuery(db: Db) {
       overQuotaCount: sql<number>`(
         case when storage_plans.quota_bytes is null then 0 else
           (select count(*)::int from users u where u.storage_plan_id = storage_plans.id
-             and (select coalesce(sum(up.size), 0) from uploads up join notes n on n.id = up.note_id where n.owner_id = u.id) > storage_plans.quota_bytes)
+             and (select coalesce(sum(up.size), 0) from uploads up join notes n on n.id = up.note_id where n.owner_id = u.id)
+               + (select coalesce(sum(av.original_size + av.display_size), 0) from user_avatars av where av.user_id = u.id) > storage_plans.quota_bytes)
         + (select count(*)::int from groups g where g.storage_plan_id = storage_plans.id
              and (select coalesce(sum(up.size), 0) from uploads up join notes n on n.id = up.note_id where n.group_id = g.id) > storage_plans.quota_bytes)
         end)`,

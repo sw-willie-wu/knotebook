@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
-import type { NoteDto, NoteWidth, ShareDto } from "@knotebook/shared";
+import { avatarUrl, type NoteDto, type NoteWidth, type ShareDto, type UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { clickOutside } from "@/test/outside-click";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
@@ -45,6 +45,7 @@ const SHARE: ShareDto = {
   email: "bob@example.com",
   displayName: "Bob",
   role: "viewer",
+  avatar: null,
 };
 
 const SHARES_URL = `/api/notes/${NOTE.id}/shares`;
@@ -328,7 +329,7 @@ describe("ShareDialog", () => {
     });
 
     it("移除的是自己：文字講明失去這篇筆記的存取權，與一般移除不同", async () => {
-      const me = { id: SHARE.userId, email: SHARE.email, handle: "bob", displayName: "Bob", isAdmin: false, mustChangePassword: false, hasPassword: true, autoVersions: true };
+      const me = { id: SHARE.userId, email: SHARE.email, handle: "bob", displayName: "Bob", isAdmin: false, mustChangePassword: false, hasPassword: true, autoVersions: true, avatar: null } satisfies UserDto;
       const stub = await openMembers((method, url) =>
         url === "/api/auth/me" && method === "GET"
           ? fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(me) })
@@ -474,6 +475,7 @@ const SHARE2: ShareDto = {
   email: "carol@example.com",
   displayName: "Carol",
   role: "editor",
+  avatar: null,
 };
 
 describe("ShareDialog 三態（#72）", () => {
@@ -1536,5 +1538,66 @@ describe("公開頁寬度（#297）", () => {
     renderDialog(GROUP_NOTE);
     await openGroupDialog();
     expect(screen.queryByLabelText("Public page width")).not.toBeInTheDocument();
+  });
+});
+
+describe("ShareDialog 名單的頭貼", () => {
+  const REF = { id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", v: 5 };
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+    window.history.replaceState(null, "", `/notes/${NOTE.id}`);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  async function renderWith(share: ShareDto) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (url === SHARES_URL && method === "GET") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([share]) }));
+        if (url === PUBLIC_LINK_URL && method === "GET") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ token: null, slug: null }) }));
+        throw new Error(`unexpected fetch: ${method} ${url}`);
+      }),
+    );
+    renderDialog();
+    await openDialog();
+    await selectMembers();
+    const name = await screen.findByText("Bob");
+    return { name, avatar: name.parentElement!.previousElementSibling as HTMLElement };
+  }
+
+  it("有頭貼：列首（名字區塊之前）有頭像，src 帶版本、lazy，外層 aria-hidden", async () => {
+    const { avatar } = await renderWith({ ...SHARE, avatar: REF });
+    const img = avatar.querySelector("img");
+    expect(img).toHaveAttribute("src", avatarUrl(REF.id, REF.v));
+    expect(img).toHaveAttribute("loading", "lazy");
+    expect(avatar).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("avatar 為 null：首字、沒有 img；名字 <p> 的 textContent 仍等於 displayName", async () => {
+    const { name, avatar } = await renderWith(SHARE);
+    expect(avatar.querySelector("img")).toBeNull();
+    expect(avatar.textContent).toBe("B");
+    expect(name.textContent).toBe("Bob");
+  });
+
+  it("舊 server 沒有 avatar 欄：不丟錯、顯示首字", async () => {
+    const share = { ...SHARE } as Record<string, unknown>;
+    delete share.avatar;
+    const { avatar } = await renderWith(share as unknown as ShareDto);
+    expect(avatar.querySelector("img")).toBeNull();
+    expect(avatar.textContent).toBe("B");
+  });
+
+  it("圖載入失敗 → 退回首字", async () => {
+    const { avatar } = await renderWith({ ...SHARE, avatar: REF });
+    fireEvent.error(avatar.querySelector("img")!);
+    expect(avatar.querySelector("img")).toBeNull();
+    expect(avatar.textContent).toBe("B");
   });
 });
