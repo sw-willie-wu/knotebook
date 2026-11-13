@@ -94,10 +94,15 @@ jobs:
           ref: ${{ steps.target.outputs.ref }}
           fetch-depth: 2
 
+      - name: Use the current .nvmrc for tags made before it existed
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: test -f .nvmrc || { git fetch --depth=1 origin "$DEFAULT_BRANCH" && git show FETCH_HEAD:.nvmrc > .nvmrc; }
+
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           package-manager-cache: false
 
       - name: Decide what to publish
@@ -392,11 +397,16 @@ jobs:
         with:
           ref: ${{ needs.resolve.outputs.sha }}
 
+      - name: Use the current .nvmrc for tags made before it existed
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: test -f .nvmrc || { git fetch --depth=1 origin "$DEFAULT_BRANCH" && git show FETCH_HEAD:.nvmrc > .nvmrc; }
+
       # 抽 notes 的 script 是純 node，不需要 pnpm install。
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           package-manager-cache: false
 
       - name: Extract release notes from CHANGELOG

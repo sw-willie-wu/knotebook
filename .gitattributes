@@ -3,3 +3,4 @@
 
 # Shell scripts run under bash (Git Bash and WSL): keep them LF on every checkout.
 *.sh text eol=lf
+.nvmrc text eol=lf
