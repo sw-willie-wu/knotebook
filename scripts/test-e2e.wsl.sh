@@ -119,14 +119,10 @@ case "$0" in */test-e2e-wsl.*) trap 'rm -f -- "$0"' EXIT ;; esac
     curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
   fi
   . "$NVM_DIR/nvm.sh"
-  if ! command -v node >/dev/null 2>&1; then
-    echo "[test-e2e] 首次執行：安裝 Node 22（不需 sudo）"
-    nvm install 22
-  fi
-  nvm use default >/dev/null
-  corepack enable >/dev/null 2>&1 || true
-
   cd "$workdir"
+  echo "[test-e2e] 使用 .nvmrc 指定的 Node 版本（首次執行會自動安裝，不需 sudo）"
+  nvm use >/dev/null 2>&1 || nvm install >/dev/null
+  corepack enable >/dev/null 2>&1 || true
   echo "[test-e2e] pnpm install --frozen-lockfile（原生 fs，應該很快）"
   pnpm install --frozen-lockfile
 

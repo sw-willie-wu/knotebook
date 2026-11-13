@@ -74,8 +74,8 @@ const readOrNull = (path: string): string | null => {
 };
 
 /**
- * 這個程序實際能用的 CPU 數：`os.availableParallelism()`（只看 CPU 親和性，**不看 cgroup 的 CPU 配額**——實測 Node 22.23 在
- * `docker run --cpus=2` 裡回主機的 24）與 cgroup 配額（v2 `/sys/fs/cgroup/cpu.max` 的 `quota period`；v1 `cpu.cfs_quota_us`／
+ * 這個程序實際能用的 CPU 數：`os.availableParallelism()`（libuv 讀得到 cgroup 時會套配額，但不可靠——實測 Node 22.23 在 cgroup v1
+ * 主機的 `docker run --cpus=2` 裡回主機的 24）與 cgroup 配額（v2 `/sys/fs/cgroup/cpu.max` 的 `quota period`；v1 `cpu.cfs_quota_us`／
  * `cpu.cfs_period_us`）取小，配額向上取整。沒有配額（`max`、-1）或讀不到（非 Linux）就只用 `availableParallelism()`。
  */
 export function detectCpuCount(probe: CpuProbe = {}): { cpus: number; source: CpuSource } {

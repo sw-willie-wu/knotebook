@@ -112,14 +112,10 @@ wsl -e bash -lc 'set -euo pipefail
     curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
   fi
   . "$NVM_DIR/nvm.sh"
-  if ! command -v node >/dev/null 2>&1; then
-    echo "[test-integration] 首次執行：安裝 Node 22（不需 sudo）"
-    nvm install 22
-  fi
-  nvm use default >/dev/null
-  corepack enable >/dev/null 2>&1 || true
-
   cd "$dest"
+  echo "[test-integration] 使用 .nvmrc 指定的 Node 版本（首次執行會自動安裝，不需 sudo）"
+  nvm use >/dev/null 2>&1 || nvm install >/dev/null
+  corepack enable >/dev/null 2>&1 || true
   echo "[test-integration] pnpm install（原生 fs，應該幾秒內完成）"
   pnpm install --frozen-lockfile
 
