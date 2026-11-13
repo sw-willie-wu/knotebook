@@ -43,7 +43,7 @@
     "@hocuspocus/provider": "^4.5.0",
     "@testcontainers/postgresql": "^11",
     "@types/jsdom": "^30",
-    "@types/node": "^22",
+    "@types/node": "^24",
     "@types/pg": "^8",
     "@types/ws": "^8.18.1",
     "drizzle-kit": "^0.31",
