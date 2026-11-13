@@ -45,7 +45,7 @@ const THEMES: Theme[] = ["light", "dark", "system"];
  * `getByRole("button",{name:user.displayName,exact:true})` 這類既有查詢在改版
  * 前後行為不變。
  */
-export function UserMenu() {
+export function UserMenu({ variant = "row" }: { variant?: "row" | "avatar" } = {}) {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
@@ -76,36 +76,57 @@ export function UserMenu() {
     void i18n.changeLanguage(code);
   }
 
+  const avatar = variant === "avatar";
   return (
     <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
       <DropdownMenuTrigger asChild>
-        <button
-          ref={triggerRef}
-          type="button"
-          aria-label={user.displayName}
-          className={cn(
-            // 列高吃 SIDEBAR_ROW_HEIGHT：與內文卡底部的 backlinks 列等高
-            // （兩者左右相鄰，見該常數註解）。p-1.5＋24px avatar 的自然高度
-            // 本來就等於它，這裡明寫出來是為了讓兩邊有機械連結、不會各改各的。
-            "flex w-full items-center gap-2 rounded-md p-1.5 text-left text-sm hover:bg-accent/60",
-            SIDEBAR_ROW_HEIGHT,
-          )}
-        >
-          <span
-            aria-hidden="true"
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-[11px] font-semibold text-primary-foreground"
+        {avatar ? (
+          // 頭像形（手機清單頂列）：只有圓形首字；視覺 32、點擊範圍 44。
+          <button
+            ref={triggerRef}
+            type="button"
+            aria-label={user.displayName}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full"
           >
-            {user.displayName.charAt(0).toUpperCase()}
-          </span>
-          <span aria-hidden="true" className="min-w-0 flex-1 truncate">
-            {user.displayName}
-          </span>
-          <Settings aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" />
-        </button>
+            <span
+              aria-hidden="true"
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground"
+            >
+              {user.displayName.charAt(0).toUpperCase()}
+            </span>
+          </button>
+        ) : (
+          <button
+            ref={triggerRef}
+            type="button"
+            aria-label={user.displayName}
+            className={cn(
+              // 列高吃 SIDEBAR_ROW_HEIGHT：與內文卡底部的 backlinks 列等高
+              // （兩者左右相鄰，見該常數註解）。p-1.5＋24px avatar 的自然高度
+              // 本來就等於它，這裡明寫出來是為了讓兩邊有機械連結、不會各改各的。
+              "flex w-full items-center gap-2 rounded-md p-1.5 text-left text-sm hover:bg-accent/60",
+              SIDEBAR_ROW_HEIGHT,
+            )}
+          >
+            <span
+              aria-hidden="true"
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-[11px] font-semibold text-primary-foreground"
+            >
+              {user.displayName.charAt(0).toUpperCase()}
+            </span>
+            <span aria-hidden="true" className="min-w-0 flex-1 truncate">
+              {user.displayName}
+            </span>
+            <Settings aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" />
+          </button>
+        )}
       </DropdownMenuTrigger>
       {/* 寬度跟著觸發它的帳號列走（Radix 在 Content 上曝露 trigger 量到的寬度），
-          選單左右緣就跟側欄對齊；預設的 `min-w-32`（128px）比那一列窄一半。 */}
-      <DropdownMenuContent align="end" className="min-w-[var(--radix-dropdown-menu-trigger-width)]">
+          選單左右緣就跟側欄對齊；預設的 `min-w-32`（128px）比那一列窄一半。頭像形的觸發鈕只有 44 寬，改用固定下限、靠左對齊。 */}
+      <DropdownMenuContent
+        align={avatar ? "start" : "end"}
+        className={avatar ? "min-w-56" : "min-w-[var(--radix-dropdown-menu-trigger-width)]"}
+      >
         <DropdownMenuLabel>{user.displayName}</DropdownMenuLabel>
         <DropdownMenuSeparator />
 

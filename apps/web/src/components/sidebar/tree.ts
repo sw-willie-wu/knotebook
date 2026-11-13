@@ -191,6 +191,37 @@ export function noteLocationSegments(note: { group: { name: string } | null }, p
   return note.group ? [note.group.name, ...path] : [...path];
 }
 
+export interface NoteLocationParts {
+  /** 由外到內的路徑段：我的筆記／群組名／與我共享，後面接資料夾名。 */
+  segments: string[];
+  /** 共享筆記的擁有者（`@帳號`），其餘 null。 */
+  suffix: string | null;
+  /** 這篇筆記在清單裡所屬的 tab。 */
+  tab: SidebarTab;
+  /** 路徑最內層的資料夾；筆記在根層（或資料夾對不上）時 null。 */
+  folderId: string | null;
+  /** 群組筆記所屬的群組（清單裡的群組區塊要展開才看得到那一列）；其餘 null。 */
+  groupId: string | null;
+}
+
+/** 手機筆記頁首副標用的位置；分類與資料夾路徑都沿用 `noteBucket`／`noteFolderPath`。 */
+export function noteLocationParts(note: NoteDto, ctx: LocationContext, t: Translate): NoteLocationParts {
+  const bucket = noteBucket(note, ctx.groupIds);
+  const path = noteFolderPath(note, ctx);
+  const folderId = path.length > 0 ? note.folderId : null;
+  if (bucket.kind === "group") {
+    return { segments: [note.group?.name ?? "", ...path], suffix: null, tab: "workspace", folderId, groupId: bucket.groupId };
+  }
+  if (bucket.kind === "myNotes") return { segments: [t("sidebar.myNotes"), ...path], suffix: null, tab: "myNotes", folderId, groupId: null };
+  return {
+    segments: [t("sidebar.shared"), ...path],
+    suffix: note.ownerHandle === null ? null : `@${note.ownerHandle}`,
+    tab: "shared",
+    folderId,
+    groupId: null,
+  };
+}
+
 /**
  * 筆記的位置標籤：搜尋結果與最近 tab 的第二行都只經這一支。
  * 個人「My notes › A › B」；群組「Groups › G › A」；共享無放置「Shared with me · Viewer」、有放置「Shared with me › X · Viewer」。

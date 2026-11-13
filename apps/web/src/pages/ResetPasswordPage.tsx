@@ -1,3 +1,4 @@
+import { SAFE_PAGE_PADDING } from "@/components/ui/safe-area";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router";
 import { useTranslation } from "react-i18next";
@@ -80,7 +81,7 @@ function ResetPasswordContent({ token, forget, session }: { token: string | null
     </p>
   );
   const frame = (children: ReactNode) => (
-    <main className="flex min-h-screen items-center justify-center p-8">
+    <main className={`flex min-h-screen items-center justify-center ${SAFE_PAGE_PADDING}`}>
       <div className="w-full max-w-sm space-y-4">
         <h1 className="text-2xl font-semibold">{t("resetPassword.title")}</h1>
         {children}

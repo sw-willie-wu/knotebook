@@ -10,7 +10,8 @@ import {
   type ReactNode,
 } from "react";
 import { clearSearchMark } from "@/hooks/search-mark";
-import { OVERLAY_QUERY } from "@/lib/layout-tiers";
+import { OVERLAY_QUERY, isPhone } from "@/lib/layout-tiers";
+import { PhoneListContext } from "@/lib/phone-list";
 import { SidebarDrawerContext } from "@/lib/sidebar-drawer";
 import { EMPTY_SELECTION, reduceSelection, type SelectionOp, type SidebarSelection } from "@/lib/sidebar-selection";
 
@@ -22,9 +23,9 @@ import { EMPTY_SELECTION, reduceSelection, type SelectionOp, type SidebarSelecti
  *   物件），筆記頁只用它；`SidebarTabStateContext` 放目前 tab 與選取，只有側欄元件消費。
  * - 選取狀態也在這裡：靜態卡與抽屜兩份要看到同一份；actions 只放穩定函式，勾選不讓
  *   `children` 重繪。切 tab、抽屜 Esc（`actionsRef`，`AppShell` 用）與開始搜尋都會結束選取。
- * - `showTab` 讀 ref 而不是把抽屜 context 放進依賴：`AppShell` 的 `SidebarDrawerContext.Provider value`
+ * - `showTab` 讀 ref 而不是把抽屜與手機清單 context 放進依賴：`AppShell` 的 `SidebarDrawerContext.Provider value`
  *   每次 render 都是新物件，進依賴的話 actions 會跟著換物件。
- * - `AppShell` 會隨首頁↔筆記頁重掛（各自渲染一份），所以初值每次掛載都重讀 storage，tab 靠它延續。
+ * - `AppShell` 在 layout route 裡、換路由不重掛；初值仍在每次掛載時讀 storage（重新整理、開新分頁）。
  * - 合法值就是 `SIDEBAR_TABS` 的六個（含 `favorites`、`trash`）；舊版存下的值都還在清單內，照樣讀得回來。
  */
 export type SidebarTab = "recent" | "favorites" | "myNotes" | "workspace" | "shared" | "trash";
@@ -95,6 +96,9 @@ export function SidebarTabProvider({
   const drawer = useContext(SidebarDrawerContext);
   const drawerRef = useRef(drawer);
   drawerRef.current = drawer;
+  const phoneList = useContext(PhoneListContext);
+  const phoneListRef = useRef(phoneList);
+  phoneListRef.current = phoneList;
 
   const showTab = useCallback((next: SidebarTab) => {
     setTab(next);
@@ -103,7 +107,9 @@ export function SidebarTabProvider({
       dispatchSelection({ type: "end" });
       clearSearchMark(); // 搜尋框已空時切到別的 tab ＝離開搜尋：清掉搜尋跳轉留在筆記裡的標記
     }
-    if (window.matchMedia(OVERLAY_QUERY).matches) drawerRef.current?.setOpen(true);
+    // 手機：清單本身就是全螢幕畫面，換 tab 後要回到清單；浮動段：開抽屜；固定段：側欄一直在，不做事。
+    if (isPhone()) phoneListRef.current?.backToList();
+    else if (window.matchMedia(OVERLAY_QUERY).matches) drawerRef.current?.setOpen(true);
   }, []);
 
   const endSelectionIfActive = useCallback(() => {

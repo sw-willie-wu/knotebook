@@ -1,3 +1,4 @@
+import { SAFE_PAGE_PADDING } from "@/components/ui/safe-area";
 import type { ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 import { Navigate, Outlet, useLocation } from "react-router";
@@ -7,7 +8,7 @@ import { useSession } from "./useSession";
 function FullScreenLoading() {
   const { t } = useTranslation();
   return (
-    <div className="flex min-h-screen items-center justify-center">
+    <div className={`flex min-h-screen items-center justify-center ${SAFE_PAGE_PADDING}`}>
       <p className="text-muted-foreground">{t("app.loading")}</p>
     </div>
   );
@@ -22,7 +23,7 @@ function FullScreenLoading() {
 function SessionError({ onRetry }: { onRetry: () => void }) {
   const { t } = useTranslation();
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-4">
+    <div className={`flex min-h-screen flex-col items-center justify-center gap-4 ${SAFE_PAGE_PADDING}`}>
       <p className="text-muted-foreground" role="alert">
         {t("app.sessionError")}
       </p>

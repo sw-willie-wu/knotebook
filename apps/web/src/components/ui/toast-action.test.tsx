@@ -39,3 +39,15 @@ describe("toast action", () => {
     expect(document.querySelector('[data-radix-toast-announce-alt="Go"]')).not.toBeNull();
   });
 });
+
+describe("toast viewport safe area", () => {
+  it("四邊內距都是 max(16px, safe area)：瀏海、Home 指示條與橫拿的側邊下不被蓋住", () => {
+    render(<Toaster />);
+    const viewport = document.querySelector("ol");
+    expect(viewport).not.toBeNull();
+    for (const [prefix, side] of [["pt", "top"], ["pr", "right"], ["pb", "bottom"], ["pl", "left"]]) {
+      expect(viewport).toHaveClass(`${prefix}-[max(1rem,env(safe-area-inset-${side}))]`);
+    }
+    expect(viewport).not.toHaveClass("p-4");
+  });
+});

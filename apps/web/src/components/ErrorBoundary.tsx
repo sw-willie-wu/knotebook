@@ -1,6 +1,6 @@
+import { SAFE_PAGE_PADDING, SAFE_PAGE_PADDING_COMPACT } from "@/components/ui/safe-area";
 import { Component, useEffect, useSyncExternalStore, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { AppShell } from "./AppShell";
 import { Button } from "./ui/button";
 import { cardSurface } from "./ui/card";
 import { cn } from "@/lib/utils";
@@ -152,7 +152,7 @@ type BoundaryStatus = "normal" | "pending" | "reloading" | "error";
 
 /**
  * 載入中／錯誤畫面套在哪種外框裡（#201）：
- * - `app`：AppShell＋內文卡（NotePage、站台管理——頁面本身就坐在 AppShell 裡）；
+ * - `app`：內文卡（NotePage——頁面本身就坐在 `AppShellLayout` 的 AppShell 裡，外框不再自己包一份）；
  * - `page`：置中的滿版 `<main>`（登入流程那幾頁的版面，未登入也能到，**不得**包 AppShell
  *   ——它會打 `/api/auth/me`、露出側欄）；
  * - `inline`：不加外框，只有內容（設定 modal 的內容區——外殼與導覽留在原地；版本歷史各掛載點
@@ -303,13 +303,13 @@ export const NoteRouteErrorBoundary = LazyRouteErrorBoundary;
  * AuthorizePage 的最外層 `<main>` 同款，lazy 頁面到手前後版面不跳。
  */
 function PageFrame({ children }: { children: ReactNode }) {
-  return <main className="flex min-h-screen items-center justify-center p-8">{children}</main>;
+  return <main className={`flex min-h-screen items-center justify-center ${SAFE_PAGE_PADDING}`}>{children}</main>;
 }
 
 /**
  * lazy route 的載入中畫面（#201）：也是 `<Suspense fallback>` 要用的那一份——boundary 的
  * pending／reloading 與 chunk 載入中長得一樣，使用者分不出、也不該分出。`app` 外框直接用
- * `NotePageFallback`（它的 AppShell 回歸釘在 App.test.tsx）。
+ * `NotePageFallback`（它在 layout route 的 AppShell 裡渲染，回歸釘在 App.appShellLayout.test.tsx）。
  */
 export function LazyRouteLoading({ frame = "app" }: { frame?: LazyRouteFrame }) {
   const { t } = useTranslation();
@@ -346,17 +346,15 @@ function LazyRouteErrorFallback({
   if (frame === "page") return <PageFrame>{content}</PageFrame>;
   if (frame === "inline") return inlineErrorClassName ? <div className={inlineErrorClassName}>{content}</div> : content;
   return (
-    <AppShell>
-      {/* 跟 NotePage/HomePage/NotePageFallback 同一款
-          內文卡——main 已無自身捲動，長錯誤內容改由卡自己捲（overflow-y-auto）。
-          內容本身不動。 */}
-      <div className={cn(cardSurface, "min-w-0 flex-1 overflow-y-auto")}>
-        {/* #115：窄視窗的抽屜入口（AppErrorFallback 刻意不掛——零 context 相依，
-            見 NarrowTopBar 檔頭）。 */}
-        <NarrowTopBar />
-        {content}
-      </div>
-    </AppShell>
+    // 跟 NotePage/HomePage/NotePageFallback 同一款
+    // 內文卡——main 已無自身捲動，長錯誤內容改由卡自己捲（overflow-y-auto）。
+    // 內容本身不動。側欄殼由外層的 AppShellLayout 提供。
+    <div className={cn(cardSurface, "min-w-0 flex-1 overflow-y-auto")}>
+      {/* #115：窄視窗的抽屜入口（AppErrorFallback 刻意不掛——零 context 相依，
+          見 NarrowTopBar 檔頭）。 */}
+      <NarrowTopBar />
+      {content}
+    </div>
   );
 }
 
@@ -393,7 +391,7 @@ function AppErrorFallback({ onReload }: { onReload: () => void }) {
   const { t } = useTranslation();
   const online = useOnline();
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-6">
+    <div className={`flex min-h-screen items-center justify-center bg-background ${SAFE_PAGE_PADDING_COMPACT}`}>
       <div role="alert" className="flex flex-col items-center gap-4 rounded-lg border p-8 text-center">
         <p className="text-base font-medium text-foreground">{t("app.crashTitle")}</p>
         <Button type="button" variant="outline" disabled={!online} onClick={onReload}>

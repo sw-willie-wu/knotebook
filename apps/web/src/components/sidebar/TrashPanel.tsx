@@ -481,7 +481,7 @@ export function TrashPanel() {
       <div ref={headerRef} data-sidebar-header="" className="flex items-center gap-0.5 px-2 pt-3 pb-1">
         {renderHeader()}
       </div>
-      <div data-sidebar-list="" tabIndex={-1} ref={listRef} className="min-h-0 flex-1 overflow-y-auto px-2 focus-visible:outline-none">
+      <div data-sidebar-list="" tabIndex={-1} ref={listRef} className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-2 focus-visible:outline-none">
         {renderBody()}
       </div>
       <PurgeConfirmDialog

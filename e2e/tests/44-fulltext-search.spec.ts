@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { ADMIN, createUserViaInvite, loginAs, randomEmail } from "./helpers.js";
+import { ADMIN, createUserViaInvite, loginAs, openListOnCompact, randomEmail } from "./helpers.js";
 
 /**
  * #93：側欄搜尋的合併結果列表（真瀏覽器；標題命中與內文命中一個列表，**每處內文命中各一項**、三行：標題／資料夾路徑／片段）。
@@ -194,7 +194,7 @@ test("E1b 巢狀標題：# Top 底下都是 ##——片段的段落標題是 Top
   await expect(page.locator(`.kn-anchor-flash[data-anchor-flash="${topId}"]`)).toHaveCount(0);
 });
 
-test("E3＋E4 窄螢幕抽屜：別篇與同篇的片段點了都關抽屜、捲到含字的 block", async ({ page }) => {
+test("E3＋E4 手機清單：別篇與同篇的片段點了都回到筆記畫面、捲到含字的 block", async ({ page }) => {
   test.setTimeout(120_000);
   await page.setViewportSize({ width: 390, height: 844 });
   await asNewUser(page, "E2E Fulltext E3");
@@ -206,11 +206,11 @@ test("E3＋E4 窄螢幕抽屜：別篇與同篇的片段點了都關抽屜、捲
   const gammaId = (await waitIndexed(page, kw, a.id)).sectionId;
   const href = `${pathOf(a)}#b-${gammaId}`;
 
+  // 手機：筆記畫面先回清單，在底部搜尋框打字（全螢幕搜尋層），結果的片段就在清單裡。
   async function searchInDrawer(): Promise<Locator> {
-    await page.getByRole("button", { name: "Open sidebar" }).click();
-    const drawer = page.getByRole("dialog", { name: "Navigation" });
-    await drawer.getByRole("textbox", { name: "Search notes" }).fill(kw);
-    const s = snippetOf(drawer, href);
+    const list = await openListOnCompact(page);
+    await list.getByRole("textbox", { name: "Search notes" }).fill(kw);
+    const s = snippetOf(list, href);
     await expect(s).toBeVisible({ timeout: 15_000 });
     return s;
   }
@@ -219,7 +219,7 @@ test("E3＋E4 窄螢幕抽屜：別篇與同篇的片段點了都關抽屜、捲
   await page.goto(pathOf(b));
   await expect(titleBox(page)).toHaveValue(b.title, { timeout: 15_000 });
   await (await searchInDrawer()).click();
-  await expect(page.getByRole("dialog", { name: "Navigation" })).toHaveCount(0);
+  await expect(page.getByRole("textbox", { name: "Search notes" })).toBeHidden();
   await page.waitForURL((u) => u.pathname === pathOf(a) && u.hash === `#b-${gammaId}`, { timeout: 15_000 });
   await expect(titleBox(page)).toHaveValue(a.title, { timeout: 15_000 });
   const hitId = await matchBlockId(page, kw);
@@ -227,12 +227,12 @@ test("E3＋E4 窄螢幕抽屜：別篇與同篇的片段點了都關抽屜、捲
   await expect(block(page, hitId)).toBeInViewport({ timeout: 15_000 });
   await expectAnchorFlash(page, hitId);
 
-  // 在 A 頁面（頁首），點 A 自己的片段——pathname 不變，抽屜照樣關
+  // 在 A 頁面，回清單搜尋，點 A 自己的片段——回到同一篇，清單藏起來
   await page.goto(pathOf(a));
   await expect(titleBox(page)).toHaveValue(a.title, { timeout: 15_000 });
   await expect(block(page, hitId)).not.toBeInViewport();
   await (await searchInDrawer()).click();
-  await expect(page.getByRole("dialog", { name: "Navigation" })).toHaveCount(0);
+  await expect(page.getByRole("textbox", { name: "Search notes" })).toBeHidden();
   await expect(block(page, hitId)).toBeInViewport({ timeout: 15_000 });
   await expectAnchorFlash(page, hitId);
 });

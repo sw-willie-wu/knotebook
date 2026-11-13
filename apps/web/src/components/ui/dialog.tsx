@@ -30,7 +30,7 @@ DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
  * 的做法，不靠 grep 測試；`size="panel"`＝三個管理面板（`components/management/ManagementShell.tsx`，#247）
  * 與快捷鍵介紹頁（`components/shortcuts/ShortcutsDialog.tsx`，單卡、寬度另以 className 收窄）：
  * 外框本身透明無邊、不投影，托盤與兩張卡由 ManagementShell 自己畫；窄視窗 `96vw × 92vh`，
- * `md:` 以上 `92vw × 88vh` 夾在 896×672～1360×896 之間。`panel` 時**不渲染內建 Close**——
+ * `md:` 以上 `92vw × 88vh` 夾在 896×672～1360×896 之間；`max-w` 讓兩側各至少留 2vw 與左右 safe area 的較大者（橫拿時面板邊緣不進感應器區）。`panel` 時**不渲染內建 Close**——
  * 面板在右卡自己放一顆帶 i18n 名稱的 ✕，這裡再放就會有兩顆 Close。
  * `panel` 的 grid 軌道是 `minmax(0,1fr)`：預設的 `auto` 軌道會依托盤內容撐大，托盤就會在高度與寬度上都長出外框、右卡永遠不捲動。 */
 const dialogContentVariants = cva(
@@ -44,6 +44,7 @@ const dialogContentVariants = cva(
         default: "max-w-lg p-6",
         panel:
           "p-0 bg-transparent border-0 shadow-none overflow-visible w-[96vw] h-[92vh] " +
+          "max-w-[calc(100vw-2*max(2vw,env(safe-area-inset-left),env(safe-area-inset-right)))] " +
           "grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)] " +
           "md:w-[clamp(min(56rem,96vw),92vw,85rem)] md:h-[clamp(min(42rem,92vh),88vh,56rem)]",
       },

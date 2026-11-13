@@ -30,6 +30,7 @@
     "drawerTitle": "導覽",
     "searchLabel": "搜尋筆記",
     "searchPlaceholder": "搜尋…",
+    "searchHint": "搜尋筆記標題與內文。",
     "noMatch": "沒有符合搜尋的筆記。",
     "workspace": "群組",
     "newGroup": "新增群組",
@@ -169,6 +170,8 @@
     }
   },
   "note": {
+    "backToList": "返回筆記清單",
+    "showInList": "在清單中顯示：{{path}}",
     "titleLabel": "筆記標題",
     "sizeLimitBlocked": "加進去會超過這篇筆記的大小上限（{{size}}），內容沒有加進去。",
     "overSizeLimit": "這篇筆記超過大小上限，編輯可能變慢。刪掉一些內容可以讓它變小。",

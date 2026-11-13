@@ -1,8 +1,8 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
 
 /**
- * 側欄搜尋字（#93 / #369）。住在 App 層（`ActiveNoteProvider` 旁），讓首頁與筆記頁各自的 `AppShell`——包括 lazy NotePage 的
- * Suspense fallback 自帶的那一份——共用同一個搜尋字：點搜尋結果換殼之後搜尋框還是原來的字，「清空搜尋」才清得掉搜尋跳轉留下的常駐標記。
+ * 側欄搜尋字（#93 / #369）。住在 App 層（`ActiveNoteProvider` 旁）：`AppShell` 在 layout route 裡、換路由不重掛，
+ * 但離開再回到這棵路由（登出重登、進出改密碼頁）仍會重掛；搜尋字放在 App 層，重掛之後搜尋框還是原來的字，「清空搜尋」才清得掉搜尋跳轉留下的常駐標記。
  * 沒有 provider（單獨 render `AppShell` 的測試）退回各自的本地 state，行為與提升前相同。抽屜開關、tab 狀態不在這裡。
  *
  * 搜尋字屬於某個使用者：`claim(userId)`（AppShell 掛載且 session 有人時呼叫）發現擁有者換人就清空；`release()`（登出）清空並放掉擁有者。

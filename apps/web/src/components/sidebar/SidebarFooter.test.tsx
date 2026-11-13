@@ -15,6 +15,7 @@ import { personalNote } from "@/test/select-fixtures";
 import { SidebarTabList } from "./SidebarTabList";
 import { SidebarFooter } from "./SidebarFooter";
 import { TrashPanel } from "./TrashPanel";
+import { PHONE_BAR_CONTROL_HEIGHT, PHONE_BAR_FRAME } from "./phone-bar";
 import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 import { mockWidePointer } from "@/test/wide-pointer";
 
@@ -171,7 +172,7 @@ describe("SidebarFooter — 一般 tab 選取模式", () => {
     );
   }
 
-  function renderSelectFooter(props: { searching?: boolean } = {}) {
+  function renderSelectFooter(props: { searching?: boolean; phone?: boolean } = {}) {
     localStorage.setItem("sidebar.tab", "myNotes");
     vi.stubGlobal(
       "fetch",
@@ -189,7 +190,7 @@ describe("SidebarFooter — 一般 tab 選取模式", () => {
           <SidebarTabProvider>
             <SelectionProbe />
             <div data-testid="footer">
-              <SidebarFooter searching={props.searching ?? false} onCreateNote={() => {}} newNotePending={false} />
+              <SidebarFooter phone={props.phone} searching={props.searching ?? false} onCreateNote={() => {}} newNotePending={false} />
             </div>
           </SidebarTabProvider>
         </MemoryRouter>
@@ -246,6 +247,26 @@ describe("SidebarFooter — 一般 tab 選取模式", () => {
     fireEvent.click(screen.getByRole("button", { name: "probe-start" }));
     expect(await screen.findByRole("button", { name: "Copy to" })).toBeInTheDocument();
     expect(screen.getByTestId("footer").querySelector("[data-select-action-bar]")).not.toBeNull();
+  });
+
+  it("SF-S1 手機清單（貼著螢幕底邊）的動作列留底部 safe area", async () => {
+    mockWidePointer(false);
+    renderSelectFooter({ phone: true });
+    fireEvent.click(screen.getByRole("button", { name: "probe-start" }));
+    await screen.findByRole("button", { name: "Copy to" });
+    const bar = screen.getByTestId("footer").querySelector("[data-select-action-bar]");
+    expect(bar).toHaveClass("pb-[calc(0.375rem+env(safe-area-inset-bottom))]");
+    // 與底部搜尋列同一組外框 class、控制項那一列同為 44：兩列同高，進出選取模式清單不跳。
+    for (const token of PHONE_BAR_FRAME.split(" ")) expect(bar).toHaveClass(token);
+    expect(bar?.querySelector(":scope > div")).toHaveClass(PHONE_BAR_CONTROL_HEIGHT);
+  });
+
+  it("SF-S2 一般（classic）側欄的動作列不加 safe area（外框已給底邊）", async () => {
+    mockWidePointer(false);
+    renderSelectFooter();
+    fireEvent.click(screen.getByRole("button", { name: "probe-start" }));
+    await screen.findByRole("button", { name: "Copy to" });
+    expect(screen.getByTestId("footer").querySelector("[data-select-action-bar]")?.className).not.toContain("safe-area-inset");
   });
 });
 
@@ -891,5 +912,44 @@ describe("SidebarFooter — 垃圾桶寬螢幕選取工具列", () => {
     expect(document.body).toHaveFocus();
     act(() => pointer.setWide(true));
     expect(document.body).toHaveFocus();
+  });
+});
+
+describe("SidebarFooter 手機形（phone）", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function renderPhoneFooter(tab: SidebarTab, props: { searching?: boolean } = {}) {
+    localStorage.setItem("sidebar.tab", tab);
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <SidebarTabProvider>
+          <SidebarFooter phone searching={props.searching ?? false} onCreateNote={vi.fn()} newNotePending={false} />
+        </SidebarTabProvider>
+      </QueryClientProvider>,
+    );
+  }
+
+  it.each(["myNotes", "recent", "workspace"] as const)("PF1 %s tab：不渲染 New note（底部列有）", (tab) => {
+    stubTrash();
+    renderPhoneFooter(tab);
+    expect(screen.queryByRole("button", { name: "New note" })).toBeNull();
+  });
+
+  it("PF2 搜尋中：不渲染 New note", () => {
+    stubTrash();
+    renderPhoneFooter("myNotes", { searching: true });
+    expect(screen.queryByRole("button", { name: "New note" })).toBeNull();
+  });
+
+  it("PF3 垃圾桶 tab：保留天數說明照常顯示", async () => {
+    stubTrash(7);
+    renderPhoneFooter("trash");
+    expect(await screen.findByTestId("trash-footer")).toHaveTextContent(/^Permanently deleted 7 days after deletion$/);
   });
 });

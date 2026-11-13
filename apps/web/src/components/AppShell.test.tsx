@@ -679,6 +679,8 @@ describe("AppShell — #115 側欄抽屜", () => {
     expect(drawer).toHaveAttribute("data-sidebar-drawer");
     expect(drawer).toHaveClass("fixed", "inset-y-0", "left-0", "z-50", "flex", "flex-col", "bg-card");
     expect(drawer).not.toHaveClass("w-64");
+    // 抽屜貼著視窗左緣與上下緣：瀏海、Home 指示條、橫拿的側邊都要退開。
+    expect(drawer).toHaveClass("pt-[env(safe-area-inset-top)]", "pb-[env(safe-area-inset-bottom)]", "pl-[env(safe-area-inset-left)]");
     // 側欄鈕開＝焦點落在抽屜容器本身（不聚焦搜尋框以免觸控彈鍵盤）——這一步武裝
     // Radix 的 focus trap；onOpenAutoFocus 只 preventDefault 不補聚焦的錯誤實作
     // 會讓焦點留在側欄鈕、Tab 逃進 aria-hidden 背景（原本沒案子抓）。
@@ -848,16 +850,13 @@ describe("AppShell — #115 側欄抽屜", () => {
       expect(within(drawer).queryByRole("separator")).toBeNull();
     });
 
-    it("跨 1280 變固定版面 -> 開著的抽屜關掉；640 附近的來回（手機 <-> 浮動）不關", async () => {
-      const tier = stubLayoutTier("phone");
+    it("跨 1280 變固定版面 -> 開著的抽屜關掉", async () => {
+      const tier = stubLayoutTier("overlay");
       stubFetchWithNotes([NOTE]);
       renderShell();
 
       fireEvent.click(await screen.findByRole("button", { name: "Open sidebar" }));
       await screen.findByRole("dialog", { name: "Navigation" });
-
-      act(() => tier.setLayoutTier("overlay"));
-      expect(screen.getByRole("dialog", { name: "Navigation" })).toBeInTheDocument();
 
       act(() => tier.setLayoutTier("docked"));
       await waitFor(() => expect(screen.queryByRole("dialog", { name: "Navigation" })).not.toBeInTheDocument());

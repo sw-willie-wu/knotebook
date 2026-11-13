@@ -1,9 +1,9 @@
 import { useTranslation } from "react-i18next";
 import { useNotes } from "@/api/notes";
-import { AppShell } from "@/components/AppShell";
 import { EmptyState } from "@/components/EmptyState";
 import { NarrowTopBar } from "@/components/NarrowTopBar";
 import { cardSurface } from "@/components/ui/card";
+import { useIsPhone } from "@/lib/layout-tiers";
 import { cn } from "@/lib/utils";
 
 /**
@@ -18,19 +18,20 @@ export default function HomePage() {
   const { t } = useTranslation();
   const notesQuery = useNotes();
   const hasNotes = (notesQuery.data?.length ?? 0) > 0;
+  const phone = useIsPhone();
+
+  // 手機：清單畫面（側欄）蓋滿整個視窗，這張空狀態卡與它的頂列不渲染。
+  if (phone) return null;
 
   return (
-    <AppShell>
-      {/* 主區插槽自己渲染一張全寬內文卡，跟 NotePage 的內文卡／佔位卡
-          同一套視覺——main 已無自身捲動（見 AppShell.tsx），overflow-y-auto 掛在卡
-          自己身上。 */}
-      <div className={cn(cardSurface, "min-w-0 flex-1 overflow-y-auto")}>
-        <NarrowTopBar />
-        <EmptyState
-          title={hasNotes ? t("home.selectTitle") : t("home.empty")}
-          description={hasNotes ? t("home.selectDescription") : t("home.emptyDescription")}
-        />
-      </div>
-    </AppShell>
+    // 側欄殼由外層的 AppShellLayout 提供；這裡只渲染主區插槽：一張全寬內文卡，跟 NotePage 的內文卡／佔位卡
+    // 同一套視覺——main 已無自身捲動（見 AppShell.tsx），overflow-y-auto 掛在卡自己身上。
+    <div className={cn(cardSurface, "min-w-0 flex-1 overflow-y-auto")}>
+      <NarrowTopBar />
+      <EmptyState
+        title={hasNotes ? t("home.selectTitle") : t("home.empty")}
+        description={hasNotes ? t("home.selectDescription") : t("home.emptyDescription")}
+      />
+    </div>
   );
 }

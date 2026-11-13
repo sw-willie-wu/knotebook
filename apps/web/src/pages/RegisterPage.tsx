@@ -1,3 +1,4 @@
+import { SAFE_PAGE_PADDING } from "@/components/ui/safe-area";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router";
 import type { TFunction } from "i18next";
@@ -91,7 +92,7 @@ function OpenRegistration() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center p-8">
+    <main className={`flex min-h-screen items-center justify-center ${SAFE_PAGE_PADDING}`}>
       <div className="w-full max-w-sm space-y-4">
         <h1 className="text-2xl font-semibold">{t("register.title")}</h1>
 
@@ -190,7 +191,7 @@ function InviteRegistration({ token, forget, user, sessionError, refetch, logout
 
   const errorText = (code: string | null) => (code === null ? t("errors.fallback") : t(`errors.${code}`, { defaultValue: t("errors.fallback") }));
   const frame = (children: ReactNode) => (
-    <main className="flex min-h-screen items-center justify-center p-8">
+    <main className={`flex min-h-screen items-center justify-center ${SAFE_PAGE_PADDING}`}>
       <div className="w-full max-w-sm space-y-4">
         <h1 className="text-2xl font-semibold">{t("register.title")}</h1>
         {children}

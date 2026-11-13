@@ -49,5 +49,6 @@ export function VersionsLazyBoundary({
 export const VERSIONS_ERROR_FRAME = {
   panel: cn(cardSurface, "shrink-0 p-3", VERSIONS_PANEL_PLACEMENT),
   inline: "px-5 py-2",
-  floating: cn(cardSurface, "fixed inset-x-3 bottom-5 z-50 p-3 shadow-lg sm:inset-x-auto sm:right-6 sm:w-80"),
+  floating: cn(cardSurface, "fixed bottom-[calc(1.25rem+env(safe-area-inset-bottom))] left-[max(0.75rem,env(safe-area-inset-left))] right-[max(0.75rem,env(safe-area-inset-right))] z-50 p-3 shadow-lg",
+    "sm:left-auto sm:right-[calc(1.5rem+env(safe-area-inset-right))] sm:w-80"),
 };

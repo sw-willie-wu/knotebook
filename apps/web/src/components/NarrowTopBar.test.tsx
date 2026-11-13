@@ -1,14 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, Route, Routes } from "react-router";
 import type { ReactNode } from "react";
 import type { UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
 import HomePage from "@/pages/HomePage";
 import { NotePageFallback } from "./NotePageFallback";
+import { AppShellLayout } from "./AppShellLayout";
 import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
+import { stubLayoutTier } from "@/test/layout-tier";
 
 /**
  * #115：NarrowTopBar（`xl:hidden` 的側欄鈕＋K logo 列）消費端守衛。
@@ -52,7 +54,13 @@ function renderWithProviders(children: ReactNode) {
   return render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <ThemeProvider>
-        <MemoryRouter initialEntries={["/"]}>{children}</MemoryRouter>
+        <MemoryRouter initialEntries={["/"]}>
+          <Routes>
+            <Route element={<AppShellLayout />}>
+              <Route path="*" element={children} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
       </ThemeProvider>
     </QueryClientProvider>,
   );
@@ -85,5 +93,20 @@ describe("NarrowTopBar 消費端（#115）", () => {
     renderWithProviders(<NotePageFallback />);
     const hamburger = await screen.findByRole("button", { name: "Open sidebar" });
     expect(hamburger.closest("main")).not.toBeNull();
+  });
+
+  it("手機：頂列最前面是「Back to notes」，沒有「Open sidebar」", async () => {
+    stubLayoutTier("phone");
+    renderWithProviders(<NotePageFallback />);
+    const back = await screen.findByRole("button", { name: "Back to notes" });
+    expect(back.closest("main")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Open sidebar" })).toBeNull();
+  });
+
+  it("浮動段：頂列是「Open sidebar」，沒有「Back to notes」", async () => {
+    stubLayoutTier("overlay");
+    renderWithProviders(<NotePageFallback />);
+    expect(await screen.findByRole("button", { name: "Open sidebar" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Back to notes" })).toBeNull();
   });
 });

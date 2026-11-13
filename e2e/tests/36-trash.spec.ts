@@ -8,6 +8,7 @@ import {
   loginAs,
   moveNoteToTrashFromSidebar,
   openGroupPanel,
+  openListOnCompact,
   randomEmail,
   reEscape,
   showSidebarTab,
@@ -19,11 +20,11 @@ import {
  * 1. 頁首 ⋮「Delete」不確認、toast「Undo」回到該篇且可共編；側欄 ⋮ 再移入 → 垃圾桶 tab 個人區、「剩 N 天」、底部天數。
  * 2. 公開連結在垃圾桶期間 404，從垃圾桶列「還原」後恢復。
  * 3. 選取模式：Shift 範圍選三篇還原；勾兩篇永久刪除（確認框）後原網址連結無效。
- * 4. 390 寬抽屜：選取中按 Esc 只結束選取、焦點回抽屜內的「選取」鈕；確認框 Esc 只關框（jsdom 對這條假綠過，只有真瀏覽器守得住）。
+ * 4. 700 寬抽屜（640–767，窄形）：選取中按 Esc 只結束選取、焦點回抽屜內的「選取」鈕；確認框 Esc 只關框（jsdom 對這條假綠過，只有真瀏覽器守得住）。
  * 5. 群組：「只能刪」成員移入 → toast 沒有「Undo」、看不到群組垃圾桶、原網址無效；「編輯＋刪除」成員看得到、從卡片還原。
- * 6. 390 寬抽屜：在抽屜裡把別篇移入 → toast 以 role 找得到（抽屜開著時 toast 搬進抽屜，不在 aria-hidden 的背景裡）、按它的 Undo 抽屜不關、該篇回來。
+ * 6. 700 寬抽屜：在抽屜裡把別篇移入 → toast 以 role 找得到（抽屜開著時 toast 搬進抽屜，不在 aria-hidden 的背景裡）、按它的 Undo 抽屜不關、該篇回來。
  * 7. 資料夾（寬螢幕 1280）：選取模式是標題列一列——✕、三態全選框、已選篇數、還原／永久刪除圖示鈕；底部的保留天數說明不顯示。
- *    A2-3 也跑在寬形（Restore／Delete permanently 的可及名稱兩形相同）；390 的兩案是窄形。
+ *    A2-3 也跑在寬形（Restore／Delete permanently 的可及名稱兩形相同）；700 的兩案是窄形。
  *
  * 共用疊：別的 spec（例如 16）會在 admin 的垃圾桶留下項目，所以不斷言總數、列一律以本檔的標題（帶 RUN）定位。
  * 群組與筆記留著不清（同 17）：e2e 疊每次 `stack:down -v` 重置。
@@ -225,7 +226,7 @@ test("A2-3：選取模式——Shift 範圍選三篇還原；勾兩篇永久刪�
   await expect(page).toHaveURL(/\/$/);
 });
 
-test("390 寬抽屜：選取中按 Esc 只結束選取、焦點回抽屜內的「選取」鈕；確認框 Esc 只關框", async ({ page }) => {
+test("700 寬抽屜：選取中按 Esc 只結束選取、焦點回抽屜內的「選取」鈕；確認框 Esc 只關框", async ({ page }) => {
   test.setTimeout(120_000);
   const keep = `E2E Trash Drawer Keep ${RUN}`;
   const title = `E2E Trash D ${RUN}`;
@@ -238,7 +239,7 @@ test("390 寬抽屜：選取中按 Esc 只結束選取、焦點回抽屜內的�
   await moveNoteToTrashFromSidebar(page, title);
   await expect(page).toHaveURL(/\/$/, { timeout: 15_000 });
 
-  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setViewportSize({ width: 700, height: 844 });
   // 整頁載入（toast 也一併清掉，不會蓋住抽屜底部）；等 lazy NotePage 掛上：fallback 自帶的 AppShell 會被換掉（抽屜跟著關）。
   await page.goto(keepUrl);
   await expect(page.getByRole("textbox", NOTE_TITLE)).toBeVisible({ timeout: 15_000 });
@@ -286,7 +287,7 @@ test("390 寬抽屜：選取中按 Esc 只結束選取、焦點回抽屜內的�
   await page.setViewportSize({ width: 1280, height: 800 });
 });
 
-test("390 寬抽屜開著時移入別篇：toast 與 Undo 以 role 找得到、按 Undo 抽屜不關、該篇回到清單", async ({ browser, page }) => {
+test("700 寬抽屜開著時移入別篇：toast 與 Undo 以 role 找得到、按 Undo 抽屜不關、該篇回到清單", async ({ browser, page }) => {
   test.setTimeout(120_000);
   const keep = `E2E Trash Toast Keep ${RUN}`;
   const title = `E2E Trash Toast ${RUN}`;
@@ -306,7 +307,7 @@ test("390 寬抽屜開著時移入別篇：toast 與 Undo 以 role 找得到、�
   await createNote(page, keep);
   const keepUrl = page.url();
 
-  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setViewportSize({ width: 700, height: 844 });
   // 整頁載入後等 lazy NotePage 掛上再開抽屜：fallback 自帶的 AppShell 會被換掉（抽屜跟著關）。
   await page.goto(keepUrl);
   await expect(page.getByRole("textbox", NOTE_TITLE)).toBeVisible({ timeout: 15_000 });
@@ -519,4 +520,36 @@ test("A2-12：「只能刪」成員移入群組筆記 → 沒有 Undo、看不�
   } finally {
     for (const context of contexts) await context.close();
   }
+});
+
+test("手機（390）清單：垃圾桶 tab 底部只有搜尋框（沒有 New note）與保留天數說明；選取時動作列在清單底部", async ({ page }) => {
+  test.setTimeout(120_000);
+  const title = `E2E Trash Phone ${RUN}`;
+  await loginAs(page, ADMIN.email, ADMIN.password);
+  await expect(page).toHaveURL(/\/$/);
+  await createNote(page, title);
+  await showSidebarTab(page, "My notes");
+  await moveNoteToTrashFromSidebar(page, title);
+  await expect(page).toHaveURL(/\/$/, { timeout: 15_000 });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  const list = await openListOnCompact(page);
+  const panel = await openTrash(page, list);
+  const bar = page.locator("[data-phone-list-bar]");
+  await expect(bar.getByRole("textbox", { name: "Search notes", exact: true })).toBeVisible();
+  await expect(bar.getByRole("button", { name: "New note", exact: true })).toHaveCount(0);
+  await expect(list.getByText(/^Permanently deleted \d+ days? after deletion$|^The trash isn't emptied automatically$/)).toBeVisible();
+
+  // 選取：勾這一篇 → 清單底部出現「Restore」「Delete permanently」；Done 離開
+  await panel.getByRole("button", { name: "Select", exact: true }).click();
+  await trashRow(panel, title).click();
+  await expect(panel.getByText("1 selected", { exact: true })).toBeVisible();
+  const restore = list.getByRole("button", { name: "Restore", exact: true });
+  await expect(restore).toBeVisible();
+  await expect(list.getByRole("button", { name: "Delete permanently", exact: true })).toBeVisible();
+  const box = (await restore.boundingBox())!;
+  expect(box.y + box.height).toBeGreaterThan(844 - 140);
+  await panel.getByRole("button", { name: "Done", exact: true }).click();
+  await expect(panel.getByRole("checkbox")).toHaveCount(0);
 });

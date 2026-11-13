@@ -18,6 +18,8 @@ import {
   withCanonicalizedFrom,
 } from "@/lib/real-location";
 import { NotePageControlsContext, type NotePageControls, type OpenEditsState } from "@/lib/note-page-controls";
+import { useRegisterNotePage } from "@/lib/note-page-bridge";
+import { useAppShellInert } from "@/lib/app-shell-inert";
 import { isOverlayOpen, useVersionsController, VersionsProvider } from "@/lib/versions-context";
 import { createLinkSync, type LinkSync } from "@/collab/link-sync";
 import type { CursorScroller } from "@/collab/cursor-scroll";
@@ -25,8 +27,13 @@ import { useCollab } from "@/collab/useCollab";
 import { BlockAnchorContext } from "@/hooks/block-anchor-context";
 import { useMemberBlockAnchor } from "@/hooks/useBlockAnchor";
 import { AiEditsDialog } from "@/components/AiEditsDialog";
-import { AppShell, SidebarDrawerButton } from "@/components/AppShell";
+import { createPortal } from "react-dom";
+import { SidebarDrawerButton } from "@/components/AppShell";
+import { BackToListButton } from "@/components/BackToListButton";
 import { NarrowTopBar } from "@/components/NarrowTopBar";
+import { NoteBrowseBar } from "@/components/NoteBrowseBar";
+import { NoteLocation } from "@/components/NoteLocation";
+import { useIsPhone } from "@/lib/layout-tiers";
 import { BacklinksSection } from "@/components/BacklinksSection";
 import { ConnectionBadge } from "@/components/ConnectionBadge";
 import { FavoriteToggle } from "@/components/FavoriteToggle";
@@ -117,6 +124,12 @@ export function scheduleTerminalReconcile(queryClient: QueryClient, noteId: stri
   void tick();
 }
 
+/** 編輯區（可編輯的內文）或手機編輯工具列內的節點；頁首的標題輸入框不算。 */
+const EDITING_SELECTOR = '[data-testid="note-editor"] [contenteditable="true"], [data-mobile-edit-toolbar]';
+function isEditingTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest(EDITING_SELECTOR) !== null;
+}
+
 /** 連上之後以共編回報的角色為準；還沒連上（或已終止）時退回 REST 給的角色。 */
 function effectiveRole(state: CollabState, note: NoteDto): Role {
   return state.phase === "connected" ? state.role : note.role;
@@ -163,6 +176,15 @@ export default function NotePage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user } = useSession();
+  const phone = useIsPhone();
+  // 手機：焦點在編輯區或編輯工具列內＝編輯中，底部瀏覽列讓位；其餘（頁首標題、頁面空白處）不算。
+  const [editingFocus, setEditingFocus] = useState(false);
+  // 編輯區在焦點還在裡面時被卸載（點 wikilink 換篇、共編佔位換成編輯器）不會觸發 blur：每次 commit 後核對一次。
+  // 刻意不帶依賴：卸載不改變 editingFocus，只有每次 commit 後重查才抓得到；只在旗標為真且焦點已不在編輯區時才設值，不會連環更新。
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (editingFocus && !isEditingTarget(document.activeElement)) setEditingFocus(false);
+  });
 
   // paramsKey 三形：`n:`（/n/:handle/:slug）、`g:`（/g/:groupId/:slug，#175 群組筆記）、
   // `ref:`（/notes/:ref）。前綴不同是**防禦性設計**（ref 不可能含 `/`，實際上單靠內容就分得開
@@ -582,6 +604,9 @@ export default function NotePage() {
     () => (noteId ? { noteId, state, leavingRef, openEdits } : null),
     [noteId, state, openEdits],
   );
+  // 側欄在頁面外層（AppShellLayout）：把這一頁的控制與錨點 API 登記給它；簡報時整個殼 inert。
+  useRegisterNotePage(controls, blockAnchor);
+  useAppShellInert(presenting);
 
   // 404 三個出口分流（#122：文案不得混用）：
   // ① 解析層 404＝**連結無效**（slug 已改名/從不存在）→ `note.linkInvalid`。導走
@@ -781,97 +806,134 @@ export default function NotePage() {
     // `TitleInput` 檔頭），值來自已成功的 `GET /api/notes/:ref`——連不上共編但 REST 正常
     // 時，改標題完全安全、重整也真的在。跟著 synced 一起鎖死是功能倒退。
     const editable = roleCanEdit && synced;
+    // #293：此刻也開著這篇的其他人；只在 connected 時渲染，名單空不佔位。
+    const presenceAvatars = (
+      <PresenceAvatars provider={provider} connected={state.phase === "connected"} myUserId={user.id} scrollerRef={cursorScrollerRef} />
+    );
+    const noteMenu = (
+      <NoteMenu
+        note={note}
+        state={state}
+        leavingRef={leavingRef}
+        onOpenEdits={openEdits}
+        triggerRef={noteMenuTriggerRef}
+        widthItems={(control) => <NoteWidthMenuItems noteId={note.id} {...control} />}
+      />
+    );
     body = (
       <VersionsProvider value={versions}>
-        <div className="flex min-h-0 flex-1">
-          <NoteEditor
-            doc={doc}
-            provider={provider}
-            editable={editable}
-            user={{ id: user.id, name: user.displayName }}
-            noteId={noteId!}
-            onScrollRoot={setAnchorRoot}
-            onCursorScroller={handleCursorScroller}
-            notePath={canonicalNotePath(note)}
-            noteMaxBytes={noteMaxBytes}
-            maxUploadBytes={maxUploadBytes}
-            // #430：焦點不在編輯器時頁面上的 Ctrl+Z 也撤銷這篇；簡報模式不接。
-            pageUndoShortcut={!presenting}
-            headerSlot={
-              // #115：頁首滿卡寬（置左置右）——單層 header 自己就是內容列，標題貼左、
-              // 控制項貼右；`px-5`（20px）與 `<md` 的內文左緣共線。#88 的文章欄對齊
-              // 已刻意拆除（見 ui/article-column.ts 檔頭）。
-              <>
-                {state.phase === "outdated" && <OutdatedClientBanner />}
-                {overLimit && (
-                  <p role="status" className="border-b border-border bg-muted px-5 py-2 text-sm">
-                    {t("note.overSizeLimit")}
-                  </p>
-                )}
-                {/* header 本身是 container，容器查詢管不到自己的 gap，所以手機寬的 gap 用視窗寬（max-sm）。 */}
-                <header ref={noteHeaderRef} className="@container flex items-center gap-3 max-sm:gap-2 border-b border-border px-5 py-3">
-                  {/* #115：浮動側欄的入口（xl:hidden）——筆記載入成功態不掛
-                      NarrowTopBar（頁首自己有這顆）；載入中/錯誤的佔位卡沒有頁首，
-                      由 placeholderCard 裡的 NarrowTopBar 補位。 */}
-                  <SidebarDrawerButton />
-                  <TitleInput note={note} readOnly={!roleCanEdit} isNavigatingAway={isNavigatingAway} />
-                  <ConnectionBadge state={state} synced={synced} canEdit={roleCanEdit} />
-                  {/* #293：此刻也開著這篇的其他人；只在 connected 時渲染，名單空不佔位。 */}
-                  <PresenceAvatars
-                    provider={provider}
-                    connected={state.phase === "connected"}
-                    myUserId={user.id}
-                    scrollerRef={cursorScrollerRef}
-                  />
-                  <LastEditedLabel note={note} onOpenEdits={openEdits} />
-                  <FavoriteToggle note={note} />
-                  <ShareDialog note={note} />
-                  {/* #297：寬度 icon 只在頁首夠寬時顯示（@container，見 NoteWidthToggle）。 */}
-                  <NoteWidthToggle noteId={noteId!} />
-                  <NoteMenu
-                    note={note}
-                    state={state}
-                    leavingRef={leavingRef}
-                    onOpenEdits={openEdits}
-                    triggerRef={noteMenuTriggerRef}
-                    widthItems={(control) => <NoteWidthMenuItems noteId={note.id} {...control} />}
-                  />
-                </header>
-                {/* 版本預覽橫幅：寬版預覽時在頁首下方；整頁（sheet）模式由整頁自己畫。 */}
-                {versions.preview !== null && versions.mode !== "sheet" && (
-                  <VersionsLazyBoundary noteId={noteId ?? null} errorClassName={VERSIONS_ERROR_FRAME.inline}>
-                    <PreviewBanner />
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div
+            className="flex min-h-0 flex-1"
+            onFocus={(event) => setEditingFocus(isEditingTarget(event.target))}
+            onBlur={(event) => setEditingFocus(isEditingTarget(event.relatedTarget))}
+          >
+            <NoteEditor
+              doc={doc}
+              provider={provider}
+              editable={editable}
+              user={{ id: user.id, name: user.displayName }}
+              noteId={noteId!}
+              onScrollRoot={setAnchorRoot}
+              onCursorScroller={handleCursorScroller}
+              notePath={canonicalNotePath(note)}
+              noteMaxBytes={noteMaxBytes}
+              maxUploadBytes={maxUploadBytes}
+              // #430：焦點不在編輯器時頁面上的 Ctrl+Z 也撤銷這篇；簡報模式不接。
+              pageUndoShortcut={!presenting}
+              headerSlot={
+                // #115：頁首滿卡寬（置左置右）——單層 header 自己就是內容列，標題貼左、
+                // 控制項貼右；`px-5`（20px）與 `<md` 的內文左緣共線。#88 的文章欄對齊
+                // 已刻意拆除（見 ui/article-column.ts 檔頭）。
+                <>
+                  {state.phase === "outdated" && <OutdatedClientBanner />}
+                  {overLimit && (
+                    <p role="status" className="border-b border-border bg-muted px-5 py-2 text-sm">
+                      {t("note.overSizeLimit")}
+                    </p>
+                  )}
+                  {/* header 本身是 container，容器查詢管不到自己的 gap，所以手機寬的 gap 用視窗寬（max-sm）。 */}
+                  <header
+                    ref={noteHeaderRef}
+                    className={
+                      phone
+                        ? "@container flex flex-col border-b border-border px-5 pt-3 pb-1"
+                        : "@container flex items-center gap-3 max-sm:gap-2 border-b border-border px-5 py-3"
+                    }
+                  >
+                    {/* #115：窄視窗的入口——手機是「‹」回清單，浮動段（xl:hidden）是側欄鈕；各自只在自己的寬度渲染。
+                        筆記載入成功態不掛 NarrowTopBar（頁首自己有這兩顆）；載入中/錯誤的佔位卡沒有頁首，
+                        由 placeholderCard 裡的 NarrowTopBar 補位。 */}
+                    {phone ? (
+                      <>
+                        {/* 手機兩行：第一行是標題與動作，第二行是連線點、位置、在線者。連線狀態、在線者、最後編輯只渲染在這一處（不是 CSS 藏一份）。 */}
+                        <div data-testid="note-header-title-row" className="flex items-center gap-2">
+                          <BackToListButton />
+                          <TitleInput note={note} readOnly={!roleCanEdit} isNavigatingAway={isNavigatingAway} />
+                          <FavoriteToggle note={note} />
+                          <ShareDialog note={note} />
+                          {noteMenu}
+                        </div>
+                        <div data-testid="note-header-subline" className="flex items-center gap-2">
+                          <ConnectionBadge state={state} synced={synced} canEdit={roleCanEdit} />
+                          <NoteLocation note={note} />
+                          {presenceAvatars}
+                          <LastEditedLabel note={note} onOpenEdits={openEdits} />
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <BackToListButton />
+                        <SidebarDrawerButton />
+                        <TitleInput note={note} readOnly={!roleCanEdit} isNavigatingAway={isNavigatingAway} />
+                        <ConnectionBadge state={state} synced={synced} canEdit={roleCanEdit} />
+                        {presenceAvatars}
+                        <LastEditedLabel note={note} onOpenEdits={openEdits} />
+                        <FavoriteToggle note={note} />
+                        <ShareDialog note={note} />
+                        {/* #297：寬度 icon 只在頁首夠寬時顯示（@container，見 NoteWidthToggle）。 */}
+                        <NoteWidthToggle noteId={noteId!} />
+                        {noteMenu}
+                      </>
+                    )}
+                  </header>
+                  {/* 版本預覽橫幅：寬版預覽時在頁首下方；整頁（sheet）模式由整頁自己畫。 */}
+                  {versions.preview !== null && versions.mode !== "sheet" && (
+                    <VersionsLazyBoundary noteId={noteId ?? null} errorClassName={VERSIONS_ERROR_FRAME.inline}>
+                      <PreviewBanner />
+                    </VersionsLazyBoundary>
+                  )}
+                </>
+              }
+              footerSlot={<BacklinksSection noteId={noteId} />}
+              previewSlot={
+                versions.preview !== null && versions.mode !== "sheet" ? (
+                  <VersionsLazyBoundary
+                    noteId={noteId ?? null}
+                    errorClassName={VERSIONS_ERROR_FRAME.inline}
+                    fallback={<p className="p-6 text-sm text-muted-foreground">{t("versions.preview.loading")}</p>}
+                  >
+                    <VersionPreview doc={doc} />
                   </VersionsLazyBoundary>
-                )}
-              </>
-            }
-            footerSlot={<BacklinksSection noteId={noteId} />}
-            previewSlot={
-              versions.preview !== null && versions.mode !== "sheet" ? (
-                <VersionsLazyBoundary
-                  noteId={noteId ?? null}
-                  errorClassName={VERSIONS_ERROR_FRAME.inline}
-                  fallback={<p className="p-6 text-sm text-muted-foreground">{t("versions.preview.loading")}</p>}
-                >
-                  <VersionPreview doc={doc} />
-                </VersionsLazyBoundary>
-              ) : undefined
-            }
-          />
-          {/* dialog 掛在 header 之外：它的開關由本頁持有，兩個觸發點共用（見上）。 */}
-          <AiEditsDialog note={note} open={editsOpen} onOpenChange={setEditsOpen} />
-          {/* 窄視窗整頁。整頁一定比對話框先開（對話框是 modal，開著時點不到 ⋮，不可能再開整頁）；
-              兩者同為 z-50、portal 到 body，後掛的在上——所以對話框一定疊在整頁之上。 */}
-          {versions.mode === "sheet" && (
-            <VersionsLazyBoundary noteId={noteId ?? null} errorClassName={VERSIONS_ERROR_FRAME.floating}>
-              <VersionsSheet doc={doc} lastEdited={note.lastEdited} returnFocusRef={noteMenuTriggerRef} />
-            </VersionsLazyBoundary>
-          )}
-          {versions.dialog !== null && (
-            <VersionsLazyBoundary noteId={noteId ?? null} errorClassName={VERSIONS_ERROR_FRAME.floating}>
-              <VersionsDialogs returnFocusRef={noteMenuTriggerRef} />
-            </VersionsLazyBoundary>
-          )}
+                ) : undefined
+              }
+            />
+            {/* dialog 掛在 header 之外：它的開關由本頁持有，兩個觸發點共用（見上）。 */}
+            <AiEditsDialog note={note} open={editsOpen} onOpenChange={setEditsOpen} />
+            {/* 窄視窗整頁。整頁一定比對話框先開（對話框是 modal，開著時點不到 ⋮，不可能再開整頁）；
+                兩者同為 z-50、portal 到 body，後掛的在上——所以對話框一定疊在整頁之上。 */}
+            {versions.mode === "sheet" && (
+              <VersionsLazyBoundary noteId={noteId ?? null} errorClassName={VERSIONS_ERROR_FRAME.floating}>
+                <VersionsSheet doc={doc} lastEdited={note.lastEdited} returnFocusRef={noteMenuTriggerRef} />
+              </VersionsLazyBoundary>
+            )}
+            {versions.dialog !== null && (
+              <VersionsLazyBoundary noteId={noteId ?? null} errorClassName={VERSIONS_ERROR_FRAME.floating}>
+                <VersionsDialogs returnFocusRef={noteMenuTriggerRef} />
+              </VersionsLazyBoundary>
+            )}
+          </div>
+          {phone && !(editable && editingFocus) && <NoteBrowseBar note={note} />}
         </div>
       </VersionsProvider>
     );
@@ -895,28 +957,31 @@ export default function NotePage() {
   return (
     <NotePageControlsContext.Provider value={controls}>
       <BlockAnchorContext.Provider value={blockAnchor}>
-        <AppShell inert={presenting}>{body}</AppShell>
-        {shellMounted && (
-          <PresentationShell
-            title={note?.title ?? ""}
-            status={presentStatus}
-            errorMessage={presentFailure !== null ? errorText(presentFailure) : undefined}
-            toolbarExtra={
-              note && (state.phase !== "connected" || !synced) ? (
-                <ConnectionBadge state={state} synced={synced} canEdit={presentRoleCanEdit} />
-              ) : null
-            }
-          >
-            {overlayReady && doc !== null && note !== undefined && (
-              <LazyRouteErrorBoundary resetKey={paramsKey} chunk="present" frame="inline">
-                <Suspense fallback={<LazyRouteLoading frame="inline" />}>
-                  <LazyPresentation variant="member" doc={doc} title={note.title} />
-                  <ChunkLoadBeacon chunk="present" />
-                </Suspense>
-              </LazyRouteErrorBoundary>
-            )}
-          </PresentationShell>
-        )}
+        {body}
+        {/* 簡報層掛到 body：NotePage 在側欄殼（簡報時 inert）的主區裡，留在原處會跟著 inert。 */}
+        {shellMounted &&
+          createPortal(
+            <PresentationShell
+              title={note?.title ?? ""}
+              status={presentStatus}
+              errorMessage={presentFailure !== null ? errorText(presentFailure) : undefined}
+              toolbarExtra={
+                note && (state.phase !== "connected" || !synced) ? (
+                  <ConnectionBadge state={state} synced={synced} canEdit={presentRoleCanEdit} />
+                ) : null
+              }
+            >
+              {overlayReady && doc !== null && note !== undefined && (
+                <LazyRouteErrorBoundary resetKey={paramsKey} chunk="present" frame="inline">
+                  <Suspense fallback={<LazyRouteLoading frame="inline" />}>
+                    <LazyPresentation variant="member" doc={doc} title={note.title} />
+                    <ChunkLoadBeacon chunk="present" />
+                  </Suspense>
+                </LazyRouteErrorBoundary>
+              )}
+            </PresentationShell>,
+            document.body,
+          )}
       </BlockAnchorContext.Provider>
     </NotePageControlsContext.Provider>
   );

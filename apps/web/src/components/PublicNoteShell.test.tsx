@@ -120,6 +120,10 @@ describe("PublicPageFrame（滿版外框）", () => {
     }
     // 卡面退場：無 max-w 上限、無圓角、無邊框（滿版——不是置中卡）
     expect(frame.className).not.toMatch(/max-w-|rounded|border/);
+    // 滿版頁框四邊都避開瀏海與 Home 指示條。
+    for (const side of ["top", "right", "bottom", "left"]) {
+      expect(frame.className).toContain(`env(safe-area-inset-${side})`);
+    }
     // frame 直接包 children（中間不再有卡層）
     expect(frame.parentElement?.className ?? "").toBe(""); // RTL 容器
   });

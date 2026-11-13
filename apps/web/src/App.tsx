@@ -20,6 +20,8 @@ import { NotePageFallback } from "./components/NotePageFallback";
 import { PublicNoteErrorBoundary, PublicNoteFallback } from "./components/PublicNoteShell";
 import LoginPage from "./pages/LoginPage";
 import HomePage from "./pages/HomePage";
+import { AppShellLayout } from "./components/AppShellLayout";
+import { NOTE_ROUTE_PATTERNS } from "./lib/phone-list";
 import { SettingsModal } from "./settings/SettingsModal";
 import { GroupModal, GroupSubpathRedirect, LegacyGroupRedirect } from "./components/groups/GroupModal";
 import { AdminModal } from "./components/admin/AdminModal";
@@ -165,7 +167,7 @@ function NoteRoute() {
 
 /**
  * `/p/:token` 的 route element（#72）：**專屬** fallback／錯誤邊界——
- * NotePageFallback／NoteRouteErrorBoundary 都包 AppShell（打 `/api/auth/me`、露側欄），
+ * NotePageFallback／NoteRouteErrorBoundary 都只能在 AppShellLayout 底下用（它那份 AppShell 打 `/api/auth/me`、露側欄），
  * 匿名頁不得重用（理由與零 fetch 守衛見 PublicNoteShell.tsx／App.publicRoute.test.tsx）。
  * 不掛 ChunkLoadBeacon／自動 reload 額度：那套旗標機制是 NotePage 專屬，公開頁用
  * 錯誤卡上的手動重試（整頁 reload）即可。
@@ -304,12 +306,17 @@ export function AppRoutes() {
                 與 `/n/:handle/:slug`（#122 新形）共用 NoteRoute/NotePage——兩條 route
                 並存、明文不依賴 remount（react-router 依 specificity 排序，兩者都不會
                 被 `/*` catch-all 吃掉；route 承接測試釘住）。 */}
-            <Route path="/notes/:ref" element={<NoteRoute />} />
-            <Route path="/n/:handle/:slug" element={<NoteRoute />} />
-            {/* #175：群組筆記 `/g/<group_id>/<slug>`——同一個 NoteRoute/NotePage；
-                只掛主樹（第二棵樹只管三個面板：/settings/*、/groups/*、/admin/*）。承接由 App.resetKey.test control 4 釘住。 */}
-            <Route path="/g/:groupId/:slug" element={<NoteRoute />} />
-            <Route path="/*" element={<HomePage />} />
+            {/* 首頁與三條筆記路由共用同一個 AppShellLayout（pathless layout route）：側欄只掛一份、換路由不重掛，
+                清單捲動位置與選取模式因此保留；頁面只渲染主內容區。 */}
+            <Route element={<AppShellLayout />}>
+              {/* 三條筆記路由的 pattern 與手機版判斷「是不是筆記路由」共用同一份常數（`lib/phone-list.ts`）。
+                  #175：群組筆記 `/g/<group_id>/<slug>`——同一個 NoteRoute/NotePage；
+                  只掛主樹（第二棵樹只管三個面板：/settings/*、/groups/*、/admin/*）。承接由 App.resetKey.test control 4 釘住。 */}
+              {NOTE_ROUTE_PATTERNS.map((path) => (
+                <Route key={path} path={path} element={<NoteRoute />} />
+              ))}
+              <Route path="/*" element={<HomePage />} />
+            </Route>
           </Route>
         </Route>
       </Routes>

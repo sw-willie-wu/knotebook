@@ -15,6 +15,7 @@ import { OWNER_PERMS } from "@/test/fixtures";
 import { installFakeFullscreen, type FakeFullscreen } from "@/test/fake-fullscreen";
 import { enterPresentationFullscreen } from "@/present/fullscreen";
 import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
+import { AppShellLayout } from "@/components/AppShellLayout";
 
 vi.mock("@/components/NoteEditor", () => ({
   NoteEditor: ({ editable, headerSlot, footerSlot }: { editable: boolean; headerSlot?: ReactNode; footerSlot?: ReactNode }) => (
@@ -165,10 +166,12 @@ function Routed() {
     <ActiveNoteProvider>
       <LocationProbe />
       <Routes>
-        <Route path="/notes/:ref" element={<NotePage />} />
-        <Route path="/n/:handle/:slug" element={<NotePage />} />
-        <Route path="/login" element={<div>login page</div>} />
-        <Route path="/" element={<div>home landing</div>} />
+        <Route element={<AppShellLayout />}>
+          <Route path="/notes/:ref" element={<NotePage />} />
+          <Route path="/n/:handle/:slug" element={<NotePage />} />
+          <Route path="/login" element={<div>login page</div>} />
+          <Route path="/" element={<div>home landing</div>} />
+        </Route>
       </Routes>
     </ActiveNoteProvider>
   );

@@ -10,6 +10,8 @@ import { folderErrorMessage, invalidateFolderRelated, isFolderNotFound, useFolde
 import { useFavorites } from "@/api/favorites";
 import { useGroups } from "@/api/groups";
 import { useNotes } from "@/api/notes";
+import { isKeyboardOpen, useKeyboardInset } from "@/lib/visual-viewport";
+import { PHONE_BAR_CONTROL_HEIGHT, PHONE_BAR_FRAME, phoneBarBottomPadding } from "./phone-bar";
 import { isTerminal } from "@/collab/connection";
 import { useNotePageControls } from "@/lib/note-page-controls";
 import {
@@ -160,12 +162,14 @@ interface RunResult {
 
 /**
  * @param layout `bar`＝窄形底部列（預設）；`toolbar`＝寬形標題列裡的圖示鈕（不渲染進度句，由 `SelectHeader` 顯示）。
+ * @param safeBottom `bar` 形是手機清單滿版的底部列時為 true：外框與搜尋列（`PhoneListBar`）同一組 class（`phone-bar.ts`），兩列同高、都含底部 `safe-area-inset-bottom`。側欄在外框裡（外框已給底邊）時不給，免得疊兩次。
  */
-export function SelectActionBar({ layout = "bar" }: { layout?: "bar" | "toolbar" }) {
+export function SelectActionBar({ layout = "bar", safeBottom = false }: { layout?: "bar" | "toolbar"; safeBottom?: boolean }) {
   const { t } = useTranslation();
   const { tab: currentTab, selection } = useSidebarTabState();
   const actions = useSidebarTabActions();
   const { updateSelection, getSelectionSession } = actions;
+  const keyboardOpen = isKeyboardOpen(useKeyboardInset());
   const notesQuery = useNotes();
   const groupsQuery = useGroups();
   const favoritesQuery = useFavorites({ enabled: currentTab === "favorites" });
@@ -485,7 +489,7 @@ export function SelectActionBar({ layout = "bar" }: { layout?: "bar" | "toolbar"
         }
         return {
           stopped,
-          // 中途已換到別篇就不導回首頁（換頁導致 AppShell 重掛時 controlsRef 停在舊值，這一形抓不到，屬已接受的邊界）。
+          // 中途已換到別篇就不導回首頁（controlsRef 經頁面登記的橋接更新，換篇後 noteId 對不上）。
           afterSelection: () => {
             if (leaveHome && controlsRef.current?.noteId === openId) void navigate("/", { replace: true });
           },
@@ -672,13 +676,17 @@ export function SelectActionBar({ layout = "bar" }: { layout?: "bar" | "toolbar"
         {reasonTexts}
       </div>
     ) : (
-      <div className="m-2 flex flex-col gap-1" data-select-action-bar="" aria-busy={busy}>
+      <div
+        className={safeBottom ? `flex flex-col gap-1 ${PHONE_BAR_FRAME} ${phoneBarBottomPadding(keyboardOpen)}` : "m-2 flex flex-col gap-1"}
+        data-select-action-bar=""
+        aria-busy={busy}
+      >
         {run !== null && (
           <p role="status" className="px-1 text-center text-[11px] text-muted-foreground">
             {t("select.progress", run.progress)}
           </p>
         )}
-        <div className="flex gap-1">
+        <div className={safeBottom ? `flex items-center gap-1 ${PHONE_BAR_CONTROL_HEIGHT}` : "flex gap-1"}>
           {available.includes("unfavorite") && (
             <Button type="button" variant="outline" className={ACTION_BUTTON} aria-label={t("select.unfavorite")} {...unfavoriteProps}>
               <StarOff aria-hidden="true" className={ACTION_ICON} />

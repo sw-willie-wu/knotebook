@@ -15,4 +15,7 @@ export interface BlockAnchorApi {
   scrollToTop(): void;
 }
 
-export const BlockAnchorContext = createContext<BlockAnchorApi>({ currentNoteId: null, requestAnchor: () => {}, scrollToTop: () => {} });
+/** 沒有任何筆記頁登記時的預設（首頁、管理頁）：不指向任何一篇，點擊皆為 no-op。 */
+export const NO_BLOCK_ANCHOR: BlockAnchorApi = { currentNoteId: null, requestAnchor: () => {}, scrollToTop: () => {} };
+
+export const BlockAnchorContext = createContext<BlockAnchorApi>(NO_BLOCK_ANCHOR);

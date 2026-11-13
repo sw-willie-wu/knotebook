@@ -1,14 +1,14 @@
 import { expect, test } from "@playwright/test";
-import { ADMIN, createNote, loginAs, reEscape, showSidebarTab } from "./helpers.js";
+import { ADMIN, createNote, loginAs, openListOnCompact, reEscape, showSidebarTab } from "./helpers.js";
 
 /**
  * 側欄 tab（#181 加「Trash」、#334 加第二顆「Favorites」）：六顆 tab 的 DOM／預設 tab、選擇重整後保留、方向鍵與 Home／End、
- * 搜尋視圖與 Esc／清除鈕、390 寬抽屜的 tab 觸控高度與不橫捲。
+ * 搜尋視圖與 Esc／清除鈕、手機（390、360）清單與 700 寬抽屜的 tab 觸控高度與不橫捲。
  * 本檔不斷言點搜尋結果後字串保留（AppShell 會重掛、搜尋字串本來就掉），所以搜尋段一律在筆記頁上做。
  */
 const RUN = Date.now();
 
-test("sidebar tabs: roles, persistence, keyboard, search view, narrow drawer", async ({ page }) => {
+test("sidebar tabs: roles, persistence, keyboard, search view, phone list and narrow drawer", async ({ page }) => {
   const title = `E2E Tabs ${RUN}`;
   await loginAs(page, ADMIN.email, ADMIN.password);
   await expect(page).toHaveURL(/\/$/);
@@ -90,31 +90,58 @@ test("sidebar tabs: roles, persistence, keyboard, search view, narrow drawer", a
   await search.fill("");
   await expect(tablist).toBeVisible();
 
-  // ── 390 寬抽屜 ─────────────────────────────────────────────────────
-  await page.setViewportSize({ width: 390, height: 844 });
+  // ── 手機（390、360）：清單是整個側欄，六顆 tab 在 tablist 內、清單不橫向溢出 ─────────────────────
+  for (const width of [390, 360]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto(noteUrl);
+    // 等 lazy NotePage 掛上再碰側欄（fallback 與真頁面雖是同一個側欄，標題框出現才表示載入完成）。
+    await expect(page.getByRole("textbox", { name: "Note title" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Open sidebar" })).toHaveCount(0);
+    const list = await openListOnCompact(page);
+    const phoneTabs = list.getByRole("tablist", { name: "Sidebar sections" }).getByRole("tab");
+    await expect(phoneTabs).toHaveCount(6);
+    // 與桌面側欄一致：Groups 仍選中（tab 存在 localStorage、同一份側欄）
+    // 第一輪沿用上面選的 Groups；本輪結束時換成 My notes，所以第二輪從 My notes 開始。
+    await expect(list.getByRole("tab", { name: width === 390 ? "Groups" : "My notes", exact: true })).toHaveAttribute("aria-selected", "true");
+    const tablistBox = (await list.getByRole("tablist", { name: "Sidebar sections" }).boundingBox())!;
+    for (let i = 0; i < 6; i++) {
+      const box = await phoneTabs.nth(i).boundingBox();
+      expect(box, `${width} 寬第 ${i} 顆 tab`).not.toBeNull();
+      expect(box!.height).toBeGreaterThanOrEqual(43.5);
+      expect(box!.height).toBeLessThanOrEqual(44.5);
+      expect(box!.x, `${width} 寬第 ${i} 顆 tab 的左緣`).toBeGreaterThanOrEqual(tablistBox.x - 0.5);
+      expect(box!.x + box!.width, `${width} 寬第 ${i} 顆 tab 的右緣`).toBeLessThanOrEqual(tablistBox.x + tablistBox.width + 0.5);
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    const phonePanel = await showSidebarTab(page, "My notes", list);
+    await expect(list.getByRole("tab", { name: "My notes", exact: true })).toHaveAttribute("aria-selected", "true");
+    await expect(phonePanel.getByRole("link", { name: new RegExp("^" + reEscape(title)) })).toBeVisible();
+    await expect(phonePanel.getByRole("link", { name: new RegExp("^" + reEscape(longTitle)) })).toBeVisible();
+    // 清單內層包層是 `overflow-x-clip`（安全網），清單本身恆不溢出；改量包層（`[data-sidebar-list] > div`）的內容寬度。
+    const wrapper = phonePanel.locator("[data-sidebar-list] > div");
+    expect(await wrapper.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    // 點 tab 不離開清單（tab 在清單上，不是導覽）
+    await expect(page).toHaveURL(/\/$/);
+  }
+
+  // ── 700 寬抽屜（640–767，tab 高 44；768 起 tab 是 36）：六顆 tab 的高度與不橫捲、Esc 關 ─────────────────
+  await page.setViewportSize({ width: 700, height: 844 });
   await page.goto(noteUrl);
-  // 等 lazy NotePage 掛上：fallback 自帶的 AppShell 會被換掉（drawerOpen 跟著重設；搜尋字串 #369 起住在 App 層、不重設）。
   await expect(page.getByRole("textbox", { name: "Note title" })).toBeVisible();
   await page.getByRole("button", { name: "Open sidebar" }).click();
   const drawer = page.getByRole("dialog", { name: "Navigation" });
   await expect(drawer).toBeVisible();
   const drawerTabs = drawer.getByRole("tablist", { name: "Sidebar sections" }).getByRole("tab");
   await expect(drawerTabs).toHaveCount(6);
-  // 與靜態卡一致：Groups 仍選中（tab 存在 localStorage、兩份實例共用）
-  await expect(drawer.getByRole("tab", { name: "Groups", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(drawer.getByRole("tab", { name: "My notes", exact: true })).toHaveAttribute("aria-selected", "true");
   for (let i = 0; i < 6; i++) {
     const box = await drawerTabs.nth(i).boundingBox();
     expect(box).not.toBeNull();
     expect(box!.height).toBeGreaterThanOrEqual(43.5);
     expect(box!.height).toBeLessThanOrEqual(44.5);
   }
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(700);
   const drawerPanel = await showSidebarTab(page, "My notes", drawer);
-  await expect(drawer.getByRole("tab", { name: "My notes", exact: true })).toHaveAttribute("aria-selected", "true");
-  await expect(drawerPanel.getByRole("link", { name: new RegExp("^" + reEscape(title)) })).toBeVisible();
-  await expect(drawerPanel.getByRole("link", { name: new RegExp("^" + reEscape(longTitle)) })).toBeVisible();
-  // fixed 的抽屜溢出量不到 documentElement.scrollWidth，直接量清單內容。資料夾功能加入後清單內層包層是 `overflow-x-clip`（安全網），
-  // 清單本身恆不溢出；改量包層（`[data-sidebar-list] > div`）的內容寬度。
   const list = drawerPanel.locator("[data-sidebar-list] > div");
   expect(await list.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
   await page.keyboard.press("Escape");

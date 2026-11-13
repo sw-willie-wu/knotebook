@@ -435,3 +435,50 @@ describe("UserMenu「設定」項的 Ctrl+, 提示（與 AppShell 的 Ctrl+, 同
     expect(state?.backgroundLocation?.pathname).toBe("/n/tester/some-note");
   });
 });
+
+describe("UserMenu 頭像形（avatar）", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    stubFetch();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function renderAvatar() {
+    return render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <ThemeProvider>
+          <MemoryRouter>
+            <UserMenu variant="avatar" />
+          </MemoryRouter>
+        </ThemeProvider>
+      </QueryClientProvider>,
+    );
+  }
+
+  it("UA1 觸發鈕只有頭像：名稱仍是 displayName、點擊範圍 44、視覺 32、沒有名字文字與齒輪", async () => {
+    renderAvatar();
+    const trigger = await screen.findByRole("button", { name: "Plain" });
+    expect(trigger).toHaveClass("h-11", "w-11");
+    expect(trigger.textContent).toBe("P");
+    expect(trigger.querySelector("svg")).toBeNull();
+    expect(trigger.querySelector("span")).toHaveClass("h-8", "w-8");
+  });
+
+  it("UA2 選單內容不變：開得起來、有 Settings 與 Log out", async () => {
+    renderAvatar();
+    fireEvent.pointerDown(await screen.findByRole("button", { name: "Plain" }), { button: 0 });
+    await waitFor(() => expect(screen.getByRole("menu")).toBeInTheDocument());
+    expect(screen.getByRole("menuitem", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Log out" })).toBeInTheDocument();
+  });
+
+  it("UA3 預設（row）形不變：有名字文字", async () => {
+    renderMenu();
+    const trigger = await screen.findByRole("button", { name: "Plain" });
+    expect(trigger.textContent).toContain("Plain");
+    expect(trigger).not.toHaveClass("w-11");
+  });
+});

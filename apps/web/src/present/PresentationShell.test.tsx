@@ -134,6 +134,17 @@ describe("PresentationShell", () => {
     expect(nav.fn).toHaveBeenCalledTimes(1);
   });
 
+  it("內容區與工具列都避開瀏海與 Home 指示條（class 斷言，jsdom 無 env）", () => {
+    renderShell(["/n/tester/my-note?present"]);
+    const content = screen.getByTestId("shell-child").parentElement!;
+    const toolbar = screen.getByRole("button", { name: "Exit presentation" }).parentElement!;
+    for (const side of ["top", "right", "bottom", "left"]) {
+      expect(content.className).toContain(`env(safe-area-inset-${side})`);
+    }
+    expect(toolbar.className).toContain("env(safe-area-inset-top)");
+    expect(toolbar.className).toContain("env(safe-area-inset-right)");
+  });
+
   it("全螢幕中 Esc 不離開；退出後 300 ms 內忽略；超過才離開", async () => {
     fake = installFakeFullscreen();
     renderShell(["/n/tester/my-note?present"]);
