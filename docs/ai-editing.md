@@ -110,13 +110,15 @@ If you meant to keep the section, restate its heading as the first line of the M
 
 ```json
 { "edits": [ { "id": "…", "op": "replace_section", "sectionId": "…", "heading": "Summary",
-               "byHandle": "alice", "agentLabel": "claude", "createdAt": "…",
+               "byHandle": "alice", "agentLabel": "claude",
+               "avatar": { "id": "…", "v": 1 }, "createdAt": "…",
                "revertedAt": null, "revertOf": null, "revertable": true } ] }
 ```
 
 - `op` is one of the five, `file_sync` for a part of a note changed by a file sent back (see [Sending a file back](#sending-a-file-back)), or `revert` for a row produced by reverting something. `revertOf` points at the row a revert undid.
 - `heading` is looked up in the note **as it is now**, so it follows renames and becomes `""` once the section is gone.
 - `byHandle` is the username of whoever made the request. `agentLabel` is set only when the write came through a token or an authorized App; a write made with a session cookie leaves it `null`. It follows the credential's current name while the credential exists — unless you have renamed it in Settings, in which case the name you picked wins (see [Agent display name](#agent-display-name)) — and falls back to the label recorded at the time once it has been revoked.
+- `avatar` is the profile picture reference of the account the write was made as (also when `agentLabel` is set), or `null`; the picture itself (`/api/avatars/<id>?v=<v>`) can only be fetched with a session cookie, not with a token.
 - `revertable` says whether `POST …/:editId/revert` would be accepted right now. Reverting is a normal write: it needs `notes:write`, it produces its own row (which can never itself be reverted), and it appears live in open tabs like any other change.
 
 In the **AI edit history** dialog (in the note's `⋮` menu), a row that can't be reverted shows why instead of a **Revert** button: **Already reverted**, that a revert can't itself be reverted, or — for any other row — that the content has changed since or the note was switched to another version. Below the list, the dialog notes that each note keeps up to its 100 most recent AI edits.
