@@ -153,6 +153,30 @@ describe("VersionsSheet", () => {
     expect(within(sheet).getByRole("button", { name: "Save current version" })).toBeInTheDocument();
   });
 
+  it("步一的列內有編輯者頭貼群，可及名稱不變", async () => {
+    const ID = "0f8fad5b-d9cb-469f-a165-70867728950e";
+    stub({ [LIST]: list([ver(2, { editors: [{ handle: "alice", agentLabel: "Claude", avatar: { id: ID, v: 2 } }, { handle: "bob", agentLabel: null, avatar: null }] }), ver(1)]) });
+    renderSheet();
+    const sheet = await screen.findByRole("dialog", { name: "Version history" });
+    const row = await within(sheet).findByRole("button", { name: vrow(2) });
+    expect(row.querySelectorAll("img")).toHaveLength(1);
+    expect(row.querySelectorAll("[data-editor-avatar]")).toHaveLength(2);
+    expect(row).toHaveTextContent("alice (Claude), bob ·");
+  });
+
+  it("步二頁首摘要旁有編輯者頭貼群（文字摘要不變）", async () => {
+    const ID = "0f8fad5b-d9cb-469f-a165-70867728950e";
+    stub({ [LIST]: list([ver(2, { editors: [{ handle: "alice", agentLabel: null, avatar: { id: ID, v: 2 } }] }), ver(1)]) });
+    renderSheet();
+    const sheet = await screen.findByRole("dialog", { name: "Version history" });
+    fireEvent.click(await within(sheet).findByRole("button", { name: vrow(2) }));
+    const compare = await within(sheet).findByTestId("sheet-compare-row");
+    const header = compare.parentElement!;
+    expect(header.querySelectorAll("[data-editor-avatar]")).toHaveLength(1);
+    expect(header.querySelector("img")).not.toBeNull();
+    expect(header).toHaveTextContent("· alice");
+  });
+
   it("點列 → 步二：標題「List · 名稱 (短 id)」、單欄 diff（沒有並排鈕；容器寬 1600 仍單欄）、底部 上一版｜套用 名稱 (短 id)｜下一版", async () => {
     widthRef.current = 1600;
     stub({ [LIST]: list([ver(2), ver(1)]), [SNAP(2)]: { id: vid(2), seq: 2, ydoc: b64(V2) }, [SNAP(1)]: { id: vid(1), seq: 1, ydoc: b64(V1) } });

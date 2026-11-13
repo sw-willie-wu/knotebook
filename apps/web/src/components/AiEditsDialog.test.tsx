@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { I18nextProvider } from "react-i18next";
-import { AI_EDITS_RETENTION, type NoteDto, type NoteEditDto } from "@knotebook/shared";
+import { AI_EDITS_RETENTION, avatarUrl, type NoteDto, type NoteEditDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { NOTE_EDITS_QUERY_KEY } from "@/api/noteEdits";
@@ -146,6 +146,32 @@ describe("AiEditsDialog", () => {
     expect(within(second).queryByRole("button", { name: i18n.t("aiEdits.revert") })).toBeNull();
     // agentLabel 為 null＝那次是真人經 cookie 寫的，只顯示 handle。
     expect(within(second).getByTestId("ai-edit-who").textContent).toBe(NOTE.ownerHandle);
+  });
+
+  it("每列有寫入者頭貼（agent 列也是本人頭貼、不是 AI 圖示）；頭貼不在 ai-edit-who 內；avatar 欄缺 → 首字", async () => {
+    const ID = "0f8fad5b-d9cb-469f-a165-70867728950e";
+    const legacy = edit({ id: E3, agentLabel: null });
+    delete (legacy as { avatar?: unknown }).avatar;
+    stubFetch((url) => {
+      if (url === EDITS_URL) return listBody([edit({ id: E1, avatar: { id: ID, v: 4 } }), edit({ id: E2, agentLabel: null, avatar: null }), legacy]);
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    renderWithQuery(<AiEditsDialog note={NOTE} open onOpenChange={vi.fn()} />);
+
+    const first = await screen.findByTestId(`ai-edit-${E1}`);
+    const img = first.querySelector("img")!;
+    expect(img.getAttribute("src")).toBe(avatarUrl(ID, 4));
+    expect(first.querySelector("svg")).toBeNull();
+    const who = within(first).getByTestId("ai-edit-who");
+    expect(who.querySelector("img")).toBeNull();
+    expect(who.contains(img)).toBe(false);
+    expect(who.textContent).toBe(`${NOTE.ownerHandle} (claude)`);
+
+    for (const id of [E2, E3]) {
+      const row = screen.getByTestId(`ai-edit-${id}`);
+      expect(row.querySelector("img")).toBeNull();
+      expect(row.querySelector("[aria-hidden='true']")!.textContent).toBe("T");
+    }
   });
 
   it("#272：清單是空的 → 只顯示「尚無」那一句，沒有保留筆數那行", async () => {

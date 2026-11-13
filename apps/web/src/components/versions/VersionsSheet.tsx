@@ -9,6 +9,7 @@ import { useVersions } from "@/lib/versions-context";
 import { ComparePicker } from "./ComparePicker";
 import { VersionPreview } from "./VersionPreview";
 import { OnlyChangesToggle } from "./PreviewBanner";
+import { EditorAvatars } from "./EditorAvatars";
 import { VersionRowContent, VersionRowMenu } from "./VersionsPanel";
 import { KindFilter, KindFilterEmpty } from "./KindFilter";
 import { currentSubtitle, editorsText, formatVersionTime, versionLabel } from "./version-labels";
@@ -118,6 +119,7 @@ export function VersionsSheet({ doc, lastEdited, returnFocusRef }: { doc: Y.Doc;
             <span className="min-w-0 truncate text-xs text-muted-foreground">
               {row && `${formatVersionTime(row.createdAt, i18n.language)} · ${editorsText(t, row.editors)}`}
             </span>
+            {row && <EditorAvatars editors={row.editors} />}
           </div>
           <div data-testid="sheet-compare-row" className="flex flex-wrap items-center gap-1 text-xs">
             <ComparePicker side="left" />

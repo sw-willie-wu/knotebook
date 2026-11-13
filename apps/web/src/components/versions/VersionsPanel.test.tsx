@@ -147,6 +147,35 @@ describe("VersionsPanel", () => {
     expect(within(row3).getByText(vlabel(3, "給客戶"))).toHaveClass("truncate");
   });
 
+  it("列內有編輯者頭貼群：有頭貼的出圖、沒有的首字；人與 agent 同 handle 只畫一個；可及名稱與文字不變", async () => {
+    const ID = "0f8fad5b-d9cb-469f-a165-70867728950e";
+    stub({
+      [FIRST]: {
+        versions: [
+          v(2, {
+            editors: [
+              { handle: "alice", agentLabel: null, avatar: { id: ID, v: 1 } },
+              { handle: "alice", agentLabel: "Claude", avatar: { id: ID, v: 1 } },
+              { handle: "bob", agentLabel: null, avatar: null },
+            ],
+          }),
+          v(1),
+        ],
+        current: cur({ baseSeq: 2, nextSeq: 3 }),
+        nextBefore: null,
+      },
+    });
+    renderPanel();
+    const row2 = await screen.findByRole("button", { name: vrow(2) });
+    expect(row2.querySelectorAll("img")).toHaveLength(1);
+    expect(row2.querySelectorAll("[data-editor-avatar]")).toHaveLength(2);
+    expect(row2).toHaveTextContent("alice, alice (Claude), bob ·");
+    // 圖與首字都是裝飾，不進可及名稱。
+    expect(screen.queryByRole("button", { name: /^[AB]\s/ })).toBeNull();
+    expect(within(row2).queryByRole("img")).toBeNull();
+    expect(row2.querySelector("[data-editor-avatar]")!.closest("[aria-hidden='true']")).not.toBeNull();
+  });
+
   it("點列＝切換預覽（startPreview 帶 seq 與 id）；選中列 bg-accent；再點另一列換過去", async () => {
     stub({ [FIRST]: { versions: [v(2), v(1)], current: cur({ baseSeq: 2, nextSeq: 3 }), nextBefore: null } });
     renderPanel();
