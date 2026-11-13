@@ -651,11 +651,12 @@ export function NoteEditor({
           </div>
           {hasPreview && (
             // 640-1279 面板浮在卡上：開著時右側讓出面板的寬度，預覽的並排門檻量到的是剩下的寬度，右欄不會被面板蓋住。
+            // 用 margin 而不是 padding：預覽區自己是捲動容器，padding 會讓捲軸留在最右緣、被面板蓋住。
             <div
               data-testid="preview-slot"
               className={cn(
                 "min-h-0 min-w-0 flex-1 overflow-y-auto",
-                panelOpen && "max-xl:pr-[min(var(--versions-panel-width),calc(100%_-_3rem))]",
+                panelOpen && "max-xl:mr-[min(var(--versions-panel-width),calc(100%_-_3rem))]",
               )}
             >
               {previewSlot}

@@ -4,8 +4,9 @@ import { isOverlayOpen, useVersions } from "@/lib/versions-context";
 
 // NoteEditor 裡包住面板（含載入失敗的錯誤外框）的 `display: contents` 節點；錯誤外框沒有面板的 testid，所以認這個。
 export const PANEL_SLOT = "[data-versions-panel-slot]";
-// 面板（含錯誤外框）、它開出來的選單與對話框（portal 在面板外）、歷史泡泡：在這些裡面按下去不算「點到筆記區」。
-const KEEP_OPEN = `${PANEL_SLOT}, [data-testid="versions-bubble"], [role="dialog"], [role="menu"], [data-radix-popper-content-wrapper]`;
+// 面板（含錯誤外框）、它開出來的選單與 popper（portal 在面板外）、歷史泡泡：在這些裡面按下去不算「點到筆記區」。
+// 對話框由下面「document 上有 dialog 就讓路」那一道涵蓋，這裡不必列。
+const KEEP_OPEN = `${PANEL_SLOT}, [data-testid="versions-bubble"], [role="menu"], [data-radix-popper-content-wrapper]`;
 
 /**
  * 640-1279 的版本面板浮在筆記上，不是第三欄；收起的規則跟著狀態走，固定段（>= 1280）一律不套用：

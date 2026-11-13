@@ -173,12 +173,12 @@ describe("NoteEditor 版本面板：浮動與固定", () => {
     await openPanel();
     fireEvent.click(screen.getByText("host-preview"));
     const slot = await screen.findByTestId("preview-slot");
-    expect(slot).toHaveClass("max-xl:pr-[min(var(--versions-panel-width),calc(100%_-_3rem))]");
+    expect(slot).toHaveClass("max-xl:mr-[min(var(--versions-panel-width),calc(100%_-_3rem))]");
     fireEvent.click(screen.getByRole("button", { name: "Close version history" }));
     // 關面板連預覽一起走；只剩面板關著的預覽（例如固定段以外的其他入口）不可能存在，這裡直接再開預覽驗證沒有面板時不讓。
     fireEvent.click(screen.getByText("host-preview"));
     expect(screen.queryByTestId("versions-panel")).not.toBeInTheDocument();
-    expect(screen.getByTestId("preview-slot")).not.toHaveClass("max-xl:pr-[min(var(--versions-panel-width),calc(100%_-_3rem))]");
+    expect(screen.getByTestId("preview-slot")).not.toHaveClass("max-xl:mr-[min(var(--versions-panel-width),calc(100%_-_3rem))]");
     doc.destroy();
   });
 
@@ -275,9 +275,12 @@ describe("NoteEditor 版本面板：浮動與固定", () => {
       const inner = document.createElement("button");
       portal.append(inner);
       document.body.append(portal);
-      fireEvent.pointerDown(inner);
-      expect(state().mode).toBe("panel");
-      portal.remove();
+      try {
+        fireEvent.pointerDown(inner);
+        expect(state().mode).toBe("panel");
+      } finally {
+        portal.remove();
+      }
       fireEvent.pointerDown(screen.getByTestId("outside"));
       expect(state().mode).toBeNull();
       doc.destroy();
@@ -300,10 +303,13 @@ describe("NoteEditor 版本面板：浮動與固定", () => {
       drawer.setAttribute("data-sidebar-drawer", "");
       const overlayEl = document.createElement("div");
       document.body.append(overlayEl, drawer);
-      fireEvent.pointerDown(overlayEl);
-      expect(state().mode).toBe("panel");
-      overlayEl.remove();
-      drawer.remove();
+      try {
+        fireEvent.pointerDown(overlayEl);
+        expect(state().mode).toBe("panel");
+      } finally {
+        overlayEl.remove();
+        drawer.remove();
+      }
       fireEvent.pointerDown(screen.getByTestId("outside"));
       expect(state().mode).toBeNull();
       doc.destroy();

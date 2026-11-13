@@ -9,6 +9,7 @@ import { cardSurface } from "@/components/ui/card";
 import { PaneResizeHandle } from "@/components/PaneResizeHandle";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { EllipsisVertical, X } from "@/components/ui/icons";
+import { useIsOverlay } from "@/lib/layout-tiers";
 import { useVersions } from "@/lib/versions-context";
 import { cn } from "@/lib/utils";
 import { KindFilter, KindFilterEmpty } from "./KindFilter";
@@ -103,7 +104,14 @@ export function VersionsPanel({
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
-  const shownWidth = renderedWidth > 0 ? Math.min(width, renderedWidth) : width;
+  // 固定段的寬度不會被夾，直接用設定值（量測值比設定值晚一格才更新，連按鍵時會拿到舊寬度）。
+  const overlay = useIsOverlay();
+  const shownWidth = overlay && renderedWidth > 0 ? Math.min(width, renderedWidth) : width;
+  // 浮動段被夾窄時，把手從實際寬度起算：往變寬的方向動了、但還沒超過設定值，就不寫入，否則設定值會被往下改。
+  const handleWidthChange = (px: number, commit: boolean) => {
+    if (px >= shownWidth && px < width) return; // 只有浮動段會有 shownWidth < width
+    onWidthChange(px, commit);
+  };
   // 這一發 click 的按下點是否也在 <ul> 本身：在列上按下、拖到列間縫放開時，瀏覽器把 click 派給共同祖先 <ul>，
   // 只看 click 的 target 會誤判成點空白。
   const pressedOnListRef = useRef(false);
@@ -222,7 +230,7 @@ export function VersionsPanel({
           放在最後一個子元素：Tab 順序不會以它為面板第一個停點。 */}
       <PaneResizeHandle
         width={shownWidth}
-        onChange={onWidthChange}
+        onChange={handleWidthChange}
         min={VERSIONS_PANEL_WIDTH_MIN}
         max={VERSIONS_PANEL_WIDTH_MAX}
         defaultWidth={VERSIONS_PANEL_WIDTH_DEFAULT}

@@ -10,6 +10,8 @@ import { ADMIN, clickByPointer, createNote, createUserViaInvite, editorLocator, 
  * - 星號在頁首 content box < 18rem（288 px）時收起；寬度鈕在 content box ≥ 43.5rem（696 px）時出現。
  * - 1440：寬度鈕按三下依序換 Standard → Wide → Full width → Standard，名稱帶下一種；⋮ → Width 是 Radix 子選單。
  * - 390（hasTouch）：⋮ → Width 就地展開三個選項，選了選單不關，Esc 先收合再關。
+ * - 視窗 640–1279：側欄與版本面板都浮在筆記上、不佔寬，頁首 content box ＝ 視窗寬 − 66（頁面與卡片的內外距）；面板開著時頁首不變窄，面板上緣落在頁首下緣（框線重疊 1 px 以內）。
+ *   視窗 1280、預設側欄寬度＋面板：兩者並排固定，content box 仍夠分享與 ⋮，不被裁。
  * 每次量測印一行 `MEASURE …`；失敗訊息帶各鈕的 bounding box 與兩個邊界的右緣。
  */
 
@@ -22,6 +24,8 @@ const TEXT_EDGE = 576;
 const STAR_EDGE = 288;
 const WIDTH_EDGE = 696;
 const TOLERANCE = 0.5;
+/** 視窗 640–1279（側欄與版本面板都浮動）時，視窗寬與頁首 content box 的差：頁面、卡片的內外距與框線。 */
+const FLOATING_CHROME = 66;
 const CYCLE = {
   standard: "Width: Standard — click for Wide",
   wide: "Width: Wide — click for Full width",
@@ -138,6 +142,7 @@ async function checkHeader(page: Page, tag: string, vw: number, policy: Policy =
   console.log(`MEASURE ${tag} vw=${vw} innerWidth=${frame.innerWidth} contentW=${frame.contentW.toFixed(2)} contentRight=${frame.contentRight.toFixed(2)} cardRight=${frame.cardRight?.toFixed(2)} ${JSON.stringify(boxes)}`);
 
   expect(frame.cardRight, `沒有找到 overflow 為 hidden 的卡片 ${detail}`).not.toBeNull();
+  if (vw >= 640 && vw < 1280) expect(Math.abs(frame.contentW - (vw - FLOATING_CHROME)), `浮動段 content box 應為視窗寬 − ${FLOATING_CHROME} ${detail}`).toBeLessThanOrEqual(1);
   expect(frame.scrollW, `頁首有橫向溢出 ${detail}`).toBeLessThanOrEqual(frame.clientW);
   for (const [name, box] of Object.entries(boxes)) {
     if (box === null) continue;
@@ -237,12 +242,31 @@ test("C1 各視窗寬：按鈕不超出頁首與卡片、手機只剩一顆「+N
   await checkHeader(touch, "C1-touch", 390);
 });
 
-test("C2 1024 開著版本面板：頁首變窄仍不超出", async () => {
-  test.setTimeout(60_000);
-  await setViewport(desktop, 1024, 900);
+test("C2 開著版本面板：640–1279 面板浮在筆記上、頁首不變窄且不被蓋；1280 預設側欄並排、頁首仍不超出", async () => {
+  test.setTimeout(90_000);
+  const header = headerOf(desktop);
+  for (const vw of [768, 1024]) {
+    await setViewport(desktop, vw, 900);
+    const before = await frameOf(header);
+    await desktop.getByTestId("versions-bubble").click();
+    const panel = desktop.getByTestId("versions-panel");
+    await expect(panel).toBeVisible();
+    const after = await checkHeader(desktop, "C2-floating", vw);
+    expect(Math.abs(after.contentW - before.contentW), `面板開著頁首寬度不變（開前 ${before.contentW}）`).toBeLessThanOrEqual(1);
+    // 上緣：頁首下緣往上 1 px 以內（面板上框與頁首下框線重疊）；頁首的分享、⋮ 不在面板底下
+    const headerBox = (await header.boundingBox())!;
+    const panelBox = (await panel.boundingBox())!;
+    expect(panelBox.y, `面板上緣 ${panelBox.y} 應 ≥ 頁首下緣 ${headerBox.y + headerBox.height} − 1`).toBeGreaterThanOrEqual(headerBox.y + headerBox.height - 1);
+    await desktop.getByRole("button", { name: "Close version history", exact: true }).click();
+    await expect(panel).toBeHidden();
+  }
+
+  // 固定段：側欄＋面板並排（這個規格沒設過 sidebar.width，側欄是預設寬度）
+  await setViewport(desktop, 1280, 900);
   await desktop.getByTestId("versions-bubble").click();
   await expect(desktop.getByTestId("versions-panel")).toBeVisible();
-  await checkHeader(desktop, "C2-versions", 1024);
+  const docked = await checkHeader(desktop, "C2-docked", 1280);
+  console.log(`MEASURE C2 docked contentW=${docked.contentW}`);
   await desktop.getByRole("button", { name: "Close version history", exact: true }).click();
   await expect(desktop.getByTestId("versions-panel")).toBeHidden();
   await setViewport(desktop, 1440, 900);

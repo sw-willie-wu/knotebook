@@ -8,6 +8,7 @@ import { VersionsProvider, useVersionsController } from "@/lib/versions-context"
 import { VersionsPanel } from "./VersionsPanel";
 import { VERSIONS_ERROR_FRAME } from "./VersionsLazyBoundary";
 import { useVersionsPanelWidth } from "./versions-panel-width";
+import { stubLayoutTier } from "@/test/layout-tier";
 
 const NOTE = "n1";
 const KEY = "versions.panelWidth";
@@ -194,8 +195,10 @@ describe("版本面板寬度把手（#274）", () => {
     expect(window.localStorage.getItem(KEY)).toBe("336");
   });
 
-  it("浮動段被 CSS 夾窄時（設定 560、實際 300）：aria-valuenow 報實際寬度，鍵盤從實際寬度起算", async () => {
+  /** 設定 560、實際只有 300（浮動段被 CSS 夾窄）。 */
+  function stubClamped(tier: "overlay" | "docked") {
     window.localStorage.setItem(KEY, "560");
+    stubLayoutTier(tier);
     vi.stubGlobal(
       "ResizeObserver",
       class {
@@ -211,11 +214,37 @@ describe("版本面板寬度把手（#274）", () => {
     vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
       return this.getAttribute("data-testid") === "versions-panel" ? ({ width: 300 } as DOMRect) : original.call(this);
     });
+  }
+
+  it("浮動段被 CSS 夾窄時（設定 560、實際 300）：aria-valuenow 報實際寬度，往變寬方向不把設定值往下改", async () => {
+    stubClamped("overlay");
     const { handle, row } = await renderPanel();
     expect(widthVar(row)).toBe("560px");
     expect(handle).toHaveAttribute("aria-valuenow", "300");
+    // 往變寬的方向、還沒超過設定值：不寫入，設定值不被往下改。
     fireEvent.keyDown(handle, { key: "ArrowLeft" });
-    expect(widthVar(row)).toBe("316px");
+    expect(widthVar(row)).toBe("560px");
+    expect(window.localStorage.getItem(KEY)).toBe("560");
+    // 往變窄的方向照常從實際寬度起算並寫入。
+    fireEvent.keyDown(handle, { key: "ArrowRight" });
+    expect(widthVar(row)).toBe("284px");
+    expect(window.localStorage.getItem(KEY)).toBe("284");
+  });
+
+  it("浮動段被夾窄時：按下放開沒有移動，設定值不變", async () => {
+    stubClamped("overlay");
+    const { handle } = await renderPanel();
+    fireEvent.pointerDown(handle, { button: 0, clientX: 500, pointerId: 1 });
+    fireEvent.pointerUp(handle, { clientX: 500, pointerId: 1 });
+    expect(window.localStorage.getItem(KEY)).toBe("560");
+  });
+
+  it("固定段（寬度不會被夾）：不採用量到的寬度，aria-valuenow 與鍵盤都從設定值起算", async () => {
+    stubClamped("docked");
+    const { handle } = await renderPanel();
+    expect(handle).toHaveAttribute("aria-valuenow", "560");
+    fireEvent.keyDown(handle, { key: "ArrowRight" });
+    expect(window.localStorage.getItem(KEY)).toBe("544");
   });
 
   it.each([

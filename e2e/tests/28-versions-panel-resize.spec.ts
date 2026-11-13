@@ -19,7 +19,7 @@ function sidebarHandleOf(page: Page): Locator {
   return page.getByRole("separator", { name: "Resize sidebar" });
 }
 async function widthOf(loc: Locator): Promise<number> {
-  return (await loc.boundingBox())!.width;
+  return (await loc.boundingBox({ timeout: 5_000 }))!.width;
 }
 async function openPanel(page: Page): Promise<void> {
   if (!(await panelOf(page).isVisible())) await page.getByTestId("versions-bubble").click();
@@ -28,7 +28,7 @@ async function openPanel(page: Page): Promise<void> {
 }
 /** 抓把手中心、水平拖 dx px（先走兩步讓 pointermove 連發），放開。 */
 async function dragBy(page: Page, handle: Locator, dx: number): Promise<void> {
-  const box = (await handle.boundingBox())!;
+  const box = (await handle.boundingBox({ timeout: 5_000 }))!;
   const x = box.x + box.width / 2;
   const y = box.y + box.height / 2;
   await page.mouse.move(x, y);
@@ -76,8 +76,9 @@ test("28 版本面板調寬：預設 320、拖曳、重整保留、上下限、�
     expect(hitEnds).toEqual([true, true]);
 
     // 6b. 把手在內文卡與版本面板之間的間隙：中心 x 落在兩卡之間（不壓在任何一張卡上），且與兩卡貼著面板左框
-    const noteCard = panel.locator("xpath=preceding-sibling::*[1]");
-    const [noteBox, panelBox, handleBox] = [await noteCard.boundingBox(), await panel.boundingBox(), await handle.boundingBox()];
+    // 面板外包一層 `display: contents` 的 slot：內文卡是 slot 的前一個兄弟。
+    const noteCard = page.locator("[data-versions-panel-slot]").locator("xpath=preceding-sibling::*[1]");
+    const [noteBox, panelBox, handleBox] = [await noteCard.boundingBox({ timeout: 5_000 }), await panel.boundingBox({ timeout: 5_000 }), await handle.boundingBox({ timeout: 5_000 })];
     const noteRight = noteBox!.x + noteBox!.width;
     const handleCenter = handleBox!.x + handleBox!.width / 2;
     const geom = JSON.stringify({ noteRight, panelLeft: panelBox!.x, handleCenter });
