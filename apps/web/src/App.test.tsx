@@ -31,6 +31,7 @@ const ADMIN_USER: UserDto = {
   mustChangePassword: false,
   hasPassword: true,
   autoVersions: true,
+  avatar: null,
 };
 
 // 站台管理（#247 起是第二棵樹裡的 modal）：`/settings/users`（舊書籤）轉 `/admin/users`；`/admin/*` 不在主樹——

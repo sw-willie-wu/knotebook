@@ -264,6 +264,7 @@ function fetchMockLoginOk(providers: AuthProviderPublicDto[] = []): ReturnType<t
               isAdmin: false,
               mustChangePassword: false,
               hasPassword: true,
+              avatar: null,
             }),
         }),
       );

@@ -26,6 +26,7 @@ const SSO_ONLY_USER: UserDto = {
   mustChangePassword: false,
   hasPassword: false,
   autoVersions: true,
+  avatar: null,
 };
 const PASSWORD_USER: UserDto = { ...SSO_ONLY_USER, id: "u-pw", handle: "pw", hasPassword: true };
 

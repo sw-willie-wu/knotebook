@@ -1,6 +1,7 @@
 /**
  * 儲存空間配額。位元組數一律 JS number（≤ 2^50，安全整數）。
- * 「空間」＝一位使用者的個人筆記全體、或一個群組的筆記全體；用量＝該空間筆記的 `uploads.size` 總和（只計附件）。
+ * 「空間」＝一位使用者的個人筆記全體、或一個群組的筆記全體；用量＝該空間筆記的 `uploads.size` 總和（附件），
+ * 個人空間另加該使用者所有頭貼候選的 `original_size + display_size`（群組空間不含頭貼）。
  */
 export const STORAGE_PLAN_NAME_MAX = 40;
 /** 1 PiB＝2^50：DB CHECK `storage_plans_quota_chk` 的上界，JS number 精確。 */
@@ -13,13 +14,14 @@ export interface StorageUsageDto {
   usedBytes: number;
   quotaBytes: number | null;
   planName: string;
-  /** #247。與 `usedBytes` 是兩句查詢、不在同一時點：UI 的佔比分母取這五值之和，不取 `usedBytes`。 */
+  /** #247。與 `usedBytes` 是兩句查詢、不在同一時點：UI 的佔比分母取各類之和，不取 `usedBytes`。 */
   byKind: StorageByKind;
 }
 
 /**
- * #247：上傳媒體依類型的位元組數。五鍵恆在（UI 五列恆顯示，含 0）。
- * 現況上傳只收四種圖片 mime（server `uploads/magic-bytes.ts`），所以只有 image 會非零；版面先為多類型留好。
+ * #247：用量依類型的位元組數。六鍵恆在（UI 列恆顯示，含 0）。
+ * 前五類是上傳的媒體；現況上傳只收四種圖片 mime（server `uploads/magic-bytes.ts`），所以只有 image 會非零，版面先為多類型留好。
+ * `avatar` 是個人空間的頭貼（不是上傳媒體，不由 `kindOfMime` 產生）；群組空間恆 0。
  */
 export interface StorageByKind {
   image: number;
@@ -27,15 +29,16 @@ export interface StorageByKind {
   video: number;
   document: number;
   other: number;
+  avatar: number;
 }
 export type StorageKind = keyof StorageByKind;
 
-/** UI「依類型」五列的固定順序。 */
-export const STORAGE_KINDS: readonly StorageKind[] = ["image", "audio", "video", "document", "other"];
+/** UI「依類型」六列的固定順序（頭貼最後）。 */
+export const STORAGE_KINDS: readonly StorageKind[] = ["image", "audio", "video", "document", "other", "avatar"];
 
 /** 每次回新物件（呼叫端會就地累加）。 */
 export function emptyStorageByKind(): StorageByKind {
-  return { image: 0, audio: 0, video: 0, document: 0, other: 0 };
+  return { image: 0, audio: 0, video: 0, document: 0, other: 0, avatar: 0 };
 }
 
 const DOCUMENT_MIMES = new Set([
@@ -50,7 +53,7 @@ const DOCUMENT_MIMES = new Set([
  * mime → 類型（#247）。正規化（取 `;` 前、trim、小寫）是刻意加的。分類規則只有這一份：server 以 `GROUP BY uploads.mime` 取各 mime 的總和後在 JS 端歸類，
  * 不在 SQL 重寫一次。先取 `;` 前的部分、trim、轉小寫（`text/plain; charset=utf-8`、`IMAGE/PNG` 照常歸類）。
  */
-export function kindOfMime(mime: string): StorageKind {
+export function kindOfMime(mime: string): Exclude<StorageKind, "avatar"> {
   const m = (mime.split(";")[0] ?? "").trim().toLowerCase();
   if (m.startsWith("image/")) return "image";
   if (m.startsWith("audio/")) return "audio";

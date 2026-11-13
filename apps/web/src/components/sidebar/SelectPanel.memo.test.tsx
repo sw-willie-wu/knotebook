@@ -45,6 +45,7 @@ const ME: UserDto = {
   mustChangePassword: false,
   hasPassword: true,
   autoVersions: true,
+  avatar: null,
 };
 
 const NOTES = ["p1", "p2", "p3"].map((id) => personalNote({ id, title: id }));

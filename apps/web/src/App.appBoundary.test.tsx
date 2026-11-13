@@ -34,6 +34,7 @@ const ADMIN_USER: UserDto = {
   mustChangePassword: false,
   hasPassword: true,
   autoVersions: true,
+  avatar: null,
 };
 
 interface FakeResponseInit {

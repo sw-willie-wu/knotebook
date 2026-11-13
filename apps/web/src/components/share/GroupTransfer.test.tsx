@@ -61,8 +61,8 @@ const GROUP_B = groupDto(
   memberRole({ permissions: { ...memberRole().permissions, create: false, edit: false } }),
 );
 
-const BOB: ShareDto = { userId: "22222222-2222-2222-2222-222222222222", email: "bob@example.com", displayName: "Bob", role: "viewer" };
-const CAROL: ShareDto = { userId: "33333333-3333-3333-3333-333333333333", email: "carol@example.com", displayName: "Carol", role: "editor" };
+const BOB: ShareDto = { userId: "22222222-2222-2222-2222-222222222222", email: "bob@example.com", displayName: "Bob", role: "viewer", avatar: null };
+const CAROL: ShareDto = { userId: "33333333-3333-3333-3333-333333333333", email: "carol@example.com", displayName: "Carol", role: "editor", avatar: null };
 const TOKEN = "T".repeat(43);
 
 const BASE = `/api/notes/${NOTE.id}`;

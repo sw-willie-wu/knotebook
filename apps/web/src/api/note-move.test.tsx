@@ -19,7 +19,7 @@ const SHARES_URL = `/api/notes/${ID}/shares`;
 const PUBLIC_URL = `/api/notes/${ID}/public-link`;
 const NOTE_URL = `/api/notes/${ID}`;
 
-const SHARE: ShareDto = { userId: "u2", email: "bob@example.com", displayName: "Bob", role: "viewer" };
+const SHARE: ShareDto = { userId: "u2", email: "bob@example.com", displayName: "Bob", role: "viewer", avatar: null };
 
 function noteDto(over: Partial<NoteDto>): NoteDto {
   return {

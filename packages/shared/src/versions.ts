@@ -2,6 +2,8 @@
  * 筆記版本歷史。server 與 web 共用的常數、DTO 與名稱正規化。
  * 「基底」＝目前內容是從哪一版接著改（`notes.version_base_seq`）；null＝沒有基底（還沒存過、或套用後基底寫不回去）。
  */
+import type { AvatarRef } from "./avatar.js";
+
 /** 版本名稱上限（code point）。 */
 export const VERSION_NAME_MAX = 120;
 /** 清單分頁。 */
@@ -18,10 +20,14 @@ export const VERSION_AUTO_WAIT_MINUTES_MAX = 60;
 
 export type VersionKind = "auto" | "manual";
 
-/** 每版一份編輯者名單；`handle` 是現值（刪除的使用者為 `""`），`agentLabel` 是切版當下的快照（AI 寫入才有）。 */
+/**
+ * 每版一份編輯者名單；`handle` 是現值（刪除的使用者為 `""`），`agentLabel` 是切版當下的快照（AI 寫入才有）。
+ * `avatar` 是該使用者本人目前的頭貼（AI 寫入的列也是本人的，不是代理的）；刪除的使用者、沒有頭貼、顯示圖尚未備好 → null。
+ */
 export interface VersionEditorDto {
   handle: string;
   agentLabel: string | null;
+  avatar: AvatarRef | null;
 }
 
 /**

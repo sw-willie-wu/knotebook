@@ -406,12 +406,12 @@ export default function NotePage() {
   const handleCursorScroller = useCallback((scroller: CursorScroller | null) => {
     cursorScrollerRef.current = scroller;
   }, []);
-  // #293：本分頁在這條連線 awareness 寫 knotebook 欄（目前 avatar 恆 null）。
+  // #293：本分頁在這條連線 awareness 寫 knotebook 欄；avatar 只送 { id, v }（顯示圖尚未補產時別人取圖會 404 並退回首字，所以不必送 pending）。
   useLocalPresenceField({
     provider,
     role: state.phase === "connected" ? state.role : null,
     name: user?.displayName ?? null,
-    avatar: null,
+    avatar: user?.avatar ? { id: user.avatar.id, v: user.avatar.v } : null,
   });
 
   // #269：段落錨點。root＝NoteEditor 的捲動容器（NoteEditor 以 ref 回報）；組合（ready＝這一篇同步過了）在 useMemberBlockAnchor。

@@ -45,6 +45,7 @@ const ME: UserDto = {
   mustChangePassword: false,
   hasPassword: true,
   autoVersions: true,
+  avatar: null,
 };
 
 const NOTES = [personalNote({ id: "p1", title: "p1" }), personalNote({ id: "p2", title: "p2" })];

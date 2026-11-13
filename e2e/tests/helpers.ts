@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { deflateSync } from "node:zlib";
 import { expect, request as pwRequest, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 import { derivedVersionName } from "../../packages/shared/src/version-names.js";
 import { E2E_ORIGIN } from "../ports.js";
@@ -296,9 +297,11 @@ export async function openListOnCompact(page: Page): Promise<Locator> {
   if (width < 640) {
     // 不用「含 tab 列」過濾：全螢幕搜尋層開著時 tab 列不在，清單仍是這個 aside。
     const sidebar = page.getByRole("complementary");
-    if (!(await sidebar.isVisible())) {
-      await page.getByRole("button", { name: "Back to notes", exact: true }).click();
-    }
+    const back = page.getByRole("button", { name: "Back to notes", exact: true });
+    // 換頁走 transition：網址先換、畫面晚一點才跟上，isVisible 不會等。
+    // 先等清單或筆記畫面其中之一出現，再判斷要不要按返回。
+    await expect(sidebar.or(back).first()).toBeVisible({ timeout: 15_000 });
+    if (!(await sidebar.isVisible())) await back.click();
     await expect(sidebar).toBeVisible({ timeout: 15_000 });
     return sidebar;
   }
@@ -632,4 +635,40 @@ export async function versionLabelOf(
  */
 export function reEscape(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function crc32(buf: Buffer): number {
+  let crc = 0xffffffff;
+  for (const byte of buf) {
+    crc ^= byte;
+    for (let k = 0; k < 8; k++) crc = crc & 1 ? (crc >>> 1) ^ 0xedb88320 : crc >>> 1;
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function pngChunk(type: string, data: Buffer): Buffer {
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(data.length);
+  const typed = Buffer.concat([Buffer.from(type, "latin1"), data]);
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(crc32(typed));
+  return Buffer.concat([length, typed, crc]);
+}
+
+/** 單色 RGBA PNG（不靠 fixture 檔——repo 內不放樣本）。 */
+export function solidPng(width: number, height: number): Buffer {
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = 6; // RGBA
+  const row = Buffer.alloc(1 + width * 4); // 第一個位元組是 filter 0
+  for (let x = 0; x < width; x++) row.set([0xe2, 0x43, 0x29, 0xff], 1 + x * 4);
+  const raw = Buffer.concat(Array.from({ length: height }, () => row));
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk("IHDR", ihdr),
+    pngChunk("IDAT", deflateSync(raw)),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
 }

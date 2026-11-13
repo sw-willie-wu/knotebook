@@ -24,7 +24,7 @@ async function seedUploadRow(
 ): Promise<void> {
   await db.insert(uploads).values({ noteId, uploaderId, chargedToId, mime, size });
 }
-const ZERO: StorageByKind = { image: 0, audio: 0, video: 0, document: 0, other: 0 };
+const ZERO: StorageByKind = { image: 0, audio: 0, video: 0, document: 0, other: 0, avatar: 0 };
 
 describe("GET／POST／PATCH／DELETE /api/admin/storage-plans", () => {
   it("只限站台 admin（四支＋defaults）", async () => {
@@ -287,13 +287,13 @@ describe("#247：byKind 與 byMember", () => {
     for (const [mime, size] of rows) await seedUploadRow(b.db, n.id, u.id, mime, size);
     await seedUploadRow(b.db, theirs.id, other.id, "image/png", 1000);
     const body = (await b.app.inject({ method: "GET", url: "/api/storage", cookies: await cookieOf(u.id) })).json();
-    expect(body.byKind).toEqual({ image: 15, audio: 20, video: 30, document: 103, other: 100 });
+    expect(body.byKind).toEqual({ image: 15, audio: 20, video: 30, document: 103, other: 100, avatar: 0 });
     expect(body.usedBytes).toBe(268);
     const sum = Object.values(body.byKind as StorageByKind).reduce((a, x) => a + x, 0);
     expect(sum).toBe(body.usedBytes);
   });
 
-  it("GET /api/storage：沒有任何上傳 → byKind 五鍵恆在、皆 0", async () => {
+  it("GET /api/storage：沒有任何上傳 → byKind 六鍵恆在、皆 0", async () => {
     const b = await adminApp();
     const u = await seedUser(b.db);
     expect((await b.app.inject({ method: "GET", url: "/api/storage", cookies: await cookieOf(u.id) })).json().byKind).toEqual(ZERO);
@@ -323,7 +323,7 @@ describe("#247：byKind 與 byMember", () => {
       { userId: null, handle: null, displayName: null, bytes: 70 },
       { userId: leaver.id, handle: leaver.handle, displayName: "Leaver", bytes: 60 },
     ]);
-    expect(body.byKind).toEqual({ image: 400, audio: 30, video: 60, document: 50, other: 40 });
+    expect(body.byKind).toEqual({ image: 400, audio: 30, video: 60, document: 50, other: 40, avatar: 0 });
     expect(body.usedBytes).toBe(580);
   });
 

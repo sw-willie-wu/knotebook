@@ -22,6 +22,9 @@ import { startSession } from "../auth/sessions.js";
 import type { CollabHooks } from "../collab/hooks.js";
 import { touchLastLogin } from "../auth/last-login.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
+import { pickPicture } from "../avatars/oidc-picture.js";
+import { scheduleOidcAvatarJob, type OidcAvatarJobHooks } from "../avatars/oidc-job.js";
+import type { AvatarFetchPolicy } from "../avatars/oidc-fetch.js";
 
 
 /** SQLSTATE 形（5 碼）的 code＝DB 錯誤；其 message／params 可能含 sub／email，log 要走 `redactDbError`，不可記整個 err。 */
@@ -46,6 +49,12 @@ export interface OidcRouteDeps {
   /** login 與 callback 各自一個 bucket（issue #16）；SSO 證明起點吃 oidcLogin。 */
   limiters: { oidcLogin: FixedWindowLimiter; oidcCallback: FixedWindowLimiter };
   oidcTestHook?: OidcTestHook;
+  /** 頭貼背景工作用（見 `avatars/oidc-job.ts`）。 */
+  uploadsDir: string;
+  storageLockTimeoutMs: number;
+  /** 只給測試注入；未設＝生產政策。 */
+  avatarFetchPolicy?: AvatarFetchPolicy;
+  avatarJobHooks?: OidcAvatarJobHooks;
 }
 
 /** legacy＝用舊回呼網址的那一個；id＝路徑參數原字串（未驗）。 */
@@ -172,8 +181,9 @@ export function oidcRoutes(deps: OidcRouteDeps) {
       const name = typeof idTokenClaims.name === "string" ? idTokenClaims.name : null;
       let preferredUsername = nonEmptyClaim(idTokenClaims.preferred_username);
       // 只在 ID token 缺 email 時補打 userinfo；IdP 的「email 已驗證」旗標一律不讀。
+      // `picture` 也取這份回應（ID token 沒有時）；不為了頭貼另外打 userinfo。
+      let userinfo: Record<string, unknown> | undefined;
       if (email === null && metadata.userinfo_endpoint !== undefined) {
-        let userinfo: Awaited<ReturnType<typeof client.fetchUserInfo>>;
         try {
           userinfo = await client.fetchUserInfo(configuration, tokens.access_token, sub);
         } catch (err) {
@@ -190,6 +200,21 @@ export function oidcRoutes(deps: OidcRouteDeps) {
       }
       // issuer 單一真相：serverMetadata().issuer（＝ID token iss）——不是管理員填的字面。
       const claims: OidcClaims = { issuer: metadata.issuer, sub, email: normalizedEmail, name, preferredUsername };
+      const picture = pickPicture(idTokenClaims, userinfo);
+      // 登入與連結成功後才排程頭貼下載：只排程、不等結果，下載失敗不影響登入與導向。
+      const scheduleAvatar = (userId: string): void =>
+        scheduleOidcAvatarJob(
+          {
+            db: deps.db,
+            gate: deps.gate,
+            uploadsDir: deps.uploadsDir,
+            storageLockTimeoutMs: deps.storageLockTimeoutMs,
+            avatarFetchPolicy: deps.avatarFetchPolicy,
+            avatarJobHooks: deps.avatarJobHooks,
+            log: request.log,
+          },
+          { userId, issuer: claims.issuer, sub: claims.sub, picture },
+        );
 
       if (payload.intent === "link") {
         // 驗目前 session（authenticate 的核心，不掛 preHandler 以維持一律 302）。不在、失效、停用、或不是發起者 → mismatch。
@@ -202,12 +227,15 @@ export function oidcRoutes(deps: OidcRouteDeps) {
           if (!(err instanceof TxAbort)) throw err;
           return reply.redirect(failLocation(err.errCode));
         }
+        scheduleAvatar(payload.linkUserId);
         // #247：已連結登入方式在設定的「登入」頁（讀 ?linked=／?link_error=、toast 後清參數）。
         return reply.redirect(`/settings/login?linked=${provider.id}`);
       }
 
       if (payload.intent === "prove") {
         // callback：新身分取自 pending，第二段往返只用來證明本人（claims.issuer／sub＝證明身分）。
+        // 這裡不排程頭貼：新連上的身分是 pending 裡那個，這次回呼拿到的 `picture` 屬於證明用的另一個身分。
+        // 新身分下次用它登入時才會帶入頭貼。
         const pending = readPendingLink(request, deps.config.appSecret);
         if (pending === null) {
           clearPendingCookie(reply, deps.config);
@@ -265,6 +293,7 @@ export function oidcRoutes(deps: OidcRouteDeps) {
         return reply.redirect(failLocation(outcome.code));
       }
       if (outcome.kind === "confirm_link") {
+        // 不排程頭貼：此時還沒有這個身分的資料列，連結完成後下次用它登入才帶入。
         const sealed = sealPendingLinkWithinLimit(deps.config.appSecret, {
           pendingId: newPendingId(),
           issuer: claims.issuer,
@@ -288,6 +317,7 @@ export function oidcRoutes(deps: OidcRouteDeps) {
       if (outcome.kind === "created") deps.gate.invalidate(outcome.userId);
       await touchLastLogin(deps.db, outcome.userId, request.log); // #247：OIDC 登入（login／created）
       await startSession(deps, request, reply, { userId: outcome.userId, tv: outcome.tokenVersion });
+      scheduleAvatar(outcome.userId);
       return reply.redirect(nextPath ?? "/");
     } catch (err) {
       if (hasSqlState(err)) redactDbError(request.log, err, "OIDC callback");

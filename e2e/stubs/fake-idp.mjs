@@ -16,6 +16,7 @@
 
 import { createServer } from "node:http";
 import { generateKeyPairSync, createHash, randomBytes, sign as cryptoSign } from "node:crypto";
+import { deflateSync } from "node:zlib";
 
 const PORT = 9400;
 const ORIGIN = "http://fake-idp:9400";
@@ -36,6 +37,48 @@ function sendJson(res, status, body) {
   res.writeHead(status, { "content-type": "application/json", "content-length": Buffer.byteLength(payload) });
   res.end(payload);
 }
+
+/** 一張 64×64 的單色 PNG（頭貼 e2e 的 `picture` 指向它）。 */
+function makeAvatarPng() {
+  const size = 64;
+  const crcTable = Array.from({ length: 256 }, (_, n) => {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    return c >>> 0;
+  });
+  const crc32 = buf => {
+    let c = 0xffffffff;
+    for (const b of buf) c = crcTable[(c ^ b) & 0xff] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  };
+  const chunk = (type, data) => {
+    const head = Buffer.alloc(8);
+    head.writeUInt32BE(data.length, 0);
+    head.write(type, 4, "ascii");
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(crc32(Buffer.concat([head.subarray(4), data])), 0);
+    return Buffer.concat([head, data, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(size, 0);
+  ihdr.writeUInt32BE(size, 4);
+  ihdr[8] = 8; // 位元深度
+  ihdr[9] = 2; // RGB
+  const row = Buffer.alloc(1 + size * 3);
+  for (let x = 0; x < size; x++) {
+    row[1 + x * 3] = 0x2e;
+    row[2 + x * 3] = 0x8b;
+    row[3 + x * 3] = 0x57;
+  }
+  const raw = Buffer.concat(Array.from({ length: size }, () => row));
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk("IHDR", ihdr),
+    chunk("IDAT", deflateSync(raw)),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+const AVATAR_PNG = makeAvatarPng();
 
 function base64url(input) {
   const buf = Buffer.isBuffer(input) ? input : Buffer.from(input);
@@ -152,6 +195,7 @@ function createIssuer(prefix, kid) {
       if (record.claims.email !== undefined) idTokenClaims.email = record.claims.email;
       if (record.claims.email_verified !== undefined) idTokenClaims.email_verified = record.claims.email_verified;
       if (record.claims.name !== undefined) idTokenClaims.name = record.claims.name;
+      if (record.claims.picture !== undefined) idTokenClaims.picture = record.claims.picture;
       idTokenClaims.nonce = record.nonce;
       const accessToken = randomBytes(16).toString("hex");
       accessTokenClaims.set(accessToken, record.claims);
@@ -177,6 +221,7 @@ function createIssuer(prefix, kid) {
       if (claims.email !== undefined) body.email = claims.email;
       if (claims.email_verified !== undefined) body.email_verified = claims.email_verified;
       if (claims.name !== undefined) body.name = claims.name;
+      if (claims.picture !== undefined) body.picture = claims.picture;
       sendJson(res, 200, body);
       return true;
     }
@@ -193,6 +238,12 @@ const ISSUERS = [createIssuer("/b", "e2e-key-b"), createIssuer("", "e2e-key")];
 const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "fake-idp"}`);
+    // 頭貼圖：與 issuer 同主機名同埠，所以 app 的下載器把它當成 issuer 自己的主機（容器網路位址仍會被擋，豁免只看主機名）。
+    if (req.method === "GET" && url.pathname === "/avatar.png") {
+      res.writeHead(200, { "content-type": "image/png", "content-length": AVATAR_PNG.length });
+      res.end(AVATAR_PNG);
+      return;
+    }
     for (const iss of ISSUERS) {
       if (iss.prefix !== "" && !url.pathname.startsWith(`${iss.prefix}/`)) continue;
       if (await iss.handle(req, res, url, url.pathname.slice(iss.prefix.length))) return;

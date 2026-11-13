@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
-import type { AdminInviteDto, SpaceStorageDto } from "@knotebook/shared";
+import type { AdminInviteDto, AvatarRef, SpaceStorageDto } from "@knotebook/shared";
 import { api } from "./client";
 import { ADMIN_STORAGE_PLANS_QUERY_KEY, STORAGE_USAGE_QUERY_KEY } from "./storage";
 
@@ -29,6 +29,8 @@ export interface AdminUserDto {
   passwordResetExpiresAt: string | null;
   /** 儲存配額：個人空間的方案與用量（GET／PATCH storage-plan 都帶）。 */
   storage: SpaceStorageDto;
+  /** 目前的頭貼；沒有頭貼、顯示圖尚未備好 → null。 */
+  avatar: AvatarRef | null;
 }
 
 export const ADMIN_USERS_QUERY_KEY = ["admin", "users"] as const;

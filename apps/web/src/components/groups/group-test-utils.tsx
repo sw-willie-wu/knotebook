@@ -34,6 +34,7 @@ export const ME: UserDto = {
   mustChangePassword: false,
   hasPassword: true,
   autoVersions: true,
+  avatar: null,
 };
 export const ADMIN_ROLE = adminRole({ id: "11111111-1111-1111-1111-111111111111" });
 export const MEMBER_ROLE = memberRole({ id: "22222222-2222-2222-2222-222222222222" });
@@ -47,7 +48,7 @@ export const GROUP_MEMBER: GroupDto = groupDto({ id: "bbbbbbbb-bbbb-bbbb-bbbb-bb
 export const BG_NOTE = { pathname: "/n/me/some-note", search: "", hash: "", state: null, key: "bg1" } as Location;
 
 export function member(userId: string, email: string, displayName: string, role: GroupRoleDto): GroupMemberDto {
-  return { userId, email, displayName, roleId: role.id, builtin: role.builtin };
+  return { userId, email, displayName, roleId: role.id, builtin: role.builtin, avatar: null };
 }
 
 export type Handler = (url: string, method: string, init: RequestInit | undefined) => Response | Promise<Response> | null;
@@ -57,7 +58,7 @@ export const EMPTY_GROUP_USAGE = {
   usedBytes: 0,
   quotaBytes: 2147483648,
   planName: "Basic",
-  byKind: { image: 0, audio: 0, video: 0, document: 0, other: 0 },
+  byKind: { image: 0, audio: 0, video: 0, document: 0, other: 0, avatar: 0 },
   byMember: [],
 };
 

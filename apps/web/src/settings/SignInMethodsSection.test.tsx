@@ -258,6 +258,7 @@ describe("回程落點：以 AppRoutes 渲染 /settings/login（#247）", () => 
   const USER: UserDto = {
     id: "u1", email: "a@example.com", handle: "a", displayName: "A",
     isAdmin: false, mustChangePassword: false, hasPassword: true, autoVersions: true,
+    avatar: null,
   };
 
   function renderAppAt(path: string) {

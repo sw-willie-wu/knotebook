@@ -15,9 +15,10 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
 import { asc, eq, sql } from "drizzle-orm";
 import {
-  GROUP_ROLE_FLAGS, isReservedRoleName, normalizeEmail, type BuiltinGroupRole, type GroupMemberDto, type GroupRoleDto, type GroupRoleFlag,
+  GROUP_ROLE_FLAGS, isReservedRoleName, normalizeEmail, type AvatarRef, type BuiltinGroupRole, type GroupMemberDto, type GroupRoleDto, type GroupRoleFlag,
 } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
+import { readAvatarRefs } from "../avatars/read.js";
 import { groupMembers, groupRoles, groups, users } from "../db/schema.js";
 import { foreignKeyViolationConstraint, isForeignKeyViolation, isRetryableTxError, notNullViolationColumn, uniqueViolationConstraint } from "../db/pg-errors.js";
 import { sendInvalidBody } from "../auth/admin-provider-input.js";
@@ -79,8 +80,8 @@ export interface GroupsRouteDeps {
   versions: VersionService;
 }
 
-function toMemberDto(row: { userId: string; email: string; displayName: string; roleId: string; builtin: string | null }): GroupMemberDto {
-  return { userId: row.userId, email: row.email, displayName: row.displayName, roleId: row.roleId, builtin: (row.builtin ?? null) as BuiltinGroupRole | null };
+function toMemberDto(row: { userId: string; email: string; displayName: string; roleId: string; builtin: string | null }, avatar: AvatarRef | null): GroupMemberDto {
+  return { userId: row.userId, email: row.email, displayName: row.displayName, roleId: row.roleId, builtin: (row.builtin ?? null) as BuiltinGroupRole | null, avatar };
 }
 
 export function groupsRoutes(deps: GroupsRouteDeps) {
@@ -342,7 +343,8 @@ export function groupsRoutes(deps: GroupsRouteDeps) {
         .innerJoin(groupRoles, eq(groupRoles.id, groupMembers.roleId))
         .where(eq(groupMembers.groupId, id))
         .orderBy(sql`case when ${groupRoles.builtin} = 'admin' then 0 else 1 end`, asc(users.displayName), asc(users.id));
-      return rows.map(toMemberDto);
+      const avatars = await readAvatarRefs(deps.db, rows.map(r => r.userId));
+      return rows.map(r => toMemberDto(r, avatars.get(r.userId) ?? null));
     });
 
     // 只新增：已是成員 → 409，**不動**既有角色。`roleId` 預設內建一般成員。停用帳號一樣可加。加人不踢線。
@@ -371,7 +373,8 @@ export function groupsRoutes(deps: GroupsRouteDeps) {
         if (sent) return sent;
         throw err;
       }
-      return toMemberDto({ userId: target.id, email: target.email, displayName: target.displayName, roleId: role.roleId, builtin: role.builtin });
+      const avatars = await readAvatarRefs(deps.db, [target.id]);
+      return toMemberDto({ userId: target.id, email: target.email, displayName: target.displayName, roleId: role.roleId, builtin: role.builtin }, avatars.get(target.id) ?? null);
     });
 
     // 換角色（不防升權）。換角色 → 群組所有筆記 × 那一人重驗（升降皆重驗）；角色沒變不踢。
@@ -394,7 +397,8 @@ export function groupsRoutes(deps: GroupsRouteDeps) {
         throw err;
       }
       if (out.noteIds !== null) deps.collabHooks.onGroupAccessChanged(out.noteIds, [targetId]);
-      return toMemberDto({ userId: targetId, ...out.member });
+      const avatars = await readAvatarRefs(deps.db, [targetId]);
+      return toMemberDto({ userId: targetId, ...out.member }, avatars.get(targetId) ?? null);
     });
 
     // 移人／退出。持管理成員旗標者（含站台 admin）可移任何人；其他人只能移自己。commit 後踢線。

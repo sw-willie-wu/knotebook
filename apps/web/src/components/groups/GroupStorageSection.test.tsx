@@ -10,7 +10,7 @@ const USAGE = {
   usedBytes: 4 * 1048576,
   quotaBytes: 10 * 1048576,
   planName: "Team",
-  byKind: { image: 2 * 1048576, audio: 0, video: 1048576, document: 0, other: 0 },
+  byKind: { image: 2 * 1048576, audio: 0, video: 1048576, document: 0, other: 0, avatar: 0 },
   byMember: [
     { userId: "u-bob", handle: "bob", displayName: "Bob", bytes: 2 * 1048576 },
     { userId: null, handle: null, displayName: null, bytes: 1048576 },
@@ -35,6 +35,18 @@ describe("GroupStorageSection（/groups/:id/storage，#247）", () => {
   });
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("沒有頭貼那一列；依類型與依成員的佔比分母都不含頭貼", async () => {
+    const { dialog } = await openStorage(GROUP_ADMIN, { ...USAGE, byKind: { ...USAGE.byKind, avatar: 5 * 1048576 } });
+    await within(dialog).findByTestId("by-kind-image");
+    expect(within(dialog).queryByTestId("by-kind-avatar")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("Profile pictures")).not.toBeInTheDocument();
+    // 2 / (2 + 1)＝66.7%；把頭貼算進分母會變 25%
+    expect(parseFloat((within(dialog).getByTestId("by-kind-bar-image") as HTMLElement).style.width)).toBeCloseTo(66.667, 2);
+    // 「依成員」的分母同樣不含頭貼：bob 的 2 MB / 3 MB
+    const memberBar = within(dialog).getAllByTestId("by-member-row")[0]!.querySelector<HTMLElement>("[data-testid='by-member-bar']")!;
+    expect(parseFloat(memberBar.style.width)).toBeCloseTo(66.667, 2);
   });
 
   it("S1 用量＋依類型五列恆在（含 0 的列）", async () => {

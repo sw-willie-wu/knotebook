@@ -203,9 +203,9 @@ describe("#103／#175 PATCH /api/groups/:id 與 GET …/members", () => {
     const rows = res.json() as GroupMemberDto[];
     const amys = [amy1.id, amy2.id].sort();
     expect(rows.map(r => r.userId)).toEqual([zed.id, ...amys, bob.id]);
-    expect(rows[0]).toEqual({ userId: zed.id, email: zed.email, displayName: "Zed", roleId: g.adminRoleId, builtin: "admin" });
-    expect(rows[1]).toEqual({ userId: amys[0], email: expect.any(String), displayName: "Amy", roleId: g.memberRoleId, builtin: "member" });
-    expect(Object.keys(rows[3]!).sort()).toEqual(["builtin", "displayName", "email", "roleId", "userId"]);
+    expect(rows[0]).toEqual({ userId: zed.id, email: zed.email, displayName: "Zed", roleId: g.adminRoleId, builtin: "admin", avatar: null });
+    expect(rows[1]).toEqual({ userId: amys[0], email: expect.any(String), displayName: "Amy", roleId: g.memberRoleId, builtin: "member", avatar: null });
+    expect(Object.keys(rows[3]!).sort()).toEqual(["avatar", "builtin", "displayName", "email", "roleId", "userId"]);
   });
 
   it("索引：GET /api/groups 走 group_members_user_idx；「群組內所有筆記」走 notes_group_slug_idx", async () => {

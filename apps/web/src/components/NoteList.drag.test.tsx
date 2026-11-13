@@ -53,7 +53,7 @@ const NOTES: NoteDto[] = [
   groupNote({ id: "h1", title: "h1", group: H }),
 ];
 
-const ME: UserDto = { id: "u1", email: "me@example.com", handle: "tester", displayName: "Me", isAdmin: false, mustChangePassword: false, hasPassword: true, autoVersions: true };
+const ME: UserDto = { id: "u1", email: "me@example.com", handle: "tester", displayName: "Me", isAdmin: false, mustChangePassword: false, hasPassword: true, autoVersions: true, avatar: null };
 
 type Reply = { status: number; body: unknown };
 
