@@ -750,7 +750,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   // #187：registry 是 per-app 實例（嚴禁 module 單例，同 limiters）。callback 需要 db（帳號解析交易）與 gate（建帳後 invalidate）。
   const oidcRegistry = deps.oidcRegistry ?? createOidcRuntimeRegistry();
   void app.register(
-    oidcRoutes({ config: deps.config, db: deps.db, siteLimits: deps.siteLimits, gate: deps.gate, collabHooks: deps.collabHooks, reloginReverifyDelayMs: deps.reloginReverifyDelayMs, registry: oidcRegistry, limiters: { oidcLogin: limiters.oidcLogin, oidcCallback: limiters.oidcCallback }, oidcTestHook: deps.oidcTestHook }),
+    oidcRoutes({ config: deps.config, db: deps.db, siteLimits: deps.siteLimits, gate: deps.gate, collabHooks: deps.collabHooks, reloginReverifyDelayMs: deps.reloginReverifyDelayMs, registry: oidcRegistry, limiters: { oidcLogin: limiters.oidcLogin, oidcCallback: limiters.oidcCallback }, oidcTestHook: deps.oidcTestHook, uploadsDir: deps.uploadsDir, storageLockTimeoutMs, avatarFetchPolicy: deps.avatarFetchPolicy, avatarJobHooks: deps.avatarJobHooks }),
   );
   // #187：`/link-account` 頁的 API（GET／confirm／cancel、prove 起點）。密碼證明與登入共用 `deps.throttle`。
   void app.register(
