@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen, waitFor, fireEvent, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
-import { ONLINE_WINDOW_MS, type AdminInviteDto, type StoragePlanDto, type UserDto } from "@knotebook/shared";
+import { ONLINE_WINDOW_MS, avatarUrl, type AdminInviteDto, type StoragePlanDto, type UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { clickOutside } from "@/test/outside-click";
 import { ThemeProvider } from "@/theme";
@@ -1199,5 +1199,64 @@ describe("邀請（#285）", () => {
   it("I9 沒有邀請 → No invitations yet.", async () => {
     renderUsersRoute(stub());
     expect(await screen.findByText("No invitations yet.")).toBeInTheDocument();
+  });
+});
+
+describe("使用者表的頭貼", () => {
+  const REF = { id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", v: 2 };
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const SELF: AdminUserDto = { ...ACTIVE_OTHER, id: ADMIN_USER.id, email: ADMIN_USER.email, handle: ADMIN_USER.handle, displayName: ADMIN_USER.displayName };
+
+  async function renderWith(alice: AdminUserDto) {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      const base = baseFetchHandlers()(url, method);
+      if (base) return Promise.resolve(base);
+      if (url === ADMIN_USERS_URL && method === "GET") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([SELF, alice]) }));
+      const config = defaultAuthConfig(url, method);
+      if (config) return Promise.resolve(config);
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    renderUsersRoute(fetchMock);
+    const row = await screen.findByRole("row", { name: alice.email });
+    return within(row).getByText("Alice").previousElementSibling as HTMLElement;
+  }
+
+  it("有頭貼：名稱前有頭像，src 帶版本、lazy，外層 aria-hidden", async () => {
+    const avatar = await renderWith({ ...ACTIVE_OTHER, avatar: REF });
+    const img = avatar.querySelector("img");
+    expect(img).toHaveAttribute("src", avatarUrl(REF.id, REF.v));
+    expect(img).toHaveAttribute("loading", "lazy");
+    expect(avatar).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("avatar 為 null：首字、沒有 img", async () => {
+    const avatar = await renderWith(ACTIVE_OTHER);
+    expect(avatar.querySelector("img")).toBeNull();
+    expect(avatar.textContent).toBe("A");
+  });
+
+  it("舊 server 沒有 avatar 欄：不丟錯、顯示首字", async () => {
+    const row = { ...ACTIVE_OTHER } as Record<string, unknown>;
+    delete row.avatar;
+    const avatar = await renderWith(row as unknown as AdminUserDto);
+    expect(avatar.querySelector("img")).toBeNull();
+    expect(avatar.textContent).toBe("A");
+  });
+
+  it("圖載入失敗 → 退回首字", async () => {
+    const avatar = await renderWith({ ...ACTIVE_OTHER, avatar: REF });
+    fireEvent.error(avatar.querySelector("img")!);
+    expect(avatar.querySelector("img")).toBeNull();
+    expect(avatar.textContent).toBe("A");
   });
 });
