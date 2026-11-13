@@ -6,20 +6,23 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { MAX_AVATAR_DISPLAY_BYTES, type AvatarCropUpload } from "@knotebook/shared";
 import type { UserGate } from "../auth/session.js";
+import { fetchOidcAvatar, PRODUCTION_AVATAR_FETCH_POLICY, type AvatarFetchPolicy } from "../avatars/oidc-fetch.js";
 import {
   deleteAvatarInTx,
   insertAvatarInTx,
+  refreshOidcAvatarInTx,
   selectAvatarInTx,
   updateAvatarDisplayInTx,
   type AvatarTestHooks,
   type DeleteAvatarInput,
   type InsertAvatarInput,
+  type ReplaceOidcAvatarInput,
   type SelectAvatarInput,
   type UpdateAvatarDisplayInput,
 } from "../avatars/tx/avatars.js";
 import { listAvatars, toCandidateDto } from "../avatars/list.js";
 import type { Db } from "../db/index.js";
-import { userAvatars } from "../db/schema.js";
+import { userAvatars, userIdentities } from "../db/schema.js";
 import { isForeignKeyViolation, isRetryableTxError, isUniqueViolation } from "../db/pg-errors.js";
 import { drainWithCap } from "../http/drain.js";
 import { sendError, sendStorageQuotaExceeded } from "../http/errors.js";
@@ -38,11 +41,13 @@ export interface AvatarsRouteDeps {
   /** 寫入頭貼的路徑在 commit 後 `invalidate`，`UserDto.avatar` 才不會讀到 60 秒前的快取。 */
   gate: UserGate;
   /** `upload`：與筆記附件共用同一個節流桶（key＝userId）。 */
-  limiters: { upload: FixedWindowLimiter };
+  limiters: { upload: FixedWindowLimiter; avatarRefresh: FixedWindowLimiter };
   uploadsDir: string;
   siteLimits: SiteLimits;
   /** 空間鎖等待上限（ms），透傳自 `AppDeps.storageLockTimeoutMs`。 */
   storageLockTimeoutMs: number;
+  /** 下載 IdP 頭貼的位址與埠政策；預設生產政策，只有測試會換。 */
+  avatarFetchPolicy?: AvatarFetchPolicy;
   /** 交錯點測試注入縫；生產不注入。 */
   avatarTestHooks?: AvatarTestHooks;
 }
@@ -52,8 +57,11 @@ const INT4_MAX = 2147483647;
 const VERSION_RE = /^[1-9]\d{0,9}$/;
 
 const AVATAR_NOT_FOUND_MESSAGE = "No avatar with that id.";
+const IDENTITY_NOT_FOUND_MESSAGE = "No linked sign-in with a picture has that id.";
 const UPLOAD_TOO_LARGE_MESSAGE = "The file is over the size limit.";
 const UNSUPPORTED_IMAGE_MESSAGE = "Unsupported image format. Upload a PNG, JPEG or WebP image.";
+/** 固定字串：不帶網址、不帶底層錯誤訊息（網址可能含 token）。 */
+const AVATAR_FETCH_FAILED_MESSAGE = "Couldn't get the picture from the sign-in service.";
 
 /** `crop` 欄：裁切方框（原圖像素座標）＋原圖寬高。整數、方框落在原圖內。 */
 const cropFieldSchema = z
@@ -185,6 +193,10 @@ async function readAndCheck(request: FastifyRequest, reply: FastifyReply, fileFi
  * 上傳順序：認證 → 節流 → 空間已滿預檢（讀 body 之前，已滿不白讀）→ 解析 → 驗證 → 寫檔 → 交易。每個早退都先 drain。
  * 重新裁切不做已滿預檢：變小一定要能成功。
  * 別人的候選、不存在的 id、不是 UUID 的 id 一律同一個 404。
+ *
+ * `POST /api/auth/avatars/oidc/:identityId/refresh`（無 body）：手動重新取得 IdP 頭貼。順序：認證 → 身分是本人的且有最後看到的圖片網址（否則 404，不扣桶）→
+ * 節流（每人每小時 10 次）→ 空間已滿預檢（409）→ 同步下載（逾時 10 s，失敗 422 `avatar_fetch_failed`）→ 落檔 → 一個交易：
+ * 清 `picture_dismissed_url`、建立或替換候選、選用、`avatar_auto = false`。
  */
 export function avatarsRoutes(deps: AvatarsRouteDeps) {
   return async function register(app: FastifyInstance): Promise<void> {
@@ -364,6 +376,72 @@ export function avatarsRoutes(deps: AvatarsRouteDeps) {
       // 列已刪乾淨；檔刪不掉只是磁碟上多一個孤兒檔，記 warn、不讓請求失敗。
       await deleteUploadFiles(deps.uploadsDir, [removed.originalFile], { error: (obj, msg) => request.log.warn(obj, msg) });
       return reply.code(204).send();
+    });
+
+    // 手動重新取得 IdP 頭貼。清「刪過的網址」、建立或替換候選、選用與 `avatar_auto = false` 都在 `refreshOidcAvatarInTx` 的同一個交易裡。
+    app.post("/api/auth/avatars/oidc/:identityId/refresh", { preHandler: app.authenticate }, async (request, reply) => {
+      const me = request.user!.id;
+      const raw = (request.params as { identityId: string }).identityId;
+      if (!UUID_RE.test(raw)) return sendError(reply, 404, "not_found", IDENTITY_NOT_FOUND_MESSAGE);
+      const identityId = raw.toLowerCase();
+      const [identity] = await deps.db
+        .select({ issuer: userIdentities.issuer, lastPictureUrl: userIdentities.lastPictureUrl })
+        .from(userIdentities)
+        .where(and(eq(userIdentities.id, identityId), eq(userIdentities.userId, me)));
+      if (identity === undefined || identity.lastPictureUrl === null) return sendError(reply, 404, "not_found", IDENTITY_NOT_FOUND_MESSAGE);
+      // 扣桶在身分檢查之後：別人的、沒有圖片網址的 404 不耗額度。
+      if (!deps.limiters.avatarRefresh.consume(me)) return sendError(reply, 429, "too_many_requests", "Too many requests. Wait a moment and try again.");
+      const space = { kind: "user", id: me } as const;
+      const usage = await readSpaceUsage(deps.db, space);
+      if (isSpaceFull(usage)) return sendStorageQuotaExceeded(reply, await precheckDetail(deps.db, request.user!, space, usage));
+
+      const picture = identity.lastPictureUrl;
+      const fetched = await fetchOidcAvatar(picture, { issuer: identity.issuer, policy: deps.avatarFetchPolicy ?? PRODUCTION_AVATAR_FETCH_POLICY });
+      if (!fetched.ok) {
+        // 只記固定的原因字串：網址可能帶 token，底層錯誤訊息也不進 log。
+        request.log.info({ userId: me, identityId, reason: fetched.reason }, "手動取得頭貼失敗");
+        return sendError(reply, 422, "avatar_fetch_failed", AVATAR_FETCH_FAILED_MESSAGE);
+      }
+
+      const originalFile = randomUUID();
+      const finalPath = uploadFilePath(deps.uploadsDir, originalFile);
+      const tempPath = `${finalPath}.tmp`;
+      const removeNewFile = async (): Promise<void> => {
+        await unlink(tempPath).catch(() => {});
+        await unlink(finalPath).catch(() => {});
+      };
+      try {
+        await writeFile(tempPath, fetched.bytes);
+        await rename(tempPath, finalPath);
+      } catch (err) {
+        await removeNewFile();
+        throw err;
+      }
+
+      const input: ReplaceOidcAvatarInput = {
+        userId: me,
+        identityId,
+        oidcPictureUrl: picture,
+        originalFile,
+        originalSha256: createHash("sha256").update(fetched.bytes).digest(),
+        originalMime: fetched.mime,
+        originalSize: fetched.bytes.length,
+        lockTimeoutMs: deps.storageLockTimeoutMs,
+      };
+      let outcome;
+      try {
+        outcome = await deps.db.transaction(tx => refreshOidcAvatarInTx(tx, input, deps.avatarTestHooks));
+      } catch (err) {
+        await removeNewFile();
+        if (await replyTxError(request, reply, err)) return reply;
+        throw redactDbError(request.log, err, "重新取得 IdP 頭貼");
+      }
+
+      // commit 之後：位元組相同就丟掉剛寫的新檔；原地替換就刪被換掉的舊檔。刪不掉只是多一個孤兒檔。
+      if (outcome.outcome === "same_bytes") await removeNewFile();
+      else if (outcome.outcome === "replaced") await deleteUploadFiles(deps.uploadsDir, [outcome.oldFile], { error: (obj, msg) => request.log.warn(obj, msg) });
+      deps.gate.invalidate(me);
+      return listAvatars(deps.db, me);
     });
 
     app.get("/api/auth/avatars/:id/original", { preHandler: app.authenticate }, async (request, reply) => {

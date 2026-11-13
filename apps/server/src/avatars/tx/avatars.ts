@@ -16,6 +16,8 @@
  * 該身分的候選 `FOR UPDATE`（不在 → 走 OIDC 形的 `insertAvatarInTx`）→ 原圖 sha256 相同：只改網址 → 不同：`assertSpaceRoomInTx`
  * （新原圖 − 舊原圖 − 舊顯示圖）、換原圖、清裁切與顯示圖、`version + 1`、「是否為目前頭貼」不動。回傳讓呼叫端在 commit 後刪對的檔。
  *
+ * `refreshOidcAvatarInTx`：手動重新取得——清 `picture_dismissed_url` → `replaceOidcAvatarInTx` → 選用 → `avatar_auto = false`，同一個交易、不另外呼叫 `assertSpaceRoomInTx`。
+ *
  * `updateAvatarDisplayInTx`：users 列鎖 → 測試縫 → 候選列 `FOR UPDATE`（不在或不是自己的 → `AvatarNotFound`）→ `version` 不符 → `AvatarOutdated`
  * → `assertSpaceRoomInTx`（新顯示圖 − 舊顯示圖；差額 ≤ 0 時該函式不取鎖，變小一定成功）→ UPDATE，`version + 1`。
  * `selectAvatarInTx`、`deleteAvatarInTx`：users 列鎖 → 測試縫 → 寫入；兩者都只讓用量減少或不變，不呼叫 `assertSpaceRoomInTx`。
@@ -209,6 +211,30 @@ export async function replaceOidcAvatarInTx(tx: Tx, input: ReplaceOidcAvatarInpu
     })
     .where(and(eq(userAvatars.id, row.id), eq(userAvatars.userId, input.userId), eq(userAvatars.identityId, input.identityId)));
   return { outcome: "replaced", oldFile: row.originalFile };
+}
+
+/**
+ * 手動重新取得：同一個交易裡清掉身分列的 `picture_dismissed_url`（使用者按了這顆，意圖明確；也讓下面的替換不會把剛下載的網址當成「刪過的」而丟掉）、
+ * 建立或替換候選（`replaceOidcAvatarInTx`，空間判定在它裡面，這裡不再判一次）、選用它、`avatar_auto = false`。
+ * 先鎖 users 列再動身分列，與 `replaceOidcAvatarInTx` 同一個鎖序。身分不在或不是這個人的 → `AvatarIdentityGone`（整筆回滾）。
+ */
+export async function refreshOidcAvatarInTx(tx: Tx, input: ReplaceOidcAvatarInput, hooks?: AvatarTestHooks): Promise<ReplaceOidcAvatarResult> {
+  const locked = await tx.select({ id: users.id }).from(users).where(eq(users.id, input.userId)).for("no key update");
+  if (locked.length === 0) throw new TxAbort(404, "not_found", "No user with that id.");
+  await tx
+    .update(userIdentities)
+    .set({ pictureDismissedUrl: null })
+    .where(and(eq(userIdentities.id, input.identityId), eq(userIdentities.userId, input.userId)));
+  const result = await replaceOidcAvatarInTx(tx, input, hooks);
+  const [candidate] = await tx
+    .select({ id: userAvatars.id })
+    .from(userAvatars)
+    .where(and(eq(userAvatars.identityId, input.identityId), eq(userAvatars.userId, input.userId)));
+  if (candidate === undefined) throw new TxAbort(409, "server_busy", "The server is busy. Try again in a moment.");
+  await tx.update(userAvatars).set({ isCurrent: false }).where(and(eq(userAvatars.userId, input.userId), eq(userAvatars.isCurrent, true)));
+  await tx.update(userAvatars).set({ isCurrent: true }).where(and(eq(userAvatars.id, candidate.id), eq(userAvatars.userId, input.userId)));
+  await tx.update(users).set({ avatarAuto: false }).where(eq(users.id, input.userId));
+  return result;
 }
 
 export interface UpdateAvatarDisplayInput {

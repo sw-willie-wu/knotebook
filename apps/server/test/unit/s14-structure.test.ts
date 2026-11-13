@@ -205,7 +205,7 @@ describe("S14 結構性守衛（#175）", () => {
       { f: "folders/service.ts", all: 4, inTx: 4 }, // 資料夾建立（createFolderInTx）、改名／搬移（updateFolderInTx）、刪除（deleteFolderInTx）、放置（placeNoteInTx）
       { f: "notes/editing/write-service.ts", all: 1, inTx: 1 }, // bulk transfer：syncFile 的紀錄交易（recordFileSyncInTx）
       { f: "site-limits/store.ts", all: 1, inTx: 1 }, // #397 站台限制 PATCH（updateSiteLimitsInTx）
-      { f: "routes/avatars.ts", all: 4, inTx: 4 }, // 頭貼：上傳（insertAvatarInTx）、重新裁切（updateAvatarDisplayInTx）、選用（selectAvatarInTx）、刪除（deleteAvatarInTx）
+      { f: "routes/avatars.ts", all: 5, inTx: 5 }, // 頭貼：上傳（insertAvatarInTx）、重新裁切（updateAvatarDisplayInTx）、選用（selectAvatarInTx）、刪除（deleteAvatarInTx）、手動重新取得（refreshOidcAvatarInTx）
       { f: "avatars/oidc-job.ts", all: 1, inTx: 1 }, // 登入帶入 IdP 頭貼的背景工作（replaceOidcAvatarInTx）
     ]);
   });
