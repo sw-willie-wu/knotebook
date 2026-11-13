@@ -43,7 +43,7 @@ describe("GET /api/users/suggest", () => {
 
     const res = await suggest(app, me.id, "s1@");
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ users: [{ userId: mate.id, email: "mate-s1@example.com", displayName: "Teammate" }] });
+    expect(res.json()).toEqual({ users: [{ userId: mate.id, email: "mate-s1@example.com", displayName: "Teammate", avatar: null }] });
   });
 
   it("被移出群組後不再出現", async () => {

@@ -2,6 +2,8 @@
  * 頭貼整合測試共用的種子。直插只在測試裡；真路由的行為由各自的測試檔守。
  */
 import { randomBytes, randomUUID } from "node:crypto";
+import pg from "pg";
+import { vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 import type { Db } from "../src/db/index.js";
 import { userAvatars } from "../src/db/schema.js";
@@ -119,4 +121,23 @@ export async function recropAvatar(app: FastifyInstance, userId: string, id: str
     ...(cookies !== null ? { cookies } : {}),
     headers: { "content-type": `multipart/form-data; boundary=${ICON_BOUNDARY}`, ...opts.headers },
   });
+}
+
+/**
+ * 跑 `fn` 期間統計打到 PostgreSQL 的查詢句數（spy `pg.Client#query`；drizzle 與 pool 的查詢最後都經它）。
+ * `match` 只計 SQL 文字符合的句子（例如只看碰 `user_avatars` 的）。
+ */
+export async function countQueries<T>(fn: () => Promise<T>, match?: RegExp): Promise<{ result: T; count: number }> {
+  const spy = vi.spyOn(pg.Client.prototype, "query");
+  try {
+    const result = await fn();
+    const count = spy.mock.calls.filter(([q]) => {
+      if (match === undefined) return true;
+      const text = typeof q === "string" ? q : (q as { text?: string } | null)?.text;
+      return typeof text === "string" && match.test(text);
+    }).length;
+    return { result, count };
+  } finally {
+    spy.mockRestore();
+  }
 }

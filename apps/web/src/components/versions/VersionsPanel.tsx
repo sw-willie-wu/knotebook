@@ -11,6 +11,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { EllipsisVertical, X } from "@/components/ui/icons";
 import { useVersions } from "@/lib/versions-context";
 import { cn } from "@/lib/utils";
+import { EditorAvatars } from "./EditorAvatars";
 import { KindFilter, KindFilterEmpty } from "./KindFilter";
 import { baseLabelOrDeleted, currentSubtitle, editorsText, formatVersionTime, versionLabel } from "./version-labels";
 import { useApplyFlow } from "./use-apply-flow";
@@ -33,16 +34,19 @@ export function VersionRowContent({ version }: { version: VersionDto }) {
     ...(version.baseSeq !== null ? [t("versions.from", { label: baseLabelOrDeleted(t, version.base) })] : []),
   ].filter((s) => s !== "");
   return (
-    <span className="min-w-0 flex-1">
-      <span className="flex items-center gap-1.5 text-sm">
-        <span className="min-w-0 truncate font-medium">{versionLabel(version)}</span>
-        {version.kind === "auto" && (
-          <span data-testid="auto-badge" className="shrink-0 rounded-full border border-border bg-muted px-1.5 text-[11px] leading-4 text-foreground/70">
-            {t("versions.autoBadge")}
-          </span>
-        )}
+    <span className="flex min-w-0 flex-1 items-start gap-2">
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-1.5 text-sm">
+          <span className="min-w-0 truncate font-medium">{versionLabel(version)}</span>
+          {version.kind === "auto" && (
+            <span data-testid="auto-badge" className="shrink-0 rounded-full border border-border bg-muted px-1.5 text-[11px] leading-4 text-foreground/70">
+              {t("versions.autoBadge")}
+            </span>
+          )}
+        </span>
+        <span className="block truncate text-xs text-muted-foreground">{meta.join(" · ")}</span>
       </span>
-      <span className="block truncate text-xs text-muted-foreground">{meta.join(" · ")}</span>
+      <EditorAvatars editors={version.editors} />
     </span>
   );
 }

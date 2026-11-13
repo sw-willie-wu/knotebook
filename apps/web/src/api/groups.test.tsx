@@ -32,6 +32,7 @@ const MEMBER: GroupMemberDto = {
   displayName: "Bob",
   roleId: MEMBER_ROLE.id,
   builtin: "member",
+  avatar: null,
 };
 
 const FLAGS: GroupRoleFlags = { create: false, edit: false, delete: false, managePublicLink: false, manageMembers: false, manageGroup: false };

@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { autoUpdate, flip, offset, size, useFloating } from "@floating-ui/react";
 import { normalizeEmail, type UserSuggestionDto } from "@knotebook/shared";
 import { isSuggestQuery, useUserSuggestions } from "@/api/users";
+import { Avatar } from "@/components/Avatar";
 import { Input } from "@/components/ui/input";
 import { otherTokens, replaceToken, tokenAt } from "@/lib/email-list";
 import { cn } from "@/lib/utils";
@@ -262,12 +263,15 @@ export function UserEmailCombobox({
               onClick={() => pick(user)}
               onMouseMove={() => setActive(index)}
               className={cn(
-                "flex min-w-0 cursor-pointer flex-col rounded-sm px-2 py-1.5 text-sm",
+                "flex min-w-0 cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm",
                 index === activeIndex && "bg-accent text-accent-foreground",
               )}
             >
-              <span className="truncate font-medium">{user.displayName}</span>
-              <span className="truncate text-xs text-muted-foreground">{user.email}</span>
+              <Avatar name={user.displayName} avatar={user.avatar ?? null} size={24} />
+              <span className="flex min-w-0 flex-col">
+                <span className="truncate font-medium">{user.displayName}</span>
+                <span className="truncate text-xs text-muted-foreground">{user.email}</span>
+              </span>
             </li>
           ))}
         </ul>

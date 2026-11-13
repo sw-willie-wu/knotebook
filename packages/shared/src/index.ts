@@ -2,7 +2,7 @@ export { YDOC_FRAGMENT } from "./ydoc.js";
 import type { ProviderIconDto, ProviderIconKind } from "./provider-icon.js";
 import type { AiActionKind } from "./ai.js";
 import { SITE_LIMITS } from "./site-limits.js";
-import type { UserAvatarDto } from "./avatar.js";
+import type { AvatarRef, UserAvatarDto } from "./avatar.js";
 
 export const SESSION_COOKIE = "knotebook_session";
 
@@ -230,6 +230,8 @@ export interface NoteEditDto {
   heading: string;
   byHandle: string;
   agentLabel: string | null;
+  /** 寫入者本人目前的頭貼（`agentLabel` 非 null 的列也是本人的）；沒有頭貼、顯示圖尚未備好 → null。 */
+  avatar: AvatarRef | null;
   createdAt: string;
   revertedAt: string | null;
   revertOf: string | null;
@@ -291,6 +293,8 @@ export interface GroupMemberDto {
   displayName: string;
   roleId: string;
   builtin: BuiltinGroupRole | null;
+  /** 該成員目前使用的頭貼；沒有（或顯示圖尚未補產）則 null。 */
+  avatar: AvatarRef | null;
 }
 
 /** 筆記所屬群組（#175：`role` 欄移除——權限改看 `NoteDto.permissions`）。 */
@@ -304,6 +308,8 @@ export interface ShareDto {
   email: string;
   displayName: string;
   role: ShareRole;
+  /** 被分享者目前使用的頭貼；沒有（或顯示圖尚未補產）則 null。 */
+  avatar: AvatarRef | null;
 }
 
 /**
@@ -314,6 +320,8 @@ export interface UserSuggestionDto {
   userId: string;
   email: string;
   displayName: string;
+  /** 該人目前使用的頭貼；沒有（或顯示圖尚未補產）則 null。 */
+  avatar: AvatarRef | null;
 }
 
 export interface UserSuggestResponse {

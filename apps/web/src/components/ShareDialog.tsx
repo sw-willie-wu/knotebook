@@ -22,6 +22,7 @@ import {
   useSetPublicSlug,
   useSetPublicWidth,
 } from "@/api/public-link";
+import { Avatar } from "@/components/Avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -104,6 +105,7 @@ function ShareRow({ noteId, share }: { noteId: string; share: ShareDto }) {
 
   return (
     <li className="flex flex-wrap items-center gap-2">
+      <Avatar name={share.displayName} avatar={share.avatar ?? null} size={28} />
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium">{share.displayName}</p>
         <p className="truncate text-xs text-muted-foreground">{share.email}</p>
