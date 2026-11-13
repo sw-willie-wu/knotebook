@@ -2,7 +2,7 @@
   "name": "knotebook",
   "private": true,
   "license": "MIT",
-  "engines": { "node": ">=22.13" },
+  "engines": { "node": ">=24" },
   "packageManager": "pnpm@10.14.0",
   "pnpm": {
     "onlyBuiltDependencies": ["argon2", "esbuild"],
