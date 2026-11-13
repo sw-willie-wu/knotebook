@@ -9,7 +9,7 @@ import * as Y from "yjs";
 import { loadConfig } from "../../src/config.js";
 import { parseMarkdownForNote } from "../../src/notes/editing/markdown.js";
 import { TOO_COMPLEX, type ParseRequest } from "../../src/notes/editing/parse-core.js";
-import { ParsePool } from "../../src/notes/editing/parse-pool.js";
+import { PARSE_WORKER_YOUNG_MB, ParsePool, spawnParseWorker } from "../../src/notes/editing/parse-pool.js";
 import { createEditingRuntime, EditingRuntime } from "../../src/notes/editing/runtime.js";
 import { EditorSession } from "../../src/notes/editing/session.js";
 import { idleStall, loopStall, stallLimit } from "../perf-helpers.js";
@@ -74,6 +74,15 @@ describe("parse worker（真的執行緒）", () => {
 });
 
 describe("時限、記憶體上限、主執行緒不被卡住", () => {
+  it("worker 的 young generation 固定為 PARSE_WORKER_YOUNG_MB，不隨主機記憶體變大", async () => {
+    const w = spawnParseWorker({ baseUrl: BASE, workerMemoryMb: 256, stackSizeMb: 4 }) as unknown as import("node:worker_threads").Worker;
+    try {
+      expect(w.resourceLimits?.maxYoungGenerationSizeMb).toBe(PARSE_WORKER_YOUNG_MB);
+      expect(w.resourceLimits?.maxOldGenerationSizeMb).toBe(256);
+    } finally {
+      await w.terminate();
+    }
+  });
   it("逾時：figcaption 裡 2 000 段的引言（同執行緒約 25 秒）→ 時限 1.5 秒到就 too_complex、worker 被換掉；換上的照常解析", async () => {
     const pool = mk({ workers: 1, timeoutMs: 1_500 });
     await ready(pool);

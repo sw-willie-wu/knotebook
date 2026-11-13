@@ -61,6 +61,13 @@ export interface WorkerData {
 
 /** worker 的堆疊上限（MiB，`resourceLimits.stackSizeMb`；Node 預設 4）。超過在 worker 裡丟 `RangeError` → {@link TOO_COMPLEX}。 */
 export const PARSE_WORKER_STACK_MB = 4;
+/**
+ * worker 的 young generation 上限（MiB，`resourceLimits.maxYoungGenerationSizeMb`）。不設的話 Node 依程序可用的記憶體（容器上限或主機記憶體）推算，記憶體越多越大；
+ * semi-space 一大，單次 scavenge 就能把幾十 MiB 晉升進 old generation，越過 Node 在堆積上限附近固定留的餘裕，worker 還來不及被終止
+ * 整個程序就中止（Node 不保證 worker 的記憶體不足只終止該 worker，見 `worker_threads` 文件的 `resourceLimits`）。48 讓 worker 的堆積
+ * 總量固定為 old＋48，不隨主機變。
+ */
+export const PARSE_WORKER_YOUNG_MB = 48;
 /** 排隊最多幾筆；超過的直接 `ParserBusyError`（503）。 */
 export const PARSE_QUEUE_MAX = 100;
 /** 每個 worker 解析滿這麼多筆就換新的（見檔頭）。換一個約 0.5 秒 CPU（量測見 `docs/self-hosting.md`），500 筆攤下來可忽略。 */
@@ -109,7 +116,7 @@ export interface ParsePoolOptions extends ParseLimits {
  * `parse-worker.ts`。tsx 是 server 的 devDependency，正式 image（`pnpm deploy --prod`）裡沒有、也用不到。
  */
 export const spawnParseWorker: SpawnWorker = ({ baseUrl, workerMemoryMb, stackSizeMb }) => {
-  const resourceLimits = { maxOldGenerationSizeMb: workerMemoryMb, stackSizeMb };
+  const resourceLimits = { maxOldGenerationSizeMb: workerMemoryMb, maxYoungGenerationSizeMb: PARSE_WORKER_YOUNG_MB, stackSizeMb };
   const workerData: WorkerData = { baseUrl };
   const here = import.meta.url;
   if (!here.endsWith(".ts")) return new Worker(new URL("./parse-worker.js", here), { workerData, resourceLimits });
