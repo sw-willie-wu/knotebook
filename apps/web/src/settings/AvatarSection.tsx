@@ -1,12 +1,17 @@
-import { lazy, Suspense, useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
+import { lazy, Suspense, useEffect, useId, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { formatBytes, type AvatarCandidateDto, type AvatarRef } from "@knotebook/shared";
-import { AVATARS_QUERY_KEY, useAvatars, useDeleteAvatar, useSelectAvatar } from "@/api/avatars";
+import { useIdentities } from "@/api/account";
+import { AVATARS_QUERY_KEY, useAvatars, useDeleteAvatar, useRefreshOidcAvatar, useSelectAvatar } from "@/api/avatars";
 import { useAuthConfig } from "@/api/authConfig";
 import { ApiFail } from "@/api/client";
 import { useSession } from "@/auth/useSession";
+import { useFillPending, useQuotaFailed } from "@/avatars/filler-hooks";
+import { fillKey, registerCropOpen } from "@/avatars/display-filler";
 import { Avatar } from "@/components/Avatar";
+import { ProviderIcon } from "@/components/ProviderIcon";
+import { storageQuotaDescription } from "@/lib/storage-quota-text";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -55,6 +60,25 @@ function reportFailure(t: Translate, err: unknown, refetch: () => void): void {
   }
   const code = err instanceof ApiFail && err.code === "server_busy" ? "server_busy" : "internal";
   toast({ title: t(`errors.${code}`), variant: "destructive" });
+}
+
+/** 重新取得 OIDC 頭貼失敗的分流：照 `error.code`，其餘一律通用文案。404 由呼叫端處理（重抓清單、不彈錯誤）。 */
+function reportRefreshFailure(t: Translate, err: unknown, provider: string): void {
+  if (err instanceof ApiFail) {
+    switch (err.code) {
+      case "storage_quota_exceeded":
+        toast({ title: t("errors.storage_quota_exceeded"), description: storageQuotaDescription(err, t), variant: "destructive" });
+        return;
+      case "server_busy":
+      case "too_many_requests":
+        toast({ title: t(`errors.${err.code}`), variant: "destructive" });
+        return;
+      case "avatar_fetch_failed":
+        toast({ title: t("settings.account.avatar.refreshFailed", { provider }), variant: "destructive" });
+        return;
+    }
+  }
+  toast({ title: t("errors.internal"), variant: "destructive" });
 }
 
 function CandidateMenu({
@@ -169,6 +193,12 @@ export function AvatarSection() {
   const maxUploadBytes = useAuthConfig().data?.maxUploadBytes;
   const select = useSelectAvatar();
   const remove = useDeleteAvatar();
+  const refresh = useRefreshOidcAvatar();
+  const identities = useIdentities();
+  const quotaFailed = useQuotaFailed();
+  const refreshButtons = useRef(new Map<string, HTMLButtonElement>());
+  const [focusAfterRefresh, setFocusAfterRefresh] = useState<string | null>(null);
+  const noSpaceId = useId();
   const fileInput = useRef<HTMLInputElement | null>(null);
   const radios = useRef<(HTMLButtonElement | null)[]>([]);
   const uploadButton = useRef<HTMLButtonElement | null>(null);
@@ -185,6 +215,25 @@ export function AvatarSection() {
   const rovingIndex = Math.min(focusIndex ?? checkedIndex, cells.length - 1);
   const previewRef: AvatarRef | null = user?.avatar ? { id: user.avatar.id, v: user.avatar.v } : null;
 
+  // 一選了要調整的候選就登記（裁切框是 lazy chunk，等它載入完才登記會漏掉這段時間）：背景補產不碰這張，已在跑的那張也不送出。
+  const croppingId = cropSource?.kind === "existing" ? cropSource.candidate.id : null;
+  useEffect(() => {
+    if (croppingId === null) return;
+    return registerCropOpen(croppingId);
+  }, [croppingId]);
+
+  // 清單裡待補顯示圖的候選也交給背景補產（同一版只處理一次）。
+  useFillPending(candidates.filter(c => c.pending).map(c => ({ id: c.id, v: c.avatar.v })));
+  const noSpaceKeys = candidates.filter(c => c.pending && quotaFailed.has(fillKey({ id: c.id, v: c.avatar.v }))).map(c => c.id);
+
+  // 重新取得成功、那顆按鈕消失之後（清單不再列它），焦點交給目前選中的那格；按鈕還在就留在原處。
+  useEffect(() => {
+    if (focusAfterRefresh === null || list.data === undefined) return;
+    setFocusAfterRefresh(null);
+    const stillThere = list.data.refreshable.some(r => r.identityId === focusAfterRefresh);
+    (stillThere ? refreshButtons.current.get(focusAfterRefresh) : radios.current[checkedIndex])?.focus();
+  }, [focusAfterRefresh, list.data, checkedIndex]);
+
   // 刪除成功、清單不再含那張之後，把焦點交給原位置的下一格（刪的是最後一格就是上一格）；沒有候選了就交給上傳鈕。
   // 被刪候選的 ⋮ 已從 DOM 移除，不處理的話焦點會掉到 body。
   useEffect(() => {
@@ -197,8 +246,8 @@ export function AvatarSection() {
     target?.focus();
   }, [focusAfterDelete, list.data]);
 
-  function refetchList(): void {
-    void queryClient.invalidateQueries({ queryKey: AVATARS_QUERY_KEY });
+  function refetchList(): Promise<void> {
+    return queryClient.invalidateQueries({ queryKey: AVATARS_QUERY_KEY });
   }
 
   function choose(cell: Cell, index: number): void {
@@ -208,6 +257,31 @@ export function AvatarSection() {
       onSuccess: () => toast({ title: t("settings.account.avatar.changed") }),
       onError: err => reportFailure(t, err, refetchList),
     });
+  }
+
+  function refreshFrom(identityId: string, provider: string): void {
+    // aria-disabled 而不是 disabled：握著焦點的按鈕被停用時，Chromium 會把焦點丟到 body。
+    if (refresh.isPending) return;
+    refresh.mutate(identityId, {
+      onSuccess: () => {
+        toast({ title: t("settings.account.avatar.changed") });
+        setFocusAfterRefresh(identityId);
+      },
+      onError: err => {
+        if (err instanceof ApiFail && err.status === 404) {
+          // 身分剛被解除連結：重抓清單，那顆按鈕會消失，焦點交給選中的那格；不彈錯誤。
+          void refetchList().then(() => setFocusAfterRefresh(identityId));
+          return;
+        }
+        reportRefreshFailure(t, err, provider);
+      },
+    });
+  }
+
+  /** 候選右下角的登入服務圖示：用候選的顯示名對到目前啟用中的服務；解除連結（`providerName` 為 null）或對不到就不疊。 */
+  function sourceIcon(candidate: AvatarCandidateDto) {
+    if (candidate.source !== "oidc" || candidate.providerName === null) return undefined;
+    return identities.data?.identities.flatMap(identity => identity.providers).find(p => p.displayName === candidate.providerName)?.icon ?? undefined;
   }
 
   function onRadioKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number): void {
@@ -308,6 +382,8 @@ export function AvatarSection() {
               {cells.map((cell, index) => {
                 const checked = index === checkedIndex;
                 const label = cell.candidate === null ? t("settings.account.avatar.none") : candidateLabel(t, i18n.language, cell.candidate);
+                const icon = cell.candidate === null ? undefined : sourceIcon(cell.candidate);
+                const noSpace = cell.candidate !== null && noSpaceKeys.includes(cell.candidate.id);
                 return (
                   <button
                     key={cell.candidate?.id ?? "none"}
@@ -319,6 +395,7 @@ export function AvatarSection() {
                     aria-checked={checked}
                     aria-label={label}
                     title={label}
+                    aria-describedby={noSpace ? noSpaceId : undefined}
                     tabIndex={index === rovingIndex ? 0 : -1}
                     onClick={() => choose(cell, index)}
                     onKeyDown={event => onRadioKeyDown(event, index)}
@@ -331,6 +408,15 @@ export function AvatarSection() {
                       ringColor={checked ? "var(--color-brand)" : undefined}
                       offsetColor="var(--color-background)"
                     />
+                    {icon != null && (
+                      <span
+                        aria-hidden="true"
+                        data-testid="avatar-source-icon"
+                        className="absolute bottom-0 left-0 flex h-4 w-4 items-center justify-center rounded-full bg-background ring-1 ring-border"
+                      >
+                        <ProviderIcon icon={icon} className="h-3 w-3" />
+                      </span>
+                    )}
                     {checked && (
                       <span
                         aria-hidden="true"
@@ -359,6 +445,32 @@ export function AvatarSection() {
             </div>
           </div>
           {candidates.length === 0 && <p className="mt-2 text-sm text-muted-foreground">{t("settings.account.avatar.empty")}</p>}
+          {noSpaceKeys.length > 0 && (
+            <p id={noSpaceId} className="mt-2 text-sm text-muted-foreground">
+              {t("settings.account.avatar.noSpace")}
+            </p>
+          )}
+          {list.data.refreshable.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {list.data.refreshable.map(r => (
+                <Button
+                  key={r.identityId}
+                  ref={node => {
+                    if (node === null) refreshButtons.current.delete(r.identityId);
+                    else refreshButtons.current.set(r.identityId, node);
+                  }}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  aria-disabled={refresh.isPending || undefined}
+                  className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+                  onClick={() => refreshFrom(r.identityId, r.providerName)}
+                >
+                  {t("settings.account.avatar.useProvider", { provider: r.providerName })}
+                </Button>
+              ))}
+            </div>
+          )}
         </>
       )}
       <p className="mt-4 text-sm text-muted-foreground">{t("settings.account.avatar.usage")}</p>

@@ -319,7 +319,7 @@ export function withTestRoutes(app: FastifyInstance): FastifyInstance {
 // 是 in-memory Map，若在此改成 module-level 常數並跨測試共用，不同測試檔案／不同
 // buildTestApp() 呼叫之間的請求計數會互相汙染——例如「61 次觸發 429」
 // 測試會被同一份 map 上其他測試先前已消耗掉的計數影響，導致隨執行順序隨機紅綠。
-// 只含 21 顆固定的桶（`buildFixedLimiters()`，數值同生產）加上 overrides；9 顆站台可調的桶不在這裡，
+// 只含 22 顆固定的桶（`buildFixedLimiters()`，數值同生產）加上 overrides；9 顆站台可調的桶不在這裡，
 // 由 `buildApp` 用該 app 的 `deps.siteLimits` 補（#397），讓測試環境的節流行為與生產一致。
 //
 // `overrides` 讓單一測試只換掉它要驗的那一顆桶（例如
@@ -331,7 +331,7 @@ export function withTestRoutes(app: FastifyInstance): FastifyInstance {
 // 蓋掉這裡的預設值（tsconfig 沒開 `exactOptionalPropertyTypes`，TS 不擋），執行時是
 // `undefined.consume`。
 export function freshLimiters(overrides: Partial<Limiters> = {}): Partial<Limiters> {
-  // #397：只含 21 顆固定的桶＋覆寫；9 顆可調的由 `buildApp` 用該 app 的 `deps.siteLimits` 補（沒被覆寫的才補）。
+  // #397：只含 22 顆固定的桶＋覆寫；9 顆可調的由 `buildApp` 用該 app 的 `deps.siteLimits` 補（沒被覆寫的才補）。
   return { ...buildFixedLimiters(), ...overrides };
 }
 

@@ -544,6 +544,9 @@
         "empty": "You haven't uploaded a picture yet.",
         "loading": "Loading pictures…",
         "loadFailed": "Couldn't load your pictures.",
+        "useProvider": "Use my {{provider}} picture",
+        "refreshFailed": "Couldn't get your picture from {{provider}}.",
+        "noSpace": "Not enough storage. Others can't see this picture yet.",
         "tooLarge": "The image is larger than the {{size}} limit.",
         "crop": {
           "title": "Adjust picture",

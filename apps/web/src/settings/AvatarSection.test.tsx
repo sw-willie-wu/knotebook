@@ -1,11 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { formatBytes, type AvatarCandidateDto, type AvatarListDto, type UserDto } from "@knotebook/shared";
+import { formatBytes, type AvatarCandidateDto, type AvatarListDto, type IdentityDto, type UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
+import { resetFiller } from "@/avatars/display-filler";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { settle } from "@/test/outside-click";
 import { AvatarSection } from "./AvatarSection";
+
+// 背景補產的解碼與編碼（jsdom 沒有 canvas）：換成固定的假實作。
+vi.mock("@/avatars/encode", () => ({
+  decodeImage: async () => ({ width: 600, height: 400, close: () => undefined }),
+  renderDisplay: async () => new Blob([new Uint8Array([1, 2, 3])], { type: "image/webp" }),
+}));
 
 // 裁切框本身另有測試；這裡只驗「什麼時候、帶什麼來源開它」。
 vi.mock("./AvatarCropDialog", () => ({
@@ -64,6 +71,7 @@ interface Options {
   list?: AvatarListDto;
   listStatus?: number;
   maxUploadBytes?: number;
+  identities?: IdentityDto[];
   respond?: (call: Call) => Response | undefined;
 }
 
@@ -87,6 +95,9 @@ function setup(opts: Options = {}) {
       if (call.url === "/api/auth/me") return json(200, USER);
       if (call.url === "/api/auth/config") return json(200, { providers: [], maxUploadBytes: opts.maxUploadBytes });
       if (call.url === "/api/auth/avatars" && call.method === "GET") return json(opts.listStatus ?? 200, opts.listStatus === undefined ? list : { error: { code: "internal", message: "x" } });
+      if (call.url === "/api/auth/identities") {
+        return json(200, { identities: opts.identities ?? [], linkable: [], hasPassword: true, passwordLoginEnabled: true });
+      }
       if (call.url === "/api/auth/avatar" && call.method === "PUT") return json(200, USER);
       if (call.url.startsWith("/api/auth/avatars/") && call.method === "DELETE") return json(204);
       throw new Error(`unexpected fetch: ${call.method} ${call.url}`);
@@ -130,6 +141,7 @@ describe("AvatarSection", () => {
   });
   afterEach(() => {
     cleanup();
+    resetFiller();
     dismissAllToasts();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
@@ -621,5 +633,290 @@ describe("AvatarSection", () => {
     const img = document.querySelector("section img") as HTMLImageElement;
     expect(img.getAttribute("src")).toBe(`/api/avatars/${ID_A}?v=7`);
     expect((img.parentElement as HTMLElement).style.width).toBe("64px");
+  });
+});
+
+describe("AvatarSection：登入服務的頭貼", () => {
+  const SSO = "Corp SSO";
+  const IDENTITY_ID = "3c4d5e6f-d9cb-469f-a165-708677289511";
+  const IDENTITY_B = "4d5e6f70-d9cb-469f-a165-708677289512";
+  const identityWith = (displayName: string, icon: IdentityDto["providers"][number]["icon"]): IdentityDto => ({
+    id: IDENTITY_ID,
+    issuer: "https://idp.example.com",
+    providers: [{ id: "p1", displayName, icon } as IdentityDto["providers"][number]],
+    createdAt: "2026-10-01T00:00:00.000Z",
+    lastLoginAt: null,
+    unlinkable: true,
+  });
+  const oidcList = (over: Partial<AvatarCandidateDto> = {}, refreshable: AvatarListDto["refreshable"] = []): AvatarListDto => ({
+    candidates: [candidate(ID_A, { source: "oidc", providerName: SSO, current: true, ...over })],
+    auto: true,
+    refreshable,
+  });
+  const refreshButtons = () => screen.queryAllByRole("button", { name: /^Use my .* picture$/ });
+  const png = () => new Response(new Uint8Array([9, 9]), { status: 200, headers: { "content-type": "image/png" } });
+  const isFillCall = (c: Call) => c.url.endsWith("/original") || (c.method === "PUT" && c.url.endsWith("/display"));
+  const NO_SPACE = "Not enough storage. Others can't see this picture yet.";
+
+  beforeEach(async () => {
+    resetFiller();
+    await i18n.changeLanguage("en");
+  });
+  afterEach(() => {
+    cleanup();
+    resetFiller();
+    dismissAllToasts();
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  describe("來源圖示", () => {
+    it("OIDC 候選疊上對應登入服務的圖示；上傳的候選與解除連結的 OIDC 候選不疊", async () => {
+      setup({
+        identities: [identityWith(SSO, { type: "builtin", name: "gitlab" })],
+        list: {
+          candidates: [
+            candidate(ID_A, { source: "oidc", providerName: SSO, current: true }),
+            candidate(ID_B, { source: "oidc", providerName: null }),
+            candidate(ID_C, { source: "upload" }),
+          ],
+          auto: true,
+          refreshable: [],
+        },
+      });
+      await ready();
+      await waitFor(() => expect(screen.getAllByTestId("avatar-source-icon")).toHaveLength(1));
+      const [, oidc, unlinked, upload] = radios();
+      expect(oidc!.querySelector('[data-provider-icon="gitlab"]')).not.toBeNull();
+      expect(within(unlinked!).queryByTestId("avatar-source-icon")).toBeNull();
+      expect(within(upload!).queryByTestId("avatar-source-icon")).toBeNull();
+    });
+
+    it("管理員選「不顯示」圖示（icon 為 null）時不疊空圈", async () => {
+      setup({ identities: [identityWith(SSO, null)], list: oidcList() });
+      await ready();
+      await settle();
+      expect(screen.queryByTestId("avatar-source-icon")).toBeNull();
+    });
+  });
+
+  describe("改用 X 的頭貼", () => {
+    it("refreshable 每個身分一顆按鈕，名稱含服務名", async () => {
+      setup({ list: oidcList({}, [{ identityId: IDENTITY_ID, providerName: SSO }, { identityId: IDENTITY_B, providerName: "Other IdP" }]) });
+      await ready();
+      expect(refreshButtons().map(b => b.textContent)).toEqual(["Use my Corp SSO picture", "Use my Other IdP picture"]);
+    });
+
+    it("refreshable 為空 → 沒有按鈕", async () => {
+      setup({ list: oidcList() });
+      await ready();
+      expect(refreshButtons()).toHaveLength(0);
+    });
+
+    it("按下送 POST（該身分的網址），成功 toast、清單換成回應、按鈕消失、焦點交給選中的那格", async () => {
+      const after: AvatarListDto = oidcList({ id: ID_B, avatar: { id: ID_B, v: 2 } }, []);
+      let refreshed = false;
+      const { calls } = setup({
+        list: oidcList({}, [{ identityId: IDENTITY_ID, providerName: SSO }]),
+        respond: c => {
+          if (c.method === "POST") {
+            refreshed = true;
+            return json(200, after);
+          }
+          // 成功後失效重抓的清單，server 端已是新狀態。
+          return refreshed && c.url === "/api/auth/avatars" ? json(200, after) : undefined;
+        },
+      });
+      await ready();
+      const button = refreshButtons()[0]!;
+      button.focus();
+      fireEvent.click(button);
+      await waitFor(() => expect(mutations(calls).map(c => `${c.method} ${c.url}`)).toEqual([`POST /api/auth/avatars/oidc/${IDENTITY_ID}/refresh`]));
+      expect(await screen.findByText("Profile picture updated")).toBeInTheDocument();
+      await waitFor(() => expect(refreshButtons()).toHaveLength(0));
+      await waitFor(() => expect(radios()[1]).toHaveFocus());
+    });
+
+    it("請求進行中按鈕是 aria-disabled（仍握焦點），再按不會送第二次", async () => {
+      let release: (() => void) | undefined;
+      const gate = new Promise<void>(resolve => {
+        release = resolve;
+      });
+      const same = oidcList({}, [{ identityId: IDENTITY_ID, providerName: SSO }]);
+      const { calls } = setup({
+        list: same,
+        respond: c => (c.method === "POST" ? (gate.then(() => json(200, same)) as unknown as Response) : undefined),
+      });
+      await ready();
+      const button = refreshButtons()[0]!;
+      button.focus();
+      fireEvent.click(button);
+      await waitFor(() => expect(button).toHaveAttribute("aria-disabled", "true"));
+      expect(button).not.toBeDisabled();
+      expect(button).toHaveFocus();
+      fireEvent.click(button);
+      await settle();
+      expect(mutations(calls)).toHaveLength(1);
+      release?.();
+      await waitFor(() => expect(button).not.toHaveAttribute("aria-disabled"));
+      // 還在清單裡（仍可重新取得）→ 焦點留在原按鈕。
+      expect(button).toHaveFocus();
+    });
+
+    it.each([
+      [422, "avatar_fetch_failed", "Couldn't get your picture from Corp SSO."],
+      [409, "server_busy", "The server is busy. Please try again shortly."],
+      [409, "storage_quota_exceeded", "Storage is full"],
+      [429, "too_many_requests", "Too many requests. Please slow down."],
+      [500, "internal", "Something went wrong. Please try again."],
+    ])("%i %s → 對應文案，且沒有成功 toast", async (status, code, text) => {
+      setup({
+        list: oidcList({}, [{ identityId: IDENTITY_ID, providerName: SSO }]),
+        respond: c => (c.method === "POST" ? json(status, { error: { code, message: "x" } }) : undefined),
+      });
+      await ready();
+      fireEvent.click(refreshButtons()[0]!);
+      expect(await screen.findByText(text)).toBeInTheDocument();
+      expect(screen.queryByText("Profile picture updated")).not.toBeInTheDocument();
+      // 失敗後按鈕恢復可按。
+      await waitFor(() => expect(refreshButtons()[0]).not.toHaveAttribute("aria-disabled"));
+    });
+
+    it("404（身分剛被解除連結）→ 重抓清單，不彈錯誤", async () => {
+      let gone = false;
+      const { calls } = setup({
+        list: oidcList({}, [{ identityId: IDENTITY_ID, providerName: SSO }]),
+        respond: c => {
+          if (c.method === "POST") {
+            gone = true;
+            return json(404, { error: { code: "not_found", message: "x" } });
+          }
+          // 身分已解除連結：重抓回來的清單不再列那顆按鈕。
+          return gone && c.url === "/api/auth/avatars" ? json(200, oidcList()) : undefined;
+        },
+      });
+      await ready();
+      const before = listCalls(calls).length;
+      const button = refreshButtons()[0]!;
+      button.focus();
+      fireEvent.click(button);
+      await waitFor(() => expect(listCalls(calls).length).toBe(before + 1));
+      await waitFor(() => expect(refreshButtons()).toHaveLength(0));
+      // 按鈕消失了，焦點交給選中的那格（不掉到 body）。
+      await waitFor(() => expect(radios()[1]).toHaveFocus());
+      expect(screen.queryByText("Something went wrong. Please try again.")).not.toBeInTheDocument();
+    });
+
+    it("zh-TW 文案", async () => {
+      await i18n.changeLanguage("zh-TW");
+      setup({
+        list: oidcList({}, [{ identityId: IDENTITY_ID, providerName: SSO }]),
+        respond: c => (c.method === "POST" ? json(422, { error: { code: "avatar_fetch_failed", message: "x" } }) : undefined),
+      });
+      const button = await screen.findByRole("button", { name: "改用 Corp SSO 的頭貼" });
+      fireEvent.click(button);
+      expect(await screen.findByText("無法從 Corp SSO 取得頭貼。")).toBeInTheDocument();
+    });
+  });
+
+  describe("背景補產", () => {
+    it("清單裡 pending 的候選 → 讀原圖並送回顯示圖（帶版本）；同一版重抓清單後不再送", async () => {
+      const { calls, queryClient } = setup({
+        list: oidcList({ pending: true, avatar: { id: ID_A, v: 5 } }),
+        respond: c => {
+          if (c.url === `/api/auth/avatars/${ID_A}/original`) return png();
+          if (c.method === "PUT" && c.url === `/api/auth/avatars/${ID_A}/display`) return json(200, {});
+          return undefined;
+        },
+      });
+      await ready();
+      await waitFor(() => expect(calls.filter(isFillCall).map(c => c.method)).toEqual(["GET", "PUT"]));
+      const put = calls.find(c => c.method === "PUT" && c.url.endsWith("/display"))!;
+      expect((put.body as FormData).get("version")).toBe("5");
+      // 寫入成功會失效清單；清單回來仍是同一版 pending → 不得再補一次。
+      await waitFor(() => expect(listCalls(calls).length).toBeGreaterThan(1));
+      await act(async () => {
+        await queryClient.invalidateQueries({ queryKey: ["avatars"] });
+      });
+      await settle();
+      expect(calls.filter(isFillCall)).toHaveLength(2);
+    });
+
+    it("pending 為 false 的候選（含上傳的）不補產", async () => {
+      const { calls } = setup({
+        list: { candidates: [candidate(ID_A, { source: "oidc", providerName: SSO, current: true }), candidate(ID_B)], auto: true, refreshable: [] },
+      });
+      await ready();
+      await settle();
+      expect(calls.filter(isFillCall)).toHaveLength(0);
+    });
+
+    it("空間不足補不出來 → 顯示說明並掛在該格；之後任何一次頭貼寫入成功就重試、說明消失", async () => {
+      let puts = 0;
+      setup({
+        list: {
+          candidates: [candidate(ID_A, { source: "oidc", providerName: SSO, current: true, pending: true }), candidate(ID_B)],
+          auto: true,
+          refreshable: [],
+        },
+        respond: c => {
+          if (c.url === `/api/auth/avatars/${ID_A}/original`) return png();
+          if (c.method === "PUT" && c.url === `/api/auth/avatars/${ID_A}/display`) {
+            puts += 1;
+            return puts === 1 ? json(409, { error: { code: "storage_quota_exceeded", message: "full" } }) : json(200, {});
+          }
+          return undefined;
+        },
+      });
+      await ready();
+      const note = await screen.findByText(NO_SPACE);
+      expect(radios()[1]).toHaveAttribute("aria-describedby", note.id);
+      expect(radios()[2]).not.toHaveAttribute("aria-describedby");
+      // 選用另一張＝一次頭貼寫入成功。
+      fireEvent.click(radios()[2]!);
+      await waitFor(() => expect(puts).toBe(2));
+      await waitFor(() => expect(screen.queryByText(NO_SPACE)).not.toBeInTheDocument());
+    });
+
+    it("選了「調整裁切」的當下就登記：補產已在跑也不送出，關掉裁切框才送", async () => {
+      let open: () => void = () => undefined;
+      const gate = new Promise<void>(resolve => {
+        open = resolve;
+      });
+      const { calls } = setup({
+        list: oidcList({ pending: true }),
+        respond: c => {
+          if (c.url === `/api/auth/avatars/${ID_A}/original`) return gate.then(() => png()) as unknown as Response;
+          if (c.method === "PUT" && c.url === `/api/auth/avatars/${ID_A}/display`) return json(200, {});
+          return undefined;
+        },
+      });
+      await ready();
+      await waitFor(() => expect(calls.some(c => c.url.endsWith("/original"))).toBe(true));
+      await openMenu(`More actions for Picture from ${SSO}`);
+      fireEvent.click(screen.getByRole("menuitem", { name: "Adjust crop" }));
+      await screen.findByRole("dialog", { name: "Adjust picture" });
+      open();
+      await settle();
+      await settle();
+      expect(calls.some(c => c.method === "PUT" && c.url.endsWith("/display"))).toBe(false);
+      fireEvent.click(screen.getByRole("button", { name: "close-stub" }));
+      await waitFor(() => expect(calls.some(c => c.method === "PUT" && c.url.endsWith("/display"))).toBe(true));
+    });
+
+    it("其他錯誤（500）不顯示空間不足說明", async () => {
+      const { calls } = setup({
+        list: oidcList({ pending: true }),
+        respond: c => {
+          if (c.url === `/api/auth/avatars/${ID_A}/original`) return png();
+          if (c.method === "PUT") return json(500, { error: { code: "internal", message: "x" } });
+          return undefined;
+        },
+      });
+      await ready();
+      await waitFor(() => expect(calls.some(c => c.method === "PUT")).toBe(true));
+      await settle();
+      expect(screen.queryByText(NO_SPACE)).not.toBeInTheDocument();
+    });
   });
 });

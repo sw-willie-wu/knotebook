@@ -82,6 +82,8 @@ import { TRASH_PURGE_FIRST_DELAY_MS, TRASH_PURGE_INTERVAL_MS, createTrashPurger 
 import type { NoteCreateHooks } from "./notes/create.js";
 import type { GroupTestHook } from "./groups/test-hook.js";
 import type { AvatarTestHooks } from "./avatars/tx/avatars.js";
+import type { AvatarFetchPolicy } from "./avatars/oidc-fetch.js";
+import type { OidcAvatarJobHooks } from "./avatars/oidc-job.js";
 import type { SearchIndexHooks } from "./notes/tx/search-index.js";
 import { DEFAULT_STORAGE_LOCK_TIMEOUT_MS } from "./storage/tx/quota.js";
 import type { SiteLimits } from "./site-limits/store.js";
@@ -156,11 +158,11 @@ export interface AppDeps {
    */
   editingFollowsSiteLimits?: boolean;
   /**
-   * 節流器（30 顆，型別 `Limiters` 在 `http/limiters.ts`）。**選配、可只給幾顆**：`buildApp` 以 `mergeLimiters` 合併——
-   * 21 顆固定的桶由 `buildFixedLimiters()` 建，9 顆站台可調的桶由 `buildAdjustableLimiters(deps.siteLimits)` 建
+   * 節流器（31 顆，型別 `Limiters` 在 `http/limiters.ts`）。**選配、可只給幾顆**：`buildApp` 以 `mergeLimiters` 合併——
+   * 22 顆固定的桶由 `buildFixedLimiters()` 建，9 顆站台可調的桶由 `buildAdjustableLimiters(deps.siteLimits)` 建
    * （`limit` 現讀這個 app 的 `siteLimits`，#397）；這裡給的桶（值不是 `undefined`）蓋掉對應的那顆。
    *
-   * `buildTestApp`/`buildCollabTestApp`（`test/helpers.ts`）經 `freshLimiters` 注入 21 顆全新固定桶＋測試覆寫——
+   * `buildTestApp`/`buildCollabTestApp`（`test/helpers.ts`）經 `freshLimiters` 注入 22 顆全新固定桶＋測試覆寫——
    * 嚴禁 module 單例，否則不同測試檔案共享同一份計數會互相汙染。
    */
   limiters?: Partial<Limiters>;
@@ -226,6 +228,10 @@ export interface AppDeps {
   groupTestHook?: GroupTestHook;
   /** 頭貼寫入交易的交錯縫（`avatars/tx/avatars.ts`）。選配；production 不注入，整合測試的注入面是 `buildTestApp({ avatarTestHooks })`。 */
   avatarTestHooks?: AvatarTestHooks;
+  /** IdP 頭貼下載的位址與埠政策。選配，只給測試注入（讓本機圖片伺服器通過）；未設＝`PRODUCTION_AVATAR_FETCH_POLICY`，沒有任何環境變數能放寬。 */
+  avatarFetchPolicy?: AvatarFetchPolicy;
+  /** IdP 頭貼背景工作的結束通知。選配，只給測試等待背景工作用；production 不注入。 */
+  avatarJobHooks?: OidcAvatarJobHooks;
   /** #93：全文索引交易的測試縫（`notes/tx/search-index.ts`）。選配；production 不注入。注入面是 `buildTestApp({ searchIndexHooks })`。 */
   searchIndexHooks?: SearchIndexHooks;
   /**
@@ -661,7 +667,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
 
   app.get("/healthz", async () => ({ ok: true }));
 
-  // 30 顆節流桶：21 顆固定的＋9 顆可調的（`limit` 現讀這個 app 的 `deps.siteLimits`，#397）；測試只覆寫它要驗的那幾顆。
+  // 31 顆節流桶：22 顆固定的＋9 顆可調的（`limit` 現讀這個 app 的 `deps.siteLimits`，#397）；測試只覆寫它要驗的那幾顆。
   const limiters = mergeLimiters(
     { ...buildFixedLimiters(), ...buildAdjustableLimiters(deps.siteLimits) } satisfies Limiters,
     deps.limiters
@@ -744,7 +750,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   // #187：registry 是 per-app 實例（嚴禁 module 單例，同 limiters）。callback 需要 db（帳號解析交易）與 gate（建帳後 invalidate）。
   const oidcRegistry = deps.oidcRegistry ?? createOidcRuntimeRegistry();
   void app.register(
-    oidcRoutes({ config: deps.config, db: deps.db, siteLimits: deps.siteLimits, gate: deps.gate, collabHooks: deps.collabHooks, reloginReverifyDelayMs: deps.reloginReverifyDelayMs, registry: oidcRegistry, limiters: { oidcLogin: limiters.oidcLogin, oidcCallback: limiters.oidcCallback }, oidcTestHook: deps.oidcTestHook }),
+    oidcRoutes({ config: deps.config, db: deps.db, siteLimits: deps.siteLimits, gate: deps.gate, collabHooks: deps.collabHooks, reloginReverifyDelayMs: deps.reloginReverifyDelayMs, registry: oidcRegistry, limiters: { oidcLogin: limiters.oidcLogin, oidcCallback: limiters.oidcCallback }, oidcTestHook: deps.oidcTestHook, uploadsDir: deps.uploadsDir, storageLockTimeoutMs, avatarFetchPolicy: deps.avatarFetchPolicy, avatarJobHooks: deps.avatarJobHooks }),
   );
   // #187：`/link-account` 頁的 API（GET／confirm／cancel、prove 起點）。密碼證明與登入共用 `deps.throttle`。
   void app.register(
@@ -884,10 +890,11 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     avatarsRoutes({
       db: deps.db,
       gate: deps.gate,
-      limiters: { upload: limiters.upload },
+      limiters: { upload: limiters.upload, avatarRefresh: limiters.avatarRefresh },
       uploadsDir: deps.uploadsDir,
       siteLimits: deps.siteLimits,
       storageLockTimeoutMs,
+      avatarFetchPolicy: deps.avatarFetchPolicy,
       avatarTestHooks: deps.avatarTestHooks,
     }),
   );

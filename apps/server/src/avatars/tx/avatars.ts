@@ -8,11 +8,21 @@
  * （新的一張就是目前頭貼）→ `avatar_auto = false`。部分唯一索引不能 DEFERRABLE，所以切換目前頭貼一定是「先清舊、再設新」兩句。
  * 原圖檔已由路由寫好；本交易任何拋出都由路由 unlink。
  *
+ * OIDC 形的 `insertAvatarInTx`（輸入帶 `identityId`）：顯示圖與裁切為 NULL（待本人的瀏覽器補產），只算原圖的空間；
+ * 自動選用＝`avatar_auto` 為 true 且此刻沒有目前頭貼，此時新候選就是目前頭貼、`avatar_auto` 維持 true；否則不是目前頭貼。
+ * 這個形不改 `avatar_auto`（登入帶入不是使用者的選擇）。
+ *
+ * `replaceOidcAvatarInTx`：users 列鎖 → 重讀身分列（`FOR KEY SHARE`，不是這個人的或已不在 → `AvatarIdentityGone`，下載期間解除連結的情形）→
+ * 該身分的候選 `FOR UPDATE`（不在 → 走 OIDC 形的 `insertAvatarInTx`）→ 原圖 sha256 相同：只改網址 → 不同：`assertSpaceRoomInTx`
+ * （新原圖 − 舊原圖 − 舊顯示圖）、換原圖、清裁切與顯示圖、`version + 1`、「是否為目前頭貼」不動。回傳讓呼叫端在 commit 後刪對的檔。
+ *
+ * `refreshOidcAvatarInTx`：手動重新取得——清 `picture_dismissed_url` → `replaceOidcAvatarInTx` → 選用 → `avatar_auto = false`，同一個交易、不另外呼叫 `assertSpaceRoomInTx`。
+ *
  * `updateAvatarDisplayInTx`：users 列鎖 → 測試縫 → 候選列 `FOR UPDATE`（不在或不是自己的 → `AvatarNotFound`）→ `version` 不符 → `AvatarOutdated`
  * → `assertSpaceRoomInTx`（新顯示圖 − 舊顯示圖；差額 ≤ 0 時該函式不取鎖，變小一定成功）→ UPDATE，`version + 1`。
  * `selectAvatarInTx`、`deleteAvatarInTx`：users 列鎖 → 測試縫 → 寫入；兩者都只讓用量減少或不變，不呼叫 `assertSpaceRoomInTx`。
  */
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { Tx } from "../../db/tx.js";
 import { userAvatars, userIdentities, users } from "../../db/schema.js";
 import { TxAbort } from "../../http/tx-abort.js";
@@ -55,11 +65,55 @@ export interface InsertAvatarInput {
   lockTimeoutMs: number;
 }
 
-export async function insertAvatarInTx(tx: Tx, input: InsertAvatarInput, hooks?: AvatarTestHooks): Promise<typeof userAvatars.$inferSelect> {
-  const locked = await tx.select({ id: users.id }).from(users).where(eq(users.id, input.userId)).for("no key update");
+/** OIDC 候選的寫入輸入（新增與替換共用）：只有原圖，沒有顯示圖與裁切。 */
+export interface OidcAvatarInput {
+  userId: string;
+  identityId: string;
+  /** 下載當下的 `picture` 值。 */
+  oidcPictureUrl: string;
+  /** 原圖在 uploads 目錄的檔名（新的 uuid）。 */
+  originalFile: string;
+  originalSha256: Buffer;
+  originalMime: string;
+  originalSize: number;
+  lockTimeoutMs: number;
+}
+
+export type InsertOidcAvatarInput = OidcAvatarInput;
+export type ReplaceOidcAvatarInput = OidcAvatarInput;
+
+const isOidcInput = (input: InsertAvatarInput | InsertOidcAvatarInput): input is InsertOidcAvatarInput => "identityId" in input;
+
+export async function insertAvatarInTx(tx: Tx, input: InsertAvatarInput | InsertOidcAvatarInput, hooks?: AvatarTestHooks): Promise<typeof userAvatars.$inferSelect> {
+  const locked = await tx.select({ id: users.id, avatarAuto: users.avatarAuto }).from(users).where(eq(users.id, input.userId)).for("no key update");
   if (locked.length === 0) throw new TxAbort(404, "not_found", "No user with that id.");
   await hooks?.afterUserLock?.();
-  await assertSpaceRoomInTx(tx, { kind: "user", id: input.userId }, input.originalSize + input.displayData.length, { lockTimeoutMs: input.lockTimeoutMs });
+  // OIDC 形只有原圖（顯示圖待補），上傳形是原圖加顯示圖；空間判定只有這一處。
+  const incoming = isOidcInput(input) ? input.originalSize : input.originalSize + input.displayData.length;
+  await assertSpaceRoomInTx(tx, { kind: "user", id: input.userId }, incoming, { lockTimeoutMs: input.lockTimeoutMs });
+  if (isOidcInput(input)) {
+    // users 列鎖保證「此刻沒有目前頭貼」的判斷到 INSERT 之間沒有別人插進來。
+    const [current] = await tx
+      .select({ id: userAvatars.id })
+      .from(userAvatars)
+      .where(and(eq(userAvatars.userId, input.userId), eq(userAvatars.isCurrent, true)))
+      .limit(1);
+    const [oidcRow] = await tx
+      .insert(userAvatars)
+      .values({
+        userId: input.userId,
+        source: "oidc",
+        identityId: input.identityId,
+        oidcPictureUrl: input.oidcPictureUrl,
+        originalFile: input.originalFile,
+        originalSha256: input.originalSha256,
+        originalMime: input.originalMime,
+        originalSize: input.originalSize,
+        isCurrent: locked[0]!.avatarAuto && current === undefined,
+      })
+      .returning();
+    return oidcRow!;
+  }
   await tx.update(userAvatars).set({ isCurrent: false }).where(and(eq(userAvatars.userId, input.userId), eq(userAvatars.isCurrent, true)));
   const [row] = await tx
     .insert(userAvatars)
@@ -83,6 +137,104 @@ export async function insertAvatarInTx(tx: Tx, input: InsertAvatarInput, hooks?:
     .returning();
   await tx.update(users).set({ avatarAuto: false }).where(eq(users.id, input.userId));
   return row!;
+}
+
+/** 來源身分已不在（下載期間被解除連結），或不是這個人的。 */
+export class AvatarIdentityGone extends TxAbort {
+  constructor() {
+    super(404, "not_found", "That sign-in is no longer linked.");
+    this.name = "AvatarIdentityGone";
+  }
+}
+
+export type ReplaceOidcAvatarResult =
+  /** 這個身分原本沒有候選，新插入一張。 */
+  | { outcome: "inserted" }
+  /** 原圖位元組不同，原地替換；`oldFile` 是被換掉的原圖檔名，commit 後刪。 */
+  | { outcome: "replaced"; oldFile: string }
+  /** 原圖位元組相同，只更新了網址；呼叫端刪掉剛寫的新檔。 */
+  | { outcome: "same_bytes" }
+  /** 沒有候選，而這個網址是使用者在下載期間刪掉的（`picture_dismissed_url`）：不插入，呼叫端刪掉新檔。 */
+  | { outcome: "dismissed" };
+
+/**
+ * 登入帶入的 IdP 頭貼：這個身分已有候選就原地更新，沒有就新增。原圖檔已由呼叫端寫好；本交易任何拋出都由呼叫端 unlink 新檔。
+ * 空間判定只在「換了原圖」的分支；沒有候選的分支交給 `insertAvatarInTx`（它自己判定）。
+ */
+export async function replaceOidcAvatarInTx(tx: Tx, input: ReplaceOidcAvatarInput, hooks?: AvatarTestHooks): Promise<ReplaceOidcAvatarResult> {
+  const locked = await tx.select({ id: users.id }).from(users).where(eq(users.id, input.userId)).for("no key update");
+  if (locked.length === 0) throw new TxAbort(404, "not_found", "No user with that id.");
+  await hooks?.afterUserLock?.();
+  // 重讀身分列並以 KEY SHARE 鎖住：之後的解除連結要等本交易結束，插入／更新候選的外鍵也不會撞上被刪的列。
+  const identity = await tx
+    .select({ id: userIdentities.id, pictureDismissedUrl: userIdentities.pictureDismissedUrl })
+    .from(userIdentities)
+    .where(and(eq(userIdentities.id, input.identityId), eq(userIdentities.userId, input.userId)))
+    .for("key share");
+  if (identity.length === 0) throw new AvatarIdentityGone();
+  const [row] = await tx
+    .select({ id: userAvatars.id, originalFile: userAvatars.originalFile, originalSize: userAvatars.originalSize, originalSha256: userAvatars.originalSha256, displaySize: userAvatars.displaySize })
+    .from(userAvatars)
+    .where(and(eq(userAvatars.identityId, input.identityId), eq(userAvatars.userId, input.userId)))
+    .for("update");
+  if (row === undefined) {
+    // 下載期間使用者可能已重新取得又刪掉同一張：網址在身分列上，這裡重讀才看得到。
+    if (identity[0]!.pictureDismissedUrl === input.oidcPictureUrl) return { outcome: "dismissed" };
+    await insertAvatarInTx(tx, input);
+    return { outcome: "inserted" };
+  }
+  if (row.originalSha256.equals(input.originalSha256)) {
+    await tx
+      .update(userAvatars)
+      .set({ oidcPictureUrl: input.oidcPictureUrl })
+      .where(and(eq(userAvatars.id, row.id), eq(userAvatars.userId, input.userId), eq(userAvatars.identityId, input.identityId)));
+    return { outcome: "same_bytes" };
+  }
+  await assertSpaceRoomInTx(tx, { kind: "user", id: input.userId }, input.originalSize - row.originalSize - row.displaySize, { lockTimeoutMs: input.lockTimeoutMs });
+  await tx
+    .update(userAvatars)
+    .set({
+      oidcPictureUrl: input.oidcPictureUrl,
+      originalFile: input.originalFile,
+      originalSha256: input.originalSha256,
+      originalMime: input.originalMime,
+      originalSize: input.originalSize,
+      originalWidth: null,
+      originalHeight: null,
+      cropX: null,
+      cropY: null,
+      cropSize: null,
+      displayData: null,
+      displayMime: null,
+      displaySize: 0,
+      version: sql`${userAvatars.version} + 1`,
+    })
+    .where(and(eq(userAvatars.id, row.id), eq(userAvatars.userId, input.userId), eq(userAvatars.identityId, input.identityId)));
+  return { outcome: "replaced", oldFile: row.originalFile };
+}
+
+/**
+ * 手動重新取得：同一個交易裡清掉身分列的 `picture_dismissed_url`（使用者按了這顆，意圖明確；也讓下面的替換不會把剛下載的網址當成「刪過的」而丟掉）、
+ * 建立或替換候選（`replaceOidcAvatarInTx`，空間判定在它裡面，這裡不再判一次）、選用它、`avatar_auto = false`。
+ * 先鎖 users 列再動身分列，與 `replaceOidcAvatarInTx` 同一個鎖序。身分不在或不是這個人的 → `AvatarIdentityGone`（整筆回滾）。
+ */
+export async function refreshOidcAvatarInTx(tx: Tx, input: ReplaceOidcAvatarInput, hooks?: AvatarTestHooks): Promise<ReplaceOidcAvatarResult> {
+  const locked = await tx.select({ id: users.id }).from(users).where(eq(users.id, input.userId)).for("no key update");
+  if (locked.length === 0) throw new TxAbort(404, "not_found", "No user with that id.");
+  await tx
+    .update(userIdentities)
+    .set({ pictureDismissedUrl: null })
+    .where(and(eq(userIdentities.id, input.identityId), eq(userIdentities.userId, input.userId)));
+  const result = await replaceOidcAvatarInTx(tx, input, hooks);
+  const [candidate] = await tx
+    .select({ id: userAvatars.id })
+    .from(userAvatars)
+    .where(and(eq(userAvatars.identityId, input.identityId), eq(userAvatars.userId, input.userId)));
+  if (candidate === undefined) throw new TxAbort(409, "server_busy", "The server is busy. Try again in a moment.");
+  await tx.update(userAvatars).set({ isCurrent: false }).where(and(eq(userAvatars.userId, input.userId), eq(userAvatars.isCurrent, true)));
+  await tx.update(userAvatars).set({ isCurrent: true }).where(and(eq(userAvatars.id, candidate.id), eq(userAvatars.userId, input.userId)));
+  await tx.update(users).set({ avatarAuto: false }).where(eq(users.id, input.userId));
+  return result;
 }
 
 export interface UpdateAvatarDisplayInput {

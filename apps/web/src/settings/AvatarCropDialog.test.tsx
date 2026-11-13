@@ -7,6 +7,7 @@ import { AVATARS_QUERY_KEY } from "@/api/avatars";
 import { AUTH_CONFIG_QUERY_KEY } from "@/api/authConfig";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import * as encode from "@/avatars/encode";
+import { configureFiller, enqueueFill, resetFiller } from "@/avatars/display-filler";
 import { settle } from "@/test/outside-click";
 import { AvatarCropDialog } from "./AvatarCropDialog";
 
@@ -705,6 +706,63 @@ describe("AvatarCropDialog", () => {
       fireEvent.click(within(dialog).getByRole("button", { name: "儲存" }));
       expect(await within(dialog).findByRole("alert")).toHaveTextContent(`圖片超過 ${formatBytes(MAX_UPLOAD)} 上限。`);
       expect(ctx.calls.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe("與背景補產互斥", () => {
+    function fillerDeps() {
+      const fetchOriginal = vi.fn(async () => new Blob([new Uint8Array([1])], { type: "image/png" }));
+      configureFiller({ fetchOriginal, putDisplay: vi.fn(async () => ({})), invalidate: vi.fn() });
+      return fetchOriginal;
+    }
+
+    it("既有候選的裁切框開著時，背景補產跳過那張；關框後才處理", async () => {
+      resetFiller();
+      const fetchOriginal = fillerDeps();
+      const ctx = setup({ kind: "existing", candidate: candidate() });
+      await screen.findByRole("dialog", { name: "Adjust picture" });
+      enqueueFill({ id: ID, v: 3 });
+      await settle();
+      expect(fetchOriginal).not.toHaveBeenCalled();
+      ctx.view.rerender(ctx.tree(false));
+      await waitFor(() => expect(fetchOriginal).toHaveBeenCalledTimes(1));
+      resetFiller();
+    });
+
+    it("卸載（例如換頁）也解除登記", async () => {
+      resetFiller();
+      const fetchOriginal = fillerDeps();
+      const ctx = setup({ kind: "existing", candidate: candidate() });
+      await screen.findByRole("dialog", { name: "Adjust picture" });
+      enqueueFill({ id: ID, v: 3 });
+      await settle();
+      expect(fetchOriginal).not.toHaveBeenCalled();
+      ctx.view.unmount();
+      await waitFor(() => expect(fetchOriginal).toHaveBeenCalledTimes(1));
+      resetFiller();
+    });
+
+    it("調整既有候選並儲存成功：這張排隊中的補產丟掉（再補只會撞版本）", async () => {
+      resetFiller();
+      const fetchOriginal = fillerDeps();
+      const { dialog, onSaved, view, tree } = await openLoaded({ kind: "existing", candidate: candidate() });
+      enqueueFill({ id: ID, v: 3 });
+      fireEvent.click(saveButton(dialog));
+      await waitFor(() => expect(onSaved).toHaveBeenCalled());
+      view.rerender(tree(false)); // 父層收到 onSaved 後關框：解除登記，佇列此時不該還有這張
+      await settle();
+      expect(fetchOriginal).not.toHaveBeenCalled();
+      resetFiller();
+    });
+
+    it("新上傳的裁切框不登記任何候選（補產照常進行）", async () => {
+      resetFiller();
+      const fetchOriginal = fillerDeps();
+      setup(newFile());
+      await screen.findByRole("dialog", { name: "Adjust picture" });
+      enqueueFill({ id: ID, v: 3 });
+      await waitFor(() => expect(fetchOriginal).toHaveBeenCalledTimes(1));
+      resetFiller();
     });
   });
 

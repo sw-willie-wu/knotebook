@@ -544,6 +544,9 @@
         "empty": "還沒有上傳過頭貼。",
         "loading": "正在載入頭貼…",
         "loadFailed": "無法載入頭貼。",
+        "useProvider": "改用 {{provider}} 的頭貼",
+        "refreshFailed": "無法從 {{provider}} 取得頭貼。",
+        "noSpace": "空間不足，別人還看不到這張。",
         "tooLarge": "圖片超過 {{size}} 上限。",
         "crop": {
           "title": "調整頭貼",

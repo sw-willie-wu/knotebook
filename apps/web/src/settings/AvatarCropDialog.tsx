@@ -5,6 +5,7 @@ import { formatBytes, type AvatarCandidateDto, type AvatarCropUpload } from "@kn
 import { AVATARS_QUERY_KEY, fetchAvatarOriginal, useUpdateAvatarDisplay, useUploadAvatar } from "@/api/avatars";
 import { useAuthConfig } from "@/api/authConfig";
 import { ApiFail } from "@/api/client";
+import { dropQueuedFill, registerCropOpen } from "@/avatars/display-filler";
 import { centeredCrop, clampOffset, cropToView, maxScale, minScale, viewToCrop, zoomAround, type Point } from "@/avatars/crop-math";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -102,6 +103,12 @@ export function AvatarCropDialog({ open, source, onOpenChange, onSaved }: Avatar
   useEffect(() => {
     busyRef.current = busy;
   }, [busy]);
+
+  // 開著時背景補產跳過這張：否則補產先送出、版本變了，按儲存會撞 `avatar_outdated`，調好的裁切就丟了。
+  useEffect(() => {
+    if (!open || candidateId === null) return;
+    return registerCropOpen(candidateId);
+  }, [open, candidateId]);
 
   function describeError(err: unknown): ErrorText {
     const generic = { title: t("settings.account.avatar.crop.uploadFailed") };
@@ -302,6 +309,8 @@ export function AvatarCropDialog({ open, source, onOpenChange, onSaved }: Avatar
         source.kind === "existing" && originalVersion !== null
           ? await update.mutateAsync({ id: source.candidate.id, display, crop, version: originalVersion })
           : await upload.mutateAsync({ original, display, crop });
+      // 這次儲存就是補產：排隊中的舊版本不必再補（再補只會撞版本）。
+      if (source.kind === "existing") dropQueuedFill(source.candidate.id, saved.avatar.v);
       if (!mounted.current) return;
       setBusy(false);
       onSaved(saved);
