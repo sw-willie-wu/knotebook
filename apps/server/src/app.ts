@@ -82,6 +82,8 @@ import { TRASH_PURGE_FIRST_DELAY_MS, TRASH_PURGE_INTERVAL_MS, createTrashPurger 
 import type { NoteCreateHooks } from "./notes/create.js";
 import type { GroupTestHook } from "./groups/test-hook.js";
 import type { AvatarTestHooks } from "./avatars/tx/avatars.js";
+import type { AvatarFetchPolicy } from "./avatars/oidc-fetch.js";
+import type { OidcAvatarJobHooks } from "./avatars/oidc-job.js";
 import type { SearchIndexHooks } from "./notes/tx/search-index.js";
 import { DEFAULT_STORAGE_LOCK_TIMEOUT_MS } from "./storage/tx/quota.js";
 import type { SiteLimits } from "./site-limits/store.js";
@@ -226,6 +228,10 @@ export interface AppDeps {
   groupTestHook?: GroupTestHook;
   /** 頭貼寫入交易的交錯縫（`avatars/tx/avatars.ts`）。選配；production 不注入，整合測試的注入面是 `buildTestApp({ avatarTestHooks })`。 */
   avatarTestHooks?: AvatarTestHooks;
+  /** IdP 頭貼下載的位址與埠政策。選配，只給測試注入（讓本機圖片伺服器通過）；未設＝`PRODUCTION_AVATAR_FETCH_POLICY`，沒有任何環境變數能放寬。 */
+  avatarFetchPolicy?: AvatarFetchPolicy;
+  /** IdP 頭貼背景工作的結束通知。選配，只給測試等待背景工作用；production 不注入。 */
+  avatarJobHooks?: OidcAvatarJobHooks;
   /** #93：全文索引交易的測試縫（`notes/tx/search-index.ts`）。選配；production 不注入。注入面是 `buildTestApp({ searchIndexHooks })`。 */
   searchIndexHooks?: SearchIndexHooks;
   /**

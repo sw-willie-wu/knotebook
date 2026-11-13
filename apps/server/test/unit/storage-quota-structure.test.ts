@@ -2,8 +2,9 @@
  * 儲存配額的結構性守衛。剝註解後掃 `src/`（剝法同 s14-structure.test.ts 的 `code()`）。
  * 誠實：字面掃描——改名重匯出、別名呼叫、經另一模組轉手等刻意規避守不到；行為面由 storage-quota-race.test.ts 守。
  *   ① `insert(uploads)` 只在上傳（`insertUploadInTx`）與複製（`copyNoteInTx`）（新增 uploads 列的路徑必須進白名單）
- *   ② `assertSpaceRoomInTx(` 呼叫形只在白名單五檔；除 avatars/tx/avatars.ts（兩次）外各恰一次；delete-group.ts 那一次在
- *      `transferGroupInTx` 函式體內，avatars/tx/avatars.ts 的兩次分別在 `insertAvatarInTx`、`updateAvatarDisplayInTx` 函式體內各恰一次，
+ *   ② `assertSpaceRoomInTx(` 呼叫形只在白名單五檔；除 avatars/tx/avatars.ts（三次）外各恰一次；delete-group.ts 那一次在
+ *      `transferGroupInTx` 函式體內，avatars/tx/avatars.ts 的三次分別在 `insertAvatarInTx`（上傳形與 OIDC 形共用同一處）、
+ *      `replaceOidcAvatarInTx`（只在換原圖的分支；找不到候選時它改呼叫 `insertAvatarInTx`）、`updateAvatarDisplayInTx` 函式體內各恰一次，
  *      `selectAvatarInTx`、`deleteAvatarInTx`（只讓用量減少或不變）不呼叫；
  *      quota.ts 恰一次宣告形、0 次呼叫形；其他檔 0 次
  *   ③ `pg_advisory` 只在 quota.ts 與資料夾結構鎖 folders/tx/lock.ts（第二種 advisory 鎖；鍵前綴 `knotebook.folders:` 與容量鎖的
@@ -79,13 +80,13 @@ describe("儲存配額結構性守衛", () => {
     expect(hits).toEqual(["notes/tx/copy.ts", "uploads/tx/insert-upload.ts"]);
   });
 
-  it("② assertSpaceRoomInTx 呼叫形：白名單五檔（avatars 兩次、其餘各一次）、其他 0 次；quota.ts 恰一次宣告形；delete-group 那次在 transferGroupInTx 內、avatars 的兩次分別在 insertAvatarInTx 與 updateAvatarDisplayInTx 內", () => {
+  it("② assertSpaceRoomInTx 呼叫形：白名單五檔（avatars 三次、其餘各一次）、其他 0 次；quota.ts 恰一次宣告形；delete-group 那次在 transferGroupInTx 內、avatars 的三次分別在 insertAvatarInTx、replaceOidcAvatarInTx 與 updateAvatarDisplayInTx 內", () => {
     const counts: Record<string, number> = {};
     for (const p of files) {
       const n = [...code(p).matchAll(CALL)].length;
       if (n > 0) counts[rel(p)] = n;
     }
-    expect(counts).toEqual(Object.fromEntries(WHITELIST.map(f => [f, f === "avatars/tx/avatars.ts" ? 2 : 1])));
+    expect(counts).toEqual(Object.fromEntries(WHITELIST.map(f => [f, f === "avatars/tx/avatars.ts" ? 3 : 1])));
     expect([...at("storage/tx/quota.ts").matchAll(DECL)]).toHaveLength(1);
     expect([...at("storage/tx/quota.ts").matchAll(CALL)]).toHaveLength(0);
     const dg = at("groups/tx/delete-group.ts");
@@ -99,6 +100,7 @@ describe("儲存配額結構性守衛", () => {
     };
     expect(callsIn("insertAvatarInTx")).toBe(1);
     expect(callsIn("updateAvatarDisplayInTx")).toBe(1);
+    expect(callsIn("replaceOidcAvatarInTx")).toBe(1);
     expect(callsIn("selectAvatarInTx")).toBe(0);
     expect(callsIn("deleteAvatarInTx")).toBe(0);
   });
@@ -138,7 +140,7 @@ describe("儲存配額結構性守衛", () => {
   });
 
   it("⑥ 限定範圍不得設隔離等級", () => {
-    const scoped = ["storage/tx/quota.ts", ...WHITELIST, "routes/uploads.ts", "routes/avatars.ts", "routes/notes.ts", "routes/groups.ts", "notes/copy-note.ts", "notes/move-note.ts"];
+    const scoped = ["storage/tx/quota.ts", ...WHITELIST, "routes/uploads.ts", "routes/avatars.ts", "avatars/oidc-job.ts", "routes/notes.ts", "routes/groups.ts", "notes/copy-note.ts", "notes/move-note.ts"];
     // 非空洞：每個限定檔都讀得到內容（at 讀不到會 throw）
     for (const f of scoped) expect(at(f).length, `${f} 非空`).toBeGreaterThan(100);
     const bad = scoped.filter(f => /isolationLevel|setTransaction|set\s+transaction/i.test(at(f)));
