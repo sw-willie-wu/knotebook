@@ -12,7 +12,8 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Check, NoteWidthIcon } from "@/components/ui/icons";
+import { Check } from "@/components/ui/icons";
+import { NoteWidthIcon } from "@/components/ui/icons-extra";
 
 /** 列樣式照 `DropdownMenuCheckboxItem`（RadioItem 是不帶樣式的最小包裝）。 */
 const ROW =

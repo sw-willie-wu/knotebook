@@ -12,8 +12,8 @@ import { mockWidePointer } from "@/test/wide-pointer";
 import { NoteMenu } from "@/components/NoteMenu";
 import type { DestSpace } from "@/components/sidebar/destination-level";
 import { indexFolders } from "@/components/sidebar/folder-index";
+import { GroupTransferDialog } from "./GroupTransferDialog";
 import {
-  GroupTransferDialog,
   isSameSpaceMove,
   type DestinationPick,
   type GroupTransferPick,

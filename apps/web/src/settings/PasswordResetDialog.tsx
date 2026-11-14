@@ -5,7 +5,7 @@ import { useAuthConfig } from "@/api/authConfig";
 import { useCancelPasswordReset, useCreatePasswordReset, type AdminUserDto } from "@/api/admin";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { KeyRound } from "@/components/ui/icons";
+import { KeyRound } from "@/components/ui/icons-extra";
 import { RowIconButton } from "@/components/ui/row-icon-button";
 import { OneTimeLinkResult } from "./OneTimeLinkResult";
 import "@/i18n/management-strings";

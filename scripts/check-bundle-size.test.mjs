@@ -6,7 +6,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { AVATAR_ENCODE_RE, AVATAR_IMAGE_MARKER, BODY_SEARCH_MARKER, FOLDER_I18N_MARKER, MANAGEMENT_I18N_MARKERS, MAX_ENTRY_BYTES, SELECT_I18N_MARKER, SHORTCUTS_I18N_MARKER, VERSIONS_MARKERS, checkBundleSize } from './check-bundle-size.mjs';
+import { AVATAR_ENCODE_RE, GROUP_LAZY_DIALOGS, AVATAR_IMAGE_MARKER, BODY_SEARCH_MARKER, FOLDER_I18N_MARKER, MANAGEMENT_I18N_MARKERS, MAX_ENTRY_BYTES, SELECT_I18N_MARKER, SHORTCUTS_I18N_MARKER, VERSIONS_MARKERS, checkBundleSize } from './check-bundle-size.mjs';
 
 // 守預設上限 750 KiB（理由見 check-bundle-size.mjs 的常數註解；下面兩案明傳 700 * 1024 測判斷本身，與預設值無關）。
 test('BS0 首包上限是 750 KiB', () => {
@@ -19,9 +19,12 @@ const MGMT_PACK = { 'management-strings-Mgt000.js': `const m={${MANAGEMENT_I18N_
 // 頭貼編碼模組的假 chunk：帶著 marker（真 build 裡是 encode-<hash>.js）。
 const AVATAR_PACK = { 'encode-Eee000.js': `class E extends Error{constructor(){super();this.name="${AVATAR_IMAGE_MARKER}"}}` };
 
+// 三個只在開啟時才載入的對話框的假 chunk：各自帶 marker（真 build 裡是 GroupNameDialog／DeleteGroupDialog／GroupTransferDialog-<hash>.js）。
+const GROUP_DIALOG_PACK = Object.fromEntries(GROUP_LAZY_DIALOGS.map((d, i) => [`${d.name}-Ggg00${i}.js`, `t("${d.marker}")`]).concat([['icons-extra-Iii000.js', 'x']]));
+
 const MARKER_BASE = {
   ...MGMT_PACK,
-  ...AVATAR_PACK,
+  ...AVATAR_PACK, ...GROUP_DIALOG_PACK,
   'index-Abc123.js': 100, 'mermaid.core-Ghi789.js': 10, 'shiki-Jkl012.js': 10, 'AdminSections-Mno345.js': 10,
   'PresentationOverlay-Pqr678.js': 10, 'TrashLazy-Ttt000.js': 10, 'SelectLazy-Sss000.js': 10, 'FolderLazy-Fff000.js': 10,
   'ShortcutsLazy-Kkk000.js': 10,
@@ -53,7 +56,7 @@ test('entry 在上限內且 NotePage chunk 存在 → 通過並回報摘要', ()
     'ShortcutsLazy-Kkk000.js': 10_000,
     'BodySearchLazy-Bbb000.js': 8_000,
     ...MGMT_PACK,
-    ...AVATAR_PACK,
+    ...AVATAR_PACK, ...GROUP_DIALOG_PACK,
     'index-Abc123.css': 50_000, // css 不是 entry chunk，pattern 只認 .js
   });
   try {
@@ -421,7 +424,7 @@ test('entry CSS 含 .reveal-viewport（reveal.css 進了首包）→ throw；laz
   const base = {
     'index-Abc123.js': 100, 'NotePage-Def456.js': 10, 'mermaid.core-Ghi789.js': 10, 'shiki-Jkl012.js': 10,
     'AdminSections-Mno345.js': 10, 'VersionsLazy-Vvv000.js': 10, 'PresentationOverlay-Pqr678.js': 10, 'TrashLazy-Ttt000.js': 10,
-    'SelectLazy-Sss000.js': 10, 'FolderLazy-Fff000.js': 10, 'ShortcutsLazy-Kkk000.js': 10, 'BodySearchLazy-Bbb000.js': 10, ...MGMT_PACK, ...AVATAR_PACK,
+    'SelectLazy-Sss000.js': 10, 'FolderLazy-Fff000.js': 10, 'ShortcutsLazy-Kkk000.js': 10, 'BodySearchLazy-Bbb000.js': 10, ...MGMT_PACK, ...AVATAR_PACK, ...GROUP_DIALOG_PACK,
   };
   const bad = fakeAssets({ ...base, 'index-Css111.css': '.x{}.reveal-viewport{color:#000}' });
   try {
@@ -440,7 +443,7 @@ test('entry CSS 含 .reveal-viewport（reveal.css 進了首包）→ throw；laz
 test('reveal-viewport 字串只准在 PresentationOverlay-*.js：在 overlay 裡通過、在 NotePage 裡 throw（reveal.js 被靜態 import 進 NotePage）', () => {
   const base = {
     'index-Abc123.js': 100, 'mermaid.core-Ghi789.js': 10, 'shiki-Jkl012.js': 10, 'AdminSections-Mno345.js': 10, 'VersionsLazy-Vvv000.js': 10,
-    'TrashLazy-Ttt000.js': 10, 'SelectLazy-Sss000.js': 10, 'FolderLazy-Fff000.js': 10, 'ShortcutsLazy-Kkk000.js': 10, 'BodySearchLazy-Bbb000.js': 10, ...MGMT_PACK, ...AVATAR_PACK,
+    'TrashLazy-Ttt000.js': 10, 'SelectLazy-Sss000.js': 10, 'FolderLazy-Fff000.js': 10, 'ShortcutsLazy-Kkk000.js': 10, 'BodySearchLazy-Bbb000.js': 10, ...MGMT_PACK, ...AVATAR_PACK, ...GROUP_DIALOG_PACK,
   };
   const ok = fakeAssets({ ...base, 'NotePage-Def456.js': 'x', 'PresentationOverlay-Pqr678.js': 'e.classList.add("reveal-viewport")' });
   try {
@@ -460,7 +463,7 @@ test('簡報 chunk 的靜態 import 閉包（含間接）碰到 shiki → throw�
   const base = {
     'index-Abc123.js': 100, 'NotePage-Def456.js': 10, 'mermaid.core-Ghi789.js': 10, 'AdminSections-Mno345.js': 10, 'VersionsLazy-Vvv000.js': 10,
     'shiki-Jkl012.js': 'export const s=1', 'bundle-full-Zz9.js': 'export const b=1', 'TrashLazy-Ttt000.js': 10,
-    'SelectLazy-Sss000.js': 10, 'FolderLazy-Fff000.js': 10, 'ShortcutsLazy-Kkk000.js': 10, 'BodySearchLazy-Bbb000.js': 10, ...MGMT_PACK, ...AVATAR_PACK,
+    'SelectLazy-Sss000.js': 10, 'FolderLazy-Fff000.js': 10, 'ShortcutsLazy-Kkk000.js': 10, 'BodySearchLazy-Bbb000.js': 10, ...MGMT_PACK, ...AVATAR_PACK, ...GROUP_DIALOG_PACK,
   };
   const indirect = fakeAssets({ ...base, 'PresentationOverlay-Pqr678.js': 'import{a}from"./mid-Q1.js";', 'mid-Q1.js': 'import{b}from"./bundle-full-Zz9.js";export const a=1' });
   try {
@@ -639,4 +642,76 @@ test('BS-A10 別的模組也叫 encode-*.js 且被靜態 import（不含頭貼 m
 test('BS-A4 AVATAR_IMAGE_MARKER 是 avatars/encode.ts 裡 this.name 的字串字面量', () => {
   const source = readFileSync(fileURLToPath(new URL('../apps/web/src/avatars/encode.ts', import.meta.url)), 'utf8');
   assert.ok(source.includes(`this.name = "${AVATAR_IMAGE_MARKER}"`), `encode.ts 沒有 this.name = "${AVATAR_IMAGE_MARKER}"——marker 或類別改名了，請同步更新 AVATAR_IMAGE_MARKER`);
+});
+
+test('BS-G1 缺任一個群組／移動複製對話框的 lazy chunk → throw，訊息點名該對話框', () => {
+  for (const dialog of GROUP_LAZY_DIALOGS) {
+    const files = { ...MARKER_BASE, 'NotePage-Def456.js': 'x', 'VersionsLazy-Vvv000.js': 'x' };
+    for (const name of Object.keys(files)) if (name.startsWith(`${dialog.name}-`)) delete files[name];
+    const { assets, cleanup } = fakeAssets(files);
+    try {
+      assert.throws(() => checkBundleSize(assets), new RegExp(`找不到 ${dialog.name} 的 lazy chunk`));
+    } finally {
+      cleanup();
+    }
+  }
+});
+
+test('BS-G2 entry 含任一個對話框的 marker → throw，訊息含該 marker', () => {
+  for (const dialog of GROUP_LAZY_DIALOGS) {
+    const { assets, cleanup } = fakeAssets({
+      ...MARKER_BASE, 'index-Abc123.js': `t("${dialog.marker}")`, 'NotePage-Def456.js': 'x', 'VersionsLazy-Vvv000.js': 'x',
+    });
+    try {
+      assert.throws(() => checkBundleSize(assets), (err) => err.message.includes('index-Abc123.js') && err.message.includes(dialog.marker));
+    } finally {
+      cleanup();
+    }
+  }
+});
+
+test('BS-G3 marker 只在各自的 lazy chunk 裡 → 通過、回傳 groupDialogChunks', () => {
+  const { assets, cleanup } = fakeAssets({ ...MARKER_BASE, 'NotePage-Def456.js': 'x', 'VersionsLazy-Vvv000.js': 'x' });
+  try {
+    const result = checkBundleSize(assets);
+    assert.deepEqual(Object.keys(result.groupDialogChunks), GROUP_LAZY_DIALOGS.map((d) => d.name));
+  } finally {
+    cleanup();
+  }
+});
+
+// marker 改名即靜默失效——綁回各對話框的原始檔（字面量 t("…")）。
+test('BS-G4 GROUP_LAZY_DIALOGS 的 marker 都寫在對應原始檔裡，且不在首包同步載入的檔案裡', () => {
+  const src = fileURLToPath(new URL('../apps/web/src/', import.meta.url));
+  for (const dialog of GROUP_LAZY_DIALOGS) {
+    assert.ok(readFileSync(join(src, dialog.source), 'utf8').includes(`"${dialog.marker}"`), `${dialog.source} 沒有 "${dialog.marker}"`);
+  }
+  for (const name of ['components/groups/GroupMenu.tsx', 'components/NoteList.tsx', 'components/NoteMenu.tsx', 'components/share/GroupTransfer.tsx']) {
+    const source = readFileSync(join(src, name), 'utf8');
+    for (const dialog of GROUP_LAZY_DIALOGS) assert.ok(!source.includes(dialog.marker), `${name} 不得含 ${dialog.marker}`);
+  }
+});
+
+test('BS-G5 缺 icons-extra chunk → throw', () => {
+  const files = { ...MARKER_BASE, 'NotePage-Def456.js': 'x', 'VersionsLazy-Vvv000.js': 'x' };
+  delete files['icons-extra-Iii000.js'];
+  const { assets, cleanup } = fakeAssets(files);
+  try {
+    assert.throws(() => checkBundleSize(assets), /找不到 icons-extra/);
+  } finally {
+    cleanup();
+  }
+});
+
+test('BS-G6 對話框 chunk 存在但不含自己的 marker → throw', () => {
+  for (const dialog of GROUP_LAZY_DIALOGS) {
+    const files = { ...MARKER_BASE, 'NotePage-Def456.js': 'x', 'VersionsLazy-Vvv000.js': 'x' };
+    for (const name of Object.keys(files)) if (name.startsWith(`${dialog.name}-`)) files[name] = 'export const x=1';
+    const { assets, cleanup } = fakeAssets(files);
+    try {
+      assert.throws(() => checkBundleSize(assets), (err) => err.message.includes(dialog.name) && err.message.includes(dialog.marker));
+    } finally {
+      cleanup();
+    }
+  }
 });

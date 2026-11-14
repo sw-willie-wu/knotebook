@@ -7,7 +7,8 @@ import { useSidebarTabActions, useSidebarTabState } from "@/lib/sidebar-tab";
 import { selectedTrashIds } from "@/lib/trash-display";
 import { useWidePointer } from "@/lib/wide-pointer";
 import { Button } from "@/components/ui/button";
-import { RotateCcw, Trash } from "@/components/ui/icons";
+import { Trash } from "@/components/ui/icons";
+import { RotateCcw } from "@/components/ui/icons-extra";
 import { PurgeConfirmDialog, toastTrashFailure, toastTrashResult } from "@/components/sidebar/trash-dialogs";
 
 /**

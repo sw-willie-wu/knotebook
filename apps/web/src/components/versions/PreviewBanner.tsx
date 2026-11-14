@@ -1,7 +1,7 @@
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
-import { Columns2, ListFilter, Rows3 } from "@/components/ui/icons";
+import { Columns2, ListFilter, Rows3 } from "@/components/ui/icons-extra";
 import { useVersions } from "@/lib/versions-context";
 import { cn } from "@/lib/utils";
 import { ComparePicker } from "./ComparePicker";

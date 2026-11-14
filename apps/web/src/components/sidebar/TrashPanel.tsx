@@ -10,7 +10,8 @@ import { selectedTrashIds, splitTrashSections, trashDetailLine, trashItemTitle, 
 import { useWidePointer } from "@/lib/wide-pointer";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { EllipsisVertical, RotateCcw, SquareCheck, Trash, X } from "@/components/ui/icons";
+import { EllipsisVertical, SquareCheck, Trash, X } from "@/components/ui/icons";
+import { RotateCcw } from "@/components/ui/icons-extra";
 import { hoverReveal } from "@/components/ui/reveal";
 import { SelectAllCheckbox, SelectionCheckbox } from "@/components/ui/selection-checkbox";
 import { cn } from "@/lib/utils";

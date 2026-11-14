@@ -42,7 +42,7 @@ import { NarrowTopBar } from "./NarrowTopBar";
  * 各包 `SidebarLazyBoundary chunk="trash"`。一般 tab 選取模式的 `select` 同形（#181）：NoteList 的標題列與清單、SidebarFooter
  * 三個掛載點都 `import()` `SelectLazy`、各包 `SidebarLazyBoundary chunk="select"`。快捷鍵介紹頁的 `shortcuts` 是單一掛載點（`ShortcutsDialog` 一處 `import()`
  * `ShortcutsLazy`，不是巢狀），一個別名一份額度。側欄搜尋內文區的 `bodySearch`（#93）與 `trash` 同形：靜態卡與抽屜兩份 `SearchResults` 都
- * `import()` `BodySearchLazy`、各包 `SidebarLazyBoundary chunk="bodySearch"`。測試刻意寫字面 key（釘住 key 名不被改），這裡不匯出常數。
+ * `import()` `BodySearchLazy`、各包 `SidebarLazyBoundary chunk="bodySearch"`。群組對話框（新增／改名／刪除）的 `groupDialog` 與筆記 ⋮ 移動／複製確認框的 `transferDialog` 各是一個別名一份額度（掛載點各自 `import()` 自己的模組）。測試刻意寫字面 key（釘住 key 名不被改），這裡不匯出常數。
  */
 const DEFAULT_CHUNK = "notepage";
 

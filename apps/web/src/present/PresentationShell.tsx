@@ -6,7 +6,8 @@ import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router";
 import { useOnline } from "@/components/ErrorBoundary";
 import { Button } from "@/components/ui/button";
-import { Maximize, Minimize, X } from "@/components/ui/icons";
+import { X } from "@/components/ui/icons";
+import { Maximize, Minimize } from "@/components/ui/icons-extra";
 import { useHistoryLocationKey, useRealLocation } from "@/lib/real-location";
 import { cn } from "@/lib/utils";
 import {

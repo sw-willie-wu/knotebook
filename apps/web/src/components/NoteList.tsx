@@ -7,7 +7,6 @@ import { useFavoriteLookup } from "@/api/favorites";
 import { folderErrorMessage, useFolders } from "@/api/folders";
 import { useGroups } from "@/api/groups";
 import { GroupMenu } from "@/components/groups/GroupMenu";
-import { GroupNameDialog } from "@/components/groups/GroupNameDialog";
 import { SidebarNoteMenu } from "@/components/NoteMenu";
 import { RowFavoriteStar } from "@/components/RowFavoriteStar";
 import { useNotes } from "@/api/notes";
@@ -34,6 +33,8 @@ import { buildTabNodes, hasSelectableNodes, noteLocationLabel, noteSpaceKey, typ
 // 一般 tab 選取模式：只准經 SelectLazy 這個 lazy 入口（首包上限）。兩個掛點共用同一個 chunk。
 const SelectHeader = lazy(() => import("@/components/sidebar/SelectLazy").then((m) => ({ default: m.SelectHeader })));
 const SelectableTree = lazy(() => import("@/components/sidebar/SelectLazy").then((m) => ({ default: m.SelectableTree })));
+// 新增群組對話框：只在開啟時才需要，lazy（首包瘦身）。
+const GroupNameDialog = lazy(() => import("@/components/groups/GroupNameDialog").then((m) => ({ default: m.GroupNameDialog })));
 // 資料夾對話框（新增／改名／刪除）：只准經 FolderLazy 這個 lazy 入口（首包上限）。
 const FolderDialogs = lazy(() => import("@/components/sidebar/FolderLazy").then((m) => ({ default: m.FolderDialogs })));
 
@@ -668,7 +669,11 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
         </div>
       </div>
       {/* 對話框只在開啟時掛載，關閉時焦點還給標題列「＋」（`returnFocusRef`）。 */}
-      {createOpen && <GroupNameDialog mode="create" open onOpenChange={setCreateOpen} returnFocusRef={addGroupRef} />}
+      {createOpen && (
+        <SidebarLazyBoundary chunk="groupDialog" fallback={null} errorClassName="p-2">
+          <GroupNameDialog mode="create" open onOpenChange={setCreateOpen} returnFocusRef={addGroupRef} />
+        </SidebarLazyBoundary>
+      )}
       {/* 資料夾對話框：只在開啟時掛載；chunk 載入失敗時顯示 inline 錯誤（不藏起來，否則是一排沒反應的鈕）。 */}
       {folderRequest && (
         <SidebarLazyBoundary chunk="folder" fallback={null} errorClassName="p-2">

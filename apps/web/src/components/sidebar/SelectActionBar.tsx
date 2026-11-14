@@ -26,7 +26,8 @@ import { selectionKey, SIDEBAR_SELECT_BUTTON } from "@/lib/sidebar-selection";
 import { useSidebarTabActions, useSidebarTabState } from "@/lib/sidebar-tab";
 import { showTrashedToast } from "@/lib/trash-undo";
 import { Button } from "@/components/ui/button";
-import { Copy, FolderInput, StarOff, Trash } from "@/components/ui/icons";
+import { Copy, FolderInput, Trash } from "@/components/ui/icons";
+import { StarOff } from "@/components/ui/icons-extra";
 import { toast } from "@/components/ui/toast";
 import {
   buildDestinationLevel,

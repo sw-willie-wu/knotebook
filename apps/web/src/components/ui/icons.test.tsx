@@ -2,29 +2,31 @@ import { describe, expect, it } from "vitest";
 import { render } from "@testing-library/react";
 import { NOTE_WIDTHS } from "@knotebook/shared";
 import {
-  ArrowDown,
-  ArrowUp,
-  Columns2,
   CornerDownRight,
   FilePlus,
   Folder,
   FolderPlus,
   History,
   House,
+  LogOut,
+  Pencil,
+  SquareCheck,
+  Star,
+  Users,
+} from "./icons";
+import {
+  ArrowDown,
+  ArrowUp,
+  Columns2,
   ImageIcon,
   KeyRound,
   ListFilter,
-  LogOut,
   NoteWidthIcon,
-  Pencil,
   Plug,
   RotateCcw,
   Rows3,
-  SquareCheck,
-  Star,
   StarOff,
-  Users,
-} from "./icons";
+} from "./icons-extra";
 
 describe("icons", () => {
   it("Users 帶 data-icon=\"users\"（ShareDialog 測試靠它斷觸發鈕圖示）且吃 className", () => {

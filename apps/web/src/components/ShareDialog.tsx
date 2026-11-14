@@ -34,7 +34,8 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { toNoteWidth } from "@/components/note-width";
-import { Globe, Lock, Share, Trash, Users } from "@/components/ui/icons";
+import { Share, Trash, Users } from "@/components/ui/icons";
+import { Globe, Lock } from "@/components/ui/icons-extra";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/components/ui/toast";
 import { copyText } from "@/lib/clipboard";

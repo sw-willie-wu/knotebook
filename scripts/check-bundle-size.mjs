@@ -17,6 +17,8 @@
 //      頭貼的解碼／編碼模組（avatars/encode.ts）只能是自己的 lazy chunk：AVATAR_IMAGE_MARKER 必須出現在檔名為 encode-*.js 的 chunk，
 //      且 entry 與其他任何 JS 都不得含它（含被別的 lazy chunk，例如裁切框，靜態 import 而併進去的形）；
 //      再者任何 chunk 都不得靜態 import encode-*.js（兩個以上的靜態使用者會讓它成為共用 chunk，marker 查不到，但開頁就會下載）。
+//      群組對話框（新增／改名、刪除）與筆記 ⋮ 的移動／複製確認框同理（首包瘦身）：各自是 lazy chunk（GroupNameDialog、DeleteGroupDialog、GroupTransferDialog），
+//      且 entry 不得含各自的 marker（GROUP_LAZY_DIALOGS）。
 //      站台管理／設定的字串包（management-strings，首包瘦身）同理：entry 不得含 MANAGEMENT_I18N_MARKERS，且 management-strings chunk 必須存在並帶著它們。
 //
 // 全程 fail-closed：dist 不存在、找不到 entry、找到多個 entry，一律 throw 而非放行
@@ -114,7 +116,19 @@ export const AVATAR_ENCODE_RE = /^encode-[A-Za-z0-9_-]+\.js$/;
 // （admin.auth.edit.autoCreateConfirmKeep、settings.ai.actionBuiltinBadge），entry 含任一個＝字串包被首包靜態 import（含「某個首包檔 import 了它」）。
 // 反向也要查：management-strings chunk 必須存在且同時帶著兩個 marker（包沒被弄丟、沒被拆壞）。check-bundle-size.test.mjs 驗兩個都是 management.en.json 的鍵。
 export const MANAGEMENT_I18N_MARKERS = ['autoCreateConfirmKeep', 'actionBuiltinBadge'];
+// 圖示（只被 lazy UI 用的那組，`components/ui/icons-extra.tsx`）必須是自己的 chunk：不存在＝它被併回 entry 或命名慣例變了。
+export const ICONS_EXTRA_RE = /^icons-extra-[A-Za-z0-9_-]+.js$/;
 export const MANAGEMENT_STRINGS_RE = /^management-strings-[A-Za-z0-9_-]+\.js$/;
+// 只在開啟時才掛載的對話框：各自必須是 lazy chunk，entry 不得含它的 marker（對話框內才用的 i18n 鍵，字面量不會被 minify 改掉）。
+//   GroupNameDialog：NoteList（新增群組）、GroupMenu（改名）各自 lazy() 動態 import；
+//   DeleteGroupDialog：GroupMenu；GroupTransferDialog：NoteMenu（選單項 GroupTransferMenuItems 仍在首包，不含這些 marker）。
+// ⚠ 存在性只擋「整組被併回 entry」或 chunk 改名；只改一處呼叫端為靜態 import 時，chunk 可能仍在，那一形由 marker 擋。
+// check-bundle-size.test.mjs 驗每個 marker 都在對應的原始檔裡。
+export const GROUP_LAZY_DIALOGS = [
+  { name: 'GroupNameDialog', re: /^GroupNameDialog-[A-Za-z0-9_-]+\.js$/, marker: 'groups.dialog.createDescription', source: 'components/groups/GroupNameDialog.tsx' },
+  { name: 'DeleteGroupDialog', re: /^DeleteGroupDialog-[A-Za-z0-9_-]+\.js$/, marker: 'groups.delete.transferTrashNote', source: 'components/groups/DeleteGroupDialog.tsx' },
+  { name: 'GroupTransferDialog', re: /^GroupTransferDialog-[A-Za-z0-9_-]+\.js$/, marker: 'share.move.openCopyAlt', source: 'components/share/GroupTransferDialog.tsx' },
+];
 // 首包 CSS：reveal.css 的 `.reveal-viewport` 規則（寫死黑字白底）若出現在這裡＝reveal.css 被靜態 import 進首包。
 export const ENTRY_CSS_RE = /^index-[A-Za-z0-9_-]+\.css$/;
 // reveal.js 的 JS 會寫 `reveal-viewport` 這個 class 名；入口側的外殼與其他程式碼都不用它。這個字串只准出現在
@@ -337,6 +351,30 @@ export function checkBundleSize(assetsDir, { maxEntryBytes = MAX_ENTRY_BYTES } =
     );
   }
 
+  if (!names.some(name => ICONS_EXTRA_RE.test(name))) {
+    throw new Error(`找不到 icons-extra-<hash>.js——只被 lazy UI 用的圖示被併回 entry，或 rollup 改了 chunk 命名慣例（請更新本檢查的 pattern，不要刪檢查）`);
+  }
+  const groupDialogChunks = {};
+  for (const dialog of GROUP_LAZY_DIALOGS) {
+    const chunks = names.filter(name => dialog.re.test(name));
+    if (chunks.length === 0) {
+      throw new Error(
+        `找不到 ${dialog.name} 的 lazy chunk（${dialog.name}-<hash>.js）——最可能的原因是它被 lazy() 動態 import 以外的地方靜態 import、併回 entry；` +
+          `若是 rollup 改了 chunk 命名慣例，請更新本檢查的 pattern，不要刪檢查`
+      );
+    }
+    if (readFileSync(join(assetsDir, entryName), 'utf8').includes(dialog.marker)) {
+      throw new Error(
+        `entry chunk ${entryName} 含 ${dialog.name} 的 marker ${dialog.marker}——${dialog.name}（或 import 它的模組）被首包靜態 import；它只能經 lazy 載入`
+      );
+    }
+    const missing = !chunks.some(name => readFileSync(join(assetsDir, name), 'utf8').includes(dialog.marker));
+    if (missing) {
+      throw new Error(`${dialog.name} chunk [${chunks.join(', ')}] 不含 marker ${dialog.marker}——對話框的內容沒進這個 chunk（或 marker 改名了，請同步更新 GROUP_LAZY_DIALOGS）`);
+    }
+    groupDialogChunks[dialog.name] = chunks;
+  }
+
   if (readFileSync(join(assetsDir, entryName), 'utf8').includes(AVATAR_IMAGE_MARKER)) {
     throw new Error(
       `entry chunk ${entryName} 含頭貼影像模組的 marker ${AVATAR_IMAGE_MARKER}——\`avatars/encode.ts\`（或 import 它的模組）` +
@@ -408,7 +446,7 @@ export function checkBundleSize(assetsDir, { maxEntryBytes = MAX_ENTRY_BYTES } =
     }
   }
 
-  return { entryName, entryBytes, notePageChunks, mermaidChunks, shikiChunks, adminSectionsChunks, versionsChunks, presentationChunks, trashChunks, selectChunks, folderChunks, shortcutsChunks, managementChunks, bodySearchChunks, avatarEncodeChunks };
+  return { entryName, entryBytes, notePageChunks, mermaidChunks, shikiChunks, adminSectionsChunks, versionsChunks, presentationChunks, trashChunks, selectChunks, folderChunks, shortcutsChunks, managementChunks, bodySearchChunks, avatarEncodeChunks, groupDialogChunks };
 }
 
 // 直接執行（非被 import）時跑真的 dist。
@@ -425,6 +463,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
         `${result.shortcutsChunks.join(', ')}（entry 不含 ${SHORTCUTS_I18N_MARKER}）、` +
         `${result.managementChunks.join(', ')}（entry 不含 ${MANAGEMENT_I18N_MARKERS.join('、')}）、` +
         `${result.bodySearchChunks.join(', ')}（entry 不含 ${BODY_SEARCH_MARKER}）、` +
+        GROUP_LAZY_DIALOGS.map(d => `${result.groupDialogChunks[d.name].join(', ')}（entry 不含 ${d.marker}）、`).join('') +
         `${result.avatarEncodeChunks.join(', ')}（${AVATAR_IMAGE_MARKER} 只在這個 chunk，entry 與其他 chunk 都不含）`
     );
   } catch (err) {

@@ -1,7 +1,8 @@
 import { useTranslation } from "react-i18next";
 import { useRestoreTrash } from "@/api/trash";
 import { Button } from "@/components/ui/button";
-import { RotateCcw, Trash } from "@/components/ui/icons";
+import { Trash } from "@/components/ui/icons";
+import { RotateCcw } from "@/components/ui/icons-extra";
 import { toast } from "@/components/ui/toast";
 import { toastTrashFailure } from "@/components/sidebar/trash-dialogs";
 import { useSidebarTabActions } from "@/lib/sidebar-tab";

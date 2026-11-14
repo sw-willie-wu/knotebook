@@ -1,7 +1,8 @@
 import { insertOrUpdateBlockForSlashMenu } from "@blocknote/core";
 import { getDefaultReactSlashMenuItems, type DefaultReactSuggestionItem } from "@blocknote/react";
 import { canInsertColumns, insertColumns } from "@/collab/columns/commands";
-import { Columns2, Diagram, Link } from "@/components/ui/icons";
+import { Link } from "@/components/ui/icons";
+import { Columns2, Diagram } from "@/components/ui/icons-extra";
 
 /** `/` 選單裡自訂項的分組鍵。
  *

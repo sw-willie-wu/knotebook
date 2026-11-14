@@ -1,4 +1,4 @@
-import { useRef, useState, type RefObject } from "react";
+import { lazy, useRef, useState, type RefObject } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router";
@@ -23,7 +23,6 @@ import { FavoriteRemoveDialog } from "@/components/FavoriteRemoveDialog";
 import { ManualCopyField } from "@/components/ManualCopyField";
 import {
   EMPTY_DEST_PATHS,
-  GroupTransferDialog,
   GroupTransferMenuItems,
   isSameSpaceMove,
   transferTargetOf,
@@ -32,9 +31,13 @@ import {
   type GroupTransferKind,
   type GroupTransferPick,
 } from "@/components/share/GroupTransfer";
+import { SidebarLazyBoundary } from "@/components/sidebar/SidebarLazyBoundary";
 import { destinationShortLabel } from "@/components/sidebar/destination-level";
 import { toast } from "@/components/ui/toast";
 import { usePresentEntry } from "@/present/usePresentEntry";
+
+// 移動／複製的確認框只在選定目的地後才需要：lazy（首包瘦身）；選單項（GroupTransferMenuItems）仍同步。
+const GroupTransferDialog = lazy(() => import("@/components/share/GroupTransferDialog").then((m) => ({ default: m.GroupTransferDialog })));
 
 export interface NoteMenuProps {
   note: NoteDto;
@@ -483,7 +486,11 @@ function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef:
         />
       )}
 
-      {transfer !== null && <GroupTransferDialog note={note} pick={transfer} onClose={() => setTransfer(null)} returnFocusRef={triggerRef} />}
+      {transfer !== null && (
+        <SidebarLazyBoundary chunk="transferDialog" fallback={null} errorClassName="p-2">
+          <GroupTransferDialog note={note} pick={transfer} onClose={() => setTransfer(null)} returnFocusRef={triggerRef} />
+        </SidebarLazyBoundary>
+      )}
 
       {/* 複製失敗的手動退路——DialogTitle 用 share.copyLink（Radix 必填，沿用選單項
           同一把文案，避免無意義的新 key）。 */}

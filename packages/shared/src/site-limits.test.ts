@@ -94,5 +94,6 @@ describe("site limits registry", () => {
 
   it("MAX_UPLOAD_BYTES 等於註冊表預設", () => {
     expect(MAX_UPLOAD_BYTES).toBe(10_485_760);
+    expect(MAX_UPLOAD_BYTES).toBe(SITE_LIMITS.uploadMaxBytes.default);
   });
 });

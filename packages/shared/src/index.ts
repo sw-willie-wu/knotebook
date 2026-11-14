@@ -1,7 +1,7 @@
 export { YDOC_FRAGMENT } from "./ydoc.js";
 import type { ProviderIconDto, ProviderIconKind } from "./provider-icon.js";
 import type { AiActionKind } from "./ai.js";
-import { SITE_LIMITS } from "./site-limits.js";
+import { UPLOAD_MAX_BYTES_DEFAULT } from "./site-limits.js";
 import type { AvatarRef, UserAvatarDto } from "./avatar.js";
 
 export const SESSION_COOKIE = "knotebook_session";
@@ -373,7 +373,8 @@ export interface BacklinkDto {
 }
 
 /** 圖片上傳單檔大小上限（bytes）：10 MiB，超過回 `file_too_large`（413）。 */
-export const MAX_UPLOAD_BYTES = SITE_LIMITS.uploadMaxBytes.default;
+// 取自獨立常數，不讀 `SITE_LIMITS`：模組頂層讀註冊表會讓整張表無法被 tree-shake（web 首包變大）。
+export const MAX_UPLOAD_BYTES: number = UPLOAD_MAX_BYTES_DEFAULT;
 
 /** 單次 `POST /api/notes/:id/links` 提交的 target 集合上限（去重、過濾 self-link 正規化後計；超過回 400 `invalid_body`）。 */
 export const MAX_LINK_TARGETS = 1000;

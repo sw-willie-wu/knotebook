@@ -22,8 +22,11 @@ export interface SiteLimitDef {
   input: { unit: "mib" | "seconds" | "hours" | "count"; step: number };
 }
 
+/** 圖片上傳單檔大小上限預設。獨立常數：`index.ts` 的 `MAX_UPLOAD_BYTES` 不可在模組頂層讀 `SITE_LIMITS`（會讓 Rollup 無法 tree-shake 整張註冊表、併進 web 首包）。 */
+export const UPLOAD_MAX_BYTES_DEFAULT = 10_485_760;
+
 export const SITE_LIMITS = {
-  uploadMaxBytes: { type: "int", unit: "bytes", default: 10_485_760, min: 1_048_576, max: 10_485_760, category: "uploadsNotes", input: { unit: "mib", step: 1 } },
+  uploadMaxBytes: { type: "int", unit: "bytes", default: UPLOAD_MAX_BYTES_DEFAULT, min: 1_048_576, max: 10_485_760, category: "uploadsNotes", input: { unit: "mib", step: 1 } },
   noteMaxBytes: { type: "int", unit: "bytes", default: 5_242_880, min: 1_048_576, max: 5_242_880, env: "NOTE_MAX_BYTES", category: "uploadsNotes", input: { unit: "mib", step: 1 } },
   parseWorkers: { type: "int", unit: "count", default: "auto", min: 1, max: 4, env: "PARSE_WORKERS", category: "parseWorkers", input: { unit: "count", step: 1 } },
   parseWorkerMemoryMb: { type: "int", unit: "mib", default: 1_024, min: 512, max: 3_072, env: "PARSE_WORKER_MEMORY_MB", category: "parseWorkers", input: { unit: "mib", step: 1 } },

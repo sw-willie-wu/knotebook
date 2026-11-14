@@ -25,7 +25,8 @@ import {
 import { verifyAnchor } from "@/ai/anchor";
 import { blockRange, type BlockRange } from "@/ai/selection";
 import { Button } from "@/components/ui/button";
-import { ChevronsRight, Languages, ListCollapse, PenLine, Send, Sparkles, X } from "@/components/ui/icons";
+import { Sparkles, X } from "@/components/ui/icons";
+import { ChevronsRight, Languages, ListCollapse, PenLine, Send } from "@/components/ui/icons-extra";
 import { activeAnchorOf, useAiSession, type AiTarget } from "./AiSession";
 import { SelectionAiResult, type BoxFocusTarget, type RunWithFocus } from "./SelectionAiResult";
 

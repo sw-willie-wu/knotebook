@@ -19,7 +19,8 @@ import {
 } from "@/api/adminAi";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { ArrowDown, ArrowUp, Pencil, Plug, Trash } from "@/components/ui/icons";
+import { Pencil, Trash } from "@/components/ui/icons";
+import { ArrowDown, ArrowUp, Plug } from "@/components/ui/icons-extra";
 import { RowIconButton } from "@/components/ui/row-icon-button";
 import { Input } from "@/components/ui/input";
 import {

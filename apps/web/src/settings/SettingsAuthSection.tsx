@@ -22,7 +22,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Copy, Plug, Trash } from "@/components/ui/icons";
+import { Copy, Trash } from "@/components/ui/icons";
+import { Plug } from "@/components/ui/icons-extra";
 import { RowIconButton } from "@/components/ui/row-icon-button";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/components/ui/toast";
