@@ -1,5 +1,4 @@
-import { writeFileSync } from "node:fs";
-import { expect, test, type Browser, type BrowserContext, type Frame, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Browser, type BrowserContext, type Locator, type Page } from "@playwright/test";
 import { E2E_ORIGIN } from "../ports.js";
 import { ADMIN, createNote, createUserViaInvite, editorLocator, loginAs, noteIdFromUrl, randomEmail, reEscape, showSidebarTab, waitForEditorSelection } from "./helpers.js";
 
@@ -160,6 +159,46 @@ async function expectAnchorFlash(page: Page, blockId: string): Promise<void> {
   await expect(overlay).toBeAttached();
 }
 
+/**
+ * `click`（Ctrl/Cmd+Click、中鍵）要在 `page` 同一個 context 開出恰好一個新分頁、導到 `targetPath`，而且 `page` 不導航；量完關掉新分頁。
+ *
+ * 新分頁從瀏覽器這一層（CDP `Target.getTargets`）認，不用 `context.waitForEvent("page")`：雲端偶發等不到 page 事件，
+ * 本機在四組平行負載下也重現得出來（幾十次一次）。重現時瀏覽器確實在同一個 context 開了分頁、Playwright 已附加上去、分頁也導到了
+ * 目標網址，但 30 s 內都沒有 page 事件、`context.pages()` 也不含它——漏的是 Playwright 的回報，不是點擊沒開分頁
+ * （點擊事件沒被攔、沒被 preventDefault，成功與失敗兩種情形頁面上的事件序列一模一樣）。
+ */
+async function expectClickOpensNewTab(browser: Browser, page: Page, click: () => Promise<void>, targetPath: string): Promise<void> {
+  const before = page.url();
+  const pageSession = await page.context().newCDPSession(page);
+  const { targetInfo: self } = await pageSession.send("Target.getTargetInfo");
+  await pageSession.detach();
+  const pathOf = (url: string) => {
+    try {
+      return new URL(url).pathname;
+    } catch {
+      return "";
+    }
+  };
+  const browserSession = await browser.newBrowserCDPSession();
+  try {
+    const tabsAtTarget = async () =>
+      (await browserSession.send("Target.getTargets")).targetInfos.filter(
+        (t) => t.type === "page" && t.browserContextId === self.browserContextId && t.targetId !== self.targetId && pathOf(t.url) === targetPath,
+      );
+    expect(await tabsAtTarget(), "點擊前同一個 context 不該已有開在目標網址的分頁").toHaveLength(0);
+    await click();
+    await expect
+      .poll(async () => (await tabsAtTarget()).length, { timeout: 15_000, message: `同一個 context 要多出一個開在 ${targetPath} 的分頁` })
+      .toBe(1);
+    expect(page.url()).toBe(before);
+    for (const t of await tabsAtTarget()) await browserSession.send("Target.closeTarget", { targetId: t.targetId });
+    // 關掉的分頁若 Playwright 有回報過，也要等它從 context.pages() 消失，後面「分頁數不變」的斷言才不會數到它
+    await expect.poll(async () => (await tabsAtTarget()).length + page.context().pages().filter((p) => pathOf(p.url()) === targetPath).length).toBe(0);
+  } finally {
+    await browserSession.detach();
+  }
+}
+
 /** 標題「#」鈕與標題文字首行的幾何（相對視窗）。 */
 async function headingButtonGeometry(outer: Locator): Promise<{ lineMid: number; lineRight: number; buttonMid: number; buttonLeft: number }> {
   return outer.evaluate((el) => {
@@ -206,77 +245,8 @@ test("E1：讀者一般點擊同分頁導航；Ctrl+Click 與中鍵開新分頁�
 
     // 編輯者：Ctrl/Cmd+Click（contenteditable 內的 contentEditable=false 島——量測點）⇒ 新分頁、原分頁不動
     // （滑鼠停在連結上，hover 工具列可能出現——那是 hover 的行為，不在這裡斷言）
-    // 雲端偶發等不到新分頁（run 40182358217：trace 裡點擊落在 <a> 上、點擊後編輯器失焦，卻沒有 page 事件；根因未明）。
-    // 只在失敗時輸出診斷（console＋test-results 下的 e1-ctrl-click-diagnostics.txt）：page／popup／導航事件、點擊事件有沒有到、
-    // 有沒有被 preventDefault、點擊後的焦點與選取、連結中心點上是什麼元素。成功時不輸出、不改變行為（監聽都是被動的）。
-    const diag: string[] = [];
-    const diagStart = Date.now();
-    const note = (line: string) => diag.push(`+${Date.now() - diagStart}ms ${line}`);
-    const onContextPage = (p: Page) => note(`context "page": ${p.url()}`);
-    const onPopup = (p: Page) => note(`admin "popup": ${p.url()}`);
-    const onNavigated = (f: Frame) => {
-      if (f === admin.mainFrame()) note(`admin framenavigated: ${f.url()}`);
-    };
-    adminContext.on("page", onContextPage);
-    admin.on("popup", onPopup);
-    admin.on("framenavigated", onNavigated);
-    // 裝監聽本身不得改變測試結果：頁面正在導航等原因讓 evaluate 拋錯時吞掉、記一行（那次的診斷就少了點擊事件那段，events 會是 null）
-    await admin
-      .evaluate(() => {
-        const log: string[] = [];
-        (window as unknown as { __e1Events: string[] }).__e1Events = log;
-        const describe = (t: EventTarget | null) => (t instanceof Element ? `${t.tagName}.${String(t.className).slice(0, 30)}` : String(t));
-        for (const type of ["pointerdown", "mousedown", "mouseup", "click", "auxclick"]) {
-          // capture＝事件有沒有到；bubble（window 最後一站）＝有沒有被攔（沒記到就是被 stopPropagation）、有沒有 preventDefault
-          window.addEventListener(type, (e) => log.push(`${type} capture target=${describe(e.target)} ctrl=${(e as MouseEvent).ctrlKey}`), { capture: true, passive: true });
-          window.addEventListener(type, (e) => log.push(`${type} bubble defaultPrevented=${e.defaultPrevented}`), { passive: true });
-        }
-        window.addEventListener("blur", () => log.push("window blur"));
-      })
-      .catch((e: unknown) => note(`listener install failed (no event log): ${String(e)}`));
-    let editorCtrlPage: Page;
-    try {
-      const editorCtrlPromise = adminContext.waitForEvent("page", { timeout: 10_000 });
-      // click 自己拋錯時這個 promise 沒人 await，10 s 後的逾時會變成未處理的 rejection：先掛一個空 catch（下面照常 await，失敗仍會拋）
-      editorCtrlPromise.catch(() => undefined);
-      await adminLink.locator("a").click({ modifiers: ["ControlOrMeta"] });
-      note(`click returned: admin.url=${admin.url()}`);
-      editorCtrlPage = await editorCtrlPromise;
-    } catch (err) {
-      note(`failed: admin.url=${admin.url()} contextPages=${JSON.stringify(adminContext.pages().map((p) => p.url()))} pagesPerContext=${JSON.stringify(browser.contexts().map((c) => c.pages().length))}`);
-      const state = await admin
-        .evaluate(() => {
-          const link = document.querySelector('[data-testid="note-editor"] [data-inline-content-type="wikilink"] a');
-          const rect = link?.getBoundingClientRect();
-          const atCenter = rect ? document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2) : null;
-          const ce = document.querySelector('[data-testid="note-editor"] [contenteditable="true"]') as (Element & { editor?: { view?: { state: { selection: { toJSON(): unknown } } } } }) | null;
-          const active = document.activeElement;
-          return {
-            events: (window as unknown as { __e1Events?: string[] }).__e1Events ?? null,
-            hasFocus: document.hasFocus(),
-            visibility: document.visibilityState,
-            activeElement: active ? `${active.tagName}.${String(active.className).slice(0, 40)}` : null,
-            pmFocused: document.querySelector(".ProseMirror-focused") !== null,
-            pmSelection: ce?.editor?.view?.state.selection.toJSON() ?? null,
-            openToolbars: document.querySelectorAll('[role="dialog"][aria-label="Note link"][data-state="open"]').length,
-            elementAtLinkCenter: atCenter ? `${atCenter.tagName}.${String(atCenter.className).slice(0, 40)}` : null,
-            linkIsAtCenter: !!link && !!atCenter && (atCenter === link || link.contains(atCenter)),
-          };
-        })
-        .catch((e: unknown) => `evaluate failed: ${String(e)}`);
-      note(`page state: ${JSON.stringify(state)}`);
-      const report = `[E1 Ctrl+Click 診斷]\n${diag.join("\n")}`;
-      console.log(report);
-      writeFileSync(test.info().outputPath("e1-ctrl-click-diagnostics.txt"), report, "utf8");
-      throw err;
-    } finally {
-      adminContext.off("page", onContextPage);
-      admin.off("popup", onPopup);
-      admin.off("framenavigated", onNavigated);
-    }
-    await editorCtrlPage.waitForURL((u) => u.pathname === targetPath, { timeout: 15_000 });
+    await expectClickOpensNewTab(browser, admin, () => adminLink.locator("a").click({ modifiers: ["ControlOrMeta"] }), targetPath);
     expect(admin.url()).toBe(sourceUrl);
-    await editorCtrlPage.close();
 
     // 編輯者：一般點擊同分頁跳轉（不再是「點擊開工具列」）
     const adminPagesBefore = adminContext.pages().length;
@@ -292,20 +262,12 @@ test("E1：讀者一般點擊同分頁導航；Ctrl+Click 與中鍵開新分頁�
     await expect(link).toHaveAttribute("href", targetPath, { timeout: 10_000 });
 
     // Ctrl/Cmd+Click：新分頁、原分頁不動（修飾鍵實測）
-    const ctrlPagePromise = viewer.context.waitForEvent("page", { timeout: 10_000 });
-    await link.click({ modifiers: ["ControlOrMeta"] });
-    const ctrlPage = await ctrlPagePromise;
-    await ctrlPage.waitForURL((u) => u.pathname === targetPath, { timeout: 15_000 });
+    await expectClickOpensNewTab(browser, vp, () => link.click({ modifiers: ["ControlOrMeta"] }), targetPath);
     expect(vp.url()).toBe(sourceUrl);
-    await ctrlPage.close();
 
     // 中鍵：新分頁、原分頁不動
-    const middlePagePromise = viewer.context.waitForEvent("page", { timeout: 10_000 });
-    await link.click({ button: "middle" });
-    const middlePage = await middlePagePromise;
-    await middlePage.waitForURL((u) => u.pathname === targetPath, { timeout: 15_000 });
+    await expectClickOpensNewTab(browser, vp, () => link.click({ button: "middle" }), targetPath);
     expect(vp.url()).toBe(sourceUrl);
-    await middlePage.close();
 
     // 一般點擊：同分頁導航（不開新分頁）
     const pagesBefore = viewer.context.pages().length;

@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { gunzipSync } from "node:zlib";
 import { expect, test, type APIRequestContext, type BrowserContext, type Page } from "@playwright/test";
-import { ADMIN, createUserViaInvite, editorLocator, loginAs, randomEmail, waitForEditorSelection } from "./helpers.js";
+import { ADMIN, clickEndOfParagraph, createUserViaInvite, editorLocator, loginAs, randomEmail } from "./helpers.js";
 
 /**
  * bulk transfer（MCP 批次讀寫）六案：真瀏覽器 A 開著筆記時，agent 經 bulk 權杖下載、寫回、整包匯出。
@@ -204,12 +204,13 @@ async function expectEditorBlocks(expected: string[], message: string): Promise<
   await expect.poll(editorBlocks, { timeout: 15_000, message }).toEqual(expected);
 }
 
-/** A 在某段（文字恰為 `para`）的段尾打字；`newParagraph`＝先 Enter 另起一段再打。 */
+/**
+ * A 在某段（文字恰為 `para`）的段尾打字；`newParagraph`＝先 Enter 另起一段再打。
+ * 游標經 `clickEndOfParagraph` 放：筆記剛打開時編輯器沒有焦點，點擊後 ProseMirror 的得焦計時器可能把 End 移好的游標拉回點擊處
+ * （helpers 註解）；只等 PM 與 DOM 對齊不夠，字會打在段落中間。
+ */
 async function typeAtEndOf(para: string, text: string, newParagraph = false): Promise<void> {
-  await editorLocator(page).getByText(para, { exact: true }).click();
-  await page.keyboard.press("End");
-  // End 是瀏覽器原生移游標，ProseMirror 要等 selectionchange 才跟上（helpers 註解）。
-  await waitForEditorSelection(page);
+  await clickEndOfParagraph(page, editorLocator(page).getByText(para, { exact: true }));
   if (newParagraph) await page.keyboard.press("Enter");
   await page.keyboard.type(text);
 }
@@ -387,9 +388,9 @@ test("E5 A 打標記並持續打字（未落盤）時整包匯出：包裡那篇
     // 之後打的第一個字重新起算 debounce 的 maxDebounce（約 10 s），在那之前 note_states 不會有標記。
     await page.waitForTimeout(3_000);
     const mark = `mk-${rand()}`;
-    await editorLocator(page).getByText(p2, { exact: true }).click();
-    await page.keyboard.press("End");
-    await waitForEditorSelection(page);
+    // 不能只 click → End → 等 PM 與 DOM 對齊：編輯器這時還沒有焦點，得焦計時器可能把游標拉回點擊處，標記就打在段落中間
+    // （CI 曾得到 "e5-p2-17948518 mk-…zzz68016-…"）。clickEndOfParagraph 確認游標真的在這一段的尾端。
+    await clickEndOfParagraph(page, editorLocator(page).getByText(p2, { exact: true }));
     const t0 = Date.now();
     await page.keyboard.type(` ${mark}`);
     // 持續打字（每 200 ms 一字）直到匯出回應完成：store 的 2 s debounce 一直延後，落盤只會在 t0＋約 10 s（maxDebounce）。

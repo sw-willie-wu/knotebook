@@ -227,11 +227,9 @@ test("E2：A 播放中、B 編輯——A 3 s 內看到變動且停在同一張�
     const b2 = await slideIdContaining(pageA, "Section B2");
     await expect.poll(() => currentSlideId(pageA)).toBe(b2);
 
-    // B 在第一章加字
-    await editorLocator(pageB).getByText("alpha text").click();
-    await pageB.keyboard.press("End");
-    // 不等的話 " plus" 會打在點擊處（CI 4 次失敗的快照都是 "alph plus admin a text"：字中間＋游標名牌）
-    await waitForEditorSelection(pageB);
+    // B 在第一章加字。B 剛打開筆記、編輯器沒有焦點：click → End → waitForEditorSelection 不夠，得焦計時器可能把游標拉回點擊處
+    // （PM 與 DOM 仍對齊），" plus" 就打在字中間（CI 失敗的快照都是 "alph plus admin a text"）。clickEndOfParagraph 確認游標在段尾。
+    await clickEndOfParagraph(pageB, editorLocator(pageB).getByText("alpha text"));
     await pageB.keyboard.type(" plus");
     await expect(pageA.locator(".reveal .slides").getByText("alpha text plus")).toBeAttached({ timeout: 3_000 });
     expect(await currentSlideId(pageA)).toBe(b2);

@@ -151,22 +151,61 @@ async function readMarkdown(page: Page, noteId: string): Promise<string> {
   return ((await res.json()) as { markdown: string }).markdown;
 }
 
+/**
+ * 編輯器目前的選取：PM 的 anchor／head 跟 DOM 的 anchor／focus 對齊、而且在同一個區塊裡時，回傳該區塊的文字與選取起訖（區塊內的字元位置）；
+ * 否則回傳診斷值（`no-editor`、`focus-outside`、`{ pm, dom }`、`spans-blocks`）。只用在純文字段落（連結是 mark，不是 inline atom，可以）。
+ */
+async function blockSelection(page: Page): Promise<unknown> {
+  return editorLocator(page).evaluate((el) => {
+    type Resolved = { parentOffset: number; parent: { textContent: string } };
+    type View = {
+      state: { selection: { anchor: number; head: number; $from: Resolved; $to: Resolved } };
+      posAtDOM(node: Node, offset: number): number;
+    };
+    const view = (el as Element & { editor?: { view?: View } }).editor?.view;
+    if (!view) return "no-editor";
+    const sel = window.getSelection();
+    if (!sel?.anchorNode || !sel.focusNode || !el.contains(sel.anchorNode) || !el.contains(sel.focusNode) || !el.contains(document.activeElement)) return "focus-outside";
+    const { anchor, head, $from, $to } = view.state.selection;
+    let dom: [number, number] | string;
+    try {
+      dom = [view.posAtDOM(sel.anchorNode, sel.anchorOffset), view.posAtDOM(sel.focusNode, sel.focusOffset)];
+    } catch (err) {
+      dom = `posAtDOM threw: ${String(err)}`;
+    }
+    if (typeof dom === "string" || dom[0] !== anchor || dom[1] !== head) return { pm: [anchor, head], dom };
+    if ($from.parent !== $to.parent) return "spans-blocks";
+    return { text: $from.parent.textContent, from: $from.parentOffset, to: $to.parentOffset };
+  });
+}
+
+/**
+ * 觸控點進 `block`、按 `keys`，直到選取恰為該段的 `from`–`to`（PM 與 DOM 都是）；不是就整組重來。
+ * 為什麼不能點完就按鍵、再等 PM 與 DOM 對齊：編輯器原本沒焦點時，點擊觸發 ProseMirror 的得焦計時器（20 ms），它會把 PM 手上的
+ * 舊選取寫回 DOM。Home／方向鍵／Shift+End 若在計時器觸發前按下、PM 還沒讀到，游標就被拉回點的位置（對齊照樣成立），
+ * 連結對話框沒預填、選字變成沒選。機制與量測見 helpers 的 `clickEndOfParagraph`。重來時編輯器已有焦點，計時器不再排。
+ */
+async function tapAndSelect(page: Page, block: Locator, keys: string[], from: number, to: number): Promise<void> {
+  const text = (await block.textContent()) ?? "";
+  await expect(async () => {
+    await block.tap({ position: { x: 2, y: 4 } });
+    await expect(toolbarOf(page)).toBeVisible({ timeout: 10_000 });
+    for (const key of keys) await page.keyboard.press(key);
+    await expect
+      .poll(() => blockSelection(page), { timeout: 1_000, message: `選取要是「${text}」的 ${from}–${to}（PM 與 DOM 對齊）` })
+      .toEqual({ text, from, to });
+  }).toPass({ timeout: 20_000 });
+}
+
 /** 觸控點內文最左邊（避開連結），把游標放到該段的第 `offset` 個字元前。 */
 async function placeCaret(page: Page, block: Locator, offset: number): Promise<void> {
-  await block.tap({ position: { x: 2, y: 4 } });
-  await expect(toolbarOf(page)).toBeVisible({ timeout: 10_000 });
-  await page.keyboard.press("Home");
-  for (let i = 0; i < offset; i++) await page.keyboard.press("ArrowRight");
-  await waitForEditorSelection(page);
+  await tapAndSelect(page, block, ["Home", ...Array.from({ length: offset }, () => "ArrowRight")], offset, offset);
 }
 
 /** 選取整段（點進去、Home、Shift+End）。 */
 async function selectBlock(page: Page, block: Locator): Promise<void> {
-  await block.tap({ position: { x: 2, y: 4 } });
-  await expect(toolbarOf(page)).toBeVisible({ timeout: 10_000 });
-  await page.keyboard.press("Home");
-  await page.keyboard.press("Shift+End");
-  await expect.poll(() => page.evaluate(() => !(document.getSelection()?.isCollapsed ?? true))).toBe(true);
+  const length = ((await block.textContent()) ?? "").length;
+  await tapAndSelect(page, block, ["Home", "Shift+End"], 0, length);
 }
 
 function rectOf(locator: Locator): Promise<{ x: number; y: number; width: number; height: number; bottom: number; right: number }> {
