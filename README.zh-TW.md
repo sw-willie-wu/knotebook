@@ -8,7 +8,7 @@
 
 > 本文件為繁體中文（台灣）翻譯版，內容以英文版 [README.md](README.md) 為準，翻譯可能落後於英文版。文中連結的說明文件（docs/ 與 CHANGELOG）目前只有英文版。
 
-**給團隊與團隊的 AI agent 一起用的自架協作筆記。** Knotebook 是一套開源、Notion/HackMD 風格的筆記系統，架在你自己的伺服器上。人可以即時一起編輯筆記；你已經在用的 AI 助理（例如 Claude Code、Claude Desktop 或其他任何 MCP 用戶端）則透過 MCP 端點搜尋、讀取與編輯同一批筆記，它們做的修改會出現在每篇筆記的 AI 修改紀錄裡，通常都能還原。
+**給團隊與團隊的 AI agent 一起用的自架協作筆記。** Knotebook 是一套開源、Notion/HackMD 風格的筆記系統，架在你自己的伺服器上。人可以即時一起編輯筆記；你已經在用的 AI 助理（例如 Claude Code、Claude Desktop 或其他任何 MCP 用戶端）則透過 MCP 端點搜尋、讀取與編輯同一批筆記，它們改動筆記內容的寫入會記錄在該筆記的 AI 修改紀錄裡，通常都能還原。
 
 ![Knotebook 的一篇筆記：左邊是含資料夾的側邊欄，右邊是含表格與 Mermaid 圖的筆記，頁首有兩位共編者的頭像，內文裡有他們的游標](docs/images/editor.png)
 
@@ -37,9 +37,9 @@
 ### 寫作
 
 - **區塊編輯器**——標題、清單、表格、引言、有語法上色的程式碼區塊、插入區塊用的 `/` 選單，以及打字時的 Markdown 快捷寫法；快捷鍵見 [說明與功能導覽](docs/feature-tour.md)。
-- **顏色**——文字、背景與表格儲存格的顏色：內建十種，或任選一種顏色。
+- **顏色**——文字、背景與表格儲存格的顏色：內建九種顏色，或任選一種顏色。
 - **即時共同編輯**——同一篇筆記上的每個人同時編輯（Yjs 與 Hocuspocus），看得到其他編輯者的游標；筆記頁首顯示還有誰開著這篇，點某人的頭像會跳到他的游標。
-- **筆記之間的連結**——打 `[[`，或貼上、拖入筆記網址；連結改名不斷、可以指向單一段落，每篇筆記也會列出提到它的筆記。
+- **筆記之間的連結**——打 `[[`，或貼上、拖入筆記網址；筆記改名後連結仍然有效，連結也可以指向單一段落，每篇筆記也會列出提到它的筆記。
 - **圖片**——在筆記裡加入 PNG、JPEG、GIF 或 WebP 圖片並調整大小；圖片計入筆記所屬空間的儲存方案。
 - **並排**——兩到四欄的並排，用 `/grid` 或把區塊拖到另一個區塊旁邊建立，拖分隔線調整欄寬（[並排](docs/columns.md)）。
 - **圖表**——Mermaid 圖表，以原始碼儲存、在筆記裡畫出來（[圖表](docs/diagrams.md)）。
@@ -50,7 +50,7 @@
 
 ### 整理與分享
 
-- **資料夾**——最多五層，可以在你的筆記裡、每個群組裡，以及只給你自己看的、別人分享給你的筆記裡建立；用**移動到…**、一次選取多篇，或用滑鼠拖曳把筆記放進去（[資料夾](docs/sharing.md#folders)）。
+- **資料夾**——最多五層，可以建在你的筆記裡與每個群組裡；在「與我共享」裡也能建只有你看得到的資料夾；用**移動到…**、一次選取多篇，或用滑鼠拖曳把筆記放進去（[資料夾](docs/sharing.md#folders)）。
 - **最愛**——幫筆記加星號，它就會留在「最愛」分頁；你的最愛只有你自己看得到（[最愛](docs/sharing.md#favorites)）。
 - **垃圾桶**——刪除的筆記會移到垃圾桶，可以還原；預設 7 天後永久刪除，站台管理員可以改天數或關閉自動刪除（[垃圾桶中的筆記](docs/sharing.md#notes-in-the-trash)）。
 - **分享與公開連結**——個人筆記可以維持私人、分享給指定的人編輯或檢視，或以唯讀的公開連結發布，公開連結也可以設自訂網址（[分享](docs/sharing.md)）。
@@ -65,10 +65,10 @@
 
 ### AI
 
-- **AI 快速動作**——在選取的文字上執行改寫（Rewrite）、翻譯（Translate）、摘要（Summarize）、續寫（Continue writing）與指示（Instruct，照你輸入的指示做），結果以行內差異顯示，由站台管理員設定的供應商以串流回傳（[AI 快速動作](docs/ai.md)）。
+- **AI 快速動作**——在選取的文字上執行動作，結果以行內差異顯示，由站台管理員設定的供應商以串流回傳；內建動作有改寫（Rewrite）、翻譯（Translate）、摘要（Summarize）、續寫（Continue writing）與指示（Instruct，照你輸入的指示做），站台管理員可以改名或停用，也可以自己新增動作（[AI 快速動作](docs/ai.md)）。
 - **MCP**——`/api/mcp` 提供 Claude Code、Claude Desktop 與其他 MCP 用戶端最多二十項工具，可以搜尋、讀取、建立、編輯、改名、複製與搬移筆記，管理資料夾，把筆記移到垃圾桶與還原，以及讀取圖片（[MCP](docs/mcp.md)）。
 - **以檔案讀寫筆記**——用 `open_notes_as_files`，有 shell 的 AI 助理可以把大量筆記下載成 Markdown 檔，再把改過的檔案送回（[MCP](docs/mcp.md#open_notes_as_files)）。
-- **AI 修改紀錄**——透過 API 或 MCP 對筆記做的編輯會即時出現在已開啟的分頁中，並記錄在該筆記的 AI 修改紀錄裡，通常可以還原（[AI 編輯](docs/ai-editing.md)）。
+- **AI 修改紀錄**——透過 API 或 MCP 改動筆記內容的寫入會即時出現在已開啟的分頁中，並記錄在該筆記的 AI 修改紀錄裡，通常可以還原（筆記改名與建立筆記不會記錄）（[AI 編輯](docs/ai-editing.md)）。
 - **API token 與 OAuth**——可設權限範圍的個人 API token，或透過 OAuth 授權的應用程式（除非你允許更多，否則只能讀取）（[API token](docs/api-tokens.md)）。
 
 ### 各種螢幕
@@ -81,7 +81,7 @@
 
 - **Docker Compose**——app 加上內建的 PostgreSQL，或改用你自己的 PostgreSQL（[自行架設指南](docs/self-hosting.md)）。
 - **REST API**——網頁介面建立在一套你也可以直接呼叫的 REST API 上（[API 規格摘要](docs/api.md)）。
-- **備份**——伺服器會定期保存筆記內容的快照，並有操作手冊說明如何從快照或 `pg_dump` 還原筆記（[從備份還原筆記內容](docs/backup-restore.md)）。
+- **筆記快照與還原手冊**——伺服器會定期保存筆記內容的快照，並有操作手冊說明如何從快照或 `pg_dump` 還原筆記（[從備份還原筆記內容](docs/backup-restore.md)）。
 
 ## 快速上手
 
@@ -98,7 +98,7 @@
 
 2. 在 `.env` 填入四個值：
 
-   - `APP_SECRET`——一段隨機密鑰，例如 `openssl rand -hex 32` 的輸出。
+   - `APP_SECRET`——至少 64 個十六進位字元，例如 `openssl rand -hex 32` 的輸出。
    - `PUBLIC_URL=http://localhost:3000`
    - `ADMIN_EMAIL` 與 `ADMIN_PASSWORD`（至少 12 個字元）——第一個管理員帳號。資料庫是空的、又沒有設定這兩項時，伺服器會拒絕啟動；它們只在第一次初始化時生效。
 
@@ -108,7 +108,7 @@
    docker compose up -d
    ```
 
-跑哪個映像：用 Release 附帶的 `docker-compose.yml` 時是該版本身，用 repo 裡的則是 `latest`；在 `.env` 設 `KNOTEBOOK_VERSION` 可以鎖定某個版本（用 clone 時建議這樣做）。在 clone 裡執行 `docker compose up -d --build` 則改從原始碼 build（[App 映像](docs/self-hosting.md#the-app-image)）。
+跑哪個映像：用 Release 附帶的 `docker-compose.yml` 時跑的就是該版，用 repo 裡的則是 `latest`；在 `.env` 設 `KNOTEBOOK_VERSION` 可以鎖定某個版本（用 clone 時建議這樣做）。在 clone 裡執行 `docker compose up -d --build` 則改從原始碼 build（[App 映像](docs/self-hosting.md#the-app-image)）。
 
 想試試共同編輯，從使用者選單開啟**站台管理 → 使用者**，用**建立邀請**產生連結，在無痕視窗打開連結建立第二個帳號，再把筆記分享給它。
 

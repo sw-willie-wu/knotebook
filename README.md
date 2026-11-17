@@ -6,7 +6,7 @@
 
 English | [繁體中文](README.zh-TW.md)
 
-**Self-hosted collaborative notes for your team and its AI agents.** Knotebook is an open-source, Notion/HackMD-style notebook that runs on your own server. People edit notes together in real time; the AI assistants you already use, such as Claude Code, Claude Desktop or any other MCP client, search, read and edit the same notes through an MCP endpoint, and their edits show up in each note's AI edit history, where they can usually be reverted.
+**Self-hosted collaborative notes for your team and its AI agents.** Knotebook is an open-source, Notion/HackMD-style notebook that runs on your own server. People edit notes together in real time; the AI assistants you already use, such as Claude Code, Claude Desktop or any other MCP client, search, read and edit the same notes through an MCP endpoint, and a write of theirs that changes a note's content is recorded in that note's AI edit history, where it can usually be reverted.
 
 ![A note in Knotebook: the sidebar with folders on the left, the note with a table and a Mermaid diagram on the right, two collaborators' avatars in the header and their cursors in the text](docs/images/editor.png)
 
@@ -35,7 +35,7 @@ On a phone, the note list is the home screen and a note opens over it:
 ### Writing
 
 - **Block editor** — headings, lists, tables, quotes, code blocks with syntax highlighting, a `/` menu to insert blocks and Markdown shortcuts as you type; see [Help and the feature tour](docs/feature-tour.md) for the shortcuts.
-- **Colors** — text, background and table cell colors: ten built in, or any color you pick.
+- **Colors** — text, background and table cell colors: nine built-in colors, or any color you pick.
 - **Real-time co-editing** — everyone on a note edits at once (Yjs and Hocuspocus) and sees the other editors' cursors; the note header shows who else has it open, and clicking someone's avatar goes to their cursor.
 - **Links between notes** — type `[[`, or paste or drag in a note's address; links follow renames, can point at a single paragraph, and each note lists the notes that mention it.
 - **Images** — add PNG, JPEG, GIF or WebP images to a note and resize them; they count toward the storage plan of the note's space.
@@ -63,15 +63,15 @@ On a phone, the note list is the home screen and a note opens over it:
 
 ### AI
 
-- **AI quick actions** — Rewrite, Translate, Summarize, Continue writing and Instruct (follows an instruction you type) on selected text, with the result shown as an inline diff, streamed from the provider a site admin sets up ([AI quick actions](docs/ai.md)).
+- **AI quick actions** — run an action on selected text and see the result as an inline diff, streamed from the provider a site admin sets up; the built-in actions are Rewrite, Translate, Summarize, Continue writing and Instruct (follows an instruction you type), which a site admin can rename or turn off, and admins can add their own ([AI quick actions](docs/ai.md)).
 - **MCP** — `/api/mcp` gives Claude Code, Claude Desktop and other MCP clients up to twenty tools to search, read, create, edit, rename, copy and move notes, manage folders, move notes to the trash and back, and read images ([MCP](docs/mcp.md)).
 - **Notes as files** — with `open_notes_as_files`, an assistant that has a shell downloads many notes as Markdown files and sends the changed files back ([MCP](docs/mcp.md#open_notes_as_files)).
-- **AI edit history** — an edit to a note through the API or MCP shows up live in open tabs and is recorded in the note's AI edit history, where it can usually be reverted ([AI editing](docs/ai-editing.md)).
+- **AI edit history** — a write through the API or MCP that changes a note's content shows up live in open tabs and is recorded in the note's AI edit history, where it can usually be reverted (renaming a note, or creating one, isn't recorded) ([AI editing](docs/ai-editing.md)).
 - **API tokens and OAuth** — personal API tokens with scopes, or apps you authorize over OAuth, which are read-only unless you allow more ([API tokens](docs/api-tokens.md)).
 
 ### On every screen
 
-- **Phone layout** — below 640 px the note list is the home screen, a note slides in over it, dialogs and menus rise from the bottom, and an editing toolbar sits above the on-screen keyboard; from 640 to 1279 px the sidebar is a drawer ([Known limitations](docs/known-limitations.md#on-a-phone)).
+- **Phone layout** — below 640 px the note list is the home screen, a note slides in from the right over it, dialogs and menus rise from the bottom, and an editing toolbar sits above the on-screen keyboard; from 640 to 1279 px the sidebar is a drawer ([Known limitations](docs/known-limitations.md#on-a-phone)).
 - **Install as an app** — add Knotebook to a phone's or computer's home screen, or install it from Chrome or Edge; like a browser tab, it needs the server ([Installing Knotebook as an app](docs/install-app.md)).
 - **Help and feature tour** — **Help** in the user menu, or Ctrl+/ (⌘/ on a Mac), opens the Help window: a feature tour on a sample note, What's new, and the keyboard shortcuts ([Help and the feature tour](docs/feature-tour.md)).
 
@@ -79,7 +79,7 @@ On a phone, the note list is the home screen and a note opens over it:
 
 - **Docker Compose** — the app and a bundled PostgreSQL, or your own PostgreSQL ([Self-hosting guide](docs/self-hosting.md)).
 - **REST API** — the web app runs on a REST API you can call yourself ([API contract summary](docs/api.md)).
-- **Backups** — the server keeps periodic snapshots of note content, and a runbook covers restoring a note from one or from a `pg_dump` ([Restoring note content from a backup](docs/backup-restore.md)).
+- **Note snapshots and restore runbook** — the server keeps periodic snapshots of note content, and a runbook covers restoring a note from one or from a `pg_dump` ([Restoring note content from a backup](docs/backup-restore.md)).
 
 ## Quickstart
 
@@ -96,7 +96,7 @@ You need Docker with Compose. This runs Knotebook on `http://localhost:3000`.
 
 2. Fill in four values in `.env`:
 
-   - `APP_SECRET` — a random secret, for example the output of `openssl rand -hex 32`.
+   - `APP_SECRET` — 64 or more hexadecimal characters, for example the output of `openssl rand -hex 32`.
    - `PUBLIC_URL=http://localhost:3000`
    - `ADMIN_EMAIL` and `ADMIN_PASSWORD` (12 characters or more) — the first admin account. The server won't start on an empty database without them, and they only take effect that first time.
 

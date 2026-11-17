@@ -191,7 +191,7 @@ function main(argv) {
   console.log(`已更新到 v${version}（${result.date}）：\n${result.paths.map((p) => `  ${p}`).join('\n')}`);
   console.log(`
 版號是跟「本機」的 tag 比的；若沒 fetch 過，先 \`git fetch --tags\` 再確認一次。
-還要自己看過：README 功能描述與升級提示、docs/self-hosting.md 的升級段、CHANGELOG 該版內容。
+還要自己看過：兩份 README 的功能清單、CHANGELOG 該版內容（含升級說明）、docs/self-hosting.md 的升級段。
 接著（範例）：
   git switch -c ${branch}
   git add ${result.paths.join(' ')}
