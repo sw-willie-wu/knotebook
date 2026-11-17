@@ -311,6 +311,14 @@
       "escHint": "按 Esc 或點其他地方結束",
       "rendering": "圖表渲染中…"
     },
+    "zoom": {
+      "open": "放大檢視",
+      "openDiagram": "放大檢視圖表",
+      "close": "關閉",
+      "imageTitle": "圖片",
+      "diagramTitle": "圖表",
+      "hint": "滾輪或雙指縮放，拖曳移動；按 + 或 - 縮放、0 符合視窗、方向鍵移動、Esc 關閉。"
+    },
     "link": {
       "slashTitle": "連結",
       "slashSubtext": "插入一個網址連結",

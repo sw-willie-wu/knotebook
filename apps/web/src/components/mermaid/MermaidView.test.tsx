@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { stubLayoutTier } from "@/test/layout-tier";
+import { MediaZoomContext, type MediaZoomApi } from "@/components/media-zoom/context";
 
 /**
  * `MermaidView` 的單元測試。
@@ -23,10 +24,12 @@ vi.mock("@/lib/mermaid", () => ({
 const i18n = (await import("@/i18n")).default;
 const { MERMAID_ROOT_MARGIN, MermaidView } = await import("./MermaidView");
 
+const MOCK_SVG = "<svg data-testid='diagram' viewBox='0 0 300 200'></svg>";
+
 beforeEach(async () => {
   await i18n.changeLanguage("en"); // 斷言用英文字面（repo 慣例，同 ConnectionBadge.test.tsx）
   renderMermaidMock.mockReset();
-  renderMermaidMock.mockResolvedValue({ ok: true, svg: "<svg data-testid='diagram'></svg>" });
+  renderMermaidMock.mockResolvedValue({ ok: true, svg: MOCK_SVG });
   cachedMermaidMock.mockReset();
   cachedMermaidMock.mockReturnValue(null);
   preloadMermaidMock.mockReset();
@@ -490,36 +493,38 @@ describe("MermaidView — 工具列", () => {
 // 顯示兩者被改掉時測試全綠。jsdom 沒有 layout／Tab 順序，只能用 class 字串做結構守衛
 // ——同 `theme.scrollbar-guard.test.ts`／`theme.block-selection-guard.test.ts` 的既有手法。
 
+/** 元素 class 裡的定位 utility token（不看順序、不受註解干擾）。 */
+function positionalTokens(el: HTMLElement): string[] {
+  return el.className
+    .split(/\s+/)
+    .filter((t) => /^-?(?:absolute|relative|fixed|sticky|inset|top|right|bottom|left)(?:-|$)/.test(t.replace(/^.*:/, "")));
+}
+
 describe("MermaidView — 樣式載重", () => {
-  it("工具列鈕用 opacity 隱藏而非 hidden（hidden 會讓它退出 Tab 順序，鍵盤使用者構不到）", async () => {
+  it("控制組用 opacity 隱藏而非 hidden（hidden 會讓它退出 Tab 順序，鍵盤使用者構不到）", async () => {
     render(<MermaidView code="graph TD; A-->B;" editable theme="light" onChange={vi.fn()} />);
     await waitFor(() => expect(screen.getByTestId("diagram")).toBeInTheDocument());
 
-    const button = screen.getByRole("button", { name: "Edit" });
-    expect(button.className).toContain("opacity-0");
-    expect(button.className).toContain("group-hover:opacity-100");
-    expect(button.className).toContain("focus-visible:opacity-100");
+    const group = screen.getByRole("button", { name: "Edit" }).parentElement as HTMLElement;
+    expect(group.className).toContain("opacity-0");
+    expect(group.className).toContain("group-hover:opacity-100");
     // 方塊內有焦點（Tab 到「點圖進編輯」那顆）時也現身——與 codeBlock「游標在程式碼裡就現身」同語意。
-    expect(button.className).toContain("group-focus-within:opacity-100");
-    expect(button.className).not.toMatch(/(^|\s)hidden(\s|$)/);
+    expect(group.className).toContain("group-focus-within:opacity-100");
+    expect(group.className.split(/\s+/)).not.toContain("hidden");
   });
 
-  it("控制鈕疊在方塊內右上角：直接掛在 relative 外層底下，沒有 #111 那條 h-7 保留列", async () => {
+  it("控制組疊在方塊內右上角：是 relative 外層的直接子元素、帶 block-control-group，鈕不帶定位、沒有 h-7 保留列", async () => {
     const { container } = render(<MermaidView code="graph TD; A-->B;" editable theme="light" onChange={vi.fn()} />);
     await waitFor(() => expect(screen.getByTestId("diagram")).toBeInTheDocument());
 
     const root = container.firstElementChild as HTMLElement;
     const button = screen.getByRole("button", { name: "Edit" });
-    // 位置由 `.block-control`（index.css）給——它是 absolute，containing block 就是這個外層。
+    const group = button.parentElement as HTMLElement;
+    expect(group.className).toContain("block-control-group");
+    expect(group.parentElement, "組要直接掛在外層底下").toBe(root);
     expect(button.className).toContain("block-control");
-    // 位置只在 `.block-control`（與語言下拉同一條規則）：鈕自己不得再帶任何定位 utility——那是兩份位置真相。
-    // 看渲染後的 token（不看順序、不受原始碼註解干擾）：`top-1`、`right-[4px]`、`inset-0`、`absolute`… 都算。
-    const positional = button.className
-      .split(/\s+/)
-      .filter((t) => /^-?(?:absolute|relative|fixed|sticky|inset|top|right|bottom|left)(?:-|$)/.test(t.replace(/^.*:/, "")));
-    expect(positional, `控制鈕不得自帶定位 class：${positional.join(" ")}`).toEqual([]);
-    expect(root.className.split(/\s+/), "外層要 relative，控制鈕才疊得在方塊內").toContain("relative");
-    expect(button.parentElement, "控制鈕外面不得再包一層工具列（那就是保留列）").toBe(root);
+    expect(positionalTokens(button)).toEqual([]);
+    expect(root.className.split(/\s+/), "外層要 relative，控制組才疊得在方塊內").toContain("relative");
     expect(root.querySelector('[class*="h-7"]'), "不得再有 h-7 的保留列").toBeNull();
   });
 
@@ -541,3 +546,185 @@ describe("MermaidView — 樣式載重", () => {
   });
 });
 
+
+describe("MermaidView — 放大檢視", () => {
+  const open = vi.fn();
+  const api: MediaZoomApi = { open, isOpen: false };
+
+  beforeEach(() => open.mockReset());
+
+  function renderZoom(editable: boolean, code = "graph TD; A-->B;") {
+    return render(
+      <MediaZoomContext.Provider value={api}>
+        <MermaidView code={code} editable={editable} theme="light" onChange={vi.fn()} />
+      </MediaZoomContext.Provider>,
+    );
+  }
+  const drawn = () => waitFor(() => expect(screen.getByTestId("diagram")).toBeInTheDocument());
+  /** 唯讀時包著圖的那個可點區塊。 */
+  const area = () => screen.getByTestId("diagram").parentElement!.parentElement as HTMLElement;
+
+  it("沒有 Provider：沒有放大鈕；唯讀時圖的容器沒有 role、tabindex", async () => {
+    render(<MermaidView code="graph TD; A-->B;" editable={false} theme="light" onChange={vi.fn()} />);
+    await drawn();
+    expect(screen.queryByRole("button", { name: "Zoom in", hidden: true })).toBeNull();
+    expect(area()).not.toHaveAttribute("role");
+    expect(area()).not.toHaveAttribute("tabindex");
+  });
+
+  it("有 Provider：組是外層的直接子元素，依序是「Edit」「Zoom in」，兩顆都帶 block-control 且沒有定位 utility", async () => {
+    const { container } = renderZoom(true);
+    await drawn();
+    const edit = screen.getByRole("button", { name: "Edit" });
+    const zoomBtn = screen.getByRole("button", { name: "Zoom in" });
+    const group = edit.parentElement as HTMLElement;
+    expect(group.className).toContain("block-control-group");
+    expect(group.parentElement).toBe(container.firstElementChild);
+    expect(zoomBtn.parentElement).toBe(group);
+    expect(edit.compareDocumentPosition(zoomBtn) & Node.DOCUMENT_POSITION_FOLLOWING, "放大鈕在編輯鈕之後（最右角）").toBeTruthy();
+    for (const b of [edit, zoomBtn]) {
+      expect(b.className).toContain("block-control");
+      expect(positionalTokens(b)).toEqual([]);
+    }
+  });
+
+  it("組的顯隱：opacity-0、hover／focus-within 現身、觸控常駐淡色，且不用 hidden", async () => {
+    renderZoom(true);
+    await drawn();
+    const group = screen.getByRole("button", { name: "Edit" }).parentElement as HTMLElement;
+    for (const token of ["opacity-0", "group-hover:opacity-100", "group-focus-within:opacity-100", "[@media(hover:none)]:opacity-60", "[@media(hover:none)]:group-focus-within:opacity-100"]) {
+      expect(group.className.split(/\s+/)).toContain(token);
+    }
+    expect(group.className.split(/\s+/)).not.toContain("hidden");
+  });
+
+  it("點「Zoom in」：open 一次，帶同一份 svg 與 viewBox 尺寸，origin.button 是那顆鈕；沒有進編輯", async () => {
+    renderZoom(true);
+    await drawn();
+    const zoomBtn = screen.getByRole("button", { name: "Zoom in" });
+    fireEvent.click(zoomBtn);
+    expect(open).toHaveBeenCalledTimes(1);
+    const [source, origin] = open.mock.calls[0]!;
+    expect(source).toEqual({ kind: "svg", svg: MOCK_SVG, naturalWidth: 300, naturalHeight: 200 });
+    expect(origin.button).toBe(zoomBtn);
+    expect(screen.queryByRole("textbox")).toBeNull();
+  });
+
+  it("佔位中：沒有「Zoom in」", () => {
+    renderMermaidMock.mockReturnValue(new Promise(() => {}));
+    renderZoom(true);
+    expect(screen.queryByRole("button", { name: "Zoom in" })).toBeNull();
+  });
+
+  it("語法錯：沒有「Zoom in」", async () => {
+    renderMermaidMock.mockResolvedValue({ ok: false, message: "bad syntax" });
+    renderZoom(true);
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Zoom in" })).toBeNull();
+  });
+
+  it("空原始碼：沒有「Zoom in」", () => {
+    renderZoom(true, "");
+    expect(screen.queryByRole("button", { name: "Zoom in" })).toBeNull();
+  });
+
+  it("編輯中：沒有「Zoom in」", async () => {
+    renderZoom(true);
+    await drawn();
+    expect(screen.getByRole("button", { name: "Zoom in" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    expect(screen.queryByRole("button", { name: "Zoom in" })).toBeNull();
+  });
+
+  it("可編輯：點圖進編輯，不開放大", async () => {
+    renderZoom(true);
+    await drawn();
+    fireEvent.click(screen.getByRole("button", { name: "Edit diagram source" }));
+    expect(screen.getByRole("textbox")).toBeInTheDocument();
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it("唯讀：圖的容器是可聚焦的按鈕「Zoom in on diagram」；click、Enter、Space 各開一次，origin 是 { button: null, media: 容器 }", async () => {
+    renderZoom(false);
+    await drawn();
+    const el = area();
+    expect(el).toHaveAttribute("role", "button");
+    expect(el).toHaveAttribute("tabindex", "0");
+    expect(el).toHaveAccessibleName("Zoom in on diagram");
+    expect(el.className).toContain("cursor-zoom-in");
+
+    fireEvent.click(el);
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(open.mock.calls[0]![1]).toEqual({ button: null, media: el });
+    expect(open.mock.calls[0]![0]).toEqual({ kind: "svg", svg: MOCK_SVG, naturalWidth: 300, naturalHeight: 200 });
+
+    fireEvent.keyDown(el, { key: "Enter" });
+    expect(open).toHaveBeenCalledTimes(2);
+    const notPrevented = fireEvent.keyDown(el, { key: " " });
+    expect(open).toHaveBeenCalledTimes(3);
+    expect(notPrevented, "Space 要 preventDefault 免得捲頁").toBe(false);
+  });
+
+  it("唯讀：點圖裡的連結不開放大（連結照常走）", async () => {
+    renderMermaidMock.mockResolvedValue({
+      ok: true,
+      svg: "<svg data-testid='diagram' viewBox='0 0 300 200'><a href='#x' data-testid='lnk'><text>x</text></a></svg>",
+    });
+    renderZoom(false);
+    await drawn();
+    fireEvent.click(screen.getByTestId("lnk"));
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it("唯讀：拖曳選取圖裡的文字後放開不開放大", async () => {
+    renderZoom(false);
+    await drawn();
+    const sel = { isCollapsed: false } as Selection;
+    const spy = vi.spyOn(window, "getSelection").mockReturnValue(sel);
+    fireEvent.click(area());
+    expect(open).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it("svg 沒有 viewBox／寬高：退回 getBoundingClientRect 的尺寸", async () => {
+    renderMermaidMock.mockResolvedValue({ ok: true, svg: "<svg data-testid='diagram'></svg>" });
+    const spy = vi
+      .spyOn(Element.prototype, "getBoundingClientRect")
+      .mockReturnValue({ width: 120, height: 80 } as DOMRect);
+    renderZoom(true);
+    await drawn();
+    fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
+    spy.mockRestore();
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(open.mock.calls[0]![0]).toMatchObject({ kind: "svg", naturalWidth: 120, naturalHeight: 80 });
+  });
+
+  it("尺寸量出來是 0：不開放大", async () => {
+    renderMermaidMock.mockResolvedValue({ ok: true, svg: "<svg data-testid='diagram'></svg>" });
+    renderZoom(true); // jsdom 的 getBoundingClientRect 全是 0
+    await drawn();
+    fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it("唯讀時放大鈕帶 [@media(hover:none)]:hidden（觸控點圖就放大），顯示原始碼鈕不隱藏；可編輯時放大鈕不帶", async () => {
+    const ro = renderZoom(false);
+    await drawn();
+    const zoomBtn = screen.getByTitle("Zoom in");
+    expect(zoomBtn.className).toContain("[@media(hover:none)]:hidden");
+    // 鍵盤與螢幕閱讀器走圖的容器，這顆只留給滑鼠。
+    expect(zoomBtn).toHaveAttribute("tabindex", "-1");
+    expect(zoomBtn).toHaveAttribute("aria-hidden", "true");
+    expect(screen.getByRole("button", { name: "Show source" }).className).not.toContain("hidden");
+    // 滑鼠點這顆不可聚焦的鈕：origin.button 是 null，關掉後焦點回圖容器（media 在容器裡）
+    fireEvent.click(zoomBtn);
+    expect(open).toHaveBeenCalledTimes(1);
+    const origin = open.mock.calls[0]![1] as { button: HTMLElement | null; media: Element };
+    expect(origin.button).toBeNull();
+    expect(area().contains(origin.media)).toBe(true);
+    ro.unmount();
+    renderZoom(true);
+    await drawn();
+    expect(screen.getByRole("button", { name: "Zoom in" }).className).not.toContain("hidden");
+  });
+});

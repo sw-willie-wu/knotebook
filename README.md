@@ -38,9 +38,9 @@ On a phone, the note list is the home screen and a note opens over it:
 - **Colors** — text, background and table cell colors: nine built-in colors, or any color you pick.
 - **Real-time co-editing** — everyone on a note edits at once (Yjs and Hocuspocus) and sees the other editors' cursors; the note header shows who else has it open, and clicking someone's avatar goes to their cursor.
 - **Links between notes** — type `[[`, or paste or drag in a note's address; links follow renames, can point at a single paragraph, and each note lists the notes that mention it.
-- **Images** — add PNG, JPEG, GIF or WebP images to a note and resize them; they count toward the storage plan of the note's space.
+- **Images** — add PNG, JPEG, GIF or WebP images to a note, resize them, and zoom in on them full screen; they count toward the storage plan of the note's space.
 - **Side-by-side columns** — rows of two to four columns, made with `/grid` or by dragging a block beside another, resized by dragging the divider ([Side-by-side columns](docs/columns.md)).
-- **Diagrams** — Mermaid diagrams, stored as their source text and drawn in the note ([Diagrams](docs/diagrams.md)).
+- **Diagrams** — Mermaid diagrams, stored as their source text, drawn in the note, and zoomable full screen ([Diagrams](docs/diagrams.md)).
 - **Note width** — Standard, Wide or Full width, per note.
 - **Heading outline** — a thin line on the right of a note with one tick per heading (H1 to H3); hover or tap it to see the headings, and click one to jump to it. When the window is wide enough to leave a comfortable text column next to it, the outline can be pinned open beside the text. On a phone or a narrow window (below 768px), a bubble showing where you are appears while you scroll and opens the list; in a note's ⋮ menu, **Heading outline** opens it too (shared public pages have no ⋮ menu).
 - **Version history** — versions saved automatically after a pause in editing, or by hand; preview one, compare two side by side, and apply an older one ([Version history](docs/versions.md)).
@@ -156,7 +156,6 @@ For contributors and maintainers:
 Next up:
 
 - Comments on notes, @mentions and notifications ([#289](https://github.com/sw-willie-wu/knotebook/issues/289))
-- Zooming into images and Mermaid diagrams ([#462](https://github.com/sw-willie-wu/knotebook/issues/462))
 
 Planning lives in [GitHub Milestones](https://github.com/sw-willie-wu/knotebook/milestones) and the [issue tracker](https://github.com/sw-willie-wu/knotebook/issues); the [CHANGELOG](CHANGELOG.md) has the history.
 

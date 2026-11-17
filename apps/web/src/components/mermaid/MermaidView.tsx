@@ -1,6 +1,10 @@
-import { useEffect, useRef, useState, type JSX, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type JSX, type KeyboardEvent, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { cachedMermaid, preloadMermaid, renderMermaid, type MermaidRenderResult, type MermaidTheme } from "@/lib/mermaid";
+import { useMediaZoom } from "@/components/media-zoom/context";
+import { svgIntrinsicSize } from "@/components/media-zoom/svg-size";
+import { prefetchMediaLightbox } from "@/components/media-zoom/lightbox-chunk";
+import { ZoomButton } from "@/components/media-zoom/ZoomButton";
 import { tourTarget } from "@/lib/tour-targets";
 import { useIsPhone } from "@/lib/layout-tiers";
 import { cn } from "@/lib/utils";
@@ -91,6 +95,8 @@ export function MermaidView({ code, editable, theme, onChange }: MermaidViewProp
   const [rendered, setRendered] = useState<Rendered | null>(() => initialRendered(code, theme));
   const result = rendered?.result ?? null;
   const rootRef = useRef<HTMLDivElement>(null);
+  const diagramRef = useRef<HTMLDivElement>(null);
+  const zoom = useMediaZoom();
   // 沒有 IntersectionObserver 的環境一律當成「在視窗附近」——寧可全畫，不可整張不畫。
   const [near, setNear] = useState(() => !hasIntersectionObserver());
 
@@ -173,6 +179,47 @@ export function MermaidView({ code, editable, theme, onChange }: MermaidViewProp
     }
   };
 
+  // 放大：只在有放大功能（有 provider）、不在編輯、圖已畫好時成立。
+  const canZoom = zoom !== null && !editing && result?.ok === true;
+
+  const openZoom = (button: HTMLElement | null, media: Element): void => {
+    if (zoom === null || result === null || !result.ok) return;
+    const svg = diagramRef.current?.querySelector("svg");
+    if (!svg) return;
+    const box = svgIntrinsicSize(svg) ?? svg.getBoundingClientRect();
+    const naturalWidth = box.width;
+    const naturalHeight = box.height;
+    if (!(naturalWidth > 0 && naturalHeight > 0)) return;
+    zoom.open({ kind: "svg", svg: result.svg, naturalWidth, naturalHeight }, { button, media });
+  };
+
+  const openFromButton = (event: MouseEvent<HTMLButtonElement>): void => {
+    // 唯讀時這顆鈕不可聚焦（只給滑鼠），關掉後焦點改回可聚焦的圖容器（圖的祖先）。
+    openZoom(editable ? event.currentTarget : null, diagramRef.current ?? event.currentTarget);
+  };
+
+  const readOnlyZoomProps =
+    canZoom && !editable
+      ? {
+          role: "button" as const,
+          tabIndex: 0,
+          "aria-label": t("note.zoom.openDiagram"),
+          onClick: (event: MouseEvent<HTMLDivElement>) => {
+            // 圖裡 `click X href` 產生的連結照常走連結，不開放大。
+            if ((event.target as Element).closest("a") !== null) return;
+            // 拖曳選取圖裡的文字後放開也會觸發 click：有選取就不開。
+            if (window.getSelection()?.isCollapsed === false) return;
+            openZoom(null, event.currentTarget);
+          },
+          onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => {
+            if (event.target !== event.currentTarget) return;
+            if (event.key !== "Enter" && event.key !== " ") return;
+            event.preventDefault(); // Space 不捲頁
+            openZoom(null, event.currentTarget);
+          },
+        }
+      : {};
+
   const body = (() => {
     if (result === null) {
       // #344 D：還沒畫出來（還沒捲到，或正在排隊／渲染）——固定最小高度的佔位，取代一片空白，
@@ -189,7 +236,7 @@ export function MermaidView({ code, editable, theme, onChange }: MermaidViewProp
     if (result.ok) {
       // `dangerouslySetInnerHTML` 的來源是 mermaid 的輸出——防線見檔頭說明
       // （`securityLevel:"strict"` + `htmlLabels:false` + 永不呼叫 `bindFunctions`）。
-      return <div className="flex justify-center overflow-x-auto" dangerouslySetInnerHTML={{ __html: result.svg }} />;
+      return <div ref={diagramRef} className="flex justify-center overflow-x-auto" dangerouslySetInnerHTML={{ __html: result.svg }} />;
     }
     // 空原始碼不是錯誤，是「還沒填」——新建的 block 就長這樣。
     if (result.message === "") {
@@ -207,52 +254,56 @@ export function MermaidView({ code, editable, theme, onChange }: MermaidViewProp
     );
   })();
 
-  // 工具列只有**一顆鈕、一個方向**：進原始碼。出來的路是 Esc 或點別處（都走 `commit`），
-  // 所以編輯中改顯示提示文字、不放第二顆鈕——舊版那顆「畫成圖」跟失焦行為完全重複。
-  // viewer（`editable=false`）保留這顆鈕（標籤是「顯示原始碼」）：那是他們**唯一**看得到
+  // 右上角是一組控制項（`.block-control-group`）：先是進原始碼的鈕，**放大鈕在最右角**。
+  // 出來的路是 Esc 或點別處（都走 `commit`），所以編輯中改顯示提示文字、不放第二顆鈕。
+  // viewer（`editable=false`）保留原始碼鈕（標籤是「顯示原始碼」）：那是他們**唯一**看得到
   // 原始碼的入口（唯讀 textarea），拿掉就只剩語法錯誤時才看得到。
   //
-  // ⚠ 這顆鈕與「點圖進編輯」那顆**不能巢狀**：巢狀 `<button>` 是不合法 HTML，且一次點擊
+  // ⚠ 這組鈕與「點圖進編輯」那顆**不能巢狀**：巢狀 `<button>` 是不合法 HTML，且一次點擊
   // 會同時觸發兩者——單元測試釘住。
   //
-  // 位置：**疊在方塊內的右上角**（`index.css` 的 `.block-control` 負責絕對定位，與 codeBlock
-  // 的語言下拉同一條規則；外層要 `relative` 當它的 containing block）。#111 曾在方塊外面上方
-  // 留一條 `h-7` 保留列放它，後來拿掉（沒 hover 就是隱形、不擋內容，不必留距離）。
-  // 疊上去之後與編輯鈕的**重疊**是刻意的，重疊區的點擊歸這顆鈕：
-  //   - 可編輯：兩顆做的是同一件事（`startEditing`），點到哪顆結果都一樣。
-  //   - 唯讀：底下是不可點的 `<div>`，沒有東西被攔。
-  //   - 早期版本這顆鈕也疊在右上角（`absolute right-1 top-1`），e2e 抓到：block 很矮時（剛插入、
-  //     只有一行提示）編輯鈕的**中心點**正好落在它底下——Playwright 的 click 打的就是中心點。
-  //     現在空 block 的中心點命中的是編輯鈕（headless Chromium 151、900px 寬實測），
-  //     而且就算打到也同樣是進編輯。
-  //   殘留：圖裡 `click X href` 的連結若正好畫在右上角，被這顆鈕蓋住的那一小塊點不到連結
+  // 位置：**疊在方塊內的右上角**。組的位置由 `index.css` 的 `.block-control-group` 給，
+  // 兩顆鈕照舊吃 `.block-control` 的長相（與 codeBlock 的語言下拉同一份長相真相，issue #111）；
+  // 外層要 `relative` 當 containing block。重疊區的點擊歸這組鈕：
+  //   - 可編輯：原始碼鈕與點圖做的是同一件事（`startEditing`），點到哪個結果都一樣。
+  //   - 唯讀：底下是開放大的區塊，點到鈕就走鈕自己的動作。
+  //   殘留：圖裡 `click X href` 的連結若正好畫在右上角，被這組鈕蓋住的那一小塊點不到連結
   //   （滑鼠會先 hover 出鈕、看得見）。
-  // 顯隱：平常 `opacity-0`，hover 整個方塊、方塊內有焦點（Tab 到編輯鈕）、或鈕自己被聚焦才現身。
-  // 只用 `opacity` 隱藏而非 `hidden`——後者會讓它退出 Tab 順序，鍵盤使用者就永遠構不到。
-  // 刻意**不**像語言下拉那樣在隱形時 `pointer-events:none`：觸控沒有 hover，唯讀者要看原始碼
-  // 只剩點這個角落這條路（可編輯者點圖本身就進編輯，不需要它）。
+  // 顯隱：顯隱 class 掛在**組**上。平常 `opacity-0`，hover 整個方塊或方塊內有焦點才現身；
+  // 觸控沒有 hover，所以 `hover: none` 的裝置上常駐淡色（看得到才點得到）。
+  // 只用 `opacity` 隱藏而非 `hidden`——後者會讓它退出 Tab 順序，鍵盤使用者就永遠構不到；
+  // 隱形時仍收得到點擊（沒有 pointer-events:none）：滑鼠點之前一定先 hover，那時鈕已經看得見，所以無妨。唯讀的觸控裝置上放大鈕另外 `hidden`：點圖本身就會放大，不需要它。
   // 編輯中這顆鈕不渲染，改在 textarea **下方**放一行提示——提示文字長，疊在右上角會蓋住原始碼。
   // ⚠ 哪天若又要在**編輯中**放按鈕，記得補 `onMouseDown` 的 `preventDefault`：不擋的話
   // 點下去會先讓 textarea 失焦、`onBlur` 的 `commit()` 搶先翻狀態，按鈕看起來沒反應。
   // ⚠ `w-full` 不可省：BlockNote 的 `bn-block-content` 是 flex 容器，沒宣告寬度的子項
   // 會被 shrink-wrap 成內容寬度——實測（e2e 截圖）整個 block 縮成約 140px 的一小條。
   return (
-    <div ref={rootRef} className="group relative w-full" {...tourTarget("flowchart")}>
+    <div
+      ref={rootRef}
+      className="group relative w-full"
+      onPointerEnter={canZoom ? prefetchMediaLightbox : undefined}
+      {...tourTarget("flowchart")}
+    >
       {editing ? null : (
-        <button
-          type="button"
-          onClick={startEditing}
+        <div
           className={cn(
-            // 長相與位置走 `index.css` 的 `.block-control`——那條規則同時餵這顆鈕與 codeBlock
-            // 的語言下拉（原生 select 拿不到 className，只能用選擇器接進同一條規則），
-            // 兩種 block 的控制項因此只有**一份**長相真相（issue #111）。這裡只留
-            // 這顆鈕自己的顯隱行為。
-            "block-control",
-            "opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100",
+            "block-control-group",
+            "opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-60 [@media(hover:none)]:group-focus-within:opacity-100",
           )}
         >
-          {editable ? t("note.mermaid.edit") : t("note.mermaid.showSource")}
-        </button>
+          <button type="button" onClick={startEditing} className="block-control">
+            {editable ? t("note.mermaid.edit") : t("note.mermaid.showSource")}
+          </button>
+          {canZoom ? (
+            <ZoomButton
+              onClick={openFromButton}
+              // 唯讀時鍵盤與螢幕閱讀器走圖的容器（相鄰、做同一件事），這顆只留給滑鼠。
+              {...(editable ? {} : { tabIndex: -1, "aria-hidden": true as const })}
+              className={editable ? undefined : "[@media(hover:none)]:hidden"}
+            />
+          ) : null}
+        </div>
       )}
 
       {editing ? (
@@ -286,7 +337,12 @@ export function MermaidView({ code, editable, theme, onChange }: MermaidViewProp
           {body}
         </button>
       ) : (
-        <div className="py-2">{body}</div>
+        <div
+          className={cn("py-2", readOnlyZoomProps.role !== undefined && "cursor-zoom-in")}
+          {...readOnlyZoomProps}
+        >
+          {body}
+        </div>
       )}
     </div>
   );

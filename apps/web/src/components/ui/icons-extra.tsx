@@ -72,6 +72,18 @@ export function Maximize(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+/** 放大檢視（圖片與 mermaid 的放大鈕，#462）。路徑取自 lucide `zoom-in`（ISC），手刻同風格。 */
+export function ZoomIn(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg data-icon="zoom-in" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <circle cx="11" cy="11" r="8" />
+      <line x1="21" x2="16.65" y1="21" y2="16.65" />
+      <line x1="11" x2="11" y1="8" y2="14" />
+      <line x1="8" x2="14" y1="11" y2="11" />
+    </svg>
+  );
+}
+
 /** 離開全螢幕（簡報工具列，#229）。路徑取自 lucide `minimize`（ISC），手刻同風格。 */
 export function Minimize(props: SVGProps<SVGSVGElement>) {
   return (

@@ -311,6 +311,14 @@
       "escHint": "Press Esc or click elsewhere to finish",
       "rendering": "Rendering diagram…"
     },
+    "zoom": {
+      "open": "Zoom in",
+      "openDiagram": "Zoom in on diagram",
+      "close": "Close",
+      "imageTitle": "Image",
+      "diagramTitle": "Diagram",
+      "hint": "Scroll or pinch to zoom and drag to move. Press + or - to zoom, 0 to fit, the arrow keys to move, and Esc to close."
+    },
     "link": {
       "slashTitle": "Link",
       "slashSubtext": "Insert a link to a URL",

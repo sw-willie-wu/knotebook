@@ -15,6 +15,8 @@ import { useOutlinePinned, usePinMotionReady } from "@/components/outline/outlin
 import { useOutlineBox } from "@/components/outline/use-outline-box";
 import { useOutlineHeadings, type OutlineEditorLike } from "@/components/outline/use-outline-headings";
 import { useIsOutlineCompact } from "@/lib/layout-tiers";
+import { MediaZoomProvider } from "@/components/media-zoom/MediaZoomProvider";
+import { ImageZoomLayer } from "@/components/media-zoom/ImageZoomLayer";
 import { PublicPageFrame } from "@/components/PublicNoteShell";
 import { publicNoteApiPath, publicNoteQueryKey, publicRefIdentity, type PublicNoteRef } from "@/lib/public-note-ref";
 import { BlockAnchorContext } from "@/hooks/block-anchor-context";
@@ -214,8 +216,11 @@ export default function PublicNotePage() {
             data-testid="article-column"
             className={cn(articleColumn(articleColumnState(noteWidth, outlinePinned), { pinMotion: pinMotionReady }), ARTICLE_COLUMN_PADDING, "relative flex min-h-full flex-col py-6")}
           >
-            <PublicNoteEditor doc={doc!} publicRef={publicRef} links={data.links ?? NO_LINKS} onEditor={setPublicEditor} />
-            <HeadingAnchorButtons container={columnEl} />
+            <MediaZoomProvider>
+              <PublicNoteEditor doc={doc!} publicRef={publicRef} links={data.links ?? NO_LINKS} onEditor={setPublicEditor} />
+              <HeadingAnchorButtons container={columnEl} />
+              <ImageZoomLayer container={columnEl} editable={false} />
+            </MediaZoomProvider>
           </div>
         </div>
       </>

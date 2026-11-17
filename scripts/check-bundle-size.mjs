@@ -21,7 +21,7 @@
 //      且 entry 與其他任何 JS 都不得含它（含被別的 lazy chunk，例如裁切框，靜態 import 而併進去的形）；
 //      再者任何 chunk 都不得靜態 import encode-*.js（兩個以上的靜態使用者會讓它成為共用 chunk，marker 查不到，但開頁就會下載）。
 //      群組對話框（新增／改名、刪除）與筆記 ⋮ 的移動／複製確認框同理（首包瘦身）：各自是 lazy chunk（GroupNameDialog、DeleteGroupDialog、GroupTransferDialog），
-//      且 entry 不得含各自的 marker（GROUP_LAZY_DIALOGS）。
+//      且 entry 不得含各自的 marker（GROUP_LAZY_DIALOGS）。圖片與 mermaid 的放大畫面（MediaLightbox，#462）也列在同一張表：只經 lightbox-chunk.ts 的動態 import() 載入（MediaZoomProvider 的 lazy() 與放大鈕的預取共用同一個 promise）。
 //      站台管理／設定的字串包（management-strings，首包瘦身）同理：entry 不得含 MANAGEMENT_I18N_MARKERS，且 management-strings chunk 必須存在並帶著它們。
 //
 // 全程 fail-closed：dist 不存在、找不到 entry、找到多個 entry，一律 throw 而非放行
@@ -137,13 +137,15 @@ export const ICONS_EXTRA_RE = /^icons-extra-[A-Za-z0-9_-]+.js$/;
 export const MANAGEMENT_STRINGS_RE = /^management-strings-[A-Za-z0-9_-]+\.js$/;
 // 只在開啟時才掛載的對話框：各自必須是 lazy chunk，entry 不得含它的 marker（對話框內才用的 i18n 鍵，字面量不會被 minify 改掉）。
 //   GroupNameDialog：NoteList（新增群組）、GroupMenu（改名）各自 lazy() 動態 import；
-//   DeleteGroupDialog：GroupMenu；GroupTransferDialog：NoteMenu（選單項 GroupTransferMenuItems 仍在首包，不含這些 marker）。
+//   DeleteGroupDialog：GroupMenu；GroupTransferDialog：NoteMenu（選單項 GroupTransferMenuItems 仍在首包，不含這些 marker）；
+//   MediaLightbox（圖片與 mermaid 的放大畫面，#462）：只經 lightbox-chunk.ts 動態 import()（Provider 的 lazy() 與預取共用）。
 // ⚠ 存在性只擋「整組被併回 entry」或 chunk 改名；只改一處呼叫端為靜態 import 時，chunk 可能仍在，那一形由 marker 擋。
 // check-bundle-size.test.mjs 驗每個 marker 都在對應的原始檔裡。
 export const GROUP_LAZY_DIALOGS = [
   { name: 'GroupNameDialog', re: /^GroupNameDialog-[A-Za-z0-9_-]+\.js$/, marker: 'groups.dialog.createDescription', source: 'components/groups/GroupNameDialog.tsx' },
   { name: 'DeleteGroupDialog', re: /^DeleteGroupDialog-[A-Za-z0-9_-]+\.js$/, marker: 'groups.delete.transferTrashNote', source: 'components/groups/DeleteGroupDialog.tsx' },
   { name: 'GroupTransferDialog', re: /^GroupTransferDialog-[A-Za-z0-9_-]+\.js$/, marker: 'share.move.openCopyAlt', source: 'components/share/GroupTransferDialog.tsx' },
+  { name: 'MediaLightbox', re: /^MediaLightbox-[A-Za-z0-9_-]+\.js$/, marker: 'note.zoom.hint', source: 'components/media-zoom/MediaLightbox.tsx' },
 ];
 // 首包 CSS：reveal.css 的 `.reveal-viewport` 規則（寫死黑字白底）若出現在這裡＝reveal.css 被靜態 import 進首包。
 export const ENTRY_CSS_RE = /^index-[A-Za-z0-9_-]+\.css$/;

@@ -733,6 +733,43 @@ input[name="share-access"] {
   font-family: inherit;
 }
 
+/* hover／按下回饋：與側欄列同一組 token（`brand-soft`／`brand-soft-strong`／`brand-on-soft`）。
+   那兩個底色是半透明，疊在程式碼或圖上會透出底下的內容，所以當漸層圖層疊在原本的實底
+   （`bg-popover`）上：底不變、對比不會浮動。不放 layer，理由同上一條。
+   語言下拉（原生 select）同一組回饋；唯讀（`:disabled`）退成純文字標籤，不回應。
+   hover 只在真有 hover 的裝置上套：觸控點一下不會留下黏住的 hover 色；按下回饋不受限。 */
+@media (hover: hover) {
+  .block-control:hover,
+  .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select:hover:not(:disabled) {
+    background-image: linear-gradient(var(--brand-soft), var(--brand-soft));
+    color: var(--brand-on-soft);
+    border-color: var(--brand);
+    cursor: pointer;
+  }
+}
+
+.block-control:active,
+.bn-editor .bn-block-content[data-content-type=codeBlock] > div > select:active:not(:disabled) {
+  background-image: linear-gradient(var(--brand-soft-strong), var(--brand-soft-strong));
+}
+
+/* 鍵盤焦點要看得見：未分層的 `.block-control` 會蓋掉 utility，所以環也寫在這裡。 */
+.block-control:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+/* 兩顆以上的方塊控制項排成一組時，位置由組給，鈕本身照舊吃 `.block-control` 的長相。
+   與 `.block-control` 同樣不放 layer：未分層才贏得過它的 `absolute`。 */
+.block-control-group {
+  @apply absolute top-1 right-1 flex items-stretch gap-1;
+}
+
+.block-control-group > .block-control,
+[data-kb-zoom-layer] > .block-control {
+  position: static;
+}
+
 /* 觸控：程式碼區塊的語言下拉是 BlockNote 內建的原生 select，字級 12px 時 iOS 聚焦會放大整頁。
    與上一條同樣不放 layer、選擇器與它一致，才壓得過它的 `text-xs`。 */
 @media (pointer: coarse) {
@@ -1066,7 +1103,8 @@ input[name="share-access"] {
    未分層：分隔線帶 Tailwind 的 pointer-events-auto（在 @layer utilities），未分層的樣式才贏得過。
    格式工具列也要關：⋮⋮ 拖曳開始時 core 會選取被拖的 block，工具列跟著出現在它正上方，工具列與它外面那層 floating-ui 的包裝
    div 都會接走落在上面的 drop（標記掛在包裝 div 上：SelectionAiController.tsx 的 FORMATTING_TOOLBAR_ELEMENT_PROPS）。
-   只關工具列、不關整個 floating-ui portal：portal 裡還有檔案面板的 file input、AI 框、連結輸入框，它們本身就是拖放的落點。 */
+   只關工具列、不關整個 floating-ui portal：portal 裡還有檔案面板的 file input、AI 框、連結輸入框，它們本身就是拖放的落點。
+   圖片的放大鈕浮動層（ImageZoomLayer）同樣在 view.dom 外：拖放中要隱藏、不接 drop。 */
 .kb-dragging [data-kb-formatting-toolbar-popover],
 .kb-dragging [data-kb-formatting-toolbar-popover] *,
 .kb-dragging [data-kb-side-menu-popover],
@@ -1075,7 +1113,14 @@ input[name="share-access"] {
 .kb-dragging [data-kb-column-side-menu] *,
 .kb-dragging .kb-column-dividers,
 .kb-dragging .kb-column-dividers [role="separator"],
-.kb-dragging .kb-column-dividers * { pointer-events: none; }
+.kb-dragging .kb-column-dividers *,
+.kb-dragging [data-kb-zoom-layer],
+.kb-dragging [data-kb-zoom-layer] * { pointer-events: none; }
+
+.kb-dragging [data-kb-zoom-layer] { visibility: hidden; }
+
+/* 圖片放大：唯讀時圖本身可點（ImageZoomLayer 標 data-kb-zoomable）。 */
+.bn-editor img[data-kb-zoomable] { cursor: zoom-in; }
 
 /* 欄內的 ⋮⋮ 縮成 16px 寬、貼著右欄左緣（side menu 以 left-start 定位，右緣對齊 block 左緣，外框變窄就往右縮），
    溝的左側 8px 留給分隔線（components/editor/ColumnDividers.tsx）。要縮的是實際的命中目標：mantine 的 ActionIcon

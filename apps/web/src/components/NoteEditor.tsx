@@ -73,6 +73,8 @@ import { KnotebookSideMenu, NotePathContext, SIDE_MENU_FLOATING_OPTIONS } from "
 import { useDragActiveClass } from "@/components/editor/use-drag-active-class";
 import { KnotebookTableCellButton, KnotebookTableHandle } from "@/components/editor/colors/KnotebookTableMenus";
 import { HeadingAnchorButtons } from "@/components/editor/HeadingAnchorButtons";
+import { MediaZoomProvider } from "@/components/media-zoom/MediaZoomProvider";
+import { ImageZoomLayer } from "@/components/media-zoom/ImageZoomLayer";
 import { ColumnDividers } from "@/components/editor/ColumnDividers";
 import { LinkLongPress } from "@/components/LinkLongPress";
 import { NoteOutline } from "@/components/outline/NoteOutline";
@@ -838,19 +840,23 @@ export function NoteEditor({
                 footerInScroll || fabClearance ? "grow shrink-0" : "min-h-full",
               )}
             >
-              <NoteEditorView
-                editor={editor}
-                editable={editable}
-                theme={resolvedTheme}
-                noteId={noteId}
-                getItems={getItems}
-                getSlashItems={getSlashItems}
-                notePath={notePath}
-              >
-                {/* #263：formatting toolbar controller 與框選 AI 框的唯一擁有者；NoteEditorView 不碰 AI context。 */}
-                <SelectionAiController />
-              </NoteEditorView>
-              <HeadingAnchorButtons container={columnEl} />
+              {/* #462：放大功能只涵蓋文章欄；版本面板與預覽區在 Provider 之外。 */}
+              <MediaZoomProvider>
+                <NoteEditorView
+                  editor={editor}
+                  editable={editable}
+                  theme={resolvedTheme}
+                  noteId={noteId}
+                  getItems={getItems}
+                  getSlashItems={getSlashItems}
+                  notePath={notePath}
+                >
+                  {/* #263：formatting toolbar controller 與框選 AI 框的唯一擁有者；NoteEditorView 不碰 AI context。 */}
+                  <SelectionAiController />
+                </NoteEditorView>
+                <HeadingAnchorButtons container={columnEl} />
+                <ImageZoomLayer container={columnEl} editable={editable} editor={editor} />
+              </MediaZoomProvider>
               {/* 欄間分隔線（拖曳／鍵盤調欄寬）只在可編輯時掛；唯讀時沒有東西可調。 */}
               {editable && <ColumnDividers container={columnEl} editor={editor} />}
               {mobileToolbar && !footerInScroll && <MobileToolbarSpacer />}

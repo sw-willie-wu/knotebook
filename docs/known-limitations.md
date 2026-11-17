@@ -422,6 +422,13 @@ See [Version history](./versions.md) for how versions work.
 - **On a phone, turning the device back and forth across the 640 px width while the tour is moving between the list and the sample note can end the tour.** The tour then behaves as if you had left it: the sample note stays in My notes. Start the tour again from Help.
 - **On a phone, if the sample note takes more than 5 seconds to show when the tour moves to it (on a slow connection, for example), the tour ends.** The sample note stays in My notes, and you can start the tour again from Help.
 
+## Zooming in on images and diagrams
+
+- **In a note you can edit, the zoom button on an image can't be reached with Tab.** Tab indents in the editor. Selecting the image with the arrow keys shows the button, but it still can't be pressed from the keyboard; use a mouse or tap it.
+- **On a read-only page, the whole diagram acts as one zoom button.** Screen readers announce it as **Zoom in on diagram** and don't present the diagram's own title and description, or the links inside it, as separate items; clicking a link still follows it.
+- **The zoomed view isn't meant for following links inside a diagram.** Follow them from the note.
+- **Presentation mode, version history previews and AI suggestion previews have no zoom.**
+
 ## On a phone
 
 - **After a note was opened from outside Knotebook, `‹` replaces the note in the browser history with the list.** Back to notes steps back through the history to the list when the list is still there, also after a reload. A note opened from a link in another app, a bookmark or by typing its address has no list before it, so `‹` swaps that history entry for the list instead of adding one; the system Back button then goes to whatever came before the note, which can be outside Knotebook, rather than returning to the note.

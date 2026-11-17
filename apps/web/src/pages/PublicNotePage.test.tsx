@@ -91,6 +91,21 @@ vi.mock("@/components/outline/use-outline-box", () => ({
   useOutlineBox: (scrollEl: HTMLElement | null, columnEl: HTMLElement | null) => (scrollEl !== null && columnEl !== null ? outlineBox.value : null),
 }));
 
+// 浮動層的內部行為由 ImageZoomLayer.test.tsx 守；這裡只看頁面把它放進有放大功能的欄裡、且唯讀。
+vi.mock("@/components/media-zoom/ImageZoomLayer", async () => {
+  const { useMediaZoom } = await import("@/components/media-zoom/context");
+  return {
+    ImageZoomLayer: ({ container, editable }: { container: HTMLElement | null; editable: boolean }) => (
+      <div
+        data-testid="image-zoom-layer"
+        data-has-zoom={String(useMediaZoom() !== null)}
+        data-editable={String(editable)}
+        data-in-column={String(container?.dataset.testid === "article-column")}
+      />
+    ),
+  };
+});
+
 const TOKEN = "abcDEF123_-".repeat(4).slice(0, 43);
 
 function ydocBase64(build: (fragment: Y.XmlFragment) => void): string {
@@ -203,6 +218,17 @@ describe("PublicNotePage（#72 /p/:token＋#122 /p/:handle/:slug 免登入唯讀
     const dot = badge.querySelector("[data-readonly-dot]");
     expect(dot).toHaveAttribute("aria-hidden", "true");
     expect(dot).toHaveClass("sm:hidden");
+  });
+
+  it("#462：文章欄裡有放大功能與唯讀的圖片浮動層（浮動層掛在文章欄上）", async () => {
+    const body: PublicNoteBody = { title: "公開的筆記", ydoc: EMPTY_YDOC_UPDATE_B64 };
+    vi.stubGlobal("fetch", mockFetch((url) => (url === `/api/public/notes/${TOKEN}` ? { status: 200, body } : null)).fn);
+    renderPage();
+    const layer = await screen.findByTestId("image-zoom-layer");
+    expect(layer).toHaveAttribute("data-has-zoom", "true");
+    expect(layer).toHaveAttribute("data-editable", "false");
+    await waitFor(() => expect(layer).toHaveAttribute("data-in-column", "true"));
+    expect(screen.getByTestId("article-column")).toContainElement(layer);
   });
 
   it("公開頁沒有最愛星號，也不打最愛清單（#334）", async () => {

@@ -18,6 +18,7 @@ import { useWikilinkTitleOf } from "@/lib/use-wikilink-titles";
 import { useVersions } from "@/lib/versions-context";
 import { useTheme } from "@/theme";
 import { cn } from "@/lib/utils";
+import { MediaZoomContext } from "@/components/media-zoom/context";
 import { ComparePicker } from "./ComparePicker";
 
 /**
@@ -83,7 +84,11 @@ export function DiffEditor({
   );
   return (
     <div data-testid={testId} className="kb-diff min-w-0">
-      <BlockNoteView editor={editor} editable={false} theme={resolvedTheme} />
+      {/* 版本預覽本身在面板／對話框裡，不再疊一層放大對話框，所以 mermaid 圖不提供放大（context 給 null）；
+          圖片的浮動層若掛在外層文章欄，會略過 .kb-diff 內的圖，兩者一致不提供。 */}
+      <MediaZoomContext.Provider value={null}>
+        <BlockNoteView editor={editor} editable={false} theme={resolvedTheme} />
+      </MediaZoomContext.Provider>
     </div>
   );
 }

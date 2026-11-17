@@ -27,6 +27,22 @@ design converted the block into a plain code block, which was a one-way trip).
 **Syntax errors** don't lose your work: the block shows Mermaid's error message next to the source you
 wrote, so you can fix it in place. It never renders Mermaid's own "Syntax error" graphic.
 
+### Zooming in
+
+**Open a diagram full screen** with the zoom button in the block's top-right corner, to the right of
+**Edit** (or **Show source**). On a computer the buttons appear when you point at the diagram; on a
+touch screen they are always shown, faintly. On a read-only page, such as a public link, you can also
+click or tap the diagram itself, or focus it with Tab and press `Enter` (on a touch screen that page
+leaves the zoom button out, since tapping the diagram does the same). Images work the same way: the
+zoom button sits at (or, for short images, just above) the image's own top-right corner and appears when you point at the image or
+select it, and on a read-only page clicking or tapping the image opens it.
+
+In the full-screen view, scroll or pinch to zoom and drag to move. On the keyboard, `+` and `-` zoom,
+`0` fits the diagram to the window, and the arrow keys move it. Double-click (or double-tap) the diagram to
+switch between fitting the window and zooming in. Press `Escape`, click the dark background or use the close
+button to go back to the note. The zoomed diagram is the same SVG as in the note, so it stays sharp at
+any size.
+
 ## Copying diagrams out
 
 Copying a diagram out of Knotebook (or exporting a note) produces the ```` ```mermaid ```` source, not

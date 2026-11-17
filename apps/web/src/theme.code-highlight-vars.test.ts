@@ -337,7 +337,10 @@ describe("codeBlock 底色覆寫", () => {
     // 隱形時它疊在程式碼上：觸控點到那一角不得被一顆看不見的下拉吃掉（想放游標卻打開語言選單）。
     expect(idle!.body, "閒置態要 pointer-events:none").toMatch(/(?:^|[;{])\s*pointer-events:\s*none/);
 
-    const raised = selectRules().find((r) => /:hover|:focus|data-caret-inside/.test(stateOf(r.selector)));
+    // 現身規則＝有狀態選擇器**且宣告 `opacity:1`**（hover／按下的配色回饋也帶 :hover，但不碰 opacity）。
+    const raised = selectRules().find(
+      (r) => /:hover|:focus|data-caret-inside/.test(stateOf(r.selector)) && /(?:^|[;{])\s*opacity:\s*1\b/.test(r.body),
+    );
     expect(raised, "缺現身規則").toBeDefined();
     // ⚠ 選擇器清單**拆逗號逐一**比對（scrollbar-guard 立過的規矩）：整串 test 的話，三個條件
     // 少了哪一個只要別處字串碰巧含有它就騙得過。

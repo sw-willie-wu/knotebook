@@ -18,11 +18,19 @@ import { versionListKey } from "@/api/versions";
 import { KIND_FILTER_STORAGE_KEY } from "@/lib/versions-context";
 import { VersionsProvider, useVersions, useVersionsController } from "@/lib/versions-context";
 import { diffBlocks, renderDiff, type DiffBlock } from "@/lib/version-diff";
+import { MediaZoomProvider } from "@/components/media-zoom/MediaZoomProvider";
 import { DiffEditor, VersionPreview } from "./VersionPreview";
 import { PreviewBanner } from "./PreviewBanner";
 import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 vi.mock("@/lib/use-container-width", () => ({ useContainerWidth: () => widthRef.current }));
+// mermaid 本體在 jsdom 跑不起來：回一張固定的小 SVG。
+vi.mock("@/lib/mermaid", () => ({
+  renderMermaid: vi.fn(() => Promise.resolve({ ok: true, svg: "<svg viewBox='0 0 10 10'></svg>" })),
+  cachedMermaid: vi.fn(() => null),
+  preloadMermaid: vi.fn(),
+  nextMermaidId: () => "mermaid-test",
+}));
 const widthRef = vi.hoisted(() => ({ current: 600 }));
 
 const NOTE = "n1";
@@ -860,6 +868,22 @@ describe("VersionPreview", () => {
     });
     await waitFor(() => expect(banner).toHaveTextContent(`Previewing ${vlabel(1, "改好的名字")}`));
     expect(within(banner).getByRole("button", { name: "Left side" })).toHaveTextContent(vlabel(1, "改好的名字"));
+  });
+
+  it("#462：外層有放大功能時，版本預覽的 mermaid 圖仍沒有放大鈕、圖本身也不是按鈕", async () => {
+    const blocks = [{ id: "m1", type: "mermaid", props: { code: "graph TD; A-->B;" }, children: [] }] as unknown as DiffBlock[];
+    render(
+      <ThemeProvider>
+        <MediaZoomProvider>
+          <DiffEditor blocks={blocks} marks={new Map()} />
+        </MediaZoomProvider>
+      </ThemeProvider>,
+    );
+    const pane = screen.getByTestId("diff-pane");
+    await waitFor(() => expect(pane.querySelector("svg")).not.toBeNull());
+    const box = pane.querySelector("svg")!.closest("div.py-2")!;
+    expect(box).not.toHaveAttribute("role");
+    expect(box).not.toHaveAttribute("tabindex");
   });
 
   describe("並排的 diff 標記與 split 頂層單位", () => {
