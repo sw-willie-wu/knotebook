@@ -244,7 +244,7 @@
         },
         "phoneLayout": {
           "title": "On a phone",
-          "desc": "On a narrow screen the note list is the home screen and a note opens over it. While you edit, a toolbar sits above the on-screen keyboard, and dialogs and menus rise from the bottom."
+          "desc": "On a narrow screen the note list is the home screen and a note opens over it. While you edit, a toolbar sits above the on-screen keyboard. Dialogs and menus rise from the bottom."
         },
         "profilePictures": {
           "title": "Profile pictures",
