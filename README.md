@@ -1,8 +1,14 @@
 # Knotebook
 
+[![Latest release](https://img.shields.io/github/v/release/sw-willie-wu/knotebook?sort=semver)](https://github.com/sw-willie-wu/knotebook/releases/latest)
+[![CI](https://github.com/sw-willie-wu/knotebook/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sw-willie-wu/knotebook/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 English | [繁體中文](README.zh-TW.md)
 
-Knotebook is an open-source, self-hostable Notion/HackMD-style collaborative note system with bring-your-own-endpoint AI built in.
+**Self-hosted collaborative notes for your team and its AI agents.** Knotebook is an open-source, Notion/HackMD-style notebook that runs on your own server. People edit notes together in real time; the AI assistants you already use, such as Claude Code, Claude Desktop or any other MCP client, search, read and edit the same notes through an MCP endpoint, and their edits show up in each note's AI edit history, where they can usually be reverted.
+
+![A note in Knotebook: the sidebar with folders on the left, the note with a table and a Mermaid diagram on the right, two collaborators' avatars in the header and their cursors in the text](docs/images/editor.png)
 
 Three non-negotiables:
 
@@ -10,72 +16,101 @@ Three non-negotiables:
 - **Real-time CRDT collaboration** — Yjs-based multiplayer editing, not a commercial add-on.
 - **Bring your own AI endpoint** — point Knotebook at your own OpenAI-compatible or Anthropic endpoint (including a local/on-prem Ollama); no bundled vendor lock-in.
 
-**Status:** the latest release is v0.15.0 (2026-11-10). What it does today:
+It runs as one app container and a PostgreSQL database with `docker compose`, from prebuilt images for linux/amd64 and linux/arm64. The web app is in English and Traditional Chinese, with light and dark themes.
 
-- **Writing together** — a block editor with live multiplayer editing (Yjs/Hocuspocus), links between notes (`[[`, or just paste or drag in a note's address) that follow renames, with backlinks and links to a single paragraph, image uploads, side-by-side columns (see [Side-by-side columns](docs/columns.md)), three content widths for a note (Standard, Wide or Full width), a row of avatars in the note header showing who else has the note open right now, and Mermaid diagrams (see [Diagrams](docs/diagrams.md)). Ctrl+/ (⌘/ on a Mac), or **Help** in the user menu, opens the Help window — a feature tour on a sample note, what's new in this version, and the common keyboard shortcuts and typing triggers (see [Help and the feature tour](docs/feature-tour.md)) — and Ctrl+, (⌘, on a Mac) opens **Settings**.
-- **Version history** — every note keeps versions, saved automatically (after a few minutes without new edits — 5 by default, set by a site admin) or by hand; each version is shown by its name and the first 7 characters of its id; compare any two side by side, apply one to bring an older state back, and rely on retention rules and three switches (site, your own notes, a group) that turn automatic saving off; the version list can be narrowed to manual versions only, and on a wide screen the version panel can be resized by dragging its left edge (see [Version history](docs/versions.md)).
-- **Presentation mode** — play any note as a slide show: its headings become the slides, the cover is the title, and signed-in viewers see collaborators' edits as they happen (see [Known limitations](docs/known-limitations.md)).
-- **Accounts** — password sign-in and sign-in through any number of OpenID Connect identity providers (GitLab, Google, or another provider), which can also be made the only way in; people can register with a password unless a site admin turns that off, site admins can invite people or reset someone's password with a one-time link, and each sign-in service can be set to create an account on someone's first sign-in, and people can link several sign-in services to one account. Site admins manage users (their role, and see when each was last active, or **Online** if within the last 5 minutes), groups, sign-in services (with their icons), storage plans and AI providers in the **Site admin** panel (`/admin/users`, `/admin/groups`, `/admin/login`, `/admin/storage`, `/admin/ai`); your own profile, sign-in methods, authorization, groups and storage live in **Settings**, which, like the Site admin panel and each group's panel, opens as a modal over the page you were on — see [Sign-in providers](docs/self-hosting.md#sign-in-providers) and [Accounts](docs/self-hosting.md#accounts).
-- **Trash** — deleting a note moves it to the trash instead of deleting it for good. The sidebar shows one kind of note at a time under six tabs — **Recent**, **Favorites**, **My notes**, **Groups**, **Shared with me** and **Trash**; in **Trash** you restore notes or delete them permanently, one by one, several at a time or all at once, and **Select** in **My notes**, **Groups**, **Shared with me**, **Recent** and **Favorites** acts on several notes and folders in one go — removing notes from your favorites (in **Favorites** only), moving them within their space (in **My notes**, **Groups** and **Shared with me**; notes in **My notes** can also go into a group), copying notes, and deleting them, which moves notes to the trash (in **Shared with me**, it only removes folders, and no note is deleted). Notes in the trash are permanently deleted automatically after 7 days unless a site admin sets another number of days or turns that off under **Site admin → Storage plans → Trash** (see [Notes in the trash](docs/sharing.md#notes-in-the-trash) and [Trash](docs/self-hosting.md#trash)).
-- **Sharing** — a personal note is private, shared with chosen people as editors or viewers, or published as a read-only public link (see [Sharing](docs/sharing.md)).
-- **Groups** — a group owns its notes, which live at `/g/<group id>/<name>`; what each member can do comes from their role in the group — the built-in Admin and Member roles, or custom roles built from six permissions, managed in the group's own panel at `/groups/<id>`. A personal note can be moved or copied into a group, and deleting a group either gives its notes to one of its admins or deletes them with it (see [Notes in a group](docs/sharing.md#notes-in-a-group)).
-- **Folders** — the sidebar's **My notes**, **Groups** and **Shared with me** tabs show folders, which nest up to five levels; the notes in a folder can be sorted by name, last modified or size. Your folders in **My notes** are seen only by you, and a group's folders by every member of the group; in **Shared with me**, your folders file the notes shared with you for you alone. Put notes in a folder with **Move to…** in a note's `⋮` menu, with **Select**, which moves folders too, or by dragging a note onto a folder with a mouse; dropping a note on another after holding it there can make a new folder holding both. Deleting a folder in **My notes** or **Groups** moves its notes to the trash, and restoring them puts each back in its folder. The REST API (`/api/folders`) and MCP have folders too (see [Folders](docs/sharing.md#folders)).
-- **Search** — the sidebar's search finds notes by their title and by their body text: for a note whose text matches, it shows an excerpt from each matching section (up to three per note), 20 notes at a time with **Load more**, and clicking an excerpt opens the note, scrolls to the first block of that section that contains the text and highlights it. The REST API has the same search (`GET /api/search`), and MCP has `search_notes` (see [API contract summary](docs/api.md) and [MCP](docs/mcp.md#search_notes)).
-- **On a phone** — on a window narrower than 640 pixels the note list is the home screen: tap a note to open it, tap **‹** at the left of its header (or use the system Back button) to return to the list exactly as you left it. The list and a note each have two frosted round buttons at the bottom, **Search** (a full-screen search) at the left and **New note** at the right, and a note's header's second row shows where the note lives, which you can tap to see it in the list (see [Known limitations](docs/known-limitations.md#on-a-phone) for what is still rough). From 640 to 1279 pixels the sidebar is a drawer opened by a button in the header; from 1280 pixels it sits beside the note.
-- **Storage quotas** — every personal space and every group sits on a storage plan that can cap its attachments (or set no limit; a personal space's plan also counts profile pictures); site admins manage plans and assignments under **Site admin → Storage plans**, and people see their own usage in **Settings → Storage**; a group's storage is shown by file type and by the member who brought each file in, to every member of the group (see [Storage quotas](docs/self-hosting.md#storage-quotas)).
-- **AI quick actions** — rewrite, translate, summarize, continue, and free-form instructions you type yourself (the **Instruct** action), run on a text selection from the **AI** button on the formatting toolbar, with the result shown as an inline diff; streamed from an OpenAI-compatible or Anthropic endpoint an admin configures (see [AI quick actions](docs/ai.md)).
-- **Your own AI on your notes** — personal API tokens, or apps authorized over OAuth, can read and write note content; a write that changes a note's content shows up live in open tabs and is recorded in the note's AI edit history, where it can be reverted (see [API tokens](docs/api-tokens.md) and [AI editing](docs/ai-editing.md)). An MCP endpoint at `/api/mcp` gives Claude Code, Claude Desktop and other MCP clients up to twenty tools to find, read, edit, create, rename and copy notes, group notes included, to move a note into a group, to list, create, rename, move and delete folders and file notes in them, to move notes to the trash and back, to move images in and out, and to download many notes as markdown files and send changed files back (see [MCP](docs/mcp.md)). Moving or copying a note into a group takes its own `notes:move` permission, which you tick per token or per app; moving notes to the trash or restoring them, and deleting folders, takes the separate `notes:delete` permission; and every MCP tool rejects an argument it doesn't know.
+**Status:** the latest release is v0.15.0 (2026-11-10). Every version and its files are on [Releases](https://github.com/sw-willie-wu/knotebook/releases); what changed, and what is on `main` but not released yet, is in the [CHANGELOG](CHANGELOG.md).
 
-All of it sits on a REST API you can also drive directly (see [API contract summary](docs/api.md)), and it is exercised end-to-end by a Playwright test suite. Upgrading to 0.15.0 runs database migrations 0036 and 0037 (MCP bulk transfer), which only add tables and columns, change checks and let `transfer_tokens.note_id` be empty — back up first. MCP clients need a restart to see `create_bulk_transfer_token`; over MCP and the REST API, `edit_note`'s `rename` now needs `if_match`, some Markdown that used to be accepted is now refused, reading a note can now fail and gives slightly different Markdown, a note can grow to at most `NOTE_MAX_BYTES` (5 MiB by default), and the HTTP API's error messages are now in English. The server now runs parse workers, which use memory of their own: on a 2 GiB machine, set `PARSE_WORKER_MEMORY_MB` to 512. Read the [0.15.0 upgrade notes](CHANGELOG.md#0150---2026-11-10) and [Upgrading to v0.15](docs/self-hosting.md#upgrading-and-rolling-back) first. If you roll back to 0.14.x, don't revert the AI edit history rows of files sent back over MCP while it runs: reverting such a row there can report success while putting nothing back, and the row can't be reverted after upgrading again either. (Coming from 0.13.x? The [0.14.0 upgrade notes](CHANGELOG.md#0140---2026-11-01) apply too: no database migration, but MCP clients need a restart to see the new folder tools, and, over MCP and the REST API, notes with side-by-side columns, a resized image or table column widths read differently, some writes that used to be accepted are now refused, and `DELETE /api/folders/:id` refuses some bodies it used to ignore — read [Upgrading to v0.14](docs/self-hosting.md#upgrading-and-rolling-back) first. Rolling back to 0.13.0 is harmless for the database: folders, and where notes are filed, stay, but 0.13.0's web app doesn't show them and its MCP has no folder tools. Coming from 0.12.x? The [0.13.0 upgrade notes](CHANGELOG.md#0130---2026-10-26) apply too: database migrations 0027–0035 (username renames, a public page width for notes, sign-in services without a client ID yet, one-time links for password resets and invitations, **Creates accounts** per sign-in service, the trash, folders, and the `notes:delete` scope) — back up first. Reload every open tab after upgrading: tabs opened before it ask to be reloaded. Sign-in behaves as before after the upgrade, and no existing token or app gets `notes:delete` until you turn it on. Rolling back to a version before 0.13.0 deletes side-by-side columns, with what is in them, the first time such a note is opened, and has more consequences — read [Upgrading to v0.13](docs/self-hosting.md#upgrading-and-rolling-back) first. Coming from 0.11.x? The [0.12.0 upgrade notes](CHANGELOG.md#0120---2026-10-15) apply too: no database migration, but in a clone of the repository `docker compose up -d` now runs the prebuilt image instead of building one: after updating the clone, run `docker compose pull` and `docker compose up -d`, or `docker compose up -d --build` to keep building from source. If you have your own `docker-compose.override.yml`, read [Upgrading to v0.12](docs/self-hosting.md#upgrading-and-rolling-back) first. Coming from 0.10.x? The [0.11.0 upgrade notes](CHANGELOG.md#0110---2026-10-15) apply too: database migrations 0024–0026 (last active time, automatic versions saved after a pause, links to notes) — back up first. Reload every open tab after upgrading: tabs opened before it can't connect to the new server. About 30 seconds after the first start, the server turns ordinary links to notes on this site into links to those notes, in the background, and automatic versions are now saved only after a note has had no new changes for a while (5 minutes by default). The first start also adds the **Instruct** AI action, enabled, so where AI actions already work every editor can send free-form instructions — see also [Upgrading to v0.11](docs/self-hosting.md#upgrading-and-rolling-back). Coming from 0.9.x? The [0.10.0 upgrade notes](CHANGELOG.md#0100---2026-10-11) apply too: database migrations 0020–0023 (self-link cleanup, the `notes:move` scope, last sign-in time, who takes up group space) and changes to the MCP tools and OAuth: existing tokens and apps lose moving and copying notes into groups until you allow it again, every MCP tool now rejects arguments it doesn't know, and apps you authorize for the first time are read-only by default — back up first. The bundled database is now optional: set `BUNDLED_DB=0` and `DATABASE_URL` in `.env` to use your own PostgreSQL instead. Coming from 0.8.x? The [0.9.0 upgrade notes](CHANGELOG.md#090---2026-10-10) apply too: no database migration, but scripts that call `create_note` with `groupId` must switch to `group_id`, and MCP clients need a restart to see the new tools. Coming from 0.7.x? The [0.8.0 upgrade notes](CHANGELOG.md#080---2026-10-10) apply too: a database migration (note versions) runs and automatic note versions are on for the whole site — back up first. Coming from 0.6.x? The [0.7.0 upgrade notes](CHANGELOG.md#070---2026-10-09) apply too: every existing user and group goes on a 2 GiB default storage plan. Coming from 0.5.x? The [0.6.0 upgrade notes](CHANGELOG.md#060---2026-10-08) apply as well: SSO configuration moves from `.env` into **Site admin → Sign-in**, and self-registration opens by default.)
+## Screenshots
 
-## Quickstart (~10 minutes)
+Who else has the note open, with their cursors in the text:
 
-This brings up the server and a Postgres database with `docker compose`; the first (admin) account is created from environment variables at startup — there's no in-browser setup step. The server runs from a prebuilt image, `ghcr.io/sw-willie-wu/knotebook` on the GitHub Container Registry (linux/amd64 and linux/arm64, published from v0.11.1 on), so it doesn't have to be built on your machine.
+![The note header with Bob's and Carol's avatars and a tooltip "Bob · Editor, Click to go to their cursor", and their two cursors in the note's list](docs/images/presence.png)
 
-1. Get `docker-compose.yml` and `.env.example`, then copy the example environment file:
-   - **Clone the repository** — what you need to build from source or run what is on `main`: `git clone https://github.com/sw-willie-wu/knotebook.git && cd knotebook`.
-   - **Or, without cloning**, download the two files attached to the latest release into an empty directory (releases from v0.12.0 on carry them).
+On a phone, the note list is the home screen and a note opens over it:
 
-     ```sh
-     curl -fLO https://github.com/sw-willie-wu/knotebook/releases/latest/download/docker-compose.yml
-     curl -fL -o .env.example https://github.com/sw-willie-wu/knotebook/releases/latest/download/env.example
-     ```
+<p align="center"><img src="docs/images/phone.png" alt="Knotebook on a phone: the note list with folders, and a note with its location under the title" width="640"></p>
+
+## Features
+
+### Writing
+
+- **Block editor** — headings, lists, tables, quotes, code blocks with syntax highlighting, a `/` menu to insert blocks and Markdown shortcuts as you type; see [Help and the feature tour](docs/feature-tour.md) for the shortcuts.
+- **Colors** — text, background and table cell colors: ten built in, or any color you pick.
+- **Real-time co-editing** — everyone on a note edits at once (Yjs and Hocuspocus) and sees the other editors' cursors; the note header shows who else has it open, and clicking someone's avatar goes to their cursor.
+- **Links between notes** — type `[[`, or paste or drag in a note's address; links follow renames, can point at a single paragraph, and each note lists the notes that mention it.
+- **Images** — add PNG, JPEG, GIF or WebP images to a note and resize them; they count toward the storage plan of the note's space.
+- **Side-by-side columns** — rows of two to four columns, made with `/grid` or by dragging a block beside another, resized by dragging the divider ([Side-by-side columns](docs/columns.md)).
+- **Diagrams** — Mermaid diagrams, stored as their source text and drawn in the note ([Diagrams](docs/diagrams.md)).
+- **Note width** — Standard, Wide or Full width, per note.
+- **Version history** — versions saved automatically after a pause in editing, or by hand; preview one, compare two side by side, and apply an older one ([Version history](docs/versions.md)).
+- **Presentation mode** — play a note as a slide show whose slides are its headings, from the note or from its public link.
+- **Search** — the sidebar finds notes by title and body text and opens a note at the matching section; the REST API and MCP search the same way ([API](docs/api.md), [MCP](docs/mcp.md#search_notes)).
+
+### Organizing and sharing
+
+- **Folders** — up to five levels, in your notes, in each group, and, for you alone, among the notes shared with you; file notes with **Move to…**, by selecting several, or by dragging with a mouse ([Folders](docs/sharing.md#folders)).
+- **Favorites** — star a note to keep it on the Favorites tab; your favorites are yours alone ([Favorites](docs/sharing.md#favorites)).
+- **Trash** — a deleted note goes to the trash, where it can be restored; it is deleted for good after 7 days unless a site admin sets another number of days or turns that off ([Notes in the trash](docs/sharing.md#notes-in-the-trash)).
+- **Sharing and public links** — a personal note is private, shared with chosen people as editors or viewers, or published as a read-only public link, which can have a custom address ([Sharing](docs/sharing.md)).
+- **Groups** — a group owns its notes; what a member can do comes from their role, built in (Admin, Member) or custom ([Notes in a group](docs/sharing.md#notes-in-a-group)).
+
+### Accounts and administration
+
+- **Sign-in** — passwords, and any number of OpenID Connect providers (GitLab, Google or another), which can create an account on someone's first sign-in or be made the only way in; self-registration with a password (on unless a site admin turns it off), invitation links and one-time password-reset links ([Sign-in providers](docs/self-hosting.md#sign-in-providers), [Accounts](docs/self-hosting.md#accounts)).
+- **Profile pictures** — upload and crop your own, or use the picture your identity provider sends; it shows on your account button, in the avatars other people see at the top of a note you have open, and next to your name in lists such as a group's members.
+- **Storage quotas** — every personal space and group is on a storage plan that can cap its attachments ([Storage quotas](docs/self-hosting.md#storage-quotas)).
+- **Site admin** — users, groups, sign-in services, storage plans, AI providers, and 17 limits (upload size, note size, request rates and more) that take effect without restarting the server ([Site limits](docs/self-hosting.md#site-limits)).
+
+### AI
+
+- **AI quick actions** — Rewrite, Translate, Summarize, Continue writing and Instruct (follows an instruction you type) on selected text, with the result shown as an inline diff, streamed from the provider a site admin sets up ([AI quick actions](docs/ai.md)).
+- **MCP** — `/api/mcp` gives Claude Code, Claude Desktop and other MCP clients up to twenty tools to search, read, create, edit, rename, copy and move notes, manage folders, move notes to the trash and back, and read images ([MCP](docs/mcp.md)).
+- **Notes as files** — with `open_notes_as_files`, an assistant that has a shell downloads many notes as Markdown files and sends the changed files back ([MCP](docs/mcp.md#open_notes_as_files)).
+- **AI edit history** — an edit to a note through the API or MCP shows up live in open tabs and is recorded in the note's AI edit history, where it can usually be reverted ([AI editing](docs/ai-editing.md)).
+- **API tokens and OAuth** — personal API tokens with scopes, or apps you authorize over OAuth, which are read-only unless you allow more ([API tokens](docs/api-tokens.md)).
+
+### On every screen
+
+- **Phone layout** — below 640 px the note list is the home screen, a note slides in over it, dialogs and menus rise from the bottom, and an editing toolbar sits above the on-screen keyboard; from 640 to 1279 px the sidebar is a drawer ([Known limitations](docs/known-limitations.md#on-a-phone)).
+- **Install as an app** — add Knotebook to a phone's or computer's home screen, or install it from Chrome or Edge; like a browser tab, it needs the server ([Installing Knotebook as an app](docs/install-app.md)).
+- **Help and feature tour** — **Help** in the user menu, or Ctrl+/ (⌘/ on a Mac), opens the Help window: a feature tour on a sample note, What's new, and the keyboard shortcuts ([Help and the feature tour](docs/feature-tour.md)).
+
+### Running it
+
+- **Docker Compose** — the app and a bundled PostgreSQL, or your own PostgreSQL ([Self-hosting guide](docs/self-hosting.md)).
+- **REST API** — the web app runs on a REST API you can call yourself ([API contract summary](docs/api.md)).
+- **Backups** — the server keeps periodic snapshots of note content, and a runbook covers restoring a note from one or from a `pg_dump` ([Restoring note content from a backup](docs/backup-restore.md)).
+
+## Quickstart
+
+You need Docker with Compose. This runs Knotebook on `http://localhost:3000`.
+
+1. In an empty directory, download the latest release's compose file and example settings:
 
    ```sh
-   cp .env.example .env
+   curl -fLO https://github.com/sw-willie-wu/knotebook/releases/latest/download/docker-compose.yml
+   curl -fL -o .env https://github.com/sw-willie-wu/knotebook/releases/latest/download/env.example
    ```
 
-2. Generate an `APP_SECRET` (used to sign session cookies and collab tokens, and to encrypt stored AI provider credentials — see [AI quick actions](docs/ai.md)) and fill it into `.env`:
+   (Or `git clone https://github.com/sw-willie-wu/knotebook.git`, `cd knotebook` and `cp .env.example .env`, to build from source or run `main`.)
 
-   ```sh
-   openssl rand -hex 32
-   ```
+2. Fill in four values in `.env`:
 
-   Paste the output as `APP_SECRET=...` in `.env`.
+   - `APP_SECRET` — a random secret, for example the output of `openssl rand -hex 32`.
+   - `PUBLIC_URL=http://localhost:3000`
+   - `ADMIN_EMAIL` and `ADMIN_PASSWORD` (12 characters or more) — the first admin account. The server won't start on an empty database without them, and they only take effect that first time.
 
-3. Set `PUBLIC_URL` in `.env`. For local use:
-
-   ```
-   PUBLIC_URL=http://localhost:3000
-   ```
-
-4. Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `.env` — this creates the first (admin) account at startup. `ADMIN_PASSWORD` must be 12+ characters. This is the only way to initialize a fresh instance: the server refuses to start on an empty database without these set (see `.env.example` and [Known limitations](docs/known-limitations.md) — it only takes effect on first initialization).
-
-5. Start the stack (`app` + `db` services, where `db` is a bundled PostgreSQL — to use your own PostgreSQL instead, see [Using your own PostgreSQL](docs/self-hosting.md#using-your-own-postgresql); see [Deployment prerequisites](docs/self-hosting.md#deployment-prerequisites) before doing this in production):
+3. Start it, open `http://localhost:3000` and sign in with `ADMIN_EMAIL` and `ADMIN_PASSWORD`:
 
    ```sh
    docker compose up -d
    ```
 
-   The first run downloads the image: the release's own version with a release's `docker-compose.yml`, `latest` with the repository's — unless you set `KNOTEBOOK_VERSION` in `.env` to a release (for example `KNOTEBOOK_VERSION=0.11.1`), which is recommended with a clone. In a clone, `docker compose up -d --build` builds from source instead (see [The app image](docs/self-hosting.md#the-app-image)).
+Which image runs: a release's `docker-compose.yml` runs that release, the repository's runs `latest`, and `KNOTEBOOK_VERSION` in `.env` pins a release (recommended with a clone). In a clone, `docker compose up -d --build` builds from source instead ([The app image](docs/self-hosting.md#the-app-image)).
 
-6. Open `http://localhost:3000` in a browser and log in with `ADMIN_EMAIL`/`ADMIN_PASSWORD`. You're signed in straight away — there is no forced password change for this account. You can change the password later under **Settings → Sign-in**.
+To try co-editing, open **Site admin → Users** from the user menu, use **Create invitation**, open the link in a private window to create a second account, and share a note with it.
 
-7. Create a note and open it in the block editor. To try live co-editing, open **Site admin → Users** (`/admin/users`; **Site admin** is in the user menu — you're an admin), use **Create invitation** to make an invitation link, and open the link in a second browser or an incognito window to create a second account there. Then share the note with that account and watch edits sync live. Admins can invite people this way while password sign-in is on. People can also create their own account at `/register` while password sign-in and **Allow self-registration with a password** are both on (the default; turn the latter off in **Site admin → Sign-in**), or get one the first time they sign in through a sign-in service that has **Creates accounts** on — see [Accounts](docs/self-hosting.md#accounts).
-
-If you'd rather drive the API directly than click through the browser — e.g. to script the whole flow or build another client — the same login endpoints are available over `curl`; see [API contract summary](docs/api.md) for the full endpoint list. The loop is: `ADMIN_EMAIL`/`ADMIN_PASSWORD` from `.env` → `POST /api/auth/login` → authenticated API calls, session cookie carried the same way the browser carries it.
-
-**Upgrading:** with a release's files, download the new release's `docker-compose.yml` over the old one — keep your own changes, such as the LAN-mode port, in `docker-compose.override.yml`, which the download doesn't touch (see [The app image](docs/self-hosting.md#the-app-image)) — keep your `.env`, and if it sets `KNOTEBOOK_VERSION`, change it to the new version or remove it; with a clone, update it to the new release (for example `git pull`) and set `KNOTEBOOK_VERSION` in `.env` to the new version (or leave it unset to follow `latest`). Then run `docker compose pull` and `docker compose up -d`. Read the release's upgrade notes first, and back up when they say so — see [Upgrading and rolling back](docs/self-hosting.md#upgrading-and-rolling-back).
+**Upgrading:** read the new release's upgrade notes in the [CHANGELOG](CHANGELOG.md) first, and back up when they say so. Then replace `docker-compose.yml` with the new release's (or update your clone), change `KNOTEBOOK_VERSION` if you set it, and run `docker compose pull` and `docker compose up -d` ([Upgrading and rolling back](docs/self-hosting.md#upgrading-and-rolling-back)).
 
 ## Before you deploy beyond localhost
 
@@ -86,27 +121,44 @@ Read the full [self-hosting guide](docs/self-hosting.md) before running anywhere
 
 ## Documentation
 
-- [Self-hosting guide](docs/self-hosting.md) — deployment prerequisites, compose services/volumes, reverse proxy & TLS, LAN plain-http mode, environment variable reference, sign-in services (OIDC/SSO) and their setup on GitLab and Google, accounts and registration, SSO-only sign-in and its recovery switch, content security policy, parse workers and the note size limit, the prebuilt image (installing from a release's files or a clone, building from source, `docker run` with your own PostgreSQL), upgrading/rollback, and troubleshooting.
-- [API contract summary](docs/api.md) — full endpoint table with auth requirements and error codes.
-- [API tokens](docs/api-tokens.md) — Personal API tokens for scripts and AI assistants, which can read and write note content today: creating, using (`Authorization: Bearer`), which endpoints accept them, rate limits, revoking, and why changing your password doesn't revoke them; plus how an MCP client authorizes itself over OAuth instead of using a pasted token.
-- [AI editing](docs/ai-editing.md) — the note-content read/write API a token or authorized app uses: the five write operations, fingerprints and conflict handling, reverting a write, the presence cursor and agent display names, and rate limits and error codes.
-- [MCP](docs/mcp.md) — connecting an MCP client (the exact `claude mcp add` and `mcp-remote` commands), the twenty tools and what each answers, the read-write loop, MCP's own limits and error shapes, and its known limitations.
-- [Sharing](docs/sharing.md) — the three access levels of a personal note (private / members / public link), notes in a group and what each role permission allows, moving or copying a note into a group, what a public read-only link grants, and how revoking and regenerating behave.
-- [Version history](docs/versions.md) — when a note's versions are saved, previewing, comparing and applying them, who can see them, how long automatic versions are kept, and the three switches that turn automatic versions off.
-- [AI quick actions](docs/ai.md) — admin setup guide (under **Site admin → AI agents**) for AI providers/models/actions, key encryption, and how quick actions behave in the editor.
-- [Diagrams (Mermaid)](docs/diagrams.md) — inserting, editing and pasting Mermaid diagrams, what copying one out produces, and the on-demand loading and rendering lockdown behind them.
-- [Side-by-side columns](docs/columns.md) — putting blocks next to each other in rows of two to four columns made with `/grid` or by dragging a block beside another, resizing columns by dragging the divider between them, how rows stack on narrow screens, removing columns with the keyboard or **Ungroup columns**, copying and pasting rows, and undo.
-- [Help and the feature tour](docs/feature-tour.md) — the Help window (user menu or Ctrl+/), what its feature tour does and what it creates, the **What's new** page, and how maintainers keep that list up to date.
-- [Known limitations](docs/known-limitations.md) — the full list of known rough edges and deliberate trade-offs.
-- [Restoring note content from a backup](docs/backup-restore.md) — runbook for restoring `note_states` from a snapshot or `pg_dump`.
-- [Releasing](docs/releasing.md) — for maintainers: preparing a release pull request with `pnpm release:prepare`, and what the Release workflow does after it is merged (the tag, the GitHub Release and the Docker images).
-- [CHANGELOG](CHANGELOG.md).
+For people writing notes:
+
+- [Sharing](docs/sharing.md) — private, shared and public notes, groups and their roles, moving or copying a note into a group, folders, favorites and the trash.
+- [Version history](docs/versions.md) — when versions are saved, previewing, comparing and applying them, who sees them and how long they are kept.
+- [Side-by-side columns](docs/columns.md) — making, resizing, removing, copying and undoing rows of columns.
+- [Diagrams (Mermaid)](docs/diagrams.md) — inserting, editing, pasting and copying out Mermaid diagrams.
+- [Help and the feature tour](docs/feature-tour.md) — the Help window, the feature tour and the What's new page.
+- [Installing Knotebook as an app](docs/install-app.md) — adding it to the home screen on Android, iPhone and iPad, and installing it on a computer.
+- [Known limitations](docs/known-limitations.md) — every known rough edge and deliberate trade-off.
+
+For connecting AI and scripts:
+
+- [MCP](docs/mcp.md) — connecting an MCP client, what each tool takes and answers, the read-write loop, limits and errors.
+- [API tokens](docs/api-tokens.md) — creating, using and revoking personal API tokens, and authorizing an app over OAuth instead.
+- [AI editing](docs/ai-editing.md) — reading and writing note content over the API: sections, fingerprints, the five write operations, reverting and the Markdown format.
+- [API contract summary](docs/api.md) — every endpoint with its authentication, request body and error codes.
+
+For running a server:
+
+- [Self-hosting guide](docs/self-hosting.md) — deployment prerequisites, reverse proxy and TLS, environment variables, site limits, sign-in providers, accounts, storage quotas, the app image, upgrading and rolling back, and troubleshooting.
+- [AI quick actions](docs/ai.md) — setting up AI providers, models and actions in **Site admin → AI agents**, and how the actions behave in the editor.
+- [Restoring note content from a backup](docs/backup-restore.md) — restoring a note's content from a snapshot or from a `pg_dump`.
+
+For contributors and maintainers:
+
+- [Running the e2e suite locally](docs/e2e-local.md) — the Playwright suite against a throwaway Docker Compose stack in WSL, and running several at once.
+- [Releasing](docs/releasing.md) — preparing a release pull request with `pnpm release:prepare`, and what the Release workflow does after the merge.
+- [CHANGELOG](CHANGELOG.md) — every release, with its upgrade notes.
 
 ## Roadmap
 
-All five v0.1 milestones — the API foundation, the web UI with real-time collaboration, wikilinks and image uploads, AI quick actions, and OIDC login — have shipped, followed by a hardening release (0.2), a UI overhaul, Mermaid diagrams, readable note URLs and public share links (0.3.x), API tokens, OAuth and MCP for bringing your own AI (0.4.x), groups (0.5), multiple sign-in services with self-registration (0.6), storage quotas and presentation mode (0.7), note version history (0.8), MCP tools to rename, move and copy notes (0.9), separate panels for settings, groups and site admin with a `notes:move` permission (0.10), links to notes that carry their own text and point to a paragraph, an AI box and free-form instructions on a selection, and automatic versions saved after a pause in editing (0.11), `docker compose` running the prebuilt image by default, with release files that install Knotebook without a clone (0.12), the trash, a tabbed sidebar, three content widths for a note, one-time links for password resets and invitations, who else has a note open, side-by-side columns and a folders API (0.13), folders in the sidebar, which notes go into with **Move to…**, selection mode or dragging, folder tools over MCP, side-by-side columns and the widths of images and table columns read and written over MCP, the REST API and the in-app AI, adding several people to a group at once, selection mode in one row on wide windows with a mouse, the **Workspace** tab renamed **Groups** (0.14), and reading and writing many notes as files over MCP, body-text search in the sidebar, a keyboard shortcuts panel, a size limit for notes, and parse workers, so that reading and writing notes over MCP and the API no longer hold up the server (0.15); see the [CHANGELOG](CHANGELOG.md) for the history.
+Next up:
 
-Planning lives in [GitHub Milestones](https://github.com/sw-willie-wu/knotebook/milestones) and the issue tracker, which stay current as work is scheduled.
+- Comments on notes, @mentions and notifications ([#289](https://github.com/sw-willie-wu/knotebook/issues/289))
+- Zooming into images and Mermaid diagrams ([#462](https://github.com/sw-willie-wu/knotebook/issues/462))
+- An outline of a note's headings beside it ([#465](https://github.com/sw-willie-wu/knotebook/issues/465))
+
+Planning lives in [GitHub Milestones](https://github.com/sw-willie-wu/knotebook/milestones) and the [issue tracker](https://github.com/sw-willie-wu/knotebook/issues); the [CHANGELOG](CHANGELOG.md) has the history.
 
 ## License
 

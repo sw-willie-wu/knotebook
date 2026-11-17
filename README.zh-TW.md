@@ -1,10 +1,16 @@
 # Knotebook
 
+[![Latest release](https://img.shields.io/github/v/release/sw-willie-wu/knotebook?sort=semver)](https://github.com/sw-willie-wu/knotebook/releases/latest)
+[![CI](https://github.com/sw-willie-wu/knotebook/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sw-willie-wu/knotebook/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 [English](README.md) | 繁體中文
 
 > 本文件為繁體中文（台灣）翻譯版，內容以英文版 [README.md](README.md) 為準，翻譯可能落後於英文版。文中連結的說明文件（docs/ 與 CHANGELOG）目前只有英文版。
 
-Knotebook 是一套開源、可自行架設的 Notion/HackMD 風格協作筆記系統，內建可自備端點的 AI。
+**給團隊與團隊的 AI agent 一起用的自架協作筆記。** Knotebook 是一套開源、Notion/HackMD 風格的筆記系統，架在你自己的伺服器上。人可以即時一起編輯筆記；你已經在用的 AI 助理（例如 Claude Code、Claude Desktop 或其他任何 MCP 用戶端）則透過 MCP 端點搜尋、讀取與編輯同一批筆記，它們做的修改會出現在每篇筆記的 AI 修改紀錄裡，通常都能還原。
+
+![Knotebook 的一篇筆記：左邊是含資料夾的側邊欄，右邊是含表格與 Mermaid 圖的筆記，頁首有兩位共編者的頭像，內文裡有他們的游標](docs/images/editor.png)
 
 三項不可妥協的原則：
 
@@ -12,71 +18,101 @@ Knotebook 是一套開源、可自行架設的 Notion/HackMD 風格協作筆記�
 - **即時 CRDT 協作**——以 Yjs 為基礎的多人同步編輯，不是付費附加功能。
 - **自備 AI 端點**——把 Knotebook 指向你自己的 OpenAI 相容或 Anthropic 端點（包含本機／機房內的 Ollama），不綁定任何供應商。
 
-**狀態**：最新版本為 v0.15.0（2026-11-10）。目前具備的功能：
+它用 `docker compose` 跑一個 app 容器加一個 PostgreSQL 資料庫，映像是預先建好的（linux/amd64 與 linux/arm64）。網頁介面有英文與繁體中文，並有淺色與深色主題。
 
-- **一起寫作**——區塊編輯器，支援即時多人編輯（Yjs/Hocuspocus）、筆記之間的連結（打 `[[`，或直接貼上或拖入筆記網址；改名不斷、附反向連結，也能連到單一段落）、圖片上傳、並排（見 [並排](docs/columns.md)）、每篇筆記三種內容寬度（標準、寬或全寬）、筆記標頭裡顯示目前還有誰開著這篇筆記的一排頭像，以及 Mermaid 圖表（見 [圖表](docs/diagrams.md)）。按 Ctrl+/（Mac 為 ⌘/）或使用者選單的**說明**會開啟說明視窗，裡面有在示範筆記上帶你走一遍的功能導覽、這一版新增，以及常用的快捷鍵與打字觸發（見 [說明與功能導覽](docs/feature-tour.md)），按 Ctrl+,（Mac 為 ⌘,）則會開啟**設定**。
-- **版本歷史**——每篇筆記都保留版本，可自動儲存（編輯後停手數分鐘自動存，預設 5 分鐘，由站台管理員設定）或手動儲存；每個版本以名稱加上 id 的前 7 個字元顯示；任兩個版本可左右並排比較，也可套用某個版本還原舊狀態；有保留規則，並有三層開關（全站、自己的筆記、群組）可關閉自動儲存；版本清單可以只顯示手動版本，在寬螢幕上版本面板可以拖曳左邊緣調整寬度（見 [版本歷史](docs/versions.md)）。
-- **簡報模式**——把任何一篇筆記當簡報播放：標題自動切成投影片、封面是筆記標題，已登入的觀眾會即時看到共編者的修改（見 [已知限制](docs/known-limitations.md)）。
-- **帳號**——密碼登入，以及透過任意數量的 OpenID Connect 身分提供者（GitLab、Google 或其他提供者）登入，也可以設成只能透過這些登入服務登入；除非站台管理員關閉，否則使用者可以用帳號密碼自行註冊；站台管理員可以用一次性連結邀請別人，或重設某人的密碼；每個登入服務也可以各自設定首次登入時自動建立帳號；使用者也可以把多個登入服務連結到同一個帳號。站台管理員在**站台管理**面板（`/admin/users`、`/admin/groups`、`/admin/login`、`/admin/storage`、`/admin/ai`）管理使用者（含其角色，並看得到最後活動時間，5 分鐘內有活動的顯示「上線中」）、群組、登入服務（含其圖示）、儲存方案與 AI 供應商；你自己的個人資料、登入方式、授權、群組與儲存空間則在**設定**，設定、站台管理面板與各群組的面板一樣，都以浮動視窗（modal）疊在原本的頁面上開啟——見 [登入服務](docs/self-hosting.md#sign-in-providers) 與 [帳號](docs/self-hosting.md#accounts)。
-- **垃圾桶**——刪除筆記會把它移到垃圾桶，而不是直接永久刪除。側邊欄一次只顯示一種筆記，分成六個分頁——**最近**、**最愛**、**我的筆記**、**群組**、**與我共享**與**垃圾桶**；在**垃圾桶**可以逐篇、一次多篇或全部還原或永久刪除，**我的筆記**、**群組**、**與我共享**、**最近**與**最愛**的**選取**則可以一次處理多篇筆記與資料夾——把筆記從最愛移出（僅限**最愛**）、在所屬空間裡搬移（**我的筆記**、**群組**與**與我共享**；**我的筆記**的筆記也可以移入群組）、複製筆記，以及刪除，刪除時筆記會移到垃圾桶（在**與我共享**只會移除資料夾，不會刪除任何筆記）。垃圾桶裡的筆記預設 7 天後自動永久刪除，站台管理員可以在**站台管理 → 儲存方案 → 垃圾桶**設定其他天數或關閉自動刪除（見 [垃圾桶中的筆記](docs/sharing.md#notes-in-the-trash) 與 [垃圾桶](docs/self-hosting.md#trash)）。
-- **分享**——個人筆記可以維持私人、分享給指定的人編輯或檢視，或以唯讀的公開連結發布（見 [分享](docs/sharing.md)）。
-- **群組**——群組擁有自己的筆記，網址為 `/g/<group id>/<name>`；每位成員能做什麼取決於其在群組中的角色——內建的「管理員」與「一般成員」角色，或由六項權限組成的自訂角色，在群組自己的面板（`/groups/<id>`）中管理。個人筆記可以移入或複製到群組；刪除群組時，可以把群組的筆記轉交給其中一位管理員，或連同群組一併刪除（見 [群組中的筆記](docs/sharing.md#notes-in-a-group)）。
-- **資料夾**——側邊欄的**我的筆記**、**群組**與**與我共享**分頁會顯示資料夾，最多五層；資料夾裡的筆記可以依名稱、最近修改或文件大小排序。**我的筆記**裡的資料夾只有你看得到，群組的資料夾則群組的每位成員都看得到；**與我共享**裡的資料夾只替你自己整理別人分享給你的筆記。要把筆記放進資料夾，可以用筆記 `⋮` 選單的**移動到…**、也能搬移資料夾的**選取**，或用滑鼠把筆記拖到資料夾上；把筆記拖到另一篇筆記上停住再放開，可以建立一個裝著這兩篇的新資料夾。在**我的筆記**或**群組**刪除資料夾，會把裡面的筆記移到垃圾桶，還原時每篇都會回到原本的資料夾。REST API（`/api/folders`）與 MCP 也有資料夾（見 [資料夾](docs/sharing.md#folders)）。
-- **搜尋**——側邊欄的搜尋會依標題與內文找筆記：內文符合的筆記，會列出每個符合段落的摘錄（每篇最多三段），一次 20 篇，可按**載入更多**；點摘錄會開啟筆記、捲到該段落裡第一個含有搜尋文字的區塊 並標示出來。REST API 也有同樣的搜尋（`GET /api/search`），MCP 則有 `search_notes`（見 [API 規格摘要](docs/api.md) 與 [MCP](docs/mcp.md#search_notes)）。
-- **容量上限**——每個個人空間與每個群組都屬於一個儲存方案，可以限制附件的總大小（或不設上限）；站台管理員在**站台管理 → 儲存方案**管理方案與指派，使用者在**設定 → 儲存空間**看到自己的用量；群組的用量會依檔案類型、以及依把檔案帶進群組的成員分別顯示，群組的每位成員都看得到（見 [容量上限](docs/self-hosting.md#storage-quotas)）。
-- **AI 快速動作**——改寫、翻譯、摘要、續寫，以及你自己輸入的自由格式指示（**Instruct** 動作），在選取的文字上從格式工具列的 **AI** 按鈕執行，結果以行內差異顯示；由管理員設定的 OpenAI 相容或 Anthropic 端點以串流方式回傳（見 [AI 快速動作](docs/ai.md)）。
-- **讓你自己的 AI 讀寫筆記**——個人 API token，或透過 OAuth 授權的應用程式，都可以讀寫筆記內容；改動筆記內容的寫入會即時顯示在已開啟的分頁中，並記錄在該筆記的 AI 修改紀錄裡，可以還原（見 [API token](docs/api-tokens.md) 與 [AI 編輯](docs/ai-editing.md)）。位於 `/api/mcp` 的 MCP 端點提供最多二十項工具，讓 Claude Code、Claude Desktop 與其他 MCP 用戶端可以搜尋、讀取、編輯、建立、改名與複製筆記（包含群組筆記）、把筆記移入群組、列出、建立、改名、搬移與刪除資料夾並把筆記放進資料夾、把筆記移到垃圾桶與還原、傳入與傳出圖片，以及把大量筆記下載成 markdown 檔、再把改過的檔案送回（見 [MCP](docs/mcp.md)）。把筆記移入或複製到群組需要獨立的 `notes:move` 權限，可依 token 或應用程式逐項勾選；把筆記移到垃圾桶或還原、以及刪除資料夾，則需要另一個獨立的 `notes:delete` 權限；所有 MCP 工具遇到不認得的參數都會拒絕。
+**狀態**：最新版本為 v0.15.0（2026-11-10）。每個版本與其附檔都在 [Releases](https://github.com/sw-willie-wu/knotebook/releases)；改了什麼、以及已在 `main` 但尚未發版的內容，見 [CHANGELOG](CHANGELOG.md)。
 
-以上全部都建立在一套你也可以直接操作的 REST API 之上（見 [API 規格摘要](docs/api.md)），並且有 Playwright 測試套件做端對端測試。升級到 0.15.0 會執行資料庫 migration 0036 與 0037（MCP 批次讀寫），只新增資料表與欄位、修改檢查條件，並讓 `transfer_tokens.note_id` 可以留空——請先備份。MCP 用戶端要重新啟動才看得到 `create_bulk_transfer_token`；透過 MCP 與 REST API 時，`edit_note` 的 `rename` 現在需要 `if_match`，有些以前接受的 Markdown 現在會被拒絕，讀取筆記現在可能失敗、讀出的 Markdown 也略有不同，一篇筆記最大只能長到 `NOTE_MAX_BYTES`（預設 5 MiB），HTTP API 的錯誤訊息也改成英文。伺服器現在會執行解析 worker，它們有自己的記憶體用量：記憶體 2 GiB 的機器請把 `PARSE_WORKER_MEMORY_MB` 設成 512。請先讀 [0.15.0 升級說明](CHANGELOG.md#0150---2026-11-10) 與 [升級到 v0.15](docs/self-hosting.md#upgrading-and-rolling-back)。若退回 0.14.x，在 0.14.x 執行期間不要撤回 AI 修改紀錄裡由 MCP 送回檔案所產生的項目：在 0.14.x 撤回可能顯示成功、實際上卻什麼都沒還原，而且重新升級後也無法再撤回這些項目。（從 0.13.x 跳升？0.14.0 的 [升級說明](CHANGELOG.md#0140---2026-11-01) 也適用：不會執行資料庫 migration，但 MCP 用戶端要重新啟動才看得到新的資料夾工具；透過 MCP 與 REST API 時，含並排欄、調整過大小的圖片或表格欄寬的筆記讀出的樣子不同，有些以前接受的寫入現在會被拒絕，`DELETE /api/folders/:id` 也會拒絕某些以前忽略的 body——請先讀 [升級到 v0.14](docs/self-hosting.md#upgrading-and-rolling-back)。退回 0.13.0 對資料庫沒有影響：資料夾與筆記放在哪個資料夾都會保留，但 0.13.0 的網頁介面不會顯示它們，它的 MCP 也沒有資料夾工具。從 0.12.x 跳升？0.13.0 的 [升級說明](CHANGELOG.md#0130---2026-10-26) 也適用：資料庫 migration 0027–0035（使用者名稱改名紀錄、筆記的公開頁寬度、尚未填用戶端 ID 的登入服務、密碼重設與邀請用的一次性連結、各登入服務的**建立帳號**設定、垃圾桶、資料夾，以及 `notes:delete` 權限範圍）——請先備份。升級後請重新整理所有已開啟的分頁：升級前開啟的分頁會要求重新整理。升級後登入行為和之前一樣，而且在你自行開啟之前，既有的 token 與應用程式都不會取得 `notes:delete`。退回 0.13.0 之前的版本時，第一次開啟含並排欄的筆記就會刪除這些並排欄及其內容，還有其他影響——請先讀 [升級到 v0.13](docs/self-hosting.md#upgrading-and-rolling-back)。從 0.11.x 跳升？0.12.0 的 [升級說明](CHANGELOG.md#0120---2026-10-15) 也適用：不會執行資料庫 migration，但在 repo 的 clone 裡，`docker compose up -d` 現在會改跑預先建好的映像，而不是自己 build：更新 clone 後執行 `docker compose pull` 與 `docker compose up -d`，要繼續從原始碼 build 則用 `docker compose up -d --build`。若你有自己的 `docker-compose.override.yml`，請先讀 [升級到 v0.12](docs/self-hosting.md#upgrading-and-rolling-back)。從 0.10.x 跳升？0.11.0 的 [升級說明](CHANGELOG.md#0110---2026-10-15) 也適用：資料庫 migration 0024–0026（最後活動時間、停手後才自動存版、站內連結）——請先備份。升級後請重新整理所有已開啟的分頁：升級前開啟的分頁無法連上新的伺服器。第一次啟動約 30 秒後，伺服器會在背景把本站筆記之間的一般連結轉換成指向那些筆記的連結；自動版本現在改為筆記一段時間沒有新的修改才儲存（預設 5 分鐘）。第一次啟動也會新增**指示（Instruct）**AI 動作並預設啟用，所以在 AI 動作本來就能用的站台上，每位編輯者都可以直接送出自由格式的指示——另見 [升級到 v0.11](docs/self-hosting.md#upgrading-and-rolling-back)。從 0.9.x 跳升？0.10.0 的 [升級說明](CHANGELOG.md#0100---2026-10-11) 也適用：資料庫 migration 0020–0023（自我連結清理、`notes:move` 權限範圍、最近登入時間、群組空間佔用者），並且 MCP 工具與 OAuth 有變動：既有的 token 與應用程式在你重新允許之前，不能再把筆記移入或複製到群組；所有 MCP 工具遇到不認得的參數都會拒絕；第一次授權的應用程式預設只有唯讀——請先備份。內建資料庫現在是可選的：在 `.env` 設 `BUNDLED_DB=0` 並填 `DATABASE_URL` 即可改用你自己的 PostgreSQL。從 0.8.x 跳升？0.9.0 的 [升級說明](CHANGELOG.md#090---2026-10-10) 也適用：不會執行資料庫 migration，但呼叫 `create_note` 並帶 `groupId` 的腳本要改成 `group_id`，MCP 用戶端需要重新啟動才看得到新工具。從 0.7.x 跳升？0.8.0 的 [升級說明](CHANGELOG.md#080---2026-10-10) 也適用：會執行資料庫 migration（筆記版本），並為整個站台開啟自動筆記版本——請先備份。從 0.6.x 跳升？0.7.0 的 [升級說明](CHANGELOG.md#070---2026-10-09) 也適用：所有既有使用者與群組會被放進預設 2 GiB 的儲存方案。從 0.5.x 跳升？0.6.0 的 [升級說明](CHANGELOG.md#060---2026-10-08) 也適用：SSO 設定會從 `.env` 移到**站台管理 → 登入**，並且預設開放自行註冊。）
+## 截圖
 
-## 快速上手（約 10 分鐘）
+還有誰開著這篇筆記，以及他們在內文裡的游標：
 
-這會用 `docker compose` 啟動伺服器與 Postgres 資料庫；第一個（管理員）帳號會在啟動時由環境變數建立——沒有瀏覽器內的初始設定步驟。伺服器跑的是預先建好的映像：GitHub Container Registry 上的 `ghcr.io/sw-willie-wu/knotebook`（linux/amd64 與 linux/arm64，自 v0.11.1 起提供），不必在你的機器上 build。
+![筆記頁首有 Bob 與 Carol 的頭像，以及「Bob · Editor, Click to go to their cursor」的提示，筆記的清單裡有他們兩人的游標](docs/images/presence.png)
 
-1. 取得 `docker-compose.yml` 與 `.env.example`，再複製範例環境檔：
-   - **clone 本 repo**——要從原始碼 build 或跑 `main` 上的版本就用這條：`git clone https://github.com/sw-willie-wu/knotebook.git && cd knotebook`。
-   - **或不 clone**：在一個空目錄下載最新 Release 附帶的這兩個檔（v0.12.0 起的 Release 都有附）。
+在手機上，筆記清單就是首頁，筆記會疊在清單上開啟：
 
-     ```sh
-     curl -fLO https://github.com/sw-willie-wu/knotebook/releases/latest/download/docker-compose.yml
-     curl -fL -o .env.example https://github.com/sw-willie-wu/knotebook/releases/latest/download/env.example
-     ```
+<p align="center"><img src="docs/images/phone.png" alt="手機上的 Knotebook：含資料夾的筆記清單，以及標題下方顯示所在位置的一篇筆記" width="640"></p>
+
+## 功能
+
+### 寫作
+
+- **區塊編輯器**——標題、清單、表格、引言、有語法上色的程式碼區塊、插入區塊用的 `/` 選單，以及打字時的 Markdown 快捷寫法；快捷鍵見 [說明與功能導覽](docs/feature-tour.md)。
+- **顏色**——文字、背景與表格儲存格的顏色：內建十種，或任選一種顏色。
+- **即時共同編輯**——同一篇筆記上的每個人同時編輯（Yjs 與 Hocuspocus），看得到其他編輯者的游標；筆記頁首顯示還有誰開著這篇，點某人的頭像會跳到他的游標。
+- **筆記之間的連結**——打 `[[`，或貼上、拖入筆記網址；連結改名不斷、可以指向單一段落，每篇筆記也會列出提到它的筆記。
+- **圖片**——在筆記裡加入 PNG、JPEG、GIF 或 WebP 圖片並調整大小；圖片計入筆記所屬空間的儲存方案。
+- **並排**——兩到四欄的並排，用 `/grid` 或把區塊拖到另一個區塊旁邊建立，拖分隔線調整欄寬（[並排](docs/columns.md)）。
+- **圖表**——Mermaid 圖表，以原始碼儲存、在筆記裡畫出來（[圖表](docs/diagrams.md)）。
+- **筆記寬度**——每篇筆記可設標準、寬或全寬。
+- **版本歷史**——編輯停手後自動存版，也可以手動存；預覽版本、左右並排比較兩個版本，或套用較舊的版本（[版本歷史](docs/versions.md)）。
+- **簡報模式**——把筆記當簡報播放，標題就是投影片；從筆記或它的公開連結都能播。
+- **搜尋**——側邊欄依標題與內文找筆記，並在符合的段落開啟筆記；REST API 與 MCP 也有同樣的搜尋（[API](docs/api.md)、[MCP](docs/mcp.md#search_notes)）。
+
+### 整理與分享
+
+- **資料夾**——最多五層，可以在你的筆記裡、每個群組裡，以及只給你自己看的、別人分享給你的筆記裡建立；用**移動到…**、一次選取多篇，或用滑鼠拖曳把筆記放進去（[資料夾](docs/sharing.md#folders)）。
+- **最愛**——幫筆記加星號，它就會留在「最愛」分頁；你的最愛只有你自己看得到（[最愛](docs/sharing.md#favorites)）。
+- **垃圾桶**——刪除的筆記會移到垃圾桶，可以還原；預設 7 天後永久刪除，站台管理員可以改天數或關閉自動刪除（[垃圾桶中的筆記](docs/sharing.md#notes-in-the-trash)）。
+- **分享與公開連結**——個人筆記可以維持私人、分享給指定的人編輯或檢視，或以唯讀的公開連結發布，公開連結也可以設自訂網址（[分享](docs/sharing.md)）。
+- **群組**——群組擁有自己的筆記；成員能做什麼取決於其角色，可以是內建的（管理員、一般成員）或自訂的（[群組中的筆記](docs/sharing.md#notes-in-a-group)）。
+
+### 帳號與管理
+
+- **登入**——帳號密碼，以及任意數量的 OpenID Connect 身分提供者（GitLab、Google 或其他提供者），可設成首次登入時自動建立帳號，或設成唯一的登入方式；帳號密碼自行註冊（除非站台管理員關閉，否則開著）、邀請連結與一次性的密碼重設連結（[登入服務](docs/self-hosting.md#sign-in-providers)、[帳號](docs/self-hosting.md#accounts)）。
+- **頭貼**——上傳並裁切自己的照片，或使用身分提供者提供的照片；它會顯示在你的帳號按鈕、你開著的筆記頂端其他人看到的頭像，以及群組成員等清單中你的名字旁邊。
+- **容量上限**——每個個人空間與每個群組都屬於一個儲存方案，可以限制附件的總大小（[容量上限](docs/self-hosting.md#storage-quotas)）。
+- **站台管理**——使用者、群組、登入服務、儲存方案、AI 供應商，以及 17 項不必重啟伺服器就生效的限制（上傳大小、筆記大小、請求頻率等）（[站台限制](docs/self-hosting.md#site-limits)）。
+
+### AI
+
+- **AI 快速動作**——在選取的文字上執行改寫（Rewrite）、翻譯（Translate）、摘要（Summarize）、續寫（Continue writing）與指示（Instruct，照你輸入的指示做），結果以行內差異顯示，由站台管理員設定的供應商以串流回傳（[AI 快速動作](docs/ai.md)）。
+- **MCP**——`/api/mcp` 提供 Claude Code、Claude Desktop 與其他 MCP 用戶端最多二十項工具，可以搜尋、讀取、建立、編輯、改名、複製與搬移筆記，管理資料夾，把筆記移到垃圾桶與還原，以及讀取圖片（[MCP](docs/mcp.md)）。
+- **以檔案讀寫筆記**——用 `open_notes_as_files`，有 shell 的 AI 助理可以把大量筆記下載成 Markdown 檔，再把改過的檔案送回（[MCP](docs/mcp.md#open_notes_as_files)）。
+- **AI 修改紀錄**——透過 API 或 MCP 對筆記做的編輯會即時出現在已開啟的分頁中，並記錄在該筆記的 AI 修改紀錄裡，通常可以還原（[AI 編輯](docs/ai-editing.md)）。
+- **API token 與 OAuth**——可設權限範圍的個人 API token，或透過 OAuth 授權的應用程式（除非你允許更多，否則只能讀取）（[API token](docs/api-tokens.md)）。
+
+### 各種螢幕
+
+- **手機版面**——視窗窄於 640 px 時，筆記清單就是首頁，筆記從右側滑入疊在清單上，對話框與選單從底部升起，螢幕鍵盤上方有編輯工具列；640 到 1279 px 時側邊欄是抽屜（[已知限制](docs/known-limitations.md#on-a-phone)）。
+- **安裝成 app**——把 Knotebook 加到手機或電腦的主畫面，或從 Chrome、Edge 安裝；和瀏覽器分頁一樣，它需要連上伺服器（[把 Knotebook 安裝成 app](docs/install-app.md)）。
+- **說明與功能導覽**——使用者選單的**說明**，或 Ctrl+/（Mac 為 ⌘/），會開啟說明視窗：在示範筆記上進行的功能導覽、這一版新增，以及快捷鍵（[說明與功能導覽](docs/feature-tour.md)）。
+
+### 架設
+
+- **Docker Compose**——app 加上內建的 PostgreSQL，或改用你自己的 PostgreSQL（[自行架設指南](docs/self-hosting.md)）。
+- **REST API**——網頁介面建立在一套你也可以直接呼叫的 REST API 上（[API 規格摘要](docs/api.md)）。
+- **備份**——伺服器會定期保存筆記內容的快照，並有操作手冊說明如何從快照或 `pg_dump` 還原筆記（[從備份還原筆記內容](docs/backup-restore.md)）。
+
+## 快速上手
+
+你需要裝有 Compose 的 Docker。以下會讓 Knotebook 跑在 `http://localhost:3000`。
+
+1. 在一個空目錄下載最新 Release 的 compose 檔與範例設定：
 
    ```sh
-   cp .env.example .env
+   curl -fLO https://github.com/sw-willie-wu/knotebook/releases/latest/download/docker-compose.yml
+   curl -fL -o .env https://github.com/sw-willie-wu/knotebook/releases/latest/download/env.example
    ```
 
-2. 產生 `APP_SECRET`（用來簽署 session cookie 與協作 token，以及加密已儲存的 AI 供應商憑證——見 [AI 快速動作](docs/ai.md)），然後填入 `.env`：
+   （要從原始碼 build 或跑 `main`，改用 `git clone https://github.com/sw-willie-wu/knotebook.git`、`cd knotebook` 與 `cp .env.example .env`。）
 
-   ```sh
-   openssl rand -hex 32
-   ```
+2. 在 `.env` 填入四個值：
 
-   把輸出貼到 `.env` 中，寫成 `APP_SECRET=...`。
+   - `APP_SECRET`——一段隨機密鑰，例如 `openssl rand -hex 32` 的輸出。
+   - `PUBLIC_URL=http://localhost:3000`
+   - `ADMIN_EMAIL` 與 `ADMIN_PASSWORD`（至少 12 個字元）——第一個管理員帳號。資料庫是空的、又沒有設定這兩項時，伺服器會拒絕啟動；它們只在第一次初始化時生效。
 
-3. 在 `.env` 中設定 `PUBLIC_URL`。本機使用時：
-
-   ```
-   PUBLIC_URL=http://localhost:3000
-   ```
-
-4. 在 `.env` 中設定 `ADMIN_EMAIL` 與 `ADMIN_PASSWORD`——這會在啟動時建立第一個（管理員）帳號。`ADMIN_PASSWORD` 必須至少 12 個字元。這是初始化全新實例的唯一方式：資料庫是空的、又沒有設定這兩項時，伺服器會拒絕啟動（見 `.env.example` 與 [已知限制](docs/known-limitations.md)——它只在第一次初始化時生效）。
-
-5. 啟動整套服務（`app` 與 `db` 兩個服務，`db` 是內建的 PostgreSQL——想改用自己的 PostgreSQL，見 [使用自己的 PostgreSQL](docs/self-hosting.md#using-your-own-postgresql)；若要在正式環境進行，請先閱讀 [部署前提](docs/self-hosting.md#deployment-prerequisites)）：
+3. 啟動後開啟 `http://localhost:3000`，以 `ADMIN_EMAIL` 與 `ADMIN_PASSWORD` 登入：
 
    ```sh
    docker compose up -d
    ```
 
-   第一次執行會下載映像：用 Release 附帶的 `docker-compose.yml` 時是該版本身，用 repo 裡的則是 `latest`——除非你在 `.env` 把 `KNOTEBOOK_VERSION` 設成某個版本（例如 `KNOTEBOOK_VERSION=0.11.1`），用 clone 時建議這樣鎖版本。在 clone 裡執行 `docker compose up -d --build` 則改從原始碼 build（見 [App 映像](docs/self-hosting.md#the-app-image)）。
+跑哪個映像：用 Release 附帶的 `docker-compose.yml` 時是該版本身，用 repo 裡的則是 `latest`；在 `.env` 設 `KNOTEBOOK_VERSION` 可以鎖定某個版本（用 clone 時建議這樣做）。在 clone 裡執行 `docker compose up -d --build` 則改從原始碼 build（[App 映像](docs/self-hosting.md#the-app-image)）。
 
-6. 在瀏覽器開啟 `http://localhost:3000`，以 `ADMIN_EMAIL`/`ADMIN_PASSWORD` 登入。你會直接登入成功——這個帳號不會被強制更改密碼。之後可以在**設定 → 登入**變更密碼。
+想試試共同編輯，從使用者選單開啟**站台管理 → 使用者**，用**建立邀請**產生連結，在無痕視窗打開連結建立第二個帳號，再把筆記分享給它。
 
-7. 建立一篇筆記，並在區塊編輯器中開啟。想試試即時共同編輯，請開啟**站台管理 → 使用者**（`/admin/users`；**站台管理**在使用者選單中——你是管理員），用**建立邀請**產生邀請連結，再用另一個瀏覽器或無痕視窗打開這個連結，在那裡建立第二個帳號。接著把筆記分享給這個帳號，然後觀察編輯內容即時同步。帳號密碼登入開著時，管理員都可以這樣邀請別人。帳號密碼登入與**允許用帳號密碼自行註冊**都開啟時（預設為開啟；後者可在**站台管理 → 登入**關閉），使用者也可以在 `/register` 自行建立帳號；登入服務開了**自動建帳**時，第一次透過它登入也會取得帳號——見 [帳號](docs/self-hosting.md#accounts)。
-
-如果你想直接操作 API，而不是在瀏覽器裡點選——例如要用腳本跑完整個流程，或打造另一個用戶端——同樣的登入端點也能用 `curl` 呼叫；完整的端點清單見 [API 規格摘要](docs/api.md)。流程是：`.env` 中的 `ADMIN_EMAIL`/`ADMIN_PASSWORD` → `POST /api/auth/login` → 帶著登入狀態的 API 呼叫，session cookie 的帶法與瀏覽器相同。
-
-**升級：**用 Release 附檔的，下載新版的 `docker-compose.yml` 覆蓋舊檔——自己的修改（例如區網模式的 port）請放在 `docker-compose.override.yml`，下載不會動到它（見 [App 映像](docs/self-hosting.md#the-app-image)）——保留你的 `.env`，若其中設了 `KNOTEBOOK_VERSION`，改成新版本或拿掉；用 clone 的，把它更新到新版本（例如 `git pull`），並在 `.env` 把 `KNOTEBOOK_VERSION` 設成新版本（或不設，跟著 `latest`）。然後執行 `docker compose pull` 與 `docker compose up -d`。請先讀該版的升級說明，說要備份時就先備份——見 [升級與回滾](docs/self-hosting.md#upgrading-and-rolling-back)。
+**升級：**先讀新版在 [CHANGELOG](CHANGELOG.md) 裡的升級說明，說要備份時就先備份。接著用新版的 `docker-compose.yml` 取代舊檔（或更新你的 clone），若設了 `KNOTEBOOK_VERSION` 就改成新版本，再執行 `docker compose pull` 與 `docker compose up -d`（[升級與回滾](docs/self-hosting.md#upgrading-and-rolling-back)）。
 
 ## 部署到 localhost 以外之前
 
@@ -87,27 +123,44 @@ Knotebook 是一套開源、可自行架設的 Notion/HackMD 風格協作筆記�
 
 ## 文件
 
-- [自行架設指南](docs/self-hosting.md)——部署前提、compose 服務／volume、反向代理與 TLS、區域網路純 http 模式、環境變數參考、登入服務（OIDC/SSO）及其在 GitLab 與 Google 上的設定、帳號與註冊、僅限 SSO 登入及其復原開關、內容安全政策（CSP）、解析 worker 與筆記大小上限、預先建好的映像（從 Release 附檔或 clone 安裝、從原始碼 build、搭配自己的 PostgreSQL 用 `docker run`）、升級／回滾，以及疑難排解。
-- [API 規格摘要](docs/api.md)——完整的端點表，含驗證需求與錯誤碼。
-- [API token](docs/api-tokens.md)——供腳本與 AI 助理使用的個人 API token，目前可以讀寫筆記內容：建立、使用（`Authorization: Bearer`）、哪些端點接受它們、速率限制、撤銷，以及為什麼變更密碼不會撤銷它們；另外還有 MCP 用戶端如何透過 OAuth 自行取得授權，而不是使用貼上的 token。
-- [AI 編輯](docs/ai-editing.md)——token 或已授權的應用程式所使用的筆記內容讀寫 API：五種寫入操作、指紋與衝突處理、還原某次寫入、協作游標（presence）與 AI agent 的顯示名稱，以及速率限制與錯誤碼。
-- [MCP](docs/mcp.md)——連接 MCP 用戶端（確切的 `claude mcp add` 與 `mcp-remote` 指令）、二十項工具各自能回答什麼、讀寫流程、MCP 本身的限制與錯誤格式，以及其已知限制。
-- [分享](docs/sharing.md)——個人筆記的三種存取層級（私人／成員／公開連結）、群組中的筆記以及各角色權限允許的操作、把筆記移入或複製到群組、公開唯讀連結授予什麼，以及撤銷與重新產生的行為。
-- [版本歷史](docs/versions.md)——筆記的版本何時儲存、預覽／比較與套用版本、誰看得到、自動版本保留多久，以及關閉自動版本的三個開關。
-- [AI 快速動作](docs/ai.md)——管理員設定指南（位於**站台管理 → AI 代理**），涵蓋 AI 供應商／模型／動作、金鑰加密，以及快速動作在編輯器中的行為。
-- [圖表（Mermaid）](docs/diagrams.md)——插入、編輯與貼上 Mermaid 圖表、把圖表複製出去會得到什麼，以及其背後的隨需載入與渲染安全鎖定機制。
-- [並排](docs/columns.md)——用 `/grid` 或拖曳 ⋮⋮ 建立兩到四欄的並排、把 block 左右並排、拖分隔線調整欄寬、窄螢幕上整列堆疊、用鍵盤或「取消並排」拆掉欄、複製貼上整列，以及撤銷。
-- [說明與功能導覽](docs/feature-tour.md)——說明視窗（使用者選單或 Ctrl+/）、功能導覽做什麼又會建立什麼、**這一版新增**頁，以及維護者如何更新那份清單。
+寫筆記的人：
+
+- [分享](docs/sharing.md)——私人、分享與公開的筆記，群組與其角色，把筆記移入或複製到群組，資料夾、最愛與垃圾桶。
+- [版本歷史](docs/versions.md)——版本何時儲存，預覽、比較與套用版本，誰看得到、保留多久。
+- [並排](docs/columns.md)——建立、調整、拆除、複製與撤銷並排。
+- [圖表（Mermaid）](docs/diagrams.md)——插入、編輯、貼上與複製出 Mermaid 圖表。
+- [說明與功能導覽](docs/feature-tour.md)——說明視窗、功能導覽與「這一版新增」頁。
+- [把 Knotebook 安裝成 app](docs/install-app.md)——在 Android、iPhone 與 iPad 加到主畫面，以及在電腦上安裝。
 - [已知限制](docs/known-limitations.md)——已知的粗糙之處與刻意取捨的完整清單。
-- [從備份還原筆記內容](docs/backup-restore.md)——從快照或 `pg_dump` 還原 `note_states` 的操作手冊。
-- [發版流程](docs/releasing.md)——給維護者：用 `pnpm release:prepare` 準備發版 PR，以及 merge 後 Release workflow 自動做的事（tag、GitHub Release 與 Docker 映像）。
-- [CHANGELOG](CHANGELOG.md)。
+
+接上 AI 與腳本：
+
+- [MCP](docs/mcp.md)——連接 MCP 用戶端、每項工具收什麼與回什麼、讀寫流程、限制與錯誤。
+- [API token](docs/api-tokens.md)——建立、使用與撤銷個人 API token，以及改用 OAuth 授權應用程式。
+- [AI 編輯](docs/ai-editing.md)——透過 API 讀寫筆記內容：段落、指紋、五種寫入操作、還原與 Markdown 格式。
+- [API 規格摘要](docs/api.md)——每個端點的驗證方式、請求內容與錯誤碼。
+
+架設伺服器：
+
+- [自行架設指南](docs/self-hosting.md)——部署前提、反向代理與 TLS、環境變數、站台限制、登入服務、帳號、容量上限、App 映像、升級與回滾，以及疑難排解。
+- [AI 快速動作](docs/ai.md)——在**站台管理 → AI 代理**設定 AI 供應商、模型與動作，以及這些動作在編輯器裡的行為。
+- [從備份還原筆記內容](docs/backup-restore.md)——從快照或 `pg_dump` 還原筆記內容。
+
+貢獻者與維護者：
+
+- [在本機跑 e2e 測試](docs/e2e-local.md)——在 WSL 裡對一套用完即丟的 Docker Compose 環境跑 Playwright 測試，以及同時跑好幾套。
+- [發版流程](docs/releasing.md)——用 `pnpm release:prepare` 準備發版 PR，以及 merge 後 Release workflow 自動做的事。
+- [CHANGELOG](CHANGELOG.md)——每個版本與其升級說明。
 
 ## 路線圖
 
-v0.1 的五個里程碑——API 基礎、具備即時協作的網頁介面、wikilinks 與圖片上傳、AI 快速動作，以及 OIDC 登入——都已推出，接著是一次強化版本（0.2）、介面大改版、Mermaid 圖表、易讀的筆記網址與公開分享連結（0.3.x）、讓你接上自己 AI 的 API token、OAuth 與 MCP（0.4.x）、群組（0.5），多個登入服務與自行註冊（0.6），容量上限與簡報模式（0.7），筆記版本歷史（0.8），可改標題、移入群組與複製筆記的 MCP 工具（0.9），設定、群組與站台管理各自獨立的面板和 `notes:move` 權限（0.10），帶有自己文字並可指向段落的筆記連結、框選文字上的 AI 框與自由格式指示、編輯停手後才自動存的版本（0.11），`docker compose` 預設改跑預先建好的映像，加上不必 clone 就能安裝的 Release 附檔（0.12），垃圾桶、分頁式側邊欄、每篇筆記三種內容寬度、密碼重設與邀請用的一次性連結、顯示還有誰開著筆記、並排欄與資料夾 API（0.13），側邊欄的資料夾（可用**移動到…**、選取模式或拖曳把筆記放進去）、MCP 的資料夾工具、透過 MCP、REST API 與編輯器裡的 AI 讀寫並排欄以及圖片與表格欄的寬度、一次把多人加進群組、寬螢幕使用滑鼠時收成一列的選取模式、**工作坊**分頁改名為**群組**（0.14），以及透過 MCP 以檔案大量讀寫筆記、側邊欄的內文搜尋、快捷鍵介紹、筆記大小上限，還有讓透過 MCP 與 API 讀寫筆記不再卡住伺服器的解析 worker（0.15）；歷程見 [CHANGELOG](CHANGELOG.md)。
+接下來：
 
-規劃記錄在 [GitHub Milestones](https://github.com/sw-willie-wu/knotebook/milestones) 與 issue tracker 中，工作排定時就會隨之更新。
+- 筆記留言、@ 提及與通知（[#289](https://github.com/sw-willie-wu/knotebook/issues/289)）
+- 放大檢視圖片與 Mermaid 圖（[#462](https://github.com/sw-willie-wu/knotebook/issues/462)）
+- 筆記旁的標題導覽（[#465](https://github.com/sw-willie-wu/knotebook/issues/465)）
+
+規劃記錄在 [GitHub Milestones](https://github.com/sw-willie-wu/knotebook/milestones) 與 [issue tracker](https://github.com/sw-willie-wu/knotebook/issues) 中；歷程見 [CHANGELOG](CHANGELOG.md)。
 
 ## 授權
 
