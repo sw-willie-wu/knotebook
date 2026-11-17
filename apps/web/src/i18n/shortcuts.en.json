@@ -238,41 +238,13 @@
       "heading": "New in v{{version}}",
       "empty": "Nothing new to highlight in this version.",
       "items": {
-        "favorites": {
-          "title": "Favorites",
-          "desc": "Star a note in its header, choose Add to favorites in its ⋮ menu, or, with a mouse, click the star on its row in the sidebar. Your favorites are listed in the second sidebar tab, and Select there removes several at once. They are yours alone."
+        "headingOutline": {
+          "title": "Heading outline",
+          "desc": "On a wide window, a thin line at the right of a note has one tick for each heading (levels 1 to 3). Point at it to see the headings and choose one to scroll to it. When there is room beside the note, you can pin the list open. On a narrow window, a bubble showing where you are appears while you scroll and opens the headings in a sheet; so does Heading outline in the note's ⋮ menu."
         },
-        "phoneLayout": {
-          "title": "On a phone",
-          "desc": "On a narrow screen the note list is the home screen and a note opens over it. While you edit, a toolbar sits above the on-screen keyboard. Dialogs and menus rise from the bottom."
-        },
-        "profilePictures": {
-          "title": "Profile pictures",
-          "desc": "Upload and crop a picture in Settings → Account info. If you sign in through a service that sends a picture, that one is used until you choose another."
-        },
-        "customColors": {
-          "title": "Custom colors",
-          "desc": "Pick any color for text and backgrounds from the Custom option in the color menus; the last 8 you used are remembered. Table cells can be colored too, from the cell menu and the row and column handle menus."
-        },
-        "sideBySideColumns": {
-          "title": "Side-by-side columns",
-          "desc": "Drag a block by its ⋮⋮ handle onto the left or right edge of another block to make columns, up to four. Drag the divider, or press the left and right arrow keys on it, to change the widths."
-        },
-        "installApp": {
-          "title": "Install Knotebook as an app",
-          "desc": "Add Knotebook to your home screen, or install it from Chrome or Edge (they offer this only on a site served over HTTPS), and it opens in its own window. Settings → About links to the steps. An open Knotebook that has been in the background now says \"Knotebook has been updated\" with a Reload button when the site has been updated."
-        },
-        "confirmRemoveMember": {
-          "title": "Confirm before removing a member",
-          "desc": "The trash button in the group member list and in the share panel now asks you to confirm first."
-        },
-        "helpAndTour": {
-          "title": "Help and feature tour",
-          "desc": "Choose Help in the user menu, or press {{mod}}/, to open the Help window. On the Feature tour page, Start tour creates a sample note and walks you through Knotebook on it."
-        },
-        "siteLimits": {
-          "title": "Site limits in the browser (site admins)",
-          "desc": "Site admins can adjust 15 limits on the Site limits page, and tune \"Session and tokens\" on the Sign-in page."
+        "mediaZoom": {
+          "title": "Zoom in on images and diagrams",
+          "desc": "Point at an image or a Mermaid diagram and use the zoom button in its top-right corner to open it full screen. Scroll or pinch to zoom, drag to move, and press Esc to go back to the note. On a public page, click or tap an image or a diagram to open it."
         }
       }
     }

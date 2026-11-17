@@ -25,17 +25,10 @@ export interface ReleaseHighlights {
 }
 
 export const RELEASE_HIGHLIGHTS: ReleaseHighlights = {
-  version: "0.16.0",
+  version: "0.17.0",
   items: [
-    { id: "favorites" },
-    { id: "phoneLayout" },
-    { id: "profilePictures" },
-    { id: "customColors" },
-    { id: "sideBySideColumns" },
-    { id: "installApp" },
-    { id: "confirmRemoveMember" },
-    { id: "helpAndTour" },
-    { id: "siteLimits", adminOnly: true },
+    { id: "headingOutline" },
+    { id: "mediaZoom" },
   ],
 };
 

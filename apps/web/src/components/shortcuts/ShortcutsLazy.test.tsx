@@ -383,6 +383,7 @@ describe("這一版新增", () => {
             items: {
               sample: { title: "Sample feature", desc: "Sample description." },
               adminSample: { title: "Admin-only feature", desc: "Only site admins see this." },
+              modSample: { title: "Shortcut feature", desc: "Press {{mod}}/ to open." },
             },
           },
         },
@@ -458,50 +459,49 @@ describe("這一版新增", () => {
     expect(screen.queryByRole("heading", { name: /New in v/ })).toBeNull();
   });
 
-  it("真的登記檔：標題帶登記檔版本，列出最愛、安裝成 app、說明與導覽（英文名稱與說明都在）", async () => {
+  it("真的登記檔：標題帶登記檔版本，列出標題導覽與放大檢視（英文名稱與說明都在）", async () => {
     registryState.override = null;
     sessionState.user = { isAdmin: false };
     await openWhatsNew();
     await waitFor(() => expect(heading()).toBe(`New in v${RELEASE_HIGHLIGHTS.version}`));
-    expect(highlightIds()).toContain("favorites");
-    expect(highlightIds()).toContain("installApp");
-    expect(highlightIds()).toContain("helpAndTour");
-    expect(highlightIds()).not.toContain("signOutThisBrowser");
-    expect(highlightTitle("favorites")).toBe("Favorites");
-    expect(highlightTitle("installApp")).toBe("Install Knotebook as an app");
-    expect(highlightTitle("helpAndTour")).toBe("Help and feature tour");
-    expect(highlightEl("helpAndTour")).toHaveTextContent("Ctrl+/");
-    expect(highlightEl("helpAndTour")).not.toHaveTextContent("{{");
-    expect(highlightEl("helpAndTour")).toHaveTextContent("Start tour");
-    expect(highlightEl("installApp")).toHaveTextContent("HTTPS");
+    expect(highlightIds()).toEqual(["headingOutline", "mediaZoom"]);
+    expect(highlightTitle("headingOutline")).toBe("Heading outline");
+    expect(highlightTitle("mediaZoom")).toBe("Zoom in on images and diagrams");
+    expect(highlightEl("headingOutline")).toHaveTextContent("pin the list open");
+    expect(highlightEl("mediaZoom")).toHaveTextContent("full screen");
+    expect(highlightEl("headingOutline")).not.toHaveTextContent("{{");
+    expect(highlightEl("mediaZoom")).not.toHaveTextContent("{{");
   });
 
-  it("真的登記檔：Mac 上說明與導覽那條寫 ⌘/，不出現 Ctrl", async () => {
+  it("條目說明裡的 {{mod}}：Mac 寫 ⌘，其他寫 Ctrl+", async () => {
     stubPlatform("MacIntel");
-    registryState.override = null;
-    sessionState.user = { isAdmin: false };
+    registryState.override = { version: "9.9.9", items: [{ id: "modSample" }] };
     await openWhatsNew();
-    await waitFor(() => expect(highlightIds()).toContain("helpAndTour"));
-    expect(highlightEl("helpAndTour")).toHaveTextContent("⌘/");
-    expect(highlightEl("helpAndTour")).not.toHaveTextContent("Ctrl");
-    expect(highlightEl("helpAndTour")).not.toHaveTextContent("{{");
+    await waitFor(() => expect(highlightIds()).toEqual(["modSample"]));
+    expect(highlightEl("modSample")).toHaveTextContent("Press ⌘/ to open.");
+    expect(highlightEl("modSample")).not.toHaveTextContent("Ctrl");
+    expect(highlightEl("modSample")).not.toHaveTextContent("{{");
   });
 
-  it("真的登記檔：繁體中文也列出最愛、安裝成 app、說明與導覽（標題在各自條目內）", async () => {
+  it("條目說明裡的 {{mod}}：非 Mac 寫 Ctrl+", async () => {
+    registryState.override = { version: "9.9.9", items: [{ id: "modSample" }] };
+    await openWhatsNew();
+    await waitFor(() => expect(highlightIds()).toEqual(["modSample"]));
+    expect(highlightEl("modSample")).toHaveTextContent("Press Ctrl+/ to open.");
+    expect(highlightEl("modSample")).not.toHaveTextContent("{{");
+  });
+
+  it("真的登記檔：繁體中文也列出標題導覽與放大檢視（標題在各自條目內）", async () => {
     registryState.override = null;
     sessionState.user = { isAdmin: false };
     await i18n.changeLanguage("zh-TW");
     renderContent();
     await waitFor(() => expect(screen.getByRole("navigation", { name: "說明" })).toBeInTheDocument());
     fireEvent.click(within(screen.getByRole("navigation", { name: "說明" })).getByRole("button", { name: "這一版新增" }));
-    await waitFor(() => expect(highlightTitle("favorites")).toBe("最愛"));
-    expect(highlightTitle("installApp")).toBe("把 Knotebook 安裝成 App");
-    expect(highlightTitle("helpAndTour")).toBe("說明與功能導覽");
-    expect(highlightEl("helpAndTour")).toHaveTextContent("Ctrl+/");
-    expect(highlightEl("helpAndTour")).not.toHaveTextContent("{{");
-    expect(highlightEl("helpAndTour")).toHaveTextContent("開始導覽");
-    expect(highlightEl("installApp")).toHaveTextContent("HTTPS");
-    expect(highlightIds()).not.toContain("signOutThisBrowser");
+    await waitFor(() => expect(highlightTitle("headingOutline")).toBe("標題導覽"));
+    expect(highlightTitle("mediaZoom")).toBe("放大檢視圖片與圖表");
+    expect(highlightEl("mediaZoom")).toHaveTextContent("全螢幕");
+    expect(highlightEl("mediaZoom")).not.toHaveTextContent("{{");
   });
 
   it("真的登記檔：每個 adminOnly 條目一般使用者看不到、管理員看得到，其餘兩邊都看得到", async () => {

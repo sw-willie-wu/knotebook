@@ -20,7 +20,7 @@
 
 它用 `docker compose` 跑一個 app 容器加一個 PostgreSQL 資料庫，映像是預先建好的（linux/amd64 與 linux/arm64）。網頁介面有英文與繁體中文，並有淺色與深色主題。
 
-**狀態**：最新版本為 v0.16.0（2026-11-17）。每個版本與其附檔都在 [Releases](https://github.com/sw-willie-wu/knotebook/releases)；改了什麼、以及已在 `main` 但尚未發版的內容，見 [CHANGELOG](CHANGELOG.md)。
+**狀態**：最新版本為 v0.17.0（2026-11-18）。每個版本與其附檔都在 [Releases](https://github.com/sw-willie-wu/knotebook/releases)；改了什麼、以及已在 `main` 但尚未發版的內容，見 [CHANGELOG](CHANGELOG.md)。
 
 ## 截圖
 
@@ -44,6 +44,7 @@
 - **並排**——兩到四欄的並排，用 `/grid` 或把區塊拖到另一個區塊旁邊建立，拖分隔線調整欄寬（[並排](docs/columns.md)）。
 - **圖表**——Mermaid 圖表，以原始碼儲存、在筆記裡畫出來（[圖表](docs/diagrams.md)）。
 - **筆記寬度**——每篇筆記可設標準、寬或全寬。
+- **標題導覽**——筆記右側一條細線，每個標題（H1 到 H3）一個刻度；滑過或點它就列出標題，點一個標題就跳過去。視窗夠寬、能在旁邊留出舒適的文字欄時，導覽可以釘住、固定開在文字旁。在手機或窄視窗（小於 768px），捲動時會出現一個顯示目前位置的泡泡，點它開啟清單；筆記的 ⋮ 選單裡的「標題導覽」也能開啟（分享的公開頁面沒有 ⋮ 選單）。
 - **版本歷史**——編輯停手後自動存版，也可以手動存；預覽版本、左右並排比較兩個版本，或套用較舊的版本（[版本歷史](docs/versions.md)）。
 - **簡報模式**——把筆記當簡報播放，標題就是投影片；從筆記或它的公開連結都能播。
 - **搜尋**——側邊欄依標題與內文找筆記，並在符合的段落開啟筆記；REST API 與 MCP 也有同樣的搜尋（[API](docs/api.md)、[MCP](docs/mcp.md#search_notes)）。
@@ -158,7 +159,6 @@
 
 - 筆記留言、@ 提及與通知（[#289](https://github.com/sw-willie-wu/knotebook/issues/289)）
 - 放大檢視圖片與 Mermaid 圖（[#462](https://github.com/sw-willie-wu/knotebook/issues/462)）
-- 筆記旁的標題導覽（[#465](https://github.com/sw-willie-wu/knotebook/issues/465)）
 
 規劃記錄在 [GitHub Milestones](https://github.com/sw-willie-wu/knotebook/milestones) 與 [issue tracker](https://github.com/sw-willie-wu/knotebook/issues) 中；歷程見 [CHANGELOG](CHANGELOG.md)。
 
