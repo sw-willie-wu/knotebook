@@ -240,11 +240,11 @@
       "items": {
         "headingOutline": {
           "title": "Heading outline",
-          "desc": "On a wide window, a thin line at the right of a note has one tick for each heading (levels 1 to 3). Point at it to see the headings and choose one to scroll to it. When there is room beside the note, you can pin the list open. On a narrow window, a bubble showing where you are appears while you scroll and opens the headings in a sheet; so does Heading outline in the note's ⋮ menu."
+          "desc": "On a wide window, a thin line at the right of a note has one tick for each heading (levels 1 to 3). Point at it to see the headings and choose one to scroll to it. When there is room beside a Standard-width note, you can pin the list open. On a narrow window, a bubble showing where you are appears while you scroll and opens the list of headings; so does Heading outline in the note's ⋮ menu."
         },
         "mediaZoom": {
           "title": "Zoom in on images and diagrams",
-          "desc": "Point at an image or a Mermaid diagram and use the zoom button in its top-right corner to open it full screen. Scroll or pinch to zoom, drag to move, and press Esc to go back to the note. On a public page, click or tap an image or a diagram to open it."
+          "desc": "Use the zoom button at the top-right corner of an image or a Mermaid diagram (it appears when you point at it, or when you select the image) to open it full screen. Scroll or pinch to zoom, drag to move, and press Esc to go back to the note. On a public page, click or tap an image or a diagram to open it."
         }
       }
     }
