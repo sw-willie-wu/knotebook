@@ -242,6 +242,14 @@
           "title": "Favorites",
           "desc": "Star a note in its header, choose Add to favorites in its ⋮ menu, or, with a mouse, click the star on its row in the sidebar. Your favorites are listed in the second sidebar tab, and Select there removes several at once. They are yours alone."
         },
+        "phoneLayout": {
+          "title": "On a phone",
+          "desc": "On a narrow screen the note list is the home screen and a note opens over it. While you edit, a toolbar sits above the on-screen keyboard, and dialogs and menus rise from the bottom."
+        },
+        "profilePictures": {
+          "title": "Profile pictures",
+          "desc": "Upload and crop a picture in Settings → Account info. If you sign in through a service that sends a picture, that one is used until you choose another."
+        },
         "customColors": {
           "title": "Custom colors",
           "desc": "Pick any color for text and backgrounds from the Custom option in the color menus; the last 8 you used are remembered. Table cells can be colored too, from the cell menu and the row and column handle menus."

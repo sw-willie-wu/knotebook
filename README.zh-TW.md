@@ -20,7 +20,7 @@
 
 它用 `docker compose` 跑一個 app 容器加一個 PostgreSQL 資料庫，映像是預先建好的（linux/amd64 與 linux/arm64）。網頁介面有英文與繁體中文，並有淺色與深色主題。
 
-**狀態**：最新版本為 v0.15.0（2026-11-10）。每個版本與其附檔都在 [Releases](https://github.com/sw-willie-wu/knotebook/releases)；改了什麼、以及已在 `main` 但尚未發版的內容，見 [CHANGELOG](CHANGELOG.md)。
+**狀態**：最新版本為 v0.16.0（2026-11-17）。每個版本與其附檔都在 [Releases](https://github.com/sw-willie-wu/knotebook/releases)；改了什麼、以及已在 `main` 但尚未發版的內容，見 [CHANGELOG](CHANGELOG.md)。
 
 ## 截圖
 

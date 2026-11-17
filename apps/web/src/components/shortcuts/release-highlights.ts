@@ -28,6 +28,8 @@ export const RELEASE_HIGHLIGHTS: ReleaseHighlights = {
   version: "0.16.0",
   items: [
     { id: "favorites" },
+    { id: "phoneLayout" },
+    { id: "profilePictures" },
     { id: "customColors" },
     { id: "sideBySideColumns" },
     { id: "installApp" },

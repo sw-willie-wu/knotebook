@@ -537,6 +537,17 @@ then start that build. Steps 2 and 3 are for the bundled database; with your own
    docker compose exec -T app sh -c 'cd /app/uploads && xargs rm -f' < avatar-files.txt
    ```
 
+**Upgrading to v0.16 (server-side sessions, site limits, favorites, profile pictures).**
+
+1. **Back up the database and the `uploads` volume first.** Migrations 0038–0041 run automatically when the new server starts. They only add tables and columns and change no existing value (see **Server-side sessions**, **Site limits**, **Favorites** and **Profile pictures** above), but take a dump before you start the new version anyway, for example `docker compose exec -T db pg_dump -U knotebook knotebook > knotebook-before-upgrade.sql` (with your own PostgreSQL, run `pg_dump` against it directly — see [Using your own PostgreSQL](#using-your-own-postgresql)). Coming from v0.14 or earlier, read the sections for the versions in between as well.
+2. **Everyone signs in again once** after the upgrade; API tokens and connected apps keep working (item 1 of **Server-side sessions** above).
+3. **Limits set in `.env` still win.** `NOTE_MAX_BYTES` and the four `PARSE_*` settings lock their rows in **Site admin → Site limits**; remove one from `.env` and restart to manage it on the page (item 2 of **Site limits** above).
+4. **Pictures from identity providers.** At the next sign-in through a sign-in service whose ID token has a `picture` claim, the server downloads that picture in the background, so it must be able to reach the picture's host (see [Sign-in providers](#sign-in-providers)).
+5. **`OIDC_ISSUER_URL`, `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET` are no longer read.** Coming straight from v0.5 or earlier, upgrade to v0.15 first so they are imported as a sign-in service, or set the identity provider up in **Site admin → Sign-in** afterwards. Otherwise the three lines can be deleted from `.env`; they are ignored if left there.
+6. **Restart your MCP clients.** `create_bulk_transfer_token` is now called `open_notes_as_files`, with no alias; prompts or scripts that name the old tool must use the new name (see [MCP](mcp.md#open_notes_as_files)).
+7. **Building from source** needs Node.js 24 or later (the version is in `.nvmrc`); the app image now runs on Node.js 24.
+8. **Rolling back** to v0.15.0 (set `KNOTEBOOK_VERSION=0.15.0` and run `docker compose pull`, then `docker compose up -d`): the new tables and columns stay and v0.15 doesn't read them — read the rolling-back items of the four sections above. After upgrading again everyone signs in once more, and a personal space can be over its storage limit because profile pictures count again.
+
 **Upgrading to v0.15 (MCP bulk transfer, parse workers, a note size limit).**
 
 1. **Back up the database first.** Migrations 0036 and 0037 run automatically when the new server starts. They only add tables and columns, change checks and let `transfer_tokens.note_id` be empty, and leave existing rows as they are (see **MCP bulk transfer** above), but take a dump before you start the new version anyway, for example `docker compose exec -T db pg_dump -U knotebook knotebook > knotebook-before-upgrade.sql` (with your own PostgreSQL, run `pg_dump` against it directly — see [Using your own PostgreSQL](#using-your-own-postgresql)). Coming from v0.13 or earlier, read the sections for the versions in between as well.
