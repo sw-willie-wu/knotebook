@@ -400,7 +400,6 @@ describe("這一版新增", () => {
     if (!el) throw new Error(`no highlight ${id}`);
     return el as HTMLElement;
   };
-  const highlightTitle = (id: string) => highlightEl(id).querySelector("p")?.textContent ?? null;
 
   async function openWhatsNew(options: ContentOptions = {}) {
     renderContent(options);

@@ -824,7 +824,7 @@ test.describe("shortcuts dialog", () => {
     await expect(dialog.getByRole("region", { name: "Feature tour" })).toBeVisible();
     await expect(dialog.getByRole("button", { name: "Start tour", exact: true })).toBeVisible();
     await dialog.getByRole("button", { name: "What's new", exact: true }).click();
-    await expect(dialog.getByRole("heading", { level: 3, name: /^New in v\d+\.\d+\.\d+$/ })).toBeVisible();
+    await expect(dialog.getByRole("region", { name: "What's new" })).toContainText("Nothing new to highlight in this version.");
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
 
