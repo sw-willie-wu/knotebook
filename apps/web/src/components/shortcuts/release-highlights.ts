@@ -25,11 +25,8 @@ export interface ReleaseHighlights {
 }
 
 export const RELEASE_HIGHLIGHTS: ReleaseHighlights = {
-  version: "0.17.0",
-  items: [
-    { id: "headingOutline" },
-    { id: "mediaZoom" },
-  ],
+  version: "0.17.1",
+  items: [],
 };
 
 /** 這位使用者看得到的條目：一般使用者看不到 `adminOnly` 的，站台管理員全部看得到。保留原順序。 */

@@ -14,7 +14,7 @@ Your team writes and organizes notes together in real time. The AI assistants yo
 
 It runs as one app container and a PostgreSQL database with `docker compose`, from prebuilt images for linux/amd64 and linux/arm64. The web app is in English and Traditional Chinese, with light and dark themes.
 
-**Status:** the latest release is v0.17.0 (2026-11-18). Every version and its files are on [Releases](https://github.com/sw-willie-wu/knotebook/releases); what changed, and what is on `main` but not released yet, is in the [CHANGELOG](CHANGELOG.md).
+**Status:** the latest release is v0.17.1 (2026-11-18). Every version and its files are on [Releases](https://github.com/sw-willie-wu/knotebook/releases); what changed, and what is on `main` but not released yet, is in the [CHANGELOG](CHANGELOG.md).
 
 ## Why Knotebook
 

@@ -192,7 +192,7 @@ describe("站台能力：分類", () => {
     });
     await waitFor(() => expect(navNames()).toEqual(NO_AI_EN));
     expect(navButton("What's new")).toHaveAttribute("aria-current", "true");
-    expect(heading()).toMatch(/^New in v/);
+    expect(region()).toHaveTextContent("Nothing new to highlight in this version.");
     expect(screen.queryByRole("alert")).toBeNull();
   });
 });
@@ -355,7 +355,7 @@ describe("說明視窗的頁", () => {
     await waitFor(() => expect(region()).toHaveFocus());
     expect(content.className).toMatch(/(^| )flex( |$)/);
     expect(items.className).toMatch(/(^| )hidden( |$)/);
-    expect(region()).toHaveAccessibleName(/^New in v/);
+    expect(region()).toHaveAccessibleName("What's new");
   });
 
   it("zh-TW：左欄與頁面用「功能導覽」「這一版新增」「快捷鍵」", async () => {
@@ -367,7 +367,7 @@ describe("說明視窗的頁", () => {
     expect(nav.getByRole("group", { name: "快捷鍵" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "開始導覽" })).toBeInTheDocument();
     fireEvent.click(nav.getByRole("button", { name: "這一版新增" }));
-    expect(heading()).toBe(`v${RELEASE_HIGHLIGHTS.version} 新增`);
+    expect(region()).toHaveTextContent("這一版沒有要特別介紹的新功能。");
   });
 });
 
@@ -459,18 +459,13 @@ describe("這一版新增", () => {
     expect(screen.queryByRole("heading", { name: /New in v/ })).toBeNull();
   });
 
-  it("真的登記檔：標題帶登記檔版本，列出標題導覽與放大檢視（英文名稱與說明都在）", async () => {
+  it("真的登記檔：標題用登記檔版本，這一版沒有條目就只顯示空狀態那一句", async () => {
     registryState.override = null;
     sessionState.user = { isAdmin: false };
     await openWhatsNew();
-    await waitFor(() => expect(heading()).toBe(`New in v${RELEASE_HIGHLIGHTS.version}`));
-    expect(highlightIds()).toEqual(["headingOutline", "mediaZoom"]);
-    expect(highlightTitle("headingOutline")).toBe("Heading outline");
-    expect(highlightTitle("mediaZoom")).toBe("Zoom in on images and diagrams");
-    expect(highlightEl("headingOutline")).toHaveTextContent("pin the list open");
-    expect(highlightEl("mediaZoom")).toHaveTextContent("full screen");
-    expect(highlightEl("headingOutline")).not.toHaveTextContent("{{");
-    expect(highlightEl("mediaZoom")).not.toHaveTextContent("{{");
+    expect(RELEASE_HIGHLIGHTS.items).toEqual([]);
+    expect(region()).toHaveTextContent("Nothing new to highlight in this version.");
+    expect(document.querySelectorAll("[data-highlight-id]")).toHaveLength(0);
   });
 
   it("條目說明裡的 {{mod}}：Mac 寫 ⌘，其他寫 Ctrl+", async () => {
@@ -491,17 +486,15 @@ describe("這一版新增", () => {
     expect(highlightEl("modSample")).not.toHaveTextContent("{{");
   });
 
-  it("真的登記檔：繁體中文也列出標題導覽與放大檢視（標題在各自條目內）", async () => {
+  it("真的登記檔：繁體中文也只顯示空狀態那一句", async () => {
     registryState.override = null;
     sessionState.user = { isAdmin: false };
     await i18n.changeLanguage("zh-TW");
     renderContent();
     await waitFor(() => expect(screen.getByRole("navigation", { name: "說明" })).toBeInTheDocument());
     fireEvent.click(within(screen.getByRole("navigation", { name: "說明" })).getByRole("button", { name: "這一版新增" }));
-    await waitFor(() => expect(highlightTitle("headingOutline")).toBe("標題導覽"));
-    expect(highlightTitle("mediaZoom")).toBe("放大檢視圖片與圖表");
-    expect(highlightEl("mediaZoom")).toHaveTextContent("全螢幕");
-    expect(highlightEl("mediaZoom")).not.toHaveTextContent("{{");
+    await waitFor(() => expect(document.querySelectorAll("[data-highlight-id]")).toHaveLength(0));
+    expect(document.querySelector('[data-shortcuts-card="content"]')).toHaveTextContent("這一版沒有要特別介紹的新功能。");
   });
 
   it("真的登記檔：每個 adminOnly 條目一般使用者看不到、管理員看得到，其餘兩邊都看得到", async () => {
