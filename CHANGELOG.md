@@ -29,6 +29,8 @@ Releases before 0.16 are in [`docs/changelog/`](docs/changelog/), one file per m
 
 - **Migration 0042 turns on the `pg_trgm` extension and adds one index** to the search index's text; it changes no row. The bundled database and the stock `postgres` images include `pg_trgm`, and the database's owner can create it. On a PostgreSQL server of your own, check [The pg_trgm extension](docs/self-hosting.md#the-pg_trgm-extension) before upgrading: without it the migration fails and the server doesn't start. Building the index holds up writes to the search index for roughly a minute per million sections of note text, before the server starts. Rolling back leaves the extension and the index in place: the older version doesn't use the index, but still keeps it up to date on writes to the search index. See [Self-hosting](docs/self-hosting.md#upgrading-and-rolling-back).
 
+- **Migration 0043 (tags) only adds two tables**, `tags` and `note_tags`, and changes no existing row. Rolling back leaves the tables in place and the previous version doesn't read them; after upgrading again, the tags come back, except on notes moved or copied to another space, or handed over when a group was deleted, while the previous version was running. See [Self-hosting](docs/self-hosting.md#upgrading-and-rolling-back).
+
 ## [0.17.1] - 2026-11-18
 
 ### Changed
