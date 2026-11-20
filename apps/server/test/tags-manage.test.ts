@@ -9,7 +9,8 @@ import { noteStates, noteTags, notes, tags } from "../src/db/schema.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
 import { mergeTagsInTx } from "../src/tags/tx/manage.js";
 import { setNoteTagsByNamesInTx } from "../src/tags/tx/note-tags.js";
-import { seedGroup, seedNote, seedRole, seedUser, setMemberRole, sleep, waitForBlockedOrSettled } from "./group-helpers.js";
+import { cookieOf, seedGroup, seedNote, seedRole, seedUser, setMemberRole, sleep, waitForBlockedOrSettled } from "./group-helpers.js";
+import { seedDoc } from "./copy-helpers.js";
 import { buildTestApp } from "./helpers.js";
 import { inject, markTrashed } from "./trash-helpers.js";
 
@@ -664,4 +665,246 @@ describe("locking", () => {
       holder.release();
     }
   });
+});
+
+describe("tag writes meeting moves, copies and group hand-overs", () => {
+  const copyNote = async (app: FastifyInstance, noteId: string, userId: string, payload: Record<string, unknown> = {}) =>
+    inject(app, "POST", `/api/notes/${noteId}/copy`, userId, payload);
+  const moveNote = async (app: FastifyInstance, noteId: string, userId: string, groupId: string) =>
+    inject(app, "POST", `/api/notes/${noteId}/move`, userId, { groupId });
+  const handOver = async (app: FastifyInstance, groupId: string, userId: string, transferTo: string) =>
+    app.inject({ method: "DELETE", url: `/api/groups/${groupId}`, cookies: await cookieOf(userId), payload: { mode: "transfer", transferTo } });
+  const namesOn = async (db: Db, noteId: string): Promise<string[]> =>
+    (await db.$client.query<{ name: string }>("select t.name from note_tags nt join tags t on t.id = nt.tag_id where nt.note_id = $1 order by nt.created_at, t.id", [noteId])).rows.map(r => r.name);
+  const strayRows = async (db: Db): Promise<{ cross: number; dangling: number }> => ({
+    cross: (await db.$client.query<{ n: number }>(
+      `select count(*)::int as n from note_tags nt join tags t on t.id = nt.tag_id join notes n on n.id = nt.note_id
+       where t.owner_id is distinct from n.owner_id or t.group_id is distinct from n.group_id`,
+    )).rows[0]!.n,
+    dangling: (await db.$client.query<{ n: number }>("select count(*)::int as n from note_tags nt left join tags t on t.id = nt.tag_id where t.id is null")).rows[0]!.n,
+  });
+  const rowFree = async (db: Db, id: string): Promise<boolean> => {
+    const probe = await db.$client.connect();
+    try {
+      await probe.query("begin");
+      await probe.query("set local lock_timeout = '1s'");
+      try {
+        await probe.query("select id from tags where id = $1 for update nowait", [id]);
+        return true;
+      } catch (err) {
+        if ((err as { code?: string }).code === "55P03") return false;
+        throw err;
+      } finally {
+        await probe.query("rollback");
+      }
+    } finally {
+      probe.release();
+    }
+  };
+  /** Two names whose byte order ("C") is the reverse of the database's default collation, which is what the shipped images use. */
+  const PUNCT = "_z";
+  const PLAIN = "a";
+
+  it("the two names used below really sort in opposite ways under the default collation and under C", async () => {
+    const { db } = await buildTestApp();
+    const { rows } = await db.$client.query<{ dflt: boolean; c: boolean }>(
+      `select (${"'" + PUNCT + "'"} < ${"'" + PLAIN + "'"}) as dflt, (${"'" + PUNCT + "'"} collate "C" < ${"'" + PLAIN + "'"} collate "C") as c`,
+    );
+    expect(rows[0]).toEqual({ dflt: false, c: true });
+  });
+
+  it("a merge locks its tags in C order, not the default collation's and not id order", async () => {
+    const { app, db } = await buildTestApp();
+    const alice = await seedUser(db, { displayName: "Alice" });
+    // Default collation and id order both put PLAIN first; C order puts PUNCT first.
+    const plain = await seedTag(db, { ownerId: alice.id }, PLAIN, "blue", "00000000-0000-4000-8000-000000000002");
+    const punct = await seedTag(db, { ownerId: alice.id }, PUNCT, "blue", "ffffffff-ffff-4fff-8fff-fffffffffffe");
+
+    const holder = await db.$client.connect();
+    try {
+      await holder.query("begin");
+      await holder.query("select id from tags where id = $1 for update", [plain]);
+      const pending = mergeTag(app, alice.id, punct, plain);
+      expect(await waitForBlockedOrSettled(db.$client, pending)).toBe("blocked");
+      expect(await rowFree(db, punct)).toBe(false);
+      await holder.query("commit");
+      expect((await pending).statusCode).toBe(200);
+    } finally {
+      holder.release();
+    }
+  });
+
+  it("a move into a group locks the group's tags in C order: waiting for the later one it already holds the earlier one", async () => {
+    const { app, db } = await buildTestApp();
+    const alice = await seedUser(db, { displayName: "Alice" });
+    const g = await seedGroup(db, "Garden", [{ userId: alice.id, role: "member" }]);
+    const groupPlain = await seedTag(db, { groupId: g.id }, PLAIN);
+    const groupPunct = await seedTag(db, { groupId: g.id }, PUNCT);
+    const n = await seedNote(db, { ownerId: alice.id });
+    await attach(db, n.id, await seedTag(db, { ownerId: alice.id }, PLAIN), new Date(1_700_000_000_000));
+    await attach(db, n.id, await seedTag(db, { ownerId: alice.id }, PUNCT), new Date(1_700_000_001_000));
+
+    const holder = await db.$client.connect();
+    try {
+      await holder.query("begin");
+      await holder.query("select id from tags where id = $1 for update", [groupPlain]);
+      const pending = moveNote(app, n.id, alice.id, g.id);
+      expect(await waitForBlockedOrSettled(db.$client, pending)).toBe("blocked");
+      expect(await rowFree(db, groupPunct)).toBe(false);
+      await holder.query("commit");
+      const res = await pending;
+      expect(res.statusCode, res.body).toBe(200);
+    } finally {
+      holder.release();
+    }
+    expect(await namesOn(db, n.id)).toEqual([PLAIN, PUNCT]);
+    expect(await strayRows(db)).toEqual({ cross: 0, dangling: 0 });
+  });
+
+  it("a copy locks the source note's tags in C order too", async () => {
+    const { app, db } = await buildTestApp();
+    const alice = await seedUser(db, { displayName: "Alice" });
+    const n = await seedNote(db, { ownerId: alice.id });
+    await seedDoc(db, n.id, new Y.Doc());
+    const plain = await seedTag(db, { ownerId: alice.id }, PLAIN);
+    const punct = await seedTag(db, { ownerId: alice.id }, PUNCT);
+    await attach(db, n.id, plain, new Date(1_700_000_000_000));
+    await attach(db, n.id, punct, new Date(1_700_000_001_000));
+
+    const holder = await db.$client.connect();
+    try {
+      await holder.query("begin");
+      await holder.query("select id from tags where id = $1 for update", [plain]);
+      const pending = copyNote(app, n.id, alice.id);
+      expect(await waitForBlockedOrSettled(db.$client, pending)).toBe("blocked");
+      expect(await rowFree(db, punct)).toBe(false);
+      await holder.query("commit");
+      const res = await pending;
+      expect(res.statusCode, res.body).toBe(201);
+      expect(await namesOn(db, (res.json() as { id: string }).id)).toEqual([PLAIN, PUNCT]);
+    } finally {
+      holder.release();
+    }
+  });
+
+  for (const intoGroup of [false, true]) {
+    for (const change of ["merge", "delete"] as const) {
+      it(`${intoGroup ? "a copy into a group" : "a same-space copy"} waits for a real ${change} of one of its tags and then succeeds without dangling or cross-space rows`, async () => {
+        const { app, db } = await buildTestApp();
+        const alice = await seedUser(db, { displayName: "Alice" });
+        const g = await seedGroup(db, "Garden", [{ userId: alice.id, role: "admin" }]);
+        const space: Space = { ownerId: alice.id };
+        const src = await seedNote(db, space);
+        await seedDoc(db, src.id, new Y.Doc());
+        const blocker = await seedNote(db, space);
+        const s = await seedTag(db, space, "src");
+        const t = await seedTag(db, space, "dst");
+        const kept = await seedTag(db, space, "kept");
+        await attach(db, src.id, s, new Date(1_700_000_000_000));
+        await attach(db, src.id, kept, new Date(1_700_000_001_000));
+        await attach(db, blocker.id, s);
+
+        const holder = await db.$client.connect();
+        try {
+          // The change is in flight: the merge waits for the blocker note's lock, the delete for its note_tags row; each holds the tag rows meanwhile.
+          await holder.query("begin");
+          if (change === "merge") await holder.query("select id from notes where id = $1 for update", [blocker.id]);
+          else await holder.query("select note_id from note_tags where note_id = $1 for update", [blocker.id]);
+          const changing = change === "merge" ? mergeTag(app, alice.id, s, t) : deleteTag(app, alice.id, s);
+          expect(await waitForBlockedOrSettled(db.$client, changing)).toBe("blocked");
+          const copying = copyNote(app, src.id, alice.id, intoGroup ? { groupId: g.id } : {});
+          expect(await waitForBlockedOrSettled(db.$client, copying)).toBe("blocked");
+          await holder.query("commit");
+          const [c, copied] = await Promise.all([changing, copying]);
+          expect(c.statusCode, c.body).toBe(change === "merge" ? 200 : 204);
+          expect(copied.statusCode, copied.body).toBe(201);
+          // The copy read the note's tags before the change landed, so it carries the ones that survived; "src" itself is gone.
+          const copyNames = await namesOn(db, (copied.json() as { id: string }).id);
+          expect(copyNames).toContain("kept");
+          expect(copyNames).not.toContain("src");
+        } finally {
+          await holder.query("rollback").catch(() => {});
+          holder.release();
+        }
+        expect(await strayRows(db)).toEqual({ cross: 0, dangling: 0 });
+      });
+    }
+  }
+
+  it("a move into a group, and adding a tag by name, while that group merges the tag with the same name: both succeed and nothing strays", async () => {
+    const { app, db } = await buildTestApp();
+    const alice = await seedUser(db, { displayName: "Alice" });
+    const g = await seedGroup(db, "Garden", [{ userId: alice.id, role: "admin" }]);
+    const mover = await seedNote(db, { ownerId: alice.id });
+    await attach(db, mover.id, await seedTag(db, { ownerId: alice.id }, "s"));
+    const adder = await seedNote(db, { groupId: g.id });
+    const blocker = await seedNote(db, { groupId: g.id });
+    const gs = await seedTag(db, { groupId: g.id }, "S");
+    const gt = await seedTag(db, { groupId: g.id }, "T");
+    await attach(db, blocker.id, gs);
+
+    const holder = await db.$client.connect();
+    try {
+      await holder.query("begin");
+      await holder.query("select id from notes where id = $1 for update", [blocker.id]);
+      const merging = mergeTag(app, alice.id, gs, gt);
+      expect(await waitForBlockedOrSettled(db.$client, merging)).toBe("blocked");
+      const moving = moveNote(app, mover.id, alice.id, g.id);
+      const adding = inject(app, "POST", `/api/notes/${adder.id}/tags`, alice.id, { name: "s" });
+      await sleep(400);
+      await holder.query("commit");
+      const [m, mv, ad] = await Promise.all([merging, moving, adding]);
+      expect([m.statusCode, mv.statusCode, ad.statusCode], `${m.body} ${mv.body} ${ad.body}`).toEqual([200, 200, 200]);
+    } finally {
+      holder.release();
+    }
+    expect(await namesOn(db, mover.id)).toEqual(["s"]);
+    expect(await namesOn(db, adder.id)).toEqual(["s"]);
+    expect(await namesOn(db, blocker.id)).toEqual(["T"]);
+    expect(await strayRows(db)).toEqual({ cross: 0, dangling: 0 });
+  });
+
+  for (const change of ["merge", "rename"] as const) {
+    it(`handing a group's notes to bob while bob ${change}s the personal tag of the same name: both finish, the notes keep their tags, nothing strays`, async () => {
+      const { app, db } = await buildTestApp();
+      const bob = await seedUser(db, { displayName: "Bob" });
+      const g = await seedGroup(db, "Garden", [{ userId: bob.id, role: "admin" }]);
+      const groupNote = await seedNote(db, { groupId: g.id });
+      await attach(db, groupNote.id, await seedTag(db, { groupId: g.id }, "S"), new Date(1_700_000_000_000));
+      await attach(db, groupNote.id, await seedTag(db, { groupId: g.id }, "T"), new Date(1_700_000_001_000));
+      const own = await seedNote(db, { ownerId: bob.id });
+      const blocker = await seedNote(db, { ownerId: bob.id });
+      const ps = await seedTag(db, { ownerId: bob.id }, "s");
+      const pt = await seedTag(db, { ownerId: bob.id }, "t");
+      await attach(db, own.id, ps);
+      await attach(db, blocker.id, ps);
+
+      const holder = await db.$client.connect();
+      try {
+        await holder.query("begin");
+        let changing: Promise<LightMyRequestResponse>;
+        if (change === "merge") {
+          await holder.query("select id from notes where id = $1 for update", [blocker.id]);
+          changing = mergeTag(app, bob.id, ps, pt);
+          expect(await waitForBlockedOrSettled(db.$client, changing)).toBe("blocked");
+        } else {
+          // An uncommitted rename: the row is locked and renamed until the holder commits.
+          await holder.query("update tags set name = 's2' where id = $1", [ps]);
+          changing = Promise.resolve(inject(app, "GET", "/api/tags", bob.id));
+        }
+        const handing = handOver(app, g.id, bob.id, bob.id);
+        const st = await waitForBlockedOrSettled(db.$client, handing);
+        expect(st).toBe("blocked");
+        await holder.query("commit");
+        const [c, h] = await Promise.all([changing, handing]);
+        expect(c.statusCode, c.body).toBe(200);
+        expect(h.statusCode, h.body).toBe(204);
+      } finally {
+        await holder.query("rollback").catch(() => {});
+        holder.release();
+      }
+      expect(await namesOn(db, groupNote.id)).toEqual(["S", "t"]);
+      expect(await strayRows(db)).toEqual({ cross: 0, dangling: 0 });
+    });
+  }
 });

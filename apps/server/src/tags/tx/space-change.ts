@@ -3,7 +3,8 @@
 // Lock order: these run after the caller has locked the note rows (and the target group), so they add no edge to the groups -> notes order.
 // They lock tags rows of the target space (and, for a copy, the source tags with KEY SHARE); a tag merge, delete or rename may hold such a row,
 // so they can wait for it, but once it is released they need nothing the other side holds.
-// The upsert takes the target tags in `name_key` order, so concurrent moves, copies and group hand-overs into one space can't wait on each other in opposite orders.
+// Every statement that locks several tag rows (these, a merge, setNoteTagsByNamesInTx) orders them by `name_key collate "C"`: the database's default collation orders punctuation and non-ASCII characters differently.
+// The upsert takes the target tags in that order, so concurrent moves, copies and group hand-overs into one space can't wait on each other in opposite orders.
 import { sql, type SQL } from "drizzle-orm";
 import type { Tx } from "../../db/tx.js";
 import type { TagSpace } from "../space.js";
@@ -18,7 +19,7 @@ const inSpace = (space: TagSpace): SQL => sql`coalesce(t.${spaceColumn(space)} =
 function upsertIntoTarget(target: TagSpace, createdBy: string, from: SQL): SQL {
   const col = spaceColumn(target);
   return sql`insert into tags (${col}, name, color, created_by)
-    select ${spaceId(target)}::uuid, s.name, s.color, ${createdBy}::uuid from ${from} s order by s.name_key
+    select ${spaceId(target)}::uuid, s.name, s.color, ${createdBy}::uuid from ${from} s order by s.name_key collate "C"
     on conflict (${col}, name_key) where ${col} is not null do update set name = tags.name
     returning id, name_key`;
 }
@@ -40,6 +41,7 @@ export async function copyNoteTagsInTx(
       join notes n on n.id = nt.note_id
       where nt.note_id = ${input.sourceNoteId}::uuid and n.deleted_at is null
         and t.owner_id is not distinct from n.owner_id and t.group_id is not distinct from n.group_id
+      order by t.name_key collate "C"
       for key share of t
     ), shared as (
       insert into note_tags (note_id, tag_id, created_at)
