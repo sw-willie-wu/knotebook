@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   MemoryRouter,
@@ -30,7 +30,7 @@ import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import * as toastModule from "@/components/ui/toast";
 import { canEdit as canEditRole, type CollabState } from "@/collab/connection";
-import { OWNER_PERMS, VIEWER_PERMS } from "@/test/fixtures";
+import { EDITOR_PERMS, OWNER_PERMS, VIEWER_PERMS } from "@/test/fixtures";
 import { invalidateNoteQueries } from "@/api/notes";
 import { Awareness } from "y-protocols/awareness";
 import { resetLocalPresenceFieldForTest } from "@/components/presence/local-field";
@@ -71,6 +71,8 @@ vi.mock("@/components/NoteEditor", async () => {
     editable,
     noteId,
     headerSlot,
+    contentTopSlot,
+    tagEntry,
     footerSlot,
     previewSlot,
     onCursorScroller,
@@ -84,6 +86,8 @@ vi.mock("@/components/NoteEditor", async () => {
     editable: boolean;
     noteId: string;
     headerSlot?: ReactNode;
+    contentTopSlot?: ReactNode;
+    tagEntry?: { open: (opts?: { returnFocus?: () => void }) => void };
     footerSlot?: ReactNode;
     previewSlot?: ReactNode;
     onCursorScroller?: (s: unknown) => void;
@@ -99,8 +103,14 @@ vi.mock("@/components/NoteEditor", async () => {
       return () => onCursorScroller?.(null);
     }, [onCursorScroller]);
     return (
-      <div data-testid="note-editor" data-editable={String(editable)} data-fab-clearance={String(fabClearance === true)}>
+      <div data-testid="note-editor" data-editable={String(editable)} data-fab-clearance={String(fabClearance === true)} data-tag-entry={String(tagEntry !== undefined)}>
+        {tagEntry && (
+          <button type="button" onClick={() => tagEntry.open()}>
+            mock-slash-tag
+          </button>
+        )}
         {headerSlot}
+        <div data-testid="mock-content-top">{contentTopSlot}</div>
         <div data-testid="mock-column" data-width={width} />
         <div data-testid="mock-content" contentEditable={editable} suppressContentEditableWarning tabIndex={0} />
         <button type="button" onClick={() => versions.startPreview({ seq: 1, id: VERSION_1.id, name: null })}>
@@ -1525,6 +1535,23 @@ describe("NotePage", () => {
     releaseB();
     await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("Note B"));
     await waitFor(() => expect(routerPath()).toBe("/n/tester/note-b"));
+  });
+
+  it("an open tag input does not carry over to the next note, nor reappear when coming back", async () => {
+    stubTwoNotes();
+    collab.provider.synced = true;
+    renderTwoNoteTree();
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("My Note"));
+    fireEvent.click(await screen.findByRole("button", { name: "mock-slash-tag" }));
+    await screen.findByRole("combobox", { name: "Tag name" });
+
+    fireEvent.click(screen.getByRole("button", { name: "go-b" }));
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("Note B"));
+    expect(screen.queryByRole("combobox", { name: "Tag name" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "go-my-note" }));
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("My Note"));
+    expect(screen.queryByRole("combobox", { name: "Tag name" })).toBeNull();
   });
 
   it("persistent-layer 404 = real deletion -> note.deleted text and back to / (must not fall into linkInvalid - what the needsResolve precondition guards)", async () => {
@@ -3741,5 +3768,169 @@ describe("header avatar row (#293)", () => {
     } finally {
       now.mockRestore();
     }
+  });
+});
+
+describe("note tag row", () => {
+  const AWS = { id: "t1", name: "AWS", color: "blue" as const };
+  const BUDGET = { id: "t2", name: "Budget", color: "green" as const };
+  let calls: string[];
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    collab.state = { phase: "connected", role: "owner" };
+    collab.doc = new Y.Doc();
+    collab.provider = createStubProvider();
+    collab.onUnauthorized = undefined;
+    window.history.replaceState(null, "", "/");
+    dismissAllToasts();
+  });
+
+  afterEach(() => {
+    collab.doc.destroy();
+    vi.unstubAllGlobals();
+    navSpy.current = undefined;
+  });
+
+  async function openWith(note: NoteDto, tags: Array<typeof AWS | typeof BUDGET>) {
+    const listed: NoteDto = { ...note, tags };
+    const { fn, calls: seen } = withEditsAndList(mockFetch(note), () => [listed]);
+    calls = seen;
+    vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === "/api/tags" && (init?.method ?? "GET") === "GET") {
+        seen.push("GET /api/tags");
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+      }
+      return fn(input, init);
+    });
+    renderNotePage("my-note");
+    await waitFor(() => expect(screen.getByTestId("note-editor")).toBeInTheDocument());
+  }
+
+  it("the tag row is the editor's content-top slot: after the header, before the content, in the wide and the phone layout", async () => {
+    for (const tier of ["docked", "phone"] as const) {
+      stubLayoutTier(tier);
+      await openWith(NOTE, [AWS, BUDGET]);
+      const top = screen.getByTestId("mock-content-top");
+      await waitFor(() => expect(within(top).getByText("AWS")).toBeInTheDocument());
+      const header = document.querySelector("header")!;
+      expect(header.contains(top)).toBe(false);
+      expect(header.compareDocumentPosition(top) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(top.compareDocumentPosition(screen.getByTestId("mock-content")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(within(header).queryByText("AWS")).toBeNull();
+      cleanup();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("the header's classes are exactly the same with and without tags", async () => {
+    function headerClasses(): string {
+      const header = document.querySelector("header")!;
+      return [header, ...header.querySelectorAll("*")].map((el) => el.getAttribute("class") ?? "").join("|");
+    }
+    await openWith(NOTE, []);
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toBeInTheDocument());
+    const without = headerClasses();
+    cleanup();
+    await openWith(NOTE, [AWS, BUDGET]);
+    await waitFor(() => expect(within(screen.getByTestId("mock-content-top")).getByText("AWS")).toBeInTheDocument());
+    expect(headerClasses()).toBe(without);
+  });
+
+  it("a note without tags leaves the slot empty", async () => {
+    await openWith(NOTE, []);
+    await waitFor(() => expect(calls).toContain("GET /api/notes"));
+    await act(async () => {});
+    expect(screen.getByTestId("mock-content-top")).toBeEmptyDOMElement();
+  });
+
+  it("the owner gets Add and remove buttons; an edit share on a personal note gets the pills only and no space-list request", async () => {
+    await openWith(NOTE, [AWS]);
+    const top = screen.getByTestId("mock-content-top");
+    await waitFor(() => expect(within(top).getByRole("button", { name: "Add a tag" })).toBeInTheDocument());
+    expect(within(top).getByRole("button", { name: "Remove tag AWS" })).toBeInTheDocument();
+    await act(async () => {});
+    expect(calls).not.toContain("GET /api/tags");
+    fireEvent.click(within(top).getByRole("button", { name: "Add a tag" }));
+    await waitFor(() => expect(calls).toContain("GET /api/tags"));
+    cleanup();
+
+    calls = [];
+    collab.state = { phase: "connected", role: "editor" };
+    await openWith({ ...NOTE, role: "editor", ownerId: "u2", permissions: EDITOR_PERMS }, [AWS]);
+    const shared = screen.getByTestId("mock-content-top");
+    await waitFor(() => expect(within(shared).getByText("AWS")).toBeInTheDocument());
+    await act(async () => {});
+    expect(within(shared).queryByRole("button")).toBeNull();
+    expect(calls).not.toContain("GET /api/tags");
+  });
+
+  function openHeaderMenu(): void {
+    fireEvent.pointerDown(within(document.querySelector("header")!).getByRole("button", { name: "More" }), { button: 0 });
+  }
+
+  it("the owner's /tag entry and header Add tag open the input on a note without tags; blurring it folds the row away again", async () => {
+    await openWith(NOTE, []);
+    await waitFor(() => expect(calls).toContain("GET /api/notes"));
+    const top = screen.getByTestId("mock-content-top");
+    expect(screen.getByTestId("note-editor")).toHaveAttribute("data-tag-entry", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "mock-slash-tag" }));
+    const viaSlash = await within(top).findByRole("combobox", { name: "Tag name" });
+    expect(document.activeElement).toBe(viaSlash);
+    fireEvent.blur(viaSlash);
+    await waitFor(() => expect(top).toBeEmptyDOMElement());
+
+    openHeaderMenu();
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Add tag" }));
+    const viaMenu = await within(top).findByRole("combobox", { name: "Tag name" });
+    expect(document.activeElement).toBe(viaMenu);
+  });
+
+  it("Esc out of the empty input from the header menu puts focus back on the more button", async () => {
+    await openWith(NOTE, []);
+    await waitFor(() => expect(calls).toContain("GET /api/notes"));
+    openHeaderMenu();
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Add tag" }));
+    const input = await within(screen.getByTestId("mock-content-top")).findByRole("combobox", { name: "Tag name" });
+    fireEvent.keyDown(input, { key: "Escape" });
+    await waitFor(() => expect(document.activeElement).toBe(within(document.querySelector("header")!).getByRole("button", { name: "More" })));
+  });
+
+  it("with a version preview open the header menu has no Add tag (the tag row is hidden then)", async () => {
+    await openWith(NOTE, []);
+    await waitFor(() => expect(calls).toContain("GET /api/notes"));
+    fireEvent.click(screen.getByText("mock-start-preview"));
+    await screen.findByTestId("mock-preview-slot");
+    openHeaderMenu();
+    await screen.findByRole("menuitem", { name: /Copy link/ });
+    expect(screen.queryByRole("menuitem", { name: "Add tag" })).toBeNull();
+  });
+
+  it("an edit share and a viewer get no tag entry: no /tag, no Add tag in the header menu", async () => {
+    collab.state = { phase: "connected", role: "editor" };
+    await openWith({ ...NOTE, role: "editor", ownerId: "u2", permissions: EDITOR_PERMS }, []);
+    await waitFor(() => expect(calls).toContain("GET /api/notes"));
+    expect(screen.getByTestId("note-editor")).toHaveAttribute("data-tag-entry", "false");
+    openHeaderMenu();
+    await screen.findByRole("menuitem", { name: /Copy link/ });
+    expect(screen.queryByRole("menuitem", { name: "Add tag" })).toBeNull();
+    cleanup();
+
+    collab.state = { phase: "connected", role: "viewer" };
+    await openWith({ ...NOTE, role: "viewer", ownerId: "u2", permissions: VIEWER_PERMS }, []);
+    await waitFor(() => expect(calls).toContain("GET /api/notes"));
+    expect(screen.getByTestId("note-editor")).toHaveAttribute("data-tag-entry", "false");
+    openHeaderMenu();
+    await screen.findByRole("menuitem", { name: /Copy link/ });
+    expect(screen.queryByRole("menuitem", { name: "Add tag" })).toBeNull();
+  });
+
+  it("a viewer gets the pills only", async () => {
+    collab.state = { phase: "connected", role: "viewer" };
+    await openWith({ ...NOTE, role: "viewer", ownerId: "u2", permissions: VIEWER_PERMS }, [AWS]);
+    const top = screen.getByTestId("mock-content-top");
+    await waitFor(() => expect(within(top).getByText("AWS")).toBeInTheDocument());
+    expect(within(top).queryByRole("button")).toBeNull();
   });
 });

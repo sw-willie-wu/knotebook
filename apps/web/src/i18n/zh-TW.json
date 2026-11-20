@@ -931,6 +931,11 @@
     "dots": "標籤：{{names}}",
     "separator": "、",
     "nameInvalid": "標籤名稱須為 1 到 40 個字。",
+    "entry": {
+      "slashTitle": "標籤",
+      "slashSubtext": "替這篇筆記加標籤",
+      "menuItem": "加標籤"
+    },
     "suggestions": {
       "todo": "待辦",
       "reference": "參考",

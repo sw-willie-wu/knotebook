@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type
 import { useTranslation } from "react-i18next";
 import { NavigationType, useLocation, useNavigate, useNavigationType, useParams } from "react-router";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { canonicalNotePath, type NoteDto, type Role } from "@knotebook/shared";
+import { canEditNoteTags, canonicalNotePath, type NoteDto, type Role } from "@knotebook/shared";
 import { api, ApiFail } from "@/api/client";
 import { GROUPS_QUERY_KEY } from "@/api/groups";
 import { invalidateNoteQueries, patchNotesListLastEdited, useNote, useNoteByGroupPath, useNoteByPath } from "@/api/notes";
@@ -41,6 +41,8 @@ import { InTrashCard } from "@/components/InTrashCard";
 import { ChunkLoadBeacon, LazyRouteErrorBoundary, LazyRouteLoading } from "@/components/ErrorBoundary";
 import { LastEditedLabel } from "@/components/LastEditedLabel";
 import { NoteEditor } from "@/components/NoteEditor";
+import { NoteTagRow } from "@/components/tags/NoteTagRow";
+import { openTagEntry, type TagEntryOptions } from "@/components/tags/tag-entry";
 import { NoteMenu } from "@/components/NoteMenu";
 import { NoteWidthMenuItems } from "@/components/NoteWidthMenuItems";
 import { NoteWidthToggle } from "@/components/NoteWidthToggle";
@@ -666,9 +668,13 @@ export default function NotePage() {
     const presenceAvatars = (
       <PresenceAvatars provider={provider} connected={state.phase === "connected"} myUserId={user.id} scrollerRef={cursorScrollerRef} />
     );
+    // `roleCanEdit` already folds in the connection and a stale tab; `canEditNoteTags` is what keeps edit shares out.
+    const tagEntry = roleCanEdit && canEditNoteTags(note) ? { open: (options?: TagEntryOptions) => openTagEntry(note.id, options) } : undefined;
     const noteMenu = (
       <NoteMenu
         note={note}
+        // The tag row is hidden along with the editor while a version is previewed, so there is nothing to focus.
+        onAddTag={tagEntry && versions.preview === null ? () => tagEntry.open({ returnFocus: () => noteMenuTriggerRef.current?.focus() }) : undefined}
         state={state}
         leavingRef={leavingRef}
         onOpenEdits={openEdits}
@@ -764,6 +770,8 @@ export default function NotePage() {
                   )}
                 </>
               }
+              contentTopSlot={<NoteTagRow key={note.id} note={note} canEdit={tagEntry !== undefined} />}
+              tagEntry={tagEntry}
               footerSlot={<BacklinksSection noteId={noteId} />}
               previewSlot={
                 versions.preview !== null && versions.mode !== "sheet" ? (

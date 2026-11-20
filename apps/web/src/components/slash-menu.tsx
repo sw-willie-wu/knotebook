@@ -3,7 +3,7 @@ import { autoPlacement, offset, shift, size } from "@floating-ui/react";
 import { getDefaultReactSlashMenuItems, type DefaultReactSuggestionItem, type FloatingUIOptions } from "@blocknote/react";
 import { PHONE_EDIT_TOOLBAR_CLEARANCE_PX } from "@/components/ai/SelectionAiController";
 import { canInsertColumns, insertColumns } from "@/collab/columns/commands";
-import { Link } from "@/components/ui/icons";
+import { Link, Tag } from "@/components/ui/icons";
 import { Columns2, Diagram } from "@/components/ui/icons-extra";
 
 /** Kept in the mermaid namespace on purpose: the `lastIndexOf(group)` insertion needs identical strings (pinned in slash-menu.test.tsx); renaming touches both translation files for no gain. Extracted so "link and diagram items share one group" is visible in the source; a mismatched group falls to the end. */
@@ -46,6 +46,8 @@ export function buildSlashMenuItems(
   editor: any,
   translate: (key: string, options?: Record<string, unknown>) => string,
   onInsertLink: () => void,
+  /** Undefined when the viewer cannot change this note's tags: the item is left out. Unlike the side-by-side items it has no position limit. */
+  onOpenTagEntry?: () => void,
 ): DefaultReactSuggestionItem[] {
   const defaults = getDefaultReactSlashMenuItems(editor);
   const group = translate(SLASH_EXTRA_GROUP_KEY);
@@ -79,8 +81,21 @@ export function buildSlashMenuItems(
       }))
     : [];
 
+  const tagItems: DefaultReactSuggestionItem[] = onOpenTagEntry
+    ? [
+        {
+          title: translate("tags.entry.slashTitle"),
+          subtext: translate("tags.entry.slashSubtext"),
+          aliases: ["tag", "tags", "label", "標籤"],
+          group,
+          icon: <Tag className="h-4 w-4" />,
+          onItemClick: onOpenTagEntry,
+        },
+      ]
+    : [];
+
   // Cannot just push: the menu draws a group heading only when the group differs from the previous item, so appending would add a second heading; insert after the last item of the same group.
   const lastInGroup = defaults.map((entry) => entry.group).lastIndexOf(group);
-  if (lastInGroup === -1) return [...defaults, mermaidItem, linkItem, ...columnItems];
-  return [...defaults.slice(0, lastInGroup + 1), mermaidItem, linkItem, ...columnItems, ...defaults.slice(lastInGroup + 1)];
+  if (lastInGroup === -1) return [...defaults, mermaidItem, linkItem, ...columnItems, ...tagItems];
+  return [...defaults.slice(0, lastInGroup + 1), mermaidItem, linkItem, ...columnItems, ...tagItems, ...defaults.slice(lastInGroup + 1)];
 }
