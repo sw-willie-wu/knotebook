@@ -7,7 +7,7 @@ import { NOTE_SCHEMA_VERSION } from "./note-schema-version.js";
 // Scope: only the headless schema's block / inline / style types, prop names and defaults; the web noteSchema's own set and PM-level attributes (blockContainer attrs, link mark attrs) are not in the digest.
 
 /** The recorded schema version and digest. If the schema changed: bump NOTE_SCHEMA_VERSION and replace this with the new { version, digest }. */
-const RECORDED = { version: 2, digest: "bcaeadd4" } as const;
+const RECORDED = { version: 3, digest: "29ea2281" } as const;
 
 type PropSpec = { default?: unknown; values?: unknown };
 function propsOf(propSchema: unknown): string {

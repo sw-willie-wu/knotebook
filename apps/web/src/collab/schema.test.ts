@@ -56,6 +56,14 @@ describe("noteSchema (image block enabled)", () => {
     expect(custom.sort()).toEqual(["column", "columnList", "mermaid"]);
   });
 
+  it("noteSchema's heading propSchema equals the headless schema's heading propSchema", () => {
+    const pick = (props: Record<string, { default: unknown }>) => Object.fromEntries(Object.entries(props).map(([k, v]) => [k, v.default]));
+    const web = noteSchema.blockSchema.heading.propSchema as unknown as Record<string, { default: unknown }>;
+    const headless = createHeadlessNoteSchema("http://localhost/").blockSchema.heading.propSchema as unknown as Record<string, { default: unknown }>;
+    expect(Object.keys(web).sort()).toEqual(Object.keys(headless).sort());
+    expect(pick(web)).toEqual(pick(headless));
+  });
+
   it("basic blocks such as paragraph and heading are still there (guards against a wrongly built schema)", () => {
     expect(Object.keys(noteSchema.blockSpecs)).toEqual(expect.arrayContaining(["paragraph", "heading", "table"]));
   });

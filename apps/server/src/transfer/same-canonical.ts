@@ -1,12 +1,14 @@
 /**
  * Not `fingerprintOf`/`canonicalizeNode` (the contract of `if_match` and version
- * fingerprints, must not change). Plus three minimal normalizations: drop `undefined`
+ * fingerprints, must not change). Plus four minimal normalizations: drop `undefined`
  * attributes (parse → `insertBlocks` writes them, old browser blocks lack them), drop numbered
- * `start`, and for wikilinks only drop `snapshotTitle` and empty `label`/`anchorBlockId`
- * (parse rebinds to the current title). Other empty-string attributes compare normally.
+ * `start`, for wikilinks only drop `snapshotTitle` and empty `label`/`anchorBlockId`
+ * (parse rebinds to the current title), and drop heading knowledge attributes equal to their
+ * default (a heading written before those props existed must equal one that stores them empty).
+ * Other empty-string attributes compare normally.
  */
 import * as Y from "yjs";
-import { topLevelBlocks } from "@knotebook/shared";
+import { isIgnorableKnowledgeDefault, topLevelBlocks } from "@knotebook/shared";
 
 function stable(value: unknown): string {
   if (value === null) return "null";
@@ -20,6 +22,7 @@ function stable(value: unknown): string {
 
 function keep(nodeName: string, k: string, v: unknown): boolean {
   if (k === "id" || v === undefined) return false;
+  if (isIgnorableKnowledgeDefault(nodeName, k, v)) return false;
   if (nodeName === "numberedListItem" && k === "start") return false;
   if (nodeName === "wikilink" && (k === "snapshotTitle" || ((k === "label" || k === "anchorBlockId") && v === ""))) return false;
   return true;

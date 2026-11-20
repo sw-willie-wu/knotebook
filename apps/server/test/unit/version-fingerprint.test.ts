@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import { BlockNoteEditor, defaultProps } from "@blocknote/core";
 import { yXmlFragmentToBlocks } from "@blocknote/core/yjs";
-import { YDOC_FRAGMENT, createHeadlessNoteSchema, topLevelBlocks } from "@knotebook/shared";
+import { EMPTY_KNOWLEDGE_PROPS, YDOC_FRAGMENT, createHeadlessNoteSchema, topLevelBlocks } from "@knotebook/shared";
 import { fingerprintOf, outlineOf } from "../../src/notes/editing/fingerprint.js";
 import { EditingRuntime } from "../../src/notes/editing/runtime.js";
 import { EditorSession, forkFrom } from "../../src/notes/editing/session.js";
@@ -331,12 +331,23 @@ describe("attribute values equal to the schema default count as absent", () => {
     expect(bfp("paragraph", PARA_FULL)).toBe(pinned);
   });
 
+  it("setting a knowledge attribute to a non-empty value changes the version fingerprint, setting it to \"\" does not", () => {
+    const plain = bfp("heading", { level: 1 }, "Title");
+    expect(bfp("heading", { level: 1, knowledgeWhen: "" }, "Title")).toBe(plain);
+    expect(bfp("heading", { level: 1, knowledgeId: "", knowledgeStatus: "" }, "Title")).toBe(plain);
+    expect(bfp("heading", { level: 1, knowledgeWhen: "alice reads this" }, "Title")).not.toBe(plain);
+    expect(bfp("heading", { level: 1, knowledgeId: "k_0123abcd" }, "Title")).not.toBe(plain);
+  });
+
   it("the default-value table is derived from the shared schema (not hand-written): the set of types, the values of heading/paragraph/codeBlock/mermaid/wikilink; style is not in the table", () => {
     expect(Object.keys(DEFAULT_PROPS_BY_TYPE).sort()).toEqual([
       "audio", "bulletListItem", "checkListItem", "codeBlock", "column", "file", "heading", "image", "mermaid", "numberedListItem", "paragraph",
       "quote", "table", "toggleListItem", "video", "wikilink",
     ]);
-    expect(DEFAULT_PROPS_BY_TYPE.heading).toEqual({ backgroundColor: "default", textColor: "default", textAlignment: "left", level: 1, isToggleable: false });
+    expect(DEFAULT_PROPS_BY_TYPE.heading).toEqual({
+      backgroundColor: "default", textColor: "default", textAlignment: "left", level: 1, isToggleable: false,
+      ...EMPTY_KNOWLEDGE_PROPS,
+    });
     expect(DEFAULT_PROPS_BY_TYPE.paragraph).toEqual(PARAGRAPH_DEFAULT_PROPS);
     expect(DEFAULT_PROPS_BY_TYPE.checkListItem!.checked).toBe(false);
     expect(DEFAULT_PROPS_BY_TYPE.codeBlock).toEqual({ language: "text" });

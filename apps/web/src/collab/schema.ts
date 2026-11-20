@@ -1,5 +1,5 @@
 import { BlockNoteSchema, createCodeBlockSpec, defaultBlockSpecs, defaultInlineContentSpecs } from "@blocknote/core";
-import { columnBlockSpec, columnListBlockSpec, withGuardedExternalHTML } from "@knotebook/shared";
+import { columnBlockSpec, columnListBlockSpec, withGuardedExternalHTML, withKnowledgeProps } from "@knotebook/shared";
 import { CODE_BLOCK_OPTIONS } from "@/lib/code-highlight";
 import { mermaidSpec } from "@/components/mermaid/spec";
 import { wikilinkSpec } from "@/components/wikilink/spec";
@@ -35,6 +35,7 @@ import { withColumnsLayout } from "./columns/layout-extension";
 export const noteSchema = BlockNoteSchema.create({
   blockSpecs: {
     ...defaultBlockSpecs,
+    heading: withKnowledgeProps(defaultBlockSpecs.heading),
     audio: withGuardedExternalHTML(defaultBlockSpecs.audio, window.location.href),
     file: withGuardedExternalHTML(defaultBlockSpecs.file, window.location.href),
     image: withGuardedExternalHTML(defaultBlockSpecs.image, window.location.href),
