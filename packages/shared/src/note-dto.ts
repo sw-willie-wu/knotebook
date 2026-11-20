@@ -1,5 +1,6 @@
 import type { NoteGroupDto } from "./groups.js";
 import type { AvatarRef } from "./avatar.js";
+import type { NoteTagDto } from "./tags.js";
 
 export type Role = "owner" | "editor" | "viewer" | "none";
 
@@ -29,6 +30,8 @@ export interface NoteDto {
   folderId: string | null;
   /** Yjs state plus attachments, bytes; sort key only, sent only by GET /api/notes. */
   sizeBytes?: number;
+  /** Sent only by GET /api/notes, in the order they were added. */
+  tags?: NoteTagDto[];
 }
 
 export interface NotePermissions {
