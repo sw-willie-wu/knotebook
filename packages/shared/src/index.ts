@@ -15,6 +15,8 @@ export * from "./last-active.js";
 export * from "./paths.js";
 export * from "./note-schema-config.js";
 export * from "./knowledge-schema.js";
+export * from "./knowledge.js";
+export * from "./knowledge-list.js";
 export * from "./columns.js";
 export * from "./note-sections.js";
 export * from "./note-markdown.js";
