@@ -5,6 +5,7 @@
  * `uploads.charged_to_id` → the mover is set after `writeSlugInTx` returns, outside its callback: the callback re-runs after a savepoint rollback on a slug collision and this must run once. All attachments are charged to the mover regardless of uploader (the caller is the owner). It adds only the held note's uploads rows and the `users` FK KEY SHARE after the space lock.
  * Not the caller's personal note any more → 409 `conflict`. Only the current slug gets a redirect (`/n/<handle>/<old slug>`).
  * A delete-group racing this: the KEY SHARE waits for the delete to commit → 0 rows → 404. After the lock the group can't be deleted, so the UPDATE can't hit FK 23503; the `charged_to_id` → users FK only fires if the mover's account is hard-deleted mid-transaction (no such path in `src/`). The 23503 → 404 mapping in `notes/move-note.ts` is defence in depth.
+ * Tag rows come last and only in the target group's space (after the groups lock), so they add no edge to this order. The tag upsert locks the target tags in `name_key` order, so two notes moving into one group with the same tag names can't wait on each other in opposite orders.
  * No cycle with `lockGroup` paths: none of them locks a personal note after taking the groups lock, and the UPDATE's FK check would take this KEY SHARE anyway (we take it earlier).
  */
 import { and, eq, isNull } from "drizzle-orm";
@@ -16,6 +17,7 @@ import type { GroupTestHook } from "../../groups/test-hook.js";
 import { TxAbort } from "../../http/tx-abort.js";
 import { sumUploadSizeSql } from "../../storage/space.js";
 import { assertSpaceRoomInTx } from "../../storage/tx/quota.js";
+import { moveNoteTagsInTx } from "../../tags/tx/space-change.js";
 import { userNotePath } from "../redirects.js";
 import { recordRedirectsInTx } from "./redirects.js";
 import { resetNoteVersionsInTx } from "./versions.js";
@@ -82,6 +84,7 @@ export async function moveNoteToGroupInTx(tx: Tx, input: MoveNoteInput, hook?: G
   );
 
   await tx.update(uploads).set({ chargedToId: input.userId }).where(eq(uploads.noteId, input.noteId));
+  await moveNoteTagsInTx(tx, { noteId: input.noteId, source: { kind: "personal", ownerId: input.userId }, target: { kind: "group", groupId: input.groupId }, createdBy: input.userId });
 
   await recordRedirectsInTx(tx, [userNotePath(input.userHandle, row.slug)], input.noteId);
   // Versions and editors from the personal period must not be exposed to group editors.
