@@ -34,6 +34,7 @@ export function SettingsModal() {
     { to: "/settings/login", label: t("settings.nav.login") },
     { to: "/settings/authorization", label: t("settings.nav.authorization") },
     { to: "/settings/storage", label: t("settings.nav.storage") },
+    { to: "/settings/tags", label: t("tags.manage.nav") },
     { to: "/settings/groups", label: t("settings.nav.groups"), count: groups.data?.length },
     { to: "/settings/about", label: t("settings.nav.about") },
   ];

@@ -60,6 +60,10 @@ const SITE_LIMITS_FIXTURE: SiteLimitsDto = siteLimitsDto(
   },
   { changes: [siteLimitChange()] },
 );
+const TAG_LIST = [
+  { id: "tag-work", name: "Work", color: "blue", noteCount: 2 },
+  { id: "tag-ideas", name: "Ideas", color: "purple", noteCount: 0 },
+];
 /** Maximum-permission fixtures for the ten group/site pages (admin, canManageGroup/canManageMembers both true, at least one row per table). */
 const PANEL3_GETS: Record<string, unknown> = {
   [`/api/groups/${GROUP_ID}/members`]: [
@@ -69,6 +73,8 @@ const PANEL3_GETS: Record<string, unknown> = {
     { userId: "u-c", email: "c@example.com", displayName: "C", roleId: "r-admin", builtin: "admin" },
   ],
   [`/api/groups/${GROUP_ID}/roles`]: [adminRole(), memberRole(), customRole({ id: "r-custom", name: "Reader", memberCount: 0 })],
+  "/api/tags": TAG_LIST,
+  [`/api/groups/${GROUP_ID}/tags`]: TAG_LIST,
   [`/api/groups/${GROUP_ID}/storage`]: {
     usedBytes: 1048576, quotaBytes: 2147483648, planName: "Basic",
     byKind: { image: 1048576, audio: 0, video: 0, document: 0, other: 0 },
@@ -179,10 +185,12 @@ export const PANEL_PAGES: PanelPageCase[] = [
   { name: "personal: authorization", path: "/settings/authorization", ready: () => screen.findByText("Script"), minButtons: 7 }, // token section three (create + in-row pencil + red trash, #247; same count as the earlier create + rename + revoke) + three "Copy" in the MCP guide + one external docs <a class>
   // The switch depends only on config; the usage group (no button, but on the same page) counts as loaded only once `/api/storage` arrives.
   { name: "personal: storage", path: "/settings/storage", ready: async () => { await screen.findByRole("switch"); return screen.findByText(/\(Basic\)/); }, minButtons: 1 },
+  { name: "personal: tags", path: "/settings/tags", ready: () => screen.findByRole("row", { name: "Work" }), minButtons: 8 }, // 8: two tags, each with a color dropdown trigger and three icon buttons (rename, merge, red trash)
   { name: "personal: groups", path: "/settings/groups", ready: async () => within(await screen.findByRole("dialog")).findByText("Team Alpha"), minButtons: 0 }, // the background NoteList sidebar also has a group with the same name
   { name: "personal: about", path: "/settings/about", ready: () => screen.findByText("LICENSE"), minButtons: 3 }, // three external <a class> links (repo, docs/, LICENSE)
   { name: "group: members", path: `/groups/${GROUP_ID}`, ready: () => screen.findByText("b@example.com"), minButtons: 9 }, // 9: three red trash (Remove <email>) + "Add" + three row role dropdown triggers + the add-member role dropdown trigger (a Select trigger is a button with no solid background)
   { name: "group: roles", path: `/groups/${GROUP_ID}/roles`, ready: () => screen.findByRole("region", { name: "Reader" }), minButtons: 21 }, // 21: New role + three role cards with 6 permission switches each + the custom role's pencil and red trash
+  { name: "group: tags", path: `/groups/${GROUP_ID}/tags`, ready: () => screen.findByRole("row", { name: "Work" }), minButtons: 8 }, // same table as the personal page; the admin role has canManageGroup
   { name: "group: storage", path: `/groups/${GROUP_ID}/storage`, ready: () => screen.findByText("@admin"), minButtons: 1 }, // 1: the auto-versions switch
   { name: "group: about", path: `/groups/${GROUP_ID}/about`, ready: async () => { await screen.findByRole("button", { name: "Delete group" }); return screen.findByRole("button", { name: "Leave group" }); }, minButtons: 3 }, // 3: Save name, Leave group, Delete group (Leave appears only once the member list has arrived and I am not the only admin)
   { name: "site: users", path: "/admin/users", ready: async () => { await screen.findByText("b@example.com"); return screen.findByText("Alice"); }, minButtons: 11 }, // 11: Create invitation + two reset buttons + two enable switches + two revoke trashes (two pending rows in the invite table) + four role/plan dropdown triggers
