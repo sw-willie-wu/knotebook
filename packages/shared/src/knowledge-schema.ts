@@ -23,6 +23,24 @@ export function withKnowledgeProps<Spec extends { config: { propSchema: object }
   return { ...spec, config: { ...spec.config, propSchema: { ...spec.config.propSchema, ...KNOWLEDGE_PROP_SCHEMA } } } as never;
 }
 
+// `this` and `...rest` are forwarded unchanged so upstream signature changes still work.
+// Resetting the props rather than stripping the output: BlockNote copies the block's non-default props onto the exported element as data-* attributes.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote generic triple; repo convention
+export function withoutKnowledgeInExternalHTML<Spec extends { implementation: { toExternalHTML?: (this: any, block: any, ...rest: any[]) => unknown } }>(spec: Spec): Spec {
+  const original = spec.implementation.toExternalHTML;
+  if (!original) return spec;
+  return {
+    ...spec,
+    implementation: {
+      ...spec.implementation,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- same as above
+      toExternalHTML(this: unknown, block: any, ...rest: any[]) {
+        return original.call(this, { ...block, props: { ...block.props, ...EMPTY_KNOWLEDGE_PROPS } }, ...rest);
+      },
+    },
+  } as Spec;
+}
+
 // hasOwn, not `in`: "constructor" and "toString" are on every object's prototype.
 export function isIgnorableKnowledgeDefault(nodeName: string, attr: string, value: unknown): boolean {
   if (nodeName !== KNOWLEDGE_BLOCK_TYPE || !Object.hasOwn(KNOWLEDGE_PROP_SCHEMA, attr)) return false;
