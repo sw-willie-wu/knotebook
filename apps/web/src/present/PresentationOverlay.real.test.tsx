@@ -42,9 +42,9 @@ function doc() {
   ] as never, YDOC_FRAGMENT);
 }
 
-function App({ strict = false, doc: source }: { strict?: boolean; doc?: Y.Doc }) {
+function App({ strict = false, doc: source, client }: { strict?: boolean; doc?: Y.Doc; client?: QueryClient }) {
   const tree = (
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={client ?? new QueryClient()}>
       <ThemeProvider>
         <BrowserRouter>
           <Routes>
@@ -107,6 +107,18 @@ describe("PresentationOverlay (real reveal.js 6.0.2)", () => {
     } finally {
       addListener.mockRestore(); // Restore even when the case fails
     }
+  });
+
+  it("slides contain no tag row", async () => {
+    window.history.replaceState(null, "", "/n/tester/my-note?present");
+    // The note is tagged in the cached list, so a tag row anywhere in the overlay would have something to show.
+    const client = new QueryClient();
+    client.setQueryData(["notes"], [{ id: "n1", groupId: null, tags: [{ id: "t1", name: "AWS", color: "blue" }] }]);
+    render(<App client={client} />);
+    await waitFor(() => expect(document.querySelector(".reveal.ready")).not.toBeNull());
+    expect(document.querySelector(".reveal .slides")).not.toBeNull();
+    expect(document.querySelector("[data-note-content-top], [data-note-tags]")).toBeNull();
+    expect(screen.queryByText("AWS")).toBeNull();
   });
 
   it("after clicking the fullscreen button, Space toggles fullscreen only once, reveal advances one slide, focus isn't on the button", async () => {

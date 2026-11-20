@@ -13,7 +13,7 @@ export function TagPill({ tag, onRemove, removeDisabled }: { tag: NoteTagDto; on
   return (
     <span
       data-tag-color={tag.color}
-      className="group/tagpill inline-flex h-5 max-w-full items-center gap-1 rounded-full bg-[var(--tag-bg)] px-2 text-xs text-[var(--tag-fg)]"
+      className="group/tagpill inline-flex h-5 min-w-0 max-w-full items-center gap-1 rounded-full bg-[var(--tag-bg)] px-2 text-xs text-[var(--tag-fg)]"
     >
       <span className="truncate" title={tag.name}>{tag.name}</span>
       {onRemove !== undefined && (

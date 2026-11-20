@@ -35,6 +35,8 @@ export function useNoteTags(noteId: string): NoteTagDto[] | undefined {
   const query = useQuery({
     queryKey: ["notes"],
     queryFn: () => api<NoteDto[]>("/api/notes"),
+    // This observer only reads rows out of a list that is already loaded; mounting it must not fetch the whole list again.
+    refetchOnMount: false,
     select: (list: NoteDto[]) => {
       const row = list.find((n) => n.id === noteId);
       return row === undefined ? undefined : (row.tags ?? EMPTY_TAGS);

@@ -43,7 +43,7 @@ import { LinkDialog } from "@/components/LinkDialog";
 import { linkAtSelection } from "@/components/editor/link-at-selection";
 import { toast } from "@/components/ui/toast";
 import { cardSurface } from "@/components/ui/card";
-import { ARTICLE_COLUMN_PADDING, articleColumn, articleColumnState } from "@/components/ui/article-column";
+import { ARTICLE_COLUMN_PADDING, ARTICLE_TEXT_INSET, articleColumn, articleColumnState } from "@/components/ui/article-column";
 import { useNoteWidth } from "@/components/note-width";
 import { cn } from "@/lib/utils";
 import { useIsOutlineCompact, useIsOverlay, useIsPhone } from "@/lib/layout-tiers";
@@ -299,6 +299,8 @@ export interface NoteEditorProps {
   noteId: string;
   /** A plain `ReactNode`: a new node each render does not rebuild the editor. */
   headerSlot?: ReactNode;
+  /** Sits in the article column above the editor, outside its contenteditable, so it never enters the shared document. A slot that renders nothing leaves no gap. */
+  contentTopSlot?: ReactNode;
   footerSlot?: ReactNode;
   mobileToolbar?: boolean;
   fabClearance?: boolean;
@@ -330,6 +332,7 @@ export function NoteEditor({
   user,
   noteId,
   headerSlot,
+  contentTopSlot,
   footerSlot,
   mobileToolbar = false,
   fabClearance = false,
@@ -598,6 +601,11 @@ export function NoteEditor({
                 footerInScroll || fabClearance ? "grow shrink-0" : "min-h-full",
               )}
             >
+              {contentTopSlot !== undefined && contentTopSlot !== null && (
+                <div data-note-content-top="" className={cn(ARTICLE_TEXT_INSET, "shrink-0 pb-2 empty:hidden")}>
+                  {contentTopSlot}
+                </div>
+              )}
               {/* zoom covers only the article column */}
               <MediaZoomProvider>
                 <NoteEditorView

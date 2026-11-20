@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type
 import { useTranslation } from "react-i18next";
 import { NavigationType, useLocation, useNavigate, useNavigationType, useParams } from "react-router";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { canonicalNotePath, type NoteDto, type Role } from "@knotebook/shared";
+import { canEditNoteTags, canonicalNotePath, type NoteDto, type Role } from "@knotebook/shared";
 import { api, ApiFail } from "@/api/client";
 import { GROUPS_QUERY_KEY } from "@/api/groups";
 import { invalidateNoteQueries, patchNotesListLastEdited, useNote, useNoteByGroupPath, useNoteByPath } from "@/api/notes";
@@ -41,6 +41,7 @@ import { InTrashCard } from "@/components/InTrashCard";
 import { ChunkLoadBeacon, LazyRouteErrorBoundary, LazyRouteLoading } from "@/components/ErrorBoundary";
 import { LastEditedLabel } from "@/components/LastEditedLabel";
 import { NoteEditor } from "@/components/NoteEditor";
+import { NoteTagRow } from "@/components/tags/NoteTagRow";
 import { NoteMenu } from "@/components/NoteMenu";
 import { NoteWidthMenuItems } from "@/components/NoteWidthMenuItems";
 import { NoteWidthToggle } from "@/components/NoteWidthToggle";
@@ -764,6 +765,7 @@ export default function NotePage() {
                   )}
                 </>
               }
+              contentTopSlot={<NoteTagRow key={note.id} note={note} canEdit={roleCanEdit && canEditNoteTags(note)} />}
               footerSlot={<BacklinksSection noteId={noteId} />}
               previewSlot={
                 versions.preview !== null && versions.mode !== "sheet" ? (

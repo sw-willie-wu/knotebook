@@ -45,5 +45,8 @@ export const ARTICLE_COLUMN = articleColumn("standard");
 /** md+: `px-4` + BlockNote's built-in 54px = text edge at 70px. <md: `px-0` plus the `.bn-editor.bn-editor{padding-inline:1.25rem}` override in index.css = 20px (aligned with header/footer `px-5`). `max-md:` compiles to `@media (width < 48rem)`, the same boundary as that index.css query: both must move together, or between 767–768px the wrapper is px-0 while the 54px remains. */
 export const ARTICLE_COLUMN_PADDING = "px-4 max-md:px-0";
 
-/** BlockNote `.bn-editor`'s built-in `padding-inline`. No production consumer left; kept as an upgrade sentinel: the <md 20px override assumes the original 54, so the guard test goes red if BlockNote changes it. */
+/** BlockNote `.bn-editor`'s built-in `padding-inline`. The <md 20px override assumes the original 54, so the guard test goes red if BlockNote changes it; `ARTICLE_TEXT_INSET` is the one place the 54 is used as a class. */
 export const BN_EDITOR_INLINE_PADDING_PX = 54;
+
+/** For rows inside the article column but outside the editor: `px-4` + 54 = 70px (md+), 0 + 20 = 20px (<md), the editor text's left edge. Same breakpoint as `ARTICLE_COLUMN_PADDING`. */
+export const ARTICLE_TEXT_INSET = "px-[54px] max-md:px-5";

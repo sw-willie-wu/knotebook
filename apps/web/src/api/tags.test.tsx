@@ -99,6 +99,16 @@ describe("useNoteTags", () => {
     expect(second.result.current).toEqual([aws]);
     expect(missing.result.current).toBeUndefined();
   });
+
+  it("does not refetch a list the sidebar already loaded", async () => {
+    const calls = stubFetch({ "GET /api/notes": () => fakeResponse(200, []) });
+    const qc = client();
+    qc.setQueryData(["notes"], [note("n1", [aws])]);
+    const { result } = renderHook(() => useNoteTags("n1"), { wrapper: wrapper(qc) });
+    expect(result.current).toEqual([aws]);
+    await act(async () => {});
+    expect(calls).toEqual([]);
+  });
 });
 
 describe("note tag mutations", () => {
