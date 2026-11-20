@@ -213,7 +213,7 @@ describe("transaction structure guard (#175)", () => {
       { f: "site-limits/store.ts", all: 1, inTx: 1 }, // site limits PATCH (updateSiteLimitsInTx)
       { f: "routes/avatars.ts", all: 5, inTx: 5 }, // avatars: upload (insertAvatarInTx), re-crop (updateAvatarDisplayInTx), select (selectAvatarInTx), delete (deleteAvatarInTx), manual refetch (refreshOidcAvatarInTx)
       { f: "avatars/oidc-job.ts", all: 1, inTx: 1 }, // background job that imports the IdP avatar after login (replaceOidcAvatarInTx)
-      { f: "routes/tags.ts", all: 2, inTx: 2 }, // add a tag to a note (addNoteTagInTx), remove one (removeNoteTagInTx)
+      { f: "routes/tags.ts", all: 5, inTx: 5 }, // add a tag to a note (addNoteTagInTx), remove one (removeNoteTagInTx), merge two tags (mergeTagsInTx), rename or recolor (updateTagInTx), delete (deleteTagInTx)
     ]);
   });
 

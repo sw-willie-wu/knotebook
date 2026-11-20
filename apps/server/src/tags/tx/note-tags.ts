@@ -151,13 +151,13 @@ export async function setNoteTagsByNamesInTx(
   const space = await lockNoteTagSpaceInTx(tx, input.noteId, input.expected);
   if (typeof space === "string") return { kind: space };
 
-  const wanted: Array<{ name: string; existing: { id: string; color: TagColor } | null }> = [];
+  const wanted: Array<{ name: string; key: string; existing: { id: string; color: TagColor } | null }> = [];
   const seen = new Set<string>();
   for (const name of normalized) {
     const key = await nameKeyOf(tx, name);
     if (seen.has(key)) continue;
     seen.add(key);
-    wanted.push({ name, existing: await findTagByKey(tx, space, key) });
+    wanted.push({ name, key, existing: await findTagByKey(tx, space, key) });
   }
   if (wanted.length > TAGS_PER_NOTE_MAX) return { kind: "tag_limit_reached", limit: TAGS_PER_NOTE_MAX };
   const used = await usedColors(tx, space);
@@ -165,15 +165,17 @@ export async function setNoteTagsByNamesInTx(
     return { kind: "tag_limit_reached", limit: TAGS_PER_SPACE_MAX };
   }
 
-  const tagIds: string[] = [];
-  for (const w of wanted) {
-    let color = w.existing?.color;
-    if (color === undefined) {
-      color = pickTagColor(used);
-      used.push(color);
-    }
-    tagIds.push(await upsertTag(tx, space, w.name, color, input.createdBy));
-  }
+  // Colors are picked in the order the names were given; the rows are then upserted (and so locked) in name_key order, the order every path that locks several tags uses.
+  const colors = wanted.map(w => {
+    if (w.existing !== null) return w.existing.color;
+    const color = pickTagColor(used);
+    used.push(color);
+    return color;
+  });
+  const tagIds: string[] = new Array<string>(wanted.length);
+  // UTF-8 byte order is what `collate "C"` gives the merge's `order by name_key`; JS string comparison differs for characters above U+FFFF.
+  const lockOrder = wanted.map((w, i) => ({ w, i })).sort((x, y) => Buffer.compare(Buffer.from(x.w.key), Buffer.from(y.w.key)));
+  for (const { w, i } of lockOrder) tagIds[i] = await upsertTag(tx, space, w.name, colors[i]!, input.createdBy);
 
   const current = new Set(await attachedTagIds(tx, input.noteId, space));
   if (tagIds.length === 0) {

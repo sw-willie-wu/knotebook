@@ -2,6 +2,7 @@ import { and, asc, eq, sql, type SQL } from "drizzle-orm";
 import type { NoteTagDto, SpaceTagDto } from "@knotebook/shared";
 import type { DbOrTx } from "../db/tx.js";
 import { noteTags, notes, tags } from "../db/schema.js";
+import { groupAccess } from "../groups/queries.js";
 import { tagSpaceWhere, type TagSpace } from "./space.js";
 
 /**
@@ -28,14 +29,14 @@ export function notesHavingAllTagsSql(tagIds: readonly string[]): SQL | undefine
 }
 
 /** Sorted by `name_key` (lower-cased), then id. `noteCount` skips trashed notes and notes whose space differs from the tag's. */
-export async function listSpaceTags(db: DbOrTx, space: TagSpace): Promise<SpaceTagDto[]> {
+export async function listSpaceTags(db: DbOrTx, space: TagSpace, onlyTagId?: string): Promise<SpaceTagDto[]> {
   // Outer columns are literals: in a single-table select `${tags.id}` renders as a bare "id", which the subquery would resolve to its own table.
   const [outerId, outerOwner, outerGroup] = [sql.raw('"tags"."id"'), sql.raw('"tags"."owner_id"'), sql.raw('"tags"."group_id"')];
   const noteCount = sql<number>`(select count(*)::int from ${noteTags} nt join ${notes} n on n.id = nt.note_id where nt.tag_id = ${outerId} and n.deleted_at is null and n.owner_id is not distinct from ${outerOwner} and n.group_id is not distinct from ${outerGroup})`;
   const rows = await db
     .select({ id: tags.id, name: tags.name, color: tags.color, noteCount })
     .from(tags)
-    .where(tagSpaceWhere(space))
+    .where(onlyTagId === undefined ? tagSpaceWhere(space) : and(tagSpaceWhere(space), eq(tags.id, onlyTagId)))
     .orderBy(asc(tags.nameKey), asc(tags.id));
   return rows;
 }
@@ -56,3 +57,22 @@ export async function loadNoteTagNames(db: DbOrTx, noteId: string): Promise<stri
   return (await loadNoteTags(db, noteId)).map(t => t.name);
 }
 
+
+/**
+ * Who may rename, recolor, merge or delete a tag. A tag the caller can't see answers `not_found` like one that doesn't exist: a personal tag
+ * is its owner's alone (a site admin included), a group's tag needs a group the caller belongs to or administers site-wide.
+ */
+export async function resolveTagManageAccess(
+  db: DbOrTx,
+  tagId: string,
+  user: { id: string; isAdmin: boolean },
+): Promise<{ kind: "ok"; space: TagSpace } | { kind: "not_found" } | { kind: "forbidden" }> {
+  const [row] = await db.select({ ownerId: tags.ownerId, groupId: tags.groupId }).from(tags).where(eq(tags.id, tagId));
+  if (!row) return { kind: "not_found" };
+  if (row.groupId === null) {
+    return row.ownerId === user.id ? { kind: "ok", space: { kind: "personal", ownerId: user.id } } : { kind: "not_found" };
+  }
+  const access = await groupAccess(db, row.groupId, user);
+  if (!access) return { kind: "not_found" };
+  return access.manageGroup ? { kind: "ok", space: { kind: "group", groupId: row.groupId } } : { kind: "forbidden" };
+}
