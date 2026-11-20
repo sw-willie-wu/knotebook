@@ -954,10 +954,17 @@
     },
     "filter": {
       "button": "Filter by tag",
-      "buttonActive": "Filter by tag ({{count}} selected)",
-      "active": "Notes with all of: {{names}}",
-      "clear": "Clear filter",
-      "empty": "No notes have all of these tags."
+      "buttonActive": "Filter by tag, {{count}} applied",
+      "empty": "No notes have all of these tags.",
+      "menuTitle": "Filter by tag · {{space}}",
+      "allMatch": "Only notes with all of them are listed",
+      "oneGroup": "One group at a time; groups without tags aren't listed",
+      "removeOne": "Remove {{name}} from the filter",
+      "clearShort": "Clear",
+      "done": "Done",
+      "count_one": "{{count}} note",
+      "count_other": "{{count}} notes",
+      "hiddenGroups": "Showing only {{group}}; other groups are hidden while filtering"
     },
     "manage": {
       "nav": "Tags",

@@ -59,7 +59,8 @@ import {
 import { beginSelectRun, endSelectRun, updateSelectRun, useSelectRun } from "./select-run";
 import { expandFolderChain, indexFolders, liveNotesUnder, type FolderIndex } from "./folder-index";
 import { useFolderSortOf } from "./folder-sort";
-import { buildTabNodes, noteSpaceKey } from "./tree";
+import { applyTagFilter, tagFilterView, useTagFilter } from "./tag-filter";
+import { buildTabNodes, noteSpaceKey, partitionNotes } from "./tree";
 
 /**
  * An item whose ancestor is also selected is neither sent nor counted as skipped; nothing actionable → disabled, no "0 items" toast.
@@ -179,7 +180,15 @@ export function SelectActionBar({ layout = "bar", safeBottom = false }: { layout
   const groupIds = useMemo<ReadonlySet<string>>(() => new Set((groups ?? []).map((group) => group.id)), [groups]);
   const notes = notesQuery.data ?? [];
   const spaceOf = (note: NoteDto) => noteSpaceKey(note, groupIds);
-  const targets = nodes === null ? [] : selectedTargets(nodes, selection.keys);
+  // Same view the list shows: under a tag filter the batch reaches only the visible notes (a ticked folder from before the filter would also take the notes the filter hides).
+  const tagFilter = useTagFilter();
+  const filterView = useMemo(
+    () => tagFilterView(tab, tagFilter, notesQuery.data === undefined ? null : partitionNotes(notesQuery.data, groups ?? []), groups ?? []),
+    [tab, tagFilter, notesQuery.data, groups],
+  );
+  const filtered = filterView !== null && filterView.selected.length > 0;
+  const viewNodes = useMemo(() => (nodes === null ? null : applyTagFilter(tab, nodes, filterView)), [nodes, tab, filterView]);
+  const targets = viewNodes === null ? [] : selectedTargets(viewNodes, selection.keys).filter((target) => !filtered || target.kind === "note");
   const deduped = dedupeByAncestor(targets, folderIndex);
   const ctx = { tab, index: folderIndex, notes, groupIds };
   const unfavoriteElig = partitionTargets("unfavorite", deduped, ctx);

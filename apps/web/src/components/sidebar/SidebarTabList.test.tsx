@@ -150,6 +150,14 @@ describe("SidebarTabList", () => {
     for (const id of TAB_IDS) expect(tabSpec(id).actions).toContain("selectMode");
   });
 
+  it("header actions: only My notes and Groups carry the tag filter, ahead of select", () => {
+    for (const id of TAB_IDS) {
+      const actions = tabSpec(id).actions;
+      if (id === "myNotes" || id === "workspace") expect(actions.indexOf("tagFilter")).toBe(0);
+      else expect(actions).not.toContain("tagFilter");
+    }
+  });
+
   it("zh-TW: tablist and tab names", async () => {
     await i18n.changeLanguage("zh-TW");
     renderList();
