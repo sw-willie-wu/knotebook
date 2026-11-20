@@ -2,11 +2,12 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { and, eq, isNull, sql } from "drizzle-orm";
-import { EMPTY_YDOC_UPDATE_B64, normalizeHandle, normalizeSlug, validateHandle, validateSlug, type NoteWidth } from "@knotebook/shared";
+import { normalizeHandle, normalizeSlug, validateHandle, validateSlug, type NoteWidth } from "@knotebook/shared";
 import { sendError } from "../http/errors.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
 import type { Db } from "../db/index.js";
 import { noteStates, notes, uploads, users } from "../db/schema.js";
+import { preparePublicDoc } from "../notes/public-doc.js";
 import { publicLinksFor } from "../notes/public-links.js";
 import { UUID_RE } from "../notes/service.js";
 import { uploadFilePath } from "../uploads/service.js";
@@ -123,7 +124,7 @@ export function publicRoutes(deps: PublicRoutesDeps) {
   }
 
   return function register(app: FastifyInstance) {
-    async function sendPublicNote(reply: FastifyReply, note: PublicNoteRow) {
+    async function sendPublicNote(request: FastifyRequest, reply: FastifyReply, note: PublicNoteRow) {
       // A note never opened in the editor has no note_states row: a legitimate empty document (EMPTY_YDOC_UPDATE_B64; a zero-length update throws in Y.applyUpdate), not a 404.
       const [state] = await deps.db
         .select({ ydoc: noteStates.ydoc })
@@ -131,10 +132,17 @@ export function publicRoutes(deps: PublicRoutesDeps) {
         .where(eq(noteStates.noteId, note.id))
         .limit(1);
 
-      const links = await publicLinksFor(deps.db, note.id, state ? state.ydoc : null);
+      const prepared = preparePublicDoc(state ? state.ydoc : null);
+      if (state && prepared.doc === null) request.log.warn({ noteId: note.id }, "Public note state could not be decoded; serving an empty document.");
+      let links;
+      try {
+        links = await publicLinksFor(deps.db, note.id, prepared.doc);
+      } finally {
+        prepared.doc?.destroy();
+      }
       // Revocation and regeneration must take effect at once.
       reply.header("cache-control", "no-store");
-      return { title: note.title, ydoc: state ? state.ydoc.toString("base64") : EMPTY_YDOC_UPDATE_B64, links, width: note.publicWidth };
+      return { title: note.title, ydoc: prepared.ydocB64, links, width: note.publicWidth };
     }
 
     async function sendPublicUpload(request: FastifyRequest, reply: FastifyReply, note: { id: string }, uploadId: string) {
@@ -166,14 +174,14 @@ export function publicRoutes(deps: PublicRoutesDeps) {
       const { token } = request.params as { token: string };
       const note = await resolvePublicNote(request, reply, deps.limiters.publicNote, tokenSpec(token));
       if (!note) return reply;
-      return sendPublicNote(reply, note);
+      return sendPublicNote(request, reply, note);
     });
 
     app.get("/api/public/notes/:handle/:slug", async (request, reply) => {
       const { handle, slug } = request.params as { handle: string; slug: string };
       const note = await resolvePublicNote(request, reply, deps.limiters.publicNote, pathSpec(handle, slug));
       if (!note) return reply;
-      return sendPublicNote(reply, note);
+      return sendPublicNote(request, reply, note);
     });
 
     app.get("/api/public/notes/:token/uploads/:uploadId", async (request, reply) => {

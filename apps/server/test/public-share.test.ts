@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { EMPTY_YDOC_UPDATE_B64, SESSION_COOKIE } from "@knotebook/shared";
+import * as Y from "yjs";
+import { EMPTY_YDOC_UPDATE_B64, SESSION_COOKIE, YDOC_FRAGMENT } from "@knotebook/shared";
 import { buildTestApp, freshDb, freshLimiters, signTestSession } from "./helpers.js";
 import { noteShares, noteStates, notes, uploads, users } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
@@ -440,6 +441,12 @@ async function openPublicLink(app: Awaited<ReturnType<typeof buildTestApp>>["app
 }
 
 const randomToken = () => randomBytes(32).toString("base64url");
+// The public endpoint decodes the stored state, so the bytes must be a real update.
+const realYdocBytes = (): Buffer => {
+  const doc = new Y.Doc();
+  doc.getXmlFragment(YDOC_FRAGMENT).insert(0, [new Y.XmlElement("blockGroup")]);
+  return Buffer.from(Y.encodeStateAsUpdate(doc));
+};
 
 describe("public content endpoint (GET /api/public/notes/:token, no login)", () => {
   it("valid token -> 200 {title, ydoc} (base64 of the real note_states bytes, no updatedAt key) plus cache-control: no-store", async () => {
@@ -447,7 +454,7 @@ describe("public content endpoint (GET /api/public/notes/:token, no login)", () 
     const owner = await insertUser(db, "owner-pub1@example.com");
     const cookie = await cookieFor(owner.id);
     const noteId = await createNote(app, cookie);
-    const ydocBytes = Buffer.from([1, 2, 3, 4, 5]);
+    const ydocBytes = realYdocBytes();
     await db.insert(noteStates).values({ noteId, ydoc: ydocBytes });
     await db.update(notes).set({ title: "公開的筆記" }).where(eq(notes.id, noteId));
     const token = await openPublicLink(app, cookie, noteId);
@@ -705,7 +712,7 @@ describe("public alias endpoint (GET /api/public/notes/:handle/:slug, no login)"
   it("hit -> 200 with the same shape as the token endpoint (exactly {title, ydoc, links, width}, no token) plus cache-control: no-store", async () => {
     const { app, db, cookie, noteId, token } = await aliasSetup("alice", "my-doc");
     await app.inject({ method: "PATCH", url: `/api/notes/${noteId}`, cookies: { [SESSION_COOKIE]: cookie }, payload: { title: "Alias Note" } });
-    const ydocBytes = randomBytes(24);
+    const ydocBytes = realYdocBytes();
     await db.insert(noteStates).values({ noteId, ydoc: ydocBytes });
 
     const res = await byPath(app, "alice", "my-doc");
