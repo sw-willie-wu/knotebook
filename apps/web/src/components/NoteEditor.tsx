@@ -32,6 +32,9 @@ import { endBlockDrop } from "@/collab/columns/drag-source";
 import { blockMoveDrop, computeDropPosition, edgeDrop, emptyColumnDrop, withGutterFileDrop } from "@/collab/columns/edge-drop";
 import { createColumnsPasteExtension, withColumnsDropPoint } from "@/collab/columns/paste-rule";
 import { buildCollabEditorBase } from "@/collab/editor-options";
+import { createKnowledgeDecorationExtension } from "@/collab/knowledge-decorations";
+import { createKnowledgeEnterExtension } from "@/collab/knowledge-enter";
+import { createKnowledgeIdExtension } from "@/collab/knowledge-ids";
 import { createMarkdownLinkExtension } from "@/collab/markdown-link";
 import { createMarkdownPasteHandler } from "@/collab/paste";
 import { createSiteLinkConvertExtension, createSiteLinkEnv, createSiteLinkPasteHook, withSiteLinkDrop, type SiteLinkEnvRef } from "@/collab/site-link-convert";
@@ -170,6 +173,9 @@ export function buildNoteEditorOptions({
         createCodeBlockCaretExtension(),
         createColumnEdgeKeymapExtension({ editorRef }),
         createColumnsPasteExtension(),
+        createKnowledgeIdExtension({ editorRef }),
+        createKnowledgeEnterExtension({ editorRef }),
+        createKnowledgeDecorationExtension(),
         // Must be attached at build: plugins cannot be registered during the tour demo (`@/collab/tour-transaction-filter`).
         createTourTransactionFilterExtension(),
       ],

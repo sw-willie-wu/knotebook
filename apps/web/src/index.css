@@ -662,6 +662,12 @@ input[name="share-access"] {
   --prev-level: 1.25em;
 }
 
+/* Set by the knowledge decoration on a heading that is outdated itself or under an outdated knowledge heading; plain headings never carry it. */
+.bn-editor [data-kb-knowledge-outdated] .bn-inline-content {
+  color: var(--muted-foreground);
+  text-decoration: line-through;
+}
+
 /* The drag preview is cloned under <body>, outside .bn-editor. */
 .bn-drag-preview.bn-drag-preview [data-content-type="heading"]:not([data-level]) {
   --level: 2em;

@@ -186,7 +186,7 @@ export function renewKnowledgeId(blockId: string, oldId: string, taken: Readonly
 
 export function knowledgeIdRenewals(
   items: readonly { blockId: string; knowledgeId: string; inserted?: boolean }[],
-): Array<{ blockId: string; knowledgeId: string }> {
+): Array<{ blockId: string; knowledgeId: string; index: number }> {
   const groups = new Map<string, number[]>();
   const taken = new Set<string>();
   items.forEach((item, i) => {
@@ -203,12 +203,12 @@ export function knowledgeIdRenewals(
     const keeper = settled.length > 0 && settled.length < members.length ? settled[0]! : members[0]!;
     for (const i of members) if (i !== keeper) renew.add(i);
   }
-  const out: Array<{ blockId: string; knowledgeId: string }> = [];
+  const out: Array<{ blockId: string; knowledgeId: string; index: number }> = [];
   items.forEach((item, i) => {
     if (!renew.has(i)) return;
     const id = renewKnowledgeId(item.blockId, item.knowledgeId, taken);
     taken.add(id);
-    out.push({ blockId: item.blockId, knowledgeId: id });
+    out.push({ blockId: item.blockId, knowledgeId: id, index: i });
   });
   return out;
 }

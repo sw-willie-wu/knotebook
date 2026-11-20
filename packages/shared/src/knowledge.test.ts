@@ -175,6 +175,7 @@ describe("ids", () => {
       { blockId: "e", knowledgeId: "" },
     ]);
     expect(r.map((x) => x.blockId)).toEqual(["b", "d"]);
+    expect(r.map((x) => x.index)).toEqual([1, 3]);
     const ids = r.map((x) => x.knowledgeId);
     expect(new Set([...ids, "k_00000001", "k_00000002"]).size).toBe(4);
     for (const id of ids) expect(id).toMatch(KNOWLEDGE_ID_RE);
@@ -185,6 +186,14 @@ describe("ids", () => {
     expect(knowledgeIdRenewals([dup("a", true), dup("b", false)]).map((x) => x.blockId)).toEqual(["a"]);
     expect(knowledgeIdRenewals([dup("a", true), dup("b", true)]).map((x) => x.blockId)).toEqual(["b"]);
     expect(knowledgeIdRenewals([dup("a", false), dup("b", true), dup("c", false)]).map((x) => x.blockId)).toEqual(["b", "c"]);
+  });
+
+  it("knowledgeIdRenewals reports the index of the item it renews even when block ids repeat", () => {
+    const r = knowledgeIdRenewals([
+      { blockId: "a", knowledgeId: "k_00000001", inserted: true },
+      { blockId: "a", knowledgeId: "k_00000001" },
+    ]);
+    expect(r.map((x) => x.index)).toEqual([0]);
   });
 
   it("knowledgeIdRenewals gives the same answer for the same input", () => {

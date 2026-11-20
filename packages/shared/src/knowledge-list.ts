@@ -77,7 +77,7 @@ export function listKnowledge(items: readonly KnowledgeTopLevelItem[]): Knowledg
 }
 
 // Only the levels the editor can produce: an unbounded level would let a crafted note nest ranges as deep as it has headings.
-function levelOf(value: unknown): number {
+export function knowledgeHeadingLevel(value: unknown): number {
   const n = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : NaN;
   return Number.isInteger(n) && n >= 1 && n <= 6 ? n : 1;
 }
@@ -130,7 +130,7 @@ export function listKnowledgeInBlocks(topLevel: readonly KnowledgeBlockLike[]): 
     topLevel.filter((b) => typeof b.id === "string").map((b) => ({
       blockId: b.id,
       heading: b.type === "heading"
-        ? { level: levelOf(b.props?.level), text: knowledgeHeadingText(b.content), props: b.props ?? {} }
+        ? { level: knowledgeHeadingLevel(b.props?.level), text: knowledgeHeadingText(b.content), props: b.props ?? {} }
         : null,
     })),
   );
@@ -171,7 +171,7 @@ export function listKnowledgeInFragment(fragment: Y.XmlFragment): KnowledgeEntry
       const first = container.nodeName === "blockContainer" ? container.get(0) : null;
       if (!(first instanceof Y.XmlElement) || first.nodeName !== "heading") return [{ blockId, heading: null }];
       const props = first.getAttributes() as Record<string, unknown>;
-      return [{ blockId, heading: { level: levelOf(props.level), text: yjsHeadingText(first), props } }];
+      return [{ blockId, heading: { level: knowledgeHeadingLevel(props.level), text: yjsHeadingText(first), props } }];
     }),
   );
 }
