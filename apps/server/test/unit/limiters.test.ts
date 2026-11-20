@@ -9,7 +9,7 @@ import { testConfig } from "../helpers.js";
 const EXPECTED_KEYS = [
   "ai", "authorize", "avatarRefresh", "bearerMiss", "collabToken", "contentRead", "dcr", "edit", "favorite", "folder", "oidcCallback", "oidcLogin",
   "oneTimeLinkAttempt", "oneTimeLinkMiss", "patCreate", "publicLink", "publicMiss", "publicNote", "publicUpload", "publicWidth",
-  "register", "search", "slugPatch", "tokenEndpoint", "tokenRead", "tokenRename", "tokenWrite", "transferExport", "transferWrite",
+  "register", "search", "slugPatch", "tag", "tokenEndpoint", "tokenRead", "tokenRename", "tokenWrite", "transferExport", "transferWrite",
   "upload", "userSuggest",
 ];
 
@@ -35,8 +35,8 @@ describe("mergeLimiters", () => {
     const b = base();
     expect(mergeLimiters(b)).toBe(b);
   });
-  it("all 31 keys are present", () => {
-    expect(EXPECTED_KEYS).toHaveLength(31);
+  it("all 32 keys are present", () => {
+    expect(EXPECTED_KEYS).toHaveLength(32);
     expect(Object.keys(mergeLimiters(base(), {})).sort()).toEqual(EXPECTED_KEYS);
     expect(Object.keys(mergeLimiters(base(), { edit: undefined })).sort()).toEqual(EXPECTED_KEYS);
   });

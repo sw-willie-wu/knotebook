@@ -41,7 +41,7 @@ On `SIGTERM`/`SIGINT` it stops background scans, then calls `collab.destroy()` *
 `buildApp` in `apps/server/src/app.ts` wires everything together. It sets up cookie, multipart and form parsing, a global `onRequest` guard that requires `application/json` on bodies (with exemptions for uploads, `text/markdown` file write-backs and the OAuth form endpoints), the shared error format, security headers, `/healthz`, and the rate limiters (`apps/server/src/http/limiters.ts`). Then it registers one Fastify plugin per area from `apps/server/src/routes/`, for example:
 
 - `routes/notes.ts`: notes and the collab token; it also registers `routes/note-content.ts` (a note's content, `GET /api/notes/:id/content`, and edits and reverts, `/api/notes/:id/edits`) and `routes/note-sharing.ts` (shares, the public link and its alias and width);
-- `routes/note-versions.ts`, `routes/trash.ts`, `routes/folders.ts`, `routes/favorites.ts`, `routes/groups.ts`, `routes/search.ts`, `routes/uploads.ts`;
+- `routes/note-versions.ts`, `routes/trash.ts`, `routes/folders.ts`, `routes/favorites.ts`, `routes/tags.ts`, `routes/groups.ts`, `routes/search.ts`, `routes/uploads.ts`;
 - `routes/auth.ts`, `routes/oidc*.ts`, `routes/api-tokens.ts`, `routes/oauth*.ts`: sign-in and credentials (next section);
 - `routes/admin-*.ts`: Site admin;
 - `routes/mcp.ts`: the MCP endpoint, `POST /api/mcp`;
