@@ -20,12 +20,14 @@ import { FOLDER_LIST_EMPTY, folderDto, groupFolder, sharedFolder } from "@/test/
 import type { FolderDto } from "@knotebook/shared";
 import { __resetFolderSortForTests } from "@/components/sidebar/folder-sort";
 import { mockWidePointer } from "@/test/wide-pointer";
+import { __resetTagFilterForTests, toggleTagFilter } from "@/components/sidebar/tag-filter";
 
 // Two shells (like AppShell's static card and drawer) share one selection; actions are always started from the second (shell 1), otherwise focus would land on the first.
 
 afterEach(() => {
   localStorage.clear();
   __resetCollapseForTests();
+  __resetTagFilterForTests();
 });
 
 function fakeResponse(body: unknown, status = 200): Response {
@@ -559,6 +561,73 @@ describe("SelectActionBar", () => {
     fireEvent.click(screen.getByRole("button", { name: "Undo" }));
     expect(await screen.findByText("Restored 2 notes", { exact: true })).toBeInTheDocument();
     expect(server.bodies("POST /api/trash/restore")).toEqual([{ ids: ["p1", "p2"] }]);
+  });
+
+  /** Two tagged notes and two plain ones; a plain one is ticked before the filter goes on, then select all runs under the filter. */
+  async function filterAndSelectAll() {
+    const work = { id: "t-work", name: "Work", color: "blue" as const };
+    const server = stubServer({
+      notes: [
+        personalNote({ id: "mt-1", title: "mt-1", tags: [work] }),
+        personalNote({ id: "mt-2", title: "mt-2", tags: [work] }),
+        personalNote({ id: "mp-1", title: "mp-1" }),
+        personalNote({ id: "mp-2", title: "mp-2" }),
+      ],
+    });
+    renderShells({ tab: "myNotes" });
+    await enterSelecting();
+    await waitFor(() => expect(box("mt-1")).not.toBeNull());
+    tick("mp-1");
+    act(() => toggleTagFilter("myNotes", work.id));
+    fireEvent.click(within(shellHeader(1)).getByRole("button", { name: "Select all", hidden: true }));
+    expect(checkedIds()).toEqual(["mt-1", "mt-2"]);
+    return server;
+  }
+
+  it("under a tag filter, move sends only the matching ticked notes", async () => {
+    const server = await filterAndSelectAll();
+    fireEvent.click(barButton("Move to"));
+    const confirm = await pickDestination("A");
+    expect(confirm).toHaveAccessibleDescription('Move 2 notes into "A"?');
+    fireEvent.click(within(confirm).getByRole("button", { name: "Move into group" }));
+    expect(await screen.findByText('Moved 2 notes into "A"', { exact: true })).toBeInTheDocument();
+    expect(server.keys()).toEqual(["POST /api/notes/mt-1/move", "POST /api/notes/mt-2/move"]);
+    __resetTagFilterForTests();
+  });
+
+  it("under a tag filter, copy sends only the matching ticked notes", async () => {
+    const server = await filterAndSelectAll();
+    fireEvent.click(barButton("Copy to"));
+    const confirm = await pickDestination("A");
+    expect(confirm).toHaveAccessibleDescription(expect.stringContaining('This creates 2 copies in "A"'));
+    fireEvent.click(within(confirm).getByRole("button", { name: "Copy into group" }));
+    expect(await screen.findByText('Copied 2 notes into "A"', { exact: true })).toBeInTheDocument();
+    expect(server.keys()).toEqual(["POST /api/notes/mt-1/copy", "POST /api/notes/mt-2/copy"]);
+    __resetTagFilterForTests();
+  });
+
+  it("under a tag filter a folder ticked earlier is not deleted with the notes the filter hides; only the matching notes are sent", async () => {
+    const work = { id: "t-work", name: "Work", color: "blue" as const };
+    const inA = personalNote({ id: "fa-tagged", title: "fa-tagged", folderId: "A", tags: [work] });
+    const inAPlain = personalNote({ id: "fa-plain", title: "fa-plain", folderId: "A" });
+    const rootTagged = personalNote({ id: "fr-tagged", title: "fr-tagged", tags: [work] });
+    const rootPlain = personalNote({ id: "fr-plain", title: "fr-plain" });
+    const server = stubServer({ notes: [inA, inAPlain, rootTagged, rootPlain], folders: [folderDto({ id: "A", name: "A" })], groups: [] });
+    renderShells({ tab: "myNotes" });
+    await enterSelecting();
+    await waitFor(() => expect(box("fa-tagged")).not.toBeNull());
+    fireEvent.click(shell(1).querySelector('input[data-selection-key="folder:A"]') as HTMLInputElement);
+    tick("fr-plain");
+    act(() => toggleTagFilter("myNotes", work.id));
+    expect(shell(1).querySelector('input[data-selection-key="folder:A"]')).toBeNull();
+    fireEvent.click(within(shellHeader(1)).getByRole("button", { name: "Select all", hidden: true }));
+    expect(checkedIds()).toEqual(["fa-tagged", "fr-tagged"]);
+    expect(within(shellHeader(1)).getByText("2 selected")).toBeInTheDocument();
+    fireEvent.click(barButton("Delete 2 selected items"));
+    expect(await screen.findByText("Moved 2 notes to the trash", { exact: true })).toBeInTheDocument();
+    expect(server.keys()).toEqual(["DELETE /api/notes/fa-tagged", "DELETE /api/notes/fr-tagged"]);
+    __resetTagFilterForTests();
+    __resetFolderSortForTests();
   });
 
   it("delete is sent in tree order (folders first): server order [root fp3, fp1 inside folder A] gives DELETE fp1 then fp3", async () => {

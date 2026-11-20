@@ -954,10 +954,17 @@
     },
     "filter": {
       "button": "依標籤篩選",
-      "buttonActive": "依標籤篩選（已選 {{count}} 個）",
-      "active": "顯示同時有這些標籤的筆記：{{names}}",
-      "clear": "清除篩選",
-      "empty": "沒有筆記同時有這些標籤。"
+      "buttonActive": "依標籤篩選，已套用 {{count}} 個",
+      "empty": "沒有筆記同時有這些標籤。",
+      "menuTitle": "依標籤篩選 · {{space}}",
+      "allMatch": "全部符合才列出",
+      "oneGroup": "一次篩一個群組；沒有標籤的群組不列出",
+      "removeOne": "從篩選移除 {{name}}",
+      "clearShort": "清除",
+      "done": "完成",
+      "count_one": "{{count}} 篇",
+      "count_other": "{{count}} 篇",
+      "hiddenGroups": "篩選中只顯示{{group}}；其他群組暫時隱藏"
     },
     "manage": {
       "nav": "標籤",

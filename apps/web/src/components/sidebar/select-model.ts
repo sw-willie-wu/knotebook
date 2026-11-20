@@ -50,6 +50,15 @@ export function visibleSelectionKeys(nodes: readonly SidebarNode[], isCollapsed:
   });
 }
 
+/** Under a tag filter the selectable rows are the matching notes that are on screen: never a folder (its batch action would also reach notes the filter hides), and nothing under a folder or group closed during this filter. */
+export function filteredSelectionKeys(nodes: readonly SidebarNode[], isClosed: (key: SidebarSectionKey) => boolean): string[] {
+  return nodes.flatMap((node) => {
+    if (node.kind === "note") return [selectionKey({ kind: "note", id: node.id })];
+    const key: SidebarSectionKey = node.kind === "folder" ? `folder:${node.id}` : `group:${node.id}`;
+    return isClosed(key) ? [] : filteredSelectionKeys(node.children, isClosed);
+  });
+}
+
 export function selectedTargets(nodes: readonly SidebarNode[], keys: ReadonlySet<string>): SelectionTarget[] {
   return tabTargets(nodes).filter((target) => keys.has(targetKey(target)));
 }
