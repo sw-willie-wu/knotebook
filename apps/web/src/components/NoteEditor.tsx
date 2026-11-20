@@ -1,6 +1,6 @@
 // This one import is enough: it @imports the mantine theme and `@blocknote/react` styles. `@blocknote/core/fonts/inter.css` is deliberately not imported (Latin-only woff that only grows the bundle for a CJK UI); fonts come from the app CSS.
 import "@blocknote/mantine/style.css";
-import { lazy, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { lazy, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
 import type * as Y from "yjs";
@@ -38,6 +38,7 @@ import { createSiteLinkConvertExtension, createSiteLinkEnv, createSiteLinkPasteH
 import { createTourTransactionFilterExtension } from "@/collab/tour-transaction-filter";
 import { useCollabUndoLifeline } from "@/collab/undo";
 import { usePageUndoShortcut } from "@/collab/page-undo";
+import type { TagEntryOptions } from "@/components/tags/tag-entry";
 import { PHONE_SLASH_MENU_FLOATING_OPTIONS, buildSlashMenuItems, withoutSlashBadges } from "@/components/slash-menu";
 import { LinkDialog } from "@/components/LinkDialog";
 import { linkAtSelection } from "@/components/editor/link-at-selection";
@@ -242,8 +243,20 @@ export function insertLinkAtSavedSelection(
   editor.createLink(href, text);
 }
 
+export interface TagEntryHandle {
+  open: (options?: TagEntryOptions) => void;
+}
+
+/** Back to where the caret was, scrolled into view: the tag input sits at the top of the article, so opening it from the middle of a long note scrolled there. */
+function focusCaret(editor: EditorRef["current"]): void {
+  if (!editor) return;
+  editor.focus();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote editor has three generic parameters; repo convention is any (as in wikilink/menu.ts)
+  (editor as any)._tiptapEditor?.commands?.scrollIntoView?.();
+}
+
 /** `getSlashItems` must keep its identity across dialog open/close: a changing identity re-runs the `useLoadSuggestionMenuItems` effect (deps `[query, getItems]`) and the menu flashes its loading state. */
-export function useLinkMenuState(editorRef: EditorRef, translate: Translate) {
+export function useLinkMenuState(editorRef: EditorRef, translate: Translate, tagEntryRef?: RefObject<TagEntryHandle | undefined>) {
   // The phone menu has no shortcut column; crossing 640 reloads the menu once. Do not add `linkDialogOpen` to its deps or replace `openLinkDialog` with an inline arrow.
   const phone = useIsPhone();
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
@@ -282,10 +295,17 @@ export function useLinkMenuState(editorRef: EditorRef, translate: Translate) {
 
   const getSlashItems = useCallback(
     (query: string) => {
-      const items = buildSlashMenuItems(editorRef.current, translate, openLinkDialog);
+      // Read per query, not a dependency: whether the viewer may tag can change while the menu is mounted, and a new identity would flash its loading state.
+      const entry = tagEntryRef?.current;
+      const items = buildSlashMenuItems(
+        editorRef.current,
+        translate,
+        openLinkDialog,
+        entry && (() => entry.open({ returnFocus: () => focusCaret(editorRef.current) })),
+      );
       return Promise.resolve(filterSuggestionItems(phone ? withoutSlashBadges(items) : items, query));
     },
-    [editorRef, translate, openLinkDialog, phone],
+    [editorRef, tagEntryRef, translate, openLinkDialog, phone],
   );
 
   return { linkDialogOpen, setLinkDialogOpen, openLinkDialog, linkPrefill, handleLinkInsert, getSlashItems };
@@ -301,6 +321,8 @@ export interface NoteEditorProps {
   headerSlot?: ReactNode;
   /** Sits in the article column above the editor, outside its contenteditable, so it never enters the shared document. A slot that renders nothing leaves no gap. */
   contentTopSlot?: ReactNode;
+  /** Undefined when the viewer cannot change this note's tags: `/tag` is not listed then. */
+  tagEntry?: TagEntryHandle;
   footerSlot?: ReactNode;
   mobileToolbar?: boolean;
   fabClearance?: boolean;
@@ -333,6 +355,7 @@ export function NoteEditor({
   noteId,
   headerSlot,
   contentTopSlot,
+  tagEntry,
   footerSlot,
   mobileToolbar = false,
   fabClearance = false,
@@ -514,7 +537,9 @@ export function NoteEditor({
     if (editable) notifyEditorEditable(noteId, editor);
   }, [noteId, editor, editable]);
 
-  const { linkDialogOpen, setLinkDialogOpen, openLinkDialog, linkPrefill, handleLinkInsert, getSlashItems } = useLinkMenuState(editorRef, t);
+  const tagEntryRef = useRef(tagEntry);
+  tagEntryRef.current = tagEntry;
+  const { linkDialogOpen, setLinkDialogOpen, openLinkDialog, linkPrefill, handleLinkInsert, getSlashItems } = useLinkMenuState(editorRef, t, tagEntryRef);
 
   const notes = useNotes().data;
   const { mutateAsync: createNote } = useCreateNote();

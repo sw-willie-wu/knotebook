@@ -20,6 +20,8 @@ import { ActiveNoteProvider } from "@/lib/active-note";
 import { SidebarTabProvider } from "@/lib/sidebar-tab";
 import { personalNote } from "@/test/select-fixtures";
 import { NoteList } from "./NoteList";
+import { NoteTagRow } from "@/components/tags/NoteTagRow";
+import { openTagEntry } from "@/components/tags/tag-entry";
 import { pressTrigger } from "@/test/menu-trigger";
 import { OutlineMenuContext, type OutlineMenuValue } from "@/components/outline/outline-menu-context";
 
@@ -574,6 +576,75 @@ describe("NoteMenu: copy to my notes is merged into 'Copy to... -> My notes' (#2
     renderCopyMenu("header", { ...GROUP_NOTE, role: "editor", permissions: { ...EDITOR_PERMS, edit: true, delete: true } });
     openAnyMenu("header");
     expect(await screen.findByRole("menuitem", { name: "Delete" })).toBeInTheDocument();
+  });
+});
+
+describe("NoteMenu - add tag", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("the header menu shows Add tag after Copy link when onAddTag is given; without it, and in the sidebar row menu, never", async () => {
+    const addTag = vi.fn();
+    vi.stubGlobal("fetch", (input: RequestInfo | URL) =>
+      Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(String(input) === "/api/groups" ? [] : String(input) === "/api/folders" ? FOLDER_LIST_EMPTY : [OWNER_NOTE]) })),
+    );
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const ui = (onAddTag?: () => void) => (
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/start"]}>
+          <NoteMenu note={OWNER_NOTE} state={CONNECTED} leavingRef={{ current: false }} onOpenEdits={() => {}} onAddTag={onAddTag} />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    const { unmount } = render(ui(addTag));
+    openMenu();
+    const names = (await screen.findAllByRole("menuitem")).map((item) => item.textContent);
+    expect(names.indexOf("Add tag")).toBe(names.findIndex((name) => /Copy link/.test(name ?? "")) + 1);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Add tag" }));
+    expect(addTag).toHaveBeenCalledOnce();
+    unmount();
+
+    render(ui(undefined));
+    openMenu();
+    await screen.findByRole("menuitem", { name: /Copy link/ });
+    expect(screen.queryByRole("menuitem", { name: "Add tag" })).toBeNull();
+    cleanup();
+
+    renderCopyMenu("sidebar", OWNER_NOTE);
+    openAnyMenu("sidebar");
+    await screen.findByRole("menuitem", { name: /Copy link/ });
+    expect(screen.queryByRole("menuitem", { name: "Add tag" })).toBeNull();
+  });
+
+  it("choosing Add tag focuses the tag input within the same event and focus doesn't return to the more button", async () => {
+    vi.stubGlobal("fetch", (input: RequestInfo | URL) =>
+      Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(String(input) === "/api/notes" ? [{ ...OWNER_NOTE, tags: [] }] : String(input) === "/api/folders" ? FOLDER_LIST_EMPTY : []) })),
+    );
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/start"]}>
+          <NoteMenu note={OWNER_NOTE} state={CONNECTED} leavingRef={{ current: false }} onOpenEdits={() => {}} onAddTag={() => openTagEntry(OWNER_NOTE.id)} />
+          <NoteTagRow note={OWNER_NOTE} canEdit />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await act(async () => {});
+    openMenu();
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Add tag" }));
+    // Synchronously after the select event: iOS shows the keyboard only for focus given inside the gesture.
+    const input = screen.getByRole("combobox", { name: "Tag name" });
+    expect(document.activeElement).toBe(input);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("combobox", { name: "Tag name" }));
   });
 });
 

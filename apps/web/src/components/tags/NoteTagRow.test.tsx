@@ -6,6 +6,7 @@ import i18n from "@/i18n";
 import { dismissAllToasts } from "@/components/ui/toast";
 import * as toastModule from "@/components/ui/toast";
 import { NoteTagRow } from "./NoteTagRow";
+import { openTagEntry } from "./tag-entry";
 
 const aws: NoteTagDto = { id: "t1", name: "AWS", color: "blue" };
 const budget: NoteTagDto = { id: "t2", name: "Budget", color: "green" };
@@ -108,7 +109,7 @@ describe("NoteTagRow", () => {
   it("loads a group note's space list from the group endpoint", async () => {
     const calls = stubFetch({ notes: [note([aws], "g1")] });
     renderRow(note([aws], "g1"), true);
-    await screen.findByText("AWS");
+    fireEvent.click(await screen.findByRole("button", { name: "Add a tag" }));
     await waitFor(() => expect(calls.some((c) => c.url === "/api/groups/g1/tags")).toBe(true));
   });
 
@@ -217,8 +218,190 @@ describe("NoteTagRow", () => {
     expect(screen.queryByRole("option", { name: "待辦" })).toBeNull();
     expect(screen.getByRole("option", { name: "To do" })).toBeTruthy();
     // "Cloud" is in the space but not on the note, so it is offered as existing; AWS is on the note and left out.
-    expect(screen.getByRole("option", { name: "Cloud" })).toBeTruthy();
+    expect(await screen.findByRole("option", { name: "Cloud" })).toBeTruthy();
     expect(screen.queryByRole("option", { name: "AWS" })).toBeNull();
+  });
+});
+
+describe("NoteTagRow entry points", () => {
+  it("renders nothing without tags until an entry request opens it with the input focused", async () => {
+    const calls = stubFetch({ notes: [note([])] });
+    const { container } = renderRow(note([]), true);
+    await waitFor(() => expect(calls.some((c) => c.url === "/api/notes")).toBe(true));
+    await act(async () => {});
+    expect(container.firstChild).toBeNull();
+    act(() => openTagEntry("n1"));
+    const input = await screen.findByRole("combobox", { name: "Tag name" });
+    expect(document.activeElement).toBe(input);
+    await waitFor(() => expect(calls.some((c) => c.url === "/api/tags")).toBe(true));
+  });
+
+  it("a request for a note whose tags the viewer cannot change shows nothing", async () => {
+    stubFetch({ notes: [note([])] });
+    const { container } = renderRow(note([]), false);
+    await act(async () => {});
+    act(() => openTagEntry("n1"));
+    await act(async () => {});
+    expect(container.firstChild).toBeNull();
+  });
+
+  it("a request for another note does not open this one", async () => {
+    stubFetch({ notes: [note([])] });
+    const { container } = renderRow(note([]), true);
+    await act(async () => {});
+    act(() => openTagEntry("other-note"));
+    await act(async () => {});
+    expect(container.firstChild).toBeNull();
+  });
+
+  it("blurring the empty input with no tags folds the row away; with a tag added it stays", async () => {
+    const notes = [note([])];
+    const calls = stubFetch({
+      notes,
+      post: () => {
+        notes[0] = note([aws]);
+        return json(200, { tags: [aws] });
+      },
+    });
+    const { container } = renderRow(note([]), true);
+    await act(async () => {});
+    act(() => openTagEntry("n1"));
+    let input = await screen.findByRole("combobox", { name: "Tag name" });
+    fireEvent.blur(input);
+    await waitFor(() => expect(container.firstChild).toBeNull());
+
+    act(() => openTagEntry("n1"));
+    input = await screen.findByRole("combobox", { name: "Tag name" });
+    fireEvent.change(input, { target: { value: "AWS" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(calls.some((c) => c.method === "POST")).toBe(true));
+    await screen.findByText("AWS");
+    fireEvent.blur(screen.getByRole("combobox", { name: "Tag name" }));
+    await waitFor(() => expect(screen.queryByRole("combobox")).toBeNull());
+    expect(screen.getByText("AWS")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add a tag" })).toBeTruthy();
+  });
+
+  it("Escape and Tab out of the empty input hand focus to the entry's return function; blurring elsewhere does not", async () => {
+    stubFetch({ notes: [note([])] });
+    const { container } = renderRow(note([]), true);
+    await act(async () => {});
+    const back = vi.fn();
+    act(() => openTagEntry("n1", { returnFocus: back }));
+    let input = await screen.findByRole("combobox", { name: "Tag name" });
+    fireEvent.keyDown(input, { key: "Escape" });
+    await waitFor(() => expect(back).toHaveBeenCalledTimes(1));
+    expect(container.firstChild).toBeNull();
+
+    act(() => openTagEntry("n1", { returnFocus: back }));
+    input = await screen.findByRole("combobox", { name: "Tag name" });
+    // fireEvent returns false when the default (moving focus to the next control, or to <body> once the input is gone) was prevented.
+    expect(fireEvent.keyDown(input, { key: "Tab" })).toBe(false);
+    await waitFor(() => expect(back).toHaveBeenCalledTimes(2));
+    expect(container.firstChild).toBeNull();
+
+    act(() => openTagEntry("n1", { returnFocus: back }));
+    input = await screen.findByRole("combobox", { name: "Tag name" });
+    fireEvent.blur(input);
+    await waitFor(() => expect(container.firstChild).toBeNull());
+    expect(back).toHaveBeenCalledTimes(2);
+  });
+
+  it("with tags, Escape focuses Add and Tab is left alone; the return function is not used", async () => {
+    stubFetch({ notes: [note([aws])] });
+    renderRow(note([aws]), true);
+    await screen.findByText("AWS");
+    const back = vi.fn();
+    act(() => openTagEntry("n1", { returnFocus: back }));
+    const input = await screen.findByRole("combobox", { name: "Tag name" });
+    expect(fireEvent.keyDown(input, { key: "Tab" })).toBe(true);
+    fireEvent.keyDown(input, { key: "Escape" });
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Add a tag" })));
+    expect(back).not.toHaveBeenCalled();
+  });
+
+  it("asking again while the input is already open focuses it again", async () => {
+    stubFetch({ notes: [note([])] });
+    renderRow(note([]), true);
+    await act(async () => {});
+    act(() => openTagEntry("n1"));
+    const first = await screen.findByRole("combobox", { name: "Tag name" });
+    act(() => openTagEntry("n1"));
+    const second = await screen.findByRole("combobox", { name: "Tag name" });
+    expect(second).not.toBe(first);
+    expect(document.activeElement).toBe(second);
+  });
+
+  function stubSlowSpaceList(outcome: "ok" | "fail") {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/notes") return json(200, [note([aws])]);
+        if (url === "/api/tags") {
+          await gate;
+          return outcome === "ok" ? json(200, spaceList) : json(500, { error: "server_error" });
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      }),
+    );
+    return release;
+  }
+
+  it("while the space list loads nothing is listed, so existing tags never push the suggestions down when they arrive", async () => {
+    const release = stubSlowSpaceList("ok");
+    renderRow(note([aws]), true);
+    fireEvent.click(await screen.findByRole("button", { name: "Add a tag" }));
+    await screen.findByRole("combobox", { name: "Tag name" });
+    await act(async () => {});
+    expect(screen.queryByRole("option")).toBeNull();
+    await act(async () => release());
+    await screen.findByRole("option", { name: "Cloud" });
+    const headings = screen.getAllByText(/^(Tags|Suggestions)$/, { selector: "p" }).map((el) => el.textContent);
+    expect(headings).toEqual(["Tags", "Suggestions"]);
+  });
+
+  it("when the space list fails to load the suggestions show and a new name can still be created", async () => {
+    const release = stubSlowSpaceList("fail");
+    renderRow(note([aws]), true);
+    fireEvent.click(await screen.findByRole("button", { name: "Add a tag" }));
+    await screen.findByRole("combobox", { name: "Tag name" });
+    await act(async () => release());
+    expect(await screen.findByRole("option", { name: "Reference" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "Cloud" })).toBeNull();
+  });
+
+  it("with tags, the space list is not fetched until the input is opened", async () => {
+    const calls = stubFetch({ notes: [note([aws])] });
+    renderRow(note([aws]), true);
+    await screen.findByText("AWS");
+    await act(async () => {});
+    expect(spaceListFetched(calls)).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Add a tag" }));
+    await waitFor(() => expect(spaceListFetched(calls)).toBe(true));
+  });
+
+  it("switching to another note and back doesn't reopen the input", async () => {
+    stubFetch({ notes: [note([]), { ...note([]), id: "n2" } as NoteDto] });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    const ui = (n: NoteDto) => (
+      <QueryClientProvider client={queryClient}>
+        <NoteTagRow key={n.id} note={n} canEdit />
+      </QueryClientProvider>
+    );
+    const second = { ...note([]), id: "n2" } as NoteDto;
+    const { container, rerender } = render(ui(note([])));
+    await act(async () => {});
+    act(() => openTagEntry("n1"));
+    await screen.findByRole("combobox", { name: "Tag name" });
+    rerender(ui(second));
+    await act(async () => {});
+    expect(container.firstChild).toBeNull();
+    rerender(ui(note([])));
+    await act(async () => {});
+    expect(container.firstChild).toBeNull();
   });
 });
 

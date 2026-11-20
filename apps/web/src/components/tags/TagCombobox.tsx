@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { autoUpdate, flip, offset, size, useFloating } from "@floating-ui/react";
 import { normalizeTagName, type NoteTagDto, type SpaceTagDto } from "@knotebook/shared";
@@ -12,7 +12,11 @@ export interface TagComboboxProps {
   noteTags: readonly NoteTagDto[];
   /** Resolves true when the tag is on the note afterwards; the input is cleared then and stays open for the next one. */
   onSubmit: (name: string) => Promise<boolean>;
-  onClose: (reason: "escape" | "blur") => void;
+  onClose: (reason: "escape" | "tab" | "blur") => void;
+  /** True while the space list is still loading: nothing is listed then, so the existing tags never appear above suggestions that were already on screen. */
+  loading?: boolean;
+  /** Tab closes the input instead of moving on; for a row with no tags left, where leaving would drop focus on <body>. */
+  closeOnTab?: boolean;
 }
 
 function optionName(option: TagOption): string {
@@ -20,7 +24,7 @@ function optionName(option: TagOption): string {
 }
 
 /** Not portalled, and everything in the list swallows mousedown: a portal or a mousedown default would blur the input, which closes it. */
-export function TagCombobox({ spaceTags, noteTags, onSubmit, onClose }: TagComboboxProps) {
+export function TagCombobox({ spaceTags, noteTags, onSubmit, onClose, loading = false, closeOnTab = false }: TagComboboxProps) {
   const { t } = useTranslation();
   const listId = useId();
   const optionId = (index: number) => `${listId}-opt-${index}`;
@@ -29,11 +33,13 @@ export function TagCombobox({ spaceTags, noteTags, onSubmit, onClose }: TagCombo
   const [active, setActive] = useState(-1);
   const [invalid, setInvalid] = useState(false);
 
-  useEffect(() => {
+  // A layout effect, so an input mounted inside a user gesture (flushSync) has focus before the gesture ends; iOS only raises the keyboard then.
+  useLayoutEffect(() => {
     inputRef.current?.focus();
   }, []);
 
   const options = useMemo(() => {
+    if (loading) return [];
     const existingKeys = new Set(spaceTags.map((tag) => tag.name.toLowerCase()));
     return tagOptions({
       query,
@@ -41,7 +47,7 @@ export function TagCombobox({ spaceTags, noteTags, onSubmit, onClose }: TagCombo
       noteTagIds: new Set(noteTags.map((tag) => tag.id)),
       suggestions: tagSuggestions(t, { query, existingKeys }),
     });
-  }, [query, spaceTags, noteTags, t]);
+  }, [query, spaceTags, noteTags, t, loading]);
   const activeIndex = active < options.length ? active : -1;
   const expanded = options.length > 0 || invalid;
 
@@ -94,6 +100,9 @@ export function TagCombobox({ spaceTags, noteTags, onSubmit, onClose }: TagCombo
       }
       const existing = spaceTags.find((tag) => tag.name.toLowerCase() === name.toLowerCase());
       void submit(existing?.name ?? name);
+    } else if (event.key === "Tab" && closeOnTab) {
+      event.preventDefault();
+      onClose("tab");
     } else if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();

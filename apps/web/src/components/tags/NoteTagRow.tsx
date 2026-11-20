@@ -9,7 +9,9 @@ import { cn } from "@/lib/utils";
 import { TagCombobox } from "./TagCombobox";
 import { TagPill } from "./TagPill";
 import { fitPills } from "./pill-fit";
+import { tagEntryReturnFocus, useTagEntryRequest } from "./tag-entry";
 
+const NO_TAGS: readonly NoteTagDto[] = [];
 const GAP_PX = 5;
 const ADD_WIDTH_PX = 20;
 const INPUT_WIDTH_PX = 144;
@@ -19,31 +21,44 @@ const MORE_WIDTH_PX = 40;
 const CHIP_BUTTON =
   "relative inline-flex h-5 shrink-0 items-center justify-center rounded-full text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring pointer-coarse:after:absolute pointer-coarse:after:-inset-2 pointer-coarse:after:content-['']";
 
-/** Renders nothing for a note without tags. `canEdit` is the tag permission (`canEditNoteTags`), not the note's edit role: an edit share reads tags but never changes them. */
+/** Renders nothing for a note without tags unless the input was asked for (`openTagEntry`) and is still open. `canEdit` is the tag permission (`canEditNoteTags`), not the note's edit role: an edit share reads tags but never changes them. */
 export function NoteTagRow({ note, canEdit }: { note: NoteDto; canEdit: boolean }) {
   const { t } = useTranslation();
   const tags = useNoteTags(note.id);
   const space = tagSpaceOfNote(note);
   const [inputOpen, setInputOpen] = useState(false);
-  const shown = tags !== undefined && tags.length > 0;
-  // The space list is only needed to complete names, so nobody who cannot edit (or has no row yet) fetches it.
-  const spaceTags = useSpaceTags(space, { enabled: canEdit && shown });
+  // Only requests made after this row mounted count, so coming back to a note never reopens the input.
+  const request = useTagEntryRequest(note.id);
+  const [seenRequest, setSeenRequest] = useState(request);
+  if (request !== seenRequest) {
+    setSeenRequest(request);
+    if (canEdit) setInputOpen(true);
+  }
+  const list = tags ?? NO_TAGS;
+  // The space list only completes names, so it is fetched when the input opens and never for someone who cannot edit.
+  const spaceTags = useSpaceTags(space, { enabled: canEdit && inputOpen });
   const add = useAddNoteTag();
   const remove = useRemoveNoteTag();
   const addRef = useRef<HTMLButtonElement>(null);
   const refocusAddRef = useRef(false);
+  const returnFocusRef = useRef(false);
 
   useEffect(() => {
-    if (!inputOpen && refocusAddRef.current) {
+    if (inputOpen) return;
+    // With tags the "+" is still there to take focus; without any, the row is gone and the requester says where focus goes back.
+    if (refocusAddRef.current) {
       refocusAddRef.current = false;
       addRef.current?.focus();
+    } else if (returnFocusRef.current) {
+      returnFocusRef.current = false;
+      tagEntryReturnFocus(note.id)?.();
     }
-  }, [inputOpen]);
+  }, [inputOpen, note.id]);
 
-  if (tags === undefined || tags.length === 0) return null;
+  if (list.length === 0 && !(canEdit && inputOpen)) return null;
 
   async function submit(name: string): Promise<boolean> {
-    if (tags!.some((tag) => tag.name.toLowerCase() === name.toLowerCase())) return true;
+    if (list.some((tag) => tag.name.toLowerCase() === name.toLowerCase())) return true;
     if (add.isPending) return false;
     try {
       await add.mutateAsync({ noteId: note.id, name, space });
@@ -63,7 +78,7 @@ export function NoteTagRow({ note, canEdit }: { note: NoteDto; canEdit: boolean 
 
   return (
     <TagRowBody
-      tags={tags}
+      tags={list}
       canEdit={canEdit}
       inputOpen={inputOpen}
       onRemove={removeTag}
@@ -72,11 +87,18 @@ export function NoteTagRow({ note, canEdit }: { note: NoteDto; canEdit: boolean 
       onOpenInput={() => setInputOpen(true)}
       input={
         <TagCombobox
+          key={request}
+          loading={spaceTags.isLoading}
+          closeOnTab={list.length === 0}
           spaceTags={spaceTags.data ?? []}
-          noteTags={tags}
+          noteTags={list}
           onSubmit={submit}
           onClose={(reason) => {
-            refocusAddRef.current = reason === "escape";
+            // A blur may follow the key close while the input unmounts; it must not undo the choice made here.
+            if (reason !== "blur") {
+              refocusAddRef.current = list.length > 0;
+              returnFocusRef.current = list.length === 0;
+            }
             setInputOpen(false);
           }}
         />
