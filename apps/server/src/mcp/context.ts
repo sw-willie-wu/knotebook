@@ -12,6 +12,7 @@ import type { GroupTestHook } from "../groups/test-hook.js";
 import type { CollabHooks } from "../collab/hooks.js";
 import type { NoteCreateHooks } from "../notes/create.js";
 import type { SearchIndexHooks } from "../notes/tx/search-index.js";
+import type { KnowledgeIndexHooks } from "../knowledge/tx/index-write.js";
 import type { VersionService } from "../collab/versions.js";
 
 export interface McpToolCtx {
@@ -54,4 +55,5 @@ export interface McpToolCtx {
   slugUpdateTestHook?: (candidate: string) => void | Promise<void>;
   noteCreateHooks?: NoteCreateHooks;
   searchIndexHooks?: SearchIndexHooks;
+  knowledgeIndexHooks?: KnowledgeIndexHooks;
 }

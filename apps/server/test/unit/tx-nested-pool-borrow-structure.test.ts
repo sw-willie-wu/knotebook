@@ -115,7 +115,7 @@ const ARG_BANNED: Array<[string, RegExp]> = [
   ["閉包 function", /\bfunction\b/],
   ...HELPERS,
 ];
-const ROUTE_FILES = ["routes/notes.ts", "routes/note-content.ts", "routes/note-sharing.ts", "routes/groups.ts", "notes/links.ts", "routes/oidc.ts", "routes/oidc-pending.ts", "routes/admin-auth.ts", "routes/account.ts", "notes/search-index.ts", "notes/search-query.ts", "mcp/tools/create-transfer-token.ts", "mcp/tools/open-notes-as-files.ts", "routes/uploads.ts", "collab/versions.ts", "routes/admin-versions.ts", "notes/copy-note.ts", "notes/move-note.ts", "routes/admin-password-reset.ts", "routes/password-reset.ts", "trash/service.ts", "routes/admin-trash.ts", "trash/purge.ts", "folders/service.ts", "notes/editing/write-service.ts", "site-limits/store.ts", "routes/avatars.ts", "avatars/oidc-job.ts", "routes/tags.ts"];
+const ROUTE_FILES = ["routes/notes.ts", "routes/note-content.ts", "routes/note-sharing.ts", "routes/groups.ts", "notes/links.ts", "routes/oidc.ts", "routes/oidc-pending.ts", "routes/admin-auth.ts", "routes/account.ts", "notes/search-index.ts", "knowledge/index-write.ts", "notes/search-query.ts", "mcp/tools/create-transfer-token.ts", "mcp/tools/open-notes-as-files.ts", "routes/uploads.ts", "collab/versions.ts", "routes/admin-versions.ts", "notes/copy-note.ts", "notes/move-note.ts", "routes/admin-password-reset.ts", "routes/password-reset.ts", "trash/service.ts", "routes/admin-trash.ts", "trash/purge.ts", "folders/service.ts", "notes/editing/write-service.ts", "site-limits/store.ts", "routes/avatars.ts", "avatars/oidc-job.ts", "routes/tags.ts"];
 
 describe("transaction structure guard (#175)", () => {
   const files = walk(SRC);
@@ -195,6 +195,7 @@ describe("transaction structure guard (#175)", () => {
       { f: "routes/admin-auth.ts", all: 3, inTx: 3 }, // update sign-in provider, delete sign-in provider, site settings
       { f: "routes/account.ts", all: 4, inTx: 4 }, // register, unlink, accept invite (acceptInviteInTx), set password (setPasswordInTx)
       { f: "notes/search-index.ts", all: 1, inTx: 1 }, // full-text index write
+      { f: "knowledge/index-write.ts", all: 1, inTx: 1 }, // knowledge index write
       { f: "notes/search-query.ts", all: 1, inTx: 1 }, // search snapshot read
       { f: "mcp/tools/create-transfer-token.ts", all: 1, inTx: 1 }, // token issuance
       { f: "mcp/tools/open-notes-as-files.ts", all: 1, inTx: 1 }, // bulk transfer token issuance

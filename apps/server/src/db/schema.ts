@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, boolean, integer, bigint, smallint, jsonb, customType, primaryKey, uniqueIndex, index, check, foreignKey } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, date, boolean, integer, bigint, smallint, jsonb, customType, primaryKey, uniqueIndex, index, check, foreignKey } from "drizzle-orm/pg-core";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import type { NoteWidth, TagColor } from "@knotebook/shared";
@@ -526,6 +526,58 @@ export const noteSearchState = pgTable("note_search_state", {
   sourceVersion: integer("source_version").notNull(),
   contentHash: text("content_hash").notNull(),
   indexedUnits: integer("indexed_units").notNull(),
+  capped: boolean().notNull(),
+  indexedAt: timestamp("indexed_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Derived cache of the knowledge info on headings, rebuilt from `note_states` by `knowledge/index-write.ts`; the note's document stays the source of truth.
+// Space and folder are not stored: queries join `notes`, so moving a note needs no update here. Several CHECKs mirror constants in shared (knowledge-check-sync.test.ts).
+// `superseded_note_id` NULL = the same note; no FK because the replacing note may have been deleted since.
+export const noteKnowledge = pgTable(
+  "note_knowledge",
+  {
+    noteId: uuid("note_id").notNull().references(() => notes.id, { onDelete: "cascade" }),
+    knowledgeId: text("knowledge_id").notNull(),
+    blockId: text("block_id").notNull(),
+    ord: integer().notNull(),
+    level: smallint().notNull(),
+    heading: text().notNull(),
+    // `when` is a reserved word in SQL.
+    readWhen: text("read_when").notNull(),
+    conclusion: text().notNull(),
+    evidence: text().notNull(),
+    verified: date({ mode: "string" }),
+    status: text().notNull(),
+    icon: text().notNull(),
+    parentKnowledgeId: text("parent_knowledge_id"),
+    supersededNoteId: uuid("superseded_note_id"),
+    supersededKnowledgeId: text("superseded_knowledge_id"),
+    descTotal: integer("desc_total").notNull().default(0),
+    descVerified: integer("desc_verified").notNull().default(0),
+    descNoDate: integer("desc_no_date").notNull().default(0),
+    descNeedsReview: integer("desc_needs_review").notNull().default(0),
+    descOutdated: integer("desc_outdated").notNull().default(0),
+  },
+  t => [
+    primaryKey({ name: "note_knowledge_pk", columns: [t.noteId, t.knowledgeId] }),
+    check("nk_knowledge_id_chk", sql`${t.knowledgeId} ~ '^k_[0-9a-f]{8}$'`),
+    check("nk_block_id_chk", sql`${t.blockId} ~ '^[A-Za-z0-9_-]{1,64}$'`),
+    check("nk_level_chk", sql`${t.level} between 1 and 6`),
+    check("nk_evidence_chk", sql`${t.evidence} in ('', 'tested', 'docs', 'inferred')`),
+    check("nk_status_chk", sql`${t.status} in ('', 'unverified', 'outdated')`),
+    check("nk_icon_chk", sql`${t.icon} in ('outdated', 'needsReview', 'noVerifiedDate', 'verified')`),
+    check("nk_superseded_chk", sql`${t.supersededKnowledgeId} is null or ${t.supersededKnowledgeId} ~ '^k_[0-9a-f]{8}$'`),
+    check("nk_superseded_pair_chk", sql`${t.supersededNoteId} is null or ${t.supersededKnowledgeId} is not null`),
+  ],
+);
+
+// Same shape as `note_search_state`: `content_hash` instead of a per-note clock, and one lock row per note for the writers.
+export const noteKnowledgeState = pgTable("note_knowledge_state", {
+  noteId: uuid("note_id").primaryKey().references(() => notes.id, { onDelete: "cascade" }),
+  extractorVersion: smallint("extractor_version").notNull(),
+  sourceVersion: integer("source_version").notNull(),
+  contentHash: text("content_hash").notNull(),
+  entries: integer().notNull(),
   capped: boolean().notNull(),
   indexedAt: timestamp("indexed_at", { withTimezone: true }).notNull().defaultNow(),
 });

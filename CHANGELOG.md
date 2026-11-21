@@ -43,6 +43,8 @@ Releases before 0.16 are in [`docs/changelog/`](docs/changelog/), one file per m
 
 - **Migration for knowledge info: none.** The info is stored on the headings themselves. Rolling back: the previous version doesn't show it, and a heading you change there (typing in it, moving it, changing its level or color) loses its info, while headings you don't touch, including ones where you only edit the paragraphs below, keep it and it is shown again after you upgrade; see [Known limitations](docs/known-limitations.md).
 
+- **Migration 0044 (knowledge index) only adds two tables**, `note_knowledge` and `note_knowledge_state`, which hold the knowledge index, and changes no existing row. After upgrading, the server builds the index for existing notes in the background. Rolling back leaves the tables in place and the previous version doesn't read them; after upgrading again, the notes edited meanwhile are indexed again. See [Self-hosting](docs/self-hosting.md#upgrading-and-rolling-back).
+
 ## [0.17.1] - 2026-11-18
 
 ### Changed

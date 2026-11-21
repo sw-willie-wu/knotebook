@@ -84,6 +84,7 @@ import type { AvatarTestHooks } from "./avatars/tx/avatars.js";
 import type { AvatarFetchPolicy } from "./avatars/oidc-fetch.js";
 import type { OidcAvatarJobHooks } from "./avatars/oidc-job.js";
 import type { SearchIndexHooks } from "./notes/tx/search-index.js";
+import type { KnowledgeIndexHooks } from "./knowledge/tx/index-write.js";
 import { DEFAULT_STORAGE_LOCK_TIMEOUT_MS } from "./storage/tx/quota.js";
 import type { SiteLimits } from "./site-limits/store.js";
 
@@ -149,6 +150,7 @@ export interface AppDeps {
   avatarFetchPolicy?: AvatarFetchPolicy;
   avatarJobHooks?: OidcAvatarJobHooks;
   searchIndexHooks?: SearchIndexHooks;
+  knowledgeIndexHooks?: KnowledgeIndexHooks;
   /** Milliseconds; test-only (no env var). */
   storageLockTimeoutMs?: number;
   /** Tests leave it off and call `sweep`/`scanDue` directly. */
@@ -543,6 +545,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       noteCreateHooks: deps.noteCreateHooks,
       groupTestHook: deps.groupTestHook,
       searchIndexHooks: deps.searchIndexHooks,
+      knowledgeIndexHooks: deps.knowledgeIndexHooks,
       uploadsDir: deps.uploadsDir,
       storageLockTimeoutMs,
     })
@@ -638,6 +641,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       slugUpdateTestHook: deps.slugUpdateTestHook,
       noteCreateHooks: deps.noteCreateHooks,
       searchIndexHooks: deps.searchIndexHooks,
+      knowledgeIndexHooks: deps.knowledgeIndexHooks,
     })
   );
 

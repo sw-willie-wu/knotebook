@@ -17,6 +17,7 @@ import type { CollabHooks } from "../collab/hooks.js";
 import type { VersionService } from "../collab/versions.js";
 import type { NoteCreateHooks } from "../notes/create.js";
 import type { SearchIndexHooks } from "../notes/tx/search-index.js";
+import type { KnowledgeIndexHooks } from "../knowledge/tx/index-write.js";
 import { hasOpenNotesAsFiles, registerMcpTools } from "../mcp/register.js";
 import { mcpInstructions, MCP_SERVER_NAME, MCP_SERVER_VERSION, versionReadFailed } from "../mcp/server-info.js";
 import { canWriteNotes } from "../mcp/write-scope.js";
@@ -68,6 +69,7 @@ export interface McpRouteDeps {
   slugUpdateTestHook?: (candidate: string) => void | Promise<void>;
   noteCreateHooks?: NoteCreateHooks;
   searchIndexHooks?: SearchIndexHooks;
+  knowledgeIndexHooks?: KnowledgeIndexHooks;
 }
 
 export function mcpRoutes(deps: McpRouteDeps) {
@@ -138,6 +140,7 @@ export function mcpRoutes(deps: McpRouteDeps) {
         slugUpdateTestHook: deps.slugUpdateTestHook,
         noteCreateHooks: deps.noteCreateHooks,
         searchIndexHooks: deps.searchIndexHooks,
+        knowledgeIndexHooks: deps.knowledgeIndexHooks,
       });
       server.server.registerCapabilities({ tools: { listChanged: false } });
       const transport = new WebStandardStreamableHTTPServerTransport({ enableJsonResponse: true });

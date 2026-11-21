@@ -32,6 +32,8 @@ export interface NoteDto {
   sizeBytes?: number;
   /** Sent only by GET /api/notes, in the order they were added. */
   tags?: NoteTagDto[];
+  /** Sent only by GET /api/notes. */
+  hasKnowledge?: boolean;
 }
 
 export interface NotePermissions {

@@ -309,6 +309,13 @@
       "when": 1795188404337,
       "tag": "0043_tags",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1795246909727,
+      "tag": "0044_knowledge-index",
+      "breakpoints": true
     }
   ]
 }

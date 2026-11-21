@@ -11,6 +11,7 @@ import type { GroupRacePoint } from "../src/groups/test-hook.js";
 import type { NoteCreateHooks } from "../src/notes/create.js";
 import { cloneForCopy } from "../src/notes/copy-doc.js";
 import { extractForIndex } from "../src/notes/search-index.js";
+import { extractKnowledgeForIndex } from "../src/knowledge/extract.js";
 import { copyNoteInTx } from "../src/notes/tx/copy.js";
 import { moveNoteToGroupInTx } from "../src/notes/tx/move.js";
 import { bearer, seedTokenForUser } from "./editing-helpers.js";
@@ -333,7 +334,7 @@ describe("POST /api/notes/:id/copy with folderId", () => {
       queries.length = 0;
       const doc = cloneForCopy(new Y.Doc());
       const out = await logged.transaction(tx => copyNoteInTx(tx, {
-        ...input, copy: doc, uploadsDir: tmpdir(), copiedFileIds: [], searchExtract: extractForIndex(doc.doc), lockTimeoutMs: 5000,
+        ...input, copy: doc, uploadsDir: tmpdir(), copiedFileIds: [], searchExtract: extractForIndex(doc.doc), knowledgeExtract: extractKnowledgeForIndex(doc.doc), lockTimeoutMs: 5000,
       }));
       const all = queries.filter(q => !TXN_CONTROL.test(q.trim())).filter(q => ROW_LOCK.test(q.trim()));
       // Up to reading the source (the first notes row lock); what follows is the lock the full-text index takes on the new copy (`replaceNoteSearchIndexInTx`), outside this lock order.

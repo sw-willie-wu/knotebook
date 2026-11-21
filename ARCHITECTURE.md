@@ -73,6 +73,7 @@ PostgreSQL, accessed through Drizzle ORM. The whole schema is in `apps/server/sr
 - `note_versions`: version history, each version a full Yjs snapshot;
 - `note_ai_edits`: the history of edits made over the API, MCP and file write-backs, used for revert;
 - `note_search_sections`, `note_search_state`: the search index;
+- `note_knowledge`, `note_knowledge_state`: the knowledge index;
 - `note_shares`, `groups`, `group_members`, `group_roles`, `folders`, `note_placements`, `note_links`, `uploads`, `tags`, `note_tags` (a space's tag list and the tags each note carries).
 
 Migrations are SQL files in `apps/server/drizzle/` (with Drizzle's journal in `apps/server/drizzle/meta/`), generated from the schema with `pnpm --filter @knotebook/server db:generate` (`drizzle-kit generate`, configured by `apps/server/drizzle.config.ts`). They run automatically at startup. New migrations are normally written so that the previous release still starts on the migrated database (the groups migration, 0012, is a documented exception that can't be rolled back): the CHANGELOG's upgrade notes and the [self-hosting guide](docs/self-hosting.md#upgrading-and-rolling-back) describe each one and what rolling back means.
@@ -159,6 +160,14 @@ Search covers note titles and body text. The body is indexed one row per section
 - writing: `apps/server/src/notes/search-index.ts` and `apps/server/src/notes/tx/search-index.ts`, called from `onStoreDocument`, when a note is copied, and by the backfill;
 - backfill: `backfillSearchIndex` in `search-index.ts` runs in the background after the server starts listening, picking up notes whose index is missing or was built by an older extractor version. It can be resumed and is aborted on shutdown;
 - querying: `apps/server/src/notes/search-sql.ts` builds the SQL (case-insensitive substring match on titles and sections, joined with the notes the user can see), `notes/search-query.ts` runs it, and `notes/search-snippet.ts` picks the snippets. REST (`routes/search.ts`) and MCP `search_notes` share it. A `pg_trgm` GIN index on `lower(note_search_sections.body)` (`nss_body_trgm_idx`) serves body matches for queries with three letters or digits in a row; shorter queries use `position()`. Which characters count depends on the database's `LC_CTYPE`, which the server checks once at startup (`initCjkTrigramMode` in `search-sql.ts`).
+
+## Knowledge index
+
+The knowledge info on headings is copied into `note_knowledge` (one row per knowledge id), with one `note_knowledge_state` row per note recording the `note_states.version` and content hash the rows were built from. The document stays the source of truth; the tables are a cache.
+
+- extraction: `apps/server/src/knowledge/extract.ts` builds the rows from the document and never throws; a document whose bytes don't contain a knowledge attribute is not walked;
+- writing: `apps/server/src/knowledge/index-write.ts` and `knowledge/tx/index-write.ts`, called from `onStoreDocument` after the full-text index (a failure there never fails the store), when a note is copied, and by the backfill;
+- backfill: `backfillKnowledgeIndex` runs in the background after the server starts listening and then every ten minutes (`startKnowledgeIndexSweep`), picking up notes whose index is missing, was built by an older extractor version, or lags the stored note. It can be resumed and is aborted on shutdown.
 
 ## The web app (`apps/web`)
 

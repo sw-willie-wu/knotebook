@@ -8,13 +8,14 @@ import { applyMigrationsThrough, freshDb, freshEmptyDb, idxOfTag, journalEntries
 import { runMigrations } from "../src/db/migrate.js";
 import { createDb } from "../src/db/index.js";
 import { Pool } from "pg";
-import { PgDialect, getTableConfig } from "drizzle-orm/pg-core";
-import { apiTokens, authProviders, folders, groupMembers, groupRoles, groups, noteFavorites, notePlacements, noteRedirects, notes, oauthClients, oauthCodes, noteSearchSections, noteSearchState, noteLinkConversion, noteTags, noteVersions, handleRenames, oauthRequests, oneTimeLinks, sessions, siteLimitChanges, siteLimits, siteSettings, storagePlans, tags, transferBases, transferCreates, transferTokens, userAvatars, userIdentities, users } from "../src/db/schema.js";
+import { PgDialect, getTableConfig, unionAll } from "drizzle-orm/pg-core";
+import { visibleNoteBranches } from "../src/notes/list-query.js";
+import { apiTokens, authProviders, folders, groupMembers, groupRoles, groups, noteFavorites, noteKnowledge, noteKnowledgeState, notePlacements, noteRedirects, notes, oauthClients, oauthCodes, noteSearchSections, noteSearchState, noteLinkConversion, noteTags, noteVersions, handleRenames, oauthRequests, oneTimeLinks, sessions, siteLimitChanges, siteLimits, siteSettings, storagePlans, tags, transferBases, transferCreates, transferTokens, userAvatars, userIdentities, users } from "../src/db/schema.js";
 
 const drizzleDirForTest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
 /** Drizzle's serialization of `schema.ts`; the declaration-drift guard compares against the latest snapshot (update the file name with each new migration). */
-const SNAPSHOT_FILE = "meta/0043_snapshot.json";
+const SNAPSHOT_FILE = "meta/0044_snapshot.json";
 const snapshotLatest = JSON.parse(readFileSync(path.join(drizzleDirForTest, SNAPSHOT_FILE), "utf8")) as {
   tables: Record<string, {
     checkConstraints?: Record<string, { name: string; value: string }>;
@@ -26,12 +27,12 @@ const snapshotLatest = JSON.parse(readFileSync(path.join(drizzleDirForTest, SNAP
 const pgDialect = new PgDialect();
 
 describe("runMigrations", () => {
-  it("migrating twice is idempotent and 42 tables exist", async () => {
+  it("migrating twice is idempotent and 44 tables exist", async () => {
     const { db, pool } = await freshDb();
     await runMigrations(db); // freshDb already ran it once; this is the second run
     const r = await pool.query(`select table_name from information_schema.tables where table_schema='public'`);
     const tableNames = r.rows.map(x => x.table_name);
-    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles", "api_tokens", "oauth_clients", "oauth_requests", "oauth_codes", "note_ai_edits", "groups", "group_members", "group_roles", "note_redirects", "auth_providers", "user_identities", "site_settings", "note_search_sections", "note_search_state", "transfer_tokens", "storage_plans", "note_versions", "note_link_conversion", "handle_renames", "one_time_links", "folders", "note_placements", "transfer_bases", "transfer_creates", "sessions", "site_limits", "site_limit_changes", "note_favorites", "user_avatars", "tags", "note_tags"])
+    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles", "api_tokens", "oauth_clients", "oauth_requests", "oauth_codes", "note_ai_edits", "groups", "group_members", "group_roles", "note_redirects", "auth_providers", "user_identities", "site_settings", "note_search_sections", "note_search_state", "transfer_tokens", "storage_plans", "note_versions", "note_link_conversion", "handle_renames", "one_time_links", "folders", "note_placements", "transfer_bases", "transfer_creates", "sessions", "site_limits", "site_limit_changes", "note_favorites", "user_avatars", "tags", "note_tags", "note_knowledge", "note_knowledge_state"])
       expect(tableNames).toContain(t);
   });
 
@@ -1463,6 +1464,11 @@ describe("0009_api-tokens", () => {
       note_favorites: ["user_id", "note_id", "created_at"],
       tags: ["id", "owner_id", "group_id", "name", "name_key", "color", "created_by", "created_at"],
       note_tags: ["note_id", "tag_id", "created_at"],
+      note_knowledge: [
+        "note_id", "knowledge_id", "block_id", "ord", "level", "heading", "read_when", "conclusion", "evidence", "verified", "status", "icon",
+        "parent_knowledge_id", "superseded_note_id", "superseded_knowledge_id", "desc_total", "desc_verified", "desc_no_date", "desc_needs_review", "desc_outdated",
+      ],
+      note_knowledge_state: ["note_id", "extractor_version", "source_version", "content_hash", "entries", "capped", "indexed_at"],
       users: [
         "id", "email", "handle", "password_hash", "oidc_issuer", "oidc_sub", "display_name", "avatar_url", "is_admin",
         "disabled_at", "token_version", "must_change_password", "created_at", "storage_plan_id", "auto_versions",
@@ -1515,6 +1521,8 @@ describe("0009_api-tokens", () => {
       ["note_favorites", noteFavorites],
       ["tags", tags],
       ["note_tags", noteTags],
+      ["note_knowledge", noteKnowledge],
+      ["note_knowledge_state", noteKnowledgeState],
       ["user_avatars", userAvatars],
     ] as const) {
       const cfg = getTableConfig(decl);
@@ -3938,6 +3946,116 @@ describe("0043_tags", () => {
     expect(statements.filter(s => /^CREATE TABLE "(tags|note_tags)"/.test(s))).toHaveLength(2);
     for (const st of statements) {
       expect(st).toMatch(/^(CREATE TABLE "(tags|note_tags)"|ALTER TABLE "(tags|note_tags)" ADD CONSTRAINT|CREATE (UNIQUE )?INDEX "(tags|note_tags)_)/);
+    }
+  });
+});
+
+describe("0044_knowledge-index", () => {
+  type Pool = import("pg").Pool;
+  const outcome = async (p: Promise<unknown>) => {
+    try { await p; } catch (e) { const x = e as { code?: string; constraint?: string }; return `${x.code}:${x.constraint}`; }
+    return "ok";
+  };
+  const seedNote = async (pool: Pool, email: string) => {
+    const owner = (await pool.query(`insert into users (email, display_name) values ($1, $1) returning id`, [email])).rows[0].id as string;
+    const note = (await pool.query(`insert into notes (owner_id) values ($1) returning id`, [owner])).rows[0].id as string;
+    return { owner, note };
+  };
+  const GOOD = {
+    knowledge_id: "k_0123abcd", block_id: "b1", ord: 0, level: 2, heading: "h", read_when: "w", conclusion: "c", evidence: "", status: "", icon: "verified",
+  };
+  const insertRow = (pool: Pool, noteId: string, over: Record<string, unknown> = {}) => {
+    const row = { note_id: noteId, ...GOOD, ...over };
+    const keys = Object.keys(row);
+    return pool.query(`insert into note_knowledge (${keys.join(", ")}) values (${keys.map((_, i) => `$${i + 1}`).join(", ")})`, Object.values(row));
+  };
+
+  it("columns, types, nullability, defaults, the PK and both FKs with ON DELETE CASCADE; superseded_note_id has no FK", async () => {
+    const { pool } = await freshDb();
+    const cols = (await pool.query(
+      `select table_name, column_name, data_type, is_nullable, column_default from information_schema.columns where table_name in ('note_knowledge', 'note_knowledge_state') order by table_name, column_name`,
+    )).rows as { table_name: string; column_name: string; data_type: string; is_nullable: string; column_default: string | null }[];
+    const shape = (t: string) => Object.fromEntries(cols.filter(c => c.table_name === t).map(c => [c.column_name, `${c.data_type}${c.is_nullable === "YES" ? "?" : ""}${c.column_default ? ` = ${c.column_default}` : ""}`]));
+    expect(shape("note_knowledge")).toEqual({
+      note_id: "uuid", knowledge_id: "text", block_id: "text", ord: "integer", level: "smallint", heading: "text", read_when: "text", conclusion: "text",
+      evidence: "text", verified: "date?", status: "text", icon: "text", parent_knowledge_id: "text?", superseded_note_id: "uuid?", superseded_knowledge_id: "text?",
+      desc_total: "integer = 0", desc_verified: "integer = 0", desc_no_date: "integer = 0", desc_needs_review: "integer = 0", desc_outdated: "integer = 0",
+    });
+    expect(shape("note_knowledge_state")).toEqual({
+      note_id: "uuid", extractor_version: "smallint", source_version: "integer", content_hash: "text", entries: "integer", capped: "boolean",
+      indexed_at: "timestamp with time zone = now()",
+    });
+    const pk = (await pool.query(
+      `select c.conname, array_agg(a.attname::text order by k.ord) as cols from pg_constraint c
+        cross join lateral unnest(c.conkey) with ordinality as k(attnum, ord)
+        join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum
+        where c.contype = 'p' and c.conrelid in ('note_knowledge'::regclass, 'note_knowledge_state'::regclass) group by c.conname order by c.conname`,
+    )).rows;
+    expect(pk).toEqual([
+      { conname: "note_knowledge_pk", cols: ["note_id", "knowledge_id"] },
+      { conname: "note_knowledge_state_pkey", cols: ["note_id"] },
+    ]);
+    const fks = (await pool.query(
+      `select conrelid::regclass::text as tbl, confrelid::regclass::text as ref, confdeltype from pg_constraint
+        where contype = 'f' and conrelid in ('note_knowledge'::regclass, 'note_knowledge_state'::regclass) order by 1`,
+    )).rows;
+    expect(fks).toEqual([
+      { tbl: "note_knowledge", ref: "notes", confdeltype: "c" },
+      { tbl: "note_knowledge_state", ref: "notes", confdeltype: "c" },
+    ]);
+  });
+
+  it("each check rejects a bad value with 23514 and its own name: knowledge id, block id, level 0 and 7, evidence, status, icon, superseded pair", async () => {
+    const { pool } = await freshDb();
+    const { note } = await seedNote(pool, "alice-nk1@example.com");
+    const bad: [string, Record<string, unknown>][] = [
+      ["nk_knowledge_id_chk", { knowledge_id: "k_0123ABCD" }],
+      ["nk_block_id_chk", { block_id: "has space" }],
+      ["nk_block_id_chk", { block_id: "" }],
+      ["nk_level_chk", { level: 0 }],
+      ["nk_level_chk", { level: 7 }],
+      ["nk_evidence_chk", { evidence: "guess" }],
+      ["nk_status_chk", { status: "stale" }],
+      ["nk_icon_chk", { icon: "verifiedish" }],
+      ["nk_superseded_chk", { superseded_knowledge_id: "nope" }],
+      ["nk_superseded_pair_chk", { superseded_note_id: randomUUID() }],
+    ];
+    for (const [name, over] of bad) expect(await outcome(insertRow(pool, note, over)), JSON.stringify(over)).toBe(`23514:${name}`);
+    expect(await outcome(insertRow(pool, note, { superseded_note_id: randomUUID(), superseded_knowledge_id: "k_89abcdef", verified: "2026-01-02" }))).toBe("ok");
+    expect(await outcome(insertRow(pool, note, { knowledge_id: "k_00000002", superseded_knowledge_id: "k_89abcdef" }))).toBe("ok");
+  });
+
+  it("permanently deleting a note deletes its knowledge rows and its state row; deleting another note doesn't", async () => {
+    const { pool } = await freshDb();
+    const { owner, note: n1 } = await seedNote(pool, "alice-nk3@example.com");
+    const n2 = (await pool.query(`insert into notes (owner_id) values ($1) returning id`, [owner])).rows[0].id as string;
+    for (const n of [n1, n2]) {
+      await insertRow(pool, n);
+      await pool.query(`insert into note_knowledge_state (note_id, extractor_version, source_version, content_hash, entries, capped) values ($1, 1, 1, 'h', 1, false)`, [n]);
+    }
+    await pool.query(`delete from notes where id = $1`, [n1]);
+    expect((await pool.query(`select note_id from note_knowledge`)).rows).toEqual([{ note_id: n2 }]);
+    expect((await pool.query(`select note_id from note_knowledge_state`)).rows).toEqual([{ note_id: n2 }]);
+  });
+
+  it("a 0.17 query shape still runs: the notes list's union without hasKnowledge works on the migrated database", async () => {
+    const { db, pool } = await freshDb();
+    const { owner, note } = await seedNote(pool, "alice-nk4@example.com");
+    const { owned, shared, grouped } = visibleNoteBranches(db, owner);
+    const rows = await unionAll(owned, shared, grouped);
+    expect(rows.map(r => r.id)).toEqual([note]);
+  });
+
+  it("SQL file only creates the two tables and their own constraints; no CONCURRENTLY/line-leading COMMIT", () => {
+    const entries = journalEntries().filter(e => e.tag.endsWith("_knowledge-index"));
+    expect(entries, "journal has exactly one *_knowledge-index").toHaveLength(1);
+    const sqlText = readFileSync(path.join(drizzleDirForTest, `${entries[0]!.tag}.sql`), "utf8");
+    expect(sqlText).not.toMatch(/CONCURRENTLY/i);
+    expect(sqlText).not.toMatch(/^\s*COMMIT/im);
+    const statements = sqlText.split("--> statement-breakpoint").map(s => s.replace(/^\s*--.*$/gm, "").trim()).filter(s => s.length > 0);
+    expect(statements.filter(s => /^CREATE TABLE "note_knowledge(_state)?" /.test(s))).toHaveLength(2);
+    for (const st of statements) {
+      expect(st).toMatch(/^(CREATE TABLE "note_knowledge(_state)?" |ALTER TABLE "note_knowledge(_state)?" ADD CONSTRAINT)/);
     }
   });
 });

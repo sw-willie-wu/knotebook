@@ -103,6 +103,7 @@ const REGISTRY: Record<string, Disposition> = {
   "groups/queries.ts": { includes: 1, why: "all of the group's notes (disconnecting members, deleting the group)" },
   // Transfer lock, quota innerJoin, transfer UPDATE, delete-all lock.
   "groups/tx/delete-group.ts": { includes: 4, why: "transfer and delete-all include trashed notes" },
+  "knowledge/tx/index-write.ts": { includes: 1, why: "the index is written regardless" },
   "mcp/tools/read-note-outline.ts": { excludes: 1 },
   "notes/editing/candidates.ts": { excludes: 3 },
   "notes/editing/read.ts": { excludes: 1 },

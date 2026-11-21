@@ -426,6 +426,7 @@ export async function buildCollabTestApp(
     slugUpdateTestHook?: AppDeps["slugUpdateTestHook"];
     noteCreateHooks?: AppDeps["noteCreateHooks"];
     searchIndexHooks?: AppDeps["searchIndexHooks"];
+    knowledgeIndexHooks?: AppDeps["knowledgeIndexHooks"];
     storageLockTimeoutMs?: number;
     editingTestHooks?: AppDeps["editingTestHooks"];
     shownLinks?: AppDeps["shownLinks"];
@@ -503,6 +504,7 @@ export async function buildCollabTestApp(
     slugUpdateTestHook: opts.slugUpdateTestHook,
     noteCreateHooks: opts.noteCreateHooks,
     searchIndexHooks: opts.searchIndexHooks,
+    knowledgeIndexHooks: opts.knowledgeIndexHooks,
     ...(opts.reloginReverifyDelayMs === undefined ? {} : { reloginReverifyDelayMs: opts.reloginReverifyDelayMs }),
     ...(opts.storageLockTimeoutMs === undefined ? {} : { storageLockTimeoutMs: opts.storageLockTimeoutMs }),
     editingQueueWaitMs: opts.editingQueueWaitMs,

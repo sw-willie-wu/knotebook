@@ -8,6 +8,8 @@ import { YDOC_FRAGMENT } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
 import { noteStateBackups, noteStates, notes } from "../db/schema.js";
 import { isForeignKeyViolation } from "../db/pg-errors.js";
+import { EMPTY_KNOWLEDGE_EXTRACT, extractKnowledgeForIndex, type KnowledgeIndexExtract } from "../knowledge/extract.js";
+import { bumpKnowledgeIndexVersion, knowledgeErrorFields, writeKnowledgeIndex, type KnowledgeIndexOutcome } from "../knowledge/index-write.js";
 import { bumpSearchIndexVersion, extractForIndex, writeSearchIndex, type SearchIndexOutcome } from "../notes/search-index.js";
 import type { SearchExtract } from "../notes/search-text.js";
 import { crossesFifteenMinuteBoundary, selectPrunable } from "./backup-policy.js";
@@ -79,10 +81,14 @@ export interface NoteStoreDeps {
   indexer?: (noteId: string, version: number, extract: SearchExtract) => Promise<SearchIndexOutcome>;
   bumper?: (noteId: string, version: number, contentHash: string) => Promise<number>;
   extract?: (doc: Y.Doc) => SearchExtract;
+  knowledgeIndexer?: (noteId: string, version: number, extract: KnowledgeIndexExtract) => Promise<KnowledgeIndexOutcome>;
+  knowledgeBumper?: (noteId: string, version: number, contentHash: string) => Promise<number>;
+  /** `bytes` is the encoded document being persisted, so a note without knowledge skips the document walk. */
+  extractKnowledge?: (doc: Y.Doc, bytes: Uint8Array) => KnowledgeIndexExtract;
   afterPersistForTest?: (noteId: string, doc: Y.Doc) => Promise<void>;
 }
 
-export type NoteStoreSearchHooks = Pick<NoteStoreDeps, "indexer" | "bumper" | "extract" | "afterPersistForTest" | "now">;
+export type NoteStoreSearchHooks = Pick<NoteStoreDeps, "indexer" | "bumper" | "extract" | "knowledgeIndexer" | "knowledgeBumper" | "extractKnowledge" | "afterPersistForTest" | "now">;
 
 export interface NoteStore {
   onLoadDocument(noteId: string, doc: Y.Doc): Promise<Uint8Array | undefined>;
@@ -106,8 +112,15 @@ export function createNoteStore(deps: NoteStoreDeps): NoteStore {
   const indexer = deps.indexer ?? ((noteId: string, version: number, extract: SearchExtract) => writeSearchIndex(db, noteId, version, extract, { log }));
   const bumper = deps.bumper ?? ((noteId: string, version: number, contentHash: string) => bumpSearchIndexVersion(db, noteId, version, contentHash));
   const extractFn = deps.extract ?? extractForIndex;
+  const knowledgeIndexer =
+    deps.knowledgeIndexer ?? ((noteId: string, version: number, extract: KnowledgeIndexExtract) => writeKnowledgeIndex(db, noteId, version, extract, { log }));
+  const knowledgeBumper =
+    deps.knowledgeBumper ?? ((noteId: string, version: number, contentHash: string) => bumpKnowledgeIndexVersion(db, noteId, version, contentHash));
+  const extractKnowledgeFn = deps.extractKnowledge ?? extractKnowledgeForIndex;
   // #93: content hash last written to the search index; a match only bumps source_version.
   const indexedHash = new Map<string, string>();
+  // Same for the knowledge index.
+  const knowledgeIndexedHash = new Map<string, string>();
 
   // sv at the last backup or load; a missing entry never matches, so unknown counts as changed.
   const svCache = new Map<string, Uint8Array>();
@@ -121,6 +134,7 @@ export function createNoteStore(deps: NoteStoreDeps): NoteStore {
     lastBackupAtCache.delete(noteId);
     warnedUnsafeUrl.delete(noteId);
     indexedHash.delete(noteId);
+    knowledgeIndexedHash.delete(noteId);
   }
 
   async function onLoadDocument(noteId: string, doc: Y.Doc): Promise<Uint8Array | undefined> {
@@ -232,6 +246,18 @@ export function createNoteStore(deps: NoteStoreDeps): NoteStore {
       }
     }
 
+    // Same tick as the encode, for the same reason. A failure only skips the knowledge index for this store.
+    let knowledgeExtract: KnowledgeIndexExtract | null = null;
+    try {
+      knowledgeExtract = extractKnowledgeFn(doc, ydocBuf);
+    } catch (err) {
+      try {
+        log.warn({ ...knowledgeErrorFields(err), noteId }, "knowledge index extraction failed (persist unaffected; skipping this update)");
+      } catch {
+        /* logger threw */
+      }
+    }
+
     const version = await persistNoteState(noteId, ydocBuf, at);
     if (version === null) {
       forgetNote(noteId);
@@ -295,6 +321,34 @@ export function createNoteStore(deps: NoteStoreDeps): NoteStore {
         } catch {
           /* logger threw: nowhere to log */
         }
+      }
+    }
+
+    if (knowledgeExtract !== null) await indexKnowledge(noteId, version, knowledgeExtract);
+  }
+
+  // Own try, after the search index: nothing in here may fail the store or hold up the next debounce longer than a few statements.
+  async function indexKnowledge(noteId: string, version: number, extract: KnowledgeIndexExtract): Promise<void> {
+    try {
+      // A note known to have no knowledge costs no query at all: its stale source_version is harmless, and the periodic backfill catches it up.
+      if (extract.contentHash === EMPTY_KNOWLEDGE_EXTRACT.contentHash && knowledgeIndexedHash.get(noteId) === extract.contentHash) return;
+      let needFull = knowledgeIndexedHash.get(noteId) !== extract.contentHash;
+      if (!needFull) {
+        const bumped = await knowledgeBumper(noteId, version, extract.contentHash);
+        if (bumped === 0) {
+          knowledgeIndexedHash.delete(noteId);
+          needFull = true;
+        }
+      }
+      if (needFull) {
+        const outcome = await knowledgeIndexer(noteId, version, extract);
+        if (outcome === "written" || outcome === "unchanged") knowledgeIndexedHash.set(noteId, extract.contentHash);
+      }
+    } catch (err) {
+      try {
+        log.warn({ ...knowledgeErrorFields(err), noteId }, "knowledge index update failed (persist unaffected; retried on the next change or the next start)");
+      } catch {
+        /* logger threw: nowhere to log */
       }
     }
   }
