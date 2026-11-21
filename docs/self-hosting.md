@@ -472,8 +472,6 @@ then start that build. Steps 2 and 3 are for the bundled database; with your own
 
 **Body-text search.** The first start after upgrading to a version with body-text search indexes the existing notes in the background, after the server is already answering requests. The `app` log shows `全文索引回填開始` when that starts and `全文索引回填完成` when it is done; until then, `search_notes` finds a note it hasn't got to yet by its title only. Rolling back is harmless: an older server ignores the two tables that hold the index, `note_search_sections` and `note_search_state`. When you upgrade again, the first start indexes again whatever was edited or created while the older server ran, because the index has no entry for them, or one built from an older version.
 
-**Knowledge index (migration 0045).** The migration only adds two tables, `note_knowledge` and `note_knowledge_state`, and changes no existing row; back up as usual before upgrading. The first start after upgrading builds the index for existing notes in the background, after the server is already answering requests; the `app` log shows `knowledge index backfill started` and `knowledge index backfill finished`. Rolling back is harmless: an older server ignores the two tables, and after you upgrade again the background run redoes the notes that were edited while the older server ran.
-
 **The trash (migration 0033).**
 
 1. **Migration 0033 only adds columns, an index and constraints** — who moved a note to the trash, and the site's retention period for the trash (7 days to start with); existing notes and settings are left as they are. Back up the database first as usual, for example `docker compose exec -T db pg_dump -U knotebook knotebook > knotebook-before-upgrade.sql`.
@@ -567,6 +565,8 @@ then start that build. Steps 2 and 3 are for the bundled database; with your own
 
 1. **Migration 0044 only adds two nullable columns** to `transfer_bases` (`tags_sha` and `applied_tags_sha`), which hold a hash of the tags in each downloaded copy of a note. It changes no existing value. Back up the database first as usual.
 2. **Rolling back:** the previous version doesn't read the two columns, so they stay. A copy downloaded while the previous version ran has no tags hash; after upgrading again, such a copy is compared with the note's tags as they are when it is sent back. A copy downloaded before the upgrade is treated the same way.
+
+**Knowledge index (migration 0045).** The migration only adds two tables, `note_knowledge` and `note_knowledge_state`, and changes no existing row; back up as usual before upgrading. The first start after upgrading builds the index for existing notes in the background, after the server is already answering requests; the `app` log shows `knowledge index backfill started` and `knowledge index backfill finished`. Rolling back is harmless: an older server ignores the two tables, and after you upgrade again the background run redoes the notes that were edited while the older server ran.
 
 **Upgrading to v0.16 (server-side sessions, site limits, favorites, profile pictures).**
 

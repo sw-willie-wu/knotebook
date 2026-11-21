@@ -36,7 +36,7 @@ export function SupersedePicker({ id, labelledBy, describedBy, invalid, value, s
   const [results, setResults] = useState<KnowledgeRefCandidate[]>([]);
   const [others, setOthers] = useState<RemoteState>(NO_REMOTE);
   const [composing, setComposing] = useState(false);
-  const [active, setActive] = useState(0);
+  const [highlighted, setActive] = useState(0);
   const [selected, setSelected] = useState<KnowledgeRefCandidate | null>(null);
   const excludeRef = useRef(exclude);
   excludeRef.current = exclude;
@@ -91,6 +91,8 @@ export function SupersedePicker({ id, labelledBy, describedBy, invalid, value, s
   }, [open, remote, composing, trimmed]);
 
   const rows = [...results, ...others.items];
+  // The remote rows can vanish while the highlight sits on one of them.
+  const active = Math.min(highlighted, Math.max(rows.length - 1, 0));
 
   const choose = (candidate: KnowledgeRefCandidate) => {
     onChange(candidate.ref);
@@ -105,10 +107,10 @@ export function SupersedePicker({ id, labelledBy, describedBy, invalid, value, s
     if (event.key === "ArrowDown") {
       event.preventDefault();
       if (!open) setOpen(true);
-      else setActive((i) => Math.min(i + 1, Math.max(rows.length - 1, 0)));
+      else setActive(Math.min(active + 1, Math.max(rows.length - 1, 0)));
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
-      setActive((i) => Math.max(i - 1, 0));
+      setActive(Math.max(active - 1, 0));
     } else if (event.key === "Enter" && open) {
       // Also keeps the form's own Enter-to-save from firing while a row is being picked.
       event.preventDefault();

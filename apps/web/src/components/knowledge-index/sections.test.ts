@@ -184,3 +184,31 @@ describe("rows", () => {
     expect(byId.get("k_5")).toBeNull();
   });
 });
+
+describe("outdated rows across notes", () => {
+  const notes = [indexNote({ id: N1, title: "A" }), indexNote({ id: N2, title: "B" })];
+
+  it("in a folder section, an earlier note's outdated rows come after a later note's current rows", () => {
+    const entries = [
+      indexEntry({ noteId: N1, knowledgeId: "a_old", ord: 1, when: "w", icon: "outdated" }),
+      indexEntry({ noteId: N1, knowledgeId: "a_ok", ord: 2, when: "w" }),
+      indexEntry({ noteId: N2, knowledgeId: "b_old", ord: 1, when: "w", icon: "outdated" }),
+      indexEntry({ noteId: N2, knowledgeId: "b_ok", ord: 2, when: "w" }),
+      indexEntry({ noteId: N1, knowledgeId: "a_child", ord: 3, parentKnowledgeId: "a_old", icon: "verified" }),
+    ];
+    const [section] = buildIndexSections({ dto: indexDto({ notes, entries }), groupBy: "folder", ...base });
+    expect(section!.rows.map((r) => r.entry.knowledgeId)).toEqual(["a_ok", "b_ok", "a_old", "b_old"]);
+    expect(section!.rows[2]!.nested.map((r) => r.entry.knowledgeId)).toEqual(["a_child"]);
+  });
+
+  it("in a tag section, the same holds", () => {
+    const t1 = tag("t1", "x");
+    const tagged = notes.map((n) => ({ ...n, tags: [t1] }));
+    const entries = [
+      indexEntry({ noteId: N1, knowledgeId: "a_old", ord: 1, when: "w", icon: "outdated" }),
+      indexEntry({ noteId: N2, knowledgeId: "b_ok", ord: 1, when: "w" }),
+    ];
+    const [section] = buildIndexSections({ dto: indexDto({ notes: tagged, entries }), groupBy: "tag", ...base });
+    expect(section!.rows.map((r) => r.entry.knowledgeId)).toEqual(["b_ok", "a_old"]);
+  });
+});

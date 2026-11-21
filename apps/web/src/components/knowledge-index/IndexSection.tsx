@@ -16,7 +16,7 @@ export function IndexSection({ section }: { section: IndexSectionModel }): React
       </h2>
       <ul className="space-y-[5px]">
         {section.rows.map((row) => (
-          <IndexRow key={row.entry.knowledgeId} row={row} />
+          <IndexRow key={`${row.note.id}:${row.entry.knowledgeId}`} row={row} />
         ))}
       </ul>
       {section.cappedNotes.map((note) => (

@@ -121,7 +121,9 @@ test("70-2 the folder index lists when and conclusion with note and heading, nes
     ]);
 
     await openIndexUrl(page, `/knowledge/f/${parent}`, parentName);
-    const top = await expectIndexRow(page, "Before touching the sync code");
+    // The last note seeded is the last to reach the index, so its row appearing means the others are in.
+    await expectIndexRow(page, "When the deep path is slow");
+    const top = indexRow(page, "Before touching the sync code");
     await expect(top).toContainText("Run the full suite");
     await expect(top).toContainText(`${title} › Sync rule`);
     await expect(top).toContainText("1 below: 0 verified, 1 not verified, 0 need review");
@@ -152,17 +154,21 @@ test("70-3 needs review is flagged, outdated sits last and faded; the status and
   try {
     const folderName = `Filtered ${RUN}`;
     const folder = await apiCreateFolder(page, folderName, { space: { kind: "personal" } });
-    const note = await seedNote(page, `E2E index filters ${RUN}`, "## Old rule\n\n## Fresh rule\n\n## Review rule\n\nBody text.", { folderId: folder }, [
+    // Two notes in one section: the first note's outdated row has to land after the second note's current rows.
+    await seedNote(page, `E2E index filters A ${RUN}`, "## Old rule\n\n## Fresh rule\n\nBody text.", { folderId: folder }, [
       { heading: "Fresh rule", fields: { when: "When it is fresh" } },
-      { heading: "Review rule", fields: { when: "When it needs a look", status: "Needs review", evidence: "Tested" } },
       { heading: "Old rule", fields: { when: "While it was current", status: "Outdated", replacedBy: "Fresh rule" } },
+    ]);
+    const second = await seedNote(page, `E2E index filters B ${RUN}`, "## Review rule\n\nBody text.", { folderId: folder }, [
+      { heading: "Review rule", fields: { when: "When it needs a look", status: "Needs review", evidence: "Tested" } },
     ]);
     const indexPath = `/knowledge/f/${folder}`;
     await openIndexUrl(page, indexPath, folderName);
-    await expectIndexRow(page, "When it is fresh");
+    // The last note seeded is the last to reach the index, so its row appearing means the others are in.
+    await expectIndexRow(page, "When it needs a look");
     await expect(indexRows(page)).toHaveCount(3);
 
-    // Document order is Old, Fresh, Review; the outdated one moves to the end and is faded.
+    // Document order is Old, Fresh (first note), Review (second note); the outdated one moves to the end of the section and is faded.
     await expect(indexRows(page).first()).toHaveAttribute("data-kind", "noVerifiedDate");
     await expect(indexRows(page).nth(1)).toHaveAttribute("data-kind", "needsReview");
     await expect(indexRows(page).nth(1)).toContainText("Needs review");
@@ -190,7 +196,7 @@ test("70-3 needs review is flagged, outdated sits last and faded; the status and
 
     // Filter steps replace each other: going back leaves the index.
     await page.goBack();
-    await expect(page).toHaveURL(note.path);
+    await expect(page).toHaveURL(second.path);
   } finally {
     await context.close();
   }

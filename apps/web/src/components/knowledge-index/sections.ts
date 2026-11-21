@@ -62,8 +62,12 @@ function noteRows(note: KnowledgeIndexNoteDto, entries: readonly KnowledgeIndexE
     if (entry.when === "" && parent !== undefined && !inCycle(entry)) parent.nested.push(row);
     else top.push(row);
   }
-  // Outdated rows sink to the end of the section as a stable partition; nested rows follow their parent.
-  return [...top.filter((r) => r.entry.icon !== "outdated"), ...top.filter((r) => r.entry.icon === "outdated")];
+  return top;
+}
+
+// Done per section, not per note: the last row of the section is outdated, whichever note it came from. Nested rows follow their parent.
+function sinkOutdated(rows: IndexRowModel[]): IndexRowModel[] {
+  return [...rows.filter((r) => r.entry.icon !== "outdated"), ...rows.filter((r) => r.entry.icon === "outdated")];
 }
 
 function countRows(rows: readonly IndexRowModel[]): number {
@@ -78,7 +82,7 @@ function countRows(rows: readonly IndexRowModel[]): number {
 }
 
 function section(key: string, title: string, rows: IndexRowModel[], cappedNotes: KnowledgeIndexNoteDto[], tag?: NoteTagDto): IndexSectionModel {
-  return { key, title, count: countRows(rows), rows, cappedNotes, ...(tag ? { tag } : {}) };
+  return { key, title, count: countRows(rows), rows: sinkOutdated(rows), cappedNotes, ...(tag ? { tag } : {}) };
 }
 
 const byTitleThenId = (a: KnowledgeIndexNoteDto, b: KnowledgeIndexNoteDto): number =>

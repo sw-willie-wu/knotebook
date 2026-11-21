@@ -15,7 +15,8 @@ import { Button } from "@/components/ui/button";
 import { cardSurface } from "@/components/ui/card";
 import "@/i18n/knowledge-strings";
 import "@/i18n/knowledge-index-strings";
-import { knowledgeIndexScopeFromParams, knowledgeIndexScopeKey } from "@/lib/knowledge-index-path";
+import { knowledgeIndexScopeFromParams } from "@/components/knowledge-index/scope-from-params";
+import { knowledgeIndexScopeKey } from "@/lib/knowledge-index-path";
 import { cn } from "@/lib/utils";
 
 export function IndexBody({
@@ -145,9 +146,10 @@ function IndexView({ scope }: { scope: KnowledgeIndexScopeRef }): ReactNode {
 }
 
 export default function KnowledgeIndexPage(): ReactNode {
+  const { t } = useTranslation();
   const location = useLocation();
   const params = useParams();
   const scope = knowledgeIndexScopeFromParams(location.pathname, params);
-  if (scope === null) return null;
+  if (scope === null) return <EmptyState title={t("knowledgeIndex.notFound.title")} description={t("knowledgeIndex.notFound.description")} />;
   return <IndexView key={knowledgeIndexScopeKey(scope)} scope={scope} />;
 }

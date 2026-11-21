@@ -99,7 +99,7 @@ export function IndexRow({ row }: { row: IndexRowModel }): ReactNode {
       {row.nested.length > 0 && (
         <ul className="ml-6 mt-[5px] space-y-[5px] border-l border-border pl-2">
           {row.nested.map((child) => (
-            <IndexRow key={child.entry.knowledgeId} row={child} />
+            <IndexRow key={`${child.note.id}:${child.entry.knowledgeId}`} row={child} />
           ))}
         </ul>
       )}

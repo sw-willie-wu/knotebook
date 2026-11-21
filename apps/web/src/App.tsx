@@ -23,7 +23,7 @@ import LoginPage from "./pages/LoginPage";
 import HomePage from "./pages/HomePage";
 import { AppShellLayout } from "./components/AppShellLayout";
 import { NOTE_ROUTE_PATTERNS } from "./lib/phone-list";
-import { KNOWLEDGE_INDEX_ROUTE_PATTERNS, knowledgeIndexScopeFromParams, knowledgeIndexScopeKey } from "./lib/knowledge-index-path";
+import { KNOWLEDGE_INDEX_ROUTE_PATTERNS } from "./lib/knowledge-index-path";
 import { SettingsModal } from "./settings/SettingsModal";
 import { GroupModal, GroupSubpathRedirect, LegacyGroupRedirect } from "./components/groups/GroupModal";
 import { AdminModal } from "./components/admin/AdminModal";
@@ -99,14 +99,12 @@ function LazyPageRoute({ chunk, frame, children }: { chunk: string; frame: "page
 
 const PublicNotePage = lazy(() => import("./pages/PublicNotePage"));
 
-// Like NoteRoute, resetKey comes from the scope rather than location.key so a closed modal does not look like a switch.
+// Like NoteRoute, resetKey comes from the path rather than location.key so a closed modal does not look like a switch.
+// The path is parsed in the lazy page, which keeps that code out of the entry bundle.
 function KnowledgeIndexRoute() {
   const { pathname } = useLocation();
-  const params = useParams();
-  const scope = knowledgeIndexScopeFromParams(pathname, params);
-  if (scope === null) return <HomePage />;
   return (
-    <LazyRouteErrorBoundary key="knowledge-index" resetKey={knowledgeIndexScopeKey(scope)} chunk="knowledge-index">
+    <LazyRouteErrorBoundary key="knowledge-index" resetKey={pathname} chunk="knowledge-index">
       <Suspense fallback={<LazyRouteLoading />}>
         <KnowledgeIndexPage />
         <ChunkLoadBeacon chunk="knowledge-index" />
