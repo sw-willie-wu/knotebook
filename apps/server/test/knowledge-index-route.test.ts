@@ -213,7 +213,7 @@ describe("what is listed", () => {
     const [tag] = await db.insert(tags).values({ ownerId: alice.id, name: "ops", color: "blue" }).returning({ id: tags.id });
     await db.insert(noteTags).values({ noteId: n.id, tagId: tag!.id });
     const dto = await okIndex(app, alice.id, "me");
-    expect(dto.notes).toEqual([{ id: n.id, title: "Deploy notes", path: expect.stringMatching(new RegExp(`^/.*${n.slug}`)), folderId: f.id, tags: [{ id: tag!.id, name: "ops", color: "blue" }] }]);
+    expect(dto.notes).toEqual([{ id: n.id, title: "Deploy notes", path: expect.stringMatching(new RegExp(`^/.*${n.slug}`)), folderId: f.id, capped: false, tags: [{ id: tag!.id, name: "ops", color: "blue" }] }]);
     const [parent, child] = dto.entries;
     expect(parent).toEqual({
       noteId: n.id, knowledgeId: kid(1), blockId: "p", ord: 0, level: 1, heading: "Parent", when: "Deploying", conclusion: "Use blue-green",
@@ -363,6 +363,37 @@ describe("limits and backfill", () => {
     const perNote = new Map<string, number>();
     for (const e of dto.entries) perNote.set(e.noteId, (perNote.get(e.noteId) ?? 0) + 1);
     expect([...perNote.values()]).toEqual([2000, 2000]);
+  });
+
+  it("entries adding up to exactly KNOWLEDGE_INDEX_MAX are not truncated; one more entry is", async () => {
+    const { app, db, pool } = await ctx();
+    const alice = await seedUser(db);
+    const counts = [2000, 2000, 1000];
+    for (const [i, count] of counts.entries()) {
+      await seedNote(db, { ownerId: alice.id }, { id: ids[i]!, title: `n-${i}` });
+      await insertMany(pool, ids[i]!, count);
+    }
+    const exact = await okIndex(app, alice.id, "me");
+    expect(exact.entries.length).toBe(KNOWLEDGE_INDEX_MAX);
+    expect(exact.truncated).toBe(false);
+    expect(exact.notes.length).toBe(3);
+    await pool.query("insert into note_knowledge (note_id, knowledge_id, block_id, ord, level, heading, read_when, conclusion, evidence, status, icon) values ($1::uuid, 'k_ffffffff', 'bx', 1000, 1, 'extra', '', '', '', '', 'verified')", [ids[2]]);
+    const over = await okIndex(app, alice.id, "me");
+    expect(over.truncated).toBe(true);
+    expect(over.notes.map(n => n.title)).toEqual(["n-0", "n-1"]);
+  });
+
+  it("a note whose extraction stopped at the per-note maximum has capped true; others, including notes without a state row, have false", async () => {
+    const { app, db, pool } = await ctx();
+    const alice = await seedUser(db);
+    for (const [i, id] of ids.slice(0, 3).entries()) {
+      await seedNote(db, { ownerId: alice.id }, { id, title: `n-${i}` });
+      await insertMany(pool, id, 2);
+    }
+    await pool.query("update note_knowledge_state set capped = true where note_id = $1", [ids[0]]);
+    await pool.query("delete from note_knowledge_state where note_id = $1", [ids[2]]);
+    const dto = await okIndex(app, alice.id, "me");
+    expect(Object.fromEntries(dto.notes.map(n => [n.title, n.capped]))).toEqual({ "n-0": true, "n-1": false, "n-2": false });
   });
 
   it("a filter brings back entries that the unfiltered truncated answer left out", async () => {

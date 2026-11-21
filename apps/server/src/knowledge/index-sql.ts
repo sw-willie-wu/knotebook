@@ -52,6 +52,11 @@ export function knowledgeMatchCountSql(filters: Pick<KnowledgeIndexFilters, "sta
     .as("match_count");
 }
 
+/** `extra` column: the note had more than `KNOWLEDGE_INDEX_NOTE_MAX` entries and only the first ones were indexed. A missing state row reads as not capped. */
+export function knowledgeCappedSql(): SQL.Aliased<boolean> {
+  return sql<boolean>`coalesce((select ks.capped from ${noteKnowledgeState} ks where ks.note_id = ${OUTER_NOTE_ID()}), false)`.as("knowledge_capped");
+}
+
 /** A note somebody has opened (it has a stored document) whose index state is missing or from another extractor version. A lagging `source_version` doesn't count: a note without knowledge lags all the time. */
 export function backfillPendingSql(): SQL {
   const outerId = OUTER_NOTE_ID();

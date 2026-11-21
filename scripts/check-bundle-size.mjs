@@ -46,6 +46,8 @@ export const TOURLAZY_RE = /^TourLazy-[A-Za-z0-9_-]+\.js$/;
 export const TOUR_I18N_MARKER = 'keepOrDeleteSample';
 // A tags.manage.* key that lives only in tags.en.json (lazy tag-management strings); in entry means tags-strings is statically imported.
 export const TAGS_I18N_MARKER = 'mergeUnavailable';
+// A knowledgeIndex.* key that lives only in knowledge-index.en.json (lazy index page strings); in entry means knowledge-index-strings is statically imported.
+export const KNOWLEDGE_INDEX_I18N_MARKER = 'backfillNotice';
 // Presence only catches the whole group merging back or a rename. The marker is the match rows' data-testid literal
 // (unlike i18n copy it is stable; only BodySearchResults.tsx may use it).
 export const BODYSEARCHLAZY_RE = /^BodySearchLazy-[A-Za-z0-9_-]+\.js$/;
@@ -274,6 +276,12 @@ export function checkBundleSize(assetsDir, { maxEntryBytes = MAX_ENTRY_BYTES } =
   if (entrySource.includes(TAGS_I18N_MARKER)) {
     throw new Error(
       `entry chunk ${entryName} 含標籤管理字串包的鍵名 ${TAGS_I18N_MARKER}——\`@/i18n/tags-strings\`（或 import 它的標籤管理模組）被首包靜態 import；標籤管理字串只能經 lazy chunk 載入`
+    );
+  }
+
+  if (entrySource.includes(KNOWLEDGE_INDEX_I18N_MARKER)) {
+    throw new Error(
+      `entry chunk ${entryName} 含知識索引頁字串包的鍵名 ${KNOWLEDGE_INDEX_I18N_MARKER}——\`@/i18n/knowledge-index-strings\`（或 import 它的索引頁模組）被首包靜態 import；索引頁字串只能經 lazy chunk 載入`
     );
   }
 

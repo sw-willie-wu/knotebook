@@ -162,7 +162,7 @@ export const KNOWLEDGE_SWEEP_INTERVAL_MS = 600_000;
 export function startKnowledgeIndexSweep(
   db: Db,
   log: BackfillLogger,
-  opts: { intervalMs?: number; afterRunForTest?: (r: BackfillResult) => void } = {},
+  opts: { intervalMs?: number; afterRunForTest?: (r: BackfillResult) => void | Promise<void> } = {},
 ): { stop(): void } {
   const abort = new AbortController();
   let running = false;
@@ -171,7 +171,7 @@ export function startKnowledgeIndexSweep(
     running = true;
     try {
       const result = await backfillKnowledgeIndex(db, log, { signal: abort.signal });
-      opts.afterRunForTest?.(result);
+      await opts.afterRunForTest?.(result);
     } catch (err) {
       try {
         log.warn(knowledgeErrorFields(err), "knowledge index backfill aborted");

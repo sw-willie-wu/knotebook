@@ -1,4 +1,3 @@
-// The scope (personal space, group, folder) is resolved outside the transaction; what the caller may see inside it is guaranteed by the visibility branches in the query.
 // Every "not found" of a scope is one answer, whether the id is malformed, missing, or just not yours. Index routes are session-only and charge no limiter; `refs` shares the search limiter and charges only after validation.
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -70,7 +69,7 @@ export function knowledgeRoutes(deps: KnowledgeRouteDeps) {
     const scopeNotFound = (reply: FastifyReply): FastifyReply => sendError(reply, 404, "not_found", KNOWLEDGE_SCOPE_NOT_FOUND_MESSAGE);
     const refNotFound = (reply: FastifyReply): FastifyReply => sendError(reply, 404, "not_found", KNOWLEDGE_REF_NOT_FOUND_MESSAGE);
 
-    // An unexpected database error must not reach the log with its parameters; the queries here carry ids and filters only, but the rule is the same for every knowledge route.
+    // An unexpected database error must not reach the log with its parameters; the `refs` query carries the search text, so every knowledge route follows the same rule.
     async function serveIndex(request: FastifyRequest, reply: FastifyReply, ref: KnowledgeIndexScopeRef): Promise<FastifyReply> {
       const parsed = indexQuerySchema.safeParse(request.query ?? {});
       if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "Invalid request body.");

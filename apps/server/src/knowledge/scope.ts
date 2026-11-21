@@ -1,4 +1,3 @@
-// The scope is decided before the index transaction; what the viewer may see inside it is decided again, in that transaction, by the visibility branches.
 import { and, eq, sql } from "drizzle-orm";
 import type { KnowledgeIndexScopeRef } from "@knotebook/shared";
 import type { Db } from "../db/index.js";

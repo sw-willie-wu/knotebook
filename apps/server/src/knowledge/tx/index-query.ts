@@ -22,7 +22,7 @@ import { folders, noteKnowledge, notes } from "../../db/schema.js";
 import { folderSpaceWhere, subtreeFolderIdsSql } from "../../folders/sql.js";
 import { visibleNoteBranches } from "../../notes/list-query.js";
 import { noteTagsJsonSql } from "../../tags/queries.js";
-import { backfillPendingSql, entryFilterWhere, knowledgeFilterSql, knowledgeMatchCountSql, scopedNoteBranch, type KnowledgeIndexFilters } from "../index-sql.js";
+import { backfillPendingSql, entryFilterWhere, knowledgeCappedSql, knowledgeFilterSql, knowledgeMatchCountSql, scopedNoteBranch, type KnowledgeIndexFilters } from "../index-sql.js";
 import type { KnowledgeScope } from "../scope.js";
 
 export interface KnowledgeIndexQueryInput {
@@ -59,7 +59,7 @@ export async function runKnowledgeIndexQueryInTx(tx: Tx, input: KnowledgeIndexQu
 
   const matched = await scopedNoteBranch(tx, userId, scope, {
     extraWhere: knowledgeFilterSql(filters),
-    extra: { tags: noteTagsJsonSql(), matchCount: knowledgeMatchCountSql(filters) },
+    extra: { tags: noteTagsJsonSql(), matchCount: knowledgeMatchCountSql(filters), capped: knowledgeCappedSql() },
   });
 
   const folderRows: KnowledgeIndexFolderDto[] = await tx
@@ -93,7 +93,7 @@ export async function runKnowledgeIndexQueryInTx(tx: Tx, input: KnowledgeIndexQu
 
   const notesOut: KnowledgeIndexNoteDto[] = keptIds.map((id) => {
     const n = byId.get(id)!;
-    return { id: n.id, title: n.title, path: canonicalNotePath(n), folderId: n.viewerFolderId, tags: n.tags };
+    return { id: n.id, title: n.title, path: canonicalNotePath(n), folderId: n.viewerFolderId, tags: n.tags, capped: n.capped };
   });
 
   const rows =

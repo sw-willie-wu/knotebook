@@ -6,7 +6,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { AVATAR_ENCODE_RE, GROUP_LAZY_DIALOGS, AVATAR_IMAGE_MARKER, BODY_SEARCH_MARKER, FOLDER_I18N_MARKER, HELP_I18N_MARKER, MANAGEMENT_I18N_MARKERS, MAX_ENTRY_BYTES, MOBILE_TOOLBAR_I18N_MARKER, SELECT_I18N_MARKER, SHORTCUTS_I18N_MARKER, TOUR_I18N_MARKER, VERSIONS_MARKERS, checkBundleSize } from './check-bundle-size.mjs';
+import { AVATAR_ENCODE_RE, GROUP_LAZY_DIALOGS, AVATAR_IMAGE_MARKER, BODY_SEARCH_MARKER, FOLDER_I18N_MARKER, HELP_I18N_MARKER, KNOWLEDGE_INDEX_I18N_MARKER, MANAGEMENT_I18N_MARKERS, MAX_ENTRY_BYTES, MOBILE_TOOLBAR_I18N_MARKER, SELECT_I18N_MARKER, SHORTCUTS_I18N_MARKER, TOUR_I18N_MARKER, VERSIONS_MARKERS, checkBundleSize } from './check-bundle-size.mjs';
 
 // pins the default cap of 750 KiB (reason in the constant's comment in check-bundle-size.mjs; the next two cases pass 700 * 1024 explicitly to test the judgement itself, independent of the default).
 test('default entry size cap is 750 KiB', () => {
@@ -359,6 +359,24 @@ test('BODY_SEARCH_MARKER appears only in BodySearchResults.tsx (SearchResults / 
   for (const name of ['SearchResults.tsx', 'body-search-gate.ts', 'SidebarLazyBoundary.tsx', 'BodySearchLazy.tsx']) {
     assert.ok(!readFileSync(join(src, name), 'utf8').includes(BODY_SEARCH_MARKER), `${name} 不得含 ${BODY_SEARCH_MARKER}`);
   }
+});
+
+test('entry contains the knowledge index string bundle key names -> throws', () => {
+  const { assets, cleanup } = fakeAssets({
+    ...MARKER_BASE, 'index-Abc123.js': `const s={${KNOWLEDGE_INDEX_I18N_MARKER}:"Older notes are still being indexed"}`, 'NotePage-Def456.js': 'x',
+    'VersionsLazy-Vvv000.js': 'x',
+  });
+  try {
+    assert.throws(() => checkBundleSize(assets), /index-Abc123\.js[\s\S]*backfillNotice/);
+  } finally {
+    cleanup();
+  }
+});
+
+test('KNOWLEDGE_INDEX_I18N_MARKER is a knowledgeIndex.* key in knowledge-index.en.json, not in the main en.json', () => {
+  const read = name => JSON.parse(readFileSync(fileURLToPath(new URL(`../apps/web/src/i18n/${name}`, import.meta.url)), 'utf8'));
+  assert.equal(typeof read('knowledge-index.en.json').knowledgeIndex?.[KNOWLEDGE_INDEX_I18N_MARKER], 'string');
+  assert.equal(read('en.json').knowledgeIndex?.[KNOWLEDGE_INDEX_I18N_MARKER], undefined);
 });
 
 // A renamed marker silently stops working - bind it back to folders.en.json (as for the select marker above).

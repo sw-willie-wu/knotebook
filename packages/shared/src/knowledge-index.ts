@@ -38,7 +38,7 @@ export interface KnowledgeIndexScopeDto {
   folderPath: string[];
 }
 export interface KnowledgeIndexFolderDto { id: string; name: string; parentId: string | null }
-export interface KnowledgeIndexNoteDto { id: string; title: string; path: string; folderId: string | null; tags: NoteTagDto[] }
+export interface KnowledgeIndexNoteDto { id: string; title: string; path: string; folderId: string | null; tags: NoteTagDto[]; capped: boolean }
 export interface KnowledgeIndexEntryDto {
   noteId: string;
   knowledgeId: string;
