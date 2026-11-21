@@ -204,7 +204,8 @@ export async function applySync(
   if (opts.knowledge !== undefined) {
     const surviving = new Set(knowledgeIdsByBlock(fork.getXmlFragment(YDOC_FRAGMENT)).values());
     knowledge.removed = knowledgeRefsIn(removedCandidates as unknown as readonly KnowledgeBlockShape[]).filter(r => !surviving.has(r.id));
-    knowledge.renewed = [...knowledge.renewed, ...w.renewed.filter(x => !knowledge.renewed.some(r => r.id === x.id))];
+    const renewedIds = new Set(knowledge.renewed.map(r => r.id));
+    knowledge.renewed = [...knowledge.renewed, ...w.renewed.filter(x => !renewedIds.has(x.id))];
     knowledge.created = createdKnowledge(fork.getXmlFragment(YDOC_FRAGMENT), w.knowledgeBefore, knowledge.renewed);
   }
   const { ignoredComments: _ignored, ...edit } = knowledge;

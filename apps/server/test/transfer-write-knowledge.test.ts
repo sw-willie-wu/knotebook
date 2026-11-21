@@ -108,6 +108,39 @@ describe("a file with knowledge comments", () => {
     await s.ctx.destroy();
   });
 
+  it("two headings written with one id in the same rewritten region: the one lined up with the original keeps it, the other is renewed and reported", async () => {
+    const s = await setup(TWO);
+    const d = await s.download();
+    const extra = `## Zero\n${comment([`id: ${K1}`, "when: when Z", "conclusion: use Z"])}\n\nzero body\n\n`;
+    const r = await s.put(editBody(d.text, b => b.replace("## First\n", `${extra}## First\n`).replace("first body", "first body changed")));
+    expect(r.statusCode, r.body).toBe(200);
+    const k = r.json().knowledge as { created: unknown[]; renewed: Array<{ id: string; heading: string; from: string }>; removed: unknown[] };
+    expect(k.renewed).toHaveLength(1);
+    expect(k.renewed[0]).toMatchObject({ heading: "Zero", from: K1 });
+    expect(k.created).toEqual([]);
+    expect(k.removed).toEqual([]);
+    const after = await s.infos();
+    expect(after.get(K1)?.when).toBe("when A");
+    expect(after.get(k.renewed[0]!.id)?.when).toBe("when Z");
+    await s.ctx.destroy();
+  });
+
+  it("two appended headings written with one id the note didn't have: the first creates it, the second is renewed and reported", async () => {
+    const s = await setup(TWO);
+    const d = await s.download();
+    const add = `\n\n## Fourth\n${comment(["id: k_0000000f", "when: w4"])}\n\nfourth\n\n## Fifth\n${comment(["id: k_0000000f", "when: w5"])}\n\nfifth\n`;
+    const r = await s.put(editBody(d.text, b => `${b.replace(/\n+$/, "")}${add}`));
+    expect(r.statusCode, r.body).toBe(200);
+    const k = r.json().knowledge as { created: Array<{ id: string; heading: string }>; renewed: Array<{ id: string; heading: string; from: string }> };
+    expect(k.created).toEqual([{ id: "k_0000000f", heading: "Fourth" }]);
+    expect(k.renewed).toHaveLength(1);
+    expect(k.renewed[0]).toMatchObject({ heading: "Fifth", from: "k_0000000f" });
+    const after = await s.infos();
+    expect(after.get("k_0000000f")?.when).toBe("w4");
+    expect(after.get(k.renewed[0]!.id)?.when).toBe("w5");
+    await s.ctx.destroy();
+  });
+
   it("an id written in full that is new to the note is created; an id left out gets a generated one, also created", async () => {
     const s = await setup(TWO);
     const d = await s.download();

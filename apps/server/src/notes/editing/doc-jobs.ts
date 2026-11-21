@@ -297,7 +297,8 @@ export async function editOnFork(
   });
   const { beforeBlocks } = w.value;
   const surviving = plan.knowledge === undefined ? null : new Set(knowledgeIdsByBlock(fork.getXmlFragment(YDOC_FRAGMENT)).values());
-  const renewed = [...resolvedRenewed, ...w.renewed.filter(x => !resolvedRenewed.some(r => r.id === x.id))];
+  const resolvedIds = new Set(resolvedRenewed.map(r => r.id));
+  const renewed = [...resolvedRenewed, ...w.renewed.filter(x => !resolvedIds.has(x.id))];
   const created = surviving === null ? [] : createdKnowledge(fork.getXmlFragment(YDOC_FRAGMENT), w.knowledgeBefore, renewed);
   const removed = surviving === null ? [] : knowledgeRefsIn(beforeBlocks as unknown as readonly KnowledgeBlockShape[]).filter(r => !surviving.has(r.id));
   return {

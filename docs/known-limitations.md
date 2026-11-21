@@ -272,6 +272,7 @@ Each section below names one page and lists the bold headings of its entries; fo
 - [Knowledge info with a NUL character or an unpaired surrogate in a value can be read but not written back.](./known-limitations/knowledge.md)
 - [A `superseded_by` with a space at either end is refused once any value of that knowledge is changed.](./known-limitations/knowledge.md)
 - [A write doesn't repair what is already wrong in the note.](./known-limitations/knowledge.md)
+- [A heading you rename and keep the comment of loses its id to a heading above it that carries the same id.](./known-limitations/knowledge.md)
 - [The `knowledge` lists in an `edit_note` or `create_note` reply have a size budget.](./known-limitations/knowledge.md)
 
 ## Trash
