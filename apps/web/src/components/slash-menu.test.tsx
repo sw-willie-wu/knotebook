@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { filterSuggestionItems } from "@blocknote/core";
 import i18n from "@/i18n";
 import { PHONE_EDIT_TOOLBAR_CLEARANCE_PX } from "@/components/ai/SelectionAiController";
-import { P, mountEditor, row, shape, type AnyEditor } from "@/test/columns-fixtures";
+import { H, P, mountEditor, row, shape, type AnyEditor } from "@/test/columns-fixtures";
 
 /**
  * Mocks BlockNote's two APIs and checks only our composition logic, above all that the default items are kept: taking over the `/` menu typically fails by returning only our own items,
@@ -302,5 +302,53 @@ describe("slashMenuPhoneMiddleware (phone height and flipping)", () => {
 
   it("PHONE_SLASH_MENU_FLOATING_OPTIONS puts it into useFloatingOptions.middleware", () => {
     expect(PHONE_SLASH_MENU_FLOATING_OPTIONS.useFloatingOptions?.middleware?.map((entry) => entry && "name" in entry && entry.name)).toEqual(["offset", "autoPlacement", "shift", "size"]);
+  });
+});
+
+describe("knowledge item", () => {
+  const KNOWLEDGE_TITLE = "note.knowledge.slashTitle";
+  const items = (onOpen?: (id: string) => void) => buildSlashMenuItems(editor, translate, noopInsertLink, undefined, onOpen);
+
+  it("appears only with the caret in a top-level heading and is found by info, knowledge, 知識 and 知識資訊", () => {
+    const onOpen = vi.fn();
+    cleanups.pop()!();
+    editor = mount([H("Heading", "h1"), P("para", "p1"), row([[H("Inner", "h2")], [P("x")]], "r")], "h1");
+    const inHeading = items(onOpen);
+    const item = inHeading.find((i) => i.title === KNOWLEDGE_TITLE);
+    expect(item).toBeDefined();
+    for (const query of ["info", "knowledge", "知識", "知識資訊"]) {
+      expect(filterSuggestionItems(inHeading, query).some((i) => i.title === KNOWLEDGE_TITLE)).toBe(true);
+    }
+    editor.setTextCursorPosition("p1", "end");
+    expect(items(onOpen).some((i) => i.title === KNOWLEDGE_TITLE)).toBe(false);
+    editor.setTextCursorPosition("h2", "end");
+    expect(items(onOpen).some((i) => i.title === KNOWLEDGE_TITLE)).toBe(false);
+  });
+
+  it("comes after the column items and leaves every other item in place", () => {
+    const onOpen = vi.fn();
+    cleanups.pop()!();
+    editor = mount([H("Heading", "h1"), P("para", "p1")], "h1");
+    const withItem = items(onOpen).map((i) => i.title);
+    const without = items().map((i) => i.title);
+    expect(withItem.filter((t) => t !== KNOWLEDGE_TITLE)).toEqual(without);
+    expect(withItem.indexOf(KNOWLEDGE_TITLE)).toBeGreaterThan(withItem.indexOf(COLUMN_TITLES[2]!));
+  });
+
+  it("clicking calls onOpenKnowledge with the heading's id and changes no block", () => {
+    const onOpen = vi.fn();
+    cleanups.pop()!();
+    editor = mount([H("Heading", "h1"), P("para", "p1")], "h1");
+    const before = shape(editor);
+    items(onOpen).find((i) => i.title === KNOWLEDGE_TITLE)!.onItemClick();
+    expect(onOpen).toHaveBeenCalledWith("h1");
+    expect(insertMock).not.toHaveBeenCalled();
+    expect(shape(editor)).toBe(before);
+  });
+
+  it("without onOpenKnowledge there is no knowledge item", () => {
+    cleanups.pop()!();
+    editor = mount([H("Heading", "h1")], "h1");
+    expect(items().some((i) => i.title === KNOWLEDGE_TITLE)).toBe(false);
   });
 });

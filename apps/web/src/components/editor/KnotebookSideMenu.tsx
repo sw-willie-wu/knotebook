@@ -15,10 +15,13 @@ import {
   type FloatingUIOptions,
   type SideMenuProps,
 } from "@blocknote/react";
-import { COLUMN_TYPE } from "@knotebook/shared";
+import { COLUMN_TYPE, readKnowledgeInfo } from "@knotebook/shared";
 import { isInColumn, ungroupColumns } from "@/collab/columns/commands";
 import { removeBlocksKeepColumns } from "@/collab/columns/keep-columns";
 import { blockIdsForMenuDelete } from "@/collab/columns/selection-delete";
+import { isKnowledgeEligible } from "@/components/knowledge/commands";
+import { KnowledgeControllerContext } from "@/components/knowledge/controller";
+import { CircleInfo } from "@/components/ui/icons-extra";
 import { absoluteUrl, blockLinkUrl, copyBlockLink } from "@/lib/copy-block-link";
 import { ColorMenuBody } from "./colors/ColorMenuBody";
 import { KnotebookBlockColorsItem } from "./colors/KnotebookBlockColorsItem";
@@ -37,6 +40,29 @@ function CopyBlockLinkItem() {
     <Components.Generic.Menu.Item className="bn-menu-item" onClick={() => void copyBlockLink(blockLinkUrl(absoluteUrl(notePath), block.id), t)}>
       {t("note.blockLink.copy")}
     </Components.Generic.Menu.Item>
+  );
+}
+
+/** Only offered where a controller is provided (an editable note); the form itself is in the lazy knowledge chunk. */
+function KnowledgeInfoItem() {
+  const Components = useComponentsContext()!;
+  const editor = useBlockNoteEditor();
+  const block = useExtensionState(SideMenuExtension, { editor, selector: (state) => state?.block });
+  const controller = useContext(KnowledgeControllerContext);
+  const { t } = useTranslation();
+  if (!controller || !block || !isKnowledgeEligible(editor, block.id)) return null;
+  const known = readKnowledgeInfo(block.props as Record<string, unknown>) !== null;
+  return (
+    <>
+      <Components.Generic.Menu.Item
+        className="bn-menu-item"
+        icon={<CircleInfo className="h-4 w-4" />}
+        onClick={() => controller.open(block.id, "edit", editor.prosemirrorView?.dom ?? null)}
+      >
+        {t(known ? "note.knowledge.menuEditItem" : "note.knowledge.menuItem")}
+      </Components.Generic.Menu.Item>
+      <Components.Generic.Menu.Divider />
+    </>
   );
 }
 
@@ -74,6 +100,7 @@ export function KnotebookDragHandleMenu() {
   return (
     <DragHandleMenu>
       <ColorMenuBody>
+        <KnowledgeInfoItem />
         <KeepColumnsDeleteItem>{dict.drag_handle.delete_menuitem}</KeepColumnsDeleteItem>
         <UngroupColumnsItem />
         <KnotebookBlockColorsItem>{dict.drag_handle.colors_menuitem}</KnotebookBlockColorsItem>

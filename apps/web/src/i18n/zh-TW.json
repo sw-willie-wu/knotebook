@@ -333,6 +333,12 @@
       "slashSubtext": "把內容分成左右並排的幾欄",
       "ungroup": "取消並排",
       "resize": "調整欄寬"
+    },
+    "knowledge": {
+      "slashTitle": "知識資訊",
+      "slashSubtext": "把這個標題標成一條知識",
+      "menuItem": "知識資訊…",
+      "menuEditItem": "編輯知識資訊…"
     }
   },
   "login": {

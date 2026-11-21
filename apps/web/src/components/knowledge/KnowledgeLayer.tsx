@@ -1,16 +1,25 @@
 import { memo, useCallback, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import type { BlockNoteEditor } from "@blocknote/core";
 import { useTranslation } from "react-i18next";
 import type { KnowledgeEntry } from "@knotebook/shared";
 import "@/i18n/knowledge-strings";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { useIsPhone, useNoHover } from "@/lib/layout-tiers";
+import { Button } from "@/components/ui/button";
+import { markKnowledgeVerified } from "./commands";
 import { isReturningFocus, type KnowledgeController } from "./controller";
+import { KnowledgeForm } from "./KnowledgeForm";
 import { KnowledgeIconButton } from "./KnowledgeIcon";
 import type { KnowledgeReplacementView } from "./KnowledgeCard";
 import { KnowledgeSurface, LiveCard, type KnowledgeContext } from "./KnowledgeSurface";
 import { attrValue, knowledgeIconPlace } from "./placement";
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote generic triple (repo convention)
+type AnyEditor = BlockNoteEditor<any, any, any>;
+
 export interface KnowledgeLayerProps {
+  /** Lets the layer build the edit form and the phone sheet's quick action itself, so they stay in this chunk; `editSurface` and `sheetFooter` override them. */
+  editor?: AnyEditor;
   container: HTMLElement | null;
   entries: readonly KnowledgeEntry[];
   editable: boolean;
@@ -214,13 +223,25 @@ const IconItem = memo(
     a.hoverable === b.hoverable && a.phone === b.phone && a.editable === b.editable && a.surfaceOpen === b.surfaceOpen && a.ctxRef === b.ctxRef,
 );
 
-export function KnowledgeLayer({ container, entries, editable, noteId, controller, accept, replacementOf, editSurface, sheetFooter }: KnowledgeLayerProps): ReactNode {
-  useTranslation();
+export function KnowledgeLayer({ container, entries, editable, noteId, controller, accept, replacementOf, editSurface, sheetFooter, editor }: KnowledgeLayerProps): ReactNode {
+  const { t } = useTranslation();
   const places = useIconPlaces(container, entries, accept);
   const noHover = useNoHover();
   const phone = useIsPhone();
-  const ctx: KnowledgeContext = { container, entries, editable, noteId, controller, replacementOf, editSurface, sheetFooter };
-  const ctxRef = useRef(ctx);
+  const ctxRef = useRef<KnowledgeContext>(null as never);
+  const getEntries = useCallback(() => ctxRef.current.entries, []);
+  const formFor = editor && editable
+    ? (blockId: string, close: () => void) => <KnowledgeForm key={blockId} editor={editor} blockId={blockId} getEntries={getEntries} noteId={noteId} phone={phone} close={close} />
+    : undefined;
+  const verifyFor = editor && editable
+    ? (entry: KnowledgeEntry) =>
+        entry.info.status === "outdated" ? null : (
+          <Button type="button" variant="outline" className="h-11 flex-1 text-[15px]" onClick={() => void markKnowledgeVerified(editor, entry.blockId)}>
+            {t("knowledge.card.markVerified")}
+          </Button>
+        )
+    : undefined;
+  const ctx: KnowledgeContext = { container, entries, editable, noteId, controller, replacementOf, editSurface: editSurface ?? formFor, sheetFooter: sheetFooter ?? verifyFor };
   ctxRef.current = ctx;
   if (entries.length === 0 && controller.state === null) return null;
   const seen = new Set<string>();

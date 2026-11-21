@@ -40,7 +40,30 @@
       "summary": "{{total}} below: {{verified}} verified, {{noDate}} not verified, {{review}} need review",
       "summaryOutdated": ", {{outdated}} outdated",
       "edit": "Edit",
-      "untitled": "Untitled heading"
+      "untitled": "Untitled heading",
+      "markVerified": "Mark as verified"
+    },
+    "form": {
+      "title": "Knowledge info",
+      "markToday": "Mark verified today",
+      "remove": "Remove knowledge info",
+      "save": "Save",
+      "cancel": "Cancel",
+      "escHint": "Esc to cancel",
+      "error": {
+        "empty": "Fill in at least one field.",
+        "tooLong": "At most {{max}} characters (now {{n}}).",
+        "verifiedInvalid": "Enter a valid date.",
+        "verifiedIncomplete": "Enter a complete date.",
+        "supersededRequired": "Choose the knowledge that replaces this one.",
+        "supersededInvalid": "Choose one of the listed knowledge.",
+        "supersededSelf": "A piece of knowledge can't replace itself.",
+        "notEligible": "This heading no longer exists or can't hold knowledge info."
+      }
+    },
+    "picker": {
+      "placeholder": "Search knowledge",
+      "none": "No matching knowledge"
     }
   }
 }

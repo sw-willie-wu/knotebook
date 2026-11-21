@@ -77,7 +77,7 @@ import { useDragActiveClass } from "@/components/editor/use-drag-active-class";
 import { KnotebookTableCellButton, KnotebookTableHandle } from "@/components/editor/colors/KnotebookTableMenus";
 import { HeadingAnchorButtons } from "@/components/editor/HeadingAnchorButtons";
 import { KnowledgeLayerLazy } from "@/components/knowledge/KnowledgeLayerLazy";
-import { useKnowledgeController } from "@/components/knowledge/controller";
+import { KnowledgeControllerContext, useKnowledgeController } from "@/components/knowledge/controller";
 import { useKnowledgeEntries } from "@/components/knowledge/use-knowledge-entries";
 import { MediaZoomProvider } from "@/components/media-zoom/MediaZoomProvider";
 import { ImageZoomLayer } from "@/components/media-zoom/ImageZoomLayer";
@@ -265,7 +265,12 @@ function focusCaret(editor: EditorRef["current"]): void {
 }
 
 /** `getSlashItems` must keep its identity across dialog open/close: a changing identity re-runs the `useLoadSuggestionMenuItems` effect (deps `[query, getItems]`) and the menu flashes its loading state. */
-export function useLinkMenuState(editorRef: EditorRef, translate: Translate, tagEntryRef?: RefObject<TagEntryHandle | undefined>) {
+export function useLinkMenuState(
+  editorRef: EditorRef,
+  translate: Translate,
+  tagEntryRef?: RefObject<TagEntryHandle | undefined>,
+  knowledgeOpenRef?: RefObject<((blockId: string) => void) | undefined>,
+) {
   // The phone menu has no shortcut column; crossing 640 reloads the menu once. Do not add `linkDialogOpen` to its deps or replace `openLinkDialog` with an inline arrow.
   const phone = useIsPhone();
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
@@ -311,10 +316,11 @@ export function useLinkMenuState(editorRef: EditorRef, translate: Translate, tag
         translate,
         openLinkDialog,
         entry && (() => entry.open({ returnFocus: () => focusCaret(editorRef.current) })),
+        knowledgeOpenRef?.current,
       );
       return Promise.resolve(filterSuggestionItems(phone ? withoutSlashBadges(items) : items, query));
     },
-    [editorRef, tagEntryRef, translate, openLinkDialog, phone],
+    [editorRef, tagEntryRef, knowledgeOpenRef, translate, openLinkDialog, phone],
   );
 
   return { linkDialogOpen, setLinkDialogOpen, openLinkDialog, linkPrefill, handleLinkInsert, getSlashItems };
@@ -551,7 +557,14 @@ export function NoteEditor({
 
   const tagEntryRef = useRef(tagEntry);
   tagEntryRef.current = tagEntry;
-  const { linkDialogOpen, setLinkDialogOpen, openLinkDialog, linkPrefill, handleLinkInsert, getSlashItems } = useLinkMenuState(editorRef, t, tagEntryRef);
+  const { open: openKnowledgeSurface } = knowledge;
+  const openKnowledge = useCallback(
+    (blockId: string) => openKnowledgeSurface(blockId, "edit", editor.prosemirrorView?.dom ?? null),
+    [openKnowledgeSurface, editor],
+  );
+  const knowledgeOpenRef = useRef<((blockId: string) => void) | undefined>(undefined);
+  knowledgeOpenRef.current = editable ? openKnowledge : undefined;
+  const { linkDialogOpen, setLinkDialogOpen, openLinkDialog, linkPrefill, handleLinkInsert, getSlashItems } = useLinkMenuState(editorRef, t, tagEntryRef, knowledgeOpenRef);
 
   const notes = useNotes().data;
   const { mutateAsync: createNote } = useCreateNote();
@@ -645,6 +658,8 @@ export function NoteEditor({
               )}
               {/* zoom covers only the article column */}
               <MediaZoomProvider>
+                {/* The drag handle menu's knowledge item exists only for someone who can edit. */}
+                <KnowledgeControllerContext.Provider value={editable ? knowledge : null}>
                 <NoteEditorView
                   editor={editor}
                   editable={editable}
@@ -657,8 +672,9 @@ export function NoteEditor({
                   {/* sole owner of the formatting toolbar controller and AI box; NoteEditorView never touches AI context */}
                   <SelectionAiController />
                 </NoteEditorView>
+                </KnowledgeControllerContext.Provider>
                 <HeadingAnchorButtons container={columnEl} />
-                <KnowledgeLayerLazy container={columnEl} entries={knowledgeEntries} editable={editable} noteId={noteId} controller={knowledge} />
+                <KnowledgeLayerLazy container={columnEl} entries={knowledgeEntries} editable={editable} noteId={noteId} controller={knowledge} editor={editor} />
                 <ImageZoomLayer container={columnEl} editable={editable} editor={editor} />
               </MediaZoomProvider>
               {/* nothing to resize when read-only */}

@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { parseKnowledgeRef, summarizeKnowledgeDescendants, type KnowledgeEntry } from "@knotebook/shared";
+import { summarizeKnowledgeDescendants, type KnowledgeEntry } from "@knotebook/shared";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { jumpToHeading } from "@/components/outline/outline-jump";
 import { returnFocusQuietly, type KnowledgeController } from "./controller";
 import { KnowledgeCard, type KnowledgeReplacementView } from "./KnowledgeCard";
 import { attrValue } from "./placement";
+import { useKnowledgeReplacement } from "./use-knowledge-replacement";
 
 export interface KnowledgeContext {
   container: HTMLElement | null;
@@ -17,16 +18,6 @@ export interface KnowledgeContext {
   replacementOf?: (entry: KnowledgeEntry) => KnowledgeReplacementView | null;
   editSurface?: (blockId: string, close: () => void) => ReactNode;
   sheetFooter?: (entry: KnowledgeEntry) => ReactNode;
-}
-
-export function defaultReplacement(entry: KnowledgeEntry, ctx: KnowledgeContext, jump: (blockId: string) => void): KnowledgeReplacementView | null {
-  const ref = parseKnowledgeRef(entry.info.supersededBy);
-  if (!ref) return null;
-  const sameNote = ref.noteId === null || (ctx.noteId !== null && ref.noteId.toLowerCase() === ctx.noteId.toLowerCase());
-  if (!sameNote) return { state: "otherNote", title: null, open: null };
-  const target = ctx.entries.find((e) => e.info.id === ref.knowledgeId);
-  if (!target) return { state: "missing", title: null, open: null };
-  return { state: "found", title: target.heading || null, open: () => jump(target.blockId) };
 }
 
 /** Reads the live entries when it renders, so a card that opens later still shows the current text. */
@@ -48,8 +39,9 @@ export function LiveCard({ ctx, blockId, variant, onEdit }: { ctx: KnowledgeCont
     }
     return { parent, outdatedAncestor, summary: summarizeKnowledgeDescendants(entries, entry.blockId) };
   }, [entries, entry]);
+  const resolved = useKnowledgeReplacement(entry ?? null, entries, ctx.noteId, jump);
   if (!entry || !model) return null;
-  const replacement = entry.info.status === "outdated" ? (ctx.replacementOf ?? ((e: KnowledgeEntry) => defaultReplacement(e, ctx, jump)))(entry) : null;
+  const replacement = ctx.replacementOf && entry.info.status === "outdated" ? ctx.replacementOf(entry) : resolved;
   return (
     <KnowledgeCard
       entry={entry}
@@ -78,7 +70,9 @@ export function KnowledgeSurface({ ctx, phone }: { ctx: KnowledgeContext; phone:
   const entry = state ? entries.find((e) => e.blockId === state.blockId) : undefined;
   const blockId = state?.blockId;
   const mode = state?.mode;
-  const missing = state !== null && !entry;
+  // The form owns its own target: a heading that is not knowledge yet has no entry, and one a collaborator changed is noticed by the form itself.
+  const editing = state?.mode === "edit" && ctx.editable && ctx.editSurface !== undefined;
+  const missing = state !== null && !entry && !editing;
   const { close } = controller;
   // Set when the surface was dismissed by pressing or focusing elsewhere: focus must stay where the user put it.
   const dismissedOutside = useRef(false);
@@ -106,8 +100,8 @@ export function KnowledgeSurface({ ctx, phone }: { ctx: KnowledgeContext; phone:
     };
   }, [blockId, mode, container, phone]);
 
-  if (!state || !entry) return null;
-  const editing = state.mode === "edit" && ctx.editSurface !== undefined;
+  if (!state || (!entry && !editing)) return null;
+  const label = entry ? entry.heading || t("knowledge.card.untitled") : t("knowledge.form.title");
   const onEdit = () => controller.open(state.blockId, "edit", state.returnFocus);
   const returnFocus = (event: Event) => {
     event.preventDefault();
@@ -115,16 +109,28 @@ export function KnowledgeSurface({ ctx, phone }: { ctx: KnowledgeContext; phone:
     dismissedOutside.current = false;
     if (!outside) returnFocusQuietly(state.returnFocus);
   };
+  // A combobox's own list takes the first Escape.
+  const escape = (event: KeyboardEvent) => {
+    if ((event.target as Element | null)?.closest?.('[role="combobox"][aria-expanded="true"]')) event.preventDefault();
+  };
+  // The first tabbable control in the form is the remove link: focus the first field instead, and on a phone leave the keyboard down.
+  const openFocus = (event: Event) => {
+    if (!editing) return;
+    const root = event.currentTarget as HTMLElement | null;
+    const first = phone ? null : root?.querySelector<HTMLElement>("[data-kb-autofocus]");
+    event.preventDefault();
+    (first ?? root)?.focus({ preventScroll: true });
+  };
   const noteOutside = (event: Event) => {
     if (!event.defaultPrevented) dismissedOutside.current = true;
   };
-  const body = editing ? ctx.editSurface!(state.blockId, close) : <LiveCard ctx={ctx} blockId={state.blockId} variant={phone ? "sheet" : "hover"} onEdit={onEdit} />;
+  const body = editing ? ctx.editSurface!(state.blockId, close) : !entry ? null : <LiveCard ctx={ctx} blockId={state.blockId} variant={phone ? "sheet" : "hover"} onEdit={onEdit} />;
 
   if (phone) {
     return (
       <Dialog open onOpenChange={(open) => !open && close()}>
-        <DialogContent aria-describedby={undefined} dismissOnOutside={!editing} onInteractOutside={editing ? undefined : noteOutside} onCloseAutoFocus={returnFocus} className="grid-cols-[minmax(0,1fr)] gap-3 max-sm:p-4">
-          <DialogTitle className="pr-6 text-[15px] leading-snug">{entry.heading || t("knowledge.card.untitled")}</DialogTitle>
+        <DialogContent aria-describedby={undefined} dismissOnOutside={!editing} onInteractOutside={editing ? undefined : noteOutside} onCloseAutoFocus={returnFocus} onOpenAutoFocus={openFocus} onEscapeKeyDown={escape} className="grid-cols-[minmax(0,1fr)] gap-3 max-sm:p-4">
+          {!editing && <DialogTitle className="pr-6 text-[15px] leading-snug">{label}</DialogTitle>}
           {body}
         </DialogContent>
       </Dialog>
@@ -137,9 +143,11 @@ export function KnowledgeSurface({ ctx, phone }: { ctx: KnowledgeContext; phone:
         side="bottom"
         align={state.mode === "edit" ? "start" : "center"}
         collisionPadding={8}
-        className={editing ? "w-[420px] max-w-[calc(100vw-1rem)] p-3" : "w-[350px] max-w-[calc(100vw-1rem)] p-3"}
-        aria-label={entry.heading || t("knowledge.card.untitled")}
+        className={editing ? "max-h-[var(--radix-popover-content-available-height)] w-[420px] max-w-[calc(100vw-1rem)] overflow-y-auto p-3" : "w-[350px] max-w-[calc(100vw-1rem)] p-3"}
+        aria-label={label}
         onCloseAutoFocus={returnFocus}
+        onOpenAutoFocus={openFocus}
+        onEscapeKeyDown={escape}
         // The icon toggles the surface itself; letting the outside-press close it first would make the click reopen it.
         onInteractOutside={(e) => {
           if (editing || (e.target as Element | null)?.closest?.("[data-kb-knowledge-icon]")) e.preventDefault();

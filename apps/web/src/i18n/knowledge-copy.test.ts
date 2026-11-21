@@ -88,6 +88,22 @@ describe("knowledge copy literals", () => {
     "knowledge.card.summaryOutdated": "、{{outdated}} 條過時",
     "knowledge.card.edit": "編輯",
     "knowledge.card.untitled": "未命名標題",
+    "knowledge.card.markVerified": "標記為已驗證",
+    "knowledge.form.title": "知識資訊",
+    "knowledge.form.markToday": "標記今天已驗證",
+    "knowledge.form.remove": "移除知識資訊",
+    "knowledge.form.save": "儲存",
+    "knowledge.form.cancel": "取消",
+    "knowledge.form.escHint": "Esc 取消",
+    "knowledge.form.error.empty": "至少要填一個欄位。",
+    "knowledge.form.error.tooLong": "最多 {{max}} 字（目前 {{n}} 字）。",
+    "knowledge.form.error.verifiedInvalid": "請輸入正確的日期。",
+    "knowledge.form.error.supersededRequired": "請選擇取代這條的知識。",
+    "knowledge.form.error.supersededInvalid": "請從清單中選擇知識。",
+    "knowledge.form.error.supersededSelf": "不能選這條自己。",
+    "knowledge.form.error.notEligible": "這個標題已不存在，或不能設知識資訊。",
+    "knowledge.picker.placeholder": "搜尋知識",
+    "knowledge.picker.none": "沒有相符的知識",
   };
   const EN: Record<string, string> = {
     "knowledge.iconLabel": "Knowledge info: {{status}}",
@@ -121,6 +137,22 @@ describe("knowledge copy literals", () => {
     "knowledge.card.summaryOutdated": ", {{outdated}} outdated",
     "knowledge.card.edit": "Edit",
     "knowledge.card.untitled": "Untitled heading",
+    "knowledge.card.markVerified": "Mark as verified",
+    "knowledge.form.title": "Knowledge info",
+    "knowledge.form.markToday": "Mark verified today",
+    "knowledge.form.remove": "Remove knowledge info",
+    "knowledge.form.save": "Save",
+    "knowledge.form.cancel": "Cancel",
+    "knowledge.form.escHint": "Esc to cancel",
+    "knowledge.form.error.empty": "Fill in at least one field.",
+    "knowledge.form.error.tooLong": "At most {{max}} characters (now {{n}}).",
+    "knowledge.form.error.verifiedInvalid": "Enter a valid date.",
+    "knowledge.form.error.supersededRequired": "Choose the knowledge that replaces this one.",
+    "knowledge.form.error.supersededInvalid": "Choose one of the listed knowledge.",
+    "knowledge.form.error.supersededSelf": "A piece of knowledge can't replace itself.",
+    "knowledge.form.error.notEligible": "This heading no longer exists or can't hold knowledge info.",
+    "knowledge.picker.placeholder": "Search knowledge",
+    "knowledge.picker.none": "No matching knowledge",
   };
   for (const [key, text] of Object.entries(ZH)) it(`zh ${key}`, () => expect(get(knowledgeZhTW, key)).toBe(text));
   for (const [key, text] of Object.entries(EN)) it(`en ${key}`, () => expect(get(knowledgeEn, key)).toBe(text));
@@ -133,6 +165,15 @@ describe("main JSON has no knowledge top-level key (strings go only into the laz
     ["zh-TW", zhTWRaw],
   ] as const)("%s", (_name, raw) => {
     expect(Object.keys(JSON.parse(raw) as object)).not.toContain("knowledge");
+  });
+});
+
+describe("entry strings for the slash menu and the block menu stay in the main bundle", () => {
+  it.each([
+    ["en", enRaw, { slashTitle: "Knowledge info", slashSubtext: "Mark this heading as a piece of knowledge", menuItem: "Knowledge info…", menuEditItem: "Edit knowledge info…" }],
+    ["zh-TW", zhTWRaw, { slashTitle: "知識資訊", slashSubtext: "把這個標題標成一條知識", menuItem: "知識資訊…", menuEditItem: "編輯知識資訊…" }],
+  ] as const)("%s", (_name, raw, expected) => {
+    expect((JSON.parse(raw) as { note: { knowledge: unknown } }).note.knowledge).toEqual(expected);
   });
 });
 
