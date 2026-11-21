@@ -54,9 +54,11 @@ export function NoteTagRow({ note, canEdit }: { note: NoteDto; canEdit: boolean 
   const returnFocusRef = useRef(false);
 
   // The menu behind each pill is a lazy chunk: start fetching it as soon as the row can use it, so the first click doesn't wait.
+  // A note without tags has no pill to open it from.
+  const hasTags = list.length > 0;
   useEffect(() => {
-    if (canEdit) void loadTagPillMenu().catch(() => undefined);
-  }, [canEdit]);
+    if (canEdit && hasTags) void loadTagPillMenu().catch(() => undefined);
+  }, [canEdit, hasTags]);
 
   useEffect(() => {
     if (inputOpen) return;
