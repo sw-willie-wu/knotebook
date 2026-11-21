@@ -1,4 +1,4 @@
-import { memo, useCallback, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { BlockNoteEditor } from "@blocknote/core";
 import { useTranslation } from "react-i18next";
 import type { KnowledgeEntry } from "@knotebook/shared";
@@ -6,6 +6,7 @@ import "@/i18n/knowledge-strings";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { useIsPhone, useNoHover } from "@/lib/layout-tiers";
 import { Button } from "@/components/ui/button";
+import { createRemoteKnowledgeRefSource } from "@/api/knowledge-ref-source";
 import { markKnowledgeVerified } from "./commands";
 import { isReturningFocus, type KnowledgeController } from "./controller";
 import { KnowledgeForm } from "./KnowledgeForm";
@@ -13,6 +14,7 @@ import { KnowledgeIconButton } from "./KnowledgeIcon";
 import type { KnowledgeReplacementView } from "./KnowledgeCard";
 import { KnowledgeSurface, LiveCard, type KnowledgeContext } from "./KnowledgeSurface";
 import { attrValue, knowledgeIconPlace } from "./placement";
+import { KnowledgeRefSourceContext } from "./ref-source";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote generic triple (repo convention)
 type AnyEditor = BlockNoteEditor<any, any, any>;
@@ -231,6 +233,8 @@ export function KnowledgeLayer({ container, entries, editable, noteId, controlle
   const places = useIconPlaces(container, entries, accept);
   const noHover = useNoHover();
   const phone = useIsPhone();
+  // Per note: the source caches lookups, and a lookup made for one note must not outlive it. Without a note id (a version preview) another note's reference stays untitled.
+  const refSource = useMemo(() => (noteId ? createRemoteKnowledgeRefSource(noteId) : null), [noteId]);
   const ctxRef = useRef<KnowledgeContext>(null as never);
   const getEntries = useCallback(() => ctxRef.current.entries, []);
   const formFor = editor && editable
@@ -250,7 +254,7 @@ export function KnowledgeLayer({ container, entries, editable, noteId, controlle
   const seen = new Set<string>();
   const openId = controller.state?.blockId ?? null;
   return (
-    <>
+    <KnowledgeRefSourceContext.Provider value={refSource}>
       {entries.map((entry) => {
         const place = places.get(entry.blockId);
         // A dragged copy can share its source's block id; the first one owns the icon.
@@ -271,6 +275,6 @@ export function KnowledgeLayer({ container, entries, editable, noteId, controlle
         );
       })}
       <KnowledgeSurface ctx={ctx} phone={phone} />
-    </>
+    </KnowledgeRefSourceContext.Provider>
   );
 }

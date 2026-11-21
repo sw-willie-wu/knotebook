@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState, type ReactNode } from "react";
+import { MemoryRouter } from "react-router";
 import type { KnowledgeEntry } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { NO_HOVER_QUERY, PHONE_QUERY } from "@/lib/layout-tiers";
@@ -520,5 +521,53 @@ describe("useKnowledgeEntries", () => {
     expect(reads).toBe(0);
     act(() => queue.splice(0).forEach((cb) => cb(0)));
     expect(reads).toBe(1);
+  });
+});
+
+describe("KnowledgeLayer ref source", () => {
+  const OTHER = "99999999-2222-3333-4444-555555555555";
+  const reply = (status: number, body: unknown) => ({ ok: status < 300, status, json: () => Promise.resolve(body) }) as unknown as Response;
+  const outdatedTo = (ref: string): KnowledgeFixture[] => [{ id: "k_00000001", blockId: "a", title: "Alpha", props: { knowledgeStatus: "outdated", knowledgeSupersededBy: ref } }];
+
+  it("an outdated knowledge replaced by another note's knowledge shows that heading and links to it after the server resolves it", async () => {
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(reply(200, { noteId: OTHER, noteTitle: "Other note", path: "/n/alice/other", knowledgeId: "k_0000000f", blockId: "z", heading: "Elsewhere", conclusion: "" })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <MemoryRouter>
+        <Host entries={knowledgeEntries(outdatedTo(`${OTHER}#k_0000000f`))} />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(icons()).toHaveLength(1));
+    expect(fetchMock).not.toHaveBeenCalled();
+    fireEvent.click(icons()[0]!);
+    const link = await screen.findByRole("button", { name: "Elsewhere" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String((fetchMock.mock.calls[0] as unknown[])[0])).toBe(`/api/knowledge/refs/${OTHER}/k_0000000f`);
+    expect(link).toBeInTheDocument();
+  });
+
+  it("a reference the server can't resolve stays the plain other-note text", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(reply(404, { error: { code: "not_found", message: "No such knowledge." } }))));
+    render(
+      <MemoryRouter>
+        <Host entries={knowledgeEntries(outdatedTo(`${OTHER}#k_0000000f`))} />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(icons()).toHaveLength(1));
+    fireEvent.click(icons()[0]!);
+    await screen.findByText(/knowledge in another note/);
+    expect(screen.queryByRole("button", { name: "Elsewhere" })).toBeNull();
+  });
+
+  it("a same-note reference makes no request", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    render(<Host entries={knowledgeEntries(outdatedTo("k_00000002"))} />);
+    await waitFor(() => expect(icons()).toHaveLength(1));
+    fireEvent.click(icons()[0]!);
+    await screen.findByText(/knowledge that no longer exists/);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

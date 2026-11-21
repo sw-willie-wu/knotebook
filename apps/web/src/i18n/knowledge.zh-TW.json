@@ -63,7 +63,11 @@
     },
     "picker": {
       "placeholder": "搜尋知識",
-      "none": "沒有相符的知識"
+      "none": "沒有相符的知識",
+      "thisNote": "這篇筆記",
+      "otherNotes": "其他筆記",
+      "searchFailed": "無法搜尋其他筆記。",
+      "searchBusy": "搜尋太頻繁，請一分鐘後再試。"
     }
   }
 }

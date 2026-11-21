@@ -5,6 +5,8 @@ import type {
   KnowledgeIndexEvidenceFilter,
   KnowledgeIndexScopeRef,
   KnowledgeIndexStatusFilter,
+  KnowledgeRefCandidateDto,
+  KnowledgeRefsDto,
 } from "@knotebook/shared";
 import { knowledgeIndexScopeKey } from "@/lib/knowledge-index-path";
 import { ApiFail, api } from "./client";
@@ -65,4 +67,14 @@ export function useKnowledgeIndex(scope: KnowledgeIndexScopeRef, filters: IndexQ
     placeholderData: (previous, previousQuery) => (previousQuery?.queryKey[1] === scopeKey ? previous : undefined),
     refetchInterval: (query) => (query.state.data?.backfillPending === true ? BACKFILL_POLL_MS : false),
   });
+}
+
+export function fetchKnowledgeRefs(q: string, excludeNote: string | null, signal?: AbortSignal): Promise<KnowledgeRefsDto> {
+  const query = new URLSearchParams({ q });
+  if (excludeNote !== null) query.set("excludeNote", excludeNote);
+  return api<KnowledgeRefsDto>(`/api/knowledge/refs?${query.toString()}`, { signal });
+}
+
+export function fetchKnowledgeRef(noteId: string, knowledgeId: string, signal?: AbortSignal): Promise<KnowledgeRefCandidateDto> {
+  return api<KnowledgeRefCandidateDto>(`/api/knowledge/refs/${encodeURIComponent(noteId)}/${encodeURIComponent(knowledgeId)}`, { signal });
 }

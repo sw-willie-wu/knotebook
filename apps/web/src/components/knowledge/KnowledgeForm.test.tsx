@@ -302,24 +302,6 @@ describe("KnowledgeForm replacement picker", () => {
     expect((combo as HTMLInputElement).value).toBe("Gamma");
   });
 
-  it("a candidate from another note is stored as noteId#knowledgeId", async () => {
-    const editor = three();
-    const source: KnowledgeRefSource = {
-      search: () => Promise.resolve([{ ref: `${OTHER}#k_0000000f`, noteId: OTHER, noteTitle: "Other note", blockId: "z", heading: "Elsewhere", conclusion: "", href: `/n/${OTHER}` }]),
-      resolve: () => Promise.resolve(null),
-    };
-    render(
-      <KnowledgeRefSourceContext.Provider value={source}>
-        <KnowledgeForm editor={editor} blockId="a" getEntries={() => entriesOf(editor)} noteId={NOTE} phone={false} close={() => {}} />
-      </KnowledgeRefSourceContext.Provider>,
-    );
-    pickOutdated();
-    fireEvent.focus(screen.getByRole("combobox", { name: "Replaced by" }));
-    fireEvent.mouseDown(await screen.findByRole("option", { name: /Elsewhere/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    expect(infoOf(editor, "a")).toMatchObject({ status: "outdated", supersededBy: `${OTHER}#k_0000000f` });
-  });
-
   it("a same-note replacement that no longer exists shows the missing text, and one in another note shows the other-note text", async () => {
     const gone = mount([heading("Alpha", "a", K(1, { knowledgeStatus: "outdated", knowledgeSupersededBy: "k_0000000f" }))]);
     renderForm(gone, "a");
@@ -338,6 +320,124 @@ describe("KnowledgeForm replacement picker", () => {
     fireEvent.click(screen.getByRole("radio", { name: "Current" }));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(infoOf(editor, "a")).toMatchObject({ status: "", supersededBy: "" });
+  });
+});
+
+describe("KnowledgeForm replacement picker with a ref source", () => {
+  const remoteHit = { ref: `${OTHER}#k_0000000f`, noteId: OTHER, noteTitle: "Other note", blockId: "z", heading: "Elsewhere", conclusion: "", href: `/n/${OTHER}` };
+  const setup = (search: KnowledgeRefSource["search"]) => {
+    const editor = mount([heading("Alpha", "a", K(1)), heading("Beta", "b", K(2))]);
+    const source: KnowledgeRefSource = { search: vi.fn(search), resolve: () => Promise.resolve(null) };
+    const close = vi.fn();
+    render(
+      <KnowledgeRefSourceContext.Provider value={source}>
+        <KnowledgeForm editor={editor} blockId="a" getEntries={() => entriesOf(editor)} noteId={NOTE} phone={false} close={close} />
+      </KnowledgeRefSourceContext.Provider>,
+    );
+    fireEvent.click(screen.getByRole("radio", { name: "Outdated" }));
+    const combo = screen.getByRole("combobox", { name: "Replaced by" });
+    fireEvent.focus(combo);
+    return { editor, source, combo, close };
+  };
+  const advance = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
+
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("without a ref source only This note is listed, exactly as before", async () => {
+    const editor = mount([heading("Alpha", "a", K(1)), heading("Beta", "b", K(2))]);
+    renderForm(editor, "a");
+    fireEvent.click(screen.getByRole("radio", { name: "Outdated" }));
+    fireEvent.focus(screen.getByRole("combobox", { name: "Replaced by" }));
+    await advance(0);
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+    expect(screen.queryByText("This note")).toBeNull();
+    expect(screen.queryByText("Other notes")).toBeNull();
+  });
+
+  it("the other-note section appears 250 ms after typing stops and a blank query asks nothing", async () => {
+    const { source, combo } = setup(() => Promise.resolve([remoteHit]));
+    await advance(1000);
+    expect(source.search).not.toHaveBeenCalled();
+    fireEvent.change(combo, { target: { value: "else" } });
+    await advance(249);
+    expect(source.search).not.toHaveBeenCalled();
+    await advance(1);
+    expect(source.search).toHaveBeenCalledTimes(1);
+    expect(source.search).toHaveBeenCalledWith("else", expect.any(AbortSignal));
+    await advance(0);
+    expect(screen.getByRole("option", { name: /Elsewhere/ })).toBeInTheDocument();
+    expect(screen.getByText("This note")).toBeInTheDocument();
+    expect(screen.getByText("Other notes")).toBeInTheDocument();
+  });
+
+  it("typing again within the delay sends one search, and typing after it aborts the previous one", async () => {
+    const signals: AbortSignal[] = [];
+    const { source, combo } = setup((_q, signal) => {
+      signals.push(signal!);
+      return new Promise(() => {});
+    });
+    fireEvent.change(combo, { target: { value: "e" } });
+    await advance(100);
+    fireEvent.change(combo, { target: { value: "el" } });
+    await advance(250);
+    expect(source.search).toHaveBeenCalledTimes(1);
+    expect(source.search).toHaveBeenLastCalledWith("el", expect.any(AbortSignal));
+    fireEvent.change(combo, { target: { value: "els" } });
+    expect(signals[0]!.aborted).toBe(true);
+    await advance(250);
+    expect(source.search).toHaveBeenCalledTimes(2);
+  });
+
+  it("nothing is sent while an input-method composition is in progress", async () => {
+    const { source, combo } = setup(() => Promise.resolve([]));
+    fireEvent.compositionStart(combo);
+    fireEvent.change(combo, { target: { value: "ㄅ" } });
+    await advance(1000);
+    expect(source.search).not.toHaveBeenCalled();
+    fireEvent.compositionEnd(combo);
+    fireEvent.change(combo, { target: { value: "步" } });
+    await advance(250);
+    expect(source.search).toHaveBeenCalledWith("步", expect.any(AbortSignal));
+  });
+
+  it("choosing an other-note candidate stores noteId#knowledgeId", async () => {
+    const { editor, combo } = setup(() => Promise.resolve([remoteHit]));
+    fireEvent.change(combo, { target: { value: "else" } });
+    await advance(250);
+    await advance(0);
+    fireEvent.mouseDown(screen.getByRole("option", { name: /Elsewhere/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(infoOf(editor, "a")).toMatchObject({ status: "outdated", supersededBy: `${OTHER}#k_0000000f` });
+  });
+
+  it("a failed other-note search says so under This note's results, which stay usable", async () => {
+    const { editor, combo } = setup(() => Promise.reject(new Error("offline")));
+    fireEvent.change(combo, { target: { value: "bet" } });
+    await advance(250);
+    await advance(0);
+    expect(screen.getByText("Couldn't search other notes.")).toBeInTheDocument();
+    fireEvent.mouseDown(screen.getByRole("option", { name: /Beta/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(infoOf(editor, "a")).toMatchObject({ supersededBy: "k_00000002" });
+  });
+
+  it("a 429 says to wait instead of the generic failure", async () => {
+    const { combo } = setup(() => Promise.reject(Object.assign(new Error("slow down"), { status: 429 })));
+    fireEvent.change(combo, { target: { value: "bet" } });
+    await advance(250);
+    await advance(0);
+    expect(screen.getByText("Too many searches. Try again in a minute.")).toBeInTheDocument();
+    expect(screen.queryByText("Couldn't search other notes.")).toBeNull();
+  });
+
+  it("an aborted search is not reported as a failure", async () => {
+    const { combo } = setup((_q, signal) => new Promise((_resolve, reject) => signal!.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")))));
+    fireEvent.change(combo, { target: { value: "bet" } });
+    await advance(250);
+    fireEvent.change(combo, { target: { value: "beta" } });
+    await advance(0);
+    expect(screen.queryByText("Couldn't search other notes.")).toBeNull();
   });
 });
 

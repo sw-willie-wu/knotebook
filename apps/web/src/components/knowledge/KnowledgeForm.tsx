@@ -67,7 +67,7 @@ export function KnowledgeForm({ editor, blockId, getEntries, noteId, phone, clos
   }, [editor, blockId]);
 
   const localSource = useMemo(() => localKnowledgeRefSource(getEntries, noteId), [getEntries, noteId]);
-  const source = useContext(KnowledgeRefSourceContext) ?? localSource;
+  const remoteSource = useContext(KnowledgeRefSourceContext);
 
   const messageOf = (field: FormField, error: string): string => {
     if (error === "whenTooLong" || error === "conclusionTooLong") {
@@ -237,7 +237,8 @@ export function KnowledgeForm({ editor, blockId, getEntries, noteId, phone, clos
             describedBy={statusError.describedBy}
             invalid={statusError.invalid}
             value={draft.supersededBy}
-            source={source}
+            source={localSource}
+            remote={remoteSource}
             exclude={(c) => base !== null && c.ref === base.id}
             onChange={(ref) => edit("supersededBy", ref)}
           />

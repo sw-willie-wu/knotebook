@@ -63,7 +63,11 @@
     },
     "picker": {
       "placeholder": "Search knowledge",
-      "none": "No matching knowledge"
+      "none": "No matching knowledge",
+      "thisNote": "This note",
+      "otherNotes": "Other notes",
+      "searchFailed": "Couldn't search other notes.",
+      "searchBusy": "Too many searches. Try again in a minute."
     }
   }
 }
