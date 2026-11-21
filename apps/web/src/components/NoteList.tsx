@@ -92,7 +92,7 @@ interface NoteRowProps {
   favoritePending: boolean;
 }
 
-/** Not a button: shown only on touch/no-hover devices (a mouse uses the star button) and takes no clicks; add and remove through ⋮. Sits left of ⋮ so every row ⋮ lines up: 14px star about 8px from ⋮, `ms-2` from the text. */
+/** Not a button: shown only on touch/no-hover devices (a mouse uses the star button) and takes no clicks; add and remove through ⋮. Sits left of ⋮ so ⋮ lines up across favourite and non-favourite rows: 14px star about 8px from ⋮, `ms-2` from the text. */
 function FavoriteMarker() {
   const { t } = useTranslation();
   return (

@@ -8,7 +8,7 @@ const MAX_DOTS = 3;
 // Each dot is cut by a 1px ring around the dot drawn over it, so the gap shows whatever the row's background is.
 const CUT = "[mask-image:radial-gradient(circle_at_calc(100%+2.5px)_50%,transparent_4.5px,#000_5px)]";
 
-/** Marker only, not a control: a row puts it last, in a fixed-width slot, so its right edge is the same on every row; it takes no clicks. */
+/** Marker only, not a control: a row puts it last, in a fixed-width slot, so its right edge is the same on every tagged row; it takes no clicks. */
 export function TagDots({ tags, className }: { tags: readonly NoteTagDto[]; className?: string }) {
   const { t } = useTranslation();
   if (tags.length === 0) return null;

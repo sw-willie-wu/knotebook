@@ -518,8 +518,8 @@ async function tagNoteViaApi(page: Page, noteId: string, name: string): Promise<
 // A tagged note row ends with a fixed-width tag-dots slot (19px, plus a 4px gap before it); an untagged row has none.
 const DOTS_SLOT_WIDTH = 19;
 const DOTS_SLOT_GAP = 4;
-// Icon buttons keep their glyph 5px inside the button box.
-const STAR_GLYPH_INSET = 5;
+// Icon buttons keep their glyph 5px inside the button box (star and kebab alike).
+const ICON_GLYPH_INSET = 5;
 
 const box = async (target: Locator): Promise<{ x: number; y: number; width: number; height: number }> => {
   const b = await target.boundingBox();
@@ -658,7 +658,7 @@ test("58-13 desktop (1280): on an untagged row the star's right inset equals the
     expect(Math.abs(slotInset13 - leftInset), `圓點欄右內距 ${slotInset13} 與左內距 ${leftInset} 相差`).toBeLessThanOrEqual(1);
     const taggedGlyph = await box(taggedStarButton.locator("svg"));
     const taggedIdleInset = edges.right - (taggedGlyph.x + taggedGlyph.width);
-    expect(Math.abs(taggedIdleInset - slotInset13 - DOTS_SLOT_WIDTH - DOTS_SLOT_GAP - STAR_GLYPH_INSET), `有標籤列星號右內距 ${taggedIdleInset} 要多出圓點欄與間距`).toBeLessThanOrEqual(1);
+    expect(Math.abs(taggedIdleInset - slotInset13 - DOTS_SLOT_WIDTH - DOTS_SLOT_GAP - ICON_GLYPH_INSET), `有標籤列星號右內距 ${taggedIdleInset} 要多出圓點欄與間距`).toBeLessThanOrEqual(1);
     const taggedIdleStar = await box(taggedStarButton);
     console.log(`MEASURE 58-13 untagged star inset ${idleInset} tagged dots inset ${slotInset13} tagged star inset ${taggedIdleInset} star offset ${(await box(star)).x - taggedIdleStar.x}`);
     // When the kebab hasn't surfaced it is transparent with width 0 (takes no space); the title extends up to one gap before the star.
@@ -698,7 +698,7 @@ test("58-13 desktop (1280): on an untagged row the star's right inset equals the
     expect(taggedHoverMore.x + taggedHoverMore.width, "⋮ 不蓋到星號").toBeLessThanOrEqual(taggedHoverStar.x + 0.5);
     expect(taggedHoverMore.x, "⋮ 在星號左邊").toBeLessThan(taggedHoverStar.x);
     expect(taggedHoverStar.x + taggedHoverStar.width, "星號在圓點欄左邊").toBeLessThanOrEqual(taggedHoverSlot.x + 0.5);
-    expect(Math.abs(taggedHoverStar.x - starBox.x + 28), "有標籤的列星號比沒標籤的列靠左一欄（圓點欄＋間距－右邊距差）").toBeLessThanOrEqual(1);
+    expect(Math.abs(taggedHoverStar.x - starBox.x + DOTS_SLOT_WIDTH + DOTS_SLOT_GAP + ICON_GLYPH_INSET), "有標籤的列星號比沒標籤的列靠左：圓點欄寬＋間距＋圖示內縮").toBeLessThanOrEqual(1);
     await moveAway();
   } finally {
     await context.close();
@@ -727,6 +727,7 @@ test("58-14 phone (390): on an untagged row the kebab's right inset equals the l
     const edges = await listEdges(page);
     const link = row.getByRole("link");
     const leftInset = (await box(link)).x - edges.left;
+    expect(leftInset, "文字左緣離清單左緣").toBeCloseTo(16, 0);
     // On a tagged row the dots slot is the rightmost item and the kebab icon ends one slot plus a gap before it; the marker is about 8px left of the kebab (icon to icon).
     const moreGlyph = await box(more.locator("svg"));
     const rightInset = edges.right - (moreGlyph.x + moreGlyph.width);
@@ -734,7 +735,7 @@ test("58-14 phone (390): on an untagged row the kebab's right inset equals the l
     const slotInset = edges.right - (slotBox.x + slotBox.width);
     expect(slotBox.width, "圓點欄寬").toBeCloseTo(DOTS_SLOT_WIDTH, 0);
     expect(Math.abs(slotInset - leftInset), `圓點欄右內距 ${slotInset} 與左內距 ${leftInset} 相差`).toBeLessThanOrEqual(1);
-    expect(Math.abs(rightInset - slotInset - DOTS_SLOT_WIDTH - DOTS_SLOT_GAP - STAR_GLYPH_INSET), `⋮ 右內距 ${rightInset} 圓點欄右內距 ${slotInset}`).toBeLessThanOrEqual(1);
+    expect(Math.abs(rightInset - slotInset - DOTS_SLOT_WIDTH - DOTS_SLOT_GAP - ICON_GLYPH_INSET), `⋮ 右內距 ${rightInset} 圓點欄右內距 ${slotInset}`).toBeLessThanOrEqual(1);
     const markerGlyph = await box(marker.locator("svg"));
     const iconGap = moreGlyph.x - (markerGlyph.x + markerGlyph.width);
     expect(iconGap, "標記與 ⋮ 的圖示間距").toBeGreaterThanOrEqual(6);
