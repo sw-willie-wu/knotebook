@@ -662,6 +662,11 @@ input[name="share-access"] {
   --prev-level: 1.25em;
 }
 
+/* Room after the text for the status icon: 28px, of which `placement.ts` uses 24 (16px icon + 8px gap). Top-level headings only: a heading inside a column or list isn't knowledge, whatever attributes it carries. */
+.bn-editor > .bn-block-group > .bn-block-outer > .bn-block > .bn-block-content[data-content-type="heading"][data-knowledge-id] .bn-inline-content {
+  padding-right: 1.75rem;
+}
+
 /* Set by the knowledge decoration on a heading that is outdated itself or under an outdated knowledge heading; plain headings never carry it. */
 .bn-editor [data-kb-knowledge-outdated] .bn-inline-content {
   color: var(--muted-foreground);

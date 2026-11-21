@@ -75,6 +75,9 @@ import { KnotebookSideMenu, NotePathContext, SIDE_MENU_FLOATING_OPTIONS } from "
 import { useDragActiveClass } from "@/components/editor/use-drag-active-class";
 import { KnotebookTableCellButton, KnotebookTableHandle } from "@/components/editor/colors/KnotebookTableMenus";
 import { HeadingAnchorButtons } from "@/components/editor/HeadingAnchorButtons";
+import { KnowledgeLayerLazy } from "@/components/knowledge/KnowledgeLayerLazy";
+import { useKnowledgeController } from "@/components/knowledge/controller";
+import { useKnowledgeEntries } from "@/components/knowledge/use-knowledge-entries";
 import { MediaZoomProvider } from "@/components/media-zoom/MediaZoomProvider";
 import { ImageZoomLayer } from "@/components/media-zoom/ImageZoomLayer";
 import { ColumnDividers } from "@/components/editor/ColumnDividers";
@@ -512,6 +515,9 @@ export function NoteEditor({
   }, [editor]);
 
   useEffect(() => registerEditor(noteId, editor), [noteId, editor]);
+  const knowledge = useKnowledgeController();
+  // `editable` flips remount the view and rebuild the plugin state without a change event.
+  const knowledgeEntries = useKnowledgeEntries(editor, editable);
   // Notify once per editor instance when it first becomes editable (the registry dedups). Register first, then notify in the same commit; `editor.isEditable` is set by BlockNoteView ref callback earlier in commit.
   useEffect(() => {
     if (editable) notifyEditorEditable(noteId, editor);
@@ -619,6 +625,7 @@ export function NoteEditor({
                   <SelectionAiController />
                 </NoteEditorView>
                 <HeadingAnchorButtons container={columnEl} />
+                <KnowledgeLayerLazy container={columnEl} entries={knowledgeEntries} editable={editable} noteId={noteId} controller={knowledge} />
                 <ImageZoomLayer container={columnEl} editable={editable} editor={editor} />
               </MediaZoomProvider>
               {/* nothing to resize when read-only */}
