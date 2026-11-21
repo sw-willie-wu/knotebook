@@ -45,5 +45,22 @@
     "listLabel": "標籤",
     "keysHint": "↑↓ 選擇 · Enter 加入",
     "replacesHint": "選別的空間的標籤會取代目前的標籤"
+  },
+  "tagHash": {
+    "added": "已加上標籤：{{names}}",
+    "undo": "復原",
+    "undoAlt": "復原加上的標籤 {{names}}",
+    "undoFailed": "無法完全復原，請從內文上方的標籤列移除。",
+    "undoTextNotRestored": "標籤已移除，但文字沒有放回。",
+    "overLimit": "一篇最多 {{max}} 個標籤，這一行保留原樣。",
+    "failed": "無法加上標籤。",
+    "failedRestored": "無法加上標籤，文字已放回。"
+  },
+  "tagPillMenu": {
+    "open": "標籤 {{name}}",
+    "rename": "改名…",
+    "color": "顏色",
+    "appliesAll": "會套用到所有用到這個標籤的筆記。",
+    "removeHere": "從這篇移除"
   }
 }

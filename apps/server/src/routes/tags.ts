@@ -48,7 +48,7 @@ export function tagsRoutes(deps: TagsRouteDeps) {
     const sendResult = (reply: FastifyReply, out: NoteTagsResult | AddNoteTagResult): FastifyReply => {
       switch (out.kind) {
         case "ok":
-          return reply.send("tag" in out ? ({ tags: out.tags, tag: out.tag } satisfies AddNoteTagResultDto) : ({ tags: out.tags } satisfies NoteTagsDto));
+          return reply.send("tag" in out ? ({ tags: out.tags, tag: out.tag, attached: out.attached } satisfies AddNoteTagResultDto) : ({ tags: out.tags } satisfies NoteTagsDto));
         case "invalid_tag_name":
           return sendError(reply, 400, "invalid_tag_name", INVALID_TAG_NAME_MESSAGE);
         case "tag_limit_reached":

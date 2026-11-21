@@ -1,17 +1,26 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import type { NoteDto, NoteTagDto } from "@knotebook/shared";
-import { tagSpaceOfNote, useAddNoteTag, useNoteTags, useRemoveNoteTag, useSpaceTags } from "@/api/tags";
+import { tagSpaceOfNote, useAddNoteTag, useNoteTags, useRemoveNoteTag, useSpaceTags, type TagSpaceRef } from "@/api/tags";
 import { errorMessage } from "@/api/favorites";
 import { Plus } from "@/components/ui/icons";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { TagCombobox } from "./TagCombobox";
 import { TagPill } from "./TagPill";
+import type { TagPillMenuProps } from "./TagPillMenu";
 import { fitPills } from "./pill-fit";
+import { useCanManageSpaceTags } from "./space-permissions";
 import { tagEntryReturnFocus, useTagEntryRequest } from "./tag-entry";
 
 const NO_TAGS: readonly NoteTagDto[] = [];
+const loadTagPillMenu = () => import("./TagPillMenu");
+// A chunk that cannot be fetched must not take the note page down: the pill just loses its menu.
+const TagPillMenu = lazy(() =>
+  loadTagPillMenu().catch(() => ({
+    default: ({ tag, onRemove, removeDisabled }: TagPillMenuProps) => <TagPill tag={tag} onRemove={onRemove} removeDisabled={removeDisabled} />,
+  })),
+);
 const GAP_PX = 5;
 const ADD_WIDTH_PX = 20;
 const INPUT_WIDTH_PX = 144;
@@ -26,6 +35,7 @@ export function NoteTagRow({ note, canEdit }: { note: NoteDto; canEdit: boolean 
   const { t } = useTranslation();
   const tags = useNoteTags(note.id);
   const space = tagSpaceOfNote(note);
+  const canManage = useCanManageSpaceTags(note);
   const [inputOpen, setInputOpen] = useState(false);
   // Only requests made after this row mounted count, so coming back to a note never reopens the input.
   const request = useTagEntryRequest(note.id);
@@ -42,6 +52,11 @@ export function NoteTagRow({ note, canEdit }: { note: NoteDto; canEdit: boolean 
   const addRef = useRef<HTMLButtonElement>(null);
   const refocusAddRef = useRef(false);
   const returnFocusRef = useRef(false);
+
+  // The menu behind each pill is a lazy chunk: start fetching it as soon as the row can use it, so the first click doesn't wait.
+  useEffect(() => {
+    if (canEdit) void loadTagPillMenu().catch(() => undefined);
+  }, [canEdit]);
 
   useEffect(() => {
     if (inputOpen) return;
@@ -80,6 +95,8 @@ export function NoteTagRow({ note, canEdit }: { note: NoteDto; canEdit: boolean 
     <TagRowBody
       tags={list}
       canEdit={canEdit}
+      canManage={canManage}
+      space={space}
       inputOpen={inputOpen}
       onRemove={removeTag}
       removingId={remove.isPending ? remove.variables?.tagId : undefined}
@@ -110,6 +127,8 @@ export function NoteTagRow({ note, canEdit }: { note: NoteDto; canEdit: boolean 
 interface TagRowBodyProps {
   tags: readonly NoteTagDto[];
   canEdit: boolean;
+  canManage: boolean;
+  space: TagSpaceRef;
   inputOpen: boolean;
   onRemove: (tag: NoteTagDto) => void;
   removingId: string | undefined;
@@ -118,7 +137,7 @@ interface TagRowBodyProps {
   input: ReactNode;
 }
 
-function TagRowBody({ tags, canEdit, inputOpen, onRemove, removingId, addRef, onOpenInput, input }: TagRowBodyProps) {
+function TagRowBody({ tags, canEdit, canManage, space, inputOpen, onRemove, removingId, addRef, onOpenInput, input }: TagRowBodyProps) {
   const { t } = useTranslation();
   const rowRef = useRef<HTMLDivElement>(null);
   const pillRefs = useRef(new Map<string, HTMLElement>());
@@ -198,7 +217,13 @@ function TagRowBody({ tags, canEdit, inputOpen, onRemove, removingId, addRef, on
             aria-hidden={hidden || undefined}
             className={cn("inline-flex min-w-0 max-w-full", hidden && "pointer-events-none invisible absolute left-0 top-0")}
           >
-            <TagPill tag={tag} onRemove={canEdit ? () => onRemove(tag) : undefined} removeDisabled={removingId === tag.id} />
+            {canEdit ? (
+              <Suspense fallback={<TagPill tag={tag} onRemove={() => onRemove(tag)} removeDisabled={removingId === tag.id} />}>
+                <TagPillMenu tag={tag} space={space} canManage={canManage} onRemove={() => onRemove(tag)} removeDisabled={removingId === tag.id} />
+              </Suspense>
+            ) : (
+              <TagPill tag={tag} />
+            )}
           </span>
         );
       })}

@@ -46,6 +46,8 @@ describe("tags lazy bundle", () => {
     for (const path of [
       "src/settings/TagsSection.tsx",
       "src/components/tags/RenameTagDialog.tsx",
+      "src/components/tags/TagPillMenu.tsx",
+      "src/components/tags/hash-tag-batch.ts",
       "src/components/sidebar/TagSearchController.tsx",
       "src/components/sidebar/TagResultsExtras.tsx",
       "src/components/sidebar/TagHashList.tsx",

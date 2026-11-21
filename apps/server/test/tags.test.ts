@@ -88,7 +88,7 @@ describe("POST /api/notes/:id/tags", () => {
     for (const variant of ["AWS", "　Aws　"]) {
       const again = await addTag(app, alice.id, n.id, { name: variant });
       expect(again.statusCode, again.body).toBe(200);
-      expect(again.json()).toEqual(first.json());
+      expect(again.json()).toEqual({ ...(first.json() as object), attached: false });
     }
     expect(names(await tagRows(db))).toEqual(["aws"]);
     expect(await noteTagRows(db, n.id)).toHaveLength(1);
@@ -105,10 +105,12 @@ describe("POST /api/notes/:id/tags", () => {
     const body = created.json() as NoteTagsDto & { tag: { id: string; name: string; color: string } };
     expect(body.tags.map(t => t.name)).toEqual(["first", "Second"]);
     expect(body.tag).toEqual(body.tags[1]);
+    expect((body as unknown as { attached: boolean }).attached).toBe(true);
 
     const again = await addTag(app, alice.id, n.id, { name: "SECOND" });
     expect(again.statusCode, again.body).toBe(200);
     expect((again.json() as typeof body).tag).toEqual(body.tag);
+    expect((again.json() as { attached: boolean }).attached).toBe(false);
     const removed = await removeTag(app, alice.id, n.id, body.tag.id);
     expect("tag" in (removed.json() as object)).toBe(false);
   });
@@ -733,7 +735,7 @@ describe("setNoteTagsByNamesInTx", () => {
 
     const out = await db.transaction(tx => addNoteTagInTx(tx, { noteId: n.id, expected: { ownerId: alice.id, groupId: null }, name: "mine", createdBy: alice.id }));
     const mine = { id: expect.any(String), name: "mine", color: "blue" };
-    expect(out).toEqual({ kind: "ok", tags: [mine], tag: mine });
+    expect(out).toEqual({ kind: "ok", tags: [mine], tag: mine, attached: true });
   });
 });
 
@@ -743,7 +745,7 @@ describe("finishAdd", () => {
     const { db } = await buildTestApp();
     const alice = await seedUser(db, { displayName: "Alice" });
     const n = await seedNote(db, { ownerId: alice.id });
-    const out = await db.transaction(tx => finishAdd(tx, n.id, randomUUID()));
+    const out = await db.transaction(tx => finishAdd(tx, n.id, randomUUID(), true));
     expect(out).toEqual({ kind: "conflict" });
   });
 });

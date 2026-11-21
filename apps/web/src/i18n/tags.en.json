@@ -45,5 +45,22 @@
     "listLabel": "Tags",
     "keysHint": "↑↓ to choose · Enter to add",
     "replacesHint": "Tags of another space replace the current ones"
+  },
+  "tagHash": {
+    "added": "Tags added: {{names}}",
+    "undo": "Undo",
+    "undoAlt": "Undo adding {{names}}",
+    "undoFailed": "Couldn't undo everything. Remove the tags from the row above the text.",
+    "undoTextNotRestored": "The tags were removed, but the text could not be put back.",
+    "overLimit": "A note can have at most {{max}} tags, so the line was left as it is.",
+    "failed": "Couldn't add the tag.",
+    "failedRestored": "Couldn't add the tags. The text was put back."
+  },
+  "tagPillMenu": {
+    "open": "Tag {{name}}",
+    "rename": "Rename…",
+    "color": "Color",
+    "appliesAll": "Applies to every note with this tag.",
+    "removeHere": "Remove from this note"
   }
 }

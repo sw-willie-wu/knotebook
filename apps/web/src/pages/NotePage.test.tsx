@@ -60,7 +60,7 @@ const VERSION_1 = vi.hoisted(() => ({
   base: null,
   createdAt: "2026-01-01T00:00:00.000Z",
 }));
-const editorMock = vi.hoisted(() => ({ scroller: null as null | ((c: unknown) => boolean), noteMaxBytes: undefined as number | undefined, maxUploadBytes: undefined as number | undefined }));
+const editorMock = vi.hoisted(() => ({ scroller: null as null | ((c: unknown) => boolean), noteMaxBytes: undefined as number | undefined, maxUploadBytes: undefined as number | undefined, restored: 0 }));
 const siteConfig = vi.hoisted(() => ({ noteMaxBytes: undefined as number | undefined, maxUploadBytes: undefined as number | undefined }));
 // #297: `mock-column` uses the real `useNoteWidth(noteId)`, and the width test relies on it to verify that NotePage hands the header menu and the editor the same id.
 vi.mock("@/components/NoteEditor", async () => {
@@ -87,7 +87,11 @@ vi.mock("@/components/NoteEditor", async () => {
     noteId: string;
     headerSlot?: ReactNode;
     contentTopSlot?: ReactNode;
-    tagEntry?: { open: (opts?: { returnFocus?: () => void }) => void };
+    tagEntry?: {
+      open: (opts?: { returnFocus?: () => void }) => void;
+      applyHash?: (input: { names: string[]; restore: () => boolean }) => void;
+      currentTagNames?: () => readonly string[];
+    };
     footerSlot?: ReactNode;
     previewSlot?: ReactNode;
     onCursorScroller?: (s: unknown) => void;
@@ -109,6 +113,12 @@ vi.mock("@/components/NoteEditor", async () => {
             mock-slash-tag
           </button>
         )}
+        {tagEntry?.applyHash && (
+          <button type="button" onClick={() => tagEntry.applyHash?.({ names: ["Alpha"], restore: () => (editorMock.restored += 1, true) })}>
+            mock-apply-hash
+          </button>
+        )}
+        {tagEntry?.currentTagNames && <span data-testid="mock-current-tag-names">{tagEntry.currentTagNames().join("|")}</span>}
         {headerSlot}
         <div data-testid="mock-content-top">{contentTopSlot}</div>
         <div data-testid="mock-column" data-width={width} />
@@ -3924,6 +3934,32 @@ describe("note tag row", () => {
     openHeaderMenu();
     await screen.findByRole("menuitem", { name: /Copy link/ });
     expect(screen.queryByRole("menuitem", { name: "Add tag" })).toBeNull();
+  });
+
+  it("the tag entry hands #name batches to the tag API and reads the note's current tags", async () => {
+    await openWith(NOTE, [AWS]);
+    await waitFor(() => expect(calls).toContain("GET /api/notes"));
+    await waitFor(() => expect(screen.getByTestId("mock-current-tag-names")).toHaveTextContent("AWS"));
+    const base = fetch as unknown as typeof fetch;
+    const bodies: string[] = [];
+    vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === `/api/notes/${NOTE.id}/tags` && init?.method === "POST") {
+        bodies.push(String(init.body));
+        const tag = { id: "t9", name: "Alpha", color: "purple" };
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ tags: [AWS, tag], tag, attached: true }) }));
+      }
+      return base(input, init);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "mock-apply-hash" }));
+    await waitFor(() => expect(bodies).toEqual([JSON.stringify({ name: "Alpha" })]));
+    await screen.findByText("Tags added: Alpha");
+  });
+
+  it("an edit share and a viewer get no #name batch entry either", async () => {
+    collab.state = { phase: "connected", role: "editor" };
+    await openWith({ ...NOTE, role: "editor", ownerId: "u2", permissions: EDITOR_PERMS }, []);
+    await waitFor(() => expect(calls).toContain("GET /api/notes"));
+    expect(screen.queryByRole("button", { name: "mock-apply-hash" })).toBeNull();
   });
 
   it("a viewer gets the pills only", async () => {

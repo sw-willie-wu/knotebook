@@ -27,7 +27,7 @@ export type NoteTagsResult =
   | { kind: "not_found" }
   | { kind: "conflict" };
 
-export type AddNoteTagResult = Exclude<NoteTagsResult, { kind: "ok" }> | { kind: "ok"; tags: NoteTagDto[]; tag: NoteTagDto };
+export type AddNoteTagResult = Exclude<NoteTagsResult, { kind: "ok" }> | { kind: "ok"; tags: NoteTagDto[]; tag: NoteTagDto; attached: boolean };
 
 export interface ExpectedNoteSpace {
   ownerId: string | null;
@@ -106,11 +106,11 @@ async function finish(tx: Tx, noteId: string): Promise<NoteTagsResult> {
 }
 
 // READ COMMITTED: another request can delete, merge or detach the tag between the statements that found it and this read.
-export async function finishAdd(tx: Tx, noteId: string, tagId: string): Promise<AddNoteTagResult> {
+export async function finishAdd(tx: Tx, noteId: string, tagId: string, attached: boolean): Promise<AddNoteTagResult> {
   const loaded = await loadNoteTags(tx, noteId);
   const tag = loaded.find(t => t.id === tagId);
   if (tag === undefined) return { kind: "conflict" };
-  return { kind: "ok", tags: loaded, tag };
+  return { kind: "ok", tags: loaded, tag, attached };
 }
 
 export async function addNoteTagInTx(
@@ -126,14 +126,14 @@ export async function addNoteTagInTx(
 
   const existing = await findTagByKey(tx, space, await nameKeyOf(tx, name));
   const attached = await attachedTagIds(tx, input.noteId, space);
-  if (existing !== null && attached.includes(existing.id)) return finishAdd(tx, input.noteId, existing.id);
+  if (existing !== null && attached.includes(existing.id)) return finishAdd(tx, input.noteId, existing.id, false);
   if (attached.length >= TAGS_PER_NOTE_MAX) return { kind: "tag_limit_reached", limit: TAGS_PER_NOTE_MAX };
 
   const used = existing === null ? await usedColors(tx, space) : [];
   if (existing === null && used.length >= TAGS_PER_SPACE_MAX) return { kind: "tag_limit_reached", limit: TAGS_PER_SPACE_MAX };
   const tagId = await upsertTag(tx, space, name, existing?.color ?? pickTagColor(used), input.createdBy);
   await tx.insert(noteTags).values({ noteId: input.noteId, tagId }).onConflictDoNothing();
-  return finishAdd(tx, input.noteId, tagId);
+  return finishAdd(tx, input.noteId, tagId, true);
 }
 
 export async function removeNoteTagInTx(tx: Tx, input: { noteId: string; expected: ExpectedNoteSpace; tagId: string }): Promise<NoteTagsResult> {
