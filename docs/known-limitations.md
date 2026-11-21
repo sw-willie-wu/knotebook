@@ -229,6 +229,25 @@ Each section below names one page and lists the bold headings of its entries; fo
 - [Copying a note while one of its tags is being merged into another can leave that tag off the copy.](./known-limitations/tags.md)
 - [After going back to version 0.17 and upgrading again, some notes lose their tags or show none.](./known-limitations/tags.md)
 
+## Knowledge info
+
+[Knowledge info](./known-limitations/knowledge.md): the facts a heading carries about what it says, and their status icon.
+
+- [Turning a knowledge heading into a paragraph, or merging it into the paragraph above, removes its knowledge info.](./known-limitations/knowledge.md)
+- [Pressing Backspace at the very start of a knowledge heading turns it into a paragraph, and its knowledge info goes with it.](./known-limitations/knowledge.md)
+- [Public pages and presentations show no knowledge info.](./known-limitations/knowledge.md)
+- [Knowledge info can only be added to a heading at the top level of a note.](./known-limitations/knowledge.md)
+- [A phone has no drag handle, so the way in is `/info` or the icon.](./known-limitations/knowledge.md)
+- [Tab indents a block in an editable note, so you can't Tab from the text to a status icon while you type.](./known-limitations/knowledge.md)
+- [A heading you edit in the previous version loses its knowledge info after you go back to it.](./known-limitations/knowledge.md)
+- [After a change that only turns the heading's text italic or into inline code, the icon can sit a little off for a moment.](./known-limitations/knowledge.md)
+- [While it is faded, the status icon has a lower contrast than 3:1 against the page.](./known-limitations/knowledge.md)
+- [In a very large note, typing in a heading is slower.](./known-limitations/knowledge.md)
+- [A very large note that has knowledge info is slower to open as a public page.](./known-limitations/knowledge.md)
+- [If the window crosses the phone width while the form is open, what you had typed and not saved is lost.](./known-limitations/knowledge.md)
+- [A heading can only be marked as replaced by a knowledge heading of the same note.](./known-limitations/knowledge.md)
+- [The last verified date can be a date in the future.](./known-limitations/knowledge.md)
+
 ## Trash
 
 [Trash](./known-limitations/trash.md): moving notes to the trash, restoring them and permanent deletion.

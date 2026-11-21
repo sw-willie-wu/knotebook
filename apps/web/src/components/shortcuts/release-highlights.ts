@@ -21,7 +21,7 @@ export interface ReleaseHighlights {
 
 export const RELEASE_HIGHLIGHTS: ReleaseHighlights = {
   version: "0.18.0",
-  items: [{ id: "tags" }],
+  items: [{ id: "tags" }, { id: "knowledgeInfo" }],
 };
 
 export function visibleHighlightItems(items: readonly HighlightItem[], isSiteAdmin: boolean): HighlightItem[] {

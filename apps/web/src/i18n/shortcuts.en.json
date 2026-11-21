@@ -241,6 +241,10 @@
         "tags": {
           "title": "Tags",
           "desc": "Label a note with tags: type /tag in the note, or choose Add tag in its ⋮ menu. The tags sit in a row above the text, show as colored dots on the note's row in the sidebar, and the funnel button in My notes and Groups lists only the notes that have all the tags you pick. Rename, recolor, merge or delete tags in Settings → Tags (for a group, in the group's window)."
+        },
+        "knowledgeInfo": {
+          "title": "Knowledge info",
+          "desc": "Mark a heading as a piece of knowledge: type /info in it, or choose Knowledge info… in its drag handle menu. Note when to read it, a one-line conclusion, its basis, when it was last verified and whether it is still current. A small icon after the heading shows its state; point at it (or tap it on a phone) to see the details. Outdated knowledge is struck through, together with the knowledge under it. Public pages and presentations don't show it."
         }
       }
     }
