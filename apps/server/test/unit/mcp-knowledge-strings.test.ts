@@ -48,7 +48,7 @@ describe("knowledge sentences in the tool strings", () => {
 
   it("edit_note's markdown description names every key and both status values, and does not say current is a status value", () => {
     for (const key of ["id", "when", "conclusion", "evidence", "verified", "status", "superseded_by"]) expect(WRITE_KNOWLEDGE_SENTENCE).toContain(key);
-    expect(WRITE_KNOWLEDGE_SENTENCE).toContain("status (unverified or outdated; leave it out for current)");
+    expect(WRITE_KNOWLEDGE_SENTENCE).toContain("status (unverified, shown as Needs review, or outdated; leave it out for current)");
     expect(WRITE_KNOWLEDGE_SENTENCE).not.toMatch(/\bor current\b|\bcurrent or\b/);
     for (const v of ["tested", "docs", "inferred", "unconfirmed"]) expect(WRITE_KNOWLEDGE_SENTENCE).toContain(v);
   });

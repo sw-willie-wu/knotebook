@@ -69,7 +69,7 @@ Each part below lists what works today and what is planned. Planned items are wh
 - **Images and diagrams**: PNG, JPEG, GIF and WebP images you can resize, counted toward the storage plan of the note's space; Mermaid diagrams stored as their source text ([Diagrams](docs/diagrams.md)); both zoom full screen.
 - **Side-by-side columns**: rows of two to four columns, made with `/grid` or by dragging a block beside another, resized by dragging the divider ([Side-by-side columns](docs/columns.md)).
 - **Heading outline**: a thin line on the right of a note with one tick per heading (H1 to H3); hover or tap it to see the headings and jump to one. On a wide enough window it can be pinned open beside a Standard-width note; on a phone or a window narrower than 768 px, a bubble shows where you are while you scroll and opens the list, and so does **Heading outline** in the note's `⋮` menu.
-- **Knowledge info**: a heading can carry when to read it, a one-line conclusion, its basis, when it was last verified and whether it is current, needs review or outdated, shown as a small status icon after the heading, with an index of it for each folder and space ([Knowledge info](docs/knowledge.md#the-index)).
+- **Knowledge info**: a heading can carry when to read it, a one-line conclusion, its basis, when it was last verified and whether it is current, needs review or outdated, shown as a small status icon after the heading, with an index of it for each folder and space ([Knowledge info](docs/knowledge.md), [the index](docs/knowledge.md#the-index)).
 - **Version history**: versions saved automatically after a pause in editing, or by hand; preview one, compare two side by side, and apply an older one ([Version history](docs/versions.md)).
 - **Presentation mode**: play a note as a slide show whose slides are its headings, from the note or from its public link.
 - **Search**: the sidebar finds notes by title and body text and opens a note at the matching section; the REST API and MCP search the same way ([MCP](docs/mcp.md#search_notes)).
@@ -78,9 +78,6 @@ Each part below lists what works today and what is planned. Planned items are wh
 
 **Planned**
 
-- **Knowledge pages**: a few properties on a note (when to read it, when it was last verified, a status such as verified, unverified or outdated, and a type such as decision, pitfall, convention or reference).
-- **Index pages** generated from those properties: "when to read → conclusion → link".
-- Tags on notes ([#105](https://github.com/sw-willie-wu/knotebook/issues/105)).
 - Attaching audio, video and documents, not only images ([#249](https://github.com/sw-willie-wu/knotebook/issues/249)); a reference library that AI can cite ([#71](https://github.com/sw-willie-wu/knotebook/issues/71)).
 - Importing an Obsidian vault, a Notion export or Markdown files, with `[[links]]` turned into links between notes.
 
@@ -90,6 +87,7 @@ Each part below lists what works today and what is planned. Planned items are wh
 
 - **MCP endpoint**: `/api/mcp` gives Claude Code, Claude Desktop and other MCP clients up to twenty tools to search, read a note section by section, create, edit, rename, copy and move notes, manage folders, move notes to the trash and back, and read images ([MCP](docs/mcp.md)).
 - **Notes as files**: with `open_notes_as_files`, an assistant that has a shell downloads many notes as Markdown files and sends the changed files back; only the parts a file changed are written ([MCP](docs/mcp.md#open_notes_as_files)).
+- **Knowledge info and tags for agents**: agents read and write knowledge info as a comment under each heading, and set tags through a file's `tags:` line ([AI editing](docs/ai-editing.md#knowledge-info)).
 - **API tokens and OAuth**: personal API tokens with scopes, or apps you authorize over OAuth, which are read-only unless you allow more ([API tokens](docs/api-tokens.md)). **Settings → Authorization → Connect Claude with MCP** shows ready-to-paste setup for your server.
 - **AI quick actions in the editor**: select text and run Rewrite, Translate, Summarize, Continue writing or Instruct (follows an instruction you type), with the result shown as an inline diff, streamed from a provider a site admin sets up: any OpenAI-compatible API (including a local Ollama) or Anthropic. Nothing is sent anywhere until an admin sets one up, and admins can rename, turn off or add actions ([AI quick actions](docs/ai.md)).
 - **REST API**: the web app runs on a REST API you can call yourself, including reading and writing note content by section ([AI editing](docs/ai-editing.md), [API contract summary](docs/api.md)).
@@ -128,7 +126,7 @@ Each part below lists what works today and what is planned. Planned items are wh
 
 - **Scheduled health checks**: broken links, notes not verified for too long, contradictions and duplicates, turned into to-dos or suggestions.
 - **Event triggers**: call an agent when a note changes, when it is @mentioned, or when something is uploaded.
-- **Turning a session into notes**: write up a conversation or a work log as knowledge pages.
+- **Turning a session into notes**: write up a conversation or a work log as notes whose headings carry knowledge info.
 
 ## For the people running it
 
@@ -208,6 +206,7 @@ Read the full [self-hosting guide](docs/self-hosting.md) before running anywhere
 For people writing notes:
 
 - [Sharing](docs/sharing.md): private, shared and public notes, groups and their roles, moving or copying a note into a group, folders, favorites, tags and the trash.
+- [Knowledge info](docs/knowledge.md): when to read, conclusion, basis, verified date and status on headings, and the index.
 - [Version history](docs/versions.md): when versions are saved, previewing, comparing and applying them, who sees them and how long they are kept.
 - [Side-by-side columns](docs/columns.md): making, resizing, removing, copying and undoing rows of columns.
 - [Diagrams (Mermaid)](docs/diagrams.md): inserting, editing, pasting and copying out Mermaid diagrams.

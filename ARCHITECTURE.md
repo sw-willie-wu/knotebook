@@ -49,7 +49,7 @@ On `SIGTERM`/`SIGINT` it stops background scans, then calls `collab.destroy()` *
 - `routes/public.ts`: public links, without sign-in;
 - `routes/ai.ts`: the in-app AI actions (provider code in `apps/server/src/ai/`).
 
-Routes stay thin. Domain logic lives in folders named after the area (`notes/`, `folders/`, `groups/`, `trash/`, `uploads/`, `storage/`, `transfer/`, `avatars/`), and code that runs inside a database transaction is usually in a `tx/` subfolder (for example `apps/server/src/notes/tx/`).
+Routes stay thin. Domain logic lives in folders named after the area (`notes/`, `folders/`, `groups/`, `trash/`, `tags/`, `knowledge/`, `uploads/`, `storage/`, `transfer/`, `avatars/`), and code that runs inside a database transaction is usually in a `tx/` subfolder (for example `apps/server/src/notes/tx/`).
 
 The `/collab` WebSocket does not go through Fastify routing: `collab.attach(app)` listens to the underlying HTTP server's `upgrade` event. Anything that matches no route falls through to `registerSpaFallback` (`apps/server/src/http/spa.ts`), which serves `index.html` from `web-dist` for browser navigations.
 
@@ -136,7 +136,7 @@ MCP tools, the REST content endpoints, bulk file write-backs, applying a version
 - The merge happens through a Hocuspocus **direct connection** (`withDirectConnection` in `session.ts`), the only place that opens one. Direct connections bypass `onAuthenticate`, so callers must check permissions first. Disconnecting is what saves the document.
 - Edits made over the API and MCP (`insertEditRecord` in `apply.ts`), reverts (`revert.ts`) and file write-backs (`apps/server/src/transfer/tx/record-file-sync.ts`) are recorded in `note_ai_edits` with the blocks they replaced, keeping at most `RETENTION` rows per note. Applying a version and the one-time link conversion (`apps/server/src/notes/link-conversion.ts`, which merges with `mergeDiff`) are not recorded. `revert.ts` and `revert-core.ts` undo a recorded edit when the blocks it wrote are still unchanged. The rules are in [docs/ai-editing.md](docs/ai-editing.md).
 
-Markdown conversion itself (what syntax maps to which block, colors, columns, escaping) is in `packages/shared/src/note-markdown*.ts`, so the server and the web app agree on it.
+Markdown conversion itself (what syntax maps to which block, colors, columns, escaping) is in `packages/shared/src/note-markdown*.ts`, so the server and the web app agree on it. The knowledge comment under a heading is converted in `packages/shared/src/knowledge-html.ts` (`applyKnowledgeComments`, when markdown is written) and `knowledge-markdown.ts` (`formatKnowledgeComment`, when it is read).
 
 ### End to end: an agent calls `edit_note` and an open tab updates
 

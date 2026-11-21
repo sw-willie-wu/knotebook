@@ -244,7 +244,7 @@
         },
         "knowledgeInfo": {
           "title": "Knowledge info",
-          "desc": "Mark a heading as a piece of knowledge: type /info in it, or choose Knowledge info… in its drag handle menu. Note when to read it, a one-line conclusion, its basis, when it was last verified and whether it is still current. A small icon after the heading shows its state; point at it (or tap it on a phone) to see the details. Outdated knowledge is struck through, together with the knowledge under it, and can name a replacement in another note. Each folder and group with knowledge has an index: use the button on its row or Open index in its menu. Public pages and presentations don't show it."
+          "desc": "Mark a heading as a piece of knowledge: type /info in it, or choose Knowledge info… in its drag handle menu. Note when to read it, a one-line conclusion, its basis, when it was last verified and whether it is still current. A small icon after the heading shows its state; point at it (or tap it on a phone) to see the details. Outdated knowledge is struck through, together with the knowledge under it, and can name a replacement in another note. Each folder and group, and My notes, has an index when it holds knowledge: use the button on its row or Open index in a folder's or group's menu. Public pages and presentations don't show it."
         }
       }
     }

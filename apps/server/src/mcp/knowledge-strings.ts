@@ -6,7 +6,7 @@ export const READ_SECTION_KNOWLEDGE_SENTENCE =
 export const WRITE_KNOWLEDGE_SENTENCE =
   "A <!-- knotebook:knowledge comment, as read_note_section returns it, on the lines after a heading that isn't in columns, a list or a quote sets that heading's knowledge info; anywhere else it is ignored and counted in the reply. " +
   "Write it back as it is to keep the info, change a value to change it, and leave out any line other than id to empty that field. " +
-  "Keys: id, when, conclusion, evidence (tested, docs, inferred or unconfirmed), verified (YYYY-MM-DD), status (unverified or outdated; leave it out for current) and superseded_by (needed with outdated: a knowledge id, or <note id>#<knowledge id> in another note). " +
+  "Keys: id, when, conclusion, evidence (tested, docs, inferred or unconfirmed), verified (YYYY-MM-DD), status (unverified, shown as Needs review, or outdated; leave it out for current) and superseded_by (needed with outdated: a knowledge id, or <note id>#<knowledge id> in another note). " +
   "A value in double quotes is read as a JSON string. " +
   "Leave out id for new knowledge; a comment without id on a heading that keeps its text and level in a replace_section or replace_all keeps that knowledge's id. " +
   "Leave a blank line after the -->. " +

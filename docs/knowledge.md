@@ -76,5 +76,5 @@ After an upgrade, older notes are indexed in the background and the page says so
 
 - **Version history.** Previewing a version shows the icons that version had, and their cards without **Edit**.
 - **Public pages and presentations.** A public link shows the note without any knowledge info, and so does the presentation mode (see [Sharing](./sharing.md)). The server removes it before it sends the note.
-- **Exports.** The HTML and Markdown a note is exported as leave the info out.
+- **Copying out.** Text copied out as HTML or Markdown leaves the info out.
 - **AI agents and downloaded files.** The Markdown that MCP, the API and a downloaded file give an agent has the info: a comment after each knowledge heading, which the agent can keep, change or add when it writes the note back. Reading and writing it is described in [AI editing](./ai-editing.md#knowledge-info); a downloaded file also has a `tags:` line, which an agent can change to set the note's tags (see [Sharing](./sharing.md#tags)). The AI actions in the editor send and check it the same way.
