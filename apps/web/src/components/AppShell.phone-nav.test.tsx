@@ -89,6 +89,9 @@ function Probe() {
       <button type="button" onClick={() => navigate("/n/tester/other-note")}>
         go-other-note
       </button>
+      <button type="button" onClick={() => navigate("/knowledge/f/folder-1")}>
+        go-index
+      </button>
       <button type="button" onClick={() => navigate("/")}>
         go-home
       </button>
@@ -255,6 +258,31 @@ describe("AppShell - phone back to list", () => {
     renderAt(NOTE_PATH);
     fireEvent.click(screen.getByRole("button", { name: "Back to notes" }));
     expect(screen.getByTestId("type")).toHaveTextContent("REPLACE");
+  });
+});
+
+describe("AppShell - phone knowledge index route", () => {
+  const INDEX_PATH = "/knowledge/f/folder-1";
+
+  it("an index route is a page, not the list: no list index is recorded and the back button replaces it with the list", () => {
+    historyIdx = 0;
+    renderAt(INDEX_PATH);
+    expect(sessionStorage.getItem("nav.listIdx")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Back to notes" }));
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/$/);
+    expect(screen.getByTestId("type")).toHaveTextContent("REPLACE");
+  });
+
+  it("with the list entry earlier, the back button steps back to it", async () => {
+    historyIdx = 2;
+    const { container } = renderAt("/");
+    await screen.findByRole("tablist");
+    historyIdx = 3;
+    fireEvent.click(within(container).getByRole("button", { name: "go-index" }));
+    expect(screen.getByTestId("location")).toHaveTextContent(INDEX_PATH);
+    fireEvent.click(screen.getByRole("button", { name: "Back to notes" }));
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/$/);
+    expect(screen.getByTestId("type")).toHaveTextContent("POP");
   });
 });
 

@@ -23,12 +23,14 @@ import LoginPage from "./pages/LoginPage";
 import HomePage from "./pages/HomePage";
 import { AppShellLayout } from "./components/AppShellLayout";
 import { NOTE_ROUTE_PATTERNS } from "./lib/phone-list";
+import { KNOWLEDGE_INDEX_ROUTE_PATTERNS, knowledgeIndexScopeFromParams, knowledgeIndexScopeKey } from "./lib/knowledge-index-path";
 import { SettingsModal } from "./settings/SettingsModal";
 import { GroupModal, GroupSubpathRedirect, LegacyGroupRedirect } from "./components/groups/GroupModal";
 import { AdminModal } from "./components/admin/AdminModal";
 
 // BlockNote and the collab stack (~1.3 MB); scripts/check-bundle-size.mjs keeps them out of the entry bundle.
 const NotePage = lazy(() => import("./pages/NotePage"));
+const KnowledgeIndexPage = lazy(() => import("./pages/KnowledgeIndexPage"));
 
 // Rarely used pages are lazy (#201). LoginPage and HomePage stay in the entry bundle (first screens), and so do
 // the modal shells (SettingsModal/GroupModal/AdminModal): the modal frame must appear at once, only content waits.
@@ -96,6 +98,22 @@ function LazyPageRoute({ chunk, frame, children }: { chunk: string; frame: "page
 }
 
 const PublicNotePage = lazy(() => import("./pages/PublicNotePage"));
+
+// Like NoteRoute, resetKey comes from the scope rather than location.key so a closed modal does not look like a switch.
+function KnowledgeIndexRoute() {
+  const { pathname } = useLocation();
+  const params = useParams();
+  const scope = knowledgeIndexScopeFromParams(pathname, params);
+  if (scope === null) return <HomePage />;
+  return (
+    <LazyRouteErrorBoundary key="knowledge-index" resetKey={knowledgeIndexScopeKey(scope)} chunk="knowledge-index">
+      <Suspense fallback={<LazyRouteLoading />}>
+        <KnowledgeIndexPage />
+        <ChunkLoadBeacon chunk="knowledge-index" />
+      </Suspense>
+    </LazyRouteErrorBoundary>
+  );
+}
 
 // resetKey from route params, not location.key: closing a settings modal creates a new key, which would look like a
 // note switch and reload. Cost: navigating again to the same params doesn't retry.
@@ -209,6 +227,9 @@ export function AppRoutes() {
               {/* Patterns shared with the phone layout's "is this a note route" check. */}
               {NOTE_ROUTE_PATTERNS.map((path) => (
                 <Route key={path} path={path} element={<NoteRoute />} />
+              ))}
+              {KNOWLEDGE_INDEX_ROUTE_PATTERNS.map((path) => (
+                <Route key={path} path={path} element={<KnowledgeIndexRoute />} />
               ))}
               <Route path="/*" element={<HomePage />} />
             </Route>

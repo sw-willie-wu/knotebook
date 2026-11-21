@@ -17,7 +17,7 @@ import { toast, toastViewportHostRef } from "@/components/ui/toast";
 import { cardSurface } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { OVERLAY_QUERY, isPhone, useIsPhone } from "@/lib/layout-tiers";
-import { PhoneBrowseContext, PhoneListContext, isNoteRoutePath } from "@/lib/phone-list";
+import { PhoneBrowseContext, PhoneListContext, isPageRoutePath } from "@/lib/phone-list";
 import { backTarget, clearListIdx, historyIdx, readListIdx, recordListIdx } from "@/lib/phone-nav";
 import { PHONE_PAGE_SCROLL_ATTR, ROOT_FLAGS, useRootFlag } from "@/lib/page-scroll";
 import { createPhoneScrollMemory, enterPhoneScreen, phoneScreenKey, rememberPhoneScroll, type PhoneScreen } from "@/lib/phone-scroll";
@@ -399,14 +399,14 @@ export function AppShell({ children, inert }: AppShellProps) {
   settingsRouteRef.current = { navigate, location };
 
   const phone = useIsPhone();
-  const onList = !isNoteRoutePath(location.pathname);
+  const onList = !isPageRoutePath(location.pathname);
   const listVisible = phone && onList;
   const backFromKeyRef = useRef<string | null>(null);
   const phoneState = useMemo(
     () => ({
       backToList: () => {
         const { navigate: go, location: here } = settingsRouteRef.current;
-        if (!isNoteRoutePath(here.pathname)) return;
+        if (!isPageRoutePath(here.pathname)) return;
         // Rapid clicks: the second must not step back again before popstate arrives.
         if (backFromKeyRef.current === here.key) return;
         backFromKeyRef.current = here.key;

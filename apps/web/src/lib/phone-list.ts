@@ -1,11 +1,17 @@
 import { createContext } from "react";
 import { matchPath } from "react-router";
+import { isKnowledgeIndexPath } from "./knowledge-index-path";
 
 export const NOTE_ROUTE_PATTERNS = ["/notes/:ref", "/n/:handle/:slug", "/g/:groupId/:slug"] as const;
 
 /** The backgrounds of `/groups/*` and `/admin/*` are also the list, so `pathname === "/"` alone is not enough. */
 export function isNoteRoutePath(pathname: string): boolean {
   return NOTE_ROUTE_PATTERNS.some((pattern) => matchPath({ path: pattern, end: true }, pathname) !== null);
+}
+
+/** Pages that replace the phone list: a note or a knowledge index. */
+export function isPageRoutePath(pathname: string): boolean {
+  return isNoteRoutePath(pathname) || isKnowledgeIndexPath(pathname);
 }
 
 export interface PhoneListState {
