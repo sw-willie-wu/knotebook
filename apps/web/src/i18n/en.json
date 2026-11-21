@@ -1130,6 +1130,7 @@
     "invalid_tag_name": "Tag names must be 1 to 40 characters.",
     "tag_not_found": "That tag no longer exists.",
     "merge_same_tag": "Pick a different tag to merge into.",
+    "invalid_knowledge": "A knowledge comment in that text is not valid, so nothing was changed.",
     "fallback": "An unexpected error occurred."
   }
 }

@@ -2,9 +2,11 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
+import * as Y from "yjs";
 import { noteAiEdits, notes, noteVersions, transferBases } from "../src/db/schema.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
 import { EditorSession } from "../src/notes/editing/session.js";
+import { exportNoteBody, exportNoteForTransfer } from "../src/transfer/export-note.js";
 import { BASE_UNAVAILABLE_MESSAGES } from "../src/routes/transfer.js";
 import { BASE_WITHOUT_ID_MESSAGE } from "../src/transfer/frontmatter.js";
 import { loadNoteDoc } from "../src/notes/editing/read.js";
@@ -63,6 +65,35 @@ describe("repeated exports are byte-identical", () => {
     expect(ctx.collab.hocuspocus.documents.get(n.id)).toBeUndefined();
     const cold = await downloadNote(ctx.app, b.token, n.id);
     expect(cold.body).toBe(live1.body);
+  });
+});
+
+describe("a note with knowledge info reads the same on every path", () => {
+  it("exportNoteBody and exportNoteForTransfer give the same body for a note with knowledge info, and the download carries the comment", async () => {
+    const blocks = [
+      { type: "heading", props: { level: 2, knowledgeId: "k_8f3a2c1d", knowledgeWhen: "alice reads this", knowledgeEvidence: "tested" }, content: "D1" },
+      { type: "paragraph", content: "body" },
+    ];
+    const doc = new Y.Doc();
+    const session = await EditorSession.open(testEditingRuntime, doc);
+    try {
+      session.editor.replaceBlocks(session.editor.document, blocks as never);
+    } finally {
+      session.close();
+    }
+    const body = await exportNoteBody(testEditingRuntime, doc, new Map());
+    const transfer = await exportNoteForTransfer(testEditingRuntime, doc, new Map());
+    expect(transfer.body).toBe(body);
+    expect(body).toBe("## D1\n<!-- knotebook:knowledge\nid: k_8f3a2c1d\nwhen: alice reads this\nevidence: tested\n-->\n\nbody\n");
+
+    const ctx = await buildCollabTestApp();
+    const u = await seedUser(ctx.db);
+    const pat = await seedTokenForUser(ctx.db, u.id, "notes:read notes:write");
+    const bulk = await issueBulkDirect(ctx.db, pat.tokenId, { access: "write" });
+    const note = await seedNote(ctx.db, { ownerId: u.id }, { title: "Title" });
+    await seedBlocks(ctx.db, note.id, blocks);
+    const downloaded = await downloadNote(ctx.app, bulk.token, note.id);
+    expect(downloaded.body).toBe(body);
   });
 });
 

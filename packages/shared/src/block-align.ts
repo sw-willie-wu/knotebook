@@ -14,13 +14,13 @@ function sortedJson(value: unknown): string {
   });
 }
 
-function inlineText(content: unknown): string {
+export function alignInlineText(content: unknown): string {
   if (!Array.isArray(content)) return "";
   let out = "";
   for (const node of content as Array<Record<string, unknown>>) {
     if (!node || typeof node !== "object") continue;
     if (node.type === "text") out += typeof node.text === "string" ? node.text : "";
-    else if (node.type === "link") out += inlineText(node.content);
+    else if (node.type === "link") out += alignInlineText(node.content);
     else if (node.type === "wikilink") {
       const props = (node.props ?? node) as Record<string, unknown>;
       const label = typeof props.label === "string" ? props.label : "";
@@ -34,12 +34,12 @@ function ownText(block: AlignSource): string {
   const content = block.content;
   if (content === undefined || content === null) return sortedJson(block.props);
   if (typeof content === "string") return content.trim();
-  if (Array.isArray(content)) return inlineText(content).trim();
+  if (Array.isArray(content)) return alignInlineText(content).trim();
   const table = content as { type?: unknown; rows?: unknown };
   if (table.type === "tableContent" && Array.isArray(table.rows)) {
     const rows = (table.rows as Array<{ cells?: unknown[] }>).map((row) =>
       (row.cells ?? [])
-        .map((cell) => inlineText(Array.isArray(cell) ? cell : (cell as { content?: unknown } | null)?.content))
+        .map((cell) => alignInlineText(Array.isArray(cell) ? cell : (cell as { content?: unknown } | null)?.content))
         .join("\t"),
     );
     return rows.join("\n").trim();

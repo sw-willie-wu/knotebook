@@ -7,6 +7,9 @@
 import { cleanHTMLToMarkdown } from "@blocknote/core";
 import type { BlockNoteEditor } from "@blocknote/core";
 import { COLUMNS_OPEN_TAG, columnOpenTag, parseColumnFlex } from "./columns.js";
+import { stripKnowledgeDataAttrs } from "./knowledge-html.js";
+import { formatKnowledgeComment } from "./knowledge-markdown.js";
+import { readKnowledgeInfo, type KnowledgeInfo } from "./knowledge.js";
 import { isShownColor } from "./note-colors.js";
 import { clampSizePx } from "./note-sizes.js";
 import { unescapeAttributeAngles } from "./serialized-html.js";
@@ -416,10 +419,14 @@ function rowMarkdown(row: Element, ctx: Ctx): string {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote's three generic params; same as notes/editing/session.ts
 type AnyEditor = BlockNoteEditor<any, any, any>;
-export function blocksToNoteMarkdown(editor: AnyEditor, blocks: Parameters<AnyEditor["blocksToHTMLLossy"]>[0]): string {
-  const html = editor.blocksToHTMLLossy(blocks);
+type Blocks = Parameters<AnyEditor["blocksToHTMLLossy"]>[0];
+
+function convertBlocks(editor: AnyEditor, blocks: Blocks): string {
+  const raw = editor.blocksToHTMLLossy(blocks);
   const tpl = document.createElement("template");
-  tpl.innerHTML = html;
+  tpl.innerHTML = raw;
+  // Comments are the only way knowledge reaches markdown, so whatever the exported HTML carries is dropped no matter how the schema exports it.
+  const html = /data-knowledge-/i.test(raw) && stripKnowledgeDataAttrs(tpl.content) ? tpl.innerHTML : raw;
   const text = tpl.content.textContent ?? "";
   // Placeholder chars already in the text: fall back to HTML for inline colors rather than risk a wrong replace.
   const inlineOk = !text.includes(TOKEN_OPEN) && !text.includes(TOKEN_CLOSE);
@@ -433,4 +440,48 @@ export function blocksToNoteMarkdown(editor: AnyEditor, blocks: Parameters<AnyEd
   }
   const md = restoreBreaks(serializeNodes(nodes, ctx) + "\n");
   return ctx.tokens.size === 0 ? md : md.replace(new RegExp(`${TOKEN_OPEN}\\d+${TOKEN_CLOSE}`, "g"), t => ctx.tokens.get(t) ?? t);
+}
+
+/** Private-use characters from the top down, away from the bottom-up ones `uniquePlaceholder` takes; null when all are in use. */
+function freeMarkerChar(haystack: string): string | null {
+  for (let cp = 0xf8ff; cp >= 0xe000; cp -= 1) {
+    const c = String.fromCharCode(cp);
+    if (!haystack.includes(c)) return c;
+  }
+  return null;
+}
+
+export interface NoteMarkdownOptions {
+  /** Write a knowledge comment under each top-level knowledge heading in `blocks`. */
+  knowledge?: boolean;
+}
+
+const propsOf = (b: { props?: unknown }): Record<string, unknown> | undefined => b.props as Record<string, unknown> | undefined;
+
+// A placeholder paragraph becomes the heading's first child so it lands right after the heading line (inside a toggleable
+// heading's <details> it follows the <summary>). It is swapped for the comment only after every other placeholder is
+// restored, so nothing a comment holds can be mistaken for one.
+export function blocksToNoteMarkdown(editor: AnyEditor, blocks: Blocks, opts?: NoteMarkdownOptions): string {
+  if (!opts?.knowledge) return convertBlocks(editor, blocks);
+  const source = blocks ?? editor.document;
+  const isKnowledge = (b: { type?: string; props?: unknown }): boolean => b.type === "heading" && readKnowledgeInfo(propsOf(b)) !== null;
+  const mark = source.some(isKnowledge) ? freeMarkerChar(JSON.stringify(source)) : null;
+  if (mark === null) return convertBlocks(editor, blocks);
+  const infos: KnowledgeInfo[] = [];
+  const withTokens = source.map(b => {
+    const info = b.type === "heading" ? readKnowledgeInfo(propsOf(b)) : null;
+    if (info === null) return b;
+    infos.push(info);
+    return { ...b, children: [{ type: "paragraph", content: `${mark}${infos.length - 1}${mark}` }, ...(b.children ?? [])] };
+  }) as Blocks;
+  const md = convertBlocks(editor, withTokens);
+  const injected = md.replace(new RegExp(`\n\n${mark}(\\d+)${mark}`, "g"), (_m, i: string) => `\n${formatKnowledgeComment(infos[Number(i)]!)}`);
+  // A colored toggleable heading goes out as one raw HTML block that carries the placeholder inside it.
+  let lost = 0;
+  const out = injected.replace(new RegExp(`(?:<p>)?${mark}\\d+${mark}(?:</p>)?`, "g"), () => {
+    lost += 1;
+    return "";
+  });
+  if (lost > 0) console.warn(`${lost} knowledge comment(s) dropped: the heading has no markdown form`);
+  return out;
 }

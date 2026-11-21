@@ -9,7 +9,7 @@
 import type { Block } from "@blocknote/core";
 import * as Y from "yjs";
 import type { noteAiEdits } from "../db/schema.js";
-import { keptIdRenames } from "../notes/editing/block-align.js";
+import { keptIdRenames } from "@knotebook/shared";
 import type { EditingRuntime } from "../notes/editing/runtime.js";
 import { pickBlocks, topLevelBlocksById, withForkEditor } from "../notes/editing/session.js";
 import { chainKeyOf, type Anchor } from "./decide.js";

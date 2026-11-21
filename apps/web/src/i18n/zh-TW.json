@@ -1130,6 +1130,7 @@
     "invalid_tag_name": "標籤名稱須為 1 到 40 個字。",
     "tag_not_found": "這個標籤已經不存在。",
     "merge_same_tag": "請選另一個標籤來合併。",
+    "invalid_knowledge": "那段文字裡的知識註解格式不對，所以沒有改動。",
     "fallback": "發生未預期的錯誤。"
   }
 }

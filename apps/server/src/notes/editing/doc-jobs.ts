@@ -2,7 +2,7 @@
 // Without a watch the main thread compares snapshots, not just state vectors: an update that only deletes doesn't change the state vector.
 import type { Block, PartialBlock } from "@blocknote/core";
 import * as Y from "yjs";
-import { MAX_LINK_TARGETS, YDOC_FRAGMENT, extractLinkTargets, topLevelBlocks, type EditOp, type NoteContentDto, type NoteOutlineEntry, type NoteSectionDto } from "@knotebook/shared";
+import { MAX_LINK_TARGETS, YDOC_FRAGMENT, extractLinkTargets, keptIdRenames, topLevelBlocks, type EditOp, type NoteContentDto, type NoteOutlineEntry, type NoteSectionDto } from "@knotebook/shared";
 import type { TransferSegment } from "../../db/schema.js";
 import { hmacOf } from "../../transfer/base-hash.js";
 import { isLoneEmptyParagraph, matchesBase } from "../../transfer/decide.js";
@@ -16,7 +16,6 @@ import type { Decision } from "../../transfer/decide.js";
 import { measureTrial, type SizeMeasure } from "../note-size.js";
 import { versionFingerprint } from "../version-fingerprint.js";
 import type { VisibleNoteTarget } from "./candidates.js";
-import { keptIdRenames } from "./block-align.js";
 import { fingerprintForIds, fingerprintsOfGroups, outlineOf, topLevelSnapshot, type OutlineEntry } from "./fingerprint.js";
 import type { ParseDetail, ParseError } from "./markdown.js";
 import { readNoteContentFromDoc } from "./read.js";

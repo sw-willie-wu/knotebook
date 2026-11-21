@@ -23,6 +23,8 @@ export function writeFailureMessage(code: ParseError | "empty_section", detail?:
     case "unsupported_size":
       // A width inside a table cell is rejected even in figure form, so say the figure must be outside the table (else the model loops); `src alt width` order is rejected (IMG_ATTRS order).
       return "An image width or table column width in that markdown is not in a form this editor can store, so nothing was written. Write sizes exactly as read_note_section returns them, as whole numbers of pixels from 32 to 4000: an image's width on the <img> inside a <figure> that is outside any table, the <img> carrying only alt (optional), src and width, in that order, and a table's column widths as colwidth on its first row's cells, one comma-separated value for each column a cell spans, left empty for a column with no width.";
+    case "invalid_knowledge":
+      return "A knowledge comment in that markdown is not valid, so nothing was written.";
     case "empty_content":
       return "That markdown is empty once parsed. Send at least one non-blank block.";
     case "too_many_blocks":

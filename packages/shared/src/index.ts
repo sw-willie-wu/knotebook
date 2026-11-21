@@ -42,3 +42,7 @@ export * from "./avatar.js";
 export * from "./site-limits.js";
 export * from "./parse-auto.js";
 export * from "./tags.js";
+export * from "./knowledge-markdown.js";
+export * from "./knowledge-html.js";
+export * from "./block-align.js";
+export * from "./knowledge-rewrite.js";

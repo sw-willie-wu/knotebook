@@ -2,9 +2,12 @@ import type { BlockNoteEditor, PartialBlock } from "@blocknote/core";
 import {
   BLOCK_PRECHECK_MIN_CHARS,
   MAX_HTML_DEPTH,
+  PLAINTEXT_TAG,
+  applyKnowledgeComments,
   checkNoteMarkdownSyntax,
   convertSiteLinks,
   findParseGuardFailure,
+  findStrayKnowledgeProps,
   findStructureError,
   htmlDepth,
   isBlankParseResult,
@@ -14,19 +17,23 @@ import {
   premergeParagraphs,
   premergedHtml,
   rebindWikilinks,
+  restoreKnowledgeProps,
   relativizeSiteUploads,
   restoreMermaidBlocks,
   syntaxCheckRoot,
   targetFromList,
   topLevelBlockFloor,
+  type KnowledgeProblem,
+  type KnowledgeProps,
 } from "@knotebook/shared";
 import type { VisibleNoteTarget } from "./candidates.js";
 
 export const MAX_BLOCKS = 2000;
-export type ParseError = "unsupported_block" | "unsupported_color" | "unsupported_columns" | "unsupported_size" | "empty_content" | "too_many_blocks";
+export type ParseError = "unsupported_block" | "unsupported_color" | "unsupported_columns" | "unsupported_size" | "empty_content" | "too_many_blocks" | "invalid_knowledge";
 /** Causes beyond the error code, used only to pick HTTP file write-back messages, except `too_complex`, which MCP and REST edit messages also read. `too_deep`: HTML or quote nesting beyond `MAX_HTML_DEPTH` (4). `too_complex` is decided by the worker pool (`parse-pool.ts`), not returned by this function. */
-export type ParseDetail = "event_attr" | "editor_internal" | "unknown_block" | "dropped_element" | "unclosed_comment" | "nested_paragraph" | "too_deep" | "too_complex";
-export type ParseFailure = { error: ParseError; detail?: ParseDetail };
+export type ParseDetail = "event_attr" | "editor_internal" | "unknown_block" | "dropped_element" | "unclosed_comment" | "nested_paragraph" | "too_deep" | "too_complex" | "knowledge_attr";
+/** `knowledge` names the heading and the reason when `error` is `invalid_knowledge`. */
+export type ParseFailure = { error: ParseError; detail?: ParseDetail; knowledge?: KnowledgeProblem };
 /**
  * Elements the parser drops along with their content: rejected anywhere rather than silently removed. Detected on the DOM, so a `<script>` inside an HTML comment or escaped in code doesn't count. `<embed>` isn't listed: it parses to a file block. Single source for the selector and the prefilter.
  */
@@ -41,8 +48,13 @@ const UNCLOSED_COMMENT = /<!--(?![\s\S]*?-->)/;
 
 export { BLOCK_PRECHECK_MIN_CHARS, MAX_HTML_DEPTH, htmlDepth, plainParagraphFloor, premergeParagraphs, topLevelBlockFloor };
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote generic triple; repo convention
-export interface ParsedMarkdown { blocks: PartialBlock<any, any, any>[]; unbound: number }
+export interface ParsedMarkdown {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote generic triple; repo convention
+  blocks: PartialBlock<any, any, any>[];
+  unbound: number;
+  /** Knowledge comments that sit where a heading's comment can't (not right under a top-level heading), left out of the blocks. */
+  ignoredKnowledgeComments: number;
+}
 
 export function siteOriginOf(baseUrl: string): string {
   return new URL(baseUrl).origin;
@@ -64,10 +76,25 @@ export function parseMarkdownForNote(editor: BlockNoteEditor<any, any, any>, mar
   const guard = findParseGuardFailure(root);
   if (guard !== null) return { error: "unsupported_block", detail: guard };
   if (markdown.length >= BLOCK_PRECHECK_MIN_CHARS && topLevelBlockFloor(root) > MAX_BLOCKS) return { error: "too_many_blocks" };
+  // After `<plaintext>` the DOM can't be serialized back, so it can't be edited: knowledge attributes are refused outright and comments are plain text there.
+  let html = syntax.html;
+  let assigned: ReadonlySet<string> = new Set();
+  let written: readonly KnowledgeProps[] = [];
+  let ignoredKnowledgeComments = 0;
+  if (PLAINTEXT_TAG.test(html)) {
+    if (/data-knowledge-/i.test(html)) return { error: "unsupported_block", detail: "knowledge_attr" };
+    ignoredKnowledgeComments = html.match(/<!--\s*knotebook:knowledge(?=\s|$)/gi)?.length ?? 0;
+  } else {
+    const knowledge = applyKnowledgeComments(root, "top", html);
+    if ("error" in knowledge) return { error: "invalid_knowledge", knowledge: knowledge.error };
+    ({ assigned, props: written, ignored: ignoredKnowledgeComments } = knowledge);
+    // The premerge below returns its input when nothing merges, so DOM edits have to be serialized first.
+    if (knowledge.changed) html = root.innerHTML;
+  }
   let raw: AnyPartialBlock[];
   try {
     // BlockNote's own merge of multi-paragraph quotes, headings and summaries is quadratic.
-    const html = premergedHtml(syntax.html, root);
+    html = premergedHtml(html, root);
     raw = editor.tryParseHTMLToBlocks(html) as AnyPartialBlock[];
   } catch (err) {
     // core throws on some editor-internal forms: reject as unstorable, not 500. Log only the class and call frames, never the message (PM errors splice content into it) or the markdown. No injected logger here, so console.warn like `version-fingerprint.ts`. Drop the message lines before picking frames so message lines starting with "    at " can't leak in.
@@ -79,6 +106,7 @@ export function parseMarkdownForNote(editor: BlockNoteEditor<any, any, any>, mar
     console.warn("parseMarkdownForNote: core parse threw; rejected as unsupported_block", e);
     return { error: "unsupported_block", detail: "editor_internal" };
   }
+  if (findStrayKnowledgeProps(raw, assigned) || !restoreKnowledgeProps(raw, written)) return { error: "unsupported_block", detail: "knowledge_attr" };
   const parsed = relativizeSiteUploads(normalizeTableWidths(restoreMermaidBlocks(raw)), new URL(document.baseURI).origin);
   const known = new Set(Object.keys(editor.schema.blockSchema));
   const walk = (bs: AnyPartialBlock[]): boolean => bs.every(b => known.has(b.type as string) && (!b.children || walk(b.children as AnyPartialBlock[])));
@@ -94,5 +122,5 @@ export function parseMarkdownForNote(editor: BlockNoteEditor<any, any, any>, mar
   if (count(parsed) > MAX_BLOCKS) return { error: "too_many_blocks" };
   const [rebound, unbound] = rebindWikilinks(parsed, [...candidates], type => editor.schema.blockSchema[type]?.content === "inline");
   const [blocks] = convertSiteLinks(rebound, (_href, p) => targetFromList(p.path, candidates) ?? null, siteOrigin);
-  return { blocks, unbound };
+  return { blocks, unbound, ignoredKnowledgeComments };
 }
