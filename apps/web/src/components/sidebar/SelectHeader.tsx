@@ -12,8 +12,9 @@ import { useSidebarTabActions, useSidebarTabState } from "@/lib/sidebar-tab";
 import { useWidePointer } from "@/lib/wide-pointer";
 import { isCollapsed, useCollapseVersion } from "./collapse";
 import { SelectActionBar } from "./SelectActionBar";
-import { selectedTargets, visibleSelectionKeys } from "./select-model";
+import { filteredSelectionKeys, selectedTargets, visibleSelectionKeys } from "./select-model";
 import { useSelectRun } from "./select-run";
+import { isFilterCollapsed, useFilterCollapsedSet } from "./tag-filter";
 import type { SidebarNode } from "./tree";
 
 /** An open Radix Toast (the root of `@radix-ui/react-toast` is `<li data-swipe-direction data-state>`). */
@@ -27,10 +28,13 @@ const OPEN_TOAST = 'li[data-swipe-direction][data-state="open"]';
  */
 export function SelectHeader({
   nodes,
+  filtered = false,
   onMounted,
   onDone,
 }: {
   nodes: readonly SidebarNode[];
+  /** A tag filter is on: select-all takes every matching note (see `filteredSelectionKeys`) and the count ignores folders. */
+  filtered?: boolean;
   onMounted: (done: HTMLButtonElement | null) => void;
   onDone: () => void;
 }) {
@@ -42,6 +46,7 @@ export function SelectHeader({
   const run = useSelectRun(actions);
   // Re-render on collapse changes: select-all looks at visible rows.
   useCollapseVersion();
+  useFilterCollapsedSet();
   /** The Esc guard finds its `[data-sidebar-instance]` through this: wide mounts on the outer element that stays (not swapped when the count turns into progress), narrow on the count slot. */
   const rootRef = useRef<HTMLSpanElement>(null);
   const doneRef = useRef<HTMLButtonElement>(null);
@@ -99,8 +104,8 @@ export function SelectHeader({
     };
   }, []);
 
-  const count = selectedTargets(nodes, selection.keys).length;
-  const visible = visibleSelectionKeys(nodes, isCollapsed);
+  const count = selectedTargets(nodes, selection.keys).filter((target) => !filtered || target.kind === "note").length;
+  const visible = filtered ? filteredSelectionKeys(nodes, isFilterCollapsed) : visibleSelectionKeys(nodes, isCollapsed);
   const allState = selectAllState(visible, selection.keys);
   const toggleAll = () =>
     updateSelection(allState === "all" ? { type: "clear" } : { type: "setAll", keys: [...new Set([...selection.keys, ...visible])] });

@@ -38,7 +38,7 @@ async function manyOwned(ctx: Ctx, ownerId: string, n: number): Promise<string[]
 }
 
 describe("archive shape", () => {
-  it("basic shape: directory -> notes (full path in code unit order) -> manifest last; frontmatter 8 lines, each base differs and maps to one base row; manifest fields", async () => {
+  it("basic shape: directory -> notes (full path in code unit order) -> manifest last; frontmatter 9 lines, each base differs and maps to one base row; manifest fields", async () => {
     const ctx = await buildCollabTestApp();
     const { u, b } = await userWithBulk(ctx);
     const other = await seedUser(ctx.db);
@@ -73,7 +73,7 @@ describe("archive shape", () => {
     const bases = new Set<string>();
     for (const e of filesOf(entries)) {
       const f = parseNoteFile(e.data.toString("utf8"));
-      expect(f.keys).toEqual(["knotebook", "id", "title", "role", "base", "url"]);
+      expect(f.keys).toEqual(["knotebook", "id", "title", "tags", "role", "base", "url"]);
       bases.add(f.fm.base!);
       const [row] = await ctx.db.select().from(transferBases).where(eq(transferBases.key, f.fm.base!));
       expect(row?.noteId, e.path).toBe(f.fm.id);

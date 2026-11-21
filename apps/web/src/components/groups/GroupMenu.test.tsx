@@ -29,7 +29,7 @@ function LocationProbe() {
   return <div data-testid="location">{location.pathname}|{JSON.stringify(location.state)}</div>;
 }
 
-function renderMenu(group: GroupDto, handler: (method: string, url: string) => Response, size?: "sidebar" | "default") {
+function renderMenu(group: GroupDto, handler: (method: string, url: string) => Response, size?: "sidebar" | "default", indexPath?: string) {
   const calls: Array<{ method: string; url: string; body?: unknown }> = [];
   vi.stubGlobal(
     "fetch",
@@ -49,7 +49,7 @@ function renderMenu(group: GroupDto, handler: (method: string, url: string) => R
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={["/n/me/some-note"]}>
         <Routes>
-          <Route path="*" element={<><GroupMenu group={group} size={size} /><LocationProbe /><Toaster /></>} />
+          <Route path="*" element={<><GroupMenu group={group} size={size} indexPath={indexPath} /><LocationProbe /><Toaster /></>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -85,6 +85,19 @@ describe("GroupMenu", () => {
     const menu = await openMenu("Workshop C");
     const items = within(menu).getAllByRole("menuitem").map((item) => item.textContent);
     expect(items).toEqual(["Members & settings", "Rename", "Delete group", "Leave group"]);
+  });
+
+  it("with indexPath the menu has Open index right after the members item, and choosing it navigates there; without it the item list is unchanged", async () => {
+    const withIndex = renderMenu(CO_ADMIN_GROUP, () => fakeResponse(500), "sidebar", "/knowledge/g/cccccccc-cccc-cccc-cccc-cccccccccccc");
+    let menu = await openMenu("Workshop C");
+    expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Members & settings", "Open index", "Rename", "Delete group", "Leave group"]);
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Open index" }));
+    await waitFor(() => expect(screen.getByTestId("location").textContent).toMatch(/^\/knowledge\/g\/cccccccc/));
+    withIndex.unmount();
+
+    renderMenu(CO_ADMIN_GROUP, () => fakeResponse(500), "sidebar");
+    menu = await openMenu("Workshop C");
+    expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Members & settings", "Rename", "Delete group", "Leave group"]);
   });
 
   it("each of the four items has an icon (users, pencil, trash, log-out), class contains mr-2 h-4 w-4", async () => {

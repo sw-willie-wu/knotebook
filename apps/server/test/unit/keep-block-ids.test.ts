@@ -37,7 +37,7 @@ async function edit(state: Uint8Array, op: "replace_section" | "replace_all", he
   if (o === "too_complex") throw new Error("outline");
   const sec = heading === null ? undefined : o.outline.find(x => x.heading === heading)!;
   const r = await rt.runDoc("u", {
-    kind: "edit",
+    kind: "edit", noteId: "00000000-0000-4000-8000-000000000000",
     state: new Uint8Array(state),
     op,
     ...(sec ? { sectionId: sec.sectionId, ifMatch: sec.fingerprint } : { ifMatch: o.whole }),

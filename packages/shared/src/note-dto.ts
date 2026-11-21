@@ -1,5 +1,6 @@
 import type { NoteGroupDto } from "./groups.js";
 import type { AvatarRef } from "./avatar.js";
+import type { NoteTagDto } from "./tags.js";
 
 export type Role = "owner" | "editor" | "viewer" | "none";
 
@@ -29,6 +30,10 @@ export interface NoteDto {
   folderId: string | null;
   /** Yjs state plus attachments, bytes; sort key only, sent only by GET /api/notes. */
   sizeBytes?: number;
+  /** Sent only by GET /api/notes, in the order they were added. */
+  tags?: NoteTagDto[];
+  /** Sent only by GET /api/notes. */
+  hasKnowledge?: boolean;
 }
 
 export interface NotePermissions {
@@ -77,6 +82,23 @@ export interface NoteEditResultDto {
   outline: NoteOutlineEntry[];
   /** [[…]] links in this write that matched no unique note and stayed plain text. */
   unboundWikilinks: number;
+  /** Only present when the write kept, created, removed or renewed knowledge info, or ignored a knowledge comment. */
+  knowledge?: NoteKnowledgeReportDto;
+}
+export interface NoteKnowledgeRefDto {
+  id: string;
+  heading: string;
+}
+export interface NoteKnowledgeReportDto {
+  /** Headings sent without a comment that kept the knowledge info of the heading they replaced. */
+  kept: NoteKnowledgeRefDto[];
+  created: NoteKnowledgeRefDto[];
+  /** Knowledge info that was in the replaced or deleted range and is no longer anywhere in the note. */
+  removed: NoteKnowledgeRefDto[];
+  /** Knowledge whose id another heading already had, so it got a new one; `from` is the id it had. */
+  renewed: Array<NoteKnowledgeRefDto & { from: string }>;
+  /** Knowledge comments that were not right after a top-level heading. */
+  ignoredComments: number;
 }
 
 /** The server keeps at most this many AI edit rows per note; web help text quotes it. */

@@ -314,3 +314,42 @@ export function IndentIcon({ direction, ...props }: { direction: "in" | "out" } 
     </svg>
   );
 }
+
+/** Adapted from lucide `circle-check`, `info`, `circle-alert` and `ban` (ISC); the knowledge status glyphs. */
+export function CircleCheck(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg data-icon="circle-check" aria-hidden="true" viewBox="0 0 24 24" {...STROKE} {...props}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="m9 12 2 2 4-4" />
+    </svg>
+  );
+}
+
+export function CircleInfo(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg data-icon="circle-info" aria-hidden="true" viewBox="0 0 24 24" {...STROKE} {...props}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 16v-4" />
+      <path d="M12 8h.01" />
+    </svg>
+  );
+}
+
+export function CircleAlert(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg data-icon="circle-alert" aria-hidden="true" viewBox="0 0 24 24" {...STROKE} {...props}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 8v4" />
+      <path d="M12 16h.01" />
+    </svg>
+  );
+}
+
+export function CircleSlash(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg data-icon="circle-slash" aria-hidden="true" viewBox="0 0 24 24" {...STROKE} {...props}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="m4.9 4.9 14.2 14.2" />
+    </svg>
+  );
+}

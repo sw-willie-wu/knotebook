@@ -3,7 +3,7 @@ import type { SiteLimits } from "../site-limits/store.js";
 import {
   AI_LIMIT, AUTHORIZE_LIMIT, AVATAR_REFRESH_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, EDIT_LIMIT, FAVORITE_LIMIT, FixedWindowLimiter, FOLDER_LIMIT,
   OIDC_LIMIT, ONE_TIME_LINK_ATTEMPT_LIMIT, ONE_TIME_LINK_MISS_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT,
-  PUBLIC_UPLOAD_LIMIT, PUBLIC_WIDTH_LIMIT, REGISTER_LIMIT, SEARCH_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_RENAME_LIMIT,
+  PUBLIC_UPLOAD_LIMIT, PUBLIC_WIDTH_LIMIT, REGISTER_LIMIT, SEARCH_LIMIT, SLUG_PATCH_LIMIT, TAG_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_RENAME_LIMIT,
   TOKEN_WRITE_LIMIT, TRANSFER_EXPORT_LIMIT, TRANSFER_WRITE_LIMIT, UPLOAD_LIMIT, USER_SUGGEST_LIMIT,
 } from "./rate-limit.js";
 
@@ -36,6 +36,7 @@ export type Limiters = {
   edit: FixedWindowLimiter;
   folder: FixedWindowLimiter;
   favorite: FixedWindowLimiter;
+  tag: FixedWindowLimiter;
   register: FixedWindowLimiter;
   oneTimeLinkMiss: FixedWindowLimiter;
   oneTimeLinkAttempt: FixedWindowLimiter;
@@ -98,6 +99,7 @@ export function buildFixedLimiters(): FixedLimiters {
     avatarRefresh: new FixedWindowLimiter(AVATAR_REFRESH_LIMIT),
     folder: new FixedWindowLimiter(FOLDER_LIMIT),
     favorite: new FixedWindowLimiter(FAVORITE_LIMIT),
+    tag: new FixedWindowLimiter(TAG_LIMIT),
     register: new FixedWindowLimiter(REGISTER_LIMIT),
     oneTimeLinkMiss: new FixedWindowLimiter(ONE_TIME_LINK_MISS_LIMIT),
     oneTimeLinkAttempt: new FixedWindowLimiter(ONE_TIME_LINK_ATTEMPT_LIMIT),

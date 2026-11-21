@@ -1,6 +1,8 @@
-import { useEffect, type MouseEvent } from "react";
+import { useEffect, useState, type MouseEvent } from "react";
+import { useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { canonicalNotePath, TOP_SECTION_ID, type NoteDto, type NoteSearchMatchDto } from "@knotebook/shared";
+import { spaceTagsKey } from "@/api/tag-keys";
 import { useBodySearch, type BodySearchState } from "@/api/search";
 import { isPlainLeftClick, useWikilinkActivate } from "@/components/wikilink/useWikilinkClick";
 import { useActiveNote } from "@/lib/active-note";
@@ -8,7 +10,8 @@ import { useCloseSidebarDrawer } from "@/lib/sidebar-drawer";
 import { cn } from "@/lib/utils";
 import { displaySnippet } from "./body-snippet";
 import { flattenRows, mergeSearchRows } from "./search-merge";
-import { highlightTitle, searchMetaLineClass, searchTitleLineClass, SearchRow } from "./SearchResults";
+import { highlightTitle, searchMetaLineClass, SearchRow, SearchTitleLine } from "./SearchResults";
+import type { FilterSpaceRef } from "./search-tags";
 import { noteLocationLabel, type LocationContext } from "./tree";
 
 /**
@@ -26,11 +29,29 @@ export interface BodySearchProps {
   notes: NoteDto[];
   location: LocationContext;
   onStatus?: (status: { count: number; more: boolean } | null) => void;
+  /** Tag ids of the search tokens; all in one space. */
+  tagIds?: readonly string[];
+  /** Space of the tag ids; when the server says the tags don't exist (any more) for this user, the lists they came from are refreshed. */
+  tagSpace?: FilterSpaceRef | null;
 }
 
-export function BodySearchResults({ query, debounced, ...rest }: BodySearchProps) {
-  const state = useBodySearch({ query, debounced });
-  return <BodySearchView state={state} {...rest} />;
+export function BodySearchResults({ query, debounced, tagIds, tagSpace, ...rest }: BodySearchProps) {
+  const state = useBodySearch({ query, debounced, tagIds });
+  const queryClient = useQueryClient();
+  const invalid = state.kind === "error" && state.invalidTags;
+  const tagKey = (tagIds ?? []).join(",");
+  // Once per tag set: if the refetched lists still carry the tags the error stays visible instead of looping.
+  const [refreshedFor, setRefreshedFor] = useState<string | null>(null);
+  const refetching = useIsFetching({ predicate: (q) => q.queryKey[0] === "notes" || q.queryKey[0] === "tags" }) > 0;
+  useEffect(() => {
+    if (!invalid || refreshedFor === tagKey) return;
+    setRefreshedFor(tagKey);
+    void queryClient.invalidateQueries({ queryKey: ["notes"] });
+    if (tagSpace != null) void queryClient.invalidateQueries({ queryKey: spaceTagsKey(tagSpace.kind === "personal" ? tagSpace : { kind: "group", groupId: tagSpace.groupId }) });
+  }, [invalid, tagKey, tagSpace, queryClient, refreshedFor]);
+  // While the lists are being refreshed the failure may already be out of date, so it is not shown yet.
+  const shown: BodySearchState = invalid && (refreshedFor !== tagKey || refetching) ? { kind: "pending" } : state;
+  return <BodySearchView state={shown} {...rest} />;
 }
 
 export function BodySearchView({
@@ -207,7 +228,7 @@ function MatchItem({
           active && "bg-brand-soft text-brand-on-soft hover:bg-brand-soft-strong",
         )}
       >
-        <div className={searchTitleLineClass(active)}>{highlightTitle(note.title, titleLowerQuery)}</div>
+        <SearchTitleLine note={note} lowerQuery={titleLowerQuery} active={active} />
         <div className={cn("mt-0.5", searchMetaLineClass(active))} title={label}>
           {label}
         </div>

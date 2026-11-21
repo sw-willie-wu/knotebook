@@ -5,17 +5,10 @@ import { MAX_LINK_TARGETS, extractLinkTargets, publicAliasPath, type PublicLinkD
 import type { Db } from "../db/index.js";
 import { notes, users } from "../db/schema.js";
 
-export async function publicLinksFor(db: Db, noteId: string, ydoc: Uint8Array | null): Promise<PublicLinkDto[]> {
-  if (ydoc === null) return [];
-  const doc = new Y.Doc();
-  try {
-    Y.applyUpdate(doc, ydoc);
-  } catch {
-    return [];
-  }
+export async function publicLinksFor(db: Db, noteId: string, doc: Y.Doc | null): Promise<PublicLinkDto[]> {
+  if (doc === null) return [];
   const self = noteId.toLowerCase();
   const ids = [...new Set(extractLinkTargets(doc).map(id => id.toLowerCase()))].filter(id => id !== self).slice(0, MAX_LINK_TARGETS);
-  doc.destroy();
   if (ids.length === 0) return [];
   const rows = await db
     .select({ id: notes.id, title: notes.title, handle: users.handle, publicSlug: notes.publicSlug })

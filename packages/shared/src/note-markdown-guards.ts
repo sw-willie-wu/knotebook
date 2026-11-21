@@ -35,7 +35,7 @@ export function findParseGuardFailure(root: Element): ParseGuardFailure | null {
 const MERGE_ROOT_TAGS = new Set(["BLOCKQUOTE", "H1", "H2", "H3", "H4", "H5", "H6", "SUMMARY"]);
 const MERGE_ROOT_TAG = /<(?:blockquote|h[1-6]|summary)\b/i;
 /** After `<plaintext>` everything is text, so serializing and re-parsing doesn't round-trip; premerging would change the result. */
-const PLAINTEXT_TAG = /<plaintext\b/i;
+export const PLAINTEXT_TAG = /<plaintext\b/i;
 const isMergeRoot = (el: Element): boolean =>
   MERGE_ROOT_TAGS.has(el.tagName) &&
   (el.tagName !== "SUMMARY" || (el.parentElement?.tagName === "DETAILS" && el.parentElement.querySelector(":scope > summary") === el));

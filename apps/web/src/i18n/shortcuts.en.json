@@ -237,7 +237,16 @@
     "whatsNew": {
       "heading": "New in v{{version}}",
       "empty": "Nothing new to highlight in this version.",
-      "items": {}
+      "items": {
+        "tags": {
+          "title": "Tags",
+          "desc": "Label a note with tags: type /tag in the note, choose Add tag in its ⋮ menu, or type #name and a space on its first line. The tags sit in a row above the text, show as colored dots on the note's row in the sidebar, and the funnel button in My notes and Groups lists only the notes that have all the tags you pick. Type # in the search box to search by tag. Rename, recolor, merge or delete tags in Settings → Tags (for a group, in the group's window)."
+        },
+        "knowledgeInfo": {
+          "title": "Knowledge info",
+          "desc": "Mark a heading as a piece of knowledge: type /info in it, or choose Knowledge info… in its drag handle menu. Note when to read it, a one-line conclusion, its basis, when it was last verified and whether it is still current. A small icon after the heading shows its state; point at it (or tap it on a phone) to see the details. Outdated knowledge is struck through, together with the knowledge under it, and can name a replacement in another note. Each folder and group, and My notes, has an index when it holds knowledge: use the button on its row or Open index in a folder's or group's menu. Public pages and presentations don't show it."
+        }
+      }
     }
   }
 }

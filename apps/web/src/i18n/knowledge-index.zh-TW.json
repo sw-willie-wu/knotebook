@@ -1,0 +1,41 @@
+{
+  "knowledgeIndex": {
+    "title": "{{name}}｜索引",
+    "readOnly": "由筆記裡的知識資訊自動產生，唯讀。",
+    "total_one": "共 {{count}} 條",
+    "total_other": "共 {{count}} 條",
+    "sectionCount_one": "{{count}} 條",
+    "sectionCount_other": "{{count}} 條",
+    "untagged": "未加標籤",
+    "row": {
+      "location": "{{note}} › {{heading}}",
+      "replacedBy": "→ 被「{{title}}」取代"
+    },
+    "empty": {
+      "title": "這裡還沒有知識",
+      "description": "在這裡的筆記中，把游標放在標題上輸入 /info，就能把它設成一條知識；存檔幾秒後會出現在這裡。"
+    },
+    "noMatch": "沒有符合篩選條件的知識。",
+    "backfillNotice": "正在為較舊的筆記建立索引，幾分鐘內部分知識可能還沒列出。",
+    "capped": "{{note}}：這篇只列出前 {{max}} 條。",
+    "truncated": "只列出前 {{max}} 條；開啟子資料夾的索引或加上篩選可看到其他的。",
+    "notFound": {
+      "title": "找不到這個索引",
+      "description": "資料夾或群組不存在，或你無法開啟它的索引。"
+    },
+    "groupBy": {
+      "label": "分組",
+      "folder": "資料夾",
+      "tag": "標籤"
+    },
+    "filter": {
+      "tags": "標籤",
+      "tagsActive": "標籤（{{count}}）",
+      "status": "狀態",
+      "evidence": "依據",
+      "all": "全部",
+      "labelled": "{{name}}：{{value}}",
+      "clear": "清除篩選"
+    }
+  }
+}

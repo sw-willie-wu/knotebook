@@ -1,0 +1,41 @@
+{
+  "knowledgeIndex": {
+    "title": "{{name}} · Index",
+    "readOnly": "Built from the knowledge info in these notes. Read-only.",
+    "total_one": "{{count}} piece of knowledge",
+    "total_other": "{{count}} pieces of knowledge",
+    "sectionCount_one": "{{count}}",
+    "sectionCount_other": "{{count}}",
+    "untagged": "No tag",
+    "row": {
+      "location": "{{note}} › {{heading}}",
+      "replacedBy": "→ replaced by {{title}}"
+    },
+    "empty": {
+      "title": "No knowledge here yet",
+      "description": "Put the cursor in a heading of a note here and type /info to make it a piece of knowledge. It shows up here a few seconds after the note is saved."
+    },
+    "noMatch": "No knowledge matches these filters.",
+    "backfillNotice": "Older notes are still being indexed, so some knowledge may be missing for a few minutes.",
+    "capped": "{{note}}: only the first {{max}} are listed for this note.",
+    "truncated": "Showing the first {{max}}. Open the index of a subfolder or add a filter to see the rest.",
+    "notFound": {
+      "title": "Index not found",
+      "description": "The folder or group doesn't exist, or you can't open its index."
+    },
+    "groupBy": {
+      "label": "Group by",
+      "folder": "Folder",
+      "tag": "Tag"
+    },
+    "filter": {
+      "tags": "Tags",
+      "tagsActive": "Tags ({{count}})",
+      "status": "Status",
+      "evidence": "Basis",
+      "all": "All",
+      "labelled": "{{name}}: {{value}}",
+      "clear": "Clear filters"
+    }
+  }
+}

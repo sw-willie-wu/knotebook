@@ -133,5 +133,12 @@ export const ERROR_CODES = [
   // as the MCP tool error.
   "note_too_large",
   "limit_locked_by_env",
+  "invalid_tag_name",
+  "tag_not_found",
+  "invalid_tags",
+  "tag_limit_reached",
+  "tag_name_taken",
+  "merge_same_tag",
+  "invalid_knowledge",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];

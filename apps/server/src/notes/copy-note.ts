@@ -22,11 +22,14 @@ import { loadCreateTarget } from "./create-target.js";
 import { loadNoteDoc } from "./editing/read.js";
 import { syncLinksFromDoc } from "./links.js";
 import { growsPastCap } from "./note-size.js";
+import { extractKnowledgeForIndex } from "../knowledge/extract.js";
+import { redactDbError } from "../lib/redact-db-error.js";
 import { extractForIndex } from "./search-index.js";
 import { resolveNoteAccess, UUID_RE } from "./service.js";
 import type { SlugScope } from "./slug.js";
 import { copyNoteInTx, type CopyTargetInTx } from "./tx/copy.js";
 import type { SearchIndexHooks } from "./tx/search-index.js";
+import type { KnowledgeIndexHooks } from "../knowledge/tx/index-write.js";
 
 export interface CopyNoteDeps {
   db: Db;
@@ -40,6 +43,7 @@ export interface CopyNoteDeps {
   groupTestHook?: GroupTestHook;
   noteCreateHooks?: NoteCreateHooks;
   searchIndexHooks?: SearchIndexHooks;
+  knowledgeIndexHooks?: KnowledgeIndexHooks;
 }
 
 export type CopyOutcome =
@@ -104,6 +108,7 @@ export async function copyNote(
     }
   }
   const searchExtract = extractForIndex(copy.doc);
+  const knowledgeExtract = extractKnowledgeForIndex(copy.doc);
   // #175: charge the upload limiter per attachment copied (same limiter and 429 as uploads; unit = files, 0 attachments skips it). On 429 nothing is written and the edit limiter stays charged (a 413 refunds it). A file missing on disk is still charged. Counted before the transaction and read again inside it, so the charge can be off by a few files if attachments change in between; not worth moving into the transaction.
   const wanted = [...copy.uploadNodes.keys()];
   const toCopy = wanted.length === 0
@@ -119,11 +124,11 @@ export async function copyNote(
 
   // Data is prepared before the transaction (`loadNoteDoc` borrows a connection); the callback is a single `copyNoteInTx` call.
   const copiedFileIds: string[] = [];
-  const txInput = { sourceId, userId, scope, folderId, copy, uploadsDir: deps.uploadsDir, copiedFileIds, searchExtract, lockTimeoutMs: deps.storageLockTimeoutMs };
+  const txInput = { sourceId, userId, scope, folderId, copy, uploadsDir: deps.uploadsDir, copiedFileIds, searchExtract, knowledgeExtract, lockTimeoutMs: deps.storageLockTimeoutMs };
   let created;
   try {
     await deps.groupTestHook?.("note-copy-authorized", { noteId: sourceId });
-    created = await deps.db.transaction(tx => copyNoteInTx(tx, txInput, deps.groupTestHook, deps.noteCreateHooks, deps.searchIndexHooks));
+    created = await deps.db.transaction(tx => copyNoteInTx(tx, txInput, deps.groupTestHook, deps.noteCreateHooks, deps.searchIndexHooks, deps.knowledgeIndexHooks));
   } catch (err) {
     // Rolled back: delete the new files already written (best effort; failures only logged; on a quota rejection no uploads rows were written yet).
     await deleteUploadFiles(deps.uploadsDir, copiedFileIds, deps.log);
@@ -140,7 +145,7 @@ export async function copyNote(
       return { kind: "fk_personal" };
     }
     if (isRetryableTxError(err)) return { kind: "busy" };
-    throw err;
+    throw redactDbError(deps.log, err, "copy note");
   }
   await syncLinksFromDoc({ db: deps.db, log: deps.log }, { sourceNoteId: created.note.id, userId, doc: copy.doc, clock: docClock(copy.doc) });
   return { kind: "copied", note: created.note, target: created.target };

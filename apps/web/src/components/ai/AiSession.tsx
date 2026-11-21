@@ -18,7 +18,7 @@ import { fetchAiActions, streamAiAction } from "@/api/ai";
 import { ApiFail } from "@/api/client";
 import { useNotes } from "@/api/notes";
 import { sameNoteId } from "@/lib/note-id";
-import { anchorPlacement, applyAiResult, expandAnchorForColumns, hasNonTextBlock, prepareAiResult, revertAiResult, type PreparedResult } from "@/ai/apply";
+import { aiKnowledgeContext, anchorPlacement, applyAiResult, expandAnchorForColumns, hasNonTextBlock, prepareAiResult, revertAiResult, type PreparedResult } from "@/ai/apply";
 import { captureAnchor, verifyAnchor, type AiAnchor } from "@/ai/anchor";
 import { estimateBlocksBytes } from "@/lib/note-size-guard";
 import { aiMarkdownOf } from "@/ai/note-markdown";
@@ -184,7 +184,11 @@ export function AiSessionProvider(props: {
   const finish = useCallback((target: AiTarget, request: AiRequest, raw: string) => {
     const ed = editorRef.current;
     const markdown = stripTextWrapper(raw);
-    const prepared = prepareAiResult(ed, markdown, { notes: notesRef.current, placement: anchorPlacement(ed, target.anchor.blockIds) });
+    const prepared = prepareAiResult(ed, markdown, {
+      notes: notesRef.current,
+      placement: anchorPlacement(ed, target.anchor.blockIds),
+      knowledge: aiKnowledgeContext(ed, noteIdRef.current, target.anchor.blockIds),
+    });
     if ("empty" in prepared) {
       setState({ phase: "error", target, request, code: "empty_result" });
       return;
@@ -296,7 +300,7 @@ export function AiSessionProvider(props: {
         actionName: action.name,
         kind: action.kind,
         applyMode: action.applyMode,
-        text: aiMarkdownOf(blocks, titleOf),
+        text: aiMarkdownOf(blocks, titleOf, { knowledge: anchorPlacement(ed, current.target.anchor.blockIds) === "top" }),
         ...(trimmed !== undefined ? { instruction: trimmed } : {}),
       };
       run(current.target, request);

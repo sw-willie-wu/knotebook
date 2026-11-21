@@ -11,13 +11,13 @@ import { useCreateNote } from "@/api/notes";
 import { expandFolderChain, indexFolders } from "@/components/sidebar/folder-index";
 import { Button } from "@/components/ui/button";
 import { FIELD_ICON_HIT, HEADER_ICON_HIT } from "@/components/ui/hit-area";
-import { Input } from "@/components/ui/input";
-import { PanelLeft, Search, X } from "@/components/ui/icons";
+import { TagSearchInput } from "@/components/sidebar/TagSearchInput";
+import { PanelLeft, X } from "@/components/ui/icons";
 import { toast, toastViewportHostRef } from "@/components/ui/toast";
 import { cardSurface } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { OVERLAY_QUERY, isPhone, useIsPhone } from "@/lib/layout-tiers";
-import { PhoneBrowseContext, PhoneListContext, isNoteRoutePath } from "@/lib/phone-list";
+import { PhoneBrowseContext, PhoneListContext, isPageRoutePath } from "@/lib/phone-list";
 import { backTarget, clearListIdx, historyIdx, readListIdx, recordListIdx } from "@/lib/phone-nav";
 import { PHONE_PAGE_SCROLL_ATTR, ROOT_FLAGS, useRootFlag } from "@/lib/page-scroll";
 import { createPhoneScrollMemory, enterPhoneScreen, phoneScreenKey, rememberPhoneScroll, type PhoneScreen } from "@/lib/phone-scroll";
@@ -29,7 +29,7 @@ import { isOverlayOpen } from "@/lib/versions-context";
 import { openSettings } from "@/lib/open-settings";
 import { SIDEBAR_SELECT_BUTTON } from "@/lib/sidebar-selection";
 import { useSession } from "@/auth/useSession";
-import { useSidebarQuery } from "@/lib/sidebar-query";
+import { SidebarQueryContext, useSidebarQuery } from "@/lib/sidebar-query";
 import { DEFAULT_SIDEBAR_TAB, SidebarTabProvider, useSidebarTabActions, useSidebarTabState, type SidebarTabActions } from "@/lib/sidebar-tab";
 import { registerShellControls } from "@/lib/tour-bridge";
 import { NoteList } from "@/components/NoteList";
@@ -99,6 +99,8 @@ export function SidebarDrawerButton() {
 interface SidebarContentProps {
   query: string;
   onQueryChange: (query: string) => void;
+  /** Text and tag tokens together; Escape, the clear button and Cancel use it. */
+  onClearSearch: () => void;
   /** Each instance needs its own ref object: a shared one is cleared to null when the drawer unmounts and Ctrl+K silently dies. */
   searchRef: RefObject<HTMLInputElement | null>;
   onCreateNote: (groupId?: string, folderId?: string) => void;
@@ -115,6 +117,7 @@ interface SidebarContentProps {
 function SidebarContent({
   query,
   onQueryChange,
+  onClearSearch,
   searchRef,
   onCreateNote,
   newNotePending,
@@ -130,7 +133,8 @@ function SidebarContent({
   const { tab, selection } = useSidebarTabState();
   const { updateSelection } = useSidebarTabActions();
   // Whitespace-only counts as searching (deliberate).
-  const searching = query.length > 0;
+  const { tagTokens, setTagTokens } = useSidebarQuery();
+  const searching = query.length > 0 || tagTokens.length > 0;
   const phoneLayout = layout === "phone";
   const searchLayer = phoneLayout && searchOpen;
   const showSearchView = phoneLayout ? searchLayer : searching;
@@ -178,55 +182,48 @@ function SidebarContent({
       )}
 
       {!phoneLayout && (
-      <div className="relative mx-2 mt-2">
-        <Search
-          aria-hidden="true"
-          className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
-        />
-        <Input
-          ref={searchRef}
-          type="text"
-          value={query}
-          onChange={(event) => onQueryChange(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key !== "Escape") return;
-            onQueryChange("");
-            event.currentTarget.blur();
-          }}
-          aria-label={t("sidebar.searchLabel")}
-          {...tourTarget("search")}
-          placeholder={t("sidebar.searchPlaceholder")}
-          className="h-8 pl-7 pr-11 pointer-coarse:pr-10 text-[13px]"
-        />
-        {searching ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            aria-label={t("sidebar.clearSearch")}
-            title={t("sidebar.clearSearch")}
-            className={cn("absolute right-1 top-1/2 h-6 w-6 -translate-y-1/2", FIELD_ICON_HIT)}
-            onClick={() => {
-              onQueryChange("");
-              searchRef.current?.focus();
-            }}
-          >
-            <X aria-hidden="true" className="h-3.5 w-3.5" />
-          </Button>
-        ) : (
-          <kbd
-            aria-hidden="true"
-            className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 pointer-coarse:hidden rounded border border-border px-1 text-[10px] text-muted-foreground"
-          >
-            {shortcutBadge}
-          </kbd>
-        )}
-      </div>
+      <TagSearchInput
+        query={query}
+        onQueryChange={onQueryChange}
+        searchRef={searchRef}
+        size="desktop"
+        className="mx-2 mt-2"
+        onEscape={(event) => {
+          onClearSearch();
+          event.currentTarget.blur();
+        }}
+        inputProps={{ "aria-label": t("sidebar.searchLabel"), placeholder: t("sidebar.searchPlaceholder"), ...tourTarget("search") }}
+        trailing={
+          query.length > 0 || tagTokens.length > 0 ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label={t("sidebar.clearSearch")}
+              title={t("sidebar.clearSearch")}
+              className={cn("absolute right-1 top-1/2 h-6 w-6 -translate-y-1/2", FIELD_ICON_HIT)}
+              onClick={() => {
+                onClearSearch();
+                searchRef.current?.focus();
+              }}
+            >
+              <X aria-hidden="true" className="h-3.5 w-3.5" />
+            </Button>
+          ) : (
+            <kbd
+              aria-hidden="true"
+              className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 pointer-coarse:hidden rounded border border-border px-1 text-[10px] text-muted-foreground"
+            >
+              {shortcutBadge}
+            </kbd>
+          )
+        }
+      />
       )}
 
       {showSearchView ? (
         searching ? (
-          <SearchResults query={query} />
+          <SearchResults query={query} tagTokens={tagTokens} onTagTokensChange={setTagTokens} />
         ) : (
           <p data-testid="phone-search-hint" className="px-4 py-6 text-sm text-muted-foreground">
             {t("sidebar.searchHint")}
@@ -262,6 +259,7 @@ function SidebarContent({
             <PhoneListBar
               query={query}
               onQueryChange={onQueryChange}
+              onClearSearch={onClearSearch}
               searchRef={searchRef}
               onOpen={() => onSearchOpenChange?.(true)}
               onClose={() => onSearchOpenChange?.(false)}
@@ -314,7 +312,8 @@ export function AppShell({ children, inert }: AppShellProps) {
   const createNote = useCreateNote();
   const queryClient = useQueryClient();
   // Lives at App level so the search text survives shell remounts.
-  const { query, setQuery, claim } = useSidebarQuery();
+  const sidebarQuery = useSidebarQuery();
+  const { query, setQuery, clearSearch, claim } = sidebarQuery;
   const { user: sessionUser } = useSession();
   const sessionUserId = sessionUser?.id;
   useEffect(() => {
@@ -400,14 +399,14 @@ export function AppShell({ children, inert }: AppShellProps) {
   settingsRouteRef.current = { navigate, location };
 
   const phone = useIsPhone();
-  const onList = !isNoteRoutePath(location.pathname);
+  const onList = !isPageRoutePath(location.pathname);
   const listVisible = phone && onList;
   const backFromKeyRef = useRef<string | null>(null);
   const phoneState = useMemo(
     () => ({
       backToList: () => {
         const { navigate: go, location: here } = settingsRouteRef.current;
-        if (!isNoteRoutePath(here.pathname)) return;
+        if (!isPageRoutePath(here.pathname)) return;
         // Rapid clicks: the second must not step back again before popstate arrives.
         if (backFromKeyRef.current === here.key) return;
         backFromKeyRef.current = here.key;
@@ -663,6 +662,7 @@ export function AppShell({ children, inert }: AppShellProps) {
   const sidebarProps = {
     query,
     onQueryChange: setQuery,
+    onClearSearch: clearSearch,
     onCreateNote: (groupId?: string, folderId?: string) => void handleNewNote(groupId, folderId),
     newNotePending: createNote.isPending,
     shortcutBadge,
@@ -670,6 +670,7 @@ export function AppShell({ children, inert }: AppShellProps) {
 
   return (
     // `h-dvh` + `overflow-hidden` lock the viewport (100vh is taller than the visible area when the mobile address bar shows); `min-h-screen` would let long content grow `main` and force document scroll so card `overflow-y-auto` never clips. `min-w-0` on `main` is explicit (no overflow, so the width chain relies on it). Phones invert this: the document scrolls (Safari only collapses its toolbar then, and content scrolls behind the translucent bottom bar), `overflow-x-clip` not `hidden` (hidden would make the vertical axis a scroll container and break sticky headers; clip also prevents horizontal scroll from the slide-in).
+    <SidebarQueryContext.Provider value={sidebarQuery}>
     <SidebarDrawerContext.Provider value={{ setOpen: setDrawerOpen }}>
       <PhoneListContext.Provider value={phoneState}>
       <PhoneBrowseContext.Provider value={browseState}>
@@ -739,6 +740,11 @@ export function AppShell({ children, inert }: AppShellProps) {
                   style={{ width: `min(${sidebarWidth}px, calc(100vw - 4rem))` }}
                   // In selection mode this handler ends selection and keeps the drawer open. Radix handles Esc first in capture, so React's `onKeyDown` never runs (the checkboxes have already unmounted): move focus to the drawer Select button here (flushSync so it exists in this task).
                   onEscapeKeyDown={(event) => {
+                    // The completion list closes on this same Esc (the search box handles it next); the drawer stays.
+                    if (event.target instanceof Element && event.target.closest('[role="combobox"][aria-expanded="true"]') !== null) {
+                      event.preventDefault();
+                      return;
+                    }
                     let ended = false;
                     flushSync(() => {
                       ended = tabActionsRef.current?.endSelectionIfActive() ?? false;
@@ -804,5 +810,6 @@ export function AppShell({ children, inert }: AppShellProps) {
       </PhoneBrowseContext.Provider>
       </PhoneListContext.Provider>
     </SidebarDrawerContext.Provider>
+    </SidebarQueryContext.Provider>
   );
 }

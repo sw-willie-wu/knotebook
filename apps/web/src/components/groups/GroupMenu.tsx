@@ -23,7 +23,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { EllipsisVertical, LogOut, Pencil, Trash, Users } from "@/components/ui/icons";
+import { EllipsisVertical, Library, LogOut, Pencil, Trash, Users } from "@/components/ui/icons";
 import { hoverReveal } from "@/components/ui/reveal";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
@@ -51,7 +51,7 @@ function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string
  * icon, always visible (no caller today; kept for a future non-sidebar entry).
  * Dialogs return focus to the trigger only while it is still connected: it may unmount with the group section after delete/leave.
  */
-export function GroupMenu({ group, size = "default" }: { group: GroupDto; size?: "sidebar" | "default" }) {
+export function GroupMenu({ group, size = "default", indexPath }: { group: GroupDto; size?: "sidebar" | "default"; indexPath?: string }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
@@ -122,6 +122,18 @@ export function GroupMenu({ group, size = "default" }: { group: GroupDto; size?:
             <Users aria-hidden="true" className="mr-2 h-4 w-4" />
             {group.canManageMembers ? t("groups.menu.manage") : t("groups.menu.viewMembers")}
           </DropdownMenuItem>
+          {indexPath !== undefined && (
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault();
+                setMenuOpen(false);
+                navigate(indexPath);
+              }}
+            >
+              <Library aria-hidden="true" className="mr-2 h-4 w-4" />
+              {t("groups.menu.openIndex")}
+            </DropdownMenuItem>
+          )}
           {group.canManageGroup && (
             <DropdownMenuItem
               onSelect={(event) => {

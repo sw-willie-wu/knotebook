@@ -7,6 +7,7 @@ import {
   ARTICLE_COLUMN_MAX,
   ARTICLE_COLUMN_PADDING,
   ARTICLE_COLUMN_PIN_MOTION,
+  ARTICLE_TEXT_INSET,
   BN_EDITOR_INLINE_PADDING_PX,
   articleColumn,
   articleColumnState,
@@ -168,6 +169,21 @@ describe("article column guard (#115 header/footer span the full card width; #29
       expect(/\bpx-5\b/.test(stripComments(readSource(path))), `${label} 應用 px-5 滿卡寬內距`).toBe(true);
     }
     expect(overridePx, "`<md` 內文左緣應與頁首/頁尾的 px-5（20px）共線").toBe(5 * 4);
+  });
+
+  it("ARTICLE_TEXT_INSET puts the tag row on the text edge: 54px = BN_EDITOR_INLINE_PADDING_PX on md and up, px-5 = the 1.25rem override below md", () => {
+    expect(ARTICLE_TEXT_INSET).toBe("px-[54px] max-md:px-5");
+    const [base, small] = ARTICLE_TEXT_INSET.split(" ");
+    expect(Number(/^px-\[(\d+)px\]$/.exec(base!)![1])).toBe(BN_EDITOR_INLINE_PADDING_PX);
+
+    const css = readFileSync(`${process.cwd()}/src/index.css`, "utf8");
+    const override = /@media \(width < 48rem\)\s*\{[^{}]*\.bn-editor\.bn-editor\s*\{([^}]*)\}/.exec(css);
+    const overridePx = Number(/padding-inline:\s*([\d.]+)rem/.exec(override![1])![1]) * 16;
+    expect(overridePx).toBe(Number(/^max-md:px-(\d+)$/.exec(small!)![1]) * 4);
+
+    // Same breakpoint as the column padding, or between the two the row and the text would disagree.
+    expect(ARTICLE_COLUMN_PADDING).toContain("max-md:");
+    expect(small!.startsWith("max-md:")).toBe(true);
   });
 
   it("the reserved width when pinned is tied to the outline constants", () => {

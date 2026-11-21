@@ -1,5 +1,5 @@
 import { and, eq, sql, type SQL } from "drizzle-orm";
-import type { NoteDto } from "@knotebook/shared";
+import type { NoteDto, NoteTagDto } from "@knotebook/shared";
 import type { DbOrTx } from "../db/tx.js";
 import { groups, notePlacements, noteStates, notes, uploads, users } from "../db/schema.js";
 import { editor, lastEditedSelection } from "./list-query.js";
@@ -24,6 +24,8 @@ export interface NoteFields {
   /** Deliberately not named `folderId`: a spread notes row (PATCH `returning`) can't supply it, so tsc forces every call site; otherwise the owner's folder would reach a sharee. */
   viewerFolderId: string | null;
   sizeBytes?: number;
+  tags?: NoteTagDto[];
+  hasKnowledge?: boolean;
 }
 
 /** `access` is passed in so tsc forces every call site to decide (never hard-code `"owner"`); correctness is pinned by each path's tests. */
@@ -47,6 +49,8 @@ export function toNoteDto(note: NoteFields, access: Pick<NoteAccess, "role" | "p
     permissions: access.permissions,
     folderId: note.viewerFolderId,
     ...(note.sizeBytes !== undefined ? { sizeBytes: note.sizeBytes } : {}),
+    ...(note.tags !== undefined ? { tags: note.tags } : {}),
+    ...(note.hasKnowledge !== undefined ? { hasKnowledge: note.hasKnowledge } : {}),
   };
 }
 

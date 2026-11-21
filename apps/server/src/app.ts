@@ -24,8 +24,10 @@ import { noteVersionsRoutes } from "./routes/note-versions.js";
 import { trashRoutes } from "./routes/trash.js";
 import { foldersRoutes } from "./routes/folders.js";
 import { favoritesRoutes } from "./routes/favorites.js";
+import { tagsRoutes } from "./routes/tags.js";
 import { groupsRoutes } from "./routes/groups.js";
 import { searchRoutes } from "./routes/search.js";
+import { knowledgeRoutes } from "./routes/knowledge.js";
 import { usersRoutes } from "./routes/users.js";
 import type { WriteNoteLinksHooks } from "./notes/links.js";
 import type { SlugPatchTestHook } from "./notes/tx/patch-slug.js";
@@ -83,6 +85,7 @@ import type { AvatarTestHooks } from "./avatars/tx/avatars.js";
 import type { AvatarFetchPolicy } from "./avatars/oidc-fetch.js";
 import type { OidcAvatarJobHooks } from "./avatars/oidc-job.js";
 import type { SearchIndexHooks } from "./notes/tx/search-index.js";
+import type { KnowledgeIndexHooks } from "./knowledge/tx/index-write.js";
 import { DEFAULT_STORAGE_LOCK_TIMEOUT_MS } from "./storage/tx/quota.js";
 import type { SiteLimits } from "./site-limits/store.js";
 
@@ -148,6 +151,7 @@ export interface AppDeps {
   avatarFetchPolicy?: AvatarFetchPolicy;
   avatarJobHooks?: OidcAvatarJobHooks;
   searchIndexHooks?: SearchIndexHooks;
+  knowledgeIndexHooks?: KnowledgeIndexHooks;
   /** Milliseconds; test-only (no env var). */
   storageLockTimeoutMs?: number;
   /** Tests leave it off and call `sweep`/`scanDue` directly. */
@@ -542,6 +546,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       noteCreateHooks: deps.noteCreateHooks,
       groupTestHook: deps.groupTestHook,
       searchIndexHooks: deps.searchIndexHooks,
+      knowledgeIndexHooks: deps.knowledgeIndexHooks,
       uploadsDir: deps.uploadsDir,
       storageLockTimeoutMs,
     })
@@ -550,9 +555,11 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   void app.register(trashRoutes({ db: deps.db, collabHooks: deps.collabHooks, uploadsDir: deps.uploadsDir, storageLockTimeoutMs, groupTestHook: deps.groupTestHook }));
   void app.register(foldersRoutes({ db: deps.db, collabHooks: deps.collabHooks, storageLockTimeoutMs, groupTestHook: deps.groupTestHook, limiters: { folder: limiters.folder } }));
   void app.register(favoritesRoutes({ db: deps.db, limiters: { favorite: limiters.favorite }, groupTestHook: deps.groupTestHook }));
+  void app.register(tagsRoutes({ db: deps.db, limiters: { tag: limiters.tag }, groupTestHook: deps.groupTestHook }));
   void app.register(groupsRoutes({ db: deps.db, collabHooks: deps.collabHooks, groupTestHook: deps.groupTestHook, uploadsDir: deps.uploadsDir, storageLockTimeoutMs, versions }));
   void app.register(usersRoutes({ db: deps.db, limiters: { userSuggest: limiters.userSuggest } }));
   void app.register(searchRoutes({ db: deps.db, limiters: { search: limiters.search } }));
+  void app.register(knowledgeRoutes({ db: deps.db, limiters: { search: limiters.search } }));
   void app.register(adminUsersRoutes({ db: deps.db, gate: deps.gate, collabHooks: deps.collabHooks, adminTestHook: deps.adminTestHook }));
   void app.register(adminPasswordResetRoutes({ db: deps.db, config: deps.config }));
   void app.register(adminInvitesRoutes({ db: deps.db, config: deps.config }));
@@ -636,6 +643,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       slugUpdateTestHook: deps.slugUpdateTestHook,
       noteCreateHooks: deps.noteCreateHooks,
       searchIndexHooks: deps.searchIndexHooks,
+      knowledgeIndexHooks: deps.knowledgeIndexHooks,
     })
   );
 

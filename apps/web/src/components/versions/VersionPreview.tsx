@@ -20,11 +20,33 @@ import { useTheme } from "@/theme";
 import { cn } from "@/lib/utils";
 import { MediaZoomContext } from "@/components/media-zoom/context";
 import { ComparePicker } from "./ComparePicker";
+import { KNOWLEDGE_OUTDATED_ATTR } from "@/collab/knowledge-decorations";
+import { KnowledgeLayerLazy } from "@/components/knowledge/KnowledgeLayerLazy";
+import { useKnowledgeController } from "@/components/knowledge/controller";
+import { listKnowledgeInBlocks, type KnowledgeEntry } from "@knotebook/shared";
 
 /** Below the threshold (content-box width, measured by `useContainerWidth`) side-by-side isn't rendered at all (single column only), so the side-by-side grid is always two columns with no container query. */
 const SPLIT_MIN_WIDTH = 720;
 
 const NO_MARKS: Map<string, DiffMark> = new Map();
+
+function knowledgeOf(blocks: readonly DiffBlock[]): KnowledgeEntry[] {
+  return listKnowledgeInBlocks(blocks.filter((b): b is DiffBlock & { id: string } => typeof b.id === "string"));
+}
+
+/** The single column renames deleted blocks to synthetic ids, so the previewed version's entries are re-keyed to the ids the column's DOM carries. */
+function rekeyKnowledge(entries: readonly KnowledgeEntry[], top: readonly DiffEntry[]): KnowledgeEntry[] {
+  const keyOf = new Map<string, string>();
+  for (const e of top) if (e.before?.id !== undefined) keyOf.set(e.before.id, e.key);
+  const re = (id: string) => keyOf.get(id) ?? id;
+  return entries.map((e) => ({
+    ...e,
+    blockId: re(e.blockId),
+    parentBlockId: e.parentBlockId === null ? null : re(e.parentBlockId),
+    ancestorBlockIds: e.ancestorBlockIds.map(re),
+    rangeBlockIds: e.rangeBlockIds.map(re),
+  }));
+}
 
 /**
  * Read-only diff editor (single column, one side of side-by-side, the before/after dialog). No collaboration, `editable={false}`; `resolveFileUrl` always passes `safeMediaUrl` (a snapshot can carry dangerous URLs written by collaborators; same guard as #12).
@@ -36,11 +58,14 @@ export function DiffEditor({
   marks,
   testId = "diff-pane",
   rootRef,
+  knowledge,
 }: {
   blocks: DiffBlock[];
   marks: Map<string, DiffMark | DiffMarkInfo>;
   testId?: string;
   rootRef?: MutableRefObject<HTMLElement | null>;
+  /** The knowledge of the version this editor shows. `accept` picks which DOM blocks may carry an icon (the single column holds blocks that aren't part of that version). Omitted = no icons, as in the before/after dialog. */
+  knowledge?: { entries: readonly KnowledgeEntry[]; accept?: (outer: HTMLElement) => boolean };
 }) {
   const { resolvedTheme } = useTheme();
   const editor = useCreateBlockNote(
@@ -62,6 +87,15 @@ export function DiffEditor({
       el.setAttribute("data-diff", mark);
       if (typeof info === "object" && info.moved && mark !== "moved") el.setAttribute("data-diff-moved", "true");
     });
+    // A read-only editor makes no transactions, so the strikethrough can be written straight onto the block instead of through a decoration.
+    const outdated = new Set((knowledge?.entries ?? []).filter((e) => e.outdated).map((e) => e.blockId));
+    root.querySelectorAll<HTMLElement>(`[${KNOWLEDGE_OUTDATED_ATTR}]`).forEach((el) => el.removeAttribute(KNOWLEDGE_OUTDATED_ATTR));
+    if (outdated.size > 0) {
+      root.querySelectorAll<HTMLElement>(".bn-block-outer[data-id]").forEach((outer) => {
+        if (!outdated.has(outer.dataset.id!) || (knowledge?.accept && !knowledge.accept(outer))) return;
+        outer.querySelector(":scope > .bn-block > .bn-block-content")?.setAttribute(KNOWLEDGE_OUTDATED_ATTR, "");
+      });
+    }
   });
   // On unmount (loading branch, switch to single column) hand back null, so the parent doesn't measure or attach an observer to a stale detached root.
   useLayoutEffect(
@@ -70,13 +104,21 @@ export function DiffEditor({
     },
     [rootRef],
   );
+  const [box, setBox] = useState<HTMLElement | null>(null);
+  const controller = useKnowledgeController();
+  // A rebuilt editor replaces every block element, so the layer starts over with it.
+  const generation = useRef({ blocks, n: 0 });
+  if (generation.current.blocks !== blocks) generation.current = { blocks, n: generation.current.n + 1 };
   return (
-    <div data-testid={testId} className="kb-diff min-w-0">
+    <div ref={setBox} data-testid={testId} className="kb-diff relative min-w-0">
       {/* The preview already lives in a panel/dialog, so no second zoom dialog on top: mermaid gets no zoom (context null);
           an image float layer mounted on the outer article column would skip images inside .kb-diff, so both stay consistent. */}
       <MediaZoomContext.Provider value={null}>
         <BlockNoteView editor={editor} editable={false} theme={resolvedTheme} />
       </MediaZoomContext.Provider>
+      {knowledge && (
+        <KnowledgeLayerLazy key={generation.current.n} container={box} entries={knowledge.entries} editable={false} noteId={null} controller={controller} accept={knowledge.accept} />
+      )}
     </div>
   );
 }
@@ -272,6 +314,19 @@ export function VersionPreview({ doc, forceSingle = false }: { doc: Y.Doc; force
   const single = useMemo(() => (entries ? renderDiff(entries, { onlyChanges, collapsedText, titleOf }) : null), [entries, onlyChanges, collapsedText, titleOf]);
   const sides = useMemo(() => (entries ? sideBySideMarks(entries) : null), [entries]);
   const nonText = useMemo(() => (entries && single ? collectNonText(entries, single.marks) : []), [entries, single]);
+  // Each side's knowledge comes from its own blocks. The single column mixes both versions plus collapsed placeholders, so it shows the previewed version's (`a`) and skips blocks that version doesn't have.
+  const knowledgeA = useMemo(() => ({ entries: a ? knowledgeOf(a) : [] }), [a]);
+  const knowledgeB = useMemo(() => ({ entries: b ? knowledgeOf(b) : [] }), [b]);
+  const knowledgeSingle = useMemo(
+    () => ({
+      entries: rekeyKnowledge(knowledgeA.entries, entries ?? []),
+      accept: (outer: HTMLElement) => {
+        const info = single?.marks.get(outer.dataset.id!);
+        return info?.mark !== "added" && info?.mark !== "collapsed";
+      },
+    }),
+    [knowledgeA, entries, single],
+  );
 
   // Side-by-side exists only when the preview area is wide enough: narrow is always single; the user's chosen "side-by-side" stays in splitMode and returns when wide again. Same condition as the controller's `splitActive`.
   const wide = !forceSingle && width >= SPLIT_MIN_WIDTH;
@@ -368,11 +423,11 @@ export function VersionPreview({ doc, forceSingle = false }: { doc: Y.Doc; force
       body = (
         <div data-testid="diff-split" className="kb-diff-split grid min-h-0 flex-1 grid-cols-2 gap-4">
           <section ref={leftSec} className="relative min-w-0">
-            <DiffEditor blocks={a} marks={sides.left} rootRef={leftRoot} />
+            <DiffEditor blocks={a} marks={sides.left} rootRef={leftRoot} knowledge={knowledgeA} />
             {spacers.map((s) => s.side === "left" && <SpacerDiv key={s.row} spacer={s} />)}
           </section>
           <section ref={rightSec} className="relative min-w-0 border-l border-border">
-            <DiffEditor blocks={b} marks={sides.right} rootRef={rightRoot} />
+            <DiffEditor blocks={b} marks={sides.right} rootRef={rightRoot} knowledge={knowledgeB} />
             {spacers.map((s) => s.side === "right" && <SpacerDiv key={s.row} spacer={s} />)}
           </section>
         </div>
@@ -380,7 +435,7 @@ export function VersionPreview({ doc, forceSingle = false }: { doc: Y.Doc; force
     } else {
       body = (
         <div data-testid="diff-single" className={cn(articleColumn(noteWidth), ARTICLE_COLUMN_PADDING)}>
-          <DiffEditor blocks={single.blocks} marks={single.marks} testId="diff-single-editor" rootRef={singleRoot} />
+          <DiffEditor blocks={single.blocks} marks={single.marks} testId="diff-single-editor" rootRef={singleRoot} knowledge={knowledgeSingle} />
         </div>
       );
     }

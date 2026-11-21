@@ -21,3 +21,23 @@ describe("too_complex and parser-busy messages", () => {
     expect(PARSER_BUSY_TOOL_MESSAGE).toBe("The server is busy processing other writes, so nothing was written. Try again in a moment.");
   });
 });
+
+describe("knowledge messages", () => {
+  const problem = { problem: "bad_date", key: "verified", heading: "D1" } as const;
+  const expected = 'The knowledge comment under the heading "D1" has a `verified` that isn\'t a date written YYYY-MM-DD. Nothing was written.';
+  it("invalid_knowledge names the heading and the reason on REST, in a file write-back and over MCP", () => {
+    expect(parseErrorMessage("invalid_knowledge", "fb", undefined, problem)).toBe(expected);
+    expect(transferParseMessage("invalid_knowledge", undefined, undefined, problem)).toBe(expected);
+    expect(writeFailureMessage("invalid_knowledge", undefined, problem)).toBe(expected);
+  });
+  it("without the problem they fall back to a plain sentence that still says nothing was written", () => {
+    for (const m of [parseErrorMessage("invalid_knowledge", "fb"), transferParseMessage("invalid_knowledge"), writeFailureMessage("invalid_knowledge")]) expect(m).toMatch(/knowledge comment.*nothing was written/);
+  });
+  it("unsupported_block with knowledge_attr has its own message on all three paths, and it does not offer data-knowledge attributes", () => {
+    for (const m of [parseErrorMessage("unsupported_block", "fb", "knowledge_attr"), transferParseMessage("unsupported_block", "knowledge_attr"), writeFailureMessage("unsupported_block", "knowledge_attr")]) {
+      expect(m).toContain("knowledge info this editor cannot store");
+      expect(m).toContain("<!-- knotebook:knowledge … --> comment");
+      expect(m).not.toContain("data-knowledge");
+    }
+  });
+});

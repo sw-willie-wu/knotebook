@@ -22,7 +22,7 @@ export interface NoteCreateHooks {
  */
 export async function insertNoteWithAutoSlug(db: Db, where: NewNoteLocation, title: string | undefined, hooks?: NoteCreateHooks): Promise<typeof notes.$inferSelect>;
 /** Each INSERT runs in a `writeSlugInTx` savepoint: a plain 23505 would leave the transaction in 25P02. */
-export async function insertNoteWithAutoSlug(tx: Tx, where: NewNoteLocation, title: string, hooks: NoteCreateHooks | undefined, mode: { inTx: true }): Promise<typeof notes.$inferSelect>;
+export async function insertNoteWithAutoSlug(tx: Tx, where: NewNoteLocation, title: string | undefined, hooks: NoteCreateHooks | undefined, mode: { inTx: true }): Promise<typeof notes.$inferSelect>;
 export async function insertNoteWithAutoSlug(
   db: DbOrTx,
   where: NewNoteLocation,

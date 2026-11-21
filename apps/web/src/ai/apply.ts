@@ -15,6 +15,18 @@ import {
   restoreMermaidBlocks,
   syntaxCheckRoot,
   targetFromList,
+  applyKnowledgeComments,
+  findStrayKnowledgeProps,
+  knowledgeWriteProblem,
+  normalizeKnowledgeRefs,
+  readKnowledgeInfo,
+  resolveKnowledgeForWrite,
+  restoreKnowledgeProps,
+  KNOWLEDGE_ATTR_IN_TAG,
+  PLAINTEXT_TAG,
+  type KnowledgeBlockShape,
+  type KnowledgeInfo,
+  type KnowledgeProps,
   type MarkdownPlacement,
   type MarkdownSyntaxError,
   type SiteLinkCandidate,
@@ -32,9 +44,27 @@ export interface ApplyDeps {
   siteOrigin?: string;
   /** "nested": the AI result must not contain columns. */
   placement: MarkdownPlacement;
+  knowledge?: AiKnowledgeContext;
 }
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote generic triple, repo convention
 type AnyBlock = Block<any, any, any>;
+
+/** `replaced`: the top-level blocks the result will replace; `current`: the first knowledge heading of each id in the whole note. */
+export interface AiKnowledgeContext {
+  noteId: string;
+  replaced: readonly AnyBlock[];
+  current: ReadonlyMap<string, KnowledgeInfo>;
+}
+
+export function aiKnowledgeContext(editor: Pick<AnyEditor, "document" | "getBlock">, noteId: string, anchorBlockIds: readonly string[]): AiKnowledgeContext {
+  const current = new Map<string, KnowledgeInfo>();
+  for (const b of editor.document) {
+    const info = b.type === "heading" ? readKnowledgeInfo(b.props) : null;
+    if (info !== null && !current.has(info.id)) current.set(info.id, info);
+  }
+  const replaced = anchorBlockIds.map((id) => editor.getBlock(id)).filter((b): b is AnyBlock => b !== undefined);
+  return { noteId, replaced, current };
+}
 
 /** buildPreview and applyAiResult must use this same blocks array, so what is applied is exactly what was previewed. */
 export interface PreparedResult {
@@ -53,20 +83,35 @@ export function prepareAiResult(
   editor: AnyEditor,
   markdown: string,
   deps: ApplyDeps,
-): PreparedResult | { empty: true } | { invalid: MarkdownSyntaxError | "unsupported_color" } {
+): PreparedResult | { empty: true } | { invalid: MarkdownSyntaxError | "unsupported_color" | "invalid_knowledge" } {
   const syntax = checkNoteMarkdownSyntax(markdown, deps.placement);
   if (!syntax.ok) return { invalid: syntax.error };
   // No block-count precheck: in-app AI has no block limit.
   const root = syntaxCheckRoot(syntax.html);
   if (findParseGuardFailure(root) !== null) return { invalid: "unsupported_block" };
+  // Only a comment can set knowledge. After `<plaintext>` the DOM can't be serialized back, so there an attribute is refused and comments are plain text.
+  let html = syntax.html;
+  let assigned: ReadonlySet<string> = new Set();
+  let written: readonly KnowledgeProps[] = [];
+  if (PLAINTEXT_TAG.test(html)) {
+    if (KNOWLEDGE_ATTR_IN_TAG.test(html)) return { invalid: "unsupported_block" };
+  } else {
+    const comments = applyKnowledgeComments(root, deps.placement, html);
+    if ("error" in comments) return { invalid: "invalid_knowledge" };
+    ({ assigned, props: written } = comments);
+    // premergedHtml returns its input when nothing merges, so DOM edits have to be serialized first.
+    if (comments.changed) html = root.innerHTML;
+  }
   let raw: AnyBlock[];
   try {
-    raw = editor.tryParseHTMLToBlocks(premergedHtml(syntax.html, root));
+    raw = editor.tryParseHTMLToBlocks(premergedHtml(html, root));
   } catch {
     // core throws on some internal editor shapes (e.g. `<div data-content-type="paragraph">`); uncaught, it would
     // land in the stream continuation and leave the box streaming.
     return { invalid: "unsupported_block" };
   }
+  // Parsing normalizes CR in attribute values, so the comment's values are put back before the id check.
+  if (!restoreKnowledgeProps(raw, written) || findStrayKnowledgeProps(raw, assigned)) return { invalid: "unsupported_block" };
   // The parsing DOM's base, not deps.siteOrigin (that one is only for site-link checks).
   const parsed = relativizeSiteUploads(normalizeTableWidths(restoreMermaidBlocks(raw)), new URL(document.baseURI).origin);
   const shape = findStructureError(parsed, deps.placement);
@@ -80,8 +125,25 @@ export function prepareAiResult(
     (type) => editor.schema.blockSchema[type]?.content === "inline",
   );
   // Resolved only from the loaded notes cache, with no fallback lookup.
-  const [blocks] = convertSiteLinks(rebound, (_href, p) => targetFromList(p.path, deps.notes) ?? null, deps.siteOrigin ?? window.location.origin);
+  const [linked] = convertSiteLinks(rebound, (_href, p) => targetFromList(p.path, deps.notes) ?? null, deps.siteOrigin ?? window.location.origin);
+  const blocks = deps.placement === "top" ? resolveKnowledge(linked, written.length > 0, deps.knowledge) : linked;
+  if (blocks === null) return { invalid: "invalid_knowledge" };
   return { blocks, unboundCount };
+}
+
+// Same steps as the server's write path. Skipped when the result sets no knowledge and nothing in the replaced range had any, so such a selection is written exactly as before.
+function resolveKnowledge(blocks: AnyBlock[], hasComments: boolean, context: AiKnowledgeContext | undefined): AnyBlock[] | null {
+  const replaced = context?.replaced ?? [];
+  if (!hasComments && !replaced.some((b) => b.type === "heading" && readKnowledgeInfo(b.props) !== null)) return blocks;
+  const shaped = blocks as unknown as readonly KnowledgeBlockShape[];
+  const resolved = resolveKnowledgeForWrite({
+    before: replaced as unknown as readonly KnowledgeBlockShape[],
+    after: context === undefined ? shaped : normalizeKnowledgeRefs(shaped, context.noteId),
+    keep: context !== undefined,
+    taken: new Set(context?.current.keys()),
+  });
+  if (knowledgeWriteProblem(resolved.blocks, context?.current ?? new Map(), context?.noteId ?? null) !== null) return null;
+  return resolved.blocks as unknown as AnyBlock[];
 }
 
 export type ApplyOutcome =

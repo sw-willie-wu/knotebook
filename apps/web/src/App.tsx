@@ -23,12 +23,14 @@ import LoginPage from "./pages/LoginPage";
 import HomePage from "./pages/HomePage";
 import { AppShellLayout } from "./components/AppShellLayout";
 import { NOTE_ROUTE_PATTERNS } from "./lib/phone-list";
+import { KNOWLEDGE_INDEX_ROUTE_PATTERNS } from "./lib/knowledge-index-path";
 import { SettingsModal } from "./settings/SettingsModal";
 import { GroupModal, GroupSubpathRedirect, LegacyGroupRedirect } from "./components/groups/GroupModal";
 import { AdminModal } from "./components/admin/AdminModal";
 
 // BlockNote and the collab stack (~1.3 MB); scripts/check-bundle-size.mjs keeps them out of the entry bundle.
 const NotePage = lazy(() => import("./pages/NotePage"));
+const KnowledgeIndexPage = lazy(() => import("./pages/KnowledgeIndexPage"));
 
 // Rarely used pages are lazy (#201). LoginPage and HomePage stay in the entry bundle (first screens), and so do
 // the modal shells (SettingsModal/GroupModal/AdminModal): the modal frame must appear at once, only content waits.
@@ -50,6 +52,9 @@ const SettingsAuthorizationSection = lazy(() =>
 const SettingsStorageUsageSection = lazy(() =>
   import("./settings/SettingsStorageUsageSection").then(m => ({ default: m.SettingsStorageUsageSection })),
 );
+const PersonalTagsSection = lazy(() =>
+  import("./settings/TagsSection").then(m => ({ default: m.PersonalTagsSection })),
+);
 const SettingsGroupsOverview = lazy(() =>
   import("./settings/SettingsGroupsOverview").then(m => ({ default: m.SettingsGroupsOverview })),
 );
@@ -61,6 +66,9 @@ const GroupMembersSection = lazy(() =>
 );
 const GroupRolesSection = lazy(() =>
   import("./components/groups/GroupSections").then(m => ({ default: m.GroupRolesSection })),
+);
+const GroupTagsSection = lazy(() =>
+  import("./components/groups/GroupSections").then(m => ({ default: m.GroupTagsSection })),
 );
 const GroupStorageSection = lazy(() =>
   import("./components/groups/GroupSections").then(m => ({ default: m.GroupStorageSection })),
@@ -90,6 +98,20 @@ function LazyPageRoute({ chunk, frame, children }: { chunk: string; frame: "page
 }
 
 const PublicNotePage = lazy(() => import("./pages/PublicNotePage"));
+
+// Like NoteRoute, resetKey comes from the path rather than location.key so a closed modal does not look like a switch.
+// The path is parsed in the lazy page, which keeps that code out of the entry bundle.
+function KnowledgeIndexRoute() {
+  const { pathname } = useLocation();
+  return (
+    <LazyRouteErrorBoundary key="knowledge-index" resetKey={pathname} chunk="knowledge-index">
+      <Suspense fallback={<LazyRouteLoading />}>
+        <KnowledgeIndexPage />
+        <ChunkLoadBeacon chunk="knowledge-index" />
+      </Suspense>
+    </LazyRouteErrorBoundary>
+  );
+}
 
 // resetKey from route params, not location.key: closing a settings modal creates a new key, which would look like a
 // note switch and reload. Cost: navigating again to the same params doesn't retry.
@@ -204,6 +226,9 @@ export function AppRoutes() {
               {NOTE_ROUTE_PATTERNS.map((path) => (
                 <Route key={path} path={path} element={<NoteRoute />} />
               ))}
+              {KNOWLEDGE_INDEX_ROUTE_PATTERNS.map((path) => (
+                <Route key={path} path={path} element={<KnowledgeIndexRoute />} />
+              ))}
               <Route path="/*" element={<HomePage />} />
             </Route>
           </Route>
@@ -221,6 +246,7 @@ export function AppRoutes() {
               <Route path="/settings/authorization" element={<SettingsAuthorizationSection />} />
               {/* Personal storage usage. */}
               <Route path="/settings/storage" element={<SettingsStorageUsageSection />} />
+              <Route path="/settings/tags" element={<PersonalTagsSection />} />
               {/* Read-only, any logged-in user. */}
               <Route path="/settings/groups" element={<SettingsGroupsOverview />} />
               <Route path="/settings/about" element={<SettingsAboutSection />} />
@@ -229,6 +255,7 @@ export function AppRoutes() {
             <Route path="/groups/:id" element={<GroupModal />}>
               <Route index element={<GroupMembersSection />} />
               <Route path="roles" element={<GroupRolesSection />} />
+              <Route path="tags" element={<GroupTagsSection />} />
               <Route path="storage" element={<GroupStorageSection />} />
               <Route path="about" element={<GroupAboutSection />} />
               <Route path="*" element={<GroupSubpathRedirect />} />

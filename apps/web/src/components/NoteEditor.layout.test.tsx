@@ -6,7 +6,7 @@ import * as Y from "yjs";
 import { BlockNoteEditor } from "@blocknote/core";
 import type { AiActionDto } from "@knotebook/shared";
 import i18n from "@/i18n";
-import { ARTICLE_COLUMN, ARTICLE_COLUMN_PADDING, articleColumn } from "@/components/ui/article-column";
+import { ARTICLE_COLUMN, ARTICLE_COLUMN_PADDING, ARTICLE_TEXT_INSET, articleColumn } from "@/components/ui/article-column";
 import { setNoteWidth } from "@/components/note-width";
 import { ThemeProvider } from "@/theme";
 import { NoteEditor } from "./NoteEditor";
@@ -153,6 +153,57 @@ describe("NoteEditor layout (slotted: node chain + two-layer class smoke)", () =
     expect(scrollWrapper).not.toContainElement(screen.getByTestId("header-slot-marker"));
     expect(scrollWrapper).not.toContainElement(screen.getByTestId("footer-slot-marker"));
 
+    doc.destroy();
+  });
+
+  it("contentTopSlot renders inside the article column, before the editor and outside its contenteditable, with ARTICLE_TEXT_INSET", async () => {
+    const doc = new Y.Doc();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <NoteEditor
+            doc={doc}
+            provider={{ awareness: null } as never}
+            editable
+            user={{ id: "u1", name: "Ann" }}
+            noteId="note-1"
+            headerSlot={<div data-testid="header-slot-marker">header</div>}
+            contentTopSlot={<div data-testid="top-slot-marker">tags</div>}
+          />
+        </ThemeProvider>
+      </QueryClientProvider>,
+    );
+    const editorRoot = await screen.findByTestId("note-editor");
+    const column = screen.getByTestId("article-column");
+    const marker = screen.getByTestId("top-slot-marker");
+    const wrapper = marker.parentElement!;
+    expect(wrapper).toHaveAttribute("data-note-content-top");
+    expect(wrapper.parentElement).toBe(column);
+    expect(wrapper).toHaveClass(...ARTICLE_TEXT_INSET.split(" "), "shrink-0", "pb-2", "empty:hidden");
+    // The wrapper is the column's first child: the slot comes before the editor.
+    expect(column.firstElementChild).toBe(wrapper);
+    expect(wrapper.compareDocumentPosition(editorRoot) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(wrapper.contains(editorRoot)).toBe(false);
+    expect(editorRoot.contains(marker)).toBe(false);
+    expect(marker.closest("[contenteditable]")).toBeNull();
+    // The header slot stays where it was, outside the scroll area.
+    expect(screen.getByTestId("header-slot-marker").closest("[data-testid=article-column]")).toBeNull();
+    doc.destroy();
+  });
+
+  it("a note without contentTopSlot has no wrapper for it, so the column is unchanged", async () => {
+    const doc = new Y.Doc();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <NoteEditor doc={doc} provider={{ awareness: null } as never} editable user={{ id: "u1", name: "Ann" }} noteId="note-1" />
+        </ThemeProvider>
+      </QueryClientProvider>,
+    );
+    await screen.findByTestId("note-editor");
+    expect(document.querySelector("[data-note-content-top]")).toBeNull();
     doc.destroy();
   });
 

@@ -19,7 +19,7 @@ const BASE_KEYS = [
   "createdAt", "group", "groupId", "id", "lastEdited", "ownerHandle", "ownerId", "permissions", "prevSlug", "role", "slug", "slugIsCustom", "title", "updatedAt",
 ];
 const SINGLE_KEYS = [...BASE_KEYS, "folderId"].sort();
-const LIST_KEYS = [...BASE_KEYS, "folderId", "sizeBytes"].sort();
+const LIST_KEYS = [...BASE_KEYS, "folderId", "hasKnowledge", "sizeBytes", "tags"].sort();
 
 const req = async (
   app: FastifyInstance, method: "GET" | "POST" | "PATCH", url: string, userId: string, payload?: Record<string, unknown>,
@@ -146,7 +146,7 @@ describe("folders: NoteDto.folderId (caller's perspective)", () => {
     expect(body.restored[0]!.folderId).toBe(c.FO);
   });
 
-  it("key sets: list = existing + folderId + sizeBytes; :ref/PATCH/POST/by-path = existing + folderId; none contains the trash snapshot columns", async () => {
+  it("key sets: list = existing + folderId + hasKnowledge + sizeBytes + tags; :ref/PATCH/POST/by-path = existing + folderId; none contains the trash snapshot columns", async () => {
     const { app, db } = await buildTestApp();
     const c = await scene(db);
     for (const dto of (await listOf(app, c.s.id)).values()) expect(Object.keys(dto).sort()).toEqual(LIST_KEYS);

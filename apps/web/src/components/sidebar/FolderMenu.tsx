@@ -1,5 +1,6 @@
 import { useId, useRef, useState, type ReactElement, type SVGProps } from "react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router";
 import { FOLDER_DEPTH_MAX, type FolderDto } from "@knotebook/shared";
 import type { FolderDialogRequest } from "@/components/NoteList";
 import { Button } from "@/components/ui/button";
@@ -15,7 +16,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Check, EllipsisVertical, FilePlus, FolderPlus, Pencil, Trash } from "@/components/ui/icons";
+import { Check, EllipsisVertical, FilePlus, FolderPlus, Library, Pencil, Trash } from "@/components/ui/icons";
 import { hoverReveal } from "@/components/ui/reveal";
 import { cn } from "@/lib/utils";
 import { setFolderSort, useFolderSort, type FolderSort } from "./folder-sort";
@@ -98,6 +99,7 @@ function DeleteAction({ folder, hasLiveNotes, onRun }: { folder: FolderDto; hasL
 /** First-bundle module: no string-bundle import. Controlled menu; items follow the three-step pattern (`preventDefault` → close menu → action) of the GroupMenu/NoteMenu focus-trap rule. The dialogs are opened by NoteList's host (`onRequest` carries ⋮ as the focus-return target). Sort radio items `preventDefault` on select so the menu stays open to compare sorts. */
 export function FolderMenu({
   folder,
+  indexPath,
   depth,
   hasLiveNotes,
   onCreateNote,
@@ -105,6 +107,8 @@ export function FolderMenu({
   onRequest,
 }: {
   folder: FolderDto;
+  /** Set only when the folder's subtree has knowledge. */
+  indexPath?: string;
   /** Folder depth (root level = 1); at or above FOLDER_DEPTH_MAX "new subfolder" is unavailable. */
   depth: number;
   hasLiveNotes: () => boolean;
@@ -113,6 +117,7 @@ export function FolderMenu({
   onRequest: (request: FolderDialogRequest, opener: HTMLElement | null) => void;
 }) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const sort = useFolderSort(folder.id);
@@ -179,7 +184,10 @@ export function FolderMenu({
             onRun={() => openDialog({ kind: "rename", folder })}
           />
         )}
-        {(showNewNote || showManage) && <DropdownMenuSeparator />}
+        {indexPath !== undefined && (
+          <MenuAction icon={Library} label={t("folders.menu.openIndex")} blockedReason={null} onRun={() => run(() => navigate(indexPath))} />
+        )}
+        {(showNewNote || showManage || indexPath !== undefined) && <DropdownMenuSeparator />}
         <DropdownMenuLabel id={sortLabelId} className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
           {t("folders.menu.sortBy")}
         </DropdownMenuLabel>

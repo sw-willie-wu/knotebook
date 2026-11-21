@@ -27,6 +27,7 @@
     "myNotes": "My notes",
     "shared": "Shared with me",
     "openDrawer": "Open sidebar",
+    "openIndex": "Open the index of {{name}}",
     "drawerTitle": "Navigation",
     "searchLabel": "Search notes",
     "searchPlaceholder": "Search…",
@@ -333,6 +334,12 @@
       "slashSubtext": "Place blocks side by side",
       "ungroup": "Ungroup columns",
       "resize": "Resize columns"
+    },
+    "knowledge": {
+      "slashTitle": "Knowledge info",
+      "slashSubtext": "Mark this heading as a piece of knowledge",
+      "menuItem": "Knowledge info…",
+      "menuEditItem": "Edit knowledge info…"
     }
   },
   "login": {
@@ -462,6 +469,7 @@
       "newNote": "New note",
       "newSubfolder": "New subfolder",
       "rename": "Rename",
+      "openIndex": "Open index",
       "sortBy": "Sort by",
       "sortName": "Name",
       "sortRecent": "Last modified",
@@ -513,6 +521,7 @@
       "manage": "Members & settings",
       "viewMembers": "View members",
       "rename": "Rename",
+      "openIndex": "Open index",
       "delete": "Delete group",
       "leave": "Leave group"
     },
@@ -917,6 +926,64 @@
     "inTrashTitle": "This note is in the trash",
     "goToTrash": "Go to trash"
   },
+  "tags": {
+    "label": "Tags",
+    "add": "Add a tag",
+    "inputLabel": "Tag name",
+    "inputPlaceholder": "Type a tag…",
+    "create": "Create \"{{name}}\"",
+    "inSpace": "Tags",
+    "suggested": "Suggestions",
+    "remove": "Remove tag {{name}}",
+    "more": "Show {{count}} more tags",
+    "showLess": "Show less",
+    "dots": "Tags: {{names}}",
+    "separator": ", ",
+    "nameInvalid": "Tag names must be 1 to 40 characters.",
+    "entry": {
+      "slashTitle": "Tag",
+      "slashSubtext": "Add a tag to this note",
+      "menuItem": "Add tag"
+    },
+    "suggestions": {
+      "todo": "To do",
+      "reference": "Reference",
+      "meeting": "Meeting notes",
+      "decision": "Decision",
+      "idea": "Idea",
+      "draft": "Draft",
+      "important": "Important",
+      "archive": "Archive"
+    },
+    "colors": {
+      "blue": "Blue",
+      "green": "Green",
+      "orange": "Orange",
+      "purple": "Purple",
+      "pink": "Pink",
+      "red": "Red",
+      "yellow": "Yellow",
+      "brown": "Brown",
+      "gray": "Gray"
+    },
+    "filter": {
+      "button": "Filter by tag",
+      "buttonActive": "Filter by tag, {{count}} applied",
+      "empty": "No notes have all of these tags.",
+      "menuTitle": "Filter by tag · {{space}}",
+      "allMatch": "Only notes with all of them are listed",
+      "oneGroup": "One group at a time; groups without tags aren't listed",
+      "removeOne": "Remove {{name}} from the filter",
+      "clearShort": "Clear",
+      "done": "Done",
+      "count_one": "{{count}} note",
+      "count_other": "{{count}} notes",
+      "hiddenGroups": "Showing only {{group}}; other groups are hidden while filtering"
+    },
+    "manage": {
+      "nav": "Tags"
+    }
+  },
   "errors": {
     "unauthorized": "You need to sign in to continue.",
     "forbidden": "You don't have permission to do that.",
@@ -1032,6 +1099,13 @@
     "password_not_set": "This account signs in only through a sign-in service and has no password to reset.",
     "user_disabled": "This account is disabled. Enable it before resetting its password.",
     "empty_result": "The AI returned an empty result.",
+    "tag_name_taken": "This space already has a tag with that name.",
+    "tag_limit_reached": "You've reached the tag limit.",
+    "invalid_tag_name": "Tag names must be 1 to 40 characters.",
+    "tag_not_found": "That tag no longer exists.",
+    "invalid_tags": "That tag is no longer available.",
+    "merge_same_tag": "Pick a different tag to merge into.",
+    "invalid_knowledge": "A knowledge comment in that text is not valid, so nothing was changed.",
     "fallback": "An unexpected error occurred."
   }
 }

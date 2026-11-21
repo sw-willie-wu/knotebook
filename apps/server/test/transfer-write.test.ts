@@ -62,7 +62,7 @@ describe("state table", () => {
     expect(body).not.toHaveProperty("version");
     expect(body).not.toHaveProperty("conflicts");
     expect((body.editIds as string[]).length).toBe(1);
-    expect(norm(await liveMarkdown(s.ctx, s.note.id))).toBe(norm(editBody(d.text, b => b.replace("Para 1", "Para 1 new")).split("\n").slice(8).join("\n")));
+    expect(norm(await liveMarkdown(s.ctx, s.note.id))).toBe(norm(editBody(d.text, b => b.replace("Para 1", "Para 1 new")).split("\n").slice(9).join("\n")));
     const ids1 = await topIdsOf(s.ctx, s.note.id);
     expect(ids1).toEqual(ids0);
     const rows = await edits(s.ctx, s.note.id);
@@ -911,7 +911,7 @@ describe("error shapes", () => {
     expect((await bulkPut(s.ctx.app, s.bulk.token, d.text)).json()).toMatchObject({ result: "unchanged" });
     const text = editBody(d.text, b => b.replace("段落 P", "段落 P 改"));
     expect((await bulkPut(s.ctx.app, s.bulk.token, text)).json()).toMatchObject({ result: "applied", applied: 1 });
-    expect(norm(await liveMarkdown(s.ctx, s.note.id))).toBe(norm(text.split("\n").slice(8).join("\n")));
+    expect(norm(await liveMarkdown(s.ctx, s.note.id))).toBe(norm(text.split("\n").slice(9).join("\n")));
   });
 
   it("script boundary: a paragraph whose text is <script>x</script>, exported with backslash escaping -> resending as is, changing another paragraph, and changing the escaped paragraph all behave as before; only the unescaped raw tag is 400 dropped_element", async () => {

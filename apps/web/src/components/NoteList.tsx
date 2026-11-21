@@ -1,7 +1,7 @@
 import { lazy, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactElement, type ReactNode, type RefObject, type SVGProps } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
-import { canonicalNotePath, type FavoriteDto, type FolderDto, type FolderSpaceDto, type GroupDto, type NoteDto } from "@knotebook/shared";
+import { canonicalNotePath, type FavoriteDto, type FolderDto, type FolderSpaceDto, type GroupDto, type NoteDto, type NoteTagDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
 import { useFavoriteLookup } from "@/api/favorites";
 import { folderErrorMessage, useFolders } from "@/api/folders";
@@ -18,9 +18,10 @@ import { ROW_ICON_HIT, ROW_ICON_ROW } from "@/components/ui/hit-area";
 import { hoverReveal, type RevealScope } from "@/components/ui/reveal";
 import { FolderPlus, Plus, SquareCheck, Star } from "@/components/ui/icons";
 import { EmptyState } from "@/components/EmptyState";
-import { useCollapsed } from "@/components/sidebar/collapse";
 import { indexFolders, liveNotesUnder } from "@/components/sidebar/folder-index";
 import { FolderMenu } from "@/components/sidebar/FolderMenu";
+import { IndexButton } from "@/components/sidebar/IndexButton";
+import { knowledgeScopes, NO_KNOWLEDGE_SCOPES, type KnowledgeScopes } from "@/components/sidebar/knowledge-scopes";
 import { useFolderSortOf } from "@/components/sidebar/folder-sort";
 import { FolderRowButton } from "@/components/sidebar/FolderRowButton";
 import { GroupRowButton } from "@/components/sidebar/GroupRowButton";
@@ -31,8 +32,22 @@ import type { StackPreviewState } from "@/components/sidebar/drag-session";
 import { StackPreview } from "@/components/sidebar/StackPreview";
 import { tabSpec, type HeaderActionId } from "@/components/sidebar/tab-specs";
 import { DROP_SCOPE_CLASS, useSidebarDrag } from "@/components/sidebar/useSidebarDrag";
-import { buildTabNodes, hasSelectableNodes, noteLocationLabel, noteSpaceKey, type LocationContext, type SidebarNode } from "@/components/sidebar/tree";
+import {
+  buildTabNodes,
+  countNoteNodes,
+  hasSelectableNodes,
+  noteLocationLabel,
+  noteSpaceKey,
+  partitionNotes,
+  type LocationContext,
+  type SidebarNode,
+} from "@/components/sidebar/tree";
+import { knowledgeIndexPath } from "@/lib/knowledge-index-path";
 import { tourTarget, type TourTargetId } from "@/lib/tour-targets";
+import { TagDots } from "@/components/sidebar/TagDots";
+import { TagFilterBar } from "@/components/sidebar/TagFilterBar";
+import { applyTagFilter, clearTagFilter, tagFilterView, toggleTagFilter, useSectionOpen, useTagFilter } from "@/components/sidebar/tag-filter";
+import { TagFilterMenu } from "@/components/tags/TagFilterMenu";
 
 // lazy-only entry (initial-bundle cap); both mount points share one chunk
 const SelectHeader = lazy(() => import("@/components/sidebar/SelectLazy").then((m) => ({ default: m.SelectHeader })));
@@ -56,6 +71,7 @@ const EMPTY_FOLDERS: FolderDto[] = [];
 const EMPTY_NOTES: NoteDto[] = [];
 const EMPTY_FAVORITES: FavoriteDto[] = [];
 const EMPTY_NODES: SidebarNode[] = [];
+const EMPTY_TAGS: NoteTagDto[] = [];
 
 /** same mapping as LoginPage */
 function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {
@@ -143,6 +159,11 @@ function NoteRow({ note, variant, location, favorite, favoritePending }: NoteRow
           note.title
         )}
       </Link>
+      <TagDots
+        tags={note.tags ?? EMPTY_TAGS}
+        // The two-line row puts the dots level with the title line, not centred between the lines.
+        className={variant === "recent" ? "self-start mt-3 max-sm:mt-3.5" : undefined}
+      />
       {variant !== "recent" && <RoleBadge role={note.role} group={note.group} />}
       {favorite === true && <FavoriteMarker />}
       <SidebarNoteMenu note={note} />
@@ -208,14 +229,19 @@ interface NodeContext {
   favoritePendingIds: ReadonlySet<string>;
   dropScope: string | null;
   stack: { state: StackPreviewState; creating: boolean } | null;
+  /** Tag filtering is on: folders and groups with something to show start open, and toggling them doesn't touch the saved collapse state. */
+  filtering: boolean;
+  /** Where the viewer has knowledge: only those rows get an index entry. */
+  knowledge: KnowledgeScopes;
 }
 
 /** Collapse state is the shared store in `sidebar/collapse.ts`; the guide line aligns with the icon slot centre (px-2 8 + 14/2 = 15px). */
 function GroupNode({ node, ctx }: { node: Extract<SidebarNode, { kind: "group" }>; ctx: NodeContext }) {
   const { t } = useTranslation();
   const { group } = node;
-  const [open, toggle] = useCollapsed(`group:${group.id}`);
+  const [open, toggle] = useSectionOpen(`group:${group.id}`, ctx.filtering, node.children.length > 0);
   const dropScoped = ctx.dropScope === `group:${group.id}`;
+  const indexPath = ctx.knowledge.groups.has(group.id) ? knowledgeIndexPath({ kind: "group", groupId: group.id }) : undefined;
   return (
     <li
       data-node-kind="group"
@@ -225,6 +251,7 @@ function GroupNode({ node, ctx }: { node: Extract<SidebarNode, { kind: "group" }
     >
       <div className={cn("group/grouprow flex h-11 items-center gap-0.5 pr-0.75 pointer-fine:h-7 rounded-md hover:bg-brand-soft active:bg-brand-soft-strong", ROW_ICON_ROW)}>
         <GroupRowButton name={group.name} open={open} onToggle={toggle} />
+        {indexPath !== undefined && <IndexButton to={indexPath} name={group.name} reveal="grouprow" />}
         {/* New folder: group notes need edit rights to create a folder; placed before "+" */}
         {group.myRole?.permissions.edit && (
           <HeaderActionButton
@@ -243,7 +270,7 @@ function GroupNode({ node, ctx }: { node: Extract<SidebarNode, { kind: "group" }
             disabled={ctx.createNotePending}
           />
         )}
-        <GroupMenu group={group} size="sidebar" />
+        <GroupMenu group={group} size="sidebar" indexPath={indexPath} />
       </div>
       {open && (
         <div className="ml-[15px] border-l border-muted-foreground/35 pl-2">
@@ -262,8 +289,9 @@ function groupIdOf(folder: FolderDto): string | undefined {
 function FolderNode({ node, ctx }: { node: Extract<SidebarNode, { kind: "folder" }>; ctx: NodeContext }) {
   const { t } = useTranslation();
   const { folder } = node;
-  const [open, toggle] = useCollapsed(`folder:${folder.id}`);
+  const [open, toggle] = useSectionOpen(`folder:${folder.id}`, ctx.filtering, node.children.length > 0);
   const dropScoped = ctx.dropScope === `folder:${folder.id}`;
+  const indexPath = ctx.knowledge.folders.has(folder.id) ? knowledgeIndexPath({ kind: "folder", folderId: folder.id }) : undefined;
   return (
     <li
       data-node-kind="folder"
@@ -273,6 +301,7 @@ function FolderNode({ node, ctx }: { node: Extract<SidebarNode, { kind: "folder"
     >
       <div className={cn("group/folderrow flex h-11 items-center gap-0.5 pr-0.75 rounded-md hover:bg-brand-soft active:bg-brand-soft-strong pointer-fine:h-7", ROW_ICON_ROW)}>
         <FolderRowButton name={folder.name} open={open} onToggle={toggle} />
+        {indexPath !== undefined && <IndexButton to={indexPath} name={folder.name} reveal="folderrow" />}
         {folder.permissions.createNote && (
           <HeaderActionButton
             reveal="folderrow"
@@ -283,6 +312,7 @@ function FolderNode({ node, ctx }: { node: Extract<SidebarNode, { kind: "folder"
         )}
         <FolderMenu
           folder={folder}
+          indexPath={indexPath}
           depth={node.depth}
           hasLiveNotes={() => liveNotesUnder(ctx.location.folders, folder.id, ctx.notes, (note) => noteSpaceKey(note, ctx.location.groupIds)).length > 0}
           onCreateNote={() => ctx.onCreateNote?.(groupIdOf(folder), folder.id)}
@@ -359,6 +389,7 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
   const [folderRequest, setFolderRequest] = useState<FolderDialogRequest | null>(null);
   const folderOpenerRef = useRef<HTMLElement | null>(null);
   const selectButtonRef = useRef<HTMLButtonElement>(null);
+  const tagFilterButtonRef = useRef<HTMLButtonElement>(null);
   /** Only the instance that initiated selection sets it (static card and drawer are both in the DOM). */
   const focusAfterRef = useRef<"done" | "select" | null>(null);
   const headerRef = useRef<HTMLDivElement>(null);
@@ -373,6 +404,10 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
   const waitFolders = tab !== "recent" && tab !== "favorites" && tab !== "trash";
   const folderIndex = useMemo(() => indexFolders(foldersQuery.data ?? EMPTY_FOLDERS), [foldersQuery.data]);
   const location = useMemo<LocationContext>(() => ({ groupIds, folders: folderIndex }), [groupIds, folderIndex]);
+  const knowledge = useMemo(
+    () => (notesQuery.data === undefined ? NO_KNOWLEDGE_SCOPES : knowledgeScopes(notesQuery.data, folderIndex, groupIds)),
+    [notesQuery.data, folderIndex, groupIds],
+  );
   const foldersPending = waitFolders && foldersQuery.isPending;
   // `data`, not `isSuccess`: after a failed background refetch the old list is still shown.
   const favoritesReady = tab !== "favorites" || favoritesQuery.data !== undefined;
@@ -383,7 +418,13 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
         : null,
     [tab, notesQuery.isSuccess, notesQuery.data, groupsQuery.data, favoritesReady, favoritesQuery.data, foldersPending, folderIndex, sortOf],
   );
-  const selectable = nodes !== null && hasSelectableNodes(nodes);
+  const tagFilter = useTagFilter();
+  const partition = useMemo(() => (notesQuery.data === undefined ? null : partitionNotes(notesQuery.data, groups)), [notesQuery.data, groups]);
+  const filterView = useMemo(() => tagFilterView(tab, tagFilter, partition, groups), [tab, tagFilter, partition, groups]);
+  const filterActive = filterView !== null && filterView.selected.length > 0;
+  const viewNodes = useMemo(() => (nodes === null ? null : applyTagFilter(tab, nodes, filterView)), [nodes, filterView, tab]);
+  const matchCount = viewNodes === null ? 0 : countNoteNodes(viewNodes);
+  const selectable = viewNodes !== null && hasSelectableNodes(viewNodes);
   // A disabled button cannot keep focus (falls to body): hand it to the tabpanel. Chromium moves focus and blurs synchronously on disabled commit (React dispatches no event), Firefox/WebKit later: native focusout, checked in a microtask.
   useEffect(() => {
     const onFocusOut = (event: FocusEvent) => {
@@ -415,6 +456,8 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
     favoritePendingIds: favorites.pendingIds,
     dropScope: drag.view.scope,
     stack: stackState === null ? null : { state: stackState, creating: drag.view.creating !== null },
+    filtering: filterActive,
+    knowledge,
   };
 
   useEffect(() => {
@@ -484,7 +527,8 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
     }
 
     if (foldersPending) return <p className={MESSAGE_CLASS}>{t("app.loading")}</p>;
-    if (nodes === null) return null;
+    if (nodes === null || viewNodes === null) return null;
+    if (filterActive && matchCount === 0) return <p className={MESSAGE_CLASS}>{t("tags.filter.empty")}</p>;
     if (nodes.length === 0) {
       if (tab === "recent") return emptyState;
       // Intersection, not `favorites`: records may exist while none of those notes is in `["notes"]`.
@@ -500,13 +544,49 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
     return (
       <>
         {tab === "workspace" && groupsAlert}
-        <SidebarNodeList nodes={nodes} ctx={ctx} />
+        <SidebarNodeList nodes={viewNodes} ctx={ctx} />
+        {filterActive && tab === "workspace" && nodes.length > 1 && (
+          <p data-tag-filter-hint="" className="px-2 py-2 text-[11px] text-muted-foreground">
+            {t("tags.filter.hiddenGroups", { group: filterView?.activeGroupName ?? "" })}
+          </p>
+        )}
       </>
     );
   }
 
+  function onTagFilterChange(ids: string[]) {
+    if (filterView === null || (tab !== "myNotes" && tab !== "workspace")) return;
+    if (ids.length === 0) {
+      clearTagFilter(tab);
+      return;
+    }
+    const changed = ids.find((id) => !filterView.selected.includes(id)) ?? filterView.selected.find((id) => !ids.includes(id));
+    if (changed === undefined) return;
+    if (tab === "myNotes") toggleTagFilter("myNotes", changed);
+    else {
+      const groupId = filterView.groups.find((section) => section.tags.some((tag) => tag.id === changed))?.id;
+      if (groupId !== undefined) toggleTagFilter("workspace", changed, groupId);
+    }
+  }
+
   function renderAction(action: HeaderActionId): ReactNode {
     switch (action) {
+      case "openIndex":
+        return knowledge.personal ? <IndexButton key={action} to={knowledgeIndexPath({ kind: "personal" })} name={t("sidebar.myNotes")} reveal="tabheader" /> : null;
+      case "tagFilter":
+        if (filterView === null) return null;
+        return (
+          <TagFilterMenu
+            key={action}
+            groups={filterView.groups}
+            selected={filterView.selected}
+            activeGroupId={filterView.activeGroupId}
+            onChange={onTagFilterChange}
+            triggerRef={tagFilterButtonRef}
+            title={t("tags.filter.menuTitle", { space: t(spec.labelKey) })}
+            footnote={t(tab === "workspace" ? "tags.filter.oneGroup" : "tags.filter.allMatch")}
+          />
+        );
       case "newPersonalNote":
         return (
           <HeaderActionButton
@@ -580,27 +660,46 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
 
   return (
     <>
-      <div ref={headerRef} data-sidebar-header="" className={cn("flex items-center gap-0.5 pl-2 pr-2.75 pt-3 pb-1 pointer-coarse:pb-2.5", ROW_ICON_ROW, PHONE_LIST_HEADER_STICKY)}>
-        {selection.active ? (
-          <SidebarLazyBoundary chunk="select" fallback={tabLabel} errorClassName="hidden">
-            <SelectHeader
-              nodes={nodes ?? EMPTY_NODES}
-              onMounted={(done) => {
-                if (focusAfterRef.current !== "done") return;
-                focusAfterRef.current = null;
-                done?.focus();
-              }}
-              onDone={() => {
-                focusAfterRef.current = "select";
-                updateSelection({ type: "end" });
-              }}
-            />
-          </SidebarLazyBoundary>
-        ) : (
-          <>
-            {tabLabel}
-            {spec.actions.map(renderAction)}
-          </>
+      <div ref={headerRef} data-sidebar-header="" className={PHONE_LIST_HEADER_STICKY}>
+        <div className={cn("group/tabheader flex items-center gap-0.5 pl-2 pr-2.75 pt-3 pb-1 pointer-coarse:pb-2.5", ROW_ICON_ROW)}>
+          {selection.active ? (
+            <SidebarLazyBoundary chunk="select" fallback={tabLabel} errorClassName="hidden">
+              <SelectHeader
+                nodes={viewNodes ?? EMPTY_NODES}
+                filtered={filterActive}
+                onMounted={(done) => {
+                  if (focusAfterRef.current !== "done") return;
+                  focusAfterRef.current = null;
+                  done?.focus();
+                }}
+                onDone={() => {
+                  focusAfterRef.current = "select";
+                  updateSelection({ type: "end" });
+                }}
+              />
+            </SidebarLazyBoundary>
+          ) : (
+            <>
+              {tabLabel}
+              {spec.actions.map(renderAction)}
+            </>
+          )}
+        </div>
+        {filterView !== null && filterActive && (
+          <TagFilterBar
+            groupLabel={tab === "workspace" ? filterView.activeGroupName : null}
+            tags={filterView.selectedTags}
+            count={matchCount}
+            onRemove={(tagId) => {
+              onTagFilterChange(filterView.selected.filter((id) => id !== tagId));
+              // The chip being pressed disappears; keep focus in the header instead of dropping it to the page.
+              tagFilterButtonRef.current?.focus();
+            }}
+            onClear={() => {
+              clearTagFilter(tab === "workspace" ? "workspace" : "myNotes");
+              tagFilterButtonRef.current?.focus();
+            }}
+          />
         )}
       </div>
       {/* `key={tab}` resets scroll on tab switch; toggling selection mode keeps the element (no scroll jump); phones scroll the document and reset via AppShell. */}
@@ -616,9 +715,9 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
             listDropScoped && DROP_SCOPE_CLASS,
           )}
         >
-          {selection.active && nodes !== null && nodes.length > 0 && tab !== "trash" ? (
-            <SidebarLazyBoundary chunk="select" fallback={<SidebarNodeList nodes={nodes} ctx={ctx} />} errorClassName="p-2">
-              <SelectableTree nodes={nodes} tab={tab} location={location} />
+          {selection.active && viewNodes !== null && viewNodes.length > 0 && tab !== "trash" ? (
+            <SidebarLazyBoundary chunk="select" fallback={<SidebarNodeList nodes={viewNodes} ctx={ctx} />} errorClassName="p-2">
+              <SelectableTree nodes={viewNodes} tab={tab} location={location} filtered={filterActive} />
             </SidebarLazyBoundary>
           ) : (
             renderBody()

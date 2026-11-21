@@ -1,6 +1,6 @@
 // This one import is enough: it @imports the mantine theme and `@blocknote/react` styles. `@blocknote/core/fonts/inter.css` is deliberately not imported (Latin-only woff that only grows the bundle for a CJK UI); fonts come from the app CSS.
 import "@blocknote/mantine/style.css";
-import { lazy, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { lazy, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
 import type * as Y from "yjs";
@@ -32,18 +32,24 @@ import { endBlockDrop } from "@/collab/columns/drag-source";
 import { blockMoveDrop, computeDropPosition, edgeDrop, emptyColumnDrop, withGutterFileDrop } from "@/collab/columns/edge-drop";
 import { createColumnsPasteExtension, withColumnsDropPoint } from "@/collab/columns/paste-rule";
 import { buildCollabEditorBase } from "@/collab/editor-options";
+import { createKnowledgeDecorationExtension } from "@/collab/knowledge-decorations";
+import { createKnowledgeEnterExtension } from "@/collab/knowledge-enter";
+import { createKnowledgeIdExtension } from "@/collab/knowledge-ids";
 import { createMarkdownLinkExtension } from "@/collab/markdown-link";
-import { createMarkdownPasteHandler } from "@/collab/paste";
+import { handleHashTagInput, type HashTagBatchInput, type HashTagHooks, type HashTagHooksRef } from "@/collab/hash-tag-input";
+import { createHashTagPasteHook } from "@/collab/hash-tag-paste";
+import { combinePasteHooks, createMarkdownPasteHandler } from "@/collab/paste";
 import { createSiteLinkConvertExtension, createSiteLinkEnv, createSiteLinkPasteHook, withSiteLinkDrop, type SiteLinkEnvRef } from "@/collab/site-link-convert";
 import { createTourTransactionFilterExtension } from "@/collab/tour-transaction-filter";
-import { useCollabUndoLifeline } from "@/collab/undo";
+import { collabUndoManager, useCollabUndoLifeline } from "@/collab/undo";
 import { usePageUndoShortcut } from "@/collab/page-undo";
+import type { TagEntryOptions } from "@/components/tags/tag-entry";
 import { PHONE_SLASH_MENU_FLOATING_OPTIONS, buildSlashMenuItems, withoutSlashBadges } from "@/components/slash-menu";
 import { LinkDialog } from "@/components/LinkDialog";
 import { linkAtSelection } from "@/components/editor/link-at-selection";
 import { toast } from "@/components/ui/toast";
 import { cardSurface } from "@/components/ui/card";
-import { ARTICLE_COLUMN_PADDING, articleColumn, articleColumnState } from "@/components/ui/article-column";
+import { ARTICLE_COLUMN_PADDING, ARTICLE_TEXT_INSET, articleColumn, articleColumnState } from "@/components/ui/article-column";
 import { useNoteWidth } from "@/components/note-width";
 import { cn } from "@/lib/utils";
 import { useIsOutlineCompact, useIsOverlay, useIsPhone } from "@/lib/layout-tiers";
@@ -72,6 +78,9 @@ import { KnotebookSideMenu, NotePathContext, SIDE_MENU_FLOATING_OPTIONS } from "
 import { useDragActiveClass } from "@/components/editor/use-drag-active-class";
 import { KnotebookTableCellButton, KnotebookTableHandle } from "@/components/editor/colors/KnotebookTableMenus";
 import { HeadingAnchorButtons } from "@/components/editor/HeadingAnchorButtons";
+import { KnowledgeLayerLazy } from "@/components/knowledge/KnowledgeLayerLazy";
+import { KnowledgeControllerContext, useKnowledgeController } from "@/components/knowledge/controller";
+import { useKnowledgeEntries } from "@/components/knowledge/use-knowledge-entries";
 import { MediaZoomProvider } from "@/components/media-zoom/MediaZoomProvider";
 import { ImageZoomLayer } from "@/components/media-zoom/ImageZoomLayer";
 import { ColumnDividers } from "@/components/editor/ColumnDividers";
@@ -131,6 +140,8 @@ export interface NoteEditorOptionsInput {
   sizeGuard?: (incomingBytes: number) => boolean;
   /** Late-bound getter, read at each upload: config loads after the editor is created and can change. Omitted or undefined = no pre-check. */
   maxUploadBytes?: () => number | undefined;
+  /** Late-bound; `null` or omitted = typing `#name` and pasting a line of tags are left as ordinary text. */
+  hashTagHooks?: HashTagHooksRef;
 }
 
 /** Separate function so it can be tested without mounting BlockNote (jsdom lacks DOM/Range APIs). These options carry the contracts: image blocks get uploadFile while other media data URLs stay blocked, the collab fragment name, and the dictionary choice. */
@@ -146,7 +157,9 @@ export function buildNoteEditorOptions({
   canSendCursor,
   sizeGuard,
   maxUploadBytes,
+  hashTagHooks,
 }: NoteEditorOptionsInput) {
+  const noHashTagHooks: HashTagHooksRef = { current: null };
   const sizeHandlers = createNoteSizePasteHandlers(sizeGuard ?? (() => false));
   return withCollaboration({
     ...buildCollabEditorBase({
@@ -160,7 +173,7 @@ export function buildNoteEditorOptions({
     uploadFile: createUploadFile({ noteId, editorRef, translate, maxUploadBytes }),
     // Render-side URL guard (issue #12): note content is a Yjs document, so any collaborator with editor permission can write block props directly, bypassing the UI Embed tab checks. BlockNote runs previews and "open/download" through `resolveFileUrl` (verified against @blocknote/core and react 0.52.1 dist), the one place that intercepts before every sink without rewriting block specs. It must allow relative URLs (the input-side absolute-http(s) rule would block every uploaded image): our own uploads are `/api/uploads/<id>` (rules in shared `note-schema-config.ts`, web base in `lib/media-url.ts`).
     resolveFileUrl: (url: string) => Promise.resolve(safeMediaUrl(url)),
-    pasteHandler: createMarkdownPasteHandler(createSiteLinkPasteHook(siteLinks)),
+    pasteHandler: createMarkdownPasteHandler(combinePasteHooks(createHashTagPasteHook(hashTagHooks ?? noHashTagHooks), createSiteLinkPasteHook(siteLinks))),
     // same criterion as `edgeDrop` in `handleDrop` below
     dropCursor: { hooks: { computeDropPosition } },
     _tiptapOptions: {
@@ -170,6 +183,9 @@ export function buildNoteEditorOptions({
         createCodeBlockCaretExtension(),
         createColumnEdgeKeymapExtension({ editorRef }),
         createColumnsPasteExtension(),
+        createKnowledgeIdExtension({ editorRef }),
+        createKnowledgeEnterExtension({ editorRef }),
+        createKnowledgeDecorationExtension(),
         // Must be attached at build: plugins cannot be registered during the tour demo (`@/collab/tour-transaction-filter`).
         createTourTransactionFilterExtension(),
       ],
@@ -194,6 +210,8 @@ export function buildNoteEditorOptions({
         // Not delegated to `SuggestionMenu` own multi-character detection: it compares `textBetween(from - 2, from) + text`, and `textBetween` returns fewer than 2 chars at block start, so it only works when the first `[` is the block first char (verified against @blocknote/core 0.52.1). Our handler runs first (directly passed editorProps before plugins).
         // Judge "after this input lands, are the characters before the caret `[[`", not the typed character (issue #98): ordinary typing is picked up by `readDOMChange` as "replace [from, to) with text", where `text` can be any length (fast typing merges to "[[", IME ends with e.g. "測試[[") and from may differ from to.
         handleTextInput: (view, from, to, text) => {
+          // First, so `# ` still reaches BlockNote's heading shortcut (it is not a tag name) and only a real `#name ` is taken.
+          if (hashTagHooks && handleHashTagInput(view, from, to, text, hashTagHooks)) return true;
           const sel = view.state.selection;
           // The deletions use parameter coordinates but `openSuggestionMenu` inserts at the current selection: they must be the same range (if they differ we would delete in one place and insert in another, corrupting the document), so guard explicitly (ProseMirror normally guarantees it).
           if (sel.from !== from || sel.to !== to) return false;
@@ -242,8 +260,30 @@ export function insertLinkAtSavedSelection(
   editor.createLink(href, text);
 }
 
+export interface TagEntryHandle {
+  open: (options?: TagEntryOptions) => void;
+  /** Adds the names to this note as tags, then offers to undo. Absent = `#name` typing and pasting stay plain text. */
+  applyHash?: (input: HashTagBatchInput) => void;
+  currentTagNames?: () => readonly string[];
+  /** Shown when pasted tags would take the note past its limit. */
+  notifyOverLimit?: (max: number) => void;
+}
+
+/** Back to where the caret was, scrolled into view: the tag input sits at the top of the article, so opening it from the middle of a long note scrolled there. */
+function focusCaret(editor: EditorRef["current"]): void {
+  if (!editor) return;
+  editor.focus();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote editor has three generic parameters; repo convention is any (as in wikilink/menu.ts)
+  (editor as any)._tiptapEditor?.commands?.scrollIntoView?.();
+}
+
 /** `getSlashItems` must keep its identity across dialog open/close: a changing identity re-runs the `useLoadSuggestionMenuItems` effect (deps `[query, getItems]`) and the menu flashes its loading state. */
-export function useLinkMenuState(editorRef: EditorRef, translate: Translate) {
+export function useLinkMenuState(
+  editorRef: EditorRef,
+  translate: Translate,
+  tagEntryRef?: RefObject<TagEntryHandle | undefined>,
+  knowledgeOpenRef?: RefObject<((blockId: string) => void) | undefined>,
+) {
   // The phone menu has no shortcut column; crossing 640 reloads the menu once. Do not add `linkDialogOpen` to its deps or replace `openLinkDialog` with an inline arrow.
   const phone = useIsPhone();
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
@@ -282,10 +322,18 @@ export function useLinkMenuState(editorRef: EditorRef, translate: Translate) {
 
   const getSlashItems = useCallback(
     (query: string) => {
-      const items = buildSlashMenuItems(editorRef.current, translate, openLinkDialog);
+      // Read per query, not a dependency: whether the viewer may tag can change while the menu is mounted, and a new identity would flash its loading state.
+      const entry = tagEntryRef?.current;
+      const items = buildSlashMenuItems(
+        editorRef.current,
+        translate,
+        openLinkDialog,
+        entry && (() => entry.open({ returnFocus: () => focusCaret(editorRef.current) })),
+        knowledgeOpenRef?.current,
+      );
       return Promise.resolve(filterSuggestionItems(phone ? withoutSlashBadges(items) : items, query));
     },
-    [editorRef, translate, openLinkDialog, phone],
+    [editorRef, tagEntryRef, knowledgeOpenRef, translate, openLinkDialog, phone],
   );
 
   return { linkDialogOpen, setLinkDialogOpen, openLinkDialog, linkPrefill, handleLinkInsert, getSlashItems };
@@ -299,6 +347,10 @@ export interface NoteEditorProps {
   noteId: string;
   /** A plain `ReactNode`: a new node each render does not rebuild the editor. */
   headerSlot?: ReactNode;
+  /** Sits in the article column above the editor, outside its contenteditable, so it never enters the shared document. A slot that renders nothing leaves no gap. */
+  contentTopSlot?: ReactNode;
+  /** Undefined when the viewer cannot change this note's tags: `/tag` is not listed then. */
+  tagEntry?: TagEntryHandle;
   footerSlot?: ReactNode;
   mobileToolbar?: boolean;
   fabClearance?: boolean;
@@ -330,6 +382,8 @@ export function NoteEditor({
   user,
   noteId,
   headerSlot,
+  contentTopSlot,
+  tagEntry,
   footerSlot,
   mobileToolbar = false,
   fabClearance = false,
@@ -413,6 +467,27 @@ export function NoteEditor({
   // Late-bound ref bridges `buildNoteEditorOptions`, which runs before the editor exists.
   const editorRef = useRef<EditorRef["current"]>(null);
 
+  const tagEntryRef = useRef(tagEntry);
+  tagEntryRef.current = tagEntry;
+  const hashTagHooksRef = useRef<HashTagHooks | null>(null);
+  hashTagHooksRef.current =
+    tagEntry?.applyHash && tagEntry.currentTagNames
+      ? {
+          applyHash: (input) => tagEntryRef.current?.applyHash?.(input),
+          currentTagNames: () => tagEntryRef.current?.currentTagNames?.() ?? [],
+          undoBoundary: () => {
+            const current = editorRef.current;
+            if (current) collabUndoManager(current)?.stopCapturing();
+          },
+          notify: (_kind, { max }) => tagEntryRef.current?.notifyOverLimit?.(max),
+          active: () => {
+            const current = editorRef.current;
+            const view = current?.prosemirrorView;
+            return current && view ? { editor: current, view } : null;
+          },
+        }
+      : null;
+
   // Refreshed each render; plugin and fallbacks read the ref at action time.
   const queryClient = useQueryClient();
   const siteLinksRef = useRef<SiteLinkEnvRef["current"]>(null);
@@ -435,6 +510,7 @@ export function NoteEditor({
       canSendCursor: () => editableRef.current,
       sizeGuard,
       maxUploadBytes: () => maxUploadBytesRef.current,
+      hashTagHooks: hashTagHooksRef,
     }),
     // Language and noteId are not in deps: the dictionary is read once at creation, and a noteId change always changes `doc`/`provider` (`collab/useCollab.ts`), so a language switch applies after reload (rebuilding would remount the collab binding, not worth it).
     [doc, provider],
@@ -506,12 +582,22 @@ export function NoteEditor({
   }, [editor]);
 
   useEffect(() => registerEditor(noteId, editor), [noteId, editor]);
+  const knowledge = useKnowledgeController();
+  // `editable` flips remount the view and rebuild the plugin state without a change event.
+  const knowledgeEntries = useKnowledgeEntries(editor, editable);
   // Notify once per editor instance when it first becomes editable (the registry dedups). Register first, then notify in the same commit; `editor.isEditable` is set by BlockNoteView ref callback earlier in commit.
   useEffect(() => {
     if (editable) notifyEditorEditable(noteId, editor);
   }, [noteId, editor, editable]);
 
-  const { linkDialogOpen, setLinkDialogOpen, openLinkDialog, linkPrefill, handleLinkInsert, getSlashItems } = useLinkMenuState(editorRef, t);
+  const { open: openKnowledgeSurface } = knowledge;
+  const openKnowledge = useCallback(
+    (blockId: string) => openKnowledgeSurface(blockId, "edit", editor.prosemirrorView?.dom ?? null),
+    [openKnowledgeSurface, editor],
+  );
+  const knowledgeOpenRef = useRef<((blockId: string) => void) | undefined>(undefined);
+  knowledgeOpenRef.current = editable ? openKnowledge : undefined;
+  const { linkDialogOpen, setLinkDialogOpen, openLinkDialog, linkPrefill, handleLinkInsert, getSlashItems } = useLinkMenuState(editorRef, t, tagEntryRef, knowledgeOpenRef);
 
   const notes = useNotes().data;
   const { mutateAsync: createNote } = useCreateNote();
@@ -598,8 +684,15 @@ export function NoteEditor({
                 footerInScroll || fabClearance ? "grow shrink-0" : "min-h-full",
               )}
             >
+              {contentTopSlot !== undefined && contentTopSlot !== null && (
+                <div data-note-content-top="" className={cn(ARTICLE_TEXT_INSET, "shrink-0 pb-2 empty:hidden")}>
+                  {contentTopSlot}
+                </div>
+              )}
               {/* zoom covers only the article column */}
               <MediaZoomProvider>
+                {/* The drag handle menu's knowledge item exists only for someone who can edit. */}
+                <KnowledgeControllerContext.Provider value={editable ? knowledge : null}>
                 <NoteEditorView
                   editor={editor}
                   editable={editable}
@@ -612,7 +705,9 @@ export function NoteEditor({
                   {/* sole owner of the formatting toolbar controller and AI box; NoteEditorView never touches AI context */}
                   <SelectionAiController />
                 </NoteEditorView>
+                </KnowledgeControllerContext.Provider>
                 <HeadingAnchorButtons container={columnEl} />
+                <KnowledgeLayerLazy container={columnEl} entries={knowledgeEntries} editable={editable} noteId={noteId} controller={knowledge} editor={editor} />
                 <ImageZoomLayer container={columnEl} editable={editable} editor={editor} />
               </MediaZoomProvider>
               {/* nothing to resize when read-only */}

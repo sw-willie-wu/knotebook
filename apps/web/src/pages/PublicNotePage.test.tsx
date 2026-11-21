@@ -9,6 +9,7 @@ import { stubLayoutTier } from "@/test/layout-tier";
 import { OUTLINE_PINNED_STORAGE_KEY } from "@/components/outline/outline-pin";
 import { ARTICLE_COLUMN_MAX, articleColumn } from "@/components/ui/article-column";
 import { ThemeProvider } from "@/theme";
+import { PublicNoteErrorBoundary } from "@/components/PublicNoteShell";
 import PublicNotePage from "./PublicNotePage";
 
 // Follows NotePage.test.tsx's minimal stand-in convention: BlockNote needs a whole set of DOM / Range APIs jsdom lacks, so this only
@@ -197,6 +198,17 @@ describe("PublicNotePage (#72 /p/:token + #122 /p/:handle/:slug no-login read-on
     expect(calls).toEqual([`GET /api/public/notes/${TOKEN}`]);
   });
 
+  it("the public page has no tag row and asks for no tags", async () => {
+    const { fn, calls } = mockFetch((url) =>
+      url === `/api/public/notes/${TOKEN}` ? { status: 200, body: { title: "Public", ydoc: EMPTY_YDOC_UPDATE_B64 } } : null,
+    );
+    vi.stubGlobal("fetch", fn);
+    renderPage();
+    await screen.findByTestId("public-note-editor");
+    expect(document.querySelector("[data-note-tags], [data-note-content-top]")).toBeNull();
+    expect(calls).toEqual([`GET /api/public/notes/${TOKEN}`]);
+  });
+
   it("phone header: the presentation button is icon-only (accessible name unchanged), the read-only badge collapses into a dot (text only for screen readers)", async () => {
     const body: PublicNoteBody = { title: "公開的筆記", ydoc: EMPTY_YDOC_UPDATE_B64 };
     vi.stubGlobal("fetch", mockFetch((url) => (url === `/api/public/notes/${TOKEN}` ? { status: 200, body } : null)).fn);
@@ -289,6 +301,27 @@ describe("PublicNotePage (#72 /p/:token + #122 /p/:handle/:slug no-login read-on
     const editor = await screen.findByTestId("public-note-editor");
     expect(editor.dataset.fragmentLength).toBe("0");
     expect(screen.queryByText("This link doesn't exist or is no longer active.")).not.toBeInTheDocument();
+  });
+
+  it("unreadable state (the server sends an empty ydoc string) -> the load-error card, not an empty note", async () => {
+    const { fn } = mockFetch((url) => (url === `/api/public/notes/${TOKEN}` ? { status: 200, body: { title: "Broken", ydoc: "" } satisfies PublicNoteBody } : null));
+    vi.stubGlobal("fetch", fn);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <ThemeProvider>
+          <MemoryRouter initialEntries={[`/p/${TOKEN}`]}>
+            <Routes>
+              <Route path="/p/:token" element={<PublicNoteErrorBoundary reload={vi.fn()}><PublicNotePage /></PublicNoteErrorBoundary>} />
+            </Routes>
+          </MemoryRouter>
+        </ThemeProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText(i18n.t("public.loadError"))).toBeInTheDocument();
+    expect(screen.queryByTestId("public-note-editor")).not.toBeInTheDocument();
   });
 
   it("404 (revoked / wrong token) -> invalid card, the editor is not mounted; hit exactly once (the page's retry: false carries weight - 404 is a common legitimate outcome, and a retry only eats throttle quota)", async () => {

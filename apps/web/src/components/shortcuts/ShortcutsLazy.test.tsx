@@ -181,6 +181,7 @@ describe("site capabilities: categories", () => {
   });
 
   it("the selected category is AI and site capabilities then disappear: falls back to the first page rather than blank", async () => {
+    registryState.override = { version: "9.9.9", items: [] };
     stubActions([INSTRUCT]);
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     renderContent({ client });
@@ -337,6 +338,7 @@ describe("help dialog pages", () => {
   });
 
   it("narrow screen: opens on the content layer (Feature tour page); the back button returns to the left column; choosing What's new enters the content layer", async () => {
+    registryState.override = { version: "9.9.9", items: [] };
     renderContent({ tour: { start: vi.fn() }, startPage: "tour" });
     await waitFor(() => expect(navNames()).toEqual(NO_AI_EN));
     const items = document.querySelector<HTMLElement>('[data-shortcuts-card="items"]')!;
@@ -358,6 +360,7 @@ describe("help dialog pages", () => {
   });
 
   it("zh-TW: the left column and pages use the localized names for Feature tour, What's new and Shortcuts", async () => {
+    registryState.override = { version: "9.9.9", items: [] };
     await i18n.changeLanguage("zh-TW");
     renderContent({ tour: { start: vi.fn() }, startPage: "tour" });
     await waitFor(() => expect(screen.getByRole("navigation", { name: "說明" })).toBeInTheDocument());
@@ -457,13 +460,14 @@ describe("What's new", () => {
     expect(screen.queryByRole("heading", { name: /New in v/ })).toBeNull();
   });
 
-  it("real registry: the title uses the registry version, and when this version has no entries only the empty-state sentence shows", async () => {
+  it("real registry: the title uses the registry version and each entry an ordinary user may see is listed (or the empty-state sentence when there are none)", async () => {
     registryState.override = null;
     sessionState.user = { isAdmin: false };
     await openWhatsNew();
-    expect(RELEASE_HIGHLIGHTS.items).toEqual([]);
-    expect(region()).toHaveTextContent("Nothing new to highlight in this version.");
-    expect(document.querySelectorAll("[data-highlight-id]")).toHaveLength(0);
+    const visible = RELEASE_HIGHLIGHTS.items.filter((item) => item.adminOnly !== true).map((item) => item.id);
+    expect(highlightIds()).toEqual(visible);
+    if (visible.length > 0) expect(screen.getByRole("heading", { name: `New in v${RELEASE_HIGHLIGHTS.version}` })).toBeInTheDocument();
+    else expect(region()).toHaveTextContent("Nothing new to highlight in this version.");
   });
 
   it("{{mod}} in an entry description: Mac writes the Command sign, others write Ctrl+", async () => {
@@ -484,15 +488,18 @@ describe("What's new", () => {
     expect(highlightEl("modSample")).not.toHaveTextContent("{{");
   });
 
-  it("real registry: Traditional Chinese also shows only the empty-state sentence", async () => {
+  it("real registry: Traditional Chinese lists the same entries, or the empty-state sentence when there are none", async () => {
     registryState.override = null;
     sessionState.user = { isAdmin: false };
     await i18n.changeLanguage("zh-TW");
     renderContent();
     await waitFor(() => expect(screen.getByRole("navigation", { name: "說明" })).toBeInTheDocument());
     fireEvent.click(within(screen.getByRole("navigation", { name: "說明" })).getByRole("button", { name: "這一版新增" }));
-    await waitFor(() => expect(document.querySelectorAll("[data-highlight-id]")).toHaveLength(0));
-    expect(document.querySelector('[data-shortcuts-card="content"]')).toHaveTextContent("這一版沒有要特別介紹的新功能。");
+    const visible = RELEASE_HIGHLIGHTS.items.filter((item) => item.adminOnly !== true).map((item) => item.id);
+    await waitFor(() => expect(highlightIds()).toEqual(visible));
+    const content = document.querySelector('[data-shortcuts-card="content"]');
+    if (visible.length > 0) expect(content).not.toHaveTextContent("這一版沒有要特別介紹的新功能。");
+    else expect(content).toHaveTextContent("這一版沒有要特別介紹的新功能。");
   });
 
   it("real registry: each adminOnly entry is invisible to an ordinary user and visible to an admin, the rest are visible to both", async () => {

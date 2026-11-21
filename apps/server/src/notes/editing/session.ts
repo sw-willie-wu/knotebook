@@ -9,6 +9,7 @@ import { YDOC_FRAGMENT, createHeadlessNoteSchema } from "@knotebook/shared";
 import type { CollabContext, CollabServer } from "../../collab/server.js";
 import type { DbOrTx } from "../../db/tx.js";
 import { noteIsLive } from "../service.js";
+import { assertNoPendingKnowledgeIds, knowledgeIdsByBlock, renewDuplicateKnowledgeIds, type KnowledgeRenewal } from "./knowledge-write.js";
 import type { EditingRuntime, SessionLease } from "./runtime.js";
 
 const BLOCK_ELEMENTS = new Set(["blockContainer", "columnList", "column"]);
@@ -177,15 +178,19 @@ export interface ForkWrite<T> {
   value: T;
   diff: Uint8Array;
   renamed: Map<string, string>;
+  renewed: KnowledgeRenewal[];
+  /** Top-level block id -> knowledge id as it was before `fn` ran. */
+  knowledgeBefore: ReadonlyMap<string, string>;
 }
 
-/** Open -> fn -> close (finally) -> removeBlocksInDoc -> renameBlocksInDoc -> Y.encodeStateAsUpdate(fork, sv). If fn throws: close, nothing removed or renamed, rethrow. */
+/** Open -> fn -> close (finally) -> removeBlocksInDoc -> renameBlocksInDoc -> renewDuplicateKnowledgeIds -> Y.encodeStateAsUpdate(fork, sv). If fn throws: close, nothing removed or renamed, rethrow. A pending knowledge id left at the top level throws before the diff is taken. */
 export async function withForkEditor<T>(
   runtime: EditingRuntime,
   fork: Y.Doc,
   sv: Uint8Array,
   fn: (editor: AnyEditor, edits: ForkEdits) => T | Promise<T>
 ): Promise<ForkWrite<T>> {
+  const knowledgeBefore = knowledgeIdsByBlock(fork.getXmlFragment(YDOC_FRAGMENT));
   const s = await EditorSession.open(runtime, fork);
   let edits: ForkEdits;
   let value: T;
@@ -197,7 +202,10 @@ export async function withForkEditor<T>(
   }
   removeBlocksInDoc(fork, edits.removals);
   const renamed = renameBlocksInDoc(fork, edits.renames);
-  return { value, diff: Y.encodeStateAsUpdate(fork, sv), renamed };
+  // After the rename: a rewritten heading gets its old block id back, which decides what counts as already there.
+  const renewed = renewDuplicateKnowledgeIds(fork, knowledgeBefore);
+  assertNoPendingKnowledgeIds(fork.getXmlFragment(YDOC_FRAGMENT), knowledgeBefore);
+  return { value, diff: Y.encodeStateAsUpdate(fork, sv), renamed, renewed, knowledgeBefore };
 }
 
 /** One pass over the top level (a nested id is absent). With duplicate ids the first in document order wins, like `getBlock` and `removeBlocksInDoc`. */

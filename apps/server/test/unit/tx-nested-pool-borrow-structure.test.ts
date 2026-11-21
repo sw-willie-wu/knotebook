@@ -115,7 +115,7 @@ const ARG_BANNED: Array<[string, RegExp]> = [
   ["閉包 function", /\bfunction\b/],
   ...HELPERS,
 ];
-const ROUTE_FILES = ["routes/notes.ts", "routes/note-content.ts", "routes/note-sharing.ts", "routes/groups.ts", "notes/links.ts", "routes/oidc.ts", "routes/oidc-pending.ts", "routes/admin-auth.ts", "routes/account.ts", "notes/search-index.ts", "notes/search-query.ts", "mcp/tools/create-transfer-token.ts", "mcp/tools/open-notes-as-files.ts", "routes/uploads.ts", "collab/versions.ts", "routes/admin-versions.ts", "notes/copy-note.ts", "notes/move-note.ts", "routes/admin-password-reset.ts", "routes/password-reset.ts", "trash/service.ts", "routes/admin-trash.ts", "trash/purge.ts", "folders/service.ts", "notes/editing/write-service.ts", "site-limits/store.ts", "routes/avatars.ts", "avatars/oidc-job.ts"];
+const ROUTE_FILES = ["routes/notes.ts", "routes/note-content.ts", "routes/note-sharing.ts", "routes/groups.ts", "notes/links.ts", "routes/oidc.ts", "routes/oidc-pending.ts", "routes/admin-auth.ts", "routes/account.ts", "notes/search-index.ts", "knowledge/index-write.ts", "notes/search-query.ts", "mcp/tools/create-transfer-token.ts", "mcp/tools/open-notes-as-files.ts", "routes/uploads.ts", "collab/versions.ts", "routes/admin-versions.ts", "notes/copy-note.ts", "notes/move-note.ts", "routes/admin-password-reset.ts", "routes/password-reset.ts", "trash/service.ts", "routes/admin-trash.ts", "trash/purge.ts", "folders/service.ts", "notes/editing/write-service.ts", "site-limits/store.ts", "routes/avatars.ts", "avatars/oidc-job.ts", "routes/tags.ts", "knowledge/index-query.ts"];
 
 describe("transaction structure guard (#175)", () => {
   const files = walk(SRC);
@@ -195,6 +195,7 @@ describe("transaction structure guard (#175)", () => {
       { f: "routes/admin-auth.ts", all: 3, inTx: 3 }, // update sign-in provider, delete sign-in provider, site settings
       { f: "routes/account.ts", all: 4, inTx: 4 }, // register, unlink, accept invite (acceptInviteInTx), set password (setPasswordInTx)
       { f: "notes/search-index.ts", all: 1, inTx: 1 }, // full-text index write
+      { f: "knowledge/index-write.ts", all: 1, inTx: 1 }, // knowledge index write
       { f: "notes/search-query.ts", all: 1, inTx: 1 }, // search snapshot read
       { f: "mcp/tools/create-transfer-token.ts", all: 1, inTx: 1 }, // token issuance
       { f: "mcp/tools/open-notes-as-files.ts", all: 1, inTx: 1 }, // bulk transfer token issuance
@@ -209,10 +210,12 @@ describe("transaction structure guard (#175)", () => {
       { f: "routes/admin-trash.ts", all: 1, inTx: 1 }, // trash retention days (updateTrashSettingsInTx)
       { f: "trash/purge.ts", all: 1, inTx: 1 }, // purge one batch past retention (purgeExpiredBatchInTx)
       { f: "folders/service.ts", all: 4, inTx: 4 }, // create folder (createFolderInTx), rename/move (updateFolderInTx), delete (deleteFolderInTx), place note (placeNoteInTx)
-      { f: "notes/editing/write-service.ts", all: 1, inTx: 1 }, // bulk transfer: syncFile's record transaction (recordFileSyncInTx)
+      { f: "notes/editing/write-service.ts", all: 3, inTx: 3 }, // bulk transfer: syncFile's record transaction (recordFileSyncInTx) and tags transaction (writeSyncTagsInTx), and the new-note insert with its tags (createNoteWithTagsInTx)
       { f: "site-limits/store.ts", all: 1, inTx: 1 }, // site limits PATCH (updateSiteLimitsInTx)
       { f: "routes/avatars.ts", all: 5, inTx: 5 }, // avatars: upload (insertAvatarInTx), re-crop (updateAvatarDisplayInTx), select (selectAvatarInTx), delete (deleteAvatarInTx), manual refetch (refreshOidcAvatarInTx)
       { f: "avatars/oidc-job.ts", all: 1, inTx: 1 }, // background job that imports the IdP avatar after login (replaceOidcAvatarInTx)
+      { f: "routes/tags.ts", all: 5, inTx: 5 }, // add a tag to a note (addNoteTagInTx), remove one (removeNoteTagInTx), merge two tags (mergeTagsInTx), rename or recolor (updateTagInTx), delete (deleteTagInTx)
+      { f: "knowledge/index-query.ts", all: 1, inTx: 1 }, // knowledge index snapshot read
     ]);
   });
 

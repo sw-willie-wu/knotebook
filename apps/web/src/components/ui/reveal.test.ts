@@ -10,6 +10,13 @@ describe("hoverReveal and hoverRevealOnly", () => {
     expect(classes).not.toContain("[@media(hover:none)]:hidden");
   });
 
+  it("hoverReveal: the tab title row scope reveals on row hover and keyboard focus inside the row", () => {
+    const classes = hoverReveal("tabheader").split(/\s+/);
+    expect(classes).toContain("group-hover/tabheader:opacity-100");
+    expect(classes).toContain("group-has-[:focus-visible]/tabheader:opacity-100");
+    expect(classes).toContain("[@media(hover:none)]:opacity-100");
+  });
+
   it("hoverRevealOnly: hidden entirely on touch (hover:none or pointer:coarse), not always shown", () => {
     const classes = hoverRevealOnly("noterow").split(/\s+/);
     expect(classes).toContain("opacity-0");

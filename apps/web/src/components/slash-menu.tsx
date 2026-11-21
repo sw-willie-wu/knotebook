@@ -3,8 +3,9 @@ import { autoPlacement, offset, shift, size } from "@floating-ui/react";
 import { getDefaultReactSlashMenuItems, type DefaultReactSuggestionItem, type FloatingUIOptions } from "@blocknote/react";
 import { PHONE_EDIT_TOOLBAR_CLEARANCE_PX } from "@/components/ai/SelectionAiController";
 import { canInsertColumns, insertColumns } from "@/collab/columns/commands";
-import { Link } from "@/components/ui/icons";
-import { Columns2, Diagram } from "@/components/ui/icons-extra";
+import { Link, Tag } from "@/components/ui/icons";
+import { CircleInfo, Columns2, Diagram } from "@/components/ui/icons-extra";
+import { currentKnowledgeTarget } from "@/components/knowledge/commands";
 
 /** Kept in the mermaid namespace on purpose: the `lastIndexOf(group)` insertion needs identical strings (pinned in slash-menu.test.tsx); renaming touches both translation files for no gain. Extracted so "link and diagram items share one group" is visible in the source; a mismatched group falls to the end. */
 export const SLASH_EXTRA_GROUP_KEY = "note.mermaid.slashGroup";
@@ -46,6 +47,10 @@ export function buildSlashMenuItems(
   editor: any,
   translate: (key: string, options?: Record<string, unknown>) => string,
   onInsertLink: () => void,
+  /** Undefined when the viewer cannot change this note's tags: the item is left out. Unlike the side-by-side items it has no position limit. */
+  onOpenTagEntry?: () => void,
+  /** Undefined when the viewer cannot edit: the item is left out. Listed only with the caret in a top-level heading. */
+  onOpenKnowledge?: (blockId: string) => void,
 ): DefaultReactSuggestionItem[] {
   const defaults = getDefaultReactSlashMenuItems(editor);
   const group = translate(SLASH_EXTRA_GROUP_KEY);
@@ -79,8 +84,36 @@ export function buildSlashMenuItems(
       }))
     : [];
 
+  const tagItems: DefaultReactSuggestionItem[] = onOpenTagEntry
+    ? [
+        {
+          title: translate("tags.entry.slashTitle"),
+          subtext: translate("tags.entry.slashSubtext"),
+          aliases: ["tag", "tags", "label", "標籤"],
+          group,
+          icon: <Tag className="h-4 w-4" />,
+          onItemClick: onOpenTagEntry,
+        },
+      ]
+    : [];
+
+  const knowledgeTarget = onOpenKnowledge ? currentKnowledgeTarget(editor) : null;
+  const knowledgeItems: DefaultReactSuggestionItem[] =
+    onOpenKnowledge && knowledgeTarget !== null
+      ? [
+          {
+            title: translate("note.knowledge.slashTitle"),
+            subtext: translate("note.knowledge.slashSubtext"),
+            aliases: ["info", "knowledge", "知識", "知識資訊", "資訊"],
+            group,
+            icon: <CircleInfo className="h-4 w-4" />,
+            onItemClick: () => onOpenKnowledge(knowledgeTarget),
+          },
+        ]
+      : [];
+
   // Cannot just push: the menu draws a group heading only when the group differs from the previous item, so appending would add a second heading; insert after the last item of the same group.
   const lastInGroup = defaults.map((entry) => entry.group).lastIndexOf(group);
-  if (lastInGroup === -1) return [...defaults, mermaidItem, linkItem, ...columnItems];
-  return [...defaults.slice(0, lastInGroup + 1), mermaidItem, linkItem, ...columnItems, ...defaults.slice(lastInGroup + 1)];
+  if (lastInGroup === -1) return [...defaults, mermaidItem, linkItem, ...columnItems, ...tagItems, ...knowledgeItems];
+  return [...defaults.slice(0, lastInGroup + 1), mermaidItem, linkItem, ...columnItems, ...tagItems, ...knowledgeItems, ...defaults.slice(lastInGroup + 1)];
 }

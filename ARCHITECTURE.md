@@ -41,7 +41,7 @@ On `SIGTERM`/`SIGINT` it stops background scans, then calls `collab.destroy()` *
 `buildApp` in `apps/server/src/app.ts` wires everything together. It sets up cookie, multipart and form parsing, a global `onRequest` guard that requires `application/json` on bodies (with exemptions for uploads, `text/markdown` file write-backs and the OAuth form endpoints), the shared error format, security headers, `/healthz`, and the rate limiters (`apps/server/src/http/limiters.ts`). Then it registers one Fastify plugin per area from `apps/server/src/routes/`, for example:
 
 - `routes/notes.ts`: notes and the collab token; it also registers `routes/note-content.ts` (a note's content, `GET /api/notes/:id/content`, and edits and reverts, `/api/notes/:id/edits`) and `routes/note-sharing.ts` (shares, the public link and its alias and width);
-- `routes/note-versions.ts`, `routes/trash.ts`, `routes/folders.ts`, `routes/favorites.ts`, `routes/groups.ts`, `routes/search.ts`, `routes/uploads.ts`;
+- `routes/note-versions.ts`, `routes/trash.ts`, `routes/folders.ts`, `routes/favorites.ts`, `routes/tags.ts`, `routes/groups.ts`, `routes/search.ts`, `routes/knowledge.ts` (the knowledge index of a space or folder and the replacement lookup, session-only), `routes/uploads.ts`;
 - `routes/auth.ts`, `routes/oidc*.ts`, `routes/api-tokens.ts`, `routes/oauth*.ts`: sign-in and credentials (next section);
 - `routes/admin-*.ts`: Site admin;
 - `routes/mcp.ts`: the MCP endpoint, `POST /api/mcp`;
@@ -49,7 +49,7 @@ On `SIGTERM`/`SIGINT` it stops background scans, then calls `collab.destroy()` *
 - `routes/public.ts`: public links, without sign-in;
 - `routes/ai.ts`: the in-app AI actions (provider code in `apps/server/src/ai/`).
 
-Routes stay thin. Domain logic lives in folders named after the area (`notes/`, `folders/`, `groups/`, `trash/`, `uploads/`, `storage/`, `transfer/`, `avatars/`), and code that runs inside a database transaction is usually in a `tx/` subfolder (for example `apps/server/src/notes/tx/`).
+Routes stay thin. Domain logic lives in folders named after the area (`notes/`, `folders/`, `groups/`, `trash/`, `tags/`, `knowledge/`, `uploads/`, `storage/`, `transfer/`, `avatars/`), and code that runs inside a database transaction is usually in a `tx/` subfolder (for example `apps/server/src/notes/tx/`).
 
 The `/collab` WebSocket does not go through Fastify routing: `collab.attach(app)` listens to the underlying HTTP server's `upgrade` event. Anything that matches no route falls through to `registerSpaFallback` (`apps/server/src/http/spa.ts`), which serves `index.html` from `web-dist` for browser navigations.
 
@@ -73,7 +73,8 @@ PostgreSQL, accessed through Drizzle ORM. The whole schema is in `apps/server/sr
 - `note_versions`: version history, each version a full Yjs snapshot;
 - `note_ai_edits`: the history of edits made over the API, MCP and file write-backs, used for revert;
 - `note_search_sections`, `note_search_state`: the search index;
-- `note_shares`, `groups`, `group_members`, `group_roles`, `folders`, `note_placements`, `note_links`, `uploads`.
+- `note_knowledge`, `note_knowledge_state`: the knowledge index;
+- `note_shares`, `groups`, `group_members`, `group_roles`, `folders`, `note_placements`, `note_links`, `uploads`, `tags`, `note_tags` (a space's tag list and the tags each note carries).
 
 Migrations are SQL files in `apps/server/drizzle/` (with Drizzle's journal in `apps/server/drizzle/meta/`), generated from the schema with `pnpm --filter @knotebook/server db:generate` (`drizzle-kit generate`, configured by `apps/server/drizzle.config.ts`). They run automatically at startup. New migrations are normally written so that the previous release still starts on the migrated database (the groups migration, 0012, is a documented exception that can't be rolled back): the CHANGELOG's upgrade notes and the [self-hosting guide](docs/self-hosting.md#upgrading-and-rolling-back) describe each one and what rolling back means.
 
@@ -135,7 +136,7 @@ MCP tools, the REST content endpoints, bulk file write-backs, applying a version
 - The merge happens through a Hocuspocus **direct connection** (`withDirectConnection` in `session.ts`), the only place that opens one. Direct connections bypass `onAuthenticate`, so callers must check permissions first. Disconnecting is what saves the document.
 - Edits made over the API and MCP (`insertEditRecord` in `apply.ts`), reverts (`revert.ts`) and file write-backs (`apps/server/src/transfer/tx/record-file-sync.ts`) are recorded in `note_ai_edits` with the blocks they replaced, keeping at most `RETENTION` rows per note. Applying a version and the one-time link conversion (`apps/server/src/notes/link-conversion.ts`, which merges with `mergeDiff`) are not recorded. `revert.ts` and `revert-core.ts` undo a recorded edit when the blocks it wrote are still unchanged. The rules are in [docs/ai-editing.md](docs/ai-editing.md).
 
-Markdown conversion itself (what syntax maps to which block, colors, columns, escaping) is in `packages/shared/src/note-markdown*.ts`, so the server and the web app agree on it.
+Markdown conversion itself (what syntax maps to which block, colors, columns, escaping) is in `packages/shared/src/note-markdown*.ts`, so the server and the web app agree on it. The knowledge comment under a heading is converted in `packages/shared/src/knowledge-html.ts` (`applyKnowledgeComments`, when markdown is written) and `knowledge-markdown.ts` (`formatKnowledgeComment`, when it is read).
 
 ### End to end: an agent calls `edit_note` and an open tab updates
 
@@ -159,6 +160,15 @@ Search covers note titles and body text. The body is indexed one row per section
 - writing: `apps/server/src/notes/search-index.ts` and `apps/server/src/notes/tx/search-index.ts`, called from `onStoreDocument`, when a note is copied, and by the backfill;
 - backfill: `backfillSearchIndex` in `search-index.ts` runs in the background after the server starts listening, picking up notes whose index is missing or was built by an older extractor version. It can be resumed and is aborted on shutdown;
 - querying: `apps/server/src/notes/search-sql.ts` builds the SQL (case-insensitive substring match on titles and sections, joined with the notes the user can see), `notes/search-query.ts` runs it, and `notes/search-snippet.ts` picks the snippets. REST (`routes/search.ts`) and MCP `search_notes` share it. A `pg_trgm` GIN index on `lower(note_search_sections.body)` (`nss_body_trgm_idx`) serves body matches for queries with three letters or digits in a row; shorter queries use `position()`. Which characters count depends on the database's `LC_CTYPE`, which the server checks once at startup (`initCjkTrigramMode` in `search-sql.ts`).
+
+## Knowledge index
+
+The knowledge info on headings is copied into `note_knowledge` (one row per knowledge id), with one `note_knowledge_state` row per note recording the `note_states.version` and content hash the rows were built from. The document stays the source of truth; the tables are a cache.
+
+- extraction: `apps/server/src/knowledge/extract.ts` builds the rows from the document and never throws; a document whose bytes don't contain a knowledge attribute is not walked;
+- writing: `apps/server/src/knowledge/index-write.ts` and `knowledge/tx/index-write.ts`, called from `onStoreDocument` after the full-text index (a failure there never fails the store), when a note is copied, and by the backfill;
+- backfill: `backfillKnowledgeIndex` runs in the background after the server starts listening and then every ten minutes (`startKnowledgeIndexSweep`), picking up notes whose index is missing, was built by an older extractor version, or lags the stored note. A note whose stored document can't be decoded is recorded as empty and capped, so it stops being picked up. It can be resumed and is aborted on shutdown;
+- reading: `knowledge/index-query.ts` answers `GET /api/knowledge/index/*` in one repeatable-read, read-only transaction. `knowledge/scope.ts` first decides, outside the transaction, which personal space, group or folder the caller may open (everything else is one "not found"); inside it, notes come only from the same visibility branches as the note list (`knowledge/index-sql.ts`), so a note in the trash or one the caller can't see never appears, and neither does a replacement that points at one. A response holds at most 5000 entries, cut on a whole-note boundary in page order. `GET /api/notes` adds `hasKnowledge`, an `exists` on the leading column of the `note_knowledge` primary key; `knowledge/refs.ts` serves the replacement picker's search and lookup.
 
 ## The web app (`apps/web`)
 

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { filterSuggestionItems } from "@blocknote/core";
 import i18n from "@/i18n";
 import { PHONE_EDIT_TOOLBAR_CLEARANCE_PX } from "@/components/ai/SelectionAiController";
-import { P, mountEditor, row, shape, type AnyEditor } from "@/test/columns-fixtures";
+import { H, P, mountEditor, row, shape, type AnyEditor } from "@/test/columns-fixtures";
 
 /**
  * Mocks BlockNote's two APIs and checks only our composition logic, above all that the default items are kept: taking over the `/` menu typically fails by returning only our own items,
@@ -198,6 +198,59 @@ describe("side-by-side items /grid N", () => {
   });
 });
 
+describe("tag item /tag", () => {
+  const TAG_TITLE = "tags.entry.slashTitle";
+  const noopOpenTagEntry = () => {};
+  const titlesOf = (target: AnyEditor, onOpenTagEntry?: () => void) =>
+    buildSlashMenuItems(target, translate, noopInsertLink, onOpenTagEntry).map((item) => item.title);
+
+  it("lists Tag after the side-by-side items in the extra group when onOpenTagEntry is given, with aliases tag, tags, label, 標籤", () => {
+    const items = buildSlashMenuItems(editor, translate, noopInsertLink, noopOpenTagEntry);
+    const tagIndex = items.findIndex((item) => item.title === TAG_TITLE);
+    expect(items.slice(tagIndex - 3, tagIndex).map((item) => item.title)).toEqual(COLUMN_TITLES);
+    expect(items[tagIndex]!.group).toBe(items[tagIndex - 1]!.group);
+    expect(items[tagIndex]!.subtext).toBe("tags.entry.slashSubtext");
+    expect(items[tagIndex]!.aliases).toEqual(["tag", "tags", "label", "標籤"]);
+    expect(groupRuns(items)).toEqual(["Basic blocks", "Advanced", "Media", "Others"]);
+  });
+
+  it("lists Tag right after Link when the side-by-side items aren't offered, and in every position", () => {
+    const inColumn = mount([row([[P("a", "a1")], [P("b", "b1")]], "r")], "b1");
+    const titles = titlesOf(inColumn, noopOpenTagEntry);
+    expect(titles[titles.indexOf("note.link.slashTitle") + 1]).toBe(TAG_TITLE);
+    // The column case is the position limit that /grid has and /tag must not have.
+    expect(titles).toContain(TAG_TITLE);
+  });
+
+  it("leaves Tag out without onOpenTagEntry", () => {
+    expect(titlesOf(editor)).not.toContain(TAG_TITLE);
+  });
+
+  it("choosing Tag calls onOpenTagEntry and inserts no block", () => {
+    const onOpenTagEntry = vi.fn();
+    buildSlashMenuItems(editor, translate, noopInsertLink, onOpenTagEntry)
+      .find((item) => item.title === TAG_TITLE)!
+      .onItemClick();
+    expect(onOpenTagEntry).toHaveBeenCalledOnce();
+    expect(insertMock).not.toHaveBeenCalled();
+  });
+
+  it("the tag aliases find it in both languages", () => {
+    const items = buildSlashMenuItems(editor, (key) => (key === "note.mermaid.slashGroup" ? "Advanced" : "x"), noopInsertLink, noopOpenTagEntry);
+    for (const query of ["tag", "labe", "標籤"]) {
+      expect(filterSuggestionItems(items, query).some((item) => item.aliases?.includes("label"))).toBe(true);
+    }
+  });
+
+  it("titles and descriptions in zh-TW and en", async () => {
+    const tagItem = () => buildSlashMenuItems(editor, i18n.t.bind(i18n), noopInsertLink, noopOpenTagEntry).find((item) => item.aliases?.includes("label"))!;
+    await i18n.changeLanguage("zh-TW");
+    expect([tagItem().title, tagItem().subtext]).toEqual(["標籤", "替這篇筆記加標籤"]);
+    await i18n.changeLanguage("en");
+    expect([tagItem().title, tagItem().subtext]).toEqual(["Tag", "Add a tag to this note"]);
+  });
+});
+
 describe("withoutSlashBadges (phones hide the shortcut column)", () => {
   const items = [
     { title: "Heading 1", badge: "Ctrl-Alt-1", onItemClick: () => {} },
@@ -249,5 +302,53 @@ describe("slashMenuPhoneMiddleware (phone height and flipping)", () => {
 
   it("PHONE_SLASH_MENU_FLOATING_OPTIONS puts it into useFloatingOptions.middleware", () => {
     expect(PHONE_SLASH_MENU_FLOATING_OPTIONS.useFloatingOptions?.middleware?.map((entry) => entry && "name" in entry && entry.name)).toEqual(["offset", "autoPlacement", "shift", "size"]);
+  });
+});
+
+describe("knowledge item", () => {
+  const KNOWLEDGE_TITLE = "note.knowledge.slashTitle";
+  const items = (onOpen?: (id: string) => void) => buildSlashMenuItems(editor, translate, noopInsertLink, undefined, onOpen);
+
+  it("appears only with the caret in a top-level heading and is found by info, knowledge, 知識 and 知識資訊", () => {
+    const onOpen = vi.fn();
+    cleanups.pop()!();
+    editor = mount([H("Heading", "h1"), P("para", "p1"), row([[H("Inner", "h2")], [P("x")]], "r")], "h1");
+    const inHeading = items(onOpen);
+    const item = inHeading.find((i) => i.title === KNOWLEDGE_TITLE);
+    expect(item).toBeDefined();
+    for (const query of ["info", "knowledge", "知識", "知識資訊"]) {
+      expect(filterSuggestionItems(inHeading, query).some((i) => i.title === KNOWLEDGE_TITLE)).toBe(true);
+    }
+    editor.setTextCursorPosition("p1", "end");
+    expect(items(onOpen).some((i) => i.title === KNOWLEDGE_TITLE)).toBe(false);
+    editor.setTextCursorPosition("h2", "end");
+    expect(items(onOpen).some((i) => i.title === KNOWLEDGE_TITLE)).toBe(false);
+  });
+
+  it("comes after the column items and leaves every other item in place", () => {
+    const onOpen = vi.fn();
+    cleanups.pop()!();
+    editor = mount([H("Heading", "h1"), P("para", "p1")], "h1");
+    const withItem = items(onOpen).map((i) => i.title);
+    const without = items().map((i) => i.title);
+    expect(withItem.filter((t) => t !== KNOWLEDGE_TITLE)).toEqual(without);
+    expect(withItem.indexOf(KNOWLEDGE_TITLE)).toBeGreaterThan(withItem.indexOf(COLUMN_TITLES[2]!));
+  });
+
+  it("clicking calls onOpenKnowledge with the heading's id and changes no block", () => {
+    const onOpen = vi.fn();
+    cleanups.pop()!();
+    editor = mount([H("Heading", "h1"), P("para", "p1")], "h1");
+    const before = shape(editor);
+    items(onOpen).find((i) => i.title === KNOWLEDGE_TITLE)!.onItemClick();
+    expect(onOpen).toHaveBeenCalledWith("h1");
+    expect(insertMock).not.toHaveBeenCalled();
+    expect(shape(editor)).toBe(before);
+  });
+
+  it("without onOpenKnowledge there is no knowledge item", () => {
+    cleanups.pop()!();
+    editor = mount([H("Heading", "h1")], "h1");
+    expect(items().some((i) => i.title === KNOWLEDGE_TITLE)).toBe(false);
   });
 });

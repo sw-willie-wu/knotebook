@@ -55,6 +55,7 @@ export function GroupModal() {
   const items = [
     { to: base, label: t("groups.nav.members"), end: true },
     { to: `${base}/roles`, label: t("groups.nav.roles") },
+    ...(group?.canManageGroup === true ? [{ to: `${base}/tags`, label: t("tags.manage.nav") }] : []),
     { to: `${base}/storage`, label: t("groups.nav.storage") },
     { to: `${base}/about`, label: t("groups.nav.about") },
   ];

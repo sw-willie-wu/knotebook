@@ -41,9 +41,9 @@ export async function buildNoteFile(
   );
   if (ex === DOC_TOO_COMPLEX) throw new NoteReadTooComplexError();
   const baseKey = newBaseKey();
-  const h = baseHashes(deps.key, salt, { body: normalizeBody(ex.body), title: row.title, lines: ex.lines, kinds: ex.lineKinds });
+  const h = baseHashes(deps.key, salt, { body: normalizeBody(ex.body), title: row.title, tags: row.tagNames, lines: ex.lines, kinds: ex.lineKinds });
   const file = Buffer.from(
-    writeNoteFile({ id: row.id, title: row.title, role: row.role, base: baseKey, url: canonicalNotePath(row) }, ex.body),
+    writeNoteFile({ id: row.id, title: row.title, role: row.role, base: baseKey, url: canonicalNotePath(row), tags: row.tagNames }, ex.body),
     "utf8",
   );
   return {
@@ -57,6 +57,7 @@ export async function buildNoteFile(
       keyId: deps.keyId,
       bodySha: h.bodySha,
       titleSha: h.titleSha,
+      tagsSha: h.tagsSha,
       lineHashes: h.lineHashes,
       lineKinds: h.lineKinds,
       segments: ex.segments,

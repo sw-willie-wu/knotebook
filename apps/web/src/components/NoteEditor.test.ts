@@ -296,6 +296,13 @@ describe("buildNoteEditorOptions", () => {
     expect(extensions.filter((ext: { name: string }) => ext.name === "knotebookTourTransactionFilter")).toHaveLength(1);
   });
 
+  it("_tiptapOptions.extensions has the three knowledge extensions", () => {
+    const names = build()._tiptapOptions.extensions.map((ext: { name: string }) => ext.name);
+    expect(names).toContain("knotebookKnowledgeIds");
+    expect(names).toContain("knotebookKnowledgeEnter");
+    expect(names).toContain("knotebookKnowledgeDecorations");
+  });
+
   // The existing drop cases call createMediaBlockingDOMEvents' handler directly, not through build(), so they don't cover the composition that records the drop position.
   it("the composed drop still reaches the media blocking (through build())", () => {
     const event = dragEvent(transfer({ files: [file("a.pdf", "application/pdf")], types: ["Files"] }));
@@ -569,6 +576,79 @@ describe("buildNoteEditorOptions [[ trigger detection (handleTextInput)", () => 
 // jsdom 30 has no constructible `ClipboardEvent`/`DataTransfer`: a minimal stand-in (`types`/`items`/`files`) is attached to a plain `Event`; `handleFileInsertion` only reads these three (`acceptedMIMETypes` checks go through `types`, files come from `items[i].getAsFile()`), and doesn't need `getData` (the "Files" branch doesn't call it, see defaultPasteHandler in `pasteExtension.ts`).
 // Cleanup after a failed upload (4xx) is a macrotask scheduled by `setTimeout(..., 0)`, while `editor.updateBlock(insertedBlockId, ...)` (writing the url back) is the microtask continuation after `await editor.uploadFile(...)` resolves:
 // a real `setTimeout(resolve, 0)` of our own flushes both (microtasks run first). The cleanup itself is another macrotask queued after, so verifying "block removed" needs one more round.
+describe("buildNoteEditorOptions #name tags (handleTextInput)", () => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test editor; repo convention BlockNoteEditor<any,any,any>
+  let editor: BlockNoteEditor<any, any, any>;
+  let container: HTMLElement;
+  let applied: Array<{ names: string[] }>;
+  let handleTextInput: (view: unknown, from: number, to: number, text: string) => boolean | void;
+
+  function setUp(withHooks: boolean): void {
+    applied = [];
+    const editorRef: EditorRef = { current: null };
+    const hashTagHooks = {
+      current: withHooks
+        ? {
+            applyHash: (input: { names: string[] }) => void applied.push(input),
+            currentTagNames: () => [],
+            undoBoundary: () => undefined,
+            notify: () => undefined,
+            active: () => (editor.prosemirrorView ? { editor, view: editor.prosemirrorView } : null),
+          }
+        : null,
+    };
+    const options = buildNoteEditorOptions({
+      doc: new Y.Doc(),
+      provider: { awareness: null } as never,
+      user: { id: "user-1", name: "Ann" },
+      language: "en",
+      translate: (key: string) => key,
+      editorRef,
+      noteId: "note-1",
+      siteLinks: { current: null },
+      hashTagHooks,
+    });
+    handleTextInput = options._tiptapOptions.editorProps.handleTextInput as typeof handleTextInput;
+    editor = BlockNoteEditor.create(options);
+    editorRef.current = editor;
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    editor.mount(container);
+  }
+
+  afterEach(() => {
+    editor.unmount();
+    container.remove();
+  });
+
+  function typeSpace(): boolean | void {
+    const at = editor.transact((tr) => tr.selection.from);
+    return handleTextInput(editor._tiptapEditor.view, at, at, " ");
+  }
+
+  it("takes #name and a space typed in the first paragraph", () => {
+    setUp(true);
+    editor.insertInlineContent(["#alpha"]);
+    expect(typeSpace()).toBe(true);
+    expect(applied.map((a) => a.names)).toEqual([["alpha"]]);
+    expect(editor.transact((tr) => tr.doc.textContent)).toBe("");
+  });
+
+  it("leaves # and a space to the heading shortcut", () => {
+    setUp(true);
+    editor.insertInlineContent(["#"]);
+    expect(typeSpace()).toBeFalsy();
+    expect(applied).toEqual([]);
+  });
+
+  it("leaves everything to the editor when hooks are not available", () => {
+    setUp(false);
+    editor.insertInlineContent(["#alpha"]);
+    expect(typeSpace()).toBeFalsy();
+    expect(editor.transact((tr) => tr.doc.textContent)).toBe("#alpha");
+  });
+});
+
 describe("buildNoteEditorOptions uploadFile really connected (handleFileInsertion)", () => {
   let doc: Y.Doc;
   let editorRef: EditorRef;
@@ -834,6 +914,48 @@ describe("useLinkMenuState getSlashItems has no shortcut column on phone", () =>
     expect(docked.some((item) => item.badge)).toBe(true);
     expect(phone.some((item) => item.badge)).toBe(false);
     expect(phone.map((item) => item.title)).toEqual(docked.map((item) => item.title));
+  });
+});
+
+describe("useLinkMenuState tag entry", () => {
+  const translate = (key: string) => key;
+
+  it("getSlashItems keeps its identity when tagEntry changes, and reads the current entry on every query", async () => {
+    const realEditor = BlockNoteEditor.create({ schema: noteSchema });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    realEditor.mount(container);
+    const tagEntryRef: { current: { open: (opts?: { returnFocus?: () => void }) => void } | undefined } = { current: undefined };
+    const editorRef = { current: realEditor } as EditorRef;
+    const { result, rerender } = renderHook(() => useLinkMenuState(editorRef, translate, tagEntryRef));
+    await act(async () => {});
+    const before = result.current.getSlashItems;
+    const titles = async () => (await result.current.getSlashItems("")).map((item) => item.title);
+
+    expect(await titles()).not.toContain("tags.entry.slashTitle");
+    const open = vi.fn();
+    tagEntryRef.current = { open };
+    rerender();
+    expect(result.current.getSlashItems).toBe(before);
+    expect(await titles()).toContain("tags.entry.slashTitle");
+    (await result.current.getSlashItems("tag")).find((item) => item.title === "tags.entry.slashTitle")!.onItemClick();
+    expect(open).toHaveBeenCalledOnce();
+    tagEntryRef.current = undefined;
+    expect(await titles()).not.toContain("tags.entry.slashTitle");
+
+    // Choosing /tag hands the entry a way back to the caret, for when the input is left without adding a tag.
+    tagEntryRef.current = { open };
+    open.mockClear();
+    (await result.current.getSlashItems("tag")).find((item) => item.title === "tags.entry.slashTitle")!.onItemClick();
+    const opts = open.mock.calls[0]![0] as { returnFocus: () => void };
+    realEditor.insertInlineContent(["caret here"]);
+    (document.activeElement as HTMLElement | null)?.blur();
+    opts.returnFocus();
+    expect(container.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement?.getAttribute("contenteditable")).toBe("true");
+
+    realEditor.unmount();
+    container.remove();
   });
 });
 

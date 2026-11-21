@@ -175,6 +175,10 @@ export const FOLDER_LIMIT = { limit: 600, windowMs: 60_000 } as const;
 // (a 404 because the note was permanently deleted after the charge stays charged); DELETE only when `:id` is a UUID. Fixed, not site-adjustable.
 export const FAVORITE_LIMIT = { limit: 600, windowMs: 60_000 } as const;
 
+// Adding or removing a tag on a note (the tag-list GETs aren't charged). Not shared with `edit`: tags are metadata, and a bulk tagging session would eat the AI-edit quota.
+// Charged only after authorization; 400s and 404s before it don't count. Fixed, not site-adjustable.
+export const TAG_LIMIT = { limit: 600, windowMs: 60_000 } as const;
+
 // Not shared with `search`, so sidebar search and the add-member dialog can't starve each other. Not a privacy boundary (scope is already limited to emails the caller can see). q-validation 400s don't charge.
 export const USER_SUGGEST_LIMIT = { limit: 60, windowMs: 60_000 } as const;
 

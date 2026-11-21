@@ -26,6 +26,7 @@ import type { DbOrTx } from "../db/tx.js";
 import { escapeLike } from "../db/like.js";
 import { pgErrorSummary } from "../db/pg-errors.js";
 import { noteSearchSections, notes } from "../db/schema.js";
+import { notesHavingAllTagsSql } from "../tags/queries.js";
 import { visibleNoteBranches } from "./list-query.js";
 
 /**
@@ -95,6 +96,8 @@ export interface NoteSearchQueryOpts {
   query: string;
   limit: number;
   bodyOnly?: boolean;
+  /** Only notes carrying every one of these tags; the caller has already checked the ids belong to a space they are in. */
+  tagIds?: readonly string[];
   page?: { after: SearchPageKey | null };
 }
 
@@ -130,7 +133,7 @@ export function buildNoteSearchQuery(db: DbOrTx, opts: NoteSearchQueryOpts) {
         );
   const updatedAtKey = sql<string>`to_char(${notes.updatedAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`.as("updated_at_key");
   const { owned, shared, grouped } = visibleNoteBranches(db, opts.userId, {
-    extraWhere: and(opts.bodyOnly === true ? bodyHit : or(titleHit, bodyHit), keysetCond),
+    extraWhere: and(opts.bodyOnly === true ? bodyHit : or(titleHit, bodyHit), keysetCond, notesHavingAllTagsSql(opts.tagIds ?? [])),
     extra: { rank, titleHit: titleHitCol, bodyHit: bodyHitCol, ...(page !== undefined ? { updatedAtKey } : {}) },
   });
   return unionAll(owned, shared, grouped)

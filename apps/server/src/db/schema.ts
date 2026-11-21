@@ -1,7 +1,7 @@
-import { pgTable, uuid, text, timestamp, boolean, integer, bigint, smallint, jsonb, customType, primaryKey, uniqueIndex, index, check, foreignKey } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, date, boolean, integer, bigint, smallint, jsonb, customType, primaryKey, uniqueIndex, index, check, foreignKey } from "drizzle-orm/pg-core";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import type { NoteWidth } from "@knotebook/shared";
+import type { NoteWidth, TagColor } from "@knotebook/shared";
 import type { EncryptedApiKey } from "../ai/crypto.js";
 import type { EncryptedSecret } from "../lib/sealed-secret.js";
 import type { BulkRange } from "../auth/transfer-token.js";
@@ -530,6 +530,58 @@ export const noteSearchState = pgTable("note_search_state", {
   indexedAt: timestamp("indexed_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// Derived cache of the knowledge info on headings, rebuilt from `note_states` by `knowledge/index-write.ts`; the note's document stays the source of truth.
+// Space and folder are not stored: queries join `notes`, so moving a note needs no update here. Several CHECKs mirror constants in shared (knowledge-check-sync.test.ts).
+// `superseded_note_id` NULL = the same note; no FK because the replacing note may have been deleted since.
+export const noteKnowledge = pgTable(
+  "note_knowledge",
+  {
+    noteId: uuid("note_id").notNull().references(() => notes.id, { onDelete: "cascade" }),
+    knowledgeId: text("knowledge_id").notNull(),
+    blockId: text("block_id").notNull(),
+    ord: integer().notNull(),
+    level: smallint().notNull(),
+    heading: text().notNull(),
+    // `when` is a reserved word in SQL.
+    readWhen: text("read_when").notNull(),
+    conclusion: text().notNull(),
+    evidence: text().notNull(),
+    verified: date({ mode: "string" }),
+    status: text().notNull(),
+    icon: text().notNull(),
+    parentKnowledgeId: text("parent_knowledge_id"),
+    supersededNoteId: uuid("superseded_note_id"),
+    supersededKnowledgeId: text("superseded_knowledge_id"),
+    descTotal: integer("desc_total").notNull().default(0),
+    descVerified: integer("desc_verified").notNull().default(0),
+    descNoDate: integer("desc_no_date").notNull().default(0),
+    descNeedsReview: integer("desc_needs_review").notNull().default(0),
+    descOutdated: integer("desc_outdated").notNull().default(0),
+  },
+  t => [
+    primaryKey({ name: "note_knowledge_pk", columns: [t.noteId, t.knowledgeId] }),
+    check("nk_knowledge_id_chk", sql`${t.knowledgeId} ~ '^k_[0-9a-f]{8}$'`),
+    check("nk_block_id_chk", sql`${t.blockId} ~ '^[A-Za-z0-9_-]{1,64}$'`),
+    check("nk_level_chk", sql`${t.level} between 1 and 6`),
+    check("nk_evidence_chk", sql`${t.evidence} in ('', 'tested', 'docs', 'inferred')`),
+    check("nk_status_chk", sql`${t.status} in ('', 'unverified', 'outdated')`),
+    check("nk_icon_chk", sql`${t.icon} in ('outdated', 'needsReview', 'noVerifiedDate', 'verified')`),
+    check("nk_superseded_chk", sql`${t.supersededKnowledgeId} is null or ${t.supersededKnowledgeId} ~ '^k_[0-9a-f]{8}$'`),
+    check("nk_superseded_pair_chk", sql`${t.supersededNoteId} is null or ${t.supersededKnowledgeId} is not null`),
+  ],
+);
+
+// Same shape as `note_search_state`: `content_hash` instead of a per-note clock, and one lock row per note for the writers.
+export const noteKnowledgeState = pgTable("note_knowledge_state", {
+  noteId: uuid("note_id").primaryKey().references(() => notes.id, { onDelete: "cascade" }),
+  extractorVersion: smallint("extractor_version").notNull(),
+  sourceVersion: integer("source_version").notNull(),
+  contentHash: text("content_hash").notNull(),
+  entries: integer().notNull(),
+  capped: boolean().notNull(),
+  indexedAt: timestamp("indexed_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const noteShares = pgTable("note_shares", {
   noteId: uuid("note_id").notNull().references(() => notes.id, { onDelete: "cascade" }),
   userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
@@ -562,6 +614,37 @@ export const noteFavorites = pgTable("note_favorites", {
   primaryKey({ columns: [t.userId, t.noteId] }),
   // PK leads with user_id; the cascade on permanent note deletion needs this.
   index("note_favorites_note_idx").on(t.noteId),
+]);
+
+// A tag belongs to exactly one space: a user's personal space or a group.
+// `name_key` is a generated column rather than an expression index because drizzle's `onConflictDoUpdate({ target })` takes columns only.
+// Must match TAG_COLORS (tag-color-check-sync.test.ts).
+export const tags = pgTable("tags", {
+  id: uuid().primaryKey().defaultRandom(),
+  ownerId: uuid("owner_id").references(() => users.id, { onDelete: "cascade" }),
+  groupId: uuid("group_id").references(() => groups.id, { onDelete: "cascade" }),
+  name: text().notNull(),
+  nameKey: text("name_key").notNull().generatedAlwaysAs(sql`lower(name)`),
+  color: text().$type<TagColor>().notNull(),
+  createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, t => [
+  check("tags_space_chk", sql`(${t.ownerId} is null) <> (${t.groupId} is null)`),
+  check("tags_name_len_chk", sql`length(${t.name}) between 1 and 40`),
+  check("tags_color_chk", sql`${t.color} in ('blue','green','orange','purple','pink','red','yellow','brown','gray')`),
+  uniqueIndex("tags_owner_name_idx").on(t.ownerId, t.nameKey).where(sql`${t.ownerId} is not null`),
+  uniqueIndex("tags_group_name_idx").on(t.groupId, t.nameKey).where(sql`${t.groupId} is not null`),
+]);
+
+// `created_at` is whole milliseconds like JS `Date`, so the order tags were added in is stable across server and client.
+export const noteTags = pgTable("note_tags", {
+  noteId: uuid("note_id").notNull().references(() => notes.id, { onDelete: "cascade" }),
+  tagId: uuid("tag_id").notNull().references(() => tags.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`date_trunc('milliseconds', now())`),
+}, t => [
+  primaryKey({ columns: [t.noteId, t.tagId] }),
+  // PK leads with note_id; deleting a tag needs this.
+  index("note_tags_tag_idx").on(t.tagId),
 ]);
 
 export const noteLinks = pgTable("note_links", {
@@ -824,6 +907,8 @@ export const transferBases = pgTable(
     keyId: text("key_id").notNull(),
     bodySha: bytea("body_sha").notNull(),
     titleSha: bytea("title_sha").notNull(),
+    // Null on a base made before these columns existed.
+    tagsSha: bytea("tags_sha"),
     lineHashes: bytea("line_hashes").notNull(),
     lineKinds: bytea("line_kinds").notNull(),
     segments: jsonb().$type<TransferSegment[] | null>(),
@@ -831,6 +916,7 @@ export const transferBases = pgTable(
     // `note_ai_edits` rows from this write-back; a resend after any was reverted gets 409. No FK: a trimmed row counts as not reverted.
     appliedEditIds: uuid("applied_edit_ids").array(),
     appliedTitleSha: bytea("applied_title_sha"),
+    appliedTagsSha: bytea("applied_tags_sha"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }).notNull().defaultNow(),
   },

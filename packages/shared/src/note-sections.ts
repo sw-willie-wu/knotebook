@@ -1,4 +1,5 @@
 import * as Y from "yjs";
+import { isIgnorableKnowledgeDefault } from "./knowledge-schema.js";
 
 // Sections are only the single blockGroup's direct blockContainer/columnList children; deeper nodes are content.
 // nodeName is camelCase even though toString() prints lowercase.
@@ -92,7 +93,7 @@ function canonicalizeNode(node: Y.XmlElement | Y.XmlText): string {
     return `T${stable(delta.map(d => ({ insert: d.insert, attributes: d.attributes ?? {} })))}`;
   }
   const attrs = node.getAttributes() as Record<string, unknown>;
-  const kept = Object.keys(attrs).filter(k => k !== "id").sort().map(k => `${k}=${stable(attrs[k])}`);
+  const kept = Object.keys(attrs).filter(k => k !== "id" && !isIgnorableKnowledgeDefault(node.nodeName, k, attrs[k])).sort().map(k => `${k}=${stable(attrs[k])}`);
   const children: string[] = [];
   for (const c of node.toArray()) {
     if (c instanceof Y.XmlElement || c instanceof Y.XmlText) children.push(canonicalizeNode(c));

@@ -2,7 +2,25 @@
 // Without a watch the main thread compares snapshots, not just state vectors: an update that only deletes doesn't change the state vector.
 import type { Block, PartialBlock } from "@blocknote/core";
 import * as Y from "yjs";
-import { MAX_LINK_TARGETS, YDOC_FRAGMENT, extractLinkTargets, topLevelBlocks, type EditOp, type NoteContentDto, type NoteOutlineEntry, type NoteSectionDto } from "@knotebook/shared";
+import {
+  MAX_LINK_TARGETS,
+  YDOC_FRAGMENT,
+  extractLinkTargets,
+  keptIdRenames,
+  knowledgeRefsIn,
+  knowledgeWriteProblem,
+  normalizeKnowledgeRefs,
+  resolveKnowledgeForWrite,
+  topLevelBlocks,
+  type EditOp,
+  type KnowledgeBlockShape,
+  type KnowledgeHeadingRef,
+  type KnowledgeInfo,
+  type KnowledgeProblem,
+  type NoteContentDto,
+  type NoteOutlineEntry,
+  type NoteSectionDto,
+} from "@knotebook/shared";
 import type { TransferSegment } from "../../db/schema.js";
 import { hmacOf } from "../../transfer/base-hash.js";
 import { isLoneEmptyParagraph, matchesBase } from "../../transfer/decide.js";
@@ -16,9 +34,9 @@ import type { Decision } from "../../transfer/decide.js";
 import { measureTrial, type SizeMeasure } from "../note-size.js";
 import { versionFingerprint } from "../version-fingerprint.js";
 import type { VisibleNoteTarget } from "./candidates.js";
-import { keptIdRenames } from "./block-align.js";
 import { fingerprintForIds, fingerprintsOfGroups, outlineOf, topLevelSnapshot, type OutlineEntry } from "./fingerprint.js";
 import type { ParseDetail, ParseError } from "./markdown.js";
+import { KnowledgeWriteError, createdKnowledge, knowledgeIdsByBlock, knowledgeInfoById, type KnowledgeEditReport, type KnowledgeRenewal, type KnowledgeWriteReport } from "./knowledge-write.js";
 import { readNoteContentFromDoc } from "./read.js";
 import { editRevertable, isDeleteShape, prepareRevertOnFork, removedIds, topLevelIds, type RevertRow } from "./revert-core.js";
 import { containerItems, type MergeGuard } from "./live-watch.js";
@@ -72,7 +90,8 @@ export type EditDocOp = {
   sectionId?: string;
   ifMatch?: string;
   blocks?: AnyPartialBlock[];
-  parseError?: { error: ParseError; detail?: ParseDetail };
+  parseError?: { error: ParseError; detail?: ParseDetail; knowledge?: KnowledgeProblem };
+  noteId: string;
 };
 export type RevertDocOp = { kind: "revert"; state: Uint8Array; row: RevertRow; othersShareAnchor: boolean };
 /** Plan and apply are separate jobs because parsing a dense section can use hundreds of MiB; stacked with mount + apply it would exhaust the worker's memory, and split the pool can recycle the worker in between. Both jobs use the same doc state. */
@@ -90,7 +109,7 @@ export type SyncPlanDocOp = {
   baseBodySha: Uint8Array;
   budgetMs: number;
 };
-export type SyncApplyDocOp = { kind: "syncApply"; state: Uint8Array; plan: SyncPlan; normalizedId: string | null };
+export type SyncApplyDocOp = { kind: "syncApply"; state: Uint8Array; plan: SyncPlan; normalizedId: string | null; noteId: string };
 export type SizeTrialDocOp = { kind: "sizeTrial"; state: Uint8Array; update: Uint8Array };
 export type DocOp = ReadDocOp | OutlineDocOp | ExportFileDocOp | EditDocOp | RevertDocOp | SyncPlanDocOp | SyncApplyDocOp | SizeTrialDocOp;
 
@@ -103,14 +122,14 @@ export interface OutlineDocResult {
   whole: string;
 }
 export type EditDocResult =
-  | { ok: true; beforeBlocks: AnyBlock[]; afterIds: string[]; anchor: Anchor | null; post: DocPost }
-  | { ok: false; code: "section_not_found" | "fingerprint_mismatch" | "empty_section" | ParseError; detail?: ParseDetail };
+  | { ok: true; beforeBlocks: AnyBlock[]; afterIds: string[]; anchor: Anchor | null; post: DocPost; knowledge: KnowledgeEditReport }
+  | { ok: false; code: "section_not_found" | "fingerprint_mismatch" | "empty_section" | ParseError; detail?: ParseDetail; knowledge?: KnowledgeProblem };
 export type RevertDocResult = { ok: true; reinsertedIds: string[]; removedSnapshot: AnyBlock[]; post: DocPost } | { ok: false; code: "stale" };
 export type SyncPlanDocResult = { budgetLeft: number } & (
   | { kind: "note_changed" }
   | { kind: "body_checked" }
   | { kind: "rate_limited" }
-  | { kind: "parse"; code: PlanSyncError; detail?: ParseDetail; fence?: string }
+  | { kind: "parse"; code: PlanSyncError; detail?: ParseDetail; fence?: string; knowledge?: KnowledgeProblem }
   | { kind: "zero_region"; same: number }
   | { kind: "planned"; plan: SyncPlan; normalizedId: string | null }
 );
@@ -119,7 +138,9 @@ export interface SyncApplyDocResult {
   unbound: number;
   perRegion: Applied["perRegion"];
   post: DocPost;
+  knowledge: KnowledgeWriteReport;
 }
+export type SyncApplyDocFailure = { kind: "invalid_knowledge"; knowledge: KnowledgeProblem };
 export interface DocResults {
   read: ReadDocResult;
   outline: OutlineDocResult;
@@ -127,7 +148,7 @@ export interface DocResults {
   edit: EditDocResult;
   revert: RevertDocResult;
   syncPlan: SyncPlanDocResult;
-  syncApply: SyncApplyDocResult;
+  syncApply: SyncApplyDocResult | SyncApplyDocFailure;
   sizeTrial: SizeMeasure;
 }
 export type DocOpOf<K extends DocOp["kind"]> = Extract<DocOp, { kind: K }>;
@@ -199,10 +220,29 @@ export async function editOnFork(
   runtime: EditingRuntime,
   fork: Y.Doc,
   sv: Uint8Array,
-  plan: { op: EditOp; isEmptyDoc: boolean; section: OutlineEntry | undefined; keepIds?: boolean },
+  plan: { op: EditOp; isEmptyDoc: boolean; section: OutlineEntry | undefined; keepIds?: boolean; knowledge?: { current: ReadonlyMap<string, KnowledgeInfo>; noteId: string } },
   blocks: AnyPartialBlock[],
-): Promise<{ diff: Uint8Array; beforeBlocks: AnyBlock[]; afterIds: string[]; anchor: Anchor | null }> {
+): Promise<{ diff: Uint8Array; beforeBlocks: AnyBlock[]; afterIds: string[]; anchor: Anchor | null; knowledge: KnowledgeEditReport }> {
   const { op, isEmptyDoc, section } = plan;
+  let kept: KnowledgeHeadingRef[] = [];
+  let resolvedRenewed: KnowledgeRenewal[] = [];
+  // Without `plan.knowledge` (version apply) the blocks come from a stored version and are written as they are.
+  const withKnowledge = (before: readonly AnyBlock[]): AnyPartialBlock[] => {
+    const k = plan.knowledge;
+    if (k === undefined) return blocks;
+    const keep = plan.keepIds === true && (op === "replace_all" || op === "replace_section");
+    const r = resolveKnowledgeForWrite({
+      before: before as unknown as readonly KnowledgeBlockShape[],
+      after: normalizeKnowledgeRefs(blocks as unknown as readonly KnowledgeBlockShape[], k.noteId),
+      keep,
+      taken: new Set(k.current.keys()),
+    });
+    const problem = knowledgeWriteProblem(r.blocks, k.current, k.noteId);
+    if (problem !== null) throw new KnowledgeWriteError(problem);
+    ({ kept } = r);
+    resolvedRenewed = r.renewed;
+    return r.blocks as unknown as AnyPartialBlock[];
+  };
   const w = await withForkEditor(runtime, fork, sv, (ed, edits) => {
     const top = ed.document;
     const keep = (before: readonly AnyBlock[], inserted: readonly AnyBlock[]): void => {
@@ -214,7 +254,7 @@ export async function editOnFork(
     switch (op) {
       case "replace_all": {
         beforeBlocks = isEmptyDoc ? [] : top;
-        const inserted = edits.replace(top.map(b => b.id), blocks, top);
+        const inserted = edits.replace(top.map(b => b.id), withKnowledge(beforeBlocks), top);
         afterIds = inserted.map(b => b.id);
         // On an empty doc the only old block is the paragraph the mount normalized, never part of the note.
         if (!isEmptyDoc) keep(beforeBlocks, inserted);
@@ -222,10 +262,10 @@ export async function editOnFork(
       }
       case "replace_section": {
         const sectionIds = section!.blockIds;
-        if (sectionIds.length === 0) afterIds = ed.insertBlocks(blocks, top[0]!.id, "before").map(b => b.id);
+        if (sectionIds.length === 0) afterIds = ed.insertBlocks(withKnowledge([]), top[0]!.id, "before").map(b => b.id);
         else {
           beforeBlocks = pickBlocks(topLevelBlocksById(ed), sectionIds);
-          const inserted = edits.replace(sectionIds, blocks, beforeBlocks);
+          const inserted = edits.replace(sectionIds, withKnowledge(beforeBlocks), beforeBlocks);
           afterIds = inserted.map(b => b.id);
           keep(beforeBlocks, inserted);
         }
@@ -233,11 +273,12 @@ export async function editOnFork(
       }
       case "insert_after": {
         const sectionIds = section!.blockIds;
-        afterIds = (sectionIds.length === 0 ? ed.insertBlocks(blocks, top[0]!.id, "before") : ed.insertBlocks(blocks, sectionIds[sectionIds.length - 1]!, "after")).map(b => b.id);
+        const write = withKnowledge([]);
+        afterIds = (sectionIds.length === 0 ? ed.insertBlocks(write, top[0]!.id, "before") : ed.insertBlocks(write, sectionIds[sectionIds.length - 1]!, "after")).map(b => b.id);
         break;
       }
       case "append": {
-        afterIds = ed.insertBlocks(blocks, top[top.length - 1]!.id, "after").map(b => b.id);
+        afterIds = ed.insertBlocks(withKnowledge([]), top[top.length - 1]!.id, "after").map(b => b.id);
         break;
       }
       case "delete_section": {
@@ -254,7 +295,19 @@ export async function editOnFork(
     }
     return { beforeBlocks, afterIds, anchor };
   });
-  return { diff: w.diff, beforeBlocks: w.value.beforeBlocks, afterIds: w.value.afterIds.map(id => w.renamed.get(id) ?? id), anchor: w.value.anchor };
+  const { beforeBlocks } = w.value;
+  const surviving = plan.knowledge === undefined ? null : new Set(knowledgeIdsByBlock(fork.getXmlFragment(YDOC_FRAGMENT)).values());
+  const resolvedIds = new Set(resolvedRenewed.map(r => r.id));
+  const renewed = [...resolvedRenewed, ...w.renewed.filter(x => !resolvedIds.has(x.id))];
+  const created = surviving === null ? [] : createdKnowledge(fork.getXmlFragment(YDOC_FRAGMENT), w.knowledgeBefore, renewed);
+  const removed = surviving === null ? [] : knowledgeRefsIn(beforeBlocks as unknown as readonly KnowledgeBlockShape[]).filter(r => !surviving.has(r.id));
+  return {
+    diff: w.diff,
+    beforeBlocks,
+    afterIds: w.value.afterIds.map(id => w.renamed.get(id) ?? id),
+    anchor: w.value.anchor,
+    knowledge: { kept, created, removed, renewed },
+  };
 }
 
 async function readOp(runtime: EditingRuntime, op: ReadDocOp, ask: AskFn): Promise<ReadDocResult> {
@@ -277,13 +330,19 @@ async function editOp(runtime: EditingRuntime, op: EditDocOp): Promise<EditDocRe
   const targetIds = op.op === "replace_all" || op.op === "append" ? null : section!.blockIds;
   if (expect !== null && (targetIds === null ? whole : section!.fingerprint) !== expect) return { ok: false, code: "fingerprint_mismatch" };
   if (op.op === "delete_section" && (isEmptyDoc || section!.blockIds.length === 0)) return { ok: false, code: "empty_section" };
-  if (op.parseError) return { ok: false, code: op.parseError.error, ...(op.parseError.detail ? { detail: op.parseError.detail } : {}) };
+  if (op.parseError) return { ok: false, code: op.parseError.error, ...(op.parseError.detail ? { detail: op.parseError.detail } : {}), ...(op.parseError.knowledge ? { knowledge: op.parseError.knowledge } : {}) };
   // Empty doc: all three ops behave as replace_all (the normalized leftover paragraph gets replaced).
   const editKind: EditOp = isEmptyDoc ? "replace_all" : op.op;
   const blocks = op.blocks ?? [];
   const guard: MergeGuard = expect === null ? { kind: "none" } : targetIds === null || isEmptyDoc ? { kind: "any" } : { kind: "blocks", items: containerItems(fragment, targetIds), anchors: [] };
-  const r = await editOnFork(runtime, fork, base.sv, { op: editKind, isEmptyDoc, section, keepIds: true }, blocks);
-  return { ok: true, beforeBlocks: r.beforeBlocks, afterIds: r.afterIds, anchor: r.anchor, post: postOf(fork, base, r.diff, r.afterIds, guard) };
+  let r: Awaited<ReturnType<typeof editOnFork>>;
+  try {
+    r = await editOnFork(runtime, fork, base.sv, { op: editKind, isEmptyDoc, section, keepIds: true, knowledge: { current: knowledgeInfoById(fragment), noteId: op.noteId } }, blocks);
+  } catch (err) {
+    if (err instanceof KnowledgeWriteError) return { ok: false, code: "invalid_knowledge", knowledge: err.problem };
+    throw err;
+  }
+  return { ok: true, beforeBlocks: r.beforeBlocks, afterIds: r.afterIds, anchor: r.anchor, post: postOf(fork, base, r.diff, r.afterIds, guard), knowledge: r.knowledge };
 }
 
 async function revertOp(runtime: EditingRuntime, op: RevertDocOp): Promise<RevertDocResult> {
@@ -342,20 +401,30 @@ async function syncPlanOp(runtime: EditingRuntime, op: SyncPlanDocOp, ask: AskFn
     siteOrigin: op.siteOrigin,
     exportedLinkText: exportedLinkTextOf(op.segments, key, salt),
   });
-  if (!planned.ok) return { kind: "parse", code: planned.code, ...(planned.detail ? { detail: planned.detail } : {}), ...(planned.fence ? { fence: planned.fence } : {}), budgetLeft: left() };
+  if (!planned.ok) return { kind: "parse", code: planned.code, ...(planned.detail ? { detail: planned.detail } : {}), ...(planned.fence ? { fence: planned.fence } : {}), ...(planned.knowledge ? { knowledge: planned.knowledge } : {}), budgetLeft: left() };
   const p = planned.plan;
   if (p.decisions.every(d => d.mark === "same")) return { kind: "zero_region", same: p.decisions.length, budgetLeft: left() };
   return { kind: "planned", plan: p, normalizedId: loneEmpty ? cur.ids[0]! : null, budgetLeft: left() };
 }
 
-async function syncApplyOp(runtime: EditingRuntime, op: SyncApplyDocOp): Promise<SyncApplyDocResult> {
+async function syncApplyOp(runtime: EditingRuntime, op: SyncApplyDocOp): Promise<SyncApplyDocResult | SyncApplyDocFailure> {
   const fork = decodeState(op.state);
   const base = baseOf(fork, op.state);
-  const cur = topLevelSnapshot(fork.getXmlFragment(YDOC_FRAGMENT));
-  const a = await applySync(runtime, fork, base.sv, op.plan, cur, op.normalizedId !== null ? { normalizedId: op.normalizedId } : {});
+  const fragment = fork.getXmlFragment(YDOC_FRAGMENT);
+  const cur = topLevelSnapshot(fragment);
+  let a: Awaited<ReturnType<typeof applySync>>;
+  try {
+    a = await applySync(runtime, fork, base.sv, op.plan, cur, {
+      ...(op.normalizedId !== null ? { normalizedId: op.normalizedId } : {}),
+      knowledge: { current: knowledgeInfoById(fragment), noteId: op.noteId },
+    });
+  } catch (err) {
+    if (err instanceof KnowledgeWriteError) return { kind: "invalid_knowledge", knowledge: err.problem };
+    throw err;
+  }
   // Write-back requires the whole note unchanged since download.
   const post = postOf(fork, base, a.diff, [], { kind: "any" }, a.perRegion.map(pr => pr.afterIds));
-  return { decisions: op.plan.decisions, unbound: op.plan.unbound, perRegion: a.perRegion, post };
+  return { decisions: op.plan.decisions, unbound: op.plan.unbound, perRegion: a.perRegion, post, knowledge: { ...a.knowledge, ignoredComments: op.plan.ignoredKnowledgeComments } };
 }
 
 /** `RangeError` (stack/array/string limits) means too large or complex → `DOC_TOO_COMPLEX`; other errors are bugs and rethrown. */

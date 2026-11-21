@@ -34,12 +34,12 @@ function stubFetch() {
 const urls = () => calls.map((c) => c.url);
 const qOf = (url: string) => new URL(url, "http://x").searchParams.get("q");
 
-function setup(initial: { query: string; debounced: string }, userId = "u1") {
+function setup(initial: { query: string; debounced: string; tagIds?: string[] }, userId = "u1") {
   // Deliberately not setting retry: false, so removing the hook's own `retry: false` is caught (see the 429/500 case).
   const client = new QueryClient();
   client.setQueryData<UserDto | null>(SESSION_QUERY_KEY, { id: userId } as UserDto);
   const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
-  const hook = renderHook((p: { query: string; debounced: string }) => useBodySearch(p), { initialProps: initial, wrapper });
+  const hook = renderHook((p: { query: string; debounced: string; tagIds?: string[] }) => useBodySearch(p), { initialProps: initial, wrapper });
   return { client, ...hook };
 }
 const ready = (s: BodySearchState) => {
@@ -74,6 +74,37 @@ describe("useBodySearch", () => {
     void result;
   });
 
+  it("adds tags=<ids> only when tag ids are given, and a different tag set is a different search", async () => {
+    const { rerender } = setup({ query: "abcd", debounced: "abcd", tagIds: ["b-id", "a-id"] });
+    await waitFor(() => expect(calls.length).toBe(1));
+    expect(urls()[0]).toBe("/api/search?q=abcd&limit=20&match=body&tags=b-id%2Ca-id");
+    rerender({ query: "abcd", debounced: "abcd", tagIds: ["a-id"] });
+    await waitFor(() => expect(calls.length).toBe(2));
+    expect(urls()[1]).toBe("/api/search?q=abcd&limit=20&match=body&tags=a-id");
+    rerender({ query: "abcd", debounced: "abcd" });
+    await waitFor(() => expect(calls.length).toBe(3));
+    expect(urls()[2]).toBe("/api/search?q=abcd&limit=20&match=body");
+  });
+
+  it("the same tags in another order reuse the cached search", async () => {
+    const { rerender } = setup({ query: "abcd", debounced: "abcd", tagIds: ["a-id", "b-id"] });
+    await waitFor(() => expect(calls.length).toBe(1));
+    act(() => calls[0]!.resolve(json(200, page(["n1"]))));
+    rerender({ query: "abcd", debounced: "abcd", tagIds: ["b-id", "a-id"] });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(calls.length).toBe(1);
+  });
+
+  it("a 400 invalid_tags answer is reported as invalidTags, by code, and is not retried", async () => {
+    const { result } = setup({ query: "abcd", debounced: "abcd", tagIds: ["gone-id"] });
+    await waitFor(() => expect(calls.length).toBe(1));
+    act(() => calls[0]!.resolve(json(400, { error: { code: "invalid_tags", message: "Any text at all." } })));
+    await waitFor(() => expect(result.current.kind).toBe("error"));
+    expect(result.current).toEqual({ kind: "error", rateLimited: false, invalidTags: true });
+    await new Promise((r) => setTimeout(r, 1200));
+    expect(calls.length).toBe(1);
+  });
+
   it("pending while first loading; ready when it returns, stale false, forQuery", async () => {
     const { result } = setup({ query: "abcd", debounced: "abcd" });
     await waitFor(() => expect(calls.length).toBe(1));
@@ -105,14 +136,14 @@ describe("useBodySearch", () => {
     await waitFor(() => expect(calls.length).toBe(1));
     act(() => calls[0]!.resolve(json(429, { error: { code: "too_many_requests", message: "x" } })));
     await waitFor(() => expect(result.current.kind).toBe("error"));
-    expect(result.current).toEqual({ kind: "error", rateLimited: true });
+    expect(result.current).toEqual({ kind: "error", rateLimited: true, invalidTags: false });
 
     stubFetch();
     const h = setup({ query: "wxyz", debounced: "wxyz" });
     await waitFor(() => expect(calls.length).toBe(1));
     act(() => calls[0]!.resolve(json(500, { error: { code: "internal", message: "x" } })));
     await waitFor(() => expect(h.result.current.kind).toBe("error"));
-    expect(h.result.current).toEqual({ kind: "error", rateLimited: false });
+    expect(h.result.current).toEqual({ kind: "error", rateLimited: false, invalidTags: false });
     await new Promise((r) => setTimeout(r, 1200)); // The default retry's first delay is 1 s
     expect(calls.length).toBe(1);
   });

@@ -33,7 +33,7 @@ describe("GroupModal (/groups/:id/*, #247)", () => {
     vi.unstubAllGlobals();
   });
 
-  it("four-item navigation (nav accessible name = group name): Members/Roles/Storage/About, hrefs in order; at /groups/:id Members is aria-current", async () => {
+  it("five-item navigation for a role that can manage the group (nav accessible name = group name): Members/Roles/Tags/Storage/About, hrefs in order; at /groups/:id Members is aria-current", async () => {
     renderGroupRoute(`/groups/${GROUP_ADMIN.id}`, groupFetch(() => [GROUP_ADMIN], () => [member(ME.id, ME.email, "Me", ADMIN_ROLE)]));
     const dialog = await screen.findByRole("dialog", { name: "Team Alpha" });
     const nav = within(dialog).getByRole("navigation", { name: "Team Alpha" });
@@ -41,6 +41,7 @@ describe("GroupModal (/groups/:id/*, #247)", () => {
     expect(links.map((link) => [link.textContent, link.getAttribute("href")])).toEqual([
       ["Members", `/groups/${GROUP_ADMIN.id}`],
       ["Roles", `/groups/${GROUP_ADMIN.id}/roles`],
+      ["Tags", `/groups/${GROUP_ADMIN.id}/tags`],
       ["Storage", `/groups/${GROUP_ADMIN.id}/storage`],
       ["About", `/groups/${GROUP_ADMIN.id}/about`],
     ]);

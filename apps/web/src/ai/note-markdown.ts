@@ -8,8 +8,8 @@ function createSerializer() {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote generic triple, repo convention
-export function aiMarkdownOf(blocks: readonly Block<any, any, any>[], titleOf: (id: string) => string | undefined): string {
+export function aiMarkdownOf(blocks: readonly Block<any, any, any>[], titleOf: (id: string) => string | undefined, opts?: { knowledge?: boolean }): string {
   serializer ??= createSerializer();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- page editor and headless schema share config but differ in generics
-  return blocksToNoteMarkdown(serializer, wikilinksToLinks(blocks, titleOf) as any);
+  return blocksToNoteMarkdown(serializer, wikilinksToLinks(blocks, titleOf) as any, { knowledge: opts?.knowledge === true });
 }

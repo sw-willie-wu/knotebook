@@ -2,7 +2,7 @@
  * Lock order: target groups KEY SHARE → target folder KEY SHARE → source note KEY SHARE (a personal target has no first lock; without `folderId`, no second). Only the source's own attachments are copied (others keep their URLs); missing files (ENOENT) are skipped; incoming counts only copied files, each once.
  * Groups before the source: if source and target are in the same group G, locking the source first and then taking G's KEY SHARE through the INSERT's FK check would cycle with "groups FOR UPDATE → that group's notes FOR UPDATE" (delete group, delete all): 40P01, pinned by `groups-v2-copy.test.ts`. The folder lock is explicit rather than the INSERT's implicit FK lock: a same-space copy has its source inside the folder's subtree, so taking it after the source would cycle with folder delete's "subtree folders FU → subtree notes FU".
  * The groups KEY SHARE excludes `lockGroup` (FOR UPDATE: delete/transfer group, member and role changes), so the membership read holds until commit (role changes `lockGroup` first: `groups-v2-roles-race.test.ts`). The same statement returns group name and role flags for the 201 response; the pre-transaction `loadCreateTarget` is only a fast 404. Once held, the group can't be deleted, so the INSERT can't hit FK 23503 (the route's 23503 → 404 is defence in depth).
- * The space lock comes after the row locks above and before the slug write; afterwards only locks that can't cycle are taken (new row, `users` FK KEY SHARE, rows already held, slug-index insert waits). No space lock when incoming is 0.
+ * The space lock comes after the row locks above and before the slug write; afterwards only locks that can't cycle are taken (new row, `users` FK KEY SHARE, rows already held, slug-index insert waits). No space lock when incoming is 0. Tag rows are locked after all of these, and only in the target space. The knowledge index locks come after the full-text index's and touch only the new note's own rows.
  * Other paths: move (note FU → groups KS) meets this only on the source row and then needs nothing exclusive from us; PATCH slug/delete lock only the note row; shares PUT (FOR SHARE) and group rename (NO KEY UPDATE) are compatible with KEY SHARE. A group folder's space is pinned by the groups KEY SHARE; a personal folder's space never changes.
  * Files are copied without holding the space lock; `copiedFileIds` is an out-parameter so the route can delete written files after a failure. The copy's `updated_at` takes the DB default (this transaction's `now()`, later than the source's; guarded by `test/unit/copy-doc.test.ts`).
  */
@@ -17,6 +17,8 @@ import { folderSpaceOfRow, sameFolderSpace, type FolderSpace } from "../../folde
 import { lockFolderInTx } from "../../folders/tx/lock.js";
 import type { GroupTestHook } from "../../groups/test-hook.js";
 import { TxAbort } from "../../http/tx-abort.js";
+import type { TagSpace } from "../../tags/space.js";
+import { copyNoteTagsInTx } from "../../tags/tx/space-change.js";
 import { uploadFilePath } from "../../uploads/service.js";
 import type { StorageSpace } from "../../storage/space.js";
 import { assertSpaceRoomInTx } from "../../storage/tx/quota.js";
@@ -26,6 +28,8 @@ import type { NoteGroupFlags } from "../service.js";
 import type { SearchExtract } from "../search-text.js";
 import type { SlugScope } from "../slug.js";
 import { replaceNoteSearchIndexInTx, type SearchIndexHooks } from "./search-index.js";
+import type { KnowledgeIndexExtract } from "../../knowledge/extract.js";
+import { replaceNoteKnowledgeIndexInTx, type KnowledgeIndexHooks } from "../../knowledge/tx/index-write.js";
 
 export interface CopyNoteInput {
   sourceId: string;
@@ -38,6 +42,8 @@ export interface CopyNoteInput {
   copiedFileIds: string[];
   /** Extracted before the transaction from the clone; `rewriteUploadUrls` only changes `url` attributes, which aren't indexed. */
   searchExtract: SearchExtract;
+  /** Same as `searchExtract`: `rewriteUploadUrls` only changes `url` attributes, which the knowledge index doesn't read. */
+  knowledgeExtract: KnowledgeIndexExtract;
   lockTimeoutMs: number;
 }
 
@@ -54,7 +60,7 @@ export interface CopyNoteResult {
   target: CopyTargetInTx | null;
 }
 
-export async function copyNoteInTx(tx: Tx, input: CopyNoteInput, hook?: GroupTestHook, createHooks?: NoteCreateHooks, searchHooks?: SearchIndexHooks): Promise<CopyNoteResult> {
+export async function copyNoteInTx(tx: Tx, input: CopyNoteInput, hook?: GroupTestHook, createHooks?: NoteCreateHooks, searchHooks?: SearchIndexHooks, knowledgeHooks?: KnowledgeIndexHooks): Promise<CopyNoteResult> {
   let target: CopyTargetInTx | null = null;
   if ("groupId" in input.scope) {
     const groupId = input.scope.groupId;
@@ -123,6 +129,7 @@ export async function copyNoteInTx(tx: Tx, input: CopyNoteInput, hook?: GroupTes
     hookCtx: "groupId" in input.scope ? { noteId: input.sourceId, groupId: input.scope.groupId } : { noteId: input.sourceId },
   });
 
+  const tagTarget: TagSpace = "groupId" in input.scope ? { kind: "group", groupId: input.scope.groupId } : { kind: "personal", ownerId: input.scope.ownerId };
   const created = await insertNoteWithAutoSlug(tx, { scope: input.scope, folderId: input.folderId }, src.title, createHooks, { inTx: true });
 
   const mapping = new Map<string, string>();
@@ -136,5 +143,7 @@ export async function copyNoteInTx(tx: Tx, input: CopyNoteInput, hook?: GroupTes
   await tx.insert(noteStates).values({ noteId: created.id, ydoc: Buffer.from(Y.encodeStateAsUpdate(input.copy.doc)), version: 1 });
   // Same transaction: a failure rolls the index back with the copy. `SearchIndexSkip` can't happen (the note was created in this transaction); if it did, fail the copy rather than swallow it.
   await replaceNoteSearchIndexInTx(tx, { noteId: created.id, sourceVersion: 1, extract: input.searchExtract }, searchHooks);
+  await replaceNoteKnowledgeIndexInTx(tx, { noteId: created.id, sourceVersion: 1, extract: input.knowledgeExtract }, knowledgeHooks);
+  await copyNoteTagsInTx(tx, { sourceNoteId: src.id, targetNoteId: created.id, target: tagTarget, createdBy: input.userId });
   return { note: created, target };
 }

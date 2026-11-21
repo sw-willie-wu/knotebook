@@ -20,6 +20,7 @@ import { groupMatchesByNote, searchNotesForUser } from "../notes/search-query.js
 import type { NoteSearchRow, SearchMatchRow, SearchPageKey } from "../notes/search-sql.js";
 import { buildSnippet } from "../notes/search-snippet.js";
 import { UUID_RE } from "../notes/service.js";
+import { INVALID_SEARCH_TAGS_MESSAGE, resolveSearchTagFilter } from "../tags/search-filter.js";
 
 export const REST_SNIPPET_MAX = 160;
 export const REST_HEADING_MAX = 200;
@@ -43,13 +44,14 @@ const searchQuerySchema = z
       .optional(),
     match: z.enum(["all", "body"]).optional(),
     cursor: z.string().optional(),
+    tags: z.string().optional(),
   })
   .strict();
 
 type Match = "all" | "body";
 
-function fingerprintOf(match: Match, q: string): string {
-  return createHash("sha256").update(`${match}\0${q}`, "utf8").digest("hex").slice(0, 16);
+function fingerprintOf(match: Match, q: string, tagIds: readonly string[]): string {
+  return createHash("sha256").update(tagIds.length === 0 ? `${match}\0${q}` : `${match}\0${q}\0${[...tagIds].sort().join(",")}`, "utf8").digest("hex").slice(0, 16);
 }
 
 const RANK_RE = /^[0-3]$/;
@@ -96,16 +98,22 @@ export function searchRoutes(deps: SearchRouteDeps) {
       const { q } = parsed.data;
       const limit = parsed.data.limit ?? SEARCH_LIMIT_DEFAULT;
       const match: Match = parsed.data.match ?? "all";
-      const fp = fingerprintOf(match, q);
+      const userId = request.user!.id;
+      let tagIds: string[] = [];
+      if (parsed.data.tags !== undefined) {
+        const resolved = await resolveSearchTagFilter(deps.db, userId, parsed.data.tags);
+        if (resolved === null) return sendError(reply, 400, "invalid_tags", INVALID_SEARCH_TAGS_MESSAGE);
+        tagIds = resolved;
+      }
+      const fp = fingerprintOf(match, q, tagIds);
       let after: SearchPageKey | null = null;
       if (parsed.data.cursor !== undefined) {
         after = decodeSearchCursor(parsed.data.cursor, fp);
         if (after === null) return sendError(reply, 400, "invalid_body", INVALID_CURSOR);
       }
-      const userId = request.user!.id;
       if (!deps.limiters.search.consume(userId)) return sendError(reply, 429, "too_many_requests", RATE_LIMITED);
 
-      const { rows, matches } = await searchNotesForUser(deps.db, { userId, query: q, limit, bodyOnly: match === "body", page: { after } });
+      const { rows, matches } = await searchNotesForUser(deps.db, { userId, query: q, limit, bodyOnly: match === "body", tagIds, page: { after } });
       const page = rows.slice(0, limit);
       let nextCursor: string | null = null;
       if (rows.length > limit) {

@@ -2,9 +2,11 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
+import * as Y from "yjs";
 import { noteAiEdits, notes, noteVersions, transferBases } from "../src/db/schema.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
 import { EditorSession } from "../src/notes/editing/session.js";
+import { exportNoteBody, exportNoteForTransfer } from "../src/transfer/export-note.js";
 import { BASE_UNAVAILABLE_MESSAGES } from "../src/routes/transfer.js";
 import { BASE_WITHOUT_ID_MESSAGE } from "../src/transfer/frontmatter.js";
 import { loadNoteDoc } from "../src/notes/editing/read.js";
@@ -66,6 +68,35 @@ describe("repeated exports are byte-identical", () => {
   });
 });
 
+describe("a note with knowledge info reads the same on every path", () => {
+  it("exportNoteBody and exportNoteForTransfer give the same body for a note with knowledge info, and the download carries the comment", async () => {
+    const blocks = [
+      { type: "heading", props: { level: 2, knowledgeId: "k_8f3a2c1d", knowledgeWhen: "alice reads this", knowledgeEvidence: "tested" }, content: "D1" },
+      { type: "paragraph", content: "body" },
+    ];
+    const doc = new Y.Doc();
+    const session = await EditorSession.open(testEditingRuntime, doc);
+    try {
+      session.editor.replaceBlocks(session.editor.document, blocks as never);
+    } finally {
+      session.close();
+    }
+    const body = await exportNoteBody(testEditingRuntime, doc, new Map());
+    const transfer = await exportNoteForTransfer(testEditingRuntime, doc, new Map());
+    expect(transfer.body).toBe(body);
+    expect(body).toBe("## D1\n<!-- knotebook:knowledge\nid: k_8f3a2c1d\nwhen: alice reads this\nevidence: tested\n-->\n\nbody\n");
+
+    const ctx = await buildCollabTestApp();
+    const u = await seedUser(ctx.db);
+    const pat = await seedTokenForUser(ctx.db, u.id, "notes:read notes:write");
+    const bulk = await issueBulkDirect(ctx.db, pat.tokenId, { access: "write" });
+    const note = await seedNote(ctx.db, { ownerId: u.id }, { title: "Title" });
+    await seedBlocks(ctx.db, note.id, blocks);
+    const downloaded = await downloadNote(ctx.app, bulk.token, note.id);
+    expect(downloaded.body).toBe(body);
+  });
+});
+
 type Opts = Parameters<typeof buildCollabTestApp>[0];
 const CH = "# 第一章\n\n段落 A1\n\n## 1.1 小節\n\n段落 B1\n\n# 第二章\n\n段落 C1\n\n* 清單一\n* 清單二\n\n# 第三章\n\n段落 D1";
 async function scene(opts: Opts = {}, md = CH) {
@@ -84,7 +115,7 @@ const edits = (ctx: CollabTestCtx, noteId: string) => ctx.db.select().from(noteA
 const versions = (ctx: CollabTestCtx, noteId: string) => ctx.db.select().from(noteVersions).where(eq(noteVersions.noteId, noteId));
 const titleOf = async (ctx: CollabTestCtx, id: string) => (await ctx.db.select({ title: notes.title }).from(notes).where(eq(notes.id, id)))[0]!.title;
 const norm = (s: string) => s.replace(/\n+$/, "");
-const bodyOf = (text: string) => text.split("\n").slice(8).join("\n");
+const bodyOf = (text: string) => text.split("\n").slice(9).join("\n");
 
 async function mcpSectionEdit(s: Scene, heading: string, op: "replace_section" | "delete_section", markdown?: string) {
   const c = (await getContent(s.ctx.app, s.note.id, s.pat.token)).json() as { outline: Array<{ sectionId: string; heading: string; fingerprint: string }> };

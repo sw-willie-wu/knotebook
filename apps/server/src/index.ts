@@ -17,6 +17,7 @@ import { SCAN_STOP_GRACE_MS } from "./collab/versions.js";
 import { buildApp } from "./app.js";
 import { createAiRuntime, selfCheckAiKeys } from "./ai/runtime.js";
 import { backfillSearchIndex } from "./notes/search-index.js";
+import { startKnowledgeIndexSweep } from "./knowledge/index-write.js";
 import { logNotesOverCap, watchNotesOverCap } from "./notes/note-size-startup.js";
 import { redactDbError } from "./lib/redact-db-error.js";
 import { SiteLimits } from "./site-limits/store.js";
@@ -173,6 +174,7 @@ async function main(): Promise<void> {
   void backfillSearchIndex(db, logger, { signal: backfillAbort.signal }).catch((err: unknown) =>
     logger.error({ err }, "全文索引回填中止"),
   );
+  const knowledgeSweep = startKnowledgeIndexSweep(db, logger);
 
   app.linkConversion.start();
 
@@ -182,6 +184,7 @@ async function main(): Promise<void> {
   for (const sig of ["SIGTERM", "SIGINT"] as const) {
     process.once(sig, () => {
       backfillAbort.abort();
+      knowledgeSweep.stop();
       // Link conversion writes through direct Hocuspocus connections, so it must drain before collab.destroy().
       // The scan just stops; destroy flushes unsaved changes into pending and the scanner resumes after restart.
       // Bounded so a note stuck on a lock can't eat docker stop's grace period, which collab needs to flush.

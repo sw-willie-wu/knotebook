@@ -34,8 +34,8 @@ describe("source-level guard for hover-reveal and drag-handle classes", () => {
   it("BASE and SCOPE in reveal.ts are complete literals (no template concatenation)", () => {
     const source = readFileSync(`${root}/components/ui/reveal.ts`, "utf8").replace(/\r\n/g, "\n");
     const segment = between(source, "const BASE =", "\n};");
-    // proves the segment really spans all four scopes (the anchor has not drifted)
-    for (const scope of ["grouprow", "noterow", "folderrow", "avatarcell"]) {
+    // proves the segment really spans all five scopes (the anchor has not drifted)
+    for (const scope of ["grouprow", "noterow", "folderrow", "avatarcell", "tabheader"]) {
       expect(segment).toContain(`group-hover/${scope}:opacity-100`);
     }
     expect(segment).toContain("data-[state=open]:opacity-100");

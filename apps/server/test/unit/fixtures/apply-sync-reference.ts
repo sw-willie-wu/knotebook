@@ -1,5 +1,5 @@
 import * as Y from "yjs";
-import { keptIdRenames } from "../../../src/notes/editing/block-align.js";
+import { keptIdRenames } from "@knotebook/shared";
 import type { EditingRuntime } from "../../../src/notes/editing/runtime.js";
 import { EditorSession, renameBlocksInDoc } from "../../../src/notes/editing/session.js";
 import { chainKeyOf, type Anchor } from "../../../src/transfer/decide.js";

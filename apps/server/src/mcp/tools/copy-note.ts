@@ -124,6 +124,7 @@ export async function copyNoteTool(args: CopyNoteArgs, ctx: McpToolCtx): Promise
       db: ctx.db, collab: ctx.collab, log: ctx.log, uploadsDir: ctx.uploadsDir, storageLockTimeoutMs: ctx.storageLockTimeoutMs,
       limiters: { edit: ctx.limiters.edit, upload: ctx.limiters.upload }, noteMaxBytes: ctx.writes.noteMaxBytes,
       groupTestHook: ctx.groupTestHook, noteCreateHooks: ctx.noteCreateHooks, searchIndexHooks: ctx.searchIndexHooks,
+      knowledgeIndexHooks: ctx.knowledgeIndexHooks,
     },
     {
       sourceId: args.note_id,

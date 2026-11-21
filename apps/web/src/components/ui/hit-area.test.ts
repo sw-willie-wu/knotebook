@@ -39,7 +39,8 @@ describe("hit area of icon buttons inside input fields", () => {
   it("the search box's clear button uses it; on touch the right padding shrinks to pr-10 (hit area's left edge at 38px, text ending at 41px) and the Ctrl K hint is hidden", () => {
     expect(count("components/AppShell.tsx", "FIELD_ICON_HIT")).toBe(2);
     const shell = code("components/AppShell.tsx");
-    expect(shell).toContain("pr-11 pointer-coarse:pr-10");
+    // The padding lives with the input, which is `TagSearchInput` now.
+    expect(code("components/sidebar/TagSearchInput.tsx")).toContain("pr-11 pointer-coarse:pr-10");
     expect(shell).toMatch(/<kbd[\s\S]*?pointer-coarse:hidden[\s\S]*?<\/kbd>/);
   });
 });
@@ -131,7 +132,9 @@ describe("how many times sidebar 24px icon buttons apply ROW_ICON_HIT", () => {
     ["components/NoteMenu.tsx", 1],
     ["components/RowFavoriteStar.tsx", 1],
     ["components/sidebar/FolderMenu.tsx", 1],
+    ["components/sidebar/IndexButton.tsx", 1],
     ["components/groups/GroupMenu.tsx", 1],
+    ["components/tags/TagFilterMenu.tsx", 1],
     ["components/sidebar/TrashPanel.tsx", 5],
     ["components/sidebar/SelectHeader.tsx", 1],
   ];

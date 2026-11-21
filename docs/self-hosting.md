@@ -556,6 +556,25 @@ then start that build. Steps 2 and 3 are for the bundled database; with your own
 2. **Building the index takes a moment on a large site.** While it is built, the server hasn't started yet, and writes to the search index wait: roughly a minute per million sections of note text (a few seconds for a few thousand notes).
 3. **Rolling back:** the previous version doesn't use the index or the extension; both stay, and PostgreSQL still keeps the index up to date on writes to the search index even though nothing reads it. After upgrading again, searches use the index again.
 
+**Tags (migration 0043).**
+
+1. **Migration 0043 only adds two tables**, `tags` (each space's list of tags: name, colour) and `note_tags` (which note carries which tag). It fills nothing in and changes no existing row; a tag is deleted with its group or with its owner's account, and a note's tags with the note when it is deleted for good. Back up the database first as usual.
+2. **Rolling back:** the previous version doesn't read the two tables, so tags are not shown there; the tables stay, and after upgrading again the tags come back. Two things can differ for the time spent on the previous version: a note moved or copied to another space then doesn't get the matching tags of that space, so after upgrading again it shows no tags; and deleting a group and handing its notes to an admin removes the group's tags with the group, so those notes lose their tags for good.
+
+**Bulk transfer bases (migration 0044).**
+
+1. **Migration 0044 only adds two nullable columns** to `transfer_bases` (`tags_sha` and `applied_tags_sha`), which hold a hash of the tags in each downloaded copy of a note. It changes no existing value. Back up the database first as usual.
+2. **Rolling back:** the previous version doesn't read the two columns, so they stay. A copy downloaded while the previous version ran has no tags hash; after upgrading again, such a copy is compared with the note's tags as they are when it is sent back. A copy downloaded before the upgrade is treated the same way.
+
+**Knowledge index (migration 0045).** The migration only adds two tables, `note_knowledge` and `note_knowledge_state`, and changes no existing row; back up as usual before upgrading. The first start after upgrading builds the index for existing notes in the background, after the server is already answering requests; the `app` log shows `knowledge index backfill started` and `knowledge index backfill finished`. Rolling back is harmless: an older server ignores the two tables, and after you upgrade again the background run redoes the notes that were edited while the older server ran.
+
+**Upgrading to v0.18 (faster search, tags, knowledge info and its index).**
+
+1. **Back up the database first.** Migrations 0042–0045 run automatically when the new server starts; they add an extension, an index, tables and two nullable columns and change no existing value (see **Faster search**, **Tags**, **Bulk transfer bases** and **Knowledge index** above). On your own PostgreSQL, check [The pg_trgm extension](#the-pg_trgm-extension) first.
+2. **Reload open tabs.** A note open in a tab shows **Reload required** until the tab is reloaded; changes in that tab that hadn't synced are lost.
+3. **Scripts that read or write notes:** a heading with knowledge info is followed by a `<!-- knotebook:knowledge … -->` comment, and every downloaded file has a `tags:` line ([AI editing](ai-editing.md#knowledge-info)).
+4. **Rolling back** to v0.17.1: the new tables, columns, extension and index stay and v0.17 doesn't read them (read the rolling-back items above). Knowledge info isn't shown there, and a heading changed there (typing in it, moving it, changing its level or color) loses it; headings left alone keep it.
+
 **Upgrading to v0.16 (server-side sessions, site limits, favorites, profile pictures).**
 
 1. **Back up the database and the `uploads` volume first.** Migrations 0038–0041 run automatically when the new server starts. They only add tables and columns and change no existing value (see **Server-side sessions**, **Site limits**, **Favorites** and **Profile pictures** above), but take a dump before you start the new version anyway, for example `docker compose exec -T db pg_dump -U knotebook knotebook > knotebook-before-upgrade.sql` (with your own PostgreSQL, run `pg_dump` against it directly — see [Using your own PostgreSQL](#using-your-own-postgresql)). Coming from v0.14 or earlier, read the sections for the versions in between as well.

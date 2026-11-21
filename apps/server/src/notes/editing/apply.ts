@@ -1,7 +1,7 @@
 import { and, desc, eq, notInArray } from "drizzle-orm";
 import type { Block, PartialBlock } from "@blocknote/core";
 import * as Y from "yjs";
-import { AI_EDITS_RETENTION, YDOC_FRAGMENT, topLevelBlocks, type EditOp, type NoteOutlineEntry } from "@knotebook/shared";
+import { AI_EDITS_RETENTION, YDOC_FRAGMENT, topLevelBlocks, type EditOp, type KnowledgeProblem, type NoteOutlineEntry } from "@knotebook/shared";
 import type { CollabServer } from "../../collab/server.js";
 import type { VersionService } from "../../collab/versions.js";
 import { docClock } from "../../collab/store.js";
@@ -14,6 +14,7 @@ import type { VisibleNoteTarget } from "./candidates.js";
 import { checkExpectations, fingerprintForIds, fingerprintsOfGroups, outlineOf, type OutlineEntry } from "./fingerprint.js";
 import { siteOriginOf, type ParseDetail, type ParseError } from "./markdown.js";
 import { DOC_TOO_COMPLEX, editOnFork, stateEquals, type DocPost } from "./doc-jobs.js";
+import { isEmptyKnowledgeReport, type KnowledgeWriteReport } from "./knowledge-write.js";
 import type { LiveWatch } from "./live-watch.js";
 import { ParserBusyError, type ParseOutcome } from "./parse-core.js";
 import { loadNoteDoc, loadNoteState } from "./read.js";
@@ -32,6 +33,12 @@ export interface EditingTestHooks {
   afterOpenDirect?: () => Promise<void>;
   beforeVersionBase?: () => Promise<void>;
   beforeCreateFromFile?: () => Promise<void>;
+  /** File write-back, after the body and title are written and before the tags transaction opens. */
+  beforeTags?: () => Promise<void>;
+  /** Inside the tags transaction, after the group and note locks and before the tags are re-read. */
+  afterTagsLock?: () => Promise<void>;
+  /** Inside the tags transaction, after the tags are written and before it commits. */
+  afterTagsWrite?: () => Promise<void>;
 }
 export interface ApplyDeps {
   db: Db;
@@ -55,6 +62,8 @@ export interface ApplyInput {
   noteId: string; userId: string; tokenId: string | null; agentLabel: string | null; op: EditOp;
   sectionId?: string; markdown?: string; ifMatch?: string; candidates: readonly VisibleNoteTarget[];
   blocks?: AnyPartialBlock[]; unbound?: number;
+  /** With `blocks` (the create path, parsed earlier): how many knowledge comments the parse ignored. */
+  ignoredKnowledgeComments?: number;
   contentLength?: number;
   /** #398: parsed outside the per-note queue so a slow parse doesn't hold it; errors still come after the section/fingerprint checks. */
   preparsed?: ParseOutcome;
@@ -66,8 +75,10 @@ export type ApplyResult =
       afterBlockIds: string[];
       /** #108: index in the post-write outline (`edit_note` uses it to pick the page containing the landing point); null for `delete_section`. No REST consumer; kept because it can only be computed in `mergeDiff`, before `stripIds` drops blockIds. */
       afterSectionIndex: number | null;
+      /** Only when the write did something to knowledge info. */
+      knowledge?: KnowledgeWriteReport;
     }
-  | { ok: false; code: "section_not_found" | "fingerprint_mismatch" | ParseError | "empty_section" | "too_complex"; detail?: ParseDetail };
+  | { ok: false; code: "section_not_found" | "fingerprint_mismatch" | ParseError | "empty_section" | "too_complex"; detail?: ParseDetail; knowledge?: KnowledgeProblem };
 
 export const RETENTION = AI_EDITS_RETENTION;
 export class FingerprintMismatch extends Error {}
@@ -218,20 +229,21 @@ export async function forkAndCheck(deps: ApplyDeps, noteId: string): Promise<For
 async function prepareBlocks(
   deps: ApplyDeps,
   input: ApplyInput
-): Promise<{ blocks: AnyPartialBlock[]; unbound: number; written?: ShownLinks } | { error: ParseError; detail?: ParseDetail }> {
-  if (input.op === "delete_section") return { blocks: [], unbound: 0 };
+): Promise<{ blocks: AnyPartialBlock[]; unbound: number; ignoredKnowledgeComments: number; written?: ShownLinks } | { error: ParseError; detail?: ParseDetail; knowledge?: KnowledgeProblem }> {
+  if (input.op === "delete_section") return { blocks: [], unbound: 0, ignoredKnowledgeComments: 0 };
   // Create path: `content` was already parsed; don't parse again. No test fails if this reparses (equivalent behaviour).
-  if (input.blocks !== undefined) return { blocks: input.blocks, unbound: input.unbound ?? 0 };
+  if (input.blocks !== undefined) return { blocks: input.blocks, unbound: input.unbound ?? 0, ignoredKnowledgeComments: input.ignoredKnowledgeComments ?? 0 };
   // Parse before opening the editor so no lease is held while waiting on the worker. A parse failure opens and writes nothing.
   const parsed = input.preparsed ?? (await deps.editing.parser.parse({ owner: input.userId, markdown: input.markdown ?? "", candidates: input.candidates, siteOrigin: siteOriginOf(deps.editing.baseUrl) }));
-  if ("error" in parsed) return { error: parsed.error, ...(parsed.detail ? { detail: parsed.detail } : {}) };
+  if ("error" in parsed) return { error: parsed.error, ...(parsed.detail ? { detail: parsed.detail } : {}), ...(parsed.knowledge ? { knowledge: parsed.knowledge } : {}) };
   // #387: keep link texts the writer read as having no custom text, even if the target was renamed since.
   const [kept, cleared] = deps.shownLinks ? deps.shownLinks.keepLabelFree(parsed.blocks, input.userId, input.candidates) : [parsed.blocks, []];
-  if (!deps.shownLinks) return { blocks: kept, unbound: parsed.unbound };
+  const ignoredKnowledgeComments = parsed.ignoredKnowledgeComments;
+  if (!deps.shownLinks) return { blocks: kept, unbound: parsed.unbound, ignoredKnowledgeComments };
   // Written links are recorded for the writer too (agents write them back as-is using the reply's fingerprint), only after a successful merge. Cleared original texts are recorded too: the stored snapshotTitle is now the current title, so their expiry wouldn't be extended otherwise.
   const written = shownLinkTextsOf(kept, new Map());
   written.free.push(...cleared);
-  return { blocks: kept, unbound: parsed.unbound, written };
+  return { blocks: kept, unbound: parsed.unbound, ignoredKnowledgeComments, written };
 }
 
 /**
@@ -243,7 +255,7 @@ export async function prepareEdit(
   fork: Y.Doc,
   sv: Uint8Array,
   plan: { op: EditOp; isEmptyDoc: boolean; section: OutlineEntry | undefined }
-): Promise<{ diff: Uint8Array; beforeBlocks: AnyBlock[]; afterIds: string[]; anchor: Anchor | null; unbound: number; written?: ShownLinks } | { error: ParseError; detail?: ParseDetail }> {
+): Promise<{ diff: Uint8Array; beforeBlocks: AnyBlock[]; afterIds: string[]; anchor: Anchor | null; unbound: number; written?: ShownLinks } | { error: ParseError; detail?: ParseDetail; knowledge?: KnowledgeProblem }> {
   const { op, isEmptyDoc, section } = plan;
   const b = await prepareBlocks(deps, input);
   if ("error" in b) return b;
@@ -254,7 +266,7 @@ export async function prepareEdit(
 
 export async function applyEdit(deps: ApplyDeps, input: ApplyInput): Promise<ApplyResult> {
   const b = await prepareBlocks(deps, input);
-  const parseError = "error" in b ? { error: b.error, ...(b.detail ? { detail: b.detail } : {}) } : undefined;
+  const parseError = "error" in b ? { error: b.error, ...(b.detail ? { detail: b.detail } : {}), ...(b.knowledge ? { knowledge: b.knowledge } : {}) } : undefined;
   const blocks = "error" in b ? undefined : b.blocks;
   for (let attempt = 0; attempt < DOC_MERGE_ATTEMPTS; attempt++) {
     const { state, watch } = await loadNoteState(deps, input.noteId, { watch: true });
@@ -264,7 +276,7 @@ export async function applyEdit(deps: ApplyDeps, input: ApplyInput): Promise<App
       const out = await deps.editing.runDoc(
         input.userId,
         {
-          kind: "edit", state, op: input.op,
+          kind: "edit", state, op: input.op, noteId: input.noteId,
           ...(input.sectionId !== undefined ? { sectionId: input.sectionId } : {}),
           ...(input.ifMatch !== undefined ? { ifMatch: input.ifMatch } : {}),
           ...(blocks !== undefined && input.op !== "delete_section" ? { blocks } : {}),
@@ -288,6 +300,7 @@ export async function applyEdit(deps: ApplyDeps, input: ApplyInput): Promise<App
     }
     const { beforeBlocks, afterIds, anchor } = r;
     const unbound = "error" in b ? 0 : b.unbound;
+    const knowledge: KnowledgeWriteReport = { ...r.knowledge, ignoredComments: "error" in b ? 0 : b.ignoredKnowledgeComments };
     if (!("error" in b) && b.written) deps.shownLinks?.record(input.userId, b.written);
     if (deps.testHooks?.beforeRecord) await deps.testHooks.beforeRecord();
     const editId = await insertEditRecord(deps.db, {
@@ -298,7 +311,7 @@ export async function applyEdit(deps: ApplyDeps, input: ApplyInput): Promise<App
     if (deps.testHooks?.afterRecord) await deps.testHooks.afterRecord();
     await updateNoteLinks(deps, { sourceNoteId: input.noteId, userId: input.userId, targets: r.post.linkTargets, clock: merged.clock });
     // Use the worker's raw `afterIds`, not `recordableAfter`'s (which empties them in the degenerate case).
-    return { ok: true, editId, fingerprint: merged.fingerprint, outline: merged.outline, unboundWikilinks: unbound, afterBlockIds: afterIds, afterSectionIndex: merged.afterSectionIndex };
+    return { ok: true, editId, fingerprint: merged.fingerprint, outline: merged.outline, unboundWikilinks: unbound, afterBlockIds: afterIds, afterSectionIndex: merged.afterSectionIndex, ...(isEmptyKnowledgeReport(knowledge) ? {} : { knowledge }) };
   }
   throw new ParserBusyError();
 }

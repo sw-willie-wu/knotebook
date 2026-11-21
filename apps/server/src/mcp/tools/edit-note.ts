@@ -19,6 +19,8 @@ import { noteTooLargeMessage } from "../../notes/note-size.js";
 import { renameNoteTitle } from "../../notes/rename-note.js";
 import { editBodySchema, FP, MD, NOTE_ID, SEC, TITLE } from "../../notes/schemas.js";
 import { resolveNoteAccess, resolveRole } from "../../notes/service.js";
+import { KNOWLEDGE_OUTPUT_DESCRIBE, knowledgeForModel, knowledgeOutputSchema } from "../knowledge-output.js";
+import { EDIT_TAG_SENTENCE, WRITE_KNOWLEDGE_SENTENCE } from "../knowledge-strings.js";
 import { MCP_PAGE_MAX, MCP_TEXT_MAX, truncateText } from "../limits.js";
 import { WRITE_NOTE_LINK_SENTENCE } from "../note-link-strings.js";
 import { NOTE_NOT_FOUND_MESSAGE, SECTION_NOT_FOUND_MESSAGE, readOutlineForTool } from "../note-read.js";
@@ -68,7 +70,8 @@ export const editNoteInput = {
       // `\<` is a literal `<` (a patch to the BlockNote parser); in code and HTML blocks a backslash is not an escape.
       "HTML in the markdown is read as HTML; to keep a `<` that would start a tag or comment as text, write `\\<` " +
       "(as read_note_section returns it), except inside code or a block written as HTML. " +
-      WRITE_NOTE_LINK_SENTENCE
+      WRITE_NOTE_LINK_SENTENCE +
+      ` ${WRITE_KNOWLEDGE_SENTENCE} ${EDIT_TAG_SENTENCE}`
   ),
   // Rename needs it too, so the failure clause doesn't say "the note changed": title and body fingerprints don't cover each other.
   if_match: FP.optional().describe(
@@ -131,6 +134,7 @@ export const editNoteOutput = {
       "How many `[[wikilinks]]` in what you wrote were left as plain text because no note you can see has that " +
         "exact title, or more than one does."
     ),
+  knowledge: knowledgeOutputSchema.optional().describe(KNOWLEDGE_OUTPUT_DESCRIBE),
   // Optional so a successful rename (title/url only) passes the SDK's `validateToolOutput`; the five content ops still return all four.
   title: z.string().max(MCP_TEXT_MAX).optional().describe("After a rename, the note's new title."),
   titleTruncated: z.literal(true).optional(),
@@ -227,7 +231,7 @@ export async function editNote(args: EditNoteArgs, ctx: McpToolCtx): Promise<Cal
     if (out.code === "section_not_found") return toolError("section_not_found", SECTION_NOT_FOUND_MESSAGE);
     // The note itself is too large or complex: retrying won't help.
     if (out.code === "too_complex") return toolError("too_complex", NOTE_WRITE_TOO_COMPLEX_TOOL_MESSAGE);
-    return toolError(out.code, writeFailureMessage(out.code, out.detail));
+    return toolError(out.code, writeFailureMessage(out.code, out.detail, out.knowledge));
   }
 
   const sectionOffset = SECTION_SCOPED.has(args.op) ? (out.result.afterSectionIndex ?? 0) : 0;
@@ -238,6 +242,7 @@ export async function editNote(args: EditNoteArgs, ctx: McpToolCtx): Promise<Cal
     // No `nextSectionOffset`: no tool accepts that cursor here.
     outline: { sections: page.sections, truncated: page.truncated },
     unboundWikilinks: out.result.unboundWikilinks,
+    ...(out.result.knowledge ? { knowledge: knowledgeForModel(out.result.knowledge) } : {}),
   });
 }
 

@@ -9,7 +9,17 @@
 import type { Block } from "@blocknote/core";
 import * as Y from "yjs";
 import type { noteAiEdits } from "../db/schema.js";
-import { keptIdRenames } from "../notes/editing/block-align.js";
+import {
+  YDOC_FRAGMENT,
+  keptIdRenames,
+  knowledgeRefsIn,
+  knowledgeWriteProblem,
+  normalizeKnowledgeRefs,
+  resolveKnowledgeForWrite,
+  type KnowledgeBlockShape,
+  type KnowledgeInfo,
+} from "@knotebook/shared";
+import { KnowledgeWriteError, createdKnowledge, knowledgeIdsByBlock, mergeKnowledgeReports, type KnowledgeEditReport } from "../notes/editing/knowledge-write.js";
 import type { EditingRuntime } from "../notes/editing/runtime.js";
 import { pickBlocks, topLevelBlocksById, withForkEditor } from "../notes/editing/session.js";
 import { chainKeyOf, type Anchor } from "./decide.js";
@@ -22,6 +32,7 @@ export type AnyBlock = Block<any, any, any>;
 export interface Applied {
   diff: Uint8Array;
   perRegion: Array<{ beforeBlocks: AnyBlock[]; afterIds: string[]; anchor: Anchor | null }>;
+  knowledge: KnowledgeEditReport;
 }
 
 /** `same` regions aren't recorded. Delete rows carry `anchor` and `after_block_ids: []`, others `anchor: null` (the file_sync branch of `note_ai_edits_anchor_chk`). `recordable` degenerate form (`after_block_ids: []`, null fingerprint) would hit `anchor_chk` for a non-delete row; unreachable in theory (see `recordableAfter`). */
@@ -65,12 +76,14 @@ export async function applySync(
   plan: SyncPlan,
   cur: { ids: string[] },
   // `normalizedId`: the base had 0 blocks and the current doc is one empty paragraph; replaced once, like the `cur.ids.length === 0` case.
-  opts: { yieldFn?: () => Promise<void>; now?: () => number; normalizedId?: string } = {},
+  opts: { yieldFn?: () => Promise<void>; now?: () => number; normalizedId?: string; knowledge?: { current: ReadonlyMap<string, KnowledgeInfo>; noteId: string } } = {},
 ): Promise<Applied> {
   const yieldFn = opts.yieldFn ?? yieldToLoop;
   const now = opts.now ?? (() => performance.now());
   const { regions, decisions, parsed } = plan;
   const perRegion: Applied["perRegion"] = regions.map(() => ({ beforeBlocks: [], afterIds: [], anchor: null }));
+  const reports: KnowledgeEditReport[] = [];
+  const removedCandidates: AnyBlock[] = [];
 
   // The fork mount can't be split; without this yield it would extend the tail of planning into a longer stall.
   await yieldFn();
@@ -85,6 +98,7 @@ export async function applySync(
     };
     // Survivors are unchanged base blocks and inserting other regions doesn't alter them, so one pass serves every region.
     const byId = topLevelBlocksById(ed);
+    const taken = new Set(opts.knowledge?.current.keys());
 
     // Throws before diffSince/merge, so nothing is written (never content merged and then a CHECK failing).
     const assertTopLevel = () => {
@@ -102,7 +116,18 @@ export async function applySync(
     for (let ri = 0; ri < regions.length; ri++) {
       const d = decisions[ri]!;
       if (d.mark === "same" || d.kind === "delete") continue;
-      const blocks = parsed[ri]!;
+      let blocks = parsed[ri]!;
+      const k = opts.knowledge;
+      if (k !== undefined) {
+        // A comment without an id takes the id of the heading it rewrites; headings written without a comment are never given knowledge.
+        const old = d.kind === "rewrite" ? (pickBlocks(byId, d.survivors) as unknown as readonly KnowledgeBlockShape[]) : [];
+        const r = resolveKnowledgeForWrite({ before: old, after: normalizeKnowledgeRefs(blocks as unknown as readonly KnowledgeBlockShape[], k.noteId), keep: false, taken });
+        const problem = knowledgeWriteProblem(r.blocks, k.current, k.noteId);
+        if (problem !== null) throw new KnowledgeWriteError(problem);
+        for (const ref of [...r.created, ...r.renewed]) taken.add(ref.id);
+        blocks = r.blocks as unknown as typeof blocks;
+        reports.push({ kept: r.kept, created: r.created, removed: [], renewed: r.renewed });
+      }
       const p = d.place;
       let inserted: AnyBlock[];
       const key = chainKeyOf(p);
@@ -121,6 +146,7 @@ export async function applySync(
       perRegion[ri]!.afterIds = inserted.map(b => b.id);
       if (d.kind === "rewrite" && d.survivors.length > 0) {
         perRegion[ri]!.beforeBlocks = pickBlocks(byId, d.survivors);
+        removedCandidates.push(...perRegion[ri]!.beforeBlocks);
         edits.rename(keptIdRenames(perRegion[ri]!.beforeBlocks, inserted));
         edits.remove(d.survivors);
       }
@@ -137,6 +163,7 @@ export async function applySync(
       const d = decisions[ri]!;
       if (d.kind !== "delete" || d.mark === "same") continue;
       perRegion[ri]!.beforeBlocks = pickBlocks(byId, d.survivors);
+      removedCandidates.push(...perRegion[ri]!.beforeBlocks);
       let anchor: Anchor | null = typeof d.anchor === "object" ? d.anchor : null;
       if (d.anchor === "deferred") {
         topIds ??= ed.document.map(b => b.id);
@@ -173,5 +200,14 @@ export async function applySync(
       if (pr.anchor !== null) pr.anchor = { ...pr.anchor, block_id: w.renamed.get(pr.anchor.block_id) ?? pr.anchor.block_id };
     }
   }
-  return { diff: w.diff, perRegion };
+  const knowledge = mergeKnowledgeReports(reports.map(r => ({ ...r, ignoredComments: 0 })));
+  if (opts.knowledge !== undefined) {
+    const surviving = new Set(knowledgeIdsByBlock(fork.getXmlFragment(YDOC_FRAGMENT)).values());
+    knowledge.removed = knowledgeRefsIn(removedCandidates as unknown as readonly KnowledgeBlockShape[]).filter(r => !surviving.has(r.id));
+    const renewedIds = new Set(knowledge.renewed.map(r => r.id));
+    knowledge.renewed = [...knowledge.renewed, ...w.renewed.filter(x => !renewedIds.has(x.id))];
+    knowledge.created = createdKnowledge(fork.getXmlFragment(YDOC_FRAGMENT), w.knowledgeBefore, knowledge.renewed);
+  }
+  const { ignoredComments: _ignored, ...edit } = knowledge;
+  return { diff: w.diff, perRegion, knowledge: edit };
 }

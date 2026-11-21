@@ -142,7 +142,7 @@ describe("content merged after the guard lets through", () => {
     const o = await rt.runDoc("u", { kind: "outline", state: st });
     if (o === "too_complex") throw new Error("outline");
     const b = o.outline.find(x => x.heading === "B")!;
-    const r = await rt.runDoc("u", { kind: "edit", state: new Uint8Array(st), op: "replace_section", sectionId: b.sectionId, ifMatch: b.fingerprint, blocks: blocks as never });
+    const r = await rt.runDoc("u", { kind: "edit", noteId: "00000000-0000-4000-8000-000000000000", state: new Uint8Array(st), op: "replace_section", sectionId: b.sectionId, ifMatch: b.fingerprint, blocks: blocks as never });
     if (r === "too_complex" || !r.ok) throw new Error("edit");
     await browser(live, user);
     const conflict = watch.conflicts(r.post.guard);

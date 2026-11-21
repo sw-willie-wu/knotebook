@@ -14,7 +14,7 @@ vi.mock("../../src/transfer/yield.js", async importOriginal => {
 const KEY = deriveTransferKey("line-diff-test-secret");
 const SALT = newSalt();
 const base = (lines: string[], kinds: number[] = lines.map(() => 0)) => {
-  const h = baseHashes(KEY, SALT, { body: lines.join("\n"), title: "t", lines, kinds });
+  const h = baseHashes(KEY, SALT, { body: lines.join("\n"), title: "t", tags: [], lines, kinds });
   return { hashes: h.lineHashes, kinds: h.lineKinds };
 };
 const agent = (lines: string[]) => hashAgentLines(KEY, SALT, lines);
@@ -47,7 +47,7 @@ describe("hashAgentLines agrees with baseHashes", () => {
   it("same body, same salt: for kind 0 lines the raw hash = the base's 8 bytes; for kind 1 lines the num hash = the base's 8 bytes", async () => {
     const lines = ["# H", "", "1. a", "2. b  ", "```", "1. code", "```", "tail\u00a0"];
     const kinds = [0, 0, 1, 1, 0, 0, 0, 0];
-    const h = baseHashes(KEY, SALT, { body: lines.join("\n"), title: "t", lines, kinds });
+    const h = baseHashes(KEY, SALT, { body: lines.join("\n"), title: "t", tags: [], lines, kinds });
     const a = await agent(lines);
     for (let i = 0; i < lines.length; i++) {
       const want = h.lineHashes.toString("latin1", i * LINE_HASH_BYTES, (i + 1) * LINE_HASH_BYTES);

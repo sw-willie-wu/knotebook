@@ -32,6 +32,7 @@ import { seedUpload } from "./copy-helpers.js";
 import { cookieOf, seedGroup } from "./group-helpers.js";
 import { seedFolder, seedFolderChain, seedManyNotesInFolder, setNoteFolder } from "./folder-helpers.js";
 import { wireCost } from "../src/mcp/wire-budget.js";
+import { knowledgeForModel } from "../src/mcp/knowledge-output.js";
 import { markTrashed } from "./trash-helpers.js";
 import type { Db } from "../src/db/index.js";
 import type { FastifyInstance } from "fastify";
@@ -376,13 +377,23 @@ describe("#108 single response size", () => {
     // so hitting the first section would measure the same shape as `read_note_outline`'s first page and miss "the page rule yields a whole page for any landing point".
     // This call is **last** in the `it` because it really writes and must not pollute the earlier measurements.
     const target = await sectionAt(ctx.app, o.token, note.id, 250);
-    await callWire(ctx.app, rwToken, "(ii) edit_note replace_section@250", "edit_note", {
+    const editWire = await callWire(ctx.app, rwToken, "(ii) edit_note replace_section@250", "edit_note", {
       note_id: note.id,
       op: "replace_section",
       section_id: target.sectionId,
       markdown: `# 0250-edited${"h".repeat(986)}`,
       if_match: target.fingerprint,
     });
+    // The same full outline page next to the worst `knowledge`: all four lists cut by their budget, every id and heading made of `"` (the most expensive character once mirrored).
+    // Ids come from collab state, so their length has no limit of its own.
+    const worst = (n: number) => Array.from({ length: MCP_PAGE_MAX }, (_, i) => ({ id: `k_${String(i).padStart(8, "0")}${'"'.repeat(n)}`, heading: '"'.repeat(200) }));
+    for (const idLength of [0, 300, 3000]) {
+      const knowledge = knowledgeForModel({ kept: worst(idLength), created: worst(idLength), removed: worst(idLength), renewed: worst(idLength).map(r => ({ ...r, from: `k_00000000${'"'.repeat(idLength)}` })), ignoredComments: 1 });
+      expect(knowledge.truncated).toBe(true);
+      const total = editWire + wireCost(knowledge);
+      console.log(`[knowledge] idLength=${idLength} knowledge wire=${wireCost(knowledge)} total=${total}`);
+      expect(total).toBeLessThanOrEqual(MCP_LIST_WIRE_BUDGET);
+    }
     client.disconnect();
   });
 
