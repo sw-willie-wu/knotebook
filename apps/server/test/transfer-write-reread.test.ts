@@ -115,7 +115,7 @@ const edits = (ctx: CollabTestCtx, noteId: string) => ctx.db.select().from(noteA
 const versions = (ctx: CollabTestCtx, noteId: string) => ctx.db.select().from(noteVersions).where(eq(noteVersions.noteId, noteId));
 const titleOf = async (ctx: CollabTestCtx, id: string) => (await ctx.db.select({ title: notes.title }).from(notes).where(eq(notes.id, id)))[0]!.title;
 const norm = (s: string) => s.replace(/\n+$/, "");
-const bodyOf = (text: string) => text.split("\n").slice(8).join("\n");
+const bodyOf = (text: string) => text.split("\n").slice(9).join("\n");
 
 async function mcpSectionEdit(s: Scene, heading: string, op: "replace_section" | "delete_section", markdown?: string) {
   const c = (await getContent(s.ctx.app, s.note.id, s.pat.token)).json() as { outline: Array<{ sectionId: string; heading: string; fingerprint: string }> };

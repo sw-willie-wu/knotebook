@@ -12,6 +12,7 @@ const row = (id: string, extra: Partial<RangeNoteRow> = {}): RangeNoteRow => ({
   groupId: null,
   slug: id,
   viewerFolderId: null,
+  tagNames: [],
   createdAt: T0,
   space: "personal",
   ...extra,

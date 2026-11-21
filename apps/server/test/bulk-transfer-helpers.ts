@@ -5,7 +5,9 @@ import { hashToken } from "../src/auth/api-token.js";
 import { BULK_TRANSFER_TTL_MINUTES, MAX_ACTIVE_BULK_TOKENS, generateTransferToken, type BulkAccess, type BulkRange } from "../src/auth/transfer-token.js";
 import { issueBulkTransferTokenInTx } from "../src/auth/tx/issue-bulk-transfer-token.js";
 import type { Db } from "../src/db/index.js";
-import { transferBases } from "../src/db/schema.js";
+import { eq } from "drizzle-orm";
+import { notes, transferBases } from "../src/db/schema.js";
+import { setNoteTagsByNamesInTx } from "../src/tags/tx/note-tags.js";
 import { EditorSession, directTarget, withDirectConnection } from "../src/notes/editing/session.js";
 import { loadNoteDoc, readNoteContentFromDoc } from "../src/notes/editing/read.js";
 import { YDOC_FRAGMENT, topLevelBlocks } from "@knotebook/shared";
@@ -104,10 +106,17 @@ export async function downloadNote(app: FastifyInstance, token: string, noteId: 
   return { text, fm, body };
 }
 
-/** Changes only the body (keeps the 8 frontmatter lines). */
+/** Changes only the body (keeps the frontmatter lines). */
 export function editBody(text: string, f: (body: string) => string): string {
   const lines = text.split("\n");
-  return [...lines.slice(0, 8), f(lines.slice(8).join("\n"))].join("\n");
+  const end = lines.indexOf("---", 1) + 1;
+  return [...lines.slice(0, end), f(lines.slice(end).join("\n"))].join("\n");
+}
+
+/** Sets the front matter's `tags` line to the given JSON array text; `undefined` takes the line out. */
+export function setTagsLine(text: string, json: string | undefined): string {
+  const t = text.replace(/^tags: .*\n/m, "");
+  return json === undefined ? t : t.replace(/^(title: .*\n)/m, `$1tags: ${json}\n`);
 }
 
 export function renameIn(text: string, title: string): string {
@@ -194,18 +203,19 @@ export function bulkDelete(app: FastifyInstance, token?: string) {
   return app.inject({ method: "DELETE", url: "/api/transfer/token", headers: token !== undefined ? { authorization: `Bearer ${token}` } : {} });
 }
 
-/** A downloaded file: the first 8 lines are frontmatter (two `---` plus six keys), then the body. */
+/** A downloaded file: the frontmatter (seven keys between two `---`), then the body. */
 export function parseNoteFile(text: string): { keys: string[]; fm: Record<string, string>; body: string } {
   const lines = text.split("\n");
-  if (lines[0] !== "---" || lines[7] !== "---") throw new Error("not an 8-line front matter");
+  const end = lines.indexOf("---", 1);
+  if (lines[0] !== "---" || end !== 8) throw new Error("not a 9-line front matter");
   const fm: Record<string, string> = {};
   const keys: string[] = [];
-  for (const l of lines.slice(1, 7)) {
+  for (const l of lines.slice(1, end)) {
     const i = l.indexOf(": ");
     keys.push(l.slice(0, i));
     fm[l.slice(0, i)] = l.slice(i + 2);
   }
-  return { keys, fm, body: lines.slice(8).join("\n") };
+  return { keys, fm, body: lines.slice(end + 1).join("\n") };
 }
 
 export async function basesOf(db: Db, where: { userId?: string; noteId?: string } = {}) {
@@ -248,4 +258,11 @@ export function gate(): { wait: Promise<void>; open: () => void } {
     open = r;
   });
   return { wait, open };
+}
+
+/** Tags a note through the production transaction, in the given order (creating missing tags in the note's own space). */
+export async function seedNoteTags(db: Db, noteId: string, names: readonly string[], createdBy: string): Promise<void> {
+  const [n] = await db.select({ ownerId: notes.ownerId, groupId: notes.groupId }).from(notes).where(eq(notes.id, noteId));
+  const out = await db.transaction(tx => setNoteTagsByNamesInTx(tx, { noteId, expected: { ownerId: n!.ownerId, groupId: n!.groupId }, names, createdBy }));
+  if (out.kind !== "ok") throw new Error(`seedNoteTags: ${out.kind}`);
 }

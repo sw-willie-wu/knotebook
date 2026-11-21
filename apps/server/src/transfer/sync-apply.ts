@@ -19,7 +19,7 @@ import {
   type KnowledgeBlockShape,
   type KnowledgeInfo,
 } from "@knotebook/shared";
-import { KnowledgeWriteError, knowledgeIdsByBlock, mergeKnowledgeReports, type KnowledgeEditReport } from "../notes/editing/knowledge-write.js";
+import { KnowledgeWriteError, createdKnowledge, knowledgeIdsByBlock, mergeKnowledgeReports, type KnowledgeEditReport } from "../notes/editing/knowledge-write.js";
 import type { EditingRuntime } from "../notes/editing/runtime.js";
 import { pickBlocks, topLevelBlocksById, withForkEditor } from "../notes/editing/session.js";
 import { chainKeyOf, type Anchor } from "./decide.js";
@@ -205,6 +205,7 @@ export async function applySync(
     const surviving = new Set(knowledgeIdsByBlock(fork.getXmlFragment(YDOC_FRAGMENT)).values());
     knowledge.removed = knowledgeRefsIn(removedCandidates as unknown as readonly KnowledgeBlockShape[]).filter(r => !surviving.has(r.id));
     knowledge.renewed = w.renewed;
+    knowledge.created = createdKnowledge(fork.getXmlFragment(YDOC_FRAGMENT), w.knowledgeBefore, w.renewed);
   }
   const { ignoredComments: _ignored, ...edit } = knowledge;
   return { diff: w.diff, perRegion, knowledge: edit };

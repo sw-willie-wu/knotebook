@@ -121,3 +121,13 @@ export function renewDuplicateKnowledgeIds(fork: Y.Doc, before: ReadonlyMap<stri
   const headings = new Map(listKnowledgeInFragment(fragment).map(e => [e.blockId, e.heading]));
   return renewals.map(r => ({ id: r.knowledgeId, heading: headings.get(r.blockId) ?? "", from: items[r.index]!.knowledgeId }));
 }
+
+/** Ids new to the whole note after a write, whether generated or written out in full; a renewed id is reported under `renewed` only. */
+export function createdKnowledge(fragment: Y.XmlFragment, before: ReadonlyMap<string, string>, renewed: readonly KnowledgeRenewal[]): KnowledgeHeadingRef[] {
+  const had = new Set(before.values());
+  const renewedIds = new Set(renewed.map(x => x.id));
+  const headings = new Map(listKnowledgeInFragment(fragment).map(e => [e.blockId, e.heading]));
+  const out: KnowledgeHeadingRef[] = [];
+  for (const [blockId, id] of knowledgeIdsByBlock(fragment)) if (!had.has(id) && !renewedIds.has(id)) out.push({ id, heading: headings.get(blockId) ?? "" });
+  return out;
+}

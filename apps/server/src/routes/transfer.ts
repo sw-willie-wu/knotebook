@@ -19,6 +19,8 @@ import { resolveNoteAccess } from "../notes/service.js";
 import type { ErrorCode, KnowledgeProblem } from "@knotebook/shared";
 import { knowledgeProblemMessage } from "../notes/editing/knowledge-messages.js";
 import { FOLDER_NOT_FOUND_MESSAGE } from "../folders/messages.js";
+import { INVALID_TAG_NAME_MESSAGE, NOTE_TAG_LIMIT_MESSAGE, SPACE_TAG_LIMIT_MESSAGE } from "../tags/messages.js";
+import { TAGS_PER_NOTE_MAX } from "@knotebook/shared";
 import type { BaseUnavailableReason, NoteWriteService, SyncFileOk } from "../notes/editing/write-service.js";
 import { fileShaOf, resolveCreateDest } from "../transfer/create-file.js";
 import { readNoteFile } from "../transfer/frontmatter.js";
@@ -82,6 +84,11 @@ export const BASE_UNAVAILABLE_MESSAGES: Record<BaseUnavailableReason, string> = 
   note_changed: "Can't write back with this copy: the note has changed (its title or text) since you downloaded it. Download this note again (the note command), redo your changes in the new copy and send that.",
   reverted: "Can't write back with this copy: the changes it wrote back have been reverted. Download the note again and make your changes there.",
 };
+export const TAGS_CHANGE_FORBIDDEN_MESSAGE =
+  "You can't change this note's tags: that needs edit rights in the note's own space, not through a share. Leave the tags line as it was downloaded, or take it out.";
+export const TAGS_CONFLICT_MESSAGE = "The note moved to another space while the file was being sent, so its tags were not changed. Fetch the note again.";
+export const NEW_NOTE_TAGS_FORBIDDEN_MESSAGE = "Your role in this group can't set a new note's tags: that needs edit rights in the group. Take the tags line out of the file, or leave it empty.";
+const tagLimitMessage = (limit: number): string => (limit === TAGS_PER_NOTE_MAX ? NOTE_TAG_LIMIT_MESSAGE : SPACE_TAG_LIMIT_MESSAGE);
 export const NOT_MERGEABLE_MESSAGE = "This note can't be written back from a file. Change it with edit_note instead.";
 
 export interface TransferRouteDeps {
@@ -280,9 +287,12 @@ export function transferRoutes(deps: TransferRouteDeps) {
           if (!dest.ok) return fail(dest.status, dest.code, dest.message);
           const out = await deps.writes.createFromFile(request.log, {
             userId, userHandle: request.user!.handle, tokenId: bt.parentTokenId, fileSha: fileShaOf(key, userId, normalizeBody(text)), keyId: fileDeps.keyId,
-            title: file.title, body: file.body, dest: { scope: dest.scope, folderId: dest.folderId }, limiters,
+            title: file.title, tags: file.tags, body: file.body, dest: { scope: dest.scope, folderId: dest.folderId }, limiters,
           });
           if (!out.ok) {
+            if (out.kind === "invalid_tag_name") return fail(400, "invalid_tag_name", INVALID_TAG_NAME_MESSAGE);
+            if (out.kind === "tag_limit_reached") return fail(409, "tag_limit_reached", tagLimitMessage(out.limit));
+            if (out.kind === "tags_forbidden") return fail(403, "forbidden", NEW_NOTE_TAGS_FORBIDDEN_MESSAGE);
             if (out.kind === "parse") return fail(400, out.code, transferParseMessage(out.code, out.detail, undefined, out.knowledge));
             if (out.kind === "parser_busy") return parserBusy();
             if (out.kind === "too_large") return tooLarge(out.limitBytes);
@@ -294,7 +304,7 @@ export function transferRoutes(deps: TransferRouteDeps) {
           noteId = out.noteId;
           logLine(out.created ? "created" : "unchanged");
           return out.created
-            ? reply.code(201).send({ id: out.noteId, created: true, result: "created", base: null, unboundWikilinks: out.unboundWikilinks })
+            ? reply.code(201).send({ id: out.noteId, created: true, result: "created", base: null, unboundWikilinks: out.unboundWikilinks, ...(out.knowledge ? { knowledge: out.knowledge } : {}) })
             : reply.code(200).send({ id: out.noteId, created: false, result: "unchanged", base: null });
         }
 
@@ -308,10 +318,14 @@ export function transferRoutes(deps: TransferRouteDeps) {
         if (row === undefined || !inRangeIds(rows, tree, bt.range).has(row.id)) return fail(403, "forbidden", NOT_IN_RANGE_MESSAGE);
         if (!access.permissions.edit) return fail(403, "forbidden", "You don't have edit access to this note.");
         const out = await deps.writes.syncFile(request.log, {
-          noteId: file.id, userId, userHandle: request.user!.handle, tokenId: bt.parentTokenId, access, baseKey: file.base, title: file.title,
+          noteId: file.id, userId, userHandle: request.user!.handle, tokenId: bt.parentTokenId, access, baseKey: file.base, title: file.title, tags: file.tags,
           body: file.body, key, keyId: fileDeps.keyId, limiters,
         });
         if (!out.ok) {
+          if (out.kind === "invalid_tag_name") return fail(400, "invalid_tag_name", INVALID_TAG_NAME_MESSAGE);
+          if (out.kind === "tag_limit_reached") return fail(409, "tag_limit_reached", tagLimitMessage(out.limit));
+          if (out.kind === "tags_forbidden") return fail(403, "forbidden", TAGS_CHANGE_FORBIDDEN_MESSAGE);
+          if (out.kind === "tags_conflict") return fail(409, "conflict", TAGS_CONFLICT_MESSAGE);
           if (out.kind === "base_unavailable") {
             logLine("base_unavailable");
             return reply.code(409).send({ error: { code: "base_unavailable", message: BASE_UNAVAILABLE_MESSAGES[out.reason], reason: out.reason } });
@@ -332,7 +346,8 @@ export function transferRoutes(deps: TransferRouteDeps) {
         logLine(out.result, out);
         return reply.code(200).send({
           id: file.id, created: false, result: out.result, applied: out.applied, same: out.same, editIds: out.editIds, renamed: out.renamed,
-          ...(out.renameFailed ? { renameFailed: out.renameFailed } : {}), unboundWikilinks: out.unboundWikilinks, base: null,
+          ...(out.renameFailed ? { renameFailed: out.renameFailed } : {}), tagsChanged: out.tagsChanged, ...(out.tagsFailed ? { tagsFailed: out.tagsFailed } : {}),
+          ...(out.knowledge ? { knowledge: out.knowledge } : {}), unboundWikilinks: out.unboundWikilinks, base: null,
         });
       } catch (err) {
         logLine("internal");

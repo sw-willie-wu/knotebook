@@ -12,9 +12,38 @@ describe("round trip: writeNoteFile -> readNoteFile returns it verbatim", () => 
   const titles = ['a"b', "back\\slash", "it's", "# hash", "key: value", "- dash", "emoji 😀 字", "two\nlines", "sep\u2028line", "  pad  "];
   it.each(titles.map(t => [JSON.stringify(t), t] as const))("title %s", (_l, title) => {
     const body = "# H\n\npara\n\n* a\n* b";
-    const text = writeNoteFile({ id: ID, title, role: "owner", base: BASE, url: "/n/x" }, body);
+    const text = writeNoteFile({ id: ID, title, role: "owner", base: BASE, url: "/n/x", tags: [] }, body);
     const r = readNoteFile(text);
-    expect(r).toEqual({ kind: "existing", id: ID, base: BASE, title, body: normalizeBody(body) });
+    expect(r).toEqual({ kind: "existing", id: ID, base: BASE, title, tags: [], body: normalizeBody(body) });
+  });
+  it("writeNoteFile puts tags right after title", () => {
+    const text = writeNoteFile({ id: ID, title: "T", role: "owner", base: BASE, url: "/n/x", tags: ["影像", 'a"b'] }, "body");
+    const lines = text.split("\n");
+    expect(lines[3]).toBe('title: "T"');
+    expect(lines[4]).toBe('tags: ["影像", "a\\"b"]');
+    expect(lines[5]).toBe("role: owner");
+    expect(readNoteFile(text)).toMatchObject({ kind: "existing", tags: ["影像", 'a"b'] });
+  });
+});
+
+describe("tags", () => {
+  const TAGS_MESSAGE = "The front matter's `tags` must be a JSON array of strings, like [\"a\", \"b\"].";
+  it("reads tags from existing and new files; no tags line is undefined", () => {
+    expect(readNoteFile(file([`id: ${ID}`, `base: ${BASE}`, 'tags: ["a", "B c"]']))).toMatchObject({ kind: "existing", tags: ["a", "B c"] });
+    expect(readNoteFile(file(["knotebook: 1", "tags: []"]))).toMatchObject({ kind: "new", tags: [] });
+    expect(readNoteFile(file(["knotebook: 1", 'tags: ["x"]']))).toMatchObject({ kind: "new", tags: ["x"] });
+    expect(readNoteFile(file([`id: ${ID}`, `base: ${BASE}`]))).toMatchObject({ kind: "existing", tags: undefined });
+    expect(readNoteFile(file(["knotebook: 1"]))).toMatchObject({ kind: "new", tags: undefined });
+  });
+  it("tags twice is an error", () => {
+    expect(errOf(readNoteFile(file([`id: ${ID}`, 'tags: ["a"]', 'tags: ["b"]', `base: ${BASE}`])))).toBe("The front matter has `tags` more than once.");
+  });
+  it.each([["a YAML list", ["tags:", "  - a"]], ["bare words", ["tags: a, b"]], ["numbers", ["tags: [1]"]]])("%s is an error with the fixed message", (_n, lines) => {
+    expect(errOf(readNoteFile(file([`id: ${ID}`, ...lines, `base: ${BASE}`])))).toBe(TAGS_MESSAGE);
+  });
+  it("a tags line without a knotebook:/id:/base: line is body text", () => {
+    const text = '---\ntags: ["a"]\n---\nbody';
+    expect(readNoteFile(text)).toEqual({ kind: "new", title: undefined, folderId: undefined, body: normalizeBody(text) });
   });
 });
 
@@ -65,9 +94,9 @@ describe("recognition", () => {
     const notFirst = "text\n---\nknotebook: 1";
     expect(readNoteFile(notFirst)).toEqual({ kind: "new", title: undefined, folderId: undefined, body: normalizeBody(notFirst) });
   });
-  it("a tags list in the middle is read as usual", () => {
-    const r = readNoteFile(file([`id: ${ID}`, "tags:", "  - a", "  - b", `base: ${BASE}`, 'title: "T"']));
-    expect(r).toMatchObject({ kind: "existing", id: ID, base: BASE, title: "T" });
+  it("a tags line in the middle is read as usual", () => {
+    const r = readNoteFile(file([`id: ${ID}`, 'tags: ["a", "b"]', `base: ${BASE}`, 'title: "T"']));
+    expect(r).toMatchObject({ kind: "existing", id: ID, base: BASE, title: "T", tags: ["a", "b"] });
   });
 });
 
@@ -154,9 +183,6 @@ describe("duplicate keys and case", () => {
     ["two id lines", [`id: ${ID}`, `id: ${ID}`, `base: ${BASE}`], "id"],
   ])("%s -> error", (_n, fm, key) => {
     expect(errOf(readNoteFile(file(fm)))).toBe(`The front matter has \`${key}\` more than once.`);
-  });
-  it("duplicate tags -> as usual", () => {
-    expect(readNoteFile(file([`id: ${ID}`, "tags: a", "tags: b", `base: ${BASE}`])).kind).toBe("existing");
   });
   it("upper-case uuid folder_id -> returned lower-cased", () => {
     expect(readNoteFile(file(["knotebook: 1", `folder_id: ${ID.toUpperCase()}`]))).toMatchObject({ kind: "new", folderId: ID });

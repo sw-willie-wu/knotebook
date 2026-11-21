@@ -855,6 +855,8 @@ export const transferBases = pgTable(
     keyId: text("key_id").notNull(),
     bodySha: bytea("body_sha").notNull(),
     titleSha: bytea("title_sha").notNull(),
+    // Null on a base made before these columns existed.
+    tagsSha: bytea("tags_sha"),
     lineHashes: bytea("line_hashes").notNull(),
     lineKinds: bytea("line_kinds").notNull(),
     segments: jsonb().$type<TransferSegment[] | null>(),
@@ -862,6 +864,7 @@ export const transferBases = pgTable(
     // `note_ai_edits` rows from this write-back; a resend after any was reverted gets 409. No FK: a trimmed row counts as not reverted.
     appliedEditIds: uuid("applied_edit_ids").array(),
     appliedTitleSha: bytea("applied_title_sha"),
+    appliedTagsSha: bytea("applied_tags_sha"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }).notNull().defaultNow(),
   },

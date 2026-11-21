@@ -12,9 +12,12 @@ import {
   BASE_UNAVAILABLE_MESSAGES,
   EXPORT_BUSY_MESSAGE,
   INVALID_UTF8_MESSAGE,
+  NEW_NOTE_TAGS_FORBIDDEN_MESSAGE,
   NOT_IN_RANGE_MESSAGE,
   NOT_MERGEABLE_MESSAGE,
   RANGE_GONE_MESSAGE,
+  TAGS_CHANGE_FORBIDDEN_MESSAGE,
+  TAGS_CONFLICT_MESSAGE,
   TOO_MANY_NOTES_MESSAGE,
   TRANSFER_NOTE_NOT_FOUND_MESSAGE,
   TRANSFER_RATE_LIMITED_MESSAGE,
@@ -84,6 +87,16 @@ describe("bulk transfer HTTP-layer messages (literal)", () => {
     for (const m of Object.values(BASE_UNAVAILABLE_MESSAGES)) expect(m).not.toMatch(/merg/i);
     expect(Object.keys(BASE_UNAVAILABLE_MESSAGES)).not.toContain("anchors_gone");
     expect(NOT_MERGEABLE_MESSAGE).toBe("This note can't be written back from a file. Change it with edit_note instead.");
+  });
+
+  it("tags (routes/transfer.ts)", () => {
+    expect(TAGS_CHANGE_FORBIDDEN_MESSAGE).toBe(
+      "You can't change this note's tags: that needs edit rights in the note's own space, not through a share. Leave the tags line as it was downloaded, or take it out.",
+    );
+    expect(TAGS_CONFLICT_MESSAGE).toBe("The note moved to another space while the file was being sent, so its tags were not changed. Fetch the note again.");
+    expect(NEW_NOTE_TAGS_FORBIDDEN_MESSAGE).toBe(
+      "Your role in this group can't set a new note's tags: that needs edit rights in the group. Take the tags line out of the file, or leave it empty.",
+    );
   });
 
   it("where a new note lands (transfer/create-file.ts plus the borrowed folders/messages.ts)", () => {

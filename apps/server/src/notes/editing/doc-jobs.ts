@@ -8,7 +8,6 @@ import {
   extractLinkTargets,
   keptIdRenames,
   knowledgeRefsIn,
-  listKnowledgeInFragment,
   knowledgeWriteProblem,
   normalizeKnowledgeRefs,
   resolveKnowledgeForWrite,
@@ -37,7 +36,7 @@ import { versionFingerprint } from "../version-fingerprint.js";
 import type { VisibleNoteTarget } from "./candidates.js";
 import { fingerprintForIds, fingerprintsOfGroups, outlineOf, topLevelSnapshot, type OutlineEntry } from "./fingerprint.js";
 import type { ParseDetail, ParseError } from "./markdown.js";
-import { KnowledgeWriteError, knowledgeIdsByBlock, knowledgeInfoById, type KnowledgeEditReport, type KnowledgeWriteReport } from "./knowledge-write.js";
+import { KnowledgeWriteError, createdKnowledge, knowledgeIdsByBlock, knowledgeInfoById, type KnowledgeEditReport, type KnowledgeWriteReport } from "./knowledge-write.js";
 import { readNoteContentFromDoc } from "./read.js";
 import { editRevertable, isDeleteShape, prepareRevertOnFork, removedIds, topLevelIds, type RevertRow } from "./revert-core.js";
 import { containerItems, type MergeGuard } from "./live-watch.js";
@@ -296,17 +295,7 @@ export async function editOnFork(
   });
   const { beforeBlocks } = w.value;
   const surviving = plan.knowledge === undefined ? null : new Set(knowledgeIdsByBlock(fork.getXmlFragment(YDOC_FRAGMENT)).values());
-  // Ids new to the whole note, whether generated or written out in full; a renewed id is reported under `renewed` only.
-  const created = ((): KnowledgeHeadingRef[] => {
-    if (surviving === null) return [];
-    const had = new Set(w.knowledgeBefore.values());
-    const renewedIds = new Set(w.renewed.map(x => x.id));
-    const after = knowledgeIdsByBlock(fork.getXmlFragment(YDOC_FRAGMENT));
-    const headings = new Map(listKnowledgeInFragment(fork.getXmlFragment(YDOC_FRAGMENT)).map(e => [e.blockId, e.heading]));
-    const out: KnowledgeHeadingRef[] = [];
-    for (const [blockId, id] of after) if (!had.has(id) && !renewedIds.has(id)) out.push({ id, heading: headings.get(blockId) ?? "" });
-    return out;
-  })();
+  const created = surviving === null ? [] : createdKnowledge(fork.getXmlFragment(YDOC_FRAGMENT), w.knowledgeBefore, w.renewed);
   const removed = surviving === null ? [] : knowledgeRefsIn(beforeBlocks as unknown as readonly KnowledgeBlockShape[]).filter(r => !surviving.has(r.id));
   return {
     diff: w.diff,

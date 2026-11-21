@@ -33,6 +33,12 @@ export interface EditingTestHooks {
   afterOpenDirect?: () => Promise<void>;
   beforeVersionBase?: () => Promise<void>;
   beforeCreateFromFile?: () => Promise<void>;
+  /** File write-back, after the body and title are written and before the tags transaction opens. */
+  beforeTags?: () => Promise<void>;
+  /** Inside the tags transaction, after the group and note locks and before the tags are re-read. */
+  afterTagsLock?: () => Promise<void>;
+  /** Inside the tags transaction, after the tags are written and before it commits. */
+  afterTagsWrite?: () => Promise<void>;
 }
 export interface ApplyDeps {
   db: Db;
