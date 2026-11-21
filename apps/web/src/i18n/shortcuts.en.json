@@ -237,7 +237,12 @@
     "whatsNew": {
       "heading": "New in v{{version}}",
       "empty": "Nothing new to highlight in this version.",
-      "items": {}
+      "items": {
+        "tags": {
+          "title": "Tags",
+          "desc": "Label a note with tags: type /tag in the note, or choose Add tag in its ⋮ menu. The tags sit in a row above the text, show as colored dots on the note's row in the sidebar, and the funnel button in My notes and Groups lists only the notes that have all the tags you pick. Rename, recolor, merge or delete tags in Settings → Tags (for a group, in the group's window)."
+        }
+      }
     }
   }
 }

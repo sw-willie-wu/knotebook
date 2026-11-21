@@ -14,6 +14,7 @@ import {
   toggleSelectedNote,
   waitForEditorSelection,
 } from "./helpers.js";
+import { RELEASE_HIGHLIGHTS, visibleHighlightItems } from "../../apps/web/src/components/shortcuts/release-highlights.js";
 import { E2E_ORIGIN } from "../ports.js";
 
 /**
@@ -774,7 +775,12 @@ test.describe("shortcuts dialog", () => {
     await expect(dialog.getByRole("region", { name: "Feature tour" })).toBeVisible();
     await expect(dialog.getByRole("button", { name: "Start tour", exact: true })).toBeVisible();
     await dialog.getByRole("button", { name: "What's new", exact: true }).click();
-    await expect(dialog.getByRole("region", { name: "What's new" })).toContainText("Nothing new to highlight in this version.");
+    // This test signs in as the site admin, who sees every entry of the registry.
+    if (visibleHighlightItems(RELEASE_HIGHLIGHTS.items, true).length === 0) {
+      await expect(dialog.getByRole("region", { name: "What's new" })).toContainText("Nothing new to highlight in this version.");
+    } else {
+      await expect(dialog.locator('[data-help-page-content="whatsNew"]').getByRole("heading", { level: 3, name: `New in v${RELEASE_HIGHLIGHTS.version}`, exact: true })).toBeVisible();
+    }
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
 

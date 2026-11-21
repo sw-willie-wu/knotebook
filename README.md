@@ -72,7 +72,7 @@ Each part below lists what works today and what is planned. Planned items are wh
 - **Version history**: versions saved automatically after a pause in editing, or by hand; preview one, compare two side by side, and apply an older one ([Version history](docs/versions.md)).
 - **Presentation mode**: play a note as a slide show whose slides are its headings, from the note or from its public link.
 - **Search**: the sidebar finds notes by title and body text and opens a note at the matching section; the REST API and MCP search the same way ([MCP](docs/mcp.md#search_notes)).
-- **Folders, favorites and trash**: folders up to five levels deep in your notes, in each group and, for you alone, among the notes shared with you, filled with **Move to…**, by selecting several notes, or by dragging with a mouse ([Folders](docs/sharing.md#folders)); favorites that are yours alone ([Favorites](docs/sharing.md#favorites)); a trash that keeps deleted notes for 7 days unless a site admin sets another number of days or turns that off ([Notes in the trash](docs/sharing.md#notes-in-the-trash)).
+- **Folders, favorites, tags and trash**: folders up to five levels deep in your notes, in each group and, for you alone, among the notes shared with you, filled with **Move to…**, by selecting several notes, or by dragging with a mouse ([Folders](docs/sharing.md#folders)); favorites that are yours alone ([Favorites](docs/sharing.md#favorites)); tags that label notes, shown above the text and as colored dots and a filter in the sidebar ([Tags](docs/sharing.md#tags)); a trash that keeps deleted notes for 7 days unless a site admin sets another number of days or turns that off ([Notes in the trash](docs/sharing.md#notes-in-the-trash)).
 - **Sharing and groups**: a personal note is private, shared with chosen people as editors or viewers, or published as a read-only public link, which can have a custom address ([Sharing](docs/sharing.md)); a group owns its notes, and what a member can do comes from their role, built in (Admin, Member) or custom ([Notes in a group](docs/sharing.md#notes-in-a-group)).
 
 **Planned**
@@ -206,7 +206,7 @@ Read the full [self-hosting guide](docs/self-hosting.md) before running anywhere
 
 For people writing notes:
 
-- [Sharing](docs/sharing.md): private, shared and public notes, groups and their roles, moving or copying a note into a group, folders, favorites and the trash.
+- [Sharing](docs/sharing.md): private, shared and public notes, groups and their roles, moving or copying a note into a group, folders, favorites, tags and the trash.
 - [Version history](docs/versions.md): when versions are saved, previewing, comparing and applying them, who sees them and how long they are kept.
 - [Side-by-side columns](docs/columns.md): making, resizing, removing, copying and undoing rows of columns.
 - [Diagrams (Mermaid)](docs/diagrams.md): inserting, editing, pasting and copying out Mermaid diagrams.
