@@ -40,6 +40,35 @@ describe("TagPill size", () => {
   });
 });
 
+describe("TagPill remove badge and pointer", () => {
+  it("keeps the padding symmetric and floats the remove button over the top-right corner", () => {
+    const { container } = render(<TagPill tag={tag} onRemove={() => {}} />);
+    const pill = container.querySelector('[data-tag-color="blue"]')!;
+    expect(pill.classList.contains("relative")).toBe(true);
+    expect(pill.classList.contains("px-2")).toBe(true);
+    const button = screen.getByRole("button", { name: "Remove tag AWS" });
+    for (const cls of ["absolute", "-right-2", "-top-1.5", "size-4", "cursor-pointer", "bg-popover", "border"]) expect(button.classList.contains(cls), cls).toBe(true);
+    expect(button.className).not.toContain("-me-1");
+  });
+
+  it("shows a pointer on the menu button and none on a read-only name", () => {
+    const { rerender } = render(<TagPill tag={tag} wrapLabel={(label) => label} />);
+    expect(screen.getByText("AWS").closest("button")!.classList.contains("cursor-pointer")).toBe(true);
+    rerender(<TagPill tag={tag} />);
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.getByText("AWS").closest('[data-tag-color="blue"]')!.className).not.toContain("cursor-pointer");
+  });
+
+  it("removes without activating the menu button", () => {
+    const onRemove = vi.fn();
+    const onLabelClick = vi.fn();
+    render(<TagPill tag={tag} onRemove={onRemove} wrapLabel={(label) => <span onClick={onLabelClick}>{label}</span>} />);
+    fireEvent.click(screen.getByRole("button", { name: "Remove tag AWS" }));
+    expect(onRemove).toHaveBeenCalledTimes(1);
+    expect(onLabelClick).not.toHaveBeenCalled();
+  });
+});
+
 describe("TagDot", () => {
   it("carries the color and is decorative", () => {
     const { container } = render(<TagDot color="red" />);

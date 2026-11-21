@@ -28,7 +28,7 @@ const INPUT_WIDTH_PX = 144;
 const MORE_WIDTH_PX = 40;
 
 const CHIP_BUTTON =
-  "relative inline-flex h-5 shrink-0 items-center justify-center rounded-full text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring pointer-coarse:after:absolute pointer-coarse:after:-inset-2 pointer-coarse:after:content-['']";
+  "relative inline-flex cursor-pointer h-5 shrink-0 items-center justify-center rounded-full text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring pointer-coarse:after:absolute pointer-coarse:after:-inset-2 pointer-coarse:after:content-['']";
 
 /** Renders nothing for a note without tags unless the input was asked for (`openTagEntry`) and is still open. `canEdit` is the tag permission (`canEditNoteTags`), not the note's edit role: an edit share reads tags but never changes them. */
 export function NoteTagRow({ note, canEdit }: { note: NoteDto; canEdit: boolean }) {
