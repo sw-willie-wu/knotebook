@@ -1,11 +1,11 @@
 /**
- * Hover-reveal for sidebar and avatar-candidate ⋮ buttons (the sidebar ones are button.tsx's 24px exception). Scopes: `noterow` (note row ⋮, trash row Restore/⋮; the `<li>` carries `group/noterow`), `folderrow`, `avatarcell` (the block carries `group/avatarcell`; hovering anywhere in it reveals every cell's ⋮).
+ * Hover-reveal for sidebar and avatar-candidate ⋮ buttons (the sidebar ones are button.tsx's 24px exception). Scopes: `tabheader` (the sidebar tab title row), `noterow` (note row ⋮, trash row Restore/⋮; the `<li>` carries `group/noterow`), `folderrow`, `avatarcell` (the block carries `group/avatarcell`; hovering anywhere in it reveals every cell's ⋮).
  * Desktop: `opacity-0` until row hover (`group-hover/<scope>`), keyboard focus inside the row (`group-has-[:focus-visible]/<scope>`, not focus-within, which would stick after a mouse click) or the button itself keyboard-focused.
  * Stays while its menu is open: Radix sets `data-state="open"` on the trigger; with a modal menu the pointer has left the row and ⋮ would fade while the menu is still open. No effect on non-menu "+" buttons.
  * Touch (`hover: none`): always visible, since Tailwind v4's group-hover only applies under `@media (hover: hover)`. `hoverRevealOnly` differs only on touch: the row's hollow favorite star is `display: none` entirely under `hover: none` or `pointer: coarse` (no space, out of tab order and a11y tree), and adding goes through ⋮, which stays visible as the only entry point.
  * Every scope's class must be a complete literal (Tailwind scans statically; template-built classes silently fail while jsdom tests stay green). Tests can only assert class strings: no CSS or hover in jsdom.
  */
-export type RevealScope = "grouprow" | "noterow" | "folderrow" | "avatarcell";
+export type RevealScope = "grouprow" | "noterow" | "folderrow" | "avatarcell" | "tabheader";
 
 const BASE =
   "opacity-0 transition-opacity focus-visible:opacity-100 [@media(hover:none)]:opacity-100 data-[state=open]:opacity-100";
@@ -15,6 +15,7 @@ const SCOPE: Record<RevealScope, string> = {
   noterow: "group-hover/noterow:opacity-100 group-has-[:focus-visible]/noterow:opacity-100",
   folderrow: "group-hover/folderrow:opacity-100 group-has-[:focus-visible]/folderrow:opacity-100",
   avatarcell: "group-hover/avatarcell:opacity-100 group-has-[:focus-visible]/avatarcell:opacity-100",
+  tabheader: "group-hover/tabheader:opacity-100 group-has-[:focus-visible]/tabheader:opacity-100",
 };
 
 export function hoverReveal(scope: RevealScope): string {

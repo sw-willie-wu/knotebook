@@ -17,6 +17,7 @@
     },
     "noMatch": "沒有符合篩選條件的知識。",
     "backfillNotice": "正在為較舊的筆記建立索引，幾分鐘內部分知識可能還沒列出。",
+    "capped": "{{note}}：這篇只列出前 {{max}} 條。",
     "truncated": "只列出前 {{max}} 條；開啟子資料夾的索引或加上篩選可看到其他的。",
     "notFound": {
       "title": "找不到這個索引",
@@ -33,6 +34,7 @@
       "status": "狀態",
       "evidence": "依據",
       "all": "全部",
+      "labelled": "{{name}}：{{value}}",
       "clear": "清除篩選"
     }
   }

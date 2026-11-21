@@ -1,13 +1,15 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { useLocation, useParams } from "react-router";
+import { useLocation, useParams, useSearchParams } from "react-router";
 import { KNOWLEDGE_INDEX_MAX, type KnowledgeIndexDto, type KnowledgeIndexScopeRef } from "@knotebook/shared";
 import { useKnowledgeIndex, type IndexFilters } from "@/api/knowledge";
 import { ApiFail } from "@/api/client";
 import { SidebarDrawerButton } from "@/components/AppShell";
 import { BackToListButton } from "@/components/BackToListButton";
 import { EmptyState } from "@/components/EmptyState";
+import { IndexFilterBar } from "@/components/knowledge-index/IndexFilterBar";
 import { IndexSection } from "@/components/knowledge-index/IndexSection";
+import { readIndexFilters, writeIndexFilters } from "@/components/knowledge-index/filters";
 import { buildIndexSections } from "@/components/knowledge-index/sections";
 import { Button } from "@/components/ui/button";
 import { cardSurface } from "@/components/ui/card";
@@ -15,8 +17,6 @@ import "@/i18n/knowledge-strings";
 import "@/i18n/knowledge-index-strings";
 import { knowledgeIndexScopeFromParams, knowledgeIndexScopeKey } from "@/lib/knowledge-index-path";
 import { cn } from "@/lib/utils";
-
-const DEFAULT_FILTERS: IndexFilters = { groupBy: "folder", tagIds: [], status: null, evidence: null };
 
 export function IndexBody({
   dto,
@@ -78,16 +78,37 @@ function scopeNames(scope: KnowledgeIndexScopeRef, dto: KnowledgeIndexDto | unde
 
 function IndexView({ scope }: { scope: KnowledgeIndexScopeRef }): ReactNode {
   const { t } = useTranslation();
-  const [filters] = useState<IndexFilters>(DEFAULT_FILTERS);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const filters = useMemo(() => readIndexFilters(searchParams), [searchParams]);
+  // `replace`: each filter step isn't a place to come back to; the URL still carries the filters for reload, sharing and returning from a note.
+  const setFilters = (next: IndexFilters): void => setSearchParams(writeIndexFilters(next), { replace: true });
   const query = useKnowledgeIndex(scope, filters);
   const dto = query.data;
+  const settled = dto !== undefined && !query.isPlaceholderData;
+  const unknownTags = settled ? filters.tagIds.filter((id) => !dto.tagOptions.some((tag) => tag.id === id)).join(",") : "";
+  // A tag deleted since the link was made would otherwise leave an empty result with nothing in the bar to undo it.
+  useEffect(() => {
+    if (unknownTags === "") return;
+    const unknown = unknownTags.split(",");
+    setSearchParams(writeIndexFilters({ ...filters, tagIds: filters.tagIds.filter((id) => !unknown.includes(id)) }), { replace: true });
+  }, [filters, setSearchParams, unknownTags]);
   const names = scopeNames(scope, dto, t("sidebar.myNotes"));
   const filtersActive = filters.tagIds.length > 0 || filters.status !== null || filters.evidence !== null;
   const notFound = query.error instanceof ApiFail && query.error.status === 404;
 
   let body: ReactNode;
   if (dto) {
-    body = <IndexBody dto={dto} filtersActive={filtersActive} groupBy={filters.groupBy} scopeTitle={names.title} />;
+    body = (
+      <IndexBody
+        dto={dto}
+        filtersActive={filtersActive}
+        groupBy={dto.tagOptions.length > 0 ? filters.groupBy : "folder"}
+        scopeTitle={names.title}
+        filterBar={
+          dto.entries.length > 0 || filtersActive ? <IndexFilterBar filters={filters} tagOptions={dto.tagOptions} onChange={setFilters} /> : undefined
+        }
+      />
+    );
   } else if (notFound) {
     body = <EmptyState title={t("knowledgeIndex.notFound.title")} description={t("knowledgeIndex.notFound.description")} />;
   } else if (query.isError) {

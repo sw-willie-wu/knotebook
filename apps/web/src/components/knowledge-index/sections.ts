@@ -24,6 +24,8 @@ export interface IndexSectionModel {
   /** Rows including nested ones. */
   count: number;
   rows: IndexRowModel[];
+  /** Notes in this section that hold more knowledge than the index keeps. */
+  cappedNotes: KnowledgeIndexNoteDto[];
   /** Set on a tag section so the title can show the tag's colour. */
   tag?: NoteTagDto;
 }
@@ -75,8 +77,8 @@ function countRows(rows: readonly IndexRowModel[]): number {
   return n;
 }
 
-function section(key: string, title: string, rows: IndexRowModel[], tag?: NoteTagDto): IndexSectionModel {
-  return { key, title, count: countRows(rows), rows, ...(tag ? { tag } : {}) };
+function section(key: string, title: string, rows: IndexRowModel[], cappedNotes: KnowledgeIndexNoteDto[], tag?: NoteTagDto): IndexSectionModel {
+  return { key, title, count: countRows(rows), rows, cappedNotes, ...(tag ? { tag } : {}) };
 }
 
 const byTitleThenId = (a: KnowledgeIndexNoteDto, b: KnowledgeIndexNoteDto): number =>
@@ -129,30 +131,38 @@ export function buildIndexSections(input: {
     const key = sectionKeyOf(note);
     let target = sections.get(key);
     if (!target) {
-      target = { key: key === "" ? "root" : key, title: key === "" ? scopeTitle : relativePath(key), count: 0, rows: [] };
+      target = { key: key === "" ? "root" : key, title: key === "" ? scopeTitle : relativePath(key), count: 0, rows: [], cappedNotes: [] };
       sections.set(key, target);
     }
     target.rows.push(...rowsOf(note));
+    if (note.capped) target.cappedNotes.push(note);
   }
-  return [...sections.values()].map((s) => section(s.key, s.title, s.rows));
+  return [...sections.values()].map((s) => section(s.key, s.title, s.rows, s.cappedNotes));
 }
 
 function buildTagSections(dto: KnowledgeIndexDto, rowsOf: (note: KnowledgeIndexNoteDto) => IndexRowModel[], untaggedTitle: string): IndexSectionModel[] {
   const withEntries = new Set(dto.entries.map((e) => e.noteId));
   const notes = dto.notes.filter((n) => withEntries.has(n.id)).sort(byTitleThenId);
-  const byTag = new Map<string, { tag: NoteTagDto; rows: IndexRowModel[] }>();
+  const byTag = new Map<string, { tag: NoteTagDto; rows: IndexRowModel[]; capped: KnowledgeIndexNoteDto[] }>();
   const untagged: IndexRowModel[] = [];
+  const untaggedCapped: KnowledgeIndexNoteDto[] = [];
   for (const note of notes) {
     const rows = rowsOf(note);
-    if (note.tags.length === 0) untagged.push(...rows);
+    const capped = note.capped ? [note] : [];
+    if (note.tags.length === 0) {
+      untagged.push(...rows);
+      untaggedCapped.push(...capped);
+    }
     for (const tag of note.tags) {
       const bucket = byTag.get(tag.id);
-      if (bucket) bucket.rows.push(...rows);
-      else byTag.set(tag.id, { tag, rows: [...rows] });
+      if (bucket) {
+        bucket.rows.push(...rows);
+        bucket.capped.push(...capped);
+      } else byTag.set(tag.id, { tag, rows: [...rows], capped });
     }
   }
   const tagged = [...byTag.values()]
     .sort((a, b) => FOLDER_COLLATOR.compare(a.tag.name, b.tag.name) || byIdOrder(a.tag.id, b.tag.id))
-    .map((b) => section(`tag:${b.tag.id}`, b.tag.name, b.rows, b.tag));
-  return untagged.length > 0 ? [...tagged, section("untagged", untaggedTitle, untagged)] : tagged;
+    .map((b) => section(`tag:${b.tag.id}`, b.tag.name, b.rows, b.capped, b.tag));
+  return untagged.length > 0 ? [...tagged, section("untagged", untaggedTitle, untagged, untaggedCapped)] : tagged;
 }

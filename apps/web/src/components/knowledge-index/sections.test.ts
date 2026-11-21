@@ -32,6 +32,24 @@ describe("folder grouping", () => {
     expect(sections.flatMap((s) => s.rows.map((r) => r.note.title))).toEqual(expected);
   });
 
+  it("a section lists the capped notes whose rows it holds, in display order, and no others", () => {
+    const notes = [
+      indexNote({ id: N1, title: "Zed", folderId: "fb", capped: true }),
+      indexNote({ id: N2, title: "Mid", folderId: "fb" }),
+      indexNote({ id: N3, title: "Top", folderId: null, capped: true }),
+    ];
+    const entries = notes.map((n) => indexEntry({ noteId: n.id, knowledgeId: `k_${n.title}` }));
+    const sections = buildIndexSections({ dto: indexDto({ folders, notes, entries }), groupBy: "folder", ...base });
+    expect(sections.map((s) => [s.title, s.cappedNotes.map((n) => n.title)])).toEqual([["Space", ["Top"]], ["beta", ["Zed"]]]);
+  });
+
+  it("a capped note is listed in every tag section that holds its rows", () => {
+    const notes = [indexNote({ id: N1, title: "Zed", capped: true, tags: [tag("t1", "a"), tag("t2", "b")] }), indexNote({ id: N2, title: "Mid", tags: [tag("t1", "a")] })];
+    const entries = notes.map((n) => indexEntry({ noteId: n.id, knowledgeId: `k_${n.title}` }));
+    const sections = buildIndexSections({ dto: indexDto({ notes, entries }), groupBy: "tag", ...base });
+    expect(sections.map((s) => [s.title, s.cappedNotes.map((n) => n.title)])).toEqual([["a", ["Zed"]], ["b", ["Zed"]]]);
+  });
+
   it("FOLDER_COLLATOR resolves to INDEX_COLLATOR_LOCALE and INDEX_COLLATOR_OPTIONS, so the server cut and the page order agree", () => {
     const resolved = FOLDER_COLLATOR.resolvedOptions();
     const reference = new Intl.Collator(INDEX_COLLATOR_LOCALE, INDEX_COLLATOR_OPTIONS).resolvedOptions();

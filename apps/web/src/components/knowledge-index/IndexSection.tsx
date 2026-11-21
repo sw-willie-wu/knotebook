@@ -1,5 +1,6 @@
 import { useId, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { KNOWLEDGE_INDEX_NOTE_MAX } from "@knotebook/shared";
 import { TagPill } from "@/components/tags/TagPill";
 import { IndexRow } from "./IndexRow";
 import type { IndexSectionModel } from "./sections";
@@ -18,6 +19,11 @@ export function IndexSection({ section }: { section: IndexSectionModel }): React
           <IndexRow key={row.entry.knowledgeId} row={row} />
         ))}
       </ul>
+      {section.cappedNotes.map((note) => (
+        <p key={note.id} className="mt-1.5 text-xs text-muted-foreground">
+          {t("knowledgeIndex.capped", { note: note.title || t("note.titlePlaceholder"), max: KNOWLEDGE_INDEX_NOTE_MAX })}
+        </p>
+      ))}
     </section>
   );
 }

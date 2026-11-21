@@ -384,6 +384,18 @@ export function Tag(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+/** Adapted from lucide `library` (ISC). */
+export function Library(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg data-icon="library" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="m16 6 4 14" />
+      <path d="M12 6v14" />
+      <path d="M8 8v12" />
+      <path d="M4 4v16" />
+    </svg>
+  );
+}
+
 /** Adapted from lucide `list-filter` (ISC). */
 export function Filter(props: SVGProps<SVGSVGElement>) {
   return (

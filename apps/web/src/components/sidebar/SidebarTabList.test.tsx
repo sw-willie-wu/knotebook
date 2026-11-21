@@ -153,8 +153,16 @@ describe("SidebarTabList", () => {
   it("header actions: only My notes and Groups carry the tag filter, ahead of select", () => {
     for (const id of TAB_IDS) {
       const actions = tabSpec(id).actions;
-      if (id === "myNotes" || id === "workspace") expect(actions.indexOf("tagFilter")).toBe(0);
+      if (id === "myNotes" || id === "workspace") expect(actions.indexOf("tagFilter")).toBeLessThan(actions.indexOf("selectMode"));
       else expect(actions).not.toContain("tagFilter");
+    }
+  });
+
+  it("header actions: only My notes carries the index entry, as its first action", () => {
+    for (const id of TAB_IDS) {
+      const actions = tabSpec(id).actions;
+      if (id === "myNotes") expect(actions[0]).toBe("openIndex");
+      else expect(actions).not.toContain("openIndex");
     }
   });
 

@@ -132,6 +132,7 @@ describe("how many times sidebar 24px icon buttons apply ROW_ICON_HIT", () => {
     ["components/NoteMenu.tsx", 1],
     ["components/RowFavoriteStar.tsx", 1],
     ["components/sidebar/FolderMenu.tsx", 1],
+    ["components/sidebar/IndexButton.tsx", 1],
     ["components/groups/GroupMenu.tsx", 1],
     ["components/tags/TagFilterMenu.tsx", 1],
     ["components/sidebar/TrashPanel.tsx", 5],

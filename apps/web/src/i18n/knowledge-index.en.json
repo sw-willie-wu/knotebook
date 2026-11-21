@@ -17,6 +17,7 @@
     },
     "noMatch": "No knowledge matches these filters.",
     "backfillNotice": "Older notes are still being indexed, so some knowledge may be missing for a few minutes.",
+    "capped": "{{note}}: only the first {{max}} are listed for this note.",
     "truncated": "Showing the first {{max}}. Open the index of a subfolder or add a filter to see the rest.",
     "notFound": {
       "title": "Index not found",
@@ -33,6 +34,7 @@
       "status": "Status",
       "evidence": "Basis",
       "all": "All",
+      "labelled": "{{name}}: {{value}}",
       "clear": "Clear filters"
     }
   }

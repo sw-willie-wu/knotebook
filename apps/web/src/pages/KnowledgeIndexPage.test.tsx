@@ -1,13 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter, Route, Routes } from "react-router";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import type { KnowledgeIndexDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { SidebarDrawerContext } from "@/lib/sidebar-drawer";
 import { PhoneListContext } from "@/lib/phone-list";
 import { stubLayoutTier } from "@/test/layout-tier";
-import { indexDto, indexEntry, indexNote } from "@/components/knowledge-index/test-support";
+import { chooseOption } from "@/test/ui-select";
+import { indexDto, indexEntry, indexNote, tag } from "@/components/knowledge-index/test-support";
 import KnowledgeIndexPage, { IndexBody } from "./KnowledgeIndexPage";
 
 const NOTE = indexNote({ id: "11111111-1111-4111-8111-111111111111", title: "Decisions", path: "/n/alice/decisions" });
@@ -30,6 +31,11 @@ function stubIndex(handler: (url: string) => Response) {
   return urls;
 }
 
+function LocationProbe() {
+  const location = useLocation();
+  return <output data-testid="loc">{location.pathname + location.search}</output>;
+}
+
 function renderAt(path: string, { backToList = vi.fn(), setOpen = vi.fn() } = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const view = render(
@@ -37,6 +43,7 @@ function renderAt(path: string, { backToList = vi.fn(), setOpen = vi.fn() } = {}
       <SidebarDrawerContext.Provider value={{ setOpen }}>
         <PhoneListContext.Provider value={{ backToList }}>
           <MemoryRouter initialEntries={[path]}>
+            <LocationProbe />
             <Routes>
               <Route path="/knowledge/me" element={<KnowledgeIndexPage />} />
               <Route path="/knowledge/g/:groupId" element={<KnowledgeIndexPage />} />
@@ -59,6 +66,25 @@ afterEach(() => {
 });
 
 describe("KnowledgeIndexPage", () => {
+  it("a capped note gets a line naming it in its section; an uncapped one gets none", async () => {
+    const other = indexNote({ id: "22222222-2222-4222-8222-222222222222", title: "Plain", path: "/n/alice/plain" });
+    stubIndex(() =>
+      respond(
+        200,
+        withOne({
+          notes: [{ ...NOTE, capped: true }, other],
+          entries: [
+            indexEntry({ noteId: NOTE.id, knowledgeId: "k_aaaaaaaa", when: "Touching uploads" }),
+            indexEntry({ noteId: other.id, knowledgeId: "k_bbbbbbbb", when: "Touching builds" }),
+          ],
+        }),
+      ),
+    );
+    renderAt("/knowledge/me");
+    expect(await screen.findByText("Decisions: only the first 2000 are listed for this note.")).toBeInTheDocument();
+    expect(screen.queryByText(/Plain: only the first/)).toBeNull();
+  });
+
   it("the personal index titles itself My notes · Index and lists the rows", async () => {
     const urls = stubIndex(() => respond(200, withOne()));
     renderAt("/knowledge/me");
@@ -146,6 +172,87 @@ describe("KnowledgeIndexPage", () => {
     renderAt("/knowledge/me");
     expect(await screen.findByText("No knowledge here yet")).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole("link")).toBeNull());
+  });
+});
+
+const T1 = tag("11111111-1111-4111-8111-111111111111", "ops", "blue");
+const T2 = tag("22222222-2222-4222-8222-222222222222", "design", "green");
+const TAGGED = { ...NOTE, tags: [T1] };
+const withTags = (over: Partial<KnowledgeIndexDto> = {}) => withOne({ notes: [TAGGED], tagOptions: [T1, T2], ...over });
+const loc = () => screen.getByTestId("loc").textContent;
+
+describe("KnowledgeIndexPage filters", () => {
+  it("changing a filter replaces the URL query and refetches with the new query", async () => {
+    const urls = stubIndex(() => respond(200, withTags()));
+    renderAt("/knowledge/me");
+    await screen.findByRole("link", { name: /Touching uploads/ });
+    await chooseOption(screen.getByRole("combobox", { name: "Status" }), "Status: Outdated");
+    await waitFor(() => expect(loc()).toBe("/knowledge/me?status=outdated"));
+    await waitFor(() => expect(urls).toContain("/api/knowledge/index/me?status=outdated"));
+    await chooseOption(screen.getByRole("combobox", { name: "Basis" }), "Basis: Tested");
+    await waitFor(() => expect(loc()).toBe("/knowledge/me?status=outdated&evidence=tested"));
+  });
+
+  it("the filters in the URL are restored: they are in the request and in the controls", async () => {
+    const urls = stubIndex(() => respond(200, withTags()));
+    renderAt(`/knowledge/me?group=tag&tags=${T1.id}&status=needsReview&evidence=docs`);
+    await screen.findByRole("link", { name: /Touching uploads/ });
+    expect(urls).toEqual([`/api/knowledge/index/me?tags=${T1.id}&status=needsReview&evidence=docs`]);
+    expect(screen.getByRole("radio", { name: "Tag" })).toBeChecked();
+    expect(screen.getByRole("button", { name: "Tags (1)" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Status" })).toHaveTextContent("Status: Needs review");
+    expect(screen.getByRole("combobox", { name: "Basis" })).toHaveTextContent("Basis: Documentation");
+  });
+
+  it("values the page doesn't know are ignored without an error and without rewriting the URL", async () => {
+    const urls = stubIndex(() => respond(200, withTags()));
+    renderAt("/knowledge/me?status=bogus&evidence=%E2%98%83&tags=nope,,&group=sideways&extra=1");
+    await screen.findByRole("link", { name: /Touching uploads/ });
+    expect(urls).toEqual(["/api/knowledge/index/me"]);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(loc()).toContain("status=bogus");
+  });
+
+  it("a tag id in the URL that isn't in tagOptions is dropped from the URL after the answer arrives", async () => {
+    const gone = "99999999-9999-4999-8999-999999999999";
+    const urls = stubIndex((url) => (url.includes(gone) ? respond(200, withTags({ entries: [], notes: [] })) : respond(200, withTags())));
+    renderAt(`/knowledge/me?tags=${gone},${T1.id}&status=outdated`);
+    await waitFor(() => expect(loc()).toBe(`/knowledge/me?tags=${T1.id}&status=outdated`));
+    expect(await screen.findByRole("link", { name: /Touching uploads/ })).toBeInTheDocument();
+    expect(urls).toEqual([`/api/knowledge/index/me?tags=${gone}%2C${T1.id}&status=outdated`, `/api/knowledge/index/me?tags=${T1.id}&status=outdated`]);
+  });
+
+  it("switching to tag grouping renders tag sections without refetching and writes group=tag", async () => {
+    const urls = stubIndex(() => respond(200, withTags()));
+    renderAt("/knowledge/me");
+    await screen.findByRole("link", { name: /Touching uploads/ });
+    fireEvent.click(screen.getByRole("radio", { name: "Tag" }));
+    expect(await screen.findByRole("heading", { level: 2, name: /ops/ })).toBeInTheDocument();
+    expect(loc()).toBe("/knowledge/me?group=tag");
+    expect(urls).toEqual(["/api/knowledge/index/me"]);
+  });
+
+  it("group=tag in the URL with no tags in the scope falls back to folder grouping", async () => {
+    stubIndex(() => respond(200, withOne()));
+    renderAt("/knowledge/me?group=tag");
+    expect(await screen.findByRole("heading", { level: 2, name: /My notes/ })).toBeInTheDocument();
+    expect(screen.queryByRole("radiogroup")).toBeNull();
+  });
+
+  it("no match with filters keeps the filter bar so they can be cleared; Clear filters empties the query", async () => {
+    stubIndex((url) => (url.includes("status=outdated") ? respond(200, withTags({ entries: [], notes: [] })) : respond(200, withTags())));
+    renderAt("/knowledge/me?group=tag&status=outdated");
+    expect(await screen.findByText("No knowledge matches these filters.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+    await waitFor(() => expect(loc()).toBe("/knowledge/me?group=tag"));
+    expect(await screen.findByRole("link", { name: /Touching uploads/ })).toBeInTheDocument();
+  });
+
+  it("an empty scope without filters shows no filter bar", async () => {
+    stubIndex(() => respond(200, indexDto()));
+    renderAt("/knowledge/me");
+    await screen.findByText("No knowledge here yet");
+    expect(screen.queryByRole("combobox")).toBeNull();
   });
 });
 

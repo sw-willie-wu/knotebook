@@ -2,7 +2,7 @@ import type { ReactElement, SVGProps } from "react";
 import { Clock, Share, Star, Trash, User, Users } from "@/components/ui/icons";
 import { SIDEBAR_TABS, type SidebarTab } from "@/lib/sidebar-tab";
 
-export type HeaderActionId = "tagFilter" | "newPersonalNote" | "newGroup" | "newFolder" | "selectMode" | "emptyTrash";
+export type HeaderActionId = "openIndex" | "tagFilter" | "newPersonalNote" | "newGroup" | "newFolder" | "selectMode" | "emptyTrash";
 
 export interface SidebarTabSpec {
   id: SidebarTab;
@@ -15,7 +15,7 @@ export interface SidebarTabSpec {
 const SPEC_BY_ID: Record<SidebarTab, SidebarTabSpec> = {
   recent: { id: "recent", labelKey: "sidebar.recent", Icon: Clock, actions: ["selectMode"] },
   favorites: { id: "favorites", labelKey: "sidebar.favorites", Icon: Star, actions: ["selectMode"] },
-  myNotes: { id: "myNotes", labelKey: "sidebar.myNotes", Icon: User, actions: ["tagFilter", "selectMode", "newFolder", "newPersonalNote"] },
+  myNotes: { id: "myNotes", labelKey: "sidebar.myNotes", Icon: User, actions: ["openIndex", "tagFilter", "selectMode", "newFolder", "newPersonalNote"] },
   workspace: { id: "workspace", labelKey: "sidebar.workspace", Icon: Users, actions: ["tagFilter", "selectMode", "newGroup"] },
   shared: { id: "shared", labelKey: "sidebar.shared", Icon: Share, actions: ["selectMode", "newFolder"] },
   trash: { id: "trash", labelKey: "sidebar.trash", Icon: Trash, actions: ["selectMode", "emptyTrash"] },

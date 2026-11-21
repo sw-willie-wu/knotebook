@@ -27,6 +27,7 @@
     "myNotes": "My notes",
     "shared": "Shared with me",
     "openDrawer": "Open sidebar",
+    "openIndex": "Open the index of {{name}}",
     "drawerTitle": "Navigation",
     "searchLabel": "Search notes",
     "searchPlaceholder": "Search…",
@@ -468,6 +469,7 @@
       "newNote": "New note",
       "newSubfolder": "New subfolder",
       "rename": "Rename",
+      "openIndex": "Open index",
       "sortBy": "Sort by",
       "sortName": "Name",
       "sortRecent": "Last modified",
@@ -519,6 +521,7 @@
       "manage": "Members & settings",
       "viewMembers": "View members",
       "rename": "Rename",
+      "openIndex": "Open index",
       "delete": "Delete group",
       "leave": "Leave group"
     },

@@ -27,6 +27,7 @@
     "myNotes": "我的筆記",
     "shared": "與我共享",
     "openDrawer": "開啟側欄",
+    "openIndex": "開啟「{{name}}」的索引",
     "drawerTitle": "導覽",
     "searchLabel": "搜尋筆記",
     "searchPlaceholder": "搜尋…",
@@ -468,6 +469,7 @@
       "newNote": "新增筆記",
       "newSubfolder": "新增子資料夾",
       "rename": "重新命名",
+      "openIndex": "開啟索引",
       "sortBy": "排序",
       "sortName": "名稱",
       "sortRecent": "最近修改",
@@ -519,6 +521,7 @@
       "manage": "成員與設定",
       "viewMembers": "查看成員",
       "rename": "重新命名",
+      "openIndex": "開啟索引",
       "delete": "刪除群組",
       "leave": "退出群組"
     },

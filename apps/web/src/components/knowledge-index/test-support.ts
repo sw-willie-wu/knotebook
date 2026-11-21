@@ -1,7 +1,7 @@
 import type { KnowledgeIndexDto, KnowledgeIndexEntryDto, KnowledgeIndexNoteDto, NoteTagDto } from "@knotebook/shared";
 
 export function indexNote(over: Partial<KnowledgeIndexNoteDto> & { id: string }): KnowledgeIndexNoteDto {
-  return { title: over.id, path: `/n/alice/${over.id}`, folderId: null, tags: [], ...over };
+  return { title: over.id, path: `/n/alice/${over.id}`, folderId: null, tags: [], capped: false, ...over };
 }
 
 export function indexEntry(over: Partial<KnowledgeIndexEntryDto> & { noteId: string; knowledgeId: string }): KnowledgeIndexEntryDto {

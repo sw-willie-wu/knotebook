@@ -20,6 +20,8 @@ import { FolderPlus, Plus, SquareCheck, Star } from "@/components/ui/icons";
 import { EmptyState } from "@/components/EmptyState";
 import { indexFolders, liveNotesUnder } from "@/components/sidebar/folder-index";
 import { FolderMenu } from "@/components/sidebar/FolderMenu";
+import { IndexButton } from "@/components/sidebar/IndexButton";
+import { knowledgeScopes, NO_KNOWLEDGE_SCOPES, type KnowledgeScopes } from "@/components/sidebar/knowledge-scopes";
 import { useFolderSortOf } from "@/components/sidebar/folder-sort";
 import { FolderRowButton } from "@/components/sidebar/FolderRowButton";
 import { GroupRowButton } from "@/components/sidebar/GroupRowButton";
@@ -40,6 +42,7 @@ import {
   type LocationContext,
   type SidebarNode,
 } from "@/components/sidebar/tree";
+import { knowledgeIndexPath } from "@/lib/knowledge-index-path";
 import { tourTarget, type TourTargetId } from "@/lib/tour-targets";
 import { TagDots } from "@/components/sidebar/TagDots";
 import { TagFilterBar } from "@/components/sidebar/TagFilterBar";
@@ -228,6 +231,8 @@ interface NodeContext {
   stack: { state: StackPreviewState; creating: boolean } | null;
   /** Tag filtering is on: folders and groups with something to show start open, and toggling them doesn't touch the saved collapse state. */
   filtering: boolean;
+  /** Where the viewer has knowledge: only those rows get an index entry. */
+  knowledge: KnowledgeScopes;
 }
 
 /** Collapse state is the shared store in `sidebar/collapse.ts`; the guide line aligns with the icon slot centre (px-2 8 + 14/2 = 15px). */
@@ -236,6 +241,7 @@ function GroupNode({ node, ctx }: { node: Extract<SidebarNode, { kind: "group" }
   const { group } = node;
   const [open, toggle] = useSectionOpen(`group:${group.id}`, ctx.filtering, node.children.length > 0);
   const dropScoped = ctx.dropScope === `group:${group.id}`;
+  const indexPath = ctx.knowledge.groups.has(group.id) ? knowledgeIndexPath({ kind: "group", groupId: group.id }) : undefined;
   return (
     <li
       data-node-kind="group"
@@ -245,6 +251,7 @@ function GroupNode({ node, ctx }: { node: Extract<SidebarNode, { kind: "group" }
     >
       <div className={cn("group/grouprow flex h-11 items-center gap-0.5 pr-0.75 pointer-fine:h-7 rounded-md hover:bg-brand-soft active:bg-brand-soft-strong", ROW_ICON_ROW)}>
         <GroupRowButton name={group.name} open={open} onToggle={toggle} />
+        {indexPath !== undefined && <IndexButton to={indexPath} name={group.name} reveal="grouprow" />}
         {/* New folder: group notes need edit rights to create a folder; placed before "+" */}
         {group.myRole?.permissions.edit && (
           <HeaderActionButton
@@ -263,7 +270,7 @@ function GroupNode({ node, ctx }: { node: Extract<SidebarNode, { kind: "group" }
             disabled={ctx.createNotePending}
           />
         )}
-        <GroupMenu group={group} size="sidebar" />
+        <GroupMenu group={group} size="sidebar" indexPath={indexPath} />
       </div>
       {open && (
         <div className="ml-[15px] border-l border-muted-foreground/35 pl-2">
@@ -284,6 +291,7 @@ function FolderNode({ node, ctx }: { node: Extract<SidebarNode, { kind: "folder"
   const { folder } = node;
   const [open, toggle] = useSectionOpen(`folder:${folder.id}`, ctx.filtering, node.children.length > 0);
   const dropScoped = ctx.dropScope === `folder:${folder.id}`;
+  const indexPath = ctx.knowledge.folders.has(folder.id) ? knowledgeIndexPath({ kind: "folder", folderId: folder.id }) : undefined;
   return (
     <li
       data-node-kind="folder"
@@ -293,6 +301,7 @@ function FolderNode({ node, ctx }: { node: Extract<SidebarNode, { kind: "folder"
     >
       <div className={cn("group/folderrow flex h-11 items-center gap-0.5 pr-0.75 rounded-md hover:bg-brand-soft active:bg-brand-soft-strong pointer-fine:h-7", ROW_ICON_ROW)}>
         <FolderRowButton name={folder.name} open={open} onToggle={toggle} />
+        {indexPath !== undefined && <IndexButton to={indexPath} name={folder.name} reveal="folderrow" />}
         {folder.permissions.createNote && (
           <HeaderActionButton
             reveal="folderrow"
@@ -303,6 +312,7 @@ function FolderNode({ node, ctx }: { node: Extract<SidebarNode, { kind: "folder"
         )}
         <FolderMenu
           folder={folder}
+          indexPath={indexPath}
           depth={node.depth}
           hasLiveNotes={() => liveNotesUnder(ctx.location.folders, folder.id, ctx.notes, (note) => noteSpaceKey(note, ctx.location.groupIds)).length > 0}
           onCreateNote={() => ctx.onCreateNote?.(groupIdOf(folder), folder.id)}
@@ -394,6 +404,10 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
   const waitFolders = tab !== "recent" && tab !== "favorites" && tab !== "trash";
   const folderIndex = useMemo(() => indexFolders(foldersQuery.data ?? EMPTY_FOLDERS), [foldersQuery.data]);
   const location = useMemo<LocationContext>(() => ({ groupIds, folders: folderIndex }), [groupIds, folderIndex]);
+  const knowledge = useMemo(
+    () => (notesQuery.data === undefined ? NO_KNOWLEDGE_SCOPES : knowledgeScopes(notesQuery.data, folderIndex, groupIds)),
+    [notesQuery.data, folderIndex, groupIds],
+  );
   const foldersPending = waitFolders && foldersQuery.isPending;
   // `data`, not `isSuccess`: after a failed background refetch the old list is still shown.
   const favoritesReady = tab !== "favorites" || favoritesQuery.data !== undefined;
@@ -443,6 +457,7 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
     dropScope: drag.view.scope,
     stack: stackState === null ? null : { state: stackState, creating: drag.view.creating !== null },
     filtering: filterActive,
+    knowledge,
   };
 
   useEffect(() => {
@@ -556,6 +571,8 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
 
   function renderAction(action: HeaderActionId): ReactNode {
     switch (action) {
+      case "openIndex":
+        return knowledge.personal ? <IndexButton key={action} to={knowledgeIndexPath({ kind: "personal" })} name={t("sidebar.myNotes")} reveal="tabheader" /> : null;
       case "tagFilter":
         if (filterView === null) return null;
         return (
@@ -644,7 +661,7 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
   return (
     <>
       <div ref={headerRef} data-sidebar-header="" className={PHONE_LIST_HEADER_STICKY}>
-        <div className={cn("flex items-center gap-0.5 pl-2 pr-2.75 pt-3 pb-1 pointer-coarse:pb-2.5", ROW_ICON_ROW)}>
+        <div className={cn("group/tabheader flex items-center gap-0.5 pl-2 pr-2.75 pt-3 pb-1 pointer-coarse:pb-2.5", ROW_ICON_ROW)}>
           {selection.active ? (
             <SidebarLazyBoundary chunk="select" fallback={tabLabel} errorClassName="hidden">
               <SelectHeader
