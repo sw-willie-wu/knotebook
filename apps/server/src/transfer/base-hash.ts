@@ -6,6 +6,7 @@
  */
 import { createHash, createHmac, randomBytes } from "node:crypto";
 import { lineKey, normalizeNumbered } from "./normalize.js";
+import { tagsKeyOf } from "./note-tags-format.js";
 
 export const LINE_HASH_BYTES = 8;
 
@@ -34,8 +35,8 @@ export function newSalt(): Buffer {
 export function baseHashes(
   key: Buffer,
   salt: Buffer,
-  input: { body: string; title: string; lines: string[]; kinds: number[] },
-): { bodySha: Buffer; titleSha: Buffer; lineHashes: Buffer; lineKinds: Buffer } {
+  input: { body: string; title: string; tags: readonly string[]; lines: string[]; kinds: number[] },
+): { bodySha: Buffer; titleSha: Buffer; tagsSha: Buffer; lineHashes: Buffer; lineKinds: Buffer } {
   const { lines, kinds } = input;
   if (lines.length !== kinds.length) throw new Error("baseHashes: lines and kinds differ in length");
   const lineHashes = Buffer.alloc(lines.length * LINE_HASH_BYTES);
@@ -46,6 +47,7 @@ export function baseHashes(
   return {
     bodySha: hmacOf(key, salt, input.body),
     titleSha: hmacOf(key, salt, input.title),
+    tagsSha: hmacOf(key, salt, tagsKeyOf(input.tags)),
     lineHashes,
     lineKinds: Buffer.from(kinds),
   };

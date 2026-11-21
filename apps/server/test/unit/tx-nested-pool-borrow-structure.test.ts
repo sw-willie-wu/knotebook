@@ -210,7 +210,7 @@ describe("transaction structure guard (#175)", () => {
       { f: "routes/admin-trash.ts", all: 1, inTx: 1 }, // trash retention days (updateTrashSettingsInTx)
       { f: "trash/purge.ts", all: 1, inTx: 1 }, // purge one batch past retention (purgeExpiredBatchInTx)
       { f: "folders/service.ts", all: 4, inTx: 4 }, // create folder (createFolderInTx), rename/move (updateFolderInTx), delete (deleteFolderInTx), place note (placeNoteInTx)
-      { f: "notes/editing/write-service.ts", all: 1, inTx: 1 }, // bulk transfer: syncFile's record transaction (recordFileSyncInTx)
+      { f: "notes/editing/write-service.ts", all: 3, inTx: 3 }, // bulk transfer: syncFile's record transaction (recordFileSyncInTx) and tags transaction (writeSyncTagsInTx), and the new-note insert with its tags (createNoteWithTagsInTx)
       { f: "site-limits/store.ts", all: 1, inTx: 1 }, // site limits PATCH (updateSiteLimitsInTx)
       { f: "routes/avatars.ts", all: 5, inTx: 5 }, // avatars: upload (insertAvatarInTx), re-crop (updateAvatarDisplayInTx), select (selectAvatarInTx), delete (deleteAvatarInTx), manual refetch (refreshOidcAvatarInTx)
       { f: "avatars/oidc-job.ts", all: 1, inTx: 1 }, // background job that imports the IdP avatar after login (replaceOidcAvatarInTx)

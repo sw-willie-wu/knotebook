@@ -188,7 +188,7 @@ describe("#200 read_note_image", () => {
     expect(md).toContain(`<figure><img alt="sized" src="/api/uploads/${r}" width="300"></figure>`);
     const res = await mcpPost(ctx.app, rpc("tools/list"), { token });
     const desc = (res.json().result.tools as Array<{ name: string; description: string }>).find(t => t.name === "read_note_section")!.description;
-    expect(desc.endsWith(` ${SECTION_SENTENCE}`)).toBe(true);
+    expect(desc).toContain(` ${SECTION_SENTENCE} `);
     expect(res.body).toContain(JSON.stringify(SECTION_SENTENCE).slice(1, -1));
   });
 

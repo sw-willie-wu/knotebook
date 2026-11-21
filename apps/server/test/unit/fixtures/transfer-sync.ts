@@ -74,9 +74,9 @@ export async function makeBaseInMemory(
 ): Promise<InMemoryBase> {
   const raw = await exportNoteForTransfer(rt, doc, titles, { linkHash: (id, text) => linkTextHash(TEST_KEY, TEST_SALT, id, text) });
   const ex = mapLine === undefined ? raw : { ...raw, lines: raw.lines.map(mapLine), body: raw.body.split("\n").map(mapLine).join("\n") };
-  const h = baseHashes(TEST_KEY, TEST_SALT, { body: normalizeBody(ex.body), title, lines: ex.lines, kinds: ex.lineKinds });
+  const h = baseHashes(TEST_KEY, TEST_SALT, { body: normalizeBody(ex.body), title, tags: [], lines: ex.lines, kinds: ex.lineKinds });
   return {
-    fileText: writeNoteFile({ id: "00000000-0000-4000-8000-000000000000", title, role: "owner", base: "0123456789abcdef", url: "/n/x" }, ex.body),
+    fileText: writeNoteFile({ id: "00000000-0000-4000-8000-000000000000", title, role: "owner", base: "0123456789abcdef", url: "/n/x", tags: [] }, ex.body),
     body: ex.body,
     lines: ex.lines,
     ids: ex.ids,

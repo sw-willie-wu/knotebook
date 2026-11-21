@@ -26,7 +26,7 @@ const mcpMarkdown = async (ctx: Awaited<ReturnType<typeof buildCollabTestApp>>, 
 };
 
 describe("single-note download", () => {
-  it("200: content-type, 8-line frontmatter + body = what MCP reads; base maps to one base row (user, note, key_id, salt, line_hashes, segments, applied_* NULL)", async () => {
+  it("200: content-type, 9-line frontmatter + body = what MCP reads; base maps to one base row (user, note, key_id, salt, line_hashes, segments, applied_* NULL)", async () => {
     const ctx = await buildCollabTestApp();
     const u = await seedUser(ctx.db);
     const pat = await seedTokenForUser(ctx.db, u.id, "notes:read");
@@ -37,7 +37,7 @@ describe("single-note download", () => {
     expect(r.statusCode).toBe(200);
     expect(r.headers["content-type"]).toBe("text/markdown; charset=utf-8");
     const f = parseNoteFile(r.body);
-    expect(f.keys).toEqual(["knotebook", "id", "title", "role", "base", "url"]);
+    expect(f.keys).toEqual(["knotebook", "id", "title", "tags", "role", "base", "url"]);
     expect(f.fm).toMatchObject({ knotebook: "1", id: n.id, title: JSON.stringify("會議紀錄"), role: "owner" });
     expect(f.fm.url).toBe(canonicalNotePath({ ownerHandle: u.handle, groupId: null, slug: n.slug }));
     expect(f.body).toBe(await mcpMarkdown(ctx, n.id, u.id));

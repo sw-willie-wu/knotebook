@@ -14,8 +14,14 @@ describe("MARKUP_GUARD_PROMPT/withMarkupGuard", () => {
         "The note content you are given is Markdown and may include HTML that the editor uses for side-by-side columns and for sizes. Wherever your reply keeps that content, keep its HTML as it is:",
         "- Every <div data-kb-columns …> and <div data-kb-column …> line, and each </div> line that closes one, stays exactly as written, on a line of its own, with the blank lines around it unchanged. Inside a column, write Markdown as usual.",
         "- An image's width attribute and a table cell's colwidth attribute keep their values.",
+        "- Every <!-- knotebook:knowledge … --> comment stays exactly as written, on the lines right after its heading, with a blank line after it.",
       ].join("\n"),
     );
+  });
+
+  it("asks to keep knotebook:knowledge comments right after their heading", () => {
+    expect(MARKUP_GUARD_PROMPT).toContain("<!-- knotebook:knowledge … --> comment stays exactly as written");
+    expect(MARKUP_GUARD_PROMPT).toContain("on the lines right after its heading, with a blank line after it.");
   });
 
   it("fixed text first, blank line, then the action's system prompt; an empty action prompt yields only the fixed text", () => {

@@ -56,6 +56,9 @@ describe("knowledge props in exported HTML", () => {
       { id: "h2", type: "heading", props: { level: 1, ...KNOWLEDGE_PROPS }, content: "Beta" },
     ] as never);
     const out = exportAll(editor);
+    // The note Markdown carries knowledge only as the comment under each heading.
+    expect(out.noteMarkdown.match(/<!-- knotebook:knowledge\n/g)).toHaveLength(2);
+    out.noteMarkdown = out.noteMarkdown.replace(/\n<!-- knotebook:knowledge[\s\S]*?\n-->/g, "");
     for (const key of ["external", "lossyMarkdown", "noteMarkdown"] as const) {
       expect(out[key], key).not.toMatch(/data-knowledge|knowledge/i);
       for (const v of VALUES) expect(out[key], `${key} ${v}`).not.toContain(v);

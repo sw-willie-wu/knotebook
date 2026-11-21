@@ -1,6 +1,7 @@
 export const INVALID_TAG_NAME_MESSAGE = "Tag names must be 1 to 40 characters and can't contain control characters.";
 export const TAG_FORBIDDEN_MESSAGE = "You can't change the tags of this note.";
 export const NOTE_TAG_LIMIT_MESSAGE = "This note already has the most tags allowed (50).";
+export const FILE_TAG_LIMIT_MESSAGE = "The file lists more than 50 different tags; a note can have at most 50.";
 export const SPACE_TAG_LIMIT_MESSAGE = "This space already has the most tags allowed (1000).";
 export const TAG_NOT_FOUND_MESSAGE = "No tag with that id.";
 export const NOTE_NOT_FOUND_MESSAGE = "No note with that id.";

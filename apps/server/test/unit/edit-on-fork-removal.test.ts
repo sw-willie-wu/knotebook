@@ -4,8 +4,7 @@
  */
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import { YDOC_FRAGMENT, type EditOp } from "@knotebook/shared";
-import { keptIdRenames } from "../../src/notes/editing/block-align.js";
+import { YDOC_FRAGMENT, keptIdRenames, type EditOp } from "@knotebook/shared";
 import { editOnFork, type Anchor } from "../../src/notes/editing/doc-jobs.js";
 import { outlineOf, type OutlineEntry } from "../../src/notes/editing/fingerprint.js";
 import { EditingRuntime } from "../../src/notes/editing/runtime.js";

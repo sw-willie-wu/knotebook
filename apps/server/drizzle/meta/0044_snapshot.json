@@ -1,5 +1,5 @@
 {
-  "id": "1eefc3f7-e9b1-48a0-b7b8-8fdddf4c60f4",
+  "id": "e85a236c-e244-40b6-a9f8-3dc3e6b4bf86",
   "prevId": "84e22d32-5c66-452b-8ce3-32cf210d05e3",
   "version": "7",
   "dialect": "postgresql",
@@ -1696,269 +1696,6 @@
           ]
         }
       },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.note_knowledge": {
-      "name": "note_knowledge",
-      "schema": "",
-      "columns": {
-        "note_id": {
-          "name": "note_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "knowledge_id": {
-          "name": "knowledge_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "block_id": {
-          "name": "block_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "ord": {
-          "name": "ord",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "level": {
-          "name": "level",
-          "type": "smallint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "heading": {
-          "name": "heading",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "read_when": {
-          "name": "read_when",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "conclusion": {
-          "name": "conclusion",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "evidence": {
-          "name": "evidence",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "verified": {
-          "name": "verified",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "icon": {
-          "name": "icon",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "parent_knowledge_id": {
-          "name": "parent_knowledge_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "superseded_note_id": {
-          "name": "superseded_note_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "superseded_knowledge_id": {
-          "name": "superseded_knowledge_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "desc_total": {
-          "name": "desc_total",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "desc_verified": {
-          "name": "desc_verified",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "desc_no_date": {
-          "name": "desc_no_date",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "desc_needs_review": {
-          "name": "desc_needs_review",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "desc_outdated": {
-          "name": "desc_outdated",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "note_knowledge_note_id_notes_id_fk": {
-          "name": "note_knowledge_note_id_notes_id_fk",
-          "tableFrom": "note_knowledge",
-          "tableTo": "notes",
-          "columnsFrom": [
-            "note_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "note_knowledge_pk": {
-          "name": "note_knowledge_pk",
-          "columns": [
-            "note_id",
-            "knowledge_id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "nk_knowledge_id_chk": {
-          "name": "nk_knowledge_id_chk",
-          "value": "\"note_knowledge\".\"knowledge_id\" ~ '^k_[0-9a-f]{8}$'"
-        },
-        "nk_block_id_chk": {
-          "name": "nk_block_id_chk",
-          "value": "\"note_knowledge\".\"block_id\" ~ '^[A-Za-z0-9_-]{1,64}$'"
-        },
-        "nk_level_chk": {
-          "name": "nk_level_chk",
-          "value": "\"note_knowledge\".\"level\" between 1 and 6"
-        },
-        "nk_evidence_chk": {
-          "name": "nk_evidence_chk",
-          "value": "\"note_knowledge\".\"evidence\" in ('', 'tested', 'docs', 'inferred')"
-        },
-        "nk_status_chk": {
-          "name": "nk_status_chk",
-          "value": "\"note_knowledge\".\"status\" in ('', 'unverified', 'outdated')"
-        },
-        "nk_icon_chk": {
-          "name": "nk_icon_chk",
-          "value": "\"note_knowledge\".\"icon\" in ('outdated', 'needsReview', 'noVerifiedDate', 'verified')"
-        },
-        "nk_superseded_chk": {
-          "name": "nk_superseded_chk",
-          "value": "\"note_knowledge\".\"superseded_knowledge_id\" is null or \"note_knowledge\".\"superseded_knowledge_id\" ~ '^k_[0-9a-f]{8}$'"
-        },
-        "nk_superseded_pair_chk": {
-          "name": "nk_superseded_pair_chk",
-          "value": "\"note_knowledge\".\"superseded_note_id\" is null or \"note_knowledge\".\"superseded_knowledge_id\" is not null"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.note_knowledge_state": {
-      "name": "note_knowledge_state",
-      "schema": "",
-      "columns": {
-        "note_id": {
-          "name": "note_id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "extractor_version": {
-          "name": "extractor_version",
-          "type": "smallint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "source_version": {
-          "name": "source_version",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "content_hash": {
-          "name": "content_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "entries": {
-          "name": "entries",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "capped": {
-          "name": "capped",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "indexed_at": {
-          "name": "indexed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "note_knowledge_state_note_id_notes_id_fk": {
-          "name": "note_knowledge_state_note_id_notes_id_fk",
-          "tableFrom": "note_knowledge_state",
-          "tableTo": "notes",
-          "columnsFrom": [
-            "note_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
@@ -4555,6 +4292,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "tags_sha": {
+          "name": "tags_sha",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
         "line_hashes": {
           "name": "line_hashes",
           "type": "bytea",
@@ -4587,6 +4330,12 @@
         },
         "applied_title_sha": {
           "name": "applied_title_sha",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "applied_tags_sha": {
+          "name": "applied_tags_sha",
           "type": "bytea",
           "primaryKey": false,
           "notNull": false

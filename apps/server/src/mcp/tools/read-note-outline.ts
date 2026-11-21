@@ -20,11 +20,13 @@ import type { Db } from "../../db/index.js";
 import { groups, notes, users } from "../../db/schema.js";
 import { fingerprintOf } from "../../notes/editing/fingerprint.js";
 import { loadLastEdited } from "../../notes/editing/read.js";
+import { loadNoteTagNames } from "../../tags/queries.js";
 import { viewerFolderIdFor } from "../../notes/note-dto.js";
 import { NOTE_ID } from "../../notes/schemas.js";
 import type { DbOrTx } from "../../db/tx.js";
 import { noteSummarySchema, ownerForModel } from "../dto.js";
 import { loadFolderPath, truncateFolderPath } from "../folder-fields.js";
+import { OUTLINE_TAGS_DESCRIBE } from "../knowledge-strings.js";
 import { MCP_FOLDER_NAME_MAX, MCP_PAGE_MAX, truncateText } from "../limits.js";
 import { NOTE_NOT_FOUND_MESSAGE, authorizeNoteRead, readOutlineForTool } from "../note-read.js";
 import { buildOutlinePage, outlineEntrySchema } from "../outline-page.js";
@@ -63,7 +65,9 @@ const noteHeaderSchema = noteSummarySchema.pick({
 });
 
 export const readNoteOutlineOutput = {
-  note: noteHeaderSchema.describe("Which note this outline belongs to, and your role on it."),
+  note: noteHeaderSchema
+    .extend({ tags: z.array(z.string()).describe(OUTLINE_TAGS_DESCRIBE) })
+    .describe("Which note this outline belongs to, and your role on it."),
   folder: z
     .object({ id: z.string(), path: z.array(z.string().max(MCP_FOLDER_NAME_MAX)), pathTruncated: z.literal(true).optional() })
     .nullable()
@@ -147,6 +151,7 @@ export async function readNoteOutline(args: ReadNoteOutlineArgs, ctx: McpToolCtx
       ...(title.truncated ? { titleTruncated: true as const } : {}),
       owner: ownerForModel(header),
       role: access.role,
+      tags: await loadNoteTagNames(ctx.db, args.note_id),
     },
     folder: await outlineFolderFor(ctx.db, header, ctx.userId),
     totalChars: outline.reduce((n, entry) => n + entry.chars, 0),

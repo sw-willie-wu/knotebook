@@ -106,7 +106,7 @@ Tags label notes so that you can find the ones that belong together. A tag belon
 - **Trash.** A note in the trash can't be tagged and doesn't count towards a tag's number of notes; restoring it brings its tags back.
 - **Public pages.** A public link shows the note without its tags.
 
-Adding or taking off a tag doesn't change a note's **last modified** time, so the **Recent** tab and sorting by last modified don't jump around when you tag. Over the API, the tags of a note come with `GET /api/notes` (see the [API contract summary](./api.md)); there is no MCP tool for tags.
+Adding or taking off a tag doesn't change a note's **last modified** time, so the **Recent** tab and sorting by last modified don't jump around when you tag. Over the API, the tags of a note come with `GET /api/notes` (see the [API contract summary](./api.md)). No MCP tool changes tags, but `read_note_outline` returns a note's `tags`, and a downloaded file has a `tags:` line: sending the file back with a different line sets the tags (see [MCP](./mcp.md#sending-a-file-back)).
 
 ## Notes in the trash
 

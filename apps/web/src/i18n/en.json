@@ -1105,6 +1105,7 @@
     "tag_not_found": "That tag no longer exists.",
     "invalid_tags": "That tag is no longer available.",
     "merge_same_tag": "Pick a different tag to merge into.",
+    "invalid_knowledge": "A knowledge comment in that text is not valid, so nothing was changed.",
     "fallback": "An unexpected error occurred."
   }
 }

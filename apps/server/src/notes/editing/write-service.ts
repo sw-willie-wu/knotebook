@@ -5,7 +5,7 @@
  */
 import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import type { FastifyBaseLogger } from "fastify";
-import type { EditOp } from "@knotebook/shared";
+import { knowledgeWriteProblem, resolveKnowledgeForWrite, type EditOp, type KnowledgeBlockShape, type KnowledgeProblem } from "@knotebook/shared";
 import { currentAgentLabel } from "../../auth/agent-label.js";
 import type { CollabServer } from "../../collab/server.js";
 import type { VersionService } from "../../collab/versions.js";
@@ -19,7 +19,12 @@ import { diffLines, hashAgentLines } from "../../transfer/line-diff.js";
 import { bodyLines } from "../../transfer/normalize.js";
 import { fileSyncRows } from "../../transfer/sync-apply.js";
 import type { PlanSyncError } from "../../transfer/sync-plan.js";
+import { planNewNoteTags, planTagsWrite, type TagsPlan } from "../../transfer/sync-tags.js";
 import { recordFileSyncInTx } from "../../transfer/tx/record-file-sync.js";
+import { writeSyncTagsInTx, type SyncTagsOutcome } from "../../transfer/tx/sync-tags.js";
+import { tagSpaceOf } from "../../tags/space.js";
+import { CreateTagsError, createNoteWithTagsInTx } from "../tx/create-with-tags.js";
+import { loadCreateTarget } from "../create-target.js";
 import { insertNoteWithAutoSlug } from "../create.js";
 import { NoteTooLargeError } from "../note-size.js";
 import { renameNoteTitle, type RenameOutcome } from "../rename-note.js";
@@ -32,6 +37,7 @@ import { applyVersionEdit, type ApplyVersionFailureCode, type ApplyVersionInput 
 import { visibleNoteTargets, type VisibleNoteTarget } from "./candidates.js";
 import { loadNoteState, titlesAsk } from "./read.js";
 import { siteOriginOf, type ParseDetail, type ParsedMarkdown, type ParseError } from "./markdown.js";
+import { isEmptyKnowledgeReport, type KnowledgeWriteReport } from "./knowledge-write.js";
 import { ParserBusyError, type ParseOutcome } from "./parse-core.js";
 import { presenceIdentity, presenceTargetForWrite, type PresenceRegistry, type PresenceTarget } from "./presence.js";
 import { NoteWriteQueue, QueueBusyError } from "./queue.js";
@@ -50,15 +56,16 @@ export type WriteOutcome<T, C> =
   | { ok: true; result: T; agentLabel: string | null }
   | { ok: false; kind: "busy" }
   | { ok: false; kind: "gone" }
-  | { ok: false; kind: "apply"; code: C; detail?: ParseDetail };
+  | { ok: false; kind: "apply"; code: C; detail?: ParseDetail; knowledge?: KnowledgeProblem };
 export type ParserBusy = { ok: false; kind: "parser_busy" };
 export type TooLarge = { ok: false; kind: "too_large"; limitBytes: number };
 
 export type PreparedContent = { ok: true; candidates: readonly VisibleNoteTarget[]; agentLabel: string | null; prepared: ParsedMarkdown };
+export type PrepareContentFailure = { ok: false; kind: "parse"; code: ParseError; detail?: ParseDetail; knowledge?: KnowledgeProblem };
 
 export type CreateWithContentResult =
-  | { ok: true; noteId: string; inserted: typeof notes.$inferSelect; unbound: number }
-  | { ok: false; kind: "parse"; code: ParseError; detail?: ParseDetail }
+  | { ok: true; noteId: string; inserted: typeof notes.$inferSelect; unbound: number; knowledge?: KnowledgeWriteReport }
+  | PrepareContentFailure
   | ParserBusy
   | TooLarge
   | { ok: false; kind: "internal" };
@@ -76,6 +83,8 @@ export interface SyncFileInput {
   baseKey: string;
   /** undefined = no title line: don't rename. */
   title: string | undefined;
+  /** undefined = no tags line: leave the tags alone. */
+  tags: string[] | undefined;
   /** Already `normalizeBody`'d (compared by HMAC). */
   body: string;
   key: Buffer;
@@ -84,7 +93,7 @@ export interface SyncFileInput {
 }
 export interface SyncFileOk {
   ok: true;
-  result: "unchanged" | "applied" | "renamed";
+  result: "unchanged" | "applied" | "renamed" | "tagged";
   applied: number;
   same: number;
   editIds: string[];
@@ -92,6 +101,10 @@ export interface SyncFileOk {
   renamed: boolean;
   /** Content was written but the title changed just before the rename (the rename and the unchanged-title check are one UPDATE). */
   renameFailed?: "gone" | "ownership_changed" | "title_changed";
+  tagsChanged: boolean;
+  /** The body or title was written but the tags were not; nothing is rolled back. */
+  tagsFailed?: "not_found" | "conflict" | "tag_limit_reached" | "changed_meanwhile" | "failed";
+  knowledge?: KnowledgeWriteReport;
   diffOverflow: boolean;
   anchored: number;
   degradedLines: number;
@@ -105,13 +118,16 @@ export interface CreateFromFileInput {
   fileSha: Buffer;
   keyId: string;
   title: string | undefined;
+  tags: string[] | undefined;
   body: string;
   dest: { scope: SlugScope; folderId: string | null };
   limiters: { transferWrite: FixedWindowLimiter; tokenRead: FixedWindowLimiter };
 }
 export type CreateFromFileOutcome =
-  | { ok: true; created: boolean; noteId: string; unboundWikilinks: number }
-  | { ok: false; kind: "parse"; code: ParseError; detail?: ParseDetail }
+  | { ok: true; created: boolean; noteId: string; unboundWikilinks: number; knowledge?: KnowledgeWriteReport }
+  | { ok: false; kind: "invalid_tag_name" | "tags_forbidden" }
+  | { ok: false; kind: "tag_limit_reached"; limit: number }
+  | PrepareContentFailure
   | ParserBusy
   | TooLarge
   | { ok: false; kind: "rate_limited"; retryAfterMs: number }
@@ -123,8 +139,10 @@ export type SyncFileOutcome =
   | SyncFileOk
   | { ok: false; kind: "base_unavailable"; reason: BaseUnavailableReason }
   | { ok: false; kind: "not_mergeable" | "busy" | "gone" }
+  | { ok: false; kind: "invalid_tag_name" | "tags_forbidden" | "tags_conflict" }
+  | { ok: false; kind: "tag_limit_reached"; limit: number }
   | { ok: false; kind: "rate_limited"; retryAfterMs: number }
-  | { ok: false; kind: "parse"; code: PlanSyncError; detail?: ParseDetail; fence?: string }
+  | { ok: false; kind: "parse"; code: PlanSyncError; detail?: ParseDetail; fence?: string; knowledge?: KnowledgeProblem }
   | ParserBusy
   | TooLarge
   | { ok: false; kind: "note_too_complex" };
@@ -236,7 +254,7 @@ export class NoteWriteService {
       if (err instanceof ParserBusyError) return { ok: false, kind: "parser_busy" };
       throw err;
     }
-    if (!result.ok) return { ok: false, kind: "apply", code: result.code, ...(result.detail ? { detail: result.detail } : {}) };
+    if (!result.ok) return { ok: false, kind: "apply", code: result.code, ...(result.detail ? { detail: result.detail } : {}), ...(result.knowledge ? { knowledge: result.knowledge } : {}) };
     // Target from post-edit `afterBlockIds`, not `sectionId` (a heading id that replace_section/delete_section may have replaced).
     this.touch(input.noteId, input.tokenId, input.userHandle, agentLabel, presenceTargetForWrite(input.op, result.afterBlockIds));
     return { ok: true, result, agentLabel };
@@ -311,7 +329,7 @@ export class NoteWriteService {
   }
 
   /**
-   * Once the note was touched since download (title or body) the result is always 409 `note_changed`: no three-way merge. Everything runs inside one `queue.run(noteId)`. Copies that already wrote back are checked first (`already_sent`/`reverted`): the note was changed by that copy itself, so `note_changed` would be wrong. "Touched" is a content comparison, not `updated_at`: per-block fingerprints against the base segment table (a linked note being renamed or made invisible doesn't count); a base with 0 blocks and now exactly one empty paragraph (browser normalization) counts as untouched. A zero-region result is treated as unchanged and the write quota is refunded. A copy that already wrote its body accepts no further change, title-only included (`already_sent`). `unchanged` charges `tokenRead` regardless of whether others touched the note. A body change with null segments → `not_mergeable`. A parse failure → 400 and the charge is kept. A fingerprint mismatch retries up to 3 times. DB calls carrying content go through `redactDbError`.
+   * Once the note was touched since download (title or body) the result is always 409 `note_changed`: no three-way merge. Everything runs inside one `queue.run(noteId)`. Copies that already wrote back are checked first (`already_sent`/`reverted`): the note was changed by that copy itself, so `note_changed` would be wrong. "Touched" is a content comparison, not `updated_at`: per-block fingerprints against the base segment table (a linked note being renamed or made invisible doesn't count); a base with 0 blocks and now exactly one empty paragraph (browser normalization) counts as untouched. A zero-region result is treated as unchanged and the write quota is refunded. A copy that already wrote its body accepts no further change, title-only included (`already_sent`). `unchanged` charges `tokenRead` regardless of whether others touched the note. A body change with null segments → `not_mergeable`. A parse failure → 400 and the charge is kept. A fingerprint mismatch retries up to 3 times. Tags are written last, in their own transaction; once the body or title is written, a tags failure is reported as `tagsFailed` and nothing is rolled back. "The tags are still what the copy had" is checked when the file is read and again inside that transaction, which can't see a tags change committed at the same moment: the later write wins. DB calls carrying content go through `redactDbError`.
    * Known gaps (not fixed): for title-only changes the body check and the rename aren't one transaction (body in Yjs, title in the DB), and a title change landing between reading the title and the merge goes undetected when the file didn't change the title.
    */
   async syncFile(log: FastifyBaseLogger, input: SyncFileInput): Promise<SyncFileOutcome> {
@@ -354,6 +372,10 @@ export class NoteWriteService {
     const copyTitle = Buffer.from(base.appliedTitleSha ?? base.titleSha);
     const fileTitleSha = input.title === undefined ? null : hmacOf(input.key, salt, input.title);
     const titleChanged = fileTitleSha !== null && !fileTitleSha.equals(copyTitle);
+    const copyTags = base.appliedTagsSha ?? base.tagsSha;
+    let tagsPlan: TagsPlan | undefined;
+    const planTags = async (): Promise<TagsPlan> =>
+      (tagsPlan ??= await planTagsWrite(db, { noteId: input.noteId, fileTags: input.tags, access: input.access, copySha: copyTags === null ? null : Buffer.from(copyTags), key: input.key, salt }));
     let bodyChanged: boolean;
     if (applied === null) bodyChanged = !bodySha.equals(Buffer.from(base.bodySha));
     else if (bodySha.equals(applied)) {
@@ -362,26 +384,36 @@ export class NoteWriteService {
         const [rev] = await db.select({ id: noteAiEdits.id }).from(noteAiEdits).where(and(inArray(noteAiEdits.id, ids), isNotNull(noteAiEdits.revertedAt))).limit(1);
         if (rev) return { ok: false, kind: "base_unavailable", reason: "reverted" };
       }
-      if (titleChanged) return { ok: false, kind: "base_unavailable", reason: "already_sent" };
+      if (titleChanged || (await planTags()).kind !== "unchanged") return { ok: false, kind: "base_unavailable", reason: "already_sent" };
       bodyChanged = false;
     } else return { ok: false, kind: "base_unavailable", reason: "already_sent" };
 
+    const plan = await planTags();
+    if (plan.kind === "note_changed") return { ok: false, kind: "base_unavailable", reason: "note_changed" };
+    if (plan.kind === "invalid_tag_name" || plan.kind === "tags_forbidden") return { ok: false, kind: plan.kind };
+    if (plan.kind === "tag_limit_reached") return { ok: false, kind: "tag_limit_reached", limit: plan.limit };
+
     const out: SyncFileOk = {
-      ok: true, result: "unchanged", applied: 0, same: 0, editIds: [], unboundWikilinks: 0, renamed: false, diffOverflow: false, anchored: 0, degradedLines: 0,
+      ok: true, result: "unchanged", applied: 0, same: 0, editIds: [], unboundWikilinks: 0, renamed: false, tagsChanged: false, diffOverflow: false, anchored: 0, degradedLines: 0,
     };
     const tokenReadKey = `token:${input.userId}`;
-    if (!bodyChanged && !titleChanged) {
+    if (!bodyChanged && !titleChanged && plan.kind !== "change") {
       if (!input.limiters.tokenRead.consume(tokenReadKey)) return { ok: false, kind: "rate_limited", retryAfterMs: input.limiters.tokenRead.retryAfterMs(tokenReadKey) };
       return out;
     }
     if (bodyChanged && base.segments === null) return { ok: false, kind: "not_mergeable" };
-    // Unchanged files don't touch the quota. Body changed: charge before parsing (a failed parse counts), refunded for a zero region; title-only: charge before the rename. Once the quota is exhausted a body-changed file always gets 429, zero-region ones too, since telling needs a parse.
+    // Unchanged files don't touch the quota. Body changed: charge before parsing (a failed parse counts), refunded for a zero region; title-only and tags-only: charge before the rename or the tags write. Once the quota is exhausted a body-changed file always gets 429, zero-region ones too, since telling needs a parse.
 
     const noteChanged: SyncFileOutcome = { ok: false, kind: "base_unavailable", reason: "note_changed" };
-    const [row] = await db.select({ title: notes.title }).from(notes).where(and(eq(notes.id, input.noteId), isNull(notes.deletedAt))).limit(1);
-    if (!row) return { ok: false, kind: "gone" };
-    if (!hmacOf(input.key, salt, row.title).equals(copyTitle)) return noteChanged;
-    const currentTitle = row.title;
+    // A tags-only file changes nothing that the copy's body or title describe, so it isn't held to them.
+    const tagsOnly = !bodyChanged && !titleChanged;
+    let currentTitle = "";
+    if (!tagsOnly) {
+      const [row] = await db.select({ title: notes.title }).from(notes).where(and(eq(notes.id, input.noteId), isNull(notes.deletedAt))).limit(1);
+      if (!row) return { ok: false, kind: "gone" };
+      if (!hmacOf(input.key, salt, row.title).equals(copyTitle)) return noteChanged;
+      currentTitle = row.title;
+    }
 
     let charged = false;
     let chargeTicket: number | null = null;
@@ -404,7 +436,7 @@ export class NoteWriteService {
     let syncApplied: SyncApplyDocResult | null = null;
     const fileBudget = applyDeps.editing.parser.fileBudget();
     let zeroRegion = false;
-    let bodyChecked = false;
+    let bodyChecked = tagsOnly;
     // The worker's two questions are answered here; the write quota is charged before parsing (a 400 parse failure still counts, like `edit_note` charging first) and not again on retries.
     const titles = titlesAsk(db, input.userId);
     let rateLimited = false;
@@ -444,7 +476,7 @@ export class NoteWriteService {
           bodyChecked = true;
           break;
         }
-        if (r.kind === "parse") return { ok: false, kind: "parse", code: r.code, ...(r.detail ? { detail: r.detail } : {}), ...(r.fence ? { fence: r.fence } : {}) };
+        if (r.kind === "parse") return { ok: false, kind: "parse", code: r.code, ...(r.detail ? { detail: r.detail } : {}), ...(r.fence ? { fence: r.fence } : {}), ...(r.knowledge ? { knowledge: r.knowledge } : {}) };
         if (r.kind === "zero_region") {
           // Zero regions (e.g. only blank lines added): refund, and don't write `applied_body_sha`, so a later title-only change from this copy is a normal rename, not `already_sent`.
           if (chargeTicket !== null) input.limiters.transferWrite.refund(input.userId, chargeTicket);
@@ -453,8 +485,9 @@ export class NoteWriteService {
           zeroRegion = true;
           break;
         }
-        const a = await editing.runDoc(input.userId, { kind: "syncApply", state, plan: r.plan, normalizedId: r.normalizedId }, { extraWeight: input.body.length });
+        const a = await editing.runDoc(input.userId, { kind: "syncApply", state, plan: r.plan, normalizedId: r.normalizedId, noteId: input.noteId }, { extraWeight: input.body.length });
         if (a === DOC_TOO_COMPLEX) return { ok: false, kind: "note_too_complex" };
+        if ("kind" in a) return { ok: false, kind: "parse", code: "invalid_knowledge", knowledge: a.knowledge };
         if (hooks?.beforeMerge) await hooks.beforeMerge();
         const ctx: DirectCtx = { source: "ai-edit", userId: input.userId, tokenId: input.tokenId, agentLabel, applied: false };
         try {
@@ -487,6 +520,7 @@ export class NoteWriteService {
       out.applied = syncApplied.decisions.filter(d => d.mark === "applied").length;
       out.same = syncApplied.decisions.filter(d => d.mark === "same").length;
       out.unboundWikilinks = syncApplied.unbound;
+      if (!isEmptyKnowledgeReport(syncApplied.knowledge)) out.knowledge = syncApplied.knowledge;
       out.result = "applied";
       contentWritten = true;
       const firstIdx = syncApplied.decisions.findIndex(d => d.mark !== "same" && d.kind !== "delete");
@@ -521,7 +555,50 @@ export class NoteWriteService {
       }
     }
 
-    if (!contentWritten && !out.renamed) {
+    if (plan.kind === "change") {
+      const written = contentWritten || out.renamed;
+      if (!charged) {
+        if (!input.limiters.transferWrite.consume(input.userId)) return { ok: false, kind: "rate_limited", retryAfterMs: input.limiters.transferWrite.retryAfterMs(input.userId) };
+        charged = true;
+      }
+      if (hooks?.beforeTags) await hooks.beforeTags();
+      const tagsInput = { noteId: input.noteId, expected: { ownerId: input.access.ownerId, groupId: input.access.groupId }, names: plan.names, createdBy: input.userId, currentKey: plan.currentKey };
+      const afterLock = hooks?.afterTagsLock;
+      const afterWrite = hooks?.afterTagsWrite;
+      let tagsOut: SyncTagsOutcome | "failed";
+      let failure: Error | null = null;
+      try {
+        tagsOut = await db.transaction(tx => writeSyncTagsInTx(tx, tagsInput, afterLock, afterWrite));
+      } catch (err) {
+        failure = redactDbError(log, err, "檔案寫回改標籤");
+        tagsOut = "failed";
+      }
+      if (tagsOut !== "failed" && tagsOut.kind === "ok") {
+        try {
+          await db.update(transferBases).set({ appliedTagsSha: plan.fileSha, lastUsedAt: sql`now()` }).where(eq(transferBases.key, base.key));
+        } catch (err) {
+          throw redactDbError(log, err, "寫入檔案同步基底");
+        }
+        out.tagsChanged = true;
+        if (!written) out.result = "tagged";
+      } else if (written) {
+        out.tagsFailed = tagsOut === "failed" || tagsOut.kind === "invalid_tag_name" ? "failed" : tagsOut.kind;
+      } else if (tagsOut === "failed") {
+        throw failure!;
+      } else if (tagsOut.kind === "not_found") {
+        return { ok: false, kind: "gone" };
+      } else if (tagsOut.kind === "conflict") {
+        return { ok: false, kind: "tags_conflict" };
+      } else if (tagsOut.kind === "changed_meanwhile") {
+        return noteChanged;
+      } else if (tagsOut.kind === "tag_limit_reached") {
+        return { ok: false, kind: "tag_limit_reached", limit: tagsOut.limit };
+      } else {
+        return { ok: false, kind: "invalid_tag_name" };
+      }
+    }
+
+    if (!contentWritten && !out.renamed && !out.tagsChanged) {
       if (!charged && !input.limiters.tokenRead.consume(tokenReadKey)) {
         return { ok: false, kind: "rate_limited", retryAfterMs: input.limiters.tokenRead.retryAfterMs(tokenReadKey) };
       }
@@ -554,22 +631,35 @@ export class NoteWriteService {
       if (!input.limiters.tokenRead.consume(k)) return { ok: false, kind: "rate_limited", retryAfterMs: input.limiters.tokenRead.retryAfterMs(k) };
       return { ok: true, created: false, noteId: hit.noteId, unboundWikilinks: 0 };
     }
+    // Everything that can refuse the tags is decided before the quota is charged or a row exists.
+    let tagNames: string[] = [];
+    if (input.tags !== undefined && input.tags.length > 0) {
+      const scope = input.dest.scope;
+      if ("groupId" in scope) {
+        const target = await loadCreateTarget(db, input.userId, scope.groupId);
+        if (!target?.canEdit) return { ok: false, kind: "tags_forbidden" };
+      }
+      const planned = await planNewNoteTags(db, { fileTags: input.tags, space: tagSpaceOf({ ownerId: "ownerId" in scope ? scope.ownerId : null, groupId: "groupId" in scope ? scope.groupId : null }) });
+      if (planned.kind !== "ok") return planned.kind === "invalid_tag_name" ? { ok: false, kind: "invalid_tag_name" } : { ok: false, kind: "tag_limit_reached", limit: planned.limit };
+      tagNames = planned.names;
+    }
     // Charge before parsing (a failed parse counts once): otherwise unparseable files cost no quota and every request could make the server parse a whole large file. A parse failure leaves no note and no dedupe row.
     if (!input.limiters.transferWrite.consume(input.userId)) return { ok: false, kind: "rate_limited", retryAfterMs: input.limiters.transferWrite.retryAfterMs(input.userId) };
     const pre = await this.prepareContent(log, { userId: input.userId, tokenId: input.tokenId, content: input.body });
-    if (!pre.ok) return pre.kind === "parser_busy" ? pre : { ok: false, kind: "parse", code: pre.code, ...(pre.detail ? { detail: pre.detail } : {}) };
+    if (!pre.ok) return pre.kind === "parser_busy" ? pre : { ok: false, kind: "parse", code: pre.code, ...(pre.detail ? { detail: pre.detail } : {}), ...(pre.knowledge ? { knowledge: pre.knowledge } : {}) };
     if (this.deps.testHooks?.beforeCreateFromFile) await this.deps.testHooks.beforeCreateFromFile();
     let r: CreateWithContentResult;
     try {
-      r = await this.createWithContent(log, { userId: input.userId, userHandle: input.userHandle, tokenId: input.tokenId, title: input.title, content: input.body, scope: input.dest.scope, folderId: input.dest.folderId }, pre);
+      r = await this.createWithContent(log, { userId: input.userId, userHandle: input.userHandle, tokenId: input.tokenId, title: input.title, content: input.body, scope: input.dest.scope, folderId: input.dest.folderId, tags: tagNames }, pre);
     } catch (err) {
+      if (err instanceof CreateTagsError) return err.kind === "tag_limit_reached" ? { ok: false, kind: "tag_limit_reached", limit: err.limit } : err.kind === "invalid_tag_name" ? { ok: false, kind: "invalid_tag_name" } : { ok: false, kind: "internal" };
       // Same mapping as `mapCreateInsertFailure` (`mcp/tools/create-note.ts`).
       if (isRetryableTxError(err)) return { ok: false, kind: "busy" };
       if (input.dest.folderId !== null && (isNoteFolderSpaceViolation(err) || isForeignKeyViolation(err))) return { ok: false, kind: "folder_gone" };
       if ("groupId" in input.dest.scope && isForeignKeyViolation(err)) return { ok: false, kind: "folder_gone" };
       throw redactDbError(log, err, "檔案新增建列");
     }
-    if (!r.ok) return r.kind === "parse" ? { ok: false, kind: "parse", code: r.code, ...(r.detail ? { detail: r.detail } : {}) } : r.kind === "parser_busy" || r.kind === "too_large" ? r : { ok: false, kind: "internal" };
+    if (!r.ok) return r.kind === "parse" ? { ok: false, kind: "parse", code: r.code, ...(r.detail ? { detail: r.detail } : {}), ...(r.knowledge ? { knowledge: r.knowledge } : {}) } : r.kind === "parser_busy" || r.kind === "too_large" ? r : { ok: false, kind: "internal" };
     try {
       await db
         .insert(transferCreates)
@@ -581,10 +671,11 @@ export class NoteWriteService {
     void db
       .execute(sql`delete from ${transferCreates} where ${transferCreates.createdAt} < now() - make_interval(mins => ${CREATE_DEDUPE_MINUTES}::int)`)
       .catch((err: unknown) => log.warn({ ...pgErrorSummary(err) }, "清理 transfer_creates 失敗"));
-    return { ok: true, created: true, noteId: r.noteId, unboundWikilinks: r.unbound };
+    return { ok: true, created: true, noteId: r.noteId, unboundWikilinks: r.unbound, ...(r.knowledge ? { knowledge: r.knowledge } : {}) };
   }
 
-  async prepareContent(log: FastifyBaseLogger, input: { userId: string; tokenId: string | null; content: string }): Promise<PreparedContent | { ok: false; kind: "parse"; code: ParseError; detail?: ParseDetail } | ParserBusy> {
+  /** A new note has no knowledge yet, so the value checks run here with nothing to compare against: bad values are refused before a note row exists. */
+  async prepareContent(log: FastifyBaseLogger, input: { userId: string; tokenId: string | null; content: string }): Promise<PreparedContent | PrepareContentFailure | ParserBusy> {
     const candidates = await visibleNoteTargets(this.deps.db, input.userId);
     const agentLabel = input.tokenId ? await currentAgentLabel(this.deps.db, input.tokenId) : null;
     const editing = this.applyDeps(log).editing;
@@ -595,7 +686,10 @@ export class NoteWriteService {
       if (err instanceof ParserBusyError) return { ok: false, kind: "parser_busy" };
       throw err;
     }
-    if ("error" in prepared) return { ok: false, kind: "parse", code: prepared.error, ...(prepared.detail ? { detail: prepared.detail } : {}) };
+    if ("error" in prepared) return { ok: false, kind: "parse", code: prepared.error, ...(prepared.detail ? { detail: prepared.detail } : {}), ...(prepared.knowledge ? { knowledge: prepared.knowledge } : {}) };
+    const shaped = prepared.blocks as unknown as readonly KnowledgeBlockShape[];
+    const problem = knowledgeWriteProblem(resolveKnowledgeForWrite({ before: [], after: shaped, keep: false, taken: new Set() }).blocks, new Map(), null);
+    if (problem !== null) return { ok: false, kind: "parse", code: "invalid_knowledge", knowledge: problem };
     return { ok: true, candidates, agentLabel, prepared };
   }
 
@@ -613,17 +707,23 @@ export class NoteWriteService {
     input: {
       userId: string; userHandle: string; tokenId: string | null; title: string | undefined; content: string; scope: SlugScope;
       folderId?: string | null;
+      /** Valid names; the note and its tags are inserted in one transaction, so a refusal leaves no note. Empty or left out: no tags. */
+      tags?: readonly string[];
     },
     pre?: PreparedContent,
   ): Promise<CreateWithContentResult> {
     const p = pre ?? (await this.prepareContent(log, input));
     if (!p.ok) return p;
     const { candidates, agentLabel, prepared } = p;
+    let knowledge: KnowledgeWriteReport | undefined;
     // Bulk creates (`pre` given) skip the #387 link-text tracking: #385 keeps its own base.
     const [blocks, cleared] = pre ? [prepared.blocks, [] as Array<[string, string]>] : this.shownLinks.keepLabelFree(prepared.blocks, input.userId, candidates);
     const applyDeps = this.applyDeps(log);
     // Must stay after parsing: "parse before insert" is the contract.
-    const note = await insertNoteWithAutoSlug(this.deps.db, { scope: input.scope, folderId: input.folderId ?? null }, input.title);
+    const tagInput = { scope: input.scope, folderId: input.folderId ?? null, title: input.title, names: input.tags ?? [], createdBy: input.userId };
+    const note = input.tags !== undefined && input.tags.length > 0
+      ? await this.deps.db.transaction(tx => createNoteWithTagsInTx(tx, tagInput))
+      : await insertNoteWithAutoSlug(this.deps.db, { scope: input.scope, folderId: input.folderId ?? null }, input.title);
     try {
       const result = await this.queue.run(
         note.id,
@@ -640,6 +740,7 @@ export class NoteWriteService {
             candidates,
             blocks,
             unbound: prepared.unbound,
+            ignoredKnowledgeComments: prepared.ignoredKnowledgeComments,
             contentLength: input.content.length,
           }),
         this.deps.queueWaitMs
@@ -648,7 +749,12 @@ export class NoteWriteService {
         await this.dropCreated(log, note.id);
         return { ok: false, kind: "parse", code: "unsupported_block", detail: "too_complex" };
       }
+      if (!result.ok && result.code === "invalid_knowledge" && result.knowledge) {
+        await this.dropCreated(log, note.id);
+        return { ok: false, kind: "parse", code: "invalid_knowledge", knowledge: result.knowledge };
+      }
       if (!result.ok) throw new Error(`帶 content 建立筆記時套用失敗：${result.code}`);
+      knowledge = result.knowledge;
       if (!pre) {
         const written = shownLinkTextsOf(blocks, new Map());
         written.free.push(...cleared);
@@ -668,6 +774,6 @@ export class NoteWriteService {
       await this.dropCreated(log, note.id);
       return { ok: false, kind: "internal" };
     }
-    return { ok: true, noteId: note.id, inserted: note, unbound: prepared.unbound };
+    return { ok: true, noteId: note.id, inserted: note, unbound: prepared.unbound, ...(knowledge ? { knowledge } : {}) };
   }
 }

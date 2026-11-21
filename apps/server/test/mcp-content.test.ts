@@ -182,7 +182,7 @@ describe("#108 read_note_outline", () => {
       ["folder", "lastEdited", "nextSectionOffset", "note", "sections", "titleFingerprint", "totalChars", "truncated"].sort()
     );
     expect(out.titleFingerprint).toBe(fingerprintOf(out.note.title));
-    expect(Object.keys(out.note).sort()).toEqual(["id", "owner", "role", "title"].sort());
+    expect(Object.keys(out.note).sort()).toEqual(["id", "owner", "role", "tags", "title"].sort());
     for (const entry of out.sections) {
       expect(Object.keys(entry).sort()).toEqual(["chars", "heading", "level", "sectionId"].sort());
     }

@@ -7,6 +7,7 @@ import { notes } from "../db/schema.js";
 import { listVisibleFolders } from "../folders/queries.js";
 import { listMyGroupsQuery } from "../groups/queries.js";
 import { loadCreateTarget } from "../notes/create-target.js";
+import { noteTagsJsonSql } from "../tags/queries.js";
 import { visibleNoteBranches } from "../notes/list-query.js";
 import { buildLayout, type Layout, type LayoutFolder, type LayoutGroup, type LayoutNote } from "./paths.js";
 
@@ -20,6 +21,8 @@ export interface RangeNoteRow {
   /** For a shared note: the reader's own placement. */
   viewerFolderId: string | null;
   createdAt: Date;
+  /** In the order they were added. */
+  tagNames: string[];
   space: "personal" | "shared" | "group";
 }
 
@@ -32,7 +35,7 @@ export interface VisibleSet {
 export async function visibleNotes(db: DbOrTx, userId: string, opts: { ids?: string[] } = {}): Promise<RangeNoteRow[]> {
   if (opts.ids !== undefined && opts.ids.length === 0) return [];
   const extraWhere: SQL | undefined = opts.ids === undefined ? undefined : inArray(notes.id, opts.ids);
-  const { owned, shared, grouped } = visibleNoteBranches(db, userId, { extraWhere });
+  const { owned, shared, grouped } = visibleNoteBranches(db, userId, { extraWhere, extra: { tags: noteTagsJsonSql() } });
   const rows = await unionAll(owned, shared, grouped);
   return rows.map(r => ({
     id: r.id,
@@ -43,6 +46,7 @@ export async function visibleNotes(db: DbOrTx, userId: string, opts: { ids?: str
     slug: r.slug,
     viewerFolderId: r.viewerFolderId,
     createdAt: r.createdAt,
+    tagNames: r.tags.map(t => t.name),
     space: r.groupId !== null ? "group" : r.role === "owner" ? "personal" : "shared",
   }));
 }

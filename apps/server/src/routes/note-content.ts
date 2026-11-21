@@ -113,10 +113,10 @@ export function noteContentRoutes(deps: NoteContentRouteDeps) {
             return reply.code(409).send({ error: { code: "fingerprint_mismatch", message: "The content changed since you read it, so nothing was written. The response's current field has the content as it is now." }, current: body });
           }
           if (out.code === "too_complex") return sendError(reply, 500, "too_complex", NOTE_WRITE_TOO_COMPLEX_MESSAGE);
-          return sendError(reply, out.code === "section_not_found" ? 404 : 400, out.code, parseErrorMessage(out.code, "Couldn't apply the edit.", out.detail));
+          return sendError(reply, out.code === "section_not_found" ? 404 : 400, out.code, parseErrorMessage(out.code, "Couldn't apply the edit.", out.detail, out.knowledge));
         }
         const result = out.result;
-        return reply.code(201).send({ editId: result.editId, fingerprint: result.fingerprint, outline: result.outline, unboundWikilinks: result.unboundWikilinks } satisfies NoteEditResultDto);
+        return reply.code(201).send({ editId: result.editId, fingerprint: result.fingerprint, outline: result.outline, unboundWikilinks: result.unboundWikilinks, ...(result.knowledge ? { knowledge: result.knowledge } : {}) } satisfies NoteEditResultDto);
       });
 
       /** Read path: never opens a direct connection or reloads an unloaded document. */

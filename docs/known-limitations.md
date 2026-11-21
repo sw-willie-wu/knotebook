@@ -237,6 +237,13 @@ Each section below names one page and lists the bold headings of its entries; fo
 - [If the tag code can't be loaded, `#` completion in the search box isn't available.](./known-limitations/tags.md)
 - [One search can use tags of only one space.](./known-limitations/tags.md)
 - [A screen reader may not read the number of results when a tag is added to the search.](./known-limitations/tags.md)
+- [Tags are not in the AI edit history, so reverting an edit doesn't change them.](./known-limitations/tags.md)
+- [A file sent back writes the text first and the tags after it.](./known-limitations/tags.md)
+- [Two requests that change the same note's tags at the same moment can overwrite each other.](./known-limitations/tags.md)
+- [A file that creates a note and fails to write its text leaves the new tag names behind.](./known-limitations/tags.md)
+- [Only a file sets a note's tags from MCP.](./known-limitations/tags.md)
+- [Changing the case or the order of a file's tags changes nothing.](./known-limitations/tags.md)
+- [Every downloaded file has a `tags` line, and a copy downloaded before the upgrade has none.](./known-limitations/tags.md)
 
 ## Knowledge info
 
@@ -253,6 +260,7 @@ Each section below names one page and lists the bold headings of its entries; fo
 - [While it is faded, the status icon has a lower contrast than 3:1 against the page.](./known-limitations/knowledge.md)
 - [In a very large note, typing in a heading is slower.](./known-limitations/knowledge.md)
 - [A very large note is slower to open as a public page if its headings were added or edited after this version, or its text mentions the word "knowledge".](./known-limitations/knowledge.md)
+- [A card that is open while someone else changes the info keeps what it showed when it opened.](./known-limitations/knowledge.md)
 - [If the window crosses the phone width while the form is open, what you had typed and not saved is lost.](./known-limitations/knowledge.md)
 - [A heading can be marked as replaced by one that is itself outdated.](./known-limitations/knowledge.md)
 - [A version preview doesn't name a replacement in another note.](./known-limitations/knowledge.md)
@@ -267,6 +275,16 @@ Each section below names one page and lists the bold headings of its entries; fo
 - [Only members of a space can open its index.](./known-limitations/knowledge.md)
 - [After the first piece of knowledge is added to a folder, its index button waits for the note list to refresh.](./known-limitations/knowledge.md)
 - [Changing the index's filters adds no step to the browser's history.](./known-limitations/knowledge.md)
+- [A colored collapsible knowledge heading reads without its comment.](./known-limitations/knowledge.md)
+- [A knowledge heading with no text reads as `## ` and comes back as a paragraph.](./known-limitations/knowledge.md)
+- [The rule that keeps the knowledge info of a heading sent without a comment goes by level and text only.](./known-limitations/knowledge.md)
+- [A write whose markdown has a `<plaintext>` tag ignores every knowledge comment in it, the ones before the tag too.](./known-limitations/knowledge.md)
+- [Stored knowledge info that wouldn't pass today's checks is written back as it is, until you change it.](./known-limitations/knowledge.md)
+- [Knowledge info with a NUL character or an unpaired surrogate in a value can be read but not written back.](./known-limitations/knowledge.md)
+- [A `superseded_by` with a space at either end is refused once any value of that knowledge is changed.](./known-limitations/knowledge.md)
+- [A write doesn't repair what is already wrong in the note.](./known-limitations/knowledge.md)
+- [A heading you rename and keep the comment of loses its id to a heading above it that carries the same id.](./known-limitations/knowledge.md)
+- [The `knowledge` lists in an `edit_note` or `create_note` reply have a size budget.](./known-limitations/knowledge.md)
 
 ## Trash
 
@@ -572,10 +590,11 @@ Each section below names one page and lists the bold headings of its entries; fo
 - [A toggle becomes a bullet when a file changes it.](./known-limitations/bulk-transfer.md)
 - [Some blocks come back different when a file changes the part of the note they are in.](./known-limitations/bulk-transfer.md)
 - [A list with colored items is one block in the file.](./known-limitations/bulk-transfer.md)
+- [A note with a great many knowledge headings can download as a file too large to send back.](./known-limitations/bulk-transfer.md)
 - [A few notes can't be written back as files.](./known-limitations/bulk-transfer.md)
 - [An empty paragraph can't be added by adding a blank line, and removing blank lines removes empty paragraphs.](./known-limitations/bulk-transfer.md)
 - [If recording a file's changes fails after they were merged, the note is changed with no row in its AI edit history.](./known-limitations/bulk-transfer.md)
-- [HTML comments in a file are dropped, and can turn the lines below them into plain text.](./known-limitations/bulk-transfer.md)
+- [HTML comments in a file, other than a knowledge comment, are dropped, and can turn the lines below them into plain text.](./known-limitations/bulk-transfer.md)
 - [A code block a file opens and never closes gets the whole file refused.](./known-limitations/bulk-transfer.md)
 - [The check for an unclosed code block has gaps.](./known-limitations/bulk-transfer.md)
 - [An indented line after a blank line can read differently when a file changes the part it is in.](./known-limitations/bulk-transfer.md)

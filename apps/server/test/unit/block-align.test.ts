@@ -6,7 +6,7 @@ import {
   keptIdRenames,
   type AlignItem,
   type AlignSource,
-} from "../../src/notes/editing/block-align.js";
+} from "@knotebook/shared";
 
 const it_ = (type: string, text: string, children: AlignSource[] = []): AlignItem =>
   alignItemOf({ type, content: text, children });

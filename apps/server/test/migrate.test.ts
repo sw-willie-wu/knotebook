@@ -15,7 +15,7 @@ import { apiTokens, authProviders, folders, groupMembers, groupRoles, groups, no
 const drizzleDirForTest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
 /** Drizzle's serialization of `schema.ts`; the declaration-drift guard compares against the latest snapshot (update the file name with each new migration). */
-const SNAPSHOT_FILE = "meta/0044_snapshot.json";
+const SNAPSHOT_FILE = "meta/0045_snapshot.json";
 const snapshotLatest = JSON.parse(readFileSync(path.join(drizzleDirForTest, SNAPSHOT_FILE), "utf8")) as {
   tables: Record<string, {
     checkConstraints?: Record<string, { name: string; value: string }>;
@@ -1449,7 +1449,7 @@ describe("0009_api-tokens", () => {
       transfer_tokens: ["id", "token_hash", "parent_token_id", "note_id", "purpose", "expires_at", "consumed_at", "created_at", "access", "range"],
       transfer_bases: [
         "key", "user_id", "note_id", "salt", "key_id", "body_sha", "title_sha", "line_hashes", "line_kinds", "segments",
-        "applied_body_sha", "applied_edit_ids", "applied_title_sha", "created_at", "last_used_at",
+        "applied_body_sha", "applied_edit_ids", "applied_title_sha", "created_at", "last_used_at", "tags_sha", "applied_tags_sha",
       ],
       transfer_creates: ["user_id", "file_sha", "note_id", "key_id", "created_at"],
       notes: [
@@ -3950,7 +3950,47 @@ describe("0043_tags", () => {
   });
 });
 
-describe("0044_knowledge-index", () => {
+describe("0044_transfer-base-tags", () => {
+  const TAG = "0044_transfer-base-tags";
+  const PREV_TAG = "0043_tags";
+
+  it("adds nullable tags_sha and applied_tags_sha to transfer_bases and an existing base keeps its values with both null", async () => {
+    const { pool, db } = await freshEmptyDb();
+    await applyMigrationsThrough(pool, idxOfTag(PREV_TAG));
+    const u = await pool.query<{ id: string }>(`insert into users (email, handle, display_name) values ('tb@x.test','tb','TB') returning id`);
+    const n = await pool.query<{ id: string }>(`insert into notes (owner_id, slug) values ($1, 'n1') returning id`, [u.rows[0]!.id]);
+    const one = Buffer.alloc(8, 1);
+    await pool.query(
+      `insert into transfer_bases (key, user_id, note_id, salt, key_id, body_sha, title_sha, line_hashes, line_kinds) values ('k1', $1, $2, $3, 'abcd1234', $4, $4, $4, $4)`,
+      [u.rows[0]!.id, n.rows[0]!.id, Buffer.alloc(16, 1), one],
+    );
+    await runMigrations(db);
+    const cols = (await pool.query(
+      `select column_name, data_type, is_nullable, column_default from information_schema.columns where table_name = 'transfer_bases' and column_name in ('tags_sha', 'applied_tags_sha') order by column_name`,
+    )).rows;
+    expect(cols).toEqual([
+      { column_name: "applied_tags_sha", data_type: "bytea", is_nullable: "YES", column_default: null },
+      { column_name: "tags_sha", data_type: "bytea", is_nullable: "YES", column_default: null },
+    ]);
+    const row = (await pool.query(`select body_sha, tags_sha, applied_tags_sha from transfer_bases where key = 'k1'`)).rows[0];
+    expect(Buffer.from(row.body_sha).equals(one)).toBe(true);
+    expect(row.tags_sha).toBeNull();
+    expect(row.applied_tags_sha).toBeNull();
+  });
+
+  it("SQL file only adds the two columns; no CONCURRENTLY/line-leading COMMIT", () => {
+    const sqlText = readFileSync(path.join(drizzleDirForTest, `${TAG}.sql`), "utf8");
+    expect(sqlText).not.toMatch(/CONCURRENTLY/i);
+    expect(sqlText).not.toMatch(/^\s*COMMIT/im);
+    const statements = sqlText.split("--> statement-breakpoint").map(s => s.replace(/^\s*--.*$/gm, "").trim()).filter(s => s.length > 0);
+    expect(statements).toEqual([
+      `ALTER TABLE "transfer_bases" ADD COLUMN "tags_sha" "bytea";`,
+      `ALTER TABLE "transfer_bases" ADD COLUMN "applied_tags_sha" "bytea";`,
+    ]);
+  });
+});
+
+describe("0045_knowledge-index", () => {
   type Pool = import("pg").Pool;
   const outcome = async (p: Promise<unknown>) => {
     try { await p; } catch (e) { const x = e as { code?: string; constraint?: string }; return `${x.code}:${x.constraint}`; }

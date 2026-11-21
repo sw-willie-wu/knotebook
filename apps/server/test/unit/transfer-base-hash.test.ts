@@ -50,8 +50,8 @@ describe("HMAC + salt line hashing", () => {
 
   it("the same line in two rows (two salts) hashes differently; two identical lines in the same row hash the same", () => {
     const lines = ["same line", "other", "same line"];
-    const a = baseHashes(key, saltA, { body: lines.join("\n"), title: "T", lines, kinds: [0, 0, 0] });
-    const b = baseHashes(key, saltB, { body: lines.join("\n"), title: "T", lines, kinds: [0, 0, 0] });
+    const a = baseHashes(key, saltA, { body: lines.join("\n"), title: "T", tags: [], lines, kinds: [0, 0, 0] });
+    const b = baseHashes(key, saltB, { body: lines.join("\n"), title: "T", tags: [], lines, kinds: [0, 0, 0] });
     expect(hashOfLine(a.lineHashes, 0)).not.toBe(hashOfLine(b.lineHashes, 0));
     expect(hashOfLine(a.lineHashes, 0)).toBe(hashOfLine(a.lineHashes, 2));
     expect(hashOfLine(a.lineHashes, 0)).not.toBe(hashOfLine(a.lineHashes, 1));
@@ -59,9 +59,20 @@ describe("HMAC + salt line hashing", () => {
     expect(a.titleSha.equals(b.titleSha)).toBe(false);
   });
 
+  it("tagsSha is the HMAC of the tag key: order and case don't matter, a different set does", () => {
+    const lines = ["a"];
+    const sha = (tags: string[], s = saltA) => baseHashes(key, s, { body: "a", title: "T", tags, lines, kinds: [0] }).tagsSha;
+    const ref = createHmac("sha256", key).update(Buffer.concat([saltA, Buffer.from('["a","b"]', "utf8")])).digest();
+    expect(sha(["B", "a"]).equals(ref)).toBe(true);
+    expect(sha(["b", "a", "A"]).equals(sha(["a", "b"]))).toBe(true);
+    expect(sha(["a"]).equals(sha(["a", "b"]))).toBe(false);
+    expect(sha(["a"], saltB).equals(sha(["a"]))).toBe(false);
+    expect(sha([]).length).toBe(32);
+  });
+
   it("length and shape: lineHashes 8 bytes per line; lineKinds 1 byte per line; body/title 32 bytes", () => {
     const lines = ["a", "", "1. b", "c"];
-    const h = baseHashes(key, saltA, { body: lines.join("\n"), title: "T", lines, kinds: [0, 0, 1, 0] });
+    const h = baseHashes(key, saltA, { body: lines.join("\n"), title: "T", tags: [], lines, kinds: [0, 0, 1, 0] });
     expect(LINE_HASH_BYTES).toBe(8);
     expect(h.lineHashes.length).toBe(8 * lines.length);
     expect([...h.lineKinds]).toEqual([0, 0, 1, 0]);
@@ -72,7 +83,7 @@ describe("HMAC + salt line hashing", () => {
   it("value = HMAC-SHA256(K, salt || x): independently computed, byte-for-byte equal (body uses the passed-in normalised body, line goes through lineKey first)", () => {
     const lines = ["x  ", "y"];
     const body = "x  \ny";
-    const h = baseHashes(key, saltA, { body, title: "標題", lines, kinds: [0, 0] });
+    const h = baseHashes(key, saltA, { body, title: "標題", tags: [], lines, kinds: [0, 0] });
     const ref = (x: string) => createHmac("sha256", key).update(Buffer.concat([saltA, Buffer.from(x, "utf8")])).digest();
     expect(h.bodySha.equals(ref(body))).toBe(true);
     expect(h.titleSha.equals(ref("標題"))).toBe(true);
@@ -82,14 +93,14 @@ describe("HMAC + salt line hashing", () => {
 
   it("kind 1: `3. x` and `1. x` hash the same; kind 0 differ; trailing whitespace does not matter", () => {
     const lines = ["3. x", "1. x", "3. x", "1. x", "a", "a \t"];
-    const h = baseHashes(key, saltA, { body: lines.join("\n"), title: "T", lines, kinds: [1, 1, 0, 0, 0, 0] });
+    const h = baseHashes(key, saltA, { body: lines.join("\n"), title: "T", tags: [], lines, kinds: [1, 1, 0, 0, 0, 0] });
     expect(hashOfLine(h.lineHashes, 0)).toBe(hashOfLine(h.lineHashes, 1));
     expect(hashOfLine(h.lineHashes, 2)).not.toBe(hashOfLine(h.lineHashes, 3));
     expect(hashOfLine(h.lineHashes, 4)).toBe(hashOfLine(h.lineHashes, 5));
   });
 
   it("lines and kinds of different length -> throws (a caller error, no silent truncation)", () => {
-    expect(() => baseHashes(key, saltA, { body: "a", title: "T", lines: ["a"], kinds: [] })).toThrow();
+    expect(() => baseHashes(key, saltA, { body: "a", title: "T", tags: [], lines: ["a"], kinds: [] })).toThrow();
   });
 });
 
@@ -117,16 +128,16 @@ describe("newBaseKey / newSalt", () => {
 });
 
 describe("writeNoteFile", () => {
-  const fm = (title: string) => ({ id: "3f2c0e1a-0000-4000-8000-000000000001", title, role: "editor", base: "7d41c0b2e9a85f13", url: "/n/alice/meeting-notes" });
+  const fm = (title: string) => ({ id: "3f2c0e1a-0000-4000-8000-000000000001", title, role: "editor", base: "7d41c0b2e9a85f13", url: "/n/alice/meeting-notes", tags: [] as string[] });
 
-  it("8 lines of frontmatter in fixed key order; body appended verbatim", () => {
+  it("9 lines of frontmatter in fixed key order; body appended verbatim", () => {
     const out = writeNoteFile(fm("會議紀錄"), "# H\n\nbody  \n");
     expect(out).toBe(
-      "---\nknotebook: 1\nid: 3f2c0e1a-0000-4000-8000-000000000001\ntitle: \"會議紀錄\"\nrole: editor\nbase: 7d41c0b2e9a85f13\nurl: /n/alice/meeting-notes\n---\n# H\n\nbody  \n",
+      "---\nknotebook: 1\nid: 3f2c0e1a-0000-4000-8000-000000000001\ntitle: \"會議紀錄\"\ntags: []\nrole: editor\nbase: 7d41c0b2e9a85f13\nurl: /n/alice/meeting-notes\n---\n# H\n\nbody  \n",
     );
     expect(TRANSFER_FILE_VERSION).toBe(1);
     expect(writeNoteFile(fm("x"), "")).toBe(
-      "---\nknotebook: 1\nid: 3f2c0e1a-0000-4000-8000-000000000001\ntitle: \"x\"\nrole: editor\nbase: 7d41c0b2e9a85f13\nurl: /n/alice/meeting-notes\n---\n",
+      "---\nknotebook: 1\nid: 3f2c0e1a-0000-4000-8000-000000000001\ntitle: \"x\"\ntags: []\nrole: editor\nbase: 7d41c0b2e9a85f13\nurl: /n/alice/meeting-notes\n---\n",
     );
   });
 
@@ -134,9 +145,9 @@ describe("writeNoteFile", () => {
     const out = writeNoteFile(fm(title), "body");
     const lines = out.split("\n");
     expect(lines[0]).toBe("---");
-    expect(lines[7]).toBe("---");
-    expect(lines[8]).toBe("body");
-    expect(lines.slice(1, 7).map(l => l.slice(0, l.indexOf(":")))).toEqual(["knotebook", "id", "title", "role", "base", "url"]);
+    expect(lines[8]).toBe("---");
+    expect(lines[9]).toBe("body");
+    expect(lines.slice(1, 8).map(l => l.slice(0, l.indexOf(":")))).toEqual(["knotebook", "id", "title", "tags", "role", "base", "url"]);
     expect(lines[3]!.startsWith('title: "')).toBe(true);
     expect(JSON.parse(lines[3]!.slice("title: ".length))).toBe(title);
   });
