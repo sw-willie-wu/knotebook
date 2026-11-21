@@ -113,6 +113,19 @@ describe("sidebar tags", () => {
     expect(colors).toEqual(["blue", "red", "green"]);
   });
 
+  it("the dots come after the role badge and just before the row menu, so their right edge does not depend on the badge", async () => {
+    stubApi([sharedNote({ id: "n-shared", title: "Shared one", tags: [BOOKS, IDEAS] })]);
+    renderList("shared");
+    const dots = await within(panel()).findByRole("img", { name: "Tags: Books, Ideas" });
+    const row = dots.closest("li")!;
+    const order = Array.from(row.children);
+    const badge = order.find((el) => el.textContent === "Editor")!;
+    const menu = order.find((el) => el.getAttribute("aria-label")?.startsWith("Note actions") === true)!;
+    expect(order.indexOf(badge)).toBeGreaterThanOrEqual(0);
+    expect(order.indexOf(badge)).toBeLessThan(order.indexOf(dots));
+    expect(order.indexOf(dots) + 1).toBe(order.indexOf(menu));
+  });
+
   it("a row without tags has no dots element", async () => {
     stubApi([DELTA]);
     renderList("myNotes");

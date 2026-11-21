@@ -159,13 +159,13 @@ function NoteRow({ note, variant, location, favorite, favoritePending }: NoteRow
           note.title
         )}
       </Link>
+      {variant !== "recent" && <RoleBadge role={note.role} group={note.group} />}
+      {favorite === true && <FavoriteMarker />}
       <TagDots
         tags={note.tags ?? EMPTY_TAGS}
         // The two-line row puts the dots level with the title line, not centred between the lines.
         className={variant === "recent" ? "self-start mt-3 max-sm:mt-3.5" : undefined}
       />
-      {variant !== "recent" && <RoleBadge role={note.role} group={note.group} />}
-      {favorite === true && <FavoriteMarker />}
       <SidebarNoteMenu note={note} />
       {favorite !== null && <RowFavoriteStar note={note} favorite={favorite} pending={favoritePending} />}
     </li>
