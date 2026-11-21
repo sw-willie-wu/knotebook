@@ -556,10 +556,11 @@ then start that build. Steps 2 and 3 are for the bundled database; with your own
 2. **Building the index takes a moment on a large site.** While it is built, the server hasn't started yet, and writes to the search index wait: roughly a minute per million sections of note text (a few seconds for a few thousand notes).
 3. **Rolling back:** the previous version doesn't use the index or the extension; both stay, and PostgreSQL still keeps the index up to date on writes to the search index even though nothing reads it. After upgrading again, searches use the index again.
 
-**Tags (migration 0043).**
+**Tags (migrations 0043 and 0046).**
 
-1. **Migration 0043 only adds two tables**, `tags` (each space's list of tags: name, colour) and `note_tags` (which note carries which tag). It fills nothing in and changes no existing row; a tag is deleted with its group or with its owner's account, and a note's tags with the note when it is deleted for good. Back up the database first as usual.
-2. **Rolling back:** the previous version doesn't read the two tables, so tags are not shown there; the tables stay, and after upgrading again the tags come back. Two things can differ for the time spent on the previous version: a note moved or copied to another space then doesn't get the matching tags of that space, so after upgrading again it shows no tags; and deleting a group and handing its notes to an admin removes the group's tags with the group, so those notes lose their tags for good.
+1. **Migration 0043 only adds two tables**, `tags` (each space's list of tags: name, color) and `note_tags` (which note carries which tag). It fills nothing in and changes no existing row; a tag is deleted with its group or with its owner's account, and a note's tags with the note when it is deleted for good. Back up the database first as usual.
+2. **Migration 0046 only replaces the check on `tags.color`** (`tags_color_chk`) with a wider one that also accepts a custom color written as lowercase `#rrggbb`. It changes no row.
+3. **Rolling back:** the previous version doesn't read the two tables, so tags are not shown there; the tables and the wider check stay, and after upgrading again the tags come back. Two things can differ for the time spent on the previous version: a note moved or copied to another space then doesn't get the matching tags of that space, so after upgrading again it shows no tags; and deleting a group and handing its notes to an admin removes the group's tags with the group, so those notes lose their tags for good.
 
 **Bulk transfer bases (migration 0044).**
 
@@ -570,10 +571,10 @@ then start that build. Steps 2 and 3 are for the bundled database; with your own
 
 **Upgrading to v0.18 (faster search, tags, knowledge info and its index).**
 
-1. **Back up the database first.** Migrations 0042–0045 run automatically when the new server starts; they add an extension, an index, tables and two nullable columns and change no existing value (see **Faster search**, **Tags**, **Bulk transfer bases** and **Knowledge index** above). On your own PostgreSQL, check [The pg_trgm extension](#the-pg_trgm-extension) first.
+1. **Back up the database first.** Migrations 0042–0046 run automatically when the new server starts; they add an extension, an index, tables and two nullable columns, widen the check on a tag's color, and change no existing value (see **Faster search**, **Tags**, **Bulk transfer bases** and **Knowledge index** above). On your own PostgreSQL, check [The pg_trgm extension](#the-pg_trgm-extension) first.
 2. **Reload open tabs.** A note open in a tab shows **Reload required** until the tab is reloaded; changes in that tab that hadn't synced are lost.
 3. **Scripts that read or write notes:** a heading with knowledge info is followed by a `<!-- knotebook:knowledge … -->` comment, and every downloaded file has a `tags:` line ([AI editing](ai-editing.md#knowledge-info)).
-4. **Rolling back** to v0.17.1: the new tables, columns, extension and index stay and v0.17 doesn't read them (read the rolling-back items above). Knowledge info isn't shown there, and a heading changed there (typing in it, moving it, changing its level or color) loses it; headings left alone keep it.
+4. **Rolling back** to v0.17.1: the new tables, columns, check, extension and index stay and v0.17 doesn't read them (read the rolling-back items above). Knowledge info isn't shown there, and a heading changed there (typing in it, moving it, changing its level or color) loses it; headings left alone keep it.
 
 **Upgrading to v0.16 (server-side sessions, site limits, favorites, profile pictures).**
 

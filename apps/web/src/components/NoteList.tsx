@@ -81,14 +81,6 @@ function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string
   return t("errors.fallback");
 }
 
-/** Only for non-owner notes shared with me per person; group notes are never marked (#182): see the group panel member table. The note header no longer shows the role either (#335). */
-export function RoleBadge({ role, group }: { role: NoteDto["role"]; group: NoteDto["group"] }) {
-  const { t } = useTranslation();
-  if (group) return null;
-  if (role !== "editor" && role !== "viewer") return null;
-  return <span className="shrink-0 text-[11px] text-muted-foreground max-sm:text-xs">{t(`roles.${role}`)}</span>;
-}
-
 type RowVariant = "plain" | "group" | "recent";
 
 interface NoteRowProps {
@@ -126,7 +118,7 @@ function NoteRow({ note, variant, location, favorite, favoritePending }: NoteRow
       data-node-kind="note"
       data-node-id={note.id}
       className={cn(
-        "group/noterow flex items-center gap-1 rounded-md pr-0.75 text-[13px] max-sm:text-[15px] hover:bg-brand-soft hover:text-brand-on-soft active:bg-brand-soft-strong",
+        "group/noterow flex items-center gap-1 rounded-md pr-2 text-[13px] max-sm:text-[15px] hover:bg-brand-soft hover:text-brand-on-soft active:bg-brand-soft-strong",
         variant === "recent" ? "pl-2" : "h-11 pointer-fine:h-7",
         variant === "plain" && "pl-2",
         variant === "group" && "pl-3",
@@ -159,15 +151,13 @@ function NoteRow({ note, variant, location, favorite, favoritePending }: NoteRow
           note.title
         )}
       </Link>
-      <TagDots
-        tags={note.tags ?? EMPTY_TAGS}
-        // The two-line row puts the dots level with the title line, not centred between the lines.
-        className={variant === "recent" ? "self-start mt-3 max-sm:mt-3.5" : undefined}
-      />
-      {variant !== "recent" && <RoleBadge role={note.role} group={note.group} />}
       {favorite === true && <FavoriteMarker />}
       <SidebarNoteMenu note={note} />
       {favorite !== null && <RowFavoriteStar note={note} favorite={favorite} pending={favoritePending} />}
+      {/* Reserved on every row, tagged or not, so ⋮ and the star line up and the dots end at the same x; 19px = three overlapping 7px dots. The two-line row puts the dots level with the title line. */}
+      <span className={cn("flex w-[19px] shrink-0 justify-end", variant === "recent" && "self-start mt-3 max-sm:mt-3.5")}>
+        <TagDots tags={note.tags ?? EMPTY_TAGS} className="pl-0" />
+      </span>
     </li>
   );
 }

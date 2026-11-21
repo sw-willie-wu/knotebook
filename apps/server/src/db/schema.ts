@@ -618,7 +618,7 @@ export const noteFavorites = pgTable("note_favorites", {
 
 // A tag belongs to exactly one space: a user's personal space or a group.
 // `name_key` is a generated column rather than an expression index because drizzle's `onConflictDoUpdate({ target })` takes columns only.
-// Must match TAG_COLORS (tag-color-check-sync.test.ts).
+// The color CHECK must match TAG_PRESET_COLORS and CUSTOM_COLOR_RE (tag-color-check-sync.test.ts).
 export const tags = pgTable("tags", {
   id: uuid().primaryKey().defaultRandom(),
   ownerId: uuid("owner_id").references(() => users.id, { onDelete: "cascade" }),
@@ -631,7 +631,7 @@ export const tags = pgTable("tags", {
 }, t => [
   check("tags_space_chk", sql`(${t.ownerId} is null) <> (${t.groupId} is null)`),
   check("tags_name_len_chk", sql`length(${t.name}) between 1 and 40`),
-  check("tags_color_chk", sql`${t.color} in ('blue','green','orange','purple','pink','red','yellow','brown','gray')`),
+  check("tags_color_chk", sql`${t.color} in ('blue','green','orange','purple','pink','red','yellow','brown','gray') or ${t.color} ~ '^#[0-9a-f]{6}$'`),
   uniqueIndex("tags_owner_name_idx").on(t.ownerId, t.nameKey).where(sql`${t.ownerId} is not null`),
   uniqueIndex("tags_group_name_idx").on(t.groupId, t.nameKey).where(sql`${t.groupId} is not null`),
 ]);

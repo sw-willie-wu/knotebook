@@ -113,6 +113,21 @@ describe("sidebar tags", () => {
     expect(colors).toEqual(["blue", "red", "green"]);
   });
 
+  it("the dots are the last item of the row, after the row menu, in a slot every row has", async () => {
+    stubApi([sharedNote({ id: "n-shared", title: "Shared one", tags: [BOOKS, IDEAS] }), sharedNote({ id: "n-untagged", title: "No tags here", tags: [] })]);
+    renderList("shared");
+    const dots = await within(panel()).findByRole("img", { name: "Tags: Books, Ideas" });
+    const row = dots.closest("li")!;
+    const order = Array.from(row.children);
+    const menu = order.find((el) => el.getAttribute("aria-label")?.startsWith("Note actions") === true)!;
+    const slot = dots.parentElement!;
+    expect(order.indexOf(menu)).toBeGreaterThanOrEqual(0);
+    expect(order.indexOf(menu)).toBeLessThan(order.indexOf(slot));
+    expect(order.at(-1)).toBe(slot);
+    const untagged = (await within(panel()).findByRole("link", { name: "No tags here" })).closest("li")!;
+    expect(untagged.lastElementChild!.className).toBe(slot.className);
+  });
+
   it("a row without tags has no dots element", async () => {
     stubApi([DELTA]);
     renderList("myNotes");

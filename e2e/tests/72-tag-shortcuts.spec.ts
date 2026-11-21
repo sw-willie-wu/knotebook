@@ -282,6 +282,70 @@ test("a manager clicks a tag to rename it, recolor it for every note and take it
   }
 });
 
+/** Computed background and text color of an element, and the WCAG contrast between them. */
+async function pillColors(target: Locator): Promise<{ background: string; color: string; contrast: number }> {
+  return target.evaluate((el) => {
+    const style = getComputedStyle(el);
+    const channels = (value: string) => (value.match(/\d+(\.\d+)?/g) ?? []).slice(0, 3).map(Number);
+    const luminance = (value: string) => {
+      const [r, g, b] = channels(value).map((v) => {
+        const c = v / 255;
+        return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+    };
+    const [hi, lo] = [luminance(style.backgroundColor), luminance(style.color)].sort((a, b) => b - a);
+    return { background: style.backgroundColor, color: style.color, contrast: (hi! + 0.05) / (lo! + 0.05) };
+  });
+}
+
+test("a manager picks a custom color in a tag's menu: the pill takes it with readable text, the sidebar dot takes it, and it stays after a reload; a preset pill has the text palette's background", async ({ browser }) => {
+  test.setTimeout(150_000);
+  const alice = await createAccount(browser, "alice");
+  const { context, page } = await openAs(browser, alice);
+  try {
+    const title = `E2E custom color ${RUN}`;
+    const note = await apiCreateNoteWithPath(page, title, "Body of the note.");
+    await apiAddTags(page, note.id, ["navy", "plain"]);
+    await openNote(page, note, title);
+    expect(await page.evaluate(() => document.documentElement.classList.contains("dark"))).toBe(false);
+
+    // The second new tag in a space is green: the editor's light green background, #ddedea.
+    const preset = tagRow(page).locator('[data-tag-color="green"]');
+    await expect(preset).toHaveCount(1);
+    expect((await pillColors(preset)).background).toBe("rgb(221, 237, 234)");
+
+    await pill(page, "navy").click();
+    await page.getByRole("menuitemradio", { name: "Custom…", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Custom color" });
+    await dialog.getByRole("textbox", { name: "Hex color", exact: true }).fill("#1E3A8A");
+    await dialog.getByRole("button", { name: "Apply", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+
+    const custom = tagRow(page).locator('[data-tag-color="#1e3a8a"]');
+    await expect(custom).toHaveCount(1);
+    const colors = await pillColors(custom);
+    expect(colors.background).toBe("rgb(30, 58, 138)");
+    expect(colors.contrast).toBeGreaterThanOrEqual(4.5);
+    expect((await apiTagList(page)).map((tag) => [tag.name, tag.color])).toEqual([["navy", "#1e3a8a"], ["plain", "green"]]);
+
+    const panel = await showSidebarTab(page, "My notes");
+    const dot = dots(noteLink(panel, title).locator("xpath=ancestor::li[1]"), "navy, plain").locator('[data-tag-color="#1e3a8a"]');
+    await expect(dot).toHaveCount(1, { timeout: 15_000 });
+    expect((await pillColors(dot)).background).toBe("rgb(30, 58, 138)");
+
+    await page.reload();
+    await waitForNoteTitle(page, title);
+    await expect(custom).toHaveCount(1);
+    expect((await pillColors(custom)).background).toBe("rgb(30, 58, 138)");
+    await pill(page, "navy").click();
+    await expect(page.getByRole("menuitemradio", { name: "Custom color #1e3a8a", exact: true })).toHaveAttribute("aria-checked", "true");
+    await page.keyboard.press("Escape");
+  } finally {
+    await context.close();
+  }
+});
+
 test("a group member who can edit but not manage the group only gets Remove from this note in a tag's menu", async ({ browser }) => {
   test.setTimeout(150_000);
   const alice = await createAccount(browser, "alice");

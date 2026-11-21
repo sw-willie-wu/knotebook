@@ -411,7 +411,7 @@ describe("NoteTagRow folding to one line", () => {
   const originalOffset = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth");
 
   beforeEach(() => {
-    Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 200 });
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 204 });
     Object.defineProperty(HTMLElement.prototype, "offsetWidth", { configurable: true, get: () => 60 });
   });
 

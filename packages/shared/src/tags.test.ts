@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PALETTE_COLORS } from "./note-colors.js";
-import { TAG_COLORS, canEditNoteTags, normalizeTagName, pickTagColor } from "./tags.js";
+import { TAG_PRESET_COLORS, canEditNoteTags, canonicalTagColor, isTagColor, normalizeTagName, pickTagColor } from "./tags.js";
 
 describe("normalizeTagName", () => {
   it("trims ASCII and ideographic spaces and NFC-normalizes", () => {
@@ -21,21 +21,47 @@ describe("normalizeTagName", () => {
 });
 
 describe("pickTagColor", () => {
-  it("takes the first unused color in TAG_COLORS order", () => {
+  it("takes the first unused color in TAG_PRESET_COLORS order", () => {
     expect(pickTagColor([])).toBe("blue");
     expect(pickTagColor(["blue", "orange"])).toBe("green");
   });
-  it("when all nine are used, takes the least used, ties in TAG_COLORS order", () => {
-    expect(pickTagColor([...TAG_COLORS, "blue", "green"])).toBe("orange");
+  it("when all nine are used, takes the least used, ties in TAG_PRESET_COLORS order", () => {
+    expect(pickTagColor([...TAG_PRESET_COLORS, "blue", "green"])).toBe("orange");
   });
-  it("ignores values that aren't tag colors", () => {
+  it("ignores values that aren't presets, custom colors included, and never picks a custom color", () => {
     expect(pickTagColor(["default", "#ff0000"])).toBe("blue");
+    expect(pickTagColor([...TAG_PRESET_COLORS, "#0000ff", "#0000ff", "blue"])).toBe("green");
   });
 });
 
-describe("TAG_COLORS", () => {
+describe("TAG_PRESET_COLORS", () => {
   it("are the editor's named colors without default", () => {
-    expect([...TAG_COLORS].sort()).toEqual(PALETTE_COLORS.filter((c) => c !== "default").sort());
+    expect([...TAG_PRESET_COLORS].sort()).toEqual(PALETTE_COLORS.filter((c) => c !== "default").sort());
+  });
+});
+
+describe("isTagColor", () => {
+  it("accepts the presets and lowercase #rrggbb only", () => {
+    for (const c of [...TAG_PRESET_COLORS, "#e03e3e", "#000000"]) expect(isTagColor(c), c).toBe(true);
+    for (const c of ["default", "#E03E3E", "#abc", "#e03e3eff", "rgb(1, 2, 3)", "", "Blue", null, 3]) expect(isTagColor(c), String(c)).toBe(false);
+  });
+});
+
+describe("canonicalTagColor", () => {
+  it("keeps preset names and lowercase #rrggbb as they are", () => {
+    for (const c of [...TAG_PRESET_COLORS, "#e03e3e"]) expect(canonicalTagColor(c)).toBe(c);
+  });
+  it("normalizes the forms a custom text color accepts", () => {
+    expect(canonicalTagColor("#E03E3E")).toBe("#e03e3e");
+    expect(canonicalTagColor("#ABC")).toBe("#aabbcc");
+    expect(canonicalTagColor("#abcf")).toBe("#aabbcc");
+    expect(canonicalTagColor("#e03e3eFF")).toBe("#e03e3e");
+    expect(canonicalTagColor("rgb(224, 62, 62)")).toBe("#e03e3e");
+  });
+  it("rejects default, colors that aren't opaque, and anything else", () => {
+    for (const c of ["default", "#abc8", "#e03e3e80", "rgba(1, 2, 3, 0.5)", "e03e3e", "#e03e3", " #e03e3e", "Blue", "transparent", "", null, undefined, 7, {}]) {
+      expect(canonicalTagColor(c), String(c)).toBeNull();
+    }
   });
 });
 

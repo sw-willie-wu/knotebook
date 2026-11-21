@@ -2,7 +2,6 @@ import "@/i18n/select-strings";
 import { memo, useCallback, type MouseEvent as ReactMouseEvent } from "react";
 import { useTranslation } from "react-i18next";
 import type { FolderDto, NoteDto } from "@knotebook/shared";
-import { RoleBadge } from "@/components/NoteList";
 import { ChevronRight, Folder } from "@/components/ui/icons";
 import { SelectionCheckbox } from "@/components/ui/selection-checkbox";
 import { selectionKey } from "@/lib/sidebar-selection";
@@ -74,7 +73,6 @@ const SelectableNoteRow = memo(function SelectableNoteRow({
         ) : (
           <span className="min-w-0 flex-1 truncate">{note.title}</span>
         )}
-        {variant !== "recent" && <RoleBadge role={note.role} group={note.group} />}
       </label>
     </li>
   );

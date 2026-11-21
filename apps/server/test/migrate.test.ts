@@ -15,7 +15,7 @@ import { apiTokens, authProviders, folders, groupMembers, groupRoles, groups, no
 const drizzleDirForTest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
 /** Drizzle's serialization of `schema.ts`; the declaration-drift guard compares against the latest snapshot (update the file name with each new migration). */
-const SNAPSHOT_FILE = "meta/0045_snapshot.json";
+const SNAPSHOT_FILE = "meta/0046_snapshot.json";
 const snapshotLatest = JSON.parse(readFileSync(path.join(drizzleDirForTest, SNAPSHOT_FILE), "utf8")) as {
   tables: Record<string, {
     checkConstraints?: Record<string, { name: string; value: string }>;
@@ -3875,7 +3875,7 @@ describe("0043_tags", () => {
     expect(await outcome(insertTag(pool, "group_id, name, color", [g2, "OPS", "green"]))).toBe("ok");
   });
 
-  it("color outside the nine is 23514 tags_color_chk; both or neither of owner_id and group_id is 23514 tags_space_chk; 41 code points is 23514 tags_name_len_chk", async () => {
+  it("color that is neither one of the nine nor #rrggbb is 23514 tags_color_chk; both or neither of owner_id and group_id is 23514 tags_space_chk; 41 code points is 23514 tags_name_len_chk", async () => {
     const { pool } = await freshDb();
     const alice = await user(pool, "alice-tag3@example.com");
     const g = await group(pool, alice, "g1");
@@ -4097,5 +4097,78 @@ describe("0045_knowledge-index", () => {
     for (const st of statements) {
       expect(st).toMatch(/^(CREATE TABLE "note_knowledge(_state)?" |ALTER TABLE "note_knowledge(_state)?" ADD CONSTRAINT)/);
     }
+  });
+});
+
+describe("0046_tag-custom-colors", () => {
+  const TAG = "0046_tag-custom-colors";
+  const PREV_TAG = "0045_knowledge-index";
+  type Pool = import("pg").Pool;
+  const outcome = async (p: Promise<unknown>) => {
+    try { await p; } catch (e) { const x = e as { code?: string; constraint?: string }; return `${x.code}:${x.constraint}`; }
+    return "ok";
+  };
+  const user = async (pool: Pool, email: string) =>
+    (await pool.query(`insert into users (email, display_name) values ($1, $1) returning id`, [email])).rows[0].id as string;
+  const insertColor = (pool: Pool, owner: string, name: string, color: string) =>
+    pool.query(`insert into tags (owner_id, name, color) values ($1, $2, $3)`, [owner, name, color]);
+
+  const ACCEPTED = ["blue", "green", "orange", "purple", "pink", "red", "yellow", "brown", "gray", "#000000", "#ffffff", "#0a9f3c", "#e03e3e"];
+  const REJECTED = [
+    "default", "Blue", "#ABCDEF", "#abc", "#abcdef0", "#abcdeg", "abcdef", "#abcdef\n", "\n#abcdef", " #abcdef",
+    "#０１２３４５", "#ａｂｃｄｅｆ", "#abcdéf", "#İbcdef", "#\u{1D7CE}\u{1D7CF}\u{1D7D0}\u{1D7D1}\u{1D7D2}\u{1D7D3}",
+  ];
+
+  async function outcomes(pool: Pool, email: string): Promise<{ accepted: string[]; rejected: string[] }> {
+    const owner = await user(pool, email);
+    const accepted: string[] = [];
+    const rejected: string[] = [];
+    let i = 0;
+    for (const color of [...ACCEPTED, ...REJECTED]) {
+      const result = await outcome(insertColor(pool, owner, `t${i++}`, color));
+      if (result === "ok") accepted.push(color);
+      else {
+        expect(result, JSON.stringify(color)).toBe("23514:tags_color_chk");
+        rejected.push(color);
+      }
+    }
+    return { accepted, rejected };
+  }
+
+  it("before it a custom color is refused; after it the existing rows are unchanged and a custom color is accepted", async () => {
+    const { pool, db } = await freshEmptyDb();
+    await applyMigrationsThrough(pool, idxOfTag(PREV_TAG));
+    const owner = await user(pool, "alice-tc0@example.com");
+    await insertColor(pool, owner, "old", "yellow");
+    expect(await outcome(insertColor(pool, owner, "early", "#e03e3e"))).toBe("23514:tags_color_chk");
+    await runMigrations(db);
+    expect(journalEntries().at(-1)!.tag).toBe(TAG);
+    expect((await pool.query(`select name, color from tags`)).rows).toEqual([{ name: "old", color: "yellow" }]);
+    expect(await outcome(insertColor(pool, owner, "new", "#e03e3e"))).toBe("ok");
+  });
+
+  it("accepts and refuses the same values on a UTF-8 locale database and on a C locale one", async () => {
+    const utf8 = await freshDb();
+    const locale = (await utf8.pool.query(`select datcollate, datctype from pg_database where datname = current_database()`)).rows[0];
+    expect(locale.datctype).not.toBe("C");
+    expect(locale.datctype).toMatch(/utf-?8/i);
+    const c = await freshEmptyDb({ cLocale: true });
+    await runMigrations(c.db);
+    expect((await c.pool.query(`select datctype from pg_database where datname = current_database()`)).rows[0].datctype).toBe("C");
+
+    const onUtf8 = await outcomes(utf8.pool, "alice-tc1@example.com");
+    const onC = await outcomes(c.pool, "alice-tc2@example.com");
+    expect(onUtf8).toEqual({ accepted: ACCEPTED, rejected: REJECTED });
+    expect(onC).toEqual(onUtf8);
+  });
+
+  it("SQL file only replaces tags_color_chk; no CONCURRENTLY/line-leading COMMIT", () => {
+    const sqlText = readFileSync(path.join(drizzleDirForTest, `${TAG}.sql`), "utf8");
+    expect(sqlText).not.toMatch(/CONCURRENTLY/i);
+    expect(sqlText).not.toMatch(/^\s*COMMIT/im);
+    const statements = sqlText.split("--> statement-breakpoint").map(s => s.replace(/^\s*--.*$/gm, "").trim()).filter(s => s.length > 0);
+    expect(statements).toHaveLength(2);
+    expect(statements[0]).toBe(`ALTER TABLE "tags" DROP CONSTRAINT "tags_color_chk";`);
+    expect(statements[1]).toMatch(/^ALTER TABLE "tags" ADD CONSTRAINT "tags_color_chk" CHECK \(/);
   });
 });

@@ -62,5 +62,10 @@
     "color": "顏色",
     "appliesAll": "會套用到所有用到這個標籤的筆記。",
     "removeHere": "從這篇移除"
+  },
+  "tagColor": {
+    "title": "自訂顏色",
+    "description": "「{{name}}」在所有用到這個標籤的筆記上的顏色，淺色和深色主題都一樣。",
+    "customCurrent": "自訂顏色 {{color}}"
   }
 }
