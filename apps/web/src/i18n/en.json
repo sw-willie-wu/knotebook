@@ -333,6 +333,12 @@
       "slashSubtext": "Place blocks side by side",
       "ungroup": "Ungroup columns",
       "resize": "Resize columns"
+    },
+    "knowledge": {
+      "slashTitle": "Knowledge info",
+      "slashSubtext": "Mark this heading as a piece of knowledge",
+      "menuItem": "Knowledge info…",
+      "menuEditItem": "Edit knowledge info…"
     }
   },
   "login": {

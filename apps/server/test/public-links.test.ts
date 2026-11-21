@@ -60,5 +60,7 @@ describe("#269 links in the public payload", () => {
       expect(res.statusCode).toBe(200);
       expect(res.json().links).toEqual([]);
     }
+    const brokenRes = await app.inject({ method: "GET", url: `/api/public/notes/${t1}` });
+    expect(brokenRes.json().ydoc).toBe("");
   });
 });

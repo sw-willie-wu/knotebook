@@ -1,0 +1,69 @@
+{
+  "knowledge": {
+    "iconLabel": "Knowledge info: {{status}}",
+    "state": {
+      "outdated": "Outdated",
+      "needsReview": "Needs review",
+      "noVerifiedDate": "Not verified",
+      "verified": "Verified"
+    },
+    "field": {
+      "when": "When to read",
+      "conclusion": "Conclusion",
+      "evidence": "Basis",
+      "verified": "Last verified",
+      "status": "Status",
+      "supersededBy": "Replaced by"
+    },
+    "evidence": {
+      "tested": "Tested",
+      "docs": "Documentation",
+      "inferred": "Inferred",
+      "unconfirmed": "Unconfirmed"
+    },
+    "status": {
+      "current": "Current",
+      "unverified": "Needs review",
+      "outdated": "Outdated"
+    },
+    "card": {
+      "notVerified": "Not verified",
+      "empty": "—",
+      "quotedTitle": "{{title}}",
+      "belongsTo": "Part of: {{title}}",
+      "bannerNeedsReview": "Needs review · last verified {{date}}, worth checking again",
+      "bannerNeedsReviewNoDate": "Needs review · worth checking again",
+      "bannerOutdated": "Outdated → replaced by <ref/>",
+      "bannerInheritedOutdated": "Outdated: <ref/> above is outdated",
+      "refOtherNote": "knowledge in another note",
+      "refMissing": "knowledge that no longer exists",
+      "summary": "{{total}} below: {{verified}} verified, {{noDate}} not verified, {{review}} need review",
+      "summaryOutdated": ", {{outdated}} outdated",
+      "edit": "Edit",
+      "untitled": "Untitled heading",
+      "markVerified": "Mark as verified"
+    },
+    "form": {
+      "title": "Knowledge info",
+      "markToday": "Mark verified today",
+      "remove": "Remove knowledge info",
+      "save": "Save",
+      "cancel": "Cancel",
+      "escHint": "Esc to cancel",
+      "error": {
+        "empty": "Fill in at least one field.",
+        "tooLong": "At most {{max}} characters (now {{n}}).",
+        "verifiedInvalid": "Enter a valid date.",
+        "verifiedIncomplete": "Enter a complete date.",
+        "supersededRequired": "Choose the knowledge that replaces this one.",
+        "supersededInvalid": "Choose one of the listed knowledge.",
+        "supersededSelf": "A piece of knowledge can't replace itself.",
+        "notEligible": "This heading no longer exists or can't hold knowledge info."
+      }
+    },
+    "picker": {
+      "placeholder": "Search knowledge",
+      "none": "No matching knowledge"
+    }
+  }
+}

@@ -296,6 +296,13 @@ describe("buildNoteEditorOptions", () => {
     expect(extensions.filter((ext: { name: string }) => ext.name === "knotebookTourTransactionFilter")).toHaveLength(1);
   });
 
+  it("_tiptapOptions.extensions has the three knowledge extensions", () => {
+    const names = build()._tiptapOptions.extensions.map((ext: { name: string }) => ext.name);
+    expect(names).toContain("knotebookKnowledgeIds");
+    expect(names).toContain("knotebookKnowledgeEnter");
+    expect(names).toContain("knotebookKnowledgeDecorations");
+  });
+
   // The existing drop cases call createMediaBlockingDOMEvents' handler directly, not through build(), so they don't cover the composition that records the drop position.
   it("the composed drop still reaches the media blocking (through build())", () => {
     const event = dragEvent(transfer({ files: [file("a.pdf", "application/pdf")], types: ["Files"] }));

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useState } from "react";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BlockNoteEditor } from "@blocknote/core";
@@ -14,6 +14,7 @@ import { resetCustomColorsForTest } from "@/lib/custom-colors";
 import { resetRecentColorsForTest } from "@/lib/recent-colors";
 import { layoutHostTrigger, waitForMenuShown } from "@/test/color-menu-host";
 import { P, row, shape, withChildren, type AnyEditor, type PartialBlockLike } from "@/test/columns-fixtures";
+import { KnowledgeControllerContext, type KnowledgeController } from "@/components/knowledge/controller";
 import { KnotebookSideMenu, NotePathContext } from "./KnotebookSideMenu";
 import { HeadingAnchorButtons } from "./HeadingAnchorButtons";
 
@@ -567,5 +568,77 @@ describe("handle color submenu and custom color panel", () => {
     await openHandleMenu();
     expect(panel()).toBeNull();
     expect(colorsItem()).not.toBeNull();
+  });
+});
+
+describe("drag handle menu: knowledge info", () => {
+  const open = vi.fn();
+  const controller: KnowledgeController = { state: null, open, close: vi.fn() };
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    open.mockClear();
+  });
+  afterEach(() => {
+    Reflect.deleteProperty(document, "elementsFromPoint");
+  });
+
+  function mount(content: PartialBlockLike[], provided: KnowledgeController | null = controller): AnyEditor {
+    const editor = BlockNoteEditor.create({ schema: noteSchema, initialContent: content as never }) as AnyEditor;
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter>
+          <KnowledgeControllerContext.Provider value={provided}>
+            <BlockNoteView editor={editor} editable sideMenu={false}>
+              <SideMenuController sideMenu={KnotebookSideMenu} />
+            </BlockNoteView>
+          </KnowledgeControllerContext.Provider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    return editor;
+  }
+
+  async function openMenu(editor: AnyEditor, text: string, id: string): Promise<void> {
+    const el = screen.getByText(text);
+    Object.defineProperty(document, "elementsFromPoint", { configurable: true, value: () => [el] });
+    act(() => {
+      fireEvent.mouseMove(el, { clientX: 0, clientY: 0 });
+    });
+    expect(editor.getExtension(SideMenuExtension)!.store.state?.block?.id).toBe(id);
+    fireEvent.click(await screen.findByLabelText("Open block menu"));
+    await screen.findByText("Delete");
+  }
+
+  const heading = (id: string, text: string, props: Record<string, unknown> = {}) => ({ id, type: "heading", props: { level: 1, ...props }, content: text }) as PartialBlockLike;
+
+  it("the menu of a top-level heading starts with Knowledge info… and a separator, and it opens the edit surface", async () => {
+    const editor = mount([heading("hd1", "Section"), { id: "p1", type: "paragraph", content: "x" } as PartialBlockLike]);
+    await openMenu(editor, "Section", "hd1");
+    const first = document.querySelector<HTMLElement>('.bn-menu-dropdown [role="menuitem"]')!;
+    expect(first.textContent).toBe("Knowledge info…");
+    expect(first.nextElementSibling?.classList.contains("mantine-Menu-divider")).toBe(true);
+    fireEvent.click(screen.getByText("Knowledge info…"));
+    expect(open).toHaveBeenCalledWith("hd1", "edit", expect.anything());
+  });
+
+  it("on a heading that is already knowledge the item reads Edit knowledge info…", async () => {
+    const editor = mount([heading("hd1", "Section", { knowledgeId: "k_00000001", knowledgeWhen: "alice" })]);
+    await openMenu(editor, "Section", "hd1");
+    expect(screen.getByText("Edit knowledge info…")).toBeInTheDocument();
+    expect(screen.queryByText("Knowledge info…")).toBeNull();
+  });
+
+  it("the menu of a paragraph, of a heading in a column, or without a controller has no Knowledge info item", async () => {
+    const editor = mount([{ id: "p1", type: "paragraph", content: "plain" } as PartialBlockLike]);
+    await openMenu(editor, "plain", "p1");
+    expect(screen.queryByText(/Knowledge info/)).toBeNull();
+    cleanup();
+    const inColumn = mount([row([[heading("c1", "Inner")], [{ id: "p2", type: "paragraph", content: "x" } as PartialBlockLike]], "r")]);
+    await openMenu(inColumn, "Inner", "c1");
+    expect(screen.queryByText(/Knowledge info/)).toBeNull();
+    cleanup();
+    const bare = mount([heading("hd1", "Section")], null);
+    await openMenu(bare, "Section", "hd1");
+    expect(screen.queryByText(/Knowledge info/)).toBeNull();
   });
 });

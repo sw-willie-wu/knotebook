@@ -1,5 +1,5 @@
 import * as Y from "yjs";
-import { YDOC_FRAGMENT } from "@knotebook/shared";
+import { EMPTY_KNOWLEDGE_PROPS, YDOC_FRAGMENT } from "@knotebook/shared";
 
 export type YjsBlockSpec = { id: string; type: "p" | "h"; text: string; level?: 1 | 2 | 3 };
 
@@ -16,6 +16,7 @@ function container(spec: YjsBlockSpec): Y.XmlElement {
   if (spec.type === "h") {
     el.setAttribute("level", spec.level ?? 1);
     el.setAttribute("isToggleable", false);
+    for (const [name, value] of Object.entries(EMPTY_KNOWLEDGE_PROPS)) el.setAttribute(name, value);
   }
   const text = new Y.XmlText();
   text.insert(0, spec.text);

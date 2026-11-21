@@ -1,0 +1,69 @@
+{
+  "knowledge": {
+    "iconLabel": "知識資訊：{{status}}",
+    "state": {
+      "outdated": "過時",
+      "needsReview": "待驗證",
+      "noVerifiedDate": "未驗證",
+      "verified": "已驗證"
+    },
+    "field": {
+      "when": "何時讀",
+      "conclusion": "結論",
+      "evidence": "依據",
+      "verified": "最後驗證日",
+      "status": "狀態",
+      "supersededBy": "被哪一條取代"
+    },
+    "evidence": {
+      "tested": "實測",
+      "docs": "文件",
+      "inferred": "推論",
+      "unconfirmed": "未確認"
+    },
+    "status": {
+      "current": "正常",
+      "unverified": "待驗證",
+      "outdated": "過時"
+    },
+    "card": {
+      "notVerified": "未驗證",
+      "empty": "—",
+      "quotedTitle": "「{{title}}」",
+      "belongsTo": "屬於：{{title}}",
+      "bannerNeedsReview": "待驗證・上次驗證 {{date}}，建議重新確認",
+      "bannerNeedsReviewNoDate": "待驗證・建議重新確認",
+      "bannerOutdated": "過時 → 被<ref/>取代",
+      "bannerInheritedOutdated": "過時：上層<ref/>已過時",
+      "refOtherNote": "另一篇筆記中的知識",
+      "refMissing": "已不存在的知識",
+      "summary": "底下 {{total}} 條：{{verified}} 條已驗證、{{noDate}} 條未驗證、{{review}} 條待驗證",
+      "summaryOutdated": "、{{outdated}} 條過時",
+      "edit": "編輯",
+      "untitled": "未命名標題",
+      "markVerified": "標記為已驗證"
+    },
+    "form": {
+      "title": "知識資訊",
+      "markToday": "標記今天已驗證",
+      "remove": "移除知識資訊",
+      "save": "儲存",
+      "cancel": "取消",
+      "escHint": "Esc 取消",
+      "error": {
+        "empty": "至少要填一個欄位。",
+        "tooLong": "最多 {{max}} 字（目前 {{n}} 字）。",
+        "verifiedInvalid": "請輸入正確的日期。",
+        "verifiedIncomplete": "請輸入完整的日期。",
+        "supersededRequired": "請選擇取代這條的知識。",
+        "supersededInvalid": "請從清單中選擇知識。",
+        "supersededSelf": "不能選這條自己。",
+        "notEligible": "這個標題已不存在，或不能設知識資訊。"
+      }
+    },
+    "picker": {
+      "placeholder": "搜尋知識",
+      "none": "沒有相符的知識"
+    }
+  }
+}
