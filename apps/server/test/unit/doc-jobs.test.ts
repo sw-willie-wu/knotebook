@@ -83,7 +83,7 @@ describe("worker answers match the same-thread answers (every round-trip corpus 
       const noYields = (x: typeof x1) => (x === DOC_TOO_COMPLEX ? x : { ...x, stats: { ...x.stats, yields: 0 } });
       expect(noYields(x2), c.id).toEqual(noYields(x1));
       const tail = [{ type: "paragraph", content: "尾巴" }];
-      const [e1, e2] = await both({ kind: "edit", state, op: "append", blocks: tail });
+      const [e1, e2] = await both({ kind: "edit", noteId: "00000000-0000-4000-8000-000000000000", state, op: "append", blocks: tail });
       if (e1 === DOC_TOO_COMPLEX || e2 === DOC_TOO_COMPLEX || !e1.ok || !e2.ok) throw new Error(`${c.id}: edit failed`);
       // The diff and the post-edit size carry the fork's random clientID and the new block's random id (varints, so a few bytes apart): not compared byte for byte.
       const { diff: d1, size: { stateAfter: z1, ...m1s }, ...p1 } = e1.post;
@@ -137,7 +137,7 @@ describe("sizes before and after a change (for the note size limit)", () => {
   it("sizeAfter = size of base + diff applied to a new document: replacing the whole note with a shorter one makes it smaller (not the size of the edited fork, whose undo history keeps deleted content)", async () => {
     const paras = Array.from({ length: 300 }, (_, k) => ({ type: "paragraph", content: `p ${k} lorem ipsum dolor sit amet consectetur` }));
     const state = await stateWith(paras);
-    const r = await rt.runDoc("u", { kind: "edit", state, op: "replace_all", blocks: [{ type: "paragraph", content: "short" }] });
+    const r = await rt.runDoc("u", { kind: "edit", noteId: "00000000-0000-4000-8000-000000000000", state, op: "replace_all", blocks: [{ type: "paragraph", content: "short" }] });
     if (r === DOC_TOO_COMPLEX || !r.ok) throw new Error("edit failed");
     expect(r.post.size.stateBefore).toBe(state.byteLength);
     expect(r.post.size.stateAfter).toBeLessThan(state.byteLength / 5);
@@ -244,9 +244,9 @@ describe("merge guard and content amount", () => {
     if (o === DOC_TOO_COMPLEX) throw new Error("outline");
     const sec = o.outline.find(x => x.heading === "H10")!;
     const tail = [{ type: "paragraph", content: "t" }];
-    const none = await rt.runDoc("u", { kind: "edit", state, op: "append", blocks: tail });
-    const any = await rt.runDoc("u", { kind: "edit", state, op: "append", ifMatch: o.whole, blocks: tail });
-    const blocks = await rt.runDoc("u", { kind: "edit", state, op: "replace_section", sectionId: sec.sectionId, ifMatch: sec.fingerprint, blocks: tail });
+    const none = await rt.runDoc("u", { kind: "edit", noteId: "00000000-0000-4000-8000-000000000000", state, op: "append", blocks: tail });
+    const any = await rt.runDoc("u", { kind: "edit", noteId: "00000000-0000-4000-8000-000000000000", state, op: "append", ifMatch: o.whole, blocks: tail });
+    const blocks = await rt.runDoc("u", { kind: "edit", noteId: "00000000-0000-4000-8000-000000000000", state, op: "replace_section", sectionId: sec.sectionId, ifMatch: sec.fingerprint, blocks: tail });
     for (const r of [none, any, blocks]) if (r === DOC_TOO_COMPLEX || !r.ok) throw new Error("edit");
     expect((none as { post: { guard: unknown } }).post.guard).toEqual({ kind: "none" });
     expect((any as { post: { guard: unknown } }).post.guard).toEqual({ kind: "any" });
@@ -260,8 +260,8 @@ describe("merge guard and content amount", () => {
     const o = await rt.runDoc("u", { kind: "outline", state });
     if (o === DOC_TOO_COMPLEX) throw new Error("outline");
     const sec = o.outline.find(x => x.heading === "H10")!;
-    const shorter = await rt.runDoc("u", { kind: "edit", state, op: "replace_section", sectionId: sec.sectionId, ifMatch: sec.fingerprint, blocks: [{ type: "heading", content: "H10" }, { type: "paragraph", content: "short" }] });
-    const app = await rt.runDoc("u", { kind: "edit", state, op: "append", blocks: [{ type: "paragraph", content: "more" }] });
+    const shorter = await rt.runDoc("u", { kind: "edit", noteId: "00000000-0000-4000-8000-000000000000", state, op: "replace_section", sectionId: sec.sectionId, ifMatch: sec.fingerprint, blocks: [{ type: "heading", content: "H10" }, { type: "paragraph", content: "short" }] });
+    const app = await rt.runDoc("u", { kind: "edit", noteId: "00000000-0000-4000-8000-000000000000", state, op: "append", blocks: [{ type: "paragraph", content: "more" }] });
     if (shorter === DOC_TOO_COMPLEX || !shorter.ok || app === DOC_TOO_COMPLEX || !app.ok) throw new Error("edit");
     expect(shorter.post.size.liveAfter).toBeLessThan(shorter.post.size.liveBefore);
     expect(app.post.size.liveAfter).toBeGreaterThan(app.post.size.liveBefore);

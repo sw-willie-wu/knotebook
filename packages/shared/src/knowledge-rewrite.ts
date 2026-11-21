@@ -1,4 +1,3 @@
-// What an agent's rewrite does to knowledge: which headings keep theirs, which get an id, and which values may be stored.
 import { alignBlocks, alignInlineText, alignItemOf, type AlignSource } from "./block-align.js";
 import {
   KNOWLEDGE_CONCLUSION_MAX,
@@ -41,19 +40,39 @@ const withProps = <B extends KnowledgeBlockShape>(b: B, patch: Partial<Record<Kn
 // Blocks written as plain strings (tests, MCP input) have no inline array.
 const textOf = (content: unknown): string => (typeof content === "string" ? content : alignInlineText(content)).trim();
 
-/** Pairs from `alignBlocks(before, after)` where both are headings with the same level and the same text. The level is not part of the alignment key, so a heading moved to another level would otherwise pair. */
+const headingKey = (b: KnowledgeBlockShape): string | null => (b.type === "heading" ? `${String(b.props?.level)}:${textOf(b.content)}` : null);
+
+/** `alignBlocks` pairs by order, so a swapped pair would lose one side: leftovers are then paired by level and text, but only where that key is unique in both lists. The level is not part of the alignment key, so a heading moved to another level would otherwise pair. */
 export function knowledgePairs(before: readonly KnowledgeBlockShape[], after: readonly KnowledgeBlockShape[]): Array<[number, number]> {
-  return alignBlocks(asAlign(before).map(alignItemOf), asAlign(after).map(alignItemOf)).filter(([o, n]) => {
+  const pairs = alignBlocks(asAlign(before).map(alignItemOf), asAlign(after).map(alignItemOf)).filter(([o, n]) => {
     const a = before[o]!;
     const b = after[n]!;
     return a.type === "heading" && b.type === "heading" && a.props?.level === b.props?.level && textOf(a.content) === textOf(b.content);
   });
+  const indexByKey = (blocks: readonly KnowledgeBlockShape[]): Map<string, number | null> => {
+    const m = new Map<string, number | null>();
+    blocks.forEach((b, i) => {
+      const key = headingKey(b);
+      if (key !== null) m.set(key, m.has(key) ? null : i);
+    });
+    return m;
+  };
+  const oldByKey = indexByKey(before);
+  const newByKey = indexByKey(after);
+  const oldPaired = new Set(pairs.map(([o]) => o));
+  const newPaired = new Set(pairs.map(([, n]) => n));
+  for (const [key, o] of oldByKey) {
+    const n = newByKey.get(key);
+    if (o === null || o === undefined || n === null || n === undefined || oldPaired.has(o) || newPaired.has(n)) continue;
+    pairs.push([o, n]);
+  }
+  return pairs.sort((x, y) => x[0] - y[0]);
 }
 
 /**
  * keep=true (agent and AI rewrites): a paired heading without a comment gets the old seven props. Always: a pending id takes
- * the paired old id, else a new one. An old id that a comment of the new content writes out in full is never copied: that
- * comment is the author's decision. Copy-on-write.
+ * the paired old id, else a new one. A comment that writes out an id in full is the author's decision and is never overwritten, but
+ * it does not take the id from the heading that held it before: a repeat of that id is renewed later, so the earlier heading keeps it. Copy-on-write.
  */
 export function resolveKnowledgeForWrite<B extends KnowledgeBlockShape>(input: {
   before: readonly KnowledgeBlockShape[];
@@ -63,21 +82,18 @@ export function resolveKnowledgeForWrite<B extends KnowledgeBlockShape>(input: {
 }): { blocks: B[]; kept: KnowledgeHeadingRef[]; created: KnowledgeHeadingRef[] } {
   const { before, after, keep } = input;
   const taken = new Set(input.taken);
-  const written = new Set<string>();
   for (const b of after) {
     const id = knowledgeIdOf(b);
-    if (id !== "" && !isPending(id)) {
-      written.add(id);
-      taken.add(id);
-    }
+    if (id !== "" && !isPending(id)) taken.add(id);
   }
   const blocks = [...after];
   const kept: KnowledgeHeadingRef[] = [];
-  const copied = new Set<string>();
-  for (const [o, n] of knowledgePairs(before, after)) {
+  // Pairing runs the block alignment, which a note without knowledge never needs.
+  const pairs = before.some(b => knowledgeIdOf(b) !== "") ? knowledgePairs(before, after) : [];
+  for (const [o, n] of pairs) {
     const old = before[o]!;
     const oldInfo = readKnowledgeInfo(old.props);
-    if (oldInfo === null || written.has(oldInfo.id) || copied.has(oldInfo.id)) continue;
+    if (oldInfo === null) continue;
     const next = blocks[n]!;
     const id = knowledgeIdOf(next);
     if (id === "" && !hasKnowledgeProps(next)) {
@@ -87,7 +103,6 @@ export function resolveKnowledgeForWrite<B extends KnowledgeBlockShape>(input: {
     } else if (isPending(id)) {
       blocks[n] = withProps(next, { knowledgeId: oldInfo.id });
     } else continue;
-    copied.add(oldInfo.id);
     taken.add(oldInfo.id);
   }
   const created: KnowledgeHeadingRef[] = [];
@@ -162,7 +177,6 @@ export function knowledgeWriteProblem(
   return null;
 }
 
-/** Top-level knowledge headings, in document order. */
 export function knowledgeRefsIn(blocks: readonly KnowledgeBlockShape[]): KnowledgeHeadingRef[] {
   const out: KnowledgeHeadingRef[] = [];
   for (const b of blocks) {

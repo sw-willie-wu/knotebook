@@ -1,5 +1,3 @@
-// Write side of the knowledge comments, on the HTML that markdown parsing produced.
-// Operates on the DOM it is given; importing this file doesn't touch the DOM.
 import { isKnowledgeCommentData, parseKnowledgeComment, type KnowledgeCommentFields, type KnowledgeProblem } from "./knowledge-markdown.js";
 import { EMPTY_KNOWLEDGE_PROPS, KNOWLEDGE_PROP_NAMES, type KnowledgePropName } from "./knowledge-schema.js";
 import type { MarkdownPlacement } from "./note-markdown-write.js";
@@ -9,12 +7,8 @@ export type KnowledgeProps = Record<KnowledgePropName, string>;
 const kebab = (name: string): string => name.replace(/[A-Z]/g, c => `-${c.toLowerCase()}`);
 const dataAttrOf = (name: KnowledgePropName): string => `data-${kebab(name)}`;
 
-/** `data-knowledge-id` … `data-knowledge-superseded-by`: how BlockNote writes the knowledge props into HTML. */
-export const KNOWLEDGE_DATA_ATTRS: readonly string[] = KNOWLEDGE_PROP_NAMES.map(dataAttrOf);
-
 const KNOWLEDGE_ATTR_PREFIX = "data-knowledge-";
 
-/** Removes every `data-knowledge-*` attribute under `root` (and on `root` itself when it is an element). True when any was removed. */
 export function stripKnowledgeDataAttrs(root: ParentNode): boolean {
   let removed = false;
   const strip = (el: Element): void => {
@@ -107,6 +101,8 @@ export function applyKnowledgeComments(
     claimed.add(heading);
     const parsed = parseKnowledgeComment(comment.data);
     if (!parsed.ok) return fail(parsed.problem, parsed.key);
+    // A caller-written id in the pending form would be taken for "no id" and silently replaced.
+    if (parsed.fields.id !== null && parsed.fields.id.startsWith(KNOWLEDGE_PENDING_ID_PREFIX)) return fail("bad_id", "id");
     if (html !== undefined && !isClosedInSource(comment.data, html)) return fail("unclosed");
     const next = comment.nextSibling;
     if (next !== null && next.nodeType === TEXT_NODE && NON_BLANK.test((next as Text).data)) return fail("blank_line_missing");

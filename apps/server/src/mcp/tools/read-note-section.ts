@@ -13,6 +13,7 @@ import { loadLastEdited, readNoteContent } from "../../notes/editing/read.js";
 import { NOTE_ID, SEC } from "../../notes/schemas.js";
 import { noteSummarySchema } from "../dto.js";
 import { MCP_SECTION_CHARS, truncateCodeUnits } from "../limits.js";
+import { READ_SECTION_KNOWLEDGE_SENTENCE } from "../knowledge-strings.js";
 import { READ_NOTE_LINK_SENTENCE } from "../note-link-strings.js";
 import { authorizeNoteRead, docReadToolError, SECTION_NOT_FOUND_MESSAGE } from "../note-read.js";
 import { toolError, toolResult } from "../tool-result.js";
@@ -25,7 +26,8 @@ export const READ_NOTE_SECTION_DESCRIPTION =
   "finishes it, so read to the end before you rewrite it. " +
   // "for example": images inside nodes exported wholesale as HTML take that HTML form, and old collapsed-block images have absolute URLs, which is why the main clause says only that the address contains the upload id; table cells aren't mentioned (they hold no width-set images).
   "An uploaded image's address contains its upload id, for example `/api/uploads/<id>` in `![name](/api/uploads/<id>)` or, for an image with " +
-  "a caption or shown at a set width, in `<figure><img … src=\"/api/uploads/<id>\" …>…</figure>`; see them with read_note_image.";
+  "a caption or shown at a set width, in `<figure><img … src=\"/api/uploads/<id>\" …>…</figure>`; see them with read_note_image. " +
+  READ_SECTION_KNOWLEDGE_SENTENCE;
 
 const TRUNCATED_NOTE =
   "This section is longer than one response. Keep reading with `offset` set to `nextOffset` until " +

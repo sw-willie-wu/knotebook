@@ -40,7 +40,7 @@ describe("#553 large rewrites through the real write path (default parse worker 
     Y.applyUpdate(copy, state);
     const blocks = paragraphs(BIG, "new").map((text, i) => ({ id: `n${i}`, type: "paragraph" as const, content: text }));
     const t0 = performance.now();
-    const r = await testEditingRuntime.runDoc("u", { kind: "edit", state, op: "replace_all", blocks });
+    const r = await testEditingRuntime.runDoc("u", { kind: "edit", noteId: "00000000-0000-4000-8000-000000000000", state, op: "replace_all", blocks });
     log("worker replace_all 10,000 -> 10,000", performance.now() - t0);
     expect(r).not.toBe("too_complex");
     if (r === "too_complex" || !r.ok) throw new Error(`not ok: ${JSON.stringify(r)}`);

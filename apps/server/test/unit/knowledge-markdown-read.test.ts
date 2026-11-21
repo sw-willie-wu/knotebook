@@ -167,12 +167,13 @@ describe("knowledge comments on read", () => {
     expect(parseKnowledgeComment(data)).toMatchObject({ ok: true, fields: { when: tricky, conclusion: "\u2E000\u2E01" } });
   });
 
-  it("a colored toggleable heading reads without its comment and without the placeholder, and a warning is logged", async () => {
+  it("a colored toggleable heading reads without its comment and without the placeholder, and the warning is logged once per process", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const md = await read([H(2, "Colored toggle", { isToggleable: true, backgroundColor: "yellow", ...K }, [P("kid")]), P("after")]);
     const baseline = await read([H(2, "Colored toggle", { isToggleable: true, backgroundColor: "yellow" }, [P("kid")]), P("after")], false);
     expect(md).toBe(baseline);
     expect(md).not.toMatch(/[\uE000-\uF8FF]/);
+    await read([H(2, "Colored toggle", { isToggleable: true, backgroundColor: "yellow", ...K }, [P("kid")]), H(2, "Another", { isToggleable: true, textColor: "red", ...K }, [P("kid")])]);
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]![0]).not.toContain("Colored toggle");
   });

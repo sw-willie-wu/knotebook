@@ -210,6 +210,28 @@ describe("parseMarkdownForNote with knowledge comments", () => {
   });
 });
 
+describe("write-path hardening", () => {
+  it("an id written in the pending form is refused as a bad id, so it can't pass for a missing one", () => {
+    expect(parse("## D1\n<!-- knotebook:knowledge\nid: k_new:0\nwhen: w\n-->\n\nbody\n")).toEqual({
+      error: "invalid_knowledge",
+      knowledge: { problem: "bad_id", key: "id", heading: "D1" },
+    });
+  });
+
+  it("text that merely mentions data-knowledge- after <plaintext> is not refused, and a real attribute in a tag still is", () => {
+    const plain = ok("## D1\n\nthe data-knowledge-id attribute is not written by hand\n\n<plaintext>\nrest");
+    expect(anyKnowledge(plain.blocks)).toBe(false);
+    expect(parse(`<h2 title='a>b' data-knowledge-id="k_00000009">X</h2>\n\n<plaintext>\nrest`)).toEqual({ error: "unsupported_block", detail: "knowledge_attr" });
+  });
+
+  it("a comment id holding a carriage return is written back as it was read", () => {
+    const id = "k_8f3a2c1d\rtail";
+    const md = `## D1\n<!-- knotebook:knowledge\nid: ${JSON.stringify(id)}\nwhen: w\n-->\n\nbody\n`;
+    const r = ok(md);
+    expect(knowledgeOf(r.blocks[0]).knowledgeId).toBe(id);
+  });
+});
+
 describe("applyKnowledgeComments", () => {
   const rootOf = (html: string): Element => syntaxCheckRoot(html);
   it("returns unchanged without touching the DOM when neither a knowledge attribute nor a mark is in the html", () => {

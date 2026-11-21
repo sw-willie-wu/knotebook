@@ -456,6 +456,9 @@ export interface NoteMarkdownOptions {
   knowledge?: boolean;
 }
 
+// One download can hit many such headings; the warning is only a hint that the case exists.
+let warnedDroppedKnowledge = false;
+
 const propsOf = (b: { props?: unknown }): Record<string, unknown> | undefined => b.props as Record<string, unknown> | undefined;
 
 // A placeholder paragraph becomes the heading's first child so it lands right after the heading line (inside a toggleable
@@ -482,6 +485,9 @@ export function blocksToNoteMarkdown(editor: AnyEditor, blocks: Blocks, opts?: N
     lost += 1;
     return "";
   });
-  if (lost > 0) console.warn(`${lost} knowledge comment(s) dropped: the heading has no markdown form`);
+  if (lost > 0 && !warnedDroppedKnowledge) {
+    warnedDroppedKnowledge = true;
+    console.warn(`${lost} knowledge comment(s) dropped: the heading has no markdown form (logged once per process)`);
+  }
   return out;
 }

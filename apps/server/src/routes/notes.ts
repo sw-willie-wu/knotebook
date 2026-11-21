@@ -174,7 +174,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
           throw err;
         }
         if (!out.ok) {
-          if (out.kind === "parse") return sendError(reply, 400, out.code, parseErrorMessage(out.code, "Couldn't parse the content.", out.detail));
+          if (out.kind === "parse") return sendError(reply, 400, out.code, parseErrorMessage(out.code, "Couldn't parse the content.", out.detail, out.knowledge));
           if (out.kind === "parser_busy") return sendParserBusy(reply);
           if (out.kind === "too_large") return sendNoteTooLarge(reply, out.limitBytes);
           // Apply failure, including a queue timeout: deliberately 500, not 503 (docs/ai-editing.md); the service has made a best-effort delete of the row.

@@ -26,6 +26,8 @@ import {
   FOLDER_NOT_FOUND_MESSAGE,
   NEW_NOTE_FOLDER_CROSS_SPACE_MESSAGE,
 } from "../folder-messages.js";
+import { CREATE_KNOWLEDGE_OUTPUT_DESCRIBE, knowledgeForModel, knowledgeOutputSchema } from "../knowledge-output.js";
+import { CREATE_KNOWLEDGE_SENTENCE } from "../knowledge-strings.js";
 import { WRITE_NOTE_LINK_SENTENCE } from "../note-link-strings.js";
 import { insertedRow, rereadVisibleNote } from "../note-rows.js";
 import { toolError, toolResult } from "../tool-result.js";
@@ -75,13 +77,15 @@ export const createNoteInput = {
   content: MD.optional()
     .describe(
       "Markdown for the new note. Leave it out to create an empty note. Some deployments cannot store content this way and answer `invalid_body`; create the note without it and the note still exists. Colors, side-by-side columns and sizes work as in edit_note. " +
-        WRITE_NOTE_LINK_SENTENCE,
+        WRITE_NOTE_LINK_SENTENCE +
+        ` ${CREATE_KNOWLEDGE_SENTENCE}`,
     ),
   folder_id: FOLDER_ID.optional().describe(CN_FOLDER),
 };
 
 export const createNoteOutput = {
   note: noteSummarySchema.describe("The note that was created, in the same shape list_notes returns."),
+  knowledge: knowledgeOutputSchema.optional().describe(CREATE_KNOWLEDGE_OUTPUT_DESCRIBE),
 };
 
 export interface CreateNoteArgs {
@@ -159,14 +163,14 @@ export async function createNote(args: CreateNoteArgs, ctx: McpToolCtx): Promise
       return mapCreateInsertFailure(err);
     }
     if (!out.ok) {
-      if (out.kind === "parse") return toolError(out.code, writeFailureMessage(out.code, out.detail));
+      if (out.kind === "parse") return toolError(out.code, writeFailureMessage(out.code, out.detail, out.knowledge));
       if (out.kind === "parser_busy") return toolError("server_busy", PARSER_BUSY_TOOL_MESSAGE);
       if (out.kind === "too_large") return toolError("note_too_large", noteTooLargeMessage(out.limitBytes), { limitBytes: out.limitBytes });
       return toolError("internal", CREATE_FAILED_MESSAGE);
     }
     const fresh = await rereadVisibleNote(ctx, out.noteId, target.scope);
     const [note] = await noteSummariesForModel(ctx.db, [fresh ?? { ...insertedRow(out.inserted, target), role: target.role }]);
-    return toolResult({ note });
+    return toolResult({ note, ...(out.knowledge ? { knowledge: knowledgeForModel(out.knowledge) } : {}) });
   }
 
   // No re-read: the four `last_edited_*` fields are still defaults, so `lastEdited` is null and a JOIN would miss anyway. With `title` the slug follows it at insert, so the returned `url` is final. `beforeInsert` is outside the insert's try, so its error reaches the catch here as-is.

@@ -45,6 +45,8 @@ export function hasDroppedElement(html: string): boolean {
   return DROPPED_PREFILTER.test(html) && syntaxCheckRoot(html).querySelector(DROPPED_SELECTOR) !== null;
 }
 const UNCLOSED_COMMENT = /<!--(?![\s\S]*?-->)/;
+// Only inside a start tag: ordinary text that mentions the attribute name must not be refused.
+const KNOWLEDGE_ATTR_IN_TAG = /<[a-z](?:[^<>"']|"[^"]*"|'[^']*')*?[\s"'/]data-knowledge-/i;
 
 export { BLOCK_PRECHECK_MIN_CHARS, MAX_HTML_DEPTH, htmlDepth, plainParagraphFloor, premergeParagraphs, topLevelBlockFloor };
 
@@ -82,7 +84,7 @@ export function parseMarkdownForNote(editor: BlockNoteEditor<any, any, any>, mar
   let written: readonly KnowledgeProps[] = [];
   let ignoredKnowledgeComments = 0;
   if (PLAINTEXT_TAG.test(html)) {
-    if (/data-knowledge-/i.test(html)) return { error: "unsupported_block", detail: "knowledge_attr" };
+    if (KNOWLEDGE_ATTR_IN_TAG.test(html)) return { error: "unsupported_block", detail: "knowledge_attr" };
     ignoredKnowledgeComments = html.match(/<!--\s*knotebook:knowledge(?=\s|$)/gi)?.length ?? 0;
   } else {
     const knowledge = applyKnowledgeComments(root, "top", html);
@@ -106,7 +108,8 @@ export function parseMarkdownForNote(editor: BlockNoteEditor<any, any, any>, mar
     console.warn("parseMarkdownForNote: core parse threw; rejected as unsupported_block", e);
     return { error: "unsupported_block", detail: "editor_internal" };
   }
-  if (findStrayKnowledgeProps(raw, assigned) || !restoreKnowledgeProps(raw, written)) return { error: "unsupported_block", detail: "knowledge_attr" };
+  // Restore first: parsing normalizes CR in attribute values, so the comment's id only matches `assigned` once put back.
+  if (!restoreKnowledgeProps(raw, written) || findStrayKnowledgeProps(raw, assigned)) return { error: "unsupported_block", detail: "knowledge_attr" };
   const parsed = relativizeSiteUploads(normalizeTableWidths(restoreMermaidBlocks(raw)), new URL(document.baseURI).origin);
   const known = new Set(Object.keys(editor.schema.blockSchema));
   const walk = (bs: AnyPartialBlock[]): boolean => bs.every(b => known.has(b.type as string) && (!b.children || walk(b.children as AnyPartialBlock[])));

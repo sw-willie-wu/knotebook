@@ -14,6 +14,7 @@ import { eq } from "drizzle-orm";
 import { noteAiEdits, users } from "../src/db/schema.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
 import { SESSION_COOKIE, type TokenScope } from "@knotebook/shared";
+import { CREATE_KNOWLEDGE_SENTENCE, EDIT_TAG_SENTENCE, READ_SECTION_KNOWLEDGE_SENTENCE, WRITE_KNOWLEDGE_SENTENCE } from "../src/mcp/knowledge-strings.js";
 import { COPY_GROUP_ID_DESCRIBE, COPY_GROUP_ID_DESCRIBE_NO_MOVE, COPY_NOTE_DESCRIPTION, COPY_NOTE_DESCRIPTION_NO_MOVE } from "../src/mcp/tools/copy-note.js";
 import { buildCollabTestApp, buildTestApp } from "./helpers.js";
 import { seedTokenForUser } from "./editing-helpers.js";
@@ -280,8 +281,8 @@ describe("#108 tools/list", () => {
     expect(outline.properties.sections.items.properties.sectionId.description).toBe(SECTION_ID);
     const section = byName("read_note_section").outputSchema as { properties: { section: { properties: { markdown: { description: string } } } } };
     expect(section.properties.section.properties.markdown.description.endsWith(` ${READ_LINK}`)).toBe(true);
-    expect(byName("edit_note").inputSchema.properties.markdown!.description!.endsWith(` ${WRITE_LINK}`)).toBe(true);
-    expect(byName("create_note").inputSchema.properties.content!.description!.endsWith(` ${WRITE_LINK}`)).toBe(true);
+    expect(byName("edit_note").inputSchema.properties.markdown!.description!).toContain(` ${WRITE_LINK} `);
+    expect(byName("create_note").inputSchema.properties.content!.description!).toContain(` ${WRITE_LINK} `);
     for (const s of [SECTION_ID, READ_LINK, WRITE_LINK]) expect(res.body).toContain(JSON.stringify(s).slice(1, -1));
     // Two extra sentences pinned: the anchor form and "kept as an ordinary link": goes red if someone shortens a sentence or reverts it to the draft form.
     expect(res.body).toContain("#b-<block id>");
@@ -315,10 +316,10 @@ describe("#108 tools/list", () => {
       'colored text is <span style="color:red">…</span> inside the markdown; a block\'s own color is e.g. <p data-background-color="yellow">…</p>. ' +
       `For a color, use one of these names: default, gray, brown, red, orange, yellow, green, blue, purple, pink, or a hex color such as #ff6600 (written #rgb or #rrggbb). ${COLUMNS} ${SIZES} ` +
       "HTML in the markdown is read as HTML; to keep a `<` that would start a tag or comment as text, write `\\<` (as read_note_section returns it), except inside code or a block written as HTML. " +
-      WRITE_LINK;
+      `${WRITE_LINK} ${WRITE_KNOWLEDGE_SENTENCE} ${EDIT_TAG_SENTENCE}`;
     const CREATE_CONTENT =
       "Markdown for the new note. Leave it out to create an empty note. Some deployments cannot store content this way and answer `invalid_body`; " +
-      `create the note without it and the note still exists. Colors, side-by-side columns and sizes work as in edit_note. ${WRITE_LINK}`;
+      `create the note without it and the note still exists. Colors, side-by-side columns and sizes work as in edit_note. ${WRITE_LINK} ${CREATE_KNOWLEDGE_SENTENCE}`;
     const SECTION_MD =
       "This page of the section, as markdown. The first page starts with the section's heading line — except `_top`, which has no heading; " +
       "a later page resumes where the last one stopped. Colored text and blocks come back as HTML, as do images shown at a set width, tables " +
@@ -332,7 +333,7 @@ describe("#108 tools/list", () => {
     expect(byName("create_note").inputSchema.properties.content!.description).toBe(CREATE_CONTENT);
     const section = byName("read_note_section");
     expect((section.outputSchema as { properties: { section: { properties: { markdown: { description: string } } } } }).properties.section.properties.markdown.description).toBe(SECTION_MD);
-    expect(section.description.endsWith(` ${SECTION_IMAGES}`)).toBe(true);
+    expect(section.description.endsWith(` ${SECTION_IMAGES} ${READ_SECTION_KNOWLEDGE_SENTENCE}`)).toBe(true);
     for (const s of [COLUMNS, SIZES, EDIT_MD, CREATE_CONTENT, SECTION_MD, SECTION_IMAGES]) expect(res.body).toContain(JSON.stringify(s).slice(1, -1));
     for (const gone of [
       "Colors work as in edit_note.",

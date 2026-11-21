@@ -100,7 +100,7 @@ describe("knowledge props do not change fingerprints of headings nobody touched"
     const old = buildPreUpgradeDoc(preUpgradeBlocks());
     const base = measure(old);
     const state = Y.encodeStateAsUpdate(old);
-    const r = await rt.runDoc("u", { kind: "edit", state: new Uint8Array(state), op: "append", blocks: [{ type: "paragraph", content: "tail" }] as never });
+    const r = await rt.runDoc("u", { kind: "edit", noteId: "00000000-0000-4000-8000-000000000000", state: new Uint8Array(state), op: "append", blocks: [{ type: "paragraph", content: "tail" }] as never });
     if (r === "too_complex" || !("ok" in r) || !r.ok) throw new Error(`edit ${JSON.stringify(r)}`);
     const now = measure(mergeDiff(state, r.post.diff));
     const newIds = Object.keys(now.perBlock).filter((id) => !(id in base.perBlock));
@@ -121,13 +121,13 @@ describe("knowledge props do not change fingerprints of headings nobody touched"
     const secA = o0.outline.find((x) => x.sectionId === "hA")!;
     const secB = o0.outline.find((x) => x.sectionId === "hB")!;
     const r1 = await rt.runDoc("u", {
-      kind: "edit", state: new Uint8Array(state0), op: "replace_section", sectionId: "hA", ifMatch: secA.fingerprint,
+      kind: "edit", noteId: "00000000-0000-4000-8000-000000000000", state: new Uint8Array(state0), op: "replace_section", sectionId: "hA", ifMatch: secA.fingerprint,
       blocks: [heading("hA", 1, "A"), paragraph("a1", "one"), paragraph("a2", "two edited")] as never,
     });
     if (r1 === "too_complex" || !("ok" in r1) || !r1.ok) throw new Error(`edit1 ${JSON.stringify(r1)}`);
     const state1 = Y.encodeStateAsUpdate(mergeDiff(state0, r1.post.diff));
     const r2 = await rt.runDoc("u", {
-      kind: "edit", state: new Uint8Array(state1), op: "replace_section", sectionId: "hB", ifMatch: secB.fingerprint,
+      kind: "edit", noteId: "00000000-0000-4000-8000-000000000000", state: new Uint8Array(state1), op: "replace_section", sectionId: "hB", ifMatch: secB.fingerprint,
       blocks: [heading("hB", 1, "B"), paragraph("b1", "three edited")] as never,
     });
     expect(r2 !== "too_complex" && "ok" in r2 && r2.ok === true, JSON.stringify(r2)).toBe(true);
@@ -166,7 +166,7 @@ describe("knowledge props do not change fingerprints of headings nobody touched"
     }
     const o = await rt.runDoc("u", { kind: "outline", state: new Uint8Array(state) });
     if (o === "too_complex") throw new Error("outline");
-    const r = await rt.runDoc("u", { kind: "edit", state: new Uint8Array(state), op: "replace_all", ifMatch: o.whole, blocks: parsed as never });
+    const r = await rt.runDoc("u", { kind: "edit", noteId: "00000000-0000-4000-8000-000000000000", state: new Uint8Array(state), op: "replace_all", ifMatch: o.whole, blocks: parsed as never });
     if (r === "too_complex" || !("ok" in r) || !r.ok) throw new Error(`edit ${JSON.stringify(r)}`);
     const now = measure(mergeDiff(state, r.post.diff));
     const idsKept = Object.keys(base.perBlock).filter((id) => id in now.perBlock);

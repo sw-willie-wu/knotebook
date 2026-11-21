@@ -64,14 +64,31 @@ describe("knowledgePairs and resolveKnowledgeForWrite", () => {
     expect(r.kept.map(k => k.id)).toEqual(["k_00000001", "k_00000002"]);
   });
 
-  it("an old knowledge whose id a new comment names is not copied onto another heading", () => {
-    const before = [H(2, "A", K("k_00000001"))];
+  it("a comment naming the id of a heading that is still there does not take its knowledge: the paired heading keeps it and the repeat is left for renewal", () => {
+    const before = [H(2, "A", K("k_00000001", { knowledgeConclusion: "orig" }))];
     const moved = H(2, "Z", K("k_00000001", { knowledgeWhen: "moved" }));
     const after = [H(2, "A"), moved];
     const r = resolve(before, after);
-    expect(r.blocks[0]).toBe(after[0]);
+    expect(propsOf(r.blocks[0]!)).toMatchObject({ knowledgeId: "k_00000001", knowledgeConclusion: "orig" });
     expect(r.blocks[1]).toBe(moved);
+    expect(r.kept).toEqual([{ id: "k_00000001", heading: "A" }]);
+  });
+
+  it("a heading renamed with its comment kept carries the knowledge to the new name and takes nothing from the old one", () => {
+    const before = [H(2, "A", K("k_00000001", { knowledgeConclusion: "orig" }))];
+    const renamed = H(2, "A renamed", K("k_00000001", { knowledgeConclusion: "orig" }));
+    const r = resolve(before, [renamed]);
+    expect(r.blocks[0]).toBe(renamed);
     expect(r.kept).toEqual([]);
+    expect(r.created).toEqual([]);
+  });
+
+  it("headings that swapped places while their text is repeated are not paired by text, so neither keeps knowledge", () => {
+    const before = [H(2, "A", K("k_00000001")), P("a"), H(2, "A", K("k_00000002")), P("b"), H(2, "B", K("k_00000003")), P("c")];
+    const after = [H(2, "B"), P("c"), H(2, "A"), P("b"), H(2, "A"), P("a")];
+    expect(knowledgePairs(before, after)).toEqual([[4, 0]]);
+    const r = resolve(before, after);
+    expect(r.kept.map(k => k.id)).toEqual(["k_00000003"]);
   });
 
   it("a comment that names another id on a paired heading wins over the old knowledge", () => {
@@ -104,12 +121,27 @@ describe("knowledgePairs and resolveKnowledgeForWrite", () => {
     for (const id of ids) expect(id).toMatch(KNOWLEDGE_ID_RE);
   });
 
-  it("an old id is copied to one heading only, even when the old note held it twice", () => {
-    const before = [H(2, "A", K("k_00000001")), P("x"), H(2, "A", K("k_00000001"))];
+  it("an old note that held one id twice gets both headings back as they were", () => {
+    const before = [H(2, "A", K("k_00000001", { knowledgeConclusion: "first" })), P("x"), H(2, "A", K("k_00000001", { knowledgeConclusion: "second" }))];
     const after = [H(2, "A"), P("x"), H(2, "A")];
     const r = resolve(before, after);
-    expect(r.kept).toEqual([{ id: "k_00000001", heading: "A" }]);
-    expect(r.blocks.filter(b => propsOf(b).knowledgeId === "k_00000001")).toHaveLength(1);
+    expect(r.blocks.map(b => propsOf(b).knowledgeId)).toEqual(["k_00000001", undefined, "k_00000001"]);
+    expect(r.blocks.map(b => propsOf(b).knowledgeConclusion)).toEqual(["first", undefined, "second"]);
+    expect(r.kept).toEqual([{ id: "k_00000001", heading: "A" }, { id: "k_00000001", heading: "A" }]);
+  });
+
+  it("two knowledge headings swapped without comments both keep theirs", () => {
+    const before = [H(2, "A", K("k_00000001")), P("a"), H(2, "B", K("k_00000002")), P("b")];
+    const after = [H(2, "B"), P("b"), H(2, "A"), P("a")];
+    expect(knowledgePairs(before, after).sort()).toEqual([[0, 2], [2, 0]]);
+    const r = resolve(before, after);
+    expect(r.blocks.map(b => propsOf(b).knowledgeId)).toEqual(["k_00000002", undefined, "k_00000001", undefined]);
+    expect(r.kept.map(k => k.id).sort()).toEqual(["k_00000001", "k_00000002"]);
+  });
+
+  it("a heading whose level changed is not paired by the swap pass either", () => {
+    const before = [H(2, "A", K("k_00000001")), H(2, "B", K("k_00000002"))];
+    expect(knowledgePairs(before, [H(2, "B"), H(3, "A")])).toEqual([[1, 0]]);
   });
 
   it("blocks that need no change keep their identity", () => {

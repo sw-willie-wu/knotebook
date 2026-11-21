@@ -5,7 +5,7 @@
  */
 import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import type { FastifyBaseLogger } from "fastify";
-import type { EditOp } from "@knotebook/shared";
+import { knowledgeWriteProblem, resolveKnowledgeForWrite, type EditOp, type KnowledgeBlockShape, type KnowledgeProblem } from "@knotebook/shared";
 import { currentAgentLabel } from "../../auth/agent-label.js";
 import type { CollabServer } from "../../collab/server.js";
 import type { VersionService } from "../../collab/versions.js";
@@ -32,6 +32,7 @@ import { applyVersionEdit, type ApplyVersionFailureCode, type ApplyVersionInput 
 import { visibleNoteTargets, type VisibleNoteTarget } from "./candidates.js";
 import { loadNoteState, titlesAsk } from "./read.js";
 import { siteOriginOf, type ParseDetail, type ParsedMarkdown, type ParseError } from "./markdown.js";
+import type { KnowledgeWriteReport } from "./knowledge-write.js";
 import { ParserBusyError, type ParseOutcome } from "./parse-core.js";
 import { presenceIdentity, presenceTargetForWrite, type PresenceRegistry, type PresenceTarget } from "./presence.js";
 import { NoteWriteQueue, QueueBusyError } from "./queue.js";
@@ -50,15 +51,16 @@ export type WriteOutcome<T, C> =
   | { ok: true; result: T; agentLabel: string | null }
   | { ok: false; kind: "busy" }
   | { ok: false; kind: "gone" }
-  | { ok: false; kind: "apply"; code: C; detail?: ParseDetail };
+  | { ok: false; kind: "apply"; code: C; detail?: ParseDetail; knowledge?: KnowledgeProblem };
 export type ParserBusy = { ok: false; kind: "parser_busy" };
 export type TooLarge = { ok: false; kind: "too_large"; limitBytes: number };
 
 export type PreparedContent = { ok: true; candidates: readonly VisibleNoteTarget[]; agentLabel: string | null; prepared: ParsedMarkdown };
+export type PrepareContentFailure = { ok: false; kind: "parse"; code: ParseError; detail?: ParseDetail; knowledge?: KnowledgeProblem };
 
 export type CreateWithContentResult =
-  | { ok: true; noteId: string; inserted: typeof notes.$inferSelect; unbound: number }
-  | { ok: false; kind: "parse"; code: ParseError; detail?: ParseDetail }
+  | { ok: true; noteId: string; inserted: typeof notes.$inferSelect; unbound: number; knowledge?: KnowledgeWriteReport }
+  | PrepareContentFailure
   | ParserBusy
   | TooLarge
   | { ok: false; kind: "internal" };
@@ -111,7 +113,7 @@ export interface CreateFromFileInput {
 }
 export type CreateFromFileOutcome =
   | { ok: true; created: boolean; noteId: string; unboundWikilinks: number }
-  | { ok: false; kind: "parse"; code: ParseError; detail?: ParseDetail }
+  | PrepareContentFailure
   | ParserBusy
   | TooLarge
   | { ok: false; kind: "rate_limited"; retryAfterMs: number }
@@ -124,7 +126,7 @@ export type SyncFileOutcome =
   | { ok: false; kind: "base_unavailable"; reason: BaseUnavailableReason }
   | { ok: false; kind: "not_mergeable" | "busy" | "gone" }
   | { ok: false; kind: "rate_limited"; retryAfterMs: number }
-  | { ok: false; kind: "parse"; code: PlanSyncError; detail?: ParseDetail; fence?: string }
+  | { ok: false; kind: "parse"; code: PlanSyncError; detail?: ParseDetail; fence?: string; knowledge?: KnowledgeProblem }
   | ParserBusy
   | TooLarge
   | { ok: false; kind: "note_too_complex" };
@@ -236,7 +238,7 @@ export class NoteWriteService {
       if (err instanceof ParserBusyError) return { ok: false, kind: "parser_busy" };
       throw err;
     }
-    if (!result.ok) return { ok: false, kind: "apply", code: result.code, ...(result.detail ? { detail: result.detail } : {}) };
+    if (!result.ok) return { ok: false, kind: "apply", code: result.code, ...(result.detail ? { detail: result.detail } : {}), ...(result.knowledge ? { knowledge: result.knowledge } : {}) };
     // Target from post-edit `afterBlockIds`, not `sectionId` (a heading id that replace_section/delete_section may have replaced).
     this.touch(input.noteId, input.tokenId, input.userHandle, agentLabel, presenceTargetForWrite(input.op, result.afterBlockIds));
     return { ok: true, result, agentLabel };
@@ -444,7 +446,7 @@ export class NoteWriteService {
           bodyChecked = true;
           break;
         }
-        if (r.kind === "parse") return { ok: false, kind: "parse", code: r.code, ...(r.detail ? { detail: r.detail } : {}), ...(r.fence ? { fence: r.fence } : {}) };
+        if (r.kind === "parse") return { ok: false, kind: "parse", code: r.code, ...(r.detail ? { detail: r.detail } : {}), ...(r.fence ? { fence: r.fence } : {}), ...(r.knowledge ? { knowledge: r.knowledge } : {}) };
         if (r.kind === "zero_region") {
           // Zero regions (e.g. only blank lines added): refund, and don't write `applied_body_sha`, so a later title-only change from this copy is a normal rename, not `already_sent`.
           if (chargeTicket !== null) input.limiters.transferWrite.refund(input.userId, chargeTicket);
@@ -453,8 +455,9 @@ export class NoteWriteService {
           zeroRegion = true;
           break;
         }
-        const a = await editing.runDoc(input.userId, { kind: "syncApply", state, plan: r.plan, normalizedId: r.normalizedId }, { extraWeight: input.body.length });
+        const a = await editing.runDoc(input.userId, { kind: "syncApply", state, plan: r.plan, normalizedId: r.normalizedId, noteId: input.noteId }, { extraWeight: input.body.length });
         if (a === DOC_TOO_COMPLEX) return { ok: false, kind: "note_too_complex" };
+        if ("kind" in a) return { ok: false, kind: "parse", code: "invalid_knowledge", knowledge: a.knowledge };
         if (hooks?.beforeMerge) await hooks.beforeMerge();
         const ctx: DirectCtx = { source: "ai-edit", userId: input.userId, tokenId: input.tokenId, agentLabel, applied: false };
         try {
@@ -557,7 +560,7 @@ export class NoteWriteService {
     // Charge before parsing (a failed parse counts once): otherwise unparseable files cost no quota and every request could make the server parse a whole large file. A parse failure leaves no note and no dedupe row.
     if (!input.limiters.transferWrite.consume(input.userId)) return { ok: false, kind: "rate_limited", retryAfterMs: input.limiters.transferWrite.retryAfterMs(input.userId) };
     const pre = await this.prepareContent(log, { userId: input.userId, tokenId: input.tokenId, content: input.body });
-    if (!pre.ok) return pre.kind === "parser_busy" ? pre : { ok: false, kind: "parse", code: pre.code, ...(pre.detail ? { detail: pre.detail } : {}) };
+    if (!pre.ok) return pre.kind === "parser_busy" ? pre : { ok: false, kind: "parse", code: pre.code, ...(pre.detail ? { detail: pre.detail } : {}), ...(pre.knowledge ? { knowledge: pre.knowledge } : {}) };
     if (this.deps.testHooks?.beforeCreateFromFile) await this.deps.testHooks.beforeCreateFromFile();
     let r: CreateWithContentResult;
     try {
@@ -569,7 +572,7 @@ export class NoteWriteService {
       if ("groupId" in input.dest.scope && isForeignKeyViolation(err)) return { ok: false, kind: "folder_gone" };
       throw redactDbError(log, err, "檔案新增建列");
     }
-    if (!r.ok) return r.kind === "parse" ? { ok: false, kind: "parse", code: r.code, ...(r.detail ? { detail: r.detail } : {}) } : r.kind === "parser_busy" || r.kind === "too_large" ? r : { ok: false, kind: "internal" };
+    if (!r.ok) return r.kind === "parse" ? { ok: false, kind: "parse", code: r.code, ...(r.detail ? { detail: r.detail } : {}), ...(r.knowledge ? { knowledge: r.knowledge } : {}) } : r.kind === "parser_busy" || r.kind === "too_large" ? r : { ok: false, kind: "internal" };
     try {
       await db
         .insert(transferCreates)
@@ -584,7 +587,8 @@ export class NoteWriteService {
     return { ok: true, created: true, noteId: r.noteId, unboundWikilinks: r.unbound };
   }
 
-  async prepareContent(log: FastifyBaseLogger, input: { userId: string; tokenId: string | null; content: string }): Promise<PreparedContent | { ok: false; kind: "parse"; code: ParseError; detail?: ParseDetail } | ParserBusy> {
+  /** A new note has no knowledge yet, so the value checks run here with nothing to compare against: bad values are refused before a note row exists. */
+  async prepareContent(log: FastifyBaseLogger, input: { userId: string; tokenId: string | null; content: string }): Promise<PreparedContent | PrepareContentFailure | ParserBusy> {
     const candidates = await visibleNoteTargets(this.deps.db, input.userId);
     const agentLabel = input.tokenId ? await currentAgentLabel(this.deps.db, input.tokenId) : null;
     const editing = this.applyDeps(log).editing;
@@ -595,7 +599,10 @@ export class NoteWriteService {
       if (err instanceof ParserBusyError) return { ok: false, kind: "parser_busy" };
       throw err;
     }
-    if ("error" in prepared) return { ok: false, kind: "parse", code: prepared.error, ...(prepared.detail ? { detail: prepared.detail } : {}) };
+    if ("error" in prepared) return { ok: false, kind: "parse", code: prepared.error, ...(prepared.detail ? { detail: prepared.detail } : {}), ...(prepared.knowledge ? { knowledge: prepared.knowledge } : {}) };
+    const shaped = prepared.blocks as unknown as readonly KnowledgeBlockShape[];
+    const problem = knowledgeWriteProblem(resolveKnowledgeForWrite({ before: [], after: shaped, keep: false, taken: new Set() }).blocks, new Map(), null);
+    if (problem !== null) return { ok: false, kind: "parse", code: "invalid_knowledge", knowledge: problem };
     return { ok: true, candidates, agentLabel, prepared };
   }
 
@@ -619,6 +626,7 @@ export class NoteWriteService {
     const p = pre ?? (await this.prepareContent(log, input));
     if (!p.ok) return p;
     const { candidates, agentLabel, prepared } = p;
+    let knowledge: KnowledgeWriteReport | undefined;
     // Bulk creates (`pre` given) skip the #387 link-text tracking: #385 keeps its own base.
     const [blocks, cleared] = pre ? [prepared.blocks, [] as Array<[string, string]>] : this.shownLinks.keepLabelFree(prepared.blocks, input.userId, candidates);
     const applyDeps = this.applyDeps(log);
@@ -640,6 +648,7 @@ export class NoteWriteService {
             candidates,
             blocks,
             unbound: prepared.unbound,
+            ignoredKnowledgeComments: prepared.ignoredKnowledgeComments,
             contentLength: input.content.length,
           }),
         this.deps.queueWaitMs
@@ -648,7 +657,12 @@ export class NoteWriteService {
         await this.dropCreated(log, note.id);
         return { ok: false, kind: "parse", code: "unsupported_block", detail: "too_complex" };
       }
+      if (!result.ok && result.code === "invalid_knowledge" && result.knowledge) {
+        await this.dropCreated(log, note.id);
+        return { ok: false, kind: "parse", code: "invalid_knowledge", knowledge: result.knowledge };
+      }
       if (!result.ok) throw new Error(`帶 content 建立筆記時套用失敗：${result.code}`);
+      knowledge = result.knowledge;
       if (!pre) {
         const written = shownLinkTextsOf(blocks, new Map());
         written.free.push(...cleared);
@@ -668,6 +682,6 @@ export class NoteWriteService {
       await this.dropCreated(log, note.id);
       return { ok: false, kind: "internal" };
     }
-    return { ok: true, noteId: note.id, inserted: note, unbound: prepared.unbound };
+    return { ok: true, noteId: note.id, inserted: note, unbound: prepared.unbound, ...(knowledge ? { knowledge } : {}) };
   }
 }

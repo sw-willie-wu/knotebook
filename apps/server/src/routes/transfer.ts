@@ -16,7 +16,8 @@ import { NOTE_WRITE_TOO_COMPLEX_MESSAGE, parseErrorMessage, sendDocReadError, se
 import { retryAfterSeconds, type FixedWindowLimiter } from "../http/rate-limit.js";
 import type { EditingRuntime } from "../notes/editing/runtime.js";
 import { resolveNoteAccess } from "../notes/service.js";
-import type { ErrorCode } from "@knotebook/shared";
+import type { ErrorCode, KnowledgeProblem } from "@knotebook/shared";
+import { knowledgeProblemMessage } from "../notes/editing/knowledge-messages.js";
 import { FOLDER_NOT_FOUND_MESSAGE } from "../folders/messages.js";
 import type { BaseUnavailableReason, NoteWriteService, SyncFileOk } from "../notes/editing/write-service.js";
 import { fileShaOf, resolveCreateDest } from "../transfer/create-file.js";
@@ -53,8 +54,9 @@ export interface WriteTestHooks {
 }
 export type TransferTestHooks = ExportTestHooks & WriteTestHooks;
 
-export function transferParseMessage(code: ErrorCode, detail?: ParseDetail, fence?: string): string {
+export function transferParseMessage(code: ErrorCode, detail?: ParseDetail, fence?: string, knowledge?: KnowledgeProblem): string {
   if (code === "unsupported_block") {
+    if (detail === "knowledge_attr") return "The file has knowledge info this editor cannot store, so nothing was written. Knowledge info is set only by a <!-- knotebook:knowledge … --> comment on the lines right after a heading, as a download shows it.";
     if (detail === "event_attr") return "The file has HTML with an event attribute (such as onerror or onclick), which can't be stored in a note, so nothing was written.";
     if (detail === "editor_internal") return "The file has HTML the editor uses internally (such as an element with data-content-type), which can't be stored in a note, so nothing was written.";
     if (detail === "dropped_element") return "The file has an element the editor drops along with its content (such as <script>, <style> or <iframe>), which can't be stored in a note, so nothing was written.";
@@ -69,6 +71,7 @@ export function transferParseMessage(code: ErrorCode, detail?: ParseDetail, fenc
   }
   if (code === "too_many_blocks") return `The content is over a note's limit of ${MAX_BLOCKS} blocks (nested blocks count too), so nothing was written.`;
   if (code === "invalid_body" && fence !== undefined) return unclosedFenceMessage(fence);
+  if (code === "invalid_knowledge") return knowledge === undefined ? "A knowledge comment in the file is not valid, so nothing was written." : knowledgeProblemMessage(knowledge);
   return parseErrorMessage(code, "Couldn't apply the file.");
 }
 
@@ -280,7 +283,7 @@ export function transferRoutes(deps: TransferRouteDeps) {
             title: file.title, body: file.body, dest: { scope: dest.scope, folderId: dest.folderId }, limiters,
           });
           if (!out.ok) {
-            if (out.kind === "parse") return fail(400, out.code, transferParseMessage(out.code, out.detail));
+            if (out.kind === "parse") return fail(400, out.code, transferParseMessage(out.code, out.detail, undefined, out.knowledge));
             if (out.kind === "parser_busy") return parserBusy();
             if (out.kind === "too_large") return tooLarge(out.limitBytes);
             if (out.kind === "rate_limited") return tooMany(out.retryAfterMs);
@@ -322,7 +325,7 @@ export function transferRoutes(deps: TransferRouteDeps) {
           if (out.kind === "rate_limited") return tooMany(out.retryAfterMs);
           if (out.kind === "parse") {
             if (out.code === "unclosed_fence") return fail(400, "invalid_body", transferParseMessage("invalid_body", undefined, out.fence ?? "```"));
-            return fail(400, out.code, transferParseMessage(out.code, out.detail));
+            return fail(400, out.code, transferParseMessage(out.code, out.detail, undefined, out.knowledge));
           }
           return fail(500, "internal", "Couldn't write the file back.");
         }

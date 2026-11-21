@@ -8,7 +8,7 @@
  */
 import type { PartialBlock } from "@blocknote/core";
 import * as Y from "yjs";
-import { YDOC_FRAGMENT } from "@knotebook/shared";
+import { YDOC_FRAGMENT, type KnowledgeProblem } from "@knotebook/shared";
 import type { TransferSegment } from "../db/schema.js";
 import type { VisibleNoteTarget } from "../notes/editing/candidates.js";
 import type { ParseBudget } from "../notes/editing/parse-core.js";
@@ -30,6 +30,7 @@ export interface SyncPlan {
   decisions: Decision[];
   parsed: AnyPartialBlock[][];
   unbound: number;
+  ignoredKnowledgeComments: number;
   boundaryChecks: number;
 }
 
@@ -53,7 +54,7 @@ export interface PlanSyncInput {
 }
 
 export type PlanSyncError = ParseError | "unclosed_fence";
-export type PlanSyncFailure = { ok: false; code: PlanSyncError; detail?: ParseDetail; fence?: string };
+export type PlanSyncFailure = { ok: false; code: PlanSyncError; detail?: ParseDetail; fence?: string; knowledge?: KnowledgeProblem };
 
 class TooComplexAbort extends Error {}
 
@@ -75,6 +76,7 @@ export async function planSync(runtime: EditingRuntime, input: PlanSyncInput): P
   const prevTypes: Array<string | null> = [];
   const insertedIds: string[][] = [];
   let unbound = 0;
+  let ignoredKnowledgeComments = 0;
   const exported = input.exportedLinkText;
   let titles: Map<string, string> | null = null;
   const titleOf = (id: string): string | undefined => {
@@ -120,8 +122,9 @@ export async function planSync(runtime: EditingRuntime, input: PlanSyncInput): P
         continue;
       }
       const p = await parseMd(r.text);
-      if ("error" in p) return { ok: false, code: p.error, ...(p.detail ? { detail: p.detail } : {}) };
+      if ("error" in p) return { ok: false, code: p.error, ...(p.detail ? { detail: p.detail } : {}), ...(p.knowledge ? { knowledge: p.knowledge } : {}) };
       unbound += p.unbound;
+      ignoredKnowledgeComments += p.ignoredKnowledgeComments;
       const blocks = exported === undefined ? p.blocks : keepLabelFree(p.blocks, exported, titleOf)[0];
       const firstType = blocks[0]?.type as string | undefined;
       firstTypes.push(firstType);
@@ -167,5 +170,5 @@ export async function planSync(runtime: EditingRuntime, input: PlanSyncInput): P
     return seq !== null && seq.every((x, i) => x === p[i]);
   };
   const decisions = decide(input.segments, regions, input.cur, same, { firstTypes, prevTypes });
-  return { ok: true, plan: { regions, decisions, parsed, unbound, boundaryChecks } };
+  return { ok: true, plan: { regions, decisions, parsed, unbound, ignoredKnowledgeComments, boundaryChecks } };
 }
