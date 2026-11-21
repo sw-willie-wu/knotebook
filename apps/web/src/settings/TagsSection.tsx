@@ -1,12 +1,13 @@
 import { useRef, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
-import { TAG_COLORS, isTagColor, type SpaceTagDto } from "@knotebook/shared";
+import { TAG_PRESET_COLORS, isTagColor, isTagPresetColor, type SpaceTagDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
 import "@/i18n/tags-strings";
 import { useDeleteTag, useMergeTag, useSpaceTags, useUpdateTag, type TagSpaceRef } from "@/api/tags";
 import { useGroupOutlet } from "@/components/groups/group-outlet";
 import { SettingsTable, type SettingsTableColumn, type SettingsTableRow } from "@/components/management/SettingsTable";
+import { CUSTOM_SWATCH_STYLE, CustomTagColorDialogLoader } from "@/components/tags/CustomTagColorDialogLoader";
 import { RenameTagDialog } from "@/components/tags/RenameTagDialog";
 import { TagDot } from "@/components/tags/TagDot";
 import { isTagGone, refreshAfterTagGone } from "@/components/tags/tag-gone";
@@ -35,51 +36,68 @@ function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string
 const RADIO_ROW =
   "relative flex cursor-default select-none items-center gap-2 rounded-sm py-1.5 pl-8 pr-2 pointer-coarse:py-2.5 text-sm outline-none " +
   "transition-colors focus:bg-accent focus:text-accent-foreground";
+const CUSTOM_ITEM = "custom";
 
 function ColorMenu({ tag, space }: { tag: SpaceTagDto; space: TagSpaceRef }) {
   const { t } = useTranslation();
   const update = useUpdateTag(space);
   const queryClient = useQueryClient();
-  const colorName = t(`tags.colors.${tag.color}`);
+  const [customOpen, setCustomOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const preset = isTagPresetColor(tag.color);
+  const colorName = preset ? t(`tags.colors.${tag.color}`) : tag.color;
   return (
-    <DropdownMenu phoneSheet>
-      <DropdownMenuTrigger asChild>
-        <Button type="button" variant="outline" size="sm" aria-label={t("tags.manage.colorCurrent", { name: tag.name, color: colorName })} className="gap-2 font-normal">
-          <TagDot color={tag.color} />
-          {colorName}
-          <ChevronDown aria-hidden="true" className="size-3.5 text-muted-foreground" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" sheetTitle={t("tags.manage.colorLabel", { name: tag.name })}>
-        <DropdownMenuRadioGroup
-          value={tag.color}
-          onValueChange={(value) => {
-            if (!isTagColor(value) || value === tag.color) return;
-            update.mutate(
-              { tagId: tag.id, color: value },
-              {
-                onError: (err) => {
-                  if (isTagGone(err)) refreshAfterTagGone(queryClient, space);
-                  toast({ title: errorMessage(t, err), variant: "destructive" });
+    <>
+      <DropdownMenu phoneSheet>
+        <DropdownMenuTrigger asChild>
+          <Button ref={triggerRef} type="button" variant="outline" size="sm" aria-label={t("tags.manage.colorCurrent", { name: tag.name, color: colorName })} className="gap-2 font-normal">
+            <TagDot color={tag.color} />
+            {colorName}
+            <ChevronDown aria-hidden="true" className="size-3.5 text-muted-foreground" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" sheetTitle={t("tags.manage.colorLabel", { name: tag.name })} onCloseAutoFocus={(event) => (customOpen ? event.preventDefault() : undefined)}>
+          <DropdownMenuRadioGroup
+            value={tag.color}
+            onValueChange={(value) => {
+              if (!isTagColor(value) || value === tag.color) return;
+              update.mutate(
+                { tagId: tag.id, color: value },
+                {
+                  onError: (err) => {
+                    if (isTagGone(err)) refreshAfterTagGone(queryClient, space);
+                    toast({ title: errorMessage(t, err), variant: "destructive" });
+                  },
                 },
-              },
-            );
-          }}
-        >
-          {TAG_COLORS.map((color) => (
-            <DropdownMenuRadioItem key={color} value={color} className={RADIO_ROW} sheetRow>
+              );
+            }}
+          >
+            {TAG_PRESET_COLORS.map((color) => (
+              <DropdownMenuRadioItem key={color} value={color} className={RADIO_ROW} sheetRow>
+                <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
+                  <DropdownMenuItemIndicator>
+                    <Check className="h-4 w-4" />
+                  </DropdownMenuItemIndicator>
+                </span>
+                <TagDot color={color} />
+                {t(`tags.colors.${color}`)}
+              </DropdownMenuRadioItem>
+            ))}
+            <DropdownMenuRadioItem value={preset ? CUSTOM_ITEM : tag.color} className={RADIO_ROW} sheetRow onSelect={() => setCustomOpen(true)}>
               <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
                 <DropdownMenuItemIndicator>
                   <Check className="h-4 w-4" />
                 </DropdownMenuItemIndicator>
               </span>
-              <TagDot color={color} />
-              {t(`tags.colors.${color}`)}
+              {preset ? <span aria-hidden="true" className="inline-block size-[7px] shrink-0 rounded-full" style={CUSTOM_SWATCH_STYLE} /> : <TagDot color={tag.color} />}
+              {t("colors.custom")}
+              {!preset && <span className="text-muted-foreground">{tag.color}</span>}
             </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <CustomTagColorDialogLoader tag={tag} space={space} open={customOpen} onOpenChange={setCustomOpen} returnFocusRef={triggerRef} />
+    </>
   );
 }
 

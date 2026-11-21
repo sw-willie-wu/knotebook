@@ -5,10 +5,11 @@ import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import {
-  TAG_COLORS,
+  TAG_PRESET_COLORS,
   TAGS_PER_NOTE_MAX,
   TAGS_PER_SPACE_MAX,
   type NoteDto,
+  type TagColor,
   type NoteTagsDto,
   type SpaceTagDto,
 } from "@knotebook/shared";
@@ -47,11 +48,11 @@ async function noteTagRows(db: Db, noteId?: string): Promise<Array<typeof noteTa
   return noteId === undefined ? q : q.where(eq(noteTags.noteId, noteId));
 }
 /** Direct inserts: the API refuses what these tests need to start from (many tags, a tag in another space). */
-async function seedPersonalTags(db: Db, ownerId: string, labels: readonly string[], color: string = "blue"): Promise<string[]> {
+async function seedPersonalTags(db: Db, ownerId: string, labels: readonly string[], color: TagColor = "blue"): Promise<string[]> {
   if (labels.length === 0) return [];
   const rows = await db
     .insert(tags)
-    .values(labels.map(name => ({ ownerId, name, color: color as (typeof TAG_COLORS)[number] })))
+    .values(labels.map(name => ({ ownerId, name, color })))
     .returning({ id: tags.id });
   return rows.map(r => r.id);
 }
@@ -127,7 +128,19 @@ describe("POST /api/notes/:id/tags", () => {
       colors.push((res.json() as NoteTagsDto).tags.at(-1)!.color);
     }
     // Nine colors, then blue again (all used once, palette order breaks the tie), then green (blue is used twice).
-    expect(colors).toEqual([...TAG_COLORS, "blue", "green"]);
+    expect(colors).toEqual([...TAG_PRESET_COLORS, "blue", "green"]);
+  });
+
+  it("a new tag gets a preset color and custom colors in the space don't count toward the least used", async () => {
+    const { app, db } = await buildTestApp();
+    const alice = await seedUser(db, { displayName: "Alice" });
+    const n = await seedNote(db, { ownerId: alice.id });
+    await seedPersonalTags(db, alice.id, ["c1", "c2"], "#0b6e99");
+    await seedPersonalTags(db, alice.id, ["b1"], "blue");
+
+    const res = await addTag(app, alice.id, n.id, { name: "fresh" });
+    expect(res.statusCode, res.body).toBe(200);
+    expect((res.json() as NoteTagsDto).tags).toEqual([{ id: expect.any(String), name: "fresh", color: "green" }]);
   });
 
   it("a group member whose role can edit adds a group tag; a role without edit gets 403 forbidden; a non-member gets 404 not_found", async () => {

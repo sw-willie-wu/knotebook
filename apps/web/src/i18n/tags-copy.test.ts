@@ -42,11 +42,22 @@ describe("tags lazy bundle", () => {
     expect(i18n.t("tags.manage.nav", { lng: "zh-TW" })).not.toBe("tags.manage.nav");
   });
 
+  it("keeps the custom color dialog's strings in the lazy bundle and reuses the main colors.* keys", () => {
+    for (const raw of [enRaw, zhTWRaw]) {
+      expect(Object.keys(JSON.parse(raw) as object)).not.toContain("tagColor");
+      expect(Object.keys((JSON.parse(raw) as { colors: object }).colors)).toEqual(expect.arrayContaining(["custom", "hex_label", "hex_invalid", "apply", "recent"]));
+    }
+    expect(i18n.t("tagColor.customCurrent", { lng: "en", color: "#e03e3e" })).toBe("Custom color #e03e3e");
+    expect(i18n.t("tagColor.title", { lng: "zh-TW" })).toBe("自訂顏色");
+    expect(i18n.t("tagColor.description", { lng: "en", name: "Work" })).toContain("\"Work\"");
+  });
+
   it("is imported by every file that renders a lazy tags.manage key", () => {
     for (const path of [
       "src/settings/TagsSection.tsx",
       "src/components/tags/RenameTagDialog.tsx",
       "src/components/tags/TagPillMenu.tsx",
+      "src/components/tags/CustomTagColorDialog.tsx",
       "src/components/tags/hash-tag-batch.ts",
       "src/components/sidebar/TagSearchController.tsx",
       "src/components/sidebar/TagResultsExtras.tsx",

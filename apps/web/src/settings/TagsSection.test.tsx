@@ -124,7 +124,7 @@ describe("personal tag management (/settings/tags)", () => {
       fireEvent.keyDown(trigger, { key: "Enter" });
     });
     const items = await screen.findAllByRole("menuitemradio");
-    expect(items.map((item) => item.textContent)).toEqual(["Blue", "Green", "Orange", "Purple", "Pink", "Red", "Yellow", "Brown", "Gray"]);
+    expect(items.map((item) => item.textContent)).toEqual(["Blue", "Green", "Orange", "Purple", "Pink", "Red", "Yellow", "Brown", "Gray", "Custom…"]);
     expect(items[0]).toHaveAttribute("aria-checked", "true");
     expect(items[2]).toHaveAttribute("aria-checked", "false");
     await act(async () => {
@@ -132,6 +132,32 @@ describe("personal tag management (/settings/tags)", () => {
     });
     await waitFor(() => expect(callsTo(fetchMock, "PATCH", "/api/tags/t-work")).toHaveLength(1));
     expect(JSON.parse(String(callsTo(fetchMock, "PATCH", "/api/tags/t-work")[0]!.body))).toEqual({ color: "orange" });
+  });
+
+  it("a custom color shows its hex on the button and as the checked Custom… choice, and Custom… opens the color dialog that sends PATCH {color}", async () => {
+    const custom: SpaceTagDto = { ...WORK, color: "#1e3a8a" };
+    const fetchMock = tagsFetch({ tags: [custom, READING] });
+    renderGroupRoute("/settings/tags", fetchMock);
+    const row = await tagRow("Work");
+    const trigger = within(row).getByRole("button", { name: "Color of Work: #1e3a8a" });
+    expect(trigger).toHaveTextContent("#1e3a8a");
+    expect(trigger.textContent).not.toContain("tags.colors");
+    expect((row.querySelector('[data-tag-color="#1e3a8a"]') as HTMLElement).style.getPropertyValue("--tag-dot")).toBe("#1e3a8a");
+    await act(async () => {
+      fireEvent.keyDown(trigger, { key: "Enter" });
+    });
+    const items = await screen.findAllByRole("menuitemradio");
+    expect(items.filter((item) => item.getAttribute("aria-checked") === "true").map((item) => item.textContent)).toEqual(["Custom…#1e3a8a"]);
+    await act(async () => {
+      fireEvent.click(items.at(-1)!);
+    });
+    const dialog = await screen.findByRole("dialog", { name: "Custom color" });
+    const hex = within(dialog).getByLabelText("Hex color");
+    expect(hex).toHaveValue("#1e3a8a");
+    fireEvent.change(hex, { target: { value: "#ABC" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Apply" }));
+    await waitFor(() => expect(callsTo(fetchMock, "PATCH", "/api/tags/t-work")).toHaveLength(1));
+    expect(JSON.parse(String(callsTo(fetchMock, "PATCH", "/api/tags/t-work")[0]!.body))).toEqual({ color: "#aabbcc" });
   });
 
   it("merge lists only the other tags and sends {into}; nothing is sent before a target is chosen", async () => {

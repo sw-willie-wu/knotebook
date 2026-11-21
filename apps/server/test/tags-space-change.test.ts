@@ -2,7 +2,7 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
-import { TAG_COLORS, TAGS_PER_SPACE_MAX } from "@knotebook/shared";
+import { TAGS_PER_SPACE_MAX, type TagColor } from "@knotebook/shared";
 import type { Db } from "../src/db/index.js";
 import { noteTags, tags } from "../src/db/schema.js";
 import { buildTestApp } from "./helpers.js";
@@ -23,12 +23,11 @@ function barrier(n: number): () => Promise<void> {
 }
 const MANY_NAMES = Array.from({ length: 40 }, (_, i) => `name-${String(i).padStart(2, "0")}`);
 
-type Color = (typeof TAG_COLORS)[number];
 type Space = { ownerId: string } | { groupId: string };
 
 const T0 = Date.UTC(2026, 0, 1);
 
-async function seedTag(db: Db, space: Space, name: string, color: Color = "blue"): Promise<string> {
+async function seedTag(db: Db, space: Space, name: string, color: TagColor = "blue"): Promise<string> {
   const [row] = await db.insert(tags).values({ ...space, name, color }).returning({ id: tags.id });
   return row!.id;
 }
@@ -98,16 +97,16 @@ describe("copy", () => {
     expect(await crossSpaceRows(db)).toBe(0);
   });
 
-  it("personal into a group creates the group's tags with the source colors and reuses a same-named group tag in another case with its own color and spelling", async () => {
+  it("personal into a group creates the group's tags with the source colors, custom ones included, and reuses a same-named group tag in another case with its own color and spelling", async () => {
     const { app, db } = await buildTestApp();
     const alice = await seedUser(db);
     const bob = await seedUser(db);
     const g = await seedGroup(db, "Garden", [{ userId: alice.id, role: "member" }, { userId: bob.id, role: "member" }]);
     const other = await seedGroup(db, "Other", [{ userId: alice.id, role: "member" }]);
-    const reading = await seedTag(db, { ownerId: alice.id }, "Reading", "red");
-    const work = await seedTag(db, { ownerId: alice.id }, "work", "blue");
+    const reading = await seedTag(db, { ownerId: alice.id }, "Reading", "#e03e3e");
+    const work = await seedTag(db, { ownerId: alice.id }, "work", "#123456");
     const idea = await seedTag(db, { ownerId: alice.id }, "Idea", "pink");
-    const groupWork = await seedTag(db, { groupId: g.id }, "WORK", "green");
+    const groupWork = await seedTag(db, { groupId: g.id }, "WORK", "#1e3a8a");
     const otherWork = await seedTag(db, { groupId: other.id }, "work", "gray");
     const src = await seedNote(db, { ownerId: alice.id });
     await attachInOrder(db, src.id, [reading, work, idea]);
@@ -119,8 +118,8 @@ describe("copy", () => {
     expect(res.statusCode, res.body).toBe(201);
     const rows = await attached(db, res.json().id);
     expect(rows.map(r => [r.name, r.color, r.groupId, r.ownerId])).toEqual([
-      ["Reading", "red", g.id, null],
-      ["WORK", "green", g.id, null],
+      ["Reading", "#e03e3e", g.id, null],
+      ["WORK", "#1e3a8a", g.id, null],
       ["Idea", "pink", g.id, null],
     ]);
     expect(rows[1]!.tagId).toBe(groupWork);
@@ -143,7 +142,7 @@ describe("copy", () => {
     const gTag2 = await seedTag(db, { groupId: g.id }, "Done", "purple");
     const gNote = await seedNote(db, { groupId: g.id });
     await attachInOrder(db, gNote.id, [gTag2, gTag]);
-    const bobPlan = await seedTag(db, { ownerId: alice.id }, "mine", "red");
+    const bobPlan = await seedTag(db, { ownerId: alice.id }, "mine", "#a7f3d0");
     const shared = await seedNote(db, { ownerId: alice.id });
     await attachInOrder(db, shared.id, [bobPlan]);
     await seedShare(db, shared.id, bob.id, "viewer");
@@ -155,7 +154,7 @@ describe("copy", () => {
 
     const toBob = await copy(app, shared.id, bob.id);
     expect(toBob.statusCode, toBob.body).toBe(201);
-    expect((await attached(db, toBob.json().id)).map(r => [r.name, r.color, r.ownerId])).toEqual([["mine", "red", bob.id]]);
+    expect((await attached(db, toBob.json().id)).map(r => [r.name, r.color, r.ownerId])).toEqual([["mine", "#a7f3d0", bob.id]]);
     // alice's own tag of that name was not touched and bob's tag is a different row.
     expect((await spaceTagRows(db, { ownerId: alice.id })).map(t => t.name).sort()).toEqual(["Done", "Plan", "mine"]);
     expect(await crossSpaceRows(db)).toBe(0);
@@ -281,8 +280,8 @@ describe("move into a group", () => {
     const other = await seedGroup(db, "Other", [{ userId: alice.id, role: "member" }]);
     const y = await seedTag(db, { ownerId: alice.id }, "y", "green");
     const x = await seedTag(db, { ownerId: alice.id }, "x", "blue");
-    const z = await seedTag(db, { ownerId: alice.id }, "Zed", "red");
-    const groupX = await seedTag(db, { groupId: g.id }, "X", "orange");
+    const z = await seedTag(db, { ownerId: alice.id }, "Zed", "#ff7ab6");
+    const groupX = await seedTag(db, { groupId: g.id }, "X", "#808080");
     const otherY = await seedTag(db, { groupId: other.id }, "y", "gray");
     const note = await seedNote(db, { ownerId: alice.id });
     await attachInOrder(db, note.id, [y, x, z]);
@@ -304,8 +303,8 @@ describe("move into a group", () => {
     const rows = await attached(db, s.note.id);
     expect(rows.map(r => [r.name, r.color, r.groupId, r.ownerId])).toEqual([
       ["y", "green", s.g.id, null],
-      ["X", "orange", s.g.id, null],
-      ["Zed", "red", s.g.id, null],
+      ["X", "#808080", s.g.id, null],
+      ["Zed", "#ff7ab6", s.g.id, null],
     ]);
     expect(rows[1]!.tagId).toBe(s.groupX);
     // created_at is copied from the source rows, so the order survives the shared now() of one transaction.
@@ -378,9 +377,9 @@ describe("deleting a group and giving its notes to a member", () => {
     const h = await seedGroup(db, "Hedge", [{ userId: bob.id, role: "admin" }]);
     const ga = await seedTag(db, { groupId: g.id }, "alpha", "red");
     const gb = await seedTag(db, { groupId: g.id }, "Beta", "green");
-    const gc = await seedTag(db, { groupId: g.id }, "gamma", "pink");
+    const gc = await seedTag(db, { groupId: g.id }, "gamma", "#f5d90a");
     const hb = await seedTag(db, { groupId: h.id }, "beta", "brown");
-    const bobsAlpha = await seedTag(db, { ownerId: bob.id }, "ALPHA", "purple");
+    const bobsAlpha = await seedTag(db, { ownerId: bob.id }, "ALPHA", "#0a9f3c");
     const adminAlpha = await seedTag(db, { ownerId: admin.id }, "alpha", "yellow");
     const live = await seedNote(db, { groupId: g.id });
     const trashed = await seedNote(db, { groupId: g.id });
@@ -396,8 +395,8 @@ describe("deleting a group and giving its notes to a member", () => {
     const res = await deleteGroup(app, g.id, admin.id, { mode: "transfer", transferTo: bob.id });
 
     expect(res.statusCode, res.body).toBe(204);
-    expect((await attached(db, live.id)).map(r => [r.name, r.color, r.ownerId])).toEqual([["Beta", "green", bob.id], ["ALPHA", "purple", bob.id]]);
-    expect((await attached(db, trashed.id)).map(r => [r.name, r.color, r.ownerId])).toEqual([["gamma", "pink", bob.id], ["Beta", "green", bob.id]]);
+    expect((await attached(db, live.id)).map(r => [r.name, r.color, r.ownerId])).toEqual([["Beta", "green", bob.id], ["ALPHA", "#0a9f3c", bob.id]]);
+    expect((await attached(db, trashed.id)).map(r => [r.name, r.color, r.ownerId])).toEqual([["gamma", "#f5d90a", bob.id], ["Beta", "green", bob.id]]);
     expect(await attached(db, bare.id)).toEqual([]);
     const bobTags = await spaceTagRows(db, { ownerId: bob.id });
     expect(bobTags.map(t => t.name).sort()).toEqual(["ALPHA", "Beta", "gamma"]);

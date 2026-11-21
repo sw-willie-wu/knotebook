@@ -87,7 +87,33 @@ describe("PATCH /api/tags/:tagId", () => {
     }
   });
 
-  it("color changes; a color outside the nine, an empty body, an extra key and a wrong type are 400 invalid_body; a bad name is 400 invalid_tag_name", async () => {
+  it("a custom color is stored and answered in its canonical #rrggbb form, whichever accepted form was sent, and shows on the notes", async () => {
+    const { app, db } = await buildTestApp();
+    const alice = await seedUser(db, { displayName: "Alice" });
+    const note = await seedNote(db, { ownerId: alice.id });
+    const id = await seedTag(db, { ownerId: alice.id }, "work");
+    await attach(db, note.id, id);
+
+    for (const [sent, stored] of [
+      ["#e03e3e", "#e03e3e"],
+      ["#1E3A8A", "#1e3a8a"],
+      ["#F5D", "#ff55dd"],
+      ["#abcf", "#aabbcc"],
+      ["#A7F3D0FF", "#a7f3d0"],
+      ["rgb(128, 128, 128)", "#808080"],
+      ["gray", "gray"],
+    ] as const) {
+      const res = await patchTag(app, alice.id, id, { color: sent });
+      expect(res.statusCode, `${sent}: ${res.body}`).toBe(200);
+      expect(res.json(), sent).toEqual({ id, name: "work", color: stored, noteCount: 1 });
+      expect((await tagRows(db))[0]!.color, sent).toBe(stored);
+    }
+    await patchTag(app, alice.id, id, { color: "#FF7AB6" });
+    expect((await listNotes(app, alice.id)).find(n => n.id === note.id)!.tags).toEqual([{ id, name: "work", color: "#ff7ab6" }]);
+    expect((await inject(app, "GET", "/api/tags", alice.id)).json()).toEqual([{ id, name: "work", color: "#ff7ab6", noteCount: 1 }]);
+  });
+
+  it("color changes; a color that is neither one of the nine nor an opaque hex or rgb() color, an empty body, an extra key and a wrong type are 400 invalid_body; a bad name is 400 invalid_tag_name", async () => {
     const { app, db } = await buildTestApp();
     const alice = await seedUser(db, { displayName: "Alice" });
     const id = await seedTag(db, { ownerId: alice.id }, "work");
@@ -98,7 +124,8 @@ describe("PATCH /api/tags/:tagId", () => {
     const both = await patchTag(app, alice.id, id, { name: "plan", color: "red" });
     expect(both.json()).toEqual({ id, name: "plan", color: "red", noteCount: 0 });
 
-    for (const body of [{}, { color: "default" }, { color: "teal" }, { color: 3 }, { name: 1 }, { name: null }, { color: "red", extra: 1 }, []]) {
+    const badColors = ["default", "teal", "Red", "#abc8", "#e03e3e80", "rgba(1, 2, 3, 0.5)", "e03e3e", "#e03e3", " #e03e3e", "transparent", ""];
+    for (const body of [{}, ...badColors.map(color => ({ color })), { color: 3 }, { color: null }, { name: 1 }, { name: null }, { color: "red", extra: 1 }, []]) {
       const res = await patchTag(app, alice.id, id, body);
       expect(res.statusCode, JSON.stringify(body)).toBe(400);
       expect(codeOf(res), JSON.stringify(body)).toBe("invalid_body");
@@ -120,8 +147,8 @@ describe("POST /api/tags/:tagId/merge", () => {
     const both = await seedNote(db, { ownerId: alice.id });
     const onlyTarget = await seedNote(db, { ownerId: alice.id });
     const trashed = await seedNote(db, { ownerId: alice.id });
-    const source = await seedTag(db, { ownerId: alice.id }, "wip", "red");
-    const target = await seedTag(db, { ownerId: alice.id }, "Draft", "green");
+    const source = await seedTag(db, { ownerId: alice.id }, "wip", "#e03e3e");
+    const target = await seedTag(db, { ownerId: alice.id }, "Draft", "#1e3a8a");
     const bystander = await seedTag(db, { ownerId: alice.id }, "other", "gray");
     await attach(db, onlySource.id, source);
     await attach(db, both.id, source);
@@ -133,7 +160,7 @@ describe("POST /api/tags/:tagId/merge", () => {
 
     const res = await mergeTag(app, alice.id, source.toUpperCase(), target.toUpperCase());
     expect(res.statusCode, res.body).toBe(200);
-    expect(res.json()).toEqual({ id: target, name: "Draft", color: "green", noteCount: 3 });
+    expect(res.json()).toEqual({ id: target, name: "Draft", color: "#1e3a8a", noteCount: 3 });
 
     expect((await tagRows(db)).map(t => t.name).sort()).toEqual(["Draft", "other"]);
     const list = await listNotes(app, alice.id);

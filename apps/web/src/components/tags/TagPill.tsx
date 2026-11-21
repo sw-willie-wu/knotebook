@@ -2,6 +2,7 @@ import type { ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 import type { NoteTagDto } from "@knotebook/shared";
 import { X } from "@/components/ui/icons";
+import { tagColorStyle } from "./tag-color-style";
 
 // Literal classes: Tailwind scans statically. With a mouse the × appears on pill hover or keyboard focus; with a menu, touch has no × (the menu holds the removal).
 // Touch: an invisible ::after widens the 16px badge to a 24px target without changing how it looks.
@@ -28,6 +29,7 @@ export function TagPill({ tag, onRemove, removeDisabled, wrapLabel }: TagPillPro
   return (
     <span
       data-tag-color={tag.color}
+      style={tagColorStyle(tag.color)}
       className="group/tagpill relative inline-flex h-5 min-w-0 max-w-full items-center rounded-full bg-[var(--tag-bg)] px-2 text-xs text-[var(--tag-fg)]"
     >
       {wrapLabel === undefined ? (

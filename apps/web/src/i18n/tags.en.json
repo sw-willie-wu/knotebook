@@ -62,5 +62,10 @@
     "color": "Color",
     "appliesAll": "Applies to every note with this tag.",
     "removeHere": "Remove from this note"
+  },
+  "tagColor": {
+    "title": "Custom color",
+    "description": "The color of \"{{name}}\" on every note with this tag, the same in the light and dark themes.",
+    "customCurrent": "Custom color {{color}}"
   }
 }

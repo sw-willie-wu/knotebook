@@ -2,7 +2,7 @@
 // 400s and 404s before authorization don't charge TAG_LIMIT; the 429 comes after it. Cookie-only: no token scope reaches these routes.
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
-import { canEditNoteTags, normalizeTagName, TAG_COLORS, TAGS_PER_NOTE_MAX, type AddNoteTagResultDto, type NoteTagsDto, type SpaceTagDto } from "@knotebook/shared";
+import { canEditNoteTags, canonicalTagColor, normalizeTagName, TAGS_PER_NOTE_MAX, type AddNoteTagResultDto, type NoteTagsDto, type SpaceTagDto } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
 import { GROUP_NOT_FOUND_MESSAGE, groupAccess } from "../groups/queries.js";
 import type { GroupTestHook } from "../groups/test-hook.js";
@@ -33,8 +33,13 @@ export interface TagsRouteDeps {
 }
 
 const addBodySchema = z.object({ name: z.string() }).strict();
+const tagColorSchema = z.string().transform((value, ctx) => {
+  const color = canonicalTagColor(value);
+  if (color === null) ctx.addIssue({ code: z.ZodIssueCode.custom });
+  return color ?? z.NEVER;
+});
 const patchBodySchema = z
-  .object({ name: z.string().optional(), color: z.enum(TAG_COLORS).optional() })
+  .object({ name: z.string().optional(), color: tagColorSchema.optional() })
   .strict()
   .refine(b => b.name !== undefined || b.color !== undefined);
 const mergeBodySchema = z.object({ into: z.string() }).strict();

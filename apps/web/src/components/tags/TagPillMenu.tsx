@@ -1,6 +1,6 @@
 import { useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { TAG_COLORS, isTagColor, type NoteTagDto } from "@knotebook/shared";
+import { TAG_PRESET_COLORS, isCustomColor, isTagColor, type NoteTagDto } from "@knotebook/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { errorMessage } from "@/api/favorites";
 import { useUpdateTag, type TagSpaceRef } from "@/api/tags";
@@ -18,8 +18,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { toast } from "@/components/ui/toast";
 import "@/i18n/tags-strings";
+import { CUSTOM_SWATCH_STYLE, CustomTagColorDialogLoader } from "./CustomTagColorDialogLoader";
 import { RenameTagDialog } from "./RenameTagDialog";
 import { TagPill } from "./TagPill";
+import { tagColorStyle } from "./tag-color-style";
 import { isTagGone, refreshAfterTagGone } from "./tag-gone";
 
 export interface TagPillMenuProps {
@@ -31,14 +33,21 @@ export interface TagPillMenuProps {
   removeDisabled?: boolean;
 }
 
+const SWATCH =
+  "relative flex size-4 items-center justify-center rounded-full bg-[var(--tag-dot)] ring-offset-2 ring-offset-popover data-[highlighted]:ring-2 data-[highlighted]:ring-foreground pointer-coarse:size-7 pointer-coarse:after:absolute pointer-coarse:after:-inset-2 pointer-coarse:after:content-['']";
+const CUSTOM_ITEM = "custom";
+
 /** The pill of a tag the viewer can detach, with the menu behind its name. Lazy: the dialog and the strings stay out of the entry bundle. */
 export default function TagPillMenu({ tag, space, canManage, onRemove, removeDisabled }: TagPillMenuProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const update = useUpdateTag(space);
   const [renameOpen, setRenameOpen] = useState(false);
+  const [customOpen, setCustomOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const colorLabelId = useId();
+  const custom = isCustomColor(tag.color);
+  const customLabel = custom ? t("tagColor.customCurrent", { color: tag.color }) : t("colors.custom");
 
   function recolor(value: string): void {
     if (!isTagColor(value) || value === tag.color) return;
@@ -66,7 +75,7 @@ export default function TagPillMenu({ tag, space, canManage, onRemove, removeDis
             </DropdownMenuTrigger>
           )}
         />
-        <DropdownMenuContent align="start" sheetTitle={tag.name} onCloseAutoFocus={(event) => (renameOpen ? event.preventDefault() : undefined)}>
+        <DropdownMenuContent align="start" sheetTitle={tag.name} onCloseAutoFocus={(event) => (renameOpen || customOpen ? event.preventDefault() : undefined)}>
           {canManage && (
             <>
               <DropdownMenuItem onSelect={() => setRenameOpen(true)}>{t("tagPillMenu.rename")}</DropdownMenuItem>
@@ -74,7 +83,7 @@ export default function TagPillMenu({ tag, space, canManage, onRemove, removeDis
                 {t("tagPillMenu.color")}
               </DropdownMenuLabel>
               <DropdownMenuRadioGroup value={tag.color} onValueChange={recolor} aria-labelledby={colorLabelId} className="flex flex-wrap gap-2 px-2 py-1.5 pointer-coarse:gap-4">
-                {TAG_COLORS.map((color) => (
+                {TAG_PRESET_COLORS.map((color) => (
                   <DropdownMenuRadioItem
                     key={color}
                     value={color}
@@ -84,13 +93,28 @@ export default function TagPillMenu({ tag, space, canManage, onRemove, removeDis
                     title={t(`tags.colors.${color}`)}
                     // Keep the menu open so colors can be compared.
                     onSelect={(event) => event.preventDefault()}
-                    className="relative flex size-4 items-center justify-center rounded-full bg-[var(--tag-dot)] ring-offset-2 ring-offset-popover data-[highlighted]:ring-2 data-[highlighted]:ring-foreground pointer-coarse:size-7 pointer-coarse:after:absolute pointer-coarse:after:-inset-2 pointer-coarse:after:content-['']"
+                    className={SWATCH}
                   >
                     <DropdownMenuItemIndicator>
                       <Check aria-hidden className="size-3 text-popover" />
                     </DropdownMenuItemIndicator>
                   </DropdownMenuRadioItem>
                 ))}
+                <DropdownMenuRadioItem
+                  value={custom ? tag.color : CUSTOM_ITEM}
+                  data-tag-custom-color=""
+                  style={custom ? tagColorStyle(tag.color) : CUSTOM_SWATCH_STYLE}
+                  textValue={t("colors.custom")}
+                  aria-label={customLabel}
+                  title={customLabel}
+                  onSelect={() => setCustomOpen(true)}
+                  className={SWATCH}
+                >
+                  <DropdownMenuItemIndicator>
+                    {/* --tag-fg is the text color derived for this background, so the tick shows on any custom color. */}
+                    <Check aria-hidden className="size-3 text-[var(--tag-fg)]" />
+                  </DropdownMenuItemIndicator>
+                </DropdownMenuRadioItem>
               </DropdownMenuRadioGroup>
               <p className="px-2 pb-1 text-xs text-muted-foreground">{t("tagPillMenu.appliesAll")}</p>
               <DropdownMenuSeparator />
@@ -102,6 +126,7 @@ export default function TagPillMenu({ tag, space, canManage, onRemove, removeDis
         </DropdownMenuContent>
       </DropdownMenu>
       {canManage && <RenameTagDialog tag={tag} space={space} open={renameOpen} onOpenChange={setRenameOpen} returnFocusRef={triggerRef} />}
+      {canManage && <CustomTagColorDialogLoader tag={tag} space={space} open={customOpen} onOpenChange={setCustomOpen} returnFocusRef={triggerRef} />}
     </>
   );
 }
