@@ -558,7 +558,7 @@ then start that build. Steps 2 and 3 are for the bundled database; with your own
 
 **Tags (migrations 0043 and 0046).**
 
-1. **Migration 0043 only adds two tables**, `tags` (each space's list of tags: name, colour) and `note_tags` (which note carries which tag). It fills nothing in and changes no existing row; a tag is deleted with its group or with its owner's account, and a note's tags with the note when it is deleted for good. Back up the database first as usual.
+1. **Migration 0043 only adds two tables**, `tags` (each space's list of tags: name, color) and `note_tags` (which note carries which tag). It fills nothing in and changes no existing row; a tag is deleted with its group or with its owner's account, and a note's tags with the note when it is deleted for good. Back up the database first as usual.
 2. **Migration 0046 only replaces the check on `tags.color`** (`tags_color_chk`) with a wider one that also accepts a custom color written as lowercase `#rrggbb`. It changes no row.
 3. **Rolling back:** the previous version doesn't read the two tables, so tags are not shown there; the tables and the wider check stay, and after upgrading again the tags come back. Two things can differ for the time spent on the previous version: a note moved or copied to another space then doesn't get the matching tags of that space, so after upgrading again it shows no tags; and deleting a group and handing its notes to an admin removes the group's tags with the group, so those notes lose their tags for good.
 

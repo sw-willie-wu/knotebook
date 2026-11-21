@@ -118,7 +118,7 @@ function NoteRow({ note, variant, location, favorite, favoritePending }: NoteRow
       data-node-kind="note"
       data-node-id={note.id}
       className={cn(
-        "group/noterow flex items-center gap-1 rounded-md pr-0.75 text-[13px] max-sm:text-[15px] hover:bg-brand-soft hover:text-brand-on-soft active:bg-brand-soft-strong",
+        "group/noterow flex items-center gap-1 rounded-md pr-2 text-[13px] max-sm:text-[15px] hover:bg-brand-soft hover:text-brand-on-soft active:bg-brand-soft-strong",
         variant === "recent" ? "pl-2" : "h-11 pointer-fine:h-7",
         variant === "plain" && "pl-2",
         variant === "group" && "pl-3",

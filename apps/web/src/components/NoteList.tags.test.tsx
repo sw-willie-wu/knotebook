@@ -114,7 +114,7 @@ describe("sidebar tags", () => {
   });
 
   it("the dots are the last item of the row, after the row menu, in a slot every row has", async () => {
-    stubApi([sharedNote({ id: "n-shared", title: "Shared one", tags: [BOOKS, IDEAS] }), { ...DELTA, id: "n-untagged", title: "No tags here", tags: [] } as NoteDto]);
+    stubApi([sharedNote({ id: "n-shared", title: "Shared one", tags: [BOOKS, IDEAS] }), sharedNote({ id: "n-untagged", title: "No tags here", tags: [] })]);
     renderList("shared");
     const dots = await within(panel()).findByRole("img", { name: "Tags: Books, Ideas" });
     const row = dots.closest("li")!;
@@ -124,8 +124,8 @@ describe("sidebar tags", () => {
     expect(order.indexOf(menu)).toBeGreaterThanOrEqual(0);
     expect(order.indexOf(menu)).toBeLessThan(order.indexOf(slot));
     expect(order.at(-1)).toBe(slot);
-    const untagged = within(panel()).queryByText("No tags here")?.closest("li");
-    if (untagged) expect(untagged.lastElementChild!.className).toBe(slot.className);
+    const untagged = (await within(panel()).findByRole("link", { name: "No tags here" })).closest("li")!;
+    expect(untagged.lastElementChild!.className).toBe(slot.className);
   });
 
   it("a row without tags has no dots element", async () => {

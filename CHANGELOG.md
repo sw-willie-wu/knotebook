@@ -27,7 +27,7 @@ Releases before 0.16 are in [`docs/changelog/`](docs/changelog/), one file per m
 
 - **Sign-in buttons for GitLab and Google services now show a generic sign-in icon.** Knotebook no longer ships any vendor logo; a site admin can still upload one under **Site admin → Sign-in → Icon**. The GitLab and Google templates still prefill the issuer and name. See [Self-hosting](docs/self-hosting.md#sign-in-providers).
 
-- **The note list no longer shows "Editor" or "Viewer" after the title of a note shared with you.** A note you can only read still says Read-only once it is open.
+- **The note list no longer shows "Editor" or "Viewer" after the title of a note shared with you.** On a wider screen a note you can only read still says Read-only in the connection indicator once it is open.
 
 ### Fixed
 

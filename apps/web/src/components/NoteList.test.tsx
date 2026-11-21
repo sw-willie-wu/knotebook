@@ -506,9 +506,9 @@ describe("NoteList", () => {
     expect(titles).toEqual(["Third Owner Note", "Has A Slug"]); // server order, not sorted by title
     for (const note of [THIRD_OWNER_NOTE, OWNER_NOTE]) {
       const row = noteRow(note.id)!;
-      // Right padding 3px: the rightmost button's icon edge is 16px from the list edge, symmetric with the left text start; phone title is 15px.
-      expect(row).toHaveClass("pl-2", "pr-0.75", "text-[13px]", "max-sm:text-[15px]");
-      expect(row).not.toHaveClass("pl-6", "pr-2");
+      // Right padding 8px: the dots slot ends 16px from the list edge, symmetric with the left text start; phone title is 15px.
+      expect(row).toHaveClass("pl-2", "pr-2", "text-[13px]", "max-sm:text-[15px]");
+      expect(row).not.toHaveClass("pl-6", "pr-0.75");
       const menu = within(row).getByRole("button", { name: `Note actions for ${note.title}` });
       // Mouse: the more menu is in the flow, width 0 when not floated in (takes no space, -ms-1 cancels the extra gap); on hover, keyboard focus or open menu it grows to 24px and the title truncates earlier;
       // hover:none (always-visible more menu) restores 24px with `!`; no background color.
@@ -627,7 +627,7 @@ describe("NoteList", () => {
       expect(guide).toHaveClass("ml-[15px]", "border-l", "border-muted-foreground/35", "pl-2");
       const group = groupNode(GROUP_A.id)!;
       expect(group).toContainElement(guide);
-      expect(row).toHaveClass("pl-3", "pr-0.75");
+      expect(row).toHaveClass("pl-3", "pr-2");
       expect(row).not.toHaveClass("pl-6");
       expect(group.parentElement?.tagName).toBe("UL");
       expect(group.parentElement).not.toHaveClass("pl-4");
