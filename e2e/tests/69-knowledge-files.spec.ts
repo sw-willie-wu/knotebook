@@ -257,8 +257,13 @@ test.describe("selection AI (ai-stub /echo)", () => {
       const knowledgeId = knowledgeIdIn((await readSection(agent, note.id, "Original rule")).markdown);
 
       await editorLocator(page).getByText("Body text.", { exact: true }).click();
-      await page.keyboard.press("ControlOrMeta+a");
-      await page.getByRole("button", { name: "AI", exact: true }).click();
+      const aiButton = page.getByRole("button", { name: "AI", exact: true });
+      // The first click on an unfocused editor schedules a focus timer that rewrites the DOM selection, which can undo an immediate select-all.
+      await expect(async () => {
+        await page.keyboard.press("ControlOrMeta+a");
+        await expect(aiButton).toBeVisible({ timeout: 2_000 });
+      }).toPass({ timeout: 30_000 });
+      await aiButton.click();
       const box = selectionAiBox(page);
       await expect(box).toBeVisible();
       await box.getByRole("button", { name: "Rewrite", exact: true }).click();
