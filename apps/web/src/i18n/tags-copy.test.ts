@@ -1,0 +1,43 @@
+import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+import i18n from "@/i18n";
+import "@/i18n/tags-strings";
+import enRaw from "./en.json?raw";
+import zhTWRaw from "./zh-TW.json?raw";
+import tagsEn from "./tags.en.json";
+import tagsZhTW from "./tags.zh-TW.json";
+
+/** The tag management strings live in a lazy bundle; `tags.manage.nav` stays in the main file because the settings and group navigation render it. */
+
+function flattenKeys(value: unknown, prefix = ""): string[] {
+  if (typeof value !== "object" || value === null) return [prefix];
+  return Object.entries(value).flatMap(([key, child]) => flattenKeys(child, prefix ? `${prefix}.${key}` : key));
+}
+
+// Raw text: after registration the imported main JSON object has been deep-merged with the lazy bundle.
+const mainKeys = (raw: string) => flattenKeys(JSON.parse(raw) as object).filter((key) => key.startsWith("tags.manage."));
+
+describe("tags lazy bundle", () => {
+  it("has the same key set in both locales", () => {
+    expect(flattenKeys(tagsZhTW).sort()).toEqual(flattenKeys(tagsEn).sort());
+  });
+
+  it("does not overlap the main file, which keeps only the navigation label", () => {
+    for (const raw of [enRaw, zhTWRaw]) expect(mainKeys(raw)).toEqual(["tags.manage.nav"]);
+    const lazyKeys = flattenKeys(tagsEn);
+    expect(lazyKeys).not.toContain("tags.manage.nav");
+    expect(lazyKeys.length).toBeGreaterThan(20);
+  });
+
+  it("resolves after registration without overriding the main file", () => {
+    expect(i18n.t("tags.manage.rename", { lng: "en" })).toBe("Rename");
+    expect(i18n.t("tags.manage.nav", { lng: "en" })).toBe("Tags");
+    expect(i18n.t("tags.manage.nav", { lng: "zh-TW" })).not.toBe("tags.manage.nav");
+  });
+
+  it("is imported by every file that renders a lazy tags.manage key", () => {
+    for (const path of ["src/settings/TagsSection.tsx", "src/components/tags/RenameTagDialog.tsx"]) {
+      expect(readFileSync(`${process.cwd()}/${path}`, "utf8"), path).toMatch(/import\s+["']@\/i18n\/tags-strings["']/);
+    }
+  });
+});

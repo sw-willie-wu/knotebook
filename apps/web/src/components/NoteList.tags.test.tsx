@@ -75,7 +75,10 @@ async function openMenu(): Promise<HTMLElement> {
   const button = await within(panel()).findByRole("button", { name: /^Filter by tag/ });
   fireEvent.pointerDown(button, { button: 0 });
   fireEvent.click(button);
-  return screen.findByRole("menu");
+  const menu = await screen.findByRole("menu");
+  // The items come from a lazy chunk; wait so each case doesn't rely on an earlier one having loaded it.
+  await within(menu).findAllByRole("menuitemcheckbox");
+  return menu;
 }
 
 function tick(name: string) {
@@ -138,7 +141,7 @@ describe("sidebar tags", () => {
     stubApi([ALPHA, BRAVO, CHARLIE, DELTA]);
     renderList("myNotes");
     const menu = await openMenu();
-    expect(within(menu).getByText("Filter by tag · My notes")).toBeInTheDocument();
+    expect(await within(menu).findByText("Filter by tag · My notes")).toBeInTheDocument();
     const items = within(menu).getAllByRole("menuitemcheckbox");
     expect(items.map((item) => item.textContent)).toEqual(["Books1", "To do1", "Work2"]);
     expect(items[2]!.querySelector('[data-tag-color="blue"]')).not.toBeNull();
