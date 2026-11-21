@@ -1,7 +1,7 @@
 // Lock order for every write in a group's tag space: the group's row KEY SHARE first. Group delete and transfer take the group FOR UPDATE and
 // then its notes; the cascade of deleting the group reaches the tag rows last, so a tag write that locked a tag or a note before the group
 // would cycle with them (40P01). A personal space has no group to lock.
-// A merge then takes the two tag rows FOR UPDATE (by name_key, as every path that locks several tag rows does) and the notes carrying the source tag FOR KEY SHARE (by id). A note move holds its
+// A merge then takes the two tag rows FOR UPDATE (by name_key, as every path that locks several tag rows does) and the notes carrying the source tag FOR KEY SHARE (by id). A delete does the same for its tag, so it queues behind a purge or move that holds the notes before it removes any `note_tags` row. A note move holds its
 // row FOR UPDATE, so a note that leaves the space while we wait drops out of the lock set and out of the copy.
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { normalizeTagName, type SpaceTagDto, type TagColor } from "@knotebook/shared";
@@ -19,6 +19,17 @@ async function lockSpaceGroup(tx: Tx, space: TagSpace): Promise<boolean> {
 
 function noteSpaceWhere(space: TagSpace) {
   return space.kind === "personal" ? eq(notes.ownerId, space.ownerId) : eq(notes.groupId, space.groupId);
+}
+
+/** KEY SHARE conflicts with the FOR UPDATE a note purge or move holds, so the cascade over `note_tags` never runs against a writer that deletes the same rows in another order. */
+async function lockNotesCarryingTag(tx: Tx, tagId: string, space: TagSpace): Promise<void> {
+  await tx
+    .select({ id: notes.id })
+    .from(notes)
+    .innerJoin(noteTags, eq(noteTags.noteId, notes.id))
+    .where(and(eq(noteTags.tagId, tagId), noteSpaceWhere(space)))
+    .orderBy(asc(notes.id))
+    .for("key share", { of: notes });
 }
 
 const NAME_INDEXES = new Set(["tags_owner_name_idx", "tags_group_name_idx"]);
@@ -58,6 +69,9 @@ export async function updateTagInTx(tx: Tx, input: { tagId: string; space: TagSp
 /** Rows in `note_tags` go with the tag through the foreign key. */
 export async function deleteTagInTx(tx: Tx, input: { tagId: string; space: TagSpace }): Promise<boolean> {
   if (!(await lockSpaceGroup(tx, input.space))) return false;
+  const [tag] = await tx.select({ id: tags.id }).from(tags).where(and(eq(tags.id, input.tagId), tagSpaceWhere(input.space))).for("update");
+  if (tag === undefined) return false;
+  await lockNotesCarryingTag(tx, input.tagId, input.space);
   const rows = await tx
     .delete(tags)
     .where(and(eq(tags.id, input.tagId), tagSpaceWhere(input.space)))
@@ -84,13 +98,7 @@ export async function mergeTagsInTx(
     .for("update");
   if (locked.length !== 2) return { kind: "not_found" };
 
-  await tx
-    .select({ id: notes.id })
-    .from(notes)
-    .innerJoin(noteTags, eq(noteTags.noteId, notes.id))
-    .where(and(eq(noteTags.tagId, sourceId), noteSpaceWhere(space)))
-    .orderBy(asc(notes.id))
-    .for("key share", { of: notes });
+  await lockNotesCarryingTag(tx, sourceId, space);
 
   // Another statement, another snapshot: a note moved out while we waited above no longer matches the space condition.
   await tx.execute(sql`

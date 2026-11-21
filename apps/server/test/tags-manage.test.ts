@@ -586,6 +586,34 @@ describe("locking", () => {
   const LOW_ID = "00000000-0000-4000-8000-000000000001";
   const HIGH_ID = "ffffffff-ffff-4fff-8fff-ffffffffffff";
 
+  it("deleting a tag waits for a purge that holds its notes instead of cycling on their note_tags rows", async () => {
+    const { app, db } = await buildTestApp();
+    const alice = await seedUser(db, { displayName: "Alice" });
+    const first = await seedNote(db, { ownerId: alice.id });
+    const second = await seedNote(db, { ownerId: alice.id });
+    const doomed = await seedTag(db, { ownerId: alice.id }, "doomed");
+    await attach(db, first.id, doomed);
+    await attach(db, second.id, doomed);
+    for (const n of [first, second]) await markTrashed(db.$client, n.id, alice.id);
+
+    // A purge locks its notes FOR UPDATE, then removes their note_tags rows; it has already removed the row the tag delete reaches last.
+    const purge = await db.$client.connect();
+    try {
+      await purge.query("begin");
+      await purge.query("select id from notes where id = any($1) order by id for update", [[first.id, second.id]]);
+      await purge.query("delete from note_tags where note_id = $1", [second.id]);
+      const pending = deleteTag(app, alice.id, doomed);
+      expect(await waitForBlockedOrSettled(db.$client, pending)).toBe("blocked");
+      await purge.query("delete from notes where id = any($1)", [[first.id, second.id]]);
+      await purge.query("commit");
+      expect((await pending).statusCode).toBe(204);
+    } finally {
+      purge.release();
+    }
+    expect(await db.select().from(noteTags)).toEqual([]);
+    expect(await tagRows(db)).toEqual([]);
+  });
+
   it("a merge locks its two tags in name_key order: while it waits for the later one it already holds the earlier one", async () => {
     const { app, db } = await buildTestApp();
     const alice = await seedUser(db, { displayName: "Alice" });
