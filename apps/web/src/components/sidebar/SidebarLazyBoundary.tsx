@@ -12,7 +12,7 @@ export function SidebarLazyBoundary({
   errorClassName,
   children,
 }: {
-  chunk: "trash" | "select" | "folder" | "bodySearch" | "groupDialog" | "transferDialog" | "mediaZoom" | "knowledge";
+  chunk: "trash" | "select" | "folder" | "bodySearch" | "groupDialog" | "transferDialog" | "mediaZoom" | "tagFilter" | "tagResults" | "knowledge";
   fallback: ReactNode;
   errorClassName?: string;
   children: ReactNode;

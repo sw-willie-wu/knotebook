@@ -6,19 +6,16 @@ import {
   type UseMutationResult,
   type UseQueryResult,
 } from "@tanstack/react-query";
-import type { NoteDto, NoteTagDto, NoteTagsDto, SpaceTagDto, TagColor } from "@knotebook/shared";
+import type { AddNoteTagResultDto, NoteDto, NoteTagDto, NoteTagsDto, SpaceTagDto, TagColor } from "@knotebook/shared";
 import { api } from "./client";
+import { spaceTagsKey, type TagSpaceRef } from "./tag-keys";
 
-export type TagSpaceRef = { kind: "personal" } | { kind: "group"; groupId: string };
+export { spaceTagsKey, type TagSpaceRef };
 
 const EMPTY_TAGS: NoteTagDto[] = [];
 
 export function tagSpaceOfNote(note: Pick<NoteDto, "groupId">): TagSpaceRef {
   return note.groupId === null ? { kind: "personal" } : { kind: "group", groupId: note.groupId };
-}
-
-export function spaceTagsKey(space: TagSpaceRef): readonly unknown[] {
-  return space.kind === "personal" ? ["tags", "personal"] : ["tags", "group", space.groupId];
 }
 
 export function useSpaceTags(space: TagSpaceRef, options: { enabled?: boolean } = {}): UseQueryResult<SpaceTagDto[]> {
@@ -55,28 +52,33 @@ export async function patchNoteTagsInList(queryClient: QueryClient, noteId: stri
   void queryClient.invalidateQueries({ queryKey: ["notes"], exact: true });
 }
 
-export function useAddNoteTag(): UseMutationResult<NoteTagsDto, unknown, { noteId: string; name: string; space: TagSpaceRef }> {
+export interface NoteTagWrite {
+  noteId: string;
+  space: TagSpaceRef;
+}
+
+export async function addNoteTag(queryClient: QueryClient, { noteId, name, space }: NoteTagWrite & { name: string }): Promise<AddNoteTagResultDto> {
+  const result = await api<AddNoteTagResultDto>(`/api/notes/${encodeURIComponent(noteId)}/tags`, { method: "POST", body: JSON.stringify({ name }) });
+  await patchNoteTagsInList(queryClient, noteId, result.tags);
+  void queryClient.invalidateQueries({ queryKey: spaceTagsKey(space) });
+  return result;
+}
+
+export async function removeNoteTag(queryClient: QueryClient, { noteId, tagId, space }: NoteTagWrite & { tagId: string }): Promise<NoteTagsDto> {
+  const result = await api<NoteTagsDto>(`/api/notes/${encodeURIComponent(noteId)}/tags/${encodeURIComponent(tagId)}`, { method: "DELETE" });
+  await patchNoteTagsInList(queryClient, noteId, result.tags);
+  void queryClient.invalidateQueries({ queryKey: spaceTagsKey(space) });
+  return result;
+}
+
+export function useAddNoteTag(): UseMutationResult<AddNoteTagResultDto, unknown, { noteId: string; name: string; space: TagSpaceRef }> {
   const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ noteId, name }) =>
-      api<NoteTagsDto>(`/api/notes/${encodeURIComponent(noteId)}/tags`, { method: "POST", body: JSON.stringify({ name }) }),
-    onSuccess: async ({ tags }, { noteId, space }) => {
-      await patchNoteTagsInList(queryClient, noteId, tags);
-      void queryClient.invalidateQueries({ queryKey: spaceTagsKey(space) });
-    },
-  });
+  return useMutation({ mutationFn: (vars) => addNoteTag(queryClient, vars) });
 }
 
 export function useRemoveNoteTag(): UseMutationResult<NoteTagsDto, unknown, { noteId: string; tagId: string; space: TagSpaceRef }> {
   const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ noteId, tagId }) =>
-      api<NoteTagsDto>(`/api/notes/${encodeURIComponent(noteId)}/tags/${encodeURIComponent(tagId)}`, { method: "DELETE" }),
-    onSuccess: async ({ tags }, { noteId, space }) => {
-      await patchNoteTagsInList(queryClient, noteId, tags);
-      void queryClient.invalidateQueries({ queryKey: spaceTagsKey(space) });
-    },
-  });
+  return useMutation({ mutationFn: (vars) => removeNoteTag(queryClient, vars) });
 }
 
 /** Renaming, recoloring, merging and deleting change every note that carries the tag, so the notes list is refetched too. */

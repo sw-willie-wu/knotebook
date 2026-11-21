@@ -44,6 +44,8 @@ export const MOBILE_TOOLBAR_I18N_MARKER = 'hideKeyboard';
 export const TOURLAZY_RE = /^TourLazy-[A-Za-z0-9_-]+\.js$/;
 // Chosen over keys like next/back, which already appear in entry.
 export const TOUR_I18N_MARKER = 'keepOrDeleteSample';
+// A tags.manage.* key that lives only in tags.en.json (lazy tag-management strings); in entry means tags-strings is statically imported.
+export const TAGS_I18N_MARKER = 'mergeUnavailable';
 // Presence only catches the whole group merging back or a rename. The marker is the match rows' data-testid literal
 // (unlike i18n copy it is stable; only BodySearchResults.tsx may use it).
 export const BODYSEARCHLAZY_RE = /^BodySearchLazy-[A-Za-z0-9_-]+\.js$/;
@@ -266,6 +268,12 @@ export function checkBundleSize(assetsDir, { maxEntryBytes = MAX_ENTRY_BYTES } =
     throw new Error(
       `entry chunk ${entryName} 含導覽字串包的鍵名 ${TOUR_I18N_MARKER}——\`@/i18n/tour-strings\`（或 import 它的導覽模組）` +
         `被首包靜態 import；功能導覽只能經 TourLazy 載入（功能導覽）`
+    );
+  }
+
+  if (entrySource.includes(TAGS_I18N_MARKER)) {
+    throw new Error(
+      `entry chunk ${entryName} 含標籤管理字串包的鍵名 ${TAGS_I18N_MARKER}——\`@/i18n/tags-strings\`（或 import 它的標籤管理模組）被首包靜態 import；標籤管理字串只能經 lazy chunk 載入`
     );
   }
 

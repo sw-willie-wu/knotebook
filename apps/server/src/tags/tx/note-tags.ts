@@ -27,6 +27,8 @@ export type NoteTagsResult =
   | { kind: "not_found" }
   | { kind: "conflict" };
 
+export type AddNoteTagResult = Exclude<NoteTagsResult, { kind: "ok" }> | { kind: "ok"; tags: NoteTagDto[]; tag: NoteTagDto; attached: boolean };
+
 export interface ExpectedNoteSpace {
   ownerId: string | null;
   groupId: string | null;
@@ -103,11 +105,19 @@ async function finish(tx: Tx, noteId: string): Promise<NoteTagsResult> {
   return { kind: "ok", tags: await loadNoteTags(tx, noteId) };
 }
 
+// READ COMMITTED: another request can delete, merge or detach the tag between the statements that found it and this read.
+export async function finishAdd(tx: Tx, noteId: string, tagId: string, attached: boolean): Promise<AddNoteTagResult> {
+  const loaded = await loadNoteTags(tx, noteId);
+  const tag = loaded.find(t => t.id === tagId);
+  if (tag === undefined) return { kind: "conflict" };
+  return { kind: "ok", tags: loaded, tag, attached };
+}
+
 export async function addNoteTagInTx(
   tx: Tx,
   input: { noteId: string; expected: ExpectedNoteSpace; name: string; createdBy: string },
   hook?: GroupTestHook,
-): Promise<NoteTagsResult> {
+): Promise<AddNoteTagResult> {
   const name = normalizeTagName(input.name);
   if (name === null) return { kind: "invalid_tag_name", name: input.name };
   const space = await lockNoteTagSpaceInTx(tx, input.noteId, input.expected);
@@ -116,14 +126,14 @@ export async function addNoteTagInTx(
 
   const existing = await findTagByKey(tx, space, await nameKeyOf(tx, name));
   const attached = await attachedTagIds(tx, input.noteId, space);
-  if (existing !== null && attached.includes(existing.id)) return finish(tx, input.noteId);
+  if (existing !== null && attached.includes(existing.id)) return finishAdd(tx, input.noteId, existing.id, false);
   if (attached.length >= TAGS_PER_NOTE_MAX) return { kind: "tag_limit_reached", limit: TAGS_PER_NOTE_MAX };
 
   const used = existing === null ? await usedColors(tx, space) : [];
   if (existing === null && used.length >= TAGS_PER_SPACE_MAX) return { kind: "tag_limit_reached", limit: TAGS_PER_SPACE_MAX };
   const tagId = await upsertTag(tx, space, name, existing?.color ?? pickTagColor(used), input.createdBy);
   await tx.insert(noteTags).values({ noteId: input.noteId, tagId }).onConflictDoNothing();
-  return finish(tx, input.noteId);
+  return finishAdd(tx, input.noteId, tagId, true);
 }
 
 export async function removeNoteTagInTx(tx: Tx, input: { noteId: string; expected: ExpectedNoteSpace; tagId: string }): Promise<NoteTagsResult> {

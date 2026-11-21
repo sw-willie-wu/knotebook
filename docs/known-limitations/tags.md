@@ -1,13 +1,22 @@
 # Tags
 
-Tagging notes, the tag filter in the sidebar and managing a space's tags. Part of [Known limitations](../known-limitations.md).
+Tagging notes, the tag filter and tag search in the sidebar and managing a space's tags. Part of [Known limitations](../known-limitations.md).
 
 - **Tags other people change, or that you change in another window, show up when you come back to the window or reload the page,** not right away. This covers the tags on a note, the dots in the sidebar and the list in **Settings → Tags**.
 - **Tags are not part of the note's text, so they are not in the version history.** Applying an older version leaves the note's tags as they are, a version preview doesn't show them, and **Undo** in the editor doesn't bring back a tag you took off (take it off or add it again with the tag row).
 - **Whether two names differ only in letter case depends on the database's locale.** The names `AWS` and `aws` are one tag because the database lowercases both. On a database whose character classification (`LC_CTYPE`) is `C`, only the letters A to Z are treated that way, so `Ärger` and `ärger` are two tags; the bundled database uses a UTF-8 locale.
-- **The tag filter in the sidebar is cleared when the page is reloaded.** It is kept while you switch tabs, but it lives only in the open page, not in your account or this browser's storage.
+- **The tag filter in the sidebar and the tags in the search box are cleared when the page is reloaded.** The filter is kept while you switch tabs, but it lives only in the open page, not in your account or this browser's storage.
 - **Once a space has used all nine colors, new tags repeat them.** A new tag takes the color used least often, and you can change any tag's color in the tag list.
 - **The color dots in the sidebar can be hard to tell apart on a highlighted row.** The dots are checked against the sidebar's own background, where each color has a contrast of at least 3:1. On the tinted background of the row you point at or of the note that is open, some colors fall slightly below that (orange and gray in the light theme; blue, purple, pink, red and brown in the dark one). The dots only decorate the row: the names of the tags are its tooltip and screen-reader label, and in the note the tag names are written out.
 - **A note's tags, in the order they were added, are the order of its tags everywhere.** There is no way to reorder them.
 - **Copying a note while one of its tags is being merged into another can leave that tag off the copy.** The copy then has neither the merged tag nor the one it was merged into; add it to the copy again.
 - **After going back to version 0.17 and upgrading again, some notes lose their tags or show none.** While the previous version runs, it doesn't know about tags: a note moved or copied to another space then gets none of the matching tags, so after upgrading again it shows no tags; and deleting a group and handing its notes to an admin removes the group's tags with the group, so those notes lose their tags for good. See [Self-hosting](../self-hosting.md#upgrading-and-rolling-back).
+- **`#name` and a space adds a tag only on the note's first line.** The first block must be an ordinary paragraph that holds only `#name`; in any other block, after other text, or with a style applied, the text stays as it is. Someone typing in the same line at the same time can put their characters into the name before you press the space.
+- **`#a, #b` makes two tags named `a,` and `b`.** Names are split on spaces only, so a comma stays in the name.
+- **Pasting a line of `#names` needs a blank line (a new paragraph) after it.** Text pasted from a plain-text source with only a single line break between the tag line and the rest is kept as text.
+- **Some input methods and autocorrect don't trigger `#name` and a space.** When the characters arrive in a way the editor doesn't treat as typing a space, the text stays as it is; add the tag with `/tag` or the `⋮` menu.
+- **Ctrl+Z after `#name` and a space doesn't take the tag off.** It brings the text back and the tag stays; use **Undo** in the notice, or after it is gone the tag's menu (**Remove from this note**) or ×.
+- **Choosing a tag in the search box runs the text search for what you typed on the way.** Typing `#name` searches for `#name` as text until you pick the tag, so a search can briefly show notes that merely contain it.
+- **If the tag code can't be loaded, `#` completion in the search box isn't available.** The search by text keeps working, and reloading the page brings completion back.
+- **One search can use tags of only one space.** Choosing a tag of another space replaces the tokens, and notes shared with you can't be filtered by tag.
+- **A screen reader may not read the number of results when a tag is added to the search.**

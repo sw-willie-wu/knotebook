@@ -8,6 +8,7 @@ export interface NoteSearchInput {
   query: string;
   limit: number;
   bodyOnly?: boolean;
+  tagIds?: readonly string[];
   page?: { after: SearchPageKey | null };
 }
 

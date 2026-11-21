@@ -7,6 +7,7 @@ import { api, ApiFail } from "@/api/client";
 import { GROUPS_QUERY_KEY } from "@/api/groups";
 import { invalidateNoteQueries, patchNotesListLastEdited, useNote, useNoteByGroupPath, useNoteByPath } from "@/api/notes";
 import { SESSION_QUERY_KEY, useSession } from "@/auth/useSession";
+import type { HashTagBatchInput } from "@/collab/hash-tag-input";
 import { canEdit, isTerminal, stopsReconnect, type CollabState } from "@/collab/connection";
 import { useActiveNote } from "@/lib/active-note";
 import {
@@ -42,6 +43,7 @@ import { ChunkLoadBeacon, LazyRouteErrorBoundary, LazyRouteLoading } from "@/com
 import { LastEditedLabel } from "@/components/LastEditedLabel";
 import { NoteEditor } from "@/components/NoteEditor";
 import { NoteTagRow } from "@/components/tags/NoteTagRow";
+import { applyHashTags, currentNoteTagNames, preloadHashTagBatch } from "@/components/tags/hash-tag-apply";
 import { openTagEntry, type TagEntryOptions } from "@/components/tags/tag-entry";
 import { NoteMenu } from "@/components/NoteMenu";
 import { NoteWidthMenuItems } from "@/components/NoteWidthMenuItems";
@@ -372,6 +374,10 @@ export default function NotePage() {
 
   // Same canEdit criterion as title/share (REST role, non-terminal); synced is ignored because the versions API is REST.
   const versionsEnabled = note !== undefined && !stopsReconnect(state) && canEdit(effectiveRole(state, note));
+  const canChangeTags = versionsEnabled && canEditNoteTags(note);
+  useEffect(() => {
+    if (canChangeTags) preloadHashTagBatch();
+  }, [canChangeTags]);
   const versions = useVersionsController({
     noteId: noteId ?? null,
     enabled: versionsEnabled,
@@ -669,7 +675,15 @@ export default function NotePage() {
       <PresenceAvatars provider={provider} connected={state.phase === "connected"} myUserId={user.id} scrollerRef={cursorScrollerRef} />
     );
     // `roleCanEdit` already folds in the connection and a stale tab; `canEditNoteTags` is what keeps edit shares out.
-    const tagEntry = roleCanEdit && canEditNoteTags(note) ? { open: (options?: TagEntryOptions) => openTagEntry(note.id, options) } : undefined;
+    const tagEntry =
+      roleCanEdit && canEditNoteTags(note)
+        ? {
+            open: (options?: TagEntryOptions) => openTagEntry(note.id, options),
+            applyHash: (input: HashTagBatchInput) => applyHashTags({ queryClient, note, t }, input),
+            currentTagNames: () => currentNoteTagNames(queryClient, note.id),
+            notifyOverLimit: (max: number) => void import("@/components/tags/hash-tag-batch").then((m) => m.notifyHashTagOverLimit(t, max)),
+          }
+        : undefined;
     const noteMenu = (
       <NoteMenu
         note={note}

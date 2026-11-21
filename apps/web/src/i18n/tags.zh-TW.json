@@ -1,0 +1,66 @@
+{
+  "tags": {
+    "manage": {
+      "personalDescription": "「我的筆記」裡的標籤。改名或合併會套用到所有用到它的筆記。",
+      "groupDescription": "這個群組的標籤。改名或合併會套用到所有用到它的筆記。",
+      "empty": "還沒有標籤。可在筆記裡打 /tag，或從筆記的 ⋮ 選「加標籤」，或在第一行打 #名稱 加空白。",
+      "forbidden": "只有能管理群組的角色可以管理標籤。",
+      "noteCount_one": "{{count}} 篇筆記",
+      "noteCount_other": "{{count}} 篇筆記",
+      "name": "名稱",
+      "color": "顏色",
+      "notes": "筆記",
+      "actions": "操作",
+      "rename": "改名",
+      "renameTitle": "標籤改名",
+      "renameDescription": "新名稱會套用到所有用到這個標籤的筆記。",
+      "renameLabel": "改名 {{name}}",
+      "colorLabel": "{{name}} 的顏色",
+      "colorCurrent": "{{name}} 的顏色：{{color}}",
+      "merge": "合併到…",
+      "mergeLabel": "把 {{name}} 合併到另一個標籤",
+      "mergeTitle": "把「{{name}}」合併到另一個標籤",
+      "mergeInto": "合併到",
+      "mergePlaceholder": "選一個標籤",
+      "mergeUnavailable": "沒有其他標籤可以合併。",
+      "mergeDescription": "有「{{name}}」的筆記會改成你選的標籤，「{{name}}」會被刪除。",
+      "mergeConfirm": "合併",
+      "delete": "刪除",
+      "deleteLabel": "刪除 {{name}}",
+      "deleteTitle": "要刪除標籤「{{name}}」嗎？",
+      "deleteDescription_one": "會從 {{count}} 篇筆記移除，垃圾桶裡的筆記也會一併移除；筆記內容不變。",
+      "deleteDescription_other": "會從 {{count}} 篇筆記移除，垃圾桶裡的筆記也會一併移除；筆記內容不變。"
+    }
+  },
+  "tagSearch": {
+    "removeToken": "移除標籤篩選 {{name}}",
+    "joiner": "＋",
+    "statusNotes_one": "{{space}} · {{names}} · {{count}} 篇",
+    "statusNotes_other": "{{space}} · {{names}} · {{count}} 篇",
+    "statusResults_one": "{{space}} · {{names}} · {{count}} 筆結果",
+    "statusResults_other": "{{space}} · {{names}} · {{count}} 筆結果",
+    "noteCount_one": "{{count}} 篇",
+    "noteCount_other": "{{count}} 篇",
+    "addMore": "再加：",
+    "listLabel": "標籤",
+    "keysHint": "↑↓ 選擇 · Enter 加入",
+    "replacesHint": "選別的空間的標籤會取代目前的標籤"
+  },
+  "tagHash": {
+    "added": "已加上標籤：{{names}}",
+    "undo": "復原",
+    "undoAlt": "復原加上的標籤 {{names}}",
+    "undoFailed": "無法完全復原，請從內文上方的標籤列移除。",
+    "undoTextNotRestored": "標籤已移除，但文字沒有放回。",
+    "overLimit": "一篇最多 {{max}} 個標籤，這一行保留原樣。",
+    "failed": "無法加上標籤。",
+    "failedRestored": "無法加上標籤，文字已放回。"
+  },
+  "tagPillMenu": {
+    "open": "標籤 {{name}}",
+    "rename": "改名…",
+    "color": "顏色",
+    "appliesAll": "會套用到所有用到這個標籤的筆記。",
+    "removeHere": "從這篇移除"
+  }
+}

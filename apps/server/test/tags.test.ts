@@ -16,7 +16,7 @@ import type { Db } from "../src/db/index.js";
 import { noteAiEdits, noteStates, noteTags, notes, tags } from "../src/db/schema.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
 import { visibleNoteBranches } from "../src/notes/list-query.js";
-import { addNoteTagInTx, setNoteTagsByNamesInTx, type NoteTagsResult } from "../src/tags/tx/note-tags.js";
+import { addNoteTagInTx, finishAdd, setNoteTagsByNamesInTx, type NoteTagsResult } from "../src/tags/tx/note-tags.js";
 import { notesHavingAllTagsSql, loadNoteTagNames } from "../src/tags/queries.js";
 import { bearer, seedTokenForUser } from "./editing-helpers.js";
 import { cookieOf, seedGroup, seedNote, seedRole, seedShare, seedUser, setMemberRole, sleep, waitForBlockedOrSettled } from "./group-helpers.js";
@@ -88,10 +88,31 @@ describe("POST /api/notes/:id/tags", () => {
     for (const variant of ["AWS", "　Aws　"]) {
       const again = await addTag(app, alice.id, n.id, { name: variant });
       expect(again.statusCode, again.body).toBe(200);
-      expect(again.json()).toEqual(first.json());
+      expect(again.json()).toEqual({ ...(first.json() as object), attached: false });
     }
     expect(names(await tagRows(db))).toEqual(["aws"]);
     expect(await noteTagRows(db, n.id)).toHaveLength(1);
+  });
+
+  it("POST /api/notes/:id/tags answers with the attached tag, also when it was already on the note", async () => {
+    const { app, db } = await buildTestApp();
+    const alice = await seedUser(db, { displayName: "Alice" });
+    const n = await seedNote(db, { ownerId: alice.id });
+    await addTag(app, alice.id, n.id, { name: "first" });
+
+    const created = await addTag(app, alice.id, n.id, { name: " Second " });
+    expect(created.statusCode, created.body).toBe(200);
+    const body = created.json() as NoteTagsDto & { tag: { id: string; name: string; color: string } };
+    expect(body.tags.map(t => t.name)).toEqual(["first", "Second"]);
+    expect(body.tag).toEqual(body.tags[1]);
+    expect((body as unknown as { attached: boolean }).attached).toBe(true);
+
+    const again = await addTag(app, alice.id, n.id, { name: "SECOND" });
+    expect(again.statusCode, again.body).toBe(200);
+    expect((again.json() as typeof body).tag).toEqual(body.tag);
+    expect((again.json() as { attached: boolean }).attached).toBe(false);
+    const removed = await removeTag(app, alice.id, n.id, body.tag.id);
+    expect("tag" in (removed.json() as object)).toBe(false);
   });
 
   it("the second new tag in a space is green; the tenth takes the least-used color", async () => {
@@ -338,7 +359,7 @@ describe("DELETE /api/notes/:id/tags/:tagId", () => {
     const alice = await seedUser(db, { displayName: "Alice" });
     const n = await seedNote(db, { ownerId: alice.id });
     const [stray] = await seedPersonalTags(db, alice.id, ["stray"]);
-    const added = (await addTag(app, alice.id, n.id, { name: "on" })).json() as NoteTagsDto;
+    const added = { tags: (await addTag(app, alice.id, n.id, { name: "on" })).json().tags } as NoteTagsDto;
 
     const absent = await removeTag(app, alice.id, n.id, stray!);
     expect(absent.statusCode, absent.body).toBe(200);
@@ -713,7 +734,19 @@ describe("setNoteTagsByNamesInTx", () => {
     await attach(db, n.id, foreign);
 
     const out = await db.transaction(tx => addNoteTagInTx(tx, { noteId: n.id, expected: { ownerId: alice.id, groupId: null }, name: "mine", createdBy: alice.id }));
-    expect(out).toEqual({ kind: "ok", tags: [{ id: expect.any(String), name: "mine", color: "blue" }] });
+    const mine = { id: expect.any(String), name: "mine", color: "blue" };
+    expect(out).toEqual({ kind: "ok", tags: [mine], tag: mine, attached: true });
+  });
+});
+
+describe("finishAdd", () => {
+  // The race itself (a delete between two statements of one transaction) has no test seam, so the state it leaves behind is built directly.
+  it("answers conflict when the tag is no longer on the note", async () => {
+    const { db } = await buildTestApp();
+    const alice = await seedUser(db, { displayName: "Alice" });
+    const n = await seedNote(db, { ownerId: alice.id });
+    const out = await db.transaction(tx => finishAdd(tx, n.id, randomUUID(), true));
+    expect(out).toEqual({ kind: "conflict" });
   });
 });
 

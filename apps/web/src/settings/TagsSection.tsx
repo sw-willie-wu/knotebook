@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
 import { TAG_COLORS, isTagColor, type SpaceTagDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
+import "@/i18n/tags-strings";
 import { useDeleteTag, useMergeTag, useSpaceTags, useUpdateTag, type TagSpaceRef } from "@/api/tags";
 import { useGroupOutlet } from "@/components/groups/group-outlet";
 import { SettingsTable, type SettingsTableColumn, type SettingsTableRow } from "@/components/management/SettingsTable";

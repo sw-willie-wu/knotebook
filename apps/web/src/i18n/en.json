@@ -978,36 +978,7 @@
       "hiddenGroups": "Showing only {{group}}; other groups are hidden while filtering"
     },
     "manage": {
-      "nav": "Tags",
-      "personalDescription": "Tags in My notes. Renaming or merging a tag changes it on every note.",
-      "groupDescription": "Tags in this group. Renaming or merging a tag changes it on every note.",
-      "empty": "No tags yet. Type /tag in a note, or choose Add tag in its ⋮ menu.",
-      "forbidden": "Only roles that can manage this group can manage its tags.",
-      "noteCount_one": "{{count}} note",
-      "noteCount_other": "{{count}} notes",
-      "name": "Name",
-      "color": "Color",
-      "notes": "Notes",
-      "actions": "Actions",
-      "rename": "Rename",
-      "renameTitle": "Rename tag",
-      "renameDescription": "The new name applies to every note with this tag.",
-      "renameLabel": "Rename {{name}}",
-      "colorLabel": "Color of {{name}}",
-      "colorCurrent": "Color of {{name}}: {{color}}",
-      "merge": "Merge into…",
-      "mergeLabel": "Merge {{name}} into another tag",
-      "mergeTitle": "Merge \"{{name}}\" into another tag",
-      "mergeInto": "Merge into",
-      "mergePlaceholder": "Choose a tag",
-      "mergeUnavailable": "There is no other tag to merge into.",
-      "mergeDescription": "Notes tagged \"{{name}}\" get the tag you pick, and \"{{name}}\" is deleted.",
-      "mergeConfirm": "Merge",
-      "delete": "Delete",
-      "deleteLabel": "Delete {{name}}",
-      "deleteTitle": "Delete tag \"{{name}}\"?",
-      "deleteDescription_one": "It is removed from {{count}} note, and from notes in the trash too. The notes themselves aren't changed.",
-      "deleteDescription_other": "It is removed from {{count}} notes, and from notes in the trash too. The notes themselves aren't changed."
+      "nav": "Tags"
     }
   },
   "errors": {
@@ -1129,6 +1100,7 @@
     "tag_limit_reached": "You've reached the tag limit.",
     "invalid_tag_name": "Tag names must be 1 to 40 characters.",
     "tag_not_found": "That tag no longer exists.",
+    "invalid_tags": "That tag is no longer available.",
     "merge_same_tag": "Pick a different tag to merge into.",
     "invalid_knowledge": "A knowledge comment in that text is not valid, so nothing was changed.",
     "fallback": "An unexpected error occurred."

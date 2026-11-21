@@ -978,36 +978,7 @@
       "hiddenGroups": "篩選中只顯示{{group}}；其他群組暫時隱藏"
     },
     "manage": {
-      "nav": "標籤",
-      "personalDescription": "「我的筆記」裡的標籤。改名或合併會套用到所有用到它的筆記。",
-      "groupDescription": "這個群組的標籤。改名或合併會套用到所有用到它的筆記。",
-      "empty": "還沒有標籤。可在筆記裡打 /tag，或從筆記的 ⋮ 選「加標籤」。",
-      "forbidden": "只有能管理群組的角色可以管理標籤。",
-      "noteCount_one": "{{count}} 篇筆記",
-      "noteCount_other": "{{count}} 篇筆記",
-      "name": "名稱",
-      "color": "顏色",
-      "notes": "筆記",
-      "actions": "操作",
-      "rename": "改名",
-      "renameTitle": "標籤改名",
-      "renameDescription": "新名稱會套用到所有用到這個標籤的筆記。",
-      "renameLabel": "改名 {{name}}",
-      "colorLabel": "{{name}} 的顏色",
-      "colorCurrent": "{{name}} 的顏色：{{color}}",
-      "merge": "合併到…",
-      "mergeLabel": "把 {{name}} 合併到另一個標籤",
-      "mergeTitle": "把「{{name}}」合併到另一個標籤",
-      "mergeInto": "合併到",
-      "mergePlaceholder": "選一個標籤",
-      "mergeUnavailable": "沒有其他標籤可以合併。",
-      "mergeDescription": "有「{{name}}」的筆記會改成你選的標籤，「{{name}}」會被刪除。",
-      "mergeConfirm": "合併",
-      "delete": "刪除",
-      "deleteLabel": "刪除 {{name}}",
-      "deleteTitle": "要刪除標籤「{{name}}」嗎？",
-      "deleteDescription_one": "會從 {{count}} 篇筆記移除，垃圾桶裡的筆記也會一併移除；筆記內容不變。",
-      "deleteDescription_other": "會從 {{count}} 篇筆記移除，垃圾桶裡的筆記也會一併移除；筆記內容不變。"
+      "nav": "標籤"
     }
   },
   "errors": {
@@ -1129,6 +1100,7 @@
     "tag_limit_reached": "已達標籤數量上限。",
     "invalid_tag_name": "標籤名稱須為 1 到 40 個字。",
     "tag_not_found": "這個標籤已經不存在。",
+    "invalid_tags": "這個標籤已經不存在。",
     "merge_same_tag": "請選另一個標籤來合併。",
     "invalid_knowledge": "那段文字裡的知識註解格式不對，所以沒有改動。",
     "fallback": "發生未預期的錯誤。"

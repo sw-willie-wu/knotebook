@@ -72,7 +72,7 @@ describe("personal tag management (/settings/tags)", () => {
 
   it("an empty space shows the empty text and no table", async () => {
     renderGroupRoute("/settings/tags", tagsFetch({ tags: [] }));
-    expect(await screen.findByText("No tags yet. Type /tag in a note, or choose Add tag in its ⋮ menu.")).toBeInTheDocument();
+    expect(await screen.findByText("No tags yet. Type /tag in a note, or choose Add tag in its ⋮ menu, or type #name and a space on the first line.")).toBeInTheDocument();
     expect(screen.queryByRole("table")).toBeNull();
   });
 

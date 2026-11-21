@@ -36,10 +36,12 @@ import { createKnowledgeDecorationExtension } from "@/collab/knowledge-decoratio
 import { createKnowledgeEnterExtension } from "@/collab/knowledge-enter";
 import { createKnowledgeIdExtension } from "@/collab/knowledge-ids";
 import { createMarkdownLinkExtension } from "@/collab/markdown-link";
-import { createMarkdownPasteHandler } from "@/collab/paste";
+import { handleHashTagInput, type HashTagBatchInput, type HashTagHooks, type HashTagHooksRef } from "@/collab/hash-tag-input";
+import { createHashTagPasteHook } from "@/collab/hash-tag-paste";
+import { combinePasteHooks, createMarkdownPasteHandler } from "@/collab/paste";
 import { createSiteLinkConvertExtension, createSiteLinkEnv, createSiteLinkPasteHook, withSiteLinkDrop, type SiteLinkEnvRef } from "@/collab/site-link-convert";
 import { createTourTransactionFilterExtension } from "@/collab/tour-transaction-filter";
-import { useCollabUndoLifeline } from "@/collab/undo";
+import { collabUndoManager, useCollabUndoLifeline } from "@/collab/undo";
 import { usePageUndoShortcut } from "@/collab/page-undo";
 import type { TagEntryOptions } from "@/components/tags/tag-entry";
 import { PHONE_SLASH_MENU_FLOATING_OPTIONS, buildSlashMenuItems, withoutSlashBadges } from "@/components/slash-menu";
@@ -138,6 +140,8 @@ export interface NoteEditorOptionsInput {
   sizeGuard?: (incomingBytes: number) => boolean;
   /** Late-bound getter, read at each upload: config loads after the editor is created and can change. Omitted or undefined = no pre-check. */
   maxUploadBytes?: () => number | undefined;
+  /** Late-bound; `null` or omitted = typing `#name` and pasting a line of tags are left as ordinary text. */
+  hashTagHooks?: HashTagHooksRef;
 }
 
 /** Separate function so it can be tested without mounting BlockNote (jsdom lacks DOM/Range APIs). These options carry the contracts: image blocks get uploadFile while other media data URLs stay blocked, the collab fragment name, and the dictionary choice. */
@@ -153,7 +157,9 @@ export function buildNoteEditorOptions({
   canSendCursor,
   sizeGuard,
   maxUploadBytes,
+  hashTagHooks,
 }: NoteEditorOptionsInput) {
+  const noHashTagHooks: HashTagHooksRef = { current: null };
   const sizeHandlers = createNoteSizePasteHandlers(sizeGuard ?? (() => false));
   return withCollaboration({
     ...buildCollabEditorBase({
@@ -167,7 +173,7 @@ export function buildNoteEditorOptions({
     uploadFile: createUploadFile({ noteId, editorRef, translate, maxUploadBytes }),
     // Render-side URL guard (issue #12): note content is a Yjs document, so any collaborator with editor permission can write block props directly, bypassing the UI Embed tab checks. BlockNote runs previews and "open/download" through `resolveFileUrl` (verified against @blocknote/core and react 0.52.1 dist), the one place that intercepts before every sink without rewriting block specs. It must allow relative URLs (the input-side absolute-http(s) rule would block every uploaded image): our own uploads are `/api/uploads/<id>` (rules in shared `note-schema-config.ts`, web base in `lib/media-url.ts`).
     resolveFileUrl: (url: string) => Promise.resolve(safeMediaUrl(url)),
-    pasteHandler: createMarkdownPasteHandler(createSiteLinkPasteHook(siteLinks)),
+    pasteHandler: createMarkdownPasteHandler(combinePasteHooks(createHashTagPasteHook(hashTagHooks ?? noHashTagHooks), createSiteLinkPasteHook(siteLinks))),
     // same criterion as `edgeDrop` in `handleDrop` below
     dropCursor: { hooks: { computeDropPosition } },
     _tiptapOptions: {
@@ -204,6 +210,8 @@ export function buildNoteEditorOptions({
         // Not delegated to `SuggestionMenu` own multi-character detection: it compares `textBetween(from - 2, from) + text`, and `textBetween` returns fewer than 2 chars at block start, so it only works when the first `[` is the block first char (verified against @blocknote/core 0.52.1). Our handler runs first (directly passed editorProps before plugins).
         // Judge "after this input lands, are the characters before the caret `[[`", not the typed character (issue #98): ordinary typing is picked up by `readDOMChange` as "replace [from, to) with text", where `text` can be any length (fast typing merges to "[[", IME ends with e.g. "測試[[") and from may differ from to.
         handleTextInput: (view, from, to, text) => {
+          // First, so `# ` still reaches BlockNote's heading shortcut (it is not a tag name) and only a real `#name ` is taken.
+          if (hashTagHooks && handleHashTagInput(view, from, to, text, hashTagHooks)) return true;
           const sel = view.state.selection;
           // The deletions use parameter coordinates but `openSuggestionMenu` inserts at the current selection: they must be the same range (if they differ we would delete in one place and insert in another, corrupting the document), so guard explicitly (ProseMirror normally guarantees it).
           if (sel.from !== from || sel.to !== to) return false;
@@ -254,6 +262,11 @@ export function insertLinkAtSavedSelection(
 
 export interface TagEntryHandle {
   open: (options?: TagEntryOptions) => void;
+  /** Adds the names to this note as tags, then offers to undo. Absent = `#name` typing and pasting stay plain text. */
+  applyHash?: (input: HashTagBatchInput) => void;
+  currentTagNames?: () => readonly string[];
+  /** Shown when pasted tags would take the note past its limit. */
+  notifyOverLimit?: (max: number) => void;
 }
 
 /** Back to where the caret was, scrolled into view: the tag input sits at the top of the article, so opening it from the middle of a long note scrolled there. */
@@ -454,6 +467,27 @@ export function NoteEditor({
   // Late-bound ref bridges `buildNoteEditorOptions`, which runs before the editor exists.
   const editorRef = useRef<EditorRef["current"]>(null);
 
+  const tagEntryRef = useRef(tagEntry);
+  tagEntryRef.current = tagEntry;
+  const hashTagHooksRef = useRef<HashTagHooks | null>(null);
+  hashTagHooksRef.current =
+    tagEntry?.applyHash && tagEntry.currentTagNames
+      ? {
+          applyHash: (input) => tagEntryRef.current?.applyHash?.(input),
+          currentTagNames: () => tagEntryRef.current?.currentTagNames?.() ?? [],
+          undoBoundary: () => {
+            const current = editorRef.current;
+            if (current) collabUndoManager(current)?.stopCapturing();
+          },
+          notify: (_kind, { max }) => tagEntryRef.current?.notifyOverLimit?.(max),
+          active: () => {
+            const current = editorRef.current;
+            const view = current?.prosemirrorView;
+            return current && view ? { editor: current, view } : null;
+          },
+        }
+      : null;
+
   // Refreshed each render; plugin and fallbacks read the ref at action time.
   const queryClient = useQueryClient();
   const siteLinksRef = useRef<SiteLinkEnvRef["current"]>(null);
@@ -476,6 +510,7 @@ export function NoteEditor({
       canSendCursor: () => editableRef.current,
       sizeGuard,
       maxUploadBytes: () => maxUploadBytesRef.current,
+      hashTagHooks: hashTagHooksRef,
     }),
     // Language and noteId are not in deps: the dictionary is read once at creation, and a noteId change always changes `doc`/`provider` (`collab/useCollab.ts`), so a language switch applies after reload (rebuilding would remount the collab binding, not worth it).
     [doc, provider],
@@ -555,8 +590,6 @@ export function NoteEditor({
     if (editable) notifyEditorEditable(noteId, editor);
   }, [noteId, editor, editable]);
 
-  const tagEntryRef = useRef(tagEntry);
-  tagEntryRef.current = tagEntry;
   const { open: openKnowledgeSurface } = knowledge;
   const openKnowledge = useCallback(
     (blockId: string) => openKnowledgeSurface(blockId, "edit", editor.prosemirrorView?.dom ?? null),

@@ -139,6 +139,32 @@ export interface PasteConversionHook {
   after(editor: unknown, snapshot: unknown): void;
 }
 
+/** Runs the hooks in the order given; a hook whose `before` threw or returned `undefined` is skipped in `after`, as for a single hook. */
+export function combinePasteHooks(...hooks: PasteConversionHook[]): PasteConversionHook {
+  return {
+    before(editor) {
+      return hooks.map((hook) => {
+        try {
+          return hook.before(editor);
+        } catch {
+          return undefined;
+        }
+      });
+    },
+    after(editor, snapshot) {
+      const snapshots = snapshot as unknown[];
+      hooks.forEach((hook, index) => {
+        if (snapshots[index] === undefined) return;
+        try {
+          hook.after(editor, snapshots[index]);
+        } catch {
+          // A failing conversion must not stop the next one.
+        }
+      });
+    },
+  };
+}
+
 // BlockNote calls `event.preventDefault()` before this handler, so an uncaught exception makes the paste do nothing: the body is wrapped in try/catch and falls back to the default flow.
 export function createMarkdownPasteHandler(hook?: PasteConversionHook) {
   return ({

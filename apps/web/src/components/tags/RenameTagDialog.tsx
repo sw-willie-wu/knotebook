@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
 import { normalizeTagName, type NoteTagDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
+import "@/i18n/tags-strings";
 import { useUpdateTag, type TagSpaceRef } from "@/api/tags";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";

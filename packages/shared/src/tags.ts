@@ -28,6 +28,13 @@ export interface NoteTagsDto {
   tags: NoteTagDto[];
 }
 
+/** `tag` is the one this request attached, or the one already on the note. */
+export interface AddNoteTagResultDto extends NoteTagsDto {
+  tag: NoteTagDto;
+  /** False when the note already had the tag, so undoing the request must not remove it. */
+  attached: boolean;
+}
+
 const FORBIDDEN_CHARS = /[\u0000-\u001f\u007f]|\p{Cs}/u;
 
 export function normalizeTagName(raw: string): string | null {

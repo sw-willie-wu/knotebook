@@ -2,7 +2,7 @@
 // 400s and 404s before authorization don't charge TAG_LIMIT; the 429 comes after it. Cookie-only: no token scope reaches these routes.
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
-import { canEditNoteTags, normalizeTagName, TAG_COLORS, TAGS_PER_NOTE_MAX, type NoteTagsDto, type SpaceTagDto } from "@knotebook/shared";
+import { canEditNoteTags, normalizeTagName, TAG_COLORS, TAGS_PER_NOTE_MAX, type AddNoteTagResultDto, type NoteTagsDto, type SpaceTagDto } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
 import { GROUP_NOT_FOUND_MESSAGE, groupAccess } from "../groups/queries.js";
 import type { GroupTestHook } from "../groups/test-hook.js";
@@ -24,7 +24,7 @@ import {
 } from "../tags/messages.js";
 import { listSpaceTags, resolveTagManageAccess } from "../tags/queries.js";
 import { deleteTagInTx, isTagNameTaken, mergeTagsInTx, updateTagInTx } from "../tags/tx/manage.js";
-import { addNoteTagInTx, removeNoteTagInTx, type NoteTagsResult } from "../tags/tx/note-tags.js";
+import { addNoteTagInTx, removeNoteTagInTx, type AddNoteTagResult, type NoteTagsResult } from "../tags/tx/note-tags.js";
 
 export interface TagsRouteDeps {
   db: Db;
@@ -45,10 +45,10 @@ export function tagsRoutes(deps: TagsRouteDeps) {
     const tooManyRequests = (reply: FastifyReply): FastifyReply =>
       sendError(reply, 429, "too_many_requests", "Too many requests. Wait a moment and try again.");
 
-    const sendResult = (reply: FastifyReply, out: NoteTagsResult): FastifyReply => {
+    const sendResult = (reply: FastifyReply, out: NoteTagsResult | AddNoteTagResult): FastifyReply => {
       switch (out.kind) {
         case "ok":
-          return reply.send({ tags: out.tags } satisfies NoteTagsDto);
+          return reply.send("tag" in out ? ({ tags: out.tags, tag: out.tag, attached: out.attached } satisfies AddNoteTagResultDto) : ({ tags: out.tags } satisfies NoteTagsDto));
         case "invalid_tag_name":
           return sendError(reply, 400, "invalid_tag_name", INVALID_TAG_NAME_MESSAGE);
         case "tag_limit_reached":
