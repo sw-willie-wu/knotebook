@@ -25,6 +25,7 @@ export interface NoteFields {
   viewerFolderId: string | null;
   sizeBytes?: number;
   tags?: NoteTagDto[];
+  hasKnowledge?: boolean;
 }
 
 /** `access` is passed in so tsc forces every call site to decide (never hard-code `"owner"`); correctness is pinned by each path's tests. */
@@ -49,6 +50,7 @@ export function toNoteDto(note: NoteFields, access: Pick<NoteAccess, "role" | "p
     folderId: note.viewerFolderId,
     ...(note.sizeBytes !== undefined ? { sizeBytes: note.sizeBytes } : {}),
     ...(note.tags !== undefined ? { tags: note.tags } : {}),
+    ...(note.hasKnowledge !== undefined ? { hasKnowledge: note.hasKnowledge } : {}),
   };
 }
 

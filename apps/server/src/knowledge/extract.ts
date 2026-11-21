@@ -76,6 +76,8 @@ function finish(rows: KnowledgeIndexRow[], capped: boolean): KnowledgeIndexExtra
 }
 
 export const EMPTY_KNOWLEDGE_EXTRACT: KnowledgeIndexExtract = Object.freeze(finish([], false)) as KnowledgeIndexExtract;
+/** What a document that can't be decoded is recorded as, the same shape `extractKnowledgeIndex` gives when it fails. */
+export const UNREADABLE_KNOWLEDGE_EXTRACT: KnowledgeIndexExtract = Object.freeze(finish([], true)) as KnowledgeIndexExtract;
 
 // `knowledgeId` is the attribute without which no heading counts as knowledge, so a document whose bytes lack it cannot hold any. Plain substring: Yjs writes attribute keys as UTF-8.
 const KNOWLEDGE_ID_KEY = Buffer.from("knowledgeId", "utf8");

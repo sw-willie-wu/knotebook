@@ -115,7 +115,7 @@ const ARG_BANNED: Array<[string, RegExp]> = [
   ["閉包 function", /\bfunction\b/],
   ...HELPERS,
 ];
-const ROUTE_FILES = ["routes/notes.ts", "routes/note-content.ts", "routes/note-sharing.ts", "routes/groups.ts", "notes/links.ts", "routes/oidc.ts", "routes/oidc-pending.ts", "routes/admin-auth.ts", "routes/account.ts", "notes/search-index.ts", "knowledge/index-write.ts", "notes/search-query.ts", "mcp/tools/create-transfer-token.ts", "mcp/tools/open-notes-as-files.ts", "routes/uploads.ts", "collab/versions.ts", "routes/admin-versions.ts", "notes/copy-note.ts", "notes/move-note.ts", "routes/admin-password-reset.ts", "routes/password-reset.ts", "trash/service.ts", "routes/admin-trash.ts", "trash/purge.ts", "folders/service.ts", "notes/editing/write-service.ts", "site-limits/store.ts", "routes/avatars.ts", "avatars/oidc-job.ts", "routes/tags.ts"];
+const ROUTE_FILES = ["routes/notes.ts", "routes/note-content.ts", "routes/note-sharing.ts", "routes/groups.ts", "notes/links.ts", "routes/oidc.ts", "routes/oidc-pending.ts", "routes/admin-auth.ts", "routes/account.ts", "notes/search-index.ts", "knowledge/index-write.ts", "notes/search-query.ts", "mcp/tools/create-transfer-token.ts", "mcp/tools/open-notes-as-files.ts", "routes/uploads.ts", "collab/versions.ts", "routes/admin-versions.ts", "notes/copy-note.ts", "notes/move-note.ts", "routes/admin-password-reset.ts", "routes/password-reset.ts", "trash/service.ts", "routes/admin-trash.ts", "trash/purge.ts", "folders/service.ts", "notes/editing/write-service.ts", "site-limits/store.ts", "routes/avatars.ts", "avatars/oidc-job.ts", "routes/tags.ts", "knowledge/index-query.ts"];
 
 describe("transaction structure guard (#175)", () => {
   const files = walk(SRC);
@@ -215,6 +215,7 @@ describe("transaction structure guard (#175)", () => {
       { f: "routes/avatars.ts", all: 5, inTx: 5 }, // avatars: upload (insertAvatarInTx), re-crop (updateAvatarDisplayInTx), select (selectAvatarInTx), delete (deleteAvatarInTx), manual refetch (refreshOidcAvatarInTx)
       { f: "avatars/oidc-job.ts", all: 1, inTx: 1 }, // background job that imports the IdP avatar after login (replaceOidcAvatarInTx)
       { f: "routes/tags.ts", all: 5, inTx: 5 }, // add a tag to a note (addNoteTagInTx), remove one (removeNoteTagInTx), merge two tags (mergeTagsInTx), rename or recolor (updateTagInTx), delete (deleteTagInTx)
+      { f: "knowledge/index-query.ts", all: 1, inTx: 1 }, // knowledge index snapshot read
     ]);
   });
 

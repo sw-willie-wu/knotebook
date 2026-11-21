@@ -27,6 +27,7 @@ import { favoritesRoutes } from "./routes/favorites.js";
 import { tagsRoutes } from "./routes/tags.js";
 import { groupsRoutes } from "./routes/groups.js";
 import { searchRoutes } from "./routes/search.js";
+import { knowledgeRoutes } from "./routes/knowledge.js";
 import { usersRoutes } from "./routes/users.js";
 import type { WriteNoteLinksHooks } from "./notes/links.js";
 import type { SlugPatchTestHook } from "./notes/tx/patch-slug.js";
@@ -558,6 +559,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   void app.register(groupsRoutes({ db: deps.db, collabHooks: deps.collabHooks, groupTestHook: deps.groupTestHook, uploadsDir: deps.uploadsDir, storageLockTimeoutMs, versions }));
   void app.register(usersRoutes({ db: deps.db, limiters: { userSuggest: limiters.userSuggest } }));
   void app.register(searchRoutes({ db: deps.db, limiters: { search: limiters.search } }));
+  void app.register(knowledgeRoutes({ db: deps.db, limiters: { search: limiters.search } }));
   void app.register(adminUsersRoutes({ db: deps.db, gate: deps.gate, collabHooks: deps.collabHooks, adminTestHook: deps.adminTestHook }));
   void app.register(adminPasswordResetRoutes({ db: deps.db, config: deps.config }));
   void app.register(adminInvitesRoutes({ db: deps.db, config: deps.config }));

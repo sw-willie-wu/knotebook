@@ -159,8 +159,11 @@ describe("lock order against note deletion, trash and move", () => {
     const w = writeKnowledgeIndex(db, n.id, 2, ex(V2), { hooks: { afterVersionReadForTest: gate.wait } });
     await gate.reached;
     const trash = db.transaction((tx) => trashNotesInTx(tx, { ids: [n.id], by: u.id }));
-    expect(await waitForBlockedOrSettled(db.$client, trash)).toBe("blocked");
-    gate.open();
+    try {
+      expect(await waitForBlockedOrSettled(db.$client, trash)).toBe("blocked");
+    } finally {
+      gate.open();
+    }
     expect(await w).toBe("written");
     expect((await trash).trashed).toEqual([n.id]);
     expect((await knowledgeRows(db, n.id)).map((r) => r.readWhen)).toEqual(["version two"]);
@@ -180,8 +183,11 @@ describe("lock order against note deletion, trash and move", () => {
     const move = db.transaction((tx) =>
       moveNoteToGroupInTx(tx, { noteId: n.id, userId: u.id, userHandle: "h", groupId: g.id, folderId: null, lockTimeoutMs: 5000 }),
     );
-    expect(await waitForBlockedOrSettled(db.$client, move)).toBe("blocked");
-    gate.open();
+    try {
+      expect(await waitForBlockedOrSettled(db.$client, move)).toBe("blocked");
+    } finally {
+      gate.open();
+    }
     expect(await w).toBe("written");
     await move;
     const [row] = await db.select({ groupId: notes.groupId }).from(notes).where(eq(notes.id, n.id));

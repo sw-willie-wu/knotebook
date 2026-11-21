@@ -8,7 +8,7 @@ import { YDOC_FRAGMENT } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
 import { noteStateBackups, noteStates, notes } from "../db/schema.js";
 import { isForeignKeyViolation } from "../db/pg-errors.js";
-import { EMPTY_KNOWLEDGE_EXTRACT, extractKnowledgeForIndex, type KnowledgeIndexExtract } from "../knowledge/extract.js";
+import { extractKnowledgeForIndex, type KnowledgeIndexExtract } from "../knowledge/extract.js";
 import { bumpKnowledgeIndexVersion, knowledgeErrorFields, writeKnowledgeIndex, type KnowledgeIndexOutcome } from "../knowledge/index-write.js";
 import { bumpSearchIndexVersion, extractForIndex, writeSearchIndex, type SearchIndexOutcome } from "../notes/search-index.js";
 import type { SearchExtract } from "../notes/search-text.js";
@@ -330,8 +330,6 @@ export function createNoteStore(deps: NoteStoreDeps): NoteStore {
   // Own try, after the search index: nothing in here may fail the store or hold up the next debounce longer than a few statements.
   async function indexKnowledge(noteId: string, version: number, extract: KnowledgeIndexExtract): Promise<void> {
     try {
-      // A note known to have no knowledge costs no query at all: its stale source_version is harmless, and the periodic backfill catches it up.
-      if (extract.contentHash === EMPTY_KNOWLEDGE_EXTRACT.contentHash && knowledgeIndexedHash.get(noteId) === extract.contentHash) return;
       let needFull = knowledgeIndexedHash.get(noteId) !== extract.contentHash;
       if (!needFull) {
         const bumped = await knowledgeBumper(noteId, version, extract.contentHash);

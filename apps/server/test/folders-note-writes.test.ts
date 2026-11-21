@@ -337,7 +337,7 @@ describe("POST /api/notes/:id/copy with folderId", () => {
         ...input, copy: doc, uploadsDir: tmpdir(), copiedFileIds: [], searchExtract: extractForIndex(doc.doc), knowledgeExtract: extractKnowledgeForIndex(doc.doc), lockTimeoutMs: 5000,
       }));
       const all = queries.filter(q => !TXN_CONTROL.test(q.trim())).filter(q => ROW_LOCK.test(q.trim()));
-      // Up to reading the source (the first notes row lock); what follows is the lock the full-text index takes on the new copy (`replaceNoteSearchIndexInTx`), outside this lock order.
+      // Up to reading the source (the first notes row lock); what follows are the locks the full-text index and the knowledge index take on the new copy (`replaceNoteSearchIndexInTx`, `replaceNoteKnowledgeIndexInTx`), outside this lock order.
       const locks = all.slice(0, all.findIndex(q => / from "notes" /.test(q)) + 1);
       return { out, locks };
     };

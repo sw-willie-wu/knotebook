@@ -94,7 +94,7 @@ describe("backfill", () => {
     expect(second).toMatchObject({ candidates: 3, done: 3, aborted: false });
   });
 
-  it("a corrupt ydoc -> failed 1 with one warn that carries no err and no message, the rest done", async () => {
+  it("a corrupt ydoc -> recorded as empty and capped with one warn that carries only the note id; the next run has no candidates and stays silent", async () => {
     const { db } = await freshDb();
     const u = await seedUser(db);
     // Contains the attribute key so the decode path is taken, but is not a valid update.
@@ -106,10 +106,15 @@ describe("backfill", () => {
     await seedNoteState(db, good.id, knowledgeDoc(one("good one")), 1);
     const { log, warns } = captureLog();
     const r = await backfillKnowledgeIndex(db, log);
-    expect(r).toMatchObject({ candidates: 2, done: 1, failed: 1 });
-    expect(warns.map((w) => w.msg)).toEqual(["knowledge index backfill: one note failed (skipped, continuing)"]);
-    expect(Object.keys(warns[0]!.obj).sort()).toEqual(["code", "constraint", "name", "noteId"]);
+    expect(r).toMatchObject({ candidates: 2, done: 2, failed: 0 });
+    expect(warns.map((w) => w.msg)).toEqual(["knowledge index backfill: a document can't be decoded; recorded as empty and capped"]);
+    expect(Object.keys(warns[0]!.obj)).toEqual(["noteId"]);
     expect(await whens(db, good.id)).toEqual(["good one"]);
+    expect(await knowledgeRows(db, bad.id)).toEqual([]);
+    expect(await knowledgeState(db, bad.id)).toMatchObject({ entries: 0, capped: true, sourceVersion: 1, extractorVersion: KNOWLEDGE_EXTRACTOR_VERSION });
+    const again = captureLog();
+    expect(await backfillKnowledgeIndex(db, again.log)).toMatchObject({ candidates: 0 });
+    expect(again.warns).toEqual([]);
   });
 
   it("a candidate note deleted during the run is skipped, not a failure, no warn", async () => {

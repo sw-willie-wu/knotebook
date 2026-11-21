@@ -41,7 +41,7 @@ On `SIGTERM`/`SIGINT` it stops background scans, then calls `collab.destroy()` *
 `buildApp` in `apps/server/src/app.ts` wires everything together. It sets up cookie, multipart and form parsing, a global `onRequest` guard that requires `application/json` on bodies (with exemptions for uploads, `text/markdown` file write-backs and the OAuth form endpoints), the shared error format, security headers, `/healthz`, and the rate limiters (`apps/server/src/http/limiters.ts`). Then it registers one Fastify plugin per area from `apps/server/src/routes/`, for example:
 
 - `routes/notes.ts`: notes and the collab token; it also registers `routes/note-content.ts` (a note's content, `GET /api/notes/:id/content`, and edits and reverts, `/api/notes/:id/edits`) and `routes/note-sharing.ts` (shares, the public link and its alias and width);
-- `routes/note-versions.ts`, `routes/trash.ts`, `routes/folders.ts`, `routes/favorites.ts`, `routes/tags.ts`, `routes/groups.ts`, `routes/search.ts`, `routes/uploads.ts`;
+- `routes/note-versions.ts`, `routes/trash.ts`, `routes/folders.ts`, `routes/favorites.ts`, `routes/tags.ts`, `routes/groups.ts`, `routes/search.ts`, `routes/knowledge.ts` (the knowledge index of a space or folder and the replacement lookup, session-only), `routes/uploads.ts`;
 - `routes/auth.ts`, `routes/oidc*.ts`, `routes/api-tokens.ts`, `routes/oauth*.ts`: sign-in and credentials (next section);
 - `routes/admin-*.ts`: Site admin;
 - `routes/mcp.ts`: the MCP endpoint, `POST /api/mcp`;
@@ -167,7 +167,8 @@ The knowledge info on headings is copied into `note_knowledge` (one row per know
 
 - extraction: `apps/server/src/knowledge/extract.ts` builds the rows from the document and never throws; a document whose bytes don't contain a knowledge attribute is not walked;
 - writing: `apps/server/src/knowledge/index-write.ts` and `knowledge/tx/index-write.ts`, called from `onStoreDocument` after the full-text index (a failure there never fails the store), when a note is copied, and by the backfill;
-- backfill: `backfillKnowledgeIndex` runs in the background after the server starts listening and then every ten minutes (`startKnowledgeIndexSweep`), picking up notes whose index is missing, was built by an older extractor version, or lags the stored note. It can be resumed and is aborted on shutdown.
+- backfill: `backfillKnowledgeIndex` runs in the background after the server starts listening and then every ten minutes (`startKnowledgeIndexSweep`), picking up notes whose index is missing, was built by an older extractor version, or lags the stored note. A note whose stored document can't be decoded is recorded as empty and capped, so it stops being picked up. It can be resumed and is aborted on shutdown;
+- reading: `knowledge/index-query.ts` answers `GET /api/knowledge/index/*` in one repeatable-read, read-only transaction. `knowledge/scope.ts` first decides, outside the transaction, which personal space, group or folder the caller may open (everything else is one "not found"); inside it, notes come only from the same visibility branches as the note list (`knowledge/index-sql.ts`), so a note in the trash or one the caller can't see never appears, and neither does a replacement that points at one. A response holds at most 5000 entries, cut on a whole-note boundary in page order. `GET /api/notes` adds `hasKnowledge`, an `exists` on the leading column of the `note_knowledge` primary key; `knowledge/refs.ts` serves the replacement picker's search and lookup.
 
 ## The web app (`apps/web`)
 

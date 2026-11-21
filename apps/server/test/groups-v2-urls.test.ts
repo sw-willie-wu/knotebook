@@ -45,7 +45,7 @@ describe("#175 NoteDto new shape", () => {
     expect(byId.get(mine.id)).toMatchObject({ ownerId: s.member.id, groupId: null, group: null, role: "owner",
       permissions: { read: true, edit: true, delete: true, manageShares: true, managePublicLink: true, changeSlug: true, moveToGroup: true } });
     expect(Object.keys(byId.get(gn.id) as object).sort()).toEqual([
-      "createdAt", "folderId", "group", "groupId", "id", "lastEdited", "ownerHandle", "ownerId", "permissions", "prevSlug", "role", "sizeBytes", "slug", "slugIsCustom", "tags", "title", "updatedAt",
+      "createdAt", "folderId", "group", "groupId", "hasKnowledge", "id", "lastEdited", "ownerHandle", "ownerId", "permissions", "prevSlug", "role", "sizeBytes", "slug", "slugIsCustom", "tags", "title", "updatedAt",
     ]);
     const adminRow = (await get(app, "/api/notes", s.admin.id)).json().find((n: { id: string }) => n.id === gn.id);
     expect(adminRow.permissions).toMatchObject({ delete: true, managePublicLink: true, changeSlug: true, manageShares: false, moveToGroup: false });

@@ -8,6 +8,7 @@ import type { BackfillLogger, BackfillOptions, BackfillResult } from "../notes/s
 import {
   EMPTY_KNOWLEDGE_EXTRACT,
   KNOWLEDGE_EXTRACTOR_VERSION,
+  UNREADABLE_KNOWLEDGE_EXTRACT,
   bytesMayHoldKnowledgeEntries,
   extractKnowledgeForIndex,
   type KnowledgeIndexExtract,
@@ -117,11 +118,16 @@ export async function backfillKnowledgeIndex(db: Db, log: BackfillLogger, opts: 
           skipped += 1;
         } else {
           let extract = EMPTY_KNOWLEDGE_EXTRACT;
+          let unreadable = false;
           if (bytesMayHoldKnowledgeEntries(row.ydoc)) {
             const doc = new Y.Doc();
             try {
               Y.applyUpdate(doc, row.ydoc);
               extract = extractKnowledgeForIndex(doc);
+            } catch {
+              // Recorded, so the note stops being a candidate: otherwise every sweep would decode it again and log the same warning.
+              extract = UNREADABLE_KNOWLEDGE_EXTRACT;
+              unreadable = true;
             } finally {
               doc.destroy();
             }
@@ -134,6 +140,7 @@ export async function backfillKnowledgeIndex(db: Db, log: BackfillLogger, opts: 
           const outcome = await writeKnowledgeIndex(db, noteId, row.version, extract, { log });
           if (outcome === "written" || outcome === "unchanged") done += 1;
           else skipped += 1;
+          if (unreadable && outcome === "written") log.warn({ noteId }, "knowledge index backfill: a document can't be decoded; recorded as empty and capped");
         }
       } catch (err) {
         failed += 1;

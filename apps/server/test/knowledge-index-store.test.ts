@@ -5,7 +5,7 @@ import * as Y from "yjs";
 import { KNOWLEDGE_INDEX_NOTE_MAX, YDOC_FRAGMENT } from "@knotebook/shared";
 import { createNoteStore } from "../src/collab/store.js";
 import { notes, noteStateBackups } from "../src/db/schema.js";
-import { bumpKnowledgeIndexVersion, writeKnowledgeIndex } from "../src/knowledge/index-write.js";
+import { backfillKnowledgeIndex, bumpKnowledgeIndexVersion, writeKnowledgeIndex } from "../src/knowledge/index-write.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
 import { buildCollabTestApp, freshDb } from "./helpers.js";
 import { bearer, seedTokenForUser, waitFor } from "./editing-helpers.js";
@@ -321,7 +321,7 @@ describe("calling createNoteStore directly, deterministic", () => {
     expect((await knowledgeState(db, n.id))!.sourceVersion).toBe(3);
   });
 
-  it("a note without knowledge costs no knowledge query after its first store (neither a bump nor a transaction)", async () => {
+  it("a note without knowledge costs one primary-key UPDATE per store after its first store, no transaction, and its source_version keeps up so the sweep never picks it again", async () => {
     const { db, n, calls, store } = await storeWithCounters();
     const doc = new Y.Doc();
     await store.onLoadDocument(n.id, doc);
@@ -331,8 +331,9 @@ describe("calling createNoteStore directly, deterministic", () => {
     writeParagraph(doc, "q", "plain two");
     await store.onStoreDocument(n.id, doc);
     await store.onStoreDocument(n.id, doc);
-    expect(calls).toEqual({ index: 1, bump: 0 });
-    expect(await knowledgeState(db, n.id)).toMatchObject({ entries: 0, sourceVersion: 1 });
+    expect(calls).toEqual({ index: 1, bump: 2 });
+    expect(await knowledgeState(db, n.id)).toMatchObject({ entries: 0, sourceVersion: 3 });
+    expect(await backfillKnowledgeIndex(db, captureLog().log)).toMatchObject({ candidates: 0 });
   });
 
   it("bump hits 0 rows -> the same persist switches to a full write, then back to bump", async () => {
