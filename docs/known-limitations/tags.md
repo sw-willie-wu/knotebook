@@ -20,3 +20,10 @@ Tagging notes, the tag filter and tag search in the sidebar and managing a space
 - **If the tag code can't be loaded, `#` completion in the search box isn't available.** The search by text keeps working, and reloading the page brings completion back.
 - **One search can use tags of only one space.** Choosing a tag of another space replaces the tokens, and notes shared with you can't be filtered by tag.
 - **A screen reader may not read the number of results when a tag is added to the search.**
+- **Tags are not in the AI edit history, so reverting an edit doesn't change them.** This holds for a file that changed the `tags` line too.
+- **A file sent back writes the text first and the tags after it.** When the tags can't be written after the text was (the note was just moved, someone changed its tags at that moment, its space just reached the tag limit, or the database refused), the text stays written, nothing is rolled back, and the reply carries `tagsFailed`.
+- **Two requests that change the same note's tags at the same moment can overwrite each other.** The file path checks that the tags are still what the copy had, but a change committed at that very moment can't be seen, so the one written last stays.
+- **A file that creates a note and fails to write its text leaves the new tag names behind.** The note is removed, but names the file created in the space stay in the space's tag list; remove them in **Settings → Tags**.
+- **Only a file sets a note's tags from MCP.** `create_note` and `edit_note` don't take tags, and a `#name` in what they write is text.
+- **Changing the case or the order of a file's tags changes nothing.** Two names count as one when the database lowercases them to the same text, and the server's own check lowercases with JavaScript's rules, which differ for a few letters (`ΑΣ` and `ας`): taking one of two such names out of a file's `tags` line doesn't change the note.
+- **Every downloaded file has a `tags` line, and a copy downloaded before the upgrade has none.** Sending back such a copy leaves the tags alone. After going back to version 0.17 the line is ignored, and files written there don't carry tags.

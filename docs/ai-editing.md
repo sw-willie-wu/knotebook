@@ -11,7 +11,7 @@ Every write goes through the same real-time document the browser edits, so a cha
 | Endpoint | Method | Scope | What it does |
 |---|---|---|---|
 | `/api/notes/:id/content` | GET | `notes:read` | Read the note as Markdown, with an outline and the fingerprints a write needs. `?section=<id>` returns one section only. Side-effect free — the note itself never changes; a token-authenticated read does make the AI's cursor appear, though (see [Presence](#presence)). |
-| `/api/notes/:id/edits` | POST | `notes:write` | Apply one of the five operations. `201 {editId, fingerprint, outline, unboundWikilinks}`. |
+| `/api/notes/:id/edits` | POST | `notes:write` | Apply one of the five operations. `201 {editId, fingerprint, outline, unboundWikilinks}`, plus `knowledge` when the write did something to [knowledge info](#knowledge-info). |
 | `/api/notes/:id/edits` | GET | `notes:read` | List this note's recorded edits, newest first, and whether each can still be reverted. |
 | `/api/notes/:id/edits/:editId/revert` | POST | `notes:write` | Undo one recorded edit. `201 {editId, fingerprint, outline}`. |
 | `/api/notes` | POST | `notes:write` | Create a note; an optional `content` field writes its initial Markdown in the same request. `201` is an ordinary note object — unlike `POST …/edits`, it does not carry `unboundWikilinks`, even though wikilinks in `content` are bound the same way. |
@@ -104,6 +104,8 @@ Two writes to the same note are serialised (see `server_busy` under [Limits](#li
 
 A request is exactly **one** merge into the live document: all of it lands, or none of it does. There is no per-block animation and no partial application — readers watching the note see the change appear in one step.
 
+`replace_all` and `replace_section` keep the [knowledge info](#knowledge-info) of a heading you send back without a comment, when the heading has the same level and text as one in what the write replaces; `insert_after` and `append` add headings that have none unless they come with a comment.
+
 Empty-shaped notes behave like this:
 
 | | `_top` with zero blocks (note starts with a heading) | Vacuum document (no top-level blocks at all) |
@@ -170,7 +172,8 @@ The MCP tool `open_notes_as_files` (see [MCP](./mcp.md#open_notes_as_files)) let
 - **Each changed place is one row** in the AI edit history, with `op: "file_sync"`, and the **AI edit history** dialog shows it as `file_sync`. Renaming a note with a file isn't recorded. A file that changes more than 100 places in a note leaves only the 100 latest of its rows, and the reply's `editIds` lists only those.
 - **A toggle becomes a bullet.** A toggle is written to the file as a bullet item, so when the file changes it, it comes back as a bullet list item. `edit_note` does the same with a toggle read with `read_note_section` and written back.
 - **Blocks nested under a list item come out of it.** A list item with a paragraph nested under it is written to the file as one item; when the file changes that item, the nested paragraph comes back as a block of its own, after it.
-- **HTML comments are dropped**, and text after one, on its line and on the lines right below it, becomes plain text that can run on into the text after a later comment; leave a blank line after each comment, with nothing after it on its line, to keep the lines below it as markdown. A block whose text has a comment inside it is replaced by one without the comment, which keeps the old block's id only by the rules in [Which blocks keep their ids](#which-blocks-keep-their-ids). A comment the file opens with `<!--` and doesn't close can hide the text after it; when that leaves a changed part with nothing in it, the whole file is refused with `400 empty_content`. `edit_note` parses markdown the same way.
+- **A file carries the note's tags and knowledge info.** Its front matter has a `tags` line, and a [knowledge comment](#knowledge-info) follows each knowledge heading. A file is the whole content, so a knowledge heading that comes back without its comment has no knowledge info afterwards: the rule that `replace_section` and `replace_all` keep it for a heading sent without a comment doesn't apply to files. A comment the file keeps decides the info, even when the heading's text changed. A `tags` line that differs from the one downloaded sets the note's tags, which needs edit rights in the note's own space; see [MCP](./mcp.md#sending-a-file-back).
+- **HTML comments other than a knowledge comment are dropped**, and text after one, on its line and on the lines right below it, becomes plain text that can run on into the text after a later comment; leave a blank line after each comment, with nothing after it on its line, to keep the lines below it as markdown. A block whose text has a comment inside it is replaced by one without the comment, which keeps the old block's id only by the rules in [Which blocks keep their ids](#which-blocks-keep-their-ids). A comment the file opens with `<!--` and doesn't close can hide the text after it; when that leaves a changed part with nothing in it, the whole file is refused with `400 empty_content`. `edit_note` parses markdown the same way.
 - Some cases where a block is replaced although the file didn't change it, and other blocks that come back different from how they went out, are in [Known limitations](./known-limitations/bulk-transfer.md).
 
 ## Limits
@@ -215,6 +218,36 @@ Eight more properties of the Markdown:
 - **A link's title is dropped.** The optional title in `[text](url "title")` has nowhere to live — a link keeps only its text and its URL — so it is gone as soon as the Markdown is parsed, and reading the note back gives you `[text](url)`. Nothing reports the loss, and unlike links to notes and diagrams (the two repairs at the top of this section) the server does not repair it; the link itself, text and URL, is preserved exactly.
 - Only block types this note can store are accepted. Anything else is rejected whole, with `400 unsupported_block` — no block is silently stripped. The same code answers Markdown the editor fails to parse, such as `<div data-content-type="paragraph">`; HTML with an event-handler attribute such as `onerror` or `onclick` anywhere in it, including inside a `<details>` block or a `<figure>` (this check comes before the column and size checks below); a `<script>`, `<style>`, `<iframe>`, `<object>`, `<noscript>`, `<title>` or `<template>` element anywhere in it, also in the middle of a paragraph, a list or a column (one inside an HTML comment or a code block doesn't count); a paragraph inside another paragraph, which only HTML can make (a `<p>` inside a `<button>`, `<marquee>`, `<svg>` or `<math>` that is itself in a `<p>`); Markdown nested more than 128 HTML elements deep, counting each element it becomes and the paragraph inside — a quote is one level and a list level two, so quotes nested 127 levels deep and lists nested 63 levels deep still fit, 128 and 64 don't; and Markdown the server can't read within its time and memory limits (see [Limits](#limits)), with a message saying it is too complex — Markdown nested several thousand levels deep can end up here instead of being refused for its depth. Other HTML the editor has no place for is not an error: an element with text in it, such as `<span>` or `<button>`, keeps only its text (except `<video>` and `<audio>` in the middle of a line, whose fallback text is dropped with them), and one without, such as an `<img>` in the middle of a line of text or `<input>`, is dropped. Side-by-side columns and sizes are checked as well: columns not written in the form under [Columns](#columns) are rejected whole with `400 unsupported_columns`, and image widths or table column widths not written in the form under [Sizes](#sizes) with `400 unsupported_size`.
 - Non-empty Markdown always ends with a trailing newline. A note that has never been opened or written to returns `markdown: ""`; one that has been reduced back to empty returns `"\n"`. Both report `chars: 0`, so test emptiness with `chars` or the fingerprint, not by comparing the string to `""`.
+
+### Knowledge info
+
+A heading at the top level of a note can carry [knowledge info](./knowledge.md): when to read it, a conclusion, how well it is backed, when it was last verified and whether it was replaced. Reading gives it as a comment on the lines right after the heading, and a write reads the same comment back:
+
+```markdown
+## Retry policy
+<!-- knotebook:knowledge
+id: k_3f9a01bc
+when: When a job fails twice
+conclusion: Back off before the third try
+evidence: tested
+verified: 2026-11-14
+-->
+
+Wait before the third attempt.
+```
+
+- **The lines.** `<!-- knotebook:knowledge` is alone on the comment's first line, `-->` closes it, and each line between is `key: value`. The keys are `id`, `when`, `conclusion`, `evidence` (`tested`, `docs`, `inferred` or `unconfirmed`), `verified` (`YYYY-MM-DD`), `status` (`unverified` or `outdated`; leave it out for current) and `superseded_by` (a knowledge id of the same note, or `<note id>#<knowledge id>` for another note; `outdated` needs it). Reading leaves out the line of an empty field, and `unconfirmed` is the same as leaving `evidence` out. A key can appear once, and a line with a key this list doesn't have is ignored.
+- **Values.** A value that starts with `"` is read as one JSON string; reading writes a value that way when it starts with `"`, has a space at either end, or holds `--`, a control character or a lone surrogate. A value you write has to be on one line, at most 200 characters for `when` and 300 for `conclusion`. A comment has to set at least one field, and the blank line after `-->` is required.
+- **Where it counts.** Only on the lines right after a heading at the top level of the note, not in a column, a list or a quote. A knowledge comment anywhere else is ignored, and the reply counts it in `ignoredComments`. A second comment under one heading is refused. Knowledge info can't be set in any other way: a `data-knowledge-…` attribute in HTML is taken off before the markdown is read, so it sets nothing (in markdown that has a `<plaintext>` tag the write is refused with `400 unsupported_block`).
+- **A bad comment refuses the write.** A comment that isn't written as above is refused with `400 invalid_knowledge`, whose message names the heading and what is wrong, and nothing is written. That holds for `POST /api/notes/:id/edits`, `POST /api/notes`, the MCP tools and a file sent back.
+- **A comment sets the whole info.** A line you leave out empties that field, except `id`: a comment without `id` on a heading that keeps its level and text in a `replace_section`, a `replace_all` or a file sent back keeps that knowledge's id, and on any other heading it makes new knowledge with a new id. An `id` has to be `k_` and 8 lowercase hex digits; one that starts with `k_new:` is refused.
+- **A heading sent without a comment.** `replace_section` and `replace_all` keep the knowledge info of the heading it lines up with in what the write replaces: one with the same level and the same text (the replaced blocks and the new ones are lined up by their content, and headings left over are paired when their level and text are unique on both sides). A heading whose text or level you changed has none unless you send a comment. The reply's `knowledge.kept` lists what was kept and `knowledge.removed` what was in the replaced part and is no longer in the note. The AI actions in the web app follow the same rules.
+- **Ids stay unique in a note.** An `id` you write on a heading while another heading holds it is not given to the one you wrote it on: that heading gets a new id, which the reply lists in `knowledge.renewed` with the id you wrote as `from`. The heading that holds it is the one that already had the knowledge: a heading outside what the write replaces; inside it, a heading that kept the old info (sent without a comment, or with a comment without an `id` line); else the one that lines up with the old heading that had the id; else the first heading you wrote it on. Where a heading is renamed and keeps its comment, nothing else holds the id, so it keeps it. `knowledge.created` lists the ids that are new to the note after the write, whether you left `id` out or wrote a new one.
+- **Writing back what is stored.** Knowledge info that is in the note and comes back with all six values unchanged isn't checked again, so what the web app stored can always be written back; a changed value is checked (the lengths, `evidence`, `status`, the date, `superseded_by`).
+- **The reply.** `knowledge` is `{kept, created, removed, renewed, ignoredComments}`; each list holds `{id, heading}` entries, and `ignoredComments` is a number. It is there only when the write kept, created, removed or renewed knowledge info or ignored a comment.
+- **Revert.** Reverting an edit puts back the knowledge info it removed, with the same ids.
+
+What doesn't travel in the comment is in [Known limitations](./known-limitations/knowledge.md).
 
 ### Colors
 
@@ -282,7 +315,7 @@ These are refused with `400 unsupported_columns` (over MCP, the tool error `unsu
 
 A write that is wrong about both columns and sizes answers `unsupported_columns`.
 
-Knotebook's own [AI actions](./ai.md) send the selected blocks to the model in this same form, ask it to keep the column tags, and check its result the same way before it can be applied. When the blocks an action works on are inside a column, or indented under another block, a result that contains columns is refused.
+Knotebook's own [AI actions](./ai.md) send the selected blocks to the model in this same form, ask it to keep the column tags and the knowledge comments, and check its result the same way before it can be applied. When the blocks an action works on are inside a column, or indented under another block, a result that contains columns is refused.
 
 ### Sizes
 
