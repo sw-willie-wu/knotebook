@@ -13,13 +13,17 @@ import { cn } from "@/lib/utils";
 import { BODY_SEARCH_DEBOUNCE_MS, bodySearchGate } from "@/components/sidebar/body-search-gate";
 import { indexFolders } from "@/components/sidebar/folder-index";
 import { SidebarLazyBoundary } from "@/components/sidebar/SidebarLazyBoundary";
+import { TagDots } from "@/components/sidebar/TagDots";
+import { notesMatchingTokens, type SearchTagToken } from "@/components/sidebar/search-tags";
 import { PHONE_LIST_SCROLLER } from "@/components/sidebar/phone-bar";
 import { noteLocationLabel, type LocationContext } from "@/components/sidebar/tree";
 
+const TagResultsExtras = lazy(() => import("@/components/sidebar/TagResultsExtras"));
 const BodySearchResults = lazy(() => import("@/components/sidebar/BodySearchLazy").then((m) => ({ default: m.BodySearchResults })));
 
 /** Lowercasing can change length (e.g. `İ` → `i̇`), so positions no longer map to the original title: then nothing is highlighted. */
 export function highlightTitle(title: string, lowerQuery: string): ReactNode {
+  if (lowerQuery === "") return title;
   const index = foldedIndexOf(title, lowerQuery);
   if (index < 0) return title;
   const end = index + lowerQuery.length;
@@ -68,11 +72,23 @@ export function SearchRow({
         active && "bg-brand-soft text-brand-on-soft hover:bg-brand-soft-strong",
       )}
     >
-      <div className={searchTitleLineClass(active)}>{highlightTitle(note.title, lowerQuery)}</div>
+      <SearchTitleLine note={note} lowerQuery={lowerQuery} active={active} />
       <div className={cn("mt-0.5", searchMetaLineClass(active))} title={label}>
         {label}
       </div>
     </Link>
+  );
+}
+
+/** Without tags this is a single div; with tags the dots sit at the end of the line. */
+export function SearchTitleLine({ note, lowerQuery, active }: { note: NoteDto; lowerQuery: string; active: boolean }) {
+  const title = <div className={searchTitleLineClass(active)}>{highlightTitle(note.title, lowerQuery)}</div>;
+  if ((note.tags ?? []).length === 0) return title;
+  return (
+    <div className="flex min-w-0 items-center">
+      <div className="min-w-0 flex-1">{title}</div>
+      <TagDots tags={note.tags ?? []} />
+    </div>
   );
 }
 
@@ -118,10 +134,22 @@ function TitleRows({
  * The body section is also absent while `/api/notes` is loading or failed (early return below): intended, it cross-checks against that list.
  * The count line (`role="status"`) is outside the container: with body results loaded and not stale it is the listed row count, otherwise the title-match count.
  */
-export function SearchResults({ query }: { query: string }) {
+const NO_TOKENS: SearchTagToken[] = [];
+const STATUS_CLASS = "px-4 pt-3 pb-1 text-[11px] font-semibold tracking-wide text-muted-foreground";
+
+export function SearchResults({
+  query,
+  tagTokens = NO_TOKENS,
+  onTagTokensChange,
+}: {
+  query: string;
+  tagTokens?: readonly SearchTagToken[];
+  onTagTokensChange?: (tokens: SearchTagToken[]) => void;
+}) {
   const { t } = useTranslation();
   const notesQuery = useNotes();
   const groupsQuery = useGroups();
+  const tokenSpace = tagTokens[0]?.space ?? null;
   const foldersQuery = useFolders();
   const folderIndex = useMemo(() => indexFolders(foldersQuery.data ?? []), [foldersQuery.data]);
   const { activeNoteId, setActiveNoteId } = useActiveNote();
@@ -136,7 +164,7 @@ export function SearchResults({ query }: { query: string }) {
     const err = notesQuery.error;
     return (
       <div data-testid="sidebar-search" className="flex min-h-0 flex-1 flex-col">
-        <p role="status" className="px-4 pt-3 pb-1 text-[11px] font-semibold tracking-wide text-muted-foreground" />
+        <p role="status" className={STATUS_CLASS} />
         {notesQuery.isPending ? (
           <p className="p-2 text-sm text-muted-foreground">{t("app.loading")}</p>
         ) : (
@@ -149,24 +177,45 @@ export function SearchResults({ query }: { query: string }) {
   }
 
   const lowerQuery = query.toLowerCase();
-  const results = notesQuery.data.filter((note) => note.title.toLowerCase().includes(lowerQuery));
   const groupIds = new Set((groupsQuery.data ?? []).map((group) => group.id));
+  const pool = tagTokens.length === 0 ? notesQuery.data : notesMatchingTokens(notesQuery.data, tagTokens, groupIds);
+  const results = pool.filter((note) => note.title.toLowerCase().includes(lowerQuery));
   // Not waiting on ["folders"]: until it arrives the path row just lacks the folder segment.
   const location = { groupIds, folders: folderIndex };
 
-  const statusText =
-    gate === "search" && bodyStatus !== null
-      ? t(bodyStatus.more ? "sidebar.matchesCountMore" : "sidebar.matchesCount", { count: bodyStatus.count })
-      : t("sidebar.titleMatches", { count: results.length });
+  const bodyReady = gate === "search" && bodyStatus !== null;
+  const plainStatus = bodyReady
+    ? t(bodyStatus.more ? "sidebar.matchesCountMore" : "sidebar.matchesCount", { count: bodyStatus.count })
+    : t("sidebar.titleMatches", { count: results.length });
+  const plainRow = (
+    <p role="status" className={STATUS_CLASS}>
+      {plainStatus}
+    </p>
+  );
   const titleRows = (
     <TitleRows notes={results} location={location} lowerQuery={lowerQuery} activeNoteId={activeNoteId} onPick={setActiveNoteId} />
   );
 
   return (
     <div data-testid="sidebar-search" className="flex min-h-0 flex-1 flex-col">
-      <p role="status" className="px-4 pt-3 pb-1 text-[11px] font-semibold tracking-wide text-muted-foreground">
-        {statusText}
-      </p>
+      {tokenSpace === null ? (
+        plainRow
+      ) : (
+        <SidebarLazyBoundary
+          chunk="tagResults"
+          fallback={plainRow}
+          errorClassName="px-4 pb-1.5 text-xs"
+        >
+          <TagResultsExtras
+            tagTokens={tagTokens}
+            onTagTokensChange={onTagTokensChange}
+            plainStatus={plainStatus}
+            gateOff={gate === "off"}
+            titleCount={results.length}
+            body={bodyReady ? bodyStatus : null}
+          />
+        </SidebarLazyBoundary>
+      )}
       <div className={cn("min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-2", PHONE_LIST_SCROLLER)}>
         {gate !== "search" && titleRows}
         {gate !== "search" && results.length === 0 && <p className="px-2 py-2 text-sm text-muted-foreground">{t("sidebar.noMatch")}</p>}
@@ -187,9 +236,11 @@ export function SearchResults({ query }: { query: string }) {
               debounced={debounced}
               titleNotes={results}
               titleLowerQuery={lowerQuery}
-              notes={notesQuery.data}
+              notes={pool}
               location={location}
               onStatus={setBodyStatus}
+              tagIds={tagTokens.map((token) => token.id)}
+              tagSpace={tokenSpace}
             />
           </SidebarLazyBoundary>
         )}

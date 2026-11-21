@@ -31,5 +31,19 @@
       "deleteDescription_one": "會從 {{count}} 篇筆記移除，垃圾桶裡的筆記也會一併移除；筆記內容不變。",
       "deleteDescription_other": "會從 {{count}} 篇筆記移除，垃圾桶裡的筆記也會一併移除；筆記內容不變。"
     }
+  },
+  "tagSearch": {
+    "removeToken": "移除標籤篩選 {{name}}",
+    "joiner": "＋",
+    "statusNotes_one": "{{space}} · {{names}} · {{count}} 篇",
+    "statusNotes_other": "{{space}} · {{names}} · {{count}} 篇",
+    "statusResults_one": "{{space}} · {{names}} · {{count}} 筆結果",
+    "statusResults_other": "{{space}} · {{names}} · {{count}} 筆結果",
+    "noteCount_one": "{{count}} 篇",
+    "noteCount_other": "{{count}} 篇",
+    "addMore": "再加：",
+    "listLabel": "標籤",
+    "keysHint": "↑↓ 選擇 · Enter 加入",
+    "replacesHint": "選別的空間的標籤會取代目前的標籤"
   }
 }

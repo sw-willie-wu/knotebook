@@ -31,5 +31,19 @@
       "deleteDescription_one": "It is removed from {{count}} note, and from notes in the trash too. The notes themselves aren't changed.",
       "deleteDescription_other": "It is removed from {{count}} notes, and from notes in the trash too. The notes themselves aren't changed."
     }
+  },
+  "tagSearch": {
+    "removeToken": "Remove tag filter {{name}}",
+    "joiner": "+",
+    "statusNotes_one": "{{space}} · {{names}} · {{count}} note",
+    "statusNotes_other": "{{space}} · {{names}} · {{count}} notes",
+    "statusResults_one": "{{space}} · {{names}} · {{count}} result",
+    "statusResults_other": "{{space}} · {{names}} · {{count}} results",
+    "noteCount_one": "{{count}} note",
+    "noteCount_other": "{{count}} notes",
+    "addMore": "Add:",
+    "listLabel": "Tags",
+    "keysHint": "↑↓ to choose · Enter to add",
+    "replacesHint": "Tags of another space replace the current ones"
   }
 }

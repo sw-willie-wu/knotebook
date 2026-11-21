@@ -8,17 +8,14 @@ import {
 } from "@tanstack/react-query";
 import type { NoteDto, NoteTagDto, NoteTagsDto, SpaceTagDto, TagColor } from "@knotebook/shared";
 import { api } from "./client";
+import { spaceTagsKey, type TagSpaceRef } from "./tag-keys";
 
-export type TagSpaceRef = { kind: "personal" } | { kind: "group"; groupId: string };
+export { spaceTagsKey, type TagSpaceRef };
 
 const EMPTY_TAGS: NoteTagDto[] = [];
 
 export function tagSpaceOfNote(note: Pick<NoteDto, "groupId">): TagSpaceRef {
   return note.groupId === null ? { kind: "personal" } : { kind: "group", groupId: note.groupId };
-}
-
-export function spaceTagsKey(space: TagSpaceRef): readonly unknown[] {
-  return space.kind === "personal" ? ["tags", "personal"] : ["tags", "group", space.groupId];
 }
 
 export function useSpaceTags(space: TagSpaceRef, options: { enabled?: boolean } = {}): UseQueryResult<SpaceTagDto[]> {

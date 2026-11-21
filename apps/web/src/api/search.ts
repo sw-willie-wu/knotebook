@@ -10,9 +10,10 @@ import { ApiFail, api } from "./client";
 
 export function fetchNoteSearch(
   q: string,
-  opts: { limit: number; match: "all" | "body"; cursor?: string; signal?: AbortSignal },
+  opts: { limit: number; match: "all" | "body"; cursor?: string; tagIds?: readonly string[]; signal?: AbortSignal },
 ): Promise<NoteSearchResultDto> {
   const params = new URLSearchParams({ q, limit: String(opts.limit), match: opts.match });
+  if (opts.tagIds !== undefined && opts.tagIds.length > 0) params.set("tags", opts.tagIds.join(","));
   if (opts.cursor !== undefined) params.set("cursor", opts.cursor);
   return api<NoteSearchResultDto>(`/api/search?${params.toString()}`, opts.signal ? { signal: opts.signal } : {});
 }
@@ -20,7 +21,7 @@ export function fetchNoteSearch(
 export type BodySearchState =
   /** First load, or the debounced text hasn't passed the gate. */
   | { kind: "pending" }
-  | { kind: "error"; rateLimited: boolean }
+  | { kind: "error"; rateLimited: boolean; invalidTags: boolean }
   | {
       kind: "ready";
       /** Deduped by `note.id`: a rename between pages can repeat a note (the server's keyset only looks at values). */
@@ -38,19 +39,26 @@ export type BodySearchState =
 
 type SearchPage = NoteSearchResultDto & { forQuery: string };
 
+const NO_TAG_IDS: readonly string[] = [];
+
 const isRateLimited = (err: unknown) => err instanceof ApiFail && err.status === 429;
+const isInvalidTags = (err: unknown) => err instanceof ApiFail && err.code === "invalid_tags";
 
 /** Debouncing is done by the caller (`SearchResults`), so remounts don't refire. Key includes the user id: logout doesn't
  * clear the cache. `retry: false`: the search rate limit (60/min, shared with MCP) would only be hit sooner. No focus/reconnect
  * refetch: an infinite query refetches every loaded page, each counting against the rate limit. Known cost: remounting the
  * same query after 30 s (or an invalidated key) still refetches every page. `keepPreviousData` keeps the last batch (marked
  * stale) while the query changes, so the list doesn't flash. */
-export function useBodySearch({ query, debounced }: { query: string; debounced: string }): BodySearchState {
+export function useBodySearch({ query, debounced, tagIds = NO_TAG_IDS }: { query: string; debounced: string; tagIds?: readonly string[] }): BodySearchState {
   const userId = useQueryClient().getQueryData<UserDto | null>(SESSION_QUERY_KEY)?.id ?? null;
   const q = useInfiniteQuery({
-    queryKey: ["noteSearch", userId, debounced, SEARCH_LIMIT_DEFAULT, "body"],
+    // The tag part is added only when tags are used, so the key of a plain search is the same as before.
+    queryKey: [
+      "noteSearch", userId, debounced, SEARCH_LIMIT_DEFAULT, "body",
+      ...(tagIds.length === 0 ? [] : [[...tagIds].sort().join(",")]),
+    ],
     queryFn: async ({ pageParam, signal }): Promise<SearchPage> => ({
-      ...(await fetchNoteSearch(debounced, { limit: SEARCH_LIMIT_DEFAULT, match: "body", cursor: pageParam ?? undefined, signal })),
+      ...(await fetchNoteSearch(debounced, { limit: SEARCH_LIMIT_DEFAULT, match: "body", cursor: pageParam ?? undefined, tagIds, signal })),
       forQuery: debounced,
     }),
     initialPageParam: null as string | null,
@@ -79,7 +87,7 @@ export function useBodySearch({ query, debounced }: { query: string; debounced: 
   const loadMore = useMemo(() => () => void fetchNextPage(), [fetchNextPage]);
 
   if (pages === undefined || pages.length === 0) {
-    if (q.isError) return { kind: "error", rateLimited: isRateLimited(q.error) };
+    if (q.isError) return { kind: "error", rateLimited: isRateLimited(q.error), invalidTags: isInvalidTags(q.error) };
     return { kind: "pending" };
   }
   const stale = query !== debounced || q.isPlaceholderData;

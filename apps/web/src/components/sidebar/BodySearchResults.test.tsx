@@ -229,10 +229,10 @@ describe("BodySearchView merged list", () => {
     expect(within(region()).getByText("正在搜尋內文…")).toBeInTheDocument();
     expect(within(region()).getAllByTestId("search-hit")).toHaveLength(1);
     first.unmount();
-    const second = renderView({ kind: "error", rateLimited: false });
+    const second = renderView({ kind: "error", rateLimited: false, invalidTags: false });
     expect(within(region()).getByText("無法搜尋內文。")).toBeInTheDocument();
     second.unmount();
-    const third = renderView({ kind: "error", rateLimited: true });
+    const third = renderView({ kind: "error", rateLimited: true, invalidTags: false });
     expect(within(region()).getByText("搜尋太頻繁，請稍等一下再試。")).toBeInTheDocument();
     third.unmount();
 
@@ -250,7 +250,7 @@ describe("BodySearchView merged list", () => {
   });
 
   it("the search results region is found in all three states pending / error / ready", () => {
-    for (const s of [{ kind: "pending" } as const, { kind: "error", rateLimited: false } as const, readyState([])]) {
+    for (const s of [{ kind: "pending" } as const, { kind: "error", rateLimited: false, invalidTags: false } as const, readyState([])]) {
       const r = renderView(s);
       expect(region()).toHaveAttribute("data-testid", "sidebar-search-results");
       r.unmount();

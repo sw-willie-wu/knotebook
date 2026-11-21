@@ -29,6 +29,13 @@ describe("tags lazy bundle", () => {
     expect(lazyKeys.length).toBeGreaterThan(20);
   });
 
+  it("keeps the search-box strings out of the main files", () => {
+    for (const raw of [enRaw, zhTWRaw]) expect(Object.keys(JSON.parse(raw) as object)).not.toContain("tagSearch");
+    expect(Object.keys(tagsEn)).toContain("tagSearch");
+    expect(i18n.t("tagSearch.removeToken", { lng: "en", name: "Work" })).toBe("Remove tag filter Work");
+    expect(i18n.t("tagSearch.joiner", { lng: "zh-TW" })).toBe("＋");
+  });
+
   it("resolves after registration without overriding the main file", () => {
     expect(i18n.t("tags.manage.rename", { lng: "en" })).toBe("Rename");
     expect(i18n.t("tags.manage.nav", { lng: "en" })).toBe("Tags");
@@ -36,7 +43,13 @@ describe("tags lazy bundle", () => {
   });
 
   it("is imported by every file that renders a lazy tags.manage key", () => {
-    for (const path of ["src/settings/TagsSection.tsx", "src/components/tags/RenameTagDialog.tsx"]) {
+    for (const path of [
+      "src/settings/TagsSection.tsx",
+      "src/components/tags/RenameTagDialog.tsx",
+      "src/components/sidebar/TagSearchController.tsx",
+      "src/components/sidebar/TagResultsExtras.tsx",
+      "src/components/sidebar/TagHashList.tsx",
+    ]) {
       expect(readFileSync(`${process.cwd()}/${path}`, "utf8"), path).toMatch(/import\s+["']@\/i18n\/tags-strings["']/);
     }
   });
