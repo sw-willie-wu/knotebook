@@ -64,14 +64,64 @@ describe("knowledgePairs and resolveKnowledgeForWrite", () => {
     expect(r.kept.map(k => k.id)).toEqual(["k_00000001", "k_00000002"]);
   });
 
-  it("a comment naming the id of a heading that is still there does not take its knowledge: the paired heading keeps it and the repeat is left for renewal", () => {
+  it("a comment naming the id of a heading that is still there does not take its knowledge: the paired heading keeps it and the repeat gets a new id", () => {
     const before = [H(2, "A", K("k_00000001", { knowledgeConclusion: "orig" }))];
     const moved = H(2, "Z", K("k_00000001", { knowledgeWhen: "moved" }));
     const after = [H(2, "A"), moved];
     const r = resolve(before, after);
     expect(propsOf(r.blocks[0]!)).toMatchObject({ knowledgeId: "k_00000001", knowledgeConclusion: "orig" });
-    expect(r.blocks[1]).toBe(moved);
+    const fresh = propsOf(r.blocks[1]!);
+    expect(fresh).toMatchObject({ knowledgeWhen: "moved" });
+    expect(fresh.knowledgeId).toMatch(KNOWLEDGE_ID_RE);
+    expect(fresh.knowledgeId).not.toBe("k_00000001");
     expect(r.kept).toEqual([{ id: "k_00000001", heading: "A" }]);
+    expect(r.renewed).toEqual([{ id: fresh.knowledgeId, heading: "Z", from: "k_00000001" }]);
+    expect(r.created).toEqual([]);
+  });
+
+  it("the heading that was there first keeps the id wherever the repeat sits, also when the repeat comes first", () => {
+    const before = [H(2, "A", K("k_00000001")), H(2, "B")];
+    const after = [H(2, "B"), H(2, "X", K("k_00000001", { knowledgeWhen: "moved" })), H(2, "A")];
+    const r = resolve(before, after);
+    expect(propsOf(r.blocks[2]!).knowledgeId).toBe("k_00000001");
+    expect(propsOf(r.blocks[1]!).knowledgeId).not.toBe("k_00000001");
+    expect(r.kept).toEqual([{ id: "k_00000001", heading: "A" }]);
+    expect(r.renewed).toEqual([{ id: propsOf(r.blocks[1]!).knowledgeId, heading: "X", from: "k_00000001" }]);
+  });
+
+  it("a renamed copy of a section that still has its original below it: the original keeps the id, the copy is renewed", () => {
+    const before = [H(2, "A", K("k_00000001")), P("body")];
+    const after = [H(2, "A2", K("k_00000001")), P("body"), H(2, "A"), P("new part")];
+    const r = resolve(before, after);
+    expect(propsOf(r.blocks[2]!).knowledgeId).toBe("k_00000001");
+    expect(propsOf(r.blocks[0]!).knowledgeId).not.toBe("k_00000001");
+    expect(r.kept).toEqual([{ id: "k_00000001", heading: "A" }]);
+    expect(r.renewed).toHaveLength(1);
+    expect(r.renewed[0]).toMatchObject({ heading: "A2", from: "k_00000001" });
+  });
+
+  it("without a keep (file write) a plain heading holds nothing, so the heading that wrote the id keeps it", () => {
+    const before = [H(2, "A", K("k_00000001"))];
+    const after = [H(2, "A2", K("k_00000001")), H(2, "A")];
+    const r = resolve(before, after, false);
+    expect(propsOf(r.blocks[0]!).knowledgeId).toBe("k_00000001");
+    expect(r.renewed).toEqual([]);
+  });
+
+  it("with no heading holding the id through pairing, the written id stays with the heading paired to the old one, else the first", () => {
+    const before = [H(2, "A", K("k_00000001"))];
+    const pairedLast = [H(2, "X", K("k_00000001")), H(2, "A", K("k_00000001"))];
+    const a = resolve(before, pairedLast);
+    expect(propsOf(a.blocks[1]!).knowledgeId).toBe("k_00000001");
+    expect(propsOf(a.blocks[0]!).knowledgeId).not.toBe("k_00000001");
+    expect(a.renewed).toEqual([{ id: propsOf(a.blocks[0]!).knowledgeId, heading: "X", from: "k_00000001" }]);
+    const nonePaired = [H(2, "X", K("k_00000001")), H(2, "Y", K("k_00000001")), H(2, "Z", K("k_00000001"))];
+    const b = resolve(before, nonePaired);
+    expect(propsOf(b.blocks[0]!).knowledgeId).toBe("k_00000001");
+    const renewedIds = b.renewed.map(x => x.id);
+    expect(b.blocks.slice(1).map(x => propsOf(x).knowledgeId)).toEqual(renewedIds);
+    expect(new Set([...renewedIds, "k_00000001"]).size).toBe(3);
+    expect(b.renewed.map(x => x.heading)).toEqual(["Y", "Z"]);
   });
 
   it("a heading renamed with its comment kept carries the knowledge to the new name and takes nothing from the old one", () => {

@@ -1,7 +1,7 @@
 // Knowledge info through the REST content endpoints: what a write does to the knowledge props of the headings it replaces.
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
-import { KNOWLEDGE_ID_RE, SESSION_COOKIE, YDOC_FRAGMENT } from "@knotebook/shared";
+import { KNOWLEDGE_ID_RE, SESSION_COOKIE, YDOC_FRAGMENT, listKnowledgeInFragment } from "@knotebook/shared";
 import { noteAiEdits, notes } from "../src/db/schema.js";
 import { knowledgeInfoById } from "../src/notes/editing/knowledge-write.js";
 import { loadNoteDoc } from "../src/notes/editing/read.js";
@@ -29,9 +29,10 @@ async function setup(blocks: unknown[]) {
   const section = async (id: string) => (await getContent(ctx.app, note.id, pat.token, id)).json() as { section: { markdown: string; fingerprint: string } };
   const edit = (payload: Record<string, unknown>) => ctx.app.inject({ method: "POST", url: `/api/notes/${note.id}/edits`, headers: bearer(pat.token), payload });
   const live = async () => (await loadNoteDoc({ db: ctx.db, collab: ctx.collab }, note.id)).doc;
+  const idsByHeading = async () => new Map(listKnowledgeInFragment((await live()).getXmlFragment(YDOC_FRAGMENT)).map(e => [e.heading, e.info.id]));
   const infos = async () => knowledgeInfoById((await live()).getXmlFragment(YDOC_FRAGMENT));
   const versionFp = async () => versionFingerprint((await live()).getXmlFragment(YDOC_FRAGMENT));
-  return { ctx, u, pat, note, content, section, edit, live, infos, versionFp };
+  return { ctx, u, pat, note, content, section, edit, live, infos, idsByHeading, versionFp };
 }
 type S = Awaited<ReturnType<typeof setup>>;
 
@@ -256,6 +257,59 @@ other
     const infos = await s.infos();
     expect(infos.get("k_0000000a")).toMatchObject({ conclusion: "orig", when: "alice reads this" });
     expect(infos.get(k.renewed[0]!.id)).toMatchObject({ when: "moved" });
+    await s.ctx.destroy();
+  });
+
+  it("replace_all that moves the original after a heading carrying its id leaves the id with the original, whatever the order", async () => {
+    const s = await setup([KH("hA", "A", "k_0000000a", { knowledgeConclusion: "orig" }), H("hB", "B")]);
+    const res = await s.edit({
+      op: "replace_all", if_match: (await s.content()).fingerprint,
+      markdown: `## B
+
+## X
+${comment(["id: k_0000000a", "when: moved"])}
+
+## A
+`,
+    });
+    expect(res.statusCode, res.body).toBe(201);
+    const k = knowledgeOf(res)!;
+    const ids = await s.idsByHeading();
+    expect(ids.get("A")).toBe("k_0000000a");
+    expect(ids.get("X")).not.toBe("k_0000000a");
+    expect(k.kept).toEqual([{ id: "k_0000000a", heading: "A" }]);
+    expect(k.renewed).toEqual([{ id: ids.get("X")!, heading: "X", from: "k_0000000a" }]);
+    expect(k.created).toEqual([]);
+    const infos = await s.infos();
+    expect(infos.get("k_0000000a")).toMatchObject({ conclusion: "orig", when: "alice reads this" });
+    expect(infos.get(ids.get("X")!)).toMatchObject({ when: "moved" });
+    await s.ctx.destroy();
+  });
+
+  it("replace_section that copies the section's comment onto a renamed heading above the plain original: the original keeps the id and kept names it", async () => {
+    const s = await setup([KH("hA", "A", "k_0000000a", { knowledgeConclusion: "orig" }), P("a1", "body"), H("hB", "B"), P("b1", "bb")]);
+    const sec = await s.section("hA");
+    const res = await s.edit({
+      op: "replace_section", section_id: "hA", if_match: sec.section.fingerprint,
+      markdown: `## A2
+${comment(["id: k_0000000a", "when: alice reads this", "conclusion: orig"])}
+
+body
+
+## A
+
+new part
+`,
+    });
+    expect(res.statusCode, res.body).toBe(201);
+    const k = knowledgeOf(res)!;
+    const ids = await s.idsByHeading();
+    expect(ids.get("A")).toBe("k_0000000a");
+    expect(ids.get("A2")).not.toBe("k_0000000a");
+    expect(k.kept).toEqual([{ id: "k_0000000a", heading: "A" }]);
+    expect(k.renewed).toEqual([{ id: ids.get("A2")!, heading: "A2", from: "k_0000000a" }]);
+    expect(k.created).toEqual([]);
+    expect((await s.infos()).get(ids.get("A2")!)).toMatchObject({ conclusion: "orig" });
     await s.ctx.destroy();
   });
 

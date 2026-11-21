@@ -236,6 +236,25 @@ describe("applying a result with knowledge in the editor", () => {
     expect(hs[0]!.attrs).toMatchObject({ knowledgeId: "k_00000001", knowledgeWhen: "edited" });
   });
 
+  it("a copy written before the plain original of the same heading leaves the id with the original", async () => {
+    const doc = seededDoc([H("hA", "Alpha", K(1)), P("pA", "a")]);
+    const editor = collabEditor(doc);
+    const ids = sendIds(editor);
+    const md = "## Copy\n<!-- knotebook:knowledge\nid: k_00000001\nwhen: when 1\nconclusion: conclusion 1\n-->\n\ncopy body\n\n## Alpha\n\na";
+    const prepared = ok(prepare(editor, md, ids));
+    expect(headingProps(prepared.blocks, 0).knowledgeId).not.toBe("k_00000001");
+    expect(headingProps(prepared.blocks, 0).knowledgeId).toMatch(/^k_[0-9a-f]{8}$/);
+    expect(headingProps(prepared.blocks, 0).knowledgeWhen).toBe("when 1");
+    expect(headingProps(prepared.blocks, 2)).toMatchObject(K(1));
+    expect(applyAiResult(editor, captureAnchor(editor, NOTE, ids), prepared).ok).toBe(true);
+    await tick();
+    const hs = headingsOf(doc);
+    expect(hs.map((h) => h.attrs.knowledgeId)).toEqual([headingProps(prepared.blocks, 0).knowledgeId, "k_00000001"]);
+    editor.undo();
+    await tick();
+    expect(headingsOf(doc).map((h) => h.attrs.knowledgeId)).toEqual(["k_00000001"]);
+  });
+
   it("applying and undoing once restores the original headings with their knowledge", async () => {
     const doc = seededDoc([H("hA", "Alpha", K(1)), P("pA", "a")]);
     const editor = collabEditor(doc);

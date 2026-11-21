@@ -124,9 +124,9 @@ export async function applySync(
         const r = resolveKnowledgeForWrite({ before: old, after: normalizeKnowledgeRefs(blocks as unknown as readonly KnowledgeBlockShape[], k.noteId), keep: false, taken });
         const problem = knowledgeWriteProblem(r.blocks, k.current, k.noteId);
         if (problem !== null) throw new KnowledgeWriteError(problem);
-        for (const ref of r.created) taken.add(ref.id);
+        for (const ref of [...r.created, ...r.renewed]) taken.add(ref.id);
         blocks = r.blocks as unknown as typeof blocks;
-        reports.push({ kept: r.kept, created: r.created, removed: [], renewed: [] });
+        reports.push({ kept: r.kept, created: r.created, removed: [], renewed: r.renewed });
       }
       const p = d.place;
       let inserted: AnyBlock[];
@@ -204,8 +204,8 @@ export async function applySync(
   if (opts.knowledge !== undefined) {
     const surviving = new Set(knowledgeIdsByBlock(fork.getXmlFragment(YDOC_FRAGMENT)).values());
     knowledge.removed = knowledgeRefsIn(removedCandidates as unknown as readonly KnowledgeBlockShape[]).filter(r => !surviving.has(r.id));
-    knowledge.renewed = w.renewed;
-    knowledge.created = createdKnowledge(fork.getXmlFragment(YDOC_FRAGMENT), w.knowledgeBefore, w.renewed);
+    knowledge.renewed = [...knowledge.renewed, ...w.renewed.filter(x => !knowledge.renewed.some(r => r.id === x.id))];
+    knowledge.created = createdKnowledge(fork.getXmlFragment(YDOC_FRAGMENT), w.knowledgeBefore, knowledge.renewed);
   }
   const { ignoredComments: _ignored, ...edit } = knowledge;
   return { diff: w.diff, perRegion, knowledge: edit };

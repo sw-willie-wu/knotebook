@@ -22,6 +22,11 @@ export interface KnowledgeHeadingRef {
   heading: string;
 }
 
+/** A heading that wrote an id another heading holds: it got a new id; `from` is the id it wrote. */
+export interface KnowledgeRenewedRef extends KnowledgeHeadingRef {
+  from: string;
+}
+
 export interface KnowledgeBlockShape {
   id?: string;
   type: string;
@@ -72,14 +77,16 @@ export function knowledgePairs(before: readonly KnowledgeBlockShape[], after: re
 /**
  * keep=true (agent and AI rewrites): a paired heading without a comment gets the old seven props. Always: a pending id takes
  * the paired old id, else a new one. A comment that writes out an id in full is the author's decision and is never overwritten, but
- * it does not take the id from the heading that held it before: a repeat of that id is renewed later, so the earlier heading keeps it. Copy-on-write.
+ * it does not take the id from the heading that holds it: the holder is the heading that got the old id through pairing, else the one
+ * paired with the old heading that had it, else the first. Every other heading that wrote it gets a new id, listed in `renewed`.
+ * A repeat of an id taken outside the replaced range is left for the caller: the outside heading keeps it. Copy-on-write.
  */
 export function resolveKnowledgeForWrite<B extends KnowledgeBlockShape>(input: {
   before: readonly KnowledgeBlockShape[];
   after: readonly B[];
   keep: boolean;
   taken: ReadonlySet<string>;
-}): { blocks: B[]; kept: KnowledgeHeadingRef[]; created: KnowledgeHeadingRef[] } {
+}): { blocks: B[]; kept: KnowledgeHeadingRef[]; created: KnowledgeHeadingRef[]; renewed: KnowledgeRenewedRef[] } {
   const { before, after, keep } = input;
   const taken = new Set(input.taken);
   for (const b of after) {
@@ -88,6 +95,9 @@ export function resolveKnowledgeForWrite<B extends KnowledgeBlockShape>(input: {
   }
   const blocks = [...after];
   const kept: KnowledgeHeadingRef[] = [];
+  const holders = new Map<string, number>();
+  const heldIndexes = new Set<number>();
+  const pairedOldId = new Map<number, string>();
   // Pairing runs the block alignment, which a note without knowledge never needs.
   const pairs = before.some(b => knowledgeIdOf(b) !== "") ? knowledgePairs(before, after) : [];
   for (const [o, n] of pairs) {
@@ -96,6 +106,7 @@ export function resolveKnowledgeForWrite<B extends KnowledgeBlockShape>(input: {
     if (oldInfo === null) continue;
     const next = blocks[n]!;
     const id = knowledgeIdOf(next);
+    pairedOldId.set(n, oldInfo.id);
     if (id === "" && !hasKnowledgeProps(next)) {
       if (!keep) continue;
       blocks[n] = withProps(next, Object.fromEntries(KNOWLEDGE_PROP_NAMES.map(name => [name, str(old.props?.[name])])));
@@ -104,6 +115,29 @@ export function resolveKnowledgeForWrite<B extends KnowledgeBlockShape>(input: {
       blocks[n] = withProps(next, { knowledgeId: oldInfo.id });
     } else continue;
     taken.add(oldInfo.id);
+    if (!holders.has(oldInfo.id)) holders.set(oldInfo.id, n);
+    heldIndexes.add(n);
+  }
+  const written = new Map<string, number[]>();
+  blocks.forEach((b, i) => {
+    const id = knowledgeIdOf(b);
+    if (id === "" || isPending(id) || heldIndexes.has(i)) return;
+    const list = written.get(id);
+    if (list) list.push(i);
+    else written.set(id, [i]);
+  });
+  const renewed: KnowledgeRenewedRef[] = [];
+  for (const [id, indexes] of written) {
+    const holder = holders.get(id);
+    if (holder === undefined && indexes.length < 2) continue;
+    const keeper = holder !== undefined ? -1 : (indexes.find(i => pairedOldId.get(i) === id) ?? indexes[0]!);
+    for (const i of indexes) {
+      if (i === keeper) continue;
+      const fresh = generateKnowledgeId(taken);
+      taken.add(fresh);
+      blocks[i] = withProps(blocks[i]!, { knowledgeId: fresh });
+      renewed.push({ id: fresh, heading: knowledgeHeadingText(blocks[i]!.content), from: id });
+    }
   }
   const created: KnowledgeHeadingRef[] = [];
   blocks.forEach((b, i) => {
@@ -113,7 +147,7 @@ export function resolveKnowledgeForWrite<B extends KnowledgeBlockShape>(input: {
     blocks[i] = withProps(b, { knowledgeId: id });
     created.push({ id, heading: knowledgeHeadingText(b.content) });
   });
-  return { blocks, kept, created };
+  return { blocks, kept, created, renewed };
 }
 
 /** A reference to a knowledge in this very note is stored as the bare id, so it stays right when the note is copied. Copy-on-write. */

@@ -8,7 +8,7 @@ export const KNOWLEDGE_OUTPUT_DESCRIBE =
   "kept: headings you sent without a comment that kept the knowledge info of the heading they replaced. " +
   "created: knowledge ids that are new to the note after your write, whether you left the id out or wrote a new one. " +
   "removed: knowledge info that was in what you replaced or deleted and is no longer in the note. " +
-  "renewed: knowledge whose id another heading in the note already had, so it got a new one; from is the id it had. " +
+  "renewed: headings that wrote an id another heading in the note holds, so they got a new one; from is the id they wrote. " +
   "ignoredComments: knowledge comments that weren't right after a heading that can hold knowledge info. " +
   `Each list holds at most ${MCP_PAGE_MAX} entries; truncated is true when one was cut.`;
 
