@@ -96,6 +96,23 @@ describe("KnowledgeLayer", () => {
     expect(Mutations).not.toHaveBeenCalled();
   });
 
+  it("re-measures when the strip above the editor changes height, which moves the editor without resizing it", async () => {
+    const observed: Element[] = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe(el: Element) {
+          observed.push(el);
+        }
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    render(<Host entries={knowledgeEntries(two)} html={`<div data-note-content-top=""></div>${editorHtml(ALL)}`} />);
+    await waitFor(() => expect(icons()).toHaveLength(2));
+    expect(observed).toContain(document.querySelector("[data-note-content-top]"));
+  });
+
   it("each icon kind has its own glyph, data-kind and accessible name", async () => {
     const entries = knowledgeEntries([
       { id: "k_00000001", blockId: "a", props: { knowledgeVerified: "2026-10-01" } },

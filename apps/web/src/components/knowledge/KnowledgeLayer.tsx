@@ -128,6 +128,9 @@ function useIconPlaces(container: HTMLElement | null, entries: readonly Knowledg
     // Content above an icon can move it without changing the column's own size when the column is taller than its content.
     const editorRoot = container.querySelector(".bn-editor");
     if (editorRoot) observer.observe(editorRoot);
+    // The tag strip above the editor changes height when a tag is added or removed, which shifts the editor without resizing the column when it is taller than its content.
+    const contentTop = container.querySelector("[data-note-content-top]");
+    if (contentTop) observer.observe(contentTop);
     // A drag, a collaborator's move or an undo reorders blocks without changing the editor's size, so only a structural change tells us.
     // Only a real element added to or removed from a block container counts: typing mutates inline content, and every remote y-prosemirror
     // transaction removes and re-inserts the trailing-block widget on the root group, which would otherwise re-measure every icon per remote keystroke.

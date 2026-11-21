@@ -133,7 +133,7 @@ export function publicRoutes(deps: PublicRoutesDeps) {
         .limit(1);
 
       const prepared = preparePublicDoc(state ? state.ydoc : null);
-      if (state && prepared.doc === null) request.log.warn({ noteId: note.id }, "Public note state could not be decoded; serving an empty document.");
+      if (state && prepared.doc === null) request.log.warn({ noteId: note.id }, "Public note state could not be decoded; serving an undecodable payload so the page shows its error card.");
       let links;
       try {
         links = await publicLinksFor(deps.db, note.id, prepared.doc);
