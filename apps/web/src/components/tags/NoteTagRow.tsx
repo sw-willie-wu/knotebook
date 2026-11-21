@@ -147,7 +147,11 @@ function TagRowBody({ tags, canEdit, inputOpen, onRemove, removingId, addRef, on
       setVisibleCount(Infinity);
       return;
     }
-    const widths = tags.map((tag) => Math.min(pillRefs.current.get(tag.id)?.offsetWidth ?? 0, rowWidth));
+    // Pills may shrink while laid out (so the first one can be truncated); measure them unshrunk, or "+N" would never appear.
+    const nodes = tags.map((tag) => pillRefs.current.get(tag.id));
+    for (const node of nodes) if (node) node.style.flexShrink = "0";
+    const widths = nodes.map((node) => Math.min(node?.offsetWidth ?? 0, rowWidth));
+    for (const node of nodes) if (node) node.style.flexShrink = "";
     const trailing = canEdit ? (inputOpen ? INPUT_WIDTH_PX : ADD_WIDTH_PX) + GAP_PX : 0;
     setVisibleCount(fitPills(widths, rowWidth - trailing, GAP_PX, MORE_WIDTH_PX));
   }, [tags, expanded, canEdit, inputOpen, resizeTick]);
