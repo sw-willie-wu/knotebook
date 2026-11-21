@@ -492,8 +492,7 @@ describe("NoteList", () => {
     const row = noteRow(OWNER_NOTE.id)!;
     expect(within(row).queryByRole("button", { name: "Favorite" })).toBeNull();
     const menu = within(row).getByRole("button", { name: `Note actions for ${OWNER_NOTE.title}` });
-    // The last child is the tag dots slot.
-    expect(row.lastElementChild!.previousElementSibling).toBe(menu);
+    expect(row.lastElementChild).toBe(menu);
   });
 
   it("My notes: lists only personal notes, in server order, each row pl-2, each row has a more menu; no group or shared notes", async () => {
@@ -506,9 +505,9 @@ describe("NoteList", () => {
     expect(titles).toEqual(["Third Owner Note", "Has A Slug"]); // server order, not sorted by title
     for (const note of [THIRD_OWNER_NOTE, OWNER_NOTE]) {
       const row = noteRow(note.id)!;
-      // Right padding 8px: the dots slot ends 16px from the list edge, symmetric with the left text start; phone title is 15px.
-      expect(row).toHaveClass("pl-2", "pr-2", "text-[13px]", "max-sm:text-[15px]");
-      expect(row).not.toHaveClass("pl-6", "pr-0.75");
+      // Untagged row: right padding 3px like folder and group rows, so the rightmost button's icon edge is 16px from the list edge; phone title is 15px.
+      expect(row).toHaveClass("pl-2", "pr-0.75", "text-[13px]", "max-sm:text-[15px]");
+      expect(row).not.toHaveClass("pl-6", "pr-2");
       const menu = within(row).getByRole("button", { name: `Note actions for ${note.title}` });
       // Mouse: the more menu is in the flow, width 0 when not floated in (takes no space, -ms-1 cancels the extra gap); on hover, keyboard focus or open menu it grows to 24px and the title truncates earlier;
       // hover:none (always-visible more menu) restores 24px with `!`; no background color.
@@ -627,7 +626,7 @@ describe("NoteList", () => {
       expect(guide).toHaveClass("ml-[15px]", "border-l", "border-muted-foreground/35", "pl-2");
       const group = groupNode(GROUP_A.id)!;
       expect(group).toContainElement(guide);
-      expect(row).toHaveClass("pl-3", "pr-2");
+      expect(row).toHaveClass("pl-3", "pr-0.75");
       expect(row).not.toHaveClass("pl-6");
       expect(group.parentElement?.tagName).toBe("UL");
       expect(group.parentElement).not.toHaveClass("pl-4");
@@ -1201,7 +1200,7 @@ describe("note row more menu", () => {
     );
     // Owner rows have no badge: the more menu immediately follows the title link; the star is to its right (the rightmost slot) only after the favorites list loads, before which the more menu is the last child.
     expect(trigger.previousElementSibling).toBe(row.querySelector("a"));
-    const last = row.lastElementChild!.previousElementSibling;
+    const last = row.lastElementChild;
     expect(last === trigger || last?.getAttribute("aria-pressed") !== null).toBe(true);
     expect(within(panel()).getAllByRole("button", { name: "Note actions for Has A Slug" })).toHaveLength(1);
 
@@ -1212,7 +1211,7 @@ describe("note row more menu", () => {
     expect(sharedTrigger.previousElementSibling).toBe(sharedTrigger.closest("li")!.querySelector("a"));
     expect(sharedTrigger.nextElementSibling).toBe(star);
     expect(star.className).not.toContain("me-7");
-    expect(sharedTrigger.closest("li")?.lastElementChild).toBe(star.nextElementSibling);
+    expect(sharedTrigger.closest("li")?.lastElementChild).toBe(star);
   });
 
   it("when the menu is open the trigger has data-state=open (the hover float-in stays while open relies on it; the CSS taking effect needs a browser)", async () => {
@@ -2086,7 +2085,7 @@ describe("NoteList - star on the row", () => {
     expect(favoritesGets(server)).toBe(1);
   });
 
-  it("DOM order within a row is link, more menu, star, tag dots slot; the star isn't inside the link", async () => {
+  it("DOM order within a row is link, more menu, star; the star isn't inside the link", async () => {
     stubStars();
     renderNoteList({}, { tab: "shared" });
     await waitFor(() => expect(starOf(SHARED.id)).not.toBeNull());

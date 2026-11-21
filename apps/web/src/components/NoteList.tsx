@@ -113,12 +113,16 @@ function NoteRow({ note, variant, location, favorite, favoritePending }: NoteRow
   const { activeNoteId, setActiveNoteId } = useActiveNote();
   // #122: active comes from context note.id (see `lib/active-note.tsx`), not route params: slug is recomputed from the title and the URL changes after the save returns.
   const active = activeNoteId === note.id;
+  const tags = note.tags ?? EMPTY_TAGS;
+  const hasDots = tags.length > 0;
   return (
     <li
       data-node-kind="note"
       data-node-id={note.id}
       className={cn(
-        "group/noterow flex items-center gap-1 rounded-md pr-2 text-[13px] max-sm:text-[15px] hover:bg-brand-soft hover:text-brand-on-soft active:bg-brand-soft-strong",
+        "group/noterow flex items-center gap-1 rounded-md text-[13px] max-sm:text-[15px] hover:bg-brand-soft hover:text-brand-on-soft active:bg-brand-soft-strong",
+        // 8px puts the dots' edge 16px from the list edge; without dots the rightmost button's icon edge gets there with 3px, like folder and group rows.
+        hasDots ? "pr-2" : "pr-0.75",
         variant === "recent" ? "pl-2" : "h-11 pointer-fine:h-7",
         variant === "plain" && "pl-2",
         variant === "group" && "pl-3",
@@ -154,10 +158,12 @@ function NoteRow({ note, variant, location, favorite, favoritePending }: NoteRow
       {favorite === true && <FavoriteMarker />}
       <SidebarNoteMenu note={note} />
       {favorite !== null && <RowFavoriteStar note={note} favorite={favorite} pending={favoritePending} />}
-      {/* Reserved on every row, tagged or not, so ⋮ and the star line up and the dots end at the same x; 19px = three overlapping 7px dots. The two-line row puts the dots level with the title line. */}
-      <span className={cn("flex w-[19px] shrink-0 justify-end", variant === "recent" && "self-start mt-3 max-sm:mt-3.5")}>
-        <TagDots tags={note.tags ?? EMPTY_TAGS} className="pl-0" />
-      </span>
+      {/* Fixed 19px (three overlapping 7px dots) so every tagged row's dots end at the same x and hovering never moves them. The two-line row puts the dots level with the title line. */}
+      {hasDots && (
+        <span className={cn("flex w-[19px] shrink-0 justify-end", variant === "recent" && "self-start mt-3 max-sm:mt-3.5")}>
+          <TagDots tags={tags} className="pl-0" />
+        </span>
+      )}
     </li>
   );
 }

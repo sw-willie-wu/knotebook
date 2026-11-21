@@ -113,7 +113,7 @@ describe("sidebar tags", () => {
     expect(colors).toEqual(["blue", "red", "green"]);
   });
 
-  it("the dots are the last item of the row, after the row menu, in a slot every row has", async () => {
+  it("the dots are the last item of a tagged row, after the row menu, in a fixed-width slot with pr-2; an untagged row has no slot and keeps pr-0.75", async () => {
     stubApi([sharedNote({ id: "n-shared", title: "Shared one", tags: [BOOKS, IDEAS] }), sharedNote({ id: "n-untagged", title: "No tags here", tags: [] })]);
     renderList("shared");
     const dots = await within(panel()).findByRole("img", { name: "Tags: Books, Ideas" });
@@ -125,7 +125,13 @@ describe("sidebar tags", () => {
     expect(order.indexOf(menu)).toBeLessThan(order.indexOf(slot));
     expect(order.at(-1)).toBe(slot);
     const untagged = (await within(panel()).findByRole("link", { name: "No tags here" })).closest("li")!;
-    expect(untagged.lastElementChild!.className).toBe(slot.className);
+    expect(slot).toHaveClass("w-[19px]", "shrink-0");
+    expect(row).toHaveClass("pr-2");
+    expect(row).not.toHaveClass("pr-0.75");
+    expect(untagged.querySelector("span.w-\\[19px\\]")).toBeNull();
+    expect(untagged.querySelector("[data-tag-dots]")).toBeNull();
+    expect(untagged).toHaveClass("pr-0.75");
+    expect(untagged).not.toHaveClass("pr-2");
   });
 
   it("a row without tags has no dots element", async () => {

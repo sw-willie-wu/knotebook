@@ -210,9 +210,13 @@ describe("extra padding on touch", () => {
     expect(code("components/NoteList.tsx").match(/pointer-coarse:pb-2\.5/g)).toHaveLength(1);
     expect(code("components/sidebar/TrashPanel.tsx").match(/pointer-coarse:pb-2\.5/g)).toHaveLength(1);
   });
-  it("note, folder and group rows' right edge pr-0.75 (3px): the rightmost button's icon edge is 16px from the list edge (same as the left text start) while its hit area (10px outward) is not clipped by the scroll container", () => {
+  it("right edge: folder, group and untagged note rows use pr-0.75 (3px), so the rightmost button's icon edge is 16px from the list edge (same as the left text start) while its hit area (10px outward) is not clipped by the scroll container; a tagged note row ends with a 19px dots slot and pr-2 (8px), so the dots' right edge is 16px from the list edge too", () => {
     const source = code("components/NoteList.tsx");
-    expect(source.match(/\bpr-0\.75\b/g)).toHaveLength(3);
+    expect(source.match(/\bpr-0\.75\b/g)).toHaveLength(3); // folder row, group row, untagged note row
+    expect(source.match(/\bpr-2(?![.\w])/g)).toHaveLength(1);
+    expect(source).toContain('hasDots ? "pr-2" : "pr-0.75"');
+    expect(source).toContain("{hasDots && (");
+    expect(source).toContain("flex w-[19px] shrink-0 justify-end");
     expect(source).not.toContain("pointer-coarse:pr-0.5");
     expect(source.match(/\bpr-2\.75\b/g)).toHaveLength(1);
     expect(code("components/sidebar/TrashPanel.tsx").match(/\bpr-2\.75\b/g)).toHaveLength(1);
