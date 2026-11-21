@@ -1,4 +1,5 @@
 import { lazy, useRef, useState, type ReactNode, type RefObject } from "react";
+import { flushSync } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router";
@@ -27,7 +28,7 @@ import {
   DropdownMenuMainLevel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { EllipsisVertical, History, Link as LinkIcon, ListTree, MessageCircle, Presentation, Star, Trash } from "@/components/ui/icons";
+import { EllipsisVertical, History, Link as LinkIcon, ListTree, MessageCircle, Presentation, Star, Tag, Trash } from "@/components/ui/icons";
 import { useOutlineMenu, type OutlineMenuValue } from "@/components/outline/outline-menu-context";
 import { FavoriteRemoveDialog } from "@/components/FavoriteRemoveDialog";
 import { ManualCopyField } from "@/components/ManualCopyField";
@@ -59,6 +60,8 @@ export interface NoteMenuProps {
   triggerRef?: RefObject<HTMLButtonElement | null>;
   /** Passed in by NotePage so this shared file (sidebar imports it) has no static dependency. */
   widthItems?: (control: NoteWidthItemsControl) => ReactNode;
+  /** Header only; undefined (the viewer cannot change tags, and every sidebar row) leaves the item out. Runs inside the select event: see the item's comment. */
+  onAddTag?: () => void;
 }
 
 /**
@@ -81,9 +84,10 @@ interface NoteMenuCoreProps {
   page: PageExit | null;
   triggerRef?: RefObject<HTMLButtonElement | null>;
   widthItems?: (control: NoteWidthItemsControl) => ReactNode;
+  onAddTag?: () => void;
 }
 
-export function NoteMenu({ note, state, leavingRef, onOpenEdits, triggerRef, widthItems }: NoteMenuProps) {
+export function NoteMenu({ note, state, leavingRef, onOpenEdits, triggerRef, widthItems, onAddTag }: NoteMenuProps) {
   const { presentHere } = usePresentEntry();
   return (
     <NoteMenuCore
@@ -94,6 +98,7 @@ export function NoteMenu({ note, state, leavingRef, onOpenEdits, triggerRef, wid
       page={{ state, leavingRef }}
       triggerRef={triggerRef}
       widthItems={widthItems}
+      onAddTag={onAddTag}
     />
   );
 }
@@ -181,7 +186,7 @@ function FavoriteMenuItem({ noteId, onAdd, onRemove }: { noteId: string; onAdd: 
   );
 }
 
-function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef: externalTriggerRef, widthItems }: NoteMenuCoreProps) {
+function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef: externalTriggerRef, widthItems, onAddTag }: NoteMenuCoreProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -201,6 +206,8 @@ function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef:
   const triggerRef = externalTriggerRef ?? ownTriggerRef;
   /** Skip returning focus to the trigger on close: it is about to be inside the inert AppShell (the presentation layer focuses its own root). */
   const enteringPresentationRef = useRef(false);
+  /** Same, for the tag input: it takes focus itself, so it must not be pulled back to ⋮. */
+  const addingTagRef = useRef(false);
   const [transfer, setTransfer] = useState<GroupTransferPick | null>(null);
   const [groupExpanded, setGroupExpanded] = useState<GroupTransferKind | null>(null);
   const [paths, setPaths] = useState<DestPaths>(EMPTY_DEST_PATHS);
@@ -359,6 +366,11 @@ function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef:
             }
           }}
           onCloseAutoFocus={(event) => {
+            if (addingTagRef.current) {
+              addingTagRef.current = false;
+              event.preventDefault();
+              return;
+            }
             if (!enteringPresentationRef.current) return;
             enteringPresentationRef.current = false;
             event.preventDefault();
@@ -383,6 +395,21 @@ function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef:
               <LinkIcon className="mr-2 h-4 w-4" />
               {t("share.copyLink")}
             </DropdownMenuItem>
+            {onAddTag && (
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  addingTagRef.current = true;
+                  // Two steps inside this user event, because iOS only raises the keyboard for focus given within the gesture: the menu's focus trap lets go only once it has closed,
+                  // and until then it would pull focus back from the input that mounts (and focuses itself) in the second step.
+                  flushSync(() => setMenuOpen(false));
+                  flushSync(() => onAddTag());
+                }}
+              >
+                <Tag className="mr-2 h-4 w-4" />
+                {t("tags.entry.menuItem")}
+              </DropdownMenuItem>
+            )}
             {/* onPresent requests fullscreen inside this user event (usePresentEntry) */}
             <DropdownMenuItem
               onSelect={(event) => {

@@ -443,7 +443,7 @@ describe("SettingsModal (two Routes trees, modal-over-background)", () => {
     expect(fetchMock).not.toHaveBeenCalledWith("/api/admin/invites", expect.anything());
   });
 
-  it("admin deep link /settings/account -> the navigation has exactly six items in fixed order and **doesn't show** Users / AI (site admin isn't inside settings)", async () => {
+  it("admin deep link /settings/account -> the navigation has exactly seven items in fixed order and **doesn't show** Users / AI (site admin isn't inside settings)", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = (init?.method ?? "GET").toUpperCase();
@@ -458,13 +458,13 @@ describe("SettingsModal (two Routes trees, modal-over-background)", () => {
     const nav = within(screen.getByRole("navigation", { name: "Settings" }));
     // Take each item's label span (the "Groups" item has a count span on its right, so textContent would run together)
     expect(nav.getAllByRole("link").map((a) => a.querySelector("span")?.textContent)).toEqual([
-      "Account info", "Sign-in", "Authorization", "Storage", "Groups", "About",
+      "Account info", "Sign-in", "Authorization", "Storage", "Tags", "Groups", "About",
     ]);
     expect(nav.queryByText("Users")).not.toBeInTheDocument();
     expect(nav.queryByText("AI")).not.toBeInTheDocument();
   });
 
-  it("non-admin deep link /settings/account -> the navigation likewise has exactly six items (same as for an admin)", async () => {
+  it("non-admin deep link /settings/account -> the navigation likewise has exactly seven items (same as for an admin)", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = (init?.method ?? "GET").toUpperCase();
@@ -478,7 +478,7 @@ describe("SettingsModal (two Routes trees, modal-over-background)", () => {
     await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Account info" })).toBeInTheDocument());
     const nav = within(screen.getByRole("navigation", { name: "Settings" }));
     expect(nav.getAllByRole("link").map((a) => a.querySelector("span")?.textContent)).toEqual([
-      "Account info", "Sign-in", "Authorization", "Storage", "Groups", "About",
+      "Account info", "Sign-in", "Authorization", "Storage", "Tags", "Groups", "About",
     ]);
     expect(nav.queryByText("Users")).not.toBeInTheDocument();
     expect(nav.queryByText("AI")).not.toBeInTheDocument();

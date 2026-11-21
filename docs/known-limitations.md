@@ -215,6 +215,20 @@ Each section below names one page and lists the bold headings of its entries; fo
 - [Folder names in the same place are unique ignoring letter case; for letters outside ASCII, what counts as the same letter depends on the database's locale.](./known-limitations/folders.md)
 - [In a narrow sidebar, deeply nested folders and notes can lose their names to the indentation, have their right-hand side cut off by the sidebar's edge, and show a folder row's icons on top of its buttons.](./known-limitations/folders.md)
 
+## Tags
+
+[Tags](./known-limitations/tags.md): tagging notes, the tag filter in the sidebar and managing a space's tags.
+
+- [Tags other people change, or that you change in another window, show up when you come back to the window or reload the page,](./known-limitations/tags.md)
+- [Tags are not part of the note's text, so they are not in the version history.](./known-limitations/tags.md)
+- [Whether two names differ only in letter case depends on the database's locale.](./known-limitations/tags.md)
+- [The tag filter in the sidebar is cleared when the page is reloaded.](./known-limitations/tags.md)
+- [Once a space has used all nine colors, new tags repeat them.](./known-limitations/tags.md)
+- [The color dots in the sidebar can be hard to tell apart on a highlighted row.](./known-limitations/tags.md)
+- [A note's tags, in the order they were added, are the order of its tags everywhere.](./known-limitations/tags.md)
+- [Copying a note while one of its tags is being merged into another can leave that tag off the copy.](./known-limitations/tags.md)
+- [After going back to version 0.17 and upgrading again, some notes lose their tags or show none.](./known-limitations/tags.md)
+
 ## Trash
 
 [Trash](./known-limitations/trash.md): moving notes to the trash, restoring them and permanent deletion.

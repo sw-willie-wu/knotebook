@@ -50,6 +50,9 @@ const SettingsAuthorizationSection = lazy(() =>
 const SettingsStorageUsageSection = lazy(() =>
   import("./settings/SettingsStorageUsageSection").then(m => ({ default: m.SettingsStorageUsageSection })),
 );
+const PersonalTagsSection = lazy(() =>
+  import("./settings/TagsSection").then(m => ({ default: m.PersonalTagsSection })),
+);
 const SettingsGroupsOverview = lazy(() =>
   import("./settings/SettingsGroupsOverview").then(m => ({ default: m.SettingsGroupsOverview })),
 );
@@ -61,6 +64,9 @@ const GroupMembersSection = lazy(() =>
 );
 const GroupRolesSection = lazy(() =>
   import("./components/groups/GroupSections").then(m => ({ default: m.GroupRolesSection })),
+);
+const GroupTagsSection = lazy(() =>
+  import("./components/groups/GroupSections").then(m => ({ default: m.GroupTagsSection })),
 );
 const GroupStorageSection = lazy(() =>
   import("./components/groups/GroupSections").then(m => ({ default: m.GroupStorageSection })),
@@ -221,6 +227,7 @@ export function AppRoutes() {
               <Route path="/settings/authorization" element={<SettingsAuthorizationSection />} />
               {/* Personal storage usage. */}
               <Route path="/settings/storage" element={<SettingsStorageUsageSection />} />
+              <Route path="/settings/tags" element={<PersonalTagsSection />} />
               {/* Read-only, any logged-in user. */}
               <Route path="/settings/groups" element={<SettingsGroupsOverview />} />
               <Route path="/settings/about" element={<SettingsAboutSection />} />
@@ -229,6 +236,7 @@ export function AppRoutes() {
             <Route path="/groups/:id" element={<GroupModal />}>
               <Route index element={<GroupMembersSection />} />
               <Route path="roles" element={<GroupRolesSection />} />
+              <Route path="tags" element={<GroupTagsSection />} />
               <Route path="storage" element={<GroupStorageSection />} />
               <Route path="about" element={<GroupAboutSection />} />
               <Route path="*" element={<GroupSubpathRedirect />} />

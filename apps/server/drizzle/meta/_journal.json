@@ -302,6 +302,13 @@
       "when": 1795020049642,
       "tag": "0042_search-trigram",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1795188404337,
+      "tag": "0043_tags",
+      "breakpoints": true
     }
   ]
 }

@@ -37,7 +37,11 @@ export type GroupRacePoint =
   | "note-copy-folder-locked"
   | "trash-restore-prejudged"
   /** Window: note permanently deleted after authorization. */
-  | "favorite-authorized";
+  | "favorite-authorized"
+  /** Window: note moved to another space after authorization. */
+  | "tag-note-authorized"
+  /** Window: inside the tag transaction, after the group and note locks are held. */
+  | "tag-note-locked";
 
 export interface GroupHookCtx { noteId?: string; groupId?: string; slug?: string; folderId?: string }
 

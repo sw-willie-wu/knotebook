@@ -148,6 +148,14 @@ const REGISTRY: Record<string, Disposition> = {
   "routes/users.ts": { excludes: 1 },
   "storage/tx/quota.ts": { includes: 1, why: "storage usage still counts trashed notes" },
   "storage/usage.ts": { includes: 4, why: "storage usage still counts trashed notes" },
+  // excludes: listSpaceTags counts live notes only; includes: loadNoteTags reads the tags of one note the caller already resolved (a trashed note's tags come back on restore).
+  "tags/queries.ts": { excludes: 1, includes: 1, why: "loadNoteTags is keyed by a note id the caller already authorized" },
+  // includes: the merge locks and copies tags on every note of the space, trashed ones too.
+  "tags/tx/manage.ts": { includes: 2, why: "a merge also moves the tags of trashed notes, which come back with them on restore" },
+  // excludes: the space lock-read (FOR KEY SHARE, with deleted_at IS NULL).
+  "tags/tx/note-tags.ts": { excludes: 1 },
+  // excludes: the source note of a copy (a live note, with deleted_at IS NULL); includes: the notes of a group being handed over, trashed ones too.
+  "tags/tx/space-change.ts": { excludes: 1, includes: 1, why: "handing a group over maps the tags of every group note, trashed or not" },
   // trashOnly: the two list queries, loadTrashedMeta (re-read after delete_note moves to trash), loadTrashedPurgeAt (re-read after delete_folder moves to trash).
   "trash/list.ts": { trashOnly: 4 },
   // Pre-read of the space for restore.

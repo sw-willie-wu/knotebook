@@ -198,6 +198,59 @@ describe("side-by-side items /grid N", () => {
   });
 });
 
+describe("tag item /tag", () => {
+  const TAG_TITLE = "tags.entry.slashTitle";
+  const noopOpenTagEntry = () => {};
+  const titlesOf = (target: AnyEditor, onOpenTagEntry?: () => void) =>
+    buildSlashMenuItems(target, translate, noopInsertLink, onOpenTagEntry).map((item) => item.title);
+
+  it("lists Tag after the side-by-side items in the extra group when onOpenTagEntry is given, with aliases tag, tags, label, 標籤", () => {
+    const items = buildSlashMenuItems(editor, translate, noopInsertLink, noopOpenTagEntry);
+    const tagIndex = items.findIndex((item) => item.title === TAG_TITLE);
+    expect(items.slice(tagIndex - 3, tagIndex).map((item) => item.title)).toEqual(COLUMN_TITLES);
+    expect(items[tagIndex]!.group).toBe(items[tagIndex - 1]!.group);
+    expect(items[tagIndex]!.subtext).toBe("tags.entry.slashSubtext");
+    expect(items[tagIndex]!.aliases).toEqual(["tag", "tags", "label", "標籤"]);
+    expect(groupRuns(items)).toEqual(["Basic blocks", "Advanced", "Media", "Others"]);
+  });
+
+  it("lists Tag right after Link when the side-by-side items aren't offered, and in every position", () => {
+    const inColumn = mount([row([[P("a", "a1")], [P("b", "b1")]], "r")], "b1");
+    const titles = titlesOf(inColumn, noopOpenTagEntry);
+    expect(titles[titles.indexOf("note.link.slashTitle") + 1]).toBe(TAG_TITLE);
+    // The column case is the position limit that /grid has and /tag must not have.
+    expect(titles).toContain(TAG_TITLE);
+  });
+
+  it("leaves Tag out without onOpenTagEntry", () => {
+    expect(titlesOf(editor)).not.toContain(TAG_TITLE);
+  });
+
+  it("choosing Tag calls onOpenTagEntry and inserts no block", () => {
+    const onOpenTagEntry = vi.fn();
+    buildSlashMenuItems(editor, translate, noopInsertLink, onOpenTagEntry)
+      .find((item) => item.title === TAG_TITLE)!
+      .onItemClick();
+    expect(onOpenTagEntry).toHaveBeenCalledOnce();
+    expect(insertMock).not.toHaveBeenCalled();
+  });
+
+  it("the tag aliases find it in both languages", () => {
+    const items = buildSlashMenuItems(editor, (key) => (key === "note.mermaid.slashGroup" ? "Advanced" : "x"), noopInsertLink, noopOpenTagEntry);
+    for (const query of ["tag", "labe", "標籤"]) {
+      expect(filterSuggestionItems(items, query).some((item) => item.aliases?.includes("label"))).toBe(true);
+    }
+  });
+
+  it("titles and descriptions in zh-TW and en", async () => {
+    const tagItem = () => buildSlashMenuItems(editor, i18n.t.bind(i18n), noopInsertLink, noopOpenTagEntry).find((item) => item.aliases?.includes("label"))!;
+    await i18n.changeLanguage("zh-TW");
+    expect([tagItem().title, tagItem().subtext]).toEqual(["標籤", "替這篇筆記加標籤"]);
+    await i18n.changeLanguage("en");
+    expect([tagItem().title, tagItem().subtext]).toEqual(["Tag", "Add a tag to this note"]);
+  });
+});
+
 describe("withoutSlashBadges (phones hide the shortcut column)", () => {
   const items = [
     { title: "Heading 1", badge: "Ctrl-Alt-1", onItemClick: () => {} },

@@ -41,7 +41,7 @@ On `SIGTERM`/`SIGINT` it stops background scans, then calls `collab.destroy()` *
 `buildApp` in `apps/server/src/app.ts` wires everything together. It sets up cookie, multipart and form parsing, a global `onRequest` guard that requires `application/json` on bodies (with exemptions for uploads, `text/markdown` file write-backs and the OAuth form endpoints), the shared error format, security headers, `/healthz`, and the rate limiters (`apps/server/src/http/limiters.ts`). Then it registers one Fastify plugin per area from `apps/server/src/routes/`, for example:
 
 - `routes/notes.ts`: notes and the collab token; it also registers `routes/note-content.ts` (a note's content, `GET /api/notes/:id/content`, and edits and reverts, `/api/notes/:id/edits`) and `routes/note-sharing.ts` (shares, the public link and its alias and width);
-- `routes/note-versions.ts`, `routes/trash.ts`, `routes/folders.ts`, `routes/favorites.ts`, `routes/groups.ts`, `routes/search.ts`, `routes/uploads.ts`;
+- `routes/note-versions.ts`, `routes/trash.ts`, `routes/folders.ts`, `routes/favorites.ts`, `routes/tags.ts`, `routes/groups.ts`, `routes/search.ts`, `routes/uploads.ts`;
 - `routes/auth.ts`, `routes/oidc*.ts`, `routes/api-tokens.ts`, `routes/oauth*.ts`: sign-in and credentials (next section);
 - `routes/admin-*.ts`: Site admin;
 - `routes/mcp.ts`: the MCP endpoint, `POST /api/mcp`;
@@ -73,7 +73,7 @@ PostgreSQL, accessed through Drizzle ORM. The whole schema is in `apps/server/sr
 - `note_versions`: version history, each version a full Yjs snapshot;
 - `note_ai_edits`: the history of edits made over the API, MCP and file write-backs, used for revert;
 - `note_search_sections`, `note_search_state`: the search index;
-- `note_shares`, `groups`, `group_members`, `group_roles`, `folders`, `note_placements`, `note_links`, `uploads`.
+- `note_shares`, `groups`, `group_members`, `group_roles`, `folders`, `note_placements`, `note_links`, `uploads`, `tags`, `note_tags` (a space's tag list and the tags each note carries).
 
 Migrations are SQL files in `apps/server/drizzle/` (with Drizzle's journal in `apps/server/drizzle/meta/`), generated from the schema with `pnpm --filter @knotebook/server db:generate` (`drizzle-kit generate`, configured by `apps/server/drizzle.config.ts`). They run automatically at startup. New migrations are normally written so that the previous release still starts on the migrated database (the groups migration, 0012, is a documented exception that can't be rolled back): the CHANGELOG's upgrade notes and the [self-hosting guide](docs/self-hosting.md#upgrading-and-rolling-back) describe each one and what rolling back means.
 

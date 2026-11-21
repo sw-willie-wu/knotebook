@@ -1,0 +1,13 @@
+# Tags
+
+Tagging notes, the tag filter in the sidebar and managing a space's tags. Part of [Known limitations](../known-limitations.md).
+
+- **Tags other people change, or that you change in another window, show up when you come back to the window or reload the page,** not right away. This covers the tags on a note, the dots in the sidebar and the list in **Settings → Tags**.
+- **Tags are not part of the note's text, so they are not in the version history.** Applying an older version leaves the note's tags as they are, a version preview doesn't show them, and **Undo** in the editor doesn't bring back a tag you took off (take it off or add it again with the tag row).
+- **Whether two names differ only in letter case depends on the database's locale.** The names `AWS` and `aws` are one tag because the database lowercases both. On a database whose character classification (`LC_CTYPE`) is `C`, only the letters A to Z are treated that way, so `Ärger` and `ärger` are two tags; the bundled database uses a UTF-8 locale.
+- **The tag filter in the sidebar is cleared when the page is reloaded.** It is kept while you switch tabs, but it lives only in the open page, not in your account or this browser's storage.
+- **Once a space has used all nine colors, new tags repeat them.** A new tag takes the color used least often, and you can change any tag's color in the tag list.
+- **The color dots in the sidebar can be hard to tell apart on a highlighted row.** The dots are checked against the sidebar's own background, where each color has a contrast of at least 3:1. On the tinted background of the row you point at or of the note that is open, some colors fall slightly below that (orange and gray in the light theme; blue, purple, pink, red and brown in the dark one). The dots only decorate the row: the names of the tags are its tooltip and screen-reader label, and in the note the tag names are written out.
+- **A note's tags, in the order they were added, are the order of its tags everywhere.** There is no way to reorder them.
+- **Copying a note while one of its tags is being merged into another can leave that tag off the copy.** The copy then has neither the merged tag nor the one it was merged into; add it to the copy again.
+- **After going back to version 0.17 and upgrading again, some notes lose their tags or show none.** While the previous version runs, it doesn't know about tags: a note moved or copied to another space then gets none of the matching tags, so after upgrading again it shows no tags; and deleting a group and handing its notes to an admin removes the group's tags with the group, so those notes lose their tags for good. See [Self-hosting](../self-hosting.md#upgrading-and-rolling-back).

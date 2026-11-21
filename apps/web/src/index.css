@@ -1040,3 +1040,97 @@ input[name="share-access"] {
     background-color: color-mix(in oklch, var(--color-brand) 15%, transparent);
   }
 }
+
+/* Defined here, not taken from BlockNote's palette variables: those live under .bn-root, which the sidebar and the tag row above the note text are outside of,
+   and BlockNote's stylesheet loads lazily. Dark values are fixed hex: color-mix in oklch against the blue-tinted card drags warm hues toward purple and teal.
+   Text and dot are separate tokens because a dot readable on the sidebar (3:1) is too light for text on its own tint (4.5:1). */
+[data-tag-color="blue"] {
+  --tag-dot: #0b6e99;
+  --tag-bg: #dcecf4;
+  --tag-fg: #0b6e99;
+}
+[data-tag-color="green"] {
+  --tag-dot: #4d6461;
+  --tag-bg: #e1e9e7;
+  --tag-fg: #3f5552;
+}
+[data-tag-color="orange"] {
+  --tag-dot: #d9730d;
+  --tag-bg: #fbe6d3;
+  --tag-fg: #a4540a;
+}
+[data-tag-color="purple"] {
+  --tag-dot: #6940a5;
+  --tag-bg: #e8def5;
+  --tag-fg: #6940a5;
+}
+[data-tag-color="pink"] {
+  --tag-dot: #ad1a72;
+  --tag-bg: #f8dcec;
+  --tag-fg: #ad1a72;
+}
+[data-tag-color="red"] {
+  --tag-dot: #e03e3e;
+  --tag-bg: #fbdede;
+  --tag-fg: #b83030;
+}
+[data-tag-color="yellow"] {
+  --tag-dot: #b78a00;
+  --tag-bg: #fbf0c4;
+  --tag-fg: #886800;
+}
+[data-tag-color="brown"] {
+  --tag-dot: #8a6552;
+  --tag-bg: #ece3de;
+  --tag-fg: #64473a;
+}
+[data-tag-color="gray"] {
+  --tag-dot: #8a8985;
+  --tag-bg: #ebeced;
+  --tag-fg: #5a5955;
+}
+:root.dark [data-tag-color="blue"] {
+  --tag-dot: #0e87bc;
+  --tag-bg: #173b4e;
+  --tag-fg: #abd5e8;
+}
+:root.dark [data-tag-color="green"] {
+  --tag-dot: #6b8b87;
+  --tag-bg: #313c3f;
+  --tag-fg: #cbd6d5;
+}
+:root.dark [data-tag-color="orange"] {
+  --tag-dot: #e3790d;
+  --tag-bg: #52371d;
+  --tag-fg: #f5d0aa;
+}
+:root.dark [data-tag-color="purple"] {
+  --tag-dot: #8552d7;
+  --tag-bg: #382c55;
+  --tag-fg: #d4c2f1;
+}
+:root.dark [data-tag-color="pink"] {
+  --tag-dot: #da208f;
+  --tag-bg: #501e41;
+  --tag-fg: #f2b1d8;
+}
+:root.dark [data-tag-color="red"] {
+  --tag-dot: #ec4040;
+  --tag-bg: #55272b;
+  --tag-fg: #f8bcbc;
+}
+:root.dark [data-tag-color="yellow"] {
+  --tag-dot: #dfab01;
+  --tag-bg: #514519;
+  --tag-fg: #f4e2a6;
+}
+:root.dark [data-tag-color="brown"] {
+  --tag-dot: #8e6552;
+  --tag-bg: #3a3130;
+  --tag-fg: #d7c9c2;
+}
+:root.dark [data-tag-color="gray"] {
+  --tag-dot: #bebdb8;
+  --tag-bg: #484a4d;
+  --tag-fg: #e8e8e6;
+}

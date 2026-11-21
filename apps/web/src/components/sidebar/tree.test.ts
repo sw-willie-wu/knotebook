@@ -9,6 +9,7 @@ import { __resetFolderSortForTests, type FolderSort } from "./folder-sort";
 import {
   buildTabNodes,
   favoriteNotes,
+  filterNodesByTags,
   hasSelectableNodes,
   noteBucket,
   noteLocationLabel,
@@ -531,5 +532,28 @@ describe("noteLocationParts", () => {
     } finally {
       await i18n.changeLanguage("en");
     }
+  });
+});
+
+describe("filterNodesByTags", () => {
+  const WORK = { id: "t-work", name: "work", color: "blue" as const };
+  const TODO = { id: "t-todo", name: "todo", color: "red" as const };
+  const nodeOf = (n: NoteDto): SidebarNode => ({ kind: "note", id: n.id, note: n });
+
+  it("filterNodesByTags keeps notes having every tag, drops folders with no match below them, keeps their order", () => {
+    const both = note("both", { tags: [WORK, TODO] });
+    const onlyWork = note("only-work", { tags: [WORK] });
+    const deepBoth = note("deep-both", { tags: [TODO, WORK] });
+    const plain = note("plain");
+    const nodes: SidebarNode[] = [
+      { kind: "folder", id: "f1", folder: folderDto({ id: "f1", name: "F1" }), depth: 1, children: [nodeOf(onlyWork), nodeOf(deepBoth)] },
+      { kind: "folder", id: "f2", folder: folderDto({ id: "f2", name: "F2" }), depth: 1, children: [nodeOf(onlyWork)] },
+      nodeOf(plain),
+      nodeOf(both),
+    ];
+    const kept = filterNodesByTags(nodes, [WORK.id, TODO.id]);
+    expect(kept.map((n) => n.id)).toEqual(["f1", "both"]);
+    expect((kept[0] as Extract<SidebarNode, { kind: "folder" }>).children.map((n) => n.id)).toEqual(["deep-both"]);
+    expect(filterNodesByTags(nodes, [])).toBe(nodes);
   });
 });

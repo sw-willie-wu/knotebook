@@ -9,12 +9,12 @@ import { runMigrations } from "../src/db/migrate.js";
 import { createDb } from "../src/db/index.js";
 import { Pool } from "pg";
 import { PgDialect, getTableConfig } from "drizzle-orm/pg-core";
-import { apiTokens, authProviders, folders, groupMembers, groupRoles, groups, noteFavorites, notePlacements, noteRedirects, notes, oauthClients, oauthCodes, noteSearchSections, noteSearchState, noteLinkConversion, noteVersions, handleRenames, oauthRequests, oneTimeLinks, sessions, siteLimitChanges, siteLimits, siteSettings, storagePlans, transferBases, transferCreates, transferTokens, userAvatars, userIdentities, users } from "../src/db/schema.js";
+import { apiTokens, authProviders, folders, groupMembers, groupRoles, groups, noteFavorites, notePlacements, noteRedirects, notes, oauthClients, oauthCodes, noteSearchSections, noteSearchState, noteLinkConversion, noteTags, noteVersions, handleRenames, oauthRequests, oneTimeLinks, sessions, siteLimitChanges, siteLimits, siteSettings, storagePlans, tags, transferBases, transferCreates, transferTokens, userAvatars, userIdentities, users } from "../src/db/schema.js";
 
 const drizzleDirForTest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
 /** Drizzle's serialization of `schema.ts`; the declaration-drift guard compares against the latest snapshot (update the file name with each new migration). */
-const SNAPSHOT_FILE = "meta/0042_snapshot.json";
+const SNAPSHOT_FILE = "meta/0043_snapshot.json";
 const snapshotLatest = JSON.parse(readFileSync(path.join(drizzleDirForTest, SNAPSHOT_FILE), "utf8")) as {
   tables: Record<string, {
     checkConstraints?: Record<string, { name: string; value: string }>;
@@ -26,12 +26,12 @@ const snapshotLatest = JSON.parse(readFileSync(path.join(drizzleDirForTest, SNAP
 const pgDialect = new PgDialect();
 
 describe("runMigrations", () => {
-  it("migrating twice is idempotent and 40 tables exist", async () => {
+  it("migrating twice is idempotent and 42 tables exist", async () => {
     const { db, pool } = await freshDb();
     await runMigrations(db); // freshDb already ran it once; this is the second run
     const r = await pool.query(`select table_name from information_schema.tables where table_schema='public'`);
     const tableNames = r.rows.map(x => x.table_name);
-    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles", "api_tokens", "oauth_clients", "oauth_requests", "oauth_codes", "note_ai_edits", "groups", "group_members", "group_roles", "note_redirects", "auth_providers", "user_identities", "site_settings", "note_search_sections", "note_search_state", "transfer_tokens", "storage_plans", "note_versions", "note_link_conversion", "handle_renames", "one_time_links", "folders", "note_placements", "transfer_bases", "transfer_creates", "sessions", "site_limits", "site_limit_changes", "note_favorites", "user_avatars"])
+    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles", "api_tokens", "oauth_clients", "oauth_requests", "oauth_codes", "note_ai_edits", "groups", "group_members", "group_roles", "note_redirects", "auth_providers", "user_identities", "site_settings", "note_search_sections", "note_search_state", "transfer_tokens", "storage_plans", "note_versions", "note_link_conversion", "handle_renames", "one_time_links", "folders", "note_placements", "transfer_bases", "transfer_creates", "sessions", "site_limits", "site_limit_changes", "note_favorites", "user_avatars", "tags", "note_tags"])
       expect(tableNames).toContain(t);
   });
 
@@ -1396,7 +1396,7 @@ describe("0009_api-tokens", () => {
       expect(names, i).toContain(i);
   });
 
-  it("the thirty schema.ts table declarations listed here haven't silently drifted: columns, index names, CHECK names and expressions (verbatim against the snapshot), notNull and FKs", async () => {
+  it("the thirty-two schema.ts table declarations listed here haven't silently drifted: columns, index names, CHECK names and expressions (verbatim against the snapshot), notNull and FKs", async () => {
     // Same family of guards as 0008: match schema.ts's declarations against the migration-built DB. Without this case a declaration
     // could drift from the DB unnoticed until the next db:generate emits a DROP/ALTER.
     // Guarded (schema.ts <-> DB): column name sets, "declared index names exist in the DB", "declared CHECK names exist in the DB".
@@ -1461,6 +1461,8 @@ describe("0009_api-tokens", () => {
       folders: ["id", "kind", "owner_id", "group_id", "parent_id", "name", "created_by", "created_at"],
       note_placements: ["user_id", "note_id", "folder_id"],
       note_favorites: ["user_id", "note_id", "created_at"],
+      tags: ["id", "owner_id", "group_id", "name", "name_key", "color", "created_by", "created_at"],
+      note_tags: ["note_id", "tag_id", "created_at"],
       users: [
         "id", "email", "handle", "password_hash", "oidc_issuer", "oidc_sub", "display_name", "avatar_url", "is_admin",
         "disabled_at", "token_version", "must_change_password", "created_at", "storage_plan_id", "auto_versions",
@@ -1511,6 +1513,8 @@ describe("0009_api-tokens", () => {
       ["site_limits", siteLimits],
       ["site_limit_changes", siteLimitChanges],
       ["note_favorites", noteFavorites],
+      ["tags", tags],
+      ["note_tags", noteTags],
       ["user_avatars", userAvatars],
     ] as const) {
       const cfg = getTableConfig(decl);
@@ -3763,5 +3767,177 @@ describe("search-trigram (pg_trgm body index)", () => {
       "CREATE EXTENSION IF NOT EXISTS pg_trgm;",
       `CREATE INDEX "nss_body_trgm_idx" ON "note_search_sections" USING gin (lower("body") gin_trgm_ops);`,
     ]);
+  });
+});
+
+describe("0043_tags", () => {
+  type Pool = import("pg").Pool;
+  const insertTag = async (pool: Pool, cols: string, vals: unknown[]) =>
+    (await pool.query(`insert into tags (${cols}) values (${vals.map((_, i) => `$${i + 1}`).join(", ")}) returning id`, vals)).rows[0].id as string;
+  const user = async (pool: Pool, email: string) =>
+    (await pool.query(`insert into users (email, display_name) values ($1, $1) returning id`, [email])).rows[0].id as string;
+  const group = async (pool: Pool, owner: string, name: string) =>
+    (await pool.query(`insert into groups (name, created_by) values ($1, $2) returning id`, [name, owner])).rows[0].id as string;
+  const outcome = async (p: Promise<unknown>) => {
+    try { await p; } catch (e) { const x = e as { code?: string; constraint?: string }; return `${x.code}:${x.constraint}`; }
+    return "ok";
+  };
+
+  it("columns, the generated name_key, checks, both partial unique indexes and the FKs with their ON DELETE", async () => {
+    const { pool } = await freshDb();
+    const cols = (await pool.query(
+      `select column_name, data_type, is_nullable, column_default, is_generated, generation_expression from information_schema.columns where table_name = 'tags' order by column_name`,
+    )).rows as { column_name: string; data_type: string; is_nullable: string; column_default: string | null; is_generated: string; generation_expression: string | null }[];
+    expect(cols.map(c => [c.column_name, c.data_type, c.is_nullable])).toEqual([
+      ["color", "text", "NO"],
+      ["created_at", "timestamp with time zone", "NO"],
+      ["created_by", "uuid", "YES"],
+      ["group_id", "uuid", "YES"],
+      ["id", "uuid", "NO"],
+      ["name", "text", "NO"],
+      ["name_key", "text", "NO"],
+      ["owner_id", "uuid", "YES"],
+    ]);
+    const nameKey = cols.find(c => c.column_name === "name_key")!;
+    expect(nameKey.is_generated).toBe("ALWAYS");
+    expect(nameKey.generation_expression).toBe("lower(name)");
+    expect(cols.find(c => c.column_name === "id")!.column_default).toContain("gen_random_uuid()");
+
+    const checks = (await pool.query(
+      `select conname, pg_get_constraintdef(oid) as def from pg_constraint where conrelid = 'tags'::regclass and contype = 'c' order by conname`,
+    )).rows as { conname: string; def: string }[];
+    expect(checks.map(c => c.conname)).toEqual(["tags_color_chk", "tags_name_len_chk", "tags_space_chk"]);
+
+    const idx = (await pool.query(`select indexname, indexdef from pg_indexes where tablename = 'tags' and indexname like '%\\_name\\_idx' order by indexname`)).rows as { indexname: string; indexdef: string }[];
+    expect(idx.map(i => i.indexname)).toEqual(["tags_group_name_idx", "tags_owner_name_idx"]);
+    expect(idx[0]!.indexdef).toBe("CREATE UNIQUE INDEX tags_group_name_idx ON public.tags USING btree (group_id, name_key) WHERE (group_id IS NOT NULL)");
+    expect(idx[1]!.indexdef).toBe("CREATE UNIQUE INDEX tags_owner_name_idx ON public.tags USING btree (owner_id, name_key) WHERE (owner_id IS NOT NULL)");
+
+    const fks = (await pool.query(
+      `select c.conrelid::regclass::text as tbl, a.attname as col, c.confrelid::regclass::text as ref, c.confdeltype
+         from pg_constraint c join pg_attribute a on a.attrelid = c.conrelid and a.attnum = c.conkey[1]
+        where c.contype = 'f' and c.conrelid in ('tags'::regclass, 'note_tags'::regclass)
+        order by tbl, col`,
+    )).rows;
+    expect(fks).toEqual([
+      { tbl: "note_tags", col: "note_id", ref: "notes", confdeltype: "c" },
+      { tbl: "note_tags", col: "tag_id", ref: "tags", confdeltype: "c" },
+      { tbl: "tags", col: "created_by", ref: "users", confdeltype: "n" },
+      { tbl: "tags", col: "group_id", ref: "groups", confdeltype: "c" },
+      { tbl: "tags", col: "owner_id", ref: "users", confdeltype: "c" },
+    ]);
+
+    const nt = (await pool.query(`select column_name, is_nullable from information_schema.columns where table_name = 'note_tags' order by column_name`)).rows;
+    expect(nt).toEqual([
+      { column_name: "created_at", is_nullable: "NO" },
+      { column_name: "note_id", is_nullable: "NO" },
+      { column_name: "tag_id", is_nullable: "NO" },
+    ]);
+    const pk = (await pool.query(
+      `select a.attname from pg_constraint c
+         cross join lateral unnest(c.conkey) with ordinality as k(attnum, ord)
+         join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum
+        where c.conrelid = 'note_tags'::regclass and c.contype = 'p' order by k.ord`,
+    )).rows.map((r: { attname: string }) => r.attname);
+    expect(pk).toEqual(["note_id", "tag_id"]);
+    const tIdx = (await pool.query(`select indexdef from pg_indexes where indexname = 'note_tags_tag_idx'`)).rows;
+    expect(tIdx).toHaveLength(1);
+    expect(tIdx[0].indexdef).toMatch(/USING btree \(tag_id\)$/);
+  });
+
+  it("the same name differing only in case is 23505 tags_owner_name_idx in one personal space, allowed in another user's space and in a group", async () => {
+    const { pool } = await freshDb();
+    const alice = await user(pool, "alice-tag@example.com");
+    const bob = await user(pool, "bob-tag@example.com");
+    const g = await group(pool, alice, "g1");
+    await insertTag(pool, "owner_id, name, color", [alice, "AWS", "blue"]);
+    expect(await outcome(insertTag(pool, "owner_id, name, color", [alice, "aws", "blue"]))).toBe("23505:tags_owner_name_idx");
+    expect(await outcome(insertTag(pool, "owner_id, name, color", [bob, "aws", "blue"]))).toBe("ok");
+    expect(await outcome(insertTag(pool, "group_id, name, color", [g, "aws", "blue"]))).toBe("ok");
+    expect((await pool.query(`select name_key from tags where owner_id = $1`, [alice])).rows[0].name_key).toBe("aws");
+  });
+
+  it("the same name differing only in case is 23505 tags_group_name_idx within one group", async () => {
+    const { pool } = await freshDb();
+    const alice = await user(pool, "alice-tag2@example.com");
+    const g1 = await group(pool, alice, "g1");
+    const g2 = await group(pool, alice, "g2");
+    await insertTag(pool, "group_id, name, color", [g1, "Ops", "green"]);
+    expect(await outcome(insertTag(pool, "group_id, name, color", [g1, "OPS", "green"]))).toBe("23505:tags_group_name_idx");
+    expect(await outcome(insertTag(pool, "group_id, name, color", [g2, "OPS", "green"]))).toBe("ok");
+  });
+
+  it("color outside the nine is 23514 tags_color_chk; both or neither of owner_id and group_id is 23514 tags_space_chk; 41 code points is 23514 tags_name_len_chk", async () => {
+    const { pool } = await freshDb();
+    const alice = await user(pool, "alice-tag3@example.com");
+    const g = await group(pool, alice, "g1");
+    expect(await outcome(insertTag(pool, "owner_id, name, color", [alice, "a", "default"]))).toBe("23514:tags_color_chk");
+    expect(await outcome(insertTag(pool, "owner_id, group_id, name, color", [alice, g, "a", "blue"]))).toBe("23514:tags_space_chk");
+    expect(await outcome(insertTag(pool, "name, color", ["a", "blue"]))).toBe("23514:tags_space_chk");
+    expect(await outcome(insertTag(pool, "owner_id, name, color", [alice, "", "blue"]))).toBe("23514:tags_name_len_chk");
+    expect(await outcome(insertTag(pool, "owner_id, name, color", [alice, "x".repeat(41), "blue"]))).toBe("23514:tags_name_len_chk");
+    expect(await outcome(insertTag(pool, "owner_id, name, color", [alice, "x".repeat(40), "blue"]))).toBe("ok");
+    // length() counts code points, not UTF-16 units: 40 astral characters pass, 41 do not
+    expect(await outcome(insertTag(pool, "owner_id, name, color", [alice, "\u{1F600}".repeat(40), "blue"]))).toBe("ok");
+    expect(await outcome(insertTag(pool, "owner_id, name, color", [alice, "\u{1F600}".repeat(41), "blue"]))).toBe("23514:tags_name_len_chk");
+    for (const c of ["blue", "green", "orange", "purple", "pink", "red", "yellow", "brown", "gray"]) {
+      expect(await outcome(insertTag(pool, "owner_id, name, color", [alice, `c-${c}`, c])), c).toBe("ok");
+    }
+  });
+
+  it("deleting a group deletes its tags and their note_tags rows; permanently deleting a note deletes only its note_tags rows", async () => {
+    const { pool } = await freshDb();
+    const alice = await user(pool, "alice-tag4@example.com");
+    const g = await group(pool, alice, "g1");
+    const n1 = (await pool.query(`insert into notes (group_id) values ($1) returning id`, [g])).rows[0].id as string;
+    const n2 = (await pool.query(`insert into notes (group_id) values ($1) returning id`, [g])).rows[0].id as string;
+    const t1 = await insertTag(pool, "group_id, name, color, created_by", [g, "one", "blue", alice]);
+    const t2 = await insertTag(pool, "group_id, name, color", [g, "two", "red"]);
+    await pool.query(`insert into note_tags (note_id, tag_id) values ($1, $3), ($1, $4), ($2, $3)`, [n1, n2, t1, t2]);
+    await pool.query(`delete from notes where id = $1`, [n1]);
+    expect((await pool.query(`select count(*)::int as n from tags`)).rows[0].n).toBe(2);
+    expect((await pool.query(`select note_id, tag_id from note_tags`)).rows).toEqual([{ note_id: n2, tag_id: t1 }]);
+    // a group must be empty to be deleted, so the note is handed to a member first
+    await pool.query(`update notes set owner_id = $2, group_id = null where id = $1`, [n2, alice]);
+    await pool.query(`delete from groups where id = $1`, [g]);
+    expect((await pool.query(`select count(*)::int as n from tags`)).rows[0].n).toBe(0);
+    expect((await pool.query(`select count(*)::int as n from note_tags`)).rows[0].n).toBe(0);
+    expect((await pool.query(`select count(*)::int as n from notes where id = $1`, [n2])).rows[0].n).toBe(1);
+  });
+
+  it("deleting the creator keeps the tag with created_by null; deleting the owner removes the personal tags", async () => {
+    const { pool } = await freshDb();
+    const alice = await user(pool, "alice-tag5@example.com");
+    const bob = await user(pool, "bob-tag5@example.com");
+    const t = await insertTag(pool, "owner_id, name, color, created_by", [alice, "mine", "blue", bob]);
+    await pool.query(`delete from users where id = $1`, [bob]);
+    expect((await pool.query(`select created_by from tags where id = $1`, [t])).rows[0].created_by).toBeNull();
+    await pool.query(`delete from users where id = $1`, [alice]);
+    expect((await pool.query(`select count(*)::int as n from tags`)).rows[0].n).toBe(0);
+  });
+
+  it("note_tags.created_at defaults to whole milliseconds", async () => {
+    const { pool } = await freshDb();
+    const alice = await user(pool, "alice-tag6@example.com");
+    const n = (await pool.query(`insert into notes (owner_id) values ($1) returning id`, [alice])).rows[0].id as string;
+    const t = await insertTag(pool, "owner_id, name, color", [alice, "x", "blue"]);
+    await pool.query(`insert into note_tags (note_id, tag_id) values ($1, $2)`, [n, t]);
+    const sub = (await pool.query(`select count(*)::int as n from note_tags where extract(microseconds from created_at)::bigint % 1000 <> 0`)).rows[0].n;
+    expect(sub).toBe(0);
+    const def = (await pool.query(`select column_default from information_schema.columns where table_name = 'note_tags' and column_name = 'created_at'`)).rows[0].column_default as string;
+    expect(def).toContain("date_trunc('milliseconds'");
+  });
+
+  it("SQL file only creates the two tables and their own constraints and indexes; no CONCURRENTLY/line-leading COMMIT", () => {
+    const entries = journalEntries().filter(e => e.tag.endsWith("_tags"));
+    expect(entries, "journal has exactly one *_tags").toHaveLength(1);
+    const sqlText = readFileSync(path.join(drizzleDirForTest, `${entries[0]!.tag}.sql`), "utf8");
+    expect(sqlText).not.toMatch(/CONCURRENTLY/i);
+    expect(sqlText).not.toMatch(/^\s*COMMIT/im);
+    const statements = sqlText.split("--> statement-breakpoint").map(s => s.replace(/^\s*--.*$/gm, "").trim()).filter(s => s.length > 0);
+    expect(statements.filter(s => /^CREATE TABLE "(tags|note_tags)"/.test(s))).toHaveLength(2);
+    for (const st of statements) {
+      expect(st).toMatch(/^(CREATE TABLE "(tags|note_tags)"|ALTER TABLE "(tags|note_tags)" ADD CONSTRAINT|CREATE (UNIQUE )?INDEX "(tags|note_tags)_)/);
+    }
   });
 });

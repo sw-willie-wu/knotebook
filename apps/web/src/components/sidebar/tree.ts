@@ -200,3 +200,27 @@ export function noteLocationLabel(note: NoteDto, ctx: LocationContext, t: Transl
   if (path.length > 0) return t("sidebar.locationSharedIn", { path: path.join(" › "), role });
   return t("sidebar.locationShared", { role });
 }
+
+/** A note stays when it has every tag; a folder stays when something below it does. Group nodes pass through with their children filtered. */
+export function filterNodesByTags(nodes: SidebarNode[], tagIds: readonly string[]): SidebarNode[] {
+  if (tagIds.length === 0) return nodes;
+  const out: SidebarNode[] = [];
+  for (const node of nodes) {
+    if (node.kind === "note") {
+      const have = new Set((node.note.tags ?? []).map((tag) => tag.id));
+      if (tagIds.every((id) => have.has(id))) out.push(node);
+    } else if (node.kind === "folder") {
+      const children = filterNodesByTags(node.children, tagIds);
+      if (children.length > 0) out.push({ ...node, children });
+    } else {
+      out.push({ ...node, children: filterNodesByTags(node.children, tagIds) });
+    }
+  }
+  return out;
+}
+
+export function countNoteNodes(nodes: readonly SidebarNode[]): number {
+  let total = 0;
+  for (const node of nodes) total += node.kind === "note" ? 1 : countNoteNodes(node.children);
+  return total;
+}

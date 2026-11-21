@@ -8,9 +8,10 @@ import { SelectionCheckbox } from "@/components/ui/selection-checkbox";
 import { selectionKey } from "@/lib/sidebar-selection";
 import { useSidebarTabActions, useSidebarTabState } from "@/lib/sidebar-tab";
 import { cn } from "@/lib/utils";
-import { isCollapsed, useCollapsed } from "./collapse";
+import { isCollapsed } from "./collapse";
 import { GroupRowButton } from "./GroupRowButton";
-import { visibleSelectionKeys, type SelectableTab } from "./select-model";
+import { filteredSelectionKeys, visibleSelectionKeys, type SelectableTab } from "./select-model";
+import { isFilterCollapsed, useSectionOpen } from "./tag-filter";
 import { noteLocationLabel, type LocationContext, type SidebarNode } from "./tree";
 
 /** Import only through the SelectLazy chain and tests. Note rows are `<label>`s; a folder row is a chevron `<button>` plus a `<label>`, since a `<button>` can't live inside a `<label>` (invalid HTML). Collapse shares keys with NoteList via `collapse.ts`. */
@@ -84,6 +85,8 @@ interface TreeContext {
   keys: ReadonlySet<string>;
   onToggle: ToggleRow;
   location: LocationContext;
+  /** Tag filtering is on: folders show no checkbox (only notes can be ticked) and open/closed follows the filter, not the saved collapse state. */
+  filtered: boolean;
 }
 
 const SelectableFolderLabel = memo(function SelectableFolderLabel({
@@ -119,7 +122,7 @@ const SelectableFolderLabel = memo(function SelectableFolderLabel({
 
 function SelectableFolderNode({ node, ctx }: { node: Extract<SidebarNode, { kind: "folder" }>; ctx: TreeContext }) {
   const { t } = useTranslation();
-  const [open, toggle] = useCollapsed(`folder:${node.folder.id}`);
+  const [open, toggle] = useSectionOpen(`folder:${node.folder.id}`, ctx.filtered, node.children.length > 0);
   return (
     <li data-node-kind="folder" data-node-id={node.folder.id} className="flex flex-col gap-0.5">
       <div className="group/folderrow flex h-11 items-center gap-0.5 rounded-md hover:bg-brand-soft active:bg-brand-soft-strong pointer-fine:h-7">
@@ -132,7 +135,16 @@ function SelectableFolderNode({ node, ctx }: { node: Extract<SidebarNode, { kind
         >
           <ChevronRight aria-hidden="true" className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-90")} />
         </button>
-        <SelectableFolderLabel folder={node.folder} checked={ctx.keys.has(selectionKey({ kind: "folder", id: node.id }))} onToggle={ctx.onToggle} />
+        {ctx.filtered ? (
+          <span className="flex h-full min-w-0 flex-1 items-center gap-1.5 pl-1 pr-2 text-[13px] font-medium text-foreground">
+            <Folder aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <span className="truncate" title={node.folder.name}>
+              {node.folder.name}
+            </span>
+          </span>
+        ) : (
+          <SelectableFolderLabel folder={node.folder} checked={ctx.keys.has(selectionKey({ kind: "folder", id: node.id }))} onToggle={ctx.onToggle} />
+        )}
       </div>
       {open && (
         <div className="ml-[15px] border-l border-muted-foreground/35 pl-2">
@@ -148,7 +160,7 @@ function SelectableFolderNode({ node, ctx }: { node: Extract<SidebarNode, { kind
 }
 
 function SelectableGroupNode({ node, ctx }: { node: Extract<SidebarNode, { kind: "group" }>; ctx: TreeContext }) {
-  const [open, toggle] = useCollapsed(`group:${node.group.id}`);
+  const [open, toggle] = useSectionOpen(`group:${node.group.id}`, ctx.filtered, node.children.length > 0);
   return (
     <li data-node-kind="group" data-node-id={node.group.id} className="flex flex-col gap-0.5">
       <div className="group/grouprow flex h-11 items-center gap-0.5 pointer-fine:h-7 rounded-md hover:bg-brand-soft active:bg-brand-soft-strong">
@@ -187,13 +199,27 @@ function SelectableNodeList({ nodes, ctx, inGroup = false }: { nodes: readonly S
   );
 }
 
-export function SelectableTree({ nodes, tab, location }: { nodes: readonly SidebarNode[]; tab: SelectableTab; location: LocationContext }) {
+export function SelectableTree({
+  nodes,
+  tab,
+  location,
+  filtered = false,
+}: {
+  nodes: readonly SidebarNode[];
+  tab: SelectableTab;
+  location: LocationContext;
+  filtered?: boolean;
+}) {
   const { selection } = useSidebarTabState();
   const { updateSelection } = useSidebarTabActions();
   // Stable (`nodes` is memoised by NoteList and changes only on refetch): the select rows' memo relies on it. Shift ranges use the visible order at press time (folder rows count, collapsed subtrees skipped).
   const onToggle = useCallback<ToggleRow>(
-    (key, shiftKey) => updateSelection(shiftKey ? { type: "range", key, order: visibleSelectionKeys(nodes, isCollapsed) } : { type: "toggle", key }),
-    [nodes, updateSelection],
+    (key, shiftKey) => {
+      if (!shiftKey) return updateSelection({ type: "toggle", key });
+      const order = filtered ? filteredSelectionKeys(nodes, isFilterCollapsed) : visibleSelectionKeys(nodes, isCollapsed);
+      updateSelection({ type: "range", key, order });
+    },
+    [nodes, filtered, updateSelection],
   );
-  return <SelectableNodeList nodes={nodes} ctx={{ tab, keys: selection.keys, onToggle, location }} />;
+  return <SelectableNodeList nodes={nodes} ctx={{ tab, keys: selection.keys, onToggle, location, filtered }} />;
 }

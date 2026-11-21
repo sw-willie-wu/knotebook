@@ -4,6 +4,7 @@
  * (blocked by `lockGroup`), and structure writes in the recipient's space take its structure lock first.
  * Every transaction touching group-space folders takes groups KEY SHARE first, so it conflicts with `lockGroup`: creates/moves/copies arriving after it wait,
  * then get 23503 or see the group gone → 404. Delete-all takes no quota lock. Roles and members go via FK CASCADE.
+ * Tag rows come after the note locks, and only the recipient's personal tags are locked (the group's own tags are only read).
  */
 import { and, asc, eq, sql } from "drizzle-orm";
 import type { Tx } from "../../db/tx.js";
@@ -17,6 +18,7 @@ import { deleteNotesInTx } from "../../notes/tx/delete-notes.js";
 import { recordRedirectsInTx } from "../../notes/tx/redirects.js";
 import { resetNoteVersionsInTx } from "../../notes/tx/versions.js";
 import { writeSlugInTx } from "../../notes/tx/write-slug.js";
+import { moveGroupTagsToPersonalInTx } from "../../tags/tx/space-change.js";
 import { sumUploadSizeSql } from "../../storage/space.js";
 import { assertSpaceRoomInTx } from "../../storage/tx/quota.js";
 import { GROUP_NOT_FOUND_MESSAGE, NOT_ADMIN_MESSAGE, lockGroup } from "../queries.js";
@@ -81,7 +83,8 @@ export async function transferGroupInTx(tx: Tx, input: TransferGroupInput, hook?
     lockTimeoutMs: input.lockTimeoutMs, hook, hookCtx: { groupId: input.groupId },
   });
 
-  // By group predicate, before group_id changes.
+  // By group predicate, before group_id changes; the group's tag rows are removed with the group below.
+  await moveGroupTagsToPersonalInTx(tx, { groupId: input.groupId, ownerId: input.transferTo, createdBy: input.by });
   await resetNoteVersionsInTx(tx, { groupId: input.groupId });
 
   const [anyFolder] = await tx.select({ id: folders.id }).from(folders).where(eq(folders.groupId, input.groupId)).limit(1);

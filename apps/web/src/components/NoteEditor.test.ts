@@ -844,6 +844,48 @@ describe("useLinkMenuState getSlashItems has no shortcut column on phone", () =>
   });
 });
 
+describe("useLinkMenuState tag entry", () => {
+  const translate = (key: string) => key;
+
+  it("getSlashItems keeps its identity when tagEntry changes, and reads the current entry on every query", async () => {
+    const realEditor = BlockNoteEditor.create({ schema: noteSchema });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    realEditor.mount(container);
+    const tagEntryRef: { current: { open: (opts?: { returnFocus?: () => void }) => void } | undefined } = { current: undefined };
+    const editorRef = { current: realEditor } as EditorRef;
+    const { result, rerender } = renderHook(() => useLinkMenuState(editorRef, translate, tagEntryRef));
+    await act(async () => {});
+    const before = result.current.getSlashItems;
+    const titles = async () => (await result.current.getSlashItems("")).map((item) => item.title);
+
+    expect(await titles()).not.toContain("tags.entry.slashTitle");
+    const open = vi.fn();
+    tagEntryRef.current = { open };
+    rerender();
+    expect(result.current.getSlashItems).toBe(before);
+    expect(await titles()).toContain("tags.entry.slashTitle");
+    (await result.current.getSlashItems("tag")).find((item) => item.title === "tags.entry.slashTitle")!.onItemClick();
+    expect(open).toHaveBeenCalledOnce();
+    tagEntryRef.current = undefined;
+    expect(await titles()).not.toContain("tags.entry.slashTitle");
+
+    // Choosing /tag hands the entry a way back to the caret, for when the input is left without adding a tag.
+    tagEntryRef.current = { open };
+    open.mockClear();
+    (await result.current.getSlashItems("tag")).find((item) => item.title === "tags.entry.slashTitle")!.onItemClick();
+    const opts = open.mock.calls[0]![0] as { returnFocus: () => void };
+    realEditor.insertInlineContent(["caret here"]);
+    (document.activeElement as HTMLElement | null)?.blur();
+    opts.returnFocus();
+    expect(container.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement?.getAttribute("contenteditable")).toBe("true");
+
+    realEditor.unmount();
+    container.remove();
+  });
+});
+
 describe("lateBoundTranslate (late-bound wrapper must forward interpolation args)", () => {
   it("forwards opts, and reads the ref's current value on every call", () => {
     const ref: { current: (key: string, opts?: Record<string, unknown>) => string } = {

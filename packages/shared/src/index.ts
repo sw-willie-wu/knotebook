@@ -41,3 +41,4 @@ export * from "./presence.js";
 export * from "./avatar.js";
 export * from "./site-limits.js";
 export * from "./parse-auto.js";
+export * from "./tags.js";

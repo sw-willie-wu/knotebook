@@ -339,6 +339,7 @@ export function TrashPanel() {
             {t("trash.emptyTrash")}
           </Button>
         );
+      case "tagFilter":
       case "newPersonalNote":
       case "newGroup":
       case "newFolder":

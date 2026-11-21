@@ -81,7 +81,7 @@ describe("trim", () => {
 });
 
 describe("shape", () => {
-  it("three matchedOn values; title's matches is []; body's sectionId = heading id and snippet contains the query; note is the same as GET /api/notes except sizeBytes", async () => {
+  it("three matchedOn values; title's matches is []; body's sectionId = heading id and snippet contains the query; note is the same as GET /api/notes except sizeBytes and tags", async () => {
     const { app, db } = await buildTestApp();
     const [u, other] = await Promise.all([seedUser(db), seedUser(db)]);
     const auth = await asUser(u.id);
@@ -105,10 +105,12 @@ describe("shape", () => {
     const list = (await app.inject({ method: "GET", url: "/api/notes", ...auth })).json() as NoteDto[];
     for (const id of [t.id, bo.id, shared.id, gn.id]) {
       const hit = byId.get(id)!;
-      const { sizeBytes, ...rest } = list.find(n => n.id === id)!;
+      const { sizeBytes, tags, ...rest } = list.find(n => n.id === id)!;
       expect(sizeBytes, "清單有 sizeBytes").toBeTypeOf("number");
+      expect(tags, "list rows carry tags").toEqual([]);
       expect(hit.note, id).toEqual(rest);
       expect("sizeBytes" in hit.note).toBe(false);
+      expect("tags" in hit.note).toBe(false);
     }
     expect(byId.get(shared.id)!.note.role).toBe("editor");
     expect(Object.keys(r).sort()).toEqual(["hits", "nextCursor"]);

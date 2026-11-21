@@ -198,6 +198,17 @@ describe("PublicNotePage (#72 /p/:token + #122 /p/:handle/:slug no-login read-on
     expect(calls).toEqual([`GET /api/public/notes/${TOKEN}`]);
   });
 
+  it("the public page has no tag row and asks for no tags", async () => {
+    const { fn, calls } = mockFetch((url) =>
+      url === `/api/public/notes/${TOKEN}` ? { status: 200, body: { title: "Public", ydoc: EMPTY_YDOC_UPDATE_B64 } } : null,
+    );
+    vi.stubGlobal("fetch", fn);
+    renderPage();
+    await screen.findByTestId("public-note-editor");
+    expect(document.querySelector("[data-note-tags], [data-note-content-top]")).toBeNull();
+    expect(calls).toEqual([`GET /api/public/notes/${TOKEN}`]);
+  });
+
   it("phone header: the presentation button is icon-only (accessible name unchanged), the read-only badge collapses into a dot (text only for screen readers)", async () => {
     const body: PublicNoteBody = { title: "公開的筆記", ydoc: EMPTY_YDOC_UPDATE_B64 };
     vi.stubGlobal("fetch", mockFetch((url) => (url === `/api/public/notes/${TOKEN}` ? { status: 200, body } : null)).fn);

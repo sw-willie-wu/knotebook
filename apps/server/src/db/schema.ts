@@ -1,7 +1,7 @@
 import { pgTable, uuid, text, timestamp, boolean, integer, bigint, smallint, jsonb, customType, primaryKey, uniqueIndex, index, check, foreignKey } from "drizzle-orm/pg-core";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import type { NoteWidth } from "@knotebook/shared";
+import type { NoteWidth, TagColor } from "@knotebook/shared";
 import type { EncryptedApiKey } from "../ai/crypto.js";
 import type { EncryptedSecret } from "../lib/sealed-secret.js";
 import type { BulkRange } from "../auth/transfer-token.js";
@@ -562,6 +562,37 @@ export const noteFavorites = pgTable("note_favorites", {
   primaryKey({ columns: [t.userId, t.noteId] }),
   // PK leads with user_id; the cascade on permanent note deletion needs this.
   index("note_favorites_note_idx").on(t.noteId),
+]);
+
+// A tag belongs to exactly one space: a user's personal space or a group.
+// `name_key` is a generated column rather than an expression index because drizzle's `onConflictDoUpdate({ target })` takes columns only.
+// Must match TAG_COLORS (tag-color-check-sync.test.ts).
+export const tags = pgTable("tags", {
+  id: uuid().primaryKey().defaultRandom(),
+  ownerId: uuid("owner_id").references(() => users.id, { onDelete: "cascade" }),
+  groupId: uuid("group_id").references(() => groups.id, { onDelete: "cascade" }),
+  name: text().notNull(),
+  nameKey: text("name_key").notNull().generatedAlwaysAs(sql`lower(name)`),
+  color: text().$type<TagColor>().notNull(),
+  createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, t => [
+  check("tags_space_chk", sql`(${t.ownerId} is null) <> (${t.groupId} is null)`),
+  check("tags_name_len_chk", sql`length(${t.name}) between 1 and 40`),
+  check("tags_color_chk", sql`${t.color} in ('blue','green','orange','purple','pink','red','yellow','brown','gray')`),
+  uniqueIndex("tags_owner_name_idx").on(t.ownerId, t.nameKey).where(sql`${t.ownerId} is not null`),
+  uniqueIndex("tags_group_name_idx").on(t.groupId, t.nameKey).where(sql`${t.groupId} is not null`),
+]);
+
+// `created_at` is whole milliseconds like JS `Date`, so the order tags were added in is stable across server and client.
+export const noteTags = pgTable("note_tags", {
+  noteId: uuid("note_id").notNull().references(() => notes.id, { onDelete: "cascade" }),
+  tagId: uuid("tag_id").notNull().references(() => tags.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`date_trunc('milliseconds', now())`),
+}, t => [
+  primaryKey({ columns: [t.noteId, t.tagId] }),
+  // PK leads with note_id; deleting a tag needs this.
+  index("note_tags_tag_idx").on(t.tagId),
 ]);
 
 export const noteLinks = pgTable("note_links", {
