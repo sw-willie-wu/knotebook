@@ -135,6 +135,7 @@ export const ERROR_CODES = [
   "limit_locked_by_env",
   "invalid_tag_name",
   "tag_not_found",
+  "invalid_tags",
   "tag_limit_reached",
   "tag_name_taken",
   "merge_same_tag",
