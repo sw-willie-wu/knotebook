@@ -3,7 +3,7 @@
     "manage": {
       "personalDescription": "Tags in My notes. Renaming or merging a tag changes it on every note.",
       "groupDescription": "Tags in this group. Renaming or merging a tag changes it on every note.",
-      "empty": "No tags yet. Type /tag in a note, or choose Add tag in its ⋮ menu.",
+      "empty": "No tags yet. Type /tag in a note, or choose Add tag in its ⋮ menu, or type #name and a space on the first line.",
       "forbidden": "Only roles that can manage this group can manage its tags.",
       "noteCount_one": "{{count}} note",
       "noteCount_other": "{{count}} notes",

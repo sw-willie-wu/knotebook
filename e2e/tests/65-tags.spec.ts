@@ -1,92 +1,26 @@
-import { devices, expect, test, type Browser, type BrowserContext, type Locator, type Page } from "@playwright/test";
+import { devices, expect, test, type Page } from "@playwright/test";
+import { createNote, editorLocator, loginAs, noteIdFromUrl, openListOnCompact, showSidebarTab, waitForEditorSelection } from "./helpers.js";
 import {
-  ADMIN,
-  createNote,
-  createUserViaInvite,
-  editorLocator,
-  loginAs,
-  noteIdFromUrl,
-  openListOnCompact,
-  randomEmail,
-  reEscape,
-  showSidebarTab,
-  waitForEditorSelection,
-} from "./helpers.js";
+  NOTE_TITLE,
+  PASSWORD,
+  RUN,
+  apiAddTags,
+  apiCreateGroup,
+  apiCreateNote,
+  createAccount,
+  dots,
+  noteLink,
+  openAs,
+  tagInput,
+  tagRow,
+  waitForNoteTitle,
+} from "./tag-helpers.js";
 
 /**
  * Tags: the row above the note text, the three ways to add the first tag, sidebar dots and filter, who may change tags, the management page, tags following a note into a group, and the phone layout.
  * Every test uses freshly created accounts (alice, bob plus the RUN suffix), so tag lists never overlap between tests; notes, tags and groups are left in place (the stack is reset by `stack:down -v` each time).
  * Button lookups use `exact: true` because Playwright's default name match is a case-insensitive substring match.
  */
-
-const RUN = Date.now();
-const PASSWORD = "e2e-tags-user-pw";
-const NOTE_TITLE = { name: "Note title" } as const;
-
-interface Account {
-  email: string;
-  displayName: string;
-}
-
-async function createAccount(browser: Browser, name: string): Promise<Account> {
-  const account: Account = { email: randomEmail(), displayName: `${name} ${RUN}` };
-  const context = await browser.newContext();
-  try {
-    const page = await context.newPage();
-    await loginAs(page, ADMIN.email, ADMIN.password);
-    await createUserViaInvite(page, { ...account, password: PASSWORD });
-  } finally {
-    await context.close();
-  }
-  return account;
-}
-
-async function openAs(browser: Browser, account: Account, viewport?: { width: number; height: number }): Promise<{ context: BrowserContext; page: Page }> {
-  const context = await browser.newContext(viewport ? { viewport } : undefined);
-  const page = await context.newPage();
-  await loginAs(page, account.email, PASSWORD);
-  return { context, page };
-}
-
-function noteLink(scope: Locator, title: string): Locator {
-  return scope.getByRole("link", { name: new RegExp("^" + reEscape(title)) });
-}
-
-function tagRow(page: Page): Locator {
-  return page.getByRole("group", { name: "Tags", exact: true });
-}
-
-function tagInput(page: Page): Locator {
-  return page.getByRole("combobox", { name: "Tag name", exact: true });
-}
-
-function dots(scope: Locator, names: string): Locator {
-  return scope.getByRole("img", { name: `Tags: ${names}`, exact: true });
-}
-
-/** After a full page load of a note page, wait for the title box first: the lazy note page's fallback shell replaces the sidebar and resets the drawer. */
-async function waitForNoteTitle(page: Page, title: string): Promise<void> {
-  await expect(page.getByRole("textbox", NOTE_TITLE)).toHaveValue(title, { timeout: 15_000 });
-}
-
-async function apiCreateNote(page: Page, title: string, extra: Record<string, unknown> = {}): Promise<string> {
-  const created = await page.request.post("/api/notes", { data: { title, ...extra } });
-  expect(created.status(), await created.text()).toBe(201);
-  return ((await created.json()) as { id: string }).id;
-}
-
-async function apiAddTags(page: Page, noteId: string, names: readonly string[]): Promise<void> {
-  for (const name of names) {
-    const added = await page.request.post(`/api/notes/${noteId}/tags`, { data: { name } });
-    expect(added.status(), await added.text()).toBe(200);
-  }
-}
-
-async function apiCreateGroup(page: Page, name: string): Promise<string> {
-  const created = await page.request.post("/api/groups", { data: { name } });
-  expect(created.status(), await created.text()).toBe(201);
-  return ((await created.json()) as { id: string }).id;
-}
 
 async function slashTitles(page: Page): Promise<string[]> {
   return (await page.locator(".bn-suggestion-menu .bn-mt-suggestion-menu-item-title").allTextContents()).map((t) => t.trim());

@@ -3,7 +3,7 @@
     "manage": {
       "personalDescription": "「我的筆記」裡的標籤。改名或合併會套用到所有用到它的筆記。",
       "groupDescription": "這個群組的標籤。改名或合併會套用到所有用到它的筆記。",
-      "empty": "還沒有標籤。可在筆記裡打 /tag，或從筆記的 ⋮ 選「加標籤」。",
+      "empty": "還沒有標籤。可在筆記裡打 /tag，或從筆記的 ⋮ 選「加標籤」，或在第一行打 #名稱 加空白。",
       "forbidden": "只有能管理群組的角色可以管理標籤。",
       "noteCount_one": "{{count}} 篇筆記",
       "noteCount_other": "{{count}} 篇筆記",

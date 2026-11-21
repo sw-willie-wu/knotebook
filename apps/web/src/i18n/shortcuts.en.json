@@ -240,7 +240,7 @@
       "items": {
         "tags": {
           "title": "Tags",
-          "desc": "Label a note with tags: type /tag in the note, or choose Add tag in its ⋮ menu. The tags sit in a row above the text, show as colored dots on the note's row in the sidebar, and the funnel button in My notes and Groups lists only the notes that have all the tags you pick. Rename, recolor, merge or delete tags in Settings → Tags (for a group, in the group's window)."
+          "desc": "Label a note with tags: type /tag in the note, choose Add tag in its ⋮ menu, or type #name and a space on its first line. The tags sit in a row above the text, show as colored dots on the note's row in the sidebar, and the funnel button in My notes and Groups lists only the notes that have all the tags you pick. Type # in the search box to search by tag. Rename, recolor, merge or delete tags in Settings → Tags (for a group, in the group's window)."
         },
         "knowledgeInfo": {
           "title": "Knowledge info",
