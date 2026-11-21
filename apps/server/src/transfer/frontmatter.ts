@@ -1,4 +1,4 @@
-/** Keys in fixed order (knotebook, id, title, role, base, url). `title` is always `JSON.stringify`'d so it stays one line; a value starting with `"` is read with `JSON.parse`, round-tripping exactly. The body follows the second `---` unnormalized. */
+/** Keys in fixed order (knotebook, id, title, tags, role, base, url). `title` is always `JSON.stringify`'d so it stays one line; a value starting with `"` is read with `JSON.parse`, round-tripping exactly. The body follows the second `---` unnormalized. */
 import { UUID_RE } from "@knotebook/shared";
 import { normalizeBody } from "./normalize.js";
 import { parseNoteTags, serializeNoteTags } from "./note-tags-format.js";

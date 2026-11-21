@@ -1,6 +1,7 @@
 import type { BlockNoteEditor, PartialBlock } from "@blocknote/core";
 import {
   BLOCK_PRECHECK_MIN_CHARS,
+  KNOWLEDGE_ATTR_IN_TAG,
   MAX_HTML_DEPTH,
   PLAINTEXT_TAG,
   applyKnowledgeComments,
@@ -45,8 +46,6 @@ export function hasDroppedElement(html: string): boolean {
   return DROPPED_PREFILTER.test(html) && syntaxCheckRoot(html).querySelector(DROPPED_SELECTOR) !== null;
 }
 const UNCLOSED_COMMENT = /<!--(?![\s\S]*?-->)/;
-// Only inside a start tag: ordinary text that mentions the attribute name must not be refused.
-const KNOWLEDGE_ATTR_IN_TAG = /<[a-z](?:[^<>"']|"[^"]*"|'[^']*')*?[\s"'/]data-knowledge-/i;
 
 export { BLOCK_PRECHECK_MIN_CHARS, MAX_HTML_DEPTH, htmlDepth, plainParagraphFloor, premergeParagraphs, topLevelBlockFloor };
 

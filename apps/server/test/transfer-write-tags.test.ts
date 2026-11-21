@@ -270,7 +270,7 @@ describe("checks that run before anything is written", () => {
     const many = Array.from({ length: TAGS_PER_NOTE_MAX + 1 }, (_, i) => `t${i}`);
     const over = await s.put(editBody(setTagsLine(d.text, JSON.stringify(many)), b => b.replace("Para 1", "Para 1 new")));
     expect(over.statusCode, over.body).toBe(409);
-    expect(errOf(over)).toMatchObject({ code: "tag_limit_reached", message: "This note already has the most tags allowed (50)." });
+    expect(errOf(over)).toMatchObject({ code: "tag_limit_reached", message: "The file lists more than 50 different tags; a note can have at most 50." });
     const dup = await s.put(setTagsLine(d.text, JSON.stringify([...many.slice(0, 50), "T0", "t1"])));
     expect(dup.statusCode, dup.body).toBe(200);
     expect(await liveMarkdown(s.ctx, s.note.id)).toBe(before);

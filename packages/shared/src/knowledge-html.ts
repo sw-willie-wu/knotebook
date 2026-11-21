@@ -25,6 +25,9 @@ export function stripKnowledgeDataAttrs(root: ParentNode): boolean {
   return removed;
 }
 
+// Only inside a start tag: ordinary text that mentions the attribute name must not be refused.
+export const KNOWLEDGE_ATTR_IN_TAG = /<[a-z](?:[^<>"']|"[^"]*"|'[^']*')*?[\s"'/]data-knowledge-/i;
+
 /** The id of a comment that left out its `id` line; resolved in the write step and never stored (it doesn't match `KNOWLEDGE_ID_RE`). */
 export const KNOWLEDGE_PENDING_ID_PREFIX = "k_new:";
 

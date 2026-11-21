@@ -101,7 +101,6 @@ export interface SyncFileOk {
   renamed: boolean;
   /** Content was written but the title changed just before the rename (the rename and the unchanged-title check are one UPDATE). */
   renameFailed?: "gone" | "ownership_changed" | "title_changed";
-  /** The tags were written. */
   tagsChanged: boolean;
   /** The body or title was written but the tags were not; nothing is rolled back. */
   tagsFailed?: "not_found" | "conflict" | "tag_limit_reached" | "changed_meanwhile" | "failed";

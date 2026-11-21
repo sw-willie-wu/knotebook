@@ -19,7 +19,7 @@ import { resolveNoteAccess } from "../notes/service.js";
 import type { ErrorCode, KnowledgeProblem } from "@knotebook/shared";
 import { knowledgeProblemMessage } from "../notes/editing/knowledge-messages.js";
 import { FOLDER_NOT_FOUND_MESSAGE } from "../folders/messages.js";
-import { INVALID_TAG_NAME_MESSAGE, NOTE_TAG_LIMIT_MESSAGE, SPACE_TAG_LIMIT_MESSAGE } from "../tags/messages.js";
+import { FILE_TAG_LIMIT_MESSAGE, INVALID_TAG_NAME_MESSAGE, SPACE_TAG_LIMIT_MESSAGE } from "../tags/messages.js";
 import { TAGS_PER_NOTE_MAX } from "@knotebook/shared";
 import type { BaseUnavailableReason, NoteWriteService, SyncFileOk } from "../notes/editing/write-service.js";
 import { fileShaOf, resolveCreateDest } from "../transfer/create-file.js";
@@ -88,7 +88,7 @@ export const TAGS_CHANGE_FORBIDDEN_MESSAGE =
   "You can't change this note's tags: that needs edit rights in the note's own space, not through a share. Leave the tags line as it was downloaded, or take it out.";
 export const TAGS_CONFLICT_MESSAGE = "The note moved to another space while the file was being sent, so its tags were not changed. Fetch the note again.";
 export const NEW_NOTE_TAGS_FORBIDDEN_MESSAGE = "Your role in this group can't set a new note's tags: that needs edit rights in the group. Take the tags line out of the file, or leave it empty.";
-const tagLimitMessage = (limit: number): string => (limit === TAGS_PER_NOTE_MAX ? NOTE_TAG_LIMIT_MESSAGE : SPACE_TAG_LIMIT_MESSAGE);
+const tagLimitMessage = (limit: number): string => (limit === TAGS_PER_NOTE_MAX ? FILE_TAG_LIMIT_MESSAGE : SPACE_TAG_LIMIT_MESSAGE);
 export const NOT_MERGEABLE_MESSAGE = "This note can't be written back from a file. Change it with edit_note instead.";
 
 export interface TransferRouteDeps {
