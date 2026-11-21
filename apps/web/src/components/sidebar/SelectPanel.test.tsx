@@ -597,9 +597,9 @@ describe("normal-tab select mode", () => {
     expect(selectButton()).toBeDisabled();
   });
 
-  it("shared with me: row s1 carries Viewer", async () => {
+  it("shared with me: row s1 shows no role text", async () => {
     await renderSelecting({ tab: "shared" });
-    expect(checkbox("s1").closest("label")).toHaveTextContent("Viewer");
+    expect(checkbox("s1").closest("label")).not.toHaveTextContent("Viewer");
   });
 
   it("a note that disappears after a refetch does not count", async () => {

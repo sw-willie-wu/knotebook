@@ -32,11 +32,11 @@ describe("TagPill size", () => {
     expect(screen.getByText("AWS").getAttribute("title")).toBe("AWS");
   });
 
-  it("widens the remove target to 24px on touch without changing its 16px look", () => {
+  it("widens the remove target to 24px on touch without changing its 14px look", () => {
     render(<TagPill tag={tag} onRemove={() => {}} />);
     const button = screen.getByRole("button", { name: "Remove tag AWS" });
-    expect(button.classList.contains("size-4")).toBe(true);
-    expect(button.className).toContain("pointer-coarse:after:-inset-1");
+    expect(button.classList.contains("size-3.5")).toBe(true);
+    expect(button.className).toContain("pointer-coarse:after:-inset-[5px]");
   });
 });
 
@@ -47,7 +47,7 @@ describe("TagPill remove badge and pointer", () => {
     expect(pill.classList.contains("relative")).toBe(true);
     expect(pill.classList.contains("px-2")).toBe(true);
     const button = screen.getByRole("button", { name: "Remove tag AWS" });
-    for (const cls of ["absolute", "-right-2", "-top-1.5", "size-4", "cursor-pointer", "bg-popover", "border"]) expect(button.classList.contains(cls), cls).toBe(true);
+    for (const cls of ["absolute", "-right-1.5", "-top-0.5", "size-3.5", "cursor-pointer", "bg-popover", "border"]) expect(button.classList.contains(cls), cls).toBe(true);
     expect(button.className).not.toContain("-me-1");
   });
 

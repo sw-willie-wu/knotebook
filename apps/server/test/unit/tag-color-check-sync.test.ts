@@ -38,7 +38,7 @@ function migrationCheckSql(): string {
   throw new Error("no migration adds tags_color_chk");
 }
 
-describe("tag colour: CHECK matches the shared colour rules", () => {
+describe("tag color: CHECK matches the shared color rules", () => {
   it("tags_color_chk lists exactly TAG_PRESET_COLORS and otherwise requires CUSTOM_COLOR_RE", () => {
     const sql = schemaCheckSql();
     const match = /^"tags"\."color" in \(([^)]*)\) or "tags"\."color" ~ '([^']*)'$/.exec(sql);

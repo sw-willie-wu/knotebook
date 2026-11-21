@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { COLORS_DARK_MODE_DEFAULT, COLORS_DEFAULT } from "@blocknote/core";
 import { TAG_PRESET_COLORS } from "@knotebook/shared";
+import { contrastRatio, tagTextColor } from "@/components/tags/tag-color-style";
 
 const css = readFileSync(`${process.cwd()}/src/index.css`, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
 
@@ -26,11 +27,16 @@ describe("tag colors", () => {
     expect(token(dark, "--tag-bg")).toBe(COLORS_DARK_MODE_DEFAULT[color]!.background);
   });
 
-  it("pill text is the body text color in both themes, for every preset", () => {
+  it("every preset's pill text is what tagTextColor derives from its background, and reaches 4.5:1, in light and under :root.dark", () => {
     expect(token(body("[data-tag-color]"), "--tag-fg")).toBe("var(--foreground)");
     for (const color of TAG_PRESET_COLORS) {
-      expect(token(body(`[data-tag-color="${color}"]`), "--tag-fg"), color).toBeUndefined();
-      expect(token(body(`:root.dark [data-tag-color="${color}"]`), "--tag-fg"), color).toBeUndefined();
+      for (const selector of [`[data-tag-color="${color}"]`, `:root.dark [data-tag-color="${color}"]`]) {
+        const rule = body(selector);
+        const bg = token(rule, "--tag-bg")!;
+        const fg = token(rule, "--tag-fg");
+        expect(fg, selector).toBe(tagTextColor(bg));
+        expect(contrastRatio(bg, fg!), selector).toBeGreaterThanOrEqual(4.5);
+      }
     }
   });
 

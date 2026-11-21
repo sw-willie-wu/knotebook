@@ -21,7 +21,8 @@ const TagPillMenu = lazy(() =>
     default: ({ tag, onRemove, removeDisabled }: TagPillMenuProps) => <TagPill tag={tag} onRemove={onRemove} removeDisabled={removeDisabled} />,
   })),
 );
-const GAP_PX = 5;
+// Wider than the × badge's 6px overhang, so the badge never covers the next pill.
+const GAP_PX = 7;
 const ADD_WIDTH_PX = 20;
 const INPUT_WIDTH_PX = 144;
 // The "+N" button is a fixed width so the fit never depends on its own count.
@@ -207,7 +208,7 @@ function TagRowBody({ tags, canEdit, canManage, space, inputOpen, onRemove, remo
       role="group"
       aria-label={t("tags.label")}
       data-note-tags=""
-      className={cn("relative flex items-center gap-x-[5px]", expanded ? "flex-wrap gap-y-[3px]" : "flex-nowrap")}
+      className={cn("relative flex items-center gap-x-[7px]", expanded ? "flex-wrap gap-y-[3px]" : "flex-nowrap")}
     >
       {tags.map((tag, index) => {
         const hidden = index >= shownCount;

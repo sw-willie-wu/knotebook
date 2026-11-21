@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TAG_PRESET_COLORS, type NoteDto, type NoteTagDto } from "@knotebook/shared";
 import i18n from "@/i18n";
-import { dismissAllToasts } from "@/components/ui/toast";
+import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { RECENT_COLORS_KEY, resetRecentColorsForTest } from "@/lib/recent-colors";
 import { NoteTagRow } from "./NoteTagRow";
 
@@ -23,7 +23,13 @@ interface Call {
   body: unknown;
 }
 
-function stubFetch(n: NoteDto) {
+function errorBody(status: number, code: string): Response {
+  return json(status, { error: { code, message: code } });
+}
+
+/** `patch` answers the PATCH calls in order; the last answer repeats. */
+function stubFetch(n: NoteDto, patch?: Array<() => Response>) {
+  let patchCalls = 0;
   const calls: Call[] = [];
   vi.stubGlobal(
     "fetch",
@@ -33,6 +39,7 @@ function stubFetch(n: NoteDto) {
       calls.push({ method, url, body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined });
       if (url === "/api/notes") return Promise.resolve(json(200, [n]));
       if (url === "/api/tags" || /^\/api\/groups\/[^/]+\/tags$/.test(url)) return Promise.resolve(json(200, [{ ...aws, noteCount: 1 }]));
+      if (url === "/api/tags/t1" && method === "PATCH" && patch) return Promise.resolve(patch[Math.min(patchCalls++, patch.length - 1)]!());
       if (url === "/api/tags/t1" && method === "PATCH") return Promise.resolve(json(200, { ...aws, ...(JSON.parse(String(init?.body)) as object), noteCount: 1 }));
       if (url === "/api/notes/n1/tags/t1" && method === "DELETE") return Promise.resolve(json(200, { tags: [] }));
       throw new Error(`unexpected fetch: ${method} ${url}`);
@@ -47,6 +54,7 @@ function renderRow(n: NoteDto, canEdit: boolean, groups?: Array<{ id: string; ca
   return render(
     <QueryClientProvider client={queryClient}>
       <NoteTagRow note={n} canEdit={canEdit} />
+      <Toaster />
     </QueryClientProvider>,
   );
 }
@@ -156,6 +164,40 @@ describe("tag pill menu", () => {
     await waitFor(() => expect(calls.find((c) => c.method === "PATCH")?.body).toEqual({ color: "#e03e3e" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(JSON.parse(localStorage.getItem(RECENT_COLORS_KEY) ?? "[]")).toEqual(["#e03e3e"]);
+  });
+
+  it("a failed PATCH shows the error and keeps the dialog open, and Apply works again", async () => {
+    const calls = stubFetch(note(), [() => errorBody(500, "internal"), () => json(200, { ...aws, color: "#e03e3e", noteCount: 1 })]);
+    renderRow(note(), true);
+    const menu = await openMenu();
+    fireEvent.click(within(menu).getByRole("menuitemradio", { name: "Custom…" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("Hex color"), { target: { value: "#e03e3e" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Apply" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("Something went wrong. Please try again.");
+    expect(screen.getByRole("dialog")).toBe(dialog);
+    const apply = within(dialog).getByRole("button", { name: "Apply" }) as HTMLButtonElement;
+    await waitFor(() => expect(apply.disabled).toBe(false));
+    expect(localStorage.getItem(RECENT_COLORS_KEY)).toBeNull();
+    fireEvent.click(apply);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(calls.filter((c) => c.method === "PATCH")).toHaveLength(2);
+    expect(JSON.parse(localStorage.getItem(RECENT_COLORS_KEY) ?? "[]")).toEqual(["#e03e3e"]);
+  });
+
+  it("a tag that is gone (404) closes the dialog with a toast and refetches the notes and the tag list", async () => {
+    const calls = stubFetch(note(), [() => errorBody(404, "tag_not_found")]);
+    renderRow(note(), true);
+    const menu = await openMenu();
+    fireEvent.click(within(menu).getByRole("menuitemradio", { name: "Custom…" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("Hex color"), { target: { value: "#e03e3e" } });
+    const before = calls.filter((c) => c.method === "GET" && c.url === "/api/notes").length;
+    fireEvent.click(within(dialog).getByRole("button", { name: "Apply" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(await screen.findByText("That tag no longer exists.")).toBeTruthy();
+    await waitFor(() => expect(calls.filter((c) => c.method === "GET" && c.url === "/api/notes").length).toBeGreaterThan(before));
+    expect(localStorage.getItem(RECENT_COLORS_KEY)).toBeNull();
   });
 
   it("removes the tag from the note with Remove from this note", async () => {

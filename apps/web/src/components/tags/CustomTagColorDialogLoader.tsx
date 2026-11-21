@@ -28,7 +28,16 @@ function ChunkFailed({ open, onOpenChange }: CustomTagColorDialogProps): ReactEl
 }
 
 // The picker and react-colorful stay out of the menus' chunks until someone asks for a custom color; a chunk that can't be fetched only closes the request.
-const CustomTagColorDialog = lazy<ComponentType<CustomTagColorDialogProps>>(() => import("./CustomTagColorDialog").catch(() => ({ default: ChunkFailed })));
+// React caches what a lazy component resolved to, so a failure swaps in a fresh one for the next attempt.
+function createDialog() {
+  return lazy<ComponentType<CustomTagColorDialogProps>>(() =>
+    import("./CustomTagColorDialog").catch(() => {
+      CustomTagColorDialog = createDialog();
+      return { default: ChunkFailed };
+    }),
+  );
+}
+let CustomTagColorDialog = createDialog();
 
 /** Mounts the dialog on its first open and keeps it mounted, so closing animates and returns focus like any other dialog. */
 export function CustomTagColorDialogLoader(props: CustomTagColorDialogProps) {

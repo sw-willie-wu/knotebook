@@ -113,17 +113,19 @@ describe("sidebar tags", () => {
     expect(colors).toEqual(["blue", "red", "green"]);
   });
 
-  it("the dots come after the role badge and just before the row menu, so their right edge does not depend on the badge", async () => {
-    stubApi([sharedNote({ id: "n-shared", title: "Shared one", tags: [BOOKS, IDEAS] })]);
+  it("the dots are the last item of the row, after the row menu, in a slot every row has", async () => {
+    stubApi([sharedNote({ id: "n-shared", title: "Shared one", tags: [BOOKS, IDEAS] }), { ...DELTA, id: "n-untagged", title: "No tags here", tags: [] } as NoteDto]);
     renderList("shared");
     const dots = await within(panel()).findByRole("img", { name: "Tags: Books, Ideas" });
     const row = dots.closest("li")!;
     const order = Array.from(row.children);
-    const badge = order.find((el) => el.textContent === "Editor")!;
     const menu = order.find((el) => el.getAttribute("aria-label")?.startsWith("Note actions") === true)!;
-    expect(order.indexOf(badge)).toBeGreaterThanOrEqual(0);
-    expect(order.indexOf(badge)).toBeLessThan(order.indexOf(dots));
-    expect(order.indexOf(dots) + 1).toBe(order.indexOf(menu));
+    const slot = dots.parentElement!;
+    expect(order.indexOf(menu)).toBeGreaterThanOrEqual(0);
+    expect(order.indexOf(menu)).toBeLessThan(order.indexOf(slot));
+    expect(order.at(-1)).toBe(slot);
+    const untagged = within(panel()).queryByText("No tags here")?.closest("li");
+    if (untagged) expect(untagged.lastElementChild!.className).toBe(slot.className);
   });
 
   it("a row without tags has no dots element", async () => {

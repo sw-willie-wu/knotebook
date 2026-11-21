@@ -81,14 +81,6 @@ function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string
   return t("errors.fallback");
 }
 
-/** Only for non-owner notes shared with me per person; group notes are never marked (#182): see the group panel member table. The note header no longer shows the role either (#335). */
-export function RoleBadge({ role, group }: { role: NoteDto["role"]; group: NoteDto["group"] }) {
-  const { t } = useTranslation();
-  if (group) return null;
-  if (role !== "editor" && role !== "viewer") return null;
-  return <span className="shrink-0 text-[11px] text-muted-foreground max-sm:text-xs">{t(`roles.${role}`)}</span>;
-}
-
 type RowVariant = "plain" | "group" | "recent";
 
 interface NoteRowProps {
@@ -159,15 +151,13 @@ function NoteRow({ note, variant, location, favorite, favoritePending }: NoteRow
           note.title
         )}
       </Link>
-      {variant !== "recent" && <RoleBadge role={note.role} group={note.group} />}
       {favorite === true && <FavoriteMarker />}
-      <TagDots
-        tags={note.tags ?? EMPTY_TAGS}
-        // The two-line row puts the dots level with the title line, not centred between the lines.
-        className={variant === "recent" ? "self-start mt-3 max-sm:mt-3.5" : undefined}
-      />
       <SidebarNoteMenu note={note} />
       {favorite !== null && <RowFavoriteStar note={note} favorite={favorite} pending={favoritePending} />}
+      {/* Reserved on every row, tagged or not, so ⋮ and the star line up and the dots end at the same x; 19px = three overlapping 7px dots. The two-line row puts the dots level with the title line. */}
+      <span className={cn("flex w-[19px] shrink-0 justify-end", variant === "recent" && "self-start mt-3 max-sm:mt-3.5")}>
+        <TagDots tags={note.tags ?? EMPTY_TAGS} className="pl-0" />
+      </span>
     </li>
   );
 }
