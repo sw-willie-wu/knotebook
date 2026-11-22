@@ -16,7 +16,7 @@
 
 用 `docker compose` 跑一個 app 容器加一個 PostgreSQL 資料庫，映像已經預先建好（linux/amd64 與 linux/arm64）。網頁介面有英文與繁體中文，也有淺色與深色主題。
 
-**狀態**：最新版本為 v0.17.1（2026-11-18）。每個版本與附檔都在 [Releases](https://github.com/sw-willie-wu/knotebook/releases)；改了什麼、以及已在 `main` 但還沒發版的內容，見 [CHANGELOG](CHANGELOG.md)。
+**狀態**：最新版本為 v0.18.0（2026-11-22）。每個版本與附檔都在 [Releases](https://github.com/sw-willie-wu/knotebook/releases)；改了什麼、以及已在 `main` 但還沒發版的內容，見 [CHANGELOG](CHANGELOG.md)。
 
 ## 為什麼用 Knotebook
 

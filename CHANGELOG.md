@@ -9,6 +9,10 @@ Releases before 0.16 are in [`docs/changelog/`](docs/changelog/), one file per m
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.18.0] - 2026-11-22
+
 ### Added
 
 - **Tags for notes** (#105). A note can carry any number of tags, shown in a row above its text. Type `/tag` in a note or choose **Add tag** in its `⋮` menu to add the first one; once there are tags, the **+** at the end of the row adds more, and the × on a tag takes it off. A tag belongs to the space the note is in (your own notes, or one group), names are not case-sensitive, and each tag has one of nine preset colors, the same as the editor's text colors, or a custom color picked with **Custom…** (it looks the same in the light and dark themes). A note's row in the sidebar shows up to three colored dots, and a funnel button in **My notes** and **Groups** lists only the notes that have all the tags you tick (in **Groups**, one group at a time). **Settings → Tags**, and **Tags** in a group's window for roles that can manage the group, rename, recolor, merge and delete tags. Moving or copying a note to another space, and deleting a group and giving its notes to an admin, carry the tags over by name. Tags don't change a note's last modified time, are not part of its text or version history, and are not shown on public pages. Someone who has a note through an editor share sees its tags but can't change them. Over the API, `GET /api/notes` gives each note its `tags`, and there are new tag endpoints (session only); agents see and set tags through markdown, as described below. See [Sharing](docs/sharing.md#tags) and [Known limitations](docs/known-limitations.md).
