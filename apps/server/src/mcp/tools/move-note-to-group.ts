@@ -55,13 +55,13 @@ export const MOVE_NEEDS_MOVE_MESSAGE =
   'Ask the user to turn on "Move to groups (can\'t be undone)" (notes:move) for this credential via the pencil on its row in ' +
   "Settings → Authorization, then try again.";
 const MOVE_QUOTA_HIDDEN_MESSAGE =
-  "The group's storage space has no room for this note's images, so the note was not moved. Ask a site admin for more space.";
+  "The group's storage space has no room for this note's files, so the note was not moved. Ask a site admin for more space.";
 
 function moveQuotaVisibleMessage(usedBytes: number, quotaBytes: number, incomingBytes: number): string {
   return (
-    `The group's storage space has no room for this note's images (${formatBytes(usedBytes)} of ${formatBytes(quotaBytes)} used; ` +
+    `The group's storage space has no room for this note's files (${formatBytes(usedBytes)} of ${formatBytes(quotaBytes)} used; ` +
     `they need ${formatBytes(incomingBytes)}), so the note was not moved. A site admin can assign a larger storage plan; deleting notes ` +
-    "that have images also frees space."
+    "that have files also frees space."
   );
 }
 

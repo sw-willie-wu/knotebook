@@ -23,9 +23,9 @@ const WRITE_RATE = "Too many note writes right now. Wait a moment before writing
 const TOKEN_RATE = "Too many writes with this credential right now. Wait a few minutes before writing again.";
 // #397: the message names the current limit of the limiter that blocked the request; the upload limiter injected in its test has limit 1.
 const UPLOAD_LIMIT_MSG =
-  "Copying this note's images would go over your upload limit (1 files per 10 minutes, copies included), so nothing was copied. Wait a few minutes and try again.";
+  "Copying this note's files would go over your upload limit (1 files per 10 minutes, copies included), so nothing was copied. Wait a few minutes and try again.";
 const BUSY = "The server was busy, so no copy was made. Try again in a moment.";
-const TAIL = "A site admin can assign a larger storage plan; deleting notes that have images also frees space.";
+const TAIL = "A site admin can assign a larger storage plan; deleting notes that have files also frees space.";
 
 type Result = { isError?: true; content: { text: string }[]; structuredContent?: Record<string, unknown> & { code?: string; message?: string } };
 type Note = { id: string; title: string; url: string; role: string; slug: string; owner: { kind: string; id?: string; handle?: string; name?: string }; lastEdited: unknown };
@@ -172,7 +172,7 @@ describe("#180 copy_note", () => {
       const r = await call(app, token, "copy_note", { note_id: src.id });
       expect(r.structuredContent).toEqual({
         code: "storage_quota_exceeded",
-        message: `Your storage space has no room for this note's images (100 B of 100 B used), so the note was not copied. ${TAIL}`,
+        message: `Your storage space has no room for this note's files (100 B of 100 B used), so the note was not copied. ${TAIL}`,
         usedBytes: 100,
         quotaBytes: 100,
       });
@@ -192,7 +192,7 @@ describe("#180 copy_note", () => {
       const r = await call(app, token, "copy_note", { note_id: src.id });
       expect(r.structuredContent).toEqual({
         code: "storage_quota_exceeded",
-        message: `Your storage space has no room for this note's images (700 B of 1000 B used; they need 700 B), so the note was not copied. ${TAIL}`,
+        message: `Your storage space has no room for this note's files (700 B of 1000 B used; they need 700 B), so the note was not copied. ${TAIL}`,
         usedBytes: 700,
         quotaBytes: 1000,
         incomingBytes: 700,
@@ -223,7 +223,7 @@ describe("#180 copy_note", () => {
       expect(holder.done).toBe(true);
       expect(r.structuredContent).toEqual({
         code: "storage_quota_exceeded",
-        message: `Your storage space has no room for this note's images (800 B of 1000 B used; they need 300 B), so the note was not copied. ${TAIL}`,
+        message: `Your storage space has no room for this note's files (800 B of 1000 B used; they need 300 B), so the note was not copied. ${TAIL}`,
         usedBytes: 800,
         quotaBytes: 1000,
         incomingBytes: 300,
@@ -249,14 +249,14 @@ describe("#180 copy_note", () => {
       const r1 = await call(app, (await seedTokenForUser(db, gAdmin.id, RWM)).token, "copy_note", { note_id: s1, group_id: g.id });
       expect(r1.structuredContent).toEqual({
         code: "storage_quota_exceeded",
-        message: `The group's storage space has no room for this note's images (50 B of 50 B used), so the note was not copied. ${TAIL}`,
+        message: `The group's storage space has no room for this note's files (50 B of 50 B used), so the note was not copied. ${TAIL}`,
         usedBytes: 50,
         quotaBytes: 50,
       });
       const r2 = await call(app, (await seedTokenForUser(db, gMember.id, RWM)).token, "copy_note", { note_id: s2, group_id: g.id });
       expect(r2.structuredContent).toEqual({
         code: "storage_quota_exceeded",
-        message: "The group's storage space has no room for this note's images, so the note was not copied. Ask a site admin for more space.",
+        message: "The group's storage space has no room for this note's files, so the note was not copied. Ask a site admin for more space.",
       });
     });
 
@@ -393,7 +393,7 @@ describe("#180 copy_note", () => {
     const tool = (res.json().result.tools as Array<{ name: string; description: string; inputSchema: { properties: Record<string, { description?: string }> }; outputSchema: { properties: Record<string, { description?: string }> } }>).find(t => t.name === "copy_note")!;
     const DESC =
       "Copy a note you can read into a new note — yours, or in one of your groups when you pass `group_id`. The copy gets the note's " +
-      "title and its current content, and usually its own copies of the images uploaded to that note; from then on the two notes change " +
+      "title and its current content, and usually its own copies of the files uploaded to that note; from then on the two notes change " +
       "separately. Per-person shares, the public link and the edit history are not copied, and making the copy isn't recorded in any " +
       "note's history. The reply is the new note in the shape list_notes returns; in a group, its `role` can be `viewer`.";
     const GID =

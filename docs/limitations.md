@@ -30,7 +30,7 @@ These are the limitations to know before you deploy Knotebook or trust it with y
 
 - **Shared note addresses can break, or start pointing at another note.** Unless you set a custom URL, a note's address follows its title and changes, with no redirect, whenever anyone with edit access renames it. A freed address can later be taken by another of the owner's notes, and a username you rename away from can be taken by someone else, so old links can open a different note. Links to notes inside Knotebook are not affected. See [A note's automatic URL changes the moment its title does](./known-limitations/note-urls.md), [A released slug can be re-used by the same owner's other notes](./known-limitations/note-urls.md) and [A username you rename away from is free for anyone to take](./known-limitations/note-urls.md).
 
-- **Only image blocks can upload files.** Audio, video and file blocks only embed a URL to a file hosted somewhere else. See [Only image blocks can upload](./known-limitations/uploads.md).
+- **The editor's file panel still uploads only images.** Audio, video and file blocks only embed a URL; the other kinds go in through the API or MCP. See [The editor's file panel still uploads only images](./known-limitations/uploads.md).
 
 ## Data and retention
 

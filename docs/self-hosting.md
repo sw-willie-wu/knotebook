@@ -30,7 +30,7 @@ In-memory state (login rate limiting, the collab-token/slug-change rate limiters
 - **`app`** — runs the prebuilt Docker image `ghcr.io/sw-willie-wu/knotebook`, or one built from `docker/Dockerfile` (see [The app image](#the-app-image)), reads its configuration from `.env` (`env_file: .env`), and by default publishes only on `127.0.0.1:3000` (see topology (a) above to expose it on the LAN instead). It waits for `db` to be healthy before starting — unless the bundled database is turned off (see [Using your own PostgreSQL](#using-your-own-postgresql)) — and has its own `/healthz`-based healthcheck. Inside it, the name `host.docker.internal` points at the machine running Docker. Uploaded images are persisted to the `uploads` named volume, mounted at `/app/uploads` — if you customize the compose file and drop that mount, uploaded images vanish on the next container rebuild.
 - **`db`** — the bundled PostgreSQL, `pgvector/pgvector:pg17`, with data persisted to the `db_data` named volume. It is started by default; to use a PostgreSQL server of your own instead, see [Using your own PostgreSQL](#using-your-own-postgresql). `POSTGRES_PASSWORD` can be overridden via `.env`, but Postgres only applies it while initializing a brand-new (empty) data directory — see the env var reference below.
 
-`docker compose down -v` discards *all* named volumes, not just `db` — it takes the `uploads` volume with it too, so every uploaded image is gone, and so is the original of every profile picture — and, with the bundled database, every note as well.
+`docker compose down -v` discards *all* named volumes, not just `db` — it takes the `uploads` volume with it too, so every uploaded file is gone, and so is the original of every profile picture — and, with the bundled database, every note as well.
 
 ## The app image
 
@@ -143,7 +143,7 @@ docker run -d --name knotebook \
 
 - `<version>` is a release such as `0.11.1` (or `latest`).
 - `-p 127.0.0.1:3000:3000` publishes the app on this machine only, for a reverse proxy in front of it. To reach it directly from your network, use `-p 3000:3000` — read the trade-offs in [Deployment prerequisites](#deployment-prerequisites) first.
-- `knotebook_uploads` keeps uploaded images and the original files of profile pictures; without it they are lost when the container is removed.
+- `knotebook_uploads` keeps uploaded files and the original files of profile pictures; without it they are lost when the container is removed.
 - `--log-opt` limits the log files, as `docker-compose.yml` does; Docker's default `json-file` log driver has no size limit.
 - **PostgreSQL on the same machine:** add `--add-host host.docker.internal:host-gateway` and use `host.docker.internal` as the host in `DATABASE_URL`. The `listen_addresses` and `pg_hba.conf` changes in [Using your own PostgreSQL](#using-your-own-postgresql) apply, except that the connection comes from Docker's default `bridge` network (`docker network inspect bridge` shows its subnet, usually `172.17.0.0/16`) rather than from a Compose network.
 - **Healthcheck:** the image doesn't define one; `docker-compose.yml` adds it. To have `docker ps` show the container's health, add the same check:
@@ -190,13 +190,14 @@ Besides these five, the other limits that a site admin can adjust (upload size, 
 
 ## Site limits
 
-A site admin can adjust 17 limits in the browser, in **Site admin → Site limits** (15 of them) and **Site admin → Sign-in → Session and tokens** (2). A change takes effect right away, without restarting the server; nothing is cut or revoked because of it. Each row shows its default, its range and where its value comes from: the default, a value an admin saved, or — for the number of parse workers and the longest wait for a worker — an automatic value (a setting an environment variable sets shows as locked). Each section has one **Save** button that sends only the rows that changed, and a row's **Restore default** (for the two automatic settings, **Back to auto**) removes the saved value. The page also lists the 50 most recent changes: when, who (the account's email, or a note that the account no longer exists), which setting, and the old and new values.
+A site admin can adjust 18 limits in the browser, in **Site admin → Site limits** (16 of them) and **Site admin → Sign-in → Session and tokens** (2). A change takes effect right away, without restarting the server; nothing is cut or revoked because of it. Each row shows its default, its range and where its value comes from: the default, a value an admin saved, or — for the number of parse workers and the longest wait for a worker — an automatic value (a setting an environment variable sets shows as locked). Each section has one **Save** button that sends only the rows that changed, and a row's **Restore default** (for the two automatic settings, **Back to auto**) removes the saved value. The page also lists the 50 most recent changes: when, who (the account's email, or a note that the account no longer exists), which setting, and the old and new values.
 
 Apart from the number of parse workers, the memory per worker and the sign-in period, a limit can only be lowered: the largest value the page takes is the default (45 seconds for the longest wait for a worker). Values are whole numbers in the unit the page shows (MiB, seconds, hours, or a count).
 
 | Setting | Default | Range on the page | Applies | Where |
 |---|---|---|---|---|
 | Upload size limit | 10 MiB | 1–10 MiB | the next upload | Site limits |
+| Audio and video size limit | 100 MiB | 10 MiB to 1 TiB (see [Uploads](#uploads)) | the next upload | Site limits |
 | Note size limit | 5 MiB | 1–5 MiB | the next write's check | Site limits |
 | Number of parse workers | automatic (see [Parse workers](#parse-workers)) | 1–4 | right away: workers start or stop, a busy one stops when its job is done | Site limits |
 | Memory per worker | 1024 MiB | 512–3072 MiB | all existing workers are replaced (an idle one at once, a busy one when its job is done) | Site limits |
@@ -410,6 +411,17 @@ When **Allow password sign-in** is off and no sign-in service creates accounts, 
 
 1. Turn **Creates accounts** on, for a while, for the sign-in service they use; have them sign in with **Sign in with …** for the first time — that creates their account — and turn it off again. While it is on, anyone who can sign in to that identity provider with an email that has no account yet can create an account; for an identity provider only your people can sign in to, you can simply leave it on — but see [Someone can take a colleague's email](./known-limitations/accounts-and-sign-in.md) if that identity provider lets people choose their own email.
 2. First make sure **Allow self-registration with a password** is off (you can switch it while password sign-in is off) — otherwise the next step also lets anyone register with a password. Then turn **Allow password sign-in** on for a while and invite them from **Site admin → Users**. They create their account with their email and a password and link their sign-in service in **Settings → Sign-in**. Turn password sign-in off again; invitations still unused then stop working until it is back on. While it is on, everyone with a password can sign in with it.
+
+## Uploads
+
+A note can hold images (PNG, JPEG, GIF, WebP), audio, video, PDFs, Office and OpenDocument files and text files as attachments. The server decides a file's type from its content, never from the type the client declares; the name only picks among text types and the older Word, Excel and PowerPoint formats. Files live in the `uploads` volume (`/app/uploads`) and count toward the storage plan of the space the note is in (see [Storage quotas](#storage-quotas)).
+
+- **Two size limits**, both in **Site admin → Site limits**. **Upload size limit** (10 MiB by default, 1 to 10 MiB) applies to images, PDFs, Office and OpenDocument files and text files. **Audio and video size limit** applies to audio and video: 100 MiB by default, at least 10 MiB, and up to 1 TiB, so you decide. 100 MiB to 1 GiB is a reasonable range; above that, read the next three points first. A change applies to the next upload; one already being received keeps the limit it started with.
+- **Disk use.** Each file counts against its space's storage limit and also fills the `uploads` volume. A file being received is first written next to the others as `<id>.tmp` and renamed when it is complete, so the volume needs room for the largest permitted file for every upload running at once, on top of what is stored. A restart in the middle of an upload leaves its `.tmp` file; the server deletes the ones older than one hour when it starts. Copying a note that has attachments adds a copy of each file.
+- **Reverse proxy: body size.** The proxy must pass request bodies at least as large as the audio and video limit plus a little for the multipart framing (64 KiB is enough). nginx's `client_max_body_size` defaults to 1 MiB and answers `413` before the request reaches Knotebook; set it a little above the media limit (for example `client_max_body_size 1100m;` for 1000 MiB) on the server or location that proxies `/api/notes/`.
+- **Reverse proxy: timeouts and buffering.** A large file takes a long time to send, so the proxy's request-body and read timeouts must outlast the slowest upload you want to allow (nginx: `client_body_timeout`, `proxy_read_timeout`, `proxy_send_timeout`). A proxy that buffers request bodies (nginx does by default, `proxy_request_buffering on`) receives the whole file, and needs disk for it, before Knotebook sees the first byte, so a refusal Knotebook would make early — a file that is too large, of an unsupported type, or that doesn't fit in the space's remaining storage — only happens after the whole upload has been transferred. Turn buffering off (`proxy_request_buffering off;` in nginx) if you want those refusals to arrive early.
+- **A refusal may look like a network error.** When Knotebook refuses a file before it has read all of it, it closes the connection rather than read the rest. A browser that is still sending often reports that as a network error and never shows the reason.
+- **An interrupted upload starts again from the beginning.** Closing or reloading the tab, or a dropped connection, stops it; there is no resuming.
 
 ## Storage quotas
 

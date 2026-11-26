@@ -14,14 +14,14 @@ import { cookieOf, seedNote, seedShare, seedUser } from "./group-helpers.js";
 import { PNG, seedDoc, seedUpload } from "./copy-helpers.js";
 
 const MAX = 5_242_880;
-const NOT_READABLE = "No readable image with that id. It may not exist, or it may belong to a note you can't read.";
+const NOT_READABLE = "No readable image with that id. It may not exist, may not be a PNG, JPEG, GIF or WebP image, or may belong to a note you can't read.";
 const DESC_TOKEN =
   "Look at an image in a note. Pass the id from `/api/uploads/<id>` in read_note_section's markdown. Images up to 5242880 bytes come back as an image; larger ones are refused — download those with create_transfer_token instead.";
 const DESC_SESSION =
   "Look at an image in a note. Pass the id from `/api/uploads/<id>` in read_note_section's markdown. Images up to 5242880 bytes come back as an image; larger ones are refused.";
 /** Columns: images with a width are also read as `<figure>`; table cells aren't mentioned; the address is given as an example (old absolute URLs also contain the id). */
 const SECTION_SENTENCE =
-  "An uploaded image's address contains its upload id, for example `/api/uploads/<id>` in `![name](/api/uploads/<id>)` or, for an image with a caption or shown at a set width, in `<figure><img … src=\"/api/uploads/<id>\" …>…</figure>`; see them with read_note_image.";
+  "An uploaded file's address contains its upload id, for example `/api/uploads/<id>` in `![name](/api/uploads/<id>)`, in `[name](/api/uploads/<id>)` or, for an image with a caption or shown at a set width, in `<figure><img … src=\"/api/uploads/<id>\" …>…</figure>`; read an image with read_note_image.";
 /** Sentence from before the columns feature: it only covers figures with captions, which is incomplete once images with widths ship. */
 const OLD_SECTION_SENTENCE =
   "Uploaded images appear as `![name](/api/uploads/<id>)`, or inside `<figure><img src=\"/api/uploads/<id>\">…</figure>` when captioned; see them with read_note_image.";
@@ -162,7 +162,7 @@ describe("#200 read_note_image", () => {
     const ctx = await buildCollabTestApp();
     const me = await seedUser(ctx.db);
     const n = await seedNote(ctx.db, { ownerId: me.id });
-    const [p, q, r] = [randomUUID(), randomUUID(), randomUUID()];
+    const [p, q, r, f] = [randomUUID(), randomUUID(), randomUUID(), randomUUID()];
     const doc = new Y.Doc();
     const s = await EditorSession.open(testEditingRuntime, doc);
     try {
@@ -170,6 +170,7 @@ describe("#200 read_note_image", () => {
         { type: "image", props: { url: `/api/uploads/${p}`, name: "plain" } },
         { type: "image", props: { url: `/api/uploads/${q}`, name: "cap", caption: "A caption" } },
         { type: "image", props: { url: `/api/uploads/${r}`, name: "sized", previewWidth: 300 } },
+        { type: "file", props: { url: `/api/uploads/${f}`, name: "report.pdf" } },
         { type: "paragraph", content: "tail" },
       ]);
     } finally {
@@ -182,6 +183,7 @@ describe("#200 read_note_image", () => {
     const sec = await call(ctx.app, { token }, "read_note_section", { note_id: n.id, section_id: sectionId });
     const md = (sec.structuredContent!.section as { markdown: string }).markdown;
     expect(md).toContain(`![plain](/api/uploads/${p})`);
+    expect(md).toContain(`[report.pdf](/api/uploads/${f})`);
     expect(md).toContain("<figure><img");
     expect(md).toContain(`src="/api/uploads/${q}"`);
     expect(md).toContain("<figcaption>");
@@ -190,6 +192,23 @@ describe("#200 read_note_image", () => {
     const desc = (res.json().result.tools as Array<{ name: string; description: string }>).find(t => t.name === "read_note_section")!.description;
     expect(desc).toContain(` ${SECTION_SENTENCE} `);
     expect(res.body).toContain(JSON.stringify(SECTION_SENTENCE).slice(1, -1));
+  });
+
+  it("a PDF upload is refused with the same not_found as a missing upload, before the size check", async () => {
+    const { app, db, uploadsDir } = await buildTestApp();
+    const me = await seedUser(db);
+    const n = await seedNote(db, { ownerId: me.id });
+    const pdf = await seedUpload(db, uploadsDir, n.id, me.id, Buffer.from("%PDF-1.4\n%%EOF\n"), { mime: "application/pdf" });
+    const [big] = await db.insert(uploads).values({ noteId: n.id, uploaderId: me.id, mime: "application/pdf", size: MAX + 1 }).returning({ id: uploads.id });
+    const { token } = await seedTokenForUser(db, me.id, "notes:read");
+    const missing = (await read(app, token, n.id, randomUUID())).structuredContent;
+    expect(missing).toEqual({ code: "not_found", message: NOT_READABLE });
+    for (const id of [pdf, big!.id]) {
+      const r = await read(app, token, n.id, id);
+      expect(r.isError).toBe(true);
+      expect(r.content).toHaveLength(1);
+      expect(r.structuredContent).toEqual(missing);
+    }
   });
 
   it("the pre-columns image sentence isn't on the wire (read-write and read-only tokens and session are all checked)", async () => {
