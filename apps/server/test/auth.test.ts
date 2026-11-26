@@ -1,6 +1,6 @@
 import { vi, describe, it, expect, afterEach } from "vitest";
 import { eq } from "drizzle-orm";
-import { SESSION_COOKIE, MAX_UPLOAD_BYTES } from "@knotebook/shared";
+import { SESSION_COOKIE, MAX_UPLOAD_BYTES, SITE_LIMITS } from "@knotebook/shared";
 import { buildTestApp, testConfig, signTestSession } from "./helpers.js";
 import { users, siteSettings } from "../src/db/schema.js";
 import { seedAuthProvider } from "./helpers/oidc-provider.js";
@@ -19,6 +19,7 @@ vi.mock("../src/auth/password.js", async () => {
 
 import { verifyPassword, hashPassword, HashBusyError, DUMMY_HASH } from "../src/auth/password.js";
 import { DEFAULT_NOTE_MAX_BYTES } from "../src/notes/note-size.js";
+const MAX_MEDIA_UPLOAD_BYTES = SITE_LIMITS.uploadMediaMaxMib.default * 1_048_576;
 
 // mockClear only clears call records (implementations other than mockRejectedValueOnce stay: they are vi.fn(actual...)'s default forwarding),
 // so each test's call counts only include its own calls.
@@ -68,7 +69,7 @@ describe("GET /api/auth/config", () => {
     const { app } = await buildTestApp();
     const res = await app.inject({ method: "GET", url: "/api/auth/config" });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ providers: [], registration: { enabled: true, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true, noteMaxBytes: DEFAULT_NOTE_MAX_BYTES, maxUploadBytes: MAX_UPLOAD_BYTES });
+    expect(res.json()).toEqual({ providers: [], registration: { enabled: true, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true, noteMaxBytes: DEFAULT_NOTE_MAX_BYTES, maxUploadBytes: MAX_UPLOAD_BYTES, maxMediaUploadBytes: MAX_MEDIA_UPLOAD_BYTES });
   });
 
   it("lists only enabled providers, ordered by sort_order; no issuer/client id/secret", async () => {
@@ -77,7 +78,7 @@ describe("GET /api/auth/config", () => {
     const a = await seedAuthProvider(db, { issuerUrl: "https://a.example", displayName: "A", sortOrder: 1 });
     await seedAuthProvider(db, { issuerUrl: "https://off.example", displayName: "Off", enabled: false });
     const res = await app.inject({ method: "GET", url: "/api/auth/config" });
-    expect(res.json()).toEqual({ providers: [{ id: a.id, displayName: "A", icon: GENERIC }, { id: b.id, displayName: "B", icon: GENERIC }], registration: { enabled: true, providerIds: [a.id, b.id] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true, noteMaxBytes: DEFAULT_NOTE_MAX_BYTES, maxUploadBytes: MAX_UPLOAD_BYTES });
+    expect(res.json()).toEqual({ providers: [{ id: a.id, displayName: "A", icon: GENERIC }, { id: b.id, displayName: "B", icon: GENERIC }], registration: { enabled: true, providerIds: [a.id, b.id] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true, noteMaxBytes: DEFAULT_NOTE_MAX_BYTES, maxUploadBytes: MAX_UPLOAD_BYTES, maxMediaUploadBytes: MAX_MEDIA_UPLOAD_BYTES });
     expect(res.body).not.toMatch(/a\.example|test-client|"ct"/);
   });
 
@@ -91,7 +92,7 @@ describe("GET /api/auth/config", () => {
     const { app, db } = await buildTestApp();
     await db.update(siteSettings).set({ registrationEnabled: false });
     const res = await app.inject({ method: "GET", url: "/api/auth/config" });
-    expect(res.json()).toEqual({ providers: [], registration: { enabled: false, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true, noteMaxBytes: DEFAULT_NOTE_MAX_BYTES, maxUploadBytes: MAX_UPLOAD_BYTES });
+    expect(res.json()).toEqual({ providers: [], registration: { enabled: false, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true, noteMaxBytes: DEFAULT_NOTE_MAX_BYTES, maxUploadBytes: MAX_UPLOAD_BYTES, maxMediaUploadBytes: MAX_MEDIA_UPLOAD_BYTES });
   });
 
   it("site_settings row unreadable -> registration.enabled false + error log", async () => {
@@ -112,7 +113,7 @@ describe("GET /api/auth/config", () => {
     );
     await db.delete(siteSettings);
     const res = await app.inject({ method: "GET", url: "/api/auth/config" });
-    expect(res.json()).toEqual({ providers: [], registration: { enabled: false, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true, noteMaxBytes: DEFAULT_NOTE_MAX_BYTES, maxUploadBytes: MAX_UPLOAD_BYTES });
+    expect(res.json()).toEqual({ providers: [], registration: { enabled: false, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true, noteMaxBytes: DEFAULT_NOTE_MAX_BYTES, maxUploadBytes: MAX_UPLOAD_BYTES, maxMediaUploadBytes: MAX_MEDIA_UPLOAD_BYTES });
     expect(logged.some((a) => a.some((x) => typeof x === "string" && x.includes("site_settings")))).toBe(true);
     expect(logged.some((a) => a.some((x) => typeof x === "string" && x.includes("帳密登入視同開啟")))).toBe(true);
   });
