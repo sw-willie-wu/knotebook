@@ -62,6 +62,8 @@ export interface AuthConfigDto {
   noteMaxBytes?: number;
   /** Per image file, bytes; admin-adjustable. Absent (test doubles, older servers) means no client-side precheck. */
   maxUploadBytes?: number;
+  /** Per audio or video file, bytes. Absent means no client-side precheck. */
+  maxMediaUploadBytes?: number;
 }
 
 /** Exposes only id, display name and icon; issuer, client id and other provider settings never leave the server. */

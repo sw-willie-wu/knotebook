@@ -244,6 +244,10 @@
           "label": "Upload size limit",
           "description": "Largest file a person can upload. Applies to the next upload."
         },
+        "uploadMediaMaxMib": {
+          "label": "Audio and video size limit",
+          "description": "Largest audio or video file a person can add to a note. Applies from the next file."
+        },
         "noteMaxBytes": {
           "label": "Note size limit",
           "description": "Largest size of one note's content. Applies to the next write."

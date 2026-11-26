@@ -244,6 +244,10 @@
           "label": "上傳檔案大小上限",
           "description": "單一檔案最大可上傳多大。下一次上傳就套用。"
         },
+        "uploadMediaMaxMib": {
+          "label": "音訊與影片大小上限",
+          "description": "單一音訊或影片檔最大可上傳多大。下一次上傳就套用。"
+        },
         "noteMaxBytes": {
           "label": "筆記大小上限",
           "description": "單篇筆記內容的大小上限。下一次寫入就套用。"

@@ -77,7 +77,7 @@ describe("SettingsLimitsSection (site limits tab)", () => {
     expect(screen.queryByText("Bulk transfer")).not.toBeInTheDocument();
     expect(screen.queryByText("Web sign-in lasts")).not.toBeInTheDocument();
     expect(screen.queryByText("Active API tokens per person")).not.toBeInTheDocument();
-    expect(block("Uploads and notes").getAllByRole("group").map((g) => g.getAttribute("data-limit-key"))).toEqual(["uploadMaxBytes", "noteMaxBytes"]);
+    expect(block("Uploads and notes").getAllByRole("group").map((g) => g.getAttribute("data-limit-key"))).toEqual(["uploadMaxBytes", "uploadMediaMaxMib", "noteMaxBytes"]);
     expect(block("Parse workers").getAllByRole("group").map((g) => g.getAttribute("data-limit-key"))).toEqual([
       "parseWorkers",
       "parseWorkerMemoryMb",

@@ -737,10 +737,16 @@ export const uploads = pgTable("uploads", {
   // NULL = account deleted, or row created while rolled back to v0.9. No index, like uploader_id: queries join from notes.
   chargedToId: uuid("charged_to_id").references(() => users.id, { onDelete: "set null" }),
   mime: text().notNull(),
-  size: integer().notNull(),
+  // bigint: media files can exceed 2^31 bytes.
+  size: bigint({ mode: "number" }).notNull(),
+  // Sanitized client name; NULL for rows that predate stored names.
+  fileName: text("file_name"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 // deleteNotesInTx's WHERE note_id IN (...).
-}, t => [index("uploads_note_idx").on(t.noteId)]);
+}, t => [
+  index("uploads_note_idx").on(t.noteId),
+  check("uploads_file_name_len_chk", sql`${t.fileName} is null or octet_length(${t.fileName}) between 1 and 200`),
+]);
 
 export const aiProviders = pgTable("ai_providers", {
   id: uuid().primaryKey().defaultRandom(),

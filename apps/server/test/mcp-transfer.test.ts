@@ -277,7 +277,7 @@ describe("storage quota \"already full\" precheck (#200)", () => {
     const { app, db, uploadsDir } = await buildTestApp({ config });
     const o = await ownerWithPat(db);
     await giveUserQuota(db, o.userId, GIB2);
-    // `uploads.size` is int4: two 1 GiB rows make 2 GiB.
+    // Two 1 GiB rows make 2 GiB.
     for (let i = 0; i < 2; i++) await seedAttachment(db, uploadsDir, o.noteId, o.userId, GIB2 / 2, { noFile: true });
     const before = await rowCount(db);
     const r = await call(app, o.pat, { note_id: o.noteId, purpose: "upload" });

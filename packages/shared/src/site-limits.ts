@@ -21,6 +21,7 @@ export const UPLOAD_MAX_BYTES_DEFAULT = 10_485_760;
 
 export const SITE_LIMITS = {
   uploadMaxBytes: { type: "int", unit: "bytes", default: UPLOAD_MAX_BYTES_DEFAULT, min: 1_048_576, max: 10_485_760, category: "uploadsNotes", input: { unit: "mib", step: 1 } },
+  uploadMediaMaxMib: { type: "int", unit: "mib", default: 100, min: 10, max: 1_048_576, category: "uploadsNotes", input: { unit: "mib", step: 1 } },
   noteMaxBytes: { type: "int", unit: "bytes", default: 5_242_880, min: 1_048_576, max: 5_242_880, env: "NOTE_MAX_BYTES", category: "uploadsNotes", input: { unit: "mib", step: 1 } },
   parseWorkers: { type: "int", unit: "count", default: "auto", min: 1, max: 4, env: "PARSE_WORKERS", category: "parseWorkers", input: { unit: "count", step: 1 } },
   parseWorkerMemoryMb: { type: "int", unit: "mib", default: 1_024, min: 512, max: 3_072, env: "PARSE_WORKER_MEMORY_MB", category: "parseWorkers", input: { unit: "mib", step: 1 } },

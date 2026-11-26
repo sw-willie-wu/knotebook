@@ -3,6 +3,7 @@ import type { StorageByKind } from "@knotebook/shared";
 import { SITE_SETTINGS_MISSING_MESSAGE } from "../src/auth/tx/admin-site-settings.js";
 import type { Db } from "../src/db/index.js";
 import { siteSettings, uploads } from "../src/db/schema.js";
+import { readSpaceUsage, readSpaceUsageByKind } from "../src/storage/usage.js";
 import { adminApp, captureLogs, expectAdminOnly } from "./helpers/admin-auth.js";
 import { cookieOf, runGroupAuthMatrix, seedGroup, seedNote, seedRole, seedUser, setMemberRole } from "./group-helpers.js";
 import { basicPlanId, giveUserQuota, seedAttachment, seedPlan, setGroupPlan, setUserPlan, upload } from "./storage-helpers.js";
@@ -351,5 +352,19 @@ describe("#247: byKind and byMember", () => {
       { userId: up.id, handle: up.handle, displayName: "Uploader", bytes: 5 },
       { userId: null, handle: null, displayName: null, bytes: 5 },
     ]);
+  });
+});
+
+describe("a single upload row above 2^31 bytes", () => {
+  it("is reported exactly by the usage readers and counted as over quota", async () => {
+    const b = await adminApp();
+    const u = await seedUser(b.db);
+    const plan = await giveUserQuota(b.db, u.id, 2_000_000_000);
+    const n = await seedNote(b.db, { ownerId: u.id });
+    await seedUploadRow(b.db, n.id, u.id, "video/mp4", 3_000_000_000);
+    expect(await readSpaceUsage(b.db, { kind: "user", id: u.id })).toMatchObject({ usedBytes: 3_000_000_000, quotaBytes: 2_000_000_000 });
+    expect(await readSpaceUsageByKind(b.db, { kind: "user", id: u.id })).toEqual({ ...ZERO, video: 3_000_000_000 });
+    const list = (await req(b, "GET", "/api/admin/storage-plans")).json();
+    expect(list.plans.find((x: { id: string }) => x.id === plan).overQuotaCount).toBe(1);
   });
 });

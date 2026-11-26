@@ -78,6 +78,7 @@ describe("main file", () => {
 
 const LABELS: Record<string, [string, string]> = {
   uploadMaxBytes: ["Upload size limit", "上傳檔案大小上限"],
+  uploadMediaMaxMib: ["Audio and video size limit", "音訊與影片大小上限"],
   noteMaxBytes: ["Note size limit", "筆記大小上限"],
   parseWorkers: ["Number of parse workers","解析 worker 數"],
   parseWorkerMemoryMb: ["Memory per worker", "每個 worker 記憶體上限"],
@@ -98,6 +99,7 @@ const LABELS: Record<string, [string, string]> = {
 
 const DESCRIPTION_MARKERS: Record<string, [string, string]> = {
   uploadMaxBytes: ["upload", "檔案"],
+  uploadMediaMaxMib: ["audio", "音訊"],
   noteMaxBytes: ["note's", "單篇"],
   parseWorkers: ["same time", "Markdown"],
   parseWorkerMemoryMb: ["Memory each worker", "記憶體"],

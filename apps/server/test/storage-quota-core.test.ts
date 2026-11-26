@@ -207,6 +207,17 @@ describe("storage/usage.ts", () => {
     expect(await canViewSpaceUsage(db, me(gAdmin), { kind: "group", id: g.id.toUpperCase() })).toBe(true);
   });
 
+  it("a single attachment row above 2^31 bytes is summed exactly and counts against the quota", async () => {
+    const { db, uploadsDir } = await buildTestApp();
+    const u = await seedUser(db);
+    await giveUserQuota(db, u.id, 3_500_000_000);
+    const n = await seedNote(db, { ownerId: u.id });
+    await seedAttachment(db, uploadsDir, n.id, u.id, 3_000_000_000);
+    expect((await readSpaceUsage(db, { kind: "user", id: u.id }))?.usedBytes).toBe(3_000_000_000);
+    await db.transaction(tx => assertSpaceRoomInTx(tx, { kind: "user", id: u.id }, 500_000_000, opts));
+    await expect(db.transaction(tx => assertSpaceRoomInTx(tx, { kind: "user", id: u.id }, 500_000_001, opts))).rejects.toBeInstanceOf(StorageQuotaExceeded);
+  });
+
   it("listSpaceUsage: one GROUP BY; values typeof number; a space without attachments is not in the Map", async () => {
     const { db, uploadsDir } = await buildTestApp();
     const [a, b] = await Promise.all([seedUser(db), seedUser(db)]);

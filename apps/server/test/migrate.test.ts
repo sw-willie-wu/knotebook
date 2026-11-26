@@ -15,7 +15,7 @@ import { apiTokens, authProviders, folders, groupMembers, groupRoles, groups, no
 const drizzleDirForTest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
 /** Drizzle's serialization of `schema.ts`; the declaration-drift guard compares against the latest snapshot (update the file name with each new migration). */
-const SNAPSHOT_FILE = "meta/0049_snapshot.json";
+const SNAPSHOT_FILE = "meta/0050_snapshot.json";
 const snapshotLatest = JSON.parse(readFileSync(path.join(drizzleDirForTest, SNAPSHOT_FILE), "utf8")) as {
   tables: Record<string, {
     checkConstraints?: Record<string, { name: string; value: string }>;
@@ -2475,7 +2475,7 @@ describe("storage quota migration", () => {
       await note("owner_id", a!, "na"), await note("owner_id", b!, "nb"), await note("owner_id", c!, "nc"),
       await note("group_id", g1!, "ng1"), await note("group_id", g2!, "ng2"),
     ];
-    // uploads.size is an integer (max 2^31-1 < 2 GiB): two rows of 1.5 GiB each push a's space over 2 GiB.
+    // Before 0050 uploads.size is an integer (max 2^31-1 < 2 GiB): two rows of 1.5 GiB each push a's space over 2 GiB.
     await pool.query(`insert into uploads (note_id, uploader_id, mime, size) values ($1,$2,'image/png',$3),($1,$2,'image/png',$3)`, [na, a, Math.floor(1.5 * GIB)]);
     await pool.query(
       `insert into uploads (note_id, uploader_id, mime, size) values ($1,$5,'image/png',100),($2,$6,'image/png',200),($3,$5,'image/png',300),($4,$6,'image/png',400)`,
@@ -4397,5 +4397,46 @@ describe("0049_knowledge-custom", () => {
     expect(idxOfTag(TAG)).toBe(idxOfTag(PREV_TAG) + 1);
     expect(await columns()).toEqual([{ column_name: "custom", is_nullable: "YES" }]);
     expect(await rows()).toEqual(before.map(r => ({ ...r, custom: null })));
+  });
+});
+
+describe("0050_uploads-media", () => {
+  const TAG = "0050_uploads-media";
+  const PREV_TAG = "0049_knowledge-custom";
+
+  it("widens size to bigint, adds a nullable file_name and keeps existing rows", async () => {
+    const { pool, db } = await freshEmptyDb();
+    await applyMigrationsThrough(pool, idxOfTag(PREV_TAG));
+    const owner = (await pool.query(`insert into users (email, display_name) values ('alice-um0@example.com', 'A') returning id`)).rows[0].id as string;
+    const noteId = (await pool.query(`insert into notes (owner_id) values ($1) returning id`, [owner])).rows[0].id as string;
+    await pool.query(`insert into uploads (note_id, uploader_id, mime, size) values ($1, $2, 'image/png', 2147483647)`, [noteId, owner]);
+    const columns = async () => (await pool.query(
+      `select column_name, data_type, is_nullable from information_schema.columns where table_name = 'uploads' and column_name in ('size', 'file_name') order by column_name`,
+    )).rows;
+    expect(await columns()).toEqual([{ column_name: "size", data_type: "integer", is_nullable: "NO" }]);
+    await runMigrations(db);
+    expect(idxOfTag(TAG)).toBe(idxOfTag(PREV_TAG) + 1);
+    expect(await columns()).toEqual([
+      { column_name: "file_name", data_type: "text", is_nullable: "YES" },
+      { column_name: "size", data_type: "bigint", is_nullable: "NO" },
+    ]);
+    const rows = (await pool.query(`select size::text, file_name from uploads`)).rows;
+    expect(rows).toEqual([{ size: "2147483647", file_name: null }]);
+    await pool.query(`insert into uploads (note_id, uploader_id, mime, size) values ($1, $2, 'video/mp4', 3000000000)`, [noteId, owner]);
+  });
+
+  it("uploads_file_name_len_chk allows null and 1-200 bytes, rejects empty and 201 bytes", async () => {
+    const { pool } = await freshDb();
+    const owner = (await pool.query(`insert into users (email, display_name) values ('bob-um1@example.com', 'B') returning id`)).rows[0].id as string;
+    const noteId = (await pool.query(`insert into notes (owner_id) values ($1) returning id`, [owner])).rows[0].id as string;
+    const ins = (name: string | null) => pool.query(`insert into uploads (note_id, uploader_id, mime, size, file_name) values ($1, $2, 'application/pdf', 1, $3)`, [noteId, owner, name]);
+    await ins(null);
+    await ins("a");
+    await ins("a".repeat(200));
+    // 67 CJK characters are 201 bytes: the limit is bytes, not characters.
+    for (const bad of ["", "a".repeat(201), "你".repeat(67)]) {
+      await expect(ins(bad)).rejects.toMatchObject({ constraint: "uploads_file_name_len_chk" });
+    }
+    await ins("你".repeat(66));
   });
 });

@@ -33,6 +33,7 @@ export * from "./group-roles.js";
 export * from "./provider-icon.js";
 export * from "./agent-label.js";
 export * from "./storage.js";
+export * from "./upload-types.js";
 export * from "./versions.js";
 export * from "./version-names.js";
 export * from "./ai.js";
