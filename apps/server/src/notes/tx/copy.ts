@@ -1,13 +1,12 @@
 /**
- * Lock order: target groups KEY SHARE → target folder KEY SHARE → source note KEY SHARE (a personal target has no first lock; without `folderId`, no second). Only the source's own attachments are copied (others keep their URLs); missing files (ENOENT) are skipped; incoming counts only copied files, each once.
+ * Lock order: target groups KEY SHARE → target folder KEY SHARE → source note KEY SHARE (a personal target has no first lock; without `folderId`, no second). Only the source's own attachments are copied (others keep their URLs); incoming counts only the prepared files whose rows are still the source's, each once.
  * Groups before the source: if source and target are in the same group G, locking the source first and then taking G's KEY SHARE through the INSERT's FK check would cycle with "groups FOR UPDATE → that group's notes FOR UPDATE" (delete group, delete all): 40P01, pinned by `groups-v2-copy.test.ts`. The folder lock is explicit rather than the INSERT's implicit FK lock: a same-space copy has its source inside the folder's subtree, so taking it after the source would cycle with folder delete's "subtree folders FU → subtree notes FU".
  * The groups KEY SHARE excludes `lockGroup` (FOR UPDATE: delete/transfer group, member and role changes), so the membership read holds until commit (role changes `lockGroup` first: `groups-v2-roles-race.test.ts`). The same statement returns group name and role flags for the 201 response; the pre-transaction `loadCreateTarget` is only a fast 404. Once held, the group can't be deleted, so the INSERT can't hit FK 23503 (the route's 23503 → 404 is defence in depth).
  * The space lock comes after the row locks above and before the slug write; afterwards only locks that can't cycle are taken (new row, `users` FK KEY SHARE, rows already held, slug-index insert waits). No space lock when incoming is 0. Tag rows are locked after all of these, and only in the target space. The knowledge index locks come after the full-text index's and touch only the new note's own rows.
  * Other paths: move (note FU → groups KS) meets this only on the source row and then needs nothing exclusive from us; PATCH slug/delete lock only the note row; shares PUT (FOR SHARE) and group rename (NO KEY UPDATE) are compatible with KEY SHARE. A group folder's space is pinned by the groups KEY SHARE; a personal folder's space never changes.
- * Files are copied without holding the space lock; `copiedFileIds` is an out-parameter so the route can delete written files after a failure. The copy's `updated_at` takes the DB default (this transaction's `now()`, later than the source's; guarded by `test/unit/copy-doc.test.ts`).
+ * The caller copies the files to `<new id>.tmp` before this transaction, so no file copy holds these locks or a pool connection; here each temp file is renamed right after the uploads rows are inserted, before the other writes, and the caller deletes both names if the transaction fails. The copy's `updated_at` takes the DB default (this transaction's `now()`, later than the source's; guarded by `test/unit/copy-doc.test.ts`).
  */
-import { randomUUID } from "node:crypto";
-import { copyFile } from "node:fs/promises";
+import { rename } from "node:fs/promises";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import * as Y from "yjs";
 import type { Tx } from "../../db/tx.js";
@@ -39,7 +38,8 @@ export interface CopyNoteInput {
   folderId: string | null;
   copy: CopyDoc;
   uploadsDir: string;
-  copiedFileIds: string[];
+  /** Attachment files already copied to `tempPath`; `oldId` must be the id as the database returns it (lowercase), since the re-read rows are matched by it. */
+  prepared: ReadonlyArray<CopyPreparedFile>;
   /** Extracted before the transaction from the clone; `rewriteUploadUrls` only changes `url` attributes, which aren't indexed. */
   searchExtract: SearchExtract;
   /** Same as `searchExtract`: `rewriteUploadUrls` only changes `url` attributes, which the knowledge index doesn't read. */
@@ -47,8 +47,10 @@ export interface CopyNoteInput {
   lockTimeoutMs: number;
 }
 
-function isMissingFile(err: unknown): boolean {
-  return typeof err === "object" && err !== null && (err as { code?: unknown }).code === "ENOENT";
+export interface CopyPreparedFile {
+  oldId: string;
+  newId: string;
+  tempPath: string;
 }
 
 export interface CopyTargetInTx extends NoteGroupFlags {
@@ -58,6 +60,8 @@ export interface CopyTargetInTx extends NoteGroupFlags {
 export interface CopyNoteResult {
   note: typeof notes.$inferSelect;
   target: CopyTargetInTx | null;
+  /** Prepared files whose source row was gone by the time the transaction read it; their temp files are still on disk. */
+  unusedTempIds: string[];
 }
 
 export async function copyNoteInTx(tx: Tx, input: CopyNoteInput, hook?: GroupTestHook, createHooks?: NoteCreateHooks, searchHooks?: SearchIndexHooks, knowledgeHooks?: KnowledgeIndexHooks): Promise<CopyNoteResult> {
@@ -97,29 +101,12 @@ export async function copyNoteInTx(tx: Tx, input: CopyNoteInput, hook?: GroupTes
   if (!src) throw new TxAbort(404, "not_found", "No note with that id.");
   await hook?.("note-copy-locked", { noteId: input.sourceId });
 
-  const wanted = [...input.copy.uploadNodes.keys()];
-  const owned = wanted.length === 0 ? [] : await tx
-    .select({ id: uploads.id, mime: uploads.mime, size: uploads.size })
+  const preparedByOld = new Map(input.prepared.map(p => [p.oldId, p]));
+  const owned = preparedByOld.size === 0 ? [] : await tx
+    .select({ id: uploads.id, mime: uploads.mime, size: uploads.size, fileName: uploads.fileName })
     .from(uploads)
-    .where(and(inArray(uploads.id, wanted), eq(uploads.noteId, input.sourceId)));
-
-  // Record before copying: if `copyFile` fails midway (partial destination), the route's cleanup list still covers it.
-  const copied: Array<{ newId: string; oldId: string; mime: string; size: number }> = [];
-  for (const u of owned) {
-    const newId = randomUUID();
-    input.copiedFileIds.push(newId);
-    try {
-      await copyFile(uploadFilePath(input.uploadsDir, u.id), uploadFilePath(input.uploadsDir, newId));
-    } catch (err) {
-      if (isMissingFile(err)) {
-        input.copiedFileIds.pop(); // source file missing: nothing to clean (`deleteUploadFiles` logs an error for nonexistent files)
-        continue;
-      }
-      throw err;
-    }
-    copied.push({ newId, oldId: u.id, mime: u.mime, size: u.size });
-  }
-  await hook?.("note-copy-files-copied", { noteId: input.sourceId });
+    .where(and(inArray(uploads.id, [...preparedByOld.keys()]), eq(uploads.noteId, input.sourceId)));
+  const copied = owned.map(u => ({ ...u, prepared: preparedByOld.get(u.id)! }));
 
   const incoming = copied.reduce((sum, c) => sum + c.size, 0);
   const targetSpace: StorageSpace = "groupId" in input.scope ? { kind: "group", id: input.scope.groupId } : { kind: "user", id: input.scope.ownerId };
@@ -134,9 +121,11 @@ export async function copyNoteInTx(tx: Tx, input: CopyNoteInput, hook?: GroupTes
 
   const mapping = new Map<string, string>();
   for (const c of copied) {
-    await tx.insert(uploads).values({ id: c.newId, noteId: created.id, uploaderId: input.userId, chargedToId: input.userId, mime: c.mime, size: c.size });
-    mapping.set(c.oldId.toLowerCase(), c.newId);
+    await tx.insert(uploads).values({ id: c.prepared.newId, noteId: created.id, uploaderId: input.userId, chargedToId: input.userId, mime: c.mime, size: c.size, fileName: c.fileName });
+    mapping.set(c.id.toLowerCase(), c.prepared.newId);
   }
+  // Before commit, so a failed rename rolls the rows back and a committed row always has its file.
+  for (const c of copied) await rename(c.prepared.tempPath, uploadFilePath(input.uploadsDir, c.prepared.newId));
   rewriteUploadUrls(input.copy, mapping);
 
   // version 1, same shape as `persistNoteState`'s first write.
@@ -145,5 +134,6 @@ export async function copyNoteInTx(tx: Tx, input: CopyNoteInput, hook?: GroupTes
   await replaceNoteSearchIndexInTx(tx, { noteId: created.id, sourceVersion: 1, extract: input.searchExtract }, searchHooks);
   await replaceNoteKnowledgeIndexInTx(tx, { noteId: created.id, sourceVersion: 1, extract: input.knowledgeExtract }, knowledgeHooks);
   await copyNoteTagsInTx(tx, { sourceNoteId: src.id, targetNoteId: created.id, target: tagTarget, createdBy: input.userId });
-  return { note: created, target };
+  const used = new Set(copied.map(c => c.prepared.newId));
+  return { note: created, target, unusedTempIds: input.prepared.filter(p => !used.has(p.newId)).map(p => p.newId) };
 }

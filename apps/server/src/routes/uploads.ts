@@ -31,7 +31,7 @@ import { spaceOfNote, type StorageSpace } from "../storage/space.js";
 import { StorageQuotaExceeded } from "../storage/tx/quota.js";
 import { precheckDetail, quotaErrorDetail, readSpaceUsage, remainingRoom, type SpaceUsage } from "../storage/usage.js";
 import { classifyUploadHead, HEAD_BYTES, verifyWholeFile, type HeadVerdict } from "../uploads/detect.js";
-import { sendUploadFile, uploadFilePath } from "../uploads/service.js";
+import { sendUploadFile, uploadFilePath, uploadTempPath } from "../uploads/service.js";
 import { insertUploadInTx } from "../uploads/tx/insert-upload.js";
 
 declare module "fastify" {
@@ -269,7 +269,7 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
 
       const id = randomUUID();
       const finalPath = uploadFilePath(deps.uploadsDir, id);
-      const tempPath = `${finalPath}.tmp`;
+      const tempPath = uploadTempPath(deps.uploadsDir, id);
 
       // Running the loop to the end is what drains the multipart body (file backpressure is released only by consuming; drainWithCap only helps before multipart parsing started).
       // limits.files is deliberately not set: the plugin would throw FilesLimitError (413) outside our error classification.

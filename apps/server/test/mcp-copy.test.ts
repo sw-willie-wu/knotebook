@@ -180,7 +180,7 @@ describe("#180 copy_note", () => {
       expect(upload.consume(b.id)).toBe(true);
     });
 
-    it("not full but doesn't fit -> inside the transaction, includes incomingBytes, copied files cleaned up, no new note", async () => {
+    it("not full but the attachments' total doesn't fit -> lock-free refusal before any file is written, includes incomingBytes, no new file, no new note", async () => {
       const { app, db, uploadsDir } = await buildTestApp();
       const a = await seedUser(db);
       await giveUserQuota(db, a.id, 1000);
@@ -196,6 +196,37 @@ describe("#180 copy_note", () => {
         usedBytes: 700,
         quotaBytes: 1000,
         incomingBytes: 700,
+      });
+      expect(await noteCount(db)).toBe(before);
+      expect(await filesIn(uploadsDir)).toEqual(files);
+    });
+
+    it("room taken after the lock-free check (another attachment lands while the files are being copied) -> the in-transaction refusal, includes incomingBytes = bytes copied, temp files cleaned up, no new note", async () => {
+      const holder: { db?: Db; uploadsDir?: string; noteId?: string; userId?: string; done?: boolean } = {};
+      const { app, db, uploadsDir } = await buildTestApp({
+        groupTestHook: async point => {
+          if (point !== "note-copy-files-copied" || holder.done) return;
+          holder.done = true;
+          await seedAttachment(holder.db!, holder.uploadsDir!, holder.noteId!, holder.userId!, 500, { noFile: true });
+        },
+      });
+      const a = await seedUser(db);
+      await giveUserQuota(db, a.id, 1000);
+      const other = await seedNote(db, { ownerId: a.id });
+      Object.assign(holder, { db, uploadsDir, noteId: other.id, userId: a.id });
+      const src = await seedNote(db, { ownerId: a.id });
+      const ids = [await seedAttachment(db, uploadsDir, src.id, a.id, 100), await seedAttachment(db, uploadsDir, src.id, a.id, 200)];
+      await seedDoc(db, src.id, imageDoc(ids.map(id => `/api/uploads/${id}`)));
+      const [before, files] = [await noteCount(db), await filesIn(uploadsDir)];
+      const { token } = await seedTokenForUser(db, a.id, RW);
+      const r = await call(app, token, "copy_note", { note_id: src.id });
+      expect(holder.done).toBe(true);
+      expect(r.structuredContent).toEqual({
+        code: "storage_quota_exceeded",
+        message: `Your storage space has no room for this note's images (800 B of 1000 B used; they need 300 B), so the note was not copied. ${TAIL}`,
+        usedBytes: 800,
+        quotaBytes: 1000,
+        incomingBytes: 300,
       });
       expect(await noteCount(db)).toBe(before);
       expect(await filesIn(uploadsDir)).toEqual(files);

@@ -144,7 +144,7 @@ export async function copyNoteTool(args: CopyNoteArgs, ctx: McpToolCtx): Promise
     case "upload_rate_limited":
       return toolError("too_many_requests", copyUploadLimitMessage(ctx.limiters.upload.currentLimit()));
     case "space_full":
-      return quotaError(ctx, out.space, out.usage.usedBytes, out.usage.quotaBytes, null);
+      return quotaError(ctx, out.space, out.usage.usedBytes, out.usage.quotaBytes, out.incomingBytes);
     case "aborted": {
       const err = out.err;
       if (err instanceof StorageQuotaExceeded) return quotaError(ctx, err.space, err.usedBytes, err.quotaBytes, err.incomingBytes);

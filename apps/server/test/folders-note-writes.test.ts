@@ -334,7 +334,7 @@ describe("POST /api/notes/:id/copy with folderId", () => {
       queries.length = 0;
       const doc = cloneForCopy(new Y.Doc());
       const out = await logged.transaction(tx => copyNoteInTx(tx, {
-        ...input, copy: doc, uploadsDir: tmpdir(), copiedFileIds: [], searchExtract: extractForIndex(doc.doc), knowledgeExtract: extractKnowledgeForIndex(doc.doc), lockTimeoutMs: 5000,
+        ...input, copy: doc, uploadsDir: tmpdir(), prepared: [], searchExtract: extractForIndex(doc.doc), knowledgeExtract: extractKnowledgeForIndex(doc.doc), lockTimeoutMs: 5000,
       }));
       const all = queries.filter(q => !TXN_CONTROL.test(q.trim())).filter(q => ROW_LOCK.test(q.trim()));
       // Up to reading the source (the first notes row lock); what follows are the locks the full-text index and the knowledge index take on the new copy (`replaceNoteSearchIndexInTx`, `replaceNoteKnowledgeIndexInTx`), outside this lock order.

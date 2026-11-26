@@ -174,8 +174,26 @@ export function uploadFilePath(uploadsDir: string, id: string): string {
   return path.join(uploadsDir, id);
 }
 
+export function uploadTempPath(uploadsDir: string, id: string): string {
+  return `${uploadFilePath(uploadsDir, id)}.tmp`;
+}
+
 export interface UploadDeleteLogger {
   error(obj: unknown, msg?: string): void;
+}
+
+/** For files whose rows were never committed: each id may exist as `<id>.tmp`, `<id>`, both or neither, so a missing file is not an error. */
+export async function deleteUploadFilesAnyName(uploadsDir: string, ids: readonly string[], log: UploadDeleteLogger): Promise<void> {
+  await Promise.all(
+    ids.flatMap(id => [uploadTempPath(uploadsDir, id), uploadFilePath(uploadsDir, id)]).map(async filePath => {
+      try {
+        await unlink(filePath);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+        log.error({ name: (err as Error).name, code: (err as NodeJS.ErrnoException).code, file: path.basename(filePath) }, "could not delete an uncommitted upload file");
+      }
+    })
+  );
 }
 
 /** Runs after the DELETE-note commit (a rollback can't restore files). Each file has its own try/catch: a failure (ENOENT included) is only logged. A blob linked from other notes is deleted with its single owning row (those links 404, intended). */

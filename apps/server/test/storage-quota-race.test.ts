@@ -624,11 +624,11 @@ describe("small pool (max=3, connection-acquire timeout 2 s: borrowing a second 
     }
   });
 
-  it("copy of a note with many attachments (200): max+1 uploads to the same space plus 1 to another space fired while the copy is after copyFile and before taking the space lock (note-copy-files-copied) -> all finish before the copy is released, all 201", async () => {
-    // copyFile holds no space lock. Uploads are fired from the copy's own hook so the interleaving is deterministic: in correct code the
-    // copy takes only 1 connection and no space lock, the 5 uploads take turns on the remaining 2 connections and finish within the hook's
-    // 4 s window; if the copy took the space lock before copyFile (a regression), same-space uploads would block on the lock holding those
-    // 2 connections and the rest would time out borrowing a connection after 2 s -> 500.
+  it("copy of a note with many attachments (200): max+1 uploads to the same space plus 1 to another space fired once the files are copied and before the copy's transaction (note-copy-files-copied) -> all finish before the copy is released, all 201", async () => {
+    // The files are copied before the transaction, so at the hook the copy holds no connection and no space lock. Uploads are fired from
+    // the copy's own hook so the interleaving is deterministic: the 5 uploads take turns on the pool's 3 connections and finish within the
+    // hook's 4 s window; if the copy step held the space lock (a regression), same-space uploads would block on the lock
+    // holding the other connections and the rest would time out borrowing a connection after 2 s -> 500.
     // Copy charges the upload bucket per attachment (200 > default UPLOAD_LIMIT 120): this case uses a big bucket (shape follows
     // freshLimiters({ upload }) in test/groups-v2-copy.test.ts).
     const box: { fired?: boolean; done?: boolean; reqs?: Array<Promise<LightMyRequestResponse>>; app?: FastifyInstance; a?: string; other?: string; an?: string; on?: string } = {};

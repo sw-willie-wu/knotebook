@@ -209,12 +209,17 @@ describe("#175 POST /api/notes/:id/copy", () => {
     expect((await db.$client.query("select count(*)::int as n from note_states where note_id = $1", [res.json().id])).rows[0].n).toBe(1);
   });
 
-  it("note-copy-files-copied test hook throws -> 500; copied attachment files cleaned up, no copy note (the hook fires before any row is written; row rollback is guaranteed by the drizzle transaction)", async () => {
+  it("note-copy-files-copied test hook throws -> 500; the temp files written before the transaction are cleaned up, no copy note (the hook is inside the same cleanup try as the copy step)", async () => {
+    const seen: { tempsAtHook?: number } = {};
+    const holder: { uploadsDir?: string } = {};
     const { app, db, uploadsDir } = await buildTestApp({
       groupTestHook: async point => {
-        if (point === "note-copy-files-copied") throw new Error("boom");
+        if (point !== "note-copy-files-copied") return;
+        seen.tempsAtHook = (await filesIn(holder.uploadsDir!)).filter(f => f.endsWith(".tmp")).length;
+        throw new Error("boom");
       },
     });
+    holder.uploadsDir = uploadsDir;
     const owner = await seedUser(db);
     const src = await seedNote(db, { ownerId: owner.id }, { title: "Plan" });
     const u1 = await seedUpload(db, uploadsDir, src.id, owner.id);
@@ -225,9 +230,124 @@ describe("#175 POST /api/notes/:id/copy", () => {
     const res = await copy(app, src.id, owner.id);
 
     expect(res.statusCode).toBe(500);
+    expect(seen.tempsAtHook).toBe(2);
     expect(await filesIn(uploadsDir)).toEqual([u1, u2].sort());
     expect(await noteCount(db)).toBe(notesBefore);
     expect(await uploadCount(db)).toBe(uploadsBefore);
+  });
+
+  it("copy keeps each attachment's file_name (and a null one stays null)", async () => {
+    const { app, db, uploadsDir } = await buildTestApp();
+    const owner = await seedUser(db);
+    const src = await seedNote(db, { ownerId: owner.id }, { title: "Plan" });
+    const named = await seedUpload(db, uploadsDir, src.id, owner.id, Buffer.from("named-bytes"), { fileName: "Quarterly report.pdf" });
+    const unnamed = await seedUpload(db, uploadsDir, src.id, owner.id, Buffer.from("unnamed"));
+    await seedDoc(db, src.id, imageDoc([`/api/uploads/${named}`, `/api/uploads/${unnamed}`]));
+
+    const res = await copy(app, src.id, owner.id);
+
+    expect(res.statusCode).toBe(201);
+    const rows = await db.select({ size: uploads.size, fileName: uploads.fileName }).from(uploads).where(eq(uploads.noteId, res.json().id));
+    expect(rows.sort((a, b) => a.size - b.size)).toEqual([{ size: 7, fileName: null }, { size: 11, fileName: "Quarterly report.pdf" }]);
+  });
+
+  it("a failure inside the transaction before the renames (note-copy-locked throws) -> 500; the temp files existed at that point and neither name is left afterwards", async () => {
+    const seen: { names?: string[] } = {};
+    const holder: { uploadsDir?: string } = {};
+    const { app, db, uploadsDir } = await buildTestApp({
+      groupTestHook: async point => {
+        if (point !== "note-copy-locked") return;
+        seen.names = await filesIn(holder.uploadsDir!);
+        throw new Error("boom");
+      },
+    });
+    holder.uploadsDir = uploadsDir;
+    const owner = await seedUser(db);
+    const src = await seedNote(db, { ownerId: owner.id }, { title: "Plan" });
+    const u1 = await seedUpload(db, uploadsDir, src.id, owner.id);
+    const u2 = await seedUpload(db, uploadsDir, src.id, owner.id);
+    await seedDoc(db, src.id, imageDoc([`/api/uploads/${u1}`, `/api/uploads/${u2}`]));
+    const [notesBefore, uploadsBefore] = [await noteCount(db), await uploadCount(db)];
+
+    const res = await copy(app, src.id, owner.id);
+
+    expect(res.statusCode).toBe(500);
+    expect(seen.names!.filter(f => f.endsWith(".tmp"))).toHaveLength(2);
+    expect(seen.names!.filter(f => !f.endsWith(".tmp"))).toEqual([u1, u2].sort());
+    expect(await filesIn(uploadsDir)).toEqual([u1, u2].sort());
+    expect(await noteCount(db)).toBe(notesBefore);
+    expect(await uploadCount(db)).toBe(uploadsBefore);
+  });
+
+  it("a failure after the renames (search-index afterWriteForTest throws) -> 500; the final-named files existed at that point and neither name is left; the already-gone temp names log nothing", async () => {
+    const seen: { names?: string[] } = {};
+    const holder: { uploadsDir?: string } = {};
+    const out: string[] = [];
+    const { app, db, uploadsDir } = await buildTestApp(
+      {
+        searchIndexHooks: {
+          afterWriteForTest: async () => {
+            seen.names = await filesIn(holder.uploadsDir!);
+            throw new Error("after-write boom");
+          },
+        },
+      },
+      { logger: { level: "info", stream: { write: (chunk: string) => void out.push(chunk) } } },
+    );
+    holder.uploadsDir = uploadsDir;
+    const owner = await seedUser(db);
+    const src = await seedNote(db, { ownerId: owner.id }, { title: "Plan" });
+    const u1 = await seedUpload(db, uploadsDir, src.id, owner.id);
+    const u2 = await seedUpload(db, uploadsDir, src.id, owner.id);
+    await seedDoc(db, src.id, imageDoc([`/api/uploads/${u1}`, `/api/uploads/${u2}`]));
+    const [notesBefore, uploadsBefore] = [await noteCount(db), await uploadCount(db)];
+
+    const res = await copy(app, src.id, owner.id);
+
+    expect(res.statusCode).toBe(500);
+    expect(seen.names!.filter(f => f.endsWith(".tmp"))).toEqual([]);
+    expect(seen.names!).toHaveLength(4);
+    expect(await filesIn(uploadsDir)).toEqual([u1, u2].sort());
+    expect(await noteCount(db)).toBe(notesBefore);
+    expect(await uploadCount(db)).toBe(uploadsBefore);
+    const records = out.map(line => JSON.parse(line) as { msg?: string; code?: string | null; context?: string });
+    // Non-vacuous: the failure itself reached this log.
+    expect(records.some(r => r.context === "copy note")).toBe(true);
+    expect(records.filter(r => r.code === "ENOENT" || /delet/i.test(r.msg ?? ""))).toEqual([]);
+  });
+
+  it("files are copied outside any transaction: with the source row held FOR UPDATE by another connection, the copy step still reaches note-copy-files-copied; the copy is 201 once the holder lets go", async () => {
+    const holder: { release?: () => Promise<void>; heldAtHook?: boolean; released?: boolean } = {};
+    const { app, db, uploadsDir } = await buildTestApp({
+      groupTestHook: async point => {
+        if (point !== "note-copy-files-copied") return;
+        holder.heldAtHook = holder.released !== true;
+        await holder.release!();
+      },
+    });
+    const owner = await seedUser(db);
+    const src = await seedNote(db, { ownerId: owner.id }, { title: "Plan" });
+    const u1 = await seedUpload(db, uploadsDir, src.id, owner.id);
+    await seedDoc(db, src.id, imageDoc([`/api/uploads/${u1}`]));
+    const c = await db.$client.connect();
+    await c.query("begin");
+    await c.query("select id from notes where id = $1 for update", [src.id]);
+    holder.release = async () => {
+      if (holder.released) return;
+      holder.released = true;
+      await c.query("rollback");
+      c.release();
+    };
+    // Bounded: a copy step that waited on this row lock would reach the hook only after this release, and the assertion below fails instead of hanging.
+    const safety = setTimeout(() => void holder.release!(), 3_000);
+
+    const res = await copy(app, src.id, owner.id);
+
+    clearTimeout(safety);
+    expect(holder.heldAtHook).toBe(true);
+    expect(res.statusCode).toBe(201);
+    const [n1] = await uploadsOf(db, res.json().id);
+    expect(await filesIn(uploadsDir)).toEqual([u1, n1!.id].sort());
   });
 
   it("deleting the source while the copy holds FOR KEY SHARE -> DELETE (move to trash) blocks on the row lock (blocked) -> copy 201 -> move 204 -> the copy's image still 200 for the caller; still 200 after the source is permanently deleted", async () => {

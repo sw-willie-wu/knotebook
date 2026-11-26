@@ -1,5 +1,5 @@
-// Rollback proof: `afterWriteForTest` throws after the index and state rows are written - `note-copy-files-copied` fires before
-// indexing, so it cannot prove that already-written index rows are rolled back.
+// Rollback proof: `afterWriteForTest` throws after the index and state rows are written - `note-copy-files-copied` fires before the
+// transaction, so it cannot prove that already-written index rows are rolled back.
 import { describe, expect, it } from "vitest";
 import { eq, ne } from "drizzle-orm";
 import { buildTestApp } from "./helpers.js";
