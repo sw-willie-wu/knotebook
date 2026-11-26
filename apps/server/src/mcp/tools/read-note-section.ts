@@ -25,8 +25,8 @@ export const READ_NOTE_SECTION_DESCRIPTION =
   "set to `nextOffset`. The `fingerprint` you need to replace this section arrives with the page that " +
   "finishes it, so read to the end before you rewrite it. " +
   // "for example": images inside nodes exported wholesale as HTML take that HTML form, and old collapsed-block images have absolute URLs, which is why the main clause says only that the address contains the upload id; table cells aren't mentioned (they hold no width-set images).
-  "An uploaded image's address contains its upload id, for example `/api/uploads/<id>` in `![name](/api/uploads/<id>)` or, for an image with " +
-  "a caption or shown at a set width, in `<figure><img … src=\"/api/uploads/<id>\" …>…</figure>`; see them with read_note_image. " +
+  "An uploaded file's address contains its upload id, for example `/api/uploads/<id>` in `![name](/api/uploads/<id>)`, in `[name](/api/uploads/<id>)` or, for an image with " +
+  "a caption or shown at a set width, in `<figure><img … src=\"/api/uploads/<id>\" …>…</figure>`; read an image with read_note_image. " +
   READ_SECTION_KNOWLEDGE_SENTENCE;
 
 const TRUNCATED_NOTE =

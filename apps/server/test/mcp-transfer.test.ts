@@ -53,9 +53,9 @@ describe("tools/list", () => {
     expect(tool!.description).toBe(CREATE_TRANSFER_TOKEN_DESCRIPTION_RW);
     expect(tool!.inputSchema.properties.purpose!.enum).toEqual(["upload", "download"]);
     expect(Object.keys(tool!.inputSchema.properties).sort()).toEqual(["note_id", "purpose"]);
-    // Upload only stores an image, which enters the note only via edit_note (#200); also pins the older overclaiming wording so re-adding it fails.
+    // Upload only stores a file, which enters the note only via edit_note (#200); also pins the older overclaiming wording so re-adding it fails.
     expect(tool!.inputSchema.properties.purpose!.description).toBe(
-      "`upload` stores one image for the note (then reference it with edit_note); `download` fetches its images."
+      "`upload` stores one file for the note (then reference it with edit_note); `download` fetches its files."
     );
     expect(tool!.inputSchema.properties.purpose!.description).not.toContain("adds one image to the note");
   });
@@ -65,9 +65,9 @@ describe("tools/list", () => {
     const o = await ownerWithPat(db, "notes:read");
     const tool = (await toolsOf(app, { token: o.pat })).find(t => t.name === "create_transfer_token");
     expect(tool!.description).toBe(CREATE_TRANSFER_TOKEN_DESCRIPTION_RO);
-    // The read-only description already contains "uploaded" ("any image uploaded to that note"); what must be excluded is describing the `upload` purpose:
+    // The read-only description already contains "uploaded" ("any file uploaded to that note"); what must be excluded is describing the `upload` purpose:
     expect(tool!.description).not.toContain("`upload`");
-    expect(tool!.description).not.toContain("upload an image");
+    expect(tool!.description).not.toContain("upload a file");
     expect(tool!.inputSchema.properties.purpose!.enum).toEqual(["download"]);
   });
 
@@ -108,21 +108,23 @@ describe("create_transfer_token flow", () => {
     expect(p.token).toMatch(/^knbt_[A-Za-z0-9_-]{43}$/);
     expect(p.method).toBe("POST");
     expect(p.url).toBe(`${ORIGIN}/api/notes/${o.noteId}/uploads`);
-    expect(p.curl).toBe(`curl -sS -X POST -H "Authorization: Bearer ${p.token}" -F "file=@<path-to-image>" "${ORIGIN}/api/notes/${o.noteId}/uploads"`);
+    expect(p.curl).toBe(`curl -sS -X POST -H "Authorization: Bearer ${p.token}" -F "file=@<path-to-file>" "${ORIGIN}/api/notes/${o.noteId}/uploads"`);
     expect(p.next).toBe(UPLOAD_NEXT);
     // The bearerMiss 429 replaces a 401, so the token may already be used: only "this rejection doesn't use it up" can be claimed.
     expect(UPLOAD_NEXT).toContain("A 403 or 429 doesn't use the token up");
     expect(UPLOAD_NEXT).not.toContain("leaves the token unused");
     // Verbatim text, including the two 409 sentences added with the storage quota (after the 404 sentence, before the 413/415 one).
     expect(UPLOAD_NEXT).toBe(
-      "The reply is JSON `{id, url}`. Put the image in the note with edit_note using markdown `![description](url)`, with " +
-        "`url` exactly as returned (`/api/uploads/<id>`, relative). The token is good for one upload until `expiresAt`. A 401 " +
+      "The reply is JSON `{id, url, mime, kind}`, where `kind` is `image`, `audio`, `video` or `file`. Put an image (PNG, JPEG, GIF or WebP) in the note with " +
+        "edit_note using markdown `![description](url)` and any other kind as a link `[name](url)`, with `url` exactly as returned " +
+        "(`/api/uploads/<id>`, relative). The token is good for one upload until `expiresAt`. A 401 " +
         "means the token can't be used (expired, already used, or revoked) — ask for a new one. A 403 or 429 doesn't use the " +
-        "token up (after a 429, wait a moment and retry); a 404 means the note is gone or you can no longer see it. A 409 " +
+        "token up (after a 429, wait a moment and retry), unless the 403 is for a role lost while the file was uploading; a 404 means the note is gone or you can no longer see it, and one that comes while the file is uploading comes after the token was used up. A 409 " +
         "`storage_quota_exceeded` means the note's storage space has no room for this file: don't retry until space has been " +
         "freed, and then ask for a new token. A 409 `server_busy` means the server was busy and the token is used up: ask for " +
-        "a new token and retry. Once the server has started reading the file, a rejection (for example 413: too large, 415: " +
-        "not a PNG, JPEG, GIF or WebP image) still uses the token up."
+        "a new token and retry. Once the server has started reading the file, a rejection (for example 413: over the size limit, " +
+        "415: not a supported type — an image, audio, video, a PDF, an Office or OpenDocument file, or a text file) still uses the token up. " +
+        "If curl reports a connection error (a reset or a failed send) instead of a status, the server most likely refused the file — too large, not a supported type, or no room in the space — and the token is used up: check the file's size, type and the space's room before asking for a new token."
     );
     const exp = Date.parse(p.expiresAt);
     expect(exp).toBeGreaterThanOrEqual(before + 10 * 60_000 - 5_000);
@@ -277,7 +279,7 @@ describe("storage quota \"already full\" precheck (#200)", () => {
     const { app, db, uploadsDir } = await buildTestApp({ config });
     const o = await ownerWithPat(db);
     await giveUserQuota(db, o.userId, GIB2);
-    // `uploads.size` is int4: two 1 GiB rows make 2 GiB.
+    // Two 1 GiB rows make 2 GiB.
     for (let i = 0; i < 2; i++) await seedAttachment(db, uploadsDir, o.noteId, o.userId, GIB2 / 2, { noFile: true });
     const before = await rowCount(db);
     const r = await call(app, o.pat, { note_id: o.noteId, purpose: "upload" });
@@ -285,7 +287,7 @@ describe("storage quota \"already full\" precheck (#200)", () => {
     expect(r.structuredContent).toEqual({
       code: "storage_quota_exceeded",
       message:
-        "This note's storage space is full (2 GB of 2 GB used), so no image can be uploaded to it. A site admin can assign a larger storage plan; deleting notes that have images also frees space.",
+        "This note's storage space is full (2 GB of 2 GB used), so no file can be uploaded to it. A site admin can assign a larger storage plan; deleting notes that have files also frees space.",
       usedBytes: GIB2,
       quotaBytes: GIB2,
     });
@@ -306,7 +308,7 @@ describe("storage quota \"already full\" precheck (#200)", () => {
     const r = await call(app, token, { note_id: owner.noteId, purpose: "upload" });
     expect(r.structuredContent).toEqual({
       code: "storage_quota_exceeded",
-      message: "This note's storage space is full, so no image can be uploaded to it. Ask the note's owner or a site admin for more space.",
+      message: "This note's storage space is full, so no file can be uploaded to it. Ask the note's owner or a site admin for more space.",
     });
     expect(STORAGE_FULL_HIDDEN_MESSAGE).toBe((r.structuredContent as { message: string }).message);
     expect(await rowCount(db)).toBe(before);

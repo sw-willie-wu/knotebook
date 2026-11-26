@@ -81,6 +81,12 @@ export function isSpaceFull(usage: SpaceUsage | null): usage is SpaceUsage & { q
   return usage !== null && usage.quotaBytes !== null && usage.usedBytes >= usage.quotaBytes;
 }
 
+/** `null` = no limit; <= 0 = full. */
+export function remainingRoom(usage: SpaceUsage | null): number | null {
+  if (usage === null || usage.quotaBytes === null) return null;
+  return usage.quotaBytes - usage.usedBytes;
+}
+
 /** A missing key means 0 (the caller fills it in). Avatar bytes come from a second GROUP BY summed in JS, so avatar-only users must still get an entry. */
 export async function listSpaceUsage(db: DbOrTx, kind: "user" | "group"): Promise<Map<string, number>> {
   const key = kind === "user" ? notes.ownerId : notes.groupId;

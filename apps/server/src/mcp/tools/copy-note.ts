@@ -25,7 +25,7 @@ import type { McpToolCtx } from "../context.js";
 
 export const COPY_NOTE_DESCRIPTION =
   "Copy a note you can read into a new note — yours, or in one of your groups when you pass `group_id`. The copy gets the note's " +
-  "title and its current content, and usually its own copies of the images uploaded to that note; from then on the two notes change " +
+  "title and its current content, and usually its own copies of the files uploaded to that note; from then on the two notes change " +
   "separately. Per-person shares, the public link and the edit history are not copied, and making the copy isn't recorded in any " +
   "note's history. The reply is the new note in the shape list_notes returns; in a group, its `role` can be `viewer`.";
 
@@ -48,7 +48,7 @@ export const copyNoteInput = {
 /** No "this credential doesn't have it": after an upgrade a client that cached this version would show a false sentence. */
 export const COPY_NOTE_DESCRIPTION_NO_MOVE =
   "Copy a note you can read into a new note of your own; copying into a group needs the notes:move scope (see `group_id`). The copy gets the note's " +
-  "title and its current content, and usually its own copies of the images uploaded to that note; from then on the two notes change " +
+  "title and its current content, and usually its own copies of the files uploaded to that note; from then on the two notes change " +
   "separately. Per-person shares, the public link and the edit history are not copied, and making the copy isn't recorded in any " +
   "note's history. The reply is the new note in the shape list_notes returns.";
 
@@ -72,21 +72,21 @@ export const copyNoteOutput = { note: noteSummarySchema.describe("The new copy, 
 /** The limit is the one of the limiter that rejected (`currentLimit()`); the window comes from `UPLOAD_LIMIT`. */
 export function copyUploadLimitMessage(limit: number): string {
   return (
-    `Copying this note's images would go over your upload limit (${limit} files per ${UPLOAD_LIMIT.windowMs / 60_000} minutes, ` +
+    `Copying this note's files would go over your upload limit (${limit} files per ${UPLOAD_LIMIT.windowMs / 60_000} minutes, ` +
     "copies included), so nothing was copied. Wait a few minutes and try again."
   );
 }
 export const COPY_BUSY_MESSAGE = "The server was busy, so no copy was made. Try again in a moment.";
 /** Only a group space can be invisible (a personal space is always visible to its owner). */
 export const COPY_QUOTA_HIDDEN_MESSAGE =
-  "The group's storage space has no room for this note's images, so the note was not copied. Ask a site admin for more space.";
+  "The group's storage space has no room for this note's files, so the note was not copied. Ask a site admin for more space.";
 
 export function copyQuotaVisibleMessage(space: StorageSpace, usedBytes: number, quotaBytes: number, incomingBytes: number | null): string {
   const who = space.kind === "user" ? "Your" : "The group's";
   const need = incomingBytes === null ? "" : `; they need ${formatBytes(incomingBytes)}`;
   return (
-    `${who} storage space has no room for this note's images (${formatBytes(usedBytes)} of ${formatBytes(quotaBytes)} used${need}), ` +
-    "so the note was not copied. A site admin can assign a larger storage plan; deleting notes that have images also frees space."
+    `${who} storage space has no room for this note's files (${formatBytes(usedBytes)} of ${formatBytes(quotaBytes)} used${need}), ` +
+    "so the note was not copied. A site admin can assign a larger storage plan; deleting notes that have files also frees space."
   );
 }
 
@@ -144,7 +144,7 @@ export async function copyNoteTool(args: CopyNoteArgs, ctx: McpToolCtx): Promise
     case "upload_rate_limited":
       return toolError("too_many_requests", copyUploadLimitMessage(ctx.limiters.upload.currentLimit()));
     case "space_full":
-      return quotaError(ctx, out.space, out.usage.usedBytes, out.usage.quotaBytes, null);
+      return quotaError(ctx, out.space, out.usage.usedBytes, out.usage.quotaBytes, out.incomingBytes);
     case "aborted": {
       const err = out.err;
       if (err instanceof StorageQuotaExceeded) return quotaError(ctx, err.space, err.usedBytes, err.quotaBytes, err.incomingBytes);

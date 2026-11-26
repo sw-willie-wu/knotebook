@@ -242,7 +242,11 @@
       "items": {
         "uploadMaxBytes": {
           "label": "Upload size limit",
-          "description": "Largest file a person can upload. Applies to the next upload."
+          "description": "Largest image, document or text file a person can upload. Applies to the next upload."
+        },
+        "uploadMediaMaxMib": {
+          "label": "Audio and video size limit",
+          "description": "Largest audio or video file a person can add to a note. Applies from the next file."
         },
         "noteMaxBytes": {
           "label": "Note size limit",
@@ -356,6 +360,19 @@
         "parseTimeoutMs": "Lowering this may reject writes of densely formatted content (for example text broken up by many line breaks). Reads and bulk downloads allow 3 times this limit, so a very low value can make large notes unreadable.",
         "parseWorkerMemoryMb": "Lowering this may reject densely formatted content (measured at 640–768 MiB) and deeply nested formatting, and reading large notes can fail for lack of memory. Workers are also replaced more often, which can slow processing.",
         "parseQueueWaitMs": "If this is shorter than 4 × the parse time limit + 5 seconds, a request queued behind a slow job can get a busy error first."
+      },
+      "media": {
+        "hint": "Default {{default}} · Recommended {{min}}–{{max}}",
+        "current": "That is {{size}}",
+        "tooSmall": "Enter a whole number of at least {{min}}.",
+        "tooLarge": "That is more than this setting can hold.",
+        "riskTitle": "Above {{size}}, check these first:",
+        "risk": {
+          "disk": "Disk use: every file is stored in full in the uploads volume and counts against the space's storage limit.",
+          "proxy": "A reverse proxy in front of the server may cap the request body size and the time a request may take; raise both or large uploads will be cut off.",
+          "restart": "After a dropped connection, the upload has to start again from the beginning.",
+          "temp": "While a file is being received it also takes temporary disk space, up to the full file size per upload in progress."
+        }
       },
       "machine_one": "This server: {{count}} CPU, {{memory}} GiB memory ({{source}})",
       "machine_other": "This server: {{count}} CPUs, {{memory}} GiB memory ({{source}})",

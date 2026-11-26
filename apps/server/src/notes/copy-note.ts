@@ -1,5 +1,8 @@
 // `sourceId` is lowercased defensively: live docs and kicks are keyed by lowercase strings.
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
+import { constants } from "node:fs";
+import { copyFile, stat } from "node:fs/promises";
+import { and, eq, inArray } from "drizzle-orm";
 import * as Y from "yjs";
 import type { FastifyBaseLogger } from "fastify";
 import type { CollabServer } from "../collab/server.js";
@@ -14,8 +17,8 @@ import type { GroupTestHook } from "../groups/test-hook.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
 import { TxAbort } from "../http/tx-abort.js";
 import type { StorageSpace } from "../storage/space.js";
-import { isSpaceFull, readSpaceUsage, type SpaceUsage } from "../storage/usage.js";
-import { deleteUploadFiles } from "../uploads/service.js";
+import { isSpaceFull, readSpaceUsage, remainingRoom, type SpaceUsage } from "../storage/usage.js";
+import { deleteUploadFilesAnyName, uploadFilePath, uploadTempPath } from "../uploads/service.js";
 import { cloneForCopy } from "./copy-doc.js";
 import type { NoteCreateHooks } from "./create.js";
 import { loadCreateTarget } from "./create-target.js";
@@ -27,7 +30,7 @@ import { redactDbError } from "../lib/redact-db-error.js";
 import { extractForIndex } from "./search-index.js";
 import { resolveNoteAccess, UUID_RE } from "./service.js";
 import type { SlugScope } from "./slug.js";
-import { copyNoteInTx, type CopyTargetInTx } from "./tx/copy.js";
+import { copyNoteInTx, type CopyPreparedFile, type CopyTargetInTx } from "./tx/copy.js";
 import type { SearchIndexHooks } from "./tx/search-index.js";
 import type { KnowledgeIndexHooks } from "../knowledge/tx/index-write.js";
 
@@ -52,7 +55,8 @@ export type CopyOutcome =
   | { kind: "group_not_found" }
   | { kind: "edit_rate_limited" }
   | { kind: "upload_rate_limited" }
-  | { kind: "space_full"; space: StorageSpace; usage: SpaceUsage & { quotaBytes: number } }
+  /** `incomingBytes` is null when the space is already full. */
+  | { kind: "space_full"; space: StorageSpace; usage: SpaceUsage & { quotaBytes: number }; incomingBytes: number | null }
   | { kind: "aborted"; err: TxAbort }
   | { kind: "fk_personal" }
   | { kind: "busy" }
@@ -111,27 +115,47 @@ export async function copyNote(
   const knowledgeExtract = extractKnowledgeForIndex(copy.doc);
   // #175: charge the upload limiter per attachment copied (same limiter and 429 as uploads; unit = files, 0 attachments skips it). On 429 nothing is written and the edit limiter stays charged (a 413 refunds it). A file missing on disk is still charged. Counted before the transaction and read again inside it, so the charge can be off by a few files if attachments change in between; not worth moving into the transaction.
   const wanted = [...copy.uploadNodes.keys()];
-  const toCopy = wanted.length === 0
-    ? 0
-    : (await deps.db.select({ n: sql<number>`count(*)::int` }).from(uploads).where(and(inArray(uploads.id, wanted), eq(uploads.noteId, sourceId))))[0]!.n;
-  // Lock-free "space full" pre-check (409; only when there are attachments: copies without them aren't quota-limited) so a doomed copy opens no transaction and consumes no upload quota; the authoritative check is in the transaction, under the lock, using the actual copied sizes.
-  if (toCopy > 0) {
+  const owned = wanted.length === 0
+    ? []
+    : await deps.db.select({ id: uploads.id, size: uploads.size }).from(uploads).where(and(inArray(uploads.id, wanted), eq(uploads.noteId, sourceId)));
+  // Lock-free room check (409; only when there are attachments: copies without them aren't quota-limited) so a doomed copy writes no file, opens no transaction and consumes no upload quota; the authoritative check is in the transaction, under the lock. Files missing on disk won't be copied, so they don't count, as in the transaction.
+  if (owned.length > 0) {
     const space: StorageSpace = "groupId" in scope ? { kind: "group", id: scope.groupId } : { kind: "user", id: userId };
     const usage = await readSpaceUsage(deps.db, space);
-    if (isSpaceFull(usage)) return { kind: "space_full", space, usage };
+    if (isSpaceFull(usage)) return { kind: "space_full", space, usage, incomingBytes: null };
+    const room = remainingRoom(usage);
+    if (room !== null) {
+      const present = await Promise.all(owned.map(u => sourceFileExists(deps.uploadsDir, u.id)));
+      const incoming = owned.reduce((sum, u, i) => (present[i] ? sum + u.size : sum), 0);
+      if (incoming > room) return { kind: "space_full", space, usage: usage as SpaceUsage & { quotaBytes: number }, incomingBytes: incoming };
+    }
   }
-  if (!deps.limiters.upload.consumeMany(userId, toCopy)) return { kind: "upload_rate_limited" };
+  if (!deps.limiters.upload.consumeMany(userId, owned.length)) return { kind: "upload_rate_limited" };
 
-  // Data is prepared before the transaction (`loadNoteDoc` borrows a connection); the callback is a single `copyNoteInTx` call.
+  // Every id whose file may exist under either name; recorded before `copyFile` so a partial temp file is covered too.
   const copiedFileIds: string[] = [];
-  const txInput = { sourceId, userId, scope, folderId, copy, uploadsDir: deps.uploadsDir, copiedFileIds, searchExtract, knowledgeExtract, lockTimeoutMs: deps.storageLockTimeoutMs };
+  const prepared: CopyPreparedFile[] = [];
   let created;
   try {
+    for (const u of owned) {
+      const newId = randomUUID();
+      const tempPath = uploadTempPath(deps.uploadsDir, newId);
+      copiedFileIds.push(newId);
+      try {
+        await copyFile(uploadFilePath(deps.uploadsDir, u.id), tempPath, constants.COPYFILE_FICLONE);
+      } catch (err) {
+        if (!isMissingFile(err)) throw err;
+        continue;
+      }
+      prepared.push({ oldId: u.id, newId, tempPath });
+    }
+    await deps.groupTestHook?.("note-copy-files-copied", { noteId: sourceId });
     await deps.groupTestHook?.("note-copy-authorized", { noteId: sourceId });
+    // Data is prepared before the transaction (`loadNoteDoc` borrows a connection); the callback is a single `copyNoteInTx` call.
+    const txInput = { sourceId, userId, scope, folderId, copy, uploadsDir: deps.uploadsDir, prepared, searchExtract, knowledgeExtract, lockTimeoutMs: deps.storageLockTimeoutMs };
     created = await deps.db.transaction(tx => copyNoteInTx(tx, txInput, deps.groupTestHook, deps.noteCreateHooks, deps.searchIndexHooks, deps.knowledgeIndexHooks));
   } catch (err) {
-    // Rolled back: delete the new files already written (best effort; failures only logged; on a quota rejection no uploads rows were written yet).
-    await deleteUploadFiles(deps.uploadsDir, copiedFileIds, deps.log);
+    await deleteUploadFilesAnyName(deps.uploadsDir, copiedFileIds, deps.log);
     // Check the subclass first: `StorageQuotaExceeded` extends `TxAbort` and callers need its numbers.
     if (err instanceof TxAbort) return { kind: "aborted", err };
     // Defence in depth: the folder holds KEY SHARE and was rechecked, so the INSERT can't hit `notes_folder_fk`/KF001.
@@ -147,6 +171,21 @@ export async function copyNote(
     if (isRetryableTxError(err)) return { kind: "busy" };
     throw redactDbError(deps.log, err, "copy note");
   }
+  await deleteUploadFilesAnyName(deps.uploadsDir, created.unusedTempIds, deps.log);
   await syncLinksFromDoc({ db: deps.db, log: deps.log }, { sourceNoteId: created.note.id, userId, doc: copy.doc, clock: docClock(copy.doc) });
   return { kind: "copied", note: created.note, target: created.target };
+}
+
+function isMissingFile(err: unknown): boolean {
+  return typeof err === "object" && err !== null && (err as { code?: unknown }).code === "ENOENT";
+}
+
+/** Any other stat error counts as present: `copyFile` then fails and the copy is cleaned up. */
+async function sourceFileExists(uploadsDir: string, id: string): Promise<boolean> {
+  try {
+    await stat(uploadFilePath(uploadsDir, id));
+    return true;
+  } catch (err) {
+    return !isMissingFile(err);
+  }
 }

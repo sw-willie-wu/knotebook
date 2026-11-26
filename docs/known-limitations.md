@@ -387,7 +387,7 @@ Each section below names one page and lists the bold headings of its entries; fo
 
 ## Uploads, images and storage
 
-[Uploads, images and storage](./known-limitations/uploads.md): image uploads, embedded media, attachments of copied notes, and storage quotas.
+[Uploads, images and storage](./known-limitations/uploads.md): file uploads, embedded media, attachments of copied notes, and storage quotas.
 
 - [A media URL that fails the safety check shows up as a broken image, with no explanation.](./known-limitations/uploads.md)
 - [Pasting a right-click-copied image is blocked.](./known-limitations/uploads.md)
@@ -406,9 +406,17 @@ Each section below names one page and lists the bold headings of its entries; fo
 - [External images embedded by URL are hotlinked, not proxied.](./known-limitations/uploads.md)
 - [Uploads have no CSRF check when the request carries no `Origin` header.](./known-limitations/uploads.md)
 - [Revoked upload access can still be served from a browser's cache.](./known-limitations/uploads.md)
-- [Only image blocks can upload; audio, video, and file blocks are embed-by-URL only.](./known-limitations/uploads.md)
+- [The editor's file panel still uploads only images; the other kinds go in through the API or MCP.](./known-limitations/uploads.md)
 - [Copying a note doesn't rewrite every link to its attachments.](./known-limitations/uploads.md)
-- [Copying a note with many attachments holds it briefly and doubles their disk usage.](./known-limitations/uploads.md)
+- [Copying a note with many attachments doubles their disk usage.](./known-limitations/uploads.md)
+- [Audio and video are stored as uploaded, and playback depends on the viewer's browser.](./known-limitations/uploads.md)
+- [Text that isn't UTF-8 can only be downloaded.](./known-limitations/uploads.md)
+- [Some formats are refused.](./known-limitations/uploads.md)
+- [A refused upload may show as a network error.](./known-limitations/uploads.md)
+- [A dropped upload starts again from the beginning.](./known-limitations/uploads.md)
+- [A restart in the middle of an upload leaves a temporary file until the next start.](./known-limitations/uploads.md)
+- [A crash in the middle of copying a note can leave a stray attachment file.](./known-limitations/uploads.md)
+- [An audio, video or file attachment inserted as a link isn't copied with the note and can't be opened from a public page.](./known-limitations/uploads.md)
 
 ## Sharing and groups
 
@@ -561,7 +569,7 @@ Each section below names one page and lists the bold headings of its entries; fo
 - [An assistant tricked by a prompt injection can move your notes to the trash.](./known-limitations/mcp.md)
 - [An assistant tricked by a prompt injection can delete your folders, or rearrange them.](./known-limitations/mcp.md)
 - [`read_note_image` shows an image only if you can read the note it was uploaded to.](./known-limitations/mcp.md)
-- [An image uploaded but never written into a note is still an attachment.](./known-limitations/mcp.md)
+- [A file uploaded but never written into a note is still an attachment.](./known-limitations/mcp.md)
 - [The `curl` commands `create_transfer_token` and `open_notes_as_files` return are built from `PUBLIC_URL`.](./known-limitations/mcp.md)
 - [On a plain-http `PUBLIC_URL` (for example a LAN deployment), transfer tokens cross the network unencrypted,](./known-limitations/mcp.md)
 - [An MCP connection made with the browser's sign-in session has no `create_transfer_token` or `open_notes_as_files`.](./known-limitations/mcp.md)
@@ -679,7 +687,7 @@ Each section below names one page and lists the bold headings of its entries; fo
 - [Rolling back to a pre-0.2 version after starting 0.2 makes stored AI provider keys unreadable.](./known-limitations/operations.md)
 - [Setting `POSTGRES_PASSWORD` after the first `docker compose up` has no effect.](./known-limitations/operations.md)
 - [`ADMIN_EMAIL`/`ADMIN_PASSWORD` only take effect on first initialization](./known-limitations/operations.md)
-- [The uploads directory is a Docker named volume; if it isn't mounted, uploaded images vanish the next time the `app` container is rebuilt.](./known-limitations/operations.md)
+- [The uploads directory is a Docker named volume; if it isn't mounted, uploaded files vanish the next time the `app` container is rebuilt.](./known-limitations/operations.md)
 - [Upgrading a pre-release build that already had groups moves every group note out of its owner's hands, and some old links stop working.](./known-limitations/operations.md)
 - [Accounts created while running a rolled-back (pre-username) server version aren't in the username registry until the next upgrade boots.](./known-limitations/operations.md)
 - [Behind a reverse proxy with `TRUST_PROXY` unset, one client can rate-limit the public share pages for everyone.](./known-limitations/operations.md)

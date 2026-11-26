@@ -41,8 +41,13 @@ describe("copy", () => {
     expect(uploadBucket.consume(b.id)).toBe(true);
   });
 
-  it("not full but does not fit -> 409 inside the transaction (incomingBytes = bytes actually copied); no new note, files already copied are cleaned up after the rejection", async () => {
-    const { app, db, uploadsDir } = await buildTestApp();
+  it("not full, each attachment would fit alone but their total doesn't -> lock-free 409 before any file is written (incomingBytes = the total); no new note, the copy step never ran, upload bucket not charged", async () => {
+    const points: string[] = [];
+    const uploadBucket = new FixedWindowLimiter({ limit: 2, windowMs: 600_000 });
+    const { app, db, uploadsDir } = await buildTestApp({
+      limiters: freshLimiters({ upload: uploadBucket }),
+      groupTestHook: async point => { points.push(point); },
+    });
     const a = await seedUser(db);
     await giveUserQuota(db, a.id, 1000);
     const src = await srcWith(db, uploadsDir, { ownerId: a.id }, a.id, [300, 400]); // usage is already 700, the copy needs another 700
@@ -50,6 +55,39 @@ describe("copy", () => {
     const r = await copy(app, src.id, a.id);
     expect(r.statusCode).toBe(409);
     expect(r.json()).toEqual(quotaBody({ incomingBytes: 700, usedBytes: 700, quotaBytes: 1000 }));
+    expect(await noteCount(db.$client)).toBe(notesBefore);
+    expect(await filesIn(uploadsDir)).toEqual(filesBefore);
+    expect(points).not.toContain("note-copy-files-copied");
+    expect(uploadBucket.consume(a.id)).toBe(true);
+    expect(uploadBucket.consume(a.id)).toBe(true);
+  });
+
+  it("room taken after the lock-free check (another attachment lands while the files are being copied) -> 409 inside the transaction (incomingBytes = bytes copied); no new note, the temp files are cleaned up; the copy step holds no pool connection and runs before note-copy-authorized", async () => {
+    const holder: { db?: TestApp["db"]; uploadsDir?: string; noteId?: string; userId?: string; done?: boolean; busyAtHook?: number } = {};
+    const points: string[] = [];
+    const { app, db, uploadsDir } = await buildTestApp({
+      groupTestHook: async point => {
+        points.push(point);
+        if (point !== "note-copy-files-copied" || holder.done) return;
+        holder.done = true;
+        const pool = holder.db!.$client;
+        holder.busyAtHook = pool.totalCount - pool.idleCount;
+        await seedAttachment(holder.db!, holder.uploadsDir!, holder.noteId!, holder.userId!, 500, { noFile: true });
+      },
+    });
+    const a = await seedUser(db);
+    await giveUserQuota(db, a.id, 1000);
+    const other = await seedNote(db, { ownerId: a.id });
+    Object.assign(holder, { db, uploadsDir, noteId: other.id, userId: a.id });
+    const src = await srcWith(db, uploadsDir, { ownerId: a.id }, a.id, [100, 200]);
+    const [notesBefore, filesBefore] = [await noteCount(db.$client), await filesIn(uploadsDir)];
+    const r = await copy(app, src.id, a.id);
+    expect(holder.done).toBe(true);
+    expect(holder.busyAtHook).toBe(0);
+    expect(points.indexOf("note-copy-files-copied")).toBeGreaterThan(-1);
+    expect(points.indexOf("note-copy-files-copied")).toBeLessThan(points.indexOf("note-copy-authorized"));
+    expect(r.statusCode).toBe(409);
+    expect(r.json()).toEqual(quotaBody({ incomingBytes: 300, usedBytes: 800, quotaBytes: 1000 }));
     expect(await noteCount(db.$client)).toBe(notesBefore);
     expect(await filesIn(uploadsDir)).toEqual(filesBefore);
   });
@@ -74,8 +112,9 @@ describe("copy", () => {
     expect(await filesIn(uploadsDir)).toEqual(filesBefore);
   });
 
-  it("attachments missing on disk are not counted as incoming: it fits exactly because of that -> 201", async () => {
-    const { app, db, uploadsDir } = await buildTestApp();
+  it("attachments missing on disk are not counted as incoming (neither by the lock-free check nor in the transaction): it fits exactly because of that -> 201; the missing one is still charged to the upload bucket", async () => {
+    const uploadBucket = new FixedWindowLimiter({ limit: 2, windowMs: 600_000 });
+    const { app, db, uploadsDir } = await buildTestApp({ limiters: freshLimiters({ upload: uploadBucket }) });
     const a = await seedUser(db);
     await giveUserQuota(db, a.id, 1000);
     const n = await seedNote(db, { ownerId: a.id }, { title: "Src" });
@@ -86,6 +125,7 @@ describe("copy", () => {
     const r = await copy(app, n.id, a.id);
     expect(r.statusCode).toBe(201);
     expect(await usedOf(db.$client, { kind: "user", id: a.id })).toBe(900);
+    expect(uploadBucket.consume(a.id)).toBe(false);
   });
 
   it("source document references the same attachment twice, exactly one copy fits -> 201 (incoming counted once)", async () => {

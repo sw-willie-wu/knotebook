@@ -14,7 +14,7 @@ const drainedRequests = new WeakSet<object>();
  * early returns carry small bodies. On loopback the structured 403/400 usually still arrives (the caller's sendError runs synchronously, before
  * the next `data` event can trigger destroy); the connection is then closed without keep-alive. Idempotent per `request.raw` (WeakSet) so stacked listeners don't double-count.
  */
-export function drainWithCap(request: FastifyRequest): void {
+export function drainWithCap(request: FastifyRequest, capBytes: number = DRAIN_CAP_BYTES): void {
   const raw = request.raw;
   if (drainedRequests.has(raw)) {
     return;
@@ -24,7 +24,7 @@ export function drainWithCap(request: FastifyRequest): void {
   let received = 0;
   raw.on("data", (chunk: Buffer) => {
     received += chunk.length;
-    if (received > DRAIN_CAP_BYTES) {
+    if (received > capBytes) {
       raw.destroy();
     }
   });
