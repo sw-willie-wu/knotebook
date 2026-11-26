@@ -30,6 +30,7 @@
     "argon2": "^0.44",
     "drizzle-orm": "^0.44",
     "fastify": "^5",
+    "file-type": "22.3.0",
     "jose": "^6",
     "jsdom": "^30.0.1",
     "openid-client": "^6.8.5",
