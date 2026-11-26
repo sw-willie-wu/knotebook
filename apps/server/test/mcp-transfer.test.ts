@@ -119,7 +119,7 @@ describe("create_transfer_token flow", () => {
         "edit_note using markdown `![description](url)` and any other kind as a link `[name](url)`, with `url` exactly as returned " +
         "(`/api/uploads/<id>`, relative). The token is good for one upload until `expiresAt`. A 401 " +
         "means the token can't be used (expired, already used, or revoked) — ask for a new one. A 403 or 429 doesn't use the " +
-        "token up (after a 429, wait a moment and retry); a 404 means the note is gone or you can no longer see it. A 409 " +
+        "token up (after a 429, wait a moment and retry), unless the 403 is for a role lost while the file was uploading; a 404 means the note is gone or you can no longer see it, and one that comes while the file is uploading comes after the token was used up. A 409 " +
         "`storage_quota_exceeded` means the note's storage space has no room for this file: don't retry until space has been " +
         "freed, and then ask for a new token. A 409 `server_busy` means the server was busy and the token is used up: ask for " +
         "a new token and retry. Once the server has started reading the file, a rejection (for example 413: over the size limit, " +

@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { createWriteStream } from "node:fs";
-import { unlink } from "node:fs/promises";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { MultipartFile } from "@fastify/multipart";
@@ -31,7 +30,7 @@ import { spaceOfNote, type StorageSpace } from "../storage/space.js";
 import { StorageQuotaExceeded } from "../storage/tx/quota.js";
 import { precheckDetail, quotaErrorDetail, readSpaceUsage, remainingRoom, type SpaceUsage } from "../storage/usage.js";
 import { classifyUploadHead, HEAD_BYTES, verifyWholeFile, type HeadVerdict } from "../uploads/detect.js";
-import { sendUploadFile, uploadFilePath, uploadTempPath } from "../uploads/service.js";
+import { deleteUploadFilesAnyName, sendUploadFile, uploadFilePath, uploadTempPath } from "../uploads/service.js";
 import { insertUploadInTx } from "../uploads/tx/insert-upload.js";
 
 declare module "fastify" {
@@ -158,10 +157,6 @@ async function receiveFile(
   }
   if (state.verdict === null) throw new UploadRefusal("unsupported");
   return { verdict: state.verdict, size: state.size };
-}
-
-async function discard(...paths: string[]): Promise<void> {
-  await Promise.all(paths.map(p => unlink(p).catch(() => {})));
 }
 
 export interface UploadsRouteDeps {
@@ -296,7 +291,7 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
           }
         }
       } catch (err) {
-        await discard(tempPath);
+        await deleteUploadFilesAnyName(deps.uploadsDir, [id], request.log);
         if (typeof (err as NodeJS.ErrnoException).syscall === "string") {
           request.log.error({ err }, "writing an upload to disk failed");
           return sendError(refuse(reply), 500, "internal", "Internal server error.");
@@ -310,7 +305,7 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
       }
 
       if (refusal !== undefined) {
-        await discard(tempPath);
+        await deleteUploadFilesAnyName(deps.uploadsDir, [id], request.log);
         // The rest of the body is never read, so the connection can't be reused.
         refuse(reply);
         switch (refusal.reason) {
@@ -338,7 +333,7 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
         mime = whole.mime;
       } catch (err) {
         if (!(err instanceof UploadRefusal)) request.log.warn({ err }, "upload whole-file check failed");
-        await discard(tempPath);
+        await deleteUploadFilesAnyName(deps.uploadsDir, [id], request.log);
         return sendError(reply, 415, "unsupported_media_type", UNSUPPORTED_UPLOAD_MESSAGE);
       }
 
@@ -351,7 +346,7 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
         await deps.db.transaction(tx => insertUploadInTx(tx, input, deps.groupTestHook));
       } catch (err) {
         // No DB row, no file under either name (the rename may have run before a failed commit).
-        await discard(tempPath, finalPath);
+        await deleteUploadFilesAnyName(deps.uploadsDir, [id], request.log);
         if (err instanceof StorageQuotaExceeded) return sendStorageQuotaExceeded(reply, await quotaErrorDetail(deps.db, request.user!, err));
         // Note deleted mid-request (KEY SHARE finds 0 rows), or the uploader's role was lost during the upload.
         if (err instanceof TxAbort) return sendError(reply, err.status, err.errCode, err.message);

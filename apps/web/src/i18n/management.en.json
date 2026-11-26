@@ -242,7 +242,7 @@
       "items": {
         "uploadMaxBytes": {
           "label": "Upload size limit",
-          "description": "Largest file a person can upload. Applies to the next upload."
+          "description": "Largest image, document or text file a person can upload. Applies to the next upload."
         },
         "uploadMediaMaxMib": {
           "label": "Audio and video size limit",

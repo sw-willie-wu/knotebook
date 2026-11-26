@@ -242,7 +242,7 @@
       "items": {
         "uploadMaxBytes": {
           "label": "上傳檔案大小上限",
-          "description": "單一檔案最大可上傳多大。下一次上傳就套用。"
+          "description": "單一圖片、文件或文字檔案最大可上傳多大。下一次上傳就套用。"
         },
         "uploadMediaMaxMib": {
           "label": "音訊與影片大小上限",

@@ -863,7 +863,7 @@ describe("real socket drain check (parts over the limit reaches the catch branch
       await app.listen({ port: 0, host: "127.0.0.1" });
       const address = app.server.address();
       if (address === null || typeof address === "string") {
-        throw new Error("app.listen 後取不到 TCP 位址——真 socket 測試需要真的 port");
+        throw new Error("no TCP address after app.listen; this test needs a real socket");
       }
 
       // 33 small file parts (parts limit 32, the 33rd trips partsLimit) + one part slightly under 20 MB that will never be parsed - once the parts limit trips, busboy
@@ -904,7 +904,7 @@ describe("real socket drain check (parts over the limit reaches the catch branch
         app.close(),
         new Promise((_resolve, reject) =>
           setTimeout(
-            () => reject(new Error(`app.close() 逾時（${CLOSE_TIMEOUT_MS}ms）——剩餘 request body 未被 drain，連線卡住`)),
+            () => reject(new Error(`app.close() timed out after ${CLOSE_TIMEOUT_MS}ms: the rest of the request body was not drained and the connection hung`)),
             CLOSE_TIMEOUT_MS
           )
         ),
@@ -931,7 +931,7 @@ async function expectClientSocketClosesByItself(res: { socket: Socket; clientErr
       return;
     }
     const timer = setTimeout(
-      () => reject(new Error(`client socket 未在 ${CLIENT_CLOSE_TIMEOUT_MS}ms 內自行關閉——${what}`)),
+      () => reject(new Error(`client socket did not close by itself within ${CLIENT_CLOSE_TIMEOUT_MS}ms: ${what}`)),
       CLIENT_CLOSE_TIMEOUT_MS
     );
     res.socket.once("close", () => {
@@ -953,7 +953,7 @@ async function closeAppPromptly(app: Awaited<ReturnType<typeof buildTestApp>>["a
   const CLOSE_TIMEOUT_MS = 10_000;
   await Promise.race([
     app.close(),
-    new Promise((_resolve, reject) => setTimeout(() => reject(new Error(`app.close() 逾時（${CLOSE_TIMEOUT_MS}ms）`)), CLOSE_TIMEOUT_MS)),
+    new Promise((_resolve, reject) => setTimeout(() => reject(new Error(`app.close() timed out after ${CLOSE_TIMEOUT_MS}ms`)), CLOSE_TIMEOUT_MS)),
   ]);
   expect(Date.now() - closeStart).toBeLessThan(CLOSE_TIMEOUT_MS);
 }
@@ -972,7 +972,7 @@ describe("upload preHandler refusal closes the connection (real socket, body ove
       await app.listen({ port: 0, host: "127.0.0.1" });
       const address = app.server.address();
       if (address === null || typeof address === "string") {
-        throw new Error("app.listen 後取不到 TCP 位址——真 socket 測試需要真的 port");
+        throw new Error("no TCP address after app.listen; this test needs a real socket");
       }
 
       const res = await rawSocketPost({
@@ -988,7 +988,7 @@ describe("upload preHandler refusal closes the connection (real socket, body ove
       expect(res.status).toBe(403);
       expect(JSON.parse(res.body)).toMatchObject({ error: { code: "forbidden" } });
       expect(res.headers.connection).toBe("close");
-      await expectClientSocketClosesByItself(res, "Connection: close 沒有結束連線");
+      await expectClientSocketClosesByItself(res, "Connection: close did not end the connection");
       await closeAppPromptly(app);
     },
     30_000
@@ -1003,7 +1003,7 @@ describe("drainWithCap byte limit (real socket, pre-auth refusal with a body ove
       await app.listen({ port: 0, host: "127.0.0.1" });
       const address = app.server.address();
       if (address === null || typeof address === "string") {
-        throw new Error("app.listen 後取不到 TCP 位址——真 socket 測試需要真的 port");
+        throw new Error("no TCP address after app.listen; this test needs a real socket");
       }
 
       const res = await rawSocketPost({
@@ -1019,7 +1019,7 @@ describe("drainWithCap byte limit (real socket, pre-auth refusal with a body ove
       expect(res.status).toBe(401);
       expect(JSON.parse(res.body)).toMatchObject({ error: { code: "unauthorized" } });
       expect(res.headers.connection).not.toBe("close");
-      await expectClientSocketClosesByItself(res, "drainWithCap 疑似沒有真的 destroy() 底層連線");
+      await expectClientSocketClosesByItself(res, "drainWithCap probably did not destroy() the underlying connection");
       await closeAppPromptly(app);
     },
     30_000
@@ -1115,6 +1115,19 @@ describe("POST /api/notes/:id/uploads: streamed body", () => {
     expect(res.json()).toEqual({ id, url: `/api/uploads/${id}`, mime: "text/plain; charset=utf-8", kind: "file" });
     const [row] = await db.select().from(uploads).where(eq(uploads.id, id));
     expect(row?.mime).toBe("text/plain; charset=utf-8");
+  });
+
+  it("a text file whose long name is cut keeps its extension and is accepted as text", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db);
+    const note = await createNote(db, owner.id);
+    const filename = `${"報".repeat(70)}.txt`;
+    const res = await postUpload(app, note.id, singleFileBody(Buffer.from("hello\n", "utf-8"), { filename, contentType: "text/plain" }), { cookie: await cookieFor(owner.id) });
+    expect(res.statusCode, res.body).toBe(201);
+    const { id } = res.json() as { id: string };
+    expect(res.json()).toMatchObject({ mime: "text/plain; charset=utf-8", kind: "file" });
+    const [row] = await db.select().from(uploads).where(eq(uploads.id, id));
+    expect(row?.fileName?.endsWith(".txt")).toBe(true);
   });
 
   it("a text file with a NUL after the head -> 415 from the whole-file check, no file left", async () => {

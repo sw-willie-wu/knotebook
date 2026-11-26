@@ -52,6 +52,18 @@ describe("sanitizeUploadFileName", () => {
     expect(out).toBe("\u4F60".repeat(66));
     expect(sanitizeUploadFileName("\u{1F600}".repeat(100))).toBe("\u{1F600}".repeat(50));
   });
+  it("keeps the extension when the stem is cut", () => {
+    const out = sanitizeUploadFileName("報".repeat(70) + ".txt")!;
+    expect(out.endsWith(".txt")).toBe(true);
+    expect(new TextEncoder().encode(out).length).toBeLessThanOrEqual(200);
+    expect(uploadCategoryOfName(out)).toBe("text");
+  });
+  it("caps a name whose extension alone is huge", () => {
+    const out = sanitizeUploadFileName("a." + "x".repeat(500))!;
+    expect(new TextEncoder().encode(out).length).toBeLessThanOrEqual(200);
+    const out2 = sanitizeUploadFileName("a".repeat(300) + "." + "x".repeat(40))!;
+    expect(new TextEncoder().encode(out2).length).toBeLessThanOrEqual(200);
+  });
   it("strips lone surrogates and normalizes after stripping", () => {
     expect(sanitizeUploadFileName("\uD800abc.txt")).toBe("abc.txt");
     const r = sanitizeUploadFileName("e\u200B\u0301.txt")!;

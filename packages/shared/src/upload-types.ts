@@ -110,15 +110,21 @@ export function sanitizeUploadFileName(raw: string): string | null {
   // Strip before normalizing: removing a format character between a base and a combining mark would otherwise leave a non-NFC result.
   const cleaned = raw.replace(/[\p{Cc}\p{Cf}\p{Cs}/\\]/gu, "").normalize("NFC").trim();
   const encoder = new TextEncoder();
+  const byteLen = (t: string) => encoder.encode(t).length;
+  // Cutting only the stem keeps the extension, which classification of text and legacy Office files depends on.
+  const dot = cleaned.lastIndexOf(".");
+  const tail = dot > 0 && /^\.[A-Za-z0-9]{1,15}$/.test(cleaned.slice(dot)) ? cleaned.slice(dot) : "";
+  const stem = tail === "" ? cleaned : cleaned.slice(0, dot);
+  const room = FILE_NAME_MAX_BYTES - byteLen(tail);
   let out = "";
   let bytes = 0;
-  for (const ch of cleaned) {
-    const n = encoder.encode(ch).length;
-    if (bytes + n > FILE_NAME_MAX_BYTES) break;
+  for (const ch of stem) {
+    const n = byteLen(ch);
+    if (bytes + n > room) break;
     out += ch;
     bytes += n;
   }
-  out = out.trim();
+  out = out.trim() + tail;
   return out === "" ? null : out;
 }
 
