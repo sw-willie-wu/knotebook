@@ -27,6 +27,8 @@ export type GroupRacePoint =
   | "trash-purge-locked"
   | "note-move-authorized"
   | "note-copy-authorized"
+  /** Outside any transaction: the whole file is in its temp file and passed the whole-file checks; `upload-authorized` follows, right before the transaction. */
+  | "upload-received"
   | "upload-authorized"
   | "folder-authorized"
   | "folder-structure-locked"

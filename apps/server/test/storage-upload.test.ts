@@ -22,7 +22,7 @@ const rowsOf = async (db: Awaited<ReturnType<typeof buildTestApp>>["db"], noteId
   db.select({ size: uploads.size }).from(uploads).where(eq(uploads.noteId, noteId));
 
 describe("upload: quota decisions", () => {
-  it("plan 1000: 600 -> 201; 600 -> 409 (owner sees three numbers), no new file on disk, no new row; 400 -> 201 (equal to the limit); then the preHandler 409 (incomingBytes null)", async () => {
+  it("plan 1000: 600 -> 201; 600 -> 409 while streaming past the room (owner sees used and quota), no new file on disk, no new row; 400 -> 201 (equal to the limit); then the preHandler 409", async () => {
     const { app, db, uploadsDir } = await buildTestApp();
     const u = await seedUser(db);
     await giveUserQuota(db, u.id, 1000);
@@ -32,7 +32,8 @@ describe("upload: quota decisions", () => {
     const files1 = await filesIn(uploadsDir);
     const r2 = await upload(app, n.id, u.id, 600);
     expect(r2.statusCode).toBe(409);
-    expect(r2.json()).toEqual(quotaBody({ incomingBytes: 600, usedBytes: 600, quotaBytes: 1000 }));
+    expect(r2.json()).toEqual(quotaBody({ incomingBytes: null, usedBytes: 600, quotaBytes: 1000 }));
+    expect(r2.headers.connection).toBe("close");
     expect(await filesIn(uploadsDir)).toEqual(files1);
     expect(await rowsOf(db, n.id)).toEqual([{ size: 600 }]);
 
@@ -94,7 +95,7 @@ describe("upload: quota decisions", () => {
 });
 
 describe("upload: metering by space and number visibility", () => {
-  it("A's personal note shared to B (editor), B uploads -> counts for A; when B is rejected only incomingBytes; when A is rejected three numbers", async () => {
+  it("A's personal note shared to B (editor), B uploads -> counts for A; when B is rejected no numbers; when A is rejected used and quota", async () => {
     const { app, db } = await buildTestApp();
     const [a, b] = await Promise.all([seedUser(db), seedUser(db)]);
     await giveUserQuota(db, a.id, 1000);
@@ -106,27 +107,27 @@ describe("upload: metering by space and number visibility", () => {
     expect(await usedOf(db.$client, { kind: "user", id: b.id })).toBe(0);
     const rb = await upload(app, n.id, b.id, 200);
     expect(rb.statusCode).toBe(409);
-    expect(rb.json()).toEqual(quotaBody({ incomingBytes: 200 }));
+    expect(rb.json()).toEqual(quotaBody({ incomingBytes: null }));
     const ra = await upload(app, n.id, a.id, 200);
-    expect(ra.json()).toEqual(quotaBody({ incomingBytes: 200, usedBytes: 900, quotaBytes: 1000 }));
+    expect(ra.json()).toEqual(quotaBody({ incomingBytes: null, usedBytes: 900, quotaBytes: 1000 }));
   });
 
-  it("group note: ordinary member rejected -> incomingBytes only; manageGroup rejected -> three numbers; a non-member site admin has no role on the note -> 404; manageGroup's pre-check 409 -> three numbers (null incoming)", async () => {
+  it("group note: ordinary member rejected -> no numbers; manageGroup rejected -> used and quota; a non-member site admin has no role on the note -> 404", async () => {
     const { app, db } = await buildTestApp();
     const [gAdmin, gMember, site] = await Promise.all([seedUser(db), seedUser(db), seedUser(db, { isAdmin: true })]);
     const g = await seedGroup(db, "G", [{ userId: gAdmin.id, role: "admin" }, { userId: gMember.id, role: "member" }]);
     await giveGroupQuota(db, g.id, 1000);
     const n = await seedNote(db, { groupId: g.id });
     expect((await upload(app, n.id, gMember.id, 900)).statusCode).toBe(201);
-    expect((await upload(app, n.id, gMember.id, 200)).json()).toEqual(quotaBody({ incomingBytes: 200 }));
-    expect((await upload(app, n.id, gAdmin.id, 200)).json()).toEqual(quotaBody({ incomingBytes: 200, usedBytes: 900, quotaBytes: 1000 }));
+    expect((await upload(app, n.id, gMember.id, 200)).json()).toEqual(quotaBody({ incomingBytes: null }));
+    expect((await upload(app, n.id, gAdmin.id, 200)).json()).toEqual(quotaBody({ incomingBytes: null, usedBytes: 900, quotaBytes: 1000 }));
     expect((await upload(app, n.id, gAdmin.id, 100)).statusCode).toBe(201);
     // A site admin who is not a member has no role on the note -> 404 (not a quota issue); the three numbers are confirmed through the group manager's preHandler shape.
     expect((await upload(app, n.id, site.id, 8)).statusCode).toBe(404);
     expect((await upload(app, n.id, gAdmin.id, 8)).json()).toEqual(quotaBody({ incomingBytes: null, usedBytes: 1000, quotaBytes: 1000 }));
   });
 
-  it("site admin as an editor share target on someone's personal note: rejected sees three numbers (both in-transaction 409 and pre-check 409); an ordinary editor in the same situation sees incomingBytes only", async () => {
+  it("site admin as an editor share target on someone's personal note: rejected sees used and quota (streaming 409 and pre-check 409); an ordinary editor in the same situation sees no numbers", async () => {
     const { app, db } = await buildTestApp();
     const [a, site, plain] = await Promise.all([seedUser(db), seedUser(db, { isAdmin: true }), seedUser(db)]);
     await giveUserQuota(db, a.id, 1000);
@@ -134,8 +135,8 @@ describe("upload: metering by space and number visibility", () => {
     await seedShare(db, n.id, site.id, "editor");
     await seedShare(db, n.id, plain.id, "editor");
     expect((await upload(app, n.id, site.id, 900)).statusCode).toBe(201);
-    expect((await upload(app, n.id, site.id, 200)).json()).toEqual(quotaBody({ incomingBytes: 200, usedBytes: 900, quotaBytes: 1000 }));
-    expect((await upload(app, n.id, plain.id, 200)).json()).toEqual(quotaBody({ incomingBytes: 200 }));
+    expect((await upload(app, n.id, site.id, 200)).json()).toEqual(quotaBody({ incomingBytes: null, usedBytes: 900, quotaBytes: 1000 }));
+    expect((await upload(app, n.id, plain.id, 200)).json()).toEqual(quotaBody({ incomingBytes: null }));
     expect((await upload(app, n.id, site.id, 100)).statusCode).toBe(201);
     expect((await upload(app, n.id, site.id, 8)).json()).toEqual(quotaBody({ incomingBytes: null, usedBytes: 1000, quotaBytes: 1000 }));
     expect((await upload(app, n.id, plain.id, 8)).json()).toEqual(quotaBody({ incomingBytes: null }));
@@ -228,7 +229,7 @@ describe("upload: busy mapping and real timeout", () => {
 });
 
 describe("upload: existing contracts unchanged", () => {
-  it("note missing -> 404 not_found (preHandler); viewer -> 403; the 413 limit still comes before the quota transaction", async () => {
+  it("note missing -> 404 not_found (preHandler); viewer -> 403; past the size limit with more room than the limit -> 413, with less room than the limit -> 409", async () => {
     const { app, db } = await buildTestApp();
     const [o, v] = await Promise.all([seedUser(db), seedUser(db)]);
     await giveUserQuota(db, o.id, 10);
@@ -236,10 +237,15 @@ describe("upload: existing contracts unchanged", () => {
     await seedShare(db, n.id, v.id, "viewer");
     expect((await upload(app, "00000000-0000-4000-8000-000000000000", o.id, 8)).statusCode).toBe(404);
     expect((await upload(app, n.id, v.id, 8)).statusCode).toBe(403);
-    // Room just under the file size but above the declared length minus the framing allowance: the early room check passes, so only the size limit (413) coming first keeps the in-transaction quota check (409) from answering.
-    await giveUserQuota(db, o.id, MAX_UPLOAD_BYTES - 1);
+    // Both rooms pass the early check (declared length minus the framing allowance); the stream is cut at the smaller of the size limit and the room.
+    await giveUserQuota(db, o.id, MAX_UPLOAD_BYTES + 1024);
     const tooBig = await upload(app, n.id, o.id, MAX_UPLOAD_BYTES + 1);
     expect(tooBig.statusCode).toBe(413);
+    expect(tooBig.json().error.code).toBe("file_too_large");
+    await giveUserQuota(db, o.id, MAX_UPLOAD_BYTES - 1);
+    const noRoom = await upload(app, n.id, o.id, MAX_UPLOAD_BYTES + 1);
+    expect(noRoom.statusCode).toBe(409);
+    expect(noRoom.json()).toEqual(quotaBody({ incomingBytes: null, usedBytes: 0, quotaBytes: MAX_UPLOAD_BYTES - 1 }));
   });
 });
 
@@ -278,6 +284,23 @@ describe("upload: early room refusal before the body", () => {
     expect((await injectDeclared(app, n.id, u.id, 16, 984 + FRAMING)).statusCode).toBe(201);
   });
 
+  it("a file that passes the room while streaming -> 409 in the shape of the early refusal (no numbers for an editor), connection closed, no file and no row left", async () => {
+    const { app, db, uploadsDir } = await buildTestApp();
+    const [o, e] = await Promise.all([seedUser(db), seedUser(db)]);
+    await giveUserQuota(db, o.id, 1000);
+    const n = await seedNote(db, { ownerId: o.id });
+    await seedShare(db, n.id, e.id, "editor");
+    const owner = await upload(app, n.id, o.id, 1001);
+    expect(owner.statusCode).toBe(409);
+    expect(owner.json()).toEqual(quotaBody({ incomingBytes: null, usedBytes: 0, quotaBytes: 1000 }));
+    expect(owner.headers.connection).toBe("close");
+    const editor = await upload(app, n.id, e.id, 1001);
+    expect(editor.json()).toEqual(quotaBody({ incomingBytes: null }));
+    expect(await filesIn(uploadsDir)).toEqual([]);
+    expect(await rowsOf(db, n.id)).toEqual([]);
+    expect((await upload(app, n.id, o.id, 1000)).statusCode).toBe(201);
+  });
+
   it("a space without a storage limit skips the check", async () => {
     const { app, db } = await buildTestApp();
     const u = await seedUser(db);
@@ -286,7 +309,7 @@ describe("upload: early room refusal before the body", () => {
     expect((await injectDeclared(app, n.id, u.id, 16, 50_000_000_000)).statusCode).toBe(201);
   });
 
-  it("a chunked request (no Content-Length) skips the declared-length check and meets the in-transaction check instead (incomingBytes is a number)", async () => {
+  it("a chunked request (no Content-Length) skips the declared-length check and is cut off once the file passes the room", async () => {
     const { app, db } = await buildTestApp();
     const u = await seedUser(db);
     await giveUserQuota(db, u.id, 1000);
@@ -309,7 +332,7 @@ describe("upload: early room refusal before the body", () => {
     });
     expect(res.hadLength).toBe(false);
     expect(res.status).toBe(409);
-    expect(JSON.parse(res.body)).toEqual(quotaBody({ incomingBytes: 5000, usedBytes: 0, quotaBytes: 1000 }));
+    expect(JSON.parse(res.body)).toEqual(quotaBody({ incomingBytes: null, usedBytes: 0, quotaBytes: 1000 }));
     await app.close();
   });
 

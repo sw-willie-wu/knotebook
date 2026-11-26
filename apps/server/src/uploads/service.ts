@@ -1,7 +1,33 @@
 import { writeFileSync, unlinkSync } from "node:fs";
-import { unlink } from "node:fs/promises";
+import { lstat, readdir, unlink } from "node:fs/promises";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
+import type { FastifyBaseLogger } from "fastify";
+
+export const UPLOAD_TEMP_MAX_AGE_MS = 60 * 60 * 1000;
+
+/** Deletes `*.tmp` files older than `olderThanMs` (left behind when a restart cut an upload off); returns how many. Avatars also write short-lived `.tmp` files here, hence the age rule. */
+export async function sweepUploadTemps(
+  uploadsDir: string,
+  opts: { olderThanMs: number; now?: number; log: Pick<FastifyBaseLogger, "warn"> },
+): Promise<number> {
+  const now = opts.now ?? Date.now();
+  let deleted = 0;
+  for (const name of await readdir(uploadsDir)) {
+    if (!name.endsWith(".tmp")) continue;
+    const filePath = path.join(uploadsDir, name);
+    try {
+      const st = await lstat(filePath);
+      if (!st.isFile() || now - st.mtimeMs <= opts.olderThanMs) continue;
+      await unlink(filePath);
+      deleted++;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
+      opts.log.warn({ err, file: name }, "could not delete a leftover upload temp file");
+    }
+  }
+  return deleted;
+}
 
 /** Not `accessSync(W_OK)` (always passes as root) nor `existsSync` (exists is not writable): writing a probe is the only reliable check. */
 export function assertUploadsDirWritable(uploadsDir: string): void {

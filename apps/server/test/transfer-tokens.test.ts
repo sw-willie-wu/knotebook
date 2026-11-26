@@ -547,16 +547,16 @@ describe("POST /api/notes/:id/uploads with transfer token and storage quota (the
     expect((await tokenRow(db, t.id))!.consumedAt).toBeNull();
   });
 
-  it("not full but does not fit -> 409 inside the transaction (incomingBytes = file size), file unlinked, no new row; token burned - after freeing space the same token is 401; the two 409s have the same shape apart from numbers", async () => {
+  it("not full but does not fit -> 409 once the file streams past the room (incomingBytes null), file unlinked, no new row; token burned - after freeing space the same token is 401; the two 409s have the same shape apart from numbers", async () => {
     const { app, db, uploadsDir } = await buildTestApp();
     const o = await ownerWithPat(db);
     await giveUserQuota(db, o.userId, 1000);
     const filler = await seedAttachment(db, uploadsDir, o.noteId, o.userId, 1000 - PNG_BYTES.length + 1, { noFile: true });
     const t = await issueDirect(db, o.patId, o.noteId, "upload");
 
-    const inTx = await upload(app, o.noteId, fileBody(PNG_BYTES), { token: t.token });
-    expect(inTx.statusCode).toBe(409);
-    expect(inTx.json()).toEqual(quotaBody({ incomingBytes: PNG_BYTES.length, usedBytes: 1000 - PNG_BYTES.length + 1, quotaBytes: 1000 }));
+    const streamed = await upload(app, o.noteId, fileBody(PNG_BYTES), { token: t.token });
+    expect(streamed.statusCode).toBe(409);
+    expect(streamed.json()).toEqual(quotaBody({ incomingBytes: null, usedBytes: 1000 - PNG_BYTES.length + 1, quotaBytes: 1000 }));
     expect((await tokenRow(db, t.id))!.consumedAt).not.toBeNull();
     expect(readdirSync(uploadsDir)).toHaveLength(0);
     expect(await db.select({ id: uploads.id }).from(uploads).where(eq(uploads.noteId, o.noteId))).toEqual([{ id: filler }]);
@@ -566,7 +566,7 @@ describe("POST /api/notes/:id/uploads with transfer token and storage quota (the
     const pre = await upload(app, o.noteId, fileBody(PNG_BYTES), { token: t2.token });
     expect(pre.statusCode).toBe(409);
     expect(pre.json().storage.incomingBytes).toBeNull();
-    expect(shapeOf(pre.json())).toEqual(shapeOf(inTx.json()));
+    expect(shapeOf(pre.json())).toEqual(shapeOf(streamed.json()));
 
     await db.delete(uploads).where(eq(uploads.noteId, o.noteId));
     const reused = await upload(app, o.noteId, fileBody(PNG_BYTES), { token: t.token });

@@ -1,15 +1,33 @@
-import { mkdtempSync, writeFileSync, rmSync, readdirSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, readdirSync, readFileSync, utimesSync } from "node:fs";
 import http from "node:http";
 import type { Socket } from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { describe, it, expect } from "vitest";
-import { eq } from "drizzle-orm";
+import { describe, it, expect, vi } from "vitest";
+import { and, eq } from "drizzle-orm";
 import { SESSION_COOKIE, MAX_UPLOAD_BYTES } from "@knotebook/shared";
 import { buildTestApp, freshLimiters, signTestSession } from "./helpers.js";
 import { notes, noteShares, uploads, users } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
+import type { GroupTestHook } from "../src/groups/test-hook.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
+import { mp4, pdf } from "./helpers/upload-fixtures.js";
+
+const detectFaults = vi.hoisted(() => ({ head: false, whole: false }));
+vi.mock("../src/uploads/detect.js", async () => {
+  const actual = await vi.importActual<typeof import("../src/uploads/detect.js")>("../src/uploads/detect.js");
+  return {
+    ...actual,
+    classifyUploadHead: async (...args: Parameters<typeof actual.classifyUploadHead>) => {
+      if (detectFaults.head) throw new Error("crafted head");
+      return actual.classifyUploadHead(...args);
+    },
+    verifyWholeFile: async (...args: Parameters<typeof actual.verifyWholeFile>) => {
+      if (detectFaults.whole) throw new Error("crafted body");
+      return actual.verifyWholeFile(...args);
+    },
+  };
+});
 
 
 async function insertUser(db: Db, overrides: Partial<{ email: string; displayName: string }> = {}) {
@@ -71,6 +89,9 @@ function buildMultipartBody(parts: BodyPart[], boundary = BOUNDARY): Buffer {
 const PNG_BYTES = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01, 0x02, 0x03]);
 const JPEG_BYTES = Buffer.from([0xff, 0xd8, 0xff, 0x00, 0x01, 0x02]);
 const NOT_AN_IMAGE_BYTES = Buffer.from("this is definitely not an image, just plain text bytes", "utf-8");
+const UNSUPPORTED_MESSAGE =
+  "Unsupported file type. Upload an image (PNG, JPEG, GIF or WebP), audio, video, a PDF, an Office or OpenDocument file, or a text file.";
+const MIB = 1_048_576;
 
 function singleFileBody(data: Buffer, opts: { filename?: string; contentType?: string; boundary?: string } = {}): Buffer {
   return buildMultipartBody(
@@ -79,12 +100,13 @@ function singleFileBody(data: Buffer, opts: { filename?: string; contentType?: s
   );
 }
 
+// The first part is a valid PNG: an unsupported first file would be refused with 415 before the parts limit is reached.
 function manyFileParts(count: number): BodyPart[] {
   return Array.from({ length: count }, (_, i) => ({
     name: `file${i}`,
-    filename: `f${i}.bin`,
-    contentType: "application/octet-stream",
-    data: Buffer.from([0x00]),
+    filename: i === 0 ? "f0.png" : `f${i}.bin`,
+    contentType: i === 0 ? "image/png" : "application/octet-stream",
+    data: i === 0 ? PNG_BYTES : Buffer.from([0x00]),
   }));
 }
 
@@ -188,6 +210,21 @@ describe("uploadsDir writability probe at startup (AppDeps.uploadsDir)", () => {
       await expect(buildTestApp({ uploadsDir: bogusUploadsDir })).rejects.toThrow(/uploads 目錄不可寫/);
     } finally {
       rmSync(parentDir, { recursive: true, force: true });
+    }
+  });
+
+  it("startup sweeps temp files older than an hour from uploadsDir, keeping fresh temp files and stored files", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "knotebook-uploads-sweep-"));
+    try {
+      const hoursAgo = (Date.now() - 2 * 3_600_000) / 1000;
+      for (const name of ["stale.tmp", "fresh.tmp", "stored"]) writeFileSync(path.join(dir, name), "x");
+      utimesSync(path.join(dir, "stale.tmp"), hoursAgo, hoursAgo);
+      utimesSync(path.join(dir, "stored"), hoursAgo, hoursAgo);
+      await buildTestApp({ uploadsDir: dir });
+      await vi.waitFor(() => expect(readdirSync(dir)).not.toContain("stale.tmp"), { timeout: 5_000 });
+      expect(readdirSync(dir).sort()).toEqual(["fresh.tmp", "stored"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });
@@ -342,7 +379,7 @@ describe("POST /api/notes/:id/uploads", () => {
     const res = await postUpload(app, note.id, singleFileBody(PNG_BYTES), { cookie });
     expect(res.statusCode).toBe(201);
     const body = res.json() as { id: string; url: string };
-    expect(body.url).toBe(`/api/uploads/${body.id}`);
+    expect(body).toEqual({ id: body.id, url: `/api/uploads/${body.id}`, mime: "image/png", kind: "image" });
 
     const [row] = await db.select().from(uploads).where(eq(uploads.id, body.id)).limit(1);
     expect(row).toMatchObject({ noteId: note.id, uploaderId: owner.id, mime: "image/png", size: PNG_BYTES.length });
@@ -353,7 +390,7 @@ describe("POST /api/notes/:id/uploads", () => {
   });
 
   it("multiple file parts: only the first is taken (mime/size match the first), the rest are drained without being stored", async () => {
-    const { app, db } = await buildTestApp();
+    const { app, db, uploadsDir } = await buildTestApp();
     const owner = await insertUser(db, { email: "owner-multi@example.com" });
     const cookie = await cookieFor(owner.id);
     const note = await createNote(db, owner.id);
@@ -370,10 +407,11 @@ describe("POST /api/notes/:id/uploads", () => {
     expect(row?.size).toBe(PNG_BYTES.length);
     const allRows = await db.select().from(uploads).where(eq(uploads.noteId, note.id));
     expect(allRows).toHaveLength(1);
+    expect(readdirSync(uploadsDir)).toEqual([id]);
   });
 
   it("400 invalid_body: parts over the limit (32, built from many file parts so the fields limit does not trigger first)", async () => {
-    const { app, db } = await buildTestApp();
+    const { app, db, uploadsDir } = await buildTestApp();
     const owner = await insertUser(db, { email: "owner-parts@example.com" });
     const cookie = await cookieFor(owner.id);
     const note = await createNote(db, owner.id);
@@ -381,6 +419,8 @@ describe("POST /api/notes/:id/uploads", () => {
     const res = await postUpload(app, note.id, buildMultipartBody(manyFileParts(33)), { cookie });
     expect(res.statusCode).toBe(400);
     expect(res.json().error.code).toBe("invalid_body");
+    // The first part was already received into its temp file when the limit tripped.
+    expect(readdirSync(uploadsDir)).toEqual([]);
   });
 
   it("400 invalid_body: fields over the limit (16)", async () => {
@@ -484,7 +524,7 @@ describe("POST /api/notes/:id/uploads", () => {
 
     const res = await postUpload(app, note.id, singleFileBody(NOT_AN_IMAGE_BYTES, { contentType: "image/png" }), { cookie });
     expect(res.statusCode).toBe(415);
-    expect(res.json().error.code).toBe("unsupported_media_type");
+    expect(res.json()).toEqual({ error: { code: "unsupported_media_type", message: UNSUPPORTED_MESSAGE } });
   });
 
   it("413: file over MAX_UPLOAD_BYTES -> file_too_large, nothing stored (no file left on disk, including temp files)", async () => {
@@ -815,5 +855,334 @@ describe("drainWithCap byte limit (real socket, pre-auth refusal with a body ove
       await closeAppPromptly(app);
     },
     30_000
+  );
+});
+
+/** `head` padded to `size` bytes: the head decides the type, the padding only makes the file big. */
+function padded(head: Uint8Array, size: number): Buffer {
+  return Buffer.concat([Buffer.from(head), Buffer.alloc(size - head.length, 0x20)]);
+}
+
+async function withDocumentLimit(built: Awaited<ReturnType<typeof buildTestApp>>, bytes: number): Promise<void> {
+  const admin = await insertUser(built.db);
+  await built.siteLimits.update(admin.id, { uploadMaxBytes: bytes });
+}
+
+describe("POST /api/notes/:id/uploads: streamed body", () => {
+  it("a video within the media limit but over the document limit -> 201 kind video", async () => {
+    const built = await buildTestApp();
+    const { app, db, uploadsDir } = built;
+    await withDocumentLimit(built, MIB);
+    const owner = await insertUser(db);
+    const note = await createNote(db, owner.id);
+    const video = padded(mp4(), Math.round(1.5 * MIB));
+
+    const res = await postUpload(app, note.id, singleFileBody(video, { filename: "clip.mp4", contentType: "video/mp4" }), { cookie: await cookieFor(owner.id) });
+    expect(res.statusCode, res.body).toBe(201);
+    const { id } = res.json() as { id: string };
+    expect(res.json()).toEqual({ id, url: `/api/uploads/${id}`, mime: "video/mp4", kind: "video" });
+    const [row] = await db.select().from(uploads).where(eq(uploads.id, id));
+    expect(row).toMatchObject({ mime: "video/mp4", size: video.length, fileName: "clip.mp4" });
+    expect(readdirSync(uploadsDir)).toEqual([id]);
+  }, 20_000);
+
+  it("a PDF over the document limit -> 413, connection closed, no file left", async () => {
+    const built = await buildTestApp();
+    const { app, db, uploadsDir } = built;
+    await withDocumentLimit(built, MIB);
+    const owner = await insertUser(db);
+    const note = await createNote(db, owner.id);
+
+    const res = await postUpload(app, note.id, singleFileBody(padded(pdf(), MIB + 1), { filename: "a.pdf", contentType: "application/pdf" }), { cookie: await cookieFor(owner.id) });
+    expect(res.statusCode).toBe(413);
+    expect(res.json().error.code).toBe("file_too_large");
+    expect(res.headers.connection).toBe("close");
+    expect(readdirSync(uploadsDir)).toEqual([]);
+    expect(await db.select().from(uploads).where(eq(uploads.noteId, note.id))).toEqual([]);
+  }, 20_000);
+
+  it("a PDF exactly at the document limit -> 201", async () => {
+    const built = await buildTestApp();
+    const { app, db } = built;
+    await withDocumentLimit(built, MIB);
+    const owner = await insertUser(db);
+    const note = await createNote(db, owner.id);
+    const res = await postUpload(app, note.id, singleFileBody(padded(pdf(), MIB), { filename: "a.pdf", contentType: "application/pdf" }), { cookie: await cookieFor(owner.id) });
+    expect(res.statusCode, res.body).toBe(201);
+    expect(res.json()).toMatchObject({ mime: "application/pdf", kind: "file" });
+  }, 20_000);
+
+  it("an unknown binary longer than the head -> 415 with the accepted kinds named, nothing left in the uploads directory", async () => {
+    const { app, db, uploadsDir } = await buildTestApp();
+    const owner = await insertUser(db);
+    const note = await createNote(db, owner.id);
+    const binary = Buffer.alloc(64 * 1024);
+    for (let i = 0; i < binary.length; i++) binary[i] = (i * 7919) & 0xff;
+
+    const res = await postUpload(app, note.id, singleFileBody(binary, { filename: "tool.bin", contentType: "application/octet-stream" }), { cookie: await cookieFor(owner.id) });
+    expect(res.statusCode).toBe(415);
+    expect(res.json()).toEqual({ error: { code: "unsupported_media_type", message: UNSUPPORTED_MESSAGE } });
+    expect(res.headers.connection).toBe("close");
+    expect(readdirSync(uploadsDir)).toEqual([]);
+  });
+
+  it("an empty file -> 400 invalid_body before any type check, no file left", async () => {
+    const { app, db, uploadsDir } = await buildTestApp();
+    const owner = await insertUser(db);
+    const note = await createNote(db, owner.id);
+    const res = await postUpload(app, note.id, singleFileBody(Buffer.alloc(0), { filename: "empty.txt", contentType: "text/plain" }), { cookie: await cookieFor(owner.id) });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ error: { code: "invalid_body", message: "The upload has no file." } });
+    expect(readdirSync(uploadsDir)).toEqual([]);
+  });
+
+  it("HTML in a .txt file -> 201 stored as text/plain; charset=utf-8", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db);
+    const note = await createNote(db, owner.id);
+    const html = Buffer.from("<!doctype html><html><body><script>alert(1)</script></body></html>\n", "utf-8");
+    const res = await postUpload(app, note.id, singleFileBody(html, { filename: "notes.txt", contentType: "text/html" }), { cookie: await cookieFor(owner.id) });
+    expect(res.statusCode, res.body).toBe(201);
+    const { id } = res.json() as { id: string };
+    expect(res.json()).toEqual({ id, url: `/api/uploads/${id}`, mime: "text/plain; charset=utf-8", kind: "file" });
+    const [row] = await db.select().from(uploads).where(eq(uploads.id, id));
+    expect(row?.mime).toBe("text/plain; charset=utf-8");
+  });
+
+  it("a text file with a NUL after the head -> 415 from the whole-file check, no file left", async () => {
+    const { app, db, uploadsDir } = await buildTestApp();
+    const owner = await insertUser(db);
+    const note = await createNote(db, owner.id);
+    const text = Buffer.concat([Buffer.alloc(8192, 0x61), Buffer.from([0]), Buffer.alloc(16, 0x61)]);
+    const res = await postUpload(app, note.id, singleFileBody(text, { filename: "a.csv", contentType: "text/csv" }), { cookie: await cookieFor(owner.id) });
+    expect(res.statusCode).toBe(415);
+    expect(res.json().error.message).toBe(UNSUPPORTED_MESSAGE);
+    expect(readdirSync(uploadsDir)).toEqual([]);
+  });
+
+  it("the stored file name is sanitized (format characters stripped)", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db);
+    const note = await createNote(db, owner.id);
+    const res = await postUpload(app, note.id, singleFileBody(Buffer.from(pdf()), { filename: "rep\u202Eort.pdf", contentType: "application/pdf" }), { cookie: await cookieFor(owner.id) });
+    expect(res.statusCode, res.body).toBe(201);
+    const [row] = await db.select().from(uploads).where(eq(uploads.id, (res.json() as { id: string }).id));
+    expect(row?.fileName).toBe("report.pdf");
+  });
+
+  for (const fault of ["head", "whole"] as const) {
+    it(`type detection throwing on a crafted file (${fault} check) -> 415, no file left`, async () => {
+      const { app, db, uploadsDir } = await buildTestApp();
+      const owner = await insertUser(db);
+      const note = await createNote(db, owner.id);
+      detectFaults[fault] = true;
+      try {
+        const res = await postUpload(app, note.id, singleFileBody(Buffer.from("a,b\n1,2\n"), { filename: "a.csv", contentType: "text/csv" }), { cookie: await cookieFor(owner.id) });
+        expect(res.statusCode).toBe(415);
+        expect(res.json().error.code).toBe("unsupported_media_type");
+      } finally {
+        detectFaults[fault] = false;
+      }
+      expect(readdirSync(uploadsDir)).toEqual([]);
+    });
+  }
+
+  it("no request timeout: a long upload is not cut off by the server", async () => {
+    const { app } = await buildTestApp();
+    expect(app.server.requestTimeout).toBe(0);
+  });
+});
+
+describe("POST /api/notes/:id/uploads: access lost while the file was being received", () => {
+  function atReceived(act: (noteId: string) => Promise<void>): { hook: GroupTestHook; hits: () => number } {
+    let hits = 0;
+    return {
+      hook: async (point, ctx) => {
+        if (point !== "upload-received") return;
+        hits++;
+        await act(ctx.noteId!);
+      },
+      hits: () => hits,
+    };
+  }
+
+  it("editor share downgraded to viewer -> 403, no row, no file under either name", async () => {
+    const holder: { db?: Db; editorId?: string } = {};
+    const seam = atReceived(async noteId => {
+      await holder.db!.update(noteShares).set({ role: "viewer" }).where(and(eq(noteShares.noteId, noteId), eq(noteShares.userId, holder.editorId!)));
+    });
+    const { app, db, uploadsDir } = await buildTestApp({ groupTestHook: seam.hook });
+    const owner = await insertUser(db);
+    const editor = await insertUser(db);
+    Object.assign(holder, { db, editorId: editor.id });
+    const note = await createNote(db, owner.id);
+    await share(db, note.id, editor.id, "editor");
+
+    const res = await postUpload(app, note.id, singleFileBody(PNG_BYTES), { cookie: await cookieFor(editor.id) });
+    expect(seam.hits()).toBe(1);
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toEqual({ error: { code: "forbidden", message: "You don't have edit access to this note." } });
+    expect(await db.select().from(uploads).where(eq(uploads.noteId, note.id))).toEqual([]);
+    expect(readdirSync(uploadsDir)).toEqual([]);
+  });
+
+  it("share removed -> 404, no row, no file", async () => {
+    const holder: { db?: Db } = {};
+    const seam = atReceived(async noteId => {
+      await holder.db!.delete(noteShares).where(eq(noteShares.noteId, noteId));
+    });
+    const { app, db, uploadsDir } = await buildTestApp({ groupTestHook: seam.hook });
+    const owner = await insertUser(db);
+    const editor = await insertUser(db);
+    holder.db = db;
+    const note = await createNote(db, owner.id);
+    await share(db, note.id, editor.id, "editor");
+
+    const res = await postUpload(app, note.id, singleFileBody(PNG_BYTES), { cookie: await cookieFor(editor.id) });
+    expect(seam.hits()).toBe(1);
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error.code).toBe("not_found");
+    expect(await db.select().from(uploads).where(eq(uploads.noteId, note.id))).toEqual([]);
+    expect(readdirSync(uploadsDir)).toEqual([]);
+  });
+
+  it("note moved to the trash -> 404, no row, no file", async () => {
+    const holder: { db?: Db; ownerId?: string } = {};
+    const seam = atReceived(async noteId => {
+      await holder.db!.update(notes).set({ deletedAt: new Date(), deletedBy: holder.ownerId! }).where(eq(notes.id, noteId));
+    });
+    const { app, db, uploadsDir } = await buildTestApp({ groupTestHook: seam.hook });
+    const owner = await insertUser(db);
+    Object.assign(holder, { db, ownerId: owner.id });
+    const note = await createNote(db, owner.id);
+
+    const res = await postUpload(app, note.id, singleFileBody(PNG_BYTES), { cookie: await cookieFor(owner.id) });
+    expect(seam.hits()).toBe(1);
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toEqual({ error: { code: "not_found", message: "No note with that id." } });
+    expect(await db.select().from(uploads).where(eq(uploads.noteId, note.id))).toEqual([]);
+    expect(readdirSync(uploadsDir)).toEqual([]);
+  });
+
+  it("at upload-received the whole file is in its temp file and has no final name yet", async () => {
+    const seen: { files?: string[] } = {};
+    const holder: { dir?: string } = {};
+    const { app, db, uploadsDir } = await buildTestApp({
+      groupTestHook: async point => {
+        if (point === "upload-received") seen.files = readdirSync(holder.dir!);
+      },
+    });
+    holder.dir = uploadsDir;
+    const owner = await insertUser(db);
+    const note = await createNote(db, owner.id);
+    const res = await postUpload(app, note.id, singleFileBody(PNG_BYTES), { cookie: await cookieFor(owner.id) });
+    expect(res.statusCode).toBe(201);
+    const { id } = res.json() as { id: string };
+    expect(seen.files).toEqual([`${id}.tmp`]);
+    expect(readFileSync(path.join(uploadsDir, id)).equals(PNG_BYTES)).toBe(true);
+    expect(readdirSync(uploadsDir)).toEqual([id]);
+  });
+});
+
+describe("real socket: a client that aborts while the file streams in", () => {
+  it(
+    "the client destroys its socket after part of a PDF: the temp file is deleted, no row is written, and app.close() finishes promptly",
+    async () => {
+      const { app, db, uploadsDir } = await buildTestApp();
+      const owner = await insertUser(db);
+      const note = await createNote(db, owner.id);
+      const cookie = await cookieFor(owner.id);
+      await app.listen({ port: 0, host: "127.0.0.1" });
+      const address = app.server.address();
+      if (address === null || typeof address === "string") throw new Error("no TCP address after app.listen");
+
+      const body = singleFileBody(padded(pdf(), MIB), { filename: "cut.pdf", contentType: "application/pdf" });
+      const req = http.request({
+        host: "127.0.0.1", port: address.port, path: `/api/notes/${note.id}/uploads`, method: "POST",
+        headers: { "content-type": `multipart/form-data; boundary=${BOUNDARY}`, "content-length": String(body.length), cookie: `${SESSION_COOKIE}=${cookie}` },
+      });
+      req.on("error", () => {});
+      req.write(body.subarray(0, 256 * 1024));
+      // Abort only once the server is writing the temp file, so the cut lands mid-stream rather than before the handler ran.
+      await vi.waitFor(() => expect(readdirSync(uploadsDir).some(f => f.endsWith(".tmp"))).toBe(true), { timeout: 5_000, interval: 20 });
+      req.destroy();
+
+      await vi.waitFor(() => expect(readdirSync(uploadsDir)).toEqual([]), { timeout: 5_000, interval: 20 });
+      expect(await db.select().from(uploads).where(eq(uploads.noteId, note.id))).toEqual([]);
+      await closeAppPromptly(app);
+    },
+    30_000,
+  );
+});
+
+describe("real socket: a refusal while the file streams in", () => {
+  it(
+    "a PDF three times the document limit -> the 413 arrives while the client still holds a third of the body back, with Connection: close, and no file is left",
+    async () => {
+      const built = await buildTestApp();
+      const { app, db, uploadsDir } = built;
+      await withDocumentLimit(built, MIB);
+      const owner = await insertUser(db);
+      const note = await createNote(db, owner.id);
+      const cookie = await cookieFor(owner.id);
+      await app.listen({ port: 0, host: "127.0.0.1" });
+      const address = app.server.address();
+      if (address === null || typeof address === "string") throw new Error("no TCP address after app.listen");
+
+      const body = singleFileBody(padded(pdf(), 3 * MIB), { filename: "big.pdf", contentType: "application/pdf" });
+      // The client sends two thirds of the body and then waits: a server that only answers after the whole body never answers inside the wait.
+      const PAUSE_AT = 2 * MIB;
+      const WAIT_MS = 5_000;
+      let clientReq: http.ClientRequest | undefined;
+      const res = await new Promise<{ status: number; headers: http.IncomingHttpHeaders; body: string; writtenAtResponse: number }>((resolve, reject) => {
+        let written = 0;
+        let responded = false;
+        const req = http.request(
+          {
+            host: "127.0.0.1", port: address.port, path: `/api/notes/${note.id}/uploads`, method: "POST",
+            headers: { "content-type": `multipart/form-data; boundary=${BOUNDARY}`, "content-length": String(body.length), cookie: `${SESSION_COOKIE}=${cookie}` },
+          },
+          r => {
+            responded = true;
+            const writtenAtResponse = written;
+            const chunks: Buffer[] = [];
+            r.on("data", (c: Buffer) => chunks.push(c));
+            r.on("end", () => resolve({ status: r.statusCode ?? 0, headers: r.headers, body: Buffer.concat(chunks).toString("utf-8"), writtenAtResponse }));
+            r.on("error", reject);
+          },
+        );
+        clientReq = req;
+        // The server closing the connection while the client still has unsent bytes is expected.
+        req.on("error", () => {});
+        req.once("socket", s => s.on("error", () => {}));
+        const CHUNK = 64 * 1024;
+        const pump = (): void => {
+          while (written < PAUSE_AT) {
+            const end = Math.min(written + CHUNK, PAUSE_AT);
+            const ok = req.write(body.subarray(written, end));
+            written = end;
+            if (!ok) {
+              req.once("drain", pump);
+              return;
+            }
+          }
+          setTimeout(() => {
+            if (responded) return;
+            written = body.length;
+            req.end(body.subarray(PAUSE_AT));
+          }, WAIT_MS);
+        };
+        pump();
+      });
+      clientReq?.destroy();
+
+      expect(res.status).toBe(413);
+      expect(JSON.parse(res.body)).toMatchObject({ error: { code: "file_too_large" } });
+      expect(res.headers.connection).toBe("close");
+      expect(res.writtenAtResponse).toBeLessThan(body.length);
+      expect(readdirSync(uploadsDir)).toEqual([]);
+      await closeAppPromptly(app);
+    },
+    30_000,
   );
 });
