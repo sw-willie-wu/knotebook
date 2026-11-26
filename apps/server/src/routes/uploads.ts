@@ -12,16 +12,36 @@ import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
 import type { SiteLimits } from "../site-limits/store.js";
 import { isForeignKeyViolation, isRetryableTxError } from "../db/pg-errors.js";
+import { UPLOAD_FRAMING_ALLOWANCE_BYTES } from "@knotebook/shared";
 import { transferTokens, uploads } from "../db/schema.js";
 import type { GroupTestHook } from "../groups/test-hook.js";
 import { resolveNoteAccess, resolveRole, UUID_RE } from "../notes/service.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
 import { spaceOfNote } from "../storage/space.js";
 import { StorageQuotaExceeded } from "../storage/tx/quota.js";
-import { isSpaceFull, precheckDetail, quotaErrorDetail, readSpaceUsage } from "../storage/usage.js";
+import { precheckDetail, quotaErrorDetail, readSpaceUsage, remainingRoom } from "../storage/usage.js";
 import { detectImageMimeType } from "../uploads/magic-bytes.js";
 import { uploadFilePath } from "../uploads/service.js";
 import { insertUploadInTx } from "../uploads/tx/insert-upload.js";
+
+declare module "fastify" {
+  interface FastifyRequest {
+    /** Set by the upload preHandler: bytes left in the space, `null` = no limit. */
+    uploadRoom?: number | null;
+  }
+}
+
+/** Larger of the two live upload limits, doubled: the most a legitimate body can still be sending when the handler refuses it. */
+export function uploadDrainCap(siteLimits: SiteLimits): number {
+  return 2 * Math.max(siteLimits.get("uploadMaxBytes"), siteLimits.get("uploadMediaMaxMib") * 1_048_576);
+}
+
+/** Declared body length, or null when absent (chunked) or malformed. */
+function declaredLength(request: FastifyRequest): number | null {
+  const raw = request.headers["content-length"];
+  if (typeof raw !== "string" || !/^\d+$/.test(raw)) return null;
+  return Number(raw);
+}
 
 export interface UploadsRouteDeps {
   db: Db;
@@ -37,8 +57,8 @@ export interface UploadsRouteDeps {
 /**
  * Multipart parsing and its CSRF exemption are done by the global onRequest in app.ts; @fastify/multipart must be registered on the top-level app (not an encapsulated plugin).
  * Transfer tokens (#200) are accepted besides sessions; ordinary PAT/OAuth Bearer tokens are not (docs/api-tokens.md). The POST preHandler order is a contract, all before
- * request.parts(), and every early return drains: authentication → token's note = path note → current role → upload limiter → storage-quota "full" pre-check (so a full space
- * doesn't burn the token) → atomic consumption. Any failure after consumption burns the token, including the in-transaction 409 storage_quota_exceeded (same code and shape as
+ * request.parts(): authentication → token's note = path note → current role → upload limiter → storage-room pre-check (so a refusal for space doesn't burn the token) → atomic
+ * consumption. Refusals between authentication and token consumption close the connection instead of reading the rest of a possibly huge body. Any failure after consumption burns the token, including the in-transaction 409 storage_quota_exceeded (same code and shape as
  * the pre-check) and 409 server_busy (space-lock timeout/deadlock). CSRF stays exempt: Bearer isn't an ambient credential.
  */
 export function uploadsRoutes(deps: UploadsRouteDeps) {
@@ -52,7 +72,11 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
     const uploadAuth = transferAuth.require("upload");
     const downloadAuth = transferAuth.require("download");
 
-    // Every early return must drain: @fastify/multipart's parser doesn't read the body, so an unconsumed large body hangs the socket and the client never sees our error.
+    // An unread body would hang the socket (@fastify/multipart doesn't read it), so a refusal either drains (before authentication) or closes the connection.
+    function refuse(reply: FastifyReply): FastifyReply {
+      return reply.header("connection", "close");
+    }
+
     async function authAndAuthorize(request: FastifyRequest, reply: FastifyReply): Promise<void> {
       await uploadAuth(request, reply);
       if (reply.sent) {
@@ -66,37 +90,37 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
 
       // Before the role check: a token for note A used on note B always gets the same 403, so B's existence isn't leaked. DB ids are lowercase, UUID_RE accepts uppercase.
       if (transfer !== undefined && transfer.noteId !== noteId.toLowerCase()) {
-        drainWithCap(request);
-        sendError(reply, 403, "forbidden", "This transfer token is for a different note.");
+        sendError(refuse(reply), 403, "forbidden", "This transfer token is for a different note.");
         return;
       }
 
       const access = await resolveNoteAccess(deps.db, userId, noteId);
       if (access.role === "none") {
-        drainWithCap(request);
-        sendError(reply, 404, "not_found", "No note with that id.");
+        sendError(refuse(reply), 404, "not_found", "No note with that id.");
         return;
       }
       if (access.role === "viewer") {
-        drainWithCap(request);
-        sendError(reply, 403, "forbidden", "You don't have edit access to this note.");
+        sendError(refuse(reply), 403, "forbidden", "You don't have edit access to this note.");
         return;
       }
 
       // Before consuming the token, so a 429 doesn't burn it.
       if (!deps.limiters.upload.consume(userId)) {
-        drainWithCap(request);
-        sendError(reply, 429, "too_many_requests", "Too many requests. Wait a moment and try again.");
+        sendError(refuse(reply), 429, "too_many_requests", "Too many requests. Wait a moment and try again.");
         return;
       }
 
-      // Lock-free "already full" check before reading the body and consuming the token; the authoritative fit check is in insertUploadInTx.
+      // Lock-free room check before reading the body and consuming the token; the authoritative fit check is in insertUploadInTx. The declared length includes multipart framing, hence the allowance.
       const space = spaceOfNote(access);
       const usage = await readSpaceUsage(deps.db, space);
-      if (isSpaceFull(usage)) {
-        drainWithCap(request);
-        sendStorageQuotaExceeded(reply, await precheckDetail(deps.db, request.user!, space, usage));
-        return;
+      const room = remainingRoom(usage);
+      request.uploadRoom = room;
+      if (room !== null) {
+        const declared = declaredLength(request);
+        if (room <= 0 || (declared !== null && declared - UPLOAD_FRAMING_ALLOWANCE_BYTES > room)) {
+          sendStorageQuotaExceeded(refuse(reply), await precheckDetail(deps.db, request.user!, space, usage!));
+          return;
+        }
       }
 
       // Two concurrent uses of one token: the row lock makes the later UPDATE see consumed_at set → 0 rows → 401, before any body is read. Expiry uses DB now() like the authentication query.
@@ -116,6 +140,7 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
     app.post("/api/notes/:id/uploads", { preHandler: authAndAuthorize }, async (request, reply) => {
       const { id: noteId } = request.params as { id: string };
       const userId = request.user!.id;
+      const drainCap = (): number => uploadDrainCap(deps.siteLimits);
 
       // Running the loop to the end is what drains the multipart body (file backpressure is released only by consuming; drainWithCap only helps before multipart parsing started).
       // limits.files is deliberately not set: the plugin would throw FilesLimitError (413) outside our error classification.
@@ -138,7 +163,7 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
       } catch (err) {
         // busboy's cleanup only unpipes; once request.pipe(bb) ran, Node considers the request consumed and skips its automatic _dump(), so the rest of the body stays paused and app.close()
         // waits forever for the connection (pinned by "real socket: parts over the limit" in test/uploads.test.ts).
-        drainWithCap(request);
+        drainWithCap(request, drainCap());
         // All other plugin errors (missing boundary, FST_PARTS_LIMIT, FST_FIELDS_LIMIT) map to 400 invalid_body; rethrowing would reach the global handler's clientErrorCode with a wrong code. Size overflow is the truncated branch's 413 file_too_large.
         request.log.warn({ err }, "multipart 解析失敗");
         return sendError(reply, 400, "invalid_body", "The upload isn't valid multipart/form-data.");
@@ -146,18 +171,18 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
 
       if (!sawFile || fileBuf === undefined) {
         // Defensive and idempotent: the loop above should already have drained the body.
-        drainWithCap(request);
+        drainWithCap(request, drainCap());
         return sendError(reply, 400, "invalid_body", "The upload has no file.");
       }
       if (truncated) {
-        drainWithCap(request);
+        drainWithCap(request, drainCap());
         return sendError(reply, 413, "file_too_large", "The file is over the size limit.");
       }
 
       // Only magic bytes are trusted, never the claimed Content-Type or extension.
       const mime = detectImageMimeType(fileBuf);
       if (mime === null) {
-        drainWithCap(request);
+        drainWithCap(request, drainCap());
         return sendError(reply, 415, "unsupported_media_type", "Unsupported image format. Upload a PNG, JPEG, GIF or WebP image.");
       }
 

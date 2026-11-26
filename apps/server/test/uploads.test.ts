@@ -118,7 +118,7 @@ async function postUpload(
  * The result contains `socket`: after asserting the response the caller must `socket.destroy()` BEFORE `app.close()`, otherwise the client's own
  * keep-alive connection makes `app.close()` wait for it to close naturally, a false positive (that connection's lifetime is not what is being tested).
  *
- * `clientErrors`: when over the cap `drainWithCap` calls `destroy()` on `request.raw` (see `src/http/drain.ts`) - the server cutting the line deliberately - and a
+ * `clientErrors`: when the server cuts the connection (`drainWithCap` over its cap calls `destroy()` on `request.raw`, see `src/http/drain.ts`; a `Connection: close` refusal ends the socket) a
  * client still writing a large body gets ECONNRESET/EPIPE on its socket (seen in CI as `write ECONNRESET`; local loopback is usually too fast, the whole body is already
  * written, see the timing note in that test). That is an expected side effect of `destroy()`, not a bug, but the client must catch it: Node treats an 'error' on an
  * EventEmitter with no listener as an uncaughtException that blows up the whole test file even when every assertion passed. A listener only on
@@ -130,6 +130,7 @@ async function postUpload(
  */
 function rawSocketPost(opts: { port: number; path: string; headers: Record<string, string>; body: Buffer }): Promise<{
   status: number;
+  headers: http.IncomingHttpHeaders;
   body: string;
   socket: Socket;
   clientErrors: Error[];
@@ -150,6 +151,7 @@ function rawSocketPost(opts: { port: number; path: string; headers: Record<strin
         res.on("end", () => {
           resolve({
             status: res.statusCode ?? 0,
+            headers: res.headers,
             body: Buffer.concat(chunks).toString("utf-8"),
             socket: req.socket!,
             clientErrors,
@@ -707,21 +709,50 @@ describe("real socket drain check (parts over the limit reaches the catch branch
 
 // `app.inject` cannot show what is verified here (no real socket; `request.raw.destroy()` merely destroys an in-memory fake stream) - a real socket is required.
 //
-// Timing: `drainWithCap(request)` and the following `sendError(...)` run in the same synchronous call stack with no `await`, while attaching the `data` listener until
-// bytes really arrive (and accumulate past the cap, calling `destroy()`) takes at least one event-loop turn. So the response almost always finishes writing before the
-// accumulation passes the cap - the client still gets a complete, structured 403 body (the early-exit guarantee of a structured error body still holds), the same as the existing "body < cap"
-// regression test, unchanged by exceeding the cap.
-//
-// The observable difference is after the response: the cap exists so a client that sends an abnormally huge body cannot keep consuming server resources without limit -
-// `destroy()` stops the connection from staying keep-alive, so the client's socket closes by itself shortly, unlike the "body < cap" tests above where the test must
-// `socket.destroy()` itself (otherwise the client's keep-alive connection makes `app.close()` wait). This test asserts that self-close, bounded to a window far below
-// Node's default `keepAliveTimeout` (5000 ms) to distinguish it from keep-alive expiry.
-describe("drainWithCap byte limit (real socket, early-exit body over the cap)", () => {
+// Both cases send a body clearly over the drain cap (2 x MAX_UPLOAD_BYTES + 8 MiB) with an early refusal, and assert the structured error still arrives and the client socket
+// then closes by itself well within Node's default `keepAliveTimeout` (5000 ms). The response is written in the same synchronous stack as the refusal, so it finishes
+// before the server can cut the connection.
+const overCapBody = (): Buffer => singleFileBody(Buffer.alloc(2 * MAX_UPLOAD_BYTES + 8 * 1024 * 1024, 0x42));
+
+async function expectClientSocketClosesByItself(res: { socket: Socket; clientErrors: Error[] }, what: string): Promise<void> {
+  // 800 ms is well below keepAliveTimeout yet about 40x the ~20 ms close of the passing case, so a stuck connection is detected quickly.
+  const CLIENT_CLOSE_TIMEOUT_MS = 800;
+  await new Promise<void>((resolve, reject) => {
+    if (res.socket.destroyed) {
+      resolve();
+      return;
+    }
+    const timer = setTimeout(
+      () => reject(new Error(`client socket 未在 ${CLIENT_CLOSE_TIMEOUT_MS}ms 內自行關閉——${what}`)),
+      CLIENT_CLOSE_TIMEOUT_MS
+    );
+    res.socket.once("close", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+  expect(res.socket.destroyed).toBe(true);
+  // A server-side cut is a hard abort for a client still writing the rest of the large body (CI timing; local loopback is usually too fast to observe it):
+  // only ECONNRESET/EPIPE are expected, any other error code must not be silenced.
+  for (const err of res.clientErrors) {
+    expect(["ECONNRESET", "EPIPE"]).toContain((err as NodeJS.ErrnoException).code);
+  }
+}
+
+async function closeAppPromptly(app: Awaited<ReturnType<typeof buildTestApp>>["app"]): Promise<void> {
+  // The client has already closed by itself, so there is no lingering connection to wait for.
+  const closeStart = Date.now();
+  const CLOSE_TIMEOUT_MS = 10_000;
+  await Promise.race([
+    app.close(),
+    new Promise((_resolve, reject) => setTimeout(() => reject(new Error(`app.close() 逾時（${CLOSE_TIMEOUT_MS}ms）`)), CLOSE_TIMEOUT_MS)),
+  ]);
+  expect(Date.now() - closeStart).toBeLessThan(CLOSE_TIMEOUT_MS);
+}
+
+describe("upload preHandler refusal closes the connection (real socket, body over 2 x MAX_UPLOAD_BYTES)", () => {
   it(
-    "viewer 403 early exit (preHandler, before multipart parsing) + body well over the cap (cap + 8 MiB): " +
-      "the response still arrives complete (structured 403 body, sent before drain's async destroy()), " +
-      "but the server then destroy()s the connection instead of keeping it alive - the client socket closes by itself well within " +
-      "keepAliveTimeout, without the test destroying it",
+    "viewer 403 before multipart parsing + a huge body: the structured 403 arrives with Connection: close, and the client socket closes by itself without the server reading the body",
     async () => {
       const { app, db } = await buildTestApp();
       const owner = await insertUser(db, { email: "owner-drain-overcap@example.com" });
@@ -736,9 +767,6 @@ describe("drainWithCap byte limit (real socket, early-exit body over the cap)", 
         throw new Error("app.listen 後取不到 TCP 位址——真 socket 測試需要真的 port");
       }
 
-      // cap = MAX_UPLOAD_BYTES * 2 (20 MiB). Send a body clearly over the cap (cap + 8 MiB, plenty of margin, not a coincidental boundary value).
-      const overCapBody = singleFileBody(Buffer.alloc(2 * MAX_UPLOAD_BYTES + 8 * 1024 * 1024, 0x42));
-
       const res = await rawSocketPost({
         port: address.port,
         path: `/api/notes/${note.id}/uploads`,
@@ -746,59 +774,45 @@ describe("drainWithCap byte limit (real socket, early-exit body over the cap)", 
           "content-type": `multipart/form-data; boundary=${BOUNDARY}`,
           cookie: `${SESSION_COOKIE}=${viewerCookie}`,
         },
-        body: overCapBody,
+        body: overCapBody(),
       });
 
-      // The response itself: same branch and assertion as the "body < cap" regression test - exceeding the cap does not change the promise that an early exit still gets a structured error body.
       expect(res.status).toBe(403);
       expect(JSON.parse(res.body)).toMatchObject({ error: { code: "forbidden" } });
+      expect(res.headers.connection).toBe("close");
+      await expectClientSocketClosesByItself(res, "Connection: close 沒有結束連線");
+      await closeAppPromptly(app);
+    },
+    30_000
+  );
+});
 
-      // The connection is then cut by drainWithCap's destroy(): the client socket should close by itself in far less than Node's default keepAliveTimeout (5000 ms) -
-      // not because the test called socket.destroy(). 800 ms is well below keepAliveTimeout yet about 40x the ~20 ms close of the passing case,
-      // so a stuck connection is detected in about 800 ms.
-      const CLIENT_CLOSE_TIMEOUT_MS = 800;
-      await new Promise<void>((resolve, reject) => {
-        if (res.socket.destroyed) {
-          resolve();
-          return;
-        }
-        const timer = setTimeout(
-          () =>
-            reject(
-              new Error(
-                `client socket 未在 ${CLIENT_CLOSE_TIMEOUT_MS}ms 內自行關閉——drainWithCap 疑似沒有真的 destroy() 底層連線`
-              )
-            ),
-          CLIENT_CLOSE_TIMEOUT_MS
-        );
-        res.socket.once("close", () => {
-          clearTimeout(timer);
-          resolve();
-        });
-      });
-      expect(res.socket.destroyed).toBe(true);
-
-      // A server-side destroy() is a hard abort for the client: if the client is still writing the rest of the large body at that moment (the CI timing - local loopback is too fast,
-      // the whole body is usually written before the destroy arrives, so it cannot be observed here; see the `clientErrors` note on rawSocketPost), the socket gets ECONNRESET/EPIPE.
-      // That is an expected side effect of destroy(), not a regression to block; if it happens its kind must fall within this allowlist - other error codes indicate something
-      // else unexpected and must not be silenced by this test.
-      for (const err of res.clientErrors) {
-        expect(["ECONNRESET", "EPIPE"]).toContain((err as NodeJS.ErrnoException).code);
+describe("drainWithCap byte limit (real socket, pre-auth refusal with a body over the cap)", () => {
+  it(
+    "401 for a malformed transfer token + a body past the cap: the structured 401 arrives (no Connection: close), then drainWithCap destroys the connection instead of keeping it alive",
+    async () => {
+      const { app } = await buildTestApp();
+      await app.listen({ port: 0, host: "127.0.0.1" });
+      const address = app.server.address();
+      if (address === null || typeof address === "string") {
+        throw new Error("app.listen 後取不到 TCP 位址——真 socket 測試需要真的 port");
       }
 
-      // The client has already closed by itself, no further `socket.destroy()` needed; `app.close()` should complete at once (no lingering connection to wait for).
-      const closeStart = Date.now();
-      const CLOSE_TIMEOUT_MS = 10_000;
-      await Promise.race([
-        app.close(),
-        new Promise((_resolve, reject) =>
-          setTimeout(
-            () => reject(new Error(`app.close() 逾時（${CLOSE_TIMEOUT_MS}ms）`)),
-            CLOSE_TIMEOUT_MS
-          )
-        ),
-      ]);
-      expect(Date.now() - closeStart).toBeLessThan(CLOSE_TIMEOUT_MS);
+      const res = await rawSocketPost({
+        port: address.port,
+        path: `/api/notes/00000000-0000-4000-8000-000000000000/uploads`,
+        headers: {
+          "content-type": `multipart/form-data; boundary=${BOUNDARY}`,
+          authorization: "Bearer not-a-transfer-token",
+        },
+        body: overCapBody(),
+      });
+
+      expect(res.status).toBe(401);
+      expect(JSON.parse(res.body)).toMatchObject({ error: { code: "unauthorized" } });
+      expect(res.headers.connection).not.toBe("close");
+      await expectClientSocketClosesByItself(res, "drainWithCap 疑似沒有真的 destroy() 底層連線");
+      await closeAppPromptly(app);
     },
     30_000
   );

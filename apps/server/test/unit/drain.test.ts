@@ -74,6 +74,18 @@ describe("drainWithCap", () => {
     expect(raw.destroy).not.toHaveBeenCalled();
   });
 
+  it("an explicit cap replaces the default: exactly the cap does not destroy, one more byte does", () => {
+    const exact = fakeRequest();
+    drainWithCap(exact.request, 1000);
+    exact.raw.emit("data", Buffer.alloc(1000));
+    expect(exact.raw.destroy).not.toHaveBeenCalled();
+
+    const over = fakeRequest();
+    drainWithCap(over.request, 1000);
+    over.raw.emit("data", Buffer.alloc(1001));
+    expect(over.raw.destroy).toHaveBeenCalledTimes(1);
+  });
+
   it("different requests are counted independently", () => {
     const a = fakeRequest();
     const b = fakeRequest();
