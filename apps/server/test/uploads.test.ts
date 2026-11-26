@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync, rmSync, readdirSync, readFileSync, utimesSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync, readdirSync, readFileSync, utimesSync } from "node:fs";
 import http from "node:http";
 import type { Socket } from "node:net";
 import os from "node:os";
@@ -11,7 +11,11 @@ import { notes, noteShares, uploads, users } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
 import type { GroupTestHook } from "../src/groups/test-hook.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
-import { mp4, pdf } from "./helpers/upload-fixtures.js";
+import { docx, mp4, pdf } from "./helpers/upload-fixtures.js";
+import { expectRangeServing } from "./helpers/upload-serving.js";
+import { cookieOf } from "./group-helpers.js";
+import { issueDirect, ownerWithPat } from "./transfer-helpers.js";
+import { UPLOAD_CSP } from "../src/uploads/service.js";
 
 const detectFaults = vi.hoisted(() => ({ head: false, whole: false }));
 vi.mock("../src/uploads/detect.js", async () => {
@@ -672,6 +676,170 @@ describe("GET /api/uploads/:id", () => {
     const res = await app.inject({ method: "GET", url: `/api/uploads/${row.id}`, cookies: { [SESSION_COOKIE]: cookie } });
     expect(res.statusCode).toBe(404);
     expect(res.json().error.code).toBe("not_found");
+  });
+});
+
+describe("GET /api/uploads/:id: class headers, Range and HEAD", () => {
+  const OOXML_DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+  async function uploadAs(
+    app: Awaited<ReturnType<typeof buildTestApp>>["app"],
+    noteId: string,
+    cookie: string,
+    data: Buffer,
+    filename: string,
+    contentType: string,
+  ): Promise<string> {
+    const res = await postUpload(app, noteId, singleFileBody(data, { filename, contentType }), { cookie });
+    expect(res.statusCode, res.body).toBe(201);
+    return (res.json() as { id: string }).id;
+  }
+
+  async function ownerSetup(overrides: Parameters<typeof buildTestApp>[0] = {}) {
+    const built = await buildTestApp(overrides);
+    const owner = await insertUser(built.db, { email: "alice@example.com" });
+    const cookie = await cookieFor(owner.id);
+    const note = await createNote(built.db, owner.id);
+    return { ...built, owner, cookie, noteId: note.id };
+  }
+
+  it("session: a video plays inline under UPLOAD_CSP and answers a media player's Range, If-Range and HEAD requests", async () => {
+    const { app, cookie, noteId } = await ownerSetup();
+    const video = padded(mp4(), 4096);
+    const id = await uploadAs(app, noteId, cookie, video, "clip.mp4", "video/mp4");
+    await expectRangeServing(
+      opts => app.inject({ method: opts?.method ?? "GET", url: `/api/uploads/${id}`, cookies: { [SESSION_COOKIE]: cookie }, headers: opts?.headers }),
+      video,
+    );
+    const tail = await app.inject({ method: "GET", url: `/api/uploads/${id}`, cookies: { [SESSION_COOKIE]: cookie }, headers: { range: "bytes=-5000" } });
+    expect(tail.statusCode).toBe(206);
+    expect(tail.headers["content-range"]).toBe("bytes 0-4095/4096");
+    expect(tail.rawPayload.equals(video)).toBe(true);
+    const res = await app.inject({ method: "GET", url: `/api/uploads/${id}`, cookies: { [SESSION_COOKIE]: cookie } });
+    expect(res.headers["content-type"]).toBe("video/mp4");
+    expect(res.headers["content-security-policy"]).toBe(UPLOAD_CSP);
+    expect(res.headers["content-disposition"]).toBe("inline; filename=\"clip.mp4\"; filename*=UTF-8''clip.mp4");
+  });
+
+  it("transfer token: the same Range traffic works with a download token", async () => {
+    const { app, db } = await buildTestApp();
+    const o = await ownerWithPat(db);
+    const video = padded(mp4(), 2048);
+    const id = await uploadAs(app, o.noteId, (await cookieOf(o.userId))[SESSION_COOKIE]!, video, "clip.mp4", "video/mp4");
+    const t = await issueDirect(db, o.patId, o.noteId, "download");
+    await expectRangeServing(
+      opts => app.inject({ method: opts?.method ?? "GET", url: `/api/uploads/${id}`, headers: { authorization: `Bearer ${t.token}`, ...opts?.headers } }),
+      video,
+    );
+  });
+
+  it("transfer token: every Range request is charged to tokenRead, so the request over its limit is 429", async () => {
+    const tokenRead = new FixedWindowLimiter({ limit: 3, windowMs: 60_000 });
+    const { app, db } = await buildTestApp({ limiters: freshLimiters({ tokenRead }) });
+    const o = await ownerWithPat(db);
+    const id = await uploadAs(app, o.noteId, (await cookieOf(o.userId))[SESSION_COOKIE]!, padded(mp4(), 2048), "clip.mp4", "video/mp4");
+    const t = await issueDirect(db, o.patId, o.noteId, "download");
+    const ranged = (range: string) => app.inject({ method: "GET", url: `/api/uploads/${id}`, headers: { authorization: `Bearer ${t.token}`, range } });
+    expect((await ranged("bytes=0-1")).statusCode).toBe(206);
+    expect((await ranged("bytes=100-")).statusCode).toBe(206);
+    expect((await ranged("bytes=-10")).statusCode).toBe(206);
+    expect((await ranged("bytes=0-1")).statusCode).toBe(429);
+  });
+
+  for (const segment of [".hidden", "100%done"]) {
+    it(`uploadsDir under a directory named ${segment} serves 200 and 206`, async () => {
+      const root = mkdtempSync(path.join(os.tmpdir(), "knb-serve-dir-"));
+      const uploadsDir = path.join(root, segment, "uploads");
+      mkdirSync(uploadsDir, { recursive: true });
+      try {
+        const { app, cookie, noteId } = await ownerSetup({ uploadsDir });
+        const id = await uploadAs(app, noteId, cookie, PNG_BYTES, "a.png", "image/png");
+        const full = await app.inject({ method: "GET", url: `/api/uploads/${id}`, cookies: { [SESSION_COOKIE]: cookie } });
+        expect(full.statusCode, full.body).toBe(200);
+        expect(full.rawPayload.equals(PNG_BYTES)).toBe(true);
+        const part = await app.inject({ method: "GET", url: `/api/uploads/${id}`, cookies: { [SESSION_COOKIE]: cookie }, headers: { range: "bytes=0-1" } });
+        expect(part.statusCode).toBe(206);
+        expect(part.rawPayload.equals(PNG_BYTES.subarray(0, 2))).toBe(true);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+  }
+
+  it("an image keeps its headers: inline under UPLOAD_CSP with no Content-Disposition", async () => {
+    const { app, cookie, noteId } = await ownerSetup();
+    const id = await uploadAs(app, noteId, cookie, PNG_BYTES, "photo.png", "image/png");
+    const res = await app.inject({ method: "GET", url: `/api/uploads/${id}`, cookies: { [SESSION_COOKIE]: cookie } });
+    expect(res.headers["content-type"]).toBe("image/png");
+    expect(res.headers["content-security-policy"]).toBe(UPLOAD_CSP);
+    expect(res.headers["content-disposition"]).toBeUndefined();
+  });
+
+  it("a PDF opens inline with its own CSP and no sandbox", async () => {
+    const { app, cookie, noteId } = await ownerSetup();
+    const id = await uploadAs(app, noteId, cookie, Buffer.from(pdf()), "spec.pdf", "application/pdf");
+    const res = await app.inject({ method: "GET", url: `/api/uploads/${id}`, cookies: { [SESSION_COOKIE]: cookie } });
+    expect(res.headers["content-type"]).toBe("application/pdf");
+    expect(res.headers["content-security-policy"]).toBe("default-src 'none'; frame-ancestors 'none'");
+    expect(res.headers["content-disposition"]).toBe("inline; filename=\"spec.pdf\"; filename*=UTF-8''spec.pdf");
+  });
+
+  it("a docx named report.jar downloads as report.docx", async () => {
+    const { app, cookie, noteId } = await ownerSetup();
+    const id = await uploadAs(app, noteId, cookie, Buffer.from(docx()), "report.jar", "application/java-archive");
+    const res = await app.inject({ method: "GET", url: `/api/uploads/${id}`, cookies: { [SESSION_COOKIE]: cookie } });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toBe(OOXML_DOCX);
+    expect(res.headers["content-disposition"]).toBe("attachment; filename=\"report.docx\"; filename*=UTF-8''report.docx");
+  });
+
+  it("an old row without a stored name downloads as <id>.<canonical extension>", async () => {
+    const { app, db, uploadsDir, owner, cookie, noteId } = await ownerSetup();
+    const bytes = Buffer.from(docx());
+    const [row] = await db.insert(uploads).values({ noteId, uploaderId: owner.id, mime: OOXML_DOCX, size: bytes.length }).returning();
+    expect(row.fileName).toBeNull();
+    writeFileSync(path.join(uploadsDir, row.id), bytes);
+    const res = await app.inject({ method: "GET", url: `/api/uploads/${row.id}`, cookies: { [SESSION_COOKIE]: cookie } });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-disposition"]).toBe(`attachment; filename="${row.id}.docx"; filename*=UTF-8''${row.id}.docx`);
+  });
+
+  it("a non-ASCII name reaches the browser only as an ASCII fallback plus filename*", async () => {
+    const { app, cookie, noteId } = await ownerSetup();
+    const id = await uploadAs(app, noteId, cookie, Buffer.from(pdf()), "報告.pdf", "application/pdf");
+    const res = await app.inject({ method: "GET", url: `/api/uploads/${id}`, cookies: { [SESSION_COOKIE]: cookie } });
+    expect(res.headers["content-disposition"]).toBe("inline; filename=\"__.pdf\"; filename*=UTF-8''%E5%A0%B1%E5%91%8A.pdf");
+  });
+
+  it("HTML in a .txt file is served inline as text/plain under UPLOAD_CSP", async () => {
+    const { app, cookie, noteId } = await ownerSetup();
+    const html = Buffer.from("<!doctype html><html><body><script>alert(1)</script></body></html>\n", "utf-8");
+    const id = await uploadAs(app, noteId, cookie, html, "notes.txt", "text/html");
+    const res = await app.inject({ method: "GET", url: `/api/uploads/${id}`, cookies: { [SESSION_COOKIE]: cookie } });
+    expect(res.headers["content-type"]).toBe("text/plain; charset=utf-8");
+    expect(res.headers["content-security-policy"]).toBe(UPLOAD_CSP);
+    expect(res.headers["content-disposition"]).toBe("inline; filename=\"notes.txt\"; filename*=UTF-8''notes.txt");
+    expect(res.rawPayload.equals(html)).toBe(true);
+  });
+
+  it("a Latin-1 CSV (not valid UTF-8) is a download, and a script-like text name gets .txt appended", async () => {
+    const { app, cookie, noteId } = await ownerSetup();
+    const latin1 = await uploadAs(app, noteId, cookie, Buffer.from("caf\xe9,1\nna\xefve,2\n", "latin1"), "data.csv", "text/csv");
+    const csv = await app.inject({ method: "GET", url: `/api/uploads/${latin1}`, cookies: { [SESSION_COOKIE]: cookie } });
+    expect(csv.headers["content-type"]).toBe("text/csv");
+    expect(csv.headers["content-disposition"]).toBe("attachment; filename=\"data.csv\"; filename*=UTF-8''data.csv");
+
+    const script = await uploadAs(app, noteId, cookie, Buffer.from("Write-Host hi\n", "utf-8"), "build.ps1", "text/plain");
+    const ps1 = await app.inject({ method: "GET", url: `/api/uploads/${script}`, cookies: { [SESSION_COOKIE]: cookie } });
+    expect(ps1.headers["content-disposition"]).toBe("inline; filename=\"build.ps1.txt\"; filename*=UTF-8''build.ps1.txt");
+  });
+
+  it("HEAD on a row whose file is missing is the uniform 404", async () => {
+    const { app, db, owner, cookie, noteId } = await ownerSetup();
+    const [row] = await db.insert(uploads).values({ noteId, uploaderId: owner.id, mime: "image/png", size: 3 }).returning();
+    const res = await app.inject({ method: "HEAD", url: `/api/uploads/${row.id}`, cookies: { [SESSION_COOKIE]: cookie } });
+    expect(res.statusCode).toBe(404);
+    expect(res.headers["content-disposition"]).toBeUndefined();
   });
 });
 

@@ -13,14 +13,14 @@ function inlineScriptHashes(html: string): string[] {
   });
 }
 
-// The loose half is deliberate: external images by URL and URL-only audio/video are supported features a tighter CSP would silently break, and CSP can't tell a pasted image from an injected `themeCSS: url(…)`. Only a self-hosted image proxy would allow both.
+// The loose half is deliberate: external images and audio/video by URL are supported features a tighter CSP would silently break, and CSP can't tell a pasted image from an injected `themeCSS: url(…)`. Only a self-hosted image proxy would allow both.
 const STATIC_DIRECTIVES: readonly (readonly [string, string])[] = [
   ["default-src", "'self'"],
   ["style-src", "'self' 'unsafe-inline'"],
   // Both http: and https: (apps/web/src/lib/media-url.ts allows both; plain-http LAN deployments would otherwise lose images).
   ["img-src", "'self' data: blob: http: https:"],
+  // Uploaded audio/video plays from its same-origin URL; the client makes no blob: or data: previews, so neither is allowed.
   ["media-src", "'self' http: https:"],
-  // ⚠ If audio/video upload is added, media-src needs blob: (preview) and possibly data:.
   ["font-src", "'self' data:"],
   // Collab WebSocket is same-origin; AI providers are called server-side.
   ["connect-src", "'self'"],

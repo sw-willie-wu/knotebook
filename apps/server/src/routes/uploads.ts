@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { createReadStream, createWriteStream } from "node:fs";
-import { stat, unlink } from "node:fs/promises";
+import { createWriteStream } from "node:fs";
+import { unlink } from "node:fs/promises";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { MultipartFile } from "@fastify/multipart";
@@ -31,7 +31,7 @@ import { spaceOfNote, type StorageSpace } from "../storage/space.js";
 import { StorageQuotaExceeded } from "../storage/tx/quota.js";
 import { precheckDetail, quotaErrorDetail, readSpaceUsage, remainingRoom, type SpaceUsage } from "../storage/usage.js";
 import { classifyUploadHead, HEAD_BYTES, verifyWholeFile, type HeadVerdict } from "../uploads/detect.js";
-import { uploadFilePath } from "../uploads/service.js";
+import { sendUploadFile, uploadFilePath } from "../uploads/service.js";
 import { insertUploadInTx } from "../uploads/tx/insert-upload.js";
 
 declare module "fastify" {
@@ -395,19 +395,7 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
         return sendError(reply, 429, "too_many_requests", "Too many requests. Wait a moment and try again.");
       }
 
-      const filePath = uploadFilePath(deps.uploadsDir, row.id);
-      try {
-        await stat(filePath);
-      } catch {
-        // A row without a file (volume wiped, manual deletion) isn't user-fixable: log for ops, return the uniform 404.
-        request.log.error({ uploadId: row.id }, "DB 有上傳紀錄但磁碟找不到對應檔案");
-        return sendError(reply, 404, "not_found", "No file with that id.");
-      }
-
-      reply.header("x-content-type-options", "nosniff");
-      reply.header("cache-control", "private, max-age=31536000, immutable");
-      reply.type(row.mime);
-      return reply.send(createReadStream(filePath));
+      return sendUploadFile(request, reply, row, deps.uploadsDir);
     });
   };
 }

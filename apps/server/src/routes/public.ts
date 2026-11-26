@@ -1,5 +1,3 @@
-import { createReadStream } from "node:fs";
-import { stat } from "node:fs/promises";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { normalizeHandle, normalizeSlug, validateHandle, validateSlug, type NoteWidth } from "@knotebook/shared";
@@ -10,7 +8,7 @@ import { noteStates, notes, uploads, users } from "../db/schema.js";
 import { preparePublicDoc } from "../notes/public-doc.js";
 import { publicLinksFor } from "../notes/public-links.js";
 import { UUID_RE } from "../notes/service.js";
-import { uploadFilePath } from "../uploads/service.js";
+import { sendUploadFile } from "../uploads/service.js";
 
 // All four routes go through the single resolvePublicNote (token and alias forms): the step order and identical 404s must exist once. The lookup must include `public_token IS NOT NULL` so unpublishing kills both forms.
 // The response never includes the token (an alias page would turn a guessable URL into an unrevocable handle). Tokens are kept out of logs by redactPublicTokens in app.ts; this file must not log request URLs.
@@ -150,24 +148,17 @@ export function publicRoutes(deps: PublicRoutesDeps) {
       if (!UUID_RE.test(uploadId)) {
         return sendError(reply, 404, "not_found", "No file with that id.");
       }
-      const [row] = await deps.db.select().from(uploads).where(eq(uploads.id, uploadId)).limit(1);
+      const [row] = await deps.db
+        .select({ id: uploads.id, noteId: uploads.noteId, mime: uploads.mime, fileName: uploads.fileName })
+        .from(uploads)
+        .where(eq(uploads.id, uploadId))
+        .limit(1);
       if (!row || row.noteId !== note.id) {
         return sendError(reply, 404, "not_found", "No file with that id.");
       }
 
-      const filePath = uploadFilePath(deps.uploadsDir, row.id);
-      try {
-        await stat(filePath);
-      } catch {
-        request.log.error({ uploadId: row.id }, "DB 有上傳紀錄但磁碟找不到對應檔案");
-        return sendError(reply, 404, "not_found", "No file with that id.");
-      }
-
-      reply.header("x-content-type-options", "nosniff");
-      // Same as the logged-in uploads GET; blobs stay readable from browser caches after revocation (docs/known-limitations.md).
-      reply.header("cache-control", "private, max-age=31536000, immutable");
-      reply.type(row.mime);
-      return reply.send(createReadStream(filePath));
+      // Same headers as the logged-in uploads GET, immutable cache included: blobs stay readable from browser caches after revocation (docs/known-limitations.md).
+      return sendUploadFile(request, reply, row, deps.uploadsDir);
     }
 
     app.get("/api/public/notes/:token", async (request, reply) => {
