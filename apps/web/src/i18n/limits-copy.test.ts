@@ -155,6 +155,24 @@ describe("names and descriptions pinned per entry", () => {
     );
   });
 
+  it("audio and video row copy: every key exists in both languages", () => {
+    for (const bundle of [managementEn, managementZhTW]) {
+      for (const path of [
+        "admin.limits.media.hint",
+        "admin.limits.media.current",
+        "admin.limits.media.tooSmall",
+        "admin.limits.media.tooLarge",
+        "admin.limits.media.riskTitle",
+        "admin.limits.media.risk.disk",
+        "admin.limits.media.risk.proxy",
+        "admin.limits.media.risk.restart",
+        "admin.limits.media.risk.temp",
+      ]) {
+        expect(typeof get(bundle, path), path).toBe("string");
+      }
+    }
+  });
+
   it("the separator in the range hint is ' · '", () => {
     expect(get(managementZhTW, "admin.limits.defaultAndRange")).toBe("預設 {{default}} · 範圍 {{min}}–{{max}}");
     expect(get(managementZhTW, "admin.limits.defaultAndRangeWindow")).toBe("預設 {{default}} · 範圍 {{min}}–{{max}} · 每 {{window}}");

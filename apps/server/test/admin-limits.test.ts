@@ -40,6 +40,7 @@ describe("permissions", () => {
 describe("out of range", () => {
   const cases: Array<[SiteLimitKey, string]> = [
     ["uploadMaxBytes", "bytes"],
+    ["uploadMediaMaxMib", "mib"],
     ["parseTimeoutMs", "ms"],
     ["rateEdit", "count"],
     ["sessionTtlSeconds", "seconds"],

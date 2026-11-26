@@ -42,6 +42,10 @@ export function fromInput(key: SiteLimitKey, text: string): FromInputResult {
 
 const API_UNIT_SYMBOL: Record<SiteLimitUnit, string> = { bytes: "bytes", ms: "ms", mib: "MiB", seconds: "s", count: "" };
 
+export function formatMib(mib: number): string {
+  return mib >= 1024 && mib % 1024 === 0 ? `${mib / 1024} GiB` : `${mib} MiB`;
+}
+
 /** Space-separated thousands in every language (not locale-formatted). */
 export function groupDigits(value: number): string {
   return String(value).replace(/\B(?=(\d{3})+(?!\d))/g, " ");

@@ -4,11 +4,17 @@ import type { TFunction } from "i18next";
 import { SITE_LIMITS, siteLimitDef, type SiteLimitItemDto, type SiteLimitKey } from "@knotebook/shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { formatApiValue, toInput } from "./site-limit-format";
+import { formatApiValue, formatMib, fromInput, toInput } from "./site-limit-format";
 import "@/i18n/management-strings";
 
 /** Keys with a "consequences of lowering" note (copy at `admin.limits.consequences.<key>`). */
 const CONSEQUENCE_KEYS: ReadonlySet<SiteLimitKey> = new Set(["parseTimeoutMs", "parseWorkerMemoryMb", "parseQueueWaitMs"]);
+
+export const MEDIA_LIMIT_KEY: SiteLimitKey = "uploadMediaMaxMib";
+/** Above this the admin page warns about what a very large upload costs; the registry maximum is never shown. */
+const MEDIA_RECOMMENDED_MIN_MIB = 100;
+const MEDIA_RECOMMENDED_MAX_MIB = 1024;
+const MEDIA_RISK_KEYS = ["disk", "proxy", "restart", "temp"] as const;
 
 /** Change-log entries may carry keys that are no longer in the registry. */
 export function isSiteLimitKey(key: string): key is SiteLimitKey {
@@ -68,6 +74,9 @@ function windowText(t: TFunction, windowMs: number): string {
 
 function hintText(t: TFunction, key: SiteLimitKey): string {
   const def = siteLimitDef(key);
+  if (key === MEDIA_LIMIT_KEY) {
+    return t("admin.limits.media.hint", { default: formatMib(def.default as number), min: formatMib(MEDIA_RECOMMENDED_MIN_MIB), max: formatMib(MEDIA_RECOMMENDED_MAX_MIB) });
+  }
   const values = {
     default: def.default === "auto" ? t("admin.limits.defaultAuto") : limitValueText(t, key, def.default),
     min: String(toInput(key, def.min) ?? def.min),
@@ -96,6 +105,7 @@ export function SiteLimitRow({ item, draft, onDraft, onReset, disabled, error }:
   const autoId = `${baseId}-auto`;
   const descriptionId = `${baseId}-description`;
   const consequenceId = `${baseId}-consequence`;
+  const mediaId = `${baseId}-media`;
   const { key } = item;
   const def = siteLimitDef(key);
   const autoCapable = def.default === "auto";
@@ -126,12 +136,20 @@ export function SiteLimitRow({ item, draft, onDraft, onReset, disabled, error }:
         : t("admin.limits.status.autoPlain", { value: limitValueText(t, key, item.autoValue) });
   }
 
+  // The draft when it parses, else the saved value, so the size and the warning follow typing.
+  let mediaMib: number | null = null;
+  if (key === MEDIA_LIMIT_KEY) {
+    const parsed = locked ? null : fromInput(key, draft);
+    mediaMib = parsed !== null && parsed.ok ? parsed.value : item.value;
+  }
+
   const noteId = (index: number) => `${baseId}-note-${index}`;
   const describedBy = [
     descriptionId,
     hintId,
     ...(CONSEQUENCE_KEYS.has(key) ? [consequenceId] : []),
     ...(autoLabel !== null ? [autoId] : []),
+    ...(mediaMib !== null ? [mediaId] : []),
     ...notes.map((_, index) => noteId(index)),
     ...(error ? [errorId] : []),
   ].join(" ");
@@ -169,6 +187,21 @@ export function SiteLimitRow({ item, draft, onDraft, onReset, disabled, error }:
         <p id={consequenceId} className="text-xs text-muted-foreground">
           {t(`admin.limits.consequences.${key}`)}
         </p>
+      )}
+      {mediaMib !== null && (
+        <div id={mediaId} className="space-y-1 text-xs text-muted-foreground">
+          <p>{t("admin.limits.media.current", { size: formatMib(mediaMib) })}</p>
+          {mediaMib > MEDIA_RECOMMENDED_MAX_MIB && (
+            <>
+              <p className="font-medium text-foreground">{t("admin.limits.media.riskTitle", { size: formatMib(MEDIA_RECOMMENDED_MAX_MIB) })}</p>
+              <ul className="list-disc space-y-0.5 pl-5">
+                {MEDIA_RISK_KEYS.map((risk) => (
+                  <li key={risk}>{t(`admin.limits.media.risk.${risk}`)}</li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
       )}
       {autoLabel !== null && (
         <p id={autoId} className="text-xs text-muted-foreground">

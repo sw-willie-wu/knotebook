@@ -72,6 +72,25 @@ describe("uploadMaxBytes takes effect immediately", () => {
   });
 });
 
+describe("uploadMediaMaxMib is wired into /api/auth/config in bytes", () => {
+  it("defaults to 100 MiB and follows an update; the stored MiB value round-trips at both ends of the range", async () => {
+    const ctx = await buildTestApp();
+    const admin = await seedUser(ctx.db, { isAdmin: true });
+    const config = async () => (await ctx.app.inject({ method: "GET", url: "/api/auth/config" })).json();
+    expect((await config()).maxMediaUploadBytes).toBe(104_857_600);
+
+    await ctx.siteLimits.update(admin.id, { uploadMediaMaxMib: 10 });
+    expect((await config()).maxMediaUploadBytes).toBe(10 * MIB);
+
+    await ctx.siteLimits.update(admin.id, { uploadMediaMaxMib: 2048 });
+    expect((await config()).maxMediaUploadBytes).toBe(2048 * MIB);
+
+    await ctx.siteLimits.update(admin.id, { uploadMediaMaxMib: 1_048_576 });
+    expect(ctx.siteLimits.get("uploadMediaMaxMib")).toBe(1_048_576);
+    expect((await config()).maxMediaUploadBytes).toBe(1_048_576 * MIB);
+  });
+});
+
 describe("watchNotesOverCap", () => {
   it("changing noteMaxBytes re-logs notes over the limit (limitBytes = new value); no more logging after unsubscribe", async () => {
     const ctx = await buildCollabTestApp({});

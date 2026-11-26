@@ -151,6 +151,16 @@ describe("SiteLimits.update writes and change log", () => {
     expect(bFinal).toEqual(bystander);
   });
 
+  it("uploadMediaMaxMib: below the minimum is rejected; the largest value fits the int4 column and survives a reload", async () => {
+    const { db, admin, s, log } = await setup();
+    expect(await caught(s.update(admin.id, { uploadMediaMaxMib: 9 }))).toBeInstanceOf(LimitRangeError);
+    await s.update(admin.id, { uploadMediaMaxMib: 1_048_576 });
+    const [row] = await db.select().from(siteLimits).where(eq(siteLimits.key, "uploadMediaMaxMib"));
+    expect(row!.value).toBe(1_048_576);
+    const reloaded = await SiteLimits.load(db, { limitEnv: {}, machine: testConfig.machine, log });
+    expect(reloaded.get("uploadMediaMaxMib")).toBe(1_048_576);
+  });
+
   it("storing a value equal to the default", async () => {
     const { db, admin, s } = await setup();
     const calls: Array<ReadonlySet<SiteLimitKey>> = [];
