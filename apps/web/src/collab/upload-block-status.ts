@@ -2,6 +2,7 @@ import "@/i18n/upload-block-strings";
 import { formatBytes } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { BLOCKED_MEDIA_URL } from "@/lib/media-url";
+import { storageQuotaDescription } from "@/lib/storage-quota-text";
 import { uploadErrorKey } from "@/lib/upload-error-text";
 import { precheckMessage } from "@/uploads/precheck";
 import { getUploadItems, subscribeUploads, type UploadItem } from "@/uploads/upload-queue-store";
@@ -117,6 +118,8 @@ function drawStatus(root: HTMLElement, item: UploadItem, blockType: string): num
         ? t(uploadErrorKey(item.error, { name: item.fileName, type: "" }) ?? "errors.fallback", { defaultValue: t("errors.fallback") })
         : undefined;
     if (reason !== undefined) children.push(el("p", "text-destructive", reason));
+    // The upload toast is skipped while this block is on screen, so the hint on whom to ask lives here.
+    if (item.error?.code === "storage_quota_exceeded") children.push(el("p", "text-muted-foreground", storageQuotaDescription(item.error, t)));
     if (isUploadRetryable(item)) {
       const waitMs = uploadRetryWaitMs(item);
       const row = el("p", "text-muted-foreground");

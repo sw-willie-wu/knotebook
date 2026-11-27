@@ -140,6 +140,19 @@ describe("upload state on the block (queue item for this note and block)", () =>
     expect(statusOf(el, "b1").querySelector(".text-destructive")!.textContent).toMatch(/^This SVG can.t be used\./);
   });
 
+  it("a storage-full refusal adds who to ask under the reason; other codes add nothing", () => {
+    const { el } = mount([videoBlock()], { noteId: "note-1" });
+    const full = new ApiFail(409, "storage_quota_exceeded", "x");
+    full.storage = { usedBytes: 1_572_864, quotaBytes: 1_048_576, incomingBytes: 1 };
+    putUpload(item({ status: "failed", error: full }));
+    const hint = statusOf(el, "b1").querySelector(".text-destructive")!.nextElementSibling!;
+    expect(hint.textContent).toBe("1.5 MB of 1 MB used. Ask a site admin for more space.");
+    putUpload(item({ status: "failed", error: new ApiFail(409, "storage_quota_exceeded", "x") }));
+    expect(statusOf(el, "b1").querySelector(".text-destructive")!.nextElementSibling!.textContent).toBe("This space has no room for the file. Ask its owner or a site admin.");
+    putUpload(item({ status: "failed", error: new ApiFail(0, "upload_interrupted", "x") }));
+    expect(statusOf(el, "b1").textContent).not.toContain("Ask");
+  });
+
   it("429 with a wait: Retry is disabled with a countdown, then enabled", () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000_000);

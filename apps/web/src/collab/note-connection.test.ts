@@ -46,7 +46,7 @@ vi.mock("@hocuspocus/provider", async () => {
   };
 });
 
-const { acquireNoteConnection } = await import("./note-connection");
+const { acquireNoteConnection, isNoteOnScreen } = await import("./note-connection");
 const { useCollab } = await import("./useCollab");
 
 const NOTE_ID = "11111111-1111-1111-1111-111111111111";
@@ -123,6 +123,17 @@ describe("acquireNoteConnection", () => {
     expect(queue.hasEditor()).toBe(true);
     second.release();
     expect(queue.hasEditor()).toBe(false);
+  });
+
+  it("isNoteOnScreen follows the editors of the note even after the asking holder released", () => {
+    expect(isNoteOnScreen(NOTE_ID)).toBe(false);
+    const queue = acquireNoteConnection(NOTE_ID, queueHolder());
+    expect(isNoteOnScreen(NOTE_ID)).toBe(false);
+    const editor = track(acquireNoteConnection(NOTE_ID, editorHolder()));
+    queue.release();
+    expect(isNoteOnScreen(NOTE_ID)).toBe(true);
+    editor.release();
+    expect(isNoteOnScreen(NOTE_ID)).toBe(false);
   });
 
   it("the last release destroys the provider and doc; a later acquire opens a new connection", () => {

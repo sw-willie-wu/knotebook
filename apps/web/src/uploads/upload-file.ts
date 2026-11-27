@@ -1,4 +1,5 @@
 import { ApiFail } from "@/api/client";
+import { isNoteOnScreen } from "@/collab/note-connection";
 import { toast } from "@/components/ui/toast";
 import { storageQuotaDescription, type Translate } from "@/lib/storage-quota-text";
 import { uploadErrorKey } from "@/lib/upload-error-text";
@@ -25,13 +26,14 @@ function toastOncePerCode(err: ApiFail, translate: Translate, file: File): void 
   toast({ title: translate(textKey) });
 }
 
-/** The upload runs on after the person leaves the note; the first failure is announced once, wherever they are. */
-function toastWhenItFails(id: string, file: File, translate: Translate): void {
+/** The upload runs on after the person leaves the note; the first failure is announced once, unless the note is on screen. */
+function toastWhenItFails(id: string, noteId: string, file: File, translate: Translate): void {
   const unsubscribe = subscribeUploads(() => {
     const item = getUploadItems().find((i) => i.id === id);
     if (item && (item.status === "uploading" || item.status === "writing")) return;
     unsubscribe();
-    if (item?.status === "failed" && item.error instanceof ApiFail) toastOncePerCode(item.error, translate, file);
+    // With the note on screen the block already shows the reason and the retry button.
+    if (item?.status === "failed" && item.error instanceof ApiFail && !isNoteOnScreen(noteId)) toastOncePerCode(item.error, translate, file);
   });
 }
 
@@ -54,7 +56,7 @@ export function createUploadFile(opts: CreateUploadFileOptions): (file: File, bl
     if (blockId !== undefined) {
       void startUpload({ noteId, blockId, file, expectedUrl: "", precheckCtx }).then(
         (started) => {
-          if (started.ok) toastWhenItFails(started.id, file, translate);
+          if (started.ok) toastWhenItFails(started.id, noteId, file, translate);
         },
         () => {},
       );

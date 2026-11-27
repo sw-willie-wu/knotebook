@@ -127,6 +127,7 @@ interface HolderEntry {
 
 interface NoteConnection {
   attach(holder: NoteConnectionHolder): NoteConnectionHandle;
+  hasEditor(): boolean;
 }
 
 const connections = new Map<string, NoteConnection>();
@@ -143,6 +144,11 @@ export function acquireNoteConnection(noteId: string, holder: NoteConnectionHold
     connections.set(noteId, connection);
   }
   return connection.attach(holder);
+}
+
+/** Whether an editor of this note is attached in this tab right now, whoever holds the connection. */
+export function isNoteOnScreen(noteId: string): boolean {
+  return connections.get(noteId)?.hasEditor() ?? false;
 }
 
 /**
@@ -434,6 +440,7 @@ function openConnection(noteId: string): NoteConnection {
   };
 
   const connection: NoteConnection = {
+    hasEditor: () => editorCount > 0,
     attach(holder) {
       const entry: HolderEntry = { holder, listeners: new Set(), waiters: new Set() };
       holders.add(entry);

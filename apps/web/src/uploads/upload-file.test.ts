@@ -6,10 +6,12 @@ import type { PrecheckCtx } from "./precheck";
 // The toast is a spy (same technique as `NoteEditor.test.ts`): what is asserted is whether there was a hint, how many times, and what text.
 const toastMock = vi.hoisted(() => vi.fn());
 vi.mock("@/components/ui/toast", () => ({ toast: toastMock }));
+const onScreen = vi.hoisted(() => ({ value: false }));
 
 // The write waits on the note's connection; these tests stop at the upload, so the connection never becomes writable.
 vi.mock("@/collab/note-connection", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/collab/note-connection")>()),
+  isNoteOnScreen: () => onScreen.value,
   acquireNoteConnection: () => ({
     doc: null,
     provider: {},
@@ -45,6 +47,7 @@ let clockBase = 0;
 beforeEach(() => {
   installFakeXhr();
   toastMock.mockClear();
+  onScreen.value = false;
   // The toast de-dupe map is module-level: each test starts far past the previous one's 5 s window.
   clockBase += 1_000_000;
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -144,6 +147,24 @@ describe("createUploadFile", () => {
     expect(toastMock).toHaveBeenCalledTimes(1);
     expect(toastMock).toHaveBeenCalledWith({ title: "t:errors.unsupported_media_type" });
     expect(store.getUploadItems()[0]).toMatchObject({ blockId: "b1", status: "failed" });
+  });
+
+  it("a failure while the note's editor is on screen doesn't toast: the block shows it", async () => {
+    onScreen.value = true;
+    await upload()(fileOf("a.png", 1, "image/png"), "b1");
+    lastXhr().respond(415, { error: { code: "unsupported_media_type", message: "nope" } });
+    await flush();
+    expect(toastMock).not.toHaveBeenCalled();
+    expect(store.getUploadItems()[0]).toMatchObject({ blockId: "b1", status: "failed" });
+  });
+
+  it("the editor is checked when the upload fails, not when it started", async () => {
+    onScreen.value = true;
+    await upload()(fileOf("a.png", 4, "image/png"), "b1");
+    onScreen.value = false;
+    lastXhr().respond(415, { error: { code: "unsupported_media_type", message: "nope" } });
+    await flush();
+    expect(toastMock).toHaveBeenCalledTimes(1);
   });
 
   it("progress before the failure doesn't end the watch: the failure still toasts", async () => {
