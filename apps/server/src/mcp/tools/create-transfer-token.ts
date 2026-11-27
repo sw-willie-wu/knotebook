@@ -40,7 +40,7 @@ import type { McpToolCtx } from "../context.js";
 
 export const CREATE_TRANSFER_TOKEN_DESCRIPTION_RW =
   "Get a short-lived token that lets a shell command upload a file to a note or download its files — your MCP " +
-  "credential can't be sent that way, and file bytes don't fit in tool arguments. An upload can be an image (PNG, JPEG, GIF or WebP), audio, video, " +
+  "credential can't be sent that way, and file bytes don't fit in tool arguments. An upload can be an image (PNG, JPEG, GIF, WebP or SVG), audio, video, " +
   "a PDF, an Office or OpenDocument file, or a text file. `upload` needs edit access and is good for one file; `download` " +
   "fetches any file uploaded to that note. Tokens expire within 10 minutes (see `expiresAt`). The result has a ready `curl` " +
   "command: send the token only to that address, in the `Authorization` header.";
