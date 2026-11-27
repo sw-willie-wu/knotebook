@@ -159,6 +159,38 @@ describe("MathView scroll marker", () => {
   });
 });
 
+describe("MathView initiallyEditing", () => {
+  it("opens the source editor focused, and Esc commits what was typed and reports Esc", () => {
+    const onChange = vi.fn();
+    const onClose = vi.fn();
+    render(<MathView tex="" editable onChange={onChange} initiallyEditing onClose={onClose} />);
+    const area = screen.getByRole("textbox");
+    expect(document.activeElement).toBe(area);
+    fireEvent.change(area, { target: { value: "E=mc^2" } });
+    fireEvent.keyDown(area, { key: "Escape" });
+    expect(onChange).toHaveBeenCalledWith("E=mc^2");
+    expect(onClose).toHaveBeenCalledWith(true);
+    expect(screen.queryByRole("textbox")).toBeNull();
+  });
+
+  it("an empty source left on blur is not written, and blur is reported as not Esc", () => {
+    const onChange = vi.fn();
+    const onClose = vi.fn();
+    render(<MathView tex="" editable onChange={onChange} initiallyEditing onClose={onClose} />);
+    fireEvent.blur(screen.getByRole("textbox"));
+    expect(onChange).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledWith(false);
+    expect(screen.queryByRole("textbox")).toBeNull();
+  });
+
+  it("stays closed by default and when the viewer cannot edit", () => {
+    const { rerender } = render(<MathView tex="" editable onChange={vi.fn()} />);
+    expect(screen.queryByRole("textbox")).toBeNull();
+    rerender(<MathView tex="" editable={false} onChange={vi.fn()} initiallyEditing />);
+    expect(screen.queryByRole("textbox")).toBeNull();
+  });
+});
+
 describe("MathView source safety", () => {
   it("a peer's change while the source is open but untouched is not written back on blur", async () => {
     const onChange = vi.fn();

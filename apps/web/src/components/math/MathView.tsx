@@ -12,6 +12,10 @@ export interface MathViewProps {
   editable: boolean;
   /** Commits new source. Called only when the source actually changed. */
   onChange(tex: string): void;
+  /** Opens the source editor on mount, for a block the user just created by typing. */
+  initiallyEditing?: boolean;
+  /** Called after the source editor closes by any route; `viaEscape` tells Esc from blur. */
+  onClose?: (viaEscape: boolean) => void;
 }
 
 /**
@@ -21,11 +25,11 @@ export interface MathViewProps {
  * `lib/katex.ts` (`\href` and `\html*` have no effect) and KaTeX escapes all text; read that file's
  * header before changing it.
  */
-export function MathView({ tex, editable, onChange }: MathViewProps): JSX.Element {
+export function MathView({ tex, editable, onChange, initiallyEditing = false, onClose }: MathViewProps): JSX.Element {
   const { t } = useTranslation();
   // A collaborator's client can write any value into the prop: anything that isn't a string is a blank formula.
   const source = typeof tex === "string" ? tex : "";
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(initiallyEditing && editable);
   const [draft, setDraft] = useState(source);
   // The source when the editor opened: a peer's change that arrives while it is open must not count as the user's edit.
   const openedWith = useRef(source);
@@ -52,9 +56,10 @@ export function MathView({ tex, editable, onChange }: MathViewProps): JSX.Elemen
    * over a peer's newer one, and a no-op `updateBlock` still produces a Yjs update that pollutes other people's undo.
    * When both changed, the user's draft is written (the last writer wins). The viewer's read-only source never writes.
    */
-  const commit = (): void => {
+  const commit = (viaEscape = false): void => {
     setEditing(false);
     if (editable && draft !== openedWith.current) onChange(draft);
+    onClose?.(viaEscape);
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -62,7 +67,7 @@ export function MathView({ tex, editable, onChange }: MathViewProps): JSX.Elemen
     if (event.key === "Escape" && !event.nativeEvent.isComposing) {
       event.preventDefault();
       event.stopPropagation();
-      commit();
+      commit(true);
     }
   };
 
@@ -128,7 +133,7 @@ export function MathView({ tex, editable, onChange }: MathViewProps): JSX.Elemen
             spellCheck={false}
             rows={Math.max(2, draft.split("\n").length + 1)}
             onChange={(event) => setDraft(event.target.value)}
-            onBlur={commit}
+            onBlur={() => commit()}
             onKeyDown={handleKeyDown}
             className="w-full resize-y rounded-md border border-input bg-muted/40 p-3 font-mono text-sm pointer-coarse:text-base outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />

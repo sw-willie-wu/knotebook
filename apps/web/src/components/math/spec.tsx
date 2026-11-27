@@ -1,6 +1,7 @@
-import type { JSX } from "react";
+import { useEffect, useRef, useState, type JSX } from "react";
 import { createReactBlockSpec, type ReactCustomBlockRenderProps } from "@blocknote/react";
 import { MATH_LANGUAGE, mathBlockConfig } from "@knotebook/shared";
+import { consumeMathEdit, peekMathEdit } from "./auto-edit";
 import { MathView } from "./MathView";
 
 // Defined in `@knotebook/shared` (`note-schema-config.ts`) so the server's headless schema shares them; imported
@@ -42,7 +43,23 @@ export function commitTex(editor: MathRenderProps["editor"], block: MathRenderPr
 }
 
 function MathBlock({ block, editor }: MathRenderProps): JSX.Element {
-  return <MathView tex={block.props.tex} editable={editor.isEditable} onChange={(tex) => commitTex(editor, block, tex)} />;
+  const [initiallyEditing] = useState(() => peekMathEdit(block.id));
+  useEffect(() => consumeMathEdit(block.id), [block.id]);
+  // Only the editor that opened by itself hands focus back: the textarea took it from the note, and Esc would otherwise leave it on the page body.
+  const returnFocus = useRef(initiallyEditing);
+  return (
+    <MathView
+      tex={block.props.tex}
+      editable={editor.isEditable}
+      initiallyEditing={initiallyEditing}
+      onClose={(viaEscape) => {
+        const handBack = returnFocus.current && viaEscape;
+        returnFocus.current = false;
+        if (handBack) editor.focus();
+      }}
+      onChange={(tex) => commitTex(editor, block, tex)}
+    />
+  );
 }
 
 /** Factory, like `mermaidSpec`: call it when registering in `collab/schema.ts` (`math: mathSpec()`). */
