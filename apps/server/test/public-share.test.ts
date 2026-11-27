@@ -1011,6 +1011,24 @@ describe("public alias image endpoint (GET /api/public/notes/:handle/:slug/uploa
     }
   });
 
+  it("an SVG is served inline as image/svg+xml under the sandbox CSP on the alias form too", async () => {
+    const { app, db, uploadsDir, noteId } = await uploadSetup();
+    try {
+      const svgBytes = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>', "utf-8");
+      const [svgRow] = await db.insert(uploads).values({ noteId, mime: "image/svg+xml", size: svgBytes.length }).returning();
+      await writeFile(uploadFilePath(uploadsDir, svgRow.id), svgBytes);
+      const res = await app.inject({ method: "GET", url: `/api/public/notes/kim/pics/uploads/${svgRow.id}` });
+      expect(res.statusCode).toBe(200);
+      expect(res.headers["content-type"]).toBe("image/svg+xml");
+      expect(res.headers["content-security-policy"]).toBe("default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; sandbox");
+      expect(res.headers["x-content-type-options"]).toBe("nosniff");
+      expect(res.headers["content-disposition"]).toBeUndefined();
+      expect(res.rawPayload.equals(svgBytes)).toBe(true);
+    } finally {
+      rmSync(uploadsDir, { recursive: true, force: true });
+    }
+  });
+
   it("alias uploads draw on the publicUpload bucket (not publicNote): with uploads limit 1 the 2nd is 429 and the content endpoint is unaffected", async () => {
     // Pins the new route's limiter wiring: if it were wired to the publicNote bucket (60/min vs 300/min), images would eat
     // content quota and a looser assertion would stay green.

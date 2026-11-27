@@ -30,7 +30,25 @@ async function detect(b: Uint8Array, name: string | null): Promise<{ category: s
   const file = path.join(dir, `f-${seq++}`);
   await writeFile(file, b);
   const whole = await verifyWholeFile(file, verdict);
-  return whole === null ? null : { category: verdict.category, mime: whole.mime };
+  return whole === null || !("mime" in whole) ? null : { category: verdict.category, mime: whole.mime };
+}
+
+async function wholeCheck(b: Uint8Array, name: string) {
+  const verdict = await classify(b, name);
+  if (verdict === null) return null;
+  const file = path.join(dir, `f-${seq++}`);
+  await writeFile(file, b);
+  return verifyWholeFile(file, verdict);
+}
+
+const SVG_NS = 'xmlns="http://www.w3.org/2000/svg"';
+/** A valid SVG document of at least `size` bytes. */
+function svgOfSize(size: number, prolog = ""): Uint8Array {
+  const open = `${prolog}<svg ${SVG_NS} viewBox="0 0 10 10">`;
+  const rect = '<rect width="1" height="1"/>';
+  const close = "</svg>";
+  const count = Math.max(0, Math.ceil((size - open.length - close.length) / rect.length));
+  return enc.encode(open + rect.repeat(count) + close);
 }
 
 describe("classifyUploadHead", () => {
@@ -87,9 +105,8 @@ describe("classifyUploadHead", () => {
     }
   });
 
-  it("html, svg and unknown binary are refused", async () => {
+  it("html and unknown binary are refused", async () => {
     expect(await classify(enc.encode("<!doctype html><p>x</p>"), "a.html")).toBeNull();
-    expect(await classify(enc.encode('<svg xmlns="http://www.w3.org/2000/svg"/>'), "a.svg")).toBeNull();
     const noise = Uint8Array.from({ length: 300 }, (_, i) => ((i * 37 + 11) % 255) + 1);
     expect(await classify(noise, "a.bin")).toBeNull();
   });
@@ -180,6 +197,42 @@ describe("detect (head + whole-file check)", () => {
   it("UTF-8 csv gets a charset, Latin-1 csv does not", async () => {
     expect((await detect(enc.encode("name\nZoë\n"), "a.csv"))?.mime).toBe("text/csv; charset=utf-8");
     expect((await detect(Uint8Array.from([0x6e, 0x0a, 0x5a, 0x6f, 0xeb, 0x0a]), "a.csv"))?.mime).toBe("text/csv");
+  });
+
+  it("an .svg name is provisionally SVG until the whole document is checked; a NUL in the head refuses it", async () => {
+    expect(await classify(enc.encode(`<svg ${SVG_NS}/>`), "a.svg")).toEqual({ category: "image", mime: "image/svg+xml", whole: "svg" });
+    expect(await classify(fx.bytes("<svg", [0], "/>"), "a.svg")).toBeNull();
+  });
+
+  it.each([
+    ["~3 KB", 3_000],
+    ["~50 KB, past the head", 50_000],
+    ["~2 MB", 2_000_000],
+  ])("an SVG of %s is accepted", async (_label, size) => {
+    const svg = svgOfSize(size);
+    expect(svg.length).toBeGreaterThanOrEqual(size);
+    expect(await detect(svg, "big.svg")).toEqual({ category: "image", mime: "image/svg+xml" });
+  });
+
+  it("an SVG with an XML declaration and a DOCTYPE, longer than the head, is accepted", async () => {
+    const prolog = '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">\n';
+    expect(await detect(svgOfSize(10_000, prolog), "a.svg")).toEqual({ category: "image", mime: "image/svg+xml" });
+  });
+
+  it("an SVG document named .xml or .txt is text, never image/svg+xml", async () => {
+    const svg = svgOfSize(10_000);
+    expect(await detect(svg, "a.xml")).toEqual({ category: "text", mime: "text/plain; charset=utf-8" });
+    expect(await detect(svg, "a.txt")).toEqual({ category: "text", mime: "text/plain; charset=utf-8" });
+  });
+
+  it("an .svg that fails the whole-document check reports why", async () => {
+    expect(await wholeCheck(enc.encode('<svg viewBox="0 0 1 1"><rect/></svg>'), "a.svg")).toEqual({ svg: "missing_xmlns" });
+    expect(await wholeCheck(enc.encode(`<svg ${SVG_NS}><use xlink:href="#r"/></svg>`), "a.svg")).toEqual({ svg: "undeclared_prefix", prefix: "xlink" });
+    expect(await wholeCheck(enc.encode(`<svg ${SVG_NS}><rect></svg>`), "a.svg")).toEqual({ svg: "invalid" });
+    // Truncated past the head: the head alone would have passed.
+    const cut = svgOfSize(10_000).subarray(0, 9_000);
+    expect(await wholeCheck(cut, "a.svg")).toEqual({ svg: "invalid" });
+    expect(await wholeCheck(enc.encode("just text"), "a.svg")).toEqual({ svg: "invalid" });
   });
 
   it("SVG markup in .xml and an invalid-UTF-8 file", async () => {

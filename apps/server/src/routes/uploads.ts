@@ -29,7 +29,7 @@ import type { FixedWindowLimiter } from "../http/rate-limit.js";
 import { spaceOfNote, type StorageSpace } from "../storage/space.js";
 import { StorageQuotaExceeded } from "../storage/tx/quota.js";
 import { precheckDetail, quotaErrorDetail, readSpaceUsage, remainingRoom, type SpaceUsage } from "../storage/usage.js";
-import { classifyUploadHead, HEAD_BYTES, verifyWholeFile, type HeadVerdict } from "../uploads/detect.js";
+import { classifyUploadHead, HEAD_BYTES, verifyWholeFile, type HeadVerdict, type SvgRefusal } from "../uploads/detect.js";
 import { deleteUploadFilesAnyName, sendUploadFile, uploadFilePath, uploadTempPath } from "../uploads/service.js";
 import { insertUploadInTx } from "../uploads/tx/insert-upload.js";
 
@@ -45,7 +45,13 @@ declare module "fastify" {
 const MIB = 1_048_576;
 
 export const UNSUPPORTED_UPLOAD_MESSAGE =
-  "Unsupported file type. Upload an image (PNG, JPEG, GIF or WebP), audio, video, a PDF, an Office or OpenDocument file, or a text file.";
+  "Unsupported file type. Upload an image (PNG, JPEG, GIF, WebP or SVG), audio, video, a PDF, an Office or OpenDocument file, or a text file.";
+
+function svgRefusalMessage(refusal: SvgRefusal): string {
+  if (refusal.svg === "missing_xmlns") return 'SVG files must declare xmlns="http://www.w3.org/2000/svg" on the root <svg> element.';
+  if (refusal.svg === "undeclared_prefix") return undeclaredPrefixMessage(refusal.prefix);
+  return "Unsupported image format. Upload a PNG, JPEG, GIF, WebP or SVG image.";
+}
 
 function uploadLimitBytes(siteLimits: SiteLimits, category: UploadCategory): number {
   return uploadLimitClass(category) === "media" ? siteLimits.get("uploadMediaMaxMib") * MIB : siteLimits.get("uploadMaxBytes");
@@ -170,14 +176,6 @@ export interface UploadsRouteDeps {
   storageLockTimeoutMs: number;
 }
 
-/**
- * Multipart parsing and its CSRF exemption are done by the global onRequest in app.ts; @fastify/multipart must be registered on the top-level app (not an encapsulated plugin).
- * Transfer tokens (#200) are accepted besides sessions; ordinary PAT/OAuth Bearer tokens are not (docs/api-tokens.md). The POST preHandler order is a contract, all before
- * request.parts(): authentication → token's note = path note → current role → upload limiter → storage-room pre-check (so a refusal for space doesn't burn the token) → atomic
- * consumption. Refusals between authentication and token consumption, and the handler's refusals while the file streams in (415 after the head, 413 or 409 past the cap), close the
- * connection instead of reading the rest of a possibly huge body. Any failure after consumption burns the token, including the in-transaction 409 storage_quota_exceeded (same code
- * and shape as the pre-check) and 409 server_busy (space-lock timeout/deadlock). CSRF stays exempt: Bearer isn't an ambient credential.
- */
 const MAX_ECHOED_PREFIX_CHARS = 64;
 
 /** The prefix comes from an untrusted file and is echoed to clients that may render it: bound its length and drop invisible direction/format characters. */
@@ -201,6 +199,14 @@ export function undeclaredPrefixMessage(prefix: string | undefined): string {
     : `SVG files must declare every namespace prefix they use: the prefix "${shown}" has no matching xmlns declaration.`;
 }
 
+/**
+ * Multipart parsing and its CSRF exemption are done by the global onRequest in app.ts; @fastify/multipart must be registered on the top-level app (not an encapsulated plugin).
+ * Transfer tokens (#200) are accepted besides sessions; ordinary PAT/OAuth Bearer tokens are not (docs/api-tokens.md). The POST preHandler order is a contract, all before
+ * request.parts(): authentication → token's note = path note → current role → upload limiter → storage-room pre-check (so a refusal for space doesn't burn the token) → atomic
+ * consumption. Refusals between authentication and token consumption, and the handler's refusals while the file streams in (415 after the head, 413 or 409 past the cap), close the
+ * connection instead of reading the rest of a possibly huge body. Any failure after consumption burns the token, including the in-transaction 409 storage_quota_exceeded (same code
+ * and shape as the pre-check) and 409 server_busy (space-lock timeout/deadlock). CSRF stays exempt: Bearer isn't an ambient credential.
+ */
 export function uploadsRoutes(deps: UploadsRouteDeps) {
   return async function register(app: FastifyInstance): Promise<void> {
     const transferAuth = createTransferAuth({
@@ -350,14 +356,19 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
       }
 
       let mime: string;
+      let refusalMessage = UNSUPPORTED_UPLOAD_MESSAGE;
       try {
         const whole = await verifyWholeFile(tempPath, received.verdict);
         if (whole === null) throw new UploadRefusal("unsupported");
+        if ("svg" in whole) {
+          refusalMessage = svgRefusalMessage(whole);
+          throw new UploadRefusal("unsupported");
+        }
         mime = whole.mime;
       } catch (err) {
         if (!(err instanceof UploadRefusal)) request.log.warn({ err }, "upload whole-file check failed");
         await deleteUploadFilesAnyName(deps.uploadsDir, [id], request.log);
-        return sendError(reply, 415, "unsupported_media_type", UNSUPPORTED_UPLOAD_MESSAGE);
+        return sendError(reply, 415, "unsupported_media_type", refusalMessage);
       }
 
       const input = {
