@@ -53,7 +53,7 @@ describe("noteSchema (image block enabled)", () => {
 
   it("custom blocks are attached, and only the deliberately added ones", () => {
     const custom = Object.keys(noteSchema.blockSpecs).filter((type) => !(type in defaultBlockSpecs));
-    expect(custom.sort()).toEqual(["column", "columnList", "mermaid"]);
+    expect(custom.sort()).toEqual(["column", "columnList", "math", "mermaid"]);
   });
 
   it("noteSchema's heading propSchema equals the headless schema's heading propSchema", () => {
@@ -470,6 +470,10 @@ const FIXTURE: PartialBlock<any, any, any>[] = [
   { type: "mermaid", props: { code: "graph TD\n  A-->B" } },
   // No props given, so both schemas' propSchema defaults are exercised: the entry above supplies `code`, which would mask a divergence between the two schemas' defaults and let parity pass falsely.
   { type: "mermaid" },
+  // Same reason as the empty mermaid block above: only the default `tex` exercises both schemas' defaults.
+  { type: "math", props: { tex: "E=mc^2" } },
+  { type: "math" },
+  { type: "math", props: { tex: "x <img src=x onerror=1></code></pre><script>1</script>" } },
   { type: "codeBlock", props: { language: "typescript" }, content: "const a = 1;" },
   { type: "image", props: { url: "/api/uploads/abc123", name: "pic" } },
 ];
@@ -519,6 +523,9 @@ describe("#106 parity: headless schema and noteSchema exports are byte-identical
     expect(b).toBe(a);
     expect(a).toContain("[目標筆記](/notes/11111111-1111-4111-8111-111111111111)");
     expect(a).toContain("```mermaid");
+    expect(a).toContain("```math\nE=mc^2\n```");
+    expect(a).toContain("```math\nx <img src=x onerror=1></code></pre><script>1</script>\n```");
+    expect(a).toMatch(/```math\n?\n```/);
   });
 
   it("a javascript: image url is sanitized in the headless schema export", async () => {

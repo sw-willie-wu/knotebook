@@ -7,7 +7,7 @@ import { NOTE_SCHEMA_VERSION } from "./note-schema-version.js";
 // Scope: only the headless schema's block / inline / style types, prop names and defaults; the web noteSchema's own set and PM-level attributes (blockContainer attrs, link mark attrs) are not in the digest.
 
 /** The recorded schema version and digest. If the schema changed: bump NOTE_SCHEMA_VERSION and replace this with the new { version, digest }. */
-const RECORDED = { version: 4, digest: "3f578f41" } as const;
+const RECORDED = { version: 5, digest: "7bace955" } as const;
 
 type PropSpec = { default?: unknown; values?: unknown };
 function propsOf(propSchema: unknown): string {
@@ -54,6 +54,9 @@ describe("NOTE_SCHEMA_VERSION and schema digest", () => {
   });
   it("the canonical form contains the wikilink's four props (guards against canonical itself missing inline content)", () => {
     expect(canonical(createHeadlessNoteSchema("http://localhost/"))).toContain('I:wikilink:none:anchorBlockId="",label="",snapshotTitle="",targetNoteId=""');
+  });
+  it("the canonical form contains the math block and its tex prop", () => {
+    expect(canonical(createHeadlessNoteSchema("http://localhost/"))).toContain('B:math:none:tex=""');
   });
   it("the canonical form contains the two column types", () => {
     const text = canonical(createHeadlessNoteSchema("http://localhost/"));

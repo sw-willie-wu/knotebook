@@ -1,6 +1,7 @@
 import { BlockNoteSchema, createCodeBlockSpec, defaultBlockSpecs, defaultInlineContentSpecs } from "@blocknote/core";
 import { columnBlockSpec, columnListBlockSpec, withGuardedExternalHTML, withKnowledgeProps, withoutKnowledgeInExternalHTML } from "@knotebook/shared";
 import { CODE_BLOCK_OPTIONS } from "@/lib/code-highlight";
+import { mathSpec } from "@/components/math/spec";
 import { mermaidSpec } from "@/components/mermaid/spec";
 import { wikilinkSpec } from "@/components/wikilink/spec";
 import { withColumnsLayout } from "./columns/layout-extension";
@@ -42,6 +43,7 @@ export const noteSchema = BlockNoteSchema.create({
     video: withGuardedExternalHTML(defaultBlockSpecs.video, window.location.href),
     // `createReactBlockSpec` returns a factory (unlike `createReactInlineContentSpec`), so the call parentheses are required.
     mermaid: mermaidSpec(),
+    math: mathSpec(),
     // #96: `defaultBlockSpecs.codeBlock` is created with no options (no languages, no highlighter);
     // they are sealed in the spec closure with no editor-level option (checked on 0.52.1), so this is the only wiring point.
     codeBlock: createCodeBlockSpec(CODE_BLOCK_OPTIONS),

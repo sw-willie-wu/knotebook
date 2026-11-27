@@ -13,6 +13,8 @@ import { normalizeAnchor, wikilinkHref, wikilinkVisibleText } from "./site-link.
 
 export const MERMAID_LANGUAGE = "mermaid";
 export const mermaidBlockConfig = { type: MERMAID_LANGUAGE, content: "none", propSchema: { code: { default: "" } } } as const;
+export const MATH_LANGUAGE = "math";
+export const mathBlockConfig = { type: MATH_LANGUAGE, content: "none", propSchema: { tex: { default: "" } } } as const;
 // Empty `label`: show the target's current title. Empty `anchorBlockId`: whole note (invalid values read as empty).
 // Changing this changes the note schema: bump NOTE_SCHEMA_VERSION (the digest test fails otherwise).
 export const wikilinkConfig = {
@@ -92,6 +94,17 @@ export function createHeadlessNoteSchema(base: string) {
       return { dom: pre };
     },
   })(); // createBlockSpec returns a factory; createInlineContentSpec returns the spec
+  const mathSpec = createBlockSpec(mathBlockConfig, {
+    render: () => ({ dom: document.createElement("div") }),
+    toExternalHTML: block => {
+      const pre = document.createElement("pre");
+      const code = document.createElement("code");
+      code.className = `language-${MATH_LANGUAGE}`;
+      code.textContent = block.props.tex;
+      pre.append(code);
+      return { dom: pre };
+    },
+  })();
   const wikilinkSpec = createInlineContentSpec(wikilinkConfig, {
     render: () => ({ dom: document.createElement("span") }),
     // Same HTML as the web's wikilink toExternalHTML (components/wikilink/spec.tsx).
@@ -113,6 +126,7 @@ export function createHeadlessNoteSchema(base: string) {
       image: withGuardedExternalHTML(defaultBlockSpecs.image, base),
       video: withGuardedExternalHTML(defaultBlockSpecs.video, base),
       mermaid: mermaidSpec,
+      math: mathSpec,
       codeBlock: createCodeBlockSpec(CODE_BLOCK_BASE_OPTIONS),
       columnList: columnListBlockSpec,
       column: columnBlockSpec,
