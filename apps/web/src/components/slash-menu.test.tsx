@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { render } from "@testing-library/react";
 import { filterSuggestionItems } from "@blocknote/core";
 import i18n from "@/i18n";
 import { PHONE_EDIT_TOOLBAR_CLEARANCE_PX } from "@/components/ai/SelectionAiController";
@@ -73,6 +74,11 @@ function mermaidItem() {
   return buildSlashMenuItems(editor, translate, noopInsertLink).find((item) => item.title === "note.mermaid.slashTitle");
 }
 
+/** The math item, found by title so a reorder of the list does not matter. */
+function mathItem() {
+  return buildSlashMenuItems(editor, translate, noopInsertLink).find((item) => item.title === "note.math.slashTitle");
+}
+
 describe("buildSlashMenuItems", () => {
   it("all default items are kept in the same order (taking over the / menu must not replace the built-in menu)", () => {
     const titles = buildSlashMenuItems(editor, translate, noopInsertLink).map((item) => item.title);
@@ -88,6 +94,7 @@ describe("buildSlashMenuItems", () => {
       "Heading 1",
       "Table",
       "note.mermaid.slashTitle",
+      "note.math.slashTitle",
       "note.link.slashTitle",
       ...COLUMN_TITLES,
       "Image",
@@ -106,7 +113,7 @@ describe("buildSlashMenuItems", () => {
       (key, options) => (key === "note.mermaid.slashGroup" ? "不存在的分組" : translate(key, options)),
       noopInsertLink,
     ).map((i) => i.title);
-    expect(titles).toEqual([...DEFAULT_ITEMS.map((item) => item.title), "note.mermaid.slashTitle", "note.link.slashTitle", ...COLUMN_TITLES]);
+    expect(titles).toEqual([...DEFAULT_ITEMS.map((item) => item.title), "note.mermaid.slashTitle", "note.math.slashTitle", "note.link.slashTitle", ...COLUMN_TITLES]);
   });
 
   it("mermaid item has English and Chinese aliases (found by typing either)", () => {
@@ -122,6 +129,57 @@ describe("buildSlashMenuItems", () => {
     mermaidItem()?.onItemClick();
     const [, block] = insertMock.mock.calls[0] as [unknown, Record<string, unknown>];
     expect(block).not.toHaveProperty("props");
+  });
+
+  it("math item sits between the mermaid and link items", () => {
+    const titles = buildSlashMenuItems(editor, translate, noopInsertLink).map((item) => item.title);
+    const math = titles.indexOf("note.math.slashTitle");
+    expect(math).toBeGreaterThan(-1);
+    expect(titles[math - 1]).toBe("note.mermaid.slashTitle");
+    expect(titles[math + 1]).toBe("note.link.slashTitle");
+  });
+
+  it("math item has English and Chinese aliases (found by typing either)", () => {
+    expect(mathItem()?.aliases).toEqual(expect.arrayContaining(["math", "latex", "formula", "數學", "公式"]));
+  });
+
+  it("clicking the math item inserts a block of type:\"math\"", () => {
+    mathItem()?.onItemClick();
+    expect(insertMock).toHaveBeenCalledWith(editor, { type: "math" });
+  });
+
+  it("the inserted math block has no props (so the propSchema default applies)", () => {
+    mathItem()?.onItemClick();
+    const [, block] = insertMock.mock.calls[0] as [unknown, Record<string, unknown>];
+    expect(block).not.toHaveProperty("props");
+  });
+
+  it("math, link and diagram items share a group", () => {
+    const items = buildSlashMenuItems(editor, translate, noopInsertLink);
+    const group = (title: string) => items.find((i) => i.title === title)?.group;
+    expect(group("note.math.slashTitle")).toBe(group("note.link.slashTitle"));
+    expect(group("note.math.slashTitle")).toBe(group("note.mermaid.slashTitle"));
+  });
+
+  it("math item uses the sigma icon", () => {
+    const { container } = render(<>{mathItem()?.icon}</>);
+    expect(container.querySelector('svg[data-icon="sigma"]')).not.toBeNull();
+  });
+
+  it("math item matches a typed query by alias and not for an unrelated query", () => {
+    const items = buildSlashMenuItems(editor, translate, noopInsertLink);
+    expect(filterSuggestionItems(items, "latex").map((i) => i.title)).toContain("note.math.slashTitle");
+    expect(filterSuggestionItems(items, "公式").map((i) => i.title)).toContain("note.math.slashTitle");
+    expect(filterSuggestionItems(items, "mermaid").map((i) => i.title)).not.toContain("note.math.slashTitle");
+  });
+
+  it("math item title and description in zh-TW and en", async () => {
+    await i18n.changeLanguage("zh-TW");
+    const zh = buildSlashMenuItems(editor, i18n.t.bind(i18n), noopInsertLink).find((i) => i.aliases?.includes("latex"));
+    expect([zh?.title, zh?.subtext]).toEqual(["數學式", "用 LaTeX 寫數學公式"]);
+    await i18n.changeLanguage("en");
+    const en = buildSlashMenuItems(editor, i18n.t.bind(i18n), noopInsertLink).find((i) => i.aliases?.includes("latex"));
+    expect([en?.title, en?.subtext]).toEqual(["Math", "Write a formula in LaTeX"]);
   });
 
   it("link and diagram items share a group (the group key is a shared constant)", () => {

@@ -22,6 +22,7 @@ import {
   ArrowUp,
   Columns2,
   ImageIcon,
+  Sigma,
   KeyRound,
   ListFilter,
   NoteWidthIcon,
@@ -66,6 +67,7 @@ describe("icons", () => {
     ["panel-left", PanelLeft],
     ["pin", Pin],
     ["list-tree", ListTree],
+    ["sigma", Sigma],
   ] as const)("icon %s: carries data-icon, is aria-hidden by default and accepts className", (name, Icon) => {
     const { container } = render(<Icon className="h-4 w-4" />);
     const svg = container.querySelector("svg");

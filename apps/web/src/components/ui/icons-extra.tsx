@@ -56,6 +56,14 @@ export function Diagram(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function Sigma(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg data-icon="sigma" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M18 4H6l7 8-7 8h12" />
+    </svg>
+  );
+}
+
 /** Adapted from lucide `maximize` (ISC). */
 export function Maximize(props: SVGProps<SVGSVGElement>) {
   return (
