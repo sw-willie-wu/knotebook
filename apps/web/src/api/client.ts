@@ -51,10 +51,25 @@ function parseStorageDetail(value: unknown): StorageQuotaErrorDetail | undefined
   return detail;
 }
 
+/** Unrecognised bodies become `"internal"` so raw server content isn't surfaced. */
+export function apiFailFromBody(status: number, body: unknown): ApiFail {
+  if (!isApiErrorBody(body)) return new ApiFail(status, "internal", "Unexpected error response from server");
+  const fail = new ApiFail(status, body.error.code, body.error.message);
+  if (typeof body.retryAfterMs === "number") {
+    fail.retryAfterMs = body.retryAfterMs;
+  }
+  if (body.error.code === "storage_quota_exceeded") {
+    const storage = parseStorageDetail(body.storage);
+    if (storage) fail.storage = storage;
+  }
+  if (body.error.code === "in_trash" && typeof body.noteId === "string") fail.noteId = body.noteId;
+  return fail;
+}
+
 const SAFE_METHODS = new Set(["GET", "HEAD"]);
 
 /** `Content-Type: application/json` only when there is a body: Fastify v5 answers 400 `FST_ERR_CTP_EMPTY_JSON_BODY`
- * to an empty JSON body (e.g. logout). Unrecognised error bodies become `"internal"` so raw server content isn't surfaced. */
+ * to an empty JSON body (e.g. logout). */
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const method = (init.method ?? "GET").toUpperCase();
   const headers = new Headers(init.headers);
@@ -83,20 +98,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
       body = undefined;
     }
 
-    if (isApiErrorBody(body)) {
-      const fail = new ApiFail(response.status, body.error.code, body.error.message);
-      if (typeof body.retryAfterMs === "number") {
-        fail.retryAfterMs = body.retryAfterMs;
-      }
-      if (body.error.code === "storage_quota_exceeded") {
-        const storage = parseStorageDetail(body.storage);
-        if (storage) fail.storage = storage;
-      }
-      if (body.error.code === "in_trash" && typeof body.noteId === "string") fail.noteId = body.noteId;
-      throw fail;
-    }
-
-    throw new ApiFail(response.status, "internal", "Unexpected error response from server");
+    throw apiFailFromBody(response.status, body);
   }
 
   if (response.status === 204) {

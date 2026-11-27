@@ -1,8 +1,10 @@
-import { api, ApiFail } from "@/api/client";
+import type { UploadResponseDto } from "@knotebook/shared";
+import { ApiFail } from "@/api/client";
 import { removeBlocksKeepColumns } from "@/collab/columns/keep-columns";
 import { toast } from "@/components/ui/toast";
 import { storageQuotaDescription, type Translate } from "@/lib/storage-quota-text";
 import type { EditorRef } from "@/components/wikilink/menu";
+import { xhrUpload } from "./xhr-upload";
 
 /**
  * May reject; createUploadFile wraps it. An oversize file fails before sending, with the same 413 code the server
@@ -12,16 +14,13 @@ export async function postUpload(
   noteId: string,
   file: File,
   maxBytes?: number,
-): Promise<{ id: string; url: string }> {
+): Promise<UploadResponseDto> {
   if (maxBytes !== undefined && file.size > maxBytes) {
     throw new ApiFail(413, "file_too_large", "client-side precheck");
   }
   const fd = new FormData();
   fd.append("file", file);
-  return api<{ id: string; url: string }>(`/api/notes/${encodeURIComponent(noteId)}/uploads`, {
-    method: "POST",
-    body: fd,
-  });
+  return xhrUpload(`/api/notes/${encodeURIComponent(noteId)}/uploads`, fd);
 }
 
 export { storageQuotaDescription, type Translate } from "@/lib/storage-quota-text";

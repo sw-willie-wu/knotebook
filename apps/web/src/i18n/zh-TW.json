@@ -856,6 +856,7 @@
     "public_slug_taken": "此公開網址已被你的另一篇筆記使用。",
     "not_loaded": "此筆記目前尚未就緒，請稍後再試。",
     "file_too_large": "檔案過大，無法上傳。",
+    "upload_interrupted": "上傳中斷了。請檢查網路後再試一次。",
     "ai_not_configured": "尚未設定 AI",
     "provider_unavailable": "AI provider 無法使用——請管理員重新輸入 API key",
     "upstream_error": "AI 服務回傳錯誤",

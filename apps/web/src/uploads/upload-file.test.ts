@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BlockNoteEditor } from "@blocknote/core";
 import { ApiFail } from "@/api/client";
 import { removeBlocksKeepColumns } from "@/collab/columns/keep-columns";
+import { installFetchBackedXhr } from "@/test/fake-xhr";
 import { IMG, P, mountEditor, row, shape } from "@/test/columns-fixtures";
 
 // A spy wrapper that calls through to the original implementation; no automock - that would make the real-editor cleanup case do nothing.
@@ -50,6 +51,7 @@ function fileOfSize(size: number): File {
 const translate = (key: string) => `t:${key}`;
 
 describe("postUpload", () => {
+  beforeEach(() => installFetchBackedXhr());
   afterEach(() => vi.unstubAllGlobals());
 
   it("success: POST to /api/notes/:id/uploads (FormData with a file field), returns {id, url}", async () => {
@@ -133,6 +135,7 @@ describe("createUploadFile", () => {
   // `setTimeout` isn't triggered while the fake clock is in effect.
   let testClockBase = 0;
   beforeEach(() => {
+    installFetchBackedXhr();
     toastMock.mockClear();
     vi.useFakeTimers();
     testClockBase += 1_000_000;

@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { AuthConfigDto } from "@knotebook/shared";
 import { AUTH_CONFIG_QUERY_KEY } from "@/api/authConfig";
 import i18n from "@/i18n";
+import { installFetchBackedXhr } from "@/test/fake-xhr";
 import { noteSchema } from "@/collab/schema";
 import { createFilePanel } from "./FilePanel";
 
@@ -75,6 +76,7 @@ describe("FilePanel (image block recovery + own Upload/Embed tabs)", () => {
   let editor: BlockNoteEditor<any, any, any>;
 
   beforeEach(async () => {
+    installFetchBackedXhr();
     await i18n.changeLanguage("en");
     editor = headlessEditor();
   });
@@ -239,7 +241,7 @@ describe("FilePanel (image block recovery + own Upload/Embed tabs)", () => {
       await waitFor(() => expect(uploadMock).toHaveBeenCalledTimes(1));
     });
 
-    it("upload failure (not ApiFail, e.g. a network-level exception): falls back to the generic text", async () => {
+    it("upload failure (network-level error): shows the interrupted text", async () => {
       stubFetch(vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
 
       const blockId = insertBlock(editor, "image");
@@ -249,7 +251,7 @@ describe("FilePanel (image block recovery + own Upload/Embed tabs)", () => {
       fireEvent.change(input, { target: { files: [pngFile()] } });
 
       await waitFor(() => {
-        expect(screen.getByRole("alert")).toHaveTextContent("Couldn't upload the file. Please try again.");
+        expect(screen.getByRole("alert")).toHaveTextContent("The upload was interrupted. Check your connection and try again.");
       });
     });
 

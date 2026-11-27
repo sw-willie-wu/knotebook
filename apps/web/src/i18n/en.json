@@ -856,6 +856,7 @@
     "public_slug_taken": "That public URL is already used by another of your notes.",
     "not_loaded": "This note isn't ready for that yet. Please try again.",
     "file_too_large": "That file is too large to upload.",
+    "upload_interrupted": "The upload was interrupted. Check your connection and try again.",
     "ai_not_configured": "AI is not configured yet",
     "provider_unavailable": "AI provider is unavailable — ask an admin to re-enter the API key",
     "upstream_error": "The AI provider returned an error",

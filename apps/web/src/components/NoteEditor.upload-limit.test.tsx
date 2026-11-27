@@ -4,6 +4,7 @@ import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import * as Y from "yjs";
 import i18n from "@/i18n";
+import { installFetchBackedXhr } from "@/test/fake-xhr";
 import { ThemeProvider } from "@/theme";
 import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
@@ -52,6 +53,7 @@ describe("NoteEditor: pre-upload limit (maxUploadBytes)", () => {
   let uploadCalls: string[];
 
   beforeEach(async () => {
+    installFetchBackedXhr();
     await i18n.changeLanguage("en");
     captured.editor = null;
     captured.created = 0;

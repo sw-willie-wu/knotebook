@@ -6,7 +6,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { AVATAR_ENCODE_RE, GROUP_LAZY_DIALOGS, AVATAR_IMAGE_MARKER, BODY_SEARCH_MARKER, COMMENTS_I18N_MARKER, COMMENT_TOOLBAR_I18N_MARKER, NOTIFICATIONS_I18N_MARKER, FOLDER_I18N_MARKER, GROUPS_ADMIN_I18N_MARKER, HELP_I18N_MARKER, KNOWLEDGE_INDEX_I18N_MARKER, MANAGEMENT_I18N_MARKERS, MAX_ENTRY_BYTES, MOBILE_TOOLBAR_I18N_MARKER, SELECT_I18N_MARKER, SHORTCUTS_I18N_MARKER, TOUR_I18N_MARKER, VERSIONS_MARKERS, checkBundleSize } from './check-bundle-size.mjs';
+import { AVATAR_ENCODE_RE, GROUP_LAZY_DIALOGS, AVATAR_IMAGE_MARKER, BODY_SEARCH_MARKER, COMMENTS_I18N_MARKER, COMMENT_TOOLBAR_I18N_MARKER, UPLOAD_PRECHECK_I18N_MARKER, NOTIFICATIONS_I18N_MARKER, FOLDER_I18N_MARKER, GROUPS_ADMIN_I18N_MARKER, HELP_I18N_MARKER, KNOWLEDGE_INDEX_I18N_MARKER, MANAGEMENT_I18N_MARKERS, MAX_ENTRY_BYTES, MOBILE_TOOLBAR_I18N_MARKER, SELECT_I18N_MARKER, SHORTCUTS_I18N_MARKER, TOUR_I18N_MARKER, VERSIONS_MARKERS, checkBundleSize } from './check-bundle-size.mjs';
 
 // pins the default cap of 750 KiB (reason in the constant's comment in check-bundle-size.mjs; the next two cases pass 700 * 1024 explicitly to test the judgement itself, independent of the default).
 test('default entry size cap is 750 KiB', () => {
@@ -287,6 +287,28 @@ test('MOBILE_TOOLBAR_I18N_MARKER is a mobileToolbar.* key in mobile-toolbar.en.j
   assert.equal(typeof bundle.mobileToolbar?.[MOBILE_TOOLBAR_I18N_MARKER], 'string');
   const main = JSON.parse(readFileSync(fileURLToPath(new URL('en.json', dir)), 'utf8'));
   assert.equal(main.mobileToolbar, undefined);
+});
+
+test('entry contains the upload pre-check string pack key -> throws; only inside NotePage -> passes', () => {
+  for (const [where, throws] of [['index-Abc123.js', true], ['NotePage-Def456.js', false]]) {
+    const { assets, cleanup } = fakeAssets({
+      ...MARKER_BASE, 'NotePage-Def456.js': 'x', 'VersionsLazy-Vvv000.js': 'x', [where]: `const s={${UPLOAD_PRECHECK_I18N_MARKER}:{noRoom:"x"}}`,
+    });
+    try {
+      if (throws) assert.throws(() => checkBundleSize(assets), /index-Abc123\.js[\s\S]*uploadPrecheck[\s\S]*NotePage chunk/);
+      else assert.doesNotThrow(() => checkBundleSize(assets));
+    } finally {
+      cleanup();
+    }
+  }
+});
+
+test('UPLOAD_PRECHECK_I18N_MARKER is a top-level key in upload-precheck.en.json, not in the main en.json', () => {
+  const dir = new URL('../apps/web/src/i18n/', import.meta.url);
+  const bundle = JSON.parse(readFileSync(fileURLToPath(new URL('upload-precheck.en.json', dir)), 'utf8'));
+  assert.equal(typeof bundle[UPLOAD_PRECHECK_I18N_MARKER], 'object');
+  const main = JSON.parse(readFileSync(fileURLToPath(new URL('en.json', dir)), 'utf8'));
+  assert.equal(main[UPLOAD_PRECHECK_I18N_MARKER], undefined);
 });
 
 test('entry contains the comment toolbar string pack key -> throws; only inside NotePage -> passes', () => {

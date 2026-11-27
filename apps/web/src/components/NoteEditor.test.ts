@@ -8,6 +8,7 @@ import { noteSchema } from "@/collab/schema";
 import { blocknoteZhTW } from "@/i18n/blocknote-zh-TW";
 import type { EditorRef } from "@/components/wikilink/menu";
 import { attachTestElementRenderer } from "@/test/element-renderer";
+import { installFetchBackedXhr } from "@/test/fake-xhr";
 import { takeDropPoint } from "@/collab/columns/paste-rule";
 import { stubLayoutTier } from "@/test/layout-tier";
 
@@ -657,6 +658,7 @@ describe("buildNoteEditorOptions uploadFile really connected (handleFileInsertio
   let container: HTMLElement;
 
   beforeEach(() => {
+    installFetchBackedXhr();
     toastMock.mockClear();
     doc = new Y.Doc();
     editorRef = { current: null };

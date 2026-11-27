@@ -44,6 +44,8 @@ export const HELP_I18N_MARKER = 'whatsNew';
 export const MOBILE_TOOLBAR_I18N_MARKER = 'hideKeyboard';
 // comment-toolbar.*.json top-level key: the selection toolbars' string pack must stay in the NotePage chain.
 export const COMMENT_TOOLBAR_I18N_MARKER = 'commentToolbar';
+// upload-precheck.*.json top-level key: the pre-check copy is read only from the note chunk (`uploads/precheck.ts`).
+export const UPLOAD_PRECHECK_I18N_MARKER = 'uploadPrecheck';
 // Presence only catches the whole group merging back or a rename; TOUR_I18N_MARKER catches a static import of a single tour module or the string pack.
 export const TOURLAZY_RE = /^TourLazy-[A-Za-z0-9_-]+\.js$/;
 // Chosen over keys like next/back, which already appear in entry.
@@ -328,6 +330,12 @@ export function checkBundleSize(assetsDir, { maxEntryBytes = MAX_ENTRY_BYTES } =
     throw new Error(
       `entry chunk ${entryName} 含手機編輯工具列字串包的鍵名 ${MOBILE_TOOLBAR_I18N_MARKER}——\`@/i18n/mobile-toolbar-strings\`（或 import 它的工具列模組）` +
         `被首包靜態 import；手機編輯工具列只能放在 NotePage chunk`
+    );
+  }
+  if (entrySource.includes(UPLOAD_PRECHECK_I18N_MARKER)) {
+    throw new Error(
+      `entry chunk ${entryName} 含上傳預檢文案字串包的鍵名 ${UPLOAD_PRECHECK_I18N_MARKER}——\`@/i18n/upload-precheck-strings\`（或 import 它的預檢模組）` +
+        `被首包靜態 import；上傳預檢只能放在 NotePage chunk`
     );
   }
   if (entrySource.includes(COMMENT_TOOLBAR_I18N_MARKER)) {
