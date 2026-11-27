@@ -2,6 +2,7 @@ import "@/i18n/math-strings";
 import { useEffect, useRef, useState, type JSX, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { renderMath, type MathRenderResult } from "@/lib/katex";
+import { MATH_SCROLL_ATTR } from "@/lib/table-scroll-hint";
 import { cn } from "@/lib/utils";
 
 export interface MathViewProps {
@@ -68,7 +69,7 @@ export function MathView({ tex, editable, onChange }: MathViewProps): JSX.Elemen
   const body = (() => {
     if (result === null) return null;
     if (result.ok) {
-      return <div className="overflow-x-auto" dangerouslySetInnerHTML={{ __html: result.html }} />;
+      return <div className="overflow-x-auto" {...{ [MATH_SCROLL_ATTR]: "" }} dangerouslySetInnerHTML={{ __html: result.html }} />;
     }
     if (result.message === "") {
       // The hint asks to click the formula, which only an editor can do.

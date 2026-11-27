@@ -6,6 +6,7 @@ vi.mock("@/lib/katex", () => ({ renderMath: renderMathMock }));
 
 const i18n = (await import("@/i18n")).default;
 const { MathView } = await import("./MathView");
+const { MATH_SCROLL_ATTR } = await import("@/lib/table-scroll-hint");
 
 beforeEach(async () => {
   await i18n.changeLanguage("en");
@@ -126,6 +127,35 @@ describe("MathView strings", () => {
     renderMathMock.mockResolvedValue({ ok: false, message: "" });
     render(<MathView tex="" editable onChange={vi.fn()} />);
     await waitFor(() => expect(screen.getByText("點一下輸入數學式（LaTeX）")).toBeInTheDocument());
+  });
+});
+
+describe("MathView scroll marker", () => {
+  it("marks the formula scroller so the phone right-edge hint can find it", async () => {
+    const { container } = render(<MathView tex="E=mc^2" editable onChange={vi.fn()} />);
+    await waitFor(() => expect(screen.getByTestId("formula")).toBeInTheDocument());
+    const scroller = screen.getByTestId("formula").parentElement!;
+    expect(scroller).toHaveAttribute(MATH_SCROLL_ATTR);
+    expect(scroller).toHaveClass("overflow-x-auto");
+    expect(container.querySelectorAll(`[${MATH_SCROLL_ATTR}]`)).toHaveLength(1);
+  });
+
+  it("the viewer (editable=false) gets the marker too", async () => {
+    render(<MathView tex="E=mc^2" editable={false} onChange={vi.fn()} />);
+    await waitFor(() => expect(screen.getByTestId("formula")).toBeInTheDocument());
+    expect(screen.getByTestId("formula").parentElement).toHaveAttribute(MATH_SCROLL_ATTR);
+  });
+
+  it("the blank and error states have no marker", async () => {
+    renderMathMock.mockResolvedValue({ ok: false, message: "" });
+    const blank = render(<MathView tex="" editable onChange={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText("Click to add a formula (LaTeX)")).toBeInTheDocument());
+    expect(blank.container.querySelector(`[${MATH_SCROLL_ATTR}]`)).toBeNull();
+    blank.unmount();
+    renderMathMock.mockResolvedValue({ ok: false, message: "Failed to fetch dynamically imported module" });
+    const failed = render(<MathView tex="\\bad" editable onChange={vi.fn()} />);
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(failed.container.querySelector(`[${MATH_SCROLL_ATTR}]`)).toBeNull();
   });
 });
 
