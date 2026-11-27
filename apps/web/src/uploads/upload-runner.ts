@@ -32,7 +32,8 @@ export interface StartUploadArgs {
   noteId: string;
   blockId: string;
   file: File;
-  expectedUrl: string;
+  /** A getter is read once the pre-check has passed, so a replace sees a file written into the block during the check. */
+  expectedUrl: string | (() => string);
   precheckCtx: () => Promise<PrecheckCtx>;
   /** Default true. False when the caller shows the refusal itself and the block is left alone. */
   recordRefusal?: boolean;
@@ -143,14 +144,18 @@ async function safeCtx(provider: () => Promise<PrecheckCtx>): Promise<PrecheckCt
 }
 
 export async function startUpload(args: StartUploadArgs): Promise<StartUploadResult> {
-  const { noteId, blockId, file, expectedUrl, precheckCtx, recordRefusal = true } = args;
+  const { noteId, blockId, file, precheckCtx, recordRefusal = true } = args;
   const checked = precheckUpload(file, await safeCtx(precheckCtx));
   const id = `upload-${++nextId}`;
+  const expectedUrl = typeof args.expectedUrl === "function" ? args.expectedUrl() : args.expectedUrl;
   const base = { id, noteId, blockId, fileName: file.name, size: file.size, loaded: 0, expectedUrl, ownerId: currentUploadUserId() };
   if (!checked.ok) {
     if (recordRefusal) putUpload({ ...base, status: "failed", precheck: checked });
     return { ok: false, result: checked };
   }
+  // A newer file for the same block replaces an older upload, which would otherwise expect the block's old URL and end
+  // up "no longer placed". Only once the newer one passed its check: a refused pick leaves the running upload alone.
+  for (const older of getUploadItems()) if (older.noteId === noteId && older.blockId === blockId) removeUpload(older.id);
   const run: Run = { file, precheckCtx, attempt: 0 };
   runs.set(id, run);
   putUpload({ ...base, status: "uploading" });
@@ -240,7 +245,7 @@ async function upload(id: string, run: Run) {
   }
   if (run.attempt !== attempt) return;
   run.abort = undefined;
-  patchUpload(id, { status: "writing", loaded: item.size });
+  patchUpload(id, { status: "writing", loaded: item.size, stored: true });
   await write(id, run, attempt);
 }
 

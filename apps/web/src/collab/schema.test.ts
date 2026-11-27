@@ -218,30 +218,44 @@ describe("classifyMediaTransfer (four rules)", () => {
       ).toBeNull();
     });
 
-    it("an empty-string type doesn't count as image (it isn't let through as anything other than nonImageFile)", () => {
-      expect(classifyMediaTransfer(transfer({ files: [file("a", "")], types: ["Files"] }))).toBe("nonImageFile");
+    it("an empty-string type with no accepted extension doesn't count as image -> unsupportedFile", () => {
+      expect(classifyMediaTransfer(transfer({ files: [file("a", "")], types: ["Files"] }))).toBe("unsupportedFile");
     });
   });
 
-  describe("any non-image file -> \"nonImageFile\"", () => {
-    it("a single video file", () => {
-      expect(classifyMediaTransfer(transfer({ files: [file("a.mp4", "video/mp4")], types: ["Files"] }))).toBe(
-        "nonImageFile",
-      );
+  describe("files named with an accepted extension pass, whatever type the browser gives", () => {
+    it.each([
+      ["a.mp3", "audio/mpeg"],
+      ["a.mp4", "video/mp4"],
+      ["a.pdf", "application/pdf"],
+      ["a.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+      ["a.csv", "text/csv"],
+      ["notes.md", ""],
+      ["clip.ts", "video/mp2t"],
+    ])("%s (%s)", (name, type) => {
+      expect(classifyMediaTransfer(transfer({ files: [file(name, type)], types: ["Files"] }))).toBeNull();
     });
 
-    it("a single audio file", () => {
-      expect(classifyMediaTransfer(transfer({ files: [file("a.mp3", "audio/mpeg")], types: ["Files"] }))).toBe(
-        "nonImageFile",
-      );
-    });
-
-    it("mixed image and non-image files", () => {
+    it("images mixed with accepted files", () => {
       expect(
-        classifyMediaTransfer(
-          transfer({ files: [file("a.png", "image/png"), file("b.pdf", "application/pdf")], types: ["Files"] }),
-        ),
-      ).toBe("nonImageFile");
+        classifyMediaTransfer(transfer({ files: [file("a.png", "image/png"), file("b.pdf", "application/pdf")], types: ["Files"] })),
+      ).toBeNull();
+    });
+  });
+
+  describe("any file neither image/* nor named with an accepted extension -> \"unsupportedFile\"", () => {
+    it.each([
+      ["a.zip", "application/zip"],
+      ["page.html", "text/html"],
+      ["a.mkv", "video/x-matroska"],
+    ])("%s (%s)", (name, type) => {
+      expect(classifyMediaTransfer(transfer({ files: [file(name, type)], types: ["Files"] }))).toBe("unsupportedFile");
+    });
+
+    it("one unsupported file among accepted ones blocks the whole transfer", () => {
+      expect(
+        classifyMediaTransfer(transfer({ files: [file("a.png", "image/png"), file("b.zip", "application/zip")], types: ["Files"] })),
+      ).toBe("unsupportedFile");
     });
   });
 
@@ -694,5 +708,33 @@ describe("latex code block coloring in the editor", () => {
       editor.unmount();
       container.remove();
     }
+  });
+});
+
+describe("file-type blocks accept what the server accepts (block chosen on drop/paste, panel accept)", () => {
+  const accept = (type: string) => (noteSchema.blockSpecs as unknown as Record<string, { implementation: { meta?: { fileBlockAccept?: string[] } } }>)[type]!.implementation.meta!.fileBlockAccept!;
+
+  it("audio: the audio mimes and their extensions only", () => {
+    expect(accept("audio")).toEqual(expect.arrayContaining(["audio/mpeg", ".mp3", "audio/x-m4a", ".m4a", ".aac", "audio/ogg", ".opus", "audio/wav", ".wav", "audio/flac", ".flac"]));
+    expect(accept("audio").filter((a) => a.startsWith("video/") || a === ".mp4" || a === ".pdf")).toEqual([]);
+  });
+
+  it("video: the video mimes and their extensions, including .weba (WebM can't be told audio-only)", () => {
+    expect(accept("video")).toEqual(expect.arrayContaining(["video/mp4", ".mp4", "video/webm", ".webm", ".weba", "video/quicktime", ".mov", ".ogv", ".m4v"]));
+    expect(accept("video").filter((a) => a.startsWith("audio/") || a === ".mp3")).toEqual([]);
+  });
+
+  it("file: PDF, Office, OpenDocument and text, nothing playable", () => {
+    expect(accept("file")).toEqual(
+      expect.arrayContaining([
+        "application/pdf", ".pdf", ".docx", ".xlsx", ".pptx", ".doc", ".xls", ".ppt", ".odt", ".ods", ".odp",
+        "text/plain", ".txt", "text/csv", ".csv", "text/markdown", ".md", ".ts", ".ps1",
+      ]),
+    );
+    expect(accept("file").filter((a) => /^(audio|video|image)\//.test(a) || a === ".zip" || a === ".html")).toEqual([]);
+  });
+
+  it("image keeps image/* (images are judged by content)", () => {
+    expect(accept("image")).toEqual(["image/*"]);
   });
 });

@@ -22,6 +22,8 @@ export interface UploadItem {
   retryAt?: number;
   /** A retry is still checking the account, size and room before it sends. */
   retrying?: boolean;
+  /** The server has the file; a retry repeats only the write into the note. */
+  stored?: boolean;
 }
 
 export interface UploadQueueSummary {

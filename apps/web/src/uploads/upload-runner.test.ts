@@ -4,6 +4,7 @@ import { BlockNoteEditor } from "@blocknote/core";
 import { blocksToYXmlFragment } from "@blocknote/core/yjs";
 import { QueryClient } from "@tanstack/react-query";
 import { COLLAB_CLOSE_NOTE_DELETED, COLLAB_CLOSE_REVOKED, YDOC_FRAGMENT, type UploadResponseDto } from "@knotebook/shared";
+import { ApiFail } from "@/api/client";
 import { COLLAB_CLOSE_CLIENT_OUTDATED } from "@/collab/connection";
 import { noteSchema } from "@/collab/schema";
 import { FakeXhr, installFakeXhr, lastXhr } from "@/test/fake-xhr";
@@ -216,6 +217,92 @@ describe("startUpload / the background write", () => {
     expect(provider(0).destroy).not.toHaveBeenCalled();
   });
 
+  it("a second file picked for the same block replaces the first: the first stops, the newer file is written (not unplaced)", async () => {
+    const editor = hold(NOTE_A);
+    await writableWith(provider(0), [videoBlock("v1", "/api/uploads/old")]);
+    const first = await startVideo(NOTE_A, { expectedUrl: "/api/uploads/old" });
+    const firstXhr = lastXhr();
+    const second = await startVideo(NOTE_A, { expectedUrl: "/api/uploads/old", file: fileOf("take2.mp4", 2 * MIB) });
+
+    expect(firstXhr.aborted).toBe(true);
+    expect(queued(first)).toBeUndefined();
+    expect(hasUploadRunForTest(first)).toBe(false);
+    lastXhr().respond(201, response({ id: "u2", url: "/api/uploads/u2" }));
+    await flush();
+
+    expect(queued(second)).toBeUndefined();
+    expect(store.getUploadItems()).toEqual([]);
+    expect(contentOf(editor.doc, "v1")?.getAttribute("url")).toBe("/api/uploads/u2");
+  });
+
+  it("the same block id in another note is a different block: both uploads keep running", async () => {
+    hold(NOTE_A);
+    hold(NOTE_B);
+    const inA = await startVideo(NOTE_A);
+    const inB = await startVideo(NOTE_B);
+    expect(queued(inA)?.status).toBe("uploading");
+    expect(queued(inB)?.status).toBe("uploading");
+  });
+
+  it("a refused replacement leaves the running upload untouched", async () => {
+    hold(NOTE_A);
+    const first = await startVideo(NOTE_A, { expectedUrl: "/api/uploads/old" });
+    const firstXhr = lastXhr();
+    const refused = await startUpload({
+      noteId: NOTE_A,
+      blockId: "v1",
+      file: fileOf("huge.mp4", 500 * MIB),
+      expectedUrl: "/api/uploads/old",
+      precheckCtx: async () => ctxValue(),
+      recordRefusal: false,
+    });
+    expect(refused.ok).toBe(false);
+    expect(firstXhr.aborted).toBe(false);
+    expect(queued(first)?.status).toBe("uploading");
+    expect(hasUploadRunForTest(first)).toBe(true);
+  });
+
+  it("an accepted replacement whose check outlasts the first upload's write: it expects the URL written meanwhile and is written, not unplaced", async () => {
+    const editor = hold(NOTE_A);
+    await writableWith(provider(0), [videoBlock("v1", "/api/uploads/old")]);
+    await startVideo(NOTE_A, { expectedUrl: "/api/uploads/old" });
+    const firstXhr = lastXhr();
+    let answer!: (ctx: PrecheckCtx) => void;
+    const second = startUpload({
+      noteId: NOTE_A,
+      blockId: "v1",
+      file: fileOf("take2.mp4", 2 * MIB),
+      expectedUrl: () => contentOf(editor.doc, "v1")?.getAttribute("url") ?? "",
+      precheckCtx: () => new Promise((resolve) => (answer = resolve)),
+    });
+
+    firstXhr.respond(201, response());
+    await flush();
+    expect(contentOf(editor.doc, "v1")?.getAttribute("url")).toBe("/api/uploads/u1");
+
+    answer(ctxValue());
+    const started = await second;
+    if (!started.ok) throw new Error("refused");
+    expect(queued(started.id)?.expectedUrl).toBe("/api/uploads/u1");
+    lastXhr().respond(201, response({ id: "u2", url: "/api/uploads/u2" }));
+    await flush();
+    expect(contentOf(editor.doc, "v1")?.getAttribute("url")).toBe("/api/uploads/u2");
+    expect(store.getUploadItems()).toEqual([]);
+  });
+
+  it("a newer accepted file removes the block's older refusal, failure and unplaced items; other blocks keep theirs", async () => {
+    hold(NOTE_A);
+    await startUpload({ noteId: NOTE_A, blockId: "v1", file: fileOf("huge.mp4", 500 * MIB), expectedUrl: "", precheckCtx: async () => ctxValue() });
+    store.putUpload({ id: "old-unplaced", noteId: NOTE_A, blockId: "v1", fileName: "a.mp4", size: 1, loaded: 1, expectedUrl: "", status: "unplaced" });
+    store.putUpload({ id: "old-failed", noteId: NOTE_A, blockId: "v1", fileName: "b.mp4", size: 1, loaded: 0, expectedUrl: "", status: "failed", error: new ApiFail(0, "upload_interrupted", "x") });
+    store.putUpload({ id: "elsewhere", noteId: NOTE_A, blockId: "v2", fileName: "c.mp4", size: 1, loaded: 1, expectedUrl: "", status: "unplaced" });
+    expect(store.getUploadItems().filter((i) => i.blockId === "v1")).toHaveLength(3);
+
+    const id = await startVideo(NOTE_A);
+
+    expect(store.getUploadItems().map((i) => i.id).sort()).toEqual(["elsewhere", id].sort());
+  });
+
   it("the block deleted during the upload -> unplaced, nothing written", async () => {
     const editor = hold(NOTE_A);
     await writableWith(provider(0), [{ id: "p1", type: "paragraph", content: "x" }, videoBlock()]);
@@ -300,10 +387,11 @@ describe("startUpload / the background write", () => {
     vi.useFakeTimers();
     const id = await startVideo(NOTE_A);
     const p = provider(0);
+    expect(item(id).stored).toBeUndefined();
     lastXhr().respond(201, response());
     await vi.advanceTimersByTimeAsync(UPLOAD_WRITE_WAIT_MS);
 
-    expect(item(id)).toMatchObject({ status: "failed", error: { code: "upload_interrupted" } });
+    expect(item(id)).toMatchObject({ status: "failed", error: { code: "upload_interrupted" }, stored: true });
     expect(rules.isUploadRetryable(item(id))).toBe(true);
     expect(hasUploadRunForTest(id)).toBe(true);
     expect(p.destroy).toHaveBeenCalledTimes(1);

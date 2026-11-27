@@ -6,7 +6,7 @@ import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { AVATAR_ENCODE_RE, GROUP_LAZY_DIALOGS, AVATAR_IMAGE_MARKER, BODY_SEARCH_MARKER, COMMENTS_I18N_MARKER, COMMENT_TOOLBAR_I18N_MARKER, UPLOAD_PRECHECK_I18N_MARKER, NOTIFICATIONS_I18N_MARKER, UPLOAD_LIST_I18N_MARKER, UPLOAD_RUNNER_MARKER, FOLDER_I18N_MARKER, GROUPS_ADMIN_I18N_MARKER, HELP_I18N_MARKER, KNOWLEDGE_INDEX_I18N_MARKER, MANAGEMENT_I18N_MARKERS, MAX_ENTRY_BYTES, MOBILE_TOOLBAR_I18N_MARKER, SELECT_I18N_MARKER, SHORTCUTS_I18N_MARKER, TOUR_I18N_MARKER, VERSIONS_MARKERS, checkBundleSize } from './check-bundle-size.mjs';
+import { AVATAR_ENCODE_RE, GROUP_LAZY_DIALOGS, AVATAR_IMAGE_MARKER, BODY_SEARCH_MARKER, COMMENTS_I18N_MARKER, COMMENT_TOOLBAR_I18N_MARKER, UPLOAD_PRECHECK_I18N_MARKER, UPLOAD_BLOCK_I18N_MARKER, NOTEPAGE_STRING_MARKERS, checkNotePageStringPacks, NOTIFICATIONS_I18N_MARKER, UPLOAD_LIST_I18N_MARKER, UPLOAD_RUNNER_MARKER, FOLDER_I18N_MARKER, GROUPS_ADMIN_I18N_MARKER, HELP_I18N_MARKER, KNOWLEDGE_INDEX_I18N_MARKER, MANAGEMENT_I18N_MARKERS, MAX_ENTRY_BYTES, MOBILE_TOOLBAR_I18N_MARKER, SELECT_I18N_MARKER, SHORTCUTS_I18N_MARKER, TOUR_I18N_MARKER, VERSIONS_MARKERS, checkBundleSize } from './check-bundle-size.mjs';
 
 // pins the default cap of 750 KiB (reason in the constant's comment in check-bundle-size.mjs; the next two cases pass 700 * 1024 explicitly to test the judgement itself, independent of the default).
 test('default entry size cap is 750 KiB', () => {
@@ -312,6 +312,46 @@ test('UPLOAD_PRECHECK_I18N_MARKER is a top-level key in upload-precheck.en.json,
   assert.equal(typeof bundle[UPLOAD_PRECHECK_I18N_MARKER], 'object');
   const main = JSON.parse(readFileSync(fileURLToPath(new URL('en.json', dir)), 'utf8'));
   assert.equal(main[UPLOAD_PRECHECK_I18N_MARKER], undefined);
+});
+
+test('entry contains the upload block string pack key -> throws; only inside NotePage -> passes', () => {
+  for (const [where, throws] of [['index-Abc123.js', true], ['NotePage-Def456.js', false]]) {
+    const { assets, cleanup } = fakeAssets({
+      ...MARKER_BASE, 'NotePage-Def456.js': 'x', 'VersionsLazy-Vvv000.js': 'x', [where]: `const s={uploadBlock:{${UPLOAD_BLOCK_I18N_MARKER}:"x"}}`,
+    });
+    try {
+      if (throws) assert.throws(() => checkBundleSize(assets), /index-Abc123\.js[\s\S]*startsOver[\s\S]*NotePage chunk/);
+      else assert.doesNotThrow(() => checkBundleSize(assets));
+    } finally {
+      cleanup();
+    }
+  }
+});
+
+test('UPLOAD_BLOCK_I18N_MARKER is an uploadBlock.* key in upload-block.en.json, not in the main en.json', () => {
+  const read = name => JSON.parse(readFileSync(fileURLToPath(new URL(`../apps/web/src/i18n/${name}`, import.meta.url)), 'utf8'));
+  assert.equal(typeof read('upload-block.en.json').uploadBlock?.[UPLOAD_BLOCK_I18N_MARKER], 'string');
+  assert.equal(read('en.json').uploadBlock, undefined);
+});
+
+test('note page string packs: reachable through a chunk NotePage imports -> passes; one missing -> throws naming it', () => {
+  assert.deepEqual(NOTEPAGE_STRING_MARKERS, [UPLOAD_PRECHECK_I18N_MARKER, UPLOAD_BLOCK_I18N_MARKER]);
+  const packs = `const a={${UPLOAD_PRECHECK_I18N_MARKER}:{}},b={uploadBlock:{${UPLOAD_BLOCK_I18N_MARKER}:"x"}}`;
+  let fixture = fakeAssets({ 'NotePage-Def456.js': 'import{a}from"./precheck-Ppp000.js";', 'precheck-Ppp000.js': packs });
+  try {
+    assert.doesNotThrow(() => checkNotePageStringPacks(fixture.assets, ['NotePage-Def456.js']));
+  } finally {
+    fixture.cleanup();
+  }
+  for (const missing of NOTEPAGE_STRING_MARKERS) {
+    const kept = NOTEPAGE_STRING_MARKERS.filter(m => m !== missing).map(m => `${m}:1`).join(',');
+    fixture = fakeAssets({ 'NotePage-Def456.js': `const s={${kept}}`, 'other-Ooo000.js': `const t={${missing}:1}` });
+    try {
+      assert.throws(() => checkNotePageStringPacks(fixture.assets, ['NotePage-Def456.js']), (err) => err.message.includes(missing) && err.message.includes('NotePage-Def456.js'));
+    } finally {
+      fixture.cleanup();
+    }
+  }
 });
 
 test('entry contains the comment toolbar string pack key -> throws; only inside NotePage -> passes', () => {

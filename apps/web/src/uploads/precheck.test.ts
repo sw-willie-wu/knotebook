@@ -181,6 +181,18 @@ describe("createPrecheckCtxProvider", () => {
     expect(precheckMessage(f, r, (k, o) => JSON.stringify(o))).toContain('"room":"0 B"');
   });
 
+  it("calls made while a check is running share it (a 20-file drop asks once); a later call asks again", async () => {
+    const provider = createPrecheckCtxProvider(qc, { groupId: null, canViewUsage: true });
+    const results = await Promise.all(Array.from({ length: 20 }, () => provider()));
+    expect(new Set(results).size).toBe(1);
+    expect(results[0]!.roomBytes).toBe(80 * MIB);
+    expect(urls().filter((u) => u === "/api/auth/config")).toHaveLength(1);
+    expect(urls().filter((u) => u === "/api/storage")).toHaveLength(1);
+    usage = { usedBytes: 90 * MIB, quotaBytes: 100 * MIB };
+    expect((await provider()).roomBytes).toBe(10 * MIB);
+    expect(urls().filter((u) => u === "/api/storage")).toHaveLength(2);
+  });
+
   it("limits are refetched on every call", async () => {
     const provider = createPrecheckCtxProvider(qc, { groupId: null, canViewUsage: false });
     expect((await provider()).maxMediaUploadBytes).toBe(100 * MIB);

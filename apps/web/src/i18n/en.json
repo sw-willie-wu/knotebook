@@ -218,7 +218,6 @@
     "lastEditedDeletedUser": "a deleted account",
     "transferDataUrl": "Pasting embedded images isn't supported. Try dragging the image file instead.",
     "transferSaveFirst": "This item can't be inserted directly here. Save it as a file first, then drag it in.",
-    "transferNonImage": "Only image files can be inserted here.",
     "wikilinkBroken": "This linked note no longer exists.",
     "outline": {
       "label": "Heading outline",
@@ -294,8 +293,7 @@
     "filePanel": {
       "upload": {
         "tabLabel": "Upload",
-        "inputLabel": "Choose an image file to upload",
-        "error": "Couldn't upload the file. Please try again."
+        "inputLabel": "Choose an image file to upload"
       },
       "embed": {
         "tabLabel": "Embed link",

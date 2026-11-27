@@ -218,7 +218,6 @@
     "lastEditedDeletedUser": "已刪除的帳號",
     "transferDataUrl": "不支援直接貼上內嵌圖片，請改用拖曳圖片檔案。",
     "transferSaveFirst": "無法直接插入此項目，請先另存為檔案再拖曳進來。",
-    "transferNonImage": "這裡目前只能插入圖片檔案。",
     "wikilinkBroken": "已連結的筆記不存在。",
     "outline": {
       "label": "標題導覽",
@@ -294,8 +293,7 @@
     "filePanel": {
       "upload": {
         "tabLabel": "上傳",
-        "inputLabel": "選擇要上傳的圖片檔案",
-        "error": "上傳失敗，請再試一次。"
+        "inputLabel": "選擇要上傳的圖片檔案"
       },
       "embed": {
         "tabLabel": "嵌入連結",

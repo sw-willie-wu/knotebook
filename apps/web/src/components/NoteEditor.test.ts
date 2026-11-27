@@ -16,8 +16,29 @@ import { stubLayoutTier } from "@/test/layout-tier";
 const toastMock = vi.hoisted(() => vi.fn());
 vi.mock("@/components/ui/toast", () => ({ toast: toastMock }));
 
+// The upload queue writes the URL through the note's connection; here that is the editor's own Y.Doc, already writable.
+const connection = vi.hoisted(() => ({ doc: null as unknown, acquired: 0 }));
+vi.mock("@/collab/note-connection", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/collab/note-connection")>()),
+  acquireNoteConnection: () => {
+    connection.acquired += 1;
+    return {
+      doc: connection.doc,
+      provider: {},
+      getState: () => ({ phase: "connected", role: "editor" }),
+      isSynced: () => true,
+      subscribe: () => () => {},
+      whenWritable: () => Promise.resolve("ok"),
+      release: () => {},
+    };
+  },
+}));
+
 const { buildNoteEditorOptions, collabUserColor, createMediaBlockingDOMEvents, insertLinkAtSavedSelection, lateBoundTranslate, useLinkMenuState } =
   await import("./NoteEditor");
+const { bindUploadNote } = await import("@/collab/upload-block-status");
+const { resetUploadRunnerForTest } = await import("@/uploads/upload-runner");
+const { resetUploadQueueForTest } = await import("@/uploads/upload-queue-store");
 
 /**
  * Only the `defaultBlockSpecs.image` layer is taken: BlockNote's block spec generic triple is meaningless in tests, so the minimal structure is used (as other tests in this file handle editor generics).
@@ -81,15 +102,15 @@ describe("createMediaBlockingDOMEvents (paste/drop interception)", () => {
     expect(toastMock).not.toHaveBeenCalled();
   });
 
-  it("dropping mixed or non-image files -> returns true, preventDefault, matching toast (rule 4)", () => {
+  it("dropping an unsupported file among accepted ones -> returns true, preventDefault, the toast naming the accepted kinds", () => {
     const handlers = createMediaBlockingDOMEvents(translate);
     const event = dragEvent(
-      transfer({ files: [file("a.png", "image/png"), file("b.pdf", "application/pdf")], types: ["Files"] }),
+      transfer({ files: [file("a.png", "image/png"), file("b.zip", "application/zip")], types: ["Files"] }),
     );
 
     expect(handlers.drop(null, event)).toBe(true);
     expect(event.preventDefault).toHaveBeenCalledTimes(1);
-    expect(toastMock).toHaveBeenCalledWith({ title: "t:note.transferNonImage" });
+    expect(toastMock).toHaveBeenCalledWith({ title: "t:uploadBlock.unsupportedTransfer" });
   });
 
   it("pasting a data URL image inside text/html (the common shape when copying an image from a web page) -> blocked", () => {
@@ -306,9 +327,9 @@ describe("buildNoteEditorOptions", () => {
 
   // The existing drop cases call createMediaBlockingDOMEvents' handler directly, not through build(), so they don't cover the composition that records the drop position.
   it("the composed drop still reaches the media blocking (through build())", () => {
-    const event = dragEvent(transfer({ files: [file("a.pdf", "application/pdf")], types: ["Files"] }));
+    const event = dragEvent(transfer({ files: [file("a.zip", "application/zip")], types: ["Files"] }));
     expect(build()._tiptapOptions.editorProps.handleDOMEvents.drop(null, event)).toBe(true);
-    expect(toastMock).toHaveBeenCalledWith({ title: "t:note.transferNonImage" });
+    expect(toastMock).toHaveBeenCalledWith({ title: "t:uploadBlock.unsupportedTransfer" });
   });
 
   it("the composed drop first records the drop position for the paste rule (through build())", () => {
@@ -325,11 +346,11 @@ describe("buildNoteEditorOptions", () => {
         throw new Error("posAtCoords failed");
       }),
     };
-    const event = Object.assign(dragEvent(transfer({ files: [file("a.pdf", "application/pdf")], types: ["Files"] })), { clientX: 3, clientY: 4 });
+    const event = Object.assign(dragEvent(transfer({ files: [file("a.zip", "application/zip")], types: ["Files"] })), { clientX: 3, clientY: 4 });
     expect(build()._tiptapOptions.editorProps.handleDOMEvents.drop(view as never, event)).toBe(true);
     expect(view.posAtCoords).toHaveBeenCalledTimes(1);
     expect(event.preventDefault).toHaveBeenCalledTimes(1);
-    expect(toastMock).toHaveBeenCalledWith({ title: "t:note.transferNonImage" });
+    expect(toastMock).toHaveBeenCalledWith({ title: "t:uploadBlock.unsupportedTransfer" });
     expect(takeDropPoint()).toBeNull();
   });
 
@@ -352,9 +373,9 @@ describe("buildNoteEditorOptions", () => {
 
   it("site-link drop hook active: media blocking still returns true, the drop position is still recorded (#352)", async () => {
     const view = { editable: true, dragging: null, posAtCoords: vi.fn(() => ({ pos: 9, inside: -1 })) };
-    const event = Object.assign(dragEvent(transfer({ files: [file("a.pdf", "application/pdf")], types: ["Files"] })), { clientX: 3, clientY: 4 });
+    const event = Object.assign(dragEvent(transfer({ files: [file("a.zip", "application/zip")], types: ["Files"] })), { clientX: 3, clientY: 4 });
     expect(buildWithSiteLinks()._tiptapOptions.editorProps.handleDOMEvents.drop(view as never, event)).toBe(true);
-    expect(toastMock).toHaveBeenCalledWith({ title: "t:note.transferNonImage" });
+    expect(toastMock).toHaveBeenCalledWith({ title: "t:uploadBlock.unsupportedTransfer" });
     expect(takeDropPoint()).toBe(9);
     await flushMicrotasks();
   });
@@ -366,13 +387,13 @@ describe("buildNoteEditorOptions", () => {
         throw new Error("boom");
       },
     });
-    const event = Object.assign(dragEvent(transfer({ files: [file("a.pdf", "application/pdf")], types: ["Files"] })), { clientX: 3, clientY: 4 });
+    const event = Object.assign(dragEvent(transfer({ files: [file("a.zip", "application/zip")], types: ["Files"] })), { clientX: 3, clientY: 4 });
     let result: boolean | undefined;
     expect(() => {
       result = buildWithSiteLinks()._tiptapOptions.editorProps.handleDOMEvents.drop(view as never, event);
     }).not.toThrow();
     expect(result).toBe(true);
-    expect(toastMock).toHaveBeenCalledWith({ title: "t:note.transferNonImage" });
+    expect(toastMock).toHaveBeenCalledWith({ title: "t:uploadBlock.unsupportedTransfer" });
     await flushMicrotasks();
   });
 
@@ -396,10 +417,10 @@ describe("buildNoteEditorOptions", () => {
     expect(toastMock).not.toHaveBeenCalled();
   });
 
-  it("the attached handler really blocks a non-image file paste (end-to-end wiring, not just types)", () => {
-    const event = clipboardEvent(transfer({ files: [file("a.pdf", "application/pdf")], types: ["Files"] }));
+  it("the attached handler really blocks an unsupported file paste (end-to-end wiring, not just types)", () => {
+    const event = clipboardEvent(transfer({ files: [file("a.zip", "application/zip")], types: ["Files"] }));
     expect(build()._tiptapOptions.editorProps.handleDOMEvents.paste(null, event)).toBe(true);
-    expect(toastMock).toHaveBeenCalledWith({ title: "t:note.transferNonImage" });
+    expect(toastMock).toHaveBeenCalledWith({ title: "t:uploadBlock.unsupportedTransfer" });
   });
 
   it("language starting with zh -> Traditional Chinese dictionary attached; otherwise undefined (BlockNote defaults to English)", () => {
@@ -572,11 +593,6 @@ describe("buildNoteEditorOptions [[ trigger detection (handleTextInput)", () => 
   });
 });
 
-// uploadFile really connected to handleFileInsertion. `handleFileInsertion` isn't a public export of `@blocknote/core`; the only way to really go through it is to mount the editor and dispatch a real `paste` DOM event,
-// so BlockNote's own paste plugin (`pasteExtension.ts`, which always runs our `createMediaBlockingDOMEvents.paste` first - pure image files pass, returning false falls back to BlockNote) takes over and calls `editor.uploadFile`.
-// jsdom 30 has no constructible `ClipboardEvent`/`DataTransfer`: a minimal stand-in (`types`/`items`/`files`) is attached to a plain `Event`; `handleFileInsertion` only reads these three (`acceptedMIMETypes` checks go through `types`, files come from `items[i].getAsFile()`), and doesn't need `getData` (the "Files" branch doesn't call it, see defaultPasteHandler in `pasteExtension.ts`).
-// Cleanup after a failed upload (4xx) is a macrotask scheduled by `setTimeout(..., 0)`, while `editor.updateBlock(insertedBlockId, ...)` (writing the url back) is the microtask continuation after `await editor.uploadFile(...)` resolves:
-// a real `setTimeout(resolve, 0)` of our own flushes both (microtasks run first). The cleanup itself is another macrotask queued after, so verifying "block removed" needs one more round.
 describe("buildNoteEditorOptions #name tags (handleTextInput)", () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test editor; repo convention BlockNoteEditor<any,any,any>
   let editor: BlockNoteEditor<any, any, any>;
@@ -650,17 +666,23 @@ describe("buildNoteEditorOptions #name tags (handleTextInput)", () => {
   });
 });
 
+// uploadFile really connected to handleFileInsertion. `handleFileInsertion` isn't a public export of `@blocknote/core`; the only way to really go through it is to mount the editor and dispatch a real `paste` or `drop` DOM event,
+// so BlockNote's own plugins (which run our `createMediaBlockingDOMEvents` handlers first; accepted files pass, returning false falls back to BlockNote) take over and call `editor.uploadFile`.
+// jsdom has no constructible `ClipboardEvent`/`DataTransfer`: a minimal stand-in (`types`/`items`/`files`/`getData`) is attached to a plain `Event`.
 describe("buildNoteEditorOptions uploadFile really connected (handleFileInsertion)", () => {
   let doc: Y.Doc;
   let editorRef: EditorRef;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test editor; repo convention BlockNoteEditor<any,any,any>
   let editor: BlockNoteEditor<any, any, any>;
   let container: HTMLElement;
+  let uploads: string[];
 
   beforeEach(() => {
     installFetchBackedXhr();
     toastMock.mockClear();
     doc = new Y.Doc();
+    connection.doc = doc;
+    connection.acquired = 0;
     editorRef = { current: null };
     const options = buildNoteEditorOptions({
       doc,
@@ -675,17 +697,20 @@ describe("buildNoteEditorOptions uploadFile really connected (handleFileInsertio
 
     editor = BlockNoteEditor.create(options);
     editorRef.current = editor;
+    bindUploadNote(editor, "note-1");
 
     container = document.createElement("div");
     document.body.appendChild(container);
     editor.mount(container);
 
-    // Give the block under the cursor content: `handleFileInsertion`'s `insertOrUpdateBlock` does an in-place `updateBlock` on an empty block (overwriting the only block, hard to assert a lifecycle on)
-    // but `insertBlocks(..., "after")` on a non-empty one, adding a brand-new block - only that has a separate insert/remove to observe, and its internal id doesn't matter.
+    // A non-empty block under the cursor makes `handleFileInsertion` insert a new block after it instead of replacing the only one.
     editor.insertInlineContent(["hello"]);
+    uploads = [];
   });
 
   afterEach(() => {
+    resetUploadRunnerForTest();
+    resetUploadQueueForTest();
     editor.unmount();
     container.remove();
     doc.destroy();
@@ -696,89 +721,175 @@ describe("buildNoteEditorOptions uploadFile really connected (handleFileInsertio
     return { ok, status, json: json ?? (() => Promise.reject(new Error("no body"))) } as unknown as Response;
   }
 
+  function stubUpload(response: (n: number) => Response) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        if (init?.method === "POST" && url.endsWith("/uploads")) {
+          uploads.push(url);
+          return Promise.resolve(response(uploads.length));
+        }
+        throw new Error(`unexpected fetch ${url}`);
+      }),
+    );
+  }
+
+  const stored = (kind: string, mime: string) => (n: number) =>
+    fakeResponse({ ok: true, status: 201, json: () => Promise.resolve({ id: `u${n}`, url: `/api/uploads/u${n}`, mime, kind }) });
+
+  function transferOf(file: File) {
+    // `getData` must exist: `classifyMediaTransfer` looks for embedded data URLs before the file rules.
+    return { types: ["Files"], items: [{ type: file.type, getAsFile: () => file }], files: [file], getData: () => "" };
+  }
+
   function pasteFile(file: File): void {
-    // `getData` must exist: the handler from `createMediaBlockingDOMEvents` first runs `classifyMediaTransfer` (before rule 3 lets it through), which calls `data.getData("text/html"/"text/plain")` to look for embedded data URLs;
-    // without it the whole event dispatch blows up (a real browser's DataTransfer always has it, returning an empty string for a pure image paste).
-    const clipboardData = {
-      types: ["Files"],
-      items: [{ type: file.type, getAsFile: () => file }],
-      files: [file],
-      getData: () => "",
-    };
     const event = new Event("paste", { bubbles: true, cancelable: true });
-    Object.defineProperty(event, "clipboardData", { value: clipboardData });
+    Object.defineProperty(event, "clipboardData", { value: transferOf(file) });
     editor._tiptapEditor.view.dom.dispatchEvent(event);
   }
 
-  const imageFile = () => new File([new Uint8Array([1])], "a.png", { type: "image/png" });
-
-  async function flushMacrotask(): Promise<void> {
-    await new Promise((resolve) => setTimeout(resolve, 0));
+  function dropFile(file: File): void {
+    const view = editor._tiptapEditor.view as unknown as { posAtCoords: unknown; dom: HTMLElement };
+    // jsdom has no layout: give the drop position directly (inside the first block).
+    view.posAtCoords = () => ({ pos: 3, inside: -1 });
+    const event = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "dataTransfer", { value: transferOf(file) });
+    Object.defineProperty(event, "clientX", { value: 1 });
+    Object.defineProperty(event, "clientY", { value: 1 });
+    view.dom.dispatchEvent(event);
   }
 
-  it("success: pasting an image file really triggers uploadFile, the block gets the returned url (image is in the schema, the placeholder is a real image block)", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      fakeResponse({ ok: true, status: 201, json: () => Promise.resolve({ id: "u1", url: "/api/uploads/u1" }) }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
+  const lastBlock = () => editor.document[editor.document.length - 1]!;
+  const propsOf = (block: { props: unknown }) => block.props as Record<string, unknown>;
+  const fileOf = (name: string, type: string) => new File([new Uint8Array([1])], name, { type });
+  const DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+  it("success: pasting an image file creates an image block, queues one upload, and the queue writes the returned url into it", async () => {
+    stubUpload(stored("image", "image/png"));
     const before = editor.document.length;
 
-    pasteFile(imageFile());
+    pasteFile(fileOf("a.png", "image/png"));
 
     expect(editor.document.length).toBe(before + 1);
-
-    await flushMacrotask();
-
-    const placeholder = editor.document[editor.document.length - 1];
-    // `handleFileInsertion` picks the block type by checking `schema.blockSpecs` against `fileBlockAccept` one by one (see `@blocknote/core` source); with image in the schema an image/png file lands in an image block, not the generic file block.
-    expect(placeholder.type).toBe("image");
-    expect((placeholder.props as Record<string, unknown>).url).toBe("/api/uploads/u1");
+    expect(lastBlock().type).toBe("image");
+    await vi.waitFor(() => expect(propsOf(lastBlock()).url).toBe("/api/uploads/u1"));
+    expect(uploads).toEqual(["/api/notes/note-1/uploads"]);
+    expect(connection.acquired).toBe(1);
+    expect(propsOf(lastBlock()).name).toBe("a.png");
     expect(toastMock).not.toHaveBeenCalled();
   });
 
-  it("SVG paste (#389): pasting an image/svg+xml file creates an image block and uploads via uploadFile", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      fakeResponse({ ok: true, status: 201, json: () => Promise.resolve({ id: "u-svg", url: "/api/uploads/u-svg" }) }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    const before = editor.document.length;
-
-    const svgFile = new File(['<svg xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10"/></svg>'], "a.svg", {
-      type: "image/svg+xml",
-    });
-    pasteFile(svgFile);
-
-    expect(editor.document.length).toBe(before + 1);
-    await flushMacrotask();
-
-    const placeholder = editor.document[editor.document.length - 1];
-    expect(placeholder.type).toBe("image");
-    expect((placeholder.props as Record<string, unknown>).url).toBe("/api/uploads/u-svg");
-    expect(toastMock).not.toHaveBeenCalled();
+  it.each([
+    ["song.mp3", "audio/mpeg", "audio", "audio/mpeg"],
+    ["clip.mp4", "video/mp4", "video", "video/mp4"],
+    ["quote.pdf", "application/pdf", "file", "application/pdf"],
+    ["plan.docx", DOCX, "file", DOCX],
+    ["data.csv", "text/csv", "file", "text/csv; charset=utf-8"],
+  ])("paste of %s (%s) creates a %s block and starts one upload", async (name, type, kind, mime) => {
+    stubUpload(stored(kind, mime));
+    pasteFile(fileOf(name, type));
+    expect(lastBlock().type).toBe(kind);
+    await vi.waitFor(() => expect(propsOf(lastBlock()).url).toBe("/api/uploads/u1"));
+    expect(uploads).toHaveLength(1);
+    expect(propsOf(lastBlock()).name).toBe(name);
   });
 
-  it("failure (4xx): one toast, the placeholder block is removed only after the next macrotask (ordering: updateBlock finishes first, then removal)", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      fakeResponse({
-        ok: false,
-        status: 415,
-        json: () => Promise.resolve({ error: { code: "unsupported_media_type", message: "nope" } }),
-      }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
+  it.each([
+    ["song.mp3", "audio/mpeg", "audio"],
+    ["clip.mp4", "video/mp4", "video"],
+    ["quote.pdf", "application/pdf", "file"],
+    ["plan.docx", DOCX, "file"],
+    ["data.csv", "text/csv", "file"],
+  ])("drop of %s (%s) creates a %s block and starts one upload", async (name, type, kind) => {
+    stubUpload(stored(kind, type));
     const before = editor.document.length;
-
-    pasteFile(imageFile());
+    dropFile(fileOf(name, type));
     expect(editor.document.length).toBe(before + 1);
+    const created = editor.document.find((b) => b.type === kind)!;
+    expect(propsOf(created).name).toBe(name);
+    await vi.waitFor(() => expect(propsOf(editor.getBlock(created.id)!).url).toBe("/api/uploads/u1"));
+    expect(uploads).toHaveLength(1);
+  });
 
-    await flushMacrotask();
-    // This round: uploadFile's promise has resolved (sentinel ""), the toast fired and `handleFileInsertion`'s `editor.updateBlock(...)` has run synchronously - but cleanup is another, later-registered macrotask that hasn't run yet.
-    expect(toastMock).toHaveBeenCalledWith({ title: "t:errors.unsupported_media_type" });
-    expect(editor.document.length).toBe(before + 1);
+  it("a .ts file the OS labels as video becomes a file block (the extension list comes first)", async () => {
+    stubUpload(stored("file", "text/plain; charset=utf-8"));
+    pasteFile(fileOf("main.ts", "video/mp2t"));
+    expect(lastBlock().type).toBe("file");
+    await vi.waitFor(() => expect(propsOf(lastBlock()).url).toBe("/api/uploads/u1"));
+    expect(propsOf(lastBlock()).name).toBe("main.ts.txt");
+  });
 
-    await flushMacrotask();
+  it("the server's kind wins: an .m4a the server finds to be video turns its audio block into a video block", async () => {
+    stubUpload(stored("video", "video/mp4"));
+    pasteFile(fileOf("voice.m4a", "audio/mp4"));
+    const id = lastBlock().id;
+    expect(lastBlock().type).toBe("audio");
+    await vi.waitFor(() => expect(editor.getBlock(id)!.type).toBe("video"));
+    expect(propsOf(editor.getBlock(id)!).url).toBe("/api/uploads/u1");
+    expect(propsOf(editor.getBlock(id)!).name).toBe("voice.mp4");
+  });
 
+  it.each([
+    ["a.zip", "application/zip"],
+    ["page.html", "text/html"],
+  ])("paste or drop of %s: the toast naming the accepted kinds, no block inserted, no upload", (name, type) => {
+    stubUpload(stored("file", "x"));
+    const before = editor.document.length;
+    pasteFile(fileOf(name, type));
+    dropFile(fileOf(name, type));
     expect(editor.document.length).toBe(before);
+    expect(toastMock).toHaveBeenCalledWith({ title: "t:uploadBlock.unsupportedTransfer" });
+    expect(uploads).toEqual([]);
+  });
+
+  it("SVG paste (#389): pasting an image/svg+xml file creates an image block and uploads it", async () => {
+    stubUpload(stored("image", "image/svg+xml"));
+    pasteFile(new File(['<svg xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10"/></svg>'], "a.svg", { type: "image/svg+xml" }));
+    expect(lastBlock().type).toBe("image");
+    await vi.waitFor(() => expect(propsOf(lastBlock()).url).toBe("/api/uploads/u1"));
+    expect(toastMock).not.toHaveBeenCalled();
+  });
+
+  it("failure (415): the block stays with the reason and no Retry, one toast; nothing is removed", async () => {
+    stubUpload(() => fakeResponse({ ok: false, status: 415, json: () => Promise.resolve({ error: { code: "unsupported_media_type", message: "nope" } }) }));
+    const before = editor.document.length;
+
+    pasteFile(fileOf("a.png", "image/png"));
+    const id = lastBlock().id;
+
+    await vi.waitFor(() => expect(toastMock).toHaveBeenCalledWith({ title: "t:errors.unsupported_media_type" }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(editor.document.length).toBe(before + 1);
+    const status = container.querySelector(`[data-id="${id}"] .kn-upload-status`)!;
+    expect(status.getAttribute("data-upload-state")).toBe("failed");
+    expect(status.querySelector(".text-destructive")!.textContent).toBe("That file type isn't supported.");
+    expect(status.querySelector("button")).toBeNull();
+    expect(toastMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("a network failure leaves the block with the reason and Retry", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new TypeError("Failed to fetch"))));
+    pasteFile(fileOf("a.png", "image/png"));
+    const id = lastBlock().id;
+    const status = () => container.querySelector(`[data-id="${id}"] .kn-upload-status`)!;
+    await vi.waitFor(() => expect(status().getAttribute("data-upload-state")).toBe("failed"));
+    expect(status().querySelector(".text-destructive")!.textContent).toBe("The upload was interrupted. Check your connection and try again.");
+    expect(status().querySelector("button")!.textContent).toBe("Retry");
+  });
+
+  it("no object URL is created for a pasted file", async () => {
+    stubUpload(stored("video", "video/mp4"));
+    // jsdom has no createObjectURL of its own.
+    const spy = vi.fn(() => "blob:x");
+    Object.defineProperty(URL, "createObjectURL", { value: spy, configurable: true, writable: true });
+    try {
+      pasteFile(fileOf("clip.mp4", "video/mp4"));
+      await vi.waitFor(() => expect(propsOf(lastBlock()).url).toBe("/api/uploads/u1"));
+      expect(spy).not.toHaveBeenCalled();
+      expect(container.innerHTML).not.toContain("blob:");
+    } finally {
+      delete (URL as { createObjectURL?: unknown }).createObjectURL;
+    }
   });
 });
 

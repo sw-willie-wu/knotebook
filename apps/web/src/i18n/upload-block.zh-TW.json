@@ -1,0 +1,16 @@
+{
+  "uploadBlock": {
+    "progress": "{{percent}}% · {{loaded}}／{{total}}",
+    "progressLabel": "{{name}} 上傳進度",
+    "saving": "正在寫入筆記…",
+    "retry": "重試",
+    "retryLabel": "重試 {{name}}",
+    "retryWait": "{{seconds}} 秒後可重試",
+    "checking": "確認中…",
+    "startsOver": "（會從頭重新上傳）",
+    "pickAudio": "選擇要上傳的音訊檔",
+    "pickVideo": "選擇要上傳的影片檔",
+    "pickFile": "選擇要上傳的文件或文字檔",
+    "unsupportedTransfer": "無法加入這種檔案。可以加入圖片、音訊、影片、PDF、Office 與 OpenDocument 文件，以及文字檔。"
+  }
+}

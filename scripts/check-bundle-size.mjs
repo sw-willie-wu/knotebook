@@ -46,6 +46,10 @@ export const MOBILE_TOOLBAR_I18N_MARKER = 'hideKeyboard';
 export const COMMENT_TOOLBAR_I18N_MARKER = 'commentToolbar';
 // upload-precheck.*.json top-level key: the pre-check copy is read only from the note chunk (`uploads/precheck.ts`).
 export const UPLOAD_PRECHECK_I18N_MARKER = 'uploadPrecheck';
+// An uploadBlock.* key that lives only in upload-block.en.json: the upload states drawn in note blocks and the file panel.
+export const UPLOAD_BLOCK_I18N_MARKER = 'startsOver';
+// Packs read by the note page's own modules: they must be reachable from the NotePage chunk, or its blocks render raw keys.
+export const NOTEPAGE_STRING_MARKERS = [UPLOAD_PRECHECK_I18N_MARKER, UPLOAD_BLOCK_I18N_MARKER];
 // Presence only catches the whole group merging back or a rename; TOUR_I18N_MARKER catches a static import of a single tour module or the string pack.
 export const TOURLAZY_RE = /^TourLazy-[A-Za-z0-9_-]+\.js$/;
 // Chosen over keys like next/back, which already appear in entry.
@@ -346,6 +350,12 @@ export function checkBundleSize(assetsDir, { maxEntryBytes = MAX_ENTRY_BYTES } =
         `被首包靜態 import；上傳預檢只能放在 NotePage chunk`
     );
   }
+  if (entrySource.includes(UPLOAD_BLOCK_I18N_MARKER)) {
+    throw new Error(
+      `entry chunk ${entryName} 含上傳區塊字串包的鍵名 ${UPLOAD_BLOCK_I18N_MARKER}——\`@/i18n/upload-block-strings\`（或 import 它的區塊／檔案面板模組）` +
+        `被首包靜態 import；上傳區塊只能放在 NotePage chunk`
+    );
+  }
   if (entrySource.includes(COMMENT_TOOLBAR_I18N_MARKER)) {
     throw new Error(
       `entry chunk ${entryName} 含選取工具列留言按鈕字串包的鍵名 ${COMMENT_TOOLBAR_I18N_MARKER}——\`@/i18n/comment-toolbar-strings\`（或 import 它的工具列模組）` +
@@ -542,10 +552,25 @@ export function checkBundleSize(assetsDir, { maxEntryBytes = MAX_ENTRY_BYTES } =
   return { entryName, entryBytes, notePageChunks, mermaidChunks, shikiChunks, adminSectionsChunks, versionsChunks, presentationChunks, trashChunks, selectChunks, folderChunks, shortcutsChunks, tourChunks, managementChunks, bodySearchChunks, commentsChunks, notificationsChunks, uploadsChunks, avatarEncodeChunks, groupDialogChunks };
 }
 
+// Separate from checkBundleSize: its fixtures stand in for NotePage with a bare chunk.
+export function checkNotePageStringPacks(assetsDir, notePageChunks) {
+  const reach = notePageChunks.flatMap(chunk => [...staticImportClosure(assetsDir, chunk)]);
+  const sources = reach.map(name => readFileSync(join(assetsDir, name), 'utf8'));
+  for (const marker of NOTEPAGE_STRING_MARKERS) {
+    if (!sources.some(source => source.includes(marker))) {
+      throw new Error(
+        `NotePage 的 chunk [${notePageChunks.join(', ')}] 與它靜態 import 的 chunk 都不含鍵名 ${marker}——筆記頁用到的字串包沒跟著載入` +
+          `（或鍵改名了，請同步更新 NOTEPAGE_STRING_MARKERS）`
+      );
+    }
+  }
+}
+
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const assetsDir = join(process.cwd(), 'apps', 'web', 'dist', 'assets');
   try {
     const result = checkBundleSize(assetsDir);
+    checkNotePageStringPacks(assetsDir, result.notePageChunks);
     console.log(
       `bundle OK：entry ${result.entryName} = ${result.entryBytes} bytes（上限 ${MAX_ENTRY_BYTES}）；` +
         `lazy chunk：${result.notePageChunks.join(', ')}、${result.mermaidChunks.join(', ')}、${result.shikiChunks.join(', ')}、` +
@@ -559,6 +584,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
         `${result.commentsChunks.join(', ')}（entry 與 NotePage 不含 ${COMMENTS_I18N_MARKER}）、` +
         `${result.notificationsChunks.join(', ')}（entry 與 NotePage 不含 ${NOTIFICATIONS_I18N_MARKER}）、` +
         `${result.uploadsChunks.join(', ')}（entry 與 NotePage 不含 ${UPLOAD_LIST_I18N_MARKER}；entry 不含 ${JSON.stringify(UPLOAD_RUNNER_MARKER)}）、` +
+        `NotePage 帶著 ${NOTEPAGE_STRING_MARKERS.join('、')}（entry 不含）、` +
         GROUP_LAZY_DIALOGS.map(d => `${result.groupDialogChunks[d.name].join(', ')}（entry 不含 ${d.marker}）、`).join('') +
         `${result.avatarEncodeChunks.join(', ')}（${AVATAR_IMAGE_MARKER} 只在這個 chunk，entry 與其他 chunk 都不含）`
     );

@@ -71,7 +71,10 @@ export function createPrecheckCtxProvider(
   note: { groupId: string | null; canViewUsage: boolean },
 ): () => Promise<PrecheckCtx> {
   const { groupId, canViewUsage } = note;
-  return async () => {
+  // Calls made while a check is still running share its answer, so a drop of many files, whose uploads all start
+  // before the first check returns, asks once.
+  let inFlight: Promise<PrecheckCtx> | undefined;
+  const check = async (): Promise<PrecheckCtx> => {
     const cachedConfig = () => queryClient.getQueryData<AuthConfigDto>(AUTH_CONFIG_QUERY_KEY);
     const limitsOf = (c: AuthConfigDto | undefined) => ({
       maxUploadBytes: c?.maxUploadBytes,
@@ -95,4 +98,13 @@ export function createPrecheckCtxProvider(
       return { ...limitsOf(cachedConfig()), roomBytes: undefined, fetchFailed: true };
     }
   };
+  return () => {
+    inFlight ??= check().finally(() => {
+      inFlight = undefined;
+    });
+    return inFlight;
+  };
 }
+
+/** For callers with no note context (tests, a panel outside a note page): limits unknown, room unknown; the server decides. */
+export const unknownPrecheckCtx = (): Promise<PrecheckCtx> => Promise.resolve({ roomBytes: undefined });
