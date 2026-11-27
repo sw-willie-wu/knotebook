@@ -25,6 +25,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { tourTarget } from "@/lib/tour-targets";
+import { clearUploadQueue } from "@/uploads/upload-queue-store";
 
 const LANGUAGES: { code: "en" | "zh-TW"; labelKey: string }[] = [
   { code: "en", labelKey: "userMenu.languageEn" },
@@ -54,6 +55,7 @@ export function UserMenu({ variant = "row", bell }: { variant?: "row" | "avatar"
   async function handleLogout(): Promise<void> {
     await logout();
     release(); // search text belongs to the user signing out: clear it (#369)
+    clearUploadQueue();
     // Sign-out deliberately omits `?next=` (#131): it means "leaving", not "blocked" (contrast `useSessionGate` in `auth/guards.tsx`). `ChangePasswordPage` and `NotePage` session expiry also go to bare `/login`.
     navigate("/login", { replace: true });
   }

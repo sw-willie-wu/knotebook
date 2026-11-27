@@ -1,4 +1,6 @@
-import { lazy, Suspense, useMemo, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useMemo, type ReactNode } from "react";
+import { hashKey, useQueryClient } from "@tanstack/react-query";
+import type { UserDto } from "@knotebook/shared";
 import {
   BrowserRouter,
   Navigate,
@@ -16,6 +18,8 @@ import { RealLocationContext } from "./lib/real-location";
 import { ThemeProvider } from "./theme";
 import { Toaster } from "./components/ui/toast";
 import { ChangePasswordGate, RequireAdmin, RequireAuth } from "./auth/guards";
+import { SESSION_QUERY_KEY } from "./auth/useSession";
+import { clearUploadQueue, setUploadSessionExpiredHandler } from "./uploads/upload-queue-store";
 import { AppErrorBoundary, ChunkLoadBeacon, LazyRouteErrorBoundary, LazyRouteLoading, NoteRouteErrorBoundary } from "./components/ErrorBoundary";
 import { NotePageFallback } from "./components/NotePageFallback";
 import { PublicNoteErrorBoundary, PublicNoteFallback } from "./components/PublicNoteShell";
@@ -150,6 +154,35 @@ function PublicNoteRoute() {
 }
 
 /**
+ * An upload answered 401 may run with no page of its note open. Refetching the session lets `RequireAuth` confirm it is
+ * gone and send the person to login with `?next=`, instead of trusting a single 401. The queue is cleared when the
+ * session ends or another account takes the tab, so nobody sees or retries the previous person's files; the cache is
+ * watched rather than queried because public pages must make no session request.
+ */
+function useUploadQueueSession() {
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    setUploadSessionExpiredHandler(() => void queryClient.invalidateQueries({ queryKey: SESSION_QUERY_KEY }));
+    const sessionHash = hashKey(SESSION_QUERY_KEY);
+    let owner: string | undefined;
+    const check = () => {
+      const user = queryClient.getQueryData<UserDto | null>(SESSION_QUERY_KEY);
+      if (user === undefined) return;
+      if (user === null || (owner !== undefined && owner !== user.id)) clearUploadQueue();
+      owner = user?.id;
+    };
+    check();
+    const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
+      if (event.query.queryHash === sessionHash) check();
+    });
+    return () => {
+      unsubscribe();
+      setUploadSessionExpiredHandler(undefined);
+    };
+  }, [queryClient]);
+}
+
+/**
  * Two `<Routes>` trees for modal-over-background. The main tree gets `location={backgroundLocation}`, which overrides
  * LocationContext, so matching, `<Navigate>` and useLocation() under it all see the background page. The second tree
  * holds only the panels (/settings/*, /groups/*, /admin/*) on the real location and matches nothing elsewhere, so its
@@ -160,6 +193,7 @@ function PublicNoteRoute() {
  * /change-password is outside ChangePasswordGate because it is the gate's target.
  */
 export function AppRoutes() {
+  useUploadQueueSession();
   const location = useLocation();
   const navigationType = useNavigationType();
   const realLocation = useMemo(() => ({ location, navigationType }), [location, navigationType]);

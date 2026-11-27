@@ -1,6 +1,7 @@
 {
   "uploadPrecheck": {
     "unsupported": "不支援這種檔案類型。可上傳圖片、音訊、影片、PDF、Office 文件與文字檔。",
+    "empty": "這個檔案是空的。",
     "tooLarge": "這個檔案 {{size}}，這類檔案的上限是 {{limit}}。",
     "noRoom": "這個檔案 {{size}}，此空間只剩 {{room}}。"
   }

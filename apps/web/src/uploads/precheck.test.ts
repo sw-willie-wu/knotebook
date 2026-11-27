@@ -38,6 +38,11 @@ describe("precheckUpload", () => {
     expect(precheckUpload(fileOfSize("a.zip", 5), CTX)).toEqual({ ok: false, reason: "unsupported" });
   });
 
+  it("an empty file is refused up front; one byte passes", () => {
+    expect(precheckUpload(fileOfSize("notes.txt", 0), CTX)).toEqual({ ok: false, reason: "empty" });
+    expect(precheckUpload(fileOfSize("notes.txt", 1), CTX)).toEqual({ ok: true, category: "text" });
+  });
+
   it("room: refuses a file larger than the room, accepts one that exactly fits", () => {
     expect(precheckUpload(fileOfSize("a.mp4", 240 * MIB), { ...CTX, maxMediaUploadBytes: 500 * MIB, roomBytes: 180 * MIB })).toEqual({
       ok: false,
@@ -94,6 +99,10 @@ describe("precheckMessage", () => {
 
   it("unsupported has its own message", () => {
     expect(precheckMessage(fileOfSize("a.zip", 1), { ok: false, reason: "unsupported" }, t)).toBe("uploadPrecheck.unsupported|{}");
+  });
+
+  it("empty has its own message", () => {
+    expect(precheckMessage(fileOfSize("a.txt", 0), { ok: false, reason: "empty" }, t)).toBe("uploadPrecheck.empty|{}");
   });
 
   it("the English copy renders the documented sentence", async () => {

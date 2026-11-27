@@ -25,12 +25,14 @@ export interface PrecheckCtx {
 
 export type PrecheckResult =
   | { ok: true; category: UploadCategory }
-  | { ok: false; reason: "unsupported" | "tooLarge" | "noRoom"; limitBytes?: number; roomBytes?: number };
+  | { ok: false; reason: "unsupported" | "empty" | "tooLarge" | "noRoom"; limitBytes?: number; roomBytes?: number };
 
 export function precheckUpload(file: File, ctx: PrecheckCtx): PrecheckResult {
   // Images are accepted by content on the server, so a name without a known extension still passes as an image.
   const category = uploadCategoryOfName(file.name) ?? (file.type.startsWith("image/") ? "image" : null);
   if (category === null) return { ok: false, reason: "unsupported" };
+  // The server refuses empty uploads.
+  if (file.size === 0) return { ok: false, reason: "empty" };
   const limitBytes = uploadLimitClass(category) === "media" ? ctx.maxMediaUploadBytes : ctx.maxUploadBytes;
   if (limitBytes !== undefined && file.size > limitBytes) return { ok: false, reason: "tooLarge", limitBytes };
   if (typeof ctx.roomBytes === "number" && file.size > ctx.roomBytes) {
@@ -42,6 +44,7 @@ export function precheckUpload(file: File, ctx: PrecheckCtx): PrecheckResult {
 export function precheckMessage(file: File, r: PrecheckResult & { ok: false }, t: Translate): string {
   const size = formatBytes(file.size);
   if (r.reason === "unsupported") return t("uploadPrecheck.unsupported");
+  if (r.reason === "empty") return t("uploadPrecheck.empty");
   if (r.reason === "tooLarge") return t("uploadPrecheck.tooLarge", { size, limit: formatBytes(r.limitBytes ?? 0) });
   return t("uploadPrecheck.noRoom", { size, room: formatBytes(r.roomBytes ?? 0) });
 }
