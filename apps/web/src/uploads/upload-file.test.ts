@@ -298,6 +298,39 @@ describe("createUploadFile", () => {
     await expect(flushMacrotask()).resolves.toBeUndefined();
   });
 
+  it("failure: an SVG refused as unsupported gets the SVG-specific toast", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      fakeResponse({ ok: false, status: 415, json: () => Promise.resolve({ error: { code: "unsupported_media_type", message: "nope" } }) }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const editor = fakeEditor(new Set(["b1"]));
+    const uploadFile = createUploadFile({ noteId: "note-1", editorRef: { current: editor }, translate });
+
+    await uploadFile(file("icon.svg", "image/svg+xml"), "b1");
+    await flushMacrotask();
+
+    expect(toastMock).toHaveBeenCalledWith({ title: "t:errors.svg_unusable" });
+    expect(toastMock).not.toHaveBeenCalledWith({ title: "t:errors.unsupported_media_type" });
+  });
+
+  it("toast dedup is by the text shown: an SVG 415 and a non-SVG 415 within 5 seconds both toast", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      fakeResponse({ ok: false, status: 415, json: () => Promise.resolve({ error: { code: "unsupported_media_type", message: "nope" } }) }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const editor = fakeEditor(new Set(["b1", "b2"]));
+    const uploadFile = createUploadFile({ noteId: "note-1", editorRef: { current: editor }, translate });
+
+    await uploadFile(file("icon.svg", "image/svg+xml"), "b1");
+    await flushMacrotask();
+    await uploadFile(file("a.png", "image/png"), "b2");
+    await flushMacrotask();
+
+    expect(toastMock).toHaveBeenCalledTimes(2);
+    expect(toastMock).toHaveBeenNthCalledWith(1, { title: "t:errors.svg_unusable" });
+    expect(toastMock).toHaveBeenNthCalledWith(2, { title: "t:errors.unsupported_media_type" });
+  });
+
   it("failure: the toast text is errors.<code>", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       fakeResponse({ ok: false, status: 415, json: () => Promise.resolve({ error: { code: "unsupported_media_type", message: "nope" } }) }),

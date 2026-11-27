@@ -13,6 +13,7 @@ import {
 } from "react";
 import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui";
 import { Check, ChevronRight } from "./icons";
+import { PANEL_PLACEMENT, PANEL_SURFACE } from "./panel-shell";
 import { SheetViewportVars } from "./sheet-viewport";
 import { isPhone, useIsPhone } from "@/lib/layout-tiers";
 import { cn } from "@/lib/utils";
@@ -154,10 +155,7 @@ export const DropdownMenuSubContent = forwardRef<
     <DropdownMenuPrimitive.SubContent
       ref={ref}
       collisionPadding={collisionPadding}
-      className={cn(
-        "z-50 min-w-32 overflow-hidden rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md",
-        className,
-      )}
+      className={cn(PANEL_SURFACE, className)}
       {...props}
     />
   </DropdownMenuPrimitive.Portal>
@@ -168,7 +166,7 @@ type MenuContentProps = ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Co
   sheetTitle?: ReactNode;
 };
 
-export const MENU_CONTENT_BASE = "z-50 min-w-32 overflow-hidden rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md";
+export const MENU_CONTENT_BASE = PANEL_SURFACE;
 
 const MENU_ITEM_BASE =
   "relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 pointer-coarse:py-2.5 text-sm outline-none " +
@@ -182,7 +180,7 @@ const SHEET_CONTENT =
 
 /** Radix mounts this only while the menu is open (and exiting), so the phone matchMedia subscription exists only then: each sidebar row's ⋮ doesn't hold one. */
 const MenuContent = forwardRef<ElementRef<typeof DropdownMenuPrimitive.Content>, MenuContentProps>(
-  ({ className, sideOffset = 4, sheetTitle, children, ...props }, ref) => {
+  ({ className, sideOffset = PANEL_PLACEMENT.sideOffset, sheetTitle, children, ...props }, ref) => {
     const root = useContext(MenuRootContext);
     const phoneSheet = root?.phoneSheet ?? false;
     const phone = useIsPhone();

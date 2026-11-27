@@ -51,6 +51,21 @@ export function toolResultWithImage<T extends Record<string, unknown>>(
   };
 }
 
+/**
+ * Like `toolResultWithImage`, keeping `content[0]` as the exact JSON mirror of `structuredContent`
+ * and placing a large text payload (e.g. SVG XML source) in `content[1]` outside `structuredContent`
+ * so it appears once on the wire.
+ */
+export function toolResultWithText<T extends Record<string, unknown>>(
+  payload: T,
+  text: string
+): CallToolResult {
+  return {
+    content: [{ type: "text", text: JSON.stringify(payload) }, { type: "text", text }],
+    structuredContent: payload,
+  };
+}
+
 /** Never includes the exception's message. */
 const INTERNAL_MESSAGE = "The server hit an unexpected error handling this tool call.";
 

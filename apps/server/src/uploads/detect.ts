@@ -7,7 +7,8 @@ import {
   textMimeForExtension,
   type UploadCategory,
 } from "@knotebook/shared";
-import { detectImageMimeType } from "./magic-bytes.js";
+import { detectRasterImageMimeType } from "./magic-bytes.js";
+import { validateSvgXml, type SvgValidationDetail, type SvgValidationResult } from "./svg.js";
 
 /** file-type's own `reasonableDetectionSizeInBytes`. */
 export const HEAD_BYTES = 4100;
@@ -16,7 +17,7 @@ export interface HeadVerdict {
   category: UploadCategory;
   mime: string;
   /** Formats the head cannot settle: the finished file gets a second check in `verifyWholeFile`. */
-  whole: "ooxml" | "text" | null;
+  whole: "ooxml" | "svg" | "text" | null;
   /** UTF-16 text is stored but only ever offered as a download. */
   textDownloadOnly?: true;
 }
@@ -52,8 +53,8 @@ function hasUtf16Bom(head: Uint8Array): boolean {
 export async function classifyUploadHead(head: Uint8Array, fileName: string | null): Promise<HeadVerdict | null> {
   if (head.length === 0) return null;
   const ext = extensionOf(fileName);
-  // `.svg` is not accepted, so a PNG named `.svg` is a PNG and any SVG markup falls through to the text rule or is refused.
-  const raster = detectImageMimeType(head);
+  // Raster only: the SVG check needs the whole document, so on the first bytes alone a large SVG would read as truncated XML.
+  const raster = detectRasterImageMimeType(head);
   if (raster !== null) return { category: "image", mime: raster, whole: null };
 
   const found = await fileTypeFromBuffer(head);
@@ -74,6 +75,9 @@ export async function classifyUploadHead(head: Uint8Array, fileName: string | nu
     // Any other detected format falls through: plain text can start with another format's signature ("BM", "SQLite", "MZ"). The text rule below still refuses a NUL, and the stored mime is always one of the three text mimes.
   }
 
+  // SVG markup counts as SVG only under a `.svg` name; in any other file it is text, which is never served as markup.
+  if (ext === "svg") return head.includes(0) ? null : { category: "image", mime: "image/svg+xml", whole: "svg" };
+
   if (!UPLOAD_TEXT_EXTENSIONS.includes(ext)) return null;
   const bom = hasUtf16Bom(head);
   if (!bom && head.includes(0)) return null;
@@ -82,9 +86,20 @@ export async function classifyUploadHead(head: Uint8Array, fileName: string | nu
   return verdict;
 }
 
-/** Second look at the finished temp file; `null` means refuse. The stored mime may gain a charset. */
-export async function verifyWholeFile(path: string, head: HeadVerdict): Promise<{ mime: string } | null> {
+export interface SvgRefusal {
+  svg: Exclude<SvgValidationResult, "valid">;
+  prefix?: string;
+}
+
+/** Second look at the finished temp file; `null` or an `SvgRefusal` means refuse. The stored mime may gain a charset. */
+export async function verifyWholeFile(path: string, head: HeadVerdict): Promise<{ mime: string } | SvgRefusal | null> {
   if (head.whole === null) return { mime: head.mime };
+  if (head.whole === "svg") {
+    const detail: SvgValidationDetail = {};
+    const svg = validateSvgXml(await readFile(path), detail);
+    if (svg === "valid") return { mime: head.mime };
+    return svg === "undeclared_prefix" ? { svg, prefix: detail.prefix } : { svg };
+  }
   if (head.whole === "ooxml") {
     const found = await fileTypeFromFile(path);
     // Macro-enabled, template and slideshow variants have their own mimes and are refused.

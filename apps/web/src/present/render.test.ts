@@ -120,6 +120,16 @@ describe("renderDeck: member vs public pages", () => {
     expect(links[1].hasAttribute("data-kn-media")).toBe(false);
   });
 
+  it("uploaded SVG image block renders as <img> (never inline <svg>) in both member and public slides (#389)", () => {
+    const memberHost = slideHost(deck([{ type: "image", props: { url: "/api/uploads/svg-1", name: "anim.svg" } }], "T", memberCtx()), 0);
+    expect(memberHost.querySelector("img")!.getAttribute("src")).toBe("/api/uploads/svg-1");
+    expect(memberHost.querySelector("svg")).toBeNull();
+
+    const publicHost = slideHost(deck([{ type: "image", props: { url: "/api/uploads/svg-1", name: "anim.svg" } }], "T", publicCtx), 0);
+    expect(publicHost.querySelector("img")!.getAttribute("src")).toBe("/api/public/notes/TOKEN/uploads/svg-1");
+    expect(publicHost.querySelector("svg")).toBeNull();
+  });
+
   it("video / audio have controls; checkbox disabled; table wrapper carries data-prevent-swipe", () => {
     const sections = deck([
       { type: "video", props: { url: "https://e/v.mp4" } },

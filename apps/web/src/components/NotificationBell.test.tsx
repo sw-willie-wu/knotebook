@@ -13,7 +13,11 @@ import {
   notificationPage,
   stubNotificationFetch,
 } from "@/test/notification-fixtures";
+import { ThemeProvider } from "@/theme";
 import { NotificationBell } from "./NotificationBell";
+import { UserMenu } from "./UserMenu";
+import { pressTrigger } from "@/test/menu-trigger";
+import { PANEL_PLACEMENT, PANEL_ROW_WIDTH, PANEL_SURFACE, SIDEBAR_PANEL_ANCHOR_ATTR } from "./ui/panel-shell";
 import { ICON_28_HIT } from "./ui/hit-area";
 
 const COUNT = "/api/notifications/unread-count";
@@ -101,6 +105,60 @@ describe("NotificationBell", () => {
     await waitFor(() => expect(screen.queryByTestId("notifications-popover")).toBeNull());
     await waitFor(() => expect(calls.filter((c) => c.url === COUNT).length).toBeGreaterThan(countsBeforeClose));
     expect(screen.queryByTestId("notification-badge")).toBeNull();
+  });
+
+  it("the account menu and the notifications panel share surface, row width and alignment", async () => {
+    stubNotificationFetch({ ...base, [COUNT]: jsonResponse({ count: 0 }), [LIST]: jsonResponse(notificationPage([])), "POST /api/notifications/seen": jsonResponse(null, 204) });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <MemoryRouter>
+            <UserMenu bell={<NotificationBell placement="sidebar" />} />
+          </MemoryRouter>
+        </ThemeProvider>
+      </QueryClientProvider>,
+    );
+    const bell = await screen.findByTestId("notification-bell");
+    pressTrigger(await screen.findByRole("button", { name: NOTIFICATION_USER.displayName }));
+    const menu = await screen.findByRole("menu");
+    fireEvent.keyDown(menu, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    fireEvent.click(bell);
+    const panel = await screen.findByTestId("notifications-popover");
+    for (const el of [menu, panel]) {
+      for (const token of [...PANEL_SURFACE.split(" "), PANEL_ROW_WIDTH]) expect(el).toHaveClass(token);
+      expect(el).toHaveAttribute("data-align", PANEL_PLACEMENT.align);
+    }
+  });
+
+  it("the panel opens above and takes its width from the sidebar row, not the bell", async () => {
+    stubNotificationFetch({ ...base, [COUNT]: jsonResponse({ count: 0 }), [LIST]: jsonResponse(notificationPage([])), "POST /api/notifications/seen": jsonResponse(null, 204) });
+    const rect = (width: number) => ({ x: 0, y: 500, top: 500, left: 0, right: width, bottom: 540, width, height: 40, toJSON: () => ({}) }) as DOMRect;
+    const original = HTMLElement.prototype.getBoundingClientRect;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      if (this.hasAttribute(SIDEBAR_PANEL_ANCHOR_ATTR)) return rect(300);
+      if (this.dataset.testid === "notification-bell") return rect(28);
+      return original.call(this);
+    });
+    try {
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      render(
+        <QueryClientProvider client={queryClient}>
+          <ThemeProvider>
+            <MemoryRouter>
+              <UserMenu bell={<NotificationBell placement="sidebar" />} />
+            </MemoryRouter>
+          </ThemeProvider>
+        </QueryClientProvider>,
+      );
+      fireEvent.click(await screen.findByTestId("notification-bell"));
+      const panel = await screen.findByTestId("notifications-popover");
+      expect(panel).toHaveAttribute("data-side", "top");
+      await waitFor(() => expect(panel.parentElement?.style.getPropertyValue("--radix-popper-anchor-width")).toBe("300px"));
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 
   it("the sidebar bell widens its touch area to 44x44 on coarse pointers", async () => {

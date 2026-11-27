@@ -12,6 +12,7 @@ import { useSidebarQuery } from "@/lib/sidebar-query";
 import { useShortcutsDialog } from "@/lib/shortcuts-dialog";
 import { useTour } from "@/lib/tour-context";
 import { openSettings } from "@/lib/open-settings";
+import { PANEL_PLACEMENT, PANEL_ROW_WIDTH, SIDEBAR_PANEL_ANCHOR_ATTR } from "@/components/ui/panel-shell";
 import { panelEntryState } from "@/lib/panel-return";
 import {
   DropdownMenu,
@@ -107,12 +108,13 @@ export function UserMenu({ variant = "row", bell }: { variant?: "row" | "avatar"
           </button>
         )}
       </DropdownMenuTrigger>
-      {/* Width follows the trigger (Radix exposes it); avatar-form trigger is only 44 wide, so use a fixed minimum. */}
+      {/* Avatar-form trigger is only 44 wide, so it uses a fixed minimum instead of the row width. */}
       <DropdownMenuContent
-        align="end"
-        className={avatar ? "min-w-56" : "min-w-[var(--radix-dropdown-menu-trigger-width)]"}
+        {...PANEL_PLACEMENT}
+        side={avatar ? "bottom" : "top"}
+        className={avatar ? "min-w-56" : PANEL_ROW_WIDTH}
       >
-        <DropdownMenuLabel>{user.displayName}</DropdownMenuLabel>
+        <DropdownMenuLabel className="truncate">{user.displayName}</DropdownMenuLabel>
         <DropdownMenuSeparator />
 
         <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
@@ -147,7 +149,7 @@ export function UserMenu({ variant = "row", bell }: { variant?: "row" | "avatar"
           value={accent}
           onValueChange={(value) => setAccent(value as Accent)}
           aria-labelledby={accentLabelId}
-          className="flex gap-2 pointer-coarse:gap-4 px-2 py-1.5"
+          className="flex flex-wrap gap-2 pointer-coarse:gap-4 px-2 py-1.5"
         >
           {ACCENTS.map((color) => (
             <DropdownMenuRadioItem
@@ -216,7 +218,7 @@ export function UserMenu({ variant = "row", bell }: { variant?: "row" | "avatar"
   );
   if (avatar || bell === undefined) return menu;
   return (
-    <div className="relative">
+    <div className="relative" {...{ [SIDEBAR_PANEL_ANCHOR_ATTR]: "" }}>
       {menu}
       {/* right edge = 6 px trigger padding + 16 px gear + 12 px gap = 34 px; the 8 px coarse-pointer hit extension stays 4 px clear of the gear. The name's mr-10 (40 px) + 8 px flex gap + 16 px gear + 6 px padding reserves 70 px = bell's 28 px box + 34 px, plus 8 px before the bell. */}
       <div className="absolute right-[34px] top-1/2 -translate-y-1/2">{bell}</div>

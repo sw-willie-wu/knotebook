@@ -29,7 +29,7 @@ import type { FixedWindowLimiter } from "../http/rate-limit.js";
 import { spaceOfNote, type StorageSpace } from "../storage/space.js";
 import { StorageQuotaExceeded } from "../storage/tx/quota.js";
 import { precheckDetail, quotaErrorDetail, readSpaceUsage, remainingRoom, type SpaceUsage } from "../storage/usage.js";
-import { classifyUploadHead, HEAD_BYTES, verifyWholeFile, type HeadVerdict } from "../uploads/detect.js";
+import { classifyUploadHead, HEAD_BYTES, verifyWholeFile, type HeadVerdict, type SvgRefusal } from "../uploads/detect.js";
 import { deleteUploadFilesAnyName, sendUploadFile, uploadFilePath, uploadTempPath } from "../uploads/service.js";
 import { insertUploadInTx } from "../uploads/tx/insert-upload.js";
 
@@ -45,7 +45,13 @@ declare module "fastify" {
 const MIB = 1_048_576;
 
 export const UNSUPPORTED_UPLOAD_MESSAGE =
-  "Unsupported file type. Upload an image (PNG, JPEG, GIF or WebP), audio, video, a PDF, an Office or OpenDocument file, or a text file.";
+  "Unsupported file type. Upload an image (PNG, JPEG, GIF, WebP or SVG), audio, video, a PDF, an Office or OpenDocument file, or a text file.";
+
+function svgRefusalMessage(refusal: SvgRefusal): string {
+  if (refusal.svg === "missing_xmlns") return 'SVG files must declare xmlns="http://www.w3.org/2000/svg" on the root <svg> element.';
+  if (refusal.svg === "undeclared_prefix") return undeclaredPrefixMessage(refusal.prefix);
+  return "Unsupported image format. Upload a PNG, JPEG, GIF, WebP or SVG image.";
+}
 
 function uploadLimitBytes(siteLimits: SiteLimits, category: UploadCategory): number {
   return uploadLimitClass(category) === "media" ? siteLimits.get("uploadMediaMaxMib") * MIB : siteLimits.get("uploadMaxBytes");
@@ -168,6 +174,29 @@ export interface UploadsRouteDeps {
   uploadsDir: string;
   groupTestHook?: GroupTestHook;
   storageLockTimeoutMs: number;
+}
+
+const MAX_ECHOED_PREFIX_CHARS = 64;
+
+/** The prefix comes from an untrusted file and is echoed to clients that may render it: bound its length and drop invisible direction/format characters. */
+export function echoablePrefix(prefix: string | undefined): string {
+  let out = "";
+  let kept = 0;
+  for (const ch of prefix ?? "") {
+    if (/[\p{Cc}\p{Cf}]/u.test(ch)) continue;
+    if (kept === MAX_ECHOED_PREFIX_CHARS) return `${out}…`;
+    out += ch;
+    kept++;
+  }
+  return out;
+}
+
+/** An empty echoable prefix (all invisible characters) would read as `the prefix ""`, so the message leaves it out. */
+export function undeclaredPrefixMessage(prefix: string | undefined): string {
+  const shown = echoablePrefix(prefix);
+  return shown === ""
+    ? "SVG files must declare every namespace prefix they use."
+    : `SVG files must declare every namespace prefix they use: the prefix "${shown}" has no matching xmlns declaration.`;
 }
 
 /**
@@ -327,14 +356,19 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
       }
 
       let mime: string;
+      let refusalMessage = UNSUPPORTED_UPLOAD_MESSAGE;
       try {
         const whole = await verifyWholeFile(tempPath, received.verdict);
         if (whole === null) throw new UploadRefusal("unsupported");
+        if ("svg" in whole) {
+          refusalMessage = svgRefusalMessage(whole);
+          throw new UploadRefusal("unsupported");
+        }
         mime = whole.mime;
       } catch (err) {
         if (!(err instanceof UploadRefusal)) request.log.warn({ err }, "upload whole-file check failed");
         await deleteUploadFilesAnyName(deps.uploadsDir, [id], request.log);
-        return sendError(reply, 415, "unsupported_media_type", UNSUPPORTED_UPLOAD_MESSAGE);
+        return sendError(reply, 415, "unsupported_media_type", refusalMessage);
       }
 
       const input = {

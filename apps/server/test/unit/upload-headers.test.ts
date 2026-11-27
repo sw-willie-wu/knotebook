@@ -6,7 +6,7 @@ const OOXML = "application/vnd.openxmlformats-officedocument.";
 
 describe("upload CSP constants", () => {
   it("are pinned verbatim", () => {
-    expect(UPLOAD_CSP).toBe("default-src 'none'; style-src 'unsafe-inline'; sandbox");
+    expect(UPLOAD_CSP).toBe("default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; sandbox");
     expect(UPLOAD_PDF_CSP).toBe("default-src 'none'; frame-ancestors 'none'");
   });
 });
@@ -133,14 +133,12 @@ describe("uploadResponseHeaders: exact header set per class", () => {
     });
   });
 
-  it("SVG is not an accepted type here, so like any unlisted mime it is an opaque download (application/octet-stream)", () => {
-    expect(uploadResponseHeaders("image/svg+xml", "0f8e2c1a-6a0b-4d7e-9a43-4a3c8f1d2b10")).toEqual({
+  it("SVG: inline as image/svg+xml under UPLOAD_CSP without Content-Disposition", () => {
+    expect(uploadResponseHeaders("image/svg+xml", "drawing.svg")).toEqual({
       "x-content-type-options": "nosniff",
       "cache-control": CACHE,
-      "content-type": "application/octet-stream",
+      "content-type": "image/svg+xml",
       "content-security-policy": UPLOAD_CSP,
-      "content-disposition":
-        "attachment; filename=\"0f8e2c1a-6a0b-4d7e-9a43-4a3c8f1d2b10\"; filename*=UTF-8''0f8e2c1a-6a0b-4d7e-9a43-4a3c8f1d2b10",
     });
   });
 

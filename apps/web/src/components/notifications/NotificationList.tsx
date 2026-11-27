@@ -9,6 +9,7 @@ import { Avatar } from "@/components/Avatar";
 import { authorName, fullTime, relativeTime } from "@/components/comments/comment-format";
 import { Button } from "@/components/ui/button";
 import { X } from "@/components/ui/icons";
+import { cn } from "@/lib/utils";
 
 interface NotificationListProps {
   userId: string;
@@ -63,7 +64,7 @@ export function NotificationList({ userId, onNavigate, layout }: NotificationLis
 
   return (
     <div ref={rootRef} tabIndex={-1} data-testid="notification-list-root" className="flex min-h-0 flex-1 flex-col outline-none">
-      <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+      <div className={cn("flex items-center gap-2 border-b border-border px-3 py-2", layout === "popover" && "-mx-1 -mt-1")}>
         {layout === "popover" ? <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">{t("notifications.title")}</h2> : <span className="flex-1" />}
         <Button
           ref={clearAllRef}
@@ -78,7 +79,7 @@ export function NotificationList({ userId, onNavigate, layout }: NotificationLis
       </div>
 
       {confirmingClear && (
-        <div role="group" aria-label={t("notifications.clearTitle")} className="space-y-2 border-b border-border bg-muted px-3 py-2">
+        <div role="group" aria-label={t("notifications.clearTitle")} className={cn("space-y-2 border-b border-border bg-muted px-3 py-2", layout === "popover" && "-mx-1")}>
           <p className="text-sm font-medium">{t("notifications.clearTitle")}</p>
           <p className="text-xs text-muted-foreground">{t("notifications.clearBody")}</p>
           <div className="flex justify-end gap-2">
@@ -111,29 +112,29 @@ export function NotificationList({ userId, onNavigate, layout }: NotificationLis
         </div>
       )}
       {clear.isError && (
-        <p role="alert" className="px-3 py-2 text-xs text-destructive">
+        <p role="alert" className={cn("px-3 py-2 text-xs text-destructive", layout === "popover" && "px-2")}>
           {t("notifications.clearFailed")}
         </p>
       )}
       {remove.isError && (
-        <p role="alert" className="px-3 py-2 text-xs text-destructive">
+        <p role="alert" className={cn("px-3 py-2 text-xs text-destructive", layout === "popover" && "px-2")}>
           {t("notifications.deleteFailed")}
         </p>
       )}
 
       <div className="min-h-0 flex-1 overflow-y-auto" aria-busy={list.isPending}>
-        {list.isPending && <p className="p-3 text-sm text-muted-foreground">{t("notifications.loading")}</p>}
+        {list.isPending && <p className={cn("p-3 text-sm text-muted-foreground", layout === "popover" && "p-2")}>{t("notifications.loading")}</p>}
         {failed && (
-          <div role="alert" className="space-y-2 p-3 text-sm">
+          <div role="alert" className={cn("space-y-2 p-3 text-sm", layout === "popover" && "p-2")}>
             <p>{t("notifications.loadFailed")}</p>
             <Button type="button" variant="outline" size="sm" onClick={() => void list.refetch()}>
               {t("notifications.retry")}
             </Button>
           </div>
         )}
-        {empty && <p className="p-3 text-sm text-muted-foreground">{t("notifications.empty")}</p>}
+        {empty && <p className={cn("p-3 text-sm text-muted-foreground", layout === "popover" && "p-2")}>{t("notifications.empty")}</p>}
         {notifications.length > 0 && (
-          <ul ref={listRef} tabIndex={-1} aria-label={t("notifications.list")} className="p-1 outline-none">
+          <ul ref={listRef} tabIndex={-1} aria-label={t("notifications.list")} className={cn("outline-none", layout !== "popover" && "p-1")}>
             {notifications.map((n) => (
               <NotificationRow
                 key={n.id}
@@ -200,7 +201,7 @@ function NotificationRow({ n, isNew, onOpen, onDelete }: { n: NotificationDto; i
   );
 
   return (
-    <li data-testid="notification" data-notification-id={n.id} data-new={isNew ? "" : undefined} className="group relative flex items-start rounded-md hover:bg-accent/60">
+    <li data-testid="notification" data-notification-id={n.id} data-new={isNew ? "" : undefined} className="group relative flex items-start rounded-md hover:bg-accent">
       {n.canOpen ? (
         <button type="button" onClick={onOpen} className="flex min-w-0 flex-1 gap-2 rounded-md px-2 py-2 pr-9 text-left pointer-coarse:pr-12">
           {body}

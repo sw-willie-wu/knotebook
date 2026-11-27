@@ -92,10 +92,19 @@ function buildMultipartBody(parts: BodyPart[], boundary = BOUNDARY): Buffer {
 // so that "the file is not empty" is covered too.
 const PNG_BYTES = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01, 0x02, 0x03]);
 const JPEG_BYTES = Buffer.from([0xff, 0xd8, 0xff, 0x00, 0x01, 0x02]);
+const SVG_BYTES = Buffer.from(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><style>@keyframes spin{to{transform:rotate(360deg)}}rect{animation:spin 1s infinite}</style><rect width="20" height="20"/></svg>',
+  "utf-8",
+);
+const MALICIOUS_SVG_BYTES = Buffer.from(
+  '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"><script>alert(1)</script><foreignObject width="10" height="10"><body xmlns="http://www.w3.org/1999/xhtml"><img src="x" onerror="alert(1)"/></body></foreignObject><image href="https://evil.example/track.png"/></svg>',
+  "utf-8",
+);
 const NOT_AN_IMAGE_BYTES = Buffer.from("this is definitely not an image, just plain text bytes", "utf-8");
 const UNSUPPORTED_MESSAGE =
-  "Unsupported file type. Upload an image (PNG, JPEG, GIF or WebP), audio, video, a PDF, an Office or OpenDocument file, or a text file.";
+  "Unsupported file type. Upload an image (PNG, JPEG, GIF, WebP or SVG), audio, video, a PDF, an Office or OpenDocument file, or a text file.";
 const MIB = 1_048_576;
+const EXPECTED_UPLOAD_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; sandbox";
 
 function singleFileBody(data: Buffer, opts: { filename?: string; contentType?: string; boundary?: string } = {}): Buffer {
   return buildMultipartBody(
@@ -529,6 +538,72 @@ describe("POST /api/notes/:id/uploads", () => {
     const res = await postUpload(app, note.id, singleFileBody(NOT_AN_IMAGE_BYTES, { contentType: "image/png" }), { cookie });
     expect(res.statusCode).toBe(415);
     expect(res.json()).toEqual({ error: { code: "unsupported_media_type", message: UNSUPPORTED_MESSAGE } });
+
+    const badSvg = await postUpload(
+      app,
+      note.id,
+      singleFileBody(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><rect></svg>', "utf-8"), { filename: "bad.svg", contentType: "image/svg+xml" }),
+      { cookie },
+    );
+    expect(badSvg.statusCode).toBe(415);
+    expect(badSvg.json().error).toEqual({
+      code: "unsupported_media_type",
+      message: "Unsupported image format. Upload a PNG, JPEG, GIF, WebP or SVG image.",
+    });
+
+    const noXmlnsSvg = await postUpload(
+      app,
+      note.id,
+      singleFileBody(Buffer.from('<svg viewBox="0 0 10 10"><rect width="10" height="10"/></svg>', "utf-8"), { filename: "no-xmlns.svg", contentType: "image/svg+xml" }),
+      { cookie },
+    );
+    expect(noXmlnsSvg.statusCode).toBe(415);
+    expect(noXmlnsSvg.json().error).toEqual({
+      code: "unsupported_media_type",
+      message: 'SVG files must declare xmlns="http://www.w3.org/2000/svg" on the root <svg> element.',
+    });
+  });
+
+  it("415: SVG that uses an undeclared namespace prefix -> the message names the prefix (#389)", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-svg-prefix@example.com" });
+    const cookie = await cookieFor(owner.id);
+    const note = await createNote(db, owner.id);
+
+    const res = await postUpload(
+      app,
+      note.id,
+      singleFileBody(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><use xlink:href="#r"/></svg>', "utf-8"), { filename: "prefix.svg", contentType: "image/svg+xml" }),
+      { cookie },
+    );
+    expect(res.statusCode).toBe(415);
+    expect(res.json().error).toEqual({
+      code: "unsupported_media_type",
+      message: 'SVG files must declare every namespace prefix they use: the prefix "xlink" has no matching xmlns declaration.',
+    });
+  });
+
+  it("201: SVG upload (including animated style and active tags kept verbatim) -> stored as image/svg+xml and served with CSP sandbox + nosniff (#389)", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-svg@example.com" });
+    const cookie = await cookieFor(owner.id);
+    const note = await createNote(db, owner.id);
+
+    for (const [filename, data] of [["anim.svg", SVG_BYTES], ["evil.svg", MALICIOUS_SVG_BYTES]] as const) {
+      const res = await postUpload(app, note.id, singleFileBody(data, { filename, contentType: "image/svg+xml" }), { cookie });
+      expect(res.statusCode, filename).toBe(201);
+      const body = res.json() as { id: string; url: string };
+      const [row] = await db.select().from(uploads).where(eq(uploads.id, body.id)).limit(1);
+      expect(row, filename).toMatchObject({ noteId: note.id, uploaderId: owner.id, mime: "image/svg+xml", size: data.length });
+
+      const getRes = await app.inject({ method: "GET", url: body.url, cookies: { [SESSION_COOKIE]: cookie } });
+      expect(getRes.statusCode, filename).toBe(200);
+      expect(getRes.headers["content-type"], filename).toBe("image/svg+xml");
+      expect(getRes.headers["x-content-type-options"], filename).toBe("nosniff");
+      expect(getRes.headers["content-security-policy"], filename).toBe(EXPECTED_UPLOAD_CSP);
+      expect(getRes.headers["cache-control"], filename).toBe("private, max-age=31536000, immutable");
+      expect(getRes.rawPayload.equals(data), filename).toBe(true);
+    }
   });
 
   it("413: file over MAX_UPLOAD_BYTES -> file_too_large, nothing stored (no file left on disk, including temp files)", async () => {
@@ -608,6 +683,7 @@ describe("GET /api/uploads/:id", () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers["content-type"]).toBe("image/png");
     expect(res.headers["x-content-type-options"]).toBe("nosniff");
+    expect(res.headers["content-security-policy"]).toBe(EXPECTED_UPLOAD_CSP);
     expect(res.headers["cache-control"]).toBe("private, max-age=31536000, immutable");
     expect(res.rawPayload.equals(PNG_BYTES)).toBe(true);
   });
@@ -773,6 +849,54 @@ describe("GET /api/uploads/:id: class headers, Range and HEAD", () => {
     expect(res.headers["content-type"]).toBe("image/png");
     expect(res.headers["content-security-policy"]).toBe(UPLOAD_CSP);
     expect(res.headers["content-disposition"]).toBeUndefined();
+  });
+
+  function svgOfSize(size: number): Buffer {
+    const open = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">';
+    const rect = '<rect width="1" height="1"/>';
+    return Buffer.from(open + rect.repeat(Math.ceil((size - open.length - 6) / rect.length)) + "</svg>", "utf-8");
+  }
+
+  for (const [label, size] of [["~50 KB", 50_000], ["~2 MB", 2_000_000]] as const) {
+    it(`an SVG of ${label} (longer than the type-detection head) is stored as image/svg+xml and served inline under UPLOAD_CSP, by session and by download token`, async () => {
+      const { app, db } = await buildTestApp();
+      const o = await ownerWithPat(db);
+      const cookie = (await cookieOf(o.userId))[SESSION_COOKIE]!;
+      const svg = svgOfSize(size);
+      const id = await uploadAs(app, o.noteId, cookie, svg, "drawing.svg", "image/svg+xml");
+      const [row] = await db.select().from(uploads).where(eq(uploads.id, id));
+      expect(row).toMatchObject({ mime: "image/svg+xml", size: svg.length });
+      const t = await issueDirect(db, o.patId, o.noteId, "download");
+      for (const res of [
+        await app.inject({ method: "GET", url: `/api/uploads/${id}`, cookies: { [SESSION_COOKIE]: cookie } }),
+        await app.inject({ method: "GET", url: `/api/uploads/${id}`, headers: { authorization: `Bearer ${t.token}` } }),
+      ]) {
+        expect(res.statusCode).toBe(200);
+        expect(res.headers["content-type"]).toBe("image/svg+xml");
+        expect(res.headers["content-security-policy"]).toBe(EXPECTED_UPLOAD_CSP);
+        expect(res.headers["x-content-type-options"]).toBe("nosniff");
+        expect(res.headers["content-disposition"]).toBeUndefined();
+        expect(res.rawPayload.equals(svg)).toBe(true);
+      }
+    });
+  }
+
+  it("an SVG document named .xml is stored and served as text/plain, never image/svg+xml", async () => {
+    const { app, db, cookie, noteId } = await ownerSetup();
+    const id = await uploadAs(app, noteId, cookie, svgOfSize(10_000), "drawing.xml", "image/svg+xml");
+    const [row] = await db.select().from(uploads).where(eq(uploads.id, id));
+    expect(row?.mime).toBe("text/plain; charset=utf-8");
+    const res = await app.inject({ method: "GET", url: `/api/uploads/${id}`, cookies: { [SESSION_COOKIE]: cookie } });
+    expect(res.headers["content-type"]).toBe("text/plain; charset=utf-8");
+  });
+
+  it("415 names the undeclared prefix even when it appears only past the type-detection head", async () => {
+    const { app, uploadsDir, cookie, noteId } = await ownerSetup();
+    const big = svgOfSize(20_000).toString("utf-8").replace("</svg>", '<use xlink:href="#r"/></svg>');
+    const res = await postUpload(app, noteId, singleFileBody(Buffer.from(big, "utf-8"), { filename: "late-prefix.svg", contentType: "image/svg+xml" }), { cookie });
+    expect(res.statusCode).toBe(415);
+    expect(res.json().error.message).toBe('SVG files must declare every namespace prefix they use: the prefix "xlink" has no matching xmlns declaration.');
+    expect(readdirSync(uploadsDir)).toEqual([]);
   });
 
   it("a PDF opens inline with its own CSP and no sandbox", async () => {

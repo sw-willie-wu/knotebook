@@ -412,6 +412,7 @@ Each section below names one page and lists the bold headings of its entries; fo
 - [Uploads have no CSRF check when the request carries no `Origin` header.](./known-limitations/uploads.md)
 - [Revoked upload access can still be served from a browser's cache.](./known-limitations/uploads.md)
 - [The editor's file panel still uploads only images; the other kinds go in through the API or MCP.](./known-limitations/uploads.md)
+- [Uploaded SVG files are stored as-is and rely on `<img>` and CSP sandboxing rather than server-side stripping.](./known-limitations/uploads.md)
 - [Copying a note doesn't rewrite every link to its attachments.](./known-limitations/uploads.md)
 - [Copying a note with many attachments doubles their disk usage.](./known-limitations/uploads.md)
 - [Audio and video are stored as uploaded, and playback depends on the viewer's browser.](./known-limitations/uploads.md)

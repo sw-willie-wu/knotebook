@@ -1,5 +1,8 @@
+import { isValidSvgXml } from "./svg.js";
+
 /** Only the bytes are trusted: extension and Content-Type are forgeable. `null` means reject; never fall back to the claimed extension. */
-export type ImageMimeType = "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+export type RasterImageMimeType = "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+export type ImageMimeType = RasterImageMimeType | "image/svg+xml";
 
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 const JPEG_SIGNATURE = [0xff, 0xd8, 0xff];
@@ -20,7 +23,8 @@ function matchesAt(bytes: Uint8Array, signature: readonly number[], offset: numb
   return true;
 }
 
-export function detectImageMimeType(bytes: Uint8Array): ImageMimeType | null {
+/** Magic-byte detection for raster formats only (never accepts SVG). */
+export function detectRasterImageMimeType(bytes: Uint8Array): RasterImageMimeType | null {
   if (matchesAt(bytes, PNG_SIGNATURE, 0)) return "image/png";
   if (matchesAt(bytes, JPEG_SIGNATURE, 0)) return "image/jpeg";
   if (
@@ -32,4 +36,11 @@ export function detectImageMimeType(bytes: Uint8Array): ImageMimeType | null {
   }
   if (matchesAt(bytes, RIFF_SIGNATURE, 0) && matchesAt(bytes, WEBP_SIGNATURE, WEBP_OFFSET)) return "image/webp";
   return null;
+}
+
+/** Detects raster formats by magic bytes, or SVG by XML well-formedness and an `<svg>` root element in the SVG namespace. */
+export function detectImageMimeType(bytes: Uint8Array): ImageMimeType | null {
+  const raster = detectRasterImageMimeType(bytes);
+  if (raster !== null) return raster;
+  return isValidSvgXml(bytes) ? "image/svg+xml" : null;
 }
