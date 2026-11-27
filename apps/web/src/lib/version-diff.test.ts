@@ -9,6 +9,7 @@ const p = (id: string, text: string, children: DiffBlock[] = []): DiffBlock => (
   children,
 });
 const img = (id: string, url: string): DiffBlock => ({ id, type: "image", props: { url }, content: undefined, children: [] });
+const math = (id: string, tex: string): DiffBlock => ({ id, type: "math", props: { tex }, content: undefined, children: [] });
 
 const marksOf = (a: DiffBlock[], b: DiffBlock[]) => diffBlocks(a, b).map((e) => [e.key, markOf(e)]);
 
@@ -74,6 +75,12 @@ describe("diffBlocks", () => {
     const { blocks, marks } = renderDiff(entries);
     expect(marks.get("I")).toEqual({ mark: "changed", moved: false, nonText: true });
     expect(blocks[0].props).toEqual({ url: "/api/uploads/2" });
+  });
+
+  it("non-text block (math): a changed tex is marked changed with the nonText flag and content taken from b", () => {
+    const { blocks, marks } = renderDiff(diffBlocks([math("M", "a")], [math("M", "b")]));
+    expect(marks.get("M")).toEqual({ mark: "changed", moved: false, nonText: true });
+    expect(blocks[0].props).toEqual({ tex: "b" });
   });
 
   it("inline recomposition: equal/added keep b's styles, removed keeps a's styles plus strike and red background, added gets green background", () => {

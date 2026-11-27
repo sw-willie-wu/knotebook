@@ -1,10 +1,11 @@
+import "@/i18n/math-strings";
 import { insertOrUpdateBlockForSlashMenu } from "@blocknote/core";
 import { autoPlacement, offset, shift, size } from "@floating-ui/react";
 import { getDefaultReactSlashMenuItems, type DefaultReactSuggestionItem, type FloatingUIOptions } from "@blocknote/react";
 import { PHONE_EDIT_TOOLBAR_CLEARANCE_PX } from "@/components/ai/SelectionAiController";
 import { canInsertColumns, insertColumns } from "@/collab/columns/commands";
 import { Link, Tag } from "@/components/ui/icons";
-import { CircleInfo, Columns2, Diagram } from "@/components/ui/icons-extra";
+import { CircleInfo, Columns2, Diagram, Sigma } from "@/components/ui/icons-extra";
 import { currentKnowledgeTarget } from "@/components/knowledge/commands";
 
 /** Kept in the mermaid namespace on purpose: the `lastIndexOf(group)` insertion needs identical strings (pinned in slash-menu.test.tsx); renaming touches both translation files for no gain. Extracted so "link and diagram items share one group" is visible in the source; a mismatched group falls to the end. */
@@ -64,6 +65,15 @@ export function buildSlashMenuItems(
     // No `props`: the default code lives in `mermaidBlockConfig`.
     onItemClick: () => insertOrUpdateBlockForSlashMenu(editor, { type: "mermaid" }),
   };
+  const mathItem: DefaultReactSuggestionItem = {
+    title: translate("note.math.slashTitle"),
+    subtext: translate("note.math.slashSubtext"),
+    aliases: ["math", "latex", "formula", "equation", "數學", "公式"],
+    group,
+    icon: <Sigma className="h-4 w-4" />,
+    // No `props`: the default tex lives in `mathBlockConfig`.
+    onItemClick: () => insertOrUpdateBlockForSlashMenu(editor, { type: "math" }),
+  };
   const linkItem: DefaultReactSuggestionItem = {
     title: translate("note.link.slashTitle"),
     subtext: translate("note.link.slashSubtext"),
@@ -114,6 +124,6 @@ export function buildSlashMenuItems(
 
   // Cannot just push: the menu draws a group heading only when the group differs from the previous item, so appending would add a second heading; insert after the last item of the same group.
   const lastInGroup = defaults.map((entry) => entry.group).lastIndexOf(group);
-  if (lastInGroup === -1) return [...defaults, mermaidItem, linkItem, ...columnItems, ...tagItems, ...knowledgeItems];
-  return [...defaults.slice(0, lastInGroup + 1), mermaidItem, linkItem, ...columnItems, ...tagItems, ...knowledgeItems, ...defaults.slice(lastInGroup + 1)];
+  if (lastInGroup === -1) return [...defaults, mermaidItem, mathItem, linkItem, ...columnItems, ...tagItems, ...knowledgeItems];
+  return [...defaults.slice(0, lastInGroup + 1), mermaidItem, mathItem, linkItem, ...columnItems, ...tagItems, ...knowledgeItems, ...defaults.slice(lastInGroup + 1)];
 }

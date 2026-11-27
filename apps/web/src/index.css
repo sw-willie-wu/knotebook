@@ -732,6 +732,36 @@ input[name="share-access"] {
       --kb-table-fade: 1.5rem;
     }
   }
+
+  /* Formulas (MathView's scroller; the presentation's .kn-present-math) share the table fade above. Only the editor has the JS
+     fallback (data-kb-more-right); the presentation relies on scroll-driven animation alone. */
+  [data-kb-math-scroll],
+  .kn-present .kn-present-math {
+    mask-image: linear-gradient(to right, #000 calc(100% - var(--kb-table-fade)), transparent);
+  }
+  @supports (animation-timeline: scroll(self inline)) {
+    [data-kb-math-scroll],
+    .kn-present .kn-present-math {
+      animation-name: kb-table-fade;
+      animation-duration: auto;
+      animation-timing-function: linear;
+      animation-fill-mode: both;
+      animation-timeline: scroll(self inline);
+    }
+  }
+  @supports not (animation-timeline: scroll(self inline)) {
+    [data-kb-math-scroll][data-kb-more-right] {
+      --kb-table-fade: 1.5rem;
+    }
+  }
+}
+
+/* Chinese inside formulas: KaTeX marks any run of CJK characters with .cjk_fallback but styles it nowhere, so it would inherit KaTeX_Main
+   (no CJK glyphs) and fall through to the system serif. Give just those runs the body font (in the editor BlockNote's own font variable, elsewhere such as the presentation --font-sans);
+   Latin letters and symbols keep KaTeX's fonts.
+   Doubled class: (0,3,0) beats KaTeX's lazily loaded .katex font rules regardless of load order. KaTeX's CSS and font files stay untouched. */
+.katex .cjk_fallback.cjk_fallback {
+  font-family: var(--bn-font-family, var(--font-sans));
 }
 
 /* In the height-capped flex menu, rows would shrink below a touch target. .bn-mantine: don't tie with the

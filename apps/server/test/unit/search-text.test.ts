@@ -26,7 +26,9 @@ async function editorDoc(blocks: Array<Record<string, unknown>>): Promise<Y.Doc>
   return doc;
 }
 // golden values captured by running the code before topLevelBlocks was changed
-const GOLDEN_HASH = "01dbcb87f9d4075de27636b598be9980503470e31176ba28a45069a7cad984d6";
+// Hash of the same rows under the previous extractor version: the rows of a document without math did not change, only the version in the hash did.
+const GOLDEN_HASH_V2 = "01dbcb87f9d4075de27636b598be9980503470e31176ba28a45069a7cad984d6";
+const GOLDEN_HASH = "5a0c067f57ee59e2fdfa470667c22796c45198e12075de3cfefd9fccd2e7d23d";
 const colRow = (id: string, cols: Array<Array<Record<string, unknown>>>) => ({
   id,
   type: "columnList",
@@ -46,7 +48,9 @@ describe("columns (top-level unit expansion)", () => {
       { id: "hb", type: "heading", props: { level: 1 }, content: "B" },
       { id: "p2", type: "paragraph", content: "段落二" },
     ]);
-    expect(extractSearchSections(frag(doc)).contentHash).toBe(GOLDEN_HASH);
+    const ex = extractSearchSections(frag(doc));
+    expect(ex.contentHash).toBe(GOLDEN_HASH);
+    expect(searchContentHash(2, ex.rows, ex.capped)).toBe(GOLDEN_HASH_V2);
   });
 
   it("both column texts of a row go into _top's body; a heading inside a column is in the body too, not a separate section", async () => {
@@ -133,8 +137,8 @@ describe("traversal rules", () => {
     expect(bodyOf([{ id: "p", inline: ["see ", { wikilink: "Roadmap", label: "" }, " now"] }], "_top")).toBe("see Roadmap now");
     expect(bodyOf([{ id: "p", inline: ["x", { wikilink: 42 }] }], "_top")).toBe("x");
   });
-  it("#269: SEARCH_EXTRACTOR_VERSION is 2 (the extraction shape changed, so the startup backfill rebuilds existing indexes)", () => {
-    expect(SEARCH_EXTRACTOR_VERSION).toBe(2);
+  it("SEARCH_EXTRACTOR_VERSION is 3 (math blocks are indexed, so the startup backfill rebuilds existing indexes)", () => {
+    expect(SEARCH_EXTRACTOR_VERSION).toBe(3);
   });
   it("wikilink children (XmlText) are not expanded: only snapshotTitle is output", () => {
     const doc = searchDoc([{ id: "p", inline: ["a", { wikilink: "T" }, "b"] }]);
@@ -147,6 +151,18 @@ describe("traversal rules", () => {
     const body = extractSearchSections(frag(doc)).rows[0]!.body;
     expect(body).not.toContain("HIDDEN");
     expect(body).toBe("aTb");
+  });
+  it("a math tex property goes into the body", () => {
+    const b: Blk[] = [
+      { id: "p", text: "before" },
+      { id: "t", type: "math", attrs: { tex: "\\frac{MATHX}{2}" } },
+      { id: "q", text: "after" },
+    ];
+    expect(bodyOf(b, "_top")).toBe("before\n\\frac{MATHX}{2}\nafter");
+  });
+  it("a math block with an empty or non-string tex adds nothing", () => {
+    expect(bodyOf([{ id: "p", text: "a" }, { id: "t", type: "math", attrs: { tex: "" } }, { id: "q", text: "b" }], "_top")).toBe("a\nb");
+    expect(bodyOf([{ id: "p", text: "a" }, { id: "t", type: "math", attrs: { tex: 5 } }, { id: "q", text: "b" }], "_top")).toBe("a\nb");
   });
   it("a mermaid code property goes into the body; codeBlock text goes in; an image's caption/url do not", () => {
     const b: Blk[] = [

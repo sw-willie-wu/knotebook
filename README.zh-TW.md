@@ -69,6 +69,7 @@
 - **即時共同編輯**：同一篇筆記上的每個人同時編輯（Yjs 與 Hocuspocus），看得到其他人的游標；筆記頁首顯示還有誰開著這篇，點某人的頭像會跳到他的游標。
 - **筆記之間的連結**：打 `[[`，或貼上、拖入筆記網址；筆記改名後連結照樣有效，連結也可以指向單一段落，每篇筆記會列出提到它的筆記。
 - **圖片與圖表**：PNG、JPEG、GIF、WebP、SVG 圖片，可以調整大小，計入筆記所屬空間的儲存方案；Mermaid 圖表以原始碼儲存（[圖表](docs/diagrams.md)）；兩者都能全螢幕放大檢視。
+- **數學式**：用 LaTeX 寫、以 KaTeX 繪製的公式，以原始碼儲存；用 `/math` 或輸入 ```` ```math ```` 插入（[數學式](docs/math.md)）。
 - **並排**：兩到四欄的並排，用 `/grid` 或把區塊拖到另一個區塊旁邊建立，拖分隔線調整欄寬（[並排](docs/columns.md)）。
 - **標題導覽**：筆記右側一條細線，每個標題（H1 到 H3）一個刻度，滑過或點它列出標題，點一個就跳過去。視窗夠寬時，標準寬的筆記可以把導覽釘在文字旁；在手機或窄於 768 px 的視窗，捲動時會出現標出目前位置的泡泡，點它開啟清單，筆記 ⋮ 選單裡的「標題導覽」也能開啟。
 - **知識資訊**：標題可以記下何時讀、一句結論、依據、最後驗證日，以及是否仍有效、待驗證或已過時，標題後面會有小狀態圖示；每個資料夾與空間各有一份索引（[知識資訊](docs/knowledge.md)）。
@@ -212,6 +213,7 @@ Claude Desktop 與其他用戶端怎麼接、每項工具做什麼，見 [MCP](d
 - [版本歷史](docs/versions.md)：版本何時儲存，預覽、比較與套用版本，誰看得到、保留多久。
 - [並排](docs/columns.md)：建立、調整、拆除、複製與撤銷並排。
 - [圖表（Mermaid）](docs/diagrams.md)：插入、編輯、貼上與複製出 Mermaid 圖表。
+- [數學式（LaTeX）](docs/math.md)：輸入、貼上與匯出數學公式。
 - [說明與功能導覽](docs/feature-tour.md)：說明視窗、功能導覽、「這一版新增」頁與快捷鍵。
 - [把 Knotebook 安裝成 app](docs/install-app.md)：在 Android、iPhone 與 iPad 加到主畫面，以及在電腦上安裝。
 - [值得先知道的限制](docs/limitations.md)：部署 Knotebook 或把筆記交給它之前該知道的事，包括資料可能遺失之處、無法復原的操作、安全上的取捨與尚未提供的功能。
@@ -250,4 +252,4 @@ Knotebook 與 GitLab、Google 沒有隸屬關係，也未獲其背書。登入�
 
 ## 授權
 
-MIT，見 [LICENSE](./LICENSE)。隨附的第三方元件（一個字型資源、jsdiff、BlockNote）各有自己的授權，見 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。
+MIT，見 [LICENSE](./LICENSE)。隨附的第三方元件（一個字型資源、KaTeX 字型、jsdiff、BlockNote）各有自己的授權，見 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。

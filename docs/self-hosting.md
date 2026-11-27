@@ -593,13 +593,25 @@ then start that build. Steps 2 and 3 are for the bundled database; with your own
 
    The two tables, the `custom` column and the wider checks stay; after upgrading again the settings saved before apply again.
 
-**Upgrading to v0.19 (configurable knowledge fields).**
+**Math blocks (no migration).** Nothing in the database changes at the upgrade: a formula is stored in the note like any other block, so there is nothing to back up beyond the usual. Two things happen after it, and one thing needs care if you roll back.
+
+1. **Open tabs ask to be reloaded.** A note left open from before the upgrade shows **Reload required** in its header, because notes can now hold a formula block; changes in it that hadn't synced are lost.
+2. **Search is indexed again in the background.** The first start builds the search index again for every note, note by note, after the server is already answering requests (the `app` log shows `全文索引回填開始` and `全文索引回填完成`), so that a formula's source is searchable. Until it gets to a note, search finds that note as before, by the text it had when it was last indexed, which doesn't include the source of its formulas.
+3. **Rolling back:** the previous version has no formula block, so it can't keep one. A note that has formulas still opens there, with no error, but without them: the web editor shows only the text around them, and reading the note over MCP or the API gives that text with no formula. The formulas are removed from the note itself, for good, the next time the previous version writes to that note, and any write does it, even one that changes nothing near the formula (for example someone who can edit the note opens it in the web app, or an MCP or API write or a file sent back changes any part of it). Upgrading again doesn't bring them back by itself. Before rolling back, pick what suits you:
+   - **Read out the notes that have formulas** over MCP or the API. A read gives each formula as a ```` ```math ```` fence, which you can write back after you upgrade again.
+   - **Restore the database dump taken before the upgrade** instead of only switching back to the previous image. That also drops every edit made to any note since the upgrade.
+   - **Apply an earlier version of the note after upgrading again.** A version saved while the formulas were still there brings them back when you apply it, if it is still in the history, but it replaces the note's current content, so later edits to that note are lost. The previous version keeps saving automatic versions while you are rolled back, and they have no formulas; an automatic version older than 7 days is thinned to the newest one of each day, so an earlier automatic version that still has them can be gone, while a manual version is never removed. Save a manual version of each note that has formulas before you roll back. This hasn't been tried on a running server.
+
+   Tabs that are open ask to be reloaded the same way as after an upgrade, because the version the editor and the server expect no longer matches.
+
+**Upgrading to v0.19 (configurable knowledge fields, math blocks).**
 
 1. **Back up the database first.** Migrations 0047–0049 run automatically when the new server starts; they widen two checks and add two tables and a nullable column, and change no existing value (see **Knowledge fields** above). Keep the dump: rolling back needs it once anyone has saved knowledge info on the new version.
-2. **Reload open tabs.** A note left open from before the upgrade shows **Reload required** in its header, because headings gained a property for custom field values; changes in it that hadn't synced are lost.
+2. **Reload open tabs.** A note left open from before the upgrade shows **Reload required** in its header, because headings gained a property for custom field values and notes can now hold formula blocks; changes in it that hadn't synced are lost.
 3. **Restart your MCP clients.** The descriptions and output schemas of the tools changed: `read_note_outline` and `create_note` now return `knowledgeFields`, and replies can list ignored knowledge lines.
 4. **Scripts that read or write knowledge comments:** a custom field is an `x-<key>:` line, every comment now has a `status` line, `status` takes `verified`, `needs-verify` and `obsolete` (the older `unverified` and `outdated` are still read), and a line whose value doesn't fit is left out and listed under `knowledge.ignored` instead of refusing the write (see [AI editing](ai-editing.md#knowledge-info) and the [CHANGELOG](../CHANGELOG.md)).
-5. **Rolling back** to v0.18.0: read item 5 of **Knowledge fields** above.
+5. **Rolling back** to v0.18.0: read item 5 of **Knowledge fields** above, and item 3 of **Math blocks** above: formulas are removed from the notes the previous version changes.
+6. **Search is indexed again** after the first start, in the background, so that formulas can be found (item 2 of **Math blocks** above).
 
 **Upgrading to v0.18 (faster search, tags, knowledge info and its index).**
 

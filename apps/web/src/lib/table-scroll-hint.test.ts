@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
-import { TABLE_MORE_RIGHT_ATTR, supportsScrollTimeline, syncTableScrollHint, useTableScrollHint } from "./table-scroll-hint";
+import { MATH_SCROLL_ATTR, TABLE_MORE_RIGHT_ATTR, supportsScrollTimeline, syncTableScrollHint, useTableScrollHint } from "./table-scroll-hint";
 
 function scroller(metrics: { scrollWidth: number; clientWidth: number; scrollLeft: number }): HTMLElement {
   const el = document.createElement("div");
@@ -140,5 +140,69 @@ describe("useTableScrollHint", () => {
     view.unmount();
     expect(remove).toHaveBeenCalledWith("scroll", expect.any(Function), true);
     expect(wide).not.toHaveAttribute(TABLE_MORE_RIGHT_ATTR);
+  });
+});
+
+describe("useTableScrollHint on math scrollers", () => {
+  beforeEach(() => {
+    vi.stubGlobal("CSS", { supports: () => false });
+    vi.stubGlobal("requestAnimationFrame", (cb: () => void) => {
+      cb();
+      return 1;
+    });
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    document.body.innerHTML = "";
+  });
+
+  function mathScroller(metrics: { scrollWidth: number; clientWidth: number; scrollLeft: number }): HTMLElement {
+    const el = scroller(metrics);
+    el.className = "overflow-x-auto";
+    el.setAttribute(MATH_SCROLL_ATTR, "");
+    return el;
+  }
+
+  it("marks an overflowing formula scroller, clears it at the far right, and leaves a fitting one alone", () => {
+    const wide = mathScroller({ scrollWidth: 899, clientWidth: 332, scrollLeft: 0 });
+    const fits = mathScroller({ scrollWidth: 332, clientWidth: 332, scrollLeft: 0 });
+    const { ref } = setup(wide, fits);
+    renderHook(() => useTableScrollHint(ref, true));
+    expect(wide).toHaveAttribute(TABLE_MORE_RIGHT_ATTR);
+    expect(fits).not.toHaveAttribute(TABLE_MORE_RIGHT_ATTR);
+    Object.defineProperty(wide, "scrollLeft", { value: 567 });
+    wide.dispatchEvent(new Event("scroll", { bubbles: false }));
+    expect(wide).not.toHaveAttribute(TABLE_MORE_RIGHT_ATTR);
+  });
+
+  it("rescans when web fonts finish loading (KaTeX fonts change formula widths after first paint), and stops listening on unmount", () => {
+    const listeners = new Map<string, () => void>();
+    const fonts = {
+      addEventListener: vi.fn((type: string, cb: () => void) => listeners.set(type, cb)),
+      removeEventListener: vi.fn((type: string) => listeners.delete(type)),
+    };
+    Object.defineProperty(document, "fonts", { value: fonts, configurable: true });
+    try {
+      const formula = mathScroller({ scrollWidth: 300, clientWidth: 332, scrollLeft: 0 });
+      const { ref } = setup(formula);
+      const view = renderHook(() => useTableScrollHint(ref, true));
+      expect(formula).not.toHaveAttribute(TABLE_MORE_RIGHT_ATTR);
+      Object.defineProperty(formula, "scrollWidth", { value: 899 });
+      listeners.get("loadingdone")!();
+      expect(formula).toHaveAttribute(TABLE_MORE_RIGHT_ATTR);
+      view.unmount();
+      expect(fonts.removeEventListener).toHaveBeenCalledWith("loadingdone", expect.any(Function));
+      expect(listeners.has("loadingdone")).toBe(false);
+    } finally {
+      delete (document as unknown as { fonts?: unknown }).fonts;
+    }
+  });
+
+  it("ignores an overflowing element that is neither a table nor a marked formula scroller", () => {
+    const other = scroller({ scrollWidth: 899, clientWidth: 332, scrollLeft: 0 });
+    other.className = "overflow-x-auto";
+    const { ref } = setup(other);
+    renderHook(() => useTableScrollHint(ref, true));
+    expect(other).not.toHaveAttribute(TABLE_MORE_RIGHT_ATTR);
   });
 });

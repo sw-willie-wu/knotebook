@@ -28,6 +28,7 @@ import { useCreateNote, useNotes } from "@/api/notes";
 import { classifyMediaTransfer, type BlockedTransferReason } from "@/collab/schema";
 import { createCodeBlockCaretExtension } from "@/collab/code-block-caret";
 import { createMermaidFenceExtension } from "@/collab/mermaid-fence";
+import { createMathFenceExtension } from "@/collab/math-fence";
 import { createColumnEdgeKeymapExtension } from "@/collab/columns/edge-keymap";
 import { endBlockDrop } from "@/collab/columns/drag-source";
 import { blockMoveDrop, computeDropPosition, edgeDrop, emptyColumnDrop, withGutterFileDrop } from "@/collab/columns/edge-drop";
@@ -187,6 +188,7 @@ export function buildNoteEditorOptions({
         createSiteLinkConvertExtension({ envRef: siteLinks }),
         createCodeBlockCaretExtension(),
         createMermaidFenceExtension(),
+        createMathFenceExtension(),
         createColumnEdgeKeymapExtension({ editorRef }),
         createColumnsPasteExtension(),
         createKnowledgeIdExtension({ editorRef }),

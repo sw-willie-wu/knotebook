@@ -20,7 +20,7 @@ import {
   rebindWikilinks,
   restoreKnowledgeProps,
   relativizeSiteUploads,
-  restoreMermaidBlocks,
+  restoreFenceBlocks,
   syntaxCheckRoot,
   targetFromList,
   topLevelBlockFloor,
@@ -113,7 +113,7 @@ export function parseMarkdownForNote(editor: BlockNoteEditor<any, any, any>, mar
   }
   // Restore first: parsing normalizes CR in attribute values, so the comment's id only matches `assigned` once put back.
   if (!restoreKnowledgeProps(raw, written) || findStrayKnowledgeProps(raw, assigned)) return { error: "unsupported_block", detail: "knowledge_attr" };
-  const parsed = relativizeSiteUploads(normalizeTableWidths(restoreMermaidBlocks(raw)), new URL(document.baseURI).origin);
+  const parsed = relativizeSiteUploads(normalizeTableWidths(restoreFenceBlocks(raw)), new URL(document.baseURI).origin);
   const known = new Set(Object.keys(editor.schema.blockSchema));
   const walk = (bs: AnyPartialBlock[]): boolean => bs.every(b => known.has(b.type as string) && (!b.children || walk(b.children as AnyPartialBlock[])));
   if (!walk(parsed)) return { error: "unsupported_block", detail: "unknown_block" };

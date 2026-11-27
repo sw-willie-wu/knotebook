@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router";
 import { BLOCK_ANCHOR_RE, TOP_SECTION_ID } from "@knotebook/shared";
 import type { BlockAnchorApi } from "./block-anchor-context";
-import { findMatchBlock, topUnits } from "./block-find";
+import { findMatchBlock, sectionMathPending, topUnits } from "./block-find";
 import { onSearchMarkClear, watchSearchEscape } from "./search-mark";
 import { scrollToTopOf, visibleHeightOf } from "@/lib/page-scroll";
 
@@ -84,7 +84,7 @@ function scrollPlan(root: HTMLElement, el: HTMLElement, align: ScrollLogicalPosi
 
 type Resolved = { kind: "block"; el: HTMLElement } | { kind: "top" } | null;
 
-function runScroll(root: HTMLElement, resolve: () => Resolved, align: ScrollLogicalPosition, persist: boolean, scrollOnly = false): () => void {
+function runScroll(root: HTMLElement, resolve: (final: boolean) => Resolved, align: ScrollLogicalPosition, persist: boolean, scrollOnly = false): () => void {
   let observer: MutationObserver | null = null;
   let waitTimer: ReturnType<typeof setTimeout> | undefined;
   let flashTimer: ReturnType<typeof setTimeout> | undefined;
@@ -207,12 +207,16 @@ function runScroll(root: HTMLElement, resolve: () => Resolved, align: ScrollLogi
     stopWaiting();
     removeOverlay();
   }
-  const found = resolve();
+  const found = resolve(false);
   if (found) hit(found);
   else {
-    observer = new MutationObserver(() => hit(resolve()));
+    observer = new MutationObserver(() => hit(resolve(false)));
     observer.observe(root, { childList: true, subtree: true });
-    waitTimer = setTimeout(stopWaiting, ANCHOR_WAIT_MS);
+    // A last resolve when the wait ends: it lands on the fallback when only an unrendered formula was holding it back.
+    waitTimer = setTimeout(() => {
+      stopWaiting();
+      hit(resolve(true));
+    }, ANCHOR_WAIT_MS);
   }
   return cancel;
 }
@@ -223,16 +227,18 @@ export function scrollToBlock(root: HTMLElement, blockId: string, findText?: str
   const align: ScrollLogicalPosition = findText === undefined ? "start" : "center";
   const persist = findText !== undefined && !scrollOnly;
   const selector = `.bn-block-outer[data-id="${blockId}"]`;
+  // A search jump waits (up to ANCHOR_WAIT_MS) for formulas in the section to render, since the match may be in one.
+  const mathPending = (final: boolean, sectionId: string) => findText !== undefined && !final && sectionMathPending(root, sectionId);
   if (blockId === TOP_SECTION_ID) {
-    return runScroll(root, () => {
-      if (topUnits(root) === null) return null;
+    return runScroll(root, (final) => {
+      if (topUnits(root) === null || mathPending(final, TOP_SECTION_ID)) return null;
       const m = findText === undefined ? null : findMatchBlock(root, TOP_SECTION_ID, findText);
       return m ? { kind: "block", el: m } : { kind: "top" };
     }, align, persist, scrollOnly);
   }
-  return runScroll(root, () => {
+  return runScroll(root, (final) => {
     const heading = root.querySelector<HTMLElement>(selector);
-    if (!heading) return null;
+    if (!heading || mathPending(final, blockId)) return null;
     const m = findText === undefined ? null : findMatchBlock(root, blockId, findText);
     return { kind: "block", el: m ?? heading };
   }, align, persist, scrollOnly);

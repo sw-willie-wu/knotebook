@@ -96,6 +96,13 @@ describe("sanitizeSlideFragment: what is kept", () => {
     expect(span.getAttribute("data-anchor-block-id")).toBe("b1");
   });
 
+  it("data-kn-math is kept on a div while an event handler on it is dropped", () => {
+    const host = clean('<div data-kn-math="" onclick="x()">x</div>');
+    const div = host.querySelector("div")!;
+    expect(div.hasAttribute("data-kn-math")).toBe(true);
+    expect(div.hasAttribute("onclick")).toBe(false);
+  });
+
   it("data-kn-media, data-kn-mermaid, data-kn-code-lang, color and alignment attributes are kept; style on code/span stays stripped", () => {
     const host = clean(
       '<a href="/api/uploads/a" data-kn-media="">f</a><div data-kn-mermaid="">graph TD</div>' +

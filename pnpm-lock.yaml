@@ -182,6 +182,9 @@ importers:
       i18next-browser-languagedetector:
         specifier: ^8.2.1
         version: 8.2.1
+      katex:
+        specifier: 0.16.47
+        version: 0.16.47
       mermaid:
         specifier: ^11.17.2
         version: 11.17.2

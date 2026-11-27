@@ -55,6 +55,11 @@ describe("present.css", () => {
     expect(rule(".kn-present .reveal.embedded.is-vertical-slide {")).toContain("touch-action: pinch-zoom;");
   });
 
+  it("a math block scrolls sideways on its own and, when it fits inside a non-overflowing slide, gets touch-action:pinch-zoom like <pre>", () => {
+    expect(rule(".kn-present .kn-present-math {")).toContain("overflow-x: auto;");
+    expect(rule(".kn-present .reveal .slides section[data-kn-slide-id]:not([data-prevent-swipe]) .kn-present-math:not([data-prevent-swipe]) {")).toContain("touch-action: pinch-zoom;");
+  });
+
   it("non-overflowing slides get touch-action:pinch-zoom (no pan, so swipes reach reveal; two-finger zoom stays on, #235; overflowing ones carry data-prevent-swipe to keep browser scrolling)", () => {
     expect(rule(".kn-present .reveal .slides section[data-kn-slide-id]:not([data-prevent-swipe])")).toContain("touch-action: pinch-zoom;");
   });

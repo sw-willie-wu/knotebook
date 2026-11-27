@@ -103,6 +103,18 @@ export const VERSIONS_MARKERS = [
   'versions.dialog.applyDiscard',
   'u{2DE}-',
 ];
+// mermaid also imports KaTeX, so a katex-<hash>.js chunk exists with or without the math block: its presence says nothing. What the check reads is
+// where the marker sits (only in katex-*.js) and who imports that chunk (nobody statically). The marker is a string literal in KaTeX's ParseError.
+export const KATEX_RE = /^katex-[A-Za-z0-9_-]+\.js$/;
+export const KATEX_MARKER = 'KaTeX parse error';
+// Class names from katex.min.css; our own .katex rule in index.css (CJK fallback) legitimately sits in entry CSS and doesn't use them.
+export const KATEX_CSS_MARKERS = ['.katex-display', 'KaTeX_Main'];
+// A note.math.* key that lives only in math.en.json (the math block's lazy string pack); in entry means math-strings is statically imported.
+export const MATH_I18N_MARKER = 'sourceFallback';
+// The key as it looks inside the bundled JSON object (key, colon, string value). A bare key also appears in code that only calls t("note.math.sourceFallback"), e.g. the presentation, which says nothing about the pack. Relies on the minifier wrapping the value in double quotes; a value containing `"` may make it switch quotes and turn the check red.
+export const MATH_I18N_PACK_SHAPE = `${MATH_I18N_MARKER}:"`;
+// Lazy chunks that must not reach KaTeX through static imports: KaTeX loads only when a formula is drawn.
+export const KATEX_FREE_CLOSURE_RES = [NOTEPAGE_RE, /^PublicNotePage-[A-Za-z0-9_-]+\.js$/, PRESENTATION_RE];
 const STATIC_IMPORT_RE = /(?:\bfrom\s*|\bimport\s*)["']\.\/([^"']+\.js)["']/g;
 
 // Follows file names only: a shared chunk's __vite__mapDeps lists unrelated file names.
@@ -488,12 +500,49 @@ export function checkBundleSize(assetsDir, { maxEntryBytes = MAX_ENTRY_BYTES } =
   }
 
   for (const cssName of names.filter(name => ENTRY_CSS_RE.test(name))) {
-    if (readFileSync(join(assetsDir, cssName), 'utf8').includes('.reveal-viewport')) {
+    const css = readFileSync(join(assetsDir, cssName), 'utf8');
+    if (css.includes('.reveal-viewport')) {
       throw new Error(`entry CSS ${cssName} 含 .reveal-viewport——reveal.css 被靜態 import 進首包（issue #229 的迴歸）`);
+    }
+    const katexCss = KATEX_CSS_MARKERS.find(marker => css.includes(marker));
+    if (katexCss) {
+      throw new Error(`entry CSS ${cssName} 含 ${katexCss}——katex.min.css 被 \`lib/katex.ts\` 的 import("katex/dist/katex.min.css") 以外的地方靜態 import 進首包（#338）`);
     }
   }
 
-  return { entryName, entryBytes, notePageChunks, mermaidChunks, shikiChunks, adminSectionsChunks, versionsChunks, presentationChunks, trashChunks, selectChunks, folderChunks, shortcutsChunks, tourChunks, managementChunks, bodySearchChunks, commentsChunks, notificationsChunks, avatarEncodeChunks, groupDialogChunks };
+  const jsNames = names.filter(n => n.endsWith('.js'));
+  const katexStray = jsNames.filter(n => !KATEX_RE.test(n) && readFileSync(join(assetsDir, n), 'utf8').includes(KATEX_MARKER));
+  if (katexStray.length > 0) {
+    throw new Error(
+      `${katexStray.join(', ')} 含 KaTeX 的字串 ${KATEX_MARKER}——katex 被 \`lib/katex.ts\` 的 import("katex") 以外的地方靜態 import，` +
+        `Rollup 把它搬進了這個 chunk，或某個依賴把 KaTeX 內聯進自己的 chunk（數學式引擎不再是按需下載，#338）`
+    );
+  }
+  const katexChunks = jsNames.filter(n => KATEX_RE.test(n) && readFileSync(join(assetsDir, n), 'utf8').includes(KATEX_MARKER));
+  if (katexChunks.length === 0) {
+    throw new Error(
+      `找不到含 ${KATEX_MARKER} 的 katex-<hash>.js——KaTeX 沒有成為獨立 chunk，或 rollup 改了 chunk 命名慣例／KaTeX 改了錯誤字串；` +
+        `請更新 KATEX_RE 或 KATEX_MARKER，不要刪檢查`
+    );
+  }
+  // The marker misses katex-*.js becoming a statically imported shared chunk (it keeps its name and its marker).
+  for (const start of [entryName, ...names.filter(n => KATEX_FREE_CLOSURE_RES.some(re => re.test(n)))]) {
+    const reached = [...staticImportClosure(assetsDir, start)].filter(n => KATEX_RE.test(n));
+    if (reached.length > 0) {
+      throw new Error(`${start} 的靜態 import 閉包碰到 KaTeX：[${reached.join(', ')}]——KaTeX 只能經 \`lib/katex.ts\` 的 import("katex") 在畫公式時才載入（#338）`);
+    }
+  }
+
+  if (entrySource.includes(MATH_I18N_MARKER)) {
+    throw new Error(
+      `entry chunk ${entryName} 含數學式字串包的鍵名 ${MATH_I18N_MARKER}——\`@/i18n/math-strings\`（或 import 它的數學式模組）被首包靜態 import；數學式字串只能經 lazy chunk 載入（#338）`
+    );
+  }
+  if (!jsNames.some(n => n !== entryName && readFileSync(join(assetsDir, n), 'utf8').includes(MATH_I18N_PACK_SHAPE))) {
+    throw new Error(`沒有任何 lazy chunk 含數學式字串包的鍵值 ${MATH_I18N_PACK_SHAPE}——math.*.json 的內容沒進包（或鍵改名了，請同步更新 MATH_I18N_MARKER）`);
+  }
+
+  return { entryName, entryBytes, notePageChunks, mermaidChunks, shikiChunks, adminSectionsChunks, versionsChunks, presentationChunks, trashChunks, selectChunks, folderChunks, shortcutsChunks, tourChunks, managementChunks, bodySearchChunks, commentsChunks, notificationsChunks, avatarEncodeChunks, groupDialogChunks, katexChunks };
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
@@ -513,7 +562,8 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
         `${result.commentsChunks.join(', ')}（entry 與 NotePage 不含 ${COMMENTS_I18N_MARKER}）、` +
         `${result.notificationsChunks.join(', ')}（entry 與 NotePage 不含 ${NOTIFICATIONS_I18N_MARKER}）、` +
         GROUP_LAZY_DIALOGS.map(d => `${result.groupDialogChunks[d.name].join(', ')}（entry 不含 ${d.marker}）、`).join('') +
-        `${result.avatarEncodeChunks.join(', ')}（${AVATAR_IMAGE_MARKER} 只在這個 chunk，entry 與其他 chunk 都不含）`
+        `${result.avatarEncodeChunks.join(', ')}（${AVATAR_IMAGE_MARKER} 只在這個 chunk，entry 與其他 chunk 都不含）、` +
+        `${result.katexChunks.join(', ')}（${KATEX_MARKER} 只在這個 chunk，沒有 chunk 靜態 import 它；entry 不含 ${MATH_I18N_MARKER}）`
     );
   } catch (err) {
     console.error(String(err instanceof Error ? err.message : err));

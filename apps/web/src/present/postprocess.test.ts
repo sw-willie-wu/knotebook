@@ -2,9 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { sanitizeSlideFragment } from "./sanitize";
 import {
   codeHighlightJobsIn,
+  mathJobsIn,
   mermaidJobsIn,
   postprocessSlide,
   runCodeHighlightJob,
+  runMathJob,
   runMermaidJob,
   type PostprocessContext,
   type WikilinkResolution,
@@ -12,6 +14,8 @@ import {
 
 const renderMermaid = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/mermaid", () => ({ renderMermaid }));
+const renderMath = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/katex", () => ({ renderMath }));
 const codeHighlight = vi.hoisted(() => ({
   tokenizeCode: vi.fn(),
   cachedCodeTokens: vi.fn(() => null),
@@ -36,10 +40,10 @@ const publicCtx: PostprocessContext = {
 
 function run(html: string, ctx: PostprocessContext) {
   const fragment = sanitizeSlideFragment(html);
-  const { mermaid: jobs, code: codeJobs } = postprocessSlide(fragment, ctx);
+  const { mermaid: jobs, code: codeJobs, math: mathJobs } = postprocessSlide(fragment, ctx);
   const host = document.createElement("div");
   host.append(fragment);
-  return { host, jobs, codeJobs };
+  return { host, jobs, codeJobs, mathJobs };
 }
 
 const WIKILINK = '<p>see <span data-inline-content-type="wikilink" data-target-note-id="n 1" data-snapshot-title="Old &lt;b&gt;title"><span>[[Old]]</span></span></p>';
@@ -224,6 +228,69 @@ describe("runMermaidJob", () => {
     renderMermaid.mockResolvedValue({ ok: true, svg: "<svg></svg>" });
     const el = document.createElement("div");
     expect(await runMermaidJob({ el, code: "graph TD" }, "light", () => false, "err")).toBe(false);
+    expect(el.innerHTML).toBe("");
+  });
+});
+
+describe("math jobs", () => {
+  beforeEach(() => renderMath.mockReset());
+
+  it("math: marker element emptied and collected as a job (original tex); blank tex is removed directly", () => {
+    const { host, mathJobs } = run('<div data-kn-math="">E=mc^2 &lt;b&gt;</div><div data-kn-math="">   </div>', member());
+    expect(mathJobs).toHaveLength(1);
+    expect(mathJobs[0].tex).toBe("E=mc^2 <b>");
+    expect(mathJobs[0].el.textContent).toBe("");
+    expect(mathJobs[0].el.classList.contains("kn-present-math")).toBe(true);
+    expect(host.querySelectorAll("[data-kn-math]")).toHaveLength(1);
+    expect(mathJobsIn(host)).toEqual(mathJobs);
+  });
+
+  it("a div[data-kn-math] without a recorded source is not turned into a job by mathJobsIn", () => {
+    const host = document.createElement("div");
+    host.innerHTML = '<div data-kn-math="">x</div>';
+    expect(mathJobsIn(host)).toEqual([]);
+  });
+
+  it("a mermaid marker does not produce a math job", () => {
+    const { mathJobs, jobs } = run('<div data-kn-mermaid="">graph TD</div>', member());
+    expect(mathJobs).toEqual([]);
+    expect(jobs).toHaveLength(1);
+  });
+});
+
+describe("runMathJob", () => {
+  beforeEach(() => renderMath.mockReset());
+
+  it("success -> KaTeX html in innerHTML; returns true", async () => {
+    renderMath.mockResolvedValue({ ok: true, html: '<span class="katex" data-x="1"></span>' });
+    const el = document.createElement("div");
+    expect(await runMathJob({ el, tex: "x^2" }, () => true, "err")).toBe(true);
+    expect(renderMath).toHaveBeenCalledWith("x^2");
+    expect(el.innerHTML).toBe('<span class="katex" data-x="1"></span>');
+  });
+
+  it("error -> hint plus source <pre> (textContent, not HTML)", async () => {
+    renderMath.mockResolvedValue({ ok: false, message: "boom" });
+    const el = document.createElement("div");
+    await runMathJob({ el, tex: "<img src=x onerror=alert(1)>" }, () => true, "Formula error");
+    expect(el.querySelector(".kn-present-math-error")!.textContent).toBe("Formula error");
+    expect(el.querySelector("pre > code")!.textContent).toBe("<img src=x onerror=alert(1)>");
+    expect(el.querySelector("img")).toBeNull();
+  });
+
+  it("empty (message is an empty string) -> element removed", async () => {
+    renderMath.mockResolvedValue({ ok: false, message: "" });
+    const parent = document.createElement("div");
+    const el = document.createElement("div");
+    parent.append(el);
+    await runMathJob({ el, tex: "x" }, () => true, "err");
+    expect(parent.childElementCount).toBe(0);
+  });
+
+  it("stale generation (isCurrent returns false) -> result dropped, returns false", async () => {
+    renderMath.mockResolvedValue({ ok: true, html: "<span>late</span>" });
+    const el = document.createElement("div");
+    expect(await runMathJob({ el, tex: "x" }, () => false, "err")).toBe(false);
     expect(el.innerHTML).toBe("");
   });
 });

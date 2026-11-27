@@ -1,11 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { BlockNoteEditor } from "@blocknote/core";
+import { BlockNoteView } from "@blocknote/mantine";
+import { noteSchema } from "@/collab/schema";
+import { ThemeProvider } from "@/theme";
 import { foldedIndexOf } from "@/lib/search-match";
 import { PHONE_PAGE_SCROLL_ATTR, STICKY_TOP_VAR } from "@/lib/page-scroll";
 import { stubLayoutTier } from "@/test/layout-tier";
 import indexCssRaw from "../index.css?raw";
-import { ANCHOR_FLASH_ATTR, ANCHOR_MARK_CLASS, ANCHOR_PENDING_CLASS, ANCHOR_SETTLE_MAX_MS, findTextFromState, scrollToBlock, useBlockAnchor } from "./useBlockAnchor";
+import { ANCHOR_FLASH_ATTR, ANCHOR_MARK_CLASS, ANCHOR_PENDING_CLASS, ANCHOR_SETTLE_MAX_MS, ANCHOR_WAIT_MS, findTextFromState, scrollToBlock, useBlockAnchor } from "./useBlockAnchor";
 import { clearSearchMark } from "./search-mark";
 import { findMatchBlock, sectionUnits } from "./block-find";
 
@@ -172,6 +177,17 @@ describe("tables and mermaid", () => {
   it("mermaid reads data-code (the server index takes the code attribute)", () => {
     root = buildRoot([H("h1", 1, "One"), { id: "mm", type: "mermaid", inner: "<svg></svg>", attrs: ' data-code="graph TD; A--&gt;Needle"' }]);
     expect(idOf(findMatchBlock(root, "h1", "needle"))).toBe("mm");
+  });
+
+  // Hand-built DOM, not the real shape (see the real mounted editor test below): it only pins the attribute that is read.
+  it("math reads data-tex (the server index takes the tex attribute)", () => {
+    root = buildRoot([H("h1", 1, "One"), { id: "mt", type: "math", inner: "<span class=\"katex\"></span>", attrs: ' data-tex="\\frac{Needle}{2}"' }]);
+    expect(idOf(findMatchBlock(root, "h1", "needle"))).toBe("mt");
+  });
+
+  it("math: text KaTeX renders is not matched, only the tex source is", () => {
+    root = buildRoot([H("h1", 1, "One"), { id: "mt", type: "math", inner: '<span class="katex">Needle</span>', attrs: ' data-tex="\\frac{a}{2}"' }]);
+    expect(findMatchBlock(root, "h1", "needle")).toBeNull();
   });
 });
 
@@ -823,5 +839,157 @@ describe("search marker cancellation: exceptions while waiting for readiness, an
     escOn(document.body);
     vi.advanceTimersByTime(10);
     expect(ovs()).toHaveLength(0);
+  });
+});
+
+describe("math in a real mounted editor", () => {
+  // The hand-built DOM above is not the real shape: a React block gets an extra `.react-renderer` wrapper between `.bn-block` and `.bn-block-content`.
+  it("a search for the tex source finds the math block (the real DOM wraps the content in .react-renderer)", async () => {
+    const editor = BlockNoteEditor.create({
+      schema: noteSchema,
+      initialContent: [
+        { id: "h1", type: "heading", props: { level: 1 }, content: "One" },
+        { id: "mt", type: "math", props: { tex: "\\frac{Needle}{2}" } },
+        { id: "mm", type: "mermaid", props: { code: "graph TD; A-->Needle" } },
+      ] as never,
+    });
+    const { container, unmount } = render(
+      <ThemeProvider>
+        <QueryClientProvider client={new QueryClient()}>
+          <MemoryRouter>
+            <BlockNoteView editor={editor} editable={false} />
+          </MemoryRouter>
+        </QueryClientProvider>
+      </ThemeProvider>,
+    );
+    try {
+      await waitFor(() => expect(container.querySelector('[data-content-type="math"][data-tex]')).not.toBeNull());
+      expect(idOf(findMatchBlock(container, "h1", "needle"))).toBe("mt");
+    } finally {
+      unmount();
+    }
+  });
+
+  it("a math child block is matched as itself, not counted on its parent list item", async () => {
+    const editor = BlockNoteEditor.create({
+      schema: noteSchema,
+      initialContent: [
+        { id: "h1", type: "heading", props: { level: 1 }, content: "One" },
+        { id: "li", type: "bulletListItem", content: "item", children: [{ id: "mchild", type: "math", props: { tex: "x_{Kid}" } }] },
+      ] as never,
+    });
+    const { container, unmount } = render(
+      <ThemeProvider>
+        <QueryClientProvider client={new QueryClient()}>
+          <MemoryRouter>
+            <BlockNoteView editor={editor} editable={false} />
+          </MemoryRouter>
+        </QueryClientProvider>
+      </ThemeProvider>,
+    );
+    try {
+      await waitFor(() => expect(container.querySelector('[data-content-type="math"][data-tex]')).not.toBeNull());
+      expect(idOf(findMatchBlock(container, "h1", "kid"))).toBe("mchild");
+    } finally {
+      unmount();
+    }
+  });
+});
+
+describe("search jump while a math block's node view has not rendered yet", () => {
+  // Shape copied from the production build at the moment the jump ran: the React node view is mounted as an empty
+  // `.react-renderer.node-math` shell, and its `.bn-block-content[data-tex]` arrives on a later React commit.
+  const shell = (id: string, type = "math") =>
+    `<div class="bn-block-outer" data-node-type="blockOuter" data-id="${id}"><div class="bn-block" data-node-type="blockContainer" data-id="${id}"><div class="react-renderer node-${type} bn-react-node-view-renderer" contenteditable="false"></div></div></div>`;
+  const filled = (tex: string) => `<div class="bn-block-content" data-content-type="math" data-tex="${tex}"><span class="katex"></span></div>`;
+  const build = (units: string[]) => {
+    root = document.createElement("div");
+    root.innerHTML = `<div class="bn-editor"><div class="bn-block-group">${units.join("")}</div></div>`;
+    document.body.appendChild(root);
+    return root;
+  };
+  const heading = (id: string, text: string) => outerHtml(H(id, 1, text));
+  const flashed = () => root!.querySelector(`[${ANCHOR_FLASH_ATTR}]`)?.getAttribute(ANCHOR_FLASH_ATTR) ?? null;
+  const renderShell = (id: string, tex: string) => {
+    root!.querySelector(`[data-id="${id}"] .react-renderer`)!.innerHTML = filled(tex);
+  };
+  const flushObservers = () => act(async () => {
+    await Promise.resolve();
+  });
+
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("waits for the formula to render, then highlights the formula, not the section heading", async () => {
+    const r = build([heading("h1", "One"), shell("mt"), outerHtml(P("p", "after"))]);
+    const cancel = scrollToBlock(r, "h1", "needle");
+    expect(flashed()).toBeNull();
+    renderShell("mt", "\\frac{Needle}{2}");
+    await flushObservers();
+    expect(flashed()).toBe("mt");
+    cancel();
+  });
+
+  it("_top: waits for the formula to render, then highlights it instead of scrolling to the top", async () => {
+    const r = build([shell("mt"), heading("h1", "One")]);
+    r.scrollTo = vi.fn() as unknown as typeof r.scrollTo;
+    const cancel = scrollToBlock(r, "_top", "needle");
+    renderShell("mt", "x_{Needle}");
+    await flushObservers();
+    expect(flashed()).toBe("mt");
+    expect(r.scrollTo).not.toHaveBeenCalled();
+    cancel();
+  });
+
+  it("a formula earlier in the section is matched before a later paragraph once it renders (document order)", async () => {
+    const r = build([heading("h1", "One"), shell("mt"), outerHtml(P("p", "needle in text"))]);
+    const cancel = scrollToBlock(r, "h1", "needle");
+    renderShell("mt", "\\text{needle}");
+    await flushObservers();
+    expect(flashed()).toBe("mt");
+    cancel();
+  });
+
+  it("rendered formula without the word -> falls back to the heading", async () => {
+    const r = build([heading("h1", "One"), shell("mt")]);
+    const cancel = scrollToBlock(r, "h1", "needle");
+    renderShell("mt", "a + b");
+    await flushObservers();
+    expect(flashed()).toBe("h1");
+    cancel();
+  });
+
+  it("a formula that never renders -> after the wait cap, falls back to the heading (the jump is not lost)", () => {
+    vi.useFakeTimers();
+    const r = build([heading("h1", "One"), shell("mt")]);
+    const cancel = scrollToBlock(r, "h1", "needle");
+    expect(flashed()).toBeNull();
+    vi.advanceTimersByTime(ANCHOR_WAIT_MS);
+    expect(flashed()).toBe("h1");
+    cancel();
+  });
+
+  it("closing the search while waiting cancels the jump: nothing is highlighted later", async () => {
+    const r = build([heading("h1", "One"), shell("mt")]);
+    const cancel = scrollToBlock(r, "h1", "needle");
+    cancel();
+    renderShell("mt", "\\text{needle}");
+    await flushObservers();
+    expect(flashed()).toBeNull();
+  });
+
+  it("only math is waited for: an unrendered mermaid shell and plain anchors behave as before (immediate)", () => {
+    const r = build([heading("h1", "One"), shell("mm", "mermaid"), shell("mt")]);
+    const plain = scrollToBlock(r, "h1");
+    expect(flashed()).toBe("h1"); // no findText: no waiting
+    plain();
+    r.querySelector('[data-id="mt"]')!.remove();
+    const cancel = scrollToBlock(r, "h1", "needle");
+    expect(flashed()).toBe("h1");
+    cancel();
   });
 });

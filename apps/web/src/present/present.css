@@ -49,6 +49,10 @@
 .kn-present .reveal .slides section[data-kn-slide-id]:not([data-prevent-swipe]) pre:not([data-prevent-swipe]) {
   touch-action: pinch-zoom;
 }
+/* Same for a math block (also an overflow-x:auto scroll container); an overflowing one carries data-prevent-swipe (deck.ts updateSwipeGuard). */
+.kn-present .reveal .slides section[data-kn-slide-id]:not([data-prevent-swipe]) .kn-present-math:not([data-prevent-swipe]) {
+  touch-action: pinch-zoom;
+}
 .kn-present .reveal .slides section.kn-present-stack {
   padding: 0;
   overflow: visible;
@@ -112,6 +116,8 @@
 .kn-present .kn-present-wikilink-broken { color: var(--muted-foreground); border-bottom: 1px dashed var(--muted-foreground); }
 .kn-present .kn-present-untitled { color: var(--muted-foreground); }
 .kn-present .kn-present-mermaid svg { max-width: 100%; height: auto; }
+.kn-present .kn-present-math { overflow-x: auto; overflow-y: hidden; }
+.kn-present .kn-present-math-error { color: var(--destructive); font-size: 0.8em; }
 .kn-present .kn-present-mermaid-error { color: var(--destructive); font-size: 0.8em; }
 .kn-present [data-text-alignment="left"] { text-align: left; }
 .kn-present [data-text-alignment="center"] { text-align: center; }

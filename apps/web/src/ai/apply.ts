@@ -12,7 +12,7 @@ import {
   premergedHtml,
   rebindWikilinks,
   relativizeSiteUploads,
-  restoreMermaidBlocks,
+  restoreFenceBlocks,
   syntaxCheckRoot,
   targetFromList,
   applyKnowledgeComments,
@@ -172,7 +172,7 @@ export function parseAiResult(editor: AnyEditor, markdown: string, deps: Omit<Ap
   // Parsing normalizes CR in attribute values, so the comment's values are put back before the id check.
   if (!restoreKnowledgeProps(raw, written) || findStrayKnowledgeProps(raw, assigned)) return { invalid: "unsupported_block" };
   // The parsing DOM's base, not deps.siteOrigin (that one is only for site-link checks).
-  const parsed = relativizeSiteUploads(normalizeTableWidths(restoreMermaidBlocks(raw)), new URL(document.baseURI).origin);
+  const parsed = relativizeSiteUploads(normalizeTableWidths(restoreFenceBlocks(raw)), new URL(document.baseURI).origin);
   const shape = findStructureError(parsed, deps.placement);
   if (shape !== null) return { invalid: shape };
   // Unsupported colors reject the whole result: the editor wouldn't display them, so they must not be stored silently.

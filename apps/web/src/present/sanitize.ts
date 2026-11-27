@@ -3,8 +3,9 @@ import { COLUMN_WIDTH_MAX, COLUMN_WIDTH_MIN, COLUMNS_STYLE } from "@knotebook/sh
 
 /**
  * #229: a load-bearing guard. Layers: BlockNote builds HTML with the DOM API (text is always text nodes); `<template>` parses
- * into an inert fragment; **this file** (a private DOMPurify with a hard-coded allowlist); the only `innerHTML` is the mermaid
- * SVG, trusting `lib/mermaid.ts`'s locked config and produced after sanitizing (postprocess.ts). `style` is kept only on
+ * into an inert fragment; **this file** (a private DOMPurify with a hard-coded allowlist); the only two `innerHTML` are the mermaid
+ * SVG (trusting `lib/mermaid.ts`'s locked config) and the KaTeX HTML (trusting `lib/katex.ts`'s `trust: false`), both produced
+ * after sanitizing (postprocess.ts). `style` is kept only on
  * side-by-side rows and columns, and only verbatim in the canonical form.
  * - Private instance: mermaid 11 attaches persistent hooks to DOMPurify's default singleton, and ours would affect mermaid's
  *   sanitizing. Use only `DOMPurify(window)` (source guard in sanitize.test.ts).
@@ -17,7 +18,7 @@ const ALLOWED_DATA = [
   "data-text-color", "data-background-color", "data-style-type", "data-value",
   "data-text-alignment", "data-inline-content-type", "data-target-note-id", "data-snapshot-title",
   "data-label", "data-anchor-block-id",
-  "data-kn-mermaid", "data-kn-media", "data-kn-code-lang",
+  "data-kn-mermaid", "data-kn-math", "data-kn-media", "data-kn-code-lang",
   "data-kb-columns", "data-kb-column",
 ];
 

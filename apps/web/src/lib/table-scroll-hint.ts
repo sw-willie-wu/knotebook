@@ -1,9 +1,12 @@
 import { useEffect, type RefObject } from "react";
 
-/** A table scroller that can still scroll right carries this attribute; the phone's right-edge gradient (`index.css`) shows only while it is present. */
+/** A table or formula scroller that can still scroll right carries this attribute; the phone's right-edge gradient (`index.css`) shows only while it is present. */
 export const TABLE_MORE_RIGHT_ATTR = "data-kb-more-right";
 
-const TABLE_SCROLLER = ".tableWrapper";
+/** Marks the scroller of a math block (set by MathView, matched in `index.css`): formulas get the same phone fade as tables. */
+export const MATH_SCROLL_ATTR = "data-kb-math-scroll";
+
+const TABLE_SCROLLER = `.tableWrapper, [${MATH_SCROLL_ATTR}]`;
 
 export function supportsScrollTimeline(): boolean {
   return typeof CSS !== "undefined" && typeof CSS.supports === "function" && CSS.supports("animation-timeline: scroll(self inline)");
@@ -43,8 +46,11 @@ export function useTableScrollHint(rootRef: RefObject<HTMLElement | null>, enabl
     const mutation = typeof MutationObserver === "function" ? new MutationObserver(scheduleSync) : null;
     // Expanding a collapsed block only changes data-show-children (that is when the tables inside get a width); the attribute this code writes is not observed.
     mutation?.observe(root, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["data-show-children"] });
+    // KaTeX fonts use font-display: block, so formula widths change once they load; no resize or mutation fires for that.
+    document.fonts?.addEventListener("loadingdone", scheduleSync);
     syncAll();
     return () => {
+      document.fonts?.removeEventListener("loadingdone", scheduleSync);
       root.removeEventListener("scroll", onScroll, true);
       resize?.disconnect();
       mutation?.disconnect();

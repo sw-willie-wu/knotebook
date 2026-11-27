@@ -51,6 +51,15 @@ describe("renderDeck: XSS invariants (render pipeline)", () => {
     expect(sections[0].slides[0].content!.mermaid.map((j) => j.code)).toEqual([code]);
   });
 
+  it("math tex containing </code><script> -> the job's tex is the original, the DOM has no script", () => {
+    const tex = "x</code><script>alert(1)</script>";
+    const sections = deck([{ type: "math", props: { tex } }]);
+    const host = slideHost(sections, 0);
+    expect(host.querySelector("script")).toBeNull();
+    expect(sections[0].slides[0].content!.math.map((j) => j.tex)).toEqual([tex]);
+    expect(sections[0].slides[0].content!.mermaid).toEqual([]);
+  });
+
   it("caption / file name containing HTML -> text", () => {
     const sections = deck([
       { type: "image", props: { url: "https://e/i.png", caption: "<b>cap</b>" } },

@@ -107,7 +107,7 @@ Each section below names one page and lists the bold headings of its entries; fo
 - [The presentation overview (O) shows the content of only the slides near the current one.](./known-limitations/presentations.md)
 - [Opening a presentation link while signed out starts at the cover after you sign in.](./known-limitations/presentations.md)
 - [Changing the slide part of the address by hand while presenting does not move to that slide.](./known-limitations/presentations.md)
-- [On touch screens, a swipe doesn't change slides on a slide that scrolls, on a table, on a code block too wide to fit, or on a video or audio player.](./known-limitations/presentations.md)
+- [On touch screens, a swipe doesn't change slides on a slide that scrolls, on a table, on a code block or a formula too wide to fit, or on a video or audio player.](./known-limitations/presentations.md)
 - [iPhone Safari can't show a presentation full screen.](./known-limitations/presentations.md)
 - [Diagrams in a presentation follow the same rules as in the editor](./known-limitations/presentations.md)
 - [Opening a presentation removes any other query parameters from the address.](./known-limitations/presentations.md)
@@ -121,6 +121,19 @@ Each section below names one page and lists the bold headings of its entries; fo
 - [On a read-only page, the whole diagram acts as one zoom button.](./known-limitations/zooming.md)
 - [The zoomed view isn't meant for following links inside a diagram.](./known-limitations/zooming.md)
 - [Presentation mode, version history previews and AI suggestion previews have no zoom.](./known-limitations/zooming.md)
+
+## Math blocks
+
+[Math blocks](./known-limitations/math.md): typing, pasting, importing and drawing formulas.
+
+- [A formula can't be opened full screen.](./known-limitations/math.md)
+- [A very long formula can freeze the tab while it is drawn.](./known-limitations/math.md)
+- [If KaTeX can't be downloaded, a formula shows its source with a message until the formula changes or the note is opened again.](./known-limitations/math.md)
+- [Formulas use KaTeX's part of LaTeX.](./known-limitations/math.md)
+- [Fence and language names are matched exactly, in lower case.](./known-limitations/math.md)
+- [Typing a fence with an input method or a phone's on-screen keyboard hasn't been checked on a real device.](./known-limitations/math.md)
+- [Undoing a typed conversion can undo the text typed just before it.](./known-limitations/math.md)
+- [Rolling back to an earlier version deletes formulas.](./known-limitations/math.md)
 
 ## Version history
 

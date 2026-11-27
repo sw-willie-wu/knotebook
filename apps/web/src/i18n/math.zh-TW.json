@@ -1,0 +1,16 @@
+{
+  "note": {
+    "math": {
+      "empty": "點一下輸入數學式（LaTeX）",
+      "edit": "編輯",
+      "editArea": "編輯數學式原始碼",
+      "sourceLabel": "LaTeX 原始碼",
+      "slashTitle": "數學式",
+      "slashSubtext": "用 LaTeX 寫數學公式",
+      "showSource": "顯示原始碼",
+      "escHint": "按 Esc 或點其他地方結束",
+      "loadError": "數學式無法顯示",
+      "sourceFallback": "數學式無法繪製，以下是原始碼"
+    }
+  }
+}

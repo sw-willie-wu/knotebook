@@ -339,9 +339,9 @@ describe("attribute values equal to the schema default count as absent", () => {
     expect(bfp("heading", { level: 1, knowledgeId: "k_0123abcd" }, "Title")).not.toBe(plain);
   });
 
-  it("the default-value table is derived from the shared schema (not hand-written): the set of types, the values of heading/paragraph/codeBlock/mermaid/wikilink; style is not in the table", () => {
+  it("the default-value table is derived from the shared schema (not hand-written): the set of types, the values of heading/paragraph/codeBlock/mermaid/math/wikilink; style is not in the table", () => {
     expect(Object.keys(DEFAULT_PROPS_BY_TYPE).sort()).toEqual([
-      "audio", "bulletListItem", "checkListItem", "codeBlock", "column", "file", "heading", "image", "mermaid", "numberedListItem", "paragraph",
+      "audio", "bulletListItem", "checkListItem", "codeBlock", "column", "file", "heading", "image", "math", "mermaid", "numberedListItem", "paragraph",
       "quote", "table", "toggleListItem", "video", "wikilink",
     ]);
     expect(DEFAULT_PROPS_BY_TYPE.heading).toEqual({
@@ -353,6 +353,7 @@ describe("attribute values equal to the schema default count as absent", () => {
     expect(DEFAULT_PROPS_BY_TYPE.checkListItem!.checked).toBe(false);
     expect(DEFAULT_PROPS_BY_TYPE.codeBlock).toEqual({ language: "text" });
     expect(DEFAULT_PROPS_BY_TYPE.mermaid).toEqual({ code: "" });
+    expect(DEFAULT_PROPS_BY_TYPE.math).toEqual({ tex: "" });
     expect(DEFAULT_PROPS_BY_TYPE.column).toEqual({ width: 1 });
     expect(DEFAULT_PROPS_BY_TYPE.wikilink).toEqual({ targetNoteId: "", snapshotTitle: "", label: "", anchorBlockId: "" });
   });

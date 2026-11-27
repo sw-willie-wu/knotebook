@@ -1,9 +1,10 @@
-// Markdown round-trips lose wikilink targets and turn mermaid into codeBlock(language=mermaid); restore with the
+// Markdown round-trips lose wikilink targets and turn mermaid and math fences into codeBlock(language=mermaid|math); restore with the
 // web's rules (bind only on a unique title match). Link titles are lost for good: BlockNote links only have href.
 // Duplicate or missing titles stay plain text and are counted.
 import * as Y from "yjs";
 import { YDOC_FRAGMENT } from "./ydoc.js";
 import { mapInlineArrays } from "./site-link.js";
+import { fenceBlockFor } from "./fence-blocks.js";
 
 // Same pattern as the server's notes/service.ts; deliberately not shared.
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -23,13 +24,14 @@ export function isBlankParseResult(blocks: unknown[]): boolean {
 type AnyBlock = { id?: unknown; type: string; props?: Record<string, unknown>; content?: unknown; children?: AnyBlock[] };
 type AnyInline = { type: string; text?: string; props?: Record<string, unknown>; styles?: Record<string, unknown> };
 
-export function restoreMermaidBlocks<B>(blocks: B[]): B[] {
+export function restoreFenceBlocks<B>(blocks: B[]): B[] {
   return (blocks as AnyBlock[]).map(b => {
-    const children = Array.isArray(b.children) && b.children.length > 0 ? restoreMermaidBlocks(b.children) : b.children;
-    if (b.type === "codeBlock" && b.props?.language === "mermaid" && Array.isArray(b.content)) {
-      const code = (b.content as Array<{ text?: string }>).map(c => c.text ?? "").join("");
+    const children = Array.isArray(b.children) && b.children.length > 0 ? restoreFenceBlocks(b.children) : b.children;
+    if (b.type === "codeBlock" && Array.isArray(b.content)) {
+      const source = (b.content as Array<{ text?: string }>).map(c => c.text ?? "").join("");
+      const target = fenceBlockFor(b.props?.language, source);
       // Keep the parsed id: preview diff pairs blocks by id, so an id-less diagram would show as removed and re-added.
-      return { ...(typeof b.id === "string" ? { id: b.id } : {}), type: "mermaid", props: { code } } as unknown as B;
+      if (target !== null) return { ...(typeof b.id === "string" ? { id: b.id } : {}), ...target } as unknown as B;
     }
     return (children === b.children ? b : { ...b, children }) as unknown as B;
   }) as B[];

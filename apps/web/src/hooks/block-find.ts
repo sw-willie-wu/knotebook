@@ -7,6 +7,9 @@ import { firstFoldedHit, lowerSearchTerms } from "@/lib/search-match";
 // Matching uses foldedIndexOf, like the snippet highlight.
 const GROUP = ".bn-editor > .bn-block-group";
 const OUTER_SELF = ":scope > .bn-block > .bn-block-content";
+// React node views (math, and mermaid too) put a `.react-renderer` wrapper between `.bn-block` and `.bn-block-content`; headings and the rest
+// don't. MATH_SELF accepts both shapes.
+const MATH_SELF = [":scope > .bn-block > .bn-block-content", ":scope > .bn-block > .react-renderer > .bn-block-content"].map((s) => `${s}[data-content-type="math"]`).join(", ");
 
 function headingLevel(unit: HTMLElement): number | null {
   const content = unit.matches(".bn-block-outer") ? unit.querySelector<HTMLElement>(`${OUTER_SELF}[data-content-type="heading"]`) : null;
@@ -15,8 +18,12 @@ function headingLevel(unit: HTMLElement): number | null {
   return Number.isFinite(level) ? level : 1;
 }
 
-// Table cells are `<td><p>` without .bn-inline-content; mermaid uses data-code, which is what the server indexes.
+// Table cells are `<td><p>` without .bn-inline-content; math is matched on data-tex, which is what the server indexes. The mermaid branch reads
+// data-code only where `.bn-block-content` sits directly under `.bn-block`: in the editor mermaid's node view has the `.react-renderer` wrapper
+// too, so its source isn't matched there.
 function ownText(outer: HTMLElement): string {
+  const math = outer.querySelector<HTMLElement>(MATH_SELF);
+  if (math) return math.getAttribute("data-tex") ?? "";
   const content = outer.querySelector<HTMLElement>(OUTER_SELF);
   if (!content) return "";
   if (content.getAttribute("data-content-type") === "mermaid") return content.getAttribute("data-code") ?? "";
@@ -69,19 +76,35 @@ function visibleTarget(root: HTMLElement, outer: HTMLElement): HTMLElement {
   return collapsedAncestors(root, outer)[0] ?? outer;
 }
 
+function blockOuters(unit: HTMLElement): HTMLElement[] {
+  return [...(unit.matches(".bn-block-outer[data-id]") ? [unit] : []), ...Array.from(unit.querySelectorAll<HTMLElement>(".bn-block-outer[data-id]"))];
+}
+
 export function findMatchBlock(root: HTMLElement, sectionId: string, findText: string): HTMLElement | null {
   const lowerTerms = lowerSearchTerms(findText);
   if (lowerTerms.length === 0) return null;
   const units = sectionUnits(root, sectionId);
   if (units === null) return null;
   for (const unit of units) {
-    const outers = [
-      ...(unit.matches(".bn-block-outer[data-id]") ? [unit] : []),
-      ...Array.from(unit.querySelectorAll<HTMLElement>(".bn-block-outer[data-id]")),
-    ];
-    for (const outer of outers) {
+    for (const outer of blockOuters(unit)) {
       if (firstFoldedHit(ownText(outer), lowerTerms) !== null) return visibleTarget(root, outer);
     }
   }
   return null;
+}
+
+// A math block's React node view is mounted first as an empty `.react-renderer.node-math` shell; its `.bn-block-content`
+// (with data-tex) arrives on a later React commit, so until then its source can't be matched. Mermaid is not waited for.
+const MATH_SHELL = ":scope > .bn-block > .react-renderer.node-math";
+
+/** True while a math block in the section hasn't rendered its content yet. */
+export function sectionMathPending(root: HTMLElement, sectionId: string): boolean {
+  const units = sectionUnits(root, sectionId);
+  if (units === null) return false;
+  return units.some((unit) =>
+    blockOuters(unit).some((outer) => {
+      const shell = outer.querySelector(MATH_SHELL);
+      return shell !== null && shell.querySelector(":scope > .bn-block-content") === null;
+    }),
+  );
 }
