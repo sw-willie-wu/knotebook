@@ -1,0 +1,15 @@
+{
+  "note": {
+    "math": {
+      "empty": "Click to add a formula (LaTeX)",
+      "edit": "Edit",
+      "editArea": "Edit formula source",
+      "sourceLabel": "LaTeX source",
+      "slashTitle": "Math",
+      "slashSubtext": "Write a formula in LaTeX",
+      "showSource": "Show source",
+      "escHint": "Press Esc or click elsewhere to finish",
+      "loadError": "The formula couldn't be shown"
+    }
+  }
+}
