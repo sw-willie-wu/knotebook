@@ -206,6 +206,10 @@ describe("classifyMediaTransfer (four rules)", () => {
       expect(classifyMediaTransfer(transfer({ files: [file("a.png", "image/png")], types: ["Files"] }))).toBeNull();
     });
 
+    it("an SVG image file (image/svg+xml) passes through to uploadFile (#389)", () => {
+      expect(classifyMediaTransfer(transfer({ files: [file("diagram.svg", "image/svg+xml")], types: ["Files"] }))).toBeNull();
+    });
+
     it("several image files", () => {
       expect(
         classifyMediaTransfer(

@@ -3,6 +3,7 @@ import { ApiFail } from "@/api/client";
 import { removeBlocksKeepColumns } from "@/collab/columns/keep-columns";
 import { toast } from "@/components/ui/toast";
 import { storageQuotaDescription, type Translate } from "@/lib/storage-quota-text";
+import { uploadErrorKey } from "@/lib/upload-error-text";
 import type { EditorRef } from "@/components/wikilink/menu";
 import { xhrUpload } from "./xhr-upload";
 
@@ -26,19 +27,21 @@ export async function postUpload(
 export { storageQuotaDescription, type Translate } from "@/lib/storage-quota-text";
 
 const TOAST_DEDUPE_WINDOW_MS = 5000;
-const lastToastAtByCode = new Map<string, number>();
+const lastToastAtByKey = new Map<string, number>();
 
-function toastOncePerCode(err: unknown, translate: Translate): void {
+function toastOncePerCode(err: unknown, translate: Translate, file: File): void {
   const code = err instanceof ApiFail ? err.code : "internal";
+  // Keyed by the text shown, so an SVG-specific 415 doesn't swallow a generic 415 that follows.
+  const textKey = uploadErrorKey(err, file) ?? `errors.${code}`;
   const now = Date.now();
-  const last = lastToastAtByCode.get(code);
+  const last = lastToastAtByKey.get(textKey);
   if (last !== undefined && now - last < TOAST_DEDUPE_WINDOW_MS) return;
-  lastToastAtByCode.set(code, now);
+  lastToastAtByKey.set(textKey, now);
   if (err instanceof ApiFail && code === "storage_quota_exceeded") {
     toast({ title: translate(`errors.${code}`), description: storageQuotaDescription(err, translate) });
     return;
   }
-  toast({ title: translate(`errors.${code}`) });
+  toast({ title: translate(textKey) });
 }
 
 export interface CreateUploadFileOptions {
@@ -64,7 +67,7 @@ export function createUploadFile(
       const { url } = await postUpload(noteId, file, maxUploadBytes?.());
       return url;
     } catch (err) {
-      toastOncePerCode(err, translate);
+      toastOncePerCode(err, translate, file);
       setTimeout(() => {
         try {
           const ed = editorRef.current;

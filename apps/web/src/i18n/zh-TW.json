@@ -838,6 +838,7 @@
     "bad_request": "無法處理這個請求。",
     "internal": "發生錯誤，請稍後再試。",
     "unsupported_media_type": "不支援這種檔案類型。",
+    "svg_unusable": "這個 SVG 無法使用。請確認它是格式正確的 XML、根元素 <svg> 有 xmlns=\"http://www.w3.org/2000/svg\"，而且用到的前綴（例如 xlink）都已宣告。",
     "server_busy": "伺服器忙碌中，請稍後再試。",
     "too_many_attempts": "嘗試次數過多，請稍後再試。",
     "too_many_requests": "請求過於頻繁，請放慢速度。",

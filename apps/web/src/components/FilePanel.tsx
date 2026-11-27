@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { postUpload, storageQuotaDescription } from "@/uploads/upload-file";
 import { isAllowedEmbedUrl } from "@/lib/media-url";
+import { uploadErrorKey } from "@/lib/upload-error-text";
 
 const IMAGE_BLOCK_TYPE = "image";
 
@@ -44,9 +45,10 @@ function UploadTab({ noteId, blockId }: { noteId: string; blockId: string }) {
         },
         (err: unknown) => {
           setUploading(false);
-          // Use `errors.<code>` when it resolves (e.g. file_too_large: the generic "try again" would mislead); `defaultValue` falls back to the generic text.
+          // `uploadErrorKey` picks the most specific text (e.g. file_too_large, or the SVG-specific one) because the generic "try again" would mislead; `defaultValue` falls back to it when no translation exists.
           const code = err instanceof ApiFail ? err.code : undefined;
-          const title = code ? t(`errors.${code}`, { defaultValue: t("note.filePanel.upload.error") }) : t("note.filePanel.upload.error");
+          const key = uploadErrorKey(err, file);
+          const title = key ? t(key, { defaultValue: t("note.filePanel.upload.error") }) : t("note.filePanel.upload.error");
           setError(err instanceof ApiFail && code === "storage_quota_exceeded" ? { title, detail: storageQuotaDescription(err, t) } : { title });
         },
       );

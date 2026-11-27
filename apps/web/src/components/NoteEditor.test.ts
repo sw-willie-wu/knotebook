@@ -736,6 +736,27 @@ describe("buildNoteEditorOptions uploadFile really connected (handleFileInsertio
     expect(toastMock).not.toHaveBeenCalled();
   });
 
+  it("SVG paste (#389): pasting an image/svg+xml file creates an image block and uploads via uploadFile", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      fakeResponse({ ok: true, status: 201, json: () => Promise.resolve({ id: "u-svg", url: "/api/uploads/u-svg" }) }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const before = editor.document.length;
+
+    const svgFile = new File(['<svg xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10"/></svg>'], "a.svg", {
+      type: "image/svg+xml",
+    });
+    pasteFile(svgFile);
+
+    expect(editor.document.length).toBe(before + 1);
+    await flushMacrotask();
+
+    const placeholder = editor.document[editor.document.length - 1];
+    expect(placeholder.type).toBe("image");
+    expect((placeholder.props as Record<string, unknown>).url).toBe("/api/uploads/u-svg");
+    expect(toastMock).not.toHaveBeenCalled();
+  });
+
   it("failure (4xx): one toast, the placeholder block is removed only after the next macrotask (ordering: updateBlock finishes first, then removal)", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       fakeResponse({

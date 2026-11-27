@@ -157,6 +157,22 @@ describe("#462 image zoom button floating layer", () => {
     );
   });
 
+  it("zoom baseline is the larger of natural and rendered size, keeping the natural aspect ratio", () => {
+    spies.push(stubRects([['[data-testid="img1"]', new DOMRect(0, 0, 400, 300)]]));
+    render(<Host zoom={zoom} />);
+    hoverImg();
+    setLoaded(img(), true, { w: 800, h: 600 });
+    fireEvent.click(zoomBtn()!);
+    expect(open.mock.calls[0]![0]).toMatchObject({ naturalWidth: 800, naturalHeight: 600 });
+    open.mockClear();
+    setLoaded(img(), true, { w: 300, h: 150 });
+    spies.push(stubRects([['[data-testid="img1"]', new DOMRect(0, 0, 600, 400)]]));
+    fireEvent.click(zoomBtn()!);
+    const source = open.mock.calls[0]![0] as { naturalWidth: number; naturalHeight: number };
+    expect(source.naturalWidth).toBeCloseTo(800);
+    expect(source.naturalHeight).toBeCloseTo(400);
+  });
+
   it("short image (height 60): the button sits above the image, outside it; height 300: inside", () => {
     const imgRect = [new DOMRect(300, 100, 400, 60)];
     spies.push(
@@ -438,6 +454,37 @@ describe("#462 image zoom button floating layer", () => {
     render(<Host zoom={zoom} />);
     hoverImg("imgc");
     expect(zoomBtn()).not.toBeNull();
+  });
+
+  it("uploaded viewBox-only SVG rendered wider than its browser fallback naturalWidth uses at least the rendered size as zoom baseline (#389)", () => {
+    const html = `<div class="bn-block-outer" data-id="svg1"><div class="bn-block"><div class="bn-block-content" data-content-type="image"><div class="bn-file-block-content-wrapper">
+      <div class="bn-visual-media-wrapper"><img class="bn-visual-media" src="/api/uploads/diagram-svg" alt="diagram.svg" data-testid="svg1" /></div>
+      <figcaption class="bn-file-caption">Slide diagram</figcaption></div></div></div></div>`;
+    spies.push(
+      stubRects([
+        ['[data-testid="col"]', new DOMRect(0, 0, 800, 2000)],
+        ['[data-testid="svg1"]', new DOMRect(0, 0, 720, 405)],
+      ]),
+    );
+    render(<Host zoom={zoom} html={html} />);
+    // Browsers synthesize a small fallback naturalWidth (~267x150) for a viewBox-only SVG even when it fills the column.
+    setLoaded(img("svg1"), true, { w: 267, h: 150 });
+    fireEvent.pointerOver(img("svg1"), { pointerType: "mouse" });
+    const button = zoomBtn();
+    expect(button).not.toBeNull();
+    fireEvent.click(button!);
+    expect(open).toHaveBeenCalledTimes(1);
+    const [source, origin] = open.mock.calls[0]!;
+    expect(source).toMatchObject({
+      kind: "image",
+      src: expect.stringContaining("/api/uploads/diagram-svg"),
+      alt: "diagram.svg",
+      caption: "Slide diagram",
+    });
+    expect(source.naturalWidth).toBeGreaterThanOrEqual(720);
+    expect(source.naturalHeight).toBeGreaterThanOrEqual(405);
+    expect(source.naturalWidth / source.naturalHeight).toBeCloseTo(267 / 150, 5);
+    expect(origin).toEqual({ button, media: img("svg1") });
   });
 
   it("CSS guard: during a drag-and-drop the zoom button layer takes no pointer and is hidden", () => {

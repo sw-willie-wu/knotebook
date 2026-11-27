@@ -473,6 +473,7 @@ describe("codeBlock background override", () => {
   it("issue #111: the list's look matches the app's existing menu (a list in the same app should look the same)", () => {
     const block = baseSelectBlock();
     const menuSource = readFileSync(`${process.cwd()}/src/components/ui/dropdown-menu.tsx`, "utf8");
+    const panelSurface = readFileSync(`${process.cwd()}/src/components/ui/panel-shell.ts`, "utf8");
 
     // container <-> DropdownMenuContent; option <-> DropdownMenuItem. Both use the **same set of Tailwind
     // class names** (not converted values), so comparing token by token is enough.
@@ -483,7 +484,7 @@ describe("codeBlock background override", () => {
     const optionBodies = [...block.matchAll(/>\s*option[^{]*\{([^}]*)\}/g)].map((m) => m[1]!).join(" ");
 
     for (const token of container) {
-      expect(menuSource, `DropdownMenuContent 不再用 ${token}——兩邊的對照要重新確認`).toContain(token);
+      expect(panelSurface, `DropdownMenuContent 不再用 ${token}——兩邊的對照要重新確認`).toContain(token);
       expect(pickerBodies, `::picker(select) 缺 ${token}`).toContain(token);
     }
     for (const token of item) {

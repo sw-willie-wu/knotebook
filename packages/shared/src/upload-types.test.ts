@@ -33,7 +33,7 @@ describe("uploadServedName", () => {
 
 describe("uploadServedName with an unlisted mime", () => {
   it("never keeps the stored extension", () => {
-    expect(uploadServedName("evil.html", "image/svg+xml", "u1")).toBe("u1");
+    expect(uploadServedName("evil.html", "text/html", "u1")).toBe("u1");
     expect(uploadServedName(null, "application/x-unknown", "u1")).toBe("u1");
   });
 });
@@ -80,7 +80,7 @@ describe("categories and mimes", () => {
   it("uploadCategoryOfName", () => {
     expect(uploadCategoryOfName("A.MP4")).toBe("video");
     expect(uploadCategoryOfName("x.html")).toBeNull();
-    expect(uploadCategoryOfName("x.svg")).toBeNull();
+    expect(uploadCategoryOfName("x.svg")).toBe("image");
     expect(uploadCategoryOfName("x.ps1")).toBe("text");
     expect(uploadCategoryOfName("x.xlsx")).toBe("office");
     expect(uploadCategoryOfName("noext")).toBeNull();
@@ -108,7 +108,7 @@ describe("categories and mimes", () => {
     }
   });
   it("refused types are not in the table", () => {
-    for (const m of ["audio/aac", "video/x-matroska", "image/svg+xml", "application/vnd.ms-word.document.macroEnabled.12"]) {
+    for (const m of ["audio/aac", "video/x-matroska", "application/vnd.ms-word.document.macroEnabled.12"]) {
       expect(UPLOAD_TYPES[m]).toBeUndefined();
     }
   });

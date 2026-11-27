@@ -33,7 +33,7 @@ import type { SiteLimits } from "../site-limits/store.js";
 import { UUID_RE } from "../notes/service.js";
 import { StorageQuotaExceeded } from "../storage/tx/quota.js";
 import { isSpaceFull, precheckDetail, quotaErrorDetail, readSpaceUsage } from "../storage/usage.js";
-import { detectImageMimeType } from "../uploads/magic-bytes.js";
+import { detectRasterImageMimeType } from "../uploads/magic-bytes.js";
 import { deleteUploadFiles, uploadFilePath } from "../uploads/service.js";
 
 export interface AvatarsRouteDeps {
@@ -160,7 +160,7 @@ async function readAndCheck(request: FastifyRequest, reply: FastifyReply, fileFi
   const mimes = new Map<string, string>();
   for (const name of fileFields) {
     const data = files.get(name)!.data;
-    const mime = detectImageMimeType(data);
+    const mime = detectRasterImageMimeType(data);
     if (mime === null || mime === "image/gif") {
       drainWithCap(request);
       sendError(reply, 415, "unsupported_media_type", UNSUPPORTED_IMAGE_MESSAGE);

@@ -596,19 +596,30 @@ describe("public image endpoint (GET /api/public/notes/:token/uploads/:uploadId)
     return row.id;
   }
 
-  it("upload of this note -> 200 plus nosniff plus cache-control private immutable plus mime", async () => {
+  it("upload of this note -> 200 plus nosniff plus CSP sandbox plus cache-control private immutable plus mime", async () => {
     const { app, db, uploadsDir } = await buildTestApp();
     const owner = await insertUser(db, "owner-pubu1@example.com");
     const cookie = await cookieFor(owner.id);
     const noteId = await createNote(app, cookie);
     const uploadId = await seedUpload(db, uploadsDir, noteId);
+    const svgBytes = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>', "utf-8");
+    const [svgRow] = await db.insert(uploads).values({ noteId, mime: "image/svg+xml", size: svgBytes.length }).returning();
+    await writeFile(uploadFilePath(uploadsDir, svgRow.id), svgBytes);
     const token = await openPublicLink(app, cookie, noteId);
 
     const res = await app.inject({ method: "GET", url: `/api/public/notes/${token}/uploads/${uploadId}` });
     expect(res.statusCode).toBe(200);
     expect(res.headers["x-content-type-options"]).toBe("nosniff");
+    expect(res.headers["content-security-policy"]).toBe("default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; sandbox");
     expect(res.headers["cache-control"]).toBe("private, max-age=31536000, immutable");
     expect(res.headers["content-type"]).toBe("image/png");
+
+    const svgRes = await app.inject({ method: "GET", url: `/api/public/notes/${token}/uploads/${svgRow.id}` });
+    expect(svgRes.statusCode).toBe(200);
+    expect(svgRes.headers["x-content-type-options"]).toBe("nosniff");
+    expect(svgRes.headers["content-security-policy"]).toBe("default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; sandbox");
+    expect(svgRes.headers["cache-control"]).toBe("private, max-age=31536000, immutable");
+    expect(svgRes.headers["content-type"]).toBe("image/svg+xml");
   });
 
   it("upload id of another note -> 404 (the token only authorizes its own note's blobs), and it counts on the hit bucket without eating miss quota", async () => {
@@ -985,15 +996,34 @@ describe("public alias image endpoint (GET /api/public/notes/:handle/:slug/uploa
     return { ...built, cookie, noteId, uploadId: up.id, uploadsDir };
   }
 
-  it("upload of this note -> 200 with the same headers as the token version (nosniff / private immutable / mime)", async () => {
+  it("upload of this note -> 200 with the same headers as the token version (nosniff / CSP sandbox / private immutable / mime)", async () => {
     const { app, uploadsDir, uploadId } = await uploadSetup();
     try {
       const res = await app.inject({ method: "GET", url: `/api/public/notes/kim/pics/uploads/${uploadId}` });
       expect(res.statusCode).toBe(200);
       expect(res.headers["x-content-type-options"]).toBe("nosniff");
+      expect(res.headers["content-security-policy"]).toBe("default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; sandbox");
       expect(res.headers["cache-control"]).toBe("private, max-age=31536000, immutable");
       expect(res.headers["content-type"]).toBe("image/png");
       expect(res.rawPayload).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    } finally {
+      rmSync(uploadsDir, { recursive: true, force: true });
+    }
+  });
+
+  it("an SVG is served inline as image/svg+xml under the sandbox CSP on the alias form too", async () => {
+    const { app, db, uploadsDir, noteId } = await uploadSetup();
+    try {
+      const svgBytes = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>', "utf-8");
+      const [svgRow] = await db.insert(uploads).values({ noteId, mime: "image/svg+xml", size: svgBytes.length }).returning();
+      await writeFile(uploadFilePath(uploadsDir, svgRow.id), svgBytes);
+      const res = await app.inject({ method: "GET", url: `/api/public/notes/kim/pics/uploads/${svgRow.id}` });
+      expect(res.statusCode).toBe(200);
+      expect(res.headers["content-type"]).toBe("image/svg+xml");
+      expect(res.headers["content-security-policy"]).toBe("default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; sandbox");
+      expect(res.headers["x-content-type-options"]).toBe("nosniff");
+      expect(res.headers["content-disposition"]).toBeUndefined();
+      expect(res.rawPayload.equals(svgBytes)).toBe(true);
     } finally {
       rmSync(uploadsDir, { recursive: true, force: true });
     }

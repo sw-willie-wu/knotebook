@@ -91,3 +91,10 @@ export function truncateCodeUnits(s: string, max: number): { text: string; trunc
  * far exceeds the 262 144 wire sentinel; the image block is its only exemption.
  */
 export const MCP_IMAGE_MAX_BYTES = 5_242_880;
+
+/**
+ * 100 KiB: `read_note_image` returns SVG as a single text block outside `structuredContent`.
+ * Valid XML 1.0 forbids C0 controls other than TAB/LF/CR, so JSON escaping expands at most 2×
+ * (`"`/`\`/`\n`), keeping the worst-case wire response (~205 KB) under the 262 144 sentinel.
+ */
+export const MCP_SVG_TEXT_MAX_BYTES = 100 * 1024;

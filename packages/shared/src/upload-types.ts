@@ -43,6 +43,7 @@ export const UPLOAD_TYPES: Readonly<Record<string, UploadTypeInfo>> = {
   "image/jpeg": t("image", "jpg", "jpeg", "jpe"),
   "image/gif": t("image", "gif"),
   "image/webp": t("image", "webp"),
+  "image/svg+xml": t("image", "svg"),
   "audio/mpeg": t("audio", "mp3"),
   "audio/x-m4a": t("audio", "m4a", "aac", "m4b"),
   "audio/mp4": t("audio", "m4a", "aac", "m4b"),
