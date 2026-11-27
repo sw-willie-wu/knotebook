@@ -67,6 +67,7 @@ Each part below lists what works today and what is planned. Planned items are wh
 - **Real-time co-editing**: everyone on a note edits at once (Yjs and Hocuspocus) and sees the other editors' cursors; the note header shows who else has it open, and clicking someone's avatar goes to their cursor.
 - **Links between notes**: type `[[`, or paste or drag in a note's address; links follow renames, can point at a single paragraph, and each note lists the notes that mention it.
 - **Images and diagrams**: PNG, JPEG, GIF, WebP and SVG images you can resize, counted toward the storage plan of the note's space; Mermaid diagrams stored as their source text ([Diagrams](docs/diagrams.md)); both zoom full screen.
+- **Math**: LaTeX formulas drawn with KaTeX and stored as their source text; insert one with `/math` or by typing ```` ```math ```` ([Math](docs/math.md)).
 - **Side-by-side columns**: rows of two to four columns, made with `/grid` or by dragging a block beside another, resized by dragging the divider ([Side-by-side columns](docs/columns.md)).
 - **Heading outline**: a thin line on the right of a note with one tick per heading (H1 to H3); hover or tap it to see the headings and jump to one. On a wide enough window it can be pinned open beside a Standard-width note; on a phone or a window narrower than 768 px, a bubble shows where you are while you scroll and opens the list, and so does **Heading outline** in the note's `⋮` menu.
 - **Knowledge info**: a heading can carry when to read it, a one-line conclusion, its basis, when it was last verified and whether it is verified, needs review or outdated, shown as a small status icon after the heading (a site admin chooses which of these fields are used), with an index of it for each folder and space ([Knowledge info](docs/knowledge.md), [the index](docs/knowledge.md#the-index)).
@@ -211,6 +212,7 @@ For people writing notes:
 - [Comments](docs/comments.md): a note's comment thread, `@` mentions of people and their agents, notifications and how long they are kept, and comments over MCP.
 - [Side-by-side columns](docs/columns.md): making, resizing, removing, copying and undoing rows of columns.
 - [Diagrams (Mermaid)](docs/diagrams.md): inserting, editing, pasting and copying out Mermaid diagrams.
+- [Math (LaTeX)](docs/math.md): typing, pasting and exporting formulas.
 - [Help and the feature tour](docs/feature-tour.md): the Help window, the feature tour, the What's new page and the keyboard shortcuts.
 - [Installing Knotebook as an app](docs/install-app.md): adding it to the home screen on Android, iPhone and iPad, and installing it on a computer.
 - [Limitations worth knowing](docs/limitations.md): what to know before you deploy Knotebook or trust it with your notes, such as where data can be lost, what can't be undone, security trade-offs and missing features.
@@ -249,4 +251,4 @@ The GitLab and Google sign-in templates only use those names to prefill the issu
 
 ## License
 
-MIT, see [LICENSE](./LICENSE). Bundled third-party components (a font asset, jsdiff, BlockNote, Lucide icon paths) carry their own licenses, see [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
+MIT, see [LICENSE](./LICENSE). Bundled third-party components (a font asset, the KaTeX fonts, jsdiff, BlockNote, Lucide icon paths) carry their own licenses, see [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
