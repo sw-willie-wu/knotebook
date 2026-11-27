@@ -1,12 +1,12 @@
 /**
- * Sections map to `sectionize` by position, not id lookup (ids can repeat or be non-strings). A non-string/empty container id disqualifies the whole note (`outlineOf` throws on it, so the read tools can't read it and search must not hand out unreadable sectionIds). A section is indexed only if its id matches `SECTION_ID_RE` and is the first occurrence (as `outline.find` in `read.ts`; an id counts as seen whether or not it got indexed) and its body is non-empty. The walk is iterative: depth is client-controlled. Wikilinks contribute label, else `snapshotTitle`; mermaid its `code`; media caption/name/url nothing. Separators are emitted lazily so the body has no leading/trailing/repeated separators; whitespace in the text isn't collapsed. NUL and lone surrogates become U+FFFD (a NUL fails the transaction with 22021; replacing makes stored = hashed = returned text agree). Caps: body truncated at `SEARCH_INDEX_NOTE_MAX` (the section crossing it is cut to the remaining quota, later ones aren't indexed), sections beyond `SEARCH_INDEX_SECTIONS_MAX` dropped (not merged), headings keep `SEARCH_HEADING_MAX`; dropping a non-empty section sets `capped`. Any rule or limit change must bump `SEARCH_EXTRACTOR_VERSION` (backfill redoes old versions).
+ * Sections map to `sectionize` by position, not id lookup (ids can repeat or be non-strings). A non-string/empty container id disqualifies the whole note (`outlineOf` throws on it, so the read tools can't read it and search must not hand out unreadable sectionIds). A section is indexed only if its id matches `SECTION_ID_RE` and is the first occurrence (as `outline.find` in `read.ts`; an id counts as seen whether or not it got indexed) and its body is non-empty. The walk is iterative: depth is client-controlled. Wikilinks contribute label, else `snapshotTitle`; mermaid its `code`; math its `tex`; media caption/name/url nothing. Separators are emitted lazily so the body has no leading/trailing/repeated separators; whitespace in the text isn't collapsed. NUL and lone surrogates become U+FFFD (a NUL fails the transaction with 22021; replacing makes stored = hashed = returned text agree). Caps: body truncated at `SEARCH_INDEX_NOTE_MAX` (the section crossing it is cut to the remaining quota, later ones aren't indexed), sections beyond `SEARCH_INDEX_SECTIONS_MAX` dropped (not merged), headings keep `SEARCH_HEADING_MAX`; dropping a non-empty section sets `capped`. Any rule or limit change must bump `SEARCH_EXTRACTOR_VERSION` (backfill redoes old versions).
  */
 import { createHash } from "node:crypto";
 import * as Y from "yjs";
 import { SECTION_ID_RE, sectionize, topLevelBlocks } from "@knotebook/shared";
 import { truncateCodeUnits } from "../mcp/limits.js";
 
-export const SEARCH_EXTRACTOR_VERSION = 2;
+export const SEARCH_EXTRACTOR_VERSION = 3;
 export const SEARCH_INDEX_NOTE_MAX = 1_048_576;
 export const SEARCH_INDEX_SECTIONS_MAX = 2000;
 export const SEARCH_HEADING_MAX = 1000;
@@ -61,9 +61,9 @@ function containerSearchText(container: Y.XmlElement): string {
       continue;
     }
     pendingSep = true;
-    if (node.nodeName === "mermaid") {
-      const code: unknown = node.getAttribute("code");
-      if (typeof code === "string") emit(code);
+    if (node.nodeName === "mermaid" || node.nodeName === "math") {
+      const source: unknown = node.getAttribute(node.nodeName === "math" ? "tex" : "code");
+      if (typeof source === "string") emit(source);
       continue;
     }
     const kids = node.toArray();
