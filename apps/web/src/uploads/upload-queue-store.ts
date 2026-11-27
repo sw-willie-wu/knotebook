@@ -2,7 +2,8 @@ import { useSyncExternalStore } from "react";
 import type { ApiFail } from "@/api/client";
 import type { PrecheckResult } from "./precheck";
 
-export type UploadStatus = "uploading" | "writing" | "failed" | "unplaced" | "done";
+/** A written upload leaves the queue at once: nothing would show it and the block already has its URL. */
+export type UploadStatus = "uploading" | "writing" | "failed" | "unplaced";
 
 export interface UploadItem {
   id: string;
@@ -15,6 +16,12 @@ export interface UploadItem {
   status: UploadStatus;
   error?: ApiFail;
   precheck?: PrecheckResult & { ok: false };
+  /** The person signed in when it started; absent when that wasn't known. */
+  ownerId?: string;
+  /** Epoch ms before which the server asked not to try again. */
+  retryAt?: number;
+  /** A retry is still checking the account, size and room before it sends. */
+  retrying?: boolean;
 }
 
 export interface UploadQueueSummary {
@@ -80,21 +87,6 @@ export function uploadQueueSummary(list: readonly UploadItem[]): UploadQueueSumm
   return { active, percent: size === 0 ? 100 : Math.floor((loaded / size) * 100) };
 }
 
-const SAME_ANSWER_STATUSES = new Set([401, 403, 404, 415]);
-const SAME_ANSWER_CODES = new Set(["invalid_body", "upload_write_rejected", "upload_write_outdated", "upload_write_deleted"]);
-
-/**
- * Lists the failures a second attempt would meet again (a pre-check refusal, a type or body the server refused, lost
- * access, a missing or trashed note, a signed-out session, a refused write), so an answer nobody listed, such as a
- * busy server or a proxy timeout, keeps its Retry. A size or room refusal stays retryable: the retry's fresh pre-check
- * turns it into the reason when the limit or the room hasn't changed.
- */
-export function isUploadRetryable(item: UploadItem): boolean {
-  const error = item.error;
-  if (item.status !== "failed" || item.precheck !== undefined || !error) return false;
-  return !SAME_ANSWER_STATUSES.has(error.status) && !SAME_ANSWER_CODES.has(error.code);
-}
-
 let sessionExpiredHandler: (() => void) | undefined;
 
 /** The app registers how a lost session is confirmed; the queue itself has no router or query client. */
@@ -107,6 +99,18 @@ export function notifyUploadSessionExpired(): void {
   sessionExpiredHandler?.();
 }
 
+let userSource: (() => string | undefined) | undefined;
+
+/** The app registers where the signed-in person's id is cached. */
+export function setUploadUserSource(source: (() => string | undefined) | undefined): void {
+  userSource = source;
+}
+
+/** For the upload runner only. */
+export function currentUploadUserId(): string | undefined {
+  return userSource?.();
+}
+
 /** The items, names and files belong to the person signed in; the runner stops whatever was still running. */
 export function clearUploadQueue(): void {
   if (items.length > 0) commit([]);
@@ -116,6 +120,11 @@ export function dismissUpload(id: string): void {
   const item = items.find((i) => i.id === id);
   if (!item || isActive(item)) return;
   commit(items.filter((i) => i.id !== id));
+}
+
+/** For the upload runner only. */
+export function removeUpload(id: string): void {
+  if (items.some((i) => i.id === id)) commit(items.filter((i) => i.id !== id));
 }
 
 /** For the upload runner only. */

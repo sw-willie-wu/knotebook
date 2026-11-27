@@ -41,7 +41,7 @@ export function precheckUpload(file: File, ctx: PrecheckCtx): PrecheckResult {
   return { ok: true, category };
 }
 
-export function precheckMessage(file: File, r: PrecheckResult & { ok: false }, t: Translate): string {
+export function precheckMessage(file: Pick<File, "size">, r: PrecheckResult & { ok: false }, t: Translate): string {
   const size = formatBytes(file.size);
   if (r.reason === "unsupported") return t("uploadPrecheck.unsupported");
   if (r.reason === "empty") return t("uploadPrecheck.empty");

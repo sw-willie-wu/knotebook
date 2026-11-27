@@ -47,6 +47,7 @@ const { acquireNoteConnection } = await import("@/collab/note-connection");
 const { startUpload, retryUpload, resetUploadRunnerForTest, hasUploadRunForTest, UPLOAD_WRITE_WAIT_MS } = await import("./upload-runner");
 const { createPrecheckCtxProvider } = await import("./precheck");
 const store = await import("./upload-queue-store");
+const rules = await import("./upload-rules");
 
 const NOTE_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const NOTE_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -60,6 +61,7 @@ function fakeResponse(ok: boolean, status: number, body: unknown): Response {
 }
 
 let tokenResponse: () => Promise<Response>;
+let meResponse: (init?: RequestInit) => Promise<Response>;
 let fetchMock: ReturnType<typeof vi.fn>;
 
 const flush = async () => {
@@ -129,7 +131,9 @@ function fileOf(name: string, size: number): File {
   return file;
 }
 
-const item = (id: string) => store.getUploadItems().find((i) => i.id === id)!;
+const queued = (id: string) => store.getUploadItems().find((i) => i.id === id);
+const item = (id: string) => queued(id)!;
+const liveProviders = () => (hoisted.instances as FakeProvider[]).filter((p) => p.destroy.mock.calls.length === 0);
 
 const held: { release(): void }[] = [];
 const hold = (noteId: string) => {
@@ -142,8 +146,10 @@ beforeEach(() => {
   hoisted.instances.length = 0;
   installFakeXhr();
   tokenResponse = () => new Promise(() => {});
-  fetchMock = vi.fn((input: RequestInfo | URL) => {
+  meResponse = () => new Promise(() => {});
+  fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     if (String(input).endsWith("/collab-token")) return tokenResponse();
+    if (String(input) === "/api/auth/me") return meResponse(init);
     return new Promise(() => {});
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -151,6 +157,7 @@ beforeEach(() => {
 
 afterEach(() => {
   store.setUploadSessionExpiredHandler(undefined);
+  store.setUploadUserSource(undefined);
   vi.useRealTimers();
   resetUploadRunnerForTest();
   store.resetUploadQueueForTest();
@@ -186,7 +193,7 @@ describe("startUpload / the background write", () => {
     lastXhr().respond(201, response());
     await flush();
 
-    expect(item(id).status).toBe("done");
+    expect(queued(id)).toBeUndefined();
     expect(hasUploadRunForTest(id)).toBe(false);
     expect(contentOf(peer, "v1")?.getAttribute("url")).toBe("/api/uploads/u1");
     expect(contentOf(peer, "v1")?.getAttribute("name")).toBe("clip.mp4");
@@ -252,7 +259,7 @@ describe("startUpload / the background write", () => {
     await flush();
 
     expect(item(id)).toMatchObject({ status: "failed", error: { code: "upload_write_rejected" } });
-    expect(store.isUploadRetryable(item(id))).toBe(false);
+    expect(rules.isUploadRetryable(item(id))).toBe(false);
     expect(hasUploadRunForTest(id)).toBe(false);
     expect(p.destroy).toHaveBeenCalledTimes(1);
     expect(contentOf(p.configuration.document, "v1")?.getAttribute("url")).toBe("");
@@ -273,7 +280,7 @@ describe("startUpload / the background write", () => {
     await flush();
 
     expect(item(id)).toMatchObject({ status: "failed", error: { code } });
-    expect(store.isUploadRetryable(item(id))).toBe(false);
+    expect(rules.isUploadRetryable(item(id))).toBe(false);
     expect(hasUploadRunForTest(id)).toBe(false);
     expect(p.destroy).toHaveBeenCalledTimes(1);
   });
@@ -283,7 +290,7 @@ describe("startUpload / the background write", () => {
     lastXhr().respond(415, { error: { code: "unsupported_media_type", message: "x" } });
     await flush();
     expect(item(id)).toMatchObject({ status: "failed", error: { status: 415 } });
-    expect(store.isUploadRetryable(item(id))).toBe(false);
+    expect(rules.isUploadRetryable(item(id))).toBe(false);
     expect(hasUploadRunForTest(id)).toBe(false);
     await retryUpload(id);
     expect(FakeXhr.instances).toHaveLength(1);
@@ -297,7 +304,7 @@ describe("startUpload / the background write", () => {
     await vi.advanceTimersByTimeAsync(UPLOAD_WRITE_WAIT_MS);
 
     expect(item(id)).toMatchObject({ status: "failed", error: { code: "upload_interrupted" } });
-    expect(store.isUploadRetryable(item(id))).toBe(true);
+    expect(rules.isUploadRetryable(item(id))).toBe(true);
     expect(hasUploadRunForTest(id)).toBe(true);
     expect(p.destroy).toHaveBeenCalledTimes(1);
 
@@ -309,7 +316,7 @@ describe("startUpload / the background write", () => {
     await vi.advanceTimersByTimeAsync(0);
 
     expect(FakeXhr.instances).toHaveLength(xhrs);
-    expect(item(id).status).toBe("done");
+    expect(queued(id)).toBeUndefined();
     expect(contentOf(provider(1).configuration.document, "v1")?.getAttribute("url")).toBe("/api/uploads/u1");
   });
 
@@ -416,7 +423,7 @@ describe("sign-out (401)", () => {
 
     for (const id of [first, second]) {
       expect(item(id)).toMatchObject({ status: "failed", error: { status: 401, code: "unauthorized" } });
-      expect(store.isUploadRetryable(item(id))).toBe(false);
+      expect(rules.isUploadRetryable(item(id))).toBe(false);
     }
     expect(secondXhr.aborted).toBe(true);
     await retryUpload(first);
@@ -445,7 +452,7 @@ describe("after upload_interrupted", () => {
 
     expect(ctx).toHaveBeenCalledTimes(2);
     expect(item(id)).toMatchObject({ status: "failed", precheck: { reason: "noRoom", roomBytes: MIB } });
-    expect(store.isUploadRetryable(item(id))).toBe(false);
+    expect(rules.isUploadRetryable(item(id))).toBe(false);
     expect(hasUploadRunForTest(id)).toBe(false);
     await retryUpload(id);
     expect(FakeXhr.instances).toHaveLength(1);
@@ -463,7 +470,7 @@ describe("after upload_interrupted", () => {
     await flush();
     expect(item(id)).toMatchObject({ status: "failed", error: { code: "upload_interrupted" } });
     expect(item(id).precheck).toBeUndefined();
-    expect(store.isUploadRetryable(item(id))).toBe(true);
+    expect(rules.isUploadRetryable(item(id))).toBe(true);
 
     const retried = retryUpload(id);
     await flush();
@@ -489,7 +496,7 @@ describe("after upload_interrupted", () => {
     expect(FakeXhr.instances).toHaveLength(1);
     expect(item(id)).toMatchObject({ status: "failed", precheck: { reason: "noRoom" } });
     expect(item(id).error).toBeUndefined();
-    expect(store.isUploadRetryable(item(id))).toBe(false);
+    expect(rules.isUploadRetryable(item(id))).toBe(false);
   });
 
   it("a provider whose fetches fail: retryable, and no unhandled rejection", async () => {
@@ -508,7 +515,7 @@ describe("after upload_interrupted", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
 
       expect(item(id)).toMatchObject({ status: "failed", error: { code: "upload_interrupted" } });
-      expect(store.isUploadRetryable(item(id))).toBe(true);
+      expect(rules.isUploadRetryable(item(id))).toBe(true);
       expect(unhandled).not.toHaveBeenCalled();
     } finally {
       window.removeEventListener("unhandledrejection", unhandled);
@@ -529,7 +536,7 @@ describe("clearUploadQueue (sign-out or another account)", () => {
     const retryable = await startVideo(NOTE_B, { blockId: "v2" });
     lastXhr().onerror?.();
     await flush();
-    expect(store.isUploadRetryable(item(retryable))).toBe(true);
+    expect(rules.isUploadRetryable(item(retryable))).toBe(true);
     expect(hasUploadRunForTest(retryable)).toBe(true);
 
     store.clearUploadQueue();
@@ -555,7 +562,7 @@ describe("dismissUpload", () => {
     const id = await startVideo(NOTE_A, { precheckCtx: ctx });
     lastXhr().onerror?.();
     await flush();
-    expect(store.isUploadRetryable(item(id))).toBe(true);
+    expect(rules.isUploadRetryable(item(id))).toBe(true);
 
     const retried = retryUpload(id);
     await flush();
@@ -581,5 +588,183 @@ describe("dismissUpload", () => {
     expect(store.getUploadItems()).toEqual([]);
     await retryUpload(running);
     expect(FakeXhr.instances).toHaveLength(1);
+  });
+});
+
+describe("retry guards", () => {
+  it("a 429 that says when to try again: Retry sends nothing before then, and uploads once the wait is over", async () => {
+    vi.useFakeTimers({ now: 1_000_000, toFake: ["Date"] });
+    const id = await startVideo(NOTE_A);
+    lastXhr().respond(429, { error: { code: "too_many_requests", message: "x" }, retryAfterMs: 30_000 });
+    await flush();
+    expect(item(id)).toMatchObject({ status: "failed", retryAt: 1_030_000 });
+    expect(rules.isUploadRetryable(item(id))).toBe(true);
+
+    vi.setSystemTime(1_029_999);
+    await retryUpload(id);
+    await flush();
+    expect(FakeXhr.instances).toHaveLength(1);
+    expect(item(id).status).toBe("failed");
+
+    vi.setSystemTime(1_030_000);
+    await retryUpload(id);
+    await flush();
+    expect(FakeXhr.instances).toHaveLength(2);
+    expect(item(id)).toMatchObject({ status: "uploading" });
+    expect(item(id).retryAt).toBeUndefined();
+  });
+
+  it("a failure without retryAfterMs leaves no wait behind from an earlier one", async () => {
+    vi.useFakeTimers({ now: 1_000_000, toFake: ["Date"] });
+    const id = await startVideo(NOTE_A);
+    lastXhr().respond(429, { error: { code: "too_many_requests", message: "x" }, retryAfterMs: 1_000 });
+    await flush();
+    vi.setSystemTime(1_001_000);
+    await retryUpload(id);
+    await flush();
+    lastXhr().respond(503, { error: { code: "internal", message: "x" } });
+    await flush();
+    expect(item(id)).toMatchObject({ status: "failed", error: { status: 503 } });
+    expect(item(id).retryAt).toBeUndefined();
+  });
+
+  it("the item records who was signed in when it started", async () => {
+    store.setUploadUserSource(() => "alice");
+    const id = await startVideo(NOTE_A);
+    expect(item(id).ownerId).toBe("alice");
+  });
+
+  const me = {
+    bob: () => Promise.resolve(fakeResponse(true, 200, { id: "bob" })),
+    signedOut: () => Promise.resolve(fakeResponse(false, 401, { error: { code: "unauthorized", message: "x" } })),
+    alice: () => Promise.resolve(fakeResponse(true, 200, { id: "alice" })),
+    unreachable: () => Promise.reject(new TypeError("Failed to fetch")),
+    busy: () => Promise.resolve(fakeResponse(false, 503, { error: { code: "server_busy", message: "x" } })),
+  };
+
+  it.each([
+    ["another account", "bob", "notifies"],
+    ["signed out", "signedOut", "notifies"],
+    ["the same person", "alice", "sends"],
+    ["the server unreachable", "unreachable", "unconfirmed"],
+    ["the server busy", "busy", "unconfirmed"],
+  ] as const)("a retry when the server now says %s (%s): %s", async (_label, answer, outcome) => {
+    const sends = outcome === "sends";
+    meResponse = me[answer];
+    const expired = vi.fn();
+    store.setUploadSessionExpiredHandler(expired);
+    store.setUploadUserSource(() => "alice");
+    const ctx = vi.fn(async () => ctxValue());
+    const id = await startVideo(NOTE_A, { precheckCtx: ctx });
+    lastXhr().onerror?.();
+    await flush();
+    expect(rules.isUploadRetryable(item(id))).toBe(true);
+    const checks = ctx.mock.calls.length;
+
+    await retryUpload(id);
+    await flush();
+    expect(fetchMock.mock.calls.filter(([url]) => String(url) === "/api/auth/me")).toHaveLength(1);
+    expect(FakeXhr.instances).toHaveLength(sends ? 2 : 1);
+    expect(ctx.mock.calls.length).toBe(sends ? checks + 1 : checks);
+    expect(expired).toHaveBeenCalledTimes(outcome === "notifies" ? 1 : 0);
+    if (!sends) expect(liveProviders()).toHaveLength(0);
+    if (outcome === "unconfirmed") {
+      expect(item(id)).toMatchObject({ status: "failed", error: { code: "upload_session_unconfirmed" } });
+      expect(rules.isUploadRetryable(item(id))).toBe(true);
+      expect(hasUploadRunForTest(id)).toBe(true);
+    }
+    expect(item(id).retrying).toBeUndefined();
+  });
+
+  it("while the account check runs the item says it is retrying; a check that never answers gives up after 10 s, sends nothing and keeps Retry", async () => {
+    vi.useFakeTimers();
+    meResponse = (init) =>
+      new Promise((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))));
+    store.setUploadUserSource(() => "alice");
+    const id = await startVideo(NOTE_A);
+    lastXhr().onerror?.();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(rules.isUploadRetryable(item(id))).toBe(true);
+
+    const retried = retryUpload(id);
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(item(id).retrying).toBe(true);
+    expect(FakeXhr.instances).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await retried;
+    expect(item(id)).toMatchObject({ status: "failed", error: { code: "upload_session_unconfirmed" } });
+    expect(item(id).retrying).toBeUndefined();
+    expect(FakeXhr.instances).toHaveLength(1);
+
+    meResponse = me.alice;
+    await retryUpload(id);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(FakeXhr.instances).toHaveLength(2);
+  });
+
+  it("no one known when it started (no user source): a retry doesn't ask the server", async () => {
+    const id = await startVideo(NOTE_A);
+    expect(item(id).ownerId).toBeUndefined();
+    lastXhr().onerror?.();
+    await flush();
+    await retryUpload(id);
+    await flush();
+    expect(fetchMock.mock.calls.some(([url]) => String(url) === "/api/auth/me")).toBe(false);
+    expect(FakeXhr.instances).toHaveLength(2);
+  });
+
+  it("the write-only retry (file already stored) is refused the same way when another account is signed in", async () => {
+    vi.useFakeTimers();
+    meResponse = me.bob;
+    store.setUploadUserSource(() => "alice");
+    const id = await startVideo(NOTE_A);
+    lastXhr().respond(201, response());
+    await vi.advanceTimersByTimeAsync(UPLOAD_WRITE_WAIT_MS);
+    expect(item(id)).toMatchObject({ status: "failed", error: { code: "upload_interrupted" } });
+    const providers = hoisted.instances.length;
+
+    await retryUpload(id);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(item(id).status).toBe("failed");
+    expect(hoisted.instances).toHaveLength(providers);
+    expect(liveProviders()).toHaveLength(0);
+  });
+
+  it("dismissed while a write-only retry's account check is pending: no connection is opened", async () => {
+    vi.useFakeTimers();
+    let answer: (res: Response) => void = () => {};
+    meResponse = () => new Promise((resolve) => (answer = resolve));
+    store.setUploadUserSource(() => "alice");
+    const id = await startVideo(NOTE_A);
+    lastXhr().respond(201, response());
+    await vi.advanceTimersByTimeAsync(UPLOAD_WRITE_WAIT_MS);
+    expect(item(id)).toMatchObject({ status: "failed", error: { code: "upload_interrupted" } });
+    const providers = hoisted.instances.length;
+
+    const retried = retryUpload(id);
+    await vi.advanceTimersByTimeAsync(0);
+    store.dismissUpload(id);
+    answer(fakeResponse(true, 200, { id: "alice" }));
+    await retried;
+    await vi.advanceTimersByTimeAsync(0);
+    expect(hoisted.instances).toHaveLength(providers);
+    expect(liveProviders()).toHaveLength(0);
+  });
+
+  it("dismissed while the account check is pending: nothing is sent", async () => {
+    let answer: (res: Response) => void = () => {};
+    meResponse = () => new Promise((resolve) => (answer = resolve));
+    store.setUploadUserSource(() => "alice");
+    const id = await startVideo(NOTE_A);
+    lastXhr().onerror?.();
+    await flush();
+    const retried = retryUpload(id);
+    await flush();
+    store.dismissUpload(id);
+    answer(fakeResponse(true, 200, { id: "alice" }));
+    await retried;
+    await flush();
+    expect(FakeXhr.instances).toHaveLength(1);
+    expect(liveProviders()).toHaveLength(0);
   });
 });

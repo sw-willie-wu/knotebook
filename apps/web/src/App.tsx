@@ -19,7 +19,7 @@ import { ThemeProvider } from "./theme";
 import { Toaster } from "./components/ui/toast";
 import { ChangePasswordGate, RequireAdmin, RequireAuth } from "./auth/guards";
 import { SESSION_QUERY_KEY } from "./auth/useSession";
-import { clearUploadQueue, setUploadSessionExpiredHandler } from "./uploads/upload-queue-store";
+import { clearUploadQueue, setUploadSessionExpiredHandler, setUploadUserSource } from "./uploads/upload-queue-store";
 import { AppErrorBoundary, ChunkLoadBeacon, LazyRouteErrorBoundary, LazyRouteLoading, NoteRouteErrorBoundary } from "./components/ErrorBoundary";
 import { NotePageFallback } from "./components/NotePageFallback";
 import { PublicNoteErrorBoundary, PublicNoteFallback } from "./components/PublicNoteShell";
@@ -163,6 +163,7 @@ function useUploadQueueSession() {
   const queryClient = useQueryClient();
   useEffect(() => {
     setUploadSessionExpiredHandler(() => void queryClient.invalidateQueries({ queryKey: SESSION_QUERY_KEY }));
+    setUploadUserSource(() => queryClient.getQueryData<UserDto | null>(SESSION_QUERY_KEY)?.id);
     const sessionHash = hashKey(SESSION_QUERY_KEY);
     let owner: string | undefined;
     const check = () => {
@@ -178,6 +179,7 @@ function useUploadQueueSession() {
     return () => {
       unsubscribe();
       setUploadSessionExpiredHandler(undefined);
+      setUploadUserSource(undefined);
     };
   }, [queryClient]);
 }

@@ -1,17 +1,20 @@
 import { sanitizeUploadFileName, uploadServedName, type UploadResponseDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
+import { fetchSessionUser } from "@/auth/useSession";
 import type { CollabState } from "@/collab/connection";
 import { acquireNoteConnection, type NoteConnectionHandle } from "@/collab/note-connection";
 import { precheckUpload, type PrecheckCtx, type PrecheckResult } from "./precheck";
 import {
+  currentUploadUserId,
   getUploadItems,
-  isUploadRetryable,
   notifyUploadSessionExpired,
   patchUpload,
   putUpload,
+  removeUpload,
   subscribeUploads,
   type UploadItem,
 } from "./upload-queue-store";
+import { isUploadRetryable, uploadRetryWaitMs } from "./upload-rules";
 import { xhrUpload } from "./xhr-upload";
 import { writeUploadedBlock } from "./yjs-block-write";
 
@@ -20,6 +23,8 @@ import { writeUploadedBlock } from "./yjs-block-write";
  * token backoff round plus the longest jittered restart.
  */
 export const UPLOAD_WRITE_WAIT_MS = 90_000;
+
+const CONFIRM_USER_TIMEOUT_MS = 10_000;
 
 type Refusal = PrecheckResult & { ok: false };
 
@@ -52,6 +57,7 @@ let nextId = 0;
 
 const SIGNED_OUT = () => new ApiFail(401, "unauthorized", "Signed out");
 const INTERRUPTED = () => new ApiFail(0, "upload_interrupted", "Upload interrupted");
+const UNCONFIRMED = () => new ApiFail(0, "upload_session_unconfirmed", "Couldn't confirm who is signed in");
 
 function writeRefusal(state: CollabState): ApiFail {
   if (state.phase === "outdated") return new ApiFail(0, "upload_write_outdated", "This page is out of date");
@@ -85,7 +91,9 @@ function itemOf(id: string): UploadItem | undefined {
 
 /** A failure no retry can get past no longer needs the file or the connection. */
 function fail(id: string, run: Run, patch: Pick<UploadItem, "error"> | Pick<UploadItem, "precheck">) {
-  patchUpload(id, { status: "failed", error: undefined, ...patch });
+  const waitMs = "error" in patch ? patch.error?.retryAfterMs : undefined;
+  const retryAt = typeof waitMs === "number" && waitMs > 0 ? Date.now() + waitMs : undefined;
+  patchUpload(id, { status: "failed", error: undefined, retryAt, ...patch });
   const item = itemOf(id);
   if (!item || !isUploadRetryable(item)) stopRun(id, run, { forget: true });
 }
@@ -113,6 +121,19 @@ function holdConnection(noteId: string, run: Run) {
   return run.handle;
 }
 
+/** `null` when signed out, `undefined` when the server couldn't be asked. */
+async function signedInUserId(): Promise<string | null | undefined> {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), CONFIRM_USER_TIMEOUT_MS);
+  try {
+    return (await fetchSessionUser(ctl.signal))?.id ?? null;
+  } catch {
+    return undefined;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function safeCtx(provider: () => Promise<PrecheckCtx>): Promise<PrecheckCtx> {
   try {
     return await provider();
@@ -125,7 +146,7 @@ export async function startUpload(args: StartUploadArgs): Promise<StartUploadRes
   const { noteId, blockId, file, expectedUrl, precheckCtx, recordRefusal = true } = args;
   const checked = precheckUpload(file, await safeCtx(precheckCtx));
   const id = `upload-${++nextId}`;
-  const base = { id, noteId, blockId, fileName: file.name, size: file.size, loaded: 0, expectedUrl };
+  const base = { id, noteId, blockId, fileName: file.name, size: file.size, loaded: 0, expectedUrl, ownerId: currentUploadUserId() };
   if (!checked.ok) {
     if (recordRefusal) putUpload({ ...base, status: "failed", precheck: checked });
     return { ok: false, result: checked };
@@ -141,15 +162,32 @@ export async function startUpload(args: StartUploadArgs): Promise<StartUploadRes
 export async function retryUpload(id: string): Promise<void> {
   const run = runs.get(id);
   const item = itemOf(id);
-  if (!run || !item || run.retrying || !isUploadRetryable(item)) return;
-  if (run.stored) {
-    patchUpload(id, { status: "writing", error: undefined });
-    holdConnection(item.noteId, run);
-    void write(id, run, run.attempt);
-    return;
-  }
+  if (!run || !item || run.retrying || !isUploadRetryable(item) || uploadRetryWaitMs(item) > 0) return;
   run.retrying = true;
+  patchUpload(id, { retrying: true });
   try {
+    // Another tab may have signed in someone else since: the file and the note belong to the person who started it,
+    // and this tab's own session cache only notices on its next refetch.
+    if (item.ownerId !== undefined) {
+      const now = await signedInUserId();
+      if (!runs.has(id)) return;
+      // Not knowing counts as not confirmed: sending would go out with whatever session this browser now holds.
+      if (now === undefined) {
+        fail(id, run, { error: UNCONFIRMED() });
+        return;
+      }
+      if (now !== item.ownerId) {
+        // The app refetches the session, and the queue is cleared once the cache shows the change.
+        notifyUploadSessionExpired();
+        return;
+      }
+    }
+    if (run.stored) {
+      patchUpload(id, { status: "writing", error: undefined, retryAt: undefined });
+      holdConnection(item.noteId, run);
+      void write(id, run, run.attempt);
+      return;
+    }
     const checked = precheckUpload(run.file, await safeCtx(run.precheckCtx));
     if (!runs.has(id)) return;
     if (!checked.ok) {
@@ -158,8 +196,9 @@ export async function retryUpload(id: string): Promise<void> {
     }
   } finally {
     run.retrying = false;
+    patchUpload(id, { retrying: undefined });
   }
-  patchUpload(id, { status: "uploading", loaded: 0, error: undefined });
+  patchUpload(id, { status: "uploading", loaded: 0, error: undefined, retryAt: undefined });
   holdConnection(item.noteId, run);
   void upload(id, run);
 }
@@ -239,7 +278,8 @@ async function write(id: string, run: Run, attempt: number) {
   }
   releaseHandle(run);
   runs.delete(id);
-  patchUpload(id, { status: written === "written" ? "done" : "unplaced" });
+  if (written === "written") removeUpload(id);
+  else patchUpload(id, { status: "unplaced" });
 }
 
 /** Tests only. */

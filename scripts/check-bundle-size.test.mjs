@@ -2,11 +2,11 @@
 // the real dist is checked by check-bundle-size.mjs after the build in CI.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { AVATAR_ENCODE_RE, GROUP_LAZY_DIALOGS, AVATAR_IMAGE_MARKER, BODY_SEARCH_MARKER, COMMENTS_I18N_MARKER, COMMENT_TOOLBAR_I18N_MARKER, UPLOAD_PRECHECK_I18N_MARKER, NOTIFICATIONS_I18N_MARKER, FOLDER_I18N_MARKER, GROUPS_ADMIN_I18N_MARKER, HELP_I18N_MARKER, KNOWLEDGE_INDEX_I18N_MARKER, MANAGEMENT_I18N_MARKERS, MAX_ENTRY_BYTES, MOBILE_TOOLBAR_I18N_MARKER, SELECT_I18N_MARKER, SHORTCUTS_I18N_MARKER, TOUR_I18N_MARKER, VERSIONS_MARKERS, checkBundleSize } from './check-bundle-size.mjs';
+import { AVATAR_ENCODE_RE, GROUP_LAZY_DIALOGS, AVATAR_IMAGE_MARKER, BODY_SEARCH_MARKER, COMMENTS_I18N_MARKER, COMMENT_TOOLBAR_I18N_MARKER, UPLOAD_PRECHECK_I18N_MARKER, NOTIFICATIONS_I18N_MARKER, UPLOAD_LIST_I18N_MARKER, UPLOAD_RUNNER_MARKER, FOLDER_I18N_MARKER, GROUPS_ADMIN_I18N_MARKER, HELP_I18N_MARKER, KNOWLEDGE_INDEX_I18N_MARKER, MANAGEMENT_I18N_MARKERS, MAX_ENTRY_BYTES, MOBILE_TOOLBAR_I18N_MARKER, SELECT_I18N_MARKER, SHORTCUTS_I18N_MARKER, TOUR_I18N_MARKER, VERSIONS_MARKERS, checkBundleSize } from './check-bundle-size.mjs';
 
 // pins the default cap of 750 KiB (reason in the constant's comment in check-bundle-size.mjs; the next two cases pass 700 * 1024 explicitly to test the judgement itself, independent of the default).
 test('default entry size cap is 750 KiB', () => {
@@ -22,6 +22,9 @@ const COMMENTS_PACK = { 'CommentsLazy-Ccc000.js': `const c={${COMMENTS_I18N_MARK
 // Fake chunk for the notification list, carrying its string pack's marker (NotificationsLazy-<hash>.js in a real build).
 const NOTIFICATIONS_PACK = { 'NotificationsLazy-Nnn000.js': `const n={${NOTIFICATIONS_I18N_MARKER}:"x"}` };
 
+// Fake chunk for the upload indicator's list, carrying its string pack's marker (UploadsLazy-<hash>.js in a real build).
+const UPLOADS_PACK = { 'UploadsLazy-Uuu000.js': `const u={${UPLOAD_LIST_I18N_MARKER}:"x"}` };
+
 // Fake chunk for the avatar encoding module: carries the marker (encode-<hash>.js in a real build).
 const AVATAR_PACK = { 'encode-Eee000.js': `class E extends Error{constructor(){super();this.name="${AVATAR_IMAGE_MARKER}"}}` };
 
@@ -29,7 +32,7 @@ const AVATAR_PACK = { 'encode-Eee000.js': `class E extends Error{constructor(){s
 const GROUP_DIALOG_PACK = Object.fromEntries(GROUP_LAZY_DIALOGS.map((d, i) => [`${d.name}-Ggg00${i}.js`, `t("${d.marker}")`]).concat([['icons-extra-Iii000.js', 'x']]));
 
 const MARKER_BASE = {
-  ...MGMT_PACK, ...COMMENTS_PACK, ...NOTIFICATIONS_PACK,
+  ...MGMT_PACK, ...COMMENTS_PACK, ...NOTIFICATIONS_PACK, ...UPLOADS_PACK,
   ...AVATAR_PACK, ...GROUP_DIALOG_PACK,
   'index-Abc123.js': 100, 'mermaid.core-Ghi789.js': 10, 'shiki-Jkl012.js': 10, 'AdminSections-Mno345.js': 10,
   'PresentationOverlay-Pqr678.js': 10, 'TrashLazy-Ttt000.js': 10, 'SelectLazy-Sss000.js': 10, 'FolderLazy-Fff000.js': 10,
@@ -63,7 +66,7 @@ test('entry within the cap and a NotePage chunk present -> passes and reports a 
     'ShortcutsLazy-Kkk000.js': 10_000,
     'TourLazy-Tou000.js': 12_000,
     'BodySearchLazy-Bbb000.js': 8_000,
-    ...MGMT_PACK, ...COMMENTS_PACK, ...NOTIFICATIONS_PACK,
+    ...MGMT_PACK, ...COMMENTS_PACK, ...NOTIFICATIONS_PACK, ...UPLOADS_PACK,
     ...AVATAR_PACK, ...GROUP_DIALOG_PACK,
     'index-Abc123.css': 50_000, // css is not an entry chunk; the pattern only matches .js
   });
@@ -665,7 +668,7 @@ test('entry CSS contains .reveal-viewport (reveal.css entered the entry) -> thro
   const base = {
     'index-Abc123.js': 100, 'NotePage-Def456.js': 10, 'mermaid.core-Ghi789.js': 10, 'shiki-Jkl012.js': 10,
     'AdminSections-Mno345.js': 10, 'VersionsLazy-Vvv000.js': 10, 'PresentationOverlay-Pqr678.js': 10, 'TrashLazy-Ttt000.js': 10,
-    'SelectLazy-Sss000.js': 10, 'FolderLazy-Fff000.js': 10, 'ShortcutsLazy-Kkk000.js': 10, 'TourLazy-Tou000.js': 10, 'BodySearchLazy-Bbb000.js': 10, ...MGMT_PACK, ...COMMENTS_PACK, ...NOTIFICATIONS_PACK, ...AVATAR_PACK, ...GROUP_DIALOG_PACK,
+    'SelectLazy-Sss000.js': 10, 'FolderLazy-Fff000.js': 10, 'ShortcutsLazy-Kkk000.js': 10, 'TourLazy-Tou000.js': 10, 'BodySearchLazy-Bbb000.js': 10, ...MGMT_PACK, ...COMMENTS_PACK, ...NOTIFICATIONS_PACK, ...UPLOADS_PACK, ...AVATAR_PACK, ...GROUP_DIALOG_PACK,
   };
   const bad = fakeAssets({ ...base, 'index-Css111.css': '.x{}.reveal-viewport{color:#000}' });
   try {
@@ -684,7 +687,7 @@ test('entry CSS contains .reveal-viewport (reveal.css entered the entry) -> thro
 test('the reveal-viewport string is only allowed in PresentationOverlay-*.js: inside the overlay passes, inside NotePage throws (reveal.js statically imported into NotePage)', () => {
   const base = {
     'index-Abc123.js': 100, 'mermaid.core-Ghi789.js': 10, 'shiki-Jkl012.js': 10, 'AdminSections-Mno345.js': 10, 'VersionsLazy-Vvv000.js': 10,
-    'TrashLazy-Ttt000.js': 10, 'SelectLazy-Sss000.js': 10, 'FolderLazy-Fff000.js': 10, 'ShortcutsLazy-Kkk000.js': 10, 'TourLazy-Tou000.js': 10, 'BodySearchLazy-Bbb000.js': 10, ...MGMT_PACK, ...COMMENTS_PACK, ...NOTIFICATIONS_PACK, ...AVATAR_PACK, ...GROUP_DIALOG_PACK,
+    'TrashLazy-Ttt000.js': 10, 'SelectLazy-Sss000.js': 10, 'FolderLazy-Fff000.js': 10, 'ShortcutsLazy-Kkk000.js': 10, 'TourLazy-Tou000.js': 10, 'BodySearchLazy-Bbb000.js': 10, ...MGMT_PACK, ...COMMENTS_PACK, ...NOTIFICATIONS_PACK, ...UPLOADS_PACK, ...AVATAR_PACK, ...GROUP_DIALOG_PACK,
   };
   const ok = fakeAssets({ ...base, 'NotePage-Def456.js': 'x', 'PresentationOverlay-Pqr678.js': 'e.classList.add("reveal-viewport")' });
   try {
@@ -704,7 +707,7 @@ test('the static import closure (including indirect) of the presentation chunk r
   const base = {
     'index-Abc123.js': 100, 'NotePage-Def456.js': 10, 'mermaid.core-Ghi789.js': 10, 'AdminSections-Mno345.js': 10, 'VersionsLazy-Vvv000.js': 10,
     'shiki-Jkl012.js': 'export const s=1', 'bundle-full-Zz9.js': 'export const b=1', 'TrashLazy-Ttt000.js': 10,
-    'SelectLazy-Sss000.js': 10, 'FolderLazy-Fff000.js': 10, 'ShortcutsLazy-Kkk000.js': 10, 'TourLazy-Tou000.js': 10, 'BodySearchLazy-Bbb000.js': 10, ...MGMT_PACK, ...COMMENTS_PACK, ...NOTIFICATIONS_PACK, ...AVATAR_PACK, ...GROUP_DIALOG_PACK,
+    'SelectLazy-Sss000.js': 10, 'FolderLazy-Fff000.js': 10, 'ShortcutsLazy-Kkk000.js': 10, 'TourLazy-Tou000.js': 10, 'BodySearchLazy-Bbb000.js': 10, ...MGMT_PACK, ...COMMENTS_PACK, ...NOTIFICATIONS_PACK, ...UPLOADS_PACK, ...AVATAR_PACK, ...GROUP_DIALOG_PACK,
   };
   const indirect = fakeAssets({ ...base, 'PresentationOverlay-Pqr678.js': 'import{a}from"./mid-Q1.js";', 'mid-Q1.js': 'import{b}from"./bundle-full-Zz9.js";export const a=1' });
   try {
@@ -1043,4 +1046,71 @@ test('NOTIFICATIONS_I18N_MARKER is a notifications.* key in notifications.en.jso
   const read = name => JSON.parse(readFileSync(fileURLToPath(new URL(`../apps/web/src/i18n/${name}`, import.meta.url)), 'utf8'));
   assert.equal(typeof read('notifications.en.json').notifications?.[NOTIFICATIONS_I18N_MARKER], 'string');
   assert.equal(read('en.json').notifications, undefined);
+});
+
+test('upload list chunk missing -> throws', () => {
+  const files = { ...MARKER_BASE, 'NotePage-Def456.js': 'x', 'VersionsLazy-Vvv000.js': 'x' };
+  delete files['UploadsLazy-Uuu000.js'];
+  const { assets, cleanup } = fakeAssets(files);
+  try {
+    assert.throws(() => checkBundleSize(assets), /UploadsLazy/);
+  } finally {
+    cleanup();
+  }
+});
+
+test('upload list string pack key in entry or NotePage -> throws', () => {
+  for (const at of ['index-Abc123.js', 'NotePage-Def456.js']) {
+    const { assets, cleanup } = fakeAssets({ ...MARKER_BASE, 'NotePage-Def456.js': 'x', 'VersionsLazy-Vvv000.js': 'x', [at]: `const s={${UPLOAD_LIST_I18N_MARKER}:"x"}` });
+    try {
+      assert.throws(() => checkBundleSize(assets), (err) => err.message.startsWith(at) && err.message.includes(UPLOAD_LIST_I18N_MARKER));
+    } finally {
+      cleanup();
+    }
+  }
+});
+
+test('upload list string pack reachable only through a chunk the list imports -> passes; not reachable at all -> throws', () => {
+  const shared = { ...MARKER_BASE, 'NotePage-Def456.js': 'x', 'VersionsLazy-Vvv000.js': 'x' };
+  let fixture = fakeAssets({ ...shared, 'UploadsLazy-Uuu000.js': 'import{a}from"./upload-list-strings-Qqq000.js";', 'upload-list-strings-Qqq000.js': `const c={${UPLOAD_LIST_I18N_MARKER}:"x"}` });
+  try {
+    assert.deepEqual(checkBundleSize(fixture.assets).uploadsChunks, ['UploadsLazy-Uuu000.js']);
+  } finally {
+    fixture.cleanup();
+  }
+  fixture = fakeAssets({ ...shared, 'UploadsLazy-Uuu000.js': 'x' });
+  try {
+    assert.throws(() => checkBundleSize(fixture.assets), /UploadsLazy-Uuu000\.js[\s\S]*placeGone/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('UPLOAD_LIST_I18N_MARKER is an uploadList.* key in upload-list.en.json, not in the main en.json', () => {
+  const read = name => JSON.parse(readFileSync(fileURLToPath(new URL(`../apps/web/src/i18n/${name}`, import.meta.url)), 'utf8'));
+  assert.equal(typeof read('upload-list.en.json').uploadList?.[UPLOAD_LIST_I18N_MARKER], 'string');
+  assert.equal(read('en.json').uploadList, undefined);
+});
+
+test('the upload runner marker in entry -> throws; in a lazy chunk -> passes', () => {
+  for (const [where, throws] of [['index-Abc123.js', true], ['upload-runner-Rrr000.js', false]]) {
+    const { assets, cleanup } = fakeAssets({
+      ...MARKER_BASE, 'NotePage-Def456.js': 'x', 'VersionsLazy-Vvv000.js': 'x', [where]: `new A(401,"unauthorized",${JSON.stringify(UPLOAD_RUNNER_MARKER)})`,
+    });
+    try {
+      if (throws) assert.throws(() => checkBundleSize(assets), /index-Abc123\.js[\s\S]*Signed out[\s\S]*upload-runner/);
+      else assert.doesNotThrow(() => checkBundleSize(assets));
+    } finally {
+      cleanup();
+    }
+  }
+});
+
+test('UPLOAD_RUNNER_MARKER is a string literal in upload-runner.ts and appears in no other web source or string pack', () => {
+  const src = new URL('../apps/web/src/', import.meta.url);
+  const literal = new RegExp(`["']${UPLOAD_RUNNER_MARKER}["']`);
+  assert.match(readFileSync(fileURLToPath(new URL('uploads/upload-runner.ts', src)), 'utf8'), literal);
+  const walk = dir => readdirSync(dir, { withFileTypes: true }).flatMap(d => (d.isDirectory() ? walk(join(dir, d.name)) : [join(dir, d.name)]));
+  const others = walk(fileURLToPath(src)).filter(p => /\.(tsx?|json)$/.test(p) && !/\.test\.tsx?$/.test(p) && !p.endsWith(join('uploads', 'upload-runner.ts')));
+  for (const path of others) assert.doesNotMatch(readFileSync(path, 'utf8'), literal, path);
 });

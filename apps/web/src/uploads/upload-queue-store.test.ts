@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import { ApiFail } from "@/api/client";
@@ -5,16 +7,19 @@ import {
   clearUploadQueue,
   dismissUpload,
   getUploadItems,
-  isUploadRetryable,
   notifyUploadSessionExpired,
   patchUpload,
   putUpload,
   resetUploadQueueForTest,
+  removeUpload,
   setUploadSessionExpiredHandler,
+  setUploadUserSource,
+  currentUploadUserId,
   uploadQueueSummary,
   useUploadQueue,
   type UploadItem,
 } from "./upload-queue-store";
+import { isUploadRetryable, uploadRetryWaitMs } from "./upload-rules";
 
 const base = (id: string, over: Partial<UploadItem> = {}): UploadItem => ({
   id,
@@ -36,6 +41,7 @@ const unloadPrevented = () => {
 
 afterEach(() => {
   setUploadSessionExpiredHandler(undefined);
+  setUploadUserSource(undefined);
   resetUploadQueueForTest();
   vi.restoreAllMocks();
 });
@@ -47,7 +53,6 @@ describe("upload queue store", () => {
       base("b", { size: 300, status: "writing", loaded: 10 }),
       base("c", { size: 1000, status: "failed" }),
       base("d", { size: 1000, status: "unplaced" }),
-      base("e", { size: 1000, status: "done" }),
     ];
     expect(uploadQueueSummary(list)).toEqual({ active: 2, percent: 87 });
     expect(uploadQueueSummary([base("c", { status: "failed" })])).toEqual({ active: 0, percent: null });
@@ -67,7 +72,6 @@ describe("upload queue store", () => {
     const add = vi.spyOn(window, "addEventListener");
     putUpload(base("f", { status: "failed" }));
     putUpload(base("u", { status: "unplaced" }));
-    putUpload(base("d", { status: "done" }));
     expect(add.mock.calls.filter(([type]) => type === "beforeunload")).toHaveLength(0);
     expect(unloadPrevented()).toBe(false);
 
@@ -80,9 +84,9 @@ describe("upload queue store", () => {
     expect(legacy.returnValue).toBeTruthy();
     patchUpload("a", { status: "writing" });
     expect(unloadPrevented()).toBe(true);
-    patchUpload("a", { status: "done" });
+    removeUpload("a");
     expect(unloadPrevented()).toBe(false);
-    patchUpload("a", { status: "uploading" });
+    putUpload(base("a"));
     expect(unloadPrevented()).toBe(true);
     patchUpload("a", { status: "failed" });
     expect(unloadPrevented()).toBe(false);
@@ -144,7 +148,7 @@ describe("upload queue store", () => {
   it("clearUploadQueue empties the queue, running items included, and lifts the leave-page guard", () => {
     putUpload(base("a"));
     putUpload(base("b", { status: "failed" }));
-    putUpload(base("c", { status: "done" }));
+    putUpload(base("c", { status: "unplaced" }));
     clearUploadQueue();
     expect(getUploadItems()).toEqual([]);
     expect(unloadPrevented()).toBe(false);
@@ -159,5 +163,33 @@ describe("upload queue store", () => {
     setUploadSessionExpiredHandler(undefined);
     notifyUploadSessionExpired();
     expect(handler).toHaveBeenCalledTimes(1);
+  });
+  it("removeUpload drops an item whatever its status, running ones included", () => {
+    putUpload(base("a", { status: "writing" }));
+    putUpload(base("b", { status: "failed" }));
+    removeUpload("a");
+    expect(getUploadItems().map((i) => i.id)).toEqual(["b"]);
+    removeUpload("missing");
+    expect(getUploadItems().map((i) => i.id)).toEqual(["b"]);
+  });
+
+  it("uploadRetryWaitMs: the time left before the server said to try again, never negative; 0 without a retryAt", () => {
+    expect(uploadRetryWaitMs(base("a", { status: "failed" }), 1_000)).toBe(0);
+    expect(uploadRetryWaitMs(base("a", { status: "failed", retryAt: 5_000 }), 1_000)).toBe(4_000);
+    expect(uploadRetryWaitMs(base("a", { status: "failed", retryAt: 5_000 }), 9_000)).toBe(0);
+  });
+
+  it("the user source: unregistered, the signed-in id is unknown; registered, it answers from the source", () => {
+    expect(currentUploadUserId()).toBeUndefined();
+    setUploadUserSource(() => "alice");
+    expect(currentUploadUserId()).toBe("alice");
+  });
+
+  it("imports only types from the pre-check module and nothing from the runner or the rules, so none of them reaches the entry", () => {
+    const src = readFileSync(join(process.cwd(), "src/uploads/upload-queue-store.ts"), "utf8");
+    const fromPrecheck = [...src.matchAll(/^import\s+(type\s+)?[^;]*from\s+["']\.\/precheck["']/gm)];
+    expect(fromPrecheck.length).toBeGreaterThan(0);
+    for (const m of fromPrecheck) expect(m[1], m[0]).toBeDefined();
+    expect(src).not.toMatch(/upload-runner|upload-rules/);
   });
 });

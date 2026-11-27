@@ -64,6 +64,14 @@ export const NOTIFICATIONSLAZY_RE = /^NotificationsLazy-[A-Za-z0-9_-]+\.js$/;
 // A notifications.* key that lives only in notifications.en.json: in entry or NotePage means notifications-strings is statically imported there,
 // and it must stay reachable from the NotificationsLazy chunk or the list would render raw keys.
 export const NOTIFICATIONS_I18N_MARKER = 'cantOpen';
+// Presence only catches the whole group merging back or a rename; UPLOAD_LIST_I18N_MARKER catches a static import of the list or its strings.
+export const UPLOADSLAZY_RE = /^UploadsLazy-[A-Za-z0-9_-]+\.js$/;
+// An uploadList.* key that lives only in upload-list.en.json: in entry or NotePage means upload-list-strings is statically imported there,
+// and it must stay reachable from the UploadsLazy chunk or the list would render raw keys.
+export const UPLOAD_LIST_I18N_MARKER = 'placeGone';
+// A string literal only `uploads/upload-runner.ts` has. The runner brings the collab connection and BlockNote's schema with it,
+// so the indicator in the entry reaches it with `import()` only.
+export const UPLOAD_RUNNER_MARKER = 'Signed out';
 // Presence only catches the whole group merging back or a rename. The marker is the match rows' data-testid literal
 // (unlike i18n copy it is stable; only BodySearchResults.tsx may use it).
 export const BODYSEARCHLAZY_RE = /^BodySearchLazy-[A-Za-z0-9_-]+\.js$/;
@@ -393,6 +401,36 @@ export function checkBundleSize(assetsDir, { maxEntryBytes = MAX_ENTRY_BYTES } =
     );
   }
 
+  if (readFileSync(join(assetsDir, entryName), 'utf8').includes(UPLOAD_RUNNER_MARKER)) {
+    throw new Error(
+      `entry chunk ${entryName} 含上傳執行模組的字串 ${JSON.stringify(UPLOAD_RUNNER_MARKER)}——\`@/uploads/upload-runner\` 被首包靜態 import；` +
+        `上傳指示只能用 import() 取用它（它帶著協作連線與 BlockNote schema）`
+    );
+  }
+  const uploadsChunks = names.filter(name => UPLOADSLAZY_RE.test(name));
+  if (uploadsChunks.length === 0) {
+    throw new Error(
+      `找不到上傳清單的 lazy chunk（UploadsLazy-<hash>.js）——最可能的原因是上傳清單被 ` +
+        `\`lazy(() => import("@/components/uploads/UploadsLazy"))\` 以外的地方靜態 import、整組併回 entry；` +
+        `若是 rollup 改了 chunk 命名慣例，請更新本檢查的 pattern，不要刪檢查`
+    );
+  }
+  for (const name of [entryName, ...notePageChunks]) {
+    if (readFileSync(join(assetsDir, name), 'utf8').includes(UPLOAD_LIST_I18N_MARKER)) {
+      throw new Error(
+        `${name} 含上傳清單字串包的鍵名 ${UPLOAD_LIST_I18N_MARKER}——\`@/i18n/upload-list-strings\`（或 import 它的上傳清單模組）被靜態 import；` +
+          `上傳清單與字串包只能經 UploadsLazy 載入`
+      );
+    }
+  }
+  const uploadsReach = uploadsChunks.flatMap(chunk => [...staticImportClosure(assetsDir, chunk)]);
+  if (!uploadsReach.some(name => readFileSync(join(assetsDir, name), 'utf8').includes(UPLOAD_LIST_I18N_MARKER))) {
+    throw new Error(
+      `上傳清單的 chunk [${uploadsChunks.join(', ')}] 與它靜態 import 的 chunk 都不含鍵名 ${UPLOAD_LIST_I18N_MARKER}——上傳清單字串包沒跟著清單載入` +
+        `（或鍵改名了，請同步更新 UPLOAD_LIST_I18N_MARKER）`
+    );
+  }
+
   const bodySearchChunks = names.filter(name => BODYSEARCHLAZY_RE.test(name));
   if (bodySearchChunks.length === 0) {
     throw new Error(
@@ -501,7 +539,7 @@ export function checkBundleSize(assetsDir, { maxEntryBytes = MAX_ENTRY_BYTES } =
     }
   }
 
-  return { entryName, entryBytes, notePageChunks, mermaidChunks, shikiChunks, adminSectionsChunks, versionsChunks, presentationChunks, trashChunks, selectChunks, folderChunks, shortcutsChunks, tourChunks, managementChunks, bodySearchChunks, commentsChunks, notificationsChunks, avatarEncodeChunks, groupDialogChunks };
+  return { entryName, entryBytes, notePageChunks, mermaidChunks, shikiChunks, adminSectionsChunks, versionsChunks, presentationChunks, trashChunks, selectChunks, folderChunks, shortcutsChunks, tourChunks, managementChunks, bodySearchChunks, commentsChunks, notificationsChunks, uploadsChunks, avatarEncodeChunks, groupDialogChunks };
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
@@ -520,6 +558,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
         `${result.bodySearchChunks.join(', ')}（entry 不含 ${BODY_SEARCH_MARKER}）、` +
         `${result.commentsChunks.join(', ')}（entry 與 NotePage 不含 ${COMMENTS_I18N_MARKER}）、` +
         `${result.notificationsChunks.join(', ')}（entry 與 NotePage 不含 ${NOTIFICATIONS_I18N_MARKER}）、` +
+        `${result.uploadsChunks.join(', ')}（entry 與 NotePage 不含 ${UPLOAD_LIST_I18N_MARKER}；entry 不含 ${JSON.stringify(UPLOAD_RUNNER_MARKER)}）、` +
         GROUP_LAZY_DIALOGS.map(d => `${result.groupDialogChunks[d.name].join(', ')}（entry 不含 ${d.marker}）、`).join('') +
         `${result.avatarEncodeChunks.join(', ')}（${AVATAR_IMAGE_MARKER} 只在這個 chunk，entry 與其他 chunk 都不含）`
     );

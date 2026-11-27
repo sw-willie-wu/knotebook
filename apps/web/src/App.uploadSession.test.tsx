@@ -5,7 +5,13 @@ import { MemoryRouter } from "react-router";
 import { ThemeProvider } from "@/theme";
 import { SESSION_QUERY_KEY } from "@/auth/useSession";
 import type { UserDto } from "@knotebook/shared";
-import { getUploadItems, notifyUploadSessionExpired, putUpload, resetUploadQueueForTest } from "@/uploads/upload-queue-store";
+import {
+  currentUploadUserId,
+  getUploadItems,
+  notifyUploadSessionExpired,
+  putUpload,
+  resetUploadQueueForTest,
+} from "@/uploads/upload-queue-store";
 import { AppRoutes } from "./App";
 
 // A public route needs no session or fetch, so only the wiring under test runs.
@@ -65,6 +71,19 @@ describe("AppRoutes: the queue belongs to the signed-in person", () => {
     expect(getUploadItems()).toHaveLength(1);
   });
 
+  it("a failed refetch of the session (network) keeps it", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new TypeError("Failed to fetch"))));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(SESSION_QUERY_KEY, userOf("alice"));
+    renderApp(queryClient);
+    anItem();
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: SESSION_QUERY_KEY });
+    });
+    expect(queryClient.getQueryState(SESSION_QUERY_KEY)?.status).toBe("error");
+    expect(getUploadItems()).toHaveLength(1);
+  });
+
   it("a signed-in session appearing after a loading one keeps it", () => {
     vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
     const queryClient = new QueryClient();
@@ -97,5 +116,19 @@ describe("AppRoutes: an upload's 401 reaches the session query", () => {
     unmount();
     notifyUploadSessionExpired();
     expect(invalidate).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("AppRoutes: who the queue's items belong to", () => {
+  it("current() reads the cached session without a request; unmounted, the source is gone", () => {
+    const fetchMock = vi.fn(() => new Promise(() => {}));
+    vi.stubGlobal("fetch", fetchMock);
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(SESSION_QUERY_KEY, userOf("alice"));
+    const { unmount } = renderApp(queryClient);
+    expect(currentUploadUserId()).toBe("alice");
+    expect(fetchMock).not.toHaveBeenCalled();
+    unmount();
+    expect(currentUploadUserId()).toBeUndefined();
   });
 });

@@ -424,6 +424,13 @@
     "label": "Notifications",
     "unread": "Notifications, {{count}} unread"
   },
+  "uploadIndicator": {
+    "active_one": "{{count}} upload in progress, {{percent}}%",
+    "active_other": "{{count}} uploads in progress, {{percent}}%",
+    "attention_one": "{{count}} upload needs attention",
+    "attention_other": "{{count}} uploads need attention",
+    "both": "{{active}}; {{attention}}"
+  },
   "userMenu": {
     "language": "Language",
     "languageEn": "English",
@@ -861,6 +868,7 @@
     "upload_write_rejected": "The file was uploaded, but you can no longer edit this note.",
     "upload_write_outdated": "The file was uploaded, but this page is out of date. Reload the page, then add the file again.",
     "upload_write_deleted": "The file was uploaded, but the note was deleted.",
+    "upload_session_unconfirmed": "Couldn't confirm you're signed in. Try again.",
     "ai_not_configured": "AI is not configured yet",
     "provider_unavailable": "AI provider is unavailable — ask an admin to re-enter the API key",
     "upstream_error": "The AI provider returned an error",
