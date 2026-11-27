@@ -207,7 +207,7 @@ describe("#269 blockIdFromHash / scrollToBlock", () => {
 });
 
 describe("#269 useBlockAnchor (member: real useCollab)", () => {
-  it("A -> /notes/B#b-x (through undefined, converging REPLACE before B syncs): neither the stale commit nor the late synced from A's old provider consumes it; B syncs only after the wait limit and still scrolls exactly once", async () => {
+  it("A -> /notes/B#b-x (through undefined, converging REPLACE before B syncs): the stale commit does not consume it; B syncs only after the wait limit and still scrolls exactly once", async () => {
     const { rerender } = render(
       <MemoryRouter initialEntries={["/notes/A"]}>
         <MemberHost noteId={A} />
@@ -229,13 +229,6 @@ describe("#269 useBlockAnchor (member: real useCollab)", () => {
     act(() => void navigate("/n/h/b#b-x", { replace: true })); // converging REPLACE (keeps the hash)
     expect(commits.some((c) => c.noteId === B && c.synced && c.docNull)).toBe(true);
     expect(scrolls).toEqual([]);
-    act(() => providerAt(0).emit("synced", { state: true })); // late synced from A's old provider: synced becomes true, syncedFor stays null
-    // The fake provider creates the distinguishing condition: its destroy does not clear listeners, so the torn-down A can still emit "synced";
-    // useCollab's `setSynced(true)` has no `disposed` guard (`setSyncedFor` has one) => `synced` is true while `syncedFor` is still null. An
-    // implementation reading `synced` consumes here, B's blocks are not rendered yet, and MutationObserver gives up after 2 s => scrolls is empty;
-    // one reading `syncedFor` waits until syncedFor === B and consumes then => exactly one scroll.
-    // Production cannot reach this: the real `HocuspocusProvider.destroy()` calls removeAllListeners (useCollab's cleanup calls it synchronously).
-    // Via the stale-commit path alone the two are equivalent (pending is set and synced reset in the same batched update): `syncedFor` is a defensive condition in production.
     // Real timers: wait past ANCHOR_WAIT_MS before letting B sync.
     await act(async () => {
       await new Promise((r) => setTimeout(r, ANCHOR_WAIT_MS + 300));
@@ -244,6 +237,30 @@ describe("#269 useBlockAnchor (member: real useCollab)", () => {
     act(() => providerAt(1).emit("synced", { state: true }));
     expect(scrolls).toEqual([`${B}:x`]);
   }, 10_000);
+
+  it("the member anchor waits for syncedFor to name this note, not for synced", () => {
+    // B's blocks are present throughout, so only `ready` decides when the anchor is consumed.
+    function SyntheticHost({ collab }: { collab: { synced: boolean; syncedFor: string | null } }) {
+      const [root, setRoot] = useState<HTMLElement | null>(null);
+      useMemberBlockAnchor({ noteId: B, collab, root, presenting: false });
+      return (
+        <div ref={setRoot}>
+          <div className="bn-block-outer" data-id="x" data-note={B} />
+        </div>
+      );
+    }
+    const tree = (collab: { synced: boolean; syncedFor: string | null }) => (
+      <MemoryRouter initialEntries={["/notes/B#b-x"]}>
+        <SyntheticHost collab={collab} />
+      </MemoryRouter>
+    );
+    const { rerender } = render(tree({ synced: true, syncedFor: null }));
+    expect(scrolls).toEqual([]);
+    rerender(tree({ synced: true, syncedFor: A }));
+    expect(scrolls).toEqual([]);
+    rerender(tree({ synced: true, syncedFor: B }));
+    expect(scrolls).toEqual([`${B}:x`]);
+  });
 
   it("new tab / cold open /notes/B#b-x (REPLACE before synced) scrolls exactly once; later unrelated REPLACEs and modal toggles (query changes) do not scroll again", () => {
     render(
