@@ -1,0 +1,25 @@
+{
+  "notifications": {
+    "title": "Notifications",
+    "back": "Back",
+    "loading": "Loading…",
+    "empty": "No notifications yet.",
+    "loadFailed": "Notifications couldn't be loaded.",
+    "retry": "Try again",
+    "loadMore": "Show older notifications",
+    "list": "Notifications list",
+    "new": "New",
+    "mentioned": "{{who}} mentioned you",
+    "replied": "{{who}} replied to your comment",
+    "forAgent": "for your agent {{label}}",
+    "cantOpen": "You can't open this note any more.",
+    "delete": "Delete this notification",
+    "deleteFailed": "That notification couldn't be deleted.",
+    "clearAll": "Clear all",
+    "clearTitle": "Clear all notifications?",
+    "clearBody": "They are cleared for your agents too.",
+    "clearConfirm": "Clear",
+    "clearFailed": "Notifications couldn't be cleared.",
+    "cancel": "Cancel"
+  }
+}

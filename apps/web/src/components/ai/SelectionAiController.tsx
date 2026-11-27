@@ -60,7 +60,7 @@ export function formattingToolbarMiddleware(bottomPadding: number) {
 export function SelectionAiController() {
   const editor = useBlockNoteEditor();
   const phone = useIsPhone();
-  const { state } = useAiSession();
+  const { state, editable } = useAiSession();
   const flipBottomPadding = phone ? PHONE_EDIT_TOOLBAR_CLEARANCE_PX : 0;
   const toolbarStoreOpen = useExtensionState(FormattingToolbarExtension, { editor });
   const anchor = activeAnchorOf(state);
@@ -77,7 +77,8 @@ export function SelectionAiController() {
   // Phones (<640) hide the floating toolbar for text selections, where under touch it covers the selection and the system menu; image/file/cell
   // selections keep it (their replace, delete, merge actions have no other entry point). The AI box still opens from the phone edit toolbar.
   const hiddenOnPhone = phone && !nonTextSelection;
-  const toolbarOpen = toolbarStoreOpen && !hiddenOnPhone && !(boxOpen && insideTarget);
+  // Read-only, the store still opens on a selection made without a pointer drag (a double-click, the keyboard), but every item renders nothing; readers get `ViewerCommentToolbar`.
+  const toolbarOpen = toolbarStoreOpen && editable && !hiddenOnPhone && !(boxOpen && insideTarget);
   // FormattingToolbarController's internal useMemo depends on this object's identity; a new object per render would recompute every time.
   const floatingUIOptions = useMemo<FloatingUIOptions>(
     () => ({

@@ -1,6 +1,7 @@
 import type { AiActionDto } from "@knotebook/shared";
 import type { TFunction } from "i18next";
 import "@/i18n/tour-strings";
+import { showCornerStackForNow } from "@/components/corner-stack-state";
 import { isMacPlatform } from "@/lib/platform";
 import { getShellControls, getTourNoteEditor } from "@/lib/tour-bridge";
 import { findDrawerButton, findTourTarget, findUserMenuTrigger, tourLayout, type TourLayout } from "@/lib/tour-find";
@@ -165,6 +166,10 @@ export const STOPS: Readonly<Record<StopId, StopDef>> = {
     // The bottom-right bubble exists from 640 up (also with a floating sidebar), so no `narrowTarget`; phones have no bubble, "version history" is an item in the header ⋮.
     target: () => all(findTourTarget("versions")),
     phoneTarget: () => all(noteMenu()),
+    // A collapsed stack hides the bubble the text is about; the person's choice comes back after the stop.
+    prepare: () => showCornerStackForNow(true),
+    prepareInNarrow: true,
+    leave: () => showCornerStackForNow(false),
   },
   knowledge: {
     id: "knowledge",

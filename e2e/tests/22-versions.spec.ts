@@ -122,14 +122,13 @@ test("22 version history: save, edit, preview diff, apply, edit on top of \"name
 
     await panel.getByRole("button", { name: /^milestone \(/ }).click();
     const applyV1 = page.getByTestId("versions-footer").getByRole("button", { name: /^Apply milestone \(/ });
-    // With the panel open the bottom-right bubble stack yields to outside the panel and must not cover "Apply milestone (...)" (since #263 the container holds only the history bubble, and while the panel is open the whole container is not rendered; if the container is there, it must not cover it)
+    // The bubble stack stays while the panel is open and must not cover "Apply milestone (...)".
     const stack = page.getByTestId("corner-stack");
-    if ((await stack.count()) > 0) {
-      const s = (await stack.boundingBox())!;
-      const btn = (await applyV1.boundingBox())!;
-      const overlap = s.x < btn.x + btn.width && btn.x < s.x + s.width && s.y < btn.y + btn.height && btn.y < s.y + s.height;
-      expect(overlap).toBe(false);
-    }
+    await expect(stack).toBeVisible();
+    const s = (await stack.boundingBox())!;
+    const btn = (await applyV1.boundingBox())!;
+    const overlap = s.x < btn.x + btn.width && btn.x < s.x + s.width && s.y < btn.y + btn.height && btn.y < s.y + s.height;
+    expect(overlap).toBe(false);
     await applyV1.click();
     const applyDialog = page.getByRole("dialog", { name: /^Apply milestone \(/ });
     await expect(applyDialog).toBeVisible();

@@ -53,6 +53,8 @@ Routes stay thin. Domain logic lives in folders named after the area (`notes/`, 
 
 The `/collab` WebSocket does not go through Fastify routing: `collab.attach(app)` listens to the underlying HTTP server's `upgrade` event. Anything that matches no route falls through to `registerSpaFallback` (`apps/server/src/http/spa.ts`), which serves `index.html` from `web-dist` for browser navigations.
 
+`/collab/notifications`, the notification bell's socket, is dispatched from inside the same `upgrade` handler (a second listener would race it) to the hub in `apps/server/src/notifications/hub.ts`. It authenticates by session cookie, not by a token, so its upgrade also passes the `Origin` check in `apps/server/src/http/origin.ts`. It sends only `{"type":"notification"}`; the browser refetches over REST with its own permissions.
+
 ### Authentication
 
 There are four kinds of credentials:
@@ -83,6 +85,7 @@ Migrations are SQL files in `apps/server/drizzle/` (with Drizzle's journal in `a
 Knotebook supports exactly one `app` process ([Single-instance warning](docs/self-hosting.md#single-instance-warning)). Several pieces of state exist only in that process, with no coordination between processes:
 
 - the Hocuspocus documents that are open, and the index of who is connected to which note (`collab/server.ts`);
+- the notification bell's open sockets, per person (`notifications/hub.ts`): a notification committed on another process would not reach them;
 - the per-note write queue that serializes every non-editor write (`NoteWriteQueue`, `apps/server/src/notes/editing/queue.ts`);
 - agent presence (`PresenceRegistry`, `apps/server/src/notes/editing/presence.ts`);
 - per-note version state between saves (`apps/server/src/collab/versions.ts`; pending versions are also written to the database, so a restart picks them up);

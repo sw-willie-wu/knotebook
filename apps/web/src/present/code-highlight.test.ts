@@ -25,6 +25,8 @@ describe("resolveHighlightLanguage", () => {
     expect(resolveHighlightLanguage("c++")).toBe("cpp");
     expect(resolveHighlightLanguage("c#")).toBe("csharp");
     expect(resolveHighlightLanguage("dockerfile")).toBe("docker");
+    expect(resolveHighlightLanguage("latex")).toBe("latex");
+    expect(resolveHighlightLanguage("LaTeX")).toBe("latex");
   });
 
   it("returns null for plain text, empty, or unsupported languages", () => {
@@ -36,6 +38,7 @@ describe("resolveHighlightLanguage", () => {
     expect(resolveHighlightLanguage(null)).toBeNull();
     expect(resolveHighlightLanguage(undefined)).toBeNull();
     expect(resolveHighlightLanguage("mermaid")).toBeNull();
+    expect(resolveHighlightLanguage("tex")).toBeNull();
     expect(resolveHighlightLanguage("nonexistent-lang")).toBeNull();
   });
 });
@@ -104,6 +107,15 @@ describe("tokenizeCode & caching", () => {
     const py = await tokenizeCode("py", "def f():\n  return 1");
     expect(py).toHaveLength(2);
     expect(createHighlighter).toHaveBeenCalledTimes(1);
+  });
+
+  it("colors latex math in the constant color for the presentation and leaves plain prose in the foreground color", async () => {
+    const lines = await tokenizeCode("latex", "Plain words $x_1^2$");
+    expect(lines).not.toBeNull();
+    const tokens = lines!.flat();
+    expect(tokens.find((t) => t.content.includes("x_1^2"))?.color).toBe("var(--code-token-constant)");
+    expect(tokens.find((t) => t.content.includes("Plain words"))?.color).toBe("var(--code-foreground)");
+    expect(cachedCodeTokens("latex", "Plain words $x_1^2$")).toEqual(lines);
   });
 
   it("recovers after a transient highlighter load failure without caching the failure", async () => {

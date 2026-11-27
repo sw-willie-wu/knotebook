@@ -42,7 +42,7 @@ When automatic versions are off for the note, a second line says **Automatic sav
 
 ## Previewing and comparing
 
-On a wide window, open the history with the round **Version history** button at the bottom right of the note. The list opens beside the note.
+On a wide window, open the history with the round **Version history** button at the bottom right of the note; press it again to close the history. The list opens beside the note. If you can comment, the **Comments** bubble sits above it and opens the comments in the same place, so one press switches between the two. The button with an arrow below them hides both bubbles or shows them again (the page remembers it in this browser); while they are hidden, press it first.
 
 Click a row to preview that version; its content isn't loaded until you do. The ↑ and ↓ keys move between rows and preview each one. While you preview, a bar under the page header shows the version and lets you choose:
 
@@ -54,7 +54,7 @@ Added, deleted, changed and moved blocks are marked with a colored bar at their 
 
 Previewing doesn't change the note, and the editor stays open underneath: other people's edits keep arriving. To close the preview, press Esc, click an empty part of the version list, click the selected version again, or close the version history.
 
-On a window narrower than 1280 pixels (and at least 640) the version list floats over the note, at the right, instead of sitting beside it, just under the header; drag its left edge to make it wider. Click the note while it shows only the list, and it closes; while a version is being previewed, clicking the note leaves it open. Close it with ✕ or by pressing Esc while the panel has focus (Esc with the focus in the note only leaves the preview). On a narrower window (narrower than 640 pixels) there is no **Version history** button: choose **Version history** from the `⋮` menu. It opens full screen: tap a version to see its changes in a single column, with the same pair of menus at the top and **Older version**, **Apply** (with the version's name and code) and **Newer version** at the bottom (these two change the left side only). Esc goes back from a version to the list, and from the list closes the history. Opening another note closes the full-screen history, whereas the list beside or over the note on a wider window stays open and shows the other note's versions (it closes if you can't edit that note).
+On a window narrower than 1280 pixels (and at least 640) the version list floats over the note, at the right, instead of sitting beside it, from just under the header down to just above the bubbles; drag its left edge to make it wider. When the window is too short for the list to stay about 290 pixels tall (at the default text size) above both bubbles, only the arrow button stays while the list is open; pressing it shows the bubbles anyway, and they come back by themselves once there is room. On a window shorter still, such as a phone held sideways, the list is shorter than that (see [Known limitations](./known-limitations/version-history.md)). Click the note while it shows only the list, and it closes; while a version is being previewed, clicking the note leaves it open. Close it with ✕ or by pressing Esc while the panel has focus (Esc with the focus in the note only leaves the preview). On a narrower window (narrower than 640 pixels) there is no **Version history** button: choose **Version history** from the `⋮` menu. It opens full screen, with **Comments** and **Version history** at the top to switch to the comments and back: tap a version to see its changes in a single column, with the same pair of menus at the top and **Older version**, **Apply** (with the version's name and code) and **Newer version** at the bottom (these two change the left side only). Esc goes back from a version to the list, and from the list closes the history. Opening another note closes the full-screen history, whereas the list beside or over the note on a wider window stays open and shows the other note's versions (it closes if you can't edit that note).
 
 ## Applying a version
 
@@ -83,7 +83,7 @@ Anyone who can edit a note can see its history and save, preview, apply, rename 
 ## Moving, copying and transferring
 
 - **Copying** a note doesn't copy its versions; the copy starts with none.
-- **Moving** a personal note into a group asks whether to **Bring its version history along**; the box starts unchecked. When you check it, all of the note's versions, their names and their numbering stay, and the group's editors can see them, together with who edited them. That can include people the note was shared with before the move, who aren't in the group. When it stays unchecked, the note's versions are deleted and numbering starts again from 1: the history of a note's earlier life isn't shown to its new owners. Changes that were still waiting to be saved at the moment of the move go into the next version, and their editors aren't listed on it.
+- **Moving** a personal note into a group asks whether to **Bring its version history and comments along**; the box starts unchecked. When you check it, all of the note's versions, their names and their numbering stay, and the group's editors can see them, together with who edited them; its comments stay too, and everyone in the group can read them. That can include people the note was shared with before the move, who aren't in the group. When it stays unchecked, the note's versions and comments are deleted and numbering starts again from 1: the history of a note's earlier life isn't shown to its new owners. Changes that were still waiting to be saved at the moment of the move go into the next version, and their editors aren't listed on it.
 - **Transferring** a group's notes to a person when the group is deleted always deletes the notes' versions.
 - **Moving a note to the trash** keeps its versions, and they are back when the note is restored. **Permanently deleting** it — from the trash, when its retention period runs out, or with its group (**Delete everything**) — deletes them.
 
@@ -109,7 +109,7 @@ A note gets automatic versions only when both the site switch and the switch of 
 
 ## Storage
 
-Versions don't count toward a space's storage limit, and there is no site-wide limit on their total size; the retention settings above are what keeps automatic versions in check. Their size is shown, together with the size of note content, as **Notes and history** in **Settings → Storage** and on a group's **Storage** page; it is for information only.
+Versions don't count toward a space's storage limit, and there is no site-wide limit on their total size; the retention settings above are what keeps automatic versions in check. Their size is shown as **Current backups** under **Version history** in **Settings → Storage** and on a group's **Storage** page; it is for information only.
 
 ## API
 

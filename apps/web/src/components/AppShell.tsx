@@ -42,6 +42,8 @@ import { PHONE_LIST_HEADER_STICKY, PHONE_LIST_SCROLLER, PHONE_TOP_BAR_STICKY } f
 import { SidebarTabList, sidebarPanelId, sidebarTabId } from "@/components/sidebar/SidebarTabList";
 import { SidebarLazyBoundary } from "@/components/sidebar/SidebarLazyBoundary";
 import { UserMenu } from "@/components/UserMenu";
+import { NotificationBell } from "@/components/NotificationBell";
+import { useNotificationLive } from "@/lib/notification-live";
 import { ShortcutsDialog } from "@/components/shortcuts/ShortcutsDialog";
 import { AvatarDisplayFiller } from "@/avatars/AvatarDisplayFiller";
 import { useCardPage } from "@/theme";
@@ -165,7 +167,10 @@ function SidebarContent({
               </span>
               <span className="text-sm font-semibold">Knotebook</span>
             </div>
-            <UserMenu variant="avatar" />
+            <div className="flex items-center">
+              <NotificationBell placement="topBar" />
+              <UserMenu variant="avatar" />
+            </div>
           </div>
         </div>
       ) : (
@@ -284,7 +289,7 @@ function SidebarContent({
           <SidebarFooter searching={searching} onCreateNote={() => onCreateNote()} newNotePending={newNotePending} />
 
           <div className="border-t border-border p-2">
-            <UserMenu />
+            <UserMenu bell={<NotificationBell placement="sidebar" />} />
           </div>
         </>
       )}
@@ -316,6 +321,7 @@ export function AppShell({ children, inert }: AppShellProps) {
   const { query, setQuery, clearSearch, claim } = sidebarQuery;
   const { user: sessionUser } = useSession();
   const sessionUserId = sessionUser?.id;
+  useNotificationLive(sessionUserId);
   useEffect(() => {
     if (sessionUserId !== undefined) claim(sessionUserId); // a different user signed in: clear the previous user's search text
   }, [sessionUserId, claim]);

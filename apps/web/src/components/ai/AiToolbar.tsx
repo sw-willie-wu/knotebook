@@ -4,6 +4,10 @@ import { Sparkles } from "@/components/ui/icons";
 import { KnotebookBlockTypeSelect } from "@/components/editor/KnotebookBlockTypeSelect";
 import { KnotebookFileDeleteButton } from "@/components/editor/KnotebookFileDeleteButton";
 import { KnotebookColorStyleButton } from "@/components/editor/colors/KnotebookColorStyleButton";
+import { PassageCommentButton } from "@/components/comments/PassageCommentButton";
+import { passageOf } from "@/components/comments/passage";
+import { isNonTextSelection } from "@/ai/selection";
+import { useComments } from "@/lib/comments-context";
 import { useAiSession } from "./AiSession";
 
 /**
@@ -19,6 +23,8 @@ import { useAiSession } from "./AiSession";
  * collapses a column when its image is deleted. The color button (`colorStyleButton`) is replaced to add a custom color beyond the 10
  * built-in ones per section (#378). The block type select (`blockTypeSelect`) is replaced so a multi-block selection
  * changes only blocks that are menu item types, and tables, images etc. aren't wiped (#464).
+ *
+ * The Comment button is left out for image, file and cell selections: they have no text to quote.
  */
 export function AiToolbar() {
   const Components = useComponentsContext()!;
@@ -28,6 +34,13 @@ export function AiToolbar() {
   const hasBlockSelection = useEditorState({
     editor,
     selector: ({ editor: current }) => current?.getSelection() !== undefined,
+  });
+  const commentsEnabled = useComments().enabled;
+  const hasTextSelection = useEditorState({
+    editor,
+    selector: ({ editor: current }) =>
+      current !== null &&
+      current.transact((tr) => !tr.selection.empty && !isNonTextSelection(tr) && (passageOf(tr.doc, tr.selection.from, tr.selection.to)?.quote ?? "") !== ""),
   });
 
   return (
@@ -52,6 +65,7 @@ export function AiToolbar() {
           onClick={() => open()}
         />
       )}
+      {editable && commentsEnabled && hasTextSelection && <PassageCommentButton range={() => editor.prosemirrorState.selection} />}
     </Components.FormattingToolbar.Root>
   );
 }

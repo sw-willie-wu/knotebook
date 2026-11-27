@@ -118,15 +118,20 @@ export function useVersionsController({
   noteId,
   enabled,
   onApplied,
+  onOpen,
 }: {
   noteId: string | null;
   enabled: boolean;
   /** Kept in a ref so it stays out of the context value's deps. */
   onApplied?: () => void;
+  /** Called before opening (kept in a ref too); NotePage closes the comments here so only one right-hand panel is open. */
+  onOpen?: () => void;
 }): VersionsContextValue {
   const onAppliedRef = useRef(onApplied);
+  const onOpenRef = useRef(onOpen);
   useEffect(() => {
     onAppliedRef.current = onApplied;
+    onOpenRef.current = onOpen;
   });
   const notifyApplied = useCallback(() => onAppliedRef.current?.(), []);
   const [mode, setMode] = useState<VersionsMode | null>(null);
@@ -180,7 +185,9 @@ export function useVersionsController({
   }, [mode, preview]);
 
   const open = useCallback(() => {
-    if (active) setMode(isPhone() ? "sheet" : "panel");
+    if (!active) return;
+    onOpenRef.current?.();
+    setMode(isPhone() ? "sheet" : "panel");
   }, [active]);
   // Closing the panel also leaves the preview: the banner has no ✕ any more, so a preview left open would have no exit.
   // The right side resets to current as in stopPreview.

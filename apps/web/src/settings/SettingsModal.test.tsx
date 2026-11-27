@@ -199,7 +199,7 @@ function baseFetchHandlers(getLoggedInAs: () => UserDto | null) {
       return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ tokens: [] }) });
     }
     if (url === "/api/storage" && method === "GET") {
-      return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ usedBytes: 0, quotaBytes: 2147483648, planName: "Basic" }) });
+      return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ usedBytes: 0, quotaBytes: 2147483648, planName: "Basic", byKind: { image: 0, audio: 0, video: 0, document: 0, other: 0 }, content: { noteBytes: 0, historyBytes: 0 } }) });
     }
     if (url === "/api/auth/avatars" && method === "GET") {
       return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ candidates: [], auto: false, refreshable: [] }) });

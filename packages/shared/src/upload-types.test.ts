@@ -102,6 +102,11 @@ describe("categories and mimes", () => {
       expect(kindOfMime(`application/vnd.oasis.opendocument.${m}`)).toBe("document");
     }
   });
+  it("every accepted type counts toward a storage kind other than \"other\"", () => {
+    for (const mime of Object.keys(UPLOAD_TYPES)) {
+      expect(kindOfMime(mime), mime).not.toBe("other");
+    }
+  });
   it("refused types are not in the table", () => {
     for (const m of ["audio/aac", "video/x-matroska", "image/svg+xml", "application/vnd.ms-word.document.macroEnabled.12"]) {
       expect(UPLOAD_TYPES[m]).toBeUndefined();

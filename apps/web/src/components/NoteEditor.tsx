@@ -1,6 +1,6 @@
 // This one import is enough: it @imports the mantine theme and `@blocknote/react` styles. `@blocknote/core/fonts/inter.css` is deliberately not imported (Latin-only woff that only grows the bundle for a CJK UI); fonts come from the app CSS.
 import "@blocknote/mantine/style.css";
-import { lazy, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
 import type * as Y from "yjs";
@@ -63,15 +63,19 @@ import { createUploadFile, type Translate } from "@/uploads/upload-file";
 import { createFilePanel } from "@/components/FilePanel";
 import { AiSessionProvider } from "@/components/ai/AiSession";
 import { createNoteSizeGuard, createNoteSizePasteHandlers, formatNoteLimit } from "@/lib/note-size-guard";
-import { CornerStack } from "@/components/CornerStack";
+import { CornerStack, useCornerStackBubbles, useCornerStackRoom } from "@/components/CornerStack";
+import { CommentsLazyBoundary } from "@/components/comments/CommentsLazyBoundary";
+import { ViewerCommentToolbar } from "@/components/comments/ViewerCommentToolbar";
+import { useComments } from "@/lib/comments-context";
 import { useVersions } from "@/lib/versions-context";
+import { preloadableLazy } from "@/lib/preloadable-lazy";
 import { notifyEditorEditable, registerEditor } from "@/lib/tour-bridge";
 import { tourTarget } from "@/lib/tour-targets";
 import { VERSIONS_ERROR_FRAME, VersionsLazyBoundary } from "@/components/versions/VersionsLazyBoundary";
 import { useVersionsPanelWidth } from "@/components/versions/versions-panel-width";
 import { useFloatingPanelDismiss, useNoteHeaderHeight } from "@/components/versions/floating-panel";
 import { PHONE_EDIT_TOOLBAR_CLEARANCE_PX, SelectionAiController } from "@/components/ai/SelectionAiController";
-import { CORNER_STACK_FOOTPRINT_PX } from "@/components/corner-stack-geometry";
+import { cornerStackFootprint } from "@/components/corner-stack-geometry";
 import { PHONE_FAB_FOOTPRINT_PX } from "@/components/sidebar/PhoneListFabs";
 import { MobileEditToolbar } from "@/components/editor/mobile/MobileEditToolbar";
 import { MobileToolbarSpacer } from "@/components/editor/mobile/MobileToolbarSpacer";
@@ -96,9 +100,8 @@ import { useOutlinePinned, usePinMotionReady } from "@/components/outline/outlin
 import { useOutlineBox } from "@/components/outline/use-outline-box";
 import { useOutlineHeadings } from "@/components/outline/use-outline-headings";
 
-const VersionsPanel = lazy(() =>
-  import("@/components/versions/VersionsLazy").then(m => ({ default: m.VersionsPanel })),
-);
+const VersionsPanel = preloadableLazy(() => import("@/components/versions/VersionsLazy").then((m) => m.VersionsPanel));
+const CommentsPanel = preloadableLazy(() => import("@/components/comments/CommentsLazy").then((m) => m.CommentsPanel));
 
 export { collabUserColor };
 
@@ -405,7 +408,17 @@ export function NoteEditor({
   // While any drag runs, floating layers like ⋮⋮ must not take pointer events so the drop reaches the editor (`index.css`).
   useDragActiveClass(columnEl);
   const { resolvedTheme } = useTheme();
-  const { panelOpen, enabled: versionsEnabled } = useVersions();
+  const { panelOpen: versionsPanelOpen, enabled: versionsEnabled } = useVersions();
+  const { panelOpen: commentsPanelOpen, enabled: commentsEnabled } = useComments();
+  // Both panels share the right-hand slot, its width setting and its floating rules; at most one is open.
+  const panelOpen = versionsPanelOpen || commentsPanelOpen;
+  useEffect(() => {
+    if (!panelOpen || !versionsEnabled || !commentsEnabled) return;
+    // A bubble switches to the other panel: unloaded, the slot would stay empty while its chunk loads.
+    VersionsPanel.preload();
+    CommentsPanel.preload();
+  }, [panelOpen, versionsEnabled, commentsEnabled]);
+  const corner = useCornerStackBubbles();
   const panelWidth = useVersionsPanelWidth();
   // floating panel (640-1279: the versions panel floats over the note): top edge leaves room for the header (`floating-panel.ts`)
   const rowRef = useRef<HTMLDivElement>(null);
@@ -546,6 +559,8 @@ export function NoteEditor({
   // Phones have their own entry. Outline is hidden during version preview (it maps only the live document) and when the floating version panel would cover it (768-1279). Layout is measured only when it may appear: a changed measurement re-renders this layer, once per frame while resizing.
   const outlineHeadings = useOutlineHeadings(editor);
   const overlay = useIsOverlay();
+  const cornerRoom = useCornerStackRoom(rowRef, scrollEl, panelOpen && overlay && !phone, corner.bubbles, corner.preferExpanded);
+  const cornerBubbles = useCornerStackBubbles(cornerRoom).count;
   const outlineCompact = useIsOutlineCompact();
   const outlineCanShow = !outlineCompact && !hasPreview && !(panelOpen && overlay) && outlineHeadings.length > 0;
   const outlineBox = useOutlineBox(outlineCanShow ? scrollEl : null, outlineCanShow ? columnEl : null);
@@ -647,7 +662,8 @@ export function NoteEditor({
               headings={outlineHeadings}
               scrollEl={scrollEl}
               box={outlineBox}
-              bubbleShown={versionsEnabled && !panelOpen}
+              bubbleShown={cornerBubbles > 0}
+              bubbleCount={cornerBubbles}
               pinned={outlinePinned}
               pinAvailable={outlinePinAvailable}
               onPinnedChange={setOutlinePinPref}
@@ -662,8 +678,8 @@ export function NoteEditor({
               placement={phone ? "page" : "anchor"}
               inputRoot={columnEl}
               editToolbarHeight={phone && mobileToolbar ? PHONE_EDIT_TOOLBAR_CLEARANCE_PX : 0}
-              // Non-phone: same condition CornerStack uses to show the bubble (versions enabled, panel closed).
-              bottomReserve={phone ? (fabClearance ? PHONE_FAB_FOOTPRINT_PX : 0) : versionsEnabled && !panelOpen ? CORNER_STACK_FOOTPRINT_PX : 0}
+              // Non-phone: the bubbles CornerStack shows.
+              bottomReserve={phone ? (fabClearance ? PHONE_FAB_FOOTPRINT_PX : 0) : cornerStackFootprint(cornerBubbles)}
               sheetOpen={outlineSheetOpen}
               onSheetOpenChange={setOutlineSheetOpen}
               onOpenSheet={openOutlineSheet}
@@ -709,6 +725,7 @@ export function NoteEditor({
                 >
                   {/* sole owner of the formatting toolbar controller and AI box; NoteEditorView never touches AI context */}
                   <SelectionAiController />
+                  {!editable && <ViewerCommentToolbar />}
                 </NoteEditorView>
                 </KnowledgeControllerContext.Provider>
                 <HeadingAnchorButtons container={columnEl} />
@@ -739,15 +756,22 @@ export function NoteEditor({
             </div>
           )}
           {/* history bubble anchor */}
-          <CornerStack scrollRef={scrollRootRef} />
+          <CornerStack scrollRef={scrollRootRef} room={cornerRoom} />
           {!footerInScroll && footerSlot}
         </div>
-        {panelOpen && (
+        {versionsPanelOpen && (
           // `display: contents` keeps the row container as positioning base; collapse and Esc checks recognise this node.
           <div data-versions-panel-slot="" className="contents">
             <VersionsLazyBoundary noteId={noteId} errorClassName={VERSIONS_ERROR_FRAME.panel}>
               <VersionsPanel doc={doc} width={panelWidth.width} onWidthChange={panelWidth.onChange} />
             </VersionsLazyBoundary>
+          </div>
+        )}
+        {commentsPanelOpen && (
+          <div data-comments-panel-slot="" className="contents">
+            <CommentsLazyBoundary noteId={noteId} errorClassName={VERSIONS_ERROR_FRAME.panel}>
+              <CommentsPanel doc={doc} width={panelWidth.width} onWidthChange={panelWidth.onChange} />
+            </CommentsLazyBoundary>
           </div>
         )}
         {mobileToolbar && <MobileEditToolbar editor={editor} onCreateLink={openLinkDialog} />}

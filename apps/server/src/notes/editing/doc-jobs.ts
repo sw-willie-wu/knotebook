@@ -14,6 +14,7 @@ import {
   resolveKnowledgeForWrite,
   sanitizeKnowledgeForWrite,
   topLevelBlocks,
+  topLevelIdsOf,
   type EditOp,
   type KnowledgeBlockShape,
   type KnowledgeFieldView,
@@ -90,7 +91,8 @@ export interface DocPost {
 }
 
 export type ReadDocOp = { kind: "read"; state: Uint8Array; section?: string; wantShown: boolean; fields: KnowledgeFieldView };
-export type OutlineDocOp = { kind: "outline"; state: Uint8Array };
+/** `locate`: block ids (at any depth) whose top-level block the result reports in `located`. */
+export type OutlineDocOp = { kind: "outline"; state: Uint8Array; locate?: string[] };
 export type ExportFileDocOp = { kind: "exportFile"; state: Uint8Array; key: Uint8Array; salt: Uint8Array; forceUnmergeable?: boolean; fields: KnowledgeFieldView };
 export type EditDocOp = {
   kind: "edit";
@@ -131,6 +133,8 @@ export interface ReadDocResult {
 export interface OutlineDocResult {
   outline: OutlineEntry[];
   whole: string;
+  /** [block id, top-level block id] for each `locate` id still in the document. */
+  located?: Array<[string, string]>;
 }
 export type EditDocResult =
   | { ok: true; beforeBlocks: AnyBlock[]; afterIds: string[]; anchor: Anchor | null; post: DocPost; knowledge: KnowledgeEditReport }
@@ -475,8 +479,11 @@ async function run(runtime: EditingRuntime, op: DocOp, ask: AskFn): Promise<DocR
   switch (op.kind) {
     case "read":
       return readOp(runtime, op, ask);
-    case "outline":
-      return outlineOf(decodeState(op.state).getXmlFragment(YDOC_FRAGMENT));
+    case "outline": {
+      const fragment = decodeState(op.state).getXmlFragment(YDOC_FRAGMENT);
+      const result: OutlineDocResult = outlineOf(fragment);
+      return op.locate === undefined ? result : { ...result, located: [...topLevelIdsOf(fragment, new Set(op.locate))] };
+    }
     case "exportFile": {
       const doc = decodeState(op.state);
       const titles = await titlesFor(doc, ask);

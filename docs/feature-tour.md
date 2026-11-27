@@ -54,7 +54,7 @@ shows "n / N", **Back** and **Next**; the first stop has **Skip feature tour** i
 | Folders | The button that creates a folder, and **Move to…** in a note's `⋮` menu |
 | Search | The search box, and Ctrl+K (⌘K on a Mac) |
 | Share and more | **Share**, the width button next to it (Standard, Wide, Full width; also under `⋮` → **Width**; not on a phone) and the `⋮` menu in the note header |
-| Version history | The version history button |
+| Version history | The version history button (bubbles hidden with the arrow button below them are shown again for this stop) |
 | Knowledge info | The status icon after the sample note's heading; the card names `/info` and the knowledge index |
 | Tags | The `⋮` menu in the note header, which has **Add tag**; the card also names `/tag`, `#name` and a space on the note's first line (when that line is an ordinary paragraph), the tag row above the text, the dots and the filter in the sidebar, and `#` in the search box |
 | Link to another note | The `[[` menu, shown live |

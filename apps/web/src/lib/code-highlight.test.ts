@@ -45,6 +45,15 @@ describe("createHighlighter (css-variables theme)", () => {
   });
 });
 
+const LATEX_SAMPLE = [
+  "Plain words here $x_1^2$ and \\textbf{bold}",
+  "$$\\sum_{i} w_i$$",
+  "\\begin{equation}",
+  "a = b",
+  "\\end{equation}",
+  "\\[ c \\]",
+].join("\n");
+
 describe("SUPPORTED_LANGUAGES", () => {
   it("every non-plain-text language really loads (loadLanguage throws for a language outside the bundle, so a typo in the list is a silent run-time failure)", async () => {
     const hl = await sharedHighlighter();
@@ -66,6 +75,34 @@ describe("SUPPORTED_LANGUAGES", () => {
     expect(getLanguageId(CODE_BLOCK_OPTIONS, "js")).toBe("javascript");
     expect(getLanguageId(CODE_BLOCK_OPTIONS, "sh")).toBe("bash");
     expect(getLanguageId(CODE_BLOCK_OPTIONS, "yml")).toBe("yaml");
+  });
+
+  it("latex is a language with no tex alias (the editor would color tex with shiki's separate TeX grammar while a presentation used LaTeX)", () => {
+    expect(getLanguageId(CODE_BLOCK_OPTIONS, "latex")).toBe("latex");
+    expect(getLanguageId(CODE_BLOCK_OPTIONS, "tex")).toBeUndefined();
+  });
+
+  const MATH = "var(--code-token-constant)";
+  async function latexColorOf(text: string): Promise<string | undefined> {
+    const hl = await sharedHighlighter();
+    await hl.loadLanguage("latex");
+    const { tokens } = hl.codeToTokens(LATEX_SAMPLE, { lang: "latex", theme: hl.getLoadedThemes()[0]!, tokenizeTimeLimit: 0 });
+    const hit = tokens.flat().filter((t) => t.content.includes(text));
+    expect(hit.length, `no token contains ${text}`).toBeGreaterThan(0);
+    expect(new Set(hit.map((t) => t.color)).size, `${text} spans several colors`).toBe(1);
+    return hit[0]!.color;
+  }
+
+  it("latex math content is tokenized in the constant color (real shiki, no mock)", async () => {
+    expect(await latexColorOf("x_1^2")).toBe(MATH);
+    expect(await latexColorOf("\\sum_{i} w_i")).toBe(MATH);
+    expect(await latexColorOf("a = b")).toBe(MATH);
+    expect(await latexColorOf(" c ")).toBe(MATH);
+  });
+
+  it("latex ordinary prose and a text command's argument are not colored as math", async () => {
+    expect(await latexColorOf("Plain words here")).toBe("var(--code-foreground)");
+    expect(await latexColorOf("{bold}")).toBe("var(--code-foreground)");
   });
 
   it("CODE_BLOCK_OPTIONS wires three things together: the language list, the default language, createHighlighter", () => {

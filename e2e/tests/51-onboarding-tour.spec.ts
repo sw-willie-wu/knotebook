@@ -890,14 +890,14 @@ test.describe("feature tour (manual start)", () => {
     const menu = page.locator('[data-kb-tour-target="wikilinkMenu"]:visible').first();
     await expect(menu).toBeVisible();
 
-    await page.keyboard.type("abc");
+    await page.keyboard.type("xyz");
     await page.keyboard.press("ArrowDown");
     await page.keyboard.press("ArrowUp");
     await page.waitForTimeout(1_000); // negative assertion: no event to wait for
     await expect(menu).toBeVisible();
     await expect(cardTitle(page)).toHaveText("Link to another note");
     expect(await read()).toBe(before);
-    expect(await read()).not.toContain("abc");
+    expect(await read()).not.toContain("xyz");
 
     await page.keyboard.press("Enter");
     await expect(cardTitle(page)).not.toHaveText("Link to another note");

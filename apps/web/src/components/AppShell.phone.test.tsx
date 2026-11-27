@@ -75,6 +75,7 @@ function stubFetch(notes: NoteDto[]) {
       }
       if (url === "/api/trash") return Promise.resolve(fakeResponse(trashList([], { retentionDays: 7 })));
       if (url === "/api/favorites") return Promise.resolve(fakeResponse([]));
+      if (url === "/api/notifications/unread-count") return Promise.resolve(fakeResponse({ count: 0 }));
       if (url.startsWith("/api/search?")) return Promise.resolve(fakeResponse({ hits: [], nextCursor: null }));
       throw new Error(`unexpected fetch: ${method} ${url}`);
     }),
@@ -187,7 +188,11 @@ describe("AppShell - phone list screen", () => {
     // Title left, avatar right: title's left edge 16px from the screen edge (same as row text start); avatar's visual right edge 16px (hit area 44, visual 32, so right padding 10px).
     expect(top?.firstElementChild).toHaveClass("justify-between", "pl-4", "pr-2.5");
     expect(top?.firstElementChild?.firstElementChild).toHaveTextContent("Knotebook");
-    expect(top?.firstElementChild?.lastElementChild).toBe(screen.getByRole("button", { name: "Ann" }));
+    // The bell sits just left of the avatar, as its own button.
+    const right = top?.firstElementChild?.lastElementChild;
+    expect(right?.children).toHaveLength(2);
+    expect(right?.firstElementChild).toBe(screen.getByRole("button", { name: "Notifications" }));
+    expect(right?.lastElementChild).toBe(screen.getByRole("button", { name: "Ann" }));
     // The full-width list covers the frame: left/right (landscape notch) are handled by the list itself, top/bottom by the top and bottom bars, not repeated at this level.
     const list = aside(container);
     expect(list).toHaveClass("max-sm:pl-[env(safe-area-inset-left)]", "max-sm:pr-[env(safe-area-inset-right)]");

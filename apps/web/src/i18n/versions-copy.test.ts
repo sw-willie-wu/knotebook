@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import zhTW from "./zh-TW.json";
 import en from "./en.json";
+import groupsAdminZhTW from "./groups-admin.zh-TW.json";
 import managementZhTW from "./management.zh-TW.json";
 
 /** Literal version-history copy; since #272 vN -> 「name (short id)」. Changing these strings changes product copy: confirm with the maintainer first. */
@@ -58,8 +59,9 @@ function get(obj: unknown, path: string): unknown {
 
 describe("version history copy literals (zh-TW)", () => {
   for (const [key, text] of Object.entries(SPEC_COPY)) {
-    // admin.* / settings.* strings are in the lazy bundle (management.*.json), the rest in the main file.
-    it(key, () => expect(get(key.startsWith("settings.") || key.startsWith("admin.") ? managementZhTW : zhTW, key)).toBe(text));
+    // admin.* / settings.* strings are in the lazy bundle (management.*.json), groups.* ones in groups-admin.*.json, the rest in the main file.
+    const source = key.startsWith("settings.") || key.startsWith("admin.") ? managementZhTW : key.startsWith("groups.") ? groupsAdminZhTW : zhTW;
+    it(key, () => expect(get(source, key)).toBe(text));
   }
 });
 

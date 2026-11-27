@@ -10,9 +10,9 @@ export const VERSIONS_PANEL_WIDTH_STORAGE_KEY = "versions.panelWidth";
 /** Width flows down as this CSS variable, set once by NoteEditor's row container; the panel and the error frame (`VERSIONS_ERROR_FRAME.panel`) share the positioning classes below, so they can't drift apart. */
 export const VERSIONS_PANEL_WIDTH_CSS_VAR = "--versions-panel-width";
 
-/** Positioning and width of the panel and error frame (full literals for Tailwind's static scan): 640–1279 `absolute` at the row container's bottom right, top leaving room for the header (`--note-header-h`, set by NoteEditor from the header wrapper), width = setting but at most card width − 3rem (some note stays visible); from 1280 (`xl:`) back to the third column in the row container (`relative`, fixed setting width, no shadow). */
+/** Positioning and width of the panel and error frame (full literals for Tailwind's static scan): 640–1279 `absolute` at the row container's right, top leaving room for the header (`--note-header-h`, set by NoteEditor from the header wrapper), bottom leaving room for the corner bubbles (`--corner-stack-clearance`, from `useCornerStackRoom`), width = setting but at most card width − 3rem (some note stays visible); from 1280 (`xl:`) back to the third column in the row container (`relative`, fixed setting width, no shadow). */
 export const VERSIONS_PANEL_PLACEMENT =
-  "absolute right-0 bottom-0 top-[var(--note-header-h,0px)] z-20 w-[min(var(--versions-panel-width),calc(100%_-_3rem))] shadow-lg " +
+  "absolute right-0 bottom-[var(--corner-stack-clearance,0px)] top-[var(--note-header-h,0px)] z-20 w-[min(var(--versions-panel-width),calc(100%_-_3rem))] shadow-lg " +
   "xl:relative xl:inset-auto xl:z-30 xl:w-[var(--versions-panel-width)] xl:shadow-none";
 
 export function clampVersionsPanelWidth(px: number): number {

@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import "@/i18n/groups-admin-strings";
 import { GROUP_ROLE_FLAGS } from "@knotebook/shared";
 import { useGroups } from "@/api/groups";
 import { Pill } from "@/components/management/Pill";

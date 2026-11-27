@@ -15,7 +15,7 @@ import { apiTokens, authProviders, folders, groupMembers, groupRoles, groups, no
 const drizzleDirForTest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
 /** Drizzle's serialization of `schema.ts`; the declaration-drift guard compares against the latest snapshot (update the file name with each new migration). */
-const SNAPSHOT_FILE = "meta/0050_snapshot.json";
+const SNAPSHOT_FILE = "meta/0051_snapshot.json";
 const snapshotLatest = JSON.parse(readFileSync(path.join(drizzleDirForTest, SNAPSHOT_FILE), "utf8")) as {
   tables: Record<string, {
     checkConstraints?: Record<string, { name: string; value: string }>;
@@ -27,12 +27,12 @@ const snapshotLatest = JSON.parse(readFileSync(path.join(drizzleDirForTest, SNAP
 const pgDialect = new PgDialect();
 
 describe("runMigrations", () => {
-  it("migrating twice is idempotent and 46 tables exist", async () => {
+  it("migrating twice is idempotent and the expected tables exist", async () => {
     const { db, pool } = await freshDb();
     await runMigrations(db); // freshDb already ran it once; this is the second run
     const r = await pool.query(`select table_name from information_schema.tables where table_schema='public'`);
     const tableNames = r.rows.map(x => x.table_name);
-    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles", "api_tokens", "oauth_clients", "oauth_requests", "oauth_codes", "note_ai_edits", "groups", "group_members", "group_roles", "note_redirects", "auth_providers", "user_identities", "site_settings", "note_search_sections", "note_search_state", "transfer_tokens", "storage_plans", "note_versions", "note_link_conversion", "handle_renames", "one_time_links", "folders", "note_placements", "transfer_bases", "transfer_creates", "sessions", "site_limits", "site_limit_changes", "note_favorites", "user_avatars", "tags", "note_tags", "note_knowledge", "note_knowledge_state", "knowledge_field_defs", "knowledge_field_overrides"])
+    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles", "api_tokens", "oauth_clients", "oauth_requests", "oauth_codes", "note_ai_edits", "groups", "group_members", "group_roles", "note_redirects", "auth_providers", "user_identities", "site_settings", "note_search_sections", "note_search_state", "transfer_tokens", "storage_plans", "note_versions", "note_link_conversion", "handle_renames", "one_time_links", "folders", "note_placements", "transfer_bases", "transfer_creates", "sessions", "site_limits", "site_limit_changes", "note_favorites", "user_avatars", "tags", "note_tags", "note_knowledge", "note_knowledge_state", "knowledge_field_defs", "knowledge_field_overrides", "note_comments", "note_comment_mentions", "comment_notified", "notifications", "notification_seen", "note_comment_reads"])
       expect(tableNames).toContain(t);
   });
 
@@ -1442,7 +1442,7 @@ describe("0009_api-tokens", () => {
       site_settings: [
         "singleton", "registration_enabled", "password_login_enabled", "legacy_oidc_env_handled_at", "updated_at",
         "default_user_storage_plan_id", "default_group_storage_plan_id",
-        "version_keep_all_days", "version_daily_until_days", "auto_versions_enabled", "version_auto_wait_minutes", "trash_retention_days",
+        "version_keep_all_days", "version_daily_until_days", "auto_versions_enabled", "version_auto_wait_minutes", "trash_retention_days", "notification_retention_days",
       ],
       note_search_sections: ["id", "note_id", "source_kind", "source_id", "section_id", "ord", "heading", "body"],
       note_search_state: ["note_id", "extractor_version", "source_version", "content_hash", "indexed_units", "capped", "indexed_at"],
@@ -4400,9 +4400,80 @@ describe("0049_knowledge-custom", () => {
   });
 });
 
-describe("0050_uploads-media", () => {
-  const TAG = "0050_uploads-media";
+describe("0050_comments-notifications", () => {
+  const TAG = "0050_comments-notifications";
   const PREV_TAG = "0049_knowledge-custom";
+
+  it("adds the tables and a site_settings column that defaults to 30 days, leaving the existing settings row otherwise unchanged", async () => {
+    const { pool, db } = await freshEmptyDb();
+    await applyMigrationsThrough(pool, idxOfTag(PREV_TAG));
+    const tables = async () => (await pool.query(
+      `select table_name from information_schema.tables where table_schema = 'public' and table_name in ('note_comments', 'note_comment_mentions', 'comment_notified', 'notifications', 'notification_seen', 'note_comment_reads') order by 1`,
+    )).rows.map(r => r.table_name as string);
+    expect(await tables()).toEqual([]);
+    const settingsBefore = (await pool.query(`select * from site_settings`)).rows;
+    expect(settingsBefore).toHaveLength(1);
+    await runMigrations(db);
+    expect(idxOfTag(TAG)).toBe(idxOfTag(PREV_TAG) + 1);
+    expect((await pool.query(`select * from site_settings`)).rows).toEqual(settingsBefore.map(r => ({ ...r, notification_retention_days: 30 })));
+    expect(await tables()).toEqual(["comment_notified", "note_comment_mentions", "note_comment_reads", "note_comments", "notification_seen", "notifications"]);
+  });
+
+  it("CHECKs: body 1..4000 code points, quote 1..200, retention 1..3650 or NULL, notification kind", async () => {
+    const { pool } = await freshDb();
+    const owner = (await pool.query(`insert into users (email, display_name) values ('alice-cm0@example.com', 'A') returning id`)).rows[0].id as string;
+    const noteId = (await pool.query(`insert into notes (owner_id) values ($1) returning id`, [owner])).rows[0].id as string;
+    const insert = (body: string, quote: string | null) =>
+      pool.query(`insert into note_comments (note_id, author_id, body, anchor_quote) values ($1, $2, $3, $4) returning id`, [noteId, owner, body, quote]);
+    await insert("😀".repeat(4000), "😀".repeat(200));
+    await expect(insert("😀".repeat(4001), null)).rejects.toMatchObject({ code: "23514", constraint: "note_comments_body_chk" });
+    await expect(insert("", null)).rejects.toMatchObject({ code: "23514", constraint: "note_comments_body_chk" });
+    await expect(insert("x", "😀".repeat(201))).rejects.toMatchObject({ code: "23514", constraint: "note_comments_quote_chk" });
+    await expect(insert("x", "")).rejects.toMatchObject({ code: "23514", constraint: "note_comments_quote_chk" });
+
+    await pool.query(`update site_settings set notification_retention_days = null`);
+    await pool.query(`update site_settings set notification_retention_days = 3650`);
+    for (const bad of [0, 3651]) {
+      await expect(pool.query(`update site_settings set notification_retention_days = $1`, [bad])).rejects.toMatchObject({ code: "23514", constraint: "site_settings_notification_retention_chk" });
+    }
+
+    const commentId = (await insert("hi", null)).rows[0].id as string;
+    await expect(
+      pool.query(`insert into notifications (user_id, kind, note_id, comment_id, actor_id) values ($1, 'like', $2, $3, $1)`, [owner, noteId, commentId]),
+    ).rejects.toMatchObject({ code: "23514", constraint: "notifications_kind_chk" });
+  });
+
+  it("comment_notified treats a NULL label as its own value and rejects a duplicate of either form", async () => {
+    const { pool } = await freshDb();
+    const owner = (await pool.query(`insert into users (email, display_name) values ('alice-cm1@example.com', 'A') returning id`)).rows[0].id as string;
+    const noteId = (await pool.query(`insert into notes (owner_id) values ($1) returning id`, [owner])).rows[0].id as string;
+    const commentId = (await pool.query(`insert into note_comments (note_id, author_id, body) values ($1, $2, 'hi') returning id`, [noteId, owner])).rows[0].id as string;
+    const add = (label: string | null) => pool.query(`insert into comment_notified (comment_id, user_id, agent_label) values ($1, $2, $3)`, [commentId, owner, label]);
+    await add(null);
+    await add("claude");
+    await expect(add(null)).rejects.toMatchObject({ code: "23505", constraint: "comment_notified_target_uq" });
+    await expect(add("claude")).rejects.toMatchObject({ code: "23505", constraint: "comment_notified_target_uq" });
+  });
+
+  it("deleting a note cascades to its comments, mentions, notified rows, notifications and read markers", async () => {
+    const { pool } = await freshDb();
+    const owner = (await pool.query(`insert into users (email, display_name) values ('alice-cm2@example.com', 'A') returning id`)).rows[0].id as string;
+    const noteId = (await pool.query(`insert into notes (owner_id) values ($1) returning id`, [owner])).rows[0].id as string;
+    const commentId = (await pool.query(`insert into note_comments (note_id, author_id, body) values ($1, $2, '@alice') returning id`, [noteId, owner])).rows[0].id as string;
+    await pool.query(`insert into note_comment_mentions (comment_id, user_id, start, length) values ($1, $2, 0, 6)`, [commentId, owner]);
+    await pool.query(`insert into comment_notified (comment_id, user_id) values ($1, $2)`, [commentId, owner]);
+    await pool.query(`insert into notifications (user_id, kind, note_id, comment_id, actor_id) values ($1, 'mention', $2, $3, $1)`, [owner, noteId, commentId]);
+    await pool.query(`insert into note_comment_reads (user_id, note_id, read_at) values ($1, $2, now())`, [owner, noteId]);
+    await pool.query(`delete from notes where id = $1`, [noteId]);
+    for (const t of ["note_comments", "note_comment_mentions", "comment_notified", "notifications", "note_comment_reads"]) {
+      expect((await pool.query(`select count(*)::int as n from ${t}`)).rows[0].n, t).toBe(0);
+    }
+  });
+});
+
+describe("0051_uploads-media", () => {
+  const TAG = "0051_uploads-media";
+  const PREV_TAG = "0050_comments-notifications";
 
   it("widens size to bigint, adds a nullable file_name and keeps existing rows", async () => {
     const { pool, db } = await freshEmptyDb();

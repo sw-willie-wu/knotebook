@@ -298,11 +298,11 @@ describe("#180 move_note_to_group", () => {
       "Move one of your own personal notes into one of your groups, where the group's roles then decide who can read and change it. " +
       "A single note can't be taken out of a group again, here or in the web app — copy_note can copy it out instead. Moving removes the " +
       "note's per-person shares and its public link, and gives it the group's URL (the old one forwards to it for a month); it also removes " +
-      "the note's version history unless you pass keep_history: true, which brings the history along and lets the group's editors see the " +
-      "earlier versions and who edited them. Your own access becomes what your group role allows, which can be read-only — see the reply's `role`.";
+      "the note's version history and comments unless you pass keep_history: true, which brings both along: the group's editors then see the " +
+      "earlier versions and who edited them, and everyone in the group sees the comments. Your own access becomes what your group role allows, which can be read-only — see the reply's `role`.";
     const GID = "The id of one of your groups where your role lets you create notes. A group's id is the `id` in the `owner` of its notes in list_notes or search_notes.";
     const OUT = "The note after the move, in the same shape list_notes returns.";
-    const KEEP = "Set true to bring the note's version history along. Leave it out or set false and the history is removed and can't be restored. Kept versions keep their names and still list who edited each one (handle, avatar, agent label); the group's editors can see that list, and it can name people who are not in the group.";
+    const KEEP = "Set true to bring the note's version history and comments along. Leave it out or set false and both are removed and can't be restored. Kept versions keep their names and still list who edited each one (handle, avatar, agent label); the group's editors can see that list, and it can name people who are not in the group.";
     expect(tool.description).toBe(DESC);
     expect(tool.inputSchema.properties.group_id!.description).toBe(GID);
     expect(tool.inputSchema.properties.note_id!.description).toBe("The note's id, as returned by list_notes or search_notes.");

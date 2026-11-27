@@ -144,5 +144,8 @@ export const ERROR_CODES = [
   "knowledge_key_taken",
   "knowledge_fields_limit",
   "knowledge_fields_incomplete",
+  "comment_not_found",
+  "invalid_comment",
+  "notification_not_found",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];

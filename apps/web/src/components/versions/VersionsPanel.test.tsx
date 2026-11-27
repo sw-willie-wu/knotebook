@@ -84,7 +84,7 @@ describe("VersionsPanel", () => {
     stub({ [FIRST]: { versions: [], current: cur(), nextBefore: null } });
     renderPanel();
     const panel = await screen.findByTestId("versions-panel");
-    expect(panel).toHaveClass("absolute", "right-0", "bottom-0", "z-20", "shadow-lg", "rounded-xl", "border", "bg-card");
+    expect(panel).toHaveClass("absolute", "right-0", "bottom-[var(--corner-stack-clearance,0px)]", "z-20", "shadow-lg", "rounded-xl", "border", "bg-card");
     expect(panel).toHaveClass("w-[min(var(--versions-panel-width),calc(100%_-_3rem))]", "xl:relative", "xl:inset-auto", "xl:z-30", "xl:shadow-none", "xl:w-[var(--versions-panel-width)]");
     expect(panel).not.toHaveClass("w-[var(--versions-panel-width)]");
     expect(panel).not.toHaveClass("fixed");

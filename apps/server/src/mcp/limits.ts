@@ -19,7 +19,8 @@ export const MCP_SEARCH_WIRE_BUDGET = 240_000;
 /*
  * Worst-case wire sizes per item (mirrored copies and commas included), from
  * `test/mcp-size.test.ts`: list_notes 2 895, list_trash 3 761, list_folders 2 563 (about 93
- * would fit in the budget, one page holds 50), delete_folder response 8 376.
+ * would fit in the budget, one page holds 50), delete_folder response 8 376, read_comments 57 402,
+ * list_notifications 14 394.
  */
 
 /** JSON-escaped code units; names within 80 code points that need no escaping (including CJK) are never cut. */

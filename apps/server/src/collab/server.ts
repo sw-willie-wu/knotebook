@@ -17,6 +17,7 @@ import {
   COLLAB_REJECT_SERVER_ERROR,
   COLLAB_REJECT_CLIENT_OUTDATED,
   NOTE_SCHEMA_VERSION,
+  NOTIFICATIONS_SOCKET_PATH,
   type PresenceRole,
 } from "@knotebook/shared";
 import type { AppConfig } from "../config.js";
@@ -29,6 +30,7 @@ import { loadNoteAudience, noteIsLive, resolveRole } from "../notes/service.js";
 import { verifyCollabToken } from "./token.js";
 import { createNoteStore, docClock, type NoteStoreSearchHooks, type StoreLogger } from "./store.js";
 import { createVersionService, type VersionService } from "./versions.js";
+import type { NotificationHub } from "../notifications/hub.js";
 import { LastActiveTracker, type LastActiveTrackerOptions } from "../auth/last-active.js";
 import { FixedWindowLimiter } from "../http/rate-limit.js";
 import { collabMaxPayloadBytes } from "../notes/note-size.js";
@@ -185,6 +187,8 @@ export interface CollabDeps {
   versionAutoWaitMs?: number;
   /** Test hook (#267). */
   lastActiveOptions?: LastActiveTrackerOptions;
+  /** Gets the `/collab/notifications` upgrades; they share this upgrade listener because a second one would race it. */
+  notifications?: NotificationHub;
 }
 
 export interface ConnectionHandle {
@@ -658,6 +662,11 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
 
   function handleUpgrade(app: FastifyInstance, request: IncomingMessage, socket: Duplex, head: Buffer): void {
     const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
+
+    if (url.pathname === NOTIFICATIONS_SOCKET_PATH && deps.notifications !== undefined) {
+      deps.notifications.handleUpgrade(request, socket, head);
+      return;
+    }
 
     // With an upgrade listener registered, Node no longer destroys unhandled upgrade sockets.
     if (url.pathname !== COLLAB_PATH) {

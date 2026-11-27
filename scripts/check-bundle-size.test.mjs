@@ -6,7 +6,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { AVATAR_ENCODE_RE, GROUP_LAZY_DIALOGS, AVATAR_IMAGE_MARKER, BODY_SEARCH_MARKER, FOLDER_I18N_MARKER, HELP_I18N_MARKER, KNOWLEDGE_INDEX_I18N_MARKER, MANAGEMENT_I18N_MARKERS, MAX_ENTRY_BYTES, MOBILE_TOOLBAR_I18N_MARKER, SELECT_I18N_MARKER, SHORTCUTS_I18N_MARKER, TOUR_I18N_MARKER, VERSIONS_MARKERS, checkBundleSize } from './check-bundle-size.mjs';
+import { AVATAR_ENCODE_RE, GROUP_LAZY_DIALOGS, AVATAR_IMAGE_MARKER, BODY_SEARCH_MARKER, COMMENTS_I18N_MARKER, COMMENT_TOOLBAR_I18N_MARKER, NOTIFICATIONS_I18N_MARKER, FOLDER_I18N_MARKER, GROUPS_ADMIN_I18N_MARKER, HELP_I18N_MARKER, KNOWLEDGE_INDEX_I18N_MARKER, MANAGEMENT_I18N_MARKERS, MAX_ENTRY_BYTES, MOBILE_TOOLBAR_I18N_MARKER, SELECT_I18N_MARKER, SHORTCUTS_I18N_MARKER, TOUR_I18N_MARKER, VERSIONS_MARKERS, checkBundleSize } from './check-bundle-size.mjs';
 
 // pins the default cap of 750 KiB (reason in the constant's comment in check-bundle-size.mjs; the next two cases pass 700 * 1024 explicitly to test the judgement itself, independent of the default).
 test('default entry size cap is 750 KiB', () => {
@@ -16,6 +16,12 @@ test('default entry size cap is 750 KiB', () => {
 // Fake chunk for the site admin / settings string bundle: carries all MANAGEMENT_I18N_MARKERS (in a real build this bundle is management-strings-<hash>.js).
 const MGMT_PACK = { 'management-strings-Mgt000.js': `const m={${MANAGEMENT_I18N_MARKERS.map(k => `${k}:"x"`).join(',')}}` };
 
+// Fake chunk for the comments panel, carrying its string pack's marker (CommentsLazy-<hash>.js in a real build).
+const COMMENTS_PACK = { 'CommentsLazy-Ccc000.js': `const c={${COMMENTS_I18N_MARKER}:"x"}` };
+
+// Fake chunk for the notification list, carrying its string pack's marker (NotificationsLazy-<hash>.js in a real build).
+const NOTIFICATIONS_PACK = { 'NotificationsLazy-Nnn000.js': `const n={${NOTIFICATIONS_I18N_MARKER}:"x"}` };
+
 // Fake chunk for the avatar encoding module: carries the marker (encode-<hash>.js in a real build).
 const AVATAR_PACK = { 'encode-Eee000.js': `class E extends Error{constructor(){super();this.name="${AVATAR_IMAGE_MARKER}"}}` };
 
@@ -23,7 +29,7 @@ const AVATAR_PACK = { 'encode-Eee000.js': `class E extends Error{constructor(){s
 const GROUP_DIALOG_PACK = Object.fromEntries(GROUP_LAZY_DIALOGS.map((d, i) => [`${d.name}-Ggg00${i}.js`, `t("${d.marker}")`]).concat([['icons-extra-Iii000.js', 'x']]));
 
 const MARKER_BASE = {
-  ...MGMT_PACK,
+  ...MGMT_PACK, ...COMMENTS_PACK, ...NOTIFICATIONS_PACK,
   ...AVATAR_PACK, ...GROUP_DIALOG_PACK,
   'index-Abc123.js': 100, 'mermaid.core-Ghi789.js': 10, 'shiki-Jkl012.js': 10, 'AdminSections-Mno345.js': 10,
   'PresentationOverlay-Pqr678.js': 10, 'TrashLazy-Ttt000.js': 10, 'SelectLazy-Sss000.js': 10, 'FolderLazy-Fff000.js': 10,
@@ -57,7 +63,7 @@ test('entry within the cap and a NotePage chunk present -> passes and reports a 
     'ShortcutsLazy-Kkk000.js': 10_000,
     'TourLazy-Tou000.js': 12_000,
     'BodySearchLazy-Bbb000.js': 8_000,
-    ...MGMT_PACK,
+    ...MGMT_PACK, ...COMMENTS_PACK, ...NOTIFICATIONS_PACK,
     ...AVATAR_PACK, ...GROUP_DIALOG_PACK,
     'index-Abc123.css': 50_000, // css is not an entry chunk; the pattern only matches .js
   });
@@ -283,6 +289,28 @@ test('MOBILE_TOOLBAR_I18N_MARKER is a mobileToolbar.* key in mobile-toolbar.en.j
   assert.equal(main.mobileToolbar, undefined);
 });
 
+test('entry contains the comment toolbar string pack key -> throws; only inside NotePage -> passes', () => {
+  for (const [where, throws] of [['index-Abc123.js', true], ['NotePage-Def456.js', false]]) {
+    const { assets, cleanup } = fakeAssets({
+      ...MARKER_BASE, 'NotePage-Def456.js': 'x', 'VersionsLazy-Vvv000.js': 'x', [where]: `const s={${COMMENT_TOOLBAR_I18N_MARKER}:{comment:"Comment"}}`,
+    });
+    try {
+      if (throws) assert.throws(() => checkBundleSize(assets), /index-Abc123\.js[\s\S]*commentToolbar[\s\S]*NotePage chunk/);
+      else assert.doesNotThrow(() => checkBundleSize(assets));
+    } finally {
+      cleanup();
+    }
+  }
+});
+
+test('COMMENT_TOOLBAR_I18N_MARKER is the top-level key of comment-toolbar.en.json, not in the main en.json', () => {
+  const dir = new URL('../apps/web/src/i18n/', import.meta.url);
+  const bundle = JSON.parse(readFileSync(fileURLToPath(new URL('comment-toolbar.en.json', dir)), 'utf8'));
+  assert.deepEqual(Object.keys(bundle), [COMMENT_TOOLBAR_I18N_MARKER]);
+  const main = JSON.parse(readFileSync(fileURLToPath(new URL('en.json', dir)), 'utf8'));
+  assert.equal(main[COMMENT_TOOLBAR_I18N_MARKER], undefined);
+});
+
 // Folders: the folder dialogs must be their own lazy chunk (FolderLazy is the only entry)
 test('FolderLazy chunk missing (the whole group merged back into the entry) -> throws', () => {
   const files = { ...MARKER_BASE, 'NotePage-Def456.js': 'x', 'VersionsLazy-Vvv000.js': 'x' };
@@ -377,6 +405,24 @@ test('KNOWLEDGE_INDEX_I18N_MARKER is a knowledgeIndex.* key in knowledge-index.e
   const read = name => JSON.parse(readFileSync(fileURLToPath(new URL(`../apps/web/src/i18n/${name}`, import.meta.url)), 'utf8'));
   assert.equal(typeof read('knowledge-index.en.json').knowledgeIndex?.[KNOWLEDGE_INDEX_I18N_MARKER], 'string');
   assert.equal(read('en.json').knowledgeIndex?.[KNOWLEDGE_INDEX_I18N_MARKER], undefined);
+});
+
+test('entry contains the group settings string bundle key names -> throws', () => {
+  const { assets, cleanup } = fakeAssets({
+    ...MARKER_BASE, 'index-Abc123.js': `const s={${GROUPS_ADMIN_I18N_MARKER}:"No files yet"}`, 'NotePage-Def456.js': 'x',
+    'VersionsLazy-Vvv000.js': 'x',
+  });
+  try {
+    assert.throws(() => checkBundleSize(assets), /index-Abc123\.js[\s\S]*byMemberEmpty/);
+  } finally {
+    cleanup();
+  }
+});
+
+test('GROUPS_ADMIN_I18N_MARKER is a groups.storage.* key in groups-admin.en.json, not in the main en.json', () => {
+  const read = name => JSON.parse(readFileSync(fileURLToPath(new URL(`../apps/web/src/i18n/${name}`, import.meta.url)), 'utf8'));
+  assert.equal(typeof read('groups-admin.en.json').groups?.storage?.[GROUPS_ADMIN_I18N_MARKER], 'string');
+  assert.equal(read('en.json').groups?.storage, undefined);
 });
 
 // A renamed marker silently stops working - bind it back to folders.en.json (as for the select marker above).
@@ -597,7 +643,7 @@ test('entry CSS contains .reveal-viewport (reveal.css entered the entry) -> thro
   const base = {
     'index-Abc123.js': 100, 'NotePage-Def456.js': 10, 'mermaid.core-Ghi789.js': 10, 'shiki-Jkl012.js': 10,
     'AdminSections-Mno345.js': 10, 'VersionsLazy-Vvv000.js': 10, 'PresentationOverlay-Pqr678.js': 10, 'TrashLazy-Ttt000.js': 10,
-    'SelectLazy-Sss000.js': 10, 'FolderLazy-Fff000.js': 10, 'ShortcutsLazy-Kkk000.js': 10, 'TourLazy-Tou000.js': 10, 'BodySearchLazy-Bbb000.js': 10, ...MGMT_PACK, ...AVATAR_PACK, ...GROUP_DIALOG_PACK,
+    'SelectLazy-Sss000.js': 10, 'FolderLazy-Fff000.js': 10, 'ShortcutsLazy-Kkk000.js': 10, 'TourLazy-Tou000.js': 10, 'BodySearchLazy-Bbb000.js': 10, ...MGMT_PACK, ...COMMENTS_PACK, ...NOTIFICATIONS_PACK, ...AVATAR_PACK, ...GROUP_DIALOG_PACK,
   };
   const bad = fakeAssets({ ...base, 'index-Css111.css': '.x{}.reveal-viewport{color:#000}' });
   try {
@@ -616,7 +662,7 @@ test('entry CSS contains .reveal-viewport (reveal.css entered the entry) -> thro
 test('the reveal-viewport string is only allowed in PresentationOverlay-*.js: inside the overlay passes, inside NotePage throws (reveal.js statically imported into NotePage)', () => {
   const base = {
     'index-Abc123.js': 100, 'mermaid.core-Ghi789.js': 10, 'shiki-Jkl012.js': 10, 'AdminSections-Mno345.js': 10, 'VersionsLazy-Vvv000.js': 10,
-    'TrashLazy-Ttt000.js': 10, 'SelectLazy-Sss000.js': 10, 'FolderLazy-Fff000.js': 10, 'ShortcutsLazy-Kkk000.js': 10, 'TourLazy-Tou000.js': 10, 'BodySearchLazy-Bbb000.js': 10, ...MGMT_PACK, ...AVATAR_PACK, ...GROUP_DIALOG_PACK,
+    'TrashLazy-Ttt000.js': 10, 'SelectLazy-Sss000.js': 10, 'FolderLazy-Fff000.js': 10, 'ShortcutsLazy-Kkk000.js': 10, 'TourLazy-Tou000.js': 10, 'BodySearchLazy-Bbb000.js': 10, ...MGMT_PACK, ...COMMENTS_PACK, ...NOTIFICATIONS_PACK, ...AVATAR_PACK, ...GROUP_DIALOG_PACK,
   };
   const ok = fakeAssets({ ...base, 'NotePage-Def456.js': 'x', 'PresentationOverlay-Pqr678.js': 'e.classList.add("reveal-viewport")' });
   try {
@@ -636,7 +682,7 @@ test('the static import closure (including indirect) of the presentation chunk r
   const base = {
     'index-Abc123.js': 100, 'NotePage-Def456.js': 10, 'mermaid.core-Ghi789.js': 10, 'AdminSections-Mno345.js': 10, 'VersionsLazy-Vvv000.js': 10,
     'shiki-Jkl012.js': 'export const s=1', 'bundle-full-Zz9.js': 'export const b=1', 'TrashLazy-Ttt000.js': 10,
-    'SelectLazy-Sss000.js': 10, 'FolderLazy-Fff000.js': 10, 'ShortcutsLazy-Kkk000.js': 10, 'TourLazy-Tou000.js': 10, 'BodySearchLazy-Bbb000.js': 10, ...MGMT_PACK, ...AVATAR_PACK, ...GROUP_DIALOG_PACK,
+    'SelectLazy-Sss000.js': 10, 'FolderLazy-Fff000.js': 10, 'ShortcutsLazy-Kkk000.js': 10, 'TourLazy-Tou000.js': 10, 'BodySearchLazy-Bbb000.js': 10, ...MGMT_PACK, ...COMMENTS_PACK, ...NOTIFICATIONS_PACK, ...AVATAR_PACK, ...GROUP_DIALOG_PACK,
   };
   const indirect = fakeAssets({ ...base, 'PresentationOverlay-Pqr678.js': 'import{a}from"./mid-Q1.js";', 'mid-Q1.js': 'import{b}from"./bundle-full-Zz9.js";export const a=1' });
   try {
@@ -887,4 +933,92 @@ test('dialog chunk exists but does not contain its own marker -> throws', () => 
       cleanup();
     }
   }
+});
+
+test('comments panel chunk missing -> throws', () => {
+  const files = { ...MARKER_BASE, 'NotePage-Def456.js': 'x', 'VersionsLazy-Vvv000.js': 'x' };
+  delete files['CommentsLazy-Ccc000.js'];
+  const { assets, cleanup } = fakeAssets(files);
+  try {
+    assert.throws(() => checkBundleSize(assets), /CommentsLazy/);
+  } finally {
+    cleanup();
+  }
+});
+
+test('comments string pack key in entry or NotePage -> throws', () => {
+  for (const at of ['index-Abc123.js', 'NotePage-Def456.js']) {
+    const { assets, cleanup } = fakeAssets({ ...MARKER_BASE, 'NotePage-Def456.js': 'x', 'VersionsLazy-Vvv000.js': 'x', [at]: `const s={${COMMENTS_I18N_MARKER}:"x"}` });
+    try {
+      assert.throws(() => checkBundleSize(assets), (err) => err.message.startsWith(at) && err.message.includes(COMMENTS_I18N_MARKER));
+    } finally {
+      cleanup();
+    }
+  }
+});
+
+test('comments string pack reachable only through a chunk the panel imports -> passes; not reachable at all -> throws', () => {
+  const shared = { ...MARKER_BASE, 'NotePage-Def456.js': 'x', 'VersionsLazy-Vvv000.js': 'x' };
+  let fixture = fakeAssets({ ...shared, 'CommentsLazy-Ccc000.js': 'import{a}from"./comments-strings-Qqq000.js";', 'comments-strings-Qqq000.js': `const c={${COMMENTS_I18N_MARKER}:"x"}` });
+  try {
+    assert.deepEqual(checkBundleSize(fixture.assets).commentsChunks, ['CommentsLazy-Ccc000.js']);
+  } finally {
+    fixture.cleanup();
+  }
+  fixture = fakeAssets({ ...shared, 'CommentsLazy-Ccc000.js': 'x' });
+  try {
+    assert.throws(() => checkBundleSize(fixture.assets), /CommentsLazy-Ccc000\.js[\s\S]*answeredDeleted/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('COMMENTS_I18N_MARKER is a comments.* key in comments.en.json, not in the main en.json', () => {
+  const read = name => JSON.parse(readFileSync(fileURLToPath(new URL(`../apps/web/src/i18n/${name}`, import.meta.url)), 'utf8'));
+  assert.equal(typeof read('comments.en.json').comments?.[COMMENTS_I18N_MARKER], 'string');
+  assert.equal(read('en.json').comments, undefined);
+});
+
+test('notification list chunk missing -> throws', () => {
+  const files = { ...MARKER_BASE, 'NotePage-Def456.js': 'x', 'VersionsLazy-Vvv000.js': 'x' };
+  delete files['NotificationsLazy-Nnn000.js'];
+  const { assets, cleanup } = fakeAssets(files);
+  try {
+    assert.throws(() => checkBundleSize(assets), /NotificationsLazy/);
+  } finally {
+    cleanup();
+  }
+});
+
+test('notification string pack key in entry or NotePage -> throws', () => {
+  for (const at of ['index-Abc123.js', 'NotePage-Def456.js']) {
+    const { assets, cleanup } = fakeAssets({ ...MARKER_BASE, 'NotePage-Def456.js': 'x', 'VersionsLazy-Vvv000.js': 'x', [at]: `const s={${NOTIFICATIONS_I18N_MARKER}:"x"}` });
+    try {
+      assert.throws(() => checkBundleSize(assets), (err) => err.message.startsWith(at) && err.message.includes(NOTIFICATIONS_I18N_MARKER));
+    } finally {
+      cleanup();
+    }
+  }
+});
+
+test('notification string pack reachable only through a chunk the list imports -> passes; not reachable at all -> throws', () => {
+  const shared = { ...MARKER_BASE, 'NotePage-Def456.js': 'x', 'VersionsLazy-Vvv000.js': 'x' };
+  let fixture = fakeAssets({ ...shared, 'NotificationsLazy-Nnn000.js': 'import{a}from"./notifications-strings-Qqq000.js";', 'notifications-strings-Qqq000.js': `const c={${NOTIFICATIONS_I18N_MARKER}:"x"}` });
+  try {
+    assert.deepEqual(checkBundleSize(fixture.assets).notificationsChunks, ['NotificationsLazy-Nnn000.js']);
+  } finally {
+    fixture.cleanup();
+  }
+  fixture = fakeAssets({ ...shared, 'NotificationsLazy-Nnn000.js': 'x' });
+  try {
+    assert.throws(() => checkBundleSize(fixture.assets), /NotificationsLazy-Nnn000\.js[\s\S]*cantOpen/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('NOTIFICATIONS_I18N_MARKER is a notifications.* key in notifications.en.json, not in the main en.json', () => {
+  const read = name => JSON.parse(readFileSync(fileURLToPath(new URL(`../apps/web/src/i18n/${name}`, import.meta.url)), 'utf8'));
+  assert.equal(typeof read('notifications.en.json').notifications?.[NOTIFICATIONS_I18N_MARKER], 'string');
+  assert.equal(read('en.json').notifications, undefined);
 });

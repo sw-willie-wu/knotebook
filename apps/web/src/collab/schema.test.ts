@@ -659,3 +659,36 @@ describe("columns nodes", () => {
     expect(result.nullIds).toBe(0);
   });
 });
+
+/**
+ * A `latex` code block is colored by the LaTeX grammar in the real editor, not only by shiki called directly: BlockNote picks the grammar from the block's language prop and
+ * hands the string to the highlighter as is, so a change to how a latex block reaches the grammar shows up here. It covers latex blocks only: an alias that would send another fence (e.g. tex) to the LaTeX grammar is pinned by the language-list test in lib/code-highlight.test.ts.
+ */
+describe("latex code block coloring in the editor", () => {
+  it("colors equation content as math and leaves plain prose in the foreground color", async () => {
+    const editor = BlockNoteEditor.create({
+      schema: noteSchema,
+      initialContent: [{ type: "codeBlock", props: { language: "latex" }, content: "Plain words here\n\\begin{equation}\na = b\n\\end{equation}" }],
+    });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const colorOf = (text: string): string | undefined =>
+      [...container.querySelectorAll<HTMLElement>('[data-content-type="codeBlock"] .shiki')]
+        .filter((el) => el.textContent?.includes(text))
+        .map((el) => el.style.color)[0];
+    try {
+      editor.mount(container);
+      // The grammar loads lazily: poll until the equation body is colored at all, fail on timeout, no fixed sleeps.
+      const deadline = Date.now() + 10_000;
+      while (colorOf("a = b") === undefined) {
+        if (Date.now() > deadline) throw new Error("latex block was not highlighted within 10s");
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      expect(colorOf("a = b")).toBe("var(--code-token-constant)");
+      expect(colorOf("Plain words here")).toBe("var(--code-foreground)");
+    } finally {
+      editor.unmount();
+      container.remove();
+    }
+  });
+});

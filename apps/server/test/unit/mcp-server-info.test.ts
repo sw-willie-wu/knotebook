@@ -179,3 +179,17 @@ describe("#417: the files sentence in instructions", () => {
     expect(mcpInstructions(canWrite, files)).not.toContain("bulk_transfer");
   });
 });
+
+describe("comments: one line in each form", () => {
+  it.each(ALL_FORMS)("%s form names read_comments and list_notifications and says to poll", (_label, canWrite, files) => {
+    const text = mcpInstructions(canWrite, files);
+    expect(text).toContain("read_comments");
+    expect(text).toContain("poll list_notifications");
+  });
+
+  it.each([true, false])("only the read-write form names post_comment (files sentence %s)", files => {
+    expect(mcpInstructions(true, files)).toContain("Comments: read_comments, post_comment; poll list_notifications for mentions.");
+    expect(mcpInstructions(false, files)).toContain("Comments: read_comments; poll list_notifications for mentions.");
+    expect(mcpInstructions(false, files)).not.toContain("post_comment");
+  });
+});

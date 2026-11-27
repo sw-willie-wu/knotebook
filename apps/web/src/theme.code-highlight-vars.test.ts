@@ -116,6 +116,17 @@ describe("code highlight variables (--code-*)", () => {
   });
 });
 
+describe("latex math colour", () => {
+  it("--code-token-constant (the colour shiki gives LaTeX math) reaches WCAG AA text contrast on --code-background in light and dark", () => {
+    const { light, dark } = themeBlocks();
+    for (const [theme, block] of [["light", light], ["dark", dark]] as const) {
+      const color = (name: string) => parseColor(varValue(block, name), `${theme} --${name}`);
+      const ratio = contrast(color("code-token-constant"), color("code-background"));
+      expect(ratio, `${theme}: --code-token-constant on --code-background is only ${ratio.toFixed(2)}:1 (need >= 4.5)`).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+});
+
 describe("codeBlock background override", () => {
   function codeBlockRules(): { selector: string; body: string }[] {
     const css = readIndexCss();

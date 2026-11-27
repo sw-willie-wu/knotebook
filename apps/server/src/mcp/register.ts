@@ -83,6 +83,9 @@ import {
   moveNoteToFolderTool,
 } from "./tools/move-note-to-folder.js";
 import { DELETE_FOLDER_DESCRIPTION, deleteFolderInput, deleteFolderOutput, deleteFolderTool } from "./tools/delete-folder.js";
+import { READ_COMMENTS_DESCRIPTION, readComments, readCommentsInput, readCommentsOutput } from "./tools/read-comments.js";
+import { POST_COMMENT_DESCRIPTION, postCommentInput, postCommentOutput, postCommentTool } from "./tools/post-comment.js";
+import { listNotificationsDescription, listNotificationsInput, listNotificationsOutput, listNotificationsTool } from "./tools/list-notifications.js";
 import { canDeleteNotes, canMoveNotes, canWriteNotes } from "./write-scope.js";
 
 /** Token path only (the signed token binds to a parent credential). Shared with `routes/mcp.ts` so instructions never mention a tool that isn't listed. */
@@ -321,5 +324,32 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
       outputSchema: readNoteImageOutput,
     },
     async args => runTool("read_note_image", ctx, () => readNoteImage(args, ctx))
+  );
+
+  // Inside the gate: both read the live doc, for an anchor's current section.
+  if (canRead) {
+    server.registerTool(
+      "read_comments",
+      { description: READ_COMMENTS_DESCRIPTION, inputSchema: z.object(readCommentsInput).strict(), outputSchema: readCommentsOutput },
+      async args => runTool("read_comments", ctx, () => readComments(args, ctx))
+    );
+    if (canWrite) {
+      server.registerTool(
+        "post_comment",
+        {
+          description: POST_COMMENT_DESCRIPTION,
+          inputSchema: z.object(postCommentInput).strict(),
+          outputSchema: postCommentOutput,
+          annotations: { destructiveHint: false },
+        },
+        async args => runTool("post_comment", ctx, () => postCommentTool(args, ctx))
+      );
+    }
+  }
+
+  server.registerTool(
+    "list_notifications",
+    { description: listNotificationsDescription(canRead), inputSchema: z.object(listNotificationsInput).strict(), outputSchema: listNotificationsOutput },
+    async args => runTool("list_notifications", ctx, () => listNotificationsTool(args, ctx))
   );
 }

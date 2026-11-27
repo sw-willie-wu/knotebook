@@ -28,6 +28,8 @@ export const TRASHLAZY_RE = /^TrashLazy-[A-Za-z0-9_-]+\.js$/;
 export const SELECTLAZY_RE = /^SelectLazy-[A-Za-z0-9_-]+\.js$/;
 // A select.*.json key in entry means the string pack (or a module importing it by value, e.g. lib/select-batch.ts) is statically imported.
 export const SELECT_I18N_MARKER = 'deleteSelected_one';
+// A groups.storage.* key that lives only in groups-admin.en.json (lazy group settings strings); in entry means groups-admin-strings is statically imported.
+export const GROUPS_ADMIN_I18N_MARKER = 'byMemberEmpty';
 // Presence only catches the whole group merging back or a rename; FOLDER_I18N_MARKER catches a single static import.
 export const FOLDERLAZY_RE = /^FolderLazy-[A-Za-z0-9_-]+\.js$/;
 // A folders.*.json key in entry means the string pack is statically imported.
@@ -40,6 +42,8 @@ export const SHORTCUTS_I18N_MARKER = 'columnBackspace';
 export const HELP_I18N_MARKER = 'whatsNew';
 // mobile-toolbar.*.json key: the string pack must stay in the NotePage chain.
 export const MOBILE_TOOLBAR_I18N_MARKER = 'hideKeyboard';
+// comment-toolbar.*.json top-level key: the selection toolbars' string pack must stay in the NotePage chain.
+export const COMMENT_TOOLBAR_I18N_MARKER = 'commentToolbar';
 // Presence only catches the whole group merging back or a rename; TOUR_I18N_MARKER catches a static import of a single tour module or the string pack.
 export const TOURLAZY_RE = /^TourLazy-[A-Za-z0-9_-]+\.js$/;
 // Chosen over keys like next/back, which already appear in entry.
@@ -48,6 +52,16 @@ export const TOUR_I18N_MARKER = 'keepOrDeleteSample';
 export const TAGS_I18N_MARKER = 'mergeUnavailable';
 // A knowledgeIndex.* key that lives only in knowledge-index.en.json (lazy index page strings); in entry means knowledge-index-strings is statically imported.
 export const KNOWLEDGE_INDEX_I18N_MARKER = 'backfillNotice';
+// Presence only catches the whole group merging back or a rename; COMMENTS_I18N_MARKER catches a static import of one panel module or the strings.
+export const COMMENTSLAZY_RE = /^CommentsLazy-[A-Za-z0-9_-]+\.js$/;
+// A comments.* key that lives only in comments.en.json: in entry or NotePage means comments-strings is statically imported there, and it must
+// stay reachable from the CommentsLazy chunk or the panel would render raw keys.
+export const COMMENTS_I18N_MARKER = 'answeredDeleted';
+// Presence only catches the whole group merging back or a rename; NOTIFICATIONS_I18N_MARKER catches a static import of the list or its strings.
+export const NOTIFICATIONSLAZY_RE = /^NotificationsLazy-[A-Za-z0-9_-]+\.js$/;
+// A notifications.* key that lives only in notifications.en.json: in entry or NotePage means notifications-strings is statically imported there,
+// and it must stay reachable from the NotificationsLazy chunk or the list would render raw keys.
+export const NOTIFICATIONS_I18N_MARKER = 'cantOpen';
 // Presence only catches the whole group merging back or a rename. The marker is the match rows' data-testid literal
 // (unlike i18n copy it is stable; only BodySearchResults.tsx may use it).
 export const BODYSEARCHLAZY_RE = /^BodySearchLazy-[A-Za-z0-9_-]+\.js$/;
@@ -279,6 +293,12 @@ export function checkBundleSize(assetsDir, { maxEntryBytes = MAX_ENTRY_BYTES } =
     );
   }
 
+  if (entrySource.includes(GROUPS_ADMIN_I18N_MARKER)) {
+    throw new Error(
+      `entry chunk ${entryName} 含群組設定字串包的鍵名 ${GROUPS_ADMIN_I18N_MARKER}——\`@/i18n/groups-admin-strings\`（或 import 它的群組設定模組）被首包靜態 import；群組設定字串只能經 lazy chunk 載入`
+    );
+  }
+
   if (entrySource.includes(KNOWLEDGE_INDEX_I18N_MARKER)) {
     throw new Error(
       `entry chunk ${entryName} 含知識索引頁字串包的鍵名 ${KNOWLEDGE_INDEX_I18N_MARKER}——\`@/i18n/knowledge-index-strings\`（或 import 它的索引頁模組）被首包靜態 import；索引頁字串只能經 lazy chunk 載入`
@@ -308,6 +328,60 @@ export function checkBundleSize(assetsDir, { maxEntryBytes = MAX_ENTRY_BYTES } =
     throw new Error(
       `entry chunk ${entryName} 含手機編輯工具列字串包的鍵名 ${MOBILE_TOOLBAR_I18N_MARKER}——\`@/i18n/mobile-toolbar-strings\`（或 import 它的工具列模組）` +
         `被首包靜態 import；手機編輯工具列只能放在 NotePage chunk`
+    );
+  }
+  if (entrySource.includes(COMMENT_TOOLBAR_I18N_MARKER)) {
+    throw new Error(
+      `entry chunk ${entryName} 含選取工具列留言按鈕字串包的鍵名 ${COMMENT_TOOLBAR_I18N_MARKER}——\`@/i18n/comment-toolbar-strings\`（或 import 它的工具列模組）` +
+        `被首包靜態 import；選取工具列只能放在 NotePage chunk`
+    );
+  }
+
+  const commentsChunks = names.filter(name => COMMENTSLAZY_RE.test(name));
+  if (commentsChunks.length === 0) {
+    throw new Error(
+      `找不到留言面板的 lazy chunk（CommentsLazy-<hash>.js）——最可能的原因是留言面板被 ` +
+        `\`lazy(() => import("@/components/comments/CommentsLazy"))\` 以外的地方靜態 import、整組併回 NotePage／entry；` +
+        `若是 rollup 改了 chunk 命名慣例，請更新本檢查的 pattern，不要刪檢查`
+    );
+  }
+  for (const name of [entryName, ...notePageChunks]) {
+    if (readFileSync(join(assetsDir, name), 'utf8').includes(COMMENTS_I18N_MARKER)) {
+      throw new Error(
+        `${name} 含留言字串包的鍵名 ${COMMENTS_I18N_MARKER}——\`@/i18n/comments-strings\`（或 import 它的留言模組）被靜態 import；` +
+          `留言面板與字串包只能經 CommentsLazy 載入`
+      );
+    }
+  }
+  const commentsReach = commentsChunks.flatMap(chunk => [...staticImportClosure(assetsDir, chunk)]);
+  if (!commentsReach.some(name => readFileSync(join(assetsDir, name), 'utf8').includes(COMMENTS_I18N_MARKER))) {
+    throw new Error(
+      `留言面板的 chunk [${commentsChunks.join(', ')}] 與它靜態 import 的 chunk 都不含鍵名 ${COMMENTS_I18N_MARKER}——留言字串包沒跟著面板載入` +
+        `（或鍵改名了，請同步更新 COMMENTS_I18N_MARKER）`
+    );
+  }
+
+  const notificationsChunks = names.filter(name => NOTIFICATIONSLAZY_RE.test(name));
+  if (notificationsChunks.length === 0) {
+    throw new Error(
+      `找不到通知清單的 lazy chunk（NotificationsLazy-<hash>.js）——最可能的原因是通知清單被 ` +
+        `\`lazy(() => import("@/components/notifications/NotificationsLazy"))\` 以外的地方靜態 import、整組併回 entry；` +
+        `若是 rollup 改了 chunk 命名慣例，請更新本檢查的 pattern，不要刪檢查`
+    );
+  }
+  for (const name of [entryName, ...notePageChunks]) {
+    if (readFileSync(join(assetsDir, name), 'utf8').includes(NOTIFICATIONS_I18N_MARKER)) {
+      throw new Error(
+        `${name} 含通知字串包的鍵名 ${NOTIFICATIONS_I18N_MARKER}——\`@/i18n/notifications-strings\`（或 import 它的通知清單模組）被靜態 import；` +
+          `通知清單與字串包只能經 NotificationsLazy 載入`
+      );
+    }
+  }
+  const notificationsReach = notificationsChunks.flatMap(chunk => [...staticImportClosure(assetsDir, chunk)]);
+  if (!notificationsReach.some(name => readFileSync(join(assetsDir, name), 'utf8').includes(NOTIFICATIONS_I18N_MARKER))) {
+    throw new Error(
+      `通知清單的 chunk [${notificationsChunks.join(', ')}] 與它靜態 import 的 chunk 都不含鍵名 ${NOTIFICATIONS_I18N_MARKER}——通知字串包沒跟著清單載入` +
+        `（或鍵改名了，請同步更新 NOTIFICATIONS_I18N_MARKER）`
     );
   }
 
@@ -419,7 +493,7 @@ export function checkBundleSize(assetsDir, { maxEntryBytes = MAX_ENTRY_BYTES } =
     }
   }
 
-  return { entryName, entryBytes, notePageChunks, mermaidChunks, shikiChunks, adminSectionsChunks, versionsChunks, presentationChunks, trashChunks, selectChunks, folderChunks, shortcutsChunks, tourChunks, managementChunks, bodySearchChunks, avatarEncodeChunks, groupDialogChunks };
+  return { entryName, entryBytes, notePageChunks, mermaidChunks, shikiChunks, adminSectionsChunks, versionsChunks, presentationChunks, trashChunks, selectChunks, folderChunks, shortcutsChunks, tourChunks, managementChunks, bodySearchChunks, commentsChunks, notificationsChunks, avatarEncodeChunks, groupDialogChunks };
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
@@ -436,6 +510,8 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
         `${result.tourChunks.join(', ')}（entry 不含 ${TOUR_I18N_MARKER}）、` +
         `${result.managementChunks.join(', ')}（entry 不含 ${MANAGEMENT_I18N_MARKERS.join('、')}）、` +
         `${result.bodySearchChunks.join(', ')}（entry 不含 ${BODY_SEARCH_MARKER}）、` +
+        `${result.commentsChunks.join(', ')}（entry 與 NotePage 不含 ${COMMENTS_I18N_MARKER}）、` +
+        `${result.notificationsChunks.join(', ')}（entry 與 NotePage 不含 ${NOTIFICATIONS_I18N_MARKER}）、` +
         GROUP_LAZY_DIALOGS.map(d => `${result.groupDialogChunks[d.name].join(', ')}（entry 不含 ${d.marker}）、`).join('') +
         `${result.avatarEncodeChunks.join(', ')}（${AVATAR_IMAGE_MARKER} 只在這個 chunk，entry 與其他 chunk 都不含）`
     );

@@ -1,5 +1,5 @@
 {
-  "id": "326153ea-20c7-493d-a6cf-af28ec3e99e5",
+  "id": "21c07c30-e4f8-44a2-bb68-ff75346d0ed3",
   "prevId": "02c8d3c9-3b56-43ce-bf0b-fd352608bd99",
   "version": "7",
   "dialect": "postgresql",
@@ -659,6 +659,74 @@
           "value": "\"auth_providers\".\"icon_data\" is null or octet_length(\"auth_providers\".\"icon_data\") <= 262144"
         }
       },
+      "isRLSEnabled": false
+    },
+    "public.comment_notified": {
+      "name": "comment_notified",
+      "schema": "",
+      "columns": {
+        "comment_id": {
+          "name": "comment_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "agent_label": {
+          "name": "agent_label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "comment_notified_comment_id_note_comments_id_fk": {
+          "name": "comment_notified_comment_id_note_comments_id_fk",
+          "tableFrom": "comment_notified",
+          "tableTo": "note_comments",
+          "columnsFrom": [
+            "comment_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "comment_notified_user_id_users_id_fk": {
+          "name": "comment_notified_user_id_users_id_fk",
+          "tableFrom": "comment_notified",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "comment_notified_target_uq": {
+          "name": "comment_notified_target_uq",
+          "nullsNotDistinct": true,
+          "columns": [
+            "comment_id",
+            "user_id",
+            "agent_label"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.folders": {
@@ -1897,6 +1965,344 @@
         "note_ai_edits_anchor_chk": {
           "name": "note_ai_edits_anchor_chk",
           "value": "case when \"note_ai_edits\".\"op\" = 'delete_section' then \"note_ai_edits\".\"anchor\" is not null when \"note_ai_edits\".\"op\" = 'file_sync' then (\"note_ai_edits\".\"anchor\" is not null) = (cardinality(\"note_ai_edits\".\"after_block_ids\") = 0) else \"note_ai_edits\".\"anchor\" is null end"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.note_comment_mentions": {
+      "name": "note_comment_mentions",
+      "schema": "",
+      "columns": {
+        "comment_id": {
+          "name": "comment_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "agent_label": {
+          "name": "agent_label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "start": {
+          "name": "start",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "length": {
+          "name": "length",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "note_comment_mentions_comment_id_note_comments_id_fk": {
+          "name": "note_comment_mentions_comment_id_note_comments_id_fk",
+          "tableFrom": "note_comment_mentions",
+          "tableTo": "note_comments",
+          "columnsFrom": [
+            "comment_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "note_comment_mentions_user_id_users_id_fk": {
+          "name": "note_comment_mentions_user_id_users_id_fk",
+          "tableFrom": "note_comment_mentions",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "note_comment_mentions_comment_id_start_pk": {
+          "name": "note_comment_mentions_comment_id_start_pk",
+          "columns": [
+            "comment_id",
+            "start"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "note_comment_mentions_span_chk": {
+          "name": "note_comment_mentions_span_chk",
+          "value": "\"note_comment_mentions\".\"start\" >= 0 and \"note_comment_mentions\".\"length\" >= 2"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.note_comment_reads": {
+      "name": "note_comment_reads",
+      "schema": "",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "note_id": {
+          "name": "note_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "read_at": {
+          "name": "read_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "note_comment_reads_note_idx": {
+          "name": "note_comment_reads_note_idx",
+          "columns": [
+            {
+              "expression": "note_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "note_comment_reads_user_id_users_id_fk": {
+          "name": "note_comment_reads_user_id_users_id_fk",
+          "tableFrom": "note_comment_reads",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "note_comment_reads_note_id_notes_id_fk": {
+          "name": "note_comment_reads_note_id_notes_id_fk",
+          "tableFrom": "note_comment_reads",
+          "tableTo": "notes",
+          "columnsFrom": [
+            "note_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "note_comment_reads_user_id_note_id_pk": {
+          "name": "note_comment_reads_user_id_note_id_pk",
+          "columns": [
+            "user_id",
+            "note_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.note_comments": {
+      "name": "note_comments",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "note_id": {
+          "name": "note_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "author_id": {
+          "name": "author_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "token_id": {
+          "name": "token_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "agent_label": {
+          "name": "agent_label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reply_to_id": {
+          "name": "reply_to_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "anchor_block_id": {
+          "name": "anchor_block_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "anchor_quote": {
+          "name": "anchor_quote",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "body": {
+          "name": "body",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "clock_timestamp()"
+        },
+        "edited_at": {
+          "name": "edited_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "note_comments_note_created_idx": {
+          "name": "note_comments_note_created_idx",
+          "columns": [
+            {
+              "expression": "note_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "note_comments_token_idx": {
+          "name": "note_comments_token_idx",
+          "columns": [
+            {
+              "expression": "token_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "note_comments_note_id_notes_id_fk": {
+          "name": "note_comments_note_id_notes_id_fk",
+          "tableFrom": "note_comments",
+          "tableTo": "notes",
+          "columnsFrom": [
+            "note_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "note_comments_author_id_users_id_fk": {
+          "name": "note_comments_author_id_users_id_fk",
+          "tableFrom": "note_comments",
+          "tableTo": "users",
+          "columnsFrom": [
+            "author_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "note_comments_token_id_api_tokens_id_fk": {
+          "name": "note_comments_token_id_api_tokens_id_fk",
+          "tableFrom": "note_comments",
+          "tableTo": "api_tokens",
+          "columnsFrom": [
+            "token_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "note_comments_body_chk": {
+          "name": "note_comments_body_chk",
+          "value": "char_length(\"note_comments\".\"body\") between 1 and 4000"
+        },
+        "note_comments_quote_chk": {
+          "name": "note_comments_quote_chk",
+          "value": "\"note_comments\".\"anchor_quote\" is null or char_length(\"note_comments\".\"anchor_quote\") between 1 and 200"
         }
       },
       "isRLSEnabled": false
@@ -3740,6 +4146,245 @@
       },
       "isRLSEnabled": false
     },
+    "public.notification_seen": {
+      "name": "notification_seen",
+      "schema": "",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "seen_at": {
+          "name": "seen_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "notification_seen_user_id_users_id_fk": {
+          "name": "notification_seen_user_id_users_id_fk",
+          "tableFrom": "notification_seen",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.notifications": {
+      "name": "notifications",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "agent_label": {
+          "name": "agent_label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "note_id": {
+          "name": "note_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "comment_id": {
+          "name": "comment_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_id": {
+          "name": "actor_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_agent_label": {
+          "name": "actor_agent_label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "clock_timestamp()"
+        }
+      },
+      "indexes": {
+        "notifications_user_created_idx": {
+          "name": "notifications_user_created_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "notifications_note_idx": {
+          "name": "notifications_note_idx",
+          "columns": [
+            {
+              "expression": "note_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "notifications_comment_idx": {
+          "name": "notifications_comment_idx",
+          "columns": [
+            {
+              "expression": "comment_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "notifications_created_idx": {
+          "name": "notifications_created_idx",
+          "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "notifications_user_id_users_id_fk": {
+          "name": "notifications_user_id_users_id_fk",
+          "tableFrom": "notifications",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "notifications_note_id_notes_id_fk": {
+          "name": "notifications_note_id_notes_id_fk",
+          "tableFrom": "notifications",
+          "tableTo": "notes",
+          "columnsFrom": [
+            "note_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "notifications_comment_id_note_comments_id_fk": {
+          "name": "notifications_comment_id_note_comments_id_fk",
+          "tableFrom": "notifications",
+          "tableTo": "note_comments",
+          "columnsFrom": [
+            "comment_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "notifications_actor_id_users_id_fk": {
+          "name": "notifications_actor_id_users_id_fk",
+          "tableFrom": "notifications",
+          "tableTo": "users",
+          "columnsFrom": [
+            "actor_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "notifications_kind_chk": {
+          "name": "notifications_kind_chk",
+          "value": "\"notifications\".\"kind\" in ('mention','reply')"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.oauth_clients": {
       "name": "oauth_clients",
       "schema": "",
@@ -4502,6 +5147,13 @@
           "notNull": false,
           "default": 7
         },
+        "notification_retention_days": {
+          "name": "notification_retention_days",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 30
+        },
         "updated_at": {
           "name": "updated_at",
           "type": "timestamp with time zone",
@@ -4550,6 +5202,10 @@
         "site_settings_trash_retention_chk": {
           "name": "site_settings_trash_retention_chk",
           "value": "\"site_settings\".\"trash_retention_days\" is null or (\"site_settings\".\"trash_retention_days\" >= 1 and \"site_settings\".\"trash_retention_days\" <= 3650)"
+        },
+        "site_settings_notification_retention_chk": {
+          "name": "site_settings_notification_retention_chk",
+          "value": "\"site_settings\".\"notification_retention_days\" is null or (\"site_settings\".\"notification_retention_days\" >= 1 and \"site_settings\".\"notification_retention_days\" <= 3650)"
         },
         "site_settings_version_auto_wait_chk": {
           "name": "site_settings_version_auto_wait_chk",
@@ -5332,15 +5988,9 @@
         },
         "size": {
           "name": "size",
-          "type": "bigint",
+          "type": "integer",
           "primaryKey": false,
           "notNull": true
-        },
-        "file_name": {
-          "name": "file_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         },
         "created_at": {
           "name": "created_at",
@@ -5411,12 +6061,7 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {
-        "uploads_file_name_len_chk": {
-          "name": "uploads_file_name_len_chk",
-          "value": "\"uploads\".\"file_name\" is null or octet_length(\"uploads\".\"file_name\") between 1 and 200"
-        }
-      },
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.user_avatars": {

@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
-import { STORAGE_KINDS, formatBytes, type GroupDto, type GroupStorageUsageDto } from "@knotebook/shared";
+import "@/i18n/groups-admin-strings";
+import { STORAGE_KINDS, formatBytes, type ContentUsageDto, type GroupDto, type GroupStorageUsageDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
 import { useAuthConfig } from "@/api/authConfig";
 import { useGroupStorageUsage } from "@/api/storage";
@@ -7,9 +8,8 @@ import { useUpdateGroupAutoVersions } from "@/api/versionSettings";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { AutoVersionsSwitch } from "@/settings/AutoVersionsSwitch";
-import { ContentUsageGroup } from "@/settings/ContentUsageGroup";
 import { SettingsGroup, SettingsPage } from "@/settings/SettingsLayout";
-import { StorageByKindGroup } from "@/settings/SettingsStorageUsageSection";
+import { BackupBytesLine, StorageByKindGroup } from "@/settings/SettingsStorageUsageSection";
 import { StorageUsageGroup } from "@/settings/StorageUsageGroup";
 import { useGroupOutlet } from "./group-outlet";
 import "@/i18n/management-strings";
@@ -23,8 +23,8 @@ function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string
  * The server groups by `uploads.charged_to_id` (who is charged): an upload into a group note charges the uploader;
  * moving or copying a note in charges whoever did it (a move includes all its attachments, a copy only those copied).
  * Deleted accounts collapse into one `userId: null` row. The percentage
- * denominator is the same as by-kind: the sum of the five `byKind` categories. Row spacing and borders match the
- * settings table without switching to it, to keep the progress-bar grid.
+ * denominator is the sum of the five file kinds in `byKind`, without notes: member bytes are charged uploads, which note content never is.
+ * Row spacing and borders match the settings table without switching to it, to keep the progress-bar grid.
  */
 function ByMemberGroup({ usage }: { usage: GroupStorageUsageDto }) {
   const { t } = useTranslation();
@@ -64,29 +64,32 @@ function ByMemberGroup({ usage }: { usage: GroupStorageUsageDto }) {
 }
 
 /** `AutoVersionsSwitch` gives `siteOff` priority over `disabledReason`. */
-function GroupAutoVersionsGroup({ group }: { group: GroupDto }) {
+function GroupAutoVersionsGroup({ group, content, pending }: { group: GroupDto; content: ContentUsageDto | undefined; pending: boolean }) {
   const { t } = useTranslation();
   const config = useAuthConfig();
   const update = useUpdateGroupAutoVersions();
   return (
     <SettingsGroup title={t("settings.storage.versionsTitle")}>
-      <AutoVersionsSwitch
-        id={`group-auto-versions-${group.id}`}
-        title={t("groups.autoVersions.title")}
-        description={`${t("groups.autoVersions.description")} ${t("settings.storage.versionsNote")}`}
-        checked={group.autoVersions}
-        siteOff={config.data?.autoVersionsEnabled === false}
-        disabledReason={group.canManageGroup ? undefined : t("groups.autoVersions.managersOnly")}
-        pending={update.isPending}
-        onCheckedChange={(value) =>
-          update.mutate({ groupId: group.id, autoVersions: value }, { onError: (err) => toast({ title: errorMessage(t, err), variant: "destructive" }) })
-        }
-      />
+      <div className="space-y-4">
+        <BackupBytesLine content={content} pending={pending} />
+        <AutoVersionsSwitch
+          id={`group-auto-versions-${group.id}`}
+          title={t("groups.autoVersions.title")}
+          description={`${t("groups.autoVersions.description")} ${t("settings.storage.versionsNote")}`}
+          checked={group.autoVersions}
+          siteOff={config.data?.autoVersionsEnabled === false}
+          disabledReason={group.canManageGroup ? undefined : t("groups.autoVersions.managersOnly")}
+          pending={update.isPending}
+          onCheckedChange={(value) =>
+            update.mutate({ groupId: group.id, autoVersions: value }, { onError: (err) => toast({ title: errorMessage(t, err), variant: "destructive" }) })
+          }
+        />
+      </div>
     </SettingsGroup>
   );
 }
 
-/** Read-only; shown to every member, since `GET …/storage` is readable by any member or site admin. Uploads currently accept only four image types, so only "image" is ever non-zero. */
+/** Read-only; shown to every member, since `GET …/storage` is readable by any member or site admin. */
 export function GroupStorageSection() {
   const { t } = useTranslation();
   const group = useGroupOutlet();
@@ -94,10 +97,9 @@ export function GroupStorageSection() {
   return (
     <SettingsPage title={t("groups.nav.storage")}>
       <StorageUsageGroup title={t("settings.storage.usageTitle")} query={query} />
-      <ContentUsageGroup content={query.data?.content} pending={query.isPending} />
-      <StorageByKindGroup byKind={query.data?.byKind} pending={query.isPending} />
+      <StorageByKindGroup byKind={query.data?.byKind} noteBytes={query.data?.content?.noteBytes} pending={query.isPending} />
       {query.data && <ByMemberGroup usage={query.data} />}
-      <GroupAutoVersionsGroup group={group} />
+      <GroupAutoVersionsGroup group={group} content={query.data?.content} pending={query.isPending} />
     </SettingsPage>
   );
 }

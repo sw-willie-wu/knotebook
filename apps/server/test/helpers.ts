@@ -20,6 +20,7 @@ import { buildFixedLimiters, type Limiters } from "../src/http/limiters.js";
 import { hashPassword } from "../src/auth/password.js";
 import { noopCollabHooks, type CollabHooks } from "../src/collab/hooks.js";
 import type { CollabHooksLogger } from "../src/collab/hooks-impl.js";
+import { createNotificationHub, type NotificationHubDeps } from "../src/notifications/hub.js";
 import { COLLAB_PATH, createCollabServer, type CollabDeps, type CollabServer } from "../src/collab/server.js";
 import { notes, noteShares, users } from "../src/db/schema.js";
 import { createAiRuntime } from "../src/ai/runtime.js";
@@ -361,6 +362,8 @@ export interface TestClient {
 }
 
 export interface HttpSession {
+  /** The `Cookie` header value of this login, for clients that are not `fetch` (a raw WebSocket). */
+  cookie: string;
   /** `path` is relative (`/api/...`). */
   fetch(path: string, init?: RequestInit): Promise<Response>;
   /**
@@ -457,6 +460,8 @@ export async function buildCollabTestApp(
      */
     editingFollowsSiteLimits?: boolean;
     siteLimits?: SiteLimits;
+    /** Timing overrides for the notification socket hub (always built, as in production). */
+    notificationHub?: Pick<NotificationHubDeps, "pingIntervalMs" | "shutdownDeadlineMs">;
   } = {}
 ): Promise<CollabTestCtx> {
   const editing = opts.editing ?? testEditingRuntime;
@@ -482,7 +487,8 @@ export async function buildCollabTestApp(
     warn: (obj: object, msg: string) => collabLogs.push({ level: "warn", obj: { ...obj }, msg }),
     error: (obj: object, msg: string) => collabLogs.push({ level: "error", obj: { ...obj }, msg }),
   };
-  const collab = createCollabServer({ db, config, gate, log: collabLog, storeSearchHooks: opts.storeSearchHooks, versionAutoWaitMs: opts.versionAutoWaitMs, lastActiveOptions: opts.lastActiveOptions });
+  const notifications = createNotificationHub({ config, gate, log: collabLog, ...opts.notificationHub });
+  const collab = createCollabServer({ db, config, gate, log: collabLog, notifications, storeSearchHooks: opts.storeSearchHooks, versionAutoWaitMs: opts.versionAutoWaitMs, lastActiveOptions: opts.lastActiveOptions });
 
   const uploadsDir = freshUploadsDir();
   const deps: AppDeps = {
@@ -493,6 +499,7 @@ export async function buildCollabTestApp(
     throttle: new LoginThrottle(),
     collabHooks: opts.collabHooks ? opts.collabHooks(collab, collabLog) : noopCollabHooks,
     collab,
+    notifications,
     editing,
     editingFollowsSiteLimits: opts.editingFollowsSiteLimits === true,
     limiters: freshLimiters(opts.limiters),
@@ -586,6 +593,7 @@ export async function buildCollabTestApp(
       .join("; ");
 
     const session: HttpSession = {
+      cookie,
       async fetch(path: string, init: RequestInit = {}): Promise<Response> {
         const headers = new Headers(init.headers);
         headers.set("cookie", cookie);

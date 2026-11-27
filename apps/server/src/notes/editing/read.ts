@@ -146,9 +146,9 @@ export async function readNoteContent(deps: ReadDeps, runtime: EditingRuntime, n
   return r.result;
 }
 
-export async function readNoteOutline(deps: Pick<ReadDeps, "db" | "collab">, runtime: EditingRuntime, noteId: string, owner: string) {
+export async function readNoteOutline(deps: Pick<ReadDeps, "db" | "collab">, runtime: EditingRuntime, noteId: string, owner: string, locate?: string[]) {
   const { state } = await loadNoteState(deps, noteId);
-  const r = await runtime.runDoc(owner, { kind: "outline", state });
+  const r = await runtime.runDoc(owner, { kind: "outline", state, ...(locate === undefined ? {} : { locate }) });
   if (r === DOC_TOO_COMPLEX) throw new NoteReadTooComplexError();
   return r;
 }

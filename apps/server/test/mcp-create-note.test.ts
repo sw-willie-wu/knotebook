@@ -218,10 +218,10 @@ describe("#108 create_note", () => {
     const tools = list.json().result.tools as { name: string; inputSchema: { properties?: Record<string, unknown> } }[];
     const names = tools.map(t => t.name).sort();
     expect(names).toContain("create_note");
-    // The three tools that read the live doc aren't advertised at all in this deployment shape; `create_note` is their counterexample, so this line also pins that it really is outside the gate.
+    // The tools that read the live doc aren't advertised at all in this deployment shape; `create_note` is their counterexample, so this line also pins that it really is outside the gate.
     // Also outside the gate: create_transfer_token (token-specific), read_note_image (any token), copy_note and move_note_to_group, list_folders (DB only, any token),
-    // and the three folder write tools and move_note_to_folder (notes:write).
-    expect(names).toEqual(["copy_note", "create_folder", "create_note", "create_transfer_token", "list_folders", "list_notes", "list_trash", "move_folder", "move_note_to_folder", "move_note_to_group", "read_note_image", "rename_folder", "search_notes"]);
+    // the three folder write tools and move_note_to_folder (notes:write), and list_notifications (DB only, any credential).
+    expect(names).toEqual(["copy_note", "create_folder", "create_note", "create_transfer_token", "list_folders", "list_notes", "list_notifications", "list_trash", "move_folder", "move_note_to_folder", "move_note_to_group", "read_note_image", "rename_folder", "search_notes"]);
 
     // `inputSchema` **may only be a raw shape or a bare `ZodObject` (`.strict()` is fine)**: passing `ZodEffects`/a union makes the advertised JSON Schema silently
     // `{"type":"object","properties":{}}` (the model sees no fields), while the file's other tests (all sending correct params) stay green. This line is the only guard for that symptom

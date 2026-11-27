@@ -18,6 +18,7 @@ import { groups, notePlacements, notes, users } from "../db/schema.js";
 import type { GroupTestHook } from "../groups/test-hook.js";
 import type { CollabHooks } from "../collab/hooks.js";
 import type { CollabServer } from "../collab/server.js";
+import type { NotificationHub } from "../notifications/hub.js";
 import type { VersionService } from "../collab/versions.js";
 import type { EditingRuntime } from "../notes/editing/runtime.js";
 import type { PresenceRegistry } from "../notes/editing/presence.js";
@@ -98,6 +99,7 @@ export interface NotesRouteDeps {
   config: AppConfig;
   siteLimits: SiteLimits;
   collab?: CollabServer;
+  notifications?: NotificationHub;
   editing?: EditingRuntime;
   limiters: { collabToken: FixedWindowLimiter; slugPatch: FixedWindowLimiter; publicLink: FixedWindowLimiter; publicWidth: FixedWindowLimiter; contentRead: FixedWindowLimiter; edit: FixedWindowLimiter; upload: FixedWindowLimiter };
   /** The single NoteWriteQueue; MCP gets the same object so writes serialize. */
@@ -520,7 +522,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
       if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "Invalid request body.");
 
       const out = await moveNoteToGroup(
-        { db: deps.db, collabHooks: deps.collabHooks, versions: deps.versions, storageLockTimeoutMs: deps.storageLockTimeoutMs, groupTestHook: deps.groupTestHook },
+        { db: deps.db, collabHooks: deps.collabHooks, collab: deps.collab, notifications: deps.notifications, versions: deps.versions, storageLockTimeoutMs: deps.storageLockTimeoutMs, groupTestHook: deps.groupTestHook },
         {
           noteId: id, userId, userHandle: request.user!.handle, groupId: parsed.data.groupId,
           ...(parsed.data.folderId !== undefined ? { folderId: parsed.data.folderId.toLowerCase() } : {}),

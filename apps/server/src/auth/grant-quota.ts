@@ -4,6 +4,9 @@ import { apiTokens } from "../db/schema.js";
 
 export type DbOrTx = Db | Parameters<Parameters<Db["transaction"]>[0]>[0];
 
+/** A grant that still counts: a PAT not yet expired, or any OAuth grant (its refresh never expires). Also what makes an agent label mentionable. */
+export const liveGrantSql = sql`(${apiTokens.kind} = 'oauth' or ${apiTokens.accessExpiresAt} is null or ${apiTokens.accessExpiresAt} > now())`;
+
 /**
  * Quota only: `kind='oauth' OR` because refresh never expires. Never use it as an auth predicate (`auth/bearer.ts`).
  * `excludeClientId` excludes the row this authorization replaces, or re-authorizing the same client at the cap gets 409
@@ -17,7 +20,7 @@ export async function countBillableGrants(db: DbOrTx, userId: string, excludeCli
     .where(
       and(
         eq(apiTokens.userId, userId),
-        sql`(${apiTokens.kind} = 'oauth' or ${apiTokens.accessExpiresAt} is null or ${apiTokens.accessExpiresAt} > now())`,
+        liveGrantSql,
         excludeClientId === undefined
           ? undefined
           : sql`not (${apiTokens.kind} = 'oauth' and ${apiTokens.clientId} = ${excludeClientId})`

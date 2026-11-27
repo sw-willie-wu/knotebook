@@ -179,6 +179,14 @@ export const FAVORITE_LIMIT = { limit: 600, windowMs: 60_000 } as const;
 // Charged only after authorization; 400s and 404s before it don't count. Fixed, not site-adjustable.
 export const TAG_LIMIT = { limit: 600, windowMs: 60_000 } as const;
 
+// Posting or editing a comment (web, REST and MCP `post_comment`). Not shared with `edit`: comments are not note content.
+// Charged after authorization and schema validation, so 404s and schema 400s don't count, but a body refused inside the transaction (empty, over
+// the cap, NUL, bad replyToId or anchor) does. Fixed, not site-adjustable.
+export const COMMENT_LIMIT = { limit: 30, windowMs: 60_000 } as const;
+
+// The per-note "I read the comments" marker, sent whenever the panel opens or new comments arrive in it.
+export const COMMENT_READ_LIMIT = { limit: 600, windowMs: 60_000 } as const;
+
 // Not shared with `search`, so sidebar search and the add-member dialog can't starve each other. Not a privacy boundary (scope is already limited to emails the caller can see). q-validation 400s don't charge.
 export const USER_SUGGEST_LIMIT = { limit: 60, windowMs: 60_000 } as const;
 

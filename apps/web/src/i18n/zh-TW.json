@@ -147,9 +147,9 @@
       "moveClosesPublicLink": "公開連結會被關閉。",
       "moveUrlChange": "網址會改為 /g/…，舊網址一個月內自動轉到新網址。",
       "moveOwnership": "你將不再是擁有者，權限改由你在群組的角色決定。",
-      "moveClearsVersions": "版本歷史會被清空，且無法復原。",
-      "keepVersions": "連同版本歷史一起搬",
-      "keepVersionsHint": "群組裡能編輯的人會看到之前的版本，以及誰改過。",
+      "moveClearsVersions": "版本歷史和留言會被清空，且無法復原。",
+      "keepVersions": "連同版本歷史和留言一起搬",
+      "keepVersionsHint": "群組裡能編輯的人會看到之前的版本，以及誰改過；群組裡所有人都會看到留言。",
       "moveSubmit": "移進群組",
       "copyLead": "會在「{{group}}」建立副本，原筆記不變；AI 修改紀錄、版本歷史與反向連結不會帶過去。",
       "copySubmit": "複製到群組",
@@ -181,10 +181,13 @@
     "overSizeLimit": "這篇筆記超過大小上限，編輯可能變慢。刪掉一些內容可以讓它變小。",
     "titlePlaceholder": "無標題",
     "readOnly": "唯讀",
+    "cornerToggle": "筆記面板",
+    "cornerToggleUnread": "筆記面板，有未讀留言",
     "menu": {
       "label": "更多",
       "labelFor": "{{title}} 的筆記選單",
       "versions": "版本歷史",
+      "comments": "留言",
       "aiEdits": "AI 修改紀錄",
       "present": "簡報模式",
       "moveTo": "移動到…",
@@ -417,6 +420,10 @@
     "passwordLoginOff": "本站目前關閉帳號密碼登入，這個連結暫時不能使用，請聯絡站長。",
     "backToLogin": "回登入頁"
   },
+  "notificationBell": {
+    "label": "通知",
+    "unread": "通知，{{count}} 則未讀"
+  },
   "userMenu": {
     "language": "語言",
     "languageEn": "English",
@@ -495,30 +502,12 @@
     "stackNameN": "新資料夾 {{n}}"
   },
   "groups": {
-    "autoVersions": {
-      "title": "自動儲存版本",
-      "description": "關閉後，這個群組的筆記只在手動儲存時建立版本。",
-      "managersOnly": "只有角色能管理群組的成員可以變更。"
-    },
     "nav": {
       "label": "群組",
       "members": "成員",
       "roles": "角色",
       "storage": "儲存空間",
       "about": "關於"
-    },
-    "storage": {
-      "byMember": "依成員",
-      "byMemberDescription": "每個人佔用了這個群組多少空間：在群組筆記裡上傳的檔案，加上他移入或複製進群組的筆記帶進來的檔案。",
-      "byMemberEmpty": "這個群組的筆記還沒有檔案",
-      "deletedUser": "已刪除的使用者"
-    },
-    "about": {
-      "infoTitle": "資訊",
-      "createdAt": "建立於",
-      "members": "成員",
-      "memberCount_one": "{{count}} 人",
-      "memberCount_other": "{{count}} 人"
     },
     "menu": {
       "label": "{{name}} 的群組選單",
@@ -537,35 +526,6 @@
       "create": "建立",
       "save": "儲存"
     },
-    "delete": {
-      "title": "刪除群組？",
-      "modeLabel": "群組裡的筆記要怎麼處理",
-      "transferLabel": "轉移給管理員",
-      "transferToLabel": "接收筆記的管理員",
-      "transferDescription_one": "{{count}} 篇筆記會變成 {{name}} 的個人筆記，網址改為 /n/…，舊網址一個月內自動轉址；其他成員會失去存取，若有公開連結也會關閉。",
-      "transferDescription_other": "{{count}} 篇筆記會變成 {{name}} 的個人筆記，網址改為 /n/…，舊網址一個月內自動轉址；其他成員會失去存取，若有公開連結也會關閉。",
-      "transferDescriptionNoCount": "群組裡的筆記會變成 {{name}} 的個人筆記，網址改為 /n/…，舊網址一個月內自動轉址；其他成員會失去存取，若有公開連結也會關閉。",
-      "transferTrashNote": "垃圾桶裡的群組筆記會進 {{name}} 的個人垃圾桶，保留期照原刪除時間計算；它們的公開連結同樣會關閉。",
-      "transferFoldersNote": "群組的資料夾會放進 {{name}} 的「我的筆記」，在一個以群組名命名的資料夾底下。",
-      "deleteLabel": "全部刪除",
-      "deleteDescription_one": "{{count}} 篇筆記連同附件與修改紀錄會永久刪除，不會進垃圾桶，無法復原。",
-      "deleteDescription_other": "{{count}} 篇筆記連同附件與修改紀錄會永久刪除，不會進垃圾桶，無法復原。",
-      "deleteDescriptionNoCount": "群組裡的筆記（含垃圾桶裡的）連同附件與修改紀錄會永久刪除，不會進垃圾桶，無法復原。",
-      "deleteDescriptionWithTrash_one": "{{count}} 篇筆記（含垃圾桶裡的 {{trash}} 篇）連同附件與修改紀錄會永久刪除，不會進垃圾桶，無法復原。",
-      "deleteDescriptionWithTrash_other": "{{count}} 篇筆記（含垃圾桶裡的 {{trash}} 篇）連同附件與修改紀錄會永久刪除，不會進垃圾桶，無法復原。",
-      "emptyDescription": "這個群組沒有筆記。",
-      "acknowledge": "我了解筆記會永久刪除",
-      "adminsUnavailable": "無法載入群組的管理員。",
-      "confirm": "刪除群組"
-    },
-    "removeMember": {
-      "title": "移除成員？",
-      "description": "{{email}} 將失去「{{name}}」中筆記的存取權。",
-      "confirm": "移除",
-      "selfTitle": "移除你自己？",
-      "selfDescription": "你（{{email}}）將失去「{{name}}」中筆記的存取權，且無法自行加回。",
-      "selfConfirm": "移除自己"
-    },
     "leave": {
       "title": "退出群組？",
       "description": "你將失去「{{name}}」中筆記的存取權。",
@@ -574,125 +534,6 @@
     "role": {
       "admin": "管理員",
       "member": "一般成員"
-    },
-    "detail": {
-      "nameTitle": "名稱",
-      "nameSave": "儲存名稱",
-      "nameSaved": "群組已重新命名。",
-      "membersDescriptionAdmin": "以 email 加入成員。成員看得到這個群組裡的所有筆記。",
-      "membersDescriptionMember": "只有角色能管理成員的人可以加入或移除成員。",
-      "tableName": "名稱",
-      "tableEmail": "電子郵件",
-      "tableRole": "角色",
-      "tableActions": "操作",
-      "roleLabel": "{{email}} 的角色",
-      "remove": "移除 {{email}}",
-      "lastAdminHint": "唯一的管理員不能降級或移除，請先把另一位成員設為管理員。",
-      "addEmailLabel": "電子郵件地址",
-      "addRoleLabel": "新成員的角色",
-      "add": "加入",
-      "dangerTitle": "刪除群組",
-      "dangerDescription": "刪除群組時，筆記可以轉移給其中一位管理員，或連同群組一起刪除。",
-      "leaveTitle": "退出群組"
-    },
-    "bulk": {
-      "addEmailsPlaceholder": "電子郵件地址（多個請以逗號分隔）",
-      "addEmailsHint": "可以一次輸入多個地址，以逗號、分號、頓號、空白或換行分隔（全形、半形都可以）。",
-      "addTitle": "加入成員",
-      "addDescription": "這些地址會以「{{role}}」加入這個群組。",
-      "invalidSingle": "「{{value}}」看起來不是電子郵件地址。",
-      "progress": "已處理 {{done}}／共 {{total}}",
-      "stop": "停止",
-      "stopping": "正在停止…",
-      "stopped": "已停止：{{reason}}沒加成的地址已放回電子郵件欄。",
-      "stoppedRateLimit": "伺服器暫時限制請求，已停止。請稍候一分鐘再加入其餘的人——他們的地址已放回電子郵件欄。",
-      "cancelled": "已停止。沒加成的地址已放回電子郵件欄。",
-      "keptInBox": "沒加成的地址留在電子郵件欄，方便修正後再試。",
-      "outcome": {
-        "added": "已加入（{{count}}）：",
-        "alreadyMember": "已經是成員（{{count}}）：",
-        "notFound": "找不到這個帳號（{{count}}）：",
-        "invalid": "不是電子郵件地址（{{count}}）：",
-        "failed": "失敗（{{count}}）：",
-        "notProcessed": "未處理（{{count}}）："
-      },
-      "summary": {
-        "added": "已加入：{{count}}。",
-        "alreadyMember": "已經是成員：{{count}}。",
-        "notFound": "找不到這個帳號：{{count}}。",
-        "invalid": "不是電子郵件地址：{{count}}。",
-        "failed": "失敗：{{count}}。",
-        "notProcessed": "未處理：{{count}}。"
-      },
-      "done": "完成",
-      "importOpen": "從其他群組匯入成員…",
-      "importTitle": "從其他群組匯入成員",
-      "importDescription": "勾選的人會以「{{role}}」加入這個群組。這是一次性複製：之後另一個群組的成員異動不會同步過來。",
-      "importNoGroups": "你沒有加入其他群組。",
-      "importSourceLabel": "要匯入的群組",
-      "importSourcePlaceholder": "選擇群組…",
-      "importNobody": "那個群組的人都已經在這裡了。",
-      "importSelectAll": "全選（{{count}} 人）",
-      "importListLabel": "要加入的人",
-      "importExcludedHint": "已在這個群組的人與你自己不會列出。",
-      "importConfirm_one": "加入 {{count}} 人",
-      "importConfirm_other": "加入 {{count}} 人"
-    },
-    "roles": {
-      "descriptionManage": "每位成員各有一個角色，角色決定他能做什麼。內建「管理員」角色不能修改；內建「一般成員」是新成員預設的角色，不能改名或刪除。",
-      "descriptionView": "每位成員各有一個角色，角色決定他能做什麼。只有角色能管理角色與群組的人可以修改。",
-      "legendTitle": "各項權限的意思",
-      "readAlways": "每個角色都能閱讀群組的筆記、它們的反向連結與 AI 修改紀錄。",
-      "readPill": "閱讀",
-      "flags": {
-        "create": {
-          "label": "新建",
-          "description": "在群組裡建立筆記，或把個人筆記移入／複製進群組。沒有「編輯」的話，這樣放進群組的筆記自己也只能閱讀。"
-        },
-        "edit": {
-          "label": "編輯",
-          "description": "修改群組筆記的內容與標題。"
-        },
-        "delete": {
-          "label": "刪除",
-          "description": "把群組筆記移到垃圾桶。同時有編輯權的話，還能在垃圾桶裡還原或永久刪除。"
-        },
-        "managePublicLink": {
-          "label": "管理公開連結",
-          "description": "開關群組筆記的匿名公開連結，並可透過 API 修改筆記的網址代稱。"
-        },
-        "manageMembers": {
-          "label": "管理成員",
-          "description": "加人、移人、更換成員的角色——包括把任何人（含自己）設為管理員。群組至少要留一位管理員。"
-        },
-        "manageGroup": {
-          "label": "管理角色與群組",
-          "description": "改群組名稱、刪除群組，以及新增、修改、刪除角色。"
-        }
-      },
-      "flagFor": "{{role}}：{{flag}}",
-      "nameFor": "{{role}} 的名稱",
-      "adminLocked": "內建管理員角色永遠擁有全部權限，不能修改。",
-      "renameFor": "重新命名「{{role}}」",
-      "save": "儲存",
-      "cancel": "取消",
-      "deleteFor": "刪除 {{role}}",
-      "delete": {
-        "title": "刪除角色？",
-        "description_one": "{{count}} 位掛這個角色的成員會改為一般成員。",
-        "description_other": "{{count}} 位掛這個角色的成員會改為一般成員。",
-        "descriptionEmpty": "目前沒有成員掛這個角色。",
-        "confirm": "刪除角色"
-      },
-      "newRole": "新增角色",
-      "dialog": {
-        "title": "新增角色",
-        "description": "為角色取名並開啟它能做的事；之後都可以再改。",
-        "nameLabel": "角色名稱",
-        "create": "建立"
-      },
-      "invalidName": "角色名稱須為 1–40 個字元。",
-      "deleteWithoutEditHint": "沒有編輯權的話，刪掉的筆記自己無法從垃圾桶還原。"
     }
   },
   "management": {
@@ -1114,6 +955,9 @@
     "knowledge_key_taken": "有兩個選項的 key 相同。",
     "knowledge_fields_limit": "選項或自訂欄位太多了。",
     "knowledge_fields_incomplete": "設定在你開啟頁面後有變動。請重新載入再試一次。",
+    "comment_not_found": "這則留言已經不存在。",
+    "invalid_comment": "這則留言無法儲存。請檢查內容、引用的段落和回覆的留言。",
+    "notification_not_found": "這則通知已經不存在。",
     "fallback": "發生未預期的錯誤。"
   }
 }

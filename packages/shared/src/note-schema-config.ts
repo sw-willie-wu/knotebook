@@ -42,6 +42,7 @@ export const SUPPORTED_LANGUAGES: NonNullable<CodeBlockOptions["supportedLanguag
   html: { name: "HTML" },
   css: { name: "CSS" },
   xml: { name: "XML" },
+  latex: { name: "LaTeX" },
   markdown: { name: "Markdown", aliases: ["md"] },
   docker: { name: "Dockerfile", aliases: ["dockerfile"] },
   diff: { name: "Diff" },

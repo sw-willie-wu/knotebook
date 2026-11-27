@@ -8,6 +8,7 @@ import { ThemeProvider } from "@/theme";
 import { ShortcutsDialogContext, type ShortcutsDialogApi } from "@/lib/shortcuts-dialog";
 import { TourContext, type TourApi } from "@/lib/tour-context";
 import { UserMenu } from "./UserMenu";
+import { ICON_28_HIT } from "./ui/hit-area";
 import { stubLayoutTier } from "@/test/layout-tier";
 import { pressTrigger } from "@/test/menu-trigger";
 
@@ -219,6 +220,29 @@ describe("UserMenu accent picker", () => {
       expect(radio.className).toContain("items-center");
       expect(radio.className).toContain("justify-center");
     }
+  });
+
+  it("places the bell 12px left of the gear, reserves its width in the trigger and keeps its hit area off the gear", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <MemoryRouter>
+            <UserMenu bell={<span data-testid="bell-stub" />} />
+          </MemoryRouter>
+        </ThemeProvider>
+      </QueryClientProvider>,
+    );
+    const trigger = await screen.findByRole("button", { name: "Plain" });
+    // 6px padding + 16px gear + 12px gap
+    expect(screen.getByTestId("bell-stub").parentElement).toHaveClass("right-[34px]");
+    // name margin 40 + flex gap 8 + gear 16 + padding 6 = 70 >= 34 + 28px bell box, leaving 8px of text clearance
+    expect(trigger).toHaveClass("p-1.5", "gap-2");
+    expect(trigger.querySelector("span.truncate")).toHaveClass("mr-10");
+    // the arithmetic above assumes a 16px gear
+    expect(trigger.querySelector("svg:last-of-type")).toHaveClass("h-4", "w-4");
+    // the bell's hit extension (-inset-2 = 8px) must be smaller than the 12px gap
+    expect(ICON_28_HIT).toMatch(/pointer-coarse:after:-inset-2(\s|$)/);
   });
 
   // #79: accessible name of the accent group - the RadioGroup's role=group must resolve t("userMenu.accent");

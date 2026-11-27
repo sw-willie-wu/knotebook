@@ -1740,7 +1740,8 @@ test("58-26 wide screen (1280x800): the page itself doesn't scroll (scrollY stay
 
 async function bubbleGeometry(page: Page): Promise<{ bubble: Rect; scrollbar: number; clientRight: number; scroller: Rect; footer: Rect; blur: string; opacity: string; hit: boolean }> {
   return page.evaluate(() => {
-    const bubbleEl = document.querySelector('[data-testid="versions-bubble"]') as HTMLElement;
+    // The stack's bottom button (the toggle, below the history bubble) is the one pinned to the corner.
+    const bubbleEl = document.querySelector('[data-testid="corner-toggle"]') as HTMLElement;
     const anchor = document.querySelector('[data-testid="corner-anchor"]') as HTMLElement;
     const card = anchor.parentElement!;
     const scrollEl = card.querySelector('[data-testid="article-column"]')!.closest(".overflow-y-auto") as HTMLElement;
@@ -1778,7 +1779,7 @@ function expectBubbleInNoteArea(g: Awaited<ReturnType<typeof bubbleGeometry>>, l
   expect(Math.abs(gapBottom - 18), `${label}：離提及列上緣 18px（實 ${gapBottom}）`).toBeLessThanOrEqual(1);
 }
 
-test("58-32 wide screen (1280, 900, 767, 700 x 800): the history bubble is frosted glass pinned to the bottom right of the body area (above the mentions row) and doesn't disappear while scrolling; the same at the three widths, short/long notes and with/without mentions; 390 has no bubble", async ({ browser }) => {
+test("58-32 wide screen (1280, 900, 767, 700 x 800): the corner stack's bottom button (the toggle under the history bubble) is frosted glass pinned to the bottom right of the body area (above the mentions row) and doesn't disappear while scrolling; the same at the three widths, short/long notes and with/without mentions; 390 has no bubbles", async ({ browser }) => {
   test.setTimeout(480_000);
   for (const width of [1280, 900, 767, 700]) {
     const columnLeft: Record<string, number> = {};

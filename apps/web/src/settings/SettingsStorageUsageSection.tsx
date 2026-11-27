@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { formatBytes, STORAGE_KINDS, type StorageByKind } from "@knotebook/shared";
+import { formatBytes, STORAGE_KINDS, type ContentUsageDto, type StorageByKind } from "@knotebook/shared";
 import { useAuthConfig } from "@/api/authConfig";
 import { useStorageUsage } from "@/api/storage";
 import { ApiFail } from "@/api/client";
@@ -7,7 +7,6 @@ import { useUpdateAutoVersions } from "@/api/versionSettings";
 import { toast } from "@/components/ui/toast";
 import { useSession } from "@/auth/useSession";
 import { AutoVersionsSwitch } from "./AutoVersionsSwitch";
-import { ContentUsageGroup } from "./ContentUsageGroup";
 import { SettingsGroup, SettingsPage } from "./SettingsLayout";
 import { StorageUsageGroup } from "./StorageUsageGroup";
 import "@/i18n/management-strings";
@@ -18,23 +17,24 @@ function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string
 }
 
 /**
- * By-kind group (#247; reused by the group storage page). Rows always show, zeros included, in `STORAGE_KINDS` order (five rows).
- * Percentages use the sum of the displayed kinds, not `usedBytes`: the two come from separate server queries at different moments and can
- * differ briefly during an upload; a zero sum gives 0% everywhere. Uploads currently accept only four image types, so only images are
- * nonzero; the layout is ready for more kinds. No rows while `byKind` is undefined (loading or error): `StorageUsageGroup` on the same page
- * shows errors. Row spacing and dividers match the settings tables (spacing and borders only, not the component).
+ * Percentages use the sum of the displayed rows, not `usedBytes`: the two come from separate server queries and can differ briefly during an upload.
+ * Row spacing and dividers match the settings tables (spacing and borders only, not the table component).
+ * "Other" shows only when nonzero. No rows while `byKind` is undefined (loading or error): `StorageUsageGroup` on the same page shows errors.
  */
-export function StorageByKindGroup({ byKind, pending }: { byKind: StorageByKind | undefined; pending: boolean }) {
+export function StorageByKindGroup({ byKind, noteBytes, pending }: { byKind: StorageByKind | undefined; noteBytes: number | undefined; pending: boolean }) {
   const { t } = useTranslation();
-  const total = byKind === undefined ? 0 : STORAGE_KINDS.reduce((sum, kind) => sum + byKind[kind], 0);
+  const rows =
+    byKind === undefined
+      ? []
+      : [{ kind: "note", bytes: noteBytes ?? 0 }, ...STORAGE_KINDS.map((kind) => ({ kind, bytes: byKind[kind] }))].filter((row) => row.kind !== "other" || row.bytes > 0);
+  const total = rows.reduce((sum, row) => sum + row.bytes, 0);
   return (
     <SettingsGroup title={t("settings.storage.byKind")} description={t("settings.storage.byKindDescription")}>
       {pending ? (
         <p className="text-sm text-muted-foreground">{t("app.loading")}</p>
       ) : byKind === undefined ? null : (
         <ul>
-          {STORAGE_KINDS.map((kind) => {
-            const bytes = byKind[kind];
+          {rows.map(({ kind, bytes }) => {
             const pct = total === 0 ? 0 : (bytes / total) * 100;
             return (
               <li key={kind} data-testid={`by-kind-${kind}`} className="grid grid-cols-[6rem_1fr_6rem] items-center gap-3 border-b border-border py-2.5 text-sm">
@@ -52,23 +52,37 @@ export function StorageByKindGroup({ byKind, pending }: { byKind: StorageByKind 
   );
 }
 
+export function BackupBytesLine({ content, pending }: { content: ContentUsageDto | undefined; pending: boolean }) {
+  const { t } = useTranslation();
+  if (pending || content === undefined) return null;
+  return (
+    <div className="flex items-center justify-between gap-3 text-sm">
+      <span>{t("settings.storage.currentBackups")}</span>
+      <span data-testid="versions-backup-bytes" className="tabular-nums text-muted-foreground">{formatBytes(content.historyBytes)}</span>
+    </div>
+  );
+}
+
 /** The site switch counts as on until config loads. */
-function AutoVersionsGroup() {
+function AutoVersionsGroup({ content, pending }: { content: ContentUsageDto | undefined; pending: boolean }) {
   const { t } = useTranslation();
   const { user } = useSession();
   const config = useAuthConfig();
   const update = useUpdateAutoVersions();
   return (
     <SettingsGroup title={t("settings.storage.versionsTitle")} description={t("settings.storage.versionsNote")}>
-      <AutoVersionsSwitch
-        id="account-auto-versions"
-        title={t("settings.account.autoVersions.title")}
-        description={t("settings.account.autoVersions.description")}
-        checked={user?.autoVersions ?? true}
-        siteOff={config.data?.autoVersionsEnabled === false}
-        pending={update.isPending}
-        onCheckedChange={(value) => update.mutate(value, { onError: (err) => toast({ title: errorMessage(t, err), variant: "destructive" }) })}
-      />
+      <div className="space-y-4">
+        <BackupBytesLine content={content} pending={pending} />
+        <AutoVersionsSwitch
+          id="account-auto-versions"
+          title={t("settings.account.autoVersions.title")}
+          description={t("settings.account.autoVersions.description")}
+          checked={user?.autoVersions ?? true}
+          siteOff={config.data?.autoVersionsEnabled === false}
+          pending={update.isPending}
+          onCheckedChange={(value) => update.mutate(value, { onError: (err) => toast({ title: errorMessage(t, err), variant: "destructive" }) })}
+        />
+      </div>
     </SettingsGroup>
   );
 }
@@ -79,9 +93,8 @@ export function SettingsStorageUsageSection() {
   return (
     <SettingsPage title={t("settings.nav.storage")} description={t("settings.storage.description")}>
       <StorageUsageGroup title={t("settings.storage.usageTitle")} query={storage} />
-      <ContentUsageGroup content={storage.data?.content} pending={storage.isPending} />
-      <StorageByKindGroup byKind={storage.data?.byKind} pending={storage.isPending} />
-      <AutoVersionsGroup />
+      <StorageByKindGroup byKind={storage.data?.byKind} noteBytes={storage.data?.content?.noteBytes} pending={storage.isPending} />
+      <AutoVersionsGroup content={storage.data?.content} pending={storage.isPending} />
     </SettingsPage>
   );
 }

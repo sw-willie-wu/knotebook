@@ -136,7 +136,7 @@ Each section below names one page and lists the bold headings of its entries; fo
 - [Side by side, the columns line up only block by block, at the top level.](./known-limitations/version-history.md)
 - [In the side-by-side comparison, a row of side-by-side columns lines up as one unit.](./known-limitations/version-history.md)
 - [A row of side-by-side columns is marked a little differently from other blocks in a comparison.](./known-limitations/version-history.md)
-- [Copying a note doesn't bring its versions along, moving a note into a group deletes its versions unless you choose to bring them along, and transferring a group's notes deletes their versions.](./known-limitations/version-history.md)
+- [Copying a note doesn't bring its versions along, moving a note into a group deletes its versions and comments unless you choose to bring them along, and transferring a group's notes deletes their versions.](./known-limitations/version-history.md)
 - [Versions kept through a move into a group show who edited them to the group's editors.](./known-limitations/version-history.md)
 - [Changes that were still waiting to be saved when a note is moved into a group with its history kept go into the group's next version, and their editors aren't listed on it.](./known-limitations/version-history.md)
 - [Applying a version to a note whose content is malformed fails with a server error.](./known-limitations/version-history.md)
@@ -161,12 +161,16 @@ Each section below names one page and lists the bold headings of its entries; fo
 - [Pressing Esc in the sidebar's search box while previewing a version also closes the preview](./known-limitations/version-history.md)
 - [Applying a version from before the upgrade to 0.11 brings back ordinary links, and the one-time conversion doesn't convert them again.](./known-limitations/version-history.md)
 - [In a comparison or the AI box's preview, a link to a note you can't see can show as removed and added again inside a block that changed for another reason.](./known-limitations/version-history.md)
+- [On a short window, such as a phone held sideways, the floating version history and comments panels are short too.](./known-limitations/version-history.md)
 
 ## Collaboration and presence
 
 [Collaboration and presence](./known-limitations/collaboration.md): editing with others in real time, reconnecting, and the people and AI assistants shown in a note.
 
 - [A tab that cannot reach the collaboration server keeps retrying in the background; edits made while offline are still lost if you reload before it recovers.](./known-limitations/collaboration.md)
+- [The notification bell updates live only with a single app instance.](./known-limitations/collaboration.md)
+- [A notification that arrives while the bell is opening can be marked seen without being shown.](./known-limitations/collaboration.md)
+- [Clearing notifications in the bell also clears them for your agents.](./known-limitations/collaboration.md)
 - [A note's title is not part of the real-time collaborative document.](./known-limitations/collaboration.md)
 - [A collaboration client that sends ten messages the server doesn't recognize gets disconnected — including a hypothetical newer client version.](./known-limitations/collaboration.md)
 - [An AI's presence is only visible to people who have the note open at that moment, and it fades after 2 minutes.](./known-limitations/collaboration.md)
@@ -366,6 +370,7 @@ Each section below names one page and lists the bold headings of its entries; fo
 - [How the phone layout behaves with an on-screen keyboard, a notch or a home indicator, and the slide-in when a note opens hasn't been checked on a real phone.](./known-limitations/phone.md)
 - [With a selection that crosses two side-by-side columns, the block type button changes only the first column's blocks.](./known-limitations/phone.md)
 - [While the dialog for adding or editing a link is open, a collaborator typing before the link shifts where it lands.](./known-limitations/phone.md)
+- [A comment about a passage can't be started on a phone.](./known-limitations/phone.md)
 
 ## Keyboard shortcuts
 
@@ -562,7 +567,7 @@ Each section below names one page and lists the bold headings of its entries; fo
 
 ## AI assistants over MCP
 
-[AI assistants over MCP](./known-limitations/mcp.md): what an assistant can reach, prompt injection, transfer tokens and paging through live data.
+[AI assistants over MCP](./known-limitations/mcp.md): what an assistant can reach, prompt injection, transfer tokens, paging through live data and comments.
 
 - [An assistant tricked by a prompt injection can send your notes' images off-site.](./known-limitations/mcp.md)
 - [An assistant tricked by a prompt injection can move your personal notes into a group, or copy notes into one.](./known-limitations/mcp.md)
@@ -583,6 +588,10 @@ Each section below names one page and lists the bold headings of its entries; fo
 - [`read_note_section` pages through live text, not a snapshot.](./known-limitations/mcp.md)
 - [`list_trash` and `list_folders` page through live data, not a snapshot.](./known-limitations/mcp.md)
 - [`delete_note` and `restore_note` can use up their budgets without changing anything.](./known-limitations/mcp.md)
+- [An assistant learns of a comment or a mention only by asking again.](./known-limitations/mcp.md)
+- [A comment or notification saved more than 2 seconds late can be skipped by a cursor.](./known-limitations/mcp.md)
+- [A comment an assistant posts about a section points at the section's heading.](./known-limitations/mcp.md)
+- [A mention of an agent whose name was changed later still names the old one.](./known-limitations/mcp.md)
 
 ## Sending notes back as files (MCP bulk transfer)
 

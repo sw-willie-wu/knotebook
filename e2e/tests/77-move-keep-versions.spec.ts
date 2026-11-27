@@ -8,7 +8,7 @@ import { ADMIN, createNote, createUserViaInvite, editorLocator, loginAs, noteIdF
  */
 
 const PASSWORD = "e2e-second-user-pw";
-const KEEP_BOX = "Bring its version history along";
+const KEEP_BOX = "Bring its version history and comments along";
 
 async function saveVersion(page: Page, name: string): Promise<void> {
   await page.keyboard.press("Control+s");
@@ -48,7 +48,7 @@ async function moveToGroup(page: Page, groupName: string, keepHistory: boolean):
     await keep.check();
     await expect(keep).toBeChecked();
   } else {
-    await expect(confirm).toContainText("Its version history is cleared and doesn't come back.");
+    await expect(confirm).toContainText("Its version history and comments are cleared and don't come back.");
   }
   await confirm.getByRole("button", { name: "Move into group", exact: true }).click();
   await expect(page).toHaveURL(/\/g\/[0-9a-f-]{36}\//, { timeout: 15_000 });

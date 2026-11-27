@@ -7,6 +7,7 @@ import { useVersionCurrent, useVersionList, versionsKey } from "@/api/versions";
 import { Button } from "@/components/ui/button";
 import { cardSurface } from "@/components/ui/card";
 import { PaneResizeHandle } from "@/components/PaneResizeHandle";
+import { focusCornerBubble, focusFromCorner } from "@/components/corner-stack-state";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { EllipsisVertical, X } from "@/components/ui/icons";
 import { useIsOverlay } from "@/lib/layout-tiers";
@@ -84,7 +85,12 @@ export function VersionsPanel({
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const { noteId, preview, kindFilter, startPreview, stopPreview, close, openSave } = useVersions();
+  const { noteId, preview, kindFilter, startPreview, stopPreview, close: closeVersions, openSave } = useVersions();
+  // The ✕ goes away with the panel; its focus goes to the bubble, as with Esc.
+  const close = () => {
+    closeVersions();
+    requestAnimationFrame(() => focusCornerBubble("versions-bubble"));
+  };
   const id = noteId ?? "";
   const list = useVersionList(id, true, kindFilter);
   const rowsRef = useRef<Array<HTMLButtonElement | null>>([]);
@@ -97,6 +103,10 @@ export function VersionsPanel({
     const observer = new ResizeObserver(() => setRenderedWidth(Math.round(el.getBoundingClientRect().width)));
     observer.observe(el);
     return () => observer.disconnect();
+  }, []);
+  // Same rule as the comments panel; the list has nothing to type in, so the panel itself takes focus.
+  useEffect(() => {
+    if (focusFromCorner()) asideRef.current?.focus({ preventScroll: true });
   }, []);
   // The fixed segment is never clamped: use the setting directly (the measured value lags one frame and gives a stale width on key repeat).
   const overlay = useIsOverlay();
@@ -146,9 +156,10 @@ export function VersionsPanel({
       ref={asideRef}
       data-testid="versions-panel"
       aria-label={t("versions.title")}
+      tabIndex={-1}
       className={cn(
         cardSurface,
-        "flex shrink-0 flex-col",
+        "flex shrink-0 flex-col outline-none",
         VERSIONS_PANEL_PLACEMENT,
       )}
     >

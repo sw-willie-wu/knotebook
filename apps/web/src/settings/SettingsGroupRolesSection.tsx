@@ -1,5 +1,6 @@
 import { useId, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
+import "@/i18n/groups-admin-strings";
 import {
   GROUP_ROLE_FLAGS,
   GROUP_ROLE_NAME_MAX,

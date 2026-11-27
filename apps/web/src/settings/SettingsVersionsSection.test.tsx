@@ -43,6 +43,7 @@ function stubAdmin({ settings, patchStatus }: { settings: VersionSettingsDto; pa
       if (url === "/api/admin/versions/settings" && method === "GET") return Promise.resolve(res(200, settings));
       // The trash settings on the same page (#181): without this it would enter an error state and add a role=alert
       if (url === "/api/admin/trash/settings" && method === "GET") return Promise.resolve(res(200, { retentionDays: 7 }));
+      if (url === "/api/admin/notifications/settings" && method === "GET") return Promise.resolve(res(200, { retentionDays: 30 }));
       if (url === "/api/admin/versions/settings" && method === "PATCH") {
         if (patchStatus !== undefined && patchStatus >= 400) {
           return Promise.resolve(res(patchStatus, { error: { code: "invalid_body", message: "x" } }));

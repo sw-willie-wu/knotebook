@@ -27,6 +27,25 @@ export function topLevelBlocks(fragment: Y.XmlFragment): Y.XmlElement[] {
   return out;
 }
 
+/** For each wanted id found anywhere in the document (nested list items and column children included), the id of the top-level block or columns row that holds it. */
+export function topLevelIdsOf(fragment: Y.XmlFragment, wanted: ReadonlySet<string>): Map<string, string> {
+  const out = new Map<string, string>();
+  if (wanted.size === 0) return out;
+  for (const top of topLevelBlocks(fragment)) {
+    const topId = top.getAttribute("id") ?? "";
+    // Iterative: nesting depth is client-controlled.
+    const stack: Y.XmlElement[] = [top];
+    while (stack.length > 0) {
+      const n = stack.pop()!;
+      const id = n.getAttribute("id");
+      if (typeof id === "string" && wanted.has(id) && !out.has(id)) out.set(id, topId);
+      for (const c of n.toArray()) if (c instanceof Y.XmlElement) stack.push(c);
+    }
+    if (out.size === wanted.size) break;
+  }
+  return out;
+}
+
 // A columnList reaches here too: its first child is a column, not a blockGroup, so it returns the first column; headingLevel only
 // matches headings, so a row is never treated as a heading.
 function blockContent(container: Y.XmlElement): Y.XmlElement | null {

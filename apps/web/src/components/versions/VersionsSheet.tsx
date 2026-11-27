@@ -5,6 +5,7 @@ import { Dialog as DialogPrimitive } from "radix-ui";
 import type * as Y from "yjs";
 import type { NoteDto, VersionDto } from "@knotebook/shared";
 import { useVersionCurrent, useVersionList, type VersionTarget } from "@/api/versions";
+import { NotePanelSwitch, consumeNotePanelSwitch } from "@/components/NotePanelSwitch";
 import { Button } from "@/components/ui/button";
 import { useVersions } from "@/lib/versions-context";
 import { ComparePicker } from "./ComparePicker";
@@ -63,6 +64,7 @@ export function VersionsSheet({ doc, lastEdited, returnFocusRef }: { doc: Y.Doc;
         </Button>
         <h2 className="text-sm font-semibold">{t("versions.title")}</h2>
       </header>
+      <NotePanelSwitch current="versions" />
       <p data-testid="sheet-last-edited" className="px-4 pt-3 text-xs text-muted-foreground">
         {lastEditedText}
       </p>
@@ -150,6 +152,10 @@ export function VersionsSheet({ doc, lastEdited, returnFocusRef }: { doc: Y.Doc;
           className={`fixed inset-0 z-50 flex flex-col bg-card outline-none ${SAFE_INSETS}`}
           aria-describedby={undefined}
           onCloseAutoFocus={(event) => {
+            if (consumeNotePanelSwitch()) {
+              event.preventDefault();
+              return;
+            }
             const target = returnFocus?.isConnected ? returnFocus : returnFocusRef?.current;
             if (!target?.isConnected) return;
             event.preventDefault();

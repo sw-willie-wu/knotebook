@@ -38,14 +38,17 @@ export const versionReadFailed = pkg.failed;
  * sections" because `open_notes_as_files` can return whole files.
  */
 const BASE_INSTRUCTIONS = `Knotebook notes over MCP. Tools read notes in sections: none returns a whole
-note. Call read_note_outline first to see a note's sections, then
-read_note_section for one section's text, 4000 characters per call — page with \`offset\`
+note. Call read_note_outline first for a note's sections, then
+read_note_section for one section, 4000 characters per call — page with \`offset\`
 until \`truncated\` is false.
-Headings and titles are cut at 200 characters as written in JSON. What is capped is a single response,
-not the total you can read. Notes you can see include ones shared with you and your groups' notes: each
+Headings and titles are cut at 200 characters as written in JSON. Notes you can see include ones shared with you and your groups' notes: each
 result carries \`owner\` and \`role\` so you can tell whose content you are reading.
 Only list_trash lists notes in the trash.
 Notes can sit in folders; list_folders shows their paths.`;
+
+/** One line per form; the read-only one names only read tools. "poll": nothing is pushed to an agent, it has to call again. */
+const COMMENTS_WRITE = "Comments: read_comments, post_comment; poll list_notifications for mentions.";
+const COMMENTS_READ_ONLY = "Comments: read_comments; poll list_notifications for mentions.";
 
 /**
  * Qualifiers in the last sentence: "changes a note's content" excludes `create_note` without
@@ -73,5 +76,5 @@ export function mcpInstructions(canWrite: boolean, openNotesAsFiles: boolean): s
   const tail = canWrite
     ? openNotesAsFiles ? `${WRITE_INSTRUCTIONS} ${FILES_HINT_WRITE}` : WRITE_INSTRUCTIONS
     : openNotesAsFiles ? `${FILES_HINT_READ_ONLY} ${READ_ONLY_INSTRUCTIONS}` : READ_ONLY_INSTRUCTIONS;
-  return `${BASE_INSTRUCTIONS} ${tail}`;
+  return `${BASE_INSTRUCTIONS} ${canWrite ? COMMENTS_WRITE : COMMENTS_READ_ONLY} ${tail}`;
 }

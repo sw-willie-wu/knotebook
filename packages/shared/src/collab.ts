@@ -47,3 +47,10 @@ export interface CollabTokenClaims {
    * when it !== NOTE_SCHEMA_VERSION. */
   sv: number;
 }
+
+/** Per-user notification socket; under the `/collab` prefix so reverse-proxy upgrade rules for `/collab` already cover it. */
+export const NOTIFICATIONS_SOCKET_PATH = "/collab/notifications";
+/** No valid session at connect time, or it was revoked later. */
+export const NOTIFICATIONS_CLOSE_UNAUTHORIZED = 4401;
+/** Over the per-user socket cap. The client waits for the next window focus instead of retrying. */
+export const NOTIFICATIONS_CLOSE_TOO_MANY = 4429;

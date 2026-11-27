@@ -502,6 +502,15 @@
       "save": "Save",
       "saved": "Trash settings saved"
     },
+    "notifications": {
+      "title": "Notifications",
+      "autoLabel": "Delete old notifications automatically",
+      "daysLabel": "Days to keep notifications",
+      "description": "Mention and reply notifications are deleted once they're older than this (checked once an hour, up to 20,000 per check). Turn it off to keep them until people delete them.",
+      "daysInvalid": "Use a whole number from 1 to 3650.",
+      "save": "Save",
+      "saved": "Notification settings saved"
+    },
     "groups": {
       "title": "Groups",
       "description": "Every group on this site, with its storage use and plan.",
@@ -543,7 +552,7 @@
         "copy": "Copy",
         "copied": "Copied.",
         "copyFailed": "Couldn't copy automatically — select it by hand.",
-        "scopes": "Read: list_notes, search_notes, read_note_outline, read_note_section, read_note_image, list_trash, list_folders, create_transfer_token (download) and open_notes_as_files (downloading one or many notes as files). Edit adds edit_note, create_note, copy_note (into your own notes), create_folder, rename_folder, move_folder, move_note_to_folder and create_transfer_token uploads, and lets the files from open_notes_as_files be sent back. Move to groups is needed for move_note_to_group and copying into a group (moving into a group can't be undone, so it is a separate permission). Move to trash is needed for delete_note and restore_note, which move notes to the trash and back, and for delete_folder, which can move the notes in a folder to the trash; no tool here deletes a note permanently, but a note left in the trash can still be deleted permanently later, by the site's trash setting or by someone in the web app."
+        "scopes": "Read: list_notes, search_notes, read_note_outline, read_note_section, read_note_image, list_trash, list_folders, read_comments, list_notifications, create_transfer_token (download) and open_notes_as_files (downloading one or many notes as files). Edit adds edit_note, create_note, copy_note (into your own notes), create_folder, rename_folder, move_folder, move_note_to_folder, post_comment and create_transfer_token uploads, and lets the files from open_notes_as_files be sent back. Move to groups is needed for move_note_to_group and copying into a group (moving into a group can't be undone, so it is a separate permission). Move to trash is needed for delete_note and restore_note, which move notes to the trash and back, and for delete_folder, which can move the notes in a folder to the trash; no tool here deletes a note permanently, but a note left in the trash can still be deleted permanently later, by the site's trash setting or by someone in the web app."
       },
       "tokens": {
         "name": "Name",
@@ -568,19 +577,17 @@
     "storage": {
       "description": "How much space your profile pictures and the files in your personal notes take.",
       "usageTitle": "Usage",
-      "contentTitle": "Notes and history",
-      "contentDescription": "Space taken by note content and version history. It doesn't count toward the storage limit.",
-      "contentNote": "Note content",
-      "contentHistory": "Version history and backups",
       "byKind": "By type",
-      "byKindDescription": "Files grouped by type. Profile pictures count as images.",
+      "byKindDescription": "Space grouped by type. Profile pictures count as images. Notes don't count toward the storage limit.",
       "kinds": {
+        "note": "Notes",
         "image": "Images",
         "audio": "Audio",
         "video": "Video",
         "document": "Documents",
         "other": "Other"
       },
+      "currentBackups": "Current backups",
       "versionsTitle": "Version history",
       "versionsNote": "Versions and note text don't count toward the storage limit. Files and, in a personal space, profile pictures do."
     },
@@ -699,7 +706,7 @@
       "apiTokensScopeEdit": "Create and edit notes",
       "apiTokensScopeMove": "Move to groups (can't be undone)",
       "apiTokensScopeMoveDesc": "Move one of your notes into a group, or copy notes into a group.",
-      "apiTokensScopeMoveHint": "Moving a note into a group can't be undone: it removes the note's per-person shares and its public link, it can remove its version history, the group becomes its owner, and from then on the group's roles decide who can change or delete it. Every member of the group can read what is moved or copied there. Requires \"Create and edit notes\".",
+      "apiTokensScopeMoveHint": "Moving a note into a group can't be undone: it removes the note's per-person shares and its public link, it can remove its version history and comments, the group becomes its owner, and from then on the group's roles decide who can change or delete it. Every member of the group can read what is moved or copied there. Requires \"Create and edit notes\".",
       "apiTokensScopeDelete": "Move to trash (can be restored)",
       "apiTokensScopeDeleteDesc": "Move notes to the trash, restore them, and delete folders (their notes go to the trash).",
       "apiTokensScopeDeleteHint": "Can't delete notes permanently, but notes left in the trash can still be deleted permanently later, by the site's trash setting or by someone in the web app.",

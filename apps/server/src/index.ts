@@ -13,6 +13,7 @@ import { UserGate } from "./auth/session.js";
 import { LoginThrottle } from "./auth/rate-limit.js";
 import { createCollabHooks } from "./collab/hooks-impl.js";
 import { createCollabServer } from "./collab/server.js";
+import { createNotificationHub } from "./notifications/hub.js";
 import { SCAN_STOP_GRACE_MS } from "./collab/versions.js";
 import { buildApp } from "./app.js";
 import { createAiRuntime, selfCheckAiKeys } from "./ai/runtime.js";
@@ -129,7 +130,8 @@ async function main(): Promise<void> {
   const throttle = new LoginThrottle();
 
   // `collabHooks` must wrap this same instance: it finds the connections affected by a permission change through its index.
-  const collab = createCollabServer({ db, config, gate, log: logger });
+  const notifications = createNotificationHub({ config, gate, log: logger });
+  const collab = createCollabServer({ db, config, gate, log: logger, notifications });
 
   const webDistCandidate = path.resolve(process.cwd(), "web-dist");
   const webDist = existsSync(webDistCandidate) ? webDistCandidate : undefined;
@@ -153,10 +155,12 @@ async function main(): Promise<void> {
       throttle,
       collabHooks: createCollabHooks(collab, logger),
       collab,
+      notifications,
       uploadsDir,
       ai,
       startVersionJobs: true,
       startTrashPurge: true,
+      startNotificationPurge: true,
       ...(config.testHooks ? { versionAutoScanIntervalMs: 1000 } : {}),
     },
     { webDist }

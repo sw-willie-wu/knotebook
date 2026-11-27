@@ -16,6 +16,7 @@ import { LastActiveTracker } from "./auth/last-active.js";
 import { createAuthenticateTokenOrSession } from "./auth/bearer.js";
 import type { LoginThrottle } from "./auth/rate-limit.js";
 import type { CollabHooks } from "./collab/hooks.js";
+import { withNotificationReverify, type NotificationHub } from "./notifications/hub.js";
 import type { CollabServer } from "./collab/server.js";
 import { SCAN_STOP_GRACE_MS, VERSION_AUTO_SCAN_INTERVAL_MS, VERSION_SWEEP_FIRST_DELAY_MS, VERSION_SWEEP_INTERVAL_MS, createVersionService } from "./collab/versions.js";
 import { authRoutes } from "./routes/auth.js";
@@ -25,6 +26,7 @@ import { trashRoutes } from "./routes/trash.js";
 import { foldersRoutes } from "./routes/folders.js";
 import { favoritesRoutes } from "./routes/favorites.js";
 import { tagsRoutes } from "./routes/tags.js";
+import { commentsRoutes } from "./routes/comments.js";
 import { groupsRoutes } from "./routes/groups.js";
 import { searchRoutes } from "./routes/search.js";
 import { knowledgeRoutes } from "./routes/knowledge.js";
@@ -43,6 +45,8 @@ import { adminAuthRoutes } from "./routes/admin-auth.js";
 import { adminVersionsRoutes } from "./routes/admin-versions.js";
 import { adminLimitsRoutes } from "./routes/admin-limits.js";
 import { adminTrashRoutes } from "./routes/admin-trash.js";
+import { adminNotificationsRoutes } from "./routes/admin-notifications.js";
+import { notificationsRoutes } from "./routes/notifications.js";
 import { testHookRoutes } from "./routes/test-hooks.js";
 import { accountRoutes } from "./routes/account.js";
 import { avatarsRoutes } from "./routes/avatars.js";
@@ -80,6 +84,7 @@ import { PresenceRegistry, type PresenceOptions } from "./notes/editing/presence
 import { NoteWriteService } from "./notes/editing/write-service.js";
 import type { ShownLinkTexts } from "./notes/editing/shown-link-texts.js";
 import { createLinkConversion, errorSummary, NOOP_LINK_CONVERSION, type LinkConversion } from "./notes/link-conversion.js";
+import { NOTIFICATION_PURGE_FIRST_DELAY_MS, NOTIFICATION_PURGE_INTERVAL_MS, createNotificationPurger } from "./notifications/retention.js";
 import { TRASH_PURGE_FIRST_DELAY_MS, TRASH_PURGE_INTERVAL_MS, createTrashPurger } from "./trash/purge.js";
 import type { NoteCreateHooks } from "./notes/create.js";
 import type { GroupTestHook } from "./groups/test-hook.js";
@@ -129,6 +134,8 @@ export interface AppDeps {
   throttle: LoginThrottle;
   collabHooks: CollabHooks;
   collab?: CollabServer;
+  /** The same instance `collab` was built with, or its `/collab/notifications` upgrades never reach it. */
+  notifications?: NotificationHub;
   /** Ignored without `collab`; content routes are then not registered, so REST-only apps don't pay for jsdom. */
   editing?: EditingRuntime;
   /** An injected `editing` follows this app's siteLimits only when true (the injector owns it); a self-built one always does. */
@@ -161,6 +168,9 @@ export interface AppDeps {
   startTrashPurge?: boolean;
   trashPurgeFirstDelayMs?: number;
   trashPurgeIntervalMs?: number;
+  startNotificationPurge?: boolean;
+  notificationPurgeFirstDelayMs?: number;
+  notificationPurgeIntervalMs?: number;
   /** Delay before re-verifying the older session's collab connections after the same account signs in again. */
   reloginReverifyDelayMs?: number;
   versionAutoScanIntervalMs?: number;
@@ -451,6 +461,22 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     });
   }
 
+  if (deps.startNotificationPurge) {
+    const purger = createNotificationPurger({ db: deps.db, log: app.log });
+    const run = (): void => {
+      void purger.runOnce().catch(err => app.log.warn({ err: errorSummary(err) }, "Notification cleanup background job failed"));
+    };
+    const first = setTimeout(run, deps.notificationPurgeFirstDelayMs ?? NOTIFICATION_PURGE_FIRST_DELAY_MS);
+    first.unref();
+    const every = setInterval(run, deps.notificationPurgeIntervalMs ?? NOTIFICATION_PURGE_INTERVAL_MS);
+    every.unref();
+    app.addHook("onClose", async () => {
+      clearTimeout(first);
+      clearInterval(every);
+      await Promise.race([purger.stop(), new Promise<void>(resolve => setTimeout(resolve, SCAN_STOP_GRACE_MS).unref())]);
+    });
+  }
+
   // Before any route registration: route plugins call app.authenticateTokenOrSession.
   app.decorate(
     "authenticateTokenOrSession",
@@ -468,8 +494,17 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   // preHandlers, so auth and handlers see lowercase ids.
   app.addHook("preValidation", lowercaseUuidParams);
 
+  const collabHooks: CollabHooks = deps.notifications === undefined ? deps.collabHooks : withNotificationReverify(deps.collabHooks, deps.notifications);
+  // Fastify's close does not end upgraded sockets, but the HTTP server's close waits for them, so they have to be closed first.
+  if (deps.notifications !== undefined) {
+    const hub = deps.notifications;
+    app.addHook("preClose", async () => {
+      await hub.close();
+    });
+  }
+
   void app.register(
-    authRoutes({ db: deps.db, config: deps.config, siteLimits: deps.siteLimits, gate: deps.gate, throttle: deps.throttle, collabHooks: deps.collabHooks, reloginReverifyDelayMs: deps.reloginReverifyDelayMs })
+    authRoutes({ db: deps.db, config: deps.config, siteLimits: deps.siteLimits, gate: deps.gate, throttle: deps.throttle, collabHooks, reloginReverifyDelayMs: deps.reloginReverifyDelayMs })
   );
   void app.register(
     apiTokensRoutes({ db: deps.db, siteLimits: deps.siteLimits, limiters: { patCreate: limiters.patCreate, tokenRename: limiters.tokenRename } })
@@ -479,10 +514,10 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   // Per app, never a module singleton (same as limiters).
   const oidcRegistry = deps.oidcRegistry ?? createOidcRuntimeRegistry();
   void app.register(
-    oidcRoutes({ config: deps.config, db: deps.db, siteLimits: deps.siteLimits, gate: deps.gate, collabHooks: deps.collabHooks, reloginReverifyDelayMs: deps.reloginReverifyDelayMs, registry: oidcRegistry, limiters: { oidcLogin: limiters.oidcLogin, oidcCallback: limiters.oidcCallback }, oidcTestHook: deps.oidcTestHook, uploadsDir: deps.uploadsDir, storageLockTimeoutMs, avatarFetchPolicy: deps.avatarFetchPolicy, avatarJobHooks: deps.avatarJobHooks }),
+    oidcRoutes({ config: deps.config, db: deps.db, siteLimits: deps.siteLimits, gate: deps.gate, collabHooks, reloginReverifyDelayMs: deps.reloginReverifyDelayMs, registry: oidcRegistry, limiters: { oidcLogin: limiters.oidcLogin, oidcCallback: limiters.oidcCallback }, oidcTestHook: deps.oidcTestHook, uploadsDir: deps.uploadsDir, storageLockTimeoutMs, avatarFetchPolicy: deps.avatarFetchPolicy, avatarJobHooks: deps.avatarJobHooks }),
   );
   void app.register(
-    oidcPendingRoutes({ config: deps.config, db: deps.db, siteLimits: deps.siteLimits, gate: deps.gate, collabHooks: deps.collabHooks, reloginReverifyDelayMs: deps.reloginReverifyDelayMs, throttle: deps.throttle, registry: oidcRegistry, limiters: { oidcLogin: limiters.oidcLogin }, oidcTestHook: deps.oidcTestHook }),
+    oidcPendingRoutes({ config: deps.config, db: deps.db, siteLimits: deps.siteLimits, gate: deps.gate, collabHooks, reloginReverifyDelayMs: deps.reloginReverifyDelayMs, throttle: deps.throttle, registry: oidcRegistry, limiters: { oidcLogin: limiters.oidcLogin }, oidcTestHook: deps.oidcTestHook }),
   );
   void app.register(oidcLinkRoutes({ db: deps.db, config: deps.config, registry: oidcRegistry, limiters: { oidcLogin: limiters.oidcLogin } }));
 
@@ -539,10 +574,11 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   void app.register(
     notesRoutes({
       db: deps.db,
-      collabHooks: deps.collabHooks,
+      collabHooks,
       config: deps.config,
       siteLimits: deps.siteLimits,
       collab: deps.collab,
+      notifications: deps.notifications,
       editing,
       limiters,
       writes,
@@ -560,17 +596,18 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     })
   );
   void app.register(noteVersionsRoutes({ db: deps.db, versions, writes, limiters: { edit: limiters.edit } }));
-  void app.register(trashRoutes({ db: deps.db, collabHooks: deps.collabHooks, uploadsDir: deps.uploadsDir, storageLockTimeoutMs, groupTestHook: deps.groupTestHook }));
-  void app.register(foldersRoutes({ db: deps.db, collabHooks: deps.collabHooks, storageLockTimeoutMs, groupTestHook: deps.groupTestHook, limiters: { folder: limiters.folder } }));
+  void app.register(trashRoutes({ db: deps.db, collabHooks, uploadsDir: deps.uploadsDir, storageLockTimeoutMs, groupTestHook: deps.groupTestHook }));
+  void app.register(foldersRoutes({ db: deps.db, collabHooks, storageLockTimeoutMs, groupTestHook: deps.groupTestHook, limiters: { folder: limiters.folder } }));
   void app.register(favoritesRoutes({ db: deps.db, limiters: { favorite: limiters.favorite }, groupTestHook: deps.groupTestHook }));
   void app.register(tagsRoutes({ db: deps.db, limiters: { tag: limiters.tag }, groupTestHook: deps.groupTestHook }));
-  void app.register(groupsRoutes({ db: deps.db, collabHooks: deps.collabHooks, groupTestHook: deps.groupTestHook, uploadsDir: deps.uploadsDir, storageLockTimeoutMs, versions }));
+  void app.register(commentsRoutes({ db: deps.db, collab: deps.collab, notifications: deps.notifications, limiters: { comment: limiters.comment, commentRead: limiters.commentRead, userSuggest: limiters.userSuggest }, groupTestHook: deps.groupTestHook }));
+  void app.register(groupsRoutes({ db: deps.db, collabHooks, groupTestHook: deps.groupTestHook, uploadsDir: deps.uploadsDir, storageLockTimeoutMs, versions }));
   void app.register(usersRoutes({ db: deps.db, limiters: { userSuggest: limiters.userSuggest } }));
   void app.register(searchRoutes({ db: deps.db, limiters: { search: limiters.search } }));
   void app.register(knowledgeRoutes({ db: deps.db, limiters: { search: limiters.search } }));
   void app.register(knowledgeFieldsRoutes({ db: deps.db }));
   void app.register(knowledgeMembersRoutes({ db: deps.db }));
-  void app.register(adminUsersRoutes({ db: deps.db, gate: deps.gate, collabHooks: deps.collabHooks, adminTestHook: deps.adminTestHook }));
+  void app.register(adminUsersRoutes({ db: deps.db, gate: deps.gate, collabHooks, adminTestHook: deps.adminTestHook }));
   void app.register(adminPasswordResetRoutes({ db: deps.db, config: deps.config }));
   void app.register(adminInvitesRoutes({ db: deps.db, config: deps.config }));
   void app.register(adminStorageRoutes({ db: deps.db }));
@@ -580,6 +617,8 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   void app.register(adminAuthRoutes({ db: deps.db, config: deps.config, registry: oidcRegistry }));
   void app.register(adminVersionsRoutes({ db: deps.db }));
   void app.register(adminTrashRoutes({ db: deps.db }));
+  void app.register(adminNotificationsRoutes({ db: deps.db }));
+  void app.register(notificationsRoutes({ db: deps.db }));
   void app.register(adminLimitsRoutes({ db: deps.db, siteLimits: deps.siteLimits }));
   // Only with KNOTEBOOK_E2E_TEST_HOOKS=1 and a loopback PUBLIC_URL (config.ts).
   if (deps.config.testHooks) void app.register(testHookRoutes({ versions }));
@@ -590,7 +629,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       config: deps.config,
       siteLimits: deps.siteLimits,
       gate: deps.gate,
-      collabHooks: deps.collabHooks,
+      collabHooks,
       reloginReverifyDelayMs: deps.reloginReverifyDelayMs,
       limiters: { register: limiters.register, oneTimeLinkMiss: limiters.oneTimeLinkMiss, oneTimeLinkAttempt: limiters.oneTimeLinkAttempt },
     }),
@@ -613,7 +652,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       config: deps.config,
       siteLimits: deps.siteLimits,
       gate: deps.gate,
-      collabHooks: deps.collabHooks,
+      collabHooks,
       limiters: { oneTimeLinkMiss: limiters.oneTimeLinkMiss, oneTimeLinkAttempt: limiters.oneTimeLinkAttempt },
     }),
   );
@@ -639,14 +678,15 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       db: deps.db,
       config: deps.config,
       collab: deps.collab,
+      notifications: deps.notifications,
       editing,
-      // Only MCP's own limiters; upload and folder are the same instances as the REST routes'.
-      limiters: { contentRead: limiters.contentRead, edit: limiters.edit, tokenWrite: limiters.tokenWrite, search: limiters.search, upload: limiters.upload, folder: limiters.folder },
+      // Only MCP's own limiters; upload, folder and comment are the same instances as the REST routes'.
+      limiters: { contentRead: limiters.contentRead, edit: limiters.edit, tokenWrite: limiters.tokenWrite, search: limiters.search, upload: limiters.upload, folder: limiters.folder, comment: limiters.comment },
       presence,
       writes,
       testHooks: deps.mcpTestHooks,
       groupTestHook: deps.groupTestHook,
-      collabHooks: deps.collabHooks,
+      collabHooks,
       uploadsDir: deps.uploadsDir,
       storageLockTimeoutMs,
       versions,

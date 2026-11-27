@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from "react";
+import { useId, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router";
 import { useSession } from "@/auth/useSession";
@@ -33,8 +33,8 @@ const LANGUAGES: { code: "en" | "zh-TW"; labelKey: string }[] = [
 
 const THEMES: Theme[] = ["light", "dark", "system"];
 
-/** The trigger sets `aria-label={user.displayName}` and hides avatar/gear so existing e2e name queries keep working. Renders nothing when `user` is missing (guard for use outside `<RequireAuth>`). */
-export function UserMenu({ variant = "row" }: { variant?: "row" | "avatar" } = {}) {
+/** `bell` (row variant only) sits over the trigger's row just left of the gear, as a sibling: a button inside the trigger button is invalid. The trigger sets `aria-label={user.displayName}` and hides avatar/gear so existing e2e name queries keep working. Renders nothing when `user` is missing (guard for use outside `<RequireAuth>`). */
+export function UserMenu({ variant = "row", bell }: { variant?: "row" | "avatar"; bell?: ReactNode } = {}) {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
@@ -64,7 +64,7 @@ export function UserMenu({ variant = "row" }: { variant?: "row" | "avatar" } = {
   }
 
   const avatar = variant === "avatar";
-  return (
+  const menu = (
     <DropdownMenu phoneSheet open={menuOpen} onOpenChange={setMenuOpen}>
       <DropdownMenuTrigger asChild>
         {avatar ? (
@@ -100,7 +100,7 @@ export function UserMenu({ variant = "row" }: { variant?: "row" | "avatar" } = {
               size={24}
               className="bg-primary text-primary-foreground"
             />
-            <span aria-hidden="true" className="min-w-0 flex-1 truncate">
+            <span aria-hidden="true" className={cn("min-w-0 flex-1 truncate", bell !== undefined && "mr-10")}>
               {user.displayName}
             </span>
             <Settings aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -213,5 +213,13 @@ export function UserMenu({ variant = "row" }: { variant?: "row" | "avatar" } = {
         <DropdownMenuItem onSelect={() => void handleLogout()}>{t("userMenu.logout")}</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+  if (avatar || bell === undefined) return menu;
+  return (
+    <div className="relative">
+      {menu}
+      {/* right edge = 6 px trigger padding + 16 px gear + 12 px gap = 34 px; the 8 px coarse-pointer hit extension stays 4 px clear of the gear. The name's mr-10 (40 px) + 8 px flex gap + 16 px gear + 6 px padding reserves 70 px = bell's 28 px box + 34 px, plus 8 px before the bell. */}
+      <div className="absolute right-[34px] top-1/2 -translate-y-1/2">{bell}</div>
+    </div>
   );
 }

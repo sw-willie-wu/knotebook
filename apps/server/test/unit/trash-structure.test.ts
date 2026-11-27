@@ -138,6 +138,8 @@ const REGISTRY: Record<string, Disposition> = {
   // excludes: version-cut lock-read; includes: notBaseVersionSql, the two reset statements and the pending-only reset; write: the three UPDATEs inside cutVersionInTx.
   "notes/tx/versions.ts": { excludes: 1, includes: 4, write: 3, why: "version pruning runs as usual; the transfer reset ignores state" },
   "notes/tx/write-links.ts": { includes: 4, why: "links are recorded even when the target is trashed; the CAS adds no condition" },
+  // excludes: the access read for a page of notifications (live notes only, with deleted_at IS NULL); a trashed note shows as not openable.
+  "notifications/queries.ts": { excludes: 1 },
   "routes/admin-storage.ts": { includes: 2, why: "storage usage still counts trashed notes" },
   // excludes: GET public-link; write: the five public-link routes (token PUT/DELETE, width PUT, alias PUT/DELETE).
   // GET public-link and the pre-read in routes/notes.ts are both "after authorization, statement carries no condition": the former is a pure read, equivalent to "read, then move to trash" under TOCTOU, so it counts as excludes;

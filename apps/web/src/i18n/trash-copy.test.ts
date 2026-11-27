@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import i18n from "@/i18n";
 import zhTW from "./zh-TW.json";
 import en from "./en.json";
+import groupsAdminEn from "./groups-admin.en.json";
+import groupsAdminZhTW from "./groups-admin.zh-TW.json";
 import managementZhTW from "./management.zh-TW.json";
 
 /**
@@ -35,8 +37,9 @@ function get(obj: unknown, path: string): unknown {
 
 describe("trash copy literals (zh-TW)", () => {
   for (const [key, text] of Object.entries(SPEC_COPY)) {
-    // admin.* / settings.* strings are in the lazy bundle (management.*.json), the rest in the main file.
-    it(key, () => expect(get(key.startsWith("admin.") ? managementZhTW : zhTW, key)).toBe(text));
+    // admin.* / settings.* strings are in the lazy bundle (management.*.json), groups.* ones in groups-admin.*.json, the rest in the main file.
+    const source = key.startsWith("admin.") ? managementZhTW : key.startsWith("groups.") ? groupsAdminZhTW : zhTW;
+    it(key, () => expect(get(source, key)).toBe(text));
   }
 
   it("trash.daysLeft (count=3) -> 「剩 3 天」", () => {
@@ -53,7 +56,7 @@ describe("trash copy literals (zh-TW)", () => {
   });
 
   it("en groups.delete.deleteDescriptionNoCount has 'including those in its trash' and \"they don't go to the trash\"", () => {
-    expect(get(en, "groups.delete.deleteDescriptionNoCount")).toBe(
+    expect(get(groupsAdminEn, "groups.delete.deleteDescriptionNoCount")).toBe(
       "The group's notes (including those in its trash), their attachments and their edit history are permanently deleted — they don't go to the trash. This can't be undone.",
     );
   });

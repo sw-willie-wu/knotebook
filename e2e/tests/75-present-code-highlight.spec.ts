@@ -1,3 +1,4 @@
+import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { E2E_ORIGIN } from "../ports.js";
 import { ADMIN, clickEndOfParagraph, createNote, editorLocator, loginAs, waitForEditorSelection } from "./helpers.js";
@@ -20,6 +21,12 @@ async function pasteMarkdown(page: Page, markdown: string): Promise<void> {
   await waitForEditorSelection(page);
   await page.evaluate((text) => navigator.clipboard.writeText(text), markdown);
   await page.keyboard.press("ControlOrMeta+v");
+}
+
+/** Screenshots for visual inspection: taken only when `CODE_HIGHLIGHT_SCREENSHOT_DIR` is set; this file writes no absolute path. */
+const shotDir = process.env.CODE_HIGHLIGHT_SCREENSHOT_DIR;
+async function shot(page: Page, name: string): Promise<void> {
+  if (shotDir) await page.screenshot({ path: path.join(shotDir, name) });
 }
 
 const tokenColors = (page: Page, selector: string) =>
@@ -84,4 +91,51 @@ test("presentation code block: distinct token colours, theme switch recolours wi
   }).toPass({ timeout: 30_000 });
   await expect(page.locator(`${tsTokens}[style*="--code-token-keyword"]`).first()).toBeAttached();
   expect(await page.locator(`${tsTokens}[data-e2e-mark]`).count()).toBe(0); // proves the slide really was rebuilt
+});
+
+test("presentation LaTeX code block: math tokens differ from plain text and follow the theme, a tex block stays uncoloured", async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.emulateMedia({ colorScheme: "light" });
+  await loginAs(page, ADMIN.email, ADMIN.password);
+  await createNote(page, `E2E present latex ${Date.now()}`);
+  const line = "Plain words $x_1^2$ then $$\\sum_i w_i$$ and \\begin{equation}a = b\\end{equation}";
+  await pasteMarkdown(page, ["## Latex slide", "", "```latex", line, "```", "", "```tex", line, "```", ""].join("\n"));
+  await expect(editorLocator(page).getByText("Latex slide")).toBeVisible({ timeout: 15_000 });
+
+  await page.getByRole("button", { name: "More", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Present" }).click();
+  await expect(page.locator(".reveal.ready")).toBeVisible({ timeout: 15_000 });
+
+  const latexCodeSelector = '.reveal .slides pre > code[data-kn-code-lang="latex"]';
+  const latexTokens = `${latexCodeSelector} > span[style]`;
+  await expect(page.locator(latexTokens).first()).toBeAttached({ timeout: 20_000 });
+  const colorOf = (text: string) =>
+    page.locator(latexTokens, { hasText: text }).first().evaluate((el) => getComputedStyle(el).color);
+  const snippets = ["x_1^2", "\\sum_i w_i", "a = b"];
+  const plainLight = await colorOf("Plain words");
+  const mathLight: string[] = [];
+  for (const snippet of snippets) {
+    const color = await colorOf(snippet);
+    expect(color, `${snippet} must not share the plain-text colour`).not.toBe(plainLight);
+    mathLight.push(color);
+  }
+
+  // tex is not a LaTeX alias, in presentation mode just as in the editor: the same line stays one plain run.
+  const texCode = page.locator(".reveal .slides pre > code", { hasText: "a = b" }).last();
+  await expect(texCode).toHaveAttribute("data-kn-code-lang", "tex");
+  expect(await texCode.locator("span[style]").count()).toBe(0);
+  // The title slide comes first: move to the slide that holds the code so the screenshots show it.
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(latexCodeSelector)).toBeVisible();
+  await shot(page, "latex-present-light.png");
+
+  await page.emulateMedia({ colorScheme: "dark" });
+  await expect.poll(async () => (await colorOf("a = b")) !== mathLight[2]).toBe(true);
+  const plainDark = await colorOf("Plain words");
+  for (const [i, snippet] of snippets.entries()) {
+    const color = await colorOf(snippet);
+    expect(color, `${snippet} in dark must not share the plain-text colour`).not.toBe(plainDark);
+    expect(color, `${snippet} must follow the theme switch`).not.toBe(mathLight[i]);
+  }
+  await shot(page, "latex-present-dark.png");
 });

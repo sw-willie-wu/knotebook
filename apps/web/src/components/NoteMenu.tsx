@@ -28,7 +28,7 @@ import {
   DropdownMenuMainLevel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { EllipsisVertical, History, Link as LinkIcon, ListTree, MessageCircle, Presentation, Star, Tag, Trash } from "@/components/ui/icons";
+import { EllipsisVertical, History, Link as LinkIcon, ListTree, MessageCircle, MessageSquare, Presentation, Star, Tag, Trash } from "@/components/ui/icons";
 import { useOutlineMenu, type OutlineMenuValue } from "@/components/outline/outline-menu-context";
 import { FavoriteRemoveDialog } from "@/components/FavoriteRemoveDialog";
 import { ManualCopyField } from "@/components/ManualCopyField";
@@ -62,6 +62,8 @@ export interface NoteMenuProps {
   widthItems?: (control: NoteWidthItemsControl) => ReactNode;
   /** Header only; undefined (the viewer cannot change tags, and every sidebar row) leaves the item out. Runs inside the select event: see the item's comment. */
   onAddTag?: () => void;
+  /** Header only, from NotePage, so the comments context stays out of this shared file; undefined leaves the phone item out. */
+  onOpenComments?: () => void;
 }
 
 /**
@@ -85,9 +87,10 @@ interface NoteMenuCoreProps {
   triggerRef?: RefObject<HTMLButtonElement | null>;
   widthItems?: (control: NoteWidthItemsControl) => ReactNode;
   onAddTag?: () => void;
+  onOpenComments?: () => void;
 }
 
-export function NoteMenu({ note, state, leavingRef, onOpenEdits, triggerRef, widthItems, onAddTag }: NoteMenuProps) {
+export function NoteMenu({ note, state, leavingRef, onOpenEdits, triggerRef, widthItems, onAddTag, onOpenComments }: NoteMenuProps) {
   const { presentHere } = usePresentEntry();
   return (
     <NoteMenuCore
@@ -99,6 +102,7 @@ export function NoteMenu({ note, state, leavingRef, onOpenEdits, triggerRef, wid
       triggerRef={triggerRef}
       widthItems={widthItems}
       onAddTag={onAddTag}
+      onOpenComments={onOpenComments}
     />
   );
 }
@@ -127,9 +131,8 @@ export function SidebarNoteMenu({ note }: { note: NoteDto }) {
   );
 }
 
-/** Phone only (below 640px; other widths have the CornerStack bubble, which reads the same `useIsPhone()`, so each width has exactly one entry). The hook lives in this child so sidebar rows do not each subscribe. Conditional render, not `sm:hidden`: a display:none Radix item stays in the collection, so arrow keys and typeahead stop on an invisible item. */
-function VersionsMenuItem({ onActivate }: { onActivate: () => void }) {
-  const { t } = useTranslation();
+/** Version history and comments, phone only (below 640px; other widths have the CornerStack bubbles, which read the same `useIsPhone()`, so each width has exactly one entry). The hook lives in this child so sidebar rows do not each subscribe. Conditional render, not `sm:hidden`: a display:none Radix item stays in the collection, so arrow keys and typeahead stop on an invisible item. */
+function PhoneMenuItem({ icon, label, onActivate }: { icon: ReactNode; label: string; onActivate: () => void }) {
   const phone = useIsPhone();
   if (!phone) return null;
   return (
@@ -139,8 +142,8 @@ function VersionsMenuItem({ onActivate }: { onActivate: () => void }) {
         onActivate();
       }}
     >
-      <History className="mr-2 h-4 w-4" />
-      {t("note.menu.versions")}
+      {icon}
+      {label}
     </DropdownMenuItem>
   );
 }
@@ -186,7 +189,7 @@ function FavoriteMenuItem({ noteId, onAdd, onRemove }: { noteId: string; onAdd: 
   );
 }
 
-function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef: externalTriggerRef, widthItems, onAddTag }: NoteMenuCoreProps) {
+function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef: externalTriggerRef, widthItems, onAddTag, onOpenComments }: NoteMenuCoreProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -435,10 +438,22 @@ function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef:
             {trigger === "header" && !phone && widthItems?.({ expanded: widthExpanded, onExpandedChange: setWidthExpanded, onModeChange: closeAndReset })}
             {/* only in NotePage VersionsProvider; sidebar rows get the no-op default */}
             {versions.enabled && (
-              <VersionsMenuItem
+              <PhoneMenuItem
+                icon={<History className="mr-2 h-4 w-4" />}
+                label={t("note.menu.versions")}
                 onActivate={() => {
                   setMenuOpen(false);
                   versions.open();
+                }}
+              />
+            )}
+            {onOpenComments && (
+              <PhoneMenuItem
+                icon={<MessageSquare className="mr-2 h-4 w-4" />}
+                label={t("note.menu.comments")}
+                onActivate={() => {
+                  setMenuOpen(false);
+                  onOpenComments();
                 }}
               />
             )}

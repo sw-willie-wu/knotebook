@@ -33,10 +33,10 @@ const RWMD = "notes:read notes:write notes:move notes:delete" as const;
 const DELETE_TOOLS = ["delete_note", "restore_note", "delete_folder"];
 const sessionCookie = async (userId: string) => (await cookieOf(userId))[SESSION_COOKIE]!;
 
-/** The five tools that only query the DB (read_note_image also reads disk): present in any deployment shape, for any credential. */
-const DB_ONLY_TOOLS = ["list_folders", "list_notes", "list_trash", "read_note_image", "search_notes"];
-/** The two tools that read the live doc: advertised only when `collab && editing` both exist. */
-const LIVE_DOC_TOOLS = ["read_note_outline", "read_note_section"];
+/** The six tools that only query the DB (read_note_image also reads disk): present in any deployment shape, for any credential. */
+const DB_ONLY_TOOLS = ["list_folders", "list_notes", "list_notifications", "list_trash", "read_note_image", "search_notes"];
+/** The three read tools that read the live doc (read_comments for an anchor's section): advertised only when `collab && editing` both exist. */
+const LIVE_DOC_TOOLS = ["read_comments", "read_note_outline", "read_note_section"];
 /** #200: registered only on the token path (sessions don't have it), outside the deployment gate. */
 const TOKEN_ONLY_TOOLS = ["create_transfer_token"];
 /** Bulk transfer: also token-only but **inside** the deployment gate (the signed token is used to export, which needs a mount; same criterion as LIVE_DOC_TOOLS). */
@@ -46,7 +46,8 @@ const FOLDER_WRITE_TOOLS = ["create_folder", "rename_folder", "move_folder", "mo
 /**
  * The **registration order** in `register.ts`: list_notes, search_notes, the two read tools, edit_note, (outside the gate) create_note, move_note_to_group, copy_note, (outside the gate, token only) create_transfer_token,
  * (inside the gate, token only) open_notes_as_files, (outside the gate, all credentials) list_trash, (outside the gate, notes:delete) delete_note, restore_note, (outside the gate, all credentials) list_folders,
- * (outside the gate, notes:write) create_folder, rename_folder, move_folder, move_note_to_folder, (outside the gate, notes:delete) delete_folder, read_note_image. The hard-coded-order test pins this order verbatim, unsorted.
+ * (outside the gate, notes:write) create_folder, rename_folder, move_folder, move_note_to_folder, (outside the gate, notes:delete) delete_folder, read_note_image, (inside the gate) read_comments, (inside the gate, notes:write) post_comment,
+ * (outside the gate, all credentials) list_notifications. The hard-coded-order test pins this order verbatim, unsorted.
  * `move_note_to_group` registers only with `notes:move` (read-write-move credentials and sessions); the two trash write tools only with `notes:delete`; the relative order of the rest is unchanged.
  */
 const RWMD_TOOLS_IN_ORDER = [
@@ -70,6 +71,9 @@ const RWMD_TOOLS_IN_ORDER = [
   "move_note_to_folder",
   "delete_folder",
   "read_note_image",
+  "read_comments",
+  "post_comment",
+  "list_notifications",
 ];
 const RWM_TOOLS_IN_ORDER = RWMD_TOOLS_IN_ORDER.filter(n => !DELETE_TOOLS.includes(n));
 
@@ -100,7 +104,7 @@ describe("#108 tools/list", () => {
   // This test uses a read-only credential on purpose: a read-write credential already sees every tool, so it would not notice scope filtering being removed.
   // What discriminates today besides scope filtering itself is the `toEqual` line (**exactly these names in the production shape**, none more, none less, a rename also goes red) - a shape assertion.
   // **Don't merge this with the deployment-gate test below to look less repetitive**: they test **two deployment shapes** and merging loses one side - removing the gate reddens only the gate test and leaves this one green, which shows they don't cover each other.
-  it("read-only credential's tools/list = exactly nine (seven read tools + create_transfer_token + open_notes_as_files), without edit_note / create_note", async () => {
+  it("read-only credential's tools/list = exactly eleven (nine read tools + create_transfer_token + open_notes_as_files), without edit_note / create_note / post_comment", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
     const { token } = await seedTokenForUser(ctx.db, owner.id, "notes:read");
@@ -109,6 +113,7 @@ describe("#108 tools/list", () => {
     expect(names).toEqual([...DB_ONLY_TOOLS, ...LIVE_DOC_TOOLS, ...TOKEN_ONLY_TOOLS, ...BULK_TOOLS].sort());
     expect(names).not.toContain("edit_note");
     expect(names).not.toContain("create_note");
+    expect(names).not.toContain("post_comment");
   });
 
   // Deployment-gate shape assertion: **this is the only guard for that gate**. Removing the gate (`if (ctx.collab && ctx.editing)` -> `if (true)` in `register.ts`) reddens only this test (the app without collab would also list
@@ -118,7 +123,7 @@ describe("#108 tools/list", () => {
   // `create_note` is outside this gate, so it (with `copy_note` and `create_transfer_token`) must be in the set and `edit_note` must not.
   // A read-write credential without notes:move doesn't see `move_note_to_group` (it registers only with `notes:move`), so it has one fewer than read-write-move; the credential deliberately stays read-write:
   // switching to read-write-move would make this test change both "move permission" and "deployment shape".
-  it("app without collab + read-write credential: only the five DB-querying tools (including read_note_image, list_trash, list_folders), create_note, copy_note, the four folder write tools (including move_note_to_folder) and create_transfer_token are advertised (create_note is outside the deployment gate)", async () => {
+  it("app without collab + read-write credential: only the six DB-querying tools (including read_note_image, list_trash, list_folders, list_notifications), create_note, copy_note, the four folder write tools (including move_note_to_folder) and create_transfer_token are advertised (create_note is outside the deployment gate)", async () => {
     const { app, db } = await buildTestApp();
     const userId = await seedUser(db);
     const { token } = await seedTokenForUser(db, userId, "notes:read notes:write");
@@ -128,13 +133,13 @@ describe("#108 tools/list", () => {
 
   // Read-write-move-delete credential's `tools/list` (production shape). Differs from the ordered-list test: this one uses `.sort()` and guards the **set**, not overlapping the order assertion.
   // Read-write and read-write-delete are covered by separate tests below.
-  it("read-write-move-delete credential's tools/list has twenty tools; read-write-move seventeen (each has open_notes_as_files)", async () => {
+  it("read-write-move-delete credential's tools/list has twenty-three tools; read-write-move twenty (each has open_notes_as_files)", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
     const { token } = await seedTokenForUser(ctx.db, owner.id, RWMD);
     const { token: rwm } = await seedTokenForUser(ctx.db, owner.id, RWM);
 
-    const rwmSet = [...DB_ONLY_TOOLS, ...LIVE_DOC_TOOLS, "edit_note", "create_note", "move_note_to_group", "copy_note", ...TOKEN_ONLY_TOOLS, ...BULK_TOOLS, ...FOLDER_WRITE_TOOLS];
+    const rwmSet = [...DB_ONLY_TOOLS, ...LIVE_DOC_TOOLS, "edit_note", "post_comment", "create_note", "move_note_to_group", "copy_note", ...TOKEN_ONLY_TOOLS, ...BULK_TOOLS, ...FOLDER_WRITE_TOOLS];
     expect(await toolNames(ctx.app, token)).toEqual([...rwmSet, ...DELETE_TOOLS].sort());
     expect(await toolNames(ctx.app, rwm)).toEqual(rwmSet.sort());
   });
@@ -142,7 +147,7 @@ describe("#108 tools/list", () => {
   // The name array is **verbatim** the hard-coded list, **including order** - only `toolNames()` with `{ sort: false }` can see it; the `.sort()` version (the previous test) has zero discrimination on order.
   // **This test has zero discrimination on "scope filtering removed"** (it uses the read-write credential, whose full list is unchanged by that mutation); what it kills is **order**: swapping the registration order of
   // `list_notes`/`search_notes` in `register.ts` reddens only this test, while the previous (sorted) test stays green - one guards the set, the other the order.
-  it("read-write-move-delete credential's tools/list name array is verbatim the hard-coded twenty-name list, including order", async () => {
+  it("read-write-move-delete credential's tools/list name array is verbatim the hard-coded twenty-three-name list, including order", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
     const { token } = await seedTokenForUser(ctx.db, owner.id, RWMD);
@@ -407,7 +412,7 @@ describe("#108 tools/list", () => {
   // The `runTool()` coverage guard is spread over three files (named in the header of `register.ts`): this one guards `edit_note`/`create_note`/`create_transfer_token`/`read_note_image`/`copy_note`/`move_note_to_group`
   // and the rest of that half. `mcp-notes.test.ts` only hits `list_notes`/`search_notes` and `mcp-content.test.ts` only the two read tools, so both are **always green** for these write/transfer/image tools (not in their name sets);
   // without this test, the later-added tools would have no try/catch guard. Uses a read-write-move-delete credential (`delete_note`/`restore_note` are on the list only then).
-  it("runTool() coverage: the names beforeTool sees are exactly {copy_note, create_folder, create_note, create_transfer_token, delete_folder, delete_note, edit_note, list_folders, list_trash, move_folder, move_note_to_folder, move_note_to_group, open_notes_as_files, read_note_image, rename_folder, restore_note}", async () => {
+  it("runTool() coverage: the names beforeTool sees are exactly {copy_note, create_folder, create_note, create_transfer_token, delete_folder, delete_note, edit_note, list_folders, list_notifications, list_trash, move_folder, move_note_to_folder, move_note_to_group, open_notes_as_files, post_comment, read_comments, read_note_image, rename_folder, restore_note}", async () => {
     const seen: string[] = [];
     const ctx = await buildCollabTestApp({ mcpTestHooks: { beforeTool: name => void seen.push(name) } });
     const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
@@ -434,6 +439,9 @@ describe("#108 tools/list", () => {
     await mcpPost(ctx.app, rpc("tools/call", { name: "move_folder", arguments: { folder_id: randomUUID(), parent_id: null } }), { token });
     await mcpPost(ctx.app, rpc("tools/call", { name: "move_note_to_folder", arguments: { note_id: randomUUID(), folder_id: null } }), { token });
     await mcpPost(ctx.app, rpc("tools/call", { name: "delete_folder", arguments: { folder_id: randomUUID() } }), { token });
+    await mcpPost(ctx.app, rpc("tools/call", { name: "read_comments", arguments: { note_id: note.id } }), { token });
+    await mcpPost(ctx.app, rpc("tools/call", { name: "post_comment", arguments: { note_id: note.id, body: "x" } }), { token });
+    await mcpPost(ctx.app, rpc("tools/call", { name: "list_notifications", arguments: {} }), { token });
 
     expect([...new Set(seen)].sort()).toEqual([
       "copy_note",
@@ -444,11 +452,14 @@ describe("#108 tools/list", () => {
       "delete_note",
       "edit_note",
       "list_folders",
+      "list_notifications",
       "list_trash",
       "move_folder",
       "move_note_to_folder",
       "move_note_to_group",
       "open_notes_as_files",
+      "post_comment",
+      "read_comments",
       "read_note_image",
       "rename_folder",
       "restore_note",
@@ -456,7 +467,7 @@ describe("#108 tools/list", () => {
   });
 
   // delete_note, restore_note and delete_folder don't declare idempotentHint (a second call returns not_found).
-  it("annotations: move_note_to_group is verbatim {destructiveHint:true, idempotentHint:false}; copy_note {destructiveHint:false}; delete_note {destructiveHint:true}, restore_note {destructiveHint:false}; list_folders {readOnlyHint:true}; create_folder {destructiveHint:false}, rename_folder / move_folder / move_note_to_folder {destructiveHint:false, idempotentHint:true}; delete_folder {destructiveHint:true}; no other tool has an annotations key", async () => {
+  it("annotations: move_note_to_group is verbatim {destructiveHint:true, idempotentHint:false}; copy_note {destructiveHint:false}; delete_note {destructiveHint:true}, restore_note {destructiveHint:false}; list_folders {readOnlyHint:true}; create_folder {destructiveHint:false}, rename_folder / move_folder / move_note_to_folder {destructiveHint:false, idempotentHint:true}; delete_folder {destructiveHint:true}; post_comment {destructiveHint:false}; no other tool has an annotations key", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
     const { token } = await seedTokenForUser(ctx.db, owner.id, RWMD); // only this credential's list has move_note_to_group and the two trash write tools
@@ -471,12 +482,13 @@ describe("#108 tools/list", () => {
     expect(tools.find(t => t.name === "move_folder")!.annotations).toEqual({ destructiveHint: false, idempotentHint: true });
     expect(tools.find(t => t.name === "move_note_to_folder")!.annotations).toEqual({ destructiveHint: false, idempotentHint: true });
     expect(tools.find(t => t.name === "delete_folder")!.annotations).toEqual({ destructiveHint: true }); // no idempotentHint written (the second call returns not_found)
-    const annotated = ["copy_note", "move_note_to_group", ...DELETE_TOOLS, "list_folders", ...FOLDER_WRITE_TOOLS];
+    expect(tools.find(t => t.name === "post_comment")!.annotations).toEqual({ destructiveHint: false });
+    const annotated = ["copy_note", "move_note_to_group", ...DELETE_TOOLS, "list_folders", ...FOLDER_WRITE_TOOLS, "post_comment"];
     expect(tools.filter(t => !annotated.includes(t.name) && "annotations" in t).map(t => t.name)).toEqual([]);
   });
 
   // `move_note_to_group` registers by `canMove`: changing `if (canMove)` back to `if (canWrite)` in `register.ts` reddens this test.
-  it("#239: a read-write credential without move -> sixteen tools, no move_note_to_group (registration order unchanged; open_notes_as_files included)", async () => {
+  it("#239: a read-write credential without move -> nineteen tools, no move_note_to_group (registration order unchanged; open_notes_as_files included)", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
     const { token } = await seedTokenForUser(ctx.db, owner.id, "notes:read notes:write");
@@ -484,14 +496,14 @@ describe("#108 tools/list", () => {
   });
 
   // Independent of move: read-write-delete has the two trash write tools and no move_note_to_group.
-  it("#181: read-write-delete credential -> nineteen tools, no move_note_to_group, with delete_note / restore_note (delete_folder included; registration order unchanged)", async () => {
+  it("#181: read-write-delete credential -> twenty-two tools, no move_note_to_group, with delete_note / restore_note (delete_folder included; registration order unchanged)", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
     const { token } = await seedTokenForUser(ctx.db, owner.id, RWD);
     expect(await toolNames(ctx.app, token, { sort: false })).toEqual(RWMD_TOOLS_IN_ORDER.filter(n => n !== "move_note_to_group"));
   });
 
-  it("#239: session -> eighteen tools (no create_transfer_token / open_notes_as_files; has move_note_to_group, delete_note / restore_note, list_folders, the four folder write tools and delete_folder)", async () => {
+  it("#239: session -> twenty-one tools (no create_transfer_token / open_notes_as_files; has move_note_to_group, delete_note / restore_note, list_folders, the four folder write tools and delete_folder)", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
     const res = await mcpPost(ctx.app, rpc("tools/list"), { cookie: await sessionCookie(owner.id) });

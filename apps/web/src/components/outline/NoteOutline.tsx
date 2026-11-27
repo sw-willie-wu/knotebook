@@ -32,15 +32,17 @@ export interface NoteOutlineProps {
   /** The note's scroll container: headings are looked up and scrolled inside it. */
   scrollEl: HTMLElement | null;
   box: OutlineBox;
-  /** The version bubble sits in the bottom-right corner; the outline stops above it. */
+  /** The corner bubbles sit in the bottom-right corner; the outline stops above them. */
   bubbleShown: boolean;
+  /** How many bubbles are stacked there (default 1). */
+  bubbleCount?: number;
   pinned: boolean;
   pinAvailable: boolean;
   onPinnedChange: (next: boolean) => void;
 }
 
 /** Heading outline of a note page (desktop and tablet): rail and panel wired to the scroll container. Nothing without headings. */
-export function NoteOutline({ headings, scrollEl, box, bubbleShown, pinned, pinAvailable, onPinnedChange }: NoteOutlineProps) {
+export function NoteOutline({ headings, scrollEl, box, bubbleShown, bubbleCount = 1, pinned, pinAvailable, onPinnedChange }: NoteOutlineProps) {
   const topEdge = useCallback(() => scrollEl?.getBoundingClientRect().top ?? 0, [scrollEl]);
   const { activeId, markJumped, releaseJump } = useActiveHeading({ headings, root: scrollEl, scrollTarget: scrollEl, topEdge, enabled: true });
 
@@ -67,7 +69,7 @@ export function NoteOutline({ headings, scrollEl, box, bubbleShown, pinned, pinA
         activeId={activeId}
         placement={outlinePlacement(box.width)}
         top={outlineTop(box)}
-        maxHeight={outlineMaxHeight(box.height, bubbleShown, outlineTop(box))}
+        maxHeight={outlineMaxHeight(box.height, bubbleShown, outlineTop(box), bubbleCount)}
         pinned={pinned}
         pinAvailable={pinAvailable}
         onPinnedChange={onPinnedChange}

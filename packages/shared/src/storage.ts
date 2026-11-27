@@ -17,7 +17,7 @@ export interface StorageUsageDto {
   usedBytes: number;
   quotaBytes: number | null;
   planName: string;
-  /** Separate query from `usedBytes`, so the UI uses the sum of kinds as the share denominator. */
+  /** Separate query from `usedBytes`, so the by-type shares use the sum of the rows shown (notes plus kinds), not this. */
   byKind: StorageByKind;
   content: ContentUsageDto;
 }

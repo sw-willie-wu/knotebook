@@ -449,9 +449,9 @@ describe("SelectActionBar", () => {
       "Any public links are turned off.",
       "Their addresses change to /g/…; the old addresses forward to the new ones for a month.",
       "You will no longer own them — what you can do with them then depends on your role in the group.",
-      "Their version history is cleared and doesn't come back.",
+      "Their version history and comments are cleared and don't come back.",
     ]);
-    expect(within(confirm).getByRole("checkbox", { name: "Bring their version history along" })).not.toBeChecked();
+    expect(within(confirm).getByRole("checkbox", { name: "Bring their version history and comments along" })).not.toBeChecked();
     const submit = within(confirm).getByRole("button", { name: "Move into group" });
     expect(submit).toHaveClass("bg-destructive");
     fireEvent.click(submit);
@@ -472,8 +472,8 @@ describe("SelectActionBar", () => {
     tick("p2", "p1");
     fireEvent.click(barButton("Move to"));
     const confirm = await pickDestination("A");
-    fireEvent.click(within(confirm).getByRole("checkbox", { name: "Bring their version history along" }));
-    expect(within(confirm).getAllByRole("listitem").map((li) => li.textContent).at(-1)).toBe("The group's editors will see their earlier versions and who edited them.");
+    fireEvent.click(within(confirm).getByRole("checkbox", { name: "Bring their version history and comments along" }));
+    expect(within(confirm).getAllByRole("listitem").map((li) => li.textContent).at(-1)).toBe("The group's editors will see their earlier versions and who edited them. Everyone in the group will see their comments.");
     fireEvent.click(within(confirm).getByRole("button", { name: "Move into group" }));
     expect(await screen.findByText('Moved 2 notes into "A"', { exact: true })).toBeInTheDocument();
     expect(server.bodies("POST /api/notes/p1/move")).toEqual([{ groupId: "ga", keepHistory: true }]);
@@ -487,13 +487,13 @@ describe("SelectActionBar", () => {
     tick("p1");
     fireEvent.click(barButton("Move to"));
     let confirm = await pickDestination("A");
-    fireEvent.click(within(confirm).getByRole("checkbox", { name: "Bring their version history along" }));
-    expect(within(confirm).getByRole("checkbox", { name: "Bring their version history along" })).toBeChecked();
+    fireEvent.click(within(confirm).getByRole("checkbox", { name: "Bring their version history and comments along" }));
+    expect(within(confirm).getByRole("checkbox", { name: "Bring their version history and comments along" })).toBeChecked();
     fireEvent.click(within(confirm).getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     fireEvent.click(barButton("Move to"));
     confirm = await pickDestination("A");
-    expect(within(confirm).getByRole("checkbox", { name: "Bring their version history along" })).not.toBeChecked();
+    expect(within(confirm).getByRole("checkbox", { name: "Bring their version history and comments along" })).not.toBeChecked();
   });
 
   it("after choosing the destination: the button that opened the picker gets no focus call and focus is inside the confirm dialog", async () => {

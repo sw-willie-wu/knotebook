@@ -8,6 +8,8 @@ import { stubLayoutTier, type LayoutTier } from "@/test/layout-tier";
 import { vid, vtarget } from "@/test/version-fixtures";
 import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 import { ThemeProvider } from "@/theme";
+import { cornerStackFootprint } from "./corner-stack-geometry";
+import { CORNER_STACK_COLLAPSED_STORAGE_KEY, __resetCornerStackForTests } from "./corner-stack-state";
 import { NoteEditor } from "./NoteEditor";
 
 // Make the panel throw on render, going through the error frame (`VERSIONS_ERROR_FRAME.panel`).
@@ -113,6 +115,7 @@ describe("NoteEditor versions panel: floating and fixed", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     window.localStorage.clear();
+    __resetCornerStackForTests();
     stubFetch();
     crash.on = false;
   });
@@ -130,24 +133,153 @@ describe("NoteEditor versions panel: floating and fixed", () => {
     expect(slot).toHaveAttribute("data-versions-panel-slot");
     expect(slot).toHaveClass("contents");
     expect(slot.parentElement).toBe(row);
-    expect(panel).toHaveClass("absolute", "right-0", "bottom-0", "z-20", "shadow-lg", "top-[var(--note-header-h,0px)]");
+    expect(panel).toHaveClass("absolute", "right-0", "bottom-[var(--corner-stack-clearance,0px)]", "z-20", "shadow-lg", "top-[var(--note-header-h,0px)]");
     expect(panel).toHaveClass("xl:relative", "xl:inset-auto", "xl:shadow-none", "xl:w-[var(--versions-panel-width)]");
     expect(panel).toHaveClass("w-[min(var(--versions-panel-width),calc(100%_-_3rem))]");
     expect(panel).not.toHaveClass("fixed");
     doc.destroy();
   });
 
-  it("history bubble anchor is inside the content card, before the footer (above the mentions row, not in a window corner); gone while the panel is open and back once closed; none on phone", async () => {
+  it("history bubble anchor is inside the content card, before the footer (above the mentions row, not in a window corner); stays while the panel is open, outside the third column; none on phone", async () => {
     const { row, setLayoutTier } = await renderAt("docked");
     const anchor = await screen.findByTestId("corner-anchor");
     const card = row.firstElementChild!;
     expect(anchor.parentElement).toBe(card);
     expect(anchor.nextElementSibling).toBe(screen.getByTestId("footer-marker"));
     expect(screen.getByTestId("corner-stack").closest(".fixed")).toBeNull();
-    await openPanel();
-    expect(screen.queryByTestId("corner-anchor")).not.toBeInTheDocument();
+    const panel = await openPanel();
+    expect(screen.getByTestId("corner-anchor").parentElement).toBe(card);
+    expect(panel).not.toContainElement(screen.getByTestId("corner-stack"));
+    expect(screen.getByTestId("versions-bubble")).toHaveAttribute("aria-pressed", "true");
     act(() => setLayoutTier("phone"));
     expect(screen.queryByTestId("corner-anchor")).not.toBeInTheDocument();
+  });
+
+  it.each(["overlay", "docked"] as const)("%s: the history bubble opens the panel and, pressed, closes it again; the toggle never closes it", async (tier) => {
+    const { doc } = await renderAt(tier);
+    const bubble = await screen.findByTestId("versions-bubble");
+    expect(bubble).toHaveAttribute("aria-pressed", "false");
+    fireEvent.pointerDown(bubble);
+    fireEvent.click(bubble);
+    const panel = await screen.findByTestId("versions-panel");
+    await waitFor(() => expect(panel).toHaveFocus());
+    expect(screen.getByTestId("versions-bubble")).toHaveAttribute("aria-pressed", "true");
+    const toggle = screen.getByTestId("corner-toggle");
+    toggle.focus();
+    fireEvent.pointerDown(toggle);
+    fireEvent.click(toggle);
+    expect(screen.queryByTestId("versions-bubble")).toBeNull();
+    expect(toggle).toHaveFocus();
+    expect(screen.getByTestId("versions-panel")).toBeInTheDocument();
+    fireEvent.click(toggle);
+    const again = screen.getByTestId("versions-bubble");
+    fireEvent.pointerDown(again);
+    fireEvent.click(again);
+    expect(screen.queryByTestId("versions-panel")).toBeNull();
+    expect(state().mode).toBeNull();
+    doc.destroy();
+  });
+
+  /** Row, anchor (the scroll area's bottom edge) and header boxes; the clearance is row bottom - anchor top + 12 + the stack's footprint. */
+  function stubBoxes(row: HTMLElement, box: { rowHeight: number; anchorTop: number; header: number }) {
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      if (this === row) return new DOMRect(0, 0, 900, box.rowHeight);
+      if ((this as HTMLElement).dataset.testid === "corner-anchor") return new DOMRect(0, box.anchorTop, 900, 0);
+      if (this.hasAttribute("data-note-header-slot")) return new DOMRect(0, 0, 900, box.header);
+      return new DOMRect(0, 0, 0, 0);
+    });
+  }
+
+  /** ResizeObserver whose callbacks for the row container run only when asked. */
+  function controllableResize(isRow: (el: Element) => boolean) {
+    const callbacks = new Set<() => void>();
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(private readonly cb: (entries: unknown[], observer: unknown) => void) {}
+        observe(target: Element) {
+          if (isRow(target)) callbacks.add(() => this.cb([], this));
+        }
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    return () => act(() => callbacks.forEach((fire) => fire()));
+  }
+
+  it("640-1279: while the panel floats, its bottom edge keeps clear of the corner stack (row bottom - anchor top + gap + the toggle and bubble); not at 1280+, and gone once closed", async () => {
+    const { row, doc, setLayoutTier } = await renderAt("overlay");
+    await screen.findByTestId("corner-stack");
+    stubBoxes(row, { rowHeight: 700, anchorTop: 600, header: 57 });
+    const expected = `${700 - 600 + 12 + cornerStackFootprint(2)}px`;
+    await openPanel();
+    expect(row.style.getPropertyValue("--corner-stack-clearance")).toBe(expected);
+    act(() => setLayoutTier("docked"));
+    expect(row.style.getPropertyValue("--corner-stack-clearance")).toBe("");
+    act(() => setLayoutTier("overlay"));
+    expect(row.style.getPropertyValue("--corner-stack-clearance")).toBe(expected);
+    fireEvent.click(within(screen.getByTestId("versions-panel")).getByRole("button", { name: "Close version history" }));
+    expect(row.style.getPropertyValue("--corner-stack-clearance")).toBe("");
+    doc.destroy();
+  });
+
+  it("640-1279, a window too short for the panel above the expanded stack: only the toggle shows (not saved); pressing it shows the bubble for now; with room again the stack is back", async () => {
+    let rowEl: Element | null = null;
+    const fireResize = controllableResize((el) => el === rowEl);
+    const { row, doc } = await renderAt("overlay");
+    rowEl = row;
+    await screen.findByTestId("versions-bubble");
+    const box = { rowHeight: 390, anchorTop: 330, header: 57 };
+    stubBoxes(row, box);
+    await openPanel();
+    const toggle = screen.getByTestId("corner-toggle");
+    expect(screen.queryByTestId("versions-bubble")).toBeNull();
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(row.style.getPropertyValue("--corner-stack-clearance")).toBe(`${390 - 330 + 12 + cornerStackFootprint(1)}px`);
+    expect(window.localStorage.getItem(CORNER_STACK_COLLAPSED_STORAGE_KEY)).toBeNull();
+
+    toggle.focus();
+    fireEvent.click(toggle);
+    expect(screen.getByTestId("versions-bubble")).toHaveAttribute("aria-pressed", "true");
+    expect(toggle).toHaveFocus();
+    expect(row.style.getPropertyValue("--corner-stack-clearance")).toBe(`${390 - 330 + 12 + cornerStackFootprint(2)}px`);
+    expect(window.localStorage.getItem(CORNER_STACK_COLLAPSED_STORAGE_KEY)).toBeNull();
+    fireEvent.click(toggle);
+    expect(screen.queryByTestId("versions-bubble")).toBeNull();
+
+    Object.assign(box, { rowHeight: 800, anchorTop: 700 });
+    fireResize();
+    expect(screen.getByTestId("versions-bubble")).toBeInTheDocument();
+    expect(row.style.getPropertyValue("--corner-stack-clearance")).toBe(`${800 - 700 + 12 + cornerStackFootprint(2)}px`);
+    expect(screen.getByTestId("versions-panel")).toBeInTheDocument();
+    doc.destroy();
+  });
+
+  it("640-1279, a window too short with the stack saved as collapsed: the first press of the toggle shows the bubble for now and saves nothing", async () => {
+    window.localStorage.setItem(CORNER_STACK_COLLAPSED_STORAGE_KEY, "1");
+    const { row, doc } = await renderAt("overlay");
+    await screen.findByTestId("corner-toggle");
+    stubBoxes(row, { rowHeight: 390, anchorTop: 330, header: 57 });
+    await openPanel();
+    const toggle = screen.getByTestId("corner-toggle");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByTestId("versions-bubble")).toHaveAttribute("aria-pressed", "true");
+    expect(window.localStorage.getItem(CORNER_STACK_COLLAPSED_STORAGE_KEY)).toBe("1");
+    doc.destroy();
+  });
+
+  it.each(["overlay", "docked"] as const)("%s: ✕ gives the focus to the history bubble, or to the toggle while the stack is collapsed", async (tier) => {
+    const { doc } = await renderAt(tier);
+    await openPanel();
+    fireEvent.click(screen.getByRole("button", { name: "Close version history" }));
+    await waitFor(() => expect(screen.getByTestId("versions-bubble")).toHaveFocus());
+    fireEvent.click(screen.getByTestId("corner-toggle"));
+    await openPanel();
+    fireEvent.click(screen.getByRole("button", { name: "Close version history" }));
+    await waitFor(() => expect(screen.getByTestId("corner-toggle")).toHaveFocus());
+    doc.destroy();
   });
 
   it("--note-header-h: the row container measures the header wrapper's height (ResizeObserver reports 57 -> 57px)", async () => {
@@ -360,6 +492,18 @@ describe("NoteEditor versions panel: floating and fixed", () => {
       expect(state()).toEqual({ mode: null, preview: null });
       const bubble = await screen.findByTestId("versions-bubble");
       expect(document.activeElement).toBe(bubble);
+      doc.destroy();
+    });
+
+    it("floating tier with the stack collapsed: focus returns to the toggle", async () => {
+      const { doc } = await renderAt("overlay");
+      fireEvent.click(await screen.findByTestId("corner-toggle"));
+      await openPanel();
+      const closeButton = screen.getByRole("button", { name: "Close version history" });
+      closeButton.focus();
+      fireEvent.keyDown(closeButton, { key: "Escape" });
+      expect(state().mode).toBeNull();
+      await waitFor(() => expect(screen.getByTestId("corner-toggle")).toHaveFocus());
       doc.destroy();
     });
 

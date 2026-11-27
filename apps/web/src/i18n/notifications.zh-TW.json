@@ -1,0 +1,25 @@
+{
+  "notifications": {
+    "title": "通知",
+    "back": "返回",
+    "loading": "載入中…",
+    "empty": "還沒有通知。",
+    "loadFailed": "無法載入通知。",
+    "retry": "再試一次",
+    "loadMore": "顯示更早的通知",
+    "list": "通知清單",
+    "new": "新",
+    "mentioned": "{{who}} 提到了你",
+    "replied": "{{who}} 回覆了你的留言",
+    "forAgent": "給你的 agent {{label}}",
+    "cantOpen": "你已無法開啟這篇筆記。",
+    "delete": "刪除這則通知",
+    "deleteFailed": "無法刪除這則通知。",
+    "clearAll": "全部清除",
+    "clearTitle": "清除所有通知？",
+    "clearBody": "你的 agent 的通知也會一併清除。",
+    "clearConfirm": "清除",
+    "clearFailed": "無法清除通知。",
+    "cancel": "取消"
+  }
+}

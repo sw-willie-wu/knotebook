@@ -1,4 +1,4 @@
-import { CORNER_STACK_FOOTPRINT_PX, CORNER_STACK_RIGHT_INSET_PX, CORNER_STACK_SIZE_PX } from "@/components/corner-stack-geometry";
+import { CORNER_STACK_RIGHT_INSET_PX, CORNER_STACK_SIZE_PX, cornerStackFootprint } from "@/components/corner-stack-geometry";
 
 /** Layout of the right-hand heading outline. All x coordinates are measured from the scroll container's left edge. */
 export const OUTLINE_PANEL_WIDTH = 240;
@@ -57,9 +57,9 @@ export function outlineTop(box: { firstLineTop: number | null }): number {
 
 /**
  * `top` is the outline's distance from the container top. The smaller of 2/3 of the visible height and
- * stopping above the version bubble when it shows; overflow scrolls inside the panel.
+ * stopping above the corner bubbles (`bubbleCount` of them) when they show; overflow scrolls inside the panel.
  */
-export function outlineMaxHeight(containerHeight: number, bubbleShown: boolean, top: number = OUTLINE_TOP_OFFSET): number {
-  const bottom = bubbleShown ? CORNER_STACK_FOOTPRINT_PX + OUTLINE_BOTTOM_GAP : OUTLINE_BOTTOM_GAP;
+export function outlineMaxHeight(containerHeight: number, bubbleShown: boolean, top: number = OUTLINE_TOP_OFFSET, bubbleCount = 1): number {
+  const bottom = bubbleShown ? cornerStackFootprint(bubbleCount) + OUTLINE_BOTTOM_GAP : OUTLINE_BOTTOM_GAP;
   return Math.max(0, Math.min(containerHeight * OUTLINE_MAX_HEIGHT_RATIO, containerHeight - top - bottom));
 }

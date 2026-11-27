@@ -1,0 +1,43 @@
+{
+  "comments": {
+    "title": "Comments",
+    "close": "Close comments",
+    "back": "Back",
+    "resize": "Resize comments panel",
+    "empty": "No comments yet.",
+    "loadFailed": "Comments couldn't be loaded.",
+    "retry": "Try again",
+    "loadOlder": "Load older comments",
+    "loadNewer": "Load newer comments",
+    "newComments": "New comments",
+    "targetMissing": "That comment was deleted.",
+    "edited": "edited",
+    "editedAt": "Edited {{when}}",
+    "reply": "Reply",
+    "edit": "Edit",
+    "delete": "Delete",
+    "actionsFor": "Comment by {{who}}",
+    "replyJump": "Go to the comment by {{who}} it answers",
+    "answeredDeleted": "The comment it answered was deleted.",
+    "quoteJump": "Go to the passage",
+    "passage": "Passage",
+    "passageDeleted": "Passage deleted",
+    "deleteTitle": "Delete this comment?",
+    "deleteBody": "It is deleted for everyone and can't be brought back.",
+    "cancel": "Cancel",
+    "composer": {
+      "label": "Comment",
+      "placeholder": "Write a comment…",
+      "send": "Send",
+      "save": "Save",
+      "replyingTo": "Replying to {{who}}",
+      "editing": "Editing your comment",
+      "removePassage": "Don't attach the passage",
+      "unmatched": "No one will be notified for {{handles}}: they can't see this note, or no one has that handle.",
+      "counter": "{{count}} / {{max}}"
+    },
+    "mention": {
+      "listLabel": "People to mention"
+    }
+  }
+}

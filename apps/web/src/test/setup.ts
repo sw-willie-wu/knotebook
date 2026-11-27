@@ -84,6 +84,28 @@ if (!Element.prototype.setPointerCapture) Element.prototype.setPointerCapture = 
 if (!Element.prototype.releasePointerCapture) Element.prototype.releasePointerCapture = () => {};
 if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => {};
 
+// Tests that mount the app shell would otherwise open a real notification socket against whatever listens on jsdom's origin;
+// tests that need a socket inject their own fake.
+class InertWebSocket extends EventTarget {
+  static readonly CONNECTING = 0;
+  static readonly OPEN = 1;
+  static readonly CLOSING = 2;
+  static readonly CLOSED = 3;
+  readyState = 0;
+  onopen: ((event: Event) => void) | null = null;
+  onmessage: ((event: MessageEvent) => void) | null = null;
+  onclose: ((event: CloseEvent) => void) | null = null;
+  onerror: ((event: Event) => void) | null = null;
+  constructor(readonly url: string) {
+    super();
+  }
+  send() {}
+  close() {
+    this.readyState = 3;
+  }
+}
+globalThis.WebSocket = InertWebSocket as unknown as typeof WebSocket;
+
 afterEach(() => {
   cleanup();
   // The module-level Map of in-app widths survives across cases; without a reset, cases pollute each other depending on test order.

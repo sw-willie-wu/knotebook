@@ -636,17 +636,17 @@ describe("#239 PATCH scope", () => {
     expect((await patch(app, cookie, row!.id, { scope: RWM })).statusCode).toBe(403);
     expect((await patch(app, cookie, row!.id, { agentLabel: "bot" })).statusCode).toBe(200);
   });
-  it("takes effect on the next request: tools/list of the same token goes 12 <-> 13, read/write/delete 15 (buildTestApp has no collaboration; includes list_trash since #181; the folder feature adds list_folders and four folder write tools, and read/write/delete also has delete_folder)", async () => {
+  it("takes effect on the next request: tools/list of the same token goes 13 <-> 14, read/write/delete 16 (buildTestApp has no collaboration; includes list_trash since #181; the folder feature adds list_folders and four folder write tools, and read/write/delete also has delete_folder; comments add list_notifications)", async () => {
     const { app, cookie } = await signedInApp();
     const created = (await create(app, cookie, { name: "live", scope: "notes:read notes:write", expiresInDays: null })).json();
     const count = async () => ((await mcpPost(app, rpc("tools/list"), { token: created.token })).json().result.tools as unknown[]).length;
-    expect(await count()).toBe(12);
-    await patch(app, cookie, created.id, { scope: RWM });
     expect(await count()).toBe(13);
+    await patch(app, cookie, created.id, { scope: RWM });
+    expect(await count()).toBe(14);
     await patch(app, cookie, created.id, { scope: "notes:read notes:write" });
-    expect(await count()).toBe(12);
+    expect(await count()).toBe(13);
     // #181: RW -> RWD also takes effect on the next request (adds delete_note, restore_note; the folder feature adds delete_folder on top).
     await patch(app, cookie, created.id, { scope: RWD });
-    expect(await count()).toBe(15);
+    expect(await count()).toBe(16);
   });
 });

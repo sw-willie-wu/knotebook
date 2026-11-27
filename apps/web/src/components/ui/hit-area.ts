@@ -17,6 +17,9 @@ export const ROW_ICON_HIT_BORDERED =
 
 export const ROW_ICON_ROW = "pointer-coarse:gap-1 pointer-coarse:[&>.row-icon:has(+.row-icon)]:me-4";
 
+/** 28px icon buttons (the sidebar bell): 8px each side = 44×44. The bell sits 12px from the gear, so the 8px extension never reaches it. */
+export const ICON_28_HIT = "relative pointer-coarse:after:absolute pointer-coarse:after:-inset-2 pointer-coarse:after:content-['']";
+
 export const HEADER_ICON_HIT =
   "relative pointer-coarse:after:absolute pointer-coarse:after:-inset-x-1 pointer-coarse:after:-inset-y-1.5 pointer-coarse:after:content-['']";
 

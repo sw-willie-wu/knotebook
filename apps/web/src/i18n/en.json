@@ -147,9 +147,9 @@
       "moveClosesPublicLink": "Its public link will be turned off.",
       "moveUrlChange": "Its address changes to /g/…; the old address forwards to the new one for a month.",
       "moveOwnership": "You will no longer own it — what you can do with it then depends on your role in the group.",
-      "moveClearsVersions": "Its version history is cleared and doesn't come back.",
-      "keepVersions": "Bring its version history along",
-      "keepVersionsHint": "The group's editors will see its earlier versions and who edited them.",
+      "moveClearsVersions": "Its version history and comments are cleared and don't come back.",
+      "keepVersions": "Bring its version history and comments along",
+      "keepVersionsHint": "The group's editors will see its earlier versions and who edited them. Everyone in the group will see its comments.",
       "moveSubmit": "Move into group",
       "copyLead": "This creates a copy in \"{{group}}\"; the original stays as it is. AI edit history, version history and backlinks are not copied.",
       "copySubmit": "Copy into group",
@@ -181,10 +181,13 @@
     "overSizeLimit": "This note is over the size limit; editing may be slow. Delete content to shrink it.",
     "titlePlaceholder": "Untitled",
     "readOnly": "Read-only",
+    "cornerToggle": "Note panels",
+    "cornerToggleUnread": "Note panels, unread comments",
     "menu": {
       "label": "More",
       "labelFor": "Note actions for {{title}}",
       "versions": "Version history",
+      "comments": "Comments",
       "aiEdits": "AI edit history",
       "present": "Present",
       "moveTo": "Move to…",
@@ -417,6 +420,10 @@
     "passwordLoginOff": "Password sign-in is turned off on this site right now, so this link can't be used. Ask the site administrator.",
     "backToLogin": "Back to sign in"
   },
+  "notificationBell": {
+    "label": "Notifications",
+    "unread": "Notifications, {{count}} unread"
+  },
   "userMenu": {
     "language": "Language",
     "languageEn": "English",
@@ -495,30 +502,12 @@
     "stackNameN": "New folder {{n}}"
   },
   "groups": {
-    "autoVersions": {
-      "title": "Automatic versions",
-      "description": "When off, this group's notes only get a new version when someone saves one by hand.",
-      "managersOnly": "Only members whose role can manage the group can change this."
-    },
     "nav": {
       "label": "Group",
       "members": "Members",
       "roles": "Roles",
       "storage": "Storage",
       "about": "About"
-    },
-    "storage": {
-      "byMember": "By member",
-      "byMemberDescription": "How much of this group's space each person has taken up: files they uploaded into its notes, plus the files that came with notes they moved or copied into the group.",
-      "byMemberEmpty": "This group's notes have no files yet.",
-      "deletedUser": "Deleted user"
-    },
-    "about": {
-      "infoTitle": "Details",
-      "createdAt": "Created",
-      "members": "Members",
-      "memberCount_one": "{{count}} member",
-      "memberCount_other": "{{count}} members"
     },
     "menu": {
       "label": "Group actions for {{name}}",
@@ -537,35 +526,6 @@
       "create": "Create",
       "save": "Save"
     },
-    "delete": {
-      "title": "Delete group?",
-      "modeLabel": "What happens to the notes in this group",
-      "transferLabel": "Give them to an admin",
-      "transferToLabel": "Admin who gets the notes",
-      "transferDescription_one": "{{count}} note will become {{name}}'s personal note. Its address changes to /n/…, and the old address forwards to it for a month. Everyone else in the group loses access, and any public link it has is turned off.",
-      "transferDescription_other": "{{count}} notes will become {{name}}'s personal notes. Their addresses change to /n/…, and the old addresses forward to them for a month. Everyone else in the group loses access, and any public links on them are turned off.",
-      "transferDescriptionNoCount": "The group's notes will become {{name}}'s personal notes. Their addresses change to /n/…, and the old addresses forward to them for a month. Everyone else in the group loses access, and any public links on them are turned off.",
-      "transferTrashNote": "Group notes in the trash go to {{name}}'s personal trash, and their retention period still counts from when they were deleted; their public links are turned off too.",
-      "transferFoldersNote": "The group's folders move into {{name}}'s notes, under a folder named after the group.",
-      "deleteLabel": "Delete everything",
-      "deleteDescription_one": "{{count}} note, its attachments and its edit history are permanently deleted — it doesn't go to the trash. This can't be undone.",
-      "deleteDescription_other": "{{count}} notes, their attachments and their edit history are permanently deleted — they don't go to the trash. This can't be undone.",
-      "deleteDescriptionNoCount": "The group's notes (including those in its trash), their attachments and their edit history are permanently deleted — they don't go to the trash. This can't be undone.",
-      "deleteDescriptionWithTrash_one": "{{count}} note (including {{trash}} in the trash), its attachments and its edit history are permanently deleted — it doesn't go to the trash. This can't be undone.",
-      "deleteDescriptionWithTrash_other": "{{count}} notes (including {{trash}} in the trash), their attachments and their edit history are permanently deleted — they don't go to the trash. This can't be undone.",
-      "emptyDescription": "This group has no notes.",
-      "acknowledge": "I understand the notes will be permanently deleted",
-      "adminsUnavailable": "Couldn't load the group's admins.",
-      "confirm": "Delete group"
-    },
-    "removeMember": {
-      "title": "Remove member?",
-      "description": "{{email}} will lose access to the notes in \"{{name}}\".",
-      "confirm": "Remove",
-      "selfTitle": "Remove yourself?",
-      "selfDescription": "You ({{email}}) will lose access to the notes in \"{{name}}\" and cannot add yourself back.",
-      "selfConfirm": "Remove me"
-    },
     "leave": {
       "title": "Leave group?",
       "description": "You will lose access to the notes in \"{{name}}\".",
@@ -574,125 +534,6 @@
     "role": {
       "admin": "Admin",
       "member": "Member"
-    },
-    "detail": {
-      "nameTitle": "Name",
-      "nameSave": "Save name",
-      "nameSaved": "Group renamed.",
-      "membersDescriptionAdmin": "Add people by email. Members see every note in this group.",
-      "membersDescriptionMember": "Only people whose role can manage members can add or remove members.",
-      "tableName": "Name",
-      "tableEmail": "Email",
-      "tableRole": "Role",
-      "tableActions": "Actions",
-      "roleLabel": "Role for {{email}}",
-      "remove": "Remove {{email}}",
-      "lastAdminHint": "The only admin can't be demoted or removed. Make someone else an admin first.",
-      "addEmailLabel": "Email address",
-      "addRoleLabel": "Role for new member",
-      "add": "Add",
-      "dangerTitle": "Delete group",
-      "dangerDescription": "Deleting the group either gives its notes to one of its admins or deletes them with it.",
-      "leaveTitle": "Leave group"
-    },
-    "bulk": {
-      "addEmailsPlaceholder": "Email addresses (separate several with commas)",
-      "addEmailsHint": "You can enter several addresses at once, separated by commas, semicolons, spaces or line breaks (full-width commas and semicolons and the enumeration comma “、” work too).",
-      "addTitle": "Add members",
-      "addDescription": "These addresses are added to this group as {{role}}.",
-      "invalidSingle": "“{{value}}” doesn't look like an email address.",
-      "progress": "Processed {{done}} of {{total}}",
-      "stop": "Stop",
-      "stopping": "Stopping…",
-      "stopped": "Stopped: {{reason}} The addresses that weren't added are back in the email box.",
-      "stoppedRateLimit": "Stopped because the server is limiting requests. Wait a minute, then add the rest — they're back in the email box.",
-      "cancelled": "Stopped. The addresses that weren't added are back in the email box.",
-      "keptInBox": "The addresses that weren't added are left in the email box so you can fix them and try again.",
-      "outcome": {
-        "added": "Added ({{count}}):",
-        "alreadyMember": "Already members ({{count}}):",
-        "notFound": "No account with this email ({{count}}):",
-        "invalid": "Not an email address ({{count}}):",
-        "failed": "Failed ({{count}}):",
-        "notProcessed": "Not processed ({{count}}):"
-      },
-      "summary": {
-        "added": "Added: {{count}}.",
-        "alreadyMember": "Already members: {{count}}.",
-        "notFound": "No account with this email: {{count}}.",
-        "invalid": "Not an email address: {{count}}.",
-        "failed": "Failed: {{count}}.",
-        "notProcessed": "Not processed: {{count}}."
-      },
-      "done": "Done",
-      "importOpen": "Import from another group…",
-      "importTitle": "Import members from another group",
-      "importDescription": "The people you pick are added to this group as {{role}}. This is a one-time copy: later changes to the other group won't carry over.",
-      "importNoGroups": "You're not in any other group.",
-      "importSourceLabel": "Group to import from",
-      "importSourcePlaceholder": "Choose a group…",
-      "importNobody": "Everyone in that group is already here.",
-      "importSelectAll": "Select all ({{count}})",
-      "importListLabel": "People to add",
-      "importExcludedHint": "People already in this group, and you, aren't listed.",
-      "importConfirm_one": "Add {{count}} person",
-      "importConfirm_other": "Add {{count}} people"
-    },
-    "roles": {
-      "descriptionManage": "Each member has one role, and the role decides what they can do. The built-in Admin role can't be changed; the built-in Member role is what new members get, and it can't be renamed or deleted.",
-      "descriptionView": "Each member has one role, and the role decides what they can do. Only people whose role can manage roles and the group can change these.",
-      "legendTitle": "What each permission allows",
-      "readAlways": "Every role can read the group's notes, their backlinks and their AI edit history.",
-      "readPill": "Read",
-      "flags": {
-        "create": {
-          "label": "Create",
-          "description": "Create notes in the group, or move or copy a personal note into it. Without Edit, a note you create, move or copy there is read-only for you too."
-        },
-        "edit": {
-          "label": "Edit",
-          "description": "Change the content and title of the group's notes."
-        },
-        "delete": {
-          "label": "Delete",
-          "description": "Move the group's notes to the trash. With Edit as well, also restore them from the trash or delete them permanently."
-        },
-        "managePublicLink": {
-          "label": "Manage public links",
-          "description": "Turn the anonymous public link of the group's notes on and off, and change a note's URL name through the API."
-        },
-        "manageMembers": {
-          "label": "Manage members",
-          "description": "Add and remove people and change their roles — including making anyone, themselves included, an Admin. A group always keeps at least one Admin."
-        },
-        "manageGroup": {
-          "label": "Manage roles & group",
-          "description": "Rename or delete the group, and create, change and delete its roles."
-        }
-      },
-      "flagFor": "{{flag}} for {{role}}",
-      "nameFor": "Name of {{role}}",
-      "adminLocked": "The built-in Admin role always has every permission and can't be changed.",
-      "renameFor": "Rename {{role}}",
-      "save": "Save",
-      "cancel": "Cancel",
-      "deleteFor": "Delete {{role}}",
-      "delete": {
-        "title": "Delete role?",
-        "description_one": "{{count}} member who has this role will become a Member.",
-        "description_other": "{{count}} members who have this role will become Members.",
-        "descriptionEmpty": "Nobody has this role.",
-        "confirm": "Delete role"
-      },
-      "newRole": "New role",
-      "dialog": {
-        "title": "New role",
-        "description": "Name the role and turn on what it allows. You can change both later.",
-        "nameLabel": "Role name",
-        "create": "Create"
-      },
-      "invalidName": "Role names must be 1–40 characters.",
-      "deleteWithoutEditHint": "Without Edit, notes deleted with this role can't be restored from the trash by its holders."
     }
   },
   "management": {
@@ -1114,6 +955,9 @@
     "knowledge_key_taken": "Two options have the same key.",
     "knowledge_fields_limit": "Too many options or custom fields.",
     "knowledge_fields_incomplete": "The settings changed since you opened this page. Reload and try again.",
+    "comment_not_found": "That comment no longer exists.",
+    "invalid_comment": "That comment can't be saved. Check its text, the passage and the comment it answers.",
+    "notification_not_found": "That notification no longer exists.",
     "fallback": "An unexpected error occurred."
   }
 }

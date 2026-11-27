@@ -47,7 +47,7 @@ Each of these tools does something well that Knotebook doesn't try to do. Knoteb
 - **Your server**: one app container and PostgreSQL with `docker compose` ([Self-hosting guide](docs/self-hosting.md)).
 - **Co-editing**: everyone edits at once and sees each other's cursors and who has the note open.
 - **Any number of people**: MIT-licensed, with no seat limits or license gate.
-- **Agents**: a built-in MCP endpoint with up to twenty tools, and notes as Markdown files for agents with a shell ([MCP](docs/mcp.md)).
+- **Agents**: a built-in MCP endpoint with up to twenty-three tools, and notes as Markdown files for agents with a shell ([MCP](docs/mcp.md)).
 - **Agent edits**: each one goes into the note's AI edit history and can usually be reverted on its own ([Revert](docs/ai-editing.md#revert)).
 - **AI in the editor**: a site admin points it at a model you host through any OpenAI-compatible API (Ollama, vLLM and others), or at Anthropic ([AI quick actions](docs/ai.md)).
 
@@ -85,8 +85,9 @@ Each part below lists what works today and what is planned. Planned items are wh
 
 **Works today**
 
-- **MCP endpoint**: `/api/mcp` gives Claude Code, Claude Desktop and other MCP clients up to twenty tools to search, read a note section by section, create, edit, rename, copy and move notes, manage folders, move notes to the trash and back, and read images ([MCP](docs/mcp.md)).
+- **MCP endpoint**: `/api/mcp` gives Claude Code, Claude Desktop and other MCP clients up to twenty-three tools to search, read a note section by section, create, edit, rename, copy and move notes, manage folders, move notes to the trash and back, read images, read and post comments, and list mentions ([MCP](docs/mcp.md)).
 - **Notes as files**: with `open_notes_as_files`, an assistant that has a shell downloads many notes as Markdown files and sends the changed files back; only the parts a file changed are written ([MCP](docs/mcp.md#open_notes_as_files)).
+- **Comments, @mentions and notifications**: anyone who can read a note can comment on it or on a passage; `@handle` notifies a person and `@handle/label` one of their agents, with a bell in the app and `read_comments`, `post_comment` and `list_notifications` for agents ([Comments](docs/comments.md)).
 - **Knowledge info and tags for agents**: agents read and write knowledge info as a comment under each heading, and set tags through a file's `tags:` line ([AI editing](docs/ai-editing.md#knowledge-info)).
 - **API tokens and OAuth**: personal API tokens with scopes, or apps you authorize over OAuth, which are read-only unless you allow more ([API tokens](docs/api-tokens.md)). **Settings → Authorization → Connect Claude with MCP** shows ready-to-paste setup for your server.
 - **AI quick actions in the editor**: select text and run Rewrite, Translate, Summarize, Continue writing or Instruct (follows an instruction you type), with the result shown as an inline diff, streamed from a provider a site admin sets up: any OpenAI-compatible API (including a local Ollama) or Anthropic. Nothing is sent anywhere until an admin sets one up, and admins can rename, turn off or add actions ([AI quick actions](docs/ai.md)).
@@ -97,7 +98,6 @@ Each part below lists what works today and what is planned. Planned items are wh
 - Search for agents that answers with index lines first (when to read, conclusion, last verified), so an agent reads only the one or two most relevant notes.
 - Writing back: an agent puts new findings in a place to be sorted, or suggests changes to an existing note.
 - Semantic search ([#92](https://github.com/sw-willie-wu/knotebook/issues/92)).
-- Comments, @mentions (including mentioning an agent) and notifications ([#289](https://github.com/sw-willie-wu/knotebook/issues/289)).
 - A built-in agent and chat in the app ([#264](https://github.com/sw-willie-wu/knotebook/issues/264), [#118](https://github.com/sw-willie-wu/knotebook/issues/118)).
 
 ### See and undo what agents change
@@ -208,6 +208,7 @@ For people writing notes:
 - [Sharing](docs/sharing.md): private, shared and public notes, groups and their roles, moving or copying a note into a group, folders, favorites, tags and the trash.
 - [Knowledge info](docs/knowledge.md): when to read, conclusion, basis, verified date and status on headings, and the index.
 - [Version history](docs/versions.md): when versions are saved, previewing, comparing and applying them, who sees them and how long they are kept.
+- [Comments](docs/comments.md): a note's comment thread, `@` mentions of people and their agents, notifications and how long they are kept, and comments over MCP.
 - [Side-by-side columns](docs/columns.md): making, resizing, removing, copying and undoing rows of columns.
 - [Diagrams (Mermaid)](docs/diagrams.md): inserting, editing, pasting and copying out Mermaid diagrams.
 - [Help and the feature tour](docs/feature-tour.md): the Help window, the feature tour, the What's new page and the keyboard shortcuts.

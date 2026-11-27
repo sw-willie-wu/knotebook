@@ -43,7 +43,11 @@ export type GroupRacePoint =
   /** Window: note moved to another space after authorization. */
   | "tag-note-authorized"
   /** Window: inside the tag transaction, after the group and note locks are held. */
-  | "tag-note-locked";
+  | "tag-note-locked"
+  /** Window: inside a comment write, after the unlocked access read and before the group and note locks. */
+  | "comment-authorized"
+  /** Window: inside a comment write, after its locks are held (group, note, and the comment itself on edit and delete) and before access is re-checked. */
+  | "comment-locked";
 
 export interface GroupHookCtx { noteId?: string; groupId?: string; slug?: string; folderId?: string }
 

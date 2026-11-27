@@ -41,6 +41,7 @@ function renderStorage(extra: Handler = () => null, client = new QueryClient({ d
     if (url === "/api/admin/storage-plans" && method === "GET") return Promise.resolve(res(200, LIST));
     if (url === "/api/admin/versions/settings" && method === "GET") return Promise.resolve(res(200, { keepAllDays: 7, dailyUntilDays: 30, autoVersionsEnabled: true, autoWaitMinutes: 5 }));
     if (url === "/api/admin/trash/settings" && method === "GET") return Promise.resolve(res(200, { retentionDays: 7 }));
+    if (url === "/api/admin/notifications/settings" && method === "GET") return Promise.resolve(res(200, { retentionDays: 30 }));
     throw new Error(`unexpected fetch: ${method} ${url}`);
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -72,13 +73,27 @@ describe("/admin/storage (storage plans page)", () => {
 
   it("trash settings come after version retention; each of the two regions has exactly one Save", async () => {
     renderStorage();
-    await screen.findByRole("switch", { name: "Delete automatically" });
-    const trash = screen.getByRole("region", { name: "Trash" });
+    const trash = await screen.findByRole("region", { name: "Trash" });
+    await within(trash).findByRole("switch", { name: "Delete automatically" });
+    const notifications = await screen.findByRole("region", { name: "Notifications" });
+    await within(notifications).findByRole("switch", { name: "Delete old notifications automatically" });
+    expect(trash.compareDocumentPosition(notifications) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(notifications).getAllByRole("button", { name: "Save" })).toHaveLength(1);
     const versions = await screen.findByRole("region", { name: "Keeping automatic versions" });
     expect(versions.compareDocumentPosition(trash) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(trash).getAllByRole("button", { name: "Save" })).toHaveLength(1);
     expect(within(versions).getAllByRole("button", { name: "Save" })).toHaveLength(1);
     expect(within(trash).getByRole("switch", { name: "Delete automatically" })).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("the notifications switch and days field each have an accessible name no other control on the page shares", async () => {
+    renderStorage();
+    const notifications = await screen.findByRole("region", { name: "Notifications" });
+    await within(notifications).findByRole("switch", { name: "Delete old notifications automatically" });
+    expect(screen.getAllByRole("switch", { name: "Delete old notifications automatically" })).toHaveLength(1);
+    expect(screen.getAllByRole("switch", { name: "Delete automatically" })).toHaveLength(1);
+    expect(screen.getAllByLabelText("Days to keep notifications")).toHaveLength(1);
+    expect(screen.getAllByLabelText("Days to keep")).toHaveLength(1);
   });
 
   it("plan table: limit (formatBytes / No limit), user count, group count, over-limit count, default marker; delete buttons are disabled by two conditions plus visible reasons", async () => {

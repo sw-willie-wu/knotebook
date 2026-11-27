@@ -1,0 +1,43 @@
+{
+  "comments": {
+    "title": "留言",
+    "close": "關閉留言",
+    "back": "返回",
+    "resize": "調整留言面板寬度",
+    "empty": "還沒有留言。",
+    "loadFailed": "無法載入留言。",
+    "retry": "再試一次",
+    "loadOlder": "載入較早的留言",
+    "loadNewer": "載入較新的留言",
+    "newComments": "有新留言",
+    "targetMissing": "這則留言已經刪除了。",
+    "edited": "已編輯",
+    "editedAt": "編輯於 {{when}}",
+    "reply": "回覆",
+    "edit": "編輯",
+    "delete": "刪除",
+    "actionsFor": "{{who}} 的留言",
+    "replyJump": "前往 {{who}} 的原留言",
+    "answeredDeleted": "被回覆的留言已經刪除了。",
+    "quoteJump": "前往這個段落",
+    "passage": "段落",
+    "passageDeleted": "段落已刪除",
+    "deleteTitle": "要刪除這則留言嗎？",
+    "deleteBody": "所有人都會看不到，刪除後無法復原。",
+    "cancel": "取消",
+    "composer": {
+      "label": "留言",
+      "placeholder": "寫下留言…",
+      "send": "送出",
+      "save": "儲存",
+      "replyingTo": "回覆 {{who}}",
+      "editing": "正在編輯你的留言",
+      "removePassage": "不附上這個段落",
+      "unmatched": "{{handles}} 不會收到通知：對方看不到這份筆記，或沒有這個帳號名稱。",
+      "counter": "{{count}} / {{max}}"
+    },
+    "mention": {
+      "listLabel": "可提及的人"
+    }
+  }
+}

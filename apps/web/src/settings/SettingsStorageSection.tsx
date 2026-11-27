@@ -29,6 +29,7 @@ import { toast } from "@/components/ui/toast";
 import { SettingsTable, type SettingsTableColumn, type SettingsTableRow } from "@/components/management/SettingsTable";
 import { quotaBytesFromInput, quotaInputFromBytes, validPlanName, type QuotaUnit } from "@/lib/storage-plan-form";
 import { SettingsGroup, SettingsPage } from "./SettingsLayout";
+import { SiteNotificationsGroup } from "./SettingsNotificationsSection";
 import { SiteTrashGroup } from "./SettingsTrashSection";
 import { SiteVersionsGroups } from "./SettingsVersionsSection";
 import "@/i18n/management-strings";
@@ -375,6 +376,7 @@ export function SettingsStorageSection() {
       {plansQuery.data && <DefaultsGroup data={plansQuery.data} />}
       <SiteVersionsGroups />
       <SiteTrashGroup />
+      <SiteNotificationsGroup />
     </SettingsPage>
   );
 }

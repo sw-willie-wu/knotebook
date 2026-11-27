@@ -103,7 +103,7 @@ test("21 storage quota: 1 MB plan assigned to a user -> pasting an image > 1 MB 
   }
 });
 
-test("21 storage quota: a note with text -> Settings > Storage shows a non-zero \"Notes and history\" size that doesn't count toward the limit", async ({ browser }) => {
+test("21 storage quota: a note with text -> Settings > Storage shows a non-zero \"Notes\" row in \"By type\" that doesn't count toward the limit", async ({ browser }) => {
   test.setTimeout(90_000);
   const adminContext = await browser.newContext();
   const userContext = await browser.newContext();
@@ -136,10 +136,10 @@ test("21 storage quota: a note with text -> Settings > Storage shows a non-zero 
     await expect.poll(noteBytes, { timeout: 30_000 }).toBeGreaterThan(0);
 
     await page.goto("/settings/storage");
-    const noteSize = page.getByTestId("content-usage-note");
+    const noteSize = page.getByTestId("by-kind-note");
     await expect(noteSize).toBeVisible({ timeout: 15_000 });
     await expect(noteSize).not.toContainText(/(^|[^\d.])0 B/);
-    await expect(page.getByText("It doesn't count toward the storage limit.")).toBeVisible();
+    await expect(page.getByText("Notes don't count toward the storage limit.")).toBeVisible();
   } finally {
     await adminContext.close();
     await userContext.close();

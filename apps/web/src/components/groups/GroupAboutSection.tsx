@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
+import "@/i18n/groups-admin-strings";
 import { useLocation, useNavigate, type Location } from "react-router";
 import type { GroupDto, GroupMemberDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";

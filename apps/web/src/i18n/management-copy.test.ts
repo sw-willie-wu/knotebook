@@ -175,6 +175,14 @@ describe("files using moved keys import @/i18n/management-strings themselves", (
     expect(offenders).toEqual([]);
   });
 
+  it("the notification retention labels differ from the trash ones in both languages (same accessible name on one page otherwise)", () => {
+    for (const bundle of [managementEn, managementZhTW]) {
+      const admin = (bundle as unknown as { admin: Record<"trash" | "notifications", Record<"autoLabel" | "daysLabel", string>> }).admin;
+      expect(admin.notifications.autoLabel).not.toBe(admin.trash.autoLabel);
+      expect(admin.notifications.daysLabel).not.toBe(admin.trash.daysLabel);
+    }
+  });
+
   it("users of the first-bundle keys (AdminModal, SettingsModal, UserMenu) must not import the string bundle (that would pull it back into the first bundle)", () => {
     for (const path of ["src/components/admin/AdminModal.tsx", "src/settings/SettingsModal.tsx", "src/components/UserMenu.tsx"]) {
       expect(readFileSync(`${process.cwd()}/${path}`, "utf8"), path).not.toContain("management-strings");

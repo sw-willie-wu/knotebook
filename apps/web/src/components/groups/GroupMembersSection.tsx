@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type ClipboardEvent, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
+import "@/i18n/groups-admin-strings";
 import { useLocation, useNavigate, type Location } from "react-router";
 import { normalizeEmail, type GroupDto, type GroupMemberDto, type GroupRoleDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";

@@ -1,5 +1,5 @@
 import { eq, sql } from "drizzle-orm";
-import { VERSION_DAYS_MAX, type TrashSettingsDto, type VersionSettingsDto } from "@knotebook/shared";
+import { VERSION_DAYS_MAX, type NotificationSettingsDto, type TrashSettingsDto, type VersionSettingsDto } from "@knotebook/shared";
 import type { Tx } from "../../db/tx.js";
 import { authProviders, siteSettings } from "../../db/schema.js";
 import { TxAbort } from "../../http/tx-abort.js";
@@ -106,6 +106,18 @@ export async function updateTrashSettingsInTx(tx: Tx, input: { retentionDays: nu
   await tx
     .update(siteSettings)
     .set({ trashRetentionDays: input.retentionDays, updatedAt: sql`now()` })
+    .where(eq(siteSettings.singleton, true));
+  return { retentionDays: input.retentionDays };
+}
+
+export const NOTIFICATION_RETENTION_RANGE_MESSAGE = "Retention days must be a whole number from 1 to 3650, or null to never delete automatically.";
+
+/** The route validates the range (CHECK `site_settings_notification_retention_chk` is the backstop); `null` means never expire; only later cleanup rounds are affected. */
+export async function updateNotificationSettingsInTx(tx: Tx, input: { retentionDays: number | null }): Promise<NotificationSettingsDto> {
+  await lockSiteSettingsInTx(tx);
+  await tx
+    .update(siteSettings)
+    .set({ notificationRetentionDays: input.retentionDays, updatedAt: sql`now()` })
     .where(eq(siteSettings.singleton, true));
   return { retentionDays: input.retentionDays };
 }

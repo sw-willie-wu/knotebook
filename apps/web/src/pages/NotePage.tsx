@@ -22,6 +22,8 @@ import { NotePageControlsContext, type NotePageControls, type OpenEditsState } f
 import { useRegisterNotePage } from "@/lib/note-page-bridge";
 import { useAppShellInert } from "@/lib/app-shell-inert";
 import { isOverlayOpen, useVersionsController, VersionsProvider } from "@/lib/versions-context";
+import { CommentsProvider, useCommentsController } from "@/lib/comments-context";
+import { CommentsLazyBoundary } from "@/components/comments/CommentsLazyBoundary";
 import { createLinkSync, type LinkSync } from "@/collab/link-sync";
 import type { CursorScroller } from "@/collab/cursor-scroll";
 import { useCollab } from "@/collab/useCollab";
@@ -60,6 +62,7 @@ import { KnowledgeFieldsProvider } from "@/components/knowledge/fields-context";
 import { toast } from "@/components/ui/toast";
 import { cardSurface } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { preloadableLazy } from "@/lib/preloadable-lazy";
 import { exitOwnedFullscreen } from "@/present/fullscreen";
 import { LazyPresentation } from "@/present/lazy";
 import { PresentationShell, type PresentationShellStatus } from "@/present/PresentationShell";
@@ -69,7 +72,11 @@ import { exitFullscreenIfLeftPresentation, isPresentingSearch } from "@/present/
 const PreviewBanner = lazy(() => import("@/components/versions/VersionsLazy").then((m) => ({ default: m.PreviewBanner })));
 const VersionPreview = lazy(() => import("@/components/versions/VersionsLazy").then((m) => ({ default: m.VersionPreview })));
 const VersionsDialogs = lazy(() => import("@/components/versions/VersionsLazy").then((m) => ({ default: m.VersionsDialogs })));
-const VersionsSheet = lazy(() => import("@/components/versions/VersionsLazy").then((m) => ({ default: m.VersionsSheet })));
+const VersionsSheet = preloadableLazy(() => import("@/components/versions/VersionsLazy").then((m) => m.VersionsSheet));
+const CommentsSheet = preloadableLazy(() => import("@/components/comments/CommentsLazy").then((m) => m.CommentsSheet));
+
+const COMMENT_PARAM = "comment";
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const TERMINAL_RECONCILE_INTERVAL_MS = 750;
 
@@ -379,12 +386,49 @@ export default function NotePage() {
   useEffect(() => {
     if (canChangeTags) preloadHashTagBatch();
   }, [canChangeTags]);
+  // Only one right-hand panel at a time: each controller closes the other before it opens. The comments one is created second, so the
+  // version history reaches it through a ref.
+  const closeCommentsRef = useRef<() => void>(() => {});
+  const closeComments = useCallback(() => closeCommentsRef.current(), []);
   const versions = useVersionsController({
     noteId: noteId ?? null,
     enabled: versionsEnabled,
     // After a successful apply the whole note query group is invalidated (id key, legacy ref key, path resolve layer): exactly onDocUpdate.
     onApplied: onDocUpdate,
+    onOpen: closeComments,
   });
+  // Anyone who can read the note, viewers included; not after the connection ended or while the tab is outdated.
+  const commentsEnabled = note !== undefined && !stopsReconnect(state) && effectiveRole(state, note) !== "none";
+  const comments = useCommentsController({
+    noteId: noteId ?? null,
+    enabled: commentsEnabled,
+    provider,
+    onOpen: versions.close,
+  });
+  closeCommentsRef.current = comments.close;
+  const sheetOpen = versions.mode === "sheet" || comments.mode === "sheet";
+  const bothPanels = versions.enabled && comments.enabled;
+  useEffect(() => {
+    if (!sheetOpen || !bothPanels) return;
+    // The sheet's switch opens the other sheet: unloaded, the note would show between the two while its chunk loads.
+    VersionsSheet.preload();
+    CommentsSheet.preload();
+  }, [sheetOpen, bothPanels]);
+
+  // `?comment=<id>` (a notification's link) opens the thread at that comment; the parameter is then dropped so a reload doesn't reopen it.
+  const commentParam = new URLSearchParams(location.search).get(COMMENT_PARAM);
+  const { open: openComments } = comments;
+  useEffect(() => {
+    if (commentParam === null || !commentsEnabled) return;
+    if (UUID_RE.test(commentParam)) openComments({ commentId: commentParam });
+    const search = new URLSearchParams(location.search);
+    search.delete(COMMENT_PARAM);
+    const rest = search.toString();
+    void navigate(
+      { pathname: location.pathname, search: rest === "" ? "" : `?${rest}`, hash: location.hash },
+      { replace: true, state: location.state },
+    );
+  }, [commentParam, commentsEnabled, openComments, location.pathname, location.search, location.hash, location.state, navigate]);
 
   // Ctrl/Cmd+S saves a version: plain window keydown (not capture, like AppShell's Ctrl+K), intercepted only with canEdit, no presentation and no open dialog/menu; BlockNote doesn't bind Mod+S.
   // While our own save dialog is open it still preventDefaults (no browser save-page) without opening a second one.
@@ -695,10 +739,12 @@ export default function NotePage() {
         onOpenEdits={openEdits}
         triggerRef={noteMenuTriggerRef}
         widthItems={(control) => <NoteWidthMenuItems noteId={note.id} {...control} />}
+        onOpenComments={comments.enabled ? () => comments.open() : undefined}
       />
     );
     body = (
       <VersionsProvider value={versions}>
+      <CommentsProvider value={comments}>
         <div className="flex min-h-0 flex-1 flex-col">
           <div
             className="flex min-h-0 flex-1"
@@ -816,9 +862,15 @@ export default function NotePage() {
                 <VersionsDialogs returnFocusRef={noteMenuTriggerRef} />
               </VersionsLazyBoundary>
             )}
+            {comments.mode === "sheet" && (
+              <CommentsLazyBoundary noteId={noteId ?? null} errorClassName={VERSIONS_ERROR_FRAME.floating}>
+                <CommentsSheet doc={doc} returnFocusRef={noteMenuTriggerRef} />
+              </CommentsLazyBoundary>
+            )}
           </div>
           {phone && !(editable && editingFocus) && <NoteBrowseBar note={note} />}
         </div>
+      </CommentsProvider>
       </VersionsProvider>
     );
   }

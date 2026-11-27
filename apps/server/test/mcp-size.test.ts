@@ -14,7 +14,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import { eq, inArray } from "drizzle-orm";
 import * as Y from "yjs";
-import { groups, noteSearchSections, noteStates, notes, uploads, users } from "../src/db/schema.js";
+import { apiTokens, groups, noteCommentMentions, noteComments, noteSearchSections, noteStates, notes, notifications, uploads, users } from "../src/db/schema.js";
 import {
   MCP_DELETE_FOLDER_IDS_MAX,
   MCP_FOLDER_PAGE_MAX,
@@ -60,8 +60,10 @@ export const MCP_MAX_WIRE = 262_144;
  * **What regression hits the wall**: making any one tool's description or schema longer by `N_LIST_MAX - W + 100` characters (appended to a sentence end) goes red. The `tools/list` schema enters the
  * context only once, so the wire grows by exactly what is added, not x2.1 as with the mirror. When it hits the wall **first ask "must this text be in the schema at all?"**: every byte of `tools/list`
  * enters the model's context on every connection, while `instructions` and `docs/mcp.md` are cheaper homes.
+ *
+ * The three comment tools raised it by exactly their own measured size, rounded up to a multiple of 1024, instead of a re-derivation.
  */
-export const N_LIST_MAX = 78_600;
+export const N_LIST_MAX = 87_816;
 
 /**
  * Lower-bound sentinel for the first call of case (vii) (the worst shape of `list_trash`; group name of 80 `"`, the second call's 67+13 form is larger). Falling below 230 000 means the fixture isn't full
@@ -267,33 +269,33 @@ describe("#108 tools/list context cost", () => {
 
     const roRes = await mcpPost(ctx.app, rpc("tools/list"), { token: o.token });
     expect(roRes.statusCode).toBe(200);
-    expect((roRes.json().result.tools as unknown[]).length).toBe(9);
+    expect((roRes.json().result.tools as unknown[]).length).toBe(11);
     const roWire = roRes.body.length;
 
     const rwRes = await mcpPost(ctx.app, rpc("tools/list"), { token: rwToken });
     expect(rwRes.statusCode).toBe(200);
-    expect((rwRes.json().result.tools as unknown[]).length).toBe(16);
+    expect((rwRes.json().result.tools as unknown[]).length).toBe(19);
     const rwWire = rwRes.body.length;
 
     const rwmRes = await mcpPost(ctx.app, rpc("tools/list"), { token: rwmToken });
     expect(rwmRes.statusCode).toBe(200);
-    expect((rwmRes.json().result.tools as unknown[]).length).toBe(17);
+    expect((rwmRes.json().result.tools as unknown[]).length).toBe(20);
     const rwmWire = rwmRes.body.length;
 
     const rwdRes = await mcpPost(ctx.app, rpc("tools/list"), { token: rwdToken });
     expect(rwdRes.statusCode).toBe(200);
-    expect((rwdRes.json().result.tools as unknown[]).length).toBe(19);
+    expect((rwdRes.json().result.tools as unknown[]).length).toBe(22);
     const rwdWire = rwdRes.body.length;
 
     const rwmdRes = await mcpPost(ctx.app, rpc("tools/list"), { token: rwmdToken });
     expect(rwmdRes.statusCode).toBe(200);
-    expect((rwmdRes.json().result.tools as unknown[]).length).toBe(20);
+    expect((rwmdRes.json().result.tools as unknown[]).length).toBe(23);
     const rwmdWire = rwmdRes.body.length;
 
     console.log(
-      `[案 11b] tools/list  唯讀憑證（九支，對照）wire=${roWire}  讀寫憑證（十六支，對照）wire=${rwWire}  ` +
-        `讀寫搬移憑證（十七支，對照）wire=${rwmWire}  讀寫刪除憑證（十九支，對照）wire=${rwdWire}  ` +
-        `讀寫搬移刪除憑證（二十支，被測）wire=${rwmdWire}  門檻=${N_LIST_MAX}  用掉 ${((rwmdWire / N_LIST_MAX) * 100).toFixed(1)}%`
+      `[案 11b] tools/list  唯讀憑證（十一支，對照）wire=${roWire}  讀寫憑證（十九支，對照）wire=${rwWire}  ` +
+        `讀寫搬移憑證（二十支，對照）wire=${rwmWire}  讀寫刪除憑證（二十二支，對照）wire=${rwdWire}  ` +
+        `讀寫搬移刪除憑證（二十三支，被測）wire=${rwmdWire}  門檻=${N_LIST_MAX}  用掉 ${((rwmdWire / N_LIST_MAX) * 100).toFixed(1)}%`
     );
     expect(rwmdWire).toBeLessThanOrEqual(N_LIST_MAX);
   });
@@ -902,6 +904,52 @@ describe("#108 single response size", () => {
     expect(df.sc).toMatchObject({ trashedNoteCount: 300, trashedNoteIdsTruncated: true, deletedFolderCount: 5 + MCP_FOLDER_PAGE_MAX });
     expect(df.sc.trashedNoteIds).toHaveLength(MCP_DELETE_FOLDER_IDS_MAX);
     console.log(`[案 11c 每項] (viii)⑤ delete_folder payload（鏡像兩份）${wireCost(df.sc)}`);
+  });
+
+  /**
+   * Comments: every body is 4000 code points of one of the four costly shapes (emoji, newline, `"`, U+0001), every quote 200 U+0001. On the
+   * read_comments note each comment also has 20 mentions of a 32-character handle with a 32-character label (rendering widens each two-code-point span
+   * to 66 characters). list_notifications reads comments without mentions (rendered ASCII is cheap) on a note whose title is 300 `"`, and the actor's
+   * label is 32 characters. Both pages are cut by the wire budget, not by `limit`.
+   */
+  it("(ix) comments: read_comments, list_notifications and post_comment with worst-case bodies stay <= N", async () => {
+    const ctx = await buildCollabTestApp();
+    const o = await owner(ctx);
+    const handle = `h${"a".repeat(31)}`;
+    await ctx.db.update(users).set({ handle }).where(eq(users.id, o.id));
+    const label = "g".repeat(32);
+    const { token: agent, tokenId } = await seedTokenForUser(ctx.db, o.id, "notes:read notes:write", "agent");
+    await ctx.db.update(apiTokens).set({ agentLabel: label }).where(eq(apiTokens.id, tokenId));
+    const shapes = ["\u{1F600}".repeat(4000), `x${"\n".repeat(3999)}`, '"'.repeat(4000), "\u0001".repeat(4000)];
+    const past = new Date(Date.now() - 60_000);
+
+    const thread = await ctx.createNote(o.id, "thread");
+    for (let i = 0; i < 50; i += 1) {
+      const [c] = await ctx.db
+        .insert(noteComments)
+        .values({ noteId: thread.id, authorId: o.id, agentLabel: label, body: shapes[i % 4]!, anchorBlockId: `b${i}`, anchorQuote: "\u0001".repeat(200), replyToId: randomUUID(), createdAt: past })
+        .returning({ id: noteComments.id });
+      await ctx.db.insert(noteCommentMentions).values(Array.from({ length: 20 }, (_, k) => ({ commentId: c!.id, userId: o.id, agentLabel: label, start: k * 2, length: 2 })));
+    }
+    const rc = await callWireResult<{ comments: Array<{ body: string }>; pageCutShort?: true }>(ctx.app, agent, "(ix) read_comments 50 篇最壞", "read_comments", { note_id: thread.id, limit: 50 });
+    expect(rc.sc.pageCutShort).toBe(true);
+    expect(rc.wire).toBeGreaterThan(MCP_LIST_WIRE_BUDGET - 60_000);
+    expect(rc.sc.comments[0]!.body.startsWith(`@${handle}/${label}`)).toBe(true);
+    console.log(`[案 11c 每項] (ix) read_comments 每項最壞 ${Math.max(...rc.sc.comments.map(itemWire))}  第一頁 ${rc.sc.comments.length} 篇`);
+
+    const inbox = await ctx.createNote(o.id, '"'.repeat(300));
+    for (let i = 0; i < 50; i += 1) {
+      const [c] = await ctx.db.insert(noteComments).values({ noteId: inbox.id, authorId: o.id, body: shapes[i % 4]!, createdAt: past }).returning({ id: noteComments.id });
+      await ctx.db.insert(notifications).values({ userId: o.id, agentLabel: label, kind: "mention", noteId: inbox.id, commentId: c!.id, actorId: o.id, actorAgentLabel: label, createdAt: past });
+    }
+    const ln = await callWireResult<{ notifications: Array<{ bodyTruncated?: true; noteTitleTruncated?: true }>; pageCutShort?: true }>(
+      ctx.app, agent, "(ix) list_notifications 50 則最壞", "list_notifications", { limit: 50 },
+    );
+    expect(ln.sc.pageCutShort).toBe(true);
+    expect(ln.sc.notifications.every(n => n.bodyTruncated === true && n.noteTitleTruncated === true)).toBe(true);
+    console.log(`[案 11c 每項] (ix) list_notifications 每項最壞 ${Math.max(...ln.sc.notifications.map(itemWire))}  第一頁 ${ln.sc.notifications.length} 則`);
+
+    await callWire(ctx.app, agent, "(ix) post_comment 4000 個 U+0001", "post_comment", { note_id: thread.id, body: "\u0001".repeat(4000) });
   });
 
   // Print the whole table once. **A hook, deliberately not an `it`**: it only aggregates values earlier cases already asserted, and an `it` would make running just one of those cases a false red.

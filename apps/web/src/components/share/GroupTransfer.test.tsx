@@ -352,7 +352,7 @@ describe("kebab menu: move/copy to group (#216)", () => {
     expect(dialog).toHaveTextContent("Its public link will be turned off.");
     expect(dialog).toHaveTextContent("Its address changes to /g/…");
     expect(dialog).toHaveTextContent("You will no longer own it");
-    expect(dialog).toHaveTextContent("Its version history is cleared and doesn't come back.");
+    expect(dialog).toHaveTextContent("Its version history and comments are cleared and don't come back.");
     expect(dialog).not.toHaveTextContent("The group's editors will see");
     const submit = within(dialog).getByRole("button", { name: "Move into group" });
     expect(submit).toHaveClass("bg-destructive");
@@ -364,17 +364,17 @@ describe("kebab menu: move/copy to group (#216)", () => {
     renderMenu();
     await pickFlyout("note-menu-move-to", "Workshop A");
     const dialog = await screen.findByRole("dialog");
-    const box = within(dialog).getByRole("checkbox", { name: "Bring its version history along" });
+    const box = within(dialog).getByRole("checkbox", { name: "Bring its version history and comments along" });
     expect(within(dialog).getByRole("button", { name: "Cancel" })).toHaveFocus();
     expect(box).not.toBeChecked();
-    expect(dialog).toHaveTextContent("Its version history is cleared and doesn't come back.");
+    expect(dialog).toHaveTextContent("Its version history and comments are cleared and don't come back.");
     fireEvent.click(box);
     expect(box).toBeChecked();
-    expect(dialog).toHaveTextContent("The group's editors will see its earlier versions and who edited them.");
-    expect(dialog).not.toHaveTextContent("Its version history is cleared");
+    expect(dialog).toHaveTextContent("The group's editors will see its earlier versions and who edited them. Everyone in the group will see its comments.");
+    expect(dialog).not.toHaveTextContent("Its version history and comments are cleared");
     fireEvent.click(box);
     expect(box).not.toBeChecked();
-    expect(dialog).toHaveTextContent("Its version history is cleared and doesn't come back.");
+    expect(dialog).toHaveTextContent("Its version history and comments are cleared and don't come back.");
   });
 
   it("move success with the box checked: POST /move sends keepHistory: true", async () => {
@@ -384,7 +384,7 @@ describe("kebab menu: move/copy to group (#216)", () => {
     const dialog = await screen.findByRole("dialog");
     const submit = within(dialog).getByRole("button", { name: "Move into group" });
     await waitFor(() => expect(submit).not.toBeDisabled());
-    fireEvent.click(within(dialog).getByRole("checkbox", { name: "Bring its version history along" }));
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: "Bring its version history and comments along" }));
     fireEvent.click(submit);
     await waitFor(() => expect(s.calls.some((c) => c.url === URLS.move)).toBe(true));
     expect(s.calls.find((c) => c.url === URLS.move)?.body).toEqual({ groupId: GC, keepHistory: true });
@@ -398,7 +398,7 @@ describe("kebab menu: move/copy to group (#216)", () => {
     await waitFor(() => expect(within(dialog).getByRole("button", { name: "Move into group" })).not.toBeDisabled());
     expect(dialog).not.toHaveTextContent("Per-person sharing");
     expect(dialog).not.toHaveTextContent("public link");
-    expect(dialog).toHaveTextContent("Its version history is cleared");
+    expect(dialog).toHaveTextContent("Its version history and comments are cleared");
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(s.calls.filter((c) => c.url === URLS.move)).toEqual([]);

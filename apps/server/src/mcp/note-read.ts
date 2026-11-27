@@ -5,7 +5,7 @@
  * guesses a note id show a name tag on real collaborators' screens. `none` must read as
  * plain "not found". Presence targets/names come from `presenceTargetForRead`/`presenceIdentity`; never build `PresenceTarget` literals.
  */
-import { YDOC_FRAGMENT, type Role } from "@knotebook/shared";
+import { YDOC_FRAGMENT, topLevelIdsOf, type Role } from "@knotebook/shared";
 import { currentAgentLabel } from "../auth/agent-label.js";
 import { outlineOf, type OutlineEntry } from "../notes/editing/fingerprint.js";
 import { ParserBusyError } from "../notes/editing/parse-core.js";
@@ -36,19 +36,42 @@ export function docReadToolError(err: unknown): ToolErrorResult | null {
   return null;
 }
 
-/** Without an editing runtime (test app without collab) falls back to the main thread. */
-export async function readOutlineForTool(ctx: McpToolCtx, noteId: string): Promise<{ outline: OutlineEntry[] } | { error: ToolErrorResult }> {
+type OutlineRead = { outline: OutlineEntry[]; located?: Array<[string, string]> };
+
+/** Without an editing runtime (test app without collab) falls back to the main thread. `locate`: see `OutlineDocOp`. */
+export async function readOutlineForTool(ctx: McpToolCtx, noteId: string, locate?: string[]): Promise<OutlineRead | { error: ToolErrorResult }> {
   if (ctx.editing === undefined) {
     const { doc } = await loadNoteDoc({ db: ctx.db, collab: ctx.collab }, noteId);
-    return { outline: outlineOf(doc.getXmlFragment(YDOC_FRAGMENT)).outline };
+    const fragment = doc.getXmlFragment(YDOC_FRAGMENT);
+    return { outline: outlineOf(fragment).outline, ...(locate === undefined ? {} : { located: [...topLevelIdsOf(fragment, new Set(locate))] }) };
   }
   try {
-    return { outline: (await readNoteOutline({ db: ctx.db, collab: ctx.collab }, ctx.editing, noteId, ctx.userId)).outline };
+    const r = await readNoteOutline({ db: ctx.db, collab: ctx.collab }, ctx.editing, noteId, ctx.userId, locate);
+    return { outline: r.outline, ...(r.located === undefined ? {} : { located: r.located }) };
   } catch (err) {
     const error = docReadToolError(err);
     if (error) return { error };
     throw err;
   }
+}
+
+/**
+ * The current section of each block, a nested one by its top-level block (`SectionInfo.blockIds` lists only top-level ones); a block
+ * no longer in the note is absent. Null when the note can't be read now (`server_busy`, `too_complex`): the caller shows no sections
+ * rather than failing.
+ */
+export async function sectionsOfBlocks(ctx: McpToolCtx, noteId: string, blockIds: readonly string[]): Promise<Map<string, string> | null> {
+  const out = new Map<string, string>();
+  if (blockIds.length === 0) return out;
+  const read = await readOutlineForTool(ctx, noteId, [...new Set(blockIds)]);
+  if ("error" in read) return null;
+  const sectionOfTop = new Map<string, string>();
+  for (const s of read.outline) for (const id of s.blockIds) sectionOfTop.set(id, s.sectionId);
+  for (const [id, top] of read.located ?? []) {
+    const section = sectionOfTop.get(top);
+    if (section !== undefined) out.set(id, section);
+  }
+  return out;
 }
 
 export type NoteReadAccess = { ok: true; role: Role } | { ok: false; error: ToolErrorResult };

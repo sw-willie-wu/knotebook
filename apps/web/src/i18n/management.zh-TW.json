@@ -502,6 +502,15 @@
       "save": "儲存",
       "saved": "已儲存垃圾桶設定"
     },
+    "notifications": {
+      "title": "通知",
+      "autoLabel": "自動刪除",
+      "daysLabel": "通知保留天數",
+      "description": "提及與回覆的通知超過保留天數就會自動刪除（每小時檢查一次，每次最多 20,000 則）。關閉後會一直保留，直到使用者自己刪除。",
+      "daysInvalid": "請填 1 到 3650 的整數。",
+      "save": "儲存",
+      "saved": "已儲存通知設定"
+    },
     "groups": {
       "title": "群組",
       "description": "站台上所有群組的儲存空間用量與方案。",
@@ -543,7 +552,7 @@
         "copy": "複製",
         "copied": "已複製。",
         "copyFailed": "無法自動複製——請手動選取。",
-        "scopes": "讀取：可用 list_notes、search_notes、read_note_outline、read_note_section、read_note_image、list_trash、list_folders、create_transfer_token（下載）、open_notes_as_files（把一篇或多篇筆記下載成檔案）。編輯：另開 edit_note、create_note、copy_note（複製到個人）、create_folder、rename_folder、move_folder、move_note_to_folder 與 create_transfer_token 的上傳，並可把 open_notes_as_files 下載的檔案送回。移到群組：才能用 move_note_to_group 與複製到群組（移入群組不可逆，所以獨立成一個權限）。移到垃圾桶：才能用 delete_note、restore_note 與 delete_folder（移到垃圾桶與還原；delete_folder 可能把資料夾裡的筆記移到垃圾桶；這裡沒有工具會永久刪除筆記，但留在垃圾桶的筆記之後仍可能被永久刪除——依站台的垃圾桶設定，或有人在網頁上刪除）。"
+        "scopes": "讀取：可用 list_notes、search_notes、read_note_outline、read_note_section、read_note_image、list_trash、list_folders、read_comments、list_notifications、create_transfer_token（下載）、open_notes_as_files（把一篇或多篇筆記下載成檔案）。編輯：另開 edit_note、create_note、copy_note（複製到個人）、create_folder、rename_folder、move_folder、move_note_to_folder、post_comment 與 create_transfer_token 的上傳，並可把 open_notes_as_files 下載的檔案送回。移到群組：才能用 move_note_to_group 與複製到群組（移入群組不可逆，所以獨立成一個權限）。移到垃圾桶：才能用 delete_note、restore_note 與 delete_folder（移到垃圾桶與還原；delete_folder 可能把資料夾裡的筆記移到垃圾桶；這裡沒有工具會永久刪除筆記，但留在垃圾桶的筆記之後仍可能被永久刪除——依站台的垃圾桶設定，或有人在網頁上刪除）。"
       },
       "tokens": {
         "name": "名稱",
@@ -568,19 +577,17 @@
     "storage": {
       "description": "你個人筆記裡的檔案，加上你的頭貼，佔用的空間。",
       "usageTitle": "用量",
-      "contentTitle": "筆記與歷史",
-      "contentDescription": "筆記內容與版本歷史佔用的空間，不計入容量上限。",
-      "contentNote": "筆記內容",
-      "contentHistory": "版本歷史與備份",
       "byKind": "依類型",
-      "byKindDescription": "依類型分組的檔案；頭貼算在影像。",
+      "byKindDescription": "依類型分組的空間；頭貼算在影像。筆記不計入容量上限。",
       "kinds": {
+        "note": "筆記",
         "image": "影像",
         "audio": "音訊",
         "video": "影片",
         "document": "文件",
         "other": "其他"
       },
+      "currentBackups": "目前備份",
       "versionsTitle": "版本歷史",
       "versionsNote": "版本歷史與筆記文字不計入容量上限；檔案與（個人空間的）頭貼才計入。"
     },
@@ -699,7 +706,7 @@
       "apiTokensScopeEdit": "建立與修改筆記",
       "apiTokensScopeMove": "移到群組（無法復原）",
       "apiTokensScopeMoveDesc": "把自己的筆記移進群組，或把筆記複製到群組。",
-      "apiTokensScopeMoveHint": "把筆記移進群組無法復原：會清掉這篇的個人分享、公開連結，也可能清掉版本歷史，改由群組擁有，之後由群組角色決定誰能修改或刪除。移入或複製進群組的內容，群組每位成員都讀得到。需同時勾選「建立與修改筆記」。",
+      "apiTokensScopeMoveHint": "把筆記移進群組無法復原：會清掉這篇的個人分享、公開連結，也可能清掉版本歷史和留言，改由群組擁有，之後由群組角色決定誰能修改或刪除。移入或複製進群組的內容，群組每位成員都讀得到。需同時勾選「建立與修改筆記」。",
       "apiTokensScopeDelete": "移到垃圾桶（可還原）",
       "apiTokensScopeDeleteDesc": "把筆記移到垃圾桶、還原，並可刪除資料夾（資料夾裡的筆記會移到垃圾桶）。",
       "apiTokensScopeDeleteHint": "不能永久刪除筆記；但留在垃圾桶的筆記之後仍可能被永久刪除（依站台的垃圾桶設定，或有人在網頁上刪除）。",

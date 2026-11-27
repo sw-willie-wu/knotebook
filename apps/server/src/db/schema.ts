@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, date, boolean, integer, bigint, smallint, jsonb, customType, primaryKey, uniqueIndex, index, check, foreignKey } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, date, boolean, integer, bigint, smallint, jsonb, customType, primaryKey, unique, uniqueIndex, index, check, foreignKey } from "drizzle-orm/pg-core";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import type { NoteWidth, TagColor } from "@knotebook/shared";
@@ -248,6 +248,8 @@ export const siteSettings = pgTable(
     versionAutoWaitMinutes: integer("version_auto_wait_minutes").notNull().default(5),
     // NULL = never auto-delete.
     trashRetentionDays: integer("trash_retention_days").default(7),
+    // NULL = never expire.
+    notificationRetentionDays: integer("notification_retention_days").default(30),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   t => [
@@ -255,6 +257,10 @@ export const siteSettings = pgTable(
     check(
       "site_settings_trash_retention_chk",
       sql`${t.trashRetentionDays} is null or (${t.trashRetentionDays} >= 1 and ${t.trashRetentionDays} <= 3650)`,
+    ),
+    check(
+      "site_settings_notification_retention_chk",
+      sql`${t.notificationRetentionDays} is null or (${t.notificationRetentionDays} >= 1 and ${t.notificationRetentionDays} <= 3650)`,
     ),
     check("site_settings_version_auto_wait_chk", sql`1 <= ${t.versionAutoWaitMinutes} and ${t.versionAutoWaitMinutes} <= 60`),
     check(
@@ -1078,4 +1084,101 @@ export const siteLimitChanges = pgTable(
     changedAt: timestamp("changed_at", { withTimezone: true }).notNull().defaultNow(),
   },
   t => [index("site_limit_changes_changed_at_idx").on(t.changedAt.desc())],
+);
+
+// Outside the Yjs document: no schema version, fingerprint or `notes.updated_at` effect. `reply_to_id` has no FK: it is
+// validated at write time and a missing target at read time means the answered comment was deleted.
+// The length CHECKs must match COMMENT_BODY_MAX / COMMENT_QUOTE_MAX (comment-check-sync.test.ts).
+export const noteComments = pgTable(
+  "note_comments",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    noteId: uuid("note_id").notNull().references(() => notes.id, { onDelete: "cascade" }),
+    authorId: uuid("author_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    tokenId: uuid("token_id").references((): AnyPgColumn => apiTokens.id, { onDelete: "set null" }),
+    agentLabel: text("agent_label"),
+    replyToId: uuid("reply_to_id"),
+    anchorBlockId: text("anchor_block_id"),
+    anchorQuote: text("anchor_quote"),
+    body: text().notNull(),
+    // Insert time after the locks are taken, not transaction start: the MCP `since` lag assumes it.
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+    editedAt: timestamp("edited_at", { withTimezone: true }),
+  },
+  t => [
+    check("note_comments_body_chk", sql`char_length(${t.body}) between 1 and 4000`),
+    check("note_comments_quote_chk", sql`${t.anchorQuote} is null or char_length(${t.anchorQuote}) between 1 and 200`),
+    index("note_comments_note_created_idx").on(t.noteId, t.createdAt, t.id),
+    index("note_comments_token_idx").on(t.tokenId),
+  ],
+);
+
+// The only thing that makes a span a mention; rendering never parses mentions out of the body.
+export const noteCommentMentions = pgTable(
+  "note_comment_mentions",
+  {
+    commentId: uuid("comment_id").notNull().references(() => noteComments.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    agentLabel: text("agent_label"),
+    start: integer().notNull(),
+    length: integer().notNull(),
+  },
+  t => [
+    primaryKey({ columns: [t.commentId, t.start] }),
+    check("note_comment_mentions_span_chk", sql`${t.start} >= 0 and ${t.length} >= 2`),
+  ],
+);
+
+// Who has been notified for a comment, so edits never notify the same target twice. NULL label is its own value.
+export const commentNotified = pgTable(
+  "comment_notified",
+  {
+    commentId: uuid("comment_id").notNull().references(() => noteComments.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    agentLabel: text("agent_label"),
+  },
+  t => [unique("comment_notified_target_uq").on(t.commentId, t.userId, t.agentLabel).nullsNotDistinct()],
+);
+
+// `agent_label` NULL = the person; set = that person's agent with this label.
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    agentLabel: text("agent_label"),
+    kind: text().notNull(),
+    noteId: uuid("note_id").notNull().references(() => notes.id, { onDelete: "cascade" }),
+    commentId: uuid("comment_id").notNull().references(() => noteComments.id, { onDelete: "cascade" }),
+    actorId: uuid("actor_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    actorAgentLabel: text("actor_agent_label"),
+    // Same clock as note_comments.created_at.
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+  },
+  t => [
+    check("notifications_kind_chk", sql`${t.kind} in ('mention','reply')`),
+    index("notifications_user_created_idx").on(t.userId, t.createdAt.desc(), t.id),
+    index("notifications_note_idx").on(t.noteId),
+    index("notifications_comment_idx").on(t.commentId),
+    index("notifications_created_idx").on(t.createdAt),
+  ],
+);
+
+export const notificationSeen = pgTable("notification_seen", {
+  userId: uuid("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  seenAt: timestamp("seen_at", { withTimezone: true }).notNull(),
+});
+
+export const noteCommentReads = pgTable(
+  "note_comment_reads",
+  {
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    noteId: uuid("note_id").notNull().references(() => notes.id, { onDelete: "cascade" }),
+    readAt: timestamp("read_at", { withTimezone: true }).notNull(),
+  },
+  t => [
+    primaryKey({ columns: [t.userId, t.noteId] }),
+    // PK leads with user_id; the cascade on note deletion needs this.
+    index("note_comment_reads_note_idx").on(t.noteId),
+  ],
 );

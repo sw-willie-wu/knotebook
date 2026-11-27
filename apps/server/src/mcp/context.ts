@@ -3,6 +3,7 @@ import type { FastifyBaseLogger } from "fastify";
 import type { TokenScope } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
 import type { CollabServer } from "../collab/server.js";
+import type { NotificationHub } from "../notifications/hub.js";
 import type { EditingRuntime } from "../notes/editing/runtime.js";
 import type { PresenceRegistry } from "../notes/editing/presence.js";
 import type { NoteWriteService } from "../notes/editing/write-service.js";
@@ -18,6 +19,8 @@ import type { VersionService } from "../collab/versions.js";
 export interface McpToolCtx {
   db: Db;
   collab?: CollabServer;
+  /** Optional so contexts built without the hub still compile; posting a comment then notifies nobody live. */
+  notifications?: NotificationHub;
   editing?: EditingRuntime;
   presence?: PresenceRegistry;
   /** Shared with the REST write paths so writes to one note are serialized. `create_note` deliberately skips presence (nobody can have a just-created note open). */
@@ -32,6 +35,8 @@ export interface McpToolCtx {
     upload: FixedWindowLimiter;
     /** Same instance as `foldersRoutes`; separate from `edit` (see `FOLDER_LIMIT`). */
     folder: FixedWindowLimiter;
+    /** Same instance as `commentsRoutes`, so MCP and REST comments share one count. */
+    comment: FixedWindowLimiter;
   };
   log: FastifyBaseLogger;
   userId: string;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import { YDOC_FRAGMENT } from "./ydoc.js";
-import { canonicalizeElements, canonicalizeSection, sectionize, TOP_SECTION_ID, topLevelBlocks } from "./note-sections.js";
+import { canonicalizeElements, canonicalizeSection, sectionize, TOP_SECTION_ID, topLevelBlocks, topLevelIdsOf } from "./note-sections.js";
 
 function makeDoc(blocks: Array<{ id: string; type: "paragraph" | "heading"; text: string; level?: number; nested?: Array<{ id: string; type: "heading"; text: string; level: number }> }>): Y.Doc {
   const doc = new Y.Doc();
@@ -380,5 +380,20 @@ describe("a columns row is a top-level unit", () => {
     const f = doc.getXmlFragment(YDOC_FRAGMENT);
     expect(canonicalizeSection(f, ["p1", "r"])).toContain("EcolumnList(");
     expect(canonicalizeSection(f, ["r", "p1"])).toBeNull();
+  });
+});
+
+describe("topLevelIdsOf", () => {
+  it("maps nested list items and column children to the top-level block or row holding them; ids not in the document are absent", () => {
+    const nested = makeDoc([
+      { id: "p", type: "paragraph", text: "x" },
+      { id: "outer", type: "paragraph", text: "y", nested: [{ id: "inner", type: "heading", text: "z", level: 2 }] },
+    ]);
+    expect(topLevelIdsOf(nested.getXmlFragment(YDOC_FRAGMENT), new Set(["inner", "p", "gone"]))).toEqual(new Map([["p", "p"], ["inner", "outer"]]));
+
+    const row: RowSpec = { kind: "row", id: "r", cols: [[{ type: "paragraph", id: "a1", text: "甲" }], [{ type: "heading", id: "h", text: "欄內" }]] };
+    const cols = makeRowDoc([{ kind: "p", id: "p1", text: "x" }, row]);
+    expect(topLevelIdsOf(cols.getXmlFragment(YDOC_FRAGMENT), new Set(["h", "rc1", "r"]))).toEqual(new Map([["r", "r"], ["rc1", "r"], ["h", "r"]]));
+    expect(topLevelIdsOf(cols.getXmlFragment(YDOC_FRAGMENT), new Set())).toEqual(new Map());
   });
 });

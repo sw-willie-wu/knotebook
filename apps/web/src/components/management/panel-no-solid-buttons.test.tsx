@@ -96,6 +96,7 @@ const PANEL3_GETS: Record<string, unknown> = {
   "/api/admin/groups": [{ id: GROUP_ID, name: "Team Alpha", createdAt: T, memberCount: 2, storage: PLAN_STORAGE }],
   "/api/admin/versions/settings": { keepAllDays: 7, dailyUntilDays: 30, autoVersionsEnabled: true, autoWaitMinutes: 5 },
   "/api/admin/trash/settings": { retentionDays: 7 },
+  "/api/admin/notifications/settings": { retentionDays: 30 },
   "/api/admin/auth/providers": {
     providers: [{
       id: PROVIDER_ID, template: "oidc", displayName: "SSO", issuerUrl: "https://idp.example", clientId: "kb", hasSecret: true,
@@ -140,6 +141,7 @@ export function panelFetch(user: UserDto) {
     if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
     if (url === "/api/notes") return Promise.resolve(json([]));
     if (url === "/api/favorites") return Promise.resolve(json([]));
+    if (url === "/api/notifications/unread-count") return Promise.resolve(json({ count: 0 }));
     if (url in PANEL3_GETS) return Promise.resolve(json(PANEL3_GETS[url]));
     return reject();
   });
@@ -200,7 +202,7 @@ export const PANEL_PAGES: PanelPageCase[] = [
   { name: "site: users", path: "/admin/users", ready: async () => { await screen.findByText("b@example.com"); return screen.findByText("Alice"); }, minButtons: 11 }, // 11: Create invitation + two reset buttons + two enable switches + two revoke trashes (two pending rows in the invite table) + four role/plan dropdown triggers
   { name: "site: groups", path: "/admin/groups", ready: () => screen.findByRole("combobox", { name: "Storage plan for Team Alpha" }), minButtons: 1 }, // 1: the plan dropdown trigger (no delete button)
   { name: "site: sign-in", path: "/admin/login", ready: adminLoginReady, minButtons: 11 }, // 11: two access switches, Save of the "sign-in period and token" group (both items at default, so no restore-default button), Add sign-in service, the in-row auto-create-account switch, plug/pencil/icon/red trash, enable switch, details Copy
-  { name: "site: storage plans", path: "/admin/storage", ready: async () => { await screen.findByRole("button", { name: "Edit Basic" }); await screen.findByLabelText("Keep all for (days)"); return screen.findByRole("switch", { name: "Delete automatically" }); }, minButtons: 10 }, // 10: New plan, Edit/Delete Basic, Save defaults, two default-plan dropdown triggers, the auto-versions switch, versions settings Save, trash switch, trash Save
+  { name: "site: storage plans", path: "/admin/storage", ready: async () => { await screen.findByRole("button", { name: "Edit Basic" }); await screen.findByLabelText("Keep all for (days)"); await within(await screen.findByRole("region", { name: "Trash" })).findByRole("switch", { name: "Delete automatically" }); return within(await screen.findByRole("region", { name: "Notifications" })).findByRole("switch", { name: "Delete old notifications automatically" }); }, minButtons: 12 }, // 12: New plan, Edit/Delete Basic, Save defaults, two default-plan dropdown triggers, the auto-versions switch, versions settings Save, trash switch, trash Save, notifications switch, notifications Save
   { name: "site: AI agents", path: "/admin/ai", ready: adminAiReady, minButtons: 15 }, // 15: providers (Add provider + plug/pencil/trash + switch), models (Add model + switch + pencil/trash), actions (Add action + move up/down + switch + pencil/trash)
   { name: "site: knowledge fields", path: "/admin/knowledge-fields", ready: () => screen.findByRole("switch", { name: "Show When to read" }), minButtons: 18 }, // 18: six field switches (status locked one included), three option Show switches, six move arrows, Add option, Discard, Save
   { name: "site: site limits", path: "/admin/limits", ready: async () => within(await screen.findByRole("region", { name: "Rate limits" })).findByRole("button", { name: "Save" }), minButtons: 5 }, // 5: one Save in each of the three blocks, Back to auto for the parse worker count, Restore default for the note write count

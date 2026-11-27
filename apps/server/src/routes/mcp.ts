@@ -4,6 +4,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { publicUrlIssuer, type AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
 import type { CollabServer } from "../collab/server.js";
+import type { NotificationHub } from "../notifications/hub.js";
 import type { EditingRuntime } from "../notes/editing/runtime.js";
 import type { PresenceRegistry } from "../notes/editing/presence.js";
 import type { NoteWriteService } from "../notes/editing/write-service.js";
@@ -46,8 +47,9 @@ export interface McpRouteDeps {
   db: Db;
   config: AppConfig;
   collab?: CollabServer;
+  notifications?: NotificationHub;
   editing?: EditingRuntime;
-  // Picked one by one so MCP sees only the six it uses; folder is the same instance as foldersRoutes (charged in folders/service.ts). tokenWrite is charged at the scope
+  // Picked one by one so MCP sees only the ones it uses; folder is the same instance as foldersRoutes (charged in folders/service.ts). tokenWrite is charged at the scope
   // check and edit after the role check, as in REST.
   limiters: {
     contentRead: FixedWindowLimiter;
@@ -56,6 +58,7 @@ export interface McpRouteDeps {
     search: FixedWindowLimiter;
     upload: FixedWindowLimiter;
     folder: FixedWindowLimiter;
+    comment: FixedWindowLimiter;
   };
   presence?: PresenceRegistry;
   /** Same write service instance as notesRoutes, so MCP and REST writes serialize per note. */
@@ -120,6 +123,7 @@ export function mcpRoutes(deps: McpRouteDeps) {
       registerMcpTools(server, {
         db: deps.db,
         collab: deps.collab,
+        notifications: deps.notifications,
         editing: deps.editing,
         presence: deps.presence,
         writes: deps.writes,

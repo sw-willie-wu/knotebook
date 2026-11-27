@@ -37,35 +37,37 @@ describe("GroupStorageSection (/groups/:id/storage, #247)", () => {
     vi.unstubAllGlobals();
   });
 
-  it("the by-kind and by-member shares use the sum of the five kinds as denominator", async () => {
-    const { dialog } = await openStorage(GROUP_ADMIN, USAGE);
+  it("by-kind shares include notes in the denominator while by-member shares use only the five file kinds", async () => {
+    const { dialog } = await openStorage(GROUP_ADMIN, { ...USAGE, content: { noteBytes: 1048576, historyBytes: 0 } });
     await within(dialog).findByTestId("by-kind-image");
-    // image 2 MB / byKind sum 3 MB
-    expect(parseFloat((within(dialog).getByTestId("by-kind-bar-image") as HTMLElement).style.width)).toBeCloseTo(66.667, 2);
-    // The by-member denominator is also the five-kind sum: bob's 2 MB / 3 MB
+    // image 2 MB / (notes 1 MB + kinds 3 MB)
+    expect(parseFloat((within(dialog).getByTestId("by-kind-bar-image") as HTMLElement).style.width)).toBeCloseTo(50, 2);
+    // by-member ignores notes: bob's 2 MB / 3 MB
     const memberBar = within(dialog).getAllByTestId("by-member-row")[0]!.querySelector<HTMLElement>("[data-testid='by-member-bar']")!;
     expect(parseFloat(memberBar.style.width)).toBeCloseTo(66.667, 2);
   });
 
-  it("usage plus the five by-kind rows are present (including rows of 0)", async () => {
+  it("usage plus the notes row and the four always-shown by-kind rows are present (including rows of 0)", async () => {
     const { dialog } = await openStorage(GROUP_ADMIN, USAGE);
     await waitFor(() => expect(within(dialog).getByTestId("storage-usage")).toHaveTextContent("4 MB"));
     expect(within(dialog).getByRole("heading", { name: "By type" })).toBeInTheDocument();
     // By-kind rows are found by data-testid (by-kind-* kept; not scoped by closest("section")).
-    const kinds: Array<[string, string]> = [["image", "Images"], ["audio", "Audio"], ["video", "Video"], ["document", "Documents"], ["other", "Other"]];
+    const kinds: Array<[string, string]> = [["note", "Notes"], ["image", "Images"], ["audio", "Audio"], ["video", "Video"], ["document", "Documents"]];
+    expect(within(dialog).queryByTestId("by-kind-other")).not.toBeInTheDocument();
     for (const [kind, label] of kinds) {
       expect(within(within(dialog).getByTestId(`by-kind-${kind}`)).getByText(label)).toBeInTheDocument();
     }
   });
 
-  it("the notes-and-history group sits after the usage group and before by-type, with both numbers", async () => {
+  it("notes sit first in by-type and the backup size shows in the version history group", async () => {
     const { dialog } = await openStorage(GROUP_ADMIN, { ...USAGE, content: { noteBytes: 1048576, historyBytes: 3 * 1048576 } });
-    const note = await within(dialog).findByTestId("content-usage-note");
+    const note = await within(dialog).findByTestId("by-kind-note");
     expect(within(note).getByText("1 MB")).toBeInTheDocument();
-    expect(within(within(dialog).getByTestId("content-usage-history")).getByText("3 MB")).toBeInTheDocument();
-    const usage = within(dialog).getByTestId("storage-usage");
-    expect(usage.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(note.compareDocumentPosition(within(dialog).getByTestId("by-kind-image")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const backups = within(dialog).getByTestId("versions-backup-bytes");
+    expect(backups).toHaveTextContent("3 MB");
+    expect(within(dialog).getByTestId("by-kind-image").compareDocumentPosition(backups) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(dialog).queryByRole("heading", { name: "Notes and history" })).not.toBeInTheDocument();
   });
 
   it("by member: only bytes>0 are listed; shows name plus grey @handle; deleted users are aggregated into one row; the share bar width uses the byKind sum as denominator", async () => {
