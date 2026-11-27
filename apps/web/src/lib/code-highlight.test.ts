@@ -77,9 +77,10 @@ describe("SUPPORTED_LANGUAGES", () => {
     expect(getLanguageId(CODE_BLOCK_OPTIONS, "yml")).toBe("yaml");
   });
 
-  it("latex is a language with no tex alias (the editor would color tex with shiki's separate TeX grammar while a presentation used LaTeX)", () => {
+  it("latex is a language with no tex alias (the editor would color tex with shiki's separate TeX grammar while a presentation used LaTeX); math is not a code language (a math fence is a formula block, not code)", () => {
     expect(getLanguageId(CODE_BLOCK_OPTIONS, "latex")).toBe("latex");
     expect(getLanguageId(CODE_BLOCK_OPTIONS, "tex")).toBeUndefined();
+    expect(getLanguageId(CODE_BLOCK_OPTIONS, "math")).toBeUndefined();
   });
 
   const MATH = "var(--code-token-constant)";

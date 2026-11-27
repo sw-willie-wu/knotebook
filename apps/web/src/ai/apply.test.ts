@@ -291,6 +291,36 @@ describe("AI apply chain", () => {
     expect(marks).toEqual(["context"]);
   });
 
+  // A ```math fence is restored the same way; ```latex is a code language only (no block of its own).
+  const MATH_FENCE = "```math\n\\frac{a_1}{b_1}\n```";
+  it("top-level ```math fence -> math block (tex verbatim, underscores intact)", () => {
+    const blocks = mermaidOf(MATH_FENCE, "top");
+    expect(blocks.map((b) => b.type)).toEqual(["math"]);
+    expect(blocks[0]!.props).toEqual({ tex: "\\frac{a_1}{b_1}" });
+  });
+
+  it("a top-level ```latex fence stays a code block", () => {
+    const blocks = mermaidOf("```latex\n\\frac{a_1}{b_1}\n```", "top");
+    expect(blocks.map((b) => b.type)).toEqual(["codeBlock"]);
+    expect(blocks[0]!.props).toMatchObject({ language: "latex" });
+  });
+
+  it("math fence inside a column -> math block in the column", () => {
+    const rowMd = `<div data-kb-columns style="display:flex;gap:16px">\n<div data-kb-column style="flex:1">\n\n${MATH_FENCE}\n\n</div>\n<div data-kb-column style="flex:1">\n\nB\n\n</div>\n</div>`;
+    const [list] = mermaidOf(rowMd, "top");
+    expect(list!.children[0]!.children.map((b) => [b.type, b.props])).toEqual([["math", { tex: "\\frac{a_1}{b_1}" }]]);
+  });
+
+  it("a formula the AI didn't change is context in the preview diff (the parse-assigned id is kept after restoring)", () => {
+    const TEX = "\\frac{a_1}{b_1}";
+    const editor = mountedEditor([P("old words", "p1"), { id: "f", type: "math", props: { tex: TEX } }, P("tail", "p3")]);
+    const p = prep(editor, "new words\n\n```math\n" + TEX + "\n```\n\ntail");
+    expect(typeof p.blocks[1]!.id).toBe("string");
+    const preview = buildPreview(editor, ["p1", "f", "p3"], p.blocks, false);
+    const marks = diffBlocks(preview.before as never, preview.after as never).filter((e) => (e.after ?? e.before)?.type === "math").map(markOf);
+    expect(marks).toEqual(["context"]);
+  });
+
   it("merged header with only one column width (colwidth=\"120,\") -> PreparedResult, second columnWidths entry is undefined (not NaN)", () => {
     const editor = mountedEditor([{ type: "paragraph", content: "別動我" }]);
     const p = prepareAiResult(editor, golden("G3-table-colspan-partial"), { notes: [], placement: "top" });

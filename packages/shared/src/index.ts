@@ -22,6 +22,7 @@ export * from "./knowledge-list.js";
 export * from "./columns.js";
 export * from "./note-sections.js";
 export * from "./note-markdown.js";
+export * from "./fence-blocks.js";
 export * from "./note-colors.js";
 export * from "./note-markdown-read.js";
 export * from "./note-sizes.js";

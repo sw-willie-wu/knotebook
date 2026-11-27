@@ -419,6 +419,105 @@ describe("createMarkdownPasteHandler", () => {
 
     expect(vi.mocked(replaceBlocksKeepColumns)).not.toHaveBeenCalled();
   });
+
+  function codeBlockOf(id: string, language: string, text: string): FakeBlock {
+    return { id, type: "codeBlock", props: { language }, content: [{ type: "text", text }] };
+  }
+
+  it("markdown path: the ```math code block inserted this time is converted to a math block", () => {
+    const editor = fakeEditor({
+      documentBefore: [{ id: "old", type: "paragraph" }],
+      documentAfterInsert: [{ id: "old", type: "paragraph" }, codeBlockOf("new", "math", "\\frac{a_1}{b_1}")],
+    });
+
+    createMarkdownPasteHandler()({
+      event: pasteEvent({ "text/plain": "# 標題\n\n```math\n\\frac{a_1}{b_1}\n```\n" }),
+      editor: editor as never,
+      defaultPasteHandler: vi.fn(() => true),
+    });
+
+    expect(vi.mocked(replaceBlocksKeepColumns)).toHaveBeenCalledWith(editor, ["new"], [{ type: "math", props: { tex: "\\frac{a_1}{b_1}" } }]);
+  });
+
+  it("default-flow path (text/html holding a language-math code block): converted as well", () => {
+    const editor = fakeEditor({ documentBefore: [{ id: "old", type: "paragraph" }] });
+    const defaultPasteHandler = vi.fn(() => {
+      editor.document = [{ id: "old", type: "paragraph" }, codeBlockOf("new", "math", "E=mc^2")];
+      return true;
+    });
+
+    createMarkdownPasteHandler()({
+      event: pasteEvent({ "text/plain": "E=mc^2", "text/html": '<pre><code class="language-math">E=mc^2</code></pre>' }),
+      editor: editor as never,
+      defaultPasteHandler,
+    });
+
+    expect(defaultPasteHandler).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(replaceBlocksKeepColumns)).toHaveBeenCalledWith(editor, ["new"], [{ type: "math", props: { tex: "E=mc^2" } }]);
+  });
+
+  it("markdown path: a pasted latex code block stays a code block", () => {
+    const editor = fakeEditor({
+      documentBefore: [{ id: "old", type: "paragraph" }],
+      documentAfterInsert: [{ id: "old", type: "paragraph" }, codeBlockOf("new", "latex", "\\sum_{i} w_i")],
+    });
+
+    createMarkdownPasteHandler()({
+      event: pasteEvent({ "text/plain": "# 標題\n\n```latex\n\\sum_{i} w_i\n```\n" }),
+      editor: editor as never,
+      defaultPasteHandler: vi.fn(() => true),
+    });
+
+    expect(vi.mocked(replaceBlocksKeepColumns)).not.toHaveBeenCalled();
+  });
+
+  it("default-flow path: a pasted language-latex code block stays a code block", () => {
+    const editor = fakeEditor({ documentBefore: [{ id: "old", type: "paragraph" }] });
+    const defaultPasteHandler = vi.fn(() => {
+      editor.document = [{ id: "old", type: "paragraph" }, codeBlockOf("new", "latex", "\\sum_{i} w_i")];
+      return true;
+    });
+
+    createMarkdownPasteHandler()({
+      event: pasteEvent({ "text/plain": "\\sum_{i} w_i", "text/html": '<pre><code class="language-latex">\\sum_{i} w_i</code></pre>' }),
+      editor: editor as never,
+      defaultPasteHandler,
+    });
+
+    expect(defaultPasteHandler).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(replaceBlocksKeepColumns)).not.toHaveBeenCalled();
+  });
+
+  it("math code blocks that existed before the paste are not converted (only the newly inserted ones)", () => {
+    const before: FakeBlock[] = [{ id: "old", type: "paragraph" }, codeBlockOf("kept", "math", "x^2")];
+    const editor = fakeEditor({
+      documentBefore: before,
+      documentAfterInsert: [...before, { id: "new", type: "paragraph", content: [{ type: "text", text: "hi" }] }],
+    });
+
+    createMarkdownPasteHandler()({
+      event: pasteEvent({ "text/plain": MD_CRLF }),
+      editor: editor as never,
+      defaultPasteHandler: vi.fn(() => true),
+    });
+
+    expect(vi.mocked(replaceBlocksKeepColumns)).not.toHaveBeenCalled();
+  });
+
+  it("a pasted math code block with blank content is not converted", () => {
+    const editor = fakeEditor({
+      documentBefore: [{ id: "old", type: "paragraph" }],
+      documentAfterInsert: [{ id: "old", type: "paragraph" }, codeBlockOf("new", "math", "  \n ")],
+    });
+
+    createMarkdownPasteHandler()({
+      event: pasteEvent({ "text/plain": "# 標題\n\n```math\n \n```\n" }),
+      editor: editor as never,
+      defaultPasteHandler: vi.fn(() => true),
+    });
+
+    expect(vi.mocked(replaceBlocksKeepColumns)).not.toHaveBeenCalled();
+  });
 });
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote generic triple, repo convention

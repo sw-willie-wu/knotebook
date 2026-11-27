@@ -133,7 +133,7 @@ function isCursorInCodeBlock(editor: PasteTargetEditor): boolean {
   );
 }
 
-/** `before` runs before the paste inserts anything; `after` after the insertion and the mermaid conversion. Errors thrown by either are swallowed; they only skip the conversion. */
+/** `before` runs before the paste inserts anything; `after` after the insertion and the mermaid and math conversion. Errors thrown by either are swallowed; they only skip the conversion. */
 export interface PasteConversionHook {
   before(editor: unknown): unknown;
   after(editor: unknown, snapshot: unknown): void;
@@ -190,7 +190,7 @@ export function createMarkdownPasteHandler(hook?: PasteConversionHook) {
     } catch {
       idsBeforePaste = null;
     }
-    const convertMermaid = (): void => {
+    const convertFenceBlocks = (): void => {
       if (idsBeforePaste !== null) convertPastedMermaidBlocks(editor, idsBeforePaste);
     };
 
@@ -214,7 +214,7 @@ export function createMarkdownPasteHandler(hook?: PasteConversionHook) {
       // If the HTML is itself a code block, prefer HTML, otherwise markdown-looking plain text wins and a `# comment` becomes a big heading.
       const options = shouldForceHtmlPaste(event.clipboardData) ? { prioritizeMarkdownOverHTML: false } : undefined;
       const handled = defaultPasteHandler(options);
-      convertMermaid(); // the default flow can also insert ```mermaid (it parses plain text as markdown itself)
+      convertFenceBlocks(); // the default flow can also insert ```mermaid or ```math (it parses plain text as markdown itself)
       convertSiteLinks();
       return handled;
     }
@@ -224,7 +224,7 @@ export function createMarkdownPasteHandler(hook?: PasteConversionHook) {
     } catch {
       // Some content may already be inserted, so don't fall back to the default flow (it would paste again on top); report handled.
     }
-    convertMermaid();
+    convertFenceBlocks();
     convertSiteLinks();
     return true;
   };

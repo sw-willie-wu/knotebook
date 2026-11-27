@@ -38,6 +38,7 @@ describe("resolveHighlightLanguage", () => {
     expect(resolveHighlightLanguage(null)).toBeNull();
     expect(resolveHighlightLanguage(undefined)).toBeNull();
     expect(resolveHighlightLanguage("mermaid")).toBeNull();
+    expect(resolveHighlightLanguage("math")).toBeNull();
     expect(resolveHighlightLanguage("tex")).toBeNull();
     expect(resolveHighlightLanguage("nonexistent-lang")).toBeNull();
   });

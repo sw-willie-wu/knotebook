@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import { YDOC_FRAGMENT } from "./ydoc.js";
-import { extractLinkTargets, isBlankParseResult, rebindWikilinks, restoreMermaidBlocks } from "./note-markdown.js";
+import { extractLinkTargets, isBlankParseResult, rebindWikilinks, restoreFenceBlocks } from "./note-markdown.js";
 
 const isInline = (type: string) => type === "paragraph" || type === "heading";
 
@@ -14,9 +14,9 @@ describe("isBlankParseResult (the exact form of the original isBlankParseResult 
   });
 });
 
-describe("restoreMermaidBlocks", () => {
+describe("restoreFenceBlocks", () => {
   it("codeBlock(language=mermaid) -> mermaid block, code character for character; other codeBlocks untouched; recurses into children", () => {
-    const out = restoreMermaidBlocks([
+    const out = restoreFenceBlocks([
       { type: "codeBlock", props: { language: "mermaid" }, content: [{ type: "text", text: "graph TD\n  A-->B" }] },
       { type: "codeBlock", props: { language: "ts" }, content: [{ type: "text", text: "1" }] },
       { type: "paragraph", content: [], children: [{ type: "codeBlock", props: { language: "mermaid" }, content: [{ type: "text", text: "x" }] }] },
@@ -26,7 +26,7 @@ describe("restoreMermaidBlocks", () => {
     expect((out[2] as { children: Array<{ type: string }> }).children[0]!.type).toBe("mermaid");
   });
   it("columnList -> column -> codeBlock(mermaid) is also restored to mermaid", () => {
-    const out = restoreMermaidBlocks([
+    const out = restoreFenceBlocks([
       { type: "columnList", children: [
         { type: "column", props: { width: 1 }, children: [{ type: "codeBlock", props: { language: "mermaid" }, content: [{ type: "text", text: "graph TD" }] }] },
         { type: "column", props: { width: 1 }, children: [{ type: "paragraph", content: [] }] },
@@ -36,12 +36,54 @@ describe("restoreMermaidBlocks", () => {
     expect(col0.children[0]).toEqual({ type: "mermaid", props: { code: "graph TD" } });
   });
   it("input with a string id -> the same id is kept after restoring (so the preview diff can match); a non-string id is not carried", () => {
-    const out = restoreMermaidBlocks([
+    const out = restoreFenceBlocks([
       { id: "m1", type: "codeBlock", props: { language: "mermaid" }, content: [{ type: "text", text: "graph TD" }] },
       { id: 7, type: "codeBlock", props: { language: "mermaid" }, content: [{ type: "text", text: "graph LR" }] },
     ]);
     expect(out[0]).toEqual({ id: "m1", type: "mermaid", props: { code: "graph TD" } });
     expect(out[1]).toEqual({ type: "mermaid", props: { code: "graph LR" } });
+  });
+});
+
+
+describe("restoreFenceBlocks", () => {
+  const fence = (language: unknown, text: string, id?: unknown) => ({ ...(id === undefined ? {} : { id }), type: "codeBlock", props: { language }, content: [{ type: "text", text }] });
+
+  it("codeBlock(language=math) -> math block, tex character for character, id kept", () => {
+    const tex = "\\frac{a_1}{b_2} \\\\\n  x_i";
+    const out = restoreFenceBlocks([fence("math", tex, "m1")]);
+    expect(out[0]).toEqual({ id: "m1", type: "math", props: { tex } });
+  });
+  it("a non-string id is not carried onto a math block", () => {
+    expect(restoreFenceBlocks([fence("math", "x", 7)])[0]).toEqual({ type: "math", props: { tex: "x" } });
+  });
+  it("one call restores both mermaid and math", () => {
+    const out = restoreFenceBlocks([fence("mermaid", "graph TD"), fence("math", "E=mc^2")]);
+    expect(out.map((b) => b.type)).toEqual(["mermaid", "math"]);
+  });
+  it("a latex fence stays a code block", () => {
+    const input = [fence("latex", "\\sum_{i} w_i", "l1")];
+    expect(restoreFenceBlocks(input)).toEqual(input);
+  });
+  it.each(["tex", "LaTeX", "Math", "mathematica", "ts"])("the language %j stays a code block", (language) => {
+    const input = [fence(language, "x")];
+    expect(restoreFenceBlocks(input)).toEqual(input);
+  });
+  it.each(["constructor", "__proto__", "toString", "hasOwnProperty"])("the Object.prototype name %j is not treated as a target", (language) => {
+    const input = [fence(language, "x")];
+    expect(restoreFenceBlocks(input)).toEqual(input);
+  });
+  it("recurses into paragraph children and columnList -> column -> codeBlock(math)", () => {
+    const out = restoreFenceBlocks([
+      { type: "paragraph", content: [], children: [fence("math", "a")] },
+      { type: "columnList", children: [
+        { type: "column", props: { width: 1 }, children: [fence("math", "b")] },
+        { type: "column", props: { width: 1 }, children: [{ type: "paragraph", content: [] }] },
+      ] },
+    ]);
+    expect((out[0] as { children: Array<{ type: string }> }).children[0]!.type).toBe("math");
+    const col0 = (out[1] as { children: Array<{ children: unknown[] }> }).children[0]!;
+    expect(col0.children[0]).toEqual({ type: "math", props: { tex: "b" } });
   });
 });
 

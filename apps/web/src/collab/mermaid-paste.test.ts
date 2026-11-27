@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CB, P, mountEditor, row, shape, type AnyEditor } from "@/test/columns-fixtures";
 import { replaceBlocksKeepColumns } from "./columns/keep-columns";
-import { collectBlockIds, convertPastedMermaidBlocks, findPastedMermaidCodeBlocks } from "./mermaid-paste";
+import { collectBlockIds, convertPastedMermaidBlocks, findPastedFenceBlocks } from "./mermaid-paste";
+
+// Mermaid-only view of findPastedFenceBlocks, so the pre-existing mermaid cases below keep their original assertions.
+const findPastedMermaidCodeBlocks = (document: Parameters<typeof findPastedFenceBlocks>[0], ids: Set<string>) =>
+  findPastedFenceBlocks(document, ids)
+    .filter((t) => t.block.type === "mermaid")
+    .map((t) => ({ id: t.id, code: t.block.props.code! }));
 
 // Wrapped in a spy that calls through to the real implementation; not automock, which would turn the real-editor conversion into a no-op.
 vi.mock("./columns/keep-columns", async (importOriginal) => {
@@ -52,7 +58,7 @@ describe("findPastedMermaidCodeBlocks", () => {
   });
 
   it("code blocks of other languages are untouched", () => {
-    expect(findPastedMermaidCodeBlocks([codeBlock("n", "ts", "const a = 1;")], new Set())).toEqual([]);
+    expect(findPastedFenceBlocks([codeBlock("n", "ts", "const a = 1;")], new Set())).toEqual([]);
   });
 
   it("code blocks with no language set are untouched", () => {
@@ -77,7 +83,7 @@ describe("findPastedMermaidCodeBlocks", () => {
   });
 });
 
-describe("convertPastedMermaidBlocks", () => {
+describe("convertPastedMermaidBlocks (mermaid)", () => {
   // The fake editor's `transact` doesn't run the callback: the helper calls through to the real implementation but doesn't touch the document; assertions are made on the helper's spy.
   it("replaces the found code blocks with mermaid blocks", () => {
     const doc = [codeBlock("new", "mermaid", "graph TD; A-->B;")];
@@ -125,6 +131,98 @@ describe("convertPastedMermaidBlocks", () => {
       const editor: AnyEditor = m.editor;
       expect(convertPastedMermaidBlocks(editor, new Set(["x", "r", "rc0", "rc1", "e", "z"]))).toBe(1);
       expect(shape(editor)).toBe("paragraph:x  ROW[COL(mermaid) | COL(paragraph)]  paragraph:z");
+    });
+  });
+});
+
+describe("findPastedFenceBlocks", () => {
+  it("a newly inserted math code block becomes a math target with the tex verbatim", () => {
+    const tex = "\\frac{a_1}{b_1}\n  + x_2";
+    expect(findPastedFenceBlocks([codeBlock("new", "math", tex)], new Set())).toEqual([{ id: "new", block: { type: "math", props: { tex } } }]);
+  });
+
+  it("a newly inserted mermaid code block becomes a mermaid target in the same scan", () => {
+    const doc = [codeBlock("a", "mermaid", "graph TD; A-->B;"), codeBlock("b", "math", "x")];
+    expect(findPastedFenceBlocks(doc, new Set()).map((t) => t.block.type).sort()).toEqual(["math", "mermaid"]);
+  });
+
+  it.each(["latex", "tex", "LaTeX", "Math", "mathematica"])("a newly inserted %s code block is left alone", (language) => {
+    expect(findPastedFenceBlocks([codeBlock("n", language, "x")], new Set())).toEqual([]);
+  });
+
+  it("a math code block that existed before the paste is not converted (only the newly inserted ones are)", () => {
+    const doc = [codeBlock("kept-as-code", "math", "x^2"), codeBlock("new", "math", "y^2")];
+    expect(findPastedFenceBlocks(doc, new Set(["kept-as-code"]))).toEqual([{ id: "new", block: { type: "math", props: { tex: "y^2" } } }]);
+  });
+
+  it("a math code block with blank content is untouched", () => {
+    expect(findPastedFenceBlocks([codeBlock("n", "math", " \n ")], new Set())).toEqual([]);
+  });
+
+  it("a math code block nested in children is found", () => {
+    expect(findPastedFenceBlocks([paragraph("p", [codeBlock("deep", "math", "x")])], new Set())).toEqual([
+      { id: "deep", block: { type: "math", props: { tex: "x" } } },
+    ]);
+  });
+});
+
+describe("convertPastedMermaidBlocks", () => {
+  it("replaces a pasted math code block with a math block through replaceBlocksKeepColumns", () => {
+    const editor = { document: [codeBlock("new", "math", "E=mc^2")], transact: vi.fn() };
+    expect(convertPastedMermaidBlocks(editor, new Set())).toBe(1);
+    expect(vi.mocked(replaceBlocksKeepColumns)).toHaveBeenCalledWith(editor, ["new"], [{ type: "math", props: { tex: "E=mc^2" } }]);
+  });
+
+  it("a pasted latex code block is not replaced", () => {
+    const editor = { document: [codeBlock("new", "latex", "E=mc^2")], transact: vi.fn() };
+    expect(convertPastedMermaidBlocks(editor, new Set())).toBe(0);
+    expect(vi.mocked(replaceBlocksKeepColumns)).not.toHaveBeenCalled();
+  });
+
+  describe("real editor", () => {
+    let destroy: (() => void) | undefined;
+    afterEach(() => destroy?.());
+
+    it("the only block in a column is a ```math codeBlock -> converted to math, the row still has two columns", () => {
+      const m = mountEditor([
+        P("x", "x"),
+        row([[{ ...CB("m", "E=mc^2"), props: { language: "math" } }], [P("", "e")]], "r"),
+        P("z", "z"),
+      ]);
+      destroy = m.destroy;
+      const editor: AnyEditor = m.editor;
+      expect(convertPastedMermaidBlocks(editor, new Set(["x", "r", "rc0", "rc1", "e", "z"]))).toBe(1);
+      expect(shape(editor)).toBe("paragraph:x  ROW[COL(math) | COL(paragraph)]  paragraph:z");
+    });
+
+    // Real paste -> real parse -> conversion (the fake-editor paste tests don't run BlockNote's own HTML and markdown parsing).
+    describe.each([
+      ["pasteHTML", (e: AnyEditor, lang: string) => e.pasteHTML(`<pre><code class="language-${lang}">E=mc^2</code></pre>`)],
+      ["pasteMarkdown", (e: AnyEditor, lang: string) => e.pasteMarkdown("```" + lang + "\nE=mc^2\n```")],
+    ] as const)("%s", (_name, paste) => {
+      const pasted = (lang: string): { converted: number; types: string[] } => {
+        const m = mountEditor([P("x", "x"), P("", "e")]);
+        destroy = m.destroy;
+        const editor: AnyEditor = m.editor;
+        editor.setTextCursorPosition("e", "end");
+        const before = collectBlockIds(editor.document);
+        paste(editor, lang);
+        const converted = convertPastedMermaidBlocks(editor, before);
+        return { converted, types: editor.document.map((b) => b.type) };
+      };
+
+      it("a math fence is converted to a math block", () => {
+        const r = pasted("math");
+        expect(r.converted).toBe(1);
+        expect(r.types).toContain("math");
+      });
+
+      it.each(["latex", "Math"])("a %s fence stays a code block", (lang) => {
+        const r = pasted(lang);
+        expect(r.converted).toBe(0);
+        expect(r.types).toContain("codeBlock");
+        expect(r.types).not.toContain("math");
+      });
     });
   });
 });

@@ -64,6 +64,27 @@ describe("parseMarkdownForNote", () => {
       expect(r.blocks.map(b => b.type)).toEqual(["paragraph", "mermaid"]);
     });
   });
+  it("a ```math fence is restored to a math block; a ```latex or ```tex fence stays a code block", async () => {
+    await withSession(ed => {
+      const r = parseMarkdownForNote(ed, "```math\nE=mc^2\n```\n\n```latex\n\\sum_{i} w_i\n```\n\n```tex\nx\n```", notes, ORIGIN);
+      if ("error" in r) throw new Error(r.error);
+      expect(r.blocks.map(b => b.type)).toEqual(["math", "codeBlock", "codeBlock"]);
+      expect(r.blocks[0]!.props).toMatchObject({ tex: "E=mc^2" });
+      const latex = r.blocks[1] as { props: { language?: string }; content: Array<{ text: string }> };
+      expect(latex.props.language).toBe("latex");
+      expect(latex.content.map(c => c.text).join("")).toBe("\\sum_{i} w_i");
+      expect((r.blocks[2] as { props: { language?: string } }).props.language).toBe("tex");
+    });
+  });
+  it("a math fence keeps TeX that markdown would mangle (underscores, backslashes, blank-free multi-line)", async () => {
+    await withSession(ed => {
+      const tex = "R(c) = \\sum_{i} \\frac{w_i}{K}\n  + x_1 \\\\ y_2";
+      const r = parseMarkdownForNote(ed, "```math\n" + tex + "\n```", notes, ORIGIN);
+      if ("error" in r) throw new Error(r.error);
+      expect(r.blocks.map(b => b.type)).toEqual(["math"]);
+      expect(r.blocks[0]!.props).toMatchObject({ tex });
+    });
+  });
   it("empty / whitespace-only -> empty_content; > MAX_BLOCKS -> too_many_blocks", async () => {
     await withSession(ed => {
       expect(parseMarkdownForNote(ed, "   \n  \n", notes, ORIGIN)).toEqual({ error: "empty_content" });
