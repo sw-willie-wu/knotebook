@@ -39,6 +39,7 @@ vi.mock("@/collab/note-connection", async (importOriginal) => ({
     isSynced: () => false,
     subscribe: () => () => {},
     whenWritable: () => new Promise(() => {}),
+    hasEditor: () => true,
     release: () => {},
   }),
 }));
