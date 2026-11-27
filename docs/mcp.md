@@ -591,9 +591,9 @@ The four commands call REST endpoints, so a failure there is an HTTP status with
 
 **Takes** `note_id` and `upload_id` — the id from `/api/uploads/<id>` in the note's markdown; the whole `/api/uploads/<id>` is accepted too.
 
-**Answers** the image itself, as an MCP image content block, plus `noteId` (the note the image was uploaded to), `uploadId`, `mimeType` and `bytes`.
+**Answers** for raster images (`image/png`, `image/jpeg`, `image/gif`, `image/webp`), the image itself as an MCP image content block; for SVG (`image/svg+xml`), its UTF-8 XML source as a text content block (image content blocks are for raster formats models accept); plus `noteId` (the note the image was uploaded to), `uploadId`, `mimeType` and `bytes`.
 
-- Images up to 5 242 880 bytes (5 MiB) come back as an image. A larger one answers `file_too_large` with `noteId` and `bytes`: with a token, download it with `create_transfer_token` (`purpose: "download"`) for that `noteId`; over a browser session, open it in the browser.
+- Raster images up to 5 242 880 bytes (5 MiB) come back inline as an image block; SVGs up to 102 400 bytes (100 KiB) come back inline as a UTF-8 XML text block. Anything larger answers `file_too_large` with `noteId` and `bytes`: with a token, download it with `create_transfer_token` (`purpose: "download"`) for that `noteId`; over a browser session, open it in the browser.
 - You need to be able to read `note_id` **and** the note the image was uploaded to — the same rule as fetching `/api/uploads/<id>` in the browser. An image block copied from another note shows only if you can read that note; an image with an external URL can't be read here.
 - It counts as one content read (120 per minute per user by default).
 - **Errors** `not_found` (no note you can read with that id; or no image with that id you can read — an image that doesn't exist, one on a note you can't read, and one whose file is missing answer the same — so does an upload that isn't a PNG, JPEG, GIF or WebP image, such as a PDF or a video; the message names that cause too), `file_too_large`, `too_many_requests`.
@@ -704,7 +704,7 @@ The per-user rate budgets in this table (content reads, searches, writes, upload
 | Files sent back | default 30 per minute per user (a site admin can lower it), separate from the writes and token writes above; a file that changes nothing counts against the token reads above instead. A file whose text differs from its downloaded copy counts before its text is parsed — even if it is then refused with a `400` — and is given back if it turns out to change nothing; once that many are used up, such a file answers `429` unless an earlier check refuses it first (a `409` or `403`, for example), while a file the same as its downloaded copy, or a new-note file identical to one that created a note in the last 30 minutes, still goes through | `write` from `open_notes_as_files` | **HTTP `429`**, with `Retry-After` |
 | File size | 262 144 bytes, the same as the request body limit above | `write` from `open_notes_as_files` | **HTTP `413 content_too_large`** |
 | Unused upload tokens | 5 per credential | `create_transfer_token` with `upload` | tool error `too_many_requests` |
-| Image size | 5 242 880 bytes | `read_note_image` | tool error `file_too_large` |
+| Image size | 5 242 880 bytes (5 MiB) for raster images; 102 400 bytes (100 KiB) for SVG | `read_note_image` | tool error `file_too_large` |
 
 The rate limits above are counted **per tool call, not per request** — one `POST /api/mcp` can carry several calls — with one exception: the 300-reads-per-minute budget is spent once per request, because the endpoint always declares `notes:read` whatever tools the request goes on to call. Apart from the search budget, which only `search_notes` draws on, these are the same per-user budgets the REST endpoints draw on, and a credential pays both its own and the tighter one; the full accounting is in [API tokens](./api-tokens.md#errors-and-rate-limits) and [AI editing](./ai-editing.md#limits). The rows for the commands of `open_notes_as_files` count requests to the `/api/transfer/*` endpoints instead.
 

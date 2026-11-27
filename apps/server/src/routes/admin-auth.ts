@@ -14,7 +14,7 @@ import { redactDbError } from "../lib/redact-db-error.js";
 import { SecretDecryptError } from "../lib/sealed-secret.js";
 import { safeTarget } from "../lib/safe-target.js";
 import { UUID_RE } from "../notes/service.js";
-import { detectImageMimeType } from "../uploads/magic-bytes.js";
+import { detectRasterImageMimeType } from "../uploads/magic-bytes.js";
 import { createProviderSchema, discoverSchema, patchProviderSchema, sendInvalidBody } from "../auth/admin-provider-input.js";
 import { OidcUnavailableError, oidcRedirectUri, type OidcRuntimeRegistry } from "../auth/oidc-client.js";
 import { openClientSecret, probeWarnings, recordResolvedIssuer, sealClientSecret } from "../auth/oidc-providers.js";
@@ -249,7 +249,7 @@ export function adminAuthRoutes(deps: AdminAuthRouteDeps) {
         drainWithCap(request);
         return sendError(reply, 413, "file_too_large", ICON_TOO_LARGE_MESSAGE);
       }
-      const mime = detectImageMimeType(fileBuf);
+      const mime = detectRasterImageMimeType(fileBuf);
       if (mime === null || mime === "image/gif") {
         drainWithCap(request);
         return sendError(reply, 415, "unsupported_media_type", ICON_TYPE_MESSAGE);

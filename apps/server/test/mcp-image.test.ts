@@ -14,11 +14,12 @@ import { cookieOf, seedNote, seedShare, seedUser } from "./group-helpers.js";
 import { PNG, seedDoc, seedUpload } from "./copy-helpers.js";
 
 const MAX = 5_242_880;
-const NOT_READABLE = "No readable image with that id. It may not exist, may not be a PNG, JPEG, GIF or WebP image, or may belong to a note you can't read.";
+const SVG_MAX = 102_400;
+const NOT_READABLE = "No readable image with that id. It may not exist, may not be a PNG, JPEG, GIF, WebP or SVG image, or may belong to a note you can't read.";
 const DESC_TOKEN =
-  "Look at an image in a note. Pass the id from `/api/uploads/<id>` in read_note_section's markdown. Images up to 5242880 bytes come back as an image; larger ones are refused — download those with create_transfer_token instead.";
+  "Look at an image in a note. Pass the id from `/api/uploads/<id>` in read_note_section's markdown. Raster images up to 5242880 bytes come back as an image, and SVGs up to 102400 bytes as UTF-8 XML text; larger ones are refused — download those with create_transfer_token instead.";
 const DESC_SESSION =
-  "Look at an image in a note. Pass the id from `/api/uploads/<id>` in read_note_section's markdown. Images up to 5242880 bytes come back as an image; larger ones are refused.";
+  "Look at an image in a note. Pass the id from `/api/uploads/<id>` in read_note_section's markdown. Raster images up to 5242880 bytes come back as an image, and SVGs up to 102400 bytes as UTF-8 XML text; larger ones are refused.";
 /** Columns: images with a width are also read as `<figure>`; table cells aren't mentioned; the address is given as an example (old absolute URLs also contain the id). */
 const SECTION_SENTENCE =
   "An uploaded file's address contains its upload id, for example `/api/uploads/<id>` in `![name](/api/uploads/<id>)`, in `[name](/api/uploads/<id>)` or, for an image with a caption or shown at a set width, in `<figure><img … src=\"/api/uploads/<id>\" …>…</figure>`; read an image with read_note_image.";
@@ -68,6 +69,22 @@ describe("#200 read_note_image", () => {
     }
   });
 
+  it("#389 SVG: content[1] is UTF-8 text (no image block), mirror equality, structuredContent carries mimeType image/svg+xml", async () => {
+    const { app, db, uploadsDir } = await buildTestApp();
+    const me = await seedUser(db);
+    const n = await seedNote(db, { ownerId: me.id });
+    const svgText = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>';
+    const svgBytes = Buffer.from(svgText, "utf-8");
+    const id = await seedUpload(db, uploadsDir, n.id, me.id, svgBytes, { mime: "image/svg+xml" });
+    const { token } = await seedTokenForUser(db, me.id, "notes:read");
+    const r = await read(app, token, n.id, id);
+    expect(r.isError).toBeUndefined();
+    expect(r.structuredContent).toEqual({ noteId: n.id, uploadId: id, mimeType: "image/svg+xml", bytes: svgBytes.length });
+    expect(r.content[0]).toEqual({ type: "text", text: JSON.stringify(r.structuredContent) });
+    expect(r.content[1]).toEqual({ type: "text", text: svgText });
+    expect(r.content.some(block => block.type === "image")).toBe(false);
+  });
+
   it("not_found: a nonexistent note and an invisible note are byte-identical; a missing upload and a file absent from disk are byte-identical", async () => {
     const { app, db, uploadsDir } = await buildTestApp();
     const [me, other] = await Promise.all([seedUser(db), seedUser(db)]);
@@ -108,6 +125,41 @@ describe("#200 read_note_image", () => {
       bytes: MAX + 1,
     });
     const lying = await seedUpload(db, uploadsDir, n.id, me.id, Buffer.alloc(MAX + 1, 2));
+    await db.update(uploads).set({ size: 10 }).where(eq(uploads.id, lying));
+    expect((await read(app, token, n.id, lying)).structuredContent!.code).toBe("file_too_large");
+  });
+
+  it("#389 SVG size limit boundary: size = SVG_MAX -> success; SVG_MAX + 1 -> file_too_large (token and session); real file larger than DB size -> file_too_large", async () => {
+    const { app, db, uploadsDir } = await buildTestApp();
+    const me = await seedUser(db);
+    const n = await seedNote(db, { ownerId: me.id });
+    const head = '<svg xmlns="http://www.w3.org/2000/svg"><!--';
+    const tail = "--></svg>";
+    const svgAtCap = Buffer.from(head + "a".repeat(SVG_MAX - head.length - tail.length) + tail, "utf-8");
+    expect(svgAtCap.length).toBe(SVG_MAX);
+    const atCap = await seedUpload(db, uploadsDir, n.id, me.id, svgAtCap, { mime: "image/svg+xml" });
+    const { token } = await seedTokenForUser(db, me.id, "notes:read");
+    const ok = await read(app, token, n.id, atCap);
+    expect(ok.isError).toBeUndefined();
+    expect(ok.content[1]).toEqual({ type: "text", text: svgAtCap.toString("utf-8") });
+
+    const [over] = await db.insert(uploads).values({ noteId: n.id, uploaderId: me.id, mime: "image/svg+xml", size: SVG_MAX + 1 }).returning({ id: uploads.id });
+    expect((await read(app, token, n.id, over!.id)).structuredContent).toEqual({
+      code: "file_too_large",
+      message: `This SVG is ${SVG_MAX + 1} bytes; read_note_image returns SVGs up to ${SVG_MAX} bytes. Download it with create_transfer_token (purpose "download") for note ${n.id}.`,
+      noteId: n.id,
+      bytes: SVG_MAX + 1,
+    });
+    const s = await call(app, { cookie: Object.values(await cookieOf(me.id))[0]! }, "read_note_image", { note_id: n.id, upload_id: over!.id });
+    expect(s.structuredContent).toEqual({
+      code: "file_too_large",
+      message: `This SVG is ${SVG_MAX + 1} bytes; read_note_image returns SVGs up to ${SVG_MAX} bytes. Open it in the browser instead.`,
+      noteId: n.id,
+      bytes: SVG_MAX + 1,
+    });
+
+    const svgOver = Buffer.from(head + "b".repeat(SVG_MAX + 1 - head.length - tail.length) + tail, "utf-8");
+    const lying = await seedUpload(db, uploadsDir, n.id, me.id, svgOver, { mime: "image/svg+xml" });
     await db.update(uploads).set({ size: 10 }).where(eq(uploads.id, lying));
     expect((await read(app, token, n.id, lying)).structuredContent!.code).toBe("file_too_large");
   });

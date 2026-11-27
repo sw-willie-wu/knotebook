@@ -13,7 +13,7 @@
 import { BlockList, isIP } from "node:net";
 import { lookup as dnsLookup } from "node:dns/promises";
 import { MAX_OIDC_AVATAR_BYTES } from "@knotebook/shared";
-import { detectImageMimeType } from "../uploads/magic-bytes.js";
+import { detectRasterImageMimeType } from "../uploads/magic-bytes.js";
 
 export type AvatarFetchFailure =
   | "bad_scheme"
@@ -242,7 +242,7 @@ export async function fetchOidcAvatar(
         if (e instanceof Fail) throw e;
         throw new Fail(signal.aborted ? "timeout" : "network");
       }
-      const mime = detectImageMimeType(bytes);
+      const mime = detectRasterImageMimeType(bytes);
       if (mime === null || mime === "image/gif") throw new Fail("not_image");
       return { ok: true, bytes, mime, finalUrl: current.href };
     }

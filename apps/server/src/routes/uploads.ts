@@ -178,6 +178,29 @@ export interface UploadsRouteDeps {
  * connection instead of reading the rest of a possibly huge body. Any failure after consumption burns the token, including the in-transaction 409 storage_quota_exceeded (same code
  * and shape as the pre-check) and 409 server_busy (space-lock timeout/deadlock). CSRF stays exempt: Bearer isn't an ambient credential.
  */
+const MAX_ECHOED_PREFIX_CHARS = 64;
+
+/** The prefix comes from an untrusted file and is echoed to clients that may render it: bound its length and drop invisible direction/format characters. */
+export function echoablePrefix(prefix: string | undefined): string {
+  let out = "";
+  let kept = 0;
+  for (const ch of prefix ?? "") {
+    if (/[\p{Cc}\p{Cf}]/u.test(ch)) continue;
+    if (kept === MAX_ECHOED_PREFIX_CHARS) return `${out}…`;
+    out += ch;
+    kept++;
+  }
+  return out;
+}
+
+/** An empty echoable prefix (all invisible characters) would read as `the prefix ""`, so the message leaves it out. */
+export function undeclaredPrefixMessage(prefix: string | undefined): string {
+  const shown = echoablePrefix(prefix);
+  return shown === ""
+    ? "SVG files must declare every namespace prefix they use."
+    : `SVG files must declare every namespace prefix they use: the prefix "${shown}" has no matching xmlns declaration.`;
+}
+
 export function uploadsRoutes(deps: UploadsRouteDeps) {
   return async function register(app: FastifyInstance): Promise<void> {
     const transferAuth = createTransferAuth({

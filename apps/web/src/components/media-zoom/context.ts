@@ -1,7 +1,8 @@
 import { createContext, useContext } from "react";
 
 /**
- * `naturalWidth`/`naturalHeight` are the natural size (image pixels, the SVG's own size); zoom scale 1 equals it.
+ * `naturalWidth`/`naturalHeight` are the zoom baseline (zoom scale 1 equals it): the natural size, enlarged to the size the image
+ * is rendered at in the note when that is bigger, so opening the zoom never shrinks it.
  *
  * `svg` is inserted as raw HTML (`dangerouslySetInnerHTML`): only output of `lib/mermaid.ts` may go here (the same string the page
  * diagram uses; same safety argument as there). Never a user or external string.

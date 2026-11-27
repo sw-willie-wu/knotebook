@@ -84,14 +84,14 @@ export const createTransferTokenOutput = {
  * answered before reading, not consumed; doesn't fit once the file is streaming, or in the transaction → 409, token
  * burned. server_busy burns the token. */
 export const UPLOAD_NEXT =
-  "The reply is JSON `{id, url, mime, kind}`, where `kind` is `image`, `audio`, `video` or `file`. Put an image (PNG, JPEG, GIF or WebP) in the note with " +
+  "The reply is JSON `{id, url, mime, kind}`, where `kind` is `image`, `audio`, `video` or `file`. Put an image (PNG, JPEG, GIF, WebP or SVG) in the note with " +
   "edit_note using markdown `![description](url)` and any other kind as a link `[name](url)`, with `url` exactly as returned " +
   "(`/api/uploads/<id>`, relative). The token is good for one upload until `expiresAt`. A 401 " +
   "means the token can't be used (expired, already used, or revoked) — ask for a new one. A 403 or 429 doesn't use the " +
   "token up (after a 429, wait a moment and retry), unless the 403 is for a role lost while the file was uploading; a 404 means the note is gone or you can no longer see it, and one that comes while the file is uploading comes after the token was used up. " +
   "A 409 `storage_quota_exceeded` means the note's storage space has no room for this file: don't retry until space has been freed, and then ask for a new token. " +
   "A 409 `server_busy` means the server was busy and the token is used up: ask for a new token and retry. Once the server has started reading the file, a " +
-  "rejection (for example 413: over the size limit, 415: not a supported type — an image, audio, video, a PDF, an Office or OpenDocument file, or a text file) still uses the token up. If curl reports a connection error (a reset or a failed send) instead of a status, the server most likely refused the file — too large, not a supported type, or no room in the space — and the token is used up: check the file's size, type and the space's room before asking for a new token.";
+  "rejection (for example 413: over the size limit, 415: not a supported type — an image (PNG, JPEG, GIF, WebP or SVG), audio, video, a PDF, an Office or OpenDocument file, or a text file) still uses the token up. If curl reports a connection error (a reset or a failed send) instead of a status, the server most likely refused the file — too large, not a supported type, or no room in the space — and the token is used up: check the file's size, type and the space's room before asking for a new token.";
 
 export const DOWNLOAD_NEXT =
   "Replace `<upload_id>` with the id from `/api/uploads/<id>` in the note's markdown. Any file uploaded to this note " +

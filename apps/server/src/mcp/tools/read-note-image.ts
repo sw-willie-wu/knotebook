@@ -7,9 +7,9 @@ import { uploads } from "../../db/schema.js";
 import { NOTE_ID, noNul } from "../../notes/schemas.js";
 import { resolveRole } from "../../notes/service.js";
 import { uploadFilePath } from "../../uploads/service.js";
-import { MCP_IMAGE_MAX_BYTES } from "../limits.js";
+import { MCP_IMAGE_MAX_BYTES, MCP_SVG_TEXT_MAX_BYTES } from "../limits.js";
 import { authorizeNoteRead } from "../note-read.js";
-import { toolError, toolResultWithImage } from "../tool-result.js";
+import { toolError, toolResultWithImage, toolResultWithText } from "../tool-result.js";
 import type { McpToolCtx } from "../context.js";
 
 const UPLOAD_ID_RE = /^(?:\/api\/uploads\/)?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
@@ -21,11 +21,11 @@ export const UPLOAD_ID = z
   .transform(s => UPLOAD_ID_RE.exec(s)![1]!.toLowerCase());
 
 export const READ_NOTE_IMAGE_DESCRIPTION_TOKEN =
-  "Look at an image in a note. Pass the id from `/api/uploads/<id>` in read_note_section's markdown. Images up to " +
-  `${MCP_IMAGE_MAX_BYTES} bytes come back as an image; larger ones are refused — download those with create_transfer_token instead.`;
+  "Look at an image in a note. Pass the id from `/api/uploads/<id>` in read_note_section's markdown. Raster images up to " +
+  `${MCP_IMAGE_MAX_BYTES} bytes come back as an image, and SVGs up to ${MCP_SVG_TEXT_MAX_BYTES} bytes as UTF-8 XML text; larger ones are refused — download those with create_transfer_token instead.`;
 export const READ_NOTE_IMAGE_DESCRIPTION_SESSION =
-  "Look at an image in a note. Pass the id from `/api/uploads/<id>` in read_note_section's markdown. Images up to " +
-  `${MCP_IMAGE_MAX_BYTES} bytes come back as an image; larger ones are refused.`;
+  "Look at an image in a note. Pass the id from `/api/uploads/<id>` in read_note_section's markdown. Raster images up to " +
+  `${MCP_IMAGE_MAX_BYTES} bytes come back as an image, and SVGs up to ${MCP_SVG_TEXT_MAX_BYTES} bytes as UTF-8 XML text; larger ones are refused.`;
 
 export const readNoteImageInput = {
   note_id: NOTE_ID.describe("The note's id, as returned by list_notes or search_notes."),
@@ -34,15 +34,17 @@ export const readNoteImageInput = {
 export const readNoteImageOutput = {
   noteId: z.string(),
   uploadId: z.string(),
-  mimeType: z.enum(["image/png", "image/jpeg", "image/gif", "image/webp"]),
+  mimeType: z.enum(["image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml"]),
   bytes: z.number(),
 };
 
-const NOT_READABLE_MESSAGE = "No readable image with that id. It may not exist, may not be a PNG, JPEG, GIF or WebP image, or may belong to a note you can't read.";
+const NOT_READABLE_MESSAGE = "No readable image with that id. It may not exist, may not be a PNG, JPEG, GIF, WebP or SVG image, or may belong to a note you can't read.";
 
 /** `noteId` is the note the upload belongs to, not the requested one: a download transfer token is bound to it. */
-function tooLarge(ctx: McpToolCtx, bytes: number, noteId: string): CallToolResult {
-  const head = `This image is ${bytes} bytes; read_note_image returns images up to ${MCP_IMAGE_MAX_BYTES} bytes.`;
+function tooLarge(ctx: McpToolCtx, bytes: number, noteId: string, isSvg: boolean): CallToolResult {
+  const head = isSvg
+    ? `This SVG is ${bytes} bytes; read_note_image returns SVGs up to ${MCP_SVG_TEXT_MAX_BYTES} bytes.`
+    : `This image is ${bytes} bytes; read_note_image returns images up to ${MCP_IMAGE_MAX_BYTES} bytes.`;
   const tail = ctx.authKind === "token"
     ? ` Download it with create_transfer_token (purpose "download") for note ${noteId}.`
     : " Open it in the browser instead.";
@@ -62,9 +64,11 @@ export async function readNoteImage(args: { note_id: string; upload_id: string }
   if (row.noteId !== noteId && (await resolveRole(ctx.db, ctx.userId, row.noteId)) === "none") {
     return toolError("not_found", NOT_READABLE_MESSAGE);
   }
-  // Same answer as a missing upload, so the reply doesn't tell what kind of file an id is; the output schema lists only these four.
+  // Same answer as a missing upload, so the reply doesn't tell what kind of file an id is; the output schema lists only these five.
   if (!(readNoteImageOutput.mimeType.options as readonly string[]).includes(row.mime)) return toolError("not_found", NOT_READABLE_MESSAGE);
-  if (row.size > MCP_IMAGE_MAX_BYTES) return tooLarge(ctx, row.size, row.noteId);
+  const isSvg = row.mime === "image/svg+xml";
+  const maxBytes = isSvg ? MCP_SVG_TEXT_MAX_BYTES : MCP_IMAGE_MAX_BYTES;
+  if (row.size > maxBytes) return tooLarge(ctx, row.size, row.noteId, isSvg);
   let buf: Buffer;
   try {
     buf = await readFile(uploadFilePath(ctx.uploadsDir, row.id));
@@ -73,7 +77,11 @@ export async function readNoteImage(args: { note_id: string; upload_id: string }
     ctx.log.error({ uploadId: row.id }, "read_note_image：上傳列在、檔案不在磁碟");
     return toolError("not_found", NOT_READABLE_MESSAGE);
   }
-  if (buf.length > MCP_IMAGE_MAX_BYTES) return tooLarge(ctx, buf.length, row.noteId); // DB size and the real file disagree
+  if (buf.length > maxBytes) return tooLarge(ctx, buf.length, row.noteId, isSvg); // DB size and the real file disagree
   const meta = { noteId: row.noteId, uploadId: row.id, mimeType: row.mime as z.infer<typeof readNoteImageOutput.mimeType>, bytes: buf.length };
+  // Image content blocks are for raster formats models accept; return SVG as UTF-8 XML text instead.
+  if (isSvg) {
+    return toolResultWithText(meta, buf.toString("utf-8"));
+  }
   return toolResultWithImage(meta, { data: buf.toString("base64"), mimeType: row.mime });
 }

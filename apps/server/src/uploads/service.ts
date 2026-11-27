@@ -52,10 +52,11 @@ export function assertUploadsDirWritable(uploadsDir: string): void {
 }
 
 /**
- * `sandbox` puts a directly opened upload in an opaque origin with scripts off, `default-src 'none'` blocks its fetches and frames,
- * and `style-src 'unsafe-inline'` keeps inline styles working.
+ * `sandbox` puts a directly opened upload (an SVG especially) in an opaque origin with scripts off, `default-src 'none'` blocks its fetches and frames,
+ * `style-src 'unsafe-inline'` keeps inline styles (CSS `@keyframes` included) working, and `img-src data:; font-src data:` allows the data-URI images
+ * and `@font-face` fonts an SVG embeds.
  */
-export const UPLOAD_CSP = "default-src 'none'; style-src 'unsafe-inline'; sandbox";
+export const UPLOAD_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; sandbox";
 
 // No `sandbox`: it disables the browsers' built-in PDF viewers.
 export const UPLOAD_PDF_CSP = "default-src 'none'; frame-ancestors 'none'";

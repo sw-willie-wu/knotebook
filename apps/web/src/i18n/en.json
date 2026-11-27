@@ -838,6 +838,7 @@
     "bad_request": "The request could not be processed.",
     "internal": "Something went wrong. Please try again.",
     "unsupported_media_type": "That file type isn't supported.",
+    "svg_unusable": "This SVG can't be used. Check that it's well-formed XML, that its root <svg> has xmlns=\"http://www.w3.org/2000/svg\", and that every prefix it uses (like xlink) is declared.",
     "server_busy": "The server is busy. Please try again shortly.",
     "too_many_attempts": "Too many attempts. Please wait before trying again.",
     "too_many_requests": "Too many requests. Please slow down.",

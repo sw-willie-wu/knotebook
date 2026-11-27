@@ -55,7 +55,8 @@ describe("PUT /api/admin/auth/providers/:id/icon", () => {
     const { app, db, cookies } = await adminApp();
     const p = await seedAuthProvider(db, { issuerUrl: "https://a.example" });
     const before = await providerRow(db, p.id);
-    for (const [label, data] of [["gif", GIF_BYTES], ["text", TEXT_BYTES]] as const) {
+    const svgBytes = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><rect width="16" height="16"/></svg>', "utf-8");
+    for (const [label, data] of [["gif", GIF_BYTES], ["svg", svgBytes], ["text", TEXT_BYTES]] as const) {
       const res = await putIcon(app, p.id, one(data, { filename: "x.png", contentType: "image/png" }), { cookies });
       expect(res.statusCode, label).toBe(415);
       expect(res.json().error, label).toEqual({ code: "unsupported_media_type", message: "Only PNG, JPEG and WebP images are accepted." });

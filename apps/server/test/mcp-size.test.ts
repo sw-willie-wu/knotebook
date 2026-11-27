@@ -22,6 +22,7 @@ import {
   MCP_LIST_WIRE_BUDGET,
   MCP_PAGE_MAX,
   MCP_SEARCH_WIRE_BUDGET,
+  MCP_SVG_TEXT_MAX_BYTES,
   escapedLength,
 } from "../src/mcp/limits.js";
 import { fingerprintOf } from "../src/notes/editing/fingerprint.js";
@@ -720,6 +721,34 @@ describe("#108 single response size", () => {
     expect(res.body.length - data.length).toBeLessThanOrEqual(MCP_MAX_WIRE);
     expect(data.length).toBeLessThanOrEqual(4 * Math.ceil(MCP_IMAGE_MAX_BYTES / 3));
     const [over] = await ctx.db.insert(uploads).values({ noteId: note.id, uploaderId: o.id, mime: "image/png", size: MCP_IMAGE_MAX_BYTES + 1 }).returning({ id: uploads.id });
+    const r2 = await mcpPost(ctx.app, rpc("tools/call", { name: "read_note_image", arguments: { note_id: note.id, upload_id: over!.id } }), { token: o.token });
+    expect(r2.json().result.structuredContent.code).toBe("file_too_large");
+  });
+
+  /**
+   * Case (vi-b) (#389): SVG returns as a text block, not an image block, so it is NOT exempt from N.
+   * `MCP_SVG_TEXT_MAX_BYTES` (100 KiB) caps it so that even a worst-case valid XML 1.0 SVG (filled with `"`,
+   * which doubles under JSON escaping) stays under `MCP_MAX_WIRE`; limit + 1 -> `file_too_large`.
+   */
+  it("(vi-b) #389 read_note_image SVG: worst-case SVG at MCP_SVG_TEXT_MAX_BYTES stays <= N; limit + 1 -> file_too_large", async () => {
+    const ctx = await buildCollabTestApp();
+    const o = await owner(ctx);
+    const note = await ctx.createNote(o.id, "svg cap");
+    const head = '<svg xmlns="http://www.w3.org/2000/svg"><!--';
+    const tail = "--></svg>";
+    const worstSvg = Buffer.from(head + '"'.repeat(MCP_SVG_TEXT_MAX_BYTES - head.length - tail.length) + tail, "utf-8");
+    expect(worstSvg.length).toBe(MCP_SVG_TEXT_MAX_BYTES);
+    const atCap = await seedUpload(ctx.db, ctx.uploadsDir, note.id, o.id, worstSvg, { mime: "image/svg+xml" });
+    const res = await mcpPost(ctx.app, rpc("tools/call", { name: "read_note_image", arguments: { note_id: note.id, upload_id: atCap } }), { token: o.token });
+    expect(res.statusCode).toBe(200);
+    const result = res.json().result as { isError?: true; content: Array<{ type: string; text?: string }> };
+    expect(result.isError).toBeUndefined();
+    expect(result.content[1]?.type).toBe("text");
+    console.log(`[case 11c] (vi-b) read_note_image SVG cap wire=${res.body.length} headroom ×${(MCP_MAX_WIRE / res.body.length).toFixed(2)}`);
+    expect(res.body.length).toBeLessThanOrEqual(MCP_MAX_WIRE);
+    expect(res.body.length).toBeLessThanOrEqual(MCP_LIST_WIRE_BUDGET);
+
+    const [over] = await ctx.db.insert(uploads).values({ noteId: note.id, uploaderId: o.id, mime: "image/svg+xml", size: MCP_SVG_TEXT_MAX_BYTES + 1 }).returning({ id: uploads.id });
     const r2 = await mcpPost(ctx.app, rpc("tools/call", { name: "read_note_image", arguments: { note_id: note.id, upload_id: over!.id } }), { token: o.token });
     expect(r2.json().result.structuredContent.code).toBe("file_too_large");
   });

@@ -56,7 +56,10 @@ export function NotificationBell({ placement }: { placement: "sidebar" | "topBar
           <span
             data-testid="notification-badge"
             aria-hidden="true"
-            className="absolute right-0 top-0 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand px-1 text-[10px] font-semibold leading-none text-brand-fg"
+            className={cn(
+              "absolute flex h-[13px] min-w-[13px] items-center justify-center rounded-full bg-brand px-[3px] text-[9px] font-semibold leading-none text-brand-fg",
+              placement === "topBar" ? "right-[10px] top-[11px]" : "right-[2px] top-[3px]",
+            )}
           >
             {shown > BADGE_MAX ? `${BADGE_MAX}+` : shown}
           </span>

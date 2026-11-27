@@ -1,10 +1,10 @@
 import "@/i18n/notifications-strings";
 import { useRef, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
-import { Dialog as DialogPrimitive, Popover as PopoverPrimitive } from "radix-ui";
+import { Dialog as DialogPrimitive } from "radix-ui";
 import { Button } from "@/components/ui/button";
-import { cardSurface } from "@/components/ui/card";
 import { SAFE_INSETS } from "@/components/ui/safe-area";
+import { SidebarPanel } from "@/components/ui/sidebar-panel";
 import { cn } from "@/lib/utils";
 import { NotificationList } from "./NotificationList";
 
@@ -37,7 +37,7 @@ export function NotificationsPanel({ anchorRef, phone, userId, onClose }: Notifi
             data-testid="notifications-sheet"
             aria-describedby={undefined}
             onCloseAutoFocus={restoreFocus}
-            className={cn("fixed inset-0 z-50 flex flex-col bg-card outline-none", SAFE_INSETS)}
+            className={cn("fixed inset-0 z-50 flex flex-col bg-popover text-popover-foreground outline-none", SAFE_INSETS)}
           >
             <header className="flex items-center gap-2 border-b border-border px-3 py-2">
               <Button type="button" variant="ghost" size="sm" className="h-11" aria-label={t("notifications.back")} onClick={onClose}>
@@ -53,26 +53,14 @@ export function NotificationsPanel({ anchorRef, phone, userId, onClose }: Notifi
   }
 
   return (
-    <PopoverPrimitive.Root open onOpenChange={(open) => !open && onClose()}>
-      <PopoverPrimitive.Anchor virtualRef={anchorRef} />
-      <PopoverPrimitive.Portal>
-        <PopoverPrimitive.Content
-          data-testid="notifications-popover"
-          aria-label={t("notifications.title")}
-          side="right"
-          align="end"
-          sideOffset={8}
-          collisionPadding={8}
-          onCloseAutoFocus={restoreFocus}
-          // A click on the bell is the toggle: let its own handler close the panel instead of closing here and reopening there.
-          onInteractOutside={(event) => {
-            if (anchorRef.current?.contains(event.target as Node)) event.preventDefault();
-          }}
-          className={cn(cardSurface, "z-50 flex max-h-[min(32rem,var(--radix-popover-content-available-height))] w-[min(24rem,calc(100vw-1rem))] flex-col overflow-hidden p-0 shadow-lg outline-none")}
-        >
-          <NotificationList userId={userId} onNavigate={handleNavigate} layout="popover" />
-        </PopoverPrimitive.Content>
-      </PopoverPrimitive.Portal>
-    </PopoverPrimitive.Root>
+    <SidebarPanel
+      triggerRef={anchorRef}
+      onClose={onClose}
+      onCloseAutoFocus={restoreFocus}
+      data-testid="notifications-popover"
+      aria-label={t("notifications.title")}
+    >
+      <NotificationList userId={userId} onNavigate={handleNavigate} layout="popover" />
+    </SidebarPanel>
   );
 }
