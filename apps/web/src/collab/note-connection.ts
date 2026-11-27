@@ -113,6 +113,8 @@ export interface NoteConnectionHandle {
   isSynced(): boolean;
   subscribe(listener: () => void): () => void;
   whenWritable(): Promise<"ok" | "rejected">;
+  /** Whether an editor of this note is attached in this tab right now. */
+  hasEditor(): boolean;
   /** Idempotent. */
   release(): void;
 }
@@ -453,6 +455,7 @@ function openConnection(noteId: string): NoteConnection {
           if (v !== null) return Promise.resolve(v);
           return new Promise((resolve) => entry.waiters.add(resolve));
         },
+        hasEditor: () => editorCount > 0,
         release() {
           if (released) return;
           released = true;

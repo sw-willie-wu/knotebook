@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import { describe, expect, it } from "vitest";
-import type { NotificationListDto } from "@knotebook/shared";
+import type { CommentNotificationDto } from "@knotebook/shared";
 import type { Db } from "../src/db/index.js";
 import { noteComments, noteShares, notifications } from "../src/db/schema.js";
 import { actorOf, post, seedAgentToken, seedNamedUser, type NamedUser } from "./comment-helpers.js";
@@ -26,10 +26,12 @@ async function scene() {
 
 const say = (db: Db, user: NamedUser, noteId: string, body: string, over: Parameters<typeof actorOf>[1] = {}) =>
   post(db, { noteId, actor: actorOf(user, over), body });
-const listOf = async (app: FastifyInstance, user: { id: string }, query = ""): Promise<NotificationListDto> => {
+// Every row these tests make comes from a comment.
+type CommentNotificationList = { notifications: CommentNotificationDto[]; nextCursor: string | null };
+const listOf = async (app: FastifyInstance, user: { id: string }, query = ""): Promise<CommentNotificationList> => {
   const res = await inject(app, "GET", `/api/notifications${query}`, user.id);
   expect(res.statusCode, res.body).toBe(200);
-  return res.json() as NotificationListDto;
+  return res.json() as CommentNotificationList;
 };
 const countOf = async (app: FastifyInstance, user: { id: string }): Promise<number> => {
   const res = await inject(app, "GET", "/api/notifications/unread-count", user.id);
@@ -181,7 +183,7 @@ describe("access filtering", () => {
 
     const res = await inject(app, "GET", "/api/notifications", bob.id);
     expect(res.statusCode).toBe(200);
-    const [n] = (res.json() as NotificationListDto).notifications;
+    const [n] = (res.json() as CommentNotificationList).notifications;
     expect(n).toMatchObject({
       kind: "mention",
       actor: { handle: "alice" },

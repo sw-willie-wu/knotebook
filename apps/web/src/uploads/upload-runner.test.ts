@@ -446,6 +446,98 @@ describe("startUpload / the background write", () => {
   });
 });
 
+describe("reporting a finished upload for the bell", () => {
+  const FINISHED = "/api/uploads/u1/finished";
+  const reports = () => fetchMock.mock.calls.filter(([input]) => String(input) === FINISHED);
+
+  it("reports when the person left the note before the write, with the block id", async () => {
+    const editor = acquireNoteConnection(NOTE_A, { kind: "editor", onUnauthorized: () => {} });
+    await writableWith(providerOf(editor.doc), [videoBlock()]);
+    const peer = peerOf(editor.doc);
+    const id = await startVideo(NOTE_A);
+    editor.release();
+
+    lastXhr().respond(201, response());
+    await flush();
+
+    expect(contentOf(peer, "v1")?.getAttribute("url")).toBe("/api/uploads/u1");
+    expect(queued(id)).toBeUndefined();
+    expect(reports()).toHaveLength(1);
+    const init = reports()[0]![1] as RequestInit;
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toEqual({ blockId: "v1" });
+  });
+
+  it("reports when the note was never open in this tab", async () => {
+    await startVideo(NOTE_A);
+    await writableWith(provider(0), [videoBlock()]);
+    lastXhr().respond(201, response());
+    await flush();
+    expect(reports()).toHaveLength(1);
+  });
+
+  it("doesn't report while an editor of the note is attached at the write", async () => {
+    const editor = hold(NOTE_A);
+    await writableWith(provider(0), [videoBlock()]);
+    await startVideo(NOTE_A);
+    lastXhr().respond(201, response());
+    await flush();
+    expect(contentOf(editor.doc, "v1")?.getAttribute("url")).toBe("/api/uploads/u1");
+    expect(reports()).toEqual([]);
+  });
+
+  it("an editor that came back before the write counts as on screen", async () => {
+    const first = acquireNoteConnection(NOTE_A, { kind: "editor", onUnauthorized: () => {} });
+    await writableWith(provider(0), [videoBlock()]);
+    await startVideo(NOTE_A);
+    first.release();
+    hold(NOTE_A);
+    lastXhr().respond(201, response());
+    await flush();
+    expect(reports()).toEqual([]);
+  });
+
+  it("doesn't report a file that wasn't placed", async () => {
+    const editor = acquireNoteConnection(NOTE_A, { kind: "editor", onUnauthorized: () => {} });
+    await writableWith(providerOf(editor.doc), [videoBlock()]);
+    const id = await startVideo(NOTE_A);
+    contentOf(editor.doc, "v1")!.setAttribute("url", "https://example.com/other.mp4");
+    editor.release();
+    lastXhr().respond(201, response());
+    await flush();
+    expect(item(id).status).toBe("unplaced");
+    expect(reports()).toEqual([]);
+  });
+
+  it("a failed report is silent: no retry, nothing left in the queue, no unhandled rejection", async () => {
+    const unhandled = vi.fn();
+    window.addEventListener("unhandledrejection", unhandled);
+    process.on("unhandledRejection", unhandled);
+    try {
+      for (const answer of [() => Promise.reject(new TypeError("Failed to fetch")), () => Promise.resolve(fakeResponse(false, 500, { error: { code: "internal", message: "x" } }))]) {
+        fetchMock.mockClear();
+        fetchMock.mockImplementation((input: RequestInfo | URL) => {
+          if (String(input).endsWith("/collab-token")) return tokenResponse();
+          if (String(input) === FINISHED) return answer();
+          return new Promise(() => {});
+        });
+        const id = await startVideo(NOTE_A);
+        await writableWith(liveProviders()[0]!, [videoBlock()]);
+        lastXhr().respond(201, response());
+        await flush();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(queued(id)).toBeUndefined();
+        expect(store.getUploadItems()).toEqual([]);
+        expect(reports()).toHaveLength(1);
+      }
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener("unhandledrejection", unhandled);
+      process.off("unhandledRejection", unhandled);
+    }
+  });
+});
+
 describe("sign-out (401)", () => {
   it("an upload 401 tells the app once, though it stops two uploads", async () => {
     const expired = vi.fn();

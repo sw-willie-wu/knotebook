@@ -20,6 +20,9 @@
     "clearBody": "They are cleared for your agents too.",
     "clearConfirm": "Clear",
     "clearFailed": "Notifications couldn't be cleared.",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "uploadFinished": "Upload finished",
+    "uploadAdded": ": {{file}} was added to {{note}}",
+    "uploadAddedNoNote": ": {{file}}"
   }
 }

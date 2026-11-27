@@ -1149,17 +1149,32 @@ export const notifications = pgTable(
     agentLabel: text("agent_label"),
     kind: text().notNull(),
     noteId: uuid("note_id").notNull().references(() => notes.id, { onDelete: "cascade" }),
-    commentId: uuid("comment_id").notNull().references(() => noteComments.id, { onDelete: "cascade" }),
+    commentId: uuid("comment_id").references(() => noteComments.id, { onDelete: "cascade" }),
+    uploadId: uuid("upload_id").references(() => uploads.id, { onDelete: "cascade" }),
+    blockId: text("block_id"),
     actorId: uuid("actor_id").notNull().references(() => users.id, { onDelete: "cascade" }),
     actorAgentLabel: text("actor_agent_label"),
     // Same clock as note_comments.created_at.
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
   },
   t => [
-    check("notifications_kind_chk", sql`${t.kind} in ('mention','reply')`),
+    check("notifications_kind_chk", sql`${t.kind} in ('mention','reply','upload_finished')`),
+    check(
+      "notifications_comment_kind_chk",
+      sql`${t.kind} not in ('mention','reply') or (${t.commentId} is not null and ${t.uploadId} is null and ${t.blockId} is null)`,
+    ),
+    // Only ever the uploader's own trace: never addressed to an agent, no other actor.
+    check(
+      "notifications_upload_kind_chk",
+      sql`${t.kind} <> 'upload_finished' or (${t.uploadId} is not null and ${t.blockId} is not null and ${t.commentId} is null and ${t.actorId} = ${t.userId} and ${t.agentLabel} is null and ${t.actorAgentLabel} is null)`,
+    ),
+    // Same pattern as BLOCK_ANCHOR_RE.
+    check("notifications_block_id_chk", sql`${t.blockId} is null or ${t.blockId} ~ '^[A-Za-z0-9_-]{1,64}$'`),
     index("notifications_user_created_idx").on(t.userId, t.createdAt.desc(), t.id),
     index("notifications_note_idx").on(t.noteId),
     index("notifications_comment_idx").on(t.commentId),
+    // One per upload; also serves the cascade from uploads.
+    uniqueIndex("notifications_upload_uq").on(t.uploadId).where(sql`${t.uploadId} is not null`),
     index("notifications_created_idx").on(t.createdAt),
   ],
 );

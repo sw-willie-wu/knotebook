@@ -5,6 +5,7 @@ import { pipeline } from "node:stream/promises";
 import type { MultipartFile } from "@fastify/multipart";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import type { FastifyBaseLogger, FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { z } from "zod";
 import type { UserGate } from "../auth/session.js";
 import { createTransferAuth } from "../auth/transfer-auth.js";
 import { drainWithCap } from "../http/drain.js";
@@ -15,6 +16,8 @@ import type { Db } from "../db/index.js";
 import type { SiteLimits } from "../site-limits/store.js";
 import { isForeignKeyViolation, isRetryableTxError } from "../db/pg-errors.js";
 import {
+  BLOCK_ANCHOR_RE,
+  TOP_SECTION_ID,
   UPLOAD_FRAMING_ALLOWANCE_BYTES,
   sanitizeUploadFileName,
   uploadKindOfMime,
@@ -25,6 +28,8 @@ import {
 import { transferTokens, uploads } from "../db/schema.js";
 import type { GroupTestHook } from "../groups/test-hook.js";
 import { resolveNoteAccess, resolveRole, UUID_RE } from "../notes/service.js";
+import type { NotificationHub } from "../notifications/hub.js";
+import { recordUploadFinished } from "../notifications/upload-finished.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
 import { spaceOfNote, type StorageSpace } from "../storage/space.js";
 import { StorageQuotaExceeded } from "../storage/tx/quota.js";
@@ -174,7 +179,10 @@ export interface UploadsRouteDeps {
   uploadsDir: string;
   groupTestHook?: GroupTestHook;
   storageLockTimeoutMs: number;
+  notifications?: NotificationHub;
 }
+
+const finishedBodySchema = z.object({ blockId: z.string() }).strict();
 
 const MAX_ECHOED_PREFIX_CHARS = 64;
 
@@ -425,6 +433,22 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
       }
 
       return sendUploadFile(request, reply, row, deps.uploadsDir);
+    });
+
+    // Session only, like the bell it feeds. A repeat is a no-op: one notification per upload.
+    app.post("/api/uploads/:id/finished", { preHandler: app.authenticate }, async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const body = finishedBodySchema.safeParse(request.body ?? {});
+      if (!body.success || !BLOCK_ANCHOR_RE.test(body.data.blockId) || body.data.blockId === TOP_SECTION_ID) {
+        return sendError(reply, 400, "invalid_body", "Invalid request body.");
+      }
+      const userId = request.user!.id;
+      const outcome = await recordUploadFinished(deps.db, { userId, uploadId: id, blockId: body.data.blockId });
+      if (outcome === "not_found") return sendError(reply, 404, "not_found", "No file with that id.");
+      if (outcome === "not_uploader") return sendError(reply, 403, "forbidden", "You didn't upload this file.");
+      if (outcome === "no_access") return sendError(reply, 403, "forbidden", "You don't have access to this file.");
+      if (outcome === "created") deps.notifications?.notify([userId]);
+      return reply.code(204).send();
     });
   };
 }

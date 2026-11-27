@@ -113,6 +113,18 @@ describe("acquireNoteConnection", () => {
     expect(editor.provider).toBe(queue.provider);
   });
 
+  it("hasEditor tells every holder whether an editor is attached right now", () => {
+    const queue = track(acquireNoteConnection(NOTE_ID, queueHolder()));
+    expect(queue.hasEditor()).toBe(false);
+    const first = track(acquireNoteConnection(NOTE_ID, editorHolder()));
+    const second = track(acquireNoteConnection(NOTE_ID, editorHolder()));
+    expect(queue.hasEditor()).toBe(true);
+    first.release();
+    expect(queue.hasEditor()).toBe(true);
+    second.release();
+    expect(queue.hasEditor()).toBe(false);
+  });
+
   it("the last release destroys the provider and doc; a later acquire opens a new connection", () => {
     const queue = acquireNoteConnection(NOTE_ID, queueHolder());
     const editor = acquireNoteConnection(NOTE_ID, editorHolder());

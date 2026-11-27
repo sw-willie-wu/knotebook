@@ -14,6 +14,7 @@ import {
   subscribeUploads,
   type UploadItem,
 } from "./upload-queue-store";
+import { reportUploadFinished } from "./report-upload-finished";
 import { isUploadRetryable, uploadRetryWaitMs } from "./upload-rules";
 import { xhrUpload } from "./xhr-upload";
 import { writeUploadedBlock } from "./yjs-block-write";
@@ -281,10 +282,14 @@ async function write(id: string, run: Run, attempt: number) {
     fail(id, run, { error: INTERRUPTED() });
     return;
   }
+  // With the note on screen the file appears in front of the person; the bell is for uploads that finish elsewhere.
+  const editorAttached = handle.hasEditor();
   releaseHandle(run);
   runs.delete(id);
-  if (written === "written") removeUpload(id);
-  else patchUpload(id, { status: "unplaced" });
+  if (written === "written") {
+    removeUpload(id);
+    if (!editorAttached) reportUploadFinished(stored.id, item.blockId);
+  } else patchUpload(id, { status: "unplaced" });
 }
 
 /** Tests only. */
