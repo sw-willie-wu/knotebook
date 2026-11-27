@@ -6,7 +6,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { AVATAR_ENCODE_RE, GROUP_LAZY_DIALOGS, AVATAR_IMAGE_MARKER, BODY_SEARCH_MARKER, COMMENTS_I18N_MARKER, COMMENT_TOOLBAR_I18N_MARKER, NOTIFICATIONS_I18N_MARKER, FOLDER_I18N_MARKER, GROUPS_ADMIN_I18N_MARKER, HELP_I18N_MARKER, KNOWLEDGE_INDEX_I18N_MARKER, MANAGEMENT_I18N_MARKERS, MAX_ENTRY_BYTES, MOBILE_TOOLBAR_I18N_MARKER, SELECT_I18N_MARKER, SHORTCUTS_I18N_MARKER, TOUR_I18N_MARKER, VERSIONS_MARKERS, checkBundleSize } from './check-bundle-size.mjs';
+import { AVATAR_ENCODE_RE, GROUP_LAZY_DIALOGS, AVATAR_IMAGE_MARKER, BODY_SEARCH_MARKER, COMMENTS_I18N_MARKER, COMMENT_TOOLBAR_I18N_MARKER, NOTIFICATIONS_I18N_MARKER, FOLDER_I18N_MARKER, GROUPS_ADMIN_I18N_MARKER, HELP_I18N_MARKER, KNOWLEDGE_INDEX_I18N_MARKER, MANAGEMENT_I18N_MARKERS, MAX_ENTRY_BYTES, MOBILE_TOOLBAR_I18N_MARKER, SELECT_I18N_MARKER, SHORTCUTS_I18N_MARKER, TOUR_I18N_MARKER, VERSIONS_MARKERS, KATEX_CSS_MARKERS, KATEX_MARKER, KATEX_RE, MATH_I18N_PACK_SHAPE, MATH_I18N_MARKER, checkBundleSize } from './check-bundle-size.mjs';
 
 // pins the default cap of 750 KiB (reason in the constant's comment in check-bundle-size.mjs; the next two cases pass 700 * 1024 explicitly to test the judgement itself, independent of the default).
 test('default entry size cap is 750 KiB', () => {
@@ -28,9 +28,15 @@ const AVATAR_PACK = { 'encode-Eee000.js': `class E extends Error{constructor(){s
 // Fake chunks for three dialogs loaded only when opened: each carries its marker (in a real build GroupNameDialog / DeleteGroupDialog / GroupTransferDialog-<hash>.js).
 const GROUP_DIALOG_PACK = Object.fromEntries(GROUP_LAZY_DIALOGS.map((d, i) => [`${d.name}-Ggg00${i}.js`, `t("${d.marker}")`]).concat([['icons-extra-Iii000.js', 'x']]));
 
+// Fake chunks for the math block: the KaTeX engine (katex-<hash>.js, carrying its error-string marker) and the math string pack (any lazy chunk carrying MATH_I18N_MARKER).
+const MATH_PACK = {
+  'katex-Kkk000.js': `class P extends Error{constructor(m){super("${KATEX_MARKER}: "+m)}}export{P}`,
+  'math-strings-Mmm000.js': `const m={${MATH_I18N_PACK_SHAPE}x"}`,
+};
+
 const MARKER_BASE = {
   ...MGMT_PACK, ...COMMENTS_PACK, ...NOTIFICATIONS_PACK,
-  ...AVATAR_PACK, ...GROUP_DIALOG_PACK,
+  ...AVATAR_PACK, ...GROUP_DIALOG_PACK, ...MATH_PACK,
   'index-Abc123.js': 100, 'mermaid.core-Ghi789.js': 10, 'shiki-Jkl012.js': 10, 'AdminSections-Mno345.js': 10,
   'PresentationOverlay-Pqr678.js': 10, 'TrashLazy-Ttt000.js': 10, 'SelectLazy-Sss000.js': 10, 'FolderLazy-Fff000.js': 10,
   'ShortcutsLazy-Kkk000.js': 10,
@@ -64,7 +70,7 @@ test('entry within the cap and a NotePage chunk present -> passes and reports a 
     'TourLazy-Tou000.js': 12_000,
     'BodySearchLazy-Bbb000.js': 8_000,
     ...MGMT_PACK, ...COMMENTS_PACK, ...NOTIFICATIONS_PACK,
-    ...AVATAR_PACK, ...GROUP_DIALOG_PACK,
+    ...AVATAR_PACK, ...GROUP_DIALOG_PACK, ...MATH_PACK,
     'index-Abc123.css': 50_000, // css is not an entry chunk; the pattern only matches .js
   });
   try {
@@ -643,7 +649,7 @@ test('entry CSS contains .reveal-viewport (reveal.css entered the entry) -> thro
   const base = {
     'index-Abc123.js': 100, 'NotePage-Def456.js': 10, 'mermaid.core-Ghi789.js': 10, 'shiki-Jkl012.js': 10,
     'AdminSections-Mno345.js': 10, 'VersionsLazy-Vvv000.js': 10, 'PresentationOverlay-Pqr678.js': 10, 'TrashLazy-Ttt000.js': 10,
-    'SelectLazy-Sss000.js': 10, 'FolderLazy-Fff000.js': 10, 'ShortcutsLazy-Kkk000.js': 10, 'TourLazy-Tou000.js': 10, 'BodySearchLazy-Bbb000.js': 10, ...MGMT_PACK, ...COMMENTS_PACK, ...NOTIFICATIONS_PACK, ...AVATAR_PACK, ...GROUP_DIALOG_PACK,
+    'SelectLazy-Sss000.js': 10, 'FolderLazy-Fff000.js': 10, 'ShortcutsLazy-Kkk000.js': 10, 'TourLazy-Tou000.js': 10, 'BodySearchLazy-Bbb000.js': 10, ...MGMT_PACK, ...COMMENTS_PACK, ...NOTIFICATIONS_PACK, ...AVATAR_PACK, ...GROUP_DIALOG_PACK, ...MATH_PACK,
   };
   const bad = fakeAssets({ ...base, 'index-Css111.css': '.x{}.reveal-viewport{color:#000}' });
   try {
@@ -662,7 +668,7 @@ test('entry CSS contains .reveal-viewport (reveal.css entered the entry) -> thro
 test('the reveal-viewport string is only allowed in PresentationOverlay-*.js: inside the overlay passes, inside NotePage throws (reveal.js statically imported into NotePage)', () => {
   const base = {
     'index-Abc123.js': 100, 'mermaid.core-Ghi789.js': 10, 'shiki-Jkl012.js': 10, 'AdminSections-Mno345.js': 10, 'VersionsLazy-Vvv000.js': 10,
-    'TrashLazy-Ttt000.js': 10, 'SelectLazy-Sss000.js': 10, 'FolderLazy-Fff000.js': 10, 'ShortcutsLazy-Kkk000.js': 10, 'TourLazy-Tou000.js': 10, 'BodySearchLazy-Bbb000.js': 10, ...MGMT_PACK, ...COMMENTS_PACK, ...NOTIFICATIONS_PACK, ...AVATAR_PACK, ...GROUP_DIALOG_PACK,
+    'TrashLazy-Ttt000.js': 10, 'SelectLazy-Sss000.js': 10, 'FolderLazy-Fff000.js': 10, 'ShortcutsLazy-Kkk000.js': 10, 'TourLazy-Tou000.js': 10, 'BodySearchLazy-Bbb000.js': 10, ...MGMT_PACK, ...COMMENTS_PACK, ...NOTIFICATIONS_PACK, ...AVATAR_PACK, ...GROUP_DIALOG_PACK, ...MATH_PACK,
   };
   const ok = fakeAssets({ ...base, 'NotePage-Def456.js': 'x', 'PresentationOverlay-Pqr678.js': 'e.classList.add("reveal-viewport")' });
   try {
@@ -682,7 +688,7 @@ test('the static import closure (including indirect) of the presentation chunk r
   const base = {
     'index-Abc123.js': 100, 'NotePage-Def456.js': 10, 'mermaid.core-Ghi789.js': 10, 'AdminSections-Mno345.js': 10, 'VersionsLazy-Vvv000.js': 10,
     'shiki-Jkl012.js': 'export const s=1', 'bundle-full-Zz9.js': 'export const b=1', 'TrashLazy-Ttt000.js': 10,
-    'SelectLazy-Sss000.js': 10, 'FolderLazy-Fff000.js': 10, 'ShortcutsLazy-Kkk000.js': 10, 'TourLazy-Tou000.js': 10, 'BodySearchLazy-Bbb000.js': 10, ...MGMT_PACK, ...COMMENTS_PACK, ...NOTIFICATIONS_PACK, ...AVATAR_PACK, ...GROUP_DIALOG_PACK,
+    'SelectLazy-Sss000.js': 10, 'FolderLazy-Fff000.js': 10, 'ShortcutsLazy-Kkk000.js': 10, 'TourLazy-Tou000.js': 10, 'BodySearchLazy-Bbb000.js': 10, ...MGMT_PACK, ...COMMENTS_PACK, ...NOTIFICATIONS_PACK, ...AVATAR_PACK, ...GROUP_DIALOG_PACK, ...MATH_PACK,
   };
   const indirect = fakeAssets({ ...base, 'PresentationOverlay-Pqr678.js': 'import{a}from"./mid-Q1.js";', 'mid-Q1.js': 'import{b}from"./bundle-full-Zz9.js";export const a=1' });
   try {
@@ -933,6 +939,146 @@ test('dialog chunk exists but does not contain its own marker -> throws', () => 
       cleanup();
     }
   }
+});
+
+// #338: KaTeX and the math strings stay out of the entry. Presence of katex-*.js proves nothing (mermaid imports KaTeX too), so the checks read the marker's position and the static imports.
+const MATH_BASE = { ...MARKER_BASE, 'NotePage-Def456.js': 'x', 'VersionsLazy-Vvv000.js': 'x' };
+
+test('KaTeX only in katex-*.js, math strings only in a lazy chunk -> passes, returns katexChunks', () => {
+  const { assets, cleanup } = fakeAssets(MATH_BASE);
+  try {
+    assert.deepEqual(checkBundleSize(assets).katexChunks, ['katex-Kkk000.js']);
+  } finally {
+    cleanup();
+  }
+});
+
+test('the KaTeX marker in the entry or any other chunk (static import merged it in) -> throws, message names that chunk and lib/katex.ts', () => {
+  for (const stray of ['index-Abc123.js', 'NotePage-Def456.js', 'PublicNotePage-Ppp000.js', 'PresentationOverlay-Pqr678.js', 'SettingsAccountSection-Sss111.js']) {
+    const { assets, cleanup } = fakeAssets({ ...MATH_BASE, [stray]: `throw Error("${KATEX_MARKER}: x")` });
+    try {
+      assert.throws(() => checkBundleSize(assets), new RegExp(`${stray.replace('.', '[.]')}[^]*KaTeX[^]*lib/katex.ts`), stray);
+    } finally {
+      cleanup();
+    }
+  }
+});
+
+test('no katex-*.js carries the marker (chunk missing, or present without the marker) -> throws (fail-closed)', () => {
+  const { 'katex-Kkk000.js': _katex, ...withoutKatex } = MATH_BASE;
+  for (const files of [withoutKatex, { ...withoutKatex, 'katex-Kkk000.js': 'export const x=1' }]) {
+    const { assets, cleanup } = fakeAssets(files);
+    try {
+      assert.throws(() => checkBundleSize(assets), /找不到含 KaTeX parse error 的 katex-<hash>\.js/);
+    } finally {
+      cleanup();
+    }
+  }
+});
+
+test('a chunk statically importing katex-*.js (shared-chunk shape, the marker still only inside katex) -> throws; the entry, NotePage, PublicNotePage and the presentation chunk are all covered', () => {
+  for (const [stray, code] of [
+    ['index-Abc123.js', 'import{P as a}from"./katex-Kkk000.js";x'],
+    ['NotePage-Def456.js', 'import"./katex-Kkk000.js";x'],
+    ['PublicNotePage-Ppp000.js', 'export{P}from"./katex-Kkk000.js"'],
+    ['PresentationOverlay-Pqr678.js', 'import{P as a}from"./katex-Kkk000.js";x'],
+  ]) {
+    const { assets, cleanup } = fakeAssets({ ...MATH_BASE, [stray]: code });
+    try {
+      assert.throws(() => checkBundleSize(assets), new RegExp(`${stray.replace('.', '[.]')} 的靜態 import 閉包碰到 KaTeX：\\[katex-Kkk000[.]js`), stray);
+    } finally {
+      cleanup();
+    }
+  }
+});
+
+test('KaTeX reached through an intermediate chunk\'s static imports from NotePage -> throws', () => {
+  const { assets, cleanup } = fakeAssets({ ...MATH_BASE, 'NotePage-Def456.js': 'import{a}from"./mid-Q1.js";x', 'mid-Q1.js': 'import"./katex-Kkk000.js";export const a=1' });
+  try {
+    assert.throws(() => checkBundleSize(assets), /NotePage-Def456\.js 的靜態 import 閉包碰到 KaTeX：\[katex-Kkk000\.js\]/);
+  } finally {
+    cleanup();
+  }
+});
+
+test('dynamic import("./katex-*.js") (lib/katex.ts, mermaid, including the mapDeps list entry) -> passes', () => {
+  const { assets, cleanup } = fakeAssets({
+    ...MATH_BASE,
+    'NotePage-Def456.js': 'const f=()=>import("./katex-Kkk000.js");const d=["assets/katex-Kkk000.js","assets/katex-Ccc111.css"]',
+    'mermaid.core-Ghi789.js': 'const g=async()=>await import("./katex-Kkk000.js")',
+  });
+  try {
+    assert.doesNotThrow(() => checkBundleSize(assets));
+  } finally {
+    cleanup();
+  }
+});
+
+test('KATEX_RE matches only katex-<hash>.js', () => {
+  assert.ok(KATEX_RE.test('katex-HP8lGamR.js'));
+  for (const bad of ['katex.js', 'katex-HP8lGamR.css', 'xkatex-HP8lGamR.js', 'KaTeX_Main-Regular-B22Nviop.woff2', 'katex-HP8lGamR.js.map']) assert.ok(!KATEX_RE.test(bad), bad);
+});
+
+test('entry CSS containing KaTeX\'s classes or fonts -> throws; our own .katex rule and a lazy CSS carrying KaTeX do not count', () => {
+  for (const marker of KATEX_CSS_MARKERS) {
+    const bad = fakeAssets({ ...MATH_BASE, 'index-Css111.css': `.x{}${marker}{display:block}` });
+    try {
+      assert.throws(() => checkBundleSize(bad.assets), new RegExp(`index-Css111\\.css[^]*${marker.replace('.', '[.]')}`), marker);
+    } finally {
+      bad.cleanup();
+    }
+  }
+  const ok = fakeAssets({
+    ...MATH_BASE,
+    'index-Css111.css': '.katex .cjk_fallback.cjk_fallback{font-family:var(--font-body)}',
+    'katex-Css222.css': '.katex-display{display:block}@font-face{font-family:KaTeX_Main}',
+  });
+  try {
+    assert.doesNotThrow(() => checkBundleSize(ok.assets));
+  } finally {
+    ok.cleanup();
+  }
+});
+
+test('entry containing the math string pack\'s key -> throws, message names the entry and the key', () => {
+  const { assets, cleanup } = fakeAssets({ ...MATH_BASE, 'index-Abc123.js': `const s={${MATH_I18N_MARKER}:"x"}` });
+  try {
+    assert.throws(() => checkBundleSize(assets), (err) => err.message.includes('index-Abc123.js') && err.message.includes(MATH_I18N_MARKER) && err.message.includes('math-strings'));
+  } finally {
+    cleanup();
+  }
+});
+
+test('no lazy chunk carries the math string pack\'s key (pack lost, or key renamed) -> throws (fail-closed); only the entry carrying it does not count as lazy', () => {
+  const { 'math-strings-Mmm000.js': _pack, ...withoutPack } = MATH_BASE;
+  const { assets, cleanup } = fakeAssets(withoutPack);
+  try {
+    assert.throws(() => checkBundleSize(assets), /沒有任何 lazy chunk 含數學式字串包的鍵值 sourceFallback:"/);
+  } finally {
+    cleanup();
+  }
+});
+
+test('a lazy chunk that only calls t("note.math.sourceFallback") does not count as the string pack -> throws (fail-closed)', () => {
+  const { 'math-strings-Mmm000.js': _pack, ...withoutPack } = MATH_BASE;
+  const { assets, cleanup } = fakeAssets({ ...withoutPack, 'PresentationOverlay-Pqr678.js': `x(t("note.math.${MATH_I18N_MARKER}"))` });
+  try {
+    assert.throws(() => checkBundleSize(assets), /沒有任何 lazy chunk 含數學式字串包的鍵值/);
+  } finally {
+    cleanup();
+  }
+});
+
+// A renamed or moved marker silently stops working - bind each one back to the real file it was taken from.
+test('KATEX_MARKER is the string literal in the installed katex package, and MATH_I18N_MARKER a key only math.*.json has', () => {
+  const katexSource = readFileSync(fileURLToPath(new URL('../apps/web/node_modules/katex/dist/katex.mjs', import.meta.url)), 'utf8');
+  assert.ok(katexSource.includes(`"${KATEX_MARKER}: "`), 'katex.mjs 不再含 "KaTeX parse error: "——請改挑新的 KaTeX 獨有字面並更新 KATEX_MARKER');
+  const katexCss = readFileSync(fileURLToPath(new URL('../apps/web/node_modules/katex/dist/katex.min.css', import.meta.url)), 'utf8');
+  assert.deepEqual(KATEX_CSS_MARKERS, ['.katex-display', 'KaTeX_Main']);
+  for (const marker of KATEX_CSS_MARKERS) assert.ok(katexCss.includes(marker), `katex.min.css 不再含 ${marker}——請同步更新 KATEX_CSS_MARKERS`);
+  const i18n = (name) => readFileSync(fileURLToPath(new URL(`../apps/web/src/i18n/${name}`, import.meta.url)), 'utf8');
+  for (const name of ['math.en.json', 'math.zh-TW.json']) assert.ok(JSON.parse(i18n(name)).note.math[MATH_I18N_MARKER], `${name} 沒有 note.math.${MATH_I18N_MARKER}`);
+  for (const name of ['en.json', 'zh-TW.json']) assert.ok(!i18n(name).includes(`"${MATH_I18N_MARKER}"`), `${name} 含 ${MATH_I18N_MARKER}——它不再是只在 math.*.json 的鍵`);
 });
 
 test('comments panel chunk missing -> throws', () => {
