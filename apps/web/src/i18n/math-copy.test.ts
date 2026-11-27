@@ -34,5 +34,7 @@ describe("math copy literals", () => {
     expect(i18n.getFixedT("en")("note.math.empty")).toBe("Click to add a formula (LaTeX)");
     expect(i18n.getFixedT("zh-TW")("note.math.empty")).toBe("點一下輸入數學式（LaTeX）");
     expect(i18n.getFixedT("zh-TW")("note.math.slashTitle")).toBe("數學式");
+    expect(i18n.getFixedT("en")("note.math.sourceFallback")).toBe("This formula couldn't be drawn — here is its source");
+    expect(i18n.getFixedT("zh-TW")("note.math.sourceFallback")).toBe("數學式無法繪製，以下是原始碼");
   });
 });

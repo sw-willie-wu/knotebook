@@ -13,8 +13,8 @@ import { createDebouncer } from "./debounce";
 import { applyRenderedDeck, createDeckDom, playingMedia, SLIDE_ID_ATTR, watchSwipeGuards, withoutTransition, type SwipeGuards } from "./deck";
 import type { HashWriter } from "./hash-writer";
 import {
-  codeHighlightJobsIn, mermaidJobsIn, runCodeHighlightJob, runMermaidJob,
-  type CodeHighlightJob, type MermaidJob, type PostprocessContext,
+  codeHighlightJobsIn, mathJobsIn, mermaidJobsIn, runCodeHighlightJob, runMathJob, runMermaidJob,
+  type CodeHighlightJob, type MathJob, type MermaidJob, type PostprocessContext,
 } from "./postprocess";
 import { PRESENT_SEARCH, slideIdFromHash } from "./present-url";
 import { createExportEditor, renderDeck, type ExportEditor } from "./render";
@@ -133,6 +133,20 @@ export function startDeck(host: HTMLElement, env: () => DeckEnv, hashWriter: Has
     }
   };
 
+  const runMath = (jobs: readonly MathJob[]) => {
+    for (const job of jobs) {
+      // No per-element generation (unlike mermaid): math runs once per element, never again on the same one (a theme switch does
+      // not redraw it and a changed slide gets fresh elements), and a replaced element is no longer connected.
+      void runMathJob(
+        job,
+        () => !destroyed && !disposed && job.el.isConnected,
+        env().t("note.math.sourceFallback"),
+      ).then((applied) => {
+        if (applied) swipe?.refresh(job.el);
+      });
+    }
+  };
+
   const runCodeHighlight = (jobs: readonly CodeHighlightJob[]) => {
     for (const job of jobs) {
       const generation = (codeHighlightGeneration.get(job.el) ?? 0) + 1;
@@ -184,6 +198,7 @@ export function startDeck(host: HTMLElement, env: () => DeckEnv, hashWriter: Has
       const els = dom.els.get(id)!;
       swipe?.observe(els);
       runMermaid(mermaidJobsIn(els.body));
+      runMath(mathJobsIn(els.body));
       runCodeHighlight(codeHighlightJobsIn(els.body));
     }
     swipe?.refreshAll();
@@ -306,6 +321,7 @@ export function startDeck(host: HTMLElement, env: () => DeckEnv, hashWriter: Has
         // only those can be measured here, the rest are measured by onSlideChanged when they become current.
         for (const els of dom.els.values()) restackSlideBody(els.body);
         runMermaid(mermaidJobsIn(dom.slidesEl));
+        runMath(mathJobsIn(dom.slidesEl));
         runCodeHighlight(codeHighlightJobsIn(dom.slidesEl));
         unsubscribeSource = subscribeSource();
         requestAnimationFrame(() => {

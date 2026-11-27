@@ -17,7 +17,7 @@ function rendered(spec: string, version: Record<string, number> = {}, reuse: str
         const p = document.createElement("p");
         p.textContent = `${id}@${v}`;
         fragment.append(p);
-        return { id, kind: "heading" as const, titleOnly: id.endsWith("!"), key: `${id}@${v}`, content: reuse.includes(id) ? null : { fragment, mermaid: [], code: [] } };
+        return { id, kind: "heading" as const, titleOnly: id.endsWith("!"), key: `${id}@${v}`, content: reuse.includes(id) ? null : { fragment, mermaid: [], math: [], code: [] } };
       }),
     };
   });
@@ -166,6 +166,21 @@ describe("data-prevent-swipe", () => {
     wideScroll = 250;
     updateSwipeGuard(section);
     expect(wide.hasAttribute("data-prevent-swipe")).toBe(false);
+  });
+
+  it("a horizontally overflowing math block gets data-prevent-swipe, a non-overflowing one doesn't", () => {
+    const section = sized(600, 600);
+    const wide = document.createElement("div");
+    const narrow = document.createElement("div");
+    wide.className = narrow.className = "kn-present-math";
+    Object.defineProperty(wide, "scrollWidth", { configurable: true, get: () => 900 });
+    Object.defineProperty(wide, "clientWidth", { configurable: true, get: () => 300 });
+    Object.defineProperty(narrow, "scrollWidth", { configurable: true, get: () => 200 });
+    Object.defineProperty(narrow, "clientWidth", { configurable: true, get: () => 300 });
+    section.append(wide, narrow);
+    updateSwipeGuard(section);
+    expect(wide.hasAttribute("data-prevent-swipe")).toBe(true);
+    expect(narrow.hasAttribute("data-prevent-swipe")).toBe(false);
   });
 
   it("ResizeObserver, img load, loadedmetadata and details toggle all trigger a recompute", () => {

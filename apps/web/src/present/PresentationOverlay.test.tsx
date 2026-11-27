@@ -20,6 +20,8 @@ import { OWNER_PERMS } from "@/test/fixtures";
 vi.mock("reveal.js", async () => ({ default: (await import("@/test/fake-reveal")).FakeReveal }));
 const mermaid = vi.hoisted(() => ({ renderMermaid: vi.fn(async () => ({ ok: true as const, svg: "<svg data-m></svg>" })) }));
 vi.mock("@/lib/mermaid", () => mermaid);
+const katex = vi.hoisted(() => ({ renderMath: vi.fn(async () => ({ ok: true as const, html: '<span class="katex" data-k></span>' })) }));
+vi.mock("@/lib/katex", () => katex);
 const shikiMock = vi.hoisted(() => {
   const codeToTokens = vi.fn((code: string) => ({
     tokens: code.split("\n").map((line) => [{ content: line, color: "var(--code-token-keyword)", fontStyle: 0 }]),
@@ -145,6 +147,7 @@ describe("PresentationOverlay (fake reveal)", () => {
     FakeReveal.reset();
     nav.fn.mockClear();
     mermaid.renderMermaid.mockClear();
+    katex.renderMath.mockClear();
     resetCodeHighlightForTests();
     shikiMock.createHighlighter.mockClear();
     shikiMock.loadLanguage.mockClear();
@@ -484,6 +487,51 @@ describe("PresentationOverlay (fake reveal)", () => {
     fireEvent.click(screen.getByRole("button", { name: "switch-theme-dark" }));
     await waitFor(() => expect(mermaid.renderMermaid.mock.calls.length).toBeGreaterThan(before));
     expect(mermaid.renderMermaid).toHaveBeenLastCalledWith("graph TD", "dark");
+  });
+
+  it("math block is drawn after mount with the KaTeX html, and a theme switch does not redraw it", async () => {
+    setup({ props: { variant: "public", doc: makeDoc([{ id: "m", type: "math", props: { tex: "E=mc^2" } }]), title: "T", publicRef: { kind: "token", token: "t" } } });
+    await ready();
+    await waitFor(() => expect(document.querySelector(".kn-present-math .katex[data-k]")).not.toBeNull());
+    expect(katex.renderMath).toHaveBeenCalledTimes(1);
+    expect(katex.renderMath).toHaveBeenCalledWith("E=mc^2");
+    fireEvent.click(screen.getByRole("button", { name: "switch-theme-dark" }));
+    await waitFor(() => expect(document.querySelector(".kn-present-math .katex[data-k]")).not.toBeNull());
+    expect(katex.renderMath).toHaveBeenCalledTimes(1);
+  });
+
+  it("math block that fails to render shows the localized hint and its source", async () => {
+    katex.renderMath.mockResolvedValueOnce({ ok: false as never, message: "bad" } as never);
+    setup({ props: { variant: "public", doc: makeDoc([{ id: "m", type: "math", props: { tex: "\\bad" } }]), title: "T", publicRef: { kind: "token", token: "t" } } });
+    await ready();
+    await waitFor(() => expect(document.querySelector(".kn-present-math-error")).not.toBeNull());
+    expect(document.querySelector(".kn-present-math-error")!.textContent).toBe("This formula couldn't be drawn — here is its source");
+    expect(document.querySelector(".kn-present-math pre > code")!.textContent).toBe("\\bad");
+  });
+
+  it("math live edit: the changed slide redraws with the new tex, and a late result for the replaced element is discarded", async () => {
+    let resolveFirst!: (r: { ok: true; html: string }) => void;
+    katex.renderMath
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve; }) as never)
+      .mockImplementation((async (tex: string) => ({ ok: true as const, html: `<span class="katex" data-tex="${tex}"></span>` })) as never);
+    const publicRef = { kind: "token" as const, token: "t" };
+    const { rerenderWith } = setup({ props: { variant: "public", doc: makeDoc([{ id: "m", type: "math", props: { tex: "a+b" } }]), title: "T", publicRef } });
+    await ready();
+    const firstEl = slideEl("b").querySelector(".kn-present-math")!;
+    expect(katex.renderMath).toHaveBeenCalledWith("a+b");
+
+    rerenderWith({ variant: "public", doc: makeDoc([{ id: "m", type: "math", props: { tex: "c+d" } }]), title: "T", publicRef });
+    await waitFor(() => expect(slideEl("b").querySelector(".katex[data-tex]")?.getAttribute("data-tex")).toBe("c+d"));
+    expect(katex.renderMath).toHaveBeenLastCalledWith("c+d");
+    expect(firstEl.isConnected).toBe(false);
+
+    await act(async () => {
+      resolveFirst({ ok: true, html: '<span class="katex" data-stale></span>' });
+      await Promise.resolve();
+    });
+    expect(firstEl.querySelector("[data-stale]")).toBeNull();
+    expect(slideEl("b").querySelector("[data-stale]")).toBeNull();
+    expect(slideEl("b").querySelector(".katex[data-tex]")?.getAttribute("data-tex")).toBe("c+d");
   });
 
   it("mermaid generation counter: an earlier request returning late is discarded and the DOM holds the later result (one counter per slide, stale results dropped)", async () => {

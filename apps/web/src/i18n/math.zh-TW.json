@@ -9,7 +9,8 @@
       "slashSubtext": "用 LaTeX 寫數學公式",
       "showSource": "顯示原始碼",
       "escHint": "按 Esc 或點其他地方結束",
-      "loadError": "數學式無法顯示"
+      "loadError": "數學式無法顯示",
+      "sourceFallback": "數學式無法繪製，以下是原始碼"
     }
   }
 }

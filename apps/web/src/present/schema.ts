@@ -1,14 +1,15 @@
 import { BlockNoteSchema, createBlockSpec, createCodeBlockSpec } from "@blocknote/core";
-import { CODE_BLOCK_BASE_OPTIONS, mermaidBlockConfig } from "@knotebook/shared";
+import { CODE_BLOCK_BASE_OPTIONS, mathBlockConfig, mermaidBlockConfig } from "@knotebook/shared";
 import { noteSchema } from "@/collab/schema";
 
 /**
- * Headless export only, never attached to an editor. Differs from noteSchema in three places (parity test in schema.test.ts):
+ * Headless export only, never attached to an editor. Differs from noteSchema in four places (parity test in schema.test.ts):
  * 1. mermaid: `toExternalHTML` is a pure-DOM `div[data-kn-mermaid]` with `textContent = code` (same approach as shared
  *    `createHeadlessNoteSchema`); codeBlock(language=mermaid) stays `<pre><code>`.
- * 2. The four file kinds: wrapped around `withGuardedExternalHTML` (`props.url` goes through safeMediaUrl first), marking the
+ * 2. math: same shape as mermaid, `div[data-kn-math]` with `textContent = tex`; KaTeX runs after sanitizing (postprocess.ts).
+ * 3. The four file kinds: wrapped around `withGuardedExternalHTML` (`props.url` goes through safeMediaUrl first), marking the
  *    URL-carrying element `data-kn-media=""` so post-processing can tell file links from text links.
- * 3. codeBlock: the uncolored `createCodeBlockSpec(CODE_BLOCK_BASE_OPTIONS)` (so the presentation chunk stays off shiki),
+ * 4. codeBlock: the uncolored `createCodeBlockSpec(CODE_BLOCK_BASE_OPTIONS)` (so the presentation chunk stays off shiki),
  *    marking `<code>` with `data-kn-code-lang` so postprocess.ts can highlight it lazily (#232).
  */
 
@@ -76,6 +77,16 @@ const presentationMermaidSpec = createBlockSpec(mermaidBlockConfig, {
   },
 })(); // createBlockSpec returns a factory
 
+const presentationMathSpec = createBlockSpec(mathBlockConfig, {
+  render: () => ({ dom: document.createElement("div") }),
+  toExternalHTML: (block) => {
+    const div = document.createElement("div");
+    div.setAttribute("data-kn-math", "");
+    div.textContent = block.props.tex;
+    return { dom: div };
+  },
+})();
+
 const specs = noteSchema.blockSpecs;
 
 export const presentationSchema = BlockNoteSchema.create({
@@ -86,6 +97,7 @@ export const presentationSchema = BlockNoteSchema.create({
     image: withMediaMarker(specs.image),
     video: withMediaMarker(specs.video),
     mermaid: presentationMermaidSpec,
+    math: presentationMathSpec,
     codeBlock: withCodeLang(createCodeBlockSpec(CODE_BLOCK_BASE_OPTIONS)),
   },
   inlineContentSpecs: noteSchema.inlineContentSpecs,

@@ -9,7 +9,8 @@
       "slashSubtext": "Write a formula in LaTeX",
       "showSource": "Show source",
       "escHint": "Press Esc or click elsewhere to finish",
-      "loadError": "The formula couldn't be shown"
+      "loadError": "The formula couldn't be shown",
+      "sourceFallback": "This formula couldn't be drawn — here is its source"
     }
   }
 }

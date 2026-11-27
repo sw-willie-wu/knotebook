@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { BlockNoteEditor } from "@blocknote/core";
 import { noteSchema } from "@/collab/schema";
 import { presentationSchema } from "./schema";
 
@@ -13,6 +14,18 @@ describe("presentationSchema parity", () => {
       const b = (presentationSchema.blockSchema as Record<string, { propSchema: unknown }>)[type].propSchema;
       expect(b, type).toEqual(a);
     }
+  });
+
+  it("math block exports a div[data-kn-math] whose tex is text, never markup", () => {
+    const editor = BlockNoteEditor.create({ schema: presentationSchema });
+    const tex = "<img src=x onerror=alert(1)>";
+    const html = editor.blocksToHTMLLossy([{ id: "m", type: "math", props: { tex } }] as never);
+    const host = document.createElement("div");
+    host.innerHTML = html;
+    const el = host.querySelector("div[data-kn-math]")!;
+    expect(el.textContent).toBe(tex);
+    expect(host.querySelector("img")).toBeNull();
+    expect(host.querySelector("pre")).toBeNull();
   });
 
   it("has the two column types columnList / column; column's propSchema has only width", () => {

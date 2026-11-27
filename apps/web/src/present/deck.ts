@@ -5,7 +5,7 @@ import type { RenderedSection } from "./render";
  * of the background editor.
  * Updates remove unwanted elements first and insertBefore the rest in order, so unmoved elements never leave the document
  * (media leaving the document is paused by the browser).
- * data-prevent-swipe: on an overflowing slide's scroll container and on a horizontally overflowing `<pre>`, so a finger scrolls instead of paging.
+ * data-prevent-swipe: on an overflowing slide's scroll container and on a horizontally overflowing `<pre>` or math block, so a finger scrolls instead of paging.
  */
 export const SLIDE_ID_ATTR = "data-kn-slide-id";
 export const STACK_CLASS = "kn-present-stack";
@@ -137,8 +137,8 @@ export function withoutTransition(revealEl: HTMLElement, run: () => void): void 
 
 export function updateSwipeGuard(section: HTMLElement): void {
   section.toggleAttribute("data-prevent-swipe", section.scrollHeight > section.clientHeight);
-  // An overflow-x:auto `<pre>` is marked too (present.css disables browser gestures only for unmarked ones), so a horizontal swipe scrolls the code.
-  section.querySelectorAll<HTMLElement>("pre").forEach((pre) => pre.toggleAttribute("data-prevent-swipe", pre.scrollWidth > pre.clientWidth));
+  // An overflow-x:auto `<pre>` or a math block is marked too (present.css disables browser gestures only for unmarked ones), so a horizontal swipe scrolls it.
+  section.querySelectorAll<HTMLElement>("pre, .kn-present-math").forEach((el) => el.toggleAttribute("data-prevent-swipe", el.scrollWidth > el.clientWidth));
 }
 
 export interface SwipeGuards {

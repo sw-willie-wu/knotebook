@@ -1,4 +1,5 @@
 import { normalizeAnchor } from "@knotebook/shared";
+import { renderMath } from "@/lib/katex";
 import { renderMermaid, type MermaidTheme } from "@/lib/mermaid";
 import { applyHighlightTokens, cachedCodeTokens, resolveHighlightLanguage, tokenizeCode } from "./code-highlight";
 
@@ -9,6 +10,8 @@ import { applyHighlightTokens, cachedCodeTokens, resolveHighlightLanguage, token
  * - Text links keep only http(s) / mailto / relative URLs; `href="#…"` is removed (reveal would intercept it as a page jump).
  * - mermaid is only collected into a job; drawing (the only innerHTML) happens in `runMermaidJob` after insertion, trusting
  *   the strict config of `lib/mermaid.ts` without sanitizing again.
+ * - math is collected the same way; `runMathJob` draws the KaTeX HTML (the second innerHTML) after insertion, trusting
+ *   `lib/katex.ts` (`trust: false`) without sanitizing again.
  * - code blocks: cached token lists are applied synchronously via `textContent`/`style` (zero flicker on live updates);
  *   uncached ones keep their plain text and are highlighted asynchronously in `runCodeHighlightJob` (#232).
  */
@@ -24,6 +27,11 @@ export interface MermaidJob {
   code: string;
 }
 
+export interface MathJob {
+  el: HTMLElement;
+  tex: string;
+}
+
 export interface CodeHighlightJob {
   el: HTMLElement;
   lang: string;
@@ -32,10 +40,12 @@ export interface CodeHighlightJob {
 
 export interface PostprocessJobs {
   mermaid: MermaidJob[];
+  math: MathJob[];
   code: CodeHighlightJob[];
 }
 
 const mermaidSource = new WeakMap<Element, string>();
+const mathSource = new WeakMap<Element, string>();
 const codeHighlightSource = new WeakMap<Element, { lang: string; code: string }>();
 
 function isAllowedTextHref(raw: string): boolean {
@@ -117,6 +127,19 @@ export function postprocessSlide(root: ParentNode, ctx: PostprocessContext): Pos
     mermaid.push({ el, code });
   }
 
+  const math: MathJob[] = [];
+  for (const el of root.querySelectorAll<HTMLElement>("[data-kn-math]")) {
+    const tex = el.textContent ?? "";
+    if (tex.trim() === "") {
+      el.remove();
+      continue;
+    }
+    el.textContent = "";
+    el.classList.add("kn-present-math");
+    mathSource.set(el, tex);
+    math.push({ el, tex });
+  }
+
   const code: CodeHighlightJob[] = [];
   for (const el of root.querySelectorAll<HTMLElement>("pre > code[data-kn-code-lang]")) {
     const lang = resolveHighlightLanguage(el.getAttribute("data-kn-code-lang"));
@@ -132,13 +155,20 @@ export function postprocessSlide(root: ParentNode, ctx: PostprocessContext): Pos
     code.push({ el, lang, code: source });
   }
 
-  return { mermaid, code };
+  return { mermaid, math, code };
 }
 
 export function mermaidJobsIn(root: ParentNode): MermaidJob[] {
   return Array.from(root.querySelectorAll<HTMLElement>("[data-kn-mermaid]")).flatMap((el) => {
     const code = mermaidSource.get(el);
     return code === undefined ? [] : [{ el, code }];
+  });
+}
+
+export function mathJobsIn(root: ParentNode): MathJob[] {
+  return Array.from(root.querySelectorAll<HTMLElement>("[data-kn-math]")).flatMap((el) => {
+    const tex = mathSource.get(el);
+    return tex === undefined ? [] : [{ el, tex }];
   });
 }
 
@@ -179,6 +209,28 @@ export async function runMermaidJob(
   const pre = document.createElement("pre");
   const code = document.createElement("code");
   code.textContent = job.code;
+  pre.append(code);
+  job.el.replaceChildren(note, pre);
+  return true;
+}
+
+export async function runMathJob(job: MathJob, isCurrent: () => boolean, errorText: string): Promise<boolean> {
+  const result = await renderMath(job.tex);
+  if (!isCurrent()) return false;
+  if (result.ok) {
+    job.el.innerHTML = result.html; // the second innerHTML; the source is lib/katex.ts (trust:false), produced after sanitizing
+    return true;
+  }
+  if (result.message === "") {
+    job.el.remove();
+    return true;
+  }
+  const note = document.createElement("p");
+  note.className = "kn-present-math-error";
+  note.textContent = errorText;
+  const pre = document.createElement("pre");
+  const code = document.createElement("code");
+  code.textContent = job.tex;
   pre.append(code);
   job.el.replaceChildren(note, pre);
   return true;
